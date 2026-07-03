@@ -127,10 +127,26 @@ Layer 1 계산:
   rating: attained_CII (4.9824) ≤ upper (5.347770311) → C
 ```
 
-#### 1.2.4 effective capacity 결정 규칙
+#### 1.2.4 Capacity 결정 규칙 (이중 분리)
+
+> **[외부 리뷰 P0-1 / Oracle C2 Revert]** IMO G1과 G2는 서로 다른 capacity 개념을 사용한다. 단일 `get_effective_capacity()`를 두 함수로 분리한다.
 
 ```python
-def get_effective_capacity(vessel, reference_line) -> Decimal:
+def resolve_transport_capacity(vessel) -> Decimal:
+    """
+    G1 (MEPC.352(78)): attained CII transport work용 capacity.
+    항상 선박의 실제 DWT 또는 GT를 반환한다. fixed override 없음.
+    """
+    if vessel.ship_type in DWT_BASED_SHIP_TYPES:
+        return Decimal(str(vessel.deadweight))
+    else:
+        return Decimal(str(vessel.gross_tonnage))
+
+def resolve_reference_capacity(vessel, reference_line) -> Decimal:
+    """
+    G2 (MEPC.353(78)): reference CII 공식용 capacity.
+    reference_line.capacity_rule에 따라 fixed 값을 사용할 수 있다.
+    """
     rule = reference_line.capacity_rule  # "DWT", "GT", "fixed 279000"
     if rule.startswith("fixed "):
         return Decimal(rule.split(" ")[1])
@@ -142,7 +158,9 @@ def get_effective_capacity(vessel, reference_line) -> Decimal:
         raise ValueError(f"Unknown capacity_rule: {rule}")
 ```
 
-`effective_capacity`는 M/W 계산과 CII_ref 계산 모두에 동일하게 적용된다. `condition_expr`(예: `DWT ≥ 279,000`)는 실제 DWT/GT로 평가하여 어느 파라미터 행을 선택할지 결정한다.
+`transport_capacity`는 W(transport work) 계산에만, `reference_capacity`는 CII_ref 계산에만 적용된다. `condition_expr`(예: `DWT ≥ 279,000`)는 실제 DWT/GT로 평가하여 어느 파라미터 행을 선택할지 결정한다.
+
+> **오차 예시**: 300,000 DWT 벌크캐리어에서 fixed 279,000을 W에 잘못 적용하면 attained CII가 +7.5% 과대 산정된다.
 
 #### 1.2.5 Layer 1 출력 가드
 
@@ -542,7 +560,7 @@ fuel_ton = base_foc_per_day × speed_factor × weather_factor × duration_days
 | scenario_speed_kn > 0 | VAL-009: 최소 1.0kn | 계산 중단, 오류 표시 |
 | reference_speed_kn > 0 | Vessel 검증 | 계산 중단, 선박 제원 입력 요청 |
 | scenario_distance_nm > 0 | VAL-002 | 계산 중단 |
-| effective_capacity > 0 | VAL-010 | 계산 중단 |
+| transport_capacity > 0 | VAL-010 | 계산 중단 |
 | weather_factor > 0 | NONE 모델 시 1.0 보장 | — |
 
 ### 4.3 다중 연료 처리
@@ -701,8 +719,8 @@ def compute_parameter_hash(parameters_used: dict) -> str:
   ],
   "reference_line": {
     "ship_type": "BULK_CARRIER",
-    "capacity_rule": "DWT",
-    "a_decimal": "144050000000",
+    "reference_capacity_rule": "DWT",
+    "a_decimal": "4745",
     "c": "0.622"
   },
   "rating_boundary": {
@@ -730,7 +748,8 @@ def compute_input_hash(calculation_input: dict) -> str:
         "vessel_id",
         "regulation_year",
         "ship_type",
-        "effective_capacity",
+        "transport_capacity",     # [P0-1] actual DWT/GT for attained CII W
+        "reference_capacity",     # [P0-1] G2 capacity_rule resolved value for CII_ref
         "distance_nm",
         "speed_kn",
         "fuel_uses",          # [{fuel_type, fuel_ton, cf}]
@@ -1216,7 +1235,7 @@ class SimulationSnapshot:
 | PRD Oracle ID | TECH_SPEC 반영 | 상태 |
 |---|---|---|
 | C1 (RNG 명시) | §2 — PCG64DXSM 명시적 생성 | ✅ |
-| C2 (capacity_rule W 적용) | §1.2.4 | ✅ |
+| C2 (~~capacity_rule W 적용~~ → **REVERTED**) | §1.2.4 — 이중 capacity 함수로 분리 (`resolve_transport_capacity` + `resolve_reference_capacity`) | ✅ 정정 |
 | C3 (speed floor) | §4.2 | ✅ |
 | C4 (COMPLETED fuel 제약) | 비즈니스 규칙 → API_SPEC로 연기 | ⏭️ |
 | R1 (status/policy matrix) | 비즈니스 규칙 → API_SPEC로 연기 | ⏭️ |

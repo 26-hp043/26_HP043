@@ -4,12 +4,12 @@
 |---|---|
 | 문서명 | 구현용 상세 PRD.md |
 | 제품명 | 중소선사를 위한 CII 예측 및 운항 의사결정 보조 플랫폼 |
-| 버전 | v3.0 Implementation PRD |
-| 상태 | MVP 구현 기준 Draft |
+| 버전 | v3.1 Implementation PRD |
+| 상태 | MVP 구현 기준 / Oracle Review 반영 |
 | 최종 수정일 | 2026-07-03 |
 | MVP 개발 기간 | 2026.06 ~ 2026.10 |
 | 대상 사용자 | 중소선사 선장·항해사, 육상 운항관리 담당자 |
-| 문서 목적 | 개발자가 화면·계산·데이터 흐름·예외 처리·테스트 기준을 구현할 수 있도록 PRD v2.0을 상세화 |
+| 문서 목적 | 개발자가 화면·계산·데이터 흐름·예외 처리·테스트 기준을 구현할 수 있도록 PRD v3.0을 상세화 |
 | 후속 문서 | `TECH_SPEC.md`, `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
 ---
@@ -162,7 +162,7 @@ M = Σ(FuelConsumed_j × 1,000,000 × CF_j)
 #### 3.3.3 Transport work proxy
 
 ```text
-W = Capacity × Distance_nm
+W = transport_capacity × Distance_nm
 ```
 
 | 선박 유형 | Capacity 기준 |
@@ -171,8 +171,19 @@ W = Capacity × Distance_nm
 | Ro-ro cargo ship, Ro-ro passenger ship, Cruise passenger ship | GT 또는 규정상 해당 capacity 기준 |
 
 > 주의: Container ship의 capacity 처리는 CII G1/G2 기준을 우선한다. EEDI와 혼동하지 않도록 `RegulationParameter.capacity_rule`에 명시한다.
-> **[ORACLE-C2修正]** `capacity_rule = "fixed X"`인 경우, CII_ref 계산뿐 아니라 W(transport work) 계산에서도 X를 사용한다. 예: DWT 300,000 벌크캐리어는 `W = 279,000 × Distance_nm`로 계산한다. `capacity_rule`은 모든 계산 경로(M/W/CII_ref/boundary row selection)에서 일관되게 적용되는 effective capacity를 결정한다.
-> **[ORACLE-C2a]** 단, `condition_expr`(예: `DWT ≥ 279,000`)는 선박의 실제 DWT/GT로 평가하여 어느 파라미터 행을 선택할지 결정한다. 즉, 행 선택은 실제 값으로, capacity 값은 `capacity_rule`로.
+> 
+> **[외부 리뷰 P0-1 / Oracle C2 Revert]** IMO G1(MEPC.352(78))과 G2(MEPC.353(78))은 **서로 다른 capacity 개념**을 사용한다.
+> - **G1 (attained CII)**: `transport_capacity` = 선박의 **실제** DWT 또는 GT. 예: 300,000 DWT 벌크캐리어 → `W = 300,000 × Distance_nm`
+> - **G2 (reference CII)**: `reference_capacity` = G2 표의 capacity rule에 따른 값. `fixed X`인 경우 X를 사용. 예: 300,000 DWT 벌크캐리어 → `CII_ref = 4745 × 279,000^(-0.622)`
+>
+> 이전 ORACLE-C2 수정(fixed capacity를 W에도 적용)은 **잘못된 것으로 확인되어 취소**한다. IMO G1은 transport work proxy에 항상 실제 capacity를 사용하며, G2의 fixed capacity 값은 reference line 공식에만 적용된다.
+>
+> **이중 capacity 해결 규칙:**
+> 1. `transport_capacity = resolve_transport_capacity(vessel)` — 항상 실제 DWT 또는 GT
+> 2. `reference_capacity = resolve_reference_capacity(vessel, reference_line)` — G2 표의 capacity_rule에 따름
+> 3. `condition_expr`(예: `DWT ≥ 279,000`)는 선박의 실제 DWT/GT로 평가하여 어느 파라미터 행을 선택할지 결정
+>
+> **오차 영향**: fixed capacity를 W에 잘못 적용하면 300,000 DWT 벌크캐리어의 attained CII가 +7.5% 과대 산정되며, 50,000 DWT LNG 캐리어의 경우 −23.1% 과소 산정(위험: 실제보다 양호해 보임)된다.
 
 #### 3.3.4 Reference CII
 
@@ -838,7 +849,7 @@ fuel_ton = base_foc_per_day × speed_factor × weather_factor × duration_days
 - `scenario_speed_kn > 0` (VAL-009로 보장)
 - `vessel.reference_speed_kn > 0` (Vessel 검증으로 보장)
 - `scenario_distance_nm > 0` (VAL-002로 보장)
-- `effective_capacity > 0` (VAL-010으로 보장)
+- `transport_capacity > 0` (VAL-010으로 보장)
 
 위 조건 중 하나라도 실패하면 계산을 중단하고 사용자에게 구체적 원인을 표시한다. `speed_factor = (0 / ref_speed)^3 = 0`인 경우(시나리오 속도가 0), `fuel_ton = 0`이 되지만 이는 VAL-009로 차단된다.
 
@@ -1180,16 +1191,26 @@ POST /api/v1/calculations/voyage-cii
 
 ```json
 {
-  "calculation_run_id": "uuid",
-  "attained_cii": 4.9824,
-  "required_cii": 5.0450663325,
-  "rating": "C",
-  "ratio_to_required": 0.98758,
-  "co2_ton": 249.12,
-  "risk_level": "MEDIUM",
-  "warnings": ["REFERENCE_ONLY_NOT_FOR_REGULATORY_SUBMISSION"]
+  "data": {
+    "calculation_run_id": "uuid",
+    "attained_cii": "4.982400",
+    "required_cii": "5.045066",
+    "estimated_rating": "C",
+    "ratio_to_required": "0.98758",
+    "co2_ton": "249.12",
+    "risk_level": "MEDIUM"
+  },
+  "parameters_used": { ... },
+  "model_version": { ... },
+  "input_hash": "sha256:...",
+  "parameter_hash": "sha256:...",
+  "warnings": ["REFERENCE_ONLY"],
+  "disclaimer": "참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.",
+  "meta": { ... }
 }
 ```
+
+> **[외부 리뷰 2.6 수정]** PRD §14 API 예시를 API_SPEC v1.1 포맷(data/meta 구조, Layer 1 문자열 직렬화, REFERENCE_ONLY warning 코드)과 일치시켰다. 상세한 API 스펙은 `API_SPEC.md`를 참조한다.
 
 ### 14.3 Scenario comparison API
 
@@ -1562,7 +1583,7 @@ WeatherProvider interface
 | ID | 이슈 | 수정 위치 | 상태 |
 |---|---|---|---|
 | ORACLE-C1 | Monte Carlo 재현성 전략이 Decimal과 RNG 결정성을 혼동. `Capacity^(-0.622)` 분수 지수는 Decimal로 bit-exact 재현 불가. | §9.3.1 이중 정밀도 전략 추가, §12.4.3 RNG 알고리즘 명시, §13.3 수정 | **수정 완료** |
-| ORACLE-C2 | `capacity_rule = "fixed X"`가 CII_ref가 아닌 W(transport work) 계산에서도 사용되어야 한다는 점이 명시되지 않음. 약 7% 오차 위험. | §3.3.3에 명시적 규칙 추가 | **수정 완료** |
+| ORACLE-C2 | ~~`capacity_rule = "fixed X"`를 W(transport work) 계산에도 적용~~ **[REVERTED]** 외부 리뷰 및 Oracle 재검토 결과, IMO G1은 실제 capacity를 W에 사용하고 G2의 fixed 값은 reference line 공식에만 적용. 이전 수정은 잘못됨. | §3.3.3 이중 capacity 규칙으로 정정 (transport_capacity vs reference_capacity) | **수정 취소 → 정정 완료** |
 | ORACLE-C3 | 감속 시나리오 기본값 `current_speed - 1`이 음수가 될 수 있어 `duration_days` 분모 0 에러 발생. | §11.2 speed floor 추가, §11.4.1 가드 추가, §9.1 VAL-009 추가 | **수정 완료** |
 | ORACLE-C4 | `actual_fuel_ton`이 nullable인데 COMPLETED 전환을 허용하여 값 우선순위 체인이 깨짐. | §7.4 제약 추가, §8.1.1 가드 추가, §8.3 fallback 정의 | **수정 완료** |
 

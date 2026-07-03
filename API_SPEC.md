@@ -101,12 +101,13 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 {
   "error": {
     "code": "VALIDATION_ERROR",
-    "message": "거리은/는 0보다 커야 합니다.",
+    "message": "운항 거리는 0보다 커야 합니다.",
     "details": [
       {
         "field": "distance_nm",
+        "field_label": "운항 거리",
         "rule": "VAL-002",
-        "message": "거리은/는 0보다 커야 합니다."
+        "message": "운항 거리는 0보다 커야 합니다."
       }
     ]
   },
@@ -192,11 +193,52 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 
 계산 POST 엔드포인트 (`/calculations/voyage-cii`, `/scenarios/compare`, `/annual-simulations`)는 **항상 새 `CalculationRun`을 생성**한다. 멱등성을 강제하지 않는다.
 
-클라이언트가 동일 입력의 이전 결과를 재사용하려면 `input_hash` + `parameter_hash`로 기존 결과를 조회한다:
+클라이언트가 동일 입력의 이전 결과를 재사용하려면 `input_hash` + `parameter_hash`로 기존 결과를 조회한다.
+
+#### 1.3.3 CalculationRun 조회 API
+
+> **[외부 리뷰 P1-2/3.2 추가]** 재현성·캐싱·디버깅을 위한 계산 결과 조회 엔드포인트.
 
 ```http
-GET /api/v1/calculations?input_hash={hash}&parameter_hash={hash}
+GET /api/v1/calculations
 ```
+
+**쿼리 파라미터:**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `input_hash` | string | N | `sha256:` + 64 hex chars |
+| `parameter_hash` | string | N | `sha256:` + 64 hex chars |
+| `type` | string | N | VOYAGE_ESTIMATE, SCENARIO, ANNUAL_DETERMINISTIC, ANNUAL_MONTE_CARLO |
+| `vessel_id` | UUID | N | 선박 필터 |
+| `limit` | int | N | 페이지 크기 (기본 20, 최대 100) |
+| `cursor` | string | N | 페이지네이션 커서 |
+
+**응답 (200 OK):**
+
+```json
+{
+  "data": [
+    {
+      "calculation_run_id": "uuid",
+      "calculation_type": "VOYAGE_ESTIMATE",
+      "vessel_id": "uuid",
+      "voyage_id": "uuid",
+      "input_hash": "sha256:a1b2c3d4...",
+      "parameter_hash": "sha256:e5f6g7h8...",
+      "model_version": { ... },
+      "result_summary": {
+        "attained_cii": "4.982400",
+        "estimated_rating": "C"
+      },
+      "created_at": "2026-07-03T12:00:00Z"
+    }
+  ],
+  "meta": { ... }
+}
+```
+
+> `input_hash` + `parameter_hash` 모두 지정 시 정확히 일치하는 계산 결과를 반환. 재현성 검증에 사용.
 
 CRUD 엔드포인트(PATCH, PUT, DELETE)는 HTTP 표준 멱등성을 따른다.
 
@@ -435,7 +477,6 @@ POST /api/v1/vessels/{vessel_id}/voyages
   "planned_speed_kn": 14.0,
   "planned_departure_at": "2026-07-15T00:00:00Z",
   "planned_arrival_at": "2026-08-12T00:00:00Z",
-  "annual_inclusion_policy": "INCLUDE_AS_PLAN",
   "fuel_uses": [
     {
       "fuel_type": "HFO",
@@ -447,9 +488,12 @@ POST /api/v1/vessels/{vessel_id}/voyages
 }
 ```
 
+> **[외부 리뷰 P0-4 수정]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조). `PLANNED` 전환 시 `annual_inclusion_policy`를 `INCLUDE_AS_PLAN`으로 설정한다.
+```
+
 #### 응답 (201 Created)
 
-생성된 항차 객체. 초기 `status = DRAFT`.
+생성된 항차 객체. 초기 `status = DRAFT`, `annual_inclusion_policy = EXCLUDE` (자동 설정).
 
 ### 3.4 항차 수정
 
@@ -655,8 +699,10 @@ POST /api/v1/calculations/voyage-cii
     "fuel_consumption_ton": "80.00",
     "distance_nm": 1000.0,
     "risk_level": "MEDIUM",
-    "effective_capacity": "50000",
-    "capacity_rule": "DWT",
+    "transport_capacity": "50000",
+    "transport_capacity_basis": "DWT",
+    "reference_capacity": "50000",
+    "reference_capacity_rule": "DWT",
     "calculation_basis": {
       "ship_type": "BULK_CARRIER",
       "z_factor_percent": "11.0",
@@ -677,7 +723,7 @@ POST /api/v1/calculations/voyage-cii
     ],
     "reference_line": {
       "ship_type": "BULK_CARRIER",
-      "capacity_rule": "DWT",
+      "reference_capacity_rule": "DWT",
       "a_decimal": "4745",
       "c": "0.622"
     },
@@ -764,12 +810,17 @@ POST /api/v1/scenarios/compare
 #### 응답 (200 OK)
 
 > **[ORACLE-S-1 정정]** 각 시나리오에 PRD §9.2 필수 출력 필드(`required_cii`, `ratio_to_required`, `next_worse_boundary_margin`, `calculation_basis`)를 추가했다.
+>
+> **[외부 리뷰 P0-5 수정]** 각 시나리오에 `scenario_id`를 추가했다. 클라이언트는 이 ID로 `/scenarios/{scenario_id}/adopt`를 호출한다.
+>
+> **[외부 리뷰 3.1 수정]** `calculation_basis`에 `transport_capacity`와 `reference_capacity`를 추가했다 (P0-1 이중 capacity 규칙).
 
 ```json
 {
   "data": {
     "scenarios": [
       {
+        "scenario_id": "550e8400-e29b-41d4-a716-446655440001",
         "scenario_type": "DIRECT",
         "scenario_name": "직항",
         "distance_nm": 11000.0,
@@ -788,12 +839,17 @@ POST /api/v1/scenarios/compare
         "weather_model_used": "NONE",
         "calculation_basis": {
           "ship_type": "BULK_CARRIER",
+          "transport_capacity": "50000",
+          "transport_capacity_basis": "DWT",
+          "reference_capacity": "50000",
+          "reference_capacity_rule": "DWT",
           "z_factor_percent": "11.0",
           "a_decimal": "4745",
           "c": "0.622"
         }
       },
       {
+        "scenario_id": "550e8400-e29b-41d4-a716-446655440002",
         "scenario_type": "DETOUR",
         "scenario_name": "우회",
         "distance_nm": 11550.0,
@@ -812,12 +868,17 @@ POST /api/v1/scenarios/compare
         "weather_model_used": "NONE",
         "calculation_basis": {
           "ship_type": "BULK_CARRIER",
+          "transport_capacity": "50000",
+          "transport_capacity_basis": "DWT",
+          "reference_capacity": "50000",
+          "reference_capacity_rule": "DWT",
           "z_factor_percent": "11.0",
           "a_decimal": "4745",
           "c": "0.622"
         }
       },
       {
+        "scenario_id": "550e8400-e29b-41d4-a716-446655440003",
         "scenario_type": "SLOW_STEAMING",
         "scenario_name": "감속",
         "distance_nm": 11000.0,
@@ -836,6 +897,10 @@ POST /api/v1/scenarios/compare
         "weather_model_used": "NONE",
         "calculation_basis": {
           "ship_type": "BULK_CARRIER",
+          "transport_capacity": "50000",
+          "transport_capacity_basis": "DWT",
+          "reference_capacity": "50000",
+          "reference_capacity_rule": "DWT",
           "z_factor_percent": "11.0",
           "a_decimal": "4745",
           "c": "0.622"
@@ -1311,7 +1376,7 @@ POST /api/v1/vessels/{vessel_id}/import
 | 최대 행 수 | 1,000행 |
 | 인코딩 | UTF-8 (BOM optional) |
 | Content-Type 검증 | `text/csv`, `application/vnd.ms-excel` 허용. 그 외 거부 |
-| 수식 주입 방지 | 셀 값이 `=`, `@`, `+`, `-`로 시작하는 경우 해당 문자를 strip (formula injection 방지) |
+| 수식 주입 방지 | 셀 값이 `=`, `@`, `+`, `-`로 시작하는 경우 앞에 `'` (apostrophe)를 prefix하여 escape (formula injection 방지). 숫자 컬럼은 numeric parser로 검증하여 문자열 수식 거부 |
 | 필수 컬럼 | `voyage_no`, `departure_port_name`, `arrival_port_name`, `planned_distance_nm`, `planned_speed_kn`, `fuel_type`, `planned_fuel_ton` |
 
 #### 응답 (200 OK)
@@ -1409,8 +1474,8 @@ GET /api/v1/health
 
 | Rule ID | 규칙 | 오류 응답 |
 |---|---|---|
-| VAL-001 | 필수값 비어 있음 | 422: `{field}을/를 입력하세요.` |
-| VAL-002 | 거리·속도·연료·DWT·GT ≤ 0 | 422: `{field}은/는 0보다 커야 합니다.` |
+| VAL-001 | 필수값 비어 있음 | 422: `{field_label}을/를 입력하세요.` (`field_label`는 한글 라벨) |
+| VAL-002 | 거리·속도·연료·DWT·GT ≤ 0 | 422: `{field_label}는 0보다 커야 합니다.` (`field_label`는 한글 라벨) |
 | VAL-003 | IMO 번호 형식 오류 | 422: `IMO 번호는 7자리 숫자여야 합니다.` |
 | VAL-004 | 지원하지 않는 선종 | 422: `지원하지 않는 선종입니다.` |
 | VAL-005 | 기준연도 파라미터 없음 | 409: `해당 연도의 규정 파라미터가 없습니다.` |
@@ -1440,6 +1505,7 @@ GET /api/v1/health
 | POST | `/api/v1/voyages/{id}/transition` | 항차 상태 전환 | §8.1 |
 | PUT | `/api/v1/voyages/{id}/actuals` | 항차 실적 입력 | §17.2 |
 | POST | `/api/v1/calculations/voyage-cii` | 항차 CII 추정 | §10 (기능①) |
+| GET | `/api/v1/calculations` | 계산 결과 조회 (hash 기반) | §1.3.3 |
 | POST | `/api/v1/scenarios/compare` | 시나리오 비교 | §11 (기능②) |
 | POST | `/api/v1/scenarios/{id}/adopt` | 시나리오 채택 | §11.8 |
 | POST | `/api/v1/annual-simulations` | 연간 시뮬레이션 | §12 (기능③) |
@@ -1546,4 +1612,16 @@ GET /api/v1/health
 
 - **API_SPEC 품질 평가**: v1.0은 구조적으로 건전하나 수치 직렬화 정책 미정의(C-1), `parameters_used` 누락(C-3)이 Critical. v1.1에서 모두 해결.
 - **하위 문서 준비도**: v1.1은 DB_SCHEMA, TEST_PLAN이 참조할 모든 API 계약을 포함. 수치 직렬화 정책(§1.7), 멱등성(§1.8), 오류 분류(§1.4), 보안 제한(§8.2)이 명확히 정의되어 하위 문서 작성이 차단 없이 진행 가능.
+
+### 14.6 외부 리뷰 반영 (v1.2)
+
+| ID | 이슈 | 수정 위치 | 상태 |
+|---|---|---|---|
+| EXT-P0-1 | `effective_capacity`를 단일 값으로 사용 → IMO G1/G2 이중 capacity 분리 필요 | §4.1, §5.1 — `transport_capacity`/`reference_capacity` 분리 | **수정 완료** |
+| EXT-P0-4 | Voyage 생성 API에서 DRAFT + INCLUDE_AS_PLAN 충돌 | §3.3 — `annual_inclusion_policy`를 요청에서 제거, DRAFT는 EXCLUDE 강제 | **수정 완료** |
+| EXT-P0-5 | Scenario compare 응답에 `scenario_id` 누락 | §5.1 — 각 시나리오에 `scenario_id` 추가 | **수정 완료** |
+| EXT-3.1 | 시나리오 응답에 capacity 필드 누락 | §5.1 — `calculation_basis`에 capacity 필드 추가 | **수정 완료** |
+| EXT-3.3/P1-5 | CSV formula injection strip이 데이터 훼손 위험 | §8.2 — strip 대신 apostrophe escape로 변경 | **수정 완료** |
+| EXT-3.4/P1-6 | 오류 메시지 한국어 조사 처리 (`{field}은/는`) | §1.3.2, §11 — `field_label` 한글 라벨 도입 | **수정 완료** |
+| EXT-P1-2/3.2 | CalculationRun 조회 API 상세 누락 | §1.3.3 (신규) — GET /api/v1/calculations 상세 스펙 추가 | **추가 완료** |
 - **수정 소요**: Critical + Significant 이슈 해결에 약 2~3시간 소요 (문서 수정 기준).
