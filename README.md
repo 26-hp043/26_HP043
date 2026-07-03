@@ -22,7 +22,7 @@
 |---|---|---|
 | [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (v3.1, Oracle Review 반영) | ✅ 완료 |
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (v1.1, Oracle Review 반영) — 이중 정밀도 엔진, PCG64DXSM RNG, Townsin-Kwon 기상 모델, canonical hashing, 스냅샷 격리 | ✅ 완료 |
-| `API_SPEC.md` | REST API 상세 명세 | 작성 예정 |
+| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (v1.1, Oracle Review 반영) — 28개 엔드포인트, 수치 직렬화 정책, 멱등성, 오류 분류, CSV 보안 | ✅ 완료 |
 | `DB_SCHEMA.md` | 데이터베이스 스키마 | 작성 예정 |
 | `TEST_PLAN.md` | 테스트 계획서 — Fixture, 경계값, 재현성, 예외 | 작성 예정 |
 
