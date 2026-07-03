@@ -24,7 +24,7 @@
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (v1.1, Oracle Review + 외부 리뷰 반영) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리 | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (v1.1, Oracle Review + 외부 리뷰 반영) — 29개 엔드포인트, 수치 직렬화 정책, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
 | [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (v1.1, Oracle Review 반영) — 14개 테이블, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
-| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.0 Draft) — 104개 테스트 케이스, Fixture 1~4, 이중 capacity 검증, Decimal/Monte Carlo 비교 방식, DB 제약 테스트 | ✅ 완료 |
+| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.1, Oracle Review 반영) — 164개 테스트 케이스, Fixture 1~4, 이중 capacity 검증, Layer 변환/감사 로그/소프트 삭제/CSV injection 테스트, 유효숫자 기반 Monte Carlo 비교 | ✅ 완료 |
 
 ---
 
