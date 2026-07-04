@@ -195,7 +195,7 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 
 클라이언트가 동일 입력의 이전 결과를 재사용하려면 `input_hash` + `parameter_hash`로 기존 결과를 조회한다.
 
-#### 1.3.3 CalculationRun 조회 API
+#### 1.9 CalculationRun 조회 API
 
 > **[외부 리뷰 P1-2/3.2 추가]** 재현성·캐싱·디버깅을 위한 계산 결과 조회 엔드포인트.
 
@@ -1516,7 +1516,7 @@ GET /api/v1/health
 | POST | `/api/v1/voyages/{id}/transition` | 항차 상태 전환 | §8.1 |
 | PUT | `/api/v1/voyages/{id}/actuals` | 항차 실적 입력 | §17.2 |
 | POST | `/api/v1/calculations/voyage-cii` | 항차 CII 추정 | §10 (기능①) |
-| GET | `/api/v1/calculations` | 계산 결과 조회 (hash 기반) | §1.3.3 |
+| GET | `/api/v1/calculations` | 계산 결과 조회 (hash 기반) | §1.9 |
 | POST | `/api/v1/scenarios/compare` | 시나리오 비교 | §11 (기능②) |
 | POST | `/api/v1/scenarios/{id}/adopt` | 시나리오 채택 | §11.8 |
 | POST | `/api/v1/annual-simulations` | 연간 시뮬레이션 | §12 (기능③) |
@@ -1634,5 +1634,5 @@ GET /api/v1/health
 | EXT-3.1 | 시나리오 응답에 capacity 필드 누락 | §5.1 — `calculation_basis`에 capacity 필드 추가 | **수정 완료** |
 | EXT-3.3/P1-5 | CSV formula injection strip이 데이터 훼손 위험 | §8.2 — strip 대신 apostrophe escape로 변경 | **수정 완료** |
 | EXT-3.4/P1-6 | 오류 메시지 한국어 조사 처리 (`{field}은/는`) | §1.3.2, §11 — `field_label` 한글 라벨 도입 | **수정 완료** |
-| EXT-P1-2/3.2 | CalculationRun 조회 API 상세 누락 | §1.3.3 (신규) — GET /api/v1/calculations 상세 스펙 추가 | **추가 완료** |
+| EXT-P1-2/3.2 | CalculationRun 조회 API 상세 누락 | §1.9 (신규) — GET /api/v1/calculations 상세 스펙 추가 | **추가 완료** |
 - **수정 소요**: Critical + Significant 이슈 해결에 약 2~3시간 소요 (문서 수정 기준).

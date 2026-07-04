@@ -1112,9 +1112,9 @@ boundaries:
   C/D upper    = 5.0450663325 × 1.06 = 5.3477703124
   D/E inferior = 5.0450663325 × 1.18 = 5.9531782723
 rating = C
+```
 
 > **[외부 리뷰 P0-3 수정]** 본 PRD의 fixture 값은 설명용 표시값이다. 자동 테스트의 canonical expected 값은 `TEST_PLAN.md`의 `tests/fixtures/cii/bulk_50000_hfo_2026.json`을 단일 기준으로 한다. 문서 간 정밀도 차이(본 PRD는 10자리, TEST_PLAN은 9자리)는 표시 자릿수 차이이며, TEST_PLAN fixture가 테스트 기준이다.
-```
 
 화면 표시 기대값:
 
