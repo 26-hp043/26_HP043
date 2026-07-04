@@ -489,7 +489,6 @@ POST /api/v1/vessels/{vessel_id}/voyages
 ```
 
 > **[외부 리뷰 P0-4 수정]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조). `PLANNED` 전환 시 `annual_inclusion_policy`를 `INCLUDE_AS_PLAN`으로 설정한다.
-```
 
 #### 응답 (201 Created)
 
@@ -661,8 +660,7 @@ POST /api/v1/calculations/voyage-cii
       "fuel_ton": 80.0
     }
   ],
-  "weather_model": "NONE",
-  "include_in_annual": true
+  "weather_model": "NONE"
 }
 ```
 
@@ -676,7 +674,6 @@ POST /api/v1/calculations/voyage-cii
 | `fuel_uses[].fuel_type` | string | Y | VAL-006 | 연료 코드 |
 | `fuel_uses[].fuel_ton` | decimal | Y | VAL-002: > 0 | 연료 사용량 (ton) |
 | `weather_model` | string | N | enum: NONE, SIMPLE_RULE, TOWNSIN_KWON_ALPHA | 기본: NONE |
-| `include_in_annual` | boolean | N | — | 기본: true |
 
 #### 응답 (200 OK)
 
@@ -935,6 +932,20 @@ POST /api/v1/scenarios/{scenario_id}/adopt
 ```
 
 선택한 시나리오를 Voyage 계획값으로 반영한다.
+
+#### 요청 Body
+
+```json
+{
+  "target_voyage_id": "uuid",
+  "adopt_mode": "UPDATE_EXISTING_PLAN"
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `target_voyage_id` | UUID | Y | 반영할 대상 항차 ID. `CREATE_NEW_VOYAGE` 모드 시 신규 항차 생성 |
+| `adopt_mode` | string | N | 기본: `UPDATE_EXISTING_PLAN`. `CREATE_NEW_VOYAGE` 시 신규 항차 생성 (departure_port_name, arrival_port_name, planned_departure_at 추가 필요) |
 
 #### 응답 (200 OK)
 

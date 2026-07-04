@@ -1013,10 +1013,10 @@ aggregate:
 
 | 항목 | 사양 |
 |---|---|
-| 난수 생성 알고리즘 | Mersenne Twister (MT19937) 또는 동등한 결정적 알고리즘. 구현체와 버전을 `CalculationRun.model_version`에 명시 |
+| 난수 생성 알고리즘 | PCG64DXSM (NumPy Generator with PCG64DXSM). `numpy.random.Generator(numpy.random.PCG64DXSM(seed))` 사용. `numpy.random.default_rng()` 사용 금지 (TECH_SPEC §2.1 참조) |
 | 정밀도 | Monte Carlo 내부 루프는 IEEE 754 double (float64). 결정론 표시값은 Decimal (§9.3.1 참조) |
 | Rounding 정책 | 최종 집계 시 rating probability와 P10/P50/P90는 소수점 4자리에서 반올림 |
-| 라이브러리 버전 저장 | `model_version`에 언어, 라이브러리명, 버전을 포함. 예: `python-numpy-1.26-mt19937` |
+| 라이브러리 버전 저장 | `model_version`에 언어, 라이브러리명, 버전을 포함. 예: `python-numpy-2.1-pcg64dxsm`. `rng_metadata`에 `numpy_version`, `python_version`, `platform` 포함 |
 
 > Decimal로는 삼각분포 역CDF 샘플링(`sqrt(U * (b-a) * (c-a))`)과 `Capacity^(-c)` 분수 지수 연산을 동일 플랫폼 외에서 bit-exact 재현할 수 없다. 따라서 Monte Carlo는 float64 기반으로 동작하며, 동일 언어·동일 알고리즘 내에서는 seed 재현성을 보장한다.
 
@@ -1112,6 +1112,8 @@ boundaries:
   C/D upper    = 5.0450663325 × 1.06 = 5.3477703124
   D/E inferior = 5.0450663325 × 1.18 = 5.9531782723
 rating = C
+
+> **[외부 리뷰 P0-3 수정]** 본 PRD의 fixture 값은 설명용 표시값이다. 자동 테스트의 canonical expected 값은 `TEST_PLAN.md`의 `tests/fixtures/cii/bulk_50000_hfo_2026.json`을 단일 기준으로 한다. 문서 간 정밀도 차이(본 PRD는 10자리, TEST_PLAN은 9자리)는 표시 자릿수 차이이며, TEST_PLAN fixture가 테스트 기준이다.
 ```
 
 화면 표시 기대값:
@@ -1149,7 +1151,7 @@ rating = C
 첫 번째 실행 결과 JSON == 두 번째 실행 결과 JSON
 ```
 
-단, Monte Carlo 재현성은 다음 이중 정밀도 전략으로 보장한다 (§9.3.1 참조): 결정론 CII 계산은 Decimal을 사용하여 bit-exact 재현성을 보장하고, Monte Carlo 내부 루프는 IEEE 754 double(float64)과 고정된 RNG(MT19937)를 사용하여 동일 언어·동일 알고리즘 내에서 재현성을 보장한다. 최종 집계는 소수점 4자리에서 반올림한다. Decimal을 Monte Carlo에 사용하면 p95 < 3초 성능 목표를 달성할 수 없다.
+단, Monte Carlo 재현성은 다음 이중 정밀도 전략으로 보장한다 (§9.3.1 참조): 결정론 CII 계산은 Decimal을 사용하여 bit-exact 재현성을 보장하고, Monte Carlo 내부 루프는 IEEE 754 double(float64)과 고정된 RNG(PCG64DXSM, TECH_SPEC §2.1)를 사용하여 동일 언어·동일 알고리즘 내에서 재현성을 보장한다. 최종 집계는 소수점 4자리에서 반올림한다. Decimal을 Monte Carlo에 사용하면 p95 < 3초 성능 목표를 달성할 수 없다.
 
 ---
 
