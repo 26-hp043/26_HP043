@@ -6,7 +6,7 @@
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-07-04 |
-| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.1, `API_SPEC.md` v1.2 |
+| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
 

@@ -6,7 +6,7 @@
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-07-04 |
-| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.1, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.2 |
+| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.2 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
 ---

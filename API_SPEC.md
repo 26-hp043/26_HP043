@@ -6,7 +6,7 @@
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-07-04 |
-| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.1 |
+| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
 ---
@@ -195,7 +195,9 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 
 클라이언트가 동일 입력의 이전 결과를 재사용하려면 `input_hash` + `parameter_hash`로 기존 결과를 조회한다.
 
-#### 1.9 CalculationRun 조회 API
+CRUD 엔드포인트(PATCH, PUT, DELETE)는 HTTP 표준 멱등성을 따른다.
+
+### 1.9 CalculationRun 조회 API
 
 > **[외부 리뷰 P1-2/3.2 추가]** 재현성·캐싱·디버깅을 위한 계산 결과 조회 엔드포인트.
 
@@ -240,7 +242,6 @@ GET /api/v1/calculations
 
 > `input_hash` + `parameter_hash` 모두 지정 시 정확히 일치하는 계산 결과를 반환. 재현성 검증에 사용.
 
-CRUD 엔드포인트(PATCH, PUT, DELETE)는 HTTP 표준 멱등성을 따른다.
 
 ---
 
