@@ -3,10 +3,10 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.1 |
-| 상태 | Oracle Review 반영 완료 |
-| 최종 수정일 | 2026-07-03 |
-| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.1, `API_SPEC.md` v1.1 |
+| 버전 | v1.2 |
+| 상태 | Oracle Review + 외부 리뷰 반영 |
+| 최종 수정일 | 2026-07-04 |
+| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.1, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
 
@@ -515,7 +515,7 @@ ALTER TABLE cii_reference_line ADD CONSTRAINT chk_c_positive CHECK (c >= 0);
 
 > 애플리케이션 시작 시 `parse_imo_scientific(a_raw) == a_decimal` 검증을 수행한다 (TECH_SPEC §9.3).
 >
-> **[Oracle 관찰]** `c = 0.000000` for LNG_CARRIER DWT ≥ 100000은 **정상**이다. MEPC.364(79)에 따라 대형 LNG 캐리어는 고정 CII_ref 값을 사용하며 `CII_ref = 9.827 × Capacity^0 = 9.827`이다.
+> **[Oracle 관찰]** `c = 0.000000` for LNG_CARRIER DWT ≥ 100000은 **정상**이다. MEPC.353(78) Table 1에 따라 대형 LNG 캐리어는 고정 CII_ref 값을 사용하며 `CII_ref = 9.827 × Capacity^0 = 9.827`이다.
 
 ---
 

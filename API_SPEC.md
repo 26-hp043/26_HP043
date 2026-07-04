@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.1 |
-| 상태 | Oracle Review 반영 |
-| 최종 수정일 | 2026-07-03 |
+| 버전 | v1.2 |
+| 상태 | Oracle Review + 외부 리뷰 반영 |
+| 최종 수정일 | 2026-07-04 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.1 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
