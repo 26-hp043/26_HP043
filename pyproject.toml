@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cii-platform"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy==2.1.0",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg",
+    "alembic",
+    "fastapi",
+    "uvicorn[standard]",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "pytest", "pytest-asyncio", "pytest-cov"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cii_platform"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
