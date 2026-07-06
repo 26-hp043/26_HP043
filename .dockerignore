@@ -1,0 +1,43 @@
+# 빌드 컨텍스트에서 불필요한 파일을 제외해 빌드 속도를 높인다.
+
+# Git
+.git
+.gitignore
+
+# Python 캐시/빌드 산출물
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+tests/
+
+# Environment (비밀값 이미지 유입 방지)
+.env
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 문서 (이미지 빌드에 불필요)
+*.md
+
+# 잠금 파일 (pip install -e . 는 pyproject 기준)
+uv.lock
+
+# Docker 관련 파일
+Dockerfile
+docker-compose.yml
+.dockerignore
