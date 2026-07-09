@@ -36,10 +36,14 @@ TEST_DATABASE_URL = _async_url(os.environ.get("DATABASE_URL", DATABASE_URL))
 
 
 def run_alembic(*alembic_args: str) -> subprocess.CompletedProcess:
-    """프로젝트 루트에서 alembic CLI를 실행한다."""
+    """프로젝트 루트에서 alembic CLI를 실행한다.
+
+    PATH에 alembic 스크립트가 없어도(예: `python -m pytest` 직접 실행, CI) 동작하도록
+    현재 인터프리터로 `python -m alembic`을 호출한다.
+    """
     env = {**os.environ, "DATABASE_URL": TEST_DATABASE_URL}
     return subprocess.run(
-        ["alembic", *alembic_args],
+        [sys.executable, "-m", "alembic", *alembic_args],
         cwd=_ROOT,
         env=env,
         capture_output=True,
