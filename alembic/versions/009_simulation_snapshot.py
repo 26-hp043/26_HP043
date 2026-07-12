@@ -10,12 +10,13 @@ vessel_id → vessel(003)을 참조한다.
 
 immutable 테이블: §7.3 prevent_mutation() 트리거(008에서 정의)로 UPDATE/DELETE를 차단한다.
 
-주의 (이슈 본문 대비 정본 우선, AGENTS §3):
-- 이슈 본문의 `simulation_run_id (FK → annual_simulation_run)` 컬럼은 정본에 없다. 관계는
-  반대로 annual_simulation_run.snapshot_id → simulation_snapshot(id) (1:1, §2.6)이다.
-  따라서 이 테이블에는 simulation_run_id를 두지 않는다(순환 의존 방지). [C-1]
-- 이슈 본문의 snapshot_data(TEXT)는 정본 §2.7의 voyages_json(JSONB)이다. regulation_year,
-  input_hash, parameter_hash(+형식 CHECK)도 정본에 있으나 이슈 본문에 누락되어 있었다. [C-4]
+주의 (이슈 본문 대비 정본 우선, AGENTS §3. 아래 번호는 이슈 #28 코멘트의 충돌 요약 표 기준):
+- (이슈 본문 충돌 1) 이슈 본문의 `simulation_run_id (FK → annual_simulation_run)` 컬럼은
+  정본에 없다. 관계는 반대로 annual_simulation_run.snapshot_id → simulation_snapshot(id)
+  (1:1, §2.6)이다. 따라서 이 테이블에는 simulation_run_id를 두지 않는다(순환 의존 방지).
+- (이슈 본문 충돌 4) 이슈 본문의 snapshot_data(TEXT)는 정본 §2.7의 voyages_json(JSONB)이다.
+  regulation_year, input_hash, parameter_hash(+형식 CHECK)도 정본에 있으나 이슈 본문에
+  누락되어 있었다.
 """
 
 from collections.abc import Sequence
