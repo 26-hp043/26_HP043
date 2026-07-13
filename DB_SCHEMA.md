@@ -291,7 +291,7 @@ ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_risk
 | `id` | UUID | PK | 계산 실행 ID |
 | `calculation_type` | VARCHAR(30) | NOT NULL | VOYAGE_ESTIMATE, SCENARIO, ANNUAL_DETERMINISTIC, ANNUAL_MONTE_CARLO |
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [C-3] | 대상 선박 |
-| `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE SET NULL** [C-3] | 관련 항차 (있으면). 항차 삭제 시 계산 이력 보존 |
+| `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE RESTRICT** [C-3, #28 정정] | 관련 항차 (있으면). 계산 이력 보존을 위해 항차 물리 삭제를 차단 |
 | `input_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `parameter_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `model_version` | JSONB | NOT NULL | TECH_SPEC §10.1 structured JSON |
@@ -363,6 +363,8 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_param_hash_format
 > **[S-7]** hash 형식 CHECK 제약 추가. `sha256:` prefix + 64 hex chars 형식이 아닌 값의 삽입을 차단한다.
 >
 > **검증 책임 (parameter_hash vs parameters_used):** `SHA256(canonical_json(parameters_used)) == parameter_hash` 검증은 애플리케이션 서비스 계층 또는 테스트 단계에서 수행한다 (Oracle 추가 관찰 #9).
+>
+> **[#28 정정]** `voyage_id`의 ON DELETE 정책을 `SET NULL` → `RESTRICT`로 정정했다 (이슈 #28). 근거: `calculation_run`은 immutable(§7.3, `BEFORE UPDATE OR DELETE` 트리거)이다. `SET NULL`은 PostgreSQL 내부적으로 자식 행 UPDATE로 실행되는데, immutable 트리거가 이 UPDATE를 차단하여 부모 `voyage` 삭제 트랜잭션 전체가 롤백된다. 즉 `SET NULL`은 원리적으로 달성 불가능하고 실효 동작이 `RESTRICT`다. 실효 동작에 문서를 맞추고, §7.1의 "immutable 테이블 참조는 RESTRICT" 관례와 대칭을 회복한다. (평소에는 voyage가 soft-delete(§2.2 `is_deleted`)만 되므로 이 경로가 드물어 잠복해 있던 모순이다.)
 
 ---
 
@@ -802,7 +804,7 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 | `vessel(id)` | `simulation_snapshot.vessel_id` | **RESTRICT** | 스냅샷 보존 |
 | `voyage(id)` | `voyage_fuel_use.voyage_id` | **CASCADE** | 연료 기록은 항차 종속 |
 | `voyage(id)` | `voyage_scenario.voyage_id` | **SET NULL** | 시나리오는 항차 삭제 후에도 선박 단위로 보존 (`vessel_id` 유지) |
-| `voyage(id)` | `calculation_run.voyage_id` | **SET NULL** | 계산 이력 보존. voyage_id만 NULL로 |
+| `voyage(id)` | `calculation_run.voyage_id` | **RESTRICT** [#28 정정] | 계산 이력 보존. calculation_run은 immutable(§7.3)이라 SET NULL(자식 UPDATE)이 트리거로 차단됨 → RESTRICT |
 | `calculation_run(id)` | `annual_simulation_run.calculation_run_id` | **RESTRICT** | immutable 테이블 참조 |
 | `simulation_snapshot(id)` | `annual_simulation_run.snapshot_id` | **RESTRICT** | immutable 테이블 참조 |
 | `weather_snapshot(id)` | `voyage_scenario.weather_snapshot_id` | **SET NULL** | 기상 스냅샷 만료 시 시나리오 보존 |
