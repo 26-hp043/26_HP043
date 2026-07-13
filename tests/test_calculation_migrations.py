@@ -18,7 +18,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from tests.conftest import run_alembic
+from conftest import run_alembic
 
 # sha256: + 64 hex — CHECK를 통과하는 유효 해시.
 VALID_HASH = "sha256:" + "a" * 64
