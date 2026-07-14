@@ -18,8 +18,6 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from conftest import run_alembic
-
 # sha256: + 64 hex — CHECK를 통과하는 유효 해시.
 VALID_HASH = "sha256:" + "a" * 64
 
@@ -203,37 +201,5 @@ async def test_simulation_snapshot_hash_check_rejects_bad_format(conn):
         )
 
 
-# ---------------------------------------------------------------------------
-# 롤백/재현성
-# ---------------------------------------------------------------------------
-
-
-def test_downgrade_upgrade_roundtrip():
-    """downgrade base → upgrade head 왕복이 성공한다 (§8.1 롤백 안전성).
-
-    008이 생성한 공유 함수 prevent_mutation()이 008.downgrade에서 드롭되고
-    재upgrade에서 재생성되는지까지 왕복으로 검증한다.
-    """
-    down = run_alembic("downgrade", "base")
-    assert down.returncode == 0, f"{down.stdout}\n{down.stderr}"
-    up = run_alembic("upgrade", "head")
-    assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
-
-
-def test_partial_downgrade_preserves_immutability():
-    """부분 다운그레이드(009만 롤백) 후에도 calculation_run immutable이 유지된다.
-
-    공유 함수를 009.downgrade에서 드롭하지 않고 008이 소유하도록 한 결정의 근거.
-    `downgrade 008`로 009만 롤백해도 prevent_mutation()이 남아 trg_calcrun_immutable이
-    정상 동작해야 한다. 검증 후 head로 복구한다.
-    """
-    step = run_alembic("downgrade", "008")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
-    try:
-        # 함수가 남아 있는지 psql 없이 alembic current로 리비전만 확인(경량).
-        cur = run_alembic("current")
-        assert cur.returncode == 0, f"{cur.stdout}\n{cur.stderr}"
-        assert "008" in cur.stdout, cur.stdout
-    finally:
-        up = run_alembic("upgrade", "head")
-        assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+# (downgrade/upgrade 왕복 및 partial-downgrade immutability 검증은 전역 스키마를
+#  변형하므로 test_zz_roundtrip.py로 격리했다. #82)

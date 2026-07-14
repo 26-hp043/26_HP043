@@ -7,14 +7,13 @@
 - status × annual_inclusion_policy CHECK 제약 동작
 추가:
 - FK RESTRICT: 항차가 있는 vessel 물리 삭제 거부
-- downgrade/upgrade 왕복 (§8.1 롤백 안전성)
+
+(downgrade/upgrade 왕복(§8.1)은 전역 스키마를 변형하므로 test_zz_roundtrip.py로 격리했다. #82)
 """
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-
-from conftest import run_alembic
 
 
 async def _insert_vessel(conn, imo="1234567") -> str:
@@ -131,11 +130,3 @@ async def test_voyage_vessel_restrict_delete(conn):
     await _insert_voyage(conn, vessel_id)
     with pytest.raises(IntegrityError):
         await conn.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
-
-
-def test_downgrade_upgrade_roundtrip():
-    """downgrade base → upgrade head 왕복이 성공한다 (§8.1 롤백 안전성)."""
-    down = run_alembic("downgrade", "base")
-    assert down.returncode == 0, f"{down.stdout}\n{down.stderr}"
-    up = run_alembic("upgrade", "head")
-    assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
