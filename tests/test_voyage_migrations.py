@@ -11,10 +11,9 @@
 """
 
 import pytest
+from conftest import run_alembic
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-
-from conftest import run_alembic
 
 
 async def _insert_vessel(conn, imo="1234567") -> str:
