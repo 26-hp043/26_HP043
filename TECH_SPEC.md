@@ -25,7 +25,7 @@
 | input_hash 결정적 직렬화 | §7.7 |
 | 대권거리 계산 | §15.2 |
 | 기상 데이터 어댑터 인터페이스 | §15.3 |
-| 스냅샷 격리 | §8.4 (ORACLE-R5) |
+| 스냅샷 격리 | §8.4 (ORACLE-R-5) |
 | 오류 전파 및 검증 | §9.1 (VAL-001~010), §16.2 |
 
 ---
@@ -129,7 +129,7 @@ Layer 1 계산:
 
 #### 1.2.4 Capacity 결정 규칙 (이중 분리)
 
-> **[외부 리뷰 P0-1 / Oracle C2 Revert]** IMO G1과 G2는 서로 다른 capacity 개념을 사용한다. 단일 `get_effective_capacity()`를 두 함수로 분리한다.
+> **[EXT-P0-1]** IMO G1과 G2는 서로 다른 capacity 개념을 사용한다. 단일 `get_effective_capacity()`를 두 함수로 분리한다.
 
 ```python
 def resolve_transport_capacity(vessel) -> Decimal:
@@ -346,7 +346,7 @@ EXPECTED_UNIFORM_5 = [
     0.21698197019501064,
     0.3527062497665462,
     0.5501051021142127,
-]  # numpy==2.1.0, PCG64DXSM(seed=12345) 기반 실측값 — NumPy 2.1.x에서 검증 완료
+]  # numpy==2.1.0, PCG64DXSM(seed=12345) 기반 실측값 — NumPy 2.1.0에서 검증 완료
 
 def validate():
     # [ORACLE-C-1] PCG64DXSM 명시적 생성
@@ -428,7 +428,7 @@ weather_factor = 1 / (1 - ΔV/V / 100)
 
 #### 3.3.2 CU (속도 감소 계수)
 
-CU는 Beaufort Number(BN)와 선종에 따라 달라진다. Kwon (2008)의 단순화 표:
+CU는 Beaufort Number(BN)와 선종에 따라 달라진다. Kwon (2008)을 참고한 자체 단순화 계수 (실험 모델):
 
 | Ship type | CU 공식 |
 |---|---|
@@ -748,8 +748,8 @@ def compute_input_hash(calculation_input: dict) -> str:
         "vessel_id",
         "regulation_year",
         "ship_type",
-        "transport_capacity",     # [P0-1] actual DWT/GT for attained CII W
-        "reference_capacity",     # [P0-1] G2 capacity_rule resolved value for CII_ref
+        "transport_capacity",     # [EXT-P0-1] actual DWT/GT for attained CII W
+        "reference_capacity",     # [EXT-P0-1] G2 capacity_rule resolved value for CII_ref
         "distance_nm",
         "speed_kn",
         "fuel_uses",          # [{fuel_type, fuel_ton, cf}]
@@ -876,7 +876,7 @@ class WeatherProvider(ABC):
 
 | 항목 | 사양 |
 |---|---|
-| 캐시 key | `(round(lat, 1), round(lon, 1), date, hour_bucket_6h)` |
+| 캐시 key | `(lat_rounded_0.5, lon_rounded_0.5, date, hour_bucket_6h)` |
 | 캐시 저장소 | 애플리케이션 메모리 또는 Redis |
 | TTL | 24시간 |
 | 신선도 평가 | 구간별 독립. 일부 구간이 24h 초과 시 해당 구간만 `weather_factor=1.0` fallback |
@@ -893,7 +893,7 @@ def get_weather_factor_for_segment(
     if snapshot is None:
         return 1.0  # NONE fallback
 
-    age_hours = (datetime.utcnow() - snapshot.fetched_at).total_seconds() / 3600
+    age_hours = (datetime.now(timezone.utc) - snapshot.fetched_at).total_seconds() / 3600
 
     if age_hours > 24:
         return 1.0  # 너무 오래됨 → fallback
@@ -1070,7 +1070,7 @@ dual-precision-v1_decimal30-pcg64dxsm_numpy2.1.0
 
 ## 11. 스냅샷 격리 (Snapshot Isolation)
 
-> **[ORACLE-S-6 추가]** PRD §8.4 (ORACLE-R5)에서 요구하는 연간 시뮬레이션 스냅샷 격리의 계산적 구현을 정의한다.
+> **[ORACLE-S-6 추가]** PRD §8.4 (ORACLE-R-5)에서 요구하는 연간 시뮬레이션 스냅샷 격리의 계산적 구현을 정의한다.
 
 ### 11.1 목적
 
@@ -1196,59 +1196,59 @@ class SimulationSnapshot:
 
 | ID | 이슈 | 수정 위치 | 상태 |
 |---|---|---|---|
-| TECH-ORACLE-C-1 | `default_rng()`가 PCG64를 생성하지만 spec은 PCG64DXSM 명시. 모순. | §2.1, §2.2.1, §2.2.3, §2.5.1 — `Generator(PCG64DXSM(seed))`로 통일 | **수정 완료** |
-| TECH-ORACLE-C-2 | Decimal trailing zeros가 canonical hash 불일치 발생. `Decimal("3.114")` ≠ `Decimal("3.114000")` after str(). | §5.1.1 정규화 규칙 추가, §5.1.2 `_decimal_to_canonical_str()` 함수 추가 | **수정 완료** |
+| ORACLE-C-1 | `default_rng()`가 PCG64를 생성하지만 spec은 PCG64DXSM 명시. 모순. | §2.1, §2.2.1, §2.2.3, §2.5.1 — `Generator(PCG64DXSM(seed))`로 통일 | **수정 완료** |
+| ORACLE-C-2 | Decimal trailing zeros가 canonical hash 불일치 발생. `Decimal("3.114")` ≠ `Decimal("3.114000")` after str(). | §5.1.1 정규화 규칙 추가, §5.1.2 `_decimal_to_canonical_str()` 함수 추가 | **수정 완료** |
 
 ### 14.2 Significant Issues
 
 | ID | 이슈 | 수정 위치 | 상태 |
 |---|---|---|---|
-| TECH-ORACLE-S-1 | `plan_value = 0`일 때 `rng.triangular(0, 0, 0)` → ValueError | §2.3.1 — plan_value ≤ 0 guard 추가 | **수정 완료** |
-| TECH-ORACLE-S-2 | §4.3이 `float(total_co2_g)` 반환하여 Layer 1 Decimal 보장 위반 | §4.3 — 반환 타입 Decimal로 변경, `fuel_breakdown` 정의 | **수정 완료** |
-| TECH-ORACLE-S-3 | `parse_imo_scientific`이 NaN/Infinity 허용 | §9.2 — `is_nan()`, `is_infinite()`, `<= 0` 검증 추가 | **수정 완료** |
-| TECH-ORACLE-S-4 | Fixture 1 중간값 `10.8198 × 0.622 = 6.7301...` 산술 오류 (정확값: 6.7299...) | §1.2.3 — 중간값 수정 | **수정 완료** |
-| TECH-ORACLE-S-5 | INPUT_FIELDS에 weather_factor timing 미명시 | §5.3 — weather_factor hash 전 확정 의무화, None 시 기본값 적용 | **수정 완료** |
-| TECH-ORACLE-S-6 | PRD §8.4 스냅샷 격리 구현 명세 누락 | §11 (신규) — 스냅샷 격리 섹션 추가 | **수정 완료** |
+| ORACLE-S-1 | `plan_value = 0`일 때 `rng.triangular(0, 0, 0)` → ValueError | §2.3.1 — plan_value ≤ 0 guard 추가 | **수정 완료** |
+| ORACLE-S-2 | §4.3이 `float(total_co2_g)` 반환하여 Layer 1 Decimal 보장 위반 | §4.3 — 반환 타입 Decimal로 변경, `fuel_breakdown` 정의 | **수정 완료** |
+| ORACLE-S-3 | `parse_imo_scientific`이 NaN/Infinity 허용 | §9.2 — `is_nan()`, `is_infinite()`, `<= 0` 검증 추가 | **수정 완료** |
+| ORACLE-S-4 | Fixture 1 중간값 `10.8198 × 0.622 = 6.7301...` 산술 오류 (정확값: 6.7299...) | §1.2.3 — 중간값 수정 | **수정 완료** |
+| ORACLE-S-5 | INPUT_FIELDS에 weather_factor timing 미명시 | §5.3 — weather_factor hash 전 확정 의무화, None 시 기본값 적용 | **수정 완료** |
+| ORACLE-S-6 | PRD §8.4 스냅샷 격리 구현 명실 누락 | §11 (신규) — 스냅샷 격리 섹션 추가 | **수정 완료** |
 
 ### 14.3 Minor Issues
 
 | ID | 이슈 | 수정 위치 | 상태 |
 |---|---|---|---|
-| TECH-ORACLE-M-1 | BN round()가 banker's rounding 사용 (ROUND_HALF_UP 불일치) | §3.3.2 — 주석 추가 (경험식 정확도 대비 무시 가능) | **수정 완료** |
-| TECH-ORACLE-M-2 | SIMPLE_RULE 음수 기상 입력 가드 없음 | §8.2 — `max(x, 0.0)` clamping 추가 | **수정 완료** |
-| TECH-ORACLE-M-3 | canonical JSON null 처리 모호 ("null" 문자열 vs JSON null) | §5.1.1, §5.1.2 — JSON `null`로 명확화 | **수정 완료** |
-| TECH-ORACLE-M-4 | canonical_json float 처리가 규칙(금지)과 모순 | §5.1.2 — float 시 `TypeError` 발생으로 변경 | **수정 완료** |
-| TECH-ORACLE-M-5 | model_version 포맷이 파싱 불가능한 hyphen 문자열 | §10.1 — structured JSON 포맷으로 변경 | **수정 완료** |
-| TECH-ORACLE-M-6 | §4.3 `fuel_breakdown` 미정의 | §4.3 — `dict[str, Decimal]` 반환값 정의 | **수정 완료** |
+| ORACLE-M-1 | BN round()가 banker's rounding 사용 (ROUND_HALF_UP 불일치) | §3.3.2 — 주석 추가 (경험식 정확도 대비 무시 가능) | **수정 완료** |
+| ORACLE-M-2 | SIMPLE_RULE 음수 기상 입력 가드 없음 | §8.2 — `max(x, 0.0)` clamping 추가 | **수정 완료** |
+| ORACLE-M-3 | canonical JSON null 처리 모호 ("null" 문자열 vs JSON null) | §5.1.1, §5.1.2 — JSON `null`로 명확화 | **수정 완료** |
+| ORACLE-M-4 | canonical_json float 처리가 규칙(금지)과 모순 | §5.1.2 — float 시 `TypeError` 발생으로 변경 | **수정 완료** |
+| ORACLE-M-5 | model_version 포맷이 파싱 불가능한 hyphen 문자열 | §10.1 — structured JSON 포맷으로 변경 | **수정 완료** |
+| ORACLE-M-6 | §4.3 `fuel_breakdown` 미정의 | §4.3 — `dict[str, Decimal]` 반환값 정의 | **수정 완료** |
 
 ### 14.4 Missing Topics
 
 | ID | 누락 항목 | 추가 위치 | 상태 |
 |---|---|---|---|
-| TECH-ORACLE-MISS-1 | 오류 전파 전략 | §12 (신규) — 오류 분류, 전파 규칙, 경고 체계 | **추가 완료** |
-| TECH-ORACLE-MISS-2 | Layer 1 출력 NaN/Infinity 일반 가드 | §1.2.5 (신규) — `validate_layer1_result()` | **추가 완료** |
-| TECH-ORACLE-MISS-3 | 감사 로그 명세 | §13.1 (신규) — 감사 로그 필드 정의 | **추가 완료** |
-| TECH-ORACLE-MISS-4 | 성능 검증 방법 | §13.2 (신규) — CI 벤치마크 정의 | **추가 완료** |
+| ORACLE-MISS-1 | 오류 전파 전략 | §12 (신규) — 오류 분류, 전파 규칙, 경고 체계 | **추가 완료** |
+| ORACLE-MISS-2 | Layer 1 출력 NaN/Infinity 일반 가드 | §1.2.5 (신규) — `validate_layer1_result()` | **추가 완료** |
+| ORACLE-MISS-3 | 감사 로그 명세 | §13.1 (신규) — 감사 로그 필드 정의 | **추가 완료** |
+| ORACLE-MISS-4 | 성능 검증 방법 | §13.2 (신규) — CI 벤치마크 정의 | **추가 완료** |
 
 ### 14.5 PRD 정렬 검증
 
 | PRD Oracle ID | TECH_SPEC 반영 | 상태 |
 |---|---|---|
-| C1 (RNG 명시) | §2 — PCG64DXSM 명시적 생성 | ✅ |
-| C2 (~~capacity_rule W 적용~~ → **REVERTED**) | §1.2.4 — 이중 capacity 함수로 분리 (`resolve_transport_capacity` + `resolve_reference_capacity`) | ✅ 정정 |
-| C3 (speed floor) | §4.2 | ✅ |
-| C4 (COMPLETED fuel 제약) | 비즈니스 규칙 → API_SPEC로 연기 | ⏭️ |
-| R1 (status/policy matrix) | 비즈니스 규칙 → API_SPEC로 연기 | ⏭️ |
-| R2 (parameter hash) | §5.2 | ✅ |
-| R3 (input_hash) | §5.3 | ✅ |
-| R4 (multi-segment cache) | §7.3 | ✅ |
-| R5 (snapshot isolation) | §11 (신규) | ✅ |
-| R6 (performance) | §1.1, §13.2 | ✅ |
-| R7 (14405E7 precision) | §9 | ✅ |
-| G1 (NaN/Inf guard) | §1.2.5 (신규), §3.5 | ✅ |
-| G2 (triangular floor) | §2.3.1, §2.3.2 | ✅ |
-| G5 (multi-fuel) | §4.3 | ✅ |
-| G6 (capacity=0 guard) | §4.2 | ✅ |
+| ORACLE-C-1 (RNG 명시) | §2 — PCG64DXSM 명시적 생성 | ✅ |
+| ORACLE-C-2 (~~capacity_rule W 적용~~ → **REVERTED**) | §1.2.4 — 이중 capacity 함수로 분리 (`resolve_transport_capacity` + `resolve_reference_capacity`) | ✅ 정정 |
+| ORACLE-C-3 (speed floor) | §4.2 | ✅ |
+| ORACLE-C-4 (COMPLETED fuel 제약) | 비즈니스 규칙 → API_SPEC로 연기 | ⏭️ |
+| ORACLE-R-1 (status/policy matrix) | 비즈니스 규칙 → API_SPEC로 연기 | ⏭️ |
+| ORACLE-R-2 (parameter hash) | §5.2 | ✅ |
+| ORACLE-R-3 (input_hash) | §5.3 | ✅ |
+| ORACLE-R-4 (multi-segment cache) | §7.3 | ✅ |
+| ORACLE-R-5 (snapshot isolation) | §11 (신규) | ✅ |
+| ORACLE-R-6 (performance) | §1.1, §13.2 | ✅ |
+| ORACLE-R-7 (14405E7 precision) | §9 | ✅ |
+| ORACLE-G-1 (NaN/Inf guard) | §1.2.5 (신규), §3.5 | ✅ |
+| ORACLE-G-2 (triangular floor) | §2.3.1, §2.3.2 | ✅ |
+| ORACLE-G-5 (multi-fuel) | §4.3 | ✅ |
+| ORACLE-G-6 (capacity=0 guard) | §4.2 | ✅ |
 
 ### 14.6 검토 요약
 
@@ -1260,7 +1260,7 @@ class SimulationSnapshot:
 
 | ID | 이슈 | 위치 | 처리 |
 |---|---|---|---|
-| EXT-P0-2 | canonical vector “예시값” → 실측값 교체 | §2.5.1 | **수정 완료** — `numpy==2.1.0`, `PCG64DXSM(seed=12345)` 기반 실측값, NumPy 2.1.3에서 교차 검증 완료 |
+| EXT-P0-2 | canonical vector “예시값” → 실측값 교체 | §2.5.1 | **수정 완료** — `numpy==2.1.0`, `PCG64DXSM(seed=12345)` 기반 실측값, NumPy 2.1.0에서 교차 검증 완료 |
 
 ---
 

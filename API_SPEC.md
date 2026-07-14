@@ -199,7 +199,7 @@ CRUD 엔드포인트(PATCH, PUT, DELETE)는 HTTP 표준 멱등성을 따른다.
 
 ### 1.9 CalculationRun 조회 API
 
-> **[외부 리뷰 P1-2/3.2 추가]** 재현성·캐싱·디버깅을 위한 계산 결과 조회 엔드포인트.
+> **[EXT-P1-2]** 재현성·캐싱·디버깅을 위한 계산 결과 조회 엔드포인트.
 
 ```http
 GET /api/v1/calculations
@@ -489,7 +489,7 @@ POST /api/v1/vessels/{vessel_id}/voyages
 }
 ```
 
-> **[외부 리뷰 P0-4 수정]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조). `PLANNED` 전환 시 `annual_inclusion_policy`를 `INCLUDE_AS_PLAN`으로 설정한다.
+> **[EXT-P0-4]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조). `PLANNED` 전환 시 `annual_inclusion_policy`를 `INCLUDE_AS_PLAN`으로 설정한다.
 
 #### 응답 (201 Created)
 
@@ -526,7 +526,7 @@ POST /api/v1/voyages/{voyage_id}/transition
 |---|---|---|
 | DRAFT → PLANNED | — | — |
 | PLANNED → IN_PROGRESS | — | — |
-| IN_PROGRESS → COMPLETED | 최소 1개 `actual_fuel_ton > 0` (ORACLE-C4) | 422: 실적 입력 요청 |
+| IN_PROGRESS → COMPLETED | 최소 1개 `actual_fuel_ton > 0` (ORACLE-C-4) | 422: 실적 입력 요청 |
 | COMPLETED → CONFIRMED | 모든 `actual_fuel_ton > 0` 및 `actual_distance_nm > 0` | 422: 누락 실적 입력 요청 |
 | CONFIRMED → COMPLETED | audit log 필수 (오류 정정 목적만) | 재확인 다이얼로그 표시 |
 | CONFIRMED → ARCHIVED | audit log 필수. regulation_year < current_year 또는 수동 | — |
@@ -537,7 +537,7 @@ POST /api/v1/voyages/{voyage_id}/transition
 
 #### status × annual_inclusion_policy 제약
 
-> PRD §8.1.2 (ORACLE-R1). 허용되지 않은 조합은 자동으로 `EXCLUDE`로 보정하거나 전환을 거부한다.
+> PRD §8.1.2 (ORACLE-R-1). 허용되지 않은 조합은 자동으로 `EXCLUDE`로 보정하거나 전환을 거부한다.
 
 | status | 허용 policy |
 |---|---|
@@ -571,7 +571,7 @@ POST /api/v1/voyages/{voyage_id}/transition
     "message": "IN_PROGRESS → COMPLETED 전환 시 최소 1개 actual_fuel_ton > 0이 필요합니다.",
     "details": [
       {
-        "rule": "ORACLE-C4",
+        "rule": "ORACLE-C-4",
         "message": "실적 연료 사용량을 입력하세요."
       }
     ]
@@ -793,8 +793,8 @@ POST /api/v1/scenarios/compare
 |---|---|---|---|---|
 | `vessel_id` | UUID | Y | 존재 확인 | 대상 선박 |
 | `regulation_year` | int | Y | VAL-005 | 등급 기준연도 |
-| `current_lat` | decimal | Y | VAL-007: -90~90 | 현재 위도 |
-| `current_lon` | decimal | Y | VAL-007: -180~180 | 현재 경도 |
+| `current_lat` | decimal | Y | VAL-007: −90 ~ +90 | 현재 위도 |
+| `current_lon` | decimal | Y | VAL-007: −180 ~ +180 | 현재 경도 |
 | `destination_lat` | decimal | 조건부 | VAL-007 | 목적항 위도 (거리 자동 계산 시 필요) |
 | `destination_lon` | decimal | 조건부 | VAL-007 | 목적항 경도 |
 | `current_speed_kn` | decimal | Y | VAL-009: ≥ 1.0 | 현재 속도 |
@@ -809,9 +809,9 @@ POST /api/v1/scenarios/compare
 
 > **[ORACLE-S-1 정정]** 각 시나리오에 PRD §9.2 필수 출력 필드(`required_cii`, `ratio_to_required`, `next_worse_boundary_margin`, `calculation_basis`)를 추가했다.
 >
-> **[외부 리뷰 P0-5 수정]** 각 시나리오에 `scenario_id`를 추가했다. 클라이언트는 이 ID로 `/scenarios/{scenario_id}/adopt`를 호출한다.
+> **[EXT-P0-5]** 각 시나리오에 `scenario_id`를 추가했다. 클라이언트는 이 ID로 `/scenarios/{scenario_id}/adopt`를 호출한다.
 >
-> **[외부 리뷰 3.1 수정]** `calculation_basis`에 `transport_capacity`와 `reference_capacity`를 추가했다 (P0-1 이중 capacity 규칙).
+> **[EXT-3-1]** `calculation_basis`에 `transport_capacity`와 `reference_capacity`를 추가했다 (P0-1 이중 capacity 규칙).
 
 ```json
 {
@@ -1629,11 +1629,11 @@ GET /api/v1/health
 
 | ID | 이슈 | 수정 위치 | 상태 |
 |---|---|---|---|
-| EXT-P0-1 | `effective_capacity`를 단일 값으로 사용 → IMO G1/G2 이중 capacity 분리 필요 | §4.1, §5.1 — `transport_capacity`/`reference_capacity` 분리 | **수정 완료** |
-| EXT-P0-4 | Voyage 생성 API에서 DRAFT + INCLUDE_AS_PLAN 충돌 | §3.3 — `annual_inclusion_policy`를 요청에서 제거, DRAFT는 EXCLUDE 강제 | **수정 완료** |
-| EXT-P0-5 | Scenario compare 응답에 `scenario_id` 누락 | §5.1 — 각 시나리오에 `scenario_id` 추가 | **수정 완료** |
-| EXT-3.1 | 시나리오 응답에 capacity 필드 누락 | §5.1 — `calculation_basis`에 capacity 필드 추가 | **수정 완료** |
+|| EXT-P0-1 | `effective_capacity`를 단일 값으로 사용 → IMO G1/G2 이중 capacity 분리 필요 | §4.1, §5.1 — `transport_capacity`/`reference_capacity` 분리 | **수정 완료** |
+|| EXT-P0-4 | Voyage 생성 API에서 DRAFT + INCLUDE_AS_PLAN 충돌 | §3.3 — `annual_inclusion_policy`를 요청에서 제거, DRAFT는 EXCLUDE 강제 | **수정 완료** |
+|| EXT-P0-5 | Scenario compare 응답에 `scenario_id` 누락 | §5.1 — 각 시나리오에 `scenario_id` 추가 | **수정 완료** |
+|| EXT-3.1 | 시나리오 응답에 capacity 필드 누락 | §5.1 — `calculation_basis`에 capacity 필드 추가 | **수정 완료** |
 | EXT-3.3/P1-5 | CSV formula injection strip이 데이터 훼손 위험 | §8.2 — strip 대신 apostrophe escape로 변경 | **수정 완료** |
 | EXT-3.4/P1-6 | 오류 메시지 한국어 조사 처리 (`{field}은/는`) | §1.3.2, §11 — `field_label` 한글 라벨 도입 | **수정 완료** |
-| EXT-P1-2/3.2 | CalculationRun 조회 API 상세 누락 | §1.9 (신규) — GET /api/v1/calculations 상세 스펙 추가 | **추가 완료** |
+|| EXT-P1-2/3.2 | CalculationRun 조회 API 상세 누락 | §1.9 (신규) — GET /api/v1/calculations 상세 스펙 추가 | **추가 완료** |
 - **수정 소요**: Critical + Significant 이슈 해결에 약 2~3시간 소요 (문서 수정 기준).

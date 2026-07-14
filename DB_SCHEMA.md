@@ -121,7 +121,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_speed_positive CHECK (reference_speed_kn I
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `id` | UUID | PK | 항차 ID |
-| `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [C-3] | 선박 ID |
+| `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 선박 ID |
 | `voyage_no` | VARCHAR(100) | NULL | 사용자 입력 항차 번호 |
 | `status` | VARCHAR(20) | NOT NULL | DRAFT, PLANNED, IN_PROGRESS, COMPLETED, CONFIRMED, CANCELLED, ARCHIVED |
 | `regulation_year` | INTEGER | NULL **[C-1 추가]** | 해당 항차가 포함될 규정연도. `annual_inclusion_policy ≠ EXCLUDE`인 경우 NOT NULL 필수 |
@@ -163,7 +163,7 @@ ALTER TABLE voyage ADD CONSTRAINT chk_voyage_status
 ALTER TABLE voyage ADD CONSTRAINT chk_voyage_policy
     CHECK (annual_inclusion_policy IN ('EXCLUDE','INCLUDE_AS_PLAN','INCLUDE_AS_ACTUAL'));
 
--- status × annual_inclusion_policy 제약 (PRD §8.1.2 ORACLE-R1)
+-- status × annual_inclusion_policy 제약 (PRD §8.1.2 ORACLE-R-1)
 ALTER TABLE voyage ADD CONSTRAINT chk_status_policy CHECK (
     (status = 'DRAFT' AND annual_inclusion_policy = 'EXCLUDE')
     OR (status IN ('PLANNED','IN_PROGRESS') AND annual_inclusion_policy IN ('EXCLUDE','INCLUDE_AS_PLAN'))
@@ -171,7 +171,7 @@ ALTER TABLE voyage ADD CONSTRAINT chk_status_policy CHECK (
     OR (status IN ('CANCELLED','ARCHIVED') AND annual_inclusion_policy = 'EXCLUDE')
 );
 
--- regulation_year 범위 및 policy 연관 제약 [C-1]
+-- regulation_year 범위 및 policy 연관 제약 [DB-C-1]
 ALTER TABLE voyage ADD CONSTRAINT chk_regulation_year_range
     CHECK (regulation_year IS NULL OR regulation_year BETWEEN 2019 AND 2050);
 ALTER TABLE voyage ADD CONSTRAINT chk_year_policy
@@ -193,7 +193,7 @@ ALTER TABLE voyage ADD CONSTRAINT chk_arr_lon_range
     CHECK (arrival_lon IS NULL OR arrival_lon BETWEEN -180 AND 180);  -- [S-3]
 ```
 
-> **[C-1]** `regulation_year` 컬럼이 누락되어 있었다. 인덱스 `idx_voyage_year`가 이 컬럼을 참조하므로 DDL 실행이 실패했다. 컬럼을 추가하고, `annual_inclusion_policy ≠ EXCLUDE`인 경우 NOT NULL을强制하는 CHECK 제약도 추가했다.
+> **[DB-C-1]** `regulation_year` 컬럼이 누락되어 있었다. 인덱스 `idx_voyage_year`가 이 컬럼을 참조하므로 DDL 실행이 실패했다. 컬럼을 추가하고, `annual_inclusion_policy ≠ EXCLUDE`인 경우 NOT NULL을 강제하는 CHECK 제약도 추가했다.
 
 ---
 
@@ -202,7 +202,7 @@ ALTER TABLE voyage ADD CONSTRAINT chk_arr_lon_range
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `id` | UUID | PK | ID |
-| `voyage_id` | UUID | NOT NULL, FK → voyage(id) **ON DELETE CASCADE** [C-3] | 항차 ID |
+| `voyage_id` | UUID | NOT NULL, FK → voyage(id) **ON DELETE CASCADE** [DB-C-3] | 항차 ID |
 | `fuel_type` | VARCHAR(30) | NOT NULL, **FK → fuel_type(code) ON UPDATE CASCADE** [S-1] | 연료 종류 |
 | `planned_fuel_ton` | NUMERIC(12,4) | NULL | 계획 연료 사용량 |
 | `actual_fuel_ton` | NUMERIC(12,4) | NULL | 실제 연료 사용량 |
@@ -230,11 +230,11 @@ ALTER TABLE voyage_fuel_use ADD CONSTRAINT chk_actual_fuel_positive
     CHECK (actual_fuel_ton IS NULL OR actual_fuel_ton > 0);
 
 
--- ORACLE-C4: COMPLETED 상태에서는 최소 1개 actual_fuel_ton > 0 필요
+-- ORACLE-C-4: COMPLETED 상태에서는 최소 1개 actual_fuel_ton > 0 필요
 -- 애플리케이션 레벨에서 검증 (DB 트리거 또는 서비스 계층)
 ```
 
-> **[ORACLE-C4 제약]** `voyage.status = COMPLETED` 전환 시 최소 1개 `voyage_fuel_use.actual_fuel_ton > 0`이 필요하다. 이는 DB 제약보다 애플리케이션 서비스 계층에서 검증한다. DB 트리거 대안도 가능하나 복잡도가 높다.
+> **[ORACLE-C-4 제약]** `voyage.status = COMPLETED` 전환 시 최소 1개 `voyage_fuel_use.actual_fuel_ton > 0`이 필요하다. 이는 DB 제약보다 애플리케이션 서비스 계층에서 검증한다. DB 트리거 대안도 가능하나 복잡도가 높다.
 >
 > **[S-1]** `fuel_type`에 FK 제약 추가. `ON UPDATE CASCADE`로 연료 코드 변경 시 자동 전파.
 >
@@ -248,7 +248,7 @@ ALTER TABLE voyage_fuel_use ADD CONSTRAINT chk_actual_fuel_positive
 |---|---|---|---|
 | `id` | UUID | PK | 시나리오 ID |
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE CASCADE** **[S-8 추가]** | 대상 선박 |
-| `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE SET NULL** [C-3] | 기존 항차에서 생성된 경우 |
+| `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE SET NULL** [DB-C-3] | 기존 항차에서 생성된 경우 |
 | `scenario_type` | VARCHAR(20) | NOT NULL | DIRECT, DETOUR, SLOW_STEAMING |
 | `scenario_name` | VARCHAR(100) | NOT NULL | 표시명 |
 | `distance_nm` | NUMERIC(12,2) | NOT NULL | 시나리오 거리 |
@@ -261,7 +261,7 @@ ALTER TABLE voyage_fuel_use ADD CONSTRAINT chk_actual_fuel_positive
 | `risk_level` | VARCHAR(10) | NOT NULL | LOW, MEDIUM, HIGH, CRITICAL |
 | `is_adopted` | BOOLEAN | NOT NULL DEFAULT false | 사용자 반영 여부 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete **[M-1 추가]** |
-| `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE SET NULL** [C-3] | 사용된 기상 스냅샷 |
+| `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE SET NULL** [DB-C-3] | 사용된 기상 스냅샷 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
 
@@ -290,8 +290,8 @@ ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_risk
 |---|---|---|---|
 | `id` | UUID | PK | 계산 실행 ID |
 | `calculation_type` | VARCHAR(30) | NOT NULL | VOYAGE_ESTIMATE, SCENARIO, ANNUAL_DETERMINISTIC, ANNUAL_MONTE_CARLO |
-| `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [C-3] | 대상 선박 |
-| `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE RESTRICT** [C-3, #28 정정] | 관련 항차 (있으면). 계산 이력 보존을 위해 항차 물리 삭제를 차단 |
+| `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 대상 선박 |
+| `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE RESTRICT** [DB-C-3, #28 정정] | 관련 항차 (있으면). 계산 이력 보존을 위해 항차 물리 삭제를 차단 |
 | `input_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `parameter_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `model_version` | JSONB | NOT NULL | TECH_SPEC §10.1 structured JSON |
@@ -373,12 +373,12 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_param_hash_format
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `id` | UUID | PK | 시뮬레이션 실행 ID |
-| `calculation_run_id` | UUID | NOT NULL, FK → calculation_run(id) **ON DELETE RESTRICT** [C-3] | 계산 실행 참조 |
-| `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [C-3] | 대상 선박 |
+| `calculation_run_id` | UUID | NOT NULL, FK → calculation_run(id) **ON DELETE RESTRICT** [DB-C-3] | 계산 실행 참조 |
+| `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 대상 선박 |
 | `regulation_year` | INTEGER | NOT NULL | 기준연도 |
 | `target_rating` | VARCHAR(1) | NOT NULL | 목표 등급 (A~D, E 불가) |
 | `simulation_runs` | INTEGER | NOT NULL | Monte Carlo 반복 횟수 |
-| `snapshot_id` | UUID | NOT NULL, FK → simulation_snapshot(id) **ON DELETE RESTRICT** [C-3] | 스냅샷 참조. UNIQUE (1:1) |
+| `snapshot_id` | UUID | NOT NULL, FK → simulation_snapshot(id) **ON DELETE RESTRICT** [DB-C-3] | 스냅샷 참조. UNIQUE (1:1) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **검증 제약 [M-4, M-5]:**
@@ -404,7 +404,7 @@ CREATE UNIQUE INDEX idx_sim_snapshot_unique ON annual_simulation_run (snapshot_i
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `id` | UUID | PK | 스냅샷 ID |
-| `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [C-3] | 대상 선박 |
+| `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 대상 선박 |
 | `regulation_year` | INTEGER | NOT NULL | 기준연도 |
 | `voyages_json` | JSONB | NOT NULL | 항차별 완전한 데이터 사본 배열 |
 | `input_hash` | VARCHAR(71) | NOT NULL | 스냅샷 시점 input_hash |
@@ -483,7 +483,7 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 
 > TECH_SPEC §9: `a_raw` VARCHAR + `a_decimal` NUMERIC(30,6) 이중 저장.
 >
-> **[외부 리뷰 P0-1]** `capacity_rule`은 **reference CII 공식(CII_ref = a × Capacity^(-c))에만 적용**된다. attained CII의 transport work(W = transport_capacity × Distance)에는 선박의 실제 DWT/GT를 사용한다 (IMO G1 vs G2 분리). `capacity_rule` 컬럼은 reference line 테이블에 속하므로 올바르게 스코프된다.
+> **[EXT-P0-1]** `capacity_rule`은 **reference CII 공식(CII_ref = a × Capacity^(-c))에만 적용**된다. attained CII의 transport work(W = transport_capacity × Distance)에는 선박의 실제 DWT/GT를 사용한다 (IMO G1 vs G2 분리). `capacity_rule` 컬럼은 reference line 테이블에 속하므로 올바르게 스코프된다.
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -791,7 +791,7 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 
 ## 7. 전역 제약 및 트리거
 
-### 7.1 FK ON DELETE 정책 [C-3]
+### 7.1 FK ON DELETE 정책 [DB-C-3]
 
 > 모든 FK에 명시적 `ON DELETE` 동작을 지정한다.
 
