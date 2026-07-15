@@ -57,6 +57,35 @@ async def _insert_voyage(conn, vessel_id, status="DRAFT", policy="EXCLUDE") -> s
     return str(row.scalar_one())
 
 
+async def _insert_voyage_scenario(
+    conn,
+    vessel_id,
+    *,
+    distance_nm=1000,
+    speed_kn=12,
+    duration_hours=80,
+    fuel_ton=50,
+) -> str:
+    row = await conn.execute(
+        text(
+            "INSERT INTO voyage_scenario "
+            "(vessel_id, scenario_type, scenario_name, distance_nm, speed_kn, "
+            " duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
+            "VALUES (:vid, 'DIRECT', 'TEST SCENARIO', :dist, :spd, "
+            " :dur, :fuel, 5.0, 'C', 'MEDIUM') "
+            "RETURNING id"
+        ),
+        {
+            "vid": vessel_id,
+            "dist": distance_nm,
+            "spd": speed_kn,
+            "dur": duration_hours,
+            "fuel": fuel_ton,
+        },
+    )
+    return str(row.scalar_one())
+
+
 @pytest.mark.asyncio
 async def test_chk_actual_fuel_positive_rejects_negative(conn):
     """actual_fuel_ton 음수는 chk_actual_fuel_positive로 거부된다."""
@@ -154,3 +183,56 @@ async def test_fuel_type_no_action_delete(conn):
     )
     with pytest.raises(IntegrityError):
         await conn.execute(text("DELETE FROM fuel_type WHERE code = 'HFO'"))
+
+
+# ---------------------------------------------------------------------------
+# voyage_scenario 물리량 양수 CHECK (#84)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scenario_distance_positive_rejects_zero(conn):
+    """chk_scenario_distance_positive: distance_nm = 0은 거부된다. (#84)"""
+    vessel_id = await _insert_vessel(conn)
+    with pytest.raises(IntegrityError):
+        await _insert_voyage_scenario(conn, vessel_id, distance_nm=0)
+
+
+@pytest.mark.asyncio
+async def test_scenario_duration_positive_rejects_negative(conn):
+    """chk_scenario_duration_positive: 음수 duration_hours는 거부된다. (#84)"""
+    vessel_id = await _insert_vessel(conn)
+    with pytest.raises(IntegrityError):
+        await _insert_voyage_scenario(conn, vessel_id, duration_hours=-1)
+
+
+@pytest.mark.asyncio
+async def test_scenario_fuel_positive_rejects_zero(conn):
+    """chk_scenario_fuel_positive: fuel_ton = 0은 거부된다. (#84)"""
+    vessel_id = await _insert_vessel(conn)
+    with pytest.raises(IntegrityError):
+        await _insert_voyage_scenario(conn, vessel_id, fuel_ton=0)
+
+
+@pytest.mark.asyncio
+async def test_scenario_speed_positive_rejects_below_one(conn):
+    """chk_scenario_speed_positive: speed_kn = 0.7(1.0 미만)은 거부된다. (#84)
+
+    speed_kn 기준은 voyage(§2.2) chk_speed_positive와 통일해 >= 1.0이다. > 0이었다면
+    0.7이 통과해 채택(#58) 시 voyage 쪽에서 뒤늦게 실패했을 것이다.
+    """
+    vessel_id = await _insert_vessel(conn)
+    with pytest.raises(IntegrityError):
+        await _insert_voyage_scenario(conn, vessel_id, speed_kn=0.7)
+
+
+@pytest.mark.asyncio
+async def test_scenario_speed_boundary_allows_exactly_one(conn):
+    """chk_scenario_speed_positive: 경계값 speed_kn = 1.0은 통과한다(>= 검증). (#84)
+
+    이 정상 INSERT는 distance/duration/fuel 양수 제약의 정상 경로도 함께 커버한다.
+    >= 1.0을 > 1.0으로 잘못 구현했다면 이 테스트가 실패해 off-by-one을 잡는다.
+    """
+    vessel_id = await _insert_vessel(conn)
+    scenario_id = await _insert_voyage_scenario(conn, vessel_id, speed_kn=1.0)
+    assert scenario_id

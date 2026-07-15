@@ -109,6 +109,12 @@ def upgrade() -> None:
             "risk_level IN ('LOW','MEDIUM','HIGH','CRITICAL')",
             name="chk_scenario_risk",
         ),
+        # §2.4 물리량 양수 검증 (#84). speed_kn은 voyage(§2.2) chk_speed_positive와
+        # 통일해 >= 1.0 (채택 #58 시 voyage로 반영되므로 기준을 맞춰 뒤늦은 거부 방지).
+        sa.CheckConstraint("distance_nm > 0", name="chk_scenario_distance_positive"),
+        sa.CheckConstraint("speed_kn >= 1.0", name="chk_scenario_speed_positive"),
+        sa.CheckConstraint("duration_hours > 0", name="chk_scenario_duration_positive"),
+        sa.CheckConstraint("fuel_ton > 0", name="chk_scenario_fuel_positive"),
     )
 
     # §7.2: updated_at 자동 갱신 트리거.

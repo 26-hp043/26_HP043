@@ -132,6 +132,27 @@ async def test_calculation_run_hash_check_rejects_bad_format(conn):
 
 
 @pytest.mark.asyncio
+async def test_calculation_type_check_rejects_invalid(conn):
+    """chk_calculation_type: 4개 허용값 외 calculation_type은 거부된다. (#84)
+
+    허용값: VOYAGE_ESTIMATE, SCENARIO, ANNUAL_DETERMINISTIC, ANNUAL_MONTE_CARLO.
+    (정상 INSERT는 test_calculation_run_insert_ok가 VOYAGE_ESTIMATE로 커버한다.)
+    """
+    vessel_id = await _insert_vessel(conn)
+    with pytest.raises(IntegrityError):
+        await conn.execute(
+            text(
+                "INSERT INTO calculation_run "
+                "(calculation_type, vessel_id, input_hash, parameter_hash, "
+                " model_version, result_json, parameters_used) "
+                "VALUES ('INVALID_TYPE', :vid, :ih, :ph, "
+                " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)"
+            ),
+            {"vid": vessel_id, "ih": VALID_HASH, "ph": VALID_HASH},
+        )
+
+
+@pytest.mark.asyncio
 async def test_voyage_restrict_delete_with_calculation_run(conn):
     """[이번 RESTRICT 결정의 근거 증명]
 
