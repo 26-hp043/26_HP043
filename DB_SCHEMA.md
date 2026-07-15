@@ -274,11 +274,22 @@ ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_rating
     CHECK (estimated_rating IN ('A','B','C','D','E'));
 ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_risk
     CHECK (risk_level IN ('LOW','MEDIUM','HIGH','CRITICAL'));
+-- [#84] 물리량 양수 검증. speed_kn은 아래 각주 참조(voyage와 통일해 >= 1.0).
+ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_distance_positive
+    CHECK (distance_nm > 0);
+ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_speed_positive
+    CHECK (speed_kn >= 1.0);
+ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_duration_positive
+    CHECK (duration_hours > 0);
+ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_fuel_positive
+    CHECK (fuel_ton > 0);
 ```
 
 > **[S-8]** `vessel_id` 컬럼 추가. 기존 항차에서 생성되지 않은 독립 시나리오의 경우 `voyage_id`가 NULL이 되므로, 선박 단위 조회 및 권한 검사를 위해 `vessel_id`가 필수이다.
 >
 > **[M-1]** `is_deleted` 컬럼 추가. 다른 비즈니스 테이블과 삭제 정책을 통일한다.
+>
+> **[#84]** `distance_nm`, `speed_kn`, `duration_hours`, `fuel_ton`은 물리량이므로 양수 CHECK를 추가한다. `speed_kn`은 이슈 #84 본문의 `> 0`이 아니라 형제 테이블 `voyage`(§2.2 `chk_speed_positive`)의 `>= 1.0` 기준과 통일한다. 시나리오 채택(#58) 시 이 값이 `voyage.planned_speed_kn`으로 반영되는데, `> 0`으로 두면 `0.7`kn 같은 값이 입력 단계는 통과하나 채택 단계에서 `voyage`의 `>= 1.0`에 뒤늦게 걸리기 때문이다.
 
 ---
 
@@ -316,6 +327,10 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_input_hash_format
     CHECK (input_hash ~ '^sha256:[0-9a-f]{64}$');
 ALTER TABLE calculation_run ADD CONSTRAINT chk_param_hash_format
     CHECK (parameter_hash ~ '^sha256:[0-9a-f]{64}$');
+-- [#84] calculation_type enum 검증. 4개 허용값 외 임의 문자열 차단.
+ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
+    CHECK (calculation_type IN
+        ('VOYAGE_ESTIMATE','SCENARIO','ANNUAL_DETERMINISTIC','ANNUAL_MONTE_CARLO'));
 ```
 
 **`result_json` 구조 (계산 타입별):**

@@ -100,6 +100,12 @@ def upgrade() -> None:
             "parameter_hash ~ '^sha256:[0-9a-f]{64}$'",
             name="chk_param_hash_format",
         ),
+        # §2.5 calculation_type enum 검증 (#84). 4개 허용값 외 임의 문자열 차단.
+        sa.CheckConstraint(
+            "calculation_type IN "
+            "('VOYAGE_ESTIMATE','SCENARIO','ANNUAL_DETERMINISTIC','ANNUAL_MONTE_CARLO')",
+            name="chk_calculation_type",
+        ),
     )
 
     # §2.5 인덱스 (원문 그대로).
