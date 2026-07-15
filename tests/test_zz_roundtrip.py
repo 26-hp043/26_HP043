@@ -39,7 +39,8 @@ def test_downgrade_upgrade_roundtrip():
         assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
     finally:
         # 성공/실패와 무관하게 head로 복원한다(happy path에서는 no-op).
-        run_alembic("upgrade", "head")
+        restore = run_alembic("upgrade", "head")
+        assert restore.returncode == 0, f"{restore.stdout}\n{restore.stderr}"
 
 
 def test_partial_downgrade_preserves_immutability():
@@ -55,7 +56,8 @@ def test_partial_downgrade_preserves_immutability():
         asyncio.run(_assert_calculation_run_immutable())
     finally:
         # 부분 롤백 상태에서 head로 복원한다(실패해도 후속 테스트 오염 방지).
-        run_alembic("upgrade", "head")
+        restore = run_alembic("upgrade", "head")
+        assert restore.returncode == 0, f"{restore.stdout}\n{restore.stderr}"
 
 
 async def _assert_calculation_run_immutable() -> None:
