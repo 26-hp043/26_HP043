@@ -88,9 +88,7 @@ def upgrade() -> None:
     )
 
     # [S-2] 동일 항차+연료 타입 중복 방지 (중복 시 CO₂ 이중 산정 버그 방어).
-    op.execute(
-        "CREATE UNIQUE INDEX idx_fuel_use_unique ON voyage_fuel_use (voyage_id, fuel_type);"
-    )
+    op.execute("CREATE UNIQUE INDEX idx_fuel_use_unique ON voyage_fuel_use (voyage_id, fuel_type);")
 
     # §7.2: updated_at 자동 갱신 트리거.
     op.execute(
