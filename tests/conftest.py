@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 _ROOT = Path(__file__).resolve().parent.parent
@@ -32,7 +33,10 @@ def _async_url(url: str) -> str:
     return url
 
 
-TEST_DATABASE_URL = _async_url(os.environ.get("DATABASE_URL", DATABASE_URL))
+# config/환경변수의 원본 URL. run_alembic은 이 raw 값을 그대로 넘긴다(아래 참조).
+_RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
+# async 엔진(conn fixture)용: asyncpg 드라이버로 정규화한 URL.
+TEST_DATABASE_URL = _async_url(_RAW_DATABASE_URL)
 
 
 def run_alembic(*alembic_args: str) -> subprocess.CompletedProcess:
@@ -41,7 +45,10 @@ def run_alembic(*alembic_args: str) -> subprocess.CompletedProcess:
     PATH에 alembic 스크립트가 없어도(예: `python -m pytest` 직접 실행, CI) 동작하도록
     현재 인터프리터로 `python -m alembic`을 호출한다.
     """
-    env = {**os.environ, "DATABASE_URL": TEST_DATABASE_URL}
+    # 드라이버 정규화는 alembic/env.py의 _to_async_url()이 담당하므로, 여기서는
+    # 원본 URL을 그대로 전달한다. asyncpg form을 미리 넘겨 이중 변환하지 않음으로써,
+    # 향후 config.py가 raw postgresql:// 형식을 검증하더라도 깨지지 않게 한다. (#86)
+    env = {**os.environ, "DATABASE_URL": _RAW_DATABASE_URL}
     return subprocess.run(
         [sys.executable, "-m", "alembic", *alembic_args],
         cwd=_ROOT,
@@ -62,7 +69,9 @@ def migrated_db() -> None:
 @pytest_asyncio.fixture
 async def conn(migrated_db):
     """함수 단위 트랜잭션. 테스트 종료 시 롤백하여 DB를 오염시키지 않는다."""
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=None)
+    # env.py와 동일하게 NullPool 사용: 함수마다 엔진을 새로 만들고 dispose하므로
+    # 커넥션을 풀에 남기지 않아 누수를 방지한다. (#86)
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
     connection = await engine.connect()
     trans = await connection.begin()
     try:
