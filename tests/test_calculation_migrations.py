@@ -15,7 +15,6 @@
 """
 
 import pytest
-from conftest import run_alembic
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 

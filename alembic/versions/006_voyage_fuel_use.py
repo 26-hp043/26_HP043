@@ -65,12 +65,15 @@ def upgrade() -> None:
             name="fk_voyage_fuel_use_voyage",
             ondelete="CASCADE",
         ),
-        # [S-1]: 연료 코드 변경 시 자동 전파 (ON UPDATE CASCADE).
+        # [S-1] / §7.1: fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
+        # NO ACTION은 PostgreSQL 기본값이라 동작은 종전과 동일하나, [DB-C-3] "모든 FK에
+        # 명시적 ON DELETE 지정" 전역 정책과 형제 FK(003)에 맞춰 명시한다.
         sa.ForeignKeyConstraint(
             ["fuel_type"],
             ["fuel_type.code"],
             name="fk_voyage_fuel_use_fuel_type",
             onupdate="CASCADE",
+            ondelete="NO ACTION",
         ),
         # §2.3 검증 제약 (원문 그대로).
         sa.CheckConstraint(

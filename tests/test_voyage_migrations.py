@@ -12,7 +12,6 @@
 """
 
 import pytest
-from conftest import run_alembic
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -131,3 +130,27 @@ async def test_voyage_vessel_restrict_delete(conn):
     await _insert_voyage(conn, vessel_id)
     with pytest.raises(IntegrityError):
         await conn.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
+
+
+@pytest.mark.asyncio
+async def test_fuel_type_no_action_delete(conn):
+    """참조 중인 fuel_type의 물리 삭제는 거부된다 (DB_SCHEMA §7.1 ON DELETE NO ACTION).
+
+    전제(#80 검토 보고서): ON DELETE NO ACTION은 PostgreSQL FK의 기본 동작이라
+    이 테스트는 006에 ondelete를 명시하기 전/후와 무관하게 통과한다. #80 diff 자체를
+    증명하는 것이 아니라, §7.1의 삭제 정책을 행위로 못박아 향후 누군가 CASCADE 등으로
+    바꾸는 회귀를 막는 것이 목적이다 (형제 test_voyage_vessel_restrict_delete와 대칭).
+    """
+    vessel_id = await _insert_vessel(conn)
+    await _insert_fuel_type(conn)
+    voyage_id = await _insert_voyage(conn, vessel_id)
+    await conn.execute(
+        text(
+            "INSERT INTO voyage_fuel_use "
+            "(voyage_id, fuel_type, actual_fuel_ton, cf_used, source) "
+            "VALUES (:vid, 'HFO', 50, 3.114, 'USER_INPUT')"
+        ),
+        {"vid": voyage_id},
+    )
+    with pytest.raises(IntegrityError):
+        await conn.execute(text("DELETE FROM fuel_type WHERE code = 'HFO'"))
