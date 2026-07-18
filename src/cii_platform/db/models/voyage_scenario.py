@@ -1,12 +1,10 @@
 """voyage_scenario ORM 모델.
 
-DB_SCHEMA.md §2.4 (voyage_scenario) 참조. 컬럼·제약 정의는 마이그레이션 007과 1:1로
-일치해야 한다 (zero drift — tests/test_orm_schema_sync.py에서 검증).
+DB_SCHEMA.md §2.4 (voyage_scenario) 참조. 컬럼·제약 정의는 마이그레이션 007 + 013(FK 상환)과
+1:1로 일치해야 한다 (zero drift — tests/test_orm_schema_sync.py에서 검증).
 
 - voyage_id는 ON DELETE SET NULL이며 NULL 허용(독립 시나리오 가능).
-- weather_snapshot_id는 §2.4 정본대로 컬럼만 존재. weather_snapshot 테이블(§2.13)이
-  아직 없어 FK 제약은 후속 이슈의 별도 마이그레이션에서 추가한다 (007 주석 참조).
-  모델에도 FK를 정의하지 않는다 (정의 시 DB와 drift 발생).
+- weather_snapshot_id FK는 013에서 상환 (007은 weather_snapshot 테이블 부재로 컬럼만 생성).
 """
 
 import sqlalchemy as sa
@@ -66,6 +64,13 @@ class VoyageScenario(Base):
             ["voyage_id"],
             ["voyage.id"],
             name="fk_voyage_scenario_voyage",
+            ondelete="SET NULL",
+        ),
+        # 013 상환: weather_snapshot(§2.13) FK (§7.1 SET NULL — 기상 스냅샷 만료 시 시나리오 보존).
+        sa.ForeignKeyConstraint(
+            ["weather_snapshot_id"],
+            ["weather_snapshot.id"],
+            name="fk_voyage_scenario_weather",
             ondelete="SET NULL",
         ),
         # §2.4 검증 제약 [S-4] (원문 그대로).
