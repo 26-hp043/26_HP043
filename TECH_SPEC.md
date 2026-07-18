@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.2 |
-| 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-07-04 |
+| 버전 | v1.3 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) |
+| 최종 수정일 | 2026-07-18 |
 | 상위 문서 | `PRD.md` v3.1 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -27,6 +27,8 @@
 | 기상 데이터 어댑터 인터페이스 | §15.3 |
 | 스냅샷 격리 | §8.4 (ORACLE-R-5) |
 | 오류 전파 및 검증 | §9.1 (VAL-001~010), §16.2 |
+
+> 코드 모듈 구조와 계층 간 호출 규칙(서비스 레이어 아키텍처)은 §16에서 정의한다.
 
 ---
 
@@ -1292,7 +1294,84 @@ class SimulationSnapshot:
 
 ---
 
-## 16. 참고 문헌
+## 16. 서비스 레이어 아키텍처
+
+> **[#100 확정]** 비즈니스 로직·계산·DB 접근·HTTP 처리가 어느 모듈에 위치해야 하는지 규칙을 정의한다. 이 규칙이 없으면 같은 계산 로직이 여러 API에 중복되고, 개발자마다 다른 패턴을 따르게 되어 유지보수성이 무너진다.
+
+### 16.1 계층 개요
+
+요청은 위에서 아래로 흐르고, 각 계층은 바로 아래 계층만 호출한다:
+
+```
+사용자 요청
+    ↓
+[api/routes]        ← HTTP 요청/응답만 (검증, 직렬화). 서비스만 호출.
+    ↓
+[services]          ← 비즈니스 로직 (계산 흐름, 규칙, fallback·상태 전환 결정)
+    ↓         ↘
+[calc]              [db/repositories]   ← 서비스가 계산 엔진과 저장소를 조합
+ (수학 계산)          (DB 쿼리만)
+                        ↓
+                     [db/models] (ORM)
+                        ↓
+                     데이터베이스
+```
+
+### 16.2 디렉토리 구조
+
+```
+src/cii_platform/
+├── errors.py            ← 공통 예외 base (AppError). 레이어 중립.
+├── config.py            ← 설정 (DATABASE_URL 등)
+├── api/
+│   ├── main.py          ← FastAPI app
+│   ├── routes/          ← HTTP 요청/응답만
+│   ├── schemas/         ← 요청/응답 Pydantic 스키마 (API 표현)
+│   └── error_handlers.py ← 예외 → API_SPEC §1.3.2 응답 변환, 핸들러 등록
+├── services/            ← 비즈니스 로직
+├── calc/                ← CII 계산 엔진 (Layer 1 Decimal / Layer 2 Monte Carlo)
+└── db/
+    ├── models/          ← SQLAlchemy ORM 모델 (DB 표현)
+    └── repositories/    ← DB 접근(쿼리)만
+```
+
+### 16.3 계층 간 규칙
+
+| 계층 | 하는 일 | 하지 않는 일 | 호출 가능 대상 |
+|---|---|---|---|
+| `api/routes` | 요청 검증, 응답 직렬화 | 계산, DB 직접 접근 | `services`만 |
+| `services` | 계산 흐름 조율, 비즈니스 규칙, fallback·상태 전환 결정 | HTTP 처리, 원시 SQL | `calc`, `db/repositories` |
+| `calc` | 순수 수학 계산 | DB 접근, HTTP, 비즈니스 흐름 | (없음 — 순수 함수) |
+| `db/repositories` | DB 쿼리(SELECT/INSERT…) | 비즈니스 로직, 계산 | `db/models` |
+| `db/models` | ORM 테이블 정의 | 비즈니스 로직 | (없음) |
+
+- **역방향 의존 금지**: 하위 계층은 상위 계층을 import하지 않는다. 특히 `calc`·`db`·`services`는 `api`를 import하지 않는다.
+- ORM 모델은 `db/models`, API 스키마는 `api/schemas`로 분리한다(DB 표현과 API 표현의 혼용 방지).
+
+### 16.4 오류 처리
+
+계층에서 발생한 오류를 API 표준 오류 응답으로 일관되게 변환한다.
+
+- **오류 분류·전파·HTTP status**: §12.1(오류 분류), §12.2(전파 규칙), API_SPEC §1.4(HTTP Status 매핑)를 그대로 따른다. 본 섹션은 값을 재정의하지 않는다.
+- **응답 포맷**: API_SPEC §1.3.2(`{"error": {...}, "meta": {...}}`)를 따른다.
+- **base 예외 위치**: 공통 base 예외 `AppError`는 레이어 중립 위치인 `src/cii_platform/errors.py`에 둔다. 이유: 예외를 던지는 주체는 하위 계층(`calc`/`services`/`db`)인데, base 예외를 `api`에 두면 하위 계층이 `api`를 import하는 역방향 의존이 생겨 §16.3 규칙을 위반한다.
+- **변환 위치**: `api/error_handlers.py`가 `errors.py`를 import하여 `AppError`(및 상속 예외)를 API 응답으로 변환하고, `register_exception_handlers(app)`로 FastAPI app에 등록한다. app 등록 호출은 #49에서 수행한다.
+- 구체 예외 6종(§12.1의 `ValidationError` 등)은 각 계산·검증 로직 구현 이슈에서 `AppError`를 상속해 정의한다.
+
+### 16.5 PR 리뷰 체크리스트 — 계층 분리 준수
+
+PR 리뷰 시 다음을 확인한다:
+
+- [ ] `api/routes`가 `services`만 호출하고 `db`·`calc`를 직접 호출하지 않는가
+- [ ] `services`가 HTTP 객체(Request/Response)나 원시 SQL을 다루지 않는가
+- [ ] `calc`가 DB·HTTP·비즈니스 흐름에 의존하지 않는 순수 함수인가
+- [ ] `db/repositories`에 비즈니스 로직(상태 전환 검증, fallback 결정 등)이 섞이지 않았는가
+- [ ] 하위 계층(`calc`/`db`/`services`)이 `api`를 import하지 않는가(역방향 의존 없음)
+- [ ] 오류가 `AppError` 계열로 던져지고 API 응답 포맷(API_SPEC §1.3.2)을 따르는가
+
+---
+
+## 17. 참고 문헌
 
 1. Townsin, R.L. & Kwon, Y.J. (1982). "Approximate formulae for the speed loss due to added resistance in wind and waves." *RINA Transactions*.
 2. Kwon, Y.J. (2008). "Speed loss due to added resistance in wind and waves." *The Naval Architect*, RINA (March 2008).
