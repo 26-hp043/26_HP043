@@ -7,6 +7,8 @@ HTTP status 매핑(TECH_SPEC §12.1), 오류 응답 포맷(API_SPEC §1.3.2), �
 DB에 의존하지 않는다(conftest의 `migrated_db`/`conn` 픽스처를 요청하지 않음).
 """
 
+import re
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -50,6 +52,12 @@ def test_to_error_response_omits_details_when_none() -> None:
     assert "details" not in body["error"]
 
 
+def test_to_error_response_omits_none_meta_keys() -> None:
+    # API_SPEC §1.3.2는 meta 값을 문자열로 전제 → 값 없는 키는 null 대신 생략.
+    body = to_error_response("PARAMETER_ERROR", "해당 연도의 규정 파라미터가 없습니다.")
+    assert body["meta"] == {}
+
+
 def test_registered_handler_converts_app_error_end_to_end() -> None:
     app = FastAPI()
     register_exception_handlers(app)
@@ -64,3 +72,7 @@ def test_registered_handler_converts_app_error_end_to_end() -> None:
     assert payload["error"]["code"] == "PARAMETER_ERROR"
     assert payload["error"]["message"] == "해당 연도의 규정 파라미터가 없습니다."
     assert "details" not in payload["error"]
+    # timestamp는 미들웨어 미주입 시에도 핸들러가 UTC ISO8601로 채운다.
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", payload["meta"]["timestamp"])
+    # request_id는 미들웨어(#49) 도입 전이므로 null 대신 생략된다.
+    assert "request_id" not in payload["meta"]

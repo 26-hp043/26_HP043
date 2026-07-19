@@ -16,6 +16,7 @@ TECH_SPEC §16).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from fastapi.responses import JSONResponse
@@ -49,14 +50,19 @@ def to_error_response(
 
     Returns:
         JSON 직렬화 가능한 오류 응답 dict.
+
+    API_SPEC §1.3.2 예시는 meta 값이 문자열임을 전제하므로, 값이 없는
+    meta 키는 null로 내리지 않고 생략한다.
     """
     error: dict[str, object] = {"code": code, "message": message}
     if details is not None:
         error["details"] = details
-    return {
-        "error": error,
-        "meta": {"request_id": request_id, "timestamp": timestamp},
-    }
+    meta: dict[str, object] = {}
+    if request_id is not None:
+        meta["request_id"] = request_id
+    if timestamp is not None:
+        meta["timestamp"] = timestamp
+    return {"error": error, "meta": meta}
 
 
 async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
@@ -64,12 +70,19 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 
     HTTP status는 :attr:`AppError.http_status`(= TECH_SPEC §12.1 매핑)에서 가져온다.
     """
-    request_id = getattr(getattr(request, "state", None), "request_id", None)
+    state = getattr(request, "state", None)
+    request_id = getattr(state, "request_id", None)
+    # 미들웨어(#49) 주입값을 우선하되, 없으면 여기서 UTC 현재 시각으로 채운다.
+    # API_SPEC §1.3.2가 timestamp를 ISO8601 문자열로 전제하므로 null로 내리지 않는다.
+    timestamp = getattr(state, "timestamp", None) or datetime.now(UTC).isoformat(
+        timespec="seconds"
+    ).replace("+00:00", "Z")
     body = to_error_response(
         exc.code,
         exc.message,
         details=exc.details,
         request_id=request_id,
+        timestamp=timestamp,
     )
     return JSONResponse(status_code=exc.http_status, content=body)
 
