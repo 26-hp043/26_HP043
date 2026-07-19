@@ -32,7 +32,11 @@ def _compare(sync_conn, metadata: sa.MetaData) -> list:
 
 
 async def test_orm_models_match_db_zero_drift(conn):
-    """8개 테이블 ORM 모델이 마이그레이션 결과 DB와 정확히 일치한다."""
+    """8개 테이블 ORM 모델이 마이그레이션 결과 DB와 일치한다.
+
+    server_default는 비교에서 제외한다(_compare 참조 — 텍스트 표기 차이 오탐).
+    그 외 테이블·컬럼·타입·제약·인덱스는 diff 0을 요구한다.
+    """
     diffs = await conn.run_sync(_compare, Base.metadata)
     assert diffs == [], f"ORM 모델과 DB 스키마가 불일치:\n{diffs}"
 
