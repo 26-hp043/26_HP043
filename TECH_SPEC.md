@@ -5,7 +5,7 @@
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-07-04 |
+| 최종 수정일 | 2026-07-14 |
 | 상위 문서 | `PRD.md` v3.1 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -1301,3 +1301,17 @@ class SimulationSnapshot:
 5. IMO Resolution MEPC.353(78) — CII Reference Lines Guidelines (G2).
 6. IMO Resolution MEPC.354(78) — CII Rating Guidelines (G4).
 7. Open-Meteo Marine API documentation. https://open-meteo.com/en/docs/marine-weather-api
+
+---
+
+## 변경 이력
+
+> git 커밋 기록에서 복원했다(날짜는 커밋 기준). 버전 번호 매핑은 커밋 메시지·헤더 기준의 추정을 포함한다.
+
+| 날짜 | 커밋 | 변경 요약 |
+|---|---|---|
+| 2026-07-03 | `060beb5` | v1.1 최초 작성 |
+| 2026-07-03 | `9f8a7eb` | 외부 리뷰 반영 (capacity 규칙 분리 등) |
+| 2026-07-04 | `bee61e9` | canonical vector 고정 + 포맷 정리 |
+| 2026-07-04 | `ec1bf23` | Oracle 3차 리뷰 반영 (F-006~F-008) → v1.2 |
+| 2026-07-14 | `0173105` | annotation 라벨 번호 정규화 (5개 정본 일괄) |
