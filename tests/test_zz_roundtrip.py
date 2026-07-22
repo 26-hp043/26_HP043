@@ -13,7 +13,8 @@ async ``conn`` fixture를 쓰는 다른 테스트와 실행이 섞이면 빈 스
 (둘 다 ``downgrade base → upgrade head``로 전체 체인을 한 번에 왕복하므로 중복).
 """
 
-import asyncio
+import sys
+import warnings
 
 import pytest
 from conftest import TEST_DATABASE_URL, run_alembic
@@ -23,6 +24,26 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # sha256: + 64 hex — chk_input_hash_format를 통과하는 유효 해시.
 VALID_HASH = "sha256:" + "a" * 64
+
+
+def _restore_to_head() -> None:
+    """finally에서 스키마를 head로 복원한다 (#95 문제 2).
+
+    try 블록이 이미 예외로 중단된 상태(``sys.exc_info()``가 진행 중 예외를 가리킴)에서
+    복원까지 실패할 때, assert로 새 예외를 던지면 원래 실패 원인이 가려진다(finally의
+    예외가 try의 예외를 대체하기 때문). 이 경우엔 ``warnings.warn``으로 원래 예외를
+    보존하고, try가 정상 종료된 경우(진행 중 예외 없음)에만 복원 실패를
+    ``AssertionError``로 올려 후속 테스트 스키마 오염을 드러낸다.
+    """
+    restore = run_alembic("upgrade", "head")
+    if restore.returncode == 0:
+        return
+    detail = f"{restore.stdout}\n{restore.stderr}"
+    if sys.exc_info()[0] is None:
+        # try 성공 → 복원 실패는 테스트 실패로 올린다(오염 방지).
+        raise AssertionError(f"restore(upgrade head) 실패: {detail}")
+    # try가 이미 실패한 상태 → 원래 예외를 가리지 않도록 경고만 남긴다.
+    warnings.warn(f"restore(upgrade head)도 실패 — 원래 예외 유지: {detail}", stacklevel=2)
 
 
 def test_downgrade_upgrade_roundtrip():
@@ -39,11 +60,10 @@ def test_downgrade_upgrade_roundtrip():
         assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
     finally:
         # 성공/실패와 무관하게 head로 복원한다(happy path에서는 no-op).
-        restore = run_alembic("upgrade", "head")
-        assert restore.returncode == 0, f"{restore.stdout}\n{restore.stderr}"
+        _restore_to_head()
 
 
-def test_partial_downgrade_preserves_immutability():
+async def test_partial_downgrade_preserves_immutability():
     """부분 다운그레이드(009만 롤백) 후에도 calculation_run immutable이 유지된다.
 
     공유 함수 prevent_mutation()을 009가 아닌 008이 소유하도록 한 결정의 근거.
@@ -53,11 +73,10 @@ def test_partial_downgrade_preserves_immutability():
     step = run_alembic("downgrade", "008")
     assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
-        asyncio.run(_assert_calculation_run_immutable())
+        await _assert_calculation_run_immutable()
     finally:
         # 부분 롤백 상태에서 head로 복원한다(실패해도 후속 테스트 오염 방지).
-        restore = run_alembic("upgrade", "head")
-        assert restore.returncode == 0, f"{restore.stdout}\n{restore.stderr}"
+        _restore_to_head()
 
 
 async def _assert_calculation_run_immutable() -> None:
