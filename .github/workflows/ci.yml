@@ -45,7 +45,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
       - run: pip install -e ".[dev]"
-      - run: pip install numpy==2.1.0
       - run: pytest --cov=cii_platform --cov-report=xml --cov-report=term-missing
         env:
           DATABASE_URL: postgresql://cii:cii@localhost:5432/cii_test
