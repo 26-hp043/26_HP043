@@ -3,10 +3,10 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.2 |
-| 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-07-16 |
-| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2, `API_SPEC.md` v1.2 |
+| 버전 | v1.3 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) |
+| 최종 수정일 | 2026-07-18 |
+| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.3, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
 
@@ -303,6 +303,7 @@ ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_fuel_positive
 | `calculation_type` | VARCHAR(30) | NOT NULL | VOYAGE_ESTIMATE, SCENARIO, ANNUAL_DETERMINISTIC, ANNUAL_MONTE_CARLO |
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 대상 선박 |
 | `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE RESTRICT** [DB-C-3, #28 정정] | 관련 항차 (있으면). 계산 이력 보존을 위해 항차 물리 삭제를 차단 |
+| `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE RESTRICT** [#102] | 계산에 사용한 기상 스냅샷 (있으면). NONE 모델·fallback 계산은 NULL. ⚠️ 실물 컬럼·FK는 #103(013 `weather_snapshot`) 생성 후 **016+ 후속 마이그레이션**에서 추가 |
 | `input_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `parameter_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `model_version` | JSONB | NOT NULL | TECH_SPEC §10.1 structured JSON |
@@ -342,7 +343,9 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
   "required_cii": "5.045066",
   "rating": "C",
   "co2_ton": "249.12",
-  "risk_level": "MEDIUM"
+  "risk_level": "MEDIUM",
+  "weather_factor": "1.0482",            // [#102] 재현성 계약 (TECH_SPEC §5.4). NONE/fallback이면 "1.0"
+  "weather_snapshot_id": "uuid-or-null"  // [#102] 사용한 기상 스냅샷. 없으면 null
 }
 
 // ANNUAL_MONTE_CARLO
@@ -380,6 +383,8 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 > **검증 책임 (parameter_hash vs parameters_used):** `SHA256(canonical_json(parameters_used)) == parameter_hash` 검증은 애플리케이션 서비스 계층 또는 테스트 단계에서 수행한다 (Oracle 추가 관찰 #9).
 >
 > **[#28 정정]** `voyage_id`의 ON DELETE 정책을 `SET NULL` → `RESTRICT`로 정정했다 (이슈 #28). 근거: `calculation_run`은 immutable(§7.3, `BEFORE UPDATE OR DELETE` 트리거)이다. `SET NULL`은 PostgreSQL 내부적으로 자식 행 UPDATE로 실행되는데, immutable 트리거가 이 UPDATE를 차단하여 부모 `voyage` 삭제 트랜잭션 전체가 롤백된다. 즉 `SET NULL`은 원리적으로 달성 불가능하고 실효 동작이 `RESTRICT`다. 실효 동작에 문서를 맞추고, §7.1의 "immutable 테이블 참조는 RESTRICT" 관례와 대칭을 회복한다. (평소에는 voyage가 soft-delete(§2.2 `is_deleted`)만 되므로 이 경로가 드물어 잠복해 있던 모순이다.)
+>
+> **[#102] `weather_snapshot_id` 컬럼 (스펙 선행 정의):** 계산에 사용한 기상 스냅샷을 기록하여 재현성 계약(TECH_SPEC §5.4)의 추적성을 보장한다. 이슈 #102 본문의 "행 삭제 시 NULL로 설정"(SET NULL)은 [#28 정정]과 동일한 이유(immutable 트리거가 자식 UPDATE 차단)로 달성 불가능하므로 **RESTRICT로 정정**한다. NULL 허용 근거: `weather_model = NONE`·캐시 만료 fallback(TECH_SPEC §7.3)은 스냅샷 없이 계산하는 정상 경로이며, 컬럼 추가 이전의 기존 행도 backfill이 불가능하다. 실물 컬럼·FK·ORM 모델 반영은 #103(013 `weather_snapshot` 테이블) 완료 후 016+ 후속 마이그레이션에서 수행한다(ROADMAP §4.1 번호 규약).
 
 ---
 
@@ -614,6 +619,8 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 ```
 
 > 캐시 TTL 24시간. 24시간 초과 스냅샷은 PRD §11.6 기상 API 장애 정책에 따라 fallback 처리된다.
+>
+> **[#102] TTL과 보존의 구분:** TTL 24시간은 **재사용 판단 기준(신선도 창)이지 삭제 스케줄이 아니다.** `calculation_run.weather_snapshot_id`(§2.5 [#102], FK **RESTRICT**)가 참조하는 스냅샷은 TTL 경과와 무관하게 보존되어야 재현성 계약(TECH_SPEC §5.4)의 추적성이 성립한다. 캐시 정리(eviction) 작업은 **참조되지 않는 행만** 삭제해야 하며, 참조 행을 포함한 일괄 DELETE는 RESTRICT에 막혀 트랜잭션 전체가 롤백된다.
 
 ---
 
@@ -823,6 +830,7 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 | `calculation_run(id)` | `annual_simulation_run.calculation_run_id` | **RESTRICT** | immutable 테이블 참조 |
 | `simulation_snapshot(id)` | `annual_simulation_run.snapshot_id` | **RESTRICT** | immutable 테이블 참조 |
 | `weather_snapshot(id)` | `voyage_scenario.weather_snapshot_id` | **SET NULL** | 기상 스냅샷 만료 시 시나리오 보존 |
+| `weather_snapshot(id)` | `calculation_run.weather_snapshot_id` | **RESTRICT** [#102] | immutable 테이블 참조(§7.3). SET NULL은 자식 UPDATE라 트리거에 차단됨 → RESTRICT (§2.5 [#102] 참조) |
 | `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE CASCADE** (코드 변경 시), ON DELETE NO ACTION (활성 연료 삭제 방지) |
 | `fuel_type(code)` | `voyage_fuel_use.fuel_type` | **ON UPDATE CASCADE**, ON DELETE NO ACTION |
 

@@ -4,7 +4,7 @@
 |---|---|
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.3 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) |
+| 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) |
 | 최종 수정일 | 2026-07-18 |
 | 상위 문서 | `PRD.md` v3.1 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
@@ -773,6 +773,20 @@ def compute_input_hash(calculation_input: dict) -> str:
 ```
 
 > **[ORACLE-S-5 주의]** `weather_factor`는 hash 계산 시점에 이미 계산되어 있어야 한다. 기상 데이터 조회가 비동기인 경우, 조회 완료 후 hash를 계산한다. `weather_model = NONE`이면 `weather_factor = 1.0`으로 설정한다.
+
+### 5.4 재현성 계약 (Reproducibility Contract)
+
+> **[#102]** 기상 데이터 갱신과 재현성의 관계를 명확히 정의한다. 상위 근거: PRD §16.2 신뢰성 — "계산 재현성: 동일 입력·동일 파라미터·동일 seed는 동일 결과".
+
+**계약:**
+
+1. **재현성의 단위는 `input_hash`다.** 동일 `input_hash` + 동일 `parameter_hash` + 동일 `model_version`(Monte Carlo는 동일 seed 포함) → 항상 동일 결과.
+2. `input_hash`는 **확정된(resolved) `weather_factor`를 포함**한다(§5.3 `INPUT_FIELDS`, [ORACLE-S-5]). 따라서 기상 데이터가 갱신되면 `weather_factor`가 달라져 새로운 `input_hash`가 생성되고, 이는 **별개의 새 계산으로 취급한다. 이것은 의도된 동작(by design)이다.**
+3. **"동일 항차 → 동일 결과"는 계약이 아니다.** 같은 항차라도 계산 시점의 기상(캐시 상태)에 따라 `weather_factor`가 달라질 수 있으며, 이때 결과가 달라지는 것은 재현성 위반(버그)이 아니라 **입력이 달라진 것**이다. 재현성 위반은 오직 "동일 `input_hash`인데 결과가 다른 경우"만을 뜻한다.
+4. **추적성**: 계산에 사용된 기상 스냅샷은 `calculation_run.weather_snapshot_id`(DB_SCHEMA §2.5 — #103의 `weather_snapshot` 테이블(013) 생성 후 016+ 후속 마이그레이션에서 컬럼 추가)로 기록하여 "이 계산은 어떤 기상 데이터로 실행되었나"를 사후 감사할 수 있다. `weather_factor` 값과 `weather_snapshot_id`는 `result_json`에도 포함한다.
+5. **스냅샷 없는 계산도 정상 경로다.** `weather_model = NONE`이거나 캐시 만료 fallback(§7.3) 시 `weather_factor = 1.0`이고 `weather_snapshot_id`는 NULL이다.
+6. **재검증 절차**: 과거 계산의 재현은 새 기상 조회 없이 저장된 입력(동일 `weather_factor` 포함)으로 수행한다. 재현 결과가 원본과 불일치하면 `ReproducibilityError`(§12.1)로 처리한다.
+7. **계약의 범위(경계)**: 본 계약은 **입력 식별(hashing) 차원**의 재현성을 정의한다. 수치 연산 자체의 결정론 — Layer 1 Decimal bit-exact(§1), Monte Carlo RNG 고정(PCG64DXSM, §2) — 은 본 계약의 **전제조건**이며, NumPy 버전 변경에 따른 난수 재현성 정책은 **#106**에서 별도로 정의한다. 따라서 6항의 `ReproducibilityError`는 입력 동일성이 확인된 뒤 발생한 수치 불일치를 가리키며, 그 근본 원인 규명(numpy 버전·RNG 구현 변경 등)은 #106의 정책을 따른다.
 
 ---
 
