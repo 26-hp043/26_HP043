@@ -15,6 +15,7 @@ if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
+from cii_platform.db.models import Base  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -47,9 +48,9 @@ def _to_async_url(url: str) -> str:
 # config 모듈의 DATABASE_URL을 단일 소스로 사용한다 (alembic.ini에 하드코딩 금지).
 config.set_main_option("sqlalchemy.url", _to_async_url(DATABASE_URL))
 
-# 모델(SQLAlchemy Base)이 아직 없으므로 autogenerate 미사용. 마이그레이션은 수기 작성한다.
-# 향후 ORM 모델 도입 시 Base.metadata를 연결한다.
-target_metadata = None
+# ORM 모델(cii_platform.db.models)의 metadata를 연결하여 autogenerate를 활성화한다 (#101).
+# 모델↔DB 일치(zero drift)는 tests/test_orm_schema_sync.py가 CI에서 검증한다.
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
