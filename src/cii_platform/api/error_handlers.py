@@ -16,11 +16,11 @@ TECH_SPEC §16).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from fastapi.responses import JSONResponse
 
+from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.errors import AppError
 
 if TYPE_CHECKING:
@@ -72,11 +72,9 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     """
     state = getattr(request, "state", None)
     request_id = getattr(state, "request_id", None)
-    # 미들웨어(#49) 주입값을 우선하되, 없으면 여기서 UTC 현재 시각으로 채운다.
+    # 미들웨어(#49)가 주입한 값을 우선하되, 없으면 동일 포맷 헬퍼로 채운다.
     # API_SPEC §1.3.2가 timestamp를 ISO8601 문자열로 전제하므로 null로 내리지 않는다.
-    timestamp = getattr(state, "timestamp", None) or datetime.now(UTC).isoformat(
-        timespec="seconds"
-    ).replace("+00:00", "Z")
+    timestamp = getattr(state, "timestamp", None) or iso_utc_now()
     body = to_error_response(
         exc.code,
         exc.message,
