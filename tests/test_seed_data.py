@@ -7,9 +7,12 @@
    ``a_decimal``이 ``a_raw``에서 계산된 값이 아니라 독립 전사이므로 실제로 오전사를 잡는다.
 2. **적재 검증 (DB 필요)** — ``seed_all``을 실행해 이슈 #33 완료 기준(값 조회, 재실행
    idempotency)을 확인한다.
+3. **CLI 진입점 (DB 불필요)** — ``scripts/seed.py``의 URL 정규화를 검증한다.
 """
 
+import importlib.util
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from sqlalchemy import text
@@ -252,3 +255,50 @@ async def test_seed_updates_changed_values(seeded):
     ).one()
     assert row.a_decimal == Decimal("147790000000000")
     assert row.c == Decimal("2.673000")
+
+
+# --- 3. CLI 진입점 (DB 불필요) --------------------------------------------------
+
+
+def _load_seed_script():
+    """``scripts/seed.py``를 모듈로 로드한다.
+
+    ``scripts/``는 Python 패키지가 아니라 일반 import가 불가능하므로 파일 경로로
+    직접 로드한다. 스크립트는 ``if __name__ == "__main__"`` 가드 뒤에서만 실행되므로
+    import 시 DB에 접속하지 않는다.
+    """
+    path = Path(__file__).resolve().parent.parent / "scripts" / "seed.py"
+    spec = importlib.util.spec_from_file_location("seed_script", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        # 이미 asyncpg — 그대로 둔다.
+        (
+            "postgresql+asyncpg://cii:cii@localhost:5432/cii",
+            "postgresql+asyncpg://cii:cii@localhost:5432/cii",
+        ),
+        # 드라이버 생략(CI가 주입하는 형식) — asyncpg를 붙인다.
+        (
+            "postgresql://cii:cii@localhost:5432/cii_test",
+            "postgresql+asyncpg://cii:cii@localhost:5432/cii_test",
+        ),
+        # 다른 postgresql 드라이버 — asyncpg로 바꾼다(설치된 드라이버가 asyncpg뿐).
+        ("postgresql+psycopg://cii@db/cii", "postgresql+asyncpg://cii@db/cii"),
+        # postgresql이 아니면 손대지 않는다.
+        ("sqlite+aiosqlite:///./x.db", "sqlite+aiosqlite:///./x.db"),
+    ],
+)
+def test_seed_script_normalizes_database_url(given, expected):
+    """프로덕션 seed 진입점의 URL 정규화 분기를 고정한다.
+
+    이 스크립트는 배포 시 ``alembic upgrade head`` 이후 규제 파라미터를 넣는 유일한
+    경로다. 정규화가 조용히 틀리면 첫 배포 실행에서야 드러나므로 여기서 잠근다.
+    구현은 ``alembic/env.py``의 ``_to_async_url``·``tests/conftest.py``의
+    ``_async_url``과 같은 정책이어야 한다.
+    """
+    assert _load_seed_script()._to_async_url(given) == expected
