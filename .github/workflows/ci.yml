@@ -14,8 +14,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install ruff==0.15.20
-      - run: ruff check src/ alembic/ tests/
-      - run: ruff format --check src/ alembic/ tests/
+      - run: ruff check src/ alembic/ tests/ scripts/
+      - run: ruff format --check src/ alembic/ tests/ scripts/
 
   test:
     runs-on: ubuntu-latest
