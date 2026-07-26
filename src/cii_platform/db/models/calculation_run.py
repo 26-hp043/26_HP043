@@ -86,4 +86,7 @@ class CalculationRun(Base):
         sa.Index("idx_calc_vessel", vessel_id, created_at.desc()),
         sa.Index("idx_calc_input_hash", "input_hash", "parameter_hash"),
         sa.Index("idx_calc_type", calculation_type, created_at.desc()),
+        # FK 자식 인덱스 (016, #115). RESTRICT 검사가 weather_snapshot DELETE마다
+        # calculation_run을 full scan하지 않도록 한다.
+        sa.Index("idx_calc_weather_snapshot", "weather_snapshot_id"),
     )

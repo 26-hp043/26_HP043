@@ -1,4 +1,4 @@
-"""calculation_run.weather_snapshot_id 컬럼 + FK
+"""calculation_run.weather_snapshot_id 컬럼 + FK + 자식 인덱스
 
 Revision ID: 016
 Revises: 015
@@ -18,6 +18,12 @@ DB_SCHEMA.md §2.5 [#102] (weather_snapshot_id 컬럼 스펙), §7.1 (FK 정책,
 - NULL을 허용한다. weather_model = NONE·캐시 만료 fallback(TECH_SPEC §7.3)은
   스냅샷 없이 계산하는 정상 경로이고, immutable 트리거 때문에 기존 행 backfill도
   불가능하다(§2.5 [#102] NULL 허용 근거).
+- 자식 인덱스 idx_calc_weather_snapshot을 함께 만든다(이슈 체크리스트 외 항목).
+  PostgreSQL은 FK 자식 컬럼에 인덱스를 자동 생성하지 않으므로, RESTRICT 검사가
+  weather_snapshot DELETE마다 calculation_run을 full scan한다. §2.13 [#102]이
+  eviction을 "참조되지 않는 행만 삭제"로 규정하여 이 경로가 상시 동작하고,
+  calculation_run은 계산 실행마다 누적되어 가장 크게 자란다. #97은 007·009만
+  대상으로 하여 이 인덱스를 담당하는 이슈가 없다. 경위는 #115 코멘트 참조.
 - ALTER TABLE ADD/DROP COLUMN은 DDL이므로 FOR EACH ROW 트리거(trg_calcrun_immutable)에
   걸리지 않는다. 행 단위 UPDATE/DELETE만 차단된다.
 """
@@ -55,9 +61,13 @@ def upgrade() -> None:
         ondelete="RESTRICT",
     )
 
+    # FK 자식 인덱스: RESTRICT 검사가 full scan이 되지 않도록 한다(파일 상단 주의 참조).
+    op.execute("CREATE INDEX idx_calc_weather_snapshot ON calculation_run (weather_snapshot_id);")
+
 
 def downgrade() -> None:
     """Downgrade schema."""
-    # 컬럼을 드롭하면 딸린 FK도 함께 사라지지만, 생성의 역순으로 명시한다.
+    # 컬럼을 드롭하면 딸린 인덱스·FK도 함께 사라지지만, 생성의 역순으로 명시한다.
+    op.execute("DROP INDEX idx_calc_weather_snapshot;")
     op.drop_constraint("fk_calculation_run_weather_snapshot", "calculation_run", type_="foreignkey")
     op.drop_column("calculation_run", "weather_snapshot_id")
