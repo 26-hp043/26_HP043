@@ -31,6 +31,7 @@ class CalculationRun(Base):
     calculation_type = sa.Column(sa.String(length=30), nullable=False)
     vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
     voyage_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    weather_snapshot_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
     model_version = sa.Column(postgresql.JSONB(), nullable=False)
@@ -56,6 +57,14 @@ class CalculationRun(Base):
             ["voyage_id"],
             ["voyage.id"],
             name="fk_calculation_run_voyage",
+            ondelete="RESTRICT",
+        ),
+        # §7.1 (833행) [#102]: immutable 테이블 참조 → RESTRICT. 참조된 스냅샷은
+        # TTL과 무관하게 보존되어야 재현성 추적성이 성립한다 (016, #115).
+        sa.ForeignKeyConstraint(
+            ["weather_snapshot_id"],
+            ["weather_snapshot.id"],
+            name="fk_calculation_run_weather_snapshot",
             ondelete="RESTRICT",
         ),
         # §2.5 검증 제약 [S-7] (원문 그대로): sha256: + 64 hex.
