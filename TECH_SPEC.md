@@ -570,13 +570,22 @@ fuel_ton = base_foc_per_day × speed_factor × weather_factor × duration_days
 > **[ORACLE-S-2 정정]** 반환 타입을 `float`에서 `Decimal`로 변경하여 Layer 1 정밀도 경계를 명확히 했다.
 >
 > **[ORACLE-M-6 정정]** `fuel_breakdown` 반환값을 명시적으로 정의했다.
+>
+> **[#37 정정]** 시그니처를 구현 기준으로 정정했다. ⑴ `vessel` 인자는 본 함수 본문에서 참조되지 않아 제거하여 순수함수로 유지한다. ⑵ 입력을 `list[dict]`에서 `FuelUse` dataclass로 바꾼다 — dict 키 오타가 런타임까지 노출되지 않는다. ⑶ `FuelUse`에 `fuel_code`를 둔다 — 연료 식별자가 없으면 `fuel_breakdown`의 키를 만들 수 없다. `fuel_code`는 DB_SCHEMA `fuel_type.code` 값과 일치시킨다. 또한 개별 유종 0톤은 정상 입력이므로 출력 가드는 총합 기준으로 판정한다.
 
 ```python
+from collections.abc import Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 
+@dataclass(frozen=True)
+class FuelUse:
+    fuel_code: str      # DB_SCHEMA fuel_type.code (예: "HFO")
+    fuel_ton: Decimal
+    cf_value: Decimal
+
 def calculate_voyage_co2(
-    vessel,
-    fuel_uses: list[dict],  # [{"fuel_type": "HFO", "fuel_ton": 60.0, "cf": 3.114}, ...]
+    fuel_uses: Sequence[FuelUse],
 ) -> tuple[Decimal, dict[str, Decimal]]:
     """
     다중 연료 CO₂ 배출량 계산 (Layer 1 — Decimal 반환).
@@ -585,19 +594,25 @@ def calculate_voyage_co2(
         total_co2_g: 총 CO₂ 배출량 (gCO₂, Decimal)
         fuel_breakdown: 연료별 CO₂ 배출량 ({"HFO": Decimal, "LNG": Decimal, ...})
     """
-    total_co2_g = Decimal("0")
+    if not fuel_uses:
+        raise ValueError("fuel_uses must not be empty")
+
     fuel_breakdown: dict[str, Decimal] = {}
 
     for fuel in fuel_uses:
-        fuel_type = fuel["fuel_type"]
-        fuel_ton = Decimal(str(fuel["fuel_ton"]))
-        cf = Decimal(str(fuel["cf"]))
+        if fuel.fuel_ton < 0:
+            raise ValueError(f"fuel_ton must be >= 0: '{fuel.fuel_code}' → {fuel.fuel_ton}")
+        if fuel.cf_value <= 0:
+            raise ValueError(f"cf_value must be > 0: '{fuel.fuel_code}' → {fuel.cf_value}")
 
-        co2_g = fuel_ton * Decimal("1000000") * cf
-        total_co2_g += co2_g
-        fuel_breakdown[fuel_type] = co2_g
+        co2_g = fuel.fuel_ton * Decimal("1000000") * fuel.cf_value
+        # 동일 fuel_code가 여러 건이면 합산한다.
+        fuel_breakdown[fuel.fuel_code] = fuel_breakdown.get(fuel.fuel_code, Decimal(0)) + co2_g
 
-    # [ORACLE-MISS-2] 출력 가드
+    # sum()의 기본 시작값은 int 0이므로 시작값을 명시한다.
+    total_co2_g = sum(fuel_breakdown.values(), Decimal(0))
+
+    # [ORACLE-MISS-2] 출력 가드 (총합 기준)
     if not total_co2_g.is_finite() or total_co2_g <= 0:
         raise ValueError(
             f"Invalid CO₂ result: {total_co2_g}. Check fuel inputs."
