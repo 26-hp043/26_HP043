@@ -31,6 +31,7 @@ class CalculationRun(Base):
     calculation_type = sa.Column(sa.String(length=30), nullable=False)
     vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
     voyage_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    weather_snapshot_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
     model_version = sa.Column(postgresql.JSONB(), nullable=False)
@@ -58,6 +59,14 @@ class CalculationRun(Base):
             name="fk_calculation_run_voyage",
             ondelete="RESTRICT",
         ),
+        # §7.1 (833행) [#102]: immutable 테이블 참조 → RESTRICT. 참조된 스냅샷은
+        # TTL과 무관하게 보존되어야 재현성 추적성이 성립한다 (016, #115).
+        sa.ForeignKeyConstraint(
+            ["weather_snapshot_id"],
+            ["weather_snapshot.id"],
+            name="fk_calculation_run_weather_snapshot",
+            ondelete="RESTRICT",
+        ),
         # §2.5 검증 제약 [S-7] (원문 그대로): sha256: + 64 hex.
         sa.CheckConstraint(
             "input_hash ~ '^sha256:[0-9a-f]{64}$'",
@@ -77,4 +86,7 @@ class CalculationRun(Base):
         sa.Index("idx_calc_vessel", vessel_id, created_at.desc()),
         sa.Index("idx_calc_input_hash", "input_hash", "parameter_hash"),
         sa.Index("idx_calc_type", calculation_type, created_at.desc()),
+        # FK 자식 인덱스 (016, #115). RESTRICT 검사가 weather_snapshot DELETE마다
+        # calculation_run을 full scan하지 않도록 한다.
+        sa.Index("idx_calc_weather_snapshot", "weather_snapshot_id"),
     )

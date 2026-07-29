@@ -319,6 +319,8 @@ ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_fuel_positive
 CREATE INDEX idx_calc_vessel ON calculation_run (vessel_id, created_at DESC);
 CREATE INDEX idx_calc_input_hash ON calculation_run (input_hash, parameter_hash);
 CREATE INDEX idx_calc_type ON calculation_run (calculation_type, created_at DESC);
+-- [#115] FK 자식 인덱스. weather_snapshot 삭제 시 RESTRICT 검사가 full scan이 되지 않도록 한다.
+CREATE INDEX idx_calc_weather_snapshot ON calculation_run (weather_snapshot_id);
 ```
 
 **검증 제약 [S-7]:**
