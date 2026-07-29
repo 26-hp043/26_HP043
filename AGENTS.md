@@ -40,8 +40,11 @@ AI 에이전트(리뷰·분석 에이전트 등)가 다음 유형의 finding을 
 | CII Reduction Factor (G3) | MEPC.400(83) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.400%2883%29.pdf) |
 | CII Rating (G4) | MEPC.354(78) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.354%2878%29.pdf) |
 | CII Guidelines (G1) | MEPC.352(78) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf) |
+| 연료 CF 값 | MEPC.364(79) §2.2.1 (G1 §4.1이 참조 지정) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.364%2879%29.pdf) |
 
 > **MEPC.364(79)는 EEDI 계산 지침이며, CII G2 reference line과 무관하다.** G2 인용 시 MEPC.353(78)을 사용한다.
+>
+> **[#87 추가] 단, 연료 CF 값은 예외다.** 위 문장은 **G2 기준선 계수(`a` · `c`)** 에 대한 규칙이며 CF 값과는 별개 사안이다. G1(MEPC.352(78)) §4.1이 CF를 EEDI 계산 지침 계열에 참조 지정하므로 **CF 값의 출처는 MEPC.364(79) §2.2.1**이다. G1에는 CF 표가 없다. 두 축을 혼동하지 않는다 — **G2 기준선 = 353(78)**, **CF 값 = 364(79)**.
 
 ### 2.3 사례: LNG_CARRIER reference line `a` 값
 
@@ -138,9 +141,13 @@ MEPC.353(78) Table 1 기준 (권위값):
 ## 변경 이력
 
 > git 커밋 기록에서 복원했다(날짜는 커밋 기준).
+>
+> **2026-07-23까지가 사후 복원분이다.** 이후 항목은 변경 시점에 직접 기록하며, squash merge로 브랜치 커밋 해시가 재작성되므로 커밋 열에는 **PR 번호**를 적는다.
 
 | 날짜 | 커밋 | 변경 요약 |
 |---|---|---|
 | 2026-07-04 | `0f59999` | v1.0 최초 작성 (외부 리뷰 반영 커밋에 포함) |
 | 2026-07-04 | `547eeed` | Oracle → AI 에이전트 용어 일반화 |
 | 2026-07-05 | `7bc248b` | v1.1: 이슈·PR 생성 규칙 추가 (§6, §7) |
+| 2026-07-21 | `be0dc23` | 변경이력 표 추가 및 최종 수정일 갱신 |
+| 2026-07-23 | `9febca6` | §7에 계층 분리 준수 항목 추가 (#100) |

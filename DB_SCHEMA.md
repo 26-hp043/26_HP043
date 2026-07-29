@@ -674,14 +674,20 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 
 | code | display_name | cf | source_ref |
 |---|---|---|---|
-| DIESEL_GAS_OIL | Diesel/Gas Oil | 3.206000 | MEPC.352(78) |
-| LFO | Light Fuel Oil | 3.151000 | MEPC.352(78) |
-| HFO | Heavy Fuel Oil | 3.114000 | MEPC.352(78) |
-| LPG_PROPANE | LPG Propane | 3.000000 | MEPC.352(78) |
-| LPG_BUTANE | LPG Butane | 3.030000 | MEPC.352(78) |
-| LNG | Liquefied Natural Gas | 2.750000 | MEPC.352(78) |
-| METHANOL | Methanol | 1.375000 | MEPC.352(78) |
-| ETHANOL | Ethanol | 1.913000 | MEPC.352(78) |
+| DIESEL_GAS_OIL | Diesel/Gas Oil | 3.206000 | MEPC.364(79) |
+| LFO | Light Fuel Oil | 3.151000 | MEPC.364(79) |
+| HFO | Heavy Fuel Oil | 3.114000 | MEPC.364(79) |
+| LPG_PROPANE | LPG Propane | 3.000000 | MEPC.364(79) |
+| LPG_BUTANE | LPG Butane | 3.030000 | MEPC.364(79) |
+| LNG | Liquefied Natural Gas | 2.750000 | MEPC.364(79) |
+| METHANOL | Methanol | 1.375000 | MEPC.364(79) |
+| ETHANOL | Ethanol | 1.913000 | MEPC.364(79) |
+
+> **[#87 정정]** `source_ref`에는 **값이 인쇄된 문서**를 적는다(검증·추적 목적 — 문서를 열었을 때 숫자가 실제로 있어야 한다). 위 8개 CF 값은 **MEPC.364(79) §2.2.1 표**(Annex 9, 4~5쪽)에 인쇄되어 있다.
+>
+> CII 계산에 쓰는 값인데 출처가 EEDI 계산 지침인 이유: **G1(MEPC.352(78)) §4.1이 CF를 이 계열에 참조 지정**하기 때문이다 — *"C_Fj … in line with those specified in the 2018 Guidelines … (resolution MEPC.308(73)), as may be further amended."* 문언상 지목 판본은 `MEPC.308(73)`이나 현행 대체판은 `MEPC.364(79)`다(`322(74)` · `332(76)` 경유 → `364(79)`가 앞의 셋을 폐지·대체, 이후 개정 없음).
+>
+> 종전 표기 `MEPC.352(78)`은 오류였다. G1에는 CF 표가 존재하지 않는다.
 
 ### 3.3 선종별 Reference Line
 
@@ -1003,6 +1009,8 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 ## 변경 이력
 
 > git 커밋 기록에서 복원했다(날짜는 커밋 기준). 버전 번호 매핑은 커밋 메시지·헤더 기준의 추정을 포함한다.
+>
+> **2026-07-23까지가 사후 복원분이다.** 이후 항목은 변경 시점에 직접 기록하며, squash merge로 브랜치 커밋 해시가 재작성되므로 커밋 열에는 **PR 번호**를 적는다.
 
 | 날짜 | 커밋 | 변경 요약 |
 |---|---|---|
@@ -1014,3 +1022,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-07-14 | `0173105` | annotation 라벨 번호 정규화 (5개 정본 일괄) |
 | 2026-07-16 | `e82d9da` | §7.2 트리거명을 마이그레이션 코드와 일치하도록 정정 (#78) |
 | 2026-07-16 | `c302d9e` | calculation_type enum + voyage_scenario 양수 CHECK 추가 (#84) |
+| 2026-07-21 | `be0dc23` | 변경이력 표 추가 및 최종 수정일 갱신 |
+| 2026-07-23 | `3a38d0c` | calculation_run.weather_snapshot_id 컬럼 스펙 + FK 정책 추가, 헤더 v1.3 (#102) |
