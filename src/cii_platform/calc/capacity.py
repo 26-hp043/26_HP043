@@ -191,9 +191,17 @@ def select_reference_line(
 
     matched = [line for line in candidates if evaluate_condition(line.condition_expr, vessel)]
     if not matched:
+        # 선종은 있는데 어느 구간에도 안 걸린 경우 — seed에 빈틈이 생겼다는 뜻이다.
+        # 현재 seed 13종은 구간이 완전하므로 도달하지 않는다
+        # (tests/test_capacity_rules.py::test_seed_intervals_are_exhaustive_and_disjoint).
+        # 도달하는 날에는 이 메시지가 혼자서 원인을 말해야 하므로 capacity 값과 후보
+        # 조건식을 함께 싣는다. vessel 필드를 그대로 찍기만 하고 _capacity_for_axis를
+        # 다시 부르지는 않는다 — None인 축에서 새 예외가 나면 원인이 가려진다.
+        exprs = ", ".join(repr(line.condition_expr) for line in candidates)
         raise ValueError(
             f"No reference line condition matched for ship_type {vessel.ship_type!r} "
-            f"(후보 {len(candidates)}건)"
+            f"(DWT={vessel.deadweight}, GT={vessel.gross_tonnage}; 후보 조건 {exprs}). "
+            f"seed 구간에 빈틈이 있을 수 있다."
         )
     if len(matched) > 1:
         exprs = ", ".join(repr(line.condition_expr) for line in matched)
