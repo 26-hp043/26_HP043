@@ -1024,3 +1024,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-07-16 | `c302d9e` | calculation_type enum + voyage_scenario 양수 CHECK 추가 (#84) |
 | 2026-07-21 | `be0dc23` | 변경이력 표 추가 및 최종 수정일 갱신 |
 | 2026-07-23 | `3a38d0c` | calculation_run.weather_snapshot_id 컬럼 스펙 + FK 정책 추가, 헤더 v1.3 (#102) |
+| 2026-07-29 | `#140` | §3.2 CF 8행 source_ref를 값 인쇄처(MEPC.364(79))로 정정 + 근거 각주 (#87) |
