@@ -301,6 +301,20 @@ MVP는 모든 CII 대상 선종을 파라미터 테이블로 저장할 수 있�
 | RO_RO_PASSENGER | all | GT | 0.76 | 0.92 | 1.14 | 1.30 |
 | CRUISE_PASSENGER | all | GT | 0.87 | 0.95 | 1.06 | 1.16 |
 
+> **[#126] `RO_RO_PASSENGER_HSC`는 위 표에 행이 없다. 이는 전사 누락이 아니라 원문대로다.** MEPC.354(78) Table 1에 해당 행이 존재하지 않으며, 다른 조항에도 별도 규정이 없다.
+>
+> **HSC의 등급 경계는 `RO_RO_PASSENGER` 행(0.76 · 0.92 · 1.14 · 1.30)을 적용한다.**
+>
+> **1. 인지된 부재다.** MEPC.353(78) Table 1은 `Ro-ro passenger ship`을 상위 분류로 두고, 그 아래 `Ro-ro passenger ship`(a=2023)과 `High-speed craft designed to SOLAS chapter X`(a=4196)를 병합 셀로 묶는다. IMO는 HSC를 인지하고 **별도 `a` 값까지 부여**한 상태에서 G4에 행을 만들지 않았다. HSC는 독립 선종이 아니라 Ro-ro passenger ship의 하위 구분이다.
+>
+> **2. (정황) G2는 두 하위 구분을 같은 capacity 지수로 적합했다.** `c`가 0.460으로 같아 `CII_ref` 비율이 `4196 / 2023 = 2.074147`로 capacity와 무관하게 일정하다. 기준선 적합 단계에서 두 하위 구분을 하나의 모집단으로 다뤘다는 뜻이다.
+>
+> **3. (정황) G4는 세분이 필요한 선종에 하위 행을 쓴다.** MEPC.354(78) Table 1은 `Gas carrier`(65,000 DWT 기준)와 `LNG carrier`(100,000 DWT 기준)를 용량 구간으로 나누면서 `Ro-ro passenger ship`은 나누지 않았다.
+>
+> 따라서 `cii_rating_boundary`에는 **행을 추가하지 않는다.** 원문에 없는 값을 규제값 표에 넣으면 `source_ref`가 거짓이 된다(§3.2 각주의 "값이 인쇄된 문서" 기준). 선종 매핑은 등급 판정 구현(#39)에서 처리한다.
+>
+> **원문 대조 확인: sky01170851.**
+
 ---
 
 ## 4. 사용자 및 주요 과업
@@ -1666,3 +1680,4 @@ WeatherProvider interface
 | 2026-07-04 | `bee61e9` | v3.1 마감: canonical vector 고정 + 포맷 정리 |
 | 2026-07-14 | `0173105` | annotation 라벨 번호 정규화 (5개 정본 일괄) |
 | 2026-07-29 | `#142` | 변경이력 기록 방식 전환 주석 보완 |
+| 2026-07-29 | `#145` | §3.4.4에 RO_RO_PASSENGER_HSC 등급 경계 처리 각주 추가 (#126) |

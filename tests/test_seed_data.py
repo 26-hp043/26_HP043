@@ -105,9 +105,12 @@ def test_z_factor_values_and_effective_from():
 def test_ro_ro_passenger_hsc_boundary_is_absent():
     """PRD §3.4.4에 없는 RO_RO_PASSENGER_HSC 행을 임의로 만들지 않았음을 고정한다.
 
-    reference line에는 있으나 d-vector에는 없다. G2(MEPC.353(78))와 G4(MEPC.354(78))는
-    별개 결의안이라 원문상 의도된 부재일 수 있어, 원문 확인 전까지 추가하지 않는다
-    (AGENTS.md §2.1). 확인 결과 추가가 맞다면 이 테스트를 함께 갱신한다.
+    reference line에는 있으나 d-vector에는 없다. #126에서 MEPC.354(78) 원문을 대조해
+    확인한 결과 **의도된 부재**이며, 이 상태가 원문대로다. 따라서 행을 추가하지 않고
+    이 테스트를 유지한다.
+
+    HSC의 등급 경계는 RO_RO_PASSENGER 행을 적용한다(근거는 PRD §3.4.4 각주 참조).
+    선종 매핑은 등급 판정(#39)에서 처리하며, 규제값 표에 원문에 없는 행을 넣지 않는다.
     """
     assert any(row.ship_type == "RO_RO_PASSENGER_HSC" for row in SEED_REFERENCE_LINES)
     assert not any(row.ship_type == "RO_RO_PASSENGER_HSC" for row in SEED_RATING_BOUNDARIES)
