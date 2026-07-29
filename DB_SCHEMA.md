@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.3 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) |
-| 최종 수정일 | 2026-07-18 |
+| 최종 수정일 | 2026-07-29 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.3, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
