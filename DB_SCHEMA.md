@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.3 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) |
-| 최종 수정일 | 2026-07-18 |
+| 최종 수정일 | 2026-07-29 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.3, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
@@ -688,6 +688,8 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 > CII 계산에 쓰는 값인데 출처가 EEDI 계산 지침인 이유: **G1(MEPC.352(78)) §4.1이 CF를 이 계열에 참조 지정**하기 때문이다 — *"C_Fj … in line with those specified in the 2018 Guidelines … (resolution MEPC.308(73)), as may be further amended."* 문언상 지목 판본은 `MEPC.308(73)`이나 현행 대체판은 `MEPC.364(79)`다(`322(74)` · `332(76)` 경유 → `364(79)`가 앞의 셋을 폐지·대체, 이후 개정 없음).
 >
 > 종전 표기 `MEPC.352(78)`은 오류였다. G1에는 CF 표가 존재하지 않는다.
+>
+> **원문 대조 확인: sky01170851.** 위 판정(`MEPC.364(79)` §2.2.1에 값이 인쇄되어 있음 · `MEPC.352(78)` §4.1이 참조 지정만 함 · 판본 사슬 `308(73)`→`322(74)`·`332(76)`→`364(79)`)은 IMO 원문을 직접 대조해 확인한 결과다. 위 8개 값이 원문과 전건 일치함도 함께 확인됐다.
 
 ### 3.3 선종별 Reference Line
 
@@ -1025,3 +1027,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-07-21 | `be0dc23` | 변경이력 표 추가 및 최종 수정일 갱신 |
 | 2026-07-23 | `3a38d0c` | calculation_run.weather_snapshot_id 컬럼 스펙 + FK 정책 추가, 헤더 v1.3 (#102) |
 | 2026-07-29 | `#140` | §3.2 CF 8행 source_ref를 값 인쇄처(MEPC.364(79))로 정정 + 근거 각주 (#87) |
+| 2026-07-29 | `#142` | §3.2 각주에 원문 대조 확인자(sky01170851) 명시 + 최종 수정일 정정 |
