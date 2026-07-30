@@ -15,9 +15,21 @@ IMO G1과 G2는 서로 다른 capacity 개념을 쓴다 (TECH_SPEC §1.2.4 [EXT-
 인자로 받는 순수 함수로 두고, 조회는 첫 호출자 시점에 ``db/repositories``가 담당한다.
 
 선종별 축(DWT/GT)은 PRD §3.4.3 = DB_SCHEMA §3.3 = ``db/seed.py``(20행 · 13종) 세 문서를
-행 단위로 대조해 확정했다. 다만 그 대조가 보증하는 것은 **G2 기준선 표의 축**이며,
-여기서 G1에도 같은 축을 쓴다고 전제한 부분은 아직 확인되지 않았다
-(``tests/test_capacity_rules.py::test_capacity_axis_constants_match_seed`` 참조).
+행 단위로 대조해 확정했다. G1 분모에도 같은 축을 쓴다는 점은 원문으로 확인됐다 —
+**MEPC.352(78) §4.2 Transport work**(``MEPC 78/17/Add.1`` Annex 14, 5쪽)가
+``W_s = C × D_t``의 ``C``를 DWT 8종 / GT 4종으로 규정하며, 이 12종 구분은
+**G2 Table 1**(같은 문서 Annex 15, 4쪽)의 최상위 선종 12종과 일치한다.
+
+**축만 같고 값은 다르다.** 기준선 쪽 캡(``capacity_rule``의 ``fixed N`` — 벌크 279,000 ·
+LNG 65,000 · ro-ro 차량운반선 57,700 3건뿐)은 attained 분모에 적용되지 않는다. 위 300,000 DWT
+벌크캐리어 예시가 그 차이가 만드는 오차이며, 두 함수를 분리한 것이 이 모듈의 존재 이유다.
+
+우리 코드가 13종인 것은 G2 Table 1이 ``Ro-ro passenger ship`` 칸 아래 두는 하위 2행
+(``Ro-ro passenger ship`` a=2023 / ``High-speed craft designed to SOLAS chapter X`` a=4196)을
+코드 2개로 평탄화했기 때문이다.
+
+근거는 팀원 원문 대조 회신(내부 확인 항목 5, 2026-07-30 · PR #130 ⚠️ 문단 상환)이며,
+위 로케이터로 원문 대조를 마쳤다. 정본 문서 각주 반영은 별도 PR에서 처리한다.
 """
 
 import re
@@ -27,6 +39,8 @@ from typing import Protocol
 
 #: DWT를 capacity 축으로 쓰는 선종 (PRD §3.4.3, 8종).
 #: 이름은 TECH_SPEC §1.2.4 코드 블록의 참조명을 그대로 따른다.
+#: G1(MEPC.352(78)) §4.2가 DWT로 열거하는 8종과 집합이 정확히 같다 (확인 5).
+#: 로케이터: MEPC 78/17/Add.1 Annex 14, 5쪽.
 DWT_BASED_SHIP_TYPES: frozenset[str] = frozenset(
     {
         "BULK_CARRIER",
@@ -41,6 +55,20 @@ DWT_BASED_SHIP_TYPES: frozenset[str] = frozenset(
 )
 
 #: GT를 capacity 축으로 쓰는 선종 (PRD §3.4.3, 5종).
+#:
+#: **5종인데 G1 §4.2는 GT를 4종만 열거한다 — 불일치가 아니다.**
+#:
+#: 1. §4.2(Annex 14, 5쪽)가 GT로 부르는 것은 cruise passenger / ro-ro cargo
+#:    (vehicle carriers) / ro-ro cargo / ro-ro passenger 넷이며 고속선을 따로 부르지 않는다.
+#: 2. G2 Table 1(Annex 15, 4쪽)은 ``Ro-ro passenger ship`` 칸 아래
+#:    ``High-speed craft designed to SOLAS chapter X``(a=4196)를 하위 행으로 둔다.
+#:    표 구조상 포함 관계이므로 §4.2의 ro-ro passenger 항목이 HSC에 미친다.
+#: 3. G4 d-vector 표(PRD §3.4.4)에는 HSC 행이 아예 없고, 그 부재가 원문대로임은 #126에서
+#:    확인됐다. G2만 HSC를 분리하고 G1·G4는 분리하지 않는다는 그림이 일관된다.
+#:
+#: 따라서 이 집합에서 RO_RO_PASSENGER_HSC를 빼면 안 된다 — 빼는 순간 seed에 존재하는
+#: 선종이 어느 축에도 속하지 않아 :func:`capacity_axis`가 ValueError를 던지고, HSC 선박의
+#: attained CII 계산이 불가능해진다.
 GT_BASED_SHIP_TYPES: frozenset[str] = frozenset(
     {
         "RO_RO_CARGO_VEHICLE",

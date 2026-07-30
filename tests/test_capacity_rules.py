@@ -116,13 +116,15 @@ def test_ut_cap_010_just_below_boundary_278999_uses_actual():
 def test_capacity_axis_constants_match_seed():
     """상수(G1 축)가 seed(G2 축)와 어긋나지 않는지 확인한다.
 
-    ⚠️ **이 테스트가 통과한다고 해서 G1 축이 규제상 옳다는 뜻은 아니다.**
-    확인되는 것은 "G1 축을 G2 기준선 표의 축과 동일하게 놓았다"는 전제가 코드 안에서
-    일관되게 유지되고 있다는 사실뿐이다. 그 전제 자체(attained CII 분모의 capacity가
-    선종별로 기준선 표와 같은 축을 쓰는가)는 IMO 원문 확인이 필요한 미확인 사항이며,
-    별도 확인 항목으로 관리 중이다. 확정되면 이 docstring과 상수 근거를 갱신한다.
+    **G1 축이 G2 기준선 표의 축과 같다는 점은 원문으로 확인됐다** —
+    MEPC.352(78) §4.2 Transport work(``MEPC 78/17/Add.1`` Annex 14, 5쪽)가
+    ``W_s = C × D_t``의 ``C``를 DWT 8종 / GT 4종으로 규정하며, 이 12종 구분은 G2 Table 1
+    (같은 문서 Annex 15, 4쪽)의 최상위 선종 12종과 일치한다. 확인 5로 확정됐고 근거는
+    capacity.py 모듈 docstring에 있다.
 
-    따라서 이 테스트의 역할은 검증이 아니라 **전제 고정(회귀 방지)** 이다.
+    다만 **이 테스트가 그 규제 판단을 증명하지는 않는다.** 여기서 확인되는 것은 두 축이
+    코드 안에서 일관되게 유지되고 있다는 사실이며, 역할은 검증이 아니라 **회귀 방지**다.
+    상수를 원문 근거 없이 고치면 이 테스트가 먼저 깨진다.
     """
     for line in SEED_REFERENCE_LINES:
         if line.condition_expr == "all":
@@ -138,7 +140,14 @@ def test_capacity_axis_constants_match_seed():
 
 
 def test_capacity_axis_sets_cover_seed_ship_types_without_overlap():
-    """두 집합이 seed 13종을 정확히 덮고 서로 겹치지 않는지 확인한다."""
+    """두 집합이 seed 13종을 정확히 덮고 서로 겹치지 않는지 확인한다.
+
+    GT가 5종인 것은 의도된 값이다 — G1 §4.2는 GT를 4종으로 열거하지만, G2 Table 1이
+    ``Ro-ro passenger ship`` 칸 아래 HSC를 하위 행으로 두므로 포함 관계가 성립한다. 우리
+    taxonomy는 그 하위 2행을 코드 2개로 평탄화했다(확인 5, capacity.py의
+    GT_BASED_SHIP_TYPES 주석 참조). 원문 열거 수에 맞춰 4종으로 줄이면 seed의 HSC 행이
+    어느 축에도 속하지 않게 되어 이 테스트가 먼저 깨진다.
+    """
     seed_types = {line.ship_type for line in SEED_REFERENCE_LINES}
 
     assert seed_types == DWT_BASED_SHIP_TYPES | GT_BASED_SHIP_TYPES
