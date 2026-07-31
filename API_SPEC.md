@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-07-29 |
+| 최종 수정일 | 2026-07-31 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -181,7 +181,7 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 
 | 레이어 | 대상 필드 | JSON 표현 | 정밀도 보장 |
 |---|---|---|---|
-| Layer 1 (결정론) | `attained_cii`, `required_cii`, `co2_emission_ton`, `next_worse_boundary_margin`, `ratio_to_required`, `effective_capacity` | **JSON 문자열** (예: `"4.982400"`) | 6+ 유효숫자. 클라이언트는 임의 정밀도 Decimal로 파싱 권장 |
+| Layer 1 (결정론) | 결정론 계산에서 생성되거나 Decimal로 표현되는 수치 응답 (예: `attained_cii`, `required_cii`). **`parameters_used.*` · `calculation_basis.*`의 파라미터 값도 문자열이다.** | **JSON 문자열** (예: `"4.982400"`) | **[#132 정정]** 문자열로 직렬화하여 JSON float 파싱에 의한 정밀도 손실을 방지한다. 구체적인 필드 경로와 JSON 표현은 각 endpoint의 응답 계약(응답 예시 및 명시된 타입 표)을 따른다. |
 | Layer 2 (Monte Carlo) | `p10`, `p50`, `p90`, `mean_cii`, `rating_probabilities.*`, `target_success_probability` | **JSON 숫자** (예: `0.0200`) | 4 유효숫자. float64 정밀도 |
 | 입력/CRUD | `distance_nm`, `speed_kn`, `fuel_ton`, `gross_tonnage`, `deadweight` | **JSON 숫자** (예: `1000.0`) | 사용자 입력 정밀도 |
 
@@ -670,8 +670,8 @@ POST /api/v1/calculations/voyage-cii
 | `vessel_id` | UUID | Y | 존재 확인 | 대상 선박 |
 | `regulation_year` | int | Y | VAL-005: regulation_year 존재 | 등급 기준연도 |
 | `distance_nm` | decimal | Y | VAL-002: > 0 | 항차 거리 |
-| `speed_kn` | decimal | Y | VAL-009: ≥ 1.0 | 평균 예정 속도 |
-| `fuel_uses` | array | Y | VAL-006: active fuel_type | 연료 사용량 목록 |
+| `speed_kn` | decimal | Y | VAL-009: ≥ 1.0 | 평균 예정 속도. **Layer 1 CII 계산에는 사용되지 않으며**, 항차 조건 표시 및 항차 저장 매핑을 위한 필수 입력이다 |
+| `fuel_uses` | array | Y | **최소 1개 이상** · VAL-006: active fuel_type | 연료 사용량 목록. **동일 `fuel_type`이 여러 행으로 들어오면 Decimal로 합산한다** |
 | `fuel_uses[].fuel_type` | string | Y | VAL-006 | 연료 코드 |
 | `fuel_uses[].fuel_ton` | decimal | Y | VAL-002: > 0 | 연료 사용량 (ton) |
 | `weather_model` | string | N | enum: NONE, SIMPLE_RULE, TOWNSIN_KWON_ALPHA | 기본: NONE |
@@ -691,8 +691,8 @@ POST /api/v1/calculations/voyage-cii
     "required_cii": "5.045066",
     "ratio_to_required": "0.98758",
     "estimated_rating": "C",
-    "next_worse_boundary_margin": "0.365537",
-    "next_worse_boundary_margin_ratio": "0.0725",
+    "next_worse_boundary_margin": "0.365370",
+    "next_worse_boundary_margin_ratio": "0.0724",
     "co2_emission_ton": "249.12",
     "fuel_consumption_ton": "80.00",
     "distance_nm": 1000.0,
@@ -755,6 +755,58 @@ POST /api/v1/calculations/voyage-cii
   }
 }
 ```
+
+#### 응답 필드·JSON 타입
+
+Layer 1 결정론 수치는 **JSON 문자열**로 직렬화한다(§1.7). 입력 에코 값은 숫자다.
+
+**최상위 (envelope)**
+
+| 경로 | JSON 타입 |
+|---|---|
+| `data` | object |
+| `parameters_used` | object |
+| `calculation_run_id` | string (UUID) |
+| `model_version` | object — **혼합 타입**. `decimal_precision`만 number, 나머지(`engine` · `decimal_rounding` · `rng_algorithm` · `numpy_version` · `python_version`)는 string |
+| `input_hash` · `parameter_hash` | string (`sha256:…`) |
+| `warnings` | array of string |
+| `disclaimer` | string |
+| `meta` | object — `request_id` string · `timestamp` string(ISO8601) · `duration_ms` number |
+
+**`data.*`**
+
+| 경로 | JSON 타입 | 비고 |
+|---|---|---|
+| `attained_cii` | **string** | Layer 1 |
+| `required_cii` | **string** | Layer 1 |
+| `ratio_to_required` | **string** | Layer 1 |
+| `estimated_rating` | string | enum `A`~`E` |
+| `next_worse_boundary_margin` | **string** | Layer 1 |
+| `next_worse_boundary_margin_ratio` | **string** | Layer 1 |
+| `co2_emission_ton` | **string** | Layer 1 |
+| `fuel_consumption_ton` | **string** | Layer 1. 입력 연료량 전체의 합 |
+| `distance_nm` | **number** | 입력 에코 |
+| `risk_level` | string | enum `LOW` \| `MEDIUM` \| `HIGH` \| `CRITICAL` (PRD §9.4.1) |
+| `transport_capacity` | **string** | |
+| `transport_capacity_basis` | string | enum `DWT` \| `GT` |
+| `reference_capacity` | **string** | |
+| `reference_capacity_rule` | string | **enum이 아니다** — 파라미터 테이블 값 그대로 (`DWT` · `GT` · `fixed 279000` 등) |
+| `calculation_basis` | object | 아래 |
+
+**`data.calculation_basis.*`**
+
+| 경로 | JSON 타입 |
+|---|---|
+| `ship_type` | string |
+| `z_factor_percent` | **string** |
+| `fuel_cf_details` | array of object. **연료 종류별 한 행으로 정규화한다** |
+| `fuel_cf_details[].fuel_type` | string |
+| `fuel_cf_details[].cf` | **string** |
+| `fuel_cf_details[].fuel_ton` | **string**. 동일 `fuel_type` 입력 행의 합 |
+| `a_decimal` | **string** |
+| `c` | **string** |
+
+`parameters_used` 하위 수치(`z_factor_percent` · `cf` · `a_decimal` · `c` · `d1`~`d4`)와 `parameter_source_version`도 모두 string이다.
 
 > `risk_level` 산정 기준은 PRD §9.4.1 참조.
 
@@ -1487,14 +1539,14 @@ GET /api/v1/health
 | Rule ID | 규칙 | 오류 응답 |
 |---|---|---|
 | VAL-001 | 필수값 비어 있음 | 422: `{field_label}을/를 입력하세요.` (`field_label`는 한글 라벨) |
-| VAL-002 | 거리·속도·연료·DWT·GT ≤ 0 | 422: `{field_label}는 0보다 커야 합니다.` (`field_label`는 한글 라벨) |
+| VAL-002 | 거리·연료·DWT·GT·선박 기준속도(`reference_speed_kn`) ≤ 0 | 422: `{field_label}는 0보다 커야 합니다.` (`field_label`는 한글 라벨) |
 | VAL-003 | IMO 번호 형식 오류 | 422: `IMO 번호는 7자리 숫자여야 합니다.` |
 | VAL-004 | 지원하지 않는 선종 | 422: `지원하지 않는 선종입니다.` |
 | VAL-005 | 기준연도 파라미터 없음 | 409: `해당 연도의 규정 파라미터가 없습니다.` |
 | VAL-006 | 지원하지 않는 연료 | 422: `지원하지 않는 연료입니다.` |
 | VAL-007 | 좌표 범위 오류 | 422: `좌표 형식이 올바르지 않습니다.` |
 | VAL-008 | NaN·Infinity 결과 | 422: `계산 오류: 입력값을 확인하세요.` |
-| VAL-009 | 속도 < 1.0kn | 422: `속도는 1.0노트 이상이어야 합니다.` |
+| VAL-009 | 항차·시나리오 운항 속도 < 1.0kn | 422: `속도는 1.0노트 이상이어야 합니다.` |
 | VAL-010 | capacity ≤ 0 | 422: `선박 용량 정보가 부족합니다.` |
 
 ---
@@ -1636,6 +1688,9 @@ GET /api/v1/health
 | EXT-3.3/P1-5 | CSV formula injection strip이 데이터 훼손 위험 | §8.2 — strip 대신 apostrophe escape로 변경 | **수정 완료** |
 | EXT-3.4/P1-6 | 오류 메시지 한국어 조사 처리 (`{field}은/는`) | §1.3.2, §11 — `field_label` 한글 라벨 도입 | **수정 완료** |
 || EXT-P1-2/3.2 | CalculationRun 조회 API 상세 누락 | §1.9 (신규) — GET /api/v1/calculations 상세 스펙 추가 | **추가 완료** |
+
+> **[#132 후속 정정]** EXT-P0-1 반영 당시 §4.1·§5.1의 이중 capacity 분리는 완료됐으나, §1.7의 Layer 1 필드 열거에 `effective_capacity`가 남은 사실이 후속 확인됐다. #132에서 §1.7의 중복 필드 열거를 제거하고 endpoint별 응답 계약을 참조하도록 정정했다.
+
 - **수정 소요**: Critical + Significant 이슈 해결에 약 2~3시간 소요 (문서 수정 기준).
 
 ---
@@ -1658,3 +1713,4 @@ GET /api/v1/health
 | 2026-07-21 | `be0dc23` | 변경이력 표 추가 및 최종 수정일 갱신 |
 | 2026-07-29 | `#140` | §7.2 연료 종류 조회 응답 예시 source_ref 정정 (#87) |
 | 2026-07-29 | `#142` | 최종 수정일 정정 (07-14 → 07-29) |
+| 2026-07-31 | | 기능① 응답 타입·연료 정규화 계약 명시, Layer 1 직렬화 참조 정리 및 산술 예시 정정 (#132) |
