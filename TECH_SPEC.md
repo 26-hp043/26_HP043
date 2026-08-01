@@ -4,7 +4,7 @@
 |---|---|
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.3 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) |
+| 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) |
 | 최종 수정일 | 2026-08-03 |
 | 상위 문서 | `PRD.md` v3.1 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
@@ -1348,6 +1348,8 @@ class SimulationSnapshot:
 
 ### 16.2 디렉토리 구조
 
+**백엔드**
+
 ```
 src/cii_platform/
 ├── errors.py            ← 공통 예외 base (AppError). 레이어 중립.
@@ -1363,6 +1365,31 @@ src/cii_platform/
     ├── models/          ← SQLAlchemy ORM 모델 (DB 표현)
     └── repositories/    ← DB 접근(쿼리)만
 ```
+
+**프론트엔드** (#133)
+
+React · Vite · TypeScript. 같은 저장소의 `frontend/`에 둔다 — 저장소를 나누면
+이슈·PR·CI가 두 곳으로 흩어진다.
+
+```
+frontend/
+├── index.html
+└── src/
+    ├── main.tsx         ← 진입점. 토큰·전역 CSS 로드
+    ├── App.tsx          ← 라우트 정의 (PRD §6.2 화면 7개)
+    ├── screens.ts       ← 화면 메타(경로·라벨·폭 정책). 경로 문자열의 단일 출처
+    ├── layout/          ← 공통 셸 (좌측 사이드바 + 상단바, DESIGN_SYSTEM §7.2)
+    ├── components/      ← 화면 간 공용 컴포넌트
+    ├── pages/           ← 화면별 컴포넌트 (screens.ts의 화면 1개당 1개)
+    └── styles/
+        ├── tokens.css   ← DESIGN_SYSTEM §15 토큰. 색·간격·반경의 단일 출처
+        └── global.css   ← reset · 타이포그래피 기본
+```
+
+- **토큰 단일화**: 컴포넌트는 `styles/tokens.css`의 CSS 커스텀 프로퍼티만 참조하고
+  hex를 하드코딩하지 않는다(DESIGN_SYSTEM §15).
+- **API 호출 경계**: 화면은 데이터 출처를 알지 않는다. provider 인터페이스를 두고
+  demo 구현과 실제 API 구현을 교체한다(#134 · #138).
 
 ### 16.3 계층 간 규칙
 
