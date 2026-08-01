@@ -1,96 +1,159 @@
 /**
- * 화면 메타 정의 — PRD.md §6.1(네비게이션) · §6.2(화면 목록)에서 그대로 옮겼다.
+ * 화면 메타 정의 — `UIFLOW.md` §1·§2에서 옮겼다.
  *
- * 화면 ID·화면명·순서는 PRD가 정본이다. UIFLOW.md §2는 6개 화면을 다른 이름으로
- * 묶고 있으나, AGENTS.md §3 문서 우선순위에 따라 상위 문서인 PRD를 따른다.
+ * **프론트엔드 화면 구조의 기준 문서는 `UIFLOW.md`다.** UIFLOW 헤더가 후속 문서로
+ * `프론트엔드 구현 (#133 · #136)`을 지정하고 있고, 화면 흐름·진입 조건의 소유자가
+ * 디자인 담당이기 때문이다. 시각 표현은 `DESIGN_SYSTEM.md`가 소유한다(UIFLOW 헤더).
  *
- * `width`는 DESIGN_SYSTEM.md §7.1 폭 정책이다.
- *   - `wide`: 대시보드·차트·시나리오 비교 → full-bleed(max 1920), 좌우 패딩 32
+ * ⚠️ `PRD.md` §6.1·§6.2는 아직 7개 화면(SCR-001~007)을 병렬로 정의하고 있어
+ * 이 파일과 어긋난다. PRD를 UIFLOW 기준으로 정정하는 것은 별도 이슈에서 처리한다.
+ *
+ * 범위 밖: `UIFLOW §0`(인증·초기 진입) — #133이 인증을 명시적으로 제외한다.
+ *
+ * `width`는 `DESIGN_SYSTEM.md` §7.1 폭 정책이다.
+ *   - `wide`: 대시보드·차트·비교 화면 → full-bleed(max 1920), 좌우 패딩 32
  *   - `form`: 폼·설정·상세 조회 → max 1440, 좌우 패딩 24
  */
 
 export type ScreenWidth = 'wide' | 'form'
 
 export interface ScreenMeta {
-  /** PRD §6.2 Screen ID */
-  id: string
   /** 라우트 경로 */
   path: string
   /** 한국어 라벨 (DESIGN_SYSTEM §14 — 한국어 라벨 + 영문 약어 병기) */
   label: string
-  /** PRD §6.1 네비게이션의 영문 명칭 */
+  /** 사이드바 보조 표기용 영문 */
   labelEn: string
-  /** PRD §6.2 목적 */
+  /** 출처가 되는 UIFLOW 절 번호 */
+  uiflowRef: string
+  /** UIFLOW가 기술한 핵심 기능 */
   purpose: string
   width: ScreenWidth
 }
 
-/** PRD §6.1 네비게이션 순서 그대로. */
-export const SCREENS: readonly ScreenMeta[] = [
-  {
-    id: 'SCR-001',
+/**
+ * 화면 ID. 잘못된 문자열이 타입 단계에서 걸리도록 유니온으로 고정한다.
+ * UIFLOW는 `SCR-00x` 같은 ID를 부여하지 않으므로 의미 기반 키를 쓰고
+ * 출처는 `uiflowRef`로 남긴다.
+ */
+export type ScreenId =
+  | 'MAINBOARD'
+  | 'VESSEL_REGISTRATION'
+  | 'CII_FORECAST'
+  | 'ROUTE_COMPARISON'
+  | 'ANNUAL_GRADE'
+  | 'FLEET_MONITORING'
+  | 'REPORTS'
+  | 'SETTINGS'
+
+export const SCREEN_BY_ID = {
+  MAINBOARD: {
     path: '/dashboard',
     label: '대시보드',
-    labelEn: 'Dashboard',
-    purpose: '선택 선박의 핵심 상태 요약',
+    labelEn: 'Mainboard',
+    uiflowRef: '1-3',
+    purpose: '실제 데이터 기반 대시보드 활성화 및 메인 내비게이션 노출',
     width: 'wide',
   },
-  {
-    id: 'SCR-002',
-    path: '/vessels',
-    label: '선박 관리',
-    labelEn: 'Vessels',
-    purpose: '선박 등록·수정·샘플 선택',
+  VESSEL_REGISTRATION: {
+    path: '/vessel-registration',
+    label: '선박 등록',
+    labelEn: 'Vessel Registration',
+    uiflowRef: '1-2',
+    purpose: '사용자의 선박 기본 정보 입력 및 시스템 등록',
     width: 'form',
   },
-  {
-    id: 'SCR-003',
+  CII_FORECAST: {
     path: '/voyage-cii',
-    label: '항차 CII 추정',
-    labelEn: 'Voyage CII Estimator',
-    purpose: '운항 전 항차 CII 추정',
+    label: 'CII 예측',
+    labelEn: 'CII Forecast',
+    uiflowRef: '2-1',
+    purpose: '선박의 탄소집약도지수(CII) 추정값 계산 및 시각화',
     width: 'form',
   },
-  {
-    id: 'SCR-004',
-    path: '/scenarios',
-    label: '시나리오 비교',
-    labelEn: 'Scenario Comparison',
-    purpose: '직항·우회·감속 비교',
+  ROUTE_COMPARISON: {
+    path: '/route-comparison',
+    label: '항로 비교',
+    labelEn: 'Route Comparison',
+    uiflowRef: '2-2',
+    purpose: '항로별 예상 소모량 및 탄소 배출량 비교',
     width: 'wide',
   },
-  {
-    id: 'SCR-005',
-    path: '/annual-simulation',
-    label: '연간 시뮬레이션',
-    labelEn: 'Annual CII Simulator',
-    purpose: '연말 등급 예측·목표 달성 확률 확인',
+  ANNUAL_GRADE: {
+    path: '/annual-grade',
+    label: '연간 등급 관리',
+    labelEn: 'Annual Grade',
+    uiflowRef: '2-3',
+    purpose: '선박별 연간 누적 CII 등급 및 목표 달성 현황 모니터링',
     width: 'wide',
   },
-  {
-    id: 'SCR-006',
-    path: '/parameters',
-    label: '파라미터 관리',
-    labelEn: 'Parameter Management',
-    purpose: '규정·연료·모델 파라미터 조회·수정',
+  FLEET_MONITORING: {
+    path: '/fleet',
+    label: '선대 모니터링',
+    labelEn: 'Fleet Monitoring',
+    uiflowRef: '2-4',
+    purpose: '관리 대상 선박 전체의 상태 통합 관제',
+    width: 'wide',
+  },
+  REPORTS: {
+    path: '/reports',
+    label: '보고서',
+    labelEn: 'Reports',
+    uiflowRef: '2-5',
+    purpose: '운항 데이터 기반 보고 문서 생성 및 내보내기',
     width: 'form',
   },
-  {
-    id: 'SCR-007',
-    path: '/data-io',
-    label: '데이터 입출력',
-    labelEn: 'Data Import/Export',
-    purpose: '샘플/CSV 데이터 입력·출력',
+  SETTINGS: {
+    path: '/settings',
+    label: '설정',
+    labelEn: 'Settings',
+    uiflowRef: '2-6',
+    purpose: '사용자 및 시스템 환경 설정',
     width: 'form',
   },
-]
+} as const satisfies Record<ScreenId, ScreenMeta>
 
 /**
- * 기본 진입 경로. 기능①(항차 CII 추정) 화면이다.
- * 8/8 데모의 주 경로이므로 `/`는 이 경로로 보낸다(#133).
+ * 사이드바 노출 순서 — `UIFLOW §2`의 *"메인보드 진입 후 좌측 사이드바로 아래
+ * 6가지 핵심 기능 화면으로 이동"* 구조를 따른다. 메인보드(1-3)를 맨 위에 두고
+ * 기능 6개를 2-1~2-6 순서로 잇는다.
+ *
+ * **순서를 객체 선언 순서에서 파생하지 않는다.** 순서는 UIFLOW가 정한 의미 있는
+ * 정보이므로 명시적으로 적는다.
  */
-export const DEFAULT_PATH = '/voyage-cii'
+export const NAV_ORDER = [
+  'MAINBOARD',
+  'CII_FORECAST',
+  'ROUTE_COMPARISON',
+  'ANNUAL_GRADE',
+  'FLEET_MONITORING',
+  'REPORTS',
+  'SETTINGS',
+] as const satisfies readonly ScreenId[]
 
-export function findScreen(path: string): ScreenMeta | undefined {
-  return SCREENS.find((screen) => screen.path === path)
+/**
+ * 사이드바에 노출되지 않는 화면. `UIFLOW §1-2` 선박 등록은 온보딩 흐름
+ * (`1-1 정보 미등록 → 1-2 선박 등록 → 1-3 메인보드`)에 속하며 기능 메뉴가 아니다.
+ */
+export const OFF_NAV_ORDER = ['VESSEL_REGISTRATION'] as const satisfies readonly ScreenId[]
+
+/** 라우팅 대상 전체. */
+export const ALL_SCREEN_IDS = [...NAV_ORDER, ...OFF_NAV_ORDER] as const
+
+/** 사이드바 렌더링용 배열. */
+export const NAV_SCREENS = NAV_ORDER.map((id) => ({ id, ...SCREEN_BY_ID[id] }))
+
+/**
+ * 기본 진입 경로 — 기능①(CII 예측) 화면.
+ * `UIFLOW`는 메인보드 진입 후 이동을 기술하나, #133이 *"기능① 화면을 기본 진입
+ * 경로로 설정"* 을 완료 기준으로 두고 있고 8/8 데모의 주 경로도 이 화면이다.
+ */
+export const DEFAULT_PATH = SCREEN_BY_ID.CII_FORECAST.path
+
+/** 경로로 화면 메타를 찾는다. 라우트에 없는 경로면 `undefined`. */
+export function findScreenByPath(path: string): ScreenMeta | undefined {
+  for (const id of ALL_SCREEN_IDS) {
+    if (SCREEN_BY_ID[id].path === path) return SCREEN_BY_ID[id]
+  }
+  return undefined
 }

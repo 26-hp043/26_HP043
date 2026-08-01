@@ -1,4 +1,4 @@
-.voyage-cii-page {
+.cii-forecast-page {
   display: flex;
   flex-direction: column;
   gap: var(--space-16);

@@ -10,7 +10,7 @@ import type { ScreenMeta } from '../screens'
 
 interface ComingSoonProps {
   screen: ScreenMeta
-  /** 이 화면을 구현하는 이슈 번호. 아직 이슈가 없으면 생략한다. */
+  /** 이 화면을 구현하는 이슈. 아직 이슈가 없으면 생략한다. */
   issues?: string[]
   /** 후속 이슈가 아직 없을 때의 사유·시점 설명. */
   note?: string
@@ -27,8 +27,8 @@ export function ComingSoon({ screen, issues, note }: ComingSoonProps) {
       <p className="coming-soon__purpose">{screen.purpose}</p>
 
       <dl className="coming-soon__meta">
-        <dt>화면 ID</dt>
-        <dd>{screen.id}</dd>
+        <dt>화면 정의</dt>
+        <dd>UIFLOW §{screen.uiflowRef}</dd>
         {issues?.length ? (
           <>
             <dt>구현 이슈</dt>
