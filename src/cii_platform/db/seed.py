@@ -19,8 +19,9 @@
 **실행 방식은 DB_SCHEMA §8.1·§8.3과 편차가 있다.** §8.1은 seed를 ``seed/`` 디렉토리 +
 Alembic data migration으로 규정하나, 이슈 #33의 완료 기준이 ``python scripts/seed.py``이고
 재실행 idempotent(upsert)를 요구하므로 스크립트 방식으로 둔다. 데이터·로직을 패키지
-안에 두어 DB 없이도 값 검증 테스트가 가능하며, #83의 data migration이 동일 상수를
-재사용할 수 있다. 편차 경위는 이슈 #33 코멘트에 기록했다.
+안에 두어 DB 없이도 값 검증 테스트가 가능하다. 다만 #83의 data migration(017)은 이
+모듈의 상수를 import하지 않는다 — 마이그레이션은 과거 시점 스냅샷이라 가변 상수를
+참조하면 과거 동작이 소급 변경된다. 편차 경위는 이슈 #33 코멘트에 기록했다.
 """
 
 import dataclasses

@@ -27,16 +27,6 @@ async def _insert_vessel(conn, imo="1234567") -> str:
     return str(row.scalar_one())
 
 
-async def _insert_fuel_type(conn, code="HFO") -> None:
-    await conn.execute(
-        text(
-            "INSERT INTO fuel_type (code, display_name, cf, source_ref) "
-            "VALUES (:code, 'Heavy Fuel Oil', 3.114, 'MEPC.364(79)')"
-        ),
-        {"code": code},
-    )
-
-
 async def _insert_voyage(conn, vessel_id, status="DRAFT", policy="EXCLUDE") -> str:
     row = await conn.execute(
         text(
@@ -88,9 +78,12 @@ async def _insert_voyage_scenario(
 
 @pytest.mark.asyncio
 async def test_chk_actual_fuel_positive_rejects_negative(conn):
-    """actual_fuel_ton 음수는 chk_actual_fuel_positive로 거부된다."""
+    """actual_fuel_ton 음수는 chk_actual_fuel_positive로 거부된다.
+
+    참조하는 'HFO'는 017이 적재한 seed 행이다 (#83). 예전에는 테스트가 직접 INSERT했으나
+    uq_fuel_type_code가 seed와 충돌하므로 seed 행을 그대로 쓴다.
+    """
     vessel_id = await _insert_vessel(conn)
-    await _insert_fuel_type(conn)
     voyage_id = await _insert_voyage(conn, vessel_id)
 
     with pytest.raises(IntegrityError):
@@ -108,7 +101,6 @@ async def test_chk_actual_fuel_positive_rejects_negative(conn):
 async def test_voyage_fuel_use_cascade_delete(conn):
     """voyage 삭제 시 voyage_fuel_use가 CASCADE로 함께 삭제된다."""
     vessel_id = await _insert_vessel(conn)
-    await _insert_fuel_type(conn)
     voyage_id = await _insert_voyage(conn, vessel_id)
     await conn.execute(
         text(
@@ -163,15 +155,18 @@ async def test_voyage_vessel_restrict_delete(conn):
 
 @pytest.mark.asyncio
 async def test_fuel_type_no_action_delete(conn):
-    """참조 중인 fuel_type의 물리 삭제는 거부된다 (DB_SCHEMA §7.1 ON DELETE NO ACTION).
+    """참조 중인 seed fuel_type의 물리 삭제는 거부된다 (DB_SCHEMA §7.1 ON DELETE NO ACTION).
 
     전제(#80 검토 보고서): ON DELETE NO ACTION은 PostgreSQL FK의 기본 동작이라
     이 테스트는 006에 ondelete를 명시하기 전/후와 무관하게 통과한다. #80 diff 자체를
     증명하는 것이 아니라, §7.1의 삭제 정책을 행위로 못박아 향후 누군가 CASCADE 등으로
     바꾸는 회귀를 막는 것이 목적이다 (형제 test_voyage_vessel_restrict_delete와 대칭).
+
+    #83 이후 의미가 강해졌다 — 예전에는 "테스트가 방금 만든 행이 막힌다"였으나 이제는
+    **"017이 적재한 seed 행이 참조 중일 때 보호된다"**를 검증한다. 삭제 시도는 conn
+    fixture의 트랜잭션 롤백으로 되돌아가므로 seed 8행은 실제로 사라지지 않는다.
     """
     vessel_id = await _insert_vessel(conn)
-    await _insert_fuel_type(conn)
     voyage_id = await _insert_voyage(conn, vessel_id)
     await conn.execute(
         text(

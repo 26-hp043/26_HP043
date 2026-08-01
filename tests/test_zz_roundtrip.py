@@ -120,3 +120,29 @@ async def _assert_calculation_run_immutable() -> None:
         await trans.rollback()
         await connection.close()
         await engine.dispose()
+
+
+async def test_seed_downgrade_removes_fuel_type_rows():
+    """017 downgrade가 fuel_type seed 8행을 삭제한다 (#83 완료 기준).
+
+    이 파일에 두는 이유는 위 두 테스트와 같다 — ``downgrade 016``이 전역 스키마 상태를
+    바꾸므로 async ``conn`` fixture를 쓰는 테스트와 섞이면 안 된다 (#82). 값 자체의
+    검증은 tests/test_fuel_type_seed.py가 담당한다.
+
+    여기서는 참조 행이 없으므로 NO ACTION FK에 걸리지 않는다. 참조가 있을 때 DELETE가
+    거부되는 경로는 커밋된 데이터가 필요해 테스트가 아니라 수동 검증으로 확인한다
+    (PR 본문 실측 결과 참조).
+    """
+    step = run_alembic("downgrade", "016")
+    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
+    try:
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        try:
+            async with engine.connect() as connection:
+                count = await connection.scalar(text("SELECT count(*) FROM fuel_type"))
+            assert count == 0
+        finally:
+            await engine.dispose()
+    finally:
+        # 성공/실패와 무관하게 head로 복원한다 — seed 8행이 다시 적재된다.
+        _restore_to_head()
