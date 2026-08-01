@@ -3,6 +3,15 @@
 React · Vite · TypeScript로 만든 프론트엔드입니다. 백엔드(`src/cii_platform/**`)와 같은
 저장소에 두어 이슈·PR·CI를 한곳에서 관리합니다(#133).
 
+## 요구 환경
+
+| 항목 | 최소 버전 |
+|---|---|
+| Node.js | **22.22.0** |
+| React · ReactDOM | **19.2.7** |
+
+설치는 `package-lock.json` 기준 `npm ci`로 합니다.
+
 ## 실행
 
 ```bash
@@ -13,7 +22,7 @@ npm run build   # 타입 검사(tsc -b) + 프로덕션 빌드
 npm run lint    # oxlint
 ```
 
-기본 진입 경로는 기능①(항차 CII 추정) 화면입니다. `/`로 들어오면 `/voyage-cii`로 이동합니다.
+기본 진입 경로는 기능①(CII 예측) 화면입니다. `/`로 들어오면 `/voyage-cii`로 이동합니다.
 
 ## 디렉터리
 
@@ -22,8 +31,8 @@ frontend/
 ├── index.html
 ├── src/
 │   ├── main.tsx            ← 진입점. 토큰·전역 CSS 로드
-│   ├── App.tsx             ← 라우트 정의 (PRD §6.2 화면 7개)
-│   ├── screens.ts          ← 화면 메타 정본 (경로·라벨·폭 정책)
+│   ├── App.tsx             ← 라우트 정의 (UIFLOW §1·§2 화면)
+│   ├── screens.ts          ← 화면 메타 (ID → 메타 · 사이드바 순서 · 폭 정책)
 │   ├── layout/             ← 공통 셸 (좌측 사이드바 + 상단바)
 │   ├── components/         ← 공통 컴포넌트 (면책 배너, 준비 중, 등급 패턴 defs)
 │   ├── pages/              ← 화면별 컴포넌트
@@ -32,6 +41,20 @@ frontend/
 │       └── global.css      ← reset · 타이포그래피 기본
 └── public/
 ```
+
+## 기준 문서
+
+**프론트엔드의 화면 구조와 시각 표현은 디자인 문서가 소유합니다.**
+
+| 영역 | 기준 |
+|---|---|
+| 화면 목록·계층·흐름·진입 조건 | `UIFLOW.md` §1 · §2 |
+| 색·타이포·간격·컴포넌트·레이아웃·접근성 | `DESIGN_SYSTEM.md` |
+| 면책·경고 문구 원문 | `PRD.md` §6.3 (DESIGN_SYSTEM §13이 문구 정의를 PRD로 넘김) |
+| 계산·검증 규칙·API 요청/응답 계약 | `PRD.md` · `TECH_SPEC.md` · `API_SPEC.md` |
+
+> ⚠️ `PRD.md` §6.1·§6.2는 아직 화면 7개(SCR-001~007)를 병렬로 정의하고 있어
+> `UIFLOW.md`와 어긋납니다. PRD를 UIFLOW 기준으로 정정하는 것은 별도 이슈에서 다룹니다.
 
 ## 구현 제약 (8/8까지)
 
