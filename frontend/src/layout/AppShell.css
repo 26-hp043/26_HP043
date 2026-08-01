@@ -1,0 +1,120 @@
+/*
+ * DESIGN_SYSTEM §7.2 구조(좌측 사이드바 + 상단바) · §7.1 폭 정책 · §6 간격 스케일.
+ * MVP는 데스크톱 1920 · Light Mode 기준이다(#133 범위 밖: 반응형 · 다크모드).
+ */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+/* 상단바 */
+.app-shell__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-16);
+  height: 56px;
+  padding: 0 var(--space-24);
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.app-shell__brand {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+}
+
+.app-shell__env {
+  font-size: var(--font-size-label);
+  color: var(--color-primary-subtle);
+}
+
+.app-shell__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 좌측 사이드바 */
+.app-shell__sidebar {
+  flex: 0 0 232px;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  padding: var(--space-16) var(--space-12);
+}
+
+.app-shell__nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.app-shell__nav-link {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.app-shell__nav-link:hover {
+  background: var(--color-surface-2);
+}
+
+.app-shell__nav-link--active {
+  background: var(--color-primary-subtle);
+  color: var(--color-primary);
+}
+
+.app-shell__nav-label {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+}
+
+/* DESIGN_SYSTEM §14 — 한국어 라벨 + 영문 약어 병기 */
+.app-shell__nav-label-en {
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+  color: var(--color-text-muted);
+}
+
+.app-shell__nav-link--active .app-shell__nav-label-en {
+  color: var(--color-primary);
+}
+
+/* 메인 — §7.1 폭 정책 */
+.app-shell__main {
+  flex: 1;
+  min-width: 0;
+  padding-top: var(--space-24);
+  padding-bottom: var(--space-48);
+}
+
+.app-shell__main--wide {
+  padding-left: var(--space-32);
+  padding-right: var(--space-32);
+}
+
+.app-shell__main--form {
+  padding-left: var(--space-24);
+  padding-right: var(--space-24);
+}
+
+.app-shell__content {
+  margin: 0 auto;
+}
+
+.app-shell__main--wide .app-shell__content {
+  max-width: var(--layout-max-wide);
+}
+
+.app-shell__main--form .app-shell__content {
+  max-width: var(--layout-max-form);
+}
