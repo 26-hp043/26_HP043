@@ -156,10 +156,17 @@ function computeVoyageCii(request: VoyageCiiRequest): VoyageCiiResponse {
   const ratioToRequired = attainedCii / requiredCii
 
   // 출력 가드 — #37 엔진의 [ORACLE-MISS-2]와 **가드 조건은 같으나 도달 경로가 다르다.**
+  //
   //   프론트: float64라 1e308 × 3.114e6에서 Infinity가 된다
   //   백엔드: Decimal(prec=30)은 같은 입력에서 오버플로하지 않고 큰 값을 반환한다
-  // 즉 이 가드는 백엔드 동작의 재현이 아니라 **demo provider 전용 비정상 수치 방어**다.
-  // demo provider는 #138 이후에도 개발·테스트용으로 남으므로 이 가드도 함께 남는다.
+  //
+  // 즉 같은 입력에 대해 이쪽은 CALCULATION_ERROR, 실제 API는 성공 응답(또는 다른 검증
+  // 오류)이 나올 수 있다. **이 가드는 백엔드 동작의 재현이 아니라 demo provider 전용
+  // float64 비정상 수치 방어다.** 두 결과가 갈리는 것을 버그로 보지 말 것.
+  //
+  // demo provider는 #138 이후에도 개발·테스트용으로 남으므로(#134) 이 가드와 그 테스트도
+  // 함께 남는다. 실제 API provider는 서버 오류를 VoyageCiiError로 변환할 뿐 이 가드를
+  // 옮겨 갈 필요가 없다.
   if (!Number.isFinite(totalCo2G) || totalCo2G <= 0) {
     throw new VoyageCiiError(
       'CALCULATION_ERROR',
