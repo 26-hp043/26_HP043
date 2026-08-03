@@ -12,6 +12,7 @@ from cii_platform.calc.cii_engine import (
     CiiResult,
     FuelUse,
     calculate_attained_cii,
+    calculate_required_cii,
     calculate_voyage_co2,
 )
 
@@ -162,3 +163,129 @@ def test_zero_denominator_guards_name_the_offending_input(capacity, distance, ex
     """capacity=0과 distance=0이 같은 메시지로 나오면 안 된다."""
     with pytest.raises(ValueError, match=expected):
         calculate_attained_cii(FIXTURE1_FUEL_USES, capacity, distance)
+
+
+# --- required CII (#38) — TEST_PLAN §2.1 중 본 이슈 범위: UT-CII-005 ------------
+# Fixture 1의 9 소수자리 기대값은 쓰지 않는다. 그 값의 확정은 별도 이슈 소관이며,
+# 아래 케이스는 어느 쪽으로 확정되든 영향받지 않는다 (#38 정정 코멘트 참조).
+
+# PRD §3.4.3 LNG_CARRIER DWT >= 100,000 — c=0이라 CII_ref가 capacity와 무관해진다.
+LNG_FIXED_A = Decimal("9.827")
+
+# TECH_SPEC §1.2.2(ln/exp)와 float math.pow가 9 소수자리에서 갈리는 유일한 seed 조합.
+# 기대값은 표시용 9자리가 아니라 prec=30 원값이라 자릿수 표기 규칙과 무관하다.
+LNEXP_DIVERGENT_A = Decimal("14779E10")
+LNEXP_DIVERGENT_C = Decimal("2.673")
+LNEXP_DIVERGENT_CAPACITY = Decimal("1000")
+LNEXP_DIVERGENT_CII_REF = Decimal("1414637.11796665060056953642109")
+
+
+def test_required_cii_applies_negative_exponent():
+    """`^(-c)`가 적용되는지 — 부호가 뒤집히면 100 × 20 = 2000 계열이 나온다.
+
+    ln/exp 경유라 정확 연산이 아니므로(실측 5.00000000000000000000000000001)
+    허용오차로 비교한다. 이 테스트의 목적은 exact 산술이 아니라 부호 검출이다.
+    """
+    result = calculate_required_cii(
+        a=Decimal("100"),
+        c=Decimal("1"),
+        reference_capacity=Decimal("20"),
+        z_factor_percent=Decimal("0"),
+    )
+    assert abs(result.cii_ref - Decimal("5")) < Decimal("1e-25")
+    assert result.required_cii == result.cii_ref
+
+
+def test_required_cii_decreases_as_capacity_grows():
+    """capacity가 커지면 CII_ref는 작아진다. `+c`면 즉시 뒤집힌다."""
+    args = {"a": Decimal("100"), "c": Decimal("1"), "z_factor_percent": Decimal("0")}
+    refs = [
+        calculate_required_cii(reference_capacity=Decimal(cap), **args).cii_ref
+        for cap in (10, 20, 40, 80)
+    ]
+    assert refs == sorted(refs, reverse=True)
+
+
+def test_ut_cii_005_required_cii_decreases_as_z_factor_grows():
+    """UT-CII-005 — Z-factor가 커지면 required CII가 낮아진다.
+
+    대상 함수가 z_factor_percent를 이미 받은 순수 함수라 연도 seed를 조회하지 않고
+    입력 퍼센트를 직접 올려 검증한다. 연도별 검증은 성격상 통합 테스트다.
+    """
+    args = {
+        "a": Decimal("4745"),
+        "c": Decimal("0.622"),
+        "reference_capacity": Decimal("50000"),
+    }
+    low = calculate_required_cii(z_factor_percent=Decimal("10"), **args)
+    high = calculate_required_cii(z_factor_percent=Decimal("20"), **args)
+
+    assert high.required_cii < low.required_cii
+    # CII_ref는 Z와 무관하다 — 감소가 Z 경로에서만 왔는지 확인한다.
+    assert low.cii_ref == high.cii_ref
+
+
+def test_required_cii_with_zero_c_ignores_capacity():
+    """c=0이면 CII_ref = a. PRD §3.4.3 LNG_CARRIER DWT >= 100,000."""
+    result = calculate_required_cii(
+        a=LNG_FIXED_A,
+        c=Decimal("0"),
+        reference_capacity=Decimal("120000"),
+        z_factor_percent=Decimal("0"),
+    )
+    assert result.cii_ref == LNG_FIXED_A
+
+    far = calculate_required_cii(
+        a=LNG_FIXED_A,
+        c=Decimal("0"),
+        reference_capacity=Decimal("999999"),
+        z_factor_percent=Decimal("0"),
+    )
+    assert far.cii_ref == result.cii_ref
+
+
+def test_decimal_power_does_not_regress_to_float_pow():
+    """TECH_SPEC §1.2.2 위반(float 경유) 회귀 방지.
+
+    Fixture 1(a=4745)에서는 두 방식이 12자리까지 같아 이 위반이 검출되지 않는다.
+    seed 133개 조합 중 갈리는 것은 이 하나뿐이다.
+      Decimal ln/exp : ...117966651   float math.pow : ...117966650 (9자리 기준)
+    """
+    result = calculate_required_cii(
+        a=LNEXP_DIVERGENT_A,
+        c=LNEXP_DIVERGENT_C,
+        reference_capacity=LNEXP_DIVERGENT_CAPACITY,
+        z_factor_percent=Decimal("0"),
+    )
+    assert result.cii_ref == LNEXP_DIVERGENT_CII_REF
+
+
+def test_required_cii_does_not_round_intermediate_values():
+    """중간에 자르거나 반올림하지 않는다.
+
+    입력은 Fixture 1 조합이라 prec=30에서 소수 29자리가 나온다. 9자리로 잘렸다면
+    소수 자릿수가 9를 넘지 못한다.
+
+    한계 — 이 단언은 **9자리 quantize만** 잡는다. 12자리나 16자리로 자르면 통과한다.
+    자릿수까지 잠그는 것은 test_decimal_power_does_not_regress_to_float_pow의
+    prec=30 원값 리터럴 대조이며, 이쪽이 주 잠금이다.
+    """
+    result = calculate_required_cii(
+        a=Decimal("4745"),
+        c=Decimal("0.622"),
+        reference_capacity=Decimal("50000"),
+        z_factor_percent=Decimal("11"),
+    )
+    assert -result.cii_ref.as_tuple().exponent > 9
+    assert -result.required_cii.as_tuple().exponent > 9
+
+
+@pytest.mark.parametrize("capacity", [Decimal("0"), Decimal("-1")])
+def test_required_cii_rejects_non_positive_reference_capacity(capacity):
+    with pytest.raises(ValueError, match="reference_capacity must be > 0"):
+        calculate_required_cii(
+            a=Decimal("4745"),
+            c=Decimal("0.622"),
+            reference_capacity=capacity,
+            z_factor_percent=Decimal("11"),
+        )
