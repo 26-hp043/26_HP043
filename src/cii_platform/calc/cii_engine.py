@@ -22,7 +22,19 @@ dataclass 의존은 공개 진입점 두 곳에만 둔다. 내부 계산부는 `
 cf_value)`` 튜플만 받으므로, 입력 형태를 §4.3 원문으로 되돌릴 때 바뀌는 코드는
 진입점 함수뿐이다.
 
-reference CII·required CII(#38), 등급 판정(#39), capacity 결정 규칙(#41)은 범위 밖이다.
+required CII(#38)는 :func:`calculate_required_cii`가 담당한다. 분수 지수는
+TECH_SPEC §1.2.2의 Decimal ln/exp로 계산하며, §9.4가 float 경유를 금지한다.
+
+중간 단계 자릿수 처리는 하지 않는다. **정본에 중간 처리 규정이 없기 때문이다** —
+TECH_SPEC §1.2.1은 ``prec=30``과 ``ROUND_HALF_UP``만 규정한다. 규정 없는 동작을
+코드에 넣지 않는다는 기준을 따른 것이며, 규칙 조항 신설은 #166 소관이다.
+
+    **계산 방향 확인: sky01170851.** Fixture 1 기대값이 PRD와 TEST_PLAN에서 갈리는
+    원인이 "단계마다 반올림과 내림을 섞어 쓴 것"이며 중간 처리 없이 끝까지 이어
+    계산하는 쪽이 맞다는 것을, prec=30 원값 7개를 직접 산출해 확인해 주었다.
+    그 결과로 위 판단이 사후 검증됐다 (#166).
+
+등급 판정(#39), capacity 결정 규칙(#41)은 범위 밖이다.
 """
 
 from collections.abc import Sequence
@@ -57,6 +69,18 @@ class CiiResult:
     total_co2_g: Decimal
     total_co2_t: Decimal
     fuel_breakdown: dict[str, Decimal]
+
+
+@dataclass(frozen=True)
+class RequiredCiiResult:
+    """required CII 산출값 (#38).
+
+    ``cii_ref``를 함께 반환하는 이유는 등급 경계(#39)와 API 응답(#55)이 둘 다
+    필요로 하기 때문이다. 호출부가 다시 계산하면 같은 식이 두 곳에 생긴다.
+    """
+
+    cii_ref: Decimal
+    required_cii: Decimal
 
 
 def _normalize(fuel_uses: Sequence[FuelUse]) -> list[tuple[str, Decimal, Decimal]]:
@@ -139,3 +163,59 @@ def calculate_attained_cii(
         total_co2_t=total_co2_t,
         fuel_breakdown=fuel_breakdown,
     )
+
+
+def _decimal_power(base: Decimal, exp: Decimal) -> Decimal:
+    """``base ** exp``를 Decimal ln/exp로 계산한다 (TECH_SPEC §1.2.2).
+
+    ``c``가 분수라 Decimal의 ``**`` 연산을 쓸 수 없다. §9.4가 float 변환을 금지하고
+    ln/exp 사용을 지시하므로 ``math.pow``를 경유하지 않는다. 정밀도는 호출 시점의
+    context를 따르며, 공개 함수가 :func:`layer1_context`로 고정한다.
+
+    ``ln()``의 정의역이 양수라 0 이하는 여기서 걸린다. 다만 실제 호출 경로에서는
+    공개 함수의 입력 가드가 먼저 잡는다.
+    """
+    if base <= 0:
+        raise ValueError(f"base must be > 0 for ln/exp power: got {base}")
+    return (base.ln() * exp).exp()
+
+
+@layer1_context
+def calculate_required_cii(
+    a: Decimal,
+    c: Decimal,
+    reference_capacity: Decimal,
+    z_factor_percent: Decimal,
+) -> RequiredCiiResult:
+    """required CII를 계산한다 (PRD §3.3.4~§3.3.5).
+
+    .. code-block:: text
+
+        CII_ref      = a × reference_capacity^(-c)
+        required_CII = CII_ref × (1 - z_factor_percent / 100)
+
+    중간 단계에서 자릿수를 자르거나 반올림하지 않는다. ``prec=30`` 원값을 그대로
+    반환하며, 표시 시점 반올림은 호출부 책임이다. 근거는 모듈 docstring 참조.
+
+    :param a: 기준선 계수 ``a``. seed의 IMO 과학 표기(``14479E10`` 등)는 호출부가
+        :func:`~cii_platform.calc.imo_parser.parse_imo_scientific`로 해석해 넘긴다.
+    :param c: 기준선 지수. DB에 **양수**로 저장되며 여기서 ``-c``로 적용한다
+        (PRD §3.4.3). ``0``이면 ``CII_ref = a``가 되어 capacity와 무관해진다
+        (LNG_CARRIER ``DWT ≥ 100,000``).
+    :param reference_capacity: **reference** capacity. transport capacity가 아니다
+        (TECH_SPEC §1.2.4). ``fixed`` 규칙 적용은 #41의
+        :func:`~cii_platform.calc.capacity.resolve_reference_capacity` 소관이며
+        여기서는 이미 해석된 값을 받는다.
+    :param z_factor_percent: 감축률을 **퍼센트**로 받는다 (2026년이면 ``11``).
+    """
+    if reference_capacity <= 0:
+        raise ValueError(f"reference_capacity must be > 0: got {reference_capacity}")
+
+    cii_ref = a * _decimal_power(reference_capacity, -c)
+    required_cii = cii_ref * (Decimal("1") - z_factor_percent / Decimal("100"))
+
+    # TECH_SPEC §1.2.5 출력 가드. a·c·z의 범위 검증은 정본에 근거가 없어 두지 않는다.
+    validate_layer1_result(cii_ref, "cii_ref")
+    validate_layer1_result(required_cii, "required_cii")
+
+    return RequiredCiiResult(cii_ref=cii_ref, required_cii=required_cii)
