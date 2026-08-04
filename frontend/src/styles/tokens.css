@@ -79,6 +79,14 @@
   --layout-max-wide: 1920px;
   --layout-max-form: 1440px;
 
+  /*
+   * 사이드바 폭 — DESIGN_SYSTEM §7.2 (2026-08-04 회신).
+   * 접힘 동작은 MVP 범위 밖이지만, 폭을 토큰으로 분리해 두면 나중에
+   * 클래스 토글만으로 접을 수 있다. 셸을 다시 만들지 않기 위한 준비다.
+   */
+  --layout-sidebar-width: 232px;
+  --layout-sidebar-width-collapsed: 64px;
+
   /* Typography */
   --font-sans: Pretendard, system-ui, 'Malgun Gothic', sans-serif;
 

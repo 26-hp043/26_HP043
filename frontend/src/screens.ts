@@ -29,6 +29,15 @@ export interface ScreenMeta {
   /** UIFLOW가 기술한 핵심 기능 */
   purpose: string
   width: ScreenWidth
+  /**
+   * 8/8 데모 범위에 해당 화면을 채우는 작업이 있는지.
+   *
+   * `false`면 사이드바에 **비활성 상태로 노출**한다 — 숨기지 않는다
+   * (`DESIGN_SYSTEM §7.2`, 2026-08-04 디자인 회신).
+   * 항목을 숨기면 사용자가 제품 범위를 좁게 인식하고, 나중에 항목이 늘어날 때
+   * 네비게이션이 통째로 달라 보인다.
+   */
+  demoScope: boolean
 }
 
 /**
@@ -54,6 +63,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '1-3',
     purpose: '실제 데이터 기반 대시보드 활성화 및 메인 내비게이션 노출',
     width: 'wide',
+    demoScope: true,   // UIFLOW 진입점
   },
   VESSEL_REGISTRATION: {
     path: '/vessel-registration',
@@ -62,6 +72,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '1-2',
     purpose: '사용자의 선박 기본 정보 입력 및 시스템 등록',
     width: 'form',
+    demoScope: false,  // 8/8 데모는 샘플 선박 seed(#34)를 쓴다
   },
   CII_FORECAST: {
     path: '/voyage-cii',
@@ -70,6 +81,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-1',
     purpose: '선박의 탄소집약도지수(CII) 추정값 계산 및 시각화',
     width: 'form',
+    demoScope: true,   // #135 입력 폼 · #136 결과 화면
   },
   ROUTE_COMPARISON: {
     path: '/route-comparison',
@@ -78,6 +90,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-2',
     purpose: '항로별 예상 소모량 및 탄소 배출량 비교',
     width: 'wide',
+    demoScope: true,   // #156 기능② 비교 UI
   },
   ANNUAL_GRADE: {
     path: '/annual-grade',
@@ -86,6 +99,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-3',
     purpose: '선박별 연간 누적 CII 등급 및 목표 달성 현황 모니터링',
     width: 'wide',
+    demoScope: true,   // #157 기능③ 목업
   },
   FLEET_MONITORING: {
     path: '/fleet',
@@ -94,6 +108,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-4',
     purpose: '관리 대상 선박 전체의 상태 통합 관제',
     width: 'wide',
+    demoScope: false,  // AIS 연동 필요 — 대응 백엔드 이슈 없음
   },
   REPORTS: {
     path: '/reports',
@@ -102,6 +117,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-5',
     purpose: '운항 데이터 기반 보고 문서 생성 및 내보내기',
     width: 'form',
+    demoScope: false,  // 8/8 범위 밖
   },
   SETTINGS: {
     path: '/settings',
@@ -110,6 +126,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-6',
     purpose: '사용자 및 시스템 환경 설정',
     width: 'form',
+    demoScope: false,  // 8/8 범위 밖
   },
 } as const satisfies Record<ScreenId, ScreenMeta>
 
