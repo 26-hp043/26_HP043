@@ -13,6 +13,9 @@ venv/
 # Environment
 .env
 
+# Node / frontend
+node_modules/
+
 # Testing
 .coverage
 htmlcov/

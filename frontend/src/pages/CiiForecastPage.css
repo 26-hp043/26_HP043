@@ -1,0 +1,6 @@
+.cii-forecast-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  max-width: 720px;
+}
