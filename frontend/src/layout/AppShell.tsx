@@ -18,6 +18,9 @@ import { GradePatternDefs } from '../components/GradePatternDefs'
  *   접힘 동작 자체는 MVP 범위 밖이라 토글 UI는 두지 않는다 — 나중에 셸을
  *   다시 만들지 않기 위한 준비다.
  *
+ * 서비스명은 **BlueLog**다(2026-08-04 디자인 담당 확인 — 정식 명칭).
+ * 로고 이미지는 아직 전달받지 못해 텍스트로 둔다. SVG를 받으면 이 자리를 교체한다.
+ *
  * 상단바 항차 영역은 8/8까지 **읽기 전용 표시**다. 선택기로 바꿀지는 기능② 착수 시
  * 재확인하며, 최종 레이블 문구는 디자인 담당이 추후 전달한다(현재 문구는 임시).
  *
@@ -34,8 +37,8 @@ export function AppShell() {
 
       <nav className="app-shell__sidebar" aria-label="주요 화면">
         <p className="app-shell__brand">
-          <span className="app-shell__brand-name">CII 예측 플랫폼</span>
-          <span className="app-shell__brand-sub">운항 의사결정 보조</span>
+          <span className="app-shell__brand-name">BlueLog</span>
+          <span className="app-shell__brand-sub">CII 예측 · 운항 의사결정 보조</span>
         </p>
 
         <ul className="app-shell__nav">
