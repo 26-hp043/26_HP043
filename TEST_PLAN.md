@@ -5,7 +5,7 @@
 | 문서명 | TEST_PLAN.md |
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-03 |
+| 최종 수정일 | 2026-08-04 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.2 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
@@ -482,7 +482,7 @@ def test_no_implicit_float_in_layer1():
 | UT-RISK-007 | 20% ≤ P < 50% | P=0.35 | `risk_level = HIGH` |
 | UT-RISK-008 | P < 20% | P=0.10 | `risk_level = CRITICAL` |
 | UT-RISK-005B | 경계값: P = 80% | P=0.80 | `risk_level = LOW` |
-| UT-RISK-005B | 경계값: P = 50% | P=0.50 | `risk_level = MEDIUM` |
+| UT-RISK-006B | 경계값: P = 50% | P=0.50 | `risk_level = MEDIUM` |
 | UT-RISK-007B | 경계값: P = 20% | P=0.20 | `risk_level = HIGH` |
 
 ---
@@ -1019,3 +1019,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-07-14 | `0173105` | annotation 라벨 번호 정규화 (5개 정본 일괄) |
 | 2026-07-29 | `#142` | 변경이력 기록 방식 전환 주석 보완 |
 | 2026-08-03 | `#169` | §1.3 각주의 경계값 판정 규칙 참조를 `PRD §9.4.1`에서 `§3.3.6`으로 정정 |
+| 2026-08-04 | `#173` | §2.9 확률 위험도 경계값 TC ID 중복 정정 (`UT-RISK-005B` → `UT-RISK-006B`) |
