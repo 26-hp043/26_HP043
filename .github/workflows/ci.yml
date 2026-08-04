@@ -63,7 +63,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           # frontend/package.json의 engines와 같은 값을 쓴다.
-          # ⚠️ engines를 올릴 때 이 값도 함께 올려야 한다 — 자동 동기화가 없다.
+          # ⚠️ engines를 올릴 때 세 곳(package.json · 이 파일 · audit.yml)을 함께
+          # 올려야 한다 — 자동 동기화가 없다. package.json은 JSON이라 주석을 달 수 없어
+          # 이 경고를 두 워크플로에만 둔다.
           node-version: "22.22.0"
           # ~/.npm(다운로드 캐시)만 캐시된다. node_modules는 npm ci가 매번 새로 만든다.
           cache: npm
