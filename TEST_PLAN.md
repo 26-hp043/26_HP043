@@ -5,7 +5,7 @@
 | 문서명 | TEST_PLAN.md |
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-03 |
+| 최종 수정일 | 2026-08-04 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.2 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
@@ -482,7 +482,7 @@ def test_no_implicit_float_in_layer1():
 | UT-RISK-007 | 20% ≤ P < 50% | P=0.35 | `risk_level = HIGH` |
 | UT-RISK-008 | P < 20% | P=0.10 | `risk_level = CRITICAL` |
 | UT-RISK-005B | 경계값: P = 80% | P=0.80 | `risk_level = LOW` |
-| UT-RISK-005B | 경계값: P = 50% | P=0.50 | `risk_level = MEDIUM` |
+| UT-RISK-006B | 경계값: P = 50% | P=0.50 | `risk_level = MEDIUM` |
 | UT-RISK-007B | 경계값: P = 20% | P=0.20 | `risk_level = HIGH` |
 
 ---
