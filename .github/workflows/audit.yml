@@ -6,7 +6,7 @@ name: Dependency Audit
 # 머지 게이트에 두면 아무도 코드를 고치지 않은 날 아침에 모든 PR이 빨개진다.
 # 그렇다고 감사를 빼 버리면 취약점이 조용히 쌓이므로, **주기 작업으로 회수**한다.
 #
-# 이 워크플로는 PR을 막지 않는다. 실패는 Actions 탭에서만 보인다.
+# 이 워크플로는 PR·push에서 돌지 않으므로 머지를 막지 않는다.
 
 on:
   schedule:
@@ -31,6 +31,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      # high 미만(low·moderate)까지 실패로 잡으면 전이 의존성 권고에 매주 걸린다.
-      # 등재 시점 취약점은 0건이며, 기준을 올릴지는 실제 알림 빈도를 보고 정한다.
+      # high 이상만 실패로 처리한다. 주기 작업의 목적은 조치가 필요한 취약점을
+      # 놓치지 않는 것이고, 등급 기준은 운영하면서 조정할 수 있다.
+      # 등재 시점 취약점은 전 등급 0건이다(info·low·moderate·high·critical 모두).
       - run: npm audit --audit-level=high
