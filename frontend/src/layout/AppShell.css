@@ -1,19 +1,62 @@
 /*
- * DESIGN_SYSTEM §7.2 구조(좌측 사이드바 + 상단바) · §7.1 폭 정책 · §6 간격 스케일.
+ * DESIGN_SYSTEM §7.2 구조 · §7.1 폭 정책 · §6 간격 스케일.
+ * §7.2는 2026-08-04 디자인 회신으로 개정됐다 — 브랜드·주 네비는 사이드바,
+ * 상단바는 우측 정렬 유틸리티 영역(선박·항차·알림·계정).
  * MVP는 데스크톱 1920 · Light Mode 기준이다(#133 범위 밖: 반응형 · 다크모드).
  */
 
 .app-shell {
   display: flex;
-  flex-direction: column;
   min-height: 100%;
 }
 
-/* 상단바 */
+/* 좌측 사이드바 — 폭은 토큰. 접힘은 클래스 토글로 붙일 수 있게 구조만 잡아 둔다 */
+.app-shell__sidebar {
+  flex: 0 0 var(--layout-sidebar-width);
+  width: var(--layout-sidebar-width);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  padding: var(--space-16) var(--space-12);
+}
+
+/* 접힘 상태 — 동작 자체는 MVP 범위 밖(§7.2). 폭 전환만 미리 정의해 둔다 */
+.app-shell--collapsed .app-shell__sidebar {
+  flex-basis: var(--layout-sidebar-width-collapsed);
+  width: var(--layout-sidebar-width-collapsed);
+}
+
+/* 브랜드 — 상단바가 아니라 사이드바 상단 (§7.2) */
+.app-shell__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-8) var(--space-12) var(--space-16);
+}
+
+.app-shell__brand-name {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+  color: var(--color-primary);
+}
+
+.app-shell__brand-sub {
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+  color: var(--color-text-muted);
+}
+
+.app-shell__stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+/* 상단바 — 우측 정렬 유틸리티만. 네비게이션 항목을 두지 않는다 (§7.2) */
 .app-shell__topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--space-16);
   height: 56px;
   padding: 0 var(--space-24);
@@ -21,28 +64,29 @@
   color: var(--color-surface);
 }
 
-.app-shell__brand {
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
+.app-shell__util-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  font-size: var(--font-size-label);
 }
 
-.app-shell__env {
-  font-size: var(--font-size-label);
+.app-shell__util-key {
   color: var(--color-primary-subtle);
 }
 
-.app-shell__body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
+.app-shell__util-value {
+  font-weight: var(--font-weight-label);
+  font-variant-numeric: tabular-nums;
 }
 
-/* 좌측 사이드바 */
-.app-shell__sidebar {
-  flex: 0 0 232px;
-  background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
-  padding: var(--space-16) var(--space-12);
+.app-shell__util-item--plain {
+  color: var(--color-primary-subtle);
+}
+
+.app-shell__env {
+  font-size: var(--font-size-micro);
+  color: var(--color-primary-subtle);
 }
 
 .app-shell__nav {
@@ -87,6 +131,32 @@
 
 .app-shell__nav-link--active .app-shell__nav-label-en {
   color: var(--color-primary);
+}
+
+/*
+ * 비활성 항목 — 숨기지 않고 노출한다 (§7.2, 2026-08-04 회신).
+ * text-faint는 §2.2가 "플레이스홀더·비활성 전용"으로 못박은 토큰이라 여기에 맞다.
+ * 색만으로 구분하지 않도록 「준비 중」 태그를 함께 둔다 (§0.2 제약 3).
+ */
+.app-shell__nav-link--disabled {
+  cursor: default;
+  color: var(--color-text-faint);
+}
+
+.app-shell__nav-link--disabled .app-shell__nav-label,
+.app-shell__nav-link--disabled .app-shell__nav-label-en {
+  color: var(--color-text-faint);
+}
+
+.app-shell__nav-tag {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px var(--space-8);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+  color: var(--color-text-muted);
 }
 
 /* 메인 — §7.1 폭 정책 */
