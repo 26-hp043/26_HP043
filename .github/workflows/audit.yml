@@ -1,0 +1,36 @@
+name: Dependency Audit
+
+# 의존성 감사를 CI(ci.yml)에서 분리한 이유 (#160).
+#
+# `npm audit`은 저장소 코드가 바뀌지 않아도 **외부 advisory DB가 갱신되면** 실패한다.
+# 머지 게이트에 두면 아무도 코드를 고치지 않은 날 아침에 모든 PR이 빨개진다.
+# 그렇다고 감사를 빼 버리면 취약점이 조용히 쌓이므로, **주기 작업으로 회수**한다.
+#
+# 이 워크플로는 PR을 막지 않는다. 실패는 Actions 탭에서만 보인다.
+
+on:
+  schedule:
+    # 매주 월요일 00:00 UTC (= 09:00 KST)
+    - cron: "0 0 * * 1"
+  # 수동 실행용. 이 워크플로는 PR·push에서 돌지 않아 병합 전에는 검증할 수 없다.
+  workflow_dispatch:
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # ci.yml · frontend/package.json의 engines와 같은 값을 쓴다.
+          # ⚠️ engines를 올릴 때 세 곳을 함께 올려야 한다 — 자동 동기화가 없다.
+          node-version: "22.22.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # high 미만(low·moderate)까지 실패로 잡으면 전이 의존성 권고에 매주 걸린다.
+      # 등재 시점 취약점은 0건이며, 기준을 올릴지는 실제 알림 빈도를 보고 정한다.
+      - run: npm audit --audit-level=high
