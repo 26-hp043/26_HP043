@@ -162,26 +162,28 @@ tests/
 ```json
 {
   "description": "PRD §13.2 Fixture 2 — 등급 경계값 테스트 (BULK_CARRIER, 2026)",
-  "base_required_cii": "5.045066331",
+  "base_required_cii": "5.045066332",
   "boundaries": {
-    "superior":  "4.338757045",
-    "lower":     "4.742362351",
-    "upper":     "5.347770311",
-    "inferior":  "5.953178271"
+    "superior":  "4.338757046",
+    "lower":     "4.742362353",
+    "upper":     "5.347770312",
+    "inferior":  "5.953178272"
   },
   "cases": [
-    { "attained_cii": "4.338757045", "expected_rating": "A", "note": "경계값 = 더 우수한 등급" },
-    { "attained_cii": "4.742362351", "expected_rating": "B", "note": "경계값 = 더 우수한 등급" },
-    { "attained_cii": "5.347770311", "expected_rating": "C", "note": "경계값 = 더 우수한 등급" },
-    { "attained_cii": "5.953178271", "expected_rating": "D", "note": "경계값 = 더 우수한 등급" },
-    { "attained_cii": "5.953179271", "expected_rating": "E", "note": "경계값 + 0.000001 = E [ORACLE-M-2]" }
+    { "attained_cii": "4.338757046", "expected_rating": "A", "note": "경계값 = 더 우수한 등급" },
+    { "attained_cii": "4.742362353", "expected_rating": "B", "note": "경계값 = 더 우수한 등급" },
+    { "attained_cii": "5.347770312", "expected_rating": "C", "note": "경계값 = 더 우수한 등급" },
+    { "attained_cii": "5.953178272", "expected_rating": "D", "note": "경계값 = 더 우수한 등급" },
+    { "attained_cii": "5.953179272", "expected_rating": "E", "note": "경계값 + 0.000001 = E [ORACLE-M-2]" }
   ]
 }
 ```
 
 > **경계값 판정 규칙 (PRD §3.3.6)**: attained_CII가 경계값과 정확히 같으면 더 우수한 등급으로 판정한다. 예: `attained_CII == lower_boundary` → B (C가 아님).
 >
-> **[ORACLE-M-2]** 기존 E 케이스 `"5.953178272"` (inferior + 1e-9)의 note가 "경계값 + 0.000001"로 표기되어 실제 delta와 불일치. 값을 `"5.953179271"` (inferior + 0.000001)로 수정하여 note와 일치시킴.
+> **[ORACLE-M-2]** 기존 E 케이스 `"5.953178272"` (inferior + 1e-9)의 note가 "경계값 + 0.000001"로 표기되어 실제 delta와 불일치. 값을 `inferior + 0.000001`로 수정하여 note와 일치시킴.
+>
+> **갱신 (#166)** — `inferior_boundary`가 `5.953178271` → `5.953178272`로 바뀌었으므로 E 케이스도 `5.953179271` → **`5.953179272`**로 함께 옮긴다. **delta는 `0.000001`로 그대로**이며, 경계값에 맞춰 둔 입력이라 함께 움직여야 판정 5건이 유지된다.
 
 ### 1.4 Fixture 3 — Monte Carlo 재현성
 
@@ -1035,3 +1037,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-04 | `#173` | §2.9 확률 위험도 경계값 TC ID 중복 정정 (`UT-RISK-005B` → `UT-RISK-006B`) |
 | 2026-08-05 | `#PR` | §9.1 `[ORACLE-C-3]` 재정정 — 절단 전제 소멸, 수치 비교 명시, `decimal_digits` → `decimal_places` 개명 (#166) |
 | 2026-08-05 | `#PR` | §1.2 Fixture 1 기대값 6개를 `PRD §13.1`과 일치시킴, `fixture_note` 자릿수 단위 표기 정정, `[ORACLE-C-1]` 폐기 (#166) |
+| 2026-08-05 | `#PR` | §1.3 Fixture 2 `base_required_cii`·경계 4개·케이스 5건 입력값을 §1.2와 함께 이동, `[ORACLE-M-2]` 갱신 (#166) |
