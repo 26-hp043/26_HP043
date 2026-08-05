@@ -130,12 +130,12 @@ tests/
     "co2_emission_g": "249120000",
     "co2_emission_ton": "249.12",
     "attained_cii": "4.982400",
-    "cii_ref": "5.668613856",
-    "required_cii": "5.045066331",
-    "superior_boundary": "4.338757045",
-    "lower_boundary": "4.742362351",
-    "upper_boundary": "5.347770311",
-    "inferior_boundary": "5.953178271",
+    "cii_ref": "5.668613857",
+    "required_cii": "5.045066332",
+    "superior_boundary": "4.338757046",
+    "lower_boundary": "4.742362353",
+    "upper_boundary": "5.347770312",
+    "inferior_boundary": "5.953178272",
     "estimated_rating": "C",
     "ratio_to_required": "0.987579",
     "risk_level": "MEDIUM"
@@ -145,11 +145,11 @@ tests/
     "layer1_decimal": "9",
     "layer1_display": "6"
   },
-  "fixture_note": "정수값(M, W, capacity)은 bit-exact 비교. 소수값(CII, boundary)은 9자리 유효숫자 Decimal 비교. 참조 구현체(Decimal prec=30) 실행으로 canonical full-precision fixture를 별도 생성 필요 [ORACLE-C-3]"
+  "fixture_note": "정수값(M, W, capacity)은 bit-exact 비교. 소수값(CII, boundary)은 소수 9자리 Decimal 비교. 참조 구현체(Decimal prec=30) 실행으로 canonical full-precision fixture를 별도 생성 필요 [ORACLE-C-3]"
 }
 ```
 
-> **[ORACLE-C-1]** `lower_boundary` 값을 `4.742362352`에서 `4.742362351`로 정정. 산출 근거: `5,045,066,331 × 94 = 474,236,235,114` → `4.74236235114` → 9자리 = **4.742362351** (10번째 자리 1, 반올림 없음). TECH_SPEC §1.2.3과 일치.
+> **[ORACLE-C-1] — 폐기 (#166).** 이 항목은 `lower_boundary`를 `4.742362351`로 정정하며 산출 근거로 `5,045,066,331 × 94`를 들었다. **소수 9자리로 절단한 `required_CII`를 다시 곱한 계산**이며 `TECH_SPEC §1.2.1`이 금지하는 형태다. 원값에서 직접 반올림한 값은 **`4.742362353`**이다. 정수 연산 검산 자체는 맞았으나, 절단된 입력에서 출발해 **틀린 값을 확증**했다.
 >
 > **[ORACLE-C-3]** 기존 `"tolerance": {"layer1": "0"}` (bit-exact) 선언은 fixture 값이 9~10자리로 절단된 상태에서 모순 발생. tolerance 구조를 정수/소수/표시 3단계로 분리하여 정정.
 >
@@ -1034,3 +1034,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-03 | `#169` | §1.3 각주의 경계값 판정 규칙 참조를 `PRD §9.4.1`에서 `§3.3.6`으로 정정 |
 | 2026-08-04 | `#173` | §2.9 확률 위험도 경계값 TC ID 중복 정정 (`UT-RISK-005B` → `UT-RISK-006B`) |
 | 2026-08-05 | `#PR` | §9.1 `[ORACLE-C-3]` 재정정 — 절단 전제 소멸, 수치 비교 명시, `decimal_digits` → `decimal_places` 개명 (#166) |
+| 2026-08-05 | `#PR` | §1.2 Fixture 1 기대값 6개를 `PRD §13.1`과 일치시킴, `fixture_note` 자릿수 단위 표기 정정, `[ORACLE-C-1]` 폐기 (#166) |
