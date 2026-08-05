@@ -6,6 +6,7 @@ DB에 의존하지 않는다.
 
 import re
 import tomllib
+from collections.abc import Iterator
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 
@@ -15,10 +16,15 @@ from fastapi.testclient import TestClient
 
 from cii_platform.api.main import app
 
-client = TestClient(app)
+
+@pytest.fixture
+def client() -> Iterator[TestClient]:
+    """명시적인 생명주기를 갖는 health 테스트 클라이언트."""
+    with TestClient(app) as c:
+        yield c
 
 
-def test_health_returns_200_and_data_envelope() -> None:
+def test_health_returns_200_and_data_envelope(client: TestClient) -> None:
     # API_SPEC §10: {"data": {...}} 형태.
     resp = client.get("/api/v1/health")
     assert resp.status_code == 200
@@ -34,19 +40,19 @@ def test_health_returns_200_and_data_envelope() -> None:
     assert re.match(r"^\d+\.\d+", data["version"]), data["version"]
 
 
-def test_health_has_no_meta_block() -> None:
+def test_health_has_no_meta_block(client: TestClient) -> None:
     # API_SPEC §10 응답은 §1.3.1의 meta(request_id/timestamp)를 요구하지 않는다.
     body = client.get("/api/v1/health").json()
     assert "meta" not in body
 
 
-def test_health_omits_rng_canonical_test_until_issue_43() -> None:
+def test_health_omits_rng_canonical_test_until_issue_43(client: TestClient) -> None:
     # D7: PCG64DXSM canonical vector 검증(#43) 미구현이라 거짓 "passed" 대신 생략.
     data = client.get("/api/v1/health").json()["data"]
     assert "rng_canonical_test" not in data
 
 
-def test_bare_health_path_is_not_exposed() -> None:
+def test_bare_health_path_is_not_exposed(client: TestClient) -> None:
     # API_SPEC §1.1/§12: 정본 경로는 /api/v1/health. prefix 없는 /health는 없다.
     assert client.get("/health").status_code == 404
 
