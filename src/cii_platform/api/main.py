@@ -3,8 +3,6 @@
 앱 인스턴스를 구성하고, 요청 컨텍스트 미들웨어, 오류 핸들러(#100/#107에서 정의),
 라우터를 배선한다. 모든 업무 엔드포인트는 API_SPEC §1.1의 base URL ``/api/v1``
 아래에 둔다.
-
-실행 진입점은 ``cii_platform.api.main:app``이다(Dockerfile CMD와 일치).
 """
 
 from __future__ import annotations
