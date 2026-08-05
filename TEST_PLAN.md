@@ -5,7 +5,7 @@
 | 문서명 | TEST_PLAN.md |
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-04 |
+| 최종 수정일 | 2026-08-05 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.2 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
@@ -797,13 +797,26 @@ def test_no_implicit_float_in_layer1():
 ```python
 from decimal import Decimal
 
-def assert_layer1_equal(actual: str, expected: str, decimal_digits: int = 9):
+def assert_layer1_equal(actual: str, expected: str, decimal_places: int = 9):
     """
     Layer 1 값은 Decimal로 정밀 비교.
-    정수값은 bit-exact, 소수값은 지정 유효숫자 자리에서 비교.
+    정수값은 bit-exact, 소수값은 지정 소수 자릿수에서 비교.
 
-    [ORACLE-C-3] 기존 bit-exact (tolerance=0) 주장은 9자리 절단 fixture 값과
-    모순되므로, 비교 기준을 명시된 유효숫자로 정정.
+    비교는 항상 수치 비교다. 표기 자릿수(`249120000` vs `249120000.000`)는
+    비교 결과에 영향을 주지 않는다 (TECH_SPEC §1.2.1).
+
+    [ORACLE-C-3] 기존 bit-exact (tolerance=0) 주장은 소수 9자리로 절단된 fixture
+    값과 모순되어 자릿수 비교로 정정했다.
+
+    [ORACLE-C-3 재정정, #166] 절단의 근거였던 fixture 값이 30자리 원값으로
+    교체되므로 그 전제는 사라진다. 다만 **구현이 TECH_SPEC §1.2.1을 아직
+    충족하지 못해** 30자리 지점에서 정본과 어긋나므로(작업 정밀도 부족),
+    구현 정합화 전까지 기본값을 소수 9자리로 둔다. 정합화 후 정본 자릿수
+    비교로 올린다.
+
+    `decimal_digits` → `decimal_places` 개명: quantize가 실제로 적용하는 것은
+    소수 자릿수인데 이름과 설명이 '유효숫자'였다. TECH_SPEC §1.2.1의 표기
+    규약(「N자리」=유효숫자, 소수 자릿수는 「소수 N자리」)에 맞춘다.
     """
     actual_dec = Decimal(actual)
     expected_dec = Decimal(expected)
@@ -817,9 +830,9 @@ def assert_layer1_equal(actual: str, expected: str, decimal_digits: int = 9):
         return
 
     # 소수값은 지정 자리수에서 비교 (Decimal quantize)
-    quantizer = Decimal("1e-{}".format(decimal_digits))
+    quantizer = Decimal("1e-{}".format(decimal_places))
     assert actual_dec.quantize(quantizer) == expected_dec.quantize(quantizer), (
-        f"Layer 1 decimal mismatch at {decimal_digits} digits: "
+        f"Layer 1 decimal mismatch at {decimal_places} decimal places: "
         f"{actual} != {expected}"
     )
 ```
@@ -1020,3 +1033,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-07-29 | `#142` | 변경이력 기록 방식 전환 주석 보완 |
 | 2026-08-03 | `#169` | §1.3 각주의 경계값 판정 규칙 참조를 `PRD §9.4.1`에서 `§3.3.6`으로 정정 |
 | 2026-08-04 | `#173` | §2.9 확률 위험도 경계값 TC ID 중복 정정 (`UT-RISK-005B` → `UT-RISK-006B`) |
+| 2026-08-05 | `#PR` | §9.1 `[ORACLE-C-3]` 재정정 — 절단 전제 소멸, 수치 비교 명시, `decimal_digits` → `decimal_places` 개명 (#166) |
