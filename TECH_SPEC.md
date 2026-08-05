@@ -4,8 +4,8 @@
 |---|---|
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.3 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) |
-| 최종 수정일 | 2026-07-18 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) |
+| 최종 수정일 | 2026-08-03 |
 | 상위 문서 | `PRD.md` v3.1 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -570,13 +570,22 @@ fuel_ton = base_foc_per_day × speed_factor × weather_factor × duration_days
 > **[ORACLE-S-2 정정]** 반환 타입을 `float`에서 `Decimal`로 변경하여 Layer 1 정밀도 경계를 명확히 했다.
 >
 > **[ORACLE-M-6 정정]** `fuel_breakdown` 반환값을 명시적으로 정의했다.
+>
+> **[#37 정정]** 시그니처를 구현 기준으로 정정했다. ⑴ `vessel` 인자는 본 함수 본문에서 참조되지 않아 제거하여 순수함수로 유지한다. ⑵ 입력을 `list[dict]`에서 `FuelUse` dataclass로 바꾼다 — dict 키 오타가 런타임까지 노출되지 않는다. ⑶ `FuelUse`에 `fuel_code`를 둔다 — 연료 식별자가 없으면 `fuel_breakdown`의 키를 만들 수 없다. `fuel_code`는 DB_SCHEMA `fuel_type.code` 값과 일치시킨다. 또한 개별 유종 0톤은 정상 입력이므로 출력 가드는 총합 기준으로 판정한다.
 
 ```python
+from collections.abc import Sequence
+from dataclasses import dataclass
 from decimal import Decimal
 
+@dataclass(frozen=True)
+class FuelUse:
+    fuel_code: str      # DB_SCHEMA fuel_type.code (예: "HFO")
+    fuel_ton: Decimal
+    cf_value: Decimal
+
 def calculate_voyage_co2(
-    vessel,
-    fuel_uses: list[dict],  # [{"fuel_type": "HFO", "fuel_ton": 60.0, "cf": 3.114}, ...]
+    fuel_uses: Sequence[FuelUse],
 ) -> tuple[Decimal, dict[str, Decimal]]:
     """
     다중 연료 CO₂ 배출량 계산 (Layer 1 — Decimal 반환).
@@ -585,19 +594,25 @@ def calculate_voyage_co2(
         total_co2_g: 총 CO₂ 배출량 (gCO₂, Decimal)
         fuel_breakdown: 연료별 CO₂ 배출량 ({"HFO": Decimal, "LNG": Decimal, ...})
     """
-    total_co2_g = Decimal("0")
+    if not fuel_uses:
+        raise ValueError("fuel_uses must not be empty")
+
     fuel_breakdown: dict[str, Decimal] = {}
 
     for fuel in fuel_uses:
-        fuel_type = fuel["fuel_type"]
-        fuel_ton = Decimal(str(fuel["fuel_ton"]))
-        cf = Decimal(str(fuel["cf"]))
+        if fuel.fuel_ton < 0:
+            raise ValueError(f"fuel_ton must be >= 0: '{fuel.fuel_code}' → {fuel.fuel_ton}")
+        if fuel.cf_value <= 0:
+            raise ValueError(f"cf_value must be > 0: '{fuel.fuel_code}' → {fuel.cf_value}")
 
-        co2_g = fuel_ton * Decimal("1000000") * cf
-        total_co2_g += co2_g
-        fuel_breakdown[fuel_type] = co2_g
+        co2_g = fuel.fuel_ton * Decimal("1000000") * fuel.cf_value
+        # 동일 fuel_code가 여러 건이면 합산한다.
+        fuel_breakdown[fuel.fuel_code] = fuel_breakdown.get(fuel.fuel_code, Decimal(0)) + co2_g
 
-    # [ORACLE-MISS-2] 출력 가드
+    # sum()의 기본 시작값은 int 0이므로 시작값을 명시한다.
+    total_co2_g = sum(fuel_breakdown.values(), Decimal(0))
+
+    # [ORACLE-MISS-2] 출력 가드 (총합 기준)
     if not total_co2_g.is_finite() or total_co2_g <= 0:
         raise ValueError(
             f"Invalid CO₂ result: {total_co2_g}. Check fuel inputs."
@@ -1333,6 +1348,8 @@ class SimulationSnapshot:
 
 ### 16.2 디렉토리 구조
 
+**백엔드**
+
 ```
 src/cii_platform/
 ├── errors.py            ← 공통 예외 base (AppError). 레이어 중립.
@@ -1348,6 +1365,61 @@ src/cii_platform/
     ├── models/          ← SQLAlchemy ORM 모델 (DB 표현)
     └── repositories/    ← DB 접근(쿼리)만
 ```
+
+**프론트엔드** (#133)
+
+React · Vite · TypeScript. 같은 저장소의 `frontend/`에 둔다 — 저장소를 나누면
+이슈·PR·CI가 두 곳으로 흩어진다.
+
+```
+frontend/
+├── index.html
+└── src/
+    ├── main.tsx         ← 진입점. 토큰·전역 CSS 로드
+    ├── App.tsx          ← 라우트 정의 (UIFLOW §1·§2 화면)
+    ├── screens.ts       ← 화면 메타. ID→메타 객체 + 사이드바 순서. 경로 문자열의 단일 출처
+    ├── layout/          ← 공통 셸 (좌측 사이드바 + 상단바, DESIGN_SYSTEM §7.2)
+    ├── components/      ← 화면 간 공용 컴포넌트
+    ├── pages/           ← 화면별 컴포넌트 (screens.ts의 화면 1개당 1개)
+    └── styles/
+        ├── tokens.css   ← DESIGN_SYSTEM §15 토큰. 색·간격·반경의 단일 출처
+        └── global.css   ← reset · 타이포그래피 기본
+```
+
+**기준 문서** — 프론트엔드는 영역별로 소유 문서가 다르다.
+
+| 영역 | 기준 |
+|---|---|
+| 화면 목록·계층·흐름·진입 조건 | `UIFLOW.md` §1 · §2 |
+| 색·타이포·간격·컴포넌트·레이아웃·접근성·수치 표기 | `DESIGN_SYSTEM.md` |
+| 면책·경고 문구 원문 | `PRD.md` §6.3 (DESIGN_SYSTEM §13이 문구 정의를 PRD로 넘긴다) |
+| 계산·검증 규칙·API 요청/응답 계약 | `PRD.md` · `TECH_SPEC.md` · `API_SPEC.md` |
+
+> ⚠️ **본 절은 위계를 규정하지 않는다. #133의 판단을 기록한다.**
+>
+> `AGENTS.md §3` 우선순위 목록(IMO 원문 → PRD → TECH_SPEC → API_SPEC → DB_SCHEMA →
+> TEST_PLAN)에 **`UIFLOW.md`는 없다.** `DESIGN_SYSTEM.md`에 대해서는 "디자인 토큰은
+> 최종 권위이며 위 순위와 교차하지 않는다"는 카브아웃이 있으나, 그 범위가 **토큰의
+> 이름·의미·제약**에 한정되어 위 표의 레이아웃·표기 규칙(§7.1 폭 정책 · §11 추정값 표기
+> 등)은 그 범위를 넘는다. 따라서 `PRD §6.2`(화면 7개)와 `UIFLOW §2`가 충돌할 때의
+> 처리를 §3이 정해 두지 않았다 — **예외가 아니라 공백이다.**
+>
+> **#133은 화면 구조에서 `UIFLOW.md`를 따랐다.** 근거는 두 문서가 서로를 그렇게
+> 가리킨다는 점이다 — `DESIGN_SYSTEM §0.3`이 "화면 구조·플로우 → UIFLOW §2"로 넘기고,
+> `UIFLOW` 헤더는 후속 문서로 "프론트엔드 구현(#133 · #136)"을 지정한다.
+>
+> **위계 규정 자체는 `AGENTS §3` 정리에서 세운다**(`UIFLOW.md` 편입 + `DESIGN_SYSTEM.md`
+> 카브아웃 범위 확장). 본 절은 그때까지의 **잠정 기록**이며, §3이 정리되면 규칙을 중복
+> 정의하지 않고 §3을 참조하도록 바꾼다.
+>
+> 현재 `PRD §6.1 · §6.2`(화면 7개 SCR-001~007)와 어긋난 상태다. PRD 정정도 별도
+> 이슈에서 처리하며, `API_SPEC`의 엔드포인트↔화면 매핑 표(`§6.2 SCR-002~007` 참조
+> 17행)도 같은 범위에 포함한다.
+
+- **토큰 단일화**: 컴포넌트는 `styles/tokens.css`의 CSS 커스텀 프로퍼티만 참조하고
+  hex를 하드코딩하지 않는다(DESIGN_SYSTEM §15).
+- **API 호출 경계**: 화면은 데이터 출처를 알지 않는다. provider 인터페이스를 두고
+  demo 구현과 실제 API 구현을 교체한다(#134 · #138).
 
 ### 16.3 계층 간 규칙
 
@@ -1400,6 +1472,8 @@ PR 리뷰 시 다음을 확인한다:
 ## 변경 이력
 
 > git 커밋 기록에서 복원했다(날짜는 커밋 기준). 버전 번호 매핑은 커밋 메시지·헤더 기준의 추정을 포함한다.
+>
+> **2026-07-23까지가 사후 복원분이다.** 이후 항목은 변경 시점에 직접 기록하며, squash merge로 브랜치 커밋 해시가 재작성되므로 커밋 열에는 **PR 번호**를 적는다.
 
 | 날짜 | 커밋 | 변경 요약 |
 |---|---|---|
@@ -1408,4 +1482,9 @@ PR 리뷰 시 다음을 확인한다:
 | 2026-07-04 | `bee61e9` | canonical vector 고정 + 포맷 정리 |
 | 2026-07-04 | `ec1bf23` | Oracle 3차 리뷰 반영 (F-006~F-008) → v1.2 |
 | 2026-07-14 | `0173105` | annotation 라벨 번호 정규화 (5개 정본 일괄) |
-| 2026-07-18 | `11123ad` | 서비스 레이어 아키텍처·모듈 구조 확정 (§16) (#100) → v1.3 |
+| 2026-07-21 | `be0dc23` | 변경이력 표 추가 |
+| 2026-07-23 | `9febca6` | 서비스 레이어 아키텍처·모듈 구조 확정 (§16) (#100) → v1.3 |
+| 2026-07-23 | `3a38d0c` | §5.4 재현성 계약 신설 + 헤더 상태 갱신 (#102) |
+| 2026-07-29 | `#142` | 최종 수정일 정정 (07-18 → 07-23) + 11123ad→9febca6 정정 + 누락 2행 복원 + 기록 방식 전환 주석 보완 |
+| 2026-08-01 | `#158` | §16.2에 프론트엔드 디렉터리 구조(`frontend/`) 추가 — 백엔드/프론트엔드 블록 분리, 영역별 기준 문서 표 신설(화면 구조는 UIFLOW 기준 — AGENTS §3 공백에 대한 잠정 기록), 토큰 단일화·provider 경계 규칙 명시 (#133) |
+| 2026-08-03 | `#129` | §5 `calculate_voyage_co2` 시그니처를 구현 기준으로 정정 — `vessel` 인자 제거, `list[dict]` → `FuelUse` dataclass, 출력 가드를 총합 기준으로 판정 (#37) |

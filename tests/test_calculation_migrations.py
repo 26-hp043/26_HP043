@@ -1,6 +1,8 @@
 """이슈 #28 계산 결과 테이블 마이그레이션 검증.
 
 대상: calculation_run(008), simulation_snapshot(009) — 둘 다 immutable.
+추가 대상: calculation_run.weather_snapshot_id 컬럼·FK·자식 인덱스(016, 이슈 #115) —
+파일 하단 "calculation_run.weather_snapshot_id" 섹션.
 
 완료 기준(이슈 #28):
 - immutable 트리거: UPDATE / DELETE 시 에러 발생 (calculation_run, simulation_snapshot)
@@ -47,17 +49,34 @@ async def _insert_voyage(conn, vessel_id) -> str:
     return str(row.scalar_one())
 
 
-async def _insert_calculation_run(conn, vessel_id, voyage_id=None) -> str:
+async def _insert_calculation_run(conn, vessel_id, voyage_id=None, weather_snapshot_id=None) -> str:
     row = await conn.execute(
         text(
             "INSERT INTO calculation_run "
-            "(calculation_type, vessel_id, voyage_id, input_hash, parameter_hash, "
-            " model_version, result_json, parameters_used) "
-            "VALUES ('VOYAGE_ESTIMATE', :vid, :voy, :ih, :ph, "
+            "(calculation_type, vessel_id, voyage_id, weather_snapshot_id, "
+            " input_hash, parameter_hash, model_version, result_json, parameters_used) "
+            "VALUES ('VOYAGE_ESTIMATE', :vid, :voy, :wid, :ih, :ph, "
             " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb) "
             "RETURNING id"
         ),
-        {"vid": vessel_id, "voy": voyage_id, "ih": VALID_HASH, "ph": VALID_HASH},
+        {
+            "vid": vessel_id,
+            "voy": voyage_id,
+            "wid": weather_snapshot_id,
+            "ih": VALID_HASH,
+            "ph": VALID_HASH,
+        },
+    )
+    return str(row.scalar_one())
+
+
+async def _insert_weather_snapshot(conn) -> str:
+    row = await conn.execute(
+        text(
+            "INSERT INTO weather_snapshot "
+            "(lat, lon, lat_rounded, lon_rounded, fetched_at, source) "
+            "VALUES (35.1, 129.0, 35.0, 129.0, now(), 'sample') RETURNING id"
+        )
     )
     return str(row.scalar_one())
 
@@ -166,6 +185,80 @@ async def test_voyage_restrict_delete_with_calculation_run(conn):
 
     with pytest.raises(IntegrityError):
         await conn.execute(text("DELETE FROM voyage WHERE id = :vid"), {"vid": voyage_id})
+
+
+# ---------------------------------------------------------------------------
+# calculation_run.weather_snapshot_id (016, #115)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_calc_run_weather_snapshot_id_defaults_null(conn):
+    """weather_snapshot_id는 NULL을 허용한다.
+
+    §2.5 [#102]: weather_model = NONE·캐시 만료 fallback(TECH_SPEC §7.3)은 스냅샷 없이
+    계산하는 정상 경로이므로 NULL이 유효한 상태다.
+    """
+    vessel_id = await _insert_vessel(conn)
+    calc_id = await _insert_calculation_run(conn, vessel_id)
+
+    row = await conn.execute(
+        text("SELECT weather_snapshot_id FROM calculation_run WHERE id = :cid"),
+        {"cid": calc_id},
+    )
+    assert row.scalar_one() is None
+
+
+@pytest.mark.asyncio
+async def test_calc_run_references_weather_snapshot(conn):
+    """weather_snapshot을 참조하는 calculation_run INSERT는 정상 동작한다."""
+    vessel_id = await _insert_vessel(conn)
+    snapshot_id = await _insert_weather_snapshot(conn)
+    calc_id = await _insert_calculation_run(conn, vessel_id, weather_snapshot_id=snapshot_id)
+
+    row = await conn.execute(
+        text("SELECT weather_snapshot_id FROM calculation_run WHERE id = :cid"),
+        {"cid": calc_id},
+    )
+    assert str(row.scalar_one()) == snapshot_id
+
+
+@pytest.mark.asyncio
+async def test_weather_snapshot_restrict_delete_when_referenced(conn):
+    """[이슈 #115 완료 기준] 참조된 weather_snapshot의 DELETE는 RESTRICT로 거부된다.
+
+    §2.13 [#102]: 참조된 스냅샷은 TTL 경과와 무관하게 보존되어야 재현성 계약
+    (TECH_SPEC §5.4)의 추적성이 성립한다. calculation_run은 immutable(§7.3)이라
+    SET NULL(자식 UPDATE)이 트리거에 차단되므로 §7.1이 RESTRICT를 지정한다.
+    """
+    vessel_id = await _insert_vessel(conn)
+    snapshot_id = await _insert_weather_snapshot(conn)
+    await _insert_calculation_run(conn, vessel_id, weather_snapshot_id=snapshot_id)
+
+    with pytest.raises(IntegrityError):
+        await conn.execute(
+            text("DELETE FROM weather_snapshot WHERE id = :sid"), {"sid": snapshot_id}
+        )
+
+
+@pytest.mark.asyncio
+async def test_weather_snapshot_delete_ok_when_unreferenced(conn):
+    """참조되지 않은 weather_snapshot은 삭제된다 (eviction 정상 경로).
+
+    이 테스트는 016 diff 자체를 증명하는 것이 아니라(FK 추가 전에도 삭제는 성공했다),
+    §2.13 [#102]의 "캐시 정리 작업은 참조되지 않는 행만 삭제해야 한다"는 운영 규칙이
+    실제로 열려 있음을 행위로 못박아, 향후 누군가 FK를 NOT NULL로 바꾸거나 정책을
+    조이는 회귀를 막는 것이 목적이다. RESTRICT가 과잉 차단하지 않음을 함께 보인다.
+    (형제 test_weather_snapshot_restrict_delete_when_referenced와 대칭.)
+    """
+    snapshot_id = await _insert_weather_snapshot(conn)
+
+    await conn.execute(text("DELETE FROM weather_snapshot WHERE id = :sid"), {"sid": snapshot_id})
+
+    row = await conn.execute(
+        text("SELECT count(*) FROM weather_snapshot WHERE id = :sid"), {"sid": snapshot_id}
+    )
+    assert row.scalar_one() == 0
 
 
 # ---------------------------------------------------------------------------

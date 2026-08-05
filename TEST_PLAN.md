@@ -5,7 +5,7 @@
 | 문서명 | TEST_PLAN.md |
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-07-14 |
+| 최종 수정일 | 2026-08-04 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.2 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
@@ -179,7 +179,7 @@ tests/
 }
 ```
 
-> **경계값 판정 규칙 (PRD §9.4.1)**: attained_CII가 경계값과 정확히 같으면 더 우수한 등급으로 판정한다. 예: `attained_CII == lower_boundary` → B (C가 아님).
+> **경계값 판정 규칙 (PRD §3.3.6)**: attained_CII가 경계값과 정확히 같으면 더 우수한 등급으로 판정한다. 예: `attained_CII == lower_boundary` → B (C가 아님).
 >
 > **[ORACLE-M-2]** 기존 E 케이스 `"5.953178272"` (inferior + 1e-9)의 note가 "경계값 + 0.000001"로 표기되어 실제 delta와 불일치. 값을 `"5.953179271"` (inferior + 0.000001)로 수정하여 note와 일치시킴.
 
@@ -482,7 +482,7 @@ def test_no_implicit_float_in_layer1():
 | UT-RISK-007 | 20% ≤ P < 50% | P=0.35 | `risk_level = HIGH` |
 | UT-RISK-008 | P < 20% | P=0.10 | `risk_level = CRITICAL` |
 | UT-RISK-005B | 경계값: P = 80% | P=0.80 | `risk_level = LOW` |
-| UT-RISK-005B | 경계값: P = 50% | P=0.50 | `risk_level = MEDIUM` |
+| UT-RISK-006B | 경계값: P = 50% | P=0.50 | `risk_level = MEDIUM` |
 | UT-RISK-007B | 경계값: P = 20% | P=0.20 | `risk_level = HIGH` |
 
 ---
@@ -1006,6 +1006,8 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 ## 변경 이력
 
 > git 커밋 기록에서 복원했다(날짜는 커밋 기준). 버전 번호 매핑은 커밋 메시지·헤더 기준의 추정을 포함한다.
+>
+> **2026-07-23까지가 사후 복원분이다.** 이후 항목은 변경 시점에 직접 기록하며, squash merge로 브랜치 커밋 해시가 재작성되므로 커밋 열에는 **PR 번호**를 적는다.
 
 | 날짜 | 커밋 | 변경 요약 |
 |---|---|---|
@@ -1015,3 +1017,6 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-07-04 | `af3b752` | Oracle 리뷰 4건 문서 정합성 수정 |
 | 2026-07-04 | `ec1bf23` | Oracle 3차 리뷰 반영 (F-006~F-008, 168 케이스) → v1.2 |
 | 2026-07-14 | `0173105` | annotation 라벨 번호 정규화 (5개 정본 일괄) |
+| 2026-07-29 | `#142` | 변경이력 기록 방식 전환 주석 보완 |
+| 2026-08-03 | `#169` | §1.3 각주의 경계값 판정 규칙 참조를 `PRD §9.4.1`에서 `§3.3.6`으로 정정 |
+| 2026-08-04 | `#173` | §2.9 확률 위험도 경계값 TC ID 중복 정정 (`UT-RISK-005B` → `UT-RISK-006B`) |

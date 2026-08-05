@@ -6,7 +6,7 @@
 | 제품명 | 중소선사를 위한 CII 예측 및 운항 의사결정 보조 플랫폼 |
 | 버전 | v3.1 Implementation PRD |
 | 상태 | MVP 구현 기준 / Oracle Review 반영 |
-| 최종 수정일 | 2026-07-14 |
+| 최종 수정일 | 2026-07-31 |
 | MVP 개발 기간 | 2026.06 ~ 2026.10 |
 | 대상 사용자 | 중소선사 선장·항해사, 육상 운항관리 담당자 |
 | 문서 목적 | 개발자가 화면·계산·데이터 흐름·예외 처리·테스트 기준을 구현할 수 있도록 PRD v3.0을 상세화 |
@@ -300,6 +300,20 @@ MVP는 모든 CII 대상 선종을 파라미터 테이블로 저장할 수 있�
 | RO_RO_CARGO | all | GT | 0.76 | 0.89 | 1.08 | 1.27 |
 | RO_RO_PASSENGER | all | GT | 0.76 | 0.92 | 1.14 | 1.30 |
 | CRUISE_PASSENGER | all | GT | 0.87 | 0.95 | 1.06 | 1.16 |
+
+> **[#126] `RO_RO_PASSENGER_HSC`는 위 표에 행이 없다. 이는 전사 누락이 아니라 원문대로다.** MEPC.354(78) Table 1에 해당 행이 존재하지 않으며, 다른 조항에도 별도 규정이 없다.
+>
+> **HSC의 등급 경계는 `RO_RO_PASSENGER` 행(0.76 · 0.92 · 1.14 · 1.30)을 적용한다.**
+>
+> **1. 인지된 부재다.** MEPC.353(78) Table 1은 `Ro-ro passenger ship`을 상위 분류로 두고, 그 아래 `Ro-ro passenger ship`(a=2023)과 `High-speed craft designed to SOLAS chapter X`(a=4196)를 병합 셀로 묶는다. IMO는 HSC를 인지하고 **별도 `a` 값까지 부여**한 상태에서 G4에 행을 만들지 않았다. HSC는 독립 선종이 아니라 Ro-ro passenger ship의 하위 구분이다.
+>
+> **2. (정황) G2는 두 하위 구분을 같은 capacity 지수로 적합했다.** `c`가 0.460으로 같아 `CII_ref` 비율이 `4196 / 2023 = 2.074147`로 capacity와 무관하게 일정하다. 기준선 적합 단계에서 두 하위 구분을 하나의 모집단으로 다뤘다는 뜻이다.
+>
+> **3. (정황) G4는 세분이 필요한 선종에 하위 행을 쓴다.** MEPC.354(78) Table 1은 `Gas carrier`(65,000 DWT 기준)와 `LNG carrier`(100,000 DWT 기준)를 용량 구간으로 나누면서 `Ro-ro passenger ship`은 나누지 않았다.
+>
+> 따라서 `cii_rating_boundary`에는 **행을 추가하지 않는다.** 원문에 없는 값을 규제값 표에 넣으면 `source_ref`가 거짓이 된다(§3.2 각주의 "값이 인쇄된 문서" 기준). 선종 매핑은 등급 판정 구현(#39)에서 처리한다.
+>
+> **원문 대조 확인: sky01170851.**
 
 ---
 
@@ -624,15 +638,15 @@ CONFIRMED actual
 | Rule ID | 규칙 | 오류 문구 |
 |---|---|---|
 | VAL-001 | 필수값이 비어 있으면 계산 불가 | `{field}을/를 입력하세요.` |
-| VAL-002 | 거리, 속도, 연료량, DWT, GT는 0보다 커야 함 | `{field}은/는 0보다 커야 합니다.` |
+| VAL-002 | 거리, 연료량, DWT, GT, 선박 기준속도(`reference_speed_kn`)는 0보다 커야 함 | `{field}은/는 0보다 커야 합니다.` |
 | VAL-003 | IMO 번호는 7자리 숫자 | `IMO 번호는 7자리 숫자여야 합니다.` |
 | VAL-004 | 선종은 파라미터 테이블에 존재해야 함 | `지원하지 않는 선종입니다.` |
 | VAL-005 | 기준연도는 regulation_year에 존재해야 함 | `해당 연도의 규정 파라미터가 없습니다.` |
 | VAL-006 | 연료 종류는 active fuel_type이어야 함 | `지원하지 않는 연료입니다.` |
 | VAL-007 | 위치 좌표는 위도 −90 ~ +90, 경도 −180 ~ +180 | `좌표 형식이 올바르지 않습니다.` |
 | VAL-008 | 계산 결과가 NaN, Infinity, 음수인 경우 계산 불가 | `계산 오류: 입력값을 확인하세요.` |
-| VAL-009 | 시나리오 속도는 최소 1.0kn 이상이어야 함 | `속도는 1.0노트 이상이어야 합니다.` |
-| VAL-010 | capacity(effective capacity 포함)는 0보다 커야 함 | `선박 용량 정보가 부족합니다.` |
+| VAL-009 | 항차·시나리오 운항 속도 입력은 최소 1.0kn 이상이어야 함 | `속도는 1.0노트 이상이어야 합니다.` |
+| VAL-010 | capacity(`transport_capacity` · `reference_capacity`)는 0보다 커야 함 | `선박 용량 정보가 부족합니다.` |
 
 ### 9.2 공통 출력 필드
 
@@ -713,29 +727,78 @@ margin_ratio = (next_worse_boundary - attained_cii) / required_cii
 
 ### 10.2 입력 필드
 
-| 필드 | 필수 | 타입 | 기본값 | 검증 | 설명 |
+기능① 화면이 수집하는 값은 **필요에 따라 최대 세 경로**로 전송된다. 계산만 수행하는 경우 ⑴만 사용한다.
+
+#### ⑴ 계산 — `POST /calculations/voyage-cii` (API_SPEC §4.1)
+
+| 화면 입력 | 필수 | 타입 | 기본값 | 검증 | 계산 API 필드 |
 |---|---|---|---|---|---|
-| `vessel_id` | Y | UUID | 선택 선박 | 존재해야 함 | 대상 선박 |
-| `regulation_year` | Y | int | 현재 연도 | 파라미터 존재 | 등급 기준연도 |
-| `departure_port_name` | Y | string | 없음 | 1~100자 | 출발항 |
-| `arrival_port_name` | Y | string | 없음 | 1~100자 | 도착항 |
-| `distance_nm` | Y | decimal | 자동/수동 | > 0 | 항차 거리 |
-| `planned_speed_kn` | Y | decimal | 선박 기준속도 | > 0 | 평균 예정 속도 |
-| `fuel_type` | Y | enum | 선박 기본 연료 | active | 연료 종류 |
-| `planned_fuel_ton` | Y | decimal | 사용자 입력 | > 0 | 예상 연료 사용량 |
-| `include_in_annual` | Y | boolean | true | - | 연간 시뮬레이터 반영 여부 |
-| `notes` | N | string | 없음 | 0~1000자 | 메모 |
+| 대상 선박 | Y | UUID | 선택 선박 | 존재 확인 | `vessel_id` |
+| 기준연도 | Y | int | 현재 연도 | 파라미터 존재 (VAL-005) | `regulation_year` |
+| 항차 거리 | Y | decimal | 자동/수동 | `> 0` (VAL-002) | `distance_nm` |
+| 평균 예정 속도 | Y | decimal | 선박 기준속도 | `≥ 1.0` (VAL-009) | `speed_kn` |
+| 연료 종류 | Y | enum | 선박 기본 연료 | active (VAL-006) | `fuel_uses[].fuel_type` |
+| 예상 연료 사용량 | Y | decimal | 사용자 입력 | `> 0` (VAL-002) | `fuel_uses[].fuel_ton` |
+
+> **화면은 연료를 한 종류만 입력받는다.** 제출 시 어댑터가 길이 1의 `fuel_uses[]` 배열로 변환한다. 배열은 API payload의 구조이며 화면에 행 추가·삭제 UI를 두지 않는다.
+>
+> 동일 `fuel_type`이 여러 행으로 들어오면 서버가 합산한다 (§3.3.2 `M = Σ(FuelConsumed_j × 1,000,000 × CF_j)`).
+>
+> **`weather_model`은 화면에서 수집하지 않는다.** 요청에서도 생략하며 서버가 기본값 `NONE`을 적용한다.
+>
+> `distance_nm`은 사용자 입력값 또는 출발·도착항 좌표 기반 산출값이다(§15.2 — 사용자 입력이 최우선, 미입력 시 좌표 기반 대권거리). 후자를 사용하는 경우 화면은 계산 단계에서도 출발·도착항을 수집하나, 계산 API 요청에는 `distance_nm`만 전송한다.
+>
+> **`speed_kn`은 Layer 1 CII 계산의 피연산자가 아니다** (§10.3 참조). 항차 조건 표시와 항차 저장 매핑을 위해 수집한다.
+
+#### ⑵ 항차 저장 시 추가 — `POST /vessels/{id}/voyages` (API_SPEC §3.3)
+
+계산 결과를 항차로 저장할 때만 추가로 수집한다. 필드명이 ⑴과 다른 것은 **저장 모델의 계획값 표기**이며 충돌이 아니다.
+
+> 아래는 이 화면이 수집하는 값에 한정한 것이며 `API_SPEC §3.3`의 전체 요청 필드 목록이 아니다. §3.3에는 `voyage_no` · 출발·도착 좌표 · `planned_departure_at` · `planned_arrival_at`도 있다.
+
+| 화면 입력 | 필수 | 저장 API 필드 | 비고 |
+|---|---|---|---|
+| 항차 거리 | Y | `planned_distance_nm` | ⑴과 같은 값 |
+| 평균 예정 속도 | Y | `planned_speed_kn` | ⑴과 같은 값 |
+| 연료 종류 | Y | `fuel_uses[].fuel_type` | ⑴과 동일 |
+| 예상 연료 사용량 | Y | `fuel_uses[].planned_fuel_ton` | ⑴과 같은 값 |
+| 연료 출처 | Y | `fuel_uses[].source` | `USER_INPUT` 등 |
+| 출발항 | Y | `departure_port_name` | 1~100자 |
+| 도착항 | Y | `arrival_port_name` | 1~100자 |
+| 메모 | N | `notes` | 0~1000자 |
+
+> 생성 시 `status = DRAFT`, `annual_inclusion_policy = EXCLUDE`가 자동 설정된다. **`annual_inclusion_policy`는 생성 요청 본문에 넣지 않는다** (API_SPEC §3.3).
+
+#### ⑶ 계획 저장 후 상태 전환 (API_SPEC §3.5)
+
+`계획 저장`(§10.5)은 항차를 `PLANNED`로 만든다. **연간 시뮬레이터 반영 여부는 그와 별개 결정**이며 `annual_inclusion_policy` 값으로 표현된다. `PLANNED` 상태는 `EXCLUDE`와 `INCLUDE_AS_PLAN`을 모두 허용한다(§8.1.2).
+
+| 사용자 동작 | 저장·전환 결과 |
+|---|---|
+| 계산만 수행 | Voyage API 호출 없음 |
+| 계획 저장 + 연간 반영 안 함 | DRAFT 생성 후 `to_status="PLANNED"` · `annual_inclusion_policy="EXCLUDE"` |
+| 계획 저장 + 연간 반영함 | DRAFT 생성 후 `to_status="PLANNED"` · `annual_inclusion_policy="INCLUDE_AS_PLAN"` |
+
+`DRAFT` 유지는 별도의 임시 저장 액션을 정의할 때만 사용한다.
+
+#### 매핑 요약
+
+| 층 | 필요 여부 | 내용 |
+|---|---|---|
+| 계산 API ↔ 저장 API | **불필요** | 서로 다른 계약이다. 공유 DTO를 만들거나 한쪽을 다른 쪽으로 변환해 재사용하지 **않는다** |
+| 화면 상태 → 각 API 요청 | **필요** | 화면의 공통 입력값에서 각 endpoint의 정본 DTO를 만드는 어댑터가 필요하다 |
 
 ### 10.3 처리 로직
 
-1. 선박의 CII capacity를 결정한다.
-2. 연료별 CF를 조회한다.
-3. `planned_fuel_ton`으로 CO₂ 배출량을 계산한다.
-4. `distance_nm`과 capacity로 항차 CII 추정값을 계산한다.
-5. 기준연도에 대한 `required_CII`와 rating boundary를 계산한다.
+1. 선박 제원과 reference line 규칙에 따라 `transport_capacity`와 `reference_capacity`를 각각 결정한다(§3.3.3).
+2. `fuel_uses[]`의 연료 종류별 CF를 조회한다.
+3. 각 `fuel_uses[].fuel_ton`에 해당 CF를 적용하여 `M = Σ(FuelConsumed_j × 1,000,000 × CF_j)`로 총 CO₂ 배출량을 계산한다. 동일한 `fuel_type`이 여러 행이면 합산한다.
+4. `distance_nm`과 `transport_capacity`로 항차 CII 추정값을 계산한다.
+5. `reference_capacity`와 reference line 파라미터로 `CII_ref`를 계산하고, 기준연도 Z-factor로 `required_CII`를 계산한 뒤 해당 d-vector를 적용하여 rating boundary를 계산한다(§3.3.4~§3.3.6).
 6. 예상 등급과 위험도를 산정한다.
-7. `include_in_annual=true`이면 `Voyage.status=PLANNED`, `annual_inclusion_policy=INCLUDE_AS_PLAN`으로 저장할 수 있게 한다.
-8. 연간 시뮬레이터에 이미 동일 선박·연도 데이터가 있으면 "이 항차 반영 시 연말 예상 등급 변화"를 미리 계산해 표시한다.
+7. `speed_kn`은 항차 조건 표시와 저장 매핑을 위한 필수 입력이지만 Layer 1 CII 계산의 직접적인 피연산자는 아니다. 선박·기준연도·거리·연료 사용량이 같으면 `speed_kn`만 변경해도 계산 결과는 변하지 않는다.
+8. 계산 요청은 계산만 수행하며 Voyage를 생성하지 않는다. 사용자가 `계획 저장`을 선택하면 Voyage API로 DRAFT를 생성한 뒤 PLANNED로 전환하고, 연간 반영 여부는 `annual_inclusion_policy`의 `EXCLUDE` 또는 `INCLUDE_AS_PLAN`으로 표현한다.
+9. 연간 시뮬레이터에 이미 동일 선박·연도 데이터가 있으면 "이 항차 반영 시 연말 예상 등급 변화"를 미리 계산해 표시한다.
 
 ### 10.4 출력
 
@@ -749,6 +812,15 @@ margin_ratio = (next_worse_boundary - attained_cii) / required_cii
 | 다음 악화 등급 경계까지 여유 | gCO₂/capacity·nm 및 % |
 | 연간 반영 시 변화 | 기존 연말 예상 등급과 비교 |
 | 경고 | 추정값, 공식 제출 불가, 적용 대상 여부 |
+
+#### 화면 라벨
+
+| 응답 필드 | 화면 라벨 |
+|---|---|
+| `attained_cii` | `항차 조건 기준 예상 CII` |
+| `estimated_rating` | `참고 등급` |
+
+기능① 화면에는 위 라벨을 사용한다. 이는 항차 단위 값과 비공식 추정 등급임을 표기로 드러내도록 한 COR-1·COR-2의 취지를 따른다.
 
 ### 10.5 사용자 액션
 
@@ -1196,15 +1268,15 @@ POST /api/v1/calculations/voyage-cii
 ```json
 {
   "data": {
-    "calculation_run_id": "uuid",
     "attained_cii": "4.982400",
     "required_cii": "5.045066",
     "estimated_rating": "C",
     "ratio_to_required": "0.98758",
-    "co2_ton": "249.12",
+    "co2_emission_ton": "249.12",
     "risk_level": "MEDIUM"
   },
   "parameters_used": { ... },
+  "calculation_run_id": "uuid",
   "model_version": { ... },
   "input_hash": "sha256:...",
   "parameter_hash": "sha256:...",
@@ -1654,6 +1726,8 @@ WeatherProvider interface
 ## 변경 이력
 
 > git 커밋 기록에서 복원했다(날짜는 커밋 기준). 버전 번호 매핑은 커밋 메시지·헤더 기준의 추정을 포함한다.
+>
+> **2026-07-23까지가 사후 복원분이다.** 이후 항목은 변경 시점에 직접 기록하며, squash merge로 브랜치 커밋 해시가 재작성되므로 커밋 열에는 **PR 번호**를 적는다.
 
 | 날짜 | 커밋 | 변경 요약 |
 |---|---|---|
@@ -1663,3 +1737,6 @@ WeatherProvider interface
 | 2026-07-04 | `0f59999` | 외부 리뷰 P0/P1/P2 전체 반영 + AGENTS.md 추가 |
 | 2026-07-04 | `bee61e9` | v3.1 마감: canonical vector 고정 + 포맷 정리 |
 | 2026-07-14 | `0173105` | annotation 라벨 번호 정규화 (5개 정본 일괄) |
+| 2026-07-29 | `#142` | 변경이력 기록 방식 전환 주석 보완 |
+| 2026-07-29 | `#145` | §3.4.4에 RO_RO_PASSENGER_HSC 등급 경계 처리 각주 추가 (#126) |
+| 2026-07-31 | `#152` | 기능① 계산·저장·전환 입력 분리, 처리 로직·검증 규칙(VAL-002·009·010) 정비, 화면 라벨 및 API 예시 정합화 (#132) |

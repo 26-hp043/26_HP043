@@ -1,0 +1,116 @@
+/*
+ * 디자인 토큰 — DESIGN_SYSTEM.md §15(토큰 구현 규약)에서 그대로 복사했다.
+ *
+ * §15는 "모든 값은 CSS 커스텀 프로퍼티로 U0(공통 셸)에서 구현한다"고 규정하므로
+ * 이 파일이 그 구현이다. 컴포넌트는 토큰만 참조하고 hex를 하드코딩하지 않는다(§15).
+ *
+ * 값을 임의로 바꾸지 않는다 — 변경이 필요하면 DESIGN_SYSTEM.md를 먼저 고친다
+ * (AGENTS.md §3 문서 우선순위).
+ */
+
+:root {
+  /* Brand */
+  --color-primary: #1a365d;
+  --color-primary-hover: #142b4a;
+  --color-primary-subtle: #eaf0f7;
+
+  /* Neutral */
+  --color-bg: #f4f6f9;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef2f6;
+  --color-text: #1a2733;
+  --color-text-muted: #5a6b7b;
+  --color-text-faint: #8998a6;
+  --color-border: #dce3ea;
+  --color-border-strong: #c3ced9;
+  --color-grid: #e8edf2;
+
+  /* Semantic — UI 피드백 전용 */
+  --color-info: #2b6cb0;
+  --color-success: #2f855a;
+  --color-warning: #b7791f;
+  --color-danger: #c53030;
+
+  /* CII grade */
+  --color-grade-a: #2f855a;
+  --color-grade-b: #8cbf3f;
+  --color-grade-c: #edb400;
+  --color-grade-d: #c05621;
+  --color-grade-e: #c53030;
+  --color-grade-a-on: #ffffff;
+  --color-grade-b-on: #173404;
+  --color-grade-c-on: #412402;
+  --color-grade-d-on: #ffffff;
+  --color-grade-e-on: #ffffff;
+
+  /* Chart */
+  --chart-series-1: #1a365d;
+  --chart-series-2: #2b6cb0;
+  --chart-series-3: #6b46c1;
+  --chart-actual: #1a2733;
+  --chart-band: rgba(26, 54, 93, 0.12);
+  --chart-axis: #c3ced9;
+  --chart-grid: #e8edf2;
+  --chart-boundary: #c3ced9;
+
+  /* Radius */
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-tag: 6px;
+  --radius-pill: 999px;
+
+  /* Space */
+  --space-4: 4px;
+  --space-8: 8px;
+  --space-12: 12px;
+  --space-16: 16px;
+  --space-24: 24px;
+  --space-32: 32px;
+  --space-48: 48px;
+
+  /* Elevation */
+  --shadow-lv1:
+    0 1px 2px rgba(26, 54, 93, 0.05), 0 4px 16px rgba(26, 54, 93, 0.06);
+  --shadow-lv2:
+    0 4px 8px rgba(26, 54, 93, 0.08), 0 12px 32px rgba(26, 54, 93, 0.12);
+  --focus-ring: 0 0 0 3px rgba(26, 54, 93, 0.25);
+
+  /* Layout */
+  --layout-max-wide: 1920px;
+  --layout-max-form: 1440px;
+
+  /*
+   * 사이드바 폭 — DESIGN_SYSTEM §7.2 (2026-08-04 회신).
+   * 접힘 동작은 MVP 범위 밖이지만, 폭을 토큰으로 분리해 두면 나중에
+   * 클래스 토글만으로 접을 수 있다. 셸을 다시 만들지 않기 위한 준비다.
+   */
+  --layout-sidebar-width: 232px;
+  --layout-sidebar-width-collapsed: 64px;
+
+  /* Typography */
+  --font-sans: Pretendard, system-ui, 'Malgun Gothic', sans-serif;
+
+  /*
+   * 타이포그래피 스케일 — DESIGN_SYSTEM §3.
+   * §15의 토큰 목록에는 없으나 §3이 px 단위로 고정한 값이라 셸에서 토큰화한다.
+   */
+  --font-size-display: 28px;
+  --font-size-h2: 20px;
+  --font-size-h3: 16px;
+  --font-size-body: 14px;
+  --font-size-label: 13px;
+  --font-size-micro: 12px;
+
+  --line-height-display: 1.2;
+  --line-height-h2: 1.2;
+  --line-height-h3: 1.3;
+  --line-height-body: 1.5;
+  --line-height-label: 1.4;
+  --line-height-micro: 1.4;
+
+  --font-weight-display: 700;
+  --font-weight-h2: 700;
+  --font-weight-h3: 600;
+  --font-weight-body: 400;
+  --font-weight-label: 500;
+}

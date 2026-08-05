@@ -1,0 +1,14 @@
+/*
+ * DESIGN_SYSTEM §8 — "경고/토스트·면책 배너: 상태색 좌측 스트라이프
+ * (좌측 테두리만 있을 경우 radius 0)".
+ */
+
+.disclaimer-banner {
+  border-left: 4px solid var(--color-warning);
+  border-radius: 0;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  padding: var(--space-12) var(--space-16);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}

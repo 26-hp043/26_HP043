@@ -1,0 +1,44 @@
+name: Dependency Audit
+
+# 의존성 감사를 CI(ci.yml)에서 분리한 이유 (#160).
+#
+# `npm audit`은 저장소 코드가 바뀌지 않아도 **외부 advisory DB가 갱신되면** 실패한다.
+# 머지 게이트에 두면 아무도 코드를 고치지 않은 날 아침에 모든 PR이 빨개진다.
+# 그렇다고 감사를 빼 버리면 취약점이 조용히 쌓이므로, **주기 작업으로 회수**한다.
+#
+# 이 워크플로는 PR·push에서 돌지 않으므로 머지를 막지 않는다.
+
+on:
+  schedule:
+    # 매주 월요일 00:00 UTC (= 09:00 KST)
+    - cron: "0 0 * * 1"
+  # 수동 실행용. 이 워크플로는 PR·push에서 돌지 않아 병합 전에는 검증할 수 없다.
+  workflow_dispatch:
+
+jobs:
+  npm-audit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # ci.yml · frontend/package.json의 engines와 같은 값을 쓴다.
+          # ⚠️ engines를 올릴 때 세 곳(package.json · ci.yml · 이 파일)을 함께 올려야
+          # 한다 — 자동 동기화가 없다. package.json은 JSON이라 주석을 달 수 없어
+          # 이 경고를 두 워크플로에만 둔다.
+          #
+          # 감사 자체에는 npm 명령만 있으면 되지만, ci.yml과 같은 Node를 써서
+          # 재현성을 맞춘다.
+          node-version: "22.22.0"
+      # `npm ci`와 캐시를 두지 않는다. `npm audit`은 lockfile만 읽고 node_modules를
+      # 보지 않는다 — node_modules를 지우고 실행해도 통과하고, lockfile을 지우면
+      # `ENOLOCK: This command requires an existing lockfile`로 멈추는 것을 확인했다.
+      # 설치가 없으므로 캐시할 다운로드도 없다.
+      #
+      # high 이상만 실패로 처리한다. 주기 작업의 목적은 조치가 필요한 취약점을
+      # 놓치지 않는 것이고, 등급 기준은 운영하면서 조정할 수 있다.
+      # 등재 시점 취약점은 전 등급 0건이다(info·low·moderate·high·critical 모두).
+      - run: npm audit --audit-level=high
