@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.3 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) |
-| 최종 수정일 | 2026-07-29 |
+| 최종 수정일 | 2026-08-06 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.3, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
@@ -338,19 +338,30 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 
 **`result_json` 구조 (계산 타입별):**
 
+> 아래 두 블록은 **각각 유효한 JSON**이다. JSON 표준(RFC 8259)에 주석 문법이 없고 한 문서에 최상위 값이 하나만 올 수 있으므로, 변형별로 블록을 나누고 필드 설명은 블록 밖 표로 둔다. 복사해 파서에 그대로 넣을 수 있어야 재현성 테스트(`TEST_PLAN`)와 픽스처(`#45`)가 이 예시를 기준으로 삼을 수 있다.
+
+**`calculation_type = VOYAGE_ESTIMATE`**
+
 ```json
-// VOYAGE_ESTIMATE
 {
   "attained_cii": "4.982400",
   "required_cii": "5.045066",
   "rating": "C",
   "co2_ton": "249.12",
   "risk_level": "MEDIUM",
-  "weather_factor": "1.0482",            // [#102] 재현성 계약 (TECH_SPEC §5.4). NONE/fallback이면 "1.0"
-  "weather_snapshot_id": "uuid-or-null"  // [#102] 사용한 기상 스냅샷. 없으면 null
+  "weather_factor": "1.0482",
+  "weather_snapshot_id": "uuid-or-null"
 }
+```
 
-// ANNUAL_MONTE_CARLO
+| 필드 | 설명 |
+|---|---|
+| `weather_factor` | **[#102]** 재현성 계약(`TECH_SPEC §5.4`). `weather_model = NONE`이거나 fallback이면 `"1.0"` |
+| `weather_snapshot_id` | **[#102]** 계산에 사용한 기상 스냅샷. 없으면 `null` |
+
+**`calculation_type = ANNUAL_MONTE_CARLO`**
+
+```json
 {
   "deterministic": { "projected_attained_cii": "5.02", "projected_rating": "C" },
   "monte_carlo": {
@@ -1040,3 +1051,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-07-29 | `#142` | §3.2 각주에 원문 대조 확인자(sky01170851) 명시 + 최종 수정일 정정 |
 | 2026-07-29 | `#128` | §2.7에 calculation_run.weather_snapshot_id 자식 인덱스 추가 (#115) |
 | 2026-07-29 | `#145` | §3.1에 z-factor 출처 확인 각주 + §3.4에 HSC 부재 각주 추가 (#126) |
+| 2026-08-06 | `#111` | §2.5 `result_json` 예시를 계산 타입별 블록으로 분리하고 JSON 비표준 `//` 주석을 표로 이관 — 세 블록 모두 유효 JSON (#111) |
