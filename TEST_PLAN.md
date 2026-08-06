@@ -3,10 +3,10 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TEST_PLAN.md |
-| 버전 | v1.2 |
-| 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-04 |
-| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.2 |
+| 버전 | v1.3 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) |
+| 최종 수정일 | 2026-08-06 |
+| 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.3 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
 ---
@@ -129,31 +129,56 @@ tests/
     "reference_capacity_rule": "DWT",
     "co2_emission_g": "249120000",
     "co2_emission_ton": "249.12",
-    "attained_cii": "4.982400",
-    "cii_ref": "5.668613856",
-    "required_cii": "5.045066331",
-    "superior_boundary": "4.338757045",
-    "lower_boundary": "4.742362351",
-    "upper_boundary": "5.347770311",
-    "inferior_boundary": "5.953178271",
+    "attained_cii": "4.9824",
+    "cii_ref": "5.66861385673728321407947925818",
+    "required_cii": "5.04506633249618206053073653978",
+    "superior_boundary": "4.33875704594671657205643342421",
+    "lower_boundary": "4.74236235254641113689889234739",
+    "upper_boundary": "5.34777031244595298416258073217",
+    "inferior_boundary": "5.95317827234549483142626911694",
     "estimated_rating": "C",
-    "ratio_to_required": "0.987579",
+    "ratio_to_required": "0.987578690077365898669252012581",
     "risk_level": "MEDIUM"
+  },
+  "canonical_digits": {
+    "significant": 30,
+    "fields": [
+      "cii_ref", "required_cii",
+      "superior_boundary", "lower_boundary", "upper_boundary", "inferior_boundary",
+      "ratio_to_required"
+    ]
   },
   "tolerance": {
     "layer1_integer": "0",
     "layer1_decimal": "9",
     "layer1_display": "6"
   },
-  "fixture_note": "정수값(M, W, capacity)은 bit-exact 비교. 소수값(CII, boundary)은 9자리 유효숫자 Decimal 비교. 참조 구현체(Decimal prec=30) 실행으로 canonical full-precision fixture를 별도 생성 필요 [ORACLE-C-3]"
+  "fixture_note": "이 파일의 값이 유일한 기준값이며, 서비스 코드와 독립된 참조 구현체로 생성한다 — 작업 정밀도는 정본값 자릿수 + 최소 20자리, 확정은 마지막에 한 번만 정본값 자릿수(30)로 한다 (TECH_SPEC §1.2.1). 생성기: scripts/gen_fixtures.py. 정수값(M, W, capacity)은 bit-exact 비교, 소수값은 수치 비교이며 표기 자릿수는 비교 결과에 영향을 주지 않는다 (TEST_PLAN §9.1). 나누어떨어지지 않는 값의 확정 자릿수는 canonical_digits 블록에 적는다. 이 파일과 생성기는 #45에서 만든다."
 }
 ```
 
-> **[ORACLE-C-1]** `lower_boundary` 값을 `4.742362352`에서 `4.742362351`로 정정. 산출 근거: `5,045,066,331 × 94 = 474,236,235,114` → `4.74236235114` → 9자리 = **4.742362351** (10번째 자리 1, 반올림 없음). TECH_SPEC §1.2.3과 일치.
+> 위 기대값 6개는 데이터·문서 담당(`sky01170851`)이 산출하고 개발 측이 독립 재계산으로 전건 대조했다(2026-08-05, 확인 9). 전정밀도 30자리 값은 `TECH_SPEC §1.2.3`, 계산 규칙은 `§1.2.1`을 따른다.
+>
+> **[ORACLE-C-1] — 폐기 (#166).** 이 항목은 `lower_boundary`를 `4.742362351`로 정정하며 산출 근거로 `5,045,066,331 × 94`를 들었다. **소수 9자리로 절단한 `required_CII`를 다시 곱한 계산**이며 `TECH_SPEC §1.2.1`이 금지하는 형태다. 원값에서 직접 반올림한 값은 **`4.742362353`**이다. 정수 연산 검산 자체는 맞았으나, 절단된 입력에서 출발해 **틀린 값을 확증**했다.
 >
 > **[ORACLE-C-3]** 기존 `"tolerance": {"layer1": "0"}` (bit-exact) 선언은 fixture 값이 9~10자리로 절단된 상태에서 모순 발생. tolerance 구조를 정수/소수/표시 3단계로 분리하여 정정.
 >
-> **[ORACLE-C-1b]** `ratio_to_required` 값을 `0.987585`에서 `0.987579`로 정정. 산출 근거: `4.9824 ÷ 5.045066331 = 0.9875786…` → 6자리 유효숫자 = **0.987579** (7번째 자리 6, 반올림). 기존 `0.987585`는 산술 오류. PRD §14.2 응답 예시 `0.98758`과 일치.
+> **[ORACLE-C-1b]** `ratio_to_required` 값을 `0.987585`에서 `0.987579`로 정정. 기존 `0.987585`는 산술 오류. PRD §14.2 응답 예시 `0.98758`과 일치.
+>
+> **산출 근거 교체 (#166)** — 기존 근거는 `4.9824 ÷ 5.045066331`이었다. 분모가 **소수 9자리로 절단한 `required_CII`** 라 `§1.2.1`이 금지하는 형태다. 원값으로 나누면 `4.9824 ÷ 5.04506633249618206053073653978 = 0.98757869007…` → 6자리 유효숫자 = **`0.987579`**. **결과값은 바뀌지 않는다.**
+>
+> **표기 확정 (#166 · 확인 11)** — 픽스처 표기를 `TECH_SPEC §1.2.1` 「픽스처 표기와 비교」 3조항에 맞춘다.
+>
+> | 필드 | 종전 | 확정 | 근거 |
+> |---|---|---|---|
+> | `co2_emission_g` | `249120000.000` (확인 9(2)) | **`249120000`** | 후행 0 금지 — `.000`은 `CF`를 소수 3자리로 적어 생긴 표기 부산물이다 |
+> | `co2_emission_ton` | `249.120` | **`249.12`** | 위와 같다 |
+> | `attained_cii` | `4.982400` | **`4.9824`** | 위와 같다. `4.982400`은 계산값이 아니라 `PRD §9.3`의 API 응답 **표시값**이었다 |
+> | `cii_ref` 외 5개 · `ratio_to_required` | 소수 9자리 | **정본값 30자리** | 나누어떨어지지 않아 최소 표기가 성립하지 않는다. 확정 자릿수는 `canonical_digits`에 적는다 |
+>
+> **확인 9(2)의 `249120000.000` 결정은 철회됐다.** 근거였던 「실제 산출값이라 더 정확하다」가 성립하지 않는다 — 수학적으로 이 값은 정확히 `249,120,000`이고, `.000`은 `CF` 표기를 따라 움직인다.
+>
+> `ratio_to_required`는 **확정 전 원값을 분모로** 계산한 `0.987578690077365898669252012581`을 싣는다. 30자리로 확정한 `required_cii`로 나누면 끝자리가 `…580`으로 갈린다(`TECH_SPEC §1.2.1` 「중간 단계 처리」). **본문 표시 6자리 `0.987579`와 등급 `C`는 어느 쪽이든 같다.**
 
 ### 1.3 Fixture 2 — 등급 경계값
 
@@ -162,26 +187,38 @@ tests/
 ```json
 {
   "description": "PRD §13.2 Fixture 2 — 등급 경계값 테스트 (BULK_CARRIER, 2026)",
-  "base_required_cii": "5.045066331",
+  "base_required_cii": "5.04506633249618206053073653978",
   "boundaries": {
-    "superior":  "4.338757045",
-    "lower":     "4.742362351",
-    "upper":     "5.347770311",
-    "inferior":  "5.953178271"
+    "superior":  "4.33875704594671657205643342421",
+    "lower":     "4.74236235254641113689889234739",
+    "upper":     "5.34777031244595298416258073217",
+    "inferior":  "5.95317827234549483142626911694"
+  },
+  "canonical_digits": {
+    "significant": 30,
+    "fields": ["base_required_cii", "boundaries.*", "cases[].attained_cii"]
   },
   "cases": [
-    { "attained_cii": "4.338757045", "expected_rating": "A", "note": "경계값 = 더 우수한 등급" },
-    { "attained_cii": "4.742362351", "expected_rating": "B", "note": "경계값 = 더 우수한 등급" },
-    { "attained_cii": "5.347770311", "expected_rating": "C", "note": "경계값 = 더 우수한 등급" },
-    { "attained_cii": "5.953178271", "expected_rating": "D", "note": "경계값 = 더 우수한 등급" },
-    { "attained_cii": "5.953179271", "expected_rating": "E", "note": "경계값 + 0.000001 = E [ORACLE-M-2]" }
+    { "attained_cii": "4.33875704594671657205643342421", "expected_rating": "A", "note": "경계값 = 더 우수한 등급" },
+    { "attained_cii": "4.74236235254641113689889234739", "expected_rating": "B", "note": "경계값 = 더 우수한 등급" },
+    { "attained_cii": "5.34777031244595298416258073217", "expected_rating": "C", "note": "경계값 = 더 우수한 등급" },
+    { "attained_cii": "5.95317827234549483142626911694", "expected_rating": "D", "note": "경계값 = 더 우수한 등급" },
+    { "attained_cii": "5.95317927234549483142626911694", "expected_rating": "E", "note": "inferior + 0.000001 = E [ORACLE-M-2]" }
   ]
 }
 ```
 
 > **경계값 판정 규칙 (PRD §3.3.6)**: attained_CII가 경계값과 정확히 같으면 더 우수한 등급으로 판정한다. 예: `attained_CII == lower_boundary` → B (C가 아님).
 >
-> **[ORACLE-M-2]** 기존 E 케이스 `"5.953178272"` (inferior + 1e-9)의 note가 "경계값 + 0.000001"로 표기되어 실제 delta와 불일치. 값을 `"5.953179271"` (inferior + 0.000001)로 수정하여 note와 일치시킴.
+> **[ORACLE-M-2]** 기존 E 케이스 `"5.953178272"` (inferior + 1e-9)의 note가 "경계값 + 0.000001"로 표기되어 실제 delta와 불일치. 값을 `inferior + 0.000001`로 수정하여 note와 일치시킴.
+>
+> **갱신 (#166)** — `inferior_boundary`가 `5.953178271` → `5.953178272`로 바뀌었으므로 E 케이스도 `5.953179271` → **`5.953179272`**로 함께 옮긴다. **delta는 `0.000001`로 그대로**이며, 경계값에 맞춰 둔 입력이라 함께 움직여야 판정 5건이 유지된다.
+>
+> **30자리 승격 (#166 · 확인 11)** — `§1.2`와 같은 정본값이므로 함께 올린다. 경계 4개와 케이스 5건의 입력값은 **`§1.2`의 값과 글자까지 같아야 한다** — 두 픽스처가 같은 값을 다른 자릿수로 적으면 어느 쪽이 정본인지 알 수 없다.
+>
+> **판정 5건은 불변이다.** 입력이 경계와 같은 값이라 `delta`가 0이고, 둘을 함께 옮기므로 자릿수를 올려도 `PRD §3.3.6`의 「경계값 = 더 우수한 등급」이 그대로 성립한다. E 케이스만 `delta = 0.000001`이며, 30자리에서도 `5.95317827…694 + 0.000001 = 5.95317927…694`로 **여섯째 소수 자리만 바뀌고 뒤 24자리는 그대로**다.
+>
+> `note`의 「경계값 + 0.000001」을 **「inferior + 0.000001」**로 적는다. 케이스 5건 중 넷은 그 자체가 경계값이라 「경계값 + …」이 어느 값에 더하는지 가리지 못했다.
 
 ### 1.4 Fixture 3 — Monte Carlo 재현성
 
@@ -306,6 +343,29 @@ def load_fixture():
 | `db_session` | session | PostgreSQL test container, 트랜잭션 롤백 |
 | `httpx_client` | function | API 통합 테스트, 각 테스트 후 세션 초기화 |
 | `load_fixture` | session | JSON fixture 캐싱 로더 |
+
+### 1.7 정본값 생성기 — `scripts/gen_fixtures.py`
+
+픽스처의 **Layer 1 정본값은 손으로 적지 않고 생성기로 만든다.** 생성기는 **서비스 계산 코드와 독립**이어야 한다 — 서비스 코드로 기준값을 만들면 서비스에 오류가 있을 때 **그 오류가 그대로 정답이 되어, 테스트는 통과하는데 값은 틀린 상태**가 된다.
+
+> 이것은 가정이 아니다. `#179`가 정확히 그 상태였다 — `calc/precision.py`가 작업 정밀도를 정본값 자릿수와 같게 두어 `cii_ref`가 30자리에서 어긋났고, 기존 테스트는 전부 통과하고 있었다.
+
+**독립성 조건** — 세 가지를 모두 지킨다.
+
+| | 조건 | 이유 |
+|---|---|---|
+| 1 | **서비스 코드를 import하지 않는다** (`src/cii_platform/**`) | 언어를 바꾸는 대신 **호출 경로로부터 분리**한다. 언어를 바꾸면 값이 어긋났을 때 계산 규칙 위반인지 언어·라이브러리 차이인지 구분할 수 없어 검증력이 떨어진다 |
+| 2 | **상수는 규정 원문에서 독립 전사하고 값마다 출처를 주석으로 적는다** — 예: `c = Decimal("0.622")  # MEPC.353(78) Table 1` | import만 막고 **서비스 상수 파일에서 값을 옮겨 오면** 같은 값이 들어오고, 그 값이 틀렸을 때 **틀린 값을 그대로 정답으로 삼는다.** 독립성이 여기서 깨진다 |
+| 3 | **작업 정밀도는 정본값 자릿수 + 최소 20자리, 확정은 마지막에 한 번만** (`TECH_SPEC §1.2.1`) | 중간 확정이 없어야 끝자리 오차가 재발하지 않는다 |
+
+**실행과 검증**
+
+- **CI에 넣지 않는다.** 값 고정이 목적이므로 픽스처를 추가·변경할 때만 수동 실행한다.
+- **불변성 검사를 생성기가 스스로 수행한다** — 같은 값을 작업 정밀도 `P` · `P+10` · `P+20`에서 계산해 셋이 같은지 확인한다(`TECH_SPEC §1.2.1`).
+- **합격 기준은 수기로 검증이 끝난 `§1.2`의 6개 값이다.** 독립 구현만으로는 한계가 있다 — 같은 식을 다시 옮겨 적는 것이라 **옮겨 적는 실수는 잡아도 식 자체가 틀렸으면 같이 틀린다.**
+- **작업 순서** — ⑴ 생성기를 먼저 만들고 ⑵ 확정된 6개 값이 그대로 재현되는지로 생성기를 검증한 뒤 ⑶ 픽스처 파일을 만든다. **없는 파일을 가리키는 문장이 중간에 존재하지 않게** 하는 순서다.
+
+> **소관** — 생성기와 `tests/fixtures/` 파일은 **`#45`에서 만든다.** 현재 저장소에 둘 다 없으며, 픽스처를 **글자로 대조하는 코드도 0곳**이다. 경로·조건은 데이터·문서 담당(`sky01170851`)의 확인 9 · 10 회신에서 확정됐다.
 
 ---
 
@@ -436,7 +496,7 @@ def test_bulk_just_below_boundary_278999_uses_actual():
 | TC ID | 테스트 | 기대 결과 |
 |---|---|---|
 | UT-CONVERT-001 | Layer 1 출력 타입 확인 | CII 계산 함수 반환값이 `Decimal` 타입 (`isinstance(result, Decimal)`) |
-| UT-CONVERT-002 | Decimal→float 변환 정밀도 | `float(Decimal("5.668613856..."))`가 IEEE 754 float64 예상 비트 패턴과 일치 |
+| UT-CONVERT-002 | Decimal→float 변환 정밀도 | `float(Decimal("5.66861385673728321407947925818"))`가 IEEE 754 float64 예상 비트 패턴과 일치. **소수 9자리 표시값이 아니라 정본값 30자리를 쓴다** — Layer 1→2 경계에서 실제로 변환되는 것이 그 값이다 (#166) |
 | UT-CONVERT-003 | Layer 1 내 암시적 변환 탐지 | monkey-patch `float()` → Layer 1 계산 중 float 호출 0회 확인 |
 
 ```python
@@ -797,13 +857,26 @@ def test_no_implicit_float_in_layer1():
 ```python
 from decimal import Decimal
 
-def assert_layer1_equal(actual: str, expected: str, decimal_digits: int = 9):
+def assert_layer1_equal(actual: str, expected: str, decimal_places: int = 9):
     """
     Layer 1 값은 Decimal로 정밀 비교.
-    정수값은 bit-exact, 소수값은 지정 유효숫자 자리에서 비교.
+    정수값은 bit-exact, 소수값은 지정 소수 자릿수에서 비교.
 
-    [ORACLE-C-3] 기존 bit-exact (tolerance=0) 주장은 9자리 절단 fixture 값과
-    모순되므로, 비교 기준을 명시된 유효숫자로 정정.
+    비교는 항상 수치 비교다. 표기 자릿수(`249120000` vs `249120000.000`)는
+    비교 결과에 영향을 주지 않는다 (TECH_SPEC §1.2.1).
+
+    [ORACLE-C-3] 기존 bit-exact (tolerance=0) 주장은 소수 9자리로 절단된 fixture
+    값과 모순되어 자릿수 비교로 정정했다.
+
+    [ORACLE-C-3 재정정, #166] 절단의 근거였던 fixture 값이 30자리 원값으로
+    교체되므로 그 전제는 사라진다. 다만 **구현이 TECH_SPEC §1.2.1을 아직
+    충족하지 못해** 30자리 지점에서 정본과 어긋나므로(작업 정밀도 부족),
+    구현 정합화 전까지 기본값을 소수 9자리로 둔다. 정합화 후 정본 자릿수
+    비교로 올린다.
+
+    `decimal_digits` → `decimal_places` 개명: quantize가 실제로 적용하는 것은
+    소수 자릿수인데 이름과 설명이 '유효숫자'였다. TECH_SPEC §1.2.1의 표기
+    규약(「N자리」=유효숫자, 소수 자릿수는 「소수 N자리」)에 맞춘다.
     """
     actual_dec = Decimal(actual)
     expected_dec = Decimal(expected)
@@ -817,9 +890,9 @@ def assert_layer1_equal(actual: str, expected: str, decimal_digits: int = 9):
         return
 
     # 소수값은 지정 자리수에서 비교 (Decimal quantize)
-    quantizer = Decimal("1e-{}".format(decimal_digits))
+    quantizer = Decimal("1e-{}".format(decimal_places))
     assert actual_dec.quantize(quantizer) == expected_dec.quantize(quantizer), (
-        f"Layer 1 decimal mismatch at {decimal_digits} digits: "
+        f"Layer 1 decimal mismatch at {decimal_places} decimal places: "
         f"{actual} != {expected}"
     )
 ```
@@ -985,6 +1058,8 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 개발자 착수 가능성 | ✅ 모든 테스트에 충분한 명세 제공 |
 
 > **참고**: Canonical full-precision fixture 값(Decimal prec=30 출력)은 참조 구현체 구축 후 별도 생성 필요. 본 문서의 fixture 값은 9~10자리 유효숫자 기준이며, tolerance 설정과 일치함.
+>
+> **갱신 (#166)** — 위 「참고」는 v1.2 시점 기록이다. `§1.2`·`§1.3`의 값은 **정본값 30자리로 승격**됐고(확인 11), 참조 구현체의 성격·경로·조건은 `§1.2`의 `fixture_note`와 `TECH_SPEC §1.2.1`이 정의한다. `prec=30`은 **정본값 자릿수**를 가리키는 표현이며, 생성기의 작업 정밀도는 그보다 최소 20자리 크다.
 
 ---
 
@@ -1020,3 +1095,9 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-07-29 | `#142` | 변경이력 기록 방식 전환 주석 보완 |
 | 2026-08-03 | `#169` | §1.3 각주의 경계값 판정 규칙 참조를 `PRD §9.4.1`에서 `§3.3.6`으로 정정 |
 | 2026-08-04 | `#173` | §2.9 확률 위험도 경계값 TC ID 중복 정정 (`UT-RISK-005B` → `UT-RISK-006B`) |
+| 2026-08-05 | `#180` | §9.1 `[ORACLE-C-3]` 재정정 — 절단 전제 소멸, 수치 비교 명시, `decimal_digits` → `decimal_places` 개명 (#166) |
+| 2026-08-05 | `#180` | §1.2 Fixture 1 기대값 6개를 `PRD §13.1`과 일치시킴, `fixture_note` 자릿수 단위 표기 정정, `[ORACLE-C-1]` 폐기 (#166) |
+| 2026-08-05 | `#180` | §1.3 Fixture 2 `base_required_cii`·경계 4개·케이스 5건 입력값을 §1.2와 함께 이동, `[ORACLE-M-2]` 갱신 (#166) |
+| 2026-08-05 | `#180` | §2.8 `UT-CONVERT-002` 인용값을 정본값 30자리로, `[ORACLE-C-1b]` 산출 근거를 절단 없는 나눗셈으로 교체 (#166) |
+| 2026-08-06 | `#180` | §1.2·§1.3 픽스처 값을 정본값 30자리로 승격 — 후행 0 제거(`4.982400`→`4.9824`), `ratio_to_required` 전정밀도 등재, `canonical_digits` 블록 신설, `fixture_note` 전면 교체(참조 구현체 성격·경로·`#45` 소관), §12.3 참고 갱신 (#166 · 확인 10 · 11) |
+| 2026-08-06 | `#180` | 헤더 「상위 문서」의 낡은 버전 정정(`TECH_SPEC` v1.2→v1.4 · `DB_SCHEMA` v1.2→v1.3) · §1.7 정본값 생성기(`scripts/gen_fixtures.py`) 신설 — 독립성 조건 3개(서비스 import 금지·상수 원문 독립 전사·작업 정밀도), 실행·불변성 검사·합격 기준·작업 순서, `#45` 소관 명시 (#166 · 확인 10) |
