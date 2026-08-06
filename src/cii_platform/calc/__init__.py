@@ -10,16 +10,16 @@ HTTP(``api``)에 의존하지 않으며, 비즈니스 흐름(``services``)도 �
 from decimal import getcontext
 
 from cii_platform.calc.precision import (
-    LAYER1_PRECISION,
     LAYER1_ROUNDING,
-    apply_default_context,
+    apply_default_rounding,
 )
 
-# TECH_SPEC §1.2.1 — Layer 1 결정론 계산용 Decimal 컨텍스트.
-# getcontext()는 thread-local이라 이 설정은 calc를 import 한 스레드에만 적용된다.
-# 스레드 안전 방식(#37에서 결정): 아래 두 줄로 import 스레드를, apply_default_context()로
-# 이후 생성되는 스레드를 덮고, Layer 1 공개 함수는 @layer1_context 로 진입 시점에
-# 한 번 더 고정한다. 상세는 cii_platform.calc.precision 참조.
-getcontext().prec = LAYER1_PRECISION
+# TECH_SPEC §1.2.1 — Layer 1 작업 정밀도는 전역에 걸지 않는다 (#179).
+# 적용 지점은 @layer1_context 하나이며, 전역 prec을 작업 정밀도로 올리면 calc import
+# 이후의 Layer 1 밖 Decimal 연산까지 영향을 받는다.
+#
+# rounding만 맞춘다. ROUND_HALF_UP은 표시 반올림(PRD §9.3)까지 걸리는 공통 정책이라
+# 기본값(ROUND_HALF_EVEN)으로 두면 Layer 1 밖 quantize가 조용히 은행가 반올림을 쓴다.
+# 아래 한 줄이 import 스레드를, apply_default_rounding()이 이후 생성되는 스레드를 덮는다.
 getcontext().rounding = LAYER1_ROUNDING
-apply_default_context()
+apply_default_rounding()
