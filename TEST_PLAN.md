@@ -5,7 +5,7 @@
 | 문서명 | TEST_PLAN.md |
 | 버전 | v1.3 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) |
-| 최종 수정일 | 2026-08-06 |
+| 최종 수정일 | 2026-08-07 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.3 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
@@ -857,22 +857,37 @@ def test_no_implicit_float_in_layer1():
 ```python
 from decimal import Decimal
 
-def assert_layer1_equal(actual: str, expected: str, decimal_places: int = 9):
+from cii_platform.calc.precision import publish_layer1_canonical
+
+
+def assert_layer1_equal(actual: str, expected: str, decimal_places: int | None = None):
     """
-    Layer 1 값은 Decimal로 정밀 비교.
-    정수값은 bit-exact, 소수값은 지정 소수 자릿수에서 비교.
+    Layer 1 값은 Decimal 수치 비교.
+
+    정수값은 bit-exact. 소수값은 **공표 자릿수로 확정한 뒤 정확 일치**를 본다
+    (TECH_SPEC §1.2.1 「공표 시점의 확정」).
 
     비교는 항상 수치 비교다. 표기 자릿수(`249120000` vs `249120000.000`)는
-    비교 결과에 영향을 주지 않는다 (TECH_SPEC §1.2.1).
+    비교 결과에 영향을 주지 않는다 (TECH_SPEC §1.2.1 픽스처 표기 조항 2).
+
+    `actual`은 서비스가 반환한 **작업 정밀도 원값**이고 `expected`는 픽스처의
+    **정본값 30자리**다. 두 값은 자릿수가 다르므로 그대로 비교하면 항상 어긋난다.
+    확정을 이 함수가 수행하는 이유는, 호출부마다 확정 시점이 달라지면 §1.2.1이
+    금지하는 중간 확정이 테스트 코드에 섞이기 때문이다.
+
+    decimal_places를 넘기면 그 소수 자릿수로 완화 비교한다. **정본값 필드에는
+    쓰지 않는다** — 화면 표시값(`layer1_display`)처럼 자릿수가 규정된 값을
+    대조할 때만 쓴다.
 
     [ORACLE-C-3] 기존 bit-exact (tolerance=0) 주장은 소수 9자리로 절단된 fixture
     값과 모순되어 자릿수 비교로 정정했다.
 
-    [ORACLE-C-3 재정정, #166] 절단의 근거였던 fixture 값이 30자리 원값으로
-    교체되므로 그 전제는 사라진다. 다만 **구현이 TECH_SPEC §1.2.1을 아직
-    충족하지 못해** 30자리 지점에서 정본과 어긋나므로(작업 정밀도 부족),
-    구현 정합화 전까지 기본값을 소수 9자리로 둔다. 정합화 후 정본 자릿수
-    비교로 올린다.
+    [ORACLE-C-3 재정정, #166] 절단의 근거였던 fixture 값이 정본값 30자리로
+    교체되어 그 전제가 사라졌다.
+
+    [#179] 구현이 §1.2.1을 충족해 정확 일치 비교가 성립한다. 종전에는 작업
+    정밀도가 정본값 자릿수와 같아 30자리 지점에서 어긋났고, 그 때문에 기본값을
+    소수 9자리로 두고 있었다.
 
     `decimal_digits` → `decimal_places` 개명: quantize가 실제로 적용하는 것은
     소수 자릿수인데 이름과 설명이 '유효숫자'였다. TECH_SPEC §1.2.1의 표기
@@ -889,13 +904,24 @@ def assert_layer1_equal(actual: str, expected: str, decimal_places: int = 9):
         )
         return
 
-    # 소수값은 지정 자리수에서 비교 (Decimal quantize)
-    quantizer = Decimal("1e-{}".format(decimal_places))
-    assert actual_dec.quantize(quantizer) == expected_dec.quantize(quantizer), (
-        f"Layer 1 decimal mismatch at {decimal_places} decimal places: "
-        f"{actual} != {expected}"
+    # 완화 비교 — 표시 자릿수가 규정된 값에만 쓴다
+    if decimal_places is not None:
+        quantizer = Decimal("1e-{}".format(decimal_places))
+        assert actual_dec.quantize(quantizer) == expected_dec.quantize(quantizer), (
+            f"Layer 1 decimal mismatch at {decimal_places} decimal places: "
+            f"{actual} != {expected}"
+        )
+        return
+
+    # 기본 — 공표 자릿수로 확정한 뒤 정확 일치
+    assert publish_layer1_canonical(actual_dec) == expected_dec, (
+        f"Layer 1 canonical mismatch: "
+        f"{publish_layer1_canonical(actual_dec)} != {expected_dec} "
+        f"(raw actual: {actual})"
     )
 ```
+
+> **`tolerance.layer1_decimal`의 역할이 바뀐다.** 종전에는 **정본값 비교의 기본 강도**였으나, 이제 정본값은 정확 일치로 본다. 픽스처의 `layer1_decimal`·`layer1_display`는 **화면 표시값 대조용 완화치**로만 쓴다(`§1.2` `canonical_digits`에 없는 필드).
 
 ### 9.2 Layer 2 (Monte Carlo)
 
@@ -1101,3 +1127,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-05 | `#180` | §2.8 `UT-CONVERT-002` 인용값을 정본값 30자리로, `[ORACLE-C-1b]` 산출 근거를 절단 없는 나눗셈으로 교체 (#166) |
 | 2026-08-06 | `#180` | §1.2·§1.3 픽스처 값을 정본값 30자리로 승격 — 후행 0 제거(`4.982400`→`4.9824`), `ratio_to_required` 전정밀도 등재, `canonical_digits` 블록 신설, `fixture_note` 전면 교체(참조 구현체 성격·경로·`#45` 소관), §12.3 참고 갱신 (#166 · 확인 10 · 11) |
 | 2026-08-06 | `#180` | 헤더 「상위 문서」의 낡은 버전 정정(`TECH_SPEC` v1.2→v1.4 · `DB_SCHEMA` v1.2→v1.3) · §1.7 정본값 생성기(`scripts/gen_fixtures.py`) 신설 — 독립성 조건 3개(서비스 import 금지·상수 원문 독립 전사·작업 정밀도), 실행·불변성 검사·합격 기준·작업 순서, `#45` 소관 명시 (#166 · 확인 10) |
+| 2026-08-07 | `#194` | §9.1 비교 기준 상향 — 정본값 필드를 `publish_layer1_canonical()` 경유 정확 일치 비교로, `decimal_places`는 표시값 대조용 완화치로 강등. `tolerance.layer1_decimal`의 역할 변경 명시 (#179) |
