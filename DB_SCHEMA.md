@@ -484,7 +484,7 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 | `year` | INTEGER | NOT NULL, UNIQUE | 연도 |
 | `z_factor_percent` | NUMERIC(8,4) | NOT NULL | Z factor (%) |
 | `effective_from` | DATE | NOT NULL | 적용 시작일 |
-| `source_ref` | VARCHAR(200) | NOT NULL | 출처 (예: MEPC.400(83)) |
+| `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주). 예: `MEPC.400(83)` |
 | `version` | VARCHAR(50) | NOT NULL | 파라미터 세트 버전 |
 | `is_active` | BOOLEAN | NOT NULL DEFAULT true | 활성 여부 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
@@ -500,7 +500,7 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 | `display_name` | VARCHAR(100) | NOT NULL | 표시명 |
 | `cf` | NUMERIC(10,6) | NOT NULL | tCO₂/tFuel 변환계수 |
 | `unit` | VARCHAR(30) | NOT NULL DEFAULT 'tCO₂/tFuel' | 단위 |
-| `source_ref` | VARCHAR(200) | NOT NULL | 출처 |
+| `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주) |
 | `version` | VARCHAR(50) | NOT NULL DEFAULT '1.0' **[X-3 추가]** | 파라미터 세트 버전 |
 | `content_hash` | VARCHAR(71) | NULL **[X-3 추가]** | seed/update 시 산출된 content hash |
 | `is_active` | BOOLEAN | NOT NULL DEFAULT true | 활성 여부 |
@@ -527,7 +527,7 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 | `a_raw` | VARCHAR(50) | NOT NULL | IMO 원문 표기 (예: `14405E7`) |
 | `a_decimal` | NUMERIC(30,6) | NOT NULL | Decimal 변환값 |
 | `c` | NUMERIC(10,6) | NOT NULL | 지수 (예: 0.622). LNG_CARRIER DWT ≥ 100000의 경우 0.000000 (고정 CII_ref) |
-| `source_ref` | VARCHAR(200) | NOT NULL | 출처 |
+| `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
@@ -566,7 +566,7 @@ ALTER TABLE cii_reference_line ADD CONSTRAINT chk_c_positive CHECK (c >= 0);
 | `d2` | NUMERIC(6,4) | NOT NULL | lower boundary 계수 |
 | `d3` | NUMERIC(6,4) | NOT NULL | upper boundary 계수 |
 | `d4` | NUMERIC(6,4) | NOT NULL | inferior boundary 계수 |
-| `source_ref` | VARCHAR(200) | NOT NULL | 출처 |
+| `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
@@ -595,7 +595,7 @@ ALTER TABLE cii_rating_boundary ADD CONSTRAINT chk_d_order
 | `key` | VARCHAR(100) | NOT NULL | 파라미터 키 |
 | `value` | VARCHAR(200) | NOT NULL | 파라미터 값 |
 | `unit` | VARCHAR(30) | NULL | 단위 |
-| `source_ref` | VARCHAR(200) | NULL | 출처 |
+| `source_ref` | VARCHAR(200) | NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스 [S-5]:**
@@ -713,6 +713,14 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 ### 3.3 선종별 Reference Line
 
 > PRD §3.4.3 기준. `a_raw`는 IMO 원문 표기 그대로 저장.
+
+> **[#149] 20행 전수 대조 완료 — 2026-07-30 · 불일치 0건.** 원문 `MEPC.353(78)` Table 1(`MEPC 78/17/Add.1` Annex 15, 인쇄면 4쪽)과 `db/seed.py`의 `SEED_REFERENCE_LINES`를 `ship_type` · `condition_expr` · `capacity_rule` · `a_raw` · `c` **5개 필드 전부** 행 단위로 대조했다. 원문 20행 = seed 20행이고 인쇄 순서도 같다. **최상위 선종은 12종**이며 18·19행이 `Ro-ro passenger ship` 칸 아래 하위 2행이다. 원문 `Capacity` 칸에 숫자가 든 캡 3건(벌크 279,000 · LNG 65,000 · ro-ro 차량운반선 57,700)이 seed의 `fixed N` 3건과 일대일로 대응한다.
+>
+> **특기 사항** — ⑴ `GENERAL_CARGO_SHIP` `DWT < 20,000`의 `c = 0.3885`는 소수 4자리라 `0.389`로 반올림 전사되기 쉬운 지점인데 seed가 4자리를 보존한다. ⑵ LNG 두 밴드의 `a`(`14479E10` · `14779E10`)는 `AGENTS §2.3`이 오정정 사례로 기록해 둔 값 쌍이며, 원문에서도 서로 다른 값임이 재확인됐다. ⑶ LNG `DWT ≥ 100,000`의 `c = 0.000`은 상수 기준선으로 정상이다(§2.10).
+>
+> **대조 절차와 재현 명령**(PDF 페이지 인덱스 · 전사 가드 포함)은 `db/seed.py`의 `SEED_REFERENCE_LINES` 주석에 있다. 값 옆에는 결과를, 코드에는 절차를 두어 원문을 다시 받지 않고도 「이 값들은 언제 무엇과 대조됐는가」에 답할 수 있게 한다.
+>
+> ⚠️ **이 대조는 개발이 수행했다.** `AGENTS §2.1`이 요구하는 **팀원 원문 확인은 아직 없다** — §3.1 · §3.2 각주와 달리 확인자 이름이 비어 있는 이유다.
 
 | ship_type | condition_expr | capacity_rule | a_raw | c |
 |---|---|---|---|---|
@@ -1052,3 +1060,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-07-29 | `#128` | §2.7에 calculation_run.weather_snapshot_id 자식 인덱스 추가 (#115) |
 | 2026-07-29 | `#145` | §3.1에 z-factor 출처 확인 각주 + §3.4에 HSC 부재 각주 추가 (#126) |
 | 2026-08-06 | `#188` | §2.5 `result_json` 예시를 계산 타입별 블록으로 분리하고 JSON 비표준 `//` 주석을 표로 이관 — 세 블록 모두 유효 JSON (#111) |
+| 2026-08-06 | `#149` | §3.3에 reference line 20행 전수 대조 결과 각주 추가 — 대조 일자·로케이터·특기 사항. 절차와 재현 명령은 `db/seed.py` 주석에 분리 (#149) |
+| 2026-08-06 | `#155` | §2.8 · §2.9 · §2.10 · §2.11 · §2.12의 `source_ref` 설명을 「출처」에서 「값이 인쇄된 문서」로 보강하고 §3.2 각주와 연결 (#155) |
