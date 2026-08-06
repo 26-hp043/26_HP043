@@ -213,8 +213,13 @@ Layer 1 계산 — §1.2.1에 따라 중간 반올림 없이 연속 계산하고
 ```python
 def resolve_transport_capacity(vessel) -> Decimal:
     """
-    G1 (MEPC.352(78)): attained CII transport work용 capacity.
+    G1 (MEPC.352(78), as amended by MEPC.412(84)): attained CII transport work용 capacity.
     항상 선박의 실제 DWT 또는 GT를 반환한다. fixed override 없음.
+
+    반환한 축이 지표명과 표시 단위를 함께 결정한다 (PRD §3.3.3):
+      DWT → AER    → gCO₂/(DWT·nm)
+      GT  → cgDIST → gCO₂/(GT·nm)
+    단위 문자열은 이 축에서 파생시키며 화면에 고정값으로 박지 않는다.
     """
     if vessel.ship_type in DWT_BASED_SHIP_TYPES:
         return Decimal(str(vessel.deadweight))
@@ -1566,4 +1571,5 @@ PR 리뷰 시 다음을 확인한다:
 | 2026-08-05 | `#180` | §1.2.1에 Layer 1 계산 규칙 신설 — 중간 단계 처리·여유 정밀도(guard digits)·불변성 검사·「N자리」 표기 규약·픽스처 표기와 비교. §1.2.3 검증 수식을 절단 없는 체인으로 교체 (#166) |
 | 2026-08-06 | `#180` | v1.4: §1.2.1 「픽스처 표기와 비교」를 조항 3개로 명문화 — 최소 표기·후행 0 금지·비종료값 확정 자릿수 기재, 표기 자릿수 ≠ 정밀도, 픽스처 값은 산출값. 파생값 분모 규칙 추가 (#166 · 확인 11) |
 | 2026-08-06 | `#186` | §16.2의 위계 잠정 기록을 `AGENTS §3.2` 참조로 교체 — 「§3에 UIFLOW.md는 없다」는 서술이 PR #162 머지로 사실과 달라져 정정 (#159) |
+| 2026-08-06 | `#163` | §1.2.4 `resolve_transport_capacity` 주석에 G1 현행 판본과 축→지표명→표시 단위 파생 규칙 명시 (#163) |
 | 2026-08-07 | `#194` | §1.2.1에 「작업 정밀도의 적용 지점」·「공표 시점의 확정」 소절 신설 — 전역 `getcontext()` 금지·thread-local 근거·`rounding` 예외·**파생값도 적용 지점 안에서 계산**(실측 대조 포함), 확정 대상을 값의 역할로 구분. 코드블록을 `localcontext` 기반으로 교체하고 컨텍스트 표에 「적용 범위」 행 추가. ⚠️ 구현 미충족 주석을 정합화 완료 기록으로 교체 (#179) |
