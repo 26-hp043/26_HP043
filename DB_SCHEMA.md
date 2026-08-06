@@ -489,6 +489,8 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 | `is_active` | BOOLEAN | NOT NULL DEFAULT true | 활성 여부 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
+> **[#98] `updated_at`이 없는 것은 의도적이다.** 파라미터 테이블은 값이 개정되면 행을 고치지 않고 **새 `version` 행을 넣고 `is_active`를 전환**한다 — 기준과 예외(`fuel_type`)는 §7.2를 따른다.
+
 ---
 
 ### 2.9 `fuel_type` — 연료 종류
@@ -890,6 +892,20 @@ CREATE TRIGGER trg_voyage_scenario_updated BEFORE UPDATE ON voyage_scenario  FOR
 CREATE TRIGGER trg_fuel_type_updated BEFORE UPDATE ON fuel_type       FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 ```
 
+**[#98] `updated_at`을 두는 기준**
+
+| 구분 | `updated_at` | 근거 |
+|---|---|---|
+| 운영 데이터 — `vessel` · `voyage` · `voyage_fuel_use` · `voyage_scenario` | **둔다** | 사용자가 행을 제자리에서 수시로 고친다. 마지막 수정 시각이 곧 감사 정보다 |
+| 파라미터 테이블 — `regulation_year` · `cii_reference_line` · `cii_rating_boundary` · `weather_model_parameter` | **두지 않는다** | 규제값이 개정되면 **행을 고치지 않고 새 `version` 행을 넣고 `is_active`를 전환**한다. 시점은 `created_at`·`effective_from`이 담는다 |
+| 파라미터 테이블 중 `fuel_type` | **예외로 둔다** | `TECH_SPEC §5.2`의 `parameter_hash` 계약이 CF 값의 **제자리 갱신 추적**을 요구한다. 그래서 `content_hash`(§2.9 `[X-3]`)와 함께 `updated_at`을 둔다. **`content_hash`를 가진 파라미터 테이블은 이것뿐이다** |
+
+> **파라미터 테이블에 `updated_at`이 없는 것은 누락이 아니라 정책이다.** 5종 중 `fuel_type`만 가지고 있어 「`regulation_year`에 빠졌다」로 읽히기 쉬우나, 실제 구조는 그 반대다 — **`fuel_type`이 유일한 예외**다.
+>
+> 이 정책이 성립하려면 **파라미터 값 개정 시 새 `version` 행 + `is_active` 전환으로 운용**해야 한다. 기존 행을 UPDATE로 덮어쓰면 개정 이력이 사라진다. `regulation_year`·`fuel_type`이 `version`·`is_active`를 가진 이유가 이것이다.
+>
+> ⚠️ `weather_model_parameter`(§2.12)는 `version`·`is_active`가 없어 이 운용을 적용할 수 없다. 외부 규제값이 아니라 모델 파라미터라 성격이 다르며, 필요해지면 별도로 정한다.
+
 ### 7.3 Immutable 테이블 보호 트리거 [X-2]
 
 ```sql
@@ -1062,3 +1078,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-06 | `#188` | §2.5 `result_json` 예시를 계산 타입별 블록으로 분리하고 JSON 비표준 `//` 주석을 표로 이관 — 세 블록 모두 유효 JSON (#111) |
 | 2026-08-06 | `#189` | §3.3에 reference line 20행 전수 대조 결과 각주 추가 — 대조 일자·로케이터·특기 사항. 절차와 재현 명령은 `db/seed.py` 주석에 분리 (#149) |
 | 2026-08-06 | `#189` | §2.8 · §2.9 · §2.10 · §2.11 · §2.12의 `source_ref` 설명을 「출처」에서 「값이 인쇄된 문서」로 보강하고 §3.2 각주와 연결 (#155) |
+| 2026-08-06 | `#98` | §7.2에 `updated_at`을 두는 기준 신설(운영 데이터 / 파라미터 테이블 / `fuel_type` 예외) · §2.8에 생략 근거 참조 추가 (#98) |

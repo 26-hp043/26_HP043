@@ -5,7 +5,9 @@ Revises: 003
 Create Date: 2026-07-09
 
 DB_SCHEMA.md §2.8 (regulation_year — 규정 연도 Z-factor) 참조.
-FK가 없는 독립 테이블이며, updated_at 컬럼이 없으므로 트리거를 두지 않는다.
+FK가 없는 독립 테이블이다. updated_at 컬럼과 트리거를 두지 않는 것은 DB_SCHEMA §7.2의
+파라미터 테이블 정책에 따른 것이다 — 규제값이 개정되면 행을 고치지 않고 새 version 행을
+넣고 is_active를 전환하므로, 시점은 created_at·effective_from이 담는다 (#98).
 Z-factor seed 데이터는 이 PR 범위에서 제외한다 (DB_SCHEMA §8.1: 스키마와 seed 분리).
 """
 
