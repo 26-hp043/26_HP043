@@ -496,7 +496,7 @@ def test_bulk_just_below_boundary_278999_uses_actual():
 | TC ID | 테스트 | 기대 결과 |
 |---|---|---|
 | UT-CONVERT-001 | Layer 1 출력 타입 확인 | CII 계산 함수 반환값이 `Decimal` 타입 (`isinstance(result, Decimal)`) |
-| UT-CONVERT-002 | Decimal→float 변환 정밀도 | `float(Decimal("5.66861385673728321407947925818"))`가 IEEE 754 float64 예상 비트 패턴과 일치. **소수 9자리 표시값이 아니라 `prec=30` 원값을 쓴다** — Layer 1→2 경계에서 실제로 변환되는 것이 원값이다 (#166) |
+| UT-CONVERT-002 | Decimal→float 변환 정밀도 | `float(Decimal("5.66861385673728321407947925818"))`가 IEEE 754 float64 예상 비트 패턴과 일치. **소수 9자리 표시값이 아니라 정본값 30자리를 쓴다** — Layer 1→2 경계에서 실제로 변환되는 것이 그 값이다 (#166) |
 | UT-CONVERT-003 | Layer 1 내 암시적 변환 탐지 | monkey-patch `float()` → Layer 1 계산 중 float 호출 0회 확인 |
 
 ```python
@@ -1098,6 +1098,6 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-05 | `#180` | §9.1 `[ORACLE-C-3]` 재정정 — 절단 전제 소멸, 수치 비교 명시, `decimal_digits` → `decimal_places` 개명 (#166) |
 | 2026-08-05 | `#180` | §1.2 Fixture 1 기대값 6개를 `PRD §13.1`과 일치시킴, `fixture_note` 자릿수 단위 표기 정정, `[ORACLE-C-1]` 폐기 (#166) |
 | 2026-08-05 | `#180` | §1.3 Fixture 2 `base_required_cii`·경계 4개·케이스 5건 입력값을 §1.2와 함께 이동, `[ORACLE-M-2]` 갱신 (#166) |
-| 2026-08-05 | `#180` | §2.8 `UT-CONVERT-002` 인용값을 `prec=30` 원값으로, `[ORACLE-C-1b]` 산출 근거를 절단 없는 나눗셈으로 교체 (#166) |
+| 2026-08-05 | `#180` | §2.8 `UT-CONVERT-002` 인용값을 정본값 30자리로, `[ORACLE-C-1b]` 산출 근거를 절단 없는 나눗셈으로 교체 (#166) |
 | 2026-08-06 | `#180` | §1.2·§1.3 픽스처 값을 정본값 30자리로 승격 — 후행 0 제거(`4.982400`→`4.9824`), `ratio_to_required` 전정밀도 등재, `canonical_digits` 블록 신설, `fixture_note` 전면 교체(참조 구현체 성격·경로·`#45` 소관), §12.3 참고 갱신 (#166 · 확인 10 · 11) |
 | 2026-08-06 | `#180` | §1.7 정본값 생성기(`scripts/gen_fixtures.py`) 신설 — 독립성 조건 3개(서비스 import 금지·상수 원문 독립 전사·작업 정밀도), 실행·불변성 검사·합격 기준·작업 순서, `#45` 소관 명시 (#166 · 확인 10) |
