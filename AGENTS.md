@@ -7,7 +7,7 @@
 | 문서명 | AGENTS.md |
 | 버전 | v1.3 |
 | 상태 | 운영 중 (전 저장소 적용) — v1.3에서 소관 한정 정본 규칙 추가 (§3.2) |
-| 최종 수정일 | 2026-08-04 |
+| 최종 수정일 | 2026-08-06 |
 
 ---
 
@@ -36,11 +36,14 @@ AI 에이전트(리뷰·분석 에이전트 등)가 다음 유형의 finding을 
 
 | 주제 | 권위 소스 | 링크 |
 |---|---|---|
-| CII Reference Line (G2) | MEPC.353(78) Annex Table 1 | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.353%2878%29.pdf) |
+| CII Reference Line (G2) | MEPC.353(78) Table 1 (`MEPC 78/17/Add.1` Annex 15, 인쇄면 4쪽) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.353%2878%29.pdf) |
+| Capacity 축 (G1 분모) | MEPC.352(78) §4.2 Transport work (`MEPC 78/17/Add.1` Annex 14, 인쇄면 5쪽) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf) |
 | CII Reduction Factor (G3) | MEPC.400(83) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.400%2883%29.pdf) |
 | CII Rating (G4) | MEPC.354(78) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.354%2878%29.pdf) |
 | CII Guidelines (G1) | MEPC.352(78) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf) |
 | 연료 CF 값 | MEPC.364(79) §2.2.1 (G1 §4.1이 참조 지정) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.364%2879%29.pdf) |
+
+> **[#148] Capacity 축 · G2 Table 1 로케이터의 원문 대조 확인: sky01170851 (2026-07-30).** G1 `§4.2`가 `W_s = C × D_t`의 `C`를 **DWT 8종 / GT 4종**으로 규정하며, 이 12종 구분이 G2 Table 1의 최상위 선종 12종과 일치한다는 판정은 IMO 원문을 직접 대조해 확인한 결과다. `RO_RO_PASSENGER_HSC`가 별도 코드인 것은 G2 Table 1이 `Ro-ro passenger ship` 칸 아래 하위 2행을 두기 때문이다(#126).
 
 > **MEPC.364(79)는 EEDI 계산 지침이며, CII G2 reference line과 무관하다.** G2 인용 시 MEPC.353(78)을 사용한다.
 >
@@ -218,3 +221,4 @@ MEPC.353(78) Table 1 기준 (권위값):
 | 2026-07-29 | `#144` | v1.2: §4에 문서 이력 규칙(4.1~4.3) 신설, §7.1에 팀원 기여 기록 규칙 추가 (#143) |
 | 2026-08-02 | `#162` | v1.3: §3을 3.1(일반 우선순위)·3.2(소관 한정 정본)로 분리, `UIFLOW.md` 편입 및 `DESIGN_SYSTEM.md` 소관 확장·경계 명시. #141의 디자인 토큰 문단을 §3.2.2로 흡수 (#159) |
 | 2026-08-04 | `#178` | §7 머지 조건에서 job 이름 열거 제거 — `CI(lint + test)` → `CI` (#160) |
+| 2026-08-06 | `#190` | §2.2에 Capacity 축(G1 분모) 행 신설 + G2 reference line 행에 절·페이지 로케이터 보강 (#148) |
