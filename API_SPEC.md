@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-04 |
+| 최종 수정일 | 2026-08-06 |
 | 상위 문서 | `PRD.md` v3.1, `TECH_SPEC.md` v1.2 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -428,6 +428,7 @@ GET /api/v1/vessels/{vessel_id}/voyages?status=PLANNED&limit=20
       "actual_departure_at": null,
       "actual_arrival_at": null,
       "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+      "regulation_year": 2026,
       "created_from": "MANUAL",
       "fuel_uses": [
         {
@@ -478,6 +479,7 @@ POST /api/v1/vessels/{vessel_id}/voyages
   "planned_speed_kn": 14.0,
   "planned_departure_at": "2026-07-15T00:00:00Z",
   "planned_arrival_at": "2026-08-12T00:00:00Z",
+  "regulation_year": 2026,
   "fuel_uses": [
     {
       "fuel_type": "HFO",
@@ -489,7 +491,11 @@ POST /api/v1/vessels/{vessel_id}/voyages
 }
 ```
 
-> **[EXT-P0-4]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조). `PLANNED` 전환 시 `annual_inclusion_policy`를 `INCLUDE_AS_PLAN`으로 설정한다.
+> **[EXT-P0-4]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조).
+>
+> **[#150 정정] `PLANNED` 전환이 곧 연간 반영은 아니다.** 종전 문장은 *"`PLANNED` 전환 시 `annual_inclusion_policy`를 `INCLUDE_AS_PLAN`으로 설정한다"* 였으나, `§3.5` 제약 매트릭스와 `PRD §8.1.2`는 `PLANNED`에서 **`EXCLUDE`와 `INCLUDE_AS_PLAN`을 모두 허용**한다. **계획 저장 여부와 연간 반영 여부는 별개다** — 연간 반영을 선택할 때만 `INCLUDE_AS_PLAN`을 지정한다. 종전 문장은 대표 경로 서술이었고 그대로 두면 「계획 저장 = 무조건 연간 반영」으로 읽힌다.
+
+> **[#150] `regulation_year`는 optional이다.** 주어지면 `VAL-005`(`regulation_year` 테이블에 해당 연도 존재)로 검증한다. `annual_inclusion_policy = EXCLUDE`인 동안에는 없어도 되고, **`INCLUDE_AS_PLAN` 전환 시점에는 반드시 있어야 한다**(§3.5 전환 가드 · `PRD §8.1.1`). 생성 시 넣지 않았다면 §3.4 PATCH로 설정한다.
 
 #### 응답 (201 Created)
 
@@ -502,6 +508,8 @@ PATCH /api/v1/voyages/{voyage_id}
 ```
 
 모든 필드는 optional. `status` 변경은 §3.5 참조.
+
+> **[#150]** 대상 필드는 §3.3 요청 본문과 같으므로 **`regulation_year`도 여기서 설정·변경한다.** 주어지면 `VAL-005`로 검증한다. `annual_inclusion_policy ≠ EXCLUDE`인 항차에서 `regulation_year`를 `null`로 지우는 요청은 `DB_SCHEMA`의 `chk_year_policy`를 깨뜨리므로 거부한다.
 
 ### 3.5 항차 상태 전환
 
@@ -532,8 +540,11 @@ POST /api/v1/voyages/{voyage_id}/transition
 | CONFIRMED → ARCHIVED | audit log 필수. regulation_year < current_year 또는 수동 | — |
 | PLANNED → CANCELLED | — | — |
 | IN_PROGRESS → CANCELLED | — | — |
+| `annual_inclusion_policy`를 `INCLUDE_AS_PLAN` · `INCLUDE_AS_ACTUAL`로 지정하는 모든 전환 | `voyage.regulation_year != null` (#150) | 422 `STATE_TRANSITION_ERROR`: 기준연도 설정 요청 |
 
 > **[ORACLE-C-4 추가]** `CONFIRMED → ARCHIVED` 전환을 추가했다. PRD §8.1 상태 다이어그램에 명시된 전환이다. 보관된 항차는 읽기 전용이며 `annual_inclusion_policy = EXCLUDE`로 자동 설정된다.
+>
+> **[#150] 마지막 행은 상태가 아니라 policy에 걸리는 가드다.** `DB_SCHEMA`의 `chk_year_policy`(`annual_inclusion_policy = 'EXCLUDE' OR regulation_year IS NOT NULL`)에 **도달해 우연히 실패하는 것이 아니라, 공개 API가 전환 전에 거부한다.** 값은 §3.3 생성 또는 §3.4 PATCH로 설정하며 **전환 요청 본문에서는 받지 않는다** — `regulation_year`는 전환 명령의 옵션이 아니라 Voyage 도메인 데이터이기 때문이다. §3.1이 이미 목록 필터로 쓰고 있는 것도 같은 성격을 보여준다.
 
 #### status × annual_inclusion_policy 제약
 
@@ -1715,3 +1726,4 @@ GET /api/v1/health
 | 2026-07-29 | `#142` | 최종 수정일 정정 (07-14 → 07-29) |
 | 2026-07-31 | `#152` | 기능① 응답 타입·연료 정규화 계약 명시, Layer 1 직렬화 참조 정리 및 산술 예시 정정 (#132) |
 | 2026-08-04 | `#175` | §4.1 `risk_level` 산정 기준 참조에 PRD §9.4.2(확률 화면) 추가 — 기존에는 §9.4.1만 가리켜 기능③ 임계값 출처가 드러나지 않았다 |
+| 2026-08-06 | `#187` | §3.1 응답·§3.3 생성 요청에 `regulation_year` 노출, §3.4 PATCH 대상 명시, §3.5에 `INCLUDE_AS_PLAN` 전환 가드 행 신설, §3.3 `[EXT-P0-4]`의 「PLANNED 전환 = INCLUDE_AS_PLAN」 서술 정정 (#150) |
