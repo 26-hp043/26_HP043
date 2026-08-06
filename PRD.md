@@ -483,6 +483,7 @@ erDiagram
 | `actual_departure_at` | datetime | N | 실제 출항 |
 | `actual_arrival_at` | datetime | N | 실제 도착 |
 | `annual_inclusion_policy` | enum | Y | EXCLUDE, INCLUDE_AS_PLAN, INCLUDE_AS_ACTUAL |
+| `regulation_year` | int | N | 연간 집계 기준연도. **`annual_inclusion_policy ≠ EXCLUDE`이면 반드시 있어야 한다**(`DB_SCHEMA` `chk_year_policy`). 설정 경로와 전환 가드는 §8.1.1 · `API_SPEC §3.3` · `§3.5` |
 | `created_from` | enum | Y | MANUAL, FEATURE_1, FEATURE_2_ADOPTED, IMPORT, SAMPLE |
 | `notes` | string | N | 메모 |
 
@@ -582,6 +583,9 @@ stateDiagram-v2
 | IN_PROGRESS → COMPLETED | 최소 1개 `actual_fuel_ton > 0` 존재 | 전환 거부, 실적 입력 요청 |
 | COMPLETED → CONFIRMED | 모든 `actual_fuel_ton > 0` 및 `actual_distance_nm > 0` | 전환 거부, 누락 실적 입력 요청 |
 | CONFIRMED → COMPLETED | 오류 정정 목적만 허용. audit log 필수 | 재확인 다이얼로그 표시 |
+| `annual_inclusion_policy`를 `INCLUDE_AS_PLAN` · `INCLUDE_AS_ACTUAL`로 지정하는 모든 전환 | `regulation_year`가 설정되어 있을 것 | 전환 거부, 기준연도 설정 요청 |
+
+> **[#150] 마지막 행은 상태가 아니라 policy에 걸리는 가드다.** `DB_SCHEMA`의 `chk_year_policy`가 `annual_inclusion_policy ≠ EXCLUDE`인 행에 `regulation_year`를 요구하므로, **DB 제약에 도달해 우연히 실패하는 것이 아니라 공개 API가 전환 전에 거부한다.** 값을 채우는 경로는 항차 생성(`API_SPEC §3.3`)과 수정(`§3.4`)이며, 전환 요청 본문에서는 받지 않는다 — `regulation_year`는 전환 명령의 옵션이 아니라 Voyage 도메인 데이터다.
 
 #### 8.1.2 status × annual_inclusion_policy 제약 매트릭스
 | status | 허용 policy | 비고 |
@@ -1745,3 +1749,4 @@ WeatherProvider interface
 | 2026-07-29 | `#145` | §3.4.4에 RO_RO_PASSENGER_HSC 등급 경계 처리 각주 추가 (#126) |
 | 2026-07-31 | `#152` | 기능① 계산·저장·전환 입력 분리, 처리 로직·검증 규칙(VAL-002·009·010) 정비, 화면 라벨 및 API 예시 정합화 (#132) |
 | 2026-08-06 | `#190` | §3.4.3에 기준선 캡(`fixed N`)이 attained 분모에 적용되지 않는다는 각주 추가 (#148) |
+| 2026-08-06 | `#187` | §7.3 Voyage에 `regulation_year` 필드 추가, §8.1.1에 `INCLUDE_AS_PLAN` 전환 가드 행 신설 (#150) |
