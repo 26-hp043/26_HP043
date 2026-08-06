@@ -101,6 +101,25 @@ SEED_Z_FACTORS: tuple[ZFactorRow, ...] = (
 # --- Reference Line (G2) — PRD §3.4.3 = DB_SCHEMA §3.3 --------------------------
 # ⚠️ AGENTS.md §2.3: LNG_CARRIER의 14479E10(65000 ≤ DWT < 100000)과
 #    14779E10(DWT < 65000)은 서로 다른 구간의 서로 다른 값이다. 오타가 아니다.
+#
+# [#149] 원문 전수 대조 절차 (2026-07-30 · 20행 · 불일치 0건)
+#   원문: MEPC.353(78) Table 1 — MEPC 78/17/Add.1 Annex 15, 인쇄면 4쪽
+#   1. 원문 PDF에서 Table 1 페이지 텍스트를 추출한다.
+#   2. 추출 텍스트에서 20행을 (선종, 조건, Capacity 칸, a, c)로 전사한다.
+#   3. 전사 가드 — 전사한 40개 a·c 토큰이 추출 텍스트에 실재하는지 먼저 검사한다.
+#      (이 단계를 건너뛰면 전사 실수가 대조 결과에 그대로 섞인다. 누락 0건 확인)
+#   4. 이 상수를 import해 행 단위로 diff 한다.
+#
+#   재현 명령 — 위 PDF를 /tmp/mepc353.pdf로 받은 뒤 실행한다. 로컬에 PDF 도구를
+#   설치하지 않아도 된다. Table 1은 Annex 15 인쇄면 4쪽이며 PDF에서는 5번째
+#   페이지(0-index 4)다. 표지·결의문이 앞에 붙어 인쇄 번호와 인덱스가 어긋난다.
+#
+#     docker run --rm -v /tmp:/w python:3.12-slim sh -c \
+#       "pip install -q pypdf && python -c \"
+#     import pypdf; print(pypdf.PdfReader('/w/mepc353.pdf').pages[4].extract_text())\""
+#
+#   대조 결과 요약과 특기 사항은 DB_SCHEMA §3.3 각주에 있다.
+#   ⚠️ 이 대조는 개발이 수행했다. AGENTS §2.1이 요구하는 팀원 원문 확인은 아직 없다.
 SEED_REFERENCE_LINES: tuple[ReferenceLineRow, ...] = (
     ReferenceLineRow(
         "BULK_CARRIER",
