@@ -17,6 +17,7 @@ from decimal import ROUND_HALF_EVEN, Context, Decimal, setcontext
 
 import pytest
 
+from cii_platform.calc.precision import layer1_context
 from cii_platform.calc.rating_engine import (
     RATING_BOUNDARY_FALLBACK,
     DVector,
@@ -50,6 +51,17 @@ BULK_DV = DVector(Decimal("0.86"), Decimal("0.94"), Decimal("1.06"), Decimal("1.
 # 30자리를 쓴다. Fixture 1의 참 required를 쓰지 않는 이유는 #166이 정본화할 값에
 # 테스트를 묶지 않기 위함이다.
 LONG_REQUIRED = Decimal("7.123456789012345678901234567890")
+
+
+@layer1_context
+def _at_working_precision(fn):
+    """기대값을 Layer 1 작업 정밀도에서 계산한다 (#179).
+
+    전역 ``prec``을 넓히지 않으므로(#179), 테스트가 주변 컨텍스트(기본 28)에서
+    기대값을 만들면 함수 내부(50)와 어긋난다. 실사용 경로는 호출부도
+    ``@layer1_context`` 안이라 이 문제가 없다.
+    """
+    return fn()
 
 
 def _boundaries(required, dv=BULK_DV):
@@ -127,10 +139,16 @@ def test_boundaries_are_returned_unrounded():
     30자리 required를 쓰는 이유 — 짧은 값에서는 함수 안에 quantize가 들어와도 결과가
     같아 검출되지 않는다. `#166` 결론에 따라 중간 자릿수 처리가 도입되면 이 테스트가
     먼저 깨지며, 그때가 함수 동작을 바꿀 시점이다.
+
+    기대값을 작업 정밀도에서 만드는 이유는 #179다 — 전역 ``prec``을 넓히지 않으므로
+    테스트가 주변 컨텍스트에서 곱하면 함수 내부와 자릿수가 어긋난다.
     """
     result = determine_rating(Decimal("0"), LONG_REQUIRED, BULK_DV)
-    assert result.boundaries["superior_boundary"] == LONG_REQUIRED * BULK_DV.d1
-    assert result.boundaries["inferior_boundary"] == LONG_REQUIRED * BULK_DV.d4
+    expected = _at_working_precision(
+        lambda: (LONG_REQUIRED * BULK_DV.d1, LONG_REQUIRED * BULK_DV.d4)
+    )
+    assert result.boundaries["superior_boundary"] == expected[0]
+    assert result.boundaries["inferior_boundary"] == expected[1]
     # 9자리로 잘렸다면 소수 자릿수가 9를 넘지 못한다.
     assert -result.boundaries["superior_boundary"].as_tuple().exponent > 9
 
@@ -139,9 +157,11 @@ def test_long_required_boundary_exact_still_takes_better_grade():
     """30자리 required에서도 경계 정확 일치가 성립한다.
 
     컨텍스트 precision이 다르거나 중간 반올림이 섞이면 계산한 경계와 함수 내부 경계가
-    어긋나 `<=`가 깨진다.
+    어긋나 `<=`가 깨진다. 실제로 #179에서 전역 ``prec``을 제거하자 이 테스트가 B→C로
+    뒤집혔다 — ``attained``를 기본 컨텍스트에서 만들었기 때문이다.
     """
-    result = determine_rating(LONG_REQUIRED * BULK_DV.d2, LONG_REQUIRED, BULK_DV)
+    attained = _at_working_precision(lambda: LONG_REQUIRED * BULK_DV.d2)
+    result = determine_rating(attained, LONG_REQUIRED, BULK_DV)
     assert result.rating == "B"
 
 

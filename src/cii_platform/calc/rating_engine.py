@@ -162,7 +162,19 @@ def determine_rating(
     컨텍스트를 상속하면 워커 스레드에서 다른 경계값이 나온다(TECH_SPEC §1.2.1 · §5.4 7항).
     :func:`select_rating_boundary`는 산출이 없어 붙이지 않는다.
 
-    :param attained_cii: 항차 attained CII (#37).
+    **입력은 Layer 1 작업 정밀도에서 산출된 원값이어야 한다** (#179). 등급 비교 전에
+    30자리 공표 확정(:func:`~cii_platform.calc.precision.publish_layer1_canonical`)을
+    적용하면 경계값에 정확히 정착하는 입력에서 ``<=`` 판정이 뒤집힌다 — 확정이 올림되어
+    경계보다 커지고, `PRD §3.4.6`의 "경계값과 정확히 같으면 더 우수한 등급"이 깨진다.
+
+    호출부가 자체 계산한 값을 넘길 때도 같다. 전역 컨텍스트는 작업 정밀도로 넓히지
+    않으므로(#179), 기본 컨텍스트에서 만든 값을 넘기면 함수 내부 경계와 자릿수가
+    어긋난다. 실사용 경로는 호출부도 :func:`~cii_platform.calc.precision.layer1_context`
+    안이라 문제가 없다.
+
+    반환하는 경계값은 체인 종단이라 공표 확정 대상이다. 확정은 호출부가 한다.
+
+    :param attained_cii: 항차 attained CII (#37). **공표 확정을 거치지 않은 원값.**
     :param required_cii: required CII (#38). 표시 반올림을 거치지 않은 값을 넘긴다.
     :param d_vector: 선종별 경계 계수. 선택은 :func:`select_rating_boundary` 소관이다.
     """

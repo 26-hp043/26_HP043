@@ -15,6 +15,7 @@ from cii_platform.calc.cii_engine import (
     calculate_required_cii,
     calculate_voyage_co2,
 )
+from cii_platform.calc.precision import publish_layer1_canonical
 
 # --- Fixture 1 기대값 (출처: TEST_PLAN §1.2 · PRD §13.1) ------------------------
 # tests/fixtures/cii/bulk_50000_hfo_2026.json 이 아직 없어 인라인한다.
@@ -177,7 +178,13 @@ LNG_FIXED_A = Decimal("9.827")
 LNEXP_DIVERGENT_A = Decimal("14779E10")
 LNEXP_DIVERGENT_C = Decimal("2.673")
 LNEXP_DIVERGENT_CAPACITY = Decimal("1000")
-LNEXP_DIVERGENT_CII_REF = Decimal("1414637.11796665060056953642109")
+#: 공표 확정(유효숫자 30자리)을 거친 기대값. 작업 정밀도가 50이라 raw 반환값은
+#: 50자리이며, 정본과 대조할 수 있는 형태는 공표값이다 (#179).
+#:
+#: 종전 값은 ``…642109``였다. 그것은 작업 정밀도가 30이던 시절의 산출값이며 #179가
+#: 고친 결함을 그대로 담고 있었다. 작업 정밀도 50 · 60 · 80 · 150 · 300 전부
+#: ``…642107``로 수렴한다.
+LNEXP_DIVERGENT_CII_REF = Decimal("1414637.11796665060056953642107")
 
 
 def test_required_cii_applies_negative_exponent():
@@ -245,11 +252,14 @@ def test_required_cii_with_zero_c_ignores_capacity():
 
 
 def test_decimal_power_does_not_regress_to_float_pow():
-    """TECH_SPEC §1.2.2 위반(float 경유) 회귀 방지.
+    """TECH_SPEC §1.2.2 위반(float 경유) 회귀 방지 — 공표값 기준.
 
     Fixture 1(a=4745)에서는 두 방식이 12자리까지 같아 이 위반이 검출되지 않는다.
     seed 133개 조합 중 갈리는 것은 이 하나뿐이다.
       Decimal ln/exp : ...117966651   float math.pow : ...117966650 (9자리 기준)
+
+    ``cii_ref``는 체인 중간값이라 raw 반환값이 작업 정밀도(50자리)로 나온다 (#179).
+    정본과 대조하려면 :func:`publish_layer1_canonical`을 거친다.
     """
     result = calculate_required_cii(
         a=LNEXP_DIVERGENT_A,
@@ -257,7 +267,7 @@ def test_decimal_power_does_not_regress_to_float_pow():
         reference_capacity=LNEXP_DIVERGENT_CAPACITY,
         z_factor_percent=Decimal("0"),
     )
-    assert result.cii_ref == LNEXP_DIVERGENT_CII_REF
+    assert publish_layer1_canonical(result.cii_ref) == LNEXP_DIVERGENT_CII_REF
 
 
 def test_required_cii_does_not_round_intermediate_values():
