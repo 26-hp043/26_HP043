@@ -1,0 +1,16 @@
+/* CII 등급 배지 — DESIGN_SYSTEM §8 · §15.1. 토큰만 참조한다(§15). */
+
+.grade-badge {
+  flex: none;
+  display: block;
+}
+
+.grade-badge--md {
+  width: 64px;
+  height: 64px;
+}
+
+.grade-badge--sm {
+  width: 44px;
+  height: 44px;
+}

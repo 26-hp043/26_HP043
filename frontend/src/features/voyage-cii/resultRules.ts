@@ -165,15 +165,3 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
 export function warningMessage(code: string): string {
   return WARNING_MESSAGE[code] ?? code
 }
-
-/**
- * 등급 배지에 쓸 패턴 URL. A는 solid라 패턴이 없다(`DESIGN_SYSTEM §15.1`).
- *
- * `§14` — **패턴 없는 등급 표시는 구현 금지.** 색만으로 A~E를 구분하면 적록색맹에서
- * A(녹)와 E(적)가 무너진다. A가 예외인 것은 「패턴 없음」 자체가 A의 식별 표시이고,
- * 배지에 등급 문자가 항상 함께 놓이기 때문이다.
- */
-export function gradePatternUrl(rating: Rating): string | undefined {
-  if (rating === 'A') return undefined
-  return `url(#grade-${rating.toLowerCase()})`
-}

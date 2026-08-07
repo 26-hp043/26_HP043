@@ -1,0 +1,230 @@
+/*
+ * 기능② 시나리오 비교 (#156).
+ * DESIGN_SYSTEM §8 카드/패널 · §4.2 tabular-nums · §15 토큰만 참조.
+ */
+
+.scenario-comparison {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.scenario-comparison--placeholder,
+.scenario-comparison--error {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-24);
+  color: var(--color-text-muted);
+}
+
+.scenario-comparison--error {
+  border-left: 3px solid var(--color-danger);
+  border-radius: 0;
+  gap: var(--space-4);
+}
+
+.scenario-comparison__error-title {
+  color: var(--color-danger);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+}
+
+.scenario-comparison__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.scenario-comparison__title-en {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-body);
+}
+
+.scenario-comparison__context {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+/* PRD §6.3 추정값·자동 결정 금지 — §8 상태색 좌측 스트라이프 */
+.scenario-comparison__notice {
+  border-left: 3px solid var(--color-info);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  padding: var(--space-12) var(--space-16);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.scenario-comparison__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-12);
+}
+
+@media (max-width: 560px) {
+  .scenario-comparison__cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* PRD §11.2 지표별 최소값 — 추천이 아니라 중립적 표기 */
+.scenario-comparison__lowest {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-16);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.scenario-comparison__lowest-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-12);
+  font-size: var(--font-size-label);
+}
+
+.scenario-comparison__lowest-row dt {
+  color: var(--color-text-muted);
+}
+
+.scenario-comparison__lowest-row dd {
+  margin: 0 0 0 auto;
+  font-weight: var(--font-weight-label);
+}
+
+.scenario-comparison__warnings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.scenario-comparison__warning {
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--font-size-label);
+}
+
+/* ---- 시나리오 카드 ---- */
+
+.scenario-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.scenario-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+
+.scenario-card__name {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+}
+
+.scenario-card__type {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-micro);
+}
+
+.scenario-card__cii {
+  font-size: var(--font-size-display);
+  font-weight: var(--font-weight-display);
+  line-height: var(--line-height-display);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.scenario-card__cii-unit {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+.scenario-card__margin {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.scenario-card__risk {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  font-size: var(--font-size-label);
+}
+
+.scenario-card__risk-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+}
+
+.scenario-card__risk-icon {
+  color: var(--color-warning);
+}
+
+/* §2.5 (b) — 4단계 전용 램프를 만들지 않는다. §2.3 시맨틱만 차용. */
+.scenario-card__risk-value {
+  font-weight: var(--font-weight-label);
+  color: var(--color-text);
+}
+
+.scenario-card__risk-value--high {
+  color: var(--color-warning);
+}
+
+.scenario-card__risk-value--critical {
+  color: var(--color-danger);
+}
+
+.scenario-card__rows {
+  margin: var(--space-4) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-8);
+}
+
+.scenario-card__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  font-size: var(--font-size-micro);
+}
+
+.scenario-card__row dt {
+  color: var(--color-text-muted);
+}
+
+.scenario-card__row dd {
+  margin: 0 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-label);
+}
+
+.scenario-card__row-unit {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-body);
+}
