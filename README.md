@@ -33,7 +33,7 @@
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (v1.4, Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 #100 + 재현성 계약 명문화 #102 + Layer 1 계산 규칙 #166) — 이중 정밀도 엔진, Layer 1 계산 규칙(§1.2.1), PCG64DXSM RNG(canonical vector 고정), capacity 분리(transport/reference), canonical hashing, 스냅샷 격리, 서비스 레이어 아키텍처(§16), 재현성 계약(§5.4) | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (v1.2, Oracle Review + 외부 리뷰 반영) — 30개 엔드포인트, 수치 직렬화 정책, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
 | [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (v1.3, Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 #102) — 14개 테이블, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, pg_trgm, 마이그레이션 전략 | ✅ 완료 |
-| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.3, Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 #166) — 168개 테스트 케이스, Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증, Layer 변환/감사 로그/소프트 삭제/CSV injection 테스트, 유효숫자 기반 Monte Carlo 비교 | ✅ 완료 |
+| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.4, Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 #166 + §1.3 케이스 스키마 #46) — 168개 테스트 케이스, Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증, Layer 변환/감사 로그/소프트 삭제/CSV injection 테스트, 유효숫자 기반 Monte Carlo 비교 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 — Oracle 교차 검증 규칙, 규제값 권위 소스, 한국어 정책 | ✅ 신규 |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (v1.1, §4.1 단위 표기 capacity 축 파생 #163) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성. 토큰의 이름·의미·제약을 확정하고 값은 Figma가 소유 | ✅ 신규 |
 | [`UIFLOW.md`](./UIFLOW.md) | UI Flow 명세서 (v1.0) — 화면 흐름·진입 조건 정의 | 🟡 초안 |
@@ -118,3 +118,4 @@
 | 2026-07-29 | `#142` | 헤더·변경이력 표 신설 + 문서 구조 표에 DESIGN_SYSTEM·UIFLOW 2행 추가 |
 | 2026-08-06 | `#180` | 문서 구조 표의 `TEST_PLAN.md` 행을 v1.3으로, `TECH_SPEC.md` 행을 v1.4로 갱신 — §1.7 정본값 생성기 계약·§1.2.1 계산 규칙 신설 반영 (#166) |
 | 2026-08-07 | `#196` | 문서 구조 표 갱신 — `PRD` v3.2 · `DESIGN_SYSTEM` v1.1 (#163) |
+| 2026-08-07 | `#PR` | 문서 구조 표의 `TEST_PLAN.md` 행을 v1.4로 갱신 — §1.3 케이스 스키마 기호 표기 전환 반영 (#46) |

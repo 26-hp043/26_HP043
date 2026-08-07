@@ -1,0 +1,54 @@
+{
+  "description": "PRD §13.2 Fixture 2 — 등급 경계값 테스트 (BULK_CARRIER, 2026)",
+  "input": {
+    "ship_type": "BULK_CARRIER",
+    "deadweight": 50000,
+    "regulation_year": 2026
+  },
+  "base_required_cii": "5.04506633249618206053073653978",
+  "boundaries": {
+    "superior": "4.33875704594671657205643342421",
+    "lower": "4.74236235254641113689889234739",
+    "upper": "5.34777031244595298416258073217",
+    "inferior": "5.95317827234549483142626911694"
+  },
+  "canonical_digits": {
+    "significant": 30,
+    "fields": [
+      "base_required_cii",
+      "boundaries.*"
+    ]
+  },
+  "cases": [
+    {
+      "boundary": "superior",
+      "offset": "0",
+      "expected_rating": "A",
+      "note": "경계값 = 더 우수한 등급"
+    },
+    {
+      "boundary": "lower",
+      "offset": "0",
+      "expected_rating": "B",
+      "note": "경계값 = 더 우수한 등급"
+    },
+    {
+      "boundary": "upper",
+      "offset": "0",
+      "expected_rating": "C",
+      "note": "경계값 = 더 우수한 등급"
+    },
+    {
+      "boundary": "inferior",
+      "offset": "0",
+      "expected_rating": "D",
+      "note": "경계값 = 더 우수한 등급"
+    },
+    {
+      "boundary": "inferior",
+      "offset": "0.000001",
+      "expected_rating": "E",
+      "note": "inferior + 0.000001 = E [ORACLE-M-2]"
+    }
+  ]
+}
