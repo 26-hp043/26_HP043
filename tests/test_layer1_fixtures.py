@@ -16,6 +16,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
+from fixture_loader import assert_layer1_equal, load_fixture
 
 from cii_platform.calc.cii_engine import (
     FuelUse,
@@ -24,7 +25,6 @@ from cii_platform.calc.cii_engine import (
 )
 from cii_platform.calc.precision import layer1_context, publish_layer1_canonical
 from cii_platform.calc.rating_engine import DVector, determine_rating
-from tests.fixture_loader import assert_layer1_equal, load_fixture
 
 FIXTURE_1 = "cii/bulk_50000_hfo_2026.json"
 FIXTURE_2 = "cii/rating_boundaries_bulk_2026.json"
