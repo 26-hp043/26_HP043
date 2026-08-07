@@ -7,7 +7,7 @@
 | 문서명 | AGENTS.md |
 | 버전 | v1.4 |
 | 상태 | 운영 중 (전 저장소 적용) — v1.4에서 PR 생성 규칙 정비 (§7: 이슈 연결 · 정본 변경 · 승인 시점 · 템플릿 범위) |
-| 최종 수정일 | 2026-08-06 |
+| 최종 수정일 | 2026-08-07 |
 
 ---
 
@@ -50,10 +50,14 @@ AI 에이전트(리뷰·분석 에이전트 등)가 다음 유형의 finding을 
 | Capacity 축 (G1 분모) | MEPC.352(78) §4.2 Transport work (`MEPC 78/17/Add.1` Annex 14, 인쇄면 5쪽) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf) |
 | CII Reduction Factor (G3) | MEPC.400(83) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.400%2883%29.pdf) |
 | CII Rating (G4) | MEPC.354(78) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.354%2878%29.pdf) |
-| CII Guidelines (G1) | MEPC.352(78) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf) |
+| CII Guidelines (G1) | MEPC.352(78), as amended by MEPC.412(84) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf) · [개정 PDF](https://wwwcdn.imo.org/localresources/en/OurWork/Environment/Documents/Annex%2014.pdf) |
 | 연료 CF 값 | MEPC.364(79) §2.2.1 (G1 §4.1이 참조 지정) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.364%2879%29.pdf) |
 
 > **[#148] Capacity 축 · G2 Table 1 로케이터의 원문 대조 확인: sky01170851 (2026-07-30).** G1 `§4.2`가 `W_s = C × D_t`의 `C`를 **DWT 8종 / GT 4종**으로 규정하며, 이 12종 구분이 G2 Table 1의 최상위 선종 12종과 일치한다는 판정은 IMO 원문을 직접 대조해 확인한 결과다. `RO_RO_PASSENGER_HSC`가 별도 코드인 것은 G2 Table 1이 `Ro-ro passenger ship` 칸 아래 하위 2행을 두기 때문이다(#126).
+>
+> **[#163] G1은 `MEPC.412(84)`로 개정됐다 — 다만 `§4.2`(Transport work) 한 절만이다.** 다른 절은 원문 그대로 유효하며, 지표 명칭을 정하는 `§2.5`는 개정되지 않았다. 결의 자체를 대체한 문서는 없으므로 인용은 **`MEPC.352(78), as amended by MEPC.412(84)`** 형태로 적는다. 같은 형태를 IMO 문서가 쓴 선례가 `MEPC.364(79)`에 있다.
+>
+> **원문 대조 확인: 신하늘(`sky01170851`), 2026-08-06.** `§2.5`(MEPC 78/17/Add.1 Annex 14, 3쪽) · 개정 `§4.2`(같은 Annex 14, 5쪽) · `MEPC.412(84)`의 *"Section 4.2 is replaced with the following"* 문언과 DWT 8종·GT 4종 목록을 IMO 원문과 직접 대조해 확인했다.
 
 > **MEPC.364(79)는 EEDI 계산 지침이며, CII G2 reference line과 무관하다.** G2 인용 시 MEPC.353(78)을 사용한다.
 >
@@ -273,6 +277,7 @@ MEPC.353(78) Table 1 기준 (권위값):
 | 2026-08-02 | `#162` | v1.3: §3을 3.1(일반 우선순위)·3.2(소관 한정 정본)로 분리, `UIFLOW.md` 편입 및 `DESIGN_SYSTEM.md` 소관 확장·경계 명시. #141의 디자인 토큰 문단을 §3.2.2로 흡수 (#159) |
 | 2026-08-04 | `#178` | §7 머지 조건에서 job 이름 열거 제거 — `CI(lint + test)` → `CI` (#160) |
 | 2026-08-05 | `#181` | §2.1에 '검증된 값·계산에서 끌어낸 결론'을 검증 대상으로 추가 — 두 형태와 근거 강도 표기 지침 포함. §5 수치 검증 예시를 절단값 기반에서 교체 (#146) |
-| 2026-08-07 | `#194` | §6 이슈 제목 예시의 `prec=30`을 「정본값 30자리」로 정정 — `TECH_SPEC §1.2.1`이 `prec`에 넣는 값을 작업 정밀도(50)로 규정해 예시가 정본과 반대가 됨 (#179) |
 | 2026-08-06 | `#190` | §2.2에 Capacity 축(G1 분모) 행 신설 + G2 reference line 행에 절·페이지 로케이터 보강 (#148) |
 | 2026-08-06 | `#191` | v1.4: §7 이슈 연결에 `Closes`/`Refs`/`Part of` 구분 신설, 「1 PR = 하나의 주 작업 이슈」로 정확화, PR 본문 템플릿을 최소 요건 4절 + 선택 절로 규정, §7.1 정본 변경 PR·§7.2 승인 시점 신설. **종전 §7.1(팀원 기여 기록)은 §7.3으로 이동** (#165) |
+| 2026-08-06 | `#163` | §2.2 CII Guidelines (G1) 행을 현행판 `MEPC.352(78), as amended by MEPC.412(84)`로 갱신하고 개정 범위·확인자 각주 추가 (#163) |
+| 2026-08-07 | `#194` | §6 이슈 제목 예시의 `prec=30`을 「정본값 30자리」로 정정 — `TECH_SPEC §1.2.1`이 `prec`에 넣는 값을 작업 정밀도(50)로 규정해 예시가 정본과 반대가 됨 (#179) |

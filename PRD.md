@@ -4,9 +4,9 @@
 |---|---|
 | 문서명 | 구현용 상세 PRD.md |
 | 제품명 | 중소선사를 위한 CII 예측 및 운항 의사결정 보조 플랫폼 |
-| 버전 | v3.1 Implementation PRD |
+| 버전 | v3.2 Implementation PRD |
 | 상태 | MVP 구현 기준 / Oracle Review 반영 |
-| 최종 수정일 | 2026-08-06 |
+| 최종 수정일 | 2026-08-07 |
 | MVP 개발 기간 | 2026.06 ~ 2026.10 |
 | 대상 사용자 | 중소선사 선장·항해사, 육상 운항관리 담당자 |
 | 문서 목적 | 개발자가 화면·계산·데이터 흐름·예외 처리·테스트 기준을 구현할 수 있도록 PRD v3.0을 상세화 |
@@ -165,14 +165,22 @@ M = Σ(FuelConsumed_j × 1,000,000 × CF_j)
 W = transport_capacity × Distance_nm
 ```
 
-| 선박 유형 | Capacity 기준 |
-|---|---|
-| Bulk carrier, Tanker, Container ship, Gas carrier, LNG carrier, General cargo ship, Refrigerated cargo carrier, Combination carrier | DWT |
-| Ro-ro cargo ship, Ro-ro passenger ship, Cruise passenger ship | GT 또는 규정상 해당 capacity 기준 |
+| 선박 유형 | Capacity 기준 | 지표명 | 표시 단위 |
+|---|---|---|---|
+| Bulk carrier, Tanker, Container ship, Gas carrier, LNG carrier, General cargo ship, Refrigerated cargo carrier, Combination carrier **(8종)** | DWT | `AER` | `gCO₂/(DWT·nm)` |
+| Cruise passenger ship, Ro-ro cargo ship (vehicle carrier), Ro-ro cargo ship, Ro-ro passenger ship **(4종)** | GT | `cgDIST` | `gCO₂/(GT·nm)` |
+
+> **[#163] 지표명은 capacity 축에서 파생된다.** `MEPC.352(78) §2.5` — *"The supply-based CII which uses **DWT** as the capacity is referred to as **AER**, and the supply-based CII which uses **GT** as the capacity is referred to as **cgDIST**."* 이 절은 개정되지 않았다. capacity 축 목록(DWT 8종 · GT 4종)의 근거는 개정 `§4.2`이며, 개정 전후로 축은 바뀌지 않았다.
+>
+> **`RO_RO_PASSENGER_HSC`(고속 여객선)는 GT 축이다.** `§4.2`가 고속선을 따로 열거하지 않는 것은 `G2 Table 1`이 이를 `Ro-ro passenger ship`의 하위 행으로 두기 때문이며(`#126`), 상위 선종의 축을 그대로 따른다. 따라서 **`ship_type` 13종 전부가 두 축 중 정확히 하나에 속한다.**
+>
+> **표기 규칙** — 선종이 정해지지 않은 **일반 계산식**에서는 `gCO₂/capacity·nm`으로 쓰고, **사용자에게 표시할 때**는 위 표에 따라 `gCO₂/(DWT·nm)` 또는 `gCO₂/(GT·nm)`로 파생시킨다. **단위 문자열을 화면에 고정값으로 박지 않는다** — 선종이 늘어날 때 GT 축 선박에 DWT 표기가 조용히 표시된다. 분모를 괄호로 묶는 것은 `DWT × nm` 전체가 분모임을 드러내기 위해서다(괄호가 없으면 `gCO₂/DWT`에 `nm`을 곱한 것으로 읽힌다).
+>
+> **원문 대조 확인: 신하늘(`sky01170851`), 2026-08-06.** `§2.5`(MEPC 78/17/Add.1 Annex 14, 3쪽) · 개정 `§4.2`(같은 Annex 14, 5쪽)를 IMO 원문과 직접 대조해 확인했다.
 
 > 주의: Container ship의 capacity 처리는 CII G1/G2 기준을 우선한다. EEDI와 혼동하지 않도록 `RegulationParameter.capacity_rule`에 명시한다.
 > 
-> **[EXT-P0-1]** IMO G1(MEPC.352(78))과 G2(MEPC.353(78))은 **서로 다른 capacity 개녁**을 사용한다.
+> **[EXT-P0-1]** IMO G1(MEPC.352(78), as amended by MEPC.412(84))과 G2(MEPC.353(78))은 **서로 다른 capacity 개녁**을 사용한다.
 > - **G1 (attained CII)**: `transport_capacity` = 선박의 **실제** DWT 또는 GT. 예: 300,000 DWT 벌크캐리어 → `W = 300,000 × Distance_nm`
 > - **G2 (reference CII)**: `reference_capacity` = G2 표의 capacity rule에 따른 값. `fixed X`인 경우 X를 사용. 예: 300,000 DWT 벌크캐리어 → `CII_ref = 4745 × 279,000^(-0.622)`
 >
@@ -662,11 +670,11 @@ CONFIRMED actual
 
 | 필드 | 표시 예시 | 비고 |
 |---|---|---|
-| `attained_cii_estimate` | `4.982 gCO₂/dwt·nm` | 항차 또는 누적 추정값 |
-| `required_cii` | `5.045 gCO₂/dwt·nm` | 해당 연도·선종·capacity 기준 |
+| `attained_cii_estimate` | `4.982 gCO₂/(DWT·nm)` | 항차 또는 누적 추정값. GT 축 선종은 `gCO₂/(GT·nm)` (§3.3.3) |
+| `required_cii` | `5.045 gCO₂/(DWT·nm)` | 해당 연도·선종·capacity 기준 |
 | `ratio_to_required` | `98.8%` | attained / required |
 | `estimated_rating` | `C` | A~E |
-| `next_worse_boundary_margin` | `0.365 gCO₂/dwt·nm` | 다음 악화 등급 경계까지 여유 |
+| `next_worse_boundary_margin` | `0.365 gCO₂/(DWT·nm)` | 다음 악화 등급 경계까지 여유 |
 | `co2_emission_ton` | `249.12 tCO₂` | 표시용 ton 변환 |
 | `fuel_consumption_ton` | `80.00 ton` | 연료 종류별 합산 |
 | `distance_nm` | `1,000 nm` | 계산 거리 |
@@ -817,7 +825,7 @@ margin_ratio = (next_worse_boundary - attained_cii) / required_cii
 | 예상 등급 | 해당 항차 조건을 연간 기준에 대입한 참고 등급 |
 | required CII | 해당 선박·연도 기준 |
 | 기준 대비 비율 | attained / required × 100 |
-| 다음 악화 등급 경계까지 여유 | gCO₂/capacity·nm 및 % |
+| 다음 악화 등급 경계까지 여유 | gCO₂/capacity·nm 및 % — 화면 표시는 §3.3.3에 따라 선종별로 파생(`gCO₂/(DWT·nm)` · `gCO₂/(GT·nm)`) |
 | 연간 반영 시 변화 | 기존 연말 예상 등급과 비교 |
 | 경고 | 추정값, 공식 제출 불가, 적용 대상 여부 |
 
@@ -984,7 +992,7 @@ MVP 권장 데이터 소스는 다음과 같다.
 | 예상 소요시간 | hour/day |
 | 예상 연료 사용량 | ton |
 | CO₂ 배출량 | tCO₂ |
-| 항차 CII 추정값 | gCO₂/capacity·nm |
+| 항차 CII 추정값 | gCO₂/capacity·nm — 화면 표시는 §3.3.3에 따라 선종별로 파생 |
 | 예상 등급 | A~E |
 | 위험도 | LOW~CRITICAL |
 | 기상 보정 여부 | NONE/SIMPLE_RULE/TOWNSIN_KWON_ALPHA |
@@ -1185,7 +1193,7 @@ SHAP는 사용하지 않는다. MVP는 one-at-a-time 민감도 분석을 사용�
 ```text
 M = 80 × 1,000,000 × 3.114 = 249,120,000 gCO₂
 W = 50,000 × 1,000 = 50,000,000 dwt·nm
-attained_CII = 249,120,000 / 50,000,000 = 4.9824 gCO₂/dwt·nm
+attained_CII = 249,120,000 / 50,000,000 = 4.9824 gCO₂/(DWT·nm)
 CII_ref = 4745 × 50,000^(-0.622) = 5.668613857
 required_CII_2026 = CII_ref × (1 - 0.11) = 5.045066332
 boundaries = required_CII × d:
@@ -1213,8 +1221,8 @@ rating = C
 | 출력 | 기대값 |
 |---|---:|
 | CO₂ | 249.12 tCO₂ |
-| Attained CII | 4.982 gCO₂/dwt·nm |
-| Required CII | 5.045 gCO₂/dwt·nm |
+| Attained CII | 4.982 gCO₂/(DWT·nm) |
+| Required CII | 5.045 gCO₂/(DWT·nm) |
 | 기준 대비 | 98.8% |
 | 예상 등급 | C |
 
@@ -1615,8 +1623,9 @@ WeatherProvider interface
 1. IMO, "EEXI and CII - ship carbon intensity and rating system"  
    https://www.imo.org/en/mediacentre/hottopics/pages/eexi-cii-faq.aspx
 
-2. IMO Resolution MEPC.352(78), "2022 Guidelines on operational carbon intensity indicators and the calculation methods (CII Guidelines, G1)"  
-   https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf
+2. IMO Resolution MEPC.352(78), "2022 Guidelines on operational carbon intensity indicators and the calculation methods (CII Guidelines, G1)", **as amended by** MEPC.412(84)  
+   https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf  
+   개정(§4.2 Transport work 교체): https://wwwcdn.imo.org/localresources/en/OurWork/Environment/Documents/Annex%2014.pdf
 
 3. IMO Resolution MEPC.353(78), "2022 Guidelines on the reference lines for use with operational carbon intensity indicators (CII Reference Lines Guidelines, G2)"  
    https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.353%2878%29.pdf
@@ -1762,3 +1771,4 @@ WeatherProvider interface
 | 2026-08-06 | `#180` | §13.1 `[EXT-P0-3]` 문구를 `TECH_SPEC §1.2.1` 용어로 정합화(「중간에 자르거나 반올림」 → 「정본값 자릿수로 확정」)하고, `tests/fixtures/cii/*.json`이 `#45`에서 생성될 예정임을 명시 (#166 · PR 리뷰) |
 | 2026-08-06 | `#190` | §3.4.3에 기준선 캡(`fixed N`)이 attained 분모에 적용되지 않는다는 각주 추가 (#148) |
 | 2026-08-06 | `#187` | §7.3 Voyage에 `regulation_year` 필드 추가, §8.1.1에 `INCLUDE_AS_PLAN` 전환 가드 행 신설 (#150) |
+| 2026-08-06 | `#163` | §3.3.3에 선종별 지표명(AER·cgDIST)·표시 단위 열 신설 및 GT 축 4종 원문 정합화, §9.2·§10.4·§12·§13.1 CII 단위 표기를 `gCO₂/(DWT·nm)` 계열로 정리, G1 판본 인용을 현행판으로 갱신 (#163) |
