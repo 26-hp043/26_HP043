@@ -1,0 +1,207 @@
+/*
+ * 기능① 결과 화면 (#136).
+ *
+ * DESIGN_SYSTEM §8  — 카드/패널: surface · border · radius 12 · 그림자 Lv1 · 패딩 16–20
+ *                     경고/면책: 상태색 좌측 스트라이프 · 좌측 테두리만이면 radius 0
+ * §4.2 — 수치 tabular-nums
+ * §15 — 컴포넌트는 토큰만 참조한다. 하드코딩 hex 금지.
+ */
+
+.voyage-cii-result {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-24);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+/* 계산 전 · 로딩 — 결과 자리를 비워 두지 않는다 */
+.voyage-cii-result--placeholder {
+  align-items: center;
+  padding: var(--space-32) var(--space-24);
+}
+
+.voyage-cii-result__placeholder-text {
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* 실패 */
+.voyage-cii-result--error {
+  border-left: 3px solid var(--color-danger);
+  border-radius: 0;
+  gap: var(--space-4);
+}
+
+.voyage-cii-result__error-title {
+  color: var(--color-danger);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+}
+
+.voyage-cii-result__error-message {
+  color: var(--color-text-muted);
+}
+
+.voyage-cii-result__title-en {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-body);
+}
+
+/* DESIGN_SYSTEM §11 — 전면 추정 화면의 화면 단위 고지 */
+.voyage-cii-result__estimate-notice {
+  border-left: 3px solid var(--color-info);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  padding: var(--space-12) var(--space-16);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+/* 등급 배지 + 여유율 + 위험도 */
+.voyage-cii-result__grade-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+}
+
+.voyage-cii-result__badge {
+  width: 64px;
+  height: 64px;
+  flex: none;
+}
+
+.voyage-cii-result__grade-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.voyage-cii-result__grade-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.voyage-cii-result__margin {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+}
+
+.voyage-cii-result__risk {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.voyage-cii-result__risk-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+}
+
+/*
+ * §2.5 (b) — 4단계 전용 색 램프를 만들지 않는다. §2.3 시맨틱만 차용한다.
+ * LOW·MEDIUM은 본문색을 그대로 쓴다.
+ */
+.voyage-cii-result__risk-value {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text);
+}
+
+.voyage-cii-result__risk-value--high {
+  color: var(--color-warning);
+}
+
+.voyage-cii-result__risk-value--critical {
+  color: var(--color-danger);
+}
+
+.voyage-cii-result__risk-icon {
+  color: var(--color-warning);
+}
+
+/* 수치 */
+.voyage-cii-result__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-12);
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .voyage-cii-result__metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.voyage-cii-result__metric {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+  min-width: 0;
+}
+
+.voyage-cii-result__metric--emphasis {
+  background: var(--color-primary-subtle);
+  border-color: var(--color-primary);
+}
+
+.voyage-cii-result__metric-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+}
+
+.voyage-cii-result__metric-label-en {
+  color: var(--color-text-faint);
+}
+
+.voyage-cii-result__metric-value {
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-h2);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.voyage-cii-result__metric-unit {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+/* 경고 — §8 상태색 좌측 스트라이프 */
+.voyage-cii-result__warnings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.voyage-cii-result__warning {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.voyage-cii-result__warning-icon {
+  color: var(--color-warning);
+  flex: none;
+}

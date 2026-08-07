@@ -1,38 +1,38 @@
 import { useState } from 'react'
 import { DisclaimerBanner } from '../components/DisclaimerBanner'
 import { VoyageCiiForm } from '../features/voyage-cii/VoyageCiiForm'
-import type { VoyageCiiResponse } from '../features/voyage-cii/types'
+import { VoyageCiiResult } from '../features/voyage-cii/VoyageCiiResult'
+import type { ResultState } from '../features/voyage-cii/resultRules'
 import './CiiForecastPage.css'
 
 /**
  * UIFLOW §2-1 CII 예측 — 기능①이자 8/8 데모의 주 화면, 기본 진입 경로다.
  *
- * `#133`이 자리를 만들고 `#135`가 입력 폼을 채웠다. **결과 표시는 `#136`이 붙인다.**
+ * `#133`이 자리를 만들고 `#135`가 입력 폼을, `#136`이 결과 화면을 채웠다.
  *
- * 응답 상태를 폼이 아니라 이 페이지가 들고 있다. 폼이 결과까지 렌더하면 `#136`이
- * 같은 자리를 두고 겹치기 때문이다 — `#136`은 아래 자리 표시 블록을 결과 컴포넌트로
- * 바꾸기만 하면 된다.
+ * ## 계산 상태를 페이지가 들고 있다
+ *
+ * 폼이 들고 있으면 결과 표시가 입력 컴포넌트에 종속된다. 페이지가 중개하면
+ * 입력과 결과가 서로를 알지 않아도 된다 — `#138`이 provider를 실 API로 바꿔도
+ * 이 구조는 그대로다.
+ *
+ * ## 면책 배너를 결과 안에 두지 않는다
+ *
+ * `DESIGN_SYSTEM §13` 🔒은 **상시 노출**을 요구한다. 결과 컴포넌트 안에 두면
+ * 계산 전·로딩·실패에서 배너가 사라져 **안전장치가 결과 유무에 종속된다.**
+ * 여기서 항상 렌더하고, 응답이 있을 때만 그 `disclaimer`를 넘긴다.
+ * 값이 없으면 `DisclaimerBanner`가 `PRD §6.3` 기본 문구를 쓴다.
  */
 export function CiiForecastPage() {
-  const [result, setResult] = useState<VoyageCiiResponse | null>(null)
+  const [result, setResult] = useState<ResultState>({ status: 'idle' })
 
   return (
     <div className="cii-forecast-page">
-      <VoyageCiiForm onResult={setResult} />
-
-      {/*
-        결과 표시 자리 — #136 소관이라 여기서 값을 렌더하지 않는다.
-        다만 아무것도 보여 주지 않으면 계산이 실행됐는지 화면에서 확인할 수 없어,
-        경로가 동작했다는 사실만 남긴다. #136이 이 블록을 교체한다.
-      */}
-      {result ? (
-        <p className="cii-forecast-page__pending" role="status">
-          계산이 실행되었습니다. 결과 표시는 <strong>#136</strong>이 채웁니다.
-          <span className="cii-forecast-page__run-id">{result.calculation_run_id}</span>
-        </p>
-      ) : null}
-
-      <DisclaimerBanner />
+      <VoyageCiiForm onStateChange={setResult} />
+      <VoyageCiiResult state={result} />
+      <DisclaimerBanner
+        text={result.status === 'success' ? result.response.disclaimer : undefined}
+      />
     </div>
   )
 }

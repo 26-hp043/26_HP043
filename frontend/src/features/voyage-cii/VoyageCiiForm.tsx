@@ -13,7 +13,7 @@ import {
   type VoyageCiiFormState,
 } from './formRules'
 import { createDemoProvider } from './demoProvider'
-import type { VoyageCiiResponse } from './types'
+import type { ResultState } from './resultRules'
 
 /**
  * 기능① 항차 조건 입력 폼 (#135).
@@ -35,16 +35,29 @@ import type { VoyageCiiResponse } from './types'
  *
  * ## 결과는 부모가 보관한다
  *
- * `onResult`로 넘긴다. 결과 표시는 `#136` 소관이고, 이 컴포넌트가 응답을 렌더하면
- * 두 이슈가 같은 자리를 두고 겹친다.
+ * `onStateChange`로 상태를 넘긴다. 결과 표시는 `VoyageCiiResult`(#136)가 맡는다.
+ * 이 컴포넌트가 응답을 렌더하면 입력과 결과가 같은 자리를 두고 겹친다.
+ *
+ * ## 오류를 어디에 붙이는가
+ *
+ * | 종류 | 위치 |
+ * |---|---|
+ * | 입력 검증 실패 (필드별) | 해당 입력창 아래 |
+ * | 입력 검증 실패 (폼 전체) | 폼 상단 배너 |
+ * | provider 오류 중 필드가 있는 것 | 해당 입력창 아래 — 사용자가 고칠 수 있다 |
+ * | provider 오류 중 필드가 없는 것 | **결과 영역의 실패 상태** |
+ *
+ * 마지막 줄이 중요하다. 폼 상단과 결과 영역 양쪽에 같은 메시지를 띄우면 사용자가
+ * 두 개의 다른 문제로 읽는다. **고칠 수 있는 것은 입력 쪽, 계산 자체의 실패는
+ * 결과 쪽**으로 나눈다.
  */
 
 interface VoyageCiiFormProps {
-  /** 계산 성공 시 호출. 결과 렌더는 `#136`이 맡는다. */
-  onResult?: (response: VoyageCiiResponse | null) => void
+  /** 계산 상태 변화. 결과 렌더는 `VoyageCiiResult`(#136)가 맡는다. */
+  onStateChange?: (state: ResultState) => void
 }
 
-export function VoyageCiiForm({ onResult }: VoyageCiiFormProps) {
+export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   const vessels = useMemo(() => selectableVessels(), [])
   const fuels = useMemo(() => selectableFuels(), [])
 
@@ -91,18 +104,25 @@ export function VoyageCiiForm({ onResult }: VoyageCiiFormProps) {
     const found = validateForm(state)
     setErrors(found)
     if (Object.keys(found).length > 0) {
-      onResult?.(null)
+      onStateChange?.({ status: 'idle' })
       return
     }
 
     setSubmitting(true)
-    onResult?.(null)
+    onStateChange?.({ status: 'loading' })
     try {
       const response = await provider.estimate(toRequest(state))
-      onResult?.(response)
+      onStateChange?.({ status: 'success', response })
     } catch (error) {
       // provider 검증은 화면 검증의 방어선이다. 여기 도달하면 두 규칙이 어긋난 것이다.
-      setErrors(toFormErrors(error))
+      const mapped = toFormErrors(error)
+      if (FIELD.form in mapped) {
+        // 입력창에 붙일 수 없는 오류는 결과 영역의 실패 상태로 보낸다.
+        onStateChange?.({ status: 'error', message: mapped[FIELD.form] })
+      } else {
+        setErrors(mapped)
+        onStateChange?.({ status: 'idle' })
+      }
     } finally {
       setSubmitting(false)
     }
