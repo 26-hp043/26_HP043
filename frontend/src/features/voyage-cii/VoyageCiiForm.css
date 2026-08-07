@@ -1,0 +1,162 @@
+/*
+ * 기능① 입력 폼 (#135).
+ *
+ * DESIGN_SYSTEM §8 — 카드/패널: surface · border · radius 12 · 그림자 Lv1 · 패딩 16–20
+ *                     입력·셀렉트: surface-2 배경 · border · radius 8 · 라벨 상단 · 포커스 링
+ *                     버튼 Primary: navy 채움 / 흰 글자 · 높이 40 · radius 8 · hover
+ * §15 — 컴포넌트는 토큰만 참조한다. 하드코딩 hex 금지.
+ */
+
+.voyage-cii-form {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-24);
+}
+
+.voyage-cii-form__title {
+  margin-bottom: var(--space-16);
+}
+
+.voyage-cii-form__title-en {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-body);
+}
+
+/*
+ * 폼 전체에 걸린 오류. DESIGN_SYSTEM §8 「경고 — 상태색 좌측 스트라이프,
+ * 좌측 테두리만 있을 경우 radius 0」.
+ */
+.voyage-cii-form__form-error {
+  border-left: 3px solid var(--color-danger);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-danger);
+  padding: var(--space-12) var(--space-16);
+  margin-bottom: var(--space-16);
+}
+
+/*
+ * 2열. 폼 폭은 §7.1 정책상 페이지가 정하므로 여기서는 열 수만 다룬다.
+ * 좁아지면 1열로 떨어진다 — §7.2 「태블릿/모바일은 graceful degrade」.
+ */
+.voyage-cii-form__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-16);
+  margin-bottom: var(--space-24);
+}
+
+@media (max-width: 640px) {
+  .voyage-cii-form__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.voyage-cii-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.voyage-cii-form__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-label);
+  color: var(--color-text);
+}
+
+/* DESIGN_SYSTEM §14 — 한국어 라벨 + 영문 병기 */
+.voyage-cii-form__label-en {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+.voyage-cii-form__unit {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+.voyage-cii-form__control {
+  width: 100%;
+  height: 40px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-12);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.voyage-cii-form__control:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+/*
+ * 색만으로 오류를 알리지 않는다(DESIGN_SYSTEM §14 「색만으로 의미 전달 금지」).
+ * 테두리 색과 함께 아래쪽 메시지가 항상 붙는다.
+ */
+.voyage-cii-form__control[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.voyage-cii-form__hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+}
+
+.voyage-cii-form__error {
+  color: var(--color-danger);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+}
+
+/* 선택지가 하나뿐인 항목 — 컨트롤 없이 값만 보인다 */
+.voyage-cii-form__static {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 var(--space-12);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text-muted);
+}
+
+.voyage-cii-form__submit {
+  height: 40px;
+  padding: 0 var(--space-24);
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-control);
+  color: var(--color-surface);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.voyage-cii-form__submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.voyage-cii-form__submit:disabled {
+  background: var(--color-border-strong);
+  border-color: var(--color-border-strong);
+  cursor: not-allowed;
+}
