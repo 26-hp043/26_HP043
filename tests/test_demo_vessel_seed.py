@@ -22,6 +22,9 @@ from sqlalchemy import text
 # 1번 선박의 제원은 PRD §13.1 + tests/fixtures/cii/bulk_50000_hfo_2026.json에서
 # 각각 옮겨 적었다.
 
+# ⚠️ ``id``는 ``uuid`` 컬럼이라 문자열 바인드를 그대로 비교할 수 없다.
+# ``operator does not exist: uuid = character varying``가 난다 — PostgreSQL은 두 타입을
+# 암묵 캐스팅하지 않는다. 아래 조회들은 ``CAST(:vid AS uuid)``로 명시한다.
 VESSEL_ID_BULK = "00000000-0000-4000-8000-000000000001"
 VESSEL_ID_CONTAINER = "00000000-0000-4000-8000-000000000002"
 VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
@@ -103,9 +106,9 @@ async def test_frontend_reference_vessel_exists(conn):
     """
     row = (
         await conn.execute(
-            text("SELECT ship_type, deadweight FROM vessel WHERE id = :vid").bindparams(
-                vid=VESSEL_ID_BULK
-            )
+            text(
+                "SELECT ship_type, deadweight FROM vessel WHERE id = CAST(:vid AS uuid)"
+            ).bindparams(vid=VESSEL_ID_BULK)
         )
     ).one_or_none()
     assert row is not None
@@ -190,7 +193,7 @@ async def test_seeded_ship_types_have_reference_lines(conn, vessel_id):
     다룬다). 적재 전이면 이 테스트는 건너뛴다 — seed 미실행은 이 이슈의 결함이 아니다.
     """
     ship_type = await conn.scalar(
-        text("SELECT ship_type FROM vessel WHERE id = :vid").bindparams(vid=vessel_id)
+        text("SELECT ship_type FROM vessel WHERE id = CAST(:vid AS uuid)").bindparams(vid=vessel_id)
     )
     total = await conn.scalar(text("SELECT count(*) FROM cii_reference_line"))
     if total == 0:
