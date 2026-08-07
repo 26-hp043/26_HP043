@@ -2,13 +2,13 @@ import './VoyageCiiResult.css'
 import { DISPLAY_DIGITS, formatDecimalString, formatGrouped, formatPercent } from './format'
 import {
   ciiUnit,
-  gradePatternUrl,
   marginDisplay,
   riskLabel,
   warningMessage,
   type ResultState,
 } from './resultRules'
-import type { Rating, VoyageCiiResponse } from './types'
+import { GradeBadge } from '../../components/GradeBadge'
+import type { VoyageCiiResponse } from './types'
 
 /**
  * 기능① 결과 화면 (#136).
@@ -98,7 +98,7 @@ function SuccessResult({ response }: { response: VoyageCiiResponse }) {
       </p>
 
       <div className="voyage-cii-result__grade-row">
-        <GradeBadge rating={data.estimated_rating} />
+        <GradeBadge rating={data.estimated_rating} label={`참고 등급 ${data.estimated_rating}`} />
         <div className="voyage-cii-result__grade-meta">
           <p className="voyage-cii-result__grade-label">참고 등급</p>
           <p className="voyage-cii-result__margin">{margin.text}</p>
@@ -169,50 +169,6 @@ function SuccessResult({ response }: { response: VoyageCiiResponse }) {
 }
 
 /* ------------------------------------------------------------------ */
-
-/**
- * 등급 배지 — `DESIGN_SYSTEM §8` · `§14` · `§15.1`.
- *
- * **패턴 없는 등급 표시는 구현 금지다**(`§14`). 색만으로 A~E를 구분하면 적록색맹에서
- * A(녹)와 E(적)가 무너진다. 채움색 위에 `GradePatternDefs`의 패턴을 덮고
- * 등급 문자를 함께 둔다 — 채널이 색·패턴·문자 셋이다.
- *
- * A는 패턴이 없다(`§15.1` — solid). 「패턴 없음」 자체가 A의 식별 표시이고 문자가
- * 항상 함께 놓인다.
- */
-function GradeBadge({ rating }: { rating: Rating }) {
-  const pattern = gradePatternUrl(rating)
-  const lower = rating.toLowerCase()
-
-  return (
-    <svg
-      className="voyage-cii-result__badge"
-      viewBox="0 0 64 64"
-      role="img"
-      aria-label={`참고 등급 ${rating}`}
-    >
-      <rect
-        width="64"
-        height="64"
-        rx="8"
-        fill={`var(--color-grade-${lower})`}
-      />
-      {pattern ? <rect width="64" height="64" rx="8" fill={pattern} /> : null}
-      <text
-        x="32"
-        y="32"
-        textAnchor="middle"
-        dominantBaseline="central"
-        fill={`var(--color-grade-${lower}-on)`}
-        fontSize="34"
-        fontWeight="700"
-        fontFamily="var(--font-sans)"
-      >
-        {rating}
-      </text>
-    </svg>
-  )
-}
 
 interface MetricProps {
   label: string

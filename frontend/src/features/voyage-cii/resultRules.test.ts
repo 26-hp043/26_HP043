@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   ciiUnit,
-  gradePatternUrl,
   isPositiveDecimalString,
   marginDisplay,
   nextWorseRating,
@@ -183,21 +182,6 @@ describe('warningMessage — API_SPEC §1.6 전사', () => {
   })
 })
 
-describe('gradePatternUrl — DESIGN_SYSTEM §14 · §15.1', () => {
-  it('A는 solid라 패턴이 없다', () => {
-    expect(gradePatternUrl('A')).toBeUndefined()
-  })
-
-  it.each([
-    ['B', 'url(#grade-b)'],
-    ['C', 'url(#grade-c)'],
-    ['D', 'url(#grade-d)'],
-    ['E', 'url(#grade-e)'],
-  ])('%s는 %s', (rating, url) => {
-    expect(gradePatternUrl(rating as Rating)).toBe(url)
-  })
-})
-
 describe('통합 — demo fixture의 실제 응답으로 표시 규칙을 돌린다', () => {
   it('등급 C 응답이 계약대로 표시된다', async () => {
     const { createDemoProvider } = await import('./demoProvider')
@@ -219,7 +203,6 @@ describe('통합 — demo fixture의 실제 응답으로 표시 규칙을 돌린
       'D 등급까지 7.2%',
     )
     expect(riskLabel(data.risk_level).text).toBe('보통 MEDIUM')
-    expect(gradePatternUrl(data.estimated_rating)).toBe('url(#grade-c)')
     expect(response.warnings.map(warningMessage)).toEqual([
       '참고용 예측값입니다. 규제 제출용이 아닙니다.',
     ])
