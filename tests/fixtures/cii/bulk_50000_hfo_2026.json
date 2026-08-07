@@ -1,0 +1,54 @@
+{
+  "description": "PRD §13.1 Fixture 1 — Bulk carrier 50,000 DWT, 2026, HFO",
+  "input": {
+    "ship_type": "BULK_CARRIER",
+    "deadweight": 50000,
+    "gross_tonnage": 30000,
+    "regulation_year": 2026,
+    "distance_nm": 1000,
+    "speed_kn": 12.0,
+    "fuel_uses": [
+      {
+        "fuel_type": "HFO",
+        "fuel_ton": 80.0,
+        "cf": 3.114
+      }
+    ],
+    "weather_model": "NONE"
+  },
+  "expected": {
+    "transport_capacity": "50000",
+    "reference_capacity": "50000",
+    "reference_capacity_rule": "DWT",
+    "co2_emission_g": "249120000",
+    "co2_emission_ton": "249.12",
+    "attained_cii": "4.9824",
+    "cii_ref": "5.66861385673728321407947925818",
+    "required_cii": "5.04506633249618206053073653978",
+    "superior_boundary": "4.33875704594671657205643342421",
+    "lower_boundary": "4.74236235254641113689889234739",
+    "upper_boundary": "5.34777031244595298416258073217",
+    "inferior_boundary": "5.95317827234549483142626911694",
+    "estimated_rating": "C",
+    "ratio_to_required": "0.987578690077365898669252012581",
+    "risk_level": "MEDIUM"
+  },
+  "canonical_digits": {
+    "significant": 30,
+    "fields": [
+      "cii_ref",
+      "required_cii",
+      "superior_boundary",
+      "lower_boundary",
+      "upper_boundary",
+      "inferior_boundary",
+      "ratio_to_required"
+    ]
+  },
+  "tolerance": {
+    "layer1_integer": "0",
+    "layer1_decimal": "9",
+    "layer1_display": "6"
+  },
+  "fixture_note": "이 파일의 값이 유일한 기준값이며, 서비스 코드와 독립된 참조 구현체로 생성한다 — 작업 정밀도는 정본값 자릿수 + 최소 20자리, 확정은 마지막에 한 번만 정본값 자릿수(30)로 한다 (TECH_SPEC §1.2.1). 생성기: scripts/gen_fixtures.py. 정수값(M, W, capacity)은 bit-exact 비교, 소수값은 수치 비교이며 표기 자릿수는 비교 결과에 영향을 주지 않는다 (TEST_PLAN §9.1). 나누어떨어지지 않는 값의 확정 자릿수는 canonical_digits 블록에 적는다."
+}

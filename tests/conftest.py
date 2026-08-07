@@ -59,6 +59,23 @@ def run_alembic(*alembic_args: str) -> subprocess.CompletedProcess:
 
 
 @pytest.fixture(scope="session")
+def load_fixture():
+    """JSON 픽스처 로더 (`TEST_PLAN §1.6`).
+
+    구현은 `tests/fixture_loader.py`에 있다. 이 모듈은 PostgreSQL 연결을
+    전제하므로, DB 없이 성립해야 하는 픽스처 비교를 여기에 두지 않는다.
+
+    `tests/`에 `__init__.py`가 없어 pytest가 이 디렉터리를 `sys.path`에 넣는다.
+    따라서 `tests.` 접두 없이 모듈 이름으로 import한다 — `tests.fixture_loader`로
+    적으면 저장소 루트가 `sys.path`에 있는 환경(로컬 `cwd`)에서만 동작하고
+    CI에서는 `ModuleNotFoundError`가 난다.
+    """
+    from fixture_loader import load_fixture as _load
+
+    return _load
+
+
+@pytest.fixture(scope="session")
 def migrated_db() -> None:
     """세션 시작 시 head까지 upgrade하여 스키마를 보장한다."""
     result = run_alembic("upgrade", "head")
