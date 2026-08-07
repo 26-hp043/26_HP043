@@ -58,6 +58,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 from alembic import op
 
@@ -135,9 +136,14 @@ SEED_VESSELS: list[dict[str, object]] = [
 ]
 
 # bulk_insert/delete용 경량 테이블 선언. 실제 컬럼 정의는 003이 소유한다.
+#
+# ⚠️ ``id``의 타입을 ``String``으로 두면 안 된다. 실제 컬럼은 ``uuid``이고
+# asyncpg는 서버 타입과 파라미터 타입이 다르면 캐스팅하지 않고 거부한다 —
+# ``DatatypeMismatchError: column "id" is of type uuid but expression is of type
+# character varying``. 문자열로 값을 적더라도 **선언은 실제 타입을 따라야** 한다.
 _vessel = sa.table(
     "vessel",
-    sa.column("id", sa.String),
+    sa.column("id", postgresql.UUID(as_uuid=False)),
     sa.column("imo_number", sa.String),
     sa.column("name", sa.String),
     sa.column("ship_type", sa.String),
