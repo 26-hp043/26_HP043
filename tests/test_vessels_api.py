@@ -11,6 +11,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from fakes import DEMO_VESSEL_ID, FakeSession, FakeVessel
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import app
@@ -23,7 +24,6 @@ from cii_platform.db.repositories.vessel import (
 )
 from cii_platform.db.session import get_session
 from cii_platform.services.vessel import normalize_limit
-from tests.fakes import DEMO_VESSEL_ID, FakeSession, FakeVessel
 
 LIST_URL = "/api/v1/vessels"
 

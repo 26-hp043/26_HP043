@@ -17,11 +17,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
-
-from cii_platform.api.main import app
-from cii_platform.db.session import get_session
-from tests.fakes import (
+from fakes import (
     DEMO_VESSEL_ID,
     DEMO_YEAR,
     FakeCalculationRun,
@@ -32,6 +28,10 @@ from tests.fakes import (
     FakeSession,
     FakeVessel,
 )
+from fastapi.testclient import TestClient
+
+from cii_platform.api.main import app
+from cii_platform.db.session import get_session
 
 ENDPOINT = "/api/v1/calculations/voyage-cii"
 

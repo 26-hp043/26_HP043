@@ -231,19 +231,19 @@ class TestWarnings:
     """API_SPEC §1.6 warning 코드."""
 
     def test_reference_only_always_present(self):
-        from tests.fakes import FakeVessel
+        from fakes import FakeVessel
 
         assert svc.WARNING_REFERENCE_ONLY in svc._build_warnings(FakeVessel())
 
     def test_non_cii_vessel_when_gt_below_threshold(self):
-        from tests.fakes import FakeVessel
+        from fakes import FakeVessel
 
         vessel = FakeVessel(gross_tonnage=Decimal("4999.99"))
         assert svc.WARNING_NON_CII_VESSEL in svc._build_warnings(vessel)
 
     def test_no_warning_at_exactly_threshold(self):
         """5,000 **이상**이 적용 대상이다. 경계값은 경고 대상이 아니다."""
-        from tests.fakes import FakeVessel
+        from fakes import FakeVessel
 
         vessel = FakeVessel(gross_tonnage=Decimal("5000"))
         assert svc.WARNING_NON_CII_VESSEL not in svc._build_warnings(vessel)
@@ -254,7 +254,7 @@ class TestWarnings:
         seed의 실선 2척이 이 경우다(GT 미회신). 근거 없이 경고를 붙이면 사용자가
         확인된 사실로 읽는다.
         """
-        from tests.fakes import FakeVessel
+        from fakes import FakeVessel
 
         vessel = FakeVessel(gross_tonnage=None)
         assert svc._build_warnings(vessel) == [svc.WARNING_REFERENCE_ONLY]
