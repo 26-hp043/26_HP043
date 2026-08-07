@@ -12,7 +12,7 @@ import {
   type FormErrors,
   type VoyageCiiFormState,
 } from './formRules'
-import { createDemoProvider } from './demoProvider'
+import { createVoyageCiiProvider } from './providerSelection'
 import type { ResultState } from './resultRules'
 
 /**
@@ -66,7 +66,9 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   const [submitting, setSubmitting] = useState(false)
 
   const years = useMemo(() => selectableYears(state.vesselId), [state.vesselId])
-  const provider = useMemo(() => createDemoProvider(), [])
+  // demo ↔ 실 API 전환은 providerSelection이 판단한다(#138). 화면은 어느 쪽이
+  // 선택됐는지 알지 않는다 — 그것이 #134가 provider 경계를 그은 이유다.
+  const provider = useMemo(() => createVoyageCiiProvider(), [])
 
   const selectedVessel = vessels.find((v) => v.id === state.vesselId)
 

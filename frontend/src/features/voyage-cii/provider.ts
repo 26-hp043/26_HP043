@@ -43,8 +43,20 @@ export class VoyageCiiError extends Error {
   /** 요청 본문 기준 필드 경로 (예: `fuel_uses[0].fuel_ton`). 없으면 요청 전체 문제. */
   readonly field?: string
 
-  constructor(code: VoyageCiiErrorCode, message: string, field?: string) {
-    super(message)
+  /**
+   * `options.cause`는 **원인 예외를 잃지 않기 위해** 받는다(#138).
+   *
+   * `apiProvider`가 네트워크 실패(`TypeError: Failed to fetch`)를 사용자 문구로 바꿔
+   * 던지는데, 원본을 버리면 개발자 도구에서 무엇이 끊겼는지 알 수 없다. 사용자에게는
+   * `message`만 보이고 `cause`는 콘솔에만 남는다.
+   */
+  constructor(
+    code: VoyageCiiErrorCode,
+    message: string,
+    field?: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options)
     this.name = 'VoyageCiiError'
     this.code = code
     this.field = field

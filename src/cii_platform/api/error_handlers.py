@@ -5,26 +5,38 @@
 레이어(``calc``/``services``/``db``)는 이 모듈을 import하지 않는다(계층 방향 준수,
 TECH_SPEC §16).
 
-본 이슈(#100) 범위: 변환 함수 :func:`to_error_response`, base 예외 핸들러,
-등록 진입점 :func:`register_exception_handlers`의 골격까지. 실제 FastAPI ``app``에
-핸들러를 붙이는 호출은 후행 이슈 #49(FastAPI app 구성)에서 수행한다.
+#100이 변환 함수 :func:`to_error_response`와 base 예외 핸들러를, #49가 FastAPI ``app``
+배선을 맡았다. **#116이 남은 두 경로를 채운다** — Pydantic 검증 실패
+(``RequestValidationError``)와 어디에도 잡히지 않은 예외(catch-all).
+
+이 둘이 없으면 다음이 깨진다.
+
+- FastAPI 기본 422 응답은 ``{"detail": [...]}`` 형태다. **API_SPEC §1.3.2와 구조가
+  다르므로** 화면이 필드별 메시지를 꺼낼 수 없다.
+- 잡히지 않은 예외는 Starlette 기본 500 HTML을 낸다. JSON을 기대하는 클라이언트가
+  파싱에 실패하고, **traceback이 응답에 실릴 수 있다.**
 
 참조:
-- API_SPEC §1.3.2 오류 응답 포맷, §1.4 HTTP Status Code 매핑
+- API_SPEC §1.3.2 오류 응답 포맷, §1.4 HTTP Status Code 매핑, §11 검증 규칙
 - TECH_SPEC §12.1 오류 분류, §12.2 오류 전파 규칙
 """
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from cii_platform.api.field_labels import field_label
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.errors import AppError
+from cii_platform.errors import ERROR_HTTP_STATUS, AppError
 
 if TYPE_CHECKING:
     from fastapi import FastAPI, Request
+
+logger = logging.getLogger(__name__)
 
 
 def to_error_response(
@@ -85,12 +97,128 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(status_code=exc.http_status, content=body)
 
 
+# --- #116: Pydantic 검증 실패 -------------------------------------------------------
+
+#: ``RequestValidationError``의 HTTP status. API_SPEC §1.4 ``VALIDATION_ERROR`` 행.
+#: 값을 여기 박지 않고 매핑에서 가져온다 — 두 곳에 적으면 갈린다.
+_VALIDATION_STATUS = ERROR_HTTP_STATUS["VALIDATION_ERROR"]
+
+#: 본문 필드 오류의 ``loc``은 ``("body", "distance_nm")``처럼 시작한다.
+#: 앞의 출처 표시는 필드 경로가 아니므로 떼어 낸다.
+_LOC_PREFIXES = frozenset({"body", "query", "path", "header", "cookie"})
+
+
+def _field_path(loc: tuple[object, ...]) -> str:
+    """Pydantic ``loc`` 튜플을 요청 본문 기준 필드 경로로 만든다.
+
+    ``("body", "fuel_uses", 0, "fuel_ton")`` → ``"fuel_uses[0].fuel_ton"``
+
+    **배열 인덱스를 대괄호로 적는 이유**: 화면이 이 경로를 그대로 입력창에 매핑한다
+    (#135 ``VoyageCiiError.field``). 점 표기(``fuel_uses.0.fuel_ton``)로 내려보내면
+    화면 쪽에 변환 규칙이 하나 더 생긴다.
+    """
+    parts = list(loc)
+    if parts and isinstance(parts[0], str) and parts[0] in _LOC_PREFIXES:
+        parts = parts[1:]
+    if not parts:
+        return ""
+
+    path = str(parts[0])
+    for part in parts[1:]:
+        path += f"[{part}]" if isinstance(part, int) else f".{part}"
+    return path
+
+
+def _validation_details(exc: RequestValidationError) -> list[dict[str, object]]:
+    """Pydantic 오류를 API_SPEC §1.3.2 ``details[]`` 형식으로 옮긴다.
+
+    ``rule``은 넣지 않는다. §1.3.2 예시에는 있으나 **Pydantic 오류에서 VAL 번호를
+    유도할 수 없고**, 임의로 붙이면 근거 없는 규칙 번호가 응답에 실린다. VAL 번호가
+    필요한 검증은 서비스 계층이 :class:`~cii_platform.errors.ValidationError`로
+    직접 던지며 그쪽에서 ``details``를 구성한다.
+
+    ``field_label``은 :func:`~cii_platform.api.field_labels.field_label`이 채운다.
+    미등록 필드는 필드명 원문이 그대로 돌아온다(조회 실패 계약).
+    """
+    details: list[dict[str, object]] = []
+    for error in exc.errors():
+        field = _field_path(tuple(error.get("loc", ())))
+        entry: dict[str, object] = {
+            "field": field,
+            "field_label": field_label(field),
+            "message": str(error.get("msg", "")),
+        }
+        details.append(entry)
+    return details
+
+
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Pydantic 검증 실패를 API_SPEC §1.3.2 응답으로 변환한다 (#116).
+
+    **FastAPI 기본 핸들러를 그대로 두면 안 되는 이유**: 기본 응답은
+    ``{"detail": [{"loc": [...], "msg": ..., "type": ...}]}``이고 §1.3.2의
+    ``{"error": {...}, "meta": {...}}``와 구조가 다르다. 화면(#135·#138)은 §1.3.2를
+    전제로 필드별 메시지를 꺼내므로 기본 응답에서는 아무것도 표시하지 못한다.
+
+    ``message``는 첫 오류 문구를 쓴다 — 여러 필드가 동시에 틀렸을 때 대표 문구가
+    필요하고, 전체 목록은 ``details``에 그대로 있다.
+    """
+    details = _validation_details(exc)
+    message = str(details[0]["message"]) if details else "요청 값이 올바르지 않습니다."
+    state = getattr(request, "state", None)
+    body = to_error_response(
+        "VALIDATION_ERROR",
+        message,
+        details=details,
+        request_id=getattr(state, "request_id", None),
+        timestamp=getattr(state, "timestamp", None) or iso_utc_now(),
+    )
+    return JSONResponse(status_code=_VALIDATION_STATUS, content=body)
+
+
+# --- #116: catch-all ----------------------------------------------------------------
+
+#: 클라이언트에게 보이는 500 문구. **내부 정보를 담지 않는다.**
+INTERNAL_ERROR_MESSAGE = "서버 내부 오류가 발생했습니다."
+
+
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """어디에도 잡히지 않은 예외를 500 ``INTERNAL_ERROR``로 변환한다 (#116).
+
+    **예외 내용을 응답에 넣지 않는다.** 메시지·traceback에는 파일 경로·SQL·값이
+    섞여 있을 수 있고, 그것이 그대로 나가면 정보 노출이 된다. 대신 ``logger.exception``
+    으로 서버 로그에 남겨 ``request_id``로 추적할 수 있게 한다.
+
+    이 핸들러가 없으면 Starlette 기본 500 **HTML**이 나가고, JSON을 기대하는
+    클라이언트가 파싱 단계에서 실패한다.
+    """
+    state = getattr(request, "state", None)
+    request_id = getattr(state, "request_id", None)
+    logger.exception("unhandled error (request_id=%s)", request_id, exc_info=exc)
+    body = to_error_response(
+        "INTERNAL_ERROR",
+        INTERNAL_ERROR_MESSAGE,
+        request_id=request_id,
+        timestamp=getattr(state, "timestamp", None) or iso_utc_now(),
+    )
+    return JSONResponse(status_code=ERROR_HTTP_STATUS["INTERNAL_ERROR"], content=body)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """FastAPI ``app``에 오류 핸들러를 등록한다.
 
-    후행 이슈 #49(FastAPI app 구성)에서 app 생성 직후 이 함수를 호출한다.
-    구체 예외 6종(TECH_SPEC §12.1)은 모두 :class:`AppError`를 상속하므로,
-    base 핸들러 하나로 일괄 변환된다. 개별 예외에 특수 처리가 필요해지면 후행
-    이슈에서 핸들러를 추가 등록한다.
+    #49(FastAPI app 구성)가 app 생성 직후 이 함수를 호출한다.
+
+    등록 순서가 아니라 **예외 타입의 구체성**이 우선순위를 정한다. Starlette는
+    등록된 핸들러 중 예외의 MRO에서 가장 먼저 일치하는 것을 고르므로,
+    :class:`AppError`가 :class:`Exception`보다 앞선다 — catch-all이 도메인 오류를
+    가로채지 않는다.
+
+    구체 예외 6종(TECH_SPEC §12.1)은 모두 :class:`AppError`를 상속하므로 base 핸들러
+    하나로 일괄 변환된다.
     """
     app.add_exception_handler(AppError, app_error_handler)
+    # #116: FastAPI 기본 422 응답 형태를 §1.3.2로 교체.
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
+    # #116: 마지막 안전망. 위 두 핸들러가 잡지 못한 것만 여기로 온다.
+    app.add_exception_handler(Exception, unhandled_error_handler)

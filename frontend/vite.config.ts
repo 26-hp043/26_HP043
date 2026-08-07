@@ -24,13 +24,40 @@ const isRepoOnWindowsFilesystem =
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
-  server: isRepoOnWindowsFilesystem
-    ? {
-        watch: {
-          usePolling: true,
-          /** 저장 후 반영까지의 지연. 낮추면 CPU를 더 쓴다. */
-          interval: 300,
-        },
-      }
-    : undefined,
+  server: {
+    ...(isRepoOnWindowsFilesystem
+      ? {
+          watch: {
+            usePolling: true,
+            /** 저장 후 반영까지의 지연. 낮추면 CPU를 더 쓴다. */
+            interval: 300,
+          },
+        }
+      : {}),
+    /*
+     * 백엔드 프록시 (#138).
+     *
+     * 개발 중 프론트엔드(5173)와 백엔드(8000)가 다른 포트로 뜬다. 브라우저가 이를
+     * 다른 출처로 보아 요청을 막으므로(CORS) 둘 중 하나를 해야 한다 —
+     * **⑴ 개발 서버 프록시** 또는 ⑵ 백엔드에 CORS 허용 오리진 추가.
+     *
+     * ⑴을 택했다. 이유:
+     *
+     * - **백엔드에 개발 전용 설정을 넣지 않는다.** CORS 허용 오리진은 프로덕션에서
+     *   위험한 값이고, 개발용 오리진이 배포 설정에 섞이면 지우는 것을 잊는다.
+     * - **프론트엔드가 상대 경로(`/api/v1`)를 쓸 수 있다.** 절대 URL을 쓰면 배포
+     *   환경마다 base URL을 바꿔야 하는데, 같은 도메인에 서빙되는 프로덕션에서는
+     *   상대 경로가 그대로 맞는다.
+     * - 브라우저 입장에서 **같은 출처**가 되므로 preflight 자체가 없다.
+     *
+     * 대상 주소는 `VITE_API_PROXY_TARGET`으로 바꿀 수 있다(도커 컴포즈에서 서비스명
+     * 사용 등). 미설정 시 로컬 기본값을 쓴다.
+     */
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET ?? 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+    },
+  },
 })
