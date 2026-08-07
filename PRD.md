@@ -4,7 +4,7 @@
 |---|---|
 | 문서명 | 구현용 상세 PRD.md |
 | 제품명 | 중소선사를 위한 CII 예측 및 운항 의사결정 보조 플랫폼 |
-| 버전 | v3.1 Implementation PRD |
+| 버전 | v3.2 Implementation PRD |
 | 상태 | MVP 구현 기준 / Oracle Review 반영 |
 | 최종 수정일 | 2026-08-07 |
 | MVP 개발 기간 | 2026.06 ~ 2026.10 |
