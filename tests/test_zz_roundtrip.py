@@ -146,3 +146,31 @@ async def test_seed_downgrade_removes_fuel_type_rows():
     finally:
         # 성공/실패와 무관하게 head로 복원한다 — seed 8행이 다시 적재된다.
         _restore_to_head()
+
+
+async def test_seed_downgrade_removes_demo_vessel_rows():
+    """018 downgrade가 데모 선박 seed 3행을 삭제한다 (#34).
+
+    이 파일에 두는 이유는 위 테스트들과 같다 — ``downgrade 017``이 전역 스키마 상태를
+    바꾸므로 async ``conn`` fixture를 쓰는 테스트와 섞이면 안 된다 (#82). 값 자체의
+    검증은 tests/test_demo_vessel_seed.py가 담당한다.
+
+    **017이 아니라 018까지만 내린다.** 016까지 내리면 fuel_type도 함께 지워져
+    어느 마이그레이션이 무엇을 지웠는지 구분되지 않는다.
+    """
+    step = run_alembic("downgrade", "017")
+    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
+    try:
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        try:
+            async with engine.connect() as connection:
+                vessels = await connection.scalar(text("SELECT count(*) FROM vessel"))
+                # 018만 내렸으므로 017의 CF 8행은 남아 있어야 한다.
+                fuels = await connection.scalar(text("SELECT count(*) FROM fuel_type"))
+            assert vessels == 0
+            assert fuels == 8
+        finally:
+            await engine.dispose()
+    finally:
+        # 성공/실패와 무관하게 head로 복원한다 — seed 3행이 다시 적재된다.
+        _restore_to_head()

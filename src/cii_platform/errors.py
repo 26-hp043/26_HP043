@@ -68,3 +68,65 @@ class AppError(Exception):
     def http_status(self) -> int:
         """이 오류에 대응하는 HTTP status code."""
         return ERROR_HTTP_STATUS.get(self.code, DEFAULT_HTTP_STATUS)
+
+
+class ValidationError(AppError):
+    """VAL-001~010 위반 (TECH_SPEC §12.1).
+
+    필수값 누락, 범위 초과, NaN/Infinity. HTTP 422.
+
+    ``field``를 받는 이유는 화면이 **해당 입력창 아래에** 메시지를 붙이기 때문이다
+    (API_SPEC §1.3.2 ``details[].field``). ``field``가 있으면 ``details`` 한 건을
+    자동으로 구성한다 — 호출부마다 dict를 손으로 만들면 형식이 갈린다.
+
+    ``field_label``은 :mod:`cii_platform.api.field_labels`가 아니라 호출부에서
+    주입한다. ``errors``는 레이어 중립 모듈이라 ``api`` 패키지를 import할 수 없다
+    (TECH_SPEC §16 계층 방향).
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        field: str | None = None,
+        field_label: str | None = None,
+        details: list[dict[str, object]] | None = None,
+    ) -> None:
+        if details is None and field is not None:
+            entry: dict[str, object] = {"field": field, "message": message}
+            if field_label is not None:
+                entry["field_label"] = field_label
+            details = [entry]
+        super().__init__("VALIDATION_ERROR", message, details=details)
+        self.field = field
+
+
+class ParameterError(AppError):
+    """규정 파라미터 누락·불일치 (TECH_SPEC §12.1). HTTP 409.
+
+    **입력이 아니라 서버 데이터의 문제다.** 사용자가 요청을 고쳐도 해결되지 않으므로
+    422가 아니라 409다 — 규정 파라미터 seed(``scripts/seed.py``)가 적재되지 않았거나
+    해당 선종·연도의 행이 없는 상태다.
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("PARAMETER_ERROR", message, details=details)
+
+
+class CalculationError(AppError):
+    """분모 0, overflow, 유효하지 않은 결과 (TECH_SPEC §12.1). HTTP 422.
+
+    입력 검증을 통과한 뒤 계산 단계에서 드러나는 문제다. Layer 1 엔진이 던지는
+    ``ValueError``를 서비스 계층이 이 예외로 옮긴다 — ``ValueError``가 그대로 위로
+    올라가면 500이 되어 「서버 오류」로 보고되지만, 실제로는 입력이 만든 상태다.
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("CALCULATION_ERROR", message, details=details)
+
+
+class NotFoundError(AppError):
+    """존재하지 않는 리소스 (API_SPEC §1.4). HTTP 404."""
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("NOT_FOUND", message, details=details)
