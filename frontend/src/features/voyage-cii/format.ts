@@ -5,22 +5,49 @@
  * `API_SPEC §1.7` `[ORACLE-C-1]`이 Layer 1 값을 문자열로 직렬화하는 이유가
  * JSON float 파싱의 정밀도 손실을 막기 위해서인데, 화면에서 되돌리면 그 보호가 사라진다.
  *
- * 자릿수는 `PRD §9.3` 표를 따른다 — CII 3자리 · 연료 2자리 · CO₂ 2자리 · 거리 1자리.
- * `DESIGN_SYSTEM §4.1`도 CII 소수점 3자리 고정으로 같은 값을 규정한다.
- * 반올림은 `TECH_SPEC`의 `ROUND_HALF_UP`을 따른다.
+ * 자릿수는 `DESIGN_SYSTEM §4.2`(물리량)와 `§4.1`(CII)을 따른다.
+ * 반올림은 `ROUND_HALF_UP`이며 **표시 시점에만** 적용한다(`§4.2` 「반올림」).
+ *
+ * ⚠️ **이 모듈은 단위 문자열을 붙이지 않는다.** 숫자 문자열만 반환한다.
+ * CII 단위는 선종의 capacity 축에서 파생되므로(`PRD §3.3.3` · `DESIGN_SYSTEM §4.1`)
+ * 포매터가 단위를 붙이려면 선종을 알아야 한다. **단위 부착은 호출부 책임이다**(#164).
  */
 
-/** `PRD §9.3` 화면 표시 자릿수. */
+/**
+ * 화면 표시 자릿수.
+ *
+ * `DESIGN_SYSTEM §4.2` 소수 자릿수 표(🔒)와 `§4.1` CII 3자리를 옮긴 것이다.
+ *
+ * ⚠️ **`PRD §9.3`과 3건이 상충한다** — 연료 2→1 · CO₂ 2→1 · 거리 1→0.
+ * `AGENTS §3.2.2`상 **화면 표시 자릿수는 `DESIGN_SYSTEM` 소관**이므로 이쪽을 따른다.
+ * `PRD §9.3` 본문을 `§4` 참조로 전환하는 정합화는 `#185`가 추적한다.
+ */
 export const DISPLAY_DIGITS = {
-  /** CII 값 — attained · required · 경계 · margin */
+  /** CII 값 — attained · required · 경계 · margin (`§4.1`) */
   cii: 3,
-  /** 연료 사용량 (ton) */
-  fuelTon: 2,
-  /** CO₂ 배출량 (tCO₂) */
-  co2Ton: 2,
-  /** 항해거리 (nm) */
-  distanceNm: 1,
+  /** 연료 사용량 (`§4.2`) */
+  fuelTon: 1,
+  /** CO₂ 배출량 (`§4.2`) */
+  co2Ton: 1,
+  /** 항해거리 (`§4.2`) */
+  distanceNm: 0,
+  /** 운항 시간 (`§4.2`). 기능② 필드라 기능① 결과 화면에는 나오지 않는다 */
+  durationHours: 1,
+  /** 비율·확률의 **백분율** 자릿수 (`§4.2`) */
+  percent: 1,
 } as const
+
+/**
+ * 천단위 구분자를 넣을 항목.
+ *
+ * `DESIGN_SYSTEM §4.2` 「천단위 구분자」(🔒) — 적용은 연료·거리·CO₂이며
+ * **CII · 비율 · 확률에는 넣지 않는다.**
+ *
+ * CII는 통상 1000을 넘지 않아 구분자가 등장하지 않으며, 적용하면 `§4.1`이
+ * 자릿수 고정으로 확보한 소수부 정렬을 방해한다. **명시적으로 제외하지 않으면
+ * 구현에서 일괄 적용될 여지가 있어** 목록으로 못박는다.
+ */
+export const GROUPED_FIELDS = ['fuelTon', 'co2Ton', 'distanceNm'] as const
 
 /**
  * 십진 문자열을 지정한 소수 자릿수로 표시한다.
@@ -93,4 +120,66 @@ function addOne(digitsOnly: string): string {
 function stripLeadingZeros(intPart: string): string {
   const stripped = intPart.replace(/^0+/, '')
   return stripped === '' ? '0' : stripped
+}
+
+/**
+ * 정수부에 천단위 구분자를 넣는다.
+ *
+ * `DESIGN_SYSTEM §4.2` 「천단위 구분자」 — **연료 · 거리 · CO₂ 전용**이다.
+ * CII · 비율 · 확률에는 쓰지 않는다(`GROUPED_FIELDS` 참조).
+ *
+ * **`toLocaleString()`을 쓰지 않는다.** 그것은 `number`를 받으므로 안전 정수 범위를
+ * 넘는 값에서 정밀도가 깨지고, 로케일에 따라 구분자가 `.`이 되기도 한다.
+ * 정수부 문자열을 뒤에서 세 자리씩 끊는다.
+ *
+ * @example
+ * formatGrouped('12480', 0)      // '12,480'
+ * formatGrouped('1000.04', 1)    // '1,000.0'
+ * formatGrouped('80', 1)         // '80.0'      천 단위 미만은 그대로
+ */
+export function formatGrouped(value: string, digits: number): string {
+  const formatted = formatDecimalString(value, digits)
+  const negative = formatted.startsWith('-')
+  const unsigned = negative ? formatted.slice(1) : formatted
+  const [intPart, fracPart] = unsigned.split('.')
+
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  const body = fracPart === undefined ? grouped : `${grouped}.${fracPart}`
+  return negative ? `-${body}` : body
+}
+
+/**
+ * 소수 비율을 백분율 문자열로 바꾼다.
+ *
+ * `DESIGN_SYSTEM §4.2` 「비율」 — **API는 소수 문자열(`"0.98758"`)로 내려오고
+ * 백분율 환산과 반올림은 표시 시점에만** 적용한다. `§4.1`의 3자리 규칙을 그대로
+ * 적용하면 `0.988`이 되어 의미가 전달되지 않는다.
+ *
+ * **`% 기호는 붙이지 않는다.** 단위 부착은 호출부 책임이다(모듈 주석 참조).
+ *
+ * 곱셈을 쓰지 않고 **소수점 위치를 두 칸 옮긴다** — `Number('0.98758') * 100`은
+ * `98.75800000000001`이 된다.
+ *
+ * @example
+ * formatPercent('0.98758')   // '98.8'
+ * formatPercent('0.072')     // '7.2'
+ * formatPercent('1')         // '100.0'
+ */
+export function formatPercent(value: string, digits: number = DISPLAY_DIGITS.percent): string {
+  const trimmed = value.trim()
+  if (!/^[+-]?\d+(\.\d+)?$/.test(trimmed)) {
+    throw new TypeError(`십진 문자열이 아닙니다: ${JSON.stringify(value)}`)
+  }
+
+  const negative = trimmed.startsWith('-')
+  const unsigned = trimmed.replace(/^[+-]/, '')
+  const [intPart, fracPart = ''] = unsigned.split('.')
+
+  // 소수점을 오른쪽으로 두 칸. 모자라면 0으로 채운다.
+  const padded = fracPart.padEnd(2, '0')
+  const shiftedInt = `${intPart}${padded.slice(0, 2)}`
+  const shiftedFrac = padded.slice(2)
+  const shifted = shiftedFrac === '' ? shiftedInt : `${shiftedInt}.${shiftedFrac}`
+
+  return formatDecimalString(negative ? `-${shifted}` : shifted, digits)
 }
