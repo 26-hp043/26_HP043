@@ -8,13 +8,15 @@ import { lowestSummary } from '../scenario-comparison/comparisonRules'
 import { createDemoAnnualProvider } from '../annual-simulation/demoProvider'
 
 /**
- * `docs/DEMO_CHECKLIST.md`의 기대값을 코드로 고정한다 (#137).
+ * 데모 경로의 **화면 표시값**을 고정한다 (#137).
  *
- * **체크리스트에 적힌 숫자는 화면에 보이는 문자열이다.** 문서에만 적어 두면 표시
- * 규칙이나 고정표가 바뀔 때 조용히 낡는다 — 시연 당일 「문서와 화면이 다르다」가
- * 되고, 그때는 어느 쪽이 맞는지 판단할 시간이 없다.
+ * 폼 상태에서 출발해 provider를 거쳐 표시 유틸까지 통과한 **최종 문자열**을 단언한다.
+ * 다른 테스트는 각 계층을 따로 보지만, 이 파일은 **사람이 화면에서 실제로 읽는 값**을
+ * 본다 — 계층별로는 전부 맞는데 합쳐 놓으면 틀린 경우를 잡기 위해서다.
  *
- * 이 테스트가 깨지면 **문서를 고쳐야 한다는 신호**다.
+ * 시연 확인용 체크리스트가 이 값들을 그대로 옮겨 적고 있으므로, **이 테스트가 깨지면
+ * 그 체크리스트도 낡았다는 신호**다. 표시 규칙(`format.ts`) · 고정표
+ * (`referenceTable.ts`) · 표시 문구(`resultRules.ts`) 중 하나가 바뀐 것이다.
  */
 
 const provider = createDemoProvider()
