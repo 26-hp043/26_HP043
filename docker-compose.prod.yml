@@ -1,0 +1,34 @@
+# 프로덕션용 compose (#85) — dev(docker-compose.yml)와 분리
+#  - Dockerfile의 prod stage 사용: non-editable install, --reload 없음
+#  - credential은 반드시 환경에서 주입한다 (.env 파일 또는 셸 환경)
+#  - db 포트를 호스트에 노출하지 않는다 (내부 네트워크 전용)
+#  - 소스 볼륨 마운트 없음 — 코드는 이미지에 고정
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      # :? 는 미설정 시 즉시 실패 — 프로덕션에서 기본값(cii)을 허용하지 않는다
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER 미설정}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 미설정}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB 미설정}
+      # DB_SCHEMA §0.1 [X-6]: 모든 TIMESTAMPTZ는 UTC 기준, 서버 timezone=UTC 설정 필수
+      TZ: UTC
+      PGTZ: UTC
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      retries: 5
+  app:
+    build:
+      context: .
+      target: prod
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  pgdata:
