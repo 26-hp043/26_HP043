@@ -40,4 +40,5 @@ uv.lock
 # Docker 관련 파일
 Dockerfile
 docker-compose.yml
+docker-compose.prod.yml
 .dockerignore

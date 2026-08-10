@@ -2,27 +2,31 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: cii
-      POSTGRES_PASSWORD: cii
-      POSTGRES_DB: cii
+      # credential은 환경변수로 주입한다 (#85). .env 파일 또는 셸 환경에서 설정.
+      POSTGRES_USER: ${POSTGRES_USER:-cii}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cii}
+      POSTGRES_DB: ${POSTGRES_DB:-cii}
       # DB_SCHEMA §0.1 [X-6]: 모든 TIMESTAMPTZ는 UTC 기준, 서버 timezone=UTC 설정 필수
       TZ: UTC
       PGTZ: UTC
     ports: ["5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cii"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cii}"]
       interval: 5s
       retries: 5
   app:
-    build: .
+    build:
+      context: .
+      # 멀티스테이지 Dockerfile의 dev stage 사용 (--reload, editable install) (#85)
+      target: dev
     ports: ["8000:8000"]
     environment:
-      DATABASE_URL: postgresql+asyncpg://cii:cii@db:5432/cii
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cii}:${POSTGRES_PASSWORD:-cii}@db:5432/${POSTGRES_DB:-cii}
     depends_on:
       db:
         condition: service_healthy
-    # 코드 수정 시 컨테이너 재빌드 없이 자동 리로드되도록 소스를 마운트
+    # 코드 수정 시 컨테이너 재빌드 없이 자동 리로드되도록 소스를 마운트 (dev 전용)
     volumes: [./src:/app/src]
 volumes:
   pgdata:
