@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.2 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-06 |
+| 최종 수정일 | 2026-08-11 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -725,7 +725,7 @@ POST /api/v1/calculations/voyage-cii
   "parameters_used": {
     "regulation_year": {
       "year": "2026",
-      "z_factor_percent": "11"
+      "z_factor_percent": "11.0"
     },
     "fuel_types": [
       { "code": "HFO", "cf": "3.114" }
@@ -1728,3 +1728,4 @@ GET /api/v1/health
 | 2026-08-04 | `#175` | §4.1 `risk_level` 산정 기준 참조에 PRD §9.4.2(확률 화면) 추가 — 기존에는 §9.4.1만 가리켜 기능③ 임계값 출처가 드러나지 않았다 |
 | 2026-08-06 | `#187` | §3.1 응답·§3.3 생성 요청에 `regulation_year` 노출, §3.4 PATCH 대상 명시, §3.5에 `INCLUDE_AS_PLAN` 전환 가드 행 신설, §3.3 `[EXT-P0-4]`의 「PLANNED 전환 = INCLUDE_AS_PLAN」 서술 정정 (#150) |
 | 2026-08-07 | `#196` | 헤더 「상위 문서」 버전 참조 갱신 — `PRD` v3.2 · `TECH_SPEC` v1.2→v1.4(낡은 참조 정정) (#163) |
+| 2026-08-10 | `#218` | §4.1 응답 예시의 `parameters_used.regulation_year.z_factor_percent` 표기를 `"11"` → `"11.0"`로 정정 — `calculation_basis` 블록과 통일 (#208) |
