@@ -118,6 +118,8 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 }
 ```
 
+> **`message` 언어 규정**: `error.message`·`details[].message`는 `field_label`과 동일하게 **한국어**로 작성한다 (§1.4의 프레임워크 발생 오류 포함). 프레임워크(Starlette/FastAPI) 기본 영문 문구(`'Not Found'`, `'Method Not Allowed'`)를 그대로 내보내지 않는다.
+
 ### 1.4 HTTP Status Code 매핑
 
 > TECH_SPEC §12.1 오류 분류에 따른 매핑.
@@ -128,6 +130,8 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 | 201 Created | — | 리소스 생성 성공 |
 | 400 Bad Request | `BAD_REQUEST` | JSON 파싱 오류, 잘못된 Content-Type |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 리소스 ID |
+| 404 Not Found | `NOT_FOUND` | 존재하지 않는 **경로** (프레임워크 자동 발생 — `#183`에서 §1.3.2 포맷으로 변환). 리소스 ID 미존재와 동일한 코드를 쓴다 |
+| 405 Method Not Allowed | `METHOD_NOT_ALLOWED` | 경로는 존재하나 HTTP 메서드가 허용되지 않음 (프레임워크 자동 발생 — `#183`에서 변환) |
 | 409 Conflict | `PARAMETER_ERROR` | 규정 파라미터 누락 또는 불일치. 재현 시 파라미터 변경 |
 | 422 Unprocessable Entity | `VALIDATION_ERROR` | VAL-001~010 위반 |
 | 422 Unprocessable Entity | `CALCULATION_ERROR` | 분모 0, overflow, 음수 결과 |
@@ -137,6 +141,20 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 | 429 Too Many Requests | `RATE_LIMIT_EXCEEDED` | 분당 요청 한도 초과 |
 | 500 Internal Server Error | `INTERNAL_ERROR` | 서버 내부 오류 |
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | canonical test vector 불일치, 재현 결과 hash 불일치 |
+| 미등록 status (403·415 등) | `HTTP_ERROR` | §1.4 표에 없는 status를 만났을 때의 범용 코드 — 모든 status에 걸쳐 쓰므로 단일 status를 붙이지 않는다 (`#183`에서 변환) |
+
+> **[#182] 프레임워크 발생 오류 정책** — 아래 3개 코드는 **우리가 `AppError`로 raise하지 않는 프레임워크(Starlette/FastAPI) 자동 발생 오류**다. `errors.py`의 `ERROR_HTTP_STATUS`(error_code → 단일 status 매핑)에는 **넣지 않는다** — `METHOD_NOT_ALLOWED`는 405 하나에 고정되지만 `AppError`가 아니고, `HTTP_ERROR`는 여러 status에 걸쳐 쓰여 단일 매핑이 불가능하다. 두 코드의 HTTP status는 **프레임워크 예외의 `status_code`를 그대로 보존**한다. 구현은 `#183`에서 담당한다.
+>
+> **프레임워크 발생 오류의 사용자 노출 문구 (한국어)**
+>
+> | status | 문구 |
+> |---|---|
+> | 404 (경로 없음) | `"요청한 경로를 찾을 수 없습니다."` |
+> | 405 Method Not Allowed | `"허용되지 않은 HTTP 메서드입니다."` |
+> | 미등록 status (403·415 등) | `"요청을 처리할 수 없습니다."` |
+> | 그 외 등록 status | §1.3.2 포맷의 해당 `error_code` 문구를 따른다 |
+>
+> ※ 404의 경우 리소스 ID 미존재(`NOT_FOUND`)와 경로 미존재가 같은 HTTP status를 쓰므로 같은 코드 `NOT_FOUND`를 공유한다. 다만 사용자 문구는 위 표처럼 구분한다.
 
 > **[ORACLE-C-2 정정]** 기상 API 실패 처리 경로를 두 가지로 명확히 분리했다: (1) 200 OK + `WEATHER_NONE_FALLBACK` warning (사용자가 fallback 허용), (2) 422 `WEATHER_FETCH_ERROR` (사용자가 NONE 모델 거부). 이전의 503 매핑은 제거했다.
 
@@ -1733,4 +1751,8 @@ GET /api/v1/health
 | 2026-08-04 | `#175` | §4.1 `risk_level` 산정 기준 참조에 PRD §9.4.2(확률 화면) 추가 — 기존에는 §9.4.1만 가리켜 기능③ 임계값 출처가 드러나지 않았다 |
 | 2026-08-06 | `#187` | §3.1 응답·§3.3 생성 요청에 `regulation_year` 노출, §3.4 PATCH 대상 명시, §3.5에 `INCLUDE_AS_PLAN` 전환 가드 행 신설, §3.3 `[EXT-P0-4]`의 「PLANNED 전환 = INCLUDE_AS_PLAN」 서술 정정 (#150) |
 | 2026-08-07 | `#196` | 헤더 「상위 문서」 버전 참조 갱신 — `PRD` v3.2 · `TECH_SPEC` v1.2→v1.4(낡은 참조 정정) (#163) |
+<<<<<<< HEAD
 | 2026-08-10 | `#218` | §4.1 응답 예시의 `parameters_used.regulation_year.z_factor_percent` 표기를 `"11"` → `"11.0"`로 정정 — `calculation_basis` 블록과 통일 (#208) |
+=======
+| 2026-08-11 | `#222` | §1.3.2에 `message` 한국어 규정, §1.4에 405 `METHOD_NOT_ALLOWED`·경로 404·미등록 status 범용 `HTTP_ERROR` 행 및 프레임워크 발생 오류 정책(문구·status 보존) 신설 (#182) |
+>>>>>>> 94c0da0 (API_SPEC §1.4에 405 error_code와 미등록 HTTP status 정책 신설 (#182))
