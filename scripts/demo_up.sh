@@ -70,7 +70,10 @@ if [ "$CHECK_ONLY" != "--check" ]; then
   }
 fi
 HEAD_REV=$("$VENV/alembic" current 2>/dev/null | grep -oE '^[0-9]+' | head -1)
-[ "$HEAD_REV" = "018" ] && ok "리비전 018 (샘플 선박 seed 포함)" || bad "리비전이 018이 아닙니다: ${HEAD_REV:-없음}"
+EXPECTED_REV=$("$VENV/alembic" heads 2>/dev/null | grep -oE '^[0-9]+' | head -1)
+# 리비전을 고정 값(과거엔 018)과 비교하지 않고 head와 비교한다 (#241).
+# 마이그레이션이 추가되면 고정 비교가 항상 bad를 찍는다.
+[ "$HEAD_REV" = "$EXPECTED_REV" ] && ok "리비전 $HEAD_REV (head)" || bad "리비전이 head($EXPECTED_REV)가 아닙니다: ${HEAD_REV:-없음}"
 
 # --- 4. 규제 파라미터 seed -----------------------------------------------------------
 #
