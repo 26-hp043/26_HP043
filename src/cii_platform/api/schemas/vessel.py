@@ -37,3 +37,23 @@ class VesselCreateRequest(BaseModel):
     default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
     reference_speed_kn: Annotated[Decimal | None, Field(gt=0)] = None
     reference_daily_foc_ton: Annotated[Decimal | None, Field(gt=0)] = None
+
+
+class VesselUpdateRequest(BaseModel):
+    """``PATCH /api/v1/vessels/{vessel_id}`` 요청 본문 (API_SPEC §2.4, #52).
+
+    모든 필드는 optional이다 — None은 "이 필드는 안 바꾼다". **``imo_number``는
+    아예 받지 않는다** — "변경 불가" 규칙(§2.4)을 스키마 단에서 보장한다. 클라이언트가
+    ``imo_number``를 보내면 ``extra="forbid"``가 422로 거부한다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Annotated[str | None, Field(min_length=1, max_length=100)] = None
+    # VAL-004(파라미터 테이블 존재)는 서비스가 DB 조회로 검증.
+    ship_type: Annotated[str | None, Field(min_length=1, max_length=50)] = None
+    gross_tonnage: Annotated[Decimal | None, Field(gt=0)] = None
+    deadweight: Annotated[Decimal | None, Field(gt=0)] = None
+    default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
+    reference_speed_kn: Annotated[Decimal | None, Field(gt=0)] = None
+    reference_daily_foc_ton: Annotated[Decimal | None, Field(gt=0)] = None
