@@ -1,6 +1,13 @@
 # Dependabot — 정기 의존성 갱신 (#235).
 # pip · npm · github-actions 3종을 weekly로 본다. PR을 자동으로 만들고
 # 리뷰를 거쳐 머지한다. 보안 업데이트는 별도 긴급 PR로 바로 열린다.
+#
+# **ignore 정책**:
+# - numpy 2.1.0은 TECH_SPEC §2.5.2 + §5.4가 **정확히 그 버전**을 전제로 재현성 계약을
+#   건다 (#43 canonical vector가 2.1.0에서 측정됨). 업그레이드는 별도 이슈에서 정책
+#   결정 후 진행한다 (#106).
+# - major 버전(typescript, actions/setup-*)은 그룹화하지 않고 개별 PR로 — breaking
+#   change 리뷰를 한 PR에 몰아넣지 않기 위해.
 version: 2
 updates:
   # Python (pyproject.toml)
@@ -13,6 +20,11 @@ updates:
     labels: ["dependencies"]
     commit-message:
       prefix: "deps(python)"
+    ignore:
+      # numpy 2.1.0 핀 — TECH_SPEC §2.5.2 재현성 계약 (#43, #106).
+      # 업그레이드는 별도 이슈에서 정책 결정 후 진행.
+      - dependency-name: "numpy"
+        update-types: ["version-update:semver-major", "version-update:semver-minor", "version-update:semver-patch"]
 
   # Frontend (frontend/package.json)
   - package-ecosystem: "npm"
