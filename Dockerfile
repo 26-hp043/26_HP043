@@ -39,6 +39,12 @@ CMD ["uvicorn", "cii_platform.api.main:app", "--reload", "--host", "0.0.0.0", "-
 # ---------- prod stage ----------
 FROM python:3.12-slim AS prod
 
+# APP_ENV=production — config.py의 프로덕션 가드(#118)를 발동시킨다 (#231).
+# 미설정 시 development로 떨어져 DATABASE_URL 누락에도 개발용 기본값으로 폴백한다 —
+# #118이 막으려던 바로 그 상황. ENV는 이미지 빌드 시점에 굳으므로 compose 환경보다
+# 우선한다. compose 쪽 APP_ENV는 가시성용 중복 명시(아래 docker-compose.prod.yml).
+ENV APP_ENV=production
+
 # dev와 동일한 빌드 의존성을 유지한다.
 #  - asyncpg가 wheel 없이 소스 빌드되는 환경에서도 동일하게 빌드되도록 보장 (#85)
 #  - gcc · libpq-dev는 빌드 시점에만, 런타임 이미지 최적화는 검증 후 별도 이슈로 분리

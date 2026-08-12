@@ -26,6 +26,10 @@ services:
       target: prod
     ports: ["8000:8000"]
     environment:
+      # config.py 가드(#118) 발동용. Dockerfile prod stage의 ENV APP_ENV=production이
+      # 이미지에 굳어 있어 compose에서 빼도 동작은 같지만, 가시성을 위해 명시한다 (#231).
+      # APP_ENV 미설정 시 development로 떨어져 폴백이 일어날 수 있다는 경고 신호.
+      APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
     depends_on:
       db:
