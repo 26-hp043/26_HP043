@@ -69,24 +69,34 @@ def test_production_without_database_url_raises(reload_config):
         reload_config(APP_ENV="production")
 
 
-def test_development_without_database_url_warns_and_uses_default(reload_config):
-    """개발 환경에서 DATABASE_URL이 없으면 경고 후 개발용 기본값을 쓴다."""
-    with pytest.warns(UserWarning, match="개발용 기본값"):
+def test_development_without_database_url_warns_and_uses_default(reload_config, caplog):
+    """개발 환경에서 DATABASE_URL이 없으면 경고 후 개발용 기본값을 쓴다.
+
+    ``logging.warning``을 쓴다 (#231) — ``warnings.warn``은 기본 필터에서 모듈당
+    1회만 출력되고 uvicorn 로그로 잘 안 올라와 폴백이 눈에 띄지 않았다.
+    """
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="cii_platform.config"):
         reloaded = reload_config(APP_ENV="development")
 
+    assert "개발용 기본값" in caplog.text
     assert reloaded.DATABASE_URL == _DEV_DEFAULT_URL
 
 
-def test_unset_app_env_falls_back_to_development(reload_config):
+def test_unset_app_env_falls_back_to_development(reload_config, caplog):
     """APP_ENV 미설정은 development와 동일하게 동작한다.
 
     os.environ.get("APP_ENV", "development")의 기본 인자를 검증한다. 기본값이
     잘못된 문자열로 바뀌면 APP_ENV를 명시하는 위 테스트는 통과하고 이 테스트만
     실패한다.
     """
-    with pytest.warns(UserWarning, match="개발용 기본값"):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="cii_platform.config"):
         reloaded = reload_config()
 
+    assert "개발용 기본값" in caplog.text
     assert reloaded.DATABASE_URL == _DEV_DEFAULT_URL
 
 
