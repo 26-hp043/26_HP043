@@ -143,7 +143,7 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | canonical test vector 불일치, 재현 결과 hash 불일치 |
 | 미등록 status (403·415 등) | `HTTP_ERROR` | §1.4 표에 없는 status를 만났을 때의 범용 코드 — 모든 status에 걸쳐 쓰므로 단일 status를 붙이지 않는다 (`#183`에서 변환) |
 
-> **[#182] 프레임워크 발생 오류 정책** — 아래 3개 코드는 **우리가 `AppError`로 raise하지 않는 프레임워크(Starlette/FastAPI) 자동 발생 오류**다. `errors.py`의 `ERROR_HTTP_STATUS`(error_code → 단일 status 매핑)에는 **넣지 않는다** — `METHOD_NOT_ALLOWED`는 405 하나에 고정되지만 `AppError`가 아니고, `HTTP_ERROR`는 여러 status에 걸쳐 쓰여 단일 매핑이 불가능하다. 두 코드의 HTTP status는 **프레임워크 예외의 `status_code`를 그대로 보존**한다. 구현은 `#183`에서 담당한다.
+> **[#182] `HTTPException` 변환 정책** — 이 절에서 정의한 `NOT_FOUND`(경로 404)·`METHOD_NOT_ALLOWED`(405)·`HTTP_ERROR`(미등록 status) 3개 코드는 **우리가 `AppError`로 raise하지 않고, 프레임워크(Starlette/FastAPI) 자동 발생 오류와 라우트의 명시적 `HTTPException` 양쪽에 모두 적용**된다. `errors.py`의 `ERROR_HTTP_STATUS`(error_code → 단일 status 매핑)에는 **넣지 않는다** — `METHOD_NOT_ALLOWED`는 405 하나에 고정되지만 `AppError`가 아니고, `HTTP_ERROR`는 여러 status에 걸쳐 쓰여 단일 매핑이 불가능하다 (`NOT_FOUND`는 기존 리소스 ID 미존재 매핑이 그대로 쓰인다). `METHOD_NOT_ALLOWED`·`HTTP_ERROR`의 HTTP status는 **프레임워크 예외의 `status_code`를 그대로 보존**한다. 구현은 `#183`에서 담당한다.
 >
 > **프레임워크 발생 오류의 사용자 노출 문구 (한국어)**
 >
