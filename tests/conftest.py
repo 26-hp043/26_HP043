@@ -20,23 +20,13 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(_ROOT / "src"))
 from cii_platform.config import DATABASE_URL  # noqa: E402
-
-
-def _async_url(url: str) -> str:
-    """asyncpg 드라이버 URL로 정규화한다 (env.py와 동일 정책)."""
-    if url.startswith("postgresql+asyncpg://"):
-        return url
-    if url.startswith("postgresql://"):
-        return "postgresql+asyncpg://" + url.split("://", 1)[1]
-    if url.startswith("postgresql+"):
-        return "postgresql+asyncpg://" + url.split("://", 1)[1]
-    return url
-
+from cii_platform.db.url import normalize_to_asyncpg  # noqa: E402
 
 # config/환경변수의 원본 URL. run_alembic은 이 raw 값을 그대로 넘긴다(아래 참조).
 _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
 # async 엔진(conn fixture)용: asyncpg 드라이버로 정규화한 URL.
-TEST_DATABASE_URL = _async_url(_RAW_DATABASE_URL)
+# 4곳(alembic/seed/pytest/앱) 공유 정책 — db.url.normalize_to_asyncpg (#234).
+TEST_DATABASE_URL = normalize_to_asyncpg(_RAW_DATABASE_URL)
 
 
 def run_alembic(*alembic_args: str) -> subprocess.CompletedProcess:

@@ -23,23 +23,14 @@ if str(_SRC) not in sys.path:
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
 from cii_platform.db.seed import seed_all  # noqa: E402
-
-
-def _to_async_url(url: str) -> str:
-    """asyncpg 드라이버 URL로 정규화한다 (alembic/env.py의 ``_to_async_url``과 동일 정책)."""
-    prefix = "postgresql+asyncpg://"
-    if url.startswith(prefix):
-        return url
-    if url.startswith("postgresql://"):
-        return prefix + url.split("://", 1)[1]
-    if url.startswith("postgresql+"):
-        return prefix + url.split("://", 1)[1]
-    return url
+from cii_platform.db.url import normalize_to_asyncpg  # noqa: E402
 
 
 async def main() -> None:
     """엔진을 열고 단일 트랜잭션으로 seed를 적재한다."""
-    engine = create_async_engine(_to_async_url(DATABASE_URL), poolclass=pool.NullPool)
+    # URL 정규화는 alembic/env.py·tests/conftest.py·db/session.py와 같은 함수를
+    # 공유한다 (#234). 사본을 두면 앱만 분기가 빠지는 일이 다시 생긴다.
+    engine = create_async_engine(normalize_to_asyncpg(DATABASE_URL), poolclass=pool.NullPool)
     try:
         async with engine.begin() as conn:
             counts = await seed_all(conn)
