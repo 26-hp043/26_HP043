@@ -148,8 +148,17 @@ async def list_active(
         stmt = stmt.where(Vessel.ship_type == ship_type)
 
     if search:
-        pattern = f"%{search}%"
-        stmt = stmt.where(or_(Vessel.name.ilike(pattern), Vessel.imo_number.like(pattern)))
+        # % · _ · \ 를 패턴 메타문자가 아닌 리터럴로 이스케이프한다 (#237).
+        # 순서가 중요한데, backslash를 먼저 두 배로 만들어야 뒤의 %·_ 치환 시
+        # 새로 생긴 backslash가 다시 이스케이프 대상이 되지 않는다.
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pattern = f"%{escaped}%"
+        stmt = stmt.where(
+            or_(
+                Vessel.name.ilike(pattern, escape="\\"),
+                Vessel.imo_number.like(pattern, escape="\\"),
+            )
+        )
 
     if cursor is not None:
         # 행 값 비교. (name, id) > (:name, :id) 를 한 번에 표현한다 —
