@@ -383,3 +383,146 @@ class TestCreateVessel:
         client, _, _ = create_wired
         resp = client.post(LIST_URL, json={**self.PAYLOAD, "unexpected": "value"})
         assert resp.status_code == 422
+
+
+# --- PATCH / DELETE (#52) -----------------------------------------------------------
+
+
+class TestUpdateVessel:
+    """선박 수정 (#52, API_SPEC §2.4)."""
+
+    @pytest.fixture
+    def patch_wired(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple]:
+        """``update_vessel``이 쓰는 repo를 대역으로 교체한다."""
+        from cii_platform.services import vessel as svc
+
+        vessel_store: dict[UUID, FakeVessel] = {
+            DEMO_VESSEL_ID: FakeVessel(
+                id=DEMO_VESSEL_ID,
+                imo_number="0000001",
+                name="원래 이름",
+                ship_type="BULK_CARRIER",
+                gross_tonnage=Decimal("30000.00"),
+            )
+        }
+        known_ship_types = {"BULK_CARRIER", "TANKER"}
+        recorded: dict = {}
+
+        async def fake_get_by_id(_session, vessel_id):
+            return vessel_store.get(vessel_id)
+
+        async def fake_list_reference_lines(_session, ship_type):
+            recorded["ship_type_check"] = ship_type
+            return [FakeReferenceLine()] if ship_type in known_ship_types else []
+
+        monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
+        monkeypatch.setattr(svc.param_repo, "list_reference_lines", fake_list_reference_lines)
+
+        async def override_session():
+            yield FakeSession()
+
+        app.dependency_overrides[get_session] = override_session
+        with TestClient(app) as client:
+            yield client, vessel_store, recorded
+        app.dependency_overrides.clear()
+
+    def test_rename_returns_200(self, patch_wired):
+        """이름만 바꾸면 200 + 수정된 객체."""
+        client, store, _ = patch_wired
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"name": "새 이름"})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["name"] == "새 이름"
+        assert store[DEMO_VESSEL_ID].name == "새 이름"
+
+    def test_gt_change_recalculates_is_cii_applicable_hint(self, patch_wired):
+        """GT < 5,000 으로 바꾸면 ``is_cii_applicable_hint`` 가 false로 (API_SPEC §2.3)."""
+        client, store, _ = patch_wired
+        client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"gross_tonnage": 4000.0})
+        assert store[DEMO_VESSEL_ID].is_cii_applicable_hint is False
+
+    def test_gt_increase_keeps_hint_true(self, patch_wired):
+        client, store, _ = patch_wired
+        client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"gross_tonnage": 60000.0})
+        assert store[DEMO_VESSEL_ID].is_cii_applicable_hint is True
+
+    def test_unknown_ship_type_is_422(self, patch_wired):
+        """VAL-004 — PATCH에서 ship_type 변경도 같은 검증을 탄다."""
+        client, _, _ = patch_wired
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"ship_type": "UNKNOWN"})
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_imo_number_in_payload_is_422(self, patch_wired):
+        """§2.4 — imo_number는 스키마에 없다. 보내면 ``extra='forbid'``가 422."""
+        client, _, _ = patch_wired
+        resp = client.patch(
+            f"{LIST_URL}/{DEMO_VESSEL_ID}",
+            json={"imo_number": "9999999"},
+        )
+        assert resp.status_code == 422
+
+    def test_patch_not_found_is_404(self, patch_wired):
+        """존재하지 않는(또는 soft delete된) 선박 → 404."""
+        client, _, _ = patch_wired
+        missing = UUID("00000000-0000-4000-8000-00000000ffff")
+        resp = client.patch(f"{LIST_URL}/{missing}", json={"name": "x"})
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+
+class TestDeleteVessel:
+    """선박 soft delete (#52, API_SPEC §2.5)."""
+
+    @pytest.fixture
+    def delete_wired(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple]:
+        from cii_platform.services import vessel as svc
+
+        active_imos: set[str] = {"0000001"}
+
+        class DeletableVessel(FakeVessel):
+            """``is_deleted``를 토글할 수 있는 FakeVessel."""
+
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                self.is_deleted = False
+
+        store: dict[UUID, DeletableVessel] = {DEMO_VESSEL_ID: DeletableVessel()}
+
+        async def fake_get_by_id(_session, vessel_id):
+            v = store.get(vessel_id)
+            # soft delete된 선박은 get_by_id가 거른다 (DB 동작과 일치).
+            return v if v is not None and not v.is_deleted else None
+
+        monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
+
+        async def override_session():
+            yield FakeSession()
+
+        app.dependency_overrides[get_session] = override_session
+        with TestClient(app) as client:
+            yield client, store, active_imos
+        app.dependency_overrides.clear()
+
+    def test_delete_returns_200_with_deleted_true(self, delete_wired):
+        """§2.5 응답 형태 — ``data.deleted = true``."""
+        client, store, _ = delete_wired
+        resp = client.delete(f"{LIST_URL}/{DEMO_VESSEL_ID}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["data"] == {"id": str(DEMO_VESSEL_ID), "deleted": True}
+        assert store[DEMO_VESSEL_ID].is_deleted is True
+
+    def test_delete_not_found_is_404(self, delete_wired):
+        """soft delete된 선박을 다시 지우려 하면 404 (idempotent 아님)."""
+        client, _, _ = delete_wired
+        missing = UUID("00000000-0000-4000-8000-00000000ffff")
+        resp = client.delete(f"{LIST_URL}/{missing}")
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+    def test_double_delete_is_404(self, delete_wired):
+        """첫 DELETE 후 두 번째는 404 — 이미 지워진 건 ``get_by_id``가 못 찾는다."""
+        client, _, _ = delete_wired
+        client.delete(f"{LIST_URL}/{DEMO_VESSEL_ID}")
+        second = client.delete(f"{LIST_URL}/{DEMO_VESSEL_ID}")
+        assert second.status_code == 404

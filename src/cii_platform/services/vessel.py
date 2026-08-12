@@ -169,6 +169,91 @@ async def create_vessel(
     return to_dict(vessel)
 
 
+async def update_vessel(
+    session: AsyncSession,
+    vessel_id: UUID,
+    *,
+    name: str | None = None,
+    ship_type: str | None = None,
+    gross_tonnage: Decimal | None = None,
+    deadweight: Decimal | None = None,
+    default_fuel_type: str | None = None,
+    reference_speed_kn: Decimal | None = None,
+    reference_daily_foc_ton: Decimal | None = None,
+) -> dict[str, object]:
+    """선박을 수정한다 (API_SPEC §2.4, #52). 없으면 404.
+
+    ``None``은 "이 필드는 안 바꾼다"다 — PATCH 부분 갱신의 표준 규약. 두 가지 특이 동작:
+
+    - **``ship_type`` 변경 시 VAL-004 재검증**: 다른 선종으로 바꾸면 그 선종의
+      ``cii_reference_line`` 행이 있어야 한다.
+    - **``gross_tonnage`` 변경 시 ``is_cii_applicable_hint`` 재산정**: GT가 바뀌면
+      5,000 기준 판정도 바뀔 수 있다. ``None``이 와도(=GT 제거) hint는 ``false``로.
+
+    ``commit``을 여기서 한다 — 단일 리소스 갱신이 트랜잭션 경계다.
+    """
+    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    if vessel is None:
+        raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
+
+    if ship_type is not None and ship_type != vessel.ship_type:
+        ref_lines = await param_repo.list_reference_lines(session, ship_type)
+        if not ref_lines:
+            raise ValidationError(
+                f"알 수 없는 선종입니다: {ship_type}",
+                field="ship_type",
+                field_label="선종",
+            )
+        vessel.ship_type = ship_type
+
+    if name is not None:
+        vessel.name = name
+    if deadweight is not None:
+        vessel.deadweight = deadweight
+    if default_fuel_type is not None:
+        vessel.default_fuel_type = default_fuel_type
+    if reference_speed_kn is not None:
+        vessel.reference_speed_kn = reference_speed_kn
+    if reference_daily_foc_ton is not None:
+        vessel.reference_daily_foc_ton = reference_daily_foc_ton
+
+    # GT가 바뀌면(또는 None으로 해제되면) hint를 다시 산정한다.
+    if gross_tonnage is not None:
+        vessel.gross_tonnage = gross_tonnage
+        vessel.is_cii_applicable_hint = bool(
+            gross_tonnage is not None and gross_tonnage >= CII_APPLICABLE_GT_THRESHOLD
+        )
+
+    await session.commit()
+    return to_dict(vessel)
+
+
+async def delete_vessel(
+    session: AsyncSession,
+    vessel_id: UUID,
+) -> dict[str, object]:
+    """선박을 soft delete 한다 (API_SPEC §2.5, #52).
+
+    실제 DELETE가 아니라 ``is_deleted = true``로 표시만 한다 — 연관 ``voyage``·
+    ``calculation_run``이 감사 로그 등에서 선박을 참조할 수 있어야 하기 때문이다.
+
+    **soft delete된 선박은 ``get_by_id``가 거른다** (partial index). 따라서 다시
+    DELETE를 호출하면 404가 난다 — 이미 삭제된 것을 찾을 수 없기 때문. 이게
+    idempotent하지 않은 이유고, REST DELETE의 idempotent 속성보다 감사 로그
+    일관성이 우선한다.
+
+    완료 기준 (#52): soft delete 후 동일 IMO 재등록 가능 — ``idx_vessel_imo`` partial
+    unique index(WHERE ``is_deleted = false``)가 삭제된 IMO를 무시하므로 성립.
+    """
+    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    if vessel is None:
+        raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
+
+    vessel.is_deleted = True
+    await session.commit()
+    return {"id": str(vessel.id), "deleted": True}
+
+
 async def list_vessels(
     session: AsyncSession,
     *,
