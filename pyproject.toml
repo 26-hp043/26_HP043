@@ -26,7 +26,16 @@ packages = ["src/cii_platform"]
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "TID251"]
+
+[tool.ruff.lint.per-file-ignores]
+# UT-RNG-004 (TEST_PLAN §2.4 [ORACLE-M-1]) 가 default_rng()를 런타임 canary로 직접
+# 호출해야 한다. 정적 lint로 프로덕션 코드의 default_rng 사용을 차단하되, canary
+# 테스트만 이 규칙에서 제외한다.
+"tests/test_rng_reproducibility.py" = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"numpy.random.default_rng".msg = "Use np.random.Generator(np.random.PCG64DXSM(seed)) explicitly — 재현성 계약(TECH_SPEC §2.5.1, UT-RNG-004)."
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
