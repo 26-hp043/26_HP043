@@ -1,9 +1,9 @@
-"""선박 조회·등록 라우트 (API_SPEC §2.1 · §2.2 · §2.3).
+"""선박 조회·등록·수정·삭제 라우트 (API_SPEC §2.1~§2.5).
 
-**HTTP 요청/응답만 다룬다** (TECH_SPEC §16.1). 조회 규칙과 페이지네이션 판단은
-``services.vessel``이, 등록 검증·중복 체크도 ``services.vessel``이 맡는다.
+**HTTP 요청/응답만 다룬다** (TECH_SPEC §16.1). 비즈니스 규칙·검증·트랜잭션은
+``services.vessel``이 맡는다.
 
-범위: 조회(#51) 두 건 + 등록(#50). 수정·삭제(#52)는 별도 이슈다.
+범위: 조회(#51) + 등록(#50) + 수정·삭제(#52).
 """
 
 from __future__ import annotations
@@ -18,10 +18,16 @@ from fastapi import APIRouter, Depends, Query, Request
 # PydanticUserError(`is not fully defined`)로 앱 기동이 실패한다.
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cii_platform.api.schemas.vessel import VesselCreateRequest
+from cii_platform.api.schemas.vessel import VesselCreateRequest, VesselUpdateRequest
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.db.session import get_session
-from cii_platform.services.vessel import create_vessel, get_vessel, list_vessels
+from cii_platform.services.vessel import (
+    create_vessel,
+    delete_vessel,
+    get_vessel,
+    list_vessels,
+    update_vessel,
+)
 
 router = APIRouter(tags=["vessels"])
 
@@ -88,4 +94,41 @@ async def create_vessel_route(
         reference_speed_kn=payload.reference_speed_kn,
         reference_daily_foc_ton=payload.reference_daily_foc_ton,
     )
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.patch("/vessels/{vessel_id}")
+async def update_vessel_route(
+    request: Request,
+    vessel_id: UUID,
+    payload: VesselUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """선박을 수정한다 (API_SPEC §2.4, #52). 없으면 404."""
+    data = await update_vessel(
+        session,
+        vessel_id,
+        name=payload.name,
+        ship_type=payload.ship_type,
+        gross_tonnage=payload.gross_tonnage,
+        deadweight=payload.deadweight,
+        default_fuel_type=payload.default_fuel_type,
+        reference_speed_kn=payload.reference_speed_kn,
+        reference_daily_foc_ton=payload.reference_daily_foc_ton,
+    )
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.delete("/vessels/{vessel_id}")
+async def delete_vessel_route(
+    request: Request,
+    vessel_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """선박을 soft delete 한다 (API_SPEC §2.5, #52).
+
+    응답 형태가 ``data.deleted = true`` — 204가 아니다. §2.5가 200 OK + 본문을
+    규정하기 때문이고, 클라이언트가 삭제 결과를 JSON으로 받을 수 있어야 한다.
+    """
+    data = await delete_vessel(session, vessel_id)
     return {"data": data, "meta": _meta(request)}
