@@ -267,12 +267,17 @@ def _resolve_message(exc: StarletteHTTPException) -> str:
 
     - 프레임워크가 status phrase로 만든 기본 detail(예: ``'Not Found'``)이면
       #182가 정한 한국어 문구로 바꾼다. 미등록 status는 범용 문구를 쓴다.
-    - 라우트가 명시적으로 넣은 detail(예: ``HTTPException(422, "bad")``)은
+    - 라우트가 명시적으로 넣은 문자열 detail(예: ``HTTPException(422, "bad")``)은
       그대로 보존한다 — 개발자 작성 문구를 임의로 덮지 않는다.
+    - 비-문자열 detail(dict·list 등)은 ``str()`` 시 Python repr이 노출돼
+      API_SPEC §1.3.2의 "message는 문자열" 정책을 위반하므로 범용 문구로
+      내려보낸다 (PR #223 Copilot 리뷰).
     """
     if _is_framework_default(exc):
         return _FRAMEWORK_DEFAULT_MESSAGES.get(exc.status_code, _HTTP_ERROR_MESSAGE)
-    return str(exc.detail)
+    if isinstance(exc.detail, str):
+        return exc.detail
+    return _HTTP_ERROR_MESSAGE
 
 
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:

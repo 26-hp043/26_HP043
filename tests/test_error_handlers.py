@@ -82,6 +82,7 @@ def test_registered_handler_converts_app_error_end_to_end() -> None:
 
 # --- #183: HTTPException → §1.3.2 변환 -------------------------------------------------
 
+
 #: #183 테스트 전용 앱. main.py를 오염시키지 않고 프레임워크 404·405를 실제로
 #: 만들어내기 위해 라우트 1개(GET 전용)만 둔다 — 405가 나오려면 "경로는 존재하나
 #: 메서드가 다른" 요청이 필요하다(#183 이슈의 시뮬레이션 방식).
@@ -103,6 +104,20 @@ def _http_exception_app() -> FastAPI:
     @router.get("/boom-400")
     async def boom_400() -> dict[str, str]:
         raise HTTPException(status_code=400, detail="x")
+
+    # PR #223 Copilot 리뷰: 미등록(415)·비표준(499) status fallback 회귀 고정.
+    @router.get("/boom-415")
+    async def boom_415() -> dict[str, str]:
+        raise HTTPException(status_code=415, detail="unsupported")
+
+    @router.get("/boom-499")
+    async def boom_499() -> dict[str, str]:
+        raise HTTPException(status_code=499, detail="weird")
+
+    # 비-문자열 detail: str() 시 Python repr이 노출되는 것을 막는 계약 (#183).
+    @router.get("/boom-dict")
+    async def boom_dict() -> dict[str, str]:
+        raise HTTPException(status_code=400, detail={"field": "email"})
 
     app = FastAPI()
     app.add_middleware(RequestContextMiddleware)
@@ -171,3 +186,34 @@ def test_normal_response_unaffected_by_http_exception_handler() -> None:
     resp = client.get("/only-get")
     assert resp.status_code == 200
     assert resp.json() == {"ok": "1"}
+
+
+# PR #223 Copilot 리뷰 반영 — 미등록(415)·비표준(499) status fallback 회귀 (#183).
+
+
+def test_unmapped_415_status_falls_back_to_http_error_and_preserves_status() -> None:
+    """⑺ 미등록 status 415 → HTTP_ERROR + status 보존 + 범용 문구 (#183)."""
+    resp = TestClient(_http_exception_app()).get("/boom-415")
+    assert resp.status_code == 415
+    payload = resp.json()
+    assert payload["error"]["code"] == "HTTP_ERROR"
+    assert payload["error"]["message"] == "unsupported"
+
+
+def test_nonstandard_499_status_falls_back_to_http_error_and_preserves_status() -> None:
+    """⑻ 비표준 status 499 → HTTP_ERROR + status 보존 (#183, _status_phrase 빈문자열 경로)."""
+    resp = TestClient(_http_exception_app()).get("/boom-499")
+    assert resp.status_code == 499
+    payload = resp.json()
+    assert payload["error"]["code"] == "HTTP_ERROR"
+    assert payload["error"]["message"] == "weird"
+
+
+def test_non_string_detail_falls_back_to_generic_message() -> None:
+    """⑼ dict detail → 범용 문구로 fallback, Python repr이 message에 노출되지 않는다 (#183)."""
+    resp = TestClient(_http_exception_app()).get("/boom-dict")
+    assert resp.status_code == 400
+    payload = resp.json()
+    assert payload["error"]["code"] == "BAD_REQUEST"
+    assert payload["error"]["message"] == "요청을 처리할 수 없습니다."
+    assert "email" not in payload["error"]["message"]
