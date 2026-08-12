@@ -60,7 +60,7 @@ jobs:
       # react-router 8.3.0이 ">=22.22.0"을 요구하며, 이 저장소에는 .npmrc가 없어
       # engine-strict가 꺼져 있다 — npm이 engines를 강제하지 않으므로 낮은 Node에서
       # 설치는 통과하고 런타임·빌드에서 늦게 깨진다. CI에서 버전을 고정해 그 경로를 막는다.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # frontend/package.json의 engines와 같은 값을 쓴다.
           # ⚠️ engines를 올릴 때 세 곳(package.json · 이 파일 · audit.yml)을 함께
