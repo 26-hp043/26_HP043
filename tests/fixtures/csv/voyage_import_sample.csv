@@ -1,0 +1,10 @@
+voyage_no,departure_port_name,arrival_port_name,planned_distance_nm,planned_speed_kn,fuel_type,planned_fuel_ton
+V-2026-001,Busan,Rotterdam,11200,13.5,HFO,850
+V-2026-002,Rotterdam,Busan,11200,14.0,HFO,870
+V-2026-003,Singapore,Tokyo,5100,14.5,LNG,320
+V-2026-004,Houston,Antwerp,9200,12.8,HFO,720
+V-2026-005,Shanghai,Singapore,4500,15.0,LNG,280
+=CMD("calc"),attack-vector,destination,1000,10.0,HFO,100
+@evil.com,attack-vector,destination,1000,10.0,HFO,100
++1-1=2,attack-vector,destination,1000,10.0,HFO,100
+-1+1,attack-vector,destination,1000,10.0,HFO,100
