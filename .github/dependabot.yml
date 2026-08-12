@@ -1,0 +1,37 @@
+# Dependabot — 정기 의존성 갱신 (#235).
+# pip · npm · github-actions 3종을 weekly로 본다. PR을 자동으로 만들고
+# 리뷰를 거쳐 머지한다. 보안 업데이트는 별도 긴급 PR로 바로 열린다.
+version: 2
+updates:
+  # Python (pyproject.toml)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "deps(python)"
+
+  # Frontend (frontend/package.json)
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "frontend"]
+    commit-message:
+      prefix: "deps(npm)"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "infra"]
+    commit-message:
+      prefix: "deps(actions)"
