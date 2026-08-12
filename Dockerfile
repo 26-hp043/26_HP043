@@ -1,9 +1,10 @@
 # CII 플랫폼 Python 앱 이미지
 # TECH_SPEC §2.5.2 (환경 핀닝): Python 3.12 고정으로 재현성 확보
 #
-# 멀티스테이지 구성 (#85):
-#   - dev  : 개발용 — --reload + editable install + 볼륨 마운트(호스트 소스)
-#   - prod : 프로덕션용 — non-editable install, --reload 없음, 코드 이미지 고정
+# 멀티스테이지 구성 (#85, #232):
+#   - dev     : 개발용 — --reload + editable install + 볼륨 마운트(호스트 소스)
+#   - builder : wheel만 만드는 중간 단계 — gcc·libpq-dev는 여기서만 (#232)
+#   - prod    : 런타임 전용 — slim + libpq5 + 비루트 + HEALTHCHECK (#232)
 #
 # docker-compose.yml(dev)은 build.target: dev, docker-compose.prod.yml은 build.target: prod를 지정한다.
 
@@ -20,7 +21,7 @@ RUN apt-get update \
 WORKDIR /app
 
 # build backend가 hatchling이고 pyproject의 packages=["src/cii_platform"]이므로
-# editable install(pip install -e .)은 소스 디렉토리가 존재해야 성공한다.
+# editable 설치(pip install -e .)은 소스 디렉토리가 존재해야 성공한다.
 # 따라서 pyproject.toml과 src를 install 이전에 함께 복사한다.
 # (src 없이 pip install -e . 를 실행하면 빌드가 실패한다.)
 COPY pyproject.toml ./
@@ -36,33 +37,65 @@ EXPOSE 8000
 #  - 패키지 설치 후 모듈 경로는 cii_platform.api.main:app (src. 접두 불필요, #85)
 CMD ["uvicorn", "cii_platform.api.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
 
-# ---------- prod stage ----------
-FROM python:3.12-slim AS prod
+# ---------- builder stage ----------
+# wheel만 만들고 runtime으로 복사한다 — gcc·libpq-dev가 최종 이미지에 남지 않게 (#232).
+FROM python:3.12-slim AS builder
 
-# APP_ENV=production — config.py의 프로덕션 가드(#118)를 발동시킨다 (#231).
-# 미설정 시 development로 떨어져 DATABASE_URL 누락에도 개발용 기본값으로 폴백한다 —
-# #118이 막으려던 바로 그 상황. ENV는 이미지 빌드 시점에 굳으므로 compose 환경보다
-# 우선한다. compose 쪽 APP_ENV는 가시성용 중복 명시(아래 docker-compose.prod.yml).
-ENV APP_ENV=production
-
-# dev와 동일한 빌드 의존성을 유지한다.
-#  - asyncpg가 wheel 없이 소스 빌드되는 환경에서도 동일하게 빌드되도록 보장 (#85)
-#  - gcc · libpq-dev는 빌드 시점에만, 런타임 이미지 최적화는 검증 후 별도 이슈로 분리
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq-dev gcc \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
+WORKDIR /build
 COPY pyproject.toml ./
 COPY src ./src
 
-# 프로덕션은 non-editable install — 빌드 시점의 코드를 이미지에 고정한다 (#85)
-RUN pip install --no-cache-dir .
+# 프로젝트 wheel + 의존성 wheel을 /wheels에 만든다.
+# runtime stage에서 pip install /wheels/*.whl 한 번에 프로젝트와 의존성이 같이 깔린다.
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip wheel --no-cache-dir --wheel-dir=/wheels .
+
+# ---------- prod stage ----------
+# 런타임 전용 — gcc · libpq-dev · 헤더가 없다 (#232).
+FROM python:3.12-slim AS prod
+
+# APP_ENV=production — config.py 프로덕션 가드(#118) 발동 (#231).
+# 미설정 시 development로 떨어져 DATABASE_URL 누락에도 개발용 기본값으로 폴백한다.
+# ENV는 빌드 시점에 굳어 compose 환경보다 우선한다.
+ENV APP_ENV=production
+
+# 런타임에 필요한 최소 패키지 — asyncpg가 libpq를 동적으로 링크한다.
+# libpq-dev(헤더)가 아니라 libpq5(공유 라이브러리)만 — 빌드가 끝났으므로.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 비루트 사용자 — uvicorn이 root로 돌지 않게 (#232).
+# 애플리케이션 취약점 하나가 이미지 전체 쓰기 권한을 갖는 것을 막는다.
+RUN useradd --create-home --uid 1000 cii
+WORKDIR /app
+RUN chown cii:cii /app
+
+# builder에서 만든 wheel을 설치한다. --no-index --find-links로 PyPI 접근 없이
+# /wheels에서만 해결한다 — runtime 이미지가 빌드 시점 이후 PyPI 상태에 영향받지 않게.
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links=/wheels cii_platform \
+    && rm -rf /wheels
+
+USER cii
 
 EXPOSE 8000
 
+# HEALTHCHECK — /api/v1/health (API_SPEC §10).
+# 컨테이너가 살아 있지만 응답하지 않는 상태를 오케스트레이터가 감지하게 한다 (#232).
+# curl이 런타임 이미지에 없으므로 python urllib로 검사한다.
+# interval·retries는 docker-compose.yml의 db healthcheck와 톤을 맞춘다.
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=2).status==200 else 1)"
+
 # 프로덕션 서버 실행
+#  - --workers를 붙이지 않는다(기본 1). Layer 1 Decimal 컨텍스트가 스레드 로컬이라
+#    워커마다 독립적으로 초기화돼야 한다 (TECH_SPEC §5.4 7항 · precision.py 모듈
+#    docstring). --workers > 1로 확장 시 각 워커의 import 시점에 calc 패키지가
+#    apply_default_rounding()을 호출하는지 확인해야 한다.
 #  - --reload 없음: 파일 폴링 오버헤드와 볼륨 마운트 결합 시 코드 주입 공격 표면 제거 (#85)
-#  - 코드는 이미지 내부에 고정되어 있으므로 호스트 볼륨 마운트가 필요 없다.
 CMD ["uvicorn", "cii_platform.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

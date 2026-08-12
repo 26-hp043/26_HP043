@@ -24,6 +24,9 @@ services:
     build:
       context: .
       target: prod
+    # crash 시 자동 재기동 — 단 명시적 stop에는 재기동 안 함 (#232).
+    # `always`가 아닌 이유: deploy가 의도한 중지(by `docker compose down`)에도 뜨면 안 된다.
+    restart: unless-stopped
     ports: ["8000:8000"]
     environment:
       # config.py 가드(#118) 발동용. Dockerfile prod stage의 ENV APP_ENV=production이
