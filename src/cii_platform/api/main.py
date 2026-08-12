@@ -11,6 +11,7 @@ from fastapi import FastAPI
 
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.middleware import RequestContextMiddleware
+from cii_platform.api.rate_limit import DEFAULT_RATE_LIMIT, RateLimiter, rate_limit_middleware
 from cii_platform.api.routes.calculations import router as calculations_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.vessels import router as vessels_router
@@ -22,6 +23,12 @@ app = FastAPI(title="CII Platform API")
 
 # 요청마다 request_id/timestamp를 state에 주입(미들웨어) → 오류 응답 meta에서 사용.
 app.add_middleware(RequestContextMiddleware)
+
+# #238 — IP별 분당 요청 한도. API_SPEC §13.2 (300/min). 환경변수 RATE_LIMIT_PER_MINUTE=0이면 비활성.
+# 미들웨어는 add_middleware()로 등록하지 않고 http middleware로 직접 연결한다 — state를
+# 명시적으로 초기화하고 한도 0일 때 호출 비용을 0으로 두기 위해.
+app.state.rate_limiter = RateLimiter(DEFAULT_RATE_LIMIT)
+app.middleware("http")(rate_limit_middleware)
 
 # AppError(및 하위 클래스) → API_SPEC §1.3.2 표준 오류 응답.
 # #116이 RequestValidationError(Pydantic 검증 실패)와 catch-all을 함께 등록한다.

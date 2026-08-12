@@ -130,3 +130,14 @@ class NotFoundError(AppError):
 
     def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
         super().__init__("NOT_FOUND", message, details=details)
+
+
+class RateLimitError(AppError):
+    """분당 요청 한도 초과 (API_SPEC §1.4 · §13.2). HTTP 429.
+
+    MVP는 인증이 없어 IP 기반으로 적용한다(#238). 인증(#104) 도입 시 user_id 기반으로
+    확장한다 — 그때 이 예외의 메시지에 user_id를 포함한다.
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("RATE_LIMIT_EXCEEDED", message, details=details)
