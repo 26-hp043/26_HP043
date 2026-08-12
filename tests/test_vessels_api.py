@@ -1,7 +1,7 @@
-"""선박 조회 API 계약 테스트 (#51) — **DB 없이 돈다.**
+"""선박 조회·등록 API 계약 테스트 (#51, #50) — **DB 없이 돈다.**
 
-커서 인코딩·페이지네이션 판단·응답 형태는 DB 없이 검증할 수 있고, 실제 쿼리의
-정합성은 DB가 있는 CI가 확인한다.
+커서 인코딩·페이지네이션 판단·응답 형태·검증 규칙·중복 체크는 DB 없이 검증할 수 있고,
+실제 쿼리의 정합성은 DB가 있는 CI가 확인한다.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from fakes import DEMO_VESSEL_ID, FakeSession, FakeVessel
+from fakes import DEMO_VESSEL_ID, FakeReferenceLine, FakeSession, FakeVessel
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import app
@@ -267,3 +267,123 @@ class TestDecimalToNumber:
         from cii_platform.services.vessel import _number
 
         assert _number(value) == expected
+
+
+# --- POST /vessels (#50) ------------------------------------------------------------
+
+
+class TestCreateVessel:
+    """선박 등록 (#50, API_SPEC §2.3). DB 없이 — 서비스 로직·검증 규칙·응답 형태만."""
+
+    PAYLOAD: dict = {
+        "imo_number": "1234567",
+        "name": "Pacific Star",
+        "ship_type": "BULK_CARRIER",
+        "gross_tonnage": 25000.0,
+        "deadweight": 50000.0,
+    }
+
+    @pytest.fixture
+    def create_wired(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple]:
+        """``create_vessel``이 쓰는 repo 3종을 대역으로 교체한다."""
+        from cii_platform.services import vessel as svc
+
+        recorded: dict = {}
+        known_ship_types = {"BULK_CARRIER", "TANKER"}
+        existing_imos: set[str] = set()
+
+        async def fake_list_reference_lines(_session, ship_type):
+            recorded["ship_type"] = ship_type
+            return [FakeReferenceLine()] if ship_type in known_ship_types else []
+
+        async def fake_find_active_by_imo(_session, imo_number):
+            recorded["imo_check"] = imo_number
+            return (
+                FakeVessel(imo_number=imo_number)
+                if imo_number in existing_imos
+                else None
+            )
+
+        async def fake_insert(_session, **fields):
+            recorded["insert_kwargs"] = fields
+            # FakeVessel이 모든 insert 필드를 dataclass field로 갖는다.
+            return FakeVessel(**fields)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(svc.param_repo, "list_reference_lines", fake_list_reference_lines)
+        monkeypatch.setattr(svc.vessel_repo, "find_active_by_imo", fake_find_active_by_imo)
+        monkeypatch.setattr(svc.vessel_repo, "insert", fake_insert)
+
+        async def override_session():
+            yield FakeSession()
+
+        app.dependency_overrides[get_session] = override_session
+        with TestClient(app) as client:
+            yield client, recorded, existing_imos
+        app.dependency_overrides.clear()
+
+    def test_creates_vessel_with_201(self, create_wired):
+        """정상 등록 → 201 + §2.2 형태의 vessel 객체 (#50 완료 기준)."""
+        client, _, _ = create_wired
+        resp = client.post(LIST_URL, json=self.PAYLOAD)
+        assert resp.status_code == 201
+        body = resp.json()
+        assert set(body) == {"data", "meta"}
+        assert body["data"]["imo_number"] == "1234567"
+        assert body["data"]["name"] == "Pacific Star"
+        assert body["data"]["ship_type"] == "BULK_CARRIER"
+
+    def test_is_cii_applicable_hint_true_when_gt_ge_5000(self, create_wired):
+        """API_SPEC §2.3 — ``gross_tonnage >= 5,000`` → ``is_cii_applicable_hint = true``."""
+        client, recorded, _ = create_wired
+        client.post(LIST_URL, json={**self.PAYLOAD, "gross_tonnage": 5000.0})
+        assert recorded["insert_kwargs"]["is_cii_applicable_hint"] is True
+
+    def test_is_cii_applicable_hint_false_when_gt_below_5000(self, create_wired):
+        client, recorded, _ = create_wired
+        client.post(LIST_URL, json={**self.PAYLOAD, "gross_tonnage": 4999.99})
+        assert recorded["insert_kwargs"]["is_cii_applicable_hint"] is False
+
+    def test_is_cii_applicable_hint_false_when_gt_none(self, create_wired):
+        """GT 미상 → false. 0으로 채우면 「GT가 0」이 된다."""
+        client, recorded, _ = create_wired
+        payload = {**self.PAYLOAD}
+        payload.pop("gross_tonnage")
+        client.post(LIST_URL, json=payload)
+        assert recorded["insert_kwargs"]["is_cii_applicable_hint"] is False
+
+    def test_duplicate_imo_is_409(self, create_wired):
+        """#50 완료 기준 — 중복 IMO → PARAMETER_ERROR(409)."""
+        client, _, existing_imos = create_wired
+        existing_imos.add("1234567")  # 이미 존재하는 IMO로 세팅
+        resp = client.post(LIST_URL, json=self.PAYLOAD)
+        assert resp.status_code == 409
+        body = resp.json()
+        assert body["error"]["code"] == "PARAMETER_ERROR"
+        assert "1234567" in body["error"]["message"]
+
+    def test_unknown_ship_type_is_422(self, create_wired):
+        """VAL-004 — ``cii_reference_line``에 없는 선종 → ValidationError(422)."""
+        client, _, _ = create_wired
+        resp = client.post(LIST_URL, json={**self.PAYLOAD, "ship_type": "UNKNOWN_SHIP"})
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["error"]["details"][0]["field"] == "ship_type"
+
+    def test_malformed_imo_is_422(self, create_wired):
+        """VAL-003 — 7자리 숫자가 아니면 Pydantic 422."""
+        client, _, _ = create_wired
+        resp = client.post(LIST_URL, json={**self.PAYLOAD, "imo_number": "12345"})
+        assert resp.status_code == 422
+
+    def test_zero_gross_tonnage_is_422(self, create_wired):
+        """VAL-002 — gross_tonnage <= 0 → Pydantic 422."""
+        client, _, _ = create_wired
+        resp = client.post(LIST_URL, json={**self.PAYLOAD, "gross_tonnage": 0})
+        assert resp.status_code == 422
+
+    def test_extra_field_forbidden(self, create_wired):
+        """``extra='forbid'`` — 모르는 필드는 422 (오타 필드 조용히 무시 방지)."""
+        client, _, _ = create_wired
+        resp = client.post(LIST_URL, json={**self.PAYLOAD, "unexpected": "value"})
+        assert resp.status_code == 422

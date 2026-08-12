@@ -1,4 +1,4 @@
-"""선박 조회 서비스 (#51).
+"""선박 조회·등록 서비스 (#51, #50).
 
 ``api/routes``와 ``db/repositories`` 사이에서 **표현 규칙과 페이지네이션 판단**을 맡는다
 (TECH_SPEC §16).
@@ -13,6 +13,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories.vessel import (
     DEFAULT_LIMIT,
@@ -21,12 +22,16 @@ from cii_platform.db.repositories.vessel import (
     decode_cursor,
     encode_cursor,
 )
-from cii_platform.errors import NotFoundError, ValidationError
+from cii_platform.errors import NotFoundError, ParameterError, ValidationError
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+#: API_SPEC §2.3 — ``is_cii_applicable_hint`` 자동 산정 기준 (DB_SCHEMA §2.1).
+#: ``gross_tonnage >= 5,000``이면 공식 CII 적용 대상 힌트를 true로 둔다.
+CII_APPLICABLE_GT_THRESHOLD = Decimal("5000")
 
 
 def _number(value: Decimal | None) -> float | None:
@@ -103,6 +108,64 @@ async def get_vessel(session: AsyncSession, vessel_id: UUID) -> dict[str, object
     vessel = await vessel_repo.get_by_id(session, vessel_id)
     if vessel is None:
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
+    return to_dict(vessel)
+
+
+async def create_vessel(
+    session: AsyncSession,
+    *,
+    imo_number: str,
+    name: str,
+    ship_type: str,
+    gross_tonnage: Decimal | None = None,
+    deadweight: Decimal | None = None,
+    default_fuel_type: str | None = None,
+    reference_speed_kn: Decimal | None = None,
+    reference_daily_foc_ton: Decimal | None = None,
+) -> dict[str, object]:
+    """선박을 등록한다 (API_SPEC §2.3, #50). 성공 시 201.
+
+    서비스가 담당하는 3가지 (형식·범위는 Pydantic이 잡음):
+
+    - **VAL-004 (``ship_type`` 존재)**: ``cii_reference_line`` 테이블에 해당 선종의
+      행이 있어야 한다. 없으면 ``ValidationError``(422).
+    - **중복 IMO**: 활성 선박(soft delete 제외) 중 같은 IMO가 있으면
+      ``ParameterError``(409). **409 → PARAMETER_ERROR 매핑이 API_SPEC §1.4에서
+      유일한 409 코드**라 이를 재사용한다. 전용 CONFLICT 코드 신설은 별도 정본
+      변경 이슈로 둔다.
+    - **``is_cii_applicable_hint`` 자동 산정**: ``gross_tonnage >= 5,000``(§2.3).
+
+    ``commit``을 여기서 한다 — 단일 리소스 생성이 트랜잭션 경계다.
+    """
+    ref_lines = await param_repo.list_reference_lines(session, ship_type)
+    if not ref_lines:
+        raise ValidationError(
+            f"알 수 없는 선종입니다: {ship_type}",
+            field="ship_type",
+            field_label="선종",
+        )
+
+    existing = await vessel_repo.find_active_by_imo(session, imo_number)
+    if existing is not None:
+        raise ParameterError(f"이미 등록된 IMO 번호입니다: {imo_number}")
+
+    is_cii_applicable_hint = bool(
+        gross_tonnage is not None and gross_tonnage >= CII_APPLICABLE_GT_THRESHOLD
+    )
+
+    vessel = await vessel_repo.insert(
+        session,
+        imo_number=imo_number,
+        name=name,
+        ship_type=ship_type,
+        gross_tonnage=gross_tonnage,
+        deadweight=deadweight,
+        default_fuel_type=default_fuel_type,
+        reference_speed_kn=reference_speed_kn,
+        reference_daily_foc_ton=reference_daily_foc_ton,
+        is_cii_applicable_hint=is_cii_applicable_hint,
+    )
+    await session.commit()
     return to_dict(vessel)
 
 

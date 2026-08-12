@@ -76,6 +76,34 @@ async def get_by_id(session: AsyncSession, vessel_id: UUID) -> Vessel | None:
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def find_active_by_imo(session: AsyncSession, imo_number: str) -> Vessel | None:
+    """활성 선박을 IMO 번호로 조회한다 (#50, soft delete 제외).
+
+    ``idx_vessel_imo`` partial unique 인덱스(WHERE ``is_deleted = false``)를 탄다
+    (DB_SCHEMA §2.1). 중복 체크의 기준이 "soft delete 제외"인 이유 — 삭제된 IMO는
+    재등록 가능(이슈 #50 완료 기준).
+    """
+    stmt = select(Vessel).where(
+        Vessel.imo_number == imo_number,
+        Vessel.is_deleted.is_(False),
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def insert(session: AsyncSession, **fields: object) -> Vessel:
+    """새 선박을 INSERT 한다 (#50).
+
+    **``commit``은 호출부가 담당한다.** 트랜잭션 경계를 서비스가 잡도록 두기
+    위해서다 — 여러 변경이 한 트랜잭션에 묶여야 할 때 repo가 직접 ``commit``하면
+    부분 커밋이 된다. ``flush``만 해서 ``server_default``(``id`` · ``created_at``)
+    값을 채운 뒤 ORM 객체를 돌려준다.
+    """
+    vessel = Vessel(**fields)
+    session.add(vessel)
+    await session.flush()
+    return vessel
+
+
 async def list_active(
     session: AsyncSession,
     *,
