@@ -11,7 +11,7 @@ requires-python = ">=3.12"
 # 결과가 달라질 수 있었다. 버전은 2026-08-12 현재 설치된 값을 기준으로 — 상한은
 # 다음 major가 깨지기 쉬운 패키지(fastapi · pydantic · starlette)에 맞춰 여유를 둔다.
 dependencies = [
-    "numpy==2.1.0",
+    "numpy==2.5.2",
     "sqlalchemy[asyncio]>=2.0,<2.1",
     "asyncpg>=0.30,<0.32",
     "alembic>=1.13,<2.0",
