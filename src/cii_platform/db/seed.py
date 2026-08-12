@@ -207,8 +207,9 @@ SEED_REFERENCE_LINES: tuple[ReferenceLineRow, ...] = (
 
 # --- d-vector (G4) — PRD §3.4.4 -------------------------------------------------
 # ⚠️ reference line에는 있는 RO_RO_PASSENGER_HSC가 이 표에는 없다. G2(MEPC.353(78))와
-#    G4(MEPC.354(78))는 별개 결의안이라 원문상 의도된 부재일 수 있으므로, 정본에 없는
-#    행을 임의로 만들지 않는다 (AGENTS.md §2.1·§3). 후속 이슈에서 원문 확인 대상.
+#    G4(MEPC.354(78))는 별개 결의안이라 **원문상 의도된 부재**다 (#126 원문 대조로 확인).
+#    정본에 없는 행을 임의로 만들지 않는다 (AGENTS.md §2.1·§3). 등급 경계가 필요하면
+#    rating_engine.RATING_BOUNDARY_FALLBACK이 RO_RO_PASSENGER로 폴백한다.
 SEED_RATING_BOUNDARIES: tuple[RatingBoundaryRow, ...] = (
     RatingBoundaryRow(
         "BULK_CARRIER",
