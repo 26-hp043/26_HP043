@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import binascii
 from typing import TYPE_CHECKING, NamedTuple
+from uuid import UUID
 
 from sqlalchemy import or_, select, tuple_
 
@@ -54,6 +55,17 @@ def decode_cursor(token: str) -> Cursor | None:
 
     **예외를 던지지 않는다.** 잘못된 커서는 사용자가 URL을 손댄 경우가 대부분이고,
     그때 500이 나가면 안 된다. 오류로 볼지 첫 페이지로 볼지는 서비스가 정한다.
+
+    **``vessel_id``가 UUID 형식인지 검증한다 (#233).** base64는 정상이더라도
+    안에 든 값이 UUID가 아니면 asyncpg가 쿼리 바인딩 단계에서 거절해 500이 나간다.
+    ``Vessel.id``가 ``postgresql.UUID(as_uuid=True)``인데, asyncpg 방언의 bind
+    processor가 ``None``이라 문자열이 그대로 드라이버로 내려가기 때문이다. 그 경로를
+    여기서 막아 서비스의 422 변환(``_parse_cursor``)이 동작하게 한다.
+
+    ``Cursor.vessel_id``를 ``UUID``로 바꾸지 않고 ``str``으로 유지한다 —
+    ``encode_cursor``가 ``str(page[-1].id)``로 인코딩하므로 왕복 계약이 str에 맞춰져
+    있고, ``list_active``의 ``tuple_`` 비교도 str 그대로 바인딩한다(UUID 객체로
+    바꾸면 타입이 달라져 정렬 비교가 깨진다).
     """
     try:
         raw = base64.urlsafe_b64decode(token.encode("ascii")).decode()
@@ -61,6 +73,11 @@ def decode_cursor(token: str) -> Cursor | None:
         return None
     name, sep, vessel_id = raw.partition(_CURSOR_SEP)
     if not sep or not vessel_id:
+        return None
+    # UUID 형식 검증 — 잘못된 값이 DB까지 내려가 500이 나는 것을 막는다 (#233).
+    try:
+        UUID(vessel_id)
+    except ValueError:
         return None
     return Cursor(name=name, vessel_id=vessel_id)
 

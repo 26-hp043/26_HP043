@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Iterator
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -54,6 +55,22 @@ class TestCursor:
     @pytest.mark.parametrize("token", ["", "!!!not-base64!!!", "YWJj", "///"])
     def test_broken_cursor_returns_none_not_exception(self, token):
         """**예외를 던지지 않는다.** 잘못된 커서로 500이 나가면 안 된다."""
+        assert decode_cursor(token) is None
+
+    @pytest.mark.parametrize(
+        "token",
+        # base64는 정상이지만 vessel_id가 UUID가 아닌 값들.
+        [
+            base64.urlsafe_b64encode(b"A\x00not-a-uuid").decode(),
+            base64.urlsafe_b64encode(b"A\x00" + b"x" * 36).decode(),
+            base64.urlsafe_b64encode(b"A\x00123").decode(),
+        ],
+    )
+    def test_non_uuid_vessel_id_returns_none(self, token):
+        """#233 — base64는 정상이더라도 vessel_id가 UUID가 아니면 None.
+
+        잘못된 값이 DB까지 내려가 asyncpg가 거절 → 500이 되는 경로를 막는다.
+        """
         assert decode_cursor(token) is None
 
 
@@ -226,6 +243,14 @@ class TestListVessels:
         """깨진 커서를 첫 페이지로 폴백하지 않는다 — 무한 루프가 된다."""
         client, _ = wired
         resp = client.get(LIST_URL, params={"cursor": "!!!"})
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+    def test_non_uuid_cursor_is_422(self, wired):
+        """#233 — base64는 정상이지만 vessel_id가 UUID가 아닌 커서 → 422."""
+        client, _ = wired
+        token = base64.urlsafe_b64encode(b"A\x00not-a-uuid").decode()
+        resp = client.get(LIST_URL, params={"cursor": token})
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
