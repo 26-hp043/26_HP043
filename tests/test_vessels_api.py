@@ -298,11 +298,7 @@ class TestCreateVessel:
 
         async def fake_find_active_by_imo(_session, imo_number):
             recorded["imo_check"] = imo_number
-            return (
-                FakeVessel(imo_number=imo_number)
-                if imo_number in existing_imos
-                else None
-            )
+            return FakeVessel(imo_number=imo_number) if imo_number in existing_imos else None
 
         async def fake_insert(_session, **fields):
             recorded["insert_kwargs"] = fields
