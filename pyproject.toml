@@ -24,7 +24,7 @@ dependencies = [
 # ruff를 CI(ci.yml ==0.15.20)와 같은 버전으로 핀 — 로컬/CI lint 결과가 갈라지는 것을 막는다 (#235).
 # pytest 계열은 마이너 버전 사이에서 큰 변화가 없어 상한만 둔다.
 dev = [
-    "ruff==0.15.20",
+    "ruff==0.16.2",
     "pytest>=8.0,<9.0",
     "pytest-asyncio>=0.23,<1.0",
     "pytest-cov>=5.0,<7.0",
