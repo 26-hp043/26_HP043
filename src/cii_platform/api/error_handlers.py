@@ -24,10 +24,12 @@ TECH_SPEC §16).
 from __future__ import annotations
 
 import logging
+from http import HTTPStatus
 from typing import TYPE_CHECKING
 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from cii_platform.api.field_labels import field_label
 from cii_platform.api.timefmt import iso_utc_now
@@ -204,6 +206,98 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
     return JSONResponse(status_code=ERROR_HTTP_STATUS["INTERNAL_ERROR"], content=body)
 
 
+# --- #183: HTTPException -----------------------------------------------------------
+
+#: HTTPException의 status → error_code 매핑. API_SPEC §1.4에서 HTTP status ↔ 코드가
+#: 1:1인 행만 발췌한다. 422(5개)·500(2개)는 1:1이 아니므로 status만으로 결정할 수
+#: 없어 표에 넣지 않는다 — 코드는 status가 아닌 원인에서 유래한다.
+#: 405는 #182에서 ``METHOD_NOT_ALLOWED``로 확정됐다 (#183 착수 시점엔 미확정).
+_HTTP_EXCEPTION_CODES: dict[int, str] = {
+    400: "BAD_REQUEST",
+    404: "NOT_FOUND",
+    405: "METHOD_NOT_ALLOWED",
+    409: "PARAMETER_ERROR",
+    429: "RATE_LIMIT_EXCEEDED",
+}
+
+#: 미등록 status(403·415 등)에 쓸 범용 코드 (#182 §1.4 신설).
+_HTTP_ERROR_CODE = "HTTP_ERROR"
+
+#: 프레임워크가 status phrase로 만든 기본 detail(예: ``"Not Found"``)을 대체할
+#: 한국어 문구 (#182 §1.4 정책 노트). 명시적 detail은 이 표를 타지 않는다.
+_FRAMEWORK_DEFAULT_MESSAGES: dict[int, str] = {
+    404: "요청한 경로를 찾을 수 없습니다.",
+    405: "허용되지 않은 HTTP 메서드입니다.",
+}
+
+#: 위 표에 없는 status(미등록 status)의 범용 문구 (#182 §1.4 정책 노트).
+_HTTP_ERROR_MESSAGE = "요청을 처리할 수 없습니다."
+
+
+def _resolve_error_code(status: int) -> str:
+    """HTTPException의 status를 error_code로 변환한다 (#183).
+
+    §1.4 표에서 1:1인 status만 매핑하고, 그 외(422·500·미등록)는 범용
+    ``HTTP_ERROR``로 떨어진다.
+    """
+    return _HTTP_EXCEPTION_CODES.get(status, _HTTP_ERROR_CODE)
+
+
+def _status_phrase(status: int) -> str:
+    """HTTPStatus를 활용해 프레임워크 기본 detail을 재현한다 (#183).
+
+    Starlette은 ``HTTPException``의 ``detail``이 없으면 status phrase(예: 404 →
+    ``'Not Found'``)를 채운다. 응답에 직접 쓰지 않고, 아래 :func:`_is_framework_default`
+    에서 프레임워크 기본값 판별에만 사용한다. 비표준 status(예: 499)는 phrase가
+    없으므로 빈 문자열을 돌려준다.
+    """
+    try:
+        return HTTPStatus(status).phrase
+    except ValueError:
+        return ""
+
+
+def _is_framework_default(exc: StarletteHTTPException) -> bool:
+    """``detail``이 프레임워크가 status phrase로 만든 기본값인지 판별한다 (#183)."""
+    return exc.detail == _status_phrase(exc.status_code)
+
+
+def _resolve_message(exc: StarletteHTTPException) -> str:
+    """HTTPException의 사용자 노출 문구를 결정한다 (#183).
+
+    - 프레임워크가 status phrase로 만든 기본 detail(예: ``'Not Found'``)이면
+      #182가 정한 한국어 문구로 바꾼다. 미등록 status는 범용 문구를 쓴다.
+    - 라우트가 명시적으로 넣은 문자열 detail(예: ``HTTPException(422, "bad")``)은
+      그대로 보존한다 — 개발자 작성 문구를 임의로 덮지 않는다.
+    - 비-문자열 detail(dict·list 등)은 ``str()`` 시 Python repr이 노출돼
+      API_SPEC §1.3.2의 "message는 문자열" 정책을 위반하므로 범용 문구로
+      내려보낸다 (PR #223 Copilot 리뷰).
+    """
+    if _is_framework_default(exc):
+        return _FRAMEWORK_DEFAULT_MESSAGES.get(exc.status_code, _HTTP_ERROR_MESSAGE)
+    if isinstance(exc.detail, str):
+        return exc.detail
+    return _HTTP_ERROR_MESSAGE
+
+
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    """Starlette/FastAPI의 ``HTTPException``을 API_SPEC §1.3.2 응답으로 변환한다 (#183).
+
+    프레임워크 404·405와 라우트가 던진 명시적 ``HTTPException``이 그대로
+    ``{"detail": ...}``로 나가던 것을 §1.3.2 구조로 고친다. ``status_code``와
+    ``headers``(405의 ``Allow``, 401의 ``WWW-Authenticate``)는 **그대로 보존**한다 —
+    바꾸면 HTTP 규격과 클라이언트 동작이 틀어진다.
+    """
+    state = getattr(request, "state", None)
+    body = to_error_response(
+        _resolve_error_code(exc.status_code),
+        _resolve_message(exc),
+        request_id=getattr(state, "request_id", None),
+        timestamp=getattr(state, "timestamp", None) or iso_utc_now(),
+    )
+    return JSONResponse(status_code=exc.status_code, content=body, headers=exc.headers)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """FastAPI ``app``에 오류 핸들러를 등록한다.
 
@@ -218,6 +312,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     하나로 일괄 변환된다.
     """
     app.add_exception_handler(AppError, app_error_handler)
+    # #183: Starlette 기준 등록 — FastAPI HTTPException이 이를 상속하므로 둘 다 덮는다.
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     # #116: FastAPI 기본 422 응답 형태를 §1.3.2로 교체.
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     # #116: 마지막 안전망. 위 두 핸들러가 잡지 못한 것만 여기로 온다.
