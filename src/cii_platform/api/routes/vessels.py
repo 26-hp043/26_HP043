@@ -1,9 +1,9 @@
-"""선박 조회 라우트 (API_SPEC §2.1 · §2.2).
+"""선박 조회·등록 라우트 (API_SPEC §2.1 · §2.2 · §2.3).
 
 **HTTP 요청/응답만 다룬다** (TECH_SPEC §16.1). 조회 규칙과 페이지네이션 판단은
-``services.vessel``이 맡는다.
+``services.vessel``이, 등록 검증·중복 체크도 ``services.vessel``이 맡는다.
 
-범위(#51)는 **조회 두 건**이다. 등록(#50) · 수정·삭제(#52)는 별도 이슈다.
+범위: 조회(#51) 두 건 + 등록(#50). 수정·삭제(#52)는 별도 이슈다.
 """
 
 from __future__ import annotations
@@ -18,9 +18,10 @@ from fastapi import APIRouter, Depends, Query, Request
 # PydanticUserError(`is not fully defined`)로 앱 기동이 실패한다.
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.schemas.vessel import VesselCreateRequest
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.db.session import get_session
-from cii_platform.services.vessel import get_vessel, list_vessels
+from cii_platform.services.vessel import create_vessel, get_vessel, list_vessels
 
 router = APIRouter(tags=["vessels"])
 
@@ -63,3 +64,28 @@ async def get_vessel_route(
 ) -> dict[str, object]:
     """선박 상세를 조회한다 (API_SPEC §2.2). 없으면 404 ``NOT_FOUND``."""
     return {"data": await get_vessel(session, vessel_id), "meta": _meta(request)}
+
+
+@router.post("/vessels", status_code=201)
+async def create_vessel_route(
+    request: Request,
+    payload: VesselCreateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """선박을 등록한다 (API_SPEC §2.3, #50). 성공 시 201 Created.
+
+    ``status_code=201``을 라우트에 단 이유 — FastAPI 기본값(200)으로 두면 OpenAPI가
+    잘못된 응답 코드를 문서화하고, 클라이언트가 201을 기대하면 어긋난다.
+    """
+    data = await create_vessel(
+        session,
+        imo_number=payload.imo_number,
+        name=payload.name,
+        ship_type=payload.ship_type,
+        gross_tonnage=payload.gross_tonnage,
+        deadweight=payload.deadweight,
+        default_fuel_type=payload.default_fuel_type,
+        reference_speed_kn=payload.reference_speed_kn,
+        reference_daily_foc_ton=payload.reference_daily_foc_ton,
+    )
+    return {"data": data, "meta": _meta(request)}
