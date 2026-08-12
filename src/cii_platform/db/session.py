@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from cii_platform.config import DATABASE_URL
+from cii_platform.db.url import normalize_to_asyncpg
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -26,18 +27,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 
-def normalize_async_url(url: str) -> str:
-    """asyncpg 드라이버 URL로 정규화한다.
-
-    ``alembic/env.py``·``tests/conftest.py``와 같은 정책이다. ``postgresql://``로
-    시작하는 동기 URL이 들어와도 async 엔진이 받을 수 있게 바꾼다 — 배포 환경이
-    ``DATABASE_URL``을 동기 형식으로 주는 경우가 흔하다.
-    """
-    if url.startswith("postgresql+asyncpg://"):
-        return url
-    if url.startswith("postgresql://"):
-        return "postgresql+asyncpg://" + url.split("://", 1)[1]
-    return url
+# db.url.normalize_to_asyncpg으로 통일 (#234). alembic/seed/pytest/앱이 같은 정책을
+# 공유한다 — 사본을 두면 앱만 분기가 빠져 기동 실패하는 조합이 생긴다.
 
 
 @lru_cache(maxsize=1)
@@ -47,7 +38,7 @@ def get_engine() -> AsyncEngine:
     ``lru_cache``로 단일 인스턴스를 보장한다. 엔진마다 커넥션 풀이 따로 생기므로
     요청마다 만들면 연결 수가 요청 수만큼 늘어난다.
     """
-    return create_async_engine(normalize_async_url(DATABASE_URL), pool_pre_ping=True)
+    return create_async_engine(normalize_to_asyncpg(DATABASE_URL), pool_pre_ping=True)
 
 
 @lru_cache(maxsize=1)

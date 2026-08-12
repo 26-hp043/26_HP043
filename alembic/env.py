@@ -16,6 +16,7 @@ if str(_SRC) not in sys.path:
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
 from cii_platform.db.models import Base  # noqa: E402
+from cii_platform.db.url import normalize_to_asyncpg  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -27,26 +28,10 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 
-def _to_async_url(url: str) -> str:
-    """Alembic 마이그레이션은 비동기 엔진(asyncpg)으로 실행한다.
-
-    프로젝트에 설치된 PostgreSQL 드라이버는 asyncpg뿐이므로, env로 주입된
-    DATABASE_URL이 드라이버를 생략(``postgresql://``)했거나 다른 postgresql
-    드라이버를 지정한 경우에도 asyncpg로 정규화하여 로컬/CI/docker에서 일관되게
-    동작시킨다.
-    """
-    prefix = "postgresql+asyncpg://"
-    if url.startswith(prefix):
-        return url
-    if url.startswith("postgresql://"):
-        return prefix + url.split("://", 1)[1]
-    if url.startswith("postgresql+"):
-        return prefix + url.split("://", 1)[1]
-    return url
-
-
 # config 모듈의 DATABASE_URL을 단일 소스로 사용한다 (alembic.ini에 하드코딩 금지).
-config.set_main_option("sqlalchemy.url", _to_async_url(DATABASE_URL))
+# URL 정규화는 db.url.normalize_to_asyncpg으로 통일 (#234) — alembic/seed/pytest/앱이
+# 같은 정책을 공유한다. 사본을 두면 앱만 분기가 빠져 기동 실패하는 조합이 생긴다.
+config.set_main_option("sqlalchemy.url", normalize_to_asyncpg(DATABASE_URL))
 
 # ORM 모델(cii_platform.db.models)의 metadata를 연결하여 autogenerate를 활성화한다 (#101).
 # 모델↔DB 일치(zero drift)는 tests/test_orm_schema_sync.py가 CI에서 검증한다.
