@@ -1541,6 +1541,11 @@ GET /api/v1/health
 }
 ```
 
+> **`rng_canonical_test` 필드는 #43 완료 전까지 응답에서 생략된다** (2026-08-12).
+> #43이 PCG64DXSM canonical vector 검증을 담당하며, 그 전에 거짓 `"passed"`를 내보내지
+> 않기 위해 구현이 이 필드를 빼고 있다 (`api/routes/health.py` TODO 주석 참조). #43
+> 머지 시점에 응답에 추가된다.
+
 ---
 
 ## 11. 검증 규칙 요약

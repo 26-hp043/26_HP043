@@ -528,9 +528,7 @@ def _resolve_reference_capacity(vessel, reference_line) -> Decimal:
 # --- 응답 조립 --------------------------------------------------------------------
 
 
-def _normalized_fuel_details(
-    payload: VoyageCiiInput, fuel_rows, layer1: _Layer1Values
-) -> list[dict[str, str]]:
+def _normalized_fuel_details(payload: VoyageCiiInput, fuel_rows) -> list[dict[str, str]]:
     """``fuel_cf_details`` — **연료 종류별 한 행으로 정규화한다** (API_SPEC §4.1).
 
     같은 ``fuel_type``이 여러 행으로 들어오면 합산한다. 합산 대상은 요청의
@@ -594,7 +592,7 @@ def _build_data(
         "calculation_basis": {
             "ship_type": vessel.ship_type,
             "z_factor_percent": _percent(Decimal(regulation.z_factor_percent)),
-            "fuel_cf_details": _normalized_fuel_details(payload, fuel_rows, layer1),
+            "fuel_cf_details": _normalized_fuel_details(payload, fuel_rows),
             "a_decimal": _plain(Decimal(reference_line.a_decimal)),
             "c": _plain(Decimal(reference_line.c)),
         },
