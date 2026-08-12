@@ -13,6 +13,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from cii_platform.calc.capacity import DWT_BASED_SHIP_TYPES, GT_BASED_SHIP_TYPES
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories.vessel import (
@@ -32,6 +33,13 @@ if TYPE_CHECKING:
 #: API_SPEC §2.3 — ``is_cii_applicable_hint`` 자동 산정 기준 (DB_SCHEMA §2.1).
 #: ``gross_tonnage >= 5,000``이면 공식 CII 적용 대상 힌트를 true로 둔다.
 CII_APPLICABLE_GT_THRESHOLD = Decimal("5000")
+
+#: 검색어 최대 길이. ``Vessel.name``이 ``String(100)``이라 그보다 긴 검색어는 의미가
+#: 없다 (#237). 초과 시 422가 아니라 절단 — ``normalize_limit``과 같은 정책.
+SEARCH_MAX_LENGTH = 100
+
+#: 유효한 선종 집합 (PRD §3.4.3 13종). ``ship_type`` 쿼리 파라미터 검증에 쓴다 (#237).
+VALID_SHIP_TYPES: frozenset[str] = DWT_BASED_SHIP_TYPES | GT_BASED_SHIP_TYPES
 
 
 def _number(value: Decimal | None) -> float | None:
@@ -101,6 +109,34 @@ def _parse_cursor(cursor: str | None) -> Cursor | None:
             "cursor 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
         )
     return parsed
+
+
+def _normalize_search(search: str | None) -> str | None:
+    """``search`` 쿼리 파라미터를 정규화한다 (#237).
+
+    빈 문자열은 ``None``으로 — 빈 검색 = 필터 없음과 같다. 길이 상한
+    (:data:`SEARCH_MAX_LENGTH`) 초과는 절단한다 — ``normalize_limit``과 같은 정책,
+    초과값을 422로 만들면 클라이언트가 재시도 로직을 따로 만들어야 한다.
+    """
+    if search is None or search == "":
+        return None
+    return search[:SEARCH_MAX_LENGTH]
+
+
+def _validate_ship_type(ship_type: str | None) -> None:
+    """``ship_type`` 쿼리 파라미터가 13종 안에 없으면 ``ValidationError`` (#237).
+
+    오타(``BULK_CARIER``)와 "해당 선박 없음"을 응답에서 구분한다 — 미검증 시 둘 다
+    빈 배열로 돌아와 사용자가 원인을 알 수 없다.
+    """
+    if ship_type is None:
+        return
+    if ship_type not in VALID_SHIP_TYPES:
+        raise ValidationError(
+            f"알 수 없는 선종입니다: {ship_type}",
+            field="ship_type",
+            field_label="선종",
+        )
 
 
 async def get_vessel(session: AsyncSession, vessel_id: UUID) -> dict[str, object]:
@@ -183,13 +219,15 @@ async def list_vessels(
     별도 COUNT 쿼리를 돌리지 않는다 — 그 값은 응답에 쓰이지도 않는다(§2.1 meta에
     ``total``이 없다).
     """
+    # ship_type을 먼저 검증한다 — repo가 쿼리를 날리기 전에 422로 끊는다 (#237).
+    _validate_ship_type(ship_type)
     page_size = normalize_limit(limit)
     rows = await vessel_repo.list_active(
         session,
         limit=page_size,
         cursor=_parse_cursor(cursor),
         ship_type=ship_type,
-        search=search,
+        search=_normalize_search(search),
     )
 
     has_more = len(rows) > page_size

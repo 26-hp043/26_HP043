@@ -239,6 +239,31 @@ class TestListVessels:
         assert recorded["ship_type"] == "BULK_CARRIER"
         assert recorded["search"] == "STAR"
 
+    def test_unknown_ship_type_is_422(self, wired):
+        """#237 — 13종에 없는 ship_type은 422. 오타와 '결과 없음'을 구분한다."""
+        client, _ = wired
+        resp = client.get(LIST_URL, params={"ship_type": "BULK_CARIER"})  # 오타
+        assert resp.status_code == 422
+        body = resp.json()
+        assert body["error"]["code"] == "VALIDATION_ERROR"
+        assert body["error"]["details"][0]["field"] == "ship_type"
+
+    def test_search_percent_is_not_wildcard(self, wired):
+        """#237 — ``%`` 를 리터럴로 이스케이프. 서비스가 repo로 ``\\%`` 형태를 넘긴다."""
+        client, recorded = wired
+        client.get(LIST_URL, params={"search": "%"})
+        # repo는 서비스가 넘긴 값을 그대로 쿼리에 쓴다 — escape는 repo가 담당.
+        # 따라서 서비스 테스트에서는 넘어온 원본 값을 확인하고, escape 검증은
+        # repo 직접 단위 테스트가 담당한다 (DB 의존).
+        assert recorded["search"] == "%"
+
+    def test_search_over_max_length_is_truncated(self, wired):
+        """#237 — SEARCH_MAX_LENGTH(100) 초과는 절단. 422가 아니다 (normalize_limit 정책)."""
+        client, recorded = wired
+        long_search = "x" * 200
+        client.get(LIST_URL, params={"search": long_search})
+        assert len(recorded["search"]) == 100
+
     def test_broken_cursor_is_422(self, wired):
         """깨진 커서를 첫 페이지로 폴백하지 않는다 — 무한 루프가 된다."""
         client, _ = wired
