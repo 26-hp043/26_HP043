@@ -39,53 +39,15 @@ def test_stub_user_id_is_fixed_constant():
 
 
 # --- #308: dev-login 실제 호출 (DB 필요 — CI에서 실행) -------------------------------
+#
+# conn fixture 세션을 TestClient 안에서 쓰면 요청의 포털 루프와 fixture 루프가
+# 엔진 연결을 공유해 "attached to a different loop"로 실패한다 — app_fresh_engine
+# (NullPool) + 커밋 기반으로 검증한다.
 
 
-def _dev_login_app(conn):
-    """dev-login 라우트만 붙이고 get_session을 테스트 커넥션으로 override한 app."""
-    from fastapi import FastAPI
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from cii_platform.api.routes.auth_dev import router as auth_dev_router
-    from cii_platform.db.session import get_session
-
-    async def override_session():
-        async with AsyncSession(bind=conn, expire_on_commit=False) as session:
-            yield session
-
-    app = FastAPI()
-    app.dependency_overrides[get_session] = override_session
-    app.include_router(auth_dev_router, prefix="/api/v1")
-    return app
-
-
-async def test_dev_login_first_boot_creates_user_and_issues_cookie(conn):
+async def test_dev_login_first_boot_creates_user_and_issues_cookie(migrated_db, app_fresh_engine):
     """첫 기동 — 사용자 행을 만들고 세션 쿠키를 발급한다 (#308)."""
-    from fastapi.testclient import TestClient
-    from sqlalchemy import text
-
-    from cii_platform.api.routes.auth_dev import _STUB_USER_ID
-    from cii_platform.auth.session import SESSION_COOKIE_NAME
-
-    app = _dev_login_app(conn)
-    with TestClient(app) as client:
-        resp = client.post("/api/v1/auth/dev-login")
-        assert resp.status_code == 200
-        assert SESSION_COOKIE_NAME in client.cookies
-
-    row = await conn.execute(
-        text("SELECT id FROM app_user WHERE id = :id"),
-        {"id": str(_STUB_USER_ID)},
-    )
-    assert row.scalar_one() == _STUB_USER_ID
-
-
-async def test_dev_login_restart_finds_existing_user(conn):
-    """재기동 시나리오 — 이전 기동이 만든 행이 있으면 조회 경로로 200 (#308).
-
-    고정 UUID 이전에는 재기동마다 PK가 달라져 INSERT를 시도 → ``google_sub``
-    UNIQUE 위반 → 500이었다.
-    """
+    from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from sqlalchemy import text
 
@@ -93,32 +55,80 @@ async def test_dev_login_restart_finds_existing_user(conn):
         _STUB_GOOGLE_SUB,
         _STUB_USER_ID,
     )
+    from cii_platform.api.routes.auth_dev import (
+        router as auth_dev_router,
+    )
     from cii_platform.auth.session import SESSION_COOKIE_NAME
+    from cii_platform.db.session import get_sessionmaker
 
-    # 이전 기동이 고정 UUID로 만든 행이 이미 있다.
-    # (test_auth_wiring.py가 커밋한 스텁 사용자가 잔여할 경우를 대비해 먼저 정리한다.)
-    await conn.execute(
-        text("DELETE FROM user_session WHERE user_id = :id"),
-        {"id": str(_STUB_USER_ID)},
-    )
-    await conn.execute(
-        text("DELETE FROM app_user WHERE id = :id"),
-        {"id": str(_STUB_USER_ID)},
-    )
-    await conn.execute(
-        text("INSERT INTO app_user (id, google_sub, email) VALUES (:id, :sub, 'dev@localhost')"),
-        {"id": str(_STUB_USER_ID), "sub": _STUB_GOOGLE_SUB},
-    )
-
-    app = _dev_login_app(conn)
+    app = FastAPI()
+    app.include_router(auth_dev_router, prefix="/api/v1")
     with TestClient(app) as client:
         resp = client.post("/api/v1/auth/dev-login")
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
         assert SESSION_COOKIE_NAME in client.cookies
 
-    # last_login_at이 채워진다 (#317 연계).
-    row = await conn.execute(
-        text("SELECT last_login_at FROM app_user WHERE id = :id"),
-        {"id": str(_STUB_USER_ID)},
+    sessionmaker = get_sessionmaker()
+    async with sessionmaker() as s:
+        row = await s.execute(
+            text("SELECT id FROM app_user WHERE google_sub = :sub"),
+            {"sub": _STUB_GOOGLE_SUB},
+        )
+        assert row.scalar_one() == _STUB_USER_ID
+        await s.execute(
+            text("DELETE FROM user_session WHERE user_id = :id"),
+            {"id": str(_STUB_USER_ID)},
+        )
+        await s.execute(text("DELETE FROM app_user WHERE id = :id"), {"id": str(_STUB_USER_ID)})
+        await s.commit()
+
+
+async def test_dev_login_restart_finds_existing_user(migrated_db, app_fresh_engine):
+    """재기동 시나리오 — 이전 기동이 만든 행이 있으면 조회 경로로 200 (#308).
+
+    고정 UUID 이전에는 재기동마다 PK가 달라져 INSERT를 시도 → ``google_sub``
+    UNIQUE 위반 → 500이었다. 재기동 = 별도 커밋이므로 행을 실제 커밋으로 심는다.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text
+
+    from cii_platform.api.routes.auth_dev import (
+        _STUB_GOOGLE_SUB,
+        _STUB_USER_ID,
     )
-    assert row.scalar_one() is not None
+    from cii_platform.api.routes.auth_dev import (
+        router as auth_dev_router,
+    )
+    from cii_platform.auth.session import SESSION_COOKIE_NAME
+    from cii_platform.db.session import get_sessionmaker
+
+    sessionmaker = get_sessionmaker()
+    async with sessionmaker() as s:
+        await s.execute(
+            text(
+                "INSERT INTO app_user (id, google_sub, email) VALUES (:id, :sub, 'dev@localhost')"
+            ),
+            {"id": str(_STUB_USER_ID), "sub": _STUB_GOOGLE_SUB},
+        )
+        await s.commit()
+
+    app = FastAPI()
+    app.include_router(auth_dev_router, prefix="/api/v1")
+    with TestClient(app) as client:
+        resp = client.post("/api/v1/auth/dev-login")
+        assert resp.status_code == 200, resp.text
+        assert SESSION_COOKIE_NAME in client.cookies
+
+    async with sessionmaker() as s:
+        row = await s.execute(
+            text("SELECT last_login_at FROM app_user WHERE id = :id"),
+            {"id": str(_STUB_USER_ID)},
+        )
+        assert row.scalar_one() is not None
+        await s.execute(
+            text("DELETE FROM user_session WHERE user_id = :id"),
+            {"id": str(_STUB_USER_ID)},
+        )
+        await s.execute(text("DELETE FROM app_user WHERE id = :id"), {"id": str(_STUB_USER_ID)})
+        await s.commit()
