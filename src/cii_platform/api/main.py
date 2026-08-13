@@ -15,6 +15,7 @@ from cii_platform.api.rate_limit import DEFAULT_RATE_LIMIT, RateLimiter, rate_li
 from cii_platform.api.routes.calculations import router as calculations_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.vessels import router as vessels_router
+from cii_platform.api.routes.voyages import router as voyages_router
 
 # API_SPEC §1.1: 모든 API는 /api/v1 prefix 아래에 둔다.
 API_V1_PREFIX = "/api/v1"
@@ -42,4 +43,5 @@ register_exception_handlers(app)
 app.include_router(health_router, prefix=API_V1_PREFIX)
 # #51 선박 조회 · #55 기능① 계산.
 app.include_router(vessels_router, prefix=API_V1_PREFIX)
+app.include_router(voyages_router, prefix=API_V1_PREFIX)
 app.include_router(calculations_router, prefix=API_V1_PREFIX)
