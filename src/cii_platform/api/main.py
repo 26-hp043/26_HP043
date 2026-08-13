@@ -12,6 +12,9 @@ from fastapi import FastAPI
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.middleware import RequestContextMiddleware
 from cii_platform.api.rate_limit import DEFAULT_RATE_LIMIT, RateLimiter, rate_limit_middleware
+from cii_platform.api.routes.auth import router as auth_router
+from cii_platform.api.routes.auth_dev import router as auth_dev_router
+from cii_platform.api.routes.auth_dev import should_register_dev_auth
 from cii_platform.api.routes.calculations import router as calculations_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.vessels import router as vessels_router
@@ -45,3 +48,7 @@ app.include_router(health_router, prefix=API_V1_PREFIX)
 app.include_router(vessels_router, prefix=API_V1_PREFIX)
 app.include_router(voyages_router, prefix=API_V1_PREFIX)
 app.include_router(calculations_router, prefix=API_V1_PREFIX)
+# #274 구글 OIDC 인증. 개발 환경(#276)에서만 스텁 dev-login을 추가로 등록한다.
+app.include_router(auth_router, prefix=API_V1_PREFIX)
+if should_register_dev_auth():
+    app.include_router(auth_dev_router, prefix=API_V1_PREFIX)
