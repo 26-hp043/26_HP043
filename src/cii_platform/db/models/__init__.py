@@ -13,6 +13,7 @@ autogenerate(모델↔DB 비교)에 사용된다. 모델과 실제 DB의 일치(
 """
 
 from cii_platform.db.models.annual_simulation_run import AnnualSimulationRun
+from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.audit_log import AuditLog
 from cii_platform.db.models.base import Base
 from cii_platform.db.models.calculation_run import CalculationRun
@@ -21,6 +22,7 @@ from cii_platform.db.models.cii_reference_line import CiiReferenceLine
 from cii_platform.db.models.fuel_type import FuelType
 from cii_platform.db.models.regulation_year import RegulationYear
 from cii_platform.db.models.simulation_snapshot import SimulationSnapshot
+from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.models.vessel import Vessel
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
@@ -31,6 +33,7 @@ from cii_platform.db.models.weather_snapshot import WeatherSnapshot
 __all__ = [
     "Base",
     "AnnualSimulationRun",
+    "AppUser",
     "AuditLog",
     "CalculationRun",
     "CiiRatingBoundary",
@@ -38,6 +41,7 @@ __all__ = [
     "FuelType",
     "RegulationYear",
     "SimulationSnapshot",
+    "UserSession",
     "Vessel",
     "Voyage",
     "VoyageFuelUse",
