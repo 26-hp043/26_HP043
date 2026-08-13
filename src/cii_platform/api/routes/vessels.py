@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.schemas.vessel import VesselCreateRequest, VesselUpdateRequest
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 from cii_platform.services.vessel import (
     create_vessel,
@@ -77,6 +78,7 @@ async def create_vessel_route(
     request: Request,
     payload: VesselCreateRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """선박을 등록한다 (API_SPEC §2.3, #50). 성공 시 201 Created.
 
@@ -103,6 +105,7 @@ async def update_vessel_route(
     vessel_id: UUID,
     payload: VesselUpdateRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """선박을 수정한다 (API_SPEC §2.4, #52). 없으면 404."""
     data = await update_vessel(
@@ -124,6 +127,7 @@ async def delete_vessel_route(
     request: Request,
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """선박을 soft delete 한다 (API_SPEC §2.5, #52).
 
