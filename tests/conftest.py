@@ -87,3 +87,24 @@ async def conn(migrated_db):
         await trans.rollback()
         await connection.close()
         await engine.dispose()
+
+
+@pytest.fixture
+def app_fresh_engine(monkeypatch: pytest.MonkeyPatch):
+    """TestClient(포털 루프) DB 접근용 NullPool 엔진으로 교체한다.
+
+    앱의 ``get_engine``은 lru_cache로 프로세스에 하나다. TestClient는 컨텍스트마다
+    새 이벤트 루프(포털)를 만들므로, 풀에 남은 연결이 이전 루프에 묶여
+    ``attached to a different loop``로 실패한다 (#308 테스트). DB를 실제로 쓰는
+    TestClient 테스트는 이 fixture로 요청마다 연결을 만드는 NullPool 엔진으로
+    갈아끼운다 — 테스트 루프에서 검증·정리할 때도 같은 세션팩토리를 쓴다.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from cii_platform.db import session as db_session_mod
+
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    patched_maker = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(db_session_mod, "get_engine", lambda: engine)
+    monkeypatch.setattr(db_session_mod, "get_sessionmaker", lambda: patched_maker)
+    yield engine
