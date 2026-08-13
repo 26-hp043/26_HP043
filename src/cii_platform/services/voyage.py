@@ -332,8 +332,7 @@ async def _guard_actual_data(session: AsyncSession, voyage, to_status: str) -> N
     if to_status == "COMPLETED":
         fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
         has_actual = any(
-            fu.actual_fuel_ton is not None and fu.actual_fuel_ton > 0
-            for fu in fuel_uses
+            fu.actual_fuel_ton is not None and fu.actual_fuel_ton > 0 for fu in fuel_uses
         )
         if not has_actual:
             raise StateTransitionError(
