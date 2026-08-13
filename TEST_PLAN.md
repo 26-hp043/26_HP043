@@ -3,10 +3,10 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TEST_PLAN.md |
-| 버전 | v1.4 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) |
-| 최종 수정일 | 2026-08-07 |
-| 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2, `DB_SCHEMA.md` v1.3 |
+| 버전 | v1.5 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) + §4.7 인증 API 케이스 (#279) |
+| 최종 수정일 | 2026-08-14 |
+| 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.4, `DB_SCHEMA.md` v1.3 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
 ---
@@ -734,6 +734,29 @@ def test_no_implicit_float_in_layer1():
 | AT-ERR-003 | 422 ValidationError | code, message, details 구조 |
 | AT-ERR-004 | 409 ParameterError | 해당 연도 파라미터 없음 |
 
+### 4.7 인증 API (#279)
+
+> 구현 파일 — `test_oidc.py`(id_token 검증) · `test_auth_api.py`(login·callback) ·
+> `test_auth_session.py`(세션·CSRF 단위) · `test_auth_wiring.py`(배선, main.app) ·
+> `test_auth_failure_paths.py`(만료·무효화·미등록) · `test_dev_auth.py`(스텁 인증).
+> 성공 경로만 검증하면 인증이 실제로 막고 있는지 알 수 없다 — 실패 경로가 핵심이다.
+
+| TC ID | 테스트 | 기대 결과 |
+|---|---|---|
+| AT-AUTH-001 | id_token 검증 실패 전종 (서명·aud·iss·만료·nonce·kid·malformed) | 401 `UNAUTHORIZED` (`test_oidc.py`) |
+| AT-AUTH-002 | `email_verified=false` | 401 (`test_oidc.py`) |
+| AT-AUTH-003 | `state` 불일치 | 401 (`test_auth_api.py`) |
+| AT-AUTH-004 | `redirect_to` 절대 URL·`//` | 400 거부 — open redirect 방어 (`test_auth_api.py`) |
+| AT-AUTH-005 | 이메일 변경 사용자 | 동일 `app_user.id` 유지 — `google_sub` 식별 (`test_auth_api.py`) |
+| AT-AUTH-006 | 세션 없는 보호 경로 | 401 (`test_auth_wiring.py`) |
+| AT-AUTH-007 | 세션 만료 후 같은 쿠키 | 401 + "만료" 안내 (`test_auth_failure_paths.py`) |
+| AT-AUTH-008 | 로그아웃 후 같은 쿠키 재사용 | 401 (`test_auth_failure_paths.py`) |
+| AT-AUTH-009 | CSRF 토큰 누락·불일치 (POST·PATCH·DELETE) | 403 `CSRF_ERROR`, GET은 통과 (`test_auth_session.py`·`test_auth_wiring.py`) |
+| AT-AUTH-010 | `session_row` 없는 상태 변경 (배선 어김) | 401 — fail-closed (`test_auth_session.py`) |
+| AT-AUTH-011 | 공개 경로 | 열거 4경로(health·login·callback·dev-login)만 무인증 통과 (`test_auth_failure_paths.py`) |
+| AT-AUTH-012 | `APP_ENV=production` dev-login | 라우트 미등록 (`test_auth_failure_paths.py`) |
+| AT-AUTH-013 | dev-login 재기동 (고정 UUID) | 2회 모두 200 (`test_dev_auth.py`) |
+
 ---
 
 ## 5. DB 제약 테스트 (`test_constraints.py`)
@@ -1034,11 +1057,11 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 |---|---|
 | 단위 (Unit) | 55 |
 | 통합 (Integration) | 37 |
-| API | 26 |
+| API | 39 |
 | DB 제약 | 42 |
 | 성능 | 4 |
 | 접근성 | 4 |
-| **합계** | **168** |
+| **합계** | **181** |
 
 > **[ORACLE-M-4]** 기존 요약 (unit 38, integration 19, API 21, DB 18, 합계 104)은 실제 테이블 행 수와 불일치. 실제 카운트 후 정정하였으며, Oracle 리뷰 및 외부 리뷰 피드백 반영으로 추가된 테스트를 포함하여 총 168건.
 
@@ -1162,3 +1185,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-07 | `#196` | 헤더 「상위 문서」의 `PRD` 버전 참조 갱신 (v3.1 → v3.2) (#163) |
 | 2026-08-07 | `#195` | §1.2 `fixture_note`에서 「이 파일과 생성기는 #45에서 만든다」 삭제 — 실제로 생성되어 사실과 달라짐 (#45) |
 | 2026-08-07 | `#195` | v1.4: §1.3 케이스를 **기호 표기(`boundary` + `offset`)로 교체** — 적힌 확정값을 그대로 판정에 넣으면 올림된 경계(`upper`·`inferior`)에서 등급이 뒤집힌다. `input` 블록 신설(원경계 재계산 조건), `canonical_digits`에서 `cases[].attained_cii` 제거, 뒤집힘 표와 근거 소절 추가 (#46) |
+| 2026-08-14 | `#___` | v1.5: §4.7 인증 API 케이스 신설(13건) — 기존 구현 파일들(`test_oidc`·`test_auth_api`·`test_auth_session`·`test_auth_wiring`·`test_auth_failure_paths`·`test_dev_auth`)의 케이스를 문서화. 헤더 「상위 문서」의 `API_SPEC` 버전 참조 갱신 (v1.2 → v1.4) (#279) |
