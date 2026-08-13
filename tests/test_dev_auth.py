@@ -96,6 +96,15 @@ async def test_dev_login_restart_finds_existing_user(conn):
     from cii_platform.auth.session import SESSION_COOKIE_NAME
 
     # 이전 기동이 고정 UUID로 만든 행이 이미 있다.
+    # (test_auth_wiring.py가 커밋한 스텁 사용자가 잔여할 경우를 대비해 먼저 정리한다.)
+    await conn.execute(
+        text("DELETE FROM user_session WHERE user_id = :id"),
+        {"id": str(_STUB_USER_ID)},
+    )
+    await conn.execute(
+        text("DELETE FROM app_user WHERE id = :id"),
+        {"id": str(_STUB_USER_ID)},
+    )
     await conn.execute(
         text("INSERT INTO app_user (id, google_sub, email) VALUES (:id, :sub, 'dev@localhost')"),
         {"id": str(_STUB_USER_ID), "sub": _STUB_GOOGLE_SUB},
