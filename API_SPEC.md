@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.3 |
+| 버전 | v1.4 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-08-13 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4 |
@@ -553,7 +553,7 @@ POST /api/v1/vessels/{vessel_id}/voyages
 PATCH /api/v1/voyages/{voyage_id}
 ```
 
-모든 필드는 optional. `status` 변경은 §3.5 참조.
+모든 필드는 optional. `status` 변경은 §3.5 참조. **생략 = 변경 없음, 명시적 `null` = 클리어**다(#312).
 
 > **[#150]** 대상 필드는 §3.3 요청 본문과 같으므로 **`regulation_year`도 여기서 설정·변경한다.** 주어지면 `VAL-005`로 검증한다. `annual_inclusion_policy ≠ EXCLUDE`인 항차에서 `regulation_year`를 `null`로 지우는 요청은 `DB_SCHEMA`의 `chk_year_policy`를 깨뜨리므로 거부한다.
 
@@ -594,7 +594,12 @@ POST /api/v1/voyages/{voyage_id}/transition
 
 #### status × annual_inclusion_policy 제약
 
-> PRD §8.1.2 (ORACLE-R-1). 허용되지 않은 조합은 자동으로 `EXCLUDE`로 보정하거나 전환을 거부한다.
+> PRD §8.1.2 (ORACLE-R-1).
+
+전환 요청에서 `annual_inclusion_policy`를 **생략하면 현행 값을 유지한다**(#310). 단, 아래 두 경우는 예외다.
+
+- 목표 상태가 EXCLUDE only(`CANCELLED`·`ARCHIVED`)면 **자동으로 `EXCLUDE`로 설정**한다(아래 표 「자동 설정」·ORACLE-C-4).
+- 목표 상태가 현행 policy를 허용하지 않는 조합(예: `PLANNED`(`INCLUDE_AS_PLAN`) → `COMPLETED`)이면 자동 보정하지 않고 **명시적 재지정을 요구하며 거부한다(422)**.
 
 | status | 허용 policy |
 |---|---|
@@ -1784,3 +1789,4 @@ GET /api/v1/health
 | 2026-08-10 | `#218` | §4.1 응답 예시의 `parameters_used.regulation_year.z_factor_percent` 표기를 `"11"` → `"11.0"`로 정정 — `calculation_basis` 블록과 통일 (#208) |
 | 2026-08-11 | `#222` | §1.3.2에 `message` 한국어 규정, §1.4에 405 `METHOD_NOT_ALLOWED`·경로 404·미등록 status 범용 `HTTP_ERROR` 행 및 프레임워크 발생 오류 정책(문구·status 보존) 신설 (#182) |
 | 2026-08-13 | `#___` | v1.3: §1.2 인증 전면 재작성(구글 OIDC + 세션 쿠키), §1.4에 401·403 행 추가, §13.3 CORS에 X-CSRF-Token·credentials 정책 추가, 인증 엔드포인트 표 신설 (#272) |
+| 2026-08-13 | `#___` | v1.4: §3.4에 null 의미론(생략=변경 없음·명시적 null=클리어) 명시, §3.5 policy 제약 서두를 「미지정=현행 유지·EXCLUDE-only 자동 설정·불가 조합 명시적 재지정 요구」로 정정 (#310 #312) |

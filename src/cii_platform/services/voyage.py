@@ -237,8 +237,10 @@ async def update_voyage(
 ) -> dict[str, object]:
     """항차를 수정한다 (API_SPEC §3.4, #54). 없으면 404.
 
-    ``regulation_year``를 ``None``으로 지우는 요청은, ``annual_inclusion_policy ≠ EXCLUDE``
-    인 경우 ``chk_year_policy`` 제약에 걸리므로 거부한다 (#150).
+    ``fields``는 라우트가 ``model_dump(exclude_unset=True)``로 만든 것 —
+    **생략 = 변경 없음, 명시적 ``null`` = 클리어**다 (#312).
+    ``regulation_year``를 ``None``으로 지우는 요청은 ``annual_inclusion_policy ≠
+    EXCLUDE``인 경우 ``chk_year_policy`` 제약에 걸리므로 거부한다 (#150).
     """
     voyage = await voyage_repo.get_by_id(session, voyage_id)
     if voyage is None:
@@ -256,8 +258,7 @@ async def update_voyage(
         )
 
     for key, value in fields.items():
-        if value is not None:
-            setattr(voyage, key, value)
+        setattr(voyage, key, value)
 
     await session.commit()
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
@@ -294,8 +295,17 @@ async def transition_voyage(
                 "regulation_year가 필요합니다."
             )
         voyage.annual_inclusion_policy = annual_inclusion_policy
-    else:
+    elif len(_POLICY_BY_STATUS.get(to_status, frozenset())) == 1:
+        # EXCLUDE-only 상태(CANCELLED·ARCHIVED)는 스펙이 자동 설정을 규정한다
+        # (API_SPEC §3.5 「자동 설정」·ORACLE-C-4).
         voyage.annual_inclusion_policy = "EXCLUDE"
+    elif voyage.annual_inclusion_policy not in _POLICY_BY_STATUS[to_status]:
+        # 미지정 = 현행 유지가 원칙이나, 목표 상태가 현행 policy를 허용하지 않으면
+        # 조용히 보정하지 않고 명시적 재지정을 요구한다 (#310).
+        raise StateTransitionError(
+            f"상태 {to_status}에서 policy {voyage.annual_inclusion_policy}는 "
+            "허용되지 않습니다. annual_inclusion_policy를 명시적으로 지정하세요."
+        )
 
     voyage.status = to_status
     await session.commit()
