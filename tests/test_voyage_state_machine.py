@@ -8,14 +8,13 @@
 - policy 미지정 유지·명시적 재지정 요구(#310) → PR #323의 테스트
 - hard delete 409 가드(#313) → PR #324의 테스트
 
-범위 밖(PR 본문에 기록):
-- API_SPEC §3.5의 실적 가드(IN_PROGRESS→COMPLETED 최소 1개 actual_fuel_ton>0,
-  COMPLETED→CONFIRMED 전 실적 완전성)는 서비스에 아직 구현돼 있지 않다.
+실적 가드(IN_PROGRESS→COMPLETED·COMPLETED→CONFIRMED, #326)도 여기서 잠근다.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -82,6 +81,18 @@ class _StubVoyage:
         self.created_at = dt.datetime(2026, 8, 1, tzinfo=dt.UTC)
 
 
+class _StubFuelUse:
+    """``to_dict``·가드가 읽는 속성을 가진 연료 사용 스텁."""
+
+    def __init__(self, actual_fuel_ton) -> None:
+        self.id = uuid4()
+        self.fuel_type = "HFO"
+        self.planned_fuel_ton = Decimal("100")
+        self.actual_fuel_ton = actual_fuel_ton
+        self.cf_used = Decimal("3.114")
+        self.source = "USER_INPUT"
+
+
 class _StubSession:
     """``commit``·``delete``만 기록하는 세션 스텁."""
 
@@ -96,14 +107,25 @@ class _StubSession:
         self.deleted.append(obj)
 
 
-def _install(monkeypatch: pytest.MonkeyPatch, voyage: _StubVoyage) -> _StubSession:
-    """서비스가 보는 저장소를 스텁으로 교체하고 세션 스텁을 반환한다."""
+def _install(
+    monkeypatch: pytest.MonkeyPatch,
+    voyage: _StubVoyage,
+    *,
+    fuel_uses: list | None = None,
+) -> _StubSession:
+    """서비스가 보는 저장소를 스텁으로 교체하고 세션 스텁을 반환한다.
+
+    ``fuel_uses`` 기본값은 실적이 채워진 1건 — 매트릭스 테스트가 실적 가드에
+    걸리지 않게 한다. 가드 테스트가 부족한 값을 명시적으로 넘긴다.
+    """
+    if fuel_uses is None:
+        fuel_uses = [_StubFuelUse(actual_fuel_ton=Decimal("100"))]
 
     async def fake_get_by_id(_session, voyage_id):
         return voyage if voyage_id == voyage.id else None
 
     async def fake_list_fuel_uses(_session, _voyage_id):
-        return []
+        return fuel_uses
 
     async def fake_has_refs(_session, _voyage_id):
         return False
@@ -123,8 +145,13 @@ def _install(monkeypatch: pytest.MonkeyPatch, voyage: _StubVoyage) -> _StubSessi
     ids=[f"{a}__to__{b}" for a, b in sorted(_ALLOWED_TRANSITIONS)],
 )
 async def test_allowed_transition_succeeds(monkeypatch, from_status, to_status):
-    """허용 전환 9종 — 상태가 바뀐다 (API_SPEC §3.5 규칙 표)."""
+    """허용 전환 9종 — 상태가 바뀐다 (API_SPEC §3.5 규칙 표).
+
+    실적 가드 대상 전환(IN_PROGRESS→COMPLETED·COMPLETED→CONFIRMED)은
+    실적이 갖춰진 상태에서 허용됨을 함께 증명한다.
+    """
     voyage = _StubVoyage(status=from_status, regulation_year=2026)
+    voyage.actual_distance_nm = Decimal("5000")
     session = _install(monkeypatch, voyage)
     result = await svc.transition_voyage(session, voyage.id, to_status)
     assert result["status"] == to_status
@@ -236,3 +263,70 @@ async def test_unknown_voyage_404s(monkeypatch):
         await svc.delete_voyage(session, uuid4())
     with pytest.raises(NotFoundError):
         await svc.transition_voyage(session, uuid4(), "PLANNED")
+
+
+# --- 실적(actual) 가드 (#326) ---------------------------------------------------------
+
+
+class TestActualFuelGuard:
+    """IN_PROGRESS → COMPLETED — 최소 1개 actual_fuel_ton > 0 (ORACLE-C-4)."""
+
+    async def test_no_actuals_is_rejected(self, monkeypatch):
+        voyage = _StubVoyage("IN_PROGRESS", "EXCLUDE", regulation_year=2026)
+        session = _install(monkeypatch, voyage, fuel_uses=[_StubFuelUse(None)])
+        with pytest.raises(StateTransitionError, match="actual_fuel_ton"):
+            await svc.transition_voyage(session, voyage.id, "COMPLETED")
+
+    async def test_zero_actuals_is_rejected(self, monkeypatch):
+        voyage = _StubVoyage("IN_PROGRESS", "EXCLUDE", regulation_year=2026)
+        session = _install(monkeypatch, voyage, fuel_uses=[_StubFuelUse(Decimal("0"))])
+        with pytest.raises(StateTransitionError, match="actual_fuel_ton"):
+            await svc.transition_voyage(session, voyage.id, "COMPLETED")
+
+    async def test_one_positive_actual_passes(self, monkeypatch):
+        voyage = _StubVoyage("IN_PROGRESS", "EXCLUDE", regulation_year=2026)
+        session = _install(
+            monkeypatch,
+            voyage,
+            fuel_uses=[
+                _StubFuelUse(None),
+                _StubFuelUse(Decimal("120.5")),
+            ],
+        )
+        result = await svc.transition_voyage(session, voyage.id, "COMPLETED")
+        assert result["status"] == "COMPLETED"
+
+
+class TestConfirmCompletenessGuard:
+    """COMPLETED → CONFIRMED — 전 실적 완전성 + 실항거리 (#326)."""
+
+    async def test_missing_fuel_actual_is_rejected(self, monkeypatch):
+        voyage = _StubVoyage("COMPLETED", "INCLUDE_AS_ACTUAL", regulation_year=2026)
+        voyage.actual_distance_nm = Decimal("5000")
+        session = _install(
+            monkeypatch,
+            voyage,
+            fuel_uses=[_StubFuelUse(Decimal("100")), _StubFuelUse(None)],
+        )
+        with pytest.raises(StateTransitionError, match="미입력"):
+            await svc.transition_voyage(session, voyage.id, "CONFIRMED")
+
+    async def test_missing_distance_is_rejected(self, monkeypatch):
+        voyage = _StubVoyage("COMPLETED", "INCLUDE_AS_ACTUAL", regulation_year=2026)
+        session = _install(monkeypatch, voyage)  # 연료는 완전, 거리 None
+        with pytest.raises(StateTransitionError, match="actual_distance_nm"):
+            await svc.transition_voyage(session, voyage.id, "CONFIRMED")
+
+    async def test_zero_distance_is_rejected(self, monkeypatch):
+        voyage = _StubVoyage("COMPLETED", "INCLUDE_AS_ACTUAL", regulation_year=2026)
+        voyage.actual_distance_nm = Decimal("0")
+        session = _install(monkeypatch, voyage)
+        with pytest.raises(StateTransitionError, match="actual_distance_nm"):
+            await svc.transition_voyage(session, voyage.id, "CONFIRMED")
+
+    async def test_complete_actuals_pass(self, monkeypatch):
+        voyage = _StubVoyage("COMPLETED", "INCLUDE_AS_ACTUAL", regulation_year=2026)
+        voyage.actual_distance_nm = Decimal("5000")
+        session = _install(monkeypatch, voyage)
+        result = await svc.transition_voyage(session, voyage.id, "CONFIRMED")
+        assert result["status"] == "CONFIRMED"

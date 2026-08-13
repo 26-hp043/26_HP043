@@ -314,10 +314,49 @@ async def transition_voyage(
             "허용되지 않습니다. annual_inclusion_policy를 명시적으로 지정하세요."
         )
 
+    await _guard_actual_data(session, voyage, to_status)
+
     voyage.status = to_status
     await session.commit()
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
     return to_dict(voyage, fuel_uses)
+
+
+async def _guard_actual_data(session: AsyncSession, voyage, to_status: str) -> None:
+    """실적(actual) 가드 — API_SPEC §3.5 전환 규칙 (ORACLE-C-4, #326).
+
+    - ``IN_PROGRESS → COMPLETED``: 최소 1개 ``actual_fuel_ton > 0``
+    - ``COMPLETED → CONFIRMED``: 모든 ``actual_fuel_ton > 0`` 및
+      ``actual_distance_nm > 0`` (확정은 실적이 완전할 때만)
+    """
+    if to_status == "COMPLETED":
+        fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
+        has_actual = any(
+            fu.actual_fuel_ton is not None and fu.actual_fuel_ton > 0
+            for fu in fuel_uses
+        )
+        if not has_actual:
+            raise StateTransitionError(
+                "실적 연료 사용량(actual_fuel_ton)이 1건 이상 입력되어야 "
+                "COMPLETED로 전환할 수 있습니다."
+            )
+
+    elif to_status == "CONFIRMED":
+        fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
+        incomplete = [
+            fu.fuel_type
+            for fu in fuel_uses
+            if fu.actual_fuel_ton is None or fu.actual_fuel_ton <= 0
+        ]
+        if incomplete:
+            raise StateTransitionError(
+                f"확정(CONFIRMED) 전에 모든 연료의 실적이 필요합니다 — 미입력: "
+                f"{', '.join(incomplete)}."
+            )
+        if voyage.actual_distance_nm is None or voyage.actual_distance_nm <= 0:
+            raise StateTransitionError(
+                "확정(CONFIRMED) 전에 실항거리(actual_distance_nm)가 필요합니다."
+            )
 
 
 async def delete_voyage(
