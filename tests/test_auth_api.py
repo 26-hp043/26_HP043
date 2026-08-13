@@ -82,9 +82,7 @@ def auth_client(
     async def fake_exchange(_code: str, _verifier: str) -> dict[str, str]:
         return {"id_token": "fake-id-token"}
 
-    async def fake_verify(
-        _token: str, *, expected_nonce: str | None = None
-    ) -> dict[str, Any]:
+    async def fake_verify(_token: str, *, expected_nonce: str | None = None) -> dict[str, Any]:
         return {
             "sub": "google-sub-123",
             "email": "first@example.com",
@@ -131,7 +129,9 @@ class TestLogin:
 
     def test_login_rejects_external_redirect_to(self, auth_client: TestClient):
         # 절대 URL redirect_to는 버려진다 — state에 담기지 않는다.
-        resp = auth_client.get("/api/v1/auth/login", params={"redirect_to": "https://evil.example.com"})
+        resp = auth_client.get(
+            "/api/v1/auth/login", params={"redirect_to": "https://evil.example.com"}
+        )
         location = resp.headers["location"]
         assert "evil.example.com" not in location
 

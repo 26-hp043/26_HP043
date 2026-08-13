@@ -28,6 +28,7 @@ from cii_platform.auth.oidc import (
 TEST_CLIENT_ID = "test-client-id.apps.googleusercontent.com"
 TEST_KID = "test-kid-1"
 
+
 #: 공개키를 url-safe base64로 인코딩하는 데 쓴다 (JWKS 형식).
 def _b64url(value: int) -> str:
     raw = value.to_bytes((value.bit_length() + 7) // 8, "big")
