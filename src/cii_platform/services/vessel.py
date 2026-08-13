@@ -23,7 +23,7 @@ from cii_platform.db.repositories.vessel import (
     decode_cursor,
     encode_cursor,
 )
-from cii_platform.errors import NotFoundError, ParameterError, ValidationError
+from cii_platform.errors import ConflictError, NotFoundError, ValidationError
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -166,9 +166,9 @@ async def create_vessel(
     - **VAL-004 (``ship_type`` 존재)**: ``cii_reference_line`` 테이블에 해당 선종의
       행이 있어야 한다. 없으면 ``ValidationError``(422).
     - **중복 IMO**: 활성 선박(soft delete 제외) 중 같은 IMO가 있으면
-      ``ParameterError``(409). **409 → PARAMETER_ERROR 매핑이 API_SPEC §1.4에서
-      유일한 409 코드**라 이를 재사용한다. 전용 CONFLICT 코드 신설은 별도 정본
-      변경 이슈로 둔다.
+      ``ConflictError``(409, code=`CONFLICT`). 기존에는 ``PARAMETER_ERROR``를
+      재사용했으나 #286에서 전용 코드를 신설했다 — 클라이언트가 code로 분기할 때
+      중복을 파라미터 문제로 오인하지 않게.
     - **``is_cii_applicable_hint`` 자동 산정**: ``gross_tonnage >= 5,000``(§2.3).
 
     ``commit``을 여기서 한다 — 단일 리소스 생성이 트랜잭션 경계다.
@@ -183,7 +183,7 @@ async def create_vessel(
 
     existing = await vessel_repo.find_active_by_imo(session, imo_number)
     if existing is not None:
-        raise ParameterError(f"이미 등록된 IMO 번호입니다: {imo_number}")
+        raise ConflictError(f"이미 등록된 IMO 번호입니다: {imo_number}")
 
     is_cii_applicable_hint = bool(
         gross_tonnage is not None and gross_tonnage >= CII_APPLICABLE_GT_THRESHOLD

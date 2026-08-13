@@ -398,13 +398,13 @@ class TestCreateVessel:
         assert recorded["insert_kwargs"]["is_cii_applicable_hint"] is False
 
     def test_duplicate_imo_is_409(self, create_wired):
-        """#50 완료 기준 — 중복 IMO → PARAMETER_ERROR(409)."""
+        """#50 완료 기준 — 중복 IMO → CONFLICT(409)."""
         client, _, existing_imos = create_wired
         existing_imos.add("1234567")  # 이미 존재하는 IMO로 세팅
         resp = client.post(LIST_URL, json=self.PAYLOAD)
         assert resp.status_code == 409
         body = resp.json()
-        assert body["error"]["code"] == "PARAMETER_ERROR"
+        assert body["error"]["code"] == "CONFLICT"
         assert "1234567" in body["error"]["message"]
 
     def test_unknown_ship_type_is_422(self, create_wired):
