@@ -70,15 +70,11 @@ def _app() -> FastAPI:
 async def _cleanup(session, vessel_id: str) -> None:
     # calculation_run은 immutable 트리거가 DELETE를 막는다 — 검증을 마친 테스트
     # 데이터 정리를 위해 잠시 비활성화하고 즉시 복구한다.
-    await session.execute(
-        text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable")
-    )
+    await session.execute(text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable"))
     await session.execute(
         text("DELETE FROM calculation_run WHERE vessel_id = :vid"), {"vid": vessel_id}
     )
-    await session.execute(
-        text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable")
-    )
+    await session.execute(text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable"))
     await session.execute(text("DELETE FROM voyage WHERE vessel_id = :vid"), {"vid": vessel_id})
     await session.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
     await session.commit()
