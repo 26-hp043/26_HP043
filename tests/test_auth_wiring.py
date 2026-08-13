@@ -90,9 +90,6 @@ async def _cleanup_stub_user() -> None:
             )
         )
         await s.execute(text("DELETE FROM app_user WHERE google_sub = 'stub-dev-user-00000000'"))
-        # 상태 변경 테스트가 커밋한 선박도 정리 — 같은 IMO를 쓰는 다른 DB 테스트와
-        # 충돌하지 않게 한다.
-        await s.execute(text("DELETE FROM vessel WHERE imo_number = '7654321'"))
         await s.commit()
 
 
@@ -113,32 +110,47 @@ async def test_dev_login_issues_session_cookie(migrated_db, app_fresh_engine):
 
 
 async def test_dev_login_then_mutating_route_with_csrf(migrated_db, app_fresh_engine):
-    """dev-login 발급 CSRF 토큰으로 상태 변경이 가능하다 (#307 완료 기준)."""
+    """dev-login 발급 CSRF 토큰으로 상태 변경이 가능하다 (#307 완료 기준).
+
+    항차 생성으로 검증한다 — 선박 등록은 reference line 시드(seed 스크립트)가
+    필요하지만, CI의 마이그레이션 DB에는 없다. 항차 생성은 017이 시드하는
+    연료(HFO)만 있으면 성립한다.
+    """
+    from uuid import UUID
+
+    demo_vessel = UUID("00000000-0000-4000-8000-000000000001")  # 018 시드 선박
+    payload = {
+        "departure_port_name": "Busan",
+        "arrival_port_name": "Rotterdam",
+        "planned_distance_nm": 11000.0,
+        "planned_speed_kn": 14.0,
+        "fuel_uses": [{"fuel_type": "HFO", "planned_fuel_ton": 800.0}],
+    }
+    voyage_id = None
     try:
         with TestClient(app, base_url="https://testserver") as client:
             assert client.post("/api/v1/auth/dev-login").status_code == 200
             csrf_token = client.cookies.get("csrf")
 
-            resp = client.post(
-                "/api/v1/vessels",
-                json={
-                    "imo_number": "7654321",
-                    "name": "CSRF T",
-                    "ship_type": "BULK_CARRIER",
-                },
-            )
+            resp = client.post(f"/api/v1/vessels/{demo_vessel}/voyages", json=payload)
             assert resp.status_code == 403
 
             resp2 = client.post(
-                "/api/v1/vessels",
-                json={
-                    "imo_number": "7654321",
-                    "name": "CSRF T",
-                    "ship_type": "BULK_CARRIER",
-                },
+                f"/api/v1/vessels/{demo_vessel}/voyages",
+                json=payload,
                 headers={"X-CSRF-Token": csrf_token},
             )
             assert resp2.status_code == 201, resp2.text
-            assert resp2.json()["data"]["imo_number"] == "7654321"
+            voyage_id = resp2.json()["data"]["id"]
     finally:
         await _cleanup_stub_user()
+        if voyage_id:
+            from sqlalchemy import text
+
+            from cii_platform.db.session import get_sessionmaker
+
+            sessionmaker = get_sessionmaker()
+            async with sessionmaker() as s:
+                # 연료 내역은 FK CASCADE로 함께 사라진다.
+                await s.execute(text("DELETE FROM voyage WHERE id = :id"), {"id": voyage_id})
+                await s.commit()
