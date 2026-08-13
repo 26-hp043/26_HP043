@@ -90,6 +90,9 @@ async def _cleanup_stub_user() -> None:
             )
         )
         await s.execute(text("DELETE FROM app_user WHERE google_sub = 'stub-dev-user-00000000'"))
+        # 상태 변경 테스트가 커밋한 선박도 정리 — 같은 IMO를 쓰는 다른 DB 테스트와
+        # 충돌하지 않게 한다.
+        await s.execute(text("DELETE FROM vessel WHERE imo_number = '7654321'"))
         await s.commit()
 
 
