@@ -72,15 +72,14 @@ def test_middleware_stack_order() -> None:
 
 # --- DB 필요 테스트 (CI에서 실행) ----------------------------------------------------
 #
-# dev-login은 실제 세션팩토리로 커밋한다. 스텁 사용자가 남으면 다른 테스트(고정 UUID
-# INSERT 등)와 충돌하므로 finally에서 정리하고, 루프가 테스트마다 달라지는
-# pytest-asyncio 환경을 고려해 엔진 풀도 dispose한다.
+# app_fresh_engine(NullPool)로 포털 루프 충돌을 피한다(conftest 참조).
+# dev-login은 실제로 커밋하므로 finally에서 스텁 사용자를 정리한다.
 
 
 async def _cleanup_stub_user() -> None:
     from sqlalchemy import text
 
-    from cii_platform.db.session import get_engine, get_sessionmaker
+    from cii_platform.db.session import get_sessionmaker
 
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as s:
@@ -92,10 +91,9 @@ async def _cleanup_stub_user() -> None:
         )
         await s.execute(text("DELETE FROM app_user WHERE google_sub = 'stub-dev-user-00000000'"))
         await s.commit()
-    await get_engine().dispose()
 
 
-async def test_dev_login_issues_session_cookie(migrated_db: None) -> None:
+async def test_dev_login_issues_session_cookie(migrated_db, app_fresh_engine):
     """dev-login이 실제 앱에서 세션 쿠키를 발급한다 — 배선 후에도 공개 경로."""
     try:
         with TestClient(app) as client:
@@ -111,7 +109,7 @@ async def test_dev_login_issues_session_cookie(migrated_db: None) -> None:
         await _cleanup_stub_user()
 
 
-async def test_dev_login_then_mutating_route_with_csrf(migrated_db: None) -> None:
+async def test_dev_login_then_mutating_route_with_csrf(migrated_db, app_fresh_engine):
     """dev-login 발급 CSRF 토큰으로 상태 변경이 가능하다 (#307 완료 기준)."""
     try:
         with TestClient(app) as client:
