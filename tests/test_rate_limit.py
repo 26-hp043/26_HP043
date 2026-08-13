@@ -14,7 +14,6 @@ from fastapi.testclient import TestClient
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.rate_limit import (
     RateLimiter,
-    _client_ip,
     rate_limit_middleware,
 )
 from cii_platform.api.routes.health import router as health_router
@@ -60,39 +59,59 @@ def test_zero_limit_disables_middleware() -> None:
 
 
 def test_counts_are_per_ip() -> None:
-    """IP별로 카운터가 독립이다 — 다른 IP는 다시 0부터 (#238)."""
-    app = _app_with_limit(limit=1)
-    fwd_ip1 = {"X-Forwarded-For": "1.1.1.1"}
-    fwd_ip2 = {"X-Forwarded-For": "2.2.2.2"}
-    with TestClient(app) as client:
-        # IP 1: 1회 OK, 2회 차 429
-        assert client.get("/api/v1/health", headers=fwd_ip1).status_code == 200
-        assert client.get("/api/v1/health", headers=fwd_ip1).status_code == 429
-        # IP 2: 별도 카운터 — 1회 OK
-        assert client.get("/api/v1/health", headers=fwd_ip2).status_code == 200
+    """IP별로 카운터가 독립이다 — 다른 client.host는 다시 0부터 (#238).
+
+    X-Forwarded-For는 기본적으로 무시되므로, rate_limiter를 직접 테스트한다.
+    """
+    from cii_platform.errors import RateLimitError
+
+    limiter = RateLimiter(limit_per_minute=1)
+    limiter.consume("1.1.1.1")
+    with pytest.raises(RateLimitError):
+        limiter.consume("1.1.1.1")
+    # 다른 IP는 별도 카운터 — OK
+    limiter.consume("2.2.2.2")
 
 
-def test_client_ip_prefers_x_forwarded_for() -> None:
-    """``X-Forwarded-For`` 첫 값을 클라이언트 IP로 본다 (#238)."""
+def test_client_ip_ignores_forwarded_by_default() -> None:
+    """기본적으로 X-Forwarded-For를 무시한다 — 한도 우회 방어 (#rate-limit-security)."""
+    import cii_platform.api.rate_limit as rl
 
     class _FakeClient:
-        def __init__(self, host: str | None):
-            self.host = host if host is not None else ""
+        def __init__(self, host: str):
+            self.host = host
 
     class _FakeRequest:
-        def __init__(self, headers: dict[str, str], client_host: str | None):
+        def __init__(self, headers: dict[str, str], client_host: str):
             self.headers = headers
-            self.client = _FakeClient(client_host) if client_host is not None else None
+            self.client = _FakeClient(client_host)
 
-    # X-Forwarded-For 우선.
+    # XFF가 있어도 client.host를 쓴다 (기본).
+    req = _FakeRequest({"x-forwarded-for": "9.9.9.9"}, "127.0.0.1")
+    assert rl._client_ip(req) == "127.0.0.1"
+
+
+def test_client_ip_uses_forwarded_when_enabled(monkeypatch) -> None:
+    """USE_FORWARDED_FOR=true일 때만 X-Forwarded-For를 신뢰한다 (#rate-limit-security)."""
+    import cii_platform.api.rate_limit as rl
+
+    monkeypatch.setattr(rl, "_USE_FORWARDED_FOR", True)
+
+    class _FakeClient:
+        def __init__(self, host: str):
+            self.host = host
+
+    class _FakeRequest:
+        def __init__(self, headers: dict[str, str], client_host: str):
+            self.headers = headers
+            self.client = _FakeClient(client_host)
+
+    # XFF 우선.
     req = _FakeRequest({"x-forwarded-for": "9.9.9.9, 10.0.0.1"}, "127.0.0.1")
-    assert _client_ip(req) == "9.9.9.9"
+    assert rl._client_ip(req) == "9.9.9.9"
     # 없으면 client.host.
     req = _FakeRequest({}, "127.0.0.1")
-    assert _client_ip(req) == "127.0.0.1"
-    # 둘 다 없으면 "unknown".
-    req = _FakeRequest({}, None)
-    assert _client_ip(req) == "unknown"
+    assert rl._client_ip(req) == "127.0.0.1"
 
 
 def test_limiter_window_resets_after_expiry() -> None:
