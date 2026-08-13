@@ -23,6 +23,8 @@ from __future__ import annotations
 # 값은 TECH_SPEC §12.1과 API_SPEC §1.4 표에서 그대로 복사한다. 임의 재작성 금지.
 ERROR_HTTP_STATUS: dict[str, int] = {
     "BAD_REQUEST": 400,  # API_SPEC §1.4: JSON 파싱 오류, 잘못된 Content-Type
+    "UNAUTHORIZED": 401,  # API_SPEC §1.4: 세션 없음·만료·무횜 (#275)
+    "CSRF_ERROR": 403,  # API_SPEC §1.4: CSRF 토큰 누락·불일치 (#275)
     "NOT_FOUND": 404,  # API_SPEC §1.4: 존재하지 않는 리소스 ID
     "PARAMETER_ERROR": 409,  # TECH_SPEC §12.1: 규정 파라미터 누락/불일치
     "CONFLICT": 409,  # API_SPEC §1.4: 리소스 중복 (동일 IMO 재등록 등)
