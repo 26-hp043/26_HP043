@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 # 다음 major가 깨지기 쉬운 패키지(fastapi · pydantic · starlette)에 맞춰 여유를 둔다.
 dependencies = [
     "numpy==2.1.0",
-    "sqlalchemy[asyncio]>=2.0,<2.1",
+    "sqlalchemy[asyncio]>=2.0.51,<2.1",
     "asyncpg>=0.30,<0.32",
     "alembic>=1.13,<2.0",
     "fastapi>=0.141.1,<0.150",
