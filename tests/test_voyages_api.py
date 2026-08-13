@@ -219,8 +219,13 @@ class TestTransitionPolicy:
         async def override_session():
             yield _FakeSession()
 
+        # CSRF 검증 격리 — voyage_app과 같은 맥락 (test_auth_*가 CSRF를 잠근다).
+        async def override_csrf() -> None:
+            return None
+
         app = FastAPI()
         app.dependency_overrides[get_session] = override_session
+        app.dependency_overrides[require_csrf] = override_csrf
         register_exception_handlers(app)
         app.include_router(voyages_router, prefix="/api/v1")
         with TestClient(app) as client:
@@ -294,8 +299,13 @@ class TestUpdateNullSemantics:
         async def override_session():
             yield _FakeSession()
 
+        # CSRF 검증 격리 — voyage_app과 같은 맥락 (test_auth_*가 CSRF를 잠근다).
+        async def override_csrf() -> None:
+            return None
+
         app = FastAPI()
         app.dependency_overrides[get_session] = override_session
+        app.dependency_overrides[require_csrf] = override_csrf
         register_exception_handlers(app)
         app.include_router(voyages_router, prefix="/api/v1")
         with TestClient(app) as client:
