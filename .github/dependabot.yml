@@ -36,6 +36,11 @@ updates:
     labels: ["dependencies", "frontend"]
     commit-message:
       prefix: "deps(npm)"
+    ignore:
+      # @types/node는 Node 22 런타임과 동기화. Node 26 API 타입을 보고 코드를 쓰면
+      # 런타임에 없는 API를 타입 체커가 통과시킨다 (#285). Node 런타임을 올릴 때 함께 올린다.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions workflows
   - package-ecosystem: "github-actions"
