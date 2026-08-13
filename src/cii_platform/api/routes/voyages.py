@@ -119,7 +119,9 @@ async def update_voyage_route(
     _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """항차를 수정한다 (API_SPEC §3.4, #54). 없으면 404."""
-    update_fields = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # exclude_unset: 생략된 필드는 아예 전달하지 않는다(변경 없음).
+    # 명시적 null은 그대로 전달돼 클리어를 뜻한다 (#312).
+    update_fields = payload.model_dump(exclude_unset=True)
     data = await update_voyage(session, voyage_id, **update_fields)
     return {"data": data, "meta": _meta(request)}
 
