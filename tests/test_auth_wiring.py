@@ -18,7 +18,7 @@ from cii_platform.auth.session import SESSION_COOKIE_NAME
 
 def test_protected_route_is_401_without_session() -> None:
     """미들웨어 미배선이면 200이 나와 실패한다 — 배선 존재를 증명하는 테스트."""
-    with TestClient(app) as client:
+    with TestClient(app, base_url="https://testserver") as client:
         resp = client.get("/api/v1/vessels")
         assert resp.status_code == 401
         assert resp.json()["error"]["code"] == "UNAUTHORIZED"
@@ -28,7 +28,7 @@ def test_protected_route_is_401_without_session() -> None:
 
 def test_health_is_public() -> None:
     """/health는 인증 없이 통과한다 (PUBLIC_PATHS)."""
-    with TestClient(app) as client:
+    with TestClient(app, base_url="https://testserver") as client:
         resp = client.get("/api/v1/health")
         assert resp.status_code == 200
 
@@ -36,7 +36,7 @@ def test_health_is_public() -> None:
 def test_mutating_route_without_csrf_is_403(monkeypatch: pytest.MonkeyPatch) -> None:
     """세션은 유효해도 CSRF 토큰이 없으면 상태 변경은 403 (#307)."""
     install_fake_auth(monkeypatch)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="https://testserver") as client:
         client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
         resp = client.post(
             "/api/v1/vessels",
@@ -49,7 +49,7 @@ def test_mutating_route_without_csrf_is_403(monkeypatch: pytest.MonkeyPatch) -> 
 def test_mutating_route_with_wrong_csrf_is_403(monkeypatch: pytest.MonkeyPatch) -> None:
     """CSRF 토큰 불일치는 403 (#307)."""
     install_fake_auth(monkeypatch)
-    with TestClient(app) as client:
+    with TestClient(app, base_url="https://testserver") as client:
         client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
         resp = client.post(
             "/api/v1/vessels",
@@ -99,7 +99,7 @@ async def _cleanup_stub_user() -> None:
 async def test_dev_login_issues_session_cookie(migrated_db, app_fresh_engine):
     """dev-login이 실제 앱에서 세션 쿠키를 발급한다 — 배선 후에도 공개 경로."""
     try:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             resp = client.post("/api/v1/auth/dev-login")
             assert resp.status_code == 200, resp.text
             assert SESSION_COOKIE_NAME in client.cookies
@@ -115,7 +115,7 @@ async def test_dev_login_issues_session_cookie(migrated_db, app_fresh_engine):
 async def test_dev_login_then_mutating_route_with_csrf(migrated_db, app_fresh_engine):
     """dev-login 발급 CSRF 토큰으로 상태 변경이 가능하다 (#307 완료 기준)."""
     try:
-        with TestClient(app) as client:
+        with TestClient(app, base_url="https://testserver") as client:
             assert client.post("/api/v1/auth/dev-login").status_code == 200
             csrf_token = client.cookies.get("csrf")
 
