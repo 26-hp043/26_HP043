@@ -114,9 +114,7 @@ async def callback(
 ) -> RedirectResponse | JSONResponse:
     """구글 콜백 — 토큰 교환 → 검증 → 사용자 upsert → 세션 발급 (#274)."""
     if code is None or state is None:
-        return _error_response(
-            request, 400, "BAD_REQUEST", "code와 state가 필요합니다."
-        )
+        return _error_response(request, 400, "BAD_REQUEST", "code와 state가 필요합니다.")
 
     # state 검증
     oidc_state_cookie = request.cookies.get("oidc_state", "")
@@ -221,9 +219,7 @@ async def me(
             "id": str(user.id),
             "email": user.email,
             "display_name": user.display_name,
-            "last_login_at": user.last_login_at.isoformat()
-            if user.last_login_at
-            else None,
+            "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
         },
         "meta": {
             "request_id": getattr(request.state, "request_id", None),

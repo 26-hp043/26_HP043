@@ -29,7 +29,9 @@ GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configura
 GOOGLE_ISSUERS: tuple[str, ...] = ("https://accounts.google.com", "accounts.google.com")
 
 #: 리다이렉트 URI — 배포 환경에서 설정. 기본값은 로컬 개발용.
-REDIRECT_URI: str = os.environ.get("OIDC_REDIRECT_URI", "http://localhost:8000/api/v1/auth/callback")
+REDIRECT_URI: str = os.environ.get(
+    "OIDC_REDIRECT_URI", "http://localhost:8000/api/v1/auth/callback"
+)
 
 #: JWKS 캐시 (프로세스당 1회 조회).
 _jwks_cache: dict[str, Any] | None = None
