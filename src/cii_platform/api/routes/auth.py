@@ -233,15 +233,29 @@ async def me(
 async def logout(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> JSONResponse:
-    """세션을 즉시 무효화하고 쿠키를 만료시킨다 (#274). 멱등이다."""
-    user_session = getattr(request.state, "session_row", None)
+) -> Response:
+    """세션을 즉시 무효화하고 쿠키를 만료시킨다 (#274). 멱등이다.
 
-    if user_session is not None:
-        import datetime as dt
+    ``request.state.session_row``은 **미들웨어 세션에서 로드한 detached 객체**다 —
+    속성만 바꿔 라우트 세션으로 commit하면 이 세션에 dirty 객체가 없어 아무것도
+    쓰이지 않는다(무효화 누락). 라우트 세션으로 **재조회해** 갱신한다 (#279에서
+    발견).
+    """
+    import datetime as dt
 
-        user_session.revoked_at = dt.datetime.now(dt.UTC)
-        await session.commit()
+    from cii_platform.auth.session import hash_token
+
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if token is not None:
+        token_hash = hash_token(token)
+        stmt = select(UserSession).where(
+            UserSession.session_token_hash == token_hash,
+            UserSession.revoked_at.is_(None),
+        )
+        row = (await session.execute(stmt)).scalar_one_or_none()
+        if row is not None:
+            row.revoked_at = dt.datetime.now(dt.UTC)
+            await session.commit()
 
     # 204 No Content — 본문이 없다. JSONResponse는 content 인자가 필수라
     # 쓸 수 없고, 204에 본문을 싣는 것 자체가 규격 위반이다.
