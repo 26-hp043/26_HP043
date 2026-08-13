@@ -144,11 +144,7 @@ def test_main_app_registers_request_context_once() -> None:
     """
     from cii_platform.api.main import app
 
-    registered = [
-        m
-        for m in app.user_middleware
-        if m.cls is RequestContextMiddleware
-    ]
+    registered = [m for m in app.user_middleware if m.cls is RequestContextMiddleware]
     assert len(registered) == 1
 
 
