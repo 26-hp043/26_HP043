@@ -41,21 +41,23 @@ async def _insert_run(
     parameter_hash: str,
     calculation_type: str = "VOYAGE_ESTIMATE",
 ) -> str:
+    # JSONB 값은 CAST(:param AS jsonb)로 바인딩한다 — 리터럴 안에 ':1' 같은 열쇠가
+    # 있으면 text()가 bind parameter로 오해해 파싱이 깨진다.
     row = await session.execute(
         text(
             "INSERT INTO calculation_run "
             "(calculation_type, vessel_id, voyage_id, "
             " input_hash, parameter_hash, model_version, result_json, parameters_used) "
             "VALUES (:ctype, :vid, NULL, :ih, :ph, "
-            " '{\"major\":1}'::jsonb, "
-            ' \'{"attained_cii": "4.9824", "estimated_rating": "C"}\'::jsonb, '
-            " '{}'::jsonb) RETURNING id"
+            " CAST(:mv AS jsonb), CAST(:rj AS jsonb), '{}'::jsonb) RETURNING id"
         ),
         {
             "ctype": calculation_type,
             "vid": vessel_id,
             "ih": input_hash,
             "ph": parameter_hash,
+            "mv": '{"major": 1}',
+            "rj": '{"attained_cii": "4.9824", "estimated_rating": "C"}',
         },
     )
     return str(row.scalar_one())
