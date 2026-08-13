@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import Response
 
 from cii_platform.api.error_handlers import to_error_response
 from cii_platform.api.timefmt import iso_utc_now
@@ -242,7 +243,9 @@ async def logout(
         user_session.revoked_at = dt.datetime.now(dt.UTC)
         await session.commit()
 
-    response = JSONResponse(status_code=204)
+    # 204 No Content — 본문이 없다. JSONResponse는 content 인자가 필수라
+    # 쓸 수 없고, 204에 본문을 싣는 것 자체가 규격 위반이다.
+    response = Response(status_code=204)
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
     response.delete_cookie("csrf", path="/")
     return response
