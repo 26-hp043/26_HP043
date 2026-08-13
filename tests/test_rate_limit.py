@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from cii_platform.api.error_handlers import register_exception_handlers
+from cii_platform.api.middleware import RequestContextMiddleware
 from cii_platform.api.rate_limit import (
     RateLimiter,
     rate_limit_middleware,
@@ -129,3 +130,44 @@ def test_limiter_window_resets_after_expiry() -> None:
     limiter.consume("x")  # 리셋 후 OK
     with pytest.raises(RateLimitError):  # 다시 한도 초과
         limiter.consume("x")
+
+
+# --- #309: RequestContextMiddleware 중복 등록 제거 검증 ------------------------------------
+# 중복 등록 시 요청마다 request_id가 두 번 생성되고, 429 응답의 meta.request_id가
+# 채워지는 순서 계약이 지켜지는지를 main.app 기준으로 고정한다.
+
+
+def test_main_app_registers_request_context_once() -> None:
+    """main.app에 RequestContextMiddleware가 정확히 1건만 등록돼 있다 (#309).
+
+    중복 등록(2회)이 다시 들어오면 이 테스트가 잡는다.
+    """
+    from cii_platform.api.main import app
+
+    registered = [
+        m
+        for m in app.user_middleware
+        if m.cls is RequestContextMiddleware
+    ]
+    assert len(registered) == 1
+
+
+def test_429_response_meta_has_request_id() -> None:
+    """429 응답의 meta.request_id가 채워진다 — rate_limit이 RequestContext 안쪽 (#309).
+
+    main.py와 같은 순서(RequestContext를 **나중에** 등록 → 바깥에서 실행)로
+    조립한 앱에서 429가 request_id를 담는지 검증한다. 중복 등록을 없앤 뒤에도
+    순서 계약이 유지되는지가 이 테스트의 대상이다.
+    """
+    app = FastAPI()
+    app.state.rate_limiter = RateLimiter(1)
+    app.middleware("http")(rate_limit_middleware)
+    app.add_middleware(RequestContextMiddleware)
+    register_exception_handlers(app)
+    app.include_router(health_router, prefix="/api/v1")
+
+    with TestClient(app) as client:
+        assert client.get("/api/v1/health").status_code == 200
+        resp = client.get("/api/v1/health")
+        assert resp.status_code == 429
+        assert resp.json()["meta"]["request_id"]
