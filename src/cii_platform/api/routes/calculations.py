@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.schemas.voyage_cii import VoyageCiiRequest
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 from cii_platform.services.voyage_cii import (
     FuelUseInput,
@@ -33,6 +34,7 @@ async def voyage_cii(
     request: Request,
     payload: VoyageCiiRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """항차 CII를 추정한다 (API_SPEC §4.1).
 

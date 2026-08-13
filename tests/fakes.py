@@ -120,3 +120,95 @@ class FakeSession:
 
     async def close(self) -> None:
         return None
+
+
+# --- 인증 미들웨어 대역 (#307) -------------------------------------------------------
+#
+# auth_middleware는 내부에서 get_sessionmaker()로 DB 세션을 만들어 UserSession·
+# AppUser를 조회한다. DB 없이 main.app을 쓰는 API 계약 테스트가 배선 후에도 401에
+# 막히지 않게, 이 조회를 고정 행을 돌려주는 대역으로 교체한다.
+
+#: 테스트용 세션·CSRF 토큰 원문 — 쿠키/헤더에 넣는 값.
+FAKE_SESSION_TOKEN = "fake-session-token-for-contract-tests"
+FAKE_CSRF_TOKEN = "fake-csrf-token-for-contract-tests"
+
+#: 대역 사용자 — 미들웨어가 request.state에 주입하는 AppUser 대신.
+FAKE_USER_ID = UUID("00000000-0000-4000-8000-00000000face")
+
+
+@dataclass
+class FakeUserSessionRow:
+    """``UserSession`` 대역 — 미들웨어·require_csrf가 읽는 속성만 갖는다."""
+
+    user_id: UUID = FAKE_USER_ID
+    csrf_token_hash: str = ""
+    expires_at: dt.datetime = field(
+        default_factory=lambda: dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
+    )
+    revoked_at: dt.datetime | None = None
+
+
+@dataclass
+class FakeAppUserRow:
+    """``AppUser`` 대역."""
+
+    id: UUID = FAKE_USER_ID
+    is_deleted: bool = False
+
+
+class _FakeAuthResult:
+    """``execute()`` 결과 대역 — 엔티티에 따라 고정 행을 돌려준다."""
+
+    def __init__(self, row: Any) -> None:
+        self._row = row
+
+    def scalar_one_or_none(self) -> Any:
+        return self._row
+
+
+class _FakeAuthDbSession:
+    """미들웨어 안에서 실행되는 select를 엔티티별로 분기해 응답한다."""
+
+    async def execute(self, stmt: Any) -> _FakeAuthResult:
+        from cii_platform.db.models.app_user import AppUser
+        from cii_platform.db.models.user_session import UserSession
+
+        entity = stmt.column_descriptions[0]["entity"]
+        if entity is UserSession:
+            from cii_platform.auth.session import hash_token
+
+            return _FakeAuthResult(FakeUserSessionRow(csrf_token_hash=hash_token(FAKE_CSRF_TOKEN)))
+        if entity is AppUser:
+            return _FakeAuthResult(FakeAppUserRow())
+        raise AssertionError(f"예상치 못한 조회: {entity}")
+
+
+class _FakeAuthSessionmaker:
+    """``async with sessionmaker() as s`` 형태만 지원하는 세션팩토리 대역."""
+
+    def __call__(self) -> _FakeAuthSessionmaker:
+        return self
+
+    async def __aenter__(self) -> _FakeAuthDbSession:
+        return _FakeAuthDbSession()
+
+    async def __aexit__(self, *exc: object) -> bool:
+        return False
+
+
+def install_fake_auth(monkeypatch: Any) -> None:
+    """auth_middleware의 DB 조회를 대역으로 교체한다 (#307).
+
+    ``cii_platform.auth.middleware``는 함수 안에서
+    ``from cii_platform.db.session import get_sessionmaker``을 부르므로
+    원본 모듈의 속성을 갈아끼운다. 요청에는
+    ``FAKE_SESSION_TOKEN`` 쿠키와 ``FAKE_CSRF_TOKEN`` 헤더를 함께 보낸다.
+    """
+    import cii_platform.db.session as db_session_mod
+
+    monkeypatch.setattr(db_session_mod, "get_sessionmaker", _FakeAuthSessionmaker)
+
+
+def auth_cookie_header() -> dict[str, str]:
+    """상태 변경 요청용 기본 헤더 — CSRF 토큰."""
+    return {"X-CSRF-Token": FAKE_CSRF_TOKEN}

@@ -11,27 +11,37 @@ from fastapi import FastAPI
 
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.middleware import RequestContextMiddleware
-from cii_platform.api.rate_limit import DEFAULT_RATE_LIMIT, RateLimiter, rate_limit_middleware
+from cii_platform.api.rate_limit import (
+    DEFAULT_RATE_LIMIT,
+    RateLimiter,
+    rate_limit_middleware,
+)
+from cii_platform.api.routes.auth_dev import router as auth_dev_router
+from cii_platform.api.routes.auth_dev import should_register_dev_auth
 from cii_platform.api.routes.calculations import router as calculations_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
+from cii_platform.auth.middleware import auth_middleware
 
 # API_SPEC §1.1: 모든 API는 /api/v1 prefix 아래에 둔다.
 API_V1_PREFIX = "/api/v1"
 
 app = FastAPI(title="CII Platform API")
 
-# 요청마다 request_id/timestamp를 state에 주입(미들웨어) → 오류 응답 meta에서 사용.
-app.add_middleware(RequestContextMiddleware)
-
-# #238 — IP별 분당 요청 한도. API_SPEC §13.2 (300/min). 환경변수 RATE_LIMIT_PER_MINUTE=0이면 비활성.
-# **등록 순서가 중요** — rate_limit_middleware는 RequestContextMiddleware보다
-# **안쪽**에 있어야 한다. RequestContext가 먼저 request.state.request_id를 주입해야
-# 429 응답의 meta.request_id가 채워진다 (API_SPEC §1.3.2). app.middleware("http")로
-# 등록한 미들웨어는 add_middleware보다 바깥에 실행되므로 — rate_limit을 먼저
-# middleware("http")로 등록하고 RequestContext를 나중에 add_middleware로 등록하면
-# RequestContext가 바깥이 돼 의도한 순서가 된다.
+# 미들웨어 스택 (#238 · #275 · #307) — 바깥 → 안쪽 순서:
+#   RequestContext → rate_limit → auth → 라우트
+# Starlette의 add_middleware는 user_middleware.insert(0, …)라 **나중에 등록한
+# 미들웨어가 바깥**에서 실행된다 (등록 방식과 무관 — middleware("http") 데코레이터도
+# 내부적으로 add_middleware를 쓴다). 따라서 아래는 안쪽 것부터 등록한다.
+#
+# - RequestContext가 가장 바깥: request_id/timestamp를 먼저 주입해야 401·429 응답의
+#   meta.request_id가 채워진다 (API_SPEC §1.3.2).
+# - rate_limit이 auth보다 바깥: 미인증 트래픽(로그인 무차별 대입 포함)도 한도에
+#   포함된다.
+# - auth가 가장 안쪽: 세션을 검증하고 request.state에 사용자·세션을 주입한다.
+#   공개 경로(health · auth/*)는 통과한다 (auth/dependencies.py PUBLIC_PATHS).
+app.middleware("http")(auth_middleware)
 app.state.rate_limiter = RateLimiter(DEFAULT_RATE_LIMIT)
 app.middleware("http")(rate_limit_middleware)
 app.add_middleware(RequestContextMiddleware)
@@ -45,3 +55,7 @@ app.include_router(health_router, prefix=API_V1_PREFIX)
 app.include_router(vessels_router, prefix=API_V1_PREFIX)
 app.include_router(voyages_router, prefix=API_V1_PREFIX)
 app.include_router(calculations_router, prefix=API_V1_PREFIX)
+# #276 개발 환경 스텁 인증 — production이면 라우트 자체를 등록하지 않는다.
+# 인증 미들웨어가 공개 경로(/api/v1/auth/dev-login)로 취급한다 (#307).
+if should_register_dev_auth():
+    app.include_router(auth_dev_router, prefix=API_V1_PREFIX)
