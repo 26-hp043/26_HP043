@@ -1,14 +1,19 @@
-"""계산 이력 저장소 — 쓰기만 담당한다 (TECH_SPEC §16).
+"""계산 이력 저장소 — 쓰기 + 조회 담당 (TECH_SPEC §16).
 
 ``calculation_run``은 **append-only**다. 같은 입력으로 다시 요청하면 새 행이 생긴다
 (#55 「항상 새로 생성, 멱등성 없음」). ``input_hash``·``parameter_hash``는 중복 제거용이
 아니라 **재현성 추적용**이다 — 같은 해시의 두 행이 다른 결과를 담고 있으면 그 사이에
-코드나 파라미터가 바뀐 것이며, 그것을 찾아내는 것이 이 컬럼의 목적이다.
+코드나 파라미터가 바뀐 것이며, 그것을 찾아내는 것이 이 컬럼의 목적이다. 조회는
+API_SPEC §1.9의 hash 기반 조회(#56)가 사용한다.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import base64
+import binascii
+from typing import TYPE_CHECKING, NamedTuple
+
+from sqlalchemy import select, tuple_
 
 from cii_platform.db.models.calculation_run import CalculationRun
 
@@ -20,6 +25,47 @@ if TYPE_CHECKING:
 #: DB_SCHEMA §2.5 ``chk_calculation_type``의 허용값 중 기능①에 해당하는 것.
 #: 이 문자열이 틀리면 INSERT가 CHECK 제약에 걸린다.
 CALCULATION_TYPE_VOYAGE = "VOYAGE_ESTIMATE"
+
+#: API_SPEC §1.9 — 페이지 크기 기본 20, 최대 100 (vessel · voyage와 동일).
+DEFAULT_LIMIT = 20
+MAX_LIMIT = 100
+
+#: 커서 인코딩 구분자. ISO 8601 문자열과 UUID에 등장할 수 없는 제어문자를 쓴다.
+_CURSOR_SEP = "\x00"
+
+
+class CalcRunCursor(NamedTuple):
+    """keyset 페이지네이션 커서 — 정렬 키 ``(created_at, id)``의 마지막 값.
+
+    offset 대신 keyset을 쓰는 이유는 vessel · voyage와 같다(#51): 앞 페이지에서
+    행이 빠지면 offset은 다음 페이지가 한 건을 건너뛴다. ``created_at``은 계산이
+    동시에 끝나면 같을 수 있어 ``id``를 2차 키로 둔다.
+    """
+
+    created_at: str
+    calculation_run_id: str
+
+
+def encode_cursor(cursor: CalcRunCursor) -> str:
+    """커서를 URL-safe base64 문자열로 만든다 (vessel §2.1과 같은 정책)."""
+    raw = f"{cursor.created_at}{_CURSOR_SEP}{cursor.calculation_run_id}".encode()
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def decode_cursor(token: str) -> CalcRunCursor | None:
+    """커서를 되돌린다. 형식이 깨졌으면 ``None`` (예외를 던지지 않는다).
+
+    잘못된 커서는 사용자가 URL을 손댄 경우가 대부분이고, 그때 500이 나가면 안 된다.
+    오류로 볼지 첫 페이지로 볼지는 서비스가 정한다.
+    """
+    try:
+        raw = base64.urlsafe_b64decode(token.encode("ascii")).decode()
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    created_at, sep, calculation_run_id = raw.partition(_CURSOR_SEP)
+    if not sep or not calculation_run_id:
+        return None
+    return CalcRunCursor(created_at=created_at, calculation_run_id=calculation_run_id)
 
 
 async def insert_voyage_estimate(
@@ -61,3 +107,48 @@ async def insert_voyage_estimate(
     session.add(run)
     await session.flush()
     return run
+
+
+async def list_runs(
+    session: AsyncSession,
+    *,
+    limit: int,
+    cursor: CalcRunCursor | None = None,
+    input_hash: str | None = None,
+    parameter_hash: str | None = None,
+    calculation_type: str | None = None,
+    vessel_id: UUID | None = None,
+) -> list[CalculationRun]:
+    """계산 이력을 조회한다 (API_SPEC §1.9).
+
+    ``limit + 1``건을 가져온다 — 호출부가 ``has_more``를 별도 COUNT 없이 판단한다.
+
+    정렬은 ``(created_at desc, id desc)`` — 최신 계산이 먼저 나온다. ``created_at``
+    은 ``now()`` server_default라 동시 커밋 시 같을 수 있어 ``id``를 2차 키로 둔다.
+
+    필터는 모두 AND 결합이다. ``input_hash`` + ``parameter_hash``를 함께 주면 두
+    값이 **정확히 일치하는** 결과만 반환한다 — 재현성 검증의 핵심 용법(§1.9).
+    """
+    stmt = select(CalculationRun)
+
+    if input_hash is not None:
+        stmt = stmt.where(CalculationRun.input_hash == input_hash)
+    if parameter_hash is not None:
+        stmt = stmt.where(CalculationRun.parameter_hash == parameter_hash)
+    if calculation_type is not None:
+        stmt = stmt.where(CalculationRun.calculation_type == calculation_type)
+    if vessel_id is not None:
+        stmt = stmt.where(CalculationRun.vessel_id == vessel_id)
+
+    if cursor is not None:
+        # 행 값 비교. (created_at, id) < (:created_at, :id) 를 한 번에 표현한다 —
+        # OR 조건으로 풀어 쓰면 인덱스를 타지 못하는 형태가 되기 쉽다.
+        stmt = stmt.where(
+            tuple_(CalculationRun.created_at, CalculationRun.id)
+            < (cursor.created_at, cursor.calculation_run_id)
+        )
+
+    stmt = stmt.order_by(CalculationRun.created_at.desc(), CalculationRun.id.desc()).limit(
+        limit + 1
+    )
+    return list((await session.execute(stmt)).scalars().all())
