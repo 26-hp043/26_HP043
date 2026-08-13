@@ -22,7 +22,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           # ci.yml · frontend/package.json의 engines와 같은 값을 쓴다.
