@@ -1,8 +1,7 @@
 """요청 한도 미들웨어 — IP별 분당 요청 수 제한 (#238).
 
 API_SPEC §13.2가 **분당 300회 / 사용자**를 규정. MVP에는 인증(#104)이 없어 IP 기반으로
-적용한다. 인증 도입 시 user_id 기반으로 전환한다 — 그때까지는 X-Forwarded-For 의
-첫 값을 클라이언트 IP로 본다(역방향 프록시 뒤의 배포 전제).
+적용한다. 인증 도입 시 user_id 기반으로 전환한다.
 
 구현은 **고정 윈도 in-memory 카운터**다. uvicorn 워커마다 카운터가 따로 생기지만,
 이 프로젝트는 #232가 workers=1을 기본으로 삼으므로 MVP에선 유효하다. 멀티 워커·멀티
@@ -10,6 +9,12 @@ API_SPEC §13.2가 **분당 300회 / 사용자**를 규정. MVP에는 인증(#10
 
 ``RATE_LIMIT_PER_MINUTE=0``이면 미들웨어가 통과만 한다 — 테스트 환경이나 한도를
 끄고 싶을 때 쓴다.
+
+**``X-Forwarded-For`` 신뢰 정책** — 기본적으로 ``X-Forwarded-For``를 **무시하고**
+``request.client.host``를 쓴다. 클라이언트가 이 헤더를 임의로 바꿔 한도를 우회하는
+것을 막기 위함이다. 역방향 프록시(nginx · Cloudflare) 뒤에서 원 클라이언트 IP로
+한도를 걸어야 한다면 ``USE_FORWARDED_FOR=true``로 설정한다 — 이때는 **신뢰할 수
+있는 프록시만 앞에 있는 환경**이 전제다.
 """
 
 from __future__ import annotations
@@ -28,19 +33,28 @@ from cii_platform.errors import RateLimitError
 #: ``0``이면 비활성(미들웨어가 통과만 한다).
 DEFAULT_RATE_LIMIT = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "300"))
 
+#: ``X-Forwarded-For`` 헤더 신뢰 여부. **기본 false** — 클라이언트가 헤더를 바꿔
+#: 한도를 우회하는 것을 막는다. 역방향 프록시 뒤에서만 true로 설정한다.
+_USE_FORWARDED_FOR = os.environ.get("USE_FORWARDED_FOR", "false").lower() == "true"
+
 _WINDOW_SECONDS = 60.0
 
 
 def _client_ip(request: Request) -> str:
-    """클라이언트 IP — ``X-Forwarded-For`` 첫 값, 없으면 ``client.host``.
+    """클라이언트 IP를 판별한다.
 
-    역방향 프록시(nginx · Cloudflare · App Gateway) 뒤의 배포에선 ``X-Forwarded-For``
-    가 원 클라이언트를 담는다. uvicorn을 ``--proxy-headers``로 띄우는 것이 전제.
+    **기본적으로 ``X-Forwarded-For``를 무시한다.** 클라이언트가 이 헤더를 임의로
+    바꿔 매 요청 다른 IP로 위장하면 한도가 완전히 우회된다 (#rate-limit-security).
+
+    ``USE_FORWARDED_FOR=true``일 때만 헤더를 읽는다 — 이때는 **신뢰할 수 있는
+    역방향 프록시가 앞에 있는 환경**이 전제다. 프록시가 없는 직접 노출 환경에서는
+    ``request.client.host``가 곧 클라이언트 IP이므로 그대로 쓴다.
     """
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        # 콤마로 연결된 값에서 첫 항이 원 클라이언트. 뒤는 중간 프록시 체인이다.
-        return forwarded.split(",", 1)[0].strip()
+    if _USE_FORWARDED_FOR:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            # 콤마로 연결된 값에서 첫 항이 원 클라이언트. 뒤는 중간 프록시 체인이다.
+            return forwarded.split(",", 1)[0].strip()
     if request.client is not None:
         return request.client.host
     return "unknown"
@@ -86,6 +100,11 @@ async def rate_limit_middleware(
     handler는 **라우트 핸들러에서 raise된 예외만** 잡는다. 미들웨어에서 raise된
     ``RateLimitError``는 500으로 떨어진다. ``app_error_handler``가 ``AppError``를
     잡는 것과 같은 응답 포맷을 직접 만들어 반환한다 (API_SPEC §1.3.2).
+
+    **미들웨어 순서** — ``RequestContextMiddleware``보다 **안쪽**에 등록돼야 한다.
+    ``RequestContext``가 ``request.state.request_id``를 먼저 주입해야 429 응답의
+    ``meta.request_id``가 채워진다 (API_SPEC §1.3.2). ``main.py``에서 등록 순서를
+    보장한다.
     """
     limiter: RateLimiter | None = getattr(request.app.state, "rate_limiter", None)
     if limiter is None:
@@ -104,6 +123,4 @@ async def rate_limit_middleware(
             },
         }
         return JSONResponse(status_code=exc.http_status, content=body)
-    return await call_next(request)
-    limiter.consume(_client_ip(request))
     return await call_next(request)

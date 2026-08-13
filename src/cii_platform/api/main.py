@@ -25,10 +25,15 @@ app = FastAPI(title="CII Platform API")
 app.add_middleware(RequestContextMiddleware)
 
 # #238 — IP별 분당 요청 한도. API_SPEC §13.2 (300/min). 환경변수 RATE_LIMIT_PER_MINUTE=0이면 비활성.
-# 미들웨어는 add_middleware()로 등록하지 않고 http middleware로 직접 연결한다 — state를
-# 명시적으로 초기화하고 한도 0일 때 호출 비용을 0으로 두기 위해.
+# **등록 순서가 중요** — rate_limit_middleware는 RequestContextMiddleware보다
+# **안쪽**에 있어야 한다. RequestContext가 먼저 request.state.request_id를 주입해야
+# 429 응답의 meta.request_id가 채워진다 (API_SPEC §1.3.2). app.middleware("http")로
+# 등록한 미들웨어는 add_middleware보다 바깥에 실행되므로 — rate_limit을 먼저
+# middleware("http")로 등록하고 RequestContext를 나중에 add_middleware로 등록하면
+# RequestContext가 바깥이 돼 의도한 순서가 된다.
 app.state.rate_limiter = RateLimiter(DEFAULT_RATE_LIMIT)
 app.middleware("http")(rate_limit_middleware)
+app.add_middleware(RequestContextMiddleware)
 
 # AppError(및 하위 클래스) → API_SPEC §1.3.2 표준 오류 응답.
 # #116이 RequestValidationError(Pydantic 검증 실패)와 catch-all을 함께 등록한다.
