@@ -18,6 +18,7 @@ from cii_platform.api.schemas.voyage import (
     VoyageUpdateRequest,
 )
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 from cii_platform.services.voyage import (
     create_voyage,
@@ -78,6 +79,7 @@ async def create_voyage_route(
     vessel_id: UUID,
     payload: VoyageCreateRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """항차를 생성한다 (API_SPEC §3.3). 성공 시 201 Created."""
     data = await create_voyage(
@@ -114,6 +116,7 @@ async def update_voyage_route(
     voyage_id: UUID,
     payload: VoyageUpdateRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """항차를 수정한다 (API_SPEC §3.4, #54). 없으면 404."""
     update_fields = {k: v for k, v in payload.model_dump().items() if v is not None}
@@ -127,6 +130,7 @@ async def transition_voyage_route(
     voyage_id: UUID,
     payload: VoyageTransitionRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """항차 상태를 전환한다 (API_SPEC §3.5, #54)."""
     data = await transition_voyage(
@@ -143,6 +147,7 @@ async def delete_voyage_route(
     request: Request,
     voyage_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """항차를 삭제한다 (API_SPEC §3.7, #54)."""
     data = await delete_voyage(session, voyage_id)

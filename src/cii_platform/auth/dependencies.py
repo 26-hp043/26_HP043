@@ -38,15 +38,18 @@ class CsrfError(AppError):
         super().__init__("CSRF_ERROR", message)
 
 
-#: 인증이 필요 없는 경로 (API_SPEC §1.2).
+#: 인증이 필요 없는 경로 (API_SPEC §1.2). dev-login은 세션 발급 자체가 목적이므로
+#: 공개 경로에 둔다 (#308).
 PUBLIC_PATHS: frozenset[str] = frozenset(
     {
         "/api/v1/health",
         "/health",
         "/api/v1/auth/login",
         "/api/v1/auth/callback",
+        "/api/v1/auth/dev-login",
         "/auth/login",
         "/auth/callback",
+        "/auth/dev-login",
         "/docs",
         "/openapi.json",
         "/redoc",
@@ -58,8 +61,13 @@ SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
 def is_public_path(path: str) -> bool:
-    """경로가 인증 예외인지 확인한다."""
-    return path in PUBLIC_PATHS or path.startswith("/auth/")
+    """경로가 인증 예외인지 확인한다 — **명시적 목록만** 쓴다 (#308).
+
+    ``startswith("/auth/")`` 같은 접두사 규칙을 쓰지 않는다: 실제 요청 경로는
+    항상 ``/api/v1`` prefix를 달고 나오므로 접두사가 실효 없었고, 향후 auth 하위에
+    보호가 필요한 엔드포인트가 추가될 때 실수로 공개될 위험만 남는다.
+    """
+    return path in PUBLIC_PATHS
 
 
 async def get_current_user(
