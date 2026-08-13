@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
-from cii_platform.errors import NotFoundError, ValidationError
+from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -205,3 +205,131 @@ async def list_voyages(
         data.append(to_dict(voyage, fuel_uses))
 
     return data, {"next_cursor": next_cursor, "has_more": has_more}
+
+
+#: API_SPEC §3.5 — 허용되는 상태 전환 매핑.
+_TRANSITIONS: dict[str, frozenset[str]] = {
+    "DRAFT": frozenset({"PLANNED", "CANCELLED"}),
+    "PLANNED": frozenset({"IN_PROGRESS", "CANCELLED"}),
+    "IN_PROGRESS": frozenset({"COMPLETED", "CANCELLED"}),
+    "COMPLETED": frozenset({"CONFIRMED"}),
+    "CONFIRMED": frozenset({"COMPLETED", "ARCHIVED"}),
+    "CANCELLED": frozenset(),
+    "ARCHIVED": frozenset(),
+}
+
+#: API_SPEC §3.5 — status × annual_inclusion_policy 허용 조합 (PRD §8.1.2).
+_POLICY_BY_STATUS: dict[str, frozenset[str]] = {
+    "DRAFT": frozenset({"EXCLUDE"}),
+    "PLANNED": frozenset({"EXCLUDE", "INCLUDE_AS_PLAN"}),
+    "IN_PROGRESS": frozenset({"EXCLUDE", "INCLUDE_AS_PLAN"}),
+    "COMPLETED": frozenset({"EXCLUDE", "INCLUDE_AS_ACTUAL"}),
+    "CONFIRMED": frozenset({"EXCLUDE", "INCLUDE_AS_ACTUAL"}),
+    "CANCELLED": frozenset({"EXCLUDE"}),
+    "ARCHIVED": frozenset({"EXCLUDE"}),
+}
+
+
+async def update_voyage(
+    session: AsyncSession,
+    voyage_id: UUID,
+    **fields,
+) -> dict[str, object]:
+    """항차를 수정한다 (API_SPEC §3.4, #54). 없으면 404.
+
+    ``regulation_year``를 ``None``으로 지우는 요청은, ``annual_inclusion_policy ≠ EXCLUDE``
+    인 경우 ``chk_year_policy`` 제약에 걸리므로 거부한다 (#150).
+    """
+    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    if voyage is None:
+        raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
+
+    if (
+        "regulation_year" in fields
+        and fields["regulation_year"] is None
+        and voyage.annual_inclusion_policy != "EXCLUDE"
+    ):
+        raise ValidationError(
+            "annual_inclusion_policy가 EXCLUDE가 아닌 항차에서 regulation_year를 지울 수 없습니다.",
+            field="regulation_year",
+            field_label="기준연도",
+        )
+
+    for key, value in fields.items():
+        if value is not None:
+            setattr(voyage, key, value)
+
+    await session.commit()
+    fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
+    return to_dict(voyage, fuel_uses)
+
+
+async def transition_voyage(
+    session: AsyncSession,
+    voyage_id: UUID,
+    to_status: str,
+    annual_inclusion_policy: str | None = None,
+) -> dict[str, object]:
+    """항차 상태를 전환한다 (API_SPEC §3.5, #54). 없으면 404.
+
+    PRD §8.1 상태 머신 + policy 가드를 따른다.
+    """
+    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    if voyage is None:
+        raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
+
+    current = voyage.status
+    if to_status not in _TRANSITIONS.get(current, frozenset()):
+        raise StateTransitionError(f"허용되지 않은 상태 전환입니다: {current} → {to_status}.")
+
+    if annual_inclusion_policy is not None:
+        allowed = _POLICY_BY_STATUS.get(to_status, frozenset())
+        if annual_inclusion_policy not in allowed:
+            raise StateTransitionError(
+                f"상태 {to_status}에서 policy {annual_inclusion_policy}는 허용되지 않습니다."
+            )
+        if annual_inclusion_policy != "EXCLUDE" and voyage.regulation_year is None:
+            raise StateTransitionError(
+                f"annual_inclusion_policy를 {annual_inclusion_policy}로 설정하려면 "
+                "regulation_year가 필요합니다."
+            )
+        voyage.annual_inclusion_policy = annual_inclusion_policy
+    else:
+        voyage.annual_inclusion_policy = "EXCLUDE"
+
+    voyage.status = to_status
+    await session.commit()
+    fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
+    return to_dict(voyage, fuel_uses)
+
+
+async def delete_voyage(
+    session: AsyncSession,
+    voyage_id: UUID,
+) -> dict[str, object]:
+    """항차를 삭제한다 (API_SPEC §3.7, #54).
+
+    - DRAFT, CANCELLED → hard delete
+    - COMPLETED, CONFIRMED, ARCHIVED → soft delete
+    - PLANNED, IN_PROGRESS → 422 (먼저 CANCELLED로 전환 필요)
+    """
+    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    if voyage is None:
+        raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
+
+    hard_delete_statuses = {"DRAFT", "CANCELLED"}
+    soft_delete_statuses = {"COMPLETED", "CONFIRMED", "ARCHIVED"}
+
+    if voyage.status in hard_delete_statuses:
+        await session.delete(voyage)
+        await session.commit()
+        return {"id": str(voyage.id), "deleted": True, "hard_delete": True}
+
+    if voyage.status in soft_delete_statuses:
+        voyage.is_deleted = True
+        await session.commit()
+        return {"id": str(voyage.id), "deleted": True, "hard_delete": False}
+
+    raise StateTransitionError(
+        f"상태 {voyage.status}인 항차는 삭제할 수 없습니다. 먼저 CANCELLED로 전환하세요."
+    )

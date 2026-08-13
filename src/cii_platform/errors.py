@@ -156,3 +156,10 @@ class RateLimitError(AppError):
 
     def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
         super().__init__("RATE_LIMIT_EXCEEDED", message, details=details)
+
+
+class StateTransitionError(AppError):
+    """허용되지 않은 상태 전환 (API_SPEC §1.4, PRD §8.1.1). HTTP 422."""
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("STATE_TRANSITION_ERROR", message, details=details)

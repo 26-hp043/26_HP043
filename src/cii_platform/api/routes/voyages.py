@@ -12,10 +12,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cii_platform.api.schemas.voyage import VoyageCreateRequest
+from cii_platform.api.schemas.voyage import (
+    VoyageCreateRequest,
+    VoyageTransitionRequest,
+    VoyageUpdateRequest,
+)
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.db.session import get_session
-from cii_platform.services.voyage import create_voyage, get_voyage, list_voyages
+from cii_platform.services.voyage import (
+    create_voyage,
+    delete_voyage,
+    get_voyage,
+    list_voyages,
+    transition_voyage,
+    update_voyage,
+)
 
 router = APIRouter(tags=["voyages"])
 
@@ -94,4 +105,45 @@ async def create_voyage_route(
         ],
         notes=payload.notes,
     )
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.patch("/voyages/{voyage_id}")
+async def update_voyage_route(
+    request: Request,
+    voyage_id: UUID,
+    payload: VoyageUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """항차를 수정한다 (API_SPEC §3.4, #54). 없으면 404."""
+    update_fields = {k: v for k, v in payload.model_dump().items() if v is not None}
+    data = await update_voyage(session, voyage_id, **update_fields)
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.post("/voyages/{voyage_id}/transition")
+async def transition_voyage_route(
+    request: Request,
+    voyage_id: UUID,
+    payload: VoyageTransitionRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """항차 상태를 전환한다 (API_SPEC §3.5, #54)."""
+    data = await transition_voyage(
+        session,
+        voyage_id,
+        to_status=payload.to_status,
+        annual_inclusion_policy=payload.annual_inclusion_policy,
+    )
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.delete("/voyages/{voyage_id}")
+async def delete_voyage_route(
+    request: Request,
+    voyage_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict[str, object]:
+    """항차를 삭제한다 (API_SPEC §3.7, #54)."""
+    data = await delete_voyage(session, voyage_id)
     return {"data": data, "meta": _meta(request)}

@@ -45,3 +45,36 @@ class VoyageCreateRequest(BaseModel):
     regulation_year: Annotated[int | None, Field(ge=2000, le=2100)] = None
     fuel_uses: Annotated[list[VoyageFuelUseCreateRequest], Field(min_length=1)]
     notes: str | None = None
+
+
+class VoyageUpdateRequest(BaseModel):
+    """``PATCH /api/v1/voyages/{voyage_id}`` 요청 본문 (API_SPEC §3.4, #54).
+
+    모든 필드는 optional이다 — ``None``은 "안 바꾼다".
+    ``status`` 변경은 §3.5 transition 엔드포인트에서만 가능하다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    voyage_no: Annotated[str | None, Field(max_length=100)] = None
+    departure_port_name: Annotated[str | None, Field(min_length=1, max_length=200)] = None
+    departure_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
+    departure_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
+    arrival_port_name: Annotated[str | None, Field(min_length=1, max_length=200)] = None
+    arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
+    arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
+    planned_distance_nm: Annotated[Decimal | None, Field(gt=0)] = None
+    planned_speed_kn: Annotated[Decimal | None, Field(ge=Decimal("1.0"))] = None
+    planned_departure_at: datetime | None = None
+    planned_arrival_at: datetime | None = None
+    regulation_year: Annotated[int | None, Field(ge=2000, le=2100)] = None
+    notes: str | None = None
+
+
+class VoyageTransitionRequest(BaseModel):
+    """``POST /api/v1/voyages/{voyage_id}/transition`` (API_SPEC §3.5, #54)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    to_status: Annotated[str, Field(min_length=1, max_length=20)]
+    annual_inclusion_policy: Annotated[str | None, Field(max_length=30)] = None
