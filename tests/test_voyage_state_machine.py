@@ -105,8 +105,12 @@ def _install(monkeypatch: pytest.MonkeyPatch, voyage: _StubVoyage) -> _StubSessi
     async def fake_list_fuel_uses(_session, _voyage_id):
         return []
 
+    async def fake_has_refs(_session, _voyage_id):
+        return False
+
     monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
     monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses", fake_list_fuel_uses)
+    monkeypatch.setattr(svc.voyage_repo, "has_calculation_run_refs", fake_has_refs)
     return _StubSession()
 
 
