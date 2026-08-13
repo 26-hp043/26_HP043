@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.routes.voyages import router as voyages_router
+from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 
 VESSEL_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -120,8 +121,15 @@ def voyage_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     async def override_session():
         yield _FakeSession()
 
+    # 항차 의미론 테스트 — CSRF 검증은 의존성 override로 격리한다.
+    # (fail-closed 전환 후 미들웨어 없는 최소 앱은 session_row가 없어 401이 된다.
+    #  CSRF 자체는 test_auth_session.py·test_auth_wiring.py가 잠근다.)
+    async def override_csrf() -> None:
+        return None
+
     app = FastAPI()
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[require_csrf] = override_csrf
     register_exception_handlers(app)
     app.include_router(voyages_router, prefix="/api/v1")
     with TestClient(app) as client:
