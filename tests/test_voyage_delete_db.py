@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.routes.voyages import router as voyages_router
+from cii_platform.auth.dependencies import require_csrf
 
 VALID_HASH = "sha256:" + "b" * 64
 
@@ -60,8 +61,17 @@ async def _insert_calculation_run(session, vessel_id: str, voyage_id: str) -> No
 
 
 def _app() -> FastAPI:
-    """get_session override 없음 — 라우트가 패치된(NullPool) 세션팩토리를 쓴다."""
+    """get_session override 없음 — 라우트가 패치된(NullPool) 세션팩토리를 쓴다.
+
+    CSRF는 의존성 override로 격리 — 이 파일은 FK RESTRICT 실동작(#313)만 본다.
+    (CSRF·인증 배선은 test_auth_*가 잠근다.)
+    """
+
+    async def override_csrf() -> None:
+        return None
+
     app = FastAPI()
+    app.dependency_overrides[require_csrf] = override_csrf
     register_exception_handlers(app)
     app.include_router(voyages_router, prefix="/api/v1")
     return app
