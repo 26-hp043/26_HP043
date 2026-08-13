@@ -8,8 +8,9 @@ CI와 오프라인 시연에서 외부 IdP(구글) 없이 인증을 통과할 �
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
-from uuid import uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -27,7 +28,11 @@ from cii_platform.db.session import get_session
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 #: 고정 테스트 사용자 — 구글 OIDC 없이 세션을 발급한다.
-_STUB_USER_ID = uuid4()
+#: UUID를 **고정 상수**로 두는 이유 (#308): ``uuid4()``를 모듈 로드 시점에 평가하면
+#: 서버 재기동마다 PK가 달라져 기존 행을 못 찾고 INSERT를 시도 → ``google_sub``가
+#: 같아 ``idx_app_user_google_sub`` UNIQUE 위반 → 500이 난다. 018_seed_demo_vessel이
+#: UUID를 명시적으로 박는 것과 같은 선례다 (UUID v4 형식: version 4 · variant 8).
+_STUB_USER_ID = UUID("00000000-0000-4000-8000-000000000deb")
 _STUB_GOOGLE_SUB = "stub-dev-user-00000000"
 _STUB_EMAIL = "dev@localhost"
 
@@ -52,6 +57,10 @@ async def dev_login(
         )
         session.add(user)
         await session.flush()
+
+    # 로그인 시각 기록 — 신규 생성·재사용 두 경로 모두 갱신 (#317 연계).
+    # app_user.updated_at은 022의 trg_app_user_updated가 자동 갱신한다.
+    user.last_login_at = datetime.now(UTC)
 
     fields, session_token, csrf_token = create_session_fields(
         user.id,
