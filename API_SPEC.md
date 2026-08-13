@@ -681,6 +681,8 @@ DELETE /api/v1/voyages/{voyage_id}
 | PLANNED, IN_PROGRESS | 422: 먼저 CANCELLED로 전환 필요 |
 | COMPLETED, CONFIRMED, ARCHIVED | Soft delete only (감사 보존) |
 
+> **[#313]** Hard delete 대상이라도 이 항차를 참조하는 계산 이력(`calculation_run`)이 있으면 **409 `CONFLICT`**로 거부한다. `fk_calculation_run_voyage`가 ON DELETE `RESTRICT`라 참조가 있는 물리 삭제는 DB 제약 위반이다 — 계산 이력은 보존 대상이다(DB_SCHEMA §7.1).
+
 #### 응답 (200 OK)
 
 ```json
@@ -1784,3 +1786,4 @@ GET /api/v1/health
 | 2026-08-10 | `#218` | §4.1 응답 예시의 `parameters_used.regulation_year.z_factor_percent` 표기를 `"11"` → `"11.0"`로 정정 — `calculation_basis` 블록과 통일 (#208) |
 | 2026-08-11 | `#222` | §1.3.2에 `message` 한국어 규정, §1.4에 405 `METHOD_NOT_ALLOWED`·경로 404·미등록 status 범용 `HTTP_ERROR` 행 및 프레임워크 발생 오류 정책(문구·status 보존) 신설 (#182) |
 | 2026-08-13 | `#___` | v1.3: §1.2 인증 전면 재작성(구글 OIDC + 세션 쿠키), §1.4에 401·403 행 추가, §13.3 CORS에 X-CSRF-Token·credentials 정책 추가, 인증 엔드포인트 표 신설 (#272) |
+| 2026-08-13 | `#___` | §3.7 삭제 규칙에 계산 이력 참조 시 409 `CONFLICT` 거부 행 추가 (#313) |

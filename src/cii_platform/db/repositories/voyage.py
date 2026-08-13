@@ -64,6 +64,39 @@ async def list_fuel_uses(session: AsyncSession, voyage_id: UUID) -> list[VoyageF
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def list_fuel_uses_by_voyage_ids(
+    session: AsyncSession, voyage_ids: list[UUID]
+) -> dict[UUID, list[VoyageFuelUse]]:
+    """여러 항차의 연료 사용 내역을 **IN 쿼리 1회**로 조회한다 (#314).
+
+    목록 조회의 N+1(항차마다 ``list_fuel_uses``)을 없앤다. 반환은
+    ``{voyage_id: [fuel_use, …]}`` 그룹핑 — 내역이 없는 항차는 키가 없다.
+    """
+    if not voyage_ids:
+        return {}
+    stmt = select(VoyageFuelUse).where(VoyageFuelUse.voyage_id.in_(voyage_ids))
+    rows = (await session.execute(stmt)).scalars().all()
+    grouped: dict[UUID, list[VoyageFuelUse]] = {}
+    for fuel_use in rows:
+        grouped.setdefault(fuel_use.voyage_id, []).append(fuel_use)
+    return grouped
+
+
+async def has_calculation_run_refs(session: AsyncSession, voyage_id: UUID) -> bool:
+    """항차를 참조하는 ``calculation_run`` 행이 있는지 (#313).
+
+    ``fk_calculation_run_voyage``는 ON DELETE **RESTRICT**라 참조가 있으면
+    물리 DELETE가 ``IntegrityError``(→500)로 실패한다 — 서비스가 미리 409로
+    가리기 위한 조회다.
+    """
+    from sqlalchemy import exists
+
+    from cii_platform.db.models.calculation_run import CalculationRun
+
+    stmt = select(exists().where(CalculationRun.voyage_id == voyage_id))
+    return bool(await session.scalar(stmt))
+
+
 async def list_active(
     session: AsyncSession,
     *,
