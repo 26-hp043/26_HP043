@@ -25,6 +25,7 @@ ERROR_HTTP_STATUS: dict[str, int] = {
     "BAD_REQUEST": 400,  # API_SPEC §1.4: JSON 파싱 오류, 잘못된 Content-Type
     "NOT_FOUND": 404,  # API_SPEC §1.4: 존재하지 않는 리소스 ID
     "PARAMETER_ERROR": 409,  # TECH_SPEC §12.1: 규정 파라미터 누락/불일치
+    "CONFLICT": 409,  # API_SPEC §1.4: 리소스 중복 (동일 IMO 재등록 등)
     "VALIDATION_ERROR": 422,  # TECH_SPEC §12.1: VAL-001~010 위반
     "CALCULATION_ERROR": 422,  # TECH_SPEC §12.1: 분모 0, overflow, 유효하지 않은 결과
     "MODEL_BREAKDOWN_ERROR": 422,  # TECH_SPEC §12.1: BN > 8, ΔV/V ≥ 100%
@@ -111,6 +112,18 @@ class ParameterError(AppError):
 
     def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
         super().__init__("PARAMETER_ERROR", message, details=details)
+
+
+class ConflictError(AppError):
+    """리소스 중복 (API_SPEC §1.4). HTTP 409.
+
+    ``PARAMETER_ERROR``(규정 파라미터 문제)와 **같은 409지만 다른 code**다.
+    클라이언트가 code로 분기할 때 중복 IMO 등록을 파라미터 문제로 오인하지 않게
+    분리한다 (#286).
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("CONFLICT", message, details=details)
 
 
 class CalculationError(AppError):
