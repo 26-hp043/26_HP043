@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
-from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
+from cii_platform.errors import (
+    ConflictError,
+    NotFoundError,
+    StateTransitionError,
+    ValidationError,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -199,10 +204,12 @@ async def list_voyages(
             )
         )
 
-    data = []
-    for voyage in page:
-        fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
-        data.append(to_dict(voyage, fuel_uses))
+    # fuel_uses를 IN 쿼리 1회로 모은다 — 항차마다 조회하면 페이지 크기만큼
+    # 쿼리가 늘어난다(MAX_LIMIT=100 → 최대 101쿼리, #314).
+    fuel_uses_by_voyage = await voyage_repo.list_fuel_uses_by_voyage_ids(
+        session, [v.id for v in page]
+    )
+    data = [to_dict(voyage, fuel_uses_by_voyage.get(voyage.id, [])) for voyage in page]
 
     return data, {"next_cursor": next_cursor, "has_more": has_more}
 
@@ -319,7 +326,8 @@ async def delete_voyage(
 ) -> dict[str, object]:
     """항차를 삭제한다 (API_SPEC §3.7, #54).
 
-    - DRAFT, CANCELLED → hard delete
+    - DRAFT, CANCELLED → hard delete — 단, 계산 이력(``calculation_run``) 참조가
+      있으면 ``ConflictError``(409, #313). FK가 RESTRICT라 그대로 지우면 500이 난다
     - COMPLETED, CONFIRMED, ARCHIVED → soft delete
     - PLANNED, IN_PROGRESS → 422 (먼저 CANCELLED로 전환 필요)
     """
@@ -331,6 +339,10 @@ async def delete_voyage(
     soft_delete_statuses = {"COMPLETED", "CONFIRMED", "ARCHIVED"}
 
     if voyage.status in hard_delete_statuses:
+        if await voyage_repo.has_calculation_run_refs(session, voyage_id):
+            raise ConflictError(
+                "이 항차를 참조하는 계산 이력(calculation_run)이 있어 삭제할 수 없습니다."
+            )
         await session.delete(voyage)
         await session.commit()
         return {"id": str(voyage.id), "deleted": True, "hard_delete": True}

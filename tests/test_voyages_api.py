@@ -60,6 +60,9 @@ class _FakeVoyage:
 
 
 class _FakeSession:
+    def __init__(self) -> None:
+        self.deleted: list = []
+
     async def commit(self):
         pass
 
@@ -68,6 +71,9 @@ class _FakeSession:
 
     def add(self, obj):
         pass
+
+    async def delete(self, obj):
+        self.deleted.append(obj)
 
 
 class _FakeFuelRow:
@@ -97,8 +103,18 @@ def voyage_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         fuel_store.setdefault(fields.get("voyage_id"), []).append(fu)
         return fu
 
+    calls: dict[str, int] = {"list_fuel_uses": 0, "list_by_ids": 0}
+
     async def fake_list_fuel_uses(session, voyage_id):
+        calls["list_fuel_uses"] += 1
         return fuel_store.get(voyage_id, [])
+
+    async def fake_list_fuel_uses_by_ids(session, voyage_ids):
+        calls["list_by_ids"] += 1
+        return {vid: fuel_store.get(vid, []) for vid in voyage_ids}
+
+    async def fake_has_calc_run_refs(session, voyage_id):
+        return False
 
     async def fake_list_active(
         session, *, vessel_id, limit, cursor=None, status=None, regulation_year=None
@@ -114,6 +130,8 @@ def voyage_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr(svc.voyage_repo, "insert", fake_insert)
     monkeypatch.setattr(svc.voyage_repo, "insert_fuel_use", fake_insert_fuel_use)
     monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses", fake_list_fuel_uses)
+    monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses_by_voyage_ids", fake_list_fuel_uses_by_ids)
+    monkeypatch.setattr(svc.voyage_repo, "has_calculation_run_refs", fake_has_calc_run_refs)
     monkeypatch.setattr(svc.voyage_repo, "list_active", fake_list_active)
     monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
     monkeypatch.setattr(svc.param_repo, "get_fuel_types_by_codes", fake_get_fuel_types_by_codes)
@@ -133,6 +151,7 @@ def voyage_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     register_exception_handlers(app)
     app.include_router(voyages_router, prefix="/api/v1")
     with TestClient(app) as client:
+        client.calls = calls  # type: ignore[attr-defined]  # N+1 검증용 호출 카운터
         yield client
     app.dependency_overrides.clear()
 
@@ -338,3 +357,98 @@ class TestUpdateNullSemantics:
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
         assert "data" not in resp.json()
+
+
+def test_list_uses_single_batched_fuel_query(voyage_app):
+    """목록의 fuel_uses가 IN 쿼리 1회로 모인다 — 항차별 조회 없음 (#314)."""
+    resp = voyage_app.get(LIST_URL)
+    assert resp.status_code == 200
+    assert len(resp.json()["data"]) == 2
+    calls: dict = voyage_app.calls  # type: ignore[attr-defined]
+    assert calls["list_by_ids"] == 1
+    assert calls["list_fuel_uses"] == 0
+
+
+# --- 삭제 (#313) --------------------------------------------------------------------
+
+
+class TestDeleteVoyage:
+    """hard delete의 계산 이력 참조 검사 (#313)."""
+
+    @pytest.fixture
+    def delete_app(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple]:
+        from cii_platform.services import voyage as svc
+
+        voyage = _FakeVoyage(status="DRAFT")
+        store: dict[UUID, _FakeVoyage] = {voyage.id: voyage}
+        refs: set[UUID] = set()
+
+        async def fake_get_by_id(_session, voyage_id):
+            return store.get(voyage_id)
+
+        async def fake_list_fuel_uses(_session, voyage_id):
+            return []
+
+        async def fake_has_refs(_session, voyage_id):
+            return voyage_id in refs
+
+        monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
+        monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses", fake_list_fuel_uses)
+        monkeypatch.setattr(svc.voyage_repo, "has_calculation_run_refs", fake_has_refs)
+
+        session = _FakeSession()
+
+        async def override_session():
+            yield session
+
+        # CSRF 검증 격리 — voyage_app과 같은 맥락 (test_auth_*가 CSRF를 잠근다).
+        async def override_csrf() -> None:
+            return None
+
+        app = FastAPI()
+        app.dependency_overrides[get_session] = override_session
+        app.dependency_overrides[require_csrf] = override_csrf
+        register_exception_handlers(app)
+        app.include_router(voyages_router, prefix="/api/v1")
+        with TestClient(app) as client:
+            yield client, store, refs, session
+        app.dependency_overrides.clear()
+
+    def test_hard_delete_without_refs_is_200(self, delete_app):
+        """참조 없는 DRAFT → hard delete 200 (#313)."""
+        client, store, refs, session = delete_app
+        voyage_id = next(iter(store))
+        resp = client.delete(f"/api/v1/voyages/{voyage_id}")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["hard_delete"] is True
+        # session.delete()가 호출됐다 — 대역 세션이 기록한다.
+        assert [v.id for v in session.deleted] == [voyage_id]
+
+    def test_hard_delete_with_refs_is_409(self, delete_app):
+        """계산 이력 참조가 있는 DRAFT → 409 CONFLICT (500 아님, #313)."""
+        client, store, refs, session = delete_app
+        voyage_id = next(iter(store))
+        refs.add(voyage_id)
+        resp = client.delete(f"/api/v1/voyages/{voyage_id}")
+        assert resp.status_code == 409
+        assert resp.json()["error"]["code"] == "CONFLICT"
+        assert not session.deleted  # 삭제 시도 없음
+
+    def test_soft_delete_skips_ref_check(self, delete_app):
+        """COMPLETED → soft delete — FK 위반이 없으므로 참조 검사 없이 진행."""
+        client, store, refs, _ = delete_app
+        voyage_id = next(iter(store))
+        store[voyage_id].status = "COMPLETED"
+        refs.add(voyage_id)  # 참조가 있어도 soft delete은 200
+        resp = client.delete(f"/api/v1/voyages/{voyage_id}")
+        assert resp.status_code == 200
+        assert resp.json()["data"]["hard_delete"] is False
+
+    def test_planned_delete_is_422(self, delete_app):
+        """PLANNED → 422 — 먼저 CANCELLED로 전환 필요 (기존 규칙 유지)."""
+        client, store, _, _ = delete_app
+        voyage_id = next(iter(store))
+        store[voyage_id].status = "PLANNED"
+        resp = client.delete(f"/api/v1/voyages/{voyage_id}")
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
