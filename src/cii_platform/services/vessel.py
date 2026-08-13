@@ -223,8 +223,9 @@ async def update_vessel(
 
     - **``ship_type`` 변경 시 VAL-004 재검증**: 다른 선종으로 바꾸면 그 선종의
       ``cii_reference_line`` 행이 있어야 한다.
-    - **``gross_tonnage`` 변경 시 ``is_cii_applicable_hint`` 재산정**: GT가 바뀌면
-      5,000 기준 판정도 바뀔 수 있다. ``None``이 와도(=GT 제거) hint는 ``false``로.
+    - **``gross_tonnage`` 값이 주어지면 ``is_cii_applicable_hint`` 재산정**:
+      GT가 5,000 기준을 넘는지 다시 판정한다. **``None``은 "안 바꾼다"를 뜻하므로
+      hint도 건드리지 않는다** — GT를 지우는 기능은 PATCH에 없다.
 
     ``commit``을 여기서 한다 — 단일 리소스 갱신이 트랜잭션 경계다.
     """
