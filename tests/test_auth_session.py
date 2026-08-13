@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
 import pytest
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from cii_platform.api.error_handlers import register_exception_handlers
+from cii_platform.auth.dependencies import get_current_user
 from cii_platform.auth.session import (
     COOKIE_ATTRIBUTES,
     CSRF_COOKIE_NAME,
@@ -26,6 +29,7 @@ from cii_platform.auth.session import (
     is_valid,
     verify_csrf,
 )
+from cii_platform.db.models.app_user import AppUser
 
 
 class TestTokenGeneration:
@@ -176,5 +180,106 @@ class TestAuthMiddlewareGate:
     def test_protected_path_without_cookie_is_401(self, auth_app):
         with TestClient(auth_app) as client:
             resp = client.get("/api/v1/vessels")
+            assert resp.status_code == 401
+            assert resp.json()["error"]["code"] == "UNAUTHORIZED"
+
+
+class TestPublicPaths:
+    """공개 경로 판정 — 명시적 목록만 허용 (#308)."""
+
+    def test_dev_login_path_is_public(self):
+        from cii_platform.auth.dependencies import is_public_path
+
+        assert is_public_path("/api/v1/auth/dev-login")
+
+    def test_auth_prefix_alone_is_not_public(self):
+        from cii_platform.auth.dependencies import is_public_path
+
+        # 접두사 규칙 제거 — auth 하위라도 목록에 없으면 보호된다.
+        assert not is_public_path("/api/v1/auth/logout")
+        assert not is_public_path("/auth/anything")
+
+
+class TestRequireCsrfFailClosed:
+    """``require_csrf``는 session_row가 없으면 막는다 — fail-closed (#311)."""
+
+    CSRF_TOKEN = "csrf-plaintext-for-test"
+
+    @pytest.fixture
+    def csrf_app(self) -> FastAPI:
+        """``Depends(require_csrf)``가 건 라우트가 붙은 최소 app."""
+        from types import SimpleNamespace
+
+        from starlette.responses import JSONResponse
+
+        from cii_platform.auth.dependencies import require_csrf
+
+        app = FastAPI()
+        register_exception_handlers(app)
+
+        @app.middleware("http")
+        async def seed_session_row(request, call_next):
+            # 인증 미들웨어가 session_row를 주입한 상황을 흉내낸다.
+            request.state.session_row = SimpleNamespace(csrf_token_hash=hash_token(self.CSRF_TOKEN))
+            return await call_next(request)
+
+        @app.post("/api/v1/thing")
+        async def thing(_csrf: None = Depends(require_csrf)):
+            return JSONResponse({"data": {}})
+
+        return app
+
+    def test_without_middleware_state_is_401(self):
+        """session_row가 없으면 조용히 통과하지 않고 401 (#311)."""
+        from starlette.responses import JSONResponse
+
+        from cii_platform.auth.dependencies import require_csrf
+
+        app = FastAPI()
+        register_exception_handlers(app)
+
+        @app.post("/api/v1/thing")
+        async def thing(_csrf: None = Depends(require_csrf)):
+            return JSONResponse({"data": {}})
+
+        with TestClient(app) as client:
+            resp = client.post("/api/v1/thing")
+            assert resp.status_code == 401
+            assert resp.json()["error"]["code"] == "UNAUTHORIZED"
+
+    def test_missing_csrf_header_is_403(self, csrf_app):
+        with TestClient(csrf_app) as client:
+            resp = client.post("/api/v1/thing")
+            assert resp.status_code == 403
+            assert resp.json()["error"]["code"] == "CSRF_ERROR"
+
+    def test_wrong_csrf_token_is_403(self, csrf_app):
+        with TestClient(csrf_app) as client:
+            resp = client.post("/api/v1/thing", headers={"X-CSRF-Token": "wrong"})
+            assert resp.status_code == 403
+
+    def test_correct_csrf_token_passes(self, csrf_app):
+        with TestClient(csrf_app) as client:
+            resp = client.post("/api/v1/thing", headers={"X-CSRF-Token": self.CSRF_TOKEN})
+            assert resp.status_code == 200
+
+
+class TestGetCurrentUserDependsSafe:
+    """``get_current_user``를 Depends로 안전하게 걸 수 있다 (#315)."""
+
+    def test_depends_route_without_cookie_returns_401(self):
+        # 주의: 라우트 어노테이션의 이름(AppUser·get_current_user)은 모듈 네임스페이스에서
+        # 평가된다(from __future__ import annotations) — 함수 안에서 import하면 안 풀린다.
+        app = FastAPI()
+        register_exception_handlers(app)
+
+        @app.get("/api/v1/me")
+        async def me(user: Annotated[AppUser, Depends(get_current_user)]):
+            return {"data": {"id": str(user.id)}}
+
+        # 예전 시그니처(session: AsyncSession = None)였다면 라우트 등록 단계에서
+        # FastAPI가 AsyncSession을 요청 본문으로 해석하다 실패한다 (#315).
+        with TestClient(app) as client:
+            resp = client.get("/api/v1/me")
             assert resp.status_code == 401
             assert resp.json()["error"]["code"] == "UNAUTHORIZED"

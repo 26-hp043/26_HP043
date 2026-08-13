@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.routes.voyages import router as voyages_router
+from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 
 VESSEL_ID = UUID("00000000-0000-4000-8000-000000000001")
@@ -59,6 +60,9 @@ class _FakeVoyage:
 
 
 class _FakeSession:
+    def __init__(self) -> None:
+        self.deleted: list = []
+
     async def commit(self):
         pass
 
@@ -68,11 +72,7 @@ class _FakeSession:
     def add(self, obj):
         pass
 
-    deleted: list = None
-
     async def delete(self, obj):
-        if self.deleted is None:
-            self.deleted = []
         self.deleted.append(obj)
 
 
@@ -139,8 +139,15 @@ def voyage_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     async def override_session():
         yield _FakeSession()
 
+    # 항차 의미론 테스트 — CSRF 검증은 의존성 override로 격리한다.
+    # (fail-closed 전환 후 미들웨어 없는 최소 앱은 session_row가 없어 401이 된다.
+    #  CSRF 자체는 test_auth_session.py·test_auth_wiring.py가 잠근다.)
+    async def override_csrf() -> None:
+        return None
+
     app = FastAPI()
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[require_csrf] = override_csrf
     register_exception_handlers(app)
     app.include_router(voyages_router, prefix="/api/v1")
     with TestClient(app) as client:
@@ -201,6 +208,157 @@ def test_create_with_negative_distance_is_422(voyage_app):
     assert resp.status_code == 422
 
 
+# --- 상태 전환 policy (#310) · PATCH null 의미론 (#312) ------------------------------
+
+
+class TestTransitionPolicy:
+    """전환에서 annual_inclusion_policy 미지정 = 현행 유지 (#310)."""
+
+    @pytest.fixture
+    def transition_app(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+        """PLANNED·INCLUDE_AS_PLAN 항차 하나를 가진 앱."""
+        from cii_platform.services import voyage as svc
+
+        voyage = _FakeVoyage(
+            status="PLANNED",
+            annual_inclusion_policy="INCLUDE_AS_PLAN",
+            regulation_year=2026,
+        )
+        store: dict[UUID, _FakeVoyage] = {voyage.id: voyage}
+
+        async def fake_get_by_id(_session, voyage_id):
+            return store.get(voyage_id)
+
+        async def fake_list_fuel_uses(_session, voyage_id):
+            return []
+
+        monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
+        monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses", fake_list_fuel_uses)
+
+        async def override_session():
+            yield _FakeSession()
+
+        # CSRF 검증 격리 — voyage_app과 같은 맥락 (test_auth_*가 CSRF를 잠근다).
+        async def override_csrf() -> None:
+            return None
+
+        app = FastAPI()
+        app.dependency_overrides[get_session] = override_session
+        app.dependency_overrides[require_csrf] = override_csrf
+        register_exception_handlers(app)
+        app.include_router(voyages_router, prefix="/api/v1")
+        with TestClient(app) as client:
+            yield client, store
+        app.dependency_overrides.clear()
+
+    def test_omitted_policy_is_preserved(self, transition_app):
+        """PLANNED(INCLUDE_AS_PLAN) → IN_PROGRESS 미지정: policy 유지 (#310)."""
+        client, store = transition_app
+        voyage_id = next(iter(store))
+        resp = client.post(
+            f"/api/v1/voyages/{voyage_id}/transition", json={"to_status": "IN_PROGRESS"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["annual_inclusion_policy"] == "INCLUDE_AS_PLAN"
+
+    def test_incompatible_target_requires_explicit_policy(self, transition_app):
+        """PLANNED(INCLUDE_AS_PLAN) → COMPLETED 미지정: 자동 보정 없이 422 (#310)."""
+        client, store = transition_app
+        voyage_id = next(iter(store))
+        resp = client.post(
+            f"/api/v1/voyages/{voyage_id}/transition", json={"to_status": "COMPLETED"}
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
+
+    def test_exclude_only_status_auto_sets_exclude(self, transition_app):
+        """→ CANCELLED 미지정: EXCLUDE-only 상태는 자동 설정 (API_SPEC §3.5)."""
+        client, store = transition_app
+        voyage_id = next(iter(store))
+        resp = client.post(
+            f"/api/v1/voyages/{voyage_id}/transition", json={"to_status": "CANCELLED"}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"]["annual_inclusion_policy"] == "EXCLUDE"
+
+    def test_explicit_policy_still_validated(self, transition_app):
+        """명시적 지정은 종전대로 검증 — COMPLETED에 INCLUDE_AS_PLAN은 422."""
+        client, store = transition_app
+        voyage_id = next(iter(store))
+        resp = client.post(
+            f"/api/v1/voyages/{voyage_id}/transition",
+            json={"to_status": "COMPLETED", "annual_inclusion_policy": "INCLUDE_AS_PLAN"},
+        )
+        assert resp.status_code == 422
+
+
+class TestUpdateNullSemantics:
+    """PATCH의 null 의미론 — 생략=변경 없음, 명시적 null=클리어 (#312)."""
+
+    @pytest.fixture
+    def update_app(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+        from cii_platform.services import voyage as svc
+
+        voyage = _FakeVoyage(
+            status="PLANNED",
+            annual_inclusion_policy="EXCLUDE",
+            regulation_year=2026,
+        )
+        store: dict[UUID, _FakeVoyage] = {voyage.id: voyage}
+
+        async def fake_get_by_id(_session, voyage_id):
+            return store.get(voyage_id)
+
+        async def fake_list_fuel_uses(_session, voyage_id):
+            return []
+
+        monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
+        monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses", fake_list_fuel_uses)
+
+        async def override_session():
+            yield _FakeSession()
+
+        # CSRF 검증 격리 — voyage_app과 같은 맥락 (test_auth_*가 CSRF를 잠근다).
+        async def override_csrf() -> None:
+            return None
+
+        app = FastAPI()
+        app.dependency_overrides[get_session] = override_session
+        app.dependency_overrides[require_csrf] = override_csrf
+        register_exception_handlers(app)
+        app.include_router(voyages_router, prefix="/api/v1")
+        with TestClient(app) as client:
+            yield client, store
+        app.dependency_overrides.clear()
+
+    def test_explicit_null_clears_regulation_year(self, update_app):
+        """EXCLUDE 항차의 regulation_year=null → 클리어 (#312)."""
+        client, store = update_app
+        voyage_id = next(iter(store))
+        resp = client.patch(f"/api/v1/voyages/{voyage_id}", json={"regulation_year": None})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["regulation_year"] is None
+        assert store[voyage_id].regulation_year is None
+
+    def test_omitted_field_leaves_value(self, update_app):
+        """regulation_year 생략 → 값 유지 (#312)."""
+        client, store = update_app
+        voyage_id = next(iter(store))
+        resp = client.patch(f"/api/v1/voyages/{voyage_id}", json={"notes": "메모만 변경"})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["regulation_year"] == 2026
+
+    def test_null_clear_rejected_when_policy_requires_year(self, update_app):
+        """INCLUDE_AS_PLAN 항차의 null 클리어 → 422 (#150 가드 도달)."""
+        client, store = update_app
+        voyage_id = next(iter(store))
+        store[voyage_id].annual_inclusion_policy = "INCLUDE_AS_PLAN"
+        resp = client.patch(f"/api/v1/voyages/{voyage_id}", json={"regulation_year": None})
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+        assert "data" not in resp.json()
+
+
 def test_list_uses_single_batched_fuel_query(voyage_app):
     """목록의 fuel_uses가 IN 쿼리 1회로 모인다 — 항차별 조회 없음 (#314)."""
     resp = voyage_app.get(LIST_URL)
@@ -218,7 +376,7 @@ class TestDeleteVoyage:
     """hard delete의 계산 이력 참조 검사 (#313)."""
 
     @pytest.fixture
-    def delete_app(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+    def delete_app(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple]:
         from cii_platform.services import voyage as svc
 
         voyage = _FakeVoyage(status="DRAFT")
@@ -243,8 +401,13 @@ class TestDeleteVoyage:
         async def override_session():
             yield session
 
+        # CSRF 검증 격리 — voyage_app과 같은 맥락 (test_auth_*가 CSRF를 잠근다).
+        async def override_csrf() -> None:
+            return None
+
         app = FastAPI()
         app.dependency_overrides[get_session] = override_session
+        app.dependency_overrides[require_csrf] = override_csrf
         register_exception_handlers(app)
         app.include_router(voyages_router, prefix="/api/v1")
         with TestClient(app) as client:
@@ -259,7 +422,7 @@ class TestDeleteVoyage:
         assert resp.status_code == 200, resp.text
         assert resp.json()["data"]["hard_delete"] is True
         # session.delete()가 호출됐다 — 대역 세션이 기록한다.
-        assert [v.id for v in session.deleted or []] == [voyage_id]
+        assert [v.id for v in session.deleted] == [voyage_id]
 
     def test_hard_delete_with_refs_is_409(self, delete_app):
         """계산 이력 참조가 있는 DRAFT → 409 CONFLICT (500 아님, #313)."""

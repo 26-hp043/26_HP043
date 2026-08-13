@@ -50,7 +50,7 @@ class VoyageCreateRequest(BaseModel):
 class VoyageUpdateRequest(BaseModel):
     """``PATCH /api/v1/voyages/{voyage_id}`` 요청 본문 (API_SPEC §3.4, #54).
 
-    모든 필드는 optional이다 — ``None``은 "안 바꾼다".
+    모든 필드는 optional이다 — **생략 = 변경 없음, 명시적 ``null`` = 클리어** (#312).
     ``status`` 변경은 §3.5 transition 엔드포인트에서만 가능하다.
     """
 
