@@ -723,9 +723,9 @@ CONFIRMED actual
 | `ratio_to_required` | `98.8%` | attained / required |
 | `estimated_rating` | `C` | A~E |
 | `next_worse_boundary_margin` | `0.365 gCO₂/(DWT·nm)` | 다음 악화 등급 경계까지 여유. **등급 E는 해당 없음** — 최하위 등급이라 악화 방향 경계가 존재하지 않는다. API는 `null`, 화면 문구는 DESIGN_SYSTEM §2.5 소관 (#171) |
-| `co2_emission_ton` | `249.12 tCO₂` | 표시용 ton 변환 |
-| `fuel_consumption_ton` | `80.00 ton` | 연료 종류별 합산 |
-| `distance_nm` | `1,000 nm` | 계산 거리 |
+| `co2_emission_ton` | `249.1 tCO₂` | 표시용 ton 변환. 자릿수는 §9.3(DESIGN_SYSTEM §4.2) |
+| `fuel_consumption_ton` | `80.0 ton` | 연료 종류별 합산. 자릿수는 §9.3(DESIGN_SYSTEM §4.2) |
+| `distance_nm` | `1,000 nm` | 계산 거리. 소수점 0자리 |
 | `calculation_basis` | `HFO CF=3.114, Z=11%` | 툴팁 또는 상세 영역 |
 | `disclaimer` | 참고용 예측값 | 항상 표시 |
 
@@ -734,11 +734,13 @@ CONFIRMED actual
 | 값 | 내부 정밀도 | 화면 표시 |
 |---|---:|---:|
 | CII | Decimal, 최소 6자리 | 소수점 3자리 |
-| 연료 사용량 | Decimal, 최소 4자리 | 소수점 2자리 ton |
-| CO₂ 배출량 | Decimal, 최소 4자리 | 소수점 2자리 tCO₂ |
-| 거리 | Decimal, 최소 3자리 | 소수점 1자리 nm |
-| 시간 | Decimal, 최소 3자리 | 소수점 1자리 hour |
-| 확률 | Decimal | 소수점 1자리 % |
+| 연료 사용량 | Decimal, 최소 4자리 | 소수점 1자리 |
+| CO₂ 배출량 | Decimal, 최소 4자리 | 소수점 1자리 |
+| 거리 | Decimal, 최소 3자리 | 소수점 0자리 |
+| 시간 | Decimal, 최소 3자리 | 소수점 1자리 |
+| 확률 | Decimal | 백분율 소수점 1자리 |
+
+> **[#185] 화면 표시 형식의 정본은 `DESIGN_SYSTEM.md` §4다** — 자릿수·천단위 구분자·반올림 규칙의 소관이 `AGENTS §3.2.2`에서 그곳으로 확정됐다(#159 · PR #162). 이 표의 「화면 표시」 열은 요약이며 본문(`DESIGN_SYSTEM §4.1·§4.2`)과 어긋나면 §4를 따른다. 연료·CO₂의 **단위 표기**(`t` vs `ton`·`tCO₂`)는 아직 #164에서 확정 중이다. 「내부 정밀도」 열은 계산 정밀도 규정(`AGENTS §3.2.3` 1행)으로 그대로 유효하다.
 
 내부 계산값은 화면 표시 반올림값을 다시 사용하지 않는다.
 
@@ -1851,3 +1853,4 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 | 2026-08-14 | `#___` | §6.2에 UIFLOW 화면 대응 각주 추가 — SCR ID ↔ UIFLOW 절 매핑·2-4/2-6 MVP 범위 밖 명시 (#280) |
 | 2026-08-14 | `#___` | §9.2 `next_worse_boundary_margin` 행에 등급 E 단서 추가 — API `null`·화면 문구는 DESIGN_SYSTEM §2.5 (#171) |
 | 2026-08-14 | `#___` | §12.5에 `P(D∪E)` 정의(이름·식·여사건 조건) 추가 — §12.4 등급별 확률의 파생값으로, DESIGN_SYSTEM §2.5 (a) 위험도 표기가 참조 (#170) |
+| 2026-08-14 | `#___` | §9.3 「화면 표시」 열을 DESIGN_SYSTEM §4 참조로 전환(연료 2→1·CO₂ 2→1·거리 1→0) + 소관 각주 · §9.2 예시 자릿수 정정 — 단위 표기는 #164 확정 대기 (#185) |
