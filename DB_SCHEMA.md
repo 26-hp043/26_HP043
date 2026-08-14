@@ -1182,5 +1182,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-07 | `#196` | 헤더 「상위 문서」 버전 참조 갱신 — `PRD` v3.2 · `TECH_SPEC` v1.3→v1.4(낡은 참조 정정) (#163) |
 | 2026-08-14 | `#330` | v1.4: §2.8·§2.9에 파라미터 CHECK 제약(`chk_z_factor_nonneg`·`chk_cf_positive`), §2.4·§2.7에 FK 자식 인덱스(`idx_scenario_vessel`·`idx_scenario_voyage`·`idx_snapshot_vessel`) 신설 — 마이그레이션 023 (#96 #97) |
 | 2026-08-14 | `#332` | v1.5: §2.5에 `needs_recalc` 컬럼·§7.3를 `calc_run_guard`(플립만 허용)로 교체 — 마이그레이션 024. PRD §8.4 DWT/GT 변경 시 재계산 필요 표시 (#283) |
-| 2026-08-14 | `#___` | §2.16 말미에 `chat_session`·`chat_message` 미정의 각주(`user_id` → `app_user.id` 귀속 확정), §4.3에 채팅 90일 보존 행 추가 (#287) |
-| 2026-08-14 | `#___` | §2.14 `action` 열거에 인증 이벤트 3종(LOGIN_SUCCESS·LOGIN_FAILURE·LOGOUT) 추가 + 자격 증명 미기록 규칙 각주 (#277) |
+| 2026-08-14 | `#333` | §2.16 말미에 `chat_session`·`chat_message` 미정의 각주(`user_id` → `app_user.id` 귀속 확정), §4.3에 채팅 90일 보존 행 추가 (#287) |
+| 2026-08-14 | `#335` | §2.14 `action` 열거에 인증 이벤트 3종(LOGIN_SUCCESS·LOGIN_FAILURE·LOGOUT) 추가 + 자격 증명 미기록 규칙 각주 (#277) |
