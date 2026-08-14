@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.4 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-13 |
+| 최종 수정일 | 2026-08-14 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -220,6 +220,7 @@ MVP는 **구글 OIDC 인증 + 서버 세션 쿠키**를 사용한다. 단일 조
 | `EXPERIMENTAL_MODEL` | TOWNSIN_KWON_ALPHA 사용 | 실험 모델 기반 결과입니다. |
 | `NON_CII_VESSEL` | GT < 5,000 | 공식 CII 적용 대상이 아닐 수 있습니다. |
 | `COMPLETED_NO_FUEL` | COMPLETED 항차 actual_fuel_ton NULL | 실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중. |
+| `SLOW_SPEED_FLOOR` | 기능② 감속 시나리오 속도가 최소 속도(1.0kn)에 도달 (PRD §11.2 「floor 도달 시 경고 표시」) | 감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다. |
 
 ### 1.7 수치 직렬화 정책
 

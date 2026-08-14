@@ -873,6 +873,8 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **[ORACLE-S-5 주의]** `weather_factor`는 hash 계산 시점에 이미 계산되어 있어야 한다. 기상 데이터 조회가 비동기인 경우, 조회 완료 후 hash를 계산한다. `weather_model = NONE`이면 `weather_factor = 1.0`으로 설정한다.
 
+> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(선박·연도·capacity 축 값·연료 추정의 결정 인자(`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`)·확정된 시나리오 계획 3건(`scenarios`)·`weather_model`·`weather_factor`)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
+
 ### 5.4 재현성 계약 (Reproducibility Contract)
 
 > **[#102]** 기상 데이터 갱신과 재현성의 관계를 명확히 정의한다. 상위 근거: PRD §16.2 신뢰성 — "계산 재현성: 동일 입력·동일 파라미터·동일 seed는 동일 결과".
