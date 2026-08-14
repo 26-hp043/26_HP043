@@ -58,4 +58,6 @@ class SimulationSnapshot(Base):
             "parameter_hash ~ '^sha256:[0-9a-f]{64}$'",
             name="chk_snap_param_hash_format",
         ),
+        # #97 (Oracle F4): vessel 삭제 시 RESTRICT 체크가 full scan하지 않게.
+        sa.Index("idx_snapshot_vessel", vessel_id, created_at.desc()),
     )

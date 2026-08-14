@@ -35,4 +35,6 @@ class RegulationYear(Base):
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_regulation_year"),
         sa.UniqueConstraint("year", name="uq_regulation_year_year"),
+        # #96 (Oracle F5): Z-factor reduction은 음수일 수 없다 (MEPC.400(83) 0%~).
+        sa.CheckConstraint("z_factor_percent >= 0", name="chk_z_factor_nonneg"),
     )
