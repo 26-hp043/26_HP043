@@ -739,6 +739,8 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 
 > **세션 토큰 원문을 저장하지 않는다** — DB 유출 시 저장된 값으로 로그인 위조를 막기 위함. 비밀번호를 해시하는 것과 같은 이유.
 
+> **[#287] `chat_session`·`chat_message`은 이 스키마에 정의돼 있지 않다.** 챗봇(O-12)은 실험 기능(PRD §5.1 MAY)이며 구현 이슈(#120~#123) 시점에 별도 마이그레이션으로 추가한다. 귀속 주체만 확정해 둔다 — `PRD §7.8`의 `ChatSession.user_id`는 **`app_user.id`(§2.15)** 를 참조한다(인증 주체 모델 #273 · #275 확정에 따른 결정). 보존 정책(90일)은 §4.3에 반영한다.
+
 ---
 
 ## 3. 시드 데이터
@@ -875,6 +877,7 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 | `simulation_snapshot` | 무기한 |
 | `audit_log` | 최소 5년 |
 | `weather_snapshot` | 30일 (TTL 만료 후 삭제) |
+| `chat_session` · `chat_message` | 90일 (만료 후 삭제, PRD §16.3 채팅 보존 정책) — 테이블 미정의 각주는 §2.16 [#287] |
 
 ---
 
@@ -1176,4 +1179,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-06 | `#98` | §7.2에 `updated_at`을 두는 기준 신설(운영 데이터 / 파라미터 테이블 / `fuel_type` 예외) · §2.8에 생략 근거 참조 추가 (#98) |
 | 2026-08-07 | `#196` | 헤더 「상위 문서」 버전 참조 갱신 — `PRD` v3.2 · `TECH_SPEC` v1.3→v1.4(낡은 참조 정정) (#163) |
 | 2026-08-14 | `#330` | v1.4: §2.8·§2.9에 파라미터 CHECK 제약(`chk_z_factor_nonneg`·`chk_cf_positive`), §2.4·§2.7에 FK 자식 인덱스(`idx_scenario_vessel`·`idx_scenario_voyage`·`idx_snapshot_vessel`) 신설 — 마이그레이션 023 (#96 #97) |
-| 2026-08-14 | `#___` | v1.5: §2.5에 `needs_recalc` 컬럼·§7.3를 `calc_run_guard`(플립만 허용)로 교체 — 마이그레이션 024. PRD §8.4 DWT/GT 변경 시 재계산 필요 표시 (#283) |
+| 2026-08-14 | `#332` | v1.5: §2.5에 `needs_recalc` 컬럼·§7.3를 `calc_run_guard`(플립만 허용)로 교체 — 마이그레이션 024. PRD §8.4 DWT/GT 변경 시 재계산 필요 표시 (#283) |
+| 2026-08-14 | `#___` | §2.16 말미에 `chat_session`·`chat_message` 미정의 각주(`user_id` → `app_user.id` 귀속 확정), §4.3에 채팅 90일 보존 행 추가 (#287) |
