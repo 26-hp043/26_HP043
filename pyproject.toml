@@ -26,7 +26,7 @@ dependencies = [
 # pytest 계열은 마이너 버전 사이에서 큰 변화가 없어 상한만 둔다.
 dev = [
     "ruff==0.16.2",
-    "pytest>=8.0,<9.0",
+    "pytest>=9.1.1,<10.0",
     "pytest-asyncio>=1.4.0,<2.0",
     "pytest-cov>=7.1.0,<8.0",
 ]
