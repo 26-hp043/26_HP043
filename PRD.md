@@ -722,7 +722,7 @@ CONFIRMED actual
 | `required_cii` | `5.045 gCO₂/(DWT·nm)` | 해당 연도·선종·capacity 기준 |
 | `ratio_to_required` | `98.8%` | attained / required |
 | `estimated_rating` | `C` | A~E |
-| `next_worse_boundary_margin` | `0.365 gCO₂/(DWT·nm)` | 다음 악화 등급 경계까지 여유 |
+| `next_worse_boundary_margin` | `0.365 gCO₂/(DWT·nm)` | 다음 악화 등급 경계까지 여유. **등급 E는 해당 없음** — 최하위 등급이라 악화 방향 경계가 존재하지 않는다. API는 `null`, 화면 문구는 DESIGN_SYSTEM §2.5 소관 (#171) |
 | `co2_emission_ton` | `249.12 tCO₂` | 표시용 ton 변환 |
 | `fuel_consumption_ton` | `80.00 ton` | 연료 종류별 합산 |
 | `distance_nm` | `1,000 nm` | 계산 거리 |
@@ -1837,3 +1837,4 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 | 2026-08-11 | `#220` | LLM 챗봇(O-12) MAY 범위 명문화 — §20 O-12 행·3대 봉쇄 원칙, §5.1 MAY 행, §16.3 외부 LLM 전송 통제 MUST 행·채팅 보존 정책, §7.8 ChatSession·§7.9 ChatMessage, §16.1 SLO, §16.2 챗봇 장애 격리 (#210) |
 | 2026-08-14 | `#___` | §7.8 ChatSession.user_id 귀속 주체를 `User`(§7.10 · `app_user.id`) 참조로 명시 — 인증 주체 모델(#273·#275) 확정에 따름 (#287) |
 | 2026-08-14 | `#___` | §6.2에 UIFLOW 화면 대응 각주 추가 — SCR ID ↔ UIFLOW 절 매핑·2-4/2-6 MVP 범위 밖 명시 (#280) |
+| 2026-08-14 | `#___` | §9.2 `next_worse_boundary_margin` 행에 등급 E 단서 추가 — API `null`·화면 문구는 DESIGN_SYSTEM §2.5 (#171) |
