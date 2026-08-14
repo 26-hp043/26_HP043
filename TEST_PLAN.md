@@ -287,7 +287,27 @@ raw_boundary = input 조건으로 재계산한 확정 전 경계 (§1.2.1 「공
     "deterministic": "decimal_exact",
     "monte_carlo": "rating_probabilities_4_sig_digits",
     "assert": "재현성 핵심 필드(input_hash, parameter_hash, model_version, rng_metadata.seed_entropy, rating_probabilities, target_success_probability, p10/p50/p90/mean_cii, deterministic.*)만 비교. 변동 필드(calculation_run_id, meta.request_id, meta.timestamp, meta.duration_ms, snapshot_id)는 제외"
-  }
+  },
+  "fields_to_compare": [
+    "input_hash",
+    "parameter_hash",
+    "model_version",
+    "rng_metadata.seed_entropy",
+    "rating_probabilities",
+    "target_success_probability",
+    "p10",
+    "p50",
+    "p90",
+    "mean_cii",
+    "deterministic.*"
+  ],
+  "fields_to_exclude": [
+    "calculation_run_id",
+    "meta.request_id",
+    "meta.timestamp",
+    "meta.duration_ms",
+    "snapshot_id"
+  ]
 }
 ```
 
