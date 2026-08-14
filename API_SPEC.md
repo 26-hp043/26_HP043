@@ -823,6 +823,32 @@ POST /api/v1/calculations/voyage-cii
 }
 ```
 
+**등급 E 응답 예시** (#171) — 같은 선박·연도에 연료량만 늘린 경우다. 위 예시와
+다른 부분만 봐도 된다:
+
+```json
+{
+  "data": {
+    "attained_cii": "12.456000",
+    "required_cii": "5.045066",
+    "ratio_to_required": "2.46895",
+    "estimated_rating": "E",
+    "next_worse_boundary_margin": null,
+    "next_worse_boundary_margin_ratio": null,
+    "co2_emission_ton": "622.80",
+    "fuel_consumption_ton": "200.00",
+    "distance_nm": 1000.0,
+    "risk_level": "CRITICAL"
+  }
+}
+```
+
+> `next_worse_boundary_margin` · `next_worse_boundary_margin_ratio`는 **등급 E에서
+> `null`**이다 — 최하위 등급이라 악화 방향 경계가 존재하지 않는다 (#171). 화면은
+> 「해당 없음 — 최하위 등급」 문구로 표시한다(DESIGN_SYSTEM §2.5). 위 값은 실제
+> 구현 응답에서 추출한 것으로, 전체 응답에서 `data`의 계산 필드만 발췌했다
+> (`parameters_used` 등 나머지 구조는 동일하다).
+
 #### 응답 필드·JSON 타입
 
 Layer 1 결정론 수치는 **JSON 문자열**로 직렬화한다(§1.7). 입력 에코 값은 숫자다.
@@ -848,8 +874,8 @@ Layer 1 결정론 수치는 **JSON 문자열**로 직렬화한다(§1.7). 입력
 | `required_cii` | **string** | Layer 1 |
 | `ratio_to_required` | **string** | Layer 1 |
 | `estimated_rating` | string | enum `A`~`E` |
-| `next_worse_boundary_margin` | **string** | Layer 1 |
-| `next_worse_boundary_margin_ratio` | **string** | Layer 1 |
+| `next_worse_boundary_margin` | **string \| null** | Layer 1. **등급 E는 `null`** — 최하위 등급이라 악화 방향 경계가 없다 (#171) |
+| `next_worse_boundary_margin_ratio` | **string \| null** | Layer 1. 등급 E는 `null` (#171) |
 | `co2_emission_ton` | **string** | Layer 1 |
 | `fuel_consumption_ton` | **string** | Layer 1. 입력 연료량 전체의 합 |
 | `distance_nm` | **number** | 입력 에코 |
@@ -1797,3 +1823,4 @@ GET /api/v1/health
 | 2026-08-13 | `#323` | v1.4: §3.4에 null 의미론(생략=변경 없음·명시적 null=클리어) 명시, §3.5 policy 제약 서두를 「미지정=현행 유지·EXCLUDE-only 자동 설정·불가 조합 명시적 재지정 요구」로 정정 (#310 #312) |
 | 2026-08-13 | `#324` | §3.7 삭제 규칙에 계산 이력 참조 시 409 `CONFLICT` 거부 행 추가 (#313) |
 | 2026-08-14 | `#332` | §1.9 응답에 `needs_recalc` 필드 노출 — DWT/GT 변경 시 재계산 필요 표시 (#283) |
+| 2026-08-14 | `#___` | §4.1 `next_worse_boundary_margin`·`_ratio`를 nullable(string \| null)로 표기 + 등급 E 응답 예시 블록 추가 — 등급 E는 `null` (#171) |
