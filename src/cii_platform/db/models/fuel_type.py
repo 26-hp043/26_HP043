@@ -50,4 +50,6 @@ class FuelType(Base):
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_fuel_type"),
         sa.UniqueConstraint("code", name="uq_fuel_type_code"),
+        # #96 (Oracle F5): cf는 물리적으로 항상 양수 — 음수면 배출량이 음수가 된다.
+        sa.CheckConstraint("cf > 0", name="chk_cf_positive"),
     )

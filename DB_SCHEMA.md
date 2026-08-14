@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.3 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) |
-| 최종 수정일 | 2026-08-06 |
+| 버전 | v1.4 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) |
+| 최종 수정일 | 2026-08-14 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
@@ -285,6 +285,17 @@ ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_fuel_positive
     CHECK (fuel_ton > 0);
 ```
 
+**인덱스:**
+
+```sql
+-- [#97] FK 자식 인덱스 — vessel/voyage 삭제 시 CASCADE·SET NULL 체크가
+-- full table scan하지 않게 한다. 목록 조회(WHERE vessel_id ORDER BY created_at DESC)도
+-- 함께 서비스한다 (idx_calc_vessel과 같은 복합 형태).
+CREATE INDEX idx_scenario_vessel ON voyage_scenario (vessel_id, created_at DESC);
+-- voyage_id는 SET NULL 체크 전용 — NULL 허용 컬럼이라 단일 컬럼으로 족하다.
+CREATE INDEX idx_scenario_voyage ON voyage_scenario (voyage_id);
+```
+
 > **[S-8]** `vessel_id` 컬럼 추가. 기존 항차에서 생성되지 않은 독립 시나리오의 경우 `voyage_id`가 NULL이 되므로, 선박 단위 조회 및 권한 검사를 위해 `vessel_id`가 필수이다.
 >
 > **[M-1]** `is_deleted` 컬럼 추가. 다른 비즈니스 테이블과 삭제 정책을 통일한다.
@@ -474,6 +485,13 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 
 > 스냅샷은 변경 불가(immutable)이다. 한 번 생성되면 수정되지 않는다.
 
+**인덱스:**
+
+```sql
+-- [#97] FK 자식 인덱스 — vessel 삭제 시 RESTRICT 체크가 full table scan하지 않게.
+CREATE INDEX idx_snapshot_vessel ON simulation_snapshot (vessel_id, created_at DESC);
+```
+
 ---
 
 ### 2.8 `regulation_year` — 규정 연도 Z-factor
@@ -482,7 +500,7 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 |---|---|---|---|
 | `id` | UUID | PK | ID |
 | `year` | INTEGER | NOT NULL, UNIQUE | 연도 |
-| `z_factor_percent` | NUMERIC(8,4) | NOT NULL | Z factor (%) |
+| `z_factor_percent` | NUMERIC(8,4) | NOT NULL, CHECK (>= 0) [#96] | Z factor (%) |
 | `effective_from` | DATE | NOT NULL | 적용 시작일 |
 | `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주). 예: `MEPC.400(83)` |
 | `version` | VARCHAR(50) | NOT NULL | 파라미터 세트 버전 |
@@ -490,6 +508,8 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 > **[#98] `updated_at`이 없는 것은 의도적이다.** 파라미터 테이블은 값이 개정되면 행을 고치지 않고 **새 `version` 행을 넣고 `is_active`를 전환**한다 — 기준과 예외(`fuel_type`)는 §7.2를 따른다.
+>
+> **[#96] `chk_z_factor_nonneg` (마이그레이션 023).** Z-factor reduction은 음수일 수 없다(MEPC.400(83) 0%~). 음수면 required_CII가 reference line보다 커지는 역산이 일어나 계산이 무의미해진다. 2023년의 `0`은 유효값이므로 `> 0`이 아니라 `>= 0`이다.
 
 ---
 
@@ -500,7 +520,7 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 | `id` | UUID | PK | ID |
 | `code` | VARCHAR(30) | NOT NULL, UNIQUE | 연료 코드 (예: HFO, LNG) |
 | `display_name` | VARCHAR(100) | NOT NULL | 표시명 |
-| `cf` | NUMERIC(10,6) | NOT NULL | tCO₂/tFuel 변환계수 |
+| `cf` | NUMERIC(10,6) | NOT NULL, CHECK (> 0) [#96] | tCO₂/tFuel 변환계수 |
 | `unit` | VARCHAR(30) | NOT NULL DEFAULT 'tCO₂/tFuel' | 단위 |
 | `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주) |
 | `version` | VARCHAR(50) | NOT NULL DEFAULT '1.0' **[X-3 추가]** | 파라미터 세트 버전 |
@@ -511,6 +531,8 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
 
 > **[X-3]** `version` 및 `content_hash` 컬럼 추가. TECH_SPEC §5.2의 `parameter_hash = SHA256(canonical_json(all_parameters))` 요구사항을 충족하기 위해, CF 값 변경 시 버전 및 content_hash를 갱신하여 파라미터 세트 변경을 추적 가능하게 한다.
+>
+> **[#96] `chk_cf_positive` (마이그레이션 023).** CF는 물리적으로 항상 양수다(MEPC.364(79) §2.2.1 기준값). 음수 cf가 들어가면 CO₂ 배출량이 음수가 되는 비상식적 결과가 나온다. `cii_reference_line`의 `chk_a_decimal_positive`·`chk_c_positive`와 같은 물리량 가드로 정합성을 맞춘다(Oracle 재리뷰 F5).
 
 ---
 
@@ -1132,3 +1154,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-06 | `#189` | §2.8 · §2.9 · §2.10 · §2.11 · §2.12의 `source_ref` 설명을 「출처」에서 「값이 인쇄된 문서」로 보강하고 §3.2 각주와 연결 (#155) |
 | 2026-08-06 | `#98` | §7.2에 `updated_at`을 두는 기준 신설(운영 데이터 / 파라미터 테이블 / `fuel_type` 예외) · §2.8에 생략 근거 참조 추가 (#98) |
 | 2026-08-07 | `#196` | 헤더 「상위 문서」 버전 참조 갱신 — `PRD` v3.2 · `TECH_SPEC` v1.3→v1.4(낡은 참조 정정) (#163) |
+| 2026-08-14 | `#___` | v1.4: §2.8·§2.9에 파라미터 CHECK 제약(`chk_z_factor_nonneg`·`chk_cf_positive`), §2.4·§2.7에 FK 자식 인덱스(`idx_scenario_vessel`·`idx_scenario_voyage`·`idx_snapshot_vessel`) 신설 — 마이그레이션 023 (#96 #97) |

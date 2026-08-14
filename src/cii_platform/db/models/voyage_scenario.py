@@ -92,4 +92,7 @@ class VoyageScenario(Base):
         sa.CheckConstraint("speed_kn >= 1.0", name="chk_scenario_speed_positive"),
         sa.CheckConstraint("duration_hours > 0", name="chk_scenario_duration_positive"),
         sa.CheckConstraint("fuel_ton > 0", name="chk_scenario_fuel_positive"),
+        # #97 (Oracle F3): vessel/voyage 삭제 시 FK 체크가 full scan하지 않게.
+        sa.Index("idx_scenario_vessel", vessel_id, created_at.desc()),
+        sa.Index("idx_scenario_voyage", "voyage_id"),
     )
