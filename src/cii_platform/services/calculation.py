@@ -106,8 +106,8 @@ async def list_calculation_runs(
     next_cursor = (
         calc_run_repo.encode_cursor(
             calc_run_repo.CalcRunCursor(
-                created_at=page[-1].created_at.isoformat(),
-                calculation_run_id=str(page[-1].id),
+                created_at=page[-1].created_at,
+                calculation_run_id=page[-1].id,
             )
         )
         if has_more and page

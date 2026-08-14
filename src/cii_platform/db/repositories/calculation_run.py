@@ -11,15 +11,15 @@ from __future__ import annotations
 
 import base64
 import binascii
+from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
+from uuid import UUID
 
 from sqlalchemy import select, tuple_
 
 from cii_platform.db.models.calculation_run import CalculationRun
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from sqlalchemy.ext.asyncio import AsyncSession
 
 #: DB_SCHEMA §2.5 ``chk_calculation_type``의 허용값 중 기능①에 해당하는 것.
@@ -40,15 +40,19 @@ class CalcRunCursor(NamedTuple):
     offset 대신 keyset을 쓰는 이유는 vessel · voyage와 같다(#51): 앞 페이지에서
     행이 빠지면 offset은 다음 페이지가 한 건을 건너뛴다. ``created_at``은 계산이
     동시에 끝나면 같을 수 있어 ``id``를 2차 키로 둔다.
+
+    값은 **네이티브 타입**(``datetime``·``UUID``)으로 가진다 — 문자열을 그대로
+    바인딩하면 PostgreSQL이 ``timestamptz < varchar`` 연산자를 못 찾아 쿼리가
+    실패한다. 직렬화는 encode/decode에서만 일어난다.
     """
 
-    created_at: str
-    calculation_run_id: str
+    created_at: datetime
+    calculation_run_id: UUID
 
 
 def encode_cursor(cursor: CalcRunCursor) -> str:
     """커서를 URL-safe base64 문자열로 만든다 (vessel §2.1과 같은 정책)."""
-    raw = f"{cursor.created_at}{_CURSOR_SEP}{cursor.calculation_run_id}".encode()
+    raw = f"{cursor.created_at.isoformat()}{_CURSOR_SEP}{cursor.calculation_run_id}".encode()
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
@@ -62,8 +66,13 @@ def decode_cursor(token: str) -> CalcRunCursor | None:
         raw = base64.urlsafe_b64decode(token.encode("ascii")).decode()
     except (binascii.Error, UnicodeDecodeError, ValueError):
         return None
-    created_at, sep, calculation_run_id = raw.partition(_CURSOR_SEP)
-    if not sep or not calculation_run_id:
+    created_at_raw, sep, run_id_raw = raw.partition(_CURSOR_SEP)
+    if not sep or not run_id_raw:
+        return None
+    try:
+        created_at = datetime.fromisoformat(created_at_raw)
+        calculation_run_id = UUID(run_id_raw)
+    except ValueError:
         return None
     return CalcRunCursor(created_at=created_at, calculation_run_id=calculation_run_id)
 

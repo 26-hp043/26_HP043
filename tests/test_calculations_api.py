@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
-from uuid import uuid4
+from datetime import UTC, datetime, timedelta, timezone
+from uuid import UUID, uuid4
 
 import pytest
 from fakes import FAKE_SESSION_TOKEN, FakeSession, install_fake_auth
@@ -42,7 +42,7 @@ HASH_B = "sha256:" + "b" * 64
 class FakeCalcRow:
     """``CalculationRun`` 행 대역. 조회 응답 직렬화에 쓰이는 필드만 가진다."""
 
-    id: str = field(default_factory=lambda: str(uuid4()))
+    id: UUID = field(default_factory=uuid4)
     calculation_type: str = "VOYAGE_ESTIMATE"
     vessel_id: str = field(default_factory=lambda: str(uuid4()))
     voyage_id: str | None = None
@@ -112,15 +112,15 @@ class TestCursorCodec:
 
     def test_roundtrip(self):
         cursor = CalcRunCursor(
-            created_at="2026-07-03T12:00:00+00:00",
-            calculation_run_id=str(uuid4()),
+            created_at=datetime(2026, 7, 3, 12, 0, 0, tzinfo=UTC),
+            calculation_run_id=uuid4(),
         )
         assert decode_cursor(encode_cursor(cursor)) == cursor
 
-    def test_unicode_and_special_chars(self):
+    def test_non_utc_timezone(self):
         cursor = CalcRunCursor(
-            created_at="2026-07-03T12:00:00+09:00",
-            calculation_run_id=str(uuid4()),
+            created_at=datetime(2026, 7, 3, 12, 0, 0, tzinfo=timezone(timedelta(hours=9))),
+            calculation_run_id=uuid4(),
         )
         assert decode_cursor(encode_cursor(cursor)) == cursor
 
@@ -166,7 +166,7 @@ class TestListCalculations:
 
         body = wired.get(ENDPOINT).json()
         item = body["data"][0]
-        assert item["calculation_run_id"] == row.id
+        assert item["calculation_run_id"] == str(row.id)
         assert item["calculation_type"] == row.calculation_type
         assert item["vessel_id"] == row.vessel_id
         assert item["voyage_id"] is None
@@ -290,7 +290,7 @@ class TestListCalculations:
 
         cursor = decode_cursor(body["meta"]["next_cursor"])
         assert cursor is not None
-        assert cursor.created_at == rows[-2].created_at.isoformat()
+        assert cursor.created_at == rows[-2].created_at
         assert cursor.calculation_run_id == rows[-2].id
 
     def test_next_cursor_none_on_exact_page(
