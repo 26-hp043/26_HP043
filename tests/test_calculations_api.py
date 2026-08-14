@@ -58,6 +58,7 @@ class FakeCalcRow:
             "required_cii": "5.045066",
         }
     )
+    needs_recalc: bool = False
     created_at: datetime = field(default_factory=lambda: datetime(2026, 7, 3, 12, 0, 0, tzinfo=UTC))
 
 
@@ -180,6 +181,7 @@ class TestListCalculations:
         }
         assert "required_cii" not in item["result_summary"]
         assert item["created_at"] == "2026-07-03T12:00:00+00:00"
+        assert item["needs_recalc"] is False
 
     def test_result_summary_missing_keys_omitted(
         self, wired: TestClient, monkeypatch: pytest.MonkeyPatch

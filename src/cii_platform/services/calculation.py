@@ -59,6 +59,7 @@ def _to_dict(run: CalculationRun) -> dict[str, object]:
         "parameter_hash": run.parameter_hash,
         "model_version": run.model_version,
         "result_summary": result_summary,
+        "needs_recalc": run.needs_recalc,
         "created_at": _iso(run.created_at),
     }
 

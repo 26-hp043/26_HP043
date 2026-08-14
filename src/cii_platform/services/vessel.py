@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from cii_platform.calc.capacity import DWT_BASED_SHIP_TYPES, GT_BASED_SHIP_TYPES
+from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories.vessel import (
@@ -243,9 +244,15 @@ async def update_vessel(
             )
         vessel.ship_type = ship_type
 
+    # #283 (PRD §8.4): DWT/GT가 실제로 바뀌면 이 선박의 계산 결과에 재계산 필요
+    # 표시를 남긴다. None은 "안 바꾼다", 같은 값 재전송도 표시를 만들지 않는다.
+    specs_changed = False
+
     if name is not None:
         vessel.name = name
     if deadweight is not None:
+        if deadweight != vessel.deadweight:
+            specs_changed = True
         vessel.deadweight = deadweight
     if default_fuel_type is not None:
         vessel.default_fuel_type = default_fuel_type
@@ -256,10 +263,15 @@ async def update_vessel(
 
     # GT가 바뀌면(또는 None으로 해제되면) hint를 다시 산정한다.
     if gross_tonnage is not None:
+        if gross_tonnage != vessel.gross_tonnage:
+            specs_changed = True
         vessel.gross_tonnage = gross_tonnage
         vessel.is_cii_applicable_hint = bool(
             gross_tonnage is not None and gross_tonnage >= CII_APPLICABLE_GT_THRESHOLD
         )
+
+    if specs_changed:
+        await calc_run_repo.mark_needs_recalc(session, vessel.id)
 
     await session.commit()
     return to_dict(vessel)

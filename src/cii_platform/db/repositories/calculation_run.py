@@ -77,6 +77,28 @@ def decode_cursor(token: str) -> CalcRunCursor | None:
     return CalcRunCursor(created_at=created_at, calculation_run_id=calculation_run_id)
 
 
+async def mark_needs_recalc(session: AsyncSession, vessel_id: UUID) -> int:
+    """선박의 미확정 계산 결과에 재계산 필요 표시를 남긴다 (PRD §8.4, #283).
+
+    ``needs_recalc = false``인 행만 갱신한다 — 이미 표시된 행은 누적 전용이고
+    true→false 되돌림은 가드 트리거(024)가 거부한다. **UPDATE문은
+    ``needs_recalc``만 세팅한다** — 그 외 컬럼은 immutable 가드가 지킨다.
+
+    반환값은 표시된 행 수.
+    """
+    from sqlalchemy import update
+
+    result = await session.execute(
+        update(CalculationRun)
+        .where(
+            CalculationRun.vessel_id == vessel_id,
+            CalculationRun.needs_recalc.is_(False),
+        )
+        .values(needs_recalc=True)
+    )
+    return result.rowcount or 0
+
+
 async def insert_voyage_estimate(
     session: AsyncSession,
     *,

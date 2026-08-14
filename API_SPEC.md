@@ -279,6 +279,7 @@ GET /api/v1/calculations
         "attained_cii": "4.982400",
         "estimated_rating": "C"
       },
+      "needs_recalc": false,
       "created_at": "2026-07-03T12:00:00Z"
     }
   ],
@@ -287,6 +288,8 @@ GET /api/v1/calculations
 ```
 
 > `input_hash` + `parameter_hash` 모두 지정 시 정확히 일치하는 계산 결과를 반환. 재현성 검증에 사용.
+>
+> `needs_recalc` — 선박 DWT/GT 변경 시 `true`로 플립된다(PRD §8.4 · #283). 계산 결과 자체는 immutable이라 바뀌지 않으며, 화면은 이 플래그로 재계산 권고를 표시한다. `false`로 되돌아가는 일은 없다.
 
 
 ---
@@ -1793,3 +1796,4 @@ GET /api/v1/health
 | 2026-08-13 | `#___` | v1.3: §1.2 인증 전면 재작성(구글 OIDC + 세션 쿠키), §1.4에 401·403 행 추가, §13.3 CORS에 X-CSRF-Token·credentials 정책 추가, 인증 엔드포인트 표 신설 (#272) |
 | 2026-08-13 | `#323` | v1.4: §3.4에 null 의미론(생략=변경 없음·명시적 null=클리어) 명시, §3.5 policy 제약 서두를 「미지정=현행 유지·EXCLUDE-only 자동 설정·불가 조합 명시적 재지정 요구」로 정정 (#310 #312) |
 | 2026-08-13 | `#324` | §3.7 삭제 규칙에 계산 이력 참조 시 409 `CONFLICT` 거부 행 추가 (#313) |
+| 2026-08-14 | `#___` | §1.9 응답에 `needs_recalc` 필드 노출 — DWT/GT 변경 시 재계산 필요 표시 (#283) |

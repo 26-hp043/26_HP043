@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.4 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) |
+| 버전 | v1.5 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) |
 | 최종 수정일 | 2026-08-14 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
@@ -306,7 +306,7 @@ CREATE INDEX idx_scenario_voyage ON voyage_scenario (voyage_id);
 
 ### 2.5 `calculation_run` — 계산 실행 결과
 
-> **[X-2]** 이 테이블은 immutable이다. §7.3의 `prevent_mutation` 트리거로 UPDATE/DELETE를 차단한다.
+> **[X-2]** 이 테이블은 immutable이다. §7.3의 가드 트리거로 UPDATE/DELETE를 차단한다. **유일한 예외는 `needs_recalc`의 false→true 플립이다** (마이그레이션 024의 `calc_run_guard` — 나머지 컬럼이 불변일 때만 통과, true→false 되돌림·다른 컬럼 변경·DELETE는 여전히 거부).
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -322,6 +322,7 @@ CREATE INDEX idx_scenario_voyage ON voyage_scenario (voyage_id);
 | `parameters_used` | JSONB | NOT NULL | TECH_SPEC §5.2.1 스키마 |
 | `warnings_json` | JSONB | NULL | 경고 목록 배열 |
 | `duration_ms` | INTEGER | NULL | 계산 소요 시간 (ms) |
+| `needs_recalc` | BOOLEAN | NOT NULL DEFAULT false **[#283]** | 재계산 필요 표시. 선박 DWT/GT 변경 시 서비스가 false→true로만 플립한다 (PRD §8.4) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
@@ -443,7 +444,7 @@ CREATE UNIQUE INDEX idx_sim_snapshot_unique ON annual_simulation_run (snapshot_i
 
 > TECH_SPEC §11 구현. 시뮬레이션 시작 시점의 항차 데이터 사본.
 >
-> **[X-2]** 이 테이블은 immutable이다. §7.3의 `prevent_mutation` 트리거로 UPDATE/DELETE를 차단한다.
+> **[X-2]** 이 테이블은 immutable이다. §7.3의 가드 트리거로 UPDATE/DELETE를 차단한다. **유일한 예외는 `needs_recalc`의 false→true 플립이다** (마이그레이션 024의 `calc_run_guard` — 나머지 컬럼이 불변일 때만 통과, true→false 되돌림·다른 컬럼 변경·DELETE는 여전히 거부).
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
@@ -990,10 +991,28 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- calculation_run: UPDATE/DELETE 차단
+-- calculation_run: UPDATE/DELETE 차단 — 단 needs_recalc 플립만 허용 (024, #283)
+CREATE OR REPLACE FUNCTION calc_run_guard()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION
+            'immutable table: calculation_run cannot be modified after creation';
+    END IF;
+    IF NEW.needs_recalc = TRUE AND OLD.needs_recalc = FALSE
+       AND (to_jsonb(NEW) - 'needs_recalc')
+           IS NOT DISTINCT FROM (to_jsonb(OLD) - 'needs_recalc')
+    THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION
+        'immutable table: calculation_run cannot be modified after creation';
+END;
+$$ LANGUAGE plpgsql;
+
 CREATE TRIGGER trg_calcrun_immutable
     BEFORE UPDATE OR DELETE ON calculation_run
-    FOR EACH ROW EXECUTE FUNCTION prevent_mutation();
+    FOR EACH ROW EXECUTE FUNCTION calc_run_guard();
 
 -- simulation_snapshot: UPDATE/DELETE 차단
 CREATE TRIGGER trg_snapshot_immutable
@@ -1002,6 +1021,8 @@ CREATE TRIGGER trg_snapshot_immutable
 ```
 
 > 애플리케이션 버그로 인한 historical data 변조를 DB 계층에서 차단한다.
+>
+> **[#283] `calc_run_guard` (마이그레이션 024).** calculation_run만 예외를 둔다 — PRD §8.4가 선박 DWT/GT 변경 시 재계산 필요 표시(`needs_recalc` false→true)를 요구하는데, 이는 UPDATE여야만 한다. 가드는 **플립 외 모든 변경을 여전히 거부**한다: 다른 컬럼 동시 변경, true→false 되돌림, DELETE 전부 차단. 컬럼을 열거하지 않고 `to_jsonb` 차집합으로 비교하므로 이후 컬럼 추가도 자동으로 보호된다. 공유 함수 `prevent_mutation()`은 simulation_snapshot이 계속 사용한다.
 
 ---
 
@@ -1154,4 +1175,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-06 | `#189` | §2.8 · §2.9 · §2.10 · §2.11 · §2.12의 `source_ref` 설명을 「출처」에서 「값이 인쇄된 문서」로 보강하고 §3.2 각주와 연결 (#155) |
 | 2026-08-06 | `#98` | §7.2에 `updated_at`을 두는 기준 신설(운영 데이터 / 파라미터 테이블 / `fuel_type` 예외) · §2.8에 생략 근거 참조 추가 (#98) |
 | 2026-08-07 | `#196` | 헤더 「상위 문서」 버전 참조 갱신 — `PRD` v3.2 · `TECH_SPEC` v1.3→v1.4(낡은 참조 정정) (#163) |
-| 2026-08-14 | `#___` | v1.4: §2.8·§2.9에 파라미터 CHECK 제약(`chk_z_factor_nonneg`·`chk_cf_positive`), §2.4·§2.7에 FK 자식 인덱스(`idx_scenario_vessel`·`idx_scenario_voyage`·`idx_snapshot_vessel`) 신설 — 마이그레이션 023 (#96 #97) |
+| 2026-08-14 | `#330` | v1.4: §2.8·§2.9에 파라미터 CHECK 제약(`chk_z_factor_nonneg`·`chk_cf_positive`), §2.4·§2.7에 FK 자식 인덱스(`idx_scenario_vessel`·`idx_scenario_voyage`·`idx_snapshot_vessel`) 신설 — 마이그레이션 023 (#96 #97) |
+| 2026-08-14 | `#___` | v1.5: §2.5에 `needs_recalc` 컬럼·§7.3를 `calc_run_guard`(플립만 허용)로 교체 — 마이그레이션 024. PRD §8.4 DWT/GT 변경 시 재계산 필요 표시 (#283) |
