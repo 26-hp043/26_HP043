@@ -12,10 +12,19 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from fakes import DEMO_VESSEL_ID, FakeReferenceLine, FakeSession, FakeVessel
+from fakes import (
+    DEMO_VESSEL_ID,
+    FAKE_CSRF_TOKEN,
+    FAKE_SESSION_TOKEN,
+    FakeReferenceLine,
+    FakeSession,
+    FakeVessel,
+    install_fake_auth,
+)
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import app
+from cii_platform.auth.session import SESSION_COOKIE_NAME
 from cii_platform.db.repositories.vessel import (
     DEFAULT_LIMIT,
     MAX_LIMIT,
@@ -141,8 +150,11 @@ def wired(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, dict]]:
     async def override_session():
         yield FakeSession()
 
+    install_fake_auth(monkeypatch)
     app.dependency_overrides[get_session] = override_session
     with TestClient(app) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
+        client.headers.update({"X-CSRF-Token": FAKE_CSRF_TOKEN})
         yield client, recorded
     app.dependency_overrides.clear()
 
@@ -362,8 +374,11 @@ class TestCreateVessel:
         async def override_session():
             yield FakeSession()
 
+        install_fake_auth(monkeypatch)
         app.dependency_overrides[get_session] = override_session
         with TestClient(app) as client:
+            client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
+            client.headers.update({"X-CSRF-Token": FAKE_CSRF_TOKEN})
             yield client, recorded, existing_imos
         app.dependency_overrides.clear()
 
@@ -398,13 +413,13 @@ class TestCreateVessel:
         assert recorded["insert_kwargs"]["is_cii_applicable_hint"] is False
 
     def test_duplicate_imo_is_409(self, create_wired):
-        """#50 완료 기준 — 중복 IMO → PARAMETER_ERROR(409)."""
+        """#50 완료 기준 — 중복 IMO → CONFLICT(409)."""
         client, _, existing_imos = create_wired
         existing_imos.add("1234567")  # 이미 존재하는 IMO로 세팅
         resp = client.post(LIST_URL, json=self.PAYLOAD)
         assert resp.status_code == 409
         body = resp.json()
-        assert body["error"]["code"] == "PARAMETER_ERROR"
+        assert body["error"]["code"] == "CONFLICT"
         assert "1234567" in body["error"]["message"]
 
     def test_unknown_ship_type_is_422(self, create_wired):
@@ -471,8 +486,11 @@ class TestUpdateVessel:
         async def override_session():
             yield FakeSession()
 
+        install_fake_auth(monkeypatch)
         app.dependency_overrides[get_session] = override_session
         with TestClient(app) as client:
+            client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
+            client.headers.update({"X-CSRF-Token": FAKE_CSRF_TOKEN})
             yield client, vessel_store, recorded
         app.dependency_overrides.clear()
 
@@ -548,8 +566,11 @@ class TestDeleteVessel:
         async def override_session():
             yield FakeSession()
 
+        install_fake_auth(monkeypatch)
         app.dependency_overrides[get_session] = override_session
         with TestClient(app) as client:
+            client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
+            client.headers.update({"X-CSRF-Token": FAKE_CSRF_TOKEN})
             yield client, store, active_imos
         app.dependency_overrides.clear()
 

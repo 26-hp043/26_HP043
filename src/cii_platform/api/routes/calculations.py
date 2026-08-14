@@ -8,8 +8,9 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 # TYPE_CHECKING 블록에 두면 안 된다. `from __future__ import annotations`로 애노테이션이
 # 문자열이 되는데, FastAPI는 의존성 시그니처를 **런타임에** 해석하므로 이름을 찾지 못해
@@ -18,7 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.schemas.voyage_cii import VoyageCiiRequest
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
+from cii_platform.services.calculation import list_calculation_runs
 from cii_platform.services.voyage_cii import (
     FuelUseInput,
     VoyageCiiInput,
@@ -28,11 +31,53 @@ from cii_platform.services.voyage_cii import (
 router = APIRouter(tags=["calculations"])
 
 
+def _meta(request: Request, **extra: object) -> dict[str, object]:
+    """API_SPEC §1.3.1 ``meta``. 미들웨어가 주입한 요청 컨텍스트를 옮긴다."""
+    state = getattr(request, "state", None)
+    return {
+        **extra,
+        "request_id": getattr(state, "request_id", None),
+        "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
+    }
+
+
+@router.get("/calculations")
+async def list_calculations_route(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    input_hash: Annotated[str | None, Query(description="sha256: + 64 hex chars")] = None,
+    parameter_hash: Annotated[str | None, Query(description="sha256: + 64 hex chars")] = None,
+    type: Annotated[
+        str | None,
+        Query(description="VOYAGE_ESTIMATE, SCENARIO, ANNUAL_DETERMINISTIC, ANNUAL_MONTE_CARLO"),
+    ] = None,
+    vessel_id: Annotated[UUID | None, Query(description="선박 필터")] = None,
+    limit: Annotated[int | None, Query(description="페이지 크기 (기본 20, 최대 100)")] = None,
+    cursor: Annotated[str | None, Query(description="페이지네이션 커서")] = None,
+) -> dict[str, object]:
+    """계산 결과를 조회한다 (API_SPEC §1.9, #56).
+
+    ``input_hash`` + ``parameter_hash``를 모두 지정하면 **정확히 일치하는** 계산 결과만
+    반환한다 — 재현성 검증 용법. ``meta``에 ``next_cursor``·``has_more``가 함께 들어간다.
+    """
+    data, page_meta = await list_calculation_runs(
+        session,
+        limit=limit,
+        cursor=cursor,
+        input_hash=input_hash,
+        parameter_hash=parameter_hash,
+        calculation_type=type,
+        vessel_id=vessel_id,
+    )
+    return {"data": data, "meta": _meta(request, **page_meta)}
+
+
 @router.post("/calculations/voyage-cii")
 async def voyage_cii(
     request: Request,
     payload: VoyageCiiRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
     """항차 CII를 추정한다 (API_SPEC §4.1).
 

@@ -90,8 +90,15 @@ def wired(monkeypatch: pytest.MonkeyPatch, session: FakeSession) -> Iterator[Tes
     async def override_session():
         yield session
 
+    from fakes import FAKE_CSRF_TOKEN, FAKE_SESSION_TOKEN, install_fake_auth
+
+    from cii_platform.auth.session import SESSION_COOKIE_NAME
+
+    install_fake_auth(monkeypatch)
     app.dependency_overrides[get_session] = override_session
     with TestClient(app) as client:
+        client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
+        client.headers.update({"X-CSRF-Token": FAKE_CSRF_TOKEN})
         yield client
     app.dependency_overrides.clear()
 

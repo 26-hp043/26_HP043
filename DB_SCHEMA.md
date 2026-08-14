@@ -666,6 +666,58 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 
 ---
 
+### 2.15 `app_user` — 사용자 (#273)
+
+> PRD §7.8 요구사항. 인증은 구글 OIDC에 위임하며 **비밀번호 관련 컬럼을 두지 않는다.**
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, NOT NULL | 내부 사용자 ID |
+| `google_sub` | VARCHAR(255) | NOT NULL | 구글 OIDC `sub` 클레임. partial unique index (soft delete 호환) |
+| `email` | VARCHAR(320) | NOT NULL | 표시·연락용. **식별자가 아니다** |
+| `display_name` | VARCHAR(100) | NULL | 구글 프로필 이름 |
+| `last_login_at` | TIMESTAMPTZ | NULL | 마지막 로그인 시각 |
+| `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+
+**인덱스:**
+
+```sql
+CREATE UNIQUE INDEX idx_app_user_google_sub ON app_user (google_sub) WHERE is_deleted = false;
+CREATE INDEX idx_app_user_email ON app_user (email) WHERE is_deleted = false;
+```
+
+> **`email`에 unique를 걸지 않는 것은 의도다.** 구글 계정의 이메일은 변경될 수 있다. 유일성은 `google_sub`에만 둔다.
+
+### 2.16 `user_session` — 로그인 세션 (#273)
+
+> API_SPEC §1.2 요구사항. 세션 토큰은 SHA-256 해시만 저장한다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, NOT NULL | 세션 ID |
+| `user_id` | UUID | NOT NULL, **FK → app_user(id) ON DELETE CASCADE** | 세션 소유자 |
+| `session_token_hash` | VARCHAR(64) | NOT NULL, UNIQUE | 쿠키 값의 SHA-256 hex. **원문을 저장하지 않는다** |
+| `csrf_token_hash` | VARCHAR(64) | NOT NULL | CSRF 토큰의 SHA-256 hex |
+| `expires_at` | TIMESTAMPTZ | NOT NULL | 만료 시각 |
+| `revoked_at` | TIMESTAMPTZ | NULL | 로그아웃 시각. NOT NULL이면 무효 |
+| `user_agent` | VARCHAR(255) | NULL | 요청 User-Agent (감사용) |
+| `ip_address` | VARCHAR(45) | NULL | 발급 시 IP |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
+
+**인덱스:**
+
+```sql
+CREATE UNIQUE INDEX idx_session_token ON user_session (session_token_hash);
+CREATE INDEX idx_session_user ON user_session (user_id, created_at DESC);
+CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS NULL;
+```
+
+> **세션 토큰 원문을 저장하지 않는다** — DB 유출 시 저장된 값으로 로그인 위조를 막기 위함. 비밀번호를 해시하는 것과 같은 이유.
+
+---
+
 ## 3. 시드 데이터
 
 ### 3.1 규정 연도 Z-factor

@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.2 |
+| 버전 | v1.4 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-11 |
+| 최종 수정일 | 2026-08-13 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -51,15 +51,40 @@ MVP에서는 단일 인스턴스를 가정한다. 향후 멀티테넌트 확장 
 
 ### 1.2 인증
 
-MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다.
+MVP는 **구글 OIDC 인증 + 서버 세션 쿠키**를 사용한다. 단일 조직·단일 역할을 가정하므로 권한 분리는 두지 않는다 (PRD §5.2 · §20 O-13).
 
 | 항목 | MVP 정책 |
 |---|---|
-| 인증 방식 | API Key (Header: `X-API-Key: {key}`) 또는 세션 쿠키 |
-| 권한 분리 | 없음 (모든 사용자 동일 권한) |
-| 향후 확장 | JWT + 역할 기반 접근 제어 (RBAC) |
+| 인증 방식 | 구글 OIDC (Authorization Code + PKCE) → 서버 발급 세션 쿠키 `sid` |
+| 쿠키 속성 | `HttpOnly` · `Secure` · `SameSite=Lax` · `Path=/` |
+| 권한 분리 | 없음. 인증된 모든 사용자가 동일 권한을 가진다 |
+| 데이터 격리 | 없음. 선박·항차 데이터는 전 사용자가 공유한다 (PRD §5.2) |
+| 미인증 응답 | `401 UNAUTHORIZED` |
+| CSRF | 상태 변경 요청(POST·PATCH·DELETE)에 `X-CSRF-Token` 헤더 요구 |
+| 향후 확장 | 역할 기반 접근 제어(RBAC), 사용자별 데이터 격리 |
 
-> 파라미터 변경(POST/PATCH `/parameters/*`) 및 항차 확정(CONFIRMED 전환)은 감사 로그에 기록된다 (TECH_SPEC §13.1)。
+**인증 예외 경로** — 다음은 세션 없이 접근할 수 있다.
+
+| 경로 | 사유 |
+|---|---|
+| `GET /health` | 헬스 체크 |
+| `GET /auth/login` · `GET /auth/callback` | 인증 플로우 자체 |
+
+그 밖의 모든 `/api/v1/*` 경로는 유효한 세션을 요구한다. 인증 엔드포인트 명세는 아래 표를 참조한다.
+
+> 파라미터 변경(POST/PATCH `/parameters/*`) 및 항차 확정(CONFIRMED 전환)은 감사 로그에 기록된다 (TECH_SPEC §13.1). **인증 도입에 따라 `audit_log.user_id`에 `app_user.id`를 기록한다.**
+
+**인증 엔드포인트** — §1.2 인증 정책에 따른 엔드포인트 (#272).
+
+| Method | Path | 인증 | 설명 |
+|---|---|---|---|
+| `GET` | `/auth/login?redirect_to={path}` | 불필요 | 구글 인증 화면으로 302. `redirect_to`는 앱 내부 경로만 허용 |
+| `GET` | `/auth/callback?code={code}&state={state}` | 불필요 | 토큰 교환 → `id_token` 검증 → 세션 발급 → `redirect_to`로 302 |
+| `GET` | `/auth/me` | **필요** | 현재 사용자 정보 (id, email, display_name). `google_sub`는 미노출 |
+| `POST` | `/auth/logout` | **필요** | 세션 즉시 무효화 + 쿠키 만료. 멱등 (세션 없어도 204) |
+
+> `id_token` 검증 항목: 서명(JWKS) · `iss` · `aud` · `exp` · `nonce` · `email_verified=true`.
+> 개발 환경(`APP_ENV != production`)에서는 `POST /auth/dev-login` 스텁 경로를 추가한다 — 고정 테스트 사용자로 세션 발급. **production에서는 라우트 자체를 등록하지 않는다.**
 
 ### 1.3 공통 응답 포맷
 
@@ -129,10 +154,13 @@ MVP는 단일 조직·단일 역할을 가정하므로 인증을 최소화한다
 | 200 OK | — | 성공 (warning 포함 가능). 기상 API 실패 시 NONE fallback으로 계산, `warnings`에 `WEATHER_NONE_FALLBACK` 포함 |
 | 201 Created | — | 리소스 생성 성공 |
 | 400 Bad Request | `BAD_REQUEST` | JSON 파싱 오류, 잘못된 Content-Type |
+| 401 Unauthorized | `UNAUTHORIZED` | 세션 없음, 세션 만료, 세션 무효 |
+| 403 Forbidden | `CSRF_ERROR` | CSRF 토큰 누락 또는 불일치 |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 리소스 ID |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 **경로** (프레임워크 자동 발생 — `#183`에서 §1.3.2 포맷으로 변환). 리소스 ID 미존재와 동일한 코드를 쓴다 |
 | 405 Method Not Allowed | `METHOD_NOT_ALLOWED` | 경로는 존재하나 HTTP 메서드가 허용되지 않음 (프레임워크 자동 발생 — `#183`에서 변환) |
 | 409 Conflict | `PARAMETER_ERROR` | 규정 파라미터 누락 또는 불일치. 재현 시 파라미터 변경 |
+| 409 Conflict | `CONFLICT` | 리소스 중복 (예: 동일 IMO 번호 선박 재등록) |
 | 422 Unprocessable Entity | `VALIDATION_ERROR` | VAL-001~010 위반 |
 | 422 Unprocessable Entity | `CALCULATION_ERROR` | 분모 0, overflow, 음수 결과 |
 | 422 Unprocessable Entity | `MODEL_BREAKDOWN_ERROR` | BN > 8, ΔV/V ≥ 100% |
@@ -525,7 +553,7 @@ POST /api/v1/vessels/{vessel_id}/voyages
 PATCH /api/v1/voyages/{voyage_id}
 ```
 
-모든 필드는 optional. `status` 변경은 §3.5 참조.
+모든 필드는 optional. `status` 변경은 §3.5 참조. **생략 = 변경 없음, 명시적 `null` = 클리어**다(#312).
 
 > **[#150]** 대상 필드는 §3.3 요청 본문과 같으므로 **`regulation_year`도 여기서 설정·변경한다.** 주어지면 `VAL-005`로 검증한다. `annual_inclusion_policy ≠ EXCLUDE`인 항차에서 `regulation_year`를 `null`로 지우는 요청은 `DB_SCHEMA`의 `chk_year_policy`를 깨뜨리므로 거부한다.
 
@@ -566,7 +594,12 @@ POST /api/v1/voyages/{voyage_id}/transition
 
 #### status × annual_inclusion_policy 제약
 
-> PRD §8.1.2 (ORACLE-R-1). 허용되지 않은 조합은 자동으로 `EXCLUDE`로 보정하거나 전환을 거부한다.
+> PRD §8.1.2 (ORACLE-R-1).
+
+전환 요청에서 `annual_inclusion_policy`를 **생략하면 현행 값을 유지한다**(#310). 단, 아래 두 경우는 예외다.
+
+- 목표 상태가 EXCLUDE only(`CANCELLED`·`ARCHIVED`)면 **자동으로 `EXCLUDE`로 설정**한다(아래 표 「자동 설정」·ORACLE-C-4).
+- 목표 상태가 현행 policy를 허용하지 않는 조합(예: `PLANNED`(`INCLUDE_AS_PLAN`) → `COMPLETED`)이면 자동 보정하지 않고 **명시적 재지정을 요구하며 거부한다(422)**.
 
 | status | 허용 policy |
 |---|---|
@@ -652,6 +685,8 @@ DELETE /api/v1/voyages/{voyage_id}
 | CANCELLED | Hard delete 허용 |
 | PLANNED, IN_PROGRESS | 422: 먼저 CANCELLED로 전환 필요 |
 | COMPLETED, CONFIRMED, ARCHIVED | Soft delete only (감사 보존) |
+
+> **[#313]** Hard delete 대상이라도 이 항차를 참조하는 계산 이력(`calculation_run`)이 있으면 **409 `CONFLICT`**로 거부한다. `fk_calculation_run_voyage`가 ON DELETE `RESTRICT`라 참조가 있는 물리 삭제는 DB 제약 위반이다 — 계산 이력은 보존 대상이다(DB_SCHEMA §7.1).
 
 #### 응답 (200 OK)
 
@@ -1650,7 +1685,9 @@ GET /api/v1/health
 |---|---|
 | 허용 Origin | 동일 출처 또는 명시적 화이트리스트 |
 | 허용 Method | GET, POST, PATCH, PUT, DELETE, **OPTIONS** |
-| 허용 Header | Content-Type, X-API-Key, Authorization |
+| 허용 Header | Content-Type, X-API-Key, Authorization, X-CSRF-Token |
+
+> 쿠키 기반 세션을 사용하므로 CORS 설정은 `allow_credentials = true`가 필요하며, **`allow_origins`에 와일드카드(`*`)를 쓸 수 없다.** 허용 출처를 명시적으로 나열한다 (#272).
 
 ### 13.4 API 버전 관리
 
@@ -1753,3 +1790,6 @@ GET /api/v1/health
 | 2026-08-07 | `#196` | 헤더 「상위 문서」 버전 참조 갱신 — `PRD` v3.2 · `TECH_SPEC` v1.2→v1.4(낡은 참조 정정) (#163) |
 | 2026-08-10 | `#218` | §4.1 응답 예시의 `parameters_used.regulation_year.z_factor_percent` 표기를 `"11"` → `"11.0"`로 정정 — `calculation_basis` 블록과 통일 (#208) |
 | 2026-08-11 | `#222` | §1.3.2에 `message` 한국어 규정, §1.4에 405 `METHOD_NOT_ALLOWED`·경로 404·미등록 status 범용 `HTTP_ERROR` 행 및 프레임워크 발생 오류 정책(문구·status 보존) 신설 (#182) |
+| 2026-08-13 | `#___` | v1.3: §1.2 인증 전면 재작성(구글 OIDC + 세션 쿠키), §1.4에 401·403 행 추가, §13.3 CORS에 X-CSRF-Token·credentials 정책 추가, 인증 엔드포인트 표 신설 (#272) |
+| 2026-08-13 | `#323` | v1.4: §3.4에 null 의미론(생략=변경 없음·명시적 null=클리어) 명시, §3.5 policy 제약 서두를 「미지정=현행 유지·EXCLUDE-only 자동 설정·불가 조합 명시적 재지정 요구」로 정정 (#310 #312) |
+| 2026-08-13 | `#324` | §3.7 삭제 규칙에 계산 이력 참조 시 409 `CONFLICT` 거부 행 추가 (#313) |
