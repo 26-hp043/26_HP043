@@ -42,3 +42,22 @@ jobs:
       # 놓치지 않는 것이고, 등급 기준은 운영하면서 조정할 수 있다.
       # 등재 시점 취약점은 전 등급 0건이다(info·low·moderate·high·critical 모두).
       - run: npm audit --audit-level=high
+
+  # Python 의존성 감사 (#235). npm-audit과 같은 주기·같은 비게이트 원칙이다.
+  # (머지 게이트가 아닌 이유는 파일 상단 주석과 같다 — advisory DB 갱신만으로
+  # 실패하는 것을 PR에 전파하지 않는다.)
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # 런타임+dev 전체 환경을 감사한다 — dev 도구(ruff·pytest)도 CI에서 실행되므로
+      # 공급망 표면에 포함한다. npm-audit이 lockfile(devDependencies 포함)을 보는
+      # 것과 같은 기준이다. 주간 실행이라 캐시는 두지 않는다.
+      - run: pip install -e ".[dev]" pip-audit
+      # 편집 설치된 cii-platform 자체는 이 저장소 코드(감사 대상 아님) — 제외하고
+      # 설치된 의존성만 감사한다. pip-audit은 알려진 취약점 1건에도 실패한다
+      # (npm의 --audit-level 같은 등급 필터가 없다).
+      - run: pip-audit --skip-editable
