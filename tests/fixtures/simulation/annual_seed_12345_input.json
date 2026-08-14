@@ -1,0 +1,18 @@
+{
+  "description": "PRD §13.3 Fixture 3 — Monte Carlo seed 재현성",
+  "input": {
+    "vessel_id": "test-vessel-uuid",
+    "regulation_year": 2026,
+    "target_rating": "B",
+    "simulation_runs": 5000,
+    "random_seed": 12345,
+    "distribution_profile": "DEFAULT",
+    "voyages": [
+      {
+        "status": "CONFIRMED",
+        "distance_nm": 11000,
+        "fuel_uses": [{ "fuel_type": "HFO", "fuel_ton": 800.0 }]
+      }
+    ]
+  }
+}
