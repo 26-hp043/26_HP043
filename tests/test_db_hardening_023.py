@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 
 async def test_fuel_type_negative_cf_rejected(conn):
-    """cf <= 0 INSERT는 제약 위반 (#96)."""
+    """cf < 0 INSERT는 제약 위반 (#96)."""
     with pytest.raises(IntegrityError):
         await conn.execute(
             text(
@@ -22,6 +22,14 @@ async def test_fuel_type_negative_cf_rejected(conn):
                 "VALUES ('BAD', 'Bad Fuel', -1.0, 'TEST', '1.0')"
             )
         )
+
+
+async def test_fuel_type_zero_cf_rejected(conn):
+    """cf = 0 INSERT도 제약 위반 (#96) — cf는 엄격 양수.
+
+    conn fixture는 함수 단일 트랜잭션이라 위반 시 abort된다 — 위반 케이스마다
+    테스트를 나눠 새 트랜잭션에서 실행한다.
+    """
     with pytest.raises(IntegrityError):
         await conn.execute(
             text(
