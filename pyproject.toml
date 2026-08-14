@@ -14,7 +14,7 @@ dependencies = [
     "numpy==2.1.0",
     "sqlalchemy[asyncio]>=2.0.51,<2.1",
     "asyncpg>=0.30,<0.32",
-    "alembic>=1.13,<2.0",
+    "alembic>=1.19.1,<2.0",
     "fastapi>=0.141.1,<0.150",
     "uvicorn[standard]>=0.52.1,<0.60",
     "httpx>=0.28.1,<0.29",
