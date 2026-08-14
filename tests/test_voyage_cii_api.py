@@ -258,9 +258,33 @@ class TestEnvelope:
         }
 
     def test_transaction_is_committed(self, wired, session):
-        """서비스가 트랜잭션을 닫는다. 열어 두면 이력이 저장되지 않는다."""
+        """계산·감사 커밋이 닫힌다. 열어 두면 이력이 저장되지 않는다 (#277)."""
         wired.post(ENDPOINT, json=VALID_PAYLOAD)
-        assert session.committed == 1
+        assert session.committed == 2
+
+    def test_calculation_run_audited_with_user(self, wired, session):
+        """계산 실행이 감사 로그에 남는다 — 주체는 미들웨어가 심은 사용자 (#277)."""
+        from fakes import FAKE_USER_ID
+
+        wired.post(ENDPOINT, json=VALID_PAYLOAD)
+        audits = [obj for obj in session.added if type(obj).__name__ == "AuditLog"]
+        assert len(audits) == 1
+        event = audits[0]
+        assert event.action == "CALCULATION_RUN"
+        assert event.entity_type == "calculation_run"
+        assert event.user_id == str(FAKE_USER_ID)
+        # TECH_SPEC §13.1 필드 표 — 해시·모델 버전·소요시간·상태·경고 수.
+        assert set(event.details_json) == {
+            "calculation_type",
+            "input_hash",
+            "parameter_hash",
+            "model_version",
+            "duration_ms",
+            "status",
+            "warnings_count",
+        }
+        assert event.details_json["status"] == "SUCCESS"
+        assert event.details_json["calculation_type"] == "VOYAGE_ESTIMATE"
 
 
 # --- 검증 오류 -----------------------------------------------------------------------

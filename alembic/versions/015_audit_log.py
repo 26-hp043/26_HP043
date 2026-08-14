@@ -50,7 +50,8 @@ def upgrade() -> None:
         ),
         sa.Column("user_id", sa.String(length=100), nullable=True),
         # PARAMETER_CHANGE, VOYAGE_CONFIRM, CALCULATION_RUN, VOYAGE_TRANSITION,
-        # IMPORT, EXPORT (§2.14 설명 — CHECK는 정본에 없음).
+        # IMPORT, EXPORT + 인증 이벤트 LOGIN_SUCCESS·LOGIN_FAILURE·LOGOUT (#277)
+        # (§2.14 설명 — CHECK는 정본에 없음).
         sa.Column("action", sa.String(length=50), nullable=False),
         sa.Column("entity_type", sa.String(length=30), nullable=True),
         sa.Column("entity_id", postgresql.UUID(as_uuid=True), nullable=True),
