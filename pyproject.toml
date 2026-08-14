@@ -17,7 +17,7 @@ dependencies = [
     "alembic>=1.13,<2.0",
     "fastapi>=0.141.1,<0.150",
     "uvicorn[standard]>=0.52.1,<0.60",
-    "httpx>=0.27,<0.29",
+    "httpx>=0.28.1,<0.29",
     "pyjwt[crypto]>=2.8,<3.0",
 ]
 
