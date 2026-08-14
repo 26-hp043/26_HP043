@@ -1,3 +1,4 @@
+import { csrfHeaders, redirectToLogin } from '../../auth/session'
 import { VoyageCiiError, type VoyageCiiErrorCode, type VoyageCiiProvider } from './provider'
 import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
 
@@ -70,6 +71,10 @@ export const NETWORK_ERROR_MESSAGE =
 /** 서버가 오류 응답 형태를 지키지 못했을 때의 문구. */
 export const MALFORMED_ERROR_MESSAGE = '서버 응답을 해석하지 못했습니다.'
 
+/** 세션 만료(401) 문구 — 전환과 함께 로그인 화면으로 보낸다 (#278). */
+export const SESSION_EXPIRED_MESSAGE =
+  '로그인이 만료되었습니다. 다시 로그인해 주세요.'
+
 /**
  * 서버 오류 응답을 `VoyageCiiError`로 옮긴다.
  *
@@ -116,6 +121,9 @@ export function createApiProvider(options: ApiProviderOptions = {}): VoyageCiiPr
     async estimate(request: VoyageCiiRequest): Promise<VoyageCiiResponse> {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (options.apiKey) headers['X-API-Key'] = options.apiKey
+      // #278: CSRF — 서버가 검증하는 경로는 헤더뿐이다(API_SPEC §1.2). 쿠키의
+      // csrf 원문을 X-CSRF-Token으로 옮겨 실는다.
+      Object.assign(headers, csrfHeaders())
 
       let response: Response
       try {
@@ -137,6 +145,13 @@ export function createApiProvider(options: ApiProviderOptions = {}): VoyageCiiPr
         body = await response.json()
       } catch {
         body = null
+      }
+
+      // #278: 세션 만료 — 로그인 화면으로 보낸다(현재 경로가 복귀 경로가 된다).
+      // 노드 테스트 환경(window 없음)에서는 전환 없이 오류로만 끝난다.
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new VoyageCiiError('CALCULATION_ERROR', SESSION_EXPIRED_MESSAGE)
       }
 
       if (!response.ok) {

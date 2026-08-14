@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router'
 import './AppShell.css'
 import { NAV_SCREENS, findScreenByPath } from '../screens'
 import { GradePatternDefs } from '../components/GradePatternDefs'
+import { logout, useAuthUser } from '../auth/session'
 
 /**
  * 공통 셸 — `DESIGN_SYSTEM.md` §7.2.
@@ -30,6 +31,7 @@ export function AppShell() {
   const { pathname } = useLocation()
   const screen = findScreenByPath(pathname)
   const width = screen?.width ?? 'form'
+  const user = useAuthUser()
 
   return (
     <div className="app-shell">
@@ -90,7 +92,26 @@ export function AppShell() {
             <span className="app-shell__util-value">—</span>
           </span>
           <span className="app-shell__util-item app-shell__util-item--plain">알림</span>
-          <span className="app-shell__util-item app-shell__util-item--plain">계정</span>
+          {/* 계정 — #278: 현재 사용자 표시 + 로그아웃. demo 모드(사용자 없음)는
+              종전의 정적 표시를 유지한다. */}
+          {user ? (
+            <span className="app-shell__util-item">
+              <span className="app-shell__util-key">계정</span>
+              <span className="app-shell__util-value">
+                {user.displayName ?? user.email}
+              </span>
+              <button
+                type="button"
+                className="app-shell__logout"
+                onClick={() => void logout()}
+                data-testid="logout-button"
+              >
+                로그아웃
+              </button>
+            </span>
+          ) : (
+            <span className="app-shell__util-item app-shell__util-item--plain">계정</span>
+          )}
           <span className="app-shell__env">데모 환경</span>
         </header>
 

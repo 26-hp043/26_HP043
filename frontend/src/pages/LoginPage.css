@@ -1,0 +1,94 @@
+/*
+ * 로그인 화면 — DESIGN_SYSTEM.md 토큰만 사용한다(#133 제약: hex 하드코딩 금지).
+ * 화면 구조는 UIFLOW §0 「서비스 소개 및 면책 문구 + 버튼 단일」을 따른다.
+ */
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-32);
+  background: var(--color-bg);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  padding: var(--space-32);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+}
+
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.login-brand-name {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-h2);
+  color: var(--color-primary);
+}
+
+.login-brand-sub {
+  font-size: var(--font-size-micro);
+  color: var(--color-text-muted);
+}
+
+.login-title {
+  margin: 0;
+  font-size: var(--font-size-display);
+  font-weight: var(--font-weight-display);
+  color: var(--color-text);
+}
+
+.login-description {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.login-disclaimer {
+  margin: 0;
+  padding: var(--space-12);
+  font-size: var(--font-size-micro);
+  line-height: 1.6;
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-tag);
+}
+
+.login-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: var(--space-8);
+  padding: var(--space-12) var(--space-24);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+  color: var(--color-surface);
+  background: var(--color-primary);
+  border: none;
+  border-radius: var(--radius-control);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.login-button:hover {
+  background: var(--color-primary-hover);
+}
+
+.login-button:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 2px;
+}
