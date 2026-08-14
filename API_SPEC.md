@@ -1823,4 +1823,4 @@ GET /api/v1/health
 | 2026-08-13 | `#323` | v1.4: §3.4에 null 의미론(생략=변경 없음·명시적 null=클리어) 명시, §3.5 policy 제약 서두를 「미지정=현행 유지·EXCLUDE-only 자동 설정·불가 조합 명시적 재지정 요구」로 정정 (#310 #312) |
 | 2026-08-13 | `#324` | §3.7 삭제 규칙에 계산 이력 참조 시 409 `CONFLICT` 거부 행 추가 (#313) |
 | 2026-08-14 | `#332` | §1.9 응답에 `needs_recalc` 필드 노출 — DWT/GT 변경 시 재계산 필요 표시 (#283) |
-| 2026-08-14 | `#___` | §4.1 `next_worse_boundary_margin`·`_ratio`를 nullable(string \| null)로 표기 + 등급 E 응답 예시 블록 추가 — 등급 E는 `null` (#171) |
+| 2026-08-14 | `#338` | §4.1 `next_worse_boundary_margin`·`_ratio`를 nullable(string \| null)로 표기 + 등급 E 응답 예시 블록 추가 — 등급 E는 `null` (#171) |

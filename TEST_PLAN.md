@@ -1185,4 +1185,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-07 | `#196` | 헤더 「상위 문서」의 `PRD` 버전 참조 갱신 (v3.1 → v3.2) (#163) |
 | 2026-08-07 | `#195` | §1.2 `fixture_note`에서 「이 파일과 생성기는 #45에서 만든다」 삭제 — 실제로 생성되어 사실과 달라짐 (#45) |
 | 2026-08-07 | `#195` | v1.4: §1.3 케이스를 **기호 표기(`boundary` + `offset`)로 교체** — 적힌 확정값을 그대로 판정에 넣으면 올림된 경계(`upper`·`inferior`)에서 등급이 뒤집힌다. `input` 블록 신설(원경계 재계산 조건), `canonical_digits`에서 `cases[].attained_cii` 제거, 뒤집힘 표와 근거 소절 추가 (#46) |
-| 2026-08-14 | `#___` | v1.5: §4.7 인증 API 케이스 신설(13건) — 기존 구현 파일들(`test_oidc`·`test_auth_api`·`test_auth_session`·`test_auth_wiring`·`test_auth_failure_paths`·`test_dev_auth`)의 케이스를 문서화. 헤더 「상위 문서」의 `API_SPEC` 버전 참조 갱신 (v1.2 → v1.4) (#279) |
+| 2026-08-14 | `#328` | v1.5: §4.7 인증 API 케이스 신설(13건) — 기존 구현 파일들(`test_oidc`·`test_auth_api`·`test_auth_session`·`test_auth_wiring`·`test_auth_failure_paths`·`test_dev_auth`)의 케이스를 문서화. 헤더 「상위 문서」의 `API_SPEC` 버전 참조 갱신 (v1.2 → v1.4) (#279) |
