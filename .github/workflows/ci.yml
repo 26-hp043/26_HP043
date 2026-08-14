@@ -45,7 +45,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
       - run: pip install -e ".[dev]"
-      - run: pytest --cov=cii_platform --cov-report=xml --cov-report=term-missing
+      # 커버리지 게이트 (#235): 측정 기준선 92%(2026-08-14, 2171 stmts)에서
+      # 2pp 버퍼를 둔 90%. 작은 무커버 추가에 흔들리지 않으면서 큰 하락은 잡는다.
+      - run: pytest --cov=cii_platform --cov-report=xml --cov-report=term-missing --cov-fail-under=90
         env:
           DATABASE_URL: postgresql://cii:cii@localhost:5432/cii_test
 
