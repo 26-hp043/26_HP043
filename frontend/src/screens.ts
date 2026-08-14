@@ -8,7 +8,8 @@
  * ⚠️ `PRD.md` §6.1·§6.2는 아직 7개 화면(SCR-001~007)을 병렬로 정의하고 있어
  * 이 파일과 어긋난다. PRD를 UIFLOW 기준으로 정정하는 것은 별도 이슈에서 처리한다.
  *
- * 범위 밖: `UIFLOW §0`(인증·초기 진입) — #133이 인증을 명시적으로 제외한다.
+ * `UIFLOW §0`(인증) 화면(LOGIN · LOGIN_FAILURE)은 #278에서 추가됐다 — 사이드바
+ * 밖(온보딩 흐름)이므로 OFF_NAV 로 둔다.
  *
  * `width`는 `DESIGN_SYSTEM.md` §7.1 폭 정책이다.
  *   - `wide`: 대시보드·차트·비교 화면 → full-bleed(max 1920), 좌우 패딩 32
@@ -46,6 +47,8 @@ export interface ScreenMeta {
  * 출처는 `uiflowRef`로 남긴다.
  */
 export type ScreenId =
+  | 'LOGIN'
+  | 'LOGIN_FAILURE'
   | 'MAINBOARD'
   | 'VESSEL_REGISTRATION'
   | 'CII_FORECAST'
@@ -56,6 +59,24 @@ export type ScreenId =
   | 'SETTINGS'
 
 export const SCREEN_BY_ID = {
+  LOGIN: {
+    path: '/login',
+    label: '로그인',
+    labelEn: 'Login',
+    uiflowRef: '0',
+    purpose: '구글 OIDC 로그인 진입 — 서비스 소개·면책 문구·단일 버튼',
+    width: 'form',
+    demoScope: false, // 인증 화면 — 데모 데이터와 무관, 사이드바 밖
+  },
+  LOGIN_FAILURE: {
+    path: '/login/failure',
+    label: '로그인 실패',
+    labelEn: 'Login Failure',
+    uiflowRef: '0-1',
+    purpose: '로그인 실패 사유 안내 및 재시도',
+    width: 'form',
+    demoScope: false,
+  },
   MAINBOARD: {
     path: '/dashboard',
     label: '대시보드',
@@ -152,7 +173,11 @@ export const NAV_ORDER = [
  * 사이드바에 노출되지 않는 화면. `UIFLOW §1-2` 선박 등록은 온보딩 흐름
  * (`1-1 정보 미등록 → 1-2 선박 등록 → 1-3 메인보드`)에 속하며 기능 메뉴가 아니다.
  */
-export const OFF_NAV_ORDER = ['VESSEL_REGISTRATION'] as const satisfies readonly ScreenId[]
+export const OFF_NAV_ORDER = [
+  'LOGIN',
+  'LOGIN_FAILURE',
+  'VESSEL_REGISTRATION',
+] as const satisfies readonly ScreenId[]
 
 /** 라우팅 대상 전체. */
 export const ALL_SCREEN_IDS = [...NAV_ORDER, ...OFF_NAV_ORDER] as const
