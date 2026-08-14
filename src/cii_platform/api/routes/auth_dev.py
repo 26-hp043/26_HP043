@@ -24,6 +24,7 @@ from cii_platform.auth.session import (
 from cii_platform.config import _ENV
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.session import get_session
+from cii_platform.services import audit as audit_svc
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -71,6 +72,15 @@ async def dev_login(
 
     db_session = UserSession(**fields)
     session.add(db_session)
+    # 스텁 로그인도 감사 대상(#277) — 실환경 로그인과 같은 이벤트 스트림에
+    # 남겨야 개발 계정으로 한 작업을 추적할 수 있다. details의 dev_login 플래그로
+    # 구분한다.
+    await audit_svc.record_login_success(
+        session,
+        user_id=str(user.id),
+        ip_address=request.client.host if request.client else None,
+        details={"dev_login": True},
+    )
     await session.commit()
 
     response = JSONResponse(

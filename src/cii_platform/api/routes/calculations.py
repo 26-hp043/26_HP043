@@ -21,6 +21,7 @@ from cii_platform.api.schemas.voyage_cii import VoyageCiiRequest
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
+from cii_platform.services import audit as audit_svc
 from cii_platform.services.calculation import list_calculation_runs
 from cii_platform.services.voyage_cii import (
     FuelUseInput,
@@ -110,4 +111,21 @@ async def voyage_cii(
         "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
         "duration_ms": duration_ms,
     }
+
+    # 계산 실행 감사 (TECH_SPEC §13.1 · #277) — 인증 미들웨어가 request.state에
+    # 심은 사용자를 주체로 기록한다. 서비스가 request를 알면 계층이 깨지므로(§16.1)
+    # 라우트가 값을 뽑아 넘긴다.
+    session_user = getattr(state, "session_user", None)
+    await audit_svc.record_calculation_run(
+        session,
+        user_id=str(session_user.id) if session_user is not None else None,
+        run_id=UUID(result["calculation_run_id"]),
+        input_hash=result["input_hash"],
+        parameter_hash=result["parameter_hash"],
+        model_version=result["model_version"],
+        duration_ms=duration_ms,
+        warnings_count=len(result["warnings"]),
+        ip_address=request.client.host if request.client else None,
+    )
+    await session.commit()
     return result

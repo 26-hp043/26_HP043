@@ -34,8 +34,18 @@ from cii_platform.auth.session import (
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.session import get_session
+from cii_platform.services import audit as audit_svc
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _client_ip(request: Request) -> str | None:
+    """감사 로그용 클라이언트 IP — 미들웨어와 같은 정책으로 뽑는다 (#277).
+
+    rate_limit와 달리 X-Forwarded-For는 신뢰하지 않고 직접 peer만 쓴다 —
+    감사 기록의 주체는 정확해야 하고 위조 가능한 헤더에 의존하지 않는다.
+    """
+    return request.client.host if request.client else None
 
 
 def _error_response(request: Request, status: int, code: str, message: str) -> JSONResponse:
@@ -128,6 +138,10 @@ async def callback(
     redirect_to = parts[1] if len(parts) > 1 else ""
 
     if raw_state != oidc_state_cookie or not verifier:
+        await audit_svc.record_login_failure(
+            session, reason="state_mismatch", ip_address=_client_ip(request)
+        )
+        await session.commit()
         return _error_response(
             request, 401, "UNAUTHORIZED", "state 불일치 — 요청을 다시 시도하세요."
         )
@@ -136,6 +150,11 @@ async def callback(
     try:
         token_response = await exchange_code(code, verifier)
     except Exception as exc:
+        # exc 문자열에는 토큰 응답 파편이 섞일 수 있어 details에는 넣지 않는다.
+        await audit_svc.record_login_failure(
+            session, reason="token_exchange_failed", ip_address=_client_ip(request)
+        )
+        await session.commit()
         return _error_response(request, 502, "BAD_REQUEST", f"토큰 교환 실패: {exc}")
 
     id_token = token_response.get("id_token")
@@ -146,6 +165,12 @@ async def callback(
     try:
         payload = await verify_id_token(id_token, expected_nonce=nonce_cookie)
     except ValueError as exc:
+        await audit_svc.record_login_failure(
+            session,
+            reason="id_token_verification_failed",
+            ip_address=_client_ip(request),
+        )
+        await session.commit()
         return _error_response(request, 401, "UNAUTHORIZED", f"id_token 검증 실패: {exc}")
 
     google_sub = payload["sub"]
@@ -182,6 +207,14 @@ async def callback(
     )
     db_session = UserSession(**fields)
     session.add(db_session)
+    # google_sub는 안정 식별자라 details에 둬도 안전하다 — id_token 원문·세션
+    # 토큰은 자격 증명이므로 절대 기록하지 않는다(서비스 레이어 정책).
+    await audit_svc.record_login_success(
+        session,
+        user_id=str(user.id),
+        ip_address=_client_ip(request),
+        details={"google_sub": google_sub},
+    )
     await session.commit()
 
     # 쿠키 삭제 (oidc_state, oidc_verifier, oidc_nonce)
@@ -255,6 +288,11 @@ async def logout(
         row = (await session.execute(stmt)).scalar_one_or_none()
         if row is not None:
             row.revoked_at = dt.datetime.now(dt.UTC)
+            # 실제 무효화가 일어난 경우만 기록한다 — 멱등 재호출은 세션이
+            # 이미 없어 기록하지 않는다.
+            await audit_svc.record_logout(
+                session, user_id=str(row.user_id), ip_address=_client_ip(request)
+            )
             await session.commit()
 
     # 204 No Content — 본문이 없다. JSONResponse는 content 인자가 필수라
