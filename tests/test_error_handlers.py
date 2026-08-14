@@ -217,3 +217,106 @@ def test_non_string_detail_falls_back_to_generic_message() -> None:
     assert payload["error"]["code"] == "BAD_REQUEST"
     assert payload["error"]["message"] == "요청을 처리할 수 없습니다."
     assert "email" not in payload["error"]["message"]
+
+
+# --- #117: 갭 보강 — details 4키 구조 · AppError 서브클래스 캐치 -----------------------
+
+
+def test_details_covers_full_api_spec_1_3_2_four_key_schema() -> None:
+    """⑽ §1.3.2 details의 4키(field·field_label·rule·message) 전체 구조 (#117 갭 1).
+
+    기존 테스트는 field·rule 2키만 확인했다 — field_label·message 누락은
+    실제 응답과의 불일치를 못 잡는다.
+    """
+    body = to_error_response(
+        "VALIDATION_ERROR",
+        "운항 거리는 0보다 커야 합니다.",
+        details=[
+            {
+                "field": "distance_nm",
+                "field_label": "운항 거리",
+                "rule": "VAL-002",
+                "message": "운항 거리는 0보다 커야 합니다.",
+            }
+        ],
+        request_id="req-4k",
+        timestamp="2026-07-18T00:00:00Z",
+    )
+    entry = body["error"]["details"][0]
+    assert set(entry) == {"field", "field_label", "rule", "message"}
+    assert entry["field_label"] == "운항 거리"
+    assert entry["message"] == "운항 거리는 0보다 커야 합니다."
+
+
+def test_four_key_details_survive_end_to_end() -> None:
+    """⑾ 4키 details가 핸들러를 거쳐 응답 본문에 그대로 나간다 (#117 갭 1)."""
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/boom-details")
+    async def boom_details() -> dict[str, str]:
+        raise AppError(
+            "VALIDATION_ERROR",
+            "운항 거리는 0보다 커야 합니다.",
+            details=[
+                {
+                    "field": "distance_nm",
+                    "field_label": "운항 거리",
+                    "rule": "VAL-002",
+                    "message": "운항 거리는 0보다 커야 합니다.",
+                }
+            ],
+        )
+
+    payload = TestClient(app).get("/boom-details").json()
+    assert payload["error"]["details"] == [
+        {
+            "field": "distance_nm",
+            "field_label": "운항 거리",
+            "rule": "VAL-002",
+            "message": "운항 거리는 0보다 커야 합니다.",
+        }
+    ]
+
+
+def test_validation_error_auto_details_keys() -> None:
+    """⑿ ValidationError 자동 details — field·field_label·message 키 (#117 갭 1).
+
+    ``rule``은 호출부가 VAL 코드를 알 때만 의미가 있어 선택 키다 — 자동 구성에는
+    들어가지 않고, AppError details로 전달 시 그대로 통과한다(⑩ 참조).
+    """
+    from cii_platform.errors import ValidationError
+
+    exc = ValidationError(
+        "운항 거리는 0보다 커야 합니다.", field="distance_nm", field_label="운항 거리"
+    )
+    assert exc.details is not None
+    assert set(exc.details[0]) == {"field", "field_label", "message"}
+    assert exc.details[0]["field_label"] == "운항 거리"
+
+
+def test_custom_app_error_subclass_is_caught_by_base_handler() -> None:
+    """⒀ 테스트에서 정의한 서브클래스도 base 핸들러가 캐치한다 (#117 갭 2).
+
+    Starlette은 등록된 핸들러 중 예외 MRO에서 가장 가까운 것을 고른다 —
+    AppError 핸들러가 서브클래스를 가로채는지 증명한다.
+    """
+
+    class SeasonalWindShiftError(AppError):
+        """테스트 전용 서브클래스 — 실제 도메인에 추가하는 게 아니다."""
+
+        def __init__(self) -> None:
+            super().__init__("WEATHER_FETCH_ERROR", "계절풍 급변으로 기상 모델이 무효화됐습니다.")
+
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/sub")
+    async def sub() -> dict[str, str]:
+        raise SeasonalWindShiftError()
+
+    resp = TestClient(app).get("/sub")
+    assert resp.status_code == 422
+    payload = resp.json()
+    assert payload["error"]["code"] == "WEATHER_FETCH_ERROR"
+    assert payload["error"]["message"] == "계절풍 급변으로 기상 모델이 무효화됐습니다."
