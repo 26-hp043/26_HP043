@@ -480,8 +480,13 @@ class TestUpdateVessel:
             recorded["ship_type_check"] = ship_type
             return [FakeReferenceLine()] if ship_type in known_ship_types else []
 
+        async def fake_mark_needs_recalc(_session, vessel_id):
+            recorded.setdefault("recalc_marked", []).append(vessel_id)
+            return 0
+
         monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
         monkeypatch.setattr(svc.param_repo, "list_reference_lines", fake_list_reference_lines)
+        monkeypatch.setattr(svc.calc_run_repo, "mark_needs_recalc", fake_mark_needs_recalc)
 
         async def override_session():
             yield FakeSession()
@@ -512,6 +517,35 @@ class TestUpdateVessel:
         client, store, _ = patch_wired
         client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"gross_tonnage": 60000.0})
         assert store[DEMO_VESSEL_ID].is_cii_applicable_hint is True
+
+    def test_dwt_change_marks_needs_recalc(self, patch_wired):
+        """#283 (PRD §8.4) — DWT 변경 시 재계산 필요 표시 호출."""
+        client, store, recorded = patch_wired
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"deadweight": 51000.0})
+        assert resp.status_code == 200
+        assert recorded.get("recalc_marked") == [DEMO_VESSEL_ID]
+
+    def test_gt_change_marks_needs_recalc(self, patch_wired):
+        """#283 — GT 변경도 재계산 필요 표시 호출."""
+        client, store, recorded = patch_wired
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"gross_tonnage": 32000.0})
+        assert resp.status_code == 200
+        assert recorded.get("recalc_marked") == [DEMO_VESSEL_ID]
+
+    def test_same_specs_resent_does_not_mark(self, patch_wired):
+        """#283 — 같은 값 재전송은 표시를 만들지 않는다 (노이즈 방지)."""
+        client, store, recorded = patch_wired
+        # fixture 초기 GT는 30000.00 — 같은 값을 보낸다.
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"gross_tonnage": 30000.0})
+        assert resp.status_code == 200
+        assert "recalc_marked" not in recorded
+
+    def test_name_only_change_does_not_mark(self, patch_wired):
+        """#283 — 제원 외 필드 변경은 표시를 만들지 않는다."""
+        client, store, recorded = patch_wired
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"name": "리네임만"})
+        assert resp.status_code == 200
+        assert "recalc_marked" not in recorded
 
     def test_unknown_ship_type_is_422(self, patch_wired):
         """VAL-004 — PATCH에서 ship_type 변경도 같은 검증을 탄다."""
