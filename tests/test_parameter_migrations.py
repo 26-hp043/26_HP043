@@ -6,8 +6,14 @@
 - 각 테이블의 CHECK·UNIQUE 인덱스가 DB_SCHEMA §2.10~§2.12와 일치
 - INSERT 정상 동작, 제약 위반 거부
 
-주의: 마이그레이션은 스키마만 만들고 값은 넣지 않는다(seed는 #33·#35, 파서 #36 선행).
-여기 테스트 값은 제약 동작 검증용 임의 값이며 정본 §3의 규제값이 아니다.
+주의: 여기 테스트 값은 제약 동작 검증용 임의 값이며 정본 §3의 규제값이 아니다.
+
+**[#127] 이 테이블들은 더 이상 비어 있지 않다.** data migration 032가 ``upgrade head``
+시점에 규제 파라미터 42행을 넣는다. 그래서 아래 두 가지를 지킨다.
+
+- ``condition_expr``에 정본에 없는 sentinel(``__test__``)을 쓴다 — 규제값과 UNIQUE 키가
+  겹치지 않게 한다. seed가 늘어나도 계속 성립한다.
+- 행 수는 절대값이 아니라 **증가분**으로 단언한다 — seed 행 수에 결합되지 않게 한다.
 """
 
 import pytest
@@ -18,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 async def _insert_refline(
     conn,
     ship_type="BULK_CARRIER",
-    condition_expr="all",
+    condition_expr="__test__",
     capacity_rule="DWT",
     a_raw="4745E3",
     a_decimal="4745000",
@@ -44,7 +50,7 @@ async def _insert_refline(
 async def _insert_boundary(
     conn,
     ship_type="BULK_CARRIER",
-    condition_expr="all",
+    condition_expr="__test__",
     d1="0.86",
     d2="0.94",
     d3="1.06",
@@ -74,10 +80,12 @@ async def _insert_weather_param(conn, model_version="TOWNSIN_KWON_ALPHA", key="a
 
 
 async def test_refline_insert_ok(conn):
+    before = (await conn.execute(text("SELECT count(*) FROM cii_reference_line"))).scalar_one()
     await _insert_refline(conn)
     await _insert_refline(conn, ship_type="LNG_CARRIER", capacity_rule="fixed 279000")
-    count = await conn.execute(text("SELECT count(*) FROM cii_reference_line"))
-    assert count.scalar_one() == 2
+    after = (await conn.execute(text("SELECT count(*) FROM cii_reference_line"))).scalar_one()
+    # 증가분으로 본다 — 032가 넣은 seed 20행에 결합되지 않게 (#127).
+    assert after - before == 2
 
 
 async def test_refline_allows_zero_c(conn):

@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.11 |
+| 버전 | v1.12 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
@@ -1160,7 +1160,36 @@ CREATE TRIGGER trg_snapshot_immutable
 | 마이그레이션 도구 | **Alembic** (Python) | TECH_SPEC의 Python 스택과 일치. SQLAlchemy와 통합 |
 | 명명 규칙 | `{revision}_{description}.py` (예: `001_initial_schema.py`) | Alembic 기본 규칙 준수 |
 | rollback 정책 | 모든 마이그레이션에 `downgrade()` 구현 필수 | 프로덕션 안전성 |
-| seed 데이터 | 별도 `seed/` 디렉토리에서 관리. Alembic data migration으로 실행 | 스키마 변경과 seed 데이터 분리 |
+| seed 데이터 | **값·로직은 `src/cii_platform/db/seed.py`가 관리. 적재는 Alembic data migration** | 아래 §8.1.1 |
+
+#### 8.1.1 seed의 위치와 적재 경로 [#127]
+
+**모든 seed는 `alembic upgrade head` 경로에 들어 있다.** 배포에 별도 스크립트 실행 단계가 없다.
+
+| 대상 | 적재 마이그레이션 |
+|---|---|
+| `fuel_type` CF 8행 | 017 (`#83`) · `content_hash`는 031 (`#154`) |
+| `regulation_year` Z-factor 8행 · `cii_reference_line` 20행 · `cii_rating_boundary` d-vector 14행 | **032 (`#127`)** |
+| 데모용 선박·항차 | 018 · 027 |
+
+**값과 로직은 `src/cii_platform/db/seed.py`에 둔다 — 별도 `seed/` 디렉토리를 만들지 않는다.**
+
+> 이 절은 원래 「별도 `seed/` 디렉토리에서 관리」로 규정했으나, 그 디렉토리는 만들어진 적이 없고 만들 이유도 없다는 것이 확인되어 실제 구조로 고쳤다(#127). 패키지 안에 있어야 **DB 없이 값 검증 테스트가 가능**하다 — 현재 5개 테스트 파일(`test_seed_data.py` · `test_capacity_rules.py` · `test_rating_boundary.py` · `test_hashing.py` · `test_dashboard_seed.py`)이 이 상수를 import해 `PRD §3.4`와 대조한다. `seed/`로 옮기면 그 검증 경로가 끊긴다.
+
+**마이그레이션은 `src/` 상수를 import하지 않는다 🔒**
+
+마이그레이션은 **과거 한 시점의 스냅샷**이다. 상수를 import하면 규제 개정으로 그 상수가 바뀔 때 과거 마이그레이션의 동작이 소급 변경되어, 새 환경의 `upgrade head`가 「그날의 값」이 아니라 「오늘의 값」을 넣는다. 그러면 이후 마이그레이션의 전제가 무너진다. 값은 마이그레이션 파일에 인라인으로 고정한다.
+
+| 주체 | 담는 것 | 성격 |
+|---|---|---|
+| data migration (017 · 032) | 그날 넣은 값 | **불변** — 신규 환경 부트스트랩 |
+| `seed_all()` (upsert) | 지금 옳다고 보는 값 | **가변** — 규제 개정 시 재적재 |
+
+**규제 개정 시 둘이 갈라지는 것이 정상이다.** 다만 그 순간을 모르고 지나가면 안 되므로 `tests/test_seed_migration.py`가 양쪽을 매 실행 대조한다.
+
+**data migration에 upsert를 쓰지 않는다 🔒** — Alembic은 각 마이그레이션을 한 번만 실행하는 모델이고, upsert는 덮어쓴 원래 값을 모르므로 `downgrade()`를 정의할 수 없다. 위 표의 「모든 마이그레이션에 `downgrade()` 구현 필수」와 충돌한다. 재적재가 필요하면 `seed_all()`을 쓴다.
+
+**downgrade는 자기가 넣은 키만 지운다 🔒** — 전체 DELETE는 운영 중 추가된 행까지 지운다.
 
 ### 8.2 마이그레이션 워크플로우
 
@@ -1178,10 +1207,10 @@ CREATE TRIGGER trg_snapshot_immutable
 
 | 데이터 | 버전 관리 방식 | 갱신 시기 |
 |---|---|---|
-| `regulation_year` Z-factor | `version` 컬럼 + Alembic data migration | IMO 새 결의안 채택 시 |
+| `regulation_year` Z-factor | `version` 컬럼 + Alembic data migration (032) | IMO 새 결의안 채택 시 |
 | `fuel_type` CF 값 | `version` + `content_hash` 컬럼 | MEPC 새 지침 발행 시 |
-| `cii_reference_line` | `source_ref` 컬럼으로 추적 | MEPC 새 지침 발행 시 |
-| `cii_rating_boundary` | `source_ref` 컬럼으로 추적 | MEPC 새 지침 발행 시 |
+| `cii_reference_line` | `source_ref` 컬럼으로 추적. 적재는 data migration (032) | MEPC 새 지침 발행 시 |
+| `cii_rating_boundary` | `source_ref` 컬럼으로 추적. 적재는 data migration (032) | MEPC 새 지침 발행 시 |
 
 > Seed 데이터 변경 시 기존 `calculation_run`의 `parameter_hash`와 새 파라미터의 hash가 달라지므로, 과거 계산 결과는 재현성이 보장된다 (다른 hash = 다른 결과 세트).
 
@@ -1337,3 +1366,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-15 | `#374` | v1.6: §2.17 `not_underway_period`·§2.18 `not_underway_fuel_use` 신설(마이그레이션 025) — ER 다이어그램 3줄 추가, 헤더 상위 문서 `PRD` v4.0 갱신 (#345) |
 | 2026-08-15 | `#375` | v1.7: §2.1에 운항 상태 2축·위치 5컬럼 반영(마이그레이션 026) — `chk_vessel_state_pair` 정합 규칙(`SAILING`↔`UNDER_WAY`·6값↔`NOT_UNDER_WAY`, IS NOT NULL 가드)·위경도 범위·위치-시각 페어 (#346) |
 | 2026-08-15 | `#389` | v1.11: §8.3.1 `fuel_type.content_hash` 산출 규칙 신설 — **행 단위** · 대상 필드 `{code, cf}`(`TECH_SPEC` §5.2.1 `parameters_used.fuel_types[]` 원소 스키마 재사용) · `canonical_json` + `sha256:` 접두사(총 71자, 컬럼 폭 일치). 017이 보류한 값을 마이그레이션 031이 리터럴로 적재하고, 테스트가 `src/` 규약으로 재계산해 대조한다 (#154) |
+| 2026-08-15 | `#390` | v1.12: §8.1.1 「seed의 위치와 적재 경로」 신설 — 모든 seed를 `alembic upgrade head` 경로로 일원화(마이그레이션 032, 규제 파라미터 42행). **§8.1의 「별도 `seed/` 디렉토리」 규정을 실제 구조(`src/cii_platform/db/seed.py`)로 정정** — 패키지 안이라야 DB 없이 값 검증이 가능하고 5개 테스트가 그 상수를 쓴다. 「마이그레이션은 `src/` 상수를 import하지 않는다」·「data migration에 upsert 금지」·「downgrade는 넣은 키만 삭제」를 🔒로 명문화(017이 세우고 031·032가 따른 원칙) (#127) |
