@@ -1,10 +1,10 @@
-"""not under way 구간 저장소 — 쿼리만 담당한다 (TECH_SPEC §16, #353).
+"""not under way 구간 저장소 — 쿼리만 담당한다 (TECH_SPEC §16, #353·#370).
 
-``not_underway_period`` · ``not_underway_fuel_use``(``#345``, 마이그레이션 025)를
-읽는다. 구간 CRUD는 ``#370`` 소관이며 여기에는 **YTD 집계에 필요한 조회만** 둔다.
+``not_underway_period`` · ``not_underway_fuel_use``(``#345``, 마이그레이션 025)의
+조회(#353 YTD 집계)와 CRUD(#370 입력 경로)를 담는다.
 
 비즈니스 판단은 ``services``의 몫이다 — 어떤 구간을 포함할지의 규칙(연도 귀속·
-``as_of`` 절단)은 인자로 받고, 여기서는 그대로 WHERE 절로 옮긴다.
+``as_of`` 절단)·겹침 판정의 의미는 인자로 받고, 여기서는 그대로 WHERE 절로 옮긴다.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING, NamedTuple
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from cii_platform.db.models.not_underway_fuel_use import NotUnderwayFuelUse
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
@@ -145,3 +145,145 @@ async def list_periods_for_year(
 
     stmt = stmt.order_by(NotUnderwayPeriod.started_at, NotUnderwayPeriod.id)
     return list((await session.execute(stmt)).scalars().all())
+
+
+# --- CRUD (#370 — 입력 경로) ------------------------------------------------------
+
+
+async def insert_period(session: AsyncSession, **fields: object) -> NotUnderwayPeriod:
+    """구간을 INSERT 한다. ``commit``은 호출부(서비스)가 담당한다."""
+    period = NotUnderwayPeriod(**fields)
+    session.add(period)
+    await session.flush()
+    return period
+
+
+async def insert_fuel_use(session: AsyncSession, **fields: object) -> NotUnderwayFuelUse:
+    """구간 연료 1건을 INSERT 한다. ``cf_used``는 서비스가 채운 뒤 넘긴다 (030)."""
+    fuel_use = NotUnderwayFuelUse(**fields)
+    session.add(fuel_use)
+    await session.flush()
+    return fuel_use
+
+
+async def get_period_by_id(session: AsyncSession, period_id: UUID) -> NotUnderwayPeriod | None:
+    """구간 1건. soft delete된 행도 돌려준다 — PATCH·DELETE 대상 식별은 서비스 판단."""
+    return await session.get(NotUnderwayPeriod, period_id)
+
+
+async def list_active_periods(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    regulation_year: int | None = None,
+    period_type: str | None = None,
+    ongoing: bool | None = None,
+    limit: int = 20,
+    cursor: tuple[datetime, UUID] | None = None,
+) -> list[NotUnderwayPeriod]:
+    """활성 구간 목록 (API_SPEC §3.8.2, #370).
+
+    최근 시작 순(``started_at desc, id desc``) — 입력 직후 구간이 첫 페이지에
+    보이는 것이 입력 화면의 자연스러운 피드백이다. ``limit + 1``건을 가져와
+    ``has_more`` 판단은 호출부가 한다(voyage ``list_active`` 패턴).
+
+    :param ongoing: ``True`` = 진행 중(``ended_at IS NULL``)만, ``False`` = 종료만.
+    :param cursor: ``(started_at, id)``의 마지막 반환 값 — 서비스가 파싱해 넘긴다.
+        컬럼 타입과 맞춰야 asyncpg 바인딩이 성립한다(문자열 그대로는 실패).
+    """
+    stmt = select(NotUnderwayPeriod).where(
+        NotUnderwayPeriod.vessel_id == vessel_id,
+        NotUnderwayPeriod.is_deleted.is_(False),
+    )
+    if regulation_year is not None:
+        stmt = stmt.where(NotUnderwayPeriod.regulation_year == regulation_year)
+    if period_type is not None:
+        stmt = stmt.where(NotUnderwayPeriod.period_type == period_type)
+    if ongoing is True:
+        stmt = stmt.where(NotUnderwayPeriod.ended_at.is_(None))
+    elif ongoing is False:
+        stmt = stmt.where(NotUnderwayPeriod.ended_at.is_not(None))
+
+    if cursor is not None:
+        started_at, period_id = cursor
+        # 같은 started_at의 동률 처리 — id desc로 끊는다 (keyset 정합성).
+        stmt = stmt.where(
+            or_(
+                NotUnderwayPeriod.started_at < started_at,
+                (NotUnderwayPeriod.started_at == started_at) & (NotUnderwayPeriod.id < period_id),
+            )
+        )
+
+    stmt = stmt.order_by(NotUnderwayPeriod.started_at.desc(), NotUnderwayPeriod.id.desc())
+    stmt = stmt.limit(limit + 1)
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def list_fuel_uses_by_period_ids(
+    session: AsyncSession, period_ids: list[UUID]
+) -> dict[UUID, list[NotUnderwayFuelUse]]:
+    """``period_id``별 자식 연료 목록 — 목록 화면이 N+1 없이 자식을 싣는 데 쓴다."""
+    if not period_ids:
+        return {}
+    stmt = (
+        select(NotUnderwayFuelUse)
+        .where(NotUnderwayFuelUse.period_id.in_(period_ids))
+        .order_by(NotUnderwayFuelUse.consumer_type, NotUnderwayFuelUse.fuel_type)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    by_period: dict[UUID, list[NotUnderwayFuelUse]] = {}
+    for row in rows:
+        by_period.setdefault(row.period_id, []).append(row)
+    return by_period
+
+
+async def delete_fuel_uses(session: AsyncSession, period_id: UUID) -> None:
+    """구간 자식 연료를 전부 지운다 — PATCH에서 목록을 통째로 교체할 때 쓴다.
+
+    물리 삭제다. 자식에는 soft delete 플래그가 없고(#345 설계), 집계 제외는 부모
+    플래그로 판정하므로 물리 삭제해도 감사 경로는 부모 이력이 담당한다.
+    """
+    if not period_id:
+        return
+    stmt = select(NotUnderwayFuelUse).where(NotUnderwayFuelUse.period_id == period_id)
+    for row in (await session.execute(stmt)).scalars().all():
+        await session.delete(row)
+    await session.flush()
+
+
+async def find_overlapping(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    started_at: datetime,
+    ended_at: datetime | None,
+    exclude_id: UUID | None = None,
+) -> NotUnderwayPeriod | None:
+    """같은 선박의 활성 구간 중 ``[started_at, ended_at]``와 겹치는 첫 행.
+
+    겹침 판정 — 양쪽 끝점이 열려 있다(반개 구간):
+
+    - 새 구간이 진행 중(``ended_at is None``)이면 시작 이후의 모든 구간과 겹칠 수
+      있으므로 시작 조건을 생략한다.
+    - 기존 구간이 진행 중이면 아직 끝나지 않았으므로 새 시작 이후와 겹친다.
+
+    겹치는 구간을 조용히 병합하지 않는다 — ``#368`` ``_overlap_hours``가 겹침을
+    두 번 빼는 문서화된 전제(병합은 입력 경로 #370의 책임)를 이 조회로 강제한다.
+    ``idx_not_underway_period_vessel_started``(029)가 내려받는다.
+    """
+    stmt = select(NotUnderwayPeriod).where(
+        NotUnderwayPeriod.vessel_id == vessel_id,
+        NotUnderwayPeriod.is_deleted.is_(False),
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(NotUnderwayPeriod.id != exclude_id)
+    if ended_at is not None:
+        stmt = stmt.where(NotUnderwayPeriod.started_at < ended_at)
+    stmt = stmt.where(
+        or_(
+            NotUnderwayPeriod.ended_at.is_(None),
+            NotUnderwayPeriod.ended_at > started_at,
+        )
+    )
+    stmt = stmt.order_by(NotUnderwayPeriod.started_at).limit(1)
+    return (await session.execute(stmt)).scalars().first()
