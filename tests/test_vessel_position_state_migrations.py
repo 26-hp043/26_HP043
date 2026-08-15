@@ -39,12 +39,14 @@ async def test_new_vessel_with_null_state_queries_ok(conn):
     **새 선박을 NULL 상태로 넣고 조회하는 것**이 지금 이 계약의 검증이다.
     """
     vessel_id = await _insert_vessel(conn)
-    row = await conn.execute(
-        text(
-            "SELECT underway_state, detail_status, current_lat, current_lon, "
-            "position_updated_at FROM vessel WHERE id = :vid"
-        ),
-        {"vid": vessel_id},
+    row = (
+        await conn.execute(
+            text(
+                "SELECT underway_state, detail_status, current_lat, current_lon, "
+                "position_updated_at FROM vessel WHERE id = :vid"
+            ),
+            {"vid": vessel_id},
+        )
     ).one()
     assert (
         row.underway_state,

@@ -146,11 +146,13 @@ async def test_not_underway_samples_include_required_types(conn):
 
 async def test_canal_period_links_in_progress_voyage(conn):
     """운하 통과 구간이 진행 중 항차를 맥락 참조로 건다 — 상태(CANAL_TRANSIT)와 연결."""
-    row = await conn.execute(
-        text(
-            "SELECT p.voyage_id::text, v.status FROM not_underway_period p "
-            "JOIN voyage v ON v.id = p.voyage_id "
-            "WHERE p.period_type = 'CANAL_TRANSIT'"
+    row = (
+        await conn.execute(
+            text(
+                "SELECT p.voyage_id::text, v.status FROM not_underway_period p "
+                "JOIN voyage v ON v.id = p.voyage_id "
+                "WHERE p.period_type = 'CANAL_TRANSIT'"
+            )
         )
     ).one()
     assert row[1] == "IN_PROGRESS"
