@@ -227,8 +227,13 @@ def test_special_decimal_values_are_unspecified_behavior():
 def test_input_fields_locked():
     """§5.3 필드 목록과 순서를 잠근다.
 
-    이 목록이 바뀌면 이미 저장된 모든 input_hash가 무효가 되고, §5.4 재현성 계약
-    2항이 이 목록을 전제로 서 있다. 변경 시 마이그레이션 판단이 필요하다.
+    이 목록이 바뀌면 이미 저장된 모든 input_hash가 무효가 될 수 있고, §5.4 재현성
+    계약 2항이 이 목록을 전제로 서 있다. 변경 시 마이그레이션 판단이 필요하다.
+
+    ``as_of``는 ``#368``에서 추가됐다(§5.4.1 계약 ⑷). **기존 해시는 무효가 되지
+    않는다** — 필터가 입력 dict에 있는 키만 담으므로, ``as_of``를 넘기지 않는
+    기능①과 이미 저장된 계산은 필터 결과가 종전과 같다. 그 사실은 같은 파일의
+    ``GOLDEN_INPUT_HASH`` 검증들이 값 변경 없이 통과하는 것으로 확인된다.
     """
     assert INPUT_FIELDS == (
         "vessel_id",
@@ -241,6 +246,7 @@ def test_input_fields_locked():
         "fuel_uses",
         "weather_model",
         "weather_factor",
+        "as_of",
     )
 
 
