@@ -37,5 +37,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
+  # 프론트엔드 (#240) — nginx가 정적 자산을 서빙하고 /api를 app으로 리버스 프록시한다.
+  # 같은 오리진이 되므로 apiProvider의 상대 경로 `/api/v1`이 그대로 성립하고
+  # 백엔드에 CORS가 필요 없다 (vite.config.ts 주석의 판단을 유지).
+  frontend:
+    build:
+      context: ./frontend
+      target: prod
+      args:
+        # ⚠️ Vite는 VITE_* 를 빌드 시점에 인라인한다 — 런타임 주입이 되지 않는다.
+        # 값을 바꾸려면 이미지를 다시 구워야 한다 (frontend/Dockerfile 주석 참조).
+        VITE_USE_API: ${VITE_USE_API:-true}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    restart: unless-stopped
+    ports: ["80:80"]
+    depends_on:
+      app:
+        condition: service_started
 volumes:
   pgdata:
