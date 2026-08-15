@@ -39,7 +39,7 @@
 | [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (v1.7, Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 #102 + 파라미터 CHECK·FK 자식 인덱스 #96·#97 + needs_recalc 플립 #283 + not under way 스키마 #345 + 운항 상태 2축 #346) — 16개 테이블, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, pg_trgm, 마이그레이션 전략 | ✅ 완료 |
 | [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.5, Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 #166 + §1.3 케이스 스키마 #46 + §4.7 인증 API #279) — 181개 테스트 케이스, Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증, Layer 변환/감사 로그/소프트 삭제/CSV injection 테스트, 유효숫자 기반 Monte Carlo 비교 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 — Oracle 교차 검증 규칙, 규제값 권위 소스, 한국어 정책 | ✅ 신규 |
-| [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (v1.1, §4.1 단위 표기 capacity 축 파생 #163) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성. 토큰의 이름·의미·제약을 확정하고 값은 Figma가 소유 | ✅ 신규 |
+| [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (v1.2, §4.1 단위 표기 capacity 축 파생 #163 + §4.2 물리량 단위 표기 확정 #164) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성. 토큰의 이름·의미·제약을 확정하고 값은 Figma가 소유 | ✅ 신규 |
 | [`UIFLOW.md`](./UIFLOW.md) | UI Flow 명세서 (**v2.0**, 선대·선박·항차 3계층 재작성 #344) — 화면 흐름·진입 조건 정의 | 🟡 초안 |
 
 ---
@@ -212,3 +212,4 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 | 2026-08-15 | `#366` | **관리 중심 전환 반영.** 소개 문장·핵심 기능 표를 3계층 기준으로 교체 · MVP 포함 목록에 대시보드·선박 상세·실시간 CII·보고서 추가 · 제외 목록에서 「선대 통합 모니터링」 삭제하고 AIS 항목을 「자동 수집」으로 한정 · **마일스톤 표를 레이어 축 설명으로 교체**(마일스톤 체제 폐지) · 문서 구조 표 `PRD v4.0`·`UIFLOW v2.0` 갱신 (#349) |
 | 2026-08-15 | `#374` | 문서 구조 표의 `DB_SCHEMA.md` 행을 v1.6으로 갱신 — not under way 스키마(#345) 반영, 14→16개 테이블 |
 | 2026-08-15 | `#375` | 문서 구조 표의 `DB_SCHEMA.md` 행을 v1.7으로 갱신 — 운항 상태 2축·현재 위치 컬럼(#346) 반영 |
+| 2026-08-15 | `#388` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 v1.2로 갱신 — §4.2 물리량 단위 표기 확정(#164) 반영 |
