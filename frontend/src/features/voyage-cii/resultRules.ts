@@ -1,4 +1,4 @@
-import { DISPLAY_DIGITS, formatPercent } from './format'
+import { DISPLAY_DIGITS, formatPercent } from '../../display/format'
 import type { CapacityBasis, Rating, RiskLevel, VoyageCiiResponse } from './types'
 
 /**

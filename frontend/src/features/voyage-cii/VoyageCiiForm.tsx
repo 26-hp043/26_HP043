@@ -11,7 +11,7 @@ import {
   type FormErrors,
   type VoyageCiiFormState,
 } from './formRules'
-import { DISPLAY_UNITS } from './format'
+import { DISPLAY_UNITS } from '../../display/format'
 import { createVoyageCiiProvider } from './providerSelection'
 import { createVesselCatalog, type VesselOption } from './vesselCatalog'
 import type { ResultState } from './resultRules'

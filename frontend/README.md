@@ -33,8 +33,11 @@ frontend/
 │   ├── main.tsx            ← 진입점. 토큰·전역 CSS 로드
 │   ├── App.tsx             ← 라우트 정의 (UIFLOW §1·§2 화면)
 │   ├── screens.ts          ← 화면 메타 (ID → 메타 · 사이드바 순서 · 폭 정책)
+│   ├── auth/               ← 세션·라우트 가드
 │   ├── layout/             ← 공통 셸 (좌측 사이드바 + 상단바)
 │   ├── components/         ← 공통 컴포넌트 (면책 배너, 준비 중, 등급 패턴 defs)
+│   ├── display/            ← DESIGN_SYSTEM §4 구현 (자릿수 · 구분자 · 단위) [#392]
+│   ├── features/           ← 기능 단위 (voyage-cii · scenario-comparison · annual-simulation)
 │   ├── pages/              ← 화면별 컴포넌트
 │   └── styles/
 │       ├── tokens.css      ← DESIGN_SYSTEM.md §15 토큰

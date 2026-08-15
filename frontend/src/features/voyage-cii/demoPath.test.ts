@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DISPLAY_DIGITS, formatDecimalString, formatGrouped, formatPercent } from './format'
+import { DISPLAY_DIGITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
 import { createDemoProvider } from './demoProvider'
 import { initialFormState, toRequest, validateForm, type VoyageCiiFormState } from './formRules'
 import { ciiUnit, marginDisplay, riskLabel } from './resultRules'

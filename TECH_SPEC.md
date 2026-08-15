@@ -1506,8 +1506,11 @@ frontend/
     ├── main.tsx         ← 진입점. 토큰·전역 CSS 로드
     ├── App.tsx          ← 라우트 정의 (UIFLOW §1·§2 화면)
     ├── screens.ts       ← 화면 메타. ID→메타 객체 + 사이드바 순서. 경로 문자열의 단일 출처
+    ├── auth/            ← 세션·라우트 가드 (#278)
     ├── layout/          ← 공통 셸 (좌측 사이드바 + 상단바, DESIGN_SYSTEM §7.2)
     ├── components/      ← 화면 간 공용 컴포넌트
+    ├── display/         ← DESIGN_SYSTEM §4 구현. 자릿수·구분자·단위의 단일 출처 (#392)
+    ├── features/        ← 기능 단위 (voyage-cii · scenario-comparison · annual-simulation)
     ├── pages/           ← 화면별 컴포넌트 (screens.ts의 화면 1개당 1개)
     └── styles/
         ├── tokens.css   ← DESIGN_SYSTEM §15 토큰. 색·간격·반경의 단일 출처
@@ -1631,3 +1634,4 @@ PR 리뷰 시 다음을 확인한다:
 | 2026-08-14 | `#373` | §5.3에 기능② input_hash 각주 추가 — `SCENARIO_INPUT_FIELDS` 별도 정의·추정 fuel_ton 비해싱(파생값) (#57) |
 | 2026-08-15 |  | v1.5: §5.4.1 `as_of` 계약 5항 신설(시뮬레이션 시계의 재현성 — 시각을 명시적 입력으로 승격, 계산 코어는 시각을 모른다) + §5.3 `INPUT_FIELDS`에 `as_of` 추가. 필터가 입력에 있는 키만 담으므로 기존 `input_hash`는 불변 (#368) |
 | 2026-08-15 | `#371` | §16.2 각주 정정 — #280 판정이 PRD v4.0(#343)·UIFLOW v2.0(#344) 관리 중심 전환으로 뒤집힌 사실 반영(2-4 MVP 중심·2-5 MVP 승격·2-6 #359 대기), 헤더 상위 문서 `PRD` v3.2→v4.0 갱신 (#367) |
+| 2026-08-15 | `#396` | §16.2 프론트엔드 디렉터리 구조에 `display/`(DESIGN_SYSTEM §4 구현) 신설 반영 + 누락돼 있던 `auth/`·`features/` 2행 보완 — 표시 규약 모듈이 feature 종속에서 공용 경로로 이전됨 (#392) |
