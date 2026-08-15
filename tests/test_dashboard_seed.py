@@ -19,11 +19,10 @@ from sqlalchemy import text
 from cii_platform.calc.capacity import (
     resolve_reference_capacity,
     resolve_transport_capacity,
-    select_rating_boundary,
     select_reference_line,
 )
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii, calculate_required_cii
-from cii_platform.calc.rating_engine import DVector, determine_rating
+from cii_platform.calc.rating_engine import DVector, determine_rating, select_rating_boundary
 from cii_platform.db.seed import (
     SEED_RATING_BOUNDARIES,
     SEED_REFERENCE_LINES,
