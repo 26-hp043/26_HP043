@@ -264,6 +264,30 @@ else: E
 
 경계값과 정확히 같은 경우에는 더 우수한 등급으로 판정한다. 예: `attained_CII == lower_boundary`이면 B.
 
+#### 3.3.7 등급 하락의 규제상 귀결
+
+> **원문 대조 확인: 신하늘(`sky01170851`), 2026-08-15.** 아래 표의 근거 조문은 MARPOL Annex VI(2021 개정, `MEPC.328(76)`) 인쇄면 14~15쪽(Reg 6.8)·42쪽(Reg 26.3)·44~45쪽(Reg 28)과 `MEPC.395(82)` 인쇄면 22쪽(§9.4)·26쪽(§15)에서 IMO 원문 PDF와 직접 대조했다. 개정 `MEPC.401(83)`·`MEPC.413(84)`은 SEEMP Part II(데이터 수집) 개정이며 본 절의 귀결 체계는 바꾸지 않는다(전문 확인).
+
+**D등급 3년 연속 또는 E등급 1년의 귀결은 운항 제한이 아니라 시정조치계획(corrective action plan) 의무다.**
+
+| 항목 | 내용 | 원문 근거 |
+|---|---|---|
+| 트리거 | D등급 **3년 연속** 또는 E등급 **1년** | Reg 28.7 |
+| 의무 1 | 시정조치계획 수립 — SEEMP **Part III**에 반영 | Reg 28.7·26.3.2, `MEPC.395(82)` §9.4 |
+| 의무 2 | 수정 SEEMP을 행정기관(또는 승인기관)에 제출·검증 — attained CII 보고 후 **1개월 이내** | Reg 28.8 |
+| 의무 3 | 계획된 시정조치 이행 | Reg 28.9 |
+| 미이행의 귀결 | **Statement of Compliance 미발급** | Reg 6.8 |
+| 시정조치계획의 목표 | 채택 다음 연도에 **최소 C등급** 회복, 궁극적으로 required CII 달성 | `MEPC.395(82)` §15.4.1 |
+
+> **운항 제한·억류·거래 금지 조항은 확인 범위(Reg 6·26·28, 2024 SEEMP 가이드라인 및 개정 2건)에 존재하지 않는다.** 실질적 압박은 SoC 미발급과 용선주·금융기관·PSC 등 **상업적 경로**로 온다. 본 제품은 이 경계를 그대로 반영한다 — 규제상 귀결을 과장해 표현하지 않는다. 반대로 A·B 등급에 대한 인센티브 권고(Reg 28.10)도 제품 범위 밖 배경 지식으로만 기록한다.
+
+**경고 배너 판정 기준(위험 선박 정의)** — 대시보드 경고 배너는 아래 둘 중 하나에 해당하는 선박을 **위험 선박**으로 센다. 기준은 **연간 누적(YTD) 등급**이다(연말 예상 등급 기준 판정은 Monte Carlo 종속이라 후속 이슈로 연기한다).
+
+1. 올해 YTD 등급이 **E**
+2. 직전 2개 규제연도의 확정 등급이 연속 **D**이고, 올해 YTD 등급도 **D** (3년 연속 D 진행)
+
+> YTD 등급은 연중 누적 예측값으로 **공식 등급이 아니다** — 공식 등급은 연말 DCS 보고·검증 후 확정된다. 배너는 사전 경고다. 문구 원문은 §6.3.
+
 ### 3.4 기본 규정 파라미터
 
 #### 3.4.1 CII reduction factor, Z%
@@ -496,6 +520,9 @@ MVP 웹 앱은 **계층 구조**를 따른다. 종전의 평면 메뉴 나열을
 | 기상 API 실패 | `최신 기상 데이터를 가져오지 못했습니다. 마지막 동기화 데이터를 사용하거나 계산을 중단합니다.` |
 | 공식 적용 대상 아님 | `입력 선박은 공식 CII 적용 대상이 아닐 수 있습니다. 내부 분석용으로만 사용하세요.` |
 | 자동 결정 금지 | `시스템은 시나리오별 수치만 비교하며, 최종 운항 판단은 사용자에게 있습니다.` |
+| 대시보드 경고 배너 — 위험 선박 존재 시 | `시정조치계획 대상 위험 선박 {n}척` |
+
+> **경고 배너 문구의 근거 (§3.3.7).** 「시정조치계획 대상」은 MARPOL Annex VI Reg 28.7의 트리거(D 3년 연속·E 1년)를 가리키는 규제 용어다. 종전 명세의 「운항 제한 위험」 표현은 원문에 근거가 없어 폐기한다(#352 원문 대조). 판정 기준은 §3.3.7 — YTD 등급 E, 또는 직전 2년 연속 D + 올해 YTD D. 위험 선박이 없으면 배너를 표시하지 않는다.
 
 ---
 
@@ -1777,13 +1804,21 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 6. IMO Resolution MEPC.308(73), "2018 Guidelines on the method of calculation of the attained Energy Efficiency Design Index (EEDI) for new ships"  
    https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.308%2873%29.pdf
 
-7. Open-Meteo Marine Weather API documentation  
+7. IMO Resolution MEPC.328(76), "Amendments to the Annex of the Protocol of 1997 to amend MARPOL 73/78 (MARPOL Annex VI, 2021 consolidated amendments)" — Reg 6.8·26.3·28(CII 등급·시정조치계획)  
+   https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.328%2876%29.pdf
+
+8. IMO Resolution MEPC.395(82), "2024 Guidelines for the development of a Ship Energy Efficiency Management Plan (SEEMP)", **as amended by** MEPC.401(83) · MEPC.413(84)  
+   https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.395%2882%29.pdf  
+   개정 1: https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.401%2883%29.pdf  
+   개정 2: https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.413%2884%29.pdf
+
+9. Open-Meteo Marine Weather API documentation  
    https://open-meteo.com/en/docs/marine-weather-api
 
-8. Open-Meteo Weather API documentation  
+10. Open-Meteo Weather API documentation  
    https://open-meteo.com/
 
-9. Nominatim Usage Policy  
+11. Nominatim Usage Policy  
    https://operations.osmfoundation.org/policies/nominatim/
 
 ---
@@ -1917,3 +1952,4 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 | 2026-08-14 | `#339` | §12.5에 `P(D∪E)` 정의(이름·식·여사건 조건) 추가 — §12.4 등급별 확률의 파생값으로, DESIGN_SYSTEM §2.5 (a) 위험도 표기가 참조 (#170) |
 | 2026-08-14 | `#340` | §9.3 「화면 표시」 열을 DESIGN_SYSTEM §4 참조로 전환(연료 2→1·CO₂ 2→1·거리 1→0) + 소관 각주 · §9.2 예시 자릿수 정정 — 단위 표기는 #164 확정 대기 (#185) |
 | 2026-08-15 | `#364` | **v4.0 — 관리 중심 전환.** §1에 COR-9(전환 근거)·§1.1 기능 번호 신구 매핑표 신설 · §2.1 제품 개요를 선대·선박·항차 3계층으로 재작성 · §2.2 MVP 목표를 계층형 흐름으로 · §2.3 성공 정의에 「관제 가능성」·「보고 가능성」 추가 · §2.4·§5.2에서 「선대 통합 모니터링」 삭제 · §5.1에 계층 열 신설 및 대시보드·경고 배너·선박 상세·실시간 CII·보고서 5행 추가(CSV 내보내기는 「운항 기록」 MUST로 승격) · §6.1 네비게이션을 계층 구조로 · §6.2에 SCR-001 재정의 및 SCR-008~010 신설, §2-4 범위 판정 반전 · §21에서 「선대 모니터링」 삭제 (#343) |
+| 2026-08-15 | `#386` | §3.3.7 「등급 하락의 규제상 귀결」 신설 — D 3년 연속·E 1년의 귀결은 시정조치계획 의무·SoC 미발급(MARPOL Annex VI Reg 6.8·26.3.2·28.7~28.9·MEPC.395(82) §9.4·§15.4.1, 원문 대조). §6.3에 경고 배너 문구 `시정조치계획 대상 위험 선박 {n}척` + YTD 판정 기준 신설. §22 참고 문헌 2건 추가·재번호 (#352) |

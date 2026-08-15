@@ -52,6 +52,7 @@ AI 에이전트(리뷰·분석 에이전트 등)가 다음 유형의 finding을 
 | CII Rating (G4) | MEPC.354(78) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.354%2878%29.pdf) |
 | CII Guidelines (G1) | MEPC.352(78), as amended by MEPC.412(84) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf) · [개정 PDF](https://wwwcdn.imo.org/localresources/en/OurWork/Environment/Documents/Annex%2014.pdf) |
 | 연료 CF 값 | MEPC.364(79) §2.2.1 (G1 §4.1이 참조 지정) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.364%2879%29.pdf) |
+| 등급 하락의 귀결 (시정조치계획) | MARPOL Annex VI Reg 6.8·26.3.2·28.7~28.9 (MEPC.328(76)) · SEEMP Part III는 MEPC.395(82) §9.4·§15.4.1 | [MARPOL PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.328%2876%29.pdf) · [SEEMP PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.395%2882%29.pdf) |
 
 > **[#148] Capacity 축 · G2 Table 1 로케이터의 원문 대조 확인: sky01170851 (2026-07-30).** G1 `§4.2`가 `W_s = C × D_t`의 `C`를 **DWT 8종 / GT 4종**으로 규정하며, 이 12종 구분이 G2 Table 1의 최상위 선종 12종과 일치한다는 판정은 IMO 원문을 직접 대조해 확인한 결과다. `RO_RO_PASSENGER_HSC`가 별도 코드인 것은 G2 Table 1이 `Ro-ro passenger ship` 칸 아래 하위 2행을 두기 때문이다(#126).
 >
@@ -293,3 +294,4 @@ MEPC.353(78) Table 1 기준 (권위값):
 | 2026-08-07 | `#194` | §6 이슈 제목 예시의 `prec=30`을 「정본값 30자리」로 정정 — `TECH_SPEC §1.2.1`이 `prec`에 넣는 값을 작업 정밀도(50)로 규정해 예시가 정본과 반대가 됨 (#179) |
 | 2026-08-13 | `#305` | §7에 「코드 PR 테스트 게이트」 추가 — `src/` 변경 PR은 테스트 포함 필수, 테스트 0건 PR은 리뷰 단계 보류 (#304) |
 | 2026-08-15 | `#371` | §3.2.3 근거 예시에 방향 전환 각주 추가 — 세 예시 중 판정이 #343·#344로 뒤집힌 사실과 현재 유효 적용례(대관 제출용 계속 제외) 명시 (#367) |
+| 2026-08-15 | `#386` | §2.2에 등급 하락의 귀결 권위 소스 행 추가 — MARPOL Annex VI Reg 6.8·28.7~28.9(MEPC.328(76))·MEPC.395(82) §9.4·§15.4.1 (#352) |
