@@ -5,7 +5,8 @@ export function MainboardPage() {
   return (
     <ComingSoon
       screen={SCREEN_BY_ID.MAINBOARD}
-      note="8/8 데모 범위 밖입니다. 항차 단위 결과만 있고 누적 데이터가 없어 선박 상태 요약을 표시할 근거가 아직 없습니다."
+      issues={['#351']}
+      note="선대 계층 중심 화면입니다. 선박 카드 그리드·경고 배너는 #351이, 경고 문구는 #352(원문 대조 후 확정)가 제공합니다."
     />
   )
 }

@@ -5,7 +5,8 @@ export function ReportsPage() {
   return (
     <ComingSoon
       screen={SCREEN_BY_ID.REPORTS}
-      note="8/8 데모 범위 밖입니다. 내보내기 백엔드는 #59입니다. CSV 가져오기(#60)를 이 화면에 둘지는 팀 확인 대기 중입니다."
+      issues={['#360', '#361', '#362']}
+      note="MVP 승격 화면입니다(#344). PRD 보고서 절은 #360, 생성 API·PDF 렌더링은 #361이 제공합니다."
     />
   )
 }
