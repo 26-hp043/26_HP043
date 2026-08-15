@@ -214,3 +214,4 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 | 2026-08-15 | `#388` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 v1.2로 갱신 — §4.2 물리량 단위 표기 확정(#164) 반영 |
 | 2026-08-15 | `#389` | 문서 구조 표의 `DB_SCHEMA.md` 행을 v1.11로 갱신 — §8.3.1 content_hash 산출 규칙(#154) 반영. v1.8~v1.10(#377·#376·#378) 동기화가 누락돼 있어 함께 따라잡았다 |
 | 2026-08-15 | `#390` | 「배포」 절 기동 순서에서 seed 단계 삭제 — 규제 파라미터가 data migration(032)에 편입되어 `alembic upgrade head` 하나로 적재된다. 문서 구조 표 `DB_SCHEMA.md` v1.12 갱신 (#127) |
+| 2026-08-15 | `#406` | 문서 구조 표의 `PRD.md` 행을 v4.1로 갱신 — 보고서 절 신설(§25) 반영 (#360) |
