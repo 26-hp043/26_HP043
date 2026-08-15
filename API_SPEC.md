@@ -557,7 +557,7 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
 | `reason` | string \| null | `NO_REGULATION_PARAMS` — 해당 연도 `regulation_year` 행 없음. `NO_DATA` — 파라미터는 있으나 집계할 실적 없음 |
 | `attained_cii` | string \| null | 연도 누적 attained CII (6자리) |
 | `required_cii` | string \| null | 해당 연도 required CII (6자리) |
-| `rating` | string \| null | A~E. `IN_PROGRESS` 연도는 **YTD 등급** — 공식 등급이 아니다(`PRD §3.3.7`) |
+| `rating` | string \| null | A~E. `IN_PROGRESS` 연도는 **YTD 등급** — 공식 등급이 아니다(`PRD §3.3.8`) |
 | `voyage_count` | integer | 실적 확정(`INCLUDE_AS_ACTUAL`) 항차 수 |
 | `total_distance_nm` | string \| null | 두 갈래(항해 + not under way) 거리 합 (2자리) |
 | `total_fuel_ton` | string \| null | 두 갈래 연료 합 (2자리). `data_available=false`여도 거리·연료 값 자체는 실릴 수 있다 |
@@ -2038,3 +2038,4 @@ GET /api/v1/health
 | 2026-08-15 | `#384` | v1.6: §2.6 선박 위치·운항 상태 갱신 엔드포인트 신설 — 026(#346)이 만든 컬럼의 유일한 갱신 경로. 상태 2축·위경도 쌍 규칙을 스키마 표면에 명시, `position_updated_at`은 서버 확정. §2.1 선박 객체에 위치·상태 5키 추가 (#369) |
 | 2026-08-15 | `#404` | §10 `rng_canonical_test` 유예 각주를 구현 완료 서술로 교체 — `#43` 머지로 유예 조건이 해소됐다. `"failed"`여도 `status`는 `ok`를 유지하는 근거(liveness vs 재현성 신호 분리)를 명시 (#400) |
 | 2026-08-15 | `#405` | 변경 이력 표의 PR 번호 공란 2건을 채우고 순서 교정 — v1.5 → #383(`as_of` 계약) · v1.6 → #384(위치 갱신). #401이 `DB_SCHEMA`만 정리하고 이 문서를 빠뜨린 것을 보완한다. 문서 내용 변경 없음 (#401) |
+| 2026-08-15 | `#380` | §2.7 `rating` 설명의 `PRD §3.3.7` 참조를 `§3.3.8`로 정정 — 이 근거(YTD는 공식 등급이 아님)는 실시간 CII 절의 내용인데, `#386`이 `§3.3.7`을 「등급 하락의 규제상 귀결」로 선점해 참조가 다른 절을 가리키고 있었다 (#358) |
