@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.7 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) |
+| 버전 | v1.8 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
@@ -786,6 +786,7 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 | `lat` | NUMERIC(9,6) | NULL | 구간 위치 위도 |
 | `lon` | NUMERIC(9,6) | NULL | 구간 위치 경도 |
 | `voyage_id` | UUID | NULL, **FK → voyage(id) ON DELETE SET NULL** | 맥락 항차 참조. 항차 삭제 시 링크만 끊긴다 |
+| `distance_nm` | NUMERIC(12,2) | NOT NULL DEFAULT 0, **CHECK: `distance_nm >= 0`** | 구간 이동 거리 (nm). **CII 분모 `Dt`에 더해진다** — 마이그레이션 028 (#353) |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | soft delete |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
@@ -800,7 +801,14 @@ CREATE INDEX idx_not_underway_period_vessel_year
 
 > **`period_type` 6값의 근거** — 「not under way」는 정박보다 넓다. `MEPC.401(83)` 기준으로 EOSP → 다음 FAOP 구간이며 묘박·표류·STS·운하 통과를 포함하고, 드라이독도 idle 배출 범위에 든다. 정박 지속 시 연료(분자 `M`)만 늘고 거리(분모 `W`)는 늘지 않아 등급이 악화된다 — 이것이 규제 계산식이 원래 그렇게 동작하는 것이다(`MEPC 82/6/31`: *"emissions continue to accumulate without corresponding transport work … penalised under the current system"*).
 
-> ⚠️ **`M`이 not under way 연료를 포함한다는 최종 근거는 1차 규정 원문 대조 미완이다** (#358에서 처리). 결과가 달라져도 **스키마가 아니라 집계 로직만** 바뀐다.
+> **✅ 원문 대조 완료 (2026-08-15, #358).** IMO 공식 PDF를 직접 대조했다.
+>
+> - **`M` — 포함이 맞다.** `MEPC.352(78)` §4.1: *"The total mass of CO₂ is the sum of CO₂ emissions (in grams) from **all the fuel oil consumed on board a ship in a given calendar year**"*. 항해 여부를 가리지 않는다.
+> - **`Dt` — 종전 전제가 틀렸다.** `MEPC.412(84)` §4.2(2026-05-01 채택, G1 §4.2를 통째로 교체): *"the total distance travelled **(both under way and not under way)** in a given calendar year"*. **not under way 구간의 이동 거리도 분모에 들어간다.** 그래서 마이그레이션 028이 `distance_nm`을 추가했다.
+>
+> ⚠️ **구판 `MEPC.352(78)` §4.2에는 이 한정어가 없다**(*"the distance travelled in a given calendar year"*). 한정어가 없어 「under way만」으로 읽었던 것이 종전 전제였다. **구판을 출처로 인용하면 오기가 된다.**
+>
+> 접안·묘박은 이동이 0이라 분모에 기여하지 않으므로 **「정박 지속 시 등급 악화」는 그대로 성립**한다. 분모를 실제로 늘리는 것은 운하 통과(수에즈 약 104 nm·파나마 약 44 nm)·표류·STS다.
 
 ---
 
@@ -1265,5 +1273,6 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-14 | `#332` | v1.5: §2.5에 `needs_recalc` 컬럼·§7.3를 `calc_run_guard`(플립만 허용)로 교체 — 마이그레이션 024. PRD §8.4 DWT/GT 변경 시 재계산 필요 표시 (#283) |
 | 2026-08-14 | `#333` | §2.16 말미에 `chat_session`·`chat_message` 미정의 각주(`user_id` → `app_user.id` 귀속 확정), §4.3에 채팅 90일 보존 행 추가 (#287) |
 | 2026-08-14 | `#335` | §2.14 `action` 열거에 인증 이벤트 3종(LOGIN_SUCCESS·LOGIN_FAILURE·LOGOUT) 추가 + 자격 증명 미기록 규칙 각주 (#277) |
+| 2026-08-15 | `#377` | v1.8: §2.17에 `distance_nm` 추가(마이그레이션 028) — `MEPC.412(84)` §4.2가 `Dt`를 「both under way and not under way」로 정의해 not under way 이동 거리가 분모에 들어간다. `M`·`Dt` 원문 대조 완료 표기 (#353 · #358) |
 | 2026-08-15 | `#374` | v1.6: §2.17 `not_underway_period`·§2.18 `not_underway_fuel_use` 신설(마이그레이션 025) — ER 다이어그램 3줄 추가, 헤더 상위 문서 `PRD` v4.0 갱신 (#345) |
 | 2026-08-15 | `#375` | v1.7: §2.1에 운항 상태 2축·위치 5컬럼 반영(마이그레이션 026) — `chk_vessel_state_pair` 정합 규칙(`SAILING`↔`UNDER_WAY`·6값↔`NOT_UNDER_WAY`, IS NOT NULL 가드)·위경도 범위·위치-시각 페어 (#346) |

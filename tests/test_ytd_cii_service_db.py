@@ -10,6 +10,7 @@
 * 데이터가 없으면 **예외가 아니라** ``data_available=False``
 * ``#368`` 주입분(:class:`InProgressContribution`)이 반영된다
 * ``[ORACLE-C-4B]`` — 실적 연료가 비면 계획값을 쓰고 ``COMPLETED_NO_FUEL``을 붙인다
+* not under way **이동 거리**가 분모에 더해진다 (``MEPC.412(84)`` §4.2 · 마이그레이션 028)
 
 파라미터 시드 상태: 마이그레이션 017이 ``fuel_type`` 8행을 넣으므로 HFO는 이미 있다.
 나머지는 ``scripts/seed.py`` 경로(#127)이므로 여기서 직접 심는다
@@ -157,18 +158,21 @@ async def _insert_stay(
     started_at: str = "2026-02-01T00:00:00+00",
     is_deleted: bool = False,
     fuel_type: str = "HFO",
+    distance_nm: float = 0,
 ) -> str:
     row = await session.execute(
         text(
             "INSERT INTO not_underway_period "
-            "(vessel_id, regulation_year, period_type, started_at, ended_at, is_deleted) "
-            "VALUES (:vid, :yr, 'AT_ANCHOR', :start, NULL, :del) RETURNING id"
+            "(vessel_id, regulation_year, period_type, started_at, ended_at, is_deleted, "
+            " distance_nm) "
+            "VALUES (:vid, :yr, 'AT_ANCHOR', :start, NULL, :del, :dist) RETURNING id"
         ),
         {
             "vid": vessel_id,
             "yr": YEAR,
             "start": datetime.fromisoformat(started_at),
             "del": is_deleted,
+            "dist": distance_nm,
         },
     )
     period_id = str(row.scalar_one())
@@ -234,8 +238,9 @@ async def test_stay_worsens_cii_end_to_end(session, vessel_id):
 
     assert after.attained_cii > before.attained_cii
     assert after.not_underway_co2_g == Decimal("31140000.0000")
-    # 분모는 그대로 — 정박 거리는 W에 들어가지 않는다.
-    assert after.underway_distance_nm == before.underway_distance_nm
+    # 이동이 0인 정박이므로 분모는 그대로다 — 이것이 등급 악화의 성립 근거다.
+    assert after.not_underway_distance_nm == Decimal("0.00")
+    assert after.total_distance_nm == before.total_distance_nm
     assert after.not_underway_period_count == 1
 
 
@@ -348,6 +353,58 @@ async def test_as_of_cuts_later_voyage(session, vessel_id):
 
     assert result.voyage_count == 1
     assert result.underway_distance_nm == Decimal("1000.00")
+
+
+# --- 4-b. 분모에 들어가는 not under way 이동 거리 (MEPC.412(84) §4.2) ---------------
+
+
+@pytest.mark.asyncio
+async def test_moving_stay_enters_the_denominator(session, vessel_id):
+    """★ 운하 통과처럼 **이동이 있는** not under way 구간은 분모를 늘린다.
+
+    빼면 분모가 과소해져 CII가 과대해지고 등급이 실제보다 나쁘게 나온다.
+    """
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, voyage_id)
+    before = await _compute(session, vessel_id)
+
+    # 수에즈 통과 약 104 nm — 연료 없이 거리만 있는 구간도 성립한다.
+    await _insert_stay(session, vessel_id, fuel_ton=1, distance_nm=104)
+    after = await _compute(session, vessel_id)
+
+    assert after.not_underway_distance_nm == Decimal("104.00")
+    assert after.total_distance_nm == before.total_distance_nm + Decimal("104.00")
+    # 분모가 늘었으므로 같은 연료였다면 CII가 내려간다. 여기서는 연료 1 t가 함께
+    # 늘었으므로 분모 효과만 떼어 transport_work로 확인한다.
+    assert after.underway_distance_nm == before.underway_distance_nm
+
+
+@pytest.mark.asyncio
+async def test_as_of_cuts_the_distance_too(session, vessel_id):
+    """``as_of`` 절단은 연료뿐 아니라 거리에도 같이 걸린다."""
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, voyage_id)
+    await _insert_stay(
+        session, vessel_id, fuel_ton=1, distance_nm=104, started_at="2026-02-01T00:00:00+00"
+    )
+    await _insert_stay(
+        session, vessel_id, fuel_ton=1, distance_nm=44, started_at="2026-06-01T00:00:00+00"
+    )
+
+    result = await _compute(session, vessel_id, as_of=datetime(2026, 3, 1, tzinfo=UTC))
+
+    assert result.not_underway_distance_nm == Decimal("104.00")
+
+
+@pytest.mark.asyncio
+async def test_soft_deleted_stay_distance_is_excluded(session, vessel_id):
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, voyage_id)
+    await _insert_stay(session, vessel_id, fuel_ton=1, distance_nm=104, is_deleted=True)
+
+    result = await _compute(session, vessel_id)
+
+    assert result.not_underway_distance_nm == Decimal("0")
 
 
 # --- 5. #368 주입 지점 --------------------------------------------------------------

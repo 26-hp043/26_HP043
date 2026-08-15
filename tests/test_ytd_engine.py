@@ -7,11 +7,17 @@
 * Layer 1 정밀도 규약 위반 없음
 * 기존 Fixture 1~4 회귀 없음 → :class:`TestNoRegressionAgainstVoyageEngine`
 
-가장 중요한 것은 :class:`TestNotUnderwayWorsensCii`다. 「정박이 지속되면 등급이
-떨어진다」가 서비스 방향 전환의 핵심 주장인데, 그것이 성립하는 이유는 **분자에만
-더해지고 분모에는 더해지지 않기 때문**이다. 분모에 not under way 거리를 실수로
-넣으면 값이 거의 변하지 않으면서 테스트는 통과할 수 있으므로, 분자·분모를 각각
-따로 단언한다.
+분모 스코프 (2026-08-15 정정)
+-----------------------------
+``MEPC.412(84)`` §4.2가 ``Dt``를 *"the total distance travelled **(both under way and
+not under way)**"* 로 정의하므로 **분모에도 not under way 이동 거리가 들어간다.**
+구판 ``MEPC.352(78)``에는 이 한정어가 없어 종전에는 「under way만」으로 읽었다(#358).
+
+그래도 :class:`TestNotUnderwayWorsensCii`가 이 파일의 핵심이다 — 접안·묘박은
+**이동이 0**이라 연료만 늘고 분모는 그대로여서 등급이 나빠지기 때문이다. 이동이 있는
+구간(운하 통과·표류)은 분모도 함께 늘어야 하므로 :class:`TestNotUnderwayDistance`에서
+따로 고정한다. 두 경우를 섞어 「값이 조금 나빠지는지」만 보면 어느 쪽 결함도 잡히지
+않으므로, 분자·분모를 각각 단언한다.
 """
 
 from __future__ import annotations
@@ -111,18 +117,19 @@ class TestNotUnderwayWorsensCii:
         assert values == sorted(values)
         assert values[0] < values[-1]
 
-    def test_denominator_does_not_change(self, baseline):
-        """⚠️ **분모는 그대로여야 한다.**
+    def test_denominator_does_not_change_when_the_ship_did_not_move(self, baseline):
+        """⚠️ **이동이 없는 정박에서는 분모가 그대로여야 한다.**
 
-        not under way 구간의 거리를 분모에 넣으면 등급 악화가 상쇄되어 방향 전환의
-        전제가 무너진다. 값이 「조금 나빠지는」 것만 보는 테스트로는 이 결함이 잡히지
-        않으므로 ``transport_work``를 직접 단언한다.
+        접안·묘박은 ``distance_nm = 0``이므로 연료만 늘고 분모는 불변이다. 이것이
+        「정박이 지속되면 등급이 나빠진다」의 성립 근거다. 값이 「조금 나빠지는」 것만
+        보는 테스트로는 이 결함이 잡히지 않으므로 ``transport_work``를 직접 단언한다.
         """
         with_stay = calculate_ytd_cii(
             underway_fuel_uses=[_hfo("80")],
             not_underway_fuel_uses=[_hfo("10")],
             transport_capacity=CAPACITY,
             underway_distance_nm=DISTANCE,
+            not_underway_distance_nm=Decimal("0"),
         )
         assert with_stay.transport_work == baseline.transport_work
         assert with_stay.transport_work == CAPACITY * DISTANCE
@@ -137,6 +144,69 @@ class TestNotUnderwayWorsensCii:
         )
         assert with_stay.total_co2_g - baseline.total_co2_g == Decimal("31140000")
         assert with_stay.not_underway_co2_g == Decimal("31140000")
+
+
+# --- 2-b. 분모 스코프 (MEPC.412(84) §4.2) ---------------------------------------
+
+
+class TestNotUnderwayDistance:
+    """★ **이동이 있는 not under way 구간은 분모에 들어간다.**
+
+    ``MEPC.412(84)`` §4.2 — *"the total distance travelled (both under way and not
+    under way)"*. 운하 통과(수에즈 약 104 nm)·표류·STS가 여기 해당한다. 빼면 분모가
+    과소해져 CII가 과대해지고 **등급이 실제보다 나쁘게** 나온다.
+    """
+
+    def test_distance_is_added_to_transport_work(self, baseline):
+        canal = calculate_ytd_cii(
+            underway_fuel_uses=[_hfo("80")],
+            not_underway_fuel_uses=[],
+            transport_capacity=CAPACITY,
+            underway_distance_nm=DISTANCE,
+            not_underway_distance_nm=Decimal("104"),
+        )
+        assert canal.total_distance_nm == DISTANCE + Decimal("104")
+        assert canal.transport_work == CAPACITY * (DISTANCE + Decimal("104"))
+        assert canal.transport_work > baseline.transport_work
+
+    def test_omitting_it_overstates_cii(self, baseline):
+        """빠뜨리면 CII가 과대 — 오차 방향을 테스트로 고정한다."""
+        canal = calculate_ytd_cii(
+            underway_fuel_uses=[_hfo("80")],
+            not_underway_fuel_uses=[],
+            transport_capacity=CAPACITY,
+            underway_distance_nm=DISTANCE,
+            not_underway_distance_nm=Decimal("104"),
+        )
+        # baseline은 같은 연료·같은 항해거리인데 운하 거리를 뺀 것이다.
+        assert baseline.attained_cii > canal.attained_cii
+
+    def test_default_is_zero(self, baseline):
+        """인자를 생략하면 0 — 028 이전 데이터·호출부가 그대로 성립한다."""
+        assert baseline.total_distance_nm == DISTANCE
+        assert baseline.transport_work == CAPACITY * DISTANCE
+
+    def test_negative_distance_raises(self):
+        with pytest.raises(ValueError, match="not_underway_distance_nm"):
+            calculate_ytd_cii(
+                underway_fuel_uses=[_hfo("80")],
+                not_underway_fuel_uses=[],
+                transport_capacity=CAPACITY,
+                underway_distance_nm=DISTANCE,
+                not_underway_distance_nm=Decimal("-1"),
+            )
+
+    def test_only_not_underway_distance_is_valid(self):
+        """항해 실적이 0이고 정박 이동만 기록된 상태도 계산된다 — 합계로 판정한다."""
+        result = calculate_ytd_cii(
+            underway_fuel_uses=[],
+            not_underway_fuel_uses=[_hfo("10")],
+            transport_capacity=CAPACITY,
+            underway_distance_nm=Decimal("0"),
+            not_underway_distance_nm=Decimal("104"),
+        )
+        assert result.total_distance_nm == Decimal("104")
+        assert result.attained_cii > 0
 
 
 # --- 3. 분해와 합산 ----------------------------------------------------------------
@@ -203,14 +273,24 @@ class TestEmptyStreams:
 
 
 class TestInputGuards:
-    def test_zero_distance_raises(self):
-        """``M/0`` 방어 — 거리 0이면 나눗셈 전에 막는다."""
-        with pytest.raises(ValueError, match="underway_distance_nm"):
+    def test_zero_total_distance_raises(self):
+        """``M/0`` 방어 — **두 갈래 합**이 0이면 나눗셈 전에 막는다."""
+        with pytest.raises(ValueError, match="total distance"):
             calculate_ytd_cii(
                 underway_fuel_uses=[_hfo("80")],
                 not_underway_fuel_uses=[],
                 transport_capacity=CAPACITY,
                 underway_distance_nm=Decimal("0"),
+                not_underway_distance_nm=Decimal("0"),
+            )
+
+    def test_negative_underway_distance_raises(self):
+        with pytest.raises(ValueError, match="underway_distance_nm must be >= 0"):
+            calculate_ytd_cii(
+                underway_fuel_uses=[_hfo("80")],
+                not_underway_fuel_uses=[],
+                transport_capacity=CAPACITY,
+                underway_distance_nm=Decimal("-1"),
             )
 
     def test_zero_capacity_raises(self):

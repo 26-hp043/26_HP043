@@ -3,6 +3,17 @@
 ``calc``(수학)와 ``db/repositories``(쿼리)를 잇고 **어떤 데이터를 집계에 넣을지의
 규칙**을 적용한다 (TECH_SPEC §16).
 
+분모 스코프 (2026-08-15 원문 대조로 정정)
+----------------------------------------
+``MEPC.412(84)`` §4.2가 ``Dt``를 *"the total distance travelled **(both under way and
+not under way)** in a given calendar year"* 로 정의한다. 따라서 분모에는 항해 거리와
+not under way 구간의 이동 거리(``not_underway_period.distance_nm``, 마이그레이션 028)를
+**모두** 넣는다. 구판 ``MEPC.352(78)`` §4.2에는 이 한정어가 없어 종전에는 「under way
+거리만」으로 잘못 읽고 있었다(#358).
+
+접안·묘박은 이동이 0이라 분모에 기여하지 않으므로 **「정박이 지속되면 등급이 나빠진다」는
+그대로 성립**한다. 실제로 분모를 늘리는 것은 운하 통과·표류·STS다.
+
 무엇을 계산하는가
 -----------------
 IMO attained CII는 **역년(calendar year) 단위 집계 지표**이며, 규제상 「실시간 CII」
@@ -145,6 +156,8 @@ class YtdCiiOutput:
     not_underway_co2_g: Decimal | None = None
     fuel_breakdown_g: dict[str, Decimal] | None = None
     underway_distance_nm: Decimal | None = None
+    not_underway_distance_nm: Decimal | None = None
+    total_distance_nm: Decimal | None = None
     voyage_count: int = 0
     not_underway_period_count: int = 0
 
@@ -156,6 +169,7 @@ class _Aggregated:
     underway_fuel: dict[str, Decimal]
     not_underway_fuel: dict[str, Decimal]
     underway_distance_nm: Decimal
+    not_underway_distance_nm: Decimal
     voyage_count: int
     warnings: list[str]
     #: 유종별 CF — 항차는 ``cf_used`` snapshot, 정박은 ``fuel_type.cf`` 현재값.
@@ -194,6 +208,7 @@ def _compute_layer1(
     transport_capacity: Decimal,
     reference_capacity: Decimal,
     underway_distance_nm: Decimal,
+    not_underway_distance_nm: Decimal,
     a_decimal: Decimal,
     c: Decimal,
     z_factor_percent: Decimal,
@@ -205,6 +220,7 @@ def _compute_layer1(
         not_underway_fuel_uses=not_underway_fuel_uses,
         transport_capacity=transport_capacity,
         underway_distance_nm=underway_distance_nm,
+        not_underway_distance_nm=not_underway_distance_nm,
     )
     required = calculate_required_cii(
         a=a_decimal,
@@ -289,9 +305,12 @@ async def compute_ytd_cii(
         aggregated.not_underway_fuel.values(), Decimal(0)
     )
 
+    # 분모는 두 갈래의 **합**이다 (MEPC.412(84) §4.2).
+    total_distance_nm = aggregated.underway_distance_nm + aggregated.not_underway_distance_nm
+
     # M/0 방어 — 「데이터가 아직 없다」는 오류가 아니라 정상 상태다. 예외를 던지면
     # 화면이 500을 받게 되고, 신규 등록 선박이 전부 오류로 보인다.
-    if aggregated.underway_distance_nm <= 0 or total_fuel_ton <= 0:
+    if total_distance_nm <= 0 or total_fuel_ton <= 0:
         return YtdCiiOutput(
             data_available=False,
             regulation_year=regulation_year,
@@ -299,6 +318,8 @@ async def compute_ytd_cii(
             transport_capacity=transport_capacity,
             warnings=aggregated.warnings,
             underway_distance_nm=aggregated.underway_distance_nm,
+            not_underway_distance_nm=aggregated.not_underway_distance_nm,
+            total_distance_nm=total_distance_nm,
             voyage_count=aggregated.voyage_count,
             not_underway_period_count=period_count,
         )
@@ -323,6 +344,7 @@ async def compute_ytd_cii(
             transport_capacity=transport_capacity,
             reference_capacity=reference_capacity,
             underway_distance_nm=aggregated.underway_distance_nm,
+            not_underway_distance_nm=aggregated.not_underway_distance_nm,
             a_decimal=Decimal(reference_line.a_decimal),
             c=Decimal(reference_line.c),
             z_factor_percent=Decimal(regulation.z_factor_percent),
@@ -359,6 +381,8 @@ async def compute_ytd_cii(
         not_underway_co2_g=layer1.ytd.not_underway_co2_g,
         fuel_breakdown_g=layer1.ytd.fuel_breakdown_g,
         underway_distance_nm=aggregated.underway_distance_nm,
+        not_underway_distance_nm=aggregated.not_underway_distance_nm,
+        total_distance_nm=layer1.ytd.total_distance_nm,
         voyage_count=aggregated.voyage_count,
         not_underway_period_count=period_count,
     )
@@ -443,11 +467,16 @@ async def _aggregate(
     not_underway_totals = await not_underway_repo.sum_fuel_by_type(
         session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
     )
+    # 028 — 분모에 더할 not under way 이동 거리 (MEPC.412(84) §4.2).
+    not_underway_distance = await not_underway_repo.sum_distance(
+        session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
+    )
 
     return _Aggregated(
         underway_fuel=underway_fuel,
         not_underway_fuel={row.fuel_type: Decimal(row.fuel_ton) for row in not_underway_totals},
         underway_distance_nm=distance,
+        not_underway_distance_nm=not_underway_distance,
         voyage_count=len(voyages),
         warnings=warnings,
         underway_cf=underway_cf,

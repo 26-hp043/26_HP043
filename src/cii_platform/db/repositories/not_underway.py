@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING, NamedTuple
 
 from sqlalchemy import func, select
@@ -18,7 +19,6 @@ from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from decimal import Decimal
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,6 +75,35 @@ async def sum_fuel_by_type(
 
     rows = (await session.execute(stmt)).all()
     return [NotUnderwayFuelTotal(fuel_type=row.fuel_type, fuel_ton=row.fuel_ton) for row in rows]
+
+
+async def sum_distance(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    regulation_year: int,
+    as_of: datetime | None = None,
+) -> Decimal:
+    """선박·규제연도의 not under way **이동 거리 합**을 돌려준다 (마이그레이션 028).
+
+    이 값은 CII 분모에 더해진다 — ``MEPC.412(84)`` §4.2가 ``Dt``를 *"the total
+    distance travelled (both under way and not under way)"* 로 정의한다. 접안·묘박은
+    0이므로 대부분의 구간이 합계에 기여하지 않고, 실제로 늘어나는 것은 운하 통과·
+    표류·STS다.
+
+    절단·삭제 기준은 :func:`sum_fuel_by_type`과 같다.
+
+    :returns: 합계. 구간이 없으면 ``Decimal(0)`` — ``SUM``의 NULL을 여기서 흡수해
+        호출부가 ``None``을 다루지 않게 한다.
+    """
+    stmt = select(func.coalesce(func.sum(NotUnderwayPeriod.distance_nm), 0)).where(
+        NotUnderwayPeriod.vessel_id == vessel_id,
+        NotUnderwayPeriod.regulation_year == regulation_year,
+        NotUnderwayPeriod.is_deleted.is_(False),
+    )
+    if as_of is not None:
+        stmt = stmt.where(NotUnderwayPeriod.started_at <= as_of)
+    return Decimal(await session.scalar(stmt) or 0)
 
 
 async def list_periods_for_year(
