@@ -33,7 +33,7 @@
 
 | 문서 | 내용 | 상태 |
 |---|---|---|
-| [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.0**, 관리 중심 전환 #343, Oracle Review + 외부 리뷰 반영 + 선종별 CII 지표·단위 #163) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 검증 규칙 | ✅ 완료 |
+| [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.1**, 관리 중심 전환 #343 + 보고서 절 #360, Oracle Review + 외부 리뷰 반영 + 선종별 CII 지표·단위 #163) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 검증 규칙, 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (v1.4, Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 #100 + 재현성 계약 명문화 #102 + Layer 1 계산 규칙 #166) — 이중 정밀도 엔진, Layer 1 계산 규칙(§1.2.1), PCG64DXSM RNG(canonical vector 고정), capacity 분리(transport/reference), canonical hashing, 스냅샷 격리, 서비스 레이어 아키텍처(§16), 재현성 계약(§5.4) | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (v1.7, Oracle Review + 외부 리뷰 반영 + 인증(#272) + PATCH null 의미론·전환 policy 규칙 #310·#312 + 위치 갱신 #369 + `as_of` 공통 계약 #368 + 연도별 CII 이력 #355) — 31개 엔드포인트, 수치 직렬화 정책, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
 | [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (v1.12, Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 #102 + 파라미터 CHECK·FK 자식 인덱스 #96·#97 + needs_recalc 플립 #283 + not under way 스키마 #345 + 운항 상태 2축 #346 + not under way 거리 #353 + 인덱스 3종 #376 + CF 스냅샷 #378 + content_hash 규칙 #154 + seed 적재 경로 일원화 #127) — 16개 테이블, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, pg_trgm, 마이그레이션 전략 | ✅ 완료 |
@@ -215,3 +215,4 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 | 2026-08-15 | `#389` | 문서 구조 표의 `DB_SCHEMA.md` 행을 v1.11로 갱신 — §8.3.1 content_hash 산출 규칙(#154) 반영. v1.8~v1.10(#377·#376·#378) 동기화가 누락돼 있어 함께 따라잡았다 |
 | 2026-08-15 | `#390` | 「배포」 절 기동 순서에서 seed 단계 삭제 — 규제 파라미터가 data migration(032)에 편입되어 `alembic upgrade head` 하나로 적재된다. 문서 구조 표 `DB_SCHEMA.md` v1.12 갱신 (#127) |
 | 2026-08-15 | `#398` | 문서 구조 표의 `TEST_PLAN.md` 행을 v1.6으로 갱신 — 「181개 테스트 케이스」를 실측치로 정정. 종전 수치는 TEST_PLAN §11.1(181)과 §11.3(168)이 서로 다른 상태에서 앞엣것을 인용한 것이었다 (#394) |
+| 2026-08-15 | `#406` | 문서 구조 표의 `PRD.md` 행을 v4.1로 갱신 — 보고서 절 신설(§25) 반영 (#360) |
