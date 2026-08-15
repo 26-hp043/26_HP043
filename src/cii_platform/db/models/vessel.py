@@ -33,6 +33,16 @@ class Vessel(Base):
         sa.Boolean(), server_default=sa.text("false"), nullable=False
     )
     is_deleted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    # 현재 위치·운항 상태 (마이그레이션 026 · #346). 전부 NULL 허용 — 위치를 모르는
+    # 미갱신 선박(기존 3척 포함)도 정상 조회돼야 한다.
+    # 계산 축(2값) — CII 집계는 「항해 중이냐」 이진 판단만 한다.
+    underway_state = sa.Column(sa.String(length=20), nullable=True)
+    # 화면 축(7값) — SAILING을 제외한 6값은 not_underway_period.period_type(025)과 1:1.
+    detail_status = sa.Column(sa.String(length=20), nullable=True)
+    current_lat = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
+    current_lon = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
+    # 위치가 있으면 필수 — 화면이 「위치 갱신 시각」을 표시한다(UIFLOW §2-8).
+    position_updated_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     created_at = sa.Column(
         sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
     )
@@ -57,6 +67,41 @@ class Vessel(Base):
         sa.CheckConstraint("deadweight IS NULL OR deadweight > 0", name="chk_dwt_positive"),
         sa.CheckConstraint(
             "reference_speed_kn IS NULL OR reference_speed_kn > 0", name="chk_speed_positive"
+        ),
+        # 026 (#346) — 운항 상태 2축·위치 제약. 마이그레이션과 1:1.
+        sa.CheckConstraint(
+            "underway_state IS NULL OR underway_state IN ('UNDER_WAY','NOT_UNDER_WAY')",
+            name="chk_underway_state_allowed",
+        ),
+        sa.CheckConstraint(
+            "detail_status IS NULL OR detail_status IN "
+            "('SAILING','IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK')",
+            name="chk_detail_status_allowed",
+        ),
+        # 정합 규칙 — 둘 다 NULL 또는 유효 조합(SAILING↔UNDER_WAY, 나머지↔NOT_UNDER_WAY).
+        # IS NOT NULL 가드가 필요하다 — NULL 비교는 UNKNOWN을 반환하고 CHECK는
+        # FALSE일 때만 거부하므로, 가드 없이는 반쪽 상태(한 축만 설정)가 통과한다.
+        sa.CheckConstraint(
+            "(underway_state IS NULL AND detail_status IS NULL) "
+            "OR (underway_state IS NOT NULL AND detail_status IS NOT NULL AND ("
+            "underway_state = 'UNDER_WAY' AND detail_status = 'SAILING' "
+            "OR underway_state = 'NOT_UNDER_WAY' AND detail_status IN "
+            "('IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK')))",
+            name="chk_vessel_state_pair",
+        ),
+        sa.CheckConstraint(
+            "current_lat IS NULL OR current_lat BETWEEN -90 AND 90",
+            name="chk_vessel_lat_range",
+        ),
+        sa.CheckConstraint(
+            "current_lon IS NULL OR current_lon BETWEEN -180 AND 180",
+            name="chk_vessel_lon_range",
+        ),
+        sa.CheckConstraint(
+            "(current_lat IS NULL AND current_lon IS NULL) "
+            "OR (current_lat IS NOT NULL AND current_lon IS NOT NULL "
+            "AND position_updated_at IS NOT NULL)",
+            name="chk_vessel_position_pair",
         ),
         # §2.1 인덱스 (모두 partial: WHERE is_deleted = false). soft delete 호환.
         sa.Index(
