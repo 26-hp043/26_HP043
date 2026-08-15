@@ -53,6 +53,15 @@ class NotUnderwayFuelUse(Base):
             name="chk_not_underway_consumer_type",
         ),
         sa.CheckConstraint("fuel_ton > 0", name="chk_not_underway_fuel_positive"),
-        # FK 자식 인덱스 — CASCADE/조인 경로.
-        sa.Index("idx_not_underway_fuel_use_period", "period_id"),
+        # 029 (#376) — 구간+소비원+연료 중복 방지. 중복 시 #353 YTD 집계가 CO₂를
+        # 이중 산정해 등급이 실제보다 나쁘게 나온다(§2.3 [S-2]와 같은 사안).
+        # 선행열이 period_id라 FK 자식 조회(CASCADE·조인) 경로도 이 인덱스가 처리한다
+        # — 025의 단일열 idx_not_underway_fuel_use_period는 그래서 제거했다.
+        sa.Index(
+            "idx_not_underway_fuel_use_unique",
+            "period_id",
+            "consumer_type",
+            "fuel_type",
+            unique=True,
+        ),
     )

@@ -83,4 +83,17 @@ class NotUnderwayPeriod(Base):
             "regulation_year",
             postgresql_where=sa.text("is_deleted = false"),
         ),
+        # 029 (#376) — #368 시뮬레이션 시계의 구간 겹침 조회 경로.
+        # vessel_year 인덱스는 regulation_year가 선행열이 아니라 started_at 범위
+        # 조건이 인덱스로 내려가지 않는다.
+        sa.Index(
+            "idx_not_underway_period_vessel_started",
+            "vessel_id",
+            "started_at",
+            postgresql_where=sa.text("is_deleted = false"),
+        ),
+        # 029 (#376) — voyage 삭제 시 ON DELETE SET NULL 확인이 full scan 하지
+        # 않도록(023 idx_scenario_voyage 패턴). FK 확인은 삭제된 행도 봐야 하므로
+        # partial로 두지 않는다.
+        sa.Index("idx_not_underway_period_voyage", "voyage_id"),
     )

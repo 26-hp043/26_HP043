@@ -211,7 +211,11 @@ async def test_period_delete_cascades_fuel_rows(conn):
 
 @pytest.mark.asyncio
 async def test_expected_indexes_present(conn):
-    """이슈 #345 인덱스 — partial(vessel_id, regulation_year)·period_id 자식 인덱스."""
+    """인덱스 구성 — #345(025)의 partial 인덱스 + #376(029)의 3종.
+
+    029는 UNIQUE의 선행열이 ``period_id``로 같아 완전히 중복되는
+    ``idx_not_underway_fuel_use_period``를 제거했다(``voyage_fuel_use`` 선례).
+    """
     rows = await conn.execute(
         text(
             "SELECT indexname, indexdef FROM pg_indexes "
@@ -227,9 +231,67 @@ async def test_expected_indexes_present(conn):
     # soft delete 호환 — 활성 행만 인덱싱 (vessel의 idx_vessel_imo 패턴).
     assert "is_deleted = false" in vessel_year
 
-    period_child = defs.get("idx_not_underway_fuel_use_period")
-    assert period_child is not None, f"period_id 자식 인덱스 없음: {defs}"
-    assert "period_id" in period_child
+    # --- 029 (#376) ---------------------------------------------------------
+    # (1) 정합성 — 구간+소비원+연료 UNIQUE.
+    fuel_unique = defs.get("idx_not_underway_fuel_use_unique")
+    assert fuel_unique is not None, f"UNIQUE 인덱스 없음: {defs}"
+    assert "UNIQUE" in fuel_unique.upper()
+    for col in ("period_id", "consumer_type", "fuel_type"):
+        assert col in fuel_unique, f"{col}이 UNIQUE 키에 없음: {fuel_unique}"
+
+    # 중복 인덱스는 029가 제거했다 — 되살아나면 쓰기마다 두 번 갱신된다.
+    assert "idx_not_underway_fuel_use_period" not in defs, (
+        f"029가 제거한 중복 인덱스가 남아 있음: {defs}"
+    )
+
+    # (2) #368 구간 겹침 조회 — started_at이 인덱스에 들어간다.
+    vessel_started = defs.get("idx_not_underway_period_vessel_started")
+    assert vessel_started is not None, f"(vessel_id, started_at) 인덱스 없음: {defs}"
+    assert "vessel_id" in vessel_started
+    assert "started_at" in vessel_started
+    assert "is_deleted = false" in vessel_started
+
+    # (3) voyage FK 자식 인덱스 — SET NULL 확인 경로. partial이면 안 된다.
+    voyage_child = defs.get("idx_not_underway_period_voyage")
+    assert voyage_child is not None, f"voyage_id 자식 인덱스 없음: {defs}"
+    assert "voyage_id" in voyage_child
+    assert "WHERE" not in voyage_child.upper(), (
+        f"FK 확인은 삭제된 행도 봐야 하므로 partial이면 안 된다: {voyage_child}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fuel_use_rejects_duplicate_consumer_fuel(conn):
+    """같은 구간+소비원+연료 중복 삽입을 거부한다 (#376 · §2.3 [S-2] 패턴).
+
+    중복이 들어가면 ``sum_fuel_by_type``(#353)이 그대로 합산해 분자 ``M``이 부풀고
+    등급이 실제보다 나쁘게 나온다.
+    """
+    vessel_id = await _insert_vessel(conn, imo="9376001")
+    period_id = await _insert_period(conn, vessel_id)
+    await _insert_fuel(conn, period_id, consumer_type="AUX_ENGINE", fuel_type="HFO")
+
+    with pytest.raises(IntegrityError):
+        await _insert_fuel(conn, period_id, consumer_type="AUX_ENGINE", fuel_type="HFO")
+
+
+@pytest.mark.asyncio
+async def test_fuel_use_allows_same_fuel_for_other_consumer(conn):
+    """소비원이 다르면 같은 연료를 허용한다 — UNIQUE 키가 3열인 이유.
+
+    MEPC.385(81) DCS 보고 단위가 「구간 × 소비원 × 연료」이므로, 한 구간에서
+    보조엔진과 보일러가 같은 유종을 쓰는 것은 정상 기록이다.
+    """
+    vessel_id = await _insert_vessel(conn, imo="9376002")
+    period_id = await _insert_period(conn, vessel_id)
+    await _insert_fuel(conn, period_id, consumer_type="AUX_ENGINE", fuel_type="HFO")
+    await _insert_fuel(conn, period_id, consumer_type="OIL_FIRED_BOILER", fuel_type="HFO")
+
+    count = await conn.scalar(
+        text("SELECT count(*) FROM not_underway_fuel_use WHERE period_id = :pid"),
+        {"pid": period_id},
+    )
+    assert count == 2
 
 
 async def test_period_update_touches_updated_at(migrated_db):
