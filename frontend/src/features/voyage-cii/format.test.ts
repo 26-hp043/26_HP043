@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DISPLAY_DIGITS,
+  DISPLAY_UNITS,
   GROUPED_FIELDS,
   formatDecimalString,
   formatGrouped,
@@ -157,5 +158,32 @@ describe('formatPercent', () => {
   it('십진 문자열이 아니면 거부한다', () => {
     expect(() => formatPercent('abc')).toThrow(TypeError)
     expect(() => formatPercent('1e-2')).toThrow(TypeError)
+  })
+})
+
+describe('DISPLAY_UNITS', () => {
+  // DESIGN_SYSTEM §4.2 「단위 표기 🔒」를 고정한다. 값이 바뀌면 정본 개정이
+  // 선행되어야 하므로, 여기서 깨지는 것이 의도된 알림이다 (#164).
+  it('DESIGN_SYSTEM §4.2 확정값과 일치한다', () => {
+    expect(DISPLAY_UNITS.fuel).toBe('t')
+    expect(DISPLAY_UNITS.co2).toBe('tCO₂')
+    expect(DISPLAY_UNITS.distance).toBe('nm')
+    expect(DISPLAY_UNITS.duration).toBe('h')
+    expect(DISPLAY_UNITS.speed).toBe('kn')
+  })
+
+  it('연료와 CO₂를 서로 다른 문자열로 구분한다', () => {
+    // 둘 다 질량(t)이지만 같은 화면에 나란히 놓인다. 같으면 무엇의 질량인지
+    // 읽을 수 없다 — 이 구분이 tCO₂를 택한 이유다.
+    expect(DISPLAY_UNITS.co2).not.toBe(DISPLAY_UNITS.fuel)
+  })
+
+  it('연료 단위로 ton을 쓰지 않는다', () => {
+    // short ton(907kg)·long ton(1,016kg)과 표기가 겹쳐 규제 맥락에서 모호하다.
+    expect(DISPLAY_UNITS.fuel).not.toBe('ton')
+  })
+
+  it('CII 단위는 여기 없다 — 선종 capacity 축에서 파생된다 (§4.1)', () => {
+    expect(DISPLAY_UNITS).not.toHaveProperty('cii')
   })
 })

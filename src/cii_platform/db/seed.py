@@ -16,12 +16,28 @@
 ``parse_imo_scientific(a_raw)``로 생성하면 이 대조가 항상 참이 되어 검증이 무의미해지고,
 전사 오류(AGENTS.md §2.3의 ``14479E10``/``14779E10`` 사례)를 잡을 수 없다.
 
-**실행 방식은 DB_SCHEMA §8.1·§8.3과 편차가 있다.** §8.1은 seed를 ``seed/`` 디렉토리 +
-Alembic data migration으로 규정하나, 이슈 #33의 완료 기준이 ``python scripts/seed.py``이고
-재실행 idempotent(upsert)를 요구하므로 스크립트 방식으로 둔다. 데이터·로직을 패키지
-안에 두어 DB 없이도 값 검증 테스트가 가능하다. 다만 #83의 data migration(017)은 이
-모듈의 상수를 import하지 않는다 — 마이그레이션은 과거 시점 스냅샷이라 가변 상수를
-참조하면 과거 동작이 소급 변경된다. 편차 경위는 이슈 #33 코멘트에 기록했다.
+**이 모듈이 담는 것은 「지금 옳다고 보는 값」이다** (DB_SCHEMA §8.1.1 · #127).
+
+신규 환경 부트스트랩은 이 모듈이 하지 않는다 — data migration 032가 42행을 넣으며
+``alembic upgrade head`` 하나로 적재가 끝난다. :func:`seed_all`의 upsert는 **규제
+개정 시 재적재** 경로다.
+
+===========================  ===================================================
+주체                          담는 것
+===========================  ===================================================
+data migration (017 · 032)   그날 넣은 값 · **불변** · 신규 환경 부트스트랩
+``seed_all()`` (upsert)      지금 옳다고 보는 값 · **가변** · 규제 개정 시 재적재
+===========================  ===================================================
+
+**마이그레이션은 이 모듈의 상수를 import하지 않는다.** 마이그레이션은 과거 시점
+스냅샷이라 가변 상수를 참조하면 과거 동작이 소급 변경된다(017이 세우고 031·032가
+따른 원칙 · §8.1.1 🔒). 규제 개정으로 둘이 갈라지는 것은 정상이며, 그 순간을 모르고
+지나가지 않도록 ``tests/test_seed_migration.py``가 양쪽을 매 실행 대조한다.
+
+값·로직이 ``seed/`` 디렉토리가 아니라 패키지 안에 있는 이유는 **DB 없이 값 검증
+테스트가 가능해야** 하기 때문이다 — 5개 테스트 파일이 이 상수를 import해 ``PRD``
+§3.4와 대조한다. §8.1은 원래 ``seed/`` 디렉토리를 규정했으나 #127에서 실제 구조로
+고쳤다.
 """
 
 import dataclasses
@@ -458,3 +474,39 @@ async def seed_all(conn: AsyncConnection) -> dict[str, int]:
         "cii_reference_line": await _upsert_reference_lines(conn),
         "cii_rating_boundary": await _upsert_rating_boundaries(conn),
     }
+
+
+async def main() -> None:  # pragma: no cover - 프로세스 진입점
+    """엔진을 열고 단일 트랜잭션으로 seed를 적재한다.
+
+    ``python -m cii_platform.db.seed``로 실행한다 (#240). 진입점을 패키지 안에 둔 이유는
+    **프로덕션 이미지가 wheel만 설치**하기 때문이다 — ``scripts/``는 이미지에 없으므로
+    ``scripts/seed.py``를 배포 절차의 명령으로 쓸 수 없다. ``scripts/seed.py``는 이
+    함수에 위임하는 개발용 래퍼로 남는다(로직 사본을 두지 않는다 — #234).
+    """
+    # 지연 import — 이 모듈은 DB 없이 값 검증 테스트에 쓰이므로(모듈 docstring),
+    # 진입점에서만 필요한 엔진 계열을 상단 import로 올리지 않는다.
+    from sqlalchemy import pool
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from cii_platform.config import DATABASE_URL
+    from cii_platform.db.url import normalize_to_asyncpg
+
+    # URL 정규화는 alembic/env.py·tests/conftest.py·db/session.py와 같은 함수를
+    # 공유한다 (#234). 사본을 두면 앱만 분기가 빠지는 일이 다시 생긴다.
+    engine = create_async_engine(normalize_to_asyncpg(DATABASE_URL), poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as conn:
+            counts = await seed_all(conn)
+    finally:
+        # 성공·실패와 무관하게 커넥션을 반납한다.
+        await engine.dispose()
+
+    for table, count in counts.items():
+        print(f"{table}: {count}행 적재(upsert)")
+
+
+if __name__ == "__main__":  # pragma: no cover - 프로세스 진입점
+    import asyncio
+
+    asyncio.run(main())

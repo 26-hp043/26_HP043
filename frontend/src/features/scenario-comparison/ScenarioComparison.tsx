@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './ScenarioComparison.css'
-import { DISPLAY_DIGITS, formatDecimalString, formatGrouped, formatPercent } from '../voyage-cii/format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../voyage-cii/format'
 import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
 import {
@@ -205,11 +205,11 @@ function ScenarioCard({ scenario, unit }: { scenario: ScenarioResult; unit: stri
       </p>
 
       <dl className="scenario-card__rows">
-        <Row label="항해거리" value={formatGrouped(String(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)} unit="nm" />
-        <Row label="평균 속력" value={String(scenario.speed_kn)} unit="kn" />
-        <Row label="예상 소요시간" value={formatDecimalString(scenario.duration_hours, DISPLAY_DIGITS.durationHours)} unit="h" />
-        <Row label="예상 연료" value={formatGrouped(scenario.fuel_ton, DISPLAY_DIGITS.fuelTon)} unit="t" />
-        <Row label="CO₂ 배출량" value={formatGrouped(scenario.co2_emission_ton, DISPLAY_DIGITS.co2Ton)} unit="t" />
+        <Row label="항해거리" value={formatGrouped(String(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)} unit={DISPLAY_UNITS.distance} />
+        <Row label="평균 속력" value={String(scenario.speed_kn)} unit={DISPLAY_UNITS.speed} />
+        <Row label="예상 소요시간" value={formatDecimalString(scenario.duration_hours, DISPLAY_DIGITS.durationHours)} unit={DISPLAY_UNITS.duration} />
+        <Row label="예상 연료" value={formatGrouped(scenario.fuel_ton, DISPLAY_DIGITS.fuelTon)} unit={DISPLAY_UNITS.fuel} />
+        <Row label="CO₂ 배출량" value={formatGrouped(scenario.co2_emission_ton, DISPLAY_DIGITS.co2Ton)} unit={DISPLAY_UNITS.co2} />
         <Row label="기준 대비" value={`${formatPercent(scenario.ratio_to_required)}%`} />
       </dl>
     </article>

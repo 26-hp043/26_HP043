@@ -81,6 +81,18 @@ COPY --from=builder /wheels /wheels
 RUN pip install --no-cache-dir --no-index --find-links=/wheels cii_platform \
     && rm -rf /wheels
 
+# 마이그레이션 정의를 이미지에 넣는다 (#240).
+#  - alembic CLI 자체는 이미 있다 — pyproject의 **런타임** 의존성이라 wheel과 함께 깔린다.
+#    없는 것은 설정(alembic.ini)과 버전 스크립트(alembic/)뿐이었다.
+#  - 이것이 없으면 `docker compose exec app alembic upgrade head`가 설정을 찾지 못해
+#    실패하고, 스키마 없이 뜬 API가 500을 낸다. #240 완료 기준이 이 명령을 전제한다.
+#  - #232가 prod 이미지에서 뺀 것은 **빌드 도구**(gcc·libpq-dev)이지 마이그레이션
+#    정의가 아니다. alembic/은 416K·31파일로 이미지 크기 영향이 미미하다.
+#  - env.py는 cii_platform.{config,db.models,db.url}만 import하므로 그대로 동작한다.
+#    env.py의 sys.path.insert는 존재하지 않는 src/ 경로를 넣으려 할 뿐이라 무해하다.
+COPY alembic.ini ./
+COPY alembic ./alembic
+
 USER cii
 
 EXPOSE 8000

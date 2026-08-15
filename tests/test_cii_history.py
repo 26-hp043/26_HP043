@@ -59,7 +59,8 @@ async def session(conn):
 async def _ensure_params(session, *years: int) -> None:
     """규정 파라미터를 멱등하게 심는다 (``test_ytd_cii_service_db``와 같은 방식).
 
-    ``scripts/seed.py``를 돌린 로컬 DB에서도 성립해야 한다 — 없을 때만 넣는다.
+    마이그레이션 032(#127)가 ``regulation_year``·기준선·경계를 이미 넣으므로 CI에서는
+    대부분 no-op다. ``scripts/seed.py``를 돌린 로컬 DB에서도 성립해야 한다 — 없을 때만 넣는다.
     """
     for year in years:
         await session.execute(
