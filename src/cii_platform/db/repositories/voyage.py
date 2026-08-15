@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import func, or_, select, tuple_
 
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -123,6 +124,45 @@ async def list_active(
         )
 
     stmt = stmt.order_by(Voyage.created_at, Voyage.id).limit(limit + 1)
+    return list((await session.execute(stmt)).scalars().all())
+
+
+async def list_annual_inclusions(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    regulation_year: int,
+    policy: str,
+    as_of: datetime | None = None,
+) -> list[Voyage]:
+    """연간 집계에 들어가는 항차를 ``annual_inclusion_policy``로 골라 온다 (#353).
+
+    포함 여부의 정본은 ``PRD §8.1.2`` 매트릭스이며, 그 값이 ``voyage`` 행에 이미
+    들어 있다. 따라서 여기서는 ``status``를 다시 해석하지 않고 **정책 컬럼 하나로**
+    거른다 — ``status``로 판정하면 같은 규칙이 DB CHECK(``chk_voyage_inclusion``)와
+    코드 두 곳에 생긴다.
+
+    **``as_of`` 절단은 「도착 시각」 기준이다** — ``actual_arrival_at``이 있으면 그것을,
+    없으면 ``planned_arrival_at``을 쓴다(``COALESCE``). 둘 다 NULL이면 절단하지 않고
+    포함한다: 시각을 모르는 행을 «아직 아니다»로 단정할 근거가 없고, ``regulation_year``
+    가 이미 연도를 한정하고 있다.
+
+    :param policy: ``INCLUDE_AS_ACTUAL`` 또는 ``INCLUDE_AS_PLAN``. ``EXCLUDE``를
+        넘기는 것은 호출부의 실수이므로 막지 않고 그대로 조회한다 — 저장소는 규칙을
+        판정하지 않는다(TECH_SPEC §16).
+    """
+    stmt = select(Voyage).where(
+        Voyage.vessel_id == vessel_id,
+        Voyage.regulation_year == regulation_year,
+        Voyage.annual_inclusion_policy == policy,
+        Voyage.is_deleted.is_(False),
+    )
+
+    if as_of is not None:
+        arrival_at = func.coalesce(Voyage.actual_arrival_at, Voyage.planned_arrival_at)
+        stmt = stmt.where(or_(arrival_at.is_(None), arrival_at <= as_of))
+
+    stmt = stmt.order_by(Voyage.created_at, Voyage.id)
     return list((await session.execute(stmt)).scalars().all())
 
 
