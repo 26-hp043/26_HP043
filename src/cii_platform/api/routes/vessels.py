@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
@@ -26,6 +27,7 @@ from cii_platform.api.schemas.vessel import (
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
+from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.vessel import (
     create_vessel,
     delete_vessel,
@@ -76,6 +78,54 @@ async def get_vessel_route(
 ) -> dict[str, object]:
     """선박 상세를 조회한다 (API_SPEC §2.2). 없으면 404 ``NOT_FOUND``."""
     return {"data": await get_vessel(session, vessel_id), "meta": _meta(request)}
+
+
+@router.get("/vessels/{vessel_id}/cii-history")
+async def get_cii_history_route(
+    request: Request,
+    vessel_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    from_year: Annotated[
+        int | None,
+        Query(alias="from", description="시작 연도. 기본 to-2 (최근 3년 창)"),
+    ] = None,
+    to_year: Annotated[
+        int | None, Query(alias="to", description="종료 연도. 기본 as_of 연도(올해)")
+    ] = None,
+    as_of: Annotated[
+        datetime | None,
+        Query(
+            description=(
+                "확정/진행 중 판정 기준 시각 (ISO 8601). 미지정이면 서버 현재 시각. "
+                "응답 meta.as_of를 그대로 되돌려 보내면 같은 결과를 얻는다 (#368 계약 ⑶)"
+            ),
+        ),
+    ] = None,
+) -> dict[str, object]:
+    """선박의 연도별 CII 이력을 조회한다 (API_SPEC §2.7, #355). 없으면 404.
+
+    ``from``/``to``는 Python 예약어와 겹쳐 파라미터명을 ``from_year``/``to_year``로
+    두고 ``alias``로 노출한다 — OpenAPI에 보이는 이름은 ``from``/``to``다.
+    ``meta.as_of``는 확정/진행 중 판정에 쓴 시각이다.
+    """
+    history = await list_cii_history(
+        session,
+        vessel_id=vessel_id,
+        from_year=from_year,
+        to_year=to_year,
+        as_of=as_of,
+    )
+    # 서비스 계약상 as_of는 항상 datetime이다(#368 계약 ⑵ — resolve_as_of가 확정).
+    as_of: object = history["as_of"]
+    return {
+        "data": {
+            "vessel_id": history["vessel_id"],
+            "from": history["from"],
+            "to": history["to"],
+            "years": history["years"],
+        },
+        "meta": _meta(request, as_of=as_of.isoformat() if isinstance(as_of, datetime) else as_of),
+    }
 
 
 @router.post("/vessels", status_code=201)

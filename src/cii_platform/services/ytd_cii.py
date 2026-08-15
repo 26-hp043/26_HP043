@@ -158,6 +158,10 @@ class YtdCiiOutput:
     underway_distance_nm: Decimal | None = None
     not_underway_distance_nm: Decimal | None = None
     total_distance_nm: Decimal | None = None
+    #: 두 갈래(항해 중 + not under way) 연료의 톤 합계 (#355 이력 응답용).
+    #: ``data_available``가 ``False``여도 값 자체는 계산돼 있어 그대로 실린다 —
+    #: 「거리는 없고 정박 연료만 있다」는 상태를 화면이 구분할 수 있게 한다.
+    total_fuel_ton: Decimal | None = None
     voyage_count: int = 0
     not_underway_period_count: int = 0
 
@@ -323,6 +327,7 @@ async def compute_ytd_cii(
             underway_distance_nm=aggregated.underway_distance_nm,
             not_underway_distance_nm=aggregated.not_underway_distance_nm,
             total_distance_nm=total_distance_nm,
+            total_fuel_ton=total_fuel_ton,
             voyage_count=aggregated.voyage_count,
             not_underway_period_count=period_count,
         )
@@ -390,6 +395,7 @@ async def compute_ytd_cii(
         underway_distance_nm=aggregated.underway_distance_nm,
         not_underway_distance_nm=aggregated.not_underway_distance_nm,
         total_distance_nm=layer1.ytd.total_distance_nm,
+        total_fuel_ton=total_fuel_ton,
         voyage_count=aggregated.voyage_count,
         not_underway_period_count=period_count,
     )

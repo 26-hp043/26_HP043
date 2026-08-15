@@ -3,10 +3,10 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.6 |
+| 버전 | v1.7 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-14 |
-| 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4 |
+| 최종 수정일 | 2026-08-15 |
+| 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.5 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
 ---
@@ -526,6 +526,107 @@ PATCH /api/v1/vessels/{vessel_id}/position
 #### 인증
 
 다른 변경 API와 동일하게 세션 쿠키 + `X-CSRF-Token`을 요구한다. `#307`(변경 API 8종이 인증 게이트 밖에 노출)의 선례에 따라 **새 변경 엔드포인트는 게이트 배선을 테스트로 확인**한다.
+
+---
+
+### 2.7 선박 연도별 CII 이력 조회 (#355)
+
+```http
+GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
+```
+
+선박 상세 화면(`UIFLOW §2-8`)의 **연도별 CII 이력** 축. 연도별 집계는 YTD 엔진(#353)을 그대로 위임한다 — 이 엔드포인트의 소관은 **창·상태 구분**이다.
+
+#### 쿼리 파라미터
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `from` | integer | 아니오 | 시작 연도. 기본 `to - 2` (최근 3년 창) |
+| `to` | integer | 아니오 | 종료 연도. 기본 `as_of` 연도(올해) |
+| `as_of` | string(ISO 8601) | 아니오 | 확정/진행 중 판정 기준 시각. 미지정이면 서버 현재 시각. **응답 `meta.as_of`를 그대로 되돌려 보내면 같은 결과를 얻는다** (#368 계약 ⑶ — 재현성) |
+
+**검증 (422 · `VALIDATION_ERROR`)** — `from ≥ 2019` · `from ≤ to` · 창 ≤ 10년.
+
+#### 연도 행 구조
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `regulation_year` | integer | 규제 연도 |
+| `status` | string | `CONFIRMED`(과거 연도, 확정) / `IN_PROGRESS`(`as_of` 연도 이상, YTD) |
+| `data_available` | boolean | 집계 가능한 실적이 있는가 |
+| `reason` | string \| null | `NO_REGULATION_PARAMS` — 해당 연도 `regulation_year` 행 없음. `NO_DATA` — 파라미터는 있으나 집계할 실적 없음 |
+| `attained_cii` | string \| null | 연도 누적 attained CII (6자리) |
+| `required_cii` | string \| null | 해당 연도 required CII (6자리) |
+| `rating` | string \| null | A~E. `IN_PROGRESS` 연도는 **YTD 등급** — 공식 등급이 아니다(`PRD §3.3.7`) |
+| `voyage_count` | integer | 실적 확정(`INCLUDE_AS_ACTUAL`) 항차 수 |
+| `total_distance_nm` | string \| null | 두 갈래(항해 + not under way) 거리 합 (2자리) |
+| `total_fuel_ton` | string \| null | 두 갈래 연료 합 (2자리). `data_available=false`여도 거리·연료 값 자체는 실릴 수 있다 |
+
+> **파라미터가 없는 해도 요청 전체가 실패하지 않는다.** 그 해만 `data_available=false` + `reason=NO_REGULATION_PARAMS` 행으로 내보낸다 — 한 해 파라미터 미적재로 3년 이력 전체가 409로 죽으면 화면이 아무것도 그리지 못한다.
+
+> **`INCLUDE_AS_PLAN` 항차는 세지 않는다.** 진행 중 항차의 실시간 기여분(시뮬레이션 시계)은 `GET /vessels/{id}/cii/current`(#354)의 소관이다.
+
+#### 응답 예시 (200 OK)
+
+```json
+{
+  "data": {
+    "vessel_id": "00000000-0000-4000-8000-000000000001",
+    "from": 2024,
+    "to": 2026,
+    "years": [
+      {
+        "regulation_year": 2024,
+        "status": "CONFIRMED",
+        "data_available": false,
+        "reason": "NO_DATA",
+        "attained_cii": null,
+        "required_cii": null,
+        "rating": null,
+        "voyage_count": 0,
+        "total_distance_nm": "0.00",
+        "total_fuel_ton": "0.00"
+      },
+      {
+        "regulation_year": 2025,
+        "status": "CONFIRMED",
+        "data_available": true,
+        "reason": null,
+        "attained_cii": "5.841032",
+        "required_cii": "5.158439",
+        "rating": "D",
+        "voyage_count": 1,
+        "total_distance_nm": "4265.00",
+        "total_fuel_ton": "400.00"
+      },
+      {
+        "regulation_year": 2026,
+        "status": "IN_PROGRESS",
+        "data_available": true,
+        "reason": null,
+        "attained_cii": "8.979907",
+        "required_cii": "5.045066",
+        "rating": "E",
+        "voyage_count": 1,
+        "total_distance_nm": "4300.00",
+        "total_fuel_ton": "620.00"
+      }
+    ]
+  },
+  "meta": {
+    "request_id": "req-8f14e45f",
+    "timestamp": "2026-08-15T06:00:00Z",
+    "as_of": "2026-08-15T00:00:00+00:00"
+  }
+}
+```
+
+#### 오류
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 선박 없음 |
+| 422 | `VALIDATION_ERROR` | 창 규칙 위반 (`from > to` · 창 > 10년 · `from < 2019`) |
 
 ---
 
@@ -1754,6 +1855,7 @@ GET /api/v1/health
 | GET | `/api/v1/vessels` | 선박 목록 | §6.2 SCR-002 |
 | POST | `/api/v1/vessels` | 선박 등록 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}` | 선박 상세 | §6.2 SCR-002 |
+| GET | `/api/v1/vessels/{id}/cii-history` | 연도별 CII 이력 | §6.2 SCR-008 |
 | PATCH | `/api/v1/vessels/{id}` | 선박 수정 | §6.2 SCR-002 |
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}/voyages` | 항차 목록 | §6.2 SCR-003 |
