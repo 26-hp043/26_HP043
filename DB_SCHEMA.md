@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.8 |
+| 버전 | v1.9 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
@@ -797,6 +797,19 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 CREATE INDEX idx_not_underway_period_vessel_year
     ON not_underway_period (vessel_id, regulation_year)
     WHERE is_deleted = false;
+
+-- 029 (#376) — #368 시뮬레이션 시계의 구간 겹침 조회 경로.
+-- vessel_year는 regulation_year가 선행열이 아니라 started_at 범위 조건이
+-- 인덱스로 내려가지 않는다.
+CREATE INDEX idx_not_underway_period_vessel_started
+    ON not_underway_period (vessel_id, started_at)
+    WHERE is_deleted = false;
+
+-- 029 (#376) — fk_not_underway_period_voyage가 ON DELETE SET NULL이라 인덱스가
+-- 없으면 voyage 삭제 시 자식 확인이 full scan 한다 (023 idx_scenario_voyage 패턴).
+-- FK 확인은 삭제된 행도 봐야 하므로 partial로 두지 않는다.
+CREATE INDEX idx_not_underway_period_voyage
+    ON not_underway_period (voyage_id);
 ```
 
 > **`period_type` 6값의 근거** — 「not under way」는 정박보다 넓다. `MEPC.401(83)` 기준으로 EOSP → 다음 FAOP 구간이며 묘박·표류·STS·운하 통과를 포함하고, 드라이독도 idle 배출 범위에 든다. 정박 지속 시 연료(분자 `M`)만 늘고 거리(분모 `W`)는 늘지 않아 등급이 악화된다 — 이것이 규제 계산식이 원래 그렇게 동작하는 것이다(`MEPC 82/6/31`: *"emissions continue to accumulate without corresponding transport work … penalised under the current system"*).
@@ -827,8 +840,17 @@ CREATE INDEX idx_not_underway_period_vessel_year
 **인덱스:**
 
 ```sql
-CREATE INDEX idx_not_underway_fuel_use_period ON not_underway_fuel_use (period_id);
+-- 029 (#376) [S-2 패턴] — 구간+소비원+연료 중복 방지.
+-- 선행열이 period_id라 FK 자식 조회(CASCADE·조인) 경로도 이 인덱스가 처리한다.
+CREATE UNIQUE INDEX idx_not_underway_fuel_use_unique
+    ON not_underway_fuel_use (period_id, consumer_type, fuel_type);
 ```
+
+> **⚠️ 중복 삽입은 CO₂를 이중 산정한다 (`#376`).** `§2.3` **[S-2]**가 `voyage_fuel_use`에서 막아 둔 것과 같은 사안이다. `#353`의 YTD 집계(`sum_fuel_by_type`)가 `Σ(fuel_ton)`을 유종별로 합산하므로, 같은 구간·소비원·연료 행이 두 번 들어가면 분자 `M`이 그만큼 부풀고 **등급이 실제보다 나쁘게** 나온다.
+>
+> 키가 3열인 이유는 `consumer_type` 축이 있기 때문이다 — `MEPC.385(81)` DCS 보고 단위가 「구간 × 소비원 × 연료」이므로, 한 구간에서 보조엔진과 보일러가 같은 유종을 쓰는 것은 **정상 기록**이며 막으면 안 된다.
+>
+> 마이그레이션 025의 `idx_not_underway_fuel_use_period (period_id)`는 029에서 **제거했다.** 위 UNIQUE의 선행열이 같아 prefix 조회를 그대로 처리하므로 완전히 중복이며, 선례인 `voyage_fuel_use`(006)도 UNIQUE 인덱스 하나만 둔다.
 
 > **`consumer_type` 4값의 근거** — `MEPC.385(81)`이 MARPOL Annex VI Appendix IX에 추가한 DCS 보고 항목 그대로다. 적용 시작이 **데이터연도 2026년**으로 본 프로젝트 기준연도와 일치한다.
 
@@ -1274,5 +1296,6 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-14 | `#333` | §2.16 말미에 `chat_session`·`chat_message` 미정의 각주(`user_id` → `app_user.id` 귀속 확정), §4.3에 채팅 90일 보존 행 추가 (#287) |
 | 2026-08-14 | `#335` | §2.14 `action` 열거에 인증 이벤트 3종(LOGIN_SUCCESS·LOGIN_FAILURE·LOGOUT) 추가 + 자격 증명 미기록 규칙 각주 (#277) |
 | 2026-08-15 | `#377` | v1.8: §2.17에 `distance_nm` 추가(마이그레이션 028) — `MEPC.412(84)` §4.2가 `Dt`를 「both under way and not under way」로 정의해 not under way 이동 거리가 분모에 들어간다. `M`·`Dt` 원문 대조 완료 표기 (#353 · #358) |
+| 2026-08-15 |  | v1.9: §2.18에 `idx_not_underway_fuel_use_unique`(`period_id`, `consumer_type`, `fuel_type`) UNIQUE 신설 — §2.3 [S-2]와 같은 CO₂ 이중 산정 차단. 선행열이 같아 중복인 `idx_not_underway_fuel_use_period` 제거. §2.17에 `idx_not_underway_period_vessel_started`(#368 구간 겹침 조회)·`idx_not_underway_period_voyage`(SET NULL 확인 full scan 방지) 신설 — 마이그레이션 029 (#376) |
 | 2026-08-15 | `#374` | v1.6: §2.17 `not_underway_period`·§2.18 `not_underway_fuel_use` 신설(마이그레이션 025) — ER 다이어그램 3줄 추가, 헤더 상위 문서 `PRD` v4.0 갱신 (#345) |
 | 2026-08-15 | `#375` | v1.7: §2.1에 운항 상태 2축·위치 5컬럼 반영(마이그레이션 026) — `chk_vessel_state_pair` 정합 규칙(`SAILING`↔`UNDER_WAY`·6값↔`NOT_UNDER_WAY`, IS NOT NULL 가드)·위경도 범위·위치-시각 페어 (#346) |
