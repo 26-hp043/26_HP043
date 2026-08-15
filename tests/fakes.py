@@ -96,6 +96,13 @@ class FakeCalculationRun:
     id: UUID = field(default_factory=uuid4)
 
 
+@dataclass
+class FakeVoyageScenario:
+    """저장된 ``voyage_scenario`` 대역 (#57). flush로 확보한 PK의 원형이다."""
+
+    id: UUID = field(default_factory=uuid4)
+
+
 class FakeSession:
     """``AsyncSession`` 대역.
 

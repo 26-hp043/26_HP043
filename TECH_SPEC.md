@@ -873,6 +873,8 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **[ORACLE-S-5 주의]** `weather_factor`는 hash 계산 시점에 이미 계산되어 있어야 한다. 기상 데이터 조회가 비동기인 경우, 조회 완료 후 hash를 계산한다. `weather_model = NONE`이면 `weather_factor = 1.0`으로 설정한다.
 
+> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(선박·연도·capacity 축 값·연료 추정의 결정 인자(`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`)·확정된 시나리오 계획 3건(`scenarios`)·`weather_model`·`weather_factor`)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
+
 ### 5.4 재현성 계약 (Reproducibility Contract)
 
 > **[#102]** 기상 데이터 갱신과 재현성의 관계를 명확히 정의한다. 상위 근거: PRD §16.2 신뢰성 — "계산 재현성: 동일 입력·동일 파라미터·동일 seed는 동일 결과".
@@ -1586,4 +1588,5 @@ PR 리뷰 시 다음을 확인한다:
 | 2026-08-14 | `#334` | §2.5.2에 lock 파일 미도입 결정 각주 추가(범위 핀 원칙·전환 신호) · stale 참조 정정(requirements.txt → pyproject.toml) (#235) |
 | 2026-08-14 | `#337` | §16.2 불일치 각주 갱신 — UIFLOW 범위 충돌 해소 표시(2-4·2-6 MVP 밖, 2-5 내부 보고용), PRD §6.2 대응 각주 참조 (#280) |
 | 2026-08-14 | `#335` | §13.1에 인증 주체·로그인 이벤트 문단 추가 — user_id 귀속·자격 증명 미기록 원칙 (#277) |
+| 2026-08-14 | `#373` | §5.3에 기능② input_hash 각주 추가 — `SCENARIO_INPUT_FIELDS` 별도 정의·추정 fuel_ton 비해싱(파생값) (#57) |
 | 2026-08-15 | `#371` | §16.2 각주 정정 — #280 판정이 PRD v4.0(#343)·UIFLOW v2.0(#344) 관리 중심 전환으로 뒤집힌 사실 반영(2-4 MVP 중심·2-5 MVP 승격·2-6 #359 대기), 헤더 상위 문서 `PRD` v3.2→v4.0 갱신 (#367) |

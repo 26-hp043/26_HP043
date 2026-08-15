@@ -126,13 +126,56 @@ def compute_input_hash(calculation_input: dict) -> str:
     기본값 적용은 **이 함수의 책임**이다. 호출부는 ``weather_factor``가 미확정이면
     ``None``을 그대로 넘긴다. 호출부에서 먼저 대입하면 같은 규약이 두 곳에 생긴다.
     """
+    return _sha256_of(canonical_json(_filter_fields(INPUT_FIELDS, calculation_input)))
+
+
+#: 기능②(#57) 시나리오 비교 ``input_hash`` 대상 필드.
+#:
+#: 기능①의 :data:`INPUT_FIELDS`(11키)는 단일 항차 형태라 시나리오 비교 요청에 그대로
+#: 쓸 수 없다 — 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed
+#: model의 **출력**이기 때문이다. 재현성 단위는 「같은 선박·연도·기준값·시나리오
+#: 계획 3건 → 같은 결과」이므로, 시나리오 계획(``scenarios``)과 연료 추정의 결정
+#: 인자(``base_daily_foc_ton`` · ``reference_speed_kn`` · ``fuel_type`` · ``fuel_cf``)를
+#: 해싱한다. 추정 결과 ``fuel_ton``은 이 값들로부터 결정론적으로 유도되므로 넣지
+#: 않는다 — 파생값을 넣으면 해시가 중복 정의된다.
+SCENARIO_INPUT_FIELDS: tuple[str, ...] = (
+    "vessel_id",
+    "regulation_year",
+    "ship_type",
+    "transport_capacity",
+    "reference_capacity",
+    "base_daily_foc_ton",
+    "reference_speed_kn",
+    "fuel_type",
+    "fuel_cf",
+    "scenarios",  # [{scenario_type, distance_nm, speed_kn}] — PRD §11.2 확정 결과
+    "weather_model",
+    "weather_factor",
+)
+
+
+def compute_scenario_input_hash(calculation_input: dict) -> str:
+    """기능② 시나리오 비교 입력의 content hash (#57).
+
+    필터링·``weather_factor`` 기본값 치환 규칙은 :func:`compute_input_hash`와
+    완전히 같다 — 필드 목록만 :data:`SCENARIO_INPUT_FIELDS`로 바뀐다. 두 함수가
+    다른 규칙을 가지면 「같은 canonical 규약」이 두 벌로 생긴다(TECH_SPEC §5.1).
+    """
+    return _sha256_of(canonical_json(_filter_fields(SCENARIO_INPUT_FIELDS, calculation_input)))
+
+
+def _filter_fields(fields: tuple[str, ...], calculation_input: dict) -> dict[str, Any]:
+    """정본 §5.3의 필터 규칙 — 목록 내 키만, ``weather_factor=None``→기본값.
+
+    기능①·② 해시 함수가 공유하는 유일한 규칙 블록이다. 여기서 행동이 갈리면
+    같은 요청이 두 함수에서 다른 취급을 받는다.
+    """
     filtered: dict[str, Any] = {}
-    for key in INPUT_FIELDS:
+    for key in fields:
         if key in calculation_input:
             value = calculation_input[key]
             # [ORACLE-S-5] weather_factor가 None이면 기본값 사용
             if key == "weather_factor" and value is None:
                 value = DEFAULT_WEATHER_FACTOR
             filtered[key] = value
-
-    return _sha256_of(canonical_json(filtered))
+    return filtered

@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 #: 이 문자열이 틀리면 INSERT가 CHECK 제약에 걸린다.
 CALCULATION_TYPE_VOYAGE = "VOYAGE_ESTIMATE"
 
+#: 같은 CHECK 제약의 허용값 중 기능②(#57)에 해당하는 것.
+CALCULATION_TYPE_SCENARIO = "SCENARIO"
+
 #: API_SPEC §1.9 — 페이지 크기 기본 20, 최대 100 (vessel · voyage와 동일).
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
@@ -124,6 +127,43 @@ async def insert_voyage_estimate(
     """
     run = CalculationRun(
         calculation_type=CALCULATION_TYPE_VOYAGE,
+        vessel_id=vessel_id,
+        voyage_id=None,
+        weather_snapshot_id=None,
+        input_hash=input_hash,
+        parameter_hash=parameter_hash,
+        model_version=model_version,
+        result_json=result_json,
+        parameters_used=parameters_used,
+        warnings_json=warnings,
+        duration_ms=duration_ms,
+    )
+    session.add(run)
+    await session.flush()
+    return run
+
+
+async def insert_scenario(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    input_hash: str,
+    parameter_hash: str,
+    model_version: dict[str, object],
+    result_json: dict[str, object],
+    parameters_used: dict[str, object],
+    warnings: list[str],
+    duration_ms: int,
+) -> CalculationRun:
+    """기능② 시나리오 비교 계산 이력 1건을 저장하고 flush 한다 (#57).
+
+    ``insert_voyage_estimate``와 같은 규약 — commit은 서비스가 정하고, flush는
+    응답에 실을 PK 확보를 위해 한다. ``calculation_type``만 ``SCENARIO``로
+    다르다. 3개 시나리오 전체가 **1건의 계산 이력**으로 저장된다 — 비교 요청의
+    재현성 단위는 요청 전체지 시나리오 1건이 아니기 때문이다.
+    """
+    run = CalculationRun(
+        calculation_type=CALCULATION_TYPE_SCENARIO,
         vessel_id=vessel_id,
         voyage_id=None,
         weather_snapshot_id=None,
