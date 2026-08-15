@@ -38,6 +38,13 @@ INPUT_FIELDS: tuple[str, ...] = (
     "fuel_uses",  # [{fuel_type, fuel_ton, cf}]
     "weather_model",
     "weather_factor",  # [ORACLE-S-5] hash 전 반드시 확정
+    # (#368) 시뮬레이션 시계가 만든 입력은 as_of에 의존한다. 시각을 해싱하지 않으면
+    # 「같은 input_hash인데 결과가 다르다」가 되어 §5.4 1항이 깨진다.
+    #
+    # 기존 해시는 영향받지 않는다 — _filter_fields가 **입력 dict에 있는 키만** 담으므로,
+    # as_of를 넘기지 않는 기능①과 이미 저장된 계산은 필터 결과가 종전과 동일하다.
+    # 시각 의존 계산에서만 키가 하나 늘어난다.
+    "as_of",
 )
 
 #: ``weather_model = NONE`` 또는 미확정 시의 기본 기상 보정 계수 (TECH_SPEC §5.3).
