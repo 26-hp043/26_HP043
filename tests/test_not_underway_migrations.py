@@ -76,13 +76,22 @@ async def _insert_fuel(
     consumer_type="AUX_ENGINE",
     fuel_type="HFO",
     fuel_ton=12.5,
+    cf_used=3.114,
 ):
+    # 030 (#378) — cf_used는 NOT NULL. 기본값은 017 seed의 HFO CF와 같다.
     await conn.execute(
         text(
-            "INSERT INTO not_underway_fuel_use (period_id, consumer_type, fuel_type, fuel_ton) "
-            "VALUES (:pid, :ctype, :ftype, :ton)"
+            "INSERT INTO not_underway_fuel_use "
+            "(period_id, consumer_type, fuel_type, fuel_ton, cf_used) "
+            "VALUES (:pid, :ctype, :ftype, :ton, :cf)"
         ),
-        {"pid": period_id, "ctype": consumer_type, "ftype": fuel_type, "ton": fuel_ton},
+        {
+            "pid": period_id,
+            "ctype": consumer_type,
+            "ftype": fuel_type,
+            "ton": fuel_ton,
+            "cf": cf_used,
+        },
     )
 
 
@@ -353,3 +362,34 @@ async def test_period_update_touches_updated_at(migrated_db):
             await s.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
             await s.commit()
         await get_engine().dispose()
+
+
+@pytest.mark.asyncio
+async def test_fuel_use_requires_cf_snapshot(conn):
+    """``cf_used``는 NOT NULL이다 (#378 · 030).
+
+    NULL을 허용하면 집계마다 「snapshot 있음/없음」 분기가 생기고, 그 분기가 곧
+    030이 없앤 이중 CF 경로다.
+    """
+    vessel_id = await _insert_vessel(conn, imo="9378001")
+    period_id = await _insert_period(conn, vessel_id)
+
+    with pytest.raises(IntegrityError):
+        await conn.execute(
+            text(
+                "INSERT INTO not_underway_fuel_use "
+                "(period_id, consumer_type, fuel_type, fuel_ton) "
+                "VALUES (:pid, 'AUX_ENGINE', 'HFO', 1.0)"
+            ),
+            {"pid": period_id},
+        )
+
+
+@pytest.mark.asyncio
+async def test_fuel_use_rejects_non_positive_cf(conn):
+    """``cf_used <= 0``은 chk_nufu_cf_used_positive로 거부된다 (#96 chk_cf_positive 선례)."""
+    vessel_id = await _insert_vessel(conn, imo="9378002")
+    period_id = await _insert_period(conn, vessel_id)
+
+    with pytest.raises(IntegrityError):
+        await _insert_fuel(conn, period_id, cf_used=0)

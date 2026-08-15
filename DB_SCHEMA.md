@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.9 |
+| 버전 | v1.10 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
@@ -836,6 +836,15 @@ CREATE INDEX idx_not_underway_period_voyage
 | `consumer_type` | VARCHAR(20) | NOT NULL, CHECK 허용값 4종 | `MAIN_ENGINE`/`AUX_ENGINE`/`OIL_FIRED_BOILER`/`OTHER` |
 | `fuel_type` | VARCHAR(30) | NOT NULL, **FK → fuel_type(code) ON UPDATE CASCADE ON DELETE NO ACTION** | 연료 코드 |
 | `fuel_ton` | NUMERIC(12,2) | NOT NULL, CHECK `fuel_ton > 0` | 사용량 (t) |
+| `cf_used` | NUMERIC(10,6) | NOT NULL, CHECK `cf_used > 0` | **계산 시점 CF snapshot** (마이그레이션 030 · `#378`) |
+
+> **`cf_used`가 필요한 이유 (`#378`)** — `PRD` §8.4가 「연료 CF 변경: 변경 이후 계산에만 적용. **과거 계산은 snapshot 보존**」을 규정한다. 030 이전에는 이 표에 snapshot 컬럼이 없어 `#353` YTD 집계가 `fuel_type.cf` **현재값**을 조회했고, `voyage_fuel_use`는 `cf_used`를 쓰므로 **같은 연도·같은 선박 안에서 항차 연료는 옛 CF, 정박 연료는 새 CF**로 계산됐다. 같은 실적인데 조회 시점에 따라 YTD가 달라지는 상태였다.
+>
+> 맞추는 방향은 **스냅샷 쪽**이다. `fuel_type.cf` 현재값으로 통일하면 두 갈래가 일치하지만 `cf_used`의 존재 이유를 무시하고 §8.4를 정면으로 위반하며, 기능①(`voyage_cii`)의 계산 근거와도 어긋난다.
+>
+> 집계는 `(fuel_type, cf_used)`로 묶는다. CF 개정 후에는 같은 유종에 snapshot이 둘 이상 생기며, 하나로 합쳐 대표 CF를 고르면 그 차이가 사라진다. 계산 엔진은 같은 `fuel_code`가 여러 번 들어와도 배출량을 합산하므로 묶음을 그대로 넘기는 것이 정확하다.
+>
+> 백필은 무손실이다 — `fuel_type`은 `code`가 PK인 단일 행 테이블이라 CF 이력을 보관하지 않으며, 아직 CF 개정이 일어난 적이 없어 현재값이 곧 기록 시점값이다.
 
 **인덱스:**
 
@@ -1296,6 +1305,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-14 | `#333` | §2.16 말미에 `chat_session`·`chat_message` 미정의 각주(`user_id` → `app_user.id` 귀속 확정), §4.3에 채팅 90일 보존 행 추가 (#287) |
 | 2026-08-14 | `#335` | §2.14 `action` 열거에 인증 이벤트 3종(LOGIN_SUCCESS·LOGIN_FAILURE·LOGOUT) 추가 + 자격 증명 미기록 규칙 각주 (#277) |
 | 2026-08-15 | `#377` | v1.8: §2.17에 `distance_nm` 추가(마이그레이션 028) — `MEPC.412(84)` §4.2가 `Dt`를 「both under way and not under way」로 정의해 not under way 이동 거리가 분모에 들어간다. `M`·`Dt` 원문 대조 완료 표기 (#353 · #358) |
+| 2026-08-15 |  | v1.10: §2.18에 `cf_used` NUMERIC(10,6) NOT NULL 추가(마이그레이션 030) — `PRD` §8.4의 CF snapshot 보존이 `voyage_fuel_use`에만 적용되고 not under way 연료는 `fuel_type.cf` 현재값을 쓰고 있었다. 집계를 `(fuel_type, cf_used)`로 묶어 개정 전후 행이 각자의 CF로 곱해지게 했다 (#378) |
 | 2026-08-15 |  | v1.9: §2.18에 `idx_not_underway_fuel_use_unique`(`period_id`, `consumer_type`, `fuel_type`) UNIQUE 신설 — §2.3 [S-2]와 같은 CO₂ 이중 산정 차단. 선행열이 같아 중복인 `idx_not_underway_fuel_use_period` 제거. §2.17에 `idx_not_underway_period_vessel_started`(#368 구간 겹침 조회)·`idx_not_underway_period_voyage`(SET NULL 확인 full scan 방지) 신설 — 마이그레이션 029 (#376) |
 | 2026-08-15 | `#374` | v1.6: §2.17 `not_underway_period`·§2.18 `not_underway_fuel_use` 신설(마이그레이션 025) — ER 다이어그램 3줄 추가, 헤더 상위 문서 `PRD` v4.0 갱신 (#345) |
 | 2026-08-15 | `#375` | v1.7: §2.1에 운항 상태 2축·위치 5컬럼 반영(마이그레이션 026) — `chk_vessel_state_pair` 정합 규칙(`SAILING`↔`UNDER_WAY`·6값↔`NOT_UNDER_WAY`, IS NOT NULL 가드)·위경도 범위·위치-시각 페어 (#346) |

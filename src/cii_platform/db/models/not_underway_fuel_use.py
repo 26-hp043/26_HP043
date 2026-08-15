@@ -29,6 +29,11 @@ class NotUnderwayFuelUse(Base):
     consumer_type = sa.Column(sa.String(length=20), nullable=False)
     fuel_type = sa.Column(sa.String(length=30), nullable=False)
     fuel_ton = sa.Column(sa.Numeric(precision=12, scale=2), nullable=False)
+    # 030 (#378) — 계산 시점 CF snapshot. voyage_fuel_use.cf_used와 같은 역할이며
+    # PRD §8.4 「CF 변경 시 과거 계산은 snapshot 보존」이 두 연료 갈래 모두에
+    # 적용되게 한다. NULL을 허용하면 집계마다 snapshot 유무 분기가 생기고,
+    # 그 분기가 곧 이 이슈가 없앤 이중 경로다.
+    cf_used = sa.Column(sa.Numeric(precision=10, scale=6), nullable=False)
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_not_underway_fuel_use"),
@@ -53,6 +58,8 @@ class NotUnderwayFuelUse(Base):
             name="chk_not_underway_consumer_type",
         ),
         sa.CheckConstraint("fuel_ton > 0", name="chk_not_underway_fuel_positive"),
+        # 030 (#378) — CF는 물리적으로 항상 양수다(#96 chk_cf_positive 선례).
+        sa.CheckConstraint("cf_used > 0", name="chk_nufu_cf_used_positive"),
         # 029 (#376) — 구간+소비원+연료 중복 방지. 중복 시 #353 YTD 집계가 CO₂를
         # 이중 산정해 등급이 실제보다 나쁘게 나온다(§2.3 [S-2]와 같은 사안).
         # 선행열이 period_id라 FK 자식 조회(CASCADE·조인) 경로도 이 인덱스가 처리한다
