@@ -79,11 +79,14 @@ class Vessel(Base):
             name="chk_detail_status_allowed",
         ),
         # 정합 규칙 — 둘 다 NULL 또는 유효 조합(SAILING↔UNDER_WAY, 나머지↔NOT_UNDER_WAY).
+        # IS NOT NULL 가드가 필요하다 — NULL 비교는 UNKNOWN을 반환하고 CHECK는
+        # FALSE일 때만 거부하므로, 가드 없이는 반쪽 상태(한 축만 설정)가 통과한다.
         sa.CheckConstraint(
             "(underway_state IS NULL AND detail_status IS NULL) "
-            "OR (underway_state = 'UNDER_WAY' AND detail_status = 'SAILING') "
-            "OR (underway_state = 'NOT_UNDER_WAY' AND detail_status IN "
-            "('IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'))",
+            "OR (underway_state IS NOT NULL AND detail_status IS NOT NULL AND ("
+            "underway_state = 'UNDER_WAY' AND detail_status = 'SAILING' "
+            "OR underway_state = 'NOT_UNDER_WAY' AND detail_status IN "
+            "('IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK')))",
             name="chk_vessel_state_pair",
         ),
         sa.CheckConstraint(

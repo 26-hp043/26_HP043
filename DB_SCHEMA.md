@@ -122,8 +122,10 @@ ALTER TABLE vessel ADD CONSTRAINT chk_underway_state_allowed CHECK (underway_sta
 ALTER TABLE vessel ADD CONSTRAINT chk_detail_status_allowed CHECK (detail_status IS NULL OR detail_status IN ('SAILING','IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'));
 ALTER TABLE vessel ADD CONSTRAINT chk_vessel_state_pair CHECK (
     (underway_state IS NULL AND detail_status IS NULL)
-    OR (underway_state = 'UNDER_WAY' AND detail_status = 'SAILING')
-    OR (underway_state = 'NOT_UNDER_WAY' AND detail_status IN ('IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'))
+    OR (underway_state IS NOT NULL AND detail_status IS NOT NULL AND (
+        (underway_state = 'UNDER_WAY' AND detail_status = 'SAILING')
+        OR (underway_state = 'NOT_UNDER_WAY' AND detail_status IN ('IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'))
+    ))
 );
 ALTER TABLE vessel ADD CONSTRAINT chk_vessel_lat_range CHECK (current_lat IS NULL OR current_lat BETWEEN -90 AND 90);
 ALTER TABLE vessel ADD CONSTRAINT chk_vessel_lon_range CHECK (current_lon IS NULL OR current_lon BETWEEN -180 AND 180);

@@ -69,9 +69,10 @@ def upgrade() -> None:
         "chk_vessel_state_pair",
         "vessel",
         "(underway_state IS NULL AND detail_status IS NULL) "
-        "OR (underway_state = 'UNDER_WAY' AND detail_status = 'SAILING') "
-        "OR (underway_state = 'NOT_UNDER_WAY' AND detail_status IN "
-        "('IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'))",
+        "OR (underway_state IS NOT NULL AND detail_status IS NOT NULL AND ("
+        "underway_state = 'UNDER_WAY' AND detail_status = 'SAILING' "
+        "OR underway_state = 'NOT_UNDER_WAY' AND detail_status IN "
+        "('IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK')))",
     )
     op.create_check_constraint(
         "chk_vessel_lat_range",
