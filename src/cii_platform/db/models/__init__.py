@@ -20,6 +20,8 @@ from cii_platform.db.models.calculation_run import CalculationRun
 from cii_platform.db.models.cii_rating_boundary import CiiRatingBoundary
 from cii_platform.db.models.cii_reference_line import CiiReferenceLine
 from cii_platform.db.models.fuel_type import FuelType
+from cii_platform.db.models.not_underway_fuel_use import NotUnderwayFuelUse
+from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 from cii_platform.db.models.regulation_year import RegulationYear
 from cii_platform.db.models.simulation_snapshot import SimulationSnapshot
 from cii_platform.db.models.user_session import UserSession
@@ -39,6 +41,8 @@ __all__ = [
     "CiiRatingBoundary",
     "CiiReferenceLine",
     "FuelType",
+    "NotUnderwayFuelUse",
+    "NotUnderwayPeriod",
     "RegulationYear",
     "SimulationSnapshot",
     "UserSession",
