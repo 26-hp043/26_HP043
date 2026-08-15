@@ -22,7 +22,7 @@ npm run build   # 타입 검사(tsc -b) + 프로덕션 빌드
 npm run lint    # oxlint
 ```
 
-기본 진입 경로는 기능①(CII 예측) 화면입니다. `/`로 들어오면 `/voyage-cii`로 이동합니다.
+기본 진입 경로는 대시보드(선대 계층)입니다. `/`로 들어오면 `/dashboard`로 이동합니다(#348).
 
 ## 디렉터리
 
@@ -53,8 +53,8 @@ frontend/
 | 면책·경고 문구 원문 | `PRD.md` §6.3 (DESIGN_SYSTEM §13이 문구 정의를 PRD로 넘김) |
 | 계산·검증 규칙·API 요청/응답 계약 | `PRD.md` · `TECH_SPEC.md` · `API_SPEC.md` |
 
-> ⚠️ `PRD.md` §6.1·§6.2는 아직 화면 7개(SCR-001~007)를 병렬로 정의하고 있어
-> `UIFLOW.md`와 어긋납니다. PRD를 UIFLOW 기준으로 정정하는 것은 별도 이슈에서 다룹니다.
+> `PRD v4.0`(#343)·`UIFLOW v2.0`(#344)가 같은 3계층 구조로 확정되면서 종전의
+> PRD ↔ UIFLOW 화면 정의 불일치는 해소됐습니다. 화면 구조는 `UIFLOW.md`를 따릅니다.
 
 ## 구현 제약 (8/8까지)
 
