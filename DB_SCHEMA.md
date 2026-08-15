@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.6 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) |
+| 버전 | v1.7 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
@@ -92,6 +92,11 @@ erDiagram
 | `reference_daily_foc_ton` | NUMERIC(8,2) | NULL | 기준 일일 연료소모량 (ton/day) |
 | `is_cii_applicable_hint` | BOOLEAN | NOT NULL DEFAULT false | GT ≥ 5000 및 선종 기준 자동 산정 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
+| `underway_state` | VARCHAR(20) | NULL, CHECK 허용값 2종 | **계산 축** — `UNDER_WAY`/`NOT_UNDER_WAY` (#346) |
+| `detail_status` | VARCHAR(20) | NULL, CHECK 허용값 7종 | **화면 축** — `SAILING`/`IN_PORT`/`AT_ANCHOR`/`DRIFTING`/`STS`/`CANAL_TRANSIT`/`DRYDOCK` |
+| `current_lat` | NUMERIC(9,6) | NULL, CHECK −90~90 | 현재 위치 위도 |
+| `current_lon` | NUMERIC(9,6) | NULL, CHECK −180~180 | 현재 위치 경도 |
+| `position_updated_at` | TIMESTAMPTZ | NULL | 위치 갱신 시각. **위치가 있으면 필수** (UIFLOW §2-8) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
 
@@ -112,6 +117,20 @@ ALTER TABLE vessel ADD CONSTRAINT chk_imo_format CHECK (imo_number ~ '^\d{7}$');
 ALTER TABLE vessel ADD CONSTRAINT chk_gt_positive CHECK (gross_tonnage IS NULL OR gross_tonnage > 0);
 ALTER TABLE vessel ADD CONSTRAINT chk_dwt_positive CHECK (deadweight IS NULL OR deadweight > 0);
 ALTER TABLE vessel ADD CONSTRAINT chk_speed_positive CHECK (reference_speed_kn IS NULL OR reference_speed_kn > 0);
+-- 026 (#346): 운항 상태 2축 + 위치. 전부 NULL 허용 — 미갱신 선박도 정상 조회.
+ALTER TABLE vessel ADD CONSTRAINT chk_underway_state_allowed CHECK (underway_state IS NULL OR underway_state IN ('UNDER_WAY','NOT_UNDER_WAY'));
+ALTER TABLE vessel ADD CONSTRAINT chk_detail_status_allowed CHECK (detail_status IS NULL OR detail_status IN ('SAILING','IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'));
+ALTER TABLE vessel ADD CONSTRAINT chk_vessel_state_pair CHECK (
+    (underway_state IS NULL AND detail_status IS NULL)
+    OR (underway_state = 'UNDER_WAY' AND detail_status = 'SAILING')
+    OR (underway_state = 'NOT_UNDER_WAY' AND detail_status IN ('IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'))
+);
+ALTER TABLE vessel ADD CONSTRAINT chk_vessel_lat_range CHECK (current_lat IS NULL OR current_lat BETWEEN -90 AND 90);
+ALTER TABLE vessel ADD CONSTRAINT chk_vessel_lon_range CHECK (current_lon IS NULL OR current_lon BETWEEN -180 AND 180);
+ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
+    (current_lat IS NULL AND current_lon IS NULL)
+    OR (current_lat IS NOT NULL AND current_lon IS NOT NULL AND position_updated_at IS NOT NULL)
+);
 ```
 
 > `gross_tonnage`와 `deadweight`는 PRD §7.2에서 "조건부 필수"이다. CII 계산 시점에 VAL-010으로 검증한다.
