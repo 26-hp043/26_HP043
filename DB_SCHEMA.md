@@ -3,10 +3,10 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.5 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) |
-| 최종 수정일 | 2026-08-14 |
-| 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
+| 버전 | v1.6 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) |
+| 최종 수정일 | 2026-08-15 |
+| 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
 
@@ -63,6 +63,10 @@ erDiagram
     WEATHER_SNAPSHOT ||--o{ VOYAGE_SCENARIO : used_by
     AUDIT_LOG }o--o| VESSEL : references
     AUDIT_LOG }o--o| VOYAGE : references
+    VESSEL ||--o{ NOT_UNDERWAY_PERIOD : idle_in
+    VOYAGE |o--o{ NOT_UNDERWAY_PERIOD : context
+    NOT_UNDERWAY_PERIOD ||--o{ NOT_UNDERWAY_FUEL_USE : consumes
+    FUEL_TYPE ||--o{ NOT_UNDERWAY_FUEL_USE : used_in
 ```
 
 > **[S-6 수정]** `SIMULATION_SNAPSHOT ||--o| ANNUAL_SIMULATION_RUN` (1:1 또는 1:0..1)으로 변경. 시뮬레이션 실행 1건당 스냅샷 1건이 생성되며, 스냅샷이 부모이다. `AUDIT_LOG`의 카디널리티도 `}o--o|`로 수정 (entity_id가 NULL 허용).
@@ -742,6 +746,62 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 > **세션 토큰 원문을 저장하지 않는다** — DB 유출 시 저장된 값으로 로그인 위조를 막기 위함. 비밀번호를 해시하는 것과 같은 이유.
 
 > **[#287] `chat_session`·`chat_message`은 이 스키마에 정의돼 있지 않다.** 챗봇(O-12)은 실험 기능(PRD §5.1 MAY)이며 구현 이슈(#120~#123) 시점에 별도 마이그레이션으로 추가한다. 귀속 주체만 확정해 둔다 — `PRD §7.8`의 `ChatSession.user_id`는 **`app_user.id`(§2.15)** 를 참조한다(인증 주체 모델 #273 · #275 확정에 따른 결정). 보존 정책(90일)은 §4.3에 반영한다.
+
+---
+
+### 2.17 `not_underway_period` — not under way 구간 (#345)
+
+> 마이그레이션 025. 항해하지 않는 구간(정박·묘박·표류·STS·운하 통과·드라이독)을 기록한다. 현재 연료는 `voyage_fuel_use`로 **항차에만** 매달려 있어 이 구간의 연료를 담을 곳이 없었다. 귀속은 **선박+규제연도** — 정박은 항차 사이에 있어 특정 항차에 속하지 않는다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, NOT NULL DEFAULT `gen_random_uuid()` | 행 ID |
+| `vessel_id` | UUID | NOT NULL, **FK → vessel(id) ON DELETE RESTRICT** | 소유 선박 |
+| `regulation_year` | INTEGER | NOT NULL | 규제연도 (YTD·연간 실적 집계 축) |
+| `period_type` | VARCHAR(20) | NOT NULL, CHECK 허용값 6종 | `IN_PORT`/`AT_ANCHOR`/`DRIFTING`/`STS`/`CANAL_TRANSIT`/`DRYDOCK` |
+| `started_at` | TIMESTAMPTZ | NOT NULL | 구간 시작 |
+| `ended_at` | TIMESTAMPTZ | NULL | 구간 종료. NULL이면 진행 중. **CHECK: `ended_at IS NULL OR ended_at > started_at`** |
+| `port_name` | VARCHAR(200) | NULL | 항구명 (정박·입항 시) |
+| `lat` | NUMERIC(9,6) | NULL | 구간 위치 위도 |
+| `lon` | NUMERIC(9,6) | NULL | 구간 위치 경도 |
+| `voyage_id` | UUID | NULL, **FK → voyage(id) ON DELETE SET NULL** | 맥락 항차 참조. 항차 삭제 시 링크만 끊긴다 |
+| `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | soft delete |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+
+**인덱스:**
+
+```sql
+CREATE INDEX idx_not_underway_period_vessel_year
+    ON not_underway_period (vessel_id, regulation_year)
+    WHERE is_deleted = false;
+```
+
+> **`period_type` 6값의 근거** — 「not under way」는 정박보다 넓다. `MEPC.401(83)` 기준으로 EOSP → 다음 FAOP 구간이며 묘박·표류·STS·운하 통과를 포함하고, 드라이독도 idle 배출 범위에 든다. 정박 지속 시 연료(분자 `M`)만 늘고 거리(분모 `W`)는 늘지 않아 등급이 악화된다 — 이것이 규제 계산식이 원래 그렇게 동작하는 것이다(`MEPC 82/6/31`: *"emissions continue to accumulate without corresponding transport work … penalised under the current system"*).
+
+> ⚠️ **`M`이 not under way 연료를 포함한다는 최종 근거는 1차 규정 원문 대조 미완이다** (#358에서 처리). 결과가 달라져도 **스키마가 아니라 집계 로직만** 바뀐다.
+
+---
+
+### 2.18 `not_underway_fuel_use` — not under way 연료 사용량 (#345)
+
+> 마이그레이션 025. 구간의 소비자별 연료 기록. `voyage ──< voyage_fuel_use` 부모-자식 패턴과 동일하다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, NOT NULL DEFAULT `gen_random_uuid()` | 행 ID |
+| `period_id` | UUID | NOT NULL, **FK → not_underway_period(id) ON DELETE CASCADE** | 소속 구간 |
+| `consumer_type` | VARCHAR(20) | NOT NULL, CHECK 허용값 4종 | `MAIN_ENGINE`/`AUX_ENGINE`/`OIL_FIRED_BOILER`/`OTHER` |
+| `fuel_type` | VARCHAR(30) | NOT NULL, **FK → fuel_type(code) ON UPDATE CASCADE ON DELETE NO ACTION** | 연료 코드 |
+| `fuel_ton` | NUMERIC(12,2) | NOT NULL, CHECK `fuel_ton > 0` | 사용량 (t) |
+
+**인덱스:**
+
+```sql
+CREATE INDEX idx_not_underway_fuel_use_period ON not_underway_fuel_use (period_id);
+```
+
+> **`consumer_type` 4값의 근거** — `MEPC.385(81)`이 MARPOL Annex VI Appendix IX에 추가한 DCS 보고 항목 그대로다. 적용 시작이 **데이터연도 2026년**으로 본 프로젝트 기준연도와 일치한다.
 
 ---
 
