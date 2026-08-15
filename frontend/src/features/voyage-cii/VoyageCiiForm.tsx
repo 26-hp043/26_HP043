@@ -1,10 +1,9 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import './VoyageCiiForm.css'
 import {
   FIELD,
   initialFormState,
   selectableFuels,
-  selectableVessels,
   selectableYears,
   toFormErrors,
   toRequest,
@@ -13,6 +12,7 @@ import {
   type VoyageCiiFormState,
 } from './formRules'
 import { createVoyageCiiProvider } from './providerSelection'
+import { createVesselCatalog, type VesselOption } from './vesselCatalog'
 import type { ResultState } from './resultRules'
 
 /**
@@ -58,8 +58,14 @@ interface VoyageCiiFormProps {
 }
 
 export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
-  const vessels = useMemo(() => selectableVessels(), [])
   const fuels = useMemo(() => selectableFuels(), [])
+
+  // 선택지 소스도 provider 경계 뒤에 둔다 (#236). demo면 고정표, 실 API면
+  // GET /api/v1/vessels다 — 화면은 어느 쪽인지 알지 않는다.
+  const catalog = useMemo(() => createVesselCatalog(), [])
+  const [vessels, setVessels] = useState<VesselOption[]>([])
+  const [vesselsLoading, setVesselsLoading] = useState(true)
+  const [vesselsFailed, setVesselsFailed] = useState(false)
 
   const [state, setState] = useState<VoyageCiiFormState>(initialFormState)
   const [errors, setErrors] = useState<FormErrors>({})
@@ -69,6 +75,32 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   // demo ↔ 실 API 전환은 providerSelection이 판단한다(#138). 화면은 어느 쪽이
   // 선택됐는지 알지 않는다 — 그것이 #134가 provider 경계를 그은 이유다.
   const provider = useMemo(() => createVoyageCiiProvider(), [])
+
+  // 목록을 못 가져오면 폼을 「빈 선택지」로 두지 않고 실패를 명시한다 — 서버가
+  // 없어서 비었는지 등록된 선박이 없어서 비었는지가 구분되어야 한다.
+  useEffect(() => {
+    let cancelled = false
+    catalog
+      .listVessels()
+      .then((rows) => {
+        if (cancelled) return
+        setVessels(rows)
+        // 첫 항목을 선택해 「아무것도 선택되지 않은 상태」를 만들지 않는다
+        // (initialFormState와 같은 규칙).
+        setState((prev) =>
+          prev.vesselId || rows.length === 0 ? prev : { ...prev, vesselId: rows[0].id },
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setVesselsFailed(true)
+      })
+      .finally(() => {
+        if (!cancelled) setVesselsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [catalog])
 
   const selectedVessel = vessels.find((v) => v.id === state.vesselId)
 
@@ -145,7 +177,15 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
 
       <div className="voyage-cii-form__grid">
         {/* 선박 — 1척이면 고정 표시, 2척 이상이면 셀렉트 */}
-        {vessels.length > 1 ? (
+        {vesselsLoading ? (
+          <StaticField label="샘플 선박" labelEn="vessel_id" value="선박 목록을 불러오는 중…" />
+        ) : vesselsFailed ? (
+          <StaticField
+            label="샘플 선박"
+            labelEn="vessel_id"
+            value="선박 목록을 불러오지 못했습니다"
+          />
+        ) : vessels.length > 1 ? (
           <Field id="vessel" label="샘플 선박" labelEn="vessel_id">
             <select
               id="vessel"
