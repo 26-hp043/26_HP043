@@ -101,6 +101,79 @@
 
 ---
 
+## 배포
+
+프로덕션은 `docker-compose.prod.yml` 하나로 뜬다. **nginx가 정적 자산을 서빙하고 `/api`를 백엔드로 리버스 프록시**하므로 화면과 API가 같은 오리진이 된다 — 그래서 백엔드에 CORS 설정이 없다.
+
+```
+브라우저 ──→ nginx(:80) ──┬──→ /            정적 자산 (SPA fallback)
+                          └──→ /api/…       app(:8000)
+```
+
+### 기동 순서
+
+DB → 마이그레이션 → seed → 앱·화면 순서다. 개발용 `scripts/demo_up.sh`와 같은 순서이며, **앱을 마지막에 올리는 것이 요점**이다 — 스키마가 없는 상태로 앱이 먼저 뜨면 그동안 API가 500을 낸다.
+
+```bash
+# 1) credential 주입 — 미설정이면 compose가 즉시 실패한다 (기본값을 허용하지 않는다)
+export POSTGRES_USER=... POSTGRES_PASSWORD=... POSTGRES_DB=...
+
+# 2) 이미지를 먼저 굽는다 ⚠️ 건너뛰지 말 것 (아래 주의 참조)
+docker compose -f docker-compose.prod.yml build
+
+# 3) DB만 먼저 올린다 (healthcheck 통과까지 기다린다)
+docker compose -f docker-compose.prod.yml up -d db
+
+# 4) 마이그레이션 — app 이미지를 일회성 컨테이너로 써서 스키마를 만든다
+docker compose -f docker-compose.prod.yml run --rm app alembic upgrade head
+
+# 5) 규제 파라미터 seed (Z-factor 8행 · reference line 20행 · rating boundary 14행)
+docker compose -f docker-compose.prod.yml run --rm app python -m cii_platform.db.seed
+
+# 6) 앱 + 화면 기동
+docker compose -f docker-compose.prod.yml up -d
+```
+
+4·5단계가 `exec`가 아니라 `run --rm`인 이유는 이 시점에 `app` 컨테이너가 아직 떠 있지 않기 때문이다. `run`은 같은 이미지로 일회성 컨테이너를 띄우고, 명령이 끝나면 `--rm`이 그 컨테이너를 지운다.
+
+> ⚠️ **2단계(`build`)를 생략하면 안 된다.** `docker compose run`은 해당 이름의 이미지가 **이미 있으면 그것을 그대로 쓰고 다시 굽지 않는다.** 소스를 고친 뒤 `build` 없이 4단계로 가면 낡은 이미지로 마이그레이션이 돌고, 그 사실이 로그에 드러나지 않는다. (실제로 이 절차를 검증할 때 5주 전 이미지가 조용히 재사용되어 `No 'script_location' key found`로 실패했다.)
+
+> 이 두 명령이 컨테이너 안에서 도는 것은 prod 이미지가 `alembic.ini`·`alembic/`을 포함하기 때문이다(루트 `Dockerfile`). seed 진입점이 `scripts/seed.py`가 아니라 `python -m cii_platform.db.seed`인 것도 같은 이유다 — 프로덕션 이미지는 wheel만 설치하므로 `scripts/`가 들어 있지 않다.
+
+### ⚠️ Vite 환경변수는 빌드 시점에 굳는다
+
+`VITE_USE_API`·`VITE_API_BASE_URL`은 **런타임 환경변수로 바뀌지 않는다.** Vite가 빌드할 때 값을 코드에 인라인하기 때문이다. 그래서 compose가 이 둘을 `build.args`로 넘긴다.
+
+```bash
+# 값을 바꾸려면 이미지를 다시 굽는다
+VITE_API_BASE_URL=/api/v1 docker compose -f docker-compose.prod.yml build frontend
+```
+
+기본값은 `VITE_USE_API=true` · `VITE_API_BASE_URL=/api/v1`이다. 상대 경로를 기본으로 두는 것이 위 「같은 오리진」 구성과 맞는다.
+
+### 확인
+
+| 대상 | 명령 |
+|---|---|
+| 화면 | `curl -I http://localhost/` → `200` |
+| API (프록시 경유) | `curl http://localhost/api/v1/health` → `200` |
+| SPA fallback | `curl -I http://localhost/vessels/x` → `200` (404가 아님) |
+| 기능① | 브라우저에서 계산 실행 → 네트워크 탭에 `/api/v1/calculations/voyage-cii` |
+
+> **같은 오리진 보장은 `:80` 경유일 때만 성립한다.** `app`이 `8000:8000`을 호스트에 열어 두므로 `http://localhost:8000`으로 백엔드에 직접 닿을 수도 있다(디버깅용). 화면은 항상 `:80`으로 접근한다 — `:8000`에는 정적 자산이 없다.
+
+### ⚠️ 프로덕션에서 로그인하려면 구글 OIDC 설정이 필요하다
+
+`APP_ENV=production`이면 **스텁 인증(`/api/v1/auth/dev-login`) 라우트가 등록되지 않는다** — 런타임 분기가 아니라 기동 시점에 갈린다(`main.py`의 `should_register_dev_auth()`, #276). 따라서 위 절차만 밟으면 화면은 뜨지만 **계산 API는 401을 낸다.** 실제 사용에는 구글 OIDC 자격증명(#274) 주입이 함께 필요하다.
+
+배포 배선 자체(정적 자산 · `/api` 프록시 · DB · 계산 엔진)만 확인하려면 인증 스텁이 열리는 개발 모드로 같은 스택을 띄운다.
+
+```bash
+APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recreate app
+```
+
+---
+
 ## 참고 문헌
 
 - [IMO EEXI and CII FAQ](https://www.imo.org/en/mediacentre/hottopics/pages/eexi-cii-faq.aspx)

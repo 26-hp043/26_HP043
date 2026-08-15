@@ -1,0 +1,11 @@
+# 빌드 컨텍스트에서 제외 (#240)
+# node_modules를 보내면 컨텍스트가 수백 MB가 되고, 호스트 OS에 맞춰 빌드된
+# 네이티브 모듈이 alpine 이미지 안으로 섞여 들어간다 — npm ci가 이미지 안에서
+# 다시 설치하므로 보낼 이유가 없다.
+node_modules
+dist
+.env
+.env.*
+*.local
+.vite
+coverage

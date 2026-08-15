@@ -458,3 +458,39 @@ async def seed_all(conn: AsyncConnection) -> dict[str, int]:
         "cii_reference_line": await _upsert_reference_lines(conn),
         "cii_rating_boundary": await _upsert_rating_boundaries(conn),
     }
+
+
+async def main() -> None:  # pragma: no cover - 프로세스 진입점
+    """엔진을 열고 단일 트랜잭션으로 seed를 적재한다.
+
+    ``python -m cii_platform.db.seed``로 실행한다 (#240). 진입점을 패키지 안에 둔 이유는
+    **프로덕션 이미지가 wheel만 설치**하기 때문이다 — ``scripts/``는 이미지에 없으므로
+    ``scripts/seed.py``를 배포 절차의 명령으로 쓸 수 없다. ``scripts/seed.py``는 이
+    함수에 위임하는 개발용 래퍼로 남는다(로직 사본을 두지 않는다 — #234).
+    """
+    # 지연 import — 이 모듈은 DB 없이 값 검증 테스트에 쓰이므로(모듈 docstring),
+    # 진입점에서만 필요한 엔진 계열을 상단 import로 올리지 않는다.
+    from sqlalchemy import pool
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from cii_platform.config import DATABASE_URL
+    from cii_platform.db.url import normalize_to_asyncpg
+
+    # URL 정규화는 alembic/env.py·tests/conftest.py·db/session.py와 같은 함수를
+    # 공유한다 (#234). 사본을 두면 앱만 분기가 빠지는 일이 다시 생긴다.
+    engine = create_async_engine(normalize_to_asyncpg(DATABASE_URL), poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as conn:
+            counts = await seed_all(conn)
+    finally:
+        # 성공·실패와 무관하게 커넥션을 반납한다.
+        await engine.dispose()
+
+    for table, count in counts.items():
+        print(f"{table}: {count}행 적재(upsert)")
+
+
+if __name__ == "__main__":  # pragma: no cover - 프로세스 진입점
+    import asyncio
+
+    asyncio.run(main())
