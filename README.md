@@ -37,7 +37,7 @@
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (v1.4, Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 #100 + 재현성 계약 명문화 #102 + Layer 1 계산 규칙 #166) — 이중 정밀도 엔진, Layer 1 계산 규칙(§1.2.1), PCG64DXSM RNG(canonical vector 고정), capacity 분리(transport/reference), canonical hashing, 스냅샷 격리, 서비스 레이어 아키텍처(§16), 재현성 계약(§5.4) | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (v1.7, Oracle Review + 외부 리뷰 반영 + 인증(#272) + PATCH null 의미론·전환 policy 규칙 #310·#312 + 위치 갱신 #369 + `as_of` 공통 계약 #368 + 연도별 CII 이력 #355) — 31개 엔드포인트, 수치 직렬화 정책, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
 | [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (v1.12, Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 #102 + 파라미터 CHECK·FK 자식 인덱스 #96·#97 + needs_recalc 플립 #283 + not under way 스키마 #345 + 운항 상태 2축 #346 + not under way 거리 #353 + 인덱스 3종 #376 + CF 스냅샷 #378 + content_hash 규칙 #154 + seed 적재 경로 일원화 #127) — 16개 테이블, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, pg_trgm, 마이그레이션 전략 | ✅ 완료 |
-| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.5, Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 #166 + §1.3 케이스 스키마 #46 + §4.7 인증 API #279) — 181개 테스트 케이스, Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증, Layer 변환/감사 로그/소프트 삭제/CSV injection 테스트, 유효숫자 기반 Monte Carlo 비교 | ✅ 완료 |
+| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.6, Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 #166 + §1.3 케이스 스키마 #46 + §4.7 인증 API #279) — 62개 파일 · 466 함수 · 976 수집(2026-08-15 실측), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증, Layer 변환/감사 로그/소프트 삭제/CSV injection 테스트, 유효숫자 기반 Monte Carlo 비교 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 — Oracle 교차 검증 규칙, 규제값 권위 소스, 한국어 정책 | ✅ 신규 |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (v1.2, §4.1 단위 표기 capacity 축 파생 #163 + §4.2 물리량 단위 표기 확정 #164) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성. 토큰의 이름·의미·제약을 확정하고 값은 Figma가 소유 | ✅ 신규 |
 | [`UIFLOW.md`](./UIFLOW.md) | UI Flow 명세서 (**v2.0**, 선대·선박·항차 3계층 재작성 #344) — 화면 흐름·진입 조건 정의 | 🟡 초안 |
@@ -214,3 +214,4 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 | 2026-08-15 | `#388` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 v1.2로 갱신 — §4.2 물리량 단위 표기 확정(#164) 반영 |
 | 2026-08-15 | `#389` | 문서 구조 표의 `DB_SCHEMA.md` 행을 v1.11로 갱신 — §8.3.1 content_hash 산출 규칙(#154) 반영. v1.8~v1.10(#377·#376·#378) 동기화가 누락돼 있어 함께 따라잡았다 |
 | 2026-08-15 | `#390` | 「배포」 절 기동 순서에서 seed 단계 삭제 — 규제 파라미터가 data migration(032)에 편입되어 `alembic upgrade head` 하나로 적재된다. 문서 구조 표 `DB_SCHEMA.md` v1.12 갱신 (#127) |
+| 2026-08-15 | `#398` | 문서 구조 표의 `TEST_PLAN.md` 행을 v1.6으로 갱신 — 「181개 테스트 케이스」를 실측치로 정정. 종전 수치는 TEST_PLAN §11.1(181)과 §11.3(168)이 서로 다른 상태에서 앞엣것을 인용한 것이었다 (#394) |

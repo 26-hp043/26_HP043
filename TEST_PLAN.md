@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TEST_PLAN.md |
-| 버전 | v1.5 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) + §4.7 인증 API 케이스 (#279) |
-| 최종 수정일 | 2026-08-14 |
+| 버전 | v1.6 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) + §4.7 인증 API 케이스 (#279) + **v1.6에서 방향 전환 반영 — 신규 서브시스템 5절 · §14 파일 인벤토리 · §11 실측 정정 (#394)** |
+| 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.4, `DB_SCHEMA.md` v1.3 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
 
@@ -598,6 +598,34 @@ def test_no_implicit_float_in_layer1():
 
 ---
 
+### 2.10 YTD 누적 CII 산출 엔진 (`test_ytd_engine.py` · `test_ytd_cii_service_db.py`) [#394]
+
+`#353`이 신설한 연간 누적 산출이다. **등급이 붙는 값은 YTD 하나뿐**이므로(`PRD §3.3.7`) 이 영역의 오류는 곧 등급 오류다.
+
+| TC ID | 테스트 | 기대 결과 |
+|---|---|---|
+| UT-YTD-001 | 항차 연료와 not under way 연료를 분자 `M`에 합산 | 두 갈래가 모두 반영 |
+| UT-YTD-002 | 분모 `Dt`에 not under way 이동 거리 포함 | `MEPC.412(84)` §4.2 「both under way and not under way」 |
+| UT-YTD-003 | 정박 연료 증가에 따른 등급 악화 | 0t→C · 10t→D · 30t→E |
+| UT-YTD-004 | `annual_inclusion_policy` 판정 | `PRD §8.1.2` 매트릭스대로 포함/제외 |
+| UT-YTD-005 | CF 스냅샷 분리 집계 | `(fuel_type, cf_used)`로 묶여 개정 전후 행이 각자 CF로 곱해진다 (`#378`) |
+| UT-YTD-006 | 계산 코어가 시각을 모른다 | `calc` 인자에 `as_of`·`regulation_year` 없음 (`#368` 계약) |
+
+> **`UT-YTD-002`가 중요한 이유** — `#353` 작업 중 IMO 원문 대조로 **분모 전제가 틀렸음**이 드러났다. `MEPC.352(78)` 구판에는 「under way」 한정어가 없어 우리가 잘못 읽었고, `MEPC.412(84)`가 괄호로 명시했다. 오차 방향이 **분모 과소 → 등급이 실제보다 나쁘게** 나오는 쪽이다.
+
+### 2.11 시뮬레이션 시계 (`test_simulation_clock.py`) [#394]
+
+`#368`이 신설했다. **시각을 명시적 입력으로 승격**해 `TECH_SPEC §5.4` 재현성 계약을 깨지 않고 값이 변하게 한다.
+
+| TC ID | 테스트 | 기대 결과 |
+|---|---|---|
+| UT-CLOCK-001 | `as_of`가 같으면 결과가 같다 | 재현성 계약 유지 |
+| UT-CLOCK-002 | `as_of`가 다르면 누적값이 다르다 | 시간 진행이 반영 |
+| UT-CLOCK-003 | `as_of` 미지정 시 동작 | 계약대로 (서버 확정 또는 거부) |
+| UT-CLOCK-004 | `as_of`가 `input_hash`에 들어가는가 | `#42` canonical 규약과 정합 |
+
+> 시각을 암묵적 `now()`로 두면 **같은 입력이 매번 다른 결과**를 내 `§5.4`가 무너진다. 이 절은 그 경계를 지킨다.
+
 ## 3. 통합 테스트 (Integration Tests)
 
 ### 3.1 항차 상태 전이 (`test_voyage_state_transition.py`)
@@ -861,6 +889,45 @@ def test_no_implicit_float_in_layer1():
 
 ---
 
+### 5.7 seed 적재 (`test_seed_data.py` · `test_seed_migration.py` 외 5개) [#394]
+
+`#127`이 모든 seed를 `alembic upgrade head` 경로로 일원화했다(`DB_SCHEMA §8.1.1`).
+
+| TC ID | 테스트 | 기대 결과 |
+|---|---|---|
+| DB-SEED-001 | `upgrade head` 단독으로 50행 적재 | `regulation_year` 8 · `cii_reference_line` 20 · `cii_rating_boundary` 14 · `fuel_type` 8 |
+| DB-SEED-002 | 마이그레이션 값과 `seed.py` 상수 대조 | 전건 일치 — 갈라지면 실패 |
+| DB-SEED-003 | 마이그레이션이 `src/` 상수를 import하지 않는다 | import 문에 `cii_platform` 없음 |
+| DB-SEED-004 | `seed_all()` 재실행 시 행이 늘지 않는다 | upsert 충돌 키가 UNIQUE 키와 일치 |
+| DB-SEED-005 | `fuel_type.content_hash` 재계산 대조 | `{code, cf}` canonical (`DB_SCHEMA §8.3.1`) |
+| DB-SEED-006 | downgrade가 넣은 키만 지운다 | 운영 중 추가된 행 보존 |
+
+> **`DB-SEED-002`·`DB-SEED-003`이 한 쌍이다.** 마이그레이션은 「그날 넣은 값(불변)」, `seed.py`는 「지금 옳다고 보는 값(가변)」이라 규제 개정 시 갈라지는 것이 정상이다. 다만 **모르고 지나가면 안 되므로** 대조가 그 순간을 드러낸다.
+
+### 5.8 not under way 구간·연료 (`test_not_underway_migrations.py`) [#394]
+
+`#345`가 신설하고 `#376`·`#378`이 보강했다. **기록하지 않으면 분자 `M`이 늘지 않아 정박해도 등급이 떨어지지 않는다.**
+
+| TC ID | 테스트 | 기대 결과 |
+|---|---|---|
+| DB-NUW-001 | `period_type` 6값 · `consumer_type` 4값 CHECK | `MEPC.385(81)` DCS 보고 항목 |
+| DB-NUW-002 | `(period_id, consumer_type, fuel_type)` UNIQUE | **CO₂ 이중 산정 차단** (`#376`) |
+| DB-NUW-003 | `cf_used` NOT NULL | CF 스냅샷 보존 (`#378` · `PRD §8.4`) |
+| DB-NUW-004 | FK 자식 인덱스 존재 | 구간 겹침 조회 · SET NULL 확인 |
+| DB-NUW-005 | `distance_nm` 컬럼 | 분모 `Dt`에 들어가는 이동 거리 (`#353`) |
+
+> **`DB-NUW-002`는 성능이 아니라 정합성이다.** `voyage_fuel_use`가 `[S-2]`로 이미 막아 둔 것과 같은 사안이며, 중복되면 YTD 집계가 CO₂를 두 번 센다.
+
+### 5.9 운항 상태·현재 위치 (`test_vessel_position_state_migrations.py`) [#394]
+
+`#346`이 신설하고 `#369`가 갱신 경로를 붙였다.
+
+| TC ID | 테스트 | 기대 결과 |
+|---|---|---|
+| DB-VSTATE-001 | `underway_state` + `detail_status` 2축 CHECK | `UIFLOW v2.0` 7값 표 |
+| DB-VSTATE-002 | 두 축의 정합 규칙 | `chk_vessel_state_pair` |
+| DB-VSTATE-003 | `position_updated_at`은 서버가 확정 | 클라이언트 시계 불신 (`API_SPEC §2.2`) |
+
 ## 6. 성능 벤치마크 (`test_benchmarks.py`)
 
 > TECH_SPEC §13.2 기준. CI 파이프라인에서 회귀 감지.
@@ -1073,17 +1140,33 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 
 ### 11.1 테스트 수
 
-| 카테고리 | 테스트 수 |
-|---|---|
-| 단위 (Unit) | 55 |
-| 통합 (Integration) | 37 |
-| API | 39 |
-| DB 제약 | 42 |
-| 성능 | 4 |
-| 접근성 | 4 |
-| **합계** | **181** |
+**실측 기준 (2026-08-15 · `pytest --collect-only`)**
 
-> **[ORACLE-M-4]** 기존 요약 (unit 38, integration 19, API 21, DB 18, 합계 104)은 실제 테이블 행 수와 불일치. 실제 카운트 후 정정하였으며, Oracle 리뷰 및 외부 리뷰 피드백 반영으로 추가된 테스트를 포함하여 총 168건.
+| 영역 | 파일 | `def test_` 함수 |
+|---|---:|---:|
+| 단위 · 계산 엔진 | 11 | 155 |
+| DB · 제약·마이그레이션 | 11 | 75 |
+| DB · seed 적재 | 7 | 59 |
+| API · 공통·운영 | 8 | 48 |
+| API · 선박·항차·계산 | 8 | 27 |
+| 단위 · 시뮬레이션 시계 | 1 | 20 |
+| API · 인증 | 6 | 16 |
+| 단위 · YTD 산출 엔진 | 2 | 16 |
+| DB · not under way | 1 | 15 |
+| DB · 운항 상태·위치 | 1 | 12 |
+| 단위 · 추정·기상 | 1 | 11 |
+| 문서 · 인벤토리 동기화 | 1 | 4 |
+| 통합 · 감사 로그 | 1 | 3 |
+| 통합 · CSV | 1 | 3 |
+| API · 기능② 시나리오 | 2 | 2 |
+| **합계** | **62** | **466** |
+
+> **함수 466 → 수집 976.** 차이는 파라미터화다. 파일별 내역은 `§14`에 있다.
+> 프론트엔드(`vitest`)는 별도로 **331건**이며 이 문서의 관할 밖이다(`§14.5`).
+
+> **[ORACLE-M-4] [#394 정정]** 종전 이 표는 합계 **181**(단위 55·통합 37·API 39·DB 42·성능 4·접근성 4)이었고, 바로 아래 `§11.3`은 같은 시점을 **168**(API 26)로 적어 **두 표가 서로 달랐다.** `README` 문서 구조 표는 181을, 이 각주는 168을 인용해 **사중 불일치** 상태였다. 실측으로 대체한다.
+>
+> `[ORACLE-M-4]`가 남긴 교훈은 「요약이 실제와 불일치했다」였는데, **같은 일이 재발했다.** 재발을 막는 장치는 `§14`의 인벤토리와 `tests/test_testplan_sync.py`다 — 수치가 아니라 **파일 목록**을 CI가 강제한다.
 
 ### 11.2 우선순위
 
@@ -1104,6 +1187,8 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 성능 | 4 | 4 | 4 | 0 |
 | 접근성 | 4 | 4 | 4 | 0 |
 | **합계** | **115** | **164** | **168** | **+53** |
+
+> **이 표는 v1.2까지의 이력이다.** v1.5(2026-08-14) 이후 방향 전환으로 들어온 서브시스템은 이 증감표에 반영되지 않았다. 현재 규모는 위 `§11.1` 실측표를 따른다 (#394).
 
 ---
 
@@ -1178,6 +1263,134 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 
 ---
 
+
+---
+
+## 14. 테스트 파일 인벤토리 [#394]
+
+**이 절은 「어느 파일이 어느 절의 소관인가」를 한 곳에 모은다.** 케이스 하나하나를 옮겨 적는 자리가 아니다 — 케이스 규정은 `§2`~`§7`이 소유하고, 여기는 **파일과 절의 대응**만 담는다.
+
+### 14.1 왜 이 절이 필요한가
+
+2026-08-15 시점에 이 문서의 **파일 참조 정확도가 24%**였다(실제 61개 중 15개만 일치). 방향 전환으로 들어온 서브시스템 — not under way · YTD 산출 엔진 · 시뮬레이션 시계 · 운항 상태 — 이 **키워드 검색에서 0건**이었다.
+
+원인은 문서를 안 고쳐서가 아니라 **어긋난 것이 보이지 않아서**다. 테스트 파일이 늘어도 이 문서는 아무 신호를 내지 않았다.
+
+그래서 이 표와 함께 **`tests/test_testplan_sync.py`** 를 둔다. 새 테스트 파일을 만들고 이 표에 넣지 않으면 CI가 실패한다. **드리프트를 못 하게 만드는 것**이 이 절의 목적이다.
+
+### 14.2 구현된 파일
+
+> ⚠️ **「함수」는 `def test_` 개수다.** pytest가 실제로 수집하는 케이스는 파라미터화 때문에 이보다 많다 — 466 함수 → **976 수집**(2026-08-15 실측).
+
+| 파일 | 함수 | 대응 절 |
+|---|---:|---|
+| `test_annual_run_restrict_db.py` | 2 | §5 DB · 제약·마이그레이션 |
+| `test_app_user_migration.py` | 2 | §5 DB · 제약·마이그레이션 |
+| `test_audit_events_db.py` | 3 | §3 통합 · 감사 로그 |
+| `test_auth_api.py` | 0 | §4.7 API · 인증 |
+| `test_auth_failure_paths.py` | 4 | §4.7 API · 인증 |
+| `test_auth_session.py` | 0 | §4.7 API · 인증 |
+| `test_auth_wiring.py` | 7 | §4.7 API · 인증 |
+| `test_calc_run_needs_recalc_db.py` | 6 | §5 DB · 제약·마이그레이션 |
+| `test_calculation_migrations.py` | 14 | §5 DB · 제약·마이그레이션 |
+| `test_calculations_api.py` | 0 | §4 API · 선박·항차·계산 |
+| `test_calculations_query_db.py` | 3 | §4 API · 선박·항차·계산 |
+| `test_capacity_rules.py` | 19 | §2 단위 · 계산 엔진 |
+| `test_cii_engine.py` | 21 | §2 단위 · 계산 엔진 |
+| `test_cii_history.py` | 7 | §4 API · 선박·항차·계산 |
+| `test_config.py` | 6 | §4 API · 공통·운영 |
+| `test_csv_fixture.py` | 3 | §3 통합 · CSV |
+| `test_dashboard_seed.py` | 9 | **§5.7 DB · seed 적재** |
+| `test_db_hardening_023.py` | 6 | §5 DB · 제약·마이그레이션 |
+| `test_demo_vessel_seed.py` | 9 | **§5.7 DB · seed 적재** |
+| `test_dev_auth.py` | 5 | §4.7 API · 인증 |
+| `test_error_handlers.py` | 19 | §4 API · 공통·운영 |
+| `test_error_handlers_116.py` | 0 | §4 API · 공통·운영 |
+| `test_field_labels.py` | 2 | §4 API · 공통·운영 |
+| `test_fuel_estimator.py` | 11 | §2 단위 · 추정·기상 |
+| `test_fuel_type_content_hash.py` | 7 | **§5.7 DB · seed 적재** |
+| `test_fuel_type_seed.py` | 4 | **§5.7 DB · seed 적재** |
+| `test_hashing.py` | 19 | §2 단위 · 계산 엔진 |
+| `test_health.py` | 6 | §4 API · 공통·운영 |
+| `test_imo_parser.py` | 10 | §2 단위 · 계산 엔진 |
+| `test_layer1_context.py` | 7 | §2 단위 · 계산 엔진 |
+| `test_layer1_fixtures.py` | 20 | §2 단위 · 계산 엔진 |
+| `test_layer1_working_precision.py` | 7 | §2 단위 · 계산 엔진 |
+| `test_layer_conversion.py` | 6 | §2 단위 · 계산 엔진 |
+| `test_not_underway_migrations.py` | 15 | **§5.8 DB · not under way** |
+| `test_oidc.py` | 0 | §4.7 API · 인증 |
+| `test_orm_schema_sync.py` | 2 | §5 DB · 제약·마이그레이션 |
+| `test_parameter_migrations.py` | 12 | §5 DB · 제약·마이그레이션 |
+| `test_rate_limit.py` | 9 | §4 API · 공통·운영 |
+| `test_rating_boundary.py` | 16 | §2 단위 · 계산 엔진 |
+| `test_request_context.py` | 3 | §4 API · 공통·운영 |
+| `test_risk_level.py` | 26 | §2 단위 · 계산 엔진 |
+| `test_rng_reproducibility.py` | 4 | §2 단위 · 계산 엔진 |
+| `test_scenario_compare_api.py` | 0 | §4 API · 기능② 시나리오 |
+| `test_scenario_compare_db.py` | 2 | §4 API · 기능② 시나리오 |
+| `test_seed_data.py` | 17 | **§5.7 DB · seed 적재** |
+| `test_seed_migration.py` | 8 | **§5.7 DB · seed 적재** |
+| `test_simulation_clock.py` | 20 | **§2.11 단위 · 시뮬레이션 시계** |
+| `test_testplan_sync.py` | 4 | **§14 인벤토리 동기화** |
+| `test_url_normalize.py` | 3 | §4 API · 공통·운영 |
+| `test_vessel_position_state_migrations.py` | 12 | **§5.9 DB · 운항 상태·위치** |
+| `test_vessels_api.py` | 0 | §4 API · 선박·항차·계산 |
+| `test_voyage_cii_api.py` | 0 | §4 API · 선박·항차·계산 |
+| `test_voyage_cii_service.py` | 0 | §4 API · 선박·항차·계산 |
+| `test_voyage_delete_db.py` | 2 | §5 DB · 제약·마이그레이션 |
+| `test_voyage_migrations.py` | 11 | §5 DB · 제약·마이그레이션 |
+| `test_voyage_state_machine.py` | 10 | §4 API · 선박·항차·계산 |
+| `test_voyages_api.py` | 7 | §4 API · 선박·항차·계산 |
+| `test_weather_seed.py` | 5 | **§5.7 DB · seed 적재** |
+| `test_weather_simulation_migrations.py` | 12 | §5 DB · 제약·마이그레이션 |
+| `test_ytd_cii_service_db.py` | 16 | **§2.10 단위 · YTD 산출 엔진** |
+| `test_ytd_engine.py` | 0 | **§2.10 단위 · YTD 산출 엔진** |
+| `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 |
+
+**합계 62개 파일 · 466 함수 · 976 수집.**
+
+### 14.3 계획분 — 아직 파일이 없는 것
+
+아래는 `§2`~`§7`이 규정하나 **구현이 아직 없는** 테스트다. 대응 이슈가 열려 있다. **이 목록을 「틀린 참조」로 지우지 않는다** — 계획 문서가 계획을 담는 것은 정상이다.
+
+| 파일 | 대응 이슈 |
+|---|---|
+| `test_annual_simulation_api.py` · `test_annual_simulation_snapshot.py` · `test_sensitivity_analysis_api.py` | #63 · #64 (기능③) |
+| `test_weather_factor.py` · `test_weather_fallback.py` | #61 · #62 (기상 연동) |
+| `test_scenario_adopt.py` | #58 (시나리오 채택) |
+| `test_csv_security.py` | #59 · #60 (CSV) |
+| `test_simulation_policy_filter.py` | #105 (스냅샷 정책) |
+| `test_benchmarks.py` | #67 (성능 벤치마크) |
+| `test_soft_delete.py` | #66 (소프트 삭제 통합) |
+| `test_audit_log.py` | #65 (감사 로그) |
+
+### 14.4 이름이 바뀐 것 — 참조 정정
+
+구현은 됐으나 파일명이 달라져 이 문서의 참조가 끊겨 있던 것들이다.
+
+| 종전 참조 | 실제 파일 |
+|---|---|
+| `test_imo_notation.py` | `test_imo_parser.py` |
+| `test_error_format.py` | `test_error_handlers.py` · `test_error_handlers_116.py` |
+| `test_constraints.py` · `test_triggers.py` · `test_immutable_tables.py` | `test_calculation_migrations.py` · `test_voyage_migrations.py` 등에 분산 |
+| `test_calculation_query_api.py` | `test_calculations_query_db.py` |
+| `test_parameter_import.py` | `test_parameter_migrations.py` |
+| `test_voyage_state_transition.py` | `test_voyage_state_machine.py` |
+
+### 14.5 프론트엔드 테스트의 관할
+
+**이 문서는 Python 테스트를 관할한다.** 프론트엔드(`vitest` 331건)는 여기서 규정하지 않는다.
+
+| 영역 | 관할 |
+|---|---|
+| Python (`tests/`) | 본 문서 `§2`~`§7` · `§14` |
+| 프론트엔드 (`frontend/src/**/*.test.ts`) | 각 모듈 옆에 두고 `frontend/README.md`가 안내 |
+| 화면 접근성 | 본 문서 `§7` (WCAG 2.1 AA · #68) |
+
+경계를 여기 적어 두는 이유는 **방향 전환으로 화면이 4개 늘기 때문**이다(#351 · #356 · #357 · #362). 관할이 불분명하면 그 화면들의 테스트가 어느 문서 규정도 받지 않는 상태가 된다.
+
+> 프론트엔드를 본 문서로 끌어오는 것은 **지금 결정하지 않는다.** `vitest`는 모듈 옆 co-location이 관례이고, 화면 4개가 들어온 뒤 실제 형태를 보고 판단하는 편이 낫다. 그때까지는 위 표가 경계다.
+
 ## 변경 이력
 
 > git 커밋 기록에서 복원했다(날짜는 커밋 기준). 버전 번호 매핑은 커밋 메시지·헤더 기준의 추정을 포함한다.
@@ -1207,3 +1420,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-07 | `#195` | v1.4: §1.3 케이스를 **기호 표기(`boundary` + `offset`)로 교체** — 적힌 확정값을 그대로 판정에 넣으면 올림된 경계(`upper`·`inferior`)에서 등급이 뒤집힌다. `input` 블록 신설(원경계 재계산 조건), `canonical_digits`에서 `cases[].attained_cii` 제거, 뒤집힘 표와 근거 소절 추가 (#46) |
 | 2026-08-14 | `#328` | v1.5: §4.7 인증 API 케이스 신설(13건) — 기존 구현 파일들(`test_oidc`·`test_auth_api`·`test_auth_session`·`test_auth_wiring`·`test_auth_failure_paths`·`test_dev_auth`)의 케이스를 문서화. 헤더 「상위 문서」의 `API_SPEC` 버전 참조 갱신 (v1.2 → v1.4) (#279) |
 | 2026-08-14 | `#342` | §1.4 Fixture 3 픽스처 실제 파일 2종 적재 — `annual_seed_12345_input.json`·`annual_seed_12345_expected.json`. expected.json 예시에 `fields_to_compare`(11개)·`fields_to_exclude`(5개) 키 추가로 실제 파일과 구조 일치 (#47) |
+| 2026-08-15 | `#398` | **v1.6 — 방향 전환 반영.** §2.10 YTD 산출 엔진 · §2.11 시뮬레이션 시계 · §5.7 seed 적재 · §5.8 not under way · §5.9 운항 상태·위치 5개 절 신설(케이스 ID 영역 코드 `UT-YTD`·`UT-CLOCK`·`DB-SEED`·`DB-NUW`·`DB-VSTATE` 확장) · **§14 테스트 파일 인벤토리 신설** — 파일 참조 정확도가 24%(61개 중 15개)였고 신규 서브시스템 키워드가 0건이던 상태를 해소 · §11.1을 실측(62파일·466함수·976수집)으로 대체 — 종전 §11.1(181)과 §11.3(168)이 서로 달랐고 README는 181을 인용해 사중 불일치였다 · 재발 방지로 `tests/test_testplan_sync.py` 추가(등재하지 않은 테스트 파일이 있으면 CI 실패) (#394) |
