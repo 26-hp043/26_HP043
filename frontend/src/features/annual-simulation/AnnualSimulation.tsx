@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './AnnualSimulation.css'
-import { DISPLAY_DIGITS, formatDecimalString, formatGrouped, formatPercent } from '../voyage-cii/format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../voyage-cii/format'
 import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
 import { ANNUAL_COPY } from './copy'
@@ -157,17 +157,17 @@ export function AnnualSimulation({
               <Metric
                 label={ANNUAL_COPY.totalDistanceLabel}
                 value={formatGrouped(String(result.total_distance_nm), DISPLAY_DIGITS.distanceNm)}
-                unit="nm"
+                unit={DISPLAY_UNITS.distance}
               />
               <Metric
                 label={ANNUAL_COPY.totalFuelLabel}
                 value={formatGrouped(result.total_fuel_ton, DISPLAY_DIGITS.fuelTon)}
-                unit="t"
+                unit={DISPLAY_UNITS.fuel}
               />
               <Metric
                 label={ANNUAL_COPY.totalCo2Label}
                 value={formatGrouped(result.total_co2_emission_ton, DISPLAY_DIGITS.co2Ton)}
-                unit="t"
+                unit={DISPLAY_UNITS.co2}
               />
             </dl>
           </div>

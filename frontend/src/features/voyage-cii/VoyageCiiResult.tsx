@@ -1,5 +1,5 @@
 import './VoyageCiiResult.css'
-import { DISPLAY_DIGITS, formatDecimalString, formatGrouped, formatPercent } from './format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from './format'
 import {
   ciiUnit,
   marginDisplay,
@@ -138,17 +138,17 @@ function SuccessResult({ response }: { response: VoyageCiiResponse }) {
         <Metric
           label="CO₂ 배출량"
           value={formatGrouped(data.co2_emission_ton, DISPLAY_DIGITS.co2Ton)}
-          unit="t"
+          unit={DISPLAY_UNITS.co2}
         />
         <Metric
           label="연료 사용량"
           value={formatGrouped(data.fuel_consumption_ton, DISPLAY_DIGITS.fuelTon)}
-          unit="t"
+          unit={DISPLAY_UNITS.fuel}
         />
         <Metric
           label="항해거리"
           value={formatGrouped(String(data.distance_nm), DISPLAY_DIGITS.distanceNm)}
-          unit="nm"
+          unit={DISPLAY_UNITS.distance}
         />
       </dl>
 

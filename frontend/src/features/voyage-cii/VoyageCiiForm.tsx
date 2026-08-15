@@ -11,6 +11,7 @@ import {
   type FormErrors,
   type VoyageCiiFormState,
 } from './formRules'
+import { DISPLAY_UNITS } from './format'
 import { createVoyageCiiProvider } from './providerSelection'
 import { createVesselCatalog, type VesselOption } from './vesselCatalog'
 import type { ResultState } from './resultRules'
@@ -236,7 +237,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
           id="distance"
           label="항해거리"
           labelEn="distance_nm"
-          unit="nm"
+          unit={DISPLAY_UNITS.distance}
           error={errors[FIELD.distanceNm]}
         >
           <input
@@ -257,7 +258,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
           id="speed"
           label="평균 속력"
           labelEn="speed_kn"
-          unit="kn"
+          unit={DISPLAY_UNITS.speed}
           error={errors[FIELD.speedKn]}
           hint="요청에는 포함되지만 이 구성에서는 결과를 바꾸지 않습니다. 연료량과 거리가 같으면 속력만 바꿔도 값이 같습니다."
         >
@@ -309,7 +310,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
           id="fuel-ton"
           label="연료 사용량"
           labelEn="fuel_uses[0].fuel_ton"
-          unit="t"
+          unit={DISPLAY_UNITS.fuel}
           error={errors[FIELD.fuelTon]}
         >
           <input
