@@ -25,10 +25,15 @@ if TYPE_CHECKING:
 
 
 class NotUnderwayFuelTotal(NamedTuple):
-    """유종별 not under way 연료 합계 1행."""
+    """유종 × CF snapshot별 not under way 연료 합계 1행.
+
+    ``cf_used``까지 묶는 이유는 030(``#378``) 참조 — CF가 개정되면 같은 유종이라도
+    기록 시점에 따라 snapshot이 갈리고, 그때 각 묶음은 **자기 CF로** 곱해져야 한다.
+    """
 
     fuel_type: str
     fuel_ton: Decimal
+    cf_used: Decimal
 
 
 async def sum_fuel_by_type(
@@ -38,7 +43,7 @@ async def sum_fuel_by_type(
     regulation_year: int,
     as_of: datetime | None = None,
 ) -> list[NotUnderwayFuelTotal]:
-    """선박·규제연도의 not under way 연료를 **유종별로 합산**해 돌려준다.
+    """선박·규제연도의 not under way 연료를 **유종 × CF snapshot별로 합산**해 돌려준다.
 
     행을 그대로 넘기지 않고 DB에서 합산하는 이유는, 한 선박의 한 해 구간 수가
     항차 수보다 훨씬 많을 수 있기 때문이다(정박은 항차마다 최소 2회 생긴다).
@@ -53,13 +58,19 @@ async def sum_fuel_by_type(
     ``is_deleted`` 구간은 제외한다. 자식 행(``not_underway_fuel_use``)에는 소프트
     삭제 플래그가 없고 부모가 CASCADE로 지우므로, 부모 플래그 하나로 판정한다.
 
-    :returns: ``(fuel_type, fuel_ton)`` 목록. 기록이 없으면 **빈 목록**이다 —
+    **``cf_used``까지 묶어 집계한다** (030 · ``#378``). 같은 유종이라도 CF 개정 전후로
+    기록된 행은 snapshot이 다르므로, 하나로 합쳐 대표 CF 하나를 고르면 그 차이가
+    사라진다. 계산 엔진은 같은 ``fuel_code``가 여러 번 들어와도 배출량을 합산하므로
+    (``ytd_engine`` 내역 누적), 묶음을 그대로 넘기는 것이 정확하다.
+
+    :returns: ``(fuel_type, fuel_ton, cf_used)`` 목록. 기록이 없으면 **빈 목록**이다 —
         정박 기록이 없는 선박은 정상 상태이므로 오류로 만들지 않는다.
     """
     stmt = (
         select(
             NotUnderwayFuelUse.fuel_type,
             func.sum(NotUnderwayFuelUse.fuel_ton).label("fuel_ton"),
+            NotUnderwayFuelUse.cf_used,
         )
         .join(NotUnderwayPeriod, NotUnderwayFuelUse.period_id == NotUnderwayPeriod.id)
         .where(
@@ -67,14 +78,17 @@ async def sum_fuel_by_type(
             NotUnderwayPeriod.regulation_year == regulation_year,
             NotUnderwayPeriod.is_deleted.is_(False),
         )
-        .group_by(NotUnderwayFuelUse.fuel_type)
-        .order_by(NotUnderwayFuelUse.fuel_type)
+        .group_by(NotUnderwayFuelUse.fuel_type, NotUnderwayFuelUse.cf_used)
+        .order_by(NotUnderwayFuelUse.fuel_type, NotUnderwayFuelUse.cf_used)
     )
     if as_of is not None:
         stmt = stmt.where(NotUnderwayPeriod.started_at <= as_of)
 
     rows = (await session.execute(stmt)).all()
-    return [NotUnderwayFuelTotal(fuel_type=row.fuel_type, fuel_ton=row.fuel_ton) for row in rows]
+    return [
+        NotUnderwayFuelTotal(fuel_type=row.fuel_type, fuel_ton=row.fuel_ton, cf_used=row.cf_used)
+        for row in rows
+    ]
 
 
 async def sum_distance(

@@ -46,12 +46,12 @@ CF를 어디서 가져오는가
 * **항해 중 연료** → ``voyage_fuel_use.cf_used`` (계산 시점 CF snapshot,
   ``DB_SCHEMA §2.3``). ``PRD §8.4``가 *"연료 CF 변경: 변경 이후 계산에만 적용. 과거
   계산은 snapshot 보존"*을 규정한다.
-* **not under way 연료** → ``fuel_type.cf`` 현재값. ``not_underway_fuel_use``에는
-  snapshot 컬럼이 **없기 때문이다**(``#345`` 스키마).
+* **not under way 연료** → ``not_underway_fuel_use.cf_used`` (마이그레이션 030,
+  ``#378``). 같은 규정을 두 갈래에 동일하게 적용한다.
 
-⚠️ 두 갈래의 CF 출처가 다르다. CF가 개정되면 같은 연도 안에서 항차 연료는 옛 CF로,
-not under way 연료는 새 CF로 계산되어 ``PRD §8.4``의 snapshot 보존 원칙이 절반만
-적용된다. 스키마 보강 여부는 이 이슈 범위 밖이며 별건으로 제기한다.
+두 갈래 모두 snapshot을 쓰므로 CF가 개정돼도 과거 실적의 YTD는 변하지 않는다.
+집계는 **유종 × snapshot**으로 묶여 오고, 계산 엔진이 같은 ``fuel_code``의 배출량을
+합산하므로 개정 전후 행이 각자의 CF로 곱해진다.
 """
 
 from __future__ import annotations
@@ -167,12 +167,15 @@ class _Aggregated:
     """DB에서 긁어 모은 **확정 전** 누적 입력."""
 
     underway_fuel: dict[str, Decimal]
-    not_underway_fuel: dict[str, Decimal]
+    #: not under way 연료 — **유종 × CF snapshot**별 묶음 (030 · ``#378``).
+    #: dict가 아닌 목록인 이유는 CF 개정 후 같은 유종에 snapshot이 둘 이상 생기기
+    #: 때문이다. 엔진이 같은 ``fuel_code``를 합산하므로 묶음을 그대로 넘긴다.
+    not_underway_fuel: list[not_underway_repo.NotUnderwayFuelTotal]
     underway_distance_nm: Decimal
     not_underway_distance_nm: Decimal
     voyage_count: int
     warnings: list[str]
-    #: 유종별 CF — 항차는 ``cf_used`` snapshot, 정박은 ``fuel_type.cf`` 현재값.
+    #: 유종별 CF — 항차 쪽 ``voyage_fuel_use.cf_used`` snapshot.
     underway_cf: dict[str, Decimal]
 
 
@@ -302,7 +305,7 @@ async def compute_ytd_cii(
     )
 
     total_fuel_ton = sum(aggregated.underway_fuel.values(), Decimal(0)) + sum(
-        aggregated.not_underway_fuel.values(), Decimal(0)
+        (Decimal(row.fuel_ton) for row in aggregated.not_underway_fuel), Decimal(0)
     )
 
     # 분모는 두 갈래의 **합**이다 (MEPC.412(84) §4.2).
@@ -329,17 +332,21 @@ async def compute_ytd_cii(
     rating_boundary = await _select_rating_boundary(session, vessel)
     reference_capacity = _resolve_reference_capacity(vessel, reference_line)
 
-    not_underway_cf = await _resolve_not_underway_cf(session, aggregated.not_underway_fuel)
-
     try:
         layer1 = _compute_layer1(
             underway_fuel_uses=[
                 FuelUse(fuel_code=code, fuel_ton=ton, cf_value=aggregated.underway_cf[code])
                 for code, ton in aggregated.underway_fuel.items()
             ],
+            # 030 (#378) — 각 묶음이 **자기 snapshot CF로** 곱해진다. 같은 유종이
+            # 여러 번 들어와도 엔진이 배출량을 합산한다.
             not_underway_fuel_uses=[
-                FuelUse(fuel_code=code, fuel_ton=ton, cf_value=not_underway_cf[code])
-                for code, ton in aggregated.not_underway_fuel.items()
+                FuelUse(
+                    fuel_code=row.fuel_type,
+                    fuel_ton=Decimal(row.fuel_ton),
+                    cf_value=Decimal(row.cf_used),
+                )
+                for row in aggregated.not_underway_fuel
             ],
             transport_capacity=transport_capacity,
             reference_capacity=reference_capacity,
@@ -474,32 +481,13 @@ async def _aggregate(
 
     return _Aggregated(
         underway_fuel=underway_fuel,
-        not_underway_fuel={row.fuel_type: Decimal(row.fuel_ton) for row in not_underway_totals},
+        not_underway_fuel=not_underway_totals,
         underway_distance_nm=distance,
         not_underway_distance_nm=not_underway_distance,
         voyage_count=len(voyages),
         warnings=warnings,
         underway_cf=underway_cf,
     )
-
-
-async def _resolve_not_underway_cf(
-    session: AsyncSession, not_underway_fuel: dict[str, Decimal]
-) -> dict[str, Decimal]:
-    """not under way 연료의 CF를 ``fuel_type`` 현재값에서 가져온다.
-
-    ``not_underway_fuel_use``에는 ``cf_used`` snapshot 컬럼이 없다(``#345`` 스키마).
-    모듈 docstring의 ⚠️ 항목 참조.
-    """
-    if not not_underway_fuel:
-        return {}
-    rows = await param_repo.get_fuel_types_by_codes(session, list(not_underway_fuel))
-    resolved: dict[str, Decimal] = {}
-    for code in not_underway_fuel:
-        if code not in rows:
-            raise ParameterError(f"not under way 연료의 CF를 찾을 수 없습니다: {code}")
-        resolved[code] = Decimal(rows[code].cf)
-    return resolved
 
 
 # --- 조회 + 규칙 적용 --------------------------------------------------------------

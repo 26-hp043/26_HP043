@@ -159,6 +159,7 @@ async def _insert_stay(
     is_deleted: bool = False,
     fuel_type: str = "HFO",
     distance_nm: float = 0,
+    cf_used: float | None = None,
 ) -> str:
     row = await session.execute(
         text(
@@ -176,13 +177,19 @@ async def _insert_stay(
         },
     )
     period_id = str(row.scalar_one())
+    # 030 (#378) — cf_used는 NOT NULL. 기록 시점의 CF snapshot을 함께 넣는다.
     await session.execute(
         text(
             "INSERT INTO not_underway_fuel_use "
-            "(period_id, consumer_type, fuel_type, fuel_ton) "
-            "VALUES (:pid, 'AUX_ENGINE', :ft, :ton)"
+            "(period_id, consumer_type, fuel_type, fuel_ton, cf_used) "
+            "VALUES (:pid, 'AUX_ENGINE', :ft, :ton, :cf)"
         ),
-        {"pid": period_id, "ft": fuel_type, "ton": fuel_ton},
+        {
+            "pid": period_id,
+            "ft": fuel_type,
+            "ton": fuel_ton,
+            "cf": float(HFO_CF) if cf_used is None else cf_used,
+        },
     )
     return period_id
 
@@ -444,3 +451,66 @@ async def test_missing_actual_fuel_falls_back_to_plan_with_warning(session, vess
     assert result.data_available is True
     assert result.attained_cii == Decimal("4.9824")
     assert WARNING_COMPLETED_NO_FUEL in result.warnings
+
+
+# --- 7. CF snapshot 보존 (#378) -----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cf_revision_does_not_change_past_not_underway_result(session, vessel_id):
+    """``fuel_type.cf``를 개정해도 과거 정박 실적의 YTD가 변하지 않는다 (PRD §8.4).
+
+    030 이전에는 not under way 연료의 CF를 ``fuel_type`` 현재값에서 읽어, 개정 즉시
+    과거 실적의 CII가 따라 움직였다. 항차 연료는 ``cf_used`` snapshot을 쓰므로
+    **같은 연도 안에서 두 갈래가 다른 CF로 계산**되던 상태였다.
+    """
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, voyage_id)
+    await _insert_stay(session, vessel_id, fuel_ton=10)
+
+    before = await _compute(session, vessel_id)
+
+    # CF 개정 — HFO의 현재값을 크게 올린다.
+    await session.execute(
+        text("UPDATE fuel_type SET cf = :cf WHERE code = 'HFO'"),
+        {"cf": float(HFO_CF) + 1},
+    )
+
+    after = await _compute(session, vessel_id)
+
+    assert after.attained_cii == before.attained_cii
+    assert after.total_co2_t == before.total_co2_t
+    assert after.not_underway_co2_g == before.not_underway_co2_g
+
+
+@pytest.mark.asyncio
+async def test_mixed_cf_snapshots_each_use_their_own_value(session, vessel_id):
+    """같은 유종에 snapshot이 둘이면 각 묶음이 **자기 CF로** 곱해진다.
+
+    유종별로 합쳐 대표 CF 하나를 고르면 이 차이가 사라진다. 집계를
+    ``(fuel_type, cf_used)``로 묶는 이유다.
+    """
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, voyage_id)
+    # 같은 HFO 10t을 서로 다른 snapshot으로 2건 기록한다.
+    await _insert_stay(session, vessel_id, fuel_ton=10, cf_used=float(HFO_CF))
+    await _insert_stay(
+        session,
+        vessel_id,
+        fuel_ton=10,
+        started_at="2026-03-01T00:00:00+00",
+        cf_used=float(HFO_CF) + 1,
+    )
+
+    result = await _compute(session, vessel_id)
+
+    # 정박 CO₂ = 10·CF + 10·(CF+1). 유종별로 합쳐 대표 CF 하나를 골랐다면
+    # 20·CF 또는 20·(CF+1)이 되어 10 t 만큼 어긋난다.
+    expected_not_underway_g = (Decimal("10") * HFO_CF + Decimal("10") * (HFO_CF + 1)) * Decimal(
+        "1000000"
+    )
+    assert result.not_underway_co2_g == expected_not_underway_g
+
+    # 대표 CF를 골랐을 때의 두 후보값과는 실제로 다르다 — 테스트가 공허하지 않음을 고정.
+    assert expected_not_underway_g != Decimal("20") * HFO_CF * Decimal("1000000")
+    assert expected_not_underway_g != Decimal("20") * (HFO_CF + 1) * Decimal("1000000")
