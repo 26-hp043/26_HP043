@@ -66,18 +66,21 @@ async def test_seed_source_ref_is_value_printed_document(conn):
 async def test_seed_column_defaults(conn):
     """명시 삽입값과 server_default 위임값이 의도대로 들어갔다 (DB_SCHEMA §2.9 · §8.3).
 
-    content_hash는 NULL이 정상이다 — 해싱 규칙이 #42에서 확정된 뒤 별도 마이그레이션이
-    채운다. effective_from은 8종 CF가 연도 스코프 없는 상시 적용값이라 NULL이다.
+    effective_from은 8종 CF가 연도 스코프 없는 상시 적용값이라 NULL이다.
+
+    ``content_hash``는 **여기서 다루지 않는다** — 017 시점에는 NULL이었으나 031(#154)이
+    채웠다. 값 검증은 tests/test_fuel_type_content_hash.py가 한다.
+
+    ``version``이 여전히 ``'1.0'``인 것이 031의 의도다 — §8.3.1은 CF 값이 **바뀔 때**
+    version과 content_hash를 함께 올리도록 규정하며, 031은 값을 바꾸지 않고 비어 있던
+    추적 컬럼만 채웠다.
     """
     rows = (
-        await conn.execute(
-            text("SELECT unit, version, is_active, content_hash, effective_from FROM fuel_type")
-        )
+        await conn.execute(text("SELECT unit, version, is_active, effective_from FROM fuel_type"))
     ).all()
     assert len(rows) == 8
     for row in rows:
         assert row.unit == "tCO₂/tFuel"
         assert row.version == "1.0"
         assert row.is_active is True
-        assert row.content_hash is None
         assert row.effective_from is None
