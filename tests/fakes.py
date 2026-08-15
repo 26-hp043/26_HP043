@@ -39,6 +39,12 @@ class FakeVessel:
     reference_daily_foc_ton: Decimal | None = None
     is_cii_applicable_hint: bool = True
     is_deleted: bool = False
+    # 026 (#346) 위치·상태. #369 갱신 경로 테스트가 읽고 쓴다.
+    underway_state: str | None = None
+    detail_status: str | None = None
+    current_lat: Decimal | None = None
+    current_lon: Decimal | None = None
+    position_updated_at: dt.datetime | None = None
     created_at: dt.datetime = dt.datetime(2026, 8, 7, tzinfo=dt.UTC)
     updated_at: dt.datetime = dt.datetime(2026, 8, 7, tzinfo=dt.UTC)
 

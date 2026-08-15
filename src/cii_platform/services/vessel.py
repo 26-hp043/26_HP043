@@ -10,6 +10,7 @@ ORM 객체를 라우트로 그대로 올리지 않는다 — 그러면 API 응�
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -75,6 +76,12 @@ def to_dict(vessel) -> dict[str, object]:
         "reference_speed_kn": _number(vessel.reference_speed_kn),
         "reference_daily_foc_ton": _number(vessel.reference_daily_foc_ton),
         "is_cii_applicable_hint": vessel.is_cii_applicable_hint,
+        # 026 (#346) 위치·상태. #369가 갱신 경로를 열기 전까지는 시드 값 그대로였다.
+        "underway_state": vessel.underway_state,
+        "detail_status": vessel.detail_status,
+        "current_lat": _number(vessel.current_lat),
+        "current_lon": _number(vessel.current_lon),
+        "position_updated_at": _iso(vessel.position_updated_at),
         "created_at": _iso(vessel.created_at),
         "updated_at": _iso(vessel.updated_at),
     }
@@ -340,3 +347,120 @@ async def list_vessels(
         "next_cursor": next_cursor,
         "has_more": has_more,
     }
+
+
+# --- 위치·운항 상태 갱신 (#369) -----------------------------------------------------
+
+#: ``underway_state`` 허용값 (마이그레이션 026 ``chk_underway_state_allowed``).
+UNDERWAY_STATES: tuple[str, ...] = ("UNDER_WAY", "NOT_UNDER_WAY")
+
+#: ``UNDER_WAY``일 때 허용되는 유일한 ``detail_status``.
+DETAIL_STATUS_UNDER_WAY = "SAILING"
+
+#: ``NOT_UNDER_WAY``일 때 허용되는 ``detail_status`` 6값.
+#: ``not_underway_period.period_type``(025)와 **같은 집합**이다 — 정박 구간을 열면
+#: 그 구간의 성격이 곧 선박의 표시 상태가 된다.
+DETAIL_STATUS_NOT_UNDER_WAY: tuple[str, ...] = (
+    "IN_PORT",
+    "AT_ANCHOR",
+    "DRIFTING",
+    "STS",
+    "CANAL_TRANSIT",
+    "DRYDOCK",
+)
+
+
+def _validate_state_pair(underway_state: str, detail_status: str) -> None:
+    """상태 2축의 조합을 검증한다 (마이그레이션 026 ``chk_vessel_state_pair``).
+
+    DB CHECK가 이미 막지만 여기서 먼저 본다 — DB까지 내려가면
+    ``IntegrityError``가 되어 **어느 필드가 왜 잘못됐는지** 사용자에게 전달할 수
+    없다. 계층 규칙상 사용자 대면 오류 문구는 서비스의 몫이다(TECH_SPEC §16.4).
+    """
+    if underway_state not in UNDERWAY_STATES:
+        raise ValidationError(
+            f"알 수 없는 운항 상태입니다: {underway_state}",
+            field="underway_state",
+            field_label="운항 상태",
+        )
+    allowed = (
+        (DETAIL_STATUS_UNDER_WAY,) if underway_state == "UNDER_WAY" else DETAIL_STATUS_NOT_UNDER_WAY
+    )
+    if detail_status not in allowed:
+        raise ValidationError(
+            f"'{underway_state}' 상태에서는 사용할 수 없는 세부 상태입니다: {detail_status}",
+            field="detail_status",
+            field_label="세부 상태",
+        )
+
+
+async def update_vessel_position(
+    session: AsyncSession,
+    vessel_id: UUID,
+    *,
+    underway_state: str | None = None,
+    detail_status: str | None = None,
+    current_lat: Decimal | None = None,
+    current_lon: Decimal | None = None,
+    now: datetime | None = None,
+) -> dict[str, object]:
+    """선박의 현재 위치·운항 상태를 갱신한다 (API_SPEC §2.6, #369). 없으면 404.
+
+    **왜 저장인가 (파생이 아니라)** — 상태 2축은 진행 중 ``not_underway_period``에서
+    파생할 수 있지만 **위경도는 파생할 수 없다.** 항로 모델이 없어 「지금 어디쯤」을
+    유도할 방법이 없고, ``#346``이 이미 저장 컬럼으로 만들었다. 둘을 갈라 한쪽만
+    파생시키면 같은 화면의 두 값이 서로 다른 시점을 가리키게 된다.
+
+    **조회 경로에서 쓰지 않는다.** 대시보드(``#351``)가 읽기만 하도록 두어야
+    ``#350`` 선대 요약이 단순 SELECT로 끝난다. 쓰기를 조회에 섞으면 GET이
+    트랜잭션을 잡는다.
+
+    ``position_updated_at``은 **서버가 확정**한다 — 클라이언트 시계를 신뢰하면
+    「언제 기준 위치인가」가 단말마다 갈린다. 위치나 상태 중 **하나라도 바뀌면**
+    갱신하며, 이 값이 곧 「낡은 값인지」 판별의 근거다.
+    """
+    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    if vessel is None:
+        raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
+
+    # 상태 2축은 026 CHECK로 묶여 있어 한쪽만 바꾸면 조합이 깨질 수 있다.
+    # 최종 조합을 만들어 검증한다 — 기존 값과 섞이는 경우까지 포함해서다.
+    next_underway = underway_state if underway_state is not None else vessel.underway_state
+    next_detail = detail_status if detail_status is not None else vessel.detail_status
+    state_touched = underway_state is not None or detail_status is not None
+    if state_touched:
+        if next_underway is None or next_detail is None:
+            raise ValidationError(
+                "운항 상태와 세부 상태는 함께 지정해야 합니다.",
+                field="detail_status",
+                field_label="세부 상태",
+            )
+        _validate_state_pair(next_underway, next_detail)
+
+    # 위경도도 026 CHECK가 「둘 다 있거나 둘 다 없거나」를 요구한다.
+    next_lat = current_lat if current_lat is not None else vessel.current_lat
+    next_lon = current_lon if current_lon is not None else vessel.current_lon
+    position_touched = current_lat is not None or current_lon is not None
+    if position_touched and (next_lat is None or next_lon is None):
+        raise ValidationError(
+            "위도와 경도는 함께 지정해야 합니다.",
+            field="current_lon" if next_lon is None else "current_lat",
+            field_label="경도" if next_lon is None else "위도",
+        )
+
+    if not state_touched and not position_touched:
+        # 바꿀 것이 없으면 position_updated_at을 건드리지 않는다 — 갱신하지 않은
+        # 것을 갱신했다고 기록하면 「낡은 값」 판별이 무의미해진다.
+        return to_dict(vessel)
+
+    if state_touched:
+        vessel.underway_state = next_underway
+        vessel.detail_status = next_detail
+    if position_touched:
+        vessel.current_lat = next_lat
+        vessel.current_lon = next_lon
+
+    vessel.position_updated_at = now or datetime.now(UTC)
+
+    await session.commit()
+    return to_dict(vessel)

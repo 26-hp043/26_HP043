@@ -18,7 +18,11 @@ from fastapi import APIRouter, Depends, Query, Request
 # PydanticUserError(`is not fully defined`)로 앱 기동이 실패한다.
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cii_platform.api.schemas.vessel import VesselCreateRequest, VesselUpdateRequest
+from cii_platform.api.schemas.vessel import (
+    VesselCreateRequest,
+    VesselPositionUpdateRequest,
+    VesselUpdateRequest,
+)
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
@@ -28,6 +32,7 @@ from cii_platform.services.vessel import (
     get_vessel,
     list_vessels,
     update_vessel,
+    update_vessel_position,
 )
 
 router = APIRouter(tags=["vessels"])
@@ -118,6 +123,31 @@ async def update_vessel_route(
         default_fuel_type=payload.default_fuel_type,
         reference_speed_kn=payload.reference_speed_kn,
         reference_daily_foc_ton=payload.reference_daily_foc_ton,
+    )
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.patch("/vessels/{vessel_id}/position")
+async def update_vessel_position_route(
+    request: Request,
+    vessel_id: UUID,
+    payload: VesselPositionUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> dict[str, object]:
+    """선박의 현재 위치·운항 상태를 갱신한다 (API_SPEC §2.6, #369). 없으면 404.
+
+    ``require_csrf``를 다른 변경 API와 **같은 방식으로** 건다 — ``#307``이
+    「만든 것과 붙인 것이 달랐던」 사례를 남겼기 때문에, 새 변경 엔드포인트는
+    인증 게이트 배선을 항상 함께 확인한다.
+    """
+    data = await update_vessel_position(
+        session,
+        vessel_id,
+        underway_state=payload.underway_state,
+        detail_status=payload.detail_status,
+        current_lat=payload.current_lat,
+        current_lon=payload.current_lon,
     )
     return {"data": data, "meta": _meta(request)}
 
