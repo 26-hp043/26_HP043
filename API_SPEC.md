@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.5 |
+| 버전 | v1.6 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-08-14 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4 |
@@ -374,6 +374,11 @@ GET /api/v1/vessels?limit=20&cursor={cursor}
       "reference_speed_kn": 14.0,
       "reference_daily_foc_ton": 35.0,
       "is_cii_applicable_hint": true,
+      "underway_state": "UNDER_WAY",
+      "detail_status": "SAILING",
+      "current_lat": 35.1,
+      "current_lon": 129.04,
+      "position_updated_at": "2026-08-15T06:00:00Z",
       "created_at": "2026-07-01T00:00:00Z",
       "updated_at": "2026-07-01T00:00:00Z"
     }
@@ -476,6 +481,51 @@ DELETE /api/v1/vessels/{vessel_id}
 ```
 
 > 연관된 Voyage, CalculationRun이 있는 경우 soft delete. 완전 삭제는 관리자 권한 필요.
+
+### 2.6 선박 위치·운항 상태 갱신 (#369)
+
+```http
+PATCH /api/v1/vessels/{vessel_id}/position
+```
+
+마이그레이션 026(`#346`)이 추가한 위치·상태 컬럼을 바꾸는 **유일한 경로**다. 이 엔드포인트가 없으면 대시보드(`#351`)의 「지금 어디서 무엇을 하고 있나」가 시드 이후 고정된다.
+
+> **왜 저장인가 (파생이 아니라)** — 상태 2축은 진행 중 `not_underway_period`에서 파생할 수 있으나 **위경도는 파생할 수 없다.** 항로 모델이 없어 「지금 어디쯤」을 유도할 방법이 없고, `#346`이 이미 저장 컬럼으로 만들었다. 둘을 갈라 한쪽만 파생시키면 같은 화면의 두 값이 서로 다른 시점을 가리킨다.
+>
+> **조회 경로에서 갱신하지 않는다.** `#350` 선대 요약이 단순 SELECT로 끝나야 하며, 쓰기를 조회에 섞으면 GET이 트랜잭션을 잡는다.
+
+#### 요청 본문
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `underway_state` | string | 아니오 | `UNDER_WAY` / `NOT_UNDER_WAY` |
+| `detail_status` | string | 아니오 | `UNDER_WAY`면 `SAILING`. `NOT_UNDER_WAY`면 `IN_PORT`/`AT_ANCHOR`/`DRIFTING`/`STS`/`CANAL_TRANSIT`/`DRYDOCK` |
+| `current_lat` | number | 아니오 | −90 ~ 90 |
+| `current_lon` | number | 아니오 | −180 ~ 180 |
+
+`position_updated_at`은 **요청에 넣을 수 없다** — `extra="forbid"`가 422로 거부한다. 클라이언트 시계를 신뢰하면 「언제 기준 위치인가」가 단말마다 갈리므로 **서버가 확정**한다.
+
+#### 함께 보내야 하는 쌍
+
+마이그레이션 026의 CHECK 제약을 스키마 표면에 그대로 옮긴 규칙이다.
+
+| 규칙 | 위반 시 |
+|---|---|
+| `underway_state`와 `detail_status`는 **함께** 지정 | `422` · `VALIDATION_ERROR` |
+| 두 상태의 조합이 허용 집합에 있어야 함 | `422` — 예: `UNDER_WAY` + `AT_ANCHOR` |
+| `current_lat`과 `current_lon`은 **함께** 지정 | `422` |
+
+`detail_status`의 `NOT_UNDER_WAY` 6값은 `not_underway_period.period_type`(마이그레이션 025)과 **같은 집합**이다 — 정박 구간의 성격이 곧 선박의 표시 상태가 된다.
+
+#### 응답 (200 OK)
+
+§2.2와 동일한 선박 객체. `position_updated_at`에 서버가 확정한 시각이 들어간다.
+
+> **빈 본문(`{}`)은 200이지만 `position_updated_at`을 건드리지 않는다.** 갱신하지 않은 것을 갱신했다고 기록하면 「낡은 값인지」 판별이 무의미해진다.
+
+#### 인증
+
+다른 변경 API와 동일하게 세션 쿠키 + `X-CSRF-Token`을 요구한다. `#307`(변경 API 8종이 인증 게이트 밖에 노출)의 선례에 따라 **새 변경 엔드포인트는 게이트 배선을 테스트로 확인**한다.
 
 ---
 
@@ -1872,4 +1922,5 @@ GET /api/v1/health
 | 2026-08-14 | `#332` | §1.9 응답에 `needs_recalc` 필드 노출 — DWT/GT 변경 시 재계산 필요 표시 (#283) |
 | 2026-08-14 | `#338` | §4.1 `next_worse_boundary_margin`·`_ratio`를 nullable(string \| null)로 표기 + 등급 E 응답 예시 블록 추가 — 등급 E는 `null` (#171) |
 | 2026-08-14 | `#373` | §1.6에 `SLOW_SPEED_FLOOR` 경고 코드 신설 — 기능② 감속 시나리오 속도 floor(1.0kn) 도달 고지, PRD §11.2 (#57) |
+| 2026-08-15 |  | v1.6: §2.6 선박 위치·운항 상태 갱신 엔드포인트 신설 — 026(#346)이 만든 컬럼의 유일한 갱신 경로. 상태 2축·위경도 쌍 규칙을 스키마 표면에 명시, `position_updated_at`은 서버 확정. §2.1 선박 객체에 위치·상태 5키 추가 (#369) |
 | 2026-08-15 |  | v1.5: §1.10 `as_of` 공통 계약 신설 — 시각 의존 계산의 요청 파라미터·`meta.as_of`·`meta.is_simulated`·재현성 보장 3항. 정본 근거는 `TECH_SPEC §5.4.1` (#368) |

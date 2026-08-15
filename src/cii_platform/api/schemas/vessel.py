@@ -57,3 +57,28 @@ class VesselUpdateRequest(BaseModel):
     default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
     reference_speed_kn: Annotated[Decimal | None, Field(gt=0)] = None
     reference_daily_foc_ton: Annotated[Decimal | None, Field(gt=0)] = None
+
+
+class VesselPositionUpdateRequest(BaseModel):
+    """``PATCH /api/v1/vessels/{vessel_id}/position`` 요청 본문 (API_SPEC §2.6, #369).
+
+    ``#346``이 추가한 위치·상태 컬럼을 **실제로 바꾸는 유일한 경로**다. 그 전까지는
+    컬럼만 있고 값을 바꿀 방법이 없어, 대시보드(``#351``)의 「지금 어디서 무엇을
+    하고 있나」가 시드 이후 영원히 고정됐다.
+
+    **상태 2축은 함께 보낸다.** ``underway_state``와 ``detail_status``는 마이그레이션
+    026의 CHECK 제약으로 묶여 있어(``SAILING`` ↔ ``UNDER_WAY``) 한쪽만 바꾸면 조합이
+    깨질 수 있다. 스키마에서 둘을 optional로 두되 서비스가 조합을 검증한다.
+
+    **위경도도 함께 보낸다.** 026의 CHECK가 「둘 다 NULL이거나 둘 다 NOT NULL」을
+    요구하며, 값이 있으면 ``position_updated_at``도 있어야 한다. 시각은 클라이언트가
+    보내지 않고 **서버가 확정**한다 — 클라이언트 시계를 신뢰하면 「언제 기준 위치인가」가
+    단말마다 갈린다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    underway_state: Annotated[str | None, Field(max_length=20)] = None
+    detail_status: Annotated[str | None, Field(max_length=20)] = None
+    current_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
+    current_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None

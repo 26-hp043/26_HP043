@@ -167,7 +167,11 @@ class TestListVessels:
         assert set(body["meta"]) == {"next_cursor", "has_more", "request_id", "timestamp"}
 
     def test_vessel_object_shape(self, wired):
-        """API_SPEC §2.1 선박 객체의 키 12개."""
+        """API_SPEC §2.1 선박 객체의 키 17개.
+
+        #369가 026(#346)의 위치·상태 5키를 노출하면서 12 → 17이 됐다.
+        대시보드(#351)가 이 값을 읽는다.
+        """
         client, _ = wired
         item = client.get(LIST_URL).json()["data"][0]
         assert set(item) == {
@@ -181,6 +185,11 @@ class TestListVessels:
             "reference_speed_kn",
             "reference_daily_foc_ton",
             "is_cii_applicable_hint",
+            "underway_state",
+            "detail_status",
+            "current_lat",
+            "current_lon",
+            "position_updated_at",
             "created_at",
             "updated_at",
         }
@@ -631,3 +640,172 @@ class TestDeleteVessel:
         client.delete(f"{LIST_URL}/{DEMO_VESSEL_ID}")
         second = client.delete(f"{LIST_URL}/{DEMO_VESSEL_ID}")
         assert second.status_code == 404
+
+
+# --- 위치·운항 상태 갱신 (#369) ------------------------------------------------------
+
+
+class TestUpdateVesselPosition:
+    """``PATCH /vessels/{id}/position`` — #346이 만든 컬럼의 유일한 갱신 경로.
+
+    이 경로가 없으면 대시보드(#351)의 「지금 어디서 무엇을 하고 있나」가 시드 이후
+    영원히 고정된다.
+    """
+
+    POSITION_PATH = f"{LIST_URL}/{DEMO_VESSEL_ID}/position"
+
+    @pytest.fixture
+    def wired(self, monkeypatch) -> Iterator[tuple[TestClient, dict]]:
+        import cii_platform.services.vessel as svc
+
+        store = {DEMO_VESSEL_ID: FakeVessel()}
+
+        async def fake_get_by_id(_session, vessel_id):
+            return store.get(vessel_id)
+
+        monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
+
+        async def override_session():
+            yield FakeSession()
+
+        install_fake_auth(monkeypatch)
+        app.dependency_overrides[get_session] = override_session
+        with TestClient(app) as client:
+            client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
+            client.headers.update({"X-CSRF-Token": FAKE_CSRF_TOKEN})
+            yield client, store
+        app.dependency_overrides.clear()
+
+    def test_position_can_change_after_seed(self, wired):
+        """완료 기준 ① — 시드 이후에도 위치·상태가 바뀐다."""
+        client, store = wired
+        resp = client.patch(
+            self.POSITION_PATH,
+            json={
+                "underway_state": "UNDER_WAY",
+                "detail_status": "SAILING",
+                "current_lat": 35.1,
+                "current_lon": 129.04,
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["underway_state"] == "UNDER_WAY"
+        assert data["detail_status"] == "SAILING"
+        assert data["current_lat"] == pytest.approx(35.1)
+        assert store[DEMO_VESSEL_ID].underway_state == "UNDER_WAY"
+
+    def test_position_updated_at_is_server_assigned(self, wired):
+        """시각은 서버가 확정한다 — 클라이언트가 보내는 값이 아니다."""
+        client, store = wired
+        assert store[DEMO_VESSEL_ID].position_updated_at is None
+
+        resp = client.patch(self.POSITION_PATH, json={"current_lat": 1.0, "current_lon": 2.0})
+
+        assert resp.status_code == 200
+        assert store[DEMO_VESSEL_ID].position_updated_at is not None
+        assert resp.json()["data"]["position_updated_at"] is not None
+
+    def test_client_cannot_send_position_updated_at(self, wired):
+        """``extra="forbid"`` — 시각을 클라이언트가 지정하려 하면 422."""
+        client, _ = wired
+        resp = client.patch(
+            self.POSITION_PATH,
+            json={"position_updated_at": "2020-01-01T00:00:00Z"},
+        )
+        assert resp.status_code == 422
+
+    def test_inconsistent_state_pair_is_rejected(self, wired):
+        """완료 기준 ② — 026 CHECK와 어긋난 조합은 저장되지 않는다."""
+        client, store = wired
+        resp = client.patch(
+            self.POSITION_PATH,
+            json={"underway_state": "UNDER_WAY", "detail_status": "AT_ANCHOR"},
+        )
+
+        assert resp.status_code == 422
+        # DB까지 내려가지 않고 서비스에서 막혔으므로 값이 그대로다.
+        assert store[DEMO_VESSEL_ID].underway_state is None
+
+    def test_not_under_way_accepts_period_type_values(self, wired):
+        """``NOT_UNDER_WAY``의 세부 상태 6값은 period_type과 같은 집합이다."""
+        client, _ = wired
+        for detail in ("IN_PORT", "AT_ANCHOR", "DRIFTING", "STS", "CANAL_TRANSIT", "DRYDOCK"):
+            resp = client.patch(
+                self.POSITION_PATH,
+                json={"underway_state": "NOT_UNDER_WAY", "detail_status": detail},
+            )
+            assert resp.status_code == 200, detail
+
+    def test_state_axes_must_be_sent_together(self, wired):
+        """한쪽만 보내면 조합이 깨질 수 있으므로 거부한다."""
+        client, _ = wired
+        resp = client.patch(self.POSITION_PATH, json={"underway_state": "UNDER_WAY"})
+        assert resp.status_code == 422
+
+    def test_lat_lon_must_be_sent_together(self, wired):
+        """026 CHECK가 「둘 다 있거나 둘 다 없거나」를 요구한다."""
+        client, _ = wired
+        resp = client.patch(self.POSITION_PATH, json={"current_lat": 10.0})
+        assert resp.status_code == 422
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("current_lat", 91.0), ("current_lat", -91.0), ("current_lon", 181.0)],
+    )
+    def test_out_of_range_coordinates_are_rejected(self, wired, field, value):
+        """위경도 범위 검증 — 스키마 단에서 422."""
+        client, _ = wired
+        payload = {"current_lat": 0.0, "current_lon": 0.0, field: value}
+        resp = client.patch(self.POSITION_PATH, json=payload)
+        assert resp.status_code == 422
+
+    def test_empty_payload_does_not_touch_timestamp(self, wired):
+        """바꿀 것이 없으면 ``position_updated_at``을 건드리지 않는다.
+
+        갱신하지 않은 것을 갱신했다고 기록하면 「낡은 값」 판별이 무의미해진다.
+        """
+        client, store = wired
+        resp = client.patch(self.POSITION_PATH, json={})
+
+        assert resp.status_code == 200
+        assert store[DEMO_VESSEL_ID].position_updated_at is None
+
+    def test_missing_vessel_returns_404(self, wired):
+        client, _ = wired
+        resp = client.patch(
+            f"{LIST_URL}/{uuid4()}/position",
+            json={"underway_state": "UNDER_WAY", "detail_status": "SAILING"},
+        )
+        assert resp.status_code == 404
+
+    def test_requires_csrf_gate(self, monkeypatch):
+        """완료 기준 ③ — 인증 게이트 안에 있다 (#307 선례).
+
+        CSRF 헤더 없이 부르면 통과하면 안 된다. ``#307``은 변경 API 8종이 게이트
+        **밖**에 있던 사례이며, 새 변경 엔드포인트마다 이 확인을 반복한다.
+        """
+        import cii_platform.services.vessel as svc
+
+        async def fake_get_by_id(_session, vessel_id):
+            return FakeVessel()
+
+        monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
+
+        async def override_session():
+            yield FakeSession()
+
+        install_fake_auth(monkeypatch)
+        app.dependency_overrides[get_session] = override_session
+        try:
+            with TestClient(app) as client:
+                client.cookies.set(SESSION_COOKIE_NAME, FAKE_SESSION_TOKEN)
+                # X-CSRF-Token을 일부러 보내지 않는다.
+                resp = client.patch(
+                    self.POSITION_PATH,
+                    json={"underway_state": "UNDER_WAY", "detail_status": "SAILING"},
+                )
+            assert resp.status_code in (401, 403)
+        finally:
+            app.dependency_overrides.clear()
