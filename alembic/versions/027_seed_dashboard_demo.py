@@ -484,7 +484,7 @@ vessel_tbl = sa.table(
     sa.column("detail_status", sa.String),
     sa.column("current_lat", sa.Numeric),
     sa.column("current_lon", sa.Numeric),
-    sa.column("position_updated_at", sa.DateTime),
+    sa.column("position_updated_at", sa.DateTime(timezone=True)),
 )
 voyage_tbl = sa.table(
     "voyage",
@@ -500,10 +500,10 @@ voyage_tbl = sa.table(
     sa.column("actual_distance_nm", sa.Numeric),
     sa.column("planned_speed_kn", sa.Numeric),
     sa.column("actual_avg_speed_kn", sa.Numeric),
-    sa.column("planned_departure_at", sa.DateTime),
-    sa.column("planned_arrival_at", sa.DateTime),
-    sa.column("actual_departure_at", sa.DateTime),
-    sa.column("actual_arrival_at", sa.DateTime),
+    sa.column("planned_departure_at", sa.DateTime(timezone=True)),
+    sa.column("planned_arrival_at", sa.DateTime(timezone=True)),
+    sa.column("actual_departure_at", sa.DateTime(timezone=True)),
+    sa.column("actual_arrival_at", sa.DateTime(timezone=True)),
 )
 voyage_fuel_tbl = sa.table(
     "voyage_fuel_use",
@@ -521,8 +521,8 @@ period_tbl = sa.table(
     sa.column("vessel_id", postgresql.UUID),
     sa.column("regulation_year", sa.Integer),
     sa.column("period_type", sa.String),
-    sa.column("started_at", sa.DateTime),
-    sa.column("ended_at", sa.DateTime),
+    sa.column("started_at", sa.DateTime(timezone=True)),
+    sa.column("ended_at", sa.DateTime(timezone=True)),
     sa.column("port_name", sa.String),
     sa.column("lat", sa.Numeric),
     sa.column("lon", sa.Numeric),
