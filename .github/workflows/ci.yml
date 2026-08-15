@@ -80,3 +80,107 @@ jobs:
       - run: npm run build
       # vitest run — watch 모드가 아니다(package.json scripts 확인함).
       - run: npm run test
+
+  # 배포 산출물 검증 (#393).
+  #
+  # 위 세 잡은 Docker를 전혀 다루지 않는다. 그래서 #240이 만든 frontend/Dockerfile ·
+  # nginx.conf · docker-compose.prod.yml과 #127이 만든 마이그레이션 적재 경로가
+  # **어느 잡의 검사 범위에도 들어가지 않았다.** CI green이 배포 동작의 증명이 아니었다.
+  #
+  # 실제로 #240 검증 중 `docker compose run`이 5주 전 이미지를 조용히 재사용해
+  # `No 'script_location' key found`로 실패한 일이 있었다. 로그에 낡은 이미지를
+  # 쓴다는 표시가 없어 사람이 직접 돌려봐야만 드러나는 종류였다.
+  #
+  # paths 필터를 두지 않는 이유 — #127이 seed를 `alembic upgrade head`에 편입해
+  # `alembic/` 변경이 곧 배포 내용 변경이다. 안전하게 좁히려면 Dockerfile ·
+  # frontend/ · docker-compose* · alembic/ · src/ · pyproject.toml을 다 넣어야 하고,
+  # 그러면 항상 실행과 차이가 거의 없다.
+  #
+  # 인증은 검증하지 않는다 — APP_ENV=production에서는 스텁 인증 라우트가 등록되지
+  # 않아(#276) 계산 API가 401을 낸다. 자격증명을 CI에 넣지 않는다(#395 소관).
+  # 이 잡의 범위는 「화면이 뜨고 API가 프록시를 통해 응답한다」까지다.
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      # compose가 `${VAR:?}`로 미설정 시 즉시 실패시킨다(#85). CI 전용 값이며
+      # 이 스택은 잡이 끝나면 사라진다.
+      POSTGRES_USER: cii
+      POSTGRES_PASSWORD: ci-docker-job
+      POSTGRES_DB: cii
+      COMPOSE: docker compose -f docker-compose.prod.yml
+    steps:
+      - uses: actions/checkout@v7
+
+      # build를 별도 단계로 두는 이유 — `docker compose run`은 같은 이름의 이미지가
+      # 있으면 다시 굽지 않는다. 러너는 매번 깨끗하지만, README 배포 절차와 같은
+      # 순서를 밟아야 절차 자체가 유효한지 확인된다.
+      - name: 이미지 빌드 (app · frontend)
+        run: $COMPOSE build
+
+      - name: DB 기동 + healthcheck 대기
+        run: |
+          $COMPOSE up -d db
+          for i in $(seq 1 30); do
+            if $COMPOSE exec -T db pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; then
+              echo "db ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::db healthcheck 타임아웃"; exit 1
+
+      # 스키마 + 규제 파라미터가 이 한 명령으로 들어가는 것이 #127의 완료 기준이다.
+      - name: 마이그레이션 (스키마 + seed)
+        run: $COMPOSE run --rm app alembic upgrade head
+
+      # 적재 행 수는 PRD §3.4.1(8) · §3.4.3(20) · §3.4.4(14)와 fuel_type 8행이다.
+      # 개수를 고정하지 않으면 「마이그레이션은 돌았지만 아무것도 안 넣은」 상태를
+      # 통과시킨다 — #240에서 seed 명령이 조용히 no-op이던 것이 그 사례다.
+      - name: 규제 파라미터 적재 확인 (50행)
+        run: |
+          set -e
+          check() {
+            actual=$($COMPOSE exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM $1")
+            actual=$(echo "$actual" | tr -d '[:space:]')
+            if [ "$actual" != "$2" ]; then
+              echo "::error::$1 = $actual (기대 $2)"; exit 1
+            fi
+            echo "  $1 = $actual"
+          }
+          check regulation_year 8
+          check cii_reference_line 20
+          check cii_rating_boundary 14
+          check fuel_type 8
+
+      - name: 앱 + 화면 기동
+        run: $COMPOSE up -d
+
+      # nginx·uvicorn이 응답하기까지 몇 초가 걸린다. 재시도로 흡수하되
+      # 무한정 기다리지 않는다.
+      - name: HTTP 검증 (화면 · 프록시 · SPA fallback)
+        run: |
+          set -e
+          probe() {
+            for i in $(seq 1 30); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' "$1" || true)
+              if [ "$code" = "200" ]; then echo "  $1 → 200"; return 0; fi
+              sleep 2
+            done
+            echo "::error::$1 → $code (기대 200)"; return 1
+          }
+          # 정적 자산
+          probe http://localhost/
+          # nginx가 /api를 app:8000으로 넘기는가 — 같은 오리진 구성의 핵심 (#240)
+          probe http://localhost/api/v1/health
+          # SPA fallback — 클라이언트 라우터 경로가 404가 되면 안 된다 (#348)
+          probe http://localhost/vessels/x
+
+      # 실패 원인을 로그 없이 추측하지 않도록 남긴다.
+      - name: 실패 시 컨테이너 로그
+        if: failure()
+        run: |
+          $COMPOSE ps
+          $COMPOSE logs --tail=120
+
+      - name: 정리
+        if: always()
+        run: $COMPOSE down -v
