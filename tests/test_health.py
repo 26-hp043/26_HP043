@@ -46,12 +46,6 @@ def test_health_has_no_meta_block(client: TestClient) -> None:
     assert "meta" not in body
 
 
-def test_health_omits_rng_canonical_test_until_issue_43(client: TestClient) -> None:
-    # D7: PCG64DXSM canonical vector 검증(#43) 미구현이라 거짓 "passed" 대신 생략.
-    data = client.get("/api/v1/health").json()["data"]
-    assert "rng_canonical_test" not in data
-
-
 def test_bare_health_path_is_not_exposed(client: TestClient) -> None:
     # API_SPEC §1.1/§12: 정본 경로는 /api/v1/health. prefix 없는 /health는 없다.
     assert client.get("/health").status_code == 404
@@ -103,3 +97,83 @@ def test_app_version_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
         assert calls == 1
     finally:
         health_mod._app_version.cache_clear()
+
+
+# --- rng_canonical_test (#400) -------------------------------------------------
+
+
+def test_health_includes_rng_canonical_test(client: TestClient) -> None:
+    """API_SPEC §10이 규정한 필드가 응답에 있다 (#400).
+
+    ``#43`` 완료 전까지 생략되던 필드다. 유예가 해소되어 구현됐으므로, 다시
+    빠지지 않도록 여기서 고정한다.
+    """
+    data = client.get("/api/v1/health").json()["data"]
+    assert "rng_canonical_test" in data
+
+
+def test_health_rng_canonical_test_passes_in_this_environment(client: TestClient) -> None:
+    """이 환경에서 canonical vector가 재현된다.
+
+    ``"failed"``가 나오면 NumPy 버전이나 플랫폼이 바뀐 것이며 재현성 계약
+    (``TECH_SPEC §5.4``) 위반이다 — 그대로 두면 Monte Carlo 결과가 환경마다 달라진다.
+    """
+    data = client.get("/api/v1/health").json()["data"]
+    assert data["rng_canonical_test"] == "passed"
+
+
+def test_health_survives_rng_validation_failure(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """검증이 실패해도 health가 500이 되지 않고 status는 ok를 유지한다 (#400).
+
+    **이 테스트가 이 필드 설계의 핵심을 고정한다.** 진단 필드 하나 때문에 health가
+    500이 되면 오케스트레이터가 컨테이너를 죽인다 — 재현성 문제를 보고하려다
+    가용성을 깎는다. 또 RNG 불일치는 재시작으로 해결되지 않으므로(NumPy 버전은
+    이미지에 고정) ``status``를 내리면 무한 재시작 루프가 된다.
+    """
+    from cii_platform.api.routes import health as health_module
+
+    def _boom() -> None:
+        raise AssertionError("RNG mismatch at index 0")
+
+    monkeypatch.setattr(health_module, "validate_rng", _boom)
+    # 프로세스 캐시를 비워 patch가 반영되게 한다.
+    health_module._rng_canonical_test.cache_clear()
+    try:
+        resp = client.get("/api/v1/health")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["rng_canonical_test"] == "failed"
+        # status는 liveness 신호다 — 재현성 실패로 내리지 않는다.
+        assert data["status"] == "ok"
+    finally:
+        # 다른 테스트가 캐시된 "failed"를 보지 않게 되돌린다.
+        health_module._rng_canonical_test.cache_clear()
+
+
+def test_rng_canonical_test_is_cached_per_process() -> None:
+    """프로세스당 1회만 계산한다 (#400).
+
+    canonical vector는 NumPy 버전·플랫폼에서 결정되며 프로세스 수명 동안 바뀌지
+    않는다. health는 로드 밸런서가 주기적으로 호출하므로 매 요청 난수를 뽑지 않는다.
+    """
+    from cii_platform.api.routes import health as health_module
+
+    health_module._rng_canonical_test.cache_clear()
+    calls = {"n": 0}
+    original = health_module.validate_rng
+
+    def _counting() -> None:
+        calls["n"] += 1
+        original()
+
+    health_module.validate_rng = _counting  # type: ignore[assignment]
+    try:
+        health_module._rng_canonical_test()
+        health_module._rng_canonical_test()
+        health_module._rng_canonical_test()
+        assert calls["n"] == 1
+    finally:
+        health_module.validate_rng = original  # type: ignore[assignment]
+        health_module._rng_canonical_test.cache_clear()
