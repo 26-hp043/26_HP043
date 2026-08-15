@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './AnnualSimulation.css'
-import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../voyage-cii/format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
 import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
 import { ANNUAL_COPY } from './copy'

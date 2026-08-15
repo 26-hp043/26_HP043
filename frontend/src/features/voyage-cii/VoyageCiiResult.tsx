@@ -1,5 +1,5 @@
 import './VoyageCiiResult.css'
-import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from './format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
 import {
   ciiUnit,
   marginDisplay,
