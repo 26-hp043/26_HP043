@@ -31,23 +31,30 @@ async def _update_state(conn, vessel_id: str, set_clause: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_seed_vessels_query_ok_with_null_state(conn):
-    """018 seed 3척이 NULL 상태로 정상 조회된다 (완료 기준 3).
+async def test_new_vessel_with_null_state_queries_ok(conn):
+    """상태 없이 등록한 선박도 정상 조회된다 (완료 기준 3 — NULL 허용 설계).
 
-    위치·상태를 모르는 미갱신 선박이 조회에서 깨지지 않는 것이 026의 NULL 허용
-    설계의 핵심이다.
+    026 시점에는 seed 전체(018의 3척)가 이 상태였으나, 027(#347)이 시연용
+    상태를 채웠다. 컬럼이 NOT NULL이면 미갱신 선박의 등록 자체가 실패하므로,
+    **새 선박을 NULL 상태로 넣고 조회하는 것**이 지금 이 계약의 검증이다.
     """
-    rows = await conn.execute(
-        text(
-            "SELECT count(*), "
-            "count(underway_state) + count(detail_status) + count(current_lat) "
-            "+ count(current_lon) + count(position_updated_at) "
-            "FROM vessel"
+    vessel_id = await _insert_vessel(conn)
+    row = (
+        await conn.execute(
+            text(
+                "SELECT underway_state, detail_status, current_lat, current_lon, "
+                "position_updated_at FROM vessel WHERE id = :vid"
+            ),
+            {"vid": vessel_id},
         )
-    )
-    total, non_null_new_columns = rows.one()
-    assert total >= 3, "018 seed 선박 3척이 보이지 않음"
-    assert non_null_new_columns == 0, "새 컬럼은 기존 행에서 전부 NULL이어야 함"
+    ).one()
+    assert (
+        row.underway_state,
+        row.detail_status,
+        row.current_lat,
+        row.current_lon,
+        row.position_updated_at,
+    ) == (None, None, None, None, None)
 
 
 @pytest.mark.asyncio
