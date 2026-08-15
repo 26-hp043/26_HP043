@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.7 |
+| 버전 | v1.8 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.5 |
@@ -901,6 +901,76 @@ DELETE /api/v1/voyages/{voyage_id}
   "meta": { ... }
 }
 ```
+
+---
+
+### 3.8 Not Under Way 구간 API (#370)
+
+정박·묘박·표류·STS·운하 통과·드라이독 구간(`not_underway_period`, DB_SCHEMA §2.17)의 **운영 중 입력 경로**다. 이 연료는 CII 분자(`M`)에 직접 들어가므로(#353), 이 API가 없으면 「정박이 지속되면 등급이 나빠진다」가 성립하지 않는다.
+
+```http
+POST   /api/v1/vessels/{vessel_id}/not-underway-periods
+GET    /api/v1/vessels/{vessel_id}/not-underway-periods
+GET    /api/v1/not-underway-periods/{period_id}
+PATCH  /api/v1/not-underway-periods/{period_id}
+DELETE /api/v1/not-underway-periods/{period_id}
+```
+
+#### 3.8.1 구간 생성
+
+**요청 본문:**
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `period_type` | string | Y | `IN_PORT`/`AT_ANCHOR`/`DRIFTING`/`STS`/`CANAL_TRANSIT`/`DRYDOCK` (MEPC.401(83)) |
+| `started_at` | string(ISO 8601, **tz 필수**) | Y | 구간 시작 |
+| `ended_at` | string \| null | N | 종료. `null` = 진행 중 |
+| `regulation_year` | integer | Y | **`started_at.year`와 같아야 함** — 연도를 걸치는 구간은 시작 연도에 귀속 |
+| `port_name` | string | N | 항구명 |
+| `lat`·`lon` | number | N | 위치 |
+| `voyage_id` | uuid | N | 맥락 항차 — **같은 선박의 항차**여야 함 |
+| `distance_nm` | number | N | 구간 이동 거리(기본 0). 운하 통과·표류·STS만 > 0. **분모 `Dt`에 합산** (MEPC.412(84) §4.2) |
+| `fuel_uses[]` | array | N | `consumer_type`(`MAIN_ENGINE`/`AUX_ENGINE`/`OIL_FIRED_BOILER`/`OTHER`) × `fuel_type` × `fuel_ton`(>0) |
+
+**검증 (422 · `VALIDATION_ERROR`)** — `ended_at > started_at` · 연도 정합 · tz 포함 · `period_type`/`consumer_type` 허용집합 · (consumer_type, fuel_type) 요청 내 중복(029 UNIQUE 선제) · 알 수 없는·비활성 연료(VAL-006) · 타 선박의 `voyage_id`.
+
+**구간 겹침 (409 · `CONFLICT`)** — 같은 선박의 활성 구간과 시간이 겹치면 거부한다. 끝점 접촉(`[8,12]` 다음 `[12,16]`)은 허용한다(반개 구간). 겹침을 조용히 병합하지 않는다 — 시뮬레이션 시계(#368)가 겹침을 이중 차감한다는 문서화된 전제를 이 API가 강제한다.
+
+**CF snapshot (030)** — 자식 연료의 `cf_used`는 **기록 시점의 현재 CF**로 확정한다. CF가 개정돼도 과거 실적의 YTD는 변하지 않는다(PRD §8.4).
+
+**응답 (201 Created)** — 구간 객체. `fuel_uses[].cf_used`에 snapshot이 실린다.
+
+#### 3.8.2 목록 조회
+
+최근 시작 순(`started_at desc`) + keyset 페이지네이션(기본 20, 최대 100). 필터 — `regulation_year` · `period_type` · `ongoing`(true=진행 중만, false=종료만). soft delete 행은 제외.
+
+#### 3.8.3 상세 조회
+
+없거나 soft delete면 404.
+
+#### 3.8.4 수정
+
+PATCH 의미론은 #312 — **생략 = 변경 없음, 명시적 `null` = 클리어**. 특히:
+
+- `ended_at`에 값을 주면 **진행 중 구간의 종료 처리**, `null`은 진행 중으로 되돌린다
+- `fuel_uses`를 제공하면 **목록 전체 교체** — 교체 시점 현재 CF로 재 snapshot
+- 시간 이동으로 다른 구간과 겹치면 409 (자기 자신과의 겹침은 판정하지 않음)
+
+#### 3.8.5 삭제 (soft)
+
+`is_deleted=true` 플래그만 설정. 자식 연료는 물리 삭제하지 않으며, 집계 제외는 부모 플래그로 판정한다(#345 설계). 응답 `{ "id": "...", "deleted": true }`.
+
+#### 인증
+
+변경 엔드포인트(POST·PATCH·DELETE)는 세션 쿠키 + `X-CSRF-Token`을 요구한다. **#307 선례에 따라 배선을 테스트로 확인한다**(`test_csrf_required_for_create` — 실앱에서 CSRF 없는 POST는 403).
+
+#### 오류
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 선박·구간 없음 |
+| 409 | `CONFLICT` | 구간 겹침 |
+| 422 | `VALIDATION_ERROR` | 위 검증 규칙 위반 |
 
 ---
 
@@ -1870,6 +1940,11 @@ GET /api/v1/health
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}/voyages` | 항차 목록 | §6.2 SCR-003 |
 | POST | `/api/v1/vessels/{id}/voyages` | 항차 생성 | §6.2 SCR-003 |
+| GET | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 목록 | §3.8 |
+| POST | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 생성 | §3.8 |
+| GET | `/api/v1/not-underway-periods/{period_id}` | not under way 구간 상세 | §3.8 |
+| PATCH | `/api/v1/not-underway-periods/{period_id}` | not under way 구간 수정 | §3.8 |
+| DELETE | `/api/v1/not-underway-periods/{period_id}` | not under way 구간 삭제 (soft) | §3.8 |
 | GET | `/api/v1/voyages/{id}` | 항차 상세 | §6.2 SCR-003 |
 | PATCH | `/api/v1/voyages/{id}` | 항차 수정 | §6.2 SCR-003 |
 | DELETE | `/api/v1/voyages/{id}` | 항차 삭제 | §8.1 |

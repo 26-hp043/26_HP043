@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TEST_PLAN.md |
-| 버전 | v1.6 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) + §4.7 인증 API 케이스 (#279) + **v1.6에서 방향 전환 반영 — 신규 서브시스템 5절 · §14 파일 인벤토리 · §11 실측 정정 (#394)** |
+| 버전 | v1.7 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) + §4.7 인증 API 케이스 (#279) + **v1.6에서 방향 전환 반영 — 신규 서브시스템 5절 · §14 파일 인벤토리 · §11 실측 정정 (#394)** + **v1.7에서 §4.8 not under way CRUD API 케이스 (#370)** |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v3.2, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.4, `DB_SCHEMA.md` v1.3 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
@@ -805,6 +805,31 @@ def test_no_implicit_float_in_layer1():
 | AT-AUTH-012 | `APP_ENV=production` dev-login | 라우트 미등록 (`test_auth_failure_paths.py`) |
 | AT-AUTH-013 | dev-login 재기동 (고정 UUID) | 2회 모두 200 (`test_dev_auth.py`) |
 
+### 4.8 not under way 구간 CRUD API (#370)
+
+> 구현 파일 — `test_not_underway_api.py`(실동작, commit 기반). 시드가 아니라
+> **운영 중 입력 경로**가 성립하는지가 이 절의 질문이다 — 겹침·연도 정합·CF
+> snapshot은 #368·#353의 전제를 입력 쪽에서 강제한다.
+
+| TC ID | 테스트 | 기대 결과 |
+|---|---|---|
+| AT-NUW-001 | 구간 생성 (종료·진행 중) | 201, 자식 연료에 기록 시점 CF snapshot (030) |
+| AT-NUW-002 | `ended_at ≤ started_at` | 422 (시간 순서) |
+| AT-NUW-003 | `regulation_year ≠ started_at.year` | 422 — YTD `(vessel, year)` 집계·`started_at` 절단 정합 |
+| AT-NUW-004 | 타임존 없는 시각 | 422 — aware/naive 혼합은 500이 된다 |
+| AT-NUW-005 | 알 수 없는·비활성 연료 | 422 (VAL-006) |
+| AT-NUW-006 | `period_type`·`consumer_type` 허용집합 외 | 422 (025 CHECK와 같은 집합) |
+| AT-NUW-007 | (consumer_type, fuel_type) 요청 내 중복 | 422 — 029 UNIQUE를 선제 검증 |
+| AT-NUW-008 | 같은 선박 구간 겹침 (종료·진행 중·포함·피포함) | 409 `CONFLICT` (#368 `_overlap_hours` 전제) |
+| AT-NUW-009 | 끝점 접촉 ([8,12]→[12,16]) | 201 — 반개 구간, 겹침 아님 |
+| AT-NUW-010 | 목록 — `ongoing`·`regulation_year` 필터 + keyset 페이지네이션 | 최근 시작 순, 페이지 간 중복 없음 |
+| AT-NUW-011 | PATCH — 진행 중 `ended_at` 확정·null 되돌리기 | 200 (#312 의미론) |
+| AT-NUW-012 | PATCH — `fuel_uses` 목록 전체 교체 | 교체 시점 현재 CF로 재 snapshot |
+| AT-NUW-013 | PATCH로 시간 이동 → 타 구간과 겹침 (자기 자신 제외) | 409 / 자기 창 내 이동은 200 |
+| AT-NUW-014 | DELETE soft delete → 조회 404 | 200 `{deleted: true}` |
+| AT-NUW-015 | 등록한 연료가 YTD 분자에 반영 (운하 200nm + HFO 5t) | `compute_ytd_cii` `not_underway_co2_g == 15,570,000` — 완료 기준 2의 종단 검증 |
+| AT-NUW-016 | 실앱 CSRF 없는 POST | 403 `CSRF_ERROR`, 세션 csrf 쿠키로 통과 (#307 배선 확인) |
+
 ---
 
 ## 5. DB 제약 테스트 (`test_constraints.py`)
@@ -1317,6 +1342,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_layer1_fixtures.py` | 20 | §2 단위 · 계산 엔진 |
 | `test_layer1_working_precision.py` | 7 | §2 단위 · 계산 엔진 |
 | `test_layer_conversion.py` | 6 | §2 단위 · 계산 엔진 |
+| `test_not_underway_api.py` | 18 | **§4.8 API · not under way CRUD** |
 | `test_not_underway_migrations.py` | 15 | **§5.8 DB · not under way** |
 | `test_oidc.py` | 0 | §4.7 API · 인증 |
 | `test_orm_schema_sync.py` | 2 | §5 DB · 제약·마이그레이션 |
