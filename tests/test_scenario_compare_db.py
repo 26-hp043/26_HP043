@@ -4,9 +4,13 @@
 여기는 **실제 INSERT·제약·트리거**를 검증한다 — ``voyage_scenario`` 3행,
 ``calculation_run`` 1행(``SCENARIO``), ``audit_log`` 1건.
 
-파라미터 시드 상태: 017이 ``fuel_type`` 8행을 넣으므로 HFO는 이미 있다. 나머지
-(``regulation_year``·``cii_reference_line``·``cii_rating_boundary``)는 data
-migration이 아니라 ``scripts/seed.py`` 경로(#127)이므로 여기서 직접 심는다.
+파라미터 시드 상태: **더 이상 여기서 심지 않는다 (#127).** 017이 ``fuel_type`` 8행을,
+032가 ``regulation_year``·``cii_reference_line``·``cii_rating_boundary`` 42행을 넣으므로
+``upgrade head``만으로 필요한 규제 파라미터가 전부 갖춰진다.
+
+손으로 심던 값과 seed 값이 같은 결과를 낸다 — 이 테스트의 선박은
+``BULK_CARRIER`` · DWT 50,000이고, seed의 ``DWT < 279000`` 행이 선택되어
+``capacity_rule=DWT`` · ``a=4745`` · ``c=0.622``가 적용된다(전에 직접 넣던 값과 동일).
 """
 
 from __future__ import annotations
@@ -29,30 +33,6 @@ PAYLOAD: dict[str, Any] = {
     "base_daily_foc_ton": 35.0,
     "direct_distance_nm": 11000.0,
 }
-
-
-async def _seed_parameters(session) -> None:
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "VALUES (2026, 11.0, '2026-01-01', 'TEST', '1.0')"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "VALUES ('BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST')"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')"
-        )
-    )
 
 
 async def _insert_vessel(session) -> str:
@@ -113,7 +93,6 @@ async def test_compare_persists_three_scenarios_and_run(migrated_db, app_fresh_e
     vessel_id = None
     try:
         async with sessionmaker() as s:
-            await _seed_parameters(s)
             vessel_id = await _insert_vessel(s)
             await s.commit()
 
@@ -202,7 +181,6 @@ async def test_compare_idempotent_rows_on_repeat(migrated_db, app_fresh_engine):
     vessel_id = None
     try:
         async with sessionmaker() as s:
-            await _seed_parameters(s)
             vessel_id = await _insert_vessel(s)
             await s.commit()
 

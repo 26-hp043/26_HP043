@@ -63,15 +63,20 @@ async def test_regulation_year_negative_z_factor_rejected(conn):
 
 
 async def test_regulation_year_zero_z_factor_passes(conn):
-    """z_factor_percent = 0은 유효 — 2023년 실측값 (MEPC.400(83))."""
+    """z_factor_percent = 0은 유효 — 2023년 실측값 (MEPC.400(83)).
+
+    [#127] 연도는 정본에 없는 값(1900)을 쓴다. 032가 2023~2030을 이미 넣으므로
+    2023으로 INSERT하면 ``uq_regulation_year_year``에 걸린다. 검증 대상은 연도가
+    아니라 **z_factor_percent = 0을 CHECK가 통과시키는가**이다.
+    """
     await conn.execute(
         text(
             "INSERT INTO regulation_year "
             "(year, z_factor_percent, effective_from, source_ref, version) "
-            "VALUES (2023, 0, '2023-01-01', 'TEST', '1.0')"
+            "VALUES (1900, 0, '1900-01-01', 'TEST', '1.0')"
         )
     )
-    row = await conn.execute(text("SELECT z_factor_percent FROM regulation_year WHERE year = 2023"))
+    row = await conn.execute(text("SELECT z_factor_percent FROM regulation_year WHERE year = 1900"))
     assert float(row.scalar_one()) == 0.0
 
 

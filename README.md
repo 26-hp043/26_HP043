@@ -36,7 +36,7 @@
 | [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.0**, 관리 중심 전환 #343, Oracle Review + 외부 리뷰 반영 + 선종별 CII 지표·단위 #163) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 검증 규칙 | ✅ 완료 |
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (v1.4, Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 #100 + 재현성 계약 명문화 #102 + Layer 1 계산 규칙 #166) — 이중 정밀도 엔진, Layer 1 계산 규칙(§1.2.1), PCG64DXSM RNG(canonical vector 고정), capacity 분리(transport/reference), canonical hashing, 스냅샷 격리, 서비스 레이어 아키텍처(§16), 재현성 계약(§5.4) | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (v1.4, Oracle Review + 외부 리뷰 반영 + 인증(#272) + PATCH null 의미론·전환 policy 규칙 #310·#312) — 30개 엔드포인트, 수치 직렬화 정책, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (v1.11, Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 #102 + 파라미터 CHECK·FK 자식 인덱스 #96·#97 + needs_recalc 플립 #283 + not under way 스키마 #345 + 운항 상태 2축 #346 + not under way 거리 #353 + 인덱스 3종 #376 + CF 스냅샷 #378 + content_hash 규칙 #154) — 16개 테이블, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, pg_trgm, 마이그레이션 전략 | ✅ 완료 |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (v1.12, Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 #102 + 파라미터 CHECK·FK 자식 인덱스 #96·#97 + needs_recalc 플립 #283 + not under way 스키마 #345 + 운항 상태 2축 #346 + not under way 거리 #353 + 인덱스 3종 #376 + CF 스냅샷 #378 + content_hash 규칙 #154 + seed 적재 경로 일원화 #127) — 16개 테이블, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, pg_trgm, 마이그레이션 전략 | ✅ 완료 |
 | [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.5, Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 #166 + §1.3 케이스 스키마 #46 + §4.7 인증 API #279) — 181개 테스트 케이스, Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증, Layer 변환/감사 로그/소프트 삭제/CSV injection 테스트, 유효숫자 기반 Monte Carlo 비교 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 — Oracle 교차 검증 규칙, 규제값 권위 소스, 한국어 정책 | ✅ 신규 |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (v1.2, §4.1 단위 표기 capacity 축 파생 #163 + §4.2 물리량 단위 표기 확정 #164) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성. 토큰의 이름·의미·제약을 확정하고 값은 Figma가 소유 | ✅ 신규 |
@@ -112,7 +112,7 @@
 
 ### 기동 순서
 
-DB → 마이그레이션 → seed → 앱·화면 순서다. 개발용 `scripts/demo_up.sh`와 같은 순서이며, **앱을 마지막에 올리는 것이 요점**이다 — 스키마가 없는 상태로 앱이 먼저 뜨면 그동안 API가 500을 낸다.
+DB → 마이그레이션 → 앱·화면 순서다. **앱을 마지막에 올리는 것이 요점**이다 — 스키마가 없는 상태로 앱이 먼저 뜨면 그동안 API가 500을 낸다.
 
 ```bash
 # 1) credential 주입 — 미설정이면 compose가 즉시 실패한다 (기본값을 허용하지 않는다)
@@ -124,21 +124,20 @@ docker compose -f docker-compose.prod.yml build
 # 3) DB만 먼저 올린다 (healthcheck 통과까지 기다린다)
 docker compose -f docker-compose.prod.yml up -d db
 
-# 4) 마이그레이션 — app 이미지를 일회성 컨테이너로 써서 스키마를 만든다
+# 4) 마이그레이션 — 스키마 + 규제 파라미터 seed가 함께 들어간다
 docker compose -f docker-compose.prod.yml run --rm app alembic upgrade head
 
-# 5) 규제 파라미터 seed (Z-factor 8행 · reference line 20행 · rating boundary 14행)
-docker compose -f docker-compose.prod.yml run --rm app python -m cii_platform.db.seed
-
-# 6) 앱 + 화면 기동
+# 5) 앱 + 화면 기동
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-4·5단계가 `exec`가 아니라 `run --rm`인 이유는 이 시점에 `app` 컨테이너가 아직 떠 있지 않기 때문이다. `run`은 같은 이미지로 일회성 컨테이너를 띄우고, 명령이 끝나면 `--rm`이 그 컨테이너를 지운다.
+4단계가 `exec`가 아니라 `run --rm`인 이유는 이 시점에 `app` 컨테이너가 아직 떠 있지 않기 때문이다. `run`은 같은 이미지로 일회성 컨테이너를 띄우고, 명령이 끝나면 `--rm`이 그 컨테이너를 지운다.
+
+> **별도 seed 단계가 없다.** 규제 파라미터(Z-factor 8행 · reference line 20행 · d-vector 14행)와 연료 CF 8행은 전부 data migration에 들어 있어 `alembic upgrade head`가 함께 적재한다(`DB_SCHEMA §8.1.1` · #127). 규제가 개정되어 **재적재**가 필요할 때만 `docker compose -f docker-compose.prod.yml run --rm app python -m cii_platform.db.seed`를 쓴다 — 이쪽은 upsert라 값을 덮어쓴다.
 
 > ⚠️ **2단계(`build`)를 생략하면 안 된다.** `docker compose run`은 해당 이름의 이미지가 **이미 있으면 그것을 그대로 쓰고 다시 굽지 않는다.** 소스를 고친 뒤 `build` 없이 4단계로 가면 낡은 이미지로 마이그레이션이 돌고, 그 사실이 로그에 드러나지 않는다. (실제로 이 절차를 검증할 때 5주 전 이미지가 조용히 재사용되어 `No 'script_location' key found`로 실패했다.)
 
-> 이 두 명령이 컨테이너 안에서 도는 것은 prod 이미지가 `alembic.ini`·`alembic/`을 포함하기 때문이다(루트 `Dockerfile`). seed 진입점이 `scripts/seed.py`가 아니라 `python -m cii_platform.db.seed`인 것도 같은 이유다 — 프로덕션 이미지는 wheel만 설치하므로 `scripts/`가 들어 있지 않다.
+> `alembic`이 컨테이너 안에서 도는 것은 prod 이미지가 `alembic.ini`·`alembic/`을 포함하기 때문이다(루트 `Dockerfile`). 재적재 진입점이 `scripts/seed.py`가 아니라 `python -m cii_platform.db.seed`인 것도 같은 이유다 — 프로덕션 이미지는 wheel만 설치하므로 `scripts/`가 들어 있지 않다.
 
 ### ⚠️ Vite 환경변수는 빌드 시점에 굳는다
 
@@ -214,3 +213,4 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 | 2026-08-15 | `#375` | 문서 구조 표의 `DB_SCHEMA.md` 행을 v1.7으로 갱신 — 운항 상태 2축·현재 위치 컬럼(#346) 반영 |
 | 2026-08-15 | `#388` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 v1.2로 갱신 — §4.2 물리량 단위 표기 확정(#164) 반영 |
 | 2026-08-15 | `#389` | 문서 구조 표의 `DB_SCHEMA.md` 행을 v1.11로 갱신 — §8.3.1 content_hash 산출 규칙(#154) 반영. v1.8~v1.10(#377·#376·#378) 동기화가 누락돼 있어 함께 따라잡았다 |
+| 2026-08-15 | `#390` | 「배포」 절 기동 순서에서 seed 단계 삭제 — 규제 파라미터가 data migration(032)에 편입되어 `alembic upgrade head` 하나로 적재된다. 문서 구조 표 `DB_SCHEMA.md` v1.12 갱신 (#127) |
