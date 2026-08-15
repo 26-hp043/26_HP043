@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.10 |
+| 버전 | v1.11 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
@@ -1185,6 +1185,33 @@ CREATE TRIGGER trg_snapshot_immutable
 
 > Seed 데이터 변경 시 기존 `calculation_run`의 `parameter_hash`와 새 파라미터의 hash가 달라지므로, 과거 계산 결과는 재현성이 보장된다 (다른 hash = 다른 결과 세트).
 
+#### 8.3.1 `fuel_type.content_hash` 산출 규칙 [#154]
+
+**해싱 단위는 행이다.** 8행 집합이 아니라 각 행이 자기 내용의 해시를 갖는다.
+
+| 항목 | 규칙 |
+|---|---|
+| 단위 | **행 1개당 해시 1개** |
+| 대상 필드 | **`{code, cf}`** — `TECH_SPEC §5.2.1`의 `parameters_used.fuel_types[]` 원소 스키마와 동일 |
+| 직렬화 | `TECH_SPEC §5.1.2`의 `canonical_json` — `sort_keys=True` · `separators=(",",":")` · Decimal은 문자열 · float 금지 |
+| Decimal 표기 | `normalize()` 후 고정소수점 (`[ORACLE-C-2]`). `3.000000` → `"3"` |
+| 해시 | `"sha256:" + SHA-256(canonical.encode("utf-8")).hexdigest()` — 총 71자로 컬럼 폭과 일치 |
+
+```
+{"cf":"3.114","code":"HFO"}
+  → sha256:fa0bb45993735ee22cde1b56c3af2e08da30b0237a025d33fd9e4041e564d597
+```
+
+**행 단위인 이유** — ⑴ 컬럼이 행마다 있으므로 집합 해시면 8행이 전부 같은 값을 갖는다(같은 값의 8중 중복 저장). ⑵ `§2.9`가 `effective_from`을 「OTHER 연료용」으로 정의해 행이 추가될 수 있는데, 집합 해시라면 그때 기존 행을 전부 다시 써야 한다. ⑶ 세트 전체의 추적은 `calculation_run.parameter_hash`가 이미 한다(`TECH_SPEC §5.2`) — 여기까지 집합이면 같은 일을 두 곳에서 한다. ⑷ 행 단위여야 **어느 행이 바뀌었는지** 짚을 수 있으며, `version` 갱신 없이 `cf`만 UPDATE되는 드리프트가 이 컬럼이 잡을 대상이다.
+
+**대상 필드가 `{code, cf}`인 이유** — `TECH_SPEC §5.2.1`이 이미 그렇게 규정한다. 여기서 다른 필드 집합을 쓰면 **같은 엔티티에 canonical 규약이 두 벌** 생긴다. 같은 집합을 쓰면 과거 `calculation_run`이 사용한 CF가 현재 행과 같은지를 해시 대조로 확인할 수 있다.
+
+제외 필드와 사유 — `display_name`·`unit`(표시·고정 기본값이지 규제값이 아님) · `id`·`created_at`·`updated_at`(운영 메타) · `is_active`(운영 상태) · `version`(내용이 아니라 내용 **세트의 라벨**. 위 표가 둘을 나란히 두므로 서로를 포함하면 순환이다).
+
+> **`version`과의 관계** — CF 값이 **바뀔 때** 둘을 함께 갱신한다. 값 변경 없이 비어 있던 추적 컬럼만 채우는 경우(마이그레이션 031)에는 `version`을 올리지 않는다.
+
+> **마이그레이션은 이 값을 리터럴로 담는다.** 마이그레이션이 `src/`의 해시 함수를 import하면 규약이 바뀔 때 과거 마이그레이션의 동작이 소급 변경된다(PR #147 구현 결정 2). 대신 테스트가 `src/`의 살아 있는 규약으로 재계산해 DB 값과 대조하므로, 규약이 바뀌면 테스트가 깨져 드리프트가 드러난다.
+
 ---
 
 ## 9. 멀티테넌시 고려사항 [X-4]
@@ -1309,3 +1336,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-15 |  | v1.9: §2.18에 `idx_not_underway_fuel_use_unique`(`period_id`, `consumer_type`, `fuel_type`) UNIQUE 신설 — §2.3 [S-2]와 같은 CO₂ 이중 산정 차단. 선행열이 같아 중복인 `idx_not_underway_fuel_use_period` 제거. §2.17에 `idx_not_underway_period_vessel_started`(#368 구간 겹침 조회)·`idx_not_underway_period_voyage`(SET NULL 확인 full scan 방지) 신설 — 마이그레이션 029 (#376) |
 | 2026-08-15 | `#374` | v1.6: §2.17 `not_underway_period`·§2.18 `not_underway_fuel_use` 신설(마이그레이션 025) — ER 다이어그램 3줄 추가, 헤더 상위 문서 `PRD` v4.0 갱신 (#345) |
 | 2026-08-15 | `#375` | v1.7: §2.1에 운항 상태 2축·위치 5컬럼 반영(마이그레이션 026) — `chk_vessel_state_pair` 정합 규칙(`SAILING`↔`UNDER_WAY`·6값↔`NOT_UNDER_WAY`, IS NOT NULL 가드)·위경도 범위·위치-시각 페어 (#346) |
+| 2026-08-15 | `#389` | v1.11: §8.3.1 `fuel_type.content_hash` 산출 규칙 신설 — **행 단위** · 대상 필드 `{code, cf}`(`TECH_SPEC` §5.2.1 `parameters_used.fuel_types[]` 원소 스키마 재사용) · `canonical_json` + `sha256:` 접두사(총 71자, 컬럼 폭 일치). 017이 보류한 값을 마이그레이션 031이 리터럴로 적재하고, 테스트가 `src/` 규약으로 재계산해 대조한다 (#154) |

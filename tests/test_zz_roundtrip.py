@@ -148,6 +148,36 @@ async def test_seed_downgrade_removes_fuel_type_rows():
         _restore_to_head()
 
 
+async def test_031_downgrade_restores_null_content_hash():
+    """031 downgrade가 ``fuel_type.content_hash``를 NULL로 되돌린다 (#154 완료 기준).
+
+    이 파일에 두는 이유는 위 테스트들과 같다 — ``downgrade 030``이 전역 스키마 상태를
+    바꾸므로 async ``conn`` fixture를 쓰는 테스트와 섞이면 안 된다 (#82). 값 자체의
+    검증은 tests/test_fuel_type_content_hash.py가 담당한다.
+
+    되돌아가는 지점은 017 직후 상태다 — 행은 8개 그대로 남고 ``content_hash``만 비는
+    것이 맞다. 행까지 사라지면 downgrade가 자기 범위를 넘어 017의 일을 되돌린 것이다.
+    """
+    step = run_alembic("downgrade", "030")
+    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
+    try:
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        try:
+            async with engine.connect() as connection:
+                total = await connection.scalar(text("SELECT count(*) FROM fuel_type"))
+                filled = await connection.scalar(
+                    text("SELECT count(*) FROM fuel_type WHERE content_hash IS NOT NULL")
+                )
+            # 행은 남고 해시만 비었다.
+            assert total == 8
+            assert filled == 0
+        finally:
+            await engine.dispose()
+    finally:
+        # 성공/실패와 무관하게 head로 복원한다 — 031이 다시 8행을 채운다.
+        _restore_to_head()
+
+
 async def test_seed_downgrade_removes_demo_vessel_rows():
     """018 downgrade가 데모 선박 seed 3행을 삭제한다 (#34).
 
