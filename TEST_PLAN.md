@@ -795,7 +795,7 @@ def test_no_implicit_float_in_layer1():
 | AT-AUTH-002 | `email_verified=false` | 401 (`test_oidc.py`) |
 | AT-AUTH-003 | `state` 불일치 | 401 (`test_auth_api.py`) |
 | AT-AUTH-004 | `redirect_to` 절대 URL·`//` | 400 거부 — open redirect 방어 (`test_auth_api.py`) |
-| AT-AUTH-005 | 이메일 변경 사용자 | 동일 `app_user.id` 유지 — `google_sub` 식별 (`test_auth_api.py`) |
+| AT-AUTH-005 | 이메일 중복 가입 시도 | `409`/`422` 거부 — `email`이 유일 키다 (`#414`에서 대체 구현) |
 | AT-AUTH-006 | 세션 없는 보호 경로 | 401 (`test_auth_wiring.py`) |
 | AT-AUTH-007 | 세션 만료 후 같은 쿠키 | 401 + "만료" 안내 (`test_auth_failure_paths.py`) |
 | AT-AUTH-008 | 로그아웃 후 같은 쿠키 재사용 | 401 (`test_auth_failure_paths.py`) |
