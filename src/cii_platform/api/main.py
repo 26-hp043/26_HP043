@@ -19,6 +19,7 @@ from cii_platform.api.rate_limit import (
 from cii_platform.api.routes.auth import router as auth_router
 from cii_platform.api.routes.auth_dev import router as auth_dev_router
 from cii_platform.api.routes.auth_dev import should_register_dev_auth
+from cii_platform.api.routes.auth_tokens import router as auth_tokens_router
 from cii_platform.api.routes.calculations import router as calculations_router
 from cii_platform.api.routes.fleet import router as fleet_router
 from cii_platform.api.routes.health import router as health_router
@@ -63,6 +64,8 @@ app.include_router(scenarios_router, prefix=API_V1_PREFIX)
 app.include_router(fleet_router, prefix=API_V1_PREFIX)
 # #414 이메일·비밀번호 인증 — signup·login은 공개 경로(PUBLIC_PATHS)다.
 app.include_router(auth_router, prefix=API_V1_PREFIX)
+# #408 이메일 인증·비밀번호 재설정 — 메일 링크로 진입하므로 세션이 없다(공개 경로).
+app.include_router(auth_tokens_router, prefix=API_V1_PREFIX)
 # #276 개발 환경 스텁 인증 — production이면 라우트 자체를 등록하지 않는다.
 # 인증 미들웨어가 공개 경로(/api/v1/auth/dev-login)로 취급한다 (#307).
 if should_register_dev_auth():

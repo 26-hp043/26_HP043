@@ -25,6 +25,7 @@ from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 from cii_platform.db.models.regulation_year import RegulationYear
 from cii_platform.db.models.simulation_snapshot import SimulationSnapshot
 from cii_platform.db.models.user_session import UserSession
+from cii_platform.db.models.user_token import UserToken
 from cii_platform.db.models.vessel import Vessel
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
@@ -46,6 +47,7 @@ __all__ = [
     "RegulationYear",
     "SimulationSnapshot",
     "UserSession",
+    "UserToken",
     "Vessel",
     "Voyage",
     "VoyageFuelUse",
