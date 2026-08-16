@@ -191,7 +191,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-5',
     purpose: '항차 완료 리포트 · 연간 실적 리포트 생성·내보내기 (PDF · CSV)',
     width: 'form',
-    demoScope: false,  // MVP 승격(#344) — 화면 구현은 #362, 문서·API는 #360·#361
+    demoScope: true,  // #362 구현 완료 (API는 #361)
   },
   SETTINGS: {
     path: '/settings',
