@@ -83,3 +83,17 @@ async def get_fuel_types_by_codes(
     stmt = select(FuelType).where(FuelType.code.in_(list(codes)), FuelType.is_active.is_(True))
     rows = (await session.execute(stmt)).scalars().all()
     return {row.code: row for row in rows}
+
+
+async def list_active_fuel_types(session: AsyncSession) -> Sequence[FuelType]:
+    """활성 연료 종류 전체를 코드순으로 돌려준다 (#370).
+
+    화면이 연료 선택지를 자기 코드에 박아 두면 seed와 갈라진다 — 실제로 ``MDO``는
+    유효해 보이지만 시드에 없는 코드고, 박아 두었다면 사용자는 저장 단계에서야
+    거부를 만난다. 서버가 선택지를 주는 편이 갈릴 여지 자체를 없앤다.
+
+    ``API_SPEC §7.2``의 연료 조회 API가 이 역할을 하도록 명세돼 있으나 **아직
+    구현되지 않았다**. 그 엔드포인트가 생기면 이 함수를 함께 쓰면 된다.
+    """
+    stmt = select(FuelType).where(FuelType.is_active.is_(True)).order_by(FuelType.code)
+    return (await session.execute(stmt)).scalars().all()

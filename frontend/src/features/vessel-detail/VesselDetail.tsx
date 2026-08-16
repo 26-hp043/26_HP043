@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
+import { NotUnderwayPanel } from '../not-underway/NotUnderwayPanel'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
@@ -218,6 +219,12 @@ export function VesselDetail() {
           </section>
         </div>
       </div>
+
+      {/*
+       * 정박 기록 입력 (#370). 선박 상세 아래에 두는 이유는, 이 기록이 바로 위
+       * 「올해 누적」의 분자를 늘리기 때문이다 — 값을 본 자리에서 고칠 수 있어야 한다.
+       */}
+      <NotUnderwayPanel vesselId={vessel.id} />
 
       <DisclaimerBanner />
       <p className="fleet__source">일부 값은 사용자 입력 또는 모델 추정값입니다.</p>

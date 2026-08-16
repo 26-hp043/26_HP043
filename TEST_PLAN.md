@@ -1304,6 +1304,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_cii_engine.py` | 21 | §2 단위 · 계산 엔진 |
 | `test_cii_history.py` | 7 | §4 API · 선박·항차·계산 |
 | `test_fleet_summary.py` | 20 | **§4 API · 선대 요약** — 규제 트리거 판정 · `days_to_d` 경계 4종 · KPI 집계 |
+| `test_not_underway_crud_db.py` | 32 | **§4 API · not under way 구간 CRUD** — 구간 겹침 금지 · CF snapshot · 소프트 삭제 · 집계 도달 |
 | `test_auth_tokens.py` | 13 | **§4.7 인증 API** — 토큰 일회성·만료·용도 분리 · 재설정 시 세션 전량 무효화 |
 | `test_password.py` | 15 | **§4.7 인증 API** — 해싱·정책·타이밍 방어 |
 | `test_mail.py` | 16 | **§5 인프라 · 메일 발송** — 프로덕션 console 가드 · 백엔드 선택 · 발송 실패 래핑 · 템플릿 |
@@ -1355,7 +1356,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_ytd_engine.py` | 0 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 |
 
-**합계 65개 파일 · 799 함수 · 1040 수집.**
+**합계 66개 파일 · 831 함수 · 1072 수집.**
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
@@ -1428,6 +1429,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-07 | `#195` | v1.4: §1.3 케이스를 **기호 표기(`boundary` + `offset`)로 교체** — 적힌 확정값을 그대로 판정에 넣으면 올림된 경계(`upper`·`inferior`)에서 등급이 뒤집힌다. `input` 블록 신설(원경계 재계산 조건), `canonical_digits`에서 `cases[].attained_cii` 제거, 뒤집힘 표와 근거 소절 추가 (#46) |
 | 2026-08-14 | `#328` | v1.5: §4.7 인증 API 케이스 신설(13건) — 기존 구현 파일들(`test_oidc`·`test_auth_api`·`test_auth_session`·`test_auth_wiring`·`test_auth_failure_paths`·`test_dev_auth`)의 케이스를 문서화. 헤더 「상위 문서」의 `API_SPEC` 버전 참조 갱신 (v1.2 → v1.4) (#279) |
 | 2026-08-14 | `#342` | §1.4 Fixture 3 픽스처 실제 파일 2종 적재 — `annual_seed_12345_input.json`·`annual_seed_12345_expected.json`. expected.json 예시에 `fields_to_compare`(11개)·`fields_to_exclude`(5개) 키 추가로 실제 파일과 구조 일치 (#47) |
+| 2026-08-17 | `#370` | §14 인벤토리에 `test_not_underway_crud_db.py`(32함수) 등재 · 합계 실측 갱신(65파일·799함수·1040수집 → **66파일·831함수·1072수집**). 이 이슈의 위험은 계산이 아니라 **쓰기 규칙**이므로 검증 범위를 구간 겹침 금지(열린 구간 = 무한대) · CF snapshot을 서버가 뜨는 것 · 소프트 삭제가 집계에서 즉시 빠지는 것 · **넣은 연료가 `#353` 집계에 실제로 도달하는 것**으로 잡았다 (#370) |
 | 2026-08-17 | `#408` | §14 인벤토리에 `test_auth_tokens.py`(13함수) 등재 · 합계 실측 갱신(64파일·786함수·1027수집 → **65파일·799함수·1040수집**) (#408) |
 | 2026-08-17 | `#414` | **§4.7 인증 API 절 재작성** — 구글 OIDC 제거로 대상이 사라진 AT-AUTH-001~004를 이메일·비밀번호 케이스로 교체(계정 존재 여부 비노출 · 정책 위반 · 소문자 정규화 · 비밀번호 미노출). **TC ID는 재번호하지 않고 같은 번호에 새 항목을 배치**했다 — 번호를 밀면 이슈·커밋의 기존 참조가 어긋난다. §14 인벤토리에서 `test_oidc.py` 제거하고 `test_password.py` 등재 · 합계 실측 갱신 (#414) |
 | 2026-08-16 | `#407` | §14 인벤토리에 `test_mail.py`(16함수 · 파라미터화로 21건 수집) 등재 · 합계 실측 갱신(63파일·489함수·999수집 → **64파일·505함수·1020수집**) (#407) |
