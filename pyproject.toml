@@ -23,6 +23,11 @@ dependencies = [
     "aiosmtplib>=3.0,<5.0",
     # 비밀번호 해싱 (#414). Argon2id — bcrypt의 72바이트 절단·PBKDF2의 GPU 취약을 피한다.
     "argon2-cffi>=23.1,<26",
+    # 리포트 PDF 렌더링 (#361). 순수 Python 패키지지만 **런타임에 Pango가 필요**하다
+    # (Dockerfile의 libpango-1.0-0 · libpangoft2-1.0-0). 그래서 reports/pdf.py가
+    # 지연 import 한다 — 최상단에서 import하면 라이브러리가 없는 환경에서 앱 전체가
+    # 뜨지 않고 CSV 내보내기까지 막힌다.
+    "weasyprint>=66,<70",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +38,9 @@ dev = [
     "pytest>=9.1.1,<10.0",
     "pytest-asyncio>=1.4.0,<2.0",
     "pytest-cov>=7.1.0,<8.0",
+    # PDF 텍스트 추출 (#361). 한글이 tofu로 렌더링되면 바이트 길이·HTTP 상태는
+    # 정상이라 **추출된 텍스트로만** 잡을 수 있다.
+    "pypdf>=5.0,<7.0",
 ]
 
 [tool.hatch.build.targets.wheel]
