@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.7 |
+| 버전 | v1.8 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.5 |
@@ -627,6 +627,117 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
 |---|---|---|
 | 404 | `NOT_FOUND` | 선박 없음 |
 | 422 | `VALIDATION_ERROR` | 창 규칙 위반 (`from > to` · 창 > 10년 · `from < 2019`) |
+
+---
+
+### 2.8 선대 요약 조회 (#350)
+
+```http
+GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
+```
+
+대시보드(`UIFLOW §2-4` · `PRD §6.2 SCR-001`)가 **한 번의 호출로** 선대 전체 현황과 경고 배너 데이터를 받는다.
+
+> **왜 별도 엔드포인트인가.** `GET /vessels`는 선박 제원만 반환하고 등급·위치·상태 요약이 없다. 화면이 선박마다 개별 조회를 돌면 10척에 21회 호출이 된다.
+
+> **계산을 다시 하지 않는다.** 선박별 YTD 값·등급·위험도는 `#353`의 YTD 엔진(`services.ytd_cii`)을 그대로 위임한다. 이 엔드포인트의 소관은 **모으기·판정·집계**다.
+
+#### 쿼리 파라미터
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `regulation_year` | integer | 아니오 | 집계 대상 규제연도. 기본 `as_of` 연도 |
+| `as_of` | string | 아니오 | 기준 시각 (ISO 8601 UTC). 미지정 시 서버가 확정하고 응답에 실어 반환한다 (`TECH_SPEC §5.4.1` 계약 ⑵) |
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": {
+    "as_of": "2026-08-16T12:00:00+00:00",
+    "regulation_year": 2026,
+    "summary": {
+      "total": 10,
+      "under_way": 7,
+      "not_under_way": 3,
+      "unknown_state": 0,
+      "rating_distribution": { "A": 2, "B": 2, "C": 3, "D": 2, "E": 1 },
+      "at_risk": 2,
+      "no_data": 0
+    },
+    "vessels": [
+      {
+        "vessel_id": "uuid",
+        "name": "MV Hanla",
+        "ship_type": "BULK_CARRIER",
+        "imo_number": "9100001",
+        "underway_state": "UNDER_WAY",
+        "detail_status": "SAILING",
+        "current_lat": "35.100000",
+        "current_lon": "129.040000",
+        "position_updated_at": "2026-08-16T11:00:00+00:00",
+        "data_available": true,
+        "ytd_attained_cii": "9.4200",
+        "ytd_required_cii": "5.0450",
+        "ytd_rating": "E",
+        "risk_level": "CRITICAL",
+        "risk_reasons": ["E_THIS_YEAR"],
+        "days_to_d": null,
+        "days_to_d_reason": "ALREADY_AT_OR_BELOW"
+      }
+    ],
+    "actions": [
+      {
+        "vessel_id": "uuid",
+        "vessel_name": "MV Hanla",
+        "severity": "critical",
+        "reason": "E_THIS_YEAR",
+        "message": "E등급 1년차 — SEEMP Part III 시정조치계획 대상"
+      }
+    ]
+  },
+  "meta": { "request_id": "...", "timestamp": "...", "as_of": "..." }
+}
+```
+
+#### `risk_level`과 `risk_reasons`는 다른 것을 본다
+
+| 필드 | 근거 | 의미 |
+|---|---|---|
+| `risk_level` | `PRD §9.4.1` | 표시용 4단계 — LOW · MEDIUM · HIGH · CRITICAL. 「지금 여유가 얼마나 있나」 |
+| `risk_reasons` | `PRD §3.3.7` | **규제 트리거** — 「MARPOL Reg 28.7에 걸렸나」 |
+
+C등급이어도 여유가 없으면 `risk_level`은 `HIGH`지만 규제 의무는 없고, D등급 3년차는 여유와 무관하게 의무가 생긴다. **하나로 합치면 조치 목록에 사유를 쓸 수 없다.**
+
+`risk_reasons` 값은 `PRD §3.3.7`의 판정 기준을 그대로 따른다.
+
+| 값 | 조건 |
+|---|---|
+| `E_THIS_YEAR` | 올해 YTD 등급이 **E** |
+| `D_THIRD_YEAR` | 직전 2개 규제연도의 확정 등급이 연속 **D**이고 올해 YTD도 **D** |
+
+> 기준이 **연말 예상 등급이 아니라 YTD 등급**이다. 예상 등급은 Monte Carlo 종속이라 같은 화면을 두 번 열면 값이 달라질 수 있어, `PRD §3.3.7`이 그 기준을 후속 이슈로 연기했다.
+
+#### `days_to_d` — 「D등급 진입까지 n일」
+
+숫자를 내지 못하는 경우 `days_to_d`는 `null`이고 `days_to_d_reason`이 사유를 준다. **숫자를 못 낸 것과 0일인 것은 다르므로** 같은 자리에 넣지 않는다.
+
+| `days_to_d_reason` | 조건 |
+|---|---|
+| `ALREADY_AT_OR_BELOW` | 이미 D 이하 — 「진입까지」가 정의되지 않음 |
+| `NOT_THIS_YEAR` | 외삽 결과가 연말을 넘음 |
+| `NOT_UNDER_WAY` | **정박 중 — 산정하지 않음** |
+| `NO_DATA` | 실적 또는 경계값 없음 |
+
+> **정박 중에 산정하지 않는 이유.** not under way 구간은 거리가 늘지 않고 연료만 늘어(`PRD §3.3` · `MEPC.412(84)` §4.2) CII가 단조 악화한다. 그대로 외삽하면 n일이 하루가 다르게 짧아졌다가 **출항하는 순간 되돌아간다.** 평활화 규칙을 두는 대신 사유로 표기한다.
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 409 | `PARAMETER_ERROR` | 해당 규제연도 파라미터 없음 (VAL-005) |
+
+> **선박 0척은 오류가 아니다.** 아직 등록하지 않은 선사가 정상적으로 만나는 상태이므로 200에 빈 배열을 반환한다. 404로 내면 화면이 「기능 미구현」과 구분하지 못한다.
 
 ---
 
@@ -1866,6 +1977,7 @@ GET /api/v1/health
 | POST | `/api/v1/vessels` | 선박 등록 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}` | 선박 상세 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}/cii-history` | 연도별 CII 이력 | §6.2 SCR-008 |
+| GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
 | PATCH | `/api/v1/vessels/{id}` | 선박 수정 | §6.2 SCR-002 |
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}/voyages` | 항차 목록 | §6.2 SCR-003 |
@@ -2038,4 +2150,5 @@ GET /api/v1/health
 | 2026-08-15 | `#384` | v1.6: §2.6 선박 위치·운항 상태 갱신 엔드포인트 신설 — 026(#346)이 만든 컬럼의 유일한 갱신 경로. 상태 2축·위경도 쌍 규칙을 스키마 표면에 명시, `position_updated_at`은 서버 확정. §2.1 선박 객체에 위치·상태 5키 추가 (#369) |
 | 2026-08-15 | `#404` | §10 `rng_canonical_test` 유예 각주를 구현 완료 서술로 교체 — `#43` 머지로 유예 조건이 해소됐다. `"failed"`여도 `status`는 `ok`를 유지하는 근거(liveness vs 재현성 신호 분리)를 명시 (#400) |
 | 2026-08-15 | `#405` | 변경 이력 표의 PR 번호 공란 2건을 채우고 순서 교정 — v1.5 → #383(`as_of` 계약) · v1.6 → #384(위치 갱신). #401이 `DB_SCHEMA`만 정리하고 이 문서를 빠뜨린 것을 보완한다. 문서 내용 변경 없음 (#401) |
+| 2026-08-16 | `#350` | **§2.8 선대 요약 조회 신설** — 대시보드가 한 번의 호출로 선대 전체 현황을 받는 `GET /fleet/summary`. `risk_level`(PRD §9.4.1 표시용)과 `risk_reasons`(PRD §3.3.7 규제 트리거)를 분리해 함께 반환하는 근거, `days_to_d` 경계 4종, 선박 0척이 오류가 아닌 근거를 명시. 엔드포인트 요약 표에 1행 추가 (#350) |
 | 2026-08-15 | `#380` | §2.7 `rating` 설명의 `PRD §3.3.7` 참조를 `§3.3.8`로 정정 — 이 근거(YTD는 공식 등급이 아님)는 실시간 CII 절의 내용인데, `#386`이 `§3.3.7`을 「등급 하락의 규제상 귀결」로 선점해 참조가 다른 절을 가리키고 있었다 (#358) |
