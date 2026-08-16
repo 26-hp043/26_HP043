@@ -19,6 +19,8 @@ dependencies = [
     "uvicorn[standard]>=0.52.1,<0.60",
     "httpx>=0.28.1,<0.29",
     "pyjwt[crypto]>=2.8,<3.0",
+    # 인증 메일 발송 (#407). console 백엔드만 쓰는 개발 환경에서는 import되지 않는다.
+    "aiosmtplib>=3.0,<5.0",
 ]
 
 [project.optional-dependencies]
