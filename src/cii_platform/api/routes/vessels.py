@@ -27,6 +27,7 @@ from cii_platform.api.schemas.vessel import (
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
+from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.vessel import (
     create_vessel,
@@ -219,3 +220,20 @@ async def delete_vessel_route(
     """
     data = await delete_vessel(session, vessel_id)
     return {"data": data, "meta": _meta(request)}
+
+
+@router.get("/vessels/{vessel_id}/cii/current")
+async def get_current_cii_route(
+    request: Request,
+    vessel_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    year: Annotated[int | None, Query(description="규제연도. 기본 as_of 연도")] = None,
+    as_of: Annotated[datetime | None, Query(description="기준 시각 (ISO 8601 UTC)")] = None,
+) -> dict[str, object]:
+    """실시간 CII 3종 값을 조회한다 (API_SPEC §2.14, #354).
+
+    ⑴ 연간 누적(YTD) · ⑵ 항차 구간값 · ⑶ 연말 예상을 **한 번에** 반환한다.
+    화면이 값마다 따로 물으면 기준 시점이 어긋나 셋이 서로 모순된다.
+    """
+    data, extra_meta = await get_current_cii(session, vessel_id, year=year, as_of=as_of)
+    return {"data": data, "meta": _meta(request, **extra_meta)}

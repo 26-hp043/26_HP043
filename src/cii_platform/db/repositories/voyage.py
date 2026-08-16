@@ -180,3 +180,29 @@ async def insert_fuel_use(session: AsyncSession, **fields: object) -> VoyageFuel
     session.add(fuel_use)
     await session.flush()
     return fuel_use
+
+
+async def find_in_progress(session: AsyncSession, vessel_id: UUID) -> Voyage | None:
+    """선박의 **진행 중 항차 한 건**을 돌려준다 (#354).
+
+    실시간 화면(``UIFLOW 2-9``)은 「지금 어느 항차를 뛰고 있는가」를 물으며, 그
+    답은 하나여야 한다. 선박이 동시에 두 항차를 진행하는 것은 데이터 오류지만
+    **여기서 오류로 만들지 않는다** — 조회가 화면을 죽이면 사용자는 값을 볼 수도,
+    잘못된 항차를 고칠 수도 없다. 가장 최근 출항분을 고르고 넘어간다.
+
+    정렬 기준이 ``actual_departure_at``인 이유는 실제로 나간 시각이 진행 중 여부를
+    가르기 때문이다. 계획 출항 시각으로 고르면 아직 안 나간 항차가 앞설 수 있다.
+    NULL은 마지막으로 민다 — 출항 실적이 없는 IN_PROGRESS는 진행량이 0이라
+    시뮬레이션 시계가 아무것도 만들지 못한다(``#368`` 경계 처리).
+    """
+    stmt = (
+        select(Voyage)
+        .where(
+            Voyage.vessel_id == vessel_id,
+            Voyage.status == "IN_PROGRESS",
+            Voyage.is_deleted.is_(False),
+        )
+        .order_by(Voyage.actual_departure_at.desc().nullslast(), Voyage.id)
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalars().first()

@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.12 |
+| 버전 | v1.13 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-08-17 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.5 |
@@ -983,6 +983,145 @@ DELETE /api/v1/not-underway-periods/{period_id}/fuel-uses/{fuel_use_id}
 | 422 | `VALIDATION_ERROR` | 열거값 위반 · `fuel_ton <= 0` · 알 수 없는 연료 |
 
 > **경로에 `period_id`를 함께 두는 이유.** 자식 ID만 받으면 URL을 바꿔 남의 구간을 지울 수 있고, 그 삭제는 CII 값을 조용히 바꾼다.
+
+---
+
+### 2.14 실시간 CII 3종 값 조회 (#354)
+
+```http
+GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
+```
+
+실시간 CII 화면(`UIFLOW 2-9`)이 표시할 값 셋을 **한 번의 호출로** 반환한다.
+
+> **왜 한 번인가.** 값마다 따로 물으면 기준 시점이 어긋나 셋이 서로 모순된다 — 「YTD는 C인데 연말 예상이 이미 C보다 좋다」 같은 상태가 화면에서 만들어진다. `as_of`를 **서버가 한 번 확정**하고 세 값 모두에 같은 값을 쓴다.
+
+#### 3종의 성격 (`PRD §3.3`)
+
+| # | 값 | 등급 | 화면 표기 |
+|---|---|---|---|
+| ⑴ | **연간 누적 (YTD)** | **가능** | 「현재 누적 기준 예상 등급」 (`COR-2`) · **주 표시** |
+| ⑵ | 항차 구간값 | **불가** | 「항차 CII 기여도」 (`COR-1`) |
+| ⑶ | 연말 예상 | 가능 | 「연말 예상 등급」 (`COR-2`) · 보조 표시 |
+
+> **⑵에 등급을 붙이지 않는다.** 등급 경계는 연간 누적 지표에 대해 정의된 것이고, 항차 하나에 갖다 대면 「이 항차는 D등급」이라는 **규제에 없는 말**이 만들어진다. 응답은 `rating: null`을 **명시적으로 싣는다** — 필드를 빼면 화면이 「아직 안 온 값」으로 오해해 기다리거나 스스로 등급을 만든다.
+
+#### 쿼리 파라미터
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `year` | integer | 아니오 | 규제연도. 기본 `as_of`의 연도. 2019~2100 |
+| `as_of` | string | 아니오 | 기준 시각 (ISO 8601 UTC). 미지정 시 서버가 확정해 `meta.as_of`로 반환 (`§1.10` 계약 ⑵) |
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": {
+    "vessel_id": "00000000-0000-4000-8000-000000000002",
+    "vessel_name": "STAR SKIPPER",
+    "regulation_year": 2026,
+    "transport_capacity_basis": "DWT",
+    "underway_state": "NOT_UNDER_WAY",
+
+    "ytd": {
+      "data_available": true,
+      "attained_cii": "18.637188",
+      "required_cii": "17.374582",
+      "ratio_to_required": "1.07267",
+      "rating": "B",
+      "risk_level": "WATCH",
+      "margin_ratio": "0.09321",
+      "boundaries": { "superior_boundary": "…", "lower_boundary": "…", "upper_boundary": "…", "inferior_boundary": "…" },
+      "total_co2_ton": "…", "total_fuel_ton": "…",
+      "underway_distance_nm": "…", "not_underway_distance_nm": "…", "total_distance_nm": "10620.00",
+      "voyage_count": 3, "not_underway_period_count": 1
+    },
+
+    "current_voyage": {
+      "voyage_id": "…", "voyage_no": "2026-02", "status": "IN_PROGRESS",
+      "departure_port_name": "…", "arrival_port_name": "…",
+      "planned_distance_nm": "…",
+      "underway_hours": "112.0000", "distance_nm": "1848.00", "fuel_ton": "140.00",
+      "fuel_type": "HFO", "is_simulated": true,
+      "attained_cii": "…", "co2_ton": "…",
+      "rating": null
+    },
+
+    "year_end_projection": {
+      "data_available": true, "reason": null,
+      "attained_cii": "…", "required_cii": "…", "ratio_to_required": "…",
+      "rating": "C", "risk_level": "WATCH",
+      "assumptions": {
+        "method": "YTD_DAILY_AVERAGE",
+        "elapsed_days": "227.73", "remaining_days": "137.27",
+        "daily_distance_nm": "46.63", "daily_fuel_ton": "3.51",
+        "projected_extra_distance_nm": "…", "projected_extra_fuel_ton": "…",
+        "fuel_type": "HFO"
+      }
+    },
+
+    "warnings": ["REFERENCE_ONLY", "SIMULATION_NO_FUEL_RATE"]
+  },
+  "meta": {
+    "as_of": "2026-08-17T02:00:00+00:00",
+    "simulated": true,
+    "request_id": "…",
+    "timestamp": "…"
+  }
+}
+```
+
+모든 수치는 **문자열**이다 (`§1.7`). `parseFloat`으로 되돌리면 Layer 1이 `Decimal`로 지킨 정밀도가 사라진다.
+
+#### ⑶ 연말 예상의 산출 방식
+
+**가정은 하나다 — 「지금까지의 일평균이 연말까지 이어진다」.**
+
+```text
+일평균 거리 = YTD 총거리 / 경과일
+일평균 연료 = YTD 총연료 / 경과일
+연말 예상   = YTD에 (일평균 × 잔여일)을 더해 같은 엔진으로 다시 산출
+```
+
+> **선박 제원의 설계 속력·설계 소모율을 쓰지 않는다.** 그 값이 실적과 다르면 ⑶이 ⑴과 **반대 방향으로** 움직인다 — 실적이 나쁜 배의 연말 예상이 좋게 나오면 화면은 사용자를 안심시키는 쪽으로 틀린다.
+
+> **계산식을 새로 만들지 않는다.** ⑴과 ⑶ 모두 `#353`의 YTD 엔진을 그대로 부르고, 다른 것은 주입하는 누적값뿐이다. 식이 갈리면 「⑴은 C인데 ⑶이 이미 C보다 좋다」 같은 모순이 조용히 생긴다.
+
+`assumptions`를 함께 싣는 것은 `PRD §3.3` ⑶의 요구다 — 화면이 「⑶만 단독으로 크게 표시하지 않는다」를 지키려면 근거가 응답에 있어야 한다.
+
+**⑶을 낼 수 없는 경우**는 `data_available: false` + `reason`이다.
+
+| `reason` | 뜻 |
+|---|---|
+| `NO_BASIS` | 올해 실적이 없어 일평균을 낼 수 없다. 0으로 두면 「연말에도 A등급」이라는 근거 없는 낙관이 나온다 |
+| `YEAR_COMPLETE` | 남은 기간이 0이다. 그때 ⑶은 ⑴과 같은 값이라 따로 낼 이유가 없다 |
+
+#### `warnings`
+
+| 코드 | 뜻 |
+|---|---|
+| `REFERENCE_ONLY` | 모든 계산 결과에 붙는다 (`§1.6`) |
+| `SIMULATION_NO_FUEL_RATE` | 선박에 `reference_daily_foc_ton`이 없어 시계가 연료를 만들지 못했다 — **진행 중 항차분을 YTD에 넣지 않았다** |
+| `SIMULATION_NO_FUEL_TYPE` | 진행 중 항차의 유종을 알 수 없다 (항차 연료 기록도 선박 기본 연료도 없음) — 같은 이유로 넣지 않았다 |
+
+> **진행분은 거리와 연료가 둘 다 있을 때만 넣는다.** 한쪽만 넣으면 CII가 한 방향으로만 틀리고, 특히 **거리만 넣는 경우가 위험하다** — 분모 `Dt`만 늘고 분자 `M`은 그대로라 **항해할수록 등급이 좋아진다.** `vessel.reference_daily_foc_ton`은 nullable이므로(`DB_SCHEMA §2.1`) 이 상태는 실제로 발생한다. 넣지 않은 이유를 경고로 싣는 것은, 값이 안 변하는 것을 화면이 「아직 출항 전」으로 오해하면 사용자가 없는 제원을 채울 생각을 하지 못하기 때문이다.
+
+#### `meta.simulated`
+
+`PRD R-5` 「시뮬레이션 데이터」 배지의 근거다. 시계가 만든 값이 하나라도 섞였으면 참이다.
+
+> **판정을 서버가 한다.** 화면이 스스로 판정하면 배지를 감출 근거를 만들 수 있고, `COR-5`(MVP는 AIS·IoT 미연동)의 표기 의무가 화면 구현에 좌우된다.
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 존재하지 않거나 삭제된 선박 |
+| 409 | `PARAMETER_ERROR` | 해당 규제연도 파라미터 없음 (VAL-005) |
+| 422 | `VALIDATION_ERROR` | `year`가 2019~2100 밖 |
+
+> **실적이 없는 것은 오류가 아니다.** `ytd.data_available: false`로 200을 반환한다. 404로 내면 신규 등록 선박이 전부 오류로 보인다.
 
 ---
 
@@ -2225,6 +2364,7 @@ GET /api/v1/health
 | GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
 | PATCH | `/api/v1/vessels/{id}` | 선박 수정 | §6.2 SCR-002 |
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
+| GET | `/api/v1/vessels/{id}/cii/current` | 실시간 CII 3종 값 | §3.3 · §6.2 SCR-009 |
 | GET | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 목록 | §3.3 |
 | POST | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 생성 | §3.3 |
 | PATCH | `/api/v1/not-underway-periods/{id}` | 구간 수정 (종료 확정) | §3.3 |
@@ -2407,3 +2547,4 @@ GET /api/v1/health
 | 2026-08-16 | `#350` | **§2.8 선대 요약 조회 신설** — 대시보드가 한 번의 호출로 선대 전체 현황을 받는 `GET /fleet/summary`. `risk_level`(PRD §9.4.1 표시용)과 `risk_reasons`(PRD §3.3.7 규제 트리거)를 분리해 함께 반환하는 근거, `days_to_d` 경계 4종, 선박 0척이 오류가 아닌 근거를 명시. 엔드포인트 요약 표에 1행 추가 (#350) |
 | 2026-08-15 | `#380` | §2.7 `rating` 설명의 `PRD §3.3.7` 참조를 `§3.3.8`로 정정 — 이 근거(YTD는 공식 등급이 아님)는 실시간 CII 절의 내용인데, `#386`이 `§3.3.7`을 「등급 하락의 규제상 귀결」로 선점해 참조가 다른 절을 가리키고 있었다 (#358) |
 | 2026-08-17 | PR #423 | **v1.12 — `§2.9`~`§2.13` not under way 구간 CRUD 신설 (`#370`).** `#345`가 테이블을, `#347`이 시드를, `#353`이 읽는 쪽을 만들었으나 **쓰는 쪽이 없어** 정박 연료를 운영 중에 넣을 수 없었다. 6개 엔드포인트를 추가하고 `§12` 요약표에 등재. 명세로 확정한 판정 셋 — ⑴ 구간 **겹침 금지**(열린 구간 = 무한대 · 경계는 닫힘-열림), ⑵ `cf_used`는 **서버가 뜬다**(요청에서 받지 않는다), ⑶ 삭제는 **소프트**. `§2.9` `meta`가 선택지 3종(`period_types`·`consumer_types`·`fuel_types`)을 싣는데, 연료 코드는 `§7.2` 연료 조회 API가 **미구현**이라 임시로 여기서 준다 |
+| 2026-08-17 | PR #424 | **v1.13 — `§2.14` 실시간 CII 3종 값 조회 신설 (`#354`).** ⑴ 연간 누적 · ⑵ 항차 구간값 · ⑶ 연말 예상을 한 번에 반환한다 — 값마다 따로 물으면 기준 시점이 어긋나 셋이 서로 모순된다. **등급은 ⑴에만 붙고 ⑵는 `rating: null`을 명시**한다(`COR-1`). ⑶은 「YTD 일평균 유지」 가정으로 외삽하되 **같은 YTD 엔진을 다시 부른다** — 식이 갈리면 ⑴과 ⑶이 모순된다. `warnings`에 `SIMULATION_NO_FUEL_RATE`·`SIMULATION_NO_FUEL_TYPE` 추가: 시계가 연료를 만들지 못하면 **진행분을 아예 넣지 않는다**(거리만 넣으면 분모만 늘어 항해할수록 등급이 좋아진다) |
