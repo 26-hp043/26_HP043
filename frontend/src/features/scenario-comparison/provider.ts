@@ -38,8 +38,19 @@ export class ScenarioComparisonError extends Error {
   /** 요청 본문 기준 필드 경로. 없으면 요청 전체 문제. */
   readonly field?: string
 
-  constructor(code: ScenarioComparisonErrorCode, message: string, field?: string) {
-    super(message)
+  /**
+   * ``options.cause``는 **원인 예외를 잃지 않기 위해** 받는다 (#139).
+   *
+   * `apiProvider`가 네트워크 실패를 사용자 문구로 바꿔 던지는데, 원본을 버리면
+   * 개발자 도구에서 무엇이 끊겼는지 알 수 없다(기능①의 `VoyageCiiError`와 같은 이유).
+   */
+  constructor(
+    code: ScenarioComparisonErrorCode,
+    message: string,
+    field?: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options)
     this.name = 'ScenarioComparisonError'
     this.code = code
     this.field = field

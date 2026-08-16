@@ -198,7 +198,7 @@ describe('J. 기능② 시나리오 비교 — 체크리스트 §4', () => {
       regulation_year: 2026,
       base_distance_nm: 1000,
       base_speed_kn: 14,
-      base_fuel_ton: 80,
+      base_daily_foc_ton: 26.88,
       fuel_type: 'HFO',
     })
 
@@ -228,7 +228,7 @@ describe('J. 기능② 시나리오 비교 — 체크리스트 §4', () => {
       regulation_year: 2026,
       base_distance_nm: 1000,
       base_speed_kn: 14,
-      base_fuel_ton: 80,
+      base_daily_foc_ton: 26.88,
       fuel_type: 'HFO',
     })
     expect(lowestSummary(result.scenarios).map((s) => s.scenarioType)).toEqual([

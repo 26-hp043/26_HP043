@@ -55,7 +55,14 @@ export interface ScenarioComparisonRequest {
   /** `DIRECT` 시나리오의 거리. 나머지는 `PRD §11.2` 생성 방식을 따른다. */
   base_distance_nm: number
   base_speed_kn: number
-  base_fuel_ton: number
+  /**
+   * **일일** 연료 소모량 — `API_SPEC §5.1`의 `base_daily_foc_ton`.
+   *
+   * 총량이 아니라 일일 소모량인 이유: 시나리오마다 소요시간이 달라 **총량으로는
+   * 감속 시나리오의 연료를 계산할 수 없다.** demo provider는 API가 없던 시절
+   * 총량(`base_fuel_ton`)을 받았으나, API가 생긴 뒤에는 **API가 계약**이다(#139).
+   */
+  base_daily_foc_ton: number
   /** `fuel_type` 테이블의 code (예: `HFO`). */
   fuel_type: string
 }
