@@ -1,0 +1,61 @@
+/*
+ * 등급 칩 — 토큰만 참조한다(DESIGN_SYSTEM §15).
+ *
+ * 등급별 색은 디자이너 토큰의 세 짝(bg · text · border)을 그대로 쓴다.
+ * 라이트·다크에서 함께 뒤집히므로 테마 분기가 필요 없다.
+ */
+
+.grade-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-label);
+  font-variant-numeric: tabular-nums;
+  border-style: solid;
+  border-width: var(--borderWidth-default);
+  border-radius: var(--radius-badge);
+  /* 등급 문자 한 글자라 폭이 흔들리지 않게 최소 폭을 준다. */
+  min-inline-size: var(--target-chip);
+}
+
+.grade-chip--md {
+  block-size: var(--target-chip);
+  font-size: var(--font-size-label);
+}
+
+.grade-chip--sm {
+  block-size: 22px;
+  min-inline-size: 22px;
+  font-size: var(--font-size-micro);
+}
+
+.grade-chip--a {
+  background: var(--cii-a-bg);
+  color: var(--cii-a-text);
+  border-color: var(--cii-a-border);
+}
+
+.grade-chip--b {
+  background: var(--cii-b-bg);
+  color: var(--cii-b-text);
+  border-color: var(--cii-b-border);
+}
+
+.grade-chip--c {
+  background: var(--cii-c-bg);
+  color: var(--cii-c-text);
+  border-color: var(--cii-c-border);
+}
+
+.grade-chip--d {
+  background: var(--cii-d-bg);
+  color: var(--cii-d-text);
+  border-color: var(--cii-d-border);
+}
+
+.grade-chip--e {
+  background: var(--cii-e-bg);
+  color: var(--cii-e-text);
+  border-color: var(--cii-e-border);
+}
