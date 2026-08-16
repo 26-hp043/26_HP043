@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.12 |
+| 버전 | v1.13 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
@@ -718,14 +718,15 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 
 ### 2.15 `app_user` — 사용자 (#273)
 
-> PRD §7.8 요구사항. 인증은 구글 OIDC에 위임하며 **비밀번호 관련 컬럼을 두지 않는다.**
+> `PRD §7.10` 요구사항. **제품이 비밀번호를 직접 관리한다**(#413) — 단, 저장하는 것은 해시뿐이다.
 
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `id` | UUID | PK, NOT NULL | 내부 사용자 ID |
-| `google_sub` | VARCHAR(255) | NOT NULL | 구글 OIDC `sub` 클레임. partial unique index (soft delete 호환) |
+| `password_hash` | VARCHAR(255) | NOT NULL | 비밀번호 해시(Argon2id). **평문을 저장하지 않는다** |
+| `email_verified_at` | TIMESTAMPTZ | NULL | 이메일 인증 완료 시각. `NULL`이면 미인증 |
 | `email` | VARCHAR(320) | NOT NULL | 표시·연락용. **식별자가 아니다** |
-| `display_name` | VARCHAR(100) | NULL | 구글 프로필 이름 |
+| `display_name` | VARCHAR(100) | NULL | 표시 이름 |
 | `last_login_at` | TIMESTAMPTZ | NULL | 마지막 로그인 시각 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
@@ -734,11 +735,37 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 **인덱스:**
 
 ```sql
-CREATE UNIQUE INDEX idx_app_user_google_sub ON app_user (google_sub) WHERE is_deleted = false;
-CREATE INDEX idx_app_user_email ON app_user (email) WHERE is_deleted = false;
+CREATE UNIQUE INDEX idx_app_user_email ON app_user (email) WHERE is_deleted = false;
 ```
 
-> **`email`에 unique를 걸지 않는 것은 의도다.** 구글 계정의 이메일은 변경될 수 있다. 유일성은 `google_sub`에만 둔다.
+> **[#413] `email`이 로그인 ID이자 유일 키다.** 종전에는 *"구글 계정의 이메일은 변경될 수 있으므로 unique를 걸지 않는다"* 로 두고 유일성을 `google_sub`에 두었으나, **구글 위임을 그만두면서 그 전제가 사라졌다**(`PRD O-14`). 자체 인증에서 이메일은 사용자가 스스로 정하는 로그인 ID이므로 유일해야 한다.
+>
+> **`password_hash`는 해시만 담는다.** 평문 비밀번호는 저장·로그·감사 기록 어디에도 남기지 않는다 — `app_session`이 토큰 원문을 저장하지 않는 것(§2.16)과 같은 원칙이다.
+
+### 2.15.1 `user_token` — 일회용 인증 토큰 (#408)
+
+이메일 인증과 비밀번호 재설정에 쓰는 **한 번 쓰고 버리는 증명**이다. 세션(`§2.16`)과 수명주기가 달라 별도 테이블로 둔다 — 세션은 로그인 상태를 유지하고 이 토큰은 단발성이다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `user_id` | UUID | NOT NULL, **FK → app_user(id) ON DELETE CASCADE** | 토큰 소유자 |
+| `purpose` | VARCHAR(20) | NOT NULL, CHECK IN (`EMAIL_VERIFY`, `PASSWORD_RESET`) | 용도 |
+| `token_hash` | VARCHAR(64) | NOT NULL, UNIQUE | 토큰의 SHA-256 hex. **원문을 저장하지 않는다** |
+| `expires_at` | TIMESTAMPTZ | NOT NULL | 만료 시각 |
+| `used_at` | TIMESTAMPTZ | NULL | 사용 시각. NOT NULL이면 재사용 불가 |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | |
+
+```sql
+CREATE UNIQUE INDEX idx_user_token_hash ON user_token (token_hash);
+CREATE INDEX idx_user_token_user_purpose ON user_token (user_id, purpose);
+```
+
+> **원문 대신 해시만 저장한다.** `app_session.session_token_hash`(§2.16)와 같은 규칙이다 — **DB가 유출돼도 토큰을 되돌릴 수 없어야 한다.** 원문은 메일 본문에만 실린다.
+>
+> **유효기간** — 이메일 인증 24시간 · 비밀번호 재설정 1시간. 재설정이 짧은 것은 그 토큰이 계정을 통째로 넘기는 힘을 갖기 때문이다.
+>
+> 실물 테이블 생성은 **`#408`**이 담당한다. 이 절은 계약만 확정한다.
 
 ### 2.16 `user_session` — 로그인 세션 (#273)
 
@@ -1364,6 +1391,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-15 | `#375` | v1.7: §2.1에 운항 상태 2축·위치 5컬럼 반영(마이그레이션 026) — `chk_vessel_state_pair` 정합 규칙(`SAILING`↔`UNDER_WAY`·6값↔`NOT_UNDER_WAY`, IS NOT NULL 가드)·위경도 범위·위치-시각 페어 (#346) |
 | 2026-08-15 | `#377` | v1.8: §2.17에 `distance_nm` 추가(마이그레이션 028) — `MEPC.412(84)` §4.2가 `Dt`를 「both under way and not under way」로 정의해 not under way 이동 거리가 분모에 들어간다. `M`·`Dt` 원문 대조 완료 표기 (#353 · #358) |
 | 2026-08-15 | `#381` | v1.9: §2.18에 `idx_not_underway_fuel_use_unique`(`period_id`, `consumer_type`, `fuel_type`) UNIQUE 신설 — §2.3 [S-2]와 같은 CO₂ 이중 산정 차단. 선행열이 같아 중복인 `idx_not_underway_fuel_use_period` 제거. §2.17에 `idx_not_underway_period_vessel_started`(#368 구간 겹침 조회)·`idx_not_underway_period_voyage`(SET NULL 확인 full scan 방지) 신설 — 마이그레이션 029 (#376) |
+| 2026-08-16 | `#413` | **v1.13 — 자체 ID/PW 인증 전환.** §2.15 `app_user` 재정의 — `google_sub` 삭제, `password_hash`·`email_verified_at` 추가, **`email`에 UNIQUE 부여**(종전 「unique를 걸지 않는 것은 의도」 각주는 구글 위임 전제가 사라져 정정) · **§2.15.1 `user_token` 테이블 계약 신설**(#408 구현 대상, 원문 대신 해시 저장) (#413) |
 | 2026-08-15 | `#382` | v1.10: §2.18에 `cf_used` NUMERIC(10,6) NOT NULL 추가(마이그레이션 030) — `PRD` §8.4의 CF snapshot 보존이 `voyage_fuel_use`에만 적용되고 not under way 연료는 `fuel_type.cf` 현재값을 쓰고 있었다. 집계를 `(fuel_type, cf_used)`로 묶어 개정 전후 행이 각자의 CF로 곱해지게 했다 (#378) |
 | 2026-08-15 | `#389` | v1.11: §8.3.1 `fuel_type.content_hash` 산출 규칙 신설 — **행 단위** · 대상 필드 `{code, cf}`(`TECH_SPEC` §5.2.1 `parameters_used.fuel_types[]` 원소 스키마 재사용) · `canonical_json` + `sha256:` 접두사(총 71자, 컬럼 폭 일치). 017이 보류한 값을 마이그레이션 031이 리터럴로 적재하고, 테스트가 `src/` 규약으로 재계산해 대조한다 (#154) |
 | 2026-08-15 | `#390` | v1.12: §8.1.1 「seed의 위치와 적재 경로」 신설 — 모든 seed를 `alembic upgrade head` 경로로 일원화(마이그레이션 032, 규제 파라미터 42행). **§8.1의 「별도 `seed/` 디렉토리」 규정을 실제 구조(`src/cii_platform/db/seed.py`)로 정정** — 패키지 안이라야 DB 없이 값 검증이 가능하고 5개 테스트가 그 상수를 쓴다. 「마이그레이션은 `src/` 상수를 import하지 않는다」·「data migration에 upsert 금지」·「downgrade는 넣은 키만 삭제」를 🔒로 명문화(017이 세우고 031·032가 따른 원칙) (#127) |
