@@ -61,6 +61,9 @@ export interface ScreenMeta {
 export type ScreenId =
   | 'LOGIN'
   | 'LOGIN_FAILURE'
+  | 'SIGNUP'
+  | 'PASSWORD_RESET'
+  | 'VERIFY_EMAIL'
   | 'MAINBOARD'
   | 'VESSEL_REGISTRATION'
   | 'VESSEL_DETAIL'
@@ -85,8 +88,36 @@ export const SCREEN_BY_ID = {
     path: '/login/failure',
     label: '로그인 실패',
     labelEn: 'Login Failure',
-    uiflowRef: '0-1',
+    // v2.1에서 0-1 → 0-2로 되돌렸다 — 회원가입이 복원되며 번호가 제자리를 찾았다.
+    uiflowRef: '0-2',
     purpose: '로그인 실패 사유 안내 및 재시도',
+    width: 'form',
+    demoScope: false,
+  },
+  SIGNUP: {
+    path: '/signup',
+    label: '회원가입',
+    labelEn: 'Sign Up',
+    uiflowRef: '0-1',
+    purpose: '이메일·비밀번호로 계정 생성',
+    width: 'form',
+    demoScope: false, // 인증 화면 — 사이드바 밖
+  },
+  PASSWORD_RESET: {
+    path: '/password-reset',
+    label: '비밀번호 찾기',
+    labelEn: 'Password Reset',
+    uiflowRef: '0-3',
+    purpose: '재설정 메일 요청 및 새 비밀번호 설정',
+    width: 'form',
+    demoScope: false,
+  },
+  VERIFY_EMAIL: {
+    path: '/verify-email',
+    label: '이메일 인증',
+    labelEn: 'Verify Email',
+    uiflowRef: '0-4',
+    purpose: '가입 확인 메일 링크의 토큰 검증',
     width: 'form',
     demoScope: false,
   },
@@ -199,6 +230,9 @@ export const NAV_ORDER = [
 export const OFF_NAV_ORDER = [
   'LOGIN',
   'LOGIN_FAILURE',
+  'SIGNUP',
+  'PASSWORD_RESET',
+  'VERIFY_EMAIL',
   'VESSEL_REGISTRATION',
   'VESSEL_DETAIL',
   'REALTIME_CII',

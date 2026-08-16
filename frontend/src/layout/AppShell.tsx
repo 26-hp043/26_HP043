@@ -4,6 +4,7 @@ import { NAV_SCREENS, findScreenByPath } from '../screens'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { logout, useAuthUser } from '../auth/session'
 import { ThemeToggle } from '../theme/ThemeToggle'
+import { VerifyBanner } from '../features/auth/VerifyBanner'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
 
 /** 아바타 이니셜. 이메일이면 로컬파트 첫 글자를 쓴다. */
@@ -95,6 +96,8 @@ export function AppShell() {
       </nav>
 
       <div className="app-shell__stack">
+        {/* 이메일 미인증 안내 — 인증 전에도 이용은 허용한다(PRD §7.10). */}
+        <VerifyBanner />
         {/* 우측 정렬 유틸리티. 순서 = §7.2의 좌→우 배치: 선박 · 항차 · 알림 · 계정 */}
         <header className="app-shell__topbar">
           {/*

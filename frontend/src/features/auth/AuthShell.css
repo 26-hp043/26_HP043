@@ -1,0 +1,244 @@
+/*
+ * 인증 화면 공통 — DESIGN_SYSTEM §7.1(form 폭) · §15(토큰만 참조).
+ * 로그인·회원가입·비밀번호 찾기·이메일 인증이 공유한다.
+ */
+
+.auth-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-lg);
+  min-block-size: 100vh;
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  background: var(--surface-page);
+}
+
+.auth-card {
+  inline-size: 100%;
+  max-inline-size: 420px;
+  padding: var(--spacing-2xl);
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+}
+
+.auth-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 var(--spacing-xl);
+}
+
+.auth-brand-name {
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-h2);
+  color: var(--semantic-primary);
+  letter-spacing: var(--letterSpacing-tight);
+}
+
+.auth-brand-sub {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.auth-title {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-h2);
+  line-height: var(--line-height-h2);
+  font-weight: var(--font-weight-h2);
+  color: var(--text-primary);
+  letter-spacing: var(--letterSpacing-snug);
+}
+
+.auth-description {
+  margin: 0 0 var(--spacing-lg);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-body);
+  color: var(--text-secondary);
+}
+
+/* PRD §0.3 면책 — 인셋 배경으로 본문과 구분한다. */
+.auth-disclaimer {
+  margin: 0 0 var(--spacing-lg);
+  padding: var(--spacing-md);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-body);
+  color: var(--text-secondary);
+}
+
+/* ── 폼 ─────────────────────────────────────────────────────────── */
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.auth-label {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+.auth-input {
+  block-size: var(--target-row);
+  padding: 0 var(--spacing-md);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+}
+
+.auth-input:focus-visible {
+  outline: none;
+  border-color: var(--semantic-focus);
+  box-shadow: var(--focus-ring);
+}
+
+/* 오류를 색만으로 표시하지 않는다 — 문구가 함께 붙는다 (§14). */
+.auth-input--error {
+  border-color: var(--semantic-danger);
+}
+
+.auth-hint {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.auth-error {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--semantic-danger);
+}
+
+.auth-submit {
+  block-size: 44px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--semantic-primary);
+  color: var(--surface-card);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.auth-submit:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.auth-submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ── 알림 ───────────────────────────────────────────────────────── */
+
+.auth-alert {
+  margin: 0;
+  padding: var(--spacing-md);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-body);
+}
+
+.auth-alert--error {
+  background: var(--cii-e-bg);
+  border: var(--borderWidth-default) solid var(--cii-e-border);
+  color: var(--cii-e-text);
+}
+
+.auth-alert--ok {
+  background: var(--cii-a-bg);
+  border: var(--borderWidth-default) solid var(--cii-a-border);
+  color: var(--cii-a-text);
+}
+
+/* ── 보조 링크 ──────────────────────────────────────────────────── */
+
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin: var(--spacing-lg) 0 0;
+  font-size: var(--font-size-label);
+}
+
+.auth-links a,
+.auth-footer a {
+  color: var(--semantic-primary);
+  text-decoration: none;
+}
+
+.auth-links a:hover,
+.auth-footer a:hover {
+  text-decoration: underline;
+}
+
+.auth-links a:focus-visible,
+.auth-footer a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-badge);
+}
+
+.auth-footer {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+/* ── 미인증 배너 (셸 상단) ──────────────────────────────────────── */
+
+.verify-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-xl);
+  background: var(--cii-c-bg);
+  color: var(--cii-c-text);
+  border-bottom: var(--borderWidth-default) solid var(--cii-c-border);
+  font-size: var(--font-size-label);
+}
+
+.verify-banner__action {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.verify-banner__action:disabled {
+  opacity: 0.6;
+  cursor: default;
+  text-decoration: none;
+}
+
+.verify-banner__action:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-badge);
+}

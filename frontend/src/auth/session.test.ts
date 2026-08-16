@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   authGuardEnabled,
   getCachedUser,
-  loginUrl,
   logout,
   probeCurrentUser,
   readCookie,
@@ -10,6 +9,7 @@ import {
   csrfToken,
   redirectToLogin,
 } from './session'
+import { safeNext } from '../features/auth/authRules'
 
 /**
  * 인증 세션 클라이언트 검증 (#278).
@@ -76,13 +76,18 @@ describe('authGuardEnabled', () => {
   })
 })
 
-describe('loginUrl — open redirect 방어', () => {
-  it('내부 경로는 redirect_to에 실린다', () => {
-    expect(loginUrl('/voyage-cii')).toBe('/api/v1/auth/login?redirect_to=%2Fvoyage-cii')
+describe('safeNext — open redirect 방어', () => {
+  /*
+   * #415에서 `loginUrl`(백엔드 OIDC 진입점)이 사라졌다. 자체 인증에서는 로그인이
+   * 앱 안의 화면이므로 복귀 경로 검증이 `safeNext`로 옮겨졌다. **막아야 하는 값은
+   * 그대로다** — 외부 URL이 통과하면 로그인 직후 사용자가 외부 사이트에 도착한다.
+   */
+  it('내부 경로는 그대로 쓴다', () => {
+    expect(safeNext('/voyage-cii')).toBe('/voyage-cii')
   })
 
   it('미지정 시 루트로 보낸다', () => {
-    expect(loginUrl()).toBe('/api/v1/auth/login?redirect_to=%2F')
+    expect(safeNext(null)).toBe('/')
   })
 
   it.each([
@@ -90,13 +95,11 @@ describe('loginUrl — open redirect 방어', () => {
     ['프로토콜 상대 URL', '//evil.example.com'],
     ['상대 경로', 'voyage-cii'],
   ])('%s는 거부되고 루트로 대체된다', (_label, raw) => {
-    expect(loginUrl(raw)).toBe('/api/v1/auth/login?redirect_to=%2F')
+    expect(safeNext(raw)).toBe('/')
   })
 
-  it('쿼리스트링이 포함된 경로는 인코딩되어 보존된다', () => {
-    expect(loginUrl('/annual-grade?vessel=1')).toBe(
-      '/api/v1/auth/login?redirect_to=%2Fannual-grade%3Fvessel%3D1',
-    )
+  it('쿼리스트링이 포함된 경로는 그대로 보존된다', () => {
+    expect(safeNext('/annual-grade?vessel=1')).toBe('/annual-grade?vessel=1')
   })
 })
 
@@ -106,7 +109,12 @@ describe('probeCurrentUser', () => {
       data: { id: 'u1', email: 'a@b.c', display_name: null },
     })
     const user = await probeCurrentUser(async () => noName, API_ENV)
-    expect(user).toEqual({ id: 'u1', email: 'a@b.c', displayName: null })
+    expect(user).toEqual({
+      id: 'u1',
+      email: 'a@b.c',
+      displayName: null,
+      emailVerifiedAt: null,
+    })
     expect(getCachedUser()?.id).toBe('u1')
   })
 
