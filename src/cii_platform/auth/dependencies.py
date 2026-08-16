@@ -41,11 +41,12 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
     {
         "/api/v1/health",
         "/health",
+        # 인증 플로우 자체 — 세션 없이 접근해야 한다 (`API_SPEC §1.2`).
+        "/api/v1/auth/signup",
         "/api/v1/auth/login",
-        "/api/v1/auth/callback",
         "/api/v1/auth/dev-login",
+        "/auth/signup",
         "/auth/login",
-        "/auth/callback",
         "/auth/dev-login",
         "/docs",
         "/openapi.json",

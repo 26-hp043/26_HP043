@@ -47,10 +47,10 @@ async def _cleanup_stub_user() -> None:
         await s.execute(
             text(
                 "DELETE FROM user_session WHERE user_id IN "
-                "(SELECT id FROM app_user WHERE google_sub = 'stub-dev-user-00000000')"
+                "(SELECT id FROM app_user WHERE email = 'dev@localhost')"
             )
         )
-        await s.execute(text("DELETE FROM app_user WHERE google_sub = 'stub-dev-user-00000000'"))
+        await s.execute(text("DELETE FROM app_user WHERE email = 'dev@localhost'"))
         await s.commit()
 
 
@@ -94,7 +94,7 @@ def test_protected_paths_are_not_public() -> None:
     """공개 경로는 열거된 것뿐 — 나머지 대표 경로는 전부 보호 (#279)."""
     assert "/api/v1/health" in PUBLIC_PATHS
     assert "/api/v1/auth/login" in PUBLIC_PATHS
-    assert "/api/v1/auth/callback" in PUBLIC_PATHS
+    assert "/api/v1/auth/signup" in PUBLIC_PATHS
     assert "/api/v1/auth/dev-login" in PUBLIC_PATHS
 
     protected = [
@@ -122,7 +122,7 @@ def test_dev_login_not_registered_in_production(tmp_path) -> None:
         "paths = set(app.openapi()['paths'])\n"
         "assert '/api/v1/auth/dev-login' not in paths, sorted(paths)\n"
         "assert '/api/v1/auth/login' in paths\n"
-        "assert '/api/v1/auth/callback' in paths\n"
+        "assert '/api/v1/auth/signup' in paths\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", code],

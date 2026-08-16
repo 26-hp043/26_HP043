@@ -28,14 +28,21 @@ from cii_platform.services import audit as audit_svc
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-#: 고정 테스트 사용자 — 구글 OIDC 없이 세션을 발급한다.
+#: 고정 테스트 사용자 — 가입 절차 없이 세션을 발급한다.
 #: UUID를 **고정 상수**로 두는 이유 (#308): ``uuid4()``를 모듈 로드 시점에 평가하면
-#: 서버 재기동마다 PK가 달라져 기존 행을 못 찾고 INSERT를 시도 → ``google_sub``가
-#: 같아 ``idx_app_user_google_sub`` UNIQUE 위반 → 500이 난다. 018_seed_demo_vessel이
+#: 서버 재기동마다 PK가 달라져 기존 행을 못 찾고 INSERT를 시도 → ``email``이 같아
+#: ``idx_app_user_email`` UNIQUE 위반 → 500이 난다. 018_seed_demo_vessel이
 #: UUID를 명시적으로 박는 것과 같은 선례다 (UUID v4 형식: version 4 · variant 8).
 _STUB_USER_ID = UUID("00000000-0000-4000-8000-000000000deb")
-_STUB_GOOGLE_SUB = "stub-dev-user-00000000"
 _STUB_EMAIL = "dev@localhost"
+
+#: 스텁 계정의 비밀번호 해시 자리.
+#:
+#: **로그인에 쓸 수 없는 값을 넣는다.** Argon2 해시 형식이 아니므로
+#: ``verify_password``가 어떤 입력에도 ``False``를 돌려준다 — 개발 편의로 만든
+#: 계정이 ``POST /auth/login``으로도 열리면, 그 이메일이 알려진 순간 누구나
+#: 들어올 수 있다. 이 계정은 ``dev-login`` 경로로만 접근된다.
+_STUB_PASSWORD_HASH = "!dev-stub-no-password-login"
 
 
 @router.post("/dev-login")
@@ -52,8 +59,8 @@ async def dev_login(
     if user is None:
         user = AppUser(
             id=_STUB_USER_ID,
-            google_sub=_STUB_GOOGLE_SUB,
             email=_STUB_EMAIL,
+            password_hash=_STUB_PASSWORD_HASH,
             display_name="Dev Stub User",
         )
         session.add(user)

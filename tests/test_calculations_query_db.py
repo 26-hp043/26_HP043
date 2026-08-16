@@ -83,10 +83,10 @@ async def _delete_stub_user() -> None:
         await s.execute(
             text(
                 "DELETE FROM user_session WHERE user_id IN "
-                "(SELECT id FROM app_user WHERE google_sub = 'stub-dev-user-00000000')"
+                "(SELECT id FROM app_user WHERE email = 'dev@localhost')"
             )
         )
-        await s.execute(text("DELETE FROM app_user WHERE google_sub = 'stub-dev-user-00000000'"))
+        await s.execute(text("DELETE FROM app_user WHERE email = 'dev@localhost'"))
         await s.commit()
     await get_engine().dispose()
 

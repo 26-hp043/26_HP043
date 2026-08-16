@@ -24,8 +24,8 @@ async def test_app_user_update_touches_updated_at(migrated_db):
         async with sessionmaker() as s:
             row = await s.execute(
                 text(
-                    "INSERT INTO app_user (google_sub, email) "
-                    "VALUES ('trg-live-1', 't1@example.com') RETURNING id, updated_at"
+                    "INSERT INTO app_user (email, password_hash) "
+                    "VALUES ('t1@example.com', 'x') RETURNING id, updated_at"
                 )
             )
             user_id, updated_before = row.one()
