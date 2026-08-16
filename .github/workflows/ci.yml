@@ -44,6 +44,13 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+      # 리포트 PDF 렌더링 (#361) — WeasyPrint 런타임 + 한국어 폰트.
+      # 넣지 않으면 PDF 테스트가 조용히 건너뛰어지고, **한글이 tofu로 나오는 회귀를
+      # CI가 잡지 못한다.** 이 이슈의 완료 기준이 「PDF에 한글이 깨지지 않는 것」이다.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libpango-1.0-0 libpangoft2-1.0-0 fonts-nanum
       - run: pip install -e ".[dev]"
       # 커버리지 게이트 (#235): 측정 기준선 92%(2026-08-14, 2171 stmts)에서
       # 2pp 버퍼를 둔 90%. 작은 무커버 추가에 흔들리지 않으면서 큰 하락은 잡는다.

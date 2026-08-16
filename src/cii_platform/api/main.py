@@ -24,6 +24,7 @@ from cii_platform.api.routes.calculations import router as calculations_router
 from cii_platform.api.routes.fleet import router as fleet_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.not_underway import router as not_underway_router
+from cii_platform.api.routes.reports import router as reports_router
 from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
@@ -66,6 +67,8 @@ app.include_router(fleet_router, prefix=API_V1_PREFIX)
 # #370 not under way 구간 CRUD — 정박 연료를 넣을 입구. 없으면 M이 늘지 않아
 # 「정박해도 등급이 안 떨어지는」 상태가 된다(#353 분자 경로).
 app.include_router(not_underway_router, prefix=API_V1_PREFIX)
+# #361 리포트 — 응답이 JSON이 아니라 파일(PDF·CSV·HTML)이다.
+app.include_router(reports_router, prefix=API_V1_PREFIX)
 # #414 이메일·비밀번호 인증 — signup·login은 공개 경로(PUBLIC_PATHS)다.
 app.include_router(auth_router, prefix=API_V1_PREFIX)
 # #408 이메일 인증·비밀번호 재설정 — 메일 링크로 진입하므로 세션이 없다(공개 경로).

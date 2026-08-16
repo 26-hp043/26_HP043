@@ -18,6 +18,18 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq-dev gcc \
     && rm -rf /var/lib/apt/lists/*
 
+# 리포트 PDF 렌더링 (#361) — WeasyPrint 런타임.
+#  - libpango-1.0-0 · libpangoft2-1.0-0: WeasyPrint가 텍스트 셰이핑에 쓴다.
+#    한글은 자모 조합이라 셰이퍼 없이는 글자가 어긋난다.
+#  - fonts-nanum: 한국어 폰트 (SIL Open Font License 1.1 — 임베딩·재배포 허용).
+#    없으면 PDF의 한글이 오류가 아니라 **tofu(□□□)로 조용히** 렌더링된다.
+#    fonts-noto-cjk는 한·중·일을 모두 담아 이미지가 ~300MB 늘어난다 — 이 제품의
+#    문서는 한국어이므로 한국어 폰트만 넣는다.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 libpangoft2-1.0-0 fonts-nanum \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # build backend가 hatchling이고 pyproject의 packages=["src/cii_platform"]이므로
@@ -65,8 +77,11 @@ ENV APP_ENV=production
 
 # 런타임에 필요한 최소 패키지 — asyncpg가 libpq를 동적으로 링크한다.
 # libpq-dev(헤더)가 아니라 libpq5(공유 라이브러리)만 — 빌드가 끝났으므로.
+# libpango·fonts-nanum은 리포트 PDF 렌더링용이다 (#361) — dev stage 주석 참조.
+# 빌드 도구가 아니라 **런타임** 라이브러리이므로 #232의 「prod에서 뺀다」 대상이 아니다.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq5 \
+    && apt-get install -y --no-install-recommends \
+        libpq5 libpango-1.0-0 libpangoft2-1.0-0 fonts-nanum \
     && rm -rf /var/lib/apt/lists/*
 
 # 비루트 사용자 — uvicorn이 root로 돌지 않게 (#232).
