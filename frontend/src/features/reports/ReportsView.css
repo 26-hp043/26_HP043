@@ -1,0 +1,211 @@
+/*
+ * 보고서 — DESIGN_SYSTEM §7.1(form 폭 정책) · §13(면책) · §15(토큰만 참조).
+ *
+ * `.card` · `.card__head` · `.card__title`은 대시보드가 이미 정의한다.
+ */
+
+.rp {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.rp__title {
+  margin: 0;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-display);
+  letter-spacing: var(--letterSpacing-tight);
+  color: var(--text-primary);
+}
+
+.rp__sub {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.rp__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+/* ── 종류 선택 ──────────────────────────────────────────────────── */
+
+.rp__kinds {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md);
+}
+
+@media (max-width: 720px) {
+  .rp__kinds {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rp__kinds legend {
+  padding: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.rp__kinds label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  cursor: pointer;
+}
+
+/* 선택된 항목이 테두리로도 구분되게 한다 — 라디오 점 하나는 훑을 때 놓친다. */
+.rp__kinds label:has(input:checked) {
+  border-color: var(--semantic-primary);
+  background: var(--surface-inset);
+}
+
+.rp__kinds label:has(input:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
+.rp__kinds b {
+  display: block;
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+}
+
+.rp__kinds em {
+  display: block;
+  margin-top: var(--spacing-xs);
+  font-style: normal;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+/* ── 대상 선택 ──────────────────────────────────────────────────── */
+
+.rp__selects {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.rp__selects label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.rp select {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-body);
+  font-family: inherit;
+  min-inline-size: 0;
+}
+
+.rp select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.rp select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.rp__hint {
+  font-style: normal;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+/* ── 동작 ───────────────────────────────────────────────────────── */
+
+.rp__actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.rp__actions button {
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-xs) var(--spacing-lg);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.rp__actions button:hover:not(:disabled) {
+  border-color: var(--semantic-primary);
+  color: var(--semantic-primary);
+}
+
+.rp__actions button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.rp__actions button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.rp__primary {
+  background: var(--semantic-primary);
+  border-color: var(--semantic-primary);
+  color: var(--surface-card);
+}
+
+.rp__primary:hover:not(:disabled) {
+  color: var(--surface-card);
+  opacity: 0.9;
+}
+
+.rp__error {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--semantic-danger);
+}
+
+.rp__ok {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--semantic-success);
+}
+
+/* ── 미리보기 ───────────────────────────────────────────────────── */
+
+.rp__frame {
+  inline-size: 100%;
+  block-size: 70vh;
+  min-block-size: 420px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  /* 문서는 흰 종이다 — 다크 모드에서 배경을 물려받으면 글자가 사라진다. */
+  background: #ffffff;
+}
+
+/* 조건이 바뀌면 지금 보이는 문서가 그 조건의 것이 아니다. */
+.rp__frame--stale {
+  opacity: 0.5;
+}
+
+.rp__note {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}

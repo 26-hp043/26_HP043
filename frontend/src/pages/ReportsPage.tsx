@@ -1,11 +1,11 @@
-import { ComingSoon } from '../components/ComingSoon'
-import { SCREEN_BY_ID } from '../screens'
+import { ReportsView } from '../features/reports/ReportsView'
 
+/**
+ * 보고서 화면 (`UIFLOW 2-5` · `#362`).
+ *
+ * `PRD §25`의 리포트 2종을 만들고 PDF·CSV로 내려받는다. 미리보기는 서버의
+ * `format=html`을 그대로 쓴다 — PDF와 **같은 소스**라 둘이 갈릴 수 없다.
+ */
 export function ReportsPage() {
-  return (
-    <ComingSoon
-      screen={SCREEN_BY_ID.REPORTS}
-      note="항차 완료 리포트와 연간 실적 리포트를 PDF·CSV로 내려받는 화면입니다."
-    />
-  )
+  return <ReportsView />
 }
