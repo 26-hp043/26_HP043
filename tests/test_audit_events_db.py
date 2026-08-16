@@ -41,10 +41,10 @@ async def _cleanup() -> None:
         await s.execute(
             text(
                 "DELETE FROM user_session WHERE user_id IN "
-                "(SELECT id FROM app_user WHERE google_sub = 'stub-dev-user-00000000')"
+                "(SELECT id FROM app_user WHERE email = 'dev@localhost')"
             )
         )
-        await s.execute(text("DELETE FROM app_user WHERE google_sub = 'stub-dev-user-00000000'"))
+        await s.execute(text("DELETE FROM app_user WHERE email = 'dev@localhost'"))
         await s.commit()
     await get_engine().dispose()
 
@@ -89,17 +89,17 @@ async def test_logout_records_logout_event(migrated_db, app_fresh_engine):
 
 
 async def test_login_failure_records_no_credentials(migrated_db, app_fresh_engine):
-    """LOGIN_FAILURE — 자격 증명 값이 로그에 없다 (완료 기준, #277).
+    """LOGIN_FAILURE — 비밀번호가 로그에 없다 (완료 기준, #277 · #414 개정).
 
-    state 불일치 경로로 실패를 유발한다. 요청에 실린 ``code``·쿠키의
-    ``state``·``verifier`` 어느 값도 감사 행에 나타나면 안 된다.
+    종전에는 OIDC state 불일치로 실패를 유발했다. 자체 ID/PW 인증으로 바뀌면서
+    **틀린 비밀번호**로 유발하며, 확인할 것은 같다 — 요청에 실린 자격 증명이
+    감사 행에 나타나면 안 된다.
     """
     try:
         with TestClient(app, base_url=_BASE) as client:
-            resp = client.get(
-                "/api/v1/auth/callback",
-                params={"code": "secret-auth-code", "state": "attacker-state"},
-                cookies={"oidc_state": "real-state", "oidc_verifier": "secret-verifier"},
+            resp = client.post(
+                "/api/v1/auth/login",
+                json={"email": "nobody@example.com", "password": "super-secret-pw-42"},
             )
         assert resp.status_code == 401
 
@@ -111,11 +111,11 @@ async def test_login_failure_records_no_credentials(migrated_db, app_fresh_engin
             assert len(events) == 1
             event = events[0]
             # 사유는 코드(열거값)만 — 원문 자격 증명 없음.
-            assert event["details_json"] == {"reason": "state_mismatch"}
+            assert event["details_json"] == {"reason": "unknown_email"}
+            # 주체를 알 수 없으므로 NULL이다.
             assert event["user_id"] is None
             serialized = str(event["details_json"]) + str(event["user_id"] or "")
-            assert "secret-auth-code" not in serialized
-            assert "attacker-state" not in serialized
-            assert "secret-verifier" not in serialized
+            assert "super-secret-pw-42" not in serialized
+            assert "nobody@example.com" not in serialized
     finally:
         await _cleanup()

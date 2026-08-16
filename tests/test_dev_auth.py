@@ -52,7 +52,7 @@ async def test_dev_login_first_boot_creates_user_and_issues_cookie(migrated_db, 
     from sqlalchemy import text
 
     from cii_platform.api.routes.auth_dev import (
-        _STUB_GOOGLE_SUB,
+        _STUB_EMAIL,
         _STUB_USER_ID,
     )
     from cii_platform.api.routes.auth_dev import (
@@ -71,8 +71,8 @@ async def test_dev_login_first_boot_creates_user_and_issues_cookie(migrated_db, 
     sessionmaker = get_sessionmaker()
     async with sessionmaker() as s:
         row = await s.execute(
-            text("SELECT id FROM app_user WHERE google_sub = :sub"),
-            {"sub": _STUB_GOOGLE_SUB},
+            text("SELECT id FROM app_user WHERE email = :email"),
+            {"email": _STUB_EMAIL},
         )
         assert row.scalar_one() == _STUB_USER_ID
         await s.execute(
@@ -86,7 +86,7 @@ async def test_dev_login_first_boot_creates_user_and_issues_cookie(migrated_db, 
 async def test_dev_login_restart_finds_existing_user(migrated_db, app_fresh_engine):
     """재기동 시나리오 — 이전 기동이 만든 행이 있으면 조회 경로로 200 (#308).
 
-    고정 UUID 이전에는 재기동마다 PK가 달라져 INSERT를 시도 → ``google_sub``
+    고정 UUID 이전에는 재기동마다 PK가 달라져 INSERT를 시도 → ``email``
     UNIQUE 위반 → 500이었다. 재기동 = 별도 커밋이므로 행을 실제 커밋으로 심는다.
     """
     from fastapi import FastAPI
@@ -94,7 +94,6 @@ async def test_dev_login_restart_finds_existing_user(migrated_db, app_fresh_engi
     from sqlalchemy import text
 
     from cii_platform.api.routes.auth_dev import (
-        _STUB_GOOGLE_SUB,
         _STUB_USER_ID,
     )
     from cii_platform.api.routes.auth_dev import (
@@ -107,9 +106,9 @@ async def test_dev_login_restart_finds_existing_user(migrated_db, app_fresh_engi
     async with sessionmaker() as s:
         await s.execute(
             text(
-                "INSERT INTO app_user (id, google_sub, email) VALUES (:id, :sub, 'dev@localhost')"
+                "INSERT INTO app_user (id, email, password_hash) VALUES (:id, 'dev@localhost', 'x')"
             ),
-            {"id": str(_STUB_USER_ID), "sub": _STUB_GOOGLE_SUB},
+            {"id": str(_STUB_USER_ID)},
         )
         await s.commit()
 

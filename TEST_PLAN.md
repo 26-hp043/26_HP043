@@ -784,24 +784,29 @@ def test_no_implicit_float_in_layer1():
 
 ### 4.7 인증 API (#279)
 
-> 구현 파일 — `test_oidc.py`(id_token 검증) · `test_auth_api.py`(login·callback) ·
+> **[#414] 구글 OIDC를 제거하고 자체 이메일·비밀번호 인증으로 전환했다.** 종전
+> `AT-AUTH-001`~`004`는 `id_token` 검증·`state`·`redirect_to`를 보던 항목이라 대상이
+> 사라졌다. TC ID는 재번호하지 않고 **같은 번호에 새 항목을 배치**한다 — 번호를
+> 밀면 이슈·커밋의 기존 참조가 어긋난다.
+
+> 구현 파일 — `test_auth_api.py`(가입·로그인 계약) · `test_password.py`(해싱·정책) ·
 > `test_auth_session.py`(세션·CSRF 단위) · `test_auth_wiring.py`(배선, main.app) ·
 > `test_auth_failure_paths.py`(만료·무효화·미등록) · `test_dev_auth.py`(스텁 인증).
 > 성공 경로만 검증하면 인증이 실제로 막고 있는지 알 수 없다 — 실패 경로가 핵심이다.
 
 | TC ID | 테스트 | 기대 결과 |
 |---|---|---|
-| AT-AUTH-001 | id_token 검증 실패 전종 (서명·aud·iss·만료·nonce·kid·malformed) | 401 `UNAUTHORIZED` (`test_oidc.py`) |
-| AT-AUTH-002 | `email_verified=false` | 401 (`test_oidc.py`) |
-| AT-AUTH-003 | `state` 불일치 | 401 (`test_auth_api.py`) |
-| AT-AUTH-004 | `redirect_to` 절대 URL·`//` | 400 거부 — open redirect 방어 (`test_auth_api.py`) |
-| AT-AUTH-005 | 이메일 중복 가입 시도 | `409`/`422` 거부 — `email`이 유일 키다 (`#414`에서 대체 구현) |
+| AT-AUTH-001 | **틀린 비밀번호와 없는 이메일** | **401 · 같은 문구·같은 코드** — 계정 존재 여부 비노출 (`test_auth_api.py`) |
+| AT-AUTH-002 | 비밀번호 정책 위반 (10자 미만·128자 초과) | 422 `VALIDATION_ERROR` (`test_auth_api.py`·`test_password.py`) |
+| AT-AUTH-003 | 이메일 대소문자 차이 | 같은 계정으로 취급 — 소문자 정규화 (`test_auth_api.py`) |
+| AT-AUTH-004 | 응답·감사 로그에 비밀번호 노출 | **원문·해시 모두 미노출** (`test_auth_api.py`·`test_audit_events_db.py`) |
+| AT-AUTH-005 | 이메일 중복 가입 시도 | **409 거부 + 중복 사실 고지** — 로그인 실패와 반대 방향의 의도된 비대칭 (`test_auth_api.py`) |
 | AT-AUTH-006 | 세션 없는 보호 경로 | 401 (`test_auth_wiring.py`) |
 | AT-AUTH-007 | 세션 만료 후 같은 쿠키 | 401 + "만료" 안내 (`test_auth_failure_paths.py`) |
 | AT-AUTH-008 | 로그아웃 후 같은 쿠키 재사용 | 401 (`test_auth_failure_paths.py`) |
 | AT-AUTH-009 | CSRF 토큰 누락·불일치 (POST·PATCH·DELETE) | 403 `CSRF_ERROR`, GET은 통과 (`test_auth_session.py`·`test_auth_wiring.py`) |
 | AT-AUTH-010 | `session_row` 없는 상태 변경 (배선 어김) | 401 — fail-closed (`test_auth_session.py`) |
-| AT-AUTH-011 | 공개 경로 | 열거 4경로(health·login·callback·dev-login)만 무인증 통과 (`test_auth_failure_paths.py`) |
+| AT-AUTH-011 | 공개 경로 | 열거 경로(health·signup·login·dev-login)만 무인증 통과 (`test_auth_failure_paths.py`) |
 | AT-AUTH-012 | `APP_ENV=production` dev-login | 라우트 미등록 (`test_auth_failure_paths.py`) |
 | AT-AUTH-013 | dev-login 재기동 (고정 UUID) | 2회 모두 200 (`test_dev_auth.py`) |
 
@@ -1280,14 +1285,14 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 
 ### 14.2 구현된 파일
 
-> ⚠️ **「함수」는 `def test_` 개수다.** pytest가 실제로 수집하는 케이스는 파라미터화 때문에 이보다 많다 — 505 함수 → **1020 수집**(2026-08-16 실측).
+> ⚠️ **「함수」는 `def test_` 개수다.** pytest가 실제로 수집하는 케이스는 파라미터화 때문에 이보다 많다 — 786 함수 → **1027 수집**(2026-08-17 실측).
 
 | 파일 | 함수 | 대응 절 |
 |---|---:|---|
 | `test_annual_run_restrict_db.py` | 2 | §5 DB · 제약·마이그레이션 |
 | `test_app_user_migration.py` | 2 | §5 DB · 제약·마이그레이션 |
 | `test_audit_events_db.py` | 3 | §3 통합 · 감사 로그 |
-| `test_auth_api.py` | 0 | §4.7 API · 인증 |
+| `test_auth_api.py` | 14 | **§4.7 인증 API** — 계정 존재 여부 비노출 · 가입 중복 고지 · 이메일 정규화 |
 | `test_auth_failure_paths.py` | 4 | §4.7 API · 인증 |
 | `test_auth_session.py` | 0 | §4.7 API · 인증 |
 | `test_auth_wiring.py` | 7 | §4.7 API · 인증 |
@@ -1299,6 +1304,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_cii_engine.py` | 21 | §2 단위 · 계산 엔진 |
 | `test_cii_history.py` | 7 | §4 API · 선박·항차·계산 |
 | `test_fleet_summary.py` | 20 | **§4 API · 선대 요약** — 규제 트리거 판정 · `days_to_d` 경계 4종 · KPI 집계 |
+| `test_password.py` | 15 | **§4.7 인증 API** — 해싱·정책·타이밍 방어 |
 | `test_mail.py` | 16 | **§5 인프라 · 메일 발송** — 프로덕션 console 가드 · 백엔드 선택 · 발송 실패 래핑 · 템플릿 |
 | `test_config.py` | 6 | §4 API · 공통·운영 |
 | `test_csv_fixture.py` | 3 | §3 통합 · CSV |
@@ -1320,7 +1326,6 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_layer1_working_precision.py` | 7 | §2 단위 · 계산 엔진 |
 | `test_layer_conversion.py` | 6 | §2 단위 · 계산 엔진 |
 | `test_not_underway_migrations.py` | 15 | **§5.8 DB · not under way** |
-| `test_oidc.py` | 0 | §4.7 API · 인증 |
 | `test_orm_schema_sync.py` | 2 | §5 DB · 제약·마이그레이션 |
 | `test_parameter_migrations.py` | 12 | §5 DB · 제약·마이그레이션 |
 | `test_rate_limit.py` | 9 | §4 API · 공통·운영 |
@@ -1349,7 +1354,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_ytd_engine.py` | 0 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 |
 
-**합계 64개 파일 · 505 함수 · 1020 수집.**
+**합계 64개 파일 · 786 함수 · 1027 수집.**
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
@@ -1422,6 +1427,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-07 | `#195` | v1.4: §1.3 케이스를 **기호 표기(`boundary` + `offset`)로 교체** — 적힌 확정값을 그대로 판정에 넣으면 올림된 경계(`upper`·`inferior`)에서 등급이 뒤집힌다. `input` 블록 신설(원경계 재계산 조건), `canonical_digits`에서 `cases[].attained_cii` 제거, 뒤집힘 표와 근거 소절 추가 (#46) |
 | 2026-08-14 | `#328` | v1.5: §4.7 인증 API 케이스 신설(13건) — 기존 구현 파일들(`test_oidc`·`test_auth_api`·`test_auth_session`·`test_auth_wiring`·`test_auth_failure_paths`·`test_dev_auth`)의 케이스를 문서화. 헤더 「상위 문서」의 `API_SPEC` 버전 참조 갱신 (v1.2 → v1.4) (#279) |
 | 2026-08-14 | `#342` | §1.4 Fixture 3 픽스처 실제 파일 2종 적재 — `annual_seed_12345_input.json`·`annual_seed_12345_expected.json`. expected.json 예시에 `fields_to_compare`(11개)·`fields_to_exclude`(5개) 키 추가로 실제 파일과 구조 일치 (#47) |
+| 2026-08-17 | `#414` | **§4.7 인증 API 절 재작성** — 구글 OIDC 제거로 대상이 사라진 AT-AUTH-001~004를 이메일·비밀번호 케이스로 교체(계정 존재 여부 비노출 · 정책 위반 · 소문자 정규화 · 비밀번호 미노출). **TC ID는 재번호하지 않고 같은 번호에 새 항목을 배치**했다 — 번호를 밀면 이슈·커밋의 기존 참조가 어긋난다. §14 인벤토리에서 `test_oidc.py` 제거하고 `test_password.py` 등재 · 합계 실측 갱신 (#414) |
 | 2026-08-16 | `#407` | §14 인벤토리에 `test_mail.py`(16함수 · 파라미터화로 21건 수집) 등재 · 합계 실측 갱신(63파일·489함수·999수집 → **64파일·505함수·1020수집**) (#407) |
 | 2026-08-16 | `#350` | §14 인벤토리에 `test_fleet_summary.py`(20함수) 등재 · 합계 실측 갱신(62파일·469함수·979수집 → **63파일·489함수·999수집**). 선대 요약 서비스의 검증 범위는 규제 트리거 판정(`PRD §3.3.7`) · `days_to_d` 경계 4종 · KPI 집계 일치다 (#350) |
 | 2026-08-15 | `#398` | **v1.6 — 방향 전환 반영.** §2.10 YTD 산출 엔진 · §2.11 시뮬레이션 시계 · §5.7 seed 적재 · §5.8 not under way · §5.9 운항 상태·위치 5개 절 신설(케이스 ID 영역 코드 `UT-YTD`·`UT-CLOCK`·`DB-SEED`·`DB-NUW`·`DB-VSTATE` 확장) · **§14 테스트 파일 인벤토리 신설** — 파일 참조 정확도가 24%(61개 중 15개)였고 신규 서브시스템 키워드가 0건이던 상태를 해소 · §11.1을 실측(62파일·466함수·976수집)으로 대체 — 종전 §11.1(181)과 §11.3(168)이 서로 달랐고 README는 181을 인용해 사중 불일치였다 · 재발 방지로 `tests/test_testplan_sync.py` 추가(등재하지 않은 테스트 파일이 있으면 CI 실패) (#394) |

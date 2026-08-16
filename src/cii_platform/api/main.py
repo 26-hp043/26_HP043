@@ -61,7 +61,7 @@ app.include_router(calculations_router, prefix=API_V1_PREFIX)
 app.include_router(scenarios_router, prefix=API_V1_PREFIX)
 # #350 선대 요약 — 대시보드가 한 번의 호출로 선대 전체 현황을 받는다.
 app.include_router(fleet_router, prefix=API_V1_PREFIX)
-# #274 구글 OIDC 인증 — login·callback은 공개 경로(PUBLIC_PATHS)다.
+# #414 이메일·비밀번호 인증 — signup·login은 공개 경로(PUBLIC_PATHS)다.
 app.include_router(auth_router, prefix=API_V1_PREFIX)
 # #276 개발 환경 스텁 인증 — production이면 라우트 자체를 등록하지 않는다.
 # 인증 미들웨어가 공개 경로(/api/v1/auth/dev-login)로 취급한다 (#307).
