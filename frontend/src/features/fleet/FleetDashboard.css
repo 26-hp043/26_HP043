@@ -1,0 +1,602 @@
+/*
+ * 선대 대시보드 — DESIGN_SYSTEM §7.1(wide 폭) · §15(토큰만 참조).
+ *
+ * 레이아웃은 디자이너 구상안을 따른다: KPI 줄 → 항로(넓게) + 선박 목록(좁게) →
+ * 조치 필요. 분할 비율은 디자이너 토큰 grid.split-primary(7) : split-secondary(5)다.
+ */
+
+.fleet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+/* ── 머리말 ─────────────────────────────────────────────────────── */
+
+.fleet__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.fleet__title {
+  margin: 0;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-display);
+  letter-spacing: var(--letterSpacing-tight);
+  color: var(--text-primary);
+}
+
+.fleet__sub {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.fleet__asof {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.fleet__asof-rel {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+/* 상대 시각만 있으면 어느 시점 데이터인지 특정할 수 없어 원본도 함께 둔다. */
+.fleet__asof-abs {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fleet__loading {
+  margin: 0;
+  padding: var(--spacing-2xl);
+  text-align: center;
+  color: var(--text-secondary);
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+}
+
+/*
+ * 빈 상태 / 오류 상태.
+ *
+ * 빈 상태는 「고장」으로 읽히면 안 되므로 경고색을 쓰지 않는다 — 중립 표면 위에
+ * 다음 행동(선박 등록)을 크게 둔다. 오류만 위험색을 쓴다.
+ */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-lg);
+  padding: 72px var(--spacing-2xl);
+  text-align: center;
+  border-radius: var(--radius-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  background: var(--surface-card);
+}
+
+.empty__msg {
+  margin: 0;
+  max-inline-size: 46ch;
+  color: var(--text-secondary);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.empty--error {
+  border-color: var(--cii-e-border);
+  background: var(--cii-e-bg);
+}
+
+.empty--error .empty__msg {
+  color: var(--cii-e-text);
+}
+
+.empty__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  block-size: var(--target-button);
+  padding: 0 var(--spacing-xl);
+  border-radius: var(--radius-control);
+  background: var(--semantic-primary);
+  color: var(--surface-card);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+  text-decoration: none;
+}
+
+.empty__cta:hover {
+  background: var(--color-primary-hover);
+}
+
+.empty__cta:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── KPI ────────────────────────────────────────────────────────── */
+
+.fleet__kpi {
+  display: grid;
+  grid-template-columns: auto minmax(200px, 1fr) auto auto;
+  gap: var(--spacing-xl);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .fleet__kpi {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.kpi {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-card);
+  /* 기본 타일은 테두리 없이 페이지 위에 얹는다 — 강조 타일과 구분되게. */
+  border: var(--borderWidth-default) solid transparent;
+}
+
+.kpi__label {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.kpi__value {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: var(--font-weight-display);
+  letter-spacing: var(--letterSpacing-tight);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.kpi__slash {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-body);
+}
+
+.kpi__foot {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+/* 즉시 행동이 필요한 하나만 강조한다. */
+.kpi--alert {
+  background: var(--cii-e-bg);
+  border-color: var(--cii-e-border);
+}
+
+.kpi--alert .kpi__label,
+.kpi--alert .kpi__value,
+.kpi--alert .kpi__foot {
+  color: var(--cii-e-text);
+}
+
+.kpi__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-xs);
+  max-inline-size: 320px;
+}
+
+/* ── 카드 공통 ──────────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-lv1);
+}
+
+.card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.card__title {
+  margin: 0;
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+  font-weight: var(--font-weight-h3);
+  color: var(--text-primary);
+}
+
+.card__meta {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+/* ── 분할 ───────────────────────────────────────────────────────── */
+
+.fleet__split {
+  display: grid;
+  /* 디자이너 토큰 grid.split-primary(7) : split-secondary(5) */
+  grid-template-columns: 7fr 5fr;
+  gap: var(--spacing-xl);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .fleet__split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 왼쪽 열 — 실시간 항로 위에 조치 필요가 이어진다. */
+.fleet__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+  min-inline-size: 0;
+}
+
+/* ── 필터 칩 ────────────────────────────────────────────────────── */
+
+.chips {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.chip {
+  block-size: var(--target-chip);
+  padding: 0 var(--spacing-md);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.chip--on {
+  background: var(--semantic-primary);
+  border-color: var(--semantic-primary);
+  color: var(--surface-card);
+}
+
+/* ── 항로 개략도 ────────────────────────────────────────────────── */
+
+.fleet__chartbox {
+  background: var(--surface-inset);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-md);
+}
+
+.position-chart {
+  display: block;
+  inline-size: 100%;
+  /* 뷰박스가 16:10이라 그대로 맞춘다 — 왜곡이 없다. */
+  aspect-ratio: 16 / 10;
+}
+
+.position-chart__dot {
+  stroke: var(--surface-inset);
+  stroke-width: 2;
+}
+
+/* 위험 선박은 색 외에 굵은 테두리로도 드러낸다 (§14). */
+.position-chart__dot--risk {
+  stroke: var(--cii-e-fill);
+  stroke-width: 2.5;
+}
+
+.position-chart__label {
+  font-family: var(--font-sans);
+  font-size: 7px;
+  font-weight: var(--font-weight-label);
+}
+
+.position-chart__empty {
+  margin: 0;
+  padding: var(--spacing-2xl);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+}
+
+/* ── 선박 목록 ──────────────────────────────────────────────────── */
+
+.sort select {
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  padding: 4px var(--spacing-sm);
+  cursor: pointer;
+}
+
+.sort select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.vessels {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vessel {
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  transition: border-color 120ms ease;
+}
+
+.vessel:hover {
+  border-color: var(--border-strong);
+}
+
+/* 위험 선박은 테두리로도 드러낸다 — 등급 칩 색만으로 구분하지 않는다(§14). */
+.vessel--risk {
+  border-color: var(--cii-e-border);
+}
+
+.vessel__link {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--spacing-xs) var(--spacing-md);
+  padding: var(--spacing-md);
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--radius-control);
+}
+
+.vessel__link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.vessel__name {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+  color: var(--text-primary);
+  letter-spacing: var(--letterSpacing-snug);
+}
+
+.vessel__route {
+  grid-column: 1 / -1;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.vessel__stats {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.vessel__k {
+  font-weight: var(--font-weight-body);
+  color: var(--text-muted);
+  margin-right: var(--spacing-xs);
+}
+
+.vessel__eta {
+  text-align: right;
+}
+
+.more {
+  inline-size: 100%;
+  margin-top: var(--spacing-md);
+  block-size: var(--target-button);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.more:hover {
+  color: var(--text-primary);
+}
+
+.more:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* ── 조치 필요 ──────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  font-size: var(--font-size-body);
+}
+
+.action__icon {
+  inline-size: var(--icon-default);
+  block-size: var(--icon-default);
+  flex: none;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: var(--icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.action--critical {
+  background: var(--cii-e-bg);
+  color: var(--cii-e-text);
+}
+
+.action--warning {
+  background: var(--cii-c-bg);
+  color: var(--cii-c-text);
+}
+
+.action__vessel {
+  font-weight: var(--font-weight-label);
+}
+
+.action__msg {
+  color: inherit;
+  opacity: 0.9;
+}
+
+/* 스크린리더 전용 */
+.sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── 경고 배너 — PRD §6.3 확정 문구 (#352) ──────────────────────── */
+
+.warn {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--spacing-md);
+  align-items: center;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-card);
+  background: var(--cii-e-bg);
+  border: var(--borderWidth-default) solid var(--cii-e-border);
+  color: var(--cii-e-text);
+}
+
+.warn .action__icon {
+  grid-row: 1 / -1;
+  inline-size: var(--icon-large);
+  block-size: var(--icon-large);
+}
+
+.warn__main {
+  margin: 0;
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+}
+
+.warn__sub {
+  margin: 0;
+  font-size: var(--font-size-label);
+  opacity: 0.9;
+}
+
+/* ── 등급 분포 ──────────────────────────────────────────────────── */
+
+.dist {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.dist__n {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 카드 보조 문구 ─────────────────────────────────────────────── */
+
+.card__note {
+  margin: var(--spacing-md) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+/* ── 선박 행 — 배지 + 본문 2열 ──────────────────────────────────── */
+
+.vessel__link {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-md);
+  align-items: center;
+  padding: var(--spacing-md);
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--radius-control);
+}
+
+.vessel__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+/* 등급이 없는 선박 — 배지 자리를 비우지 않고 자리표시자를 둔다. */
+.vessel__nograde {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 44px;
+  block-size: 44px;
+  border-radius: var(--radius-control);
+  background: var(--cii-none-bg);
+  color: var(--cii-none-text);
+  border: var(--borderWidth-default) solid var(--cii-none-border);
+}
+
+.vessel__days {
+  color: var(--text-muted);
+}
+
+/* ── 데이터 출처 문구 — PRD §6.3 ───────────────────────────────── */
+
+.fleet__source {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
