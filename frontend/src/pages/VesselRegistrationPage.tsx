@@ -8,7 +8,7 @@ export function VesselRegistrationPage() {
   return (
     <ComingSoon
       screen={SCREEN_BY_ID.VESSEL_REGISTRATION}
-      note="8/8 데모 범위 밖입니다. 기능① 화면이 고정 샘플 선박 목록을 쓰므로(#135) 선박 등록 없이 시연할 수 있습니다. 선박 API는 #50 · #51 · #52입니다."
+      note="선박 제원을 직접 등록하는 화면입니다. 현재는 등록된 선박 목록에서 선택해 이용하실 수 있습니다."
     />
   )
 }

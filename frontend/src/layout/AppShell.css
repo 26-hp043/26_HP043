@@ -53,40 +53,121 @@
 }
 
 /* 상단바 — 우측 정렬 유틸리티만. 네비게이션 항목을 두지 않는다 (§7.2) */
+/*
+ * 상단바를 브랜드 네이비로 채우지 않는다. 화면 위쪽에 진한 띠가 있으면 시선이
+ * 콘텐츠보다 먼저 거기로 가고, 다크 모드에서는 배경과 겹쳐 층이 사라진다.
+ * 표면색 + 하단 경계선만 두어 콘텐츠에 자리를 넘긴다.
+ */
 .app-shell__topbar {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-16);
+  gap: var(--spacing-md);
   height: 56px;
-  padding: 0 var(--space-24);
-  background: var(--color-primary);
-  color: var(--color-surface);
+  padding: 0 var(--spacing-xl);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-bottom: var(--borderWidth-default) solid var(--border-default);
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .app-shell__util-item {
   display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-8);
+  align-items: center;
+  gap: var(--spacing-sm);
   font-size: var(--font-size-label);
+  color: var(--text-secondary);
 }
 
 .app-shell__util-key {
-  color: var(--color-primary-subtle);
+  color: var(--text-muted);
 }
 
 .app-shell__util-value {
   font-weight: var(--font-weight-label);
   font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
-.app-shell__util-item--plain {
-  color: var(--color-primary-subtle);
+/* 아직 고르지 않은 컨텍스트 — 값처럼 진하게 두면 선택된 것으로 읽힌다. */
+.app-shell__util-value--empty {
+  font-weight: var(--font-weight-body);
+  color: var(--text-muted);
 }
 
-.app-shell__env {
-  font-size: var(--font-size-micro);
-  color: var(--color-primary-subtle);
+.app-shell__util-icon {
+  inline-size: var(--icon-inline);
+  block-size: var(--icon-inline);
+  flex: none;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: var(--icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  color: var(--text-muted);
+}
+
+.app-shell__iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--target-icon-button);
+  block-size: var(--target-icon-button);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.app-shell__iconbtn:hover {
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+}
+
+.app-shell__iconbtn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.app-shell__iconbtn .app-shell__util-icon {
+  inline-size: var(--icon-default);
+  block-size: var(--icon-default);
+  color: inherit;
+}
+
+/* 계정 */
+.app-shell__account {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding-left: var(--spacing-md);
+  border-left: var(--borderWidth-default) solid var(--border-default);
+}
+
+.app-shell__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--target-icon-button);
+  block-size: var(--target-icon-button);
+  border-radius: var(--radius-pill);
+  background: var(--semantic-primary);
+  color: var(--surface-card);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.app-shell__account-name {
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+  max-inline-size: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-shell__nav {
@@ -98,14 +179,48 @@
   gap: var(--space-4);
 }
 
+/*
+ * 항목은 [아이콘][레이블 2줄][태그] 가로 배치다. 아이콘은 보조 채널이며
+ * 레이블이 항상 함께 놓인다(§14 — 한 채널에만 의존하지 않는다).
+ */
 .app-shell__nav-link {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-8) var(--space-12);
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-control);
-  color: var(--color-text);
+  color: var(--text-secondary);
   text-decoration: none;
+  min-block-size: var(--target-row);
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.app-shell__nav-link:hover {
+  background: var(--surface-inset);
+  color: var(--text-primary);
+}
+
+.app-shell__nav-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.app-shell__nav-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-inline-size: 0;
+}
+
+.app-shell__nav-icon {
+  inline-size: var(--icon-default);
+  block-size: var(--icon-default);
+  flex: none;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: var(--icon-stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .app-shell__nav-link:hover {
@@ -149,8 +264,9 @@
 }
 
 .app-shell__nav-tag {
-  align-self: flex-start;
-  margin-top: 2px;
+  /* 가로 배치가 되었으므로 오른쪽 끝으로 민다. */
+  margin-left: auto;
+  align-self: center;
   padding: 1px var(--space-8);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);

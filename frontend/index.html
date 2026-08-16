@@ -5,6 +5,30 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BlueLog — CII 예측 · 운항 의사결정 보조 플랫폼</title>
+    <!--
+      테마를 첫 페인트 전에 적용한다.
+
+      React가 마운트된 뒤에 붙이면 흰 화면이 한 번 번쩍인 뒤 다크로 바뀐다(FOUC).
+      그래서 저장된 선택만 여기서 읽어 <html data-theme>에 반영한다.
+
+      **저장값이 없으면 아무 속성도 붙이지 않는다** — 그 경우 styles/tokens.css의
+      prefers-color-scheme 규칙이 OS 설정을 따라간다. 여기서 임의로 라이트를 박으면
+      OS가 다크인 사용자에게 흰 화면이 한 번 나간다.
+
+      키(`bluelog-theme`)는 src/theme/theme.ts와 공유한다. 바꾸면 양쪽을 함께 고친다.
+    -->
+    <script>
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('bluelog-theme')
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored)
+          }
+        } catch (e) {
+          /* localStorage 차단 환경 — OS 설정을 따른다 */
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

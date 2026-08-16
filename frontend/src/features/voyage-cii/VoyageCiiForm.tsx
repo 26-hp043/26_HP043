@@ -179,15 +179,15 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
       <div className="voyage-cii-form__grid">
         {/* 선박 — 1척이면 고정 표시, 2척 이상이면 셀렉트 */}
         {vesselsLoading ? (
-          <StaticField label="샘플 선박" labelEn="vessel_id" value="선박 목록을 불러오는 중…" />
+          <StaticField label="선박" labelEn="vessel_id" value="선박 목록을 불러오는 중…" />
         ) : vesselsFailed ? (
           <StaticField
-            label="샘플 선박"
+            label="선박"
             labelEn="vessel_id"
             value="선박 목록을 불러오지 못했습니다"
           />
         ) : vessels.length > 1 ? (
-          <Field id="vessel" label="샘플 선박" labelEn="vessel_id">
+          <Field id="vessel" label="선박" labelEn="vessel_id">
             <select
               id="vessel"
               className="voyage-cii-form__control"
@@ -203,9 +203,9 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
           </Field>
         ) : (
           <StaticField
-            label="샘플 선박"
+            label="선박"
             labelEn="vessel_id"
-            value={selectedVessel?.displayName ?? '등록된 샘플 선박이 없습니다'}
+            value={selectedVessel?.displayName ?? '등록된 선박이 없습니다'}
           />
         )}
 
