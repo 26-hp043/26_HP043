@@ -4,10 +4,10 @@ import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, form
 import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
 import {
-  createDemoScenarioProvider,
   ESTIMATE_NOTICE,
   NO_AUTO_DECISION_NOTICE,
 } from './demoProvider'
+import { selectScenarioProvider } from './providerSelection'
 import { lowestSummary } from './comparisonRules'
 import type {
   ScenarioComparisonRequest,
@@ -43,11 +43,17 @@ import type {
  * 기능①에서 본 값이 기능②의 `직항`으로 다시 나와 두 화면이 이어진다.
  */
 const DEMO_REQUEST: ScenarioComparisonRequest = {
-  vessel_id: '00000000-0000-4000-8000-000000000001',
+  /*
+   * 기준 속력이 등록된 선박을 쓴다 (#139). 실 API는 `reference_speed_kn` 없이는
+   * 연료를 추정할 수 없어 422를 낸다 — demo에서만 되는 요청을 두면 provider를
+   * 바꾸는 순간 화면이 깨진다.
+   */
+  vessel_id: '00000000-0000-4000-8000-000000000003',
   regulation_year: 2026,
   base_distance_nm: 1000,
-  base_speed_kn: 14,
-  base_fuel_ton: 80,
+  base_speed_kn: 12.8,
+  // 1000nm / 14kn ≈ 2.98일 · 총 80t → 일일 26.88t (#139 계약 변경)
+  base_daily_foc_ton: 26.88,
   fuel_type: 'HFO',
 }
 
@@ -62,7 +68,8 @@ export function ScenarioComparison({
   /** 면책 배너는 페이지가 항상 렌더한다(`DESIGN_SYSTEM §13` 🔒). */
   onDisclaimer?: (text: string | undefined) => void
 }) {
-  const provider = useMemo(() => createDemoScenarioProvider(), [])
+  // demo ↔ 실 API 전환은 `VITE_USE_API` 하나로 결정된다 (#139).
+  const provider = useMemo(() => selectScenarioProvider(), [])
   const [state, setState] = useState<LoadState>({ status: 'loading' })
 
   useEffect(() => {

@@ -161,7 +161,13 @@ interface ScenarioPlan {
 
 /** `PRD §11.2` 생성 방식. 순서도 그 표를 따른다. */
 function buildPlans(request: ScenarioComparisonRequest): ScenarioPlan[] {
-  const { base_distance_nm: distance, base_speed_kn: speed, base_fuel_ton: fuel } = request
+  const { base_distance_nm: distance, base_speed_kn: speed } = request
+  /*
+   * 요청이 **일일** 소모량을 주므로 총량으로 환산한다 (#139 — API 계약에 맞춤).
+   * 실 API는 백엔드 cubic speed model이 시나리오별로 계산하며, demo는 직항 기준
+   * 총량만 만들어 두고 시나리오별 배율을 그대로 유지한다.
+   */
+  const fuel = (request.base_daily_foc_ton * (distance / speed)) / 24
 
   return [
     {
@@ -218,11 +224,11 @@ function validate(request: ScenarioComparisonRequest): void {
       'base_speed_kn',
     )
   }
-  if (!(request.base_fuel_ton > 0)) {
+  if (!(request.base_daily_foc_ton > 0)) {
     throw new ScenarioComparisonError(
       'VALIDATION_ERROR',
       '연료 사용량은 0보다 커야 합니다.',
-      'base_fuel_ton',
+      'base_daily_foc_ton',
     )
   }
 }

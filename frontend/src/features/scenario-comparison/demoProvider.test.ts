@@ -10,7 +10,7 @@ const BASE: ScenarioComparisonRequest = {
   regulation_year: 2026,
   base_distance_nm: 1000,
   base_speed_kn: 14,
-  base_fuel_ton: 80,
+  base_daily_foc_ton: 26.88,
   fuel_type: 'HFO',
 }
 
@@ -133,7 +133,7 @@ describe('검증', () => {
   it.each([
     [{ base_distance_nm: 0 }, 'base_distance_nm'],
     [{ base_speed_kn: 0.9 }, 'base_speed_kn'],
-    [{ base_fuel_ton: 0 }, 'base_fuel_ton'],
+    [{ base_daily_foc_ton: 0 }, 'base_daily_foc_ton'],
   ])('%o → %s 오류', async (patch, field) => {
     await expect(provider.compare({ ...BASE, ...patch })).rejects.toMatchObject({
       name: 'ScenarioComparisonError',
