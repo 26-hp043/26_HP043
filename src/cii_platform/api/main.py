@@ -20,6 +20,7 @@ from cii_platform.api.routes.auth import router as auth_router
 from cii_platform.api.routes.auth_dev import router as auth_dev_router
 from cii_platform.api.routes.auth_dev import should_register_dev_auth
 from cii_platform.api.routes.calculations import router as calculations_router
+from cii_platform.api.routes.fleet import router as fleet_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
@@ -58,6 +59,8 @@ app.include_router(vessels_router, prefix=API_V1_PREFIX)
 app.include_router(voyages_router, prefix=API_V1_PREFIX)
 app.include_router(calculations_router, prefix=API_V1_PREFIX)
 app.include_router(scenarios_router, prefix=API_V1_PREFIX)
+# #350 선대 요약 — 대시보드가 한 번의 호출로 선대 전체 현황을 받는다.
+app.include_router(fleet_router, prefix=API_V1_PREFIX)
 # #274 구글 OIDC 인증 — login·callback은 공개 경로(PUBLIC_PATHS)다.
 app.include_router(auth_router, prefix=API_V1_PREFIX)
 # #276 개발 환경 스텁 인증 — production이면 라우트 자체를 등록하지 않는다.
