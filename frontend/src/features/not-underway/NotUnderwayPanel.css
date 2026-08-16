@@ -1,0 +1,265 @@
+/*
+ * not under way 구간 입력 — DESIGN_SYSTEM §15(토큰만 참조) · §7.1.
+ *
+ * `.card` · `.card__head` · `.card__title` · `.num`은 대시보드(FleetDashboard.css)가
+ * 이미 정의한다. 여기서는 이 패널 고유의 것만 둔다.
+ */
+
+.nu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.nu__why {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+.nu__toggle,
+.nu__submit,
+.nu__row-actions button,
+.nu__fuel-head button,
+.nu__fuel-row button {
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.nu__toggle:hover,
+.nu__submit:hover,
+.nu__row-actions button:hover,
+.nu__fuel-head button:hover {
+  border-color: var(--semantic-primary);
+  color: var(--semantic-primary);
+}
+
+.nu__toggle:focus-visible,
+.nu__submit:focus-visible,
+.nu__row-actions button:focus-visible,
+.nu__fuel-head button:focus-visible,
+.nu__fuel-row button:focus-visible,
+.nu input:focus-visible,
+.nu select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.nu__danger:hover {
+  border-color: var(--semantic-danger);
+  color: var(--semantic-danger);
+}
+
+.nu__submit {
+  align-self: flex-start;
+  background: var(--semantic-primary);
+  border-color: var(--semantic-primary);
+  color: var(--surface-card);
+}
+
+.nu__submit:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ── 상태 문구 ──────────────────────────────────────────────────── */
+
+.nu__error {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--semantic-danger);
+}
+
+.nu__loading,
+.nu__empty,
+.nu__hint {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.nu__field-error {
+  display: block;
+  margin-top: var(--spacing-xs);
+  font-size: var(--font-size-micro);
+  font-style: normal;
+  color: var(--semantic-danger);
+}
+
+/* ── 입력 폼 ────────────────────────────────────────────────────── */
+
+.nu__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+  background: var(--surface-inset);
+}
+
+.nu__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.nu__grid label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.nu input,
+.nu select {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-body);
+  font-family: inherit;
+  min-inline-size: 0;
+}
+
+.nu__fuel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.nu__fuel-head h3 {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.nu__fuel-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 100px auto;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+@media (max-width: 720px) {
+  .nu__fuel-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ── 목록 ───────────────────────────────────────────────────────── */
+
+.nu__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.nu__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-card);
+}
+
+/* 진행 중 구간은 아직 끝나지 않았다 — 목록에서 구분되어야 한다. */
+.nu__row--ongoing {
+  border-inline-start: 3px solid var(--semantic-primary);
+}
+
+.nu__row-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.nu__type {
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.nu__range {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.nu__badge {
+  font-size: var(--font-size-micro);
+  color: var(--semantic-primary);
+  border: 1px solid var(--semantic-primary);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--spacing-xs);
+}
+
+.nu__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: var(--spacing-sm);
+  margin: 0;
+}
+
+.nu__figures dt {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.nu__figures dd {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+}
+
+.nu__fuels {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.nu__fuels li {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto;
+  gap: var(--spacing-sm);
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+.nu__cf {
+  color: var(--text-muted);
+}
+
+.nu__row-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.nu__close-form {
+  display: flex;
+  gap: var(--spacing-xs);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.nu .num {
+  font-variant-numeric: tabular-nums;
+}

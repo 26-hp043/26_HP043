@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.11 |
+| 버전 | v1.12 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-15 |
+| 최종 수정일 | 2026-08-17 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.5 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -756,6 +756,233 @@ C등급이어도 여유가 없으면 `risk_level`은 `HIGH`지만 규제 의무�
 | 409 | `PARAMETER_ERROR` | 해당 규제연도 파라미터 없음 (VAL-005) |
 
 > **선박 0척은 오류가 아니다.** 아직 등록하지 않은 선사가 정상적으로 만나는 상태이므로 200에 빈 배열을 반환한다. 404로 내면 화면이 「기능 미구현」과 구분하지 못한다.
+
+---
+
+### 2.9 not under way 구간 목록 조회 (#370)
+
+```http
+GET /api/v1/vessels/{vessel_id}/not-underway-periods?regulation_year=2026
+```
+
+`not_underway_period`(정박·묘박·표류·STS·운하 통과·드라이독) 기록을 조회한다.
+
+> **왜 이 절이 필요한가.** `#345`가 테이블을 만들고 `#347`이 **시드로** 샘플을 넣고 `#353`이 그걸 읽어 계산한다 — **읽는 쪽만 있고 쓰는 쪽이 없었다.** CSV 가져오기(`§8.2`)는 항차만 다루므로 이 경로를 대신하지 못한다. 이 기록의 연료는 CII 분자 `M`에 그대로 들어가므로(`PRD §3.3`), 넣을 수 없다는 것은 **정박해도 등급이 떨어지지 않는다**는 뜻이다.
+
+#### 쿼리 파라미터
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `regulation_year` | integer | 아니오 | 규제연도 필터. 생략하면 연도 무관 전체 |
+| `started_from` | string | 아니오 | 시작 시각 하한 (ISO 8601) |
+| `started_to` | string | 아니오 | 시작 시각 상한 (ISO 8601) |
+
+> **`regulation_year`가 필수가 아닌 이유.** 계산 경로(`#353`)는 연도가 확정된 상태로 조회하지만, 입력 화면은 「이 선박의 최근 기록」을 연도와 무관하게 보여 줘야 방금 넣은 행을 확인할 수 있다.
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": [
+    {
+      "id": "82bab83d-9d31-4880-b8b8-23f207d13477",
+      "vessel_id": "00000000-0000-4000-8000-000000000003",
+      "regulation_year": 2026,
+      "period_type": "AT_ANCHOR",
+      "started_at": "2026-08-10T14:00:00+00:00",
+      "ended_at": "2026-08-12T09:00:00+00:00",
+      "port_name": "부산",
+      "lat": null,
+      "lon": null,
+      "distance_nm": 0.0,
+      "voyage_id": null,
+      "fuel_uses": [
+        {
+          "id": "27d0b3fe-460f-4aa2-88ee-53776a0e5f79",
+          "period_id": "82bab83d-9d31-4880-b8b8-23f207d13477",
+          "consumer_type": "OIL_FIRED_BOILER",
+          "fuel_type": "HFO",
+          "fuel_ton": 12.0,
+          "cf_used": 3.114
+        }
+      ],
+      "created_at": "2026-08-16T17:03:20.001074+00:00"
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "period_types": ["IN_PORT", "AT_ANCHOR", "DRIFTING", "STS", "CANAL_TRANSIT", "DRYDOCK"],
+    "consumer_types": ["MAIN_ENGINE", "AUX_ENGINE", "OIL_FIRED_BOILER", "OTHER"],
+    "fuel_types": ["DIESEL_GAS_OIL", "ETHANOL", "HFO", "LFO", "LNG", "LPG_BUTANE", "LPG_PROPANE", "METHANOL"],
+    "request_id": "…",
+    "timestamp": "2026-08-17T02:30:00Z"
+  }
+}
+```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `period_type` | string | 6값 (`meta.period_types`). `DB_SCHEMA §2.17` `chk_not_underway_period_type`와 같다 |
+| `started_at` | string | 구간 시작 (ISO 8601 UTC) |
+| `ended_at` | string \| null | **`null`은 「진행 중」이다. 「모름」이 아니다** |
+| `distance_nm` | number | not under way 이동 거리. **CII 분모 `Dt`에 더해진다** (`MEPC.412(84)` §4.2). 접안·묘박은 `0`이 정상값 |
+| `fuel_uses[].cf_used` | number | 계산 시점 CF snapshot. **서버가 뜬다** — 요청으로 받지 않는다 |
+
+> **선택지를 `meta`에 싣는 이유.** 화면이 열거값을 자기 코드에 박아 두면 DB CHECK 제약·연료 seed와 조용히 갈라지고, 사용자는 **저장 단계에서야** 거부를 만난다. 연료 코드까지 여기서 주는 것은 `§7.2` 연료 조회 API가 **아직 구현되지 않아** 화면이 받을 다른 경로가 없기 때문이다 — 그 엔드포인트가 생기면 옮길 수 있다.
+
+> **기록이 없는 것은 오류가 아니다.** 정박 기록이 없는 선박은 정상 상태이므로 200에 빈 배열을 반환한다.
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 존재하지 않는 선박 |
+
+---
+
+### 2.10 not under way 구간 생성 (#370)
+
+```http
+POST /api/v1/vessels/{vessel_id}/not-underway-periods
+```
+
+#### 요청
+
+```json
+{
+  "period_type": "AT_ANCHOR",
+  "started_at": "2026-08-10T14:00:00Z",
+  "ended_at": "2026-08-12T09:00:00Z",
+  "port_name": "부산",
+  "lat": null,
+  "lon": null,
+  "distance_nm": 0,
+  "regulation_year": null,
+  "voyage_id": null,
+  "fuel_uses": [
+    { "consumer_type": "OIL_FIRED_BOILER", "fuel_type": "HFO", "fuel_ton": 12 }
+  ]
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `period_type` | string | Y | `meta.period_types`의 6값 |
+| `started_at` | string | Y | ISO 8601 |
+| `ended_at` | string \| null | N | 생략하면 **진행 중**으로 기록된다 |
+| `port_name` | string \| null | N | 최대 200자 |
+| `lat` / `lon` | number \| null | N | −90~90 / −180~180 |
+| `distance_nm` | number | N | 기본 `0`. **`>= 0`** — 접안·묘박은 0이 정상값이라 `> 0`이 아니다 |
+| `regulation_year` | integer \| null | N | 생략하면 **서버가 `started_at`의 연도로 채운다** |
+| `voyage_id` | string \| null | N | 맥락 참조. 구간은 항차가 아니라 **선박+연도**에 귀속된다 |
+| `fuel_uses` | array | N | 비워 둘 수 있다 — 실적은 §2.13으로 뒤에 붙인다 |
+| `fuel_uses[].fuel_ton` | number | Y | **`> 0`**. 0톤은 「안 썼다」가 아니라 오타다 |
+
+> **`cf_used`를 받지 않는다.** 배출계수는 서버가 계산 시점 값으로 뜬다. 화면이 보내면 사용자가 배출계수를 정하는 셈이 되고, `PRD §8.4`의 「CF 개정 시 과거 계산은 snapshot 보존」이 무너진다. 항차 연료(`§3.3`)와 같은 처리다.
+
+> **`regulation_year`의 판정 규칙.** 생략하면 `started_at`의 UTC 연도다 — 대부분의 구간이 한 해 안에서 끝나므로 이 기본값이 맞고, 매번 묻는 것은 실수를 만드는 질문이다. 명시했다면 `started_at` 또는 `ended_at`의 연도 중 하나여야 한다. **연말을 걸치는 구간(12/30~1/2)은 어느 해에 넣을지가 실제로 판단 사항**이라 선택을 받되, 무관한 연도는 오타로 보고 막는다.
+
+#### 응답 (201 Created)
+
+§2.9의 구간 객체 하나를 `data`에 담아 반환한다.
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 존재하지 않는 선박 |
+| 409 | `CONFLICT` | **같은 선박의 다른 구간과 시간대가 겹침** |
+| 422 | `VALIDATION_ERROR` | 열거값 위반 · `ended_at <= started_at` · `fuel_ton <= 0` · 알 수 없는 연료 · 같은 요청 안 `(소비원, 유종)` 중복 · 구간과 무관한 `regulation_year` |
+
+> **겹침을 막는 이유.** 같은 정박이 두 번 들어가면 `M`이 두 배가 되고 **등급이 실제보다 나쁘게** 나온다. 사용자는 화면에서 그 이유를 알 수 없다.
+>
+> 판정 규칙은 둘이다. ⑴ **열린 구간(`ended_at: null`)은 무한대로 취급한다** — 「정박 중」인 선박에 다음 정박을 미리 넣을 수 있으면 둘 중 하나는 반드시 틀린 기록이다. ⑵ **경계는 닫힘-열림이다** — 앞 구간의 `ended_at`과 뒤 구간의 `started_at`이 같은 시각인 것은 겹침이 아니다(접안 종료 즉시 운하 진입이 정상 기록이다).
+>
+> 409 메시지에는 **겹치는 상대 구간의 시각**을 싣는다. 「겹칩니다」만으로는 기존 기록을 찾아 고칠 수 없다.
+
+---
+
+### 2.11 not under way 구간 수정 (#370)
+
+```http
+PATCH /api/v1/not-underway-periods/{period_id}
+```
+
+**진행 중 구간의 종료 시각 확정이 주 용도다.** 정박이 시작될 때는 언제 끝날지 모르므로 `ended_at` 없이 넣고, 출항할 때 이 경로로 닫는다.
+
+모든 필드가 optional이며 **생략 = 변경 없음**이다(항차 수정 `§3.4`와 같은 규약).
+
+> **`ended_at`의 명시적 `null`은 클리어가 아니라 「다시 진행 중으로 되돌림」이다.** 잘못 닫은 구간을 되돌릴 경로가 필요하고, 이 열에서 `null`은 원래 그 뜻이다. 반대로 NOT NULL 열(`period_type`·`started_at`·`distance_nm`)에 `null`을 보내면 422다 — 비울 수 없는 항목이다.
+
+> **시각을 바꾸면 귀속 연도가 따라 옮겨질 수 있다.** `regulation_year`를 함께 보내지 않았고 기존 연도가 새 시각 범위에 더 이상 유효하지 않으면 **새 `started_at`의 연도로 옮긴다** — 그러지 않으면 그 구간이 집계에서 사라진다. 기존 연도가 여전히 유효하면(연말을 걸친 구간에서 사용자가 고른 값) 그대로 둔다.
+
+#### 응답 (200 OK) · 오류
+
+§2.10과 같다. 겹침은 **자기 자신을 제외하고** 판정한다 — 아니면 진행 중 구간을 영영 닫을 수 없다.
+
+---
+
+### 2.12 not under way 구간 삭제 (#370)
+
+```http
+DELETE /api/v1/not-underway-periods/{period_id}
+```
+
+**소프트 삭제**다(`is_deleted = true`). 지운 구간이 사라지면 같은 연도를 다시 계산할 때 값이 조용히 달라진다.
+
+자식 연료 행(`not_underway_fuel_use`)은 남는다 — 조회가 모두 부모의 `is_deleted`로 판정하므로 집계에서는 **즉시** 빠진다.
+
+#### 응답 (200 OK)
+
+```json
+{ "data": { "id": "82bab83d-…", "deleted": true }, "meta": { "…": "…" } }
+```
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 존재하지 않거나 **이미 삭제된** 구간 |
+
+> 이미 삭제된 구간을 「이미 삭제됨」으로 따로 알리지 않는다. 소프트 삭제는 내부 사정이고, 사용자에게는 없는 것과 같다.
+
+---
+
+### 2.13 not under way 연료 기록 추가·삭제 (#370)
+
+```http
+POST   /api/v1/not-underway-periods/{period_id}/fuel-uses
+DELETE /api/v1/not-underway-periods/{period_id}/fuel-uses/{fuel_use_id}
+```
+
+구간을 만든 뒤 실적이 확인되는 경우를 위한 경로다 — **정박이 끝나야 총 소모량을 아는 것이 보통이다.**
+
+#### 요청 (POST)
+
+```json
+{ "consumer_type": "AUX_ENGINE", "fuel_type": "DIESEL_GAS_OIL", "fuel_ton": 4.5 }
+```
+
+`cf_used`는 §2.10과 같이 **서버가 뜬다.**
+
+#### 응답
+
+| 메서드 | 상태 | 본문 |
+|---|---|---|
+| POST | 201 Created | 연료 객체 하나 |
+| DELETE | 200 OK | `{ "id": "…", "deleted": true }` |
+
+> **연료 삭제는 물리 삭제다.** `not_underway_fuel_use`에는 `is_deleted` 열이 없고(`#345` 설계) 부모가 CASCADE로 지운다. 잘못 넣은 연료 한 줄을 남겨 둘 이유가 없다.
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 없는 구간 · 없는 연료 기록 · **다른 구간에 속한 연료 기록** |
+| 409 | `CONFLICT` | 같은 구간에 `(소비원, 유종)`이 이미 있음 |
+| 422 | `VALIDATION_ERROR` | 열거값 위반 · `fuel_ton <= 0` · 알 수 없는 연료 |
+
+> **경로에 `period_id`를 함께 두는 이유.** 자식 ID만 받으면 URL을 바꿔 남의 구간을 지울 수 있고, 그 삭제는 CII 값을 조용히 바꾼다.
 
 ---
 
@@ -1998,6 +2225,12 @@ GET /api/v1/health
 | GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
 | PATCH | `/api/v1/vessels/{id}` | 선박 수정 | §6.2 SCR-002 |
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
+| GET | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 목록 | §3.3 |
+| POST | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 생성 | §3.3 |
+| PATCH | `/api/v1/not-underway-periods/{id}` | 구간 수정 (종료 확정) | §3.3 |
+| DELETE | `/api/v1/not-underway-periods/{id}` | 구간 삭제 (soft) | §3.3 |
+| POST | `/api/v1/not-underway-periods/{id}/fuel-uses` | 구간 연료 추가 | §3.3 |
+| DELETE | `/api/v1/not-underway-periods/{id}/fuel-uses/{fid}` | 구간 연료 삭제 | §3.3 |
 | GET | `/api/v1/vessels/{id}/voyages` | 항차 목록 | §6.2 SCR-003 |
 | POST | `/api/v1/vessels/{id}/voyages` | 항차 생성 | §6.2 SCR-003 |
 | GET | `/api/v1/voyages/{id}` | 항차 상세 | §6.2 SCR-003 |
@@ -2173,3 +2406,4 @@ GET /api/v1/health
 | 2026-08-16 | `#356` | §2.7 응답에 `transport_capacity_basis` 추가 — 표시 단위의 축(DWT·GT)을 서버가 내려준다. `DESIGN_SYSTEM §4.1`이 고정 문자열을 금지하므로 화면이 선종에서 유추하지 않게 하기 위함이며, 유추하면 선종 확장 시 서버와 갈라진다 (#356) |
 | 2026-08-16 | `#350` | **§2.8 선대 요약 조회 신설** — 대시보드가 한 번의 호출로 선대 전체 현황을 받는 `GET /fleet/summary`. `risk_level`(PRD §9.4.1 표시용)과 `risk_reasons`(PRD §3.3.7 규제 트리거)를 분리해 함께 반환하는 근거, `days_to_d` 경계 4종, 선박 0척이 오류가 아닌 근거를 명시. 엔드포인트 요약 표에 1행 추가 (#350) |
 | 2026-08-15 | `#380` | §2.7 `rating` 설명의 `PRD §3.3.7` 참조를 `§3.3.8`로 정정 — 이 근거(YTD는 공식 등급이 아님)는 실시간 CII 절의 내용인데, `#386`이 `§3.3.7`을 「등급 하락의 규제상 귀결」로 선점해 참조가 다른 절을 가리키고 있었다 (#358) |
+| 2026-08-17 | PR #423 | **v1.12 — `§2.9`~`§2.13` not under way 구간 CRUD 신설 (`#370`).** `#345`가 테이블을, `#347`이 시드를, `#353`이 읽는 쪽을 만들었으나 **쓰는 쪽이 없어** 정박 연료를 운영 중에 넣을 수 없었다. 6개 엔드포인트를 추가하고 `§12` 요약표에 등재. 명세로 확정한 판정 셋 — ⑴ 구간 **겹침 금지**(열린 구간 = 무한대 · 경계는 닫힘-열림), ⑵ `cf_used`는 **서버가 뜬다**(요청에서 받지 않는다), ⑶ 삭제는 **소프트**. `§2.9` `meta`가 선택지 3종(`period_types`·`consumer_types`·`fuel_types`)을 싣는데, 연료 코드는 `§7.2` 연료 조회 API가 **미구현**이라 임시로 여기서 준다 |
