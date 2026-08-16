@@ -1,0 +1,275 @@
+/*
+ * 실시간 CII — DESIGN_SYSTEM §7.1(폭 정책) · §13(면책) · §15(토큰만 참조).
+ *
+ * `.card` · `.empty` · `.ytd__figures` · `.fleet__loading`은 대시보드·선박 상세가
+ * 이미 정의한다. 여기서는 이 화면 고유의 것만 둔다.
+ */
+
+.rt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.rt__back {
+  align-self: flex-start;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.rt__back:hover {
+  color: var(--semantic-primary);
+}
+
+.rt__back:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-control);
+}
+
+.rt__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.rt__title {
+  margin: 0;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-display);
+  letter-spacing: var(--letterSpacing-tight);
+  color: var(--text-primary);
+}
+
+.rt__sub {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rt__status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-xs);
+}
+
+/* PRD R-5 — 감출 수 없어야 하므로 눈에 띄되, 값보다 앞서지 않는 크기로 둔다. */
+.rt__sim {
+  font-size: var(--font-size-micro);
+  color: var(--semantic-primary);
+  border: 1px solid var(--semantic-primary);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--spacing-sm);
+  white-space: nowrap;
+}
+
+.rt__asof,
+.rt__poll {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 정박 알림 — 명세 3-③ ────────────────────────────────────── */
+
+.rt__berth {
+  margin: 0;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-default);
+  background: var(--surface-inset);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+/* 실제로 등급이 밀리는 상태만 경고색을 쓴다 — 정박했다는 사실 자체는 경고가 아니다. */
+.rt__berth--degrading {
+  border-color: var(--semantic-danger);
+  color: var(--text-primary);
+}
+
+/* ── ⑴ 연간 누적 ─────────────────────────────────────────────── */
+
+.rt__ytd .ytd__figures {
+  font-variant-numeric: tabular-nums;
+}
+
+.rt__note,
+.rt__nodata {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.rt__split {
+  display: grid;
+  /* ⑵와 ⑶을 같은 크기로 둔다 — ⑶만 커지면 확정값처럼 읽힌다(PRD §3.3). */
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-xl);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .rt__split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── ⑵ 항차 구간 ─────────────────────────────────────────────── */
+
+.rt__voyage-title {
+  margin: 0 0 var(--spacing-md);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.rt__progress {
+  position: relative;
+  block-size: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  margin-block-end: var(--spacing-lg);
+}
+
+.rt__progress-bar {
+  block-size: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--semantic-primary);
+}
+
+.rt__progress-text {
+  position: absolute;
+  inset-block-start: calc(100% + var(--spacing-xs));
+  inset-inline-end: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.rt__voyage-figures {
+  margin-block-end: var(--spacing-lg);
+}
+
+.rt__segment {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  padding-block: var(--spacing-md);
+  border-block-start: 1px solid var(--border-default);
+}
+
+.rt__segment-label {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.rt__segment-value {
+  font-size: var(--font-size-h2, var(--font-size-display));
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.rt__segment-unit {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.rt__no-rating {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+/* ── ⑶ 연말 예상 ─────────────────────────────────────────────── */
+
+.rt__projection {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+  margin-block-end: var(--spacing-md);
+}
+
+.rt__projection-value {
+  margin: 0;
+  font-size: var(--font-size-h2, var(--font-size-display));
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.rt__direction {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-micro);
+}
+
+.rt__direction--improving {
+  color: var(--semantic-success);
+}
+
+.rt__direction--worsening {
+  color: var(--semantic-danger);
+}
+
+.rt__direction--flat {
+  color: var(--text-muted);
+}
+
+.rt__assumptions {
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+.rt__assumptions summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.rt__assumptions summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-control);
+}
+
+.rt__assumptions dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--spacing-sm);
+  margin: var(--spacing-md) 0 0;
+}
+
+.rt__assumptions dt {
+  color: var(--text-muted);
+}
+
+.rt__assumptions dd {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.rt__assumptions .num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 경고 ─────────────────────────────────────────────────────── */
+
+.rt__warnings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+.rt__warnings li::before {
+  content: '· ';
+  color: var(--text-muted);
+}

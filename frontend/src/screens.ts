@@ -146,7 +146,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-8',
     purpose: '연도별 CII 이력 · 올해 누적(YTD) 등급 · 현재 위치·운항 상태',
     width: 'wide',
-    demoScope: false,  // 신설(#344) — 구현은 #356, 대시보드 카드에서 드릴다운
+    demoScope: true,  // #356 구현 완료. OFF_NAV라 사이드바 표시에는 영향 없다
   },
   REALTIME_CII: {
     path: '/vessels/:vesselId/voyages/:voyageId',
@@ -155,7 +155,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-9',
     purpose: '항해 중 누적값 · 연말 예상 등급 · 정박(정류) 반영',
     width: 'wide',
-    demoScope: false,  // 신설(#344) — 구현은 #357, 선박 상세에서 드릴다운
+    demoScope: true,  // #357 구현 완료. OFF_NAV라 사이드바 표시에는 영향 없다
   },
   CII_FORECAST: {
     path: '/voyage-cii',
