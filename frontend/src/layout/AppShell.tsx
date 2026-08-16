@@ -3,6 +3,13 @@ import './AppShell.css'
 import { NAV_SCREENS, findScreenByPath } from '../screens'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { logout, useAuthUser } from '../auth/session'
+import { ThemeToggle } from '../theme/ThemeToggle'
+import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+
+/** 아바타 이니셜. 이메일이면 로컬파트 첫 글자를 쓴다. */
+function initialOf(name: string): string {
+  return (name.trim()[0] ?? '?').toUpperCase()
+}
 
 /**
  * 공통 셸 — `DESIGN_SYSTEM.md` §7.2.
@@ -41,7 +48,7 @@ export function AppShell() {
       <nav className="app-shell__sidebar" aria-label="주요 화면">
         <p className="app-shell__brand">
           <span className="app-shell__brand-name">BlueLog</span>
-          <span className="app-shell__brand-sub">CII 예측 · 운항 의사결정 보조</span>
+          <span className="app-shell__brand-sub">선대 CII 상시 관리</span>
         </p>
 
         <ul className="app-shell__nav">
@@ -56,8 +63,11 @@ export function AppShell() {
                       : 'app-shell__nav-link'
                   }
                 >
-                  <span className="app-shell__nav-label">{item.label}</span>
-                  <span className="app-shell__nav-label-en">{item.labelEn}</span>
+                  <NavIcon id={item.id} />
+                  <span className="app-shell__nav-text">
+                    <span className="app-shell__nav-label">{item.label}</span>
+                    <span className="app-shell__nav-label-en">{item.labelEn}</span>
+                  </span>
                 </NavLink>
               </li>
             ) : (
@@ -71,8 +81,11 @@ export function AppShell() {
                   className="app-shell__nav-link app-shell__nav-link--disabled"
                   aria-disabled="true"
                 >
-                  <span className="app-shell__nav-label">{item.label}</span>
-                  <span className="app-shell__nav-label-en">{item.labelEn}</span>
+                  <NavIcon id={item.id} />
+                  <span className="app-shell__nav-text">
+                    <span className="app-shell__nav-label">{item.label}</span>
+                    <span className="app-shell__nav-label-en">{item.labelEn}</span>
+                  </span>
                   <span className="app-shell__nav-tag">준비 중</span>
                 </span>
               </li>
@@ -84,21 +97,41 @@ export function AppShell() {
       <div className="app-shell__stack">
         {/* 우측 정렬 유틸리티. 순서 = §7.2의 좌→우 배치: 선박 · 항차 · 알림 · 계정 */}
         <header className="app-shell__topbar">
+          {/*
+           * 선박·항차 컨텍스트. 값이 없을 때 「—」만 두면 무엇을 고르라는 것인지
+           * 읽히지 않아, 아이콘과 함께 「선택 안 함」으로 명시한다. 실제 선택기는
+           * 기능② 착수 시 붙인다(§7.2 — 8/8까지는 읽기 전용).
+           */}
           <span className="app-shell__util-item">
-            <span className="app-shell__util-key">선박</span>
-            <span className="app-shell__util-value">—</span>
+            <ShipGlyph />
+            <span className="app-shell__util-value app-shell__util-value--empty">
+              선박 선택 안 함
+            </span>
           </span>
           <span className="app-shell__util-item">
-            <span className="app-shell__util-key">항차</span>
-            <span className="app-shell__util-value">—</span>
+            <VoyageGlyph />
+            <span className="app-shell__util-value app-shell__util-value--empty">
+              항차 선택 안 함
+            </span>
           </span>
-          <span className="app-shell__util-item app-shell__util-item--plain">알림</span>
-          {/* 계정 — #278: 현재 사용자 표시 + 로그아웃. demo 모드(사용자 없음)는
-              종전의 정적 표시를 유지한다. */}
+          <button
+            type="button"
+            className="app-shell__iconbtn"
+            aria-label="알림 (읽지 않음 없음)"
+            title="알림"
+          >
+            <BellGlyph />
+          </button>
+          {/* 테마 선택(해·달). */}
+          <ThemeToggle />
+
+          {/* 계정 — #278: 현재 사용자 표시 + 로그아웃. */}
           {user ? (
-            <span className="app-shell__util-item">
-              <span className="app-shell__util-key">계정</span>
-              <span className="app-shell__util-value">
+            <span className="app-shell__account">
+              <span className="app-shell__avatar" aria-hidden="true">
+                {initialOf(user.displayName ?? user.email)}
+              </span>
+              <span className="app-shell__account-name">
                 {user.displayName ?? user.email}
               </span>
               <button
@@ -110,10 +143,7 @@ export function AppShell() {
                 로그아웃
               </button>
             </span>
-          ) : (
-            <span className="app-shell__util-item app-shell__util-item--plain">계정</span>
-          )}
-          <span className="app-shell__env">데모 환경</span>
+          ) : null}
         </header>
 
         <main className={`app-shell__main app-shell__main--${width}`}>

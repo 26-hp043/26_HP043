@@ -24,33 +24,9 @@
   margin-bottom: var(--space-8);
 }
 
-.coming-soon__title-en {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-body);
-}
-
 .coming-soon__purpose {
   color: var(--color-text-muted);
   margin-bottom: var(--space-16);
-}
-
-.coming-soon__meta {
-  display: grid;
-  grid-template-columns: 88px 1fr;
-  gap: var(--space-8) var(--space-16);
-  margin: 0;
-  padding-top: var(--space-16);
-  border-top: 1px solid var(--color-border);
-  font-size: var(--font-size-label);
-}
-
-.coming-soon__meta dt {
-  color: var(--color-text-muted);
-}
-
-.coming-soon__meta dd {
-  margin: 0;
 }
 
 .coming-soon__note {

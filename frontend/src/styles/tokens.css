@@ -1,99 +1,129 @@
 /*
- * 디자인 토큰 — DESIGN_SYSTEM.md §15(토큰 구현 규약)에서 그대로 복사했다.
+ * 디자인 토큰 — 진입점.
  *
- * §15는 "모든 값은 CSS 커스텀 프로퍼티로 U0(공통 셸)에서 구현한다"고 규정하므로
- * 이 파일이 그 구현이다. 컴포넌트는 토큰만 참조하고 hex를 하드코딩하지 않는다(§15).
+ * ## 두 계층으로 나눈 이유
  *
- * 값을 임의로 바꾸지 않는다 — 변경이 필요하면 DESIGN_SYSTEM.md를 먼저 고친다
- * (AGENTS.md §3 문서 우선순위).
+ * ⑴ `tokens.generated.css` — 디자인 담당이 Figma에서 내보낸 JSON에서 **생성**한다.
+ *    이름은 디자이너 체계(`--surface-page`, `--cii-a-fill`, `--spacing-lg` …)를 따르며
+ *    **사람이 값을 옮겨 적지 않는다.** 라이트·다크 두 벌이 여기 들어 있다.
+ *
+ * ⑵ 이 파일 — 생성물 위에 두 가지를 얹는다.
+ *    - **호환 별칭**: 기존 화면 CSS 1,500여 줄이 `--color-bg`·`--color-text` 같은
+ *      옛 이름(`DESIGN_SYSTEM §15`)을 쓰고 있다. 별칭을 두면 **그 파일들을 건드리지
+ *      않고도 다크 모드가 그대로 동작한다.** 새 코드는 ⑴의 이름을 쓴다.
+ *    - **JSON에 없는 토큰**: 그림자·포커스 링·타입 스케일·pill 반경. 디자이너 토큰
+ *      세트에 이 항목들이 없어 여기서 정의하며, 테마별로 갈리는 것은 세 상태 규칙을
+ *      그대로 따른다.
+ *
+ * ## 하드코딩 hex 금지 (DESIGN_SYSTEM §15)
+ *
+ * 이 파일과 생성물 밖에서는 hex를 쓰지 않는다. 아래 별칭도 전부 `var()` 참조이며
+ * 리터럴 색을 두지 않는다 — 리터럴을 두면 그 색만 테마를 따라가지 않는다.
  */
 
+@import './tokens.generated.css';
+
 :root {
-  /* Brand */
-  --color-primary: #1a365d;
-  --color-primary-hover: #142b4a;
-  --color-primary-subtle: #eaf0f7;
+  /* ── 호환 별칭 · 브랜드 ───────────────────────────────────────────── */
+  --color-primary: var(--semantic-primary);
+  /*
+   * hover·subtle은 디자이너 토큰에 없다. 리터럴 대신 `color-mix`로 파생시킨다 —
+   * **두 번째 인자를 `--text-primary`로 두면 테마가 알아서 갈린다.** 라이트에서는
+   * 글자색이 거의 검정이라 어두워지고, 다크에서는 거의 흰색이라 밝아진다.
+   * 테마마다 hover 값을 따로 정의할 필요가 없다.
+   */
+  --color-primary-hover: color-mix(in srgb, var(--semantic-primary) 82%, var(--text-primary));
+  --color-primary-subtle: color-mix(in srgb, var(--semantic-primary) 12%, var(--surface-page));
 
-  /* Neutral */
-  --color-bg: #f4f6f9;
-  --color-surface: #ffffff;
-  --color-surface-2: #eef2f6;
-  --color-text: #1a2733;
-  --color-text-muted: #5a6b7b;
-  --color-text-faint: #8998a6;
-  --color-border: #dce3ea;
-  --color-border-strong: #c3ced9;
-  --color-grid: #e8edf2;
+  /* ── 호환 별칭 · 중립 ─────────────────────────────────────────────── */
+  --color-bg: var(--surface-page);
+  --color-surface: var(--surface-card);
+  --color-surface-2: var(--surface-inset);
+  --color-text: var(--text-primary);
+  --color-text-muted: var(--text-secondary);
+  --color-text-faint: var(--text-muted);
+  --color-border: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-grid: var(--border-default);
 
-  /* Semantic — UI 피드백 전용 */
-  --color-info: #2b6cb0;
-  --color-success: #2f855a;
-  --color-warning: #b7791f;
-  --color-danger: #c53030;
+  /* ── 호환 별칭 · 시맨틱 ───────────────────────────────────────────── */
+  --color-info: var(--semantic-primary);
+  --color-success: var(--semantic-success);
+  /* 디자이너 세트에 warning이 없다. C등급(주의) 색을 그대로 쓴다 — 의미가 같다. */
+  --color-warning: var(--cii-c-fill);
+  --color-danger: var(--semantic-danger);
 
-  /* CII grade */
-  --color-grade-a: #2f855a;
-  --color-grade-b: #8cbf3f;
-  --color-grade-c: #edb400;
-  --color-grade-d: #c05621;
-  --color-grade-e: #c53030;
-  --color-grade-a-on: #ffffff;
-  --color-grade-b-on: #173404;
-  --color-grade-c-on: #412402;
-  --color-grade-d-on: #ffffff;
-  --color-grade-e-on: #ffffff;
+  /* ── 호환 별칭 · CII 등급 ─────────────────────────────────────────── */
+  --color-grade-a: var(--cii-a-fill);
+  --color-grade-b: var(--cii-b-fill);
+  --color-grade-c: var(--cii-c-fill);
+  --color-grade-d: var(--cii-d-fill);
+  --color-grade-e: var(--cii-e-fill);
+  /*
+   * `-on` = fill 위에 얹는 글자·도형 색.
+   *
+   * 디자이너 세트에는 `-on`이 없고 대신 등급마다 `fill`·`bg`·`text`·`border` 넷이
+   * 있다. 그중 **`bg`가 `fill`의 반대편 끝**이다 — 라이트에서 `a.fill`은 진한 초록,
+   * `a.bg`는 아주 옅은 초록이고, 다크에서는 정확히 뒤집힌다. 그래서 `bg`를 쓰면
+   * **두 테마 모두에서 대비가 유지된다.** 흰색을 박아 두면 다크에서 밝아진 fill 위에
+   * 흰 글자가 얹혀 읽히지 않는다.
+   */
+  --color-grade-a-on: var(--cii-a-bg);
+  --color-grade-b-on: var(--cii-b-bg);
+  --color-grade-c-on: var(--cii-c-bg);
+  --color-grade-d-on: var(--cii-d-bg);
+  --color-grade-e-on: var(--cii-e-bg);
 
-  /* Chart */
-  --chart-series-1: #1a365d;
-  --chart-series-2: #2b6cb0;
-  --chart-series-3: #6b46c1;
-  --chart-actual: #1a2733;
-  --chart-band: rgba(26, 54, 93, 0.12);
-  --chart-axis: #c3ced9;
-  --chart-grid: #e8edf2;
-  --chart-boundary: #c3ced9;
+  /* ── 호환 별칭 · 차트 ─────────────────────────────────────────────── */
+  /*
+   * ⚠️ 디자이너 토큰에 **차트 계열색이 없다.** 아래는 기존 3계열을 테마 대응
+   * 가능한 값으로 임시 매핑한 것이며, 계열색 확정은 디자인 확인이 필요하다.
+   */
+  --chart-series-1: var(--semantic-primary);
+  --chart-series-2: var(--semantic-success);
+  --chart-series-3: var(--cii-none-fill);
+  --chart-actual: var(--text-primary);
+  --chart-band: color-mix(in srgb, var(--semantic-primary) 14%, transparent);
+  --chart-axis: var(--border-strong);
+  --chart-grid: var(--border-default);
+  --chart-boundary: var(--border-strong);
 
-  /* Radius */
-  --radius-card: 12px;
-  --radius-control: 8px;
-  --radius-tag: 6px;
-  --radius-pill: 999px;
-
-  /* Space */
-  --space-4: 4px;
-  --space-8: 8px;
-  --space-12: 12px;
-  --space-16: 16px;
-  --space-24: 24px;
-  --space-32: 32px;
+  /* ── 호환 별칭 · 간격 ─────────────────────────────────────────────── */
+  --space-4: var(--spacing-xs);
+  --space-8: var(--spacing-sm);
+  --space-12: var(--spacing-md);
+  --space-16: var(--spacing-lg);
+  --space-24: var(--spacing-xl);
+  --space-32: var(--spacing-2xl);
+  /* 디자이너 스케일은 32까지다. 48은 기존 화면이 쓰고 있어 남긴다. */
   --space-48: 48px;
 
-  /* Elevation */
-  --shadow-lv1:
-    0 1px 2px rgba(26, 54, 93, 0.05), 0 4px 16px rgba(26, 54, 93, 0.06);
-  --shadow-lv2:
-    0 4px 8px rgba(26, 54, 93, 0.08), 0 12px 32px rgba(26, 54, 93, 0.12);
-  --focus-ring: 0 0 0 3px rgba(26, 54, 93, 0.25);
+  /* ── 호환 별칭 · 모서리 ───────────────────────────────────────────── */
+  /* --radius-card(12) · --radius-control(8)은 생성물이 같은 값으로 정의한다. */
+  --radius-tag: var(--radius-badge);
+  --radius-pill: 999px;
 
-  /* Layout */
-  --layout-max-wide: 1920px;
-  --layout-max-form: 1440px;
-
+  /* ── 호환 별칭 · 레이아웃 ─────────────────────────────────────────── */
+  --layout-max-wide: var(--grid-frame-width);
+  --layout-max-form: var(--grid-frame-min);
   /*
-   * 사이드바 폭 — DESIGN_SYSTEM §7.2 (2026-08-04 회신).
-   * 접힘 동작은 MVP 범위 밖이지만, 폭을 토큰으로 분리해 두면 나중에
-   * 클래스 토글만으로 접을 수 있다. 셸을 다시 만들지 않기 위한 준비다.
+   * ⚠️ 사이드바 폭이 232px → 240px로 바뀐다. 종전 값은 `DESIGN_SYSTEM §7.2`
+   * (2026-08-04 회신)이었고, 디자이너 토큰 `grid.gnb-expanded`가 240을 준다.
+   * 새 토큰을 따르되 정본(`§7.2`) 갱신이 필요하다.
    */
-  --layout-sidebar-width: 232px;
-  --layout-sidebar-width-collapsed: 64px;
+  --layout-sidebar-width: var(--grid-gnb-expanded);
+  --layout-sidebar-width-collapsed: var(--grid-gnb-collapsed);
 
-  /* Typography */
-  --font-sans: Pretendard, system-ui, 'Malgun Gothic', sans-serif;
-
+  /* ── 타이포 ───────────────────────────────────────────────────────── */
   /*
-   * 타이포그래피 스케일 — DESIGN_SYSTEM §3.
-   * §15의 토큰 목록에는 없으나 §3이 px 단위로 고정한 값이라 셸에서 토큰화한다.
+   * 디자이너 지정은 Noto Sans KR이다. **웹폰트를 링크로 불러오지 않는다** —
+   * 오프라인 시연에서 조용히 대체 글꼴로 떨어지기 때문이다. 설치돼 있으면 쓰고,
+   * 없으면 기존 스택으로 내려간다. 자체 호스팅 여부는 별도 판단이 필요하다.
    */
+  --font-sans: var(--fontFamilies-sans), Pretendard, system-ui, 'Malgun Gothic', sans-serif;
+  --font-mono: var(--fontFamilies-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 타입 스케일 — DESIGN_SYSTEM §3. 디자이너 JSON에 없어 여기서 유지한다. */
   --font-size-display: 28px;
   --font-size-h2: 20px;
   --font-size-h3: 16px;
@@ -113,4 +143,49 @@
   --font-weight-h3: 600;
   --font-weight-body: 400;
   --font-weight-label: 500;
+
+  /* ── 그림자 · 포커스 (라이트 기본값) ──────────────────────────────── */
+  /*
+   * 그림자는 테마마다 달라야 한다. 밝은 바탕에서는 옅은 남색 그림자가 자연스럽지만,
+   * 어두운 바탕에서는 같은 그림자가 보이지 않는다 — 다크에서는 더 검고 진하게 준다.
+   */
+  --shadow-lv1: 0 1px 2px rgb(26 54 93 / 5%), 0 4px 16px rgb(26 54 93 / 6%);
+  --shadow-lv2: 0 4px 8px rgb(26 54 93 / 8%), 0 12px 32px rgb(26 54 93 / 12%);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--semantic-focus) 45%, transparent);
+}
+
+/* 시스템 다크 + 라이트를 명시하지 않은 경우 — 생성물의 색 위에 그림자만 덮는다. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --shadow-lv1: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 16px rgb(0 0 0 / 32%);
+    --shadow-lv2: 0 4px 8px rgb(0 0 0 / 48%), 0 12px 32px rgb(0 0 0 / 40%);
+  }
+}
+
+/* 사용자가 다크를 명시한 경우. */
+:root[data-theme='dark'] {
+  --shadow-lv1: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 16px rgb(0 0 0 / 32%);
+  --shadow-lv2: 0 4px 8px rgb(0 0 0 / 48%), 0 12px 32px rgb(0 0 0 / 40%);
+}
+
+/*
+ * 브라우저 기본 UI(스크롤바·폼 컨트롤)도 테마를 따라가게 한다.
+ * 이것이 없으면 다크 화면에 흰 스크롤바가 남는다.
+ */
+:root {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
 }

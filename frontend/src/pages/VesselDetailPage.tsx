@@ -5,8 +5,7 @@ export function VesselDetailPage() {
   return (
     <ComingSoon
       screen={SCREEN_BY_ID.VESSEL_DETAIL}
-      issues={['#356']}
-      note="대시보드(2-4) 선박 카드 선택 시 진입하는 선박 계층 화면입니다. 연도별 이력·YTD 조회 API는 #354·#355가 제공합니다."
+      note="선박별 연도별 CII 이력과 올해 누적(YTD) 등급을 확인하는 화면입니다."
     />
   )
 }

@@ -1,0 +1,402 @@
+{
+  "spacing": {
+    "xs": {
+      "$type": "number",
+      "$value": 4,
+      "$description": "배지 내부, 아이콘-텍스트 간격",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:261",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "sm": {
+      "$type": "number",
+      "$value": 8,
+      "$description": "타일 내부, 인접 요소",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:262",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "md": {
+      "$type": "number",
+      "$value": 12,
+      "$description": "카드 내부 행간",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:263",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "lg": {
+      "$type": "number",
+      "$value": 16,
+      "$description": "카드 패딩, 카드 간 간격",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:264",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "xl": {
+      "$type": "number",
+      "$value": 24,
+      "$description": "섹션 간격 · 그리드 거터와 동일",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:265",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "2xl": {
+      "$type": "number",
+      "$value": 32,
+      "$description": "페이지 좌우 패딩",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:266",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    }
+  },
+  "radius": {
+    "badge": {
+      "$type": "number",
+      "$value": 4,
+      "$description": "배지, 칩",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:267",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "control": {
+      "$type": "number",
+      "$value": 8,
+      "$description": "버튼, 입력, 인셋 타일",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:268",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "card": {
+      "$type": "number",
+      "$value": 12,
+      "$description": "카드",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:269",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "modal": {
+      "$type": "number",
+      "$value": 16,
+      "$description": "모달, 시트",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:270",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    }
+  },
+  "borderWidth": {
+    "default": {
+      "$type": "number",
+      "$value": 1,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:271",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    }
+  },
+  "grid": {
+    "frame-width": {
+      "$type": "number",
+      "$value": 1920,
+      "$description": "기본 프레임 폭",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:272",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "frame-min": {
+      "$type": "number",
+      "$value": 1440,
+      "$description": "최소 대응 폭",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:273",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "gnb-expanded": {
+      "$type": "number",
+      "$value": 240,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:274",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "gnb-collapsed": {
+      "$type": "number",
+      "$value": 64,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:275",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "content-width": {
+      "$type": "number",
+      "$value": 1680,
+      "$description": "1920 - GNB 240",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:276",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "columns": {
+      "$type": "number",
+      "$value": 12,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:277",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "gutter": {
+      "$type": "number",
+      "$value": 24,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:278",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "margin": {
+      "$type": "number",
+      "$value": 32,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:279",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "split-primary": {
+      "$type": "number",
+      "$value": 7,
+      "$description": "지도·차트 영역 컬럼 수",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:280",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "split-secondary": {
+      "$type": "number",
+      "$value": 5,
+      "$description": "리스트·패널 영역 컬럼 수",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:281",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    }
+  },
+  "target": {
+    "row": {
+      "$type": "number",
+      "$value": 40,
+      "$description": "테이블 행, 리스트 카드 최소 높이",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:282",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "button": {
+      "$type": "number",
+      "$value": 36,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:283",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "icon-button": {
+      "$type": "number",
+      "$value": 32,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:284",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "chip": {
+      "$type": "number",
+      "$value": 28,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:285",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    }
+  },
+  "icon": {
+    "inline": {
+      "$type": "number",
+      "$value": 16,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:286",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "default": {
+      "$type": "number",
+      "$value": 20,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:287",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "large": {
+      "$type": "number",
+      "$value": 24,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:288",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "stroke": {
+      "$type": "number",
+      "$value": 1.5,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:289",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    }
+  },
+  "fontFamilies": {
+    "sans": {
+      "$type": "string",
+      "$value": "Noto Sans KR",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:290",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ],
+        "com.figma.type": "string"
+      }
+    },
+    "mono": {
+      "$type": "string",
+      "$value": "Noto Sans Mono",
+      "$description": "IMO 번호, 좌표 등 식별자 전용",
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:291",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ],
+        "com.figma.type": "string"
+      }
+    }
+  },
+  "fontWeights": {
+    "regular": {
+      "$type": "number",
+      "$value": 400,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:292",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "medium": {
+      "$type": "number",
+      "$value": 500,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:293",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    }
+  },
+  "letterSpacing": {
+    "tight": {
+      "$type": "number",
+      "$value": -0.3199999928474426,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:294",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "snug": {
+      "$type": "number",
+      "$value": -0.1599999964237213,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:295",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "none": {
+      "$type": "number",
+      "$value": 0,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:1:296",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    }
+  },
+  "$extensions": {
+    "com.figma.modeName": "BlueLog"
+  }
+}

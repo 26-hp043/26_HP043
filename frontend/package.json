@@ -11,7 +11,8 @@
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:tokens": "node scripts/build-tokens.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",

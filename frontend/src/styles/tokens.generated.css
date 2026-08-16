@@ -1,0 +1,197 @@
+/*
+ * ⚠️ 이 파일은 생성물이다. 직접 고치지 않는다.
+ *
+ *   원본: src/design/tokens/{BlueLog,Light,Dark}.tokens.json  (디자인 담당 Figma 내보내기)
+ *   생성: npm run build:tokens   (scripts/build-tokens.mjs)
+ *
+ * 값을 바꾸려면 JSON을 고치고 위 명령을 다시 돌린다. CI가
+ * `git diff --exit-code`로 동기화를 검사하므로, 생성을 잊으면 빌드가 실패한다.
+ *
+ * ── 테마 규칙 (3-상태) ────────────────────────────────────────────────────
+ * 뷰어의 테마 상태는 셋이다.
+ *
+ *   1. 명시적 선택 → <html data-theme="light|dark">
+ *   2. 시스템 설정(기본) → 속성 없음. prefers-color-scheme만으로 갈린다
+ *
+ * 그래서 색은 세 곳에 정의한다.
+ *
+ *   :root                                          → 라이트 팔레트 (기본값)
+ *   @media (prefers-color-scheme: dark)            → 다크. 단 [data-theme="light"]는 제외
+ *     :root:not([data-theme='light'])                 (명시적 라이트 선택이 OS 다크를 이긴다)
+ *   :root[data-theme='dark']                       → 명시적 다크 선택이 OS 라이트를 이긴다
+ *
+ * **색을 미디어 쿼리나 [data-theme] 블록 안에서만 정의하면 안 된다** — 속성이 없는
+ * 기본 상태에서 그 색이 적용되지 않아 한쪽 테마의 글자가 다른 테마의 바탕 위에 얹힌다.
+ */
+
+:root {
+  /* ── 간격 (spacing) ──────────────────────────────────────────── */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+  --spacing-2xl: 32px;
+  /* ── 모서리 (radius) ──────────────────────────────────────────── */
+  --radius-badge: 4px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-modal: 16px;
+  /* ── 선 두께 (borderWidth) ────────────────────────────────────── */
+  --borderWidth-default: 1px;
+  /* ── 그리드 (grid) ────────────────────────────────────────────── */
+  --grid-frame-width: 1920px;
+  --grid-frame-min: 1440px;
+  --grid-gnb-expanded: 240px;
+  --grid-gnb-collapsed: 64px;
+  --grid-content-width: 1680px;
+  --grid-columns: 12;
+  --grid-gutter: 24px;
+  --grid-margin: 32px;
+  --grid-split-primary: 7;
+  --grid-split-secondary: 5;
+  /* ── 터치 타깃 (target) ────────────────────────────────────────── */
+  --target-row: 40px;
+  --target-button: 36px;
+  --target-icon-button: 32px;
+  --target-chip: 28px;
+  /* ── 아이콘 (icon) ────────────────────────────────────────────── */
+  --icon-inline: 16px;
+  --icon-default: 20px;
+  --icon-large: 24px;
+  --icon-stroke: 1.5px;
+  /* ── 타이포 (fontFamilies · fontWeights · letterSpacing) ──────── */
+  --fontFamilies-sans: 'Noto Sans KR';
+  --fontFamilies-mono: 'Noto Sans Mono';
+  --fontWeights-regular: 400;
+  --fontWeights-medium: 500;
+  --letterSpacing-tight: -0.32px;
+  --letterSpacing-snug: -0.16px;
+  --letterSpacing-none: 0px;
+
+  /* ── 색 · 라이트 (기본값) ──────────────────────────────────── */
+  --cii-a-fill: #1e8639;
+  --cii-a-bg: #cdebd6;
+  --cii-a-text: #0e4f22;
+  --cii-a-border: #7cc894;
+  --cii-b-fill: #57b570;
+  --cii-b-bg: #e9f6ec;
+  --cii-b-text: #2f7043;
+  --cii-b-border: #b8e0c4;
+  --cii-c-fill: #d97b14;
+  --cii-c-bg: #fdebd8;
+  --cii-c-text: #7a3f06;
+  --cii-c-border: #f2c289;
+  --cii-d-fill: #dc5b5b;
+  --cii-d-bg: #fce9e9;
+  --cii-d-text: #8a2f2f;
+  --cii-d-border: #efb4b4;
+  --cii-e-fill: #c42a2a;
+  --cii-e-bg: #f9d5d5;
+  --cii-e-text: #6b1414;
+  --cii-e-border: #e08585;
+  --cii-none-fill: #9b9a93;
+  --cii-none-bg: #f2f2ef;
+  --cii-none-text: #6b6a64;
+  --cii-none-border: #c9c7be;
+  --semantic-primary: #1a365d;
+  --semantic-success: #38a169;
+  --semantic-danger: #e53e3e;
+  --semantic-focus: #1a365d;
+  --surface-page: #f2f2ef;
+  --surface-inset: #f8f8f6;
+  --surface-card: #ffffff;
+  --surface-popover: #ffffff;
+  --text-primary: #1a1a18;
+  --text-secondary: #5f5e5a;
+  --text-muted: #8b8a83;
+  --border-default: #e3e2dc;
+  --border-strong: #c9c7be;
+}
+
+/*
+ * 시스템이 다크이고 사용자가 라이트를 명시하지 않은 경우.
+ * 색 토큰만 다시 정의한다 — 치수·타이포는 테마와 무관하다.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --cii-a-fill: #43be68;
+    --cii-a-bg: #14351f;
+    --cii-a-text: #7be39a;
+    --cii-a-border: #2e7048;
+    --cii-b-fill: #2f8f52;
+    --cii-b-bg: #0f2417;
+    --cii-b-text: #56b074;
+    --cii-b-border: #1f4b32;
+    --cii-c-fill: #d98c2a;
+    --cii-c-bg: #33220c;
+    --cii-c-text: #f0b268;
+    --cii-c-border: #7a5218;
+    --cii-d-fill: #c95f5f;
+    --cii-d-bg: #2e1818;
+    --cii-d-text: #e89191;
+    --cii-d-border: #6b3232;
+    --cii-e-fill: #e83a3a;
+    --cii-e-bg: #421212;
+    --cii-e-text: #ff7a7a;
+    --cii-e-border: #9e2c2c;
+    --cii-none-fill: #6b7686;
+    --cii-none-bg: #161a21;
+    --cii-none-text: #6b7686;
+    --cii-none-border: #39424f;
+    --semantic-primary: #4a7cc0;
+    --semantic-success: #4ecb84;
+    --semantic-danger: #f26b6b;
+    --semantic-focus: #5b8fd4;
+    --surface-page: #0e1116;
+    --surface-inset: #161a21;
+    --surface-card: #1c222b;
+    --surface-popover: #232a35;
+    --text-primary: #e6e9ee;
+    --text-secondary: #9ba5b4;
+    --text-muted: #6b7686;
+    --border-default: #2a313c;
+    --border-strong: #39424f;
+  }
+}
+
+/* 사용자가 다크를 명시한 경우 — OS가 라이트여도 이긴다. */
+:root[data-theme='dark'] {
+  --cii-a-fill: #43be68;
+  --cii-a-bg: #14351f;
+  --cii-a-text: #7be39a;
+  --cii-a-border: #2e7048;
+  --cii-b-fill: #2f8f52;
+  --cii-b-bg: #0f2417;
+  --cii-b-text: #56b074;
+  --cii-b-border: #1f4b32;
+  --cii-c-fill: #d98c2a;
+  --cii-c-bg: #33220c;
+  --cii-c-text: #f0b268;
+  --cii-c-border: #7a5218;
+  --cii-d-fill: #c95f5f;
+  --cii-d-bg: #2e1818;
+  --cii-d-text: #e89191;
+  --cii-d-border: #6b3232;
+  --cii-e-fill: #e83a3a;
+  --cii-e-bg: #421212;
+  --cii-e-text: #ff7a7a;
+  --cii-e-border: #9e2c2c;
+  --cii-none-fill: #6b7686;
+  --cii-none-bg: #161a21;
+  --cii-none-text: #6b7686;
+  --cii-none-border: #39424f;
+  --semantic-primary: #4a7cc0;
+  --semantic-success: #4ecb84;
+  --semantic-danger: #f26b6b;
+  --semantic-focus: #5b8fd4;
+  --surface-page: #0e1116;
+  --surface-inset: #161a21;
+  --surface-card: #1c222b;
+  --surface-popover: #232a35;
+  --text-primary: #e6e9ee;
+  --text-secondary: #9ba5b4;
+  --text-muted: #6b7686;
+  --border-default: #2a313c;
+  --border-strong: #39424f;
+}
