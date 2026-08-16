@@ -24,6 +24,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -199,5 +200,11 @@ async def list_cii_history(
         "from": start,
         "to": end,
         "as_of": resolved,
+        # 표시 단위의 축 — `DESIGN_SYSTEM §4.1`이 `gCO₂/(DWT·nm)`과 `gCO₂/(GT·nm)`을
+        # **선종에 따라 갈리는 값**으로 규정하고 고정 문자열을 금지한다(🔒). 화면이
+        # 선종→축 매핑을 들고 있으면 선종이 늘 때 서버와 갈라지므로, 축을 정하는
+        # `calc.capacity.capacity_axis`(정본 소관)의 결과를 그대로 싣는다.
+        # 연도별로 달라지지 않는 선박 속성이라 최상위에 둔다.
+        "transport_capacity_basis": capacity_axis(vessel.ship_type),
         "years": years,
     }
