@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import Annotated
 from uuid import uuid4
 
@@ -51,8 +52,14 @@ from cii_platform.auth.session import (
 )
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_session import UserSession
+from cii_platform.db.models.user_token import PURPOSE_EMAIL_VERIFY
 from cii_platform.db.session import get_session
+from cii_platform.mail import MailDeliveryError, get_mailer
+from cii_platform.mail.templates import email_verification
 from cii_platform.services import audit as audit_svc
+from cii_platform.services.auth_token import issue_token
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -185,6 +192,8 @@ async def signup(
     await session.flush()
 
     session_token, csrf_token = await _issue_session(session, request, user)
+    # 인증 메일 토큰을 같은 트랜잭션에서 발급한다 — 커밋 뒤에 발송한다.
+    verify_token = await issue_token(session, user_id=user.id, purpose=PURPOSE_EMAIL_VERIFY)
     await audit_svc.record_login_success(
         session,
         user_id=str(user.id),
@@ -192,6 +201,23 @@ async def signup(
         details={"signup": True},
     )
     await session.commit()
+
+    #
+    # 메일 발송은 **커밋 뒤**에 한다 (#407 경계).
+    #
+    # SMTP는 우리 코드 밖에서 깨진다. 그 실패로 가입을 되돌리면 사용자는 계정이
+    # 만들어졌는지도 알 수 없다 — 계정은 있고 메일만 실패한 상태가 정상 경로이며,
+    # 화면은 재발송 버튼을 준다.
+    #
+    try:
+        await get_mailer().send(
+            email_verification(
+                to=user.email,
+                verify_url=f"{str(request.base_url).rstrip('/')}/verify-email?token={verify_token}",
+            )
+        )
+    except MailDeliveryError:
+        _log.warning("가입 확인 메일 발송 실패 — 계정은 생성됨: user_id=%s", user.id)
 
     response = JSONResponse(
         status_code=201,
