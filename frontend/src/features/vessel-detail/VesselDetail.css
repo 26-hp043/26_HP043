@@ -1,0 +1,294 @@
+/*
+ * 선박 상세 — DESIGN_SYSTEM §7.1(폭 정책) · §9(차트 규약) · §15(토큰만 참조).
+ *
+ * `.card` · `.empty` · `.fleet__col` · `.fleet__loading` 등 공통 조각은 대시보드
+ * (FleetDashboard.css)가 이미 정의한다. 여기서는 이 화면 고유의 것만 둔다.
+ */
+
+.vd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.vd__back {
+  align-self: flex-start;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
+.vd__back:hover {
+  color: var(--semantic-primary);
+}
+
+.vd__back:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-control);
+}
+
+.vd__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+}
+
+.vd__title {
+  margin: 0;
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-display);
+  letter-spacing: var(--letterSpacing-tight);
+  color: var(--text-primary);
+}
+
+.vd__sub {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.vd__asof {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.vd__split {
+  display: grid;
+  /* 이력(차트+표)이 넓고 제원·상태가 좁다 — 토큰 7:5. */
+  grid-template-columns: 7fr 5fr;
+  gap: var(--spacing-xl);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .vd__split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 올해 누적 ──────────────────────────────────────────────────── */
+
+.ytd {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xl);
+  flex-wrap: wrap;
+}
+
+.ytd__figures {
+  display: flex;
+  gap: var(--spacing-xl);
+  margin: 0;
+}
+
+.ytd__figures dt {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.ytd__figures dd {
+  margin: 0;
+  font-size: var(--font-size-h2);
+  line-height: var(--line-height-h2);
+  font-weight: var(--font-weight-h2);
+  color: var(--text-primary);
+}
+
+.ytd__unit {
+  margin: 0;
+  inline-size: 100%;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.vd__nodata,
+.vd__note {
+  margin: var(--spacing-md) 0 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.vd__note {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+/* ── 제원 · 상태 ───────────────────────────────────────────────── */
+
+.spec {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--spacing-sm) var(--spacing-lg);
+  margin: 0;
+}
+
+.spec > div {
+  display: contents;
+}
+
+.spec dt {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.spec dd {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.vd__drill {
+  display: inline-block;
+  margin-top: var(--spacing-lg);
+  font-size: var(--font-size-label);
+  color: var(--semantic-primary);
+  text-decoration: none;
+}
+
+.vd__drill:hover {
+  text-decoration: underline;
+}
+
+.vd__drill:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-control);
+}
+
+/* ── 이력 차트 + 표 ────────────────────────────────────────────── */
+
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.history__chart {
+  display: block;
+  inline-size: 100%;
+  aspect-ratio: 320 / 140;
+  background: var(--surface-inset);
+  border-radius: var(--radius-control);
+}
+
+.history__req {
+  stroke: var(--text-primary);
+  stroke-width: 1.5;
+  /* 파선 — 색을 못 봐도 기준선임이 드러난다 (§14). */
+  stroke-dasharray: 4 3;
+}
+
+.history__axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.history__xlabel,
+.history__rating {
+  font-family: var(--font-sans);
+  font-size: 9px;
+  fill: var(--text-muted);
+}
+
+.history__rating {
+  font-weight: var(--font-weight-label);
+  fill: var(--text-secondary);
+}
+
+.history__legend {
+  display: flex;
+  gap: var(--spacing-lg);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.history__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.history__swatch {
+  inline-size: 12px;
+  block-size: 12px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+
+.history__swatch--line {
+  block-size: 0;
+  border-radius: 0;
+  background: none;
+  border-top: 2px dashed var(--text-primary);
+}
+
+.history__empty {
+  margin: 0;
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-size-label);
+  background: var(--surface-inset);
+  border-radius: var(--radius-control);
+}
+
+/* 표는 좁은 화면에서 가로 스크롤한다 — 페이지 전체가 밀리면 안 된다. */
+.history__tablebox {
+  overflow-x: auto;
+}
+
+.history__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-label);
+}
+
+.history__caption {
+  text-align: left;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+  padding-bottom: var(--spacing-sm);
+}
+
+.history__table th,
+.history__table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-bottom: var(--borderWidth-default) solid var(--border-default);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.history__table thead th {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-label);
+}
+
+.history__table tbody th {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.history__table td.num {
+  text-align: right;
+}

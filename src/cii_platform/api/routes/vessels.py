@@ -122,6 +122,9 @@ async def get_cii_history_route(
             "vessel_id": history["vessel_id"],
             "from": history["from"],
             "to": history["to"],
+            # 표시 단위의 축(DWT·GT) — `DESIGN_SYSTEM §4.1`이 고정 문자열을 금지하므로
+            # 화면이 선종에서 유추하지 않고 서버가 정한 값을 쓴다 (#356).
+            "transport_capacity_basis": history["transport_capacity_basis"],
             "years": history["years"],
         },
         "meta": _meta(request, as_of=as_of.isoformat() if isinstance(as_of, datetime) else as_of),
