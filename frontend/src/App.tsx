@@ -1,6 +1,14 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { AppShell } from './layout/AppShell'
 import { RequireAuth } from './auth/RequireAuth'
+import {
+  PASSWORD_RESET_PATH,
+  SIGNUP_PATH,
+  VERIFY_EMAIL_PATH,
+} from './auth/session'
+import { PasswordResetPage } from './pages/PasswordResetPage'
+import { SignupPage } from './pages/SignupPage'
+import { VerifyEmailPage } from './pages/VerifyEmailPage'
 import { DEFAULT_PATH, SCREEN_BY_ID } from './screens'
 import { LoginFailurePage, LoginPage } from './pages/LoginPage'
 import { MainboardPage } from './pages/MainboardPage'
@@ -32,9 +40,15 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* UIFLOW §0 — 인증 화면(셸 밖·가드 밖) */}
+        {/*
+          UIFLOW v2.1 §0 — 인증 화면(셸 밖·가드 밖).
+          비밀번호 재설정·이메일 인증은 **메일 링크로 진입**하므로 세션이 없다.
+        */}
         <Route path={SCREEN_BY_ID.LOGIN.path} element={<LoginPage />} />
         <Route path={SCREEN_BY_ID.LOGIN_FAILURE.path} element={<LoginFailurePage />} />
+        <Route path={SIGNUP_PATH} element={<SignupPage />} />
+        <Route path={PASSWORD_RESET_PATH} element={<PasswordResetPage />} />
+        <Route path={VERIFY_EMAIL_PATH} element={<VerifyEmailPage />} />
 
         <Route
           element={

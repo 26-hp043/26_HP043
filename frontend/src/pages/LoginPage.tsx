@@ -1,89 +1,130 @@
+import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router'
-import { DEFAULT_PATH } from '../screens'
-import { loginUrl, useAuthUser } from '../auth/session'
-import './LoginPage.css'
+import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
+import { hasErrors, safeNext, validateLogin } from '../features/auth/authRules'
+import type { FieldErrors } from '../features/auth/authRules'
+import {
+  AuthRequestError,
+  PASSWORD_RESET_PATH,
+  SIGNUP_PATH,
+  login,
+  useAuthUser,
+} from '../auth/session'
 
 /**
- * 로그인 화면 — `UIFLOW.md` §0 (#278).
+ * 로그인 화면 — `UIFLOW v2.1` §0 (#415).
  *
- * - 서비스 소개 및 면책 문구(PRD §0.3 원문) + `구글 계정으로 계속하기` 버튼 단일.
- * - 버튼은 백엔드 `/auth/login`으로 **전체 페이지 이동**한다 — 구글 인증 화면을
- *   거치는 OIDC 흐름이라 SPA 라우팅 밖으로 나갔다가 `redirect_to`로 돌아온다.
- * - `?next=`로 전달된 복귀 경로를 `redirect_to`에 그대로 실어 왕복 보존한다.
- *   가드가 미인증 리다이렉트 시 원래 가려던 경로를 여기에 싣는다.
- * - 이미 로그인돼 있으면(`useAuthUser`) next 또는 기본 화면으로 바로 보낸다.
+ * ## 구글 버튼이 사라졌다
+ *
+ * `#413`~`#414`로 자체 이메일·비밀번호 인증이 됐다. 종전에는 백엔드 OIDC 진입점으로
+ * **전체 페이지 이동**했으나, 이제 로그인은 앱 안에서 끝난다.
+ *
+ * ## 실패 문구를 화면이 만들지 않는다
+ *
+ * 서버가 준 문구를 그대로 보여 준다. 「없는 이메일」과 「틀린 비밀번호」를 같은
+ * 문구로 내는 것이 **계정 존재 여부를 숨기는 규칙**(`API_SPEC §1.2`)이고, 화면이
+ * 다시 쓰면 그 규칙이 깨질 수 있다.
  */
-
-/** 앱 내부 경로만 복귀 경로로 인정한다 — 서버(#274)와 같은 open redirect 방어. */
-function safeNext(raw: string | null): string | null {
-  if (raw && raw.startsWith('/') && !raw.startsWith('//')) return raw
-  return null
-}
-
 export function LoginPage() {
   const [searchParams] = useSearchParams()
   const user = useAuthUser()
   const next = safeNext(searchParams.get('next'))
 
-  if (user) {
-    return <Navigate to={next ?? DEFAULT_PATH} replace />
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [errors, setErrors] = useState<FieldErrors>({})
+  const [failure, setFailure] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  if (user) return <Navigate to={next} replace />
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    const found = validateLogin(email, password)
+    setErrors(found)
+    if (hasErrors(found)) return
+
+    setBusy(true)
+    setFailure(null)
+    try {
+      await login(email, password)
+      // 성공하면 `useAuthUser`가 갱신되어 위 Navigate가 처리한다.
+    } catch (error) {
+      setFailure(
+        error instanceof AuthRequestError
+          ? error.message
+          : '로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      )
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
-    <main className="login-page">
-      <section className="login-card" aria-labelledby="login-title">
-        <p className="login-brand">
-          <span className="login-brand-name">BlueLog</span>
-          <span className="login-brand-sub">CII 예측 · 운항 의사결정 보조</span>
-        </p>
+    <AuthShell
+      title="중소선사를 위한 선대 CII 관리"
+      description="항차 CII 추정, 운항 시나리오 비교, 연간 등급 시뮬레이션을 하나의 화면에서 확인합니다."
+      disclaimer
+      footer={
+        <>
+          계정이 없으신가요? <Link to={SIGNUP_PATH}>회원가입</Link>
+        </>
+      }
+    >
+      <form className="auth-form" onSubmit={submit} noValidate>
+        {failure ? <AuthAlert tone="error">{failure}</AuthAlert> : null}
 
-        <h1 id="login-title" className="login-title">
-          중소선사를 위한 CII 예측 플랫폼
-        </h1>
-        <p className="login-description">
-          항차 CII 추정, 운항 시나리오 비교, 연간 등급 시뮬레이션을 하나의 화면에서
-          확인합니다.
-        </p>
+        <AuthField
+          id="login-email"
+          label="이메일"
+          type="email"
+          value={email}
+          onChange={setEmail}
+          error={errors.email}
+          autoComplete="username"
+        />
+        <AuthField
+          id="login-password"
+          label="비밀번호"
+          type="password"
+          value={password}
+          onChange={setPassword}
+          error={errors.password}
+          autoComplete="current-password"
+        />
 
-        {/* PRD §0.3 — 제품 기본 원칙의 면책 문구 원문. 결과 화면 하단 배너(§6.3)와
-            같은 문구군이며 로그인 화면에도 노출한다(UIFLOW §0 「서비스 소개 및 면책 문구」). */}
-        <p className="login-disclaimer" role="note">
-          본 결과는 공개 데이터, 사용자 입력값, 추정 모델을 기반으로 한 참고용
-          예측값입니다. 규제 제출용 공식 CII 계산 결과가 아니며, 최종 운항 판단은
-          사용자에게 있습니다.
-        </p>
-
-        <a
-          className="login-button"
-          href={loginUrl(next ?? DEFAULT_PATH)}
-          data-testid="login-google-button"
+        <button
+          className="auth-submit"
+          type="submit"
+          disabled={busy}
+          data-testid="login-submit"
         >
-          구글 계정으로 계속하기
-        </a>
-      </section>
-    </main>
+          {busy ? '로그인 중…' : '로그인'}
+        </button>
+      </form>
+
+      <p className="auth-links">
+        <Link to={PASSWORD_RESET_PATH}>비밀번호를 잊으셨나요?</Link>
+      </p>
+    </AuthShell>
   )
 }
 
 /**
- * 로그인 실패 화면 — `UIFLOW.md` §0-1 (#278).
+ * 로그인 실패 화면 — `UIFLOW v2.1` §0-2.
  *
- * 실패 사유 안내 + 재시도 버튼. 재시도는 `0. 로그인 화면`로 돌아간다(UIFLOW).
+ * 자체 인증에서는 실패가 로그인 화면 안에서 표시되므로 이 화면으로 오는 경로는
+ * 드물다. 세션 발급 자체가 실패한 경우를 위해 남긴다.
  */
 export function LoginFailurePage() {
   return (
-    <main className="login-page">
-      <section className="login-card" aria-labelledby="login-failure-title">
-        <h1 id="login-failure-title" className="login-title">
-          로그인하지 못했습니다
-        </h1>
-        <p className="login-description">
-          로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.
-        </p>
-        <Link className="login-button" to="/login" data-testid="login-retry-button">
-          다시 시도하기
-        </Link>
-      </section>
-    </main>
+    <AuthShell
+      title="로그인하지 못했습니다"
+      description="잠시 후 다시 시도해 주세요. 문제가 계속되면 관리자에게 문의해 주십시오."
+    >
+      <Link className="auth-submit auth-submit--link" to="/login">
+        다시 시도하기
+      </Link>
+    </AuthShell>
   )
 }

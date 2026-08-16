@@ -40,16 +40,31 @@ export interface CurrentUser {
   id: string
   email: string
   displayName: string | null
+  /**
+   * 이메일 인증 완료 시각. `null`이면 미인증.
+   *
+   * **미인증도 로그인은 허용한다**(`PRD §7.10`) — 인증을 강제하면 메일이 도착하지
+   * 않을 때 사용자가 아무것도 하지 못한다. 대신 셸이 배너를 띄운다.
+   */
+  emailVerifiedAt: string | null
 }
 
 export const LOGIN_PATH = '/login'
 export const LOGIN_FAILURE_PATH = '/login/failure'
+export const SIGNUP_PATH = '/signup'
+export const PASSWORD_RESET_PATH = '/password-reset'
+export const VERIFY_EMAIL_PATH = '/verify-email'
 
 /** 상대 경로 — 개발은 vite 프록시, 프로덕션은 같은 출처(vite.config 참조). */
 const AUTH_API_BASE = '/api/v1'
 const ME_URL = `${AUTH_API_BASE}/auth/me`
 const LOGIN_API_URL = `${AUTH_API_BASE}/auth/login`
 const LOGOUT_API_URL = `${AUTH_API_BASE}/auth/logout`
+const SIGNUP_API_URL = `${AUTH_API_BASE}/auth/signup`
+const VERIFY_REQUEST_URL = `${AUTH_API_BASE}/auth/verify-email/request`
+const VERIFY_CONFIRM_URL = `${AUTH_API_BASE}/auth/verify-email/confirm`
+const RESET_REQUEST_URL = `${AUTH_API_BASE}/auth/password-reset/request`
+const RESET_CONFIRM_URL = `${AUTH_API_BASE}/auth/password-reset/confirm`
 
 /** dev-login이 내려주는 CSRF 쿠키 이름(auth_dev.py와 계약). */
 const CSRF_COOKIE_NAME = 'csrf'
@@ -107,21 +122,7 @@ export async function probeCurrentUser(
         notify()
         return null
       }
-      const body = (await response.json()) as {
-        data?: { id?: unknown; email?: unknown; display_name?: unknown }
-      }
-      const data = body?.data
-      currentUser =
-        data && typeof data.id === 'string' && typeof data.email === 'string'
-          ? {
-              id: data.id,
-              email: data.email,
-              displayName:
-                typeof data.display_name === 'string' && data.display_name
-                  ? data.display_name
-                  : null,
-            }
-          : null
+      currentUser = toCurrentUser(await response.json())
       notify()
       return currentUser
     } catch {
@@ -164,22 +165,151 @@ export function csrfHeaders(): Record<string, string> {
   return token ? { [CSRF_HEADER_NAME]: token } : {}
 }
 
-/**
- * 백엔드 로그인 진입 URL — `next`는 앱 내부 경로만 허용한다.
- *
- * 외부 URL을 그대로 넘기면 open redirect가 되므로 서버(#274)와 같은 규칙으로
- * 여기서도 걸러낸다.
- */
-export function loginUrl(next?: string): string {
-  const safeNext = next && next.startsWith('/') && !next.startsWith('//') ? next : '/'
-  return `${LOGIN_API_URL}?redirect_to=${encodeURIComponent(safeNext)}`
+/** `GET /auth/me`·가입·로그인 응답을 화면 타입으로 옮긴다. */
+export function toCurrentUser(body: unknown): CurrentUser | null {
+  const data = (body as { data?: Record<string, unknown> } | null)?.data
+  if (!data || typeof data.id !== 'string' || typeof data.email !== 'string') return null
+  return {
+    id: data.id,
+    email: data.email,
+    displayName:
+      typeof data.display_name === 'string' && data.display_name ? data.display_name : null,
+    emailVerifiedAt:
+      typeof data.email_verified_at === 'string' ? data.email_verified_at : null,
+  }
 }
 
-/** 로그인으로 전체 페이지 이동한다. `next` 생략 시 현재 경로를 보존한다. */
+/**
+ * 인증 요청 실패 — 화면이 사용자에게 그대로 보여 줄 문구를 담는다.
+ *
+ * **서버 문구를 그대로 쓴다.** 로그인 실패·재설정 요청 문구는 「계정 존재 여부를
+ * 노출하지 않는다」는 규칙에 맞춰 정본이 확정한 것이라(`PRD §6.3`), 화면이 다시
+ * 쓰면 그 규칙이 깨질 수 있다.
+ */
+export class AuthRequestError extends Error {
+  readonly status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'AuthRequestError'
+    this.status = status
+  }
+}
+
+async function postJson(
+  url: string,
+  payload: unknown,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<unknown> {
+  let response: Response
+  try {
+    response = await fetchImpl(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch {
+    throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
+  }
+
+  const body = await response.json().catch(() => null)
+  if (!response.ok) {
+    const message =
+      (body as { error?: { message?: string } } | null)?.error?.message ??
+      '요청을 처리하지 못했습니다.'
+    throw new AuthRequestError(message, response.status)
+  }
+  return body
+}
+
+/** 이메일·비밀번호로 로그인하고 사용자 상태를 갱신한다. */
+export async function login(
+  email: string,
+  password: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<CurrentUser | null> {
+  const body = await postJson(LOGIN_API_URL, { email, password }, fetchImpl)
+  currentUser = toCurrentUser(body)
+  notify()
+  return currentUser
+}
+
+/** 회원가입 — 성공 시 **즉시 로그인 상태**가 된다(`API_SPEC §1.2`). */
+export async function signup(
+  email: string,
+  password: string,
+  displayName: string | null,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<CurrentUser | null> {
+  const body = await postJson(
+    SIGNUP_API_URL,
+    { email, password, display_name: displayName || null },
+    fetchImpl,
+  )
+  currentUser = toCurrentUser(body)
+  notify()
+  return currentUser
+}
+
+/** 인증 메일 재발송. 성공 문구는 서버가 준다. */
+export async function requestEmailVerification(
+  email: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<string> {
+  const body = await postJson(VERIFY_REQUEST_URL, { email }, fetchImpl)
+  return messageOf(body)
+}
+
+/** 메일 링크의 토큰으로 이메일 인증을 완료한다. */
+export async function confirmEmailVerification(
+  token: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<string> {
+  const body = await postJson(VERIFY_CONFIRM_URL, { token }, fetchImpl)
+  return messageOf(body)
+}
+
+/** 비밀번호 재설정 메일 요청. **가입 여부와 무관하게 같은 응답이 온다.** */
+export async function requestPasswordReset(
+  email: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<string> {
+  const body = await postJson(RESET_REQUEST_URL, { email }, fetchImpl)
+  return messageOf(body)
+}
+
+/**
+ * 새 비밀번호로 교체한다.
+ *
+ * 성공하면 **기존 세션이 전부 끊긴다**(`API_SPEC §1.2`). 화면은 로그인으로 보낸다.
+ */
+export async function confirmPasswordReset(
+  token: string,
+  password: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<string> {
+  const body = await postJson(RESET_CONFIRM_URL, { token, password }, fetchImpl)
+  currentUser = null
+  notify()
+  return messageOf(body)
+}
+
+function messageOf(body: unknown): string {
+  const message = (body as { data?: { message?: unknown } } | null)?.data?.message
+  return typeof message === 'string' ? message : '요청이 처리되었습니다.'
+}
+
+/** 로그인 화면으로 이동한다. `next` 생략 시 현재 경로를 보존한다.
+ *
+ * 종전에는 백엔드 OIDC 진입점으로 **전체 페이지 이동**했으나, 자체 인증에서는
+ * 로그인이 앱 안의 화면이므로 SPA 경로로 간다(#415).
+ */
 export function redirectToLogin(next?: string): void {
   if (typeof window === 'undefined') return
   const target = next ?? `${window.location.pathname}${window.location.search}`
-  window.location.assign(loginUrl(target))
+  const safeNext = target.startsWith('/') && !target.startsWith('//') ? target : '/'
+  window.location.assign(`${LOGIN_PATH}?next=${encodeURIComponent(safeNext)}`)
 }
 
 /**
