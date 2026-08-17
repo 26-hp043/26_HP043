@@ -31,6 +31,7 @@ async def insert(
     cii_value: Decimal,
     estimated_rating: str,
     risk_level: str,
+    weather_snapshot_id: UUID | None = None,
 ) -> VoyageScenario:
     """독립 시나리오 1건을 INSERT 하고 flush 한다.
 
@@ -42,6 +43,11 @@ async def insert(
     ``cii_value``는 [M-8] denormalized 캐시다. canonical 값은 ``calculation_run``의
     ``result_json``이 소유하므로, 여기 들어가는 값은 컬럼 스케일(15,8)로 반올림된
     복사본이다.
+
+    ``weather_snapshot_id``는 **그때 쓴 기상의 출처**다 (#62). 기본값이 ``None``인
+    이유는 기상 보정을 쓰지 않은 계산이 정상이기 때문이다 — 없는 참조를 만들지 않고,
+    보정을 한 계산만 근거를 남긴다(``DB_SCHEMA §7.1`` FK는 SET NULL이라 스냅샷이
+    지워져도 시나리오는 남는다).
     """
     scenario = VoyageScenario(
         vessel_id=vessel_id,
@@ -56,7 +62,7 @@ async def insert(
         cii_value=cii_value,
         estimated_rating=estimated_rating,
         risk_level=risk_level,
-        weather_snapshot_id=None,
+        weather_snapshot_id=weather_snapshot_id,
     )
     session.add(scenario)
     await session.flush()
