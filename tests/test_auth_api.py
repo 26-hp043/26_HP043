@@ -13,6 +13,8 @@
 - 이메일 소문자 정규화
 - 비밀번호 정책 위반 거부
 - 응답에 비밀번호 해시가 실리지 않는 것
+
+케이스: AT-AUTH-001 · AT-AUTH-002 · AT-AUTH-003 · AT-AUTH-004 · AT-AUTH-005 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations

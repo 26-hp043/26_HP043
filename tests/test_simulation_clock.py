@@ -10,6 +10,8 @@
 
 DB를 쓰지 않는다 — 이 모듈은 이미 읽어 온 행을 받는 순수 함수이며, 시각 경계
 조건은 DB 없이 검증하는 것이 빠르고 정확하다.
+
+케이스: UT-CLOCK-001 · UT-CLOCK-002 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations

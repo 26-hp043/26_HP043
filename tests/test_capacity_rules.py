@@ -46,7 +46,7 @@ def get_reference_line(ship_type: str, condition_expr: str):
 
 
 def test_ut_cap_001_002_transport_and_reference_differ_for_large_bulk():
-    """UT-CAP-001 · 002 — 벌크 300k: transport=실제 DWT, reference=fixed 279k.
+    """UT-CAP-001 · UT-CAP-002 — 벌크 300k: transport=실제 DWT, reference=fixed 279k.
 
     본 이슈의 목적이 두 capacity의 분리이므로 한 테스트에서 함께 확인한다.
     함수를 따로 검증하면 둘을 혼용하는 실수가 드러나지 않는다.
@@ -71,7 +71,7 @@ def test_ut_cap_003_small_bulk_uses_same_capacity_for_both():
 
 
 def test_ut_cap_004_005_small_lng():
-    """UT-CAP-004 · 005 — LNG < 65k: transport=실제 DWT, reference=fixed 65k."""
+    """UT-CAP-004 · UT-CAP-005 — LNG < 65k: transport=실제 DWT, reference=fixed 65k."""
     vessel = FakeVessel("LNG_CARRIER", deadweight=50000)
     ref_line = select_reference_line(vessel, SEED_REFERENCE_LINES)
 
