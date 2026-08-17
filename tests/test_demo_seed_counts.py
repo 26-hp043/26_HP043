@@ -76,16 +76,24 @@ async def test_counts_are_never_negative(conn: AsyncConnection):
 
 @pytest.mark.asyncio
 async def test_seed_after_clear_reports_the_actual_row_count(conn: AsyncConnection):
-    """비운 뒤 넣으면 **정확히 seed 정의만큼** 들어갔다고 말해야 한다.
+    """비운 뒤 넣으면 **지운 만큼** 들어갔다고 말해야 한다.
 
     0과 실제 건수가 구분되는지를 여기서 확인한다 — 위 테스트만 있으면 「항상 0을
     돌려주는 구현」도 통과한다.
+
+    ``EXPECTED_ROWS``와 직접 비교하지 않는 이유는 **계산 이력이 참조하는 행은 지워지지
+    않기 때문**이다(`clear_demo` docstring). 같은 DB를 쓰는 다른 테스트가 데모 선박으로
+    계산을 한 번 돌리면 그 선박은 남고, 그러면 다시 넣을 것도 그만큼 줄어든다 —
+    **그것은 결함이 아니라 설계**다. 그래서 「지운 수 = 다시 들어간 수」로 본다.
     """
-    await clear_demo(conn)
+    cleared = await clear_demo(conn)
 
     counts = await seed_demo(conn)
 
-    assert counts == EXPECTED_ROWS
+    assert counts == {name: cleared[name] for name in EXPECTED_ROWS}
+    if cleared["kept_vessel"] == 0 and cleared["kept_voyage"] == 0:
+        # 아무것도 남지 않았다면 전량이 돌아와야 한다.
+        assert counts == EXPECTED_ROWS
 
 
 @pytest.mark.asyncio
@@ -93,14 +101,18 @@ async def test_clear_reports_the_actual_deleted_count(conn: AsyncConnection):
     """삭제 건수도 같은 규칙을 따른다.
 
     ``kept_voyage``·``kept_vessel``이 이 값에서 파생되므로(``len(ids) - 지운 수``),
-    **삭제 수가 틀리면 남긴 수까지 함께 틀린다.**
+    **삭제 수가 틀리면 남긴 수까지 함께 틀린다.** 그래서 항등식으로 본다 —
+    **지운 수 + 남긴 수 = seed 정의 수**. 계산 이력이 걸린 행은 남는 것이 정상이므로
+    (`clear_demo` docstring) 「전부 지워졌는가」로 보면 다른 테스트가 남긴 이력에
+    이 검사가 흔들린다.
     """
     counts = await clear_demo(conn)
 
-    for name, expected in EXPECTED_ROWS.items():
-        assert counts[name] == expected, f"{name} 삭제 건수가 seed 정의와 다르다"
-    assert counts["kept_voyage"] == 0
-    assert counts["kept_vessel"] == 0
+    assert counts["vessel"] + counts["kept_vessel"] == EXPECTED_ROWS["vessel"]
+    assert counts["voyage"] + counts["kept_voyage"] == EXPECTED_ROWS["voyage"]
+    # 자식 테이블은 참조 제약이 없어 언제나 전량이다.
+    for name in ("voyage_fuel_use", "not_underway_period", "not_underway_fuel_use"):
+        assert counts[name] == EXPECTED_ROWS[name], f"{name} 삭제 건수가 seed 정의와 다르다"
 
 
 @pytest.mark.asyncio
