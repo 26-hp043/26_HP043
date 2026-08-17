@@ -393,3 +393,128 @@ async def delete_voyage(
     raise StateTransitionError(
         f"상태 {voyage.status}인 항차는 삭제할 수 없습니다. 먼저 CANCELLED로 전환하세요."
     )
+
+
+#: 실적을 받을 수 있는 상태 (#440).
+#:
+#: `PRD §8.1` 상태 머신에서 **운항이 시작된 뒤**의 상태들이다. `DRAFT`·`PLANNED`는
+#: 아직 뜨지 않은 항차라 실적이 존재할 수 없고, `CANCELLED`·`ARCHIVED`는 종결된
+#: 기록이다. `CONFIRMED`를 여기 넣지 않는 이유는 아래 docstring에 있다.
+ACTUALS_ALLOWED_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED"})
+
+
+async def set_actuals(
+    session: AsyncSession,
+    voyage_id: UUID,
+    *,
+    fuel_uses: list[dict] | None = None,
+    **fields,
+) -> dict[str, object]:
+    """항차 실적을 입력한다 (`API_SPEC §3.6`, #440). 없으면 404.
+
+    ## 상태를 바꾸지 않는다
+
+    명세가 *"`status`는 변경하지 않는다 (별도 transition 호출 필요)"* 로 못박는다.
+    실적 입력과 상태 전환을 한 번에 처리하면 **전환 가드(`PRD §8.1.1`)를 우회하는
+    경로**가 생긴다 — `COMPLETED → CONFIRMED`는 모든 실적이 채워졌을 때만 허용되는데,
+    같은 요청 안에서 채우고 전환하면 그 검사가 자기 입력을 보고 통과한다.
+
+    ## 어느 상태에서 받는가
+
+    `IN_PROGRESS`·`COMPLETED`만 받는다.
+
+    * `DRAFT`·`PLANNED` — **아직 뜨지 않은 항차에 실적이 있을 수 없다.** 받아 두면
+      `PRD §8.3` 값 우선순위가 「PLANNED인데 actual이 있는」 정의되지 않은 상태를
+      만난다.
+    * `CANCELLED`·`ARCHIVED` — 종결된 기록이다.
+    * `CONFIRMED` — **확정된 실적을 조용히 갈아 끼우지 않는다.** 확정은 연말 DCS 보고의
+      근거이므로, 고쳐야 한다면 `COMPLETED`로 되돌리는 전환을 명시적으로 거쳐야 한다.
+
+    ## 계획값을 지우지 않는다
+
+    `PRD §8.4` — *"실제 연료 사용량 입력: 계획값과 실제값을 **모두 보존**하고 실제값
+    우선 사용"*. 그래서 `planned_fuel_ton`은 건드리지 않고 `actual_fuel_ton`만 쓴다.
+    계획 대비 실적 차이가 `#363` 피드백 루프의 입력이라, 계획값을 잃으면 그 비교가
+    영영 불가능해진다.
+
+    같은 이유로 **`calculation_run`을 무효화하지 않는다.** `§8.4`가 무효화를 규정한
+    것은 「항차 계획 변경」이지 실적 입력이 아니다. 실적은 다음 조회 때 값 우선순위가
+    자동으로 집어 간다.
+
+    ## CF snapshot
+
+    새로 생기는 연료 행에는 **지금 시점의 CF**를 박는다(`#378`). 기존 행의
+    ``cf_used``는 그대로 둔다 — 실적을 나중에 입력했다고 그때의 CF로 과거 계산이
+    바뀌면 재현성이 깨진다.
+    """
+    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    if voyage is None:
+        raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
+
+    if voyage.status not in ACTUALS_ALLOWED_STATUSES:
+        raise StateTransitionError(
+            f"{voyage.status} 상태의 항차에는 실적을 입력할 수 없습니다. "
+            f"허용: {', '.join(sorted(ACTUALS_ALLOWED_STATUSES))}."
+        )
+
+    for key, value in fields.items():
+        setattr(voyage, key, value)
+
+    if fuel_uses:
+        await _apply_fuel_actuals(session, voyage_id=voyage.id, fuel_uses=fuel_uses)
+
+    await session.commit()
+    fuel_use_rows = await voyage_repo.list_fuel_uses(session, voyage.id)
+    return to_dict(voyage, fuel_use_rows)
+
+
+async def _apply_fuel_actuals(
+    session: AsyncSession,
+    *,
+    voyage_id: UUID,
+    fuel_uses: list[dict],
+) -> None:
+    """유종별 실적을 기존 행에 얹거나 새 행으로 넣는다.
+
+    ``idx_fuel_use_unique``가 (항차, 유종) 중복을 막는다(`DB_SCHEMA §2.3` [S-2]) —
+    중복이 생기면 **CO₂가 이중 산정**된다. 그래서 유종을 키로 갱신·삽입을 가른다.
+    """
+    codes = [item["fuel_type"] for item in fuel_uses]
+    if len(set(codes)) != len(codes):
+        # 한 요청 안의 중복은 DB 제약 이전에 막는다 — 어느 쪽이 이겼는지 알 수 없는
+        # 결과를 만들지 않는다.
+        raise ValidationError(
+            "같은 연료 종류가 두 번 들어 있습니다.",
+            field="fuel_uses",
+            field_label="연료 종류",
+        )
+
+    fuel_rows = await param_repo.get_fuel_types_by_codes(session, codes)
+    existing = {row.fuel_type: row for row in await voyage_repo.list_fuel_uses(session, voyage_id)}
+
+    for item in fuel_uses:
+        code = item["fuel_type"]
+        if code not in fuel_rows:
+            raise ValidationError(
+                f"알 수 없는 연료 종류입니다: {code}",
+                field="fuel_uses",
+                field_label="연료 종류",
+            )
+
+        row = existing.get(code)
+        if row is not None:
+            # 계획값은 그대로 둔다 (`PRD §8.4`). `cf_used`도 그대로 — 그때 박은
+            # snapshot을 지금 값으로 덮으면 과거 계산이 재현되지 않는다.
+            row.actual_fuel_ton = item["actual_fuel_ton"]
+            if item.get("source") is not None:
+                row.source = item["source"]
+            continue
+
+        await voyage_repo.insert_fuel_use(
+            session,
+            voyage_id=voyage_id,
+            fuel_type=code,
+            actual_fuel_ton=item["actual_fuel_ton"],
+            cf_used=Decimal(str(fuel_rows[code].cf)),
+            source=item.get("source") or "USER_INPUT",
+        )

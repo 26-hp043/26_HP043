@@ -452,3 +452,99 @@ class TestDeleteVoyage:
         resp = client.delete(f"/api/v1/voyages/{voyage_id}")
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
+
+
+class TestActualsRoute:
+    """`PUT /voyages/{id}/actuals` — 라우트 계약 (`API_SPEC §3.6`, #440)."""
+
+    @pytest.fixture
+    def actuals_app(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
+        from cii_platform.services import voyage as svc
+
+        voyage = _FakeVoyage(
+            status="COMPLETED",
+            annual_inclusion_policy="INCLUDE_AS_ACTUAL",
+            regulation_year=2026,
+        )
+        store: dict[UUID, _FakeVoyage] = {voyage.id: voyage}
+
+        async def fake_get_by_id(_session, voyage_id):
+            return store.get(voyage_id)
+
+        async def fake_list_fuel_uses(_session, _voyage_id):
+            return []
+
+        monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
+        monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses", fake_list_fuel_uses)
+
+        async def override_session():
+            yield _FakeSession()
+
+        async def override_csrf() -> None:
+            return None
+
+        app = FastAPI()
+        app.dependency_overrides[get_session] = override_session
+        app.dependency_overrides[require_csrf] = override_csrf
+        register_exception_handlers(app)
+        app.include_router(voyages_router, prefix="/api/v1")
+        with TestClient(app) as client:
+            yield client, store
+        app.dependency_overrides.clear()
+
+    def test_distance_is_stored(self, actuals_app):
+        client, store = actuals_app
+        voyage_id = next(iter(store))
+
+        resp = client.put(
+            f"/api/v1/voyages/{voyage_id}/actuals",
+            json={"actual_distance_nm": 1100.0},
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert store[voyage_id].actual_distance_nm == Decimal("1100.0")
+
+    def test_status_is_not_touched(self, actuals_app):
+        """전환은 별도 호출이다 — 함께 처리하면 전환 가드가 자기 입력을 보고 통과한다."""
+        client, store = actuals_app
+        voyage_id = next(iter(store))
+
+        client.put(f"/api/v1/voyages/{voyage_id}/actuals", json={"actual_distance_nm": 1100.0})
+
+        assert store[voyage_id].status == "COMPLETED"
+
+    def test_unknown_field_is_rejected(self, actuals_app):
+        """`extra="forbid"` — 오타 필드가 조용히 무시되면 사용자는 입력이 반영된 줄 안다."""
+        client, store = actuals_app
+        voyage_id = next(iter(store))
+
+        resp = client.put(
+            f"/api/v1/voyages/{voyage_id}/actuals",
+            json={"actual_distance": 1100.0},
+        )
+
+        assert resp.status_code == 422
+
+    def test_zero_fuel_is_rejected(self, actuals_app):
+        """`chk_actual_fuel_positive`와 같은 조건. 0을 「안 썼다」로 쓰려면 행을 넣지 않는다."""
+        client, store = actuals_app
+        voyage_id = next(iter(store))
+
+        resp = client.put(
+            f"/api/v1/voyages/{voyage_id}/actuals",
+            json={"fuel_uses": [{"fuel_type": "HFO", "actual_fuel_ton": 0}]},
+        )
+
+        assert resp.status_code == 422
+
+    def test_speed_below_db_minimum_is_rejected_as_422(self, actuals_app):
+        """스키마가 DB보다 느슨하면 사용자는 422가 아니라 500(제약 위반)을 받는다."""
+        client, store = actuals_app
+        voyage_id = next(iter(store))
+
+        resp = client.put(
+            f"/api/v1/voyages/{voyage_id}/actuals",
+            json={"actual_avg_speed_kn": 0.5},
+        )
+
+        assert resp.status_code == 422

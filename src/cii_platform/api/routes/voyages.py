@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.schemas.voyage import (
+    VoyageActualsRequest,
     VoyageCreateRequest,
     VoyageTransitionRequest,
     VoyageUpdateRequest,
@@ -25,6 +26,7 @@ from cii_platform.services.voyage import (
     delete_voyage,
     get_voyage,
     list_voyages,
+    set_actuals,
     transition_voyage,
     update_voyage,
 )
@@ -123,6 +125,25 @@ async def update_voyage_route(
     # 명시적 null은 그대로 전달돼 클리어를 뜻한다 (#312).
     update_fields = payload.model_dump(exclude_unset=True)
     data = await update_voyage(session, voyage_id, **update_fields)
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.put("/voyages/{voyage_id}/actuals")
+async def set_voyage_actuals_route(
+    request: Request,
+    voyage_id: UUID,
+    payload: VoyageActualsRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> dict[str, object]:
+    """항차 실적을 입력한다 (`API_SPEC §3.6`, #440). 없으면 404.
+
+    **`status`는 바꾸지 않는다** — 전환은 `POST /voyages/{id}/transition`이 한다.
+    한 번에 처리하면 `PRD §8.1.1` 전환 가드가 자기 입력을 보고 통과하게 된다.
+    """
+    fields = payload.model_dump(exclude_unset=True)
+    fuel_uses = fields.pop("fuel_uses", None)
+    data = await set_actuals(session, voyage_id, fuel_uses=fuel_uses, **fields)
     return {"data": data, "meta": _meta(request)}
 
 
