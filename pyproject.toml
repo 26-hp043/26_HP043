@@ -20,7 +20,7 @@ dependencies = [
     "httpx>=0.28.1,<0.29",
     "pyjwt[crypto]>=2.8,<3.0",
     # 인증 메일 발송 (#407). console 백엔드만 쓰는 개발 환경에서는 import되지 않는다.
-    "aiosmtplib>=3.0,<5.0",
+    "aiosmtplib>=5.1.2,<6.0",
     # 비밀번호 해싱 (#414). Argon2id — bcrypt의 72바이트 절단·PBKDF2의 GPU 취약을 피한다.
     "argon2-cffi>=25.1.0,<26",
     # 리포트 PDF 렌더링 (#361). 순수 Python 패키지지만 **런타임에 Pango가 필요**하다
