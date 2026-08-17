@@ -147,6 +147,32 @@ class NotFoundError(AppError):
         super().__init__("NOT_FOUND", message, details=details)
 
 
+class WeatherFetchError(AppError):
+    """기상 API 실패 (TECH_SPEC §12.1). HTTP 422.
+
+    **이 예외가 곧 계산 실패는 아니다.** `TECH_SPEC §12.2`가 정한 대로 fallback
+    정책은 호출자가 정한다 — 캐시가 있으면 그것을 쓰고(`WEATHER_STALE`), 없으면
+    보정 없이 계산한다(`WEATHER_NONE_FALLBACK`). 422가 되는 것은 사용자가 그
+    fallback을 거부한 경우뿐이다.
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("WEATHER_FETCH_ERROR", message, details=details)
+
+
+class ModelBreakdownError(AppError):
+    """경험 모델의 적용 범위를 벗어났다 (TECH_SPEC §12.1). HTTP 422.
+
+    `BN > 8` · `ΔV/V ≥ 100%`처럼 **입력은 정상인데 모델이 답할 수 없는** 상태다.
+    `CalculationError`(분모 0·overflow)와 나누는 이유는 사용자가 할 일이 다르기
+    때문이다 — 이쪽은 입력을 고치는 것이 아니라 **보정 없이 계산하거나 기다리는** 것이
+    답이고, 화면 문구도 「기상 조건이 너무 가혹하여 모델을 적용할 수 없습니다」다.
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("MODEL_BREAKDOWN_ERROR", message, details=details)
+
+
 class RateLimitError(AppError):
     """분당 요청 한도 초과 (API_SPEC §1.4 · §13.2). HTTP 429.
 
