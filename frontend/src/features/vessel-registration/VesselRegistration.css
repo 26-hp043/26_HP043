@@ -1,0 +1,261 @@
+/*
+ * 선박 등록 화면 (#441).
+ *
+ * DESIGN_SYSTEM §8  — 카드/패널: surface · border · radius 12 · 그림자 Lv1 · 패딩 16–20
+ *                     입력·셀렉트: surface-2 배경 · border · radius 8 · 라벨 상단 · 포커스 링
+ *                     버튼 Primary: navy 채움 / 흰 글자 · 높이 40 · radius 8
+ *                     경고·안내: 상태색 좌측 스트라이프(좌측 테두리만이면 radius 0)
+ * §14 — 한국어 라벨 + 영문 병기 · 색만으로 의미 전달 금지 · 오류는 컨트롤 아래
+ * §15 — 컴포넌트는 토큰만 참조한다. 하드코딩 hex 금지.
+ *
+ * 폼 폭은 §7.1 정책상 페이지(`screens.ts`의 `width: 'form'`)가 정하므로 여기서는
+ * 열 수만 다룬다 — 기능① 폼과 같은 규칙이다.
+ */
+
+.vessel-registration {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.vessel-registration__title {
+  margin-bottom: var(--space-4);
+}
+
+.vessel-registration__title-en {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-body);
+}
+
+.vessel-registration__lead {
+  color: var(--color-text-muted);
+}
+
+/*
+ * 데모 모드 안내. 오류가 아니므로 danger를 쓰지 않는다 — 사용자가 잘못한 것이 없다.
+ */
+.vessel-registration__banner {
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: var(--space-12) var(--space-16);
+}
+
+.vessel-registration__form {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-24);
+}
+
+.vessel-registration__form-error {
+  border-left: 3px solid var(--color-danger);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-danger);
+  padding: var(--space-12) var(--space-16);
+  margin-bottom: var(--space-16);
+}
+
+/*
+ * 필수/선택을 `fieldset`으로 나눈다. 스크린 리더가 그룹 경계를 읽을 수 있고,
+ * 「어디까지 반드시 채워야 하는가」가 눈으로도 갈린다.
+ */
+.vessel-registration__fieldset {
+  border: 0;
+  padding: 0;
+  margin-bottom: var(--space-24);
+}
+
+.vessel-registration__legend {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text);
+  padding: 0;
+  margin-bottom: var(--space-12);
+}
+
+/* 제원 미입력 안내 — 경고가 아니다(등록은 된다). */
+.vessel-registration__notice {
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: var(--space-12) var(--space-16);
+  margin-bottom: var(--space-16);
+  font-size: var(--font-size-label);
+}
+
+.vessel-registration__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-16);
+}
+
+@media (max-width: 640px) {
+  .vessel-registration__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.vessel-registration__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.vessel-registration__label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  line-height: var(--line-height-label);
+  color: var(--color-text);
+}
+
+.vessel-registration__label-en {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+.vessel-registration__unit {
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+.vessel-registration__control {
+  width: 100%;
+  height: 40px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-12);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+}
+
+.vessel-registration__control:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+/* 색만으로 오류를 알리지 않는다 — 아래쪽 메시지가 항상 붙는다(§14). */
+.vessel-registration__control[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.vessel-registration__hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+}
+
+.vessel-registration__error {
+  color: var(--color-danger);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+}
+
+.vessel-registration__submit {
+  height: 40px;
+  padding: 0 var(--space-24);
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-control);
+  color: var(--color-surface);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.vessel-registration__submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.vessel-registration__submit:disabled {
+  background: var(--color-border-strong);
+  border-color: var(--color-border-strong);
+  cursor: not-allowed;
+}
+
+/* ── 등록 결과 ──────────────────────────────────────────────── */
+
+.vessel-registration__result {
+  border-left: 3px solid var(--color-success);
+  border-radius: 0;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-16) var(--space-24);
+}
+
+.vessel-registration__result-title {
+  font-size: var(--font-size-h3);
+  margin-bottom: var(--space-12);
+}
+
+.vessel-registration__result-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8) var(--space-16);
+  margin-bottom: var(--space-12);
+}
+
+@media (max-width: 640px) {
+  .vessel-registration__result-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.vessel-registration__spec {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.vessel-registration__spec-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+.vessel-registration__spec-value {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-all;
+}
+
+.vessel-registration__result-hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  margin-bottom: var(--space-12);
+}
+
+.vessel-registration__result-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-16);
+}
+
+.vessel-registration__link {
+  color: var(--color-primary);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}

@@ -22,6 +22,7 @@ from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 from cii_platform.errors import ValidationError
+from cii_platform.services import audit as audit_svc
 from cii_platform.services.voyage import (
     create_voyage,
     delete_voyage,
@@ -157,13 +158,33 @@ async def transition_voyage_route(
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
 ) -> dict[str, object]:
-    """항차 상태를 전환한다 (API_SPEC §3.5, #54)."""
+    """항차 상태를 전환한다 (API_SPEC §3.5, #54).
+
+    **확정 전환은 감사 로그에 남는다** (`TECH_SPEC §13.1`, #65). 주체(user)와 IP는
+    HTTP 개념이라 라우트가 뽑아 넘긴다 — 서비스가 `request`를 알면 계층이 깨진다(§16.1).
+    """
     data = await transition_voyage(
         session,
         voyage_id,
         to_status=payload.to_status,
         annual_inclusion_policy=payload.annual_inclusion_policy,
     )
+    # 서비스가 실어 보낸 「변경 전」 값. 응답에서는 뺀다(`_duration_ms`와 같은 규약).
+    from_status = data.pop("_from_status")
+
+    if data["status"] == "CONFIRMED":
+        state = getattr(request, "state", None)
+        session_user = getattr(state, "session_user", None)
+        await audit_svc.record_voyage_confirm(
+            session,
+            user_id=str(session_user.id) if session_user is not None else None,
+            voyage_id=voyage_id,
+            from_status=from_status,
+            annual_inclusion_policy=data["annual_inclusion_policy"],
+            ip_address=request.client.host if request.client else None,
+        )
+        await session.commit()
+
     return {"data": data, "meta": _meta(request)}
 
 

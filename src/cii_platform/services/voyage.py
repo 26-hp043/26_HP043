@@ -286,6 +286,11 @@ async def transition_voyage(
     """항차 상태를 전환한다 (API_SPEC §3.5, #54). 없으면 404.
 
     PRD §8.1 상태 머신 + policy 가드를 따른다.
+
+    반환 dict에 ``_from_status``를 실어 보낸다 — **감사 로그의 「변경 전」 값**이다
+    (``TECH_SPEC §13.1``, #65). 라우트가 꺼내 쓰고 응답에서 뺀다(``_duration_ms``와
+    같은 규약). 서비스가 직접 기록하지 않는 이유는 **주체(user)와 IP가 HTTP 개념**이라
+    서비스가 ``request``를 알아야 하기 때문이다(``TECH_SPEC §16.1`` 계층).
     """
     voyage = await voyage_repo.get_by_id(session, voyage_id)
     if voyage is None:
@@ -324,7 +329,7 @@ async def transition_voyage(
     voyage.status = to_status
     await session.commit()
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
-    return to_dict(voyage, fuel_uses)
+    return {**to_dict(voyage, fuel_uses), "_from_status": current}
 
 
 async def _guard_actual_data(session: AsyncSession, voyage, to_status: str) -> None:
