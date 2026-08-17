@@ -16,6 +16,7 @@ from cii_platform.api.rate_limit import (
     RateLimiter,
     rate_limit_middleware,
 )
+from cii_platform.api.routes.annual_simulations import router as annual_simulations_router
 from cii_platform.api.routes.auth import router as auth_router
 from cii_platform.api.routes.auth_dev import router as auth_dev_router
 from cii_platform.api.routes.auth_dev import should_register_dev_auth
@@ -67,6 +68,8 @@ app.include_router(fleet_router, prefix=API_V1_PREFIX)
 # #370 not under way 구간 CRUD — 정박 연료를 넣을 입구. 없으면 M이 늘지 않아
 # 「정박해도 등급이 안 떨어지는」 상태가 된다(#353 분자 경로).
 app.include_router(not_underway_router, prefix=API_V1_PREFIX)
+# #64 기능③ 연간 시뮬레이션 — 스냅샷 격리로 실행 중 데이터 변경과 분리한다.
+app.include_router(annual_simulations_router, prefix=API_V1_PREFIX)
 # #361 리포트 — 응답이 JSON이 아니라 파일(PDF·CSV·HTML)이다.
 app.include_router(reports_router, prefix=API_V1_PREFIX)
 # #414 이메일·비밀번호 인증 — signup·login은 공개 경로(PUBLIC_PATHS)다.
