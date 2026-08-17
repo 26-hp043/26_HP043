@@ -34,7 +34,7 @@
 | 문서 | 내용 | 상태 |
 |---|---|---|
 | [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.3**, 자체 ID/PW 인증 전환 #413 + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
-| [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.6**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 §5.2.1.1 #434) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16) | ✅ 완료 |
+| [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.7**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 #434 + 메일·리포트 절 신설 #446) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16), 메일 발송(§18), 리포트 렌더링(§19) | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.16**, 인증 재작성 #414 + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
 | [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.14**, not under way 스키마 #345 + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434) — **20개 테이블**, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
 | [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.7**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398) — **73개 파일 · 970 함수 · 1217 수집**(2026-08-17 실측), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
@@ -221,3 +221,4 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 | 2026-08-15 | `#406` | 문서 구조 표의 `PRD.md` 행을 v4.1로 갱신 — 보고서 절 신설(§25) 반영 (#360) |
 | 2026-08-15 | `#380` | 문서 구조 표의 `PRD.md` 행을 v4.2로 갱신 — 계산식 스코프 4종·§3.3.8 실시간 CII 반영 (#358) |
 | 2026-08-17 | `#445` | **문서 구조 표를 실제 버전으로 일괄 갱신** — `API_SPEC` v1.7→v1.16(9판) · `UIFLOW` v2.0→v2.3 · `TECH_SPEC` v1.4→v1.6 · `DB_SCHEMA` v1.12→v1.14 · `PRD` v4.2→v4.3 · `TEST_PLAN` v1.6→v1.7(수치도 실측 73파일·970함수·1217수집). 「배포」 절에 `#361`의 PDF 렌더링 의존성과 이미지 +195MB를 명시. **같은 드리프트가 재발하면 `tests/test_doc_version_sync.py`가 CI에서 막는다** (#445) |
+| 2026-08-17 | `#446` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.7로 갱신 — §18 메일 발송 · §19 리포트 렌더링 신설 반영 (#446) |
