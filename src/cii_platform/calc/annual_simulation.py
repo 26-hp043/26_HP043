@@ -579,3 +579,43 @@ def analyze_sensitivity(
         )
 
     return entries, [WARNING_SENSITIVITY_OAT]
+
+
+def profile_from_rows(rows: Sequence[object]) -> DistributionProfile:
+    """``simulation_parameter`` 행 → :class:`DistributionProfile` (#434).
+
+    ``PRD §12.4.1``의 「코드 하드코딩하지 않는다」를 충족하는 경로다. 행이 없거나
+    변수가 빠지면 **그 변수만** :data:`DEFAULT_PROFILE`에서 채운다 — 파라미터 한 줄이
+    비었다고 시뮬레이션 전체를 죽일 이유가 없고, 무엇이 기본값으로 채워졌는지는
+    ``parameters_used``에 실린 행 목록으로 드러난다.
+
+    ``bound_type``이 ``DELTA``인 행(속도)은 :class:`TriangularBand`로 옮기지 않는다 —
+    이 클래스는 계획값의 **배수**를 담고, 속도는 Monte Carlo에서 쓰지 않는다(모듈
+    docstring 참조). ``speed_delta_kn``에 폭만 옮긴다.
+
+    ``calc`` 계층이라 ORM을 import하지 않는다. 행은 속성 접근만 하는 오리 타입으로 본다.
+    """
+    bands: dict[str, TriangularBand] = {}
+    speed_delta = DEFAULT_PROFILE.speed_delta_kn
+
+    for row in rows:
+        variable = str(getattr(row, "variable", ""))
+        bound_type = str(getattr(row, "bound_type", ""))
+        minimum = float(getattr(row, "min_value", 0))
+        mode = float(getattr(row, "mode_value", 0))
+        maximum = float(getattr(row, "max_value", 0))
+
+        if variable == "SPEED":
+            # DELTA는 배수가 아니라 덧셈 폭이다. 큰 쪽을 폭으로 본다.
+            speed_delta = max(abs(minimum), abs(maximum))
+            continue
+        if bound_type != "FACTOR":
+            # 배수가 아닌 행은 이 두 변수에 쓸 수 없다 — 기본값으로 남긴다.
+            continue
+        bands[variable] = TriangularBand(min_factor=minimum, max_factor=maximum, mode_factor=mode)
+
+    return DistributionProfile(
+        distance=bands.get("DISTANCE", DEFAULT_PROFILE.distance),
+        fuel=bands.get("FUEL", DEFAULT_PROFILE.fuel),
+        speed_delta_kn=speed_delta,
+    )

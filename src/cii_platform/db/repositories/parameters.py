@@ -18,6 +18,7 @@ from cii_platform.db.models.cii_rating_boundary import CiiRatingBoundary
 from cii_platform.db.models.cii_reference_line import CiiReferenceLine
 from cii_platform.db.models.fuel_type import FuelType
 from cii_platform.db.models.regulation_year import RegulationYear
+from cii_platform.db.models.simulation_parameter import SimulationParameter
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -96,4 +97,27 @@ async def list_active_fuel_types(session: AsyncSession) -> Sequence[FuelType]:
     구현되지 않았다**. 그 엔드포인트가 생기면 이 함수를 함께 쓰면 된다.
     """
     stmt = select(FuelType).where(FuelType.is_active.is_(True)).order_by(FuelType.code)
+    return (await session.execute(stmt)).scalars().all()
+
+
+async def load_distribution_profile(
+    session: AsyncSession, profile: str = "DEFAULT"
+) -> Sequence[SimulationParameter]:
+    """Monte Carlo 분포 파라미터를 프로파일 단위로 읽는다 (#434).
+
+    ``PRD §12.4.1``이 *"분포 기본값은 ``simulation_parameter``로 관리하며 코드
+    하드코딩하지 않는다"* 를 요구한다. ``#63`` 엔진은 분포를 인자로 받으므로, 그
+    인자를 만드는 것이 이 함수의 몫이다.
+
+    :returns: 변수(``DISTANCE``·``FUEL``·``SPEED``)별 1행. **없으면 빈 목록**이며,
+        「기본값이 없다」를 오류로 만들지 판단하는 것은 서비스의 몫이다.
+    """
+    stmt = (
+        select(SimulationParameter)
+        .where(
+            SimulationParameter.profile == profile,
+            SimulationParameter.is_active.is_(True),
+        )
+        .order_by(SimulationParameter.variable)
+    )
     return (await session.execute(stmt)).scalars().all()

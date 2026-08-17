@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.5 |
+| 버전 | v1.6 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0 |
@@ -834,6 +834,30 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 }
 ```
 
+##### 5.2.1.1 기능③ 추가 항목 — 분포 프로파일 (#434)
+
+**`SIMULATION` 타입 실행은 위 스키마에 `simulation_profile`을 하나 더 싣는다.**
+
+```json
+{
+  "simulation_profile": {
+    "profile": "DEFAULT",
+    "version": "2026.08",
+    "parameters": [
+      { "variable": "DISTANCE", "bound_type": "FACTOR", "min": "0.9700", "mode": "1.0000", "max": "1.0500" },
+      { "variable": "FUEL",     "bound_type": "FACTOR", "min": "0.9000", "mode": "1.0000", "max": "1.1500" },
+      { "variable": "SPEED",    "bound_type": "DELTA",  "min": "-1.0000", "mode": "0.0000", "max": "1.0000" }
+    ]
+  }
+}
+```
+
+**왜 필요한가.** `simulation_parameter`(`DB_SCHEMA §2.19`)의 행이 바뀌면 **같은 seed로 다시 돌려도 결과가 달라진다.** `§5.4` 재현성 계약 1항의 「동일 `parameter_hash`」가 그 변화를 덮지 못하면 계약이 성립하지 않는다.
+
+**다른 계산 타입의 `parameter_hash`는 바뀌지 않는다.** `parameters_used`는 실행마다 따로 기록되므로, 이 항목은 `SIMULATION` 실행에만 들어간다 — 기능①·②의 기존 해시는 영향을 받지 않는다.
+
+> `voyage_fuel_use.cf_used`가 CF 개정에 대해 하는 일과 같은 처리다(`#378`). 다만 CF는 **행에** 박고 분포는 **해시에** 담는데, 분포가 계산 전체에 걸리는 값이라 특정 행에 붙일 자리가 없기 때문이다.
+
 ### 5.3 Input Hash
 
 ```python
@@ -1636,3 +1660,4 @@ PR 리뷰 시 다음을 확인한다:
 | 2026-08-15 | `#371` | §16.2 각주 정정 — #280 판정이 PRD v4.0(#343)·UIFLOW v2.0(#344) 관리 중심 전환으로 뒤집힌 사실 반영(2-4 MVP 중심·2-5 MVP 승격·2-6 #359 대기), 헤더 상위 문서 `PRD` v3.2→v4.0 갱신 (#367) |
 | 2026-08-15 | `#396` | §16.2 프론트엔드 디렉터리 구조에 `display/`(DESIGN_SYSTEM §4 구현) 신설 반영 + 누락돼 있던 `auth/`·`features/` 2행 보완 — 표시 규약 모듈이 feature 종속에서 공용 경로로 이전됨 (#392) |
 | 2026-08-15 | `#405` | 변경 이력 표의 PR 번호 공란 1건을 채움 — v1.5 → #383(`as_of` 계약). #401이 `DB_SCHEMA`만 정리하고 남긴 것을 전 정본 전수 확인으로 보완한다. 문서 내용 변경 없음 (#401) |
+| 2026-08-17 | PR #436 | **v1.6 — `§5.2.1.1` 신설 (`#434`).** `SIMULATION` 실행의 `parameters_used`에 **분포 프로파일**을 싣는다. `simulation_parameter` 행이 바뀌면 같은 seed로 다시 돌려도 결과가 달라지는데, `§5.4` 재현성 계약의 「동일 `parameter_hash`」가 그 변화를 덮지 못하면 계약이 성립하지 않는다. `parameters_used`가 실행마다 따로 기록되므로 **기능①·②의 기존 해시는 영향받지 않는다** |
