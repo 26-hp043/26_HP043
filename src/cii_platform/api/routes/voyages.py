@@ -1,7 +1,7 @@
-"""항차 생성·조회 라우트 (API_SPEC §3.1~§3.3, #53).
+"""항차 생성·조회 라우트 (API_SPEC §3.1~§3.3 · §8.2, #53 · #60).
 
 **HTTP 요청/응답만 다룬다** (TECH_SPEC §16.1). 비즈니스 규칙·검증은
-``services.voyage``가 맡는다.
+``services.voyage``·``services.voyage_import``이 맡는다.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.schemas.voyage import (
@@ -21,6 +21,7 @@ from cii_platform.api.schemas.voyage import (
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
+from cii_platform.errors import ValidationError
 from cii_platform.services.voyage import (
     create_voyage,
     delete_voyage,
@@ -30,6 +31,7 @@ from cii_platform.services.voyage import (
     transition_voyage,
     update_voyage,
 )
+from cii_platform.services.voyage_import import import_voyages
 
 router = APIRouter(tags=["voyages"])
 
@@ -174,4 +176,41 @@ async def delete_voyage_route(
 ) -> dict[str, object]:
     """항차를 삭제한다 (API_SPEC §3.7, #54)."""
     data = await delete_voyage(session, voyage_id)
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.post("/vessels/{vessel_id}/import")
+async def import_voyages_route(
+    request: Request,
+    vessel_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+    file: Annotated[UploadFile, File(description="CSV 파일 (UTF-8, BOM 허용)")],
+    type: Annotated[str, Form(description="가져올 자료 종류. 현재는 voyages뿐")] = "voyages",
+    dry_run: Annotated[bool, Query(description="검증만 하고 저장하지 않는다 (#60)")] = False,
+) -> dict[str, object]:
+    """항차 CSV를 가져온다 (API_SPEC §8.2, #60).
+
+    **vessel-scoped다.** CSV에 선박 식별자가 없고, 있어도 경로와 다르면 무엇을 따를지
+    정해야 한다 — 경로 하나로 두면 그 물음 자체가 생기지 않는다.
+
+    ``type``은 폼 필드로 받되 현재 값은 ``voyages`` 하나다(§8.2 표). 다른 값을
+    **조용히 무시하지 않고** 거부한다 — 무시하면 사용자는 `calculations`를 올렸다고
+    믿는데 항차가 들어간다.
+    """
+    if type != "voyages":
+        raise ValidationError(
+            f"지원하지 않는 가져오기 종류입니다: {type}",
+            field="type",
+            field_label="자료 종류",
+        )
+
+    content = await file.read()
+    data = await import_voyages(
+        session,
+        vessel_id,
+        content=content,
+        content_type=file.content_type,
+        dry_run=dry_run,
+    )
     return {"data": data, "meta": _meta(request)}

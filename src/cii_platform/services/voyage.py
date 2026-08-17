@@ -92,11 +92,16 @@ async def create_voyage(
     regulation_year: int | None,
     fuel_uses: list[dict],
     notes: str | None,
+    created_from: str = "MANUAL",
 ) -> dict[str, object]:
     """항차를 생성한다 (API_SPEC §3.3, #53). 성공 시 201.
 
-    초기 상태: ``status=DRAFT``, ``annual_inclusion_policy=EXCLUDE``,
-    ``created_from=MANUAL`` (PRD §8.1.1).
+    초기 상태: ``status=DRAFT``, ``annual_inclusion_policy=EXCLUDE`` (PRD §8.1.1).
+
+    ``created_from``은 **출처 표시**다(``DB_SCHEMA §2.2``의 5값). 기본은 수기 입력이고,
+    CSV 가져오기(#60)가 ``IMPORT``로 넘긴다 — 나중에 「이 항차는 어디서 왔나」를 물을 수
+    있어야 하기 때문이다. **초기 상태는 출처와 무관하게 같다**: CSV로 들어왔다는 이유로
+    연간 집계에 바로 들어가면 안 된다.
     """
     # 연료 CF 조회 — 모든 fuel_type이 active여야 한다.
     codes = [fu["fuel_type"] for fu in fuel_uses]
@@ -126,7 +131,7 @@ async def create_voyage(
         planned_arrival_at=planned_arrival_at,
         regulation_year=regulation_year,
         annual_inclusion_policy="EXCLUDE",
-        created_from="MANUAL",
+        created_from=created_from,
         notes=notes,
     )
 
