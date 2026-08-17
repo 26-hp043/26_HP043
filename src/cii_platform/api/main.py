@@ -25,6 +25,7 @@ from cii_platform.api.routes.calculations import router as calculations_router
 from cii_platform.api.routes.fleet import router as fleet_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.not_underway import router as not_underway_router
+from cii_platform.api.routes.parameters import router as parameters_router
 from cii_platform.api.routes.reports import router as reports_router
 from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
@@ -70,6 +71,9 @@ app.include_router(fleet_router, prefix=API_V1_PREFIX)
 app.include_router(not_underway_router, prefix=API_V1_PREFIX)
 # #64 기능③ 연간 시뮬레이션 — 스냅샷 격리로 실행 중 데이터 변경과 분리한다.
 app.include_router(annual_simulations_router, prefix=API_V1_PREFIX)
+# #444 규제 파라미터 조회 — 화면이 선택지를 자기 코드에 박아 두지 않게 한다.
+# 읽기 전용이다. 개정 적재(§7.5)는 이력 보존·권한(#359)과 함께 정해야 한다.
+app.include_router(parameters_router, prefix=API_V1_PREFIX)
 # #361 리포트 — 응답이 JSON이 아니라 파일(PDF·CSV·HTML)이다.
 app.include_router(reports_router, prefix=API_V1_PREFIX)
 # #414 이메일·비밀번호 인증 — signup·login은 공개 경로(PUBLIC_PATHS)다.
