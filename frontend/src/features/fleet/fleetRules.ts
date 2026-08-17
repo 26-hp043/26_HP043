@@ -99,6 +99,19 @@ export function relativeTime(asOf: string, now: Date): string {
 }
 
 /**
+ * 등급이 없는 선박의 표시 문구 — **사유를 가려 붙인다** (#419).
+ *
+ * 「실적 없음」(항차를 등록하세요)과 「제원 미비」(DWT/GT를 입력하세요)는 사용자의
+ * 다음 행동이 다르다. 하나의 문구로 묶으면 제원이 비어 있는데 항차만 등록하고
+ * 「왜 값이 안 나오지」를 겪게 된다.
+ */
+export function noGradeText(vessel: FleetVessel): string {
+  if (vessel.unavailableReason === 'MISSING_SPECS') return '제원 미비'
+  if (vessel.unavailableReason === 'CALCULATION_FAILED') return '계산 불가'
+  return '실적 없음'
+}
+
+/**
  * 경고 배너 문구 — `PRD §6.3` 확정 문구(`#352`).
  *
  * > 대시보드 경고 배너 — 위험 선박 존재 시: `시정조치계획 대상 위험 선박 {n}척`

@@ -36,6 +36,7 @@ interface ServerVessel {
   current_lon: string | null
   position_updated_at: string | null
   data_available: boolean
+  unavailable_reason: string | null
   ytd_attained_cii: string | null
   ytd_required_cii: string | null
   ytd_rating: string | null
@@ -53,6 +54,7 @@ interface ServerSummary {
   rating_distribution: Record<string, number>
   at_risk: number
   no_data: number
+  missing_specs: number
 }
 
 interface ServerBody {
@@ -86,6 +88,7 @@ function toVessel(raw: ServerVessel): FleetVessel {
     lon: raw.current_lon,
     positionUpdatedAt: raw.position_updated_at,
     dataAvailable: raw.data_available,
+    unavailableReason: (raw.unavailable_reason ?? null) as FleetVessel['unavailableReason'],
     ytdAttainedCii: raw.ytd_attained_cii,
     ytdRequiredCii: raw.ytd_required_cii,
     ytdRating: raw.ytd_rating as FleetVessel['ytdRating'],
@@ -152,6 +155,7 @@ export function createApiFleetProvider(
           ratingDistribution: toDistribution(summary?.rating_distribution),
           atRisk: summary?.at_risk ?? 0,
           noData: summary?.no_data ?? 0,
+          missingSpecs: summary?.missing_specs ?? 0,
         },
         vessels: (data.vessels ?? []).map(toVessel),
         actions: (data.actions ?? []).map((a) => ({

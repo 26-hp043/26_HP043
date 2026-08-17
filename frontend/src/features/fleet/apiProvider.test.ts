@@ -27,6 +27,7 @@ const OK_BODY = {
       rating_distribution: { A: 0, B: 0, C: 1, D: 0, E: 1 },
       at_risk: 1,
       no_data: 0,
+      missing_specs: 0,
     },
     vessels: [
       {
@@ -40,6 +41,7 @@ const OK_BODY = {
         current_lon: '129.040000',
         position_updated_at: '2026-08-16T11:00:00+00:00',
         data_available: true,
+        unavailable_reason: null,
         ytd_attained_cii: '9.4200',
         ytd_required_cii: '5.0450',
         ytd_rating: 'E',
@@ -59,6 +61,7 @@ const OK_BODY = {
         current_lon: null,
         position_updated_at: null,
         data_available: true,
+        unavailable_reason: null,
         ytd_attained_cii: '5.0000',
         ytd_required_cii: '5.0450',
         ytd_rating: 'C',

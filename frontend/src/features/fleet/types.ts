@@ -37,6 +37,15 @@ export type DaysReason =
   /** 실적 또는 경계값이 없다 */
   | 'NO_DATA'
 
+/**
+ * `data_available=false`인 **이유** — `API_SPEC §2.8` (#419).
+ *
+ * 「실적 없음」과 「제원 미비」는 사용자가 할 일이 다르다(항차 등록 vs 제원 입력).
+ * 서버가 계산에 실패한 선박 한 척 때문에 목록 전체가 사라지지 않도록, 사유를 달고
+ * 내려온다.
+ */
+export type UnavailableReason = 'NO_DATA' | 'MISSING_SPECS' | 'CALCULATION_FAILED'
+
 export interface FleetVessel {
   id: string
   name: string
@@ -54,6 +63,11 @@ export interface FleetVessel {
    * **오류가 아니라 정상 상태다**(`#353` 계약).
    */
   dataAvailable: boolean
+  /**
+   * `dataAvailable === false`인 이유 (#419). `MISSING_SPECS`면 DWT/GT 제원을
+   * 먼저 입력해야 한다 — 항차를 등록해도 값이 나오지 않는다.
+   */
+  unavailableReason: UnavailableReason | null
   /** 표시용 문자열 — 되돌려 계산하지 않는다(`API_SPEC §1.7`). */
   ytdAttainedCii: string | null
   ytdRequiredCii: string | null
@@ -74,6 +88,8 @@ export interface FleetCounts {
   ratingDistribution: Record<Rating, number>
   atRisk: number
   noData: number
+  /** `noData` 중 제원(DWT/GT)이 비어 있는 척수 (#419) — 안내 문구가 다르다. */
+  missingSpecs: number
 }
 
 /** 조치 필요 — `PRD §3.3.7` 의무. 서버가 `riskReasons`에서 파생시킨다. */

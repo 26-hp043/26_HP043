@@ -8,6 +8,7 @@ import { createApiFleetProvider } from './apiProvider'
 import {
   daysToDText,
   isAtRisk,
+  noGradeText,
   relativeTime,
   soonestDaysToD,
   sortVessels,
@@ -145,7 +146,10 @@ export function FleetDashboard() {
             ))}
           </div>
           {counts.noData > 0 ? (
-            <p className="kpi__foot">실적 없음 {counts.noData}척</p>
+            <p className="kpi__foot">
+              실적 없음 {counts.noData}척
+              {counts.missingSpecs > 0 ? ` · 제원 미비 ${counts.missingSpecs}척` : ''}
+            </p>
           ) : null}
         </div>
 
@@ -321,7 +325,11 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
             label={`${vessel.name} 올해 누적 등급 ${vessel.ytdRating}`}
           />
         ) : (
-          <span className="vessel__nograde" aria-label="실적 없음">
+          <span
+            className="vessel__nograde"
+            aria-label={noGradeText(vessel)}
+            title={noGradeText(vessel)}
+          >
             —
           </span>
         )}
@@ -338,7 +346,9 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
               {vessel.ytdAttainedCii ?? '—'}
             </span>
             <span className="vessel__days">
-              {daysToDText(vessel.daysToD, vessel.daysToDReason)}
+              {vessel.unavailableReason
+                ? noGradeText(vessel)
+                : daysToDText(vessel.daysToD, vessel.daysToDReason)}
             </span>
           </span>
         </span>

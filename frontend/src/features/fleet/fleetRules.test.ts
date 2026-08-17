@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   daysToDText,
   isAtRisk,
+  noGradeText,
   relativeTime,
   riskReasonText,
   soonestDaysToD,
@@ -31,6 +32,7 @@ function vessel(over: Partial<FleetVessel> = {}): FleetVessel {
     lon: '129.0',
     positionUpdatedAt: null,
     dataAvailable: true,
+    unavailableReason: null,
     ytdAttainedCii: '5.0000',
     ytdRequiredCii: '5.0450',
     ytdRating: 'C',
@@ -192,5 +194,23 @@ describe('기준 시각 표시', () => {
 
   it('일 단위', () => {
     expect(relativeTime('2026-08-14T12:00:00Z', base)).toBe('2일 전')
+  })
+})
+
+describe('등급 없음 문구 — 사유를 가려 붙인다 (#419)', () => {
+  it('실적이 없을 때는 「실적 없음」', () => {
+    expect(noGradeText(vessel({ unavailableReason: 'NO_DATA' }))).toBe('실적 없음')
+  })
+
+  it('제원이 비어 있으면 「제원 미비」 — 항차 등록 안내와 다른 행동을 이끈다', () => {
+    expect(noGradeText(vessel({ unavailableReason: 'MISSING_SPECS' }))).toBe('제원 미비')
+  })
+
+  it('계산 실패는 「계산 불가」', () => {
+    expect(noGradeText(vessel({ unavailableReason: 'CALCULATION_FAILED' }))).toBe('계산 불가')
+  })
+
+  it('사유가 없으면 기본 문구', () => {
+    expect(noGradeText(vessel({ unavailableReason: null }))).toBe('실적 없음')
   })
 })
