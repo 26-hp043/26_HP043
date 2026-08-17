@@ -11,6 +11,8 @@ import {
   relativeTime,
   soonestDaysToD,
   sortVessels,
+  unavailableHint,
+  unavailableText,
   underwayStateText,
   warningBannerText,
   type SortKey,
@@ -145,7 +147,11 @@ export function FleetDashboard() {
             ))}
           </div>
           {counts.noData > 0 ? (
-            <p className="kpi__foot">실적 없음 {counts.noData}척</p>
+            /*
+             * 사유를 가리지 않은 수다 — 제원 미입력·기준값 없음도 포함되므로
+             * 「실적 없음」으로 적으면 틀린다 (`#419`). 사유는 목록에서 구분한다.
+             */
+            <p className="kpi__foot">집계 불가 {counts.noData}척</p>
           ) : null}
         </div>
 
@@ -321,7 +327,12 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
             label={`${vessel.name} 올해 누적 등급 ${vessel.ytdRating}`}
           />
         ) : (
-          <span className="vessel__nograde" aria-label="실적 없음">
+          // 등급이 없는 **이유**를 읽어 주지 않으면, 사용자는 항차를 넣어야 하는지
+          // 제원을 넣어야 하는지 알 수 없다 (`#419`).
+          <span
+            className="vessel__nograde"
+            aria-label={`${vessel.name} — ${unavailableHint(vessel.unavailableReason)}`}
+          >
             —
           </span>
         )}
@@ -337,8 +348,25 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
               <b className="vessel__k">YTD</b>
               {vessel.ytdAttainedCii ?? '—'}
             </span>
-            <span className="vessel__days">
-              {daysToDText(vessel.daysToD, vessel.daysToDReason)}
+            {/*
+             * 값이 없는 선박에는 「D등급까지」 대신 **왜 없는지**를 쓴다 (`#419`).
+             * 종전에는 제원이 없어도 「실적 없음」으로 보여, 항차를 등록해도 해결되지
+             * 않는 선박을 사용자가 계속 들여다보게 됐다.
+             */}
+            <span
+              className="vessel__days"
+              // 짧은 문구만으로는 무엇을 해야 하는지 알 수 없다. 포인터에는 `title`로,
+              // 스크린리더에는 `aria-label`로 같은 안내를 전한다.
+              title={
+                vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
+              }
+              aria-label={
+                vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
+              }
+            >
+              {vessel.dataAvailable
+                ? daysToDText(vessel.daysToD, vessel.daysToDReason)
+                : unavailableText(vessel.unavailableReason)}
             </span>
           </span>
         </span>

@@ -67,6 +67,27 @@ const OK_BODY = {
         days_to_d: 42,
         days_to_d_reason: null,
       },
+      {
+        // 제원이 비어 계산하지 못한 선박 (#419) — 목록에 남고 사유가 따라온다.
+        vessel_id: 'v3',
+        name: 'MV NoSpec',
+        ship_type: 'BULK_CARRIER',
+        imo_number: '9100003',
+        underway_state: null,
+        detail_status: null,
+        current_lat: null,
+        current_lon: null,
+        position_updated_at: null,
+        data_available: false,
+        unavailable_reason: 'MISSING_SPEC',
+        ytd_attained_cii: null,
+        ytd_required_cii: null,
+        ytd_rating: null,
+        risk_level: null,
+        risk_reasons: [],
+        days_to_d: null,
+        days_to_d_reason: 'NO_DATA',
+      },
     ],
     actions: [
       {
@@ -129,6 +150,38 @@ describe('정상 응답', () => {
       lat: null,
       lon: null,
     })
+  })
+
+  it('계산하지 못한 선박도 목록에 남고 사유가 따라온다 (#419)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const snapshot = await createApiFleetProvider(fetchImpl).load()
+
+    // 제원이 없는 한 척 때문에 선대 전체가 사라지던 것이 이 이슈였다.
+    expect(snapshot.vessels).toHaveLength(3)
+    expect(snapshot.vessels[2]).toMatchObject({
+      id: 'v3',
+      dataAvailable: false,
+      unavailableReason: 'MISSING_SPEC',
+      ytdRating: null,
+    })
+  })
+
+  it('값이 있는 선박의 사유는 null이다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const snapshot = await createApiFleetProvider(fetchImpl).load()
+
+    // 서버가 필드를 싣지 않아도 undefined가 화면까지 새어 나가면 안 된다.
+    expect(snapshot.vessels[0].unavailableReason).toBeNull()
+  })
+
+  it('모르는 사유는 null로 떨어뜨린다 — 틀린 안내보다 안내 없음이 낫다', async () => {
+    const body = structuredClone(OK_BODY)
+    body.data.vessels[2].unavailable_reason = 'SOMETHING_NEW'
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+    const snapshot = await createApiFleetProvider(fetchImpl).load()
+
+    // 그대로 통과시키면 문구 함수의 기본 분기가 「항차를 등록하세요」를 출력한다.
+    expect(snapshot.vessels[2].unavailableReason).toBeNull()
   })
 
   it('알 수 없는 underway_state는 null로 떨어뜨린다', async () => {

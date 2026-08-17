@@ -1,5 +1,5 @@
 import type { Rating } from '../voyage-cii/types'
-import type { DaysReason, FleetVessel, RiskReason } from './types'
+import type { DaysReason, FleetVessel, RiskReason, UnavailableReason } from './types'
 
 /**
  * 선대 화면의 표시 규칙.
@@ -73,6 +73,45 @@ export function daysToDText(days: number | null, reason: DaysReason | null): str
       return '정박 중 — 산정 안 함'
     default:
       return '실적 없음'
+  }
+}
+
+/**
+ * 값이 없는 선박의 **짧은 표시 문구** — `#419`.
+ *
+ * 목록 한 줄에 들어가야 하므로 짧게 쓰고, 사용자가 할 일은
+ * {@link unavailableHint}가 문장으로 말한다.
+ */
+export function unavailableText(reason: UnavailableReason | null): string {
+  switch (reason) {
+    case 'MISSING_SPEC':
+      return '제원 미입력'
+    case 'NO_PARAMETERS':
+      return '기준값 없음'
+    case 'CALCULATION_ERROR':
+      return '계산 실패'
+    default:
+      return '실적 없음'
+  }
+}
+
+/**
+ * 값이 없는 선박에 대해 **사용자가 할 일** — `#419`.
+ *
+ * 사유를 셋으로 나눈 이유가 여기에 있다. 「실적 없음」은 항차를 등록하면 풀리고,
+ * 「제원 미입력」은 선박 정보를 채워야 풀리며, 「기준값 없음」은 **사용자가 할 수 있는
+ * 것이 없다** — 이것을 「항차를 등록하세요」로 안내하면 해도 안 되는 일을 시키는 것이다.
+ */
+export function unavailableHint(reason: UnavailableReason | null): string {
+  switch (reason) {
+    case 'MISSING_SPEC':
+      return '선박 제원(선종·DWT·GT)으로 계산할 수 없습니다. 선박 정보를 확인하세요.'
+    case 'NO_PARAMETERS':
+      return '이 선종의 규정 기준값이 등록되지 않았습니다. 운영자에게 문의하세요.'
+    case 'CALCULATION_ERROR':
+      return '계산 중 오류가 발생했습니다. 운영자에게 문의하세요.'
+    default:
+      return '올해 집계할 항차 실적이 없습니다. 항차를 등록하면 값이 표시됩니다.'
   }
 }
 

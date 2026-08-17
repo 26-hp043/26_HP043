@@ -37,6 +37,23 @@ export type DaysReason =
   /** 실적 또는 경계값이 없다 */
   | 'NO_DATA'
 
+/**
+ * 값을 내지 못한 사유 — `API_SPEC §2.8` (`#419`).
+ *
+ * **셋은 사용자가 할 일이 서로 다르다.** 항차를 등록해야 하는지, 선박 제원을
+ * 채워야 하는지, 아니면 사용자가 할 수 있는 것이 없어 운영자에게 알려야 하는지가
+ * 갈린다. 같은 빈칸으로 그리면 화면이 무엇을 하라고 말할 수 없다.
+ */
+export type UnavailableReason =
+  /** 올해 집계할 항차 실적이 없다 — 항차를 등록하면 값이 나온다 */
+  | 'NO_DATA'
+  /** 제원으로 capacity를 정할 수 없다 — DWT·GT 부재·0 이하·미지원 선종. 선박 정보에서 고친다 */
+  | 'MISSING_SPEC'
+  /** 이 선종의 기준선·등급경계 파라미터가 없다 — 사용자가 할 수 있는 것이 없다 */
+  | 'NO_PARAMETERS'
+  /** 위 어느 것으로도 설명되지 않는 계산 실패 — 사용자가 할 수 있는 것이 없다 */
+  | 'CALCULATION_ERROR'
+
 export interface FleetVessel {
   id: string
   name: string
@@ -54,6 +71,13 @@ export interface FleetVessel {
    * **오류가 아니라 정상 상태다**(`#353` 계약).
    */
   dataAvailable: boolean
+  /**
+   * `dataAvailable`이 `false`인 **이유**. 값이 있으면 `null`이다 (`#419`).
+   *
+   * 종전에는 제원이 빠진 선박 한 척이 선대 요약 전체를 실패시켰다. 지금은 그 선박만
+   * 값이 비고, 그 이유를 화면이 말할 수 있다.
+   */
+  unavailableReason: UnavailableReason | null
   /** 표시용 문자열 — 되돌려 계산하지 않는다(`API_SPEC §1.7`). */
   ytdAttainedCii: string | null
   ytdRequiredCii: string | null
