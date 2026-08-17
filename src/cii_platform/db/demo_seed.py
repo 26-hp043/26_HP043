@@ -41,6 +41,18 @@
 ``00000000-0000-4000-8000-00000000000N``은 프론트엔드 고정표(``referenceTable.ts``)와
 demo provider가 참조한다. **값을 바꾸면 화면이 함께 깨진다.**
 
+## 행 수는 ``rowcount``로 묻지 않는다 (#481)
+
+이 모듈의 모든 헬퍼는 ``RETURNING id``로 **돌려받은 행을 센다.**
+
+``rowcount``는 드라이버·실행 경로에 따라 뜻이 달라진다. 실제로 executemany 경로의
+asyncpg는 ``-1``을 돌려주며, 종전 코드의 ``result.rowcount or 0``은 ``-1``이 truthy라
+그대로 새어 나갔다 — 출력이 ``vessel: -1행 신규 적재``였다. 그 값은 **「이미 다 들어
+있다(0)」와 「방금 넣었다(N)」를 구분하지 못한다.** 이 출력의 목적이 정확히 그 구분이다.
+
+단일 DELETE의 ``rowcount``는 정상 값을 주지만 거기도 같은 방식을 쓴다. **두 규칙이
+공존하면 다음 사람이 어느 쪽이 맞는지 매번 확인해야 한다.**
+
 실행: ``python -m cii_platform.db.demo_seed``
 """
 
@@ -637,11 +649,20 @@ _vessel = sa.table(
 
 
 async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dict]) -> int:
-    """이미 있는 행은 건너뛴다. 돌려주는 값은 **실제로 넣은** 행 수다."""
+    """이미 있는 행은 건너뛴다. 돌려주는 값은 **실제로 넣은** 행 수다.
+
+    ``ON CONFLICT DO NOTHING``은 충돌한 행에 대해 아무것도 반환하지 않으므로,
+    ``RETURNING``으로 돌아온 행의 수가 곧 신규 적재 수다.
+
+    ``rowcount``를 쓰지 않는 이유는 모듈 docstring 참조 (#481) — executemany 경로에서
+    ``-1``이 나온다.
+    """
     if not rows:
         return 0
-    result = await conn.execute(pg_insert(table).on_conflict_do_nothing(), rows)
-    return result.rowcount or 0
+    result = await conn.execute(
+        pg_insert(table).on_conflict_do_nothing().returning(table.c.id), rows
+    )
+    return len(result.fetchall())
 
 
 async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
@@ -746,15 +767,16 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
 
 
 async def _delete_where(conn: AsyncConnection, table: str, column: str, ids: list) -> int:
+    """지운 행 수를 돌려준다. 세는 방법은 모듈 docstring의 규칙을 따른다 (#481)."""
     if not ids:
         return 0
     result = await conn.execute(
         sa.text(  # noqa: S608 - 테이블·컬럼명은 이 모듈의 리터럴, 값은 바인딩된다
-            f"DELETE FROM {table} WHERE {column} = ANY(CAST(:ids AS uuid[]))"
+            f"DELETE FROM {table} WHERE {column} = ANY(CAST(:ids AS uuid[])) RETURNING id"
         ),
         {"ids": ids},
     )
-    return result.rowcount or 0
+    return len(result.fetchall())
 
 
 async def _delete_unreferenced(
@@ -767,6 +789,9 @@ async def _delete_unreferenced(
 
     ``RESTRICT``에 걸려 예외로 중단되는 대신 **미리 걸러낸다** — 한 척이 막혔다고 나머지를
     못 지우게 되면, 부분 정리조차 불가능해진다.
+
+    돌려주는 값은 **실제로 지운** 행 수이며, 호출자는 이것으로 「남긴 수」를 계산한다
+    (``kept_voyage``·``kept_vessel``). 그래서 이 값이 틀리면 **남긴 수까지 함께 틀린다.**
     """
     if not ids:
         return 0
@@ -774,11 +799,11 @@ async def _delete_unreferenced(
         sa.text(  # noqa: S608 - 테이블·컬럼명은 이 모듈의 리터럴, 값은 바인딩된다
             f"DELETE FROM {table} WHERE id = ANY(CAST(:ids AS uuid[])) "
             f"AND id NOT IN (SELECT {calc_run_column} FROM calculation_run "
-            f"WHERE {calc_run_column} IS NOT NULL)"
+            f"WHERE {calc_run_column} IS NOT NULL) RETURNING id"
         ),
         {"ids": ids},
     )
-    return result.rowcount or 0
+    return len(result.fetchall())
 
 
 async def main() -> None:  # pragma: no cover - 프로세스 진입점
