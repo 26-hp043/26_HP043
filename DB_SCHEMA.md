@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.13 |
+| 버전 | v1.14 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-08-15 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.4, `API_SPEC.md` v1.2 |
@@ -892,6 +892,59 @@ CREATE UNIQUE INDEX idx_not_underway_fuel_use_unique
 
 ---
 
+### 2.19 `simulation_parameter` — Monte Carlo 분포 파라미터 (#434)
+
+> `PRD §12.4.1` 구현. *"분포 기본값은 `simulation_parameter`로 관리하며 **코드 하드코딩하지 않는다**"* 를 충족한다.
+>
+> **왜 테이블인가.** 삼각분포의 min/mode/max는 규제값이 아니라 **모델 가정**이다. 운항 데이터가 쌓이면 조정될 값이고, 그때 코드를 고쳐 배포하는 대신 행을 바꿀 수 있어야 한다 — `regulation_year`·`cii_reference_line`을 코드 밖에 둔 것과 같은 이유다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, DEFAULT `gen_random_uuid()` | 내부 ID |
+| `profile` | VARCHAR(30) | NOT NULL | 프로파일명. `PRD §12.2`의 `distribution_profile` 입력값과 같은 어휘 |
+| `variable` | VARCHAR(20) | NOT NULL, CHECK | `DISTANCE` · `FUEL` · `SPEED` |
+| `distribution` | VARCHAR(20) | NOT NULL, CHECK | `TRIANGULAR` (MVP는 이 하나) |
+| `bound_type` | VARCHAR(10) | NOT NULL, CHECK | `FACTOR`(계획값의 배수) · `DELTA`(계획값에 더하는 값) |
+| `min_value` | NUMERIC(10,4) | NOT NULL | 삼각분포 좌단 |
+| `mode_value` | NUMERIC(10,4) | NOT NULL | 최빈값. 계획값 자체이므로 `FACTOR`면 `1.0`, `DELTA`면 `0.0` |
+| `max_value` | NUMERIC(10,4) | NOT NULL | 삼각분포 우단 |
+| `floor_value` | NUMERIC(10,4) | NULL | 물리 하한. 속도만 `1.0`(kn)을 갖는다 |
+| `source_ref` | VARCHAR(200) | NOT NULL | 출처. `PRD §12.4.1` |
+| `version` | VARCHAR(50) | NOT NULL | 파라미터 판본 |
+| `is_active` | BOOLEAN | NOT NULL DEFAULT true | 비활성 행은 조회에서 제외 |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
+
+**`bound_type`이 필요한 이유.** `PRD §12.4.1` 표에서 거리·연료는 계획값의 **배수**(`0.97×plan`)지만 속도는 **덧셈**(`plan − 1kn`)이다. 한 컬럼 집합으로 둘을 담으려면 해석 방식을 행이 스스로 말해야 한다. 배수만 지원하면 속도를 표현할 수 없고, 속도를 위해 별도 테이블을 만들면 같은 개념이 두 곳에 생긴다.
+
+**검증 제약:**
+
+```sql
+ALTER TABLE simulation_parameter ADD CONSTRAINT chk_sim_param_variable
+  CHECK (variable IN ('DISTANCE','FUEL','SPEED'));
+ALTER TABLE simulation_parameter ADD CONSTRAINT chk_sim_param_distribution
+  CHECK (distribution IN ('TRIANGULAR'));
+ALTER TABLE simulation_parameter ADD CONSTRAINT chk_sim_param_bound_type
+  CHECK (bound_type IN ('FACTOR','DELTA'));
+-- PRD §12.4.1 [ORACLE 삼각분포 가드] — min ≤ mode ≤ max 불변식.
+-- 애플리케이션도 재조정하지만(계산이 파라미터 오타로 죽지 않게), 애초에
+-- 위반한 행이 들어오지 않는 편이 낫다.
+ALTER TABLE simulation_parameter ADD CONSTRAINT chk_sim_param_bounds_ordered
+  CHECK (min_value <= mode_value AND mode_value <= max_value);
+ALTER TABLE simulation_parameter ADD CONSTRAINT chk_sim_param_floor_positive
+  CHECK (floor_value IS NULL OR floor_value > 0);
+```
+
+**인덱스:**
+
+```sql
+-- 조회는 언제나 (프로파일, 변수) 단위다. 같은 조합이 둘이면 어느 쪽을 쓸지 알 수 없다.
+CREATE UNIQUE INDEX idx_sim_param_unique ON simulation_parameter (profile, variable);
+```
+
+**재현성 (`TECH_SPEC §5.4`).** 이 행이 바뀌면 **같은 seed로 다시 돌려도 결과가 달라진다.** 그래서 시뮬레이션 실행은 사용한 프로파일을 `calculation_run.parameters_used`에 함께 기록한다 — `parameter_hash`가 그 내용을 덮으므로 「동일 파라미터 버전」이 해시로 고정된다. 상세는 `TECH_SPEC §5.2.1`.
+
+`voyage_fuel_use.cf_used`가 CF 개정에 대해 하는 일과 같은 처리다(`#378`).
+
 ## 3. 시드 데이터
 
 ### 3.1 규정 연도 Z-factor
@@ -1396,3 +1449,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-15 | `#389` | v1.11: §8.3.1 `fuel_type.content_hash` 산출 규칙 신설 — **행 단위** · 대상 필드 `{code, cf}`(`TECH_SPEC` §5.2.1 `parameters_used.fuel_types[]` 원소 스키마 재사용) · `canonical_json` + `sha256:` 접두사(총 71자, 컬럼 폭 일치). 017이 보류한 값을 마이그레이션 031이 리터럴로 적재하고, 테스트가 `src/` 규약으로 재계산해 대조한다 (#154) |
 | 2026-08-15 | `#390` | v1.12: §8.1.1 「seed의 위치와 적재 경로」 신설 — 모든 seed를 `alembic upgrade head` 경로로 일원화(마이그레이션 032, 규제 파라미터 42행). **§8.1의 「별도 `seed/` 디렉토리」 규정을 실제 구조(`src/cii_platform/db/seed.py`)로 정정** — 패키지 안이라야 DB 없이 값 검증이 가능하고 5개 테스트가 그 상수를 쓴다. 「마이그레이션은 `src/` 상수를 import하지 않는다」·「data migration에 upsert 금지」·「downgrade는 넣은 키만 삭제」를 🔒로 명문화(017이 세우고 031·032가 따른 원칙) (#127) |
 | 2026-08-15 | `#403` | 변경 이력 표 정리 — 2026-08-15 행 7건을 버전 오름차순으로 재배열(v1.10이 v1.9보다 앞, v1.6·v1.7이 맨 끝이던 상태)하고 **PR 번호 공란 2건을 채움**(v1.9 → #381 · v1.10 → #382). AGENTS §7이 squash merge 환경에서 커밋 열에 PR 번호를 적도록 규정한다. 문서 내용 변경 없음 (#401) |
+| 2026-08-17 | PR #436 | **v1.14 — `§2.19 simulation_parameter` 신설 (`#434`).** `PRD §12.4.1`이 「코드 하드코딩하지 않는다」며 이름을 부르는데 **정의도 실체도 없던** 테이블이다. `bound_type`(`FACTOR`·`DELTA`)을 둔 이유는 거리·연료가 계획값의 **배수**인 반면 속도는 **덧셈**이라 한 컬럼 집합으로 둘을 담으려면 해석 방식을 행이 스스로 말해야 하기 때문이다. 재현성은 `TECH_SPEC §5.2.1.1`이 `parameter_hash`로 고정한다 |
