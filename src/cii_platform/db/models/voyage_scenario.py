@@ -40,7 +40,7 @@ class VoyageScenario(Base):
     is_adopted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
     # [M-1] 다른 비즈니스 테이블과 삭제 정책 통일.
     is_deleted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
-    # weather_snapshot(§2.13) 미구현 → 컬럼만 존재, FK는 후속 마이그레이션에서 추가.
+    # weather_snapshot(§2.13) 참조. FK는 013에서 추가됐다 — 아래 __table_args__ 참조.
     weather_snapshot_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
     created_at = sa.Column(
         sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
