@@ -14,6 +14,8 @@ DB 스키마, 경험식은 함께 바뀌지 않는다.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
@@ -23,11 +25,9 @@ from cii_platform.calc.weather import (
     townsin_kwon_weather_factor,
 )
 from cii_platform.db.repositories import weather as weather_repo
-from cii_platform.errors import ModelBreakdownError, ParameterError
+from cii_platform.errors import ModelBreakdownError, ParameterError, WeatherFetchError
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from cii_platform.weather.open_meteo import WeatherObservation, WeatherProvider
@@ -189,3 +189,159 @@ async def resolve_weather_factor(
 
 def _float_or_none(value) -> float | None:
     return None if value is None else float(value)
+
+
+# ─── fallback 체인 (PRD §11.6 · TECH_SPEC §7.3, #62) ─────────────────────────
+
+#: ``API_SPEC §1.6`` 경고 코드.
+WARNING_WEATHER_STALE = "WEATHER_STALE"
+WARNING_WEATHER_NONE_FALLBACK = "WEATHER_NONE_FALLBACK"
+WARNING_EXPERIMENTAL_MODEL = "EXPERIMENTAL_MODEL"
+WARNING_CB_ESTIMATED = "CB_ESTIMATED"
+
+#: ``PRD §11.6`` — 이 시각을 넘긴 캐시는 「오래됐다」로 표시하고 계산은 허용한다.
+STALE_AFTER_HOURS = 6
+
+#: ``PRD §11.6`` — 이 시각을 넘긴 캐시는 쓰지 않는다. 보정 없이 계산한다.
+EXPIRED_AFTER_HOURS = 24
+
+
+@dataclass(frozen=True)
+class WeatherResolution:
+    """기상 보정의 **결과와 그 근거**.
+
+    ``factor``만 돌려주면 「보정을 했는가·무엇으로 했는가」가 사라진다. 요청한 모델과
+    **실제로 적용된 모델**을 나눠 담는 이유가 그것이다 — fallback이 일어나면 둘이
+    달라지고, 그 차이가 곧 경고의 근거다.
+    """
+
+    factor: Decimal
+    model_used: str
+    warnings: tuple[str, ...]
+    snapshot_id: object | None = None
+    synced_at: datetime | None = None
+
+
+def _age_hours(fetched_at: datetime, now: datetime) -> float:
+    return (now - fetched_at).total_seconds() / 3600
+
+
+async def resolve_with_fallback(
+    session: AsyncSession,
+    *,
+    weather_model: str | None,
+    lat: Decimal | float | None,
+    lon: Decimal | float | None,
+    ship_type: str,
+    at: datetime | None = None,
+    provider: WeatherProvider | None = None,
+    block_coefficient: Decimal | None = None,
+    wave_heading_deg: float = 0.0,
+) -> WeatherResolution:
+    """``PRD §11.6`` 기상 장애 정책을 그대로 옮긴다.
+
+    ====================================  ==========================================
+     최신 조회 성공                         최신 값 사용
+     실패 + 6시간 이내 캐시                  캐시 사용
+     실패 + 6~24시간 캐시                   계산 허용 + ``WEATHER_STALE``
+     실패 + 캐시 없음(또는 24시간 초과)      보정 없이 계산 + ``WEATHER_NONE_FALLBACK``
+    ====================================  ==========================================
+
+    ## 계산을 멈추지 않는다
+
+    기상은 **보정**이지 계산의 전제가 아니다. 조회가 실패했다고 CII를 못 내면
+    「바깥 서비스가 죽으면 우리 서비스도 죽는」 상태가 된다. 그래서 마지막 칸이
+    ``NONE`` fallback이며, `API_SPEC §1.4`도 그 경로를 **200 + 경고**로 규정한다
+    (422는 사용자가 fallback을 거부한 경우뿐이다, `[ORACLE-C-2]`).
+
+    ## 좌표가 없으면 조회하지 않는다
+
+    기능①(`API_SPEC §4.1`)은 위치를 받지 않는다. 좌표 없이 기상을 물으면 **어느
+    바다인지 모르는 채 값을 얻는 것**이라, 요청 모델과 무관하게 보정하지 않는다.
+
+    ## ``WEATHER_STALE``을 6시간 이내에는 붙이지 않는다
+
+    `API_SPEC §1.6`이 이 코드의 조건을 「기상 캐시 6~24시간」으로, 문구를 「오래된
+    기상 데이터를 사용 중입니다」로 확정했다. 3시간 전 값에 그 문구를 붙이면 **틀린
+    말**이 된다. `PRD §11.6`의 「6시간 이내 캐시 → 캐시 사용, 경고 표시」를 어떤
+    코드로 표시할지는 정본에 없어 별도 확인 대상으로 남긴다.
+    """
+    resolved_at = at or datetime.now(UTC)
+    model = weather_model or MODEL_NONE
+
+    if model == MODEL_NONE:
+        # 요청이 NONE이면 fallback이 아니다 — 경고 없이 정상 NONE 계산이다.
+        return WeatherResolution(NEUTRAL_FACTOR, MODEL_NONE, ())
+
+    if lat is None or lon is None:
+        # **요청한 보정이 적용되지 않았다는 사실은 반드시 알린다.** 좌표가 없어
+        # 조회 자체가 불가능한 경우도 사용자 입장에서는 「모델을 골랐는데 적용되지
+        # 않은」 것이며, 조용히 넘어가면 결과를 보정된 값으로 읽는다.
+        return WeatherResolution(NEUTRAL_FACTOR, MODEL_NONE, (WARNING_WEATHER_NONE_FALLBACK,))
+
+    snapshot = None
+    warnings: list[str] = []
+
+    if provider is not None:
+        try:
+            snapshot = await fetch_and_store(
+                session, provider, lat=float(lat), lon=float(lon), at=resolved_at
+            )
+        except WeatherFetchError:
+            snapshot = None
+
+    if snapshot is None:
+        snapshot, stale_warning = await _fallback_snapshot(
+            session, lat=lat, lon=lon, now=resolved_at
+        )
+        warnings.extend(stale_warning)
+
+    if snapshot is None:
+        # 캐시도 없다 — 보정 없이 계산한다. **값을 지어내지 않는다.**
+        return WeatherResolution(NEUTRAL_FACTOR, MODEL_NONE, (WARNING_WEATHER_NONE_FALLBACK,))
+
+    factor = await resolve_weather_factor(
+        session,
+        weather_model=model,
+        snapshot=snapshot,
+        ship_type=ship_type,
+        wave_heading_deg=wave_heading_deg,
+        block_coefficient=block_coefficient,
+    )
+
+    if model == MODEL_TOWNSIN_KWON:
+        # `PRD §11.4.2` — 실험 모델임을 결과에 표시한다.
+        warnings.append(WARNING_EXPERIMENTAL_MODEL)
+        if block_coefficient is None:
+            # 선형 계수가 선박 제원이 아니라 선종 기본값에서 왔다 (`API_SPEC §1.6`).
+            warnings.append(WARNING_CB_ESTIMATED)
+
+    return WeatherResolution(
+        factor=factor,
+        model_used=model,
+        warnings=tuple(warnings),
+        snapshot_id=getattr(snapshot, "id", None),
+        synced_at=getattr(snapshot, "fetched_at", None),
+    )
+
+
+async def _fallback_snapshot(
+    session: AsyncSession, *, lat: Decimal | float, lon: Decimal | float, now: datetime
+):
+    """캐시에서 쓸 수 있는 스냅샷을 고른다. 돌려주는 둘째 값은 붙일 경고다.
+
+    **24시간을 넘긴 값은 쓰지 않는다** (`PRD §11.6`). 이틀 전 파고로 오늘 항해를
+    보정하면 보정이 아니라 잡음이다.
+    """
+    snapshot = await weather_repo.find_last_snapshot(
+        session, lat_rounded=round_to_grid(lat), lon_rounded=round_to_grid(lon)
+    )
+    if snapshot is None:
+        return None, []
+
+    age = _age_hours(snapshot.fetched_at, now)
+    if age > EXPIRED_AFTER_HOURS:
+        return None, []
+    if age > STALE_AFTER_HOURS:
+        return snapshot, [WARNING_WEATHER_STALE]
+    return snapshot, []
