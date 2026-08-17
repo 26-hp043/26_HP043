@@ -36,7 +36,7 @@
 | [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.3**, 자체 ID/PW 인증 전환 #413 + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.7**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 #434 + 메일·리포트 절 신설 #446) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16), 메일 발송(§18), 리포트 렌더링(§19) | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.18**, 인증 재작성 #414 + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.14**, not under way 스키마 #345 + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434) — **20개 테이블**, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.15**, not under way 스키마 #345 + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451) — **20개 테이블**, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
 | [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.7**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398) — **73개 파일 · 970 함수 · 1217 수집**(2026-08-17 실측), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 (**v1.5**) — 문서 우선순위(§3.1)·소관 한정 정본(§3.2), Oracle 교차 검증, 규제값 권위 소스, 1 PR = 1 이슈(§7) | ✅ 완료 |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (**v1.2**, §4.1 단위 표기 capacity 축 파생 #163 + §4.2 물리량 단위 표기 #164) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성 | ✅ 완료 |
@@ -133,6 +133,10 @@ docker compose -f docker-compose.prod.yml up -d
 
 4단계가 `exec`가 아니라 `run --rm`인 이유는 이 시점에 `app` 컨테이너가 아직 떠 있지 않기 때문이다. `run`은 같은 이미지로 일회성 컨테이너를 띄우고, 명령이 끝나면 `--rm`이 그 컨테이너를 지운다.
 
+> **시연용 데모 데이터는 별도 명령이다** (`#451`). `alembic upgrade head`는 **규제 파라미터만** 넣는다. 데모 선박·항차가 필요하면 `docker compose -f docker-compose.prod.yml run --rm app python -m cii_platform.db.demo_seed`를 실행한다 — 멱등이라 여러 번 돌려도 행이 늘지 않는다.
+>
+> 종전에는 마이그레이션 018·027이 이 데이터를 넣었는데, **데모 선박으로 계산을 한 번 돌리면 롤백이 FK에 막혔다.** 계산 이력은 `§7.3` immutable 가드가 걸린 보존 대상이라 지울 수 없으므로, 마이그레이션이 지울 것 자체를 없앴다(`DB_SCHEMA §8.1.1`).
+
 > **별도 seed 단계가 없다.** 규제 파라미터(Z-factor 8행 · reference line 20행 · d-vector 14행)와 연료 CF 8행은 전부 data migration에 들어 있어 `alembic upgrade head`가 함께 적재한다(`DB_SCHEMA §8.1.1` · #127). 규제가 개정되어 **재적재**가 필요할 때만 `docker compose -f docker-compose.prod.yml run --rm app python -m cii_platform.db.seed`를 쓴다 — 이쪽은 upsert라 값을 덮어쓴다.
 
 > ⚠️ **2단계(`build`)를 생략하면 안 된다.** `docker compose run`은 해당 이름의 이미지가 **이미 있으면 그것을 그대로 쓰고 다시 굽지 않는다.** 소스를 고친 뒤 `build` 없이 4단계로 가면 낡은 이미지로 마이그레이션이 돌고, 그 사실이 로그에 드러나지 않는다. (실제로 이 절차를 검증할 때 5주 전 이미지가 조용히 재사용되어 `No 'script_location' key found`로 실패했다.)
@@ -224,3 +228,4 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 | 2026-08-17 | `#446` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.7로 갱신 — §18 메일 발송 · §19 리포트 렌더링 신설 반영 (#446) |
 | 2026-08-17 | `#449` | 문서 구조 표의 `API_SPEC.md` 행을 v1.17로 갱신 — `ytd.substitutions` 신설 반영 (#449) |
 | 2026-08-17 | `#440` | 문서 구조 표의 `API_SPEC.md` 행을 v1.18로 갱신 — §3.6 항차 실적 입력 구현 확정 반영 (#440) |
+| 2026-08-17 | `#451` | 문서 구조 표의 `DB_SCHEMA.md` 행을 v1.15로 갱신 · 「배포」 절에 데모 데이터 적재 명령 추가 — `alembic upgrade head`가 더 이상 데모 선박을 넣지 않는다 (#451) |

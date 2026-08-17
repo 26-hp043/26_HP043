@@ -86,6 +86,21 @@ if [ "$CHECK_ONLY" != "--check" ]; then
     bad "seed 실패 — /tmp/demo_seed.log 참조"; tail -5 /tmp/demo_seed.log; exit 1;
   }
 fi
+
+# --- 4b. 데모 데이터 -----------------------------------------------------------------
+#
+# 데모 선박·항차는 2026-08-17에 마이그레이션에서 분리됐다 (#451) — `alembic upgrade head`
+# 만으로는 들어오지 않는다. 이것이 없으면 프론트엔드 고정표(referenceTable.ts)가 참조하는
+# UUID가 DB에 없어 **첫 요청이 「그런 선박 없음」으로** 떨어진다.
+#
+# 멱등이라(ON CONFLICT DO NOTHING) 여러 번 실행해도 행이 늘지 않는다.
+
+step "4b. 데모 데이터 (시연용 선박·항차)"
+if [ "$CHECK_ONLY" != "--check" ]; then
+  "$VENV/python" -m cii_platform.db.demo_seed >/tmp/demo_data.log 2>&1 || {
+    bad "데모 데이터 적재 실패 — /tmp/demo_data.log 참조"; tail -5 /tmp/demo_data.log; exit 1;
+  }
+fi
 COUNTS=$("$VENV/python" - <<'PY' 2>/dev/null
 import asyncio, os
 from sqlalchemy import text
