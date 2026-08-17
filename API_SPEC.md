@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.16 |
+| 버전 | v1.17 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-08-17 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.5 |
@@ -236,6 +236,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `EXPERIMENTAL_MODEL` | TOWNSIN_KWON_ALPHA 사용 | 실험 모델 기반 결과입니다. |
 | `NON_CII_VESSEL` | GT < 5,000 | 공식 CII 적용 대상이 아닐 수 있습니다. |
 | `COMPLETED_NO_FUEL` | COMPLETED 항차 actual_fuel_ton NULL | 실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중. |
+| `COMPLETED_NO_DISTANCE` | COMPLETED 항차 actual_distance_nm NULL | 실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중. |
 | `SLOW_SPEED_FLOOR` | 기능② 감속 시나리오 속도가 최소 속도(1.0kn)에 도달 (PRD §11.2 「floor 도달 시 경고 표시」) | 감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다. |
 
 ### 1.7 수치 직렬화 정책
@@ -1061,7 +1062,11 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
       "boundaries": { "superior_boundary": "…", "lower_boundary": "…", "upper_boundary": "…", "inferior_boundary": "…" },
       "total_co2_ton": "…", "total_fuel_ton": "…",
       "underway_distance_nm": "…", "not_underway_distance_nm": "…", "total_distance_nm": "10620.00",
-      "voyage_count": 3, "not_underway_period_count": 1
+      "voyage_count": 3, "not_underway_period_count": 1,
+      "substitutions": [
+        { "voyage_id": "…", "axis": "FUEL", "fuel_type": "HFO" },
+        { "voyage_id": "…", "axis": "DISTANCE", "fuel_type": null }
+      ]
     },
 
     "current_voyage": {
@@ -1115,6 +1120,20 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
 > **계산식을 새로 만들지 않는다.** ⑴과 ⑶ 모두 `#353`의 YTD 엔진을 그대로 부르고, 다른 것은 주입하는 누적값뿐이다. 식이 갈리면 「⑴은 C인데 ⑶이 이미 C보다 좋다」 같은 모순이 조용히 생긴다.
 
 `assumptions`를 함께 싣는 것은 `PRD §3.3` ⑶의 요구다 — 화면이 「⑶만 단독으로 크게 표시하지 않는다」를 지키려면 근거가 응답에 있어야 한다.
+
+#### `ytd.substitutions` — 실적 대신 계획값을 쓴 내역 (#449)
+
+`PRD §8.3` 값 우선순위에 따라 실적이 없으면 계획값이 들어간다. 그 **선택 결과**를 항차별로 싣는다.
+
+| 필드 | 값 |
+|---|---|
+| `voyage_id` | 대체가 일어난 항차 |
+| `axis` | `FUEL` \| `DISTANCE` |
+| `fuel_type` | 연료 축일 때 유종. 거리 축이면 `null` |
+
+> **경고와 이 목록은 다른 것을 말한다.** `warnings`의 `COMPLETED_NO_FUEL`·`COMPLETED_NO_DISTANCE`는 「대체가 있었다」만 말한다. **무엇을 고쳐야 하는지는 어느 항차의 무엇이 대체됐는지를 알아야 나온다** — 항차가 40건이면 경고 하나로는 40건을 전부 열어 봐야 한다.
+
+> **거리 대체는 종전에 경고조차 없었다.** 연료는 `COMPLETED_NO_FUEL`이 나갔는데 거리는 침묵했다. 거리는 **CII의 분모**이므로 영향이 연료 못지않다.
 
 **⑶을 낼 수 없는 경우**는 `data_available: false` + `reason`이다.
 
@@ -2715,3 +2734,4 @@ GET /api/v1/health
 | 2026-08-17 | PR #437 | **v1.15 — `§6.1` 구현 확정 사항 (`#64`).** 응답에 `simulation_id`·`calculation_run_id`를 추가했다 — `#433`이 정한 대로 후행 기능(감축 계획)이 **같은 스냅샷·같은 seed를 재사용**할 수 있어야 한다. 민감도의 `target_probability_change`는 **같은 seed로 다시 돌려** 낸다(common random numbers) — seed를 새로 뽑으면 「변수 때문에 바뀐 것」과 「표본이 달라서 바뀐 것」을 가를 수 없다. 위험도는 `PRD §9.4.2`의 **확률 기반**이다(기능①·②의 마진 기반이 아니다) |
 | 2026-08-17 | PR #438 | **v1.16 — §2.8 `unavailable_reason` 신설 (`#419`).** `data_available=false`인 선박이 **왜** 그런지 4종(`NO_DATA` · `MISSING_SPEC` · `NO_PARAMETERS` · `CALCULATION_ERROR`)으로 구분한다. 사용자가 할 일이 서로 다르므로(항차 등록 · 제원 입력 · 운영자 문의) 한 사유로 뭉치면 화면이 안내할 수 없다. 한 척의 계산 실패가 요청 전체를 500으로 만들지 않는다는 계약과, **연도 파라미터 부재는 여전히 409**라는 경계를 함께 명시 (#419) |
 | 2026-08-17 | `#445` | §12 엔드포인트 요약표에 **구현돼 있으나 빠져 있던 10건 등재** — 인증 9종(`#414`가 §1.2를 재작성하며 요약표에 넣지 않았다) · `PATCH /vessels/{id}/position`(`#369`). 요약표만 보는 사람에게는 인증 API가 존재하지 않는 상태였다. 행 추가이므로 `AGENTS §4.3`에 따라 버전은 올리지 않는다 (#445) |
+| 2026-08-17 | PR #NNN | **v1.17 — §2.14 `ytd.substitutions` 신설 (`#449`)** · 경고 `COMPLETED_NO_DISTANCE` 추가. `PRD §8.3`의 값 우선순위가 실적 대신 계획값을 고른 **결과를 항차별로** 싣는다. 종전에는 불리언 하나로 뭉개져 경고 1건만 나갔고, 무엇을 고쳐야 하는지 알 수 없었다. **거리 대체는 경고조차 없었다** — 거리는 CII의 분모라 영향이 연료 못지않다 (#449) |
