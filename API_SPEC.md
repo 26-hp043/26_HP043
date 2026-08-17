@@ -2508,6 +2508,15 @@ GET /api/v1/health
 | Method | Path | 기능 | PRD 참조 |
 |---|---|---|---|
 | GET | `/api/v1/health` | 헬스 체크 | — |
+| POST | `/api/v1/auth/signup` | 회원 가입 | §1.2 |
+| POST | `/api/v1/auth/login` | 로그인 | §1.2 |
+| POST | `/api/v1/auth/logout` | 로그아웃 | §1.2 |
+| GET | `/api/v1/auth/me` | 현재 사용자 | §1.2 |
+| POST | `/api/v1/auth/dev-login` | 개발용 로그인 (**프로덕션 미등록**) | §1.2 |
+| POST | `/api/v1/auth/verify-email/request` | 메일 인증 요청 | §1.2 |
+| POST | `/api/v1/auth/verify-email/confirm` | 메일 인증 확인 | §1.2 |
+| POST | `/api/v1/auth/password-reset/request` | 비밀번호 재설정 요청 | §1.2 |
+| POST | `/api/v1/auth/password-reset/confirm` | 비밀번호 재설정 확인 | §1.2 |
 | GET | `/api/v1/vessels` | 선박 목록 | §6.2 SCR-002 |
 | POST | `/api/v1/vessels` | 선박 등록 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}` | 선박 상세 | §6.2 SCR-002 |
@@ -2515,6 +2524,7 @@ GET /api/v1/health
 | GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
 | PATCH | `/api/v1/vessels/{id}` | 선박 수정 | §6.2 SCR-002 |
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
+| PATCH | `/api/v1/vessels/{id}/position` | 위치 갱신 | §6.2 SCR-001 |
 | GET | `/api/v1/vessels/{id}/cii/current` | 실시간 CII 3종 값 | §3.3 · §6.2 SCR-009 |
 | GET | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 목록 | §3.3 |
 | POST | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 생성 | §3.3 |
@@ -2704,3 +2714,4 @@ GET /api/v1/health
 | 2026-08-17 | PR #426 | **v1.14 — `§8.3`~`§8.5` 리포트 API 신설 (`#361`).** 항차 완료·연간 실적 리포트를 PDF·CSV·**HTML**(미리보기)로 낸다. 응답이 JSON이 아니라 파일이며 **CSV만 스트리밍**이다(PDF는 페이지 나눔 때문에 전체를 봐야 첫 페이지가 확정된다). `§8.5` 공통 규약에 **CSV injection 방어**(시작 문자 `= + - @ \t \r` → `'` 접두, 음수도 예외 없음) · UTF-8 BOM · CRLF · 면책 배치(CSV는 **맨 앞**, PDF는 표지+푸터) · PDF 렌더링 스택(WeasyPrint + `fonts-nanum`, SIL OFL)을 확정. **진행 중 항차는 422**(`STATE_TRANSITION_ERROR`) — 실적 미확정 값으로 문서를 만들면 같은 항차의 리포트가 시점마다 달라진다 |
 | 2026-08-17 | PR #437 | **v1.15 — `§6.1` 구현 확정 사항 (`#64`).** 응답에 `simulation_id`·`calculation_run_id`를 추가했다 — `#433`이 정한 대로 후행 기능(감축 계획)이 **같은 스냅샷·같은 seed를 재사용**할 수 있어야 한다. 민감도의 `target_probability_change`는 **같은 seed로 다시 돌려** 낸다(common random numbers) — seed를 새로 뽑으면 「변수 때문에 바뀐 것」과 「표본이 달라서 바뀐 것」을 가를 수 없다. 위험도는 `PRD §9.4.2`의 **확률 기반**이다(기능①·②의 마진 기반이 아니다) |
 | 2026-08-17 | PR #438 | **v1.16 — §2.8 `unavailable_reason` 신설 (`#419`).** `data_available=false`인 선박이 **왜** 그런지 4종(`NO_DATA` · `MISSING_SPEC` · `NO_PARAMETERS` · `CALCULATION_ERROR`)으로 구분한다. 사용자가 할 일이 서로 다르므로(항차 등록 · 제원 입력 · 운영자 문의) 한 사유로 뭉치면 화면이 안내할 수 없다. 한 척의 계산 실패가 요청 전체를 500으로 만들지 않는다는 계약과, **연도 파라미터 부재는 여전히 409**라는 경계를 함께 명시 (#419) |
+| 2026-08-17 | `#445` | §12 엔드포인트 요약표에 **구현돼 있으나 빠져 있던 10건 등재** — 인증 9종(`#414`가 §1.2를 재작성하며 요약표에 넣지 않았다) · `PATCH /vessels/{id}/position`(`#369`). 요약표만 보는 사람에게는 인증 API가 존재하지 않는 상태였다. 행 추가이므로 `AGENTS §4.3`에 따라 버전은 올리지 않는다 (#445) |

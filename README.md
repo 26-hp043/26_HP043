@@ -33,14 +33,14 @@
 
 | 문서 | 내용 | 상태 |
 |---|---|---|
-| [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.2**, 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358, Oracle Review + 외부 리뷰 반영 + 선종별 CII 지표·단위 #163) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 검증 규칙, 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
-| [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (v1.4, Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 #100 + 재현성 계약 명문화 #102 + Layer 1 계산 규칙 #166) — 이중 정밀도 엔진, Layer 1 계산 규칙(§1.2.1), PCG64DXSM RNG(canonical vector 고정), capacity 분리(transport/reference), canonical hashing, 스냅샷 격리, 서비스 레이어 아키텍처(§16), 재현성 계약(§5.4) | ✅ 완료 |
-| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (v1.7, Oracle Review + 외부 리뷰 반영 + 인증(#272) + PATCH null 의미론·전환 policy 규칙 #310·#312 + 위치 갱신 #369 + `as_of` 공통 계약 #368 + 연도별 CII 이력 #355) — 31개 엔드포인트, 수치 직렬화 정책, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (v1.12, Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 #102 + 파라미터 CHECK·FK 자식 인덱스 #96·#97 + needs_recalc 플립 #283 + not under way 스키마 #345 + 운항 상태 2축 #346 + not under way 거리 #353 + 인덱스 3종 #376 + CF 스냅샷 #378 + content_hash 규칙 #154 + seed 적재 경로 일원화 #127) — 16개 테이블, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, pg_trgm, 마이그레이션 전략 | ✅ 완료 |
-| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (v1.6, Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 #166 + §1.3 케이스 스키마 #46 + §4.7 인증 API #279) — 62개 파일 · 466 함수 · 976 수집(2026-08-15 실측), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증, Layer 변환/감사 로그/소프트 삭제/CSV injection 테스트, 유효숫자 기반 Monte Carlo 비교 | ✅ 완료 |
-| [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 — Oracle 교차 검증 규칙, 규제값 권위 소스, 한국어 정책 | ✅ 신규 |
-| [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (v1.2, §4.1 단위 표기 capacity 축 파생 #163 + §4.2 물리량 단위 표기 확정 #164) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성. 토큰의 이름·의미·제약을 확정하고 값은 Figma가 소유 | ✅ 신규 |
-| [`UIFLOW.md`](./UIFLOW.md) | UI Flow 명세서 (**v2.0**, 선대·선박·항차 3계층 재작성 #344) — 화면 흐름·진입 조건 정의 | 🟡 초안 |
+| [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.3**, 자체 ID/PW 인증 전환 #413 + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
+| [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.6**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 §5.2.1.1 #434) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16) | ✅ 완료 |
+| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.16**, 인증 재작성 #414 + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.14**, not under way 스키마 #345 + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434) — **20개 테이블**, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
+| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.7**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398) — **73개 파일 · 970 함수 · 1217 수집**(2026-08-17 실측), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
+| [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 (**v1.5**) — 문서 우선순위(§3.1)·소관 한정 정본(§3.2), Oracle 교차 검증, 규제값 권위 소스, 1 PR = 1 이슈(§7) | ✅ 완료 |
+| [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (**v1.2**, §4.1 단위 표기 capacity 축 파생 #163 + §4.2 물리량 단위 표기 #164) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성 | ✅ 완료 |
+| [`UIFLOW.md`](./UIFLOW.md) | UI Flow 명세서 (**v2.3**, 선대·선박·항차 3계층 재작성 #344) — 화면 목록·계층·흐름·진입 조건 | 🟡 초안 |
 
 ---
 
@@ -137,6 +137,8 @@ docker compose -f docker-compose.prod.yml up -d
 
 > ⚠️ **2단계(`build`)를 생략하면 안 된다.** `docker compose run`은 해당 이름의 이미지가 **이미 있으면 그것을 그대로 쓰고 다시 굽지 않는다.** 소스를 고친 뒤 `build` 없이 4단계로 가면 낡은 이미지로 마이그레이션이 돌고, 그 사실이 로그에 드러나지 않는다. (실제로 이 절차를 검증할 때 5주 전 이미지가 조용히 재사용되어 `No 'script_location' key found`로 실패했다.)
 
+> **프로덕션 이미지에 PDF 렌더링 의존성이 들어 있다** (`#361`). `libpango-1.0-0`·`libpangoft2-1.0-0`(텍스트 셰이핑)과 `fonts-nanum`(한국어 폰트, SIL OFL 1.1 — 임베딩·재배포 허용)이며, 이미지가 **약 195MB 커졌다**(504MB → 699MB). 빌드 시간과 레지스트리 전송량이 그만큼 늘어나므로 배포 창을 잡을 때 감안한다. 폰트를 빼면 PDF의 한글이 tofu(□)로 나온다 — 리포트가 조용히 못 읽는 문서가 되므로 선택 의존성이 아니다.
+
 > `alembic`이 컨테이너 안에서 도는 것은 prod 이미지가 `alembic.ini`·`alembic/`을 포함하기 때문이다(루트 `Dockerfile`). 재적재 진입점이 `scripts/seed.py`가 아니라 `python -m cii_platform.db.seed`인 것도 같은 이유다 — 프로덕션 이미지는 wheel만 설치하므로 `scripts/`가 들어 있지 않다.
 
 ### ⚠️ Vite 환경변수는 빌드 시점에 굳는다
@@ -218,3 +220,4 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 | 2026-08-15 | `#398` | 문서 구조 표의 `TEST_PLAN.md` 행을 v1.6으로 갱신 — 「181개 테스트 케이스」를 실측치로 정정. 종전 수치는 TEST_PLAN §11.1(181)과 §11.3(168)이 서로 다른 상태에서 앞엣것을 인용한 것이었다 (#394) |
 | 2026-08-15 | `#406` | 문서 구조 표의 `PRD.md` 행을 v4.1로 갱신 — 보고서 절 신설(§25) 반영 (#360) |
 | 2026-08-15 | `#380` | 문서 구조 표의 `PRD.md` 행을 v4.2로 갱신 — 계산식 스코프 4종·§3.3.8 실시간 CII 반영 (#358) |
+| 2026-08-17 | `#445` | **문서 구조 표를 실제 버전으로 일괄 갱신** — `API_SPEC` v1.7→v1.16(9판) · `UIFLOW` v2.0→v2.3 · `TECH_SPEC` v1.4→v1.6 · `DB_SCHEMA` v1.12→v1.14 · `PRD` v4.2→v4.3 · `TEST_PLAN` v1.6→v1.7(수치도 실측 73파일·970함수·1217수집). 「배포」 절에 `#361`의 PDF 렌더링 의존성과 이미지 +195MB를 명시. **같은 드리프트가 재발하면 `tests/test_doc_version_sync.py`가 CI에서 막는다** (#445) |
