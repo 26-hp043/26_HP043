@@ -37,6 +37,7 @@ from cii_platform.api.schemas.auth_tokens import (
 )
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.password import PasswordPolicyError, hash_password
+from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_token import (
     PURPOSE_EMAIL_VERIFY,
@@ -104,12 +105,14 @@ async def _find_active_user(session: AsyncSession, email: str) -> AppUser | None
 
 
 def _build_url(request: Request, path: str, token: str) -> str:
-    """메일에 실을 링크.
+    """메일에 실을 링크 (#429).
 
-    요청의 base URL을 쓴다 — 배포 환경마다 도메인이 다르고, 설정으로 따로 두면
-    그 값이 실제 서비스 주소와 어긋났을 때 **링크가 조용히 죽는다.**
+    ``path``는 **프론트엔드 라우트**다 — API 서버에는 그 경로가 없다. 종전 구현은
+    ``request.base_url``만 써서 개발 환경(Vite 5173 / FastAPI 8000)에서 **항상 죽는
+    링크**를 보내고 있었다. 판정은 :func:`~cii_platform.config.public_base_url`이
+    한다(설정 우선 · 없으면 요청 주소).
     """
-    base = str(request.base_url).rstrip("/")
+    base = public_base_url(str(request.base_url))
     return f"{base}{path}?token={token}"
 
 

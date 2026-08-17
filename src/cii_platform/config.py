@@ -34,3 +34,28 @@ if _url is None:
     _url = _DEFAULT_DATABASE_URL
 
 DATABASE_URL: str = _url
+
+
+def public_base_url(fallback: str) -> str:
+    """메일 링크의 기준 주소 (#429).
+
+    ``/verify-email``·``/password-reset``은 **프론트엔드 라우트**다. API 서버에는
+    그 경로가 없으므로, 메일 링크는 사용자가 실제로 화면을 여는 주소를 가리켜야 한다.
+
+    ## 왜 폴백을 남기는가
+
+    종전 구현은 ``request.base_url``만 썼고, 그 근거를 *"설정으로 따로 두면 그 값이
+    실제 서비스 주소와 어긋났을 때 링크가 조용히 죽는다"* 라고 적었다. **그 우려는
+    지금도 유효하다** — 다만 그것이 「설정을 두지 않을 이유」는 아니었다.
+
+    운영은 nginx 뒤에서 프론트와 API가 **같은 origin**이라 요청 주소가 정확하다.
+    개발은 Vite(5173)와 FastAPI(8000)가 **다른 origin**이라 요청 주소가 언제나 틀린다.
+    그래서 **설정이 있으면 설정을, 없으면 요청 주소를** 쓴다 — 같은 origin 배포는
+    설정 없이 지금 동작을 그대로 유지하고, 분리된 환경만 명시한다.
+
+    :param fallback: 미설정 시 쓸 주소. 호출부가 ``str(request.base_url)``을 넘긴다.
+        **설정을 읽지 못한 것과 요청 주소를 쓰기로 한 것을 구분**하기 위해 인자로
+        받는다 — 이 함수가 ``Request``를 알면 레이어 방향이 뒤집힌다.
+    """
+    configured = os.environ.get("APP_PUBLIC_URL", "").strip()
+    return (configured or fallback).rstrip("/")
