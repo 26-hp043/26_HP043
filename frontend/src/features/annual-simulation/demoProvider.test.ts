@@ -13,6 +13,7 @@ describe('예시 데이터임이 응답에 드러난다', () => {
   it('REFERENCE_ONLY 경고와 면책 문구를 함께 낸다', async () => {
     const result = await provider.load()
     expect(result.warnings).toContain('REFERENCE_ONLY')
+    // 정본 문구 (PRD §6.3 면책) — 바꾸려면 PRD 개정이 먼저다 (AGENTS §4.6).
     expect(result.disclaimer).toBe('참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.')
   })
 })

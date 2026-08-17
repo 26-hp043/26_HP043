@@ -62,7 +62,9 @@ describe('표시', () => {
   })
 
   it('모르는 상태 코드는 코드를 그대로 보여 준다', () => {
-    expect(statusLabel('COMPLETED')).toBe('완료')
+    // 아는 코드는 **코드가 아닌 말**로 바뀌고, 모르는 코드는 그대로 나온다 — 빈칸을
+    // 그리지 않기 위해서다. 아는 코드의 문구 자체는 디자인 소관이다.
+    expect(statusLabel('COMPLETED')).not.toBe('COMPLETED')
     expect(statusLabel('WHATEVER')).toBe('WHATEVER')
   })
 })

@@ -144,14 +144,17 @@ describe('validateForm — 빈 칸', () => {
       speedKn: '  ',
       fuelTon: '',
     })
-    expect(errors[FIELD.distanceNm]).toBe('항해거리를 입력해 주세요.')
-    expect(errors[FIELD.speedKn]).toBe('평균 속력을 입력해 주세요.')
-    expect(errors[FIELD.fuelTon]).toBe('연료 사용량을 입력해 주세요.')
+    // 지키려는 것은 문구가 아니라 **세 칸이 각자 자기 원인을 말하는 것**이다.
+    // 하나로 뭉뚱그리면 사용자는 어느 칸이 문제인지 모른다.
+    const messages = [errors[FIELD.distanceNm], errors[FIELD.speedKn], errors[FIELD.fuelTon]]
+    expect(messages.every((message) => (message ?? '').length > 0)).toBe(true)
+    expect(new Set(messages).size).toBe(3)
   })
 
-  it('숫자로 읽히지 않는 값도 "입력해 주세요"로 처리한다', () => {
-    const errors = validateForm({ ...validState(), distanceNm: 'abc' })
-    expect(errors[FIELD.distanceNm]).toBe('항해거리를 입력해 주세요.')
+  it('숫자로 읽히지 않는 값도 빈 칸과 같은 안내로 처리한다', () => {
+    const blank = validateForm({ ...validState(), distanceNm: '' })
+    const text = validateForm({ ...validState(), distanceNm: 'abc' })
+    expect(text[FIELD.distanceNm]).toBe(blank[FIELD.distanceNm])
   })
 })
 
@@ -190,16 +193,19 @@ describe('validateForm — 경계값', () => {
     expect(FIELD.fuelTon in errors).toBe(shouldFail)
   })
 
-  it('속력 1.0 미만은 0보다 커도 거부된다', () => {
-    const errors = validateForm({ ...validState(), speedKn: '0.5' })
-    expect(errors[FIELD.speedKn]).toBe('속도는 1.0노트 이상이어야 합니다.')
+  it('속력 1.0 미만은 0보다 커도 거부되고, 빈 칸과 다른 안내를 낸다', () => {
+    // 「입력해 주세요」와 「1.0 이상이어야」는 사용자가 할 일이 다르다.
+    const tooSlow = validateForm({ ...validState(), speedKn: '0.5' })
+    const blank = validateForm({ ...validState(), speedKn: '' })
+    expect((tooSlow[FIELD.speedKn] ?? '').length).toBeGreaterThan(0)
+    expect(tooSlow[FIELD.speedKn]).not.toBe(blank[FIELD.speedKn])
   })
 })
 
 describe('validateForm — 연료 종류', () => {
   it('미선택은 선택 안내를 낸다', () => {
     const errors = validateForm({ ...validState(), fuelType: '' })
-    expect(errors[FIELD.fuelType]).toBe('연료 종류를 선택해 주세요.')
+    expect((errors[FIELD.fuelType] ?? '').length).toBeGreaterThan(0)
   })
 
   it('지원 목록에 없는 코드는 거부된다 (VAL-006)', () => {

@@ -116,9 +116,11 @@ describe('D·E. 등급 경계 — 1 t 차이로 넘어간다', () => {
     expect((await runVoyage({ fuelTon: '86' })).rating).toBe('D')
   })
 
-  it('위험도도 함께 바뀐다 — 80 t 보통, 85 t 높음', async () => {
-    expect((await runVoyage({ fuelTon: '80' })).risk).toBe('보통 MEDIUM')
-    expect((await runVoyage({ fuelTon: '85' })).risk).toBe('높음 HIGH')
+  it('위험도도 함께 바뀐다 — 80 t MEDIUM, 85 t HIGH', async () => {
+    // 한국어 레이블은 디자인 소관이라 단언하지 않는다. 판정 자체(PRD §9.4.1 enum)가
+    // 바뀌는 것이 이 테스트의 관심사다.
+    expect((await runVoyage({ fuelTon: '80' })).risk).toContain('MEDIUM')
+    expect((await runVoyage({ fuelTon: '85' })).risk).toContain('HIGH')
   })
 
   it('HIGH 이상에만 경고 아이콘이 붙는다', async () => {
