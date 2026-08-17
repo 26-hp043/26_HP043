@@ -15,11 +15,15 @@ from fastapi import APIRouter, Depends, Request
 # AsyncSession을 모듈 스코프에서 import해야 한다 (calculations.py와 같은 이유).
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cii_platform.api.schemas.scenario_compare import ScenarioCompareRequest
+from cii_platform.api.schemas.scenario_compare import (
+    ScenarioAdoptRequest,
+    ScenarioCompareRequest,
+)
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 from cii_platform.services import audit as audit_svc
+from cii_platform.services.scenario_adopt import adopt_scenario
 from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
 
 router = APIRouter(tags=["scenarios"])
@@ -78,3 +82,35 @@ async def scenario_compare(
     )
     await session.commit()
     return result
+
+
+@router.post("/scenarios/{scenario_id}/adopt")
+async def adopt_scenario_route(
+    request: Request,
+    scenario_id: UUID,
+    payload: ScenarioAdoptRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> dict[str, object]:
+    """시나리오를 항차 계획에 반영한다 (API_SPEC §5.2, #58).
+
+    **200이다.** `CREATE_NEW_VOYAGE`가 항차를 만들지만 이 요청의 목적은 「이 시나리오를
+    채택한다」는 선언이고, §5.2가 200으로 적는다.
+    """
+    data = await adopt_scenario(
+        session,
+        scenario_id,
+        target_voyage_id=payload.target_voyage_id,
+        adopt_mode=payload.adopt_mode,
+        departure_port_name=payload.departure_port_name,
+        arrival_port_name=payload.arrival_port_name,
+        planned_departure_at=payload.planned_departure_at,
+    )
+    state = getattr(request, "state", None)
+    return {
+        "data": data,
+        "meta": {
+            "request_id": getattr(state, "request_id", None),
+            "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
+        },
+    }

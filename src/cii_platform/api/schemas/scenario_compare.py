@@ -16,8 +16,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -54,3 +55,24 @@ class ScenarioCompareRequest(BaseModel):
     # 기본 NONE. #61(기상 연동) 전까지 NONE이 아닌 값은 fallback warning과 함께
     # NONE으로 계산한다 (API_SPEC §1.6 WEATHER_NONE_FALLBACK).
     weather_model: WeatherModel | None = None
+
+
+class ScenarioAdoptRequest(BaseModel):
+    """``POST /api/v1/scenarios/{scenario_id}/adopt`` 요청 본문 (API_SPEC §5.2, #58).
+
+    ``adopt_mode`` 기본값은 **``UPDATE_EXISTING_PLAN``**이다 — ``UPDATE_EXISTING``이
+    아니다(§5.2 표).
+
+    항구·출발 시각 3종은 ``CREATE_NEW_VOYAGE``에서만 쓰인다. §5.2가 그 모드에
+    「추가 필요」로 적고 있는 값이며, **스키마에서 필수로 만들지 않는 이유**는
+    기본 모드(``UPDATE_EXISTING_PLAN``) 요청까지 그 값을 요구하게 되기 때문이다.
+    모드별 필수 여부는 서비스가 판정한다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_voyage_id: UUID
+    adopt_mode: Literal["UPDATE_EXISTING_PLAN", "CREATE_NEW_VOYAGE"] = "UPDATE_EXISTING_PLAN"
+    departure_port_name: Annotated[str | None, Field(max_length=100)] = None
+    arrival_port_name: Annotated[str | None, Field(max_length=100)] = None
+    planned_departure_at: datetime | None = None
