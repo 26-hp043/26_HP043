@@ -25,8 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.services.fleet_summary import (
     REASON_ALREADY_AT_OR_BELOW,
     REASON_NO_DATA,
+    REASON_NO_RECENT_DATA,
     REASON_NOT_THIS_YEAR,
     REASON_NOT_UNDER_WAY,
+    REASON_NOT_WORSENING,
     compute_days_to_target,
     evaluate_risk_reasons,
     get_fleet_summary,
@@ -88,6 +90,8 @@ def _ytd(**over) -> YtdCiiOutput:
         "rating": "C",
         "boundaries": {"d": Decimal("6.0")},
         "underway_distance_nm": Decimal("1000"),
+        # `#431` 산식이 누적 거리를 쓴다 — 정박 거리가 없는 선박이라 둘이 같다.
+        "total_distance_nm": Decimal("1000"),
     }
     base.update(over)
     return YtdCiiOutput(**base)
@@ -96,9 +100,30 @@ def _ytd(**over) -> YtdCiiOutput:
 AS_OF = datetime(YEAR, 3, 1, tzinfo=UTC)
 
 
+def _past(*, recent_cii: str, now: YtdCiiOutput | None = None) -> YtdCiiOutput:
+    """최근 창의 시작 시점 누적 — **최근 구간의 강도**로부터 역산해 만든다 (`#431`).
+
+    테스트가 정하고 싶은 것은 「최근 30일을 얼마나 나쁘게 뛰었나」이지 그 시점의
+    누적값이 아니다. 강도를 주면 누적을 맞춰 주는 편이 의도가 드러난다.
+
+        A = attained × Dt  ·  A_past = A_now − 강도 × ΔD
+    """
+    current = now if now is not None else _ytd()
+    distance_now = current.total_distance_nm
+    distance_past = distance_now * Decimal("0.5")
+    area_now = current.attained_cii * distance_now
+    area_past = area_now - Decimal(recent_cii) * (distance_now - distance_past)
+    return _ytd(
+        attained_cii=area_past / distance_past,
+        total_distance_nm=distance_past,
+        underway_distance_nm=distance_past,
+    )
+
+
 def test_days_no_data_when_ytd_unavailable():
     result = compute_days_to_target(
         _ytd(data_available=False, attained_cii=None, rating=None),
+        past=None,
         underway_state="UNDER_WAY",
         as_of=AS_OF,
     )
@@ -107,12 +132,16 @@ def test_days_no_data_when_ytd_unavailable():
 
 
 def test_days_already_at_or_below_for_d():
-    result = compute_days_to_target(_ytd(rating="D"), underway_state="UNDER_WAY", as_of=AS_OF)
+    result = compute_days_to_target(
+        _ytd(rating="D"), past=None, underway_state="UNDER_WAY", as_of=AS_OF
+    )
     assert result.reason == REASON_ALREADY_AT_OR_BELOW
 
 
 def test_days_already_at_or_below_for_e():
-    result = compute_days_to_target(_ytd(rating="E"), underway_state="UNDER_WAY", as_of=AS_OF)
+    result = compute_days_to_target(
+        _ytd(rating="E"), past=None, underway_state="UNDER_WAY", as_of=AS_OF
+    )
     assert result.reason == REASON_ALREADY_AT_OR_BELOW
 
 
@@ -122,7 +151,7 @@ def test_days_not_computed_while_not_under_way():
     거리가 늘지 않고 연료만 늘어 CII가 단조 악화하므로, n일이 하루가 다르게
     짧아졌다가 **출항하는 순간 되돌아간다.** 요동치는 숫자 대신 사유를 준다.
     """
-    result = compute_days_to_target(_ytd(), underway_state="NOT_UNDER_WAY", as_of=AS_OF)
+    result = compute_days_to_target(_ytd(), past=None, underway_state="NOT_UNDER_WAY", as_of=AS_OF)
     assert result.days is None
     assert result.reason == REASON_NOT_UNDER_WAY
 
@@ -132,6 +161,10 @@ def test_days_not_this_year_when_far_away():
     # 경계까지 여유가 매우 커서 외삽 결과가 연말을 넘는 경우.
     result = compute_days_to_target(
         _ytd(attained_cii=Decimal("1.0"), boundaries={"d": Decimal("99.0")}),
+        past=_past(
+            recent_cii="99.5",
+            now=_ytd(attained_cii=Decimal("1.0"), boundaries={"d": Decimal("99.0")}),
+        ),
         underway_state="UNDER_WAY",
         as_of=datetime(YEAR, 12, 20, tzinfo=UTC),
     )
@@ -140,14 +173,98 @@ def test_days_not_this_year_when_far_away():
 
 
 def test_days_returns_a_number_in_the_normal_case():
-    result = compute_days_to_target(_ytd(), underway_state="UNDER_WAY", as_of=AS_OF)
+    # 최근 30일을 경계보다 나쁘게 뛴 경우 — 그때만 「진입까지 n일」이 존재한다.
+    result = compute_days_to_target(
+        _ytd(), past=_past(recent_cii="8.0"), underway_state="UNDER_WAY", as_of=AS_OF
+    )
     assert result.reason is None
     assert isinstance(result.days, int)
     assert result.days >= 0
 
 
+def test_days_shrink_as_the_margin_shrinks():
+    """**이 이슈의 본체**다 (`#431`).
+
+    종전 구현은 분자가 약분돼 **경계까지의 여유와 무관하게 언제나 경과일수**를 냈다.
+    같은 운항 강도라면 경계에 가까울수록 남은 일수가 짧아져야 한다.
+    """
+    wide = _ytd(attained_cii=Decimal("5.0"))
+    narrow = _ytd(attained_cii=Decimal("5.9"))
+
+    far = compute_days_to_target(
+        wide,
+        past=_past(recent_cii="8.0", now=wide),
+        underway_state="UNDER_WAY",
+        as_of=AS_OF,
+    )
+    near = compute_days_to_target(
+        narrow,
+        past=_past(recent_cii="8.0", now=narrow),
+        underway_state="UNDER_WAY",
+        as_of=AS_OF,
+    )
+
+    assert far.days is not None and near.days is not None
+    assert near.days < far.days
+
+
+def test_days_is_not_just_the_elapsed_day_count():
+    """회귀 방지 — 종전 값은 언제나 `as_of`의 연중 일수였다."""
+    now = _ytd(attained_cii=Decimal("5.9"))
+    result = compute_days_to_target(
+        now, past=_past(recent_cii="8.0", now=now), underway_state="UNDER_WAY", as_of=AS_OF
+    )
+    assert result.days != AS_OF.timetuple().tm_yday
+
+
+def test_steady_operation_never_reaches_the_boundary():
+    """일정한 강도로 운항하면 누적 CII는 **평평하다 — 커지지 않는다.**
+
+    `attained_cii`가 누적 분자/분모의 비이기 때문이다. 이 경우 「n일」은 존재하지
+    않으며, 0일이 아니라 사유로 표기해야 한다 — 숫자를 만들면 「곧 진입한다」로 읽힌다.
+    """
+    result = compute_days_to_target(
+        _ytd(), past=_past(recent_cii="5.0"), underway_state="UNDER_WAY", as_of=AS_OF
+    )
+    assert result.days is None
+    assert result.reason == REASON_NOT_WORSENING
+
+
+def test_improving_operation_does_not_produce_a_countdown():
+    """최근 운항이 경계보다 효율적이면 진입하지 않는다."""
+    result = compute_days_to_target(
+        _ytd(), past=_past(recent_cii="3.0"), underway_state="UNDER_WAY", as_of=AS_OF
+    )
+    assert result.reason == REASON_NOT_WORSENING
+
+
+def test_ytd_average_alone_cannot_produce_a_number():
+    """`past`가 없으면(창이 연초 이전) 최근 강도가 곧 YTD 평균이다.
+
+    그때 분모는 정의상 0이 되므로 값을 낼 수 없다 — 연초 몇 주 동안은
+    「아직 판단할 수 없다」가 정직한 답이다.
+    """
+    result = compute_days_to_target(_ytd(), past=None, underway_state="UNDER_WAY", as_of=AS_OF)
+    assert result.days is None
+    assert result.reason == REASON_NOT_WORSENING
+
+
+def test_no_sailing_in_the_window_is_reported():
+    """창 안에 항해가 없으면 소비율을 낼 근거가 없다."""
+    result = compute_days_to_target(
+        _ytd(),
+        past=_ytd(),  # 누적이 그대로 — 그 사이 움직이지 않았다
+        underway_state="UNDER_WAY",
+        as_of=AS_OF,
+    )
+    assert result.days is None
+    assert result.reason == REASON_NO_RECENT_DATA
+
+
 def test_days_no_data_without_boundary():
-    result = compute_days_to_target(_ytd(boundaries=None), underway_state="UNDER_WAY", as_of=AS_OF)
+    result = compute_days_to_target(
+        _ytd(boundaries=None), past=None, underway_state="UNDER_WAY", as_of=AS_OF
+    )
     assert result.reason == REASON_NO_DATA
 
 

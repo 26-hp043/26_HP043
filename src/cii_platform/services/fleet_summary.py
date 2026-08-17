@@ -29,7 +29,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -71,6 +71,20 @@ REASON_NOT_THIS_YEAR = "NOT_THIS_YEAR"
 REASON_NOT_UNDER_WAY = "NOT_UNDER_WAY"
 REASON_NO_DATA = "NO_DATA"
 
+#: 최근 구간에 항해 실적이 없어 소비율을 낼 수 없다 (#431).
+REASON_NO_RECENT_DATA = "NO_RECENT_DATA"
+
+#: 최근 운항 강도가 경계보다 효율적이라 이대로면 진입하지 않는다 (#431).
+#: **0일이 아니라 「해당 없음」이다** — 숫자를 만들면 「곧 진입한다」로 읽힌다.
+REASON_NOT_WORSENING = "NOT_WORSENING"
+
+#: 최근 실적을 재는 창 (일). ``#350``이 제시한 3안 중 「최근 N일 평균」을 쓴다.
+#:
+#: **30일로 정한 근거.** 항차 하나가 보통 1~3주라, 이보다 짧으면 항차 한 건의
+#: 유불리가 그대로 기울기가 되어 값이 요동친다. 이보다 길면 운항 패턴이 바뀐 것을
+#: 늦게 알아채는데, 이 값의 쓰임이 **사전 경고**라 늦은 경고는 의미가 없다.
+RECENT_WINDOW_DAYS = 30
+
 
 def _publish(value: Decimal | None, digits: int) -> str | None:
     """Layer 1 값을 표시 문자열로.
@@ -86,25 +100,46 @@ def _publish(value: Decimal | None, digits: int) -> str | None:
 def compute_days_to_target(
     ytd: YtdCiiOutput,
     *,
+    past: YtdCiiOutput | None,
+    window_days: int = RECENT_WINDOW_DAYS,
     underway_state: str | None,
     as_of: datetime,
 ) -> DaysToTarget:
-    """D등급 진입까지 남은 일수.
+    """D등급 진입까지 남은 일수 (#350 · 산식 정정 #431).
+
+    ## 산식
+
+    경계 ``B``, 수송능력 ``W``, 누적 배출 ``M``(g)·누적 거리 ``Dt``, 하루치 증가분
+    ``m``·``d``일 때 ``(M + m·t) / (W·(Dt + d·t)) = B``를 ``t``에 대해 푼다.
+
+    ``A ≡ M / W = attained × Dt``로 두면 ``W``가 약분돼 사라진다::
+
+        t = N · (B·Dt_now − A_now) / ((A_now − A_past) − B·(Dt_now − Dt_past))
+
+    ``W``를 식에서 없애는 편이 안전하다 — 선종별 축(DWT/GT)이 갈리는 값이라
+    한 번 더 곱하는 자리마다 틀릴 여지가 생긴다.
+
+    ## 왜 두 시점이 필요한가
+
+    ``m``·``d``를 **YTD 평균**으로 두면 ``m / (W·d) = attained``가 되어 분모가 정확히
+    0이 된다 — 정의상 영원히 경계에 닿지 않는다. ``attained_cii``는 누적 분자/분모의
+    **비**라서 일정한 강도로 운항하면 **평평하지 커지지 않기** 때문이다.
+
+    의미 있는 ``n일``은 **최근 강도가 YTD 평균보다 나쁠 때만** 존재한다. 그래서
+    ``as_of``와 ``as_of − window_days`` 두 시점의 누적값을 차분해 최근 강도를 낸다.
+
+    (종전 구현은 ``attained``가 연초 0에서 선형 성장한다고 가정했고, 그 결과
+    **경계까지의 여유와 무관하게 언제나 경과일수**를 냈다 — ``#431``.)
 
     ## 정박 중에는 계산하지 않는다
 
-    이슈 #350이 경계 케이스로 지목한 항목이다. not under way 구간은 **거리가 늘지
-    않고 연료만 는다**(`PRD §3.3` · `MEPC.412(84)` §4.2). 그래서 정박 중에는 CII가
-    단조 악화하고, n일이 하루가 다르게 짧아졌다가 **출항하는 순간 되돌아간다.**
+    ``#350``이 경계 케이스로 지목한 항목이다. not under way 구간은 거리가 늘지 않고
+    연료만 는다(``PRD §3.3`` · ``MEPC.412(84)`` §4.2). 그래서 정박 중에는 CII가 단조
+    악화하고, n일이 하루가 다르게 짧아졌다가 **출항하는 순간 되돌아간다.** 평활화
+    규칙을 발명하는 대신 사유로 표기한다.
 
-    평활화 규칙을 발명하는 대신 ``NOT_UNDER_WAY``로 표기한다. 요동치는 숫자를
-    보여 주는 것보다 「지금은 산정하지 않는다」가 정직하다.
-
-    ## 소비율 가정
-
-    이슈가 제시한 3안 중 **「최근 실적 평균」의 변형**을 쓴다 — 누적 실적에서
-    **under way 구간만** 뽑아 하루치 악화 속도를 낸다. 정박 구간을 섞으면 위 문제가
-    산정식 안으로 들어온다.
+    :param past: ``as_of − window_days`` 시점의 누적. ``None``이면 그 시점이 연초
+        이전이라는 뜻이므로 **연초(누적 0)** 로 본다.
     """
     if not ytd.data_available or ytd.attained_cii is None or ytd.rating is None:
         return DaysToTarget(None, REASON_NO_DATA)
@@ -117,26 +152,42 @@ def compute_days_to_target(
         return DaysToTarget(None, REASON_NOT_UNDER_WAY)
 
     boundary = ytd.boundaries.get("d") if ytd.boundaries else None
-    if boundary is None or ytd.underway_distance_nm is None:
+    distance_now = ytd.total_distance_nm
+    if boundary is None or distance_now is None or distance_now <= 0:
         return DaysToTarget(None, REASON_NO_DATA)
 
-    elapsed_days = as_of.timetuple().tm_yday
-    if elapsed_days <= 0 or ytd.underway_distance_nm <= 0:
-        return DaysToTarget(None, REASON_NO_DATA)
+    # A = attained × Dt (= M / W). 누적 배출을 수송능력으로 나눈 값이다.
+    area_now = ytd.attained_cii * distance_now
 
-    # 하루치 악화 속도 = (현재 attained − 연초 0 기준) / 경과일.
-    # attained_cii는 누적 분자/분모의 비이므로 선형 외삽이 정확하지는 않다.
-    # 다만 「대략 며칠 남았나」를 알리는 사전 경고이고, 정확한 예측은
-    # 연간 시뮬레이터(#63·#64)가 Monte Carlo로 담당한다.
-    daily_rate = (boundary - ytd.attained_cii) / Decimal(elapsed_days)
-    if daily_rate <= 0:
+    if past is not None and past.data_available and past.attained_cii is not None:
+        distance_past = past.total_distance_nm or Decimal(0)
+        area_past = past.attained_cii * distance_past
+    else:
+        # 창의 시작이 연초 이전이면 누적은 0이다. 이 경우 최근 강도가 곧 YTD 평균이라
+        # 아래 분모가 0 이하로 떨어져 NOT_WORSENING이 된다 — 연초 몇 주 동안은
+        # 「아직 판단할 수 없다」가 정직한 답이다.
+        distance_past = Decimal(0)
+        area_past = Decimal(0)
+
+    delta_distance = distance_now - distance_past
+    delta_area = area_now - area_past
+    if delta_distance <= 0:
+        # 창 안에 항해가 없었다 — 소비율을 낼 근거가 없다.
+        return DaysToTarget(None, REASON_NO_RECENT_DATA)
+
+    # 분모 = ΔA − B·ΔD = ΔD·(최근 강도 − B). 0 이하면 최근 운항이 경계보다
+    # 효율적이라는 뜻이므로 이대로면 진입하지 않는다.
+    denominator = delta_area - boundary * delta_distance
+    if denominator <= 0:
+        return DaysToTarget(None, REASON_NOT_WORSENING)
+
+    numerator = boundary * distance_now - area_now
+    if numerator <= 0:  # pragma: no cover - 등급 판정에서 이미 걸러진다
         return DaysToTarget(None, REASON_ALREADY_AT_OR_BELOW)
 
-    remaining = (boundary - ytd.attained_cii) / daily_rate
-    days = int(remaining)
+    days = int(Decimal(window_days) * numerator / denominator)
 
-    days_left_this_year = _days_left_in_year(as_of)
-    if days > days_left_this_year:
+    if days > _days_left_in_year(as_of):
         return DaysToTarget(None, REASON_NOT_THIS_YEAR)
 
     return DaysToTarget(max(days, 0), None)
@@ -242,8 +293,24 @@ async def get_fleet_summary(
             as_of=resolved,
         )
         reasons = evaluate_risk_reasons(ytd_rating=ytd.rating, prior_ratings=prior)
+        #
+        # 최근 강도를 재려면 **두 시점**이 필요하다 (#431). 선박당 집계가 한 번 더
+        # 늘어나지만, 한 시점만으로는 분모가 정의상 0이 되어 값을 낼 수 없다.
+        #
+        window_start = resolved - timedelta(days=RECENT_WINDOW_DAYS)
+        past = (
+            None
+            if window_start.year < year
+            else await compute_ytd_cii(
+                session,
+                vessel_id=vessel.id,
+                regulation_year=year,
+                as_of=window_start,
+            )
+        )
         days = compute_days_to_target(
             ytd,
+            past=past,
             underway_state=vessel.underway_state,
             as_of=resolved,
         )
