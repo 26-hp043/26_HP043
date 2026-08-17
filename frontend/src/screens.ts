@@ -146,7 +146,9 @@ export const SCREEN_BY_ID = {
     uiflowRef: '1-2',
     purpose: '사용자의 선박 기본 정보 입력 및 시스템 등록',
     width: 'form',
-    demoScope: false,  // 온보딩 흐름 — 데모는 샘플 선박 seed(#34)를 쓴다
+    // 온보딩 흐름 — 사이드바 밖(OFF_NAV_ORDER). 화면은 #441에서 구현됐으나 등록은
+    // **쓰기**라 데모 모드에서는 수행할 수 없다 — 가짜 성공을 두지 않는다.
+    demoScope: false,
   },
   VESSEL_DETAIL: {
     path: '/vessels/:vesselId',
