@@ -293,3 +293,181 @@
   padding: var(--space-8) var(--space-12);
   font-size: var(--font-size-label);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * #442 — 실 API 연결로 화면 구성이 4블록(결정론·확률·민감도·재현성)이 됐다.
+ * 토큰만 참조한다(`DESIGN_SYSTEM §15`). 색·간격 리터럴을 쓰지 않는다.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+.annual-sim__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-12);
+  flex-wrap: wrap;
+}
+
+.annual-sim__block,
+.annual-sim__form {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-24);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+
+.annual-sim__section-title {
+  font-size: var(--font-size-h3);
+  margin: 0;
+}
+
+.annual-sim__sub-title {
+  font-size: var(--font-size-body);
+  margin: var(--space-8) 0 0;
+}
+
+.annual-sim__caption,
+.annual-sim__hint {
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.annual-sim__notice {
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.annual-sim__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.annual-sim__label {
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+}
+
+.annual-sim__value {
+  font-size: var(--font-size-h3);
+  font-variant-numeric: tabular-nums;
+}
+
+.annual-sim__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--space-16);
+}
+
+.annual-sim__metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/*
+ * 확률 스택 바 — `DESIGN_SYSTEM §10.2`.
+ * 색만으로 정보를 주지 않는다(§14) — 아래 범례가 등급 문자와 값을 함께 적고,
+ * 바 자체에는 `role="img"`와 대체 텍스트가 붙는다.
+ */
+.annual-sim__stack {
+  display: flex;
+  height: var(--space-16);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.annual-sim__seg {
+  display: block;
+  height: 100%;
+}
+
+.annual-sim__seg--a { background: var(--cii-a-fill); }
+.annual-sim__seg--b { background: var(--cii-b-fill); }
+.annual-sim__seg--c { background: var(--cii-c-fill); }
+.annual-sim__seg--d { background: var(--cii-d-fill); }
+.annual-sim__seg--e { background: var(--cii-e-fill); }
+
+.annual-sim__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-16);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--font-size-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.annual-sim__legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.annual-sim__swatch {
+  width: var(--space-12);
+  height: var(--space-12);
+  border-radius: var(--radius-badge);
+  border: 1px solid var(--color-border);
+}
+
+/* `DESIGN_SYSTEM §2.5 (a)` — 확률 파생 표기. 등급 램프 색을 쓰지 않는다. */
+.annual-sim__flag {
+  font-size: var(--font-size-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.annual-sim__flag--muted { color: var(--color-text-muted); }
+.annual-sim__flag--warning { color: var(--color-warning); }
+.annual-sim__flag--danger { color: var(--color-danger); }
+
+.annual-sim__tablewrap {
+  overflow-x: auto;
+}
+
+.annual-sim__repro {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-8) var(--space-16);
+  margin: 0;
+  font-size: var(--font-size-label);
+}
+
+.annual-sim__repro dt {
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.annual-sim__repro dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.annual-sim__placeholder {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: var(--space-24);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.annual-sim__error {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-danger);
+  padding: var(--space-16) var(--space-24);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.annual-sim__error strong {
+  color: var(--color-danger);
+}
