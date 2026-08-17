@@ -28,6 +28,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.services.ytd_cii import (
+    SUBSTITUTION_AXIS_DISTANCE,
+    SUBSTITUTION_AXIS_FUEL,
+    WARNING_COMPLETED_NO_DISTANCE,
     WARNING_COMPLETED_NO_FUEL,
     InProgressContribution,
     compute_ytd_cii,
@@ -103,6 +106,9 @@ async def _insert_voyage(
     status: str = "COMPLETED",
     policy: str = "INCLUDE_AS_ACTUAL",
     distance: float | None = 1000,
+    #: 실거리. ``"same"``이면 계획거리와 같게 넣는다. ``None``이면 **실적 미입력**이라
+    #: 집계가 계획거리로 대체한다 (#449).
+    actual_distance: float | None | str = "same",
     arrival_at: str | None = "2026-03-01T00:00:00+00",
 ) -> str:
     row = await session.execute(
@@ -111,7 +117,7 @@ async def _insert_voyage(
             "(vessel_id, status, annual_inclusion_policy, regulation_year, "
             " departure_port_name, arrival_port_name, planned_distance_nm, "
             " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
-            "VALUES (:vid, :st, :pol, :yr, 'BUSAN', 'SINGAPORE', :dist, :dist, 12, :arr) "
+            "VALUES (:vid, :st, :pol, :yr, 'BUSAN', 'SINGAPORE', :dist, :actual, 12, :arr) "
             "RETURNING id"
         ),
         {
@@ -120,6 +126,7 @@ async def _insert_voyage(
             "pol": policy,
             "yr": None if policy == "EXCLUDE" else YEAR,
             "dist": distance,
+            "actual": distance if actual_distance == "same" else actual_distance,
             "arr": None if arrival_at is None else datetime.fromisoformat(arrival_at),
         },
     )
@@ -451,6 +458,68 @@ async def test_missing_actual_fuel_falls_back_to_plan_with_warning(session, vess
     assert result.data_available is True
     assert result.attained_cii == Decimal("4.9824")
     assert WARNING_COMPLETED_NO_FUEL in result.warnings
+
+
+@pytest.mark.asyncio
+async def test_missing_actual_distance_is_no_longer_silent(session, vessel_id):
+    """**이 이슈의 본체**다 (#449).
+
+    거리도 실적이 없으면 계획거리로 대체된다. 그런데 연료와 달리 **경고조차 나가지
+    않았다** — 거리는 CII의 **분모**라 영향이 연료 못지않은데도 그랬다.
+    """
+    voyage_id = await _insert_voyage(session, vessel_id, actual_distance=None)
+    await _insert_voyage_fuel(session, voyage_id)
+
+    result = await _compute(session, vessel_id)
+
+    assert WARNING_COMPLETED_NO_DISTANCE in result.warnings
+    # 계획거리로 대체됐으므로 값 자체는 나온다 — 조용한 것이 문제였지 값이 아니었다.
+    assert result.data_available is True
+
+
+@pytest.mark.asyncio
+async def test_substitution_says_which_voyage_and_what(session, vessel_id):
+    """경고는 「있었다」만 말한다 — **무엇을 고쳐야 하는지**는 이 목록이 말한다.
+
+    종전에는 불리언 하나로 뭉개져, 항차가 40건이면 40건을 전부 열어 봐야 했다.
+    """
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, voyage_id, actual_ton=None, planned_ton=80)
+
+    result = await _compute(session, vessel_id)
+
+    assert len(result.substitutions) == 1
+    item = result.substitutions[0]
+    assert str(item.voyage_id) == voyage_id
+    assert item.axis == SUBSTITUTION_AXIS_FUEL
+    assert item.fuel_type == "HFO"
+
+
+@pytest.mark.asyncio
+async def test_two_axes_are_recorded_separately(session, vessel_id):
+    """연료와 거리는 **서로 다른 대체**다. 한 항차에서 둘 다 일어날 수 있다."""
+    voyage_id = await _insert_voyage(session, vessel_id, actual_distance=None)
+    await _insert_voyage_fuel(session, voyage_id, actual_ton=None, planned_ton=80)
+
+    result = await _compute(session, vessel_id)
+
+    axes = {item.axis for item in result.substitutions}
+    assert axes == {SUBSTITUTION_AXIS_FUEL, SUBSTITUTION_AXIS_DISTANCE}
+    assert WARNING_COMPLETED_NO_FUEL in result.warnings
+    assert WARNING_COMPLETED_NO_DISTANCE in result.warnings
+
+
+@pytest.mark.asyncio
+async def test_no_substitution_when_actuals_are_complete(session, vessel_id):
+    """실적이 온전하면 목록이 비어야 한다 — 있지도 않은 대체를 보고하지 않는다."""
+    voyage_id = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, voyage_id)
+
+    result = await _compute(session, vessel_id)
+
+    assert result.substitutions == []
+    assert WARNING_COMPLETED_NO_FUEL not in result.warnings
+    assert WARNING_COMPLETED_NO_DISTANCE not in result.warnings
 
 
 # --- 7. CF snapshot 보존 (#378) -----------------------------------------------------

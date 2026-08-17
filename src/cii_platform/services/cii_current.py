@@ -135,6 +135,18 @@ def _ytd_to_dict(ytd) -> dict[str, object]:
         "total_distance_nm": _publish(ytd.total_distance_nm, "distance_nm"),
         "voyage_count": ytd.voyage_count,
         "not_underway_period_count": ytd.not_underway_period_count,
+        #
+        # 대체 내역 (#449). 경고(`warnings`)는 「있었다」만 말한다 — **무엇을 고쳐야
+        # 하는지는 어느 항차의 무엇이 대체됐는지를 알아야** 나온다.
+        #
+        "substitutions": [
+            {
+                "voyage_id": str(item.voyage_id),
+                "axis": item.axis,
+                "fuel_type": item.fuel_type,
+            }
+            for item in ytd.substitutions
+        ],
     }
 
 

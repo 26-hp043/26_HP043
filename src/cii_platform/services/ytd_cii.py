@@ -102,11 +102,44 @@ POLICY_INCLUDE_AS_ACTUAL = "INCLUDE_AS_ACTUAL"
 #: TECH_SPEC §12.3 — COMPLETED 항차의 actual_fuel_ton이 NULL이라 계획값을 대입했다.
 WARNING_COMPLETED_NO_FUEL = "COMPLETED_NO_FUEL"
 
+#: COMPLETED 항차의 actual_distance_nm이 NULL이라 계획거리를 대입했다 (#449).
+#:
+#: **종전에는 이 대체가 경고조차 없이 일어났다.** 연료 대체는 위 경고가 나가는데
+#: 거리는 침묵했다 — 거리는 CII의 **분모**라 영향이 연료 못지않다.
+WARNING_COMPLETED_NO_DISTANCE = "COMPLETED_NO_DISTANCE"
+
 #: API_SPEC §1.6 — 모든 계산 결과에 붙는다.
 WARNING_REFERENCE_ONLY = "REFERENCE_ONLY"
 
 
 # --- 입출력 DTO --------------------------------------------------------------------
+
+
+#: :class:`Substitution.axis` — 무엇을 대체했는가.
+SUBSTITUTION_AXIS_FUEL = "FUEL"
+SUBSTITUTION_AXIS_DISTANCE = "DISTANCE"
+
+
+@dataclass(frozen=True)
+class Substitution:
+    """실적 대신 계획값을 쓴 **한 건**의 기록 (#449).
+
+    ## 왜 항차별로 남기는가
+
+    종전에는 대체 사실이 불리언 하나(``fuel_fallback_used``)로 뭉개져 경고 1건만
+    나갔다. 사용자는 「이 값에 계획치가 섞였다」는 것만 알고 **무엇을 고쳐야 하는지는
+    몰랐다** — 항차가 40건이면 40건을 전부 열어 봐야 한다.
+
+    선택은 이미 하고 있었고 **결과를 버리고 있었을 뿐**이다. 그래서 버리지 않는다.
+
+    :param voyage_id: 대체가 일어난 항차.
+    :param axis: :data:`SUBSTITUTION_AXIS_FUEL` 또는 :data:`SUBSTITUTION_AXIS_DISTANCE`.
+    :param fuel_type: 연료 축일 때 어느 유종인지. 거리 축이면 ``None``.
+    """
+
+    voyage_id: UUID
+    axis: str
+    fuel_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +172,9 @@ class YtdCiiOutput:
     capacity_axis: str
     transport_capacity: Decimal
     warnings: list[str] = field(default_factory=list)
+    #: 실적 대신 계획값을 쓴 항차별 기록 (#449). 경고는 「있었다」만 말하고
+    #: 이 목록이 **어느 항차의 무엇인지**를 말한다.
+    substitutions: list[Substitution] = field(default_factory=list)
 
     attained_cii: Decimal | None = None
     required_cii: Decimal | None = None
@@ -181,6 +217,8 @@ class _Aggregated:
     warnings: list[str]
     #: 유종별 CF — 항차 쪽 ``voyage_fuel_use.cf_used`` snapshot.
     underway_cf: dict[str, Decimal]
+    #: 실적 대신 계획값을 쓴 항차별 기록 (#449).
+    substitutions: list[Substitution]
 
 
 # --- Layer 1 --------------------------------------------------------------------
@@ -324,6 +362,7 @@ async def compute_ytd_cii(
             capacity_axis=capacity_axis(vessel.ship_type),
             transport_capacity=transport_capacity,
             warnings=aggregated.warnings,
+            substitutions=aggregated.substitutions,
             underway_distance_nm=aggregated.underway_distance_nm,
             not_underway_distance_nm=aggregated.not_underway_distance_nm,
             total_distance_nm=total_distance_nm,
@@ -378,6 +417,7 @@ async def compute_ytd_cii(
         capacity_axis=capacity_axis(vessel.ship_type),
         transport_capacity=transport_capacity,
         warnings=[WARNING_REFERENCE_ONLY, *aggregated.warnings],
+        substitutions=aggregated.substitutions,
         attained_cii=layer1.ytd.attained_cii,
         required_cii=layer1.required_cii,
         cii_ref=layer1.cii_ref,
@@ -428,11 +468,14 @@ async def _aggregate(
     underway_cf: dict[str, Decimal] = {}
     distance = Decimal(0)
     warnings: list[str] = []
-    fuel_fallback_used = False
+    substitutions: list[Substitution] = []
 
     for voyage in voyages:
         # PRD §8.3 값 우선순위 — 실적이 있으면 실적, 없으면 계획값.
         actual_distance = voyage.actual_distance_nm
+        if actual_distance is None:
+            # 거리도 연료와 같은 대체다. **종전에는 이것만 조용했다** (#449).
+            substitutions.append(Substitution(voyage_id=voyage.id, axis=SUBSTITUTION_AXIS_DISTANCE))
         distance += Decimal(
             actual_distance if actual_distance is not None else voyage.planned_distance_nm
         )
@@ -444,7 +487,13 @@ async def _aggregate(
                 # 화면에 COMPLETED_NO_FUEL을 띄운다. INCLUDE_AS_PLAN으로 되돌리는 것은
                 # §8.1.2 매트릭스(COMPLETED + INCLUDE_AS_PLAN)를 위반한다.
                 ton = row.planned_fuel_ton
-                fuel_fallback_used = True
+                substitutions.append(
+                    Substitution(
+                        voyage_id=voyage.id,
+                        axis=SUBSTITUTION_AXIS_FUEL,
+                        fuel_type=row.fuel_type,
+                    )
+                )
             if ton is None:
                 # 계획값마저 없으면 더할 것이 없다. 0을 더하는 것과 같으므로 건너뛴다.
                 continue
@@ -456,8 +505,11 @@ async def _aggregate(
             # 나중 항차가 앞선 값을 덮어쓴다.
             underway_cf[code] = Decimal(row.cf_used)
 
-    if fuel_fallback_used:
+    axes = {item.axis for item in substitutions}
+    if SUBSTITUTION_AXIS_FUEL in axes:
         warnings.append(WARNING_COMPLETED_NO_FUEL)
+    if SUBSTITUTION_AXIS_DISTANCE in axes:
+        warnings.append(WARNING_COMPLETED_NO_DISTANCE)
 
     if in_progress is not None:
         distance += in_progress.distance_nm
@@ -493,6 +545,7 @@ async def _aggregate(
         voyage_count=len(voyages),
         warnings=warnings,
         underway_cf=underway_cf,
+        substitutions=substitutions,
     )
 
 
