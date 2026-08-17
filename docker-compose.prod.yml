@@ -24,6 +24,9 @@ services:
     build:
       context: .
       target: prod
+    # 이미지 이름을 명시한다 (#477) — 지정하지 않으면 개발용 compose와 같은 태그
+    # (`26_hp043-app`)를 써서 서로를 덮어쓴다. 덮인 쪽은 오류 없이 다르게 동작한다.
+    image: bluelog-app
     # crash 시 자동 재기동 — 단 명시적 stop에는 재기동 안 함 (#232).
     # `always`가 아닌 이유: deploy가 의도한 중지(by `docker compose down`)에도 뜨면 안 된다.
     restart: unless-stopped
