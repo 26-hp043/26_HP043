@@ -36,6 +36,7 @@ interface ServerVessel {
   current_lon: string | null
   position_updated_at: string | null
   data_available: boolean
+  unavailable_reason?: string | null
   ytd_attained_cii: string | null
   ytd_required_cii: string | null
   ytd_rating: string | null
@@ -71,6 +72,26 @@ interface ServerBody {
   }
 }
 
+/**
+ * 서버가 준 사유를 **아는 값일 때만** 통과시킨다.
+ *
+ * 모르는 값을 그대로 넘기면 문구 함수의 `default:` 분기가 받아 「실적 없음 — 항차를
+ * 등록하면 값이 표시됩니다」를 출력한다. **사유를 구분한 목적이 정확히 그 오안내를
+ * 막는 것**이므로, 모를 때는 사유 없음(`null`)으로 두어 확정적인 안내를 하지 않는다.
+ * `underway_state`도 같은 방식으로 다룬다.
+ */
+const UNAVAILABLE_REASONS: readonly string[] = [
+  'NO_DATA',
+  'MISSING_SPEC',
+  'NO_PARAMETERS',
+  'CALCULATION_ERROR',
+]
+
+function toUnavailableReason(raw: string | null | undefined): FleetVessel['unavailableReason'] {
+  if (raw == null || !UNAVAILABLE_REASONS.includes(raw)) return null
+  return raw as FleetVessel['unavailableReason']
+}
+
 function toVessel(raw: ServerVessel): FleetVessel {
   return {
     id: raw.vessel_id,
@@ -86,6 +107,7 @@ function toVessel(raw: ServerVessel): FleetVessel {
     lon: raw.current_lon,
     positionUpdatedAt: raw.position_updated_at,
     dataAvailable: raw.data_available,
+    unavailableReason: toUnavailableReason(raw.unavailable_reason),
     ytdAttainedCii: raw.ytd_attained_cii,
     ytdRequiredCii: raw.ytd_required_cii,
     ytdRating: raw.ytd_rating as FleetVessel['ytdRating'],

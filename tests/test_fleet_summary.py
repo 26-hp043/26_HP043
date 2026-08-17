@@ -22,6 +22,8 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.errors import ValidationError
+from cii_platform.services import fleet_summary
 from cii_platform.services.fleet_summary import (
     REASON_ALREADY_AT_OR_BELOW,
     REASON_NO_DATA,
@@ -29,6 +31,10 @@ from cii_platform.services.fleet_summary import (
     REASON_NOT_THIS_YEAR,
     REASON_NOT_UNDER_WAY,
     REASON_NOT_WORSENING,
+    UNAVAILABLE_CALCULATION_ERROR,
+    UNAVAILABLE_MISSING_SPEC,
+    UNAVAILABLE_NO_DATA,
+    UNAVAILABLE_NO_PARAMETERS,
     compute_days_to_target,
     evaluate_risk_reasons,
     get_fleet_summary,
@@ -326,18 +332,50 @@ async def _insert_vessel(
     name: str,
     underway_state: str | None = None,
     detail_status: str | None = None,
+    ship_type: str = "BULK_CARRIER",
+    deadweight: int | None = 50000,
 ) -> str:
     row = await session.execute(
         text(
             "INSERT INTO vessel "
             "(imo_number, name, ship_type, gross_tonnage, deadweight, "
             " underway_state, detail_status) "
-            "VALUES (:imo, :name, 'BULK_CARRIER', 30000, 50000, :st, :ds) "
+            "VALUES (:imo, :name, :ship_type, 30000, :dwt, :st, :ds) "
             "RETURNING id"
         ),
-        {"imo": imo, "name": name, "st": underway_state, "ds": detail_status},
+        {
+            "imo": imo,
+            "name": name,
+            "ship_type": ship_type,
+            "dwt": deadweight,
+            "st": underway_state,
+            "ds": detail_status,
+        },
     )
     return str(row.scalar_one())
+
+
+async def _insert_voyage_with_fuel(session, vessel_id: str) -> None:
+    """실적 한 건. 이 선박이 「실적 없음」이 아니게 만드는 것이 목적이다."""
+    row = await session.execute(
+        text(
+            "INSERT INTO voyage "
+            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+            " departure_port_name, arrival_port_name, planned_distance_nm, "
+            " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
+            "VALUES (:vid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', "
+            " 1000, 1000, 12, :arr) RETURNING id"
+        ),
+        {"vid": vessel_id, "yr": YEAR, "arr": datetime(YEAR, 3, 1, tzinfo=UTC)},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use "
+            "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
+            "VALUES (:vid, 'HFO', 80, 80, 3.114, 'USER_INPUT')"
+        ),
+        {"vid": str(row.scalar_one())},
+    )
 
 
 @pytest.mark.asyncio
@@ -448,3 +486,219 @@ async def test_numbers_are_strings(session):
 
     for key in ("ytd_attained_cii", "ytd_required_cii", "current_lat", "current_lon"):
         assert row[key] is None or isinstance(row[key], str)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 제원 미비 선박이 선대 전체를 무너뜨리지 않는다 (#419)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_vessel_without_capacity_does_not_break_the_fleet(session):
+    """**이 이슈의 본체**다.
+
+    `vessel.deadweight`는 nullable이고(`DB_SCHEMA §2.1`) `PRD §20 O-11`이 수동 입력
+    경로를 열어 두어, **제원을 나중에 채우려고 등록한 선박**이 실제로 생긴다.
+    종전에는 그 한 척이 `GET /fleet/summary` 전체를 500으로 만들었다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9204001", name="정상선")
+    await _insert_vessel(session, imo="9204002", name="제원미비선", deadweight=None)
+
+    summary = await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF)
+
+    names = {row["name"] for row in summary["vessels"]}
+    assert names == {"정상선", "제원미비선"}, "한 척이 실패해도 나머지가 보여야 한다"
+
+
+@pytest.mark.asyncio
+async def test_healthy_vessel_keeps_its_numbers_next_to_a_broken_one(session):
+    """이슈 완료 기준 3항 — **나머지 선박의 값이 정상이어야 한다.**
+
+    목록에 남는 것만으로는 부족하다. 실적이 있어 등급까지 나오는 선박이 옆 선박의
+    실패에 휩쓸려 값을 잃으면, 「전체가 죽던 것」이 「전부 빈칸이 되는 것」으로 바뀔
+    뿐이다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    healthy = await _insert_vessel(session, imo="9204001", name="정상선")
+    await _insert_voyage_with_fuel(session, healthy)
+    await _insert_vessel(session, imo="9204002", name="제원미비선", deadweight=None)
+
+    rows = {
+        r["name"]: r
+        for r in (await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF))["vessels"]
+    }
+
+    assert rows["정상선"]["data_available"] is True
+    assert rows["정상선"]["ytd_attained_cii"] is not None
+    assert rows["정상선"]["ytd_rating"] is not None
+    assert rows["정상선"]["unavailable_reason"] is None
+    assert rows["제원미비선"]["unavailable_reason"] == UNAVAILABLE_MISSING_SPEC
+
+
+@pytest.mark.asyncio
+async def test_history_failure_does_not_erase_this_years_value(session, monkeypatch):
+    """**계산에 성공한 값을 뒤의 조회 실패가 버리지 않는다.**
+
+    이 선박을 계산하는 경로가 셋인데(현재 시점 · 직전 2개 연도 이력 · 최근 구간
+    시작점) 셋을 한 try로 묶으면, 이력 조회가 창 규칙 위반 같은 **제원과 무관한
+    이유**로 실패해도 이미 나온 올해 값까지 버려진다. 그러면 제원이 멀쩡한 선박에
+    「제원을 입력하세요」가 뜬다 — 사용자가 해도 아무것도 바뀌지 않는 안내다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    vessel_id = await _insert_vessel(session, imo="9204001", name="정상선")
+    await _insert_voyage_with_fuel(session, vessel_id)
+
+    async def _boom(*args, **kwargs):
+        raise ValidationError("from은 2019 이상이어야 합니다", field="from_year")
+
+    monkeypatch.setattr(fleet_summary, "_prior_confirmed_ratings", _boom)
+
+    row = (await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF))["vessels"][0]
+
+    assert row["data_available"] is True
+    assert row["ytd_rating"] is not None
+    assert row["unavailable_reason"] is None
+    # 이력을 못 읽었으므로 「직전 등급을 모른다」 — 모르는 것을 D로 단정하지 않는다.
+    assert row["risk_reasons"] == []
+
+
+@pytest.mark.asyncio
+async def test_unexplained_failure_is_not_called_a_spec_problem(session, monkeypatch):
+    """제원으로 설명되지 않는 실패에 「제원을 입력하세요」라고 하지 않는다.
+
+    `ValidationError`는 이력 창 규칙·파라미터 seed 손상 등 **선박과 무관한 이유**로도
+    난다. 예외의 종류만 보고 사유를 정하면 그것들이 전부 「제원 미비」로 위장된다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9204001", name="정상선")
+
+    async def _boom(*args, **kwargs):
+        raise ValidationError("파라미터 seed가 손상됐습니다", field="capacity_rule")
+
+    monkeypatch.setattr(fleet_summary, "compute_ytd_cii", _boom)
+
+    row = (await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF))["vessels"][0]
+
+    assert row["unavailable_reason"] == UNAVAILABLE_CALCULATION_ERROR
+
+
+@pytest.mark.asyncio
+async def test_unsupported_ship_type_is_a_spec_problem(session):
+    """미지원 선종은 **선박 정보에서 고칠 수 있으므로** 제원 문제로 묶는다.
+
+    `vessel.ship_type`은 `String(50)`이고 DB에 enum 제약이 없어(`calc/capacity.py`)
+    오타 선종이 실제로 저장된다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9204004", name="오타선종", ship_type="BULK_CARRIRE")
+
+    row = (await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF))["vessels"][0]
+
+    assert row["unavailable_reason"] == UNAVAILABLE_MISSING_SPEC
+
+
+@pytest.mark.asyncio
+async def test_missing_spec_is_distinguished_from_no_data(session):
+    """「실적 없음」과 「제원 미비」는 **사용자가 할 일이 다르다.**
+
+    전자는 항차를 등록해야 하고 후자는 제원을 입력해야 한다. 같은 빈칸으로 그리면
+    화면이 무엇을 하라고 말할 수 없다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9204001", name="정상선")
+    await _insert_vessel(session, imo="9204002", name="제원미비선", deadweight=None)
+
+    rows = {
+        r["name"]: r
+        for r in (await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF))["vessels"]
+    }
+
+    # 제원은 있으나 항차가 없다 → NO_DATA
+    assert rows["정상선"]["unavailable_reason"] == UNAVAILABLE_NO_DATA
+    # 제원 자체가 없다 → MISSING_SPEC
+    assert rows["제원미비선"]["unavailable_reason"] == UNAVAILABLE_MISSING_SPEC
+
+
+@pytest.mark.asyncio
+async def test_unavailable_vessel_reports_no_numbers(session):
+    """계산하지 못한 선박에 수치를 지어내지 않는다."""
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9204002", name="제원미비선", deadweight=None)
+
+    row = (await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF))["vessels"][0]
+
+    assert row["data_available"] is False
+    assert row["ytd_attained_cii"] is None
+    assert row["ytd_rating"] is None
+    # 등급이 없으므로 위험 판정도 없다 — 「모름」을 「위험 아님」으로도 「위험」으로도 읽지 않는다.
+    assert row["risk_reasons"] == []
+
+
+@pytest.mark.asyncio
+async def test_missing_ship_type_parameters_is_per_vessel_not_fleet_wide(session):
+    """선종별 기준선이 없는 선박도 **그 선박만** 값이 비어야 한다.
+
+    연도 파라미터와 달리 기준선·등급경계는 **선종별**이라 선대 공통이 아니다. 한
+    선종의 seed가 빠져도(가이드라인 개정으로 선종이 추가된 직후 등) 나머지 선박은
+    정상으로 보여야 한다.
+
+    기준선 조회는 실적이 있어야 일어나므로(항차가 없으면 그 전에 「실적 없음」으로
+    끝난다) 항차를 하나 넣어 실제로 파라미터 조회까지 가게 한다. 삭제는 이 트랜잭션
+    안에서만 유효하며 끝나면 롤백된다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9204001", name="정상선")
+    tanker = await _insert_vessel(session, imo="9204003", name="미지원선종", ship_type="TANKER")
+    await _insert_voyage_with_fuel(session, tanker)
+    await session.execute(text("DELETE FROM cii_reference_line WHERE ship_type = 'TANKER'"))
+    await session.execute(text("DELETE FROM cii_rating_boundary WHERE ship_type = 'TANKER'"))
+
+    rows = {
+        r["name"]: r
+        for r in (await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF))["vessels"]
+    }
+
+    assert len(rows) == 2
+    assert rows["미지원선종"]["unavailable_reason"] == UNAVAILABLE_NO_PARAMETERS
+
+
+@pytest.mark.asyncio
+async def test_missing_regulation_year_still_fails_the_whole_request(session):
+    """**연도 파라미터 부재는 선대 공통이라 요청 전체가 실패해야 한다.**
+
+    루프 안에서 잡으면 「전 선박이 파라미터 없음」으로 표시되어, 실제 원인(그 해의
+    규정 seed가 없다)이 선박 문제로 위장된다. `API_SPEC §2.8`도 409로 규정한다.
+    """
+    from cii_platform.errors import ParameterError
+
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9204001", name="정상선")
+
+    with pytest.raises(ParameterError):
+        await get_fleet_summary(session, regulation_year=1999, as_of=AS_OF)
+
+
+@pytest.mark.asyncio
+async def test_empty_fleet_is_not_an_error_even_without_parameters(session):
+    """**선박 0척이 오류가 아니라는 계약이 파라미터 확인보다 우선한다.**
+
+    아직 아무것도 등록하지 않은 선사가 처음 보는 화면이다. 계산할 대상이 없으므로
+    파라미터도 필요 없는데, 여기서 409를 내면 사용자는 「기능이 고장났다」로 읽는다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+
+    result = await get_fleet_summary(session, regulation_year=1999, as_of=AS_OF)
+
+    assert result["vessels"] == []
+    assert result["summary"]["total"] == 0

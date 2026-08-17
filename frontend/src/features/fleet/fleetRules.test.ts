@@ -6,6 +6,8 @@ import {
   riskReasonText,
   soonestDaysToD,
   sortVessels,
+  unavailableHint,
+  unavailableText,
   underwayStateText,
   warningBannerText,
 } from './fleetRules'
@@ -36,6 +38,7 @@ function vessel(over: Partial<FleetVessel> = {}): FleetVessel {
     ytdRating: 'C',
     riskLevel: 'MEDIUM',
     riskReasons: [],
+    unavailableReason: null,
     daysToD: null,
     daysToDReason: 'NOT_THIS_YEAR',
     ...over,
@@ -99,6 +102,37 @@ describe('「D등급 진입까지」 문구', () => {
 
   it('사유가 없으면 실적 없음으로 본다', () => {
     expect(daysToDText(null, null)).toBe('실적 없음')
+  })
+})
+
+describe('값이 없는 사유 문구 (#419)', () => {
+  it('제원 미입력과 실적 없음을 다르게 말한다', () => {
+    // 같은 문구로 쓰면 화면이 무엇을 하라고 말할 수 없다 — 항차 등록과 제원 입력은
+    // 서로 다른 일이다.
+    expect(unavailableText('MISSING_SPEC')).not.toBe(unavailableText('NO_DATA'))
+  })
+
+  it('제원 미입력에는 제원을 채우라고 안내한다', () => {
+    expect(unavailableHint('MISSING_SPEC')).toContain('제원')
+  })
+
+  it('실적 없음에는 항차를 등록하라고 안내한다', () => {
+    expect(unavailableHint('NO_DATA')).toContain('항차')
+  })
+
+  it('기준값 없음에는 항차 등록을 시키지 않는다', () => {
+    // 사용자가 해도 풀리지 않는 일을 안내하면 안 된다 — 운영자 몫이다.
+    expect(unavailableHint('NO_PARAMETERS')).not.toContain('항차를 등록')
+    expect(unavailableHint('NO_PARAMETERS')).toContain('운영자')
+  })
+
+  it('계산 실패도 사용자에게 항차 등록을 시키지 않는다', () => {
+    expect(unavailableHint('CALCULATION_ERROR')).not.toContain('항차를 등록')
+    expect(unavailableHint('CALCULATION_ERROR')).toContain('운영자')
+  })
+
+  it('사유를 모르면 실적 없음으로 본다 — 가장 흔하고 가장 덜 단정적인 쪽이다', () => {
+    expect(unavailableText(null)).toBe('실적 없음')
   })
 })
 
