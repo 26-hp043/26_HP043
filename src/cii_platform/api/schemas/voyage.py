@@ -78,3 +78,38 @@ class VoyageTransitionRequest(BaseModel):
 
     to_status: Annotated[str, Field(min_length=1, max_length=20)]
     annual_inclusion_policy: Annotated[str | None, Field(max_length=30)] = None
+
+
+class VoyageFuelActualRequest(BaseModel):
+    """``PUT /voyages/{id}/actuals``의 ``fuel_uses[]`` 한 건 (#440).
+
+    생성 요청과 달리 **계획값을 받지 않는다.** 실적 입력이 계획값을 덮어쓰면
+    `PRD §8.4`의 「계획값과 실제값을 모두 보존」이 깨지고, 계획 대비 실적 비교(`#363`)의
+    근거가 사라진다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
+    #: `chk_actual_fuel_positive` — DB도 같은 조건을 건다. 0을 「안 썼다」로 쓰려면
+    #: 그 행을 넣지 않는 것이 맞다.
+    actual_fuel_ton: Annotated[Decimal, Field(gt=0)]
+    source: Annotated[str | None, Field(default=None, max_length=30)] = None
+
+
+class VoyageActualsRequest(BaseModel):
+    """``PUT /api/v1/voyages/{voyage_id}/actuals`` 요청 본문 (`API_SPEC §3.6`, #440).
+
+    모든 필드가 선택이다 — 실거리만 먼저 알고 연료는 나중에 오는 경우가 실제로 있다.
+    **생략은 「변경 없음」이고 명시적 ``null``은 「지움」이다**(`#312`와 같은 규약).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    actual_distance_nm: Annotated[Decimal | None, Field(gt=0)] = None
+    #: `chk_actual_speed_min` — DB가 1.0 이상을 요구한다. 스키마가 더 느슨하면
+    #: 사용자는 422가 아니라 500(제약 위반)을 받는다.
+    actual_avg_speed_kn: Annotated[Decimal | None, Field(ge=Decimal("1.0"))] = None
+    actual_departure_at: datetime | None = None
+    actual_arrival_at: datetime | None = None
+    fuel_uses: list[VoyageFuelActualRequest] | None = None
