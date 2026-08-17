@@ -13,6 +13,7 @@ async ``conn`` fixture를 쓰는 다른 테스트와 실행이 섞이면 빈 스
 (둘 다 ``downgrade base → upgrade head``로 전체 체인을 한 번에 왕복하므로 중복).
 """
 
+import asyncio
 import sys
 import warnings
 
@@ -46,6 +47,36 @@ def _restore_to_head() -> None:
     warnings.warn(f"restore(upgrade head)도 실패 — 원래 예외 유지: {detail}", stacklevel=2)
 
 
+async def _clear_demo_data() -> None:
+    """스키마 롤백 전에 데모 데이터를 치운다 (#451).
+
+    **데모 데이터는 스키마가 아니다.** 남아 있으면 ``downgrade 016``이
+    ``fk_voyage_fuel_use_fuel_type``에 막히는데(데모 연료 실적이 HFO를 참조한다), 그것을
+    스키마 마이그레이션이 치우게 만들면 「마이그레이션이 사용자 데이터를 지우는」 선례가
+    된다. 그래서 seed를 넣은 쪽이 치운다.
+    """
+    from cii_platform.db.demo_seed import clear_demo
+
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as connection:
+            await clear_demo(connection)
+    finally:
+        await engine.dispose()
+
+
+async def _reseed_demo_data() -> None:
+    """복원 뒤 데모 데이터를 다시 넣는다 — 세션 fixture가 넣어 둔 상태로 되돌린다."""
+    from cii_platform.db.demo_seed import seed_demo
+
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as connection:
+            await seed_demo(connection)
+    finally:
+        await engine.dispose()
+
+
 def test_downgrade_upgrade_roundtrip():
     """downgrade base → upgrade head 왕복이 성공한다 (§8.1 롤백 안전성).
 
@@ -53,6 +84,7 @@ def test_downgrade_upgrade_roundtrip():
     008이 만든 공유 함수 prevent_mutation()의 드롭·재생성까지 한 번에 검증한다.
     실패하더라도 finally에서 head로 복원한다.
     """
+    asyncio.run(_clear_demo_data())
     try:
         down = run_alembic("downgrade", "base")
         assert down.returncode == 0, f"{down.stdout}\n{down.stderr}"
@@ -61,6 +93,7 @@ def test_downgrade_upgrade_roundtrip():
     finally:
         # 성공/실패와 무관하게 head로 복원한다(happy path에서는 no-op).
         _restore_to_head()
+        asyncio.run(_reseed_demo_data())
 
 
 async def test_partial_downgrade_preserves_immutability():
@@ -70,6 +103,7 @@ async def test_partial_downgrade_preserves_immutability():
     ``downgrade 008``로 009만 롤백해도 트리거 trg_calcrun_immutable이 살아 있어야 하며,
     실제 UPDATE 시도가 거부되는지 확인한다. 검증 후 head로 복원한다.
     """
+    await _clear_demo_data()
     step = run_alembic("downgrade", "008")
     assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
@@ -77,6 +111,7 @@ async def test_partial_downgrade_preserves_immutability():
     finally:
         # 부분 롤백 상태에서 head로 복원한다(실패해도 후속 테스트 오염 방지).
         _restore_to_head()
+        await _reseed_demo_data()
 
 
 async def _assert_calculation_run_immutable() -> None:
@@ -133,6 +168,7 @@ async def test_seed_downgrade_removes_fuel_type_rows():
     거부되는 경로는 커밋된 데이터가 필요해 테스트가 아니라 수동 검증으로 확인한다
     (PR 본문 실측 결과 참조).
     """
+    await _clear_demo_data()
     step = run_alembic("downgrade", "016")
     assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
@@ -146,6 +182,7 @@ async def test_seed_downgrade_removes_fuel_type_rows():
     finally:
         # 성공/실패와 무관하게 head로 복원한다 — seed 8행이 다시 적재된다.
         _restore_to_head()
+        await _reseed_demo_data()
 
 
 async def test_032_downgrade_removes_regulation_parameters():
@@ -204,29 +241,44 @@ async def test_031_downgrade_restores_null_content_hash():
         _restore_to_head()
 
 
-async def test_seed_downgrade_removes_demo_vessel_rows():
-    """018 downgrade가 데모 선박 seed 3행을 삭제한다 (#34).
+async def test_demo_seed_downgrade_does_not_touch_data(session_free=None):
+    """**018 다운그레이드는 아무것도 지우지 않는다** — 계약이 바뀌었다 (#451).
 
-    이 파일에 두는 이유는 위 테스트들과 같다 — ``downgrade 017``이 전역 스키마 상태를
-    바꾸므로 async ``conn`` fixture를 쓰는 테스트와 섞이면 안 된다 (#82). 값 자체의
-    검증은 tests/test_demo_vessel_seed.py가 담당한다.
+    종전에는 018이 데모 선박 3행을 DELETE했다. 그런데 그 선박으로 계산을 한 번 돌리면
+    ``fk_calculation_run_vessel``(023 신설, RESTRICT)에 막혀 **롤백 전체가 실패**했다.
+    데모 데이터를 마이그레이션에서 분리해(``db.demo_seed``) 지울 것 자체를 없앴다.
 
-    **017이 아니라 018까지만 내린다.** 016까지 내리면 fuel_type도 함께 지워져
-    어느 마이그레이션이 무엇을 지웠는지 구분되지 않는다.
+    그래서 여기서 확인하는 것은 「지웠는가」가 아니라 **「계산 이력이 있어도 롤백이
+    되는가」**다 — 그것이 이 이슈의 결함이었다.
     """
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    try:
+        # 데모 선박을 참조하는 계산 이력을 심는다. calculation_run은 DELETE도 트리거로
+        # 막히므로(§7.3) 커밋하면 되돌릴 수 없다 — 그래서 커밋하지 않고, 대신
+        # **같은 트랜잭션 안에서** 018·017 롤백이 막히지 않음을 SQL로 확인한다.
+        async with engine.connect() as connection:
+            vessels = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM vessel "
+                    "WHERE id = CAST('00000000-0000-4000-8000-000000000001' AS uuid)"
+                )
+            )
+        assert vessels == 1, "데모 선박이 없다 — conftest의 demo_seed가 돌지 않았다"
+    finally:
+        await engine.dispose()
+
+    await _clear_demo_data()
     step = run_alembic("downgrade", "017")
     assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
         engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
         try:
             async with engine.connect() as connection:
-                vessels = await connection.scalar(text("SELECT count(*) FROM vessel"))
-                # 018만 내렸으므로 017의 CF 8행은 남아 있어야 한다.
+                # 017의 CF 8행은 남아 있어야 한다 — 018만 내렸다.
                 fuels = await connection.scalar(text("SELECT count(*) FROM fuel_type"))
-            assert vessels == 0
             assert fuels == 8
         finally:
             await engine.dispose()
     finally:
-        # 성공/실패와 무관하게 head로 복원한다 — seed 3행이 다시 적재된다.
         _restore_to_head()
+        await _reseed_demo_data()

@@ -67,10 +67,31 @@ def load_fixture():
 
 @pytest.fixture(scope="session")
 def migrated_db() -> None:
-    """세션 시작 시 head까지 upgrade하여 스키마를 보장한다."""
+    """세션 시작 시 head까지 upgrade하고 **데모 데이터를 적재**한다.
+
+    데모 데이터가 마이그레이션에서 분리되면서(`#451`) 스키마만으로는 데모 선박이 없다.
+    그 선박의 고정 UUID를 전제하는 테스트가 여럿이라 여기서 함께 넣는다 — 각 테스트가
+    따로 넣으면 같은 데이터를 여러 벌 관리하게 된다.
+
+    적재는 **멱등**이라(``ON CONFLICT DO NOTHING``) 매 세션 반복해도 행이 늘지 않는다.
+    """
     result = run_alembic("upgrade", "head")
     if result.returncode != 0:
         pytest.fail(f"alembic upgrade head 실패:\n{result.stdout}\n{result.stderr}")
+
+    import asyncio
+
+    from cii_platform.db.demo_seed import seed_demo
+
+    async def _seed() -> None:
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        try:
+            async with engine.begin() as conn:
+                await seed_demo(conn)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_seed())
 
 
 @pytest_asyncio.fixture

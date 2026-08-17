@@ -52,6 +52,24 @@ DB에는 없었다.** 실 API(#55 · #51)로 전환하는 순간 첫 요청이 "
 - **GT 축 선박이 빠져 있다.** #34 본문은 3번 선박을 ``CRUISE_PASSENGER``(GT 축)로
   지정했으나 제원을 확보하지 못했다. GT 축은 후속 이슈에서 넣는다. 이 마이그레이션의
   3척은 **전부 DWT 축**이다.
+
+2026-08-17 — 이 마이그레이션은 **더 이상 데이터를 넣지 않는다** (#451)
+-------------------------------------------------------------------
+
+데모 데이터는 ``cii_platform.db.demo_seed``로 옮겼다. 실행은
+``python -m cii_platform.db.demo_seed``다.
+
+**왜 옮겼는가.** 데모 선박으로 계산을 한 번 돌리면 ``calculation_run``이 그 선박을
+참조하고, ``fk_calculation_run_vessel``(023 신설, ``RESTRICT``)이 아래 downgrade의
+DELETE를 막았다. 이 파일은 원래 *"그 컬럼에는 FK가 없어(003) 실제로는 막히지 않는다"* 고
+적어 두었는데, **그 전제가 023에서 깨졌다.**
+
+세 안 중 「seed에서 분리」를 골랐다 — 마이그레이션이 사용자 계산 이력을 지우는 선례를
+만들지 않고, 롤백이 절반만 되는 상태도 만들지 않는다. `DB_SCHEMA §8.1`의 「스키마 변경과
+seed 데이터 분리」 원칙 그대로다.
+
+**리비전은 그대로 둔다.** 이미 적용된 환경의 체인을 바꾸면 안 되고, 그 환경에 들어가 있는
+행은 그대로 유효하다. 새 환경은 위 명령으로 넣는다.
 """
 
 from collections.abc import Sequence
@@ -59,8 +77,6 @@ from decimal import Decimal
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-
-from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "018"
@@ -157,12 +173,16 @@ _vessel = sa.table(
 
 
 def upgrade() -> None:
-    """Upgrade schema."""
-    op.bulk_insert(_vessel, SEED_VESSELS)
+    """무동작 — 데모 데이터는 ``cii_platform.db.demo_seed``가 넣는다 (#451).
+
+    아래 상수는 **이 리비전이 그날 넣었던 값의 기록**으로 남긴다. 지우면 과거 환경에
+    무엇이 들어갔는지 알 수 없게 된다.
+    """
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
-    # 3개 id만 지운다(모듈 docstring 참조). 사용자가 등록한 선박은 건드리지 않는다.
-    ids = [row["id"] for row in SEED_VESSELS]
-    op.execute(_vessel.delete().where(_vessel.c.id.in_(ids)))
+    """무동작 — 이 리비전이 넣은 것이 없으므로 지울 것도 없다 (#451).
+
+    종전에는 여기서 데모 선박을 DELETE했고, 그 선박을 참조하는 계산 이력이 있으면
+    **``fk_calculation_run_vessel``에 막혀 롤백 전체가 실패**했다.
+    """

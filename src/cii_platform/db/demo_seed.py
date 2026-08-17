@@ -1,74 +1,128 @@
-"""대시보드 시연용 시드 확장 — GT축 1척·운항 상태·항차 이력·not under way 샘플
+"""데모·시연용 샘플 데이터 적재 (#451).
 
-Revision ID: 027
-Revises: 026
-Create Date: 2026-08-15
+## 왜 마이그레이션이 아니라 여기인가
 
-이슈 #347 · #207(#34 잔여분). 018이 만든 DWT축 3척 시드를 대시보드(#351)·선박
-상세(#356)·실시간 CII(#357) 화면이 성립하는 규모로 확장한다.
+종전에는 마이그레이션 018·027이 이 데이터를 넣었다. 그런데 **데모 선박으로 계산을 한 번
+돌리면 018의 다운그레이드가 막혔다** — ``calculation_run``이 그 선박을 참조하고
+``fk_calculation_run_vessel``이 ``RESTRICT``이기 때문이다.
 
-무엇을 넣는가
-------------
+018 자신은 *"그 컬럼에는 FK가 없어(003) 실제로는 막히지 않는다"* 고 적어 두었으나, **그
+전제가 023에서 깨졌다.** FK가 생긴 뒤로 018의 다운그레이드는 참조가 있는 한 실패한다.
 
-1. **GT축 선박 1척** — ``RO_RO_PASSENGER``(GT 25,000, 합성). #34가 3번 선박을
-   GT축으로 지정했다가 제원 미확보로 미뤄 둔 잔여분(#207)을 채운다.
-   ``test_all_seeded_vessels_are_dwt_axis``가 이 시점에 깨지도록 설계돼 있었다 —
-   같은 PR에서 해당 테스트를 갱신한다.
-2. **운항 상태·위치 (026 컬럼)** — 운항 중·운하 통과 중·묘박 중·접안이 섞이게
-   4척에 부여한다. 대시보드 카드가 상태별로 다르게 보이는 것이 목적이다.
-3. **항차 이력** — 2025·2026 두 연도에 걸친 COMPLETED 항차(연료 실적 포함)와
-   실시간 화면용 IN_PROGRESS 항차 1건.
-4. **not under way 샘플** — 운하 통과(진행 중)·묘박(진행 중)·드라이독(종료) 3건과
-   소비자별 연료 기록. ``consumer_type`` 4값을 전부 포함한다.
+세 안을 두고 골랐다.
 
-값의 성질
----------
+=========================  =========================================================
+ 안                         판단
+=========================  =========================================================
+ 다운그레이드가 참조 행까지  기각. **마이그레이션이 사용자 계산 이력을 지우는 선례**가
+ 삭제                        된다. ``calculation_run``은 immutable 가드까지 걸린
+                             보존 대상이다(`DB_SCHEMA §7.1`).
+ 참조 있으면 남기고 경고     기각. 다운그레이드가 완전히 되돌리지 않게 되어 「롤백했는데
+                             흔적이 남는」 상태가 된다.
+ **seed에서 분리**           **채택.** 마이그레이션이 지울 것 자체를 없앤다. 스키마
+                             마이그레이션은 스키마만 다룬다 — `DB_SCHEMA §8.1`의
+                             「스키마 변경과 seed 데이터 분리」 원칙 그대로다.
+=========================  =========================================================
 
-- **전부 시연용 합성값이다.** 1번 선박의 제원만 ``PRD §13.1`` Fixture 1에서 왔다.
-  4번 선박의 GT 25,000은 설계값이며 실선 제원이 아니다(018의 합성 IMO 규칙과
-  같이 ``0``으로 시작하는 IMO를 쓴다).
-- **위험 선박 서사(설계 의도)** — 1번 벌크선의 연료를 거리 대비 과다(620t/4,300nm)로
-  넣어 연간 등급이 E에 가깝고 연도 사이 악화되는 흐름을 만든다. 경고 배너(#351·#352)
-  시연용이며, 등급 자체는 파라미터 seed(``scripts/seed.py``) 적재 후 API가 계산한다.
-- **UUID를 명시적으로 박는다** — 018과 같은 이유(환경 무관 재현). 블록 배치:
-  voyage ``…0101~0109`` · period ``…0201~0203`` · not under way 연료 ``…0301~0306``
-  · 항차 연료 ``…0401~0409``.
-- **upsert를 쓰지 않는다** — 017·018과 같은 이유(마이그레이션은 과거 시점 스냅샷,
-  upsert는 downgrade를 정의할 수 없다). 재실행 idempotency는 Alembic의
-  revision 1회 실행 보장과 명시 UUID가 담당하며, 테스트가 정확히 4척인지 잠근다.
-- **downgrade는 자기 행만 지운다** — 4번 선박과 027이 넣은 항차·연료·구간을 지우고,
-  1~3번 선박의 상태·위치 컬럼을 NULL로 되돌린다. 018의 행은 건드리지 않는다.
+## 규제 파라미터 seed와 무엇이 다른가
 
-2026-08-17 — 이 마이그레이션은 **더 이상 데이터를 넣지 않는다** (#451)
--------------------------------------------------------------------
+``db.seed``(규제 파라미터)는 **모든 환경에 필요하다** — 없으면 계산 자체가 되지 않는다.
+이 모듈의 데이터는 **시연·개발 편의**이며 운영 데이터가 아니다. 그래서 마이그레이션 체인에
+넣지 않고 필요할 때만 부른다.
 
-데모 데이터는 ``cii_platform.db.demo_seed``로 옮겼다. 실행은
-``python -m cii_platform.db.demo_seed``다.
+## 재실행 가능하다
 
-**왜 옮겼는가.** 데모 선박으로 계산을 한 번 돌리면 ``calculation_run``이 그 선박을
-참조하고, ``fk_calculation_run_vessel``(023 신설, ``RESTRICT``)이 아래 downgrade의
-DELETE를 막았다. 이 파일은 원래 *"그 컬럼에는 FK가 없어(003) 실제로는 막히지 않는다"* 고
-적어 두었는데, **그 전제가 023에서 깨졌다.**
+``ON CONFLICT DO NOTHING``이라 여러 번 돌려도 행이 늘지 않는다. **덮어쓰지도 않는다** —
+누군가 데모 선박의 값을 고쳐 두었다면 그 편집을 존중한다. 초기화가 목적이면 지우고 다시
+넣는 편이 의도가 분명하다.
 
-세 안 중 「seed에서 분리」를 골랐다 — 마이그레이션이 사용자 계산 이력을 지우는 선례를
-만들지 않고, 롤백이 절반만 되는 상태도 만들지 않는다. `DB_SCHEMA §8.1`의 「스키마 변경과
-seed 데이터 분리」 원칙 그대로다.
+## 고정 UUID는 계약이다
 
-**리비전은 그대로 둔다.** 이미 적용된 환경의 체인을 바꾸면 안 되고, 그 환경에 들어가 있는
-행은 그대로 유효하다. 새 환경은 위 명령으로 넣는다.
+``00000000-0000-4000-8000-00000000000N``은 프론트엔드 고정표(``referenceTable.ts``)와
+demo provider가 참조한다. **값을 바꾸면 화면이 함께 깨진다.**
+
+실행: ``python -m cii_platform.db.demo_seed``
 """
 
-from collections.abc import Sequence
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-revision: str = "027"
-down_revision: str | Sequence[str] | None = "026"
-branch_labels: str | Sequence[str] | None = None
-depends_on: str | Sequence[str] | None = None
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncConnection
+
+
+# 프론트엔드가 참조하는 고정 UUID (#132 계약 · #134 referenceTable.ts · #135 입력 폼).
+# 값을 바꾸면 프론트엔드 고정표를 함께 고쳐야 한다.
+VESSEL_ID_BULK = "00000000-0000-4000-8000-000000000001"
+VESSEL_ID_CONTAINER = "00000000-0000-4000-8000-000000000002"
+VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
+
+#: 1번 선박의 합성 IMO 번호. 모듈 docstring 「IMO 번호는 합성값이다」 참조.
+SYNTHETIC_IMO_BULK = "0000001"
+
+# 3척. 값의 출처를 행마다 주석으로 남긴다.
+#
+# op.bulk_insert()는 executemany라 모든 dict의 키 집합이 완전히 동일해야 한다.
+# 아래 리터럴은 NULL인 컬럼도 키를 채워 그것을 보장한다.
+#
+# INSERT 대상에서 뺀 컬럼과 위임 대상(003의 server_default):
+#   is_deleted → false · created_at → now() · updated_at → now()
+SEED_VESSELS: list[dict[str, object]] = [
+    {
+        # PRD §13.1 Fixture 1 — Bulk carrier 50,000 DWT. 실존 선박이 아니다.
+        # name에 제원을 함께 적는 이유: 이 배는 실선명이 없고 "무엇을 위한 배인가"가
+        # 곧 이름이다. 프론트엔드 고정표가 쓰던 표시 문자열과 같아 전환 시 화면이
+        # 바뀌지 않는다. 2·3번은 실선이라 실제 선박명만 넣는다.
+        "id": VESSEL_ID_BULK,
+        "imo_number": SYNTHETIC_IMO_BULK,
+        "name": "샘플 벌크선 (50,000 DWT)",
+        "ship_type": "BULK_CARRIER",
+        # tests/fixtures/cii/bulk_50000_hfo_2026.json 의 input.gross_tonnage 와 같다.
+        # 정본 픽스처가 이 배의 제원을 이미 정의하고 있으므로 새로 만들지 않는다.
+        "gross_tonnage": Decimal("30000.00"),
+        "deadweight": Decimal("50000.00"),
+        "default_fuel_type": None,
+        "reference_speed_kn": None,
+        "reference_daily_foc_ton": None,
+        # GT 30,000 >= 5,000 → 공식 CII 적용 대상.
+        "is_cii_applicable_hint": True,
+    },
+    {
+        # 제원 조사 회신 2026-08-07. 출처 namsung.co.kr (남성해운).
+        "id": VESSEL_ID_CONTAINER,
+        "imo_number": "9448839",
+        "name": "STAR SKIPPER",
+        "ship_type": "CONTAINER_SHIP",
+        # GT 미회신. 모듈 docstring 「is_cii_applicable_hint」 항 참조.
+        "gross_tonnage": None,
+        "deadweight": Decimal("9520.00"),
+        "default_fuel_type": None,
+        "reference_speed_kn": Decimal("16.50"),
+        "reference_daily_foc_ton": None,
+        "is_cii_applicable_hint": False,
+    },
+    {
+        # 제원 조사 회신 2026-08-07. 출처 djship.co.kr (동진상선).
+        "id": VESSEL_ID_GENERAL_CARGO,
+        "imo_number": "9633862",
+        "name": "DONGJIN ENDURANCE",
+        "ship_type": "GENERAL_CARGO_SHIP",
+        "gross_tonnage": None,
+        "deadweight": Decimal("6405.77"),
+        "default_fuel_type": None,
+        # 회신 원문은 "12,8 KNOT"이며 소수점 구분자가 쉼표로 적힌 것이다.
+        "reference_speed_kn": Decimal("12.80"),
+        "reference_daily_foc_ton": None,
+        "is_cii_applicable_hint": False,
+    },
+]
 
 
 def _utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime:
@@ -551,23 +605,207 @@ period_fuel_tbl = sa.table(
     sa.column("consumer_type", sa.String),
     sa.column("fuel_type", sa.String),
     sa.column("fuel_ton", sa.Numeric),
+    #
+    # 030이 신설한 CF snapshot (`#378`). **027 시점에는 없던 컬럼**이라 그때의 seed에는
+    # 값이 없었고 030의 backfill이 채웠다. 지금은 head 스키마에 넣으므로 처음부터
+    # 채워야 한다 — NOT NULL이다.
+    #
+    sa.column("cf_used", sa.Numeric),
 )
 
 # HFO CF (tCO₂/tFuel) — 017 seed·DB_SCHEMA §3.2와 동일한 값.
 HFO_CF = Decimal("3.114000")
 
+# 적재 대상 테이블의 경량 선언. 실제 컬럼 정의는 각 스키마 마이그레이션이 소유한다.
+#
+# ⚠️ ``id``를 ``String``으로 두면 안 된다. 실제 컬럼은 ``uuid``이고 asyncpg는 서버 타입과
+# 파라미터 타입이 다르면 캐스팅하지 않고 거부한다 — 문자열로 값을 적더라도 **선언은 실제
+# 타입을 따라야** 한다.
+_vessel = sa.table(
+    "vessel",
+    sa.column("id", postgresql.UUID(as_uuid=False)),
+    sa.column("imo_number", sa.String),
+    sa.column("name", sa.String),
+    sa.column("ship_type", sa.String),
+    sa.column("gross_tonnage", sa.Numeric),
+    sa.column("deadweight", sa.Numeric),
+    sa.column("default_fuel_type", sa.String),
+    sa.column("reference_speed_kn", sa.Numeric),
+    sa.column("reference_daily_foc_ton", sa.Numeric),
+    sa.column("is_cii_applicable_hint", sa.Boolean),
+)
 
-def upgrade() -> None:
-    """무동작 — 데모 데이터는 ``cii_platform.db.demo_seed``가 넣는다 (#451).
 
-    아래 상수는 **이 리비전이 그날 넣었던 값의 기록**으로 남긴다. 지우면 과거 환경에
-    무엇이 들어갔는지 알 수 없게 된다.
+async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dict]) -> int:
+    """이미 있는 행은 건너뛴다. 돌려주는 값은 **실제로 넣은** 행 수다."""
+    if not rows:
+        return 0
+    result = await conn.execute(pg_insert(table).on_conflict_do_nothing(), rows)
+    return result.rowcount or 0
+
+
+async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
+    """데모 데이터를 적재하고 테이블별 **신규 적재 행 수**를 돌려준다.
+
+    호출자가 트랜잭션을 관리한다 — 이 함수는 commit하지 않는다(``db.seed``와 같은 규약).
     """
+    counts = {
+        "vessel": await _insert_ignoring_existing(conn, _vessel, SEED_VESSELS),
+    }
+    counts["vessel"] += await _insert_ignoring_existing(conn, vessel_tbl, SEED_VESSEL_GT_AXIS)
+
+    #
+    # 운항 상태·위치는 018의 3척에 **덧씌우는** 값이라 INSERT가 아니라 UPDATE다.
+    # 이미 상태가 있는 선박은 건드리지 않는다 — 사용자가 위치를 갱신했을 수 있다.
+    #
+    for vid, underway, detail, lat, lon, updated in SEED_STATE_UPDATES:
+        await conn.execute(
+            sa.text(
+                "UPDATE vessel SET underway_state = :st, detail_status = :ds, "
+                "current_lat = CAST(:lat AS numeric), current_lon = CAST(:lon AS numeric), "
+                "position_updated_at = :ts "
+                "WHERE id = CAST(:vid AS uuid) AND underway_state IS NULL"
+            ),
+            {
+                "st": underway,
+                "ds": detail,
+                "lat": lat,
+                "lon": lon,
+                # 문자열을 그대로 바인딩하면 asyncpg가 거부한다 — 서버 타입이
+                # timestamptz인데 파라미터가 str이면 캐스팅하지 않는다. 이 데이터는
+                # 027에서 raw SQL 리터럴로 쓰였던 것이라 문자열로 남아 있다.
+                "ts": datetime.fromisoformat(updated),
+                "vid": vid,
+            },
+        )
+
+    counts["voyage"] = await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES)
+    counts["voyage_fuel_use"] = await _insert_ignoring_existing(
+        conn,
+        voyage_fuel_tbl,
+        [
+            {**row, "fuel_type": "HFO", "cf_used": HFO_CF, "source": "SAMPLE"}
+            for row in SEED_VOYAGE_FUELS
+        ],
+    )
+    counts["not_underway_period"] = await _insert_ignoring_existing(conn, period_tbl, SEED_PERIODS)
+    counts["not_underway_fuel_use"] = await _insert_ignoring_existing(
+        conn,
+        period_fuel_tbl,
+        [{**row, "cf_used": HFO_CF} for row in SEED_PERIOD_FUELS],
+    )
+    return counts
 
 
-def downgrade() -> None:
-    """무동작 — 이 리비전이 넣은 것이 없으므로 지울 것도 없다 (#451).
+async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
+    """데모 데이터를 지운다. **계산 이력이 참조하는 것은 남긴다.**
 
-    종전에는 여기서 데모 선박을 DELETE했고, 그 선박을 참조하는 계산 이력이 있으면
-    **``fk_calculation_run_vessel``에 막혀 롤백 전체가 실패**했다.
+    ## 왜 전부 지우지 못하는가
+
+    ``calculation_run``은 UPDATE·DELETE가 트리거로 차단된 **보존 대상**이다
+    (`DB_SCHEMA §7.3`). 그 이력이 참조하는 항차·선박은 ``RESTRICT``에 걸려 지워지지
+    않는다 — 그리고 그것이 옳다. 계산 이력은 「그때 무슨 데이터로 계산했나」에 답하는
+    근거이고, 참조 대상이 사라지면 그 답이 불완전해진다.
+
+    그래서 이 함수는 **막히는 것을 억지로 지우지 않고, 남긴 수를 돌려준다.** 조용히
+    실패하거나 조용히 성공한 척하지 않는다.
+
+    ## 스키마 롤백 전에 부른다
+
+    데모 데이터가 남아 있으면 ``downgrade 016``(fuel_type CF seed 회수)이
+    ``fk_voyage_fuel_use_fuel_type``에 막힌다. 데모 연료 실적이 HFO를 참조하기
+    때문이다. **데모 데이터는 스키마가 아니므로 스키마 롤백이 그것을 치우게 만들지
+    않는다** — 지우는 것은 이 함수의 몫이다.
     """
+    voyage_ids = [row["id"] for row in SEED_VOYAGES]
+    period_ids = [row["id"] for row in SEED_PERIODS]
+    vessel_ids = [row["id"] for row in SEED_VESSELS] + [row["id"] for row in SEED_VESSEL_GT_AXIS]
+
+    counts: dict[str, int] = {}
+
+    #
+    # 참조가 없는 자식부터. 이 둘이 ``fuel_type``을 참조하므로 **여기까지만 지워도
+    # 017 롤백이 풀린다.**
+    #
+    counts["not_underway_fuel_use"] = await _delete_where(
+        conn, "not_underway_fuel_use", "period_id", period_ids
+    )
+    counts["not_underway_period"] = await _delete_where(
+        conn, "not_underway_period", "id", period_ids
+    )
+    counts["voyage_fuel_use"] = await _delete_where(
+        conn, "voyage_fuel_use", "voyage_id", voyage_ids
+    )
+
+    # 항차·선박은 계산 이력이 걸려 있으면 남는다.
+    counts["voyage"] = await _delete_unreferenced(conn, "voyage", voyage_ids, "voyage_id")
+    counts["vessel"] = await _delete_unreferenced(conn, "vessel", vessel_ids, "vessel_id")
+    counts["kept_voyage"] = len(voyage_ids) - counts["voyage"]
+    counts["kept_vessel"] = len(vessel_ids) - counts["vessel"]
+    return counts
+
+
+async def _delete_where(conn: AsyncConnection, table: str, column: str, ids: list) -> int:
+    if not ids:
+        return 0
+    result = await conn.execute(
+        sa.text(  # noqa: S608 - 테이블·컬럼명은 이 모듈의 리터럴, 값은 바인딩된다
+            f"DELETE FROM {table} WHERE {column} = ANY(CAST(:ids AS uuid[]))"
+        ),
+        {"ids": ids},
+    )
+    return result.rowcount or 0
+
+
+async def _delete_unreferenced(
+    conn: AsyncConnection,
+    table: str,
+    ids: list,
+    calc_run_column: str,
+) -> int:
+    """``calculation_run``이 참조하지 않는 행만 지운다.
+
+    ``RESTRICT``에 걸려 예외로 중단되는 대신 **미리 걸러낸다** — 한 척이 막혔다고 나머지를
+    못 지우게 되면, 부분 정리조차 불가능해진다.
+    """
+    if not ids:
+        return 0
+    result = await conn.execute(
+        sa.text(  # noqa: S608 - 테이블·컬럼명은 이 모듈의 리터럴, 값은 바인딩된다
+            f"DELETE FROM {table} WHERE id = ANY(CAST(:ids AS uuid[])) "
+            f"AND id NOT IN (SELECT {calc_run_column} FROM calculation_run "
+            f"WHERE {calc_run_column} IS NOT NULL)"
+        ),
+        {"ids": ids},
+    )
+    return result.rowcount or 0
+
+
+async def main() -> None:  # pragma: no cover - 프로세스 진입점
+    """엔진을 열고 단일 트랜잭션으로 데모 데이터를 적재한다.
+
+    ``python -m cii_platform.db.demo_seed``로 실행한다. 진입점을 패키지 안에 둔 이유는
+    ``db.seed``와 같다 — **프로덕션 이미지가 wheel만 설치**하므로 ``scripts/``를 배포
+    절차의 명령으로 쓸 수 없다.
+    """
+    from sqlalchemy import pool
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from cii_platform.config import DATABASE_URL
+    from cii_platform.db.url import normalize_to_asyncpg
+
+    engine = create_async_engine(normalize_to_asyncpg(DATABASE_URL), poolclass=pool.NullPool)
+    try:
+        async with engine.begin() as conn:
+            counts = await seed_demo(conn)
+    finally:
+        await engine.dispose()
+
+    for table, count in counts.items():
+        print(f"{table}: {count}행 신규 적재")
+
+
+if __name__ == "__main__":  # pragma: no cover - 프로세스 진입점
+    import asyncio
+
+    asyncio.run(main())
