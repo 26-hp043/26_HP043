@@ -1,32 +1,35 @@
-import { determineRating, determineRiskLevel, nextWorseBoundary, type Boundaries } from '../voyage-cii/rules'
 import { DEMO_VESSELS, FIXED_PARAMETERS, FUEL_CF } from '../voyage-cii/referenceTable'
-import type { AnnualSimulationResult, MonthlySummary } from './types'
+import { determineRating, type Boundaries } from '../voyage-cii/rules'
+import type { Rating } from '../voyage-cii/types'
+import type {
+  AnnualSimulationProvider,
+  AnnualSimulationRequest,
+  AnnualSimulationResult,
+} from './types'
 
 /**
- * 기능③ 연간 시뮬레이션 demo provider (#157) — **고정값 목업이다.**
+ * 기능③ demo provider — **고정값 목업이다** (#157 · #442에서 계약 갱신).
  *
- * ## 계산 엔진을 만들지 않는다
+ * ## 왜 남겨 두는가
  *
- * 연간 시뮬레이션 엔진(`#63`)과 API(`#64`)는 `2026.10` 마일스톤이며 `#64`는 처리
- * 방식조차 미결이다. **이 파일은 그 결정을 선점하지 않는다.**
+ * 실 API가 붙은 뒤에도 **백엔드를 띄우지 않고 화면만 보는 상황**이 남는다(디자인 검토·
+ * 프론트엔드 리팩터링). `#138`이 기능①에서 같은 판단을 했다.
  *
- * 월별 (항해거리, 연료) 12쌍을 상수로 두고, 합계와 등급은 **기능①과 같은 규칙 함수**
- * (`rules.ts`)로 낸다. 합계를 따로 박아 두면 월별 행과 어긋날 수 있고, 목업이
- * 스스로 모순되면 시연에서 그것이 먼저 눈에 띈다.
+ * ## 서버 계약을 그대로 흉내 낸다
  *
- * **CII 산식은 새로 쓰지 않았다** — `M / (capacity × distance)`는 `PRD §13.1`의
- * 정의이며 기능① demo provider가 이미 쓰는 식이다. 연간은 그 분자·분모를 합으로
- * 바꾼 것뿐이다.
+ * v1은 월별 집계 12행을 담았는데 **서버는 그것을 주지 않는다.** demo가 서버와 다른
+ * 모양을 내면 화면이 두 형태를 모두 다뤄야 하고, 그 분기가 곧 버그 자리가 된다. 그래서
+ * `#64` 응답과 **같은 블록**(결정론·Monte Carlo·민감도·스냅샷)을 낸다.
  *
- * ## 확률을 내지 않는다
+ * ## 확률을 「계산」하지 않는다
  *
- * `types.ts` 주석 참조 — `P(D∪E)`의 계산 정의가 `PRD`에 없다(`#170` ⑶).
+ * Monte Carlo를 화면에서 돌리지 않는다 — 그건 서버 소관이고(`PRD §12.4`), 여기서 돌리면
+ * **같은 화면의 demo와 실 API가 다른 난수 계열**을 쓰게 된다. 등급별 확률은 **시연용
+ * 고정 분포**이며 합이 1이 되도록만 맞춘다. `is_sample_data: true`가 그 사실을 알린다.
  *
  * ## 값의 성격
  *
- * 아래 월별 상수는 **시연용으로 지어낸 값이다.** 실측도 추정 모델의 출력도 아니다.
- * 응답의 `is_sample_data`가 `true`인 것이 그 사실이며, 화면은 그 플래그를 보고
- * 「예시 데이터」 배지를 띄운다.
+ * 아래 상수는 **시연용으로 지어낸 값이다.** 실측도 추정 모델의 출력도 아니다.
  */
 
 /** 시연 대상 — 기능①·②와 같은 선박이라 세 화면이 이어져 읽힌다. */
@@ -34,39 +37,34 @@ const DEMO_VESSEL_ID = '00000000-0000-4000-8000-000000000001'
 const DEMO_YEAR = 2026
 const DEMO_FUEL = 'HFO'
 
-/** 월별 (항해거리 nm, 연료 t) — 시연용 상수. */
-const MONTHLY_INPUT: ReadonlyArray<{ month: string; voyages: number; distanceNm: number; fuelTon: number }> = [
-  { month: '2026-01', voyages: 3, distanceNm: 4200, fuelTon: 330 },
-  { month: '2026-02', voyages: 2, distanceNm: 3800, fuelTon: 312 },
-  { month: '2026-03', voyages: 3, distanceNm: 4500, fuelTon: 352 },
-  { month: '2026-04', voyages: 3, distanceNm: 4100, fuelTon: 340 },
-  { month: '2026-05', voyages: 4, distanceNm: 4700, fuelTon: 368 },
-  { month: '2026-06', voyages: 3, distanceNm: 3900, fuelTon: 318 },
-]
+/** 시연용 누적 실적·잔여 계획 (항해거리 nm, 연료 t). */
+const COMPLETED = { voyages: 8, distanceNm: 25200, fuelTon: 2020 }
+const REMAINING = { voyages: 4, distanceNm: 12600, fuelTon: 1010 }
 
-/** `PRD §6.3` 「모든 결과 화면」 문구. */
-const DISCLAIMER = '참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.'
-
-/** 기능① provider와 같은 직렬화 자릿수. */
-const DIGITS = {
-  cii: 6,
-  ton: 2,
-  ratio: 5,
-} as const
-
-export interface AnnualSimulationProvider {
-  load(): Promise<AnnualSimulationResult>
+/**
+ * 시연용 등급별 확률 — 합 1.0000.
+ *
+ * 결정론 예측 등급 근처에 무게가 실리도록 잡았다. **모델의 출력이 아니다.**
+ */
+const DEMO_PROBABILITIES: Record<Rating, string> = {
+  A: '0.0200',
+  B: '0.2800',
+  C: '0.5500',
+  D: '0.1300',
+  E: '0.0200',
 }
+
+const DIGITS = { cii: 6, gco2: 0, capacity: 0 } as const
 
 export function createDemoAnnualProvider(): AnnualSimulationProvider {
   return {
-    async load() {
-      return buildResult()
+    async run(request: AnnualSimulationRequest) {
+      return buildResult(request)
     },
   }
 }
 
-function buildResult(): AnnualSimulationResult {
+function buildResult(request: AnnualSimulationRequest): AnnualSimulationResult {
   const vessel = DEMO_VESSELS.find((v) => v.id === DEMO_VESSEL_ID)
   const fixed = FIXED_PARAMETERS.find(
     (p) => p.vesselId === DEMO_VESSEL_ID && p.year === DEMO_YEAR,
@@ -79,54 +77,101 @@ function buildResult(): AnnualSimulationResult {
   const cf = Number(FUEL_CF[DEMO_FUEL].cf)
   const capacity = Number(vessel.transportCapacity)
 
-  const months: MonthlySummary[] = MONTHLY_INPUT.map((row) => {
-    const co2Ton = row.fuelTon * cf
-    return {
-      month: row.month,
-      voyage_count: row.voyages,
-      distance_nm: row.distanceNm,
-      fuel_ton: row.fuelTon.toFixed(DIGITS.ton),
-      co2_emission_ton: co2Ton.toFixed(DIGITS.ton),
-      attained_cii: ((co2Ton * 1_000_000) / (capacity * row.distanceNm)).toFixed(DIGITS.cii),
-    }
-  })
+  // `PRD §12.3` — 분자는 누적 + 잔여, 분모도 같은 방식으로 더한다.
+  const completedM = COMPLETED.fuelTon * cf * 1_000_000
+  const plannedM = REMAINING.fuelTon * cf * 1_000_000
+  const completedW = capacity * COMPLETED.distanceNm
+  const plannedW = capacity * REMAINING.distanceNm
+  const projected = (completedM + plannedM) / (completedW + plannedW)
 
-  const totalDistance = MONTHLY_INPUT.reduce((sum, r) => sum + r.distanceNm, 0)
-  const totalFuel = MONTHLY_INPUT.reduce((sum, r) => sum + r.fuelTon, 0)
-  const totalCo2Ton = totalFuel * cf
-  const attainedCii = (totalCo2Ton * 1_000_000) / (capacity * totalDistance)
-
-  const requiredCii = Number(fixed.requiredCii)
+  //
+  // 경계는 **고정표가 담고 있는 값을 그대로 쓴다.** `requiredCii × d`로 다시 만들면
+  // 표시 자릿수로 잘린 값에서 곱해져 경계에 걸린 등급이 갈릴 수 있다(`referenceTable`
+  // 주석이 같은 경고를 적는다).
+  //
   const boundaries: Boundaries = {
     superior: Number(fixed.boundaries.superior),
     lower: Number(fixed.boundaries.lower),
     upper: Number(fixed.boundaries.upper),
     inferior: Number(fixed.boundaries.inferior),
   }
-
-  const rating = determineRating(attainedCii, boundaries)
-  const worseBoundary = nextWorseBoundary(rating, boundaries)
-  const marginRatio =
-    worseBoundary === null ? null : (worseBoundary - attainedCii) / requiredCii
+  const rating = determineRating(projected, boundaries)
 
   return {
-    vessel_display_name: vessel.displayName,
-    ship_type: vessel.shipType,
-    regulation_year: DEMO_YEAR,
-    transport_capacity_basis: vessel.transportCapacityBasis,
-    required_cii: requiredCii.toFixed(DIGITS.cii),
-    attained_cii: attainedCii.toFixed(DIGITS.cii),
-    ratio_to_required: (attainedCii / requiredCii).toFixed(DIGITS.ratio),
-    estimated_rating: rating,
-    risk_level: determineRiskLevel(rating, marginRatio),
-    next_worse_boundary_margin_ratio:
-      marginRatio === null ? null : marginRatio.toFixed(DIGITS.ratio),
-    total_distance_nm: totalDistance,
-    total_fuel_ton: totalFuel.toFixed(DIGITS.ton),
-    total_co2_emission_ton: totalCo2Ton.toFixed(DIGITS.ton),
-    months,
+    simulation_id: '00000000-0000-4000-8000-0000000000f3',
+    calculation_run_id: '00000000-0000-4000-8000-0000000000f4',
+    deterministic: {
+      projected_attained_cii: projected.toFixed(DIGITS.cii),
+      projected_rating: rating,
+      completed_voyage_count: COMPLETED.voyages,
+      remaining_voyage_count: REMAINING.voyages,
+      completed_M_gco2: completedM.toFixed(DIGITS.gco2),
+      completed_W_capacity_nm: completedW.toFixed(DIGITS.capacity),
+      planned_M_gco2: plannedM.toFixed(DIGITS.gco2),
+      planned_W_capacity_nm: plannedW.toFixed(DIGITS.capacity),
+    },
+    monte_carlo: {
+      rng_metadata: {
+        // 데모임을 seed에서도 알 수 있게 한다 — 실 API의 128-bit hex와 형태가 다르다.
+        seed_entropy: 'demo-fixed',
+        bit_generator: 'DEMO_FIXED',
+        numpy_version: '-',
+        python_version: '-',
+        platform: 'demo',
+      },
+      runs: request.simulation_runs,
+      rating_probabilities: DEMO_PROBABILITIES,
+      target_success_probability: successProbability(request.target_rating),
+      target_rating: request.target_rating,
+      p10: (projected * 0.94).toFixed(DIGITS.cii),
+      p50: projected.toFixed(DIGITS.cii),
+      p90: (projected * 1.07).toFixed(DIGITS.cii),
+      mean_cii: projected.toFixed(DIGITS.cii),
+    },
+    // `PRD §9.4.2` 확률 기반. demo도 서버와 같은 규칙을 쓴다.
+    risk_level: 'HIGH',
+    sensitivity_analysis: {
+      interaction_note: '각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다.',
+      speed_minus_1kn: {
+        projected_cii: (projected * 0.965).toFixed(DIGITS.cii),
+        rating_change: `${rating}→${rating}`,
+        target_probability_change: '+0.12',
+      },
+      speed_plus_1kn: {
+        projected_cii: (projected * 1.038).toFixed(DIGITS.cii),
+        rating_change: `${rating}→${rating}`,
+        target_probability_change: '-0.08',
+      },
+      fuel_minus_10pct: {
+        projected_cii: (projected * 0.95).toFixed(DIGITS.cii),
+        rating_change: `${rating}→${rating}`,
+        target_probability_change: '+0.10',
+      },
+      fuel_plus_10pct: {
+        projected_cii: (projected * 1.05).toFixed(DIGITS.cii),
+        rating_change: `${rating}→${rating}`,
+        target_probability_change: '-0.06',
+      },
+    },
+    snapshot: {
+      snapshot_id: '00000000-0000-4000-8000-0000000000f5',
+      created_at: '2026-08-17T00:00:00+00:00',
+      voyage_count: COMPLETED.voyages + REMAINING.voyages,
+    },
     warnings: ['REFERENCE_ONLY'],
-    disclaimer: DISCLAIMER,
     is_sample_data: true,
   }
+}
+
+/**
+ * 목표 등급 **이상**을 달성할 확률 — 고정 분포에서 누적한다.
+ *
+ * `PRD §12.5`의 「목표 등급 이상」 정의를 따른다. demo가 목표에 따라 값을 바꾸지 않으면
+ * 목표를 고르는 입력이 화면에서 아무 일도 하지 않는 것처럼 보인다.
+ */
+function successProbability(target: Rating): string {
+  const order: Rating[] = ['A', 'B', 'C', 'D', 'E']
+  const upTo = order.slice(0, order.indexOf(target) + 1)
+  const sum = upTo.reduce((acc, r) => acc + Number(DEMO_PROBABILITIES[r]), 0)
+  return sum.toFixed(4)
 }

@@ -49,6 +49,15 @@ export interface ScreenMeta {
    * **현행 기준** — 종전 8/8 데모 기준에서, 방향 전환(#343·#344) 뒤의
    * MVP 범위 + 구현 완료 여부로 판정한다. MVP 승격 화면이라도 라우트가
    * 준비 중 표시(ComingSoon)라면 `false`다.
+   *
+   * ## 「실 데이터로 도는가」를 뜻한다 (#442)
+   *
+   * 종전에는 사실상 **「화면 파일이 있는가」**로 판정하고 있었다. 그래서 기능③이
+   * 고정값 목업(`#157`)인 상태로 `true`였고, 엔진(`#63`)·API(`#64`)가 들어온 뒤에도
+   * **목록상 빠진 게 없어 보여** 연결이 안 된 사실이 드러나지 않았다.
+   *
+   * 기준을 고친다 — **`VITE_USE_API=true`에서 실 API로 도는 화면만 `true`다.**
+   * demo provider만 있는 화면은 파일이 있어도 `false`다.
    */
   demoScope: boolean
 }
@@ -182,7 +191,8 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-3',
     purpose: '선박별 연간 누적 CII 등급 및 목표 달성 현황 모니터링',
     width: 'wide',
-    demoScope: true,   // #157 기능③ 목업
+    // #442 실 API 연결 완료 — demo provider는 백엔드 없이 화면만 볼 때만 쓴다.
+    demoScope: true,
   },
   REPORTS: {
     path: '/reports',
