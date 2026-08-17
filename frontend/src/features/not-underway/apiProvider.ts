@@ -1,4 +1,5 @@
 import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type {
   FuelUse,
@@ -96,6 +97,10 @@ export function createApiNotUnderwayProvider(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
   baseUrl: string = DEFAULT_API_BASE_URL,
 ): NotUnderwayProvider {
+  // 연료 선택지의 출처 (#444). 같은 `fetch`·`baseUrl`을 쓴다 — 테스트가 하나만
+  // 갈아 끼워도 둘 다 대체된다.
+  const parameters = createApiParametersProvider(fetchImpl, baseUrl)
+
   const call = async (
     path: string,
     init: RequestInit = {},
@@ -144,21 +149,33 @@ export function createApiNotUnderwayProvider(
 
   return {
     async list(vesselId: string): Promise<PeriodList> {
-      const body = await call(`/vessels/${vesselId}/not-underway-periods`)
+      /*
+       * **연료 선택지는 `/parameters/fuel-types`에서 온다** (`#444`).
+       *
+       * 종전에는 구간 목록 응답의 `meta`에 실려 왔다 — `API_SPEC §7.2`가 구현되기 전의
+       * 임시 우회였다. 그 상태로 두면 연료 목록을 주는 곳이 화면마다 달라진다.
+       *
+       * 두 요청을 **병렬로** 보낸다. 순서를 두면 목록이 느릴 때 선택지도 함께 늦는데,
+       * 둘 사이에 의존이 없다.
+       */
+      const [body, fuelTypes] = await Promise.all([
+        call(`/vessels/${vesselId}/not-underway-periods`),
+        parameters.listFuelTypes(),
+      ])
       const meta = (body?.meta ?? {}) as {
         period_types?: string[]
         consumer_types?: string[]
-        fuel_types?: string[]
       }
       /*
-       * 선택지는 서버가 준다. 비어 오면 폼을 그리지 않는다 — 화면이 기본값을 지어
-       * 내면 DB CHECK 제약과 갈라지고, 사용자는 저장 단계에서야 거부를 만난다.
+       * 상태 열거값은 이 리소스의 것이라 계속 `meta`에서 온다. 비어 오면 폼을 그리지
+       * 않는다 — 화면이 기본값을 지어내면 DB CHECK 제약과 갈라지고, 사용자는 저장
+       * 단계에서야 거부를 만난다.
        */
       return {
         periods: ((body?.data ?? []) as ServerPeriod[]).map(toPeriod),
         periodTypes: meta.period_types ?? [],
         consumerTypes: meta.consumer_types ?? [],
-        fuelTypes: meta.fuel_types ?? [],
+        fuelTypes: fuelTypes.map((fuel) => fuel.code),
       }
     },
 

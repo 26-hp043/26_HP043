@@ -9,8 +9,9 @@ import type { PeriodDraft } from './types'
  *
  * * **CF를 보내지 않는 것** — 배출계수는 서버가 계산 시점 값으로 뜬다. 화면이 보내면
  *   사용자가 배출계수를 정하는 셈이 되고 `PRD §8.4`가 무너진다.
- * * **선택지를 `meta`에서 받는 것** — 화면이 열거값을 자기 코드에 박으면 DB CHECK
- *   제약·연료 seed와 갈라지고, 사용자는 저장 단계에서야 거부를 만난다.
+ * * **선택지를 서버에서 받는 것** — 화면이 열거값을 자기 코드에 박으면 DB CHECK
+ *   제약·연료 seed와 갈라지고, 사용자는 저장 단계에서야 거부를 만난다. 상태 열거값은
+ *   이 리소스의 `meta`에서, **연료는 `/parameters/fuel-types`에서** 온다 (`#444`).
  * * **서버 오류 문구를 그대로 쓰는 것** — 겹침(409)은 상대 구간의 시각까지 실어 온다.
  */
 
@@ -65,8 +66,17 @@ const LIST_BODY = {
     total: 1,
     period_types: ['IN_PORT', 'AT_ANCHOR', 'DRIFTING', 'STS', 'CANAL_TRANSIT', 'DRYDOCK'],
     consumer_types: ['MAIN_ENGINE', 'AUX_ENGINE', 'OIL_FIRED_BOILER', 'OTHER'],
-    fuel_types: ['DIESEL_GAS_OIL', 'HFO', 'LNG'],
   },
+}
+
+/** `API_SPEC §7.2` 응답 (`#444`). `cf`는 문자열이다 — `§1.7`. */
+const FUEL_TYPES_BODY = {
+  data: [
+    { code: 'DIESEL_GAS_OIL', display_name: 'Diesel/Gas Oil', cf: '3.206000', unit: 'tCO₂/tFuel', is_active: true },
+    { code: 'HFO', display_name: 'Heavy Fuel Oil', cf: '3.114000', unit: 'tCO₂/tFuel', is_active: true },
+    { code: 'LNG', display_name: 'Liquefied Natural Gas', cf: '2.750000', unit: 'tCO₂/tFuel', is_active: true },
+  ],
+  meta: { total: 3 },
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -78,9 +88,21 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const VESSEL = '00000000-0000-4000-8000-000000000003'
 
+/**
+ * 경로별로 다른 본문을 준다.
+ *
+ * 목록 조회가 **두 엔드포인트**를 부르게 됐으므로(`#444`), 한 본문을 모든 요청에
+ * 돌려주면 연료 응답 자리에 구간 목록이 들어간다 — 그 상태는 실제 서버와 다르다.
+ */
+function routedFetch(listBody: unknown = LIST_BODY, fuelBody: unknown = FUEL_TYPES_BODY) {
+  return vi.fn(async (input: URL | RequestInfo) =>
+    jsonResponse(String(input).includes('/parameters/fuel-types') ? fuelBody : listBody),
+  )
+}
+
 describe('목록', () => {
-  it('선택지를 meta에서 받는다 — 화면이 열거값을 박지 않는다', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(LIST_BODY))
+  it('선택지를 서버에서 받는다 — 화면이 열거값을 박지 않는다', async () => {
+    const fetchImpl = routedFetch()
     const result = await createApiNotUnderwayProvider(fetchImpl).list(VESSEL)
 
     expect(result.periodTypes).toHaveLength(6)
@@ -88,22 +110,42 @@ describe('목록', () => {
     expect(result.fuelTypes).toEqual(['DIESEL_GAS_OIL', 'HFO', 'LNG'])
   })
 
+  it('연료 목록을 §7.2 엔드포인트에서 받는다 — 구간 meta의 우회를 쓰지 않는다', async () => {
+    // `#444` 이전에는 구간 목록 응답의 `meta.fuel_types`를 읽었다. 남겨 두면 연료
+    // 목록을 주는 곳이 화면마다 달라진다.
+    const fetchImpl = routedFetch()
+    await createApiNotUnderwayProvider(fetchImpl).list(VESSEL)
+
+    const urls = fetchImpl.mock.calls.map((call) => String(call[0]))
+    expect(urls.some((url) => url.endsWith('/parameters/fuel-types'))).toBe(true)
+  })
+
+  it('구간 meta에 연료가 실려 와도 그것을 쓰지 않는다', async () => {
+    // 서버가 옛 필드를 남겨 두더라도 화면은 §7.2만 본다 — 두 목록이 갈릴 때
+    // 조용히 낡은 쪽을 쓰는 일이 없어야 한다.
+    const stale = { ...LIST_BODY, meta: { ...LIST_BODY.meta, fuel_types: ['STALE'] } }
+    const fetchImpl = routedFetch(stale)
+    const result = await createApiNotUnderwayProvider(fetchImpl).list(VESSEL)
+
+    expect(result.fuelTypes).not.toContain('STALE')
+  })
+
   it('진행 중 구간의 endedAt을 null로 둔다 — 「모름」으로 바꾸지 않는다', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(LIST_BODY))
+    const fetchImpl = routedFetch()
     const result = await createApiNotUnderwayProvider(fetchImpl).list(VESSEL)
 
     expect(result.periods[0].endedAt).toBeNull()
   })
 
   it('연료가 없는 구간도 빈 배열로 준다', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(LIST_BODY))
+    const fetchImpl = routedFetch()
     const result = await createApiNotUnderwayProvider(fetchImpl).list(VESSEL)
 
     expect(result.periods[0].fuelUses).toEqual([])
   })
 
   it('선택지가 없으면 빈 배열이다 — 기본값을 지어 내지 않는다', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [], meta: {} }))
+    const fetchImpl = routedFetch({ data: [], meta: {} }, { data: [], meta: {} })
     const result = await createApiNotUnderwayProvider(fetchImpl).list(VESSEL)
 
     expect(result.periodTypes).toEqual([])

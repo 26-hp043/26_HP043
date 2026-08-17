@@ -242,49 +242,53 @@ describe('J. 기능② 시나리오 비교 — 체크리스트 §4', () => {
 })
 
 describe('K. 기능③ 연간 목업 — 체크리스트 §5', () => {
-  it('요약 표시값', async () => {
-    const r = await createDemoAnnualProvider().load()
+  //
+  // **v1의 단언을 그대로 둘 수 없었다** (#442). 8/8 데모 시점의 목업은 월별 집계 12행과
+  // 합계를 담았는데, 실 API(`#64`)는 그것을 주지 않는다 — 결정론·확률·민감도·스냅샷을
+  // 준다. demo provider가 서버 계약을 따라가면서 표시값의 구성 자체가 바뀌었다.
+  //
+  // 체크리스트의 의도(「화면에 나가는 값이 실제로 그 값인가」)는 유지한다.
+  //
+  it('결정론 표시값', async () => {
+    const r = await createDemoAnnualProvider().run({
+      vessel_id: '00000000-0000-4000-8000-000000000001',
+      regulation_year: 2026,
+      target_rating: 'B',
+      simulation_runs: 5000,
+    })
     expect({
-      distance: formatGrouped(String(r.total_distance_nm), DISPLAY_DIGITS.distanceNm),
-      fuel: formatGrouped(r.total_fuel_ton, DISPLAY_DIGITS.fuelTon),
-      co2: formatGrouped(r.total_co2_emission_ton, DISPLAY_DIGITS.co2Ton),
-      cii: formatDecimalString(r.attained_cii, DISPLAY_DIGITS.cii),
-      ratio: `${formatPercent(r.ratio_to_required)}%`,
-      rating: r.estimated_rating,
+      cii: formatDecimalString(r.deterministic.projected_attained_cii, DISPLAY_DIGITS.cii),
+      rating: r.deterministic.projected_rating,
+      completed: r.deterministic.completed_voyage_count,
+      remaining: r.deterministic.remaining_voyage_count,
       risk: riskLabel(r.risk_level).text,
-      margin: marginDisplay(r.estimated_rating, r.next_worse_boundary_margin_ratio).text,
       sample: r.is_sample_data,
     }).toEqual({
-      distance: '25,200',
-      fuel: '2,020.0',
-      co2: '6,290.3',
       cii: '4.992',
-      ratio: '99.0%',
       rating: 'C',
-      risk: '보통 MEDIUM',
-      margin: 'D 등급까지 7.0%',
+      completed: 8,
+      remaining: 4,
+      risk: '높음 HIGH',
       sample: true,
     })
   })
 
-  it('월별 표 6행', async () => {
-    const r = await createDemoAnnualProvider().load()
-    expect(
-      r.months.map((m) => [
-        m.month,
-        String(m.voyage_count),
-        formatGrouped(String(m.distance_nm), DISPLAY_DIGITS.distanceNm),
-        formatGrouped(m.fuel_ton, DISPLAY_DIGITS.fuelTon),
-        formatGrouped(m.co2_emission_ton, DISPLAY_DIGITS.co2Ton),
-        formatDecimalString(m.attained_cii, DISPLAY_DIGITS.cii),
-      ]),
-    ).toEqual([
-      ['2026-01', '3', '4,200', '330.0', '1,027.6', '4.893'],
-      ['2026-02', '2', '3,800', '312.0', '971.6', '5.114'],
-      ['2026-03', '3', '4,500', '352.0', '1,096.1', '4.872'],
-      ['2026-04', '3', '4,100', '340.0', '1,058.8', '5.165'],
-      ['2026-05', '4', '4,700', '368.0', '1,146.0', '4.876'],
-      ['2026-06', '3', '3,900', '318.0', '990.3', '5.078'],
+  it('확률 분포와 목표 달성 확률', async () => {
+    const r = await createDemoAnnualProvider().run({
+      vessel_id: '00000000-0000-4000-8000-000000000001',
+      regulation_year: 2026,
+      target_rating: 'B',
+      simulation_runs: 5000,
+    })
+    const p = r.monte_carlo.rating_probabilities
+    expect([p.A, p.B, p.C, p.D, p.E]).toEqual([
+      '0.0200',
+      '0.2800',
+      '0.5500',
+      '0.1300',
+      '0.0200',
     ])
+    // 목표 B 이상 = A + B
+    expect(r.monte_carlo.target_success_probability).toBe('0.3000')
   })
 })
