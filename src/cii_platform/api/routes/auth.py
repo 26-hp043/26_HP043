@@ -50,6 +50,7 @@ from cii_platform.auth.session import (
     create_session_fields,
     hash_token,
 )
+from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.models.user_token import PURPOSE_EMAIL_VERIFY
@@ -213,7 +214,10 @@ async def signup(
         await get_mailer().send(
             email_verification(
                 to=user.email,
-                verify_url=f"{str(request.base_url).rstrip('/')}/verify-email?token={verify_token}",
+                # 프론트엔드 라우트다 — API 주소를 그대로 쓰면 링크가 죽는다 (#429).
+                verify_url=(
+                    f"{public_base_url(str(request.base_url))}/verify-email?token={verify_token}"
+                ),
             )
         )
     except MailDeliveryError:
