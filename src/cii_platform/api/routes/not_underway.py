@@ -33,7 +33,6 @@ from cii_platform.services.not_underway import (
     create_period,
     delete_fuel_use,
     delete_period,
-    list_fuel_type_codes,
     list_periods,
     update_period,
 )
@@ -61,12 +60,14 @@ async def list_periods_route(
 ) -> dict[str, object]:
     """선박의 not under way 구간 목록을 조회한다 (API_SPEC §2.9).
 
-    선택지 목록(``period_types``·``consumer_types``·``fuel_types``)을 ``meta``에 함께
-    싣는다. 화면이 열거값을 자기 코드에 박아 두면 DB CHECK 제약·연료 seed와 조용히
-    갈라지고, 사용자는 저장 단계에서야 거부를 만난다.
+    상태 열거값(``period_types``·``consumer_types``)을 ``meta``에 함께 싣는다. 화면이
+    열거값을 자기 코드에 박아 두면 DB CHECK 제약과 조용히 갈라지고, 사용자는 저장
+    단계에서야 거부를 만난다. 이 둘은 **이 리소스의 상태값**이라 여기가 제자리다.
 
-    연료 코드까지 여기서 주는 것은 ``§7.2`` 연료 조회 API가 **아직 구현되지 않아**
-    화면이 받을 다른 경로가 없기 때문이다. 그 엔드포인트가 생기면 옮길 수 있다.
+    **연료 코드는 더 이상 여기서 주지 않는다** (#444). ``§7.2``가 구현되기 전의
+    임시 우회였고, 지금은 화면이 ``GET /parameters/fuel-types``를 직접 부른다 —
+    연료 선택지는 이 엔드포인트의 소관이 아니며, 남겨 두면 같은 목록을 주는 곳이
+    둘이 되어 어느 쪽이 정본인지 흐려진다.
     """
     data = await list_periods(
         session,
@@ -82,7 +83,6 @@ async def list_periods_route(
             total=len(data),
             period_types=list(PERIOD_TYPES),
             consumer_types=list(CONSUMER_TYPES),
-            fuel_types=await list_fuel_type_codes(session),
         ),
     }
 

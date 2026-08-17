@@ -147,6 +147,23 @@ class NotFoundError(AppError):
         super().__init__("NOT_FOUND", message, details=details)
 
 
+class ReproducibilityError(AppError):
+    """재현 결과가 원본과 다르다 (TECH_SPEC §12.1). HTTP 500.
+
+    **사용자가 고칠 수 있는 것이 없어서 500이다.** 같은 스냅샷·같은 seed로 돌렸는데
+    값이 달라졌다면 원인은 입력이 아니라 **엔진·라이브러리·플랫폼**이다
+    (``NEP 19`` — NumPy Generator는 버전 간 bit-for-bit 호환을 보장하지 않는다).
+
+    ``PARAMETER_ERROR``(409)와 갈라 두는 이유가 여기 있다. 규정 파라미터가 바뀌어
+    달라진 것은 **설명 가능한 변화**이고, 이쪽은 재현성 계약 자체가 깨진 상태다
+    (``TECH_SPEC §5.4``). 둘을 한 코드로 묶으면 운영자가 「파라미터를 되돌리면
+    되겠구나」로 잘못 읽는다.
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("REPRODUCIBILITY_ERROR", message, details=details)
+
+
 class WeatherFetchError(AppError):
     """기상 API 실패 (TECH_SPEC §12.1). HTTP 422.
 
