@@ -1303,7 +1303,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_capacity_rules.py` | 19 | §2 단위 · 계산 엔진 |
 | `test_cii_engine.py` | 21 | §2 단위 · 계산 엔진 |
 | `test_cii_history.py` | 7 | §4 API · 선박·항차·계산 |
-| `test_fleet_summary.py` | 20 | **§4 API · 선대 요약** — 규제 트리거 판정 · `days_to_d` 경계 4종 · KPI 집계 |
+| `test_fleet_summary.py` | 23 | **§4 API · 선대 요약** — 규제 트리거 판정 · `days_to_d` 경계 4종 · KPI 집계 · 제원 미비 격리(#419) |
 | `test_reports.py` | 21 | **§3.4~§3.5 리포트 렌더링** — CSV injection 방어 · BOM · 면책 · 한글 PDF |
 | `test_reports_db.py` | 18 | **§4 API · 리포트 데이터 수집** — 진행 중 항차 제외 · 시나리오 인용 · 값 재계산 금지 |
 | `test_cii_current_db.py` | 21 | **§4 API · 실시간 CII 3종 값** — 등급이 ⑴에만 붙는 것 · 진행분 반쪽 주입 금지 · `as_of` 재현성 |

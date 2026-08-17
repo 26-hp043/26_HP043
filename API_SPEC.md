@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.14 |
+| 버전 | v1.15 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-08-17 |
 | 상위 문서 | `PRD.md` v4.0, `TECH_SPEC.md` v1.5 |
@@ -681,7 +681,8 @@ GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
       "unknown_state": 0,
       "rating_distribution": { "A": 2, "B": 2, "C": 3, "D": 2, "E": 1 },
       "at_risk": 2,
-      "no_data": 0
+      "no_data": 0,
+      "missing_specs": 0
     },
     "vessels": [
       {
@@ -695,6 +696,7 @@ GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
         "current_lon": "129.040000",
         "position_updated_at": "2026-08-16T11:00:00+00:00",
         "data_available": true,
+        "unavailable_reason": null,
         "ytd_attained_cii": "9.4200",
         "ytd_required_cii": "5.0450",
         "ytd_rating": "E",
@@ -748,6 +750,20 @@ C등급이어도 여유가 없으면 `risk_level`은 `HIGH`지만 규제 의무�
 | `NO_DATA` | 실적 또는 경계값 없음 |
 
 > **정박 중에 산정하지 않는 이유.** not under way 구간은 거리가 늘지 않고 연료만 늘어(`PRD §3.3` · `MEPC.412(84)` §4.2) CII가 단조 악화한다. 그대로 외삽하면 n일이 하루가 다르게 짧아졌다가 **출항하는 순간 되돌아간다.** 평활화 규칙을 두는 대신 사유로 표기한다.
+
+#### `unavailable_reason` — `data_available=false`인 이유 (#419)
+
+제원(DWT/GT)이 비어 선박 한 척의 계산이 안 되어도 **선대 전체가 실패하지 않는다** — 그 선박만 사유를 달고 내려온다. `vessel.deadweight`·`gross_tonnage`는 nullable이고 수동 입력 경로(`PRD §20 O-11`)가 제원 없는 등록을 허용하므로, 제원 미비는 오류가 아니라 상태다.
+
+| 값 | 조건 |
+|---|---|
+| `NO_DATA` | 집계할 실적이 없다 |
+| `MISSING_SPECS` | DWT/GT 제원 미비 — 제원을 입력해야 계산 가능 |
+| `CALCULATION_FAILED` | 그 외의 선박별 계산 실패 |
+
+`summary.missing_specs`는 `no_data` 중 제원 미비 척수다 — 「실적 없음」(항차 등록)과 「제원 미비」(제원 입력)는 사용자의 다음 행동이 다르다.
+
+> **규제 파라미터 미적재(`PARAMETER_ERROR`, 409)는 격리하지 않는다.** 모든 선박이 계산 불가인 서버 배포 문제는 조용히 사라지면 안 된다(VAL-005, #353 규약).
 
 #### 오류 응답
 
