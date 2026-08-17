@@ -100,3 +100,42 @@ async def record_calculation_run(
         },
         ip_address=ip_address,
     )
+
+
+async def record_voyage_confirm(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    voyage_id: UUID,
+    from_status: str,
+    annual_inclusion_policy: str,
+    ip_address: str | None = None,
+) -> None:
+    """항차 확정 — ``TECH_SPEC §13.1``이 계산 실행·파라미터 변경과 함께 지목한 사건.
+
+    ## 왜 확정만 기록하는가
+
+    확정(``CONFIRMED``)은 **되돌릴 수 없는 선언**이다. 그 시점의 실적이 연말 DCS
+    보고의 근거가 되고, 이후 실적 수정은 상태 가드가 막는다(``API_SPEC §3.6``).
+    「누가 언제 이 항차를 확정했나」에 답할 수 없으면 그 근거의 출처가 사라진다.
+
+    다른 전환(``PLANNED → IN_PROGRESS`` 등)은 되돌릴 수 있고 정본이 지목하지도
+    않았다. **기록 대상을 넓히는 것은 감사 로그를 늘리는 일이 아니라 무엇이 중요한지를
+    흐리는 일**이라, 정본이 든 것만 남긴다.
+
+    ``details``에 **변경 전/후를 함께** 담는다 — 「무엇에서 무엇으로」가 없으면 로그가
+    「확정됐다」만 말하고, 어떤 상태를 거쳐 왔는지는 다시 조회해야 알 수 있다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="VOYAGE_CONFIRM",
+        user_id=user_id,
+        entity_type="voyage",
+        entity_id=voyage_id,
+        details={
+            "from_status": from_status,
+            "to_status": "CONFIRMED",
+            "annual_inclusion_policy": annual_inclusion_policy,
+        },
+        ip_address=ip_address,
+    )
