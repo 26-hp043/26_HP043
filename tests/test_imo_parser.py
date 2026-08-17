@@ -1,6 +1,8 @@
 """parse_imo_scientific / validate_a_value 단위 테스트 (#36).
 
 이슈 명세 6개 + ORACLE-S-3 reject 3개 + §9.2 산술 경로 표현형 잠금 1개.
+
+케이스: UT-IMO-001 · UT-IMO-002 · UT-IMO-004 · UT-IMO-005 (`TEST_PLAN §14.5`)
 """
 
 from decimal import Decimal

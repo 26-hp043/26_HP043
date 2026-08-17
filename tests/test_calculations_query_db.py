@@ -7,6 +7,8 @@ id desc)`` 정렬, 커서 페이지네이션.
 ``calculation_run``은 immutable이라 cleanup에서 트리거를 잠시 끈다
 (``test_voyage_delete_db.py``와 같은 패턴). 인증은 dev-login 실제 흐름으로
 통과한다(배선 #307).
+
+케이스: AT-CQ-001 · AT-CQ-003 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations

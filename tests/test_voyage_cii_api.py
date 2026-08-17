@@ -8,6 +8,8 @@ HTTP status 불일치, ``meta`` 누락, 계약 예시와 다른 자릿수.
 
 이 방식으로 못 잡는 것: 실제 쿼리의 정합성, 제약 위반, 트랜잭션 경계. 그건 DB가 있는
 CI에서 별도 테스트가 확인한다.
+
+케이스: AT-VC-001 · AT-VC-002 · AT-VC-003 · AT-VC-004 · AT-VC-005 · AT-ERR-004 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations
