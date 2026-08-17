@@ -206,3 +206,29 @@ async def find_in_progress(session: AsyncSession, vessel_id: UUID) -> Voyage | N
         .limit(1)
     )
     return (await session.execute(stmt)).scalars().first()
+
+
+async def mark_calculations_needing_recalc(session: AsyncSession, voyage_id: UUID) -> int:
+    """이 항차의 계산 결과에 **재계산 필요 표시**를 남긴다 (`PRD §8.4`, #58).
+
+    선박 단위 함수(``calculation_run.mark_needs_recalc``)와 나눠 두는 이유는 **범위가
+    다르기 때문**이다 — 제원 변경은 그 선박의 모든 계산을 흔들지만, 항차 계획 변경은
+    그 항차의 계산만 무효로 만든다. 넓게 잡으면 관계없는 계산까지 「다시 해야 한다」로
+    표시되어 표시 자체가 무의미해진다.
+
+    ``needs_recalc = false``인 행만 갱신한다 — true→false 되돌림은 가드 트리거(024)가
+    거부하고, 이미 표시된 행은 누적 전용이다.
+    """
+    from sqlalchemy import update
+
+    from cii_platform.db.models.calculation_run import CalculationRun
+
+    result = await session.execute(
+        update(CalculationRun)
+        .where(
+            CalculationRun.voyage_id == voyage_id,
+            CalculationRun.needs_recalc.is_(False),
+        )
+        .values(needs_recalc=True)
+    )
+    return result.rowcount or 0
