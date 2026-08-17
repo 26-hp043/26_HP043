@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.services.fleet_summary import (
     REASON_ALREADY_AT_OR_BELOW,
+    REASON_MISSING_SPECS,
     REASON_NO_DATA,
     REASON_NOT_THIS_YEAR,
     REASON_NOT_UNDER_WAY,
@@ -331,3 +332,110 @@ async def test_numbers_are_strings(session):
 
     for key in ("ytd_attained_cii", "ytd_required_cii", "current_lat", "current_lon"):
         assert row[key] is None or isinstance(row[key], str)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# #419 — 제원 미비 선박이 선대 전체를 무너뜨리지 않는다
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _insert_vessel_without_specs(session, *, imo: str, name: str) -> str:
+    """DWT/GT 없이 등록한 선박 — `PRD §20 O-11` 수동 입력 경로가 허용하는 상태.
+
+    사용자가 제원을 나중에 채우려고 먼저 등록하면 이 상태가 된다.
+    """
+    row = await session.execute(
+        text(
+            "INSERT INTO vessel (imo_number, name, ship_type) "
+            "VALUES (:imo, :name, 'BULK_CARRIER') RETURNING id"
+        ),
+        {"imo": imo, "name": name},
+    )
+    return str(row.scalar_one())
+
+
+@pytest.mark.asyncio
+async def test_missing_specs_vessel_does_not_break_the_fleet(session):
+    """완료 기준 1·3 — 제원 없는 선박이 섞여 있어도 나머지가 정상 반환된다.
+
+    종전에는 ``compute_ytd_cii``가 던지는 ``ValidationError``가 그대로 올라와
+    ``GET /fleet/summary`` 전체가 500이 됐다 — 10척 중 1척 때문에 9척이 사라졌다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    ok_id = await _insert_vessel(
+        session, imo="9200041", name="OK", underway_state="UNDER_WAY", detail_status="SAILING"
+    )
+    await _insert_vessel_without_specs(session, imo="9200042", name="NOSPEC")
+
+    # 예외가 아니라 정상 응답이다.
+    result = await get_fleet_summary(session, regulation_year=YEAR)
+
+    assert len(result["vessels"]) == 2
+    by_imo = {v["imo_number"]: v for v in result["vessels"]}
+    # 제원 있는 선박은 평소와 같은 형태 (data_available=False — 실적이 없을 뿐).
+    assert by_imo["9200041"]["vessel_id"] == ok_id
+    assert by_imo["9200041"]["unavailable_reason"] == REASON_NO_DATA
+    # 제원 없는 선박도 목록에 있다 — 사유만 다르다.
+    assert by_imo["9200042"]["data_available"] is False
+    assert by_imo["9200042"]["unavailable_reason"] == REASON_MISSING_SPECS
+    assert by_imo["9200042"]["ytd_rating"] is None
+    assert by_imo["9200042"]["risk_reasons"] == []
+
+
+@pytest.mark.asyncio
+async def test_missing_specs_counted_separately(session):
+    """완료 기준 2 — 사유가 구분된다. KPI의 no_data 내역으로도 노출한다."""
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(
+        session, imo="9200043", name="OK", underway_state="UNDER_WAY", detail_status="SAILING"
+    )
+    await _insert_vessel_without_specs(session, imo="9200044", name="NOSPEC")
+
+    summary = (await get_fleet_summary(session, regulation_year=YEAR))["summary"]
+
+    assert summary["total"] == 2
+    assert summary["no_data"] == 2  # 둘 다 data_available=false
+    assert summary["missing_specs"] == 1  # 그중 제원 미비는 1척
+
+
+@pytest.mark.asyncio
+async def test_parameter_error_is_not_swallowed(session):
+    """규제 파라미터 미적재는 잡지 않는다 — 서버 배포 문제는 조용히 사라지면 안 된다.
+
+    #419가 격리하는 것은 「선박 한 척의 상태」뿐이다. 파라미터가 없으면 모든 선박이
+    계산 불가이므로 409로 요청 전체가 실패하는 것이 옳다(VAL-005, #353 규약).
+
+    실적 있는 항차를 넣어야 이 테스트가 성립한다 — 실적이 없으면 ``compute_ytd_cii``
+    가 M/0 가드에서 ``data_available=False``로 조기 반환해 파라미터 조회에 도달하지
+    않는다. 2039년은 seed(2023~2030)에 없는 연도라 파라미터가 확실히 없다.
+    """
+    from cii_platform.errors import ParameterError
+
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    vessel_id = await _insert_vessel(
+        session, imo="9200045", name="P", underway_state="UNDER_WAY", detail_status="SAILING"
+    )
+    voyage = await session.execute(
+        text(
+            "INSERT INTO voyage "
+            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+            " departure_port_name, arrival_port_name, planned_distance_nm, "
+            " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
+            f"VALUES ('{vessel_id}'::uuid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', 2039, "
+            "'BUSAN', 'SINGAPORE', 1000, 1000, 12.0, 11.5) RETURNING id"
+        )
+    )
+    voyage_id = voyage.scalar_one()
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use "
+            "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
+            f"VALUES ('{voyage_id}'::uuid, 'HFO', 100, 100, {HFO_CF}, 'SAMPLE')"
+        )
+    )
+
+    with pytest.raises(ParameterError, match="규정 파라미터"):
+        await get_fleet_summary(session, regulation_year=2039)

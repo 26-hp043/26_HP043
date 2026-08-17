@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.db.repositories import vessel as vessel_repo
+from cii_platform.errors import CalculationError, ValidationError
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import YtdCiiOutput, compute_ytd_cii
@@ -70,6 +71,11 @@ REASON_ALREADY_AT_OR_BELOW = "ALREADY_AT_OR_BELOW"
 REASON_NOT_THIS_YEAR = "NOT_THIS_YEAR"
 REASON_NOT_UNDER_WAY = "NOT_UNDER_WAY"
 REASON_NO_DATA = "NO_DATA"
+
+#: ``unavailable_reason`` 값 (#419) — ``data_available=false``인 **이유**.
+#: 「실적 없음」과 「제원 미비」는 사용자가 할 일이 다르다(항차 등록 vs 제원 입력).
+REASON_MISSING_SPECS = "MISSING_SPECS"
+REASON_CALCULATION_FAILED = "CALCULATION_FAILED"
 
 
 def _publish(value: Decimal | None, digits: int) -> str | None:
@@ -229,12 +235,64 @@ async def get_fleet_summary(
     actions: list[dict[str, object]] = []
 
     for vessel in vessels:
-        ytd = await compute_ytd_cii(
-            session,
-            vessel_id=vessel.id,
-            regulation_year=year,
-            as_of=resolved,
-        )
+        # #419 — 한 척의 계산 실패가 선대 전체를 무너뜨리지 않는다. 제원 미비는
+        # 오류가 아니라 **상태**다(`data_available=False`와 같은 계열, #353 계약).
+        # 단건 조회(선박 상세)는 예외로 「제원을 입력하세요」를 안내하지만, 목록
+        # 화면은 그 선박만 사유를 달고 내려간다. ParameterError는 잡지 않는다 —
+        # 규제 파라미터 미적재는 서버 배포 문제라 조용히 사라지면 안 된다.
+        ytd: YtdCiiOutput | None = None
+        unavailable_reason: str | None = None
+        try:
+            ytd = await compute_ytd_cii(
+                session,
+                vessel_id=vessel.id,
+                regulation_year=year,
+                as_of=resolved,
+            )
+        except ValidationError as exc:
+            # field=vessel_id — 제원(DWT/GT) 미비. 그 외의 ValidationError(예: 알
+            # 수 없는 연료 코드)은 제원 문제가 아니다 — 「제원을 입력하세요」 안내가
+            # 사용자를 엉뚱한 곳으로 보내므로 CALCULATION_FAILED로 분류한다.
+            unavailable_reason = (
+                REASON_MISSING_SPECS if exc.field == "vessel_id" else REASON_CALCULATION_FAILED
+            )
+        except CalculationError:
+            unavailable_reason = REASON_CALCULATION_FAILED
+
+        base = {
+            "vessel_id": str(vessel.id),
+            "name": vessel.name,
+            "ship_type": vessel.ship_type,
+            "imo_number": vessel.imo_number,
+            "underway_state": vessel.underway_state,
+            "detail_status": vessel.detail_status,
+            "current_lat": _publish(vessel.current_lat, 6),
+            "current_lon": _publish(vessel.current_lon, 6),
+            "position_updated_at": (
+                vessel.position_updated_at.isoformat()
+                if vessel.position_updated_at is not None
+                else None
+            ),
+        }
+
+        if ytd is None:
+            # 계산 자체가 안 된 선박 — 위험 판정 재료도 없다(risk_reasons=[]).
+            rows.append(
+                {
+                    **base,
+                    "data_available": False,
+                    "unavailable_reason": unavailable_reason,
+                    "ytd_attained_cii": None,
+                    "ytd_required_cii": None,
+                    "ytd_rating": None,
+                    "risk_level": None,
+                    "risk_reasons": [],
+                    "days_to_d": None,
+                    "days_to_d_reason": REASON_NO_DATA,
+                }
+            )
+            continue
+
         prior = await _prior_confirmed_ratings(
             session,
             vessel_id=vessel.id,
@@ -250,20 +308,10 @@ async def get_fleet_summary(
 
         rows.append(
             {
-                "vessel_id": str(vessel.id),
-                "name": vessel.name,
-                "ship_type": vessel.ship_type,
-                "imo_number": vessel.imo_number,
-                "underway_state": vessel.underway_state,
-                "detail_status": vessel.detail_status,
-                "current_lat": _publish(vessel.current_lat, 6),
-                "current_lon": _publish(vessel.current_lon, 6),
-                "position_updated_at": (
-                    vessel.position_updated_at.isoformat()
-                    if vessel.position_updated_at is not None
-                    else None
-                ),
+                **base,
                 "data_available": ytd.data_available,
+                # 「실적 없음」과 「제원 미비」는 사용자가 할 일이 다르다 (#419).
+                "unavailable_reason": None if ytd.data_available else REASON_NO_DATA,
                 "ytd_attained_cii": _publish(ytd.attained_cii, _CII_DIGITS),
                 "ytd_required_cii": _publish(ytd.required_cii, _CII_DIGITS),
                 "ytd_rating": ytd.rating,
@@ -324,4 +372,9 @@ def _aggregate_counts(rows: list[dict[str, object]]) -> dict[str, object]:
         "rating_distribution": distribution,
         "at_risk": sum(1 for r in rows if r["risk_reasons"]),
         "no_data": sum(1 for r in rows if not r["data_available"]),
+        # #419 — no_data의 내역. 「실적 없음」(항차를 등록하세요)과 「제원 미비」
+        # (DWT/GT를 입력하세요)는 사용자의 다음 행동이 다르므로 나눠서 센다.
+        "missing_specs": sum(
+            1 for r in rows if r.get("unavailable_reason") == REASON_MISSING_SPECS
+        ),
     }
