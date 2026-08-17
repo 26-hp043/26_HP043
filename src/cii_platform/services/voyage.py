@@ -99,8 +99,10 @@ async def create_voyage(
     초기 상태: ``status=DRAFT``, ``annual_inclusion_policy=EXCLUDE`` (PRD §8.1.1).
 
     ``created_from``은 **출처 표시**다(``DB_SCHEMA §2.2``의 5값). 기본은 수기 입력이고,
-    시나리오 채택(#58)이 ``FEATURE_2_ADOPTED``로 넘긴다 — 나중에 「이 항차는 어디서
-    왔나」를 물을 수 있어야 하기 때문이다. **초기 상태는 출처와 무관하게 같다.**
+    CSV 가져오기(#60)는 ``IMPORT``를, 시나리오 채택(#58)은 ``FEATURE_2_ADOPTED``를
+    넘긴다 — 나중에 「이 항차는 어디서 왔나」를 물을 수 있어야 하기 때문이다.
+    **초기 상태는 출처와 무관하게 같다**: 어느 경로로 들어왔든 연간 집계에 바로
+    들어가지 않는다.
     """
     # 연료 CF 조회 — 모든 fuel_type이 active여야 한다.
     codes = [fu["fuel_type"] for fu in fuel_uses]
@@ -285,6 +287,11 @@ async def transition_voyage(
     """항차 상태를 전환한다 (API_SPEC §3.5, #54). 없으면 404.
 
     PRD §8.1 상태 머신 + policy 가드를 따른다.
+
+    반환 dict에 ``_from_status``를 실어 보낸다 — **감사 로그의 「변경 전」 값**이다
+    (``TECH_SPEC §13.1``, #65). 라우트가 꺼내 쓰고 응답에서 뺀다(``_duration_ms``와
+    같은 규약). 서비스가 직접 기록하지 않는 이유는 **주체(user)와 IP가 HTTP 개념**이라
+    서비스가 ``request``를 알아야 하기 때문이다(``TECH_SPEC §16.1`` 계층).
     """
     voyage = await voyage_repo.get_by_id(session, voyage_id)
     if voyage is None:
@@ -323,7 +330,7 @@ async def transition_voyage(
     voyage.status = to_status
     await session.commit()
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
-    return to_dict(voyage, fuel_uses)
+    return {**to_dict(voyage, fuel_uses), "_from_status": current}
 
 
 async def _guard_actual_data(session: AsyncSession, voyage, to_status: str) -> None:
