@@ -1,4 +1,6 @@
-"""개발 환경 스텁 인증 테스트 (#276)."""
+"""개발 환경 스텁 인증 테스트 (#276).
+케이스: AT-AUTH-013 (`TEST_PLAN §14.5`)
+"""
 
 from __future__ import annotations
 

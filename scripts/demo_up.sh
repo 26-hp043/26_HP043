@@ -25,6 +25,28 @@ VENV="$ROOT/.venv/bin"
 DB_URL="postgresql+asyncpg://cii:cii@localhost:5432/cii"
 CHECK_ONLY="${1:-}"
 
+# --- .venv 확인 -----------------------------------------------------------------------
+#
+# 이 스크립트는 alembic·seed·uvicorn을 전부 `$VENV`에서 부른다. 가상환경이 없으면
+# `No such file or directory`만 나와서 **무엇을 해야 하는지 알 수 없다** (#477).
+#
+# 화면만 만지는 사람도 백엔드를 띄워야 하므로, 원인과 해결을 여기서 말해 준다.
+#
+if [ ! -x "$VENV/python" ]; then
+  printf '\033[31m✗\033[0m Python 가상환경(.venv)이 없습니다.\n\n'
+  printf '  이 스크립트는 alembic·seed·uvicorn을 .venv에서 실행합니다.\n'
+  printf '  아래를 한 번 실행한 뒤 다시 시도하십시오.\n\n'
+  printf '    python3 -m venv .venv\n'
+  printf '    .venv/bin/pip install -e ".[dev]"\n\n'
+  printf '  Python 없이 백엔드만 띄우려면 Docker 경로를 쓰십시오 (#477).\n\n'
+  printf '    docker compose up -d --wait db\n'
+  printf '    docker compose run --rm app alembic upgrade head\n'
+  printf '    docker compose run --rm app python -m cii_platform.db.seed\n'
+  printf '    docker compose run --rm app python -m cii_platform.db.demo_seed\n'
+  printf '    docker compose up -d app\n\n'
+  exit 1
+fi
+
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; }
 info() { printf '  · %s\n' "$1"; }

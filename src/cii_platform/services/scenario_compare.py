@@ -32,7 +32,7 @@ from cii_platform.calc.capacity import (
 )
 from cii_platform.calc.cii_engine import FuelUse
 from cii_platform.calc.distance import great_circle_distance_nm
-from cii_platform.calc.fuel_estimator import DEFAULT_WEATHER_FACTOR, estimate_fuel_ton
+from cii_platform.calc.fuel_estimator import estimate_fuel_ton
 from cii_platform.calc.hash import (
     compute_parameter_hash,
     compute_scenario_input_hash,
@@ -55,6 +55,7 @@ from cii_platform.services.voyage_cii import (
     _plain,
     _publish,
 )
+from cii_platform.services.weather import WeatherResolution, resolve_with_fallback
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -155,6 +156,7 @@ def _compute_scenarios(
     c: Decimal,
     z_factor_percent: Decimal,
     d_vector: DVector,
+    weather_factor: Decimal,
 ) -> list[_ScenarioComputed]:
     """시나리오 3건 전체를 **한 Layer 1 컨텍스트 안에서** 계산한다.
 
@@ -169,7 +171,7 @@ def _compute_scenarios(
             speed_kn=plan.speed_kn,
             reference_speed_kn=reference_speed_kn,
             base_daily_foc_ton=base_daily_foc_ton,
-            weather_factor=DEFAULT_WEATHER_FACTOR,
+            weather_factor=weather_factor,
         )
         duration_hours = plan.distance_nm / plan.speed_kn
         layer1 = _compute_layer1(
@@ -194,12 +196,23 @@ def _compute_scenarios(
 
 
 async def compare_scenarios(
-    session: AsyncSession, payload: ScenarioCompareInput
+    session: AsyncSession,
+    payload: ScenarioCompareInput,
+    *,
+    weather_provider=None,
 ) -> dict[str, object]:
     """3개 시나리오를 계산·저장하고 API_SPEC §5.1 응답 dict를 반환한다.
 
     ``meta``는 채우지 않는다 — 라우트가 붙인다(기능①과 같은 계층 규칙).
+
+    ``weather_provider``는 **테스트가 갈아 끼우는 자리**다(#62). 기본값이 ``None``인
+    이유는 조회가 필요할 때만 어댑터를 만들기 위해서다 — 기상 보정을 쓰지 않는
+    요청까지 외부 클라이언트 생성 비용을 지불할 이유가 없다.
     """
+    if weather_provider is None and payload.weather_model not in (None, "NONE"):
+        from cii_platform.weather.open_meteo import OpenMeteoProvider
+
+        weather_provider = OpenMeteoProvider()
     started = time.perf_counter()
 
     vessel = await _load_vessel(session, payload.vessel_id)
@@ -215,7 +228,9 @@ async def compare_scenarios(
 
     direct_distance = _resolve_direct_distance(payload)
     slow_speed = _resolve_slow_speed(payload)
-    weather_model_used, weather_warnings = _resolve_weather(payload.weather_model)
+    weather = await _resolve_weather(session, payload, vessel, weather_provider)
+    weather_model_used = weather.model_used
+    weather_warnings = list(weather.warnings)
 
     plans = [
         _ScenarioPlan("DIRECT", direct_distance, payload.current_speed_kn),
@@ -248,6 +263,7 @@ async def compare_scenarios(
                 d3=Decimal(rating_boundary.d3),
                 d4=Decimal(rating_boundary.d4),
             ),
+            weather_factor=weather.factor,
         )
     except ValueError as exc:
         raise ValidationError(f"시나리오 계산 오류: 입력값을 확인하세요. ({exc})") from exc
@@ -283,7 +299,10 @@ async def compare_scenarios(
                 for p in plans
             ],
             "weather_model": payload.weather_model or "NONE",
-            "weather_factor": None,
+            # `[ORACLE-S-5]` — 해시 전에 확정돼 있어야 한다. fallback으로 NONE이 된
+            # 경우도 그 결과값(1.0)이 들어간다: **보정 여부가 다르면 다른 계산**이라는
+            # 것이 `§5.4`가 정한 재현성 단위다.
+            "weather_factor": weather.factor,
         }
     )
     parameter_hash = compute_parameter_hash(parameters_used)
@@ -303,7 +322,8 @@ async def compare_scenarios(
             speed_kn=row["speed_kn"],
             duration_hours=row["duration_hours"],
             fuel_ton=row["fuel_ton"],
-            weather_factor=DEFAULT_WEATHER_FACTOR,
+            weather_factor=weather.factor,
+            weather_snapshot_id=weather.snapshot_id,
             cii_value=item.layer1.attained_cii.quantize(_DB_SCALE["cii"], rounding=ROUND_HALF_UP),
             estimated_rating=item.layer1.rating,
             risk_level=item.layer1.risk_level,
@@ -319,6 +339,7 @@ async def compare_scenarios(
         transport_capacity=transport_capacity,
         reference_capacity=reference_capacity,
         weather_model_used=weather_model_used,
+        weather_factor=weather.factor,
     )
     data = {
         "scenarios": scenarios_json,
@@ -483,15 +504,28 @@ def _resolve_slow_speed(payload) -> Decimal:
     return max(payload.current_speed_kn - SLOW_STEAMING_SPEED_DELTA, MIN_SPEED_KN)
 
 
-def _resolve_weather(weather_model: str | None) -> tuple[str, list[str]]:
-    """#61(기상 연동) 전까지 모든 모델을 NONE으로 계산한다.
+async def _resolve_weather(
+    session: AsyncSession,
+    payload: ScenarioCompareInput,
+    vessel,
+    provider,
+) -> WeatherResolution:
+    """기상 보정을 확정한다 (`PRD §11.6` fallback 체인, #62).
 
-    요청이 ``NONE``(또는 생략)이면 fallback이 아니다 — 경고 없이 정상 NONE 계산이다.
-    다른 모델을 요청했으면 ``WEATHER_NONE_FALLBACK``을 붙인다 (API_SPEC §1.6).
+    **좌표가 없으면 조회하지 않는다.** `API_SPEC §5.1`이 `current_lat`·`current_lon`을
+    선택으로 두고 있어(스키마 주석 참조) 위치 없는 요청이 정상적으로 들어온다 —
+    어느 바다인지 모르는 채 기상을 물을 수는 없다.
+
+    요청이 ``NONE``(또는 생략)이면 fallback이 아니다: 경고 없이 정상 NONE 계산이다.
     """
-    if weather_model is None or weather_model == "NONE":
-        return "NONE", []
-    return "NONE", [WARNING_WEATHER_NONE_FALLBACK]
+    return await resolve_with_fallback(
+        session,
+        weather_model=payload.weather_model,
+        lat=payload.current_lat,
+        lon=payload.current_lon,
+        ship_type=vessel.ship_type,
+        provider=provider,
+    )
 
 
 def _slow_floor_warnings(slow_plan: _ScenarioPlan) -> list[str]:
@@ -546,6 +580,7 @@ def _serialize_scenarios(
     transport_capacity: Decimal,
     reference_capacity: Decimal,
     weather_model_used: str,
+    weather_factor: Decimal,
 ) -> list[dict[str, object]]:
     """API_SPEC §5.1 ``scenarios[]`` 블록. ``scenario_ids``는 저장된 행의 PK다."""
     calculation_basis = {
@@ -593,7 +628,7 @@ def _serialize_scenarios(
                     else _publish(layer1.margin_ratio, SERIALIZATION_DIGITS["margin_ratio"])
                 ),
                 "risk_level": layer1.risk_level,
-                "weather_factor": float(DEFAULT_WEATHER_FACTOR),
+                "weather_factor": float(weather_factor),
                 "weather_model_used": weather_model_used,
                 "calculation_basis": dict(calculation_basis),
             }

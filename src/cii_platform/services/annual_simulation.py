@@ -55,7 +55,12 @@ from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
-from cii_platform.errors import ValidationError
+from cii_platform.errors import (
+    NotFoundError,
+    ParameterError,
+    ReproducibilityError,
+    ValidationError,
+)
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
@@ -118,19 +123,6 @@ def _publish(value: Decimal | None, kind: str = "cii") -> str | None:
 # ─── 입력 확정 ───────────────────────────────────────────────────────────────
 
 
-def _voyage_co2_g(voyage, fuel_uses) -> Decimal:
-    """항차 하나의 CO₂(g). ``M = Σ(연료 × 1,000,000 × CF)`` (``PRD §3.3.1``)."""
-    return sum(
-        (
-            Decimal(str(fu.actual_fuel_ton or fu.planned_fuel_ton or 0))
-            * Decimal(1_000_000)
-            * Decimal(str(fu.cf_used))
-            for fu in fuel_uses
-        ),
-        Decimal(0),
-    )
-
-
 async def _collect_voyages(session: AsyncSession, *, vessel_id: UUID, year: int, as_of: datetime):
     """확정분과 잔여분을 ``annual_inclusion_policy``로 갈라 온다.
 
@@ -187,6 +179,90 @@ def _snapshot_row(voyage, kind: str, fuel_uses) -> dict:
             for fu in fuel_uses
         ],
     }
+
+
+# ─── 스냅샷 → 계산 입력 ───────────────────────────────────────────────────────
+
+
+def _decimal_or(*values: str | None) -> Decimal:
+    """앞에서부터 **0이 아닌 첫 값**. 전부 비었으면 ``Decimal(0)``.
+
+    원본 코드의 ``fu.actual_fuel_ton or fu.planned_fuel_ton or 0``과 같은 규칙이다.
+    `or` 연쇄는 ``0``도 건너뛰므로, 스냅샷 문자열로 옮길 때 그 성질을 함께 옮긴다 —
+    ``Decimal("0")``을 「값이 있다」로 읽으면 실적 0인 항차에서 계획값이 무시된다.
+    """
+    for value in values:
+        if value is None:
+            continue
+        parsed = Decimal(value)
+        if parsed:
+            return parsed
+    return Decimal(0)
+
+
+def _inputs_from_snapshot(
+    rows: list[dict], vessel
+) -> tuple[CompletedTotals, list[RemainingVoyage]]:
+    """스냅샷 항차 사본에서 계산 입력을 만든다 (``TECH_SPEC §11.4`` 2항).
+
+    **계산은 원본 ``voyage`` 테이블이 아니라 이 사본에서 나온다.** 실행 경로와 재현
+    경로가 같은 함수를 쓰게 하는 것이 요점이다 — 두 경로가 각자 입력을 조립하면
+    ``reproduce``가 「원본과 다르다」고 보고할 때 그것이 **엔진 문제인지 조립 문제인지**
+    구분되지 않는다.
+
+    ``reference_speed_kn``·``reference_daily_foc_ton``은 **선박에서 읽는다** — 스냅샷에
+    없다. 그래서 선박 제원이 바뀌면 같은 스냅샷으로도 결과가 달라질 수 있는데
+    ``input_hash``는 항차만 덮으므로 그 변화가 해시에 드러나지 않는다. 스냅샷 범위를
+    넓히는 것은 스키마 변경이라 별도 이슈로 둔다.
+    """
+    completed_co2_g = Decimal(0)
+    completed_distance_nm = Decimal(0)
+    remaining: list[RemainingVoyage] = []
+
+    reference_speed_kn = (
+        None if vessel.reference_speed_kn is None else float(vessel.reference_speed_kn)
+    )
+    base_daily_foc_ton = (
+        None if vessel.reference_daily_foc_ton is None else float(vessel.reference_daily_foc_ton)
+    )
+
+    for row in rows:
+        fuel_uses = row.get("fuel_uses") or []
+        if row.get("kind") == "ACTUAL":
+            for fuel_use in fuel_uses:
+                completed_co2_g += (
+                    _decimal_or(fuel_use.get("actual_fuel_ton"), fuel_use.get("planned_fuel_ton"))
+                    * Decimal(1_000_000)
+                    * Decimal(fuel_use["cf_used"])
+                )
+            completed_distance_nm += _decimal_or(
+                row.get("actual_distance_nm"), row.get("planned_distance_nm")
+            )
+            continue
+
+        planned_distance = float(Decimal(row.get("planned_distance_nm") or "0"))
+        planned_speed = row.get("planned_speed_kn")
+        for fuel_use in fuel_uses:
+            remaining.append(
+                RemainingVoyage(
+                    distance_nm=planned_distance,
+                    fuel_ton=float(Decimal(fuel_use.get("planned_fuel_ton") or "0")),
+                    cf=float(Decimal(fuel_use["cf_used"])),
+                    speed_kn=None if planned_speed is None else float(Decimal(planned_speed)),
+                    reference_speed_kn=reference_speed_kn,
+                    base_daily_foc_ton=base_daily_foc_ton,
+                )
+            )
+
+    completed = CompletedTotals(
+        co2_g=float(completed_co2_g), distance_nm=float(completed_distance_nm)
+    )
+    return completed, remaining
+
+
+def _plan_voyage_count(rows: list[dict]) -> int:
+    """스냅샷에서 **잔여 계획 항차 수**. 연료 행이 아니라 항차를 센다."""
+    return sum(1 for row in rows if row.get("kind") == "PLAN")
 
 
 # ─── 민감도 조립 ─────────────────────────────────────────────────────────────
@@ -269,45 +345,16 @@ async def run_annual_simulation(
         session, [v.id for v in (*actual, *planned)]
     )
 
-    completed = CompletedTotals(
-        co2_g=float(
-            sum(
-                (_voyage_co2_g(v, fuel_by_voyage.get(v.id, [])) for v in actual),
-                Decimal(0),
-            )
-        ),
-        distance_nm=float(
-            sum(
-                (Decimal(str(v.actual_distance_nm or v.planned_distance_nm or 0)) for v in actual),
-                Decimal(0),
-            )
-        ),
-    )
-
-    remaining = []
-    for voyage in planned:
-        fuel_uses = fuel_by_voyage.get(voyage.id, [])
-        for fuel_use in fuel_uses:
-            remaining.append(
-                RemainingVoyage(
-                    distance_nm=float(voyage.planned_distance_nm or 0),
-                    fuel_ton=float(fuel_use.planned_fuel_ton or 0),
-                    cf=float(fuel_use.cf_used),
-                    speed_kn=(
-                        None if voyage.planned_speed_kn is None else float(voyage.planned_speed_kn)
-                    ),
-                    reference_speed_kn=(
-                        None
-                        if vessel.reference_speed_kn is None
-                        else float(vessel.reference_speed_kn)
-                    ),
-                    base_daily_foc_ton=(
-                        None
-                        if vessel.reference_daily_foc_ton is None
-                        else float(vessel.reference_daily_foc_ton)
-                    ),
-                )
-            )
+    #
+    # **스냅샷을 먼저 만들고 그 사본에서 계산 입력을 뽑는다** (``TECH_SPEC §11.4`` 2항:
+    # 「원본 Voyage 테이블이 아닌 SimulationSnapshot.voyages 사용」).
+    #
+    # 종전에는 계산은 ORM 행에서, 스냅샷은 따로 직렬화해서 만들었다. 값이 같으니
+    # 결과는 같았지만 **조립 경로가 둘**이었고, 그러면 `reproduce`(§6.4)가 스냅샷에서
+    # 조립한 값과 어긋날 때 원인을 가릴 수 없다. 지금은 두 경로가 같은 함수를 쓴다.
+    #
+    voyages_json = _snapshot_payload(actual, planned, fuel_by_voyage)
+    completed, remaining = _inputs_from_snapshot(voyages_json, vessel)
 
     # 분포는 코드가 아니라 테이블에서 읽는다 (#434).
     profile_rows = await param_repo.load_distribution_profile(session, distribution_profile)
@@ -362,64 +409,40 @@ async def run_annual_simulation(
         profile_rows=profile_rows,
     )
 
+    payload = _payload(
+        deterministic=deterministic,
+        outcome=outcome,
+        sensitivity=sensitivity,
+        transport_capacity=transport_capacity,
+        completed_voyage_count=len(actual),
+        remaining_voyage_count=len(planned),
+        target_rating=target_rating,
+        warnings=[*outcome.warnings, *sensitivity_warnings],
+    )
+
     snapshot_id, calculation_run_id, simulation_id, snapshot_created_at = await _persist(
         session,
         vessel_id=vessel_id,
         regulation_year=regulation_year,
         target_rating=target_rating,
         runs=outcome.runs,
-        voyages_json=_snapshot_payload(actual, planned, fuel_by_voyage),
+        voyages_json=voyages_json,
         parameters_used=parameters_used,
-        result_json=_result_json(deterministic, outcome, sensitivity),
-        warnings=[*outcome.warnings, *sensitivity_warnings],
+        result_json=payload,
+        warnings=payload["warnings"],
         seed=seed,
     )
 
-    return {
-        "simulation_id": str(simulation_id),
-        "calculation_run_id": str(calculation_run_id),
-        "deterministic": {
-            "projected_attained_cii": _publish(deterministic.attained_cii),
-            "projected_rating": deterministic.rating,
-            "completed_voyage_count": len(actual),
-            "remaining_voyage_count": len(planned),
-            "completed_M_gco2": _publish(deterministic.completed_co2_g),
-            "completed_W_capacity_nm": _publish(
-                transport_capacity * deterministic.completed_distance_nm
-            ),
-            "planned_M_gco2": _publish(deterministic.planned_co2_g),
-            "planned_W_capacity_nm": _publish(
-                transport_capacity * deterministic.planned_distance_nm
-            ),
-        },
-        "monte_carlo": {
-            "rng_metadata": outcome.rng_metadata,
-            "runs": outcome.runs,
-            "rating_probabilities": {
-                key: str(value) for key, value in outcome.rating_probabilities.items()
-            },
-            "target_success_probability": str(outcome.target_success_probability),
-            "target_rating": target_rating,
-            "p10": str(outcome.p10),
-            "p50": str(outcome.p50),
-            "p90": str(outcome.p90),
-            "mean_cii": str(outcome.mean),
-        },
-        #
-        # `PRD §9.4.2` — 기능③의 위험도는 **목표 달성 확률** 기반이다.
-        # `calculate_deterministic_risk`(마진 기반)는 기능①·②의 것이라 여기서 쓰면
-        # 안 된다 — 그쪽은 등급마다 margin_ratio를 요구하고, 연간 시뮬레이션에는
-        # 「경계까지의 마진」이 아니라 분포가 있다.
-        #
-        "risk_level": calculate_probability_risk(outcome.target_success_probability),
-        "sensitivity_analysis": sensitivity,
-        "snapshot": {
+    return _envelope(
+        simulation_id=simulation_id,
+        calculation_run_id=calculation_run_id,
+        payload=payload,
+        snapshot={
             "snapshot_id": str(snapshot_id),
             "created_at": snapshot_created_at.isoformat(),
-            "voyage_count": len(actual) + len(planned),
+            "voyage_count": len(voyages_json),
         },
-        "warnings": sorted({*outcome.warnings, *sensitivity_warnings}),
-    }
+    )
 
 
 def _build_sensitivity(
@@ -544,20 +567,116 @@ def _parameters_used(
     }
 
 
-def _result_json(deterministic, outcome, sensitivity) -> dict[str, object]:
-    """``calculation_run.result_json``. 재현 확인에 필요한 것만 담는다."""
+def _payload(
+    *,
+    deterministic,
+    outcome,
+    sensitivity,
+    transport_capacity: Decimal,
+    completed_voyage_count: int,
+    remaining_voyage_count: int,
+    target_rating: str,
+    warnings: list[str],
+) -> dict[str, object]:
+    """``API_SPEC §6.1`` 응답의 본문 — **식별자와 스냅샷 블록을 뺀 나머지**다.
+
+    ## 왜 이 형태로 저장하는가 (#443)
+
+    종전 ``result_json``은 「재현 확인에 필요한 것만」 담았다(확률·백분위·민감도 **키**).
+    그런데 ``API_SPEC §6.2``는 조회 응답이 **§6.1과 동일**해야 한다고 규정한다 —
+    담아 두지 않은 것(``rng_metadata``·항차 수·민감도 **값**·``risk_level``)은
+    다시 계산하지 않는 한 돌려줄 수 없고, 다시 계산하면 그것은 조회가 아니라 재실행이다.
+
+    그래서 응답 본문을 **그대로** 저장한다. 값이 두 벌 생기지 않도록 실행 경로도 같은
+    함수를 쓴다 — 조회가 실행과 다른 모양을 내는 일이 구조적으로 불가능해진다.
+
+    식별자(``simulation_id``·``calculation_run_id``)와 ``snapshot`` 블록은 넣지 않는다.
+    **행에 이미 있는 것을 JSON에 복사해 두면 두 값이 갈릴 수 있다** — 스냅샷 정보의
+    정본은 ``simulation_snapshot`` 테이블이다.
+    """
     return {
-        "projected_attained_cii": str(deterministic.attained_cii),
-        "projected_rating": deterministic.rating,
-        "rating_probabilities": {
-            key: str(value) for key, value in outcome.rating_probabilities.items()
+        "deterministic": {
+            "projected_attained_cii": _publish(deterministic.attained_cii),
+            "projected_rating": deterministic.rating,
+            "completed_voyage_count": completed_voyage_count,
+            "remaining_voyage_count": remaining_voyage_count,
+            "completed_M_gco2": _publish(deterministic.completed_co2_g),
+            "completed_W_capacity_nm": _publish(
+                transport_capacity * deterministic.completed_distance_nm
+            ),
+            "planned_M_gco2": _publish(deterministic.planned_co2_g),
+            "planned_W_capacity_nm": _publish(
+                transport_capacity * deterministic.planned_distance_nm
+            ),
         },
-        "target_success_probability": str(outcome.target_success_probability),
-        "p10": str(outcome.p10),
-        "p50": str(outcome.p50),
-        "p90": str(outcome.p90),
-        "sensitivity_keys": sorted(k for k in sensitivity if k != "interaction_note"),
+        "monte_carlo": {
+            "rng_metadata": outcome.rng_metadata,
+            "runs": outcome.runs,
+            "rating_probabilities": {
+                key: str(value) for key, value in outcome.rating_probabilities.items()
+            },
+            "target_success_probability": str(outcome.target_success_probability),
+            "target_rating": target_rating,
+            "p10": str(outcome.p10),
+            "p50": str(outcome.p50),
+            "p90": str(outcome.p90),
+            "mean_cii": str(outcome.mean),
+        },
+        #
+        # `PRD §9.4.2` — 기능③의 위험도는 **목표 달성 확률** 기반이다.
+        # `calculate_deterministic_risk`(마진 기반)는 기능①·②의 것이라 여기서 쓰면
+        # 안 된다 — 그쪽은 등급마다 margin_ratio를 요구하고, 연간 시뮬레이션에는
+        # 「경계까지의 마진」이 아니라 분포가 있다.
+        #
+        "risk_level": calculate_probability_risk(outcome.target_success_probability),
+        "sensitivity_analysis": sensitivity,
+        "warnings": sorted(set(warnings)),
     }
+
+
+def _envelope(*, simulation_id, calculation_run_id, payload: dict, snapshot: dict) -> dict:
+    """저장된 본문에 식별자·스냅샷을 붙여 ``API_SPEC §6.1`` 응답을 만든다.
+
+    키 순서를 §6.1 예시와 같게 둔다. **실행(§6.1)·조회(§6.2)·재실행(§6.4)이 모두 이
+    함수를 지나므로 셋의 응답 모양이 갈릴 수 없다.**
+    """
+    return {
+        "simulation_id": str(simulation_id),
+        "calculation_run_id": str(calculation_run_id),
+        "deterministic": payload["deterministic"],
+        "monte_carlo": payload["monte_carlo"],
+        "risk_level": payload["risk_level"],
+        "sensitivity_analysis": payload["sensitivity_analysis"],
+        "snapshot": snapshot,
+        "warnings": payload["warnings"],
+    }
+
+
+def _input_hash(
+    *,
+    vessel_id: UUID,
+    regulation_year: int,
+    target_rating: str,
+    runs: int,
+    seed: int,
+    voyages_json: list[dict],
+) -> str:
+    """``input_hash``의 재료를 한 곳에 둔다 (``TECH_SPEC §5.3``).
+
+    **저장할 때와 재현할 때가 같은 재료를 써야 한다.** 두 곳에 적으면 한쪽만 바뀌었을
+    때 ``reproduce``가 「재현 실패」를 보고하는데, 실제로 다른 것은 결과가 아니라 해시
+    계산식이다 — 가장 찾기 어려운 종류의 오보다.
+    """
+    return compute_input_hash(
+        {
+            "vessel_id": str(vessel_id),
+            "regulation_year": regulation_year,
+            "target_rating": target_rating,
+            "simulation_runs": runs,
+            "random_seed": str(seed),
+            "voyages": voyages_json,
+        }
+    )
 
 
 async def _persist(
@@ -583,15 +702,13 @@ async def _persist(
     """
     from sqlalchemy import text
 
-    input_hash = compute_input_hash(
-        {
-            "vessel_id": str(vessel_id),
-            "regulation_year": regulation_year,
-            "target_rating": target_rating,
-            "simulation_runs": runs,
-            "random_seed": str(seed),
-            "voyages": voyages_json,
-        }
+    input_hash = _input_hash(
+        vessel_id=vessel_id,
+        regulation_year=regulation_year,
+        target_rating=target_rating,
+        runs=runs,
+        seed=seed,
+        voyages_json=voyages_json,
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
@@ -669,3 +786,360 @@ def _json(value: object) -> str:
     import json
 
     return json.dumps(value, ensure_ascii=False)
+
+
+# ─── 조회·재실행 (API_SPEC §6.2~§6.4, #443) ──────────────────────────────────
+#
+# **스냅샷을 남기는 이유가 조회에 있다.** `TECH_SPEC §11.1`이 격리를 요구한 것은
+# 「몇 달 뒤에도 그때 무슨 데이터로 돌렸나」에 답하기 위해서인데(`§5.4` 재현성 계약),
+# 그 스냅샷을 꺼내 볼 경로가 없으면 남긴 것이 쓰이지 않는다.
+
+
+async def _load_run(session: AsyncSession, simulation_id: UUID):
+    """실행 1건 + 계산 이력 + 스냅샷 메타를 한 번에 읽는다.
+
+    ``voyages_json``은 여기서 읽지 않는다 — 항차가 많으면 큰 값이고, 조회(§6.2)와
+    재실행(§6.4)에는 **개수만** 필요하다. 본문이 필요한 §6.3은 따로 읽는다.
+    """
+    from sqlalchemy import text
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT r.id AS simulation_id, r.calculation_run_id, r.vessel_id, "
+                "       r.regulation_year, r.target_rating, r.simulation_runs, r.snapshot_id, "
+                "       c.result_json, c.parameters_used, c.input_hash, c.parameter_hash, "
+                "       s.created_at AS snapshot_created_at, "
+                "       jsonb_array_length(s.voyages_json) AS voyage_count "
+                "FROM annual_simulation_run r "
+                "JOIN calculation_run c ON c.id = r.calculation_run_id "
+                "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
+                "WHERE r.id = :id"
+            ),
+            {"id": simulation_id},
+        )
+    ).one_or_none()
+
+    if row is None:
+        raise NotFoundError(f"연간 시뮬레이션 실행을 찾을 수 없습니다: {simulation_id}")
+    return row
+
+
+def _stored_payload(row) -> dict:
+    """저장된 응답 본문. 옛 형식이면 **조용히 반쪽을 돌려주지 않는다.**
+
+    `#443` 이전의 실행은 ``result_json``에 확률·백분위만 담았다(민감도는 **키만**).
+    그 행으로 §6.2의 「§6.1과 동일한 응답」을 만들 수 없고, 없는 값을 그때 다시 계산하면
+    그것은 조회가 아니라 **재실행**이다 — 스냅샷 이후 파라미터가 바뀌었다면 조회했을
+    뿐인데 다른 값이 나온다.
+
+    그래서 404로 끊는다. 요청한 **표현**이 존재하지 않는다는 뜻이며, 메시지에 그
+    사실과 조치를 함께 적는다.
+    """
+    payload = row.result_json or {}
+    if "deterministic" not in payload:
+        raise NotFoundError(
+            "이 실행은 결과 본문을 저장하기 전(#443)에 만들어져 조회할 수 없습니다. "
+            "다시 실행해 주세요."
+        )
+    return payload
+
+
+def _snapshot_block(row) -> dict[str, object]:
+    return {
+        "snapshot_id": str(row.snapshot_id),
+        "created_at": row.snapshot_created_at.isoformat(),
+        "voyage_count": row.voyage_count,
+    }
+
+
+async def get_annual_simulation(session: AsyncSession, simulation_id: UUID) -> dict[str, object]:
+    """저장된 실행 결과를 다시 돌려준다 (``API_SPEC §6.2``).
+
+    **다시 계산하지 않는다.** §6.2가 「§6.1의 응답과 동일」로 규정하는데, 계산을 다시
+    하면 그 사이 규정 파라미터가 바뀌었을 때 **조회했을 뿐인데 값이 달라진다.** 재현
+    확인은 §6.4의 일이다.
+    """
+    row = await _load_run(session, simulation_id)
+    return _envelope(
+        simulation_id=row.simulation_id,
+        calculation_run_id=row.calculation_run_id,
+        payload=_stored_payload(row),
+        snapshot=_snapshot_block(row),
+    )
+
+
+async def list_snapshot_voyages(
+    session: AsyncSession, simulation_id: UUID
+) -> list[dict[str, object]]:
+    """실행 당시 스냅샷에 담긴 항차를 돌려준다 (``API_SPEC §6.3``).
+
+    ## 저장 형태를 그대로 내보내지 않는다
+
+    ``voyages_json``은 계산 입력을 만들기 위한 내부 형태이고(``kind``·계획/실적 두 벌),
+    §6.3이 규정한 응답은 **읽는 사람을 위한 형태**다(``status_at_snapshot`` ·
+    실제 쓰인 ``distance_nm``·``fuel_ton`` 한 벌). 옮기는 규칙은 계산과 같다 —
+    **실적이 있으면 실적, 없으면 계획**(``PRD §8.3``).
+
+    ``snapshot_voyage_id``는 항차 사본에 별도 ID가 없으므로 ``{snapshot_id}:{voyage_id}``로
+    만든다. **없는 UUID를 지어내지 않는다** — 지어내면 그 값으로 조회할 수 있는 것처럼
+    보인다.
+    """
+    from sqlalchemy import text
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT s.id AS snapshot_id, s.voyages_json "
+                "FROM annual_simulation_run r "
+                "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
+                "WHERE r.id = :id"
+            ),
+            {"id": simulation_id},
+        )
+    ).one_or_none()
+
+    if row is None:
+        raise NotFoundError(f"연간 시뮬레이션 실행을 찾을 수 없습니다: {simulation_id}")
+
+    return [_snapshot_voyage_view(row.snapshot_id, item) for item in (row.voyages_json or [])]
+
+
+def _snapshot_voyage_view(snapshot_id, item: dict) -> dict[str, object]:
+    """스냅샷 항차 1건을 ``API_SPEC §6.3`` 형태로 옮긴다."""
+    distance = _decimal_or(item.get("actual_distance_nm"), item.get("planned_distance_nm"))
+    speed = item.get("planned_speed_kn")
+    return {
+        "snapshot_voyage_id": f"{snapshot_id}:{item.get('voyage_id')}",
+        "original_voyage_id": item.get("voyage_id"),
+        "voyage_no": item.get("voyage_no"),
+        # 스냅샷 시점의 상태다. 지금의 상태가 아니다 — 그 구분이 이 API의 목적이다.
+        "status_at_snapshot": item.get("status"),
+        "distance_nm": float(distance),
+        "speed_kn": None if speed is None else float(Decimal(speed)),
+        "fuel_uses": [
+            {
+                "fuel_type": fuel_use.get("fuel_type"),
+                "fuel_ton": float(
+                    _decimal_or(fuel_use.get("actual_fuel_ton"), fuel_use.get("planned_fuel_ton"))
+                ),
+                # CF는 그때 쓴 값이다. 지금의 `fuel_type.cf`가 아니다 (#378).
+                "cf_used": float(Decimal(fuel_use["cf_used"])),
+            }
+            for fuel_use in (item.get("fuel_uses") or [])
+        ],
+        "annual_inclusion_policy": item.get("annual_inclusion_policy"),
+    }
+
+
+async def reproduce_annual_simulation(
+    session: AsyncSession, simulation_id: UUID
+) -> dict[str, object]:
+    """같은 스냅샷·같은 seed로 다시 계산해 결과가 같은지 확인한다 (``API_SPEC §6.4``).
+
+    ## 무엇을 다시 하고 무엇을 다시 하지 않는가
+
+    ``TECH_SPEC §11.4``가 정한 대로 **계산은 스냅샷 사본에서** 한다. 원본 항차를 다시
+    읽으면 그 사이의 편집이 섞여 「재현 실패」가 되는데, 그것은 재현성 계약이 깨진
+    것이 아니라 **다른 입력으로 돌린 것**이다.
+
+    규정 파라미터는 반대로 **지금 값을 읽는다.** 바뀌었다면 그 사실이 드러나야 하기
+    때문이다 — ``parameter_hash``가 어긋나면 409로 끊는다(§6.4 오류 표).
+
+    ## 새 실행 기록을 남기지 않는다
+
+    이것은 **검증**이지 실행이 아니다. 기록을 남기면 같은 결과가 이력에 여러 벌 쌓이고,
+    그 중 무엇이 원본인지 구분이 흐려진다. 그래서 응답의 식별자도 **원본의 것**이다 —
+    「원본 실행을 다시 돌려 확인했다」가 이 응답의 뜻이다.
+    """
+    row = await _load_run(session, simulation_id)
+    stored = _stored_payload(row)
+
+    seed = (stored.get("monte_carlo") or {}).get("rng_metadata", {}).get("seed")
+    if seed is None:
+        raise NotFoundError("이 실행은 seed가 기록되지 않아 재현할 수 없습니다(#443 이전 실행).")
+
+    vessel = await _load_vessel(session, row.vessel_id)
+    regulation = await _load_regulation_year(session, row.regulation_year)
+    reference_line = await _select_reference_line(session, vessel)
+    rating_boundary = await _select_rating_boundary(session, vessel)
+
+    profile_name = (
+        (row.parameters_used or {}).get("simulation_profile", {}).get("profile", "DEFAULT")
+    )
+    profile_rows = await param_repo.load_distribution_profile(session, profile_name)
+
+    parameters_used = _parameters_used(
+        regulation=regulation,
+        reference_line=reference_line,
+        rating_boundary=rating_boundary,
+        profile_name=profile_name,
+        profile_rows=profile_rows,
+    )
+    if compute_parameter_hash(parameters_used) != row.parameter_hash:
+        raise ParameterError(
+            "원본 실행 이후 규정 파라미터가 변경되어 같은 조건으로 재현할 수 없습니다. "
+            "새로 실행하면 현재 파라미터 기준의 결과를 얻을 수 있습니다."
+        )
+
+    voyages_json = await _load_snapshot_voyages(session, row.snapshot_id)
+    if (
+        _input_hash(
+            vessel_id=row.vessel_id,
+            regulation_year=row.regulation_year,
+            target_rating=row.target_rating,
+            runs=row.simulation_runs,
+            seed=seed,
+            voyages_json=voyages_json,
+        )
+        != row.input_hash
+    ):
+        # 스냅샷은 immutable인데 해시가 다르다 — 저장된 것과 계산식 중 하나가 어긋났다.
+        raise ReproducibilityError(
+            "재현 입력의 해시가 원본과 다릅니다. 재현성 검증 실패 — 관리자에게 문의하세요."
+        )
+
+    payload = _recompute(
+        vessel=vessel,
+        regulation=regulation,
+        reference_line=reference_line,
+        rating_boundary=rating_boundary,
+        voyages_json=voyages_json,
+        target_rating=row.target_rating,
+        runs=row.simulation_runs,
+        seed=seed,
+        profile_rows=profile_rows,
+    )
+
+    _assert_same_outcome(stored, payload)
+
+    return _envelope(
+        simulation_id=row.simulation_id,
+        calculation_run_id=row.calculation_run_id,
+        payload=payload,
+        snapshot=_snapshot_block(row),
+    )
+
+
+async def _load_snapshot_voyages(session: AsyncSession, snapshot_id) -> list[dict]:
+    from sqlalchemy import text
+
+    return (
+        await session.execute(
+            text("SELECT voyages_json FROM simulation_snapshot WHERE id = :id"),
+            {"id": snapshot_id},
+        )
+    ).scalar_one() or []
+
+
+def _recompute(
+    *,
+    vessel,
+    regulation,
+    reference_line,
+    rating_boundary,
+    voyages_json: list[dict],
+    target_rating: str,
+    runs: int,
+    seed: int,
+    profile_rows,
+) -> dict[str, object]:
+    """스냅샷으로 계산만 다시 한다. 저장하지 않는다.
+
+    실행 경로(:func:`run_annual_simulation`)와 **같은 함수들을 같은 순서로** 부른다 —
+    한쪽만 바뀌면 재현이 실패하는데 원인이 엔진이 아니라 이 조립부에 있게 된다.
+    """
+    transport_capacity = _resolve_transport_capacity(vessel)
+    reference_capacity = _resolve_reference_capacity(vessel, reference_line)
+    required = calculate_required_cii(
+        a=Decimal(str(reference_line.a_decimal)),
+        c=Decimal(str(reference_line.c)),
+        reference_capacity=reference_capacity,
+        z_factor_percent=Decimal(str(regulation.z_factor_percent)),
+    )
+    d_vector = DVector(
+        d1=Decimal(str(rating_boundary.d1)),
+        d2=Decimal(str(rating_boundary.d2)),
+        d3=Decimal(str(rating_boundary.d3)),
+        d4=Decimal(str(rating_boundary.d4)),
+    )
+
+    completed, remaining = _inputs_from_snapshot(voyages_json, vessel)
+    profile = profile_from_rows(profile_rows)
+
+    deterministic = project_deterministic(
+        completed=completed,
+        remaining=remaining,
+        transport_capacity=transport_capacity,
+        required_cii=required.required_cii,
+        d_vector=d_vector,
+    )
+    outcome = simulate_annual(
+        completed=completed,
+        remaining=remaining,
+        transport_capacity=transport_capacity,
+        required_cii=required.required_cii,
+        d_vector=d_vector,
+        target_rating=target_rating,
+        seed=seed,
+        runs=runs,
+        profile=profile,
+    )
+    entries, sensitivity_warnings = analyze_sensitivity(
+        completed=completed,
+        remaining=remaining,
+        transport_capacity=transport_capacity,
+        required_cii=required.required_cii,
+        d_vector=d_vector,
+    )
+    sensitivity = _build_sensitivity(
+        entries=entries,
+        base_rating=deterministic.rating,
+        base_probability=outcome.target_success_probability,
+        completed=completed,
+        remaining=remaining,
+        transport_capacity=transport_capacity,
+        required_cii=required.required_cii,
+        d_vector=d_vector,
+        target_rating=target_rating,
+        seed=seed,
+        runs=outcome.runs,
+        profile=profile,
+    )
+
+    return _payload(
+        deterministic=deterministic,
+        outcome=outcome,
+        sensitivity=sensitivity,
+        transport_capacity=transport_capacity,
+        completed_voyage_count=len(voyages_json) - _plan_voyage_count(voyages_json),
+        remaining_voyage_count=_plan_voyage_count(voyages_json),
+        target_rating=target_rating,
+        warnings=[*outcome.warnings, *sensitivity_warnings],
+    )
+
+
+def _assert_same_outcome(stored: dict, reproduced: dict) -> None:
+    """Monte Carlo 결과가 원본과 같은지 본다 (``API_SPEC §6.4`` 오류 표).
+
+    **확률 분포와 결정론 등급만 본다.** ``rng_metadata``에는 ``numpy_version``·
+    ``platform``처럼 **환경이 달라지면 당연히 달라지는 값**이 들어 있어, 전체를 비교하면
+    다른 머신에서 돌렸다는 이유만으로 재현 실패가 된다. 재현성 계약이 요구하는 것은
+    **값이 같은가**다(``TEST_PLAN`` IT-SNAP-004 「동일 rating_probabilities」).
+    """
+    checks = (
+        ("rating_probabilities", stored["monte_carlo"].get("rating_probabilities")),
+        ("target_success_probability", stored["monte_carlo"].get("target_success_probability")),
+        ("p50", stored["monte_carlo"].get("p50")),
+    )
+    for key, original in checks:
+        if reproduced["monte_carlo"].get(key) != original:
+            raise ReproducibilityError(
+                f"재현 결과가 원본과 다릅니다({key}). 재현성 검증 실패 — 관리자에게 문의하세요."
+            )
+    if reproduced["deterministic"].get("projected_rating") != stored["deterministic"].get(
+        "projected_rating"
+    ):
+        raise ReproducibilityError(
+            "재현 결과의 예상 등급이 원본과 다릅니다. 재현성 검증 실패 — 관리자에게 문의하세요."
+        )

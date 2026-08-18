@@ -1,6 +1,8 @@
 """field_label 매핑 계약 테스트 (#49).
 
 핵심 계약: 미등록 필드는 KeyError가 아니라 원문을 그대로 반환한다(D4).
+
+케이스: AT-ERR-001 · AT-ERR-002 (`TEST_PLAN §14.5`)
 """
 
 import pytest

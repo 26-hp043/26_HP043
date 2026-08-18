@@ -11,6 +11,8 @@ DIRECT와 DETOUR의 ``attained_cii``가 같은 것은 오류가 아니라 수학
 같은 속도에서 cubic 모델의 연료는 거리에 정비례하고 ``W = capacity × distance``도
 거리에 정비례하므로 CII는 거리와 무관해진다. §5.1 예시의 4.982/5.231이 같은 속도에서
 다른 CII를 보이는 것은 그 예시값이 재현 불가능하다는 뜻이다 (#151).
+
+케이스: AT-SC-001 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations
