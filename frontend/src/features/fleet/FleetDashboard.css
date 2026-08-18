@@ -310,9 +310,13 @@
   stroke-width: 2.5;
 }
 
+/*
+ * 뷰박스가 480×300 사용자 단위라 이 값도 사용자 단위다 — 화면 픽셀이 아니다.
+ * 패턴 해상도를 위해 뷰박스를 3배로 키우면서 함께 3배로 올렸다(7 → 21).
+ */
 .position-chart__label {
   font-family: var(--font-sans);
-  font-size: 7px;
+  font-size: 21px;
   font-weight: var(--font-weight-label);
 }
 
