@@ -46,6 +46,17 @@ function flatten(
   return out
 }
 
+/** CSS 주석을 걷어낸다 — 규칙 검사가 설명 문장에 걸리지 않게 한다. */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '')
+}
+
+/** 별칭 계층. 생성물이 아니라 손으로 쓰는 파일이며 fallback 체인이 여기 있다. */
+const aliasCss = readFileSync(
+  new URL('./tokens.css', import.meta.url),
+  'utf-8',
+)
+
 const css = readFileSync(
   new URL('./tokens.generated.css', import.meta.url),
   'utf8',
@@ -132,5 +143,35 @@ describe('테마 규칙 — 3-상태', () => {
       (path) => !rootBlock.includes(`${cssName(path)}:`),
     )
     expect(missing, `기본 :root에 없는 색 토큰: ${missing.join(', ')}`).toEqual([])
+  })
+})
+
+describe('폰트 fallback — DESIGN_SYSTEM §3 (#485)', () => {
+  it('지정 폰트는 생성 토큰에서 온다 — 별칭이 이름을 다시 적지 않는다', () => {
+    expect(css).toContain("--fontFamilies-sans: 'Noto Sans KR'")
+    expect(aliasCss).toContain('--font-sans: var(--fontFamilies-sans)')
+  })
+
+  it('fallback 체인이 §3이 정한 그대로다', () => {
+    /*
+     * §3 원문 — 「**Noto Sans KR** (한글 우선) → fallback
+     * `system-ui, "Malgun Gothic", sans-serif`」.
+     */
+    expect(aliasCss).toContain(
+      "--font-sans: var(--fontFamilies-sans), system-ui, 'Malgun Gothic', sans-serif;",
+    )
+  })
+
+  it('선언부에 Pretendard가 남아 있지 않다', () => {
+    /*
+     * v1.2까지의 지정 폰트다. §3이 「팀 환경 확보 문제로 교체했다」로 적으며
+     * v2.0에서 걷어냈는데 체인에 남아 있으면, **Noto Sans KR이 없고 Pretendard가
+     * 설치된 장비에서 구 폰트로 렌더된다** — 교체 자체가 무효가 된다.
+     *
+     * **주석은 보지 않는다.** 왜 걷어냈는지를 파일에 적어 두는 것이 이 규칙을
+     * 되돌리지 않게 하는 근거인데, 원문 전체를 훑으면 그 설명 자체가 실패가 된다.
+     */
+    const declarations = stripComments(aliasCss) + stripComments(css)
+    expect(declarations).not.toContain('Pretendard')
   })
 })
