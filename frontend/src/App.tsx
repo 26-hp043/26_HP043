@@ -13,6 +13,7 @@ import { DEFAULT_PATH, SCREEN_BY_ID } from './screens'
 import { LoginFailurePage, LoginPage } from './pages/LoginPage'
 import { MainboardPage } from './pages/MainboardPage'
 import { VesselRegistrationPage } from './pages/VesselRegistrationPage'
+import { VesselManagementPage } from './pages/VesselManagementPage'
 import { VesselDetailPage } from './pages/VesselDetailPage'
 import { RealtimeCiiPage } from './pages/RealtimeCiiPage'
 import { CiiForecastPage } from './pages/CiiForecastPage'
@@ -77,6 +78,15 @@ export default function App() {
           <Route
             path={SCREEN_BY_ID.VESSEL_REGISTRATION.path}
             element={<VesselRegistrationPage />}
+          />
+          {/*
+            [계층 밖] SCR-002 선박 관리 (#510). `/vessels`는 선박 상세
+            `/vessels/:vesselId`보다 세그먼트가 하나 짧아 서로 매칭되지 않는다 —
+            `screens.test.ts`가 그 성질을 잠근다.
+          */}
+          <Route
+            path={SCREEN_BY_ID.VESSEL_MANAGEMENT.path}
+            element={<VesselManagementPage />}
           />
           <Route path={SCREEN_BY_ID.CII_FORECAST.path} element={<CiiForecastPage />} />
           <Route

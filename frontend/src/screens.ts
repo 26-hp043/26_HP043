@@ -75,6 +75,7 @@ export type ScreenId =
   | 'VERIFY_EMAIL'
   | 'MAINBOARD'
   | 'VESSEL_REGISTRATION'
+  | 'VESSEL_MANAGEMENT'
   | 'VESSEL_DETAIL'
   | 'REALTIME_CII'
   | 'CII_FORECAST'
@@ -148,6 +149,19 @@ export const SCREEN_BY_ID = {
     width: 'form',
     // 온보딩 흐름 — 사이드바 밖(OFF_NAV_ORDER). 화면은 #441에서 구현됐으나 등록은
     // **쓰기**라 데모 모드에서는 수행할 수 없다 — 가짜 성공을 두지 않는다.
+    demoScope: false,
+  },
+  VESSEL_MANAGEMENT: {
+    path: '/vessels',
+    label: '선박 관리',
+    labelEn: 'Vessel Management',
+    // UIFLOW §2.2 매핑 표에 SCR-002 행이 없다. 근거는 상위 문서인 `PRD §6.1`
+    // (「(계층 밖) 선박 등록」)·`§6.2 SCR-002`이며, UIFLOW 보강은 디자인 담당 소관이다.
+    uiflowRef: '1-2',
+    purpose: '보유 선박 목록 조회 · 제원 수정 · 삭제 — 등록은 1-2로 이어진다',
+    width: 'wide',
+    // 목록 조회는 읽기지만 수정·삭제는 **쓰기**다. 등록(#441)과 같은 이유로 데모
+    // 모드에서 가짜 성공을 두지 않는다 — `providerSelection.ts` 참조.
     demoScope: false,
   },
   VESSEL_DETAIL: {
@@ -230,6 +244,7 @@ export const NAV_ORDER = [
   'CII_FORECAST',    // [항차] 2-1 CII 예측
   'ROUTE_COMPARISON',// [항차] 2-2 항로 비교
   'REPORTS',         // [산출물] 2-5 보고서
+  'VESSEL_MANAGEMENT',// [계층 밖] SCR-002 선박 관리 (PRD §6.1)
   'SETTINGS',        // [계층 밖] 2-6 설정
 ] as const satisfies readonly ScreenId[]
 

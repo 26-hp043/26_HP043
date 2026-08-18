@@ -22,6 +22,7 @@ describe('NAV_ORDER — 3계층 순서 (UIFLOW v2.0 §2)', () => {
       'CII_FORECAST', // [항차] 2-1
       'ROUTE_COMPARISON', // [항차] 2-2
       'REPORTS', // [산출물] 2-5
+      'VESSEL_MANAGEMENT', // [계층 밖] SCR-002 (PRD §6.1 — UIFLOW §2.2에는 행이 없다)
       'SETTINGS', // [계층 밖] 2-6
     ])
   })
@@ -76,7 +77,16 @@ describe('findScreenByPath — 경로 파라미터 매칭', () => {
 
   it('세그먼트 수가 다른 경로는 선박 상세로 오매칭되지 않는다', () => {
     expect(findScreenByPath('/vessels/abc-123/voyages')).toBeUndefined()
-    expect(findScreenByPath('/vessels')).toBeUndefined()
+    // `/vessels`는 #510이 선박 관리 화면에 배정했다. 여기서 잠그는 성질은
+    // 「경로가 존재하는가」가 아니라 **「선박 상세로 새지 않는가」**다.
+    expect(findScreenByPath('/vessels')?.labelEn).toBe('Vessel Management')
+    expect(findScreenByPath('/vessels')?.labelEn).not.toBe('Vessel Detail')
+  })
+
+  it('선박 관리 경로는 /vessels다 (PRD §6.2 SCR-002)', () => {
+    expect(SCREEN_BY_ID.VESSEL_MANAGEMENT.path).toBe('/vessels')
+    // 등록(1-2)과 관리는 같은 SCR-002 아래의 다른 화면이다 — 경로가 갈린다.
+    expect(SCREEN_BY_ID.VESSEL_REGISTRATION.path).toBe('/vessel-registration')
   })
 
   it('등록되지 않은 경로는 undefined를 반환한다', () => {
