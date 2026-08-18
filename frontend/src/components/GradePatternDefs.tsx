@@ -13,15 +13,14 @@
  *
  * | §15.1 원문 | 토큰 |
  * |---|---|
- * | `#173404` (grade-b line stroke) | `--color-grade-b-on` |
- * | `#412402` (grade-c line stroke) | `--color-grade-c-on` |
- * | `#ffffff` (grade-d circle fill)  | `--color-grade-d-on` |
- * | `#ffffff` (grade-e path stroke)  | `--color-grade-e-on` |
+ * | `#173404` (grade-b line stroke) | `--cii-b-bg` |
+ * | `#412402` (grade-c line stroke) | `--cii-c-bg` |
+ * | `#ffffff` (grade-d circle fill)  | `--cii-d-bg` |
+ * | `#ffffff` (grade-e path stroke)  | `--cii-e-bg` |
  *
- * ✅ **시각 검증 완료 — 2026-08-07.** `#133`이 스캐폴드 단계라 미뤄 두었던 확인이다.
- * `#136`의 등급 배지가 이 패턴을 참조하며(`GradeBadge`), **커스텀 프로퍼티가
- * `<pattern>` 내부까지 실제로 적용되는 것을 브라우저에서 확인**했다 — B 성긴 대각선 ·
- * C 촘촘한 대각선 · D 도트 · E 크로스해치가 각각 그려지고, A는 패턴 없이 단색이다.
+ * ⚠️ 규격 미갱신 — `§15.1`은 간격 4px 통일과 C·D 패턴 교체를 규정하나,
+ * 현재 이 패턴을 참조하는 화면이 없어 시각 검증이 불가하다. 지도 마커·차트
+ * 등급 밴드 구현 시 함께 처리한다.
  *
  * 자동 테스트로는 이 확인을 대신할 수 없다. `gradePatternUrl()`은 참조 문자열만
  * 잠그고, **패턴이 실제로 칠해지는지는 렌더 결과를 봐야** 알 수 있다.
@@ -42,9 +41,8 @@ export function GradePatternDefs() {
             y1="0"
             x2="0"
             y2="6"
-            stroke="var(--color-grade-b-on)"
+            stroke="var(--cii-b-bg)"
             strokeWidth="1.2"
-            opacity=".45"
           />
         </pattern>
         <pattern
@@ -59,20 +57,18 @@ export function GradePatternDefs() {
             y1="0"
             x2="0"
             y2="4"
-            stroke="var(--color-grade-c-on)"
+            stroke="var(--cii-c-bg)"
             strokeWidth="1.2"
-            opacity=".45"
           />
         </pattern>
         <pattern id="grade-d" width="6" height="6" patternUnits="userSpaceOnUse">
-          <circle cx="3" cy="3" r="1.2" fill="var(--color-grade-d-on)" opacity=".5" />
+          <circle cx="3" cy="3" r="1.2" fill="var(--cii-d-bg)" />
         </pattern>
         <pattern id="grade-e" width="6" height="6" patternUnits="userSpaceOnUse">
           <path
             d="M0 0L6 6M6 0L0 6"
-            stroke="var(--color-grade-e-on)"
+            stroke="var(--cii-e-bg)"
             strokeWidth="1"
-            opacity=".45"
           />
         </pattern>
       </defs>
