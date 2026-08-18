@@ -1,6 +1,20 @@
-import { NavLink, Outlet, useLocation } from 'react-router'
+import { useEffect, useMemo, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import './AppShell.css'
 import { NAV_SCREENS, findScreenByPath } from '../screens'
+import { createVesselCatalog, type VesselOption } from '../features/voyage-cii/vesselCatalog'
+import { createVoyageCatalog, type VoyageOption } from './voyageCatalog'
+import {
+  EMPTY_CONTEXT,
+  isVesselScopedPath,
+  loadStored,
+  navigationFor,
+  readFromPath,
+  saveStored,
+  selectVessel,
+  selectVoyage,
+  type GlobalContextValue,
+} from './globalContext'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { logout, useAuthUser } from '../auth/session'
 import { ThemeToggle } from '../theme/ThemeToggle'
@@ -31,16 +45,98 @@ function initialOf(name: string): string {
  * 서비스명은 **BlueLog**다(2026-08-04 디자인 담당 확인 — 정식 명칭).
  * 로고 이미지는 아직 전달받지 못해 텍스트로 둔다. SVG를 받으면 이 자리를 교체한다.
  *
- * 상단바 항차 영역은 8/8까지 **읽기 전용 표시**다. 선택기로 바꿀지는 기능② 착수 시
- * 재확인하며, 최종 레이블 문구는 디자인 담당이 추후 전달한다(현재 문구는 임시).
+ * ## 전역 컨텍스트 선택기 (#512)
+ *
+ * 종전에는 「선박 선택 안 함」·「항차 선택 안 함」이 **글자로만** 있었다. 자리는
+ * 있고 기능이 없어, 눌러도 아무 일이 없었다. 8/8 데모를 위해 읽기 전용으로 두고
+ * 「기능② 착수 시 붙인다」고 적어 두었으나 그 약속을 추적하는 이슈가 없었다.
+ *
+ * **선택 상태의 정본은 URL이다.** `#348`의 계층 라우트(`/vessels/:vesselId` ·
+ * `/vessels/:vesselId/voyages/:voyageId`)가 이미 선박 범위를 표현하므로, 상단바가
+ * 별도 상태를 소유하면 두 곳이 갈린다. 규칙은 `globalContext.ts`에 있다.
  *
  * 메인 영역의 최대 폭·좌우 패딩은 §7.1 폭 정책을 화면별로 적용한다.
  */
 export function AppShell() {
   const { pathname } = useLocation()
+  const navigate = useNavigate()
   const screen = findScreenByPath(pathname)
   const width = screen?.width ?? 'form'
   const user = useAuthUser()
+
+  const vesselCatalog = useMemo(() => createVesselCatalog(), [])
+  const voyageCatalog = useMemo(() => createVoyageCatalog(), [])
+
+  const [vessels, setVessels] = useState<VesselOption[]>([])
+  const [voyages, setVoyages] = useState<VoyageOption[]>([])
+  // 계층 밖 화면에서 보일 「기억해 둔 선택」. 계층 화면에서는 URL이 이긴다.
+  const [remembered, setRemembered] = useState<GlobalContextValue>(EMPTY_CONTEXT)
+
+  useEffect(() => {
+    setRemembered(loadStored())
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    vesselCatalog.listVessels().then(
+      (options) => {
+        if (alive) setVessels(options)
+      },
+      () => {
+        // 목록을 못 읽어도 셸은 계속 돈다. 선택기만 비활성으로 남는다 —
+        // 화면 전체를 오류로 만들 이유가 없다.
+        if (alive) setVessels([])
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [vesselCatalog])
+
+  /*
+   * 지금 유효한 선택. 계층 화면이면 경로가 정본이고, 그 밖에서는 기억해 둔 값이다.
+   * 두 곳을 합치지 않고 **어느 쪽이 이기는지 한 줄로 정한다** — 합치면 갈렸을 때
+   * 어느 쪽이 맞는지 알 수 없다.
+   */
+  const context: GlobalContextValue = isVesselScopedPath(pathname)
+    ? readFromPath(pathname)
+    : remembered
+
+  // 경로를 통해 들어온 선택도 기억한다 — 대시보드로 나가도 유지되어야 한다.
+  useEffect(() => {
+    if (!isVesselScopedPath(pathname)) return
+    const fromPath = readFromPath(pathname)
+    setRemembered(fromPath)
+    saveStored(fromPath)
+  }, [pathname])
+
+  // 항차 목록은 선박이 정해진 뒤에만 의미가 있다.
+  useEffect(() => {
+    let alive = true
+    if (context.vesselId === null) {
+      setVoyages([])
+      return
+    }
+    voyageCatalog.listVoyages(context.vesselId).then(
+      (options) => {
+        if (alive) setVoyages(options)
+      },
+      () => {
+        if (alive) setVoyages([])
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [voyageCatalog, context.vesselId])
+
+  /** 선택을 반영한다 — 기억하고, 계층 화면이면 그 대상으로 이동한다. */
+  const applyContext = (next: GlobalContextValue) => {
+    setRemembered(next)
+    saveStored(next)
+    const target = navigationFor(pathname, next)
+    if (target !== null && target !== pathname) navigate(target)
+  }
 
   return (
     <div className="app-shell">
@@ -101,21 +197,68 @@ export function AppShell() {
         {/* 우측 정렬 유틸리티. 순서 = §7.2의 좌→우 배치: 선박 · 항차 · 알림 · 계정 */}
         <header className="app-shell__topbar">
           {/*
-           * 선박·항차 컨텍스트. 값이 없을 때 「—」만 두면 무엇을 고르라는 것인지
-           * 읽히지 않아, 아이콘과 함께 「선택 안 함」으로 명시한다. 실제 선택기는
-           * 기능② 착수 시 붙인다(§7.2 — 8/8까지는 읽기 전용).
+           * 선박·항차 컨텍스트 (#512). 값이 없을 때 「—」만 두면 무엇을 고르라는
+           * 것인지 읽히지 않아, 빈 선택지도 「선택 안 함」으로 명시한다.
+           *
+           * 선박이 0척이면 셀렉트를 **비활성으로 두되 숨기지 않는다** — 자리가
+           * 사라지면 사용자가 「이 제품에는 그런 기능이 없다」로 읽는다
+           * (`DESIGN_SYSTEM §7.2`가 사이드바에 대해 정한 것과 같은 원칙).
            */}
           <span className="app-shell__util-item">
             <ShipGlyph />
-            <span className="app-shell__util-value app-shell__util-value--empty">
-              선박 선택 안 함
-            </span>
+            <label className="app-shell__util-label" htmlFor="global-vessel">
+              선박
+            </label>
+            <select
+              id="global-vessel"
+              className="app-shell__util-select"
+              value={context.vesselId ?? ''}
+              disabled={vessels.length === 0}
+              onChange={(event) =>
+                applyContext(selectVessel(context, event.target.value || null))
+              }
+            >
+              <option value="">
+                {vessels.length === 0 ? '선박 없음' : '선박 선택 안 함'}
+              </option>
+              {vessels.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.displayName}
+                </option>
+              ))}
+            </select>
           </span>
           <span className="app-shell__util-item">
             <VoyageGlyph />
-            <span className="app-shell__util-value app-shell__util-value--empty">
-              항차 선택 안 함
-            </span>
+            <label className="app-shell__util-label" htmlFor="global-voyage">
+              항차
+            </label>
+            {/*
+              선박을 고르기 전에는 항차를 고를 수 없다 — 항차는 선박에 매달려 있다
+              (`GET /vessels/{id}/voyages`). 이슈 체크리스트가 명시한 규칙이다.
+            */}
+            <select
+              id="global-voyage"
+              className="app-shell__util-select"
+              value={context.voyageId ?? ''}
+              disabled={context.vesselId === null || voyages.length === 0}
+              onChange={(event) =>
+                applyContext(selectVoyage(context, event.target.value || null))
+              }
+            >
+              <option value="">
+                {context.vesselId === null
+                  ? '선박 먼저 선택'
+                  : voyages.length === 0
+                    ? '항차 없음'
+                    : '항차 선택 안 함'}
+              </option>
+              {voyages.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.displayName}
+                </option>
+              ))}
+            </select>
           </span>
           <button
             type="button"

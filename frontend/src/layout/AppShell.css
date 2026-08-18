@@ -91,6 +91,41 @@
   color: var(--text-primary);
 }
 
+/*
+ * 전역 컨텍스트 선택기 (#512).
+ *
+ * DESIGN_SYSTEM §8 — 입력·셀렉트: surface-2 배경 · border · radius 8 · 포커스 링
+ * §7.2 — 상단바는 우측 정렬 유틸리티. 셀렉트가 커지면 네비게이션처럼 보이므로
+ * 높이를 32px로 낮추고 폭 상한을 둔다.
+ */
+.app-shell__util-label {
+  color: var(--text-muted);
+  font-size: var(--font-size-micro);
+}
+
+.app-shell__util-select {
+  height: 32px;
+  max-width: 180px;
+  padding: 0 var(--spacing-sm);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-size: var(--font-size-label);
+}
+
+.app-shell__util-select:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+/* 고를 것이 없는 상태 — 숨기지 않고 비활성으로 남긴다 (§7.2와 같은 원칙). */
+.app-shell__util-select:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
 /* 아직 고르지 않은 컨텍스트 — 값처럼 진하게 두면 선택된 것으로 읽힌다. */
 .app-shell__util-value--empty {
   font-weight: var(--font-weight-body);
