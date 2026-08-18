@@ -31,7 +31,28 @@ services:
     #
     image: bluelog-app-dev
     ports: ["8000:8000"]
+    #
+    # `.env`를 컨테이너에 **주입**한다 (#508).
+    #
+    # compose가 `.env`를 읽는 것은 이 파일 안의 `${POSTGRES_USER}` 같은 **치환용**이지
+    # 컨테이너 주입이 아니다. 그래서 종전에는 `DATABASE_URL` 하나만 들어가고
+    # `MAIL_BACKEND`·`APP_PUBLIC_URL`·`APP_ENV`가 전부 비어 있었다 —
+    # `mail/config.py`의 기본값 `console`이 적용되어 **메일이 조용히 로그로만 나갔고**,
+    # `#429`가 고친 메일 링크 주소도 이 경로에서는 무효였다.
+    #
+    # `required: false` — `.env`는 gitignore 대상이라 CI·새 클론에는 없다. 없으면
+    # 건너뛴다.
+    #
+    env_file:
+      - path: .env
+        required: false
     environment:
+      #
+      # `environment:`가 `env_file:`보다 **우선한다.** 이 순서가 중요하다 —
+      # `.env`의 `DATABASE_URL`은 호스트에서 `uvicorn --env-file .env`로 띄울 때 쓰는
+      # `localhost:5432`인데, 컨테이너 안에서 그 주소는 컨테이너 자신을 가리킨다.
+      # 여기서 `db:5432`로 덮어써야 한다.
+      #
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cii}:${POSTGRES_PASSWORD:-cii}@db:5432/${POSTGRES_DB:-cii}
     depends_on:
       db:
