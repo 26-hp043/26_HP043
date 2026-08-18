@@ -19,12 +19,28 @@ import warnings
 
 import pytest
 from conftest import TEST_DATABASE_URL, run_alembic
+from db_target import is_disposable, skip_reason
 from sqlalchemy import pool, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
 
 # sha256: + 64 hex — chk_input_hash_format를 통과하는 유효 해시.
 VALID_HASH = "sha256:" + "a" * 64
+
+#
+# 개발 DB를 파괴하지 않는다 (#507).
+#
+# 이 파일의 모든 테스트가 `alembic downgrade base`로 스키마를 드롭한다. 대상이
+# 개발 DB면 **사람이 가입한 계정이 사라지고 되돌릴 수 없다** — 실제로 그렇게
+# 없어졌다. 이름이 `_test`로 끝나는 DB에서만 돌린다. 자세한 근거는 `db_target.py`.
+#
+# 파일 전체에 거는 이유 — 여섯 테스트가 전부 같은 조작을 한다. 하나씩 붙이면
+# 새 테스트를 더할 때 빠뜨린다.
+#
+pytestmark = pytest.mark.skipif(
+    not is_disposable(TEST_DATABASE_URL),
+    reason=skip_reason(TEST_DATABASE_URL),
+)
 
 
 def _restore_to_head() -> None:
