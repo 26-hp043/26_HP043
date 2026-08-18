@@ -223,16 +223,6 @@ def _validate_enum(value: str, allowed: tuple[str, ...], *, field: str, label: s
         )
 
 
-async def list_fuel_type_codes(session: AsyncSession) -> list[str]:
-    """활성 연료 코드 목록 — 화면의 연료 선택지다 (``API_SPEC §2.9`` ``meta``).
-
-    구간 목록과 함께 내보내는 이유는 ``§7.2`` 연료 조회 API가 아직 구현되지 않아
-    화면이 선택지를 받을 다른 경로가 없기 때문이다. 화면이 코드를 박아 두면 seed와
-    갈라지고, 사용자는 저장 단계에서야 거부를 만난다.
-    """
-    return [row.code for row in await param_repo.list_active_fuel_types(session)]
-
-
 async def list_periods(
     session: AsyncSession,
     vessel_id: UUID,

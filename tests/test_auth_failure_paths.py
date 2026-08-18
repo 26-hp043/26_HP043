@@ -4,6 +4,8 @@
 미등록 경로를 잠근다. id_token 검증 실패 전종(``test_oidc.py``)·state 불일치와
 open redirect(``test_auth_api.py``)·CSRF 403(``test_auth_session.py``·
 ``test_auth_wiring.py``)는 각자의 파일이 담당한다.
+
+케이스: AT-AUTH-007 · AT-AUTH-008 · AT-AUTH-011 · AT-AUTH-012 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations

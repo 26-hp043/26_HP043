@@ -68,6 +68,7 @@ describe('위험 선박 — 서버 판정을 그대로 쓴다', () => {
 
 describe('경고 배너 — PRD §6.3 확정 문구', () => {
   it('위험 선박이 있으면 확정 문구를 그대로 쓴다', () => {
+    // 정본 문구 (PRD §6.3) — 원문이 확정돼 있다. 바꾸려면 PRD 개정이 먼저다 (AGENTS §4.6).
     expect(warningBannerText(2)).toBe('시정조치계획 대상 위험 선박 2척')
   })
 
@@ -96,12 +97,17 @@ describe('「D등급 진입까지」 문구', () => {
     expect(daysToDText(null, 'ALREADY_AT_OR_BELOW')).toBe('D등급 이하')
   })
 
-  it('올해 중 진입하지 않는 경우', () => {
-    expect(daysToDText(null, 'NOT_THIS_YEAR')).toBe('올해 중 진입 없음')
+  it('올해 중 진입하지 않는 경우 — 숫자를 내지 않는다', () => {
+    // 지키려는 것은 문구가 아니라 「숫자를 만들지 않는 것」이다. 숫자를 내면
+    // 「곧 진입한다」로 읽힌다.
+    expect(daysToDText(null, 'NOT_THIS_YEAR')).not.toMatch(/\d/)
   })
 
-  it('사유가 없으면 실적 없음으로 본다', () => {
-    expect(daysToDText(null, null)).toBe('실적 없음')
+  it('사유가 저마다 다른 말을 한다 — 같은 문구로 뭉치지 않는다', () => {
+    const texts = (['ALREADY_AT_OR_BELOW', 'NOT_THIS_YEAR', 'NOT_UNDER_WAY', null] as const).map(
+      (reason) => daysToDText(null, reason),
+    )
+    expect(new Set(texts).size).toBe(texts.length)
   })
 })
 
@@ -131,23 +137,31 @@ describe('값이 없는 사유 문구 (#419)', () => {
     expect(unavailableHint('CALCULATION_ERROR')).toContain('운영자')
   })
 
-  it('사유를 모르면 실적 없음으로 본다 — 가장 흔하고 가장 덜 단정적인 쪽이다', () => {
-    expect(unavailableText(null)).toBe('실적 없음')
+  it('사유를 모르면 「실적 없음」 쪽으로 본다 — 가장 흔하고 가장 덜 단정적이다', () => {
+    // 모르는 사유를 「제원 미입력」·「기준값 없음」으로 단정하면 하지 않아도 될 일을
+    // 시키게 된다.
+    expect(unavailableText(null)).toBe(unavailableText('NO_DATA'))
+    expect(unavailableText(null)).not.toBe(unavailableText('MISSING_SPEC'))
   })
 })
 
 describe('운항 상태 문구', () => {
-  it('운항 중', () => {
-    expect(underwayStateText(vessel({ underwayState: 'UNDER_WAY' }))).toBe('운항 중')
-  })
-
-  it('정박 중', () => {
-    expect(underwayStateText(vessel({ underwayState: 'NOT_UNDER_WAY' }))).toBe('정박 중')
+  it('세 상태가 서로 다른 말을 한다', () => {
+    const texts = [
+      underwayStateText(vessel({ underwayState: 'UNDER_WAY' })),
+      underwayStateText(vessel({ underwayState: 'NOT_UNDER_WAY' })),
+      underwayStateText(vessel({ underwayState: null })),
+    ]
+    expect(new Set(texts).size).toBe(3)
+    expect(texts.every((text) => text.length > 0)).toBe(true)
   })
 
   it('상태 미기록을 「정박」으로 적지 않는다', () => {
-    // 기록이 없는 것을 정박으로 쓰면 없는 사실을 만들어 내는 것이다.
-    expect(underwayStateText(vessel({ underwayState: null }))).toBe('상태 미기록')
+    // **이 파일에서 가장 중요한 단언**이다. 기록이 없는 것을 정박으로 쓰면 없는 사실을
+    // 만들어 내는 것이다. 문구가 바뀌어도 이 성질은 유지돼야 한다.
+    expect(underwayStateText(vessel({ underwayState: null }))).not.toBe(
+      underwayStateText(vessel({ underwayState: 'NOT_UNDER_WAY' })),
+    )
   })
 })
 
@@ -212,8 +226,9 @@ describe('가장 임박한 D등급 진입', () => {
 describe('기준 시각 표시', () => {
   const base = new Date('2026-08-16T12:00:00Z')
 
-  it('1분 미만은 「방금」', () => {
-    expect(relativeTime('2026-08-16T11:59:30Z', base)).toBe('방금')
+  it('1분 미만에는 숫자를 붙이지 않는다', () => {
+    // 「0분 전」은 지난 시간을 아는 것처럼 보이지만 실제로는 반올림 결과다.
+    expect(relativeTime('2026-08-16T11:59:30Z', base)).not.toMatch(/\d/)
   })
 
   it('분 단위', () => {

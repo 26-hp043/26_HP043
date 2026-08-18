@@ -173,6 +173,8 @@ describe('오류 변환 — 화면은 VoyageCiiError만 안다', () => {
       error: { code: 'MODEL_BREAKDOWN_ERROR', message: '기상 조건이 가혹합니다.' },
     })
     expect(error.code).toBe('CALCULATION_ERROR')
+    // 정본 문구 — 서버가 내려준 메시지를 화면이 **고쳐 쓰지 않는** 것이 이 단언의
+    // 관심사다 (API_SPEC §1.3.2).
     expect(error.message).toBe('기상 조건이 가혹합니다.')
   })
 

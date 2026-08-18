@@ -1,6 +1,8 @@
 """인증 미들웨어·세션·CSRF 테스트 (#275).
 
 DB 없이 돈다 — 세션 토큰 생성·해싱·검증 로직과 미들웨어 게이트를 검증한다.
+
+케이스: AT-AUTH-009 · AT-AUTH-010 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations

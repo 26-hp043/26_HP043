@@ -49,6 +49,15 @@ export interface ScreenMeta {
    * **현행 기준** — 종전 8/8 데모 기준에서, 방향 전환(#343·#344) 뒤의
    * MVP 범위 + 구현 완료 여부로 판정한다. MVP 승격 화면이라도 라우트가
    * 준비 중 표시(ComingSoon)라면 `false`다.
+   *
+   * ## 「실 데이터로 도는가」를 뜻한다 (#442)
+   *
+   * 종전에는 사실상 **「화면 파일이 있는가」**로 판정하고 있었다. 그래서 기능③이
+   * 고정값 목업(`#157`)인 상태로 `true`였고, 엔진(`#63`)·API(`#64`)가 들어온 뒤에도
+   * **목록상 빠진 게 없어 보여** 연결이 안 된 사실이 드러나지 않았다.
+   *
+   * 기준을 고친다 — **`VITE_USE_API=true`에서 실 API로 도는 화면만 `true`다.**
+   * demo provider만 있는 화면은 파일이 있어도 `false`다.
    */
   demoScope: boolean
 }
@@ -137,7 +146,9 @@ export const SCREEN_BY_ID = {
     uiflowRef: '1-2',
     purpose: '사용자의 선박 기본 정보 입력 및 시스템 등록',
     width: 'form',
-    demoScope: false,  // 온보딩 흐름 — 데모는 샘플 선박 seed(#34)를 쓴다
+    // 온보딩 흐름 — 사이드바 밖(OFF_NAV_ORDER). 화면은 #441에서 구현됐으나 등록은
+    // **쓰기**라 데모 모드에서는 수행할 수 없다 — 가짜 성공을 두지 않는다.
+    demoScope: false,
   },
   VESSEL_DETAIL: {
     path: '/vessels/:vesselId',
@@ -182,7 +193,8 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-3',
     purpose: '선박별 연간 누적 CII 등급 및 목표 달성 현황 모니터링',
     width: 'wide',
-    demoScope: true,   // #157 기능③ 목업
+    // #442 실 API 연결 완료 — demo provider는 백엔드 없이 화면만 볼 때만 쓴다.
+    demoScope: true,
   },
   REPORTS: {
     path: '/reports',

@@ -8,6 +8,10 @@
 * **`parameters_used`에 분포가 실리는가** (``§5.2.1.1`` · `#434`) — 빠지면 분포가
   바뀐 뒤 같은 seed로 돌려도 결과가 달라지는데 해시는 같아진다.
 * **재현성** — 같은 seed면 같은 결과.
+
+케이스 (`TEST_PLAN §14.5`):
+    IT-SNAP-001 · IT-SNAP-002 · IT-SNAP-003 · IT-SNAP-004
+    AT-AS-001 · AT-AS-003 · AT-AS-004 · AT-AS-005
 """
 
 from __future__ import annotations

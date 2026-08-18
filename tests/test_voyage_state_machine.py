@@ -9,6 +9,9 @@
 - hard delete 409 가드(#313) → PR #324의 테스트
 
 실적 가드(IN_PROGRESS→COMPLETED·COMPLETED→CONFIRMED, #326)도 여기서 잠근다.
+
+케이스 (`TEST_PLAN §14.5`):
+    IT-STATE-001 · IT-STATE-002 · IT-STATE-003 · IT-STATE-004 · IT-STATE-005 · IT-STATE-006
 """
 
 from __future__ import annotations

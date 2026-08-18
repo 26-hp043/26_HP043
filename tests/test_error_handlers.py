@@ -6,6 +6,8 @@ HTTP status 매핑(TECH_SPEC §12.1), 오류 응답 포맷(API_SPEC §1.3.2), �
 프레임워크 404·405와 명시적 `HTTPException`의 변환을 더한다.
 
 DB에 의존하지 않는다(conftest의 `migrated_db`/`conn` 픽스처를 요청하지 않음).
+
+케이스: AT-ERR-003 (`TEST_PLAN §14.5`)
 """
 
 import re

@@ -90,6 +90,7 @@ describe('성공 fixture — 계약 유래', () => {
 
   it('면책 문구와 경고를 항상 싣는다', async () => {
     const res = await provider.estimate(FIXTURE_1)
+    // 정본 문구 (PRD §6.3 면책) — 바꾸려면 PRD 개정이 먼저다 (AGENTS §4.6).
     expect(res.disclaimer).toBe('참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.')
     expect(res.warnings).toContain('REFERENCE_ONLY')
   })

@@ -113,10 +113,12 @@ describe('marginDisplay — DESIGN_SYSTEM §2.5 (b)', () => {
     expect(result.text).not.toContain('미만')
   })
 
-  it('등급 E는 「해당 없음 — 최하위 등급」', () => {
+  it('등급 E는 여유율을 숫자로 내지 않는다', () => {
+    // E는 다음 악화 등급이 없어 여유율이 정의되지 않는다(#171). 숫자를 만들면 없는
+    // 값을 있는 것처럼 보이게 한다. 문구 자체는 디자인 소관이다.
     const result = marginDisplay('E', null)
     expect(result.kind).toBe('lowest')
-    expect(result.text).toBe('해당 없음 — 최하위 등급')
+    expect(result.text).not.toContain('%')
   })
 
   it('등급 E는 값이 와도 「해당 없음」이다', () => {
@@ -198,11 +200,15 @@ describe('통합 — demo fixture의 실제 응답으로 표시 규칙을 돌린
     )
     const data = response.data
 
+    // 정본 문구 (DESIGN_SYSTEM §4.1 단위 표기) — 바꾸려면 DESIGN_SYSTEM 개정이 먼저다.
     expect(ciiUnit(data.transport_capacity_basis)).toBe('gCO₂/(DWT·nm)')
     expect(marginDisplay(data.estimated_rating, data.next_worse_boundary_margin_ratio).text).toBe(
       'D 등급까지 7.2%',
     )
-    expect(riskLabel(data.risk_level).text).toBe('보통 MEDIUM')
+    // 한국어 레이블은 디자인 소관. 판정 코드(PRD §9.4.1)가 실려 나가는지만 본다.
+    expect(riskLabel(data.risk_level).text).toContain('MEDIUM')
+    // 정본 문구 (API_SPEC §1.6 warning 표를 그대로 전사) — 바꾸려면 API_SPEC 개정이
+    // 먼저다.
     expect(response.warnings.map(warningMessage)).toEqual([
       '참고용 예측값입니다. 규제 제출용이 아닙니다.',
     ])

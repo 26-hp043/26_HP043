@@ -73,8 +73,9 @@ describe('표시', () => {
   it('라벨이 없는 코드는 코드를 그대로 보여 준다', () => {
     // 서버가 새 값을 줘도 화면이 빈칸을 그리지 않는다.
     expect(labelOf('NEW_KIND', PERIOD_TYPE_LABELS)).toBe('NEW_KIND')
-    expect(labelOf('AT_ANCHOR', PERIOD_TYPE_LABELS)).toBe('묘박')
-    expect(labelOf('OIL_FIRED_BOILER', CONSUMER_TYPE_LABELS)).toBe('보일러')
+    // 아는 코드는 **코드가 아닌 말**로 바뀐다. 그 말이 무엇인지는 디자인 소관이다.
+    expect(labelOf('AT_ANCHOR', PERIOD_TYPE_LABELS)).not.toBe('AT_ANCHOR')
+    expect(labelOf('OIL_FIRED_BOILER', CONSUMER_TYPE_LABELS)).not.toBe('OIL_FIRED_BOILER')
   })
 })
 

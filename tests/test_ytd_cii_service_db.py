@@ -15,6 +15,8 @@
 파라미터 시드 상태: 마이그레이션 017이 ``fuel_type`` 8행을 넣으므로 HFO는 이미 있다.
 나머지는 ``scripts/seed.py`` 경로(#127)이므로 여기서 직접 심는다
 (``test_scenario_compare_db.py``와 같은 방식).
+
+케이스: UT-YTD-001 · UT-YTD-002 · UT-YTD-003 · UT-YTD-004 · UT-YTD-005 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations
