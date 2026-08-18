@@ -1,5 +1,4 @@
 import './GradeBadge.css'
-import { gradePatternUrl } from './gradePattern'
 import type { Rating } from '../features/voyage-cii/types'
 
 /**
@@ -25,7 +24,6 @@ interface GradeBadgeProps {
 }
 
 export function GradeBadge({ rating, label, size = 'md' }: GradeBadgeProps) {
-  const pattern = gradePatternUrl(rating)
   const lower = rating.toLowerCase()
 
   return (
@@ -35,16 +33,22 @@ export function GradeBadge({ rating, label, size = 'md' }: GradeBadgeProps) {
       role="img"
       aria-label={label ?? `등급 ${rating}`}
     >
-      <rect width="64" height="64" rx="8" fill={`var(--color-grade-${lower})`} />
-      {pattern ? <rect width="64" height="64" rx="8" fill={pattern} /> : null}
+      <rect
+        width="64"
+        height="64"
+        rx="8"
+        fill={`var(--cii-${lower}-bg)`}
+        stroke={`var(--cii-${lower}-border)`}
+        strokeWidth="1"
+      />
       <text
         x="32"
         y="32"
         textAnchor="middle"
         dominantBaseline="central"
-        fill={`var(--color-grade-${lower}-on)`}
+        fill={`var(--cii-${lower}-text)`}
         fontSize="34"
-        fontWeight="700"
+        fontWeight="500"
         fontFamily="var(--font-sans)"
       >
         {rating}
