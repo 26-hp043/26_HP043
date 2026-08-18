@@ -31,7 +31,21 @@ services:
     # `always`가 아닌 이유: deploy가 의도한 중지(by `docker compose down`)에도 뜨면 안 된다.
     restart: unless-stopped
     ports: ["8000:8000"]
+    #
+    # `.env`를 컨테이너에 주입한다 (#508). dev와 같은 이유이며, 운영에서 더 중요하다 —
+    # `MAIL_BACKEND`가 비면 `mail/config.py`가 `console`로 떨어지고, 그 상태에서
+    # 비밀번호 재설정 메일은 **로그로만 나간다.**
+    #
+    # `required: false` — CI의 docker 잡은 `.env` 없이 셸 환경변수만으로 이 스택을
+    # 띄운다(`.github/workflows/ci.yml`). 파일을 필수로 두면 그 잡이 깨진다.
+    #
+    env_file:
+      - path: .env
+        required: false
     environment:
+      # `environment:`가 `env_file:`보다 우선한다. `.env`의 `DATABASE_URL`은 호스트용
+      # `localhost:5432`이므로 컨테이너 네트워크 주소로 덮어써야 한다.
+      #
       # config.py 가드(#118) 발동용. Dockerfile prod stage의 ENV APP_ENV=production이
       # 이미지에 굳어 있어 compose에서 빼도 동작은 같지만, 가시성을 위해 명시한다 (#231).
       # APP_ENV 미설정 시 development로 떨어져 폴백이 일어날 수 있다는 경고 신호.
