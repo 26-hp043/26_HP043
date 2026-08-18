@@ -148,6 +148,17 @@ describe('검증', () => {
     ).rejects.toBeInstanceOf(ScenarioComparisonError)
   })
 
+  it('실패 문구가 어느 선박인지·왜 안 되는지 적는다 (#511)', async () => {
+    // 종전 문구는 「지원하지 않는 선박입니다.」 한 줄이라, 서버가 거부한 것으로
+    // 읽혔다 — 실제로는 서버에 요청이 나가지도 않았다.
+    const error = await provider
+      .compare({ ...BASE, vessel_id: '00000000-0000-4000-8000-000000000003' })
+      .then(() => null, (e: unknown) => e as ScenarioComparisonError)
+    expect(error?.message).toContain('00000000-0000-4000-8000-000000000003')
+    expect(error?.message).toContain('데모')
+    expect(error?.message).not.toBe('지원하지 않는 선박입니다.')
+  })
+
   it('기능① 오류를 기능② 오류 타입으로 옮긴다 — 화면이 두 타입을 알지 않는다', async () => {
     const error = await provider
       .compare({ ...BASE, fuel_type: 'ETHANE' })

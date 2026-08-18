@@ -90,9 +90,22 @@ async function compareScenarios(
 
   const vessel = findVessel(request.vessel_id)
   if (!vessel) {
+    /*
+     * **무엇이 없어 계산할 수 없는지 적는다** (#511).
+     *
+     * 종전 문구는 「지원하지 않는 선박입니다.」 한 줄이었다. 화면이 상수로 박은
+     * `…0003`이 고정표에 없어 **데모 모드에서 항로 비교가 언제나 이 문구로 실패**했고,
+     * 문구가 원인을 말하지 않아 「서버가 이 배를 거부한다」로 읽혔다 — 실제로는
+     * 서버에 요청이 나가지도 않았다.
+     *
+     * 서버 쪽이 이미 같은 원칙으로 적고 있다
+     * (`services/scenario_compare.py:453`·`:466`) — 없는 값의 이름을 부른다.
+     */
     throw new ScenarioComparisonError(
       'UNSUPPORTED_VESSEL',
-      '지원하지 않는 선박입니다.',
+      `데모 모드가 아는 선박이 아닙니다 (${request.vessel_id}). ` +
+        '데모는 고정표의 선박만 계산할 수 있습니다. ' +
+        '실제 선박으로 비교하려면 백엔드에 연결해 주세요.',
       'vessel_id',
     )
   }

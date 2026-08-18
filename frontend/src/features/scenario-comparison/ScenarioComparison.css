@@ -31,6 +31,116 @@
   font-weight: var(--font-weight-h3);
 }
 
+/*
+ * 조건 입력 폼 (#511).
+ *
+ * DESIGN_SYSTEM §8 — 입력·셀렉트: surface-2 배경 · border · radius 8 · 라벨 상단 ·
+ * 포커스 링 / 버튼 Primary: navy 채움 · 높이 40 · radius 8
+ * §14 — 오류는 컨트롤 **아래**에 둔다.
+ */
+.scenario-comparison__form {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-16);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-12);
+}
+
+.scenario-comparison__form-title,
+.scenario-comparison__form-actions,
+.scenario-comparison__form > .scenario-comparison__error-message {
+  grid-column: 1 / -1;
+}
+
+.scenario-comparison__form-title {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+  margin: 0;
+}
+
+.scenario-comparison__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.scenario-comparison__field > span:first-child {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.scenario-comparison__field input,
+.scenario-comparison__field select {
+  height: 40px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.scenario-comparison__field input:focus-visible,
+.scenario-comparison__field select:focus-visible {
+  outline: var(--focus-ring);
+}
+
+.scenario-comparison__field input[aria-invalid='true'],
+.scenario-comparison__field select[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.scenario-comparison__field-error {
+  color: var(--color-danger);
+  font-size: var(--font-size-micro);
+}
+
+.scenario-comparison__field-hint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+}
+
+.scenario-comparison__submit {
+  height: 40px;
+  padding: 0 var(--space-24);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.scenario-comparison__submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.scenario-comparison__submit:disabled {
+  background: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
+/* 폼과 함께 렌더되므로 종전의 섹션 전용 배치(`--placeholder`·`--error`)를 쓰지 않는다. */
+.scenario-comparison__placeholder {
+  color: var(--color-text-muted);
+  padding: var(--space-12) 0;
+}
+
+.scenario-comparison__error {
+  border-left: 3px solid var(--color-danger);
+  background: var(--color-surface-2);
+  padding: var(--space-12) var(--space-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.scenario-comparison__error-message {
+  color: var(--color-text);
+}
+
 .scenario-comparison__header {
   display: flex;
   flex-direction: column;

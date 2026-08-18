@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import './ScenarioComparison.css'
+import {
+  createVesselCatalog,
+  type VesselOption,
+} from '../voyage-cii/vesselCatalog'
+import {
+  FIELD,
+  NO_VESSEL_MESSAGE,
+  initialFormState,
+  selectableFuels,
+  toRequest,
+  validateForm,
+  type ComparisonFormState,
+  type FormErrors,
+} from './requestRules'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
 import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
@@ -9,11 +23,7 @@ import {
 } from './demoProvider'
 import { selectScenarioProvider } from './providerSelection'
 import { lowestSummary } from './comparisonRules'
-import type {
-  ScenarioComparisonRequest,
-  ScenarioComparisonResponse,
-  ScenarioResult,
-} from './types'
+import type { ScenarioComparisonResponse, ScenarioResult } from './types'
 
 /**
  * 기능② 시나리오 비교 (#156).
@@ -26,11 +36,18 @@ import type {
  * 종합 점수를 매기거나 하나를 강조하지 않는다. 지표마다 따로 최소값을 적고,
  * 어느 지표가 중요한지는 사용자가 정한다(`PRD §6.3` 「자동 결정 금지」).
  *
- * ## 8/8 범위에는 입력 폼이 없다
+ * ## 조건 입력 폼 (#511)
  *
- * `PRD §11.3`의 입력(현재 좌표·목적항 등)은 `#139` 소관이다. 이 화면은 기준 조건을
- * 상수로 넘기고 비교 결과만 보여 준다. **요청 타입은 `#57` 구조에 맞춰 두어**
- * 실 API 연결 시 provider 구현체만 바뀌게 한다.
+ * 종전에는 입력 폼 없이 `DEMO_REQUEST` 상수를 마운트 즉시 보냈다. 그 상수의
+ * `vessel_id`(`…0003`)가 demo 고정표에 없어 **데모 모드에서 항로 비교가 아무 입력
+ * 없이 언제나 실패**했다. 상수를 `…0001`로 바꾸면 이번에는 실 API가 422를 낸다
+ * (그 배는 `reference_speed_kn`이 비어 있다) — 어느 쪽을 골라도 한쪽이 깨진다.
+ *
+ * 그래서 선박을 **provider의 목록**에서 읽고 조건을 사용자가 넣는다. 규칙은
+ * `requestRules.ts`에 있다.
+ *
+ * `PRD §11.3`의 나머지 입력(현재 좌표·목적항 등)은 아직 `#139` 소관으로 남는다 —
+ * 이 화면이 받는 것은 계산에 실제로 필요한 여섯 값이다.
  *
  * ## 표시 규칙은 기능①과 같다
  *
@@ -39,25 +56,13 @@ import type {
  */
 
 /**
- * 8/8 시연 기준 조건. `PRD §13.1` Fixture 1의 선박·조건과 같다 —
- * 기능①에서 본 값이 기능②의 `직항`으로 다시 나와 두 화면이 이어진다.
+ * 비교 결과의 적재 상태.
+ *
+ * `idle`이 기본이다 — **마운트 시 계산을 걸지 않는다.** 사용자가 조건을 정하기
+ * 전의 계산은 누구의 질문도 아니고, 실패하면 화면이 오류로 시작한다(#511).
  */
-const DEMO_REQUEST: ScenarioComparisonRequest = {
-  /*
-   * 기준 속력이 등록된 선박을 쓴다 (#139). 실 API는 `reference_speed_kn` 없이는
-   * 연료를 추정할 수 없어 422를 낸다 — demo에서만 되는 요청을 두면 provider를
-   * 바꾸는 순간 화면이 깨진다.
-   */
-  vessel_id: '00000000-0000-4000-8000-000000000003',
-  regulation_year: 2026,
-  base_distance_nm: 1000,
-  base_speed_kn: 12.8,
-  // 1000nm / 14kn ≈ 2.98일 · 총 80t → 일일 26.88t (#139 계약 변경)
-  base_daily_foc_ton: 26.88,
-  fuel_type: 'HFO',
-}
-
 type LoadState =
+  | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'success'; response: ScenarioComparisonResponse }
   | { status: 'error'; message: string }
@@ -70,42 +75,220 @@ export function ScenarioComparison({
 }) {
   // demo ↔ 실 API 전환은 `VITE_USE_API` 하나로 결정된다 (#139).
   const provider = useMemo(() => selectScenarioProvider(), [])
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
+  // 선택지도 **같은 스위치**를 쓴다 (#236). 기준이 갈리면 계산은 서버로 가는데
+  // 선택지는 고정표에서 오는, 이번 이슈가 고치려는 상태가 다시 만들어진다.
+  const catalog = useMemo(() => createVesselCatalog(), [])
+  const fuels = useMemo(() => selectableFuels(), [])
+
+  const [vessels, setVessels] = useState<VesselOption[] | null>(null)
+  const [catalogError, setCatalogError] = useState<string | null>(null)
+  const [form, setForm] = useState<ComparisonFormState>(initialFormState)
+  const [errors, setErrors] = useState<FormErrors>({})
+  const [state, setState] = useState<LoadState>({ status: 'idle' })
 
   useEffect(() => {
     let alive = true
-    provider.compare(DEMO_REQUEST).then(
-      (response) => {
+    catalog.listVessels().then(
+      (options) => {
         if (!alive) return
+        setVessels(options)
+        // 목록이 한 척이면 고를 것이 없다 — 미리 채워 두어 클릭 한 번을 줄인다.
+        // 두 척 이상이면 **고르지 않은 상태로 둔다**(어느 배인지 사용자가 정한다).
+        if (options.length === 1) {
+          setForm((prev) => ({ ...prev, vesselId: options[0].id }))
+        }
+      },
+      (error: unknown) => {
+        if (!alive) return
+        setCatalogError(
+          error instanceof Error ? error.message : '선박 목록을 불러오지 못했습니다.',
+        )
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [catalog])
+
+  const runComparison = () => {
+    const found = validateForm(form)
+    if (Object.keys(found).length > 0) {
+      setErrors(found)
+      return
+    }
+    setErrors({})
+    setState({ status: 'loading' })
+    provider.compare(toRequest(form)).then(
+      (response) => {
         setState({ status: 'success', response })
         onDisclaimer?.(response.disclaimer)
       },
       (error: unknown) => {
-        if (!alive) return
         setState({
           status: 'error',
           message: error instanceof Error ? error.message : '비교에 실패했습니다.',
         })
       },
     )
-    return () => {
-      alive = false
-    }
-  }, [provider, onDisclaimer])
-
-  if (state.status === 'loading') {
-    return (
-      <section className="scenario-comparison scenario-comparison--placeholder" aria-live="polite">
-        <p>시나리오를 계산하는 중입니다…</p>
-      </section>
-    )
   }
 
-  if (state.status === 'error') {
+  const noVessel = vessels !== null && vessels.length === 0
+
+  const conditionForm = (
+    <form
+      className="scenario-comparison__form"
+      onSubmit={(event) => {
+        event.preventDefault()
+        runComparison()
+      }}
+    >
+      <h3 className="scenario-comparison__form-title">비교 조건</h3>
+
+      {catalogError !== null && (
+        <p className="scenario-comparison__error-message" role="alert">
+          {catalogError}
+        </p>
+      )}
+      {noVessel && (
+        <p className="scenario-comparison__error-message" role="status">
+          {NO_VESSEL_MESSAGE}
+        </p>
+      )}
+
+      <label className="scenario-comparison__field">
+        <span>선박</span>
+        <select
+          value={form.vesselId}
+          onChange={(e) => setForm({ ...form, vesselId: e.target.value })}
+          disabled={vessels === null || noVessel}
+          aria-invalid={FIELD.vesselId in errors}
+        >
+          <option value="">{vessels === null ? '불러오는 중…' : '선택'}</option>
+          {(vessels ?? []).map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.displayName}
+            </option>
+          ))}
+        </select>
+        {errors[FIELD.vesselId] !== undefined && (
+          <span className="scenario-comparison__field-error">{errors[FIELD.vesselId]}</span>
+        )}
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>규제연도</span>
+        <input
+          inputMode="numeric"
+          value={form.regulationYear}
+          onChange={(e) => setForm({ ...form, regulationYear: e.target.value })}
+          aria-invalid={FIELD.regulationYear in errors}
+        />
+        {errors[FIELD.regulationYear] !== undefined && (
+          <span className="scenario-comparison__field-error">
+            {errors[FIELD.regulationYear]}
+          </span>
+        )}
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>직항 거리 ({DISPLAY_UNITS.distance})</span>
+        <input
+          inputMode="decimal"
+          value={form.baseDistanceNm}
+          onChange={(e) => setForm({ ...form, baseDistanceNm: e.target.value })}
+          aria-invalid={FIELD.baseDistanceNm in errors}
+        />
+        {errors[FIELD.baseDistanceNm] !== undefined && (
+          <span className="scenario-comparison__field-error">
+            {errors[FIELD.baseDistanceNm]}
+          </span>
+        )}
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>현재 속력 ({DISPLAY_UNITS.speed})</span>
+        <input
+          inputMode="decimal"
+          value={form.baseSpeedKn}
+          onChange={(e) => setForm({ ...form, baseSpeedKn: e.target.value })}
+          aria-invalid={FIELD.baseSpeedKn in errors}
+        />
+        {errors[FIELD.baseSpeedKn] !== undefined && (
+          <span className="scenario-comparison__field-error">
+            {errors[FIELD.baseSpeedKn]}
+          </span>
+        )}
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>기준 일일 연료소모량 ({DISPLAY_UNITS.fuel})</span>
+        <input
+          inputMode="decimal"
+          value={form.baseDailyFocTon}
+          onChange={(e) => setForm({ ...form, baseDailyFocTon: e.target.value })}
+          aria-invalid={FIELD.baseDailyFocTon in errors}
+        />
+        {errors[FIELD.baseDailyFocTon] !== undefined && (
+          <span className="scenario-comparison__field-error">
+            {errors[FIELD.baseDailyFocTon]}
+          </span>
+        )}
+        {/*
+          `PRD §11.4` 우선순위 ⑴이 이 칸이다. 선박에 `reference_daily_foc_ton`이
+          없어도 여기 값을 넣으면 계산된다 — 데모 선박 4척이 모두 그 상태다.
+        */}
+        <span className="scenario-comparison__field-hint">
+          선박에 기준 일일 연료소모량이 등록돼 있지 않아도 이 값으로 계산합니다
+          (PRD §11.4 ⑴).
+        </span>
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>연료 종류</span>
+        <select
+          value={form.fuelType}
+          onChange={(e) => setForm({ ...form, fuelType: e.target.value })}
+          aria-invalid={FIELD.fuelType in errors}
+        >
+          <option value="">선택</option>
+          {fuels.map((fuel) => (
+            <option key={fuel.code} value={fuel.code}>
+              {fuel.displayName} ({fuel.code})
+            </option>
+          ))}
+        </select>
+        {errors[FIELD.fuelType] !== undefined && (
+          <span className="scenario-comparison__field-error">{errors[FIELD.fuelType]}</span>
+        )}
+      </label>
+
+      <div className="scenario-comparison__form-actions">
+        <button
+          type="submit"
+          className="scenario-comparison__submit"
+          disabled={state.status === 'loading' || noVessel}
+        >
+          {state.status === 'loading' ? '계산 중…' : '비교하기'}
+        </button>
+      </div>
+    </form>
+  )
+
+  if (state.status !== 'success') {
     return (
-      <section className="scenario-comparison scenario-comparison--error" aria-live="assertive">
-        <p className="scenario-comparison__error-title">비교에 실패했습니다</p>
-        <p className="scenario-comparison__error-message">{state.message}</p>
+      <section className="scenario-comparison">
+        {conditionForm}
+        {state.status === 'loading' && (
+          <p className="scenario-comparison__placeholder" aria-live="polite">
+            시나리오를 계산하는 중입니다…
+          </p>
+        )}
+        {state.status === 'error' && (
+          <div className="scenario-comparison__error" aria-live="assertive">
+            <p className="scenario-comparison__error-title">비교에 실패했습니다</p>
+            <p className="scenario-comparison__error-message">{state.message}</p>
+          </div>
+        )}
       </section>
     )
   }
@@ -118,13 +301,15 @@ export function ScenarioComparison({
 
   return (
     <section className="scenario-comparison">
+      {/* 결과를 본 뒤 조건을 바꿔 다시 비교할 수 있어야 한다 — 폼을 남긴다. */}
+      {conditionForm}
       <header className="scenario-comparison__header">
         <h2 className="scenario-comparison__title">
           시나리오 비교
           <span className="scenario-comparison__title-en"> Scenario Comparison</span>
         </h2>
         <p className="scenario-comparison__context">
-          {response.vessel_display_name} · {DEMO_REQUEST.regulation_year}년 기준 ·
+          {response.vessel_display_name} · {form.regulationYear}년 기준 ·
           기준 CII {formatDecimalString(response.required_cii, DISPLAY_DIGITS.cii)} {unit}
         </p>
       </header>
