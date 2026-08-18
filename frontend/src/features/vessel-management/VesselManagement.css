@@ -1,0 +1,290 @@
+/*
+ * 선박 관리 화면 (#510).
+ *
+ * DESIGN_SYSTEM §8  — 카드/패널: surface · border · radius 12 · 그림자 Lv1 · 패딩 16–20
+ *                     입력·셀렉트: surface-2 배경 · border · radius 8 · 라벨 상단 · 포커스 링
+ *                     버튼 Primary(navy 채움 / 흰 글자) · Secondary(아웃라인) · Danger
+ *                     높이 40 · radius 8
+ * §14 — 한국어 라벨 + 영문 병기 · **색만으로 의미 전달 금지** · 오류는 컨트롤 아래
+ * §15 — 컴포넌트는 토큰만 참조한다. 하드코딩 hex 금지.
+ *
+ * 폭은 §7.1 정책상 페이지(`screens.ts`의 `width: 'wide'`)가 정하므로 여기서는 열
+ * 배치만 다룬다 — 등록 화면(#441)과 같은 규칙이다.
+ */
+
+.vessel-management {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.vessel-management__title {
+  margin-bottom: var(--space-4);
+}
+
+.vessel-management__title-en {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-body);
+}
+
+.vessel-management__lead {
+  color: var(--color-text-muted);
+}
+
+/* 데모 모드 안내. 오류가 아니므로 danger를 쓰지 않는다 — 사용자가 잘못한 것이 없다. */
+.vessel-management__banner {
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: var(--space-12) var(--space-16);
+}
+
+.vessel-management__actions {
+  display: flex;
+  gap: var(--space-12);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.vessel-management__primary-link {
+  background: var(--color-primary);
+  color: var(--color-surface);
+  border-radius: var(--radius-control);
+  padding: var(--space-8) var(--space-16);
+  text-decoration: none;
+  font-weight: var(--font-weight-label);
+}
+
+.vessel-management__primary-link:hover {
+  background: var(--color-primary-hover);
+}
+
+.vessel-management__link {
+  color: var(--color-primary);
+}
+
+.vessel-management__notice {
+  border-left: 3px solid var(--color-success);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: var(--space-12) var(--space-16);
+}
+
+.vessel-management__error {
+  border-left: 3px solid var(--color-danger);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-danger);
+  padding: var(--space-12) var(--space-16);
+}
+
+/*
+ * 「지울 수 없다」·「재계산이 걸린다」 안내. 오류가 아니라 경고이므로 warning을 쓰고,
+ * §14대로 **색만으로 의미를 전달하지 않는다** — 문장이 무엇이 일어나는지 적는다.
+ */
+.vessel-management__warn {
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: var(--space-12) var(--space-16);
+}
+
+.vessel-management__empty {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  color: var(--color-text-muted);
+  padding: var(--space-24);
+  text-align: center;
+}
+
+.vessel-management__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+}
+
+.vessel-management__item {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-16);
+}
+
+.vessel-management__row {
+  display: flex;
+  gap: var(--space-16);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.vessel-management__ident {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.vessel-management__name {
+  color: var(--color-text);
+  font-weight: var(--font-weight-h3);
+  font-size: var(--font-size-h3);
+}
+
+.vessel-management__imo {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+}
+
+.vessel-management__specs {
+  display: flex;
+  gap: var(--space-24);
+  margin: 0;
+  flex: 1 1 200px;
+}
+
+.vessel-management__specs dt {
+  color: var(--color-text-faint);
+  font-size: var(--font-size-micro);
+}
+
+.vessel-management__specs dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.vessel-management__buttons {
+  display: flex;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.vessel-management__button {
+  height: 40px;
+  padding: 0 var(--space-16);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.vessel-management__button:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.vessel-management__button:disabled {
+  color: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
+.vessel-management__button--danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.vessel-management__submit {
+  height: 40px;
+  padding: 0 var(--space-24);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.vessel-management__submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.vessel-management__submit:disabled {
+  background: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
+/*
+ * 「이 배로 지금 할 수 없는 것」. 목록에서 바로 보여야 하는 정보다 —
+ * 등급이 `—`인 이유를 사용자가 다른 화면에서 찾게 두지 않는다.
+ */
+.vessel-management__blocked {
+  list-style: none;
+  margin: var(--space-12) 0 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 3px solid var(--color-warning);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: var(--font-size-micro);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.vessel-management__form {
+  margin-top: var(--space-16);
+  padding-top: var(--space-16);
+  border-top: 1px solid var(--color-border);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-12);
+}
+
+.vessel-management__form > .vessel-management__error,
+.vessel-management__form > .vessel-management__warn,
+.vessel-management__form > .vessel-management__readonly,
+.vessel-management__form > .vessel-management__buttons {
+  grid-column: 1 / -1;
+}
+
+.vessel-management__readonly {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+}
+
+.vessel-management__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.vessel-management__field > span {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.vessel-management__field input,
+.vessel-management__field select {
+  height: 40px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.vessel-management__field input:focus-visible,
+.vessel-management__field select:focus-visible {
+  outline: var(--focus-ring);
+}
+
+.vessel-management__field input[aria-invalid='true'],
+.vessel-management__field select[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+/* 오류는 컨트롤 **아래**에 둔다 (§14). */
+.vessel-management__field-error {
+  color: var(--color-danger);
+  font-size: var(--font-size-micro);
+}

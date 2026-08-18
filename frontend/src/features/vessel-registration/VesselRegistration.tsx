@@ -46,6 +46,10 @@ import type { Vessel } from './types'
  * 전환을 **자동으로** 하면 방금 저장된 내용을 확인할 기회가 사라지고, 특히 제원 없이
  * 등록한 경우의 안내가 사용자를 지나친다. 그래서 결과 카드에 대시보드·선박 상세
  * 링크를 두어 **사용자가 넘어가게** 한다.
+ *
+ * **이동 대상의 우선순위는 대시보드다** (#510). `#490`이 요구한 「선박 상세로 이동」의
+ * 근거(`UIFLOW v3.0 §4.11`)는 `PR #462`가 닫히며 사라졌고, 살아 있는 `UIFLOW 1-2`와
+ * `#510`이 모두 대시보드를 가리킨다. 링크 순서가 그 판단을 반영한다.
  */
 export function VesselRegistration() {
   const provider = useMemo(() => createVesselRegistrationProvider(), [])
@@ -362,12 +366,25 @@ function RegisteredCard({ vessel }: { vessel: Vessel }) {
         />
       </dl>
       <p className="vessel-registration__result-hint">{applicabilityHint(vessel)}</p>
+      {/*
+        후속 이동 대상은 **대시보드**다 (#510). `#490`은 `UIFLOW v3.0 §4.11`을 근거로
+        「저장 후 SCR-008(선박 상세)로 이동」을 요구했으나, 그 문서는 `PR #462`가 머지
+        없이 닫히며 사라졌다. 살아 있는 근거는 `UIFLOW 1-2`(「등록 완료 시 1-3
+        대시보드 상태로 전환」)이며 `#510`이 같은 것을 요구한다. 선박 상세 링크는
+        방금 등록한 배를 곧바로 확인하려는 경로로 남긴다.
+      */}
       <div className="vessel-registration__result-links">
+        <Link className="vessel-registration__link" to={SCREEN_BY_ID.MAINBOARD.path}>
+          대시보드로 이동
+        </Link>
         <Link className="vessel-registration__link" to={`/vessels/${vessel.id}`}>
           선박 상세 보기
         </Link>
-        <Link className="vessel-registration__link" to={SCREEN_BY_ID.MAINBOARD.path}>
-          대시보드로 이동
+        <Link
+          className="vessel-registration__link"
+          to={SCREEN_BY_ID.VESSEL_MANAGEMENT.path}
+        >
+          선박 관리
         </Link>
       </div>
     </div>
