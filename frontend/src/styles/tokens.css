@@ -98,8 +98,14 @@
    * 디자이너 지정은 Noto Sans KR이다. **웹폰트를 링크로 불러오지 않는다** —
    * 오프라인 시연에서 조용히 대체 글꼴로 떨어지기 때문이다. 설치돼 있으면 쓰고,
    * 없으면 기존 스택으로 내려간다. 자체 호스팅 여부는 별도 판단이 필요하다.
+   *
+   * **fallback 체인은 `DESIGN_SYSTEM §3`이 정한 그대로다** (#485 항목 2) —
+   * `system-ui, "Malgun Gothic", sans-serif`. 종전에는 그 앞에 `Pretendard`가
+   * 남아 있었다. v1.2까지의 지정 폰트였는데 §3이 *「팀 환경 확보 문제로 교체했다」*로
+   * 적으며 v2.0에서 걷어낸 것이라, **설치된 장비에서는 교체 자체가 무효**였다 —
+   * Noto Sans KR이 없고 Pretendard가 있는 장비에서 구 폰트로 렌더된다.
    */
-  --font-sans: var(--fontFamilies-sans), Pretendard, system-ui, 'Malgun Gothic', sans-serif;
+  --font-sans: var(--fontFamilies-sans), system-ui, 'Malgun Gothic', sans-serif;
   --font-mono: var(--fontFamilies-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* 타입 스케일 — DESIGN_SYSTEM §3. 디자이너 JSON에 없어 여기서 유지한다. */
