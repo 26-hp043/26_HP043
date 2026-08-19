@@ -359,21 +359,42 @@
   max-width: var(--layout-max-form);
 }
 
-/* 로그아웃 버튼 (#278) — 상단바 계정 영역 안. 토큰만 사용한다. */
+/*
+ * 로그아웃 버튼 (#278) — 상단바 계정 영역 안.
+ *
+ * ## 글자가 보이지 않던 이유
+ *
+ * 글자색이 `--color-surface`(흰색)였고 배경은 `transparent`였다. 상단바가
+ * `--surface-card`(흰색)이므로 **흰 글자를 흰 배경에 얹고 있었다.** hover에서만
+ * 배경이 navy로 바뀌어 그때 잠깐 보였다.
+ *
+ * `DESIGN_SYSTEM §2.1`이 Deep Navy를 「헤더」 색으로 두던 시절에 맞춰 쓴 값으로
+ * 보인다. 상단바가 흰색이 된 뒤 이 버튼만 그 전제에 남아 있었다.
+ *
+ * ## 같은 상단바의 아이콘 버튼을 따른다
+ *
+ * `.app-shell__iconbtn`이 바로 옆에서 `transparent` + `--text-muted`,
+ * hover에 `--surface-inset` + `--text-secondary`를 쓴다. 같은 줄에 놓인 유틸리티
+ * 컨트롤이므로 같은 값을 쓴다 — 여기만 다른 색 체계를 쓰다 어긋난 것이 원인이다.
+ *
+ * 색을 다시 리터럴로 고르지 않고 셸이 쓰는 토큰(`--text-*`·`--surface-*`)에
+ * 맞춘다. 헤더 배경이 또 바뀌어도 함께 따라간다.
+ */
 .app-shell__logout {
   margin-left: var(--space-8);
   padding: var(--space-4) var(--space-12);
   font-size: var(--font-size-micro);
   font-family: inherit;
-  color: var(--color-surface);
+  color: var(--text-muted);
   background: transparent;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   cursor: pointer;
 }
 
 .app-shell__logout:hover {
-  background: var(--color-primary-hover);
+  background: var(--surface-inset);
+  color: var(--text-secondary);
 }
 
 .app-shell__logout:focus-visible {
