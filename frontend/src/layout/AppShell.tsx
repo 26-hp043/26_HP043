@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import './AppShell.css'
 import { NAV_SCREENS, findScreenByPath } from '../screens'
@@ -6,10 +6,11 @@ import { createVesselCatalog, type VesselOption } from '../features/voyage-cii/v
 import { createVoyageCatalog, type VoyageOption } from './voyageCatalog'
 import {
   EMPTY_CONTEXT,
+  isVesselQueryPath,
   isVesselScopedPath,
   loadStored,
   navigationFor,
-  readFromPath,
+  readContext,
   saveStored,
   selectVessel,
   selectVoyage,
@@ -21,6 +22,7 @@ import { ThemeToggle } from '../theme/ThemeToggle'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
 import { shouldUseApi } from '../features/voyage-cii/providerSelection'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import type { ShellContext } from './shellContext'
 
 /** 아바타 이니셜. 이메일이면 로컬파트 첫 글자를 쓴다. */
 function initialOf(name: string): string {
@@ -59,7 +61,7 @@ function initialOf(name: string): string {
  * 메인 영역의 최대 폭·좌우 패딩은 §7.1 폭 정책을 화면별로 적용한다.
  */
 export function AppShell() {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const navigate = useNavigate()
   const screen = findScreenByPath(pathname)
   const width = screen?.width ?? 'form'
@@ -83,6 +85,9 @@ export function AppShell() {
   const voyageCatalog = useMemo(() => createVoyageCatalog(), [])
 
   const [vessels, setVessels] = useState<VesselOption[]>([])
+  // 「아직 안 왔다」와 「못 읽었다」와 「등록된 배가 없다」는 서로 다른 상태다.
+  // 화면이 그 셋을 다르게 안내할 수 있도록 함께 내린다 (#484).
+  const [vesselsState, setVesselsState] = useState<ShellContext['vesselsState']>('loading')
   const [voyages, setVoyages] = useState<VoyageOption[]>([])
   // 계층 밖 화면에서 보일 「기억해 둔 선택」. 계층 화면에서는 URL이 이긴다.
   const [remembered, setRemembered] = useState<GlobalContextValue>(EMPTY_CONTEXT)
@@ -95,12 +100,16 @@ export function AppShell() {
     let alive = true
     vesselCatalog.listVessels().then(
       (options) => {
-        if (alive) setVessels(options)
+        if (!alive) return
+        setVessels(options)
+        setVesselsState('ready')
       },
       () => {
         // 목록을 못 읽어도 셸은 계속 돈다. 선택기만 비활성으로 남는다 —
         // 화면 전체를 오류로 만들 이유가 없다.
-        if (alive) setVessels([])
+        if (!alive) return
+        setVessels([])
+        setVesselsState('failed')
       },
     )
     return () => {
@@ -109,21 +118,23 @@ export function AppShell() {
   }, [vesselCatalog])
 
   /*
-   * 지금 유효한 선택. 계층 화면이면 경로가 정본이고, 그 밖에서는 기억해 둔 값이다.
-   * 두 곳을 합치지 않고 **어느 쪽이 이기는지 한 줄로 정한다** — 합치면 갈렸을 때
-   * 어느 쪽이 맞는지 알 수 없다.
+   * 지금 유효한 선택. 계층 화면이면 경로가, 쿼리 화면이면 쿼리가 정본이고,
+   * 그 밖에서는 기억해 둔 값이다. 두 곳을 합치지 않고 **어느 쪽이 이기는지
+   * 한 줄로 정한다** — 합치면 갈렸을 때 어느 쪽이 맞는지 알 수 없다.
+   * 판정 규칙은 `globalContext.readContext`가 소유한다(#484).
    */
-  const context: GlobalContextValue = isVesselScopedPath(pathname)
-    ? readFromPath(pathname)
-    : remembered
+  const context: GlobalContextValue = readContext(pathname, search, remembered)
 
-  // 경로를 통해 들어온 선택도 기억한다 — 대시보드로 나가도 유지되어야 한다.
+  // URL을 통해 들어온 선택도 기억한다 — 대시보드로 나가도 유지되어야 한다.
   useEffect(() => {
-    if (!isVesselScopedPath(pathname)) return
-    const fromPath = readFromPath(pathname)
-    setRemembered(fromPath)
-    saveStored(fromPath)
-  }, [pathname])
+    if (!isVesselScopedPath(pathname) && !isVesselQueryPath(pathname)) return
+    const fromUrl = readContext(pathname, search, EMPTY_CONTEXT)
+    // 쿼리 화면에 쿼리 없이 들어온 경우다. 기억을 지우지 않는다 — 사이드바로
+    // 들어왔을 뿐 사용자가 선택을 취소한 것이 아니다.
+    if (fromUrl.vesselId === null) return
+    setRemembered(fromUrl)
+    saveStored(fromUrl)
+  }, [pathname, search])
 
   // 항차 목록은 선박이 정해진 뒤에만 의미가 있다.
   useEffect(() => {
@@ -145,13 +156,52 @@ export function AppShell() {
     }
   }, [voyageCatalog, context.vesselId])
 
-  /** 선택을 반영한다 — 기억하고, 계층 화면이면 그 대상으로 이동한다. */
+  /*
+   * `outletContext`가 매 렌더 새로 만들어지지 않게 하면서도 최신 `pathname`·
+   * `search`·`context`를 쓰도록 ref로 우회한다. 하위 화면은 이 객체를 효과의
+   * 의존성에 두므로, 정체성이 흔들리면 그 효과가 매 렌더 돈다.
+   */
+  const contextRef = useRef(context)
+  contextRef.current = context
+
+  /** 선택을 반영한다 — 기억하고, 화면에 맞는 방식으로 주소를 갱신한다. */
   const applyContext = (next: GlobalContextValue) => {
     setRemembered(next)
     saveStored(next)
-    const target = navigationFor(pathname, next)
-    if (target !== null && target !== pathname) navigate(target)
+    const target = navigationFor(pathname, next, search)
+    if (target === null || target === `${pathname}${search}`) return
+    // 쿼리 화면에서는 **히스토리를 쌓지 않는다** (#484). 선박을 세 번 바꾸면
+    // 뒤로가기를 세 번 눌러야 이전 화면으로 나가게 되고, 그건 선택을 바꾼
+    // 사용자가 기대하는 동작이 아니다. 계층 화면은 화면 자체가 바뀌므로
+    // 히스토리에 남는 것이 맞다.
+    navigate(target, { replace: isVesselQueryPath(pathname) })
   }
+  const applyContextRef = useRef(applyContext)
+  applyContextRef.current = applyContext
+
+  /**
+   * 하위 화면에 넘기는 값 (#484 · #535).
+   *
+   * **화면이 자기 선박 상태를 따로 갖지 않게 하려는 것**이다. 종전에는 CII 예측·
+   * 항로 비교가 각자 선박 셀렉트를 들고 있어, 상단에서 배를 바꿔도 폼은 그대로였다
+   * (`#535`). 셋이 같은 값을 보게 하려면 값과 **바꾸는 수단**을 함께 내려야 한다.
+   *
+   * `createContext`를 쓰지 않고 `Outlet context`를 쓴다 — 라우터가 이미 부모·자식
+   * 관계를 알고 있고, 이 값이 필요한 화면은 전부 이 셸의 라우트 자식이다.
+   */
+  const outletContext: ShellContext = useMemo(
+    () => ({
+      vesselId: context.vesselId,
+      voyageId: context.voyageId,
+      vessels,
+      vesselsState,
+      selectVesselId: (vesselId: string | null) =>
+        applyContextRef.current(selectVessel(contextRef.current, vesselId)),
+    }),
+    // `selectVesselId`는 ref를 거쳐 최신 값을 읽으므로 여기 넣지 않는다. 넣으면
+    // 매 렌더 새 객체가 되고, 이 값을 의존성에 둔 화면의 효과가 무한히 돈다.
+    [context.vesselId, context.voyageId, vessels, vesselsState],
+  )
 
   return (
     <div className="app-shell">
@@ -318,7 +368,7 @@ export function AppShell() {
 
         <main className={`app-shell__main app-shell__main--${width}`}>
           <div className="app-shell__content">
-            <Outlet />
+            <Outlet context={outletContext} />
           </div>
         </main>
       </div>

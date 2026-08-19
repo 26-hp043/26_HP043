@@ -12,7 +12,7 @@ import {
 } from './formRules'
 import { DISPLAY_UNITS } from '../../display/format'
 import { createVoyageCiiProvider } from './providerSelection'
-import { createVesselCatalog, type VesselOption } from './vesselCatalog'
+import { useShellContext } from '../../layout/shellContext'
 import { createYearCatalog } from './yearCatalog'
 import type { ResultState } from './resultRules'
 
@@ -24,8 +24,8 @@ import type { ResultState } from './resultRules'
  *
  * ## 선택지는 전부 provider 경계 뒤에 있다
  *
- * 선박은 `vesselCatalog`(#236), 연도는 `yearCatalog`(#534)가 맡는다. 이 컴포넌트는
- * 어느 쪽이 고정표이고 어느 쪽이 서버인지 알지 않는다. **연료만 아직 `formRules`의
+ * 선박은 **셸의 전역 컨텍스트**(#484 · #535), 연도는 `yearCatalog`(#534)가 맡는다.
+ * 이 컴포넌트는 어느 쪽이 고정표이고 어느 쪽이 서버인지 알지 않는다. **연료만 아직 `formRules`의
  * 고정표를 읽는다** — `/parameters/fuel-types`가 이미 있으므로(`#444`) 옮길 수 있으나
  * 이번 이슈 범위 밖이다.
  *
@@ -68,12 +68,10 @@ interface VoyageCiiFormProps {
 export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   const fuels = useMemo(() => selectableFuels(), [])
 
-  // 선택지 소스도 provider 경계 뒤에 둔다 (#236). demo면 고정표, 실 API면
-  // GET /api/v1/vessels다 — 화면은 어느 쪽인지 알지 않는다.
-  const catalog = useMemo(() => createVesselCatalog(), [])
-  const [vessels, setVessels] = useState<VesselOption[]>([])
-  const [vesselsLoading, setVesselsLoading] = useState(true)
-  const [vesselsFailed, setVesselsFailed] = useState(false)
+  // 선박 선택은 **셸이 소유한다** (#484 · #535). 종전에는 이 폼이 자기 목록과
+  // 선택을 따로 들고 있어, 상단바에서 배를 바꿔도 폼은 그대로였다.
+  const shell = useShellContext()
+  const { vessels, vesselsState, selectVesselId } = shell
 
   const [state, setState] = useState<VoyageCiiFormState>(initialFormState)
   const [errors, setErrors] = useState<FormErrors>({})
@@ -91,31 +89,25 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   // 선택됐는지 알지 않는다 — 그것이 #134가 provider 경계를 그은 이유다.
   const provider = useMemo(() => createVoyageCiiProvider(), [])
 
-  // 목록을 못 가져오면 폼을 「빈 선택지」로 두지 않고 실패를 명시한다 — 서버가
-  // 없어서 비었는지 등록된 선박이 없어서 비었는지가 구분되어야 한다.
+  /**
+   * 셸의 선택을 폼 상태에 반영한다 (#535).
+   *
+   * **폼은 선박을 「소유」하지 않고 셸의 값을 따라간다.** 상단바에서 배를 바꾸면
+   * 주소가 바뀌고, 그 주소가 셸을 거쳐 여기로 돌아온다.
+   *
+   * 셸에 선택이 없으면 **목록의 첫 배를 골라 셸에 알린다.** 폼만 몰래 정하면
+   * 상단바는 「선택 안 함」인데 폼은 특정 배로 계산하는, `#535`가 지적한 어긋남이
+   * 그대로 남는다. `#543`(초기값이 고정표 UUID라 서버에 없는 배를 가리킨다)도
+   * 이 경로로 함께 해소된다 — 첫 배는 항상 서버 목록에서 고른다.
+   */
+  const shellVesselId = shell.vesselId
   useEffect(() => {
-    let cancelled = false
-    catalog
-      .listVessels()
-      .then((rows) => {
-        if (cancelled) return
-        setVessels(rows)
-        // 첫 항목을 선택해 「아무것도 선택되지 않은 상태」를 만들지 않는다
-        // (initialFormState와 같은 규칙).
-        setState((prev) =>
-          prev.vesselId || rows.length === 0 ? prev : { ...prev, vesselId: rows[0].id },
-        )
-      })
-      .catch(() => {
-        if (!cancelled) setVesselsFailed(true)
-      })
-      .finally(() => {
-        if (!cancelled) setVesselsLoading(false)
-      })
-    return () => {
-      cancelled = true
+    if (shellVesselId !== null) {
+      setState((prev) => (prev.vesselId === shellVesselId ? prev : { ...prev, vesselId: shellVesselId }))
+      return
     }
-  }, [catalog])
+    if (vessels.length > 0) selectVesselId(vessels[0].id)
+  }, [shellVesselId, vessels, selectVesselId])
 
   /**
    * 선박이 정해진 뒤 그 선박의 연도 선택지를 받는다.
@@ -174,11 +166,16 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   }
 
   /**
-   * 선박을 바꾼다. **연도는 여기서 정하지 않는다** — 위 효과가 새 선박의 목록을
-   * 받아 맞춘다. 동기 계산으로 두면 고정표를 다시 읽게 되고, 그것이 `#534`다.
+   * 선박을 바꾼다. **폼 상태를 직접 고치지 않고 셸에 알린다** (#535).
+   *
+   * 셸이 주소를 갱신하면 위 효과가 그 값을 받아 폼에 반영한다. 여기서 `setState`를
+   * 직접 하면 폼만 바뀌고 상단바는 그대로여서, 고치려는 어긋남을 반대 방향으로
+   * 다시 만든다.
+   *
+   * 연도도 여기서 정하지 않는다 — `vesselId`가 바뀌면 연도 효과가 다시 돈다(`#534`).
    */
   function changeVessel(vesselId: string) {
-    setState((prev) => ({ ...prev, vesselId }))
+    shell.selectVesselId(vesselId)
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -227,14 +224,10 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
 
       <div className="voyage-cii-form__grid">
         {/* 선박 — 1척이면 고정 표시, 2척 이상이면 셀렉트 */}
-        {vesselsLoading ? (
+        {vesselsState === 'loading' ? (
           <StaticField label="선박" labelEn="Vessel" value="선박 목록을 불러오는 중…" />
-        ) : vesselsFailed ? (
-          <StaticField
-            label="선박"
-            labelEn="Vessel"
-            value="선박 목록을 불러오지 못했습니다"
-          />
+        ) : vesselsState === 'failed' ? (
+          <StaticField label="선박" labelEn="Vessel" value="선박 목록을 불러오지 못했습니다" />
         ) : vessels.length > 1 ? (
           <Field id="vessel" label="선박" labelEn="Vessel">
             <select
