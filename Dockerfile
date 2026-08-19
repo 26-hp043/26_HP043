@@ -47,7 +47,16 @@ EXPOSE 8000
 #  - --host 0.0.0.0: 컨테이너 외부(호스트)에서 접근 가능하도록 바인딩
 #  - --port 8000: docker-compose 포트 매핑(8000:8000)과 일치
 #  - 패키지 설치 후 모듈 경로는 cii_platform.api.main:app (src. 접두 불필요, #85)
-CMD ["uvicorn", "cii_platform.api.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+#
+# uvicorn 앞에 depcheck를 둔다 (#523). 이미지가 구워진 뒤 pyproject에 런타임
+# 의존성이 추가되면 **앱이 기동조차 못 하는데** 그 오류가 원인을 가리키지 않는다
+# (`RuntimeError: Form data requires "python-multipart"` → pip install 하라고
+# 안내하지만 컨테이너 안에서는 틀린 해법이다). 대조는 100ms 안쪽이며, 실패하면
+# 재빌드 명령을 찍고 멈춘다.
+#
+# exec 형식이 아니라 sh -c인 이유 — 두 명령을 잇기 위해서다. dev 전용이므로
+# 시그널 전달의 미세한 차이는 감수한다. prod stage는 exec 형식 그대로다.
+CMD ["sh", "-c", "python -m cii_platform.depcheck && exec uvicorn cii_platform.api.main:app --reload --host 0.0.0.0 --port 8000"]
 
 # ---------- builder stage ----------
 # wheel만 만들고 runtime으로 복사한다 — gcc·libpq-dev가 최종 이미지에 남지 않게 (#232).

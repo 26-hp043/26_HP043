@@ -68,9 +68,20 @@ services:
     # 추가되는데 Dockerfile COPY로 넣으면 그때마다 재빌드가 필요하다. prod stage는
     # 이미지가 스스로 서야 하므로 COPY가 맞고, dev는 마운트가 맞다.
     #
+    # `pyproject.toml`도 마운트한다 (#523).
+    #
+    # 소스만 마운트하면 **의존성이 반영되지 않는다.** dev 이미지는 빌드 시점에
+    # `pip install -e .`로 패키지를 굳히므로, 의존성이 추가된 커밋을 pull해도
+    # 이미지는 그대로다. 실제로 `#60`이 `python-multipart`를 추가한 뒤 재빌드하지
+    # 않은 환경에서 **앱이 기동조차 못 했다.**
+    #
+    # 이 마운트 자체가 의존성을 설치하지는 않는다. `depcheck`가 **호스트의 현재
+    # pyproject**와 이미지에 설치된 것을 대조하기 위한 것이다 — 마운트하지 않으면
+    # 이미지 안의 낡은 사본끼리 비교해 늘 통과한다.
     volumes:
       - ./src:/app/src
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
+      - ./pyproject.toml:/app/pyproject.toml:ro
 volumes:
   pgdata:
