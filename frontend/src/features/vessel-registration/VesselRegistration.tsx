@@ -132,7 +132,7 @@ export function VesselRegistration() {
             <Field
               id="imo-number"
               label="IMO 번호"
-              labelEn="imo_number"
+              labelEn="IMO Number"
               error={errors[FIELD.imoNumber]}
               hint="숫자 7자리"
             >
@@ -150,7 +150,7 @@ export function VesselRegistration() {
               />
             </Field>
 
-            <Field id="name" label="선명" labelEn="name" error={errors[FIELD.name]}>
+            <Field id="name" label="선명" labelEn="Vessel Name" error={errors[FIELD.name]}>
               <input
                 id="name"
                 className="vessel-registration__control"
@@ -167,7 +167,7 @@ export function VesselRegistration() {
             <Field
               id="ship-type"
               label="선종"
-              labelEn="ship_type"
+              labelEn="Ship Type"
               error={errors[FIELD.shipType]}
             >
               <select
@@ -203,7 +203,7 @@ export function VesselRegistration() {
             <Field
               id="deadweight"
               label="재화중량톤수"
-              labelEn="deadweight"
+              labelEn="Deadweight"
               unit="DWT"
               error={errors[FIELD.deadweight]}
             >
@@ -224,7 +224,7 @@ export function VesselRegistration() {
             <Field
               id="gross-tonnage"
               label="총톤수"
-              labelEn="gross_tonnage"
+              labelEn="Gross Tonnage"
               unit="GT"
               error={errors[FIELD.grossTonnage]}
             >
@@ -249,7 +249,7 @@ export function VesselRegistration() {
             <Field
               id="reference-speed"
               label="기준속도"
-              labelEn="reference_speed_kn"
+              labelEn="Reference Speed"
               unit="kn"
               error={errors[FIELD.referenceSpeedKn]}
             >
@@ -276,7 +276,7 @@ export function VesselRegistration() {
             <Field
               id="reference-foc"
               label="기준 일일 연료소모량"
-              labelEn="reference_daily_foc_ton"
+              labelEn="Daily Fuel Consumption"
               unit="t/일"
               error={errors[FIELD.referenceDailyFocTon]}
             >
@@ -303,7 +303,7 @@ export function VesselRegistration() {
             <Field
               id="default-fuel"
               label="기본 연료"
-              labelEn="default_fuel_type"
+              labelEn="Default Fuel"
               error={errors[FIELD.defaultFuelType]}
             >
               <select

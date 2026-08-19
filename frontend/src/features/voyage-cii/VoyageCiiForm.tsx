@@ -179,15 +179,15 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
       <div className="voyage-cii-form__grid">
         {/* 선박 — 1척이면 고정 표시, 2척 이상이면 셀렉트 */}
         {vesselsLoading ? (
-          <StaticField label="선박" labelEn="vessel_id" value="선박 목록을 불러오는 중…" />
+          <StaticField label="선박" labelEn="Vessel" value="선박 목록을 불러오는 중…" />
         ) : vesselsFailed ? (
           <StaticField
             label="선박"
-            labelEn="vessel_id"
+            labelEn="Vessel"
             value="선박 목록을 불러오지 못했습니다"
           />
         ) : vessels.length > 1 ? (
-          <Field id="vessel" label="선박" labelEn="vessel_id">
+          <Field id="vessel" label="선박" labelEn="Vessel">
             <select
               id="vessel"
               className="voyage-cii-form__control"
@@ -204,14 +204,14 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
         ) : (
           <StaticField
             label="선박"
-            labelEn="vessel_id"
+            labelEn="Vessel"
             value={selectedVessel?.displayName ?? '등록된 선박이 없습니다'}
           />
         )}
 
         {/* 규제연도 — 같은 규칙 */}
         {years.length > 1 ? (
-          <Field id="year" label="규제연도" labelEn="regulation_year">
+          <Field id="year" label="규제연도" labelEn="Year">
             <select
               id="year"
               className="voyage-cii-form__control"
@@ -228,7 +228,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
         ) : (
           <StaticField
             label="규제연도"
-            labelEn="regulation_year"
+            labelEn="Year"
             value={state.regulationYear || '지원 연도가 없습니다'}
           />
         )}
@@ -236,7 +236,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
         <Field
           id="distance"
           label="항해거리"
-          labelEn="distance_nm"
+          labelEn="Distance"
           unit={DISPLAY_UNITS.distance}
           error={errors[FIELD.distanceNm]}
         >
@@ -257,7 +257,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
         <Field
           id="speed"
           label="평균 속력"
-          labelEn="speed_kn"
+          labelEn="Speed"
           unit={DISPLAY_UNITS.speed}
           error={errors[FIELD.speedKn]}
           hint="요청에는 포함되지만 이 구성에서는 결과를 바꾸지 않습니다. 연료량과 거리가 같으면 속력만 바꿔도 값이 같습니다."
@@ -286,7 +286,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
         <Field
           id="fuel-type"
           label="연료 종류"
-          labelEn="fuel_uses[0].fuel_type"
+          labelEn="Fuel Type"
           error={errors[FIELD.fuelType]}
         >
           <select
@@ -309,7 +309,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
         <Field
           id="fuel-ton"
           label="연료 사용량"
-          labelEn="fuel_uses[0].fuel_ton"
+          labelEn="Fuel Consumption"
           unit={DISPLAY_UNITS.fuel}
           error={errors[FIELD.fuelTon]}
         >

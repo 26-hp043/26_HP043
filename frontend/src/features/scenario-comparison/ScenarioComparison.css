@@ -179,10 +179,25 @@
   cursor: not-allowed;
 }
 
-/* 폼과 함께 렌더되므로 종전의 섹션 전용 배치(`--placeholder`·`--error`)를 쓰지 않는다. */
+/*
+ * 결과가 아직 없을 때 오른쪽 단을 채우는 자리표시자.
+ *
+ * 2단이 되면서 카드로 올렸다. 맨 텍스트로 두면 **왼쪽에는 카드가 있는데 오른쪽에는
+ * 글자만 떠 있어** 화면이 덜 그려진 것처럼 보인다. `2-1 CII 예측`의
+ * `voyage-cii-result--placeholder`가 같은 자리에서 같은 처리를 한다 — 두 화면이
+ * 계산 전 상태에서 같은 모양이어야 한다.
+ *
+ * 가운데 정렬도 그쪽과 맞춘다. 결과가 들어오면 좌측 정렬 콘텐츠로 바뀌므로
+ * 이 정렬은 자리표시자에만 걸린다.
+ */
 .scenario-comparison__placeholder {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-32) var(--space-24);
   color: var(--color-text-muted);
-  padding: var(--space-12) 0;
+  text-align: center;
 }
 
 .scenario-comparison__error {
