@@ -187,6 +187,32 @@ jobs:
       # build를 별도 단계로 두는 이유 — `docker compose run`은 같은 이름의 이미지가
       # 있으면 다시 굽지 않는다. 러너는 매번 깨끗하지만, README 배포 절차와 같은
       # 순서를 밟아야 절차 자체가 유효한지 확인된다.
+      #
+      # 메일 설정을 `.env`로 준다 (#524).
+      #
+      # prod stage는 `ENV APP_ENV=production`이 이미지에 굳어 있고, `#524`가 메일
+      # 설정 검증을 **기동 시점**으로 옮겼다. `MAIL_BACKEND`가 없으면 `console`로
+      # 떨어져 가드가 발동하고 **앱이 뜨지 않는다.**
+      #
+      # 잡의 `env:`가 아니라 `.env` 파일로 주는 이유 — **compose의 `env:`는 컨테이너에
+      # 주입되지 않는다.** 그건 이 파일 안의 `${VAR}` 치환용이고, 컨테이너로 들어가는
+      # 것은 `env_file:`과 `environment:`뿐이다. `#508`이 정확히 그 함정을 고쳤다.
+      #
+      # `environment:`에 `${MAIL_BACKEND:-}` 형태로 넣지 않는 이유 — 그쪽이
+      # `env_file:`보다 우선하므로, 셸에 값이 없는 실제 배포에서 **`.env`의 값을 빈
+      # 문자열로 덮어쓴다.**
+      #
+      # 연결은 열지 않는다. `#524`의 검증은 설정이 앞뒤가 맞는가만 보고 SMTP 서버에
+      # 붙지 않는다. 그래서 더미 호스트로 충분하다 — 이 잡은 메일 발송을 검증하지 않는다.
+      #
+      - name: 메일 설정 주입 (.env)
+        run: |
+          cat > .env <<'ENVEOF'
+          MAIL_BACKEND=smtp
+          SMTP_HOST=localhost.invalid
+          MAIL_FROM=ci@localhost.invalid
+          ENVEOF
+
       - name: 이미지 빌드 (app · frontend)
         run: $COMPOSE build
 

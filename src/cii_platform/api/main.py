@@ -7,6 +7,10 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from cii_platform.api.error_handlers import register_exception_handlers
@@ -31,11 +35,47 @@ from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.auth.middleware import auth_middleware
+from cii_platform.mail.config import load_mail_settings
 
 # API_SPEC §1.1: 모든 API는 /api/v1 prefix 아래에 둔다.
 API_V1_PREFIX = "/api/v1"
 
-app = FastAPI(title="CII Platform API")
+_log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """기동 시점 설정 검증 (#524).
+
+    ## 왜 여기인가
+
+    ``mail/config.py``의 가드는 **「프로덕션인데 메일이 로그로만 나가는」 상태**를
+    막으려고 만들어졌다. 그런데 ``get_mailer()``가 ``lru_cache``로 **라우트 안에서
+    처음 호출**되므로, 그 가드는 기동이 아니라 **첫 발송 시도**에서야 돈다.
+
+    실제로 일어나는 일은 이랬다.
+
+    * 앱이 정상 기동한다(health 200) → 아무도 이상을 눈치채지 못한다
+    * 사용자가 「비밀번호를 잊었어요」를 누른다 → 그 요청이 500으로 떨어진다
+
+    가드가 지키려던 것이 정확히 이 상황이다. 지금은 조용하지 않고 시끄럽게
+    실패하지만, **드러나는 시점이 「배포 직후」가 아니라 「첫 사용자가 계정을 잃을
+    뻔한 순간」**이다. 문서(`backends.py`·`.env.example`)는 줄곧 「기동을 막는다」고
+    적어 왔다 — 구현을 그 문서에 맞춘다.
+
+    ## 무엇을 하지 않는가
+
+    **연결을 열지 않는다.** SMTP 서버에 실제로 붙어 보는 것은 기동을 외부 서비스
+    가용성에 묶는 일이고, 그건 배포가 멈춰야 할 이유가 아니다. 여기서 보는 것은
+    **설정이 앞뒤가 맞는가**뿐이다 — 프로덕션인데 console인지, smtp인데 호스트가
+    비었는지.
+    """
+    settings = load_mail_settings()
+    _log.info("메일 백엔드: %s", settings.backend)
+    yield
+
+
+app = FastAPI(title="CII Platform API", lifespan=lifespan)
 
 # 미들웨어 스택 (#238 · #275 · #307) — 바깥 → 안쪽 순서:
 #   RequestContext → rate_limit → auth → 라우트

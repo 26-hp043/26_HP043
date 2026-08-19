@@ -42,6 +42,8 @@ class ConsoleMailer:
 
     `should_register_dev_auth()`가 `APP_ENV != production`에서 개발 편의를 여는 것과
     같은 패턴이며, **프로덕션에서는 `load_mail_settings()`가 기동을 막는다.**
+    그 검증은 `api/main.py`의 `lifespan`이 기동 시점에 부른다 — 종전에는
+    `get_mailer()`가 라우트 안에서 처음 불려 **첫 발송 시도에서야** 돌았다 (`#524`).
     """
 
     def __init__(self, settings: MailSettings) -> None:
