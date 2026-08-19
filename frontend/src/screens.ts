@@ -147,8 +147,12 @@ export const SCREEN_BY_ID = {
     uiflowRef: '1-2',
     purpose: '사용자의 선박 기본 정보 입력 및 시스템 등록',
     width: 'form',
-    // 온보딩 흐름 — 사이드바 밖(OFF_NAV_ORDER). 화면은 #441에서 구현됐으나 등록은
-    // **쓰기**라 데모 모드에서는 수행할 수 없다 — 가짜 성공을 두지 않는다.
+    // 온보딩 흐름 — 사이드바 밖(`OFF_NAV_ORDER`)이라 이 값이 표시에 영향을 주지 않는다.
+    //
+    // 값은 `false`로 둔다. 등록은 **쓰기**라 데모 모드에서 수행할 수 없고
+    // (`providerSelection.ts` — 가짜 성공을 두지 않는다), 그 상태에서는
+    // 「실 API로 돈다」고 말할 수 없기 때문이다. **`#527`과 같은 오해가 아니다** —
+    // 선박 관리는 조회가 실 API로 돌지만 이 화면은 제출 자체가 막힌다.
     demoScope: false,
   },
   VESSEL_MANAGEMENT: {
@@ -160,9 +164,18 @@ export const SCREEN_BY_ID = {
     uiflowRef: '1-2',
     purpose: '보유 선박 목록 조회 · 제원 수정 · 삭제 — 등록은 1-2로 이어진다',
     width: 'wide',
-    // 목록 조회는 읽기지만 수정·삭제는 **쓰기**다. 등록(#441)과 같은 이유로 데모
-    // 모드에서 가짜 성공을 두지 않는다 — `providerSelection.ts` 참조.
-    demoScope: false,
+    //
+    // **실 API로 돈다** — `GET`·`PATCH`·`DELETE /vessels`를 실제로 부른다 (#510).
+    //
+    // 종전에 `false`였던 것은 **이 플래그의 뜻을 잘못 읽은 것**이다 (#527).
+    // 「데모 모드에서 쓰기를 흉내 내지 않는다」는 판단 자체는 맞고 그것은
+    // `vessel-management/providerSelection.ts`가 처리한다 — 그러나 `demoScope`가
+    // 뜻하는 것은 **「실 API로 도는가」**다(위 필드 주석 · #442).
+    //
+    // 그 결과 사이드바가 이 화면을 **비활성으로 렌더해 클릭조차 되지 않았다** —
+    // 기능은 전부 동작하는데 들어가는 문만 막혀 있었다.
+    //
+    demoScope: true,
   },
   VESSEL_DETAIL: {
     path: '/vessels/:vesselId',
