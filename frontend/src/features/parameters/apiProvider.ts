@@ -43,8 +43,28 @@ interface ServerFuelType {
   is_active?: unknown
 }
 
+interface ServerRegulationYear {
+  year?: unknown
+}
+
 export interface ParametersProvider {
   listFuelTypes(): Promise<FuelTypeOption[]>
+  /**
+   * 규정 연도 목록 (`API_SPEC §7.1`). 오름차순.
+   *
+   * **연도 숫자만 돌려준다.** 응답에는 `z_factor_percent`·`effective_from`·
+   * `source_ref`·`version`도 실리지만, 화면이 쓰는 것은 선택지의 연도뿐이다.
+   * Z계수는 `required_cii`를 서버가 계산할 때 쓰는 값이라 화면이 알 필요가 없고,
+   * 들고 오면 **화면이 계산에 쓸 수 있는 상태**가 된다 — `referenceTable.ts`가
+   * *"이 값으로 다른 선박·연도를 계산하지 말 것"* 으로 막아 둔 것과 같은 이유다.
+   *
+   * ## 선종 인자를 받지 않는다
+   *
+   * `regulation_year` 테이블에는 `ship_type` 컬럼이 없다(`DB_SCHEMA §3.1`).
+   * Z계수는 전 선종 공통이므로 선박마다 목록이 갈리지 않는다. 선종별로 갈리는
+   * 것은 기준선·등급 경계이며 그건 계산 시점에 서버가 판정한다.
+   */
+  listRegulationYears(): Promise<number[]>
 }
 
 export function createApiParametersProvider(
@@ -74,6 +94,34 @@ export function createApiParametersProvider(
       const body = (await response.json().catch(() => null)) as { data?: unknown } | null
       const rows = Array.isArray(body?.data) ? (body?.data as ServerFuelType[]) : []
       return rows.filter((row) => typeof row.code === 'string').map(toFuelTypeOption)
+    },
+
+    async listRegulationYears(): Promise<number[]> {
+      let response: Response
+      try {
+        response = await fetchImpl(`${baseUrl}/parameters/regulation-years`, {
+          credentials: 'include',
+          headers: { Accept: 'application/json', ...csrfHeaders() },
+        })
+      } catch (cause) {
+        throw new ParametersError('서버에 연결하지 못했습니다.', { cause })
+      }
+
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new ParametersError('세션이 만료되었습니다.')
+      }
+      if (!response.ok) {
+        throw new ParametersError(`규제연도 목록을 불러오지 못했습니다 (HTTP ${response.status}).`)
+      }
+
+      const body = (await response.json().catch(() => null)) as { data?: unknown } | null
+      const rows = Array.isArray(body?.data) ? (body?.data as ServerRegulationYear[]) : []
+      // 서버가 정렬을 보장한다는 계약은 없다. 셀렉트 순서는 화면이 정한다.
+      return rows
+        .map((row) => row.year)
+        .filter((year): year is number => typeof year === 'number' && Number.isInteger(year))
+        .sort((a, b) => a - b)
     },
   }
 }
