@@ -2,12 +2,14 @@ import './VoyageCiiResult.css'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
 import {
   ciiUnit,
+  displayWarnings,
   marginDisplay,
   riskLabel,
   warningMessage,
   type ResultState,
 } from './resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
+import { GradeScaleBar } from '../../components/GradeScaleBar'
 import type { VoyageCiiResponse } from './types'
 
 /**
@@ -79,6 +81,7 @@ function SuccessResult({ response }: { response: VoyageCiiResponse }) {
   const unit = ciiUnit(data.transport_capacity_basis)
   const margin = marginDisplay(data.estimated_rating, data.next_worse_boundary_margin_ratio)
   const risk = riskLabel(data.risk_level)
+  const warnings = displayWarnings(response.warnings)
 
   return (
     <section className="voyage-cii-result" aria-live="polite">
@@ -152,9 +155,26 @@ function SuccessResult({ response }: { response: VoyageCiiResponse }) {
         />
       </dl>
 
-      {response.warnings.length > 0 ? (
+      {/*
+        지표 격자 바로 아래 — 첫 칸이 「항차 조건 기준 예상 CII」다. 격자 안에
+        끼우지 않은 것은 이 바가 한 지표의 부속이 아니라 **위 세 CII 값이 놓인
+        축**이기 때문이다. 폭도 한 칸이 아니라 카드 전체를 써야 눈금이 읽힌다.
+      */}
+      <GradeScaleBar
+        ratioToRequired={data.ratio_to_required}
+        boundaries={response.parameters_used.rating_boundary}
+        rating={data.estimated_rating}
+        valueLabel={`${formatPercent(data.ratio_to_required)}%`}
+        label="항차 조건 기준 예상 CII의 등급 스케일"
+      />
+
+      {/*
+        면책은 화면 하단 배너 한 곳에서만 말한다 — `REFERENCE_ONLY`는 그 문구와
+        같은 말이라 여기서 걸러 낸다. 나머지 경고는 그대로 싣는다.
+      */}
+      {warnings.length > 0 ? (
         <ul className="voyage-cii-result__warnings">
-          {response.warnings.map((code) => (
+          {warnings.map((code) => (
             <li key={code} className="voyage-cii-result__warning">
               <span className="voyage-cii-result__warning-icon" aria-hidden="true">
                 ⚠

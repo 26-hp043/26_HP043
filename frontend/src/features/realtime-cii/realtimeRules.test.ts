@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   POLL_INTERVAL_MS,
+  RATING_TRANSITION_TEXT,
   isDegradingAtBerth,
   isNotUnderWay,
   projectionDirection,
   projectionReason,
+  ratingTransition,
   remainingDistanceNm,
   voyageProgressRatio,
   warningText,
@@ -83,6 +85,79 @@ const BASE: RealtimeCii = {
   asOf: '2026-08-17T02:00:00+00:00',
   simulated: true,
 }
+
+describe('등급 전이 — ⑴ → ⑶', () => {
+  const withRatings = (
+    from: RealtimeCii['ytd']['rating'],
+    to: RealtimeCii['projection']['rating'],
+  ): RealtimeCii => ({
+    ...BASE,
+    ytd: { ...BASE.ytd, rating: from },
+    projection: { ...BASE.projection, rating: to },
+  })
+
+  it('나빠지는 쪽으로 가면 WORSENING', () => {
+    // BASE가 B → C다. E가 최악이라는 방향을 뒤집어 읽으면 여기서 걸린다.
+    expect(ratingTransition(BASE)).toEqual({ from: 'B', to: 'C', direction: 'WORSENING' })
+  })
+
+  it('좋아지는 쪽으로 가면 IMPROVING', () => {
+    expect(ratingTransition(withRatings('D', 'B'))?.direction).toBe('IMPROVING')
+  })
+
+  it('같으면 FLAT', () => {
+    expect(ratingTransition(withRatings('C', 'C'))?.direction).toBe('FLAT')
+  })
+
+  it('A와 E의 방향을 혼동하지 않는다', () => {
+    // 문자 비교에 기대면 통과하지만, 순서표를 잘못 적으면 여기서 뒤집힌다.
+    expect(ratingTransition(withRatings('A', 'E'))?.direction).toBe('WORSENING')
+    expect(ratingTransition(withRatings('E', 'A'))?.direction).toBe('IMPROVING')
+  })
+
+  it('연말 예상 등급이 없으면 전이를 만들지 않는다', () => {
+    expect(ratingTransition(withRatings('B', null))).toBeNull()
+  })
+
+  it('YTD 등급이 없으면 전이를 만들지 않는다', () => {
+    expect(ratingTransition(withRatings(null, 'C'))).toBeNull()
+  })
+
+  it('연말 예상을 못 낸 응답은 등급이 남아 있어도 전이가 아니다', () => {
+    // `dataAvailable: false`인데 rating이 실려 오는 응답을 「등급 유지」로 읽으면
+    // 화면이 근거 없이 안심시킨다.
+    const noBasis: RealtimeCii = {
+      ...BASE,
+      projection: { ...BASE.projection, dataAvailable: false, reason: 'NO_BASIS' },
+    }
+    expect(ratingTransition(noBasis)).toBeNull()
+  })
+
+  it('YTD 실적이 없으면 전이가 아니다', () => {
+    const noYtd: RealtimeCii = {
+      ...BASE,
+      ytd: { ...BASE.ytd, dataAvailable: false },
+    }
+    expect(ratingTransition(noYtd)).toBeNull()
+  })
+
+  it('세 방향 모두 라벨 문구를 갖는다', () => {
+    // 색 외 보조 채널(§14). 빠진 방향이 있으면 그 상태에서 색만 남는다.
+    expect(RATING_TRANSITION_TEXT.WORSENING).toBe('등급 하락 예상')
+    expect(RATING_TRANSITION_TEXT.IMPROVING).toBe('등급 상승 예상')
+    expect(RATING_TRANSITION_TEXT.FLAT).toBe('등급 유지 예상')
+  })
+
+  it('CII 값 방향과 등급 전이는 별개다', () => {
+    /*
+     * 값은 나빠지는데(18.63 → 19.50) 경계를 넘지 않아 등급은 그대로인 상태.
+     * 둘이 한 함수로 합쳐지면 이 구분이 사라진다.
+     */
+    const sameGrade = withRatings('B', 'B')
+    expect(projectionDirection(sameGrade)).toBe('WORSENING')
+    expect(ratingTransition(sameGrade)?.direction).toBe('FLAT')
+  })
+})
 
 describe('폴링', () => {
   it('간격이 문서에 적힌 값과 같다', () => {

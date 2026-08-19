@@ -1,0 +1,113 @@
+/*
+ * 등급 스케일 바 — `DESIGN_SYSTEM §8` · `§9.4` · `§2.4.4`.
+ * §15 — 컴포넌트는 토큰만 참조한다. 하드코딩 hex 금지.
+ */
+
+.grade-scale-bar {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.grade-scale-bar__track {
+  position: relative;
+  /*
+   * 마커 값 라벨이 트랙 위로 올라앉는다. 트랙 자체를 키우면 구간 색이 두꺼워져
+   * 바가 아니라 블록으로 보인다.
+   */
+  margin-block-start: var(--space-16);
+  height: 20px;
+  /*
+   * **여기서 자르지 않는다.** 자르면 위로 올라앉는 마커 값 라벨이 함께 잘린다.
+   * 둥근 모서리는 안쪽 `__bands`가 담당한다.
+   */
+}
+
+.grade-scale-bar__bands {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  /* 구간 색이 모서리를 넘지 않게 자른다 — 자르지 않으면 radius가 무의미해진다. */
+  overflow: hidden;
+}
+
+.grade-scale-bar__band {
+  position: relative;
+  /*
+   * 폭은 `flex-grow`가 정한다(경계값 비례). `flex-basis: 0`이 없으면 내용 크기가
+   * 폭에 섞여 비례가 깨진다.
+   */
+  flex-basis: 0;
+  min-width: 0;
+}
+
+/*
+ * 구간 경계 — `§9.4` 「등급색 사용 금지」. D·E처럼 같은 색상군이 맞닿는 자리에서
+ * 경계가 어디인지 색만으로는 읽히지 않는다.
+ *
+ * `border`가 아니라 겹쳐 그리는 가상 요소다. 테두리는 `flex-basis: 0`이어도 상자
+ * 크기에 더해져 **구간 비례를 1px씩 갉아먹는다** — 경계값 비례가 이 컴포넌트의
+ * 존재 이유이므로 레이아웃에 영향을 주지 않는 방식으로 그린다.
+ */
+.grade-scale-bar__band + .grade-scale-bar__band::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  background: var(--color-border-strong);
+}
+
+/* 패턴은 구간 색 위에 겹친다 — 타일 배경이 투명이라 색이 비쳐 보인다. */
+.grade-scale-bar__pattern {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  display: block;
+}
+
+.grade-scale-bar__marker {
+  position: absolute;
+  inset-block: -3px;
+  /* `left`가 마커의 좌변이므로 선 굵기의 절반만큼 당겨 값 위에 정확히 세운다. */
+  margin-inline-start: -1px;
+  inline-size: 2px;
+  background: var(--color-text);
+  pointer-events: none;
+}
+
+.grade-scale-bar__marker-value {
+  position: absolute;
+  inset-block-end: calc(100% + 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+  font-weight: var(--font-weight-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.grade-scale-bar__axis {
+  display: flex;
+}
+
+.grade-scale-bar__axis-label {
+  flex-basis: 0;
+  min-width: 0;
+  text-align: center;
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+  color: var(--color-text-muted);
+}
+
+.grade-scale-bar__unavailable {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--color-text-muted);
+}

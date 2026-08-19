@@ -1,6 +1,74 @@
+/*
+ * UIFLOW 2-1 CII 예측 — 입력:결과 좌우 2단.
+ *
+ * ## 12컬럼 그리드 (DESIGN_SYSTEM §7.1 🔒)
+ *
+ * §7.1 그리드 표가 컬럼 12 · 거터 24를 고정하고, **주·부 영역 분할은 7:5로
+ * 고정한다**고 못박는다. 여기서는 주 영역이 결과(7), 부 영역이 입력 폼(5)이다 —
+ * 계산 결과가 이 화면의 주인공이고, 입력은 그 조건을 다루는 자리다.
+ *
+ * 수치는 전부 `--grid-*` 토큰에서 읽는다. §7.1이 값을 바꾸면 여기가 따라간다.
+ *
+ * 5컬럼과 7컬럼을 `5fr 7fr`로 쓰지 않는다. 그러면 거터 한 칸을 뺀 나머지를
+ * 5:7로 나누게 되어 **다른 화면의 12컬럼 요소와 경계가 어긋난다.** 12컬럼을 실제로
+ * 깔고 span으로 잡아야 §7.1이 말한 「컴포넌트 폭 가정이 하나로 유지된다」가 성립한다.
+ *
+ * ## 폭은 페이지가 정하지 않는다
+ *
+ * `CII_FORECAST`가 `width: 'form'`이라 셸(`app-shell__main--form`)이 이미
+ * 최대 1440 · 좌우 패딩 24를 건다(§7.1 폼 행). 여기서 max-width를 또 걸면
+ * 정책이 두 군데로 갈라진다 — 2단 상태에서는 셸에 맡긴다.
+ */
+
 .cii-forecast-page {
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
-  max-width: 720px;
+}
+
+.cii-forecast-page__split {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  gap: var(--grid-gutter);
+  /*
+   * 폼이 결과보다 짧다. stretch로 두면 짧은 쪽 카드가 긴 쪽 높이까지 늘어나
+   * 아래가 빈 카드로 남는다.
+   */
+  align-items: start;
+}
+
+/*
+ * 두 자식의 루트 클래스로 직접 배치한다. 폼·결과 컴포넌트에 className prop을
+ * 뚫지 않기 위한 선택이며, 그 대가로 이 파일이 자식의 루트 클래스명을 안다.
+ */
+.cii-forecast-page__split > .voyage-cii-form {
+  grid-column: span var(--grid-split-secondary);
+}
+
+.cii-forecast-page__split > .voyage-cii-result {
+  grid-column: span var(--grid-split-primary);
+}
+
+/*
+ * 1440 이하에서는 세로로 떨어진다.
+ *
+ * 1440은 `--grid-frame-min`과 같은 값이지만 **미디어 쿼리 조건에는 커스텀
+ * 프로퍼티를 쓸 수 없어** 리터럴로 적는다. 토큰이 바뀌면 여기를 함께 고쳐야 한다.
+ *
+ * 세로로 떨어진 뒤에는 2단 이전의 폭 정책(720)으로 돌아간다. 셸이 주는
+ * 1440을 한 단이 그대로 채우면 입력 필드 하나가 500px를 넘어 읽기 나빠진다.
+ */
+@media (max-width: 1440px) {
+  .cii-forecast-page {
+    max-width: 720px;
+  }
+
+  .cii-forecast-page__split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cii-forecast-page__split > .voyage-cii-form,
+  .cii-forecast-page__split > .voyage-cii-result {
+    grid-column: auto;
+  }
 }
