@@ -241,7 +241,7 @@ function Result({ result }: { result: AnnualSimulationResult }) {
         */}
         <div className="annual-sim__stack" role="img" aria-label={stackAria(segments)}>
           {segments.map((seg) => {
-            const pattern = gradePatternUrl(seg.rating as Parameters<typeof gradePatternUrl>[0])
+            const pattern = gradePatternUrl(seg.rating)
 
             return (
               <span
