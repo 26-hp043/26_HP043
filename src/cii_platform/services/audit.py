@@ -68,6 +68,53 @@ async def record_logout(
     )
 
 
+async def record_password_change(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    revoked_sessions: int,
+    ip_address: str | None = None,
+) -> None:
+    """비밀번호 변경 (#506) — 로그인 상태에서의 교체.
+
+    `TECH_SPEC §13.1`이 로그인 이벤트 3종을 기록 대상으로 두는 것과 같은 근거다 —
+    **계정을 넘길 수 있는 사건**이므로 「누가 언제」에 답할 수 있어야 한다.
+    무효화된 세션 수를 함께 남긴다: 본인이 모르는 기기가 있었는지 사후에 드러난다.
+
+    **자격 증명은 절대 기록하지 않는다**(`TECH_SPEC §13.1` [#277]) — 옛 비밀번호도
+    새 비밀번호도 해시조차 남기지 않는다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="PASSWORD_CHANGE",
+        user_id=user_id,
+        details={"revoked_sessions": revoked_sessions},
+        ip_address=ip_address,
+    )
+
+
+async def record_account_delete(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    revoked_sessions: int,
+    ip_address: str | None = None,
+) -> None:
+    """탈퇴 (#506) — soft delete.
+
+    **행을 지우지 않으므로 이 기록이 곧 「언제 탈퇴했는가」의 답**이다.
+    `app_user`에 탈퇴 시각 컬럼이 없어(`is_deleted` 불리언뿐) 여기가 유일한 시점
+    근거다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="ACCOUNT_DELETE",
+        user_id=user_id,
+        details={"revoked_sessions": revoked_sessions},
+        ip_address=ip_address,
+    )
+
+
 async def record_calculation_run(
     session: AsyncSession,
     *,

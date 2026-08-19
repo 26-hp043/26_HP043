@@ -34,12 +34,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
 from cii_platform.api.error_handlers import to_error_response
-from cii_platform.api.schemas.auth import LoginRequest, SignupRequest
+from cii_platform.api.schemas.auth import (
+    LoginRequest,
+    MeUpdateRequest,
+    PasswordChangeRequest,
+    SignupRequest,
+)
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.auth.dependencies import AuthenticationError
+from cii_platform.auth.dependencies import AuthenticationError, require_csrf
 from cii_platform.auth.password import (
     PasswordPolicyError,
     hash_password,
+    validate_password,
     verify_dummy,
     verify_password,
 )
@@ -58,7 +64,7 @@ from cii_platform.db.session import get_session
 from cii_platform.mail import MailDeliveryError, get_mailer
 from cii_platform.mail.templates import email_verification
 from cii_platform.services import audit as audit_svc
-from cii_platform.services.auth_token import issue_token
+from cii_platform.services.auth_token import issue_token, revoke_all_sessions
 
 _log = logging.getLogger(__name__)
 
@@ -297,6 +303,190 @@ async def me(
         raise AuthenticationError()
 
     return {"data": _user_payload(user), "meta": _meta(request)}
+
+
+#
+# 계정 관리 (#506) — 로그인 상태에서 자기 계정을 다루는 경로.
+#
+# ## 왜 `request.state.session_user`를 그대로 쓰지 않는가
+#
+# 미들웨어(`auth/middleware.py:50`)는 **자기 세션**을 열어 사용자를 조회하고
+# `request.state`에 넣은 뒤 그 세션을 닫는다. 그래서 그 객체는 **detached**다 —
+# 어떤 세션도 관리하지 않는다.
+#
+# ORM은 「무엇이 바뀌었나」를 세션이 추적했다가 commit 때 UPDATE를 낸다. detached
+# 객체의 속성을 바꾸고 라우트 세션으로 commit하면, **그 세션은 이 객체를 모르므로
+# 바꿀 것이 없다고 판단하고 아무것도 쓰지 않는다.** 오류도 경고도 없이 200이 나가고
+# 화면은 「저장됐습니다」를 보여 주는데 DB는 그대로다.
+#
+# `#279`가 `logout`에서 정확히 이것을 겪었다. 그래서 아래 세 라우트는 전부
+# **라우트 세션으로 `AppUser`를 재조회**한 뒤 갱신한다.
+#
+
+
+async def _reload_user(session: AsyncSession, request: Request) -> AppUser | None:
+    """인증된 사용자를 **라우트 세션으로 다시 읽는다** (위 주석 참조).
+
+    미들웨어가 이미 인증을 끝냈으므로 여기서 다시 검증하지 않는다 — 다만 그 사이에
+    탈퇴했을 수 있어 `is_deleted`는 다시 본다.
+    """
+    cached = getattr(request.state, "session_user", None)
+    if cached is None:
+        return None
+    result = await session.execute(
+        select(AppUser).where(AppUser.id == cached.id, AppUser.is_deleted.is_(False))
+    )
+    return result.scalar_one_or_none()
+
+
+@router.post("/password-change")
+async def change_password(
+    request: Request,
+    payload: PasswordChangeRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> Response:
+    """현재 비밀번호를 확인하고 교체한 뒤 **기존 세션을 전부 무효화**한다.
+
+    `API_SPEC §1.2` · `PRD §5.1`(계정 관리 MUST) · `#506`.
+
+    ## 현재 비밀번호를 왜 다시 받는가
+
+    로그인 상태라도 **세션이 탈취됐을 수 있다.** 확인 없이 바꿀 수 있으면 탈취한
+    세션만으로 계정을 통째로 넘길 수 있다.
+
+    ## 본인도 로그아웃된다
+
+    재설정(`password-reset/confirm`)과 같은 규칙이다 — 탈취된 상태에서 비밀번호만
+    바꾸면 공격자 세션이 살아 있으므로 **전부 끊는다.** 요청한 본인도 포함이며,
+    응답 문구가 그 사실을 알린다(`PRD §6.3`).
+    """
+    user = await _reload_user(session, request)
+    if user is None:
+        raise AuthenticationError()
+
+    # 현재 비밀번호가 틀리면 여기서 끝낸다. **새 비밀번호 정책 검사보다 먼저** 본다 —
+    # 순서가 반대면 「현재 비밀번호가 틀렸는데 새 비밀번호 규칙만 알려 주는」 응답이 난다.
+    if not verify_password(payload.current_password, user.password_hash):
+        return _error_response(request, 401, "UNAUTHORIZED", "현재 비밀번호가 올바르지 않습니다.")
+
+    try:
+        validate_password(payload.new_password)
+        new_hash = hash_password(payload.new_password)
+    except PasswordPolicyError as exc:
+        return _error_response(request, 422, "VALIDATION_ERROR", str(exc))
+
+    user.password_hash = new_hash
+    revoked = await revoke_all_sessions(session, user_id=user.id)
+    await audit_svc.record_password_change(
+        session,
+        user_id=str(user.id),
+        revoked_sessions=revoked,
+        ip_address=_client_ip(request),
+    )
+    await session.commit()
+
+    response = JSONResponse(
+        content={
+            "data": {
+                "message": (
+                    f"비밀번호가 변경되었습니다. 로그인된 기기 {revoked}대에서 로그아웃되었습니다."
+                ),
+                "revoked_sessions": revoked,
+            },
+            "meta": _meta(request),
+        }
+    )
+    # 이 세션도 방금 무효화됐다. 쿠키를 남겨 두면 다음 요청이 401로 떨어지는데,
+    # 사용자는 그것을 「오류」로 읽는다. 여기서 정리해 로그인 화면으로 자연히 간다.
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+    return response
+
+
+@router.patch("/me")
+async def update_me(
+    request: Request,
+    payload: MeUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> Response:
+    """표시 이름을 바꾼다 (`API_SPEC §1.2`, #506).
+
+    ## `email`은 받지 않는다
+
+    스키마가 `extra="forbid"`라 보내면 422다. 이메일은 로그인 ID이고 새 주소를 잘못
+    입력하면 **계정에 접근할 수 없다** — 되돌릴 경로가 없으므로 변경 자체를 두지
+    않는다(`PRD §6.3` 각주).
+
+    ## 「보내지 않음」과 「`null`을 보냄」을 구분한다
+
+    `display_name`을 지우는 것은 정당한 조작이다(가입에서도 선택 입력이다). 기본값
+    `None`만 보고 판단하면 **둘을 구분할 수 없어 지울 방법이 사라진다.** `PATCH`의
+    부분 갱신 규약(`API_SPEC §3.4` 「생략 = 변경 없음 · 명시적 null = 클리어」)을
+    그대로 따른다.
+    """
+    user = await _reload_user(session, request)
+    if user is None:
+        raise AuthenticationError()
+
+    if "display_name" in payload.model_fields_set:
+        raw = payload.display_name
+        trimmed = raw.strip() if raw is not None else None
+        # 공백만 보낸 것은 지우려는 뜻으로 본다 — 공백뿐인 표시 이름은 화면에서
+        # 이름이 없는 것과 구분되지 않는다.
+        user.display_name = trimmed or None
+
+    await session.commit()
+    await session.refresh(user)
+    return JSONResponse(content={"data": _user_payload(user), "meta": _meta(request)})
+
+
+@router.delete("/me")
+async def delete_me(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> Response:
+    """탈퇴 — soft delete 후 세션을 전부 무효화한다 (`API_SPEC §1.2`, #506).
+
+    ## 행을 지우지 않는다
+
+    `app_user.is_deleted`를 세울 뿐이다. `calculation_run`은 immutable이고
+    (`DB_SCHEMA §7.3`) `audit_log`는 보존 대상이라(`§7.1`) **그 사용자가 남긴
+    계산·감사 기록은 그대로 남는다.** 규제 대응의 근거가 되는 기록이므로 지우지
+    않는 것이 옳고, 탈퇴 확인 문구가 그 사실을 미리 알린다(`PRD §6.3`).
+
+    ## 같은 이메일로 다시 가입할 수 있다
+
+    `idx_app_user_email`이 `WHERE is_deleted = false`인 **부분 유일 인덱스**라
+    (마이그레이션 033) 탈퇴한 계정의 이메일은 다시 쓸 수 있다. **이메일 변경 경로를
+    두지 않는 대신 이 길을 연다.**
+
+    ## 멱등이 아니다
+
+    이미 탈퇴한 계정은 미들웨어가 `is_deleted`로 걸러 401을 낸다 — 여기까지 오지
+    않는다.
+    """
+    user = await _reload_user(session, request)
+    if user is None:
+        raise AuthenticationError()
+
+    user.is_deleted = True
+    revoked = await revoke_all_sessions(session, user_id=user.id)
+    await audit_svc.record_account_delete(
+        session,
+        user_id=str(user.id),
+        revoked_sessions=revoked,
+        ip_address=_client_ip(request),
+    )
+    await session.commit()
+
+    # 204 — 본문이 없다. 탈퇴한 사용자에게 돌려줄 사용자 정보가 없다.
+    response = Response(status_code=204)
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    response.delete_cookie(CSRF_COOKIE_NAME, path="/")
+    return response
 
 
 @router.post("/logout")

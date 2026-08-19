@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, Navigate } from 'react-router'
 import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
 import {
+  EMAIL_IMMUTABLE_NOTICE,
   MIN_PASSWORD_LENGTH,
   hasErrors,
   validateSignup,
@@ -82,6 +83,7 @@ export function SignupPage() {
           onChange={setEmail}
           error={errors.email}
           autoComplete="username"
+          hint={EMAIL_IMMUTABLE_NOTICE}
         />
         <AuthField
           id="signup-password"
