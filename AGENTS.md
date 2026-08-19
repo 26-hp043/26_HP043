@@ -285,6 +285,32 @@ expect(underwayStateText(unknown)).not.toBe(underwayStateText(notUnderWay))
 
   > 템플릿을 9절로 확대하지 않는 것은 **정본 오탈자 수정 같은 작은 PR까지 같은 구조를 강제하면 본문만 길어지기** 때문이다. 판단이 갈린 지점이 있거나 검증 수치를 남겨야 하면 선택 절을 쓴다.
 - **머지 조건**: CI가 전부 통과해야 머지할 수 있다.
+
+  **어느 잡이 실제로 머지를 막는지는 저장소 설정(브랜치 보호)이 정한다.** 아래 표가 그 설정의 사본이며, 설정을 바꾸면 이 표도 함께 고친다.
+
+  | CI 잡 | required check | 근거 |
+  |---|---|---|
+  | `lint` | ✅ | `#215` |
+  | `test` | ✅ | `#215` |
+  | `frontend` | ✅ | `#215` |
+  | `docker` | ⏸ **미적용** | `#393`이 잡을 신설했으나 required로 올리지 못했다 — 브랜치 보호는 PR로 바꿀 수 없고 저장소 관리 권한이 필요하다. `#402`가 그 후속이다 |
+
+  > ⚠️ **잡이 돌지만 아무것도 막지 않는 상태가 가장 나쁘다.** 빨간불이 떠도 머지가 되면 다음 사람은 그 불을 무시하거나 뒤늦게 발견한다. **CI 잡을 새로 만들면 required로 올릴지 그 자리에서 정하고 이 표에 남긴다** — `#393`은 후속 대응으로 적어 두었으나 그 사실이 저장소 문서 어디에도 없어 확인할 방법이 없었다.
+
+  설정 조회·변경은 다음과 같다.
+
+  ```bash
+  # 현재 설정 확인
+  gh api repos/26-hp043/26_HP043/branches/main/protection \
+    --jq '.required_status_checks | {strict, contexts}'
+
+  # required check 변경 (저장소 관리 권한 필요)
+  gh api -X PATCH repos/26-hp043/26_HP043/branches/main/protection/required_status_checks \
+    -f strict=true -f 'contexts[]=lint' -f 'contexts[]=test' \
+    -f 'contexts[]=frontend' -f 'contexts[]=docker'
+  ```
+
+  `strict: true`(base 최신화 요구)는 유지한다. base가 앞서면 리베이스 후 잡이 다시 도는데, `#240` 머지 때 실제로 그 상황에서 재검증이 의미가 있었다.
 - **코드 PR 테스트 게이트**: `src/` 변경 PR(코드·스키마·마이그레이션)은 테스트를 포함해야 머지할 수 있다. 테스트 0건 PR은 리뷰 단계에서 보류한다 — #302(상태 머신 223줄, 테스트 0건)가 그 사례다.
 - **Squash merge 원칙**: 여러 커밋이 있더라도 머지 시 1개 커밋으로 squash한다.
 
