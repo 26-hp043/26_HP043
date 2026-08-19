@@ -1,6 +1,19 @@
+/*
+ * UIFLOW 2-2 항로 비교 — 페이지는 세로 흐름만 잡는다.
+ * 조건 입력 : 결과 좌우 2단은 `ScenarioComparison.css`가 소유한다.
+ *
+ * ## max-width를 걸지 않는다
+ *
+ * `ROUTE_COMPARISON`이 `width: 'wide'`라 셸(`app-shell__main--wide`)이 이미
+ * 최대 1920 · 좌우 패딩 32를 건다 — `DESIGN_SYSTEM §7.1` 폭 정책 표의
+ * 「대시보드, 차트, 시나리오 비교」 행이 이 화면을 이름으로 지목한다.
+ *
+ * 종전의 `max-width: 960px`는 그 정책을 페이지에서 한 번 더 좁히고 있었다.
+ * 2단으로 바뀌면 960 안에서 5:7을 나누게 되어 결과 카드 3장이 한 줄에 들어가지
+ * 않는다. 폭은 셸 한 곳에서만 정한다.
+ */
 .route-comparison-page {
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
-  max-width: 960px;
 }

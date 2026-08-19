@@ -3,10 +3,66 @@
  * DESIGN_SYSTEM §8 카드/패널 · §4.2 tabular-nums · §15 토큰만 참조.
  */
 
+/*
+ * 조건 입력 : 결과 좌우 2단.
+ *
+ * ## 12컬럼 그리드 (DESIGN_SYSTEM §7.1 🔒)
+ *
+ * §7.1 그리드 표가 컬럼 12 · 거터 24를 고정하고, **주·부 영역 분할은 7:5로
+ * 고정한다**고 못박는다. 여기서는 주 영역이 결과(7), 부 영역이 조건 입력(5)이다 —
+ * 비교 결과가 이 화면의 주인공이고 입력은 그 조건을 다루는 자리다.
+ * `2-1 CII 예측`과 같은 배분이며, 같은 이유다.
+ *
+ * `5fr 7fr`로 쓰지 않는다. 그러면 거터 한 칸을 뺀 나머지를 5:7로 나누게 되어
+ * **다른 화면의 12컬럼 요소와 세로선이 어긋난다.** 12컬럼을 실제로 깔고 span으로
+ * 잡아야 §7.1이 말한 「컴포넌트 폭 가정이 하나로 유지된다」가 성립한다.
+ *
+ * ## 폭은 이 파일이 정하지 않는다
+ *
+ * `ROUTE_COMPARISON`이 `width: 'wide'`라 셸이 최대 1920 · 좌우 패딩 32를 건다
+ * (§7.1 폭 정책 표의 「대시보드, 차트, **시나리오 비교**」 행 — 이 화면을 이름으로
+ * 지목한다). 여기서 max-width를 또 걸면 정책이 두 군데로 갈라진다.
+ */
 .scenario-comparison {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  gap: var(--grid-gutter);
+  /*
+   * 폼이 결과보다 짧다. stretch로 두면 짧은 쪽 카드가 긴 쪽 높이까지 늘어나
+   * 아래가 빈 카드로 남는다.
+   */
+  align-items: start;
+}
+
+.scenario-comparison__results {
+  grid-column: span var(--grid-split-primary);
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
+}
+
+/*
+ * 1100 이하에서는 세로로 떨어진다.
+ *
+ * 1100은 이 저장소가 이미 쓰던 값이다 — `FleetDashboard` · `RealtimeCiiView` ·
+ * `VesselDetail`이 모두 여기서 2단을 접는다. 화면마다 다른 값을 쓰면 창을 줄일 때
+ * 화면들이 제각각 무너져 같은 제품으로 보이지 않는다.
+ *
+ * 미디어 쿼리 조건에는 커스텀 프로퍼티를 쓸 수 없어 리터럴로 적는다.
+ *
+ * 1단으로 떨어진 뒤에 max-width를 걸지 않는다. 폼 내부가 이미
+ * `auto-fit minmax(200px, 1fr)`이라 폭이 넓어지면 필드가 늘어나는 대신 열이 늘고,
+ * 결과 카드도 같은 방식이다 — 한 단이 넓어져도 읽기가 나빠지지 않는다.
+ */
+@media (max-width: 1100px) {
+  .scenario-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scenario-comparison__form,
+  .scenario-comparison__results {
+    grid-column: auto;
+  }
 }
 
 .scenario-comparison--placeholder,
@@ -39,6 +95,7 @@
  * §14 — 오류는 컨트롤 **아래**에 둔다.
  */
 .scenario-comparison__form {
+  grid-column: span var(--grid-split-secondary);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
