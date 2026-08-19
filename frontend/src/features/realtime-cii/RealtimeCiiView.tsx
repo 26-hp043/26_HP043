@@ -6,16 +6,18 @@ import { ciiUnit } from '../voyage-cii/resultRules'
 import { createApiRealtimeCiiProvider, RealtimeCiiError } from './apiProvider'
 import {
   POLL_INTERVAL_MS,
+  RATING_TRANSITION_TEXT,
   formatAsOf,
   isDegradingAtBerth,
   isNotUnderWay,
   projectionDirection,
   projectionReason,
+  ratingTransition,
   remainingDistanceNm,
   voyageProgressRatio,
   warningText,
 } from './realtimeRules'
-import type { RealtimeCii, RealtimeCiiProvider } from './types'
+import type { Rating, RealtimeCii, RealtimeCiiProvider } from './types'
 import './RealtimeCiiView.css'
 
 /**
@@ -185,10 +187,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 
         {data.ytd.dataAvailable && data.ytd.rating ? (
           <div className="ytd">
-            <GradeBadge
-              rating={data.ytd.rating}
-              label={`현재 누적 기준 예상 등급 ${data.ytd.rating}`}
-            />
+            <RatingTransitionView data={data} current={data.ytd.rating} />
             <dl className="ytd__figures">
               <Figure label="실적 (attained)" value={data.ytd.attainedCii} />
               <Figure label="기준 (required)" value={data.ytd.requiredCii} />
@@ -321,6 +320,73 @@ function VoyagePanel({ data, unit }: { data: RealtimeCii; unit: string }) {
         해당합니다.
       </p>
     </>
+  )
+}
+
+/**
+ * ⑴ → ⑶ 등급 전이 — 「현재 누적 기준 예상 등급」이 연말에 어디로 가는가.
+ *
+ * ## 왜 ⑴ 카드 안에 두는가
+ *
+ * `API_SPEC §2.14`가 ⑴을 **주 표시**, ⑶을 **보조 표시**로 못박는다. 전이를 별도
+ * 카드로 떼면 ⑶이 ⑴과 같은 무게를 얻어 그 위계가 무너진다. ⑴의 자리에서
+ * 「지금 여기, 이대로 가면 저기」를 말하는 것이 위계를 지키면서 전이를 보이는 길이다.
+ *
+ * 같은 이유로 **연말 배지를 한 단계 작게** 쓴다. 크기 차이 자체가 「확정에 가까운
+ * 누적 : 가정 위의 추정」을 말한다.
+ *
+ * ## 색은 §2.3 시맨틱만 쓴다
+ *
+ * 배지 두 개는 등급 램프다(`§2.4.4`가 등급 표시에 램프+패턴을 요구한다). 반면
+ * **화살표와 라벨은 등급이 아니라 「변화 방향」**이므로 `§2.3` 시맨틱을 쓴다 —
+ * 같은 절이 시맨틱 색을 등급 표시에 쓰는 것을 금지하는데, 방향은 등급이 아니다.
+ *
+ * `--color-warning`은 쓰지 않는다. 그 별칭은 현재 `--cii-c-fill`(등급 램프)을
+ * 가리켜서, 쓰는 순간 램프가 시맨틱 자리로 새어 들어온다.
+ */
+function RatingTransitionView({ data, current }: { data: RealtimeCii; current: Rating }) {
+  const transition = ratingTransition(data)
+
+  /*
+   * 연말 예상을 못 내면 현재 등급만 그린다. 없는 쪽을 빈 배지나 「—」로 채우면
+   * 전이가 있는 것처럼 읽히고, 사유는 ⑶ 카드가 이미 글로 말한다.
+   */
+  if (!transition) {
+    return <GradeBadge rating={current} label={`현재 누적 기준 예상 등급 ${current}`} />
+  }
+
+  const modifier = transition.direction.toLowerCase()
+
+  return (
+    <div className="rt__transition">
+      <div className="rt__transition-pair">
+        <div className="rt__transition-step">
+          <span className="rt__transition-caption">현재 누적</span>
+          <GradeBadge
+            rating={transition.from}
+            label={`현재 누적 기준 예상 등급 ${transition.from}`}
+          />
+        </div>
+
+        {/* 잇는 기호일 뿐이라 방향을 뜻하지 않는다 — 방향은 아래 라벨이 말한다. */}
+        <span className={`rt__transition-arrow rt__transition-arrow--${modifier}`} aria-hidden="true">
+          →
+        </span>
+
+        <div className="rt__transition-step">
+          <span className="rt__transition-caption">연말 예상</span>
+          <GradeBadge
+            rating={transition.to}
+            size="sm"
+            label={`연말 예상 등급 ${transition.to}`}
+          />
+        </div>
+      </div>
+
+      <p className={`rt__transition-label rt__transition-label--${modifier}`}>
+        {RATING_TRANSITION_TEXT[transition.direction]}
+      </p>
+    </div>
   )
 }
 

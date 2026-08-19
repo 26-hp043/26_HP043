@@ -128,15 +128,37 @@
   color: var(--color-warning);
 }
 
-/* 수치 */
+/*
+ * 수치 — 3열 고정.
+ *
+ * `auto-fit`을 쓰지 않는다. 카드 폭에 따라 2·3·4열을 오가서 **결과 카드가
+ * 몇 열인지 화면마다 달라졌다** — 폼:결과가 5:7이라 결과 폭이 뷰포트에 따라
+ * 662~830px를 오가고, 그 구간이 3열과 4열 경계에 걸친다. 열 수를 고정하면
+ * 어느 폭에서 보든 지표의 자리가 같다.
+ */
 .voyage-cii-result__metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-12);
   margin: 0;
 }
 
-@media (max-width: 480px) {
+/*
+ * 열 수를 고정한 대가로 좁은 폭을 직접 챙겨야 한다. `auto-fit`은 칸이 좁아지면
+ * 알아서 열을 줄였지만 고정 3열은 그대로 3등분해 카드가 뭉개진다 —
+ * 셸 사이드바(240)가 어느 폭에서도 줄지 않아 좁은 화면일수록 손해가 크다.
+ *
+ * 기준은 카드 한 칸 180px다(종전 `minmax(180px, …)`의 하한을 그대로 가져왔다).
+ * 사이드바 240 + 좌우 패딩 48 + 카드 패딩 48을 빼면 3열은 뷰포트 900,
+ * 2열은 720에서 그 하한에 닿는다.
+ */
+@media (max-width: 900px) {
+  .voyage-cii-result__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
   .voyage-cii-result__metrics {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -150,6 +172,16 @@
   min-width: 0;
 }
 
+/*
+ * 「항차 조건 기준 예상 CII」 — 이 화면이 답하는 질문 그 자체다.
+ *
+ * **폭이 아니라 색으로만 강조한다.** 2칸을 주면 지표 6개가 7칸이 되어 3열에서
+ * 3줄로 떨어지고, 마지막 줄에 카드 하나만 남는다. 6개를 3+3으로 앉히려면 모든
+ * 칸이 1열이어야 한다 — 그 대가로 강조 채널을 배경·테두리로 좁혔다.
+ *
+ * 순서를 바꾸는 것으로는 해결되지 않는다. 1행이 이미 2칸을 쓰므로 어느 지표를
+ * 올려도 1행에는 카드가 둘뿐이고, 혼자 남는 카드의 이름만 바뀐다.
+ */
 .voyage-cii-result__metric--emphasis {
   background: var(--color-primary-subtle);
   border-color: var(--color-primary);

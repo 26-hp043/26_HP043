@@ -22,14 +22,23 @@ import './CiiForecastPage.css'
  * 계산 전·로딩·실패에서 배너가 사라져 **안전장치가 결과 유무에 종속된다.**
  * 여기서 항상 렌더하고, 응답이 있을 때만 그 `disclaimer`를 넘긴다.
  * 값이 없으면 `DisclaimerBanner`가 `PRD §6.3` 기본 문구를 쓴다.
+ *
+ * ## 2단은 입력·결과만 감싼다
+ *
+ * 입력(5)과 결과(7)를 `__split`으로 묶고 **면책 배너는 그 밖에 둔다**(`§7.1`).
+ * 배너를 한쪽 단에 넣으면 폭이 절반으로 줄고 다른 단 아래가 비며, 무엇보다
+ * 두 단 모두에 걸리는 고지가 한쪽에 속한 것처럼 읽힌다. 배치는 CSS가 하므로
+ * 이 래퍼 하나가 컴포넌트 쪽 변경의 전부다.
  */
 export function CiiForecastPage() {
   const [result, setResult] = useState<ResultState>({ status: 'idle' })
 
   return (
     <div className="cii-forecast-page">
-      <VoyageCiiForm onStateChange={setResult} />
-      <VoyageCiiResult state={result} />
+      <div className="cii-forecast-page__split">
+        <VoyageCiiForm onStateChange={setResult} />
+        <VoyageCiiResult state={result} />
+      </div>
       <DisclaimerBanner
         text={result.status === 'success' ? result.response.disclaimer : undefined}
       />

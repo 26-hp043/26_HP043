@@ -5,6 +5,7 @@ import {
   marginDisplay,
   nextWorseRating,
   riskLabel,
+  displayWarnings,
   warningMessage,
   WARNING_MESSAGE,
 } from './resultRules'
@@ -181,6 +182,39 @@ describe('warningMessage — API_SPEC §1.6 전사', () => {
   it('표에 없는 코드는 감추지 않고 코드 자체를 보여 준다', () => {
     // 조용히 감추면 경고가 사라진다.
     expect(warningMessage('SOME_NEW_CODE')).toBe('SOME_NEW_CODE')
+  })
+})
+
+describe('displayWarnings — 면책 중복 제거', () => {
+  it('REFERENCE_ONLY를 뺀다', () => {
+    // 같은 말을 화면 하단 배너가 이미 하고 있다.
+    expect(displayWarnings(['REFERENCE_ONLY'])).toEqual([])
+  })
+
+  it('면책과 무관한 경고는 남긴다', () => {
+    // 「중복이니까」로 목록을 통째로 지우면 이 코드들이 함께 사라진다.
+    expect(displayWarnings(['REFERENCE_ONLY', 'WEATHER_STALE', 'CB_ESTIMATED'])).toEqual([
+      'WEATHER_STALE',
+      'CB_ESTIMATED',
+    ])
+  })
+
+  it('표에 없는 코드도 남긴다', () => {
+    expect(displayWarnings(['SOME_NEW_CODE'])).toEqual(['SOME_NEW_CODE'])
+  })
+
+  it('원본 배열을 바꾸지 않는다', () => {
+    // 서버 응답은 진단·로깅이 원본 그대로 본다.
+    const original = ['REFERENCE_ONLY', 'WEATHER_STALE']
+    displayWarnings(original)
+    expect(original).toEqual(['REFERENCE_ONLY', 'WEATHER_STALE'])
+  })
+
+  it('WARNING_MESSAGE 표에서는 지우지 않는다', () => {
+    // 표는 API_SPEC §1.6 전사이고 기능②·③도 쓴다. 지우면 코드 문자열이 그대로 나온다.
+    expect(warningMessage('REFERENCE_ONLY')).toBe(
+      '참고용 예측값입니다. 규제 제출용이 아닙니다.',
+    )
   })
 })
 

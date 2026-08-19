@@ -1,4 +1,4 @@
-import type { RealtimeCii } from './types'
+import type { Rating, RealtimeCii } from './types'
 
 /**
  * 실시간 CII 화면 규칙 (`#357`).
@@ -132,6 +132,69 @@ export function projectionDirection(
   if (b < a) return 'IMPROVING'
   if (b > a) return 'WORSENING'
   return 'FLAT'
+}
+
+/**
+ * 등급 순서. **A가 가장 좋고 E가 가장 나쁘다.**
+ *
+ * 문자 비교(`'D' > 'C'`)로도 우연히 같은 답이 나오지만 쓰지 않는다 — 등급 문자가
+ * 순서를 뜻한다는 보장이 어디에도 없고, 등급 체계가 바뀌면 조용히 틀린다.
+ */
+const RATING_ORDER: Readonly<Record<Rating, number>> = { A: 0, B: 1, C: 2, D: 3, E: 4 }
+
+export type TransitionDirection = 'IMPROVING' | 'WORSENING' | 'FLAT'
+
+export interface RatingTransition {
+  /** ⑴ 연간 누적(YTD) 등급 */
+  from: Rating
+  /** ⑶ 연말 예상 등급 */
+  to: Rating
+  direction: TransitionDirection
+}
+
+/**
+ * ⑴ → ⑶ **등급** 전이 — 「현재 누적 기준 예상 등급이 연말에 어디로 가는가」.
+ *
+ * ## `projectionDirection`과 다른 것을 본다
+ *
+ * 그쪽은 **CII 값**의 방향이고 이쪽은 **등급**의 이동이다. 둘은 어긋날 수 있다 —
+ * CII가 나빠져도 경계를 넘지 않으면 등급은 그대로다. 그래서 값이 `WORSENING`인데
+ * 등급 전이는 `FLAT`인 상태가 정상이며, 두 표시가 서로를 부정하지 않는다.
+ * 값의 미세한 움직임은 ⑶ 카드가, 등급이 실제로 바뀌는지는 여기가 답한다.
+ *
+ * ## 한쪽이라도 없으면 `null`
+ *
+ * 연말 예상을 못 내는 경우(`NO_BASIS` 등)가 실제로 있다. 그때 없는 쪽을 현재
+ * 등급으로 채우면 화면이 **「등급 유지 예상」이라는 근거 없는 안심**을 말한다.
+ * `dataAvailable`을 함께 보는 것도 같은 이유다 — 등급만 남아 있고 산출이 무효인
+ * 응답을 전이로 그리지 않는다.
+ */
+export function ratingTransition(data: RealtimeCii): RatingTransition | null {
+  const from = data.ytd.dataAvailable ? data.ytd.rating : null
+  const to = data.projection.dataAvailable ? data.projection.rating : null
+  if (from === null || to === null) return null
+
+  const delta = RATING_ORDER[to] - RATING_ORDER[from]
+  return {
+    from,
+    to,
+    direction: delta > 0 ? 'WORSENING' : delta < 0 ? 'IMPROVING' : 'FLAT',
+  }
+}
+
+/**
+ * 전이 라벨.
+ *
+ * `DESIGN_SYSTEM §14` — 색만으로 의미를 전달하지 않는다. 이 문구가 색과 짝을 이루는
+ * 보조 채널이라 **색을 못 보아도 방향이 읽힌다.**
+ *
+ * `§4.3`의 ▼▲는 여기 쓰지 않는다. 그 기호는 **CII 수치의 증감** 표기이고, 등급
+ * 이동에 갖다 붙이면 「등급 하락」과 「CII 증가(▲)」가 한 줄에서 서로 반대로 읽힌다.
+ */
+export const RATING_TRANSITION_TEXT: Readonly<Record<TransitionDirection, string>> = {
+  IMPROVING: '등급 상승 예상',
+  WORSENING: '등급 하락 예상',
+  FLAT: '등급 유지 예상',
 }
 
 /** 기준 시각 표시. 실시간 화면에서는 값 자체만큼 중요한 정보다. */

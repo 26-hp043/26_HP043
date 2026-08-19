@@ -165,3 +165,34 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
 export function warningMessage(code: string): string {
   return WARNING_MESSAGE[code] ?? code
 }
+
+/**
+ * 면책 배너가 이미 말하고 있는 경고 코드.
+ *
+ * `REFERENCE_ONLY`의 문구(「참고용 예측값입니다. 규제 제출용이 아닙니다.」)는
+ * 화면 하단 `DisclaimerBanner`의 `PRD §6.3` 문구와 **같은 말**이라, 결과 화면에서는
+ * 한 화면에 두 번 나온다.
+ */
+const DISCLAIMER_WARNING = 'REFERENCE_ONLY'
+
+/**
+ * 결과 카드에 실을 경고 코드만 남긴다.
+ *
+ * ## 왜 목록 전체를 지우지 않는가
+ *
+ * `warnings`에는 `WEATHER_STALE`·`CB_ESTIMATED`처럼 **면책과 무관한 코드 6종**이
+ * 함께 실린다. 「중복이니까」로 목록을 통째로 지우면 그 경고들이 같이 사라진다.
+ *
+ * ## 왜 `WARNING_MESSAGE`에서 빼지 않는가
+ *
+ * 그 표는 `API_SPEC §1.6`의 전사이고 기능②·③도 같이 쓴다. 표에서 지우면
+ * `warningMessage()`가 이 코드에 대해 **코드 문자열을 그대로 뱉는다**(표에 없는
+ * 코드의 동작). 중복은 **이 화면의 배치 문제**이므로 표시 시점에서만 거른다.
+ *
+ * ## 서버 응답은 건드리지 않는다
+ *
+ * 걸러진 코드는 `response.warnings`에 그대로 남는다 — 진단·로깅이 원본을 본다.
+ */
+export function displayWarnings(codes: readonly string[]): string[] {
+  return codes.filter((code) => code !== DISCLAIMER_WARNING)
+}

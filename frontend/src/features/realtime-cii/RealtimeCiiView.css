@@ -101,6 +101,71 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── ⑴ → ⑶ 등급 전이 ────────────────────────────────────────── */
+
+.rt__transition {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+/*
+ * 두 배지 크기가 다르므로(주 표시 : 보조 표시) 아래를 맞춘다. 가운데를 맞추면
+ * 작은 쪽이 떠 보여서 크기 차이가 「어긋난 정렬」로 읽힌다.
+ */
+.rt__transition-pair {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-md);
+}
+
+.rt__transition-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.rt__transition-caption {
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+  color: var(--text-secondary);
+}
+
+/*
+ * 화살표는 배지 줄에 맞춰 내린다 — 캡션까지 포함한 블록의 세로 가운데에 두면
+ * 정작 이어야 할 두 배지 사이에서 위로 밀린다.
+ */
+.rt__transition-arrow {
+  padding-block-end: var(--spacing-md);
+  font-size: var(--font-size-h2);
+  line-height: 1;
+}
+
+.rt__transition-label {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+/*
+ * §2.3 시맨틱만 쓴다. `--color-warning`은 현재 `--cii-c-fill`(등급 램프)을 가리켜
+ * 여기 쓸 수 없다. 색을 못 보아도 라벨 문구가 방향을 말한다(§14).
+ */
+.rt__transition-arrow--improving,
+.rt__transition-label--improving {
+  color: var(--semantic-success);
+}
+
+.rt__transition-arrow--worsening,
+.rt__transition-label--worsening {
+  color: var(--semantic-danger);
+}
+
+.rt__transition-arrow--flat,
+.rt__transition-label--flat {
+  color: var(--text-muted);
+}
+
 .rt__note,
 .rt__nodata {
   margin: 0;
