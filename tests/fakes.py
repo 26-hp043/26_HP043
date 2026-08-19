@@ -29,7 +29,7 @@ class FakeVessel:
     """``db.models.vessel.Vessel`` 대역. 서비스가 읽는 속성만 갖는다."""
 
     id: UUID = DEMO_VESSEL_ID
-    imo_number: str = "0000001"
+    imo_number: str = "0000012"
     name: str = "샘플 벌크선 (50,000 DWT)"
     ship_type: str = "BULK_CARRIER"
     gross_tonnage: Decimal | None = Decimal("30000.00")

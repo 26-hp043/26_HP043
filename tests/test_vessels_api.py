@@ -473,7 +473,7 @@ class TestUpdateVessel:
         vessel_store: dict[UUID, FakeVessel] = {
             DEMO_VESSEL_ID: FakeVessel(
                 id=DEMO_VESSEL_ID,
-                imo_number="0000001",
+                imo_number="0000012",
                 name="원래 이름",
                 ship_type="BULK_CARRIER",
                 gross_tonnage=Decimal("30000.00"),
@@ -588,7 +588,7 @@ class TestDeleteVessel:
     def delete_wired(self, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple]:
         from cii_platform.services import vessel as svc
 
-        active_imos: set[str] = {"0000001"}
+        active_imos: set[str] = {"0000012"}
 
         class DeletableVessel(FakeVessel):
             """``is_deleted``를 토글할 수 있는 FakeVessel."""
