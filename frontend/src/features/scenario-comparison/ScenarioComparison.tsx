@@ -238,8 +238,7 @@ export function ScenarioComparison({
           없어도 여기 값을 넣으면 계산된다 — 데모 선박 4척이 모두 그 상태다.
         */}
         <span className="scenario-comparison__field-hint">
-          선박에 기준 일일 연료소모량이 등록돼 있지 않아도 이 값으로 계산합니다
-          (PRD §11.4 ⑴).
+          선박 정보에 이 값이 없어도 여기 입력한 값으로 계산합니다.
         </span>
       </label>
 

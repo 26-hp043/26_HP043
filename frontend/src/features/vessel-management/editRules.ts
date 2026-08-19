@@ -193,7 +193,7 @@ export function clearAttemptNotice(vessel: Vessel, state: VesselEditState): stri
   if (attempted.length === 0) return null
   return (
     `${attempted.join(' · ')}을(를) 비웠지만 저장되지 않습니다. ` +
-    '서버 수정 API에는 값을 지우는 경로가 없습니다(`API_SPEC §2.4`). ' +
+    '이 항목은 값을 바꿀 수만 있고 지울 수는 없습니다. ' +
     '값을 바꾸려면 새 값을 입력해 주세요.'
   )
 }
@@ -213,7 +213,7 @@ export function recalcNotice(vessel: Vessel, state: VesselEditState): string | n
   if (!gtChanged && !dwtChanged) return null
   return (
     '총톤수·재화중량톤수를 바꾸면 이 선박의 기존 계산 결과에 ' +
-    '「재계산 필요」 표시가 붙습니다(`PRD §8.4`). 저장된 값 자체는 바뀌지 않습니다.'
+    '「재계산 필요」 표시가 붙습니다. 저장된 값 자체는 바뀌지 않습니다.'
   )
 }
 
