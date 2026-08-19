@@ -3,15 +3,19 @@ import {
   EMPTY_CONTEXT,
   STORAGE_KEY,
   displayName,
+  isVesselQueryPath,
   isVesselScopedPath,
   loadStored,
   navigationFor,
+  readContext,
   readFromPath,
+  readFromQuery,
   saveStored,
   selectVessel,
   selectVoyage,
   vesselPath,
   voyagePath,
+  withContextQuery,
 } from './globalContext'
 
 /**
@@ -184,5 +188,123 @@ describe('displayName — 목록에 없는 id를 감추지 않는다', () => {
 
   it('선택하지 않았으면 null이다', () => {
     expect(displayName(options, null)).toBeNull()
+  })
+})
+
+/**
+ * #484 B안 — 컨텍스트를 쿼리에 담는다.
+ *
+ * 여기서 잠그는 것은 **「평면 경로 화면도 주소만으로 선택을 복원할 수 있다」**는
+ * 성질이다. `sessionStorage` 기억만으로는 새로고침은 살아남아도 **링크 공유**가
+ * 성립하지 않고, 다른 탭에서 열면 다른 배를 보게 된다.
+ */
+describe('#484 쿼리 컨텍스트', () => {
+  const FORECAST = '/voyage-cii'
+  const COMPARISON = '/route-comparison'
+  const ANNUAL = '/annual-grade'
+  const DASHBOARD = '/dashboard'
+
+  describe('isVesselQueryPath', () => {
+    it.each([FORECAST, COMPARISON, ANNUAL])('%s는 쿼리로 컨텍스트를 담는다', (path) => {
+      expect(isVesselQueryPath(path)).toBe(true)
+    })
+
+    it('계층 경로는 쿼리 화면이 아니다 — 경로가 정본이다', () => {
+      expect(isVesselQueryPath(`/vessels/${VESSEL}`)).toBe(false)
+    })
+
+    it('대시보드는 쿼리 화면이 아니다 — 선박 범위를 갖지 않는다', () => {
+      expect(isVesselQueryPath(DASHBOARD)).toBe(false)
+    })
+  })
+
+  describe('readFromQuery', () => {
+    it('선박·항차를 읽는다', () => {
+      expect(readFromQuery(`?vessel_id=${VESSEL}&voyage_id=${VOYAGE}`)).toEqual({
+        vesselId: VESSEL,
+        voyageId: VOYAGE,
+      })
+    })
+
+    it('빈 값은 없는 것으로 본다 — 지어내지 않는다', () => {
+      expect(readFromQuery('?vessel_id=')).toEqual(EMPTY_CONTEXT)
+    })
+
+    it('쿼리가 없으면 빈 컨텍스트다', () => {
+      expect(readFromQuery('')).toEqual(EMPTY_CONTEXT)
+    })
+
+    it('선박 없이 항차만 있으면 항차도 버린다 — 다른 배의 항차를 가리키게 된다', () => {
+      expect(readFromQuery(`?voyage_id=${VOYAGE}`)).toEqual(EMPTY_CONTEXT)
+    })
+  })
+
+  describe('withContextQuery', () => {
+    it('선택을 쿼리에 싣는다', () => {
+      expect(withContextQuery(FORECAST, '', { vesselId: VESSEL, voyageId: null })).toBe(
+        `${FORECAST}?vessel_id=${VESSEL}`,
+      )
+    })
+
+    it('선택을 지우면 쿼리에서도 뺀다', () => {
+      expect(withContextQuery(FORECAST, `?vessel_id=${VESSEL}`, EMPTY_CONTEXT)).toBe(FORECAST)
+    })
+
+    it('선박을 지우면 항차도 함께 빠진다', () => {
+      const before = `?vessel_id=${VESSEL}&voyage_id=${VOYAGE}`
+      expect(withContextQuery(FORECAST, before, EMPTY_CONTEXT)).toBe(FORECAST)
+    })
+
+    it('다른 쿼리 파라미터는 보존한다 — #513의 severity가 사라지면 안 된다', () => {
+      const result = withContextQuery(ANNUAL, '?severity=HIGH', {
+        vesselId: VESSEL,
+        voyageId: null,
+      })
+      expect(result).toContain('severity=HIGH')
+      expect(result).toContain(`vessel_id=${VESSEL}`)
+    })
+  })
+
+  describe('readContext — 어느 쪽이 이기는가', () => {
+    const remembered = { vesselId: 'remembered-vessel', voyageId: null }
+
+    it('계층 화면에서는 경로가 이긴다', () => {
+      const result = readContext(`/vessels/${VESSEL}`, `?vessel_id=other`, remembered)
+      expect(result.vesselId).toBe(VESSEL)
+    })
+
+    it('쿼리 화면에서는 쿼리가 기억을 이긴다', () => {
+      const result = readContext(FORECAST, `?vessel_id=${VESSEL}`, remembered)
+      expect(result.vesselId).toBe(VESSEL)
+    })
+
+    it('쿼리가 비면 기억해 둔 값으로 내려간다 — 사이드바로 들어온 경우다', () => {
+      expect(readContext(FORECAST, '', remembered)).toEqual(remembered)
+    })
+
+    it('그 밖 화면은 기억해 둔 값이다', () => {
+      expect(readContext(DASHBOARD, '', remembered)).toEqual(remembered)
+    })
+  })
+
+  describe('navigationFor — 쿼리 화면', () => {
+    it('머무른 채 주소만 갱신한다 — 화면이 튀지 않는다', () => {
+      const target = navigationFor(FORECAST, { vesselId: VESSEL, voyageId: null }, '')
+      expect(target).toBe(`${FORECAST}?vessel_id=${VESSEL}`)
+    })
+
+    it('이미 같은 값이면 이동하지 않는다 — 히스토리를 더럽히지 않는다', () => {
+      const search = `?vessel_id=${VESSEL}`
+      expect(navigationFor(FORECAST, { vesselId: VESSEL, voyageId: null }, search)).toBeNull()
+    })
+
+    it('계층 화면의 규칙은 그대로다', () => {
+      const target = navigationFor(`/vessels/${VESSEL}`, { vesselId: 'v-2', voyageId: null })
+      expect(target).toBe('/vessels/v-2')
+    })
+
+    it('대시보드에서는 여전히 이동하지 않는다', () => {
+      expect(navigationFor(DASHBOARD, { vesselId: VESSEL, voyageId: null }, '')).toBeNull()
+    })
   })
 })
