@@ -277,17 +277,29 @@ export function ScenarioComparison({
     return (
       <section className="scenario-comparison">
         {conditionForm}
-        {state.status === 'loading' && (
-          <p className="scenario-comparison__placeholder" aria-live="polite">
-            시나리오를 계산하는 중입니다…
-          </p>
-        )}
-        {state.status === 'error' && (
-          <div className="scenario-comparison__error" aria-live="assertive">
-            <p className="scenario-comparison__error-title">비교에 실패했습니다</p>
-            <p className="scenario-comparison__error-message">{state.message}</p>
-          </div>
-        )}
+        {/*
+          결과가 없을 때도 오른쪽 단을 비워 두지 않는다. 빈 칸으로 두면 화면이
+          고장 난 것처럼 보이고, 계산 후에 폼이 옆으로 밀리는 것처럼도 읽힌다.
+          `2-1 CII 예측`의 `VoyageCiiResult`가 idle에 자리표시자를 두는 것과 같다.
+        */}
+        <div className="scenario-comparison__results">
+          {state.status === 'idle' && (
+            <p className="scenario-comparison__placeholder">
+              비교 조건을 입력하고 <strong>비교하기</strong>를 누르면 결과가 표시됩니다.
+            </p>
+          )}
+          {state.status === 'loading' && (
+            <p className="scenario-comparison__placeholder" aria-live="polite">
+              시나리오를 계산하는 중입니다…
+            </p>
+          )}
+          {state.status === 'error' && (
+            <div className="scenario-comparison__error" aria-live="assertive">
+              <p className="scenario-comparison__error-title">비교에 실패했습니다</p>
+              <p className="scenario-comparison__error-message">{state.message}</p>
+            </div>
+          )}
+        </div>
       </section>
     )
   }
@@ -302,50 +314,57 @@ export function ScenarioComparison({
     <section className="scenario-comparison">
       {/* 결과를 본 뒤 조건을 바꿔 다시 비교할 수 있어야 한다 — 폼을 남긴다. */}
       {conditionForm}
-      <header className="scenario-comparison__header">
-        <h2 className="scenario-comparison__title">
-          시나리오 비교
-          <span className="scenario-comparison__title-en"> Scenario Comparison</span>
-        </h2>
-        <p className="scenario-comparison__context">
-          {response.vessel_display_name} · {form.regulationYear}년 기준 ·
-          기준 CII {formatDecimalString(response.required_cii, DISPLAY_DIGITS.cii)} {unit}
-        </p>
-      </header>
-
-      {/* PRD §6.3 — 「추정값 사용」·「자동 결정 금지」 문구를 그대로 쓴다 */}
-      <p className="scenario-comparison__notice">
-        {ESTIMATE_NOTICE} {NO_AUTO_DECISION_NOTICE}
-      </p>
-
-      <div className="scenario-comparison__cards">
-        {response.scenarios.map((scenario) => (
-          <ScenarioCard key={scenario.scenario_type} scenario={scenario} unit={unit} />
-        ))}
-      </div>
-
       {/*
-        PRD §11.2 — 추천 시나리오를 표시하지 않고 지표별 최소값만 중립적으로 적는다.
-        하나를 고르지 않으므로 세 줄의 답이 서로 다를 수 있다.
+        결과 전체를 한 겹으로 묶는다. 묶지 않으면 12컬럼 자동 배치가 `__header`만
+        폼 옆에 올리고 `__notice`부터는 아래 줄로 흘려보낸다 — 결과가 두 단에
+        걸쳐 쪼개진다.
       */}
-      <dl className="scenario-comparison__lowest">
-        {summary.map((item) => (
-          <div key={item.metric} className="scenario-comparison__lowest-row">
-            <dt>{item.label}</dt>
-            <dd>{nameOf(item.scenarioType)}</dd>
-          </div>
-        ))}
-      </dl>
+      <div className="scenario-comparison__results">
+        <header className="scenario-comparison__header">
+          <h2 className="scenario-comparison__title">
+            시나리오 비교
+            <span className="scenario-comparison__title-en"> Scenario Comparison</span>
+          </h2>
+          <p className="scenario-comparison__context">
+            {response.vessel_display_name} · {form.regulationYear}년 기준 ·
+            기준 CII {formatDecimalString(response.required_cii, DISPLAY_DIGITS.cii)} {unit}
+          </p>
+        </header>
 
-      {response.warnings.length > 0 ? (
-        <ul className="scenario-comparison__warnings">
-          {response.warnings.map((code) => (
-            <li key={code} className="scenario-comparison__warning">
-              <span aria-hidden="true">⚠</span> {warningMessage(code)}
-            </li>
+        {/* PRD §6.3 — 「추정값 사용」·「자동 결정 금지」 문구를 그대로 쓴다 */}
+        <p className="scenario-comparison__notice">
+          {ESTIMATE_NOTICE} {NO_AUTO_DECISION_NOTICE}
+        </p>
+
+        <div className="scenario-comparison__cards">
+          {response.scenarios.map((scenario) => (
+            <ScenarioCard key={scenario.scenario_type} scenario={scenario} unit={unit} />
           ))}
-        </ul>
-      ) : null}
+        </div>
+
+        {/*
+          PRD §11.2 — 추천 시나리오를 표시하지 않고 지표별 최소값만 중립적으로 적는다.
+          하나를 고르지 않으므로 세 줄의 답이 서로 다를 수 있다.
+        */}
+        <dl className="scenario-comparison__lowest">
+          {summary.map((item) => (
+            <div key={item.metric} className="scenario-comparison__lowest-row">
+              <dt>{item.label}</dt>
+              <dd>{nameOf(item.scenarioType)}</dd>
+            </div>
+          ))}
+        </dl>
+
+        {response.warnings.length > 0 ? (
+          <ul className="scenario-comparison__warnings">
+            {response.warnings.map((code) => (
+              <li key={code} className="scenario-comparison__warning">
+                <span aria-hidden="true">⚠</span> {warningMessage(code)}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
     </section>
   )
 }
