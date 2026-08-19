@@ -1,6 +1,20 @@
+/*
+ * UIFLOW 2-3 연간 등급 관리 — 페이지는 세로 흐름만 잡는다.
+ * 실행 조건 : 결과 좌우 2단은 `AnnualSimulation.css`가 소유한다.
+ *
+ * ## max-width를 걸지 않는다
+ *
+ * `ANNUAL_GRADE`가 `width: 'wide'`라 셸(`app-shell__main--wide`)이 이미
+ * 최대 1920 · 좌우 패딩 32를 건다 — `DESIGN_SYSTEM §7.1` 폭 정책 표의
+ * 「대시보드, 차트, 시나리오 비교」 행이다. 팬 차트와 등급 확률 스택 바가
+ * 이 화면의 주인공이므로 차트 쪽 정책을 따른다.
+ *
+ * 종전의 `max-width: 960px`는 그 정책을 페이지에서 한 번 더 좁히고 있었다.
+ * 2단으로 바뀌면 960 안에서 5:7을 나누게 되어 지표 카드와 표가 눌린다.
+ * 폭은 셸 한 곳에서만 정한다.
+ */
 .annual-grade-page {
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
-  max-width: 960px;
 }

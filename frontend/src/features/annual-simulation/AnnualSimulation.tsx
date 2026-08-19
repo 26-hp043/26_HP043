@@ -152,22 +152,29 @@ export function AnnualSimulation({
         </button>
       </form>
 
-      {state.status === 'idle' ? (
-        <p className="annual-sim__placeholder">{ANNUAL_COPY.empty}</p>
-      ) : null}
-      {state.status === 'running' ? (
-        <p className="annual-sim__placeholder" aria-live="polite">
-          {ANNUAL_COPY.loading}
-        </p>
-      ) : null}
-      {state.status === 'error' ? (
-        <div className="annual-sim__error" aria-live="assertive">
-          <strong>{ANNUAL_COPY.errorTitle}</strong>
-          <p>{state.message}</p>
-        </div>
-      ) : null}
+      {/*
+        결과 전체를 한 겹으로 묶는다. `Result`가 Fragment를 반환하므로 묶지 않으면
+        그 안의 블록들이 `.annual-sim`의 직계 자식이 되고, 12컬럼 자동 배치가
+        첫 블록만 폼 옆에 올린 뒤 나머지를 아래 줄로 흘려보낸다.
+      */}
+      <div className="annual-sim__results">
+        {state.status === 'idle' ? (
+          <p className="annual-sim__placeholder">{ANNUAL_COPY.empty}</p>
+        ) : null}
+        {state.status === 'running' ? (
+          <p className="annual-sim__placeholder" aria-live="polite">
+            {ANNUAL_COPY.loading}
+          </p>
+        ) : null}
+        {state.status === 'error' ? (
+          <div className="annual-sim__error" aria-live="assertive">
+            <strong>{ANNUAL_COPY.errorTitle}</strong>
+            <p>{state.message}</p>
+          </div>
+        ) : null}
 
-      {state.status === 'success' ? <Result result={state.result} /> : null}
+        {state.status === 'success' ? <Result result={state.result} /> : null}
+      </div>
     </section>
   )
 }
