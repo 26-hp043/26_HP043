@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './ScenarioComparison.css'
-import {
-  createVesselCatalog,
-  type VesselOption,
-} from '../voyage-cii/vesselCatalog'
+import { useShellContext } from '../../layout/shellContext'
 import {
   FIELD,
   NO_VESSEL_MESSAGE,
@@ -77,38 +74,34 @@ export function ScenarioComparison({
   const provider = useMemo(() => selectScenarioProvider(), [])
   // 선택지도 **같은 스위치**를 쓴다 (#236). 기준이 갈리면 계산은 서버로 가는데
   // 선택지는 고정표에서 오는, 이번 이슈가 고치려는 상태가 다시 만들어진다.
-  const catalog = useMemo(() => createVesselCatalog(), [])
   const fuels = useMemo(() => selectableFuels(), [])
 
-  const [vessels, setVessels] = useState<VesselOption[] | null>(null)
-  const [catalogError, setCatalogError] = useState<string | null>(null)
+  // 선박 목록·선택은 **셸이 소유한다** (#484 · #535). 종전에는 이 화면이 목록을
+  // 따로 조회하고 선택도 따로 들어, 상단바에서 배를 바꿔도 여기는 그대로였다.
+  const shell = useShellContext()
+  const { vesselsState, selectVesselId } = shell
+  const vessels = vesselsState === 'loading' ? null : shell.vessels
+  const catalogError = vesselsState === 'failed' ? '선박 목록을 불러오지 못했습니다.' : null
+
   const [form, setForm] = useState<ComparisonFormState>(initialFormState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [state, setState] = useState<LoadState>({ status: 'idle' })
 
+  /**
+   * 셸의 선택을 폼에 반영한다 (#535).
+   *
+   * **선택이 없을 때 임의로 고르지 않는다.** `#511`의 완료 기준이 「선박 미선택
+   * 상태에서 에러 대신 입력 UI가 보인다」이므로, 고르지 않은 상태 자체가 이 화면의
+   * 정상 상태다. 목록이 한 척뿐일 때만 미리 채운다 — 고를 것이 없기 때문이다.
+   */
+  const shellVesselId = shell.vesselId
   useEffect(() => {
-    let alive = true
-    catalog.listVessels().then(
-      (options) => {
-        if (!alive) return
-        setVessels(options)
-        // 목록이 한 척이면 고를 것이 없다 — 미리 채워 두어 클릭 한 번을 줄인다.
-        // 두 척 이상이면 **고르지 않은 상태로 둔다**(어느 배인지 사용자가 정한다).
-        if (options.length === 1) {
-          setForm((prev) => ({ ...prev, vesselId: options[0].id }))
-        }
-      },
-      (error: unknown) => {
-        if (!alive) return
-        setCatalogError(
-          error instanceof Error ? error.message : '선박 목록을 불러오지 못했습니다.',
-        )
-      },
-    )
-    return () => {
-      alive = false
+    if (shellVesselId !== null) {
+      setForm((prev) => (prev.vesselId === shellVesselId ? prev : { ...prev, vesselId: shellVesselId }))
+      return
     }
-  }, [catalog])
+    if (vessels !== null && vessels.length === 1) selectVesselId(vessels[0].id)
+  }, [shellVesselId, vessels, selectVesselId])
 
   const runComparison = () => {
     const found = validateForm(form)
@@ -159,7 +152,7 @@ export function ScenarioComparison({
         <span>선박</span>
         <select
           value={form.vesselId}
-          onChange={(e) => setForm({ ...form, vesselId: e.target.value })}
+          onChange={(e) => selectVesselId(e.target.value || null)}
           disabled={vessels === null || noVessel}
           aria-invalid={FIELD.vesselId in errors}
         >

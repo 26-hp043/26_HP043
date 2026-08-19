@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import './AnnualSimulation.css'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
+import { useShellContext } from '../../layout/shellContext'
 import { GradeBadge } from '../../components/GradeBadge'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
@@ -46,8 +47,13 @@ type RunState =
   | { status: 'success'; result: AnnualSimulationResult }
   | { status: 'error'; message: string }
 
-/** 시연 대상 — 기능①·②와 같은 선박이라 세 화면이 이어져 읽힌다. */
-const DEFAULT_VESSEL_ID = '00000000-0000-4000-8000-000000000001'
+/**
+ * 기준연도.
+ *
+ * ⚠️ **아직 고정값이다.** 선박은 `#484`로 상단바 전역 선택을 따르게 됐으나, 연도는
+ * 이 화면에 선택 UI가 없다. `GET /parameters/regulation-years`(`#444`)로 열 수 있고
+ * `#534`가 CII 예측에 그 경로를 만들어 두었다 — 이 화면 적용은 별건이다.
+ */
 const DEFAULT_YEAR = 2026
 
 /** `PRD §12.8` — **E는 목록에 없다.** 목표가 최하위 등급이면 「달성」이 의미를 잃는다. */
@@ -59,6 +65,9 @@ export function AnnualSimulation({
   /** 면책 배너는 페이지가 항상 렌더한다(`DESIGN_SYSTEM §13` 🔒). */
   onDisclaimer?: (text: string | undefined) => void
 }) {
+  // 선박은 **상단바 전역 선택을 따른다** (#484 · #535). 종전에는 UUID가 상수로
+  // 박혀 있어, 상단에서 어떤 배를 골라도 늘 같은 배로 계산했다.
+  const shell = useShellContext()
   const provider = useMemo(() => createAnnualSimulationProvider(), [])
   const [state, setState] = useState<RunState>({ status: 'idle' })
   const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>('B')
@@ -66,10 +75,14 @@ export function AnnualSimulation({
   const [seed, setSeed] = useState('')
 
   const run = useCallback(async () => {
+    if (shell.vesselId === null) {
+      setState({ status: 'error', message: '상단에서 선박을 먼저 선택해 주세요.' })
+      return
+    }
     setState({ status: 'running' })
     try {
       const result = await provider.run({
-        vessel_id: DEFAULT_VESSEL_ID,
+        vessel_id: shell.vesselId,
         regulation_year: DEFAULT_YEAR,
         target_rating: target,
         simulation_runs: Number(runs),
@@ -84,7 +97,7 @@ export function AnnualSimulation({
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorTitle,
       })
     }
-  }, [provider, target, runs, seed, onDisclaimer])
+  }, [provider, shell.vesselId, target, runs, seed, onDisclaimer])
 
   return (
     <section className="annual-sim">
