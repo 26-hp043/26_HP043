@@ -347,9 +347,9 @@ function EditForm({
         </p>
       )}
 
+      {/* 근거는 `API_SPEC §2.4` — 화면에는 적지 않는다 (#529). */}
       <p className="vessel-management__readonly">
-        IMO 번호 <strong>{vessel.imo_number}</strong> — 등록 후에는 변경할 수 없습니다
-        (<code>API_SPEC §2.4</code>).
+        IMO 번호 <strong>{vessel.imo_number}</strong> — 등록 후에는 변경할 수 없습니다.
       </p>
 
       <label className="vessel-management__field">
