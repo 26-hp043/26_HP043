@@ -226,26 +226,52 @@
 
 /* ── 분할 ───────────────────────────────────────────────────────── */
 
+/*
+ * 12컬럼 위의 7:5 (DESIGN_SYSTEM §7.1 🔒).
+ *
+ * 종전에는 `7fr 5fr`에 주석으로만 「디자이너 토큰 grid.split-primary(7)」이라
+ * 적혀 있고 값은 리터럴이었다. 두 가지를 고친다.
+ *
+ * ⑴ **토큰을 실제로 읽는다.** §7.1이 비율을 바꾸면 여기가 따라간다.
+ *
+ * ⑵ **12컬럼을 실제로 깐다.** `7fr 5fr`은 거터 한 칸을 뺀 나머지를 7:5로 나누므로
+ *    12컬럼을 깐 다른 화면과 경계가 미세하게 어긋난다. 차이 자체는 몇 px이지만,
+ *    §7.1이 「컴포넌트 폭 가정이 하나로 유지된다」고 적은 것이 성립하려면 세 화면과
+ *    같은 방식으로 잡아야 한다. `2-1`·`2-2`·`2-3`이 모두 이 형태다.
+ *
+ * 거터도 `--spacing-xl`(24px)이 아니라 `--grid-gutter`(24px)를 쓴다. 값은 같지만
+ * 12컬럼의 거터를 소유하는 토큰은 그쪽이다.
+ */
 .fleet__split {
   display: grid;
-  /* 디자이너 토큰 grid.split-primary(7) : split-secondary(5) */
-  grid-template-columns: 7fr 5fr;
-  gap: var(--spacing-xl);
+  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  gap: var(--grid-gutter);
   align-items: start;
+}
+
+/* 주 영역 — 선박 위치 차트 위에 조치 필요가 이어진다. */
+.fleet__col {
+  grid-column: span var(--grid-split-primary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gutter);
+  min-inline-size: 0;
+}
+
+/* 부 영역 — 선박 목록 */
+.fleet__list {
+  grid-column: span var(--grid-split-secondary);
 }
 
 @media (max-width: 1100px) {
   .fleet__split {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
-}
 
-/* 왼쪽 열 — 실시간 항로 위에 조치 필요가 이어진다. */
-.fleet__col {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xl);
-  min-inline-size: 0;
+  .fleet__col,
+  .fleet__list {
+    grid-column: auto;
+  }
 }
 
 /* ── 필터 칩 ────────────────────────────────────────────────────── */
@@ -371,16 +397,12 @@
   border-color: var(--cii-e-border);
 }
 
-.vessel__link {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: var(--spacing-xs) var(--spacing-md);
-  padding: var(--spacing-md);
-  text-decoration: none;
-  color: inherit;
-  border-radius: var(--radius-control);
-}
-
+/*
+ * 실제 배치는 아래 「선박 행 — 배지 + 본문 2열」 절의 `.vessel__link`가 정한다.
+ * 종전에는 여기에도 같은 셀렉터가 `1fr auto`로 있었으나 뒤엣것(`auto 1fr`)이
+ * 이겨서 **한 번도 적용되지 않았다.** 읽는 사람이 왼쪽 정렬이라 착각하게 되므로
+ * 지운다. 포커스 링은 배치와 무관하므로 여기 남긴다.
+ */
 .vessel__link:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
