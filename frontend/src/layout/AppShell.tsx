@@ -19,6 +19,7 @@ import { GradePatternDefs } from '../components/GradePatternDefs'
 import { logout, useAuthUser } from '../auth/session'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
+import { shouldUseApi } from '../features/voyage-cii/providerSelection'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
 
 /** 아바타 이니셜. 이메일이면 로컬파트 첫 글자를 쓴다. */
@@ -63,6 +64,20 @@ export function AppShell() {
   const screen = findScreenByPath(pathname)
   const width = screen?.width ?? 'form'
   const user = useAuthUser()
+
+  /*
+   * 데모 모드인지 화면이 말해 준다 (#528).
+   *
+   * 데모 모드에서는 화면이 **실제 제품과 다르다** — demo provider가 있는 기능은
+   * 셋뿐이라 대시보드·보고서·선박 상세·선박 관리는 아예 돌지 않는다. 게다가
+   * 인증 가드까지 꺼져(`auth/session.ts`) 로그인 없이 열리므로 **모르고 쓰기
+   * 쉽다.** 실제로 디자인 담당이 이 상태로 작업하다 「선박이 하나만 뜬다」고
+   * 알려 왔다.
+   *
+   * 기본값을 실 API로 바꿨으므로(`frontend/.env`) 이 배너는 **일부러 껐을 때만**
+   * 보인다. 조용히 데모로 떨어지는 경로를 없애는 것이 목적이다.
+   */
+  const demoMode = !shouldUseApi()
 
   const vesselCatalog = useMemo(() => createVesselCatalog(), [])
   const voyageCatalog = useMemo(() => createVoyageCatalog(), [])
@@ -192,6 +207,15 @@ export function AppShell() {
       </nav>
 
       <div className="app-shell__stack">
+        {demoMode && (
+          <p className="app-shell__demo-banner" role="status">
+            <strong>데모 모드</strong> — 백엔드에 연결하지 않고 고정 데이터로 돌고
+            있습니다. 대시보드·보고서·선박 상세·선박 관리는 동작하지 않으며 로그인도
+            건너뜁니다. 실제 데이터로 보려면 <code>frontend/.env.local</code>의{' '}
+            <code>VITE_USE_API</code>를 지우거나 <code>true</code>로 바꾸고 개발
+            서버를 다시 띄우십시오.
+          </p>
+        )}
         {/* 이메일 미인증 안내 — 인증 전에도 이용은 허용한다(PRD §7.10). */}
         <VerifyBanner />
         {/* 우측 정렬 유틸리티. 순서 = §7.2의 좌→우 배치: 선박 · 항차 · 알림 · 계정 */}
