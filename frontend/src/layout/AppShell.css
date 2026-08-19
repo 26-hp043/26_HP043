@@ -359,21 +359,58 @@
   max-width: var(--layout-max-form);
 }
 
-/* 로그아웃 버튼 (#278) — 상단바 계정 영역 안. 토큰만 사용한다. */
+/*
+ * 로그아웃 버튼 (#278) — 상단바 계정 영역 안.
+ *
+ * ## 글자가 보이지 않던 이유
+ *
+ * 글자색이 `--color-surface`(흰색)였고 배경은 `transparent`였다. 상단바가
+ * `--surface-card`(흰색)이므로 **흰 글자를 흰 배경에 얹고 있었다.** hover에서만
+ * 배경이 navy로 바뀌어 그때 잠깐 보였다.
+ *
+ * `DESIGN_SYSTEM §2.1`이 Deep Navy를 「헤더」 색으로 두던 시절에 맞춰 쓴 값으로
+ * 보인다. 상단바가 흰색이 된 뒤 이 버튼만 그 전제에 남아 있었다.
+ *
+ * ## 배치는 옆 아이콘 버튼을 따르되 글자색은 따르지 않는다
+ *
+ * `.app-shell__iconbtn`이 바로 옆에서 `transparent` + `--text-muted`를 쓴다.
+ * 배경과 hover는 같은 줄의 유틸리티 컨트롤이므로 맞추지만, **글자색은 맞추면
+ * 안 된다.** 둘은 담고 있는 것이 다르다.
+ *
+ * | | 내용물 | 필요한 대비 | `--text-muted` 3.46:1 |
+ * |---|---|---|---|
+ * | `__iconbtn` | 아이콘 | 비텍스트 3:1 | 통과 |
+ * | `__logout` | **11px 텍스트** | **4.5:1** (§0.2 제약 1 🔒) | **미달** |
+ *
+ * ## `--text-muted`는 문서의 `text-faint`다
+ *
+ * 이름이 헷갈린다. `tokens.css`가 `--color-text-muted`를 **`--text-secondary`에
+ * 별칭**으로 걸어 두었으므로, `DESIGN_SYSTEM §2.2`가 말하는 「text-muted」는
+ * `--text-secondary`(#5f5e5a · 6.49:1)다. 생성 토큰 `--text-muted`(#8b8a83 ·
+ * 3.46:1)는 그보다 옅은 값이고 문서의 **`text-faint`**에 해당한다.
+ *
+ * §2.2가 그 값에 대해 *「플레이스홀더와 비활성 컨트롤에만 사용하며, 라벨·본문·
+ * 힌트 텍스트에는 절대 사용하지 않는다」* 고 못박아 두었다. 버튼 글자는 그 예외에
+ * 들지 않는다.
+ *
+ * 그래서 평상시 `--text-secondary`(6.49:1 · 다크 6.42:1), hover에
+ * `--text-primary`로 한 단계 올려 상태 변화를 글자에서도 읽히게 한다.
+ */
 .app-shell__logout {
   margin-left: var(--space-8);
   padding: var(--space-4) var(--space-12);
   font-size: var(--font-size-micro);
   font-family: inherit;
-  color: var(--color-surface);
+  color: var(--text-secondary);
   background: transparent;
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-control);
   cursor: pointer;
 }
 
 .app-shell__logout:hover {
-  background: var(--color-primary-hover);
+  background: var(--surface-inset);
+  color: var(--text-primary);
 }
 
 .app-shell__logout:focus-visible {
