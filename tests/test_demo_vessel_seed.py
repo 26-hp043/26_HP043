@@ -36,7 +36,7 @@ VESSEL_ID_RO_RO = "00000000-0000-4000-8000-000000000004"
 EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None, bool], ...] = (
     (
         VESSEL_ID_BULK,
-        "0000001",
+        "0000012",
         "샘플 벌크선 (50,000 DWT)",
         "BULK_CARRIER",
         Decimal("30000.00"),
@@ -63,7 +63,7 @@ EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None
     ),
     (
         VESSEL_ID_RO_RO,
-        "0000002",
+        "0000024",
         "샘플 로로 여객선 (25,000 GT)",
         "RO_RO_PASSENGER",
         Decimal("25000.00"),
@@ -178,9 +178,11 @@ async def test_imo_numbers_satisfy_format_constraint(conn):
         assert len(row.imo_number) == 7
         assert row.imo_number.isdigit()
 
-    # 합성 IMO 2개(0000001·0000002)는 실선 대역(5,000,000~)과 겹치지 않는 0 시작.
+    # 합성 IMO 2개(0000012·0000024)는 실선 대역(5,000,000~)과 겹치지 않는 0 시작이며,
+    # **IMO 체크섬도 만족한다**(#525). 종전 0000001·0000002는 대역만 지키고 체크섬은
+    # 고려하지 않아, 시연에서 「샘플이 규격을 안 지킨다」는 지적이 가능했다.
     synthetics = [row.imo_number for row in rows if row.imo_number.startswith("0")]
-    assert synthetics == ["0000001", "0000002"], "합성 IMO는 실선 대역과 겹치지 않아야 한다"
+    assert synthetics == ["0000012", "0000024"], "합성 IMO는 실선 대역과 겹치지 않아야 한다"
 
 
 async def test_vessel_axes_are_dwt_and_gt(conn):
@@ -227,3 +229,43 @@ async def test_seeded_ship_types_have_reference_lines(conn, vessel_id):
         )
     )
     assert count > 0, f"{ship_type}의 기준선이 없다"
+
+
+def imo_checksum_ok(imo: str) -> bool:
+    """IMO 체크섬 (#525).
+
+    앞 6자리에 ``7·6·5·4·3·2``를 곱한 합의 **1의 자리**가 7번째 자리와 같아야 한다.
+    """
+    digits = [int(c) for c in imo]
+    return sum(digits[i] * (7 - i) for i in range(6)) % 10 == digits[6]
+
+
+def test_imo_checksum_계산이_맞다() -> None:
+    """검산 함수 자신을 먼저 잠근다 — 틀리면 아래 검사가 조용히 통과한다.
+
+    실선 2척(제원 조사 회신분)이 참이고, 종전 합성값 2개가 거짓이어야 한다.
+    """
+    assert imo_checksum_ok("9448839")  # STAR SKIPPER
+    assert imo_checksum_ok("9633862")  # DONGJIN ENDURANCE
+    assert not imo_checksum_ok("0000001")  # 종전 합성값
+    assert not imo_checksum_ok("0000002")  # 종전 합성값
+
+
+def test_모든_데모_선박의_imo가_체크섬을_만족한다() -> None:
+    """`#525`의 완료 기준이다.
+
+    합성값이라도 규격은 지킨다 — 시연·심사에서 「샘플이 IMO 규격을 안 지킨다」는
+    지적을 받을 이유가 없다. 0으로 시작하면서 체크섬이 맞는 7자리는 10만 개 있어
+    **「실선 대역 밖」과 「체크섬 유효」를 함께 만족할 수 있다.**
+    """
+    # 소스를 import하지 않는다 — 이 파일의 기대값은 **독립 전사**다(파일 머리 주석).
+    # demo_seed를 읽어 검사하면 「소스가 소스와 같다」를 확인하게 된다.
+    imos = [row[1] for row in EXPECTED_VESSELS]
+    assert imos, "EXPECTED_VESSELS가 비어 있다 — 아래 검사가 공허하게 참이 된다"
+
+    invalid = [imo for imo in imos if not imo_checksum_ok(imo)]
+
+    assert invalid == [], (
+        f"체크섬을 만족하지 않는 IMO: {invalid}. "
+        "합성값이라면 0으로 시작하면서 체크섬이 맞는 값을 고르세요 (#525)."
+    )
