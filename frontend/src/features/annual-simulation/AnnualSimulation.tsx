@@ -4,6 +4,7 @@ import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { useShellContext } from '../../layout/shellContext'
 import { GradeBadge } from '../../components/GradeBadge'
+import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
 import {
   probabilityOfDorE,
@@ -241,14 +242,38 @@ function Result({ result }: { result: AnnualSimulationResult }) {
         <h3 className="annual-sim__section-title">{ANNUAL_COPY.probabilityTitle}</h3>
         <p className="annual-sim__caption">{ANNUAL_COPY.probabilityCaption}</p>
 
+        {/*
+          `DESIGN_SYSTEM §2.4.4`가 「등급 확률 스택 바」를 패턴 적용 대상으로 명시하고,
+          `§14`가 **등급 문자가 놓이지 않는 자리에서는 패턴을 필수**로 둔다. 이 바에는
+          문자가 없고 범례에만 있으므로 패턴이 있어야 한다 — 3색 체계는 적록색맹에서
+          초록·주황·빨강이 모두 황갈색으로 수렴해 5색보다 오히려 취약하다(§2.4.4).
+
+          채움색 위에 SVG 패턴을 겹치는 방식은 `GradeScaleBar`와 같다. 무늬는 셸이
+          한 번 그리는 `GradePatternDefs`를 참조하므로 여기서 다시 정의하지 않는다
+          (§15.1 — 자산이 두 벌이 되면 서로 다른 무늬를 그리게 된다).
+        */}
         <div className="annual-sim__stack" role="img" aria-label={stackAria(segments)}>
-          {segments.map((seg) => (
-            <span
-              key={seg.rating}
-              className={`annual-sim__seg annual-sim__seg--${seg.rating.toLowerCase()}`}
-              style={{ width: `${seg.percent}%` }}
-            />
-          ))}
+          {segments.map((seg) => {
+            const pattern = gradePatternUrl(seg.rating)
+
+            return (
+              <span
+                key={seg.rating}
+                className={`annual-sim__seg annual-sim__seg--${seg.rating.toLowerCase()}`}
+                style={{ width: `${seg.percent}%` }}
+              >
+                {/*
+                  뷰박스를 두지 않는다 — 사용자 단위가 곧 CSS 픽셀이라 4px 타일이
+                  4px로 그려진다. 뷰박스를 주고 폭에 맞춰 늘이면 무늬가 찌그러진다.
+                */}
+                {pattern ? (
+                  <svg className="annual-sim__seg-pattern" aria-hidden="true">
+                    <rect width="100%" height="100%" fill={pattern} />
+                  </svg>
+                ) : null}
+              </span>
+            )
+          })}
         </div>
         <ul className="annual-sim__legend">
           {segments.map((seg) => (
