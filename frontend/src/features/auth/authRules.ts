@@ -14,6 +14,19 @@
  */
 
 /** 서버 `MIN_PASSWORD_LENGTH`와 같은 값. */
+/**
+ * 회원가입 — 이메일 변경 불가 고지 (#506).
+ *
+ * **`PRD §6.3` 표의 문구를 그대로 옮겼다.** 표시 문구가 아니라 **정본이 확정한
+ * 문구**이므로 화면에서 임의로 고치지 않는다(`AGENTS §4.6` · `#468`이 정한 구분).
+ *
+ * 왜 가입 시점에 알리는가 — 이메일은 로그인 ID이자 `idx_app_user_email`의 키다.
+ * 가입한 뒤에는 바꿀 수 없고, **바꾸려면 탈퇴 후 재가입해야 한다.** 그 사실을
+ * 나중에 알면 이미 늦다.
+ */
+export const EMAIL_IMMUTABLE_NOTICE =
+  '가입 후에는 이메일을 변경할 수 없습니다. 다른 주소를 쓰려면 탈퇴 후 다시 가입해 주세요.'
+
 export const MIN_PASSWORD_LENGTH = 10
 /** 서버 `MAX_PASSWORD_LENGTH`와 같은 값. */
 export const MAX_PASSWORD_LENGTH = 128

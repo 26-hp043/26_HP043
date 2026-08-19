@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  EMAIL_IMMUTABLE_NOTICE,
   MAX_PASSWORD_LENGTH,
   MIN_PASSWORD_LENGTH,
   hasErrors,
@@ -118,5 +119,24 @@ describe('이메일 인증 상태', () => {
 
   it('null이면 미인증 — 배너를 띄운다', () => {
     expect(isEmailVerified(null)).toBe(false)
+  })
+})
+
+describe('이메일 변경 불가 고지 (#506)', () => {
+  it('PRD §6.3이 확정한 문구를 그대로 쓴다', () => {
+    /*
+     * 표시 문구가 아니라 **정본이 확정한 문구**다(`AGENTS §4.6` · `#468`이 정한
+     * 구분). 화면에서 임의로 바꾸면 정본과 갈린다.
+     */
+    expect(EMAIL_IMMUTABLE_NOTICE).toBe(
+      '가입 후에는 이메일을 변경할 수 없습니다. 다른 주소를 쓰려면 탈퇴 후 다시 가입해 주세요.',
+    )
+  })
+
+  it('탈퇴 후 재가입이라는 대안을 함께 말한다', () => {
+    // 「바꿀 수 없다」만 적으면 사용자는 막다른 길로 읽는다. 서버는 탈퇴한 계정의
+    // 이메일을 다시 쓸 수 있게 두었으므로(부분 유일 인덱스) 그 길을 안내한다.
+    expect(EMAIL_IMMUTABLE_NOTICE).toContain('탈퇴')
+    expect(EMAIL_IMMUTABLE_NOTICE).toContain('다시 가입')
   })
 })
