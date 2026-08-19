@@ -181,6 +181,38 @@ APP_ENV=development docker compose -f docker-compose.prod.yml up -d --force-recr
 
 ---
 
+## 화면 개발 서버
+
+백엔드를 띄운 뒤 별도 터미널에서 실행한다.
+
+```bash
+cd frontend && npm install     # 최초 1회
+npm run dev                    # http://localhost:5173
+```
+
+Vite dev 서버가 `/api`를 `http://127.0.0.1:8000`으로 프록시하므로 **백엔드가 떠 있어야 화면이 실제 데이터로 돈다.**
+
+### 실 API ↔ 데모 모드
+
+`VITE_USE_API`가 그 스위치이고 **기본값은 `frontend/.env`에 있다(커밋되는 파일).**
+
+| 값 | 동작 |
+|---|---|
+| `true` (기본) | 실 API. 로그인 필요 |
+| 그 밖 | 데모 모드 — 고정 데이터로 화면만 돈다. **인증 가드도 꺼진다** |
+
+> ⚠️ **데모 모드에서는 화면이 실제 제품과 다르다.** demo provider가 있는 기능은 `CII 예측`·`항로 비교`·`연간 등급 관리` 셋뿐이라 **대시보드·보고서·선박 상세·선박 관리는 동작하지 않는다.** 그래서 데모로 떠 있으면 화면 상단에 배너가 뜬다(`#528`).
+
+백엔드 없이 화면만 보려면 `frontend/.env.local`을 만들어 끈다. Vite 우선순위상 `.env.local`이 `.env`를 덮는다.
+
+```bash
+echo "VITE_USE_API=false" > frontend/.env.local
+```
+
+> `.env.local`은 gitignore 대상이다. **API 키 같은 값은 그쪽에 두고 `.env`에는 적지 않는다** — `VITE_` 접두가 붙은 값은 빌드 시 번들에 그대로 인라인된다.
+
+---
+
 ## ⚠️ 전체 테스트는 대상 DB를 파괴한다
 
 `pytest`는 `DATABASE_URL`이 가리키는 데이터베이스에서 돈다. 그중 `tests/test_zz_roundtrip.py`가 **`alembic downgrade base`로 스키마를 통째로 드롭**한다(`DB_SCHEMA §8.1` 롤백 안전성 검증).

@@ -58,6 +58,25 @@
  * 콘텐츠보다 먼저 거기로 가고, 다크 모드에서는 배경과 겹쳐 층이 사라진다.
  * 표면색 + 하단 경계선만 두어 콘텐츠에 자리를 넘긴다.
  */
+/*
+ * 데모 모드 배너 (#528). 상단에 항상 보이게 두고 닫을 수 없게 한다 —
+ * 닫히면 그 순간부터 다시 「모르고 쓰는」 상태가 된다.
+ * 오류가 아니므로 danger를 쓰지 않는다. 사용자가 잘못한 것이 없다.
+ */
+.app-shell__demo-banner {
+  border-left: 3px solid var(--color-warning);
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  padding: var(--spacing-sm) var(--spacing-xl);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.app-shell__demo-banner code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+}
+
 .app-shell__topbar {
   display: flex;
   align-items: center;
