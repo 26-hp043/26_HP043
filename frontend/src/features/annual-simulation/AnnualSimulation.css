@@ -414,6 +414,59 @@
   color: var(--color-text-muted);
 }
 
+/*
+ * 실행 조건 폼의 입력 컨트롤 — `DESIGN_SYSTEM §8`.
+ *
+ * 종전에는 input·select·button에 규칙이 하나도 없어 **브라우저 기본 스타일로**
+ * 그려졌다. 같은 제품의 `2-1 CII 예측`·`2-2 항로 비교`는 §8을 지키고 있어서
+ * 이 화면만 다른 제품처럼 보였다.
+ *
+ * §8 — 입력·셀렉트: surface-2 배경 · border · radius 8 · 라벨 상단 · 포커스 링
+ *      버튼 Primary: navy 채움 / 흰 글자 · 높이 40 · radius 8 · hover는 Primary Hover
+ *
+ * 값을 새로 고르지 않고 `ScenarioComparison.css`가 이미 쓰는 것을 그대로 따랐다.
+ * 두 화면이 다른 수치를 쓰면 같은 규정을 두 번 해석한 것이 된다.
+ */
+.annual-sim__field input,
+.annual-sim__field select {
+  height: 40px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+}
+
+.annual-sim__field input:focus-visible,
+.annual-sim__field select:focus-visible {
+  outline: var(--focus-ring);
+}
+
+.annual-sim__form button[type='submit'] {
+  height: 40px;
+  padding: 0 var(--space-24);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-primary);
+  color: var(--color-surface);
+  font-family: inherit;
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+  /* 폼이 세로 flex라 버튼이 폭 전체로 늘어난다. 내용 폭에 맞춘다. */
+  align-self: flex-start;
+}
+
+.annual-sim__form button[type='submit']:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.annual-sim__form button[type='submit']:disabled {
+  background: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
 .annual-sim__value {
   font-size: var(--font-size-h3);
   font-variant-numeric: tabular-nums;
@@ -447,6 +500,21 @@
 .annual-sim__seg {
   display: block;
   height: 100%;
+  /* 패턴 오버레이(`__seg-pattern`)의 기준 상자. */
+  position: relative;
+}
+
+/*
+ * 등급 패턴 오버레이 — `DESIGN_SYSTEM §2.4.4` · `§14`.
+ * `GradeScaleBar`와 같은 방식이다: 채움색은 아래 `--cii-*-fill`이 깔고,
+ * 그 위에 셸의 `GradePatternDefs` 무늬를 겹친다.
+ */
+.annual-sim__seg-pattern {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  display: block;
 }
 
 .annual-sim__seg--a { background: var(--cii-a-fill); }
