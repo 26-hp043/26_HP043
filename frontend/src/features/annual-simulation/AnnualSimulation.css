@@ -3,10 +3,66 @@
  * DESIGN_SYSTEM §8 카드/패널·칩·테이블 · §4.2 tabular-nums · §15 토큰만 참조.
  */
 
+/*
+ * 실행 조건 : 결과 좌우 2단.
+ *
+ * ## 12컬럼 그리드 (DESIGN_SYSTEM §7.1 🔒)
+ *
+ * §7.1 그리드 표가 컬럼 12 · 거터 24를 고정하고, **주·부 영역 분할은 7:5로
+ * 고정한다**고 못박는다. 여기서는 주 영역이 결과(7), 부 영역이 실행 조건(5)이다 —
+ * `2-1 CII 예측` · `2-2 항로 비교`와 같은 배분이다.
+ *
+ * `5fr 7fr`로 쓰지 않는다. 그러면 거터 한 칸을 뺀 나머지를 5:7로 나누게 되어
+ * **다른 화면의 12컬럼 요소와 세로선이 어긋난다.**
+ *
+ * ## 제목은 두 단 위에 걸친다
+ *
+ * `__head`(제목·샘플 배지)는 `1 / -1`로 전체 폭을 쓴다. 한쪽 단에 넣으면 폭이
+ * 절반이 되고, 두 단 모두를 가리키는 제목이 왼쪽 것처럼 읽힌다.
+ *
+ * ## 폭은 이 파일이 정하지 않는다
+ *
+ * `ANNUAL_GRADE`가 `width: 'wide'`라 셸이 최대 1920 · 좌우 패딩 32를 건다
+ * (§7.1 폭 정책 표의 「대시보드, **차트**, 시나리오 비교」 행 — 팬 차트와 확률
+ * 스택 바가 이 화면의 주인공이다).
+ */
 .annual-sim {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  gap: var(--grid-gutter);
+  /*
+   * 폼이 결과보다 짧다. stretch로 두면 짧은 쪽 카드가 긴 쪽 높이까지 늘어나
+   * 아래가 빈 카드로 남는다.
+   */
+  align-items: start;
+}
+
+.annual-sim__results {
+  grid-column: span var(--grid-split-primary);
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
+}
+
+/*
+ * 1100 이하에서는 세로로 떨어진다.
+ *
+ * 1100은 이 저장소가 이미 쓰던 값이다 — `FleetDashboard` · `RealtimeCiiView` ·
+ * `VesselDetail` · `ScenarioComparison`이 모두 여기서 2단을 접는다. 화면마다 다른
+ * 값을 쓰면 창을 줄일 때 화면들이 제각각 무너져 같은 제품으로 보이지 않는다.
+ *
+ * 미디어 쿼리 조건에는 커스텀 프로퍼티를 쓸 수 없어 리터럴로 적는다.
+ */
+@media (max-width: 1100px) {
+  .annual-sim {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .annual-sim__head,
+  .annual-sim__form,
+  .annual-sim__results {
+    grid-column: auto;
+  }
 }
 
 .annual-sim--placeholder,
@@ -299,11 +355,17 @@
  * 토큰만 참조한다(`DESIGN_SYSTEM §15`). 색·간격 리터럴을 쓰지 않는다.
  * ───────────────────────────────────────────────────────────────────────── */
 
+/* 제목은 두 단 위에 걸친다 — 위 `.annual-sim` 주석 참조. */
 .annual-sim__head {
+  grid-column: 1 / -1;
   display: flex;
   align-items: baseline;
   gap: var(--space-12);
   flex-wrap: wrap;
+}
+
+.annual-sim__form {
+  grid-column: span var(--grid-split-secondary);
 }
 
 .annual-sim__block,
