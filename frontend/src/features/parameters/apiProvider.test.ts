@@ -104,3 +104,50 @@ describe('연료 종류 조회', () => {
     )
   })
 })
+
+/**
+ * 규정 연도 조회 (`API_SPEC §7.1` · `#534`).
+ *
+ * 여기서 고정하는 것은 **연도 숫자만 나가는 것**이다. `z_factor_percent`를 함께
+ * 실어 내보내면 화면이 그 값으로 `required_cii`를 계산할 수 있게 되고, 그것은
+ * `referenceTable.ts`가 *"이 값으로 다른 선박·연도를 계산하지 말 것"* 으로 막아 둔
+ * 상태를 되돌리는 일이다.
+ */
+const YEARS_BODY = {
+  data: [
+    { year: 2026, z_factor_percent: '11.0000', effective_from: '2026-01-01' },
+    { year: 2023, z_factor_percent: '5.0000', effective_from: '2023-01-01' },
+  ],
+  meta: { total: 2 },
+}
+
+describe('규정 연도 조회', () => {
+  it('GET /parameters/regulation-years 를 부른다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(YEARS_BODY))
+    await createApiParametersProvider(fetchImpl).listRegulationYears()
+
+    expect(String(fetchImpl.mock.calls[0][0])).toBe('/api/v1/parameters/regulation-years')
+  })
+
+  it('연도 숫자만 오름차순으로 준다 — Z계수는 화면으로 나가지 않는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(YEARS_BODY))
+    const rows = await createApiParametersProvider(fetchImpl).listRegulationYears()
+
+    expect(rows).toEqual([2023, 2026])
+  })
+
+  it('응답이 깨져도 빈 목록을 준다 — 화면이 죽지 않는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: 'nope' }))
+    const rows = await createApiParametersProvider(fetchImpl).listRegulationYears()
+
+    expect(rows).toEqual([])
+  })
+
+  it('HTTP 오류는 ParametersError다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503))
+
+    await expect(
+      createApiParametersProvider(fetchImpl).listRegulationYears(),
+    ).rejects.toBeInstanceOf(ParametersError)
+  })
+})

@@ -4,7 +4,6 @@ import {
   FIELD,
   initialFormState,
   selectableFuels,
-  selectableYears,
   toFormErrors,
   toRequest,
   validateForm,
@@ -14,6 +13,7 @@ import {
 import { DISPLAY_UNITS } from '../../display/format'
 import { createVoyageCiiProvider } from './providerSelection'
 import { createVesselCatalog, type VesselOption } from './vesselCatalog'
+import { createYearCatalog } from './yearCatalog'
 import type { ResultState } from './resultRules'
 
 /**
@@ -21,6 +21,13 @@ import type { ResultState } from './resultRules'
  *
  * **검증·변환 규칙은 이 파일에 없다** — `formRules.ts`의 순수 함수를 호출한다.
  * 이 컴포넌트가 하는 일은 상태 보관, 규칙 호출, 그 결과를 화면에 붙이는 것뿐이다.
+ *
+ * ## 선택지는 전부 provider 경계 뒤에 있다
+ *
+ * 선박은 `vesselCatalog`(#236), 연도는 `yearCatalog`(#534)가 맡는다. 이 컴포넌트는
+ * 어느 쪽이 고정표이고 어느 쪽이 서버인지 알지 않는다. **연료만 아직 `formRules`의
+ * 고정표를 읽는다** — `/parameters/fuel-types`가 이미 있으므로(`#444`) 옮길 수 있으나
+ * 이번 이슈 범위 밖이다.
  *
  * ## 선박·연도를 왜 셀렉트로 두지 않는가
  *
@@ -72,7 +79,14 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   const [errors, setErrors] = useState<FormErrors>({})
   const [submitting, setSubmitting] = useState(false)
 
-  const years = useMemo(() => selectableYears(state.vesselId), [state.vesselId])
+  // 연도 선택지도 같은 경계 뒤에 둔다 (#534). 종전에는 `selectableYears()`가
+  // 고정표를 직행으로 읽어, 실 API 모드에서 고정표에 없는 선박(= 벌크선 외 전부)이
+  // 연도를 못 받아 계산 자체가 불가능했다.
+  const yearCatalog = useMemo(() => createYearCatalog(), [])
+  const [years, setYears] = useState<number[]>([])
+  const [yearsLoading, setYearsLoading] = useState(true)
+  const [yearsFailed, setYearsFailed] = useState(false)
+
   // demo ↔ 실 API 전환은 providerSelection이 판단한다(#138). 화면은 어느 쪽이
   // 선택됐는지 알지 않는다 — 그것이 #134가 provider 경계를 그은 이유다.
   const provider = useMemo(() => createVoyageCiiProvider(), [])
@@ -103,6 +117,43 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
     }
   }, [catalog])
 
+  /**
+   * 선박이 정해진 뒤 그 선박의 연도 선택지를 받는다.
+   *
+   * **선박 로딩과 한 효과로 묶지 않는다.** 사용자가 선박을 바꿀 때마다 다시 돌아야
+   * 하는데, 선박 목록은 한 번만 받으면 되기 때문이다. demo 구현은 고정표를
+   * `(vesselId, year)` 키로 들고 있어 선박마다 결과가 갈린다.
+   */
+  useEffect(() => {
+    if (!state.vesselId) return
+    let cancelled = false
+    setYearsLoading(true)
+    setYearsFailed(false)
+    yearCatalog
+      .listYears(state.vesselId)
+      .then((rows) => {
+        if (cancelled) return
+        setYears(rows)
+        // 이미 고른 연도가 새 목록에도 있으면 유지한다 — 선박을 바꿀 때마다 연도가
+        // 첫 값으로 되돌아가면 사용자가 방금 고른 값을 잃는다.
+        setState((prev) => {
+          if (prev.regulationYear && rows.includes(Number(prev.regulationYear))) return prev
+          return { ...prev, regulationYear: rows.length > 0 ? String(rows[0]) : '' }
+        })
+      })
+      .catch(() => {
+        if (cancelled) return
+        setYearsFailed(true)
+        setYears([])
+      })
+      .finally(() => {
+        if (!cancelled) setYearsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [yearCatalog, state.vesselId])
+
   const selectedVessel = vessels.find((v) => v.id === state.vesselId)
 
   /** 한 필드를 갱신하고 그 필드의 오류만 지운다. 다른 필드의 오류는 그대로 둔다. */
@@ -122,14 +173,12 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
     }
   }
 
-  /** 선박을 바꾸면 연도도 그 선박이 지원하는 첫 값으로 맞춘다. */
+  /**
+   * 선박을 바꾼다. **연도는 여기서 정하지 않는다** — 위 효과가 새 선박의 목록을
+   * 받아 맞춘다. 동기 계산으로 두면 고정표를 다시 읽게 되고, 그것이 `#534`다.
+   */
   function changeVessel(vesselId: string) {
-    const nextYear = selectableYears(vesselId)[0]
-    setState((prev) => ({
-      ...prev,
-      vesselId,
-      regulationYear: nextYear === undefined ? '' : String(nextYear),
-    }))
+    setState((prev) => ({ ...prev, vesselId }))
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -209,8 +258,12 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
           />
         )}
 
-        {/* 규제연도 — 같은 규칙 */}
-        {years.length > 1 ? (
+        {/* 규제연도 — 선박과 같은 규칙. 로딩·실패를 빈 선택지와 구분해 보인다 */}
+        {yearsLoading ? (
+          <StaticField label="규제연도" labelEn="Year" value="규제연도 목록을 불러오는 중…" />
+        ) : yearsFailed ? (
+          <StaticField label="규제연도" labelEn="Year" value="규제연도 목록을 불러오지 못했습니다" />
+        ) : years.length > 1 ? (
           <Field id="year" label="규제연도" labelEn="Year">
             <select
               id="year"
@@ -226,10 +279,24 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
             </select>
           </Field>
         ) : (
+          /*
+           * 목록이 비었을 때의 문구 (#534).
+           *
+           * 종전 문구는 「지원 연도가 없습니다」였다. 연도 파라미터가 없다는 뜻으로
+           * 읽히는데 실제 원인은 그게 아니었고, 그 오독이 #534 본문의 원인 추정을
+           * 그대로 만들어 냈다 — 없는 백엔드 작업이 P0로 등재됐다.
+           *
+           * 이제 이 자리가 비는 경우는 `regulation_year` 테이블이 실제로 비어 있을
+           * 때뿐이므로 그렇게 적는다. **선종별 기준선 부재는 여기서 드러나지 않는다**
+           * — Z계수는 전 선종 공통이라 연도 목록은 채워지고, 기준선이 없는 선박은
+           * 계산 실행 시 서버가 「선종의 기준선이 없습니다: <선종>」을 돌려준다
+           * (`services/voyage_cii.py`). 그 메시지는 `toVoyageCiiError` →
+           * `toFormErrors`를 거쳐 결과 영역의 실패 상태로 그대로 표시된다.
+           */
           <StaticField
             label="규제연도"
             labelEn="Year"
-            value={state.regulationYear || '지원 연도가 없습니다'}
+            value={state.regulationYear || '등록된 규제연도가 없습니다'}
           />
         )}
 
