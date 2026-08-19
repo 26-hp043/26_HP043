@@ -18,6 +18,8 @@ on:
 jobs:
   npm-audit:
     runs-on: ubuntu-latest
+    # 야간 스케줄이라 멈춰도 사람이 늦게 안다 (#533)
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -48,6 +50,8 @@ jobs:
   # 실패하는 것을 PR에 전파하지 않는다.)
   pip-audit:
     runs-on: ubuntu-latest
+    # 야간 스케줄이라 멈춰도 사람이 늦게 안다 (#533)
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
