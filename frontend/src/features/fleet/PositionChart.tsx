@@ -56,8 +56,102 @@ const VIEW_H = 300
 /** 마커 반지름. 4px 패턴 타일이 지름 안에 네 번쯤 들어가는 크기다. */
 const DOT_R = 7.8
 
-/** 이름표를 마커 위로 띄우는 거리. */
+/** 이름표를 마커 위(또는 아래)로 띄우는 거리. */
 const LABEL_OFFSET = 18
+
+/**
+ * 이름표 글자 크기 — **뷰박스 유저 단위**다. CSS 픽셀이 아니다.
+ *
+ * `viewBox`가 `0 0 480 300`이고 박스는 폭에 맞춰 늘어나므로, 실제 렌더 크기는
+ * `LABEL_FONT × (박스 폭 / 480)`이다. 박스 폭은 레이아웃에 따라 778~1049px이라
+ * **배율이 1.6~2.2배** 사이에서 움직인다.
+ *
+ * | 종전 21 | 지금 8 |
+ * |---|---|
+ * | 34~46px | 13~18px |
+ *
+ * 21은 `§3` 타입 스케일에 없는 값이었고, 렌더 크기 46px는 스케일 최대값인
+ * `display`(32px)보다 컸다 — **선박명이 페이지에서 제일 큰 글자였다.** 8은
+ * `caption`(12) ~ `heading`(16) 대역에 들어온다.
+ *
+ * 이 값을 CSS(`.position-chart__label`)가 아니라 여기 두는 것은, 아래
+ * `labelPlacement`가 넘침을 막으려면 **글자 크기를 알아야 하기 때문**이다.
+ * 두 곳에 나뉘어 있으면 한쪽만 바뀌었을 때 조용히 어긋난다.
+ */
+const LABEL_FONT = 8
+
+/** 뷰박스 가장자리에서 이름표를 띄우는 최소 거리. */
+const LABEL_EDGE = 4
+
+/** 좌표축 선이 뷰박스 가장자리에서 떨어지는 거리 — 점 영역(`PADDING`) 바깥이다. */
+const AXIS_INSET = PADDING / 2
+
+/**
+ * 위도·경도를 사람이 읽는 표기로 바꾼다 — `37.4°N` · `126.5°E`.
+ *
+ * 부호 대신 방위 문자를 쓰는 것이 해도의 관행이고, **음수 부호는 「남위」보다
+ * 읽는 데 한 단계가 더 든다.** 소수 1자리는 이 개략도의 축척(최소 0.5°)에서
+ * 의미가 남는 마지막 자리다.
+ */
+function formatLat(v: number): string {
+  return `${Math.abs(v).toFixed(1)}°${v >= 0 ? 'N' : 'S'}`
+}
+
+function formatLon(v: number): string {
+  return `${Math.abs(v).toFixed(1)}°${v >= 0 ? 'E' : 'W'}`
+}
+
+/**
+ * 이름표가 뷰박스를 넘지 않게 자리를 잡는다.
+ *
+ * SVG는 뷰박스 밖을 잘라 내므로, 가장자리 마커의 이름표가 **글자 중간에서
+ * 뚝 끊긴다.** 실제로 위쪽 마커의 이름이 위로 잘리고 오른쪽 마커의 이름이
+ * 오른쪽으로 잘리고 있었다.
+ *
+ * - **세로** — 위로 띄운 이름표가 천장을 넘으면 마커 **아래**로 뒤집는다.
+ * - **가로** — 가운데 정렬이라 이름이 좌우로 뻗는다. 한쪽 끝에 닿으면 그쪽
+ *   기준 정렬로 바꾸고 x를 가장자리에 붙인다.
+ *
+ * 글자 폭은 잴 수 없으므로 어림한다. 한글은 대략 한 글자가 글자 크기만큼,
+ * 숫자·라틴 문자는 그 절반쯤이다. **어림이 빗나가도 손해는 「필요 없는데
+ * 끝 정렬로 바뀌는 것」뿐**이고, 잘리는 것보다 낫다.
+ */
+function labelPlacement(name: string, x: number, y: number) {
+  /*
+   * 비ASCII(여기서는 사실상 한글)의 개수를 센다.
+   *
+   * 정규식을 쓰지 않는다. `[^\x00-\x7F]`도 `[^\u0000-\u007F]`도 제어문자를
+   * 범위에 담고 있어 `no-control-regex`에 걸린다. 세려는 것은 「ASCII가 아닌 것」이지
+   * 제어문자가 아니므로, 코드포인트를 직접 보는 편이 뜻에도 가깝다.
+   *
+   * `[...name]`은 코드포인트 단위로 쪼갠다 — `name.length`(UTF-16 단위)와 달리
+   * 서로게이트 쌍을 두 글자로 세지 않는다.
+   */
+  const chars = [...name]
+  const wide = chars.filter((ch) => ch.codePointAt(0)! > 0x7f).length
+  const narrow = chars.length - wide
+  const halfWidth = (wide * LABEL_FONT + narrow * LABEL_FONT * 0.55) / 2
+
+  const above = y - LABEL_OFFSET
+  const flipped = above - LABEL_FONT < LABEL_EDGE
+
+  let anchor: 'start' | 'middle' | 'end' = 'middle'
+  let labelX = x
+  if (x + halfWidth > VIEW_W - LABEL_EDGE) {
+    anchor = 'end'
+    labelX = VIEW_W - LABEL_EDGE
+  } else if (x - halfWidth < LABEL_EDGE) {
+    anchor = 'start'
+    labelX = LABEL_EDGE
+  }
+
+  return {
+    x: labelX,
+    // 아래로 뒤집을 때는 글자의 윗변이 마커에 닿지 않게 한 줄 높이를 더한다.
+    y: flipped ? y + LABEL_OFFSET + LABEL_FONT : above,
+    anchor,
+  }
+}
 
 interface Positioned {
   vessel: FleetVessel
@@ -102,12 +196,55 @@ export function PositionChart({ vessels }: PositionChartProps) {
   })
 
   return (
+    <>
     <svg
       className="position-chart"
       viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
       role="img"
-      aria-label={`선박 ${points.length}척의 현재 위치 개략도. 점의 색과 무늬는 올해 누적 등급입니다.`}
+      aria-label={`선박 ${points.length}척의 현재 위치 개략도. 위도 ${formatLat(minLat)}~${formatLat(maxLat)}, 경도 ${formatLon(minLon)}~${formatLon(maxLon)} 범위입니다. 점의 색과 무늬는 올해 누적 등급입니다.`}
     >
+      {/*
+        좌표축 — `DESIGN_SYSTEM §9.1` 축선(`--color-border-strong`, 1px).
+        눈금과 격자는 두지 않는다. 이 그림은 **좌표 평면 위의 개략도**이지
+        값을 읽는 차트가 아니라서, 격자를 깔면 읽을 수 있는 눈금이 있는 것처럼
+        보인다. 축선 두 줄은 「가로가 경도, 세로가 위도」만 말한다.
+
+        `vector-effect`로 굵기를 고정한다 — 뷰박스 배율(1.6~2.2배)을 타면
+        같은 1px이 화면에서 2px 넘게 그려진다.
+      */}
+      <line
+        className="position-chart__axis"
+        x1={AXIS_INSET}
+        y1={AXIS_INSET}
+        x2={AXIS_INSET}
+        y2={VIEW_H - AXIS_INSET}
+        vectorEffect="non-scaling-stroke"
+      />
+      <line
+        className="position-chart__axis"
+        x1={AXIS_INSET}
+        y1={VIEW_H - AXIS_INSET}
+        x2={VIEW_W - AXIS_INSET}
+        y2={VIEW_H - AXIS_INSET}
+        vectorEffect="non-scaling-stroke"
+      />
+      {/*
+        방위 — 위쪽이 북쪽임을 밝힌다(`project`가 위도를 뒤집는 이유이기도 하다).
+        지도가 아니므로 나침반을 그리지 않고 글자 하나만 둔다.
+
+        **점 영역보다 위에 둔다.** 마커는 아무리 북쪽이어도 `PADDING`(24)까지만
+        올라오므로 윗변이 `24 - DOT_R` = 16.2다. 글자 밑변을 12에 두면 글자가
+        4~12를 쓰고 그 아래로 4.2가 남는다 — 종전 밑변 20은 16.2와 겹쳐서
+        **좌상단에 선박이 있으면 나침방이 마커에 가려 보이지 않았다.**
+      */}
+      <text
+        className="position-chart__compass"
+        x={AXIS_INSET + 5}
+        y={LABEL_EDGE + LABEL_FONT}
+        fontSize={LABEL_FONT}
+      >
+        ↑N
+      </text>
       {points.map((point) => {
         const { x, y } = project(point)
         const rating = point.vessel.ytdRating
@@ -142,19 +279,41 @@ export function PositionChart({ vessels }: PositionChartProps) {
               vectorEffect="non-scaling-stroke"
             />
             {risky ? (
-              <text
-                className="position-chart__label"
-                x={x}
-                y={y - LABEL_OFFSET}
-                textAnchor="middle"
-                fill={color}
-              >
-                {point.vessel.name}
-              </text>
+              (() => {
+                const place = labelPlacement(point.vessel.name, x, y)
+                return (
+                  <text
+                    className="position-chart__label"
+                    x={place.x}
+                    y={place.y}
+                    textAnchor={place.anchor}
+                    fontSize={LABEL_FONT}
+                    fill={color}
+                  >
+                    {point.vessel.name}
+                  </text>
+                )
+              })()
             ) : null}
           </g>
         )
       })}
     </svg>
+    {/*
+      좌표 범위를 그림 밖 글로 적는다.
+      뷰박스 안에 눈금 숫자를 넣지 않는 이유는 두 가지다 — ⑴ 유저 단위라
+      배율을 타서 크기가 흔들리고(이름표가 46px로 그려지던 것이 그 사례다),
+      ⑵ 개략도에 눈금이 붙으면 좌표를 읽을 수 있는 그림처럼 보인다.
+
+      좌표는 `§3`에 따라 mono로 적는다 — 「식별자용 mono는 IMO 번호·좌표 전용」.
+    */}
+    <p className="position-chart__range">
+      위도 <span className="position-chart__coord">{formatLat(minLat)}</span>~
+      <span className="position-chart__coord">{formatLat(maxLat)}</span>
+      {' · '}
+      경도 <span className="position-chart__coord">{formatLon(minLon)}</span>~
+      <span className="position-chart__coord">{formatLon(maxLon)}</span>
+    </p>
+    </>
   )
 }
