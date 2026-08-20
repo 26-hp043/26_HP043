@@ -60,6 +60,16 @@ async def list_calculations_route(
 
     ``input_hash`` + ``parameter_hash``를 모두 지정하면 **정확히 일치하는** 계산 결과만
     반환한다 — 재현성 검증 용법. ``meta``에 ``next_cursor``·``has_more``가 함께 들어간다.
+
+    ## MVP 화면에 연결하지 않는다 (#556)
+
+    `#556`이 「서버에 있는데 화면에서 도달할 수 없는 엔드포인트」를 전수 대조했고,
+    이 엔드포인트가 그중 하나였다. **판정 결과는 「범위 밖 명시」다** — 감사 로그(`#65`)는 쌓이지만
+    그것을 사용자에게 보이는 화면은 정본이 규정하지 않았다.
+
+    `PRD §5.1` MVP 표에도 `PRD §6.2` SCR 목록에도 `UIFLOW` 화면 목록에도 대응이 없다.
+    **API를 지우는 것이 아니라 「빠뜨린 것이 아니다」를 여기 남기는 것**이다. 화면이
+    필요해지면 `AGENTS §3.2.3`에 따라 `PRD §5` 개정이 먼저다.
     """
     data, page_meta = await list_calculation_runs(
         session,

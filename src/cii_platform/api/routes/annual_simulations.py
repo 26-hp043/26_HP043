@@ -89,6 +89,16 @@ async def list_snapshot_voyages_route(
     **페이지네이션을 두지 않는다.** 한 실행의 스냅샷은 그 자체가 하나의 근거 묶음이라
     잘라 내면 「그때 무슨 데이터로 돌렸나」에 부분으로만 답하게 된다. 잔여 계획 항차는
     `PRD §12.8`이 200건으로 상한을 두고 있어 크기도 한정된다.
+
+    ## MVP 화면에 연결하지 않는다 (#556)
+
+    `#556`이 「서버에 있는데 화면에서 도달할 수 없는 엔드포인트」를 전수 대조했고,
+    이 엔드포인트가 그중 하나였다. **판정 결과는 「범위 밖 명시」다** —
+    「그때 무슨 데이터로 돌렸나」는 감사·검증 경로이고, `reproduce`와 같은 성격이다.
+
+    `PRD §5.1` MVP 표에도 `PRD §6.2` SCR 목록에도 `UIFLOW` 화면 목록에도 대응이 없다.
+    **API를 지우는 것이 아니라 「빠뜨린 것이 아니다」를 여기 남기는 것**이다. 화면이
+    필요해지면 `AGENTS §3.2.3`에 따라 `PRD §5` 개정이 먼저다.
     """
     data = await list_snapshot_voyages(session, simulation_run_id)
     return {"data": data, "meta": _meta(request)}
@@ -106,6 +116,16 @@ async def reproduce_annual_simulation_route(
     **`POST`인데 아무것도 만들지 않는다.** 계산을 다시 돌리는 것은 부작용이 없는
     조작이 아니므로(비용·시간) `GET`으로 두지 않았고, §6.4가 `POST`로 규정한다.
     새 실행 기록을 남기지 않는 이유는 서비스 docstring에 적었다.
+
+    ## MVP 화면에 연결하지 않는다 (#556)
+
+    `#556`이 「서버에 있는데 화면에서 도달할 수 없는 엔드포인트」를 전수 대조했고,
+    이 엔드포인트가 그중 하나였다. **판정 결과는 「범위 밖 명시」다** —
+    재현성은 `TECH_SPEC §5.4` 계약이고 **검증 수단**이지 사용자 기능이 아니다.
+
+    `PRD §5.1` MVP 표에도 `PRD §6.2` SCR 목록에도 `UIFLOW` 화면 목록에도 대응이 없다.
+    **API를 지우는 것이 아니라 「빠뜨린 것이 아니다」를 여기 남기는 것**이다. 화면이
+    필요해지면 `AGENTS §3.2.3`에 따라 `PRD §5` 개정이 먼저다.
     """
     data = await reproduce_annual_simulation(session, simulation_run_id)
     return {"data": data, "meta": _meta(request)}
