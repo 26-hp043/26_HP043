@@ -1366,6 +1366,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_seed_migration.py` | 8 | **§5.7 DB · seed 적재** |
 | `test_simulation_clock.py` | 20 | **§2.11 단위 · 시뮬레이션 시계** |
 | `test_testplan_sync.py` | 4 | **§14 인벤토리 동기화** |
+| `test_tracked_files_are_text.py` | 2 | **§14 인벤토리 동기화** — 추적 소스에 NUL이 섞이면 git이 바이너리로 보아 **PR diff와 `grep`이 막힌다.** `.gitattributes`는 보이게 할 뿐 유입을 막지 못해 들어오는 자리에 신호를 둔다 (`#572` 발견 · `#575`) |
 | `test_url_normalize.py` | 3 | §4 API · 공통·운영 |
 | `test_vessel_position_state_migrations.py` | 12 | **§5.9 DB · 운항 상태·위치** |
 | `test_vessels_api.py` | 0 | §4 API · 선박·항차·계산 |
@@ -1385,7 +1386,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_ytd_engine.py` | 0 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 94개 파일 · 1205 함수 · 1476 수집.**
+**합계 95개 파일 · 1205 함수 · 1476 수집.** (2026-08-20 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
