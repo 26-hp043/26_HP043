@@ -4,6 +4,7 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { NotUnderwayPanel } from '../not-underway/NotUnderwayPanel'
 import { ciiUnit } from '../voyage-cii/resultRules'
+import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
 import type { CiiYear, VesselDetail as Detail } from './types'
@@ -122,13 +123,33 @@ export function VesselDetail() {
               label={`올해 누적 등급 ${current.rating}`}
             />
             <dl className="ytd__figures">
+              {/*
+                `DESIGN_SYSTEM §4.1` 🔒 — CII는 **소수 3자리 고정**이고
+                `required_cii`도 같다. 서버가 주는 원본 문자열은 6자리라
+                그대로 쓰면 다른 화면(CII 예측·항로 비교)과 자릿수가 어긋난다.
+                §4.1이 「내부에는 API 원본을 그대로 보관하고 **반올림은 표시
+                시점에만**」이라고 정한 그 표시 시점이 여기다.
+              */}
               <div>
                 <dt>실적 (attained)</dt>
-                <dd className="num">{current.attainedCii}</dd>
+                <dd className="num">
+                  {/*
+                    `dataAvailable`이 참이어도 타입은 `string | null`이다. 종전에는
+                    값을 그대로 넣어 null이 **빈칸**으로 렌더됐다 — 옆 항목처럼
+                    `—`로 적어 「값이 없다」를 눈에 보이게 한다.
+                  */}
+                  {current.attainedCii === null
+                    ? '—'
+                    : formatDecimalString(current.attainedCii, DISPLAY_DIGITS.cii)}
+                </dd>
               </div>
               <div>
                 <dt>기준 (required)</dt>
-                <dd className="num">{current.requiredCii ?? '—'}</dd>
+                <dd className="num">
+                  {current.requiredCii === null
+                    ? '—'
+                    : formatDecimalString(current.requiredCii, DISPLAY_DIGITS.cii)}
+                </dd>
               </div>
               <div>
                 <dt>항차</dt>
