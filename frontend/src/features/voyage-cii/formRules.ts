@@ -1,6 +1,4 @@
-import { DEMO_VESSELS, FIXED_PARAMETERS } from './referenceTable'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
-import type { DemoVessel } from './referenceTable'
 import type { VoyageCiiRequest } from './types'
 import { VoyageCiiError } from './provider'
 
@@ -56,60 +54,19 @@ export const FIELD = {
 } as const
 
 /**
- * 선택 가능한 선박.
+ * 초기 폼 상태. **전부 빈 문자열이다.**
  *
- * **`DEMO_VESSELS`가 아니라 `FIXED_PARAMETERS`를 기준으로 만든다.**
+ * 종전에는 선박·연도를 고정표(`referenceTable.ts`)의 첫 항목으로 채웠다. `#542`가
+ * 그 표를 없앴고, 두 값의 출처는 이미 서버로 옮겨져 있다 — 선박은 셸의 전역 선택
+ * (`#484` · `#535`), 연도는 `yearCatalog`(`#534`)가 채운다.
  *
- * `#34` 회신이 반영되면 `DEMO_VESSELS`에 선박이 늘어나는데, 그 선박의
- * `required_cii`·등급 경계는 대조할 fixture가 없어 `FIXED_PARAMETERS`에 들어가지
- * 않는다. `DEMO_VESSELS`를 순회하면 **고를 수는 있으나 고르면 `UNSUPPORTED_VESSEL`이
- * 나는 항목**이 화면에 생긴다.
- *
- * `#135` 코멘트(2026-08-02)가 건 설계 요구가 *"`UNSUPPORTED_VESSEL`·
- * `UNSUPPORTED_YEAR`에 정상 UI 조작으로 도달할 수 없다"* 이므로 계산 가능한 조합만
- * 선택지가 되어야 한다.
- */
-export function selectableVessels(): DemoVessel[] {
-  return filterSupportedVessels(DEMO_VESSELS, FIXED_PARAMETERS)
-}
-
-/**
- * 위 규칙의 본체. **인자를 받는 형태로 분리했다.**
- *
- * 현재 `DEMO_VESSELS`는 1척이고 그 1척이 `FIXED_PARAMETERS`에도 있어,
- * 필터를 통째로 지워도 결과가 같다 — 즉 `selectableVessels()`만 호출하는 테스트는
- * **통과하지만 아무것도 검사하지 않는다.** 지원되지 않는 선박을 인자로 넣을 수 있어야
- * 규칙이 잠긴다. `#34` 회신으로 선박이 늘어나는 시점에 이 규칙이 실제로 일한다.
- */
-export function filterSupportedVessels(
-  vessels: readonly DemoVessel[],
-  params: readonly { vesselId: string }[],
-): DemoVessel[] {
-  const supported = new Set(params.map((p) => p.vesselId))
-  return vessels.filter((v) => supported.has(v.id))
-}
-
-/** 해당 선박이 계산 가능한 규제연도. 오름차순. */
-export function selectableYears(vesselId: string): number[] {
-  return FIXED_PARAMETERS.filter((p) => p.vesselId === vesselId)
-    .map((p) => p.year)
-    .sort((a, b) => a - b)
-}
-
-/**
- * 초기 폼 상태.
- *
- * 선박·연도는 **선택지의 첫 항목으로 채운다.** 지원 조합이 하나뿐인 동안은 그것이
- * 곧 확정값이고, 늘어나도 「아무것도 선택되지 않은 상태」를 만들지 않는다.
- * 나머지는 빈 문자열이다 — 데모용 값을 미리 넣으면 사용자가 입력했는지
- * 기본값인지 구분되지 않는다.
+ * 여기서 값을 지어내면 **서버에 없는 UUID를 가리키는 초기 상태**가 만들어진다.
+ * `#543`이 정확히 그 결함이었다.
  */
 export function initialFormState(): VoyageCiiFormState {
-  const vessel = selectableVessels()[0]
-  const year = vessel ? selectableYears(vessel.id)[0] : undefined
   return {
-    vesselId: vessel?.id ?? '',
-    regulationYear: year === undefined ? '' : String(year),
+    vesselId: '',
+    regulationYear: '',
     distanceNm: '',
     speedKn: '',
     fuelType: '',

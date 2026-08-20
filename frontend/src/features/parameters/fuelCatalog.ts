@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FUEL_CF } from '../voyage-cii/referenceTable'
-import { API_BASE_URL_ENV_KEY, shouldUseApi } from '../voyage-cii/providerSelection'
+import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 import { createApiParametersProvider, ParametersError } from './apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 
@@ -73,21 +72,6 @@ export class FuelCatalogError extends Error {
 }
 
 /**
- * demo 구현 — 고정표 `FUEL_CF`를 그대로 감싼다.
- *
- * ⚠️ **`#542`가 데모 모드 폐기(안 1)로 확정됐다.** 이 함수와 `FUEL_CF` import는
- * 폐기 PR에서 함께 사라진다. 이 PR에서 남겨 두는 것은 `VITE_USE_API=false` 경로가
- * 아직 살아 있기 때문이며, 한 PR에서 둘을 같이 하면 되돌릴 단위가 사라진다.
- */
-export function createDemoFuelCatalog(): FuelCatalogProvider {
-  return {
-    async listFuels() {
-      return Object.entries(FUEL_CF).map(([code, { displayName }]) => ({ code, displayName }))
-    },
-  }
-}
-
-/**
  * 실 API 구현 — `GET /api/v1/parameters/fuel-types` (`API_SPEC §7.2`).
  *
  * 조회는 `features/parameters`의 공용 provider에 위임한다. 여기서 `fetch`를 다시
@@ -123,9 +107,8 @@ export function createApiFuelCatalog(baseUrl?: string): FuelCatalogProvider {
   }
 }
 
-/** demo ↔ 실 API 전환. 판단 기준은 계산·선박·연도 provider와 **같은 환경변수**다 (`#138`). */
+/** 환경에 맞는 카탈로그를 만든다. 데모 갈래는 `#542`가 없앴다. */
 export function createFuelCatalog(env: ImportMetaEnv = import.meta.env): FuelCatalogProvider {
-  if (!shouldUseApi(env)) return createDemoFuelCatalog()
   return createApiFuelCatalog((env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined)
 }
 

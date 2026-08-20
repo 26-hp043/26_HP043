@@ -117,7 +117,7 @@ async def test_uuids_are_the_contracted_values(conn):
 
 
 async def test_frontend_reference_vessel_exists(conn):
-    """프론트엔드 demo provider가 쓰는 선박이 DB에 있다.
+    """계약 fixture(#132)가 쓰는 선박이 DB에 있다.
 
     이 단언이 깨지면 실 API 전환 시 **첫 요청이 404로 떨어진다.**
     """

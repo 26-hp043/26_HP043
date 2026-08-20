@@ -1,20 +1,16 @@
 import { csrfHeaders, redirectToLogin } from '../auth/session'
 import { DEFAULT_API_BASE_URL } from '../features/voyage-cii/apiProvider'
-import {
-  API_BASE_URL_ENV_KEY,
-  shouldUseApi,
-} from '../features/voyage-cii/providerSelection'
+import { API_BASE_URL_ENV_KEY } from '../features/voyage-cii/providerSelection'
 
 /**
  * 항차 선택지의 데이터 경계 (#512).
  *
- * `vesselCatalog.ts`(#236)와 같은 구성이다 — 화면은 출처를 알지 않고, demo ↔ 실 API
- * 전환은 **같은 환경변수**(`VITE_USE_API`)로 결정된다.
+ * `vesselCatalog.ts`(#236)와 같은 구성이다 — 화면은 출처를 알지 않는다.
  *
- * ## demo에는 항차 목록이 없다
+ * ## 종전 demo 갈래는 빈 목록이었다 (#542가 제거)
  *
- * 고정표(`referenceTable.ts`)는 계산 입력을 담고 있을 뿐 항차를 갖지 않는다.
- * 지어내지 않고 **빈 목록**을 돌려준다 — 상단바가 「항차 없음」으로 표시하며,
+ * 고정표(`referenceTable.ts`)는 계산 입력을 담고 있을 뿐 항차를 갖지 않아
+ * **빈 목록**을 돌려줬다 — 상단바가 「항차 없음」으로 표시하며,
  * 그것이 사실이다.
  */
 
@@ -28,15 +24,6 @@ export interface VoyageOption {
 
 export interface VoyageCatalogProvider {
   listVoyages(vesselId: string): Promise<VoyageOption[]>
-}
-
-/** demo 구현 — 항차가 없다. */
-export function createDemoVoyageCatalog(): VoyageCatalogProvider {
-  return {
-    async listVoyages() {
-      return []
-    },
-  }
 }
 
 /** `GET /vessels/{id}/voyages` 응답 중 선택지에 필요한 부분 (`API_SPEC §3.1`). */
@@ -119,10 +106,9 @@ export function createApiVoyageCatalog(baseUrl?: string): VoyageCatalogProvider 
   }
 }
 
-/** demo ↔ 실 API 전환. 판단 기준은 다른 provider와 **같은 환경변수**다. */
+/** 환경에 맞는 카탈로그를 만든다. 데모 갈래는 `#542`가 없앴다. */
 export function createVoyageCatalog(
   env: ImportMetaEnv = import.meta.env,
 ): VoyageCatalogProvider {
-  if (!shouldUseApi(env)) return createDemoVoyageCatalog()
   return createApiVoyageCatalog((env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined)
 }

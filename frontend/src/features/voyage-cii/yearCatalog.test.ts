@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { selectableYears } from './formRules'
-import { DEMO_VESSELS } from './referenceTable'
 import {
   YearCatalogError,
   createApiYearCatalog,
-  createDemoYearCatalog,
   createYearCatalog,
 } from './yearCatalog'
 
@@ -15,7 +12,6 @@ import {
  * 이슈의 완료 기준을 그대로 옮긴다.
  *
  * * 실 API 모드에서 고정표에 없는 선박도 연도를 받는다 — 이것이 3척이 계산 불가였던 원인
- * * demo 모드에서는 8/8 데모와 같은 화면이 나온다 — 고정표 그대로
  * * 성공·실패 경로가 모두 테스트로 잠긴다
  */
 
@@ -49,22 +45,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('demo 카탈로그', () => {
-  it('고정표를 그대로 감싼다 — 8/8 데모 경로가 바뀌지 않는다', async () => {
-    const vesselId = DEMO_VESSELS[0].id
-
-    const rows = await createDemoYearCatalog().listYears(vesselId)
-
-    expect(rows).toEqual(selectableYears(vesselId))
-    expect(rows.length).toBeGreaterThan(0)
-  })
-
-  it('고정표에 없는 선박은 빈 목록이다 — demo 모드의 종전 동작 그대로', async () => {
-    const rows = await createDemoYearCatalog().listYears(CONTAINER_VESSEL_ID)
-
-    expect(rows).toEqual([])
-  })
-})
 
 describe('실 API 카탈로그', () => {
   it('GET /parameters/regulation-years 를 부른다', async () => {
@@ -80,8 +60,8 @@ describe('실 API 카탈로그', () => {
 
     const rows = await createApiYearCatalog().listYears(CONTAINER_VESSEL_ID)
 
-    // 같은 선박이 demo 경로에서는 빈 목록이었다. 두 값이 갈리는 것이 이 이슈의 전부다.
-    expect(await createDemoYearCatalog().listYears(CONTAINER_VESSEL_ID)).toEqual([])
+    // 종전 demo 경로에서는 이 선박이 빈 목록이었다. 두 값이 갈리는 것이 #534의
+    // 전부였고, 갈릴 경로 자체가 #542로 사라졌다.
     expect(rows.length).toBeGreaterThan(0)
   })
 
@@ -153,19 +133,19 @@ describe('실 API 카탈로그', () => {
 })
 
 describe('전환 스위치', () => {
-  it('VITE_USE_API 미설정이면 demo를 쓴다', async () => {
+  it('환경과 무관하게 실 API를 쓴다 — 갈래가 없다 (#542)', async () => {
     const spy = mockFetch(() => jsonResponse(OK_BODY))
 
     const rows = await createYearCatalog({} as ImportMetaEnv).listYears(CONTAINER_VESSEL_ID)
 
-    expect(spy).not.toHaveBeenCalled()
-    expect(rows).toEqual([])
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(rows.length).toBeGreaterThan(0)
   })
 
-  it('VITE_USE_API=true면 실 API를 쓴다', async () => {
+  it('실 API를 쓴다', async () => {
     const spy = mockFetch(() => jsonResponse(OK_BODY))
 
-    const rows = await createYearCatalog({ VITE_USE_API: 'true' } as unknown as ImportMetaEnv).listYears(
+    const rows = await createYearCatalog({} as ImportMetaEnv).listYears(
       CONTAINER_VESSEL_ID,
     )
 
@@ -173,13 +153,4 @@ describe('전환 스위치', () => {
     expect(rows).toEqual([2023, 2026, 2030])
   })
 
-  it('문자열 "false"를 참으로 읽지 않는다', async () => {
-    const spy = mockFetch(() => jsonResponse(OK_BODY))
-
-    await createYearCatalog({ VITE_USE_API: 'false' } as unknown as ImportMetaEnv).listYears(
-      CONTAINER_VESSEL_ID,
-    )
-
-    expect(spy).not.toHaveBeenCalled()
-  })
 })

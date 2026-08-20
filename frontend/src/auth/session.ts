@@ -1,16 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
 /**
- * `VITE_USE_API` 해석 — `providerSelection`과 같은 키·같은 규칙(문자열 `"true"`만 참).
- *
- * `providerSelection.shouldUseApi`를 import하지 않는 이유: `apiProvider`가 이 모듈의
- * `csrfHeaders`·`redirectToLogin`을 import하는데, 그러면
- * session → providerSelection → apiProvider → session 순환이 생긴다. 해석 한 줄을
- * 여기 두는 것으로 순환을 끊는다 — 키가 바뀌면 두 곳을 함께 고친다.
- */
-const USE_API_ENV_KEY = 'VITE_USE_API'
-
-/**
  * 인증 세션 클라이언트 — `UIFLOW.md` §0 (#278).
  *
  * 백엔드 인증은 구글 OIDC → 서버 세션 쿠키(`sid`)다(API_SPEC §1.2). 이 모듈이
@@ -23,11 +13,15 @@ const USE_API_ENV_KEY = 'VITE_USE_API'
  * - **CSRF** — 상태 변경 요청에 `csrf` 쿠키 값을 `X-CSRF-Token` 헤더로 옮긴다.
  *   쿠키는 자동 전송되므로 검증은 헤더로만 한다(API_SPEC §1.2).
  *
- * ## demo 모드에서는 가드가 꺼진다
+ * ## 가드는 항상 켜져 있다 (#542)
  *
- * `VITE_USE_API !== "true"`(demo provider)면 백엔드가 없다 — 이때 프로브·가드를
- * 돌리면 화면이 로그인으로 막혀 버린다. `providerSelection`의 스위치를 그대로
- * 공유해 demo 모드에서는 인증을 우회한다(#138과 같은 판단).
+ * 종전에는 `VITE_USE_API !== "true"`(demo provider)일 때 프로브·가드를 건너뛰었다.
+ * 백엔드가 없는데 가드를 돌리면 화면이 로그인으로 막히기 때문이었다. 그 우회가
+ * **데모 모드인 줄 모르고 쓰게 만든 직접 원인**이기도 하다(`#528`) — 로그인 없이
+ * 화면이 열리니 실제 제품처럼 보였다.
+ *
+ * 데모 모드가 폐기되어 우회할 이유가 없어졌다. 개발 중 로그인을 건너뛰려면
+ * `POST /api/v1/auth/dev-login`을 쓴다.
  *
  * ## 상태 전파
  *
@@ -91,23 +85,19 @@ export function getCachedUser(): CurrentUser | null {
   return currentUser
 }
 
-/** demo 모드에서는 라우트 가드·프로브 전체가 필요 없다. */
-export function authGuardEnabled(env: ImportMetaEnv = import.meta.env): boolean {
-  return env[USE_API_ENV_KEY] === 'true'
-}
-
 /**
  * 세션을 프로브해 사용자를 캐시한다.
  *
  * 동시 다발 호출은 하나로 합친다(가드·로그인 화면이 동시에 마운트돼도 요청 1회).
  * 실패(네트워크·401 모두)는 비인증으로 취급한다 — **확인 안 됨을 열어 두지
- * 않는다**(fail-closed, 서버 `require_csrf`와 같은 원칙). `env`는 테스트 주입용.
+ * 않는다**(fail-closed, 서버 `require_csrf`와 같은 원칙).
+ *
+ * 종전에는 `env`를 받아 데모 모드에서 프로브를 건너뛰었다. `#542`가 그 갈래를
+ * 없애면서 인자도 사라졌다.
  */
 export async function probeCurrentUser(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
-  env: ImportMetaEnv = import.meta.env,
 ): Promise<CurrentUser | null> {
-  if (!authGuardEnabled(env)) return null
   if (probing) return probing
 
   probing = (async () => {

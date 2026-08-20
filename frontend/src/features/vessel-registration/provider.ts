@@ -20,13 +20,11 @@ export interface VesselRegistrationProvider {
  * |---|---|
  * | `VALIDATION_ERROR` | 입력을 고친다 |
  * | `CONFLICT` | 이미 등록된 IMO다 — 다른 배이거나, 그 배를 찾아 들어간다 |
- * | `DEMO_UNAVAILABLE` | 없다. 데모 모드에서는 등록 자체가 불가능하다 |
  * | `REGISTRATION_ERROR` | 없다. 다시 시도하거나 운영자에게 문의한다 |
  */
 export type VesselRegistrationErrorCode =
   | 'VALIDATION_ERROR'
   | 'CONFLICT'
-  | 'DEMO_UNAVAILABLE'
   | 'REGISTRATION_ERROR'
 
 /**

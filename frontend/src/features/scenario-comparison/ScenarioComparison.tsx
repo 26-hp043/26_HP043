@@ -13,10 +13,7 @@ import {
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
 import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
-import {
-  ESTIMATE_NOTICE,
-  NO_AUTO_DECISION_NOTICE,
-} from './demoProvider'
+import { ESTIMATE_NOTICE, NO_AUTO_DECISION_NOTICE } from './notices'
 import { selectScenarioProvider } from './providerSelection'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { lowestSummary } from './comparisonRules'
@@ -70,11 +67,11 @@ export function ScenarioComparison({
   /** 면책 배너는 페이지가 항상 렌더한다(`DESIGN_SYSTEM §13` 🔒). */
   onDisclaimer?: (text: string | undefined) => void
 }) {
-  // demo ↔ 실 API 전환은 `VITE_USE_API` 하나로 결정된다 (#139).
+  // 화면은 provider가 어떻게 만들어지는지 알지 않는다 (#134). demo 갈래는 #542가
+  // 없앴다.
   const provider = useMemo(() => selectScenarioProvider(), [])
-  // 선택지도 **같은 스위치**를 쓴다 (#236). 기준이 갈리면 계산은 서버로 가는데
-  // 선택지는 고정표에서 오는, 그 이슈가 고치려던 상태가 다시 만들어진다.
-  // 연료 축은 `#542` PR ①이 공용 카탈로그로 옮겼다.
+  // 선택지도 같은 원칙이다 (#236). 계산은 서버로 가는데 선택지는 고정표에서 오는
+  // 상태가 이번 결함의 뿌리였다 — 연료 축이 마지막 조각이었다 (#542 · #558).
   const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
   // 선박 목록·선택은 **셸이 소유한다** (#484 · #535). 종전에는 이 화면이 목록을

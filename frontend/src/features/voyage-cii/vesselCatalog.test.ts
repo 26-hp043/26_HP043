@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { selectableVessels } from './formRules'
 import {
   VesselCatalogError,
   createApiVesselCatalog,
-  createDemoVesselCatalog,
   createVesselCatalog,
 } from './vesselCatalog'
 
@@ -13,8 +11,7 @@ import {
  *
  * 이슈의 완료 기준을 그대로 옮긴다.
  *
- * * `VITE_USE_API=true`에서 seed된 선박이 전부 나타난다
- * * 미설정(demo)에서는 8/8 데모와 같은 화면이 나온다 — 고정표 그대로
+ * * seed된 선박이 전부 나타난다
  * * 성공·실패 경로가 모두 테스트로 잠긴다
  */
 
@@ -45,23 +42,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('demo 카탈로그', () => {
-  it('고정표를 그대로 감싼다 — 8/8 데모 경로가 바뀌지 않는다', async () => {
-    const rows = await createDemoVesselCatalog().listVessels()
-
-    const expected = selectableVessels()
-    expect(rows).toHaveLength(expected.length)
-    expect(rows.map((r) => r.id)).toEqual(expected.map((v) => v.id))
-    expect(rows[0].displayName).toBe(expected[0].displayName)
-  })
-
-  it('고정표 전용 필드를 노출하지 않는다', async () => {
-    const [row] = await createDemoVesselCatalog().listVessels()
-
-    // transportCapacity 등은 cii_reference_line 소관이라 화면 타입에 없다.
-    expect(Object.keys(row).sort()).toEqual(['displayName', 'id', 'shipType'])
-  })
-})
 
 describe('실 API 카탈로그', () => {
   it('seed된 선박을 전부 돌려준다 — 고정표 1척 제약이 사라진다', async () => {
@@ -139,29 +119,21 @@ describe('실 API 카탈로그', () => {
 })
 
 describe('전환 규칙', () => {
-  it('VITE_USE_API 미설정이면 demo다 — 백엔드 없이 화면이 돈다', async () => {
-    const catalog = createVesselCatalog({} as ImportMetaEnv)
+  it('환경과 무관하게 서버를 부른다 — 갈래가 없다 (#542)', async () => {
     const spy = mockFetch(() => jsonResponse(OK_BODY))
 
-    await catalog.listVessels()
+    await createVesselCatalog({} as ImportMetaEnv).listVessels()
 
-    expect(spy).not.toHaveBeenCalled()
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 
-  it('VITE_USE_API=true면 서버를 부른다', async () => {
+  it('서버를 부른다', async () => {
     const spy = mockFetch(() => jsonResponse(OK_BODY))
 
-    const rows = await createVesselCatalog({ VITE_USE_API: 'true' } as unknown as ImportMetaEnv).listVessels()
+    const rows = await createVesselCatalog({} as ImportMetaEnv).listVessels()
 
     expect(spy).toHaveBeenCalled()
     expect(rows).toHaveLength(3)
   })
 
-  it('"false" 문자열을 참으로 읽지 않는다', async () => {
-    const spy = mockFetch(() => jsonResponse(OK_BODY))
-
-    await createVesselCatalog({ VITE_USE_API: 'false' } as unknown as ImportMetaEnv).listVessels()
-
-    expect(spy).not.toHaveBeenCalled()
-  })
 })

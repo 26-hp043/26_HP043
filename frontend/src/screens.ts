@@ -56,10 +56,14 @@ export interface ScreenMeta {
    * 고정값 목업(`#157`)인 상태로 `true`였고, 엔진(`#63`)·API(`#64`)가 들어온 뒤에도
    * **목록상 빠진 게 없어 보여** 연결이 안 된 사실이 드러나지 않았다.
    *
-   * 기준을 고친다 — **`VITE_USE_API=true`에서 실 API로 도는 화면만 `true`다.**
-   * demo provider만 있는 화면은 파일이 있어도 `false`다.
+   * 기준을 고쳤다 — **실 API로 도는 화면만 `true`다.**
+   *
+   * ## 이름이 `demoScope`였다 (#542)
+   *
+   * `#442`가 뜻을 바꾸고도 이름은 그대로 두어, 「8/8 데모 범위」로 읽히는 상태가
+   * 남아 있었다. 데모 모드를 폐기하면서 이름을 뜻에 맞춘다 — 값은 바뀌지 않는다.
    */
-  demoScope: boolean
+  implemented: boolean
 }
 
 /**
@@ -92,7 +96,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0',
     purpose: '구글 OIDC 로그인 진입 — 서비스 소개·면책 문구·단일 버튼',
     width: 'form',
-    demoScope: false, // 인증 화면 — 데모 데이터와 무관, 사이드바 밖
+    implemented: false, // 인증 화면 — 데모 데이터와 무관, 사이드바 밖
   },
   LOGIN_FAILURE: {
     path: '/login/failure',
@@ -102,7 +106,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0-2',
     purpose: '로그인 실패 사유 안내 및 재시도',
     width: 'form',
-    demoScope: false,
+    implemented: false,
   },
   SIGNUP: {
     path: '/signup',
@@ -111,7 +115,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0-1',
     purpose: '이메일·비밀번호로 계정 생성',
     width: 'form',
-    demoScope: false, // 인증 화면 — 사이드바 밖
+    implemented: false, // 인증 화면 — 사이드바 밖
   },
   PASSWORD_RESET: {
     path: '/password-reset',
@@ -120,7 +124,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0-3',
     purpose: '재설정 메일 요청 및 새 비밀번호 설정',
     width: 'form',
-    demoScope: false,
+    implemented: false,
   },
   VERIFY_EMAIL: {
     path: '/verify-email',
@@ -129,7 +133,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0-4',
     purpose: '가입 확인 메일 링크의 토큰 검증',
     width: 'form',
-    demoScope: false,
+    implemented: false,
   },
   MAINBOARD: {
     path: '/dashboard',
@@ -138,7 +142,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '1-3 · 2-4',
     purpose: '보유 선박 전체 현황 조망 · 위험 선박 경고 — 선대 계층 중심 화면',
     width: 'wide',
-    demoScope: true,   // 기본 진입 경로. 실제 데이터 그리드는 #351이 채운다
+    implemented: true,   // 기본 진입 경로. 실제 데이터 그리드는 #351이 채운다
   },
   VESSEL_REGISTRATION: {
     path: '/vessel-registration',
@@ -153,7 +157,7 @@ export const SCREEN_BY_ID = {
     // (`providerSelection.ts` — 가짜 성공을 두지 않는다), 그 상태에서는
     // 「실 API로 돈다」고 말할 수 없기 때문이다. **`#527`과 같은 오해가 아니다** —
     // 선박 관리는 조회가 실 API로 돌지만 이 화면은 제출 자체가 막힌다.
-    demoScope: false,
+    implemented: false,
   },
   VESSEL_MANAGEMENT: {
     path: '/vessels',
@@ -169,13 +173,13 @@ export const SCREEN_BY_ID = {
     //
     // 종전에 `false`였던 것은 **이 플래그의 뜻을 잘못 읽은 것**이다 (#527).
     // 「데모 모드에서 쓰기를 흉내 내지 않는다」는 판단 자체는 맞고 그것은
-    // `vessel-management/providerSelection.ts`가 처리한다 — 그러나 `demoScope`가
+    // `vessel-management/providerSelection.ts`가 처리한다 — 그러나 `implemented`가
     // 뜻하는 것은 **「실 API로 도는가」**다(위 필드 주석 · #442).
     //
     // 그 결과 사이드바가 이 화면을 **비활성으로 렌더해 클릭조차 되지 않았다** —
     // 기능은 전부 동작하는데 들어가는 문만 막혀 있었다.
     //
-    demoScope: true,
+    implemented: true,
   },
   VESSEL_DETAIL: {
     path: '/vessels/:vesselId',
@@ -184,7 +188,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-8',
     purpose: '연도별 CII 이력 · 올해 누적(YTD) 등급 · 현재 위치·운항 상태',
     width: 'wide',
-    demoScope: true,  // #356 구현 완료. OFF_NAV라 사이드바 표시에는 영향 없다
+    implemented: true,  // #356 구현 완료. OFF_NAV라 사이드바 표시에는 영향 없다
   },
   REALTIME_CII: {
     path: '/vessels/:vesselId/voyages/:voyageId',
@@ -193,7 +197,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-9',
     purpose: '항해 중 누적값 · 연말 예상 등급 · 정박(정류) 반영',
     width: 'wide',
-    demoScope: true,  // #357 구현 완료. OFF_NAV라 사이드바 표시에는 영향 없다
+    implemented: true,  // #357 구현 완료. OFF_NAV라 사이드바 표시에는 영향 없다
   },
   CII_FORECAST: {
     path: '/voyage-cii',
@@ -202,7 +206,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-1',
     purpose: '항해 전 항차 조건으로 CII 추정 — 실시간 산출(2-9)의 계획 단계',
     width: 'form',
-    demoScope: true,   // #135 입력 폼 · #136 결과 화면
+    implemented: true,   // #135 입력 폼 · #136 결과 화면
   },
   ROUTE_COMPARISON: {
     path: '/route-comparison',
@@ -211,7 +215,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-2',
     purpose: '직항·우회·감속 시나리오의 중립 비교 — 사후 설명·보고 근거',
     width: 'wide',
-    demoScope: true,   // #156 기능② 비교 UI
+    implemented: true,   // #156 기능② 비교 UI
   },
   ANNUAL_GRADE: {
     path: '/annual-grade',
@@ -221,7 +225,7 @@ export const SCREEN_BY_ID = {
     purpose: '선박별 연간 누적 CII 등급 및 목표 달성 현황 모니터링',
     width: 'wide',
     // #442 실 API 연결 완료 — demo provider는 백엔드 없이 화면만 볼 때만 쓴다.
-    demoScope: true,
+    implemented: true,
   },
   REPORTS: {
     path: '/reports',
@@ -230,7 +234,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-5',
     purpose: '항차 완료 리포트 · 연간 실적 리포트 생성·내보내기 (PDF · CSV)',
     width: 'form',
-    demoScope: true,  // #362 구현 완료 (API는 #361)
+    implemented: true,  // #362 구현 완료 (API는 #361)
   },
   SETTINGS: {
     path: '/settings',
@@ -239,7 +243,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-6',
     purpose: '사용자 및 시스템 환경 설정',
     width: 'form',
-    demoScope: false,  // #359(어드민 범위 확정) 결정 대기 — UIFLOW v2.0 판정 보류
+    implemented: false,  // #359(어드민 범위 확정) 결정 대기 — UIFLOW v2.0 판정 보류
   },
 } as const satisfies Record<ScreenId, ScreenMeta>
 

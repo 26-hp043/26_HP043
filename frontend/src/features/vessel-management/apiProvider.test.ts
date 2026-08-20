@@ -8,11 +8,6 @@ import {
   toVesselManagementError,
 } from './apiProvider'
 import { VesselManagementError } from './provider'
-import {
-  DEMO_UNAVAILABLE_MESSAGE,
-  createVesselManagementProvider,
-  isManagementAvailable,
-} from './providerSelection'
 
 /**
  * 선박 관리 실 API provider 검증 (#510).
@@ -179,28 +174,5 @@ describe('toVesselManagementError — 알 수 없는 응답', () => {
     const error = toVesselManagementError(503, {})
     expect(error).toBeInstanceOf(VesselManagementError)
     expect(error.message).toContain('503')
-  })
-})
-
-describe('providerSelection — 데모 모드에서는 목록도 보이지 않는다', () => {
-  const demoEnv = { VITE_USE_API: 'false' } as unknown as ImportMetaEnv
-  const apiEnv = { VITE_USE_API: 'true' } as unknown as ImportMetaEnv
-
-  it('데모 모드에서는 세 조작이 모두 같은 문구로 실패한다', async () => {
-    const provider = createVesselManagementProvider(demoEnv)
-    await expect(provider.list()).rejects.toThrow(DEMO_UNAVAILABLE_MESSAGE)
-    await expect(provider.update('a1', {})).rejects.toThrow(DEMO_UNAVAILABLE_MESSAGE)
-    await expect(provider.remove('a1')).rejects.toThrow(DEMO_UNAVAILABLE_MESSAGE)
-  })
-
-  it('데모 모드 실패 코드는 DEMO_UNAVAILABLE이다 — 사용자가 고칠 수 없다', async () => {
-    await expect(createVesselManagementProvider(demoEnv).list()).rejects.toMatchObject({
-      code: 'DEMO_UNAVAILABLE',
-    })
-  })
-
-  it('isManagementAvailable이 화면 배너·버튼 상태의 단일 근거다', () => {
-    expect(isManagementAvailable(demoEnv)).toBe(false)
-    expect(isManagementAvailable(apiEnv)).toBe(true)
   })
 })

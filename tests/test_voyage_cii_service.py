@@ -133,36 +133,6 @@ class TestSerializationMatchesApiSpec:
         value = getattr(layer1, attr)
         assert svc._publish(value, svc.SERIALIZATION_DIGITS[digits_key]) == expected
 
-    def test_digits_match_frontend_demo_provider(self):
-        """프론트엔드 demo provider와 **같은 자릿수 집합**을 쓴다.
-
-        실 API로 바꿔도 화면이 받는 문자열이 같아야 `#138` 전환이 무손상이다.
-        값이 갈리면 전환 후 화면 숫자가 미세하게 달라지고, 원인을 찾기 어렵다.
-        """
-        source = (
-            Path(__file__).parents[1]
-            / "frontend"
-            / "src"
-            / "features"
-            / "voyage-cii"
-            / "demoProvider.ts"
-        )
-        text = source.read_text(encoding="utf-8")
-        # demoProvider.ts 의 camelCase 키 → 서비스의 snake_case 키
-        pairs = {
-            "attainedCii": "attained_cii",
-            "requiredCii": "required_cii",
-            "ratioToRequired": "ratio_to_required",
-            "margin": "margin",
-            "marginRatio": "margin_ratio",
-            "co2Ton": "co2_ton",
-            "fuelTon": "fuel_ton",
-            "detailFuelTon": "detail_fuel_ton",
-        }
-        for ts_key, py_key in pairs.items():
-            marker = f"{ts_key}: {svc.SERIALIZATION_DIGITS[py_key]},"
-            assert marker in text, f"demoProvider.ts와 자릿수가 다르다: {ts_key}"
-
 
 class TestPlainSerialization:
     """``_plain()`` — 확정·반올림 대상이 아닌 값."""
@@ -279,19 +249,3 @@ class TestPercentSerialization:
     )
     def test_percent(self, value, expected):
         assert svc._percent(value) == expected
-
-    def test_matches_frontend_reference_table(self):
-        """프론트엔드 고정표의 ``zFactorPercent``와 같은 문자열이다.
-
-        실 API로 바꿔도 화면이 받는 값이 같아야 `#138` 전환이 무손상이다.
-        """
-        source = (
-            Path(__file__).parents[1]
-            / "frontend"
-            / "src"
-            / "features"
-            / "voyage-cii"
-            / "referenceTable.ts"
-        )
-        text = source.read_text(encoding="utf-8")
-        assert f"zFactorPercent: '{svc._percent(Decimal('11.0000'))}'" in text

@@ -1,15 +1,14 @@
 import { csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from './apiProvider'
-import { selectableVessels } from './formRules'
-import { API_BASE_URL_ENV_KEY, shouldUseApi } from './providerSelection'
+import { API_BASE_URL_ENV_KEY } from './providerSelection'
 
 /**
  * 선박 선택지의 데이터 경계 (#236).
  *
  * ## 왜 별도 provider인가
  *
- * `#206`이 계산 호출을 실 API로 바꿨지만 **선택지 소스는 바꾸지 않아**,
- * `VITE_USE_API=true`에서도 `formRules.ts` → `referenceTable.ts`의 고정표를 읽는다.
+ * `#206`이 계산 호출을 실 API로 바꿨지만 **선택지 소스는 바꾸지 않아**, 실 API
+ * 모드에서도 `formRules.ts` → 고정표(`referenceTable.ts`)를 읽고 있었다.
  * 018 seed는 선박 3척을 넣는데 고정표에는 1척뿐이라 **2척이 화면에서 도달 불가능**하고,
  * `#51`로 만든 `GET /api/v1/vessels`는 소비처 없이 방치된다.
  *
@@ -36,25 +35,6 @@ export interface VesselOption {
 /** 선박 목록 조회의 데이터 경계. 화면은 출처를 알지 않는다 (`#134`). */
 export interface VesselCatalogProvider {
   listVessels(): Promise<VesselOption[]>
-}
-
-/**
- * demo 구현 — 기존 `selectableVessels()`를 그대로 감싼다.
- *
- * **8/8 데모 경로가 바뀌면 안 된다.** 백엔드 없이 화면이 도는 구조에서는 지금의
- * 고정표가 옳고, 계산 가능한 조합만 선택지가 되어야 한다는 `#135` 설계 요구도
- * 그 필터에 들어 있다.
- */
-export function createDemoVesselCatalog(): VesselCatalogProvider {
-  return {
-    async listVessels() {
-      return selectableVessels().map((v) => ({
-        id: v.id,
-        displayName: v.displayName,
-        shipType: v.shipType,
-      }))
-    },
-  }
 }
 
 /** `GET /api/v1/vessels` 응답 중 선택지에 필요한 부분. */
@@ -139,6 +119,5 @@ export class VesselCatalogError extends Error {
 export function createVesselCatalog(
   env: ImportMetaEnv = import.meta.env,
 ): VesselCatalogProvider {
-  if (!shouldUseApi(env)) return createDemoVesselCatalog()
   return createApiVesselCatalog((env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined)
 }

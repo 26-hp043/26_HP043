@@ -7,7 +7,7 @@ import type { Vessel } from '../vessel-registration/types'
  *
  * 등록은 **온보딩 흐름**(`UIFLOW 1-1 → 1-2 → 1-3`)이고 관리는 **운영 중 조작**이다.
  * 진입 경로도 화면도 다르다. 한 provider에 묶으면 등록 화면이 쓰지 않는 `remove()`를
- * 갖고, 관리 화면이 쓰지 않는 데모 차단 규칙(`DEMO_UNAVAILABLE`)을 물려받는다.
+ * 갖고, 관리 화면이 쓰지 않는 온보딩 전용 규칙을 물려받는다.
  *
  * 대신 **타입은 공유한다** — `Vessel`은 같은 서버 객체(`API_SPEC §2.1`)이며, 여기서
  * 다시 정의하면 서버가 필드를 늘릴 때 두 곳이 갈린다.
@@ -57,14 +57,12 @@ export interface VesselManagementProvider {
  * | `VALIDATION_ERROR` | 입력을 고친다 |
  * | `NOT_FOUND` | 없다. 이미 삭제됐거나 다른 사람이 지웠다 — 목록을 다시 읽는다 |
  * | `CONFLICT` | 참조가 걸려 있다 |
- * | `DEMO_UNAVAILABLE` | 없다. 데모 모드에서는 쓰기가 불가능하다 |
  * | `MANAGEMENT_ERROR` | 없다. 다시 시도하거나 운영자에게 문의한다 |
  */
 export type VesselManagementErrorCode =
   | 'VALIDATION_ERROR'
   | 'NOT_FOUND'
   | 'CONFLICT'
-  | 'DEMO_UNAVAILABLE'
   | 'MANAGEMENT_ERROR'
 
 /**

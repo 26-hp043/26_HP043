@@ -63,20 +63,6 @@
  * 닫히면 그 순간부터 다시 「모르고 쓰는」 상태가 된다.
  * 오류가 아니므로 danger를 쓰지 않는다. 사용자가 잘못한 것이 없다.
  */
-.app-shell__demo-banner {
-  border-left: 3px solid var(--color-warning);
-  background: var(--surface-inset);
-  color: var(--text-primary);
-  padding: var(--spacing-sm) var(--spacing-xl);
-  font-size: var(--font-size-label);
-  line-height: var(--line-height-label);
-}
-
-.app-shell__demo-banner code {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-micro);
-}
-
 .app-shell__topbar {
   display: flex;
   align-items: center;

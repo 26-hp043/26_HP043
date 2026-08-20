@@ -1,10 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { FUEL_CF } from '../voyage-cii/referenceTable'
 import {
   FuelCatalogError,
   createApiFuelCatalog,
-  createDemoFuelCatalog,
   createFuelCatalog,
   isKnownFuel,
 } from './fuelCatalog'
@@ -48,19 +46,6 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-describe('demo 카탈로그', () => {
-  it('고정표를 그대로 감싼다 — 8/8 데모 경로가 바뀌지 않는다', async () => {
-    const rows = await createDemoFuelCatalog().listFuels()
-
-    expect(rows.map((r) => r.code)).toEqual(Object.keys(FUEL_CF))
-  })
-
-  it('cf를 노출하지 않는다 — 화면이 계산에 쓸 수 있는 상태를 만들지 않는다', async () => {
-    const rows = await createDemoFuelCatalog().listFuels()
-
-    expect(Object.keys(rows[0]).sort()).toEqual(['code', 'displayName'])
-  })
-})
 
 describe('실 API 카탈로그', () => {
   it('서버 목록을 code·displayName으로 옮긴다', async () => {
@@ -117,19 +102,22 @@ describe('실 API 카탈로그', () => {
   })
 })
 
-describe('전환 — 계산·선박·연도와 같은 스위치', () => {
-  it('VITE_USE_API가 "true"가 아니면 demo 카탈로그다', async () => {
-    const rows = await createFuelCatalog({ VITE_USE_API: 'false' } as unknown as ImportMetaEnv).listFuels()
-
-    expect(rows.map((r) => r.code)).toEqual(Object.keys(FUEL_CF))
-  })
-
-  it('VITE_USE_API가 "true"면 서버를 부른다', async () => {
+describe('createFuelCatalog — 갈래가 하나다 (#542)', () => {
+  it('환경과 무관하게 서버를 부른다', async () => {
+    // 종전에는 `VITE_USE_API`로 demo 고정표와 갈렸다. 데모 폐기 후 갈래가 없다.
     const spy = mockFetch(async () => jsonResponse(OK_BODY))
 
-    await createFuelCatalog({ VITE_USE_API: 'true' } as unknown as ImportMetaEnv).listFuels()
+    await createFuelCatalog({} as ImportMetaEnv).listFuels()
 
     expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('cf를 노출하지 않는다 — 화면이 계산에 쓸 수 있는 상태를 만들지 않는다', async () => {
+    mockFetch(async () => jsonResponse(OK_BODY))
+
+    const rows = await createFuelCatalog({} as ImportMetaEnv).listFuels()
+
+    expect(Object.keys(rows[0]).sort()).toEqual(['code', 'displayName'])
   })
 })
 

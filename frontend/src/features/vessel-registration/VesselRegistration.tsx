@@ -14,11 +14,7 @@ import {
   type FormErrors,
   type VesselFormState,
 } from './formRules'
-import {
-  DEMO_UNAVAILABLE_MESSAGE,
-  createVesselRegistrationProvider,
-  isRegistrationAvailable,
-} from './providerSelection'
+import { createVesselRegistrationProvider } from './providerSelection'
 import { applicabilityHint, numberOrMissing } from './resultRules'
 import { SHIP_TYPES } from './shipTypes'
 import type { Vessel } from './types'
@@ -53,7 +49,6 @@ import type { Vessel } from './types'
  */
 export function VesselRegistration() {
   const provider = useMemo(() => createVesselRegistrationProvider(), [])
-  const available = useMemo(() => isRegistrationAvailable(), [])
   // 연료 선택지는 서버가 준다 (#542). 종전에는 고정표(`referenceTable.ts`)를 읽어,
   // 등록 화면이 보여 주는 연료와 서버가 받는 연료가 갈릴 수 있었다.
   const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
@@ -112,12 +107,6 @@ export function VesselRegistration() {
           IMO 번호·선명·선종만 있으면 등록됩니다. 제원은 나중에 채울 수 있습니다.
         </p>
       </header>
-
-      {available ? null : (
-        <p className="vessel-registration__banner" role="status">
-          {DEMO_UNAVAILABLE_MESSAGE}
-        </p>
-      )}
 
       {registered ? <RegisteredCard vessel={registered} /> : null}
 
@@ -340,7 +329,7 @@ export function VesselRegistration() {
         <button
           className="vessel-registration__submit"
           type="submit"
-          disabled={submitting || !available}
+          disabled={submitting}
         >
           {submitting ? '등록 중…' : '등록하기'}
         </button>

@@ -23,11 +23,7 @@ import {
   shipTypeLabel,
 } from './listRules'
 import { VesselManagementError } from './provider'
-import {
-  DEMO_UNAVAILABLE_MESSAGE,
-  createVesselManagementProvider,
-  isManagementAvailable,
-} from './providerSelection'
+import { createVesselManagementProvider } from './providerSelection'
 import './VesselManagement.css'
 
 /**
@@ -55,7 +51,6 @@ import './VesselManagement.css'
  */
 export function VesselManagement() {
   const provider = useMemo(() => createVesselManagementProvider(), [])
-  const available = useMemo(() => isManagementAvailable(), [])
   // 기본 연료 선택지는 서버가 준다 (#542). 종전에는 고정표를 직접 순회했다.
   const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
@@ -97,9 +92,8 @@ export function VesselManagement() {
   )
 
   useEffect(() => {
-    if (!available) return
     void loadPage()
-  }, [available, loadPage])
+  }, [loadPage])
 
   const startEdit = (vessel: Vessel) => {
     setEditingId(vessel.id)
@@ -179,12 +173,6 @@ export function VesselManagement() {
         </p>
       </header>
 
-      {!available && (
-        <p className="vessel-management__banner" role="status">
-          {DEMO_UNAVAILABLE_MESSAGE}
-        </p>
-      )}
-
       <div className="vessel-management__actions">
         <Link
           className="vessel-management__primary-link"
@@ -209,7 +197,7 @@ export function VesselManagement() {
         </p>
       )}
 
-      {available && !loading && vessels.length === 0 && loadError === null && (
+      {!loading && vessels.length === 0 && loadError === null && (
         <p className="vessel-management__empty">{EMPTY_MESSAGE}</p>
       )}
 
@@ -246,7 +234,6 @@ export function VesselManagement() {
                       type="button"
                       className="vessel-management__button"
                       onClick={() => (isEditing ? cancelEdit() : startEdit(vessel))}
-                      disabled={!available}
                     >
                       {isEditing ? '수정 취소' : '수정'}
                     </button>
@@ -260,7 +247,7 @@ export function VesselManagement() {
                           void handleDelete(vessel)
                         }
                       }}
-                      disabled={!available || deletingId === vessel.id}
+                      disabled={deletingId === vessel.id}
                     >
                       {deletingId === vessel.id ? '삭제 중…' : '삭제'}
                     </button>

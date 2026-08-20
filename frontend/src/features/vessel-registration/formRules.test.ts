@@ -256,11 +256,6 @@ describe('toFormErrors', () => {
     expect(toFormErrors(error)).toEqual({ [FIELD.form]: '알 수 없는 필드' })
   })
 
-  it('데모 모드 실패도 폼 상단에 보인다', () => {
-    const error = new VesselRegistrationError('DEMO_UNAVAILABLE', '데모에서는 등록할 수 없습니다.')
-    expect(toFormErrors(error)).toEqual({ [FIELD.form]: '데모에서는 등록할 수 없습니다.' })
-  })
-
   it('provider 밖의 오류도 삼키지 않는다', () => {
     expect(toFormErrors(new Error('boom'))).toEqual({ [FIELD.form]: 'boom' })
     expect(toFormErrors('문자열')[FIELD.form]).toBeTruthy()

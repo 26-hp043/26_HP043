@@ -30,9 +30,7 @@ COPY . .
 # ⚠️ Vite는 VITE_* 값을 **빌드 시점에 인라인**한다. 런타임 환경변수로는 바뀌지 않는다.
 #    그래서 build-arg로 받아 빌드에 넣는다. 값을 바꾸려면 이미지를 다시 구워야 한다.
 #    (README 「배포」 절에 이 제약을 적어 두었다.)
-ARG VITE_USE_API=true
 ARG VITE_API_BASE_URL=/api/v1
-ENV VITE_USE_API=$VITE_USE_API
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 RUN npm run build

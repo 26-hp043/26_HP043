@@ -217,34 +217,3 @@ describe('displayWarnings — 면책 중복 제거', () => {
     )
   })
 })
-
-describe('통합 — demo fixture의 실제 응답으로 표시 규칙을 돌린다', () => {
-  it('등급 C 응답이 계약대로 표시된다', async () => {
-    const { createDemoProvider } = await import('./demoProvider')
-    const { initialFormState, toRequest } = await import('./formRules')
-
-    const response = await createDemoProvider().estimate(
-      toRequest({
-        ...initialFormState(),
-        distanceNm: '1000',
-        speedKn: '14.2',
-        fuelType: 'HFO',
-        fuelTon: '80',
-      }),
-    )
-    const data = response.data
-
-    // 정본 문구 (DESIGN_SYSTEM §4.1 단위 표기) — 바꾸려면 DESIGN_SYSTEM 개정이 먼저다.
-    expect(ciiUnit(data.transport_capacity_basis)).toBe('gCO₂/(DWT·nm)')
-    expect(marginDisplay(data.estimated_rating, data.next_worse_boundary_margin_ratio).text).toBe(
-      'D 등급까지 7.2%',
-    )
-    // 한국어 레이블은 디자인 소관. 판정 코드(PRD §9.4.1)가 실려 나가는지만 본다.
-    expect(riskLabel(data.risk_level).text).toContain('MEDIUM')
-    // 정본 문구 (API_SPEC §1.6 warning 표를 그대로 전사) — 바꾸려면 API_SPEC 개정이
-    // 먼저다.
-    expect(response.warnings.map(warningMessage)).toEqual([
-      '참고용 예측값입니다. 규제 제출용이 아닙니다.',
-    ])
-  })
-})
