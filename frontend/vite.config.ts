@@ -1,4 +1,6 @@
-import { defineConfig } from 'vite'
+// `vite`가 아니라 `vitest/config`에서 가져온다 — 아래 `test` 블록의 타입이 거기 있다.
+// `vite`의 `defineConfig`를 쓰면 `test`가 「알 수 없는 속성」으로 tsc가 막는다 (#557).
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 /**
@@ -24,6 +26,21 @@ const isRepoOnWindowsFilesystem =
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  /*
+   * 테스트 환경 (#557).
+   *
+   * **전역 environment를 `jsdom`으로 바꾸지 않는다.** 이 저장소의 테스트 42개 파일은
+   * 순수 함수와 provider를 보는 것이라 DOM이 필요 없다. 전역으로 켜면 그 전부가
+   * 매번 DOM을 세우느라 느려지고, **DOM에 기대지 않는다는 성질도 흐려진다** —
+   * 규칙을 순수 함수로 뽑아 둔 구조(`formRules.ts` 머리주석)가 그 성질에 기대고 있다.
+   *
+   * 컴포넌트 테스트는 파일 머리에 `// @vitest-environment jsdom`을 적어 **그 파일만**
+   * DOM 환경으로 돈다. 어느 파일이 DOM을 쓰는지 파일을 열면 바로 보인다.
+   */
+  test: {
+    environment: 'node',
+    globals: false,
+  },
   server: {
     ...(isRepoOnWindowsFilesystem
       ? {
