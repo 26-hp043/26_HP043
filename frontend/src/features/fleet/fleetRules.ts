@@ -123,6 +123,43 @@ export function underwayStateText(vessel: FleetVessel): string {
 }
 
 /**
+ * `detail_status` 7값의 화면 표기 — `UIFLOW §2-4`가 정한 표 그대로다.
+ *
+ * | 값 | 표기 | 계산상 구분 |
+ * |---|---|---|
+ * | `SAILING` | 항해 중 | UNDER_WAY |
+ * | `IN_PORT` | 접안 | NOT_UNDER_WAY |
+ * | `AT_ANCHOR` | 묘박 | 〃 |
+ * | `DRIFTING` | 표류 | 〃 |
+ * | `STS` | 선박 간 이적 | 〃 |
+ * | `CANAL_TRANSIT` | 운하 통과 | 〃 |
+ * | `DRYDOCK` | 드라이독 | 〃 |
+ *
+ * **화면이 코드를 그대로 내보내고 있었다.** 중소선사 운항관리자에게 `CANAL_TRANSIT`은
+ * 읽을 말이 아니다 — `#529`가 화면에서 걷어낸 내부 참조와 같은 부류다.
+ *
+ * 계산은 `underway_state`(2값)만 보고 화면은 이 7값을 표시한다. 두 축을 나눈 이유는
+ * `#346`에 있다.
+ *
+ * 모르는 값은 **코드를 그대로** 돌려준다(`shipTypeLabel`과 같은 판단). 서버가 여덟
+ * 번째 상태를 먼저 추가할 수 있고, 그때 빈칸을 내면 상태가 없는 것처럼 읽힌다.
+ */
+const DETAIL_STATUS_TEXT: Readonly<Record<string, string>> = {
+  SAILING: '항해 중',
+  IN_PORT: '접안',
+  AT_ANCHOR: '묘박',
+  DRIFTING: '표류',
+  STS: '선박 간 이적',
+  CANAL_TRANSIT: '운하 통과',
+  DRYDOCK: '드라이독',
+}
+
+export function detailStatusText(code: string | null): string | null {
+  if (code === null) return null
+  return DETAIL_STATUS_TEXT[code] ?? code
+}
+
+/**
  * 기준 시각을 「n분 전」으로.
  *
  * 상대 시각만 보여 주면 어느 시점 데이터인지 특정할 수 없으므로, 화면은 **원본

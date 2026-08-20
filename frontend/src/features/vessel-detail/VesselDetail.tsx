@@ -4,6 +4,8 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { NotUnderwayPanel } from '../not-underway/NotUnderwayPanel'
 import { ciiUnit } from '../voyage-cii/resultRules'
+import { shipTypeLabel } from '../vessel-registration/shipTypes'
+import { detailStatusText } from '../fleet/fleetRules'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
@@ -97,7 +99,7 @@ export function VesselDetail() {
         <div>
           <h1 className="vd__title">{vessel.name}</h1>
           <p className="vd__sub">
-            IMO {vessel.imoNumber} · {vessel.shipType}
+            IMO {vessel.imoNumber} · {shipTypeLabel(vessel.shipType)}
           </p>
         </div>
         {detail.asOf ? (
@@ -186,7 +188,7 @@ export function VesselDetail() {
               <h2 className="card__title">제원</h2>
             </div>
             <dl className="spec">
-              <Spec label="선종" value={vessel.shipType} />
+              <Spec label="선종" value={shipTypeLabel(vessel.shipType)} />
               <Spec label="IMO 번호" value={vessel.imoNumber} />
               {/* 축에 해당하는 제원을 앞에 둔다 — 그 값이 CII 분모다. */}
               {capacityBasis === 'DWT' ? (
@@ -210,7 +212,8 @@ export function VesselDetail() {
             </div>
             <dl className="spec">
               <Spec label="운항 상태" value={stateText(vessel.underwayState)} />
-              <Spec label="세부 상태" value={vessel.detailStatus} />
+              {/* `UIFLOW §2-4`가 정한 7값 표기. 코드를 그대로 내지 않는다. */}
+              <Spec label="세부 상태" value={detailStatusText(vessel.detailStatus)} />
               <Spec
                 label="현재 위치"
                 value={
