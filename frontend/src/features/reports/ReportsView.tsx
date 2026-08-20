@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
+import { SCREEN_BY_ID } from '../../screens'
 import { createApiReportsProvider, ReportsError } from './apiProvider'
 import {
   sameTarget,
@@ -124,7 +125,10 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   return (
     <div className="rp">
       <header className="rp__head">
-        <h1 className="rp__title">보고서</h1>
+        <h1 className="rp__title">
+          {SCREEN_BY_ID.REPORTS.label}
+          <span className="rp__title-en"> {SCREEN_BY_ID.REPORTS.labelEn}</span>
+        </h1>  
         <p className="rp__sub">
           항차 완료 리포트와 연간 실적 리포트를 만들고 PDF·CSV로 내려받습니다.
         </p>

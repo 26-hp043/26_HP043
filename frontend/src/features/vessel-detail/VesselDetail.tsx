@@ -256,7 +256,7 @@ export function VesselDetail() {
 function BackLink() {
   return (
     <Link className="vd__back" to="/dashboard">
-      ← 선대 현황
+      ← 대시보드
     </Link>
   )
 }
