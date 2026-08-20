@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   FIELD,
-  filterSupportedVessels,
   initialFormState,
-  selectableVessels,
-  selectableYears,
   toFormErrors,
   toRequest,
   validateForm as validateFormWith,
   type VoyageCiiFormState,
 } from './formRules'
-import { DEMO_VESSELS, FIXED_PARAMETERS, type DemoVessel } from './referenceTable'
 import { VoyageCiiError } from './provider'
 
 /**
@@ -31,6 +27,9 @@ import { VoyageCiiError } from './provider'
 function validState(): VoyageCiiFormState {
   return {
     ...initialFormState(),
+    // 고정표가 사라져(#542) 초기 상태가 비어 있다. 유효 상태는 여기서 채운다.
+    vesselId: '00000000-0000-4000-8000-000000000001',
+    regulationYear: '2026',
     distanceNm: '1000',
     speedKn: '14.2',
     fuelType: 'HFO',
@@ -63,88 +62,26 @@ const FUELS: ReadonlyArray<{ code: string; displayName: string }> = [
  */
 const validateForm = (state: VoyageCiiFormState) => validateFormWith(state, FUELS)
 
-describe('filterSupportedVessels', () => {
-  // 규칙 자체를 잠그는 테스트다. selectableVessels()만 부르면 현재 데이터가 1척이라
-  // 필터를 지워도 통과한다 — 즉 아무것도 검사하지 않는다.
-  const inTable: DemoVessel = {
-    id: 'vessel-in-table',
-    displayName: '고정표에 있는 배',
-    shipType: 'BULK_CARRIER',
-    transportCapacity: '50000',
-    transportCapacityBasis: 'DWT',
-    referenceCapacity: '50000',
-    referenceCapacityRule: 'DWT',
-  }
-  const notInTable: DemoVessel = { ...inTable, id: 'vessel-not-in-table', displayName: '없는 배' }
 
-  it('고정표에 없는 선박은 선택지에서 빠진다', () => {
-    const result = filterSupportedVessels(
-      [inTable, notInTable],
-      [{ vesselId: 'vessel-in-table' }],
-    )
-    expect(result.map((v) => v.id)).toEqual(['vessel-in-table'])
-  })
-
-  it('고정표가 비면 선택지도 비운다 — 계산할 수 없는 배를 내보이지 않는다', () => {
-    expect(filterSupportedVessels([inTable, notInTable], [])).toEqual([])
-  })
-
-  it('한 선박에 연도가 여러 행이어도 선택지는 1건이다', () => {
-    const result = filterSupportedVessels(
-      [inTable],
-      [{ vesselId: 'vessel-in-table' }, { vesselId: 'vessel-in-table' }],
-    )
-    expect(result).toHaveLength(1)
-  })
-
-  it('선택지 순서는 DEMO_VESSELS 순서를 따른다', () => {
-    const result = filterSupportedVessels(
-      [notInTable, inTable],
-      [{ vesselId: 'vessel-in-table' }, { vesselId: 'vessel-not-in-table' }],
-    )
-    expect(result.map((v) => v.id)).toEqual(['vessel-not-in-table', 'vessel-in-table'])
-  })
-})
-
-describe('selectableVessels', () => {
-  it('FIXED_PARAMETERS에 조합이 있는 선박만 고를 수 있다', () => {
-    const supported = new Set(FIXED_PARAMETERS.map((p) => p.vesselId))
-    for (const vessel of selectableVessels()) {
-      expect(supported.has(vessel.id)).toBe(true)
-    }
-  })
-
-  it('선택지가 DEMO_VESSELS보다 많아지지 않는다', () => {
-    expect(selectableVessels().length).toBeLessThanOrEqual(DEMO_VESSELS.length)
-  })
-
-  it('모든 선택지가 계산 가능한 연도를 최소 1개 갖는다', () => {
-    // 이것이 UNSUPPORTED_VESSEL·UNSUPPORTED_YEAR에 UI로 도달할 수 없다는 근거다.
-    for (const vessel of selectableVessels()) {
-      expect(selectableYears(vessel.id).length).toBeGreaterThan(0)
-    }
-  })
-
-  it('고정표에 없는 선박은 연도가 0개다', () => {
-    expect(selectableYears('00000000-0000-4000-8000-00000000ffff')).toEqual([])
-  })
-})
 
 
 describe('initialFormState', () => {
-  it('선박과 연도는 채워지고 나머지는 비어 있다', () => {
-    const state = initialFormState()
-    expect(state.vesselId).not.toBe('')
-    expect(state.regulationYear).not.toBe('')
-    expect(state.distanceNm).toBe('')
-    expect(state.speedKn).toBe('')
-    expect(state.fuelType).toBe('')
-    expect(state.fuelTon).toBe('')
+  it('전부 비어 있다 — 값을 지어내지 않는다 (#542)', () => {
+    // 종전에는 선박·연도를 고정표 첫 항목으로 채웠고, 그 UUID가 서버에 없어
+    // 초기 상태가 존재하지 않는 배를 가리켰다(#543). 선박은 셸(#535), 연도는
+    // yearCatalog(#534)가 채운다.
+    expect(initialFormState()).toEqual({
+      vesselId: '',
+      regulationYear: '',
+      distanceNm: '',
+      speedKn: '',
+      fuelType: '',
+      fuelTon: '',
+    })
   })
 
-  it('초기 상태의 선박·연도 조합은 그 자체로 유효하다', () => {
-    const state = initialFormState()
-    expect(validateForm(state)[FIELD.form]).toBeUndefined()
+  it('그 상태로는 제출되지 않는다 — 선박·연도 안내가 붙는다', () => {
+    expect(validateForm(initialFormState())[FIELD.form]).toBeDefined()
   })
 })
 
@@ -262,7 +199,7 @@ describe('toRequest', () => {
     const request = toRequest(validState())
     expect(request.distance_nm).toBe(1000)
     expect(request.speed_kn).toBe(14.2)
-    expect(request.regulation_year).toBe(FIXED_PARAMETERS[0].year)
+    expect(request.regulation_year).toBe(2026)
     expect(typeof request.distance_nm).toBe('number')
     expect(typeof request.speed_kn).toBe('number')
     expect(typeof request.fuel_uses[0].fuel_ton).toBe('number')
@@ -290,41 +227,8 @@ describe('toRequest', () => {
     expect(() => toRequest({ ...validState(), distanceNm: '' })).toThrow()
   })
 
-  it('demo provider가 이 요청을 그대로 받아들인다', async () => {
-    // 화면 검증을 통과한 요청은 provider 검증도 통과해야 한다.
-    const { createDemoProvider } = await import('./demoProvider')
-    await expect(createDemoProvider().estimate(toRequest(validState()))).resolves.toBeDefined()
-  })
 })
 
-describe('데모 시나리오 — 폼 입력이 #132 계약 기대값을 낸다', () => {
-  // 폼 → 요청 → provider 경로 전체가 계약과 어긋나지 않는지 잠근다.
-  // demoProvider.test.ts는 요청 객체를 직접 만들지만, 이 테스트는 폼 상태에서 출발한다.
-  it('거리 1,000 nm · HFO 80 t → 4.982400 · C · MEDIUM', async () => {
-    const { createDemoProvider } = await import('./demoProvider')
-    const response = await createDemoProvider().estimate(toRequest(validState()))
-
-    expect(response.data.attained_cii).toBe('4.982400')
-    expect(response.data.required_cii).toBe('5.045066')
-    expect(response.data.estimated_rating).toBe('C')
-    expect(response.data.risk_level).toBe('MEDIUM')
-    expect(response.data.co2_emission_ton).toBe('249.12')
-    expect(response.data.next_worse_boundary_margin).toBe('0.365370')
-  })
-
-  it('속력만 바꾸면 결과가 바뀌지 않는다', async () => {
-    // speed_kn은 Layer 1 계산의 피연산자가 아니다(types.ts 주석 · #132 계약).
-    // 화면의 속력 보조 문구가 사실인지 확인한다.
-    const { createDemoProvider } = await import('./demoProvider')
-    const provider = createDemoProvider()
-
-    const slow = await provider.estimate(toRequest({ ...validState(), speedKn: '1.0' }))
-    const fast = await provider.estimate(toRequest({ ...validState(), speedKn: '25' }))
-
-    expect(slow.data.attained_cii).toBe(fast.data.attained_cii)
-    expect(slow.data.estimated_rating).toBe(fast.data.estimated_rating)
-  })
-})
 
 describe('toFormErrors', () => {
   it('field가 있는 provider 오류는 해당 입력창으로 간다', () => {
@@ -358,29 +262,7 @@ describe('toFormErrors', () => {
     expect(toFormErrors('문자열')[FIELD.form]).toContain('알 수 없는 오류')
   })
 
-  it('demoProvider가 실제로 던지는 field가 전부 입력창에 매핑된다', async () => {
-    const { createDemoProvider } = await import('./demoProvider')
-    const provider = createDemoProvider()
-    const base = toRequest(validState())
 
-    const broken = [
-      { ...base, distance_nm: 0 },
-      { ...base, speed_kn: 0.5 },
-      { ...base, fuel_uses: [{ fuel_type: 'HFO', fuel_ton: 0 }] },
-      { ...base, fuel_uses: [{ fuel_type: 'ETHANE', fuel_ton: 80 }] },
-    ]
-
-    for (const request of broken) {
-      const errors = await provider.estimate(request).then(
-        () => ({}) as Record<string, string>,
-        (error: unknown) => toFormErrors(error),
-      )
-      const [key] = Object.keys(errors)
-      expect(key).toBeDefined()
-      // 폼 상단이 아니라 개별 입력창에 붙어야 한다.
-      expect(key).not.toBe(FIELD.form)
-    }
-  })
 })
 
 describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () => {

@@ -64,7 +64,6 @@ services:
       args:
         # ⚠️ Vite는 VITE_* 를 빌드 시점에 인라인한다 — 런타임 주입이 되지 않는다.
         # 값을 바꾸려면 이미지를 다시 구워야 한다 (frontend/Dockerfile 주석 참조).
-        VITE_USE_API: ${VITE_USE_API:-true}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
     restart: unless-stopped
     ports: ["80:80"]

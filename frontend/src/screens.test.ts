@@ -97,30 +97,30 @@ describe('findScreenByPath — 경로 파라미터 매칭', () => {
 })
 
 /**
- * `demoScope`가 실제 구현 상태와 어긋나는 것을 막는다 (#527).
+ * `implemented`가 실제 구현 상태와 어긋나는 것을 막는다 (#527).
  *
  * ## 왜 필요한가
  *
- * `#510`이 만든 선박 관리 화면은 **실 API로 도는데 `demoScope: false`로 들어갔다.**
+ * `#510`이 만든 선박 관리 화면은 **실 API로 도는데 `implemented: false`로 들어갔다.**
  * 사이드바가 그 값을 보고 **비활성으로 렌더해 클릭조차 되지 않았고**, 기능은 전부
  * 동작하는데 들어가는 문만 막혀 있었다. 디자인 담당이 화면을 열어 보고서야 드러났다.
  *
  * 값이 `false`인 것은 문법 오류가 아니라 **CI가 통과한다.** 종전 테스트는
- * `NAV_ORDER` 순서만 봤고 `demoScope`를 보지 않았다.
+ * `NAV_ORDER` 순서만 봤고 `implemented`를 보지 않았다.
  *
  * ## 무엇으로 판정하나 — 값이 아니라 **실제 화면**을 본다
  *
- * `demoScope` 값을 그대로 다시 적으면 복사본이 하나 늘 뿐 드리프트를 못 잡는다.
+ * `implemented` 값을 그대로 다시 적으면 복사본이 하나 늘 뿐 드리프트를 못 잡는다.
  * 그래서 **페이지 컴포넌트가 `ComingSoon` 스텁인지**를 본다 — 그것이 「구현이 아직
  * 없다」의 실제 증거다.
  *
  * ## 이 가드가 틀릴 수 있는 경우
  *
  * 화면 파일은 진짜인데 **demo provider만 있어 실 API로는 안 도는** 상태가 생기면
- * (`#442`가 기능③에서 겪은 형태) `demoScope: false`인데 `ComingSoon`이 아니게 된다.
+ * (`#442`가 기능③에서 겪은 형태) `implemented: false`인데 `ComingSoon`이 아니게 된다.
  * 그때는 이 가드를 고치되 **왜 예외인지 여기에 적는다.** 조용히 통과시키지 않는다.
  */
-describe('demoScope ↔ 실제 구현 상태 (#527)', () => {
+describe('implemented ↔ 실제 구현 상태 (#527)', () => {
   /** 사이드바 화면 → 페이지 컴포넌트 파일. 라우팅은 `App.tsx`가 갖고 있어 여기 적는다. */
   const NAV_PAGE_FILE: Readonly<Record<string, string>> = {
     MAINBOARD: 'MainboardPage',
@@ -143,31 +143,31 @@ describe('demoScope ↔ 실제 구현 상태 (#527)', () => {
     expect(Object.keys(NAV_PAGE_FILE).sort()).toEqual([...NAV_ORDER].sort())
   })
 
-  it('구현이 있는 화면은 demoScope가 true다 — 막히면 사용자가 들어갈 수 없다', () => {
+  it('구현이 있는 화면은 implemented가 true다 — 막히면 사용자가 들어갈 수 없다', () => {
     const blocked = NAV_ORDER.filter(
-      (id) => !SCREEN_BY_ID[id].demoScope && !isComingSoonStub(id),
+      (id) => !SCREEN_BY_ID[id].implemented && !isComingSoonStub(id),
     )
     expect(
       blocked,
       `화면은 만들어져 있는데 사이드바에서 막혀 있다: ${blocked.join(', ')}. ` +
-        'demoScope는 「실 API로 도는가」다 (#442·#527).',
+        'implemented는 「실 API로 도는가」다 (#442·#527).',
     ).toEqual([])
   })
 
-  it('ComingSoon 스텁은 demoScope가 false다 — 준비 중을 열어 두면 빈 화면이 열린다', () => {
+  it('ComingSoon 스텁은 implemented가 false다 — 준비 중을 열어 두면 빈 화면이 열린다', () => {
     const wrong = NAV_ORDER.filter(
-      (id) => SCREEN_BY_ID[id].demoScope && isComingSoonStub(id),
+      (id) => SCREEN_BY_ID[id].implemented && isComingSoonStub(id),
     )
     expect(wrong, `스텁인데 사이드바가 열려 있다: ${wrong.join(', ')}`).toEqual([])
   })
 
   it('선박 관리는 실 API로 도는 화면이다 (#510 · #527 회귀 고정)', () => {
-    expect(SCREEN_BY_ID.VESSEL_MANAGEMENT.demoScope).toBe(true)
+    expect(SCREEN_BY_ID.VESSEL_MANAGEMENT.implemented).toBe(true)
     expect(isComingSoonStub('VESSEL_MANAGEMENT')).toBe(false)
   })
 
   it('설정은 아직 스텁이다 — #359 확정 전까지 (#506 · COR-9)', () => {
-    expect(SCREEN_BY_ID.SETTINGS.demoScope).toBe(false)
+    expect(SCREEN_BY_ID.SETTINGS.implemented).toBe(false)
     expect(isComingSoonStub('SETTINGS')).toBe(true)
   })
 })

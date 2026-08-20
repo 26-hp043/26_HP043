@@ -1,7 +1,6 @@
 import { createApiParametersProvider, ParametersError } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from './apiProvider'
-import { selectableYears } from './formRules'
-import { API_BASE_URL_ENV_KEY, shouldUseApi } from './providerSelection'
+import { API_BASE_URL_ENV_KEY } from './providerSelection'
 
 /**
  * 규제연도 선택지의 데이터 경계 (#534).
@@ -44,21 +43,6 @@ export interface YearCatalogProvider {
    * 두 구현이 같은 서명을 갖도록 맞춘 것이다.
    */
   listYears(vesselId: string): Promise<number[]>
-}
-
-/**
- * demo 구현 — 기존 `selectableYears()`를 그대로 감싼다.
- *
- * **8/8 데모 경로가 바뀌면 안 된다.** 백엔드 없이 화면이 도는 구조에서는 고정표가
- * 옳고, 계산 가능한 조합만 선택지가 되어야 한다는 `#135` 설계 요구도 그 표에 있다.
- * 데모 모드 자체의 존치 여부는 `#542`에서 따로 다룬다.
- */
-export function createDemoYearCatalog(): YearCatalogProvider {
-  return {
-    async listYears(vesselId: string) {
-      return selectableYears(vesselId)
-    },
-  }
 }
 
 /**
@@ -112,6 +96,5 @@ export class YearCatalogError extends Error {
 
 /** demo ↔ 실 API 전환. 판단 기준은 계산·선박 provider와 **같은 환경변수**다 (`#138`). */
 export function createYearCatalog(env: ImportMetaEnv = import.meta.env): YearCatalogProvider {
-  if (!shouldUseApi(env)) return createDemoYearCatalog()
   return createApiYearCatalog((env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined)
 }

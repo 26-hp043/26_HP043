@@ -1,35 +1,31 @@
 import { createApiProvider } from './apiProvider'
-import { createDemoProvider } from './demoProvider'
 import type { VoyageCiiProvider } from './provider'
 
 /**
- * demo provider ↔ 실 API provider 전환 (#138).
+ * 기능① provider 생성 (#138 · #542).
  *
- * ## 왜 스위치가 필요한가
+ * ## 종전에는 스위치였다
  *
- * 백엔드가 없어도 화면이 돌아야 한다. `#135`~`#157`이 그 전제로 만들어졌고, 8/8 데모도
- * demo provider로 수행했다. 실 API가 붙은 뒤에도 **백엔드를 띄우지 않고 화면만 보는
- * 상황**(디자인 검토·프론트엔드 리팩터링)이 남는다.
+ * `VITE_USE_API`로 demo provider와 실 API provider를 갈랐다. 백엔드가 없던 시기에
+ * 화면을 먼저 만들기 위한 장치였고 8/8 시연도 그 경로로 했다.
  *
- * ## 기본값이 demo인 이유
+ * **`#542`가 데모 모드를 폐기했다.** 두 경로가 함께 남아 경계가 새는 사고가 네 번
+ * 반복됐고(`#511` · `#526` · `#534` · `#528`), 데모 경로가 12개 기능 중 3개만 덮어
+ * 「백엔드 없이 화면 검토」라는 원래 목적도 이미 성립하지 않았다.
  *
- * 실 API를 기본으로 두면 백엔드가 없는 환경에서 화면이 **오류로 시작**한다. 그 상태는
- * 「아직 안 만들었다」와 「연결이 끊겼다」를 구분하지 못한다. **명시적으로 켜는 쪽**이
- * 안전하다.
+ * ## 파일을 남기는 이유
  *
- * ```
- * frontend/.env.local
- *   VITE_USE_API=true
- * ```
+ * 실 API provider도 이 파일이 만든다. 화면은 이 함수만 부르고 **어떻게 만들어지는지
+ * 알지 않는다** — `#134`가 provider 경계를 그은 이유가 그것이며, 그 경계는 데모
+ * 폐기와 무관하게 유효하다.
  *
- * ## 값 해석을 느슨하게 하지 않는다
+ * ## 백엔드가 없으면
  *
- * `"true"`만 참으로 본다. `.env`의 값은 전부 문자열이라 `Boolean("false")`가 `true`가
- * 되는 함정이 있다 — 그걸 피하려고 문자열을 직접 비교한다.
+ * 화면이 오류로 시작한다. 종전 주석이 *「그 상태는 "아직 안 만들었다"와 "연결이
+ * 끊겼다"를 구분하지 못한다」*고 적어 이것을 demo 기본값의 근거로 삼았으나,
+ * 실제 기본값은 `#528` 이후 이미 실 API였다. 구분은 **오류 문구**로 하는 것이 맞고
+ * provider 선택으로 할 일이 아니다.
  */
-
-/** 실 API를 쓰도록 켜는 환경변수 이름. */
-export const USE_API_ENV_KEY = 'VITE_USE_API'
 
 /** base URL을 덮어쓰는 환경변수. 미설정 시 `apiProvider`의 기본값(상대 경로)을 쓴다. */
 export const API_BASE_URL_ENV_KEY = 'VITE_API_BASE_URL'
@@ -37,30 +33,10 @@ export const API_BASE_URL_ENV_KEY = 'VITE_API_BASE_URL'
 /** `#104` API Key. 적용 전에는 비어 있다. */
 export const API_KEY_ENV_KEY = 'VITE_API_KEY'
 
-/** 문자열 `"true"`만 참으로 본다. 위 docstring 참조. */
-export function isEnabled(raw: string | undefined): boolean {
-  return raw === 'true'
-}
-
-/**
- * 현재 환경이 실 API를 쓰는지.
- *
- * `import.meta.env`를 직접 읽는 곳을 이 함수 하나로 좁힌다 — 여러 곳에서 읽으면
- * 테스트가 환경을 바꿔 가며 확인할 수 없다.
- */
-export function shouldUseApi(env: ImportMetaEnv = import.meta.env): boolean {
-  return isEnabled(env[USE_API_ENV_KEY] as string | undefined)
-}
-
-/**
- * 환경에 맞는 provider를 만든다.
- *
- * 화면은 이 함수만 부르고 **어느 쪽이 선택됐는지 알지 않는다.**
- */
+/** 환경에 맞는 provider를 만든다. */
 export function createVoyageCiiProvider(
   env: ImportMetaEnv = import.meta.env,
 ): VoyageCiiProvider {
-  if (!shouldUseApi(env)) return createDemoProvider()
   return createApiProvider({
     baseUrl: (env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined,
     apiKey: (env[API_KEY_ENV_KEY] as string | undefined) || undefined,

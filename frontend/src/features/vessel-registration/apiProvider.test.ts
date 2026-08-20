@@ -8,11 +8,6 @@ import {
   toVesselRegistrationError,
 } from './apiProvider'
 import { VesselRegistrationError } from './provider'
-import {
-  DEMO_UNAVAILABLE_MESSAGE,
-  createVesselRegistrationProvider,
-  isRegistrationAvailable,
-} from './providerSelection'
 import type { VesselCreateRequest } from './types'
 
 /**
@@ -186,34 +181,5 @@ describe('오류 매핑', () => {
     await expect(
       createApiVesselRegistrationProvider({ fetchImpl }).register(REQUEST),
     ).rejects.toBeInstanceOf(VesselRegistrationError)
-  })
-})
-
-describe('provider 선택', () => {
-  it('기본값(환경변수 없음)에서는 등록이 불가능하다', async () => {
-    const env = {} as ImportMetaEnv
-    expect(isRegistrationAvailable(env)).toBe(false)
-    await expect(
-      createVesselRegistrationProvider(env).register(REQUEST),
-    ).rejects.toThrow(DEMO_UNAVAILABLE_MESSAGE)
-  })
-
-  it('데모 실패는 `DEMO_UNAVAILABLE`이다 — 서버 오류와 구분된다', async () => {
-    const provider = createVesselRegistrationProvider({} as ImportMetaEnv)
-    await expect(provider.register(REQUEST)).rejects.toMatchObject({
-      code: 'DEMO_UNAVAILABLE',
-    })
-  })
-
-  it('VITE_USE_API=true면 실 API를 쓴다', () => {
-    const env = { VITE_USE_API: 'true' } as unknown as ImportMetaEnv
-    expect(isRegistrationAvailable(env)).toBe(true)
-  })
-
-  it('"true" 외의 값은 켜지 않는다 — `.env` 값은 전부 문자열이다', () => {
-    expect(isRegistrationAvailable({ VITE_USE_API: 'false' } as unknown as ImportMetaEnv)).toBe(
-      false,
-    )
-    expect(isRegistrationAvailable({ VITE_USE_API: '1' } as unknown as ImportMetaEnv)).toBe(false)
   })
 })

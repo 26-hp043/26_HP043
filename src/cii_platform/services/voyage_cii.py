@@ -105,9 +105,10 @@ CII_APPLICABLE_GT_THRESHOLD = Decimal("5000")
 #: ``"0.0724"``(4자리)이고, ``fuel_consumption_ton``은 ``"80.00"``(2자리)인데
 #: ``calculation_basis.fuel_cf_details[].fuel_ton``은 ``"80.0"``(1자리)이다.
 #:
-#: 프론트엔드 demo provider(``frontend/src/features/voyage-cii/demoProvider.ts``)의
-#: ``SERIALIZATION_DIGITS``와 **같은 값이어야 한다** — 실 API로 바꿔도 화면이 받는
-#: 문자열이 같아야 #138 전환이 무손상이다.
+#: 종전에는 프론트엔드 demo provider의 같은 이름 상수와 대조하는 테스트가 있었다.
+#: ``#542``가 데모 모드를 폐기하면서 대조 대상이 사라져 그 테스트도 함께 지웠다.
+#: 화면이 그리는 자릿수는 ``DESIGN_SYSTEM §4``이 정하며 ``frontend/src/display/format.ts``와
+#: ``voyage-cii/apiPath.test.ts``가 잠근다 — 이 표는 **서버가 내보내는 자릿수**다.
 SERIALIZATION_DIGITS = {
     "attained_cii": 6,
     "required_cii": 6,
@@ -284,9 +285,9 @@ def _percent(value: Decimal) -> str:
     """Z계수를 응답 문자열로 만든다. **소수 자릿수를 최소 1자리 유지한다.**
 
     ``regulation_year.z_factor_percent``는 ``NUMERIC(8,4)``라 DB에서 ``11.0000``으로
-    온다. :func:`_plain`을 그대로 쓰면 ``"11"``이 되는데, **프론트엔드 고정표와
-    `#132` 계약이 ``"11.0"``을 쓴다**(``referenceTable.ts``의 ``zFactorPercent``).
-    실 API로 바꿔도 화면이 받는 문자열이 같아야 `#138` 전환이 무손상이다.
+    온다. :func:`_plain`을 그대로 쓰면 ``"11"``이 되는데, **`#132` 계약이
+    ``"11.0"``을 쓴다.** 프론트엔드 고정표도 같은 값을 복사해 두었으나 ``#542``가
+    그 표를 없앴다 — 기준은 계약 fixture다.
 
     ⚠️ **API_SPEC §4.1 예시가 두 곳에서 서로 다르다.**
 

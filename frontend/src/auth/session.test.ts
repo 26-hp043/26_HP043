@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  authGuardEnabled,
   getCachedUser,
   logout,
   probeCurrentUser,
@@ -22,8 +21,6 @@ import { safeNext } from '../features/auth/authRules'
  * 테스트 순서에 의존하지 않게 하기 위해서다.
  */
 
-const API_ENV = { VITE_USE_API: 'true' } as unknown as ImportMetaEnv
-const DEMO_ENV = {} as ImportMetaEnv
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -64,18 +61,6 @@ describe('readCookie', () => {
   })
 })
 
-describe('authGuardEnabled', () => {
-  it('demo 모드(미설정)에서는 가드가 꺼진다', () => {
-    expect(authGuardEnabled(DEMO_ENV)).toBe(false)
-  })
-
-  it('문자열 "true"만 참이다 — "false"·임의 값은 거짓', () => {
-    expect(authGuardEnabled({ VITE_USE_API: 'true' } as unknown as ImportMetaEnv)).toBe(true)
-    expect(authGuardEnabled({ VITE_USE_API: 'false' } as unknown as ImportMetaEnv)).toBe(false)
-    expect(authGuardEnabled({ VITE_USE_API: '1' } as unknown as ImportMetaEnv)).toBe(false)
-  })
-})
-
 describe('safeNext — open redirect 방어', () => {
   /*
    * #415에서 `loginUrl`(백엔드 OIDC 진입점)이 사라졌다. 자체 인증에서는 로그인이
@@ -108,7 +93,7 @@ describe('probeCurrentUser', () => {
     const noName = jsonResponse({
       data: { id: 'u1', email: 'a@b.c', display_name: null },
     })
-    const user = await probeCurrentUser(async () => noName, API_ENV)
+    const user = await probeCurrentUser(async () => noName)
     expect(user).toEqual({
       id: 'u1',
       email: 'a@b.c',
@@ -119,11 +104,8 @@ describe('probeCurrentUser', () => {
   })
 
   it('401이면 비인증 — 캐시도 비운다(fail-closed)', async () => {
-    await probeCurrentUser(async () => ME_OK, API_ENV)
-    const user = await probeCurrentUser(
-      async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401),
-      API_ENV,
-    )
+    await probeCurrentUser(async () => ME_OK)
+    const user = await probeCurrentUser(async () => jsonResponse({ error: { code: 'UNAUTHORIZED' } }, 401))
     expect(user).toBeNull()
     expect(getCachedUser()).toBeNull()
   })
@@ -133,16 +115,8 @@ describe('probeCurrentUser', () => {
       async () => {
         throw new TypeError('Failed to fetch')
       },
-      API_ENV,
     )
     expect(user).toBeNull()
-  })
-
-  it('demo 모드에서는 fetch를 부르지 않고 즉시 null', async () => {
-    const fetchImpl = vi.fn()
-    const user = await probeCurrentUser(fetchImpl as unknown as typeof fetch, DEMO_ENV)
-    expect(user).toBeNull()
-    expect(fetchImpl).not.toHaveBeenCalled()
   })
 
   it('동시 호출은 하나로 합쳐진다 — fetch 1회', async () => {
@@ -153,8 +127,8 @@ describe('probeCurrentUser', () => {
       return ME_OK
     }
     const [a, b] = await Promise.all([
-      probeCurrentUser(slow, API_ENV),
-      probeCurrentUser(slow, API_ENV),
+      probeCurrentUser(slow),
+      probeCurrentUser(slow),
     ])
     expect(calls).toBe(1)
     expect(a?.id).toBe(b?.id)
@@ -162,7 +136,7 @@ describe('probeCurrentUser', () => {
 
   it('응답 형태가 계약(data.id·data.email 문자열)을 어기면 비인증으로 취급한다', async () => {
     const malformed = jsonResponse({ data: { id: 123, email: 'a@b.c' } })
-    const user = await probeCurrentUser(async () => malformed, API_ENV)
+    const user = await probeCurrentUser(async () => malformed)
     expect(user).toBeNull()
   })
 })
@@ -176,7 +150,7 @@ describe('csrf', () => {
 
 describe('logout', () => {
   it('POST /auth/logout을 부르고 캐시를 비운다', async () => {
-    await probeCurrentUser(async () => ME_OK, API_ENV)
+    await probeCurrentUser(async () => ME_OK)
     expect(getCachedUser()).not.toBeNull()
 
     const fetchImpl = vi.fn(async () => jsonResponse({}, 204))
@@ -189,7 +163,7 @@ describe('logout', () => {
   })
 
   it('서버 호출 실패로 로그아웃이 막히지 않는다 — 상태는 초기화', async () => {
-    await probeCurrentUser(async () => ME_OK, API_ENV)
+    await probeCurrentUser(async () => ME_OK)
     await logout(
       async () => {
         throw new TypeError('Failed to fetch')

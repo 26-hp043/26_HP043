@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   VoyageCatalogError,
   createApiVoyageCatalog,
-  createDemoVoyageCatalog,
   createVoyageCatalog,
   voyageDisplayName,
 } from './voyageCatalog'
@@ -10,7 +9,7 @@ import {
 /**
  * #512 — 항차 선택지 provider.
  *
- * `vesselCatalog.ts`(#236)와 같은 경계다 — 화면은 출처를 알지 않고, demo ↔ 실 API
+ * `vesselCatalog.ts`(#236)와 같은 경계다 — 화면은 출처를 알지 않고, 조회 경로
  * 전환은 같은 환경변수로 결정된다.
  */
 
@@ -48,12 +47,6 @@ describe('voyageDisplayName — 여러 건이 같은 문자열이 되지 않게 
   })
 })
 
-describe('demo — 항차를 지어내지 않는다', () => {
-  it('빈 목록을 돌려준다', async () => {
-    // 고정표는 계산 입력만 담고 항차를 갖지 않는다. 없는 것을 만들지 않는다.
-    await expect(createDemoVoyageCatalog().listVoyages('v1')).resolves.toEqual([])
-  })
-})
 
 describe('실 API — GET /vessels/{id}/voyages', () => {
   it('선박 id를 경로에 넣어 부른다', async () => {
@@ -103,16 +96,20 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
   })
 })
 
-describe('createVoyageCatalog — 같은 스위치를 쓴다', () => {
-  it('VITE_USE_API가 true가 아니면 demo다', async () => {
-    const provider = createVoyageCatalog({ VITE_USE_API: 'false' } as unknown as ImportMetaEnv)
-    await expect(provider.listVoyages('v1')).resolves.toEqual([])
+describe('createVoyageCatalog', () => {
+  it('환경과 무관하게 실 API를 부른다 — 갈래가 없다 (#542)', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }))
+    vi.stubGlobal('fetch', fetchImpl)
+
+    await createVoyageCatalog({} as ImportMetaEnv).listVoyages('v1')
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
   it('true면 실 API를 부른다', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }))
     vi.stubGlobal('fetch', fetchImpl)
-    await createVoyageCatalog({ VITE_USE_API: 'true' } as unknown as ImportMetaEnv).listVoyages(
+    await createVoyageCatalog({} as ImportMetaEnv).listVoyages(
       'v1',
     )
     expect(fetchImpl).toHaveBeenCalled()

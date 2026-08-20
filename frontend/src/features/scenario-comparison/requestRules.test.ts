@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { DEMO_VESSELS } from '../voyage-cii/referenceTable'
 import {
   FIELD,
   initialFormState,
@@ -16,6 +15,9 @@ import {
  * 아무 입력 없이 언제나 실패했다.
  */
 
+
+/** `demo_seed`가 넣는 선박 UUID. 고정표가 사라져(#542) 값을 여기 둔다. */
+const SEEDED_VESSEL_ID = '00000000-0000-4000-8000-000000000001'
 
 /**
  * 연료 선택지 — 종전 고정표 `FUEL_CF`의 8종과 같은 코드 집합이다 (#542).
@@ -45,7 +47,7 @@ const toRequest = (state: ComparisonFormState) => toRequestWith(state, FUELS)
 
 
 function state(overrides: Partial<ComparisonFormState> = {}): ComparisonFormState {
-  return { ...initialFormState(), vesselId: DEMO_VESSELS[0].id, ...overrides }
+  return { ...initialFormState(), vesselId: SEEDED_VESSEL_ID, ...overrides }
 }
 
 describe('initialFormState — 선박에 기본값을 넣지 않는다', () => {
@@ -115,7 +117,7 @@ describe('validateForm', () => {
 describe('toRequest', () => {
   it('문자열 상태를 숫자 요청으로 옮긴다', () => {
     expect(toRequest(state())).toEqual({
-      vessel_id: DEMO_VESSELS[0].id,
+      vessel_id: SEEDED_VESSEL_ID,
       regulation_year: 2026,
       base_distance_nm: 1000,
       base_speed_kn: 12.8,
@@ -130,18 +132,6 @@ describe('toRequest', () => {
 })
 
 
-describe('회귀 고정 — 종전 하드코딩 상수가 demo에서 실패했다 (#511)', () => {
-  it('고정표에는 …0001 한 척뿐이라 …0003은 없다', () => {
-    // 이 대조가 이번 버그의 전부다. 상수 `…0003`은 이 목록에 없었다.
-    expect(DEMO_VESSELS.map((v) => v.id)).not.toContain(
-      '00000000-0000-4000-8000-000000000003',
-    )
-  })
-
-  it('선박은 목록에서 골라야 하므로, 고정표에 있는 값이면 검증을 통과한다', () => {
-    expect(validateForm(state({ vesselId: DEMO_VESSELS[0].id }))).toEqual({})
-  })
-})
 
 describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () => {
   it('목록에 없으면 거부된다', () => {

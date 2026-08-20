@@ -7,7 +7,7 @@ import {
   toVoyageCiiError,
 } from './apiProvider'
 import { VoyageCiiError } from './provider'
-import { createVoyageCiiProvider, isEnabled, shouldUseApi } from './providerSelection'
+import { createVoyageCiiProvider } from './providerSelection'
 import { initialFormState, toRequest } from './formRules'
 
 /**
@@ -63,6 +63,9 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const REQUEST = toRequest({
   ...initialFormState(),
+  // 고정표가 사라져(#542) 초기 상태가 비어 있다. 선박·연도를 여기서 채운다.
+  vesselId: '00000000-0000-4000-8000-000000000001',
+  regulationYear: '2026',
   distanceNm: '1000',
   speedKn: '14.2',
   fuelType: 'HFO',
@@ -247,35 +250,16 @@ describe('전송 계층 실패', () => {
   })
 })
 
-describe('provider 전환 — providerSelection', () => {
-  it.each([
-    ['true', true],
-    ['false', false],
-    ['1', false],
-    ['TRUE', false],
-    [undefined, false],
-    ['', false],
-  ])('VITE_USE_API=%s → %s', (raw, expected) => {
-    // .env 값은 전부 문자열이라 Boolean("false")가 true가 되는 함정이 있다.
-    expect(isEnabled(raw)).toBe(expected)
+describe('provider 생성 — providerSelection (#542)', () => {
+  it('환경과 무관하게 실 API provider를 만든다', () => {
+    // 종전에는 `VITE_USE_API`로 demo와 갈렸고 기본값이 demo였다. 데모 폐기 후
+    // 갈래가 없다 — 백엔드가 없으면 화면이 오류로 시작하며, 그 구분은 오류
+    // 문구가 한다.
+    expect(typeof createVoyageCiiProvider({} as ImportMetaEnv).estimate).toBe('function')
   })
 
-  it('기본값은 demo provider다 — 백엔드 없이도 화면이 뜬다', () => {
-    const env = {} as ImportMetaEnv
-    expect(shouldUseApi(env)).toBe(false)
-    expect(createVoyageCiiProvider(env)).toBeDefined()
-  })
-
-  it('VITE_USE_API=true 이면 실 API provider를 만든다', () => {
-    const env = { VITE_USE_API: 'true' } as unknown as ImportMetaEnv
-    expect(shouldUseApi(env)).toBe(true)
-    expect(createVoyageCiiProvider(env)).toBeDefined()
-  })
-
-  it('두 provider가 같은 인터페이스를 만족한다', () => {
-    const demo = createVoyageCiiProvider({} as ImportMetaEnv)
-    const api = createVoyageCiiProvider({ VITE_USE_API: 'true' } as unknown as ImportMetaEnv)
-    expect(typeof demo.estimate).toBe('function')
-    expect(typeof api.estimate).toBe('function')
+  it('base URL 환경변수를 읽는다', () => {
+    const env = { VITE_API_BASE_URL: 'http://localhost:8000/api/v1' } as unknown as ImportMetaEnv
+    expect(typeof createVoyageCiiProvider(env).estimate).toBe('function')
   })
 })
