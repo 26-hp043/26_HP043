@@ -1,0 +1,49 @@
+# 저장소 diff 설정 (#575)
+#
+# ## 왜 두는가
+#
+# `#572` 작업에서 `frontend/src/features/not-underway/periodRules.ts`가 git에
+# **바이너리로 판정되고 있던 것**을 발견했다. 중복 키 구분자가 이스케이프가 아니라
+# 실제 NUL 바이트로 소스에 들어 있었기 때문이다. 증상은 둘이었다.
+#
+#   - PR에서 diff가 `Bin 4819 -> 7335 bytes`로만 보여 **리뷰할 수 없다**
+#   - `grep`이 그 파일을 건너뛴다. 검색이 조용히 0건을 내서 **「없다」와 「못 읽었다」가
+#     구분되지 않는다** — 실제로 함수가 거기 있는데 없는 줄 알고 작업했다
+#
+# 아래 `diff` 속성은 **git의 바이너리 자동 판정을 무시하고 텍스트로 diff하게** 한다.
+# 제어문자가 다시 섞여도 변경 내용이 보인다.
+#
+# ## `text`·`eol`을 넣지 않는 이유
+#
+# 줄바꿈 정규화는 **체크아웃 동작을 바꾼다.** 이 저장소의 추적 파일은 현재 전부 LF이고
+# CRLF는 0건이라 얻을 것이 없는 반면, Windows 네이티브 git(`core.autocrlf=true`)에서
+# 작업 사본이 CRLF로 바뀌어 불필요한 변경이 생길 수 있다. **필요해지면 그때 별도로
+# 판단한다.**
+#
+# ## 실제 바이너리는 적지 않는다
+#
+# git의 자동 판정이 이미 처리한다. 아래 목록에 없는 확장자는 종전과 같이 동작한다.
+
+*.ts     diff
+*.tsx    diff
+*.mjs    diff
+*.py     diff
+*.pyi    diff
+*.css    diff
+*.html   diff
+*.json   diff
+*.jsonc  diff
+*.md     diff
+*.yml    diff
+*.yaml   diff
+*.toml   diff
+*.ini    diff
+*.cfg    diff
+*.sh     diff
+*.sql    diff
+*.csv    diff
+*.svg    diff
+*.mako   diff
+*.txt    diff
+Dockerfile   diff
+.env.example diff
