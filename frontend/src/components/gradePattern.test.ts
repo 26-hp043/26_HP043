@@ -4,6 +4,11 @@ import type { Rating } from '../features/voyage-cii/types'
 
 /**
  * `DESIGN_SYSTEM §14` — 패턴 없는 등급 표시는 구현 금지.
+ *
+ * **파일명이 `GradeBadge.test.ts`였다** (#485). 그런데 이 파일이 검증하는 것은
+ * `gradePattern.ts`이고 `GradeBadge`는 패턴을 쓰지 않는다(`§2.4.4` — 등급 문자가
+ * 보조 채널을 이미 충족한다). 이름이 대상과 어긋나 있어 옮겼다. 배지 자체의
+ * 테스트는 `GradeBadge.test.tsx`가 맡는다.
  * 색만으로 A~E를 구분하면 적록색맹에서 A(녹)와 E(적)가 무너진다.
  */
 describe('gradePatternUrl', () => {

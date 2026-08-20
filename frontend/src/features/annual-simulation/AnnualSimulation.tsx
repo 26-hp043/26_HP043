@@ -298,7 +298,7 @@ function Result({ result }: { result: AnnualSimulationResult }) {
             <span className="annual-sim__label">{ANNUAL_COPY.projectedRatingLabel}</span>
             <GradeBadge
               rating={det.projected_rating}
-              size="md"
+              size="lg"
               label={`${ANNUAL_COPY.projectedRatingLabel} ${det.projected_rating}`}
             />
           </div>
