@@ -252,8 +252,17 @@ async def test_annual_report_reuses_computed_values(session, vessel_id):
     document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
 
     rows = dict(_section(document, "2026년 누적 (YTD)").rows)
-    assert rows["실적 CII (attained)"] == current["ytd"]["attained_cii"]
+    # 리포트는 계산을 다시 하지 않고 **같은 값**을 `DESIGN_SYSTEM §4`로 보인다 (#584).
+    # 원문 문자열과 비교하면 표시 규칙을 넣는 순간 깨지므로, 같은 포매터를 통과시켜 대조한다.
+    from cii_platform.services.report import _display
+
+    assert rows["실적 CII (attained)"] == _display(current["ytd"]["attained_cii"], "cii")
     assert rows["현재 누적 기준 예상 등급"] == current["ytd"]["rating"]
+    # 표시 규칙이 실제로 걸렸는지도 함께 본다 — 위 단언만으로는 둘 다 원문이어도 통과한다.
+    assert (
+        rows["실적 CII (attained)"] != current["ytd"]["attained_cii"]
+        or len(current["ytd"]["attained_cii"].split(".")[-1]) == 3
+    )
 
 
 @pytest.mark.asyncio
