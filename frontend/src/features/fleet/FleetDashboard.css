@@ -337,13 +337,41 @@
 }
 
 /*
- * 뷰박스가 480×300 사용자 단위라 이 값도 사용자 단위다 — 화면 픽셀이 아니다.
- * 패턴 해상도를 위해 뷰박스를 3배로 키우면서 함께 3배로 올렸다(7 → 21).
+ * **`font-size`를 여기 두지 않는다.** 뷰박스 유저 단위라 넘침 계산과 값이 같아야
+ * 하므로 `PositionChart.tsx`의 `LABEL_FONT`가 소유하고 `fontSize` 속성으로 건다.
+ *
+ * CSS는 SVG presentation attribute를 이긴다. 여기에 `font-size`를 다시 적으면
+ * 인라인 값이 조용히 무시되고, 이름표가 뷰박스를 넘는지 계산한 결과와 실제로
+ * 그려지는 크기가 어긋난다. 종전의 `21px`(렌더 34~46px)이 그 상태였다.
  */
 .position-chart__label {
   font-family: var(--font-sans);
-  font-size: 21px;
   font-weight: var(--font-weight-label);
+}
+
+/* 좌표축 — DESIGN_SYSTEM §9.1 축선. 굵기는 vector-effect가 고정한다. */
+.position-chart__axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.position-chart__compass {
+  font-family: var(--font-sans);
+  fill: var(--text-muted);
+}
+
+/*
+ * 좌표 범위 — 그림 밖이므로 뷰박스 배율을 타지 않는다. 일반 텍스트 토큰을 쓴다.
+ */
+.position-chart__range {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+/* §3 — 식별자용 mono는 IMO 번호·좌표 전용이다. */
+.position-chart__coord {
+  font-family: var(--font-mono);
 }
 
 .position-chart__empty {
