@@ -1,3 +1,4 @@
+import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { DaysReason, FleetVessel, RiskReason, UnavailableReason } from './types'
 
@@ -74,6 +75,31 @@ export function daysToDText(days: number | null, reason: DaysReason | null): str
     default:
       return '실적 없음'
   }
+}
+
+/**
+ * YTD CII 표시 문구 — `DESIGN_SYSTEM §4.1` 🔒.
+ *
+ * §4.1이 CII를 **소수 3자리 고정**으로 정하고 그 이유로 「자릿수 가변 금지, 정렬
+ * 붕괴」를 든다. 목록은 값이 세로로 쌓이는 자리라 자릿수가 흔들리면 소수점이 어긋나
+ * 그 취지가 바로 깨진다.
+ *
+ * **종전에는 서버 원본 문자열을 그대로 냈다** — `8.9799` · `21.7250`처럼 4자리로
+ * 나갔고, 같은 값을 3자리로 내는 CII 예측·연간 등급 화면과 어긋났다.
+ *
+ * ## 문구 함수가 자릿수까지 맡는 이유
+ *
+ * 화면에서 `formatDecimalString`을 직접 부르면 **널 가드를 호출부마다 다시 써야
+ * 하고**, vitest에 DOM 환경이 없어 그 선택을 검증할 수 없다. 이 모듈이 이미
+ * `daysToDText`·`unavailableText`로 표시 문구를 맡고 있으므로 같은 자리에 둔다.
+ *
+ * 단위는 붙이지 않는다. CII 단위는 선종의 capacity 축에서 갈리는데(`§4.1` 🔒)
+ * 선대 요약 응답에는 그 축이 없다 — 없는 값을 화면이 지어내지 않는다.
+ */
+export function ytdCiiText(value: string | null): string {
+  // 포매터는 십진 문자열이 아니면 던진다. 「없음」은 포맷 대상이 아니다.
+  if (value === null) return '—'
+  return formatDecimalString(value, DISPLAY_DIGITS.cii)
 }
 
 /**

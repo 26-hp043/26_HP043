@@ -16,6 +16,7 @@ import {
   unavailableText,
   detailStatusText,
   underwayStateText,
+  ytdCiiText,
   warningBannerText,
   type SortKey,
 } from './fleetRules'
@@ -353,7 +354,8 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
           <span className="vessel__stats">
             <span>
               <b className="vessel__k">YTD</b>
-              {vessel.ytdAttainedCii ?? '—'}
+              {/* 자릿수는 `DESIGN_SYSTEM §4.1`(🔒)이 정한다 — 원본은 4자리로 온다. */}
+              {ytdCiiText(vessel.ytdAttainedCii)}
             </span>
             {/*
              * 값이 없는 선박에는 「D등급까지」 대신 **왜 없는지**를 쓴다 (`#419`).
