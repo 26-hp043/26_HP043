@@ -3,11 +3,19 @@ import { Link, useParams } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { ciiUnit } from '../voyage-cii/resultRules'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  formatDecimalString,
+  formatGrouped,
+  formatPercent,
+} from '../../display/format'
 import { createApiRealtimeCiiProvider, RealtimeCiiError } from './apiProvider'
 import {
   POLL_INTERVAL_MS,
   RATING_TRANSITION_TEXT,
   formatAsOf,
+  formatOrNull,
   isDegradingAtBerth,
   isNotUnderWay,
   projectionDirection,
@@ -188,11 +196,41 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         {data.ytd.dataAvailable && data.ytd.rating ? (
           <div className="ytd">
             <RatingTransitionView data={data} current={data.ytd.rating} />
+            {/*
+              자릿수는 `DESIGN_SYSTEM §4`(🔒)가 정한다 — CII 3자리(`§4.1`),
+              거리 0자리·연료 1자리(`§4.2`). 종전에는 서버 원본 문자열을 그대로
+              내보내 `8.979907` · `4300.00 nm`처럼 화면마다 자릿수가 갈렸다.
+
+              단위는 `DISPLAY_UNITS`를 참조한다. 리터럴로 박으면 표기가 바뀔 때
+              일부가 남고, 그 누락은 화면이 깨지지 않아 발견이 늦다(#164).
+            */}
             <dl className="ytd__figures">
-              <Figure label="실적 (attained)" value={data.ytd.attainedCii} />
-              <Figure label="기준 (required)" value={data.ytd.requiredCii} />
-              <Figure label="누적 거리" value={data.ytd.totalDistanceNm} suffix=" nm" />
-              <Figure label="누적 연료" value={data.ytd.totalFuelTon} suffix=" t" />
+              <Figure
+                label="실적 (attained)"
+                value={formatOrNull(data.ytd.attainedCii, (v) =>
+                  formatDecimalString(v, DISPLAY_DIGITS.cii),
+                )}
+              />
+              <Figure
+                label="기준 (required)"
+                value={formatOrNull(data.ytd.requiredCii, (v) =>
+                  formatDecimalString(v, DISPLAY_DIGITS.cii),
+                )}
+              />
+              <Figure
+                label="누적 거리"
+                value={formatOrNull(data.ytd.totalDistanceNm, (v) =>
+                  formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+                )}
+                suffix={` ${DISPLAY_UNITS.distance}`}
+              />
+              <Figure
+                label="누적 연료"
+                value={formatOrNull(data.ytd.totalFuelTon, (v) =>
+                  formatGrouped(v, DISPLAY_DIGITS.fuelTon),
+                )}
+                suffix={` ${DISPLAY_UNITS.fuel}`}
+              />
             </dl>
           </div>
         ) : (
@@ -289,25 +327,57 @@ function VoyagePanel({ data, unit }: { data: RealtimeCii; unit: string }) {
       {ratio !== null ? (
         <div className="rt__progress" aria-label="항해 진행률">
           <div className="rt__progress-bar" style={{ inlineSize: `${ratio * 100}%` }} />
-          <span className="rt__progress-text num">{Math.round(ratio * 100)}%</span>
+          {/*
+            `§4.2` 「비율」 — 백분율 1자리. `Math.round(ratio * 100)`은 화면이
+            직접 셈하는 것이라 규정 자릿수와 무관하게 정수로 떨어졌다.
+          */}
+          <span className="rt__progress-text num">{formatPercent(String(ratio))}%</span>
         </div>
       ) : null}
 
       <dl className="ytd__figures rt__voyage-figures">
-        <Figure label="누적 거리" value={voyage.distanceNm} suffix=" nm" />
-        {/* 계획이 없으면 「남은 거리」를 만들지 않는다 — 0은 「다 왔다」로 읽힌다. */}
+        <Figure
+          label="누적 거리"
+          value={formatOrNull(voyage.distanceNm, (v) =>
+            formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+          )}
+          suffix={` ${DISPLAY_UNITS.distance}`}
+        />
+        {/*
+          계획이 없으면 「남은 거리」를 만들지 않는다 — 0은 「다 왔다」로 읽힌다.
+          `remainingDistanceNm`은 뺄셈을 하느라 숫자를 내주므로 여기서 문자열로
+          되돌려 같은 포매터를 태운다. 그 함수의 반올림은 계산 보조라 건드리지 않는다.
+        */}
         <Figure
           label="남은 거리"
-          value={remaining === null ? null : String(remaining)}
-          suffix=" nm"
+          value={formatOrNull(remaining === null ? null : String(remaining), (v) =>
+            formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+          )}
+          suffix={` ${DISPLAY_UNITS.distance}`}
         />
-        <Figure label="누적 연료" value={voyage.fuelTon} suffix=" t" />
-        <Figure label="항해 시간" value={voyage.underwayHours} suffix=" h" />
+        <Figure
+          label="누적 연료"
+          value={formatOrNull(voyage.fuelTon, (v) =>
+            formatGrouped(v, DISPLAY_DIGITS.fuelTon),
+          )}
+          suffix={` ${DISPLAY_UNITS.fuel}`}
+        />
+        <Figure
+          label="항해 시간"
+          value={formatOrNull(voyage.underwayHours, (v) =>
+            formatDecimalString(v, DISPLAY_DIGITS.durationHours),
+          )}
+          suffix={` ${DISPLAY_UNITS.duration}`}
+        />
       </dl>
 
       <div className="rt__segment">
         <span className="rt__segment-label">구간 CII</span>
-        <span className="num rt__segment-value">{voyage.attainedCii ?? '—'}</span>
+        <span className="num rt__segment-value">
+          {formatOrNull(voyage.attainedCii, (v) =>
+            formatDecimalString(v, DISPLAY_DIGITS.cii),
+          ) ?? '—'}
+        </span>
         <span className="rt__segment-unit">{unit}</span>
       </div>
 
@@ -411,7 +481,11 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
           />
         ) : null}
         <div>
-          <p className="rt__projection-value num">{projection.attainedCii ?? '—'}</p>
+          <p className="rt__projection-value num">
+            {formatOrNull(projection.attainedCii, (v) =>
+              formatDecimalString(v, DISPLAY_DIGITS.cii),
+            ) ?? '—'}
+          </p>
           {direction ? (
             <p className={`rt__direction rt__direction--${direction.toLowerCase()}`}>
               {direction === 'IMPROVING'
@@ -445,11 +519,21 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
             </div>
             <div>
               <dt>일평균 거리</dt>
-              <dd className="num">{projection.assumptions.dailyDistanceNm ?? '—'} nm</dd>
+              <dd className="num">
+                {formatOrNull(projection.assumptions.dailyDistanceNm, (v) =>
+                  formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+                ) ?? '—'}{' '}
+                {DISPLAY_UNITS.distance}
+              </dd>
             </div>
             <div>
               <dt>일평균 연료</dt>
-              <dd className="num">{projection.assumptions.dailyFuelTon ?? '—'} t</dd>
+              <dd className="num">
+                {formatOrNull(projection.assumptions.dailyFuelTon, (v) =>
+                  formatGrouped(v, DISPLAY_DIGITS.fuelTon),
+                ) ?? '—'}{' '}
+                {DISPLAY_UNITS.fuel}
+              </dd>
             </div>
           </dl>
         </details>

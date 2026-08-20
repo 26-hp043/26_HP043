@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DISPLAY_DIGITS,
+  formatDecimalString,
+  formatGrouped,
+} from '../../display/format'
+import {
   POLL_INTERVAL_MS,
   RATING_TRANSITION_TEXT,
+  formatOrNull,
   isDegradingAtBerth,
   isNotUnderWay,
   projectionDirection,
@@ -297,5 +303,94 @@ describe('사유·경고 문구', () => {
 
   it('모르는 경고 코드도 코드를 그대로 보여 준다', () => {
     expect(warningText('NEW_WARNING')).toBe('NEW_WARNING')
+  })
+})
+
+/**
+ * 표시 자릿수 — `DESIGN_SYSTEM §4`(🔒).
+ *
+ * 이 화면은 서버 원본 문자열을 그대로 내보내고 있었다(`8.979907` · `4300.00 nm`).
+ * 자릿수가 화면마다 갈리면 `§4.1`이 「자릿수 가변 금지, 정렬 붕괴」로 막으려던
+ * 상태가 그대로 생긴다.
+ *
+ * `AGENTS §4.6`에 따라 **문구는 리터럴로 단언하지 않는다.** 다만 자릿수와
+ * 구분자는 `§4`가 확정한 값이므로 그 성질 자체를 단언한다.
+ *
+ * 여기서 검증하는 것은 **필드와 포매터의 짝**이다. 화면이 어떤 포매터를 고르는지가
+ * 이 화면의 결함이 나는 자리이고, vitest에 DOM 환경이 없어 렌더 결과로는 잡을 수
+ * 없다. `BASE`는 `API_SPEC §2.14` 응답 예시에서 온 값이라 실제 자릿수를 그대로 쓴다.
+ */
+describe('표시 자릿수 — DESIGN_SYSTEM §4', () => {
+  const cii = (v: string) => formatDecimalString(v, DISPLAY_DIGITS.cii)
+  const distance = (v: string) => formatGrouped(v, DISPLAY_DIGITS.distanceNm)
+  const fuel = (v: string) => formatGrouped(v, DISPLAY_DIGITS.fuelTon)
+
+  const decimals = (s: string) => {
+    const dot = s.indexOf('.')
+    return dot === -1 ? 0 : s.length - dot - 1
+  }
+
+  it('CII 넷이 모두 소수 3자리다 (§4.1)', () => {
+    // 원본은 6자리다 — 그대로 내보내면 여기서 걸린다.
+    const values = [
+      BASE.ytd.attainedCii,
+      BASE.ytd.requiredCii,
+      BASE.projection.attainedCii,
+      BASE.currentVoyage!.attainedCii,
+    ]
+    for (const raw of values) {
+      expect(decimals(cii(raw!))).toBe(DISPLAY_DIGITS.cii)
+    }
+  })
+
+  it('CII에는 천단위 구분자를 넣지 않는다 (§4.2 GROUPED_FIELDS 제외)', () => {
+    // 구분자는 §4.1이 자릿수 고정으로 확보한 소수부 정렬을 방해한다.
+    expect(cii('1234.567800')).not.toContain(',')
+  })
+
+  it('거리는 소수점이 없다 (§4.2)', () => {
+    expect(distance(BASE.ytd.totalDistanceNm!)).not.toContain('.')
+    expect(distance(BASE.currentVoyage!.distanceNm!)).not.toContain('.')
+  })
+
+  it('거리가 1000 이상이면 천단위 구분자가 붙는다 (§4.2)', () => {
+    // BASE의 누적 거리는 10620이다.
+    expect(distance(BASE.ytd.totalDistanceNm!)).toContain(',')
+    expect(distance('999')).not.toContain(',')
+  })
+
+  it('연료는 소수 1자리다 (§4.2)', () => {
+    expect(decimals(fuel(BASE.ytd.totalFuelTon!))).toBe(DISPLAY_DIGITS.fuelTon)
+    expect(decimals(fuel(BASE.currentVoyage!.fuelTon!))).toBe(DISPLAY_DIGITS.fuelTon)
+  })
+})
+
+describe('formatOrNull — 값이 없으면 포매터를 부르지 않는다', () => {
+  it('null이면 null을 돌려주고 포매터를 호출하지 않는다', () => {
+    /*
+     * 포매터는 십진 문자열이 아니면 TypeError를 던진다. null을 그대로 넘기면
+     * 화면이 죽으므로, 호출 자체가 일어나지 않아야 한다.
+     */
+    let called = 0
+    const format = (v: string) => {
+      called += 1
+      return v
+    }
+
+    expect(formatOrNull(null, format)).toBeNull()
+    expect(called).toBe(0)
+  })
+
+  it('값이 있으면 포매터를 태워 돌려준다', () => {
+    expect(formatOrNull('4300.00', (v) => formatGrouped(v, DISPLAY_DIGITS.distanceNm)))
+      .toBe('4,300')
+  })
+
+  it('포매터에 null이 넘어가면 던진다 — 가드가 필요한 이유', () => {
+    // 이 단언이 깨지면 포매터가 조용히 통과시키기 시작한 것이고,
+    // 그때는 잘못된 값이 화면에 나간다.
+    expect(() =>
+      formatDecimalString(null as unknown as string, DISPLAY_DIGITS.cii),
+    ).toThrow()
   })
 })
