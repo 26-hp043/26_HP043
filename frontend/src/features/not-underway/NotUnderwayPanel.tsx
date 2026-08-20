@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createApiNotUnderwayProvider, NotUnderwayError } from './apiProvider'
+import { DISPLAY_DIGITS, DISPLAY_UNITS } from '../../display/format'
 import {
   CONSUMER_TYPE_LABELS,
   PERIOD_TYPE_LABELS,
@@ -8,6 +9,7 @@ import {
   labelOf,
   toIso,
   toLocalInput,
+  quantityText,
   totalFuelTon,
   validateDraft,
   type DraftErrors,
@@ -197,12 +199,16 @@ function PeriodRow({
           <dt>연료</dt>
           {/* 0건과 0톤은 다르다 — 안 넣은 것과 안 쓴 것을 같게 적지 않는다. */}
           <dd className="num">
-            {period.fuelUses.length === 0 ? '미입력' : `${totalFuelTon(period)} t`}
+            {period.fuelUses.length === 0
+              ? '미입력'
+              : `${quantityText(totalFuelTon(period), DISPLAY_DIGITS.fuelTon)} ${DISPLAY_UNITS.fuel}`}
           </dd>
         </div>
         <div>
           <dt>이동 거리</dt>
-          <dd className="num">{period.distanceNm} nm</dd>
+          <dd className="num">
+            {quantityText(period.distanceNm, DISPLAY_DIGITS.distanceNm)} {DISPLAY_UNITS.distance}
+          </dd>
         </div>
         <div>
           <dt>규제연도</dt>
@@ -216,7 +222,9 @@ function PeriodRow({
             <li key={fu.id}>
               <span>{labelOf(fu.consumerType, CONSUMER_TYPE_LABELS)}</span>
               <span>{fu.fuelType}</span>
-              <span className="num">{fu.fuelTon} t</span>
+              <span className="num">
+                {quantityText(fu.fuelTon, DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
+              </span>
               {/* CF는 서버가 뜬 snapshot이다. 표시만 하고 편집하지 않는다. */}
               <span className="num nu__cf">CF {fu.cfUsed}</span>
             </li>
