@@ -143,11 +143,13 @@ async def test_voyage_report_carries_summary_and_fuel(session, vessel_id):
 
     summary = _section(document, "항차 요약")
     assert ("출발", "Busan") in summary.rows
-    assert ("거리 — 실적", "3100.00") in summary.rows
+    # 표시 형식은 `DESIGN_SYSTEM §4`다 (#584). 종전에는 `API_SPEC §1.7` 직렬화
+    # 자릿수(`3100.00`)가 문서에 그대로 나가 화면(`3,100 nm`)과 달랐다.
+    assert ("거리 — 실적", "3,100") in summary.rows
 
     fuels = _section(document, "연료 내역")
     assert fuels.rows[0][0] == "HFO"
-    assert fuels.rows[0][2] == "260.00"  # 실적
+    assert fuels.rows[0][2] == "260.0"  # 실적 — §4.2 🔒 연료 1자리
 
 
 @pytest.mark.asyncio
@@ -201,7 +203,11 @@ async def test_scenario_section_quotes_stored_history(session, vessel_id):
     assert isinstance(section, TableSection)
     assert section.rows[0][0] == "감속 (채택)"
     # 저장된 값 그대로 — 재계산 흔적이 없어야 한다.
-    assert section.rows[0][5] == "12.345679"
+    #
+    # ⚠️ **표시 반올림은 재계산이 아니다** (#584). 저장된 `12.345679`를 `§4.1` 🔒대로
+    # 3자리로 **보이는** 것이며, 값을 다시 만들지 않는다. 종전에는 6자리가 그대로
+    # 나가 「저장값을 인용했다」의 증거 역할을 겸했으나, 그 증거는 아래 note가 맡는다.
+    assert section.rows[0][5] == "12.346"
     assert "재계산하지 않음" in section.note
 
 
@@ -274,7 +280,8 @@ async def test_not_underway_section_splits_by_type(session, vessel_id):
     document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
     section = _section(document, "not under way 기여")
 
-    assert section.rows[0] == ["운하 통과", "1", "80.00", "15.00"]
+    # §4.2 🔒 — 거리 0자리 · 연료 1자리 (#584)
+    assert section.rows[0] == ["운하 통과", "1", "80", "15.0"]
 
 
 @pytest.mark.asyncio

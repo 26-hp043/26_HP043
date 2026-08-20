@@ -1315,7 +1315,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_cii_history.py` | 7 | §4 API · 선박·항차·계산 |
 | `test_fleet_summary.py` | 36 | **§4 API · 선대 요약** — 규제 트리거 판정 · `days_to_d` 산식·경계 6종 · KPI 집계 · 한 척 실패의 격리(`#419`) |
 | `test_mail_link.py` | 5 | **§4.7 인증 API** — 메일 링크가 프론트엔드를 가리키는지 (`#429` 회귀) |
-| `test_reports.py` | 21 | **§3.4~§3.5 리포트 렌더링** — CSV injection 방어 · BOM · 면책 · 한글 PDF |
+| `test_reports.py` | 33 | **§3.4~§3.5 리포트 렌더링** — CSV injection 방어 · BOM · 면책 · 한글 PDF · **`DESIGN_SYSTEM §4` 표시 형식**(자릿수·천단위 구분자·선종 표기·KST 시각). 문서가 직렬화 자릿수를 그대로 내보내 화면과 갈렸다 (`#584`) |
 | `test_reports_db.py` | 18 | **§4 API · 리포트 데이터 수집** — 진행 중 항차 제외 · 시나리오 인용 · 값 재계산 금지 |
 | `test_annual_simulation_api_db.py` | 14 | **§4 API · 기능③ 실행** — 스냅샷 격리 · 정책 필터링 · 분포 프로파일 기록 |
 | `test_annual_simulation_read_db.py` | 18 | **§4 API · 기능③ 조회·재실행** — 조회가 다시 계산하지 않는지 · 스냅샷 항차 표현 · 재현 판정(파라미터 변경 409 / 재현 실패 500) (`#443`) |
@@ -1386,7 +1386,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_ytd_engine.py` | 0 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 95개 파일 · 1205 함수 · 1476 수집.** (2026-08-20 실측)
+**합계 95개 파일 · 1216 함수 · 1495 수집.** (2026-08-20 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
