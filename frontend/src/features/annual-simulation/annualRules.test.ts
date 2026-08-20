@@ -3,6 +3,7 @@ import {
   probabilityOfDorE,
   reproducibilityLine,
   riskFlag,
+  selectedYear,
   sensitivityRows,
   stackSegments,
   toPercent,
@@ -103,5 +104,31 @@ describe('표시 변환', () => {
     expect(line).toContain('0x3039')
     expect(line).toContain('PCG64DXSM')
     expect(line).toContain('5000')
+  })
+})
+
+describe('selectedYear — 기준연도 선택 유지 규칙 (#558)', () => {
+  const YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030]
+
+  it('고른 해가 새 목록에도 있으면 유지한다', () => {
+    // 선박을 바꿀 때마다 되돌아가면 사용자가 방금 고른 값을 잃는다.
+    expect(selectedYear('2024', YEARS)).toBe('2024')
+  })
+
+  it('없으면 가장 최근 해를 고른다', () => {
+    // 「올해 남은 항차로 목표를 맞출 수 있는가」를 보는 화면이라(PRD §12)
+    // 과거 연도를 기본으로 두면 첫 화면이 의미를 잃는다.
+    expect(selectedYear('2019', YEARS)).toBe('2030')
+    expect(selectedYear('', YEARS)).toBe('2030')
+  })
+
+  it('목록이 비면 값을 지어내지 않는다', () => {
+    // 종전 고정값(2026)이 정확히 그 형태였고 사용자는 다른 해를 볼 수 없었다.
+    expect(selectedYear('2026', [])).toBe('')
+    expect(selectedYear('', [])).toBe('')
+  })
+
+  it('문자열 비교로 놓치지 않는다 — 목록은 숫자다', () => {
+    expect(selectedYear('2026', [2026])).toBe('2026')
   })
 })

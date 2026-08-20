@@ -12,7 +12,7 @@ import {
 import { DISPLAY_UNITS } from '../../display/format'
 import { createVoyageCiiProvider } from './providerSelection'
 import { useShellContext } from '../../layout/shellContext'
-import { createYearCatalog } from './yearCatalog'
+import { createYearCatalog } from '../parameters/yearCatalog'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import type { ResultState } from './resultRules'
 

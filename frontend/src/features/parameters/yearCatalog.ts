@@ -1,9 +1,17 @@
-import { createApiParametersProvider, ParametersError } from '../parameters/apiProvider'
-import { DEFAULT_API_BASE_URL } from './apiProvider'
-import { API_BASE_URL_ENV_KEY } from './providerSelection'
+import { createApiParametersProvider, ParametersError } from './apiProvider'
+import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 
 /**
- * 규제연도 선택지의 데이터 경계 (#534).
+ * 규제연도 선택지의 데이터 경계 (#534 · #558).
+ *
+ * ## 왜 `features/parameters` 아래인가
+ *
+ * 종전에는 `features/voyage-cii/` 안에 있었다. `#558`이 **연간 등급 관리 화면도 같은
+ * 목록을 쓰게** 하면서, 그 자리에 두면 기능③이 기능① 모듈을 import하게 된다 —
+ * `FUEL_CF`를 `voyage-cii/referenceTable`에서 끌어 쓰던 상태가 경로만 바꿔 남는 것이다.
+ * `/parameters/*` 접근은 이 기능이 소유하며 `fuelCatalog.ts`(#542 · #568)가 같은
+ * 판단으로 여기 있다.
  *
  * ## 왜 이제 만드는가
  *
