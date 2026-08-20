@@ -219,6 +219,7 @@
   gap: var(--space-4);
 }
 
+.scenario-comparison__form-title-en,
 .scenario-comparison__title-en {
   color: var(--color-text-muted);
   font-size: var(--font-size-h3);
