@@ -13,6 +13,8 @@ DB 없이 돈다 — 문서 모델을 손으로 만들어 **렌더러만** 본�
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
 
 from cii_platform.reports.csv_export import BOM, render_csv, sanitize
@@ -271,3 +273,176 @@ def test_pdf_error_names_the_cause_and_offers_csv():
     assert error.http_status == 500  # 배포 환경 문제이지 요청 문제가 아니다
     assert "CSV" in error.message
     assert "libpango" in error.message
+
+
+# ---------------------------------------------------------------------------
+# 표시 형식 — DESIGN_SYSTEM §4 (#584)
+# ---------------------------------------------------------------------------
+#
+# 보고서가 **``API_SPEC §1.7`` 직렬화 자릿수를 사람이 읽는 문서에 그대로 출력**하고
+# 있었다. 화면은 같은 값을 ``8.980``·``4,300 nm``로 보이는데 문서만 ``8.979907``·
+# ``4300.00``이라, **같은 항차가 두 곳에서 다르게 읽혔다.**
+#
+# 디자인 담당이 발표 리허설에서 발견했다(2026-08-20). PDF는 심사에 나가는 산출물이라
+# 화면보다 오래 남는다.
+
+
+@pytest.mark.parametrize(
+    ("value", "kind", "expected"),
+    [
+        # §4.1 🔒 CII는 소수 3자리 고정, 절사가 아니라 반올림
+        ("8.9799070", "cii", "8.980"),
+        ("5.0450660", "cii", "5.045"),
+        # §4.2 🔒 항해거리 0자리 + 천단위 구분자
+        ("4300", "distance_nm", "4,300"),
+        ("12480", "distance_nm", "12,480"),
+        ("999.5", "distance_nm", "1,000"),
+        # §4.2 🔒 연료 1자리 + 구분자
+        ("620", "fuel_ton", "620.0"),
+        ("12480.55", "fuel_ton", "12,480.6"),
+        # §4.2 🔒 CO₂ 1자리 + 구분자
+        ("1930.68", "co2_ton", "1,930.7"),
+        # §4.2 🔒 시간 1자리 (구분자 없음 — GROUPED가 아니다)
+        ("83.333", "hours", "83.3"),
+    ],
+)
+def test_display_follows_design_system_section_4(value, kind, expected):
+    from decimal import Decimal
+
+    from cii_platform.services.report import _display
+
+    assert _display(Decimal(value), kind) == expected
+
+
+def test_cii_has_no_thousands_separator():
+    """§4.2 🔒 — 구분자는 연료·거리·CO₂ 전용이다.
+
+    CII에 넣으면 `§4.1`이 자릿수 고정으로 확보한 소수부 정렬이 깨진다.
+    """
+    from decimal import Decimal
+
+    from cii_platform.services.report import _display
+
+    assert "," not in _display(Decimal("1234.5678"), "cii")
+
+
+def test_speed_keeps_its_digits_because_section_4_has_no_row():
+    """`§4.2` 자릿수 표에 **속력 행이 없다.**
+
+    규정이 없는 값에 자릿수를 지어내지 않는다. 화면도 속력은 서버 값을 가공 없이
+    보인다(`ScenarioComparison.tsx`). 규정이 생기면 표시 자릿수 표로 옮긴다.
+    """
+    from decimal import Decimal
+
+    from cii_platform.services.report import _display
+
+    assert _display(Decimal("14.2"), "speed_kn") == "14.20"
+
+
+def test_zero_digit_kind_is_not_treated_as_missing():
+    """거리의 자릿수는 **0**이라 falsy다.
+
+    `_DISPLAY_DIGITS.get(kind) or …`로 쓰면 규정이 있는 항목이 「규정 없음」으로
+    새어 나간다. 실제로 그렇게 썼다가 걸렸다 — 그 경로를 잠근다.
+    """
+    from decimal import Decimal
+
+    from cii_platform.services.report import _display
+
+    assert _display(Decimal("4300"), "distance_nm") == "4,300"
+
+
+def test_missing_value_is_em_dash():
+    """빈칸은 열이 밀린 것으로 읽힌다."""
+    from cii_platform.services.report import _display
+
+    assert _display(None, "cii") == "—"
+
+
+# ---------------------------------------------------------------------------
+# 선종 표시 문구 (#584)
+# ---------------------------------------------------------------------------
+
+
+def test_ship_type_code_is_not_exposed():
+    """문서에 `BULK_CARRIER`가 그대로 나가면 읽는 사람이 무엇인지 모른다."""
+    from cii_platform.reports.labels import ship_type_label
+
+    assert ship_type_label("BULK_CARRIER") == "벌크선"
+
+
+def test_unknown_ship_type_shows_the_code():
+    """빈칸으로 두면 「선종이 없는 배」로 읽힌다.
+
+    새 선종이 들어왔는데 표기가 아직 없는 상태와, 값이 비어 있는 상태는 다르다.
+    """
+    from cii_platform.reports.labels import ship_type_label
+
+    assert ship_type_label("NEW_SHIP_TYPE") == "NEW_SHIP_TYPE"
+    assert ship_type_label(None) == "—"
+
+
+def test_ship_type_labels_match_the_screen():
+    """화면(`shipTypes.ts`)과 **같은 문구**를 쓴다.
+
+    선종의 한국어 이름은 `AGENTS §4.6` 기준 **표시 문구**이고 소관은 디자인이다.
+    서버가 표기를 새로 정하면 두 곳이 갈리고, 그 차이는 **문서를 열어 봐야만**
+    드러난다. 여기서 대조해 그 경로를 끊는다.
+    """
+    import re
+    from pathlib import Path
+
+    from cii_platform.reports.labels import SHIP_TYPE_LABELS
+
+    source = (
+        Path(__file__).parents[1]
+        / "frontend"
+        / "src"
+        / "features"
+        / "vessel-registration"
+        / "shipTypes.ts"
+    ).read_text(encoding="utf-8")
+    screen = dict(re.findall(r"\{ code: '([A-Z_]+)', label: '([^']+)'", source))
+
+    assert screen, "shipTypes.ts에서 선종을 읽지 못했다 — 파일 형식이 바뀌었는지 확인할 것"
+    assert screen == SHIP_TYPE_LABELS
+
+
+def test_ship_type_labels_cover_the_calc_ship_types():
+    """코드 집합의 정본은 `calc/capacity.py`다 (`PRD §3.4.3`)."""
+    from cii_platform.calc.capacity import DWT_BASED_SHIP_TYPES, GT_BASED_SHIP_TYPES
+    from cii_platform.reports.labels import SHIP_TYPE_LABELS
+
+    assert set(SHIP_TYPE_LABELS) == set(DWT_BASED_SHIP_TYPES | GT_BASED_SHIP_TYPES)
+
+
+# ---------------------------------------------------------------------------
+# 시각 표기 (#584)
+# ---------------------------------------------------------------------------
+
+
+def test_report_time_is_local_not_utc_iso():
+    """종전에는 `isoformat()`이 그대로 나가 UTC에 마이크로초까지 실렸다.
+
+    화면은 같은 시각을 KST로 보이므로 읽는 사람이 9시간 어긋난 값을 보게 된다.
+    """
+    from datetime import datetime
+
+    from cii_platform.services.report import _local_time
+
+    shown = _local_time(datetime(2026, 8, 20, 8, 34, 36, 889061, tzinfo=UTC))
+
+    assert shown == "2026-08-20 17:34:36 KST"
+    # ISO 구분자 `T`가 아니라 공백이다. (`"T" not in shown`으로 쓰면 "KST"에 걸린다 —
+    # 실제로 그렇게 썼다가 이 테스트가 잡았다.)
+    assert "2026-08-20T" not in shown
+    # 마이크로초를 문서에 싣지 않는다.
+    assert "889061" not in shown
+    # UTC 시각(08:34)이 아니라 KST(17:34)다.
+    assert "17:34:36" in shown
+
+
+def test_report_time_handles_missing_value():
+    from cii_platform.services.report import _local_time
+
+    assert _local_time(None) == "—"
