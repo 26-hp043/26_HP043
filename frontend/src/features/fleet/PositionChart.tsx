@@ -150,7 +150,63 @@ function labelPlacement(name: string, x: number, y: number) {
     // 아래로 뒤집을 때는 글자의 윗변이 마커에 닿지 않게 한 줄 높이를 더한다.
     y: flipped ? y + LABEL_OFFSET + LABEL_FONT : above,
     anchor,
+    halfWidth,
+    /** 정렬 기준이 바뀌어도 글자 덩어리의 **가운데** — 겹침 판정에 쓴다. */
+    centerX: anchor === 'end' ? labelX - halfWidth : anchor === 'start' ? labelX + halfWidth : labelX,
   }
+}
+
+/** 이름표 두 줄이 서로 붙지 않게 두는 최소 간격. */
+const LABEL_GAP = LABEL_FONT + 3
+
+/**
+ * 이름표끼리 겹치면 아래로 밀어 낸다.
+ *
+ * ## 왜 필요한가
+ *
+ * 투영이 좌표의 최소~최대에 자동으로 맞추므로, **한 척이 멀리 있으면 나머지가
+ * 한 구석으로 몰린다.** 데모 데이터가 정확히 그렇다 — 컨테이너선이 수에즈(32°E)에
+ * 있어서 경도 폭이 96도가 되고, 부산 근처 세 척이 오른쪽 끝에 뭉친다. 그중 둘은
+ * 좌표가 소수점 둘째 자리까지 같아 **사실상 한 점**이다.
+ *
+ * 데모의 특수 상황이 아니다. 같은 항구에 두 척이 있으면 실제 선대에서도 늘 생긴다.
+ *
+ * ## 어떻게
+ *
+ * y 순으로 훑으며, **가로로 겹치는** 앞선 이름표와 세로 간격이 모자라면 그만큼
+ * 내린다. 가로가 안 겹치면 같은 높이여도 그냥 둔다 — 차트 양 끝에 하나씩 있는
+ * 이름표를 굳이 어긋나게 놓을 이유가 없다.
+ *
+ * 마커를 피하지는 않는다. 뭉친 자리에서 글자가 마커 위를 지나는 것은 피할 수
+ * 없으므로, 대신 CSS에서 글자에 **배경색 테두리(halo)** 를 둘러 읽히게 한다.
+ *
+ * ## 바닥에서 멈춘다
+ *
+ * 밀어 내기만 하면 한 점에 다섯 척이 모였을 때 아래쪽 이름표가 뷰박스를 넘어
+ * **잘려 사라진다.** 겹치는 것보다 나쁘다 — 겹친 글자는 halo 덕에 읽히지만
+ * 잘린 글자는 없는 것과 같다. 그래서 한도에 닿으면 더 내리지 않고 겹침을 받는다.
+ */
+function resolveCollisions<T extends { y: number; centerX: number; halfWidth: number }>(
+  labels: T[],
+): T[] {
+  /** 글자 밑변이 여기를 넘으면 잘린다. */
+  const maxY = VIEW_H - LABEL_EDGE
+  const sorted = [...labels].sort((a, b) => a.y - b.y)
+
+  for (let i = 1; i < sorted.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const above = sorted[j]
+      const below = sorted[i]
+      const overlapsHorizontally =
+        Math.abs(above.centerX - below.centerX) < above.halfWidth + below.halfWidth
+
+      if (overlapsHorizontally && below.y - above.y < LABEL_GAP) {
+        sorted[i] = { ...below, y: Math.min(above.y + LABEL_GAP, maxY) }
+      }
+    }
+  }
+
+  return sorted
 }
 
 interface Positioned {
@@ -194,6 +250,21 @@ export function PositionChart({ vessels }: PositionChartProps) {
     x: PADDING + ((p.lon - minLon) / lonSpan) * (VIEW_W - PADDING * 2),
     y: PADDING + (1 - (p.lat - minLat) / latSpan) * (VIEW_H - PADDING * 2),
   })
+
+  /*
+   * 이름표 자리를 **마커를 그리기 전에 한 번에** 정한다. 겹침은 이름표 하나만
+   * 봐서는 알 수 없고 서로를 알아야 판정되기 때문이다. 마커 렌더 루프 안에서
+   * 각자 계산하면 옆 이름표의 존재를 모른다.
+   */
+  const labels = resolveCollisions(
+    points
+      .filter((p) => isAtRisk(p.vessel))
+      .map((p) => {
+        const { x, y } = project(p)
+        return { id: p.vessel.id, name: p.vessel.name, ...labelPlacement(p.vessel.name, x, y) }
+      }),
+  )
+  const labelById = new Map(labels.map((l) => [l.id, l]))
 
   return (
     <>
@@ -259,6 +330,8 @@ export function PositionChart({ vessels }: PositionChartProps) {
         const dotClass = risky
           ? 'position-chart__dot position-chart__dot--risk'
           : 'position-chart__dot'
+        // 위험 선박에만 이름표가 있다(§14) — 없으면 `undefined`다.
+        const place = labelById.get(point.vessel.id)
 
         return (
           <g key={point.vessel.id}>
@@ -278,22 +351,17 @@ export function PositionChart({ vessels }: PositionChartProps) {
               fill="none"
               vectorEffect="non-scaling-stroke"
             />
-            {risky ? (
-              (() => {
-                const place = labelPlacement(point.vessel.name, x, y)
-                return (
-                  <text
-                    className="position-chart__label"
-                    x={place.x}
-                    y={place.y}
-                    textAnchor={place.anchor}
-                    fontSize={LABEL_FONT}
-                    fill={color}
-                  >
-                    {point.vessel.name}
-                  </text>
-                )
-              })()
+            {place ? (
+              <text
+                className="position-chart__label"
+                x={place.x}
+                y={place.y}
+                textAnchor={place.anchor}
+                fontSize={LABEL_FONT}
+                fill={color}
+              >
+                {point.vessel.name}
+              </text>
             ) : null}
           </g>
         )
