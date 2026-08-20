@@ -446,3 +446,35 @@ def test_report_time_handles_missing_value():
     from cii_platform.services.report import _local_time
 
     assert _local_time(None) == "—"
+
+
+def test_display_accepts_serialized_strings():
+    """연간 리포트는 서비스가 이미 직렬화한 **문자열**을 받아 쓴다 (#584 2차).
+
+    1차 수정이 `Decimal` 경로만 고쳐서, 같은 문서 안에서 자릿수가 갈렸다 —
+    항차 리포트는 `8.980`인데 연간 리포트는 `8.979907`이었다.
+    """
+    from cii_platform.services.report import _display
+
+    assert _display("8.979907", "cii") == "8.980"
+    assert _display("4300.00", "distance_nm") == "4,300"
+    assert _display("620.00", "fuel_ton") == "620.0"
+    assert _display("1930.68", "co2_ton") == "1,930.7"
+
+
+def test_display_keeps_non_numeric_strings():
+    """십진 문자열이 아니면 원문을 보인다 — 문서에서 값을 잃는 것보다 낫다."""
+    from cii_platform.services.report import _display
+
+    assert _display("해당 없음", "cii") == "해당 없음"
+    assert _display("", "cii") == "—"
+
+
+def test_report_time_accepts_iso_string():
+    """`build_annual_report`는 서비스가 만든 ISO **문자열**을 받는다.
+
+    1차 수정에서 문자열을 그대로 돌려주는 분기가 있어 연간 리포트만 UTC ISO로 남았다.
+    """
+    from cii_platform.services.report import _local_time
+
+    assert _local_time("2026-08-20T08:34:36.889061+00:00") == "2026-08-20 17:34:36 KST"

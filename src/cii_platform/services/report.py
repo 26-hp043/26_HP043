@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -75,13 +76,24 @@ _GROUPED = frozenset({"distance_nm", "fuel_ton", "co2_ton"})
 _UNSPECIFIED_DIGITS = {"speed_kn": 2}
 
 
-def _display(value: Decimal | None, kind: str) -> str:
-    """``DESIGN_SYSTEM §4`` 표시 형식. 없으면 ``—``다 — 빈칸은 열이 밀린 것으로 읽힌다."""
-    if value is None:
+def _display(value: Decimal | str | None, kind: str) -> str:
+    """``DESIGN_SYSTEM §4`` 표시 형식. 없으면 ``—``다 — 빈칸은 열이 밀린 것으로 읽힌다.
+
+    **문자열도 받는다** (#584). 연간 리포트는 서비스가 이미 ``API_SPEC §1.7``로 직렬화한
+    값을 받아 쓰는데, 종전에는 그것을 ``_text()``로 그대로 내보내 **같은 문서 안에서
+    자릿수가 갈렸다** — Decimal 경로만 고친 1차 수정이 이 경로를 놓쳤다.
+    """
+    if value is None or value == "":
         return "—"
     # `or`를 쓰지 않는다 — 거리의 자릿수가 **0**이라 falsy이고, 그러면 규정이 있는
     # 항목이 「규정 없음」으로 새어 나간다. 실제로 그렇게 썼다가 이 줄에서 걸렸다.
     digits = _DISPLAY_DIGITS[kind] if kind in _DISPLAY_DIGITS else _UNSPECIFIED_DIGITS[kind]
+    if isinstance(value, str):
+        try:
+            value = Decimal(value)
+        except InvalidOperation:
+            # 십진 문자열이 아니면 원문을 그대로 보인다. 문서에서 값을 잃는 것보다 낫다.
+            return value
     quantized = Decimal(value).quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING)
     if kind not in _GROUPED:
         return str(quantized)
@@ -115,7 +127,11 @@ def _local_time(value) -> str:
     if value is None:
         return "—"
     if isinstance(value, str):
-        return value
+        # 서비스가 이미 ISO로 직렬화한 값이다. 문서에는 KST 표기로 낸다 (#584).
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return value
     if value.tzinfo is None:
         return value.strftime("%Y-%m-%d %H:%M:%S")
     return value.astimezone(_REPORT_TIMEZONE).strftime("%Y-%m-%d %H:%M:%S KST")
@@ -387,13 +403,13 @@ async def build_annual_report(
         KeyValueSection(
             title=f"{target_year}년 누적 (YTD)",
             rows=[
-                ("실적 CII (attained)", _text(ytd["attained_cii"])),
-                ("기준 CII (required)", _text(ytd["required_cii"])),
+                ("실적 CII (attained)", _display(ytd["attained_cii"], "cii")),
+                ("기준 CII (required)", _display(ytd["required_cii"], "cii")),
                 ("현재 누적 기준 예상 등급", _text(ytd["rating"])),
                 ("위험도", _text(ytd["risk_level"])),
-                ("누적 거리 (nm)", _text(ytd["total_distance_nm"])),
-                ("누적 연료 (t)", _text(ytd["total_fuel_ton"])),
-                ("누적 CO₂ (t)", _text(ytd["total_co2_ton"])),
+                ("누적 거리 (nm)", _display(ytd["total_distance_nm"], "distance_nm")),
+                ("누적 연료 (t)", _display(ytd["total_fuel_ton"], "fuel_ton")),
+                ("누적 CO₂ (t)", _display(ytd["total_co2_ton"], "co2_ton")),
                 ("항차 수", _text(ytd["voyage_count"])),
                 ("표시 단위", f"gCO₂/({current['transport_capacity_basis']}·nm)"),
             ],
@@ -418,12 +434,12 @@ async def build_annual_report(
                 [
                     str(row["regulation_year"]),
                     "진행 중" if row["status"] == "IN_PROGRESS" else "확정",
-                    _text(row["attained_cii"]),
-                    _text(row["required_cii"]),
+                    _display(row["attained_cii"], "cii"),
+                    _display(row["required_cii"], "cii"),
                     _text(row["rating"]),
                     _text(row["voyage_count"]),
-                    _text(row["total_distance_nm"]),
-                    _text(row["total_fuel_ton"]),
+                    _display(row["total_distance_nm"], "distance_nm"),
+                    _display(row["total_fuel_ton"], "fuel_ton"),
                 ]
                 for row in history["years"]
             ],
@@ -438,13 +454,13 @@ async def build_annual_report(
             KeyValueSection(
                 title="연말 예상",
                 rows=[
-                    ("예상 CII", _text(projection["attained_cii"])),
+                    ("예상 CII", _display(projection["attained_cii"], "cii")),
                     ("연말 예상 등급", _text(projection["rating"])),
                     ("산출 방식", "지금까지의 일평균이 연말까지 이어진다고 가정"),
                     ("경과 일수", _text(assumptions["elapsed_days"])),
                     ("잔여 일수", _text(assumptions["remaining_days"])),
-                    ("일평균 거리 (nm)", _text(assumptions["daily_distance_nm"])),
-                    ("일평균 연료 (t)", _text(assumptions["daily_fuel_ton"])),
+                    ("일평균 거리 (nm)", _display(assumptions["daily_distance_nm"], "distance_nm")),
+                    ("일평균 연료 (t)", _display(assumptions["daily_fuel_ton"], "fuel_ton")),
                 ],
                 note="가정이 바뀌면 값이 바뀝니다. 확정값이 아닙니다.",
             )
