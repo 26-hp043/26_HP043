@@ -30,6 +30,12 @@
   color: var(--text-primary);
 }
 
+.fleet__title-en {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-body);
+}
+
 .fleet__sub {
   margin: var(--spacing-xs) 0 0;
   font-size: var(--font-size-label);

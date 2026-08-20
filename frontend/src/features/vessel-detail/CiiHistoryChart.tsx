@@ -1,5 +1,6 @@
 import type { CapacityBasis } from '../voyage-cii/types'
 import { ciiUnit } from '../voyage-cii/resultRules'
+import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import type { CiiYear } from './types'
 
 /**
@@ -159,8 +160,17 @@ function HistoryTable({ years, unit }: { years: CiiYear[]; unit: string }) {
             <tr key={year.regulationYear}>
               <th scope="row">{year.regulationYear}</th>
               <td>{year.status === 'CONFIRMED' ? '확정' : '진행 중'}</td>
-              <td className="num">{year.attainedCii ?? '—'}</td>
-              <td className="num">{year.requiredCii ?? '—'}</td>
+              {/* §4.1 🔒 — CII·required 모두 소수 3자리 고정. 원본은 6자리다. */}
+              <td className="num">
+                {year.attainedCii === null
+                  ? '—'
+                  : formatDecimalString(year.attainedCii, DISPLAY_DIGITS.cii)}
+              </td>
+              <td className="num">
+                {year.requiredCii === null
+                  ? '—'
+                  : formatDecimalString(year.requiredCii, DISPLAY_DIGITS.cii)}
+              </td>
               {/* 등급을 색으로만 구분하지 않는다 — 문자를 그대로 싣는다 (§14). */}
               <td>{year.rating ?? '—'}</td>
               <td className="num">{year.voyageCount}</td>

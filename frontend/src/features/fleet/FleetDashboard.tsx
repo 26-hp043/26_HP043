@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
 import { GradeChip } from '../../components/GradeChip'
@@ -262,7 +263,10 @@ function FleetHead({
   return (
     <header className="fleet__head">
       <div>
-        <h1 className="fleet__title">선대 현황</h1>
+        <h1 className="fleet__title">
+          {SCREEN_BY_ID.MAINBOARD.label}
+          <span className="fleet__title-en"> {SCREEN_BY_ID.MAINBOARD.labelEn}</span>
+        </h1>  
         <p className="fleet__sub">
           {total !== undefined && regulationYear !== undefined
             ? `보유 선박 ${total}척 · ${regulationYear}년 누적(YTD) 기준`
