@@ -3,11 +3,10 @@ import {
   FIELD,
   NAME_MAX_LENGTH,
   initialFormState,
-  selectableFuels,
   specGapNotice,
   toFormErrors,
   toRequest,
-  validateForm,
+  validateForm as validateFormWith,
   type VesselFormState,
 } from './formRules'
 import { VesselRegistrationError } from './provider'
@@ -18,6 +17,31 @@ import { VesselRegistrationError } from './provider'
  * 경계값을 **함수 인자로** 넣는다. 화면 조작으로는 「7자리인지 7자리 이상인지」,
  * 「`> 0`인지 `>= 0`인지」를 정확히 찌르기 어렵다(`#135` formRules.test.ts와 같은 이유).
  */
+
+
+/**
+ * 연료 선택지 — 종전 고정표 `FUEL_CF`의 8종과 같은 코드 집합이다 (#542).
+ *
+ * 검증 함수가 목록을 **인자로 받도록** 바뀌었다. 서버(`GET /parameters/fuel-types`)가
+ * 주는 값이므로 화면 규칙이 목록을 직접 알지 않는다 — 그 사실을 테스트에서도
+ * 같은 모양으로 둔다.
+ */
+const FUELS: ReadonlyArray<{ code: string; displayName: string }> = [
+  { code: 'HFO', displayName: '고유황유' },
+  { code: 'LFO', displayName: '저유황유' },
+  { code: 'MDO', displayName: '경유' },
+  { code: 'MGO', displayName: '선박용 경유' },
+  { code: 'LNG', displayName: '액화천연가스' },
+  { code: 'LPG_PROPANE', displayName: '프로판' },
+  { code: 'LPG_BUTANE', displayName: '부탄' },
+  { code: 'METHANOL', displayName: '메탄올' },
+]
+
+/**
+ * 목록을 채워 넘기는 얇은 래퍼. 기존 호출부를 그대로 두기 위한 것이며,
+ * **주입 자체가 판정을 바꾼다는 사실은 아래 「주입된 목록이 판정을 정한다」가 잠근다.**
+ */
+const validateForm = (state: VesselFormState) => validateFormWith(state, FUELS)
 
 function state(overrides: Partial<VesselFormState> = {}): VesselFormState {
   return {
@@ -243,9 +267,19 @@ describe('toFormErrors', () => {
   })
 })
 
-describe('selectableFuels', () => {
-  it('연료 마스터 8종을 그대로 순회한다', () => {
-    expect(selectableFuels()).toHaveLength(8)
-    expect(selectableFuels().map((fuel) => fuel.code)).toContain('HFO')
+
+describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () => {
+  it('목록에 없으면 거부된다', () => {
+    expect(validateFormWith(state({ defaultFuelType: 'HFO' }), [])).toHaveProperty(
+      FIELD.defaultFuelType,
+    )
+  })
+
+  it('목록에 있으면 통과한다 — 고정표에 없던 코드라도 마찬가지다', () => {
+    expect(
+      validateFormWith(state({ defaultFuelType: 'AMMONIA' }), [
+        { code: 'AMMONIA', displayName: '암모니아' },
+      ]),
+    ).not.toHaveProperty(FIELD.defaultFuelType)
   })
 })

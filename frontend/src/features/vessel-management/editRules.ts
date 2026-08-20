@@ -1,4 +1,4 @@
-import { FUEL_CF } from '../voyage-cii/referenceTable'
+import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import { findShipType } from '../vessel-registration/shipTypes'
 import type { Vessel } from '../vessel-registration/types'
 import type { VesselUpdateRequest } from './provider'
@@ -111,7 +111,10 @@ function checkOptionalPositive(
  * 처리되지만, 사용자가 선명을 지우고 저장한 뒤 선명이 그대로인 것은 설명되지 않는
  * 동작이다. 지우려는 의도를 오류로 되돌려 준다.
  */
-export function validateEdit(state: VesselEditState): EditErrors {
+export function validateEdit(
+  state: VesselEditState,
+  fuels: readonly FuelOption[],
+): EditErrors {
   const errors: EditErrors = {}
 
   const name = state.name.trim()
@@ -142,7 +145,7 @@ export function validateEdit(state: VesselEditState): EditErrors {
     errors,
   )
 
-  if (state.defaultFuelType !== '' && !FUEL_CF[state.defaultFuelType]) {
+  if (state.defaultFuelType !== '' && !isKnownFuel(state.defaultFuelType, fuels)) {
     errors[EDIT_FIELD.defaultFuelType] = `알 수 없는 연료 종류입니다: ${state.defaultFuelType}`
   }
 

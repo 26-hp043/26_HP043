@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DISPLAY_DIGITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
 import { createDemoProvider } from './demoProvider'
 import { initialFormState, toRequest, validateForm, type VoyageCiiFormState } from './formRules'
+import { createDemoFuelCatalog } from '../parameters/fuelCatalog'
 import { ciiUnit, marginDisplay, riskLabel } from './resultRules'
 import { createDemoScenarioProvider } from '../scenario-comparison/demoProvider'
 import { lowestSummary } from '../scenario-comparison/comparisonRules'
@@ -21,6 +22,12 @@ import { createDemoAnnualProvider } from '../annual-simulation/demoProvider'
 
 const provider = createDemoProvider()
 
+/**
+ * 데모 경로의 연료 선택지. `validateForm`이 목록을 인자로 받도록 바뀌었다 (#542).
+ * 데모 카탈로그를 그대로 쓴다 — 이 파일이 재현하는 것은 8/8 데모 화면이다.
+ */
+const FUELS = await createDemoFuelCatalog().listFuels()
+
 /** 폼 상태에서 출발해 화면에 보이는 문자열까지 만든다. 화면과 같은 경로다. */
 async function runVoyage(state: Partial<VoyageCiiFormState>) {
   const form: VoyageCiiFormState = {
@@ -31,7 +38,7 @@ async function runVoyage(state: Partial<VoyageCiiFormState>) {
     fuelTon: '80',
     ...state,
   }
-  expect(validateForm(form)).toEqual({})
+  expect(validateForm(form, FUELS)).toEqual({})
 
   const data = (await provider.estimate(toRequest(form))).data
   return {
@@ -168,7 +175,7 @@ describe('H. 입력 오류 — 화면 전체가 중단되지 않는다', () => {
       fuelTon: '80',
       [key]: value,
     }
-    expect(Object.values(validateForm(form))).toContain(message)
+    expect(Object.values(validateForm(form, FUELS))).toContain(message)
   })
 
   it('여러 필드가 동시에 잘못되면 전부 표시된다', () => {
@@ -178,7 +185,7 @@ describe('H. 입력 오류 — 화면 전체가 중단되지 않는다', () => {
       speedKn: '0',
       fuelType: '',
       fuelTon: '0',
-    })
+    }, FUELS)
     expect(Object.keys(errors)).toHaveLength(4)
   })
 })

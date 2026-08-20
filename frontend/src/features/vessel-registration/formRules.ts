@@ -1,4 +1,4 @@
-import { FUEL_CF } from '../voyage-cii/referenceTable'
+import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import { VesselRegistrationError } from './provider'
 import { capacityAxisOf, findShipType } from './shipTypes'
 import type { VesselCreateRequest } from './types'
@@ -87,11 +87,6 @@ export function initialFormState(): VesselFormState {
   }
 }
 
-/** 연료 종류 선택지. `FUEL_CF` 8종을 순회한다 — 화면에 코드를 적지 않는다. */
-export function selectableFuels(): Array<{ code: string; displayName: string }> {
-  return Object.entries(FUEL_CF).map(([code, { displayName }]) => ({ code, displayName }))
-}
-
 /**
  * 십진 문자열을 숫자로. 숫자로 읽을 수 없으면 `null`.
  *
@@ -131,7 +126,10 @@ function checkOptionalPositive(
  * 서버는 첫 오류를 `message`로 쓰고 나머지는 `details`에 담는데, 화면은 필드마다
  * 붙여야 하므로 전 필드를 동시에 본다. 규칙 출처는 `API_SPEC §2.3` 검증 규칙 표다.
  */
-export function validateForm(state: VesselFormState): FormErrors {
+export function validateForm(
+  state: VesselFormState,
+  fuels: readonly FuelOption[],
+): FormErrors {
   const errors: FormErrors = {}
 
   const imo = state.imoNumber.trim()
@@ -168,7 +166,7 @@ export function validateForm(state: VesselFormState): FormErrors {
     errors,
   )
 
-  if (state.defaultFuelType !== '' && !FUEL_CF[state.defaultFuelType]) {
+  if (state.defaultFuelType !== '' && !isKnownFuel(state.defaultFuelType, fuels)) {
     errors[FIELD.defaultFuelType] = `알 수 없는 연료 종류입니다: ${state.defaultFuelType}`
   }
 

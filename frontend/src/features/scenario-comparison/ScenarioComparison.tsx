@@ -5,7 +5,6 @@ import {
   FIELD,
   NO_VESSEL_MESSAGE,
   initialFormState,
-  selectableFuels,
   toRequest,
   validateForm,
   type ComparisonFormState,
@@ -19,6 +18,7 @@ import {
   NO_AUTO_DECISION_NOTICE,
 } from './demoProvider'
 import { selectScenarioProvider } from './providerSelection'
+import { useFuelOptions } from '../parameters/fuelCatalog'
 import { lowestSummary } from './comparisonRules'
 import type { ScenarioComparisonResponse, ScenarioResult } from './types'
 
@@ -73,8 +73,9 @@ export function ScenarioComparison({
   // demo ↔ 실 API 전환은 `VITE_USE_API` 하나로 결정된다 (#139).
   const provider = useMemo(() => selectScenarioProvider(), [])
   // 선택지도 **같은 스위치**를 쓴다 (#236). 기준이 갈리면 계산은 서버로 가는데
-  // 선택지는 고정표에서 오는, 이번 이슈가 고치려는 상태가 다시 만들어진다.
-  const fuels = useMemo(() => selectableFuels(), [])
+  // 선택지는 고정표에서 오는, 그 이슈가 고치려던 상태가 다시 만들어진다.
+  // 연료 축은 `#542` PR ①이 공용 카탈로그로 옮겼다.
+  const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
   // 선박 목록·선택은 **셸이 소유한다** (#484 · #535). 종전에는 이 화면이 목록을
   // 따로 조회하고 선택도 따로 들어, 상단바에서 배를 바꿔도 여기는 그대로였다.
@@ -104,14 +105,14 @@ export function ScenarioComparison({
   }, [shellVesselId, vessels, selectVesselId])
 
   const runComparison = () => {
-    const found = validateForm(form)
+    const found = validateForm(form, fuels)
     if (Object.keys(found).length > 0) {
       setErrors(found)
       return
     }
     setErrors({})
     setState({ status: 'loading' })
-    provider.compare(toRequest(form)).then(
+    provider.compare(toRequest(form, fuels)).then(
       (response) => {
         setState({ status: 'success', response })
         onDisclaimer?.(response.disclaimer)
@@ -243,8 +244,16 @@ export function ScenarioComparison({
           value={form.fuelType}
           onChange={(e) => setForm({ ...form, fuelType: e.target.value })}
           aria-invalid={FIELD.fuelType in errors}
+          disabled={fuelsLoading || fuelsFailed}
         >
-          <option value="">선택</option>
+          {/* 로딩·실패를 「선택」과 구분해 보인다 — 빈 목록과 못 불러온 것은 다른 상태다 (#542) */}
+          <option value="">
+            {fuelsLoading
+              ? '연료 목록을 불러오는 중…'
+              : fuelsFailed
+                ? '연료 목록을 불러오지 못했습니다'
+                : '선택'}
+          </option>
           {fuels.map((fuel) => (
             <option key={fuel.code} value={fuel.code}>
               {fuel.displayName} ({fuel.code})

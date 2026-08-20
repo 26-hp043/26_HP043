@@ -1,4 +1,4 @@
-import { FUEL_CF } from '../voyage-cii/referenceTable'
+import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import type { ScenarioComparisonRequest } from './types'
 
 /**
@@ -68,11 +68,6 @@ export function initialFormState(): ComparisonFormState {
   }
 }
 
-/** 연료 종류 선택지. `FUEL_CF` 8종을 순회한다 — 화면에 코드를 다시 적지 않는다. */
-export function selectableFuels(): Array<{ code: string; displayName: string }> {
-  return Object.entries(FUEL_CF).map(([code, { displayName }]) => ({ code, displayName }))
-}
-
 /**
  * 십진 문자열을 숫자로. 읽을 수 없으면 `null`.
  *
@@ -114,7 +109,10 @@ function checkRequiredPositive(
  * 서버는 첫 오류를 `message`로 쓰고 나머지를 `details`에 담는데, 화면은 필드마다
  * 붙여야 하므로 전 필드를 동시에 본다(기능①·선박 등록과 같은 규칙).
  */
-export function validateForm(state: ComparisonFormState): FormErrors {
+export function validateForm(
+  state: ComparisonFormState,
+  fuels: readonly FuelOption[],
+): FormErrors {
   const errors: FormErrors = {}
 
   if (state.vesselId.trim() === '') {
@@ -137,7 +135,7 @@ export function validateForm(state: ComparisonFormState): FormErrors {
 
   if (state.fuelType.trim() === '') {
     errors[FIELD.fuelType] = '연료 종류를 선택해 주세요.'
-  } else if (!FUEL_CF[state.fuelType]) {
+  } else if (!isKnownFuel(state.fuelType, fuels)) {
     // VAL-006의 화면 쪽 방어선. 셀렉트로는 도달하지 않으나 오래된 상태가 남았을 때
     // 서버 422를 기다리지 않고 여기서 잡는다.
     errors[FIELD.fuelType] = `알 수 없는 연료 종류입니다: ${state.fuelType}`
@@ -151,8 +149,11 @@ export function validateForm(state: ComparisonFormState): FormErrors {
  *
  * @throws 검증되지 않은 상태로 부르면 `Error`. 항상 `validateForm()` 뒤에 부른다.
  */
-export function toRequest(state: ComparisonFormState): ScenarioComparisonRequest {
-  const errors = validateForm(state)
+export function toRequest(
+  state: ComparisonFormState,
+  fuels: readonly FuelOption[],
+): ScenarioComparisonRequest {
+  const errors = validateForm(state, fuels)
   if (Object.keys(errors).length > 0) {
     throw new Error('검증되지 않은 폼 상태입니다. validateForm()을 먼저 호출하십시오.')
   }
