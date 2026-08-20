@@ -68,6 +68,20 @@ export function findShipType(code: string): ShipTypeOption | undefined {
 }
 
 /**
+ * 화면에 내보낼 선종 이름 — `BULK_CARRIER` → `벌크선`.
+ *
+ * 표 옆에 두는 것은 **13종 목록이 여기 있기 때문**이다. 선종이 늘면 표와 이 함수가
+ * 같은 커밋에서 바뀐다.
+ *
+ * 모르는 코드는 **코드를 그대로 돌려준다.** 서버가 새 선종을 먼저 추가할 수 있는데,
+ * 그때 빈칸이나 「알 수 없음」을 내면 화면이 무엇을 보고 있는지 알 수 없게 된다.
+ * 낯선 코드라도 보이는 편이 낫다.
+ */
+export function shipTypeLabel(code: string): string {
+  return findShipType(code)?.label ?? code
+}
+
+/**
  * 그 선종의 capacity 축. 모르는 코드는 `null`.
  *
  * `null`을 던지지 않고 돌려주는 이유: 오래된 폼 상태나 서버가 새로 추가한 선종이

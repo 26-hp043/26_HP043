@@ -13,10 +13,12 @@ import {
   sortVessels,
   unavailableHint,
   unavailableText,
+  detailStatusText,
   underwayStateText,
   warningBannerText,
   type SortKey,
 } from './fleetRules'
+import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import type { FleetSnapshot, FleetVessel } from './types'
 import './FleetDashboard.css'
 
@@ -339,9 +341,10 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
 
         <span className="vessel__body">
           <span className="vessel__name">{vessel.name}</span>
+          {/* 선종·세부 상태를 코드가 아니라 표시 문구로 낸다(`UIFLOW §2-4`). */}
           <span className="vessel__route">
-            {vessel.shipType} · {underwayStateText(vessel)}
-            {vessel.detailStatus ? ` · ${vessel.detailStatus}` : ''}
+            {shipTypeLabel(vessel.shipType)} · {underwayStateText(vessel)}
+            {vessel.detailStatus ? ` · ${detailStatusText(vessel.detailStatus)}` : ''}
           </span>
           <span className="vessel__stats">
             <span>

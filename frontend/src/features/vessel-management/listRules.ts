@@ -1,4 +1,4 @@
-import { capacityAxisOf, findShipType } from '../vessel-registration/shipTypes'
+import { capacityAxisOf } from '../vessel-registration/shipTypes'
 import type { Vessel } from '../vessel-registration/types'
 
 /**
@@ -24,10 +24,14 @@ export function cellNumber(value: number | null): string {
   return value.toLocaleString('ko-KR')
 }
 
-/** 선종 코드를 표시 문구로. 모르는 코드는 코드 그대로 보인다 — 감추지 않는다. */
-export function shipTypeLabel(code: string): string {
-  return findShipType(code)?.label ?? code
-}
+/*
+ * 선종 코드 → 표시 문구.
+ *
+ * 구현을 `shipTypes.ts`(13종 표가 있는 곳)로 옮기고 여기서는 다시 내보내기만 한다.
+ * 대시보드와 선박 상세도 같은 이름이 필요해졌는데, 그쪽이 `vessel-management`를
+ * 거쳐 가져오는 것은 자리가 어색하다. 기존 import 경로는 그대로 둔다.
+ */
+export { shipTypeLabel } from '../vessel-registration/shipTypes'
 
 /**
  * 이 선박의 capacity 축에 해당하는 값과 라벨.
