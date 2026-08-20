@@ -197,6 +197,27 @@ export const RATING_TRANSITION_TEXT: Readonly<Record<TransitionDirection, string
   FLAT: '등급 유지 예상',
 }
 
+/**
+ * 값이 있을 때만 포매터를 부른다.
+ *
+ * `src/display/format.ts`의 포매터는 **십진 문자열만** 받는다 — 아닌 것이 오면
+ * `TypeError`를 던진다(정밀도 규약을 조용히 어기느니 멈추는 쪽을 택한 설계다).
+ * `API_SPEC §2.14`의 수치는 대부분 `string | null`이라 그대로 넘기면 화면이 죽는다.
+ *
+ * 「없음」은 **포맷 대상이 아니라 별도의 표시**다. 그 판단을 화면 곳곳에 흩어 두면
+ * 한 자리만 빠뜨려도 그 필드가 null인 응답에서만 터진다 — 늦게 발견되는 종류다.
+ * 여기 한 곳에 두고 DOM 없이 검증한다.
+ *
+ * 포맷 자체는 하지 않는다. **어떤 포매터를 쓸지는 호출부가 정한다** — 필드마다
+ * 자릿수가 다르고(`DESIGN_SYSTEM §4`), 그 선택은 화면의 몫이다.
+ */
+export function formatOrNull(
+  value: string | null,
+  format: (raw: string) => string,
+): string | null {
+  return value === null ? null : format(value)
+}
+
 /** 기준 시각 표시. 실시간 화면에서는 값 자체만큼 중요한 정보다. */
 export function formatAsOf(asOf: string): string {
   return new Date(asOf).toLocaleString('ko-KR', { hour12: false })
