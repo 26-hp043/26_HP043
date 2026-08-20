@@ -1,16 +1,45 @@
-/* CII 등급 배지 — DESIGN_SYSTEM §8 · §15.1. 토큰만 참조한다(§15). */
+/*
+ * CII 등급 배지 — DESIGN_SYSTEM §8 · §2.4.3 · §15.1. 토큰만 참조한다(§15).
+ *
+ * 크기 규격(§8) — lg 20px/패딩 4·12/radius 8 · sm 13px/패딩 3·8/radius 4 ·
+ * xs 11px/패딩 2·6/radius 4.
+ *
+ * 폭을 고정하지 않는다. `—`(none)가 `A`보다 넓어 고정하면 문자가 잘린다(§8).
+ */
 
 .grade-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  display: block;
+  border: 1px solid;
+  border-style: solid;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.grade-badge--md {
-  width: 64px;
-  height: 64px;
+/* 등급 없음 — 테두리를 점선으로 두어 「값이 없음」을 형태로도 전달한다 (§2.4.3 🔒) */
+.grade-badge--none {
+  border-style: dashed;
+}
+
+.grade-badge--lg {
+  font-size: 20px;
+  padding: 4px 12px;
+  border-radius: 8px;
 }
 
 .grade-badge--sm {
-  width: 44px;
-  height: 44px;
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.grade-badge--xs {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
 }
