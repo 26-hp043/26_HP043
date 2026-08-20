@@ -10,7 +10,9 @@ import {
   unavailableText,
   underwayStateText,
   warningBannerText,
+  ytdCiiText,
 } from './fleetRules'
+import { DISPLAY_DIGITS } from '../../display/format'
 import type { FleetVessel } from './types'
 
 /**
@@ -241,5 +243,52 @@ describe('기준 시각 표시', () => {
 
   it('일 단위', () => {
     expect(relativeTime('2026-08-14T12:00:00Z', base)).toBe('2일 전')
+  })
+})
+
+/**
+ * YTD CII 표시 자릿수 — `DESIGN_SYSTEM §4.1` 🔒.
+ *
+ * 대시보드는 서버 원본을 그대로 내보내 **소수 4자리**로 그리고 있었다(`8.9799`).
+ * 선박 상세·실시간 CII에서 같은 병이 이미 두 번 나왔다 — 값이 문자열이라 그냥
+ * 꽂으면 화면이 멀쩡해 보이는 것이 원인이다.
+ *
+ * `AGENTS §4.6`에 따라 문구는 리터럴로 단언하지 않는다. 다만 자릿수는 `§4.1`이
+ * 확정한 값이므로 자릿수 자체는 단언한다.
+ */
+describe('YTD CII 표시 — DESIGN_SYSTEM §4.1', () => {
+  const decimals = (s: string) => {
+    const dot = s.indexOf('.')
+    return dot === -1 ? 0 : s.length - dot - 1
+  }
+
+  it('원본 자릿수와 무관하게 항상 소수 3자리다', () => {
+    // 서버는 4자리(대시보드)·6자리(상세)로 준다. 자리수가 화면마다 달라지면
+    // §4.1이 「정렬 붕괴」로 막으려던 상태가 그대로 생긴다.
+    for (const raw of ['8.9799', '21.7250', '19.1631', '18.6343', '5.045066', '7']) {
+      expect(decimals(ytdCiiText(raw))).toBe(DISPLAY_DIGITS.cii)
+    }
+  })
+
+  it('반올림한다 — 잘라 내지 않는다', () => {
+    // 절사하면 실제보다 낮게 보이고, 등급 경계 부근에서 잘못 읽힌다(§4.1).
+    expect(ytdCiiText('8.9799')).toBe('8.980')
+    expect(ytdCiiText('21.7250')).toBe('21.725')
+  })
+
+  it('천단위 구분자를 넣지 않는다', () => {
+    // CII는 GROUPED_FIELDS가 아니다 — 구분자는 소수부 정렬을 방해한다(§4.2).
+    expect(ytdCiiText('1234.5678')).not.toContain(',')
+  })
+
+  it('값이 없으면 포매터를 부르지 않고 빈 자리 표시를 낸다', () => {
+    // 포매터는 십진 문자열이 아니면 던진다. null을 그대로 넘기면 화면이 죽는다.
+    expect(() => ytdCiiText(null)).not.toThrow()
+    expect(decimals(ytdCiiText(null))).toBe(0)
+  })
+
+  it('실적 없는 선박(dataAvailable=false)의 값도 안전하다', () => {
+    const v = vessel({ dataAvailable: false, ytdAttainedCii: null })
+    expect(() => ytdCiiText(v.ytdAttainedCii)).not.toThrow()
   })
 })
