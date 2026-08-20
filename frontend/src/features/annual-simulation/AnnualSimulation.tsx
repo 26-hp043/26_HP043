@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './AnnualSimulation.css'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { useShellContext } from '../../layout/shellContext'
+import { createYearCatalog } from '../parameters/yearCatalog'
 import { GradeBadge } from '../../components/GradeBadge'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
@@ -13,6 +14,7 @@ import {
   sensitivityRows,
   stackSegments,
   toPercent,
+  selectedYear,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationResult } from './types'
@@ -48,13 +50,15 @@ type RunState =
   | { status: 'error'; message: string }
 
 /**
- * 기준연도.
+ * 기준연도 — **서버가 준다** (`#558`).
  *
- * ⚠️ **아직 고정값이다.** 선박은 `#484`로 상단바 전역 선택을 따르게 됐으나, 연도는
- * 이 화면에 선택 UI가 없다. `GET /parameters/regulation-years`(`#444`)로 열 수 있고
- * `#534`가 CII 예측에 그 경로를 만들어 두었다 — 이 화면 적용은 별건이다.
+ * 종전에는 `const DEFAULT_YEAR = 2026`이 박혀 있어 **사용자가 2026년 외의 해를 볼 수
+ * 없었다.** 규제연도는 2023~2030 여덟 개가 적재돼 있다.
+ *
+ * `#236`이 연 세 축 중 이것이 마지막이다 — 선박은 `#484`(상단바 전역 선택), 연도(CII
+ * 예측)는 `#534`, 연료는 `#568`이 옮겼다. 같은 `yearCatalog`를 쓰므로 두 화면의 선택지가
+ * 갈리지 않는다.
  */
-const DEFAULT_YEAR = 2026
 
 /** `PRD §12.8` — **E는 목록에 없다.** 목표가 최하위 등급이면 「달성」이 의미를 잃는다. */
 const TARGET_RATINGS = ['A', 'B', 'C', 'D'] as const
@@ -74,16 +78,68 @@ export function AnnualSimulation({
   const [runs, setRuns] = useState('5000')
   const [seed, setSeed] = useState('')
 
+  // 연도 선택지도 CII 예측과 **같은 경계** 뒤에 둔다 (`#534` · `#558`). 기준이 갈리면
+  // 두 화면이 서로 다른 해를 보여 주고, 그 차이는 값이 아니라 목록에서 나타나 늦게 발견된다.
+  const yearCatalog = useMemo(() => createYearCatalog(), [])
+  const [years, setYears] = useState<number[]>([])
+  const [year, setYear] = useState('')
+  const [yearsLoading, setYearsLoading] = useState(true)
+  const [yearsFailed, setYearsFailed] = useState(false)
+
+  /*
+   * 선박이 정해진 뒤 그 선박의 연도 선택지를 받는다.
+   *
+   * 실 API 구현은 `vesselId`를 쓰지 않지만(Z계수는 전 선종 공통) 인자를 넘긴다 —
+   * `YearCatalogProvider` 서명이 그렇고, 화면이 구현의 사정을 알지 않는다.
+   */
+  useEffect(() => {
+    if (shell.vesselId === null) return
+    let cancelled = false
+    setYearsLoading(true)
+    setYearsFailed(false)
+    yearCatalog
+      .listYears(shell.vesselId)
+      .then((rows) => {
+        if (cancelled) return
+        setYears(rows)
+        // 이미 고른 해가 새 목록에도 있으면 유지한다 — 선박을 바꿀 때마다 첫 값으로
+        // 되돌아가면 사용자가 방금 고른 값을 잃는다 (`VoyageCiiForm`과 같은 규칙).
+        setYear((prev) => selectedYear(prev, rows))
+      })
+      .catch(() => {
+        if (cancelled) return
+        setYearsFailed(true)
+        setYears([])
+      })
+      .finally(() => {
+        if (!cancelled) setYearsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [yearCatalog, shell.vesselId])
+
   const run = useCallback(async () => {
     if (shell.vesselId === null) {
       setState({ status: 'error', message: '상단에서 선박을 먼저 선택해 주세요.' })
+      return
+    }
+    if (year === '') {
+      // 목록을 못 받았거나 아직 오는 중이다. 값을 지어내 계산하지 않는다 — 종전
+      // 고정값(2026)이 정확히 그런 형태였고, 사용자는 다른 해를 볼 수 없었다.
+      setState({
+        status: 'error',
+        message: yearsFailed
+          ? '규제연도 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
+          : '규제연도 목록을 불러오는 중입니다.',
+      })
       return
     }
     setState({ status: 'running' })
     try {
       const result = await provider.run({
         vessel_id: shell.vesselId,
-        regulation_year: DEFAULT_YEAR,
+        regulation_year: Number(year),
         target_rating: target,
         simulation_runs: Number(runs),
         // 빈 문자열을 보내지 않는다 — 서버가 「지정했는데 비었다」로 볼 수 있다.
@@ -97,7 +153,7 @@ export function AnnualSimulation({
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorTitle,
       })
     }
-  }, [provider, shell.vesselId, target, runs, seed, onDisclaimer])
+  }, [provider, shell.vesselId, year, yearsFailed, target, runs, seed, onDisclaimer])
 
   return (
     <section className="annual-sim">
@@ -119,6 +175,26 @@ export function AnnualSimulation({
         }}
       >
         <h3 className="annual-sim__section-title">{ANNUAL_COPY.runTitle}</h3>
+
+        <label className="annual-sim__field">
+          <span className="annual-sim__label">기준연도</span>
+          {yearsLoading ? (
+            <span className="annual-sim__hint">규제연도 목록을 불러오는 중…</span>
+          ) : yearsFailed ? (
+            <span className="annual-sim__hint">규제연도 목록을 불러오지 못했습니다</span>
+          ) : (
+            <select value={year} onChange={(event) => setYear(event.target.value)}>
+              {years.map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          )}
+          <span className="annual-sim__hint">
+            규제연도에 따라 required CII와 등급 경계가 달라집니다.
+          </span>
+        </label>
 
         <label className="annual-sim__field">
           <span className="annual-sim__label">{ANNUAL_COPY.targetRatingLabel}</span>
