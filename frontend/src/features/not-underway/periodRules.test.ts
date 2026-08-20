@@ -7,9 +7,12 @@ import {
   labelOf,
   toIso,
   toLocalInput,
+  NO_VALUE_TEXT,
+  quantityText,
   totalFuelTon,
   validateDraft,
 } from './periodRules'
+import { DISPLAY_DIGITS } from '../../display/format'
 import type { Period, PeriodDraft } from './types'
 
 /**
@@ -135,5 +138,65 @@ describe('입력 검증', () => {
     // 어느 쪽이 맞는지 판단할 근거가 없다.
     expect(hasErrors(validateDraft(DRAFT))).toBe(false)
     expect(hasErrors(validateDraft({ ...DRAFT }))).toBe(false)
+  })
+})
+
+describe('quantityText — 표시 자릿수 (DESIGN_SYSTEM §4.2 🔒) (#572)', () => {
+  const decimals = (t: string) => {
+    const dot = t.indexOf('.')
+    return dot === -1 ? 0 : t.length - dot - 1
+  }
+
+  it('연료는 소수 1자리다 — 원본 자릿수와 무관하게', () => {
+    // 서버는 입력 정밀도 그대로 준다(12 · 4.5 · 3.456). 화면 자릿수는 §4.2가 정한다.
+    for (const v of [12, 4.5, 3.456, 0]) {
+      expect(decimals(quantityText(v, DISPLAY_DIGITS.fuelTon))).toBe(DISPLAY_DIGITS.fuelTon)
+    }
+  })
+
+  it('거리는 소수 0자리다', () => {
+    expect(quantityText(1234.6, DISPLAY_DIGITS.distanceNm)).toBe('1,235')
+    expect(decimals(quantityText(12.4, DISPLAY_DIGITS.distanceNm))).toBe(0)
+  })
+
+  it('천단위 구분자를 넣는다 — 연료·거리는 GROUPED_FIELDS다', () => {
+    expect(quantityText(12480.55, DISPLAY_DIGITS.fuelTon)).toBe('12,480.6')
+  })
+
+  it('반올림한다 — 잘라 내지 않는다', () => {
+    expect(quantityText(4.55, DISPLAY_DIGITS.fuelTon)).toBe('4.6')
+    expect(quantityText(999.5, DISPLAY_DIGITS.distanceNm)).toBe('1,000')
+  })
+
+  it('값이 없으면 포매터를 부르지 않는다 — 던지지 않고 빈 자리 표시를 낸다', () => {
+    // 포매터는 십진 문자열이 아니면 던진다. 널을 그대로 넘기면 화면이 죽는다.
+    expect(() => quantityText(null, DISPLAY_DIGITS.fuelTon)).not.toThrow()
+    expect(quantityText(undefined, DISPLAY_DIGITS.fuelTon)).toBe(NO_VALUE_TEXT)
+    expect(quantityText(Number.NaN, DISPLAY_DIGITS.fuelTon)).toBe(NO_VALUE_TEXT)
+  })
+
+  it('0은 빈 값이 아니다 — 안 넣은 것과 0은 다르다', () => {
+    expect(quantityText(0, DISPLAY_DIGITS.distanceNm)).toBe('0')
+  })
+
+  it('지수 표기를 만들지 않는다 — String(1e-7)은 포매터가 던진다', () => {
+    expect(quantityText(1e-7, DISPLAY_DIGITS.fuelTon)).toBe('0.0')
+  })
+})
+
+describe('totalFuelTon — 반올림은 표시 시점에 한 번만 (#572)', () => {
+  it('합계를 미리 자르지 않는다', () => {
+    // 종전에는 `toFixed(2)`로 잘라 두어, 표시(1자리)에서 두 번 반올림됐다.
+    const period: Period = {
+      ...PERIOD,
+      fuelUses: [
+        { id: 'a', consumerType: 'AUX_ENGINE', fuelType: 'HFO', fuelTon: 16.449, cfUsed: 3.114 },
+      ],
+    }
+    expect(quantityText(totalFuelTon(period), DISPLAY_DIGITS.fuelTon)).toBe('16.4')
+  })
+
+  it('기존 합계는 그대로다', () => {
+    expect(totalFuelTon(PERIOD)).toBe(16.5)
   })
 })
