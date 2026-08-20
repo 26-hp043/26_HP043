@@ -3,7 +3,6 @@ import './VoyageCiiForm.css'
 import {
   FIELD,
   initialFormState,
-  selectableFuels,
   toFormErrors,
   toRequest,
   validateForm,
@@ -14,6 +13,7 @@ import { DISPLAY_UNITS } from '../../display/format'
 import { createVoyageCiiProvider } from './providerSelection'
 import { useShellContext } from '../../layout/shellContext'
 import { createYearCatalog } from './yearCatalog'
+import { useFuelOptions } from '../parameters/fuelCatalog'
 import type { ResultState } from './resultRules'
 
 /**
@@ -66,7 +66,10 @@ interface VoyageCiiFormProps {
 }
 
 export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
-  const fuels = useMemo(() => selectableFuels(), [])
+  // 연료 선택지도 선박·연도와 같은 경계 뒤에 둔다 (#542). 종전에는 `selectableFuels()`가
+  // 고정표(`referenceTable.ts`)를 직행으로 읽어, 실 API 모드에서도 서버가 아는 연료와
+  // 화면이 보여 주는 연료가 갈릴 수 있었다.
+  const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
   // 선박 선택은 **셸이 소유한다** (#484 · #535). 종전에는 이 폼이 자기 목록과
   // 선택을 따로 들고 있어, 상단바에서 배를 바꿔도 폼은 그대로였다.
@@ -182,7 +185,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
     event.preventDefault()
     if (submitting) return
 
-    const found = validateForm(state)
+    const found = validateForm(state, fuels)
     setErrors(found)
     if (Object.keys(found).length > 0) {
       onStateChange?.({ status: 'idle' })
@@ -343,28 +346,35 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
           />
         </Field>
 
-        <Field
-          id="fuel-type"
-          label="연료 종류"
-          labelEn="Fuel Type"
-          error={errors[FIELD.fuelType]}
-        >
-          <select
+        {/* 연료 종류 — 규제연도와 같은 규칙. 로딩·실패를 빈 선택지와 구분해 보인다 (#542) */}
+        {fuelsLoading ? (
+          <StaticField label="연료 종류" labelEn="Fuel Type" value="연료 목록을 불러오는 중…" />
+        ) : fuelsFailed ? (
+          <StaticField label="연료 종류" labelEn="Fuel Type" value="연료 목록을 불러오지 못했습니다" />
+        ) : (
+          <Field
             id="fuel-type"
-            className="voyage-cii-form__control"
-            value={state.fuelType}
-            aria-invalid={FIELD.fuelType in errors}
-            aria-describedby={FIELD.fuelType in errors ? 'fuel-type-error' : undefined}
-            onChange={(e) => update('fuelType', e.target.value, FIELD.fuelType)}
+            label="연료 종류"
+            labelEn="Fuel Type"
+            error={errors[FIELD.fuelType]}
           >
-            <option value="">선택해 주세요</option>
-            {fuels.map((fuel) => (
-              <option key={fuel.code} value={fuel.code}>
-                {fuel.displayName} ({fuel.code})
-              </option>
-            ))}
-          </select>
-        </Field>
+            <select
+              id="fuel-type"
+              className="voyage-cii-form__control"
+              value={state.fuelType}
+              aria-invalid={FIELD.fuelType in errors}
+              aria-describedby={FIELD.fuelType in errors ? 'fuel-type-error' : undefined}
+              onChange={(e) => update('fuelType', e.target.value, FIELD.fuelType)}
+            >
+              <option value="">선택해 주세요</option>
+              {fuels.map((fuel) => (
+                <option key={fuel.code} value={fuel.code}>
+                  {fuel.displayName} ({fuel.code})
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
 
         <Field
           id="fuel-ton"

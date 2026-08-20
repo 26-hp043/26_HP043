@@ -3,15 +3,14 @@ import {
   FIELD,
   filterSupportedVessels,
   initialFormState,
-  selectableFuels,
   selectableVessels,
   selectableYears,
   toFormErrors,
   toRequest,
-  validateForm,
+  validateForm as validateFormWith,
   type VoyageCiiFormState,
 } from './formRules'
-import { DEMO_VESSELS, FIXED_PARAMETERS, FUEL_CF, type DemoVessel } from './referenceTable'
+import { DEMO_VESSELS, FIXED_PARAMETERS, type DemoVessel } from './referenceTable'
 import { VoyageCiiError } from './provider'
 
 /**
@@ -38,6 +37,31 @@ function validState(): VoyageCiiFormState {
     fuelTon: '80',
   }
 }
+
+
+/**
+ * 연료 선택지 — 종전 고정표 `FUEL_CF`의 8종과 같은 코드 집합이다 (#542).
+ *
+ * 검증 함수가 목록을 **인자로 받도록** 바뀌었다. 서버(`GET /parameters/fuel-types`)가
+ * 주는 값이므로 화면 규칙이 목록을 직접 알지 않는다 — 그 사실을 테스트에서도
+ * 같은 모양으로 둔다.
+ */
+const FUELS: ReadonlyArray<{ code: string; displayName: string }> = [
+  { code: 'HFO', displayName: '고유황유' },
+  { code: 'LFO', displayName: '저유황유' },
+  { code: 'MDO', displayName: '경유' },
+  { code: 'MGO', displayName: '선박용 경유' },
+  { code: 'LNG', displayName: '액화천연가스' },
+  { code: 'LPG_PROPANE', displayName: '프로판' },
+  { code: 'LPG_BUTANE', displayName: '부탄' },
+  { code: 'METHANOL', displayName: '메탄올' },
+]
+
+/**
+ * 목록을 채워 넘기는 얇은 래퍼. 기존 호출부를 그대로 두기 위한 것이며,
+ * **주입 자체가 판정을 바꾼다는 사실은 아래 「주입된 목록이 판정을 정한다」가 잠근다.**
+ */
+const validateForm = (state: VoyageCiiFormState) => validateFormWith(state, FUELS)
 
 describe('filterSupportedVessels', () => {
   // 규칙 자체를 잠그는 테스트다. selectableVessels()만 부르면 현재 데이터가 1척이라
@@ -106,17 +130,6 @@ describe('selectableVessels', () => {
   })
 })
 
-describe('selectableFuels', () => {
-  it('FUEL_CF 전 항목을 순회한다', () => {
-    expect(selectableFuels().map((f) => f.code).sort()).toEqual(Object.keys(FUEL_CF).sort())
-  })
-
-  it('표시명이 비어 있지 않다', () => {
-    for (const fuel of selectableFuels()) {
-      expect(fuel.displayName.length).toBeGreaterThan(0)
-    }
-  })
-})
 
 describe('initialFormState', () => {
   it('선박과 연도는 채워지고 나머지는 비어 있다', () => {
@@ -213,8 +226,10 @@ describe('validateForm — 연료 종류', () => {
     expect(errors[FIELD.fuelType]).toContain('알 수 없는 연료 종류')
   })
 
-  it('FUEL_CF 8종은 모두 통과한다', () => {
-    for (const code of Object.keys(FUEL_CF)) {
+  it('주어진 목록의 코드는 모두 통과한다', () => {
+    // 종전에는 `FUEL_CF` 키를 순회했다. 목록이 서버에서 오므로(#542) 순회 대상도
+    // 주입된 목록이다 — 고정표를 다시 읽으면 옮긴 의미가 없다.
+    for (const { code } of FUELS) {
       expect(validateForm({ ...validState(), fuelType: code })).toEqual({})
     }
   })
@@ -365,5 +380,24 @@ describe('toFormErrors', () => {
       // 폼 상단이 아니라 개별 입력창에 붙어야 한다.
       expect(key).not.toBe(FIELD.form)
     }
+  })
+})
+
+describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () => {
+  /*
+   * 종전 `!FUEL_CF[code]`는 화면이 고정표를 직접 읽는 구조였다. 서버가 연료를
+   * 추가·비활성화해도 화면 판정은 그대로여서, 사용자는 **고른 뒤 저장 단계에서야**
+   * 거부를 만났다. 목록이 판정을 정한다는 사실을 여기서 잠근다.
+   */
+  it('목록에 없으면 거부된다 — 코드 자체는 유효해도 마찬가지다', () => {
+    const errors = validateFormWith({ ...validState(), fuelType: 'HFO' }, [])
+    expect(errors[FIELD.fuelType]).toContain('알 수 없는 연료 종류')
+  })
+
+  it('목록에 있으면 통과한다 — 고정표에 없던 코드라도 마찬가지다', () => {
+    const errors = validateFormWith({ ...validState(), fuelType: 'AMMONIA' }, [
+      { code: 'AMMONIA', displayName: '암모니아' },
+    ])
+    expect(errors).toEqual({})
   })
 })

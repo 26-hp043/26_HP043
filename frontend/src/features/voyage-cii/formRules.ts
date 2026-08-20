@@ -1,4 +1,5 @@
-import { FUEL_CF, DEMO_VESSELS, FIXED_PARAMETERS } from './referenceTable'
+import { DEMO_VESSELS, FIXED_PARAMETERS } from './referenceTable'
+import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import type { DemoVessel } from './referenceTable'
 import type { VoyageCiiRequest } from './types'
 import { VoyageCiiError } from './provider'
@@ -95,11 +96,6 @@ export function selectableYears(vesselId: string): number[] {
     .sort((a, b) => a - b)
 }
 
-/** 연료 종류 선택지. `FUEL_CF` 8종을 순회해 만든다 — 화면에 코드를 적지 않는다. */
-export function selectableFuels(): Array<{ code: string; displayName: string }> {
-  return Object.entries(FUEL_CF).map(([code, { displayName }]) => ({ code, displayName }))
-}
-
 /**
  * 초기 폼 상태.
  *
@@ -147,7 +143,10 @@ function toNumber(raw: string): number | null {
  *
  * 규칙 출처는 `API_SPEC §11`이며 문구는 `demoProvider`와 맞춘다.
  */
-export function validateForm(state: VoyageCiiFormState): FormErrors {
+export function validateForm(
+  state: VoyageCiiFormState,
+  fuels: readonly FuelOption[],
+): FormErrors {
   const errors: FormErrors = {}
 
   const distance = toNumber(state.distanceNm)
@@ -168,8 +167,9 @@ export function validateForm(state: VoyageCiiFormState): FormErrors {
 
   if (state.fuelType === '') {
     errors[FIELD.fuelType] = '연료 종류를 선택해 주세요.'
-  } else if (!FUEL_CF[state.fuelType]) {
+  } else if (!isKnownFuel(state.fuelType, fuels)) {
     // VAL-006. 셀렉트로 구현하면 도달하지 않으나, 오래된 상태가 남았을 때의 방어선이다.
+    // 목록을 인자로 받는 이유는 `fuelCatalog.ts`의 `isKnownFuel` 주석에 있다 (#542).
     errors[FIELD.fuelType] = `알 수 없는 연료 종류입니다: ${state.fuelType}`
   }
 

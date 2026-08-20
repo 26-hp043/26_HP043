@@ -3,9 +3,8 @@ import { DEMO_VESSELS } from '../voyage-cii/referenceTable'
 import {
   FIELD,
   initialFormState,
-  selectableFuels,
-  toRequest,
-  validateForm,
+  toRequest as toRequestWith,
+  validateForm as validateFormWith,
   type ComparisonFormState,
 } from './requestRules'
 
@@ -16,6 +15,34 @@ import {
  * `vessel_id`를 상수로 박았고 그 값이 demo 고정표에 없어, 데모 모드에서 항로 비교가
  * 아무 입력 없이 언제나 실패했다.
  */
+
+
+/**
+ * 연료 선택지 — 종전 고정표 `FUEL_CF`의 8종과 같은 코드 집합이다 (#542).
+ *
+ * `validateForm`이 목록을 **인자로 받도록** 바뀌었다. 서버(`GET /parameters/fuel-types`)가
+ * 주는 값이므로 화면 규칙이 그 목록을 직접 알지 않는다 — 그 사실을 테스트에서도
+ * 같은 모양으로 둔다.
+ */
+const FUELS: ReadonlyArray<{ code: string; displayName: string }> = [
+  { code: 'HFO', displayName: '고유황유' },
+  { code: 'LFO', displayName: '저유황유' },
+  { code: 'MDO', displayName: '경유' },
+  { code: 'MGO', displayName: '선박용 경유' },
+  { code: 'LNG', displayName: '액화천연가스' },
+  { code: 'LPG_PROPANE', displayName: '프로판' },
+  { code: 'LPG_BUTANE', displayName: '부탄' },
+  { code: 'METHANOL', displayName: '메탄올' },
+]
+
+/**
+ * 목록을 채워 넘기는 얇은 래퍼. 기존 호출부를 그대로 두기 위한 것이며,
+ * **주입 자체가 판정을 바꾼다는 사실은 아래 「주입된 목록이 판정을 정한다」가 잠근다.**
+ */
+const validateForm = (state: ComparisonFormState) => validateFormWith(state, FUELS)
+const toRequest = (state: ComparisonFormState) => toRequestWith(state, FUELS)
+
+
 
 function state(overrides: Partial<ComparisonFormState> = {}): ComparisonFormState {
   return { ...initialFormState(), vesselId: DEMO_VESSELS[0].id, ...overrides }
@@ -102,14 +129,6 @@ describe('toRequest', () => {
   })
 })
 
-describe('selectableFuels', () => {
-  it('FUEL_CF 8종을 그대로 순회한다 — 화면에 코드를 다시 적지 않는다', () => {
-    const codes = selectableFuels().map((f) => f.code)
-    expect(codes).toContain('HFO')
-    expect(codes).toContain('LNG')
-    expect(codes).toHaveLength(8)
-  })
-})
 
 describe('회귀 고정 — 종전 하드코딩 상수가 demo에서 실패했다 (#511)', () => {
   it('고정표에는 …0001 한 척뿐이라 …0003은 없다', () => {
@@ -121,5 +140,18 @@ describe('회귀 고정 — 종전 하드코딩 상수가 demo에서 실패했�
 
   it('선박은 목록에서 골라야 하므로, 고정표에 있는 값이면 검증을 통과한다', () => {
     expect(validateForm(state({ vesselId: DEMO_VESSELS[0].id }))).toEqual({})
+  })
+})
+
+describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () => {
+  it('목록에 없으면 거부된다', () => {
+    expect(validateFormWith(state({ fuelType: 'HFO' }), [])).toHaveProperty(FIELD.fuelType)
+  })
+
+  it('목록에 있으면 통과한다 — 고정표에 없던 코드라도 마찬가지다', () => {
+    const errors = validateFormWith(state({ fuelType: 'AMMONIA' }), [
+      { code: 'AMMONIA', displayName: '암모니아' },
+    ])
+    expect(errors).not.toHaveProperty(FIELD.fuelType)
   })
 })

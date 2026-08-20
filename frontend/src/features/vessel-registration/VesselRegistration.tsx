@@ -1,12 +1,12 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import './VesselRegistration.css'
+import { useFuelOptions } from '../parameters/fuelCatalog'
 import { SCREEN_BY_ID } from '../../screens'
 import {
   FIELD,
   NAME_MAX_LENGTH,
   initialFormState,
-  selectableFuels,
   specGapNotice,
   toFormErrors,
   toRequest,
@@ -54,7 +54,9 @@ import type { Vessel } from './types'
 export function VesselRegistration() {
   const provider = useMemo(() => createVesselRegistrationProvider(), [])
   const available = useMemo(() => isRegistrationAvailable(), [])
-  const fuels = useMemo(() => selectableFuels(), [])
+  // 연료 선택지는 서버가 준다 (#542). 종전에는 고정표(`referenceTable.ts`)를 읽어,
+  // 등록 화면이 보여 주는 연료와 서버가 받는 연료가 갈릴 수 있었다.
+  const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
   const [state, setState] = useState<VesselFormState>(initialFormState)
   const [errors, setErrors] = useState<FormErrors>({})
@@ -78,7 +80,7 @@ export function VesselRegistration() {
     event.preventDefault()
     if (submitting) return
 
-    const found = validateForm(state)
+    const found = validateForm(state, fuels)
     setErrors(found)
     if (Object.keys(found).length > 0) return
 
@@ -318,7 +320,13 @@ export function VesselRegistration() {
                 )}
                 onChange={(e) => update('defaultFuelType', e.target.value, FIELD.defaultFuelType)}
               >
-                <option value="">선택하지 않음</option>
+                <option value="">
+                  {fuelsLoading
+                    ? '연료 목록을 불러오는 중…'
+                    : fuelsFailed
+                      ? '연료 목록을 불러오지 못했습니다'
+                      : '선택하지 않음'}
+                </option>
                 {fuels.map((fuel) => (
                   <option key={fuel.code} value={fuel.code}>
                     {fuel.displayName} ({fuel.code})

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { SCREEN_BY_ID } from '../../screens'
-import { FUEL_CF } from '../voyage-cii/referenceTable'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
+import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
 import type { Vessel } from '../vessel-registration/types'
 import {
   EDIT_FIELD,
@@ -56,6 +56,8 @@ import './VesselManagement.css'
 export function VesselManagement() {
   const provider = useMemo(() => createVesselManagementProvider(), [])
   const available = useMemo(() => isManagementAvailable(), [])
+  // 기본 연료 선택지는 서버가 준다 (#542). 종전에는 고정표를 직접 순회했다.
+  const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
   const [vessels, setVessels] = useState<Vessel[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -116,7 +118,7 @@ export function VesselManagement() {
 
   const handleSave = async () => {
     if (editing === null || editState === null) return
-    const errors = validateEdit(editState)
+    const errors = validateEdit(editState, fuels)
     if (Object.keys(errors).length > 0) {
       setEditErrors(errors)
       return
@@ -278,6 +280,9 @@ export function VesselManagement() {
                     vessel={vessel}
                     state={editState}
                     errors={editErrors}
+                    fuels={fuels}
+                    fuelsLoading={fuelsLoading}
+                    fuelsFailed={fuelsFailed}
                     saving={saving}
                     onChange={setEditState}
                     onSave={() => void handleSave()}
@@ -308,6 +313,10 @@ interface EditFormProps {
   vessel: Vessel
   state: VesselEditState
   errors: EditErrors
+  /** 연료 선택지. 화면이 고정표를 순회하지 않는다 (#542). */
+  fuels: readonly FuelOption[]
+  fuelsLoading: boolean
+  fuelsFailed: boolean
   saving: boolean
   onChange: (next: VesselEditState) => void
   onSave: () => void
@@ -324,6 +333,9 @@ function EditForm({
   vessel,
   state,
   errors,
+  fuels,
+  fuelsLoading,
+  fuelsFailed,
   saving,
   onChange,
   onSave,
@@ -452,10 +464,16 @@ function EditForm({
           onChange={(e) => set({ defaultFuelType: e.target.value })}
           aria-invalid={EDIT_FIELD.defaultFuelType in errors}
         >
-          <option value="">선택 안 함</option>
-          {Object.entries(FUEL_CF).map(([code, { displayName }]) => (
-            <option key={code} value={code}>
-              {displayName} ({code})
+          <option value="">
+            {fuelsLoading
+              ? '연료 목록을 불러오는 중…'
+              : fuelsFailed
+                ? '연료 목록을 불러오지 못했습니다'
+                : '선택 안 함'}
+          </option>
+          {fuels.map((fuel) => (
+            <option key={fuel.code} value={fuel.code}>
+              {fuel.displayName} ({fuel.code})
             </option>
           ))}
         </select>
