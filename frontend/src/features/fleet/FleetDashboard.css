@@ -347,6 +347,22 @@
 .position-chart__label {
   font-family: var(--font-sans);
   font-weight: var(--font-weight-label);
+
+  /*
+   * 글자 둘레에 배경색 테두리를 둘러 마커 위에서도 읽히게 한다.
+   *
+   * `resolveCollisions`가 이름표끼리는 떼어 놓지만 **마커는 피하지 못한다.**
+   * 선박이 한곳에 뭉치면(같은 항구에 두 척) 이름표가 다른 배의 마커 위를 지나는
+   * 것을 피할 수 없다. 지도에서 지명을 얹을 때 쓰는 방식을 그대로 쓴다.
+   *
+   * `paint-order`가 없으면 테두리가 글자 **위에** 그려져 획을 갉아먹는다.
+   * `stroke-width`는 뷰박스 유저 단위라 배율(1.6~2.2배)을 타는데, 2.5는 바깥으로
+   * 1.25단위(화면에서 2~3px)라 글자를 두껍게 만들지 않으면서 바탕을 가린다.
+   */
+  paint-order: stroke fill;
+  stroke: var(--surface-inset);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
 }
 
 /* 좌표축 — DESIGN_SYSTEM §9.1 축선. 굵기는 vector-effect가 고정한다. */
