@@ -329,3 +329,141 @@
 .history__table td.num {
   text-align: right;
 }
+
+/* ── 위치 · 상태 입력 (API_SPEC §2.6 · #369) ─────────────────────── */
+
+/*
+ * 카드의 주 용도는 조회다. 평소에는 버튼 하나만 두고, 누르면 폼이 열린다.
+ * 늘 펴 두면 「현재 상태」를 읽으러 온 사람이 입력창부터 만난다.
+ */
+.vd__pos-open {
+  margin-top: var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font: inherit;
+  font-size: var(--font-size-label);
+  color: var(--semantic-primary);
+  background: transparent;
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.vd__pos-open:hover {
+  border-color: var(--semantic-primary);
+}
+
+.vd__pos-open:focus-visible,
+.vd__pos button:focus-visible,
+.vd__pos select:focus-visible,
+.vd__pos input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.vd__pos {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-lg);
+  border-top: var(--borderWidth-default) solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.vd__pos-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+}
+
+@media (max-width: 640px) {
+  .vd__pos-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.vd__pos-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-inline-size: 0;
+}
+
+.vd__pos-field > span {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+/* 범위 안내는 라벨보다 약하게 — 라벨과 같은 무게면 둘 다 라벨로 읽힌다. */
+.vd__pos-field em {
+  font-style: normal;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.vd__pos select,
+.vd__pos input {
+  font: inherit;
+  font-size: var(--font-size-body);
+  padding: var(--spacing-sm);
+  color: var(--text-primary);
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  min-inline-size: 0;
+}
+
+.vd__pos input {
+  font-variant-numeric: tabular-nums;
+}
+
+.vd__pos select:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.vd__pos [aria-invalid='true'] {
+  border-color: var(--color-danger-text);
+}
+
+/*
+ * 오류 문구도 `--color-danger-text`를 쓴다 — `--semantic-danger`는 라이트에서
+ * 문자 대비가 4.13:1이라 `§0.2` 제약 1(≥4.5:1)을 못 넘는다.
+ */
+.vd__pos-error {
+  font-size: var(--font-size-micro);
+  color: var(--color-danger-text);
+}
+
+.vd__pos-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.vd__pos-actions button {
+  font: inherit;
+  font-size: var(--font-size-label);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  color: var(--surface-card);
+  background: var(--semantic-primary);
+  border: var(--borderWidth-default) solid var(--semantic-primary);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.vd__pos-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.vd__pos-actions .vd__pos-cancel {
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: var(--border-default);
+}
+
+/* 왜 저장이 막혔는지 적는다 — 죽은 버튼만 두면 고장으로 읽힌다. */
+.vd__pos-note {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}

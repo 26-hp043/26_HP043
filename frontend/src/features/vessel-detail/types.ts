@@ -1,4 +1,5 @@
 import type { CapacityBasis, Rating } from '../voyage-cii/types'
+import type { PositionPayload } from './positionRules'
 
 /**
  * 선박 상세(L2) 화면의 데이터 계약 — `API_SPEC §2.2` · `§2.7`.
@@ -65,4 +66,11 @@ export interface VesselDetail {
 
 export interface VesselDetailProvider {
   load(vesselId: string): Promise<VesselDetail>
+  /**
+   * 위치·운항 상태 갱신 (`API_SPEC §2.6`).
+   *
+   * **갱신된 선박 객체를 돌려받아 그대로 쓴다.** `position_updated_at`은 서버가
+   * 확정하므로 화면이 만들 수 없고, 만들면 단말마다 다른 시각이 표시된다.
+   */
+  updatePosition(vesselId: string, payload: PositionPayload): Promise<VesselSpec>
 }
