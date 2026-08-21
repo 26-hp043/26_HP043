@@ -326,17 +326,44 @@ def test_cii_has_no_thousands_separator():
     assert "," not in _display(Decimal("1234.5678"), "cii")
 
 
-def test_speed_keeps_its_digits_because_section_4_has_no_row():
-    """`§4.2` 자릿수 표에 **속력 행이 없다.**
+def test_speed_follows_section_4_2():
+    """`§4.2` v2.3이 속력을 **1자리**로 확정했다 (#592).
 
-    규정이 없는 값에 자릿수를 지어내지 않는다. 화면도 속력은 서버 값을 가공 없이
-    보인다(`ScenarioComparison.tsx`). 규정이 생기면 표시 자릿수 표로 옮긴다.
+    종전에는 표에 행이 없어 `_UNSPECIFIED_DIGITS`가 직렬화 자릿수(2)를 그대로
+    쓰고 있었다. 그 상태에서 같은 값이 보고서는 `14.20`, 항차 패널은 **아예
+    표시 안 됨**이었다 — 화면(`#610`)이 규정 부재를 열 제거로 표시했기 때문이다.
     """
     from decimal import Decimal
 
     from cii_platform.services.report import _display
 
-    assert _display(Decimal("14.2"), "speed_kn") == "14.20"
+    assert _display(Decimal("14.2"), "speed_kn") == "14.2"
+    assert _display(Decimal("14.25"), "speed_kn") == "14.3"
+
+
+def test_days_follow_section_4_2():
+    """`§4.2` v2.3이 일수를 **0자리**로 확정했다 (#592).
+
+    종전에는 `_text()`라 서버 값이 그대로 나가 `231.640000 일`이 실렸다.
+    같은 표의 「일평균 거리」·「일평균 연료」는 이미 `§4.2`를 따르고 있었다.
+    """
+    from decimal import Decimal
+
+    from cii_platform.services.report import _display
+
+    assert _display(Decimal("231.64"), "days") == "232"
+    assert _display(Decimal("133.36"), "days") == "133"
+
+
+def test_unspecified_digits_is_empty():
+    """규정 없는 항목이 남아 있으면 여기서 드러난다.
+
+    이 표는 *「`§4.2`에 행이 없다」를 코드가 말하는* 자리다. 비어 있지 않다면
+    정본에 빠진 항목이 있다는 뜻이므로, 그때는 이슈를 열고 이 테스트를 고친다.
+    """
+    from cii_platform.services.report import _UNSPECIFIED_DIGITS
+
+    assert _UNSPECIFIED_DIGITS == {}
 
 
 def test_zero_digit_kind_is_not_treated_as_missing():

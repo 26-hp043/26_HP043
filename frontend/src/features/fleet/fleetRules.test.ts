@@ -85,6 +85,13 @@ describe('「D등급 진입까지」 문구', () => {
     expect(daysToDText(12, null)).toBe('D등급까지 12일')
   })
 
+  it('소수를 받아도 §4.2 자릿수로 접는다', () => {
+    // 서버 계약이 정수를 보장하지 않는다. 규정이 없던 동안에는 값을 그대로
+    // 끼워 넣어 `12.4일`이 카드에 나갈 자리였다 (#592).
+    expect(daysToDText(12.4, null)).toBe('D등급까지 12일')
+    expect(daysToDText(12.5, null)).toBe('D등급까지 13일')
+  })
+
   it('0일과 「산정 못 함」을 구분한다', () => {
     // 숫자를 못 낸 것과 0일인 것은 다르다 — 같은 문구를 쓰면 안 된다.
     expect(daysToDText(0, null)).toBe('D등급까지 0일')

@@ -76,6 +76,8 @@ describe('formatDecimalString', () => {
       co2Ton: 1,
       distanceNm: 0,
       durationHours: 1,
+      days: 0,
+      speedKn: 1,
       percent: 1,
     })
   })
@@ -170,6 +172,16 @@ describe('DISPLAY_UNITS', () => {
     expect(DISPLAY_UNITS.distance).toBe('nm')
     expect(DISPLAY_UNITS.duration).toBe('h')
     expect(DISPLAY_UNITS.speed).toBe('kn')
+    expect(DISPLAY_UNITS.day).toBe('일')
+  })
+
+  it('일수는 소수를 갖지 않는다 — 소수 구간은 시간이 소유한다', () => {
+    // `§4.2` (#592). 규정이 없던 동안 화면이 `231.64 일`을 내고 있었다.
+    // 0.1일 = 2.4시간이라 「며칠 남았나」에 의미를 더하지 않으며, 그 정밀도가
+    // 필요하면 단위가 `h`로 바뀌어야 한다.
+    expect(DISPLAY_DIGITS.days).toBe(0)
+    expect(formatDecimalString('231.64', DISPLAY_DIGITS.days)).toBe('232')
+    expect(formatDecimalString('133.36', DISPLAY_DIGITS.days)).toBe('133')
   })
 
   it('연료와 CO₂를 서로 다른 문자열로 구분한다', () => {

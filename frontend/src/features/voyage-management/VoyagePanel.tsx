@@ -25,11 +25,13 @@ import './VoyagePanel.css'
  * UIFLOW 소관(화면 목록)이라 정본 개정이 선행하고, 마감 스프린트가 그것을
  * 컷라인 밖에 두었다. `NotUnderwayPanel`과 같은 자리·같은 방식으로 붙인다.
  *
- * ## 속력을 목록에 표시하지 않는다
+ * ## 속력 표시 — 조건부 유예가 풀렸다
  *
- * `DESIGN_SYSTEM §4.2`에 **속력(kn) 자릿수가 없다**(`#592`). 화면이 임의로 정하면
- * 다른 화면과 갈라지므로 자릿수가 정해질 때까지 목록에서 뺀다. 폼에서는 서버가
- * 요구하므로 입력받되 표시는 하지 않는다.
+ * 종전에는 `DESIGN_SYSTEM §4.2`에 **속력(kn) 자릿수가 없어** 목록에서 열을 뺐다.
+ * 화면이 임의로 정하면 다른 화면과 갈라지기 때문이었고, 열을 비우는 대신 아예
+ * 빼는 것으로 그 사실을 드러냈다(`AGENTS §6.1`).
+ *
+ * **`§4.2` v2.3이 1자리로 확정했다**(`#592`). 열을 되돌린다.
  */
 
 const NO_VALUE = '—'
@@ -194,6 +196,18 @@ function VoyageRow({
           <dt>실제 거리</dt>
           <dd className="num">
             {quantity(voyage.actualDistanceNm, DISPLAY_DIGITS.distanceNm)} {DISPLAY_UNITS.distance}
+          </dd>
+        </div>
+        <div>
+          <dt>계획 속력</dt>
+          <dd className="num">
+            {quantity(voyage.plannedSpeedKn, DISPLAY_DIGITS.speedKn)} {DISPLAY_UNITS.speed}
+          </dd>
+        </div>
+        <div>
+          <dt>실제 평균 속력</dt>
+          <dd className="num">
+            {quantity(voyage.actualAvgSpeedKn, DISPLAY_DIGITS.speedKn)} {DISPLAY_UNITS.speed}
           </dd>
         </div>
         <div>

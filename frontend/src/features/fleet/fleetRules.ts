@@ -1,4 +1,4 @@
-import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { DaysReason, FleetVessel, RiskReason, UnavailableReason } from './types'
 
@@ -61,9 +61,16 @@ export function riskReasonText(reason: RiskReason): string {
  *
  * **숫자를 못 낸 것과 0일인 것을 같은 문구로 쓰지 않는다.** 서버가 사유를 따로 주는
  * 이유가 여기 있다(`API_SPEC §2.8`).
+ *
+ * 자릿수·단위는 `§4.2`가 소유한다 (#592). 종전에는 서버 값을 템플릿에 그대로 끼워
+ * 넣고 `일`을 리터럴로 붙였다 — 규정이 없어 그럴 수밖에 없었고, 서버가 소수를 보내면
+ * 대시보드 카드에 `12.4일`이 나갈 자리였다.
  */
 export function daysToDText(days: number | null, reason: DaysReason | null): string {
-  if (days !== null) return `D등급까지 ${days}일`
+  if (days !== null) {
+    const text = formatDecimalString(String(days), DISPLAY_DIGITS.days)
+    return `D등급까지 ${text}${DISPLAY_UNITS.day}`
+  }
   switch (reason) {
     case 'ALREADY_AT_OR_BELOW':
       return 'D등급 이하'

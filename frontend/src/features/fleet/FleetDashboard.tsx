@@ -123,7 +123,10 @@ export function FleetDashboard() {
           <p className="warn__main">{banner}</p>
           {soonest ? (
             <p className="warn__sub">
-              가장 임박 — {soonest.name} · D등급까지 {soonest.days}일
+              {/* 문구를 다시 쓰지 않고 `daysToDText`를 부른다 (#592). 종전에는
+                  같은 문장을 여기서 한 번 더 조립해, 선박 카드와 이 배너의
+                  자릿수가 갈릴 수 있었다. */}
+              가장 임박 — {soonest.name} · {daysToDText(soonest.days, null)}
             </p>
           ) : null}
         </section>
