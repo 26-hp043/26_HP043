@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped } from '../../display/format'
 import { VoyageError, createApiVoyageManagementProvider } from './apiProvider'
+import { ImportCsv } from './ImportCsv'
 import type { VoyageManagementProvider } from './apiProvider'
 import {
   POLICY_LABELS,
@@ -132,7 +133,8 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
         </p>
       ) : voyages.length === 0 && !failure ? (
         <p className="vy__empty">
-          기록된 항차가 없습니다. 「항차 추가」로 계획을 먼저 만들어 주세요.
+          기록된 항차가 없습니다. 「항차 추가」로 하나씩 만들거나, 아래에서 CSV로
+          한 번에 가져올 수 있습니다.
         </p>
       ) : (
         <ul className="vy__list">
@@ -141,6 +143,16 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
           ))}
         </ul>
       )}
+
+      {/*
+       * 가져오기를 **목록 아래**에 둔다. 이 구획의 주 용도는 기록을 읽고 상태를
+       * 옮기는 것이고, 대량 입력은 처음 한 번에 몰린다. 위에 두면 매번 지나쳐야 한다.
+       *
+       * 확정에 성공하면 목록을 다시 부른다 — 들어간 행을 화면이 스스로 만들지
+       * 않는다. 서버가 `DRAFT`·`EXCLUDE`로 확정한 항차를 그대로 받아야 상태 전환
+       * 버튼이 옳게 그려진다(`API_SPEC §8.2`).
+       */}
+      <ImportCsv vesselId={vesselId} provider={api} onImported={() => void load()} />
     </section>
   )
 }

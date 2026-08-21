@@ -1,6 +1,7 @@
 import { csrfHeaders, redirectToLogin } from '../../auth/session'
 import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import type { ImportResult, ImportRowError } from './importRules'
 import { actualsPayload, policyForTransition } from './voyageRules'
 import type {
   ActualsDraft,
@@ -111,6 +112,49 @@ export interface VoyageManagementProvider {
   create(vesselId: string, draft: VoyageDraft): Promise<ManagedVoyage>
   transition(voyage: ManagedVoyage, to: VoyageStatus): Promise<ManagedVoyage>
   saveActuals(voyageId: string, draft: ActualsDraft): Promise<ManagedVoyage>
+  /**
+   * CSV 가져오기 (`API_SPEC §8.2`).
+   *
+   * `dryRun`이면 **검증만 하고 아무것도 저장하지 않는다.** 화면은 이 걸음을 먼저
+   * 밟고 결과를 보인 뒤에야 확정한다 — 부분 성공 계약이라 확인 없이 올리면
+   * 되돌릴 수 없는 상태가 만들어진다.
+   */
+  importCsv(vesselId: string, file: File, options: { dryRun: boolean }): Promise<ImportResult>
+}
+
+interface ServerImportError {
+  row?: unknown
+  field?: unknown
+  message?: unknown
+}
+
+interface ServerImportResult {
+  imported_count?: unknown
+  skipped_count?: unknown
+  errors?: unknown
+  dry_run?: unknown
+}
+
+function toImportError(raw: ServerImportError): ImportRowError {
+  return {
+    row: typeof raw.row === 'number' ? raw.row : 0,
+    field: typeof raw.field === 'string' ? raw.field : 'file',
+    message: typeof raw.message === 'string' ? raw.message : '알 수 없는 오류입니다.',
+  }
+}
+
+function toImportResult(raw: ServerImportResult): ImportResult {
+  return {
+    importedCount: typeof raw.imported_count === 'number' ? raw.imported_count : 0,
+    skippedCount: typeof raw.skipped_count === 'number' ? raw.skipped_count : 0,
+    errors: Array.isArray(raw.errors) ? raw.errors.map(toImportError) : [],
+    /*
+     * **`dry_run`을 응답에서 읽는다.** 요청에 무엇을 보냈는지로 판단하지 않는다 —
+     * 두 값이 갈리면 저장된 것을 「아직 저장 안 됨」으로 보이게 되고, 그 화면에서
+     * 사용자는 같은 파일을 한 번 더 올린다.
+     */
+    dryRun: raw.dry_run === true,
+  }
 }
 
 export function createApiVoyageManagementProvider(
@@ -225,6 +269,60 @@ export function createApiVoyageManagementProvider(
         }),
       })
       return readVoyage(body)
+    },
+
+    async importCsv(vesselId, file, options) {
+      /*
+       * `Content-Type`을 직접 넣지 않는다 — `FormData`를 주면 브라우저가 multipart
+       * 경계 문자열을 포함해 붙인다. 손으로 적으면 경계가 빠져 서버가 파싱에 실패한다.
+       *
+       * `call()`은 `init.body`가 있으면 JSON 헤더를 붙이므로 이 경로에서는 쓰지 않는다.
+       */
+      const form = new FormData()
+      form.append('file', file)
+      // `§8.2` 표의 유일한 값이지만 **생략하지 않는다.** 서버가 기본값을 바꾸면
+      // 화면이 의도한 것과 다른 자료가 들어간다.
+      form.append('type', 'voyages')
+
+      let response: Response
+      try {
+        response = await fetchImpl(
+          `${baseUrl}/vessels/${vesselId}/import?dry_run=${options.dryRun}`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { Accept: 'application/json', ...csrfHeaders() },
+            body: form,
+          },
+        )
+      } catch (cause) {
+        throw new VoyageError('서버에 연결하지 못했습니다.', { cause })
+      }
+
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new VoyageError('세션이 만료되었습니다.')
+      }
+
+      const body = (await response.json().catch(() => null)) as
+        | (Record<string, unknown> & ServerError)
+        | null
+
+      if (!response.ok) {
+        /*
+         * 파일 단위 거부(크기·형식·인코딩·필수 컬럼)는 여기로 온다 — `errors[]`가
+         * 아니라 422다. **한 행도 읽지 않은 상태**이므로 행 오류와 다르게 보인다.
+         */
+        const detail = body?.error?.details?.[0]
+        throw new VoyageError(
+          body?.error?.message ?? `가져오지 못했습니다 (HTTP ${response.status}).`,
+          { field: detail?.field },
+        )
+      }
+
+      const data = (body?.data ?? null) as ServerImportResult | null
+      if (!data) throw new VoyageError('응답 형식이 올바르지 않습니다.')
+      return toImportResult(data)
     },
 
     async saveActuals(voyageId, draft) {
