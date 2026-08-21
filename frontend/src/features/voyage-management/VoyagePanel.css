@@ -227,3 +227,160 @@
   display: flex;
   gap: var(--spacing-sm);
 }
+
+/* ── CSV 가져오기 (API_SPEC §8.2 · #60) ──────────────────────────── */
+
+.vy-import {
+  margin-top: var(--spacing-xl);
+  padding-top: var(--spacing-lg);
+  border-top: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.vy-import__title {
+  margin: 0;
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.vy-import__hint {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.vy-import__hint code {
+  font-family: inherit;
+  color: var(--text-primary);
+}
+
+.vy-import__row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-xs);
+}
+
+.vy-import__row input[type='file'] {
+  font: inherit;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  min-inline-size: 0;
+}
+
+.vy-import__row button {
+  font: inherit;
+  font-size: var(--font-size-label);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  color: var(--text-primary);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+/* 확정만 강조한다 — 검증은 되돌릴 수 있고 확정은 아니다. */
+.vy-import__row .vy-import__commit {
+  color: var(--surface-card);
+  background: var(--semantic-primary);
+  border-color: var(--semantic-primary);
+}
+
+.vy-import__row button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.vy-import__row button:focus-visible,
+.vy-import__row input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.vy-import__note {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+  word-break: keep-all;
+}
+
+/*
+ * 오류 문구는 `--color-danger-text`다 — `--semantic-danger`는 라이트에서 문자 대비가
+ * 4.13:1이라 `DESIGN_SYSTEM §0.2` 제약 1(≥4.5:1)을 못 넘는다.
+ */
+.vy-import__error {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--color-danger-text);
+  word-break: keep-all;
+}
+
+.vy-import__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+}
+
+.vy-import__summary {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+}
+
+/*
+ * 저장이 끝난 결과를 **색으로 구분하지 않는다.**
+ *
+ * `--semantic-success`(#38a169)는 라이트에서 흰 배경 대비가 **3.25:1**이라
+ * `DESIGN_SYSTEM §0.2` 제약 1(≥4.5:1)을 못 넘는다 — danger(4.13:1)·warning(3.09:1)과
+ * 같은 종류의 문제이며, 시맨틱 색 문자 교체 이슈에 함께 올린다.
+ *
+ * 그리고 색만으로 「검증」과 「저장됨」을 가르면 `§0.2` 제약 3(색 단독 의미 전달
+ * 금지)에도 걸린다. **문구가 이미 다르다** — 「가져올 수 있습니다」와
+ * 「가져왔습니다」다. 굵기로만 무게를 준다.
+ */
+.vy-import__summary--done {
+  font-weight: var(--font-weight-label);
+}
+
+.vy-import__errors {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-micro);
+}
+
+.vy-import__errors caption {
+  text-align: left;
+  padding-block-end: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+
+.vy-import__errors th,
+.vy-import__errors td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-bottom: 1px solid var(--border-default);
+  text-align: left;
+  vertical-align: top;
+}
+
+.vy-import__errors thead th {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-label);
+  white-space: nowrap;
+}
+
+.vy-import__errors td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vy-import__errors code {
+  font-family: inherit;
+  color: var(--text-secondary);
+}
