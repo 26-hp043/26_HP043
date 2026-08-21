@@ -28,6 +28,28 @@ body {
   /* DESIGN_SYSTEM §3 — 표·수치 전역 적용 */
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+
+  /*
+   * 한국어를 **어절 단위로** 끊는다.
+   *
+   * 브라우저 기본값(`word-break: normal`)은 한글을 음절 어디서나 끊는다. 좁은 칸에서
+   * 「연료 사용량」이 `연료 사용` + `량`으로, 「(B 이상)」이 `(B 이` + `상)`으로
+   * 쪼개졌다 — 어절 경계는 `연료 / 사용량`인데 단어 한가운데가 갈린 것이다.
+   * 1280 프로젝터 폭에서 라벨이 특히 자주 걸린다.
+   *
+   * ## `overflow-wrap`을 함께 두는 이유
+   *
+   * `keep-all`만 두면 **끊을 어절 경계가 없는 긴 문자열이 칸을 넘친다.** IMO 번호
+   * (`9100001`)·enum 코드(`RO_RO_CARGO_VEHICLE`)·URL·해시가 그렇다. 이들은 공백이
+   * 없어 한 덩어리이고, `keep-all`은 「덩어리를 쪼개지 말라」는 뜻이므로 칸보다 길면
+   * 그대로 삐져나간다.
+   *
+   * `break-word`는 **그때만** 개입한다 — 정상적으로 줄바꿈할 자리가 있으면 손대지
+   * 않고, 한 덩어리가 줄에 안 들어갈 때만 쪼갠다. 둘을 같이 둬야 「어절은 지키되
+   * 넘치지는 않는다」가 된다.
+   */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 /*
