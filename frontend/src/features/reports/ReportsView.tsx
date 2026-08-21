@@ -180,6 +180,15 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                 </option>
               ))}
             </select>
+            {/*
+              「불러오는 중」과 「없음」을 구분한다. 구분하지 않으면 응답이 느릴 때
+              빈 셀렉트만 보여 **선박이 등록되지 않은 앱**으로 읽힌다 (#613).
+            */}
+            {vessels === null ? (
+              <em className="rp__hint" aria-busy="true">
+                선박 목록을 불러오는 중입니다…
+              </em>
+            ) : null}
             {vessels !== null && vessels.length === 0 ? (
               <em className="rp__hint">등록된 선박이 없습니다.</em>
             ) : null}
@@ -222,7 +231,13 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                   </option>
                 ))}
               </select>
-              {voyages !== null && voyages.length === 0 && vesselId ? (
+              {/* 선박을 고른 뒤에만 항차를 부른다 — 고르기 전 「불러오는 중」은 거짓말이다. */}
+              {vesselId && voyages === null ? (
+                <em className="rp__hint" aria-busy="true">
+                  항차 목록을 불러오는 중입니다…
+                </em>
+              ) : null}
+              {vesselId && voyages !== null && voyages.length === 0 ? (
                 <em className="rp__hint">이 선박에 등록된 항차가 없습니다.</em>
               ) : null}
               {voyages !== null && voyages.length > 0 && !voyages.some((v) => v.reportable) ? (

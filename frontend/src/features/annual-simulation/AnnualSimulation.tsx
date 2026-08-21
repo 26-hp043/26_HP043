@@ -265,8 +265,13 @@ export function AnnualSimulation({
             {ANNUAL_COPY.loading}
           </p>
         ) : null}
+        {/*
+          오류는 `role="alert"`로 낸다 — `aria-atomic`을 암시하므로 제목과 본문이
+          통째로 읽힌다. `aria-live`만 두면 바뀐 노드만 읽혀 둘이 따로 논다.
+          다른 화면 8곳이 모두 이 형태다 (#613).
+        */}
         {state.status === 'error' ? (
-          <div className="annual-sim__error" aria-live="assertive">
+          <div className="annual-sim__error" role="alert">
             <strong>{ANNUAL_COPY.errorTitle}</strong>
             <p>{state.message}</p>
           </div>
