@@ -166,6 +166,9 @@ V3_2025 = "00000000-0000-4000-8000-000000000106"
 V3_2026 = "00000000-0000-4000-8000-000000000107"
 V4_2025 = "00000000-0000-4000-8000-000000000108"
 V4_2026 = "00000000-0000-4000-8000-000000000109"
+# 벌크선(발표 동선의 위험 선박)에 진행 중·계획 항차를 준다 (#587).
+V1_IN_PROGRESS = "00000000-0000-4000-8000-000000000110"
+V1_PLANNED = "00000000-0000-4000-8000-000000000111"
 
 # not_underway_period: …0201~0203
 P_CANAL = "00000000-0000-4000-8000-000000000201"
@@ -412,6 +415,59 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "actual_departure_at": _utc(2026, 8, 1, 10),
         "actual_arrival_at": _utc(2026, 8, 2, 8),
     },
+    {
+        # 벌크선의 진행 중 항차 (#587).
+        #
+        # 종전에는 이 배가 `UNDER_WAY / SAILING`(대한해협)인데 **진행 중 항차가
+        # 없었다** — 선박 상세는 「항해 중」인데 실시간 CII는 「진행 중 항차가
+        # 없습니다」를 냈다. 발표 동선이 이 배로 드릴다운하므로 그 화면이 비어 보였다.
+        #
+        # 효율은 V1_2026 실적(620t / 4,300nm ≈ 0.144 t/nm)에 맞춰 둔다. 위험 선박
+        # 서사를 흔들지 않기 위해서다.
+        "id": V1_IN_PROGRESS,
+        "vessel_id": VESSEL_ID_BULK,
+        "voyage_no": "2026-02",
+        "status": "IN_PROGRESS",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "SINGAPORE",
+        "planned_distance_nm": Decimal("2300.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("14.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _utc(2026, 8, 12),
+        "planned_arrival_at": _utc(2026, 8, 19),
+        "actual_departure_at": _utc(2026, 8, 12, 6),
+        "actual_arrival_at": None,
+    },
+    {
+        # 벌크선의 계획 항차 (#587).
+        #
+        # 종전 시드에는 `PLANNED`·`DRAFT`가 **한 건도 없었다.** 항로 비교 결과 채택
+        # (`scenario_adopt`)이 계획 단계 항차만 받으므로(`services/scenario_adopt.py`
+        # `PLANNING_STATUSES`) 그 동선을 시연할 대상이 없었다.
+        #
+        # `INCLUDE_AS_PLAN`이라 **YTD 집계에는 들어가지 않는다**(`services/ytd_cii.py`
+        # 표) — Fixture 1의 4.982 / 5.045 / C는 그대로다. 연간 시뮬레이션의
+        # 「남은 계획 항차」로만 잡혀 `DESIGN_SYSTEM §10.2` 스택 바가 여러 구간을 낸다.
+        "id": V1_PLANNED,
+        "vessel_id": VESSEL_ID_BULK,
+        "voyage_no": "2026-03",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "SINGAPORE",
+        "arrival_port_name": "BUSAN",
+        "planned_distance_nm": Decimal("2300.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("14.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _utc(2026, 9, 5),
+        "planned_arrival_at": _utc(2026, 9, 12),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
 ]
 
 #: 항차 연료. 전부 HFO(017 seed 코드). 진행 중 항차는 계획값만.
@@ -470,6 +526,19 @@ SEED_VOYAGE_FUELS: list[dict[str, object]] = [
         "voyage_id": V4_2026,
         "planned_fuel_ton": Decimal("62.00"),
         "actual_fuel_ton": Decimal("70.00"),
+    },
+    {
+        # 진행 중 항차 — 계획값만. 실적은 항해가 끝나야 들어온다.
+        "id": "00000000-0000-4000-8000-000000000410",
+        "voyage_id": V1_IN_PROGRESS,
+        "planned_fuel_ton": Decimal("331.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": "00000000-0000-4000-8000-000000000411",
+        "voyage_id": V1_PLANNED,
+        "planned_fuel_ton": Decimal("331.00"),
+        "actual_fuel_ton": None,
     },
 ]
 
