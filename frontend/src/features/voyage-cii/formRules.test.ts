@@ -6,6 +6,7 @@ import {
   toRequest,
   validateForm as validateFormWith,
   type VoyageCiiFormState,
+  pickDefaultYear,
 } from './formRules'
 import { VoyageCiiError } from './provider'
 
@@ -281,5 +282,63 @@ describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () =
       { code: 'AMMONIA', displayName: '암모니아' },
     ])
     expect(errors).toEqual({})
+  })
+})
+
+/**
+ * 규제연도 기본 선택 (`pickDefaultYear`).
+ *
+ * 종전에는 `rows[0]`이라 **항상 2023**이 걸렸다. 목록이 오름차순이고 CII 규제가
+ * 2023년에 시작하기 때문이다. 보기 문제가 아니라 결과가 달라지는 문제였다 —
+ * `Z_year`가 해마다 커져 `required_CII`가 다르고 등급 판정이 바뀐다.
+ *
+ * 올해를 **인자로 받는** 이유가 여기서 드러난다. 함수가 `new Date()`를 부르면
+ * 아래 단언들을 해가 바뀔 때마다 고쳐야 한다.
+ */
+describe('pickDefaultYear — 규제연도 기본 선택', () => {
+  /** 실제 적재된 규제연도 8개. */
+  const YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030]
+
+  it('올해가 목록에 있으면 올해를 고른다', () => {
+    expect(pickDefaultYear(YEARS, 2026)).toBe('2026')
+    expect(pickDefaultYear(YEARS, 2023)).toBe('2023')
+    expect(pickDefaultYear(YEARS, 2030)).toBe('2030')
+  })
+
+  it('첫 항목을 고르지 않는다 — 이 버그의 본체', () => {
+    // rows[0]으로 돌아가면 여기서 걸린다.
+    expect(pickDefaultYear(YEARS, 2026)).not.toBe('2023')
+  })
+
+  it('올해가 목록에 없으면 가장 최근 해로 떨어진다', () => {
+    // 목록이 아직 올해를 담지 못한 경우. 과거로 떨어지면 3년 전 기준으로 계산된다.
+    expect(pickDefaultYear(YEARS, 2031)).toBe('2030')
+    expect(pickDefaultYear(YEARS, 2022)).toBe('2030')
+  })
+
+  it('정렬 순서에 기대지 않는다', () => {
+    // 실 API는 오름차순으로 주지만 이 함수가 강제할 수 있는 조건이 아니다.
+    // 순서가 뒤집혔을 때 마지막 항목을 고르면 가장 오래된 해가 조용히 걸린다.
+    expect(pickDefaultYear([2030, 2029, 2028], 2031)).toBe('2030')
+    expect(pickDefaultYear([2025, 2030, 2023], 2031)).toBe('2030')
+  })
+
+  it('이미 고른 해가 목록에 있으면 유지한다', () => {
+    // 선박을 바꿀 때마다 되돌아가면 사용자가 방금 고른 값을 잃는다.
+    expect(pickDefaultYear(YEARS, 2026, '2024')).toBe('2024')
+  })
+
+  it('이미 고른 해가 목록에 없으면 올해로 간다', () => {
+    expect(pickDefaultYear(YEARS, 2026, '2019')).toBe('2026')
+  })
+
+  it('목록이 비면 값을 지어내지 않는다', () => {
+    // 올해를 넣어 두면 서버가 지원하지 않는 해로 요청이 나간다.
+    expect(pickDefaultYear([], 2026)).toBe('')
+    expect(pickDefaultYear([], 2026, '2024')).toBe('')
+  })
+
+  it('문자열 비교로 놓치지 않는다 — 목록은 숫자다', () => {
+    expect(pickDefaultYear([2026], 2026, '2026')).toBe('2026')
   })
 })

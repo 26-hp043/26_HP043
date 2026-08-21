@@ -89,6 +89,56 @@ function toNumber(raw: string): number | null {
 }
 
 /**
+ * 연도 목록을 받았을 때 **셀렉트에 무엇이 선택돼 있을지** 정한다.
+ *
+ * 1. 이미 고른 해가 새 목록에도 있으면 **유지한다** — 선박을 바꿀 때마다 되돌아가면
+ *    사용자가 방금 고른 값을 잃는다(`#534`가 정한 규칙).
+ * 2. 없으면 **올해**를 고른다. 목록에 올해가 없으면 **가장 최근 해**로 떨어진다.
+ *
+ * ## 왜 첫 항목이면 안 되는가
+ *
+ * 종전에는 `rows[0]`이었다. 목록이 오름차순이고 CII 규제가 2023년에 시작하므로
+ * **항상 2023이 걸렸다.** 이것은 보기 문제가 아니라 **결과가 달라지는 문제**다 —
+ * `required_CII = CII_ref × (1 − Z_year/100)`에서 `Z_year`가 해마다 커지므로 기준값이
+ * 다르고 등급 판정이 바뀐다. 연도를 건드리지 않은 사용자는 3년 전 기준으로 계산된
+ * 등급을 보게 된다. 대시보드가 「2026년 누적(YTD) 기준」이라 화면 간 표기도 어긋났다.
+ *
+ * ## ⚠️ 이것은 계산이 아니라 폼 편의값이다
+ *
+ * `PRD §3.3.8`이 「계산 코어는 시각을 모른다」를 정하고 `as_of`를 명시 입력으로 승격한
+ * 것은 **계산** 이야기다. 여기서 정하는 것은 **사용자가 화면에 들어왔을 때 셀렉트에
+ * 무엇이 선택돼 있는가**이며, 서버로 보내는 값은 여전히 사용자가 고른
+ * `regulation_year` 그대로다. 화면이 시각을 참고해 기본 선택을 정하는 것과, 계산이
+ * 시각에 의존하는 것은 다른 일이다 — **이 주석을 「화면이 시각을 알면 안 된다」로 읽고
+ * 되돌리지 말 것.**
+ *
+ * 그래서 `new Date()`를 이 함수 안에서 부르지 않고 **인자로 받는다.** 컴포넌트가
+ * 시각을 읽고 순수 함수는 그 값을 쓰기만 하므로, 테스트가 어느 해로든 고정할 수 있다.
+ *
+ * 목록이 비면 빈 문자열이다 — **값을 지어내지 않는다.**
+ *
+ * @param rows   서버가 준 규제연도 목록
+ * @param currentYear 호출부가 읽은 올해 (`new Date().getFullYear()`)
+ * @param previous 지금 골라져 있는 값. 없으면 빈 문자열
+ */
+export function pickDefaultYear(
+  rows: readonly number[],
+  currentYear: number,
+  previous = '',
+): string {
+  if (rows.length === 0) return ''
+  if (previous !== '' && rows.includes(Number(previous))) return previous
+  if (rows.includes(currentYear)) return String(currentYear)
+  /*
+   * 정렬에 기대지 않고 최댓값을 고른다. 실 API는 오름차순으로 주지만(`apiProvider`가
+   * `.sort()` 한다) 그것은 이 함수가 강제할 수 없는 조건이고, 순서가 뒤집히면
+   * `rows[rows.length - 1]`은 **가장 오래된 해**를 조용히 고른다 — 지금 고치는 버그와
+   * 같은 모양이다.
+   */
+  return String(Math.max(...rows))
+}
+
+/**
  * 폼 전체를 검증한다. **위반을 전부 모아 반환한다.**
  *
  * `demoProvider.validateRequest()`는 첫 위반에서 즉시 `throw`하므로 거리와 연료량이

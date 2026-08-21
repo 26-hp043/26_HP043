@@ -8,6 +8,7 @@ import {
   validateForm,
   type FormErrors,
   type VoyageCiiFormState,
+  pickDefaultYear,
 } from './formRules'
 import { DISPLAY_UNITS } from '../../display/format'
 import { createVoyageCiiProvider } from './providerSelection'
@@ -129,11 +130,18 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
       .then((rows) => {
         if (cancelled) return
         setYears(rows)
-        // 이미 고른 연도가 새 목록에도 있으면 유지한다 — 선박을 바꿀 때마다 연도가
-        // 첫 값으로 되돌아가면 사용자가 방금 고른 값을 잃는다.
+        /*
+         * 기본 선택은 `pickDefaultYear`가 정한다 — 이미 고른 해는 유지하고, 없으면
+         * 올해를, 올해가 목록에 없으면 가장 최근 해를 고른다.
+         *
+         * 올해를 **여기서 읽어** 순수 함수에 넘긴다. 함수 안에서 `new Date()`를
+         * 부르면 테스트가 해를 고정할 수 없다. 이 값은 셀렉트의 초기 선택을 정할
+         * 뿐이고 **서버로 가는 것은 사용자가 고른 값**이다(함수 주석 참조).
+         */
+        const thisYear = new Date().getFullYear()
         setState((prev) => {
-          if (prev.regulationYear && rows.includes(Number(prev.regulationYear))) return prev
-          return { ...prev, regulationYear: rows.length > 0 ? String(rows[0]) : '' }
+          const next = pickDefaultYear(rows, thisYear, prev.regulationYear)
+          return next === prev.regulationYear ? prev : { ...prev, regulationYear: next }
         })
       })
       .catch(() => {
