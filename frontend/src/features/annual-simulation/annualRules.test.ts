@@ -1,3 +1,4 @@
+import { formatPercent } from '../../display/format'
 import { describe, expect, it } from 'vitest'
 import {
   probabilityOfDorE,
@@ -5,6 +6,8 @@ import {
   riskFlag,
   sensitivityRows,
   stackSegments,
+  INLINE_LABEL_MIN_PERCENT,
+  showsInlineLabel,
   toPercent,
 } from './annualRules'
 import type { MonteCarloBlock } from './types'
@@ -103,5 +106,74 @@ describe('표시 변환', () => {
     expect(line).toContain('0x3039')
     expect(line).toContain('PCG64DXSM')
     expect(line).toContain('5000')
+  })
+})
+
+/**
+ * 구간 안 문자 표기 — `DESIGN_SYSTEM §10.2`.
+ *
+ * *"구간 폭 ≥ 8% 일 때만 내부에 `등급문자 nn%` 표기, 미만은 툴팁으로"*
+ *
+ * `AGENTS §4.6`에 따라 문구는 리터럴로 단언하지 않는다. 다만 **8% 임계와 자릿수는
+ * 정본이 확정한 값**이므로 그대로 단언한다.
+ */
+describe('스택 바 구간 안 문자 — DESIGN_SYSTEM §10.2', () => {
+  it('임계는 정본이 정한 8이다', () => {
+    expect(INLINE_LABEL_MIN_PERCENT).toBe(8)
+  })
+
+  it('8% 경계를 포함한다 — 정확히 8%면 안에 넣는다', () => {
+    // §10.2가 `≥`로 적었다. `>`로 잘못 쓰면 딱 8%인 구간만 조용히 빠진다.
+    expect(showsInlineLabel(8)).toBe(true)
+  })
+
+  it('8% 바로 아래는 넣지 않는다', () => {
+    expect(showsInlineLabel(7.9)).toBe(false)
+    expect(showsInlineLabel(7.999)).toBe(false)
+  })
+
+  it('8% 바로 위는 넣는다', () => {
+    expect(showsInlineLabel(8.001)).toBe(true)
+    expect(showsInlineLabel(8.1)).toBe(true)
+  })
+
+  it('0% 구간은 넣지 않는다', () => {
+    // 폭이 0이라 글자가 들어갈 자리가 없다. 구간 자체는 목록에서 빼지 않는다.
+    expect(showsInlineLabel(0)).toBe(false)
+  })
+
+  it('합이 100%가 아니어도 구간 자신의 폭으로 판정한다', () => {
+    /*
+     * 서버 확률의 합은 반올림으로 99.9%나 100.1%가 되곤 한다. 100%로 정규화해
+     * 판정하면 **화면에 그려진 폭과 근거가 어긋난다** — 폭이 곧 근거다.
+     */
+    const under = stackSegments({ A: '0.079', B: '0.30', C: '0.30', D: '0.20', E: '0.12' })
+    const sum = under.reduce((acc, seg) => acc + seg.percent, 0)
+    expect(sum).toBeLessThan(100)
+    // 합이 99.9%여도 7.9%짜리 A는 여전히 8% 미만이다.
+    expect(showsInlineLabel(under[0].percent)).toBe(false)
+
+    const over = stackSegments({ A: '0.081', B: '0.30', C: '0.30', D: '0.20', E: '0.12' })
+    expect(over.reduce((acc, seg) => acc + seg.percent, 0)).toBeGreaterThan(100)
+    expect(showsInlineLabel(over[0].percent)).toBe(true)
+  })
+
+  it('구간 문자의 퍼센트는 소수 1자리다', () => {
+    // §4.2 🔒 비율·확률 백분율 1자리. §10.2 예시의 정수는 형식 예시일 뿐이다.
+    for (const seg of stackSegments({ A: '0.02', B: '0.15', C: '0.61', D: '0.20', E: '0.02' })) {
+      expect(seg.label).toMatch(/^\d+\.\d%$/)
+    }
+  })
+
+  it('바와 범례가 같은 포매터를 쓴다 — 반올림 경계에서 갈리지 않는다', () => {
+    /*
+     * 종전 `toPercent`는 `(Number(p) * 100).toFixed(1)`이었다. `'0.1235'`에서
+     * `formatPercent`(ROUND_HALF_UP)와 답이 갈려, 같은 확률이 구간 안과 범례에서
+     * 다른 숫자로 보일 수 있었다.
+     */
+    expect(toPercent('0.1235')).toBe(`${formatPercent('0.1235')}%`)
+    expect(stackSegments({ A: '0.1235', B: '0', C: '0', D: '0', E: '0' })[0].label).toBe(
+      toPercent('0.1235'),
+    )
   })
 })
