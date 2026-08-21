@@ -12,7 +12,7 @@ import { AuthRequestError, LOGIN_PATH, signup, useAuthUser } from '../auth/sessi
 import { DEFAULT_PATH } from '../screens'
 
 /**
- * 회원가입 — `UIFLOW v2.1` §0-1 (#415).
+ * 회원가입 — `UIFLOW v2.1` 0-1 (#415).
  *
  * 이 화면은 `v1.0`에서 삭제됐다가 **되살아난 것**이다. 구글 OIDC 도입으로 제품이
  * 비밀번호를 보관하지 않게 되면서 사라졌는데, `#413`의 결정으로 그 전제가 없어졌다.

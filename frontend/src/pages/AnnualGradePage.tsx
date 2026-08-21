@@ -4,7 +4,7 @@ import { AnnualSimulation } from '../features/annual-simulation/AnnualSimulation
 import './AnnualGradePage.css'
 
 /**
- * UIFLOW §2-3 연간 등급 — 기능③.
+ * UIFLOW 2-3 연간 등급 — 기능③.
  *
  * `#157`이 **고정값 목업**으로 채웠다. 계산 엔진(`#63`)과 API(`#64`)는 `2026.10`
  * 마일스톤이며 이 화면은 그 결정을 선점하지 않는다.

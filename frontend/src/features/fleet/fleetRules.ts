@@ -149,7 +149,7 @@ export function underwayStateText(vessel: FleetVessel): string {
 }
 
 /**
- * `detail_status` 7값의 화면 표기 — `UIFLOW §2-4`가 정한 표 그대로다.
+ * `detail_status` 7값의 화면 표기 — `UIFLOW 2-4`가 정한 표 그대로다.
  *
  * | 값 | 표기 | 계산상 구분 |
  * |---|---|---|

@@ -4,7 +4,7 @@ import { ScenarioComparison } from '../features/scenario-comparison/ScenarioComp
 import './RouteComparisonPage.css'
 
 /**
- * UIFLOW §2-2 항로 비교 — 기능②.
+ * UIFLOW 2-2 항로 비교 — 기능②.
  *
  * `#156`이 화면과 demo provider를 채웠다. 실 API(`#57`) 연결은 `#139` 소관이다.
  *

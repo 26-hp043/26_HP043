@@ -27,16 +27,28 @@ PR `#463`)에서 들어왔다** — 제목이 `Update`이고 본문이 비어 �
 `frontend/src/screens.ts`도 *「`UIFLOW §2.2` 매핑 표에 SCR-002 행이 없다」*로
 같은 참조를 쓰고 있었다. `.md`만 스캔하면 이것을 놓친다.
 
+## 표기 규칙 (`AGENTS §4.7`, `#602`)
+
+    절            §N · §N.M
+    화면          N-M           (`§`를 붙이지 않는다)
+    절 안의 항목   §N 항목 M
+
+`#602` 이전에는 `§N-M` 한 모양이 셋을 다 뜻했다 — 화면 번호 · `§16` 표의 행 번호 ·
+아무것도 아닌 것(`#583`이 지운 끊긴 참조). **모양으로 구분되지 않으면 실재 여부를
+판정할 수 없다.** 그래서 이 가드는 표기 규칙 자체도 함께 강제한다.
+
 ## 무엇을 검사하지 않는가
 
 **참조가 가리키는 내용이 맞는지는 보지 않는다.** 번호가 실재하는지만 본다.
 내용 대조는 사람이 한다 — `AGENTS §4.4`가 상위 문서 참조에서 같은 선을 긋는다.
 
-**화면 번호 검사는 `UIFLOW`에만 적용한다.** 화면 번호 체계를 가진 문서가 그것
-하나뿐이다. `DESIGN_SYSTEM §16-6`처럼 생긴 것은 화면이 아니라 **§16 미확정 목록의
-행 번호**이며(닫힌 항목은 `~~6~~`처럼 취소선이 붙는다) 별개의 번호 체계다. 앞자리
-`§16`이 실재하는지는 절 검사가 이미 본다. 두 체계가 같은 `§N-M` 모양을 쓰는 것
-자체가 문제이며, 표기 통일은 별건으로 다룬다.
+**문서명이 바로 앞에 붙은 참조만 본다.** ``` `UIFLOW v2.1` 0-2 ``` 처럼 사이에 버전이
+끼면 잡지 못한다. 문서명에서 세 글자 넘게 떨어진 숫자를 참조로 읽으면 오탐이 는다.
+
+**마크다운 코드펜스(```` ``` ````) 안은 보지 않는다.** 규칙을 설명하려면 **틀린
+표기를 그대로 보여줘야** 한다 — `AGENTS §4.7`의 금지 예시가 그것이다. 예시가
+가드에 걸리면 규칙을 문서에 적을 수 없게 된다. 대신 실제 참조는 산문에 있으므로
+검사 범위가 실질적으로 좁아지지 않는다.
 """
 
 from __future__ import annotations
@@ -66,10 +78,10 @@ _SECTION_REF = re.compile(
 #: 끊긴 참조가 4건으로 집계됐으나 실제로는 이것을 포함해 더 있었다. 앞 참조가
 #: 가리킨 문서를 그대로 물려받아 함께 검사한다(`_continued`).
 _CONTINUATION = re.compile(r"[`\s]*[·,]\s*[`\s]*§\s*(?P<num>[0-9]+(?:\.[0-9]+)*)\b")
-#: ``UIFLOW §2-4`` · ``UIFLOW 2-10`` — 화면 참조. 하이픈으로 잇는다.
-#: ``§`` 유무가 섞여 있어 둘 다 받는다(표기 통일은 별건).
+#: ``UIFLOW 2-4`` — 화면 참조. 하이픈으로 잇고 ``§``를 붙이지 않는다 (`AGENTS §4.7`).
+#: 규칙 위반(``§`` 있음)도 함께 잡아야 실재 검사가 그것을 건너뛰지 않는다.
 _SCREEN_REF = re.compile(
-    r"\b(?P<doc>" + "|".join(TARGETS) + r")(?:\.md)?[ `]{0,3}§?\s*(?P<num>[0-9]+-[0-9]+)\b"
+    r"\b(?P<doc>" + "|".join(TARGETS) + r")(?:\.md)?[ `]{0,3}(?P<sec>§\s*)?(?P<num>[0-9]+-[0-9]+)\b"
 )
 
 #: ``## 📊 2. 계층별 상세 화면`` · ``### 2.2 화면 ↔ 계층 매핑`` — 절 헤딩.
@@ -107,10 +119,6 @@ def screens(doc: str) -> set[str]:
     return found
 
 
-#: 화면 번호 체계를 가진 문서. 위 「무엇을 검사하지 않는가」 참조.
-SCREEN_DOCS = ("UIFLOW",)
-
-
 def _continued(line: str, start: int) -> list[str]:
     """``·§3`` 처럼 문서명 없이 이어 붙은 절 번호. 끊길 때까지 따라간다."""
     found = []
@@ -124,12 +132,24 @@ def _continued(line: str, start: int) -> list[str]:
         position = matched.end()
 
 
+def _prose_lines(path: Path):
+    """``(행 번호, 줄)``. 마크다운 코드펜스 안은 건너뛴다 — 위 「무엇을 검사하지 않는가」."""
+    fenced = False
+    for number, line in enumerate(_text(path).splitlines(), 1):
+        if path.suffix == ".md" and line.lstrip().startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
+        yield number, line
+
+
 def _scan(pattern: re.Pattern[str], *, follow: bool = False) -> list[tuple[str, int, str, str]]:
     """``(파일, 행, 대상문서, 번호)``. 대상 문서가 자기 자신을 가리키는 것은 뺀다."""
     hits = []
     for path in [*_MD, *_SRC]:
         name = path.relative_to(_ROOT).as_posix()
-        for number, line in enumerate(_text(path).splitlines(), 1):
+        for number, line in _prose_lines(path):
             for matched in pattern.finditer(line):
                 doc = matched.group("doc")
                 if path.name == TARGETS[doc]:
@@ -138,6 +158,18 @@ def _scan(pattern: re.Pattern[str], *, follow: bool = False) -> list[tuple[str, 
                 if follow:
                     hits += [(name, number, doc, num) for num in _continued(line, matched.end())]
     return hits
+
+
+def violations() -> list[str]:
+    """`AGENTS §4.7` 위반 — 화면 번호에 `§`를 붙인 곳."""
+    found = []
+    for path in [*_MD, *_SRC]:
+        name = path.relative_to(_ROOT).as_posix()
+        for number, line in _prose_lines(path):
+            for matched in _SCREEN_REF.finditer(line):
+                if matched.group("sec"):
+                    found.append(f"{name}:{number}  {matched.group(0).strip()}")
+    return found
 
 
 def test_스캔_대상을_읽을_수_있다() -> None:
@@ -180,11 +212,26 @@ def test_화면_참조가_전부_실재한다() -> None:
     broken = [
         f"{name}:{number}  {doc} {num}"
         for name, number, doc, num in _scan(_SCREEN_REF)
-        if doc in SCREEN_DOCS and num not in screens(doc)
+        if num not in screens(doc)
     ]
 
     assert not broken, (
         f"실재하지 않는 화면을 가리키는 참조 {len(broken)}건:\n  " + "\n  ".join(broken) + "\n"
         "→ 화면 번호는 재번호하지 않는 것이 원칙입니다(`UIFLOW §2`). "
         "번호가 맞는지 대상 문서에서 확인하세요 (#583)."
+    )
+
+
+def test_화면_번호에_섹션_기호를_붙이지_않는다() -> None:
+    """`AGENTS §4.7` 표기 규칙. 화면은 `N-M`이고 `§`를 붙이지 않는다.
+
+    `§`를 붙이면 **화면 번호 · `§16` 표의 행 번호 · 없는 절**이 한 모양이 되어
+    실재 여부를 판정할 수 없다 — `#583`의 `§9-3`·`§9-4`가 그 자리에 숨어 있었다.
+    """
+    found = violations()
+
+    assert not found, (
+        f"화면 번호에 `§`를 붙인 곳 {len(found)}건:\n  " + "\n  ".join(found) + "\n"
+        "→ `§`를 떼십시오 (`UIFLOW §2-4` → `UIFLOW 2-4`). "
+        "`§`는 절만 가리킵니다. 절 안의 항목은 `§N 항목 M`으로 적습니다 (`AGENTS §4.7`)."
     )
