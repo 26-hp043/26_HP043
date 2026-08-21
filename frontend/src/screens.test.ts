@@ -166,8 +166,19 @@ describe('implemented ↔ 실제 구현 상태 (#527)', () => {
     expect(isComingSoonStub('VESSEL_MANAGEMENT')).toBe(false)
   })
 
-  it('설정은 아직 스텁이다 — #359 확정 전까지 (#506 · COR-9)', () => {
-    expect(SCREEN_BY_ID.SETTINGS.implemented).toBe(false)
-    expect(isComingSoonStub('SETTINGS')).toBe(true)
+  /*
+   * 종전 이 자리는 「설정은 아직 스텁이다 — #359 확정 전까지」였다. 그 전제가 바뀌었다.
+   *
+   * `PRD §6.2` 각주(COR-9)는 *「2-6 설정은 어드민 범위 확정(§20 O-13 재개정) 결과에
+   * 따른다」*고 적었는데, **그 재개정은 `#413`으로 끝났다** — O-13은 O-14로 대체되어
+   * **CLOSED**이고 결과는 「사용자별 데이터 격리·RBAC는 계속 제외」다.
+   *
+   * RBAC가 제외된 이상 이 화면에 들어갈 권한 요소가 없다. 남는 것은 `PRD §5`가
+   * **MUST**로 둔 계정 관리(비밀번호·표시 이름 변경)뿐이고, 그것은 권한과 무관하다.
+   * 조직 설정·규제 파라미터 조회는 여전히 `#359` 대기이므로 넣지 않았다.
+   */
+  it('설정은 계정 관리로 도는 화면이다 (#506 · PRD §5 MUST)', () => {
+    expect(SCREEN_BY_ID.SETTINGS.implemented).toBe(true)
+    expect(isComingSoonStub('SETTINGS')).toBe(false)
   })
 })

@@ -1,0 +1,134 @@
+/*
+ * 계정 관리 — DESIGN_SYSTEM §15(토큰만 참조) · §7.1 (#506).
+ * `.card` · `.card__title`은 대시보드(FleetDashboard.css)가 이미 정의한다.
+ */
+
+/*
+ * 화면 제목 — `screens.ts` 라벨 + 영문 병기 (#467 10번과 같은 규칙).
+ * 공용 `page-head`가 없어 각 화면이 자기 클래스를 둔다.
+ */
+.acc__head {
+  margin-block-end: var(--spacing-lg);
+}
+
+.acc__title {
+  margin: 0;
+}
+
+.acc__title-en {
+  color: var(--text-muted);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-body);
+}
+
+.acc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.acc__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.acc__facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.acc__facts dt {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.acc__facts dd {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+}
+
+.acc__notice,
+.acc__hint {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+  word-break: keep-all;
+}
+
+.acc__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  max-inline-size: 24rem;
+}
+
+.acc__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.acc__label {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.acc__input {
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-body);
+  font-family: inherit;
+}
+
+.acc__input--error {
+  border-color: var(--semantic-danger);
+}
+
+.acc__input:focus-visible,
+.acc__submit:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.acc__error {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--semantic-danger);
+  word-break: keep-all;
+}
+
+.acc__ok {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--semantic-primary);
+  word-break: keep-all;
+}
+
+.acc__submit {
+  align-self: flex-start;
+  border: 1px solid var(--semantic-primary);
+  background: var(--surface-card);
+  color: var(--semantic-primary);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.acc__submit--link {
+  text-decoration: none;
+}
+
+.acc__submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
