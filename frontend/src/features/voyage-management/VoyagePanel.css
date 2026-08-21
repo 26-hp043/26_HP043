@@ -1,0 +1,229 @@
+/*
+ * 항차 기록 패널 — DESIGN_SYSTEM §15(토큰만 참조) · §7.1 (#610).
+ *
+ * `.card` · `.card__title` · `.num`은 대시보드(FleetDashboard.css)가 이미 정의한다.
+ * 여기서는 이 패널 고유의 것만 둔다 — `NotUnderwayPanel.css`와 같은 규율이다.
+ */
+
+.vy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.vy__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+}
+
+.vy__why,
+.vy__hint {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+  word-break: keep-all;
+}
+
+.vy__toggle,
+.vy__submit,
+.vy__cancel,
+.vy__transition {
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: var(--font-size-label);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.vy__submit {
+  border-color: var(--semantic-primary);
+  color: var(--semantic-primary);
+  font-weight: var(--font-weight-label);
+}
+
+.vy__toggle:disabled,
+.vy__submit:disabled,
+.vy__cancel:disabled,
+.vy__transition:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.vy__toggle:focus-visible,
+.vy__submit:focus-visible,
+.vy__cancel:focus-visible,
+.vy__transition:focus-visible,
+.vy__input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.vy__error,
+.vy__field-error {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--semantic-danger);
+  word-break: keep-all;
+}
+
+.vy__loading,
+.vy__empty {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: var(--text-secondary);
+  word-break: keep-all;
+}
+
+/* ---------- 목록 ---------- */
+
+.vy__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.vy__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--surface-inset);
+  border-radius: var(--radius-card);
+}
+
+.vy__row-main {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.vy__no {
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+/*
+ * 상태 배지는 색만으로 뜻을 전하지 않는다 — 문자가 함께 있다(§0.2 제약 3).
+ * 등급 색(`--cii-*`)을 쓰지 않는다. 항차 상태는 등급이 아니다.
+ */
+.vy__badge {
+  padding: 2px var(--spacing-sm);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+.vy__badge--in_progress,
+.vy__badge--completed {
+  border-color: var(--semantic-primary);
+  color: var(--semantic-primary);
+}
+
+.vy__route,
+.vy__policy {
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+.vy__policy {
+  margin-inline-start: auto;
+}
+
+.vy__figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--spacing-sm);
+  margin: 0;
+}
+
+.vy__figures dt {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+}
+
+.vy__figures dd {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+}
+
+.vy__row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}
+
+.vy__action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+/* 왜 못 누르는지 버튼 옆에 적는다 — 눌러 보고 422를 받는 것보다 낫다. */
+.vy__blocker {
+  font-size: var(--font-size-micro);
+  color: var(--text-muted);
+  word-break: keep-all;
+}
+
+/* ---------- 폼 ---------- */
+
+.vy__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--surface-inset);
+  border-radius: var(--radius-card);
+}
+
+.vy__form--actuals {
+  margin-block-start: var(--spacing-sm);
+}
+
+.vy__form > .vy__error,
+.vy__form > .vy__hint,
+.vy__form-actions {
+  grid-column: 1 / -1;
+}
+
+.vy__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.vy__label {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.vy__input {
+  border: 1px solid var(--border-default);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-body);
+  font-family: inherit;
+}
+
+.vy__input--error {
+  border-color: var(--semantic-danger);
+}
+
+.vy__form-actions {
+  display: flex;
+  gap: var(--spacing-sm);
+}
