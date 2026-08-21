@@ -23,10 +23,24 @@
  * | B | 45° 사선 ╱ | 4px |
  * | C | 도트 | 4px |
  * | D | 135° 사선 ╲ | 4px |
- * | E | 크로스해치 | 4px |
+ * | E | 격자 ▦ | 4px |
  *
  * 타일은 네 등급 모두 **4px로 통일**한다. 간격이 등급마다 다르면 「촘촘함」이
  * 무늬와 뒤엉킨 두 번째 변수가 되어, 마커처럼 작은 자리에서 오히려 구분을 흐린다.
+ *
+ * 선 굵기·점 반지름도 §15.1 「공통 규격 🔒」이 소유한다 — **사선 1.5 · 격자 1.2 ·
+ * 점 r 0.9**. 눈으로 맞추지 않는다.
+ *
+ * ## E는 격자다 — 대각선 X가 아니다 (#485 ⑦⑧)
+ *
+ * 종전 구현은 E를 `M0 0L4 4M4 0L0 4`(대각선 X)로 그렸다. §2.4.4가 C·D 패턴을
+ * 교체하며 적은 이유가 그것을 막는다.
+ *
+ * > 같은 색상군인 D·E에 **사선과 격자**를 나누어 군 내 구분을 강화했다
+ *
+ * **D는 135° 사선이다.** E가 대각선 X면 D를 겹친 것으로 보여, 3색 체계에서 같은
+ * 빨강 계열인 두 등급의 **유일한 구분 채널이 약해진다.** 수평+수직 격자여야 방향이
+ * 완전히 갈린다.
  *
  * A는 정의하지 않는다 — 「패턴 없음」 자체가 A의 식별 표시다.
  *
@@ -50,9 +64,13 @@
  * 검정으로, `stroke`에서 `none`으로 떨어진다 — 사선·크로스해치는 아무것도 그려지지
  * 않고, 도트만 엉뚱한 검정으로 나온다. 토큰을 손대면 반드시 눈으로 확인한다.
  *
- * ✅ **시각 검증 — 2026-08-18.** 라이트·다크 양쪽에서 A(solid) · B(╱) · C(도트) ·
- * D(╲) · E(크로스해치)가 `PositionChart` 마커 크기에서 서로 다른 무늬로 그려지고,
- * 커스텀 프로퍼티가 `<pattern>` 내부까지 적용되는 것을 브라우저에서 확인했다.
+ * ⚠️ **2026-08-18 시각 검증은 이 수정 이전 것이다** (#485 ⑦⑧). 그때 확인한 것은
+ * 커스텀 프로퍼티가 `<pattern>` 내부까지 닿는다는 사실과, 다섯 무늬가 서로 달라
+ * 보인다는 것이었다 — **규격값과 대조하지는 않았다.** 굵기 넷과 E의 무늬가 모두
+ * 어긋나 있었고, 눈으로는 「다르게 보이니 됐다」로 통과했다.
+ *
+ * 값을 §15.1로 되돌렸으므로 **마커 크기에서 다시 봐야 한다.** 규격값이 20px에서
+ * 읽히지 않는다면 그것은 정본 개정 사안이지 이 파일에서 조용히 조정할 일이 아니다.
  */
 export function GradePatternDefs() {
   return (
@@ -66,25 +84,26 @@ export function GradePatternDefs() {
           patternTransform="rotate(45)"
           patternUnits="userSpaceOnUse"
         >
-          <line x1="0" y1="0" x2="0" y2="4" stroke="var(--cii-b-bg)" strokeWidth="1.2" />
+          <line x1="0" y1="0" x2="0" y2="4" stroke="var(--cii-b-bg)" strokeWidth="1.5" />
         </pattern>
         {/* C — 도트 */}
         <pattern id="grade-c" width="4" height="4" patternUnits="userSpaceOnUse">
-          <circle cx="2" cy="2" r="1.2" fill="var(--cii-c-bg)" />
+          <circle cx="2" cy="2" r="0.9" fill="var(--cii-c-bg)" />
         </pattern>
         {/* D — 135° 사선 ╲ */}
         <pattern
           id="grade-d"
           width="4"
           height="4"
-          patternTransform="rotate(-45)"
+          patternTransform="rotate(135)"
           patternUnits="userSpaceOnUse"
         >
-          <line x1="0" y1="0" x2="0" y2="4" stroke="var(--cii-d-bg)" strokeWidth="1.2" />
+          <line x1="0" y1="0" x2="0" y2="4" stroke="var(--cii-d-bg)" strokeWidth="1.5" />
         </pattern>
-        {/* E — 크로스해치 */}
+        {/* E — 격자 ▦ (수평 + 수직). 대각선 X로 그리면 D와 뒤섞인다. */}
         <pattern id="grade-e" width="4" height="4" patternUnits="userSpaceOnUse">
-          <path d="M0 0L4 4M4 0L0 4" stroke="var(--cii-e-bg)" strokeWidth="1" />
+          <line x1="0" y1="0" x2="4" y2="0" stroke="var(--cii-e-bg)" strokeWidth="1.2" />
+          <line x1="0" y1="0" x2="0" y2="4" stroke="var(--cii-e-bg)" strokeWidth="1.2" />
         </pattern>
       </defs>
     </svg>

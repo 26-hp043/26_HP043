@@ -174,7 +174,7 @@ export function VesselDetail() {
 
       <div className="vd__split">
         {/* ── 연도별 이력 ────────────────────────────────────────── */}
-        <section className="card" aria-label="연도별 CII 이력">
+        <section className="card vd__main" aria-label="연도별 CII 이력">
           <div className="card__head">
             <h2 className="card__title">연도별 CII 이력</h2>
             <span className="card__meta">단위 {unit}</span>
@@ -183,7 +183,7 @@ export function VesselDetail() {
         </section>
 
         {/* ── 제원 · 현재 상태 ───────────────────────────────────── */}
-        <div className="fleet__col">
+        <div className="vd__side">
           <section className="card" aria-label="선박 제원">
             <div className="card__head">
               <h2 className="card__title">제원</h2>
