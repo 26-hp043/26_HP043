@@ -168,7 +168,27 @@ done
 # 계산 경로가 실제로 도는지는 한 번 호출해 봐야 안다. 시연 중에 처음 알면 늦다.
 
 step "6. 계산 경로 확인"
-RESULT=$(curl -s -X POST http://localhost:8000/api/v1/calculations/voyage-cii \
+
+# 계산 경로는 **인증이 필요하다**. dev 세션을 발급받아 쿠키를 쥐고, 상태 변경
+# 요청이므로 CSRF 토큰을 **헤더로** 붙인다 — 쿠키로도 오지만 검증은 헤더만 본다
+# (`auth/dependencies.py`). `dev-login`은 `APP_ENV != production`에서만 등록된다
+# (`API_SPEC §1.2`).
+JAR=$(mktemp -t demo_cii_jar)
+trap 'rm -f "$JAR"' EXIT
+
+curl -s -c "$JAR" -X POST http://localhost:8000/api/v1/auth/dev-login >/dev/null 2>&1
+CSRF=$(awk '$6=="csrf"{print $7}' "$JAR")
+
+if [ -z "$CSRF" ]; then
+  # **인증 실패와 계산 불일치를 구분한다.** 종전에는 둘 다 「기대값과 다릅니다」로
+  # 나와 원인을 알 수 없었다 (#616).
+  bad "dev 세션을 발급받지 못했습니다 — APP_ENV가 production이거나 백엔드가 인증을 거부합니다"
+  printf '  확인: curl -i -X POST http://localhost:8000/api/v1/auth/dev-login\n'
+  exit 1
+fi
+
+RESULT=$(curl -s -b "$JAR" -H "X-CSRF-Token: $CSRF" \
+  -X POST http://localhost:8000/api/v1/calculations/voyage-cii \
   -H 'Content-Type: application/json' \
   -d '{"vessel_id":"00000000-0000-4000-8000-000000000001","regulation_year":2026,
        "distance_nm":1000,"speed_kn":14.2,"fuel_uses":[{"fuel_type":"HFO","fuel_ton":80}]}' 2>/dev/null)
@@ -179,7 +199,12 @@ RATING=$(printf '%s' "$RESULT" | "$VENV/python" -c "import sys,json;print(json.l
 if [ "$CII" = "4.982400" ] && [ "$RATING" = "C" ]; then
   ok "attained_cii=$CII · rating=$RATING — 정본 픽스처와 일치"
 else
-  bad "기대값과 다릅니다: cii=${CII:-없음} rating=${RATING:-없음}"
+  ERR_CODE=$(printf '%s' "$RESULT" | "$VENV/python" -c "import sys,json;print(json.load(sys.stdin)['error']['code'])" 2>/dev/null)
+  if [ -n "$ERR_CODE" ]; then
+    bad "계산 요청이 거부됐습니다 (${ERR_CODE}) — 인증·CSRF 경로를 확인하십시오"
+  else
+    bad "기대값과 다릅니다: cii=${CII:-없음} rating=${RATING:-없음}"
+  fi
   printf '%s\n' "$RESULT" | head -c 400; echo
   exit 1
 fi
