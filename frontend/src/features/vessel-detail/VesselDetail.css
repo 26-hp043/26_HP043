@@ -59,17 +59,54 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 12컬럼 위의 7:5 (DESIGN_SYSTEM §7.1 🔒 · #485 ⑦).
+ *
+ * `FleetDashboard`가 같은 수정을 먼저 받았는데 이 화면까지 오지 않았다. 두 가지가
+ * 남아 있었다.
+ *
+ * ⑴ **`7fr 5fr`은 12컬럼이 아니다.** 거터 **한 칸**을 뺀 나머지를 7:5로 나누는데,
+ *    12컬럼 span은 거터 **열한 칸** 사이에서 7칸+5칸을 잡는다. 주 영역이 4px 넓다.
+ *    §7.1이 「컴포넌트 폭 가정이 하나로 유지된다」고 적은 것이 성립하려면 다른
+ *    네 화면과 같은 방식이어야 한다.
+ *
+ * ⑵ **부 영역이 다른 화면의 클래스(`.fleet__col`)를 빌려 쓰고 있었다.** 그 클래스는
+ *    `grid-column: span var(--grid-split-primary)` — **7**을 건다. 2컬럼 그리드에
+ *    span 7이 들어오면 암시적 컬럼이 생겨 폭 계산이 어긋난다. 라우트가 지연 로딩이
+ *    아니라 `FleetDashboard.css`가 이 화면에서도 적용되고 있었다.
+ *
+ * 이 화면 몫의 클래스를 따로 둔다.
+ */
 .vd__split {
   display: grid;
-  /* 이력(차트+표)이 넓고 제원·상태가 좁다 — 토큰 7:5. */
-  grid-template-columns: 7fr 5fr;
-  gap: var(--spacing-xl);
+  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  gap: var(--grid-gutter);
   align-items: start;
+}
+
+/* 주 영역 — 연도별 이력(차트 + 표) */
+.vd__main {
+  grid-column: span var(--grid-split-primary);
+  min-inline-size: 0;
+}
+
+/* 부 영역 — 제원 · 현재 상태 */
+.vd__side {
+  grid-column: span var(--grid-split-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gutter);
+  min-inline-size: 0;
 }
 
 @media (max-width: 1100px) {
   .vd__split {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vd__main,
+  .vd__side {
+    grid-column: auto;
   }
 }
 
