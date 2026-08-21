@@ -1,6 +1,7 @@
 import { csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type { CapacityBasis } from '../voyage-cii/types'
+import type { PositionPayload } from './positionRules'
 import type { CiiYear, VesselDetail, VesselDetailProvider, VesselSpec } from './types'
 
 /**
@@ -22,11 +23,28 @@ export class VesselDetailError extends Error {
   /** 404 — 없는 선박. 화면이 「불러오기 실패」와 다르게 표시한다. */
   readonly notFound: boolean
 
-  constructor(message: string, options?: { notFound?: boolean; cause?: unknown }) {
+  /**
+   * 422 `details[].field` — 화면이 해당 입력창 아래에 붙인다 (`#369`).
+   *
+   * 서버 문구를 다시 쓰지 않는다. 상태 조합 거부는 **어느 조합이 왜 안 되는지**를
+   * 서버가 더 정확히 알고 있고(`services/vessel.py`), 화면 사본이 갈라졌을 때
+   * 사용자에게 사실을 전하는 유일한 경로다.
+   */
+  readonly field?: string
+
+  constructor(
+    message: string,
+    options?: { notFound?: boolean; field?: string; cause?: unknown },
+  ) {
     super(message, { cause: options?.cause })
     this.name = 'VesselDetailError'
     this.notFound = options?.notFound ?? false
+    this.field = options?.field
   }
+}
+
+interface ServerError {
+  error?: { message?: string; details?: Array<{ field?: string; message?: string }> }
 }
 
 interface ServerVessel {
@@ -130,7 +148,54 @@ export function createApiVesselDetailProvider(
     return (await response.json()) as Record<string, unknown>
   }
 
+  /** 변경 호출 — `credentials`·CSRF 배선을 `get`과 같게 둔다 (`#307` 선례). */
+  const send = async (path: string, body: unknown): Promise<Record<string, unknown>> => {
+    let response: Response
+    try {
+      response = await fetchImpl(`${baseUrl}${path}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...csrfHeaders(),
+        },
+        body: JSON.stringify(body),
+      })
+    } catch (cause) {
+      throw new VesselDetailError('서버에 연결하지 못했습니다.', { cause })
+    }
+
+    if (response.status === 401) {
+      redirectToLogin()
+      throw new VesselDetailError('세션이 만료되었습니다.')
+    }
+
+    const parsed = (await response.json().catch(() => null)) as
+      | (Record<string, unknown> & ServerError)
+      | null
+
+    if (response.status === 404) {
+      throw new VesselDetailError('선박을 찾을 수 없습니다.', { notFound: true })
+    }
+    if (!response.ok) {
+      const detail = parsed?.error?.details?.[0]
+      throw new VesselDetailError(
+        parsed?.error?.message ?? `저장하지 못했습니다 (HTTP ${response.status}).`,
+        { field: detail?.field },
+      )
+    }
+    return parsed ?? {}
+  }
+
   return {
+    async updatePosition(vesselId: string, payload: PositionPayload): Promise<VesselSpec> {
+      const body = await send(`/vessels/${vesselId}/position`, payload)
+      const vessel = (body.data ?? null) as ServerVessel | null
+      if (!vessel) throw new VesselDetailError('응답 형식이 올바르지 않습니다.')
+      return toSpec(vessel)
+    },
+
     async load(vesselId: string): Promise<VesselDetail> {
       const [vesselBody, historyBody] = await Promise.all([
         get(`/vessels/${vesselId}`),

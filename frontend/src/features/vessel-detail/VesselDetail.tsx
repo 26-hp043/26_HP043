@@ -10,7 +10,8 @@ import { detailStatusText } from '../fleet/fleetRules'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
-import type { CiiYear, VesselDetail as Detail } from './types'
+import { PositionForm } from './PositionForm'
+import type { CiiYear, VesselDetail as Detail, VesselSpec } from './types'
 import './VesselDetail.css'
 
 /**
@@ -33,6 +34,12 @@ import './VesselDetail.css'
 export function VesselDetail() {
   const { vesselId } = useParams()
   const [detail, setDetail] = useState<Detail | null>(null)
+  /*
+   * provider를 매 렌더마다 새로 만들지 않는다. 로딩과 위치 저장이 같은
+   * `fetch`·`baseUrl`을 써야 테스트가 하나만 갈아 끼워도 둘 다 대체된다 —
+   * `voyage-management`가 연료 provider에 같은 것을 넘기는 이유와 같다.
+   */
+  const [provider] = useState(() => createApiVesselDetailProvider())
   const [failure, setFailure] = useState<{ message: string; notFound: boolean } | null>(
     null,
   )
@@ -43,7 +50,7 @@ export function VesselDetail() {
     setDetail(null)
     setFailure(null)
 
-    createApiVesselDetailProvider()
+    provider
       .load(vesselId)
       .then((data) => {
         if (alive) setDetail(data)
@@ -60,7 +67,7 @@ export function VesselDetail() {
     return () => {
       alive = false
     }
-  }, [vesselId])
+  }, [vesselId, provider])
 
   if (failure) {
     return (
@@ -236,6 +243,24 @@ export function VesselDetail() {
              * 진행 중 항차로 내려가는 경로. 항차 목록을 여기서 따로 부르지 않는다 —
              * 실시간 화면(#357)이 자기 데이터를 스스로 가져오는 편이 경계가 맞다.
              */}
+            {/*
+             * 위치·상태 입력 (`API_SPEC §2.6` · `#369`). 이 카드는 네 값을 보여
+             * 주면서 **읽기만 가능했다** — 쓰는 경로가 없어 위치가 시드 이후
+             * 고정됐고, 대시보드 `PositionChart`가 빈 채로 떴다.
+             *
+             * 정박 **구간 기록**은 아래 `NotUnderwayPanel`이 소유한다. 여기서 바꾸는
+             * 것은 「지금 무엇을 하고 있나」라는 **표시 상태**뿐이다 — 세부 상태 6값이
+             * `period_type`과 같은 집합인 것은 그 둘이 같은 사실을 가리키기 때문이지
+             * 한쪽이 다른 쪽을 쓰기 때문이 아니다.
+             */}
+            <PositionForm
+              vessel={vessel}
+              provider={provider}
+              onSaved={(updated: VesselSpec) =>
+                setDetail((prev) => (prev ? { ...prev, vessel: updated } : prev))
+              }
+            />
+
             {vessel.underwayState === 'UNDER_WAY' ? (
               <Link className="vd__drill" to={`/vessels/${vessel.id}/voyages/current`}>
                 진행 중 항차의 실시간 CII 보기
