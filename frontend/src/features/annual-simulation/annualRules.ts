@@ -1,3 +1,4 @@
+import { formatPercent } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { MonteCarloBlock, SensitivityAnalysis, SensitivityEntry } from './types'
 
@@ -60,7 +61,15 @@ export function riskFlag(pDorE: number): { tone: RiskFlagTone; text: string } {
 
 /** 확률 문자열 → 백분율 표시. `DESIGN_SYSTEM §4.2` — 확률은 백분율 1자리. */
 export function toPercent(probability: string): string {
-  return `${(Number(probability) * 100).toFixed(1)}%`
+  /*
+   * `formatPercent`에 위임한다(`DESIGN_SYSTEM §4.2` — 비율·확률 백분율 1자리).
+   *
+   * 종전에는 `(Number(p) * 100).toFixed(1)`이었다. 같은 1자리지만 **정확히 반올림
+   * 경계에 놓인 값에서 답이 갈린다** — `'0.1235'`가 여기서는 `12.3%`, `formatPercent`
+   * 에서는 `12.4%`(ROUND_HALF_UP)다. 스택 바 구간 안 문자와 범례가 같은 확률을 두
+   * 경로로 그리게 되면서, 그 차이가 **한 화면에 나란히** 보일 수 있게 됐다.
+   */
+  return `${formatPercent(probability)}%`
 }
 
 /**
@@ -76,6 +85,28 @@ export function stackSegments(
     const raw = Number(probabilities[rating] ?? 0)
     return { rating, percent: raw * 100, label: toPercent(probabilities[rating] ?? '0') }
   })
+}
+
+/**
+ * 구간 안에 문자를 넣을 최소 폭 (%) — `DESIGN_SYSTEM §10.2` 원문.
+ *
+ * *"구간 폭 ≥ 8% 일 때만 내부에 `등급문자 nn%` 표기, 미만은 툴팁으로"*
+ */
+export const INLINE_LABEL_MIN_PERCENT = 8
+
+/**
+ * 이 구간이 **안에** 문자를 담는가.
+ *
+ * `§10.2`가 정한 8%는 **경계를 포함한다**(`≥`). 정확히 8%인 구간은 안에 넣는다.
+ *
+ * ## 합이 100%가 아니어도 정규화하지 않는다
+ *
+ * 판정은 **구간 자신의 폭**만 본다. 서버 확률의 합이 반올림으로 99.9%나 100.1%가
+ * 되는 일이 있는데, 그때 100%로 맞춰 늘렸다가는 **화면에 그려진 폭과 판정 근거가
+ * 어긋난다** — 8.0%로 그려진 칸이 문자를 못 받거나 그 반대가 된다. 폭이 곧 근거다.
+ */
+export function showsInlineLabel(percent: number): boolean {
+  return percent >= INLINE_LABEL_MIN_PERCENT
 }
 
 /** 민감도 표의 행 순서·이름. 서버 키를 화면 순서로 고정한다. */

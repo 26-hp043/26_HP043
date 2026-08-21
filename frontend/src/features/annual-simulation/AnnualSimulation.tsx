@@ -14,6 +14,7 @@ import {
   riskFlag,
   sensitivityRows,
   stackSegments,
+  showsInlineLabel,
   toPercent,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
@@ -336,15 +337,35 @@ function Result({ result }: { result: AnnualSimulationResult }) {
           한 번 그리는 `GradePatternDefs`를 참조하므로 여기서 다시 정의하지 않는다
           (§15.1 — 자산이 두 벌이 되면 서로 다른 무늬를 그리게 된다).
         */}
-        <div className="annual-sim__stack" role="img" aria-label={stackAria(segments)}>
+        {/*
+          `role`을 `img`가 아니라 `group`으로 둔다. `img`는 하위 트리를 통째로
+          presentational로 만들어 **구간마다 붙인 이름이 보조기술에 닿지 않는다** —
+          8% 미만 구간의 값을 개별로 읽히게 하려면 그룹이어야 한다.
+        */}
+        <div
+          className="annual-sim__stack"
+          role="group"
+          aria-label={`${ANNUAL_COPY.probabilityTitle} — ${stackAria(segments)}`}
+        >
           {segments.map((seg) => {
             const pattern = gradePatternUrl(seg.rating)
+            const inline = showsInlineLabel(seg.percent)
+            const text = `${seg.rating} ${seg.label}`
 
             return (
               <span
                 key={seg.rating}
                 className={`annual-sim__seg annual-sim__seg--${seg.rating.toLowerCase()}`}
                 style={{ width: `${seg.percent}%` }}
+                role="img"
+                aria-label={text}
+                /*
+                  8% 미만은 구간 안에 글자가 들어가지 않으므로 툴팁으로 낸다(§10.2).
+                  `title`은 포인터 전용이라 **그것만으로는 키보드 사용자가 못 읽는다** —
+                  `tabIndex`로 초점을 받게 해 위 `aria-label`이 읽히는 경로를 연다.
+                  값 자체는 아래 범례에도 그대로 있어 눈으로도 확인된다.
+                */
+                {...(inline ? {} : { title: text, tabIndex: 0 })}
               >
                 {/*
                   뷰박스를 두지 않는다 — 사용자 단위가 곧 CSS 픽셀이라 4px 타일이
@@ -354,6 +375,11 @@ function Result({ result }: { result: AnnualSimulationResult }) {
                   <svg className="annual-sim__seg-pattern" aria-hidden="true">
                     <rect width="100%" height="100%" fill={pattern} />
                   </svg>
+                ) : null}
+                {inline ? (
+                  <span className="annual-sim__seg-label" aria-hidden="true">
+                    {text}
+                  </span>
                 ) : null}
               </span>
             )

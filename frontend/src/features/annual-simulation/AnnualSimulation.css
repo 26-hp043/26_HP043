@@ -498,10 +498,15 @@
 }
 
 .annual-sim__seg {
-  display: block;
+  /* 구간 안 문자를 가운데 둔다(§10.2). 글자가 없는 구간에도 무해하다. */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   height: 100%;
   /* 패턴 오버레이(`__seg-pattern`)의 기준 상자. */
   position: relative;
+  /* 좁은 칸에서 글자가 옆 구간을 침범하지 않게 가둔다. */
+  overflow: hidden;
 }
 
 /*
@@ -515,6 +520,49 @@
   inline-size: 100%;
   block-size: 100%;
   display: block;
+}
+
+/*
+ * 구간 안 문자 — `DESIGN_SYSTEM §10.2` 「구간 폭 ≥ 8%일 때 내부에 `등급문자 nn%`」.
+ *
+ * ## 후광이 없으면 §0.2 제약 1을 만족할 수 없다
+ *
+ * 글자가 앉는 바탕은 채움색 하나가 아니다. 그 위에 **`--cii-*-bg` 무늬가 불투명하게**
+ * 깔리고(§2.4.4가 이 바를 패턴 대상으로 명시한다), `bg`는 설계상 `fill`의 **반대편
+ * 끝**이다 — 다크 C를 예로 들면 바탕이 `#d98c2a`와 `#33220c` 사이를 오간다.
+ * 한 글자 밑에 명도 양극단이 함께 있으므로 **어떤 단색 잉크로도 양쪽 모두에 대해
+ * 4.5:1을 낼 수 없다.** 실제로 기존 토큰 전부를 10경우(5등급 × 2테마)에 대입해
+ * 계산했고 최선이 2.23:1이었다.
+ *
+ * 그래서 글자 둘레에 **바탕색 후광**을 둘러 글자를 무늬에서 떼어 놓는다. 지도에서
+ * 지명을 얹을 때 쓰는 방식이고, 이 저장소에도 `PositionChart` 이름표에 선례가 있다.
+ * 후광 위의 대비는 라이트 17.4:1 · 다크 13.1:1이다.
+ *
+ * 새 토큰을 만들지 않았다 — 잉크 `--color-text`, 후광 `--color-surface` 둘 다 기존
+ * 값이고, 이 둘은 본문 대비 쌍이라 §0.2 제약 1을 이미 보장받는다.
+ *
+ * `paint-order`가 없으면 후광이 글자 **위에** 그려져 획을 갉아먹는다.
+ */
+.annual-sim__seg-label {
+  position: relative;
+  z-index: 1;
+  padding-inline: var(--space-4);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+  font-weight: var(--font-weight-label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-text);
+  paint-order: stroke fill;
+  -webkit-text-stroke: 3px var(--color-surface);
+  /* 넘치면 잘라 낸다 — 8% 칸에서도 옆 구간을 침범하지 않는다. */
+  overflow: hidden;
+  text-overflow: clip;
+}
+
+.annual-sim__seg:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .annual-sim__seg--a { background: var(--cii-a-fill); }
