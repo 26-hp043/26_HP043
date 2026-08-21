@@ -1,0 +1,89 @@
+# PR 제목 형식 검사 (#600).
+#
+# 저장소 설정이 `squash_merge_commit_title: PR_TITLE`이므로 **PR 제목이 그대로
+# `main`의 커밋 제목이 된다.** 제목이 틀리면 고칠 방법은 머지 전뿐이다 —
+# `AGENTS §7.3`이 머지된 커밋의 재작성을 금지한다.
+#
+# `AGENTS §7`의 「잡이 돌지만 아무것도 막지 않는 상태가 가장 나쁘다」에 따라
+# 이 잡은 신설과 동시에 required check로 올린다. 현재 required 목록은 §7 표에 있다.
+name: PR Title
+
+on:
+  pull_request:
+    # 기본값은 `opened · synchronize · reopened`뿐이라 **제목만 고쳤을 때 다시 돌지
+    # 않는다.** 빨간불을 보고 제목을 고쳐도 초록으로 바뀌지 않으면 사람은 잡을
+    # 무시하게 된다 — `edited`가 이 검사의 핵심이다.
+    #
+    # `synchronize`도 남긴다. check run은 head SHA에 붙으므로, 새 커밋을 밀었을 때
+    # 돌지 않으면 **required check가 그 SHA에 없어 머지가 영영 막힌다.**
+    types: [opened, edited, reopened, synchronize]
+
+# 이벤트 페이로드의 제목만 읽는다. API를 부르지 않으므로 쓰기 권한이 필요 없다.
+permissions:
+  contents: read
+
+jobs:
+  # 잡 id가 곧 required check의 context 이름이다 (`lint`·`test`·`frontend`·`docker`와 같다).
+  # 이름을 바꾸면 브랜치 보호의 contexts도 함께 바꿔야 한다 — AGENTS §7 표 참조.
+  pr-title:
+    runs-on: ubuntu-latest
+    # 셸 한 줄이라 정상 소요는 5초 안쪽이다. 멈춤이 6시간이 되지 않게 한다 (#533).
+    timeout-minutes: 5
+    steps:
+      - name: 제목이 AGENTS §7 형식을 따르는지
+        env:
+          # 제목을 셸에 직접 보간하지 않는다. `${{ }}`로 넣으면 제목에 들어 있는
+          # 따옴표·백틱·`$(...)`가 러너에서 실행된다 — PR 제목은 외부 입력이다.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -eu
+
+          # ① 일반 PR — 가운데는 영역명이 아니라 대상 이슈 번호다 (AGENTS §7).
+          SPEC='^(feat|fix|docs|style|refactor|test|chore)\(#[0-9]+\): .+'
+
+          # ② Dependabot — 접두어가 `.github/dependabot.yml`의 `commit-message.prefix`로
+          #    고정돼 있고 **연결할 이슈가 없다.** 예외를 두지 않으면 의존성 갱신 PR이
+          #    required check에 영구히 막힌다.
+          DEPS='^deps\((python|npm|actions)\): .+'
+
+          if printf '%s' "$PR_TITLE" | grep -Eq "$SPEC"; then
+            echo "✅ $PR_TITLE"
+            exit 0
+          fi
+
+          if printf '%s' "$PR_TITLE" | grep -Eq "$DEPS"; then
+            echo "✅ $PR_TITLE  (dependabot 접두어 — .github/dependabot.yml)"
+            exit 0
+          fi
+
+          # 틀린 이유를 짚어 준다. 「형식에 맞지 않습니다」만 내면 무엇이 틀렸는지
+          # 찾느라 한 번 더 밀어 보게 된다.
+          HINT=""
+          if printf '%s' "$PR_TITLE" | grep -Eq '^(feat|fix|docs|style|refactor|test|chore)\([a-z]'; then
+            HINT="  가운데에 영역명이 들어 있습니다. 대상 이슈 번호(#123)로 바꾸십시오."
+          elif printf '%s' "$PR_TITLE" | grep -Eq '^(feat|fix|docs|style|refactor|test|chore)\(#[0-9]+\):$'; then
+            HINT="  설명이 비어 있습니다. 콜론 뒤에 무엇을 어떻게 바꿨는지 적으십시오."
+          elif printf '%s' "$PR_TITLE" | grep -Eq '\(#[0-9]+\)$'; then
+            HINT="  이슈 번호가 제목 끝에 있습니다. 앞머리 괄호 안으로 옮기십시오 — 2026-08-17에 바뀐 규격입니다."
+          elif ! printf '%s' "$PR_TITLE" | grep -Eq '^[a-z]+\('; then
+            HINT="  앞머리(feat·fix·docs·style·refactor·test·chore)가 없습니다."
+          fi
+
+          {
+            echo "::error::PR 제목이 AGENTS §7 형식에 맞지 않습니다.$HINT"
+            echo ""
+            echo "  받은 제목  $PR_TITLE"
+            echo ""
+            echo "  형식       종류(#이슈번호): 무엇을 어떻게 바꿨는지"
+            echo "  종류       feat · fix · docs · style · refactor · test · chore"
+            echo "  가운데     영역명이 아니라 대상 이슈 번호"
+            echo ""
+            echo "  예)  fix(#419): 선대 요약이 선박 한 척의 실패에 전체가 무너지지 않게"
+            echo "       docs(#460): 「상위 문서」 의미 정의 + 제품명 BlueLog 반영"
+            echo ""
+            echo "  이 저장소는 squash 제목을 PR 제목으로 고정하고 있어(squash_merge_commit_title: PR_TITLE)"
+            echo "  이 제목이 그대로 main에 남습니다. 머지된 커밋은 재작성하지 않습니다 (AGENTS §7.3)."
+            echo ""
+            echo "  제목을 고치면 이 검사가 다시 돕니다 (edited 이벤트)."
+          } >&2
+          exit 1
