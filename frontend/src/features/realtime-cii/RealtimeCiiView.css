@@ -338,3 +338,14 @@
   content: '· ';
   color: var(--text-muted);
 }
+
+/*
+ * 등급 배지 + 신뢰도 배지를 한 줄로 (#485 ⑤).
+ * 배지 높이가 달라 세로 중앙으로 맞춘다 — 목록이 아니라 카드 안이라 줄바꿈을 허용한다.
+ */
+.rt__grade-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+}

@@ -1,4 +1,4 @@
-import type { Rating, RealtimeCii } from './types'
+import type { Rating, RealtimeCii, YtdValues } from './types'
 
 /**
  * 실시간 CII 화면 규칙 (`#357`).
@@ -221,4 +221,47 @@ export function formatOrNull(
 /** 기준 시각 표시. 실시간 화면에서는 값 자체만큼 중요한 정보다. */
 export function formatAsOf(asOf: string): string {
   return new Date(asOf).toLocaleString('ko-KR', { hour12: false })
+}
+
+
+/**
+ * 신뢰도 배지를 붙이는가 — `DESIGN_SYSTEM §8.1` 🔒 (`#485` ⑤).
+ *
+ * ## 판정을 화면이 지어내지 않는다
+ *
+ * `§8.1`이 「언제 붙는가」를 정본으로 확정했다. *「정해 두지 않으면 구현이 임계를
+ * 지어내고, **화면이 깨지지 않으므로** 정본과 갈린 사실이 늦게 발견된다」*가
+ * 그 절이 신설된 이유다.
+ *
+ * ## 왜 `substitutions`만 보는가
+ *
+ * `§8.1`의 컷은 `IN_PROGRESS latest estimate` **이하 전부**인데, YTD 집계는
+ * 애초에 `INCLUDE_AS_PLAN`(PLANNED·IN_PROGRESS)을 넣지 않는다
+ * (`services/ytd_cii.py`). 따라서 YTD 등급이 실측이 아닌 값으로 계산되는 경로는
+ * **`§8.1`이 예외로 명시한 그 경우 하나뿐**이다 — `COMPLETED`인데 실적이 없어
+ * 계획값이 대입된 항차(`PRD §8.3 [ORACLE-C-4B]`).
+ *
+ * 그 결과가 `ytd.substitutions`이고, 같은 상황에 `COMPLETED_NO_FUEL` 경고가
+ * 이미 나가고 있어 **배지와 문구가 같은 사실을 가리킨다**(`§8.1`).
+ */
+export function hasSubstitutedInputs(ytd: YtdValues): boolean {
+  return ytd.substitutions.length > 0
+}
+
+/**
+ * 배지에 붙일 설명.
+ *
+ * **무엇이 대체됐는지까지 말한다.** `API_SPEC §2.14`가 항차별 목록을 실어 주는
+ * 이유가 *「항차가 40건이면 경고 하나로는 40건을 전부 열어 봐야 한다」*이므로,
+ * 화면이 「추정값 포함」으로만 끝내면 그 목록을 받은 뜻이 없다.
+ */
+export function substitutionSummary(ytd: YtdValues): string {
+  const fuel = ytd.substitutions.filter((s) => s.axis === 'FUEL').length
+  const distance = ytd.substitutions.filter((s) => s.axis === 'DISTANCE').length
+
+  const parts: string[] = []
+  if (fuel > 0) parts.push(`연료 ${fuel}건`)
+  if (distance > 0) parts.push(`거리 ${distance}건`)
+
+  return `완료 항차의 ${parts.join(' · ')}이 실적 대신 계획값으로 계산됐습니다. 실적을 입력하면 등급이 달라질 수 있습니다.`
 }

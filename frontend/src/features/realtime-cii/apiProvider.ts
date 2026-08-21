@@ -5,6 +5,7 @@ import type {
   RealtimeCii,
   RealtimeCiiProvider,
   Rating,
+  Substitution,
   VoyageSegment,
   YearEndProjection,
   YtdValues,
@@ -51,6 +52,13 @@ interface ServerYtd {
   total_distance_nm: string | null
   voyage_count: number
   not_underway_period_count: number
+  substitutions?: ServerSubstitution[]
+}
+
+interface ServerSubstitution {
+  voyage_id?: unknown
+  axis?: unknown
+  fuel_type?: unknown
 }
 
 interface ServerVoyage {
@@ -108,6 +116,20 @@ function toYtd(raw: ServerYtd): YtdValues {
     totalDistanceNm: raw.total_distance_nm,
     voyageCount: raw.voyage_count,
     notUnderwayPeriodCount: raw.not_underway_period_count,
+    /*
+     * **없으면 빈 배열로 읽는다.** 서버가 이 필드를 싣기 시작한 것은 `#449`이고,
+     * 그 전 응답이나 다른 갈래에서는 키 자체가 없을 수 있다. `undefined`가
+     * 흘러가면 화면이 「대체 없음」과 「모름」을 구분하지 못한 채 터진다.
+     */
+    substitutions: (raw.substitutions ?? []).map(toSubstitution),
+  }
+}
+
+function toSubstitution(raw: ServerSubstitution): Substitution {
+  return {
+    voyageId: String(raw.voyage_id ?? ''),
+    axis: raw.axis === 'DISTANCE' ? 'DISTANCE' : 'FUEL',
+    fuelType: typeof raw.fuel_type === 'string' ? raw.fuel_type : null,
   }
 }
 

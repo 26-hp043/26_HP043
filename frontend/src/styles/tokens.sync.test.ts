@@ -175,3 +175,59 @@ describe('폰트 fallback — DESIGN_SYSTEM §3 (#485)', () => {
     expect(declarations).not.toContain('Pretendard')
   })
 })
+
+/**
+ * 문자로 쓰는 시맨틱 색의 대비 가드 — `DESIGN_SYSTEM §0.2` 제약 1 (`#485`).
+ *
+ * ## 왜 값을 눈으로 보지 않고 계산하는가
+ *
+ * `--color-danger`(#e53e3e)는 라이트에서 **4.13:1**, `--color-warning`(#d97b14)은
+ * **3.09:1**이다. 둘 다 4.5:1에 못 미치는데 **화면이 깨지지 않아** 오래 남아 있었다.
+ * 다크에서는 통과하므로 다크 모드 검수로도 드러나지 않았다.
+ *
+ * 그래서 문자 전용 별칭(`--color-*-text`)을 두었고, **그 값이 실제로 통과하는지를
+ * 계산으로 건다.** 나중에 누가 「시맨틱 색으로 되돌리자」며 값을 바꾸면 여기서 걸린다.
+ */
+function relativeLuminance(hex: string): number {
+  const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+  const linear = channels.map((c) =>
+    c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4,
+  )
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+}
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+describe('문자용 시맨틱 색 대비 — §0.2 제약 1 (#485)', () => {
+  /** 라이트 `--surface-card`. 오류 문구·배지가 얹히는 바탕이다. */
+  const LIGHT_SURFACE = '#ffffff'
+
+  const declared = (name: string): string => {
+    // 별칭은 `tokens.css`에 있다 — 생성물(`css`)이 아니라 `aliasCss`를 본다.
+    const found = new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`).exec(aliasCss)
+    expect(found, `${name}이 tokens.css에 hex로 선언돼 있지 않다`).not.toBeNull()
+    return (found as RegExpExecArray)[1].toLowerCase()
+  }
+
+  it('--color-danger-text가 흰 바탕에서 4.5:1을 넘는다', () => {
+    const value = declared('--color-danger-text')
+    expect(contrast(value, LIGHT_SURFACE)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('--color-warning-text가 흰 바탕에서 4.5:1을 넘는다', () => {
+    const value = declared('--color-warning-text')
+    expect(contrast(value, LIGHT_SURFACE)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  /*
+   * 종전 값을 그대로 다시 넣는 것을 막는다. 「시맨틱 토큰이 있는데 왜 별칭을
+   * 쓰나」는 합리적인 의문이고, 답은 **그 값이 문자로 쓸 수 없다**는 것이다.
+   */
+  it('생성 토큰의 Danger·Warning은 문자로 쓰기에 모자란다 — 별칭이 필요한 이유', () => {
+    expect(contrast('#e53e3e', LIGHT_SURFACE)).toBeLessThan(4.5)
+    expect(contrast('#d97b14', LIGHT_SURFACE)).toBeLessThan(4.5)
+  })
+})
