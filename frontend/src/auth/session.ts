@@ -59,6 +59,7 @@ const VERIFY_REQUEST_URL = `${AUTH_API_BASE}/auth/verify-email/request`
 const VERIFY_CONFIRM_URL = `${AUTH_API_BASE}/auth/verify-email/confirm`
 const RESET_REQUEST_URL = `${AUTH_API_BASE}/auth/password-reset/request`
 const RESET_CONFIRM_URL = `${AUTH_API_BASE}/auth/password-reset/confirm`
+const PASSWORD_CHANGE_URL = `${AUTH_API_BASE}/auth/password-change`
 
 /** dev-login이 내려주는 CSRF 쿠키 이름(auth_dev.py와 계약). */
 const CSRF_COOKIE_NAME = 'csrf'
@@ -325,6 +326,104 @@ export async function logout(
   if (typeof window !== 'undefined') {
     window.location.assign(LOGIN_PATH)
   }
+}
+
+/**
+ * 표시 이름을 바꾼다 — `PATCH /auth/me` (`#506`).
+ *
+ * **`email`을 보내지 않는다.** 서버가 `extra="forbid"`로 422를 낸다(`API_SPEC §1.2`).
+ * 이메일은 로그인 ID이자 `idx_app_user_email`의 키라, 잘못 바꾸면 계정에 접근할 수
+ * 없다 — 재설정 메일도 그 주소로 간다.
+ *
+ * 성공하면 캐시를 갱신한다. 상단바가 같은 사용자를 보고 있으므로 여기서 갱신하지
+ * 않으면 화면마다 다른 이름이 보인다.
+ */
+export async function updateDisplayName(
+  displayName: string | null,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<CurrentUser | null> {
+  let response: Response
+  try {
+    response = await fetchImpl(ME_URL, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...csrfHeaders(),
+      },
+      body: JSON.stringify({ display_name: displayName }),
+    })
+  } catch {
+    throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
+  }
+
+  const body = await response.json().catch(() => null)
+  if (!response.ok) {
+    throw new AuthRequestError(
+      (body as { error?: { message?: string } } | null)?.error?.message ??
+        '표시 이름을 바꾸지 못했습니다.',
+      response.status,
+    )
+  }
+
+  currentUser = toCurrentUser(body)
+  notify()
+  return currentUser
+}
+
+/**
+ * 비밀번호를 바꾼다 — `POST /auth/password-change` (`#506`).
+ *
+ * ## 캐시를 비우지 않는다
+ *
+ * 서버가 **기존 세션을 전량 무효화**하므로 이 기기의 쿠키도 이미 죽어 있다
+ * (`API_SPEC §1.2`). 여기서 `currentUser`를 비우면 라우트 가드가 **즉시** 로그인
+ * 화면으로 밀어내고, 그러면 「모든 기기에서 로그아웃됐다」는 안내를 볼 틈이 없다.
+ *
+ * 캐시를 그대로 두면 다음 요청이 401을 받아 `redirectToLogin()`으로 간다. 그 사이에
+ * 화면이 사유를 설명한다 — 사용자가 「왜 튕겼지」로 받지 않게 하는 것이 목적이다.
+ *
+ * @returns 서버가 준 안내 문구. 무효화된 기기 수를 담고 있다.
+ */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<string> {
+  let response: Response
+  try {
+    response = await fetchImpl(PASSWORD_CHANGE_URL, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...csrfHeaders(),
+      },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    })
+  } catch {
+    throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
+  }
+
+  const body = (await response.json().catch(() => null)) as {
+    data?: { message?: string }
+    error?: { message?: string }
+  } | null
+
+  if (!response.ok) {
+    /*
+     * 현재 비밀번호가 틀렸다는 것도 서버 문구를 그대로 쓴다. 화면이 다시 쓰면
+     * 「계정 존재 여부를 숨기는」 규칙(`API_SPEC §1.2`)과 문구가 갈라진다.
+     */
+    throw new AuthRequestError(body?.error?.message ?? '비밀번호를 바꾸지 못했습니다.', response.status)
+  }
+
+  return body?.data?.message ?? '비밀번호를 변경했습니다.'
 }
 
 /** 현재 사용자를 구독한다 — 가드·상단바가 함께 쓴다. */

@@ -243,7 +243,9 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-6',
     purpose: '사용자 및 시스템 환경 설정',
     width: 'form',
-    implemented: false,  // #359(어드민 범위 확정) 결정 대기 — UIFLOW v2.0 판정 보류
+    // 계정 관리로 좁혀 구현 (#506). 조직·권한 설정은 #359 결정 후 붙인다 —
+    // 자기 계정 관리는 권한과 무관해 UIFLOW 판정 보류와 충돌하지 않는다.
+    implemented: true,
   },
 } as const satisfies Record<ScreenId, ScreenMeta>
 

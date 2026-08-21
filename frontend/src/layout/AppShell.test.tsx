@@ -7,7 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { AppShell } from './AppShell'
 import { useShellContext } from './shellContext'
 import { VESSEL_QUERY_KEY } from './globalContext'
-import { SCREEN_BY_ID } from '../screens'
+import { NAV_ORDER, SCREEN_BY_ID } from '../screens'
 
 /**
  * 셸 → 화면 **전역 컨텍스트 배선** 검증 (#557).
@@ -135,15 +135,28 @@ describe('셸이 Outlet으로 컨텍스트를 내려준다 (#484 · #535)', () =
 })
 
 describe('사이드바 — 미구현 화면을 숨기지 않고 비활성으로 노출한다 (#542 이름 정정 후)', () => {
-  it('구현된 화면은 링크로, 그렇지 않은 화면은 링크가 아니다', async () => {
+  /*
+   * 종전 이 테스트는 **설정**을 「링크가 아닌 화면」의 예로 썼다. `#506`으로 설정이
+   * 실 API로 돌게 되어 **`NAV_ORDER` 7개가 전부 `implemented: true`**가 됐고,
+   * 비활성 분기는 지금 도달할 수 있는 사이드바 화면이 없다.
+   *
+   * 분기 자체를 지우지 않는다 — 앞으로 미구현 화면이 사이드바에 다시 들어올 수 있고,
+   * 그때 「숨기지 않고 비활성으로」라는 `#542` 결정이 지켜지는지는 `screens.test.ts`의
+   * 불변식(`implemented` ↔ `ComingSoon` 대응)이 지킨다.
+   */
+  it('사이드바 화면이 전부 링크다 — 막힌 메뉴가 없다', async () => {
     stubServer()
 
     renderShell()
 
-    // 대시보드는 `implemented: true`라 링크다.
     await waitFor(() => expect(screen.getByRole('link', { name: /대시보드/ })).toBeDefined())
-    // 설정은 `implemented: false`(#359 결정 대기)라 링크가 아니다.
-    expect(screen.queryByRole('link', { name: /^설정/ })).toBeNull()
+    for (const id of NAV_ORDER) {
+      const label = SCREEN_BY_ID[id].label
+      expect(
+        screen.queryByRole('link', { name: new RegExp(`^${label}`) }),
+        `사이드바에서 막혀 있다: ${label}`,
+      ).not.toBeNull()
+    }
   })
 })
 
