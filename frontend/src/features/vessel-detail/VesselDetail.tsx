@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { NotUnderwayPanel } from '../not-underway/NotUnderwayPanel'
+import { VoyagePanel } from '../voyage-management/VoyagePanel'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import { detailStatusText } from '../fleet/fleetRules'
@@ -248,6 +249,11 @@ export function VesselDetail() {
        * 정박 기록 입력 (#370). 선박 상세 아래에 두는 이유는, 이 기록이 바로 위
        * 「올해 누적」의 분자를 늘리기 때문이다 — 값을 본 자리에서 고칠 수 있어야 한다.
        */}
+      {/*
+        항차가 먼저다 — 정박·묘박은 항차와 항차 사이의 구간이라,
+        운항 기록을 위에서 아래로 읽으면 순서가 이렇게 된다.
+      */}
+      <VoyagePanel vesselId={vessel.id} />
       <NotUnderwayPanel vesselId={vessel.id} />
 
       <DisclaimerBanner />
