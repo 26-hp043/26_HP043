@@ -533,8 +533,17 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
             <div>
               <dt>경과 / 잔여</dt>
               <dd className="num">
-                {projection.assumptions.elapsedDays ?? '—'} 일 /{' '}
-                {projection.assumptions.remainingDays ?? '—'} 일
+                {/* `§4.2` 일수 0자리 (#592). 종전에는 서버 값을 가공 없이 내보내
+                    `231.64 일`이 나갔다 — 같은 블록의 거리·연료는 이미 `§4.2`를
+                    따르고 있어 한 표 안에서 규율이 갈려 있었다. */}
+                {formatOrNull(projection.assumptions.elapsedDays, (v) =>
+                  formatDecimalString(v, DISPLAY_DIGITS.days),
+                ) ?? '—'}{' '}
+                {DISPLAY_UNITS.day} /{' '}
+                {formatOrNull(projection.assumptions.remainingDays, (v) =>
+                  formatDecimalString(v, DISPLAY_DIGITS.days),
+                ) ?? '—'}{' '}
+                {DISPLAY_UNITS.day}
               </dd>
             </div>
             <div>

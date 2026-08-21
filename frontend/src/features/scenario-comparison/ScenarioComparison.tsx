@@ -214,7 +214,11 @@ export function ScenarioComparison({
       </label>
 
       <label className="scenario-comparison__field">
-        <span>기준 일일 연료소모량 ({DISPLAY_UNITS.fuel})</span>
+        {/* 선박 등록 화면과 **같은 필드인데 단위가 갈려 있었다** — 이쪽은 `(t)`,
+            저쪽은 `t/일`. `§4.2`에 「일수」가 없어 각자 정한 결과다 (#592). */}
+        <span>
+          기준 일일 연료소모량 ({DISPLAY_UNITS.fuel}/{DISPLAY_UNITS.day})
+        </span>
         <input
           inputMode="decimal"
           value={form.baseDailyFocTon}

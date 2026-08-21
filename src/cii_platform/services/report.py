@@ -61,7 +61,17 @@ REPORTABLE_STATUSES = ("COMPLETED", "CONFIRMED")
 #: ``8.980``·``4,300 nm``·``620.0 t``로 보이므로 **같은 항차가 두 곳에서 다르게 읽혔다.**
 #:
 #: 정밀도 보호가 필요한 곳은 **API 응답**이며 그 경로는 이 문서와 별개다.
-_DISPLAY_DIGITS = {"cii": 3, "distance_nm": 0, "fuel_ton": 1, "co2_ton": 1, "hours": 1}
+_DISPLAY_DIGITS = {
+    "cii": 3,
+    "distance_nm": 0,
+    "fuel_ton": 1,
+    "co2_ton": 1,
+    "hours": 1,
+    # ``DESIGN_SYSTEM §4.2`` v2.3이 신설한 두 항목 (#592). 종전에는 속력이
+    # ``_UNSPECIFIED_DIGITS``에, 일수는 ``_text()``에 있었다 — 규정이 없어서다.
+    "days": 0,
+    "speed_kn": 1,
+}
 
 #: 천단위 구분자를 넣는 항목 — ``DESIGN_SYSTEM §4.2`` 🔒.
 #: **CII·비율에는 넣지 않는다.** 구분자가 소수부 정렬을 방해한다(``§4.1``이 자릿수
@@ -70,10 +80,13 @@ _GROUPED = frozenset({"distance_nm", "fuel_ton", "co2_ton"})
 
 #: ``DESIGN_SYSTEM §4.2`` 자릿수 표에 **행이 없는** 항목.
 #:
-#: 규정이 없는 값에 자릿수를 지어내지 않는다. 종전 자릿수를 그대로 둔다 — 화면도
-#: 속력은 서버 값을 가공 없이 보인다(``ScenarioComparison.tsx``). 규정이 생기면
-#: 위 표로 옮긴다.
-_UNSPECIFIED_DIGITS = {"speed_kn": 2}
+#: 규정이 없는 값에 자릿수를 지어내지 않는다. 종전 자릿수를 그대로 둔다.
+#: 규정이 생기면 위 표로 옮긴다.
+#:
+#: **지금은 비어 있다** (#592) — 마지막 항목이던 ``speed_kn``이 ``§4.2`` v2.3으로
+#: 옮겨 갔다. 표를 지우지 않는 이유는 이 구조가 *「규정이 없다」를 코드가 말하는*
+#: 자리이기 때문이다. 다음에 같은 일이 생기면 여기에 넣고 이슈를 연다.
+_UNSPECIFIED_DIGITS: dict[str, int] = {}
 
 
 def _display(value: Decimal | str | None, kind: str) -> str:
@@ -457,8 +470,10 @@ async def build_annual_report(
                     ("예상 CII", _display(projection["attained_cii"], "cii")),
                     ("연말 예상 등급", _text(projection["rating"])),
                     ("산출 방식", "지금까지의 일평균이 연말까지 이어진다고 가정"),
-                    ("경과 일수", _text(assumptions["elapsed_days"])),
-                    ("잔여 일수", _text(assumptions["remaining_days"])),
+                    # ``§4.2`` 일수 0자리 (#592). 종전에는 ``_text()``라 같은 표
+                    # 안에서 아래 두 행만 자릿수를 지키고 있었다.
+                    ("경과 일수", _display(assumptions["elapsed_days"], "days")),
+                    ("잔여 일수", _display(assumptions["remaining_days"], "days")),
                     ("일평균 거리 (nm)", _display(assumptions["daily_distance_nm"], "distance_nm")),
                     ("일평균 연료 (t)", _display(assumptions["daily_fuel_ton"], "fuel_ton")),
                 ],
