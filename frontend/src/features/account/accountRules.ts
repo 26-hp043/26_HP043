@@ -1,5 +1,4 @@
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../auth/authRules'
-import type { FieldErrors } from '../auth/authRules'
 
 /**
  * 계정 관리 규칙 — `API_SPEC §1.2` (`#506`).
@@ -46,6 +45,23 @@ export function displayNamePayload(name: string): { display_name: string | null 
   return { display_name: trimmed === '' ? null : trimmed }
 }
 
+/**
+ * 비밀번호 변경 폼의 오류 키.
+ *
+ * `authRules.FieldErrors`를 쓰지 않는다 — 그쪽은 `email`·`password`·`passwordConfirm`
+ * **세 키로 닫힌 인터페이스**라 여기 키를 담을 수 없다. 인덱스 시그니처로 열어 두면
+ * 로그인·가입 폼에서 오타 난 키가 조용히 통과하므로, **폼마다 자기 키를 선언한다.**
+ */
+export interface AccountFieldErrors {
+  currentPassword?: string
+  newPassword?: string
+  confirmPassword?: string
+}
+
+export function hasAccountErrors(errors: AccountFieldErrors): boolean {
+  return Object.values(errors).some(Boolean)
+}
+
 export interface PasswordChangeDraft {
   currentPassword: string
   newPassword: string
@@ -60,8 +76,8 @@ export interface PasswordChangeDraft {
  * 새 비밀번호가 현재와 같은지도 여기서 잡는다 — 서버가 받아 주더라도
  * **세션만 전량 무효화되고 바뀐 것은 없는** 상태가 되어 사용자가 손해만 본다.
  */
-export function validatePasswordChange(draft: PasswordChangeDraft): FieldErrors {
-  const errors: FieldErrors = {}
+export function validatePasswordChange(draft: PasswordChangeDraft): AccountFieldErrors {
+  const errors: AccountFieldErrors = {}
 
   if (draft.currentPassword === '') {
     errors.currentPassword = '현재 비밀번호를 입력해 주세요.'
@@ -98,4 +114,3 @@ export const PASSWORD_CHANGE_NOTICE =
   '비밀번호를 바꾸면 이 기기를 포함해 로그인된 모든 기기에서 로그아웃됩니다. 새 비밀번호로 다시 로그인해 주세요.'
 
 export { MIN_PASSWORD_LENGTH }
-export type { FieldErrors }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { hasErrors } from '../auth/authRules'
 import {
   MAX_DISPLAY_NAME_LENGTH,
   displayNamePayload,
+  hasAccountErrors,
   validateDisplayName,
   validatePasswordChange,
 } from './accountRules'
@@ -42,7 +42,7 @@ describe('displayNamePayload', () => {
 
 describe('validatePasswordChange', () => {
   it('정상 입력은 통과한다', () => {
-    expect(hasErrors(validatePasswordChange(draft()))).toBe(false)
+    expect(hasAccountErrors(validatePasswordChange(draft()))).toBe(false)
   })
 
   it('현재 비밀번호는 비울 수 없다 — 맞는지는 서버만 안다', () => {

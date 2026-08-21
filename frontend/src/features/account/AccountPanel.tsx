@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { EMAIL_IMMUTABLE_NOTICE, hasErrors } from '../auth/authRules'
-import type { FieldErrors } from '../auth/authRules'
+import { EMAIL_IMMUTABLE_NOTICE } from '../auth/authRules'
 import {
   LOGIN_PATH,
   AuthRequestError,
@@ -13,10 +12,11 @@ import {
   MAX_DISPLAY_NAME_LENGTH,
   PASSWORD_CHANGE_NOTICE,
   displayNamePayload,
+  hasAccountErrors,
   validateDisplayName,
   validatePasswordChange,
 } from './accountRules'
-import type { PasswordChangeDraft } from './accountRules'
+import type { AccountFieldErrors, PasswordChangeDraft } from './accountRules'
 import './AccountPanel.css'
 
 /**
@@ -138,7 +138,7 @@ function PasswordSection() {
     newPassword: '',
     confirmPassword: '',
   })
-  const [errors, setErrors] = useState<FieldErrors>({})
+  const [errors, setErrors] = useState<AccountFieldErrors>({})
   const [failure, setFailure] = useState<string | null>(null)
   const [changed, setChanged] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -150,7 +150,7 @@ function PasswordSection() {
     event.preventDefault()
     const found = validatePasswordChange(draft)
     setErrors(found)
-    if (hasErrors(found)) return
+    if (hasAccountErrors(found)) return
 
     setBusy(true)
     setFailure(null)
