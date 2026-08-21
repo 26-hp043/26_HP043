@@ -10,7 +10,7 @@ import {
 import { DEFAULT_PATH } from '../screens'
 
 /**
- * 이메일 인증 — `UIFLOW v2.1` §0-4 (#415).
+ * 이메일 인증 — `UIFLOW v2.1` 0-4 (#415).
  *
  * 메일 링크(`/verify-email?token=…`)로 진입한다. 토큰이 있으면 **도착 즉시 검증**을
  * 시도한다 — 사용자가 링크를 눌러 도착한 상태에서 버튼을 한 번 더 누르게 하는 것은

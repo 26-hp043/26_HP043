@@ -561,7 +561,7 @@ PATCH /api/v1/vessels/{vessel_id}/position
 GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
 ```
 
-선박 상세 화면(`UIFLOW §2-8`)의 **연도별 CII 이력** 축. 연도별 집계는 YTD 엔진(#353)을 그대로 위임한다 — 이 엔드포인트의 소관은 **창·상태 구분**이다.
+선박 상세 화면(`UIFLOW 2-8`)의 **연도별 CII 이력** 축. 연도별 집계는 YTD 엔진(#353)을 그대로 위임한다 — 이 엔드포인트의 소관은 **창·상태 구분**이다.
 
 > **`transport_capacity_basis` (#356 추가).** 응답 최상위에 표시 단위의 축(`DWT` · `GT`)을 함께 싣는다. `DESIGN_SYSTEM §4.1` 🔒이 `gCO₂/(DWT·nm)`과 `gCO₂/(GT·nm)`을 **선종에 따라 갈리는 값**으로 규정하고 고정 문자열을 금지하기 때문이다. 화면이 선종에서 축을 유추하면 선종이 늘 때 서버와 갈라지고, **크루즈선에 `DWT`가 표시돼도 화면은 깨지지 않아 발견이 늦다.** 축을 정하는 것은 `calc.capacity.capacity_axis`이며 그 결과를 그대로 반환한다. 연도별로 달라지지 않는 선박 속성이라 `years` 안이 아니라 최상위에 둔다.
 
@@ -664,7 +664,7 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
 GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
 ```
 
-대시보드(`UIFLOW §2-4` · `PRD §6.2 SCR-001`)가 **한 번의 호출로** 선대 전체 현황과 경고 배너 데이터를 받는다.
+대시보드(`UIFLOW 2-4` · `PRD §6.2 SCR-001`)가 **한 번의 호출로** 선대 전체 현황과 경고 배너 데이터를 받는다.
 
 > **왜 별도 엔드포인트인가.** `GET /vessels`는 선박 제원만 반환하고 등급·위치·상태 요약이 없다. 화면이 선박마다 개별 조회를 돌면 10척에 21회 호출이 된다.
 

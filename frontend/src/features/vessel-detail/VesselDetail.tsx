@@ -212,7 +212,7 @@ export function VesselDetail() {
             </div>
             <dl className="spec">
               <Spec label="운항 상태" value={stateText(vessel.underwayState)} />
-              {/* `UIFLOW §2-4`가 정한 7값 표기. 코드를 그대로 내지 않는다. */}
+              {/* `UIFLOW 2-4`가 정한 7값 표기. 코드를 그대로 내지 않는다. */}
               <Spec label="세부 상태" value={detailStatusText(vessel.detailStatus)} />
               <Spec
                 label="현재 위치"

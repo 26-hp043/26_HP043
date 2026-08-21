@@ -6,7 +6,7 @@ import type { ResultState } from '../features/voyage-cii/resultRules'
 import './CiiForecastPage.css'
 
 /**
- * UIFLOW §2-1 CII 예측 — 기능①이자 8/8 데모의 주 화면, 기본 진입 경로다.
+ * UIFLOW 2-1 CII 예측 — 기능①이자 8/8 데모의 주 화면, 기본 진입 경로다.
  *
  * `#133`이 자리를 만들고 `#135`가 입력 폼을, `#136`이 결과 화면을 채웠다.
  *

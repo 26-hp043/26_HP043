@@ -87,7 +87,7 @@ export function FleetDashboard() {
   /*
    * 선박 0척은 오류가 아니라 정상 상태다 — 아직 아무것도 등록하지 않은 선사가 처음
    * 보는 화면이다. 0으로 채운 KPI를 보여 주면 「고장」처럼 읽히므로 다음에 할 일을
-   * 가리키는 화면으로 대체한다 (`UIFLOW §1-1` 온보딩 흐름).
+   * 가리키는 화면으로 대체한다 (`UIFLOW 1-1` 온보딩 흐름).
    */
   if (snapshot.counts.total === 0) {
     return (
@@ -346,7 +346,7 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
 
         <span className="vessel__body">
           <span className="vessel__name">{vessel.name}</span>
-          {/* 선종·세부 상태를 코드가 아니라 표시 문구로 낸다(`UIFLOW §2-4`). */}
+          {/* 선종·세부 상태를 코드가 아니라 표시 문구로 낸다(`UIFLOW 2-4`). */}
           <span className="vessel__route">
             {shipTypeLabel(vessel.shipType)} · {underwayStateText(vessel)}
             {vessel.detailStatus ? ` · ${detailStatusText(vessel.detailStatus)}` : ''}

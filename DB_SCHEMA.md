@@ -96,7 +96,7 @@ erDiagram
 | `detail_status` | VARCHAR(20) | NULL, CHECK 허용값 7종 | **화면 축** — `SAILING`/`IN_PORT`/`AT_ANCHOR`/`DRIFTING`/`STS`/`CANAL_TRANSIT`/`DRYDOCK` |
 | `current_lat` | NUMERIC(9,6) | NULL, CHECK −90~90 | 현재 위치 위도 |
 | `current_lon` | NUMERIC(9,6) | NULL, CHECK −180~180 | 현재 위치 경도 |
-| `position_updated_at` | TIMESTAMPTZ | NULL | 위치 갱신 시각. **위치가 있으면 필수** (UIFLOW §2-8) |
+| `position_updated_at` | TIMESTAMPTZ | NULL | 위치 갱신 시각. **위치가 있으면 필수** (UIFLOW 2-8) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
 
