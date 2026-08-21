@@ -83,8 +83,17 @@ async def test_every_vessel_has_two_year_history(conn):
     assert all(years >= 2 for years in by_vessel.values()), by_vessel
 
 
-async def test_single_in_progress_voyage_exists(conn):
-    """실시간 CII 화면용 진행 중 항차가 정확히 1건 — 컨테이너선 회항."""
+async def test_in_progress_voyage_is_at_most_one_per_vessel(conn):
+    """진행 중 항차는 **선박당 최대 1건**이고, 항해 중인 배는 반드시 하나 갖는다.
+
+    종전 이 테스트는 *「정확히 1건 — 컨테이너선 회항」*으로 고정했다. 그것은 당시
+    **시드 형상을 적은 것**이지 지켜야 할 성질이 아니었고, 그 사이에 실제 결함을
+    가리고 있었다 — **벌크선이 ``UNDER_WAY / SAILING``인데 진행 중 항차가 없어**
+    선박 상세는 「항해 중」, 실시간 CII는 「진행 중 항차가 없습니다」를 냈다 (#587).
+
+    지켜야 할 것은 **한 배에 진행 중 항차가 둘이 아닌 것**이다. 둘이면
+    ``2-9 실시간 CII``가 어느 항차를 보일지 모호해진다.
+    """
     rows = (
         await conn.execute(
             text(
@@ -96,14 +105,23 @@ async def test_single_in_progress_voyage_exists(conn):
             )
         )
     ).all()
-    assert len(rows) == 1
-    row = rows[0]
-    assert row[0] == VESSEL_IDS["container"]
-    # 진행 중 항차의 정책은 INCLUDE_AS_PLAN (chk_status_policy가 강제).
-    assert row[1] == "INCLUDE_AS_PLAN"
-    # 아직 도착·실적은 없다 — 계획값만 존재.
-    assert row[2] is None
-    assert row[3] is None
+
+    by_vessel: dict[str, int] = {}
+    for row in rows:
+        by_vessel[row[0]] = by_vessel.get(row[0], 0) + 1
+    assert all(count == 1 for count in by_vessel.values()), by_vessel
+
+    # 발표 동선이 쓰는 두 배는 반드시 진행 중 항차를 갖는다.
+    # 벌크선 = 위험 선박 드릴다운, 컨테이너선 = 운하 통과 서사.
+    assert VESSEL_IDS["bulk"] in by_vessel
+    assert VESSEL_IDS["container"] in by_vessel
+
+    for row in rows:
+        # 진행 중 항차의 정책은 INCLUDE_AS_PLAN (chk_status_policy가 강제).
+        assert row[1] == "INCLUDE_AS_PLAN"
+        # 아직 도착·실적은 없다 — 계획값만 존재.
+        assert row[2] is None
+        assert row[3] is None
 
 
 async def test_completed_voyages_have_actuals(conn):
