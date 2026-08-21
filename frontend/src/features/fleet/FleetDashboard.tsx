@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
+import { RegulatoryFlags } from '../../components/RegulatoryFlag'
 import { GradeChip } from '../../components/GradeChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PositionChart } from './PositionChart'
@@ -343,6 +344,14 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
             —
           </span>
         )}
+
+        {/*
+          규제 플래그는 등급 배지와 **별개 축**이다 (`DESIGN_SYSTEM §8`).
+          같은 D등급이라도 1년차와 3년차는 배지가 같고 플래그만 달라야 한다.
+          종전에는 이 정보가 아래 조치 목록에만 있어, 카드만 보는 사람은
+          규제 의무가 걸렸다는 사실을 알 수 없었다 (`#485` ④).
+        */}
+        <RegulatoryFlags reasons={vessel.riskReasons} vesselName={vessel.name} />
 
         <span className="vessel__body">
           <span className="vessel__name">{vessel.name}</span>
