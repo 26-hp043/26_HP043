@@ -27,15 +27,11 @@
 .auth-brand {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--spacing-xs);
   margin: 0 0 var(--spacing-xl);
-}
 
-.auth-brand-name {
-  font-size: var(--font-size-h2);
-  font-weight: var(--font-weight-h2);
-  color: var(--semantic-primary);
-  letter-spacing: var(--letterSpacing-tight);
+  /* 로고 높이는 쓰는 쪽이 정한다 — components/BrandLogo.css 참조. */
+  --brand-logo-height: 30px;
 }
 
 .auth-brand-sub {

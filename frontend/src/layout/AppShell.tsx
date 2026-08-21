@@ -16,6 +16,7 @@ import {
   selectVoyage,
   type GlobalContextValue,
 } from './globalContext'
+import { BrandLogo } from '../components/BrandLogo'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { logout, useAuthUser } from '../auth/session'
 import { ThemeToggle } from '../theme/ThemeToggle'
@@ -194,7 +195,7 @@ export function AppShell() {
 
       <nav className="app-shell__sidebar" aria-label="주요 화면">
         <p className="app-shell__brand">
-          <span className="app-shell__brand-name">BlueLog</span>
+          <BrandLogo />
           <span className="app-shell__brand-sub">선대 CII 상시 관리</span>
         </p>
 
