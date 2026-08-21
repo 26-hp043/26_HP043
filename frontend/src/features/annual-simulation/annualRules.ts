@@ -117,23 +117,4 @@ export function reproducibilityLine(mc: MonteCarloBlock): string {
   return `${mc.rng_metadata.bit_generator} · seed ${mc.rng_metadata.seed_entropy} · ${mc.runs}회`
 }
 
-/**
- * 새 연도 목록을 받았을 때 **어느 해를 고른 상태로 둘지** 정한다 (#558).
- *
- * 규칙은 둘이다.
- *
- * 1. **이미 고른 해가 새 목록에도 있으면 유지한다.** 선박을 바꿀 때마다 연도가
- *    되돌아가면 사용자가 방금 고른 값을 잃는다 (`VoyageCiiForm`이 `#534`에서 정한 규칙).
- * 2. 없으면 **가장 최근 해**를 고른다. 이 화면은 「올해 남은 항차로 목표 등급을 맞출 수
- *    있는가」를 보는 자리라(`PRD §12`), 과거 연도를 기본으로 두면 첫 화면이 의미를
- *    잃는다. CII 예측(`#534`)이 첫 해를 고르는 것과 갈리는 지점이며 **의도한 차이**다.
- *
- * 목록이 비면 빈 문자열이다 — **값을 지어내지 않는다.** 종전 고정값(`2026`)이 정확히
- * 그런 형태였고, 사용자는 다른 해를 볼 수 없었다.
- */
-export function selectedYear(previous: string, rows: readonly number[]): string {
-  if (rows.length === 0) return ''
-  if (previous !== '' && rows.includes(Number(previous))) return previous
-  return String(rows[rows.length - 1])
-}
 

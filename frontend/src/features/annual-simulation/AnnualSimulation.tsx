@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import './AnnualSimulation.css'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
+import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
 import { createYearCatalog } from '../parameters/yearCatalog'
 import { GradeBadge } from '../../components/GradeBadge'
@@ -14,7 +15,6 @@ import {
   sensitivityRows,
   stackSegments,
   toPercent,
-  selectedYear,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationResult } from './types'
@@ -102,9 +102,17 @@ export function AnnualSimulation({
       .then((rows) => {
         if (cancelled) return
         setYears(rows)
-        // 이미 고른 해가 새 목록에도 있으면 유지한다 — 선박을 바꿀 때마다 첫 값으로
-        // 되돌아가면 사용자가 방금 고른 값을 잃는다 (`VoyageCiiForm`과 같은 규칙).
-        setYear((prev) => selectedYear(prev, rows))
+        /*
+         * `VoyageCiiForm`과 **같은 함수**를 쓴다. 종전에는 이 화면만
+         * `selectedYear`로 「가장 최근 해」를 골랐는데, 규제연도가 2023~2030이라
+         * 기본값이 **2030**이었다 — 아직 실적이 없는 해다. 「올해 남은 항차로 목표
+         * 등급을 맞출 수 있는가」를 보는 화면이므로(`PRD §12`) 올해가 맞다.
+         *
+         * 옛 주석이 「과거 연도를 기본으로 두면 첫 화면이 의미를 잃는다」고 적은
+         * 의도는 그대로다 — 올해를 고르는 편이 그 의도를 더 정확히 지킨다.
+         */
+        const thisYear = new Date().getFullYear()
+        setYear((prev) => pickDefaultYear(rows, thisYear, prev))
       })
       .catch(() => {
         if (cancelled) return
