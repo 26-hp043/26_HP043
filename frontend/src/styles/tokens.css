@@ -53,6 +53,31 @@
   --color-warning: var(--cii-c-fill);
   --color-danger: var(--semantic-danger);
 
+  /*
+   * ⚠️ **문자로 쓸 때의 시맨틱 색** — 임시 별칭 (`#485`).
+   *
+   * 위 두 값은 **라이트 모드에서 문자 대비가 모자란다.**
+   *
+   * | 토큰 | 값 | `--surface-card`(#ffffff) 위 |
+   * |---|---|---|
+   * | `--color-danger` | `#e53e3e` | **4.13:1** |
+   * | `--color-warning` | `#d97b14` | **3.09:1** |
+   *
+   * `§0.2` 제약 1은 4.5:1을 요구한다. `--color-warning`은 `--cii-c-fill`의 별칭인데
+   * **fill은 배경으로 쓰라고 만든 값**이라 애초에 문자용이 아니고, `--semantic-danger`는
+   * 디자이너 세트의 유일한 Danger다. **다크 모드는 둘 다 통과한다**(5.4 · 5.89) —
+   * 그래서 다크 검수에서 드러나지 않았다.
+   *
+   * 값의 소유는 Figma이므로(§0.3 문서 목적) 여기서 생성 토큰을 덮지 않고 **문자 전용
+   * 별칭을 따로 둔다.** 다크에서는 생성 토큰이 이미 통과하므로 그쪽을 그대로 가리킨다.
+   *
+   * **이것은 임시다.** 정본 해법은 Figma가 Danger/Warning의 문자 안전값을 정하는 것이며
+   * `DESIGN_SYSTEM §16 항목 3`(중립색 팔레트 미세 조정)에 함께 올린다. 그때 이 두 줄을
+   * `var(--semantic-*)`로 되돌리면 된다.
+   */
+  --color-danger-text: #c92a2a;
+  --color-warning-text: #a8590c;
+
   /* ── 호환 별칭 · 차트 ─────────────────────────────────────────────── */
   /*
    * ⚠️ 디자이너 토큰에 **차트 계열색이 없다.** 아래는 기존 3계열을 테마 대응
@@ -144,6 +169,10 @@
   :root:not([data-theme='light']) {
     --shadow-lv1: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 16px rgb(0 0 0 / 32%);
     --shadow-lv2: 0 4px 8px rgb(0 0 0 / 48%), 0 12px 32px rgb(0 0 0 / 40%);
+
+    /* 다크에서는 생성 토큰이 이미 4.5:1을 넘는다 — 덮지 않는다. */
+    --color-danger-text: var(--semantic-danger);
+    --color-warning-text: var(--cii-c-fill);
   }
 }
 
@@ -151,6 +180,9 @@
 :root[data-theme='dark'] {
   --shadow-lv1: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 16px rgb(0 0 0 / 32%);
   --shadow-lv2: 0 4px 8px rgb(0 0 0 / 48%), 0 12px 32px rgb(0 0 0 / 40%);
+
+  --color-danger-text: var(--semantic-danger);
+  --color-warning-text: var(--cii-c-fill);
 }
 
 /*

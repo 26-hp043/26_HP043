@@ -1,0 +1,27 @@
+/*
+ * 신뢰도 배지 — DESIGN_SYSTEM §8 · §8.1. 토큰만 참조한다(§15).
+ *
+ * `GradeBadge`의 `sm` 규격(13px / 패딩 3·8 / radius 4)에 맞춘다 — 나란히 놓이는데
+ * 높이가 다르면 행 정렬이 흔들린다.
+ *
+ * **테두리형이다.** 등급 배지는 채움형이므로, 시맨틱 Warning의 값이 C등급 색과
+ * 같더라도(`--color-warning`이 `--cii-c-fill`의 별칭이다) 형태로 갈린다.
+ * `RegulatoryFlag`와 같은 규율이며, 두 배지는 색으로 구분된다.
+ */
+
+.data-confidence-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid var(--color-warning-text);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-warning-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}

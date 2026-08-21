@@ -12,6 +12,21 @@ export type Rating = 'A' | 'B' | 'C' | 'D' | 'E'
 export type CapacityBasis = 'DWT' | 'GT'
 
 /** ⑴ 연간 누적 — **등급이 붙는 유일한 값**(`PRD §3.3` 표). */
+/**
+ * 실적 대신 계획값을 쓴 내역 — `API_SPEC §2.14` (`#449`).
+ *
+ * `PRD §8.3` 값 우선순위가 실적이 없을 때 계획값을 고르는데, 그 **선택 결과**를
+ * 항차별로 싣는다. 경고(`COMPLETED_NO_FUEL`)는 「대체가 있었다」만 말하므로
+ * **무엇을 고쳐야 하는지**는 이 목록이 있어야 나온다.
+ */
+export interface Substitution {
+  voyageId: string
+  /** 대체된 축. 거리는 CII의 분모라 영향이 연료 못지않다. */
+  axis: 'FUEL' | 'DISTANCE'
+  /** 연료 축일 때 유종. 거리 축이면 `null`. */
+  fuelType: string | null
+}
+
 export interface YtdValues {
   dataAvailable: boolean
   attainedCii: string | null
@@ -27,6 +42,8 @@ export interface YtdValues {
   totalDistanceNm: string | null
   voyageCount: number
   notUnderwayPeriodCount: number
+  /** 비어 있으면 전부 실측이다 (`§2.14`). */
+  substitutions: Substitution[]
 }
 
 /**

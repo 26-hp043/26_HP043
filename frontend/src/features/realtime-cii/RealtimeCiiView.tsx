@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
+import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import {
@@ -20,7 +21,9 @@ import {
   isNotUnderWay,
   projectionDirection,
   projectionReason,
+  hasSubstitutedInputs,
   ratingTransition,
+  substitutionSummary,
   remainingDistanceNm,
   voyageProgressRatio,
   warningText,
@@ -418,11 +421,25 @@ function RatingTransitionView({ data, current }: { data: RealtimeCii; current: R
   const transition = ratingTransition(data)
 
   /*
+   * 신뢰도 배지는 **현재 누적 등급 옆**에 붙는다 (`DESIGN_SYSTEM §8` · `#485` ⑤).
+   * 대체가 일어난 것은 YTD 집계의 입력이므로, 연말 예상 쪽에 붙이면 무엇이
+   * 추정인지 어긋난다. 판정은 `§8.1`을 구현한 `hasSubstitutedInputs`가 소유한다.
+   */
+  const confidence = hasSubstitutedInputs(data.ytd) ? (
+    <DataConfidenceBadge detail={substitutionSummary(data.ytd)} />
+  ) : null
+
+  /*
    * 연말 예상을 못 내면 현재 등급만 그린다. 없는 쪽을 빈 배지나 「—」로 채우면
    * 전이가 있는 것처럼 읽히고, 사유는 ⑶ 카드가 이미 글로 말한다.
    */
   if (!transition) {
-    return <GradeBadge rating={current} label={`현재 누적 기준 예상 등급 ${current}`} />
+    return (
+      <span className="rt__grade-row">
+        <GradeBadge rating={current} label={`현재 누적 기준 예상 등급 ${current}`} />
+        {confidence}
+      </span>
+    )
   }
 
   const modifier = transition.direction.toLowerCase()
@@ -432,10 +449,13 @@ function RatingTransitionView({ data, current }: { data: RealtimeCii; current: R
       <div className="rt__transition-pair">
         <div className="rt__transition-step">
           <span className="rt__transition-caption">현재 누적</span>
-          <GradeBadge
-            rating={transition.from}
-            label={`현재 누적 기준 예상 등급 ${transition.from}`}
-          />
+          <span className="rt__grade-row">
+            <GradeBadge
+              rating={transition.from}
+              label={`현재 누적 기준 예상 등급 ${transition.from}`}
+            />
+            {confidence}
+          </span>
         </div>
 
         {/* 잇는 기호일 뿐이라 방향을 뜻하지 않는다 — 방향은 아래 라벨이 말한다. */}
