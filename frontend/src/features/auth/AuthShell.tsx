@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import './AuthShell.css'
+import { BrandLogo } from '../../components/BrandLogo'
 
 /**
  * 인증 화면 공통 껍데기 — 로그인·회원가입·비밀번호 찾기·이메일 인증이 공유한다.
@@ -36,7 +37,7 @@ export function AuthShell({
     <main className="auth-page">
       <section className="auth-card" aria-labelledby="auth-title">
         <p className="auth-brand">
-          <span className="auth-brand-name">BlueLog</span>
+          <BrandLogo />
           {/* 사이드바(`AppShell`)와 같은 문구를 쓴다 — 한쪽만 바뀌면 어긋난다. */}
           <span className="auth-brand-sub">선대 CII 상시 관리</span>
         </p>

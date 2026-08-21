@@ -1,0 +1,37 @@
+/*
+ * 테마 세 상태를 그대로 따라간다 — styles/tokens.css의 선택자 구조와 같은 형태다.
+ * 미선택(속성 없음)에서는 prefers-color-scheme이, 선택했으면 data-theme이 이긴다.
+ */
+
+.brand-logo {
+  display: block;
+}
+
+.brand-logo__img {
+  display: block;
+  block-size: var(--brand-logo-height, 28px);
+  inline-size: auto;
+}
+
+/* 기본은 라이트. 미선택 + OS 라이트도 여기에 걸린다. */
+.brand-logo__img--dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .brand-logo__img--light {
+    display: none;
+  }
+
+  :root:not([data-theme='light']) .brand-logo__img--dark {
+    display: block;
+  }
+}
+
+:root[data-theme='dark'] .brand-logo__img--light {
+  display: none;
+}
+
+:root[data-theme='dark'] .brand-logo__img--dark {
+  display: block;
+}

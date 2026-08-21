@@ -29,14 +29,11 @@
 .app-shell__brand {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--space-4);
   padding: var(--space-8) var(--space-12) var(--space-16);
-}
 
-.app-shell__brand-name {
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
-  color: var(--color-primary);
+  /* 로고 높이는 쓰는 쪽이 정한다 — components/BrandLogo.css 참조. */
+  --brand-logo-height: 26px;
 }
 
 .app-shell__brand-sub {
