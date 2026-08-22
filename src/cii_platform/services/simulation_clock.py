@@ -87,6 +87,10 @@ class VoyageProgress:
     :param fuel_ton: 누적 under way 연료.
     :param is_simulated: 시계로 만든 값인지. ``PRD R-5`` 「시뮬레이션 데이터」
         배지의 근거다. 실적이 이미 확정된 항차에서는 ``False``다.
+    :param past_planned_arrival: 도착 **실적이 없는데** ``as_of``가 도착 예정일을
+        지났는가 (`#649`). 이때 누적은 예정일까지만 세지만, **그 사실이 응답에
+        드러나지 않으면 사용자는 값이 왜 멈췄는지 알 수 없다.** 호출부가 이 플래그를
+        보고 ``IN_PROGRESS_PAST_ETA`` 경고를 싣는다.
     """
 
     as_of: datetime
@@ -94,6 +98,7 @@ class VoyageProgress:
     distance_nm: Decimal
     fuel_ton: Decimal
     is_simulated: bool
+    past_planned_arrival: bool = False
 
 
 def _overlap_hours(
@@ -127,6 +132,7 @@ def compute_progress(
     arrival_at: datetime | None,
     speed_kn: Decimal | None,
     daily_foc_ton: Decimal | None,
+    planned_arrival_at: datetime | None = None,
     not_underway_periods: Iterable[NotUnderwayWindow] = (),
 ) -> VoyageProgress:
     """진행 중 항차의 누적 거리·연료를 확정한다.
@@ -142,6 +148,14 @@ def compute_progress(
     * **도착 실적이 있으면** ``min(as_of, arrival_at)``까지만 센다. 도착한 항차의
       누적량이 시간이 지난다고 계속 늘면 안 된다. 이때 ``is_simulated``는
       ``False``다 — 시계가 만든 값이 아니라 실적 구간이다.
+    * **도착 실적이 없는데 ``as_of``가 도착 예정일을 지났으면** 예정일까지만 센다
+      (`#649`). 종전에는 상한이 없어 **계획을 아무리 넘겨도 거리·연료가 계속
+      자랐다** — 출항 90일 뒤면 계획의 7배가 된다. 실사용에서 이 상태는
+      「운항이 계속되고 있다」가 아니라 **「도착 실적 입력을 잊었다」**이다.
+
+      ``is_simulated``는 ``True``로 남는다. 잘렸어도 **여전히 시계가 만든 값**이며,
+      계획은 실적이 아니므로 「확정됐다」로 읽히게 하지 않는다. 대신
+      ``past_planned_arrival``이 서고 호출부가 경고를 싣는다.
     * **속도·일일 소모율이 없으면** 각각 0으로 둔다. ``reference_daily_foc_ton``은
       ``nullable``이며(``DB_SCHEMA §2.1``), 없는 선박에 임의 기본값을 넣으면
       화면이 근거 없는 연료를 표시한다.
@@ -164,20 +178,30 @@ def compute_progress(
     departure_at = resolve_as_of(departure_at)
     window_end = as_of
     is_simulated = True
+    past_planned_arrival = False
     if arrival_at is not None:
         arrival_at = resolve_as_of(arrival_at)
         if arrival_at <= as_of:
             # 실적이 확정된 구간이다 — 시계가 값을 만들어 내지 않는다.
             window_end = arrival_at
             is_simulated = False
+    elif planned_arrival_at is not None:
+        # 실적이 없을 때만 계획을 본다 — 실적이 있으면 그쪽이 사실이다 (`#649`).
+        planned_arrival_at = resolve_as_of(planned_arrival_at)
+        if planned_arrival_at <= as_of:
+            window_end = planned_arrival_at
+            past_planned_arrival = True
 
     if window_end <= departure_at:
+        # 예정일이 출항보다 앞서는 등 창이 비면 진행량이 0이다. 그래도 「예정일을
+        # 지났다」는 사실은 남긴다 — 값이 0인 이유를 화면이 말할 수 있어야 한다.
         return VoyageProgress(
             as_of=as_of,
             underway_hours=zero,
             distance_nm=zero,
             fuel_ton=zero,
             is_simulated=False,
+            past_planned_arrival=past_planned_arrival,
         )
 
     elapsed_hours = Decimal(str((window_end - departure_at).total_seconds())) / Decimal("3600")
@@ -193,4 +217,5 @@ def compute_progress(
         distance_nm=distance_nm,
         fuel_ton=fuel_ton,
         is_simulated=is_simulated and underway_hours > zero,
+        past_planned_arrival=past_planned_arrival,
     )

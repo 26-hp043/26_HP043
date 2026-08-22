@@ -185,6 +185,98 @@ def test_arrival_caps_accumulation_and_clears_simulated_flag():
     assert much_later.is_simulated is False
 
 
+# --- 4b. 도착 예정일 초과 (#649) ----------------------------------------------------
+
+
+def test_planned_arrival_caps_accumulation():
+    """**이 이슈의 본체다.** 도착 실적이 없어도 예정일을 넘겨 자라지 않는다.
+
+    종전에는 상한이 없어 `window_end = as_of`였고, 계획을 아무리 넘겨도 거리·연료가
+    계속 자랐다 — 출항 90일 뒤면 계획의 7배다.
+    """
+    planned = DEPARTURE + timedelta(days=13)
+
+    at_eta = _progress(planned, planned_arrival_at=planned)
+    long_after = _progress(planned + timedelta(days=77), planned_arrival_at=planned)
+
+    assert at_eta.distance_nm == long_after.distance_nm
+    assert long_after.underway_hours == Decimal("312")  # 13일 x 24h
+
+
+def test_past_planned_arrival_is_reported():
+    """자르기만 하고 알리지 않으면 사용자는 「항차가 끝났나」로 읽는다.
+
+    실사용에서 이 상태는 **도착 실적 입력을 잊은 항차**이며, 그 사실이 응답에
+    드러나야 고칠 대상을 찾을 수 있다.
+    """
+    planned = DEPARTURE + timedelta(days=13)
+
+    before = _progress(planned - timedelta(hours=1), planned_arrival_at=planned)
+    after = _progress(planned + timedelta(hours=1), planned_arrival_at=planned)
+
+    assert before.past_planned_arrival is False
+    assert after.past_planned_arrival is True
+
+
+def test_capped_value_is_still_simulated():
+    """잘려도 **시뮬레이션 값이다** — 계획이 곧 실적이 되지 않는다.
+
+    도착 실적이 있을 때와 다른 점이다. 실적은 확정된 사실이고, 예정일은 아직
+    입력되지 않은 상태를 계획으로 대신 자른 것뿐이다.
+    """
+    planned = DEPARTURE + timedelta(days=13)
+
+    capped = _progress(planned + timedelta(days=5), planned_arrival_at=planned)
+    with_actual = _progress(planned + timedelta(days=5), arrival_at=planned)
+
+    assert capped.is_simulated is True
+    assert with_actual.is_simulated is False
+    # 값 자체는 같다 — 다른 것은 「무엇으로 잘랐는가」다.
+    assert capped.distance_nm == with_actual.distance_nm
+
+
+def test_actual_arrival_wins_over_planned():
+    """실적이 있으면 그쪽이 사실이다 — 계획으로 자르지 않는다.
+
+    계획보다 일찍·늦게 도착했을 수 있고, 그때 계획으로 자르면 **실제로 항해한
+    구간을 버리거나 없는 구간을 만든다.**
+    """
+    planned = DEPARTURE + timedelta(days=13)
+    actual = DEPARTURE + timedelta(days=20)  # 계획보다 7일 늦게 도착
+
+    result = _progress(actual + timedelta(days=3), arrival_at=actual, planned_arrival_at=planned)
+
+    assert result.underway_hours == Decimal("480")  # 20일 x 24h — 계획이 아니라 실적
+    assert result.is_simulated is False
+    assert result.past_planned_arrival is False
+
+
+def test_planned_arrival_in_the_future_changes_nothing():
+    """예정일 전에는 종전과 동작이 같다 — 회귀가 아닌지 확인한다."""
+    planned = DEPARTURE + timedelta(days=13)
+    as_of = DEPARTURE + timedelta(hours=6)
+
+    with_planned = _progress(as_of, planned_arrival_at=planned)
+    without = _progress(as_of)
+
+    assert with_planned.distance_nm == without.distance_nm
+    assert with_planned.past_planned_arrival is False
+
+
+def test_planned_arrival_before_departure_is_zero_but_reported():
+    """예정일이 출항보다 앞서면 진행량이 0이다.
+
+    **값이 0인 이유를 화면이 말할 수 있어야 하므로** 플래그는 남긴다. 데이터가
+    잘못된 상태이며, 조용히 0을 내면 「아직 출항 전」과 구분되지 않는다.
+    """
+    planned = DEPARTURE - timedelta(days=1)
+
+    result = _progress(DEPARTURE + timedelta(days=5), planned_arrival_at=planned)
+
+    assert result.distance_nm == Decimal(0)
+    assert result.past_planned_arrival is True
+
+
 def test_missing_speed_or_foc_yields_zero_without_guessing():
     """속도·일일 소모율이 없으면 0이다 — 임의 기본값을 넣지 않는다.
 

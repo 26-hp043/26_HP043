@@ -85,6 +85,13 @@ WARNING_SIM_NO_FUEL_RATE = "SIMULATION_NO_FUEL_RATE"
 #: CF를 붙일 수 없어 같은 이유로 진행분을 넣지 않았다.
 WARNING_SIM_NO_FUEL_TYPE = "SIMULATION_NO_FUEL_TYPE"
 
+#: 진행 중 항차가 **도착 예정일을 지났는데 도착 실적이 없다** (`#649`).
+#: 누적은 예정일까지만 반영했다 — 상한이 없으면 계획을 아무리 넘겨도 거리·연료가
+#: 계속 자란다(출항 90일 뒤면 계획의 7배). 실사용에서 이 상태는 「운항이 계속되고
+#: 있다」가 아니라 **「도착 실적 입력을 잊었다」**이므로, 값을 자르는 것만으로는
+#: 부족하고 **왜 멈췄는지**를 함께 알려야 한다.
+WARNING_IN_PROGRESS_PAST_ETA = "IN_PROGRESS_PAST_ETA"
+
 #: ⑶을 낼 수 없다 — 연말이 지났거나 ``as_of``가 연말이다. 남은 기간이 0이면
 #: 외삽분도 0이고, 그때 ⑶은 ⑴과 같은 값이라 따로 낼 이유가 없다.
 REASON_YEAR_COMPLETE = "YEAR_COMPLETE"
@@ -357,6 +364,9 @@ async def _resolve_progress(session: AsyncSession, *, vessel, voyage, as_of: dat
         as_of=as_of,
         departure_at=voyage.actual_departure_at or voyage.planned_departure_at,
         arrival_at=voyage.actual_arrival_at,
+        # `#649` — 실적이 없으면 예정일에서 자른다. 종전에는 넘기지 않아 상한이
+        # 없었고, 예정일을 지난 항차의 누적이 계속 자랐다.
+        planned_arrival_at=voyage.planned_arrival_at,
         speed_kn=voyage.planned_speed_kn or vessel.reference_speed_kn,
         daily_foc_ton=vessel.reference_daily_foc_ton,
         not_underway_periods=[
@@ -447,6 +457,12 @@ async def get_current_cii(
             live_warnings.append(WARNING_SIM_NO_FUEL_RATE)
         elif progress.distance_nm > 0 and fuel_code is None:
             live_warnings.append(WARNING_SIM_NO_FUEL_TYPE)
+
+        # 예정일에서 잘렸다는 사실은 **값이 들어갔든 아니든** 알린다 (`#649`).
+        # 위 세 갈래와 배타적이지 않다 — 자르고도 거리·연료가 정상이면 값은
+        # 누적에 들어가고, 그때도 「왜 더 늘지 않는가」를 화면이 말해야 한다.
+        if progress.past_planned_arrival:
+            live_warnings.append(WARNING_IN_PROGRESS_PAST_ETA)
 
     try:
         ytd = await compute_ytd_cii(
