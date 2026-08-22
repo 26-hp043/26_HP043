@@ -36,6 +36,30 @@ if _url is None:
 DATABASE_URL: str = _url
 
 
+def should_expose_api_docs() -> bool:
+    """``APP_ENV=production``이면 False — OpenAPI 문서를 열지 않는다 (#593).
+
+    ## 무엇을 막는가
+
+    ``/docs``·``/redoc``·``/openapi.json``은 FastAPI 기본값이 **항상 켜짐**이라,
+    프로덕션에서도 **세션 없이 API 전체 구조**를 읽을 수 있었다 — 엔드포인트 50종,
+    요청 스키마, 필드명, 검증 규칙. 인증이 필요한 엔드포인트는 그대로 보호되므로
+    그 자체가 취약점은 아니지만, 노출할 이유도 없다. **스펙의 정본은 저장소의
+    ``API_SPEC.md``**라 운영 중 조회가 필요하지 않다.
+
+    ## 왜 이 함수가 ``config.py``에 있는가
+
+    ``api/main.py``(문서 라우트 등록)와 ``auth/dependencies.py``(공개 경로 목록)가
+    **둘 다** 이 판정을 쓴다. 어느 한쪽에 두면 다른 쪽이 import 순환을 만든다.
+    ``APP_ENV``를 읽는 곳이 여기이므로 판정도 여기에 둔다.
+
+    ``routes/auth_dev.py``의 ``should_register_dev_auth()``와 **같은 형태**다 —
+    런타임 조건 분기가 아니라 **기동 시점에** 가른다. 요청마다 판정하면 환경변수를
+    바꿔 켤 수 있는 것처럼 읽히고, 실제로는 프로세스 수명 동안 바뀌지 않는다.
+    """
+    return _ENV != "production"
+
+
 def public_base_url(fallback: str) -> str:
     """메일 링크의 기준 주소 (#429).
 

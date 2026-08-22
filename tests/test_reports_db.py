@@ -303,11 +303,19 @@ async def test_no_not_underway_records_says_so(session, vessel_id):
 
 @pytest.mark.asyncio
 async def test_projection_says_why_when_it_cannot_be_made(session, vessel_id):
-    """사유 없는 빈칸은 「아직 로딩 중」으로 읽힌다."""
+    """사유 없는 빈칸은 「아직 로딩 중」으로 읽힌다.
+
+    **원문 코드도 마찬가지다 (`#631`).** 종전에는 이 단언이 ``"NO_BASIS"``였다 —
+    결함을 그대로 고정해 두고 있었다. `AGENTS §4.6`상 깨진 단언에 정본 인용이 없으므로
+    「테스트가 낡았다」로 판정해 같은 PR에서 갱신한다.
+    """
+    from cii_platform.reports.labels import PROJECTION_REASON_LABELS
+
     document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
     rows = dict(_section(document, "연말 예상").rows)
     assert rows["산출 여부"] == "산출하지 않음"
-    assert rows["사유"] == "NO_BASIS"
+    assert rows["사유"] == PROJECTION_REASON_LABELS["NO_BASIS"]
+    assert "NO_BASIS" not in rows["사유"]
 
 
 @pytest.mark.asyncio

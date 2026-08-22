@@ -791,7 +791,8 @@ def test_no_implicit_float_in_layer1():
 
 > 구현 파일 — `test_auth_api.py`(가입·로그인 계약) · `test_password.py`(해싱·정책) ·
 > `test_auth_session.py`(세션·CSRF 단위) · `test_auth_wiring.py`(배선, main.app) ·
-> `test_auth_failure_paths.py`(만료·무효화·미등록) · `test_dev_auth.py`(스텁 인증).
+> `test_auth_failure_paths.py`(만료·무효화·미등록) · `test_dev_auth.py`(스텁 인증) ·
+> `test_docs_exposure.py`(OpenAPI 문서 노출 범위).
 > 성공 경로만 검증하면 인증이 실제로 막고 있는지 알 수 없다 — 실패 경로가 핵심이다.
 
 | TC ID | 테스트 | 기대 결과 |
@@ -809,6 +810,7 @@ def test_no_implicit_float_in_layer1():
 | AT-AUTH-011 | 공개 경로 | 열거 경로(health·signup·login·dev-login)만 무인증 통과 (`test_auth_failure_paths.py`) |
 | AT-AUTH-012 | `APP_ENV=production` dev-login | 라우트 미등록 (`test_auth_failure_paths.py`) |
 | AT-AUTH-013 | dev-login 재기동 (고정 UUID) | 2회 모두 200 (`test_dev_auth.py`) |
+| AT-AUTH-014 | `APP_ENV=production` OpenAPI 문서 (`/docs`·`/redoc`·`/openapi.json`) | **401** — 라우트 미등록 + 공개 경로 제외. 404가 아니라 **다른 미등록 경로와 같은 응답**이어야 한다 (`test_docs_exposure.py`) |
 
 ---
 
@@ -1315,7 +1317,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_cii_history.py` | 7 | §4 API · 선박·항차·계산 |
 | `test_fleet_summary.py` | 36 | **§4 API · 선대 요약** — 규제 트리거 판정 · `days_to_d` 산식·경계 6종 · KPI 집계 · 한 척 실패의 격리(`#419`) |
 | `test_mail_link.py` | 5 | **§4.7 인증 API** — 메일 링크가 프론트엔드를 가리키는지 (`#429` 회귀) |
-| `test_reports.py` | 33 | **§3.4~§3.5 리포트 렌더링** — CSV injection 방어 · BOM · 면책 · 한글 PDF · **`DESIGN_SYSTEM §4` 표시 형식**(자릿수·천단위 구분자·선종 표기·KST 시각). 문서가 직렬화 자릿수를 그대로 내보내 화면과 갈렸다 (`#584`) |
+| `test_reports.py` | 44 | **§3.4~§3.5 리포트 렌더링** — CSV injection 방어 · BOM · 면책 · 한글 PDF · **`DESIGN_SYSTEM §4` 표시 형식**(자릿수·천단위 구분자·선종 표기·KST 시각). 문서가 직렬화 자릿수를 그대로 내보내 화면과 갈렸다 (`#584`) · **표시 문구 동기화**(위험도·경고·사유·항차 상태를 정본/화면과 대조 — `#631`) |
 | `test_reports_db.py` | 18 | **§4 API · 리포트 데이터 수집** — 진행 중 항차 제외 · 시나리오 인용 · 값 재계산 금지 |
 | `test_annual_simulation_api_db.py` | 14 | **§4 API · 기능③ 실행** — 스냅샷 격리 · 정책 필터링 · 분포 프로파일 기록 |
 | `test_annual_simulation_read_db.py` | 18 | **§4 API · 기능③ 조회·재실행** — 조회가 다시 계산하지 않는지 · 스냅샷 항차 표현 · 재현 판정(파라미터 변경 409 / 재현 실패 500) (`#443`) |
@@ -1339,6 +1341,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_demo_vessel_seed.py` | 11 | **§5.7 DB · seed 적재** — 합성 IMO의 체크섬 유효성 포함 (`#525`) |
 | `test_demo_seed_counts.py` | 5 | **§5.7 DB · seed 적재** — 적재·삭제 **행 수 보고**가 사실인지 (재실행 0 · 비운 뒤 실제 건수 · 음수 없음, `#481`) |
 | `test_dev_auth.py` | 5 | §4.7 API · 인증 |
+| `test_docs_exposure.py` | 9 | **§4.7 API · 인증** — 프로덕션 OpenAPI 문서 노출 범위 (`AT-AUTH-014`). 판정이 import 시점에 확정되므로 **하위 프로세스로 진짜 앱을 기동**해 응답 코드를 본다 (`#593`) |
 | `test_error_handlers.py` | 19 | §4 API · 공통·운영 |
 | `test_error_handlers_116.py` | 0 | §4 API · 공통·운영 |
 | `test_field_labels.py` | 2 | §4 API · 공통·운영 |
@@ -1387,7 +1390,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_ytd_engine.py` | 0 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 97개 파일 · 1230 함수 · 1509 수집.** (2026-08-22 실측)
+**합계 98개 파일 · 1245 함수 · 1524 수집.** (2026-08-22 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
@@ -1543,3 +1546,5 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-21 | `#604` | §14 인벤토리에 `test_doc_cross_refs.py`(3함수) 등재 · 합계 실측 갱신(95파일·1216함수·1495수집 → **96파일·1222함수·1501수집**). 이 파일은 `UIFLOW`·`DESIGN_SYSTEM`을 가리키는 참조가 **실재하는지**를 강제한다 — `test_doc_version_sync.py`가 버전 드리프트를 잡는 것과 같은 자리이나, 이번 결함은 드리프트가 아니라 **처음부터 없는 절을 가리켜 쓴 것**이라 그 가드로는 잡히지 않았다. `.md`뿐 아니라 `frontend/src` 주석까지 훑는다 — `screens.ts`도 같은 끊긴 참조를 쓰고 있었다. 함께 **헤더에 두 개였던 `최종 수정일` 행을 하나로 합쳤다**(2026-08-18 · 2026-08-17이 나란히 있었다). `AGENTS §4.3`상 「소규모 행 추가·오기 정정」이므로 버전은 올리지 않는다 (#583) |
 | 2026-08-21 | `#606` | `test_doc_cross_refs.py` 3 → **4함수** — `AGENTS §4.7` 표기 규칙 강제를 추가했다. 화면 번호에 `§`를 붙이면 **화면 번호·`§16` 표의 행 번호·없는 절이 한 모양**이 되어 실재 여부를 판정할 수 없다. 합계 실측 갱신(1222함수·1501수집 → **1223함수·1502수집**) (#602) |
 | 2026-08-22 | `#641` | §14 인벤토리에 `test_warning_codes_sync.py`(3함수) 등재 · `test_annual_simulation.py` 36 → **38함수**(`#630`) · 합계 실측 갱신(96파일·1223함수·1502수집 → **97파일·1230함수·1509수집**). `README` 문서 표의 수치가 **89파일·1172함수·1443수집**으로 사흘 낡아 있던 것도 함께 맞췄다 — `test_doc_version_sync`는 **버전만 보고 수치는 보지 않는다** (#641) |
+| 2026-08-22 | `#631` | `test_reports.py` 33 → **44함수** — 인벤토리 수치가 **이미 5함수 낡아 있었고**(#584 이후 갱신되지 않았다) 여기에 표시 문구 동기화 6종을 더했다. 위험도·경고는 **정본**(`DESIGN_SYSTEM §2.5` 🔒 · `API_SPEC §1.6`)과, 연말 예상 사유·항차 상태·집계 정책은 **화면**과 대조한다 — `AGENTS §4.6`이 정본 문구와 표시 문구를 나누므로 대조 상대가 갈린다. 합계 실측 갱신(1230함수·1509수집 → **1236함수·1515수집**) (#631) |
+| 2026-08-22 | `#593` | §4.7에 **`AT-AUTH-014`** 신설(프로덕션 OpenAPI 문서 노출) · §14 인벤토리에 `test_docs_exposure.py`(9함수) 등재 · 합계 실측 갱신(97파일·1236함수·1515수집 → **98파일·1245함수·1524수집**). 기대값을 **404가 아니라 401**로 적은 것이 요점이다 — 라우트만 끄면 `/docs`는 404이고 다른 미등재 경로는 401이라, **그 차이 자체가 「여기에 무언가 있다」는 신호**가 된다. 판정이 import 시점에 확정돼 같은 프로세스에서 환경을 바꿔 다시 만들 수 없으므로 **하위 프로세스로 진짜 앱을 기동**한다 — 순수 함수만 보면 「값이 실제 앱에 닿았다」가 빠진다(`#318`의 논거) (#593) |
