@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { SCREEN_BY_ID } from '../../screens'
+import { useYearOptions } from '../parameters/yearCatalog'
 import { createApiReportsProvider, ReportsError } from './apiProvider'
 import {
+  coerceYear,
   sameTarget,
   targetOf,
   voyageLabel,
@@ -51,6 +53,16 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   const [vesselId, setVesselId] = useState('')
   const [voyageId, setVoyageId] = useState('')
   const [year, setYear] = useState(() => new Date().getFullYear())
+  /*
+   * 규제연도 선택지 (`#635`). 기능①·연간 시뮬레이션·항로 비교가 이미 쓰는 훅이며
+   * (`#632`), 보고서 화면만 로컬 상수를 보고 있었다.
+   */
+  const {
+    years: regulationYears,
+    loading: yearsLoading,
+    failed: yearsFailed,
+  } = useYearOptions(vesselId)
+  const years = yearOptions(regulationYears, new Date().getFullYear())
 
   const [preview, setPreview] = useState<{ target: ReportTarget; html: string } | null>(
     null,
@@ -58,6 +70,20 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   const [busy, setBusy] = useState<null | 'preview' | DownloadFormat>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
+
+  /*
+   * 선택된 연도를 목록 안으로 맞춘다 (`#635`).
+   *
+   * 화면은 올해를 기본값으로 들고 시작하는데 **서버 목록이 올해를 포함하지 않을 수
+   * 있다.** 그대로 두면 select는 첫 항목을 보이는데 화면의 상태는 여전히 올해라,
+   * 사용자가 보는 연도와 요청하는 연도가 갈린다.
+   */
+  useEffect(() => {
+    const next = coerceYear(years, year)
+    if (next !== null && next !== year) setYear(next)
+    // `years`는 매 렌더 새 배열이라 의존성에 넣으면 무한 루프다 — 내용으로 비교한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [years.join(','), year])
 
   useEffect(() => {
     api
@@ -197,17 +223,37 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
           {kind === 'ANNUAL' ? (
             <label>
               <span>연도</span>
+              {/*
+                선택지는 **서버가 등재한 규제연도**에서 온다 (`#635`). 종전에는 하한이
+                `2019`로 박혀 있어 CII 규제 시작(2023) 이전 해를 고를 수 있었고, 고르면
+                전부 `—`인 빈 문서가 `200 OK`로 나왔다.
+              */}
               <select
                 value={year}
                 onChange={(event) => setYear(Number(event.target.value))}
+                disabled={!vesselId || years.length === 0}
                 data-testid="year-select"
               >
-                {yearOptions(new Date().getFullYear()).map((option) => (
+                {years.map((option) => (
                   <option key={option} value={option}>
                     {option}년
                   </option>
                 ))}
               </select>
+              {/*
+                로딩·실패를 **빈 목록과 구분한다** — 선박 선택 칸이 이미 같은 3상태
+                안내를 쓴다. 「없다」와 「아직 모른다」를 같게 그리면 사용자는 기다려야
+                할지 문의해야 할지 판단할 수 없다.
+              */}
+              {vesselId && yearsLoading ? (
+                <em className="rp__hint">규제연도를 불러오는 중입니다…</em>
+              ) : null}
+              {vesselId && yearsFailed ? (
+                <em className="rp__hint">규제연도 목록을 불러오지 못했습니다.</em>
+              ) : null}
+              {vesselId && !yearsLoading && !yearsFailed && years.length === 0 ? (
+                <em className="rp__hint">등재된 규제연도가 없습니다.</em>
+              ) : null}
             </label>
           ) : (
             <label>

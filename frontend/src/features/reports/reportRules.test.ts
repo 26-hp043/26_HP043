@@ -6,6 +6,7 @@ import {
   statusLabel,
   targetOf,
   voyageLabel,
+  coerceYear,
   yearOptions,
 } from './reportRules'
 import type { VoyageOption } from './types'
@@ -69,14 +70,47 @@ describe('표시', () => {
   })
 })
 
-describe('연도 선택지', () => {
-  it('올해부터 과거로 만든다 — 미래 연도는 언제나 빈 문서다', () => {
-    expect(yearOptions(2026, 3)).toEqual([2026, 2025, 2024])
+describe('연도 선택지 — 서버 규제연도 목록에서 온다 (#635)', () => {
+  /** `GET /parameters/regulation-years`가 주는 값 (현재 seed 기준). */
+  const SERVER_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030]
+
+  it('미래 연도를 넣지 않는다 — 실적이 있을 수 없는 해다', () => {
+    expect(yearOptions(SERVER_YEARS, 2026)).toEqual([2026, 2025, 2024, 2023])
   })
 
-  it('2019보다 이전으로 내려가지 않는다', () => {
-    // voyage.regulation_year의 CHECK 하한이다 — 그보다 이전 해는 데이터가 있을 수 없다.
-    expect(yearOptions(2021, 5)).toEqual([2021, 2020, 2019])
+  it('규제 시작(2023) 이전은 애초에 목록에 없다', () => {
+    // 종전에는 하한이 2019로 박혀 있어 2022·2021·2020을 고를 수 있었고,
+    // 고르면 전부 `—`인 빈 문서가 200 OK로 나왔다.
+    expect(yearOptions(SERVER_YEARS, 2026)).not.toContain(2022)
+  })
+
+  it('최신 연도가 먼저 온다 — 서버가 오름차순으로 준다', () => {
+    expect(yearOptions([2025, 2023, 2024], 2026)).toEqual([2025, 2024, 2023])
+  })
+
+  it('개수를 자르지 않는다 — 규제연도가 늘면 선택지도 는다', () => {
+    // 종전 `span = 5`는 `earliest = 2019`와 짝을 이루던 임시 상한이었다.
+    expect(yearOptions(SERVER_YEARS, 2030)).toHaveLength(8)
+  })
+
+  it('목록이 비면 선택지도 비운다 — 기본값을 지어내지 않는다', () => {
+    expect(yearOptions([], 2026)).toEqual([])
+  })
+})
+
+describe('coerceYear — 선택된 연도를 목록 안으로 (#635)', () => {
+  it('목록에 있으면 그대로 둔다', () => {
+    expect(coerceYear([2026, 2025], 2025)).toBe(2025)
+  })
+
+  it('목록에 없으면 가장 최근 연도로 맞춘다', () => {
+    // 파라미터가 작년까지만 등재된 상태가 실제로 가능하다. 그대로 두면 select는
+    // 첫 항목을 보이는데 화면 상태는 올해라, 보는 연도와 요청하는 연도가 갈린다.
+    expect(coerceYear([2030, 2029], 2031)).toBe(2030)
+  })
+
+  it('목록이 비면 null — 로딩·실패 상태이며 고를 것이 없다', () => {
+    expect(coerceYear([], 2026)).toBeNull()
   })
 })
 
