@@ -35,6 +35,7 @@ from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.auth.middleware import auth_middleware
+from cii_platform.config import should_expose_api_docs
 from cii_platform.mail.config import load_mail_settings
 
 # API_SPEC §1.1: 모든 API는 /api/v1 prefix 아래에 둔다.
@@ -75,7 +76,32 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
 
 
-app = FastAPI(title="CII Platform API", lifespan=lifespan)
+def api_docs_kwargs(*, expose_docs: bool) -> dict[str, str | None]:
+    """``FastAPI()``에 넘길 문서 라우트 설정 (#593).
+
+    프로덕션이면 ``docs_url``·``redoc_url``·``openapi_url``을 **모두 ``None``**으로
+    두어 라우트 자체를 등록하지 않는다. 셋을 함께 끄는 이유는 ``/docs``가 스펙 본문을
+    ``/openapi.json``에서 받아 그리기 때문이다 — 하나만 남기면 UI만 사라지고
+    **구조 정보는 그대로 열린다.**
+
+    개발에서는 빈 dict을 돌려 **FastAPI 기본값을 그대로 쓴다.** 기본 경로를 여기에
+    다시 적으면 FastAPI가 기본값을 바꿨을 때 두 곳이 갈린다.
+
+    **인자를 받는 이유는 검증 때문이다** — ``build_public_paths()``와 같은 판단이다.
+    """
+    if expose_docs:
+        return {}
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
+app = FastAPI(
+    title="CII Platform API",
+    lifespan=lifespan,
+    # #593 프로덕션에서는 OpenAPI 문서를 열지 않는다. `auth/dependencies.py`의
+    # 공개 경로 목록도 같은 판정을 쓴다 — 한쪽만 바뀌면 `/docs`가 401과 404 사이에서
+    # 갈린다.
+    **api_docs_kwargs(expose_docs=should_expose_api_docs()),
+)
 
 # 미들웨어 스택 (#238 · #275 · #307) — 바깥 → 안쪽 순서:
 #   RequestContext → rate_limit → auth → 라우트
