@@ -54,6 +54,7 @@ interface ServerVessel {
   ship_type: string
   deadweight: number | string | null
   gross_tonnage: number | string | null
+  is_cii_applicable_hint?: boolean
   reference_speed_kn: number | string | null
   reference_daily_foc_ton: number | string | null
   default_fuel_type: string | null
@@ -90,6 +91,10 @@ function toSpec(raw: ServerVessel): VesselSpec {
     shipType: raw.ship_type,
     deadweight: asText(raw.deadweight),
     grossTonnage: asText(raw.gross_tonnage),
+    // 서버는 `§2.1`에서 이미 판정을 보내고 있었는데 화면 모델이 받지 않았다 (`#653`).
+    // 없는 응답이면 `true`로 두어 배지를 그리지 않는다 — 판정이 없는데 「대상 아님」을
+    // 단정하면 없는 사실을 만든다.
+    isCiiApplicableHint: raw.is_cii_applicable_hint ?? true,
     referenceSpeedKn: asText(raw.reference_speed_kn),
     referenceDailyFocTon: asText(raw.reference_daily_foc_ton),
     defaultFuelType: raw.default_fuel_type,

@@ -1,3 +1,4 @@
+import { applicabilityState } from '../../components/applicability'
 import type { Vessel } from './types'
 
 /**
@@ -17,12 +18,22 @@ import type { Vessel } from './types'
  *
  * 임계값(GT 5,000)을 화면에 적지 않는다 — 판정은 서버 소관이고, 숫자를 여기 박으면
  * 기준이 바뀔 때 화면만 낡는다. 화면이 GT로 **다시 판정하지도 않는다**.
+ *
+ * ## 판정을 `components/applicability`로 올렸다 (#653)
+ *
+ * 이 규칙이 여기에만 있어서 **등록 결과 화면 밖으로 나가지 못했다.** 판정은 공용
+ * 모듈이 갖고, 이 함수는 **등록 직후에만 쓰는 문장**을 만든다 — 목록·상세·대시보드는
+ * 같은 판정을 배지로 그리므로 문장이 아니라 짧은 라벨이 필요하다.
  */
 export function applicabilityHint(vessel: Vessel): string {
-  if (vessel.is_cii_applicable_hint) {
+  const state = applicabilityState({
+    isCiiApplicableHint: vessel.is_cii_applicable_hint,
+    grossTonnage: vessel.gross_tonnage,
+  })
+  if (state === 'APPLICABLE') {
     return '이제 항차를 등록하면 이 선박의 CII가 집계됩니다.'
   }
-  if (vessel.gross_tonnage === null) {
+  if (state === 'UNKNOWN') {
     return '총톤수(GT)가 비어 있어 CII 적용 대상이 아닌 것으로 판정됐습니다. 총톤수를 채우면 다시 판정됩니다.'
   }
   return 'CII 적용 대상이 아닌 것으로 판정됐습니다. 총톤수가 맞는지 확인해 주세요.'

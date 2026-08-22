@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
+import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
@@ -218,6 +219,16 @@ export function VesselManagement() {
                       {vessel.name}
                     </Link>
                     <span className="vessel-management__imo">IMO {vessel.imo_number}</span>
+                    {/*
+                      CII 적용 대상 여부는 등록 결과 화면에만 있었다 (`#653`).
+                      선박을 식별하는 자리마다 같은 배지를 둔다 — 목록에서 보이지
+                      않으면 「계산은 되는데 규제상 의미가 없는 배」를 가려낼 방법이 없다.
+                    */}
+                    <ApplicabilityBadge
+                      isCiiApplicableHint={vessel.is_cii_applicable_hint}
+                      grossTonnage={vessel.gross_tonnage}
+                      vesselName={vessel.name}
+                    />
                   </div>
                   <dl className="vessel-management__specs">
                     <div>

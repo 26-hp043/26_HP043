@@ -37,6 +37,7 @@ from cii_platform.reports.document import (
     TableSection,
 )
 from cii_platform.reports.labels import (
+    applicability_label,
     inclusion_policy_label,
     projection_reason_label,
     risk_label,
@@ -44,6 +45,7 @@ from cii_platform.reports.labels import (
     voyage_status_label,
     warning_label,
 )
+from cii_platform.services.applicability import applicability_state
 from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.simulation_clock import resolve_as_of
@@ -255,6 +257,7 @@ async def build_voyage_report(
         meta=[
             ("선박", vessel.name),
             ("IMO", vessel.imo_number),
+            ("CII 적용 대상", applicability_label(applicability_state(vessel.gross_tonnage))),
             ("규제연도", str(year)),
             ("생성 시각", _local_time(resolved)),
         ],
@@ -504,6 +507,7 @@ async def build_annual_report(
             ("선박", vessel.name),
             ("IMO", vessel.imo_number),
             ("선종", ship_type_label(vessel.ship_type)),
+            ("CII 적용 대상", applicability_label(applicability_state(vessel.gross_tonnage))),
             ("기준 시각", _local_time(current_meta["as_of"])),
         ],
         sections=sections,

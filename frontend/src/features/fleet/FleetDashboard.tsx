@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
+import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { RegulatoryFlags } from '../../components/RegulatoryFlag'
 import { GradeChip } from '../../components/GradeChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
@@ -355,6 +356,17 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
           규제 의무가 걸렸다는 사실을 알 수 없었다 (`#485` ④).
         */}
         <RegulatoryFlags reasons={vessel.riskReasons} vesselName={vessel.name} />
+
+        {/*
+          적용 대상 배지는 규제 플래그와 **또 다른 축**이다 (`#653`).
+          플래그는 「규제 의무가 걸렸다」, 이 배지는 「애초에 규제 대상인가」를 말한다.
+          대시보드에 없으면 사용자는 등급과 값만 보고 규제상 의미를 단정하게 된다.
+        */}
+        <ApplicabilityBadge
+          isCiiApplicableHint={vessel.isCiiApplicableHint}
+          grossTonnage={vessel.grossTonnage}
+          vesselName={vessel.name}
+        />
 
         <span className="vessel__body">
           <span className="vessel__name">{vessel.name}</span>

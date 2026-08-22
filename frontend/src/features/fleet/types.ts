@@ -67,6 +67,16 @@ export interface FleetVessel {
   lon: string | null
   positionUpdatedAt: string | null
   /**
+   * 서버가 내린 CII 적용 대상 판정 (`API_SPEC §2.3` · `#653`).
+   * **화면이 GT로 다시 판정하지 않는다.**
+   */
+  isCiiApplicableHint: boolean
+  /**
+   * 총톤수. 판정이 아니라 **「미해당」의 원인**을 가르는 데만 쓴다 — GT가 `null`이면
+   * 「대상 아님」이 아니라 「판정 불가」다.
+   */
+  grossTonnage: number | string | null
+  /**
    * 항차 실적이 있는가. `false`면 아래 CII 값들이 전부 `null`이다.
    * **오류가 아니라 정상 상태다**(`#353` 계약).
    */

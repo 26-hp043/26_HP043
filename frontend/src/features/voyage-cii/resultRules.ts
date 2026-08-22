@@ -159,6 +159,10 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
   CB_ESTIMATED: '선형 계수가 추정값입니다.',
   EXPERIMENTAL_MODEL: '실험 모델 기반 결과입니다.',
   NON_CII_VESSEL: '공식 CII 적용 대상이 아닐 수 있습니다.',
+  // `#653` — GT가 NULL이면 「대상 아님」이 아니라 **판정 자체가 불가**다.
+  // 종전에는 이 경우 아무 경고도 붙지 않아, 데모의 실선 2척이 조용히 지나갔다.
+  CII_APPLICABILITY_UNKNOWN:
+    '총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.',
   COMPLETED_NO_FUEL: '실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중.',
   COMPLETED_NO_DISTANCE: '실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중.',
   SLOW_SPEED_FLOOR:

@@ -75,6 +75,7 @@ from cii_platform.errors import (
     ParameterError,
     ValidationError,
 )
+from cii_platform.services import applicability
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -89,11 +90,12 @@ DISCLAIMER = "참고용 예측값입니다. 규제 제출용 공식 결과가 �
 #: API_SPEC §1.6 — 모든 계산 결과에 붙는다.
 WARNING_REFERENCE_ONLY = "REFERENCE_ONLY"
 
-#: API_SPEC §1.6 — GT < 5,000.
-WARNING_NON_CII_VESSEL = "NON_CII_VESSEL"
-
-#: PRD §3.1 — MARPOL Annex VI Reg.28 적용 하한. GT 기준이다.
-CII_APPLICABLE_GT_THRESHOLD = Decimal("5000")
+#: CII 적용 대상 판정 어휘. 정의는 ``services.applicability``가 단독으로 소유한다
+#: (`#653`) — 이 모듈이 값을 다시 적으면 두 곳이 갈린다. 이름을 여기 남겨 두는 것은
+#: 기존 호출부·테스트가 ``voyage_cii.WARNING_NON_CII_VESSEL``로 참조하기 때문이다.
+WARNING_NON_CII_VESSEL = applicability.WARNING_NON_CII_VESSEL
+WARNING_CII_APPLICABILITY_UNKNOWN = applicability.WARNING_CII_APPLICABILITY_UNKNOWN
+CII_APPLICABLE_GT_THRESHOLD = applicability.CII_APPLICABLE_GT_THRESHOLD
 
 #: 응답 직렬화 자릿수 — **API_SPEC §4.1 예시에서 필드별로 읽어 왔다.**
 #:
@@ -687,14 +689,14 @@ def _build_hash_input(
 def _build_warnings(vessel) -> list[str]:
     """API_SPEC §1.6 warning 코드.
 
-    ``REFERENCE_ONLY``는 「모든 계산 결과」라 항상 붙는다. ``NON_CII_VESSEL``은
-    **GT를 알고 그것이 5,000 미만일 때만** 붙인다 — GT가 NULL이면 판정 근거가 없어
-    「적용 대상이 아니다」라고 단정할 수 없다.
+    ``REFERENCE_ONLY``는 「모든 계산 결과」라 항상 붙는다. 적용 대상 판정은
+    ``services.applicability``에 위임한다 — 같은 판정을 YTD·실시간 CII·리포트가
+    함께 쓰기 때문이다 (`#653`).
+
+    **``NON_CII_VESSEL``은 GT를 알고 그것이 5,000 미만일 때만** 붙는다. GT가 NULL이면
+    판정 근거가 없어 「적용 대상이 아니다」라고 단정할 수 없고, 대신
+    ``CII_APPLICABILITY_UNKNOWN``이 붙어 **판정하지 못했다는 사실**을 남긴다.
+    종전에는 이 경우 아무 경고도 붙지 않아, 규제상 무의미할 수 있는 계산 결과가
+    아무 표시 없이 나갔다.
     """
-    warnings = [WARNING_REFERENCE_ONLY]
-    if (
-        vessel.gross_tonnage is not None
-        and Decimal(vessel.gross_tonnage) < CII_APPLICABLE_GT_THRESHOLD
-    ):
-        warnings.append(WARNING_NON_CII_VESSEL)
-    return warnings
+    return [WARNING_REFERENCE_ONLY, *applicability.applicability_warnings(vessel)]

@@ -334,20 +334,27 @@ async def _insert_vessel(
     detail_status: str | None = None,
     ship_type: str = "BULK_CARRIER",
     deadweight: int | None = 50000,
+    gross_tonnage: int | None = 30000,
 ) -> str:
+    # `is_cii_applicable_hint`는 서비스가 등록 시 산정하는 값이라(`API_SPEC §2.3`)
+    # 직접 INSERT하는 이 헬퍼가 대신 계산해 넣는다 — 컬럼 기본값에 맡기면 GT가
+    # 30,000인 선박도 「미해당」으로 앉는다.
+    hint = gross_tonnage is not None and gross_tonnage >= 5000
     row = await session.execute(
         text(
             "INSERT INTO vessel "
             "(imo_number, name, ship_type, gross_tonnage, deadweight, "
-            " underway_state, detail_status) "
-            "VALUES (:imo, :name, :ship_type, 30000, :dwt, :st, :ds) "
+            " is_cii_applicable_hint, underway_state, detail_status) "
+            "VALUES (:imo, :name, :ship_type, :gt, :dwt, :hint, :st, :ds) "
             "RETURNING id"
         ),
         {
             "imo": imo,
             "name": name,
             "ship_type": ship_type,
+            "gt": gross_tonnage,
             "dwt": deadweight,
+            "hint": hint,
             "st": underway_state,
             "ds": detail_status,
         },
@@ -486,6 +493,69 @@ async def test_numbers_are_strings(session):
 
     for key in ("ytd_attained_cii", "ytd_required_cii", "current_lat", "current_lon"):
         assert row[key] is None or isinstance(row[key], str)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CII 적용 대상 표시 (#653)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_applicable_vessel_reports_the_server_judgement(session):
+    """선대 행이 **서버 판정을 그대로** 싣는다 (`API_SPEC §2.8`).
+
+    종전에는 이 두 필드가 없어, 대시보드가 등급과 값만 보이고 **그 값이 규제상
+    의미가 있는지는 말하지 않았다.**
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9200060", name="BIG", gross_tonnage=30000)
+
+    row = (await get_fleet_summary(session, regulation_year=YEAR))["vessels"][0]
+
+    assert row["is_cii_applicable_hint"] is True
+    assert row["gross_tonnage"] == 30000.0
+
+
+@pytest.mark.asyncio
+async def test_small_vessel_and_unknown_gt_are_distinguishable(session):
+    """**「미해당」과 「GT가 없어 판정 불가」를 화면이 가를 수 있어야 한다.**
+
+    둘 다 `is_cii_applicable_hint = false`라 그 필드만으로는 구분되지 않는다.
+    `gross_tonnage`를 함께 싣는 이유가 이것이다 — 합쳐 보이면 총톤수를 넣지 않은
+    사용자가 「이 배는 규제 대상이 아니다」로 읽는다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9200061", name="SMALL", gross_tonnage=4999)
+    await _insert_vessel(session, imo="9200062", name="NOGT", gross_tonnage=None)
+
+    rows = {
+        r["name"]: r for r in (await get_fleet_summary(session, regulation_year=YEAR))["vessels"]
+    }
+
+    assert rows["SMALL"]["is_cii_applicable_hint"] is False
+    assert rows["SMALL"]["gross_tonnage"] == 4999.0
+
+    assert rows["NOGT"]["is_cii_applicable_hint"] is False
+    assert rows["NOGT"]["gross_tonnage"] is None
+
+
+@pytest.mark.asyncio
+async def test_gross_tonnage_is_a_number_not_a_layer1_string(session):
+    """`gross_tonnage`는 계산 **결과**가 아니라 입력 제원이다.
+
+    `API_SPEC §1.7`의 문자열 직렬화는 Layer 1 값에만 적용되고, `§2.1` 선박 객체
+    예시는 총톤수를 `25000.0`처럼 숫자로 적는다. 같은 필드가 엔드포인트마다 다른
+    형으로 나가면 화면이 매번 형을 확인해야 한다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9200063", name="NUM", gross_tonnage=30000)
+
+    row = (await get_fleet_summary(session, regulation_year=YEAR))["vessels"][0]
+
+    assert isinstance(row["gross_tonnage"], float)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
