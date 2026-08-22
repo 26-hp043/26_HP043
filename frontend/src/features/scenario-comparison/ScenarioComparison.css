@@ -102,7 +102,7 @@
 }
 
 .scenario-comparison__error-title {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-h3);
 }
@@ -181,7 +181,7 @@
 }
 
 .scenario-comparison__field-error {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-micro);
 }
 
@@ -395,7 +395,7 @@
 }
 
 .scenario-card__risk-icon {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 /* §2.5 (b) — 4단계 전용 램프를 만들지 않는다. §2.3 시맨틱만 차용. */
@@ -405,11 +405,11 @@
 }
 
 .scenario-card__risk-value--high {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .scenario-card__risk-value--critical {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .scenario-card__rows {

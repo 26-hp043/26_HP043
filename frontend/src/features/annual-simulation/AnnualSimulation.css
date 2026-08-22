@@ -82,7 +82,7 @@
 }
 
 .annual-sim__error-title {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-h3);
 }
@@ -200,7 +200,7 @@
 }
 
 .annual-sim__risk-icon {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 /* §2.5 (b) — 4단계 전용 램프를 만들지 않는다 */
@@ -211,11 +211,11 @@
 }
 
 .annual-sim__risk-value--high {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .annual-sim__risk-value--critical {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .annual-sim__metrics {
@@ -602,8 +602,8 @@
 }
 
 .annual-sim__flag--muted { color: var(--color-text-muted); }
-.annual-sim__flag--warning { color: var(--color-warning); }
-.annual-sim__flag--danger { color: var(--color-danger); }
+.annual-sim__flag--warning { color: var(--color-warning-text); }
+.annual-sim__flag--danger { color: var(--color-danger-text); }
 
 .annual-sim__tablewrap {
   overflow-x: auto;
@@ -647,5 +647,5 @@
 }
 
 .annual-sim__error strong {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }

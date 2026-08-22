@@ -77,7 +77,7 @@
   border-left: 3px solid var(--color-danger);
   border-radius: 0;
   background: var(--color-surface-2);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   padding: var(--space-12) var(--space-16);
 }
 
@@ -191,7 +191,7 @@
 
 .vessel-management__button--danger {
   border-color: var(--color-danger);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .vessel-management__submit {
@@ -285,6 +285,6 @@
 
 /* 오류는 컨트롤 **아래**에 둔다 (§14). */
 .vessel-management__field-error {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-micro);
 }
