@@ -36,6 +36,38 @@ if _url is None:
 DATABASE_URL: str = _url
 
 
+def is_production() -> bool:
+    """``APP_ENV=production``인가 — 환경 분기의 단일 출처 (#648).
+
+    아래 두 판정이 같은 말을 두 번 쓰지 않게 한다. ``routes/auth_dev.py``의
+    ``should_register_dev_auth()``는 `#276`이 만든 것이라 그대로 두었다 — 그쪽까지
+    옮기면 `#276`의 테스트를 함께 고쳐야 한다.
+    """
+    return _ENV == "production"
+
+
+def should_expose_dev_auth() -> bool:
+    """``routes/auth_dev.py``의 ``should_register_dev_auth()``와 **같은 판정**이다 (#648).
+
+    ## 왜 같은 판정이 두 곳에 있는가
+
+    ``auth/dependencies.py``의 공개 경로 목록이 이 값을 필요로 하는데, 거기서
+    ``routes/auth_dev.py``를 import하면 **``TECH_SPEC §16`` 계층 규칙을 어긴다** —
+    auth는 routes보다 아래층이다.
+
+    ## 갈리면 무슨 일이 생기는가
+
+    ``#276``이 프로덕션에서 dev-login **라우트를 등록하지 않는데** 공개 경로 목록에는
+    그대로 남아 있었다. ``is_public_path()``가 완전일치 허용 목록이라 목록에 있으면
+    미들웨어를 통과하고 → 라우트가 없어 **404**가 된다. 다른 미등록 경로는 전부
+    **401**이므로 **그 경로만 응답이 달라진다** — `#593`이 ``/docs``에서 없앤 것과
+    같은 신호다.
+
+    **두 판정이 어긋나면 ``tests/test_docs_exposure.py``가 잡는다.**
+    """
+    return not is_production()
+
+
 def should_expose_api_docs() -> bool:
     """``APP_ENV=production``이면 False — OpenAPI 문서를 열지 않는다 (#593).
 
@@ -57,7 +89,7 @@ def should_expose_api_docs() -> bool:
     런타임 조건 분기가 아니라 **기동 시점에** 가른다. 요청마다 판정하면 환경변수를
     바꿔 켤 수 있는 것처럼 읽히고, 실제로는 프로세스 수명 동안 바뀌지 않는다.
     """
-    return _ENV != "production"
+    return not is_production()
 
 
 def public_base_url(fallback: str) -> str:
