@@ -558,9 +558,46 @@ def test_voyage_status_and_policy_labels_match_the_screen():
         assert screen == table, name
 
 
+def test_fuel_source_labels_cover_the_check_constraint():
+    """코드 집합의 정본은 `voyage_fuel_use`의 `chk_fuel_source` CHECK 제약이다 (`#645`).
+
+    **문자열을 여기 다시 적지 않는다** — 제약에서 직접 읽어 대조한다. 기대값을 전사하면
+    새 출처가 늘 때 두 곳을 고쳐야 하고, 한쪽만 고치면 리포트가 원문 코드를 낸다.
+    `test_ship_type_labels_cover_the_calc_ship_types`가 `calc/capacity.py`에서 읽는 것과
+    같은 방식이다.
+    """
+    from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
+    from cii_platform.reports.labels import FUEL_SOURCE_LABELS
+
+    constraint = next(
+        c
+        for c in VoyageFuelUse.__table__.constraints
+        if getattr(c, "name", None) == "chk_fuel_source"
+    )
+    codes = set(re.findall(r"'([A-Z_]+)'", str(constraint.sqltext)))
+
+    assert codes, "chk_fuel_source에서 코드를 읽지 못했다 — 제약 형식이 바뀌었는지 확인할 것"
+    assert set(FUEL_SOURCE_LABELS) == codes
+
+
+def test_fuel_source_is_not_a_screen_label():
+    """이 값은 **화면에 없다** — 그래서 「표시 문구」가 아니다 (`#645`).
+
+    화면이 이 값을 표시하기 시작하면 대조 상대가 생기므로 분류를 다시 정해야 한다.
+    그 사실을 여기서 잡는다 — 분류가 조용히 어긋나면 동기화 테스트가 아무것도
+    검사하지 않는 상태가 된다.
+    """
+    source = _read("voyage-management", "voyageRules.ts")
+    assert "SOURCE_LABELS" not in source, (
+        "화면에 연료 출처 표기가 생겼다 — `labels.py`의 분류를 「표시 문구」로 옮기고 "
+        "화면과 대조하도록 바꾸세요."
+    )
+
+
 def test_unknown_codes_show_the_code_itself():
     """조용히 감추면 **경고가 사라진다**. 화면의 `?? code` 갈래와 같은 판단이다."""
     from cii_platform.reports.labels import (
+        fuel_source_label,
         inclusion_policy_label,
         projection_reason_label,
         risk_label,
@@ -573,6 +610,7 @@ def test_unknown_codes_show_the_code_itself():
         warning_label,
         projection_reason_label,
         voyage_status_label,
+        fuel_source_label,
         inclusion_policy_label,
     ):
         assert fn("BRAND_NEW_CODE") == "BRAND_NEW_CODE", fn.__name__

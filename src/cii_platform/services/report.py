@@ -38,6 +38,7 @@ from cii_platform.reports.document import (
 )
 from cii_platform.reports.labels import (
     applicability_label,
+    fuel_source_label,
     inclusion_policy_label,
     projection_reason_label,
     risk_label,
@@ -308,7 +309,7 @@ async def build_voyage_report(
                             * Decimal(fu.cf_used),
                             "co2_ton",
                         ),
-                        _text(fu.source),
+                        fuel_source_label(fu.source),
                     ]
                     for fu in fuel_uses
                 ]

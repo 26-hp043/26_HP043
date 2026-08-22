@@ -481,6 +481,38 @@ async def test_applicable_vessel_says_so_without_a_warning(session):
     assert not any("적용 대상" in w for w in document.warnings), document.warnings
 
 
+@pytest.mark.asyncio
+async def test_no_raw_source_code_survives_in_the_report(session, vessel_id):
+    """문서 **어디에도** 연료 출처 원문 코드가 남지 않는다 (`#645`).
+
+    열 이름을 짚지 않는다 — 출처가 다른 절에 하나 더 실려도 그대로 걸린다.
+    `#631` 이후 리포트에 남아 있던 마지막 원문 코드가 이것이었다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+
+    from cii_platform.reports.labels import FUEL_SOURCE_LABELS
+
+    leaked = [v for v in _all_values(document) if v in FUEL_SOURCE_LABELS]
+    assert not leaked, f"연료 출처 원문 코드가 남았다: {leaked}"
+
+
+@pytest.mark.asyncio
+async def test_fuel_source_is_shown_in_korean(session, vessel_id):
+    """빠진 것이 아니라 **한국어로 바뀐** 것이다.
+
+    위 테스트만 있으면 열을 통째로 빼도 통과한다. `DESIGN_SYSTEM §11`(🔒)이 출처
+    표기를 요구하므로 값이 실제로 실려 있어야 한다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+
+    values = set(_all_values(document))
+    from cii_platform.reports.labels import FUEL_SOURCE_LABELS
+
+    assert values & set(FUEL_SOURCE_LABELS.values()), "연료 출처 표기가 문서에 없다"
+
+
 def _looks_like_iso(value: str) -> bool:
     """`2026-02-10T07:00:00` 형태인가 — 구분자가 `T`면 ISO다.
 
