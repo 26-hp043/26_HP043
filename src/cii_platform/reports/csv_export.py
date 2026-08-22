@@ -35,7 +35,7 @@ from cii_platform.reports.document import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterable, Iterator
 
     from cii_platform.reports.document import ReportDocument
 
@@ -123,3 +123,35 @@ def iter_csv(document: ReportDocument) -> Iterator[str]:
 def render_csv(document: ReportDocument) -> str:
     """전체를 한 문자열로. 테스트와 작은 문서용이다."""
     return "".join(iter_csv(document))
+
+
+def iter_table_csv(headers: list[str], rows: Iterable[list[str]]) -> Iterator[str]:
+    """머리글 한 줄 + 자료 행으로 된 **표**를 CSV 조각으로 흘려보낸다 (``§8.1``, #59).
+
+    :func:`iter_csv`와 나란히 두되 **합치지 않는다.** 저쪽은 ``ReportDocument``(제목·
+    면책·구간별 절)를 사람이 읽는 문서로 펴는 것이고, 이쪽은 **머리글 한 줄과 자료 행**
+    이다. 문서용 장식을 자료 파일에 넣으면 스프레드시트가 첫 줄을 열 이름으로 읽지 못해
+    **다시 가져올 수 없는 파일**이 된다 — `§8.2` 왕복이 깨진다.
+
+    escape·BOM·CRLF는 같은 함수·같은 상수를 쓴다. 규칙이 두 곳에 생기면 한쪽만
+    고쳐지는 날이 온다.
+
+    행을 한 줄씩 만들어 내보내므로 **연도 전체 항차를 메모리에 쌓지 않는다** —
+    호출부가 제너레이터를 넘기면 그대로 흘러간다.
+    """
+    buffer = io.StringIO()
+    writer = _writer(buffer)
+
+    def flush() -> str:
+        text = buffer.getvalue()
+        buffer.seek(0)
+        buffer.truncate(0)
+        return text
+
+    writer.writerow([sanitize(header) for header in headers])
+    # BOM은 **파일의 맨 앞**이어야 Excel이 알아본다.
+    yield BOM + flush()
+
+    for row in rows:
+        writer.writerow([sanitize(cell) for cell in row])
+        yield flush()

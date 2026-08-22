@@ -26,6 +26,7 @@ from cii_platform.api.routes.auth_dev import router as auth_dev_router
 from cii_platform.api.routes.auth_dev import should_register_dev_auth
 from cii_platform.api.routes.auth_tokens import router as auth_tokens_router
 from cii_platform.api.routes.calculations import router as calculations_router
+from cii_platform.api.routes.exports import router as exports_router
 from cii_platform.api.routes.fleet import router as fleet_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.not_underway import router as not_underway_router
@@ -142,6 +143,10 @@ app.include_router(annual_simulations_router, prefix=API_V1_PREFIX)
 app.include_router(parameters_router, prefix=API_V1_PREFIX)
 # #361 리포트 — 응답이 JSON이 아니라 파일(PDF·CSV·HTML)이다.
 app.include_router(reports_router, prefix=API_V1_PREFIX)
+# #59 자료 내보내기 — CSV는 파일(StreamingResponse), JSON은 표준 봉투다.
+# 가져오기(§8.2)가 voyages 라우터에 있는 것과 짝을 이루지만, 계산·시뮬레이션까지
+# 덮으므로 항차 모듈에 두지 않는다.
+app.include_router(exports_router, prefix=API_V1_PREFIX)
 # #414 이메일·비밀번호 인증 — signup·login은 공개 경로(PUBLIC_PATHS)다.
 app.include_router(auth_router, prefix=API_V1_PREFIX)
 # #408 이메일 인증·비밀번호 재설정 — 메일 링크로 진입하므로 세션이 없다(공개 경로).

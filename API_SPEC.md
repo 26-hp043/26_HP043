@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.20 |
+| 버전 | v1.21 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-08-22 |
+| 최종 수정일 | 2026-08-23 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -2309,22 +2309,113 @@ POST /api/v1/parameters/import
 GET /api/v1/vessels/{vessel_id}/export?type=voyages&year=2026&format=csv
 ```
 
+⚠️ **vessel-scoped다** — `/api/v1/voyages/export`가 아니다. 가져오기(`§8.2`)와 같은 이유로 선박을 경로가 정한다: 자료에 선박 식별자를 실어도 경로와 다르면 무엇을 따를지 정해야 하고, 경로 하나로 두면 그 물음이 생기지 않는다.
+
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|---|---|
 | `type` | string | Y | `voyages`, `calculations`, `simulations` |
 | `year` | int | N | 기준연도 필터 |
 | `format` | string | N | `csv` (기본), `json` |
 
-#### 응답 (200 OK)
+> **`type`에 기본값을 두지 않는다.** 기본값이 있으면 오타(`voyage`)가 조용히 `voyages`로 처리되어, 사용자는 계산 이력을 받으려다 항차 파일을 받고도 알아채지 못한다.
+
+> **`year`의 뜻이 `type`마다 다르다.**
+>
+> | type | 거르는 값 |
+> |---|---|
+> | `voyages` | `voyage.regulation_year` |
+> | `simulations` | `annual_simulation_run.regulation_year` |
+> | `calculations` | **`created_at`의 연도 (KST)** — `calculation_run`에 규제연도 열이 없다 (`DB_SCHEMA §2.5`). 「그 해에 만든 계산」이지 「그 해를 대상으로 한 계산」이 아니다 |
+
+#### 응답 (200 OK · `format=csv`)
 
 ```http
-Content-Type: text/csv
-Content-Disposition: attachment; filename="voyages_2026.csv"
-
-voyage_no,status,departure,arrival,distance_nm,speed_kn,fuel_type,fuel_ton,co2_ton,attained_cii,rating
-V-2026-001,CONFIRMED,Busan,Rotterdam,11200,13.5,HFO,850,2646.9,5.32,C
-...
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="voyages_2026.csv"; filename*=UTF-8''voyages_2026.csv
 ```
+
+UTF-8 **BOM**으로 시작하고 줄바꿈은 **CRLF**다(RFC 4180 §2). BOM이 없으면 한국어 Windows Excel이 CP949로 읽어 한글이 전부 깨진다. `Content-Disposition`은 ASCII `filename`과 UTF-8 `filename*`을 **둘 다** 보낸다(RFC 6266 §4.3) — `§8.3`과 같은 규칙이다.
+
+모든 셀에 `§8.2`와 **같은** 수식 주입 방어를 적용한다(`=`·`+`·`-`·`@`·`\t`·`\r`로 시작하면 `'` 접두). 가져오기가 이미 막지만 **그 경로로만 값이 들어오는 것이 아니다** — 수기 등록·시드·직접 INSERT가 있다.
+
+#### `type=voyages` 컬럼 (22열)
+
+**앞의 일곱 열이 `§8.2` 필수 컬럼 7종과 이름·순서가 같다** — 내보낸 파일을 그대로 다시 가져올 수 있다(왕복). 뒤에 붙는 열은 가져오기가 읽지 않으므로 무시된다.
+
+| # | 컬럼 | 설명 |
+|---|---|---|
+| 1 | `voyage_id` | UUID. 아래 ⚠️의 행 분할을 식별한다 |
+| 2~8 | `voyage_no` · `departure_port_name` · `arrival_port_name` · `planned_distance_nm` · `planned_speed_kn` · `fuel_type` · `planned_fuel_ton` | **`§8.2` 필수 컬럼 7종** (왕복 구간) |
+| 9~12 | `status` · `regulation_year` · `annual_inclusion_policy` · `created_from` | 상태·집계 정책 |
+| 13~18 | `actual_distance_nm` · `actual_avg_speed_kn` · `planned_departure_at` · `planned_arrival_at` · `actual_departure_at` · `actual_arrival_at` | 실적·시각 |
+| 19~22 | `actual_fuel_ton` · `cf_used` · `co2_ton` · `notes` | 연료 실적·배출량·비고 |
+
+```
+voyage_id,voyage_no,departure_port_name,arrival_port_name,planned_distance_nm,planned_speed_kn,fuel_type,planned_fuel_ton,status,…
+9e1c…,V-2026-001,Busan,Rotterdam,11200.00,13.50,HFO,850.0000,CONFIRMED,…
+```
+
+`co2_ton`은 **(실적 연료 ?? 계획 연료) × `cf_used`**다 — 항차 완료 리포트(`§8.3`)와 **같은 식**이며(`PRD §8.3` 실적 우선), 두 곳에 다른 식이 있으면 리포트와 파일의 CO₂가 갈린다.
+
+> ⚠️ **한 행 = 항차 × 연료다.** 연료가 둘 이상인 항차는 행이 나뉘며 `voyage_id`가 같다. 그대로 다시 가져오면 가져오기가 1행을 1항차로 읽으므로 **같은 항차 번호로 여러 항차**가 만들어진다. 연료가 한 건도 없는 항차도 행을 남긴다(연료 칸이 빈다) — 빼면 파일의 항차 수가 화면과 달라진다.
+
+> **`attained_cii`·`rating` 열은 두지 않는다** (`#59`). 채울 근거가 없다.
+>
+> 1. `calculation_run.voyage_id`는 열은 있지만 **항상 NULL**이다 — 계산을 만드는 두 자리(`§4.1` 항차 예측 · `§5.1` 시나리오 비교)가 모두 NULL을 넣는다. 어떤 항차의 계산인지 되짚을 방법이 없다
+> 2. 「항차 하나의 CII」는 **정본에 정의된 양이 아니다.** CII는 연간 집계량이고(`PRD §8.1.2`), 항차 완료 리포트조차 「연간 누적 CII」만 싣는다
+>
+> 열을 두고 비워 놓으면 「아직 계산 안 됨」으로 읽히지만 실제로는 **영원히 채워지지 않는 칸**이다. 항차별 CII가 필요해지면 먼저 ⑴ 계산-항차 연결과 ⑵ 그 양의 정의가 정본에 서야 한다.
+
+#### `type=calculations` 컬럼 (17열)
+
+`calculation_run_id` · `calculation_type` · `created_at` · `input_hash` · `parameter_hash` · `model_version` · `duration_ms` · `needs_recalc` · `attained_cii` · `required_cii` · `ratio_to_required` · `estimated_rating` · `co2_emission_ton` · `fuel_consumption_ton` · `distance_nm` · `risk_level` · `warnings`
+
+저장된 `result_json`을 **다시 계산하지 않고 그대로** 읽는다 — 재계산하면 그 사이 파라미터가 바뀌었을 때 내보냈을 뿐인데 값이 달라진다(`§6.2`와 같은 이유).
+
+> **시나리오 비교(`SCENARIO`) 실행은 값 칸이 빈다.** 결과가 여러 안이라 한 행에 담기지 않는다. 행을 빼면 이력이 파일에서 사라지므로 식별자·해시는 남기고 값만 비운다 — `calculation_type` 열이 그 이유를 말한다.
+
+#### `type=simulations` 컬럼 (17열)
+
+`simulation_run_id` · `calculation_run_id` · `created_at` · `regulation_year` · `target_rating` · `simulation_runs` · `snapshot_id` · `projected_attained_cii` · `projected_rating` · `risk_level` · `target_success_probability` · `p10` · `p50` · `p90` · `completed_voyage_count` · `remaining_voyage_count` · `warnings`
+
+> **`#443` 이전 실행도 행을 남긴다.** 그 실행들은 `result_json`에 결과 본문이 없어 조회(`§6.2`)가 404로 끊지만, **내보내기는 끊지 않는다** — 한 행 때문에 파일 전체가 실패하면 사용자는 어느 행인지 알아낼 방법이 없다. 값 칸을 비우고 식별자는 남긴다.
+
+#### 값의 표기
+
+| 종류 | 표기 | 이유 |
+|---|---|---|
+| 없음 | **빈 칸** | `—`·`N/A`는 사람이 읽는 문서의 것이다. 자료 파일에 넣으면 숫자 열에 문자열이 섞여 다시 가져올 수 없다 |
+| 수치 | 지수 표기 없음 (`10000.00`) | `1E+4`는 사람이 원본 값으로 알아보지 못한다 |
+| 시각 | KST 오프셋을 단 ISO 8601 (`2026-02-10T16:00:00+09:00`) | 오프셋이 있어 기계가 정확히 읽고, 한국 사용자가 스프레드시트에서 자기 시각으로 본다. UTC ISO면 후자가, 오프셋 없는 현지 시각이면 전자가 깨진다 (`#646`) |
+| 참/거짓 | `true` · `false` | JSON·CSV 양쪽에서 같게 읽힌다 |
+| JSON 열 (`model_version`·`warnings`) | 한 셀에 압축 JSON | 원문 그대로 — 재현성 추적의 재료다 |
+
+#### 응답 (200 OK · `format=json`)
+
+**첨부가 아니다.** 이 저장소의 표준 봉투를 그대로 쓴다 — JSON은 브라우저가 저장할 대상이 아니라 화면·스크립트가 읽는 형태다. (`§8.3`의 「이 절은 파일을 내보낸다」는 PDF·CSV **문서** 이야기다.)
+
+```json
+{
+  "data": {
+    "type": "voyages",
+    "year": 2026,
+    "columns": ["voyage_id", "voyage_no", "…"],
+    "rows": [{ "voyage_id": "9e1c…", "voyage_no": "V-2026-001", "…": "…" }]
+  },
+  "meta": { "row_count": 12, "request_id": "…", "timestamp": "…" }
+}
+```
+
+`meta.row_count`를 함께 싣는다 — 받은 쪽이 파일이 잘렸는지 판단할 근거가 있어야 한다.
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 존재하지 않거나 삭제된 선박. **빈 표를 돌려주지 않는다** — 오타 난 UUID와 항차가 없는 선박이 같아 보인다 |
+| 422 | `VALIDATION_ERROR` | 지원하지 않는 `type` 또는 `format` |
+
+> **행 수 상한을 두지 않는다.** 조회가 **선박 하나 + (선택) 규제연도 하나**로 이미 한정돼 있고, 자르면 사용자는 파일 끝이 잘린 것을 모른 채 연간 자료로 쓴다. (가져오기(`§8.2`)가 1,000행 상한을 두면서도 잘라 낸 행 수를 굳이 응답에 남기는 것과 같은 이유다.)
 
 ### 8.2 CSV 가져오기
 
@@ -2838,3 +2929,4 @@ GET /api/v1/health
 | 2026-08-22 | `#653` | **v1.20 — §2.8 선대 행에 `is_cii_applicable_hint`·`gross_tonnage` 신설 · §1.6에 `CII_APPLICABILITY_UNKNOWN` 등재.** CII 적용 대상 여부를 보여 주는 화면이 **선박 등록 결과 한 곳뿐**이었다 — 등록 직후 한 번 지나가는 화면이라 이후 대시보드·목록·상세·보고서 어디에서도 그 선박이 규제 대상인지 알 수 없었다. ① 선대 응답에 서버 판정과 총톤수를 함께 실어 **「미해당」과 「GT가 없어 판정 불가」를 화면이 가를 수 있게** 했다 — 둘을 합치면 총톤수를 넣지 않은 사용자가 「이 배는 규제 대상이 아니다」로 읽는다 ② 종전 `NON_CII_VESSEL`은 **GT를 알 때만** 붙어, GT가 NULL인 데모 실선 2척에는 아무 경고도 붙지 않았다. `CII_APPLICABILITY_UNKNOWN`이 그 공백을 메운다 ③ `NON_CII_VESSEL` 조건을 「GT를 **알고** 5,000 미만」으로 정밀화 — 구현이 처음부터 그랬는데 표만 `GT < 5,000`으로 적고 있었다 (#653) |
 | 2026-08-22 | `#634` | **§1.2 로그아웃 계약 정정 — 「멱등 (세션 없어도 204)」 삭제 · CSRF 예외 없음 명시.** 그 문구는 **같은 행의 「인증: 필요」와 모순**이었고, `#272`(PR `#297`)에서 사유 없이 들어왔다 — 이슈 본문·완료 기준 어디에도 멱등 요구가 없다. 구현(`auth_middleware`)과 테스트 2곳은 처음부터 보호 경로로 다뤄 왔고 **문서 한 줄만 반대**였다. 로그아웃을 공개 경로로 두는 대안은 인증 예외 경로 표의 두 사유(「인증 플로우 자체」·「메일 링크로 진입」) 어디에도 해당하지 않으며, 제3자 사이트가 사용자를 강제 로그아웃시킬 수 있게 된다. 함께 **CSRF 예외를 없앴다** — 상태 변경 라우트 31개 중 검증이 없던 8개는 전부 세션 없는 공개 인증 경로인데 `POST /auth/logout`만 **세션을 요구하면서 검증이 없었다.** `§4.3`상 오기 정정·각주 보강이라 버전은 올리지 않는다 (#634) |
 | 2026-08-22 | `#649` | **§1.6에 `IN_PROGRESS_PAST_ETA` 등재.** 진행 중 항차가 도착 예정일을 지났는데 도착 실적이 없을 때 붙는다. 누적을 예정일에서 자르는 것만으로는 부족하다 — **왜 값이 더 늘지 않는지**가 응답에 없으면 사용자는 값이 멈춘 것을 「항차가 끝났나」로 읽는다. 실사용에서 이 상태는 「운항이 계속되고 있다」가 아니라 **「도착 실적 입력을 잊었다」**이므로 문구가 할 일을 안내한다. 정의는 `TECH_SPEC §12.3`이며 사슬은 `tests/test_warning_codes_sync.py`가 검사한다. `§4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#649) |
+| 2026-08-23 | `#59` | **v1.21 — §8.1 CSV 내보내기 컬럼 확정.** 종전 예시 헤더 (`voyage_no,status,departure,arrival,distance_nm,speed_kn,fuel_type,fuel_ton,co2_ton,attained_cii,rating`)는 **있는 그대로 구현할 수 없었다** — ⑴ `attained_cii`·`rating`은 `calculation_run.voyage_id`가 항상 NULL이라 어떤 항차의 계산인지 되짚을 수 없고, 「항차 하나의 CII」는 정본에 정의된 양도 아니다(`PRD §8.1.2`) ⑵ `distance_nm`·`speed_kn`·`fuel_ton`은 계획·실적 중 무엇인지 갈렸다(DB는 둘을 나눠 갖는다). 고쳐야 한다면 **쓸모 있는 방향으로** 고쳤다 — 앞 일곱 열을 `§8.2` 필수 컬럼과 **이름·순서까지 같게** 두어 **왕복**(내보내서 고쳐서 다시 넣기)이 성립하고, 실적·CO₂·시각을 뒤에 덧붙였다(가져오기가 여분 열을 무시한다). CII 두 열은 **열 자체를 두지 않는다** — 비워 두면 「아직 계산 안 됨」으로 읽히지만 영원히 채워지지 않는 칸이다. 함께 `calculations`·`simulations` 컬럼(정본 어디에도 없었다) · `year`의 type별 의미 · 값 표기(빈 칸·지수 금지·KST 오프셋) · `format=json` 봉투 · 오류 2종을 명시했다. `§4.3`상 구조 변경이라 버전을 올린다 (#59) |
