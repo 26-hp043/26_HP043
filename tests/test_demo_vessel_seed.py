@@ -313,3 +313,91 @@ def test_모든_데모_선박의_imo가_체크섬을_만족한다() -> None:
         f"체크섬을 만족하지 않는 IMO: {invalid}. "
         "합성값이라면 0으로 시작하면서 체크섬이 맞는 값을 고르세요 (#525)."
     )
+
+
+async def test_ro_ro_daily_foc_is_derived_from_its_own_voyage(conn):
+    """샘플 로로의 ``reference_daily_foc_ton``은 **역산값**이다 (#587).
+
+    벌크선(`23.04`)과 같은 식으로 이 배의 2026 항차에서 냈다.
+
+        62.0t × 18.0kn × 24h ÷ 450nm = 59.52
+
+    **지어낸 값이 아니다** — 시드가 이미 갖고 있는 항차와 앞뒤가 맞는 유일한 값이다.
+    항차를 고치면 이 단언이 함께 갱신을 강제한다.
+    """
+    from cii_platform.db.demo_seed import VESSEL_ID_RO_RO
+
+    row = (
+        await conn.execute(
+            text(
+                "SELECT v.reference_speed_kn, v.reference_daily_foc_ton, "
+                "       y.planned_distance_nm, f.planned_fuel_ton "
+                "FROM vessel v "
+                "JOIN voyage y ON y.vessel_id = v.id AND y.voyage_no = '2026-01' "
+                "JOIN voyage_fuel_use f ON f.voyage_id = y.id "
+                "WHERE v.id = CAST(:vid AS uuid)"
+            ).bindparams(vid=VESSEL_ID_RO_RO)
+        )
+    ).one()
+
+    assert row.reference_daily_foc_ton == Decimal("59.52")
+    # 역산이 실제로 맞는지 항차에서 다시 낸다 — 상수를 전사만 하면 항차가 바뀌어도
+    # 통과한다.
+    derived = row.planned_fuel_ton * row.reference_speed_kn * 24 / row.planned_distance_nm
+    assert derived == Decimal("59.52")
+
+
+async def test_seeded_specs_are_actually_in_the_database(conn):
+    """시드가 값을 갖는 제원이 **DB에도 있다** (#587).
+
+    ``demo_seed``는 ``ON CONFLICT DO NOTHING``이라 **기존 행을 갱신하지 않는다.**
+    시드에 제원을 새로 채워도 볼륨을 유지한 환경에는 들어가지 않고, 그 상태는
+    오류가 아니라 **화면의 `—`로만** 드러난다 — `#587`이 보고한 증상이다.
+
+    ``demo_up.sh``가 같은 함수로 시연 전에 경고한다.
+    """
+    from cii_platform.db.demo_seed import missing_seeded_specs
+
+    drifted = await missing_seeded_specs(conn)
+
+    assert drifted == [], (
+        "시드에는 있는데 테스트 DB에 없는 제원입니다: "
+        + " · ".join(f"{name}.{column}" for name, column in drifted)
+        + "\n  demo_seed는 ON CONFLICT DO NOTHING이라 기존 행을 갱신하지 않습니다."
+        + "\n  테스트 DB를 다시 만드십시오: DROP DATABASE cii_test; CREATE DATABASE cii_test;"
+    )
+
+
+async def test_missing_spec_detector_actually_detects(conn):
+    """감지기가 **정말 잡는지** 본다.
+
+    위 단언만 두면 감지기가 늘 빈 목록을 돌려줘도 통과한다. 값을 지워 확인한다
+    (테스트 트랜잭션은 롤백되므로 DB에 남지 않는다).
+    """
+    from cii_platform.db.demo_seed import VESSEL_ID_RO_RO, missing_seeded_specs
+
+    await conn.execute(
+        text(
+            "UPDATE vessel SET reference_daily_foc_ton = NULL WHERE id = CAST(:vid AS uuid)"
+        ).bindparams(vid=VESSEL_ID_RO_RO)
+    )
+
+    drifted = await missing_seeded_specs(conn)
+
+    assert ("샘플 로로 여객선 (25,000 GT)", "reference_daily_foc_ton") in drifted
+
+
+async def test_detector_ignores_specs_the_seed_leaves_empty(conn):
+    """시드가 **비워 둔** 값은 어긋남이 아니다.
+
+    실존 2척의 ``reference_daily_foc_ton``은 회신 대기라 NULL이 정상이다. 감지기가
+    그것까지 잡으면 **시연 때마다 무시해야 하는 경고**가 되고, 무시하는 경고는 진짜
+    경고도 함께 묻는다.
+    """
+    from cii_platform.db.demo_seed import missing_seeded_specs
+
+    drifted = await missing_seeded_specs(conn)
+    names = {name for name, _ in drifted}
+
+    assert "STAR SKIPPER" not in names
+    assert "DONGJIN ENDURANCE" not in names

@@ -88,6 +88,11 @@ def flatten(value: Any, prefix: str = "") -> set[str]:
 #:
 #: **여기를 고치는 것이 곧 계약 변경이다.** 필드를 늘리거나 이름을 바꾸면 이 표를
 #: 함께 고쳐야 하고, 그 diff가 리뷰에 보인다.
+#:
+#: ⚠️ ``/calculations``는 **종류를 한정해 부른다** (`#587` 작업 중 발견). 이 목록은
+#: 기능①·②·③ 실행을 함께 돌려주는데 ``model_version``의 모양이 기능마다 다르다 —
+#: 연간 시뮬레이션 실행이 하나라도 있으면 ``model_version.issue``가 늘어난다. 한정하지
+#: 않으면 **DB에 무엇이 쌓여 있느냐에 따라 계약이 달라져** 새 DB에서만 통과한다.
 CONTRACTS: dict[str, frozenset[str]] = {
     # `API_SPEC §10`
     "/health": frozenset(
@@ -477,8 +482,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "meta.total",
         }
     ),
-    # `API_SPEC §1.9`
-    "/calculations": frozenset(
+    # `API_SPEC §1.9` — **종류를 한정한다.** 아래 각주 참조.
+    "/calculations?type=VOYAGE_ESTIMATE": frozenset(
         {
             "data",
             "data[].calculation_run_id",
@@ -641,7 +646,7 @@ def test_calculation_history_is_not_empty_before_it_is_compared(client):
         },
     )
 
-    body = _get(client, "/calculations").json()
+    body = _get(client, "/calculations?type=VOYAGE_ESTIMATE").json()
     assert body["data"], "계산 이력이 비어 있다 — 아래 계약 대조가 의미를 잃는다"
 
 
