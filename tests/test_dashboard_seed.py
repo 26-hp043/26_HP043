@@ -156,10 +156,95 @@ async def test_not_underway_samples_include_required_types(conn):
     assert consumers == {"MAIN_ENGINE", "AUX_ENGINE", "OIL_FIRED_BOILER", "OTHER"}
 
     # 진행 중 구간(ended_at NULL)이 있다 — 실시간 정박 악화 시연용.
-    ongoing = await conn.scalar(
-        text("SELECT count(*) FROM not_underway_period WHERE ended_at IS NULL")
+    #
+    # 숫자가 아니라 **어느 선박이 정박 중인가**로 센다 (#650). 종전에는 `== 2`만
+    # 확인해 로로 여객선이 빠진 것을 잡지 못했다 — 그 선박은 `IN_PORT`로 표시되면서
+    # 진행 중 구간이 없었고, 접안 연료가 분자에 들어갈 자리가 없었다.
+    ongoing = {
+        row[0]
+        for row in (
+            await conn.execute(
+                text("SELECT period_type FROM not_underway_period WHERE ended_at IS NULL")
+            )
+        ).all()
+    }
+    assert ongoing == {"CANAL_TRANSIT", "AT_ANCHOR", "IN_PORT"}
+
+
+async def test_not_under_way_vessels_have_a_matching_open_period(conn):
+    """**정박 중으로 표시된 선박에는 그 정박을 뒷받침하는 열린 구간이 있다** (#650).
+
+    `API_SPEC §2.6`이 두 값을 잇는다.
+
+    > `detail_status`의 `NOT_UNDER_WAY` 6값은 `not_underway_period.period_type`과
+    > **같은 집합**이다 — 정박 구간의 성격이 곧 선박의 표시 상태가 된다
+
+    이것을 **불변식으로 강제하지는 않는다** — 실사용에서는 상태만 먼저 바꾸고 구간을
+    아직 입력하지 않은 중간 상태가 정상이다(두 엔드포인트가 별개라 시차가 생긴다).
+    **시드는 시연 데이터이므로** 짝을 맞춘다. 짝이 없으면 그 상태의 화면 경로가
+    한 번도 그려지지 않는다.
+    """
+    rows = (
+        await conn.execute(
+            text(
+                "SELECT v.name, v.detail_status, p.period_type "
+                "FROM vessel v LEFT JOIN not_underway_period p "
+                "  ON p.vessel_id = v.id AND p.ended_at IS NULL "
+                "WHERE v.underway_state = 'NOT_UNDER_WAY' AND v.is_deleted = false"
+            )
+        )
+    ).all()
+
+    assert rows, "정박 중인 시드 선박이 없다 — 시드가 바뀌었는지 확인할 것"
+    for name, detail_status, period_type in rows:
+        assert period_type == detail_status, (
+            f"{name}: 표시 상태는 {detail_status}인데 진행 중 구간은 {period_type}이다"
+        )
+
+
+async def test_in_port_period_carries_fuel(conn):
+    """접안 구간에 연료가 달려 있다 (#650).
+
+    구간만 있고 연료가 없으면 **분자 기여가 0**이라 「정박이 지속되면 등급이
+    나빠진다」가 그 선박에서 성립하지 않는다. `#345`가 만든 `not_underway_fuel_use`가
+    구간에 매달리므로, 구간이 곧 연료를 담을 자리다.
+    """
+    total = await conn.scalar(
+        text(
+            "SELECT coalesce(sum(f.fuel_ton), 0) FROM not_underway_fuel_use f "
+            "JOIN not_underway_period p ON p.id = f.period_id "
+            "WHERE p.period_type = 'IN_PORT'"
+        )
     )
-    assert ongoing == 2
+    assert total > 0, "접안 구간에 연료 표본이 없다 — IN_PORT 분자 경로가 비어 있다"
+
+
+async def test_in_port_fuel_reaches_the_cii_numerator(conn):
+    """**이 이슈의 완료 기준이다** (#650) — 접안 연료가 실제로 분자에 들어간다.
+
+    구간과 연료가 시드에 있다는 것만으로는 부족하다. `#353`이 만든 분자 경로를
+    실제로 지나는지, 즉 그 선박의 YTD 산출에 정박분이 잡히는지를 본다.
+
+    종전에는 로로 여객선의 2026년 정박 구간이 **0건**이었다(드라이독은 2025년에
+    끝났다). 그래서 「정박이 지속되면 등급이 나빠진다」가 이 선박에서만 성립하지
+    않았다.
+    """
+    from datetime import UTC, datetime
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from cii_platform.services.ytd_cii import compute_ytd_cii
+
+    async with AsyncSession(bind=conn, expire_on_commit=False) as session:
+        result = await compute_ytd_cii(
+            session,
+            vessel_id=VESSEL_IDS["ro_ro"],
+            regulation_year=2026,
+            as_of=datetime(2026, 8, 20, tzinfo=UTC),
+        )
+
+    assert result.not_underway_period_count == 1, "2026년 정박 구간이 잡히지 않았다"
+    assert result.not_underway_co2_g > 0, "접안 연료가 분자에 들어가지 않았다"
 
 
 async def test_planning_stage_voyage_exists(conn):

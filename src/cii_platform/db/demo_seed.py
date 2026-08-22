@@ -198,6 +198,8 @@ V1_PLANNED = "00000000-0000-4000-8000-000000000111"
 P_CANAL = "00000000-0000-4000-8000-000000000201"
 P_ANCHOR = "00000000-0000-4000-8000-000000000202"
 P_DRYDOCK = "00000000-0000-4000-8000-000000000203"
+# 로로 여객선의 진행 중 접안 구간 (#650). `detail_status = IN_PORT`와 짝을 이룬다.
+P_IN_PORT = "00000000-0000-4000-8000-000000000204"
 
 SEED_VOYAGE_IDS = (
     V1_2025,
@@ -210,7 +212,7 @@ SEED_VOYAGE_IDS = (
     V4_2025,
     V4_2026,
 )
-SEED_PERIOD_IDS = (P_CANAL, P_ANCHOR, P_DRYDOCK)
+SEED_PERIOD_IDS = (P_CANAL, P_ANCHOR, P_DRYDOCK, P_IN_PORT)
 
 # 018이 만든 3척(상태·위치 갱신 대상). id는 018 계약값.
 VESSEL_IDS_018 = (
@@ -610,6 +612,30 @@ SEED_PERIODS: list[dict[str, object]] = [
         "voyage_id": None,
     },
     {
+        # 로로 여객선의 진행 중 접안 (#650).
+        #
+        # **선박의 `detail_status = IN_PORT`를 뒷받침하는 구간이 없었다.** 나머지
+        # 3척은 상태와 구간이 짝을 이루는데 이 한 척만 빠져 있었고, 그래서 접안 중
+        # 보조기관·보일러 연료가 **CII 분자에 들어갈 자리가 없었다** — 「정박이
+        # 지속되면 등급이 나빠진다」가 이 선박에서만 성립하지 않았다.
+        #
+        # `started_at`을 선박의 `position_updated_at`과 같은 시각으로 둔다. 다르면
+        # 「언제부터 접안인가」가 두 값에서 갈린다.
+        #
+        # `voyage_id`는 `None`이다 — 접안은 항차에 매인 것이 아니다(`P_ANCHOR`와
+        # 같은 처리). 운하 통과만 진행 중 항차를 맥락으로 참조한다.
+        "id": P_IN_PORT,
+        "vessel_id": VESSEL_ID_RO_RO,
+        "regulation_year": 2026,
+        "period_type": "IN_PORT",
+        "started_at": _utc(2026, 8, 15, 7, 20),
+        "ended_at": None,
+        "port_name": "BUSAN",
+        "lat": Decimal("35.095000"),
+        "lon": Decimal("129.040000"),
+        "voyage_id": None,
+    },
+    {
         "id": P_DRYDOCK,
         "vessel_id": VESSEL_ID_RO_RO,
         "regulation_year": 2025,
@@ -666,6 +692,23 @@ SEED_PERIOD_FUELS: list[dict[str, object]] = [
         "consumer_type": "OTHER",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("2.00"),
+    },
+    # 접안 중 연료 (#650). **이 경로가 비어 있어 `IN_PORT` 분자 기여가 한 번도
+    # 계산되지 않았다.** 여객선은 접안 중에도 승객 설비 때문에 보조기관과 보일러가
+    # 계속 돈다 — 화물선의 묘박(`P_ANCHOR`, 보조기관만)과 구성이 다른 이유다.
+    {
+        "id": "00000000-0000-4000-8000-000000000307",
+        "period_id": P_IN_PORT,
+        "consumer_type": "AUX_ENGINE",
+        "fuel_type": "DIESEL_GAS_OIL",
+        "fuel_ton": Decimal("5.60"),
+    },
+    {
+        "id": "00000000-0000-4000-8000-000000000308",
+        "period_id": P_IN_PORT,
+        "consumer_type": "OIL_FIRED_BOILER",
+        "fuel_type": "DIESEL_GAS_OIL",
+        "fuel_ton": Decimal("1.40"),
     },
 ]
 
