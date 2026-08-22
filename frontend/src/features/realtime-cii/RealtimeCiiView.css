@@ -158,7 +158,7 @@
 
 .rt__transition-arrow--worsening,
 .rt__transition-label--worsening {
-  color: var(--semantic-danger);
+  color: var(--color-danger-text);
 }
 
 .rt__transition-arrow--flat,
@@ -278,7 +278,7 @@
 }
 
 .rt__direction--worsening {
-  color: var(--semantic-danger);
+  color: var(--color-danger-text);
 }
 
 .rt__direction--flat {

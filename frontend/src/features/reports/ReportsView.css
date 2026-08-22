@@ -184,7 +184,7 @@
 .rp__error {
   margin: 0;
   font-size: var(--font-size-label);
-  color: var(--semantic-danger);
+  color: var(--color-danger-text);
 }
 
 .rp__ok {

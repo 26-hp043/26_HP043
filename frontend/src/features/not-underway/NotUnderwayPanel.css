@@ -52,7 +52,7 @@
 
 .nu__danger:hover {
   border-color: var(--semantic-danger);
-  color: var(--semantic-danger);
+  color: var(--color-danger-text);
 }
 
 .nu__submit {
@@ -72,7 +72,7 @@
 .nu__error {
   margin: 0;
   font-size: var(--font-size-label);
-  color: var(--semantic-danger);
+  color: var(--color-danger-text);
 }
 
 .nu__loading,
@@ -88,7 +88,7 @@
   margin-top: var(--spacing-xs);
   font-size: var(--font-size-micro);
   font-style: normal;
-  color: var(--semantic-danger);
+  color: var(--color-danger-text);
 }
 
 /* ── 입력 폼 ────────────────────────────────────────────────────── */

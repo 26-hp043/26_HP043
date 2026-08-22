@@ -37,7 +37,7 @@
 }
 
 .voyage-cii-result__error-title {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-h3);
 }
@@ -117,15 +117,15 @@
 }
 
 .voyage-cii-result__risk-value--high {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 .voyage-cii-result__risk-value--critical {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .voyage-cii-result__risk-icon {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
 }
 
 /*
@@ -234,6 +234,6 @@
 }
 
 .voyage-cii-result__warning-icon {
-  color: var(--color-warning);
+  color: var(--color-warning-text);
   flex: none;
 }

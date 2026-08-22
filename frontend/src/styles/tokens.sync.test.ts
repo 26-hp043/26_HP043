@@ -1,5 +1,7 @@
 /// <reference types="node" />
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import blueLogRaw from '../design/tokens/BlueLog.tokens.json?raw'
 import lightRaw from '../design/tokens/Light.tokens.json?raw'
@@ -229,5 +231,66 @@ describe('문자용 시맨틱 색 대비 — §0.2 제약 1 (#485)', () => {
   it('생성 토큰의 Danger·Warning은 문자로 쓰기에 모자란다 — 별칭이 필요한 이유', () => {
     expect(contrast('#e53e3e', LIGHT_SURFACE)).toBeLessThan(4.5)
     expect(contrast('#d97b14', LIGHT_SURFACE)).toBeLessThan(4.5)
+  })
+})
+
+describe('시맨틱 색을 문자색으로 쓰지 않는다 — §0.2 제약 1 (#620)', () => {
+  /**
+   * `#485` ⑤가 문자 전용 별칭을 만들고 **두 곳만** 옮겼고, `#620`이 나머지 33곳을
+   * 옮겼다. 이 가드는 **다시 들어오는 것**을 막는다 — 새 화면이 무심코
+   * `color: var(--color-danger)`를 쓰면 라이트에서 4.13:1이 되는데, **화면이 깨지지
+   * 않아** 그 상태가 오래 남는다(실제로 그랬다).
+   *
+   * **면적 색은 보지 않는다.** `background`·`border`는 비텍스트라 3:1이면 충분하고,
+   * 문자 전용 별칭으로 바꾸면 면적이 어두워져 등급 색과 충돌한다.
+   */
+  const OFFENDERS = ['--semantic-danger', '--color-danger', '--color-warning']
+
+  function cssFiles(dir: string): string[] {
+    const out: string[] = []
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue
+        out.push(...cssFiles(full))
+      } else if (entry.name.endsWith('.css')) {
+        out.push(full)
+      }
+    }
+    return out
+  }
+
+  const HERE = fileURLToPath(new URL('.', import.meta.url))
+  const files = cssFiles(join(HERE, '..'))
+
+  it('훑을 CSS 파일을 실제로 찾았다', () => {
+    // 수집이 깨지면 아래 대조가 전부 무의미해진다 — 그것부터 막는다.
+    expect(files.length).toBeGreaterThanOrEqual(15)
+  })
+
+  it('color 선언에 시맨틱 원본 색이 없다', () => {
+    // `border-color:`·`background-color:`는 앞에 `-`가 있어 걸리지 않는다.
+    const pattern = new RegExp(
+      `(?<![-\\w])color:\\s*var\\((${OFFENDERS.join('|')})\\)`,
+    )
+    const hits: string[] = []
+    for (const file of files) {
+      readFileSync(file, 'utf-8')
+        .split('\n')
+        .forEach((line, i) => {
+          if (pattern.test(line)) hits.push(`${file}:${i + 1}  ${line.trim()}`)
+        })
+    }
+    expect(hits, `문자 전용 별칭(--color-*-text)으로 바꾸세요:\n${hits.join('\n')}`).toEqual(
+      [],
+    )
+  })
+
+  it('면적 색은 원본을 그대로 쓴다 — 바꾸면 등급 색과 충돌한다', () => {
+    const area = new RegExp(
+      `(background|border)[a-z-]*:\\s*[^;]*var\\((${OFFENDERS.join('|')})\\)`,
+    )
+    const kept = files.filter((f) => area.test(readFileSync(f, 'utf-8')))
+    expect(kept.length).toBeGreaterThan(0)
   })
 })

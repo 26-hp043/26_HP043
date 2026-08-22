@@ -117,7 +117,7 @@
 .auth-error {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--semantic-danger);
+  color: var(--color-danger-text);
 }
 
 .auth-submit {
