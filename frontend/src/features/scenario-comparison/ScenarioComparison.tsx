@@ -16,6 +16,8 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { ESTIMATE_NOTICE, NO_AUTO_DECISION_NOTICE } from './notices'
 import { selectScenarioProvider } from './providerSelection'
 import { useFuelOptions } from '../parameters/fuelCatalog'
+import { useYearOptions } from '../parameters/yearCatalog'
+import { pickDefaultYear } from '../voyage-cii/formRules'
 import { lowestSummary } from './comparisonRules'
 import type { ScenarioComparisonResponse, ScenarioResult } from './types'
 
@@ -84,6 +86,31 @@ export function ScenarioComparison({
   const [form, setForm] = useState<ComparisonFormState>(initialFormState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [state, setState] = useState<LoadState>({ status: 'idle' })
+
+  /*
+   * 규제연도 선택지 (`#632`).
+   *
+   * 종전에는 **이 화면만 자유 입력**이라 파라미터가 없는 해를 넣을 수 있었고, 그때
+   * 서버가 `PARAMETER_ERROR`로 거부했다 — `#236`이 「선박·연도·연료」 세 축을 고치며
+   * 연도만 유예했고, `#534`가 두 화면을 옮기며 이 화면을 빠뜨렸다.
+   */
+  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(form.vesselId)
+
+  /*
+   * 목록이 오면 기본 선택을 맞춘다. **이미 고른 해가 목록에 있으면 그대로 둔다** —
+   * 사용자가 고른 값을 덮으면 폼이 스스로 되돌아간다.
+   *
+   * 올해를 **여기서 읽어** 순수 함수에 넘긴다. 함수 안에서 `new Date()`를 부르면
+   * 테스트가 해를 고정할 수 없다 (`formRules.ts` 주석과 같은 이유).
+   */
+  useEffect(() => {
+    if (years.length === 0) return
+    const thisYear = new Date().getFullYear()
+    setForm((prev) => {
+      const next = pickDefaultYear(years, thisYear, prev.regulationYear)
+      return next === prev.regulationYear ? prev : { ...prev, regulationYear: next }
+    })
+  }, [years])
 
   /**
    * 셸의 선택을 폼에 반영한다 (#535).
@@ -168,14 +195,32 @@ export function ScenarioComparison({
         )}
       </label>
 
+      {/*
+        * 규제연도 — 다른 두 화면과 같은 규칙 (`#632`).
+        * 로딩·실패를 **빈 선택지와 구분해** 보인다. 셋을 한 문구로 뭉치면
+        * 「목록이 아직 안 왔다」와 「등록된 해가 없다」를 사용자가 가를 수 없다.
+        */}
       <label className="scenario-comparison__field">
         <span>규제연도</span>
-        <input
-          inputMode="numeric"
-          value={form.regulationYear}
-          onChange={(e) => setForm({ ...form, regulationYear: e.target.value })}
-          aria-invalid={FIELD.regulationYear in errors}
-        />
+        {yearsLoading ? (
+          <span className="scenario-comparison__field-note">규제연도 목록을 불러오는 중…</span>
+        ) : yearsFailed ? (
+          <span className="scenario-comparison__field-note">규제연도 목록을 불러오지 못했습니다</span>
+        ) : years.length > 0 ? (
+          <select
+            value={form.regulationYear}
+            onChange={(e) => setForm({ ...form, regulationYear: e.target.value })}
+            aria-invalid={FIELD.regulationYear in errors}
+          >
+            {years.map((year) => (
+              <option key={year} value={String(year)}>
+                {year}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="scenario-comparison__field-note">등록된 규제연도가 없습니다</span>
+        )}
         {errors[FIELD.regulationYear] !== undefined && (
           <span className="scenario-comparison__field-error">
             {errors[FIELD.regulationYear]}
