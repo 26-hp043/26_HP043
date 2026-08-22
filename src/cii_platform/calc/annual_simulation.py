@@ -90,6 +90,13 @@ WARNING_NO_REMAINING = "NO_REMAINING_VOYAGES"
 #: ``PRD §12.8`` — one-at-a-time이라 변수 간 상호작용은 포함되지 않는다.
 WARNING_SENSITIVITY_OAT = "SENSITIVITY_ONE_AT_A_TIME"
 
+#: 잔여 항차에 속도-연료 모델 제원이 없어 **속도 지렛대를 산출하지 못했다** (#630).
+#:
+#: 이 경고가 없으면 속도 민감도가 기준값과 **똑같이** 나오고, 사용자는 그것을
+#: 「감속해도 CII가 변하지 않는다」는 **결론으로 읽는다.** 값이 0인 것과 계산하지
+#: 못한 것은 다르며, 응답이 그 둘을 구분해 주지 않으면 화면도 구분할 수 없다.
+WARNING_SENSITIVITY_SPEED_SKIPPED = "SENSITIVITY_SPEED_SKIPPED"
+
 #: ``PRD §12.4.3`` [ORACLE-C-1] — 확률·분위수는 소수 4자리에서 반올림한다.
 PROBABILITY_DIGITS = 4
 
@@ -495,6 +502,20 @@ def _shift_distance(remaining: Sequence[RemainingVoyage], factor: float):
     ]
 
 
+def _has_speed_model(v: RemainingVoyage) -> bool:
+    """이 항차에 속도-연료 모델을 적용할 수 있는가 (#630).
+
+    ``_shift_speed``의 건너뛰기 조건과 :func:`analyze_sensitivity`의 경고 판정이
+    **같은 것을 봐야** 한다. 두 곳에 조건을 따로 적으면 한쪽만 고쳐졌을 때
+    「건너뛰었는데 경고가 없는」 상태가 생기고, 그것이 바로 `#630`이다.
+    """
+    return (
+        v.speed_kn is not None
+        and v.reference_speed_kn is not None
+        and v.base_daily_foc_ton is not None
+    )
+
+
 def _shift_speed(remaining: Sequence[RemainingVoyage], delta_kn: float):
     """속도를 바꾸고 **cubic model로 연료를 다시 낸다** (``TECH_SPEC §4.1``).
 
@@ -503,10 +524,13 @@ def _shift_speed(remaining: Sequence[RemainingVoyage], delta_kn: float):
 
     제원(``reference_speed_kn``·``base_daily_foc_ton``)이 없는 항차는 **건너뛴다** —
     임의 기본값을 넣으면 화면은 깨지지 않고 값만 틀린다.
+
+    **건너뛴 사실은 :func:`analyze_sensitivity`가 경고로 알린다** (#630). 알리지
+    않으면 임의 기본값을 넣은 것과 결과가 같아진다 — 화면은 깨지지 않고 값만 틀린다.
     """
     shifted = []
     for v in remaining:
-        if v.speed_kn is None or v.reference_speed_kn is None or v.base_daily_foc_ton is None:
+        if not _has_speed_model(v):
             shifted.append(v)
             continue
         new_speed = max(v.speed_kn + delta_kn, MIN_SPEED_KN)
@@ -578,7 +602,17 @@ def analyze_sensitivity(
             )
         )
 
-    return entries, [WARNING_SENSITIVITY_OAT]
+    warnings = [WARNING_SENSITIVITY_OAT]
+
+    # 속도 지렛대를 **한 항차라도** 건너뛰었으면 알린다 (#630).
+    #
+    # 일부만 건너뛰어도 속도 민감도는 그만큼 **과소**하게 나온다. 전부 건너뛰면
+    # 기준값과 같아지고, 그때 사용자가 읽는 것은 「효과 없음」이다 — 계산하지
+    # 못한 것과 효과가 0인 것을 응답이 구분해 주어야 화면도 구분할 수 있다.
+    if any(not _has_speed_model(v) for v in remaining):
+        warnings.append(WARNING_SENSITIVITY_SPEED_SKIPPED)
+
+    return entries, warnings
 
 
 def profile_from_rows(rows: Sequence[object]) -> DistributionProfile:
