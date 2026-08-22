@@ -3,10 +3,10 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.15 |
+| 버전 | v1.16 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
-| 최종 수정일 | 2026-08-17 |
-| 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7, `API_SPEC.md` v1.20 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
+| 최종 수정일 | 2026-08-23 |
+| 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
 
@@ -477,6 +477,7 @@ CREATE UNIQUE INDEX idx_sim_snapshot_unique ON annual_simulation_run (snapshot_i
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 대상 선박 |
 | `regulation_year` | INTEGER | NOT NULL | 기준연도 |
 | `voyages_json` | JSONB | NOT NULL | 항차별 완전한 데이터 사본 배열 |
+| `vessel_json` | JSONB | NULL 허용 | **선박 제원 사본** (`#493` · 마이그레이션 037). `ship_type`·`deadweight`·`gross_tonnage`·`reference_speed_kn`·`reference_daily_foc_ton`을 **문자열로** 담는다 |
 | `input_hash` | VARCHAR(71) | NOT NULL | 스냅샷 시점 input_hash |
 | `parameter_hash` | VARCHAR(71) | NOT NULL | 스냅샷 시점 parameter_hash |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 스냅샷 생성일 |
@@ -1464,3 +1465,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-17 | `#460` | 헤더 「상위 문서」를 갱신 (`AGENTS §4.4`) — `PRD` v4.0 → **v4.4** · `TECH_SPEC` v1.4 → **v1.7** · `API_SPEC` v1.2 → **v1.18**. 이 문서는 인증 전환(`#413`·033)·`simulation_parameter`(`#434`·035)·데모 seed 분리(`#451`)를 반영했다. 제목을 `DB_SCHEMA — BlueLog`로 통일(`AGENTS §4.5`). 본문 변경 없음 (#460) |
 | 2026-08-21 | `#602` | `§N-M` 표기 정리에 따른 참조 갱신 (`AGENTS §4.7` 신설분 반영). 본문 내용 변경 없음. **이 행은 `#641`이 뒤늦게 채웠다** (#602) |
 | 2026-08-23 | `#589` | 헤더 「상위 문서」의 `API_SPEC`을 v1.18 → **v1.20**으로 갱신. **그 사이 변경이 본 문서에 영향을 주지 않음을 대조로 확인했다** — v1.19(`§8.2` CSV 가져오기)가 쓰는 `created_from = IMPORT`는 `§2.2`에 이미 있고, v1.20(`§2.8` 선대 응답 필드 2종)의 `is_cii_applicable_hint`·`gross_tonnage`도 `§2.1`에 이미 있다 — **둘 다 응답 계약 확장이지 스키마 변경이 아니다.** `§4.3`상 헤더 정정이라 버전은 올리지 않는다 (#589) |
+| 2026-08-23 | `#493` | **v1.16 — §2.7 `simulation_snapshot`에 `vessel_json` 신설** (마이그레이션 037). 계산에 쓰는 선박 제원 사본이며 `TECH_SPEC §11.2` 표 개정에 대응한다. **nullable이다** — 이 테이블은 immutable이라(`trg_snapshot_immutable`) 기존 행에 값을 넣을 수 없고, NOT NULL로 두면 마이그레이션 자체가 실패한다. 값이 없는 행은 재현 경로가 사유를 밝히고 끊는다(`#443` 이전 실행을 끊는 선례와 같다). 수치는 **문자열로** 담는다 — float으로 거치면 `NUMERIC` 원본과 다른 값이 보관된다 (#493) |

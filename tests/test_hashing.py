@@ -286,3 +286,81 @@ def test_hash_matches_db_constraint(value):
     """
     assert len(value) == 71
     assert HASH_FORMAT.match(value)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 기능③ 연간 시뮬레이션 input_hash (#493 작업 중 발견)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_annual_input_fields_locked():
+    """`ANNUAL_INPUT_FIELDS` 목록과 순서를 잠근다.
+
+    ⚠️ **이 목록이 없던 동안 기능③은 기능①의 목록을 그대로 썼고, 그 목록이 기능③의
+    키를 하나도 담지 않았다** — 넘긴 일곱 중 살아남는 것이 `vessel_id`·
+    `regulation_year` 둘뿐이었다.
+    """
+    from cii_platform.calc.hash import ANNUAL_INPUT_FIELDS
+
+    assert ANNUAL_INPUT_FIELDS == (
+        "vessel_id",
+        "regulation_year",
+        "target_rating",
+        "simulation_runs",
+        "random_seed",
+        "voyages",
+        "vessel",
+    )
+
+
+ANNUAL_INPUT = {
+    "vessel_id": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+    "regulation_year": 2026,
+    "target_rating": "C",
+    "simulation_runs": 10000,
+    "random_seed": "12345",
+    "voyages": [{"kind": "PLANNED", "planned_distance_nm": "3000"}],
+    "vessel": {"ship_type": "BULK_CARRIER", "deadweight": "50000.00"},
+}
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("target_rating", "A"),
+        ("simulation_runs", 5000),
+        ("random_seed", "999"),
+        ("voyages", [{"kind": "PLANNED", "planned_distance_nm": "99999"}]),
+        ("vessel", {"ship_type": "BULK_CARRIER", "deadweight": "12345.00"}),
+    ],
+)
+def test_annual_input_hash_changes_for_every_listed_field(field, value):
+    """**하나라도 해시에 드러나지 않으면 재현성 계약이 성립하지 않는다.**
+
+    `TECH_SPEC §5.4` 1항은 「같은 `input_hash` → 같은 결과」다. 종전에는 seed만 바꿔도
+    결과가 달라지는데 해시가 같았고, `API_SPEC §1.9`의 해시 조회가 같은 선박·같은
+    해의 **모든 실행**을 섞어 돌려줬다.
+
+    필드마다 따로 보는 이유는 **한 필드만 빠져도 조용히 통과**하기 때문이다.
+    """
+    from cii_platform.calc.hash import compute_annual_input_hash
+
+    base = compute_annual_input_hash(ANNUAL_INPUT)
+    changed = compute_annual_input_hash({**ANNUAL_INPUT, field: value})
+
+    assert base != changed
+
+
+def test_annual_input_hash_is_not_the_feature_one_hash():
+    """두 함수가 **다른 값**을 낸다 — 같은 목록을 쓰면 같아진다.
+
+    이 단언이 없으면 누군가 `compute_annual_input_hash`를 `compute_input_hash`로
+    되돌려도 위 테스트들만으로는 드러나지 않는다(같은 입력에서 우연히 다를 수 있다).
+    """
+    from cii_platform.calc.hash import compute_annual_input_hash, compute_input_hash
+
+    assert compute_annual_input_hash(ANNUAL_INPUT) != compute_input_hash(ANNUAL_INPUT)
+    # 기능①의 필터를 지나면 두 키만 남는다 — 그것이 종전 상태였다.
+    assert compute_input_hash(ANNUAL_INPUT) == compute_input_hash(
+        {"vessel_id": ANNUAL_INPUT["vessel_id"], "regulation_year": 2026}
+    )

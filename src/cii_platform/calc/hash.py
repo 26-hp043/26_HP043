@@ -171,11 +171,55 @@ def compute_scenario_input_hash(calculation_input: dict) -> str:
     return _sha256_of(canonical_json(_filter_fields(SCENARIO_INPUT_FIELDS, calculation_input)))
 
 
+#: 기능③(#63) 연간 시뮬레이션 ``input_hash`` 대상 필드.
+#:
+#: ⚠️ **기능③은 종전에 :data:`INPUT_FIELDS`를 그대로 썼고, 그 목록이 이 기능의 키를
+#: 하나도 담지 않았다** (`#493` 작업 중 실측). 넘긴 일곱 키 중 살아남는 것이
+#: ``vessel_id``·``regulation_year`` 둘뿐이라 —
+#:
+#: - **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다.** 같은
+#:   선박·같은 해의 모든 실행이 같은 ``input_hash``를 가졌다
+#: - `TECH_SPEC §5.4` 1항(같은 ``input_hash`` → 같은 결과)이 성립하지 않았다
+#: - `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다
+#: - ``reproduce``의 「스냅샷은 immutable인데 해시가 다르다」 검사가 **무효**였다 —
+#:   스냅샷이 통째로 바뀌어도 통과한다
+#:
+#: 기능②가 같은 문제를 :data:`SCENARIO_INPUT_FIELDS`로 이미 해결했다. 같은 모양이다.
+#:
+#: 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 →
+#: 같은 결과」다. ``vessel``이 들어 있는 이유는 `#493`이다 — 제원이 계산 입력인데
+#: 스냅샷에도 해시에도 없어 제원을 고치면 같은 스냅샷으로도 결과가 달라졌다.
+ANNUAL_INPUT_FIELDS: tuple[str, ...] = (
+    "vessel_id",
+    "regulation_year",
+    "target_rating",
+    "simulation_runs",
+    "random_seed",
+    "voyages",  # simulation_snapshot.voyages_json 그대로
+    "vessel",  # simulation_snapshot.vessel_json 그대로 (#493)
+)
+
+
+def compute_annual_input_hash(calculation_input: dict) -> str:
+    """기능③ 연간 시뮬레이션 입력의 content hash (#63 · `#493`).
+
+    필터링 규칙은 :func:`compute_input_hash`와 완전히 같다 — 필드 목록만
+    :data:`ANNUAL_INPUT_FIELDS`로 바뀐다. 기능②가 같은 이유로 함수를 하나 더 둔
+    것과 같은 구조다.
+
+    ⚠️ **`#493` 이전에 저장된 연간 실행의 해시는 이 식으로 재현되지 않는다.** 종전
+    식이 두 키만 담았기 때문이다. 그 실행들은 ``simulation_snapshot.vessel_json``이
+    NULL이라 재현 경로가 **앞에서 사유를 밝히고 끊으므로** 이 차이가 새로 드러나는
+    실패를 만들지 않는다.
+    """
+    return _sha256_of(canonical_json(_filter_fields(ANNUAL_INPUT_FIELDS, calculation_input)))
+
+
 def _filter_fields(fields: tuple[str, ...], calculation_input: dict) -> dict[str, Any]:
     """정본 §5.3의 필터 규칙 — 목록 내 키만, ``weather_factor=None``→기본값.
 
-    기능①·② 해시 함수가 공유하는 유일한 규칙 블록이다. 여기서 행동이 갈리면
-    같은 요청이 두 함수에서 다른 취급을 받는다.
+    기능①·②·③ 해시 함수가 공유하는 유일한 규칙 블록이다. 여기서 행동이 갈리면
+    같은 요청이 세 함수에서 다른 취급을 받는다.
     """
     filtered: dict[str, Any] = {}
     for key in fields:

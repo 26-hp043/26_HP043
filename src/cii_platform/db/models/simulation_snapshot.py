@@ -34,6 +34,9 @@ class SimulationSnapshot(Base):
     vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
     regulation_year = sa.Column(sa.Integer(), nullable=False)
     voyages_json = sa.Column(postgresql.JSONB(), nullable=False)
+    # #493: 계산에 쓰는 선박 제원 사본. **nullable이다** — 이 테이블은 immutable이라
+    # 037 이전 행에 값을 넣을 수 없다. 값이 없는 행은 재현 경로가 사유를 밝히고 끊는다.
+    vessel_json = sa.Column(postgresql.JSONB(), nullable=True)
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
     created_at = sa.Column(
