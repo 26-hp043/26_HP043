@@ -47,8 +47,7 @@ const DRAFT: VoyageDraft = {
   plannedDistanceNm: '2800',
   plannedSpeedKn: '13.5',
   regulationYear: '2026',
-  fuelType: 'HFO',
-  plannedFuelTon: '210',
+  fuelUses: [{ fuelType: 'HFO', plannedFuelTon: '210' }],
 }
 
 const VOYAGE: ManagedVoyage = {
@@ -175,6 +174,38 @@ describe('create — API_SPEC §3.3', () => {
     })
 
     expect(bodyOf(fetchMock)).not.toHaveProperty('regulation_year')
+  })
+
+  it('연료 여러 줄을 그대로 fuel_uses[]로 보낸다 (#636)', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', {
+      ...DRAFT,
+      fuelUses: [
+        { fuelType: 'HFO', plannedFuelTon: '800' },
+        { fuelType: 'DIESEL_GAS_OIL', plannedFuelTon: '40' },
+      ],
+    })
+
+    expect(bodyOf(fetchMock).fuel_uses).toEqual([
+      { fuel_type: 'HFO', planned_fuel_ton: 800, source: 'USER_INPUT' },
+      { fuel_type: 'DIESEL_GAS_OIL', planned_fuel_ton: 40, source: 'USER_INPUT' },
+    ])
+  })
+
+  it('한 줄이어도 배열로 보낸다 — 계약이 배열이다 (§3.3)', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', DRAFT)
+
+    expect(bodyOf(fetchMock).fuel_uses).toHaveLength(1)
+  })
+
+  it('source는 USER_INPUT이다 — 사용자가 직접 넣은 값이다', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', DRAFT)
+
+    for (const fu of bodyOf(fetchMock).fuel_uses as Array<Record<string, unknown>>) {
+      expect(fu.source).toBe('USER_INPUT')
+    }
   })
 })
 

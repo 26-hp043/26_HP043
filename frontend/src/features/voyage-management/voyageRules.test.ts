@@ -34,8 +34,7 @@ const draft = (over: Partial<VoyageDraft> = {}): VoyageDraft => ({
   plannedDistanceNm: '2800',
   plannedSpeedKn: '13.5',
   regulationYear: '2026',
-  fuelType: 'HFO',
-  plannedFuelTon: '210',
+  fuelUses: [{ fuelType: 'HFO', plannedFuelTon: '210' }],
   ...over,
 })
 
@@ -134,6 +133,63 @@ describe('validateDraft — API_SPEC §3.3', () => {
 
   it('숫자가 아닌 값을 잡는다', () => {
     expect(validateDraft(draft({ plannedDistanceNm: '십일천' })).plannedDistanceNm).toBeDefined()
+  })
+})
+
+describe('validateDraft — 연료 다행 (#636)', () => {
+  it('서로 다른 유종 여러 줄은 통과한다', () => {
+    const found = validateDraft(
+      draft({
+        fuelUses: [
+          { fuelType: 'HFO', plannedFuelTon: '800' },
+          { fuelType: 'DIESEL_GAS_OIL', plannedFuelTon: '40' },
+        ],
+      }),
+    )
+    expect(hasErrors(found)).toBe(false)
+  })
+
+  it('줄마다 오류 키가 분리된다 — 어느 줄이 틀렸는지 화면이 가리켜야 한다', () => {
+    const found = validateDraft(
+      draft({
+        fuelUses: [
+          { fuelType: 'HFO', plannedFuelTon: '800' },
+          { fuelType: 'DIESEL_GAS_OIL', plannedFuelTon: '0' },
+        ],
+      }),
+    )
+    expect(found['plannedFuelTon.0']).toBeUndefined()
+    expect(found['plannedFuelTon.1']).toBeDefined()
+  })
+
+  it('같은 유종이 두 번이면 뒤쪽 줄을 가리킨다 — 서버는 422를 내지만 줄 번호가 없다', () => {
+    const found = validateDraft(
+      draft({
+        fuelUses: [
+          { fuelType: 'HFO', plannedFuelTon: '800' },
+          { fuelType: 'HFO', plannedFuelTon: '200' },
+        ],
+      }),
+    )
+    expect(found['fuelType.0']).toBeUndefined()
+    expect(found['fuelType.1']).toContain('두 번')
+  })
+
+  it('한 줄도 없으면 잡는다 — 서버가 min_length=1을 요구한다 (§3.3)', () => {
+    expect(validateDraft(draft({ fuelUses: [] })).fuelUses).toBeDefined()
+  })
+
+  it('빈 유종은 중복 판정에 넣지 않는다 — 「선택해 주세요」가 먼저다', () => {
+    const found = validateDraft(
+      draft({
+        fuelUses: [
+          { fuelType: '', plannedFuelTon: '800' },
+          { fuelType: '', plannedFuelTon: '200' },
+        ],
+      }),
+    )
+    expect(found['fuelType.0']).toContain('선택')
+    expect(found['fuelType.1']).toContain('선택')
   })
 })
 

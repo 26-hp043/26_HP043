@@ -203,6 +203,50 @@ def test_create_with_empty_fuel_uses_is_422(voyage_app):
     assert resp.status_code == 422
 
 
+def test_create_with_duplicate_fuel_type_is_422(voyage_app):
+    """같은 유종을 두 번 보내면 **422이지 500이 아니다** (`#636`).
+
+    ``idx_fuel_use_unique``가 (항차, 유종) 중복을 막는데(`DB_SCHEMA §2.3` [S-2]),
+    서비스가 걸러 내지 않으면 ``IntegrityError``가 그대로 올라와 500이 된다.
+    실적 갱신(`_upsert_fuel_actuals`)은 같은 가드를 갖고 있었고 **생성 경로만
+    빠져 있었다** — 화면 폼이 연료를 한 종만 보내 도달할 수 없는 경로였기 때문이다.
+    `#636`이 폼을 다연료로 넓히면서 이 경로가 처음으로 열린다.
+    """
+    resp = voyage_app.post(
+        CREATE_URL,
+        json={
+            **PAYLOAD,
+            "fuel_uses": [
+                {"fuel_type": "HFO", "planned_fuel_ton": 800.0},
+                {"fuel_type": "HFO", "planned_fuel_ton": 200.0},
+            ],
+        },
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_create_accepts_multiple_fuel_types(voyage_app):
+    """서로 다른 유종은 여러 줄로 받는다 (`API_SPEC §3.3` · `#636`).
+
+    위 테스트만 있으면 **전부 거부해도 통과한다.** 정상 경로를 함께 박는다.
+    """
+    resp = voyage_app.post(
+        CREATE_URL,
+        json={
+            **PAYLOAD,
+            "voyage_no": "V-MULTI",
+            "fuel_uses": [
+                {"fuel_type": "HFO", "planned_fuel_ton": 800.0},
+                {"fuel_type": "DIESEL_GAS_OIL", "planned_fuel_ton": 40.0},
+            ],
+        },
+    )
+    assert resp.status_code == 201
+    codes = [fu["fuel_type"] for fu in resp.json()["data"]["fuel_uses"]]
+    assert sorted(codes) == ["DIESEL_GAS_OIL", "HFO"]
+
+
 def test_create_with_negative_distance_is_422(voyage_app):
     resp = voyage_app.post(CREATE_URL, json={**PAYLOAD, "planned_distance_nm": -1})
     assert resp.status_code == 422

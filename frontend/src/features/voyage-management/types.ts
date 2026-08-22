@@ -57,6 +57,19 @@ export interface ManagedVoyage {
   fuelUses: VoyageFuelUse[]
 }
 
+/**
+ * 생성 폼의 연료 한 줄 (`#636`).
+ *
+ * 종전에는 `VoyageDraft`가 `fuelType`·`plannedFuelTon`을 **단일 값**으로 들고 있어
+ * 화면으로 만든 항차는 **연료가 반드시 한 종**이었다. 서버(`API_SPEC §3.3`
+ * `fuel_uses[]`)·스키마(`DB_SCHEMA §2.4` N행)·실적 입력 폼은 이미 다행이었고,
+ * **생성 축만 단일로 남아 있었다**(`#610` 잔여).
+ */
+export interface VoyageFuelDraft {
+  fuelType: string
+  plannedFuelTon: string
+}
+
 /** 생성 폼이 만드는 값 — `API_SPEC §3.3` 요청 본문. */
 export interface VoyageDraft {
   voyageNo: string
@@ -66,8 +79,8 @@ export interface VoyageDraft {
   plannedSpeedKn: string
   /** optional — `INCLUDE_AS_PLAN` 전환 시점에만 필수(`§3.3` [#150]). */
   regulationYear: string
-  fuelType: string
-  plannedFuelTon: string
+  /** 최소 한 줄 — 서버가 `min_length=1`을 요구한다(`§3.3`). */
+  fuelUses: VoyageFuelDraft[]
 }
 
 /**

@@ -286,13 +286,18 @@ export function createApiVoyageManagementProvider(
           planned_speed_kn: Number(draft.plannedSpeedKn),
           // optional — `INCLUDE_AS_PLAN` 전환 시점에만 필수(`§3.3` [#150]).
           ...(year === '' ? {} : { regulation_year: Number(year) }),
-          fuel_uses: [
-            {
-              fuel_type: draft.fuelType,
-              planned_fuel_ton: Number(draft.plannedFuelTon),
-              source: 'USER_INPUT',
-            },
-          ],
+          /*
+           * 연료를 **여러 줄로** 보낸다 (`#636`). 종전에는 폼이 단일 값이라 배열에
+           * 한 줄만 담았고, 화면으로 만든 항차는 연료가 반드시 한 종이었다.
+           *
+           * `source: 'USER_INPUT'`은 그대로다 — 사용자가 직접 넣은 값이다
+           * (`DB_SCHEMA §2.3` · 리포트 표기는 `#645`).
+           */
+          fuel_uses: draft.fuelUses.map((fu) => ({
+            fuel_type: fu.fuelType,
+            planned_fuel_ton: Number(fu.plannedFuelTon),
+            source: 'USER_INPUT',
+          })),
           /*
            * `annual_inclusion_policy`를 보내지 않는다 — `§3.3` [EXT-P0-4].
            * 생성 결과는 항상 `DRAFT` · `EXCLUDE`이고, 그것은 서버가 정한다.
