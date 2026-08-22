@@ -12,7 +12,13 @@ import { DISPLAY_DIGITS, formatCapacity, formatDecimalString } from '../../displ
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
 import { PositionForm } from './PositionForm'
-import type { CiiYear, VesselDetail as Detail, VesselSpec } from './types'
+import type {
+  CiiYear,
+  InProgressVoyage,
+  VesselDetail as Detail,
+  VesselDetailProvider,
+  VesselSpec,
+} from './types'
 import './VesselDetail.css'
 
 /**
@@ -32,7 +38,12 @@ import './VesselDetail.css'
  * 축은 **서버가 준 `transport_capacity_basis`**를 쓴다. 화면이 선종에서 유추하면
  * 선종이 늘 때 서버와 갈라지고, **크루즈선에 `DWT`가 표시돼도 화면은 깨지지 않는다.**
  */
-export function VesselDetail() {
+export function VesselDetail({
+  provider: injected,
+}: {
+  /** 테스트가 갈아 끼운다 — `NotUnderwayPanel`이 같은 형태를 쓴다 (`#588`). */
+  provider?: VesselDetailProvider
+} = {}) {
   const { vesselId } = useParams()
   const [detail, setDetail] = useState<Detail | null>(null)
   /*
@@ -40,9 +51,18 @@ export function VesselDetail() {
    * `fetch`·`baseUrl`을 써야 테스트가 하나만 갈아 끼워도 둘 다 대체된다 —
    * `voyage-management`가 연료 provider에 같은 것을 넘기는 이유와 같다.
    */
-  const [provider] = useState(() => createApiVesselDetailProvider())
+  const [created] = useState(() => createApiVesselDetailProvider())
+  const provider = injected ?? created
   const [failure, setFailure] = useState<{ message: string; notFound: boolean } | null>(
     null,
+  )
+  /**
+   * 진행 중 항차 (`#588`). `'loading'`을 값으로 둔다 — **「아직 모른다」와 「없다」를
+   * 같게 그리면 확인 전에 없다고 단정**하게 되고, 그것이 이 이슈가 고치는 거짓
+   * 신호의 반대 방향 판본이다.
+   */
+  const [inProgress, setInProgress] = useState<InProgressVoyage | null | 'loading'>(
+    'loading',
   )
 
   useEffect(() => {
@@ -63,6 +83,27 @@ export function VesselDetail() {
             error instanceof Error ? error.message : '선박 정보를 불러오지 못했습니다.',
           notFound: error instanceof VesselDetailError && error.notFound,
         })
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [vesselId, provider])
+
+  useEffect(() => {
+    if (!vesselId) return
+    let alive = true
+    setInProgress('loading')
+
+    provider
+      .findInProgressVoyage(vesselId)
+      .then((voyage) => {
+        if (alive) setInProgress(voyage)
+      })
+      .catch(() => {
+        // 조회가 실패하면 **링크를 그리지 않는다.** 실패를 「있다」로 읽으면
+        // 이 이슈가 고치는 거짓 신호가 그대로 돌아온다.
+        if (alive) setInProgress(null)
       })
 
     return () => {
@@ -278,11 +319,35 @@ export function VesselDetail() {
               }
             />
 
-            {vessel.underwayState === 'UNDER_WAY' ? (
+            {/*
+              링크를 `underwayState`로 그리지 않는다 (`#588`).
+
+              그 값은 **표시 상태**이고 진행 중 항차의 존재와 별개다 — 운항 중으로
+              표시된 선박에 항차가 없는 상태가 실제로 있었고(`#587`), 그때
+              **사용자는 「있다」고 읽고 눌렀는데 없었다.**
+
+              없을 때 링크를 감추지 않고 **사유와 함께 비활성으로 둔다.** `#419`가
+              *「등급이 없는 이유를 읽어 주지 않으면 사용자는 무엇을 해야 하는지 알 수
+              없다」*로 같은 판단을 했고, 선박 관리(`#510`)가 「이 배로 지금 할 수 없는
+              것」을 보이는 형태를 이미 쓴다.
+            */}
+            {inProgress === 'loading' ? (
+              <span className="vd__drill vd__drill--off" aria-busy="true">
+                진행 중 항차 확인 중…
+              </span>
+            ) : inProgress === null ? (
+              <span className="vd__drill vd__drill--off">
+                진행 중 항차의 실시간 CII 보기
+                <em className="vd__drill-why">
+                  진행 중 항차가 없습니다 — 아래 「항차 기록」에서 항차를 진행 중으로
+                  바꾸면 열립니다.
+                </em>
+              </span>
+            ) : (
               <Link className="vd__drill" to={`/vessels/${vessel.id}/voyages/current`}>
                 진행 중 항차의 실시간 CII 보기
               </Link>
-            ) : null}
+            )}
           </section>
         </div>
       </div>

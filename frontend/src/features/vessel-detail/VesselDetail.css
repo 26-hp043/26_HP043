@@ -467,3 +467,26 @@
   font-size: var(--font-size-micro);
   color: var(--text-muted);
 }
+
+/*
+ * 진행 중 항차가 없을 때의 드릴다운 (#588).
+ *
+ * **링크를 감추지 않고 비활성으로 둔다** — 없어지면 「원래 없는 기능」으로 읽히고,
+ * 그대로 두면 누를 수 있는 것으로 읽힌다. 사유를 함께 적어 무엇을 하면 열리는지
+ * 말한다(`#419`·`#510`과 같은 규율).
+ */
+.vd__drill--off {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--color-text-muted);
+  cursor: default;
+  text-decoration: none;
+}
+
+.vd__drill-why {
+  font-size: 12.5px;
+  font-style: normal;
+  line-height: 1.55;
+  color: var(--color-text-muted);
+}
