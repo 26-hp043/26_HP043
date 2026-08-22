@@ -26,6 +26,7 @@ from cii_platform.db.repositories.vessel import (
     encode_cursor,
 )
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
+from cii_platform.services import applicability
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -34,7 +35,10 @@ if TYPE_CHECKING:
 
 #: API_SPEC §2.3 — ``is_cii_applicable_hint`` 자동 산정 기준 (DB_SCHEMA §2.1).
 #: ``gross_tonnage >= 5,000``이면 공식 CII 적용 대상 힌트를 true로 둔다.
-CII_APPLICABLE_GT_THRESHOLD = Decimal("5000")
+#:
+#: 값의 정의는 ``services.applicability``가 단독으로 소유한다 (`#653`). 종전에는 이
+#: 파일과 ``services/voyage_cii.py``에 같은 리터럴이 따로 적혀 있었다.
+CII_APPLICABLE_GT_THRESHOLD = applicability.CII_APPLICABLE_GT_THRESHOLD
 
 #: 검색어 최대 길이. ``Vessel.name``이 ``String(100)``이라 그보다 긴 검색어는 의미가
 #: 없다 (#237). 초과 시 422가 아니라 절단 — ``normalize_limit``과 같은 정책.

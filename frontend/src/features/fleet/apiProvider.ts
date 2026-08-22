@@ -37,6 +37,10 @@ interface ServerVessel {
   position_updated_at: string | null
   data_available: boolean
   unavailable_reason?: string | null
+  //: `#653`에서 추가된 필드. 선택적으로 둔 것은 구버전 서버 응답을 받아도
+  //: 화면이 깨지지 않게 하기 위함이다 — `unavailable_reason`(`#419`)과 같은 처리다.
+  is_cii_applicable_hint?: boolean
+  gross_tonnage?: number | string | null
   ytd_attained_cii: string | null
   ytd_required_cii: string | null
   ytd_rating: string | null
@@ -106,6 +110,11 @@ function toVessel(raw: ServerVessel): FleetVessel {
     lat: raw.current_lat,
     lon: raw.current_lon,
     positionUpdatedAt: raw.position_updated_at,
+    // CII 적용 대상 표시 (`#653`). `is_cii_applicable_hint`가 **없는 응답**이면
+    // `true`로 두어 배지를 그리지 않는다 — 서버가 판정을 보내지 않았는데 화면이
+    // 「대상 아님」을 단정하면 없는 사실을 만든다.
+    isCiiApplicableHint: raw.is_cii_applicable_hint ?? true,
+    grossTonnage: raw.gross_tonnage ?? null,
     dataAvailable: raw.data_available,
     unavailableReason: toUnavailableReason(raw.unavailable_reason),
     ytdAttainedCii: raw.ytd_attained_cii,

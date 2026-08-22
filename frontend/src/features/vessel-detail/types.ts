@@ -42,6 +42,11 @@ export interface VesselSpec {
   shipType: string
   deadweight: string | null
   grossTonnage: string | null
+  /**
+   * 서버가 내린 CII 적용 대상 판정 (`API_SPEC §2.3` · `#653`).
+   * **화면이 GT로 다시 판정하지 않는다.**
+   */
+  isCiiApplicableHint: boolean
   referenceSpeedKn: string | null
   referenceDailyFocTon: string | null
   defaultFuelType: string | null

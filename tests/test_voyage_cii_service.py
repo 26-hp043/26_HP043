@@ -218,7 +218,7 @@ class TestWarnings:
         vessel = FakeVessel(gross_tonnage=Decimal("5000"))
         assert svc.WARNING_NON_CII_VESSEL not in svc._build_warnings(vessel)
 
-    def test_no_warning_when_gt_unknown(self):
+    def test_gt_unknown_is_not_called_non_applicable(self):
         """GT를 모르면 **「적용 대상이 아니다」라고 단정하지 않는다.**
 
         seed의 실선 2척이 이 경우다(GT 미회신). 근거 없이 경고를 붙이면 사용자가
@@ -227,7 +227,27 @@ class TestWarnings:
         from fakes import FakeVessel
 
         vessel = FakeVessel(gross_tonnage=None)
-        assert svc._build_warnings(vessel) == [svc.WARNING_REFERENCE_ONLY]
+        assert svc.WARNING_NON_CII_VESSEL not in svc._build_warnings(vessel)
+
+    def test_gt_unknown_says_it_could_not_judge(self):
+        """**단정하지 않는 것과 아무 말도 하지 않는 것은 다르다** (`#653`).
+
+        종전에는 GT가 NULL이면 경고가 하나도 붙지 않아, 규제상 무의미할 수 있는
+        계산 결과가 아무 표시 없이 나갔다 — 데모의 실선 2척이 그 상태였다.
+        """
+        from fakes import FakeVessel
+
+        vessel = FakeVessel(gross_tonnage=None)
+        assert svc._build_warnings(vessel) == [
+            svc.WARNING_REFERENCE_ONLY,
+            svc.WARNING_CII_APPLICABILITY_UNKNOWN,
+        ]
+
+    def test_applicable_vessel_gets_no_applicability_warning(self):
+        """정상 상태에는 경고를 붙이지 않는다 — 붙이면 진짜 예외가 묻힌다."""
+        from fakes import FakeVessel
+
+        assert svc._build_warnings(FakeVessel()) == [svc.WARNING_REFERENCE_ONLY]
 
 
 class TestPercentSerialization:

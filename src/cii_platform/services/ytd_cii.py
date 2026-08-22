@@ -87,6 +87,7 @@ from cii_platform.errors import (
     ParameterError,
     ValidationError,
 )
+from cii_platform.services import applicability
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -361,7 +362,10 @@ async def compute_ytd_cii(
             regulation_year=regulation_year,
             capacity_axis=capacity_axis(vessel.ship_type),
             transport_capacity=transport_capacity,
-            warnings=aggregated.warnings,
+            warnings=[
+                *applicability.applicability_warnings(vessel),
+                *aggregated.warnings,
+            ],
             substitutions=aggregated.substitutions,
             underway_distance_nm=aggregated.underway_distance_nm,
             not_underway_distance_nm=aggregated.not_underway_distance_nm,
@@ -416,7 +420,11 @@ async def compute_ytd_cii(
         regulation_year=regulation_year,
         capacity_axis=capacity_axis(vessel.ship_type),
         transport_capacity=transport_capacity,
-        warnings=[WARNING_REFERENCE_ONLY, *aggregated.warnings],
+        warnings=[
+            WARNING_REFERENCE_ONLY,
+            *applicability.applicability_warnings(vessel),
+            *aggregated.warnings,
+        ],
         substitutions=aggregated.substitutions,
         attained_cii=layer1.ytd.attained_cii,
         required_cii=layer1.required_cii,

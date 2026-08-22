@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
+import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { NotUnderwayPanel } from '../not-underway/NotUnderwayPanel'
@@ -105,7 +106,18 @@ export function VesselDetail() {
 
       <header className="vd__head">
         <div>
-          <h1 className="vd__title">{vessel.name}</h1>
+          <h1 className="vd__title">
+            {vessel.name}
+            {/*
+              선박 상세는 이 배의 제원을 확인하러 오는 자리다 (`#653`).
+              적용 대상 여부가 여기 없으면, 아래 YTD·등급을 규제 결과로 읽게 된다.
+            */}
+            <ApplicabilityBadge
+              isCiiApplicableHint={vessel.isCiiApplicableHint}
+              grossTonnage={vessel.grossTonnage}
+              vesselName={vessel.name}
+            />
+          </h1>
           <p className="vd__sub">
             IMO {vessel.imoNumber} · {shipTypeLabel(vessel.shipType)}
           </p>

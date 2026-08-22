@@ -1313,13 +1313,14 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_calculation_migrations.py` | 14 | §5 DB · 제약·마이그레이션 |
 | `test_calculations_api.py` | 12 | §4 API · 선박·항차·계산 |
 | `test_calculations_query_db.py` | 3 | §4 API · 선박·항차·계산 |
+| `test_applicability.py` | 12 | **§2 단위 · CII 적용 대상 판정** — 「미해당」과 「GT가 없어 판정 불가」가 합쳐지지 않는지 · 임계값이 두 곳에 중복 정의되지 않았는지 (`#653`) |
 | `test_capacity_rules.py` | 19 | §2 단위 · 계산 엔진 |
 | `test_cii_engine.py` | 21 | §2 단위 · 계산 엔진 |
 | `test_cii_history.py` | 7 | §4 API · 선박·항차·계산 |
-| `test_fleet_summary.py` | 36 | **§4 API · 선대 요약** — 규제 트리거 판정 · `days_to_d` 산식·경계 6종 · KPI 집계 · 한 척 실패의 격리(`#419`) |
+| `test_fleet_summary.py` | 39 | **§4 API · 선대 요약** — 규제 트리거 판정 · `days_to_d` 산식·경계 6종 · KPI 집계 · 한 척 실패의 격리(`#419`) |
 | `test_mail_link.py` | 5 | **§4.7 인증 API** — 메일 링크가 프론트엔드를 가리키는지 (`#429` 회귀) |
 | `test_reports.py` | 44 | **§3.4~§3.5 리포트 렌더링** — CSV injection 방어 · BOM · 면책 · 한글 PDF · **`DESIGN_SYSTEM §4` 표시 형식**(자릿수·천단위 구분자·선종 표기·KST 시각). 문서가 직렬화 자릿수를 그대로 내보내 화면과 갈렸다 (`#584`) · **표시 문구 동기화**(위험도·경고·사유·항차 상태를 정본/화면과 대조 — `#631`) |
-| `test_reports_db.py` | 21 | **§4 API · 리포트 데이터 수집** — 진행 중 항차 제외 · 시나리오 인용 · 값 재계산 금지 · **문서 어디에도 UTC ISO가 남지 않는다**(`#646`) |
+| `test_reports_db.py` | 25 | **§4 API · 리포트 데이터 수집** — 진행 중 항차 제외 · 시나리오 인용 · 값 재계산 금지 · **문서 어디에도 UTC ISO가 남지 않는다**(`#646`) |
 | `test_annual_simulation_api_db.py` | 14 | **§4 API · 기능③ 실행** — 스냅샷 격리 · 정책 필터링 · 분포 프로파일 기록 |
 | `test_annual_simulation_read_db.py` | 18 | **§4 API · 기능③ 조회·재실행** — 조회가 다시 계산하지 않는지 · 스냅샷 항차 표현 · 재현 판정(파라미터 변경 409 / 재현 실패 500) (`#443`) |
 | `test_simulation_parameter_db.py` | 8 | **§5.7 DB · seed 적재** — 분포 파라미터가 PRD 표와 일치하는지 · DB→엔진 변환 |
@@ -1377,7 +1378,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_vessel_position_state_migrations.py` | 12 | **§5.9 DB · 운항 상태·위치** |
 | `test_vessels_api.py` | 62 | §4 API · 선박·항차·계산 |
 | `test_voyage_cii_api.py` | 32 | §4 API · 선박·항차·계산 |
-| `test_voyage_cii_service.py` | 16 | §4 API · 선박·항차·계산 |
+| `test_voyage_cii_service.py` | 18 | §4 API · 선박·항차·계산 |
 | `test_voyage_delete_db.py` | 2 | §5 DB · 제약·마이그레이션 |
 | `test_voyage_migrations.py` | 11 | §5 DB · 제약·마이그레이션 |
 | `test_voyage_state_machine.py` | 17 | §4 API · 선박·항차·계산 |
@@ -1392,7 +1393,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_ytd_engine.py` | 26 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 99개 파일 · 1274 함수 · 1557 수집.** (2026-08-22 실측)
+**합계 100개 파일 · 1295 함수 · 1578 수집.** (2026-08-22 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
@@ -1556,3 +1557,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-22 | `#652` | **§14.2 함수 수·합계를 테스트가 검사한다.** 종전 가드 4종은 **파일 목록만** 봤고, 그 사이 함수 수 열이 낡았다 — 가드를 켜자마자 **16개 파일이 어긋나 있었다.** 그중 7개는 **`0`**으로 적혀 있었는데 실제로는 12~62개다(`test_vessels_api.py` 0 → **62** · `test_scenario_compare_api.py` 0 → **34** · `test_voyage_cii_api.py` 0 → **32** · `test_auth_session.py` 0 → **27** · `test_ytd_engine.py` 0 → **26** · `test_error_handlers_116.py` 0 → **18** · `test_voyage_cii_service.py` 0 → **16**). 나머지 9개는 양방향으로 어긋났다. 합계 실측 갱신(1261함수 → **1265함수** · 1540수집 → **1544수집**). **수집 수는 검사하지 않는다** — 파라미터라이즈 때문에 실행해야 알 수 있고, 그 하나를 위해 전 테스트를 수집하면 가드가 본체보다 오래 걸린다. §14.5 `UT-YTD-006`의 사유도 정정했다 — 「파일만 있고 테스트가 0건」이 이미 사실이 아니었다 (#652) |
 | 2026-08-22 | `#646` | `test_reports_db.py` 18 → **21함수**(시각 표기 3종) · 합계 실측 갱신(1265함수·1544수집 → **1268함수·1547수집**). `#584`가 `meta`의 시각만 KST로 고치고 **본문 행 둘을 두고 갔다** — 같은 문서 안에서 `2026-08-22 16:26:33 KST`와 `2026-02-10T07:00:00+00:00`이 섞였다. 행 이름을 열거하지 않고 **문서 전체를 훑는다** — 시각이 하나 더 늘어도 그대로 걸린다 (#646) |
 | 2026-08-22 | `#637` | §14 인벤토리에 `test_demo_up_script.py`(6함수) 등재 · 합계 실측 갱신(98파일·1268함수·1547수집 → **99파일·1274함수·1557수집**). `demo_up.sh`가 `.venv`가 없으면 **1단계보다 앞에서 `exit 1`** 해 Docker만 있는 환경에서는 `--check`조차 할 수 없었다. 점검 갈래를 열고 6단계 JSON 파싱을 **파이썬에서 `sed`로** 바꿨다. ⚠️ **CI가 이 스크립트를 실행하지 않는다** — `#616`의 `mktemp` 오류가 그래서 들어왔다. 실행 환경 없이 확인할 수 있는 것만 잠갔다 (#637) |
+| 2026-08-22 | `#653` | §14 인벤토리에 `test_applicability.py`(12) 등재 · `test_fleet_summary.py` 36 → **39함수** · `test_reports_db.py` 21 → **25함수** · `test_voyage_cii_service.py` 16 → **18함수** · 합계 실측 갱신(99파일·1274함수·1557수집 → **100파일·1295함수·1578수집**). **고정하는 것은 「미해당」과 「GT가 없어 판정 불가」가 합쳐지지 않는다**이다 — 둘을 뭉치면 총톤수를 넣지 않은 사용자가 「이 배는 규제 대상이 아니다」로 읽는다. 선대 응답이 두 상태를 가를 수 있는지, 리포트 2종이 그 사실을 meta와 경고 양쪽에 남기는지, 적용 대상인 선박에는 **경고를 붙이지 않는지**(정상 상태를 덮으면 진짜 예외가 묻힌다)를 함께 박았다. 임계값이 `services/vessel.py`·`services/voyage_cii.py`에 따로 적혀 있던 것도 단언으로 잠갔다. 프론트엔드는 `ApplicabilityBadge.test.tsx`(9)에 3상태·임계값 비노출·접근성 라벨을 고정했다 — §14 인벤토리는 **백엔드 pytest만** 세므로 합계에는 들어가지 않는다 (#653) |

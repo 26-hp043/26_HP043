@@ -417,6 +417,70 @@ async def test_no_utc_iso_survives_anywhere_in_the_annual_report(session, vessel
     assert not leaked, f"UTC ISO 표기가 남았다: {leaked}"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# CII 적용 대상이 문서에 남는다 (#653)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voyage_report_states_the_applicability(session, vessel_id):
+    """**리포트는 심사·대외 제출에 나간다.**
+
+    「이 값은 규제 대상이 아닌 선박의 참고값」이 문서에 없으면 오해가 그대로 남는다.
+    이 픽스처 선박은 `gross_tonnage`가 NULL이라 「판정 불가」다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+
+    meta = dict(document.meta)
+    assert "CII 적용 대상" in meta
+    assert "판정 불가" in meta["CII 적용 대상"]
+    assert "내부 분석용" in meta["CII 적용 대상"]
+
+
+@pytest.mark.asyncio
+async def test_annual_report_states_the_applicability(session, vessel_id):
+    """연간 리포트도 같다 — 한쪽에만 있으면 두 문서가 다른 말을 한다."""
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    meta = dict(document.meta)
+    assert "판정 불가" in meta["CII 적용 대상"]
+
+
+@pytest.mark.asyncio
+async def test_applicability_warning_reaches_the_report(session, vessel_id):
+    """경고 채널로도 같은 사실이 나간다 (`API_SPEC §1.6`).
+
+    종전에는 `NON_CII_VESSEL`이 **GT를 알 때만** 붙어, GT가 NULL인 선박은 문서에
+    아무 경고도 남기지 않았다.
+    """
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    assert any("판정할 수 없습니다" in w for w in document.warnings), document.warnings
+
+
+@pytest.mark.asyncio
+async def test_applicable_vessel_says_so_without_a_warning(session):
+    """적용 대상이면 **경고를 붙이지 않는다** — 정상 상태에 경고를 붙이면 진짜 예외가 묻힌다."""
+    await _seed_parameters(session)
+    new_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, gross_tonnage, deadweight, "
+            "is_cii_applicable_hint, default_fuel_type, reference_speed_kn, "
+            "reference_daily_foc_ton) "
+            "VALUES (:id, :imo, 'BIG SHIP', 'BULK_CARRIER', 30000, 50000, true, 'HFO', 14, 30)"
+        ),
+        {"id": new_id, "imo": f"9{new_id.int % 1000000:06d}"},
+    )
+    await session.commit()
+
+    document = await build_annual_report(session, str(new_id), year=YEAR, as_of=AS_OF)
+
+    assert dict(document.meta)["CII 적용 대상"] == "해당 (GT 5,000 이상)"
+    assert not any("적용 대상" in w for w in document.warnings), document.warnings
+
+
 def _looks_like_iso(value: str) -> bool:
     """`2026-02-10T07:00:00` 형태인가 — 구분자가 `T`면 ISO다.
 

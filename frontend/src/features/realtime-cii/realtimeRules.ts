@@ -46,6 +46,13 @@ export const WARNING_TEXT: Readonly<Record<string, string>> = {
     '진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요.',
   COMPLETED_NO_FUEL:
     '완료된 항차 일부에 실적 연료가 없어 계획값으로 대신 계산했습니다.',
+  // --- CII 적용 대상 (`#653`) ---
+  //
+  // 이 화면은 선박 하나의 값을 실시간으로 보여 주는 자리라, 그 값이 규제상
+  // 무의미할 수 있다는 사실이 **여기 없으면 어디에도 없다**.
+  NON_CII_VESSEL: '공식 CII 적용 대상이 아닐 수 있습니다.',
+  CII_APPLICABILITY_UNKNOWN:
+    '총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.',
 }
 
 export function warningText(code: string): string {

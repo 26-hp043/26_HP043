@@ -89,6 +89,10 @@ WARNING_LABELS: dict[str, str] = {
     "CB_ESTIMATED": "선형 계수가 추정값입니다.",
     "EXPERIMENTAL_MODEL": "실험 모델 기반 결과입니다.",
     "NON_CII_VESSEL": "공식 CII 적용 대상이 아닐 수 있습니다.",
+    "CII_APPLICABILITY_UNKNOWN": (
+        "총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. "
+        "선박 제원에 총톤수를 입력해 주세요."
+    ),
     "COMPLETED_NO_FUEL": "실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중.",
     "COMPLETED_NO_DISTANCE": "실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중.",
     "SLOW_SPEED_FLOOR": (
@@ -148,6 +152,20 @@ INCLUSION_POLICY_LABELS: dict[str, str] = {
 }
 
 
+#: CII 적용 대상 판정 3상태의 리포트 표기 (`#653`).
+#:
+#: 화면 배지(`DESIGN_SYSTEM §8`)와 **같은 판정을 다른 매체로 옮긴 것**이다. 리포트는
+#: 심사·대외 제출에 나가므로 「미해당」을 빈칸이나 생략으로 두지 않는다 — 값이 없으면
+#: 읽는 사람이 「해당」으로 읽는다.
+#: 코드는 ``services.applicability``의 3상태다. 이 파일은 다른 라벨 표와 마찬가지로
+#: **판정하지 않고 옮겨 적기만 한다** — 판정을 여기서 하면 서비스와 문서가 갈린다.
+APPLICABILITY_LABELS: dict[str, str] = {
+    "APPLICABLE": "해당 (GT 5,000 이상)",
+    "NOT_APPLICABLE": "미해당 (GT 5,000 미만) — 내부 분석용",
+    "UNKNOWN": "판정 불가 (총톤수 미입력) — 내부 분석용",
+}
+
+
 def _label(code: str | None, table: dict[str, str]) -> str:
     """코드를 표시 문구로. 없으면 코드를 그대로, 비어 있으면 ``—``를 돌려준다."""
     if not code:
@@ -168,6 +186,11 @@ def risk_label(code: str | None) -> str:
 def warning_label(code: str | None) -> str:
     """경고 코드를 사용자 메시지로. 모르는 코드는 감추지 않고 그대로 보인다."""
     return _label(code, WARNING_LABELS)
+
+
+def applicability_label(code: str | None) -> str:
+    """CII 적용 대상 3상태 코드를 리포트 표기로 (`#653`)."""
+    return _label(code, APPLICABILITY_LABELS)
 
 
 def projection_reason_label(code: str | None) -> str:

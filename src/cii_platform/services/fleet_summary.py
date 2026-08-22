@@ -123,6 +123,16 @@ def _publish(value: Decimal | None, digits: int) -> str | None:
     return f"{value:.{digits}f}"
 
 
+def _spec_number(value: Decimal | None) -> float | None:
+    """선박 제원을 JSON number로 (`#653`).
+
+    ``_publish``를 쓰지 않는다 — 그쪽은 `API_SPEC §1.7`의 **Layer 1 문자열 직렬화**이고,
+    ``gross_tonnage``는 계산 결과가 아니라 입력 제원이라 `§2.1` 예시가 ``25000.0``처럼
+    숫자로 적는다. `services/vessel.py`의 ``_number``와 같은 규칙이다.
+    """
+    return None if value is None else float(value)
+
+
 def compute_days_to_target(
     ytd: YtdCiiOutput,
     *,
@@ -484,6 +494,12 @@ async def get_fleet_summary(
                 "imo_number": vessel.imo_number,
                 "underway_state": vessel.underway_state,
                 "detail_status": vessel.detail_status,
+                # CII 적용 대상 표시 (#653). 화면이 GT로 다시 판정하지 않도록
+                # **서버 판정(`is_cii_applicable_hint`)을 그대로** 싣고, 「미해당」과
+                # 「GT가 없어 판정 불가」를 가를 수 있게 `gross_tonnage`를 함께 낸다.
+                # 두 필드 모두 `API_SPEC §2.1` 선박 객체의 기존 어휘라 새 용어가 없다.
+                "is_cii_applicable_hint": vessel.is_cii_applicable_hint,
+                "gross_tonnage": _spec_number(vessel.gross_tonnage),
                 "current_lat": _publish(vessel.current_lat, 6),
                 "current_lon": _publish(vessel.current_lon, 6),
                 "position_updated_at": (
