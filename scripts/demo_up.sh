@@ -32,7 +32,19 @@ CHECK_ONLY="${1:-}"
 #
 # 화면만 만지는 사람도 백엔드를 띄워야 하므로, 원인과 해결을 여기서 말해 준다.
 #
-if [ ! -x "$VENV/python" ]; then
+# **`--check`는 막지 않는다 (#637).** 점검은 「기동하지 않고 상태만 본다」이고, 그중
+# Docker·DB·백엔드 응답·계산 경로는 `.venv` 없이도 확인된다. Docker만 있는 환경에서
+# 안내대로 우회 4단계를 손으로 돌린 뒤 **그것이 제대로 됐는지 확인해 주는 것은 이
+# 스크립트뿐인데**, 종전에는 그 확인조차 막혀 있었다.
+HAVE_VENV=0
+[ -x "$VENV/python" ] && HAVE_VENV=1
+
+if [ "$HAVE_VENV" = "0" ] && [ "$CHECK_ONLY" = "--check" ]; then
+  printf '\033[33m!\033[0m Python 가상환경(.venv)이 없습니다 — 점검만 이어서 진행합니다.\n'
+  printf '  마이그레이션 리비전 대조는 건너뜁니다(alembic이 .venv에 있습니다).\n\n'
+fi
+
+if [ "$HAVE_VENV" = "0" ] && [ "$CHECK_ONLY" != "--check" ]; then
   printf '\033[31m✗\033[0m Python 가상환경(.venv)이 없습니다.\n\n'
   printf '  이 스크립트는 alembic·seed·uvicorn을 .venv에서 실행합니다.\n'
   printf '  아래를 한 번 실행한 뒤 다시 시도하십시오.\n\n'
@@ -91,11 +103,19 @@ if [ "$CHECK_ONLY" != "--check" ]; then
     bad "alembic upgrade head 실패 — /tmp/demo_alembic.log 참조"; tail -5 /tmp/demo_alembic.log; exit 1;
   }
 fi
-HEAD_REV=$("$VENV/alembic" current 2>/dev/null | grep -oE '^[0-9]+' | head -1)
-EXPECTED_REV=$("$VENV/alembic" heads 2>/dev/null | grep -oE '^[0-9]+' | head -1)
 # 리비전을 고정 값(과거엔 018)과 비교하지 않고 head와 비교한다 (#241).
 # 마이그레이션이 추가되면 고정 비교가 항상 bad를 찍는다.
-[ "$HEAD_REV" = "$EXPECTED_REV" ] && ok "리비전 $HEAD_REV (head)" || bad "리비전이 head($EXPECTED_REV)가 아닙니다: ${HEAD_REV:-없음}"
+#
+# `.venv`가 없으면 **확인 불가로 낸다 (#637).** `docker compose run`으로 대체할 수도
+# 있으나, 그러면 `--check`가 컨테이너를 띄우게 되어 「기동하지 않고 상태만 본다」는
+# 계약이 깨진다. **안 되는 것을 안 된다고 말하는 편이 낫다.**
+if [ "$HAVE_VENV" = "1" ]; then
+  HEAD_REV=$("$VENV/alembic" current 2>/dev/null | grep -oE '^[0-9]+' | head -1)
+  EXPECTED_REV=$("$VENV/alembic" heads 2>/dev/null | grep -oE '^[0-9]+' | head -1)
+  [ "$HEAD_REV" = "$EXPECTED_REV" ] && ok "리비전 $HEAD_REV (head)" || bad "리비전이 head($EXPECTED_REV)가 아닙니다: ${HEAD_REV:-없음}"
+else
+  info "리비전 대조를 건너뜁니다 — alembic이 .venv에 있습니다 (.venv 없음)"
+fi
 
 # --- 4. 규제 파라미터 seed -----------------------------------------------------------
 #
@@ -123,6 +143,19 @@ if [ "$CHECK_ONLY" != "--check" ]; then
     bad "데모 데이터 적재 실패 — /tmp/demo_data.log 참조"; tail -5 /tmp/demo_data.log; exit 1;
   }
 fi
+# 행 수 집계 — `.venv`가 없으면 **이미 떠 있는 db 컨테이너에 직접 묻는다 (#637).**
+#
+# 종전에는 `$VENV/python`만 썼고, 없으면 「행 수 조회 실패」라는 **거짓 실패**를 냈다.
+# `docker compose exec`는 **떠 있는 컨테이너에 붙는 것**이라 아무것도 기동하지 않는다
+# — `--check`의 계약을 깨지 않는다(2단계가 이미 db가 떠 있음을 확인한 뒤다).
+if [ "$HAVE_VENV" = "0" ]; then
+  COUNTS=$("$DOCKER" compose exec -T db psql -U cii -d cii -tAc \
+    "SELECT 'vessel=' || (SELECT count(*) FROM vessel)
+         || ' · fuel_type=' || (SELECT count(*) FROM fuel_type)
+         || ' · regulation_year=' || (SELECT count(*) FROM regulation_year)
+         || ' · cii_reference_line=' || (SELECT count(*) FROM cii_reference_line)
+         || ' · cii_rating_boundary=' || (SELECT count(*) FROM cii_rating_boundary)" 2>/dev/null | tr -d '\r')
+else
 COUNTS=$("$VENV/python" - <<'PY' 2>/dev/null
 import asyncio, os
 from sqlalchemy import text
@@ -140,6 +173,7 @@ async def main():
 asyncio.run(main())
 PY
 )
+fi
 [ -n "$COUNTS" ] && ok "$COUNTS" || bad "행 수 조회 실패"
 
 # --- 5. 백엔드 ----------------------------------------------------------------------
@@ -214,13 +248,24 @@ RESULT=$(curl -s -b "$JAR" -H "X-CSRF-Token: $CSRF" \
   -d '{"vessel_id":"00000000-0000-4000-8000-000000000001","regulation_year":2026,
        "distance_nm":1000,"speed_kn":14.2,"fuel_uses":[{"fuel_type":"HFO","fuel_ton":80}]}' 2>/dev/null)
 
-CII=$(printf '%s' "$RESULT" | "$VENV/python" -c "import sys,json;print(json.load(sys.stdin)['data']['attained_cii'])" 2>/dev/null)
-RATING=$(printf '%s' "$RESULT" | "$VENV/python" -c "import sys,json;print(json.load(sys.stdin)['data']['estimated_rating'])" 2>/dev/null)
+# 응답에서 값을 꺼낸다 — **파이썬을 쓰지 않는다 (#637).**
+#
+# 이 세 값은 `curl` 응답에서 문자열을 집는 것뿐이라 실행 환경이 필요 없다. 종전에는
+# `"$VENV/python"`으로 파싱해, **Docker만 있는 환경에서는 계산 경로 확인 자체가
+# 불가능**했다. `jq`도 기대할 수 없으므로(설치돼 있지 않을 수 있다) `sed`로 집는다.
+#
+# 임의의 JSON을 다루는 것이 아니라 **우리가 만든 응답의 고정 필드**를 보는 것이라
+# 성립한다. 형식이 바뀌면 값이 비고, 아래 분기가 원문 400자를 그대로 보여 준다 —
+# 조용히 틀린 값을 만들지는 않는다.
+_field() { printf '%s' "$2" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\{0,1\}\([^\",}]*\).*/\1/p" | head -1; }
+
+CII=$(_field attained_cii "$RESULT")
+RATING=$(_field estimated_rating "$RESULT")
 
 if [ "$CII" = "4.982400" ] && [ "$RATING" = "C" ]; then
   ok "attained_cii=$CII · rating=$RATING — 정본 픽스처와 일치"
 else
-  ERR_CODE=$(printf '%s' "$RESULT" | "$VENV/python" -c "import sys,json;print(json.load(sys.stdin)['error']['code'])" 2>/dev/null)
+  ERR_CODE=$(_field code "$RESULT")
   if [ -n "$ERR_CODE" ]; then
     bad "계산 요청이 거부됐습니다 (${ERR_CODE}) — 인증·CSRF 경로를 확인하십시오"
   else
