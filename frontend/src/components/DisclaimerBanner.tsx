@@ -12,7 +12,8 @@ import './DisclaimerBanner.css'
  */
 
 /** PRD §6.3 — "모든 결과 화면" 행의 문구를 그대로 복사했다. */
-export const DEFAULT_DISCLAIMER =
+// 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+const DEFAULT_DISCLAIMER =
   '참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.'
 
 interface DisclaimerBannerProps {

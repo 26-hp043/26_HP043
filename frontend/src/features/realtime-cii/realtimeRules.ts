@@ -26,6 +26,13 @@ export const POLL_INTERVAL_MS = 60_000
  * **사유 없는 빈칸은 「아직 로딩 중」으로 읽힌다.** 서버가 준 코드를 사람 말로
  * 옮기되, 모르는 코드가 오면 코드를 그대로 보여 준다 — 빈칸보다 낫다.
  */
+/**
+ * ⚠️ **`export`를 떼지 않는다 (#594).** 화면 안에서만 쓰이지만, 서버의 리포트
+ * 문구(`reports/labels.py` `PROJECTION_REASON_LABELS`)가 이 값을 원본으로 삼고
+ * `tests/test_reports.py`가 **이 파일의 선언줄을 문자열로 잘라** 대조한다 —
+ * 그래서 `export` 키워드 자체가 계약의 일부다. 프론트엔드만 훑는 미참조 검사에는
+ * 걸리지 않는 종류의 참조이며, `moduleBoundary.test.ts`가 선언줄을 따로 잠근다.
+ */
 export const PROJECTION_REASONS: Readonly<Record<string, string>> = {
   NO_BASIS:
     '올해 실적이 아직 없어 연말 예상을 산출할 수 없습니다. 항차 실적을 입력하면 계산됩니다.',
@@ -38,7 +45,8 @@ export const PROJECTION_REASONS: Readonly<Record<string, string>> = {
  * `SIMULATION_NO_FUEL_*`는 **행동을 안내해야 한다.** 「값이 안 변한다」로만 적으면
  * 사용자는 기다리고, 실제로는 제원을 채워야 한다.
  */
-export const WARNING_TEXT: Readonly<Record<string, string>> = {
+// 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+const WARNING_TEXT: Readonly<Record<string, string>> = {
   REFERENCE_ONLY: '본 화면의 값은 참고용 예측값이며 규제 제출용 공식 결과가 아닙니다.',
   SIMULATION_NO_FUEL_RATE:
     '선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요.',

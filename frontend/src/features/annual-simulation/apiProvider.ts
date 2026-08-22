@@ -36,6 +36,13 @@ export const MALFORMED_ERROR_MESSAGE = '서버 응답을 해석하지 못했습�
 export const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.'
 
 /** 기능③ 실행 실패. 화면은 이 오류만 안다. */
+/**
+ * ⚠️ **`export`를 떼지 않는다 (#594).** 지금은 어느 화면도 종류로 잡지 않지만
+ * (`AnnualSimulation.tsx`가 `error instanceof Error`로만 본다), 이 저장소의 provider
+ * 오류 계약은 넷이 같은 모양이다 — `VoyageError` · `NotUnderwayError` ·
+ * `ParametersError` · `FuelCatalogError`. 이 하나만 감추면 다음 사람이 **이
+ * provider만 다른 규칙인 줄** 안다.
+ */
 export class AnnualSimulationError extends Error {
   /** 서버가 지목한 필드(`details[0].field`). 없으면 `undefined`. */
   readonly field?: string

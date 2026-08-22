@@ -44,6 +44,9 @@ export interface CurrentUser {
 }
 
 export const LOGIN_PATH = '/login'
+// ⚠️ 이 파일에서도 쓰이지 않는다 (#594). 지우지 않는 이유는 `screens.ts`가 같은
+// 경로를 문자열로 박아 두고 있어, 상수를 없애면 그 하드코딩이 유일본이 되기
+// 때문이다. `screens.test.ts`가 다섯 상수를 `SCREEN_BY_ID`의 `path`와 대조한다.
 export const LOGIN_FAILURE_PATH = '/login/failure'
 export const SIGNUP_PATH = '/signup'
 export const PASSWORD_RESET_PATH = '/password-reset'
@@ -76,7 +79,8 @@ function notify(): void {
 }
 
 /** `useSyncExternalStore` 구독 해제 함수를 반환한다. */
-export function subscribeAuth(listener: Listener): () => void {
+// 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+function subscribeAuth(listener: Listener): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
@@ -157,7 +161,8 @@ export function csrfHeaders(): Record<string, string> {
 }
 
 /** `GET /auth/me`·가입·로그인 응답을 화면 타입으로 옮긴다. */
-export function toCurrentUser(body: unknown): CurrentUser | null {
+// 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+function toCurrentUser(body: unknown): CurrentUser | null {
   const data = (body as { data?: Record<string, unknown> } | null)?.data
   if (!data || typeof data.id !== 'string' || typeof data.email !== 'string') return null
   return {
