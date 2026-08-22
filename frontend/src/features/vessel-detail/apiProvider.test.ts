@@ -191,3 +191,40 @@ describe('실패 경로', () => {
     ).rejects.toThrow(/500/)
   })
 })
+
+describe('findInProgressVoyage (#588)', () => {
+  it('status 필터로 한 건만 묻는다 — 실시간 엔드포인트를 부르지 않는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [] }))
+    await createApiVesselDetailProvider(fetchImpl, '').findInProgressVoyage('v-1')
+
+    const url = fetchImpl.mock.calls[0][0] as string
+    expect(url).toBe('/vessels/v-1/voyages?status=IN_PROGRESS&limit=1')
+    // 실시간 CII 엔드포인트는 YTD·연말 예상까지 계산한다 — 링크 하나에 과하다.
+    expect(url).not.toContain('cii/current')
+  })
+
+  it('있으면 최소 식별자만 돌려준다', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ data: [{ id: 'vy-1', voyage_no: 'V-2026-001' }] }))
+    const found = await createApiVesselDetailProvider(fetchImpl, '').findInProgressVoyage('v-1')
+
+    expect(found).toEqual({ id: 'vy-1', voyageNo: 'V-2026-001' })
+  })
+
+  it('없으면 null — 빈 배열을 「있다」로 읽지 않는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [] }))
+    expect(
+      await createApiVesselDetailProvider(fetchImpl, '').findInProgressVoyage('v-1'),
+    ).toBeNull()
+  })
+
+  it('항차 번호가 없는 항차도 받는다 — 번호 없는 항차가 실제로 있다', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ data: [{ id: 'vy-1', voyage_no: null }] }))
+    const found = await createApiVesselDetailProvider(fetchImpl, '').findInProgressVoyage('v-1')
+
+    expect(found).toEqual({ id: 'vy-1', voyageNo: null })
+  })
+})

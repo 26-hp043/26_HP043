@@ -69,8 +69,27 @@ export interface VesselDetail {
   asOf: string
 }
 
+/** 진행 중 항차의 최소 식별자 (`#588`). 링크를 그릴지 판단하는 데만 쓴다. */
+export interface InProgressVoyage {
+  id: string
+  voyageNo: string | null
+}
+
 export interface VesselDetailProvider {
   load(vesselId: string): Promise<VesselDetail>
+  /**
+   * 진행 중 항차가 있는가 (`#588`).
+   *
+   * **`underway_state`로 판단하지 않는다.** 그 값은 「지금 무엇을 하고 있나」라는
+   * 표시 상태이고, **진행 중 항차의 존재와 별개**다 — 운항 중으로 표시된 선박에
+   * 항차가 없는 상태가 실제로 데이터에 있었다(`#587`). 종전에는 그 값으로 링크를
+   * 그려, 눌러 들어가면 「진행 중인 항차가 없습니다」가 나왔다.
+   *
+   * 실시간 CII 엔드포인트(`§2.14`)를 부르지 않는다 — 그쪽은 YTD·연말 예상까지
+   * 계산하므로 **링크 하나를 그리려고 치르기에는 과하다.** 항차 목록에 이미 있는
+   * `status` 필터로 한 건만 묻는다.
+   */
+  findInProgressVoyage(vesselId: string): Promise<InProgressVoyage | null>
   /**
    * 위치·운항 상태 갱신 (`API_SPEC §2.6`).
    *

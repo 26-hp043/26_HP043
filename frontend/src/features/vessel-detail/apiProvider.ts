@@ -2,7 +2,13 @@ import { csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type { CapacityBasis } from '../voyage-cii/types'
 import type { PositionPayload } from './positionRules'
-import type { CiiYear, VesselDetail, VesselDetailProvider, VesselSpec } from './types'
+import type {
+  CiiYear,
+  InProgressVoyage,
+  VesselDetail,
+  VesselDetailProvider,
+  VesselSpec,
+} from './types'
 
 /**
  * 선박 상세 provider — `GET /vessels/{id}` + `GET /vessels/{id}/cii-history`.
@@ -194,6 +200,21 @@ export function createApiVesselDetailProvider(
   }
 
   return {
+    async findInProgressVoyage(vesselId: string): Promise<InProgressVoyage | null> {
+      /*
+       * `limit=1`이다 — 진행 중 항차는 선박당 하나여야 하고(`repositories/voyage.py`
+       * `find_in_progress`), 여기서 필요한 것은 **있는가 없는가**뿐이다.
+       */
+      const body = await get(`/vessels/${vesselId}/voyages?status=IN_PROGRESS&limit=1`)
+      const rows = (body?.data ?? []) as Array<{ id?: unknown; voyage_no?: unknown }>
+      const first = rows[0]
+      if (!first || typeof first.id !== 'string') return null
+      return {
+        id: first.id,
+        voyageNo: typeof first.voyage_no === 'string' ? first.voyage_no : null,
+      }
+    },
+
     async updatePosition(vesselId: string, payload: PositionPayload): Promise<VesselSpec> {
       const body = await send(`/vessels/${vesselId}/position`, payload)
       const vessel = (body.data ?? null) as ServerVessel | null
