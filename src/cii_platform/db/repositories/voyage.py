@@ -168,6 +168,33 @@ async def list_active(
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def list_for_export(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    regulation_year: int | None = None,
+) -> list[Voyage]:
+    """내보내기용 — 선박의 활성 항차를 **전부** 조회한다 (`API_SPEC §8.1`, #59).
+
+    :func:`list_active`와 나누는 이유는 **커서가 없다**는 점이다. 목록 화면은 페이지를
+    넘기며 읽지만 내보내기는 파일 하나를 만들며, 페이지를 이어 붙이는 책임을 호출부에
+    두면 「마지막 페이지를 빠뜨린 파일」이 만들어질 여지가 생긴다.
+
+    상한을 두지 않는다. 조회가 **선박 하나 + (선택) 규제연도 하나**로 이미 한정돼
+    있어 한 척이 한 해에 만드는 항차 수를 넘지 않고, 자르면 사용자는 **파일 끝이
+    잘린 것을 모른 채** 연간 자료로 쓴다 (가져오기의 1,000행 상한이 잘라 낸 행 수를
+    굳이 응답에 남기는 것과 같은 이유다).
+
+    정렬은 ``(created_at, id)`` 오름차순 — ``list_active``와 같아 화면 순서와 파일
+    순서가 갈리지 않는다.
+    """
+    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted.is_(False))
+    if regulation_year is not None:
+        stmt = stmt.where(Voyage.regulation_year == regulation_year)
+    stmt = stmt.order_by(Voyage.created_at, Voyage.id)
+    return list((await session.execute(stmt)).scalars().all())
+
+
 async def list_annual_inclusions(
     session: AsyncSession,
     *,
