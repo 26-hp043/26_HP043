@@ -8,7 +8,7 @@ import { VoyagePanel } from '../voyage-management/VoyagePanel'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import { detailStatusText } from '../fleet/fleetRules'
-import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
+import { DISPLAY_DIGITS, formatCapacity, formatDecimalString } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
 import { PositionForm } from './PositionForm'
@@ -211,10 +211,15 @@ export function VesselDetail() {
               <Spec label="선종" value={shipTypeLabel(vessel.shipType)} />
               <Spec label="IMO 번호" value={vessel.imoNumber} />
               {/* 축에 해당하는 제원을 앞에 둔다 — 그 값이 CII 분모다. */}
+              {/*
+                `Spec`은 값을 그대로 그린다 — 포맷 지점이 없어 서버 문자열
+                `6405.77`이 그대로 나갔고, 같은 값이 선박 관리 목록에서는
+                `6,405.77`이었다. `§4.2` 규정을 거치게 한다 (`#633`).
+              */}
               {capacityBasis === 'DWT' ? (
-                <Spec label="재화중량톤수 (DWT)" value={vessel.deadweight} />
+                <Spec label="재화중량톤수 (DWT)" value={formatCapacity(vessel.deadweight)} />
               ) : (
-                <Spec label="총톤수 (GT)" value={vessel.grossTonnage} />
+                <Spec label="총톤수 (GT)" value={formatCapacity(vessel.grossTonnage)} />
               )}
               <Spec label="기준 속력" value={vessel.referenceSpeedKn} suffix=" kn" />
               <Spec

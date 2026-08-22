@@ -3,6 +3,7 @@ import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
   GROUPED_FIELDS,
+  formatCapacity,
   formatDecimalString,
   formatGrouped,
   formatPercent,
@@ -78,6 +79,7 @@ describe('formatDecimalString', () => {
       durationHours: 1,
       days: 0,
       speedKn: 1,
+      capacity: 0,
       percent: 1,
     })
   })
@@ -129,9 +131,35 @@ describe('formatGrouped', () => {
 
   it('CII·비율·확률은 대상이 아니다', () => {
     // §4.2 — 명시적으로 제외하지 않으면 구현에서 일괄 적용될 여지가 있다
-    expect(GROUPED_FIELDS).toEqual(['fuelTon', 'co2Ton', 'distanceNm'])
+    expect(GROUPED_FIELDS).toEqual(['fuelTon', 'co2Ton', 'distanceNm', 'capacity'])
     expect(GROUPED_FIELDS).not.toContain('cii')
     expect(GROUPED_FIELDS).not.toContain('percent')
+    expect(GROUPED_FIELDS).not.toContain('days')
+    expect(GROUPED_FIELDS).not.toContain('speedKn')
+  })
+})
+
+describe('formatCapacity (#633)', () => {
+  it('DESIGN_SYSTEM §4.2 — 0자리 + 천단위 구분자', () => {
+    expect(formatCapacity(50000)).toBe('50,000')
+    expect(formatCapacity(25000)).toBe('25,000')
+    expect(formatCapacity(9520)).toBe('9,520')
+  })
+
+  it('소수를 0자리로 고정한다 — 값에 따라 자릿수가 달라지지 않는다', () => {
+    // 종전에는 `toLocaleString`이라 `50,000`과 `6,405.77`이 섞였다.
+    expect(formatCapacity(6405.77)).toBe('6,406')
+    expect(formatCapacity('6405.77')).toBe('6,406')
+  })
+
+  it('숫자로 오든 문자열로 오든 같은 값을 낸다', () => {
+    // 선박 목록은 number(`§2.1`), 선박 상세는 문자열로 받는다.
+    expect(formatCapacity(50000)).toBe(formatCapacity('50000.00'))
+  })
+
+  it('없으면 null — 「없음」 표기는 화면이 정한다', () => {
+    // 목록은 `—`, 등록 결과는 「미입력」이다. 여기서 정하면 그 차이를 지운다.
+    expect(formatCapacity(null)).toBeNull()
   })
 })
 
