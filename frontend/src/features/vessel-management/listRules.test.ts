@@ -8,6 +8,7 @@ import {
   deleteConfirmMessage,
   shipTypeLabel,
 } from './listRules'
+import { formatCapacity } from '../../display/format'
 
 /**
  * #510 — 선박 목록 표시 규칙.
@@ -73,6 +74,23 @@ describe('capacityCell — 그 선종이 실제로 쓰는 축만 보인다', () 
       label: 'GT',
       value: '30,000',
     })
+  })
+
+  it('DESIGN_SYSTEM §4.2 — 소수를 0자리로 고정한다 (#633)', () => {
+    // 종전에는 `toLocaleString`이라 `50,000`과 `6,405.77`이 섞였다.
+    expect(capacityCell(vessel({ ship_type: 'BULK_CARRIER', deadweight: 6405.77 })).value).toBe(
+      '6,406',
+    )
+  })
+
+  it('선박 상세와 같은 문자열을 낸다 — 화면마다 다르게 포맷하지 않는다 (#633)', () => {
+    // **이 이슈의 본체다.** 목록은 포맷을 거치고 상세는 서버 문자열을 그대로 그려
+    // 같은 값이 `6,405.77`과 `6405.77`로 갈렸다. 두 화면이 같은 함수를 쓰는지 본다.
+    for (const dwt of [50000, 9520, 6405.77]) {
+      expect(capacityCell(vessel({ ship_type: 'BULK_CARRIER', deadweight: dwt })).value).toBe(
+        formatCapacity(dwt),
+      )
+    }
   })
 
   it('선종을 모르면 축도 지어내지 않고 둘 다 보인다', () => {

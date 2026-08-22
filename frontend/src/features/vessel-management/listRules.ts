@@ -1,3 +1,4 @@
+import { formatCapacity } from '../../display/format'
 import { capacityAxisOf } from '../vessel-registration/shipTypes'
 import type { Vessel } from '../vessel-registration/types'
 
@@ -18,10 +19,21 @@ import type { Vessel } from '../vessel-registration/types'
 /** 표에서 「없음」을 나타내는 문자. `DESIGN_SYSTEM §2.4.3` 등급 없음과 같은 기호다. */
 export const MISSING = '—'
 
-/** 숫자를 목록 셀 문자열로. 없으면 `—`. */
+/**
+ * 숫자를 목록 셀 문자열로. 없으면 `—`.
+ *
+ * ⚠️ **용량(DWT·GT)에는 쓰지 않는다** — `capacityCell`이 `formatCapacity`를 쓴다
+ * (`DESIGN_SYSTEM §4.2` · `#633`). `toLocaleString`은 자릿수를 고정하지 않아
+ * `50,000`과 `6,405.77`이 섞이고, 선박 상세와도 값이 갈렸다.
+ */
 export function cellNumber(value: number | null): string {
   if (value === null) return MISSING
   return value.toLocaleString('ko-KR')
+}
+
+/** 용량 셀 — `§4.2` 규정을 거친다. 없으면 `—`. */
+function capacityText(value: number | null): string {
+  return formatCapacity(value) ?? MISSING
 }
 
 /*
@@ -42,12 +54,12 @@ export { shipTypeLabel } from '../vessel-registration/shipTypes'
  */
 export function capacityCell(vessel: Vessel): { label: string; value: string } {
   const axis = capacityAxisOf(vessel.ship_type)
-  if (axis === 'GT') return { label: 'GT', value: cellNumber(vessel.gross_tonnage) }
-  if (axis === 'DWT') return { label: 'DWT', value: cellNumber(vessel.deadweight) }
+  if (axis === 'GT') return { label: 'GT', value: capacityText(vessel.gross_tonnage) }
+  if (axis === 'DWT') return { label: 'DWT', value: capacityText(vessel.deadweight) }
   // 선종을 모르면 축도 모른다. 지어내지 않고 둘 다 보인다.
   return {
     label: 'GT / DWT',
-    value: `${cellNumber(vessel.gross_tonnage)} / ${cellNumber(vessel.deadweight)}`,
+    value: `${capacityText(vessel.gross_tonnage)} / ${capacityText(vessel.deadweight)}`,
   }
 }
 

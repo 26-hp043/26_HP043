@@ -60,6 +60,16 @@ export const DISPLAY_DIGITS = {
    * 0.01 kn은 항해일지·noon report가 담는 정밀도가 아니다.
    */
   speedKn: 1,
+  /**
+   * 용량 — DWT·GT (`§4.2` · #633).
+   *
+   * 0.01 t는 10 kg이라 수천~수만 톤 급 선박 제원에서 의미를 갖지 않는다
+   * — `distanceNm`이 0자리인 것과 같은 논리다.
+   *
+   * **표시 반올림이며 원본은 보존된다**(`§4.2` 「반올림 🔒」). CII 분모에는
+   * API 원본 값이 그대로 쓰인다.
+   */
+  capacity: 0,
   /** 비율·확률의 **백분율** 자릿수 (`§4.2`) */
   percent: 1,
 } as const
@@ -73,8 +83,11 @@ export const DISPLAY_DIGITS = {
  * CII는 통상 1000을 넘지 않아 구분자가 등장하지 않으며, 적용하면 `§4.1`이
  * 자릿수 고정으로 확보한 소수부 정렬을 방해한다. **명시적으로 제외하지 않으면
  * 구현에서 일괄 적용될 여지가 있어** 목록으로 못박는다.
+ *
+ * `capacity`는 `#633`에서 들어왔다 — 5만 톤 급 값에 구분자가 없으면 자릿수를
+ * 세어야 읽힌다. 보고서(`#584`)도 이미 쓰고 있었다.
  */
-export const GROUPED_FIELDS = ['fuelTon', 'co2Ton', 'distanceNm'] as const
+export const GROUPED_FIELDS = ['fuelTon', 'co2Ton', 'distanceNm', 'capacity'] as const
 
 /**
  * 화면에 붙이는 단위 문자열 (`DESIGN_SYSTEM §4.2`).
@@ -231,6 +244,21 @@ export function formatGrouped(value: string, digits: number): string {
  * formatPercent('0.072')     // '7.2'
  * formatPercent('1')         // '100.0'
  */
+/**
+ * 선박 용량(DWT·GT)을 표시 문자열로 (`DESIGN_SYSTEM §4.2` · #633).
+ *
+ * **화면마다 따로 포맷하지 않는다.** 종전에는 선박 관리 목록이
+ * `toLocaleString('ko-KR')`을 쓰고 선박 상세는 서버 문자열을 그대로 그려
+ * **같은 값이 `6,405.77`과 `6405.77`로 갈렸다.**
+ *
+ * 값이 없으면 `null`을 돌려준다 — 「없음」을 어떻게 적을지는 화면마다 다르다
+ * (목록은 `—`, 등록 결과는 「미입력」). 여기서 정하면 그 차이를 지울 수 없다.
+ */
+export function formatCapacity(value: number | string | null): string | null {
+  if (value === null || value === undefined) return null
+  return formatGrouped(String(value), DISPLAY_DIGITS.capacity)
+}
+
 export function formatPercent(value: string, digits: number = DISPLAY_DIGITS.percent): string {
   const trimmed = value.trim()
   if (!/^[+-]?\d+(\.\d+)?$/.test(trimmed)) {
