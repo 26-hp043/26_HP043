@@ -403,3 +403,151 @@ def test_the_three_routes_are_registered():
     assert "get" in paths["/api/v1/annual-simulations/{simulation_run_id}"]
     assert "get" in paths["/api/v1/annual-simulations/{simulation_run_id}/snapshot-voyages"]
     assert "post" in paths["/api/v1/annual-simulations/{simulation_run_id}/reproduce"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# §6.4 — 선박 제원 스냅샷 (#493)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_snapshot_records_the_vessel_specs(session, executed):
+    """스냅샷이 **계산이 읽는 제원 전부**를 담는다.
+
+    `#493` 본문은 `reference_speed_kn`·`reference_daily_foc_ton` 둘을 들었으나
+    `_recompute`가 capacity도 살아 있는 행에서 읽는다 — 그 셋이 **CII 분모**를
+    바꾸므로 영향이 앞의 둘보다 크다.
+    """
+    from cii_platform.services.annual_simulation import VESSEL_SNAPSHOT_FIELDS
+
+    stored = (
+        await session.execute(
+            text(
+                "SELECT s.vessel_json FROM simulation_snapshot s "
+                "JOIN annual_simulation_run r ON r.snapshot_id = s.id WHERE r.id = :id"
+            ),
+            {"id": UUID(executed["simulation_id"])},
+        )
+    ).scalar_one()
+
+    assert set(stored) == set(VESSEL_SNAPSHOT_FIELDS)
+    # 수치는 **문자열**이다 — float으로 거치면 `NUMERIC` 원본과 다른 값이 보관된다.
+    assert stored["deadweight"] == "50000.00"
+    assert stored["reference_speed_kn"] == "14.00"
+    assert stored["ship_type"] == "BULK_CARRIER"
+
+
+@pytest.mark.asyncio
+async def test_reproduce_ignores_later_spec_removal(session, executed, vessel_id):
+    """제원을 **비우면** 민감도 속도 지렛대가 꺼진다 — 재현이 그것을 따라가면 안 된다.
+
+    ⚠️ **`#493` 본문의 전제를 정정한다.** 본문은 *「`PRD §12.4`의 속도–연료 관계가 이
+    값으로 표본을 흔든다」*고 적었으나, 실측하면 `reference_speed_kn`·
+    `base_daily_foc_ton`은 `calc/annual_simulation.py`에서 **산술에 한 번도 쓰이지
+    않는다** — `_has_speed_model()`의 **존재 여부 게이트**일 뿐이다. `14 → 9`로 바꿔도
+    결과가 같아, 그 형태로 쓴 테스트는 결함 상태에서도 통과한다(실제로 확인했다).
+
+    두 값의 재현성 위험은 **NULL ↔ 비NULL 뒤집힘**이다. 그 상태를 만든다.
+    """
+    await session.execute(
+        text("UPDATE vessel SET reference_daily_foc_ton = NULL WHERE id = :id"),
+        {"id": vessel_id},
+    )
+
+    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+
+    assert again == executed
+
+
+@pytest.mark.asyncio
+async def test_reproduce_ignores_later_capacity_edits(session, executed, vessel_id):
+    """DWT를 고쳐도 재현이 흔들리지 않는다.
+
+    `#493` 본문이 들지 않은 경로다. capacity는 **CII 분모**라 값이 크게 달라진다 —
+    제원 둘만 스냅샷했다면 이 테스트가 실패한다.
+    """
+    await session.execute(
+        text("UPDATE vessel SET deadweight = 12345 WHERE id = :id"), {"id": vessel_id}
+    )
+
+    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+
+    assert again == executed
+
+
+@pytest.mark.asyncio
+async def test_reproduce_ignores_later_ship_type_edits(session, executed, vessel_id):
+    """선종을 고쳐도 **틀린 사유로 끊지 않는다.**
+
+    종전에는 살아 있는 선박으로 reference line을 다시 골라 `parameters_used`가
+    달라졌고, **409 「규정 파라미터가 변경되어…」**가 났다. 실제 원인은 규정이 아니라
+    선종 수정이다 — 이 이슈가 지적한 것과 같은 종류의 오진이 하나 더 있었다.
+    """
+    await session.execute(
+        text("UPDATE vessel SET ship_type = 'TANKER' WHERE id = :id"), {"id": vessel_id}
+    )
+
+    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+
+    assert again == executed
+
+
+@pytest.mark.asyncio
+async def test_reproduce_refuses_runs_made_before_the_spec_snapshot(session, executed):
+    """`037` 이전 실행은 **사유를 밝히고 끊는다.**
+
+    스냅샷 테이블은 immutable이라 그 행에 제원을 넣을 수 없다. 조용히 살아 있는
+    제원으로 넘어가면 「같은 스냅샷으로 다시 돌렸다」가 거짓이 되고, 이 이슈가 보고한
+    증상이 그대로 남는다.
+
+    (immutable 트리거 때문에 UPDATE로 만들 수 없어 **행을 새로 넣어** 그 상태를
+    재현한다.)
+    """
+    simulation_id = UUID(executed["simulation_id"])
+    legacy_snapshot = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO simulation_snapshot "
+            "(id, vessel_id, regulation_year, voyages_json, vessel_json, "
+            " input_hash, parameter_hash) "
+            "SELECT :new_id, s.vessel_id, s.regulation_year, s.voyages_json, NULL, "
+            " s.input_hash, s.parameter_hash "
+            "FROM simulation_snapshot s "
+            "JOIN annual_simulation_run r ON r.snapshot_id = s.id WHERE r.id = :id"
+        ),
+        {"new_id": legacy_snapshot, "id": simulation_id},
+    )
+    await session.execute(
+        text("UPDATE annual_simulation_run SET snapshot_id = :snap WHERE id = :id"),
+        {"snap": legacy_snapshot, "id": simulation_id},
+    )
+
+    with pytest.raises(NotFoundError) as exc:
+        await reproduce_annual_simulation(session, simulation_id)
+
+    assert "#493" in str(exc.value)
+    # 「관리자에게 문의」가 아니라 **다시 실행하라**고 말한다 — 사용자가 할 수 있는 일이다.
+    assert "다시 실행" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_input_hash_covers_the_vessel_specs(session, vessel_id):
+    """제원이 다르면 `input_hash`도 달라야 한다.
+
+    해시가 덮지 않으면 「스냅샷은 immutable인데 해시가 다르다」 검사가 **제원 변화를
+    보지 못한다** — 이 이슈가 보고한 상태가 정확히 그것이다.
+    """
+    from cii_platform.services.annual_simulation import _input_hash
+
+    common = {
+        "vessel_id": vessel_id,
+        "regulation_year": YEAR,
+        "target_rating": "C",
+        "runs": 1000,
+        "seed": 12345,
+        "voyages_json": [{"kind": "PLANNED"}],
+    }
+    base = _input_hash(**common, vessel_json={"deadweight": "50000.00"})
+    changed = _input_hash(**common, vessel_json={"deadweight": "12345.00"})
+
+    assert base != changed

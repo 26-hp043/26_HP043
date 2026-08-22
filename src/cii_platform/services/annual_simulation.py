@@ -36,6 +36,7 @@ immutable인 것도 같은 이유다 — 근거가 나중에 바뀌면 재현이
 from __future__ import annotations
 
 import secrets
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -50,7 +51,7 @@ from cii_platform.calc.annual_simulation import (
     simulate_annual,
 )
 from cii_platform.calc.cii_engine import calculate_required_cii
-from cii_platform.calc.hash import compute_input_hash, compute_parameter_hash
+from cii_platform.calc.hash import compute_annual_input_hash, compute_parameter_hash
 from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import parameters as param_repo
@@ -200,6 +201,66 @@ def _decimal_or(*values: str | None) -> Decimal:
     return Decimal(0)
 
 
+#: 계산이 ``vessel``에서 읽는 **전부**다 (`#493`).
+#:
+#: `#493` 본문은 ``reference_*`` 둘을 들었으나 실측하면 다섯이다 —
+#: :func:`_recompute`가 capacity도 살아 있는 행에서 읽는다. 세 값이 **CII 분모**를
+#: 바꾸므로 영향이 앞의 둘보다 크다.
+VESSEL_SNAPSHOT_FIELDS: tuple[str, ...] = (
+    "ship_type",
+    "deadweight",
+    "gross_tonnage",
+    "reference_speed_kn",
+    "reference_daily_foc_ton",
+)
+
+
+@dataclass(frozen=True)
+class VesselSnapshot:
+    """스냅샷에 담긴 선박 제원 (`#493`).
+
+    ``vessel`` ORM 행과 **같은 속성 이름**을 갖는다 — ``resolve_transport_capacity``
+    같은 기존 함수가 그대로 받아들이도록 하려는 것이다. 계산부를 고치지 않는 것이
+    요점이다: 고치면 실행 경로와 재현 경로가 또 갈린다.
+    """
+
+    ship_type: str
+    deadweight: Decimal | None
+    gross_tonnage: Decimal | None
+    reference_speed_kn: Decimal | None
+    reference_daily_foc_ton: Decimal | None
+
+
+def _vessel_snapshot_payload(vessel) -> dict[str, str | None]:
+    """``simulation_snapshot.vessel_json``에 넣을 제원 사본.
+
+    **수치를 문자열로 담는다.** ``NUMERIC`` 값을 float으로 거치면 ``0.1``이
+    ``0.1000000000000000055``가 되어 들어가고, 그러면 스냅샷이 원본과 다른 값을
+    보관하게 된다 (`API_SPEC §1.7`이 응답에 문자열을 쓰는 것과 같은 이유).
+    """
+    payload: dict[str, str | None] = {}
+    for field in VESSEL_SNAPSHOT_FIELDS:
+        value = getattr(vessel, field)
+        payload[field] = None if value is None else str(value)
+    return payload
+
+
+def _vessel_from_snapshot(payload: dict) -> VesselSnapshot:
+    """제원 사본을 계산이 받는 모양으로 되돌린다."""
+
+    def number(name: str) -> Decimal | None:
+        value = payload.get(name)
+        return None if value is None else Decimal(str(value))
+
+    return VesselSnapshot(
+        ship_type=payload["ship_type"],
+        deadweight=number("deadweight"),
+        gross_tonnage=number("gross_tonnage"),
+        reference_speed_kn=number("reference_speed_kn"),
+        reference_daily_foc_ton=number("reference_daily_foc_ton"),
+    )
+
+
 def _inputs_from_snapshot(
     rows: list[dict], vessel
 ) -> tuple[CompletedTotals, list[RemainingVoyage]]:
@@ -210,10 +271,10 @@ def _inputs_from_snapshot(
     ``reproduce``가 「원본과 다르다」고 보고할 때 그것이 **엔진 문제인지 조립 문제인지**
     구분되지 않는다.
 
-    ``reference_speed_kn``·``reference_daily_foc_ton``은 **선박에서 읽는다** — 스냅샷에
-    없다. 그래서 선박 제원이 바뀌면 같은 스냅샷으로도 결과가 달라질 수 있는데
-    ``input_hash``는 항차만 덮으므로 그 변화가 해시에 드러나지 않는다. 스냅샷 범위를
-    넓히는 것은 스키마 변경이라 별도 이슈로 둔다.
+    ``vessel``은 이제 **스냅샷에서 복원한** :class:`VesselSnapshot`이다 (`#493`).
+    종전에는 살아 있는 ``vessel`` 행을 받아 제원을 읽었고, 그래서 제원을 고치면 같은
+    스냅샷·같은 seed로도 결과가 달라졌다 — ``input_hash``가 항차만 덮어 그 변화가
+    해시에도 드러나지 않았다.
     """
     completed_co2_g = Decimal(0)
     completed_distance_nm = Decimal(0)
@@ -310,7 +371,13 @@ async def run_annual_simulation(
     # `PRD §12.4.3` 자동 seed — 결과에 실어 「이 seed로 다시 실행」이 가능하게 한다.
     seed = random_seed if random_seed is not None else secrets.randbits(_SEED_BITS)
 
-    vessel = await _load_vessel(session, vessel_id)
+    live_vessel = await _load_vessel(session, vessel_id)
+    # 제원을 **여기서 사본으로 고정**하고, 이후 계산은 전부 그 사본으로 한다 (`#493`).
+    # 실행 경로가 살아 있는 행을 쓰고 재현 경로가 사본을 쓰면 두 경로가 갈린다 —
+    # `_inputs_from_snapshot` docstring이 항차에 대해 적은 것과 같은 이유다.
+    vessel_json = _vessel_snapshot_payload(live_vessel)
+    vessel = _vessel_from_snapshot(vessel_json)
+
     regulation = await _load_regulation_year(session, regulation_year)
     reference_line = await _select_reference_line(session, vessel)
     rating_boundary = await _select_rating_boundary(session, vessel)
@@ -427,6 +494,7 @@ async def run_annual_simulation(
         target_rating=target_rating,
         runs=outcome.runs,
         voyages_json=voyages_json,
+        vessel_json=vessel_json,
         parameters_used=parameters_used,
         result_json=payload,
         warnings=payload["warnings"],
@@ -660,14 +728,20 @@ def _input_hash(
     runs: int,
     seed: int,
     voyages_json: list[dict],
+    vessel_json: dict,
 ) -> str:
     """``input_hash``의 재료를 한 곳에 둔다 (``TECH_SPEC §5.3``).
 
     **저장할 때와 재현할 때가 같은 재료를 써야 한다.** 두 곳에 적으면 한쪽만 바뀌었을
     때 ``reproduce``가 「재현 실패」를 보고하는데, 실제로 다른 것은 결과가 아니라 해시
     계산식이다 — 가장 찾기 어려운 종류의 오보다.
+
+    ``vessel``이 재료에 있다 (`#493`). 제원이 계산 입력이므로 해시가 덮어야 한다 —
+    덮지 않으면 「스냅샷은 immutable인데 해시가 다르다」 검사가 **제원 변화를 보지
+    못한다.** 이 재료가 바뀌었으므로 `037` **이전 실행의 해시는 이 식으로 재현되지
+    않는다**; 그 행들은 ``vessel_json``이 NULL이라 재현 경로가 앞에서 끊는다.
     """
-    return compute_input_hash(
+    return compute_annual_input_hash(
         {
             "vessel_id": str(vessel_id),
             "regulation_year": regulation_year,
@@ -675,6 +749,7 @@ def _input_hash(
             "simulation_runs": runs,
             "random_seed": str(seed),
             "voyages": voyages_json,
+            "vessel": vessel_json,
         }
     )
 
@@ -687,6 +762,7 @@ async def _persist(
     target_rating: str,
     runs: int,
     voyages_json: list[dict],
+    vessel_json: dict,
     parameters_used: dict,
     result_json: dict,
     warnings: list[str],
@@ -709,6 +785,7 @@ async def _persist(
         runs=runs,
         seed=seed,
         voyages_json=voyages_json,
+        vessel_json=vessel_json,
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
@@ -716,14 +793,17 @@ async def _persist(
         await session.execute(
             text(
                 "INSERT INTO simulation_snapshot "
-                "(vessel_id, regulation_year, voyages_json, input_hash, parameter_hash) "
-                "VALUES (:vessel_id, :year, CAST(:voyages AS jsonb), :input_hash, :parameter_hash) "
+                "(vessel_id, regulation_year, voyages_json, vessel_json, "
+                " input_hash, parameter_hash) "
+                "VALUES (:vessel_id, :year, CAST(:voyages AS jsonb), "
+                " CAST(:vessel AS jsonb), :input_hash, :parameter_hash) "
                 "RETURNING id, created_at"
             ),
             {
                 "vessel_id": vessel_id,
                 "year": regulation_year,
                 "voyages": _json(voyages_json),
+                "vessel": _json(vessel_json),
                 "input_hash": input_hash,
                 "parameter_hash": parameter_hash,
             },
@@ -959,7 +1039,11 @@ async def reproduce_annual_simulation(
     if seed is None:
         raise NotFoundError("이 실행은 seed가 기록되지 않아 재현할 수 없습니다(#443 이전 실행).")
 
-    vessel = await _load_vessel(session, row.vessel_id)
+    # **제원은 스냅샷에서 읽는다** (`#493`). 살아 있는 행을 읽으면 그 사이의 제원
+    # 수정이 섞여 「재현 실패」가 되는데, 그것은 재현성 계약이 깨진 것이 아니라
+    # **다른 입력으로 돌린 것**이다 — 항차에 대해 이미 같은 판단을 해 두었다.
+    vessel = _vessel_from_snapshot(await _load_snapshot_vessel(session, row.snapshot_id))
+
     regulation = await _load_regulation_year(session, row.regulation_year)
     reference_line = await _select_reference_line(session, vessel)
     rating_boundary = await _select_rating_boundary(session, vessel)
@@ -991,6 +1075,7 @@ async def reproduce_annual_simulation(
             runs=row.simulation_runs,
             seed=seed,
             voyages_json=voyages_json,
+            vessel_json=await _load_snapshot_vessel(session, row.snapshot_id),
         )
         != row.input_hash
     ):
@@ -1019,6 +1104,34 @@ async def reproduce_annual_simulation(
         payload=payload,
         snapshot=_snapshot_block(row),
     )
+
+
+async def _load_snapshot_vessel(session: AsyncSession, snapshot_id) -> dict:
+    """스냅샷의 선박 제원 사본 (`#493`).
+
+    **없으면 끊는다.** `037` 이전 실행은 이 값이 NULL이고, 그 행으로 재현하면 계산이
+    **살아 있는 제원**을 쓰게 되어 「같은 스냅샷으로 다시 돌렸다」가 거짓이 된다.
+
+    조용히 살아 있는 행으로 넘어가지 않는 이유는 이 이슈(`#493`)가 보고한 증상이
+    정확히 그것이기 때문이다 — 결과가 달라지는데 원인이 **엔진·환경 문제**로 보고돼
+    운영자가 잘못된 방향으로 조사하게 된다. `#443` 이전 실행을 :func:`_stored_payload`가
+    끊는 것과 같은 선례다.
+    """
+    from sqlalchemy import text
+
+    payload = (
+        await session.execute(
+            text("SELECT vessel_json FROM simulation_snapshot WHERE id = :id"),
+            {"id": snapshot_id},
+        )
+    ).scalar_one()
+
+    if payload is None:
+        raise NotFoundError(
+            "이 실행은 선박 제원을 스냅샷하기 전(#493)에 만들어져 재현할 수 없습니다. "
+            "다시 실행하면 지금 제원 기준의 결과를 얻을 수 있습니다."
+        )
+    return payload
 
 
 async def _load_snapshot_voyages(session: AsyncSession, snapshot_id) -> list[dict]:

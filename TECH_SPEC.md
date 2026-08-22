@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.7 |
+| 버전 | v1.8 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-08-22 |
+| 최종 수정일 | 2026-08-23 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -910,6 +910,8 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(선박·연도·capacity 축 값·연료 추정의 결정 인자(`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`)·확정된 시나리오 계획 3건(`scenarios`)·`weather_model`·`weather_factor`)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
 
+> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
+
 ### 5.4 재현성 계약 (Reproducibility Contract)
 
 > **[#102]** 기상 데이터 갱신과 재현성의 관계를 명확히 정의한다. 상위 근거: PRD §16.2 신뢰성 — "계산 재현성: 동일 입력·동일 파라미터·동일 seed는 동일 결과".
@@ -1282,6 +1284,15 @@ dual-precision-v1_decimal30-pcg64dxsm_numpy2.1.0
 | 완료 항차 (COMPLETED) | `Voyage` + `VoyageFuelUse` | actual_distance_nm, actual_fuel_ton (있는 경우) |
 | 진행 중 항차 (IN_PROGRESS) | `Voyage` | planned_*, 최신 estimate |
 | 계획 항차 (PLANNED) | `Voyage` | planned_distance_nm, planned_speed_kn, planned_fuel_ton |
+| **선박 제원** (`#493`) | `Vessel` | ship_type, deadweight, gross_tonnage, reference_speed_kn, reference_daily_foc_ton |
+
+> **선박 제원을 함께 담는다 (`#493`).** 이 표가 항차만 열거하는 동안 구현도 항차만 담았고, 계산에 쓰는 제원은 **살아 있는 `vessel` 행에서** 읽었다. 그래서 제원을 고치면 **같은 스냅샷·같은 seed로도 결과가 달라졌다.**
+>
+> 다섯 필드 전부가 필요하다 — 앞의 셋(`ship_type`·`deadweight`·`gross_tonnage`)이 **CII 분모**(`transport_capacity`·`reference_capacity`)를 바꾸고, 뒤의 둘은 민감도 속도 지렛대의 **적용 여부**를 가른다(`_has_speed_model`. 산술에는 쓰이지 않으므로 값이 아니라 **NULL ↔ 비NULL 뒤집힘**이 결과를 바꾼다).
+>
+> `#378`(항차 연료에 CF 스냅샷)과 같은 문제·같은 해법이다 — **계산에 쓴 값을 나중에 물을 수 있어야 한다**(`§5.4`).
+>
+> ⚠️ `simulation_snapshot`은 immutable이라 **기존 행에는 값을 넣을 수 없다.** 컬럼은 nullable이며, 값이 없는 행은 재현 경로(`§6.4`)가 사유를 밝히고 끊는다.
 
 ### 11.3 구현 방식
 
@@ -1827,3 +1838,4 @@ WeasyPrint import는 **함수 안에서** 한다. 최상단에서 하면 Pango�
 | 2026-08-22 | `#653` | **§12.3 경고 표에 `CII_APPLICABILITY_UNKNOWN` 신설.** `NON_CII_VESSEL`은 **GT를 알고 그것이 5,000 미만일 때만** 붙는다 — GT가 NULL이면 판정 근거가 없어 「적용 대상이 아니다」라고 단정할 수 없기 때문이다. 그 결과 **GT가 NULL인 선박은 아무 경고도 받지 못했고**, 규제상 무의미할 수 있는 계산 결과가 아무 표시 없이 나갔다(데모 실선 2척이 그 상태다). 판정 불가를 별도 코드로 남긴다. `NON_CII_VESSEL` 조건 표기도 구현에 맞춰 정밀화했다. `§4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#653) |
 | 2026-08-22 | `#649` | **§5.4.1 경계 처리표에 「도착 예정일 초과」 행 신설 · §12.3에 `IN_PROGRESS_PAST_ETA` 등재.** 진행 중 항차가 도착 예정일을 지나도 시계에 **상한이 없어** 거리·연료가 계속 자랐다 — 출항 90일 뒤면 계획의 7배다. `compute_progress`가 `actual_arrival_at`만 보고 `planned_arrival_at`은 **인자로 받지도 않았다.** `#587`(PR `#639`)이 시드 날짜를 옮겨 증상만 없앴고, 시연 날짜가 밀리면 재발하는 상태였다. 실적이 없을 때만 예정일로 자르며(실적이 있으면 그쪽이 사실이다), **`is_simulated`는 `True`로 남긴다** — 예정일 초과는 실적이 확정된 것이 아니라 아직 입력되지 않은 것이라 플래그를 내리면 「계획이 곧 실적」이 된다. 대신 경고가 왜 값이 멈췄는지를 말한다. `§4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#649) |
 | 2026-08-23 | `#359` | §16.2 각주의 「2-6은 `#359` 결정 대기」를 판정 결과로 갱신 — 어드민 계정이 1차 시연 범위 밖으로 정해져 2-6은 **계정 관리만 MVP**로 확정됐다(`PRD §20 O-14` 각주 · `UIFLOW 2-6`). **이 줄은 정본 3종에 흩어진 같은 사실 중 마지막 하나였다** — `#359` 처리 중 grep 전수 확인으로 잡았다. `§4.3`상 각주 정정이라 버전은 올리지 않는다 (#359) |
+| 2026-08-23 | `#493` | **v1.8 — §11.2 스냅샷 대상 표에 「선박 제원」 행 추가 · §5.3에 기능③ `input_hash` 각주 신설.** 이 표가 항차만 열거하는 동안 구현도 항차만 담았고 계산에 쓰는 제원은 **살아 있는 `vessel` 행에서** 읽었다 — 제원을 고치면 같은 스냅샷·같은 seed로도 결과가 달라지는데 `input_hash`가 그 변화를 덮지 않아 `reproduce`가 **해시 검사를 통과한 뒤 500**을 냈고, 그 코드는 「엔진·환경이 바뀌었다」는 뜻이라 운영자가 잘못된 방향으로 조사하게 된다. ⚠️ 실측하며 **더 큰 것**을 찾았다 — 기능③이 기능①의 `INPUT_FIELDS`를 그대로 써서 **넘긴 일곱 키 중 둘만 살아남고 있었다**(`vessel_id`·`regulation_year`). seed·실행 수·목표 등급·**항차 스냅샷 전체**가 해시에 드러나지 않아 `§5.4` 1항이 성립하지 않았고, 재현 경로의 해시 검사가 **무효**였다. 기능②가 `SCENARIO_INPUT_FIELDS`로 이미 해결한 문제라 같은 모양으로 `ANNUAL_INPUT_FIELDS`를 두었다. 제원은 다섯 필드 전부 담는다 — 이슈 본문은 `reference_*` 둘만 들었으나 `ship_type`·`deadweight`·`gross_tonnage`가 **CII 분모**를 바꾼다. 반대로 `reference_*` 둘은 산술에 쓰이지 않아 **값이 아니라 NULL↔비NULL 뒤집힘**이 결과를 바꾼다(본문의 「그 값으로 표본을 흔든다」는 정확하지 않다) (#493) |
