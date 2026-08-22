@@ -2,7 +2,22 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      파비콘은 SVG를 먼저 두고 PNG를 덧붙인다 (#629).
+
+      SVG를 지원하는 브라우저는 벡터를 골라 어느 배율에서도 또렷하고, 아닌 쪽은
+      아래 PNG로 내려간다. **SVG만 두면 그 브라우저에서 브랜드 아이콘이 뜨지 않는다**
+      — `#607` 완료 기준이 16·32를 요구한 이유이며, 그 항목만 남아 있었다.
+
+      PNG는 `favicon.svg`를 그대로 래스터화한 것이다. **배경 없는 브랜드 심볼을
+      쓰지 않는다** — 본체가 `#16305C`라 크롬 다크 탭(`#202124`) 대비가 1.24:1로
+      사실상 보이지 않는다. `favicon.svg`는 `#2F6BDE` 라운드 사각에 흰 글리프라
+      다크 3.28:1 · 라이트 4.91:1로 양쪽에서 읽힌다.
+    -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BlueLog — CII 예측 · 운항 의사결정 보조 플랫폼</title>
