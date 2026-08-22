@@ -1,4 +1,5 @@
 import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { readPageMeta } from '../vessel-management/apiProvider'
 import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type { ImportResult, ImportRowError } from './importRules'
@@ -46,6 +47,30 @@ interface ServerFuelUse {
   actual_fuel_ton?: unknown
 }
 
+/**
+ * 항차 목록 응답의 한 행 (`GET /vessels/{id}/voyages`).
+ *
+ * ## 공용화하지 않는다 — 세 벌은 같은 타입이 아니다 (`#627` 판정)
+ *
+ * 같은 이름이 세 곳에 있다. `#610`이 「공용화 여부를 먼저 판단한다」를 남겼고,
+ * 여기서 판단한다.
+ *
+ * | 파일 | 출처 | 형 |
+ * |---|---|---|
+ * | `realtime-cii/apiProvider.ts` | **`GET /cii/current`의 `current_voyage`** | 확정 |
+ * | `reports/apiProvider.ts` | `GET /vessels/{id}/voyages` (**부분집합** 6필드) | 확정 |
+ * | 이 파일 | `GET /vessels/{id}/voyages` (전 필드) | **`unknown`** |
+ *
+ * `realtime-cii` 쪽은 **다른 엔드포인트**다 — 키가 `id`가 아니라 `voyage_id`이고
+ * `underway_hours`·`is_simulated`·`attained_cii`를 단다. 이름만 같다.
+ *
+ * 나머지 둘은 같은 엔드포인트지만 **안전성 전략이 반대**다. 합치면 한쪽이 자기 것을
+ * 잃는다 — `reports`를 `unknown`으로 바꾸면 파싱 코드가 늘고, 이 파일을 확정 타입으로
+ * 바꾸면 **서버가 형을 바꿔도 컴파일이 통과한다.**
+ *
+ * 진짜 해법은 서버가 응답 스키마를 강제하는 것이고(`#559`), 그 전에 프론트에서 타입만
+ * 합치면 **강제 없는 공유 타입**이 된다 — 어긋나도 아무도 모른다.
+ */
 interface ServerVoyage {
   id?: unknown
   voyage_no?: unknown
@@ -108,7 +133,25 @@ function toVoyage(raw: ServerVoyage): ManagedVoyage {
 }
 
 export interface VoyageManagementProvider {
-  list(vesselId: string): Promise<{ voyages: ManagedVoyage[]; fuelTypes: string[] }>
+  /**
+   * 항차 한 페이지 (`API_SPEC §3.1` 커서 페이지네이션).
+   *
+   * **`cursor`를 받는 이유** — 종전에는 `?limit=100`만 박고 `meta.next_cursor`를
+   * 버렸다. `#625`가 한 번에 1,000행을 넣을 수 있게 만든 뒤, **101번째부터는 화면에서
+   * 도달할 방법이 없었다.**
+   *
+   * `fuelTypes`는 첫 페이지에서만 의미가 있으나 매번 함께 돌려준다 — 호출부가
+   * 「이번이 첫 페이지인가」를 따지지 않아도 되게 한다.
+   */
+  list(
+    vesselId: string,
+    cursor?: string | null,
+  ): Promise<{
+    voyages: ManagedVoyage[]
+    fuelTypes: string[]
+    nextCursor: string | null
+    hasMore: boolean
+  }>
   create(vesselId: string, draft: VoyageDraft): Promise<ManagedVoyage>
   transition(voyage: ManagedVoyage, to: VoyageStatus): Promise<ManagedVoyage>
   saveActuals(voyageId: string, draft: ActualsDraft): Promise<ManagedVoyage>
@@ -209,18 +252,25 @@ export function createApiVoyageManagementProvider(
   }
 
   return {
-    async list(vesselId) {
+    async list(vesselId, cursor = null) {
       /*
        * 연료 선택지는 `/parameters/fuel-types`에서 온다 (`#444`). 항차 목록과
        * 서로 의존이 없어 **병렬로** 보낸다.
+       *
+       * `limit`은 서버 상한(`MAX_LIMIT = 100`, `repositories/voyage.py:23`)에 맞춘다 —
+       * 더 크게 보내도 서버가 잘라 요청 수만 늘어난다.
        */
+      const query = `limit=100${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`
       const [body, fuelTypes] = await Promise.all([
-        call(`/vessels/${vesselId}/voyages?limit=100`),
+        call(`/vessels/${vesselId}/voyages?${query}`),
         parameters.listFuelTypes(),
       ])
+      const page = readPageMeta(body)
       return {
         voyages: ((body?.data ?? []) as ServerVoyage[]).map(toVoyage),
         fuelTypes: fuelTypes.map((fuel) => fuel.code),
+        nextCursor: page.nextCursor,
+        hasMore: page.hasMore,
       }
     },
 
