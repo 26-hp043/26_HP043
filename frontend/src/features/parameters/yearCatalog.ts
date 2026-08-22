@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { createApiParametersProvider, ParametersError } from './apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
@@ -105,4 +106,76 @@ export class YearCatalogError extends Error {
 /** demo ↔ 실 API 전환. 판단 기준은 계산·선박 provider와 **같은 환경변수**다 (`#138`). */
 export function createYearCatalog(env: ImportMetaEnv = import.meta.env): YearCatalogProvider {
   return createApiYearCatalog((env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined)
+}
+
+/** `useYearOptions()`가 돌려주는 것. 로딩·실패를 **빈 목록과 구분한다.** */
+export interface YearOptionsState {
+  years: number[]
+  loading: boolean
+  failed: boolean
+}
+
+/**
+ * 규제연도 선택지를 받아 오는 훅 (`#632`).
+ *
+ * ## 왜 훅으로 뽑는가
+ *
+ * 같은 로직이 이미 **두 화면에 글자 그대로 복사**돼 있었다 —
+ * `VoyageCiiForm.tsx`(`#534`)와 `AnnualSimulation.tsx`(`#558`). 세 번째 화면
+ * (항로 비교)이 같은 목록을 쓰게 되면서 사본이 셋이 된다.
+ *
+ * `fuelCatalog.ts`의 `useFuelOptions()`가 같은 판단으로 먼저 있고(`#568`), 항로 비교
+ * 화면은 **이미 그 훅을 쓰고 있다.**
+ *
+ * > ⚠️ `#627`은 `ServerVoyage` 세 벌을 **공용화하지 않는다**고 판단했다. 반대로
+ * > 보이지만 다르다 — 거기서는 셋이 **출처가 다른 타입**이었고(한쪽은 아예 다른
+ * > 엔드포인트), 여기는 **같은 엔드포인트를 같은 방식으로 부르는 코드**다.
+ *
+ * ## 선박을 인자로 받는다
+ *
+ * 실 API 구현은 `vesselId`를 쓰지 않지만(Z계수는 전 선종 공통) demo 구현이 고정표를
+ * `(vesselId, year)` 키로 들고 있어 서명을 맞춰 두었다. 화면은 선박이 바뀔 때마다
+ * 다시 부른다 — 위 `createApiYearCatalog`가 성공한 조회 하나를 붙들어 재사용하므로
+ * 실제 GET이 반복되지는 않는다.
+ *
+ * ## 빈 `vesselId`에서는 부르지 않는다
+ *
+ * 셸이 선박을 아직 정하지 않은 순간이 있다. 그때 부르면 demo 구현이 빈 목록을 주고,
+ * 화면은 「등록된 규제연도가 없습니다」를 잠깐 보인다.
+ */
+export function useYearOptions(vesselId: string): YearOptionsState {
+  const catalog = useMemo(() => createYearCatalog(), [])
+  const [years, setYears] = useState<number[]>([])
+  const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    if (!vesselId) {
+      setYears([])
+      setLoading(false)
+      setFailed(false)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setFailed(false)
+    catalog
+      .listYears(vesselId)
+      .then((rows) => {
+        if (!cancelled) setYears(rows)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setFailed(true)
+        setYears([])
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [catalog, vesselId])
+
+  return { years, loading, failed }
 }

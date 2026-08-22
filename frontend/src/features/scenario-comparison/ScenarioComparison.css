@@ -169,6 +169,17 @@
   border-color: var(--color-danger);
 }
 
+/* 선택지를 그릴 수 없을 때의 자리 — 로딩·실패·빈 목록 (#632).
+   입력 컨트롤과 같은 높이·여백을 써서 폼이 흔들리지 않게 한다. */
+.scenario-comparison__field-note {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+}
+
 .scenario-comparison__field-error {
   color: var(--color-danger);
   font-size: var(--font-size-micro);
