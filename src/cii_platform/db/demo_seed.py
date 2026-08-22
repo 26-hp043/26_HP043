@@ -237,7 +237,16 @@ SEED_VESSEL_GT_AXIS: list[dict[str, object]] = [
         "deadweight": None,
         "default_fuel_type": None,  # 018과 같은 이유로 NULL (017 downgrade 보호).
         "reference_speed_kn": Decimal("18.00"),
-        "reference_daily_foc_ton": None,
+        # 이 배의 2026 항차에서 역산했다 (#587). 벌크선(`23.04`)과 **같은 식**이다.
+        #
+        #   62.0t × 18.0kn × 24h ÷ 450nm = 59.52
+        #   (450nm ÷ 18kn = 25시간 = 1.0417일 → 62.0 ÷ 1.0417 = 59.52 t/day)
+        #
+        # **가상 선박이라 지어낸 값이 아니다** — 시드가 이미 갖고 있는 항차와 앞뒤가
+        # 맞는 유일한 값이다. 실존 2척(`STAR SKIPPER`·`DONGJIN ENDURANCE`)에는 같은
+        # 방식을 쓸 수 없다: 그쪽 항차도 시드가 만든 것이라 역산값이 **실선의 실제
+        # 제원인 척**하게 된다. 그 둘은 선사 회신을 기다린다.
+        "reference_daily_foc_ton": Decimal("59.52"),
         "is_cii_applicable_hint": True,
         # 접안 중 — 부산항 여객터미널 위치.
         "underway_state": "NOT_UNDER_WAY",
@@ -826,6 +835,54 @@ async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dic
         pg_insert(table).on_conflict_do_nothing().returning(table.c.id), rows
     )
     return len(result.fetchall())
+
+
+#: 시드가 값을 갖는 선박 제원 컬럼. :func:`missing_seeded_specs`가 이 목록만 본다.
+SPEC_COLUMNS: tuple[str, ...] = (
+    "reference_speed_kn",
+    "reference_daily_foc_ton",
+)
+
+
+async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
+    """**시드에는 값이 있는데 DB에는 없는** 제원을 찾는다 (`#587`).
+
+    ## 왜 필요한가
+
+    이 모듈은 ``ON CONFLICT DO NOTHING``이라 **기존 행을 갱신하지 않는다.** 그건
+    의도된 것이다 — 사용자가 데모 선박을 고쳤을 수 있고, 시드가 그것을 덮으면
+    「내가 넣은 값이 사라진다」가 된다.
+
+    문제는 **시드에 값을 새로 채웠을 때**다. 새 DB에는 들어가지만 **볼륨을 유지한
+    환경(시연 노트북이 대표적이다)에는 영원히 들어가지 않는다.** 그리고 그 상태는
+    오류가 아니라 화면의 ``—``로만 드러난다 — `#587`이 보고한 증상이 정확히 그것이다.
+
+    덮어쓰기로 바꾸는 대신 **어긋난 사실을 값으로 만든다.** ``demo_up.sh``가 이
+    결과를 안내에 싣는다.
+
+    :returns: ``[(선박명, 컬럼명), …]``. 어긋난 것이 없으면 빈 목록이다.
+    """
+    from sqlalchemy import text
+
+    drifted: list[tuple[str, str]] = []
+    for vessel in (*SEED_VESSELS, *SEED_VESSEL_GT_AXIS):
+        wanted = {c: vessel[c] for c in SPEC_COLUMNS if vessel[c] is not None}
+        if not wanted:
+            continue
+        row = (
+            await conn.execute(
+                text(
+                    f"SELECT {', '.join(SPEC_COLUMNS)} FROM vessel "  # noqa: S608
+                    "WHERE id = CAST(:vid AS uuid)"
+                ).bindparams(vid=vessel["id"])
+            )
+        ).one_or_none()
+        if row is None:
+            continue
+        for column in wanted:
+            if getattr(row, column) is None:
+                drifted.append((vessel["name"], column))
+    return drifted
 
 
 async def seed_demo(conn: AsyncConnection) -> dict[str, int]:

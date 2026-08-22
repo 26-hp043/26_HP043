@@ -176,6 +176,40 @@ PY
 fi
 [ -n "$COUNTS" ] && ok "$COUNTS" || bad "행 수 조회 실패"
 
+# --- 4c. 시드 보강분이 실제로 들어왔는가 (#587) ---------------------------------------
+#
+# **행 수만 세면 이 상태를 놓친다.** demo_seed는 `ON CONFLICT DO NOTHING`이라
+# **기존 행을 갱신하지 않는다**(의도된 것이다 — 사용자가 고친 값을 덮지 않는다).
+#
+# 그래서 시드에 제원을 새로 채워도 **볼륨을 유지한 환경에는 영원히 들어가지 않는다.**
+# 시연 노트북이 정확히 그 경우이며, 그 상태는 오류가 아니라 **화면의 `—`로만** 드러난다.
+#
+# `.venv`가 없으면 건너뛴다 — 대조에 시드 상수(파이썬)가 필요하다.
+if [ "$HAVE_VENV" = "1" ]; then
+  DRIFT=$(DATABASE_URL="$DB_URL" "$VENV/python" - <<'PY' 2>/dev/null
+import asyncio, os
+from sqlalchemy.ext.asyncio import create_async_engine
+from cii_platform.db.demo_seed import missing_seeded_specs
+
+async def main():
+    engine = create_async_engine(os.environ["DATABASE_URL"])
+    async with engine.connect() as conn:
+        rows = await missing_seeded_specs(conn)
+    await engine.dispose()
+    print(" · ".join(f"{name}: {column}" for name, column in rows))
+
+asyncio.run(main())
+PY
+)
+  if [ -n "$DRIFT" ]; then
+    printf '\033[33m!\033[0m 시드에는 있는데 DB에 없는 제원: %s\n' "$DRIFT"
+    printf '  demo_seed는 기존 행을 덮지 않습니다. 데모 DB를 비우고 다시 넣으십시오.\n'
+    printf '    %s compose down -v && bash scripts/demo_up.sh\n\n' "$DOCKER"
+  else
+    ok "시드 제원이 DB와 일치합니다"
+  fi
+fi
+
 # --- 5. 백엔드 ----------------------------------------------------------------------
 
 step "5. 백엔드 API"
