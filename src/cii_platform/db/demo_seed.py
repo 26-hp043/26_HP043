@@ -111,14 +111,38 @@ SEED_VESSELS: list[dict[str, object]] = [
         # 정본 픽스처가 이 배의 제원을 이미 정의하고 있으므로 새로 만들지 않는다.
         "gross_tonnage": Decimal("30000.00"),
         "deadweight": Decimal("50000.00"),
+        # `default_fuel_type`은 NULL을 유지한다 — 018 모듈 주석 참조.
+        # 값을 넣으면 `fk_vessel_default_fuel_type`이 걸려 **017의 downgrade가
+        # 막힌다**(CF 8행을 지울 수 없다). `test_default_fuel_type_is_null`이 잠근다.
         "default_fuel_type": None,
-        "reference_speed_kn": None,
-        "reference_daily_foc_ton": None,
+        #
+        # 기준 제원 두 값은 **정본 픽스처에서 역산**한다 (#587). 지어낸 값이 아니다.
+        #
+        #   bulk_50000_hfo_2026.json  distance 1,000nm · speed 12.0kn
+        #                             fuel 80.0t · weather_model NONE
+        #   TECH_SPEC §4.1            fuel = base_foc_per_day × (v/v_ref)³
+        #                                    × weather × distance/(v×24)
+        #
+        # `v = v_ref`·`weather = 1.0`로 두면 `speed_factor = 1`이 되어
+        # 픽스처 값이 그대로 재현된다. 그때 역산은
+        #
+        #   base_foc_per_day = 80.0 × 12.0 × 24 / 1,000 = 23.04
+        #
+        # **두 값은 서로 다른 것을 지배한다** — 하나만 채우면 반쪽이 된다.
+        #   `reference_speed_kn`      → 기능②(항로 비교)의 연료 추정 가드.
+        #                                없으면 422로 막힌다.
+        #   `reference_daily_foc_ton` → 시뮬레이션 시계가 진행 중 항차의 연료·거리를
+        #                                만드는 입력(TECH_SPEC §시계). 없으면 그 기여를
+        #                                통째로 버리고 `SIMULATION_NO_FUEL_RATE`를 낸다.
+        #                                기능③의 감속 민감도도 이 값이 없으면 **0이 된다**
+        #                                (`calc/annual_simulation.py` `_shift_speed`).
+        "reference_speed_kn": Decimal("12.00"),
+        "reference_daily_foc_ton": Decimal("23.04"),
         # GT 30,000 >= 5,000 → 공식 CII 적용 대상.
         "is_cii_applicable_hint": True,
     },
     {
-        # 제원 조사 회신 2026-08-07. 출처 namsung.co.kr (남성해운).
+        # 제원 조사 회신 2026-08-07 (조사: sty2581). 출처 namsung.co.kr (남성해운).
         "id": VESSEL_ID_CONTAINER,
         "imo_number": "9448839",
         "name": "STAR SKIPPER",
@@ -132,7 +156,7 @@ SEED_VESSELS: list[dict[str, object]] = [
         "is_cii_applicable_hint": False,
     },
     {
-        # 제원 조사 회신 2026-08-07. 출처 djship.co.kr (동진상선).
+        # 제원 조사 회신 2026-08-07 (조사: sty2581). 출처 djship.co.kr (동진상선).
         "id": VESSEL_ID_GENERAL_CARGO,
         "imo_number": "9633862",
         "name": "DONGJIN ENDURANCE",
@@ -436,9 +460,25 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "actual_distance_nm": None,
         "planned_speed_kn": Decimal("14.00"),
         "actual_avg_speed_kn": None,
-        "planned_departure_at": _utc(2026, 8, 12),
-        "planned_arrival_at": _utc(2026, 8, 19),
-        "actual_departure_at": _utc(2026, 8, 12, 6),
+        #
+        # 시각을 **도착 예정일이 아직 오지 않은 구간**으로 둔다 (#587).
+        #
+        # 시뮬레이션 시계는 도착 실적이 없으면 `as_of`까지 계속 누적한다
+        # (TECH_SPEC §시계 — `window_end = min(as_of, actual_arrival_at)`).
+        # 종전 값(08-12 출항 · 08-19 도착 예정)은 **도착 예정일이 이미 지나** 있어
+        # 누적이 날짜마다 늘었다 — 하루에 연료 약 23t · 거리 약 336nm씩이다.
+        # 그만큼 YTD가 매일 달라져 **같은 시연을 두 번 돌리면 값이 다르다.**
+        #
+        # 출항을 뒤로 옮겨 누적 구간을 좁힌다. 도착 예정을 09-02로 두어
+        # 그때까지는 「진행 중」 상태가 유지된다 — 실시간 CII 화면의 진행 중 항차
+        # 기여 카드가 시연 소재를 잃지 않는다.
+        #
+        # ⚠️ 이것은 **완화이지 해결이 아니다.** 도착 예정일을 지나면 같은 상태로
+        # 돌아간다. 시계가 예정일 초과를 어떻게 다룰지는 시드가 아니라 구현의
+        # 문제이므로 후속 이슈로 분리한다.
+        "planned_departure_at": _utc(2026, 8, 20),
+        "planned_arrival_at": _utc(2026, 9, 2),
+        "actual_departure_at": _utc(2026, 8, 20, 6),
         "actual_arrival_at": None,
     },
     {

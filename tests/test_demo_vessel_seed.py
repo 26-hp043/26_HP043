@@ -20,7 +20,7 @@ from sqlalchemy import text
 
 # --- 기대값 독립 전사 -------------------------------------------------------------
 #
-# UUID는 #132 계약 코멘트에서, 실선 2척의 제원은 2026-08-07 제원 조사 회신에서,
+# UUID는 #132 계약 코멘트에서, 실선 2척의 제원은 2026-08-07 제원 조사 회신(sty2581)에서,
 # 1번 선박의 제원은 PRD §13.1 + tests/fixtures/cii/bulk_50000_hfo_2026.json에서,
 # 4번 선박(GT축)은 027의 설계값(#347 · #207 잔여분)에서 각각 옮겨 적었다.
 
@@ -143,6 +143,50 @@ async def test_default_fuel_type_is_null(conn):
     """
     count = await conn.scalar(
         text("SELECT count(*) FROM vessel WHERE default_fuel_type IS NOT NULL")
+    )
+    assert count == 0
+
+
+async def test_bulk_reference_specs_match_the_canonical_fixture(conn):
+    """샘플 벌크선의 기준 제원이 정본 픽스처에서 역산한 값과 같다 (#587).
+
+    두 값은 지어낸 것이 아니라 ``tests/fixtures/cii/bulk_50000_hfo_2026.json``에서
+    ``TECH_SPEC §4.1`` 식으로 역산한 것이다. 픽스처가 바뀌면 이 단언이 함께
+    갱신을 강제한다 — 그러지 않으면 **시드와 계약 픽스처가 조용히 갈린다.**
+
+        distance 1,000nm · speed 12.0kn · fuel 80.0t · weather NONE
+        v = v_ref 이면 speed_factor = 1 이므로
+        base_foc_per_day = 80.0 × 12.0 × 24 / 1,000 = 23.04
+    """
+    row = (
+        await conn.execute(
+            text(
+                "SELECT reference_speed_kn, reference_daily_foc_ton FROM vessel "
+                "WHERE id = CAST(:vid AS uuid)"
+            ).bindparams(vid=VESSEL_ID_BULK)
+        )
+    ).one()
+    assert row.reference_speed_kn == Decimal("12.00")
+    assert row.reference_daily_foc_ton == Decimal("23.04")
+
+
+async def test_real_vessels_have_no_daily_foc(conn):
+    """실존 선박 2척의 ``reference_daily_foc_ton``은 NULL이다 (#587).
+
+    일일 연료소모량은 **선사 내부 운항 데이터**라 공개 자료로 확보할 수 없다.
+    2026-08-07·2026-08-22 두 차례 제원 조사 회신(조사: ``sty2581``) 모두
+    「알 수 없음」이었고, 출처가 전부 회사 홈페이지였다.
+
+    **임의값을 넣으면 실존 선박에 대한 허위 제원이 된다.** ``TECH_SPEC``의 시계
+    경계 처리표도 *「기본값을 넣으면 화면이 근거 없는 연료를 표시한다」*로 같은
+    판단을 적고 있다. 회신이 오면 이 단언이 함께 갱신을 강제한다.
+    """
+    count = await conn.scalar(
+        text(
+            "SELECT count(*) FROM vessel "
+            "WHERE imo_number IN ('9448839', '9633862') "
+            "AND reference_daily_foc_ton IS NOT NULL"
+        )
     )
     assert count == 0
 

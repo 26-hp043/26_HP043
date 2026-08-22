@@ -162,6 +162,76 @@ async def test_not_underway_samples_include_required_types(conn):
     assert ongoing == 2
 
 
+async def test_planning_stage_voyage_exists(conn):
+    """계획 단계 항차가 최소 한 건 있다 (#587).
+
+    기능③ 연간 시뮬레이션은 **잔여 계획 항차**로 몬테카를로를 돌린다. 한 건도
+    없으면 ``NO_REMAINING_VOYAGES`` 경고와 함께 목표 달성 확률 0%가 나와,
+    심사에서 그 기능을 열면 빈 결과가 보인다.
+
+    ``scenario_adopt``의 채택 대상도 계획 단계 항차뿐이다
+    (``services/scenario_adopt.py`` ``PLANNING_STATUSES``).
+    """
+    count = await conn.scalar(
+        text("SELECT count(*) FROM voyage WHERE status IN ('DRAFT', 'PLANNED')")
+    )
+    assert count >= 1, "기능③·시나리오 채택을 시연할 계획 단계 항차가 없다"
+
+
+async def test_underway_vessel_has_an_in_progress_voyage(conn):
+    """``UNDER_WAY``로 표시되는 배는 진행 중 항차를 갖는다 (#587).
+
+    대시보드가 「운항 중 · 항해 중」으로 보이는 배의 실시간 CII 화면이
+    「진행 중인 항차가 없습니다」를 내면 같은 배에 대해 두 화면이 반대를 말한다.
+
+    ⚠️ **역방향은 단언하지 않는다.** ``NOT_UNDER_WAY``이면서 진행 중 항차를 갖는
+    것은 **모순이 아니다** — ``API_SPEC §2.6``이 *「정박 구간의 성격이 곧 선박의
+    표시 상태가 된다」*로 두 축을 갈라 정의한다. 운하를 통과하는 배는 항차가
+    진행 중이면서 ``NOT_UNDER_WAY/CANAL_TRANSIT``인 것이 정상이고, 그 조합은
+    ``test_canal_period_links_in_progress_voyage``가 따로 잠근다.
+    """
+    rows = (
+        await conn.execute(
+            text(
+                "SELECT v.name, "
+                "(SELECT count(*) FROM voyage w "
+                " WHERE w.vessel_id = v.id AND w.status = 'IN_PROGRESS') AS inprog "
+                "FROM vessel v WHERE v.underway_state = 'UNDER_WAY'"
+            )
+        )
+    ).all()
+    assert rows, "UNDER_WAY 선박이 한 척도 없다 — 대시보드 상태 다양성이 깨진다"
+    for row in rows:
+        assert row.inprog >= 1, f"{row.name}: 운항 중인데 진행 중 항차가 없다"
+
+
+async def test_in_progress_voyage_arrival_is_still_ahead(conn):
+    """진행 중 항차의 도착 예정일이 아직 오지 않았다 (#587).
+
+    시뮬레이션 시계는 도착 실적이 없으면 ``as_of``까지 계속 누적한다
+    (``TECH_SPEC §시계`` — ``window_end = min(as_of, actual_arrival_at)``).
+    도착 예정일이 지난 채로 두면 **누적이 날짜마다 늘어** 같은 시연을 두 번
+    돌렸을 때 값이 달라진다.
+
+    ⚠️ 이 단언은 **완화 장치**다. 시계가 예정일 초과를 어떻게 다룰지는 시드가
+    아니라 구현의 문제이므로 후속 이슈가 소유한다. 여기서는 시드가 그 상태로
+    들어가지 않는 것만 본다.
+    """
+    overdue = (
+        await conn.execute(
+            text(
+                "SELECT voyage_no, planned_arrival_at FROM voyage "
+                "WHERE status = 'IN_PROGRESS' AND actual_arrival_at IS NULL "
+                "AND planned_arrival_at < now()"
+            )
+        )
+    ).all()
+    assert not overdue, (
+        "진행 중 항차의 도착 예정일이 지났다 — 시계 누적이 날짜마다 달라진다: "
+        f"{[(r.voyage_no, str(r.planned_arrival_at)) for r in overdue]}"
+    )
+
+
 async def test_canal_period_links_in_progress_voyage(conn):
     """운하 통과 구간이 진행 중 항차를 맥락 참조로 건다 — 상태(CANAL_TRANSIT)와 연결."""
     row = (
