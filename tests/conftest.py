@@ -29,6 +29,52 @@ _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
 TEST_DATABASE_URL = normalize_to_asyncpg(_RAW_DATABASE_URL)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limiter():
+    """매 테스트마다 ``main.app``의 분당 카운터를 새것으로 바꾼다 (#651).
+
+    ## 왜 필요한가
+
+    ``main.app``은 **모듈 레벨 객체**라 ``app.state.rate_limiter``(300/분)를
+    **pytest 프로세스 전체가 공유**한다. 그 앱을 ``TestClient``로 때리는 테스트
+    파일이 20개가 넘고, ``RateLimiter``는 **고정 윈도**라 60초가 지나야 리셋된다.
+
+    그래서 실패 여부가 **전체 실행 속도에 달려 있었다.**
+
+    .. code-block:: text
+
+        로컬  전체 3분대 → 요청이 여러 윈도에 흩어짐 → 통과
+        CI    전체 1분대 → 같은 윈도에 몰림         → 429
+
+    테스트를 몇 개만 더해도 **자기 변경과 무관한 파일**이 떨어진다. 실제로 `#593`과
+    `#648`이 각각 한 번씩 이것으로 CI가 막혔고, 두 번 다 해당 파일에서만 우회했다.
+
+    ## 왜 카운터를 비우지 않고 통째로 바꾸는가
+
+    ``_counts``는 내부 상태다. 테스트가 그것을 직접 만지면 구현이 바뀔 때 함께
+    깨진다. 같은 한도의 **새 인스턴스**를 끼우면 공개된 생성자만 쓴다 — 미들웨어가
+    요청마다 ``request.app.state.rate_limiter``를 다시 읽으므로 교체가 그대로 든다.
+
+    ## 무엇을 무력화하지 않는가
+
+    **한도 자체는 그대로 살아 있다.** 한 테스트 안에서 300건을 넘기면 여전히 429가
+    되고, ``test_rate_limit.py``는 자기 앱을 따로 만들어 쓰므로 영향이 없다.
+    `#275`가 배선으로 고정한 「rate limit이 auth보다 바깥」도 그대로다 — 한도를 0으로
+    꺼 버리면 그 순서가 깨져도 아무도 모른다.
+    """
+    from cii_platform.api.main import app
+    from cii_platform.api.rate_limit import RateLimiter
+
+    previous = getattr(app.state, "rate_limiter", None)
+    if previous is not None:
+        app.state.rate_limiter = RateLimiter(previous.limit)
+    try:
+        yield
+    finally:
+        if previous is not None:
+            app.state.rate_limiter = previous
+
+
 def run_alembic(*alembic_args: str) -> subprocess.CompletedProcess:
     """프로젝트 루트에서 alembic CLI를 실행한다.
 

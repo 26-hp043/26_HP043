@@ -167,3 +167,55 @@ def test_429_response_meta_has_request_id() -> None:
         resp = client.get("/api/v1/health")
         assert resp.status_code == 429
         assert resp.json()["meta"]["request_id"]
+
+
+# ---------------------------------------------------------------------------
+# 공용 카운터 격리 (#651)
+#
+# `main.app`은 모듈 레벨 객체라 분당 카운터를 pytest 프로세스 전체가 공유했다.
+# 그 앱을 `TestClient`로 때리는 파일이 20개가 넘고, 고정 윈도라 60초가 지나야
+# 리셋되므로 **실패 여부가 전체 실행 속도에 달려 있었다** — 로컬 3분대는 통과하고
+# CI 1분대는 429가 났다. `#593`·`#648`이 각각 한 번씩 이것으로 막혔다.
+#
+# `conftest.py`의 `_fresh_rate_limiter`가 매 테스트마다 같은 한도의 새 인스턴스를
+# 끼운다. 아래 두 테스트는 **순서에 의존한다** — 앞이 카운터를 올리고, 뒤가 그것이
+# 넘어오지 않았음을 본다. pytest는 파일 안 정의 순서를 지킨다.
+# ---------------------------------------------------------------------------
+
+
+def test_shared_counter_starts_empty_and_records() -> None:
+    """테스트 시작 시 카운터가 비어 있고, 요청을 보내면 올라간다."""
+    from cii_platform.api.main import app
+
+    limiter = app.state.rate_limiter
+    assert limiter._counts == {}, "앞선 테스트의 카운트가 넘어왔다 — 픽스처가 동작하지 않는다"
+
+    with TestClient(app) as client:
+        for _ in range(3):
+            client.get("/api/v1/health")
+
+    assert sum(limiter._counts.values()) == 3
+
+
+def test_shared_counter_does_not_leak_into_the_next_test() -> None:
+    """**바로 앞 테스트가 3건을 썼는데** 여기서는 다시 0이다.
+
+    이 단언이 이 이슈의 본체다. 넘어오면 테스트를 몇 개 더할 때마다 **무관한 파일**이
+    429로 떨어진다.
+    """
+    from cii_platform.api.main import app
+
+    assert app.state.rate_limiter._counts == {}
+
+
+def test_the_limit_itself_still_applies() -> None:
+    """리셋이 **한도를 무력화하지 않는다.**
+
+    한도를 0으로 꺼 버리면 `#275`가 배선으로 고정한 「rate limit이 auth보다 바깥」이
+    깨져도 아무도 모른다. 한 테스트 안에서 한도를 넘기면 여전히 429다.
+    """
+    app = _app_with_limit(2)
+    with TestClient(app) as client:
+        assert client.get("/api/v1/health").status_code == 200
+        assert client.get("/api/v1/health").status_code == 200
+        assert client.get("/api/v1/health").status_code == 429

@@ -15,29 +15,17 @@ import pytest
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import app
-from cii_platform.api.rate_limit import RateLimiter
 
 
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     """명시적인 생명주기를 갖는 health 테스트 클라이언트.
 
-    **분당 한도를 공용 예산에서 빼 둔다 (`#651`).** ``main.app``은 모듈 레벨 객체라
-    ``app.state.rate_limiter``(300/분)를 pytest 프로세스 전체가 공유하고, 그 앱을
-    ``TestClient``로 때리는 파일이 20개가 넘는다. CI는 전체 실행이 1분대라 요청이 한
-    윈도에 몰려, 이 파일이 요청을 몇 개 더하면 **무관한 파일**이 429로 떨어진다.
-
-    별도 카운터를 끼우고 끝나면 되돌린다 — 다른 테스트가 쌓아 둔 카운트를 지우지
-    않으면서 이 파일이 예산을 **0** 쓰게 한다. 근본 해법(공용 리미터를 매 테스트
-    리셋)은 `#651`이 다룬다.
+    분당 한도는 ``conftest.py``의 ``_fresh_rate_limiter``가 매 테스트마다 새로
+    끼운다 (`#651`) — 여기서 따로 뺄 필요가 없다.
     """
-    original = app.state.rate_limiter
-    app.state.rate_limiter = RateLimiter(original.limit)
-    try:
-        with TestClient(app) as c:
-            yield c
-    finally:
-        app.state.rate_limiter = original
+    with TestClient(app) as c:
+        yield c
 
 
 def test_health_returns_200_and_data_envelope(client: TestClient) -> None:
