@@ -13,7 +13,9 @@ DB 없이 돈다 — 문서 모델을 손으로 만들어 **렌더러만** 본�
 
 from __future__ import annotations
 
+import re
 from datetime import UTC
+from pathlib import Path
 
 import pytest
 
@@ -441,6 +443,140 @@ def test_ship_type_labels_cover_the_calc_ship_types():
     from cii_platform.reports.labels import SHIP_TYPE_LABELS
 
     assert set(SHIP_TYPE_LABELS) == set(DWT_BASED_SHIP_TYPES | GT_BASED_SHIP_TYPES)
+
+
+# ---------------------------------------------------------------------------
+# 위험도 · 경고 · 사유 · 상태 표기 (#631)
+#
+# `#584`가 선종만 고치고 남긴 것들이다. 대조 상대가 둘로 갈린다 — `AGENTS §4.6`이
+# **정본 문구**(정본이 원문을 확정한 것)와 **표시 문구**(디자인 소관)를 나누므로,
+# 위험도·경고는 정본과, 나머지는 화면과 대조한다.
+# ---------------------------------------------------------------------------
+
+_FRONTEND = Path(__file__).parents[1] / "frontend" / "src" / "features"
+
+
+def _read(*parts: str) -> str:
+    return (_FRONTEND.joinpath(*parts)).read_text(encoding="utf-8")
+
+
+def test_risk_labels_match_the_locked_design_system():
+    """`DESIGN_SYSTEM §2.5 (b)` 🔒가 **병기 형태까지** 못박았다.
+
+    「낮음 LOW · 보통 MEDIUM · 높음 HIGH · 심각 CRITICAL」 — 한국어를 앞에 두고 영문
+    약어를 병기한다(`§14` 「한국어 라벨 + 영문 약어 병기」). 한국어만 남기면 문서에서
+    본 「심각」과 API 응답의 `CRITICAL`을 같은 값으로 잇지 못한다.
+
+    잠긴 절이므로 **문서 쪽 문자열을 직접 읽어** 대조한다. 여기에 기대값을 다시 적으면
+    정본이 개정돼도 이 테스트는 통과한다.
+    """
+    from cii_platform.reports.labels import RISK_LABELS
+
+    design = (Path(__file__).parents[1] / "DESIGN_SYSTEM.md").read_text(encoding="utf-8")
+
+    quoted = re.search(r"「(낮음 LOW[^」]*)」", design)
+    assert quoted, (
+        "DESIGN_SYSTEM §2.5 (b)에서 위험도 라벨 문장을 찾지 못했다 — 절이 바뀌었는지 확인할 것"
+    )
+
+    canon = dict(
+        (code, f"{ko} {code}") for ko, code in re.findall(r"(\S+) ([A-Z]+)", quoted.group(1))
+    )
+
+    assert canon == RISK_LABELS
+
+
+def test_risk_labels_match_the_screen():
+    """화면(`resultRules.ts` `riskLabel()`)도 같은 병기를 만든다.
+
+    정본을 각자 옮겨 적은 두 곳이라, 한쪽이 낡으면 위 테스트가 잡는다. 이 테스트는
+    **두 전사가 같은 결과를 내는지**를 본다 — 형태가 갈리면(`심각` vs `심각 CRITICAL`)
+    같은 값을 보고도 다른 것으로 읽힌다.
+    """
+    from cii_platform.reports.labels import RISK_LABELS
+
+    source = _read("voyage-cii", "resultRules.ts")
+    screen = {
+        code: f"{ko} {code}"
+        for code, ko in re.findall(r"(\w+): \{ ko: '([^']+)', withIcon:", source)
+    }
+
+    assert screen, "resultRules.ts에서 RISK_LABEL을 읽지 못했다 — 파일 형식이 바뀌었는지 확인할 것"
+    assert screen == RISK_LABELS
+
+
+def test_warning_labels_transcribe_the_api_spec():
+    """경고 메시지는 **정본 문구**다 (`AGENTS §4.6` 표).
+
+    사슬은 `TECH_SPEC §12.3` → `API_SPEC §1.6` → {화면, 이 파일}이다. 서버는 화면을
+    거치지 않고 정본에서 직접 받는다 — 화면을 경유하면 화면이 틀렸을 때 문서도 같이
+    틀린다. `§12.3` ↔ `§1.6` 대조는 `tests/test_warning_codes_sync.py`가 본다.
+    """
+    from cii_platform.reports.labels import WARNING_LABELS
+
+    spec = (Path(__file__).parents[1] / "API_SPEC.md").read_text(encoding="utf-8")
+    section = spec.split("### 1.6 Warning 코드", 1)[1].split("### 1.7", 1)[0]
+
+    canon = {
+        code: message.strip()
+        for code, message in re.findall(r"^\| `([A-Z_]+)` \| .* \| (.+?) \|$", section, re.M)
+    }
+
+    assert canon, "API_SPEC §1.6에서 경고 표를 읽지 못했다 — 표 형식이 바뀌었는지 확인할 것"
+    assert canon == WARNING_LABELS
+
+
+def test_projection_reason_labels_match_the_screen():
+    """사유 없는 빈칸은 「아직 로딩 중」으로 읽힌다. 문서는 다시 불러올 수도 없다."""
+    from cii_platform.reports.labels import PROJECTION_REASON_LABELS
+
+    source = _read("realtime-cii", "realtimeRules.ts")
+    block = source.split("export const PROJECTION_REASONS", 1)[1].split("}", 1)[0]
+    screen = dict(re.findall(r"(\w+):\s*\n?\s*'([^']+)'", block))
+
+    assert screen, "realtimeRules.ts에서 PROJECTION_REASONS를 읽지 못했다"
+    assert screen == PROJECTION_REASON_LABELS
+
+
+def test_voyage_status_and_policy_labels_match_the_screen():
+    """항차 상태·집계 정책도 화면이 이미 한국어를 갖고 있다.
+
+    `voyageRules.ts`가 스스로 *「API enum을 그대로 내보이지 않는다(`#529`와 같은 부류)」*
+    라고 적어 뒀는데, 항차 리포트만 `COMPLETED`·`INCLUDE_AS_ACTUAL`을 그대로 냈다.
+    """
+    from cii_platform.reports.labels import INCLUSION_POLICY_LABELS, VOYAGE_STATUS_LABELS
+
+    source = _read("voyage-management", "voyageRules.ts")
+
+    for name, table in (
+        ("STATUS_LABELS", VOYAGE_STATUS_LABELS),
+        ("POLICY_LABELS", INCLUSION_POLICY_LABELS),
+    ):
+        block = source.split(f"export const {name}", 1)[1].split("}", 1)[0]
+        screen = dict(re.findall(r"([A-Z_]+): '([^']+)'", block))
+        assert screen, f"voyageRules.ts에서 {name}을 읽지 못했다"
+        assert screen == table, name
+
+
+def test_unknown_codes_show_the_code_itself():
+    """조용히 감추면 **경고가 사라진다**. 화면의 `?? code` 갈래와 같은 판단이다."""
+    from cii_platform.reports.labels import (
+        inclusion_policy_label,
+        projection_reason_label,
+        risk_label,
+        voyage_status_label,
+        warning_label,
+    )
+
+    for fn in (
+        risk_label,
+        warning_label,
+        projection_reason_label,
+        voyage_status_label,
+        inclusion_policy_label,
+    ):
+        assert fn("BRAND_NEW_CODE") == "BRAND_NEW_CODE", fn.__name__
+        assert fn(None) == "—", fn.__name__
 
 
 # ---------------------------------------------------------------------------
