@@ -131,6 +131,11 @@ export function marginDisplay(
  * 체계라 「4단계 전용 램프 금지」의 취지가 무너진다. 아이콘은 「주의가 필요하다」만
  * 전달하고 정도는 라벨이 담당한다.
  */
+/**
+ * ⚠️ **`export`를 떼지 않는다 (#594).** 화면 안에서만 쓰이지만 `tests/test_reports.py`가
+ * 이 파일을 읽어 정본(`DESIGN_SYSTEM §2.5 (b)` 🔒)과 대조한다 — 서버 문서와 화면이
+ * 같은 병기를 내는지 보는 자리다. 프론트엔드만 훑는 검사에는 걸리지 않는다.
+ */
 export const RISK_LABEL: Readonly<
   Record<RiskLevel, { ko: string; withIcon: boolean }>
 > = {

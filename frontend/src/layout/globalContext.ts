@@ -49,7 +49,8 @@ export const STORAGE_KEY = 'bluelog.globalContext'
  * 맞춘다. 두 화면이 다른 이름을 쓰면 링크를 옮겨 붙일 때 조용히 무시된다.
  */
 export const VESSEL_QUERY_KEY = 'vessel_id'
-export const VOYAGE_QUERY_KEY = 'voyage_id'
+// 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+const VOYAGE_QUERY_KEY = 'voyage_id'
 
 /**
  * 컨텍스트를 **쿼리로 담는 화면들** (#484 B안).

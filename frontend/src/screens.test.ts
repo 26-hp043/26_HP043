@@ -207,3 +207,23 @@ describe('implemented ↔ 실제 구현 상태 (#527)', () => {
     expect(isComingSoonStub('SETTINGS')).toBe(false)
   })
 })
+
+describe('경로 상수 ↔ SCREEN_BY_ID (#594)', () => {
+  /*
+   * `auth/session.ts`가 화면 경로 다섯 개를 상수로 갖고, `screens.ts`가 같은 문자열을
+   * `path`에 다시 적는다. 둘이 갈리면 **로그인 리다이렉트가 없는 화면으로 간다** —
+   * 404가 아니라 빈 화면이라 원인을 찾기 어렵다.
+   *
+   * 이 대조가 `LOGIN_FAILURE_PATH`의 유일한 참조이기도 하다 (#594). 그 상수는 코드
+   * 어디에서도 쓰이지 않는데, 지우면 `screens.ts:102`의 하드코딩이 유일본이 된다.
+   */
+  it('다섯 상수가 화면 정의의 경로와 같다', async () => {
+    const session = await import('./auth/session')
+
+    expect(session.LOGIN_PATH).toBe(SCREEN_BY_ID.LOGIN.path)
+    expect(session.LOGIN_FAILURE_PATH).toBe(SCREEN_BY_ID.LOGIN_FAILURE.path)
+    expect(session.SIGNUP_PATH).toBe(SCREEN_BY_ID.SIGNUP.path)
+    expect(session.PASSWORD_RESET_PATH).toBe(SCREEN_BY_ID.PASSWORD_RESET.path)
+    expect(session.VERIFY_EMAIL_PATH).toBe(SCREEN_BY_ID.VERIFY_EMAIL.path)
+  })
+})

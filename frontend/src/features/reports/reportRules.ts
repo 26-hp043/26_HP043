@@ -1,3 +1,5 @@
+import { STATUS_LABELS } from '../voyage-management/voyageRules'
+import type { VoyageStatus } from '../voyage-management/types'
 import type { ReportTarget, VoyageOption } from './types'
 
 /**
@@ -14,24 +16,35 @@ import type { ReportTarget, VoyageOption } from './types'
  * 422를 받고 나서야 「안 되는 것」임을 알게 된다. 대신 목록은 서버가 정본이고,
  * 화면이 틀려도 서버가 최종 판단을 한다 — 두 판정이 갈리면 **막는 쪽이 서버**다.
  */
-export const REPORTABLE_STATUSES = ['COMPLETED', 'CONFIRMED'] as const
+// 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+const REPORTABLE_STATUSES = ['COMPLETED', 'CONFIRMED'] as const
 
 export function isReportable(status: string): boolean {
   return (REPORTABLE_STATUSES as readonly string[]).includes(status)
 }
 
-/** 항차 상태의 한국어 라벨. 모르는 값은 코드를 그대로 — 빈칸보다 낫다. */
-export const VOYAGE_STATUS_LABELS: Readonly<Record<string, string>> = {
-  DRAFT: '작성 중',
-  PLANNED: '계획',
-  IN_PROGRESS: '진행 중',
-  COMPLETED: '완료',
-  CONFIRMED: '확정',
-  CANCELLED: '취소',
-}
-
+/**
+ * 항차 상태의 한국어 라벨. 모르는 값은 코드를 그대로 — 빈칸보다 낫다.
+ *
+ * ## 표를 여기서 다시 적지 않는다 (#594)
+ *
+ * 종전에는 이 파일이 **자기 표**를 갖고 있었고, 같은 상태를 항차 기록 화면과 **다른
+ * 이름으로** 불렀다.
+ *
+ * ```
+ * PLANNED       계획 확정  ↔  계획
+ * IN_PROGRESS   항해 중    ↔  진행 중
+ * COMPLETED     항해 완료  ↔  완료
+ * CONFIRMED     실적 확정  ↔  확정
+ * ARCHIVED      보관됨     ↔  (없음 — 코드가 그대로 나왔다)
+ * ```
+ *
+ * 그리고 서버(`reports/labels.py`)의 동기화 대상은 **`voyageRules.ts` 쪽**이라
+ * (`test_reports.py`), 이 표만 아무도 대조하지 않는 상태였다. 표를 하나로 합치면
+ * 그 가드가 화면 전체를 덮는다.
+ */
 export function statusLabel(status: string): string {
-  return VOYAGE_STATUS_LABELS[status] ?? status
+  return STATUS_LABELS[status as VoyageStatus] ?? status
 }
 
 /** 선택지에 보여 줄 항차 이름. 항차 번호가 없는 항차가 실제로 있다. */

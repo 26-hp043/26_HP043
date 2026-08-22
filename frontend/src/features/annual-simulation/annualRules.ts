@@ -110,7 +110,8 @@ export function showsInlineLabel(percent: number): boolean {
 }
 
 /** 민감도 표의 행 순서·이름. 서버 키를 화면 순서로 고정한다. */
-export const SENSITIVITY_ROWS: ReadonlyArray<{ key: keyof SensitivityAnalysis; label: string }> = [
+// 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+const SENSITIVITY_ROWS: ReadonlyArray<{ key: keyof SensitivityAnalysis; label: string }> = [
   { key: 'speed_minus_1kn', label: '속력 −1kn' },
   { key: 'speed_plus_1kn', label: '속력 +1kn' },
   { key: 'fuel_minus_10pct', label: '연료 −10%' },
