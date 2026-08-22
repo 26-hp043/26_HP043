@@ -1748,13 +1748,28 @@ POST /api/v1/scenarios/compare
   "destination_lon": 4.4778,
   "current_speed_kn": 14.0,
   "fuel_type": "HFO",
-  "base_daily_foc_ton": 35.0,
+  "base_daily_foc_ton": 18.0,
   "direct_distance_nm": 11000.0,
   "detour_distance_nm": 11550.0,
   "slow_speed_kn": 13.0,
-  "weather_model": "SIMPLE_RULE"
+  "weather_model": "NONE"
 }
 ```
+
+> **이 예시는 실행해서 얻은 값이다 (`#151`).** 아래 응답 블록 셋은 위 요청을 **그대로** 보내 받은 응답이며, 재현하려면 **기준 선박의 제원**이 함께 정해져야 한다.
+>
+> | 가정 | 값 | 출처 |
+> |---|---|---|
+> | 대상 선박 | 샘플 벌크선 (50,000 DWT) | `db/demo_seed.py` 고정 UUID `…0001` |
+> | `reference_speed_kn` | **12.00** | 같은 곳 (`#639`가 정본 픽스처에서 역산) |
+> | `fuel_type` CF | 3.114 | `DB_SCHEMA §3.2` |
+> | 규제연도 | 2026 (`z = 11.0%`) | `DB_SCHEMA §3.3` |
+>
+> **`reference_speed_kn`이 빠져 있던 것이 종전 예시가 재현되지 않은 원인이다.** 연료 추정은 cubic speed model — `daily_foc × (v/v_ref)³ × distance/(v×24)` — 이라 `v_ref` 없이는 `fuel_ton`이 정해지지 않는다. 종전 예시는 `v_ref = 14`(= `current_speed_kn`)를 암묵 가정한 듯하나 그 값으로도 인쇄된 `780`이 나오지 않았다.
+>
+> `base_daily_foc_ton`을 종전 `35.0`에서 **`18.0`으로 낮췄다** — `35.0`이면 세 시나리오가 모두 등급 `E`가 되어 `next_worse_boundary_margin`이 전부 `null`이 되고, `[ORACLE-S-1]`이 이 필드를 추가한 목적이 예시에서 사라진다. `18.0`은 **감속이 등급을 한 단계 올리는**(C → B) 구간이라 기능②가 무엇을 보이는 기능인지 예시가 그대로 설명한다.
+
+> ⚠️ **`weather_model`을 `NONE`으로 둔다.** 종전 예시의 `SIMPLE_RULE`은 Open-Meteo를 실제로 호출하므로 **문서 예시가 외부 서비스의 그날 값에 따라 달라진다** — 재현 가능한 예시가 아니다. 보정 모델의 응답 필드는 `weather_factor`·`weather_model_used`로 그대로 보인다.
 
 | 필드 | 타입 | 필수 | 검증 | 설명 |
 |---|---|---|---|---|
@@ -1785,49 +1800,20 @@ POST /api/v1/scenarios/compare
   "data": {
     "scenarios": [
       {
-        "scenario_id": "550e8400-e29b-41d4-a716-446655440001",
+        "scenario_id": "uuid",
         "scenario_type": "DIRECT",
         "scenario_name": "직항",
         "distance_nm": 11000.0,
         "speed_kn": 14.0,
-        "duration_hours": 785.7,
-        "fuel_ton": "780.00",
-        "co2_emission_ton": "2428.90",
-        "attained_cii": "4.982",
+        "duration_hours": "785.7143",
+        "fuel_ton": "935.76",
+        "co2_emission_ton": "2913.97",
+        "attained_cii": "5.298125",
         "required_cii": "5.045066",
-        "ratio_to_required": "0.98758",
+        "ratio_to_required": "1.05016",
         "estimated_rating": "C",
-        "next_worse_boundary_margin": "0.365537",
-        "next_worse_boundary_margin_ratio": "0.0725",
-        "risk_level": "MEDIUM",
-        "weather_factor": 1.0,
-        "weather_model_used": "NONE",
-        "calculation_basis": {
-          "ship_type": "BULK_CARRIER",
-          "transport_capacity": "50000",
-          "transport_capacity_basis": "DWT",
-          "reference_capacity": "50000",
-          "reference_capacity_rule": "DWT",
-          "z_factor_percent": "11.0",
-          "a_decimal": "4745",
-          "c": "0.622"
-        }
-      },
-      {
-        "scenario_id": "550e8400-e29b-41d4-a716-446655440002",
-        "scenario_type": "DETOUR",
-        "scenario_name": "우회",
-        "distance_nm": 11550.0,
-        "speed_kn": 14.0,
-        "duration_hours": 825.0,
-        "fuel_ton": "819.00",
-        "co2_emission_ton": "2550.30",
-        "attained_cii": "5.231",
-        "required_cii": "5.045066",
-        "ratio_to_required": "1.03687",
-        "estimated_rating": "C",
-        "next_worse_boundary_margin": "0.116537",
-        "next_worse_boundary_margin_ratio": "0.0231",
+        "next_worse_boundary_margin": "0.049645",
+        "next_worse_boundary_margin_ratio": "0.0098",
         "risk_level": "HIGH",
         "weather_factor": 1.0,
         "weather_model_used": "NONE",
@@ -1843,21 +1829,50 @@ POST /api/v1/scenarios/compare
         }
       },
       {
-        "scenario_id": "550e8400-e29b-41d4-a716-446655440003",
+        "scenario_id": "uuid",
+        "scenario_type": "DETOUR",
+        "scenario_name": "우회",
+        "distance_nm": 11550.0,
+        "speed_kn": 14.0,
+        "duration_hours": "825.0000",
+        "fuel_ton": "982.55",
+        "co2_emission_ton": "3059.67",
+        "attained_cii": "5.298125",
+        "required_cii": "5.045066",
+        "ratio_to_required": "1.05016",
+        "estimated_rating": "C",
+        "next_worse_boundary_margin": "0.049645",
+        "next_worse_boundary_margin_ratio": "0.0098",
+        "risk_level": "HIGH",
+        "weather_factor": 1.0,
+        "weather_model_used": "NONE",
+        "calculation_basis": {
+          "ship_type": "BULK_CARRIER",
+          "transport_capacity": "50000",
+          "transport_capacity_basis": "DWT",
+          "reference_capacity": "50000",
+          "reference_capacity_rule": "DWT",
+          "z_factor_percent": "11.0",
+          "a_decimal": "4745",
+          "c": "0.622"
+        }
+      },
+      {
+        "scenario_id": "uuid",
         "scenario_type": "SLOW_STEAMING",
         "scenario_name": "감속",
         "distance_nm": 11000.0,
         "speed_kn": 13.0,
-        "duration_hours": 846.2,
-        "fuel_ton": "627.00",
-        "co2_emission_ton": "1953.00",
-        "attained_cii": "4.004",
+        "duration_hours": "846.1538",
+        "fuel_ton": "806.86",
+        "co2_emission_ton": "2512.55",
+        "attained_cii": "4.568281",
         "required_cii": "5.045066",
-        "ratio_to_required": "0.79360",
+        "ratio_to_required": "0.90549",
         "estimated_rating": "B",
-        "next_worse_boundary_margin": "0.738050",
-        "next_worse_boundary_margin_ratio": "0.1463",
-        "risk_level": "LOW",
+        "next_worse_boundary_margin": "0.174081",
+        "next_worse_boundary_margin_ratio": "0.0345",
+        "risk_level": "MEDIUM",
         "weather_factor": 1.0,
         "weather_model_used": "NONE",
         "calculation_basis": {
@@ -1892,6 +1907,19 @@ POST /api/v1/scenarios/compare
 ```
 
 > `summary`는 특정 시나리오를 "추천"하지 않고, 지표별 최소값만 중립적으로 표시한다 (PRD §11.2, AC-F2-005).
+
+> **`DIRECT`와 `DETOUR`의 `attained_cii`가 같다 — 오기가 아니다 (`#151`).**
+>
+> `attained CII = M / (W × D)`인데 우회는 **`M`과 `D`를 같은 비율로** 키운다(속도가 같으므로 연료가 거리에 비례한다). 비율이 그대로이므로 등급도 그대로다.
+>
+> ```
+> DIRECT   935.76t / 11,000nm  →  5.298125
+> DETOUR   982.55t / 11,550nm  →  5.298125     (982.55 / 935.76 = 11,550 / 11,000 = 1.05)
+> ```
+>
+> **우회가 바꾸는 것은 등급이 아니라 절대 배출량과 소요 시간**이다 — `co2_emission_ton`과 `duration_hours`가 그것을 보인다. 화면이 셋을 나란히 보이는 이유가 여기 있다: 등급만 보면 우회를 고를 이유가 없어 보이지만, 그 선택의 대가는 **연간 누적**에 쌓인다.
+>
+> 반대로 `SLOW_STEAMING`은 거리를 그대로 두고 `M`만 줄이므로 **등급이 실제로 움직인다**(C → B).
 
 ### 5.2 시나리오 채택
 
@@ -2957,3 +2985,4 @@ GET /api/v1/health
 | 2026-08-23 | `#59` | **v1.21 — §8.1 CSV 내보내기 컬럼 확정.** 종전 예시 헤더 (`voyage_no,status,departure,arrival,distance_nm,speed_kn,fuel_type,fuel_ton,co2_ton,attained_cii,rating`)는 **있는 그대로 구현할 수 없었다** — ⑴ `attained_cii`·`rating`은 `calculation_run.voyage_id`가 항상 NULL이라 어떤 항차의 계산인지 되짚을 수 없고, 「항차 하나의 CII」는 정본에 정의된 양도 아니다(`PRD §8.1.2`) ⑵ `distance_nm`·`speed_kn`·`fuel_ton`은 계획·실적 중 무엇인지 갈렸다(DB는 둘을 나눠 갖는다). 고쳐야 한다면 **쓸모 있는 방향으로** 고쳤다 — 앞 일곱 열을 `§8.2` 필수 컬럼과 **이름·순서까지 같게** 두어 **왕복**(내보내서 고쳐서 다시 넣기)이 성립하고, 실적·CO₂·시각을 뒤에 덧붙였다(가져오기가 여분 열을 무시한다). CII 두 열은 **열 자체를 두지 않는다** — 비워 두면 「아직 계산 안 됨」으로 읽히지만 영원히 채워지지 않는 칸이다. 함께 `calculations`·`simulations` 컬럼(정본 어디에도 없었다) · `year`의 type별 의미 · 값 표기(빈 칸·지수 금지·KST 오프셋) · `format=json` 봉투 · 오류 2종을 명시했다. `§4.3`상 구조 변경이라 버전을 올린다 (#59) |
 | 2026-08-23 | `#591` | **§9 Weather API 2종을 「미구현」으로 명시** — 세 안 중 C(스펙에 남긴다). 빠진 것은 **HTTP 노출뿐**이고 조회·저장·fallback은 다 구현돼 시나리오 비교가 실제로 쓴다 — 지우면 「기상 fallback을 바깥에서 들여다볼 수단을 두려 했다」는 판단까지 사라진다. 구현은 인가 설계(`#359` — 1차 시연 범위 밖)가 선행한다. 표기는 새 기호를 만들지 않고 `§12`의 기존 선례(`/auth/dev-login`의 「(프로덕션 미등록)」)를 따랐다. ⚠️ 함께 **어긋남이 양방향이라는 것을 실측으로 확인**했다 — `§12` 요약표에 `#506`의 계정 관리 3종(`PATCH`·`DELETE /auth/me` · `POST /auth/password-change`)이 **등재돼 있지 않았다.** `§1.2` 본문에는 있어 **같은 문서가 자기와 어긋난** 상태였다. 3행을 등재하고, 같은 표에서 같은 상태인 `POST /parameters/import`(`#444`)도 함께 표시했다. 이 판정이 낡지 않게 **`§12` ↔ 실제 라우트 대조 가드**를 신설했다 — 누군가 구현하면 테스트가 깨져 표시를 지우게 한다. `§4.3`상 각주 보강·소규모 행 추가라 버전은 올리지 않는다 (#591) |
 | 2026-08-23 | `#559` | **§1.3에 응답 계약 가드 각주 추가.** 요청은 Pydantic이 강제하는데 응답은 강제하는 것이 없었다 — 오퍼레이션 50개 중 requestBody 스키마 23건, **200 응답 스키마 0건**. 네 안(응답 모델 · 필드 집합 테스트 · 예시 대조 · 하지 않는다) 중 **B(필드 집합 테스트)**를 택했다: A는 `§1.7` Layer-1 문자열 표기와의 양립 검토가 선행하고 그 검토가 이 작업보다 크며, C는 예시 30곳의 값까지 맞춰야 해 유지비가 크다. **값이 아니라 키를 본다** — 이 결함의 실제 모습은 이름이 바뀌거나 필드가 빠지는 것이고, 그때 화면에는 오류가 아니라 `undefined`가 뜬다. **집합 동등**이라 필드를 더해도 실패한다(화면 세 곳이 같은 응답을 각자 타입으로 적고 있어 넓어지는 변화도 리뷰에 보여야 한다). `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#559) |
+| 2026-08-23 | `#151` | **§5.1 응답 예시 3블록을 실행 결과로 교체.** 종전 예시는 **인쇄된 입력으로 재현되지 않았다** — `fuel_ton`·`attained_cii`·`co2_emission_ton`이 서로 맞지 않았고 `next_worse_boundary_margin`은 `§4.1`에서 이미 정정된 오기(`0.365537`)를 그대로 갖고 있었다. 원인은 **기준 선박의 `reference_speed_kn`이 명시되지 않은 것**이다: 연료 추정이 cubic speed model이라 `v_ref` 없이는 `fuel_ton`이 정해지지 않는다. 그래서 이 이슈가 「입력 가정 확정이 선행한다」고 적었고, 그 가정을 **저장소의 데모 선박(`…0001` · `v_ref = 12.00`)으로 고정**해 실제로 실행하고 그 응답을 실었다. 요청 예시도 둘 고쳤다 — ⑴ `base_daily_foc_ton` `35.0` → **`18.0`**: `35.0`이면 세 시나리오가 모두 등급 `E`가 되어 `next_worse_boundary_margin`이 전부 `null`이 되고 `[ORACLE-S-1]`이 그 필드를 추가한 목적이 예시에서 사라진다. `18.0`은 **감속이 등급을 한 단계 올리는**(C → B) 구간이다 ⑵ `weather_model` `SIMPLE_RULE` → **`NONE`**: 전자는 Open-Meteo를 실제로 호출해 **문서 예시가 외부 서비스의 그날 값에 따라 달라진다.** 함께 `DIRECT`와 `DETOUR`의 `attained_cii`가 같은 이유를 각주로 남겼다 — 우회는 `M`과 `D`를 같은 비율로 키워 등급을 바꾸지 않는다. `§4.3`상 값 정정·각주 보강이라 버전은 올리지 않는다 (#151) |
