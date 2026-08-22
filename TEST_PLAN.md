@@ -791,7 +791,8 @@ def test_no_implicit_float_in_layer1():
 
 > 구현 파일 — `test_auth_api.py`(가입·로그인 계약) · `test_password.py`(해싱·정책) ·
 > `test_auth_session.py`(세션·CSRF 단위) · `test_auth_wiring.py`(배선, main.app) ·
-> `test_auth_failure_paths.py`(만료·무효화·미등록) · `test_dev_auth.py`(스텁 인증).
+> `test_auth_failure_paths.py`(만료·무효화·미등록) · `test_dev_auth.py`(스텁 인증) ·
+> `test_docs_exposure.py`(OpenAPI 문서 노출 범위).
 > 성공 경로만 검증하면 인증이 실제로 막고 있는지 알 수 없다 — 실패 경로가 핵심이다.
 
 | TC ID | 테스트 | 기대 결과 |
@@ -809,6 +810,7 @@ def test_no_implicit_float_in_layer1():
 | AT-AUTH-011 | 공개 경로 | 열거 경로(health·signup·login·dev-login)만 무인증 통과 (`test_auth_failure_paths.py`) |
 | AT-AUTH-012 | `APP_ENV=production` dev-login | 라우트 미등록 (`test_auth_failure_paths.py`) |
 | AT-AUTH-013 | dev-login 재기동 (고정 UUID) | 2회 모두 200 (`test_dev_auth.py`) |
+| AT-AUTH-014 | `APP_ENV=production` OpenAPI 문서 (`/docs`·`/redoc`·`/openapi.json`) | **401** — 라우트 미등록 + 공개 경로 제외. 404가 아니라 **다른 미등록 경로와 같은 응답**이어야 한다 (`test_docs_exposure.py`) |
 
 ---
 
@@ -1339,6 +1341,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_demo_vessel_seed.py` | 11 | **§5.7 DB · seed 적재** — 합성 IMO의 체크섬 유효성 포함 (`#525`) |
 | `test_demo_seed_counts.py` | 5 | **§5.7 DB · seed 적재** — 적재·삭제 **행 수 보고**가 사실인지 (재실행 0 · 비운 뒤 실제 건수 · 음수 없음, `#481`) |
 | `test_dev_auth.py` | 5 | §4.7 API · 인증 |
+| `test_docs_exposure.py` | 9 | **§4.7 API · 인증** — 프로덕션 OpenAPI 문서 노출 범위 (`AT-AUTH-014`). 판정이 import 시점에 확정되므로 **하위 프로세스로 진짜 앱을 기동**해 응답 코드를 본다 (`#593`) |
 | `test_error_handlers.py` | 19 | §4 API · 공통·운영 |
 | `test_error_handlers_116.py` | 0 | §4 API · 공통·운영 |
 | `test_field_labels.py` | 2 | §4 API · 공통·운영 |
@@ -1387,7 +1390,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_ytd_engine.py` | 0 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 97개 파일 · 1236 함수 · 1515 수집.** (2026-08-22 실측)
+**합계 98개 파일 · 1245 함수 · 1524 수집.** (2026-08-22 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
@@ -1544,3 +1547,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-21 | `#606` | `test_doc_cross_refs.py` 3 → **4함수** — `AGENTS §4.7` 표기 규칙 강제를 추가했다. 화면 번호에 `§`를 붙이면 **화면 번호·`§16` 표의 행 번호·없는 절이 한 모양**이 되어 실재 여부를 판정할 수 없다. 합계 실측 갱신(1222함수·1501수집 → **1223함수·1502수집**) (#602) |
 | 2026-08-22 | `#641` | §14 인벤토리에 `test_warning_codes_sync.py`(3함수) 등재 · `test_annual_simulation.py` 36 → **38함수**(`#630`) · 합계 실측 갱신(96파일·1223함수·1502수집 → **97파일·1230함수·1509수집**). `README` 문서 표의 수치가 **89파일·1172함수·1443수집**으로 사흘 낡아 있던 것도 함께 맞췄다 — `test_doc_version_sync`는 **버전만 보고 수치는 보지 않는다** (#641) |
 | 2026-08-22 | `#631` | `test_reports.py` 33 → **44함수** — 인벤토리 수치가 **이미 5함수 낡아 있었고**(#584 이후 갱신되지 않았다) 여기에 표시 문구 동기화 6종을 더했다. 위험도·경고는 **정본**(`DESIGN_SYSTEM §2.5` 🔒 · `API_SPEC §1.6`)과, 연말 예상 사유·항차 상태·집계 정책은 **화면**과 대조한다 — `AGENTS §4.6`이 정본 문구와 표시 문구를 나누므로 대조 상대가 갈린다. 합계 실측 갱신(1230함수·1509수집 → **1236함수·1515수집**) (#631) |
+| 2026-08-22 | `#593` | §4.7에 **`AT-AUTH-014`** 신설(프로덕션 OpenAPI 문서 노출) · §14 인벤토리에 `test_docs_exposure.py`(9함수) 등재 · 합계 실측 갱신(97파일·1236함수·1515수집 → **98파일·1245함수·1524수집**). 기대값을 **404가 아니라 401**로 적은 것이 요점이다 — 라우트만 끄면 `/docs`는 404이고 다른 미등재 경로는 401이라, **그 차이 자체가 「여기에 무언가 있다」는 신호**가 된다. 판정이 import 시점에 확정돼 같은 프로세스에서 환경을 바꿔 다시 만들 수 없으므로 **하위 프로세스로 진짜 앱을 기동**한다 — 순수 함수만 보면 「값이 실제 앱에 닿았다」가 빠진다(`#318`의 논거) (#593) |
