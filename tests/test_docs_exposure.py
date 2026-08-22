@@ -28,9 +28,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import api_docs_kwargs, app
+from cii_platform.api.rate_limit import RateLimiter
 from cii_platform.auth.dependencies import _DOCS_PATHS, build_public_paths
 from cii_platform.config import should_expose_api_docs
 
@@ -130,7 +132,32 @@ def test_the_running_app_matches_the_decision():
     assert app.openapi_url == ("/openapi.json" if should_expose_api_docs() else None)
 
 
-def test_docs_answer_in_the_current_environment():
+@pytest.fixture
+def spare_rate_limiter():
+    """이 테스트의 요청을 **공용 분당 한도에서 빼 둔다**.
+
+    ``main.app``은 모듈 레벨 객체라 ``app.state.rate_limiter``(300/분)를 **pytest
+    프로세스 전체가 공유**한다 — 그 앱을 ``TestClient``로 때리는 테스트 파일이 22개다.
+    로컬은 전체 실행이 3분 46초라 요청이 여러 윈도에 흩어지지만, **CI는 1분 4초**라
+    같은 윈도에 몰린다. 실제로 이 파일을 더한 뒤 CI에서 무관한
+    ``test_voyage_cii_api.py``가 429로 떨어졌다.
+
+    그래서 이 테스트 동안만 **별도 카운터**를 끼우고 끝나면 원래 것을 되돌린다 —
+    다른 테스트가 쌓아 둔 카운트를 지우지 않으면서, 이 파일이 예산을 **0** 쓰게 한다.
+
+    ⚠️ **한도 자체가 아슬아슬한 것은 그대로 남는다.** 공용 리미터를 매 테스트마다
+    리셋하는 것이 근본 해법이지만 ``conftest.py``(공용 인프라) 소관이라 이 이슈에서
+    다루지 않는다.
+    """
+    original = app.state.rate_limiter
+    app.state.rate_limiter = RateLimiter(original.limit)
+    try:
+        yield
+    finally:
+        app.state.rate_limiter = original
+
+
+def test_docs_answer_in_the_current_environment(spare_rate_limiter):
     """개발 환경(테스트가 도는 곳)에서는 지금까지처럼 열린다 — 회귀 방지."""
     assert should_expose_api_docs() is True, "이 테스트는 APP_ENV 미설정을 전제한다"
 
