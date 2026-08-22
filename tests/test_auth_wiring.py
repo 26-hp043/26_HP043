@@ -14,7 +14,7 @@ from fakes import FAKE_SESSION_TOKEN, install_fake_auth
 from fastapi.testclient import TestClient
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from cii_platform.api.main import app
+from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.auth.session import SESSION_COOKIE_NAME
 
 
@@ -59,6 +59,112 @@ def test_mutating_route_with_wrong_csrf_is_403(monkeypatch: pytest.MonkeyPatch) 
             headers={"X-CSRF-Token": "wrong"},
         )
         assert resp.status_code == 403
+
+
+def _mutating_routes() -> list[tuple[str, str, bool]]:
+    """``routes/*.py``를 **소스에서** 읽어 상태 변경 라우트를 모은다.
+
+    FastAPI 객체를 훑지 않는다 — 이 버전은 ``include_router``가 라우트를 래퍼
+    객체 안에 감춰 두어, 순진하게 ``app.routes``를 도는 코드는 **0개를 검사하고도
+    통과한다.** 실제로 그렇게 썼다가 아래 `test_the_guard_can_actually_fail`에
+    걸렸다. 소스는 그런 식으로 조용해지지 않는다.
+
+    반환: ``(메서드, 전체 경로, require_csrf가 걸렸는가)``
+    """
+    import ast
+    from pathlib import Path
+
+    routes_dir = Path(__file__).resolve().parents[1] / "src" / "cii_platform" / "api" / "routes"
+    found: list[tuple[str, str, bool]] = []
+
+    for path in sorted(routes_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        # ``router = APIRouter(prefix="/auth", ...)`` — 없으면 빈 접두사.
+        prefix = ""
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "router" for t in node.targets
+            ):
+                for kw in getattr(node.value, "keywords", []):
+                    if kw.arg == "prefix" and isinstance(kw.value, ast.Constant):
+                        prefix = kw.value.value
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            for deco in node.decorator_list:
+                func = getattr(deco, "func", None)
+                method = getattr(func, "attr", "").upper()
+                if method not in {"POST", "PATCH", "PUT", "DELETE"}:
+                    continue
+                if not deco.args or not isinstance(deco.args[0], ast.Constant):
+                    continue
+                full = f"{API_V1_PREFIX}{prefix}{deco.args[0].value}"
+                source = ast.unparse(node.args)
+                found.append((method, full, "require_csrf" in source))
+
+    return found
+
+
+def test_no_session_route_skips_csrf() -> None:
+    """**세션을 요구하는 상태 변경 라우트에 CSRF 예외가 없다** (`#634`).
+
+    `POST /auth/logout` 하나만 예외였다 — 세션이 필요한데 `require_csrf`가 없어
+    제3자 사이트가 사용자를 강제 로그아웃시킬 수 있었다. 그 예외를 없앴고, 여기서
+    **다시 생기지 않도록 잠근다.**
+
+    개별 라우트를 열거하지 않는다 — 라우트가 하나 늘 때 이 테스트가 알아야 하고,
+    열거하면 새 라우트는 목록에 없어 검사되지 않는다(`#527`이 겪은 형태다).
+
+    검증이 없어도 되는 것은 **세션이 없는 공개 경로**뿐이다. 검증할 세션이 없으므로
+    예외가 아니라 적용 대상이 아니다 (`API_SPEC §1.2`).
+    """
+    from cii_platform.auth.dependencies import build_public_paths
+
+    # 환경과 무관하게 판정한다 — dev-login·docs가 노출되는 환경에서도 같은 결론이어야
+    # 한다. 넓은 쪽(둘 다 공개)을 쓰면 공개 경로를 놓치지 않는다.
+    public = build_public_paths(expose_docs=True, expose_dev_auth=True)
+
+    offenders = [
+        f"{method} {path}"
+        for method, path, has_csrf in _mutating_routes()
+        if path not in public and not has_csrf
+    ]
+
+    assert not offenders, (
+        f"세션이 필요한데 CSRF 검증이 없는 라우트 {len(offenders)}개: {offenders}\n"
+        "→ `Depends(require_csrf)`를 걸거나, 공개 경로라면 PUBLIC_PATHS에 넣으세요."
+    )
+
+
+def test_the_guard_can_actually_fail() -> None:
+    """위 단언이 **아무것도 검사하지 않는 상태**가 아닌지 확인한다.
+
+    라우트 수집이 깨지면 `offenders`가 늘 비어 조용히 통과한다. **이 가드가 실제로
+    한 번 잡았다** — 처음 구현은 `app.routes`를 돌았는데 이 FastAPI 버전은 라우트를
+    래퍼에 감춰 두어 수집 결과가 0개였다.
+    """
+    routes = _mutating_routes()
+    assert len(routes) >= 20, f"검사 대상이 {len(routes)}개뿐이다 — 수집이 깨졌는지 확인할 것"
+    assert any(has_csrf for _, _, has_csrf in routes), "require_csrf를 하나도 찾지 못했다"
+
+
+def test_public_mutating_routes_are_the_session_less_ones() -> None:
+    """CSRF 검증이 없는 상태 변경 라우트는 **전부 공개 인증 경로**다 (`#634`).
+
+    위 테스트의 반대 방향이다 — 「예외가 없다」만 보면 **전부 공개로 만들어** 통과시킬
+    수 있다. 검증이 빠진 것들이 실제로 세션 없는 경로인지 여기서 확인한다.
+    """
+    from cii_platform.auth.dependencies import build_public_paths
+
+    public = build_public_paths(expose_docs=True, expose_dev_auth=True)
+    skipped = sorted({path for _, path, has_csrf in _mutating_routes() if not has_csrf})
+
+    assert skipped, "검증이 없는 라우트를 하나도 찾지 못했다 — 수집이 깨졌는지 확인할 것"
+    assert all(path in public for path in skipped), skipped
+    # 로그아웃이 다시 이 목록에 들어오면 `#634`의 회귀다.
+    assert f"{API_V1_PREFIX}/auth/logout" not in skipped
 
 
 def test_middleware_stack_order() -> None:
