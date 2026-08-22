@@ -173,7 +173,28 @@ step "6. 계산 경로 확인"
 # 요청이므로 CSRF 토큰을 **헤더로** 붙인다 — 쿠키로도 오지만 검증은 헤더만 본다
 # (`auth/dependencies.py`). `dev-login`은 `APP_ENV != production`에서만 등록된다
 # (`API_SPEC §1.2`).
-JAR=$(mktemp -t demo_cii_jar)
+# 쿠키 jar는 **템플릿을 경로째 적어** 만든다.
+#
+# `mktemp -t demo_cii_jar`는 **GNU coreutils에서 거부된다** — `-t`의 템플릿은
+# `XXX` 이상으로 끝나야 하고, 그렇지 않으면 `too few X's in template`으로
+# 종료 코드 1을 낸다. BSD/macOS는 접미사를 알아서 붙여 통과하므로
+# **리눅스·WSL에서만** 드러났다.
+#
+# 이 스크립트에는 `set -e`가 없다(위 `set -uo pipefail`). 그래서 실패해도
+# 멈추지 않고 `JAR`이 빈 문자열이 된 채 진행했고, 뒤의 `awk`가 빈 결과를 내
+# **「dev 세션을 발급받지 못했습니다」라는 원인이 아닌 메시지**가 떴다.
+# 인증은 멀쩡했고 임시파일을 못 만든 것이었다 — `#616`이 없애려던
+# 「원인을 알 수 없는 메시지」가 다른 형태로 되살아난 셈이다.
+#
+# 그래서 두 가지를 함께 한다.
+#   1. 템플릿을 `"${TMPDIR:-/tmp}/…XXXXXX"`로 적는다 — GNU·BSD가 같게 동작한다
+#   2. **실패를 그 자리에서 잡는다** — 빈 `JAR`로 다음 줄에 가지 않는다
+JAR=$(mktemp "${TMPDIR:-/tmp}/demo_cii_jar.XXXXXX" 2>/dev/null) || JAR=""
+if [ -z "$JAR" ]; then
+  bad "임시 파일을 만들지 못했습니다 — 쿠키를 저장할 수 없어 인증을 진행할 수 없습니다"
+  info "TMPDIR=${TMPDIR:-/tmp} 에 쓰기 권한이 있는지 확인하십시오."
+  exit 1
+fi
 trap 'rm -f "$JAR"' EXIT
 
 curl -s -c "$JAR" -X POST http://localhost:8000/api/v1/auth/dev-login >/dev/null 2>&1
@@ -211,16 +232,31 @@ fi
 
 # --- 안내 ---------------------------------------------------------------------------
 
+# 안내 문구는 README 「화면은 항상 실 API로 돈다」와 같은 것을 말해야 한다.
+#
+# 종전 안내는 **`#542`가 폐기한 데모 모드를 지시하고 있었다** — 「demo 모드
+# (백엔드 안 씀)」 갈래와 `VITE_USE_API=true`가 그것이다. 그 환경변수를 읽는
+# 코드는 저장소에 **한 줄도 없다**(남은 6곳은 전부 「종전에는」으로 시작하는
+# 과거 서술 주석이다). 그대로 따르면 데모 모드인 줄 알고 실 API 화면을 보게
+# 되며, 이는 `#528`이 만든 혼동의 반대 방향이다.
+#
+# Vite dev 서버가 `/api`를 `127.0.0.1:8000`으로 프록시하므로(#138) 갈래가
+# 필요 없다. 로그인 우회 방법도 README와 같은 것을 적는다.
 cat <<'GUIDE'
 
 ──────────────────────────────────────────────────────────────
  백엔드 준비 완료. 프론트엔드는 새 터미널에서 띄우세요.
 
-   demo 모드 (백엔드 안 씀)
-     cd frontend && rm -f .env.local && npm run build && npx vite preview --port 4173
+   개발 서버 (코드 수정이 바로 반영됨)
+     cd frontend && npm run dev            # http://localhost:5173
 
-   실 API 모드 (백엔드 씀)
-     cd frontend && echo "VITE_USE_API=true" > .env.local && npm run dev
+   프로덕션 빌드 확인
+     cd frontend && npm run build && npx vite preview --port 4173
+
+ 화면은 항상 실 API로 돕니다 (#542) — 백엔드가 떠 있어야 데이터가 보입니다.
+ 로그인을 건너뛰려면 브라우저 콘솔에서:
+
+     await fetch('/api/v1/auth/dev-login', { method: 'POST' }); location.href = '/'
 
  종료
      pkill -f "uvicorn cii_platform"
