@@ -1299,7 +1299,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_audit_actions_db.py` | 5 | **§3.7 통합 · 감사 로그** — 항차 확정(`VOYAGE_CONFIRM`, 변경 전/후 포함) · 계산 실행의 해시 기록. **라우트를 지나서** 확인한다 (`#65`) |
 | `test_auth_api.py` | 14 | **§4.7 인증 API** — 계정 존재 여부 비노출 · 가입 중복 고지 · 이메일 정규화 |
 | `test_auth_failure_paths.py` | 4 | §4.7 API · 인증 |
-| `test_auth_session.py` | 0 | §4.7 API · 인증 |
+| `test_auth_session.py` | 27 | §4.7 API · 인증 |
 | `test_auth_wiring.py` | 7 | §4.7 API · 인증 |
 | `test_calc_run_needs_recalc_db.py` | 6 | §5 DB · 제약·마이그레이션 |
 | `test_compose_env_wiring.py` | 5 | **§5 인프라 · 배포 배선** — compose가 `.env`를 컨테이너에 주입하는지, `environment:`가 `DATABASE_URL`을 덮는지 (`#508`) |
@@ -1311,7 +1311,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_required_checks_doc.py` | 3 | **§5 인프라 · 머지 게이트** — CI 잡이 `AGENTS §7` required check 표에 등재됐는지. 「잡은 도는데 아무것도 막지 않는」 상태를 막는다 (`#402`) |
 | `test_mail_startup_guard.py` | 5 | **§5 인프라 · 기동 검증** — 프로덕션 메일 설정이 어긋나면 **기동 시점에** 막히는지. 종전에는 첫 발송에서 500이 났다 (`#524`) |
 | `test_calculation_migrations.py` | 14 | §5 DB · 제약·마이그레이션 |
-| `test_calculations_api.py` | 0 | §4 API · 선박·항차·계산 |
+| `test_calculations_api.py` | 12 | §4 API · 선박·항차·계산 |
 | `test_calculations_query_db.py` | 3 | §4 API · 선박·항차·계산 |
 | `test_capacity_rules.py` | 19 | §2 단위 · 계산 엔진 |
 | `test_cii_engine.py` | 21 | §2 단위 · 계산 엔진 |
@@ -1335,17 +1335,17 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_csv_fixture.py` | 3 | §3 통합 · CSV |
 | `test_voyage_import_db.py` | 23 | **§3.4 통합 · CSV 가져오기 · 커서 페이지네이션** — 수식 주입 4종 escape · 숫자 열은 거부 · 부분 성공(행 번호 보고) · 1000행 상한은 자르되 알린다 · dry-run (`#60`) · **커서 페이지네이션 3종** — 페이지 크기를 넘는 항차에 도달 · **발급한 커서를 서버가 읽는다** · 깨진 커서는 422 (`#627`) |
 | `test_case_id_sync.py` | 7 | **§5 인프라 · 문서 정합** — 케이스 ID가 코드·면제 표 어디에도 없는 상태를 막는다 (`§14.5`). 범위 규칙 자체를 고정하는 3건 포함 — 인용은 커버리지 주장이 아니다 (`#498`) |
-| `test_dashboard_seed.py` | 9 | **§5.7 DB · seed 적재** |
+| `test_dashboard_seed.py` | 12 | **§5.7 DB · seed 적재** |
 | `test_doc_cross_refs.py` | 4 | **§5 인프라 · 문서 정합** — `UIFLOW`·`DESIGN_SYSTEM`을 가리키는 절·화면 참조가 **실재하는지**, 그리고 `AGENTS §4.7` 표기 규칙(화면에 `§`를 붙이지 않는다)을 지키는지. `.md`와 `frontend/src` 주석을 함께 훑는다 (`#583`·`#602`) |
 | `test_doc_version_sync.py` | 3 | **§5 인프라 · 문서 정합** — `README` ↔ 정본 헤더 버전 일치 (`AGENTS §4`) |
 | `test_db_hardening_023.py` | 6 | §5 DB · 제약·마이그레이션 |
-| `test_demo_vessel_seed.py` | 11 | **§5.7 DB · seed 적재** — 합성 IMO의 체크섬 유효성 포함 (`#525`) |
+| `test_demo_vessel_seed.py` | 13 | **§5.7 DB · seed 적재** — 합성 IMO의 체크섬 유효성 포함 (`#525`) |
 | `test_demo_seed_counts.py` | 5 | **§5.7 DB · seed 적재** — 적재·삭제 **행 수 보고**가 사실인지 (재실행 0 · 비운 뒤 실제 건수 · 음수 없음, `#481`) |
 | `test_dev_auth.py` | 5 | §4.7 API · 인증 |
 | `test_docs_exposure.py` | 14 | **§4.7 API · 인증** — 프로덕션 OpenAPI 문서 노출 범위 (`AT-AUTH-014`) · **공개 경로 불변식**(`AT-AUTH-015`). 판정이 import 시점에 확정되므로 **하위 프로세스로 진짜 앱을 기동**해 응답 코드를 본다 (`#593` · `#648`) |
 | `test_error_handlers.py` | 19 | §4 API · 공통·운영 |
-| `test_error_handlers_116.py` | 0 | §4 API · 공통·운영 |
-| `test_field_labels.py` | 2 | §4 API · 공통·운영 |
+| `test_error_handlers_116.py` | 18 | §4 API · 공통·운영 |
+| `test_field_labels.py` | 7 | §4 API · 공통·운영 |
 | `test_fuel_estimator.py` | 11 | §2 단위 · 추정·기상 |
 | `test_fuel_type_content_hash.py` | 7 | **§5.7 DB · seed 적재** |
 | `test_fuel_type_seed.py` | 4 | **§5.7 DB · seed 적재** |
@@ -1364,34 +1364,34 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_request_context.py` | 3 | §4 API · 공통·운영 |
 | `test_risk_level.py` | 26 | §2 단위 · 계산 엔진 |
 | `test_rng_reproducibility.py` | 4 | §2 단위 · 계산 엔진 |
-| `test_scenario_compare_api.py` | 0 | §4 API · 기능② 시나리오 |
+| `test_scenario_compare_api.py` | 34 | §4 API · 기능② 시나리오 |
 | `test_scenario_compare_db.py` | 2 | §4 API · 기능② 시나리오 |
-| `test_scenario_adopt_db.py` | 19 | **§3 통합 · 시나리오 채택** — 계획값 반영 · 계산 무효화(항차 범위) · 계획 단계 항차만 허용 · 항차당 채택 하나 · `CREATE_NEW_VOYAGE` (`#58`) |
+| `test_scenario_adopt_db.py` | 17 | **§3 통합 · 시나리오 채택** — 계획값 반영 · 계산 무효화(항차 범위) · 계획 단계 항차만 허용 · 항차당 채택 하나 · `CREATE_NEW_VOYAGE` (`#58`) |
 | `test_seed_data.py` | 17 | **§5.7 DB · seed 적재** |
 | `test_seed_migration.py` | 8 | **§5.7 DB · seed 적재** |
 | `test_simulation_clock.py` | 20 | **§2.11 단위 · 시뮬레이션 시계** |
-| `test_testplan_sync.py` | 4 | **§14 인벤토리 동기화** |
+| `test_testplan_sync.py` | 8 | **§14 인벤토리 동기화** |
 | `test_tracked_files_are_text.py` | 2 | **§14 인벤토리 동기화** — 추적 소스에 NUL이 섞이면 git이 바이너리로 보아 **PR diff와 `grep`이 막힌다.** `.gitattributes`는 보이게 할 뿐 유입을 막지 못해 들어오는 자리에 신호를 둔다 (`#572` 발견 · `#575`) |
 | `test_url_normalize.py` | 3 | §4 API · 공통·운영 |
 | `test_vessel_position_state_migrations.py` | 12 | **§5.9 DB · 운항 상태·위치** |
-| `test_vessels_api.py` | 0 | §4 API · 선박·항차·계산 |
-| `test_voyage_cii_api.py` | 0 | §4 API · 선박·항차·계산 |
-| `test_voyage_cii_service.py` | 0 | §4 API · 선박·항차·계산 |
+| `test_vessels_api.py` | 62 | §4 API · 선박·항차·계산 |
+| `test_voyage_cii_api.py` | 32 | §4 API · 선박·항차·계산 |
+| `test_voyage_cii_service.py` | 16 | §4 API · 선박·항차·계산 |
 | `test_voyage_delete_db.py` | 2 | §5 DB · 제약·마이그레이션 |
 | `test_voyage_migrations.py` | 11 | §5 DB · 제약·마이그레이션 |
-| `test_voyage_state_machine.py` | 10 | §4 API · 선박·항차·계산 |
+| `test_voyage_state_machine.py` | 17 | §4 API · 선박·항차·계산 |
 | `test_voyage_actuals_db.py` | 10 | **§4 API · 항차 실적 입력** — 계획값 보존 · CF snapshot · 상태 경계 · 유종 중복 |
 | `test_voyages_api.py` | 23 | §4 API · 선박·항차·계산 (실적 입력 라우트 포함) |
 | `test_weather_seed.py` | 5 | **§5.7 DB · seed 적재** |
-| `test_weather_model.py` | 25 | **§2 단위 · 기상 보정 모델** — Townsin-Kwon 경험식(BN·Cβ 보간·적용 한계)과 SIMPLE_RULE(clamp·상한). **두 모델의 실패 규칙이 서로 새지 않는지** (`#61`) |
-| `test_weather_client_db.py` | 19 | **§3 통합 · 기상 조회** — 두 엔드포인트 · 부분 실패 · 시각 선택 · 캐시 격자 · 스냅샷 저장 · 모델 디스패치 (`#61`) |
+| `test_weather_model.py` | 18 | **§2 단위 · 기상 보정 모델** — Townsin-Kwon 경험식(BN·Cβ 보간·적용 한계)과 SIMPLE_RULE(clamp·상한). **두 모델의 실패 규칙이 서로 새지 않는지** (`#61`) |
+| `test_weather_client_db.py` | 16 | **§3 통합 · 기상 조회** — 두 엔드포인트 · 부분 실패 · 시각 선택 · 캐시 격자 · 스냅샷 저장 · 모델 디스패치 (`#61`) |
 | `test_weather_fallback_db.py` | 12 | **§3 통합 · 기상 fallback** — `PRD §11.6` 네 칸(최신·6h·6~24h·없음) · 실험 모델 배지 · 「보정하지 않았다」를 조용히 넘기지 않는다 (`#62`) |
 | `test_weather_simulation_migrations.py` | 12 | §5 DB · 제약·마이그레이션 |
 | `test_ytd_cii_service_db.py` | 20 | **§2.10 단위 · YTD 산출 엔진** |
-| `test_ytd_engine.py` | 0 | **§2.10 단위 · YTD 산출 엔진** |
+| `test_ytd_engine.py` | 26 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 98개 파일 · 1261 함수 · 1540 수집.** (2026-08-22 실측)
+**합계 98개 파일 · 1265 함수 · 1544 수집.** (2026-08-22 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
@@ -1443,13 +1443,13 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `UT-CAP-008` | 벌크 300k에서 W 오차 = 0% | `UT-CAP-001·002`가 값은 덮으나 **오차 형태로는** 단언하지 않는다 |
 | `UT-CLOCK-003` | `as_of` 미지정 시 동작 | `resolve_as_of`의 서버 확정 경로가 여러 서비스에 흩어져 있어 소유 파일이 정해지지 않았다 |
 | `UT-CLOCK-004` | `as_of`가 `input_hash`에 들어가는가 | `#42` canonical 규약과의 정합. 해싱 테스트와 시계 테스트 어느 쪽 소관인지 미정 |
-| `UT-YTD-006` | 계산 코어가 시각을 모른다 | `test_ytd_engine.py`가 **파일만 있고 테스트가 0건**이다 |
+| `UT-YTD-006` | 계산 코어가 시각을 모른다 | `test_ytd_engine.py`에 **테스트 26건이 들어왔으나** 이 케이스 ID를 단 것은 없다. 종전 사유(「파일만 있고 테스트가 0건」)는 `#652` 시점에 이미 사실이 아니었다 |
 | `AT-CQ-002` | 존재하지 않는 hash → 200 빈 배열 | 조회 테스트 3건이 일치·필터·인증만 덮는다 |
 | `AT-VC-006`~`008` | 거리 누락 · 속도 < 1.0 · 없는 선박 | 검증 실패 3종. 스키마 레벨에서 막히는 것과 서비스에서 막히는 것이 섞여 있어 소유가 갈린다 |
 | `AT-AS-002` | `rng_metadata` 포함 | 재현성 계약의 표시 축. `UT-RNG-*`가 생성기를 덮으나 **응답에 실리는지**는 비어 있다 |
 | `IT-STATE-007` | 스냅샷 격리: 시뮬레이션 중 항차 수정 | `test_annual_simulation_api_db.py`가 스냅샷 불변을 덮으나 **전환 중 수정** 시나리오는 아니다 |
 
-> **이 목록은 부채다.** 「구현은 됐는데 그 성질을 아무도 고정하지 않았다」는 뜻이고, 그중 `UT-YTD-006`처럼 **빈 파일이 있는 것**은 특히 눈에 띄지 않는다.
+> **이 목록은 부채다.** 「구현은 됐는데 그 성질을 아무도 고정하지 않았다」는 뜻이다. `UT-YTD-006`의 사유는 `#652`에서 정정했다 — 파일은 더 이상 비어 있지 않고, **그 케이스만 없다.**
 
 #### 계획분 — 기능이 아직 없다
 
@@ -1552,3 +1552,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-22 | `#627` | `test_voyage_import_db.py`에 **커서 페이지네이션 3종** 추가 · 합계 실측 갱신(1245함수·1524수집 → **1253함수·1532수집**). **DB에 붙는 테스트여야 했다** — 결함이 파이썬 오류가 아니라 SQL 타입 불일치였다(커서의 `created_at`이 `str`이라 `timestamptz`와 비교되지 않아 `operator does not exist`로 500). 서버가 **자기가 발급한 커서를 읽지 못하는** 상태였고, 화면 두 곳이 `meta.next_cursor`를 버려 와서 아무도 밟지 않았다. ⚠️ 이 파일의 기재 수치가 **문서 23 / 실측 20**으로 3 높아 있었다 — `#652`가 지적한 그 구멍이며, 합계도 5 낮았다. 함께 맞췄다 (#627) |
 | 2026-08-22 | `#648` | §4.7에 **`AT-AUTH-015`** 신설(공개 경로 불변식) · `test_docs_exposure.py` 9 → **14함수** · 합계 실측 갱신(1253함수·1532수집 → **1258함수·1537수집**). `PUBLIC_PATHS`의 경로에 라우트가 없으면 **그 경로만 404**가 되어 신호가 남는다 — 프로덕션 dev-login이 그랬고, `#593`이 `/docs`에서 없앤 것과 같은 부류다. 함께 **접두사 없는 사본 8개를 제거**했다: `is_public_path()` 주석이 「실제 요청 경로는 항상 `/api/v1` prefix를 달고 나온다」고 적고 있어 **영원히 매치되지 않는 항목**이었다 (#648) |
 | 2026-08-22 | `#651` | `test_rate_limit.py` 9 → **12함수**(공용 카운터 격리 3종) · 합계 실측 갱신(1258함수·1537수집 → **1261함수·1540수집**). `main.app`이 모듈 레벨 객체라 분당 카운터(300/분)를 **pytest 프로세스 전체가 공유**했고, 고정 윈도라 **실패 여부가 전체 실행 속도에 달려 있었다** — 로컬 3분대는 통과하고 CI 1분대는 429가 났다. `#593`·`#648`이 각각 한 번씩 이것으로 막혔고 두 번 다 해당 파일에서만 우회했다. `conftest.py`의 autouse 픽스처가 매 테스트마다 **같은 한도의 새 인스턴스**를 끼운다 — 한도 자체는 살아 있어 한 테스트 안에서 넘기면 여전히 429다 (#651) |
+| 2026-08-22 | `#652` | **§14.2 함수 수·합계를 테스트가 검사한다.** 종전 가드 4종은 **파일 목록만** 봤고, 그 사이 함수 수 열이 낡았다 — 가드를 켜자마자 **16개 파일이 어긋나 있었다.** 그중 7개는 **`0`**으로 적혀 있었는데 실제로는 12~62개다(`test_vessels_api.py` 0 → **62** · `test_scenario_compare_api.py` 0 → **34** · `test_voyage_cii_api.py` 0 → **32** · `test_auth_session.py` 0 → **27** · `test_ytd_engine.py` 0 → **26** · `test_error_handlers_116.py` 0 → **18** · `test_voyage_cii_service.py` 0 → **16**). 나머지 9개는 양방향으로 어긋났다. 합계 실측 갱신(1261함수 → **1265함수** · 1540수집 → **1544수집**). **수집 수는 검사하지 않는다** — 파라미터라이즈 때문에 실행해야 알 수 있고, 그 하나를 위해 전 테스트를 수집하면 가드가 본체보다 오래 걸린다. §14.5 `UT-YTD-006`의 사유도 정정했다 — 「파일만 있고 테스트가 0건」이 이미 사실이 아니었다 (#652) |
