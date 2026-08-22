@@ -70,6 +70,78 @@ describe('목록', () => {
   })
 })
 
+/*
+ * 항차 선택지의 페이지 순회 (`#627`).
+ *
+ * `<select>`라 「더 보기」를 넣을 수 없어 **끝까지 부른다.** 임의의 페이지 상한을 두면
+ * 그 너머를 조용히 자르므로, 무한 루프는 **커서가 전진하지 않으면 중단**으로 막는다.
+ */
+describe('항차 선택지 — 커서 순회', () => {
+  it('has_more가 있으면 다음 페이지를 이어 부른다', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: 'a', voyage_no: '1', status: 'COMPLETED', regulation_year: 2026 }],
+          meta: { next_cursor: 'c-2', has_more: true },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          data: [{ id: 'b', voyage_no: '2', status: 'COMPLETED', regulation_year: 2026 }],
+          meta: { next_cursor: null, has_more: false },
+        }),
+      )
+
+    const result = await createApiReportsProvider(fetchImpl).listVoyages('v-1')
+
+    expect(result.map((v) => v.id)).toEqual(['a', 'b'])
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(String(fetchImpl.mock.calls[1][0])).toContain('cursor=c-2')
+  })
+
+  it('has_more가 없으면 한 번만 부른다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: [{ id: 'a', voyage_no: '1', status: 'COMPLETED', regulation_year: 2026 }],
+        meta: { has_more: false },
+      }),
+    )
+
+    await createApiReportsProvider(fetchImpl).listVoyages('v-1')
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('같은 커서를 다시 주면 멈춘다 — 계약 위반이 무한 루프가 되면 안 된다', async () => {
+    // `Response`는 본문을 한 번만 읽을 수 있어 호출마다 새로 만든다.
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        data: [{ id: 'a', voyage_no: '1', status: 'COMPLETED', regulation_year: 2026 }],
+        meta: { next_cursor: 'same', has_more: true },
+      }),
+    )
+
+    const result = await createApiReportsProvider(fetchImpl).listVoyages('v-1')
+
+    // 첫 페이지에서 커서를 기억하고, 두 번째가 같은 값을 주면 그 자리에서 끊는다.
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(result).toHaveLength(2)
+  })
+
+  it('meta가 없으면 한 페이지로 끝낸다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: [{ id: 'a', voyage_no: '1', status: 'COMPLETED', regulation_year: 2026 }],
+      }),
+    )
+
+    await createApiReportsProvider(fetchImpl).listVoyages('v-1')
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('미리보기', () => {
   it('PDF와 같은 소스를 받는다 — format=html', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(fileResponse('<html>문서</html>'))

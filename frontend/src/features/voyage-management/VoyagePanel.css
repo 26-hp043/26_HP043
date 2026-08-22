@@ -29,7 +29,8 @@
 .vy__toggle,
 .vy__submit,
 .vy__cancel,
-.vy__transition {
+.vy__transition,
+.vy__more {
   border: 1px solid var(--border-default);
   background: var(--surface-card);
   color: var(--text-primary);
@@ -49,7 +50,8 @@
 .vy__toggle:disabled,
 .vy__submit:disabled,
 .vy__cancel:disabled,
-.vy__transition:disabled {
+.vy__transition:disabled,
+.vy__more:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -58,6 +60,7 @@
 .vy__submit:focus-visible,
 .vy__cancel:focus-visible,
 .vy__transition:focus-visible,
+.vy__more:focus-visible,
 .vy__input:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 2px;
@@ -383,4 +386,11 @@
 .vy-import__errors code {
   font-family: inherit;
   color: var(--text-secondary);
+}
+
+/* 「더 보기」 — 목록 아래 전체 폭. 다음 구획(CSV 가져오기)과 붙지 않게 아래 여백을 둔다. */
+.vy__more {
+  display: block;
+  width: 100%;
+  margin: var(--spacing-sm) 0 var(--spacing-md);
 }

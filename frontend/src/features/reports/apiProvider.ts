@@ -48,6 +48,14 @@ interface ServerVessel {
   imo_number: string
 }
 
+/**
+ * 항차 목록 응답의 **부분집합** — 셀렉트에 필요한 6필드만 받는다.
+ *
+ * **공용화하지 않는 이유**는 `voyage-management/apiProvider.ts`의 같은 이름 위에
+ * 판단과 근거를 적어 두었다 (`#627`). 요약하면 세 벌은 같은 타입이 아니다 —
+ * `realtime-cii` 쪽은 **다른 엔드포인트**이고, 이 파일과 `voyage-management`는 같은
+ * 엔드포인트지만 **안전성 전략이 반대**다(확정 타입 vs `unknown` + 런타임 파싱).
+ */
 interface ServerVoyage {
   id: string
   voyage_no: string | null
@@ -106,10 +114,46 @@ export function createApiReportsProvider(
       }))
     },
 
+    /**
+     * 항차 선택지 — **페이지를 끝까지 순회한다** (`#627`).
+     *
+     * 종전에는 `?limit=100` 한 번이었다. `#625`가 한 번에 1,000행을 넣을 수 있게 만든
+     * 뒤 **101번째부터는 셀렉트에 뜨지 않아 보고서를 만들 수 없었다.**
+     *
+     * ## 왜 「더 보기」가 아니라 전부 부르는가
+     *
+     * 이 자리는 `<select>`다. 「더 보기」·검색을 넣으려면 컴포넌트를 다시 만들어야 하고,
+     * 그것은 이 이슈의 범위가 아니다. 서버 상한이 100이라 1,000 항차면 **10회 요청**이고
+     * 셀렉트는 한 번 열린다.
+     *
+     * ## 무한 루프를 페이지 상한으로 막지 않는다
+     *
+     * 임의의 상한(「20페이지까지」)을 두면 그 너머를 **조용히 자른다** — 화면은 전부
+     * 보여 준다고 주장하면서 일부를 감춘다. 대신 **커서가 전진하지 않으면 중단**한다:
+     * 서버가 같은 커서를 다시 주는 것은 계약 위반이고, 그때만 루프가 무한해진다.
+     */
     async listVoyages(vesselId: string): Promise<VoyageOption[]> {
-      const body = (await (
-        await call(`/vessels/${vesselId}/voyages?limit=100`)
-      ).json()) as { data?: ServerVoyage[] }
+      const rows: ServerVoyage[] = []
+      const seen = new Set<string>()
+      let cursor: string | null = null
+
+      for (;;) {
+        const query = `limit=100${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`
+        const raw = (await (await call(`/vessels/${vesselId}/voyages?${query}`)).json()) as {
+          data?: ServerVoyage[]
+          meta?: { next_cursor?: unknown; has_more?: unknown }
+        }
+        rows.push(...(raw.data ?? []))
+
+        const next = raw.meta?.next_cursor
+        const more = raw.meta?.has_more === true
+        // 커서가 없거나·빈 문자열이거나·이미 지나온 값이면 멈춘다.
+        if (!more || typeof next !== 'string' || next === '' || seen.has(next)) break
+        seen.add(next)
+        cursor = next
+      }
+
+      const body = { data: rows }
 
       return (body.data ?? []).map((raw) => ({
         id: raw.id,

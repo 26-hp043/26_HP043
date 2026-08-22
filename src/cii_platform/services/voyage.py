@@ -198,14 +198,12 @@ async def list_voyages(
 
     next_cursor = None
     if has_more and page:
-        import datetime as dt
-
         last = page[-1]
         next_cursor = voyage_repo.encode_cursor(
             voyage_repo.VoyageCursor(
-                created_at=last.created_at.isoformat()
-                if isinstance(last.created_at, dt.datetime)
-                else str(last.created_at),
+                # `datetime` 그대로 넘긴다 — 문자열로 만들면 되읽을 때 `timestamptz`와
+                # 비교할 수 없다(`VoyageCursor` 주석 · `#627`).
+                created_at=last.created_at,
                 voyage_id=str(last.id),
             )
         )

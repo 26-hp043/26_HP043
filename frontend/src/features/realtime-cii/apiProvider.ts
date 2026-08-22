@@ -61,6 +61,15 @@ interface ServerSubstitution {
   fuel_type?: unknown
 }
 
+/**
+ * **`GET /vessels/{id}/cii/current`의 `current_voyage`**다 — 항차 목록 응답이 아니다.
+ *
+ * 이름이 `voyage-management`·`reports`의 `ServerVoyage`와 같지만 **다른 엔드포인트**이며,
+ * 키부터 다르다(`voyage_id` vs `id`). 실시간 계산 결과(`underway_hours`·`is_simulated`·
+ * `attained_cii`)를 달고 있어 합칠 수 있는 타입이 아니다.
+ *
+ * 공용화 판단은 `voyage-management/apiProvider.ts`에 남겼다 (`#627`).
+ */
 interface ServerVoyage {
   voyage_id: string
   voyage_no: string | null

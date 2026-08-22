@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
+from uuid import UUID
 
 from sqlalchemy import func, or_, select, tuple_
 
@@ -13,9 +15,6 @@ from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
 
 if TYPE_CHECKING:
-    from datetime import datetime
-    from uuid import UUID
-
     from sqlalchemy.ext.asyncio import AsyncSession
 
 #: API_SPEC §3.1 — 페이지 크기 기본 20, 최대 100 (vessel과 동일).
@@ -26,20 +25,54 @@ _CURSOR_SEP = "\x00"
 
 
 class VoyageCursor(NamedTuple):
-    """keyset 페이지네이션 커서 — ``(created_at, id)``의 마지막 값."""
+    """keyset 페이지네이션 커서 — ``(created_at, id)``의 마지막 값.
 
-    created_at: str
+    **``created_at``은 ``datetime``이다 (``str``이 아니다).** ``list_active``의
+    ``tuple_`` 비교가 ``Voyage.created_at``(``DateTime(timezone=True)``)과 맞붙는데,
+    문자열을 넘기면 asyncpg가 그대로 텍스트로 내려보내 PostgreSQL이 거절한다.
+
+    .. code-block:: text
+
+        operator does not exist: timestamp with time zone > character varying
+
+    **이 결함은 커서를 아무도 쓰지 않아 드러나지 않았다** (`#627`) — 화면 두 곳이
+    ``?limit=100``만 박고 ``meta.next_cursor``를 버렸다. 서버는 커서를 발급하면서
+    **자기가 발급한 커서를 읽지 못하는** 상태였다.
+
+    선박 쪽(``repositories/vessel.py``)이 멀쩡한 이유는 정렬 키가 다르기 때문이다 —
+    ``Vessel.name``은 ``varchar``라 문자열 비교가 성립한다. **같은 구조를 복사하면서
+    정렬 키의 타입이 달라진 것을 옮기지 않았다.**
+
+    ``voyage_id``는 ``str``로 둔다 — 선박 쪽과 같은 이유다. ``encode_cursor``가
+    ``str(voyage.id)``로 인코딩하므로 왕복 계약이 str에 맞춰져 있다.
+    """
+
+    created_at: datetime
     voyage_id: str
 
 
 def encode_cursor(cursor: VoyageCursor) -> str:
+    """커서를 URL-safe base64 문자열로 만든다.
+
+    **불투명한 문자열로 내보낸다** — ``API_SPEC §3.1``이 형식을 정하지 않았고, 내부
+    구조를 노출하면 클라이언트가 그것에 의존해 정렬 키를 바꿀 수 없게 된다.
+    """
     import base64
 
-    raw = f"{cursor.created_at}{_CURSOR_SEP}{cursor.voyage_id}".encode()
+    raw = f"{cursor.created_at.isoformat()}{_CURSOR_SEP}{cursor.voyage_id}".encode()
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
 def decode_cursor(token: str) -> VoyageCursor | None:
+    """커서를 되돌린다. 형식이 깨졌으면 ``None``.
+
+    **예외를 던지지 않는다.** 잘못된 커서는 사용자가 URL을 손댄 경우가 대부분이고,
+    그때 500이 나가면 안 된다. 오류로 볼지 첫 페이지로 볼지는 서비스가 정한다.
+
+    **두 값을 모두 검증한다.** base64가 정상이어도 안에 든 값이 시각·UUID가 아니면
+    쿼리 바인딩 단계에서 거절돼 500이 나간다 — 선박 쪽이 `#233`에서 UUID에 대해
+    막아 둔 것과 같은 경로이며, 여기서는 시각까지 함께 막는다.
+    """
     import base64
     import binascii
 
@@ -50,7 +83,15 @@ def decode_cursor(token: str) -> VoyageCursor | None:
     created_at, sep, voyage_id = raw.partition(_CURSOR_SEP)
     if not sep or not voyage_id:
         return None
-    return VoyageCursor(created_at=created_at, voyage_id=voyage_id)
+    try:
+        parsed_at = datetime.fromisoformat(created_at)
+    except ValueError:
+        return None
+    try:
+        UUID(voyage_id)
+    except ValueError:
+        return None
+    return VoyageCursor(created_at=parsed_at, voyage_id=voyage_id)
 
 
 async def get_by_id(session: AsyncSession, voyage_id: UUID) -> Voyage | None:

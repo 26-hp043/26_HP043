@@ -65,22 +65,48 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
   const [fuelTypes, setFuelTypes] = useState<string[]>([])
   const [failure, setFailure] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const api = provider ?? createApiVoyageManagementProvider()
 
-  const load = useCallback(async () => {
-    setFailure(null)
-    try {
-      const result = await api.list(vesselId)
-      setVoyages(result.voyages)
-      setFuelTypes(result.fuelTypes)
-    } catch (error) {
-      setVoyages([])
-      setFailure(error instanceof Error ? error.message : '항차를 불러오지 못했습니다.')
-    }
+  /**
+   * 한 페이지를 부른다 (`#627`).
+   *
+   * `cursor`가 `null`이면 **처음부터 다시** 부르고, 있으면 **뒤에 잇는다.** 종전에는
+   * `?limit=100`만 박고 `meta.next_cursor`를 버려 **101번째 항차부터 화면에서 도달할
+   * 방법이 없었다** — `#625`가 한 번에 1,000행을 넣을 수 있게 만든 뒤 실제 문제가 됐다.
+   *
+   * 선박 관리(`VesselManagement.tsx`)가 같은 계약을 이미 이렇게 소비한다.
+   */
+  const loadPage = useCallback(
+    async (cursor: string | null) => {
+      setFailure(null)
+      if (cursor !== null) setLoadingMore(true)
+      try {
+        const result = await api.list(vesselId, cursor)
+        setVoyages((rows) => (cursor === null ? result.voyages : [...(rows ?? []), ...result.voyages]))
+        setFuelTypes(result.fuelTypes)
+        setNextCursor(result.nextCursor)
+        setHasMore(result.hasMore)
+      } catch (error) {
+        // 이어붙이던 중 실패하면 **이미 받은 행을 지우지 않는다.** 첫 페이지 실패만
+        // 빈 목록으로 떨어뜨린다 — 그때는 보여 줄 것이 없다.
+        if (cursor === null) setVoyages([])
+        setFailure(error instanceof Error ? error.message : '항차를 불러오지 못했습니다.')
+      } finally {
+        setLoadingMore(false)
+      }
+    },
     // provider는 렌더마다 새로 만들어지므로 의존에 넣지 않는다 — 넣으면 무한 루프다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vesselId])
+    [vesselId],
+  )
+
+  const load = useCallback(async () => {
+    await loadPage(null)
+  }, [loadPage])
 
   useEffect(() => {
     void load()
@@ -142,6 +168,21 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
             <VoyageRow key={voyage.id} voyage={voyage} api={api} onChange={replace} />
           ))}
         </ul>
+      )}
+
+      {/*
+       * 「더 보기」 — 서버가 `meta.has_more`로 알려 준다. 커서가 없는데 버튼을 그리면
+       * 같은 페이지를 다시 부르므로 **둘 다 있을 때만** 그린다(`VesselManagement.tsx`와 같은 조건).
+       */}
+      {hasMore && nextCursor !== null && (
+        <button
+          type="button"
+          className="vy__more"
+          disabled={loadingMore}
+          onClick={() => void loadPage(nextCursor)}
+        >
+          {loadingMore ? '불러오는 중…' : '더 보기'}
+        </button>
       )}
 
       {/*

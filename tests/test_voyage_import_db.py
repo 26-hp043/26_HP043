@@ -368,3 +368,97 @@ def test_the_route_is_registered():
     from cii_platform.api.main import app
 
     assert "post" in app.openapi()["paths"]["/api/v1/vessels/{vessel_id}/import"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 커서 페이지네이션 (#627)
+#
+# **가져오기 뒤에 두는 이유** — 이 결함이 드러나는 조건이 「한 선박에 항차가 페이지
+# 크기보다 많다」이고, 그 상태를 실제로 만드는 것이 CSV 가져오기다(`#625`).
+#
+# 이 검사는 **DB에 붙어야 한다.** 결함이 파이썬 쪽 오류가 아니라 SQL 타입 불일치였다 —
+# 커서의 `created_at`이 `str`이라 `timestamptz` 컬럼과 비교되지 않았다.
+#
+#     operator does not exist: timestamp with time zone > character varying
+#
+# 서버는 커서를 발급하면서 **자기가 발급한 커서를 읽지 못했다.** 화면 두 곳이
+# `meta.next_cursor`를 버려 왔기 때문에 아무도 밟지 않았다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cursor_reaches_the_rows_past_the_first_page(session, vessel_id):
+    """페이지 크기를 넘는 항차에 커서로 도달한다.
+
+    `#625`가 한 번에 1,000행을 넣을 수 있게 만든 뒤, 목록이 첫 페이지에서 멈추면
+    **그 뒤 항차는 화면에서 도달할 방법이 없다.**
+    """
+    from cii_platform.services.voyage import list_voyages
+
+    rows = [f"V-{i:03d},BUSAN,SINGAPORE,1000,12.0,HFO,80.0" for i in range(1, 8)]
+    await import_voyages(session, vessel_id, content=csv_bytes(*rows))
+
+    seen: list[str] = []
+    cursor = None
+    for _ in range(10):  # 무한 루프 방지 — 7건이면 3페이지에 끝난다
+        page, meta = await list_voyages(session, vessel_id=vessel_id, limit=3, cursor=cursor)
+        seen.extend(str(v["voyage_no"]) for v in page)
+        if not meta["has_more"]:
+            break
+        cursor = meta["next_cursor"]
+        assert isinstance(cursor, str) and cursor != ""
+
+    assert len(seen) == 7, seen
+    assert len(set(seen)) == 7, "같은 행이 두 페이지에 나오면 안 된다"
+    assert set(seen) == {f"V-{i:03d}" for i in range(1, 8)}
+
+
+@pytest.mark.asyncio
+async def test_the_server_can_read_the_cursor_it_issued(session, vessel_id):
+    """**발급한 커서를 그대로 되돌려 준다.**
+
+    종전에는 여기서 `UndefinedFunctionError`(`timestamptz > varchar`)로 500이 났다.
+    커서를 만드는 쪽과 읽는 쪽이 같은 타입을 쓰는지 보는 것이 이 테스트의 전부다.
+    """
+    from cii_platform.services.voyage import list_voyages
+
+    rows = [f"W-{i:03d},BUSAN,SINGAPORE,1000,12.0,HFO,80.0" for i in range(1, 4)]
+    await import_voyages(session, vessel_id, content=csv_bytes(*rows))
+
+    first, meta = await list_voyages(session, vessel_id=vessel_id, limit=1)
+    issued = meta["next_cursor"]
+    assert isinstance(issued, str)
+
+    second, _ = await list_voyages(session, vessel_id=vessel_id, limit=1, cursor=issued)
+
+    assert len(second) == 1
+    # **어느 행이 먼저인지는 단언하지 않는다.** `created_at`의 기본값이 `now()`이고
+    # PostgreSQL의 `now()`는 **트랜잭션 시작 시각**이라 한 번에 넣은 행들의 시각이
+    # 전부 같다. 정렬은 그때 `id`(UUID)로 갈리므로 `voyage_no` 순서와 무관하다.
+    # 여기서 볼 것은 **커서가 전진했는가**뿐이다 — 종전에는 그 앞에서 500이 났다.
+    assert second[0]["voyage_no"] != first[0]["voyage_no"]
+
+
+@pytest.mark.asyncio
+async def test_broken_cursor_is_422_not_500(session, vessel_id):
+    """깨진 커서는 사용자가 URL을 손댄 경우가 대부분이다 — 500이 나가면 안 된다.
+
+    시각·UUID **둘 다** 검증한다. base64가 정상이어도 안의 값이 형식에 맞지 않으면
+    쿼리 바인딩 단계에서 거절돼 500이 된다(선박 쪽 `#233`과 같은 경로).
+    """
+    import base64
+
+    from cii_platform.services.voyage import list_voyages
+
+    def token(raw: str) -> str:
+        return base64.urlsafe_b64encode(raw.encode()).decode("ascii")
+
+    broken = [
+        "not-base64!!",
+        token("구분자없음"),
+        token("2026-08-22T00:00:00+00:00\x00uuid가아님"),
+        token("시각이아님\x00" + str(uuid4())),
+    ]
+    for value in broken:
+        with pytest.raises(ValidationError):
+            await list_voyages(session, vessel_id=vessel_id, limit=3, cursor=value)

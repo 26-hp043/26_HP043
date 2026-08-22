@@ -104,6 +104,56 @@ describe('list', () => {
     expect(result.voyages[0].voyageNo).toBe('V-2026-001')
     expect(result.voyages[0].plannedDistanceNm).toBe(11000)
   })
+
+  /*
+   * 커서 페이지네이션 (`#627`).
+   *
+   * 종전에는 `?limit=100`만 박고 `meta.next_cursor`를 버렸다. `#625`가 한 번에
+   * 1,000행을 넣을 수 있게 만든 뒤 **101번째부터 화면에서 도달할 방법이 없었다.**
+   */
+  it('meta의 커서를 읽어 돌려준다 — 버리면 101번째부터 도달할 수 없다', async () => {
+    const fetchMock = fakeFetch({
+      '/parameters/fuel-types': ok(FUEL_TYPES_BODY),
+      '/voyages': ok({
+        data: [VOYAGE_BODY.data],
+        meta: { next_cursor: 'c-2', has_more: true },
+      }),
+    })
+    const provider = createApiVoyageManagementProvider(fetchMock, '')
+
+    const result = await provider.list('v-1')
+
+    expect(result.nextCursor).toBe('c-2')
+    expect(result.hasMore).toBe(true)
+  })
+
+  it('커서를 받으면 쿼리에 실어 보낸다 — 인코딩한다', async () => {
+    const fetchMock = fakeFetch({
+      '/parameters/fuel-types': ok(FUEL_TYPES_BODY),
+      '/voyages': ok({ data: [], meta: { has_more: false } }),
+    })
+    const provider = createApiVoyageManagementProvider(fetchMock, '')
+
+    await provider.list('v-1', 'a b/c')
+
+    const calls = (fetchMock as unknown as { mock: { calls: unknown[][] } }).mock.calls
+    const url = String(calls.map((c) => c[0]).find((u) => String(u).includes('/voyages')))
+    expect(url).toContain('limit=100')
+    expect(url).toContain('cursor=a%20b%2Fc')
+  })
+
+  it('meta가 없으면 「더 없음」으로 읽는다 — 커서를 지어내면 같은 페이지를 무한히 부른다', async () => {
+    const fetchMock = fakeFetch({
+      '/parameters/fuel-types': ok(FUEL_TYPES_BODY),
+      '/voyages': ok({ data: [VOYAGE_BODY.data] }),
+    })
+    const provider = createApiVoyageManagementProvider(fetchMock, '')
+
+    const result = await provider.list('v-1')
+
+    expect(result.nextCursor).toBeNull()
+    expect(result.hasMore).toBe(false)
+  })
 })
 
 describe('create — API_SPEC §3.3', () => {
