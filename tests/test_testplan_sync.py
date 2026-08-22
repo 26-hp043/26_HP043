@@ -10,8 +10,20 @@
 않았기 때문**이다. ``[ORACLE-M-4]``가 「요약이 실제 행 수와 불일치」를 정정한 뒤에도
 같은 일이 재발했다는 것이 그 증거다.
 
-그래서 수치가 아니라 **파일 목록**을 강제한다. 새 테스트 파일을 만들고 ``§14``에
-넣지 않으면 여기서 실패한다.
+그래서 **파일 목록**을 강제한다. 새 테스트 파일을 만들고 ``§14``에 넣지 않으면
+여기서 실패한다.
+
+수치는 강제하지 않았다 (#652에서 추가)
+--------------------------------------
+
+파일 목록만 보던 사이 **함수 수 열이 낡았다.** 2026-08-22 하루에만 네 번 어긋났고
+방향이 양쪽이었다 — ``test_reports.py``는 문서 33 / 실측 38(**낮음**),
+``test_voyage_import_db.py``는 문서 23 / 실측 20(**높음**). 한 번 밀린 것이 아니라
+**아무도 보고 있지 않았다**는 뜻이다.
+
+이제 파일별 함수 수와 「합계 N개 파일 · N 함수」를 함께 본다. **수집 수는 보지
+않는다** — 파라미터라이즈 때문에 실행해야 알 수 있고, 그 하나를 위해 전 테스트를
+수집하면 가드가 본체보다 오래 걸린다.
 
 새 테스트 파일을 추가했다면
 --------------------------
@@ -76,6 +88,32 @@ def _actual_test_files() -> set[str]:
     return {p.name for p in _TESTS_DIR.glob("test_*.py")}
 
 
+#: 테스트 함수를 세는 정규식.
+#:
+#: **들여쓰기를 포함한다.** ``^def test_``로 세면 클래스 안 메서드가 빠져 887 대 1227로
+#: 갈린다 — `#631`에서 실제로 겪었다. ``async def``도 함께 본다.
+_TEST_FUNC = re.compile(r"^[ \t]*(?:async[ \t]+)?def[ \t]+test_", re.MULTILINE)
+
+#: ``§14.2`` 표의 한 행 — ``| `파일명` | 함수 수 | 설명 |``
+_INVENTORY_ROW = re.compile(r"^\| `(test_[a-z0-9_]+\.py)` \| (\d+) \|", re.MULTILINE)
+
+#: ``§14`` 말미의 합계 문장 — ``**합계 98개 파일 · 1261 함수 · 1540 수집.**``
+_TOTALS = re.compile(r"\*\*합계 (\d+)개 파일 · ([\d,]+) 함수 · ([\d,]+) 수집\.\*\*")
+
+
+def _actual_counts() -> dict[str, int]:
+    """파일별 실제 테스트 함수 수."""
+    return {
+        path.name: len(_TEST_FUNC.findall(path.read_text(encoding="utf-8")))
+        for path in _TESTS_DIR.glob("test_*.py")
+    }
+
+
+def _documented_counts() -> dict[str, int]:
+    """``§14.2`` 표가 적어 둔 파일별 함수 수."""
+    return {name: int(count) for name, count in _INVENTORY_ROW.findall(_plan_text())}
+
+
 def _mentioned_test_files() -> set[str]:
     return set(re.findall(r"test_[a-z0-9_]+\.py", _plan_text()))
 
@@ -127,3 +165,77 @@ def test_inventory_section_exists():
     assert "## 14. 테스트 파일 인벤토리" in plan
     assert "### 14.2" in plan, "§14.2 구현된 파일 표가 없다"
     assert "### 14.3" in plan, "§14.3 계획분 목록이 없다"
+
+
+# ---------------------------------------------------------------------------
+# 수치 (#652)
+#
+# 파일 목록만 보던 사이 함수 수 열이 낡았다. 2026-08-22 하루에만 네 번, 방향도
+# 양쪽이었다. 수치가 `§14.2` 표에서 파생되므로 **기계적으로 검사할 수 있다.**
+# ---------------------------------------------------------------------------
+
+
+def test_the_counter_finds_methods_inside_classes():
+    """세는 방법 자체를 먼저 본다 — 틀리면 아래 단언이 통째로 무의미해진다.
+
+    ``^def test_``로 세면 **클래스 안 메서드가 빠진다.** `#631`에서 887 대 1227로
+    갈렸다.
+    """
+    sample = (
+        "def test_top_level():\n"
+        "    pass\n"
+        "class TestGroup:\n"
+        "    def test_method(self):\n"
+        "        pass\n"
+        "    async def test_async_method(self):\n"
+        "        pass\n"
+        "# def test_commented_out():\n"
+        "def not_a_test():\n"
+        "    pass\n"
+    )
+
+    assert len(_TEST_FUNC.findall(sample)) == 3
+
+
+def test_inventory_rows_are_parsed_at_all():
+    """표를 읽지 못하면 아래 대조가 「빈 것끼리 같다」로 통과한다."""
+    documented = _documented_counts()
+
+    assert len(documented) > 50, f"§14.2 표를 읽지 못했다: {len(documented)}행"
+    assert "test_testplan_sync.py" in documented
+
+
+def test_each_file_count_matches_reality():
+    """파일별 함수 수가 실측과 같다.
+
+    **오늘만 네 번 어긋났다.** 방향이 양쪽이라 「한 번 밀렸다」가 아니라 아무도 보고
+    있지 않았다는 뜻이다.
+    """
+    actual = _actual_counts()
+    documented = _documented_counts()
+
+    wrong = {
+        name: (documented[name], actual[name])
+        for name in sorted(documented.keys() & actual.keys())
+        if documented[name] != actual[name]
+    }
+    assert not wrong, "§14.2의 함수 수가 실측과 다릅니다 (문서, 실측):\n" + "\n".join(
+        f"  {name}: {doc} → {real}" for name, (doc, real) in wrong.items()
+    )
+
+
+def test_totals_match_reality():
+    """「합계 N개 파일 · N 함수」가 실측과 같다.
+
+    **수집 수는 보지 않는다** — 파라미터라이즈 때문에 실행해야 알 수 있고, 그 하나를
+    위해 전 테스트를 수집하면 가드가 본체보다 오래 걸린다. 그 값이 손으로 남는 것은
+    이 판단의 대가다.
+    """
+    match = _TOTALS.search(_plan_text())
+    assert match, "§14 말미의 합계 문장을 찾지 못했다 — 형식이 바뀌었는지 확인할 것"
+
+    files, funcs = int(match.group(1)), int(match.group(2).replace(",", ""))
+    actual = _actual_counts()
+
+    assert files == len(actual), f"파일 수: 문서 {files} / 실측 {len(actual)}"
+    assert funcs == sum(actual.values()), f"함수 수: 문서 {funcs} / 실측 {sum(actual.values())}"
