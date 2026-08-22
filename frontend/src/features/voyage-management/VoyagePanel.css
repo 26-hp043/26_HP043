@@ -394,3 +394,60 @@
   width: 100%;
   margin: var(--spacing-sm) 0 var(--spacing-md);
 }
+
+/*
+ * 생성 폼의 연료 다행 입력 (#636).
+ *
+ * `NotUnderwayPanel`의 `nu__fuel-row`와 같은 형태다 — 두 화면이 같은 일을 하는데
+ * 모양이 다르면 사용자가 다른 기능으로 읽는다.
+ */
+.vy__fuels {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.vy__fuel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.vy__fuel-row .vy__input {
+  flex: 1 1 120px;
+  min-width: 0;
+}
+
+.vy__fuel-add {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.vy__fuel-add:hover {
+  border-color: var(--color-border-strong);
+}
+
+/* 구간 삭제(`vy__danger`)보다 작게 둔다 — 같은 크기면 무게가 같게 읽힌다. */
+.vy__fuel-remove {
+  padding: 2px 8px;
+  border: 1px solid var(--color-danger-text);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-danger-text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}

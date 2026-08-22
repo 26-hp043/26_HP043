@@ -14,7 +14,7 @@ import {
   validateDraft,
 } from './voyageRules'
 import type { FieldErrors } from './voyageRules'
-import type { ActualsDraft, ManagedVoyage, VoyageDraft } from './types'
+import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageFuelDraft } from './types'
 import './VoyagePanel.css'
 
 /**
@@ -344,8 +344,7 @@ function VoyageForm({
     plannedDistanceNm: '',
     plannedSpeedKn: '',
     regulationYear: '',
-    fuelType: fuelTypes[0] ?? '',
-    plannedFuelTon: '',
+    fuelUses: [{ fuelType: fuelTypes[0] ?? '', plannedFuelTon: '' }],
   })
   const [errors, setErrors] = useState<FieldErrors>({})
   const [busy, setBusy] = useState(false)
@@ -353,6 +352,13 @@ function VoyageForm({
 
   const set = (key: keyof VoyageDraft) => (value: string) =>
     setDraft((prev) => ({ ...prev, [key]: value }))
+
+  /** 연료 한 줄의 필드를 바꾼다 (`#636`). */
+  const setFuel = (index: number, patch: Partial<VoyageFuelDraft>) =>
+    setDraft((prev) => ({
+      ...prev,
+      fuelUses: prev.fuelUses.map((fu, i) => (i === index ? { ...fu, ...patch } : fu)),
+    }))
 
   if (fuelTypes.length === 0) {
     /*
@@ -398,25 +404,102 @@ function VoyageForm({
       <Field id="vy-to" label="도착항" value={draft.arrivalPortName} onChange={set('arrivalPortName')} error={errors.arrivalPortName} />
       <Field id="vy-dist" label={`계획 거리 (${DISPLAY_UNITS.distance})`} value={draft.plannedDistanceNm} onChange={set('plannedDistanceNm')} error={errors.plannedDistanceNm} inputMode="decimal" />
       <Field id="vy-speed" label={`계획 속력 (${DISPLAY_UNITS.speed})`} value={draft.plannedSpeedKn} onChange={set('plannedSpeedKn')} error={errors.plannedSpeedKn} inputMode="decimal" />
-      <Field id="vy-fuel" label={`계획 연료 (${DISPLAY_UNITS.fuel})`} value={draft.plannedFuelTon} onChange={set('plannedFuelTon')} error={errors.plannedFuelTon} inputMode="decimal" />
+      {/*
+        연료는 여러 줄이다 (`#636`).
 
-      <div className="vy__field">
-        <label className="vy__label" htmlFor="vy-fuel-type">
-          연료 종류
-        </label>
-        <select
-          id="vy-fuel-type"
-          className="vy__input"
-          value={draft.fuelType}
-          onChange={(event) => set('fuelType')(event.target.value)}
+        서버(`API_SPEC §3.3` `fuel_uses[]`)·스키마(`DB_SCHEMA §2.4` N행)·실적 입력
+        폼은 처음부터 다행이었고 **생성 폼만 단일**이었다. 그래서 화면으로 만든
+        항차는 연료가 반드시 한 종이었고, 아래 실적 입력의 다행 UI가 늘 한 줄만
+        그렸다 — **도달할 수 없는 코드**였다.
+
+        정박 구간 폼(`NotUnderwayPanel`)이 같은 형태로 이미 다행을 받는다.
+      */}
+      <fieldset className="vy__fuels">
+        <legend className="vy__label">계획 연료</legend>
+
+        {draft.fuelUses.map((fu, index) => (
+          <div className="vy__fuel-row" key={index}>
+            <select
+              className="vy__input"
+              aria-label={`연료 종류 ${index + 1}`}
+              value={fu.fuelType}
+              onChange={(event) => setFuel(index, { fuelType: event.target.value })}
+            >
+              {fuelTypes.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </select>
+
+            <input
+              className="vy__input"
+              inputMode="decimal"
+              placeholder={DISPLAY_UNITS.fuel}
+              aria-label={`계획 연료 ${index + 1} (${DISPLAY_UNITS.fuel})`}
+              value={fu.plannedFuelTon}
+              onChange={(event) => setFuel(index, { plannedFuelTon: event.target.value })}
+            />
+
+            {/*
+              마지막 한 줄은 지우지 않는다 — 서버가 `min_length=1`을 요구한다(`§3.3`).
+              버튼을 남겨 두고 저장 단계에서 거부하면 사용자는 무엇을 지웠는지 잊는다.
+            */}
+            {draft.fuelUses.length > 1 ? (
+              <button
+                type="button"
+                className="vy__fuel-remove"
+                aria-label={`연료 ${index + 1} 삭제`}
+                onClick={() =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    fuelUses: prev.fuelUses.filter((_, i) => i !== index),
+                  }))
+                }
+              >
+                삭제
+              </button>
+            ) : null}
+
+            {errors[`fuelType.${index}`] ? (
+              <em className="vy__field-error">{errors[`fuelType.${index}`]}</em>
+            ) : null}
+            {errors[`plannedFuelTon.${index}`] ? (
+              <em className="vy__field-error">{errors[`plannedFuelTon.${index}`]}</em>
+            ) : null}
+          </div>
+        ))}
+
+        <button
+          type="button"
+          className="vy__fuel-add"
+          data-testid="vy-fuel-add"
+          onClick={() =>
+            setDraft((prev) => ({
+              ...prev,
+              /*
+               * 아직 쓰지 않은 유종을 기본값으로 고른다 — 같은 값을 두 번 넣어 두면
+               * 사용자가 고치기 전까지 폼이 오류 상태로 열린다. 남는 유종이 없으면
+               * 첫 값으로 두고 검증이 잡는다.
+               */
+              fuelUses: [
+                ...prev.fuelUses,
+                {
+                  fuelType:
+                    fuelTypes.find((code) => !prev.fuelUses.some((fu) => fu.fuelType === code)) ??
+                    fuelTypes[0] ??
+                    '',
+                  plannedFuelTon: '',
+                },
+              ],
+            }))
+          }
         >
-          {fuelTypes.map((code) => (
-            <option key={code} value={code}>
-              {code}
-            </option>
-          ))}
-        </select>
-      </div>
+          + 연료 추가
+        </button>
+
+        {errors.fuelUses ? <em className="vy__field-error">{errors.fuelUses}</em> : null}
+      </fieldset>
 
       <Field
         id="vy-year"

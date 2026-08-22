@@ -181,13 +181,44 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
     errors.plannedSpeedKn = '계획 속력은 1.0 kn 이상이어야 합니다.'
   }
 
-  const fuel = readNumber(draft.plannedFuelTon)
-  if (fuel === null) errors.plannedFuelTon = '계획 연료를 입력해 주세요.'
-  else if (Number.isNaN(fuel) || fuel <= 0) {
-    errors.plannedFuelTon = '계획 연료는 0보다 커야 합니다.'
+  /*
+   * 연료는 여러 줄이다 (`#636`).
+   *
+   * **줄마다 오류 키를 분리한다** — `plannedFuelTon.0`처럼. 한 키에 몰면 세 줄 중
+   * 어느 줄이 틀렸는지 화면이 가리키지 못하고, 사용자는 전부 다시 본다.
+   */
+  if (draft.fuelUses.length === 0) {
+    // 서버가 `min_length=1`을 요구한다(`§3.3`). 저장 단계에서야 거부되면
+    // 사용자는 무엇을 지웠는지 이미 잊었다.
+    errors.fuelUses = '연료를 한 종 이상 입력해 주세요.'
   }
 
-  if (draft.fuelType.trim() === '') errors.fuelType = '연료 종류를 선택해 주세요.'
+  draft.fuelUses.forEach((fu, index) => {
+    const fuel = readNumber(fu.plannedFuelTon)
+    if (fuel === null) errors[`plannedFuelTon.${index}`] = '계획 연료를 입력해 주세요.'
+    else if (Number.isNaN(fuel) || fuel <= 0) {
+      errors[`plannedFuelTon.${index}`] = '계획 연료는 0보다 커야 합니다.'
+    }
+    if (fu.fuelType.trim() === '') {
+      errors[`fuelType.${index}`] = '연료 종류를 선택해 주세요.'
+    }
+  })
+
+  /*
+   * 같은 유종이 두 번 있으면 **서버가 422로 거부한다**(`services/voyage.py` ·
+   * `idx_fuel_use_unique`). 화면이 먼저 잡는 이유는 판정을 흉내 내려는 것이 아니라
+   * **어느 줄이 겹쳤는지 화면만 알기 때문**이다 — 서버 오류에는 줄 번호가 없다.
+   */
+  const seen = new Map<string, number>()
+  draft.fuelUses.forEach((fu, index) => {
+    const code = fu.fuelType.trim()
+    if (code === '') return
+    if (seen.has(code)) {
+      errors[`fuelType.${index}`] = '같은 연료 종류가 두 번 있습니다. 한 줄로 합쳐 주세요.'
+      return
+    }
+    seen.set(code, index)
+  })
 
   const year = readNumber(draft.regulationYear)
   if (year !== null && (Number.isNaN(year) || !Number.isInteger(year))) {

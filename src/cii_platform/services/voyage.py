@@ -106,6 +106,21 @@ async def create_voyage(
     """
     # 연료 CF 조회 — 모든 fuel_type이 active여야 한다.
     codes = [fu["fuel_type"] for fu in fuel_uses]
+
+    # 한 요청 안의 중복을 DB 제약 이전에 막는다 (`#636`).
+    #
+    # ``idx_fuel_use_unique``가 (항차, 유종) 중복을 막지만(`DB_SCHEMA §2.3` [S-2]),
+    # 여기서 걸러 내지 않으면 **``IntegrityError``가 그대로 올라와 500**이 된다.
+    # `_upsert_fuel_actuals`는 같은 가드를 이미 갖고 있었고 생성 경로만 빠져 있었다 —
+    # 화면 폼이 연료를 한 종만 보내(`#610` 잔여) **도달할 수 없는 경로였기 때문**이다.
+    # 문구는 그쪽과 같게 둔다: 같은 잘못에 다른 말을 하면 규칙이 둘로 읽힌다.
+    if len(set(codes)) != len(codes):
+        raise ValidationError(
+            "같은 연료 종류가 두 번 들어 있습니다.",
+            field="fuel_uses",
+            field_label="연료 종류",
+        )
+
     fuel_rows = await param_repo.get_fuel_types_by_codes(session, codes)
     for fu in fuel_uses:
         if fu["fuel_type"] not in fuel_rows:
