@@ -15,7 +15,7 @@ from cii_platform.auth.session import (
     is_valid,
     verify_csrf,
 )
-from cii_platform.config import should_expose_api_docs
+from cii_platform.config import should_expose_api_docs, should_expose_dev_auth
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.session import get_sessionmaker
@@ -45,45 +45,57 @@ class CsrfError(AppError):
 #: 똑같이 401**로 보이게 한다.
 _DOCS_PATHS: frozenset[str] = frozenset({"/docs", "/openapi.json", "/redoc"})
 
-#: 환경과 무관하게 인증이 필요 없는 경로 (API_SPEC §1.2). dev-login은 세션 발급
-#: 자체가 목적이므로 공개 경로에 둔다 (#308).
+#: 개발 환경 스텁 인증 (#276). **프로덕션에서는 라우트 자체가 등록되지 않으므로**
+#: 공개 경로에서도 함께 뺀다 (#648).
+#:
+#: 종전에는 환경과 무관하게 남아 있어, 프로덕션에서 **이 경로만 404**였다 —
+#: 목록에 있으면 미들웨어를 통과하고 라우트가 없어 404가 되는데, 다른 미등록 경로는
+#: 라우팅 전에 401로 끊긴다. `#593`이 ``/docs``에서 없앤 것과 같은 신호다.
+_DEV_AUTH_PATHS: frozenset[str] = frozenset({"/api/v1/auth/dev-login"})
+
+#: 환경과 무관하게 인증이 필요 없는 경로 (API_SPEC §1.2).
+#:
+#: **전부 ``/api/v1`` prefix를 단다.** 종전에는 접두사 없는 사본 8개
+#: (``/health``·``/auth/login`` 등)가 함께 있었는데, ``is_public_path()``의 주석이
+#: 스스로 *「실제 요청 경로는 항상 ``/api/v1`` prefix를 달고 나온다」*고 적고 있어
+#: **영원히 매치되지 않는 항목**이었다. 허용 목록만 넓히고 아무 일도 하지 않는다 (#648).
 _BASE_PUBLIC_PATHS: frozenset[str] = frozenset(
     {
         "/api/v1/health",
-        "/health",
         # 인증 플로우 자체 — 세션 없이 접근해야 한다 (`API_SPEC §1.2`).
         "/api/v1/auth/signup",
         "/api/v1/auth/login",
-        "/api/v1/auth/dev-login",
-        "/auth/signup",
-        "/auth/login",
-        "/auth/dev-login",
         # 메일 링크로 진입하므로 세션이 없다 (#408 · `API_SPEC §1.2`).
         "/api/v1/auth/verify-email/request",
         "/api/v1/auth/verify-email/confirm",
         "/api/v1/auth/password-reset/request",
         "/api/v1/auth/password-reset/confirm",
-        "/auth/verify-email/request",
-        "/auth/verify-email/confirm",
-        "/auth/password-reset/request",
-        "/auth/password-reset/confirm",
     }
 )
 
 
-def build_public_paths(*, expose_docs: bool) -> frozenset[str]:
-    """공개 경로 목록을 만든다. ``expose_docs``가 False면 문서 경로를 뺀다 (#593).
+def build_public_paths(*, expose_docs: bool, expose_dev_auth: bool) -> frozenset[str]:
+    """공개 경로 목록을 만든다 (#593 · #648).
+
+    **환경에 따라 라우트가 등록되지 않는 경로는 목록에서도 뺀다.** 두 판정이 갈리면
+    그 경로만 404가 되고, 그 차이가 「여기에 무언가 있다」는 신호가 된다.
 
     **인자를 받는 이유는 검증 때문이다.** ``PUBLIC_PATHS``는 import 시점에 확정되므로
     나중에 환경변수를 바꿔도 달라지지 않는다 — 순수 함수로 갈라 두면 두 환경의 결과를
     프로세스 하나에서 대조할 수 있다.
     """
+    paths = _BASE_PUBLIC_PATHS
     if expose_docs:
-        return _BASE_PUBLIC_PATHS | _DOCS_PATHS
-    return _BASE_PUBLIC_PATHS
+        paths |= _DOCS_PATHS
+    if expose_dev_auth:
+        paths |= _DEV_AUTH_PATHS
+    return paths
 
 
-PUBLIC_PATHS: frozenset[str] = build_public_paths(expose_docs=should_expose_api_docs())
+PUBLIC_PATHS: frozenset[str] = build_public_paths(
+    expose_docs=should_expose_api_docs(),
+    expose_dev_auth=should_expose_dev_auth(),
+)
 
 #: CSRF 검증이 필요 없는 메서드.
 SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -96,6 +108,10 @@ def is_public_path(path: str) -> bool:
     항상 ``/api/v1`` prefix를 달고 나오므로 접두사가 실효 없었고, 향후 auth 하위에
     보호가 필요한 엔드포인트가 추가될 때 실수로 공개될 위험만 남는다. 공개 경로는
     이 목록에만 추가한다.
+
+    **그 「항상 ``/api/v1``」이 목록에도 적용된다 (#648).** 종전에는 접두사 없는 사본
+    8개가 함께 있었는데 같은 이유로 **영원히 매치되지 않았다.** 목록에 있는 경로가
+    전부 실제 라우트인지는 ``tests/test_docs_exposure.py``의 불변식 테스트가 본다.
     """
     return path in PUBLIC_PATHS
 

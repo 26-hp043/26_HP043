@@ -47,8 +47,21 @@ def test_health_has_no_meta_block(client: TestClient) -> None:
 
 
 def test_bare_health_path_is_not_exposed(client: TestClient) -> None:
-    # API_SPEC §1.1/§12: 정본 경로는 /api/v1/health. prefix 없는 /health는 없다.
-    assert client.get("/health").status_code == 404
+    """정본 경로는 ``/api/v1/health``다 (``API_SPEC §12``). prefix 없는 ``/health``는 없다.
+
+    **404가 아니라 401이다 (#648).** 종전에는 `/health`가 공개 경로 목록에 있어
+    미들웨어를 통과하고 라우팅에서 404가 났다 — 그 목록 항목은 ``API_SPEC §1.1``의
+    **prefix를 생략한 축약 표기**를 문자 그대로 옮긴 것이었고, 실제 요청 경로는 항상
+    ``/api/v1``을 달고 나오므로 **영원히 매치되지 않았다.**
+
+    목록에서 빠진 지금은 **다른 미등록 경로와 똑같이** 401이다. 「노출되지 않는다」는
+    더 강해졌다 — 그 경로만 응답이 다르지 않다.
+    """
+    assert client.get("/health").status_code == 401
+    # 없는 경로와 구분되지 않는다 — 그 차이 자체가 신호가 된다.
+    assert client.get("/nothing-here").status_code == 401
+    # 정본 경로는 그대로 200이다.
+    assert client.get("/api/v1/health").status_code == 200
 
 
 def _pyproject_version() -> str:

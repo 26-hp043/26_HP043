@@ -163,7 +163,10 @@ class TestAuthMiddlewareGate:
 
         app = FastAPI()
 
-        @app.get("/health")
+        # **정본 경로를 그대로 쓴다** (`API_SPEC §12`). 종전에는 prefix 없는
+        # `/health`였는데, 그것이 통과한 이유는 공개 경로 목록에 축약 표기가 함께
+        # 들어 있었기 때문이다 — 실제 요청은 그런 경로로 오지 않는다 (`#648`).
+        @app.get("/api/v1/health")
         async def health():
             return JSONResponse({"data": {"status": "ok"}})
 
@@ -176,7 +179,7 @@ class TestAuthMiddlewareGate:
 
     def test_public_path_passes_without_session(self, auth_app):
         with TestClient(auth_app) as client:
-            resp = client.get("/health")
+            resp = client.get("/api/v1/health")
             assert resp.status_code == 200
 
     def test_protected_path_without_cookie_is_401(self, auth_app):
