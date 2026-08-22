@@ -121,8 +121,17 @@ describe('findScreenByPath — 경로 파라미터 매칭', () => {
  * 그때는 이 가드를 고치되 **왜 예외인지 여기에 적는다.** 조용히 통과시키지 않는다.
  */
 describe('implemented ↔ 실제 구현 상태 (#527)', () => {
-  /** 사이드바 화면 → 페이지 컴포넌트 파일. 라우팅은 `App.tsx`가 갖고 있어 여기 적는다. */
-  const NAV_PAGE_FILE: Readonly<Record<string, string>> = {
+  /**
+   * 화면 → 페이지 컴포넌트 파일. 라우팅은 `App.tsx`가 갖고 있어 여기 적는다.
+   *
+   * **사이드바 밖 화면까지 전부 적는다 (#628).** 종전에는 `NAV_ORDER`만 담았고,
+   * 그래서 `implemented: false`인 화면 6개가 **한 번도 검사되지 않았다** — 여섯 다
+   * `OFF_NAV_ORDER`에 있었기 때문이다. 그중 `VESSEL_REGISTRATION`은 근거가
+   * **폐기된 데모 모드**였는데(`#542`), 사이드바에 영향이 없어 아무도 걸려 넘어지지
+   * 않았다. `#527`이 사이드바에서 겪은 것의 조용한 판본이다.
+   */
+  const PAGE_FILE: Readonly<Record<string, string>> = {
+    // 사이드바
     MAINBOARD: 'MainboardPage',
     ANNUAL_GRADE: 'AnnualGradePage',
     CII_FORECAST: 'CiiForecastPage',
@@ -130,35 +139,51 @@ describe('implemented ↔ 실제 구현 상태 (#527)', () => {
     REPORTS: 'ReportsPage',
     VESSEL_MANAGEMENT: 'VesselManagementPage',
     SETTINGS: 'SettingsPage',
+    // 사이드바 밖 — 인증·온보딩·드릴다운
+    LOGIN: 'LoginPage',
+    LOGIN_FAILURE: 'LoginPage', // 같은 파일이 `LoginFailurePage`를 함께 export한다
+    SIGNUP: 'SignupPage',
+    PASSWORD_RESET: 'PasswordResetPage',
+    VERIFY_EMAIL: 'VerifyEmailPage',
+    VESSEL_REGISTRATION: 'VesselRegistrationPage',
+    VESSEL_DETAIL: 'VesselDetailPage',
+    REALTIME_CII: 'RealtimeCiiPage',
   }
 
   function isComingSoonStub(screenId: string): boolean {
-    const name = NAV_PAGE_FILE[screenId]
+    const name = PAGE_FILE[screenId]
     const source = readFileSync(new URL(`./pages/${name}.tsx`, import.meta.url), 'utf-8')
     return source.includes('ComingSoon')
   }
 
-  it('표에 사이드바 화면이 빠짐없이 있다', () => {
-    // 사이드바에 화면을 추가하고 이 표를 잊으면 아래 검사가 통째로 건너뛰어진다.
-    expect(Object.keys(NAV_PAGE_FILE).sort()).toEqual([...NAV_ORDER].sort())
+  it('표에 화면이 빠짐없이 있다 — 사이드바 밖까지', () => {
+    // 화면을 추가하고 이 표를 잊으면 그 화면만 검사가 통째로 건너뛰어진다.
+    expect(Object.keys(PAGE_FILE).sort()).toEqual([...ALL_SCREEN_IDS].sort())
   })
 
   it('구현이 있는 화면은 implemented가 true다 — 막히면 사용자가 들어갈 수 없다', () => {
-    const blocked = NAV_ORDER.filter(
+    const blocked = ALL_SCREEN_IDS.filter(
       (id) => !SCREEN_BY_ID[id].implemented && !isComingSoonStub(id),
     )
     expect(
       blocked,
-      `화면은 만들어져 있는데 사이드바에서 막혀 있다: ${blocked.join(', ')}. ` +
-        'implemented는 「실 API로 도는가」다 (#442·#527).',
+      `화면은 만들어져 있는데 implemented가 false다: ${blocked.join(', ')}. ` +
+        'implemented는 「실 API로 도는가」다 (#442·#527·#628).',
     ).toEqual([])
   })
 
   it('ComingSoon 스텁은 implemented가 false다 — 준비 중을 열어 두면 빈 화면이 열린다', () => {
-    const wrong = NAV_ORDER.filter(
+    const wrong = ALL_SCREEN_IDS.filter(
       (id) => SCREEN_BY_ID[id].implemented && isComingSoonStub(id),
     )
-    expect(wrong, `스텁인데 사이드바가 열려 있다: ${wrong.join(', ')}`).toEqual([])
+    expect(wrong, `스텁인데 implemented가 true다: ${wrong.join(', ')}`).toEqual([])
+  })
+
+  it('선박 등록은 실 API로 도는 화면이다 (#628 회귀 고정)', () => {
+    // 근거가 **폐기된 데모 모드**였다 — `#542`가 데모 provider를 없앤 뒤
+    // `providerSelection.ts`에는 실 API 갈래 하나만 남았다.
+    expect(SCREEN_BY_ID.VESSEL_REGISTRATION.implemented).toBe(true)
+    expect(isComingSoonStub('VESSEL_REGISTRATION')).toBe(false)
   })
 
   it('선박 관리는 실 API로 도는 화면이다 (#510 · #527 회귀 고정)', () => {

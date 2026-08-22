@@ -96,7 +96,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0',
     purpose: '구글 OIDC 로그인 진입 — 서비스 소개·면책 문구·단일 버튼',
     width: 'form',
-    implemented: false, // 인증 화면 — 데모 데이터와 무관, 사이드바 밖
+    implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   LOGIN_FAILURE: {
     path: '/login/failure',
@@ -106,7 +106,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0-2',
     purpose: '로그인 실패 사유 안내 및 재시도',
     width: 'form',
-    implemented: false,
+    implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   SIGNUP: {
     path: '/signup',
@@ -115,7 +115,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0-1',
     purpose: '이메일·비밀번호로 계정 생성',
     width: 'form',
-    implemented: false, // 인증 화면 — 사이드바 밖
+    implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   PASSWORD_RESET: {
     path: '/password-reset',
@@ -124,7 +124,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0-3',
     purpose: '재설정 메일 요청 및 새 비밀번호 설정',
     width: 'form',
-    implemented: false,
+    implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   VERIFY_EMAIL: {
     path: '/verify-email',
@@ -133,7 +133,7 @@ export const SCREEN_BY_ID = {
     uiflowRef: '0-4',
     purpose: '가입 확인 메일 링크의 토큰 검증',
     width: 'form',
-    implemented: false,
+    implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
   MAINBOARD: {
     path: '/dashboard',
@@ -153,11 +153,11 @@ export const SCREEN_BY_ID = {
     width: 'form',
     // 온보딩 흐름 — 사이드바 밖(`OFF_NAV_ORDER`)이라 이 값이 표시에 영향을 주지 않는다.
     //
-    // 값은 `false`로 둔다. 등록은 **쓰기**라 데모 모드에서 수행할 수 없고
-    // (`providerSelection.ts` — 가짜 성공을 두지 않는다), 그 상태에서는
-    // 「실 API로 돈다」고 말할 수 없기 때문이다. **`#527`과 같은 오해가 아니다** —
-    // 선박 관리는 조회가 실 API로 돌지만 이 화면은 제출 자체가 막힌다.
-    implemented: false,
+    // **`false`였고, 그 근거가 폐기된 데모 모드였다 (#628).** 「등록은 쓰기라 데모
+    // 모드에서 수행할 수 없다」로 적혀 있었는데, `#542`가 데모 provider를 없애
+    // `providerSelection.ts`에는 실 API 갈래 하나만 남았다. 정의(「실 API로 도는가」)
+    // 대로면 `true`다.
+    implemented: true,
   },
   VESSEL_MANAGEMENT: {
     path: '/vessels',
