@@ -36,7 +36,14 @@ from cii_platform.reports.document import (
     ReportDocument,
     TableSection,
 )
-from cii_platform.reports.labels import ship_type_label
+from cii_platform.reports.labels import (
+    inclusion_policy_label,
+    projection_reason_label,
+    risk_label,
+    ship_type_label,
+    voyage_status_label,
+    warning_label,
+)
 from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.simulation_clock import resolve_as_of
@@ -260,7 +267,7 @@ async def build_voyage_report(
                 title="항차 요약",
                 rows=[
                     ("항차 번호", _text(voyage.voyage_no)),
-                    ("상태", _text(voyage.status)),
+                    ("상태", voyage_status_label(voyage.status)),
                     ("출발", _text(voyage.departure_port_name)),
                     ("도착", _text(voyage.arrival_port_name)),
                     ("출항 (실적)", _iso(voyage.actual_departure_at)),
@@ -269,7 +276,7 @@ async def build_voyage_report(
                     ("거리 — 실적", _display(voyage.actual_distance_nm, "distance_nm")),
                     ("속력 — 계획", _display(voyage.planned_speed_kn, "speed_kn")),
                     ("속력 — 실적 평균", _display(voyage.actual_avg_speed_kn, "speed_kn")),
-                    ("연간 집계 반영", _text(voyage.annual_inclusion_policy)),
+                    ("연간 집계 반영", inclusion_policy_label(voyage.annual_inclusion_policy)),
                 ],
             ),
             KeyValueSection(
@@ -309,7 +316,7 @@ async def build_voyage_report(
                 or [["—", "—", "—", "—", "—", "기록 없음"]],
             ),
         ],
-        warnings=list(ytd.warnings),
+        warnings=[warning_label(code) for code in ytd.warnings],
     )
 
     scenarios = await _scenario_section(session, voyage)
@@ -419,7 +426,7 @@ async def build_annual_report(
                 ("실적 CII (attained)", _display(ytd["attained_cii"], "cii")),
                 ("기준 CII (required)", _display(ytd["required_cii"], "cii")),
                 ("현재 누적 기준 예상 등급", _text(ytd["rating"])),
-                ("위험도", _text(ytd["risk_level"])),
+                ("위험도", risk_label(ytd["risk_level"])),
                 ("누적 거리 (nm)", _display(ytd["total_distance_nm"], "distance_nm")),
                 ("누적 연료 (t)", _display(ytd["total_fuel_ton"], "fuel_ton")),
                 ("누적 CO₂ (t)", _display(ytd["total_co2_ton"], "co2_ton")),
@@ -485,7 +492,10 @@ async def build_annual_report(
             KeyValueSection(
                 title="연말 예상",
                 # 사유 없는 빈칸은 「아직 로딩 중」으로 읽힌다.
-                rows=[("산출 여부", "산출하지 않음"), ("사유", _text(projection["reason"]))],
+                rows=[
+                    ("산출 여부", "산출하지 않음"),
+                    ("사유", projection_reason_label(projection["reason"])),
+                ],
             )
         )
 
@@ -499,7 +509,7 @@ async def build_annual_report(
             ("기준 시각", _local_time(current_meta["as_of"])),
         ],
         sections=sections,
-        warnings=list(current["warnings"]),
+        warnings=[warning_label(code) for code in current["warnings"]],
     )
     document.validate()
     return document

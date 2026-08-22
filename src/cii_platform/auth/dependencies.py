@@ -15,6 +15,7 @@ from cii_platform.auth.session import (
     is_valid,
     verify_csrf,
 )
+from cii_platform.config import should_expose_api_docs
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.session import get_sessionmaker
@@ -35,9 +36,18 @@ class CsrfError(AppError):
         super().__init__("CSRF_ERROR", message)
 
 
-#: 인증이 필요 없는 경로 (API_SPEC §1.2). dev-login은 세션 발급 자체가 목적이므로
-#: 공개 경로에 둔다 (#308).
-PUBLIC_PATHS: frozenset[str] = frozenset(
+#: OpenAPI 문서 경로. **프로덕션에서는 공개 경로에 넣지 않는다** (#593).
+#:
+#: 라우트를 등록하지 않는 것만으로도 404가 되지만, 그것만 하면 **``/docs``만 404이고
+#: 나머지 미등록 경로는 401**이 된다 — ``is_public_path()``가 완전일치 허용 목록이라
+#: 목록에 없는 경로는 라우팅 전에 401로 끊기기 때문이다. 그 차이 자체가 「여기에
+#: 무언가 있다」는 신호가 되므로, 두 곳을 같은 판정으로 묶어 **다른 미등록 경로와
+#: 똑같이 401**로 보이게 한다.
+_DOCS_PATHS: frozenset[str] = frozenset({"/docs", "/openapi.json", "/redoc"})
+
+#: 환경과 무관하게 인증이 필요 없는 경로 (API_SPEC §1.2). dev-login은 세션 발급
+#: 자체가 목적이므로 공개 경로에 둔다 (#308).
+_BASE_PUBLIC_PATHS: frozenset[str] = frozenset(
     {
         "/api/v1/health",
         "/health",
@@ -57,11 +67,23 @@ PUBLIC_PATHS: frozenset[str] = frozenset(
         "/auth/verify-email/confirm",
         "/auth/password-reset/request",
         "/auth/password-reset/confirm",
-        "/docs",
-        "/openapi.json",
-        "/redoc",
     }
 )
+
+
+def build_public_paths(*, expose_docs: bool) -> frozenset[str]:
+    """공개 경로 목록을 만든다. ``expose_docs``가 False면 문서 경로를 뺀다 (#593).
+
+    **인자를 받는 이유는 검증 때문이다.** ``PUBLIC_PATHS``는 import 시점에 확정되므로
+    나중에 환경변수를 바꿔도 달라지지 않는다 — 순수 함수로 갈라 두면 두 환경의 결과를
+    프로세스 하나에서 대조할 수 있다.
+    """
+    if expose_docs:
+        return _BASE_PUBLIC_PATHS | _DOCS_PATHS
+    return _BASE_PUBLIC_PATHS
+
+
+PUBLIC_PATHS: frozenset[str] = build_public_paths(expose_docs=should_expose_api_docs())
 
 #: CSRF 검증이 필요 없는 메서드.
 SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
