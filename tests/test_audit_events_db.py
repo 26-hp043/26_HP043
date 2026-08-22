@@ -75,7 +75,10 @@ async def test_logout_records_logout_event(migrated_db, app_fresh_engine):
     try:
         with TestClient(app, base_url=_BASE) as client:
             assert client.post("/api/v1/auth/dev-login").status_code == 200
-            assert client.post("/api/v1/auth/logout").status_code == 204
+            # `#634` — logout도 CSRF를 검증한다. 화면(`auth/session.ts`)이 하는 것과
+            # 같이 `csrf` 쿠키 값을 헤더로 옮겨 싣는다.
+            csrf = {"X-CSRF-Token": client.cookies["csrf"]}
+            assert client.post("/api/v1/auth/logout", headers=csrf).status_code == 204
 
         from cii_platform.db.session import get_sessionmaker
 

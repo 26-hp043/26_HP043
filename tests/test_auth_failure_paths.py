@@ -83,11 +83,63 @@ async def test_logout_revokes_session_cookie(migrated_db, app_fresh_engine):
             # 로그아웃 — 세션 쿠키는 지워지지만, 공격 시나리오를 위해
             # 만료된 쿠키 값을 다시 심어 동일 토큰으로 재시도한다.
             token = client.cookies.get(SESSION_COOKIE_NAME)
-            assert client.post("/api/v1/auth/logout").status_code == 204
+            # `#634` — logout도 CSRF를 검증한다.
+            csrf = {"X-CSRF-Token": client.cookies["csrf"]}
+            assert client.post("/api/v1/auth/logout", headers=csrf).status_code == 204
 
             client.cookies.set(SESSION_COOKIE_NAME, token)
             resp = client.get("/api/v1/vessels")
             assert resp.status_code == 401
+    finally:
+        await _cleanup_stub_user()
+
+
+async def test_logout_without_csrf_header_is_403(migrated_db, app_fresh_engine):
+    """세션이 유효해도 CSRF 헤더가 없으면 로그아웃되지 않는다 (`#634`).
+
+    종전에는 이 요청이 **204를 내고 세션을 무효화**했다 — 제3자 사이트가 사용자를
+    강제 로그아웃시킬 수 있었다. 데이터가 바뀌지 않아 심각도는 낮지만, 세션을
+    요구하는 상태 변경 라우트 중 **이 하나만 규칙의 예외**였고 사유가 없었다.
+    """
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+
+            resp = client.post("/api/v1/auth/logout")
+            assert resp.status_code == 403
+            assert resp.json()["error"]["code"] == "CSRF_ERROR"
+
+            # 막혔으면 세션도 살아 있어야 한다 — 「막았는데 로그아웃은 됐다」가
+            # 되면 보호가 아무 일도 하지 않은 것이다.
+            assert client.get("/api/v1/vessels").status_code == 200
+    finally:
+        await _cleanup_stub_user()
+
+
+async def test_logout_is_not_idempotent_without_a_session(migrated_db, app_fresh_engine):
+    """**「세션 없어도 204」가 아니다** (`#634`).
+
+    `API_SPEC §1.2`가 그렇게 적고 있었으나 같은 행의 「인증: 필요」와 모순이었고,
+    그 문구는 `#272`(PR `#297`)에서 사유 없이 들어왔다. 구현·테스트는 처음부터
+    보호 경로로 다뤄 왔다 — 정본을 구현에 맞췄다.
+    """
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            token = client.cookies.get(SESSION_COOKIE_NAME)
+            csrf = {"X-CSRF-Token": client.cookies["csrf"]}
+
+            assert client.post("/api/v1/auth/logout", headers=csrf).status_code == 204
+
+            # 같은 쿠키로 다시 — 세션이 이미 무효화됐으므로 401이다.
+            client.cookies.set(SESSION_COOKIE_NAME, token)
+            resp = client.post("/api/v1/auth/logout", headers=csrf)
+            assert resp.status_code == 401
+            assert resp.json()["error"]["code"] == "UNAUTHORIZED"
+
+            # 쿠키가 아예 없는 경우도 401이다.
+            client.cookies.clear()
+            assert client.post("/api/v1/auth/logout").status_code == 401
     finally:
         await _cleanup_stub_user()
 

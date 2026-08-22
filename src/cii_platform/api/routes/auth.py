@@ -493,13 +493,32 @@ async def delete_me(
 async def logout(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
 ) -> Response:
-    """세션을 즉시 무효화하고 쿠키를 만료시킨다 (#274). 멱등이다.
+    """세션을 즉시 무효화하고 쿠키를 만료시킨다 (`API_SPEC §1.2`).
 
     ``request.state.session_row``은 **미들웨어 세션에서 로드한 detached 객체**다 —
     속성만 바꿔 라우트 세션으로 commit하면 이 세션에 dirty 객체가 없어 아무것도
     쓰이지 않는다(무효화 누락). 라우트 세션으로 **재조회해** 갱신한다 (#279에서
     발견).
+
+    ## CSRF를 검증한다 (#634)
+
+    **세션을 요구하는 상태 변경 라우트 중 이 하나만 예외였다.** 다른 23개는 전부
+    ``require_csrf``를 걸고, 검증이 없는 8개는 전부 세션이 없는 공개 인증 경로다.
+    예외였던 동안 제3자 사이트가 사용자를 **강제 로그아웃**시킬 수 있었다 —
+    데이터가 바뀌지 않아 심각도는 낮지만 규칙의 예외에 사유가 없었다.
+
+    ## 「세션 없어도 204」가 아니다 (#634)
+
+    ``API_SPEC §1.2``가 그렇게 적고 있었으나 **같은 행의 「인증 필요」와 모순**이고,
+    그 문구는 `#272`(PR `#297`)에서 사유 없이 들어온 것이다. 세션이 없으면
+    ``auth_middleware``가 라우트 앞에서 401로 끊으며, 그것이 「인증 필요」의 뜻이다.
+    정본에서 그 문구를 뺐다.
+
+    아래 ``token is not None`` · ``row is not None`` 두 갈래는 그래도 남긴다 —
+    미들웨어 통과와 이 조회 사이에 세션이 무효화될 수 있고(동시 로그아웃·비밀번호
+    변경), 그때 500을 내는 것보다 204가 옳다.
     """
     token = request.cookies.get(SESSION_COOKIE_NAME)
     if token is not None:
