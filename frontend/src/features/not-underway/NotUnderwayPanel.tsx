@@ -12,6 +12,7 @@ import {
   quantityText,
   totalFuelTon,
   validateDraft,
+  validateFuelDraft,
   type DraftErrors,
 } from './periodRules'
 import type { FuelUseDraft, NotUnderwayProvider, Period, PeriodDraft } from './types'
@@ -135,12 +136,21 @@ export function NotUnderwayPanel({
             <PeriodRow
               key={period.id}
               period={period}
+              choices={choices}
               onClose={async (endedAt) => {
                 await api.close(period.id, endedAt)
                 await reload()
               }}
               onRemove={async () => {
                 await api.remove(period.id)
+                await reload()
+              }}
+              onAddFuel={async (draft) => {
+                await api.addFuelUse(period.id, draft)
+                await reload()
+              }}
+              onRemoveFuel={async (fuelUseId) => {
+                await api.removeFuelUse(period.id, fuelUseId)
                 await reload()
               }}
             />
@@ -155,16 +165,30 @@ export function NotUnderwayPanel({
 
 function PeriodRow({
   period,
+  choices,
   onClose,
   onRemove,
+  onAddFuel,
+  onRemoveFuel,
 }: {
   period: Period
+  choices: { consumerTypes: string[]; fuelTypes: string[] }
   onClose: (endedAt: string) => Promise<void>
   onRemove: () => Promise<void>
+  onAddFuel: (draft: FuelUseDraft) => Promise<void>
+  onRemoveFuel: (fuelUseId: string) => Promise<void>
 }) {
   const [closing, setClosing] = useState(false)
   const [endValue, setEndValue] = useState(() => toLocalInput(new Date().toISOString()))
   const [rowError, setRowError] = useState<string | null>(null)
+  /**
+   * 나중에 더하는 연료 한 줄 (`#638`).
+   *
+   * `null`이면 폼을 열지 않은 상태다 — 빈 draft와 구분한다. 항상 열어 두면 구간
+   * 스무 개가 폼으로 덮여 목록이 읽히지 않는다.
+   */
+  const [fuelDraft, setFuelDraft] = useState<FuelUseDraft | null>(null)
+  const [fuelError, setFuelError] = useState<string | null>(null)
 
   const guard = async (action: () => Promise<void>) => {
     try {
@@ -227,10 +251,118 @@ function PeriodRow({
               </span>
               {/* CF는 서버가 뜬 snapshot이다. 표시만 하고 편집하지 않는다. */}
               <span className="num nu__cf">CF {fu.cfUsed}</span>
+              {/*
+                잘못 넣은 한 줄을 지운다 (`API_SPEC §2.13` · `#638`). **물리 삭제다** —
+                `not_underway_fuel_use`에는 `is_deleted` 열이 없다(`#345`).
+                종전에는 이 경로에 소비처가 없어 구간을 통째로 지우고 다시 만들어야 했고,
+                그때 `started_at`을 다시 입력하면서 값이 틀어질 여지가 생겼다.
+              */}
+              <button
+                type="button"
+                className="nu__fuel-remove"
+                aria-label={`${labelOf(fu.consumerType, CONSUMER_TYPE_LABELS)} ${fu.fuelType} 연료 기록 삭제`}
+                onClick={() => guard(() => onRemoveFuel(fu.id))}
+              >
+                삭제
+              </button>
             </li>
           ))}
         </ul>
       ) : null}
+
+      {/*
+        구간을 만든 뒤 연료를 더한다 (`API_SPEC §2.13` · `#638`).
+
+        `§2.13`이 이 경로의 존재 이유를 적고 있다 — *「정박이 끝나야 총 소모량을 아는
+        것이 보통이다」*. 구간 생성 폼도 *「지금 몰라도 됩니다 — 구간을 먼저 만들고
+        실적이 확인되면 추가할 수 있습니다」*로 안내하고 있었는데, **그 경로가 화면에
+        없어 사실이 아닌 안내였다.**
+      */}
+      {fuelDraft === null ? (
+        <button
+          type="button"
+          className="nu__fuel-add"
+          onClick={() => {
+            setFuelError(null)
+            setFuelDraft({
+              consumerType: choices.consumerTypes[0] ?? '',
+              fuelType: choices.fuelTypes[0] ?? '',
+              fuelTon: '',
+            })
+          }}
+          data-testid="nu-fuel-add"
+        >
+          + 연료 기록 추가
+        </button>
+      ) : (
+        <div className="nu__fuel-row" data-testid="nu-fuel-form">
+          <select
+            value={fuelDraft.consumerType}
+            aria-label="소비원"
+            onChange={(event) =>
+              setFuelDraft((d) => (d ? { ...d, consumerType: event.target.value } : d))
+            }
+          >
+            {choices.consumerTypes.map((code) => (
+              <option key={code} value={code}>
+                {labelOf(code, CONSUMER_TYPE_LABELS)}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={fuelDraft.fuelType}
+            aria-label="유종"
+            onChange={(event) =>
+              setFuelDraft((d) => (d ? { ...d, fuelType: event.target.value } : d))
+            }
+          >
+            {choices.fuelTypes.map((code) => (
+              <option key={code} value={code}>
+                {code}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="number"
+            min={0}
+            step="0.01"
+            placeholder="톤"
+            aria-label="연료량"
+            value={fuelDraft.fuelTon}
+            onChange={(event) =>
+              setFuelDraft((d) => (d ? { ...d, fuelTon: event.target.value } : d))
+            }
+          />
+
+          <button
+            type="button"
+            data-testid="nu-fuel-save"
+            onClick={() => {
+              // 화면이 볼 수 있는 것만 본다 — 중복 판정은 서버가 409로 한다.
+              const message = validateFuelDraft(fuelDraft)
+              if (message !== null) {
+                setFuelError(message)
+                return
+              }
+              setFuelError(null)
+              void guard(async () => {
+                await onAddFuel(fuelDraft)
+                setFuelDraft(null)
+              })
+            }}
+          >
+            저장
+          </button>
+
+          <button type="button" onClick={() => setFuelDraft(null)}>
+            취소
+          </button>
+        </div>
+      )}
+
+      {fuelError ? <em className="nu__field-error">{fuelError}</em> : null}
 
       {rowError ? (
         <p className="nu__error" role="alert">
@@ -449,6 +581,11 @@ function PeriodForm({
 
       {fuelUses.length === 0 ? (
         <p className="nu__hint">
+          {/*
+            `#638` 이전에는 이 안내가 **사실이 아니었다** — 구간을 만든 뒤 연료를
+            더할 경로가 화면에 없어, 고치려면 구간을 지우고 다시 만들어야 했다.
+            이제 구간 카드의 「+ 연료 기록 추가」가 그 경로다.
+          */}
           지금 몰라도 됩니다 — 구간을 먼저 만들고 실적이 확인되면 추가할 수 있습니다.
         </p>
       ) : null}

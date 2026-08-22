@@ -1,5 +1,5 @@
 import { formatGrouped } from '../../display/format'
-import type { Period, PeriodDraft } from './types'
+import type { FuelUseDraft, Period, PeriodDraft } from './types'
 
 /**
  * not under way 구간 화면 규칙 (`#370`).
@@ -127,6 +127,29 @@ export function validateDraft(draft: PeriodDraft): DraftErrors {
   }
 
   return errors
+}
+
+/**
+ * 구간에 나중에 더하는 연료 한 줄을 검증한다 (`#638`).
+ *
+ * **`validateDraft`의 연료 규칙과 같은 문구를 쓴다** — 같은 값을 두 자리에서 넣는데
+ * 거부 문구가 다르면 사용자가 다른 규칙으로 읽는다. 여기서 새로 적지 않고
+ * 그쪽과 같은 문장을 돌려준다.
+ *
+ * **중복(같은 소비원·유종)은 보지 않는다.** 이미 저장된 구간의 연료와 대조해야 하는데,
+ * 그 판정은 서버가 `409 CONFLICT`로 한다(`API_SPEC §2.13`). 화면이 흉내 내면 두 판정이
+ * 갈리고, 갈린 쪽이 맞다고 믿을 근거가 없다 — `validateDraft` 머리주석과 같은 규율이다.
+ */
+export function validateFuelDraft(draft: FuelUseDraft): string | null {
+  if (!draft.consumerType || !draft.fuelType) {
+    return '소비원과 유종을 선택해 주세요.'
+  }
+  const ton = Number(draft.fuelTon)
+  if (draft.fuelTon === '' || Number.isNaN(ton) || ton <= 0) {
+    // 0톤 기록은 「안 썼다」가 아니라 오타다 — 안 썼으면 줄을 넣지 않으면 된다.
+    return '연료량은 0보다 커야 합니다. 사용하지 않았다면 줄을 지워 주세요.'
+  }
+  return null
 }
 
 export function hasErrors(errors: DraftErrors): boolean {

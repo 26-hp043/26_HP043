@@ -10,6 +10,7 @@ import {
   NO_VALUE_TEXT,
   quantityText,
   totalFuelTon,
+  validateFuelDraft,
   validateDraft,
 } from './periodRules'
 import { DISPLAY_DIGITS } from '../../display/format'
@@ -198,5 +199,47 @@ describe('totalFuelTon — 반올림은 표시 시점에 한 번만 (#572)', () 
 
   it('기존 합계는 그대로다', () => {
     expect(totalFuelTon(PERIOD)).toBe(16.5)
+  })
+})
+
+describe('validateFuelDraft — 나중에 더하는 연료 한 줄 (#638)', () => {
+  const ok = { consumerType: 'AUX_ENGINE', fuelType: 'DIESEL_GAS_OIL', fuelTon: '4.5' }
+
+  it('정상 입력은 통과한다', () => {
+    expect(validateFuelDraft(ok)).toBeNull()
+  })
+
+  it('0톤은 오타로 본다 — 안 썼으면 줄을 넣지 않으면 된다', () => {
+    expect(validateFuelDraft({ ...ok, fuelTon: '0' })).toContain('0보다 커야')
+  })
+
+  it('빈 값·숫자가 아닌 값도 거부한다', () => {
+    expect(validateFuelDraft({ ...ok, fuelTon: '' })).not.toBeNull()
+    expect(validateFuelDraft({ ...ok, fuelTon: 'abc' })).not.toBeNull()
+  })
+
+  it('선택지가 비어 있으면 거부한다 — 화면이 기본값을 지어내지 않는다', () => {
+    expect(validateFuelDraft({ ...ok, consumerType: '' })).toContain('선택해')
+    expect(validateFuelDraft({ ...ok, fuelType: '' })).toContain('선택해')
+  })
+
+  it('validateDraft와 같은 문구를 쓴다 — 같은 값에 다른 규칙으로 읽히면 안 된다', () => {
+    // 구간 생성 폼과 나중 추가 폼이 같은 값을 받는데 거부 문구가 다르면
+    // 사용자는 규칙이 다르다고 읽는다.
+    const inForm = validateDraft({
+      periodType: 'IN_PORT',
+      startedAt: '2026-08-01T00:00',
+      endedAt: null,
+      portName: null,
+      distanceNm: '0',
+      fuelUses: [{ ...ok, fuelTon: '0' }],
+    }).fuelUses
+    expect(validateFuelDraft({ ...ok, fuelTon: '0' })).toBe(inForm)
+  })
+
+  it('중복은 보지 않는다 — 서버가 409로 판정한다 (API_SPEC §2.13)', () => {
+    // 이미 저장된 구간의 연료와 대조해야 하는데 화면은 그것을 알 수 없다.
+    // 흉내 내면 두 판정이 갈리고, 갈린 쪽이 맞다고 믿을 근거가 없다.
+    expect(validateFuelDraft(ok)).toBeNull()
   })
 })
