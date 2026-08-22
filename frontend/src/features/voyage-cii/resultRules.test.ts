@@ -165,18 +165,18 @@ describe('warningMessage — API_SPEC §1.6 전사', () => {
     )
   })
 
-  it('§1.6의 7개 코드를 전부 담는다', () => {
-    expect(Object.keys(WARNING_MESSAGE).sort()).toEqual(
-      [
-        'CB_ESTIMATED',
-        'COMPLETED_NO_FUEL',
-        'EXPERIMENTAL_MODEL',
-        'NON_CII_VESSEL',
-        'REFERENCE_ONLY',
-        'WEATHER_NONE_FALLBACK',
-        'WEATHER_STALE',
-      ].sort(),
-    )
+  /*
+   * 종전에는 여기서 코드 7개를 **손으로 옮겨 적어** 대조했다. 그 목록이 곧
+   * 드리프트의 원인이 됐다 (#630) — `API_SPEC §1.6`에 기능③ 경고 7종이 빠져
+   * 있었는데, 이 테스트는 **빠진 표를 그대로 전사한 것**이라 통과했다.
+   *
+   * 정본과의 대조는 `warningMessage.sync.test.ts`가 `API_SPEC.md`를 직접 읽어
+   * 한다. 여기서는 손으로 적지 않아도 참인 것만 본다.
+   */
+  it('기능③ 경고까지 담는다 — 목록을 손으로 적지 않는다', () => {
+    // 대조는 warningMessage.sync.test.ts 가 한다. 여기서는 등재 자체만 확인한다.
+    expect(Object.keys(WARNING_MESSAGE).length).toBeGreaterThanOrEqual(10)
+    expect(WARNING_MESSAGE.SENSITIVITY_SPEED_SKIPPED).toContain('계산되지 않음')
   })
 
   it('표에 없는 코드는 감추지 않고 코드 자체를 보여 준다', () => {

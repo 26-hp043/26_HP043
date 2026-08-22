@@ -27,6 +27,7 @@ from cii_platform.calc.annual_simulation import (
     WARNING_NO_REMAINING,
     WARNING_RUNS_CLAMPED,
     WARNING_SENSITIVITY_OAT,
+    WARNING_SENSITIVITY_SPEED_SKIPPED,
     WARNING_TARGET_RATING_D,
     CompletedTotals,
     DistributionProfile,
@@ -388,9 +389,17 @@ def test_sensitivity_speed_uses_the_cubic_model():
 
 
 def test_sensitivity_skips_speed_when_specs_are_missing():
-    """제원이 없으면 임의 기본값을 넣지 않는다 — 화면은 안 깨지고 값만 틀린다."""
+    """제원이 없으면 임의 기본값을 넣지 않는다 — 화면은 안 깨지고 값만 틀린다.
+
+    ⚠️ **값이 같다는 단언만으로는 부족하다** (#630). 종전 이 테스트는 그것만 보고
+    통과했고, 그래서 **건너뛴 사실을 아무도 알리지 않는 상태**가 그대로 남았다.
+    속도 항목이 기준과 같게 나오면 사용자는 그것을 「감속해도 CII가 변하지 않는다」로
+    읽는다 — **계산하지 못한 것과 효과가 0인 것을 구분할 수 없다.**
+
+    그래서 경고를 함께 단언한다.
+    """
     bare = [_voyage(reference_speed_kn=None, base_daily_foc_ton=None) for _ in range(4)]
-    entries, _ = analyze_sensitivity(
+    entries, warnings = analyze_sensitivity(
         completed=COMPLETED,
         remaining=bare,
         transport_capacity=CAPACITY,
@@ -400,6 +409,36 @@ def test_sensitivity_skips_speed_when_specs_are_missing():
     speeds = [e for e in entries if e.variable == "speed"]
     # 항목은 남되 값이 기준과 같다 — 바뀐 것이 없다.
     assert len({e.attained_cii for e in speeds}) == 1
+    # 바뀐 것이 없다는 사실 자체를 알린다.
+    assert WARNING_SENSITIVITY_SPEED_SKIPPED in warnings
+
+
+def test_sensitivity_does_not_warn_when_specs_are_present():
+    """제원이 다 있으면 경고를 붙이지 않는다 (#630).
+
+    이 단언이 없으면 경고를 **항상** 붙이는 구현도 위 테스트를 통과한다. 그러면
+    경고가 늘 떠 있어 아무 정보도 주지 않는다.
+    """
+    _, warnings = _sens()
+    assert WARNING_SENSITIVITY_SPEED_SKIPPED not in warnings
+
+
+def test_sensitivity_warns_when_only_some_voyages_lack_specs():
+    """일부만 빠져도 알린다 (#630).
+
+    전부 빠졌을 때만 알리면, 열 건 중 아홉 건이 건너뛴 경우가 **조용히 지나간다.**
+    그때 속도 민감도는 기준과 다르게 나오므로 「계산됐다」로 읽히지만, 실제 효과의
+    십분의 일만 반영된 값이다.
+    """
+    mixed = [_voyage(), _voyage(reference_speed_kn=None, base_daily_foc_ton=None)]
+    _, warnings = analyze_sensitivity(
+        completed=COMPLETED,
+        remaining=mixed,
+        transport_capacity=CAPACITY,
+        required_cii=REQUIRED,
+        d_vector=D_VECTOR,
+    )
+    assert WARNING_SENSITIVITY_SPEED_SKIPPED in warnings
 
 
 def test_sensitivity_always_warns_about_interaction():

@@ -62,8 +62,16 @@ export function capacityCell(vessel: Vessel): { label: string; value: string } {
  *
  * > ⑴ 사용자 입력 → ⑵ `base_daily_foc_ton` + `reference_speed_kn` → ⑶ 샘플 선박 기본값
  *
- * ⑵는 **둘 다** 있어야 성립한다(`calc/annual_simulation.py:509`가 같은 판단을 한다) —
- * 하나만 있으면 「기준속도는 있으니 되겠지」로 읽히므로 **무엇이 빠졌는지 이름을 적는다.**
+ * ⑵는 **둘 다** 있어야 성립한다(`calc/annual_simulation.py`의 `_has_speed_model`이
+ * 같은 판단을 한다) — 하나만 있으면 「기준속도는 있으니 되겠지」로 읽히므로
+ * **무엇이 빠졌는지 이름을 적는다.**
+ *
+ * ## 문구가 사실과 달랐다 (#630)
+ *
+ * 종전에는 「항로 비교·연간 시뮬레이션이 **실패합니다**」로 적었다. 실측하면
+ * **연간 시뮬레이션은 실패하지 않는다** — 200으로 돌고 감속 민감도만 조용히 0이 된다
+ * (`_shift_speed`가 제원 없는 항차를 건너뛴다). 멀쩡한 기능을 고장났다고 예고하면서
+ * 진짜 문제는 말하지 않고 있었다.
  */
 export function blockedReasons(vessel: Vessel): string[] {
   const reasons: string[] = []
@@ -81,7 +89,7 @@ export function blockedReasons(vessel: Vessel): string[] {
   if (vessel.reference_daily_foc_ton === null) missingFuelModel.push('기준 일일 연료소모량')
   if (missingFuelModel.length > 0) {
     reasons.push(
-      `${missingFuelModel.join(' · ')} 없음 — 항로 비교·연간 시뮬레이션이 실패합니다`,
+      `${missingFuelModel.join(' · ')} 없음 — 항로 비교가 실패하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다`,
     )
   }
 

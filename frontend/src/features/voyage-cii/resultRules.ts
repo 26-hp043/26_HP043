@@ -160,6 +160,27 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
   EXPERIMENTAL_MODEL: '실험 모델 기반 결과입니다.',
   NON_CII_VESSEL: '공식 CII 적용 대상이 아닐 수 있습니다.',
   COMPLETED_NO_FUEL: '실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중.',
+  COMPLETED_NO_DISTANCE: '실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중.',
+  SLOW_SPEED_FLOOR:
+    '감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다.',
+  // --- 기능③·실시간 CII 경고 (#630에서 `API_SPEC §1.6`에 등재된 것) ---
+  //
+  // 종전에는 이 8종이 `§1.6` 표에 없어 이 맵에도 없었고, 연간 시뮬레이션 화면이
+  // `warningMessage()`의 `?? code` 갈래를 타 **원문 코드를 그대로 노출**했다.
+  SIMULATION_NO_FUEL_RATE:
+    '선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요.',
+  SIMULATION_NO_FUEL_TYPE:
+    '진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요.',
+  NO_COMPLETED_VOYAGES:
+    '누적 실적이 없어 현재 CII는 계산할 수 없습니다. 잔여 계획 기반 예측만 수행할 수 있습니다.',
+  NO_REMAINING_VOYAGES:
+    '잔여 계획 항차가 없어 확정 실적만으로 연말 예상 등급을 산출했습니다.',
+  MANY_REMAINING_VOYAGES: '잔여 항차가 많아 계산 시간이 길어질 수 있습니다.',
+  SIMULATION_RUNS_CLAMPED: '시뮬레이션 횟수를 허용 범위(1,000~10,000)로 조정했습니다.',
+  TARGET_RATING_D: '목표 등급 D는 위험 구간입니다.',
+  SENSITIVITY_ONE_AT_A_TIME: '각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다.',
+  SENSITIVITY_SPEED_SKIPPED:
+    '선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다.',
 }
 
 export function warningMessage(code: string): string {
