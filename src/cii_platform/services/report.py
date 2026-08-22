@@ -39,6 +39,7 @@ from cii_platform.reports.document import (
 from cii_platform.reports.labels import (
     applicability_label,
     fuel_source_label,
+    fuel_type_label,
     inclusion_policy_label,
     projection_reason_label,
     risk_label,
@@ -300,7 +301,7 @@ async def build_voyage_report(
                 headers=["유종", "계획 (t)", "실적 (t)", "CF snapshot", "배출량 (tCO₂)", "출처"],
                 rows=[
                     [
-                        fu.fuel_type,
+                        fuel_type_label(fu.fuel_type),
                         _display(fu.planned_fuel_ton, "fuel_ton"),
                         _display(fu.actual_fuel_ton, "fuel_ton"),
                         str(fu.cf_used),

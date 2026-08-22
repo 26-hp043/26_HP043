@@ -14,6 +14,7 @@
 **정본 문구**           :data:`RISK_LABELS`                          ``DESIGN_SYSTEM §2.5 (b)`` 🔒
                         :data:`WARNING_LABELS`                       ``API_SPEC §1.6``
 **표시 문구**           :data:`SHIP_TYPE_LABELS`                     ``shipTypes.ts``
+                        :data:`FUEL_TYPE_LABELS`                     ``fuelTypes.ts``
                         :data:`PROJECTION_REASON_LABELS`             ``realtimeRules.ts``
                         :data:`VOYAGE_STATUS_LABELS`                 ``voyageRules.ts``
                         :data:`INCLUSION_POLICY_LABELS`              ``voyageRules.ts``
@@ -84,6 +85,23 @@ SHIP_TYPE_LABELS: dict[str, str] = {
     "RO_RO_PASSENGER": "로로여객선",
     "RO_RO_PASSENGER_HSC": "로로여객선(고속선)",
     "CRUISE_PASSENGER": "크루즈여객선",
+}
+
+#: 연료 표시 문구. 화면(``fuelTypes.ts``)과 같은 값이며 순서는 ``DB_SCHEMA §3.2`` 표를 따른다.
+#:
+#: **``display_name``을 옮겨 적은 것이 아니다.** 서버 마스터의 ``display_name``은
+#: ``MEPC.364(79)`` 원문 표기(``Heavy Fuel Oil``)이고 그것은 **정본 문구**다. 문서에
+#: 그대로 실으면 「출처」 칸만 한국어이고 「유종」 칸은 영문인 표가 된다 — `#645`가
+#: 출처를 고칠 때 유종이 남아 있었다.
+FUEL_TYPE_LABELS: dict[str, str] = {
+    "DIESEL_GAS_OIL": "디젤·가스유",
+    "LFO": "경질중유",
+    "HFO": "중유",
+    "LPG_PROPANE": "LPG(프로판)",
+    "LPG_BUTANE": "LPG(부탄)",
+    "LNG": "액화천연가스",
+    "METHANOL": "메탄올",
+    "ETHANOL": "에탄올",
 }
 
 #: 위험도 표시 문구 — ``DESIGN_SYSTEM §2.5 (b)`` 🔒 · ``§14``.
@@ -220,6 +238,15 @@ def _label(code: str | None, table: dict[str, str]) -> str:
 def ship_type_label(code: str | None) -> str:
     """선종 코드를 표시 문구로. 없으면 코드를 그대로 돌려준다."""
     return _label(code, SHIP_TYPE_LABELS)
+
+
+def fuel_type_label(code: str | None) -> str:
+    """연료 표시 문구. 모르는 코드는 **코드를 그대로** 낸다.
+
+    화면(``fuelTypes.ts``)과 같은 판단이다 — 빈 칸이나 「기타」로 뭉개면 문서를 받은
+    사람이 무엇의 배출량인지 모르고, 표가 낡았다는 사실도 사라진다.
+    """
+    return _label(code, FUEL_TYPE_LABELS)
 
 
 def risk_label(code: str | None) -> str:

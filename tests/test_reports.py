@@ -437,6 +437,67 @@ def test_ship_type_labels_match_the_screen():
     assert screen == SHIP_TYPE_LABELS
 
 
+def test_fuel_type_labels_match_the_screen():
+    """화면(`fuelTypes.ts`)과 **같은 문구**를 쓴다 (`#598`).
+
+    선종과 같은 구조다 — 연료의 한국어 이름은 `AGENTS §4.6` 기준 **표시 문구**이고
+    화면 쪽이 원본이다. 서버가 표기를 새로 정하면 문서와 화면이 갈리고, 그 차이는
+    **문서를 열어 봐야만** 드러난다.
+    """
+    import re
+    from pathlib import Path
+
+    from cii_platform.reports.labels import FUEL_TYPE_LABELS
+
+    source = (
+        Path(__file__).parents[1] / "frontend" / "src" / "features" / "parameters" / "fuelTypes.ts"
+    ).read_text(encoding="utf-8")
+    block = source.split("FUEL_TYPE_LABELS", 1)[1].split("}", 1)[0]
+    screen = dict(re.findall(r"([A-Z_]+): '([^']+)'", block))
+
+    assert screen, "fuelTypes.ts에서 연료를 읽지 못했다 — 파일 형식이 바뀌었는지 확인할 것"
+    assert screen == FUEL_TYPE_LABELS
+
+
+def test_fuel_type_labels_cover_the_seeded_fuels():
+    """코드 집합의 정본은 `DB_SCHEMA §3.2` 값 표이며 시드가 그것을 넣는다.
+
+    표에 없는 연료가 마스터에 있으면 그 연료만 문서에서 **코드로** 나온다 —
+    `fuel_type_label`이 모르는 코드를 그대로 내기 때문에 오류 없이 지나간다.
+    """
+    import re
+    from pathlib import Path
+
+    from cii_platform.reports.labels import FUEL_TYPE_LABELS
+
+    schema = (Path(__file__).parents[1] / "DB_SCHEMA.md").read_text(encoding="utf-8")
+    table = schema.split("| code | display_name | cf | source_ref |", 1)[1].split("\n\n", 1)[0]
+    documented = set(re.findall(r"^\| ([A-Z_]+) \|", table, re.M))
+
+    assert len(documented) == 8, f"§3.2 연료 표를 읽지 못했다: {documented}"
+    assert set(FUEL_TYPE_LABELS) == documented
+
+
+def test_fuel_type_label_does_not_invent_a_name():
+    """모르는 코드는 **코드를 그대로** 낸다 — 빈 칸·「기타」로 뭉개지 않는다."""
+    from cii_platform.reports.labels import fuel_type_label
+
+    assert fuel_type_label("BIO_LNG") == "BIO_LNG"
+    assert fuel_type_label(None) == "—"
+
+
+def test_the_fuel_table_carries_no_raw_fuel_code():
+    """`#645`가 출처를 고칠 때 **유종 칸이 남아 있었다** — 같은 표에서 한 칸만 영문이었다.
+
+    열 이름을 짚지 않고 문서 전체를 훑는다 — 연료가 다른 절에 하나 더 실려도 걸린다.
+    """
+    from cii_platform.reports.labels import FUEL_TYPE_LABELS
+
+    assert "HFO" in FUEL_TYPE_LABELS
+    # 반대 방향도 함께 본다: 「코드가 없다」만 보면 열을 통째로 빼도 통과한다.
+    assert FUEL_TYPE_LABELS["HFO"] == "중유"
+
+
 def test_ship_type_labels_cover_the_calc_ship_types():
     """코드 집합의 정본은 `calc/capacity.py`다 (`PRD §3.4.3`)."""
     from cii_platform.calc.capacity import DWT_BASED_SHIP_TYPES, GT_BASED_SHIP_TYPES

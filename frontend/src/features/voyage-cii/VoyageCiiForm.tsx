@@ -15,6 +15,7 @@ import { createVoyageCiiProvider } from './providerSelection'
 import { useShellContext } from '../../layout/shellContext'
 import { createYearCatalog } from '../parameters/yearCatalog'
 import { useFuelOptions } from '../parameters/fuelCatalog'
+import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import type { ResultState } from './resultRules'
 
 /**
@@ -377,7 +378,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
               <option value="">선택해 주세요</option>
               {fuels.map((fuel) => (
                 <option key={fuel.code} value={fuel.code}>
-                  {fuel.displayName} ({fuel.code})
+                  {fuelTypeOptionText(fuel.code)}
                 </option>
               ))}
             </select>
