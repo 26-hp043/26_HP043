@@ -97,13 +97,23 @@ async def _make_vessel(session, **over) -> object:
     return vessel_id
 
 
-async def _make_voyage(session, vessel_id, *, status="IN_PROGRESS", departed_at=None, **over):
+async def _make_voyage(
+    session,
+    vessel_id,
+    *,
+    status="IN_PROGRESS",
+    departed_at=None,
+    planned_arrival_at=None,
+    **over,
+):
     voyage_id = uuid4()
     fields = {
         "id": voyage_id,
         "vessel_id": vessel_id,
         "status": status,
         "departed": departed_at or datetime(YEAR, 6, 1, tzinfo=UTC),
+        # `#649` — 시계가 예정일에서 자르는지 검증하려면 이 값이 필요하다.
+        "planned_arrival": planned_arrival_at,
         "policy": "EXCLUDE",
         "year": YEAR,
     }
@@ -112,9 +122,10 @@ async def _make_voyage(session, vessel_id, *, status="IN_PROGRESS", departed_at=
         text(
             "INSERT INTO voyage (id, vessel_id, status, departure_port_name, "
             "arrival_port_name, planned_distance_nm, planned_speed_kn, "
-            "actual_departure_at, annual_inclusion_policy, regulation_year, "
-            "created_from) VALUES (:id, :vessel_id, :status, 'Busan', 'Singapore', "
-            "3000, 14, :departed, :policy, :year, 'MANUAL')"
+            "actual_departure_at, planned_arrival_at, annual_inclusion_policy, "
+            "regulation_year, created_from) "
+            "VALUES (:id, :vessel_id, :status, 'Busan', 'Singapore', "
+            "3000, 14, :departed, :planned_arrival, :policy, :year, 'MANUAL')"
         ),
         fields,
     )
@@ -406,6 +417,68 @@ async def test_reference_only_warning_is_always_present(session):
     vessel_id = await _make_vessel(session)
     data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
     assert "REFERENCE_ONLY" in data["warnings"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 도착 예정일 초과 (#649)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_past_eta_stops_the_clock_and_says_so(session):
+    """진행 중 항차가 예정일을 지나면 **누적이 멈추고 그 사실이 응답에 실린다**.
+
+    종전에는 상한이 없어 `as_of`가 멀어질수록 거리·연료가 계속 자랐다. 실사용에서
+    이 상태는 「운항이 계속되고 있다」가 아니라 **「도착 실적 입력을 잊었다」**이며,
+    그 사실이 드러나야 사용자가 고칠 대상을 찾는다.
+    """
+    vessel_id = await _make_vessel(session)
+    departed = datetime(YEAR, 6, 1, tzinfo=UTC)
+    eta = datetime(YEAR, 6, 10, tzinfo=UTC)
+    await _make_voyage(session, vessel_id, departed_at=departed, planned_arrival_at=eta)
+
+    at_eta, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=eta)
+    long_after, _ = await get_current_cii(
+        session, vessel_id, year=YEAR, as_of=datetime(YEAR, 9, 1, tzinfo=UTC)
+    )
+
+    assert at_eta["current_voyage"]["distance_nm"] == long_after["current_voyage"]["distance_nm"]
+    assert "IN_PROGRESS_PAST_ETA" in long_after["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_before_eta_has_no_warning_and_keeps_growing(session):
+    """예정일 전에는 종전과 같다 — 경고도 붙지 않는다."""
+    vessel_id = await _make_vessel(session)
+    departed = datetime(YEAR, 6, 1, tzinfo=UTC)
+    eta = datetime(YEAR, 6, 30, tzinfo=UTC)
+    await _make_voyage(session, vessel_id, departed_at=departed, planned_arrival_at=eta)
+
+    early, _ = await get_current_cii(
+        session, vessel_id, year=YEAR, as_of=datetime(YEAR, 6, 5, tzinfo=UTC)
+    )
+    later, _ = await get_current_cii(
+        session, vessel_id, year=YEAR, as_of=datetime(YEAR, 6, 20, tzinfo=UTC)
+    )
+
+    assert Decimal(later["current_voyage"]["distance_nm"]) > Decimal(
+        early["current_voyage"]["distance_nm"]
+    )
+    assert "IN_PROGRESS_PAST_ETA" not in later["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_voyage_without_planned_arrival_is_unchanged(session):
+    """예정일이 없는 항차는 종전대로 `as_of`까지 센다 — 없는 상한을 만들지 않는다."""
+    vessel_id = await _make_vessel(session)
+    await _make_voyage(session, vessel_id, departed_at=datetime(YEAR, 6, 1, tzinfo=UTC))
+
+    data, _ = await get_current_cii(
+        session, vessel_id, year=YEAR, as_of=datetime(YEAR, 9, 1, tzinfo=UTC)
+    )
+
+    assert Decimal(data["current_voyage"]["distance_nm"]) > 0
+    assert "IN_PROGRESS_PAST_ETA" not in data["warnings"]
 
 
 @pytest.mark.asyncio

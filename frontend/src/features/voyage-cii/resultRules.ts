@@ -175,6 +175,9 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
     '선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요.',
   SIMULATION_NO_FUEL_TYPE:
     '진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요.',
+  // `#649` — 예정일에서 자른 이유. 값이 왜 더 늘지 않는지 화면이 말해야 한다.
+  IN_PROGRESS_PAST_ETA:
+    '진행 중 항차가 도착 예정일을 지났습니다. 누적은 예정일까지만 반영했으며, 도착 실적을 입력하면 확정됩니다.',
   NO_COMPLETED_VOYAGES:
     '누적 실적이 없어 현재 CII는 계산할 수 없습니다. 잔여 계획 기반 예측만 수행할 수 있습니다.',
   NO_REMAINING_VOYAGES:
