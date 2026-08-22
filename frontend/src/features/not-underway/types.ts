@@ -70,4 +70,18 @@ export interface NotUnderwayProvider {
   /** 진행 중 구간의 종료 확정. `#370`이 지목한 주 용도다. */
   close(periodId: string, endedAt: string): Promise<Period>
   remove(periodId: string): Promise<void>
+  /**
+   * 구간에 연료 한 줄을 더한다 (`API_SPEC §2.13` · `#638`).
+   *
+   * **구간을 만든 뒤에 쓰는 경로다.** `§2.13`이 그 이유를 적고 있다 —
+   * *「정박이 끝나야 총 소모량을 아는 것이 보통이다」*. 종전에는 이 경로에 소비처가
+   * 없어 **연료를 고치려면 구간을 지우고 다시 만들어야 했다.**
+   */
+  addFuelUse(periodId: string, draft: FuelUseDraft): Promise<FuelUse>
+  /**
+   * 잘못 넣은 연료 한 줄을 지운다 (`API_SPEC §2.13`).
+   *
+   * **물리 삭제다** — `not_underway_fuel_use`에는 `is_deleted` 열이 없다(`#345`).
+   */
+  removeFuelUse(periodId: string, fuelUseId: string): Promise<void>
 }

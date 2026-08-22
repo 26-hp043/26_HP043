@@ -263,3 +263,43 @@
 .nu .num {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * 구간 카드 안의 연료 편집 (#638).
+ *
+ * 목록 행과 폼이 같은 카드 안에 놓이므로, 폼은 **한 번에 하나만** 열린다
+ * (`fuelDraft === null`이 닫힌 상태다). 스무 개 구간이 전부 폼으로 덮이면
+ * 목록이 읽히지 않는다.
+ */
+.nu__fuel-add {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.nu__fuel-add:hover {
+  border-color: var(--color-border-strong);
+}
+
+/*
+ * 연료 한 줄 삭제. 목록 행 안이라 `nu__danger`(구간 삭제)보다 작게 둔다 —
+ * 같은 크기면 「구간을 지운다」와 「연료 한 줄을 지운다」가 같은 무게로 읽힌다.
+ */
+.nu__fuel-remove {
+  padding: 2px 8px;
+  border: 1px solid var(--color-danger-text);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-danger-text);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.4;
+  cursor: pointer;
+}

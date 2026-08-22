@@ -224,6 +224,103 @@ describe('종료 확정 · 삭제', () => {
   })
 })
 
+describe('연료 기록 추가·삭제 (#638)', () => {
+  const FUEL_BODY = {
+    data: {
+      id: 'f-9',
+      consumer_type: 'AUX_ENGINE',
+      fuel_type: 'DIESEL_GAS_OIL',
+      fuel_ton: 4.5,
+      cf_used: 3.206,
+    },
+  }
+
+  it('API_SPEC §2.13 경로로 POST 한다 — 구간 ID를 경로에 함께 둔다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(FUEL_BODY, 201))
+    await createApiNotUnderwayProvider(fetchImpl).addFuelUse('p-1', {
+      consumerType: 'AUX_ENGINE',
+      fuelType: 'DIESEL_GAS_OIL',
+      fuelTon: '4.5',
+    })
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('/api/v1/not-underway-periods/p-1/fuel-uses')
+    expect((init as RequestInit).method).toBe('POST')
+  })
+
+  it('CF를 보내지 않는다 — 배출계수는 서버가 뜬다 (§2.13)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(FUEL_BODY, 201))
+    await createApiNotUnderwayProvider(fetchImpl).addFuelUse('p-1', {
+      consumerType: 'AUX_ENGINE',
+      fuelType: 'DIESEL_GAS_OIL',
+      fuelTon: '4.5',
+    })
+
+    const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string)
+    expect(body).toEqual({
+      consumer_type: 'AUX_ENGINE',
+      fuel_type: 'DIESEL_GAS_OIL',
+      fuel_ton: 4.5,
+    })
+    expect(body).not.toHaveProperty('cf_used')
+  })
+
+  it('연료량을 숫자로 보낸다 — 입력은 문자열이다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(FUEL_BODY, 201))
+    await createApiNotUnderwayProvider(fetchImpl).addFuelUse('p-1', {
+      consumerType: 'AUX_ENGINE',
+      fuelType: 'DIESEL_GAS_OIL',
+      fuelTon: '4.50',
+    })
+
+    const body = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.fuel_ton).toBe(4.5)
+  })
+
+  it('서버가 뜬 CF를 응답에서 받아 온다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(FUEL_BODY, 201))
+    const fuel = await createApiNotUnderwayProvider(fetchImpl).addFuelUse('p-1', {
+      consumerType: 'AUX_ENGINE',
+      fuelType: 'DIESEL_GAS_OIL',
+      fuelTon: '4.5',
+    })
+
+    expect(fuel).toEqual({
+      id: 'f-9',
+      consumerType: 'AUX_ENGINE',
+      fuelType: 'DIESEL_GAS_OIL',
+      fuelTon: 4.5,
+      cfUsed: 3.206,
+    })
+  })
+
+  it('삭제 경로에도 구간 ID가 들어간다 — 자식 ID만 보내면 남의 구간을 지울 수 있다', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ data: { id: 'f-9', deleted: true } }))
+    await createApiNotUnderwayProvider(fetchImpl).removeFuelUse('p-1', 'f-9')
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('/api/v1/not-underway-periods/p-1/fuel-uses/f-9')
+    expect((init as RequestInit).method).toBe('DELETE')
+  })
+
+  it('중복(409)의 서버 문구를 그대로 쓴다 — 무엇이 겹쳤는지 담겨 있다', async () => {
+    const message = '같은 구간에 이미 (AUX_ENGINE, DIESEL_GAS_OIL) 기록이 있습니다.'
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: { code: 'CONFLICT', message } }, 409))
+
+    await expect(
+      createApiNotUnderwayProvider(fetchImpl).addFuelUse('p-1', {
+        consumerType: 'AUX_ENGINE',
+        fuelType: 'DIESEL_GAS_OIL',
+        fuelTon: '4.5',
+      }),
+    ).rejects.toThrow(message)
+  })
+})
+
 describe('실패 경로', () => {
   it('겹침(409)의 서버 문구를 그대로 쓴다 — 상대 구간의 시각이 담겨 있다', async () => {
     const message =

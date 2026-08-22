@@ -3,6 +3,7 @@ import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type {
   FuelUse,
+  FuelUseDraft,
   NotUnderwayProvider,
   Period,
   PeriodDraft,
@@ -213,6 +214,33 @@ export function createApiNotUnderwayProvider(
 
     async remove(periodId: string): Promise<void> {
       await call(`/not-underway-periods/${periodId}`, { method: 'DELETE' })
+    },
+
+    async addFuelUse(periodId: string, draft: FuelUseDraft): Promise<FuelUse> {
+      /*
+       * `cf_used`를 보내지 않는다 — `API_SPEC §2.13`이 *「서버가 뜬다」*로 못박았다.
+       * 화면이 배출계수를 실으면 계산 시점의 파라미터와 갈라지고, 그 차이는
+       * **값만 틀리고 화면은 깨지지 않아** 발견이 늦다. `create()`와 같은 규율이다.
+       */
+      const body = await call(`/not-underway-periods/${periodId}/fuel-uses`, {
+        method: 'POST',
+        body: JSON.stringify({
+          consumer_type: draft.consumerType,
+          fuel_type: draft.fuelType,
+          fuel_ton: Number(draft.fuelTon),
+        }),
+      })
+      return toFuelUse((body?.data ?? {}) as ServerFuelUse)
+    },
+
+    async removeFuelUse(periodId: string, fuelUseId: string): Promise<void> {
+      /*
+       * 경로에 `period_id`를 함께 둔다 — `§2.13`이 그 이유를 적고 있다. 자식 ID만
+       * 보내면 남의 구간 연료를 지울 수 있고, **그 삭제는 CII 값을 조용히 바꾼다.**
+       */
+      await call(`/not-underway-periods/${periodId}/fuel-uses/${fuelUseId}`, {
+        method: 'DELETE',
+      })
     },
   }
 }
