@@ -125,10 +125,6 @@ def _text(value: object) -> str:
     return "—" if value is None or value == "" else str(value)
 
 
-def _iso(value) -> str:
-    return "—" if value is None else value.isoformat()
-
-
 #: 문서에 싣는 시각의 표시 시간대 (#584).
 #:
 #: ⚠️ **정본에 규정이 없다.** ``DESIGN_SYSTEM``의 시각 관련 서술은 ``§11``의
@@ -270,8 +266,10 @@ async def build_voyage_report(
                     ("상태", voyage_status_label(voyage.status)),
                     ("출발", _text(voyage.departure_port_name)),
                     ("도착", _text(voyage.arrival_port_name)),
-                    ("출항 (실적)", _iso(voyage.actual_departure_at)),
-                    ("입항 (실적)", _iso(voyage.actual_arrival_at)),
+                    # `#584`가 `meta`의 시각만 고치고 본문 행 둘을 두고 갔다 (`#646`).
+                    # 한 문서 안에서 두 표기가 섞이면 어느 쪽이 현지 시각인지 알 수 없다.
+                    ("출항 (실적)", _local_time(voyage.actual_departure_at)),
+                    ("입항 (실적)", _local_time(voyage.actual_arrival_at)),
                     ("거리 — 계획", _display(voyage.planned_distance_nm, "distance_nm")),
                     ("거리 — 실적", _display(voyage.actual_distance_nm, "distance_nm")),
                     ("속력 — 계획", _display(voyage.planned_speed_kn, "speed_kn")),

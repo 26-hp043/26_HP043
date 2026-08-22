@@ -356,3 +356,73 @@ async def test_real_document_renders_to_csv_with_the_same_numbers(session, vesse
     attained = dict(_section(document, "2026년 누적 (YTD)").rows)["실적 CII (attained)"]
     assert attained in csv_text
     assert "REPORT TEST" in csv_text
+
+
+# ---------------------------------------------------------------------------
+# 시각 표기 (#646)
+#
+# `#584`가 `meta`의 「생성 시각」·「기준 시각」만 KST로 고치고 **본문 행 둘을 두고
+# 갔다.** 한 문서 안에서 두 표기가 섞이면 어느 쪽이 현지 시각인지 독자가 알 수 없다.
+#
+# 문서 전체를 훑는다 — 특정 행만 보면 다음에 시각이 하나 더 늘어도 걸리지 않는다.
+# ---------------------------------------------------------------------------
+
+
+def _all_values(document) -> list[str]:
+    """문서에 실린 모든 문자열 — meta · 항목·값 · 표 행."""
+    values = [value for _, value in document.meta]
+    for section in document.sections:
+        rows = getattr(section, "rows", [])
+        for row in rows:
+            values.extend(str(cell) for cell in row)
+    return values
+
+
+@pytest.mark.asyncio
+async def test_voyage_report_times_are_kst(session, vessel_id):
+    """항차 리포트의 출항·입항이 KST다.
+
+    종전에는 `2026-02-10T07:00:00+00:00`처럼 **UTC ISO**가 그대로 나갔다. 같은 문서의
+    「생성 시각」은 `2026-08-22 16:26:33 KST`였다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    rows = dict(_section(document, "항차 요약").rows)
+
+    for label in ("출항 (실적)", "입항 (실적)"):
+        assert label in rows
+        if rows[label] != "—":
+            assert rows[label].endswith("KST"), f"{label}: {rows[label]}"
+
+
+@pytest.mark.asyncio
+async def test_no_utc_iso_survives_anywhere_in_the_voyage_report(session, vessel_id):
+    """문서 **어디에도** UTC ISO가 남지 않는다.
+
+    행 이름을 열거하지 않는다 — 시각이 하나 더 늘어도 그대로 걸린다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+
+    leaked = [v for v in _all_values(document) if "+00:00" in v or _looks_like_iso(v)]
+    assert not leaked, f"UTC ISO 표기가 남았다: {leaked}"
+
+
+@pytest.mark.asyncio
+async def test_no_utc_iso_survives_anywhere_in_the_annual_report(session, vessel_id):
+    """연간 리포트도 같다."""
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    leaked = [v for v in _all_values(document) if "+00:00" in v or _looks_like_iso(v)]
+    assert not leaked, f"UTC ISO 표기가 남았다: {leaked}"
+
+
+def _looks_like_iso(value: str) -> bool:
+    """`2026-02-10T07:00:00` 형태인가 — 구분자가 `T`면 ISO다.
+
+    KST 표기는 공백을 쓴다(`2026-08-22 16:26:33 KST`). 「T가 들어 있다」로 보면
+    `KST`의 T에 걸리므로 **날짜 뒤 T**만 본다.
+    """
+    import re
+
+    return bool(re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:", value))
