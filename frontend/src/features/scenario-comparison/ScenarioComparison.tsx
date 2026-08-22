@@ -16,6 +16,7 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { ESTIMATE_NOTICE, NO_AUTO_DECISION_NOTICE } from './notices'
 import { selectScenarioProvider } from './providerSelection'
 import { useFuelOptions } from '../parameters/fuelCatalog'
+import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { lowestSummary } from './comparisonRules'
@@ -302,7 +303,7 @@ export function ScenarioComparison({
           </option>
           {fuels.map((fuel) => (
             <option key={fuel.code} value={fuel.code}>
-              {fuel.displayName} ({fuel.code})
+              {fuelTypeOptionText(fuel.code)}
             </option>
           ))}
         </select>

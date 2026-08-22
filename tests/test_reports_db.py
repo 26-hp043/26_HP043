@@ -148,7 +148,8 @@ async def test_voyage_report_carries_summary_and_fuel(session, vessel_id):
     assert ("거리 — 실적", "3,100") in summary.rows
 
     fuels = _section(document, "연료 내역")
-    assert fuels.rows[0][0] == "HFO"
+    # 유종도 표시 문구다 (`#598`). 종전에는 같은 표에서 「출처」만 한국어였다.
+    assert fuels.rows[0][0] == "중유"
     assert fuels.rows[0][2] == "260.0"  # 실적 — §4.2 🔒 연료 1자리
 
 
@@ -491,10 +492,28 @@ async def test_no_raw_source_code_survives_in_the_report(session, vessel_id):
     voyage_id = await _make_voyage(session, vessel_id)
     document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
 
-    from cii_platform.reports.labels import FUEL_SOURCE_LABELS
+    from cii_platform.reports.labels import FUEL_SOURCE_LABELS, FUEL_TYPE_LABELS
 
     leaked = [v for v in _all_values(document) if v in FUEL_SOURCE_LABELS]
     assert not leaked, f"연료 출처 원문 코드가 남았다: {leaked}"
+
+    # 유종도 함께 본다 (`#598`). `#645`가 출처를 고칠 때 **같은 표의 옆 칸**이
+    # 남아 있었다 — 훑는 대상을 넓히지 않으면 다음 칸도 같은 방식으로 남는다.
+    leaked_fuel = [v for v in _all_values(document) if v in FUEL_TYPE_LABELS]
+    assert not leaked_fuel, f"유종 원문 코드가 남았다: {leaked_fuel}"
+
+
+@pytest.mark.asyncio
+async def test_fuel_type_is_shown_in_korean(session, vessel_id):
+    """빠진 것이 아니라 **한국어로 바뀐** 것이다 (`#598`).
+
+    위 훑기만 있으면 유종 열을 통째로 빼도 통과한다. 유종이 없으면 무엇의
+    배출량인지 문서에서 읽을 수 없다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id)
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+
+    assert "중유" in _all_values(document)
 
 
 @pytest.mark.asyncio

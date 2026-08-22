@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import './VesselRegistration.css'
 import { DISPLAY_UNITS } from '../../display/format'
 import { useFuelOptions } from '../parameters/fuelCatalog'
+import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { SCREEN_BY_ID } from '../../screens'
 import {
   FIELD,
@@ -319,7 +320,7 @@ export function VesselRegistration() {
                 </option>
                 {fuels.map((fuel) => (
                   <option key={fuel.code} value={fuel.code}>
-                    {fuel.displayName} ({fuel.code})
+                    {fuelTypeOptionText(fuel.code)}
                   </option>
                 ))}
               </select>

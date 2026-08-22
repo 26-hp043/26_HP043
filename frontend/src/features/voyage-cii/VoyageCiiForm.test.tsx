@@ -108,8 +108,13 @@ describe('연료 셀렉트 — 서버 목록이 화면에 들어간다 (#542 · 
     const select = await screen.findByLabelText(/연료 종류/)
     // 첫 옵션은 「선택해 주세요」다.
     await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(3))
-    expect(select.textContent).toContain('고유황유')
-    expect(select.textContent).toContain('액화천연가스')
+    // **서버가 주는 것은 코드 집합이고, 이름은 화면이 붙인다** (`#598`).
+    // 종전에는 `display_name`을 그대로 그려 `Heavy Fuel Oil (HFO)`가 나왔다.
+    expect(select.textContent).toContain('중유 (HFO)')
+    expect(select.textContent).toContain('액화천연가스 (LNG)')
+    // 서버 목록에 없는 연료는 나오지 않는다 — 이름을 화면이 갖는다고 8종이
+    // 전부 나오면 고정표로 돌아간 것이다.
+    expect(select.textContent).not.toContain('메탄올')
   })
 
   it('종전 고정표 8종이 아니라 서버가 준 2종만 나온다', async () => {
@@ -121,6 +126,9 @@ describe('연료 셀렉트 — 서버 목록이 화면에 들어간다 (#542 · 
     const select = await screen.findByLabelText(/연료 종류/)
     await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(3))
     expect(select.textContent).not.toContain('메탄올')
+    // 서버가 준 `display_name`(여기서는 「고유황유」)은 화면에 그대로 나가지 않는다 —
+    // `MEPC.364(79)` 원문 표기가 실리는 자리라 표시 문구와 별개다 (`AGENTS §4.6`).
+    expect(select.textContent).not.toContain('고유황유')
   })
 })
 

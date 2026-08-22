@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped } from '../../display/format'
+import { withRo } from '../../display/josa'
+import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { VoyageError, createApiVoyageManagementProvider } from './apiProvider'
 import { ImportCsv } from './ImportCsv'
 import type { VoyageManagementProvider } from './apiProvider'
@@ -294,7 +296,7 @@ function VoyageRow({
                 disabled={busy || blocker !== null}
                 onClick={() => void run(() => api.transition(voyage, to))}
               >
-                {STATUS_LABELS[to]}(으)로
+                {withRo(STATUS_LABELS[to])}
               </button>
               {/* 왜 못 누르는지 버튼 옆에 적는다 — 눌러 보고 422를 받는 것보다 낫다. */}
               {blocker ? <span className="vy__blocker">{blocker}</span> : null}
@@ -427,7 +429,7 @@ function VoyageForm({
             >
               {fuelTypes.map((code) => (
                 <option key={code} value={code}>
-                  {code}
+                  {fuelTypeOptionText(code)}
                 </option>
               ))}
             </select>

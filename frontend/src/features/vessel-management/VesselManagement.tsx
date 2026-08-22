@@ -4,6 +4,7 @@ import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
+import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import type { Vessel } from '../vessel-registration/types'
 import {
   EDIT_FIELD,
@@ -471,7 +472,7 @@ function EditForm({
           </option>
           {fuels.map((fuel) => (
             <option key={fuel.code} value={fuel.code}>
-              {fuel.displayName} ({fuel.code})
+              {fuelTypeOptionText(fuel.code)}
             </option>
           ))}
         </select>

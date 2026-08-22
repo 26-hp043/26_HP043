@@ -47,7 +47,16 @@ import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
  * 빼 둔 것과 같은 이유다.
  */
 
-/** 연료 선택지 1건. 화면이 셀렉트에 그리는 데 필요한 최소값이다. */
+/**
+ * 연료 선택지 1건.
+ *
+ * ⚠️ **`displayName`은 화면에 그대로 나가지 않는다 (`#598`).** 이 값은 서버 마스터의
+ * `display_name`, 곧 `MEPC.364(79)` 원문 표기(`Heavy Fuel Oil`)이며 `AGENTS §4.6`
+ * 기준 **정본 문구**다. 셀렉트에 보이는 한국어는 `fuelTypes.ts`가 갖는 **표시 문구**다.
+ *
+ * 그래도 필드를 남기는 이유는 **서버 계약을 그대로 비추는 자리**이기 때문이다 —
+ * 규제 문서와 대조할 때 필요한 이름이고, 없애면 그 이름이 어디에도 남지 않는다.
+ */
 export interface FuelOption {
   code: string
   displayName: string

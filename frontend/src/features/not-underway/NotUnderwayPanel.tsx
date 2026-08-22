@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { createApiNotUnderwayProvider, NotUnderwayError } from './apiProvider'
 import { DISPLAY_DIGITS, DISPLAY_UNITS } from '../../display/format'
 import {
@@ -319,7 +320,7 @@ function PeriodRow({
           >
             {choices.fuelTypes.map((code) => (
               <option key={code} value={code}>
-                {code}
+                {fuelTypeOptionText(code)}
               </option>
             ))}
           </select>
@@ -621,7 +622,7 @@ function PeriodForm({
           >
             {choices.fuelTypes.map((code) => (
               <option key={code} value={code}>
-                {code}
+                {fuelTypeOptionText(code)}
               </option>
             ))}
           </select>
