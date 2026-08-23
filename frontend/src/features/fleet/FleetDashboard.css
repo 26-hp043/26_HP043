@@ -13,12 +13,17 @@
 
 /* ── 머리말 ─────────────────────────────────────────────────────── */
 
+/*
+ * 제목 · 부제목 · 기준 시각을 **한 덩어리로 왼쪽에 쌓는다.**
+ *
+ * 종전에는 기준 시각이 `justify-content: space-between`으로 헤더 오른쪽 끝에
+ * 밀려 있었다. 화면 폭만큼 떨어져 있으니 무엇에 붙는 값인지 보이지 않았다 —
+ * 셋 다 「이 화면이 무엇을 언제 기준으로 보여 주는가」라 같은 덩어리다.
+ */
 .fleet__head {
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--spacing-lg);
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: var(--spacing-xs);
 }
 
 .fleet__title {
@@ -45,9 +50,9 @@
 .fleet__asof {
   margin: 0;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
 }
 
 .fleet__asof-rel {
@@ -133,16 +138,20 @@
 
 /* ── KPI ────────────────────────────────────────────────────────── */
 
+/*
+ * 「규제 조치 대상」 타일을 걷어내 두 칸이 됐다 (`FleetDashboard.tsx` 주석 참조).
+ * 남는 폭은 전부 등급 분포가 가져간다 — 대시보드에서 가장 먼저 읽혀야 할 값이다.
+ */
 .fleet__kpi {
   display: grid;
-  grid-template-columns: auto minmax(200px, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: var(--spacing-xl);
   align-items: start;
 }
 
 @media (max-width: 1100px) {
   .fleet__kpi {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -180,23 +189,9 @@
   color: var(--text-secondary);
 }
 
-/* 즉시 행동이 필요한 하나만 강조한다. */
-.kpi--alert {
-  background: var(--cii-e-bg);
-  border-color: var(--cii-e-border);
-}
-
-.kpi--alert .kpi__label,
-.kpi--alert .kpi__value,
-.kpi--alert .kpi__foot {
-  color: var(--cii-e-text);
-}
-
-.kpi__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-xs);
-  max-inline-size: 320px;
+/* 등급 분포 타일은 폭을 제한하지 않는다 — 바가 남는 자리를 다 쓴다. */
+.kpi--wide {
+  min-inline-size: 0;
 }
 
 /* ── 카드 공통 ──────────────────────────────────────────────────── */
@@ -611,17 +606,143 @@
 
 /* ── 등급 분포 ──────────────────────────────────────────────────── */
 
+/* ── 등급 분포 스택 바 (§10.2 형태 · §2.4.4 패턴) ────────────────── */
+
 .dist {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  min-inline-size: 0;
 }
 
-.dist__n {
+/*
+ * 높이를 KPI 수치(34px)에 맞춰 잡는다. 옆 타일의 「1 / 3」과 같은 무게로 읽혀야
+ * 둘이 한 행의 지표로 보인다 — 얇은 바를 두면 부속물로 읽힌다.
+ */
+.dist__bar {
+  display: flex;
+  block-size: 32px;
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  border: var(--borderWidth-default) solid var(--border-default);
+}
+
+.dist__seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  block-size: 100%;
+  /* 패턴 오버레이의 기준 상자. */
+  position: relative;
+  /* 좁은 칸에서 글자가 옆 구간을 침범하지 않게 가둔다. */
+  overflow: hidden;
+}
+
+.dist__seg-pattern {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  display: block;
+}
+
+/*
+ * 구간 안 문자 — 글자가 앉는 바탕은 채움색 하나가 아니다. 그 위에 `--cii-*-bg`
+ * 무늬가 불투명하게 깔리고, `bg`는 설계상 `fill`의 **반대편 끝**이라 무늬 위에서
+ * 대비가 뒤집힌다. 후광을 둬서 두 바탕 모두에서 `§0.2` 제약 1을 만족시킨다.
+ * `AnnualSimulation`의 스택 바가 같은 방식이다.
+ */
+.dist__seg-label {
+  position: relative;
+  z-index: 1;
+  padding-inline: var(--spacing-xs);
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-primary);
+  text-shadow:
+    0 0 3px var(--surface-card),
+    0 0 3px var(--surface-card);
+}
+
+.dist__seg:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--semantic-focus);
+}
+
+.dist__seg--a { background: var(--cii-a-fill); }
+.dist__seg--b { background: var(--cii-b-fill); }
+.dist__seg--c { background: var(--cii-c-fill); }
+.dist__seg--d { background: var(--cii-d-fill); }
+.dist__seg--e { background: var(--cii-e-fill); }
+
+/* ── 픽토그램 (배 한 척 = 마크 하나) ─────────────────────────────── */
+
+.dist__fleet {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--spacing-xl);
+  flex-wrap: wrap;
+}
+
+.dist__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-inline-size: 0;
+}
+
+/*
+ * 배들은 촘촘히 붙인다. 낱개 사이가 벌어지면 등급 묶음 사이 간격(`--spacing-xl`)과
+ * 구분이 안 되어 **어디까지가 한 등급인지** 읽히지 않는다.
+ */
+.dist__ships {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+}
+
+.dist__glyph {
+  display: block;
+  flex: none;
+}
+
+/*
+ * 실루엣 가장자리를 한 겹 두른다. 등급 fill이 옅은 쪽(라이트 A·B)일 때 카드 배경과
+ * 붙어 배 모양이 사라진다 — `PositionChart`가 점에 테두리를 두는 것과 같은 이유다.
+ */
+.dist__glyph-body {
+  stroke: var(--border-strong);
+  stroke-width: 0.6;
+}
+
+.dist__group-label {
+  margin: 0;
+  font-size: var(--font-size-label);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 등급 문자만 등급색으로 — 숫자까지 물들이면 색이 값을 가리키는 것으로 읽힌다. */
+.dist__group-label b {
+  font-weight: var(--font-weight-label);
+}
+
+.dist__group-label--a b { color: var(--cii-a-text); }
+.dist__group-label--b b { color: var(--cii-b-text); }
+.dist__group-label--c b { color: var(--cii-c-text); }
+.dist__group-label--d b { color: var(--cii-d-text); }
+.dist__group-label--e b { color: var(--cii-e-text); }
+
+/* 0척인 등급은 바에 조각이 없다. 감추지 않고 형태를 바꿔 적는다. */
+.dist__zero,
+.dist__none {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
 }
 
 /* ── 카드 보조 문구 ─────────────────────────────────────────────── */

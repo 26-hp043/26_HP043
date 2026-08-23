@@ -4,7 +4,7 @@ import { Link } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { RegulatoryFlags } from '../../components/RegulatoryFlag'
-import { GradeChip } from '../../components/GradeChip'
+import { GradeDistribution } from './GradeDistribution'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PositionChart } from './PositionChart'
 import { createApiFleetProvider } from './apiProvider'
@@ -145,16 +145,25 @@ export function FleetDashboard() {
           ) : null}
         </div>
 
+        {/*
+         * ## 「규제 조치 대상」 타일을 두지 않는다
+         *
+         * 같은 사실이 이 화면에 네 번 나오고 있었다 — 위 경고 배너(「위험 선박 n척」),
+         * 이 타일, 아래 「조치 필요」 목록, 그리고 선박 카드의 규제 플래그.
+         * **네 번 말하면 각각이 무슨 역할인지 흐려진다.**
+         *
+         * 역할을 이렇게 나눈다.
+         *
+         * - 경고 배너 — 지금 문제가 있다
+         * - 조치 필요 — 무엇을 해야 하나
+         * - 이 KPI 행 — 선대 전체 상태
+         *
+         * 그래서 타일이 빠진 자리를 등급 분포가 가져간다. 대시보드에서 가장 먼저
+         * 읽혀야 할 값인데 종전에는 가장 좁은 자리에 있었다.
+         */}
         <div className="kpi kpi--wide">
           <p className="kpi__label">등급 분포</p>
-          <div className="kpi__chips">
-            {(['A', 'B', 'C', 'D', 'E'] as const).map((rating) => (
-              <span key={rating} className="dist">
-                <GradeChip rating={rating} size="sm" label={`${rating}등급`} />
-                <b className="dist__n">{counts.ratingDistribution[rating]}</b>
-              </span>
-            ))}
-          </div>
+          <GradeDistribution distribution={counts.ratingDistribution} />
           {counts.noData > 0 ? (
             /*
              * 사유를 가리지 않은 수다 — 제원 미입력·기준값 없음도 포함되므로
@@ -162,13 +171,6 @@ export function FleetDashboard() {
              */
             <p className="kpi__foot">집계 불가 {counts.noData}척</p>
           ) : null}
-        </div>
-
-        {/* 즉시 행동이 필요한 하나만 강조한다. 넷 다 강조하면 강조가 사라진다. */}
-        <div className={counts.atRisk > 0 ? 'kpi kpi--alert' : 'kpi'}>
-          <p className="kpi__label">규제 조치 대상</p>
-          <p className="kpi__value">{counts.atRisk}</p>
-          <p className="kpi__foot">SEEMP Part III</p>
         </div>
       </section>
 
@@ -268,24 +270,27 @@ function FleetHead({
 }) {
   return (
     <header className="fleet__head">
-      <div>
-        <h1 className="fleet__title">
-          {SCREEN_BY_ID.MAINBOARD.label}
-          <span className="fleet__title-en"> {SCREEN_BY_ID.MAINBOARD.labelEn}</span>
-        </h1>  
-        <p className="fleet__sub">
-          {total !== undefined && regulationYear !== undefined
-            ? `보유 선박 ${total}척 · ${regulationYear}년 누적(YTD) 기준`
-            : '보유 선박 전체의 CII 등급과 위험 선박'}
-        </p>
-      </div>
+      <h1 className="fleet__title">
+        {SCREEN_BY_ID.MAINBOARD.label}
+        <span className="fleet__title-en"> {SCREEN_BY_ID.MAINBOARD.labelEn}</span>
+      </h1>
+      <p className="fleet__sub">
+        {total !== undefined && regulationYear !== undefined
+          ? `보유 선박 ${total}척 · ${regulationYear}년 누적(YTD) 기준`
+          : '보유 선박 전체의 CII 등급과 위험 선박'}
+      </p>
+      {/*
+       * 기준 시각을 **제목 블록 안으로** 옮긴다. 종전에는 헤더 오른쪽 끝에
+       * 따로 떠 있어 무엇에 붙는 값인지 보이지 않았다 — 제목·부제목과 같은
+       * 「이 화면이 무엇을 언제 기준으로 보여 주는가」이므로 한 덩어리다.
+       */}
       {asOf ? (
         <p className="fleet__asof">
-          <span className="fleet__asof-rel">{relativeTime(asOf, new Date())}</span>
           {/* 상대 시각만으로는 어느 시점 데이터인지 특정할 수 없어 원본도 함께 둔다. */}
           <span className="fleet__asof-abs">
             기준 {new Date(asOf).toLocaleString('ko-KR', { hour12: false })}
           </span>
+          <span className="fleet__asof-rel">{relativeTime(asOf, new Date())}</span>
         </p>
       ) : null}
     </header>

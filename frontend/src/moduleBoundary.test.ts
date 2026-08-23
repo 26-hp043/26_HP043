@@ -128,6 +128,8 @@ const KEPT: Readonly<Record<string, string>> = {
   'features/scenario-comparison/comparisonRules.ts::LowestSummary': 'lowestSummary()의 반환 형태',
   'features/scenario-comparison/comparisonRules.ts::ComparableMetric': '비교 지표 enum',
   'features/voyage-cii/resultRules.ts::MarginDisplay': 'marginDisplay()의 반환 형태',
+  'features/fleet/fleetRules.ts::DistributionSegment':
+    'gradeDistributionSegments()의 반환 항목 형태 — 스택 바를 쓰는 쪽이 구간을 이름으로 받는다',
   'features/vessel-registration/shipTypes.ts::ShipTypeOption': 'SHIP_TYPES 항목 형태',
   'features/vessel-registration/shipTypes.ts::CapacityAxis': 'capacityAxisOf()의 반환 형태',
   'screens.ts::ScreenWidth': 'SCREEN_BY_ID의 width 필드 형태 (DESIGN_SYSTEM §7.1)',
