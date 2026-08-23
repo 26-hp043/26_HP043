@@ -1,5 +1,6 @@
 import { gradePatternUrl } from '../../components/gradePattern'
 import type { Rating } from '../voyage-cii/types'
+import { VESSEL_GRID, VESSEL_PATHS } from './vesselShape'
 
 /**
  * 선박 한 척을 나타내는 **차트 마크** — 등급 분포 픽토그램의 낱개.
@@ -23,7 +24,8 @@ import type { Rating } from '../voyage-cii/types'
  * A는 solid라 패턴이 없다(`§15.1`).
  *
  * 무늬는 셸이 한 번 그리는 `GradePatternDefs`를 참조한다 — 자산이 두 벌이 되면
- * 서로 다른 무늬를 그리게 된다(`§15.1`).
+ * 서로 다른 무늬를 그리게 된다(`§15.1`). 실루엣 경로도 같은 이유로 `vesselShape.ts`에
+ * 한 벌만 둔다 — 선박 카드·위치 개략도가 같은 모양을 쓴다.
  *
  * ## 이름을 붙이지 않는다
  *
@@ -37,7 +39,7 @@ export function VesselGlyph({ rating, size = 28 }: { rating: Rating; size?: numb
   return (
     <svg
       className="dist__glyph"
-      viewBox="0 0 24 24"
+      viewBox={`0 0 ${VESSEL_GRID} ${VESSEL_GRID}`}
       width={size}
       height={size}
       aria-hidden="true"
@@ -48,9 +50,9 @@ export function VesselGlyph({ rating, size = 28 }: { rating: Rating; size?: numb
         무엇을 가리키는지 흐려진다 — 이 마크가 말하는 것은 등급 하나다.
       */}
       <g className="dist__glyph-body" fill={fill}>
-        <path d="M2.5 13.8 H21.5 L18.9 19.4 A1.4 1.4 0 0 1 17.6 20.2 H6.4 A1.4 1.4 0 0 1 5.1 19.4 Z" />
-        <path d="M8.2 7.4 H14.4 V13.8 H8.2 Z" />
-        <path d="M15.6 5.2 H17.6 V13.8 H15.6 Z" />
+        {VESSEL_PATHS.map((d) => (
+          <path key={d} d={d} />
+        ))}
       </g>
       {/*
         같은 형태를 무늬로 한 번 더 덮는다 — `PositionChart`가 점에 쓰는 방식과 같다.
@@ -58,9 +60,9 @@ export function VesselGlyph({ rating, size = 28 }: { rating: Rating; size?: numb
       */}
       {pattern ? (
         <g fill={pattern}>
-          <path d="M2.5 13.8 H21.5 L18.9 19.4 A1.4 1.4 0 0 1 17.6 20.2 H6.4 A1.4 1.4 0 0 1 5.1 19.4 Z" />
-          <path d="M8.2 7.4 H14.4 V13.8 H8.2 Z" />
-          <path d="M15.6 5.2 H17.6 V13.8 H15.6 Z" />
+          {VESSEL_PATHS.map((d) => (
+            <path key={d} d={d} />
+          ))}
         </g>
       ) : null}
     </svg>
