@@ -352,7 +352,7 @@ export function VesselRegistration() {
 function RegisteredCard({ vessel }: { vessel: Vessel }) {
   return (
     <div className="vessel-registration__result" role="status">
-      <h2 className="vessel-registration__result-title">등록 완료</h2>
+      <h2 className="card__title vessel-registration__result-title">등록 완료</h2>
       <dl className="vessel-registration__result-list">
         <Spec label="선명" value={vessel.name} />
         <Spec label="IMO 번호" value={vessel.imo_number} />

@@ -1,0 +1,63 @@
+/*
+ * 카드/패널 — `DESIGN_SYSTEM §5` · `§3`.
+ *
+ * ## 왜 전역인가
+ *
+ * 종전에는 이 규칙이 **대시보드 기능 파일**(`features/fleet/FleetDashboard.css`)에
+ * 있었고, 다른 화면들은 주석으로 「`.card`·`.card__title`은 대시보드가 이미
+ * 정의한다」고 적어 두고 썼다. 기능 하나가 전역 규격을 소유한 상태다.
+ *
+ * 그 결과가 카드 제목이 **네 갈래로 갈린 것**이다. 이 클래스를 안 쓰고 자기
+ * 제목 규칙을 쓴 화면들이 각자 다른 값에 안착했다.
+ *
+ * | 화면 | 실제 |
+ * |---|---|
+ * | `.card__title`을 쓴 곳 | 16px / 600 |
+ * | CII 예측 | **20px / 700** — 규칙이 없어 `h2` 기본값으로 떨어졌다 |
+ * | CSV 가져오기 | 16px / **500** |
+ * | 선박 등록 결과 | 16px / **700** |
+ *
+ * 규격이 기능 안에 있으면 「저 파일을 고쳐도 되나」를 매번 판단하게 되고, 결국
+ * 각자 자기 것을 만든다. 전역 규격은 전역에 둔다.
+ *
+ * ## 제목은 `h2`다
+ *
+ * 화면 제목이 `h1`(`components/PageHeader.tsx`)이므로 카드 제목은 `h2`다.
+ * `h3`를 쓰면 `h1 → h3`로 한 단을 건너뛴다(`§14` 접근성).
+ */
+
+.card {
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  padding: var(--spacing-lg);
+  box-shadow: var(--shadow-lv1);
+}
+
+.card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.card__title {
+  margin: 0;
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+  font-weight: var(--font-weight-h3);
+  color: var(--text-primary);
+}
+
+.card__meta {
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+/* ── 카드 보조 문구 ─────────────────────────────────────────────── */
+
+.card__note {
+  margin: var(--spacing-md) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}

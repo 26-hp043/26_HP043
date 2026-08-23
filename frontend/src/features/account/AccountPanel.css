@@ -3,24 +3,6 @@
  * `.card` · `.card__title`은 대시보드(FleetDashboard.css)가 이미 정의한다.
  */
 
-/*
- * 화면 제목 — `screens.ts` 라벨 + 영문 병기 (#467 10번과 같은 규칙).
- * 공용 `page-head`가 없어 각 화면이 자기 클래스를 둔다.
- */
-.acc__head {
-  margin-block-end: var(--spacing-lg);
-}
-
-.acc__title {
-  margin: 0;
-}
-
-.acc__title-en {
-  color: var(--text-secondary);
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-body);
-}
-
 .acc {
   display: flex;
   flex-direction: column;
@@ -79,7 +61,7 @@
 
 .acc__input {
   border: 1px solid var(--border-default);
-  background: var(--surface-card);
+  background: var(--surface-inset);
   color: var(--text-primary);
   border-radius: var(--radius-control);
   padding: var(--spacing-xs) var(--spacing-sm);

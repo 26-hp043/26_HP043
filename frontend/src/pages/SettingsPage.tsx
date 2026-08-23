@@ -1,5 +1,5 @@
 import { AccountPanel } from '../features/account/AccountPanel'
-import { SCREEN_BY_ID } from '../screens'
+import { PageHeader } from '../components/PageHeader'
 
 /**
  * 설정 화면 — `UIFLOW 2-6` (`#506`).
@@ -12,20 +12,13 @@ import { SCREEN_BY_ID } from '../screens'
  * 그래야 정본 개정이 선행하지 않는다.
  */
 export function SettingsPage() {
-  const screen = SCREEN_BY_ID.SETTINGS
-
   return (
-    <>
-      <header className="acc__head">
-        <h1 className="acc__title">
-          {screen.label}{' '}
-          <span className="acc__title-en" lang="en">
-            {screen.labelEn}
-          </span>
-        </h1>
-      </header>
-
+    <div className="page">
+      <PageHeader screen="SETTINGS">
+        {/* 이 화면은 계정 관리로 좁혀져 있다(위 주석) — 「시스템 설정」이라 쓰지 않는다. */}
+        <p className="page-head__sub">계정 정보와 비밀번호를 관리합니다.</p>
+      </PageHeader>
       <AccountPanel />
-    </>
+    </div>
   )
 }

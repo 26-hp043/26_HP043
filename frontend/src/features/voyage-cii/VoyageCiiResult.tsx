@@ -85,7 +85,7 @@ function SuccessResult({ response }: { response: VoyageCiiResponse }) {
 
   return (
     <section className="voyage-cii-result" aria-live="polite">
-      <h2 className="voyage-cii-result__title">
+      <h2 className="card__title voyage-cii-result__title">
         계산 결과
         <span className="voyage-cii-result__title-en"> Result</span>
       </h2>

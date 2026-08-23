@@ -121,7 +121,7 @@
 .nu select {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-control);
-  background: var(--surface-card);
+  background: var(--surface-inset);
   color: var(--text-primary);
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: var(--font-size-body);

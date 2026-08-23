@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
-import { SCREEN_BY_ID } from '../../screens'
+import { PageHeader } from '../../components/PageHeader'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { createApiReportsProvider, ReportsError } from './apiProvider'
 import {
@@ -150,15 +150,11 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
 
   return (
     <div className="rp">
-      <header className="rp__head">
-        <h1 className="rp__title">
-          {SCREEN_BY_ID.REPORTS.label}
-          <span className="rp__title-en"> {SCREEN_BY_ID.REPORTS.labelEn}</span>
-        </h1>  
-        <p className="rp__sub">
+      <PageHeader screen="REPORTS">
+        <p className="page-head__sub">
           항차 완료 리포트와 연간 실적 리포트를 만들고 PDF·CSV로 내려받습니다.
         </p>
-      </header>
+      </PageHeader>
 
       <section className="card rp__form" aria-label="리포트 조건">
         <fieldset className="rp__kinds">

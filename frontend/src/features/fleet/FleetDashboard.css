@@ -20,33 +20,6 @@
  * 밀려 있었다. 화면 폭만큼 떨어져 있으니 무엇에 붙는 값인지 보이지 않았다 —
  * 셋 다 「이 화면이 무엇을 언제 기준으로 보여 주는가」라 같은 덩어리다.
  */
-.fleet__head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.fleet__title {
-  margin: 0;
-  font-size: var(--font-size-display);
-  line-height: var(--line-height-display);
-  font-weight: var(--font-weight-display);
-  letter-spacing: var(--letterSpacing-tight);
-  color: var(--text-primary);
-}
-
-.fleet__title-en {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-body);
-}
-
-.fleet__sub {
-  margin: var(--spacing-xs) 0 0;
-  font-size: var(--font-size-label);
-  color: var(--text-secondary);
-}
-
 .fleet__asof {
   margin: 0;
   display: flex;
@@ -76,6 +49,7 @@
   background: var(--surface-card);
   border: var(--borderWidth-default) solid var(--border-default);
   border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
 }
 
 /*
@@ -94,6 +68,7 @@
   border-radius: var(--radius-card);
   border: var(--borderWidth-default) solid var(--border-default);
   background: var(--surface-card);
+  box-shadow: var(--shadow-lv1);
 }
 
 .empty__msg {
@@ -194,36 +169,8 @@
   min-inline-size: 0;
 }
 
-/* ── 카드 공통 ──────────────────────────────────────────────────── */
 
-.card {
-  background: var(--surface-card);
-  border: var(--borderWidth-default) solid var(--border-default);
-  border-radius: var(--radius-card);
-  padding: var(--spacing-lg);
-  box-shadow: var(--shadow-lv1);
-}
-
-.card__head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-md);
-}
-
-.card__title {
-  margin: 0;
-  font-size: var(--font-size-h3);
-  line-height: var(--line-height-h3);
-  font-weight: var(--font-weight-h3);
-  color: var(--text-primary);
-}
-
-.card__meta {
-  font-size: var(--font-size-micro);
-  color: var(--text-secondary);
-}
+/* ── 선박 행 — 마크 열 + 본문 2열 (#701 ④) ──────────────────────── */
 
 /* ── 분할 ───────────────────────────────────────────────────────── */
 
@@ -442,7 +389,7 @@
 .sort select {
   border: var(--borderWidth-default) solid var(--border-default);
   border-radius: var(--radius-control);
-  background: var(--surface-card);
+  background: var(--surface-inset);
   color: var(--text-secondary);
   font-family: var(--font-sans);
   font-size: var(--font-size-label);
@@ -780,16 +727,6 @@
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
 }
-
-/* ── 카드 보조 문구 ─────────────────────────────────────────────── */
-
-.card__note {
-  margin: var(--spacing-md) 0 0;
-  font-size: var(--font-size-micro);
-  color: var(--text-secondary);
-}
-
-/* ── 선박 행 — 마크 열 + 본문 2열 (#701 ④) ──────────────────────── */
 
 /*
  * `align-items`를 `center`에서 `start`로 바꾼다. 본문이 세 줄이 되면서 마크가

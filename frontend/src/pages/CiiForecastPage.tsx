@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { DisclaimerBanner } from '../components/DisclaimerBanner'
+import { PageHeader } from '../components/PageHeader'
 import { VoyageCiiForm } from '../features/voyage-cii/VoyageCiiForm'
 import { VoyageCiiResult } from '../features/voyage-cii/VoyageCiiResult'
 import type { ResultState } from '../features/voyage-cii/resultRules'
@@ -35,6 +36,16 @@ export function CiiForecastPage() {
 
   return (
     <div className="cii-forecast-page">
+      {/*
+        「예상 등급」이라 쓰지 않는다 — 이 화면은 등급을 **「참고 등급」**으로 부른다
+        (`VoyageCiiResult.tsx`). 결과 화면과 부제가 다른 말을 쓰면 같은 값이
+        두 이름을 갖는다.
+      */}
+      <PageHeader screen="CII_FORECAST">
+        <p className="page-head__sub">
+          항해 전 항차 조건으로 CII와 참고 등급을 추정합니다.
+        </p>
+      </PageHeader>
       <div className="cii-forecast-page__split">
         <VoyageCiiForm onStateChange={setResult} />
         <VoyageCiiResult state={result} />

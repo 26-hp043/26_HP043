@@ -406,7 +406,7 @@
   font-size: var(--font-size-body);
   padding: var(--spacing-sm);
   color: var(--text-primary);
-  background: var(--surface-card);
+  background: var(--surface-inset);
   border: var(--borderWidth-default) solid var(--border-default);
   border-radius: var(--radius-control);
   min-inline-size: 0;

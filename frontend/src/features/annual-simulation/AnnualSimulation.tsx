@@ -166,15 +166,19 @@ export function AnnualSimulation({
 
   return (
     <section className="annual-sim">
-      <header className="annual-sim__head">
-        <h2 className="annual-sim__title">
-          {ANNUAL_COPY.title}
-          <span className="annual-sim__title-en">{ANNUAL_COPY.titleEn}</span>
-        </h2>
-        {state.status === 'success' && state.result.is_sample_data ? (
+      {/*
+        화면 제목은 페이지가 `PageHeader`로 그린다(`components/PageHeader.tsx`).
+        여기서 다시 그리면 한 화면에 `h1`과 `h2` 두 개의 제목이 겹치고, 종전에는
+        **`h2`만 있어 이 화면만 제목이 한 단 작았다.**
+
+        머리 영역이 남는 이유는 샘플 데이터 배지 하나뿐이라 **배지가 있을 때만**
+        렌더한다 — 빈 `header`가 남으면 위쪽에 설명 없는 여백이 생긴다.
+      */}
+      {state.status === 'success' && state.result.is_sample_data ? (
+        <header className="annual-sim__head">
           <span className="annual-sim__badge">{ANNUAL_COPY.sampleBadge}</span>
-        ) : null}
-      </header>
+        </header>
+      ) : null}
 
       <form
         className="annual-sim__form"
@@ -183,7 +187,7 @@ export function AnnualSimulation({
           void run()
         }}
       >
-        <h3 className="annual-sim__section-title">{ANNUAL_COPY.runTitle}</h3>
+        <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.runTitle}</h2>
 
         <label className="annual-sim__field">
           <span className="annual-sim__label">기준연도</span>
@@ -301,7 +305,7 @@ function Result({ result }: { result: AnnualSimulationResult }) {
 
       {/* ── 결정론 (PRD §12.3) ─────────────────────────────────────── */}
       <section className="annual-sim__block">
-        <h3 className="annual-sim__section-title">{ANNUAL_COPY.deterministicTitle}</h3>
+        <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.deterministicTitle}</h2>
         <p className="annual-sim__caption">{ANNUAL_COPY.deterministicCaption}</p>
         <div className="annual-sim__metrics">
           <Metric
@@ -329,7 +333,7 @@ function Result({ result }: { result: AnnualSimulationResult }) {
 
       {/* ── 확률 (PRD §12.4 · §12.5 · DESIGN_SYSTEM §10.2) ─────────── */}
       <section className="annual-sim__block">
-        <h3 className="annual-sim__section-title">{ANNUAL_COPY.probabilityTitle}</h3>
+        <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.probabilityTitle}</h2>
         <p className="annual-sim__caption">{ANNUAL_COPY.probabilityCaption}</p>
 
         {/*
@@ -442,7 +446,7 @@ function Result({ result }: { result: AnnualSimulationResult }) {
       {/* ── 민감도 (PRD §12.6) ─────────────────────────────────────── */}
       {rows.length > 0 ? (
         <section className="annual-sim__block">
-          <h3 className="annual-sim__section-title">{ANNUAL_COPY.sensitivityTitle}</h3>
+          <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.sensitivityTitle}</h2>
           {/*
            * `interaction_note`는 `ORACLE-M-3`이 응답 포함을 지정한 항목이다. 빼면
            * 사용자가 두 변수를 함께 조정했을 때의 결과를 이 표에서 읽으려 한다.
@@ -480,7 +484,7 @@ function Result({ result }: { result: AnnualSimulationResult }) {
 
       {/* ── 재현성 (TECH_SPEC §5.2 · §11) ──────────────────────────── */}
       <section className="annual-sim__block">
-        <h3 className="annual-sim__section-title">{ANNUAL_COPY.reproTitle}</h3>
+        <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.reproTitle}</h2>
         <p className="annual-sim__caption">{ANNUAL_COPY.reproCaption}</p>
         <dl className="annual-sim__repro">
           <dt>seed</dt>

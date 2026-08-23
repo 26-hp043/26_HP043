@@ -5,9 +5,43 @@
  * MVP는 데스크톱 1920 · Light Mode 기준이다(#133 범위 밖: 반응형 · 다크모드).
  */
 
+/*
+ * ## 셸 여백은 **한 값**이다
+ *
+ * 종전에는 세 곳이 각자 여백을 갖고 있었다 — 사이드바 `margin` 16, 스택
+ * `padding` 32, 상단바 `margin` 16. 결과가 이랬다.
+ *
+ *   화면 끝 |16| 사이드바 |48| 본문 |32| 화면 끝
+ *
+ * **같은 성격의 틈이 세 가지 값**이었다. 어느 하나를 고쳐도 나머지가 남는다.
+ *
+ * ## 왜 24인가
+ *
+ * 정본 셋을 동시에 만족하는 유일한 값이다.
+ *
+ * | 근거 | 값 |
+ * |---|---|
+ * | `§6` 패널 간 gap | **16–24** |
+ * | `§6` 페이지 좌우 여백 | **24 이상** |
+ * | `§7.1` 🔒 그리드 거터 | **24** |
+ *
+ * 32는 `§6`의 패널 간 gap 상한을 넘고, 16은 페이지 좌우 여백 하한에 못 미친다.
+ * 24는 12컬럼 거터와도 같은 값이라 **셸의 리듬이 그리드의 리듬과 맞는다.**
+ *
+ * > **리뷰 대상입니다.** `§7.1` 폭 정책 표는 wide 화면에 좌우 패딩 **32**를 적고
+ * > 있습니다. 그 32는 콘텐츠가 페이지 위에 바로 얹히던 배치의 값이고, 지금은
+ * > 그 자리를 **패널 간 여백**(`§6` 16–24)이 대신합니다. 두 조항이 같은 틈을
+ * > 다른 범위로 규정하는 셈이라, `§7.1`에 한 줄이 필요할 수 있습니다.
+ * > **최대 폭(1920 / 1440)은 그대로 살아 있습니다** — 폭 정책의 실질은 그쪽입니다.
+ */
 .app-shell {
   display: flex;
   min-height: 100%;
+  gap: var(--shell-gutter);
+  padding: var(--shell-gutter);
+
+  /* 사이드바와 스택이 함께 읽어야 하므로 공통 조상에 둔다. */
+  --shell-gutter: var(--grid-gutter);
 }
 
 /*
@@ -23,14 +57,13 @@
  * 그 규격을 사이드바에도 준다. **패널이라고 적혀 있는데 패널로 그려지지
  * 않았던 것**이지, 새 형태를 만드는 것이 아니다.
  *
- * 여백은 `margin`으로 준다 — 셸에 `padding`을 주면 상단바까지 안으로 밀려
- * 들어가고, 상단바는 전폭 띠로 남는 것이 맞다(`§7.2` 유틸리티 영역).
- * 그래서 좌상단에는 페이지색 여백이 남는데, 그 틈이 곧 패널이 떠 있다는 신호다.
+ * **여백은 자기가 갖지 않는다.** 셸이 한 값으로 준다(위 `.app-shell` 참조) —
+ * 여기서 따로 `margin`을 두면 사이드바 양옆 틈이 다른 틈들과 갈린다.
+ * 실제로 그렇게 갈려 있었다.
  */
 .app-shell__sidebar {
   flex: 0 0 var(--layout-sidebar-width);
   width: var(--layout-sidebar-width);
-  margin: var(--spacing-lg);
   padding: var(--space-16) var(--space-12);
   background: var(--surface-card);
   border: var(--borderWidth-default) solid var(--border-default);
@@ -61,11 +94,64 @@
   color: var(--color-text-muted);
 }
 
+/*
+ * ## 오른쪽 열은 하나다 — 배너·상단바·본문이 같은 좌우 경계를 쓴다
+ *
+ * 종전에는 좌우 여백이 **`.app-shell__main`에만** 있었다. 상단바는 스택 전체
+ * 폭을 쓰고 본문은 그 안에서 32 들어가 있어, 위아래로 놓인 두 패널의 좌우가
+ * **왼쪽 32px · 오른쪽 16px씩 어긋나** 있었다.
+ *
+ * 여백을 스택으로 올려 **한 곳에서만 정한다.** 아래로 놓이는 것들은 자동으로
+ * 같은 경계를 갖는다 — 어긋나려면 누군가 이 규칙을 덮어써야 하고, 그건 눈에 띈다.
+ *
+ * `§7.1` 폭 정책(wide: 좌우 32 / form: 좌우 24)이 여기서 한 번 갈린다. 종전에는
+ * 같은 값이 `--main--wide`·`--main--form`에 있었고 최대폭은 `__content`에 있어
+ * **한 정책이 두 자리에 나뉘어** 있었다.
+ */
 .app-shell__stack {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
+  gap: var(--shell-gutter);
+}
+
+/* `§7.1` 폭 정책 — 최대 폭만 남는다. 좌우 여백은 셸이 한 값으로 준다. */
+.app-shell__stack--wide {
+  --shell-column: var(--layout-max-wide);
+}
+
+.app-shell__stack--form {
+  --shell-column: var(--layout-max-form);
+}
+
+/*
+ * ## 최대 폭은 걸되 **가운데로 모으지 않는다**
+ *
+ * `§7.1`은 화면 유형에 따라 최대 폭을 나눈다 — wide 1920 · form 1440.
+ * 그 열을 `margin-inline: auto`로 가운데 두면, 창이 열보다 넓어지는 순간
+ * **폼 화면만 안쪽으로 밀려난다.**
+ *
+ *   창 1920 · wide  → 열 1608, 제한 없음 → 사이드바와의 틈 24
+ *   창 1920 · form  → 열 1440으로 잘리고 가운데 정렬 → 틈 **24 + 84**
+ *
+ * CII 예측·보고서·설정이 그 자리다. 화면을 옮길 때마다 본문이 가로로 튀고,
+ * 사이드바는 고정인데 본문만 움직이니 **읽는 왼쪽 끝이 매번 달라진다.**
+ *
+ * → **왼쪽 정렬.** 최대 폭은 그대로 지켜 긴 폼이 늘어지지 않게 하되, 남는 폭은
+ * 오른쪽에 둔다. 사이드바가 왼쪽에 고정이므로 본문의 왼쪽 끝도 고정이어야 한다.
+ *
+ * > **리뷰 대상입니다.** 아주 넓은 창에서 오른쪽 여백이 한쪽으로 몰립니다.
+ * > 가운데 정렬이 낫다고 보시면 되돌리되, 그때는 **폼·와이드 최대 폭을 하나로
+ * > 합쳐야** 화면 간 정렬이 유지됩니다.
+ *
+ * `.verify-banner`는 `AuthShell.css`에 있고 `--shell-column`을 **fallback과 함께**
+ * 읽는다 — 셸 밖에서 쓰이면 값이 없어 제한이 걸리지 않는다.
+ */
+.app-shell__topbar,
+.app-shell__content {
+  width: 100%;
+  max-width: var(--shell-column);
 }
 
 /*
@@ -83,13 +169,13 @@
  *
  * ## 스티키와 여백이 부딪히는 자리
  *
- * `margin-top`이 있는 스티키 요소는 **여백만큼 내려온 자리에 고정된다** — 스티키
- * 기준 사각형이 마진 박스를 담도록 안으로 들어가기 때문이다. 그래서 스크롤하면
- * 위쪽 16px 틈으로 **본문이 지나가는 것이 보인다.**
+ * 고정될 때도 위쪽 여백이 남아야 패널로 보인다. 그래서 `top: 0`이 아니라
+ * `top: 게터`로 고정한다 — 그러면 **그 게터만큼의 띠로 본문이 지나가는 것이 보인다.**
  *
- * 그 틈을 아래 `::before`가 페이지색으로 덮는다. 오른쪽으로도 마진만큼 넓혀
- * 상단바 옆 여백까지 가린다. 본문은 `--layout-max-wide` + 좌우 패딩 32로 가운데
- * 정렬되므로 이 띠 바깥으로는 나오지 않는다.
+ * 그 띠를 아래 `::before`가 페이지색으로 덮는다. 좌우로도 게터만큼 넓혀 상단바
+ * 옆 여백까지 가린다. 왼쪽 게터는 사이드바와 스택 **사이의 틈**이라 사이드바를
+ * 침범하지 않는다. 본문은 `--shell-column`으로 가운데 정렬되므로 이 띠 바깥으로
+ * 나오지 않는다.
  */
 .app-shell__topbar {
   display: flex;
@@ -97,7 +183,6 @@
   justify-content: flex-end;
   gap: var(--spacing-md);
   height: 56px;
-  margin: var(--spacing-lg) var(--spacing-lg) 0 0;
   padding: 0 var(--spacing-xl);
   background: var(--surface-card);
   color: var(--text-primary);
@@ -105,7 +190,7 @@
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-lv1);
   position: sticky;
-  top: 0;
+  top: var(--shell-gutter);
   z-index: 10;
 }
 
@@ -113,10 +198,10 @@
 .app-shell__topbar::before {
   content: '';
   position: absolute;
-  left: 0;
-  right: calc(var(--spacing-lg) * -1);
+  left: calc(var(--shell-gutter) * -1);
+  right: calc(var(--shell-gutter) * -1);
   bottom: 100%;
-  height: var(--spacing-lg);
+  height: var(--shell-gutter);
   background: var(--surface-page);
 }
 
@@ -358,33 +443,17 @@
 }
 
 /* 메인 — §7.1 폭 정책 */
+/*
+ * 여백을 전혀 갖지 않는다. 좌우는 셸이, 위는 스택의 `gap`이, 아래는 셸의
+ * `padding`이 낸다.
+ *
+ * 종전의 `padding-bottom: 48`을 걷었다 — 셸 여백 24와 합쳐져 아래만 72가 되고,
+ * **네 방향 중 아래만 세 배**가 된다. 마지막 카드가 바닥에 붙지 않게 하는 몫은
+ * 셸 여백이 이미 맡고 있다.
+ */
 .app-shell__main {
   flex: 1;
   min-width: 0;
-  padding-top: var(--space-24);
-  padding-bottom: var(--space-48);
-}
-
-.app-shell__main--wide {
-  padding-left: var(--space-32);
-  padding-right: var(--space-32);
-}
-
-.app-shell__main--form {
-  padding-left: var(--space-24);
-  padding-right: var(--space-24);
-}
-
-.app-shell__content {
-  margin: 0 auto;
-}
-
-.app-shell__main--wide .app-shell__content {
-  max-width: var(--layout-max-wide);
-}
-
-.app-shell__main--form .app-shell__content {
-  max-width: var(--layout-max-form);
 }
 
 /*

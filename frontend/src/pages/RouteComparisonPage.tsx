@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { DisclaimerBanner } from '../components/DisclaimerBanner'
+import { PageHeader } from '../components/PageHeader'
 import { ScenarioComparison } from '../features/scenario-comparison/ScenarioComparison'
 import './RouteComparisonPage.css'
 
@@ -22,6 +23,11 @@ export function RouteComparisonPage() {
 
   return (
     <div className="route-comparison-page">
+      <PageHeader screen="ROUTE_COMPARISON">
+        <p className="page-head__sub">
+          직항·우회·감속 시나리오를 같은 기준으로 비교합니다.
+        </p>
+      </PageHeader>
       <ScenarioComparison onDisclaimer={handleDisclaimer} />
       <DisclaimerBanner text={disclaimer} />
     </div>

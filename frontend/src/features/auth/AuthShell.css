@@ -91,7 +91,7 @@
   padding: 0 var(--spacing-md);
   border: var(--borderWidth-default) solid var(--border-default);
   border-radius: var(--radius-control);
-  background: var(--surface-card);
+  background: var(--surface-inset);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: var(--font-size-body);
@@ -208,8 +208,10 @@
  * 셸이 패널 언어로 바뀌면서 이 배너도 같이 띄운다. 전폭 띠로 두면 바로 아래
  * 상단바보다 오른쪽으로 16px 더 나와, **혼자 옛 레이아웃에 남은 것처럼 보인다.**
  *
- * 여백은 상단바와 같은 값을 쓴다(`AppShell.css` 참조) — 위아래로 겹쳐 놓이는
- * 두 요소라 여기서 값이 갈리면 어긋난 것이 바로 보인다.
+ * 좌우 경계는 **셸이 정한 열**을 그대로 쓰고(`--shell-column`, fallback 있음),
+ * 위아래 간격은 **스택의 `gap`**이 낸다. 값을 여기서 따로 적으면 위아래로 겹쳐
+ * 놓이는 요소들이 서로 다른 폭·간격을 갖게 되고, 그것이 종전에 실제로 일어난 일이다.
+ * 셸 밖에서 쓰이면 변수가 없어 폭 제한이 걸리지 않는다.
  *
  * > **색은 손대지 않았다.** 이 배너는 `--cii-c-*`(등급 C)를 쓰고 있는데, `§0.2`
  * > 제약 2는 「등급 색은 **항상 A~E 문자 또는 등급 축 라벨과 함께** 나타난다」고
@@ -220,7 +222,8 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
-  margin: var(--spacing-lg) var(--spacing-lg) 0 0;
+  width: 100%;
+  max-width: var(--shell-column, none);
   padding: var(--spacing-sm) var(--spacing-xl);
   background: var(--cii-c-bg);
   color: var(--cii-c-text);

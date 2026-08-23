@@ -161,10 +161,10 @@ export function ScenarioComparison({
         runComparison()
       }}
     >
-      <h3 className="scenario-comparison__form-title">
+      <h2 className="card__title scenario-comparison__form-title">
         비교 조건
         <span className="scenario-comparison__form-title-en"> Comparison Input</span>
-      </h3>
+      </h2>
       {catalogError !== null && (
         <p className="scenario-comparison__error-message" role="alert">
           {catalogError}
