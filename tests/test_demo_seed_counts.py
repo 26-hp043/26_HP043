@@ -51,6 +51,24 @@ EXPECTED_ROWS: dict[str, int] = {
 }
 
 
+def _seeded_tables(counts: dict[str, int]) -> dict[str, int]:
+    """``EXPECTED_ROWS``가 다루는 테이블만 남긴다.
+
+    ``seed_demo``는 시연 계정도 넣지만(``app_user`` · `#692`) **``clear_demo``는 계정을
+    지우지 않는다.** 그것이 의도다 — 이 프로젝트에서 계정을 지우는 일은 `#691`이
+    막으려던 바로 그 사고이고, 데모 계정을 지우는 것은 스키마 롤백에 필요하지도 않다.
+
+    그래서 「지운 수 = 다시 들어간 수」 항등식에 ``app_user``를 넣을 수 없다. 계정
+    자체의 계약은 ``tests/test_demo_user_seed.py``가 본다.
+    """
+    return {name: value for name, value in counts.items() if name in EXPECTED_ROWS}
+
+
+#: ``seed_demo``가 보고하는 **전체** 키. ``app_user``는 `#692`가 더했다.
+#: 키 집합까지 함께 보면 「보고에서 조용히 빠진 테이블」도 드러난다.
+REPORTED_KEYS: tuple[str, ...] = (*EXPECTED_ROWS, "app_user")
+
+
 @pytest.mark.asyncio
 async def test_reseed_on_already_seeded_db_reports_zero(conn: AsyncConnection):
     """**이 이슈의 핵심 계약**이다 — 이미 있으면 0이라고 말해야 한다.
@@ -60,9 +78,10 @@ async def test_reseed_on_already_seeded_db_reports_zero(conn: AsyncConnection):
     """
     counts = await seed_demo(conn)
 
-    assert counts == {name: 0 for name in EXPECTED_ROWS}, (
+    assert counts == dict.fromkeys(REPORTED_KEYS, 0), (
         "이미 적재된 DB에서 신규 적재 수가 0이 아니다. "
-        "행이 늘었거나(멱등성 위반), 행 수를 잘못 세고 있다."
+        "행이 늘었거나(멱등성 위반), 행 수를 잘못 세고 있다. "
+        "키가 다르면 보고에서 빠지거나 새로 늘어난 테이블이 있다는 뜻이다."
     )
 
 
@@ -90,10 +109,10 @@ async def test_seed_after_clear_reports_the_actual_row_count(conn: AsyncConnecti
 
     counts = await seed_demo(conn)
 
-    assert counts == {name: cleared[name] for name in EXPECTED_ROWS}
+    assert _seeded_tables(counts) == {name: cleared[name] for name in EXPECTED_ROWS}
     if cleared["kept_vessel"] == 0 and cleared["kept_voyage"] == 0:
         # 아무것도 남지 않았다면 전량이 돌아와야 한다.
-        assert counts == EXPECTED_ROWS
+        assert _seeded_tables(counts) == EXPECTED_ROWS
 
 
 @pytest.mark.asyncio
