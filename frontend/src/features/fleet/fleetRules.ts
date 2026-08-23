@@ -16,6 +16,9 @@ import type { DaysReason, FleetVessel, RiskReason, UnavailableReason } from './t
 /** 나쁜 등급이 큰 값이다 — 정렬 비교용. */
 const RATING_ORDER: Record<Rating, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 }
 
+/** 표시 순서. `RATING_ORDER`는 정렬 키라 열거에 쓸 수 없다. */
+const RATINGS: readonly Rating[] = ['A', 'B', 'C', 'D', 'E']
+
 /** 서버가 준 `riskReasons`가 비어 있지 않으면 위험 선박이다. 등급으로 재판정하지 않는다. */
 export function isAtRisk(vessel: FleetVessel): boolean {
   return vessel.riskReasons.length > 0
@@ -237,4 +240,79 @@ export function soonestDaysToD(
     }
   }
   return best
+}
+
+/* ── 등급 분포 스택 바 ────────────────────────────────────────────── */
+
+export interface DistributionSegment {
+  rating: Rating
+  count: number
+  /** 집계된 선박 수 대비 비율. 폭이자 §10.2의 8% 판정 기준이다. */
+  percent: number
+}
+
+/**
+ * `§10.2`가 등급 확률 스택 바에 정한 임계를 **선대 등급 분포에도 쓴다.**
+ *
+ * 두 바는 뜻하는 값이 다르지만(확률 vs 척수) **형태가 같다** — 가로 스택 바에
+ * 등급 문자를 넣는다. 임계를 따로 정하면 같은 모양이 화면마다 다른 폭에서
+ * 글자를 감추게 된다.
+ */
+export const INLINE_LABEL_MIN_PERCENT = 8
+
+/**
+ * 등급 분포를 스택 바 구간으로 만든다.
+ *
+ * **0척인 등급은 구간을 만들지 않는다** — 폭 0인 조각은 그리는 의미가 없고,
+ * 등급이 없다는 사실은 `zeroRatings()`가 따로 말한다. 감추는 것이 아니라
+ * **다른 형태로 옮기는 것**이다.
+ *
+ * 분모는 **집계된 선박 수**다. 산출 불가(`noData`)는 등급이 없으므로 분포에
+ * 들어갈 수 없고, 분모에 넣으면 모든 구간이 실제보다 작아 보인다.
+ */
+export function gradeDistributionSegments(
+  distribution: Readonly<Record<Rating, number>>,
+): DistributionSegment[] {
+  const total = RATINGS.reduce((sum, rating) => sum + distribution[rating], 0)
+  if (total === 0) return []
+  return RATINGS.filter((rating) => distribution[rating] > 0).map((rating) => ({
+    rating,
+    count: distribution[rating],
+    percent: (distribution[rating] / total) * 100,
+  }))
+}
+
+/** 0척인 등급. 바에서 빠지므로 화면이 이 목록을 따로 낸다. */
+export function zeroRatings(distribution: Readonly<Record<Rating, number>>): Rating[] {
+  return RATINGS.filter((rating) => distribution[rating] === 0)
+}
+
+/** 구간 안에 문자를 담는가 (`§10.2` — 8%는 경계를 포함한다). */
+export function showsInlineLabel(percent: number): boolean {
+  return percent >= INLINE_LABEL_MIN_PERCENT
+}
+
+/**
+ * 바 전체의 접근성 이름.
+ *
+ * 구간마다 이름을 붙여도 **바 자체가 무엇인지**는 따로 말해야 한다. 좁은 구간은
+ * 화면에서 글자가 빠지므로, 여기서 전체를 한 번 읽어 주면 값이 사라지지 않는다.
+ */
+export function distributionAria(segments: readonly DistributionSegment[]): string {
+  if (segments.length === 0) return '집계된 등급이 없습니다'
+  return segments.map((seg) => `${seg.rating}등급 ${seg.count}척`).join(', ')
+}
+
+/**
+ * 픽토그램(배 한 척 = 마크 하나)으로 그릴 수 있는 최대 척수.
+ *
+ * **세는 것이 일이 되면 픽토그램은 진다.** 스무 척 남짓까지는 낱개가 형태로 읽히지만
+ * 그 위로는 「몇 개인지 세기」가 되고, 그때는 비율을 바로 보여 주는 막대가 낫다.
+ *
+ * MVP 대상이 중소선사라 대부분 이 아래지만, 늘었을 때 화면이 무너지지 않게 갈라 둔다.
+ */
+export const PICTOGRAM_MAX_VESSELS = 24
+
+export function usesPictogram(segments: readonly DistributionSegment[]): boolean {
+  return segments.reduce((sum, seg) => sum + seg.count, 0) <= PICTOGRAM_MAX_VESSELS
 }

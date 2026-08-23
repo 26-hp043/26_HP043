@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   daysToDText,
+  distributionAria,
+  gradeDistributionSegments,
+  showsInlineLabel,
+  usesPictogram,
+  PICTOGRAM_MAX_VESSELS,
+  zeroRatings,
   isAtRisk,
   relativeTime,
   riskReasonText,
@@ -299,5 +305,75 @@ describe('YTD CII 표시 — DESIGN_SYSTEM §4.1', () => {
   it('실적 없는 선박(dataAvailable=false)의 값도 안전하다', () => {
     const v = vessel({ dataAvailable: false, ytdAttainedCii: null })
     expect(() => ytdCiiText(v.ytdAttainedCii)).not.toThrow()
+  })
+})
+
+describe('등급 분포 스택 바', () => {
+  const dist = (over: Partial<Record<'A' | 'B' | 'C' | 'D' | 'E', number>> = {}) => ({
+    A: 0, B: 0, C: 0, D: 0, E: 0, ...over,
+  })
+
+  it('0척인 등급은 구간을 만들지 않는다 — 폭 0인 조각은 그릴 수 없다', () => {
+    const segments = gradeDistributionSegments(dist({ B: 1, D: 1, E: 2 }))
+    expect(segments.map((s) => s.rating)).toEqual(['B', 'D', 'E'])
+  })
+
+  it('감추는 것이 아니라 형태를 바꾼다 — 0척인 등급을 따로 낸다', () => {
+    // 「A등급이 한 척도 없다」는 것 자체가 정보다.
+    expect(zeroRatings(dist({ B: 1, D: 1, E: 2 }))).toEqual(['A', 'C'])
+  })
+
+  it('분모는 집계된 선박 수다', () => {
+    const segments = gradeDistributionSegments(dist({ B: 1, D: 1, E: 2 }))
+    expect(segments.find((s) => s.rating === 'E')?.percent).toBe(50)
+    expect(segments.reduce((sum, s) => sum + s.percent, 0)).toBeCloseTo(100)
+  })
+
+  it('등급이 하나도 없으면 빈 배열이다 — 회색 막대를 그리지 않는다', () => {
+    expect(gradeDistributionSegments(dist())).toEqual([])
+  })
+
+  it('A→E 순서를 지킨다 — 등급 램프와 같은 방향이어야 한다', () => {
+    const segments = gradeDistributionSegments(dist({ E: 1, A: 1, C: 1 }))
+    expect(segments.map((s) => s.rating)).toEqual(['A', 'C', 'E'])
+  })
+
+  it('§10.2의 8% 임계를 그대로 쓴다 — 경계를 포함한다', () => {
+    // 형태가 같은 바가 화면마다 다른 폭에서 글자를 감추면 안 된다.
+    expect(showsInlineLabel(8)).toBe(true)
+    expect(showsInlineLabel(7.99)).toBe(false)
+  })
+
+  it('좁은 구간의 값이 접근성 트리에서 사라지지 않는다', () => {
+    const segments = gradeDistributionSegments(dist({ A: 1, E: 99 }))
+    expect(distributionAria(segments)).toContain('A등급 1척')
+    expect(showsInlineLabel(segments[0].percent)).toBe(false)
+  })
+
+  it('집계된 등급이 없으면 그 사실을 말한다', () => {
+    expect(distributionAria([])).toContain('없습니다')
+  })
+})
+
+describe('픽토그램 ↔ 막대 전환', () => {
+  const segs = (count: number) => [{ rating: 'C' as const, count, percent: 100 }]
+
+  it('스무 척 남짓까지는 배 그림으로 센다', () => {
+    expect(usesPictogram(segs(4))).toBe(true)
+    expect(usesPictogram(segs(PICTOGRAM_MAX_VESSELS))).toBe(true)
+  })
+
+  it('그 위로는 막대로 돌아간다 — 세는 것이 일이 되면 픽토그램은 진다', () => {
+    expect(usesPictogram(segs(PICTOGRAM_MAX_VESSELS + 1))).toBe(false)
+  })
+
+  it('등급이 갈려도 합계로 판단한다 — 화면에 놓이는 마크 수가 기준이다', () => {
+    const spread = [
+      { rating: 'B' as const, count: 10, percent: 40 },
+      { rating: 'D' as const, count: 10, percent: 40 },
+      { rating: 'E' as const, count: 5, percent: 20 },
+    ]
+    expect(spread.reduce((s, x) => s + x.count, 0)).toBe(25)
+    expect(usesPictogram(spread)).toBe(false)
   })
 })
