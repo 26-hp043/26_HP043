@@ -10,13 +10,32 @@
   min-height: 100%;
 }
 
-/* 좌측 사이드바 — 폭은 토큰. 접힘은 클래스 토글로 붙일 수 있게 구조만 잡아 둔다 */
+/*
+ * 좌측 사이드바 — 폭은 토큰. 접힘은 클래스 토글로 붙일 수 있게 구조만 잡아 둔다.
+ *
+ * ## 붙은 열이 아니라 떠 있는 패널이다
+ *
+ * 종전에는 `border-right` 한 줄로 본문에 붙어 있었다. 사이드바가 흰색이고
+ * 상단바가 흰색이고 카드도 흰색이라, 셋이 **하나의 흰 ㄴ자 덩어리**로 읽혔다.
+ * 경계선 1px이 그 안에서 구획을 나누기에는 약하다.
+ *
+ * `§5`가 「카드/패널: surface · border · radius 12 · 그림자 Lv1」이라고 적어 둔
+ * 그 규격을 사이드바에도 준다. **패널이라고 적혀 있는데 패널로 그려지지
+ * 않았던 것**이지, 새 형태를 만드는 것이 아니다.
+ *
+ * 여백은 `margin`으로 준다 — 셸에 `padding`을 주면 상단바까지 안으로 밀려
+ * 들어가고, 상단바는 전폭 띠로 남는 것이 맞다(`§7.2` 유틸리티 영역).
+ * 그래서 좌상단에는 페이지색 여백이 남는데, 그 틈이 곧 패널이 떠 있다는 신호다.
+ */
 .app-shell__sidebar {
   flex: 0 0 var(--layout-sidebar-width);
   width: var(--layout-sidebar-width);
-  background: var(--color-surface);
-  border-right: 1px solid var(--color-border);
+  margin: var(--spacing-lg);
   padding: var(--space-16) var(--space-12);
+  background: var(--surface-card);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
 }
 
 /* 접힘 상태 — 동작 자체는 MVP 범위 밖(§7.2). 폭 전환만 미리 정의해 둔다 */
@@ -49,16 +68,28 @@
   min-width: 0;
 }
 
-/* 상단바 — 우측 정렬 유틸리티만. 네비게이션 항목을 두지 않는다 (§7.2) */
 /*
- * 상단바를 브랜드 네이비로 채우지 않는다. 화면 위쪽에 진한 띠가 있으면 시선이
- * 콘텐츠보다 먼저 거기로 가고, 다크 모드에서는 배경과 겹쳐 층이 사라진다.
- * 표면색 + 하단 경계선만 두어 콘텐츠에 자리를 넘긴다.
- */
-/*
- * 데모 모드 배너 (#528). 상단에 항상 보이게 두고 닫을 수 없게 한다 —
- * 닫히면 그 순간부터 다시 「모르고 쓰는」 상태가 된다.
- * 오류가 아니므로 danger를 쓰지 않는다. 사용자가 잘못한 것이 없다.
+ * 상단바 — 우측 정렬 유틸리티만. 네비게이션 항목을 두지 않는다 (§7.2).
+ *
+ * ## 상단바도 패널이다
+ *
+ * 사이드바와 같은 이유로 띄운다. 종전에는 `border-bottom` 한 줄이 본문과의 경계를
+ * 맡고 있었는데, 흰 띠가 흰 카드에 맞닿으면 그 1px이 층을 만들기에 약하다.
+ * 사이드바를 띄운 뒤에는 **이 줄만 혼자 옛 언어로 남았다.**
+ *
+ * **브랜드 네이비로 채우지 않는 판단은 그대로다** — 화면 위쪽에 진한 띠가 있으면
+ * 시선이 콘텐츠보다 먼저 거기로 가고, 다크 모드에서는 배경과 겹쳐 층이 사라진다.
+ * 바뀐 것은 층을 만드는 수단(경계선 → 면 + 그림자)이지 위계가 아니다.
+ *
+ * ## 스티키와 여백이 부딪히는 자리
+ *
+ * `margin-top`이 있는 스티키 요소는 **여백만큼 내려온 자리에 고정된다** — 스티키
+ * 기준 사각형이 마진 박스를 담도록 안으로 들어가기 때문이다. 그래서 스크롤하면
+ * 위쪽 16px 틈으로 **본문이 지나가는 것이 보인다.**
+ *
+ * 그 틈을 아래 `::before`가 페이지색으로 덮는다. 오른쪽으로도 마진만큼 넓혀
+ * 상단바 옆 여백까지 가린다. 본문은 `--layout-max-wide` + 좌우 패딩 32로 가운데
+ * 정렬되므로 이 띠 바깥으로는 나오지 않는다.
  */
 .app-shell__topbar {
   display: flex;
@@ -66,13 +97,27 @@
   justify-content: flex-end;
   gap: var(--spacing-md);
   height: 56px;
+  margin: var(--spacing-lg) var(--spacing-lg) 0 0;
   padding: 0 var(--spacing-xl);
   background: var(--surface-card);
   color: var(--text-primary);
-  border-bottom: var(--borderWidth-default) solid var(--border-default);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+/* 스티키 상단바 위 틈을 덮는 띠 — 위 주석 참조. 보이는 색은 페이지 배경이다. */
+.app-shell__topbar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: calc(var(--spacing-lg) * -1);
+  bottom: 100%;
+  height: var(--spacing-lg);
+  background: var(--surface-page);
 }
 
 .app-shell__util-item {

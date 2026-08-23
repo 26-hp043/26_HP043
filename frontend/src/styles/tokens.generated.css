@@ -98,15 +98,15 @@
   --semantic-success: #38a169;
   --semantic-danger: #e53e3e;
   --semantic-focus: #1a365d;
-  --surface-page: #f2f2ef;
-  --surface-inset: #f8f8f6;
+  --surface-page: #f4f6f9;
+  --surface-inset: #eef2f6;
   --surface-card: #ffffff;
   --surface-popover: #ffffff;
   --text-primary: #1a1a18;
   --text-secondary: #5f5e5a;
   --text-muted: #8b8a83;
-  --border-default: #e3e2dc;
-  --border-strong: #c9c7be;
+  --border-default: #dce3ea;
+  --border-strong: #c3ced9;
 }
 
 /*
