@@ -16,17 +16,47 @@ import {
  * 정확히 반영하는지 잠근다.
  */
 
-describe('NAV_ORDER — 3계층 순서 (UIFLOW v2.0 §2)', () => {
-  it('선대 → 선박 → 항차 → 산출물 → 계층 밖 순서다', () => {
+/**
+ * ## 순서의 근거가 바뀌었다 (`#712`)
+ *
+ * 종전 기대값은 **계층 순서**(선대 → 선박 → 항차 → 산출물 → 계층 밖)였다.
+ * 근거는 `UIFLOW §2.2` 계층 매핑 표의 **행 순서**였는데, 그 표에는 순서를 정한
+ * 문장이 없었다 — 한 표가 「어느 계층인가」와 「어떤 차례로 놓는가」를 겸하고
+ * 있었고 둘은 같은 것이 아니다.
+ *
+ * `#712`가 `UIFLOW §2.2.1`을 신설해 갈랐고, 순서를 **작업 흐름 기준**으로 다시
+ * 정했다. 이 테스트는 그 정본을 잠근다 — 순서를 바꾸려면 `§2.2.1`을 먼저 고친다.
+ */
+describe('NAV_ORDER — 작업 흐름 순서 (UIFLOW §2.2.1)', () => {
+  it('등록·관리 → 예측 → 비교 → 연간 → 보고 순서다', () => {
     expect([...NAV_ORDER]).toEqual([
-      'MAINBOARD', // [선대] 2-4
-      'ANNUAL_GRADE', // [선박] 2-3
-      'CII_FORECAST', // [항차] 2-1
-      'ROUTE_COMPARISON', // [항차] 2-2
-      'REPORTS', // [산출물] 2-5
-      'VESSEL_MANAGEMENT', // [계층 밖] SCR-002 (PRD §6.1 — UIFLOW §2.2에는 행이 없다)
-      'SETTINGS', // [계층 밖] 2-6
+      'MAINBOARD', // 1. 2-4 대시보드 — 기본 진입 경로
+      'VESSEL_MANAGEMENT', // 2. SCR-002 — 제원이 없으면 뒤가 전부 안 돈다
+      'CII_FORECAST', // 3. 2-1
+      'ROUTE_COMPARISON', // 4. 2-2
+      'ANNUAL_GRADE', // 5. 2-3
+      'REPORTS', // 6. 2-5
+      'SETTINGS', // 7. 2-6
     ])
+  })
+
+  /*
+   * 순서와 별개로 **구성원은 바뀌지 않았다.** 개정은 배열의 차례만 건드렸고,
+   * 어느 화면이 사이드바에 있는지는 그대로다 — 그것까지 흔들리면 개정 범위가
+   * 「순서만」이 아니게 된다.
+   */
+  it('사이드바 구성원은 그대로다 — 개정은 순서만 바꿨다', () => {
+    expect([...NAV_ORDER].sort()).toEqual(
+      [
+        'ANNUAL_GRADE',
+        'CII_FORECAST',
+        'MAINBOARD',
+        'REPORTS',
+        'ROUTE_COMPARISON',
+        'SETTINGS',
+        'VESSEL_MANAGEMENT',
+      ].sort(),
+    )
   })
 
   it('종전 FLEET_MONITORING(선대 모니터링)은 대시보드 통합으로 폐지됐다', () => {
