@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { PageHeader } from '../../components/PageHeader'
+import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
@@ -214,6 +215,7 @@ export function VesselManagement() {
             return (
               <li className="vessel-management__item" key={vessel.id}>
                 <div className="vessel-management__row">
+                  <VesselSilhouette />
                   <div className="vessel-management__ident">
                     <Link
                       className="vessel-management__name"
@@ -505,5 +507,34 @@ function EditForm({
         </button>
       </div>
     </form>
+  )
+}
+
+/**
+ * 목록의 배 실루엣.
+ *
+ * ## 등급 색을 쓰지 않는다 — 그리고 그게 대시보드와 다른 이유다
+ *
+ * 대시보드의 배 마크(`VesselMark`)는 **등급 칸**에 놓인다. 그래서 등급이 없으면
+ * 배를 그리지 않는다 — 중립색 배가 「등급이 있는데 옅은 것」으로 읽히기 때문이다.
+ *
+ * **이 화면에는 등급 축이 아예 없다.** 선종·용량·제원만 다루므로 배가 등급을
+ * 가리킬 여지가 없고, 중립 회색이 곧 「여기서 이 그림은 값이 아니다」가 된다.
+ *
+ * 실루엣은 `components/vesselShape.ts` 한 벌에서 온다. 여기서 경로를 다시 그리면
+ * 대시보드의 배와 이 배가 서로 다른 모양이 되는 날이 온다.
+ */
+function VesselSilhouette() {
+  return (
+    <svg
+      className="vessel-management__glyph"
+      viewBox={`0 0 ${VESSEL_GRID} ${VESSEL_GRID}`}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {VESSEL_PATHS.map((d) => (
+        <path key={d} d={d} />
+      ))}
+    </svg>
   )
 }

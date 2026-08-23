@@ -1,6 +1,6 @@
 import { gradePatternUrl } from '../../components/gradePattern'
 import type { Rating } from '../voyage-cii/types'
-import { VESSEL_GRID, VESSEL_PATHS } from './vesselShape'
+import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
 
 /**
  * 선박 한 척을 나타내는 **차트 마크** — 등급 분포 픽토그램의 낱개.
@@ -24,7 +24,7 @@ import { VESSEL_GRID, VESSEL_PATHS } from './vesselShape'
  * A는 solid라 패턴이 없다(`§15.1`).
  *
  * 무늬는 셸이 한 번 그리는 `GradePatternDefs`를 참조한다 — 자산이 두 벌이 되면
- * 서로 다른 무늬를 그리게 된다(`§15.1`). 실루엣 경로도 같은 이유로 `vesselShape.ts`에
+ * 서로 다른 무늬를 그리게 된다(`§15.1`). 실루엣 경로도 같은 이유로 `components/vesselShape.ts`에
  * 한 벌만 둔다 — 선박 카드·위치 개략도가 같은 모양을 쓴다.
  *
  * ## 이름을 붙이지 않는다

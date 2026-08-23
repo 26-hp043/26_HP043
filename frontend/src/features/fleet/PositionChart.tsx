@@ -1,7 +1,7 @@
 import type { FleetVessel } from './types'
 import { isAtRisk } from './fleetRules'
 import { gradePatternUrl } from '../../components/gradePattern'
-import { VESSEL_GRID, VESSEL_PATHS } from './vesselShape'
+import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
 import { LAND_RINGS } from './landOutline'
 
 /**

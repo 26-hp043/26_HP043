@@ -182,8 +182,21 @@
   align-items: center;
   justify-content: flex-end;
   gap: var(--spacing-md);
-  height: 56px;
-  padding: 0 var(--spacing-xl);
+  /*
+   * ## 높이를 고정하지 않고 감싼다
+   *
+   * `justify-content: flex-end`인 flex는 **자식이 넘치면 왼쪽으로 넘친다.**
+   * 오른쪽 끝에 붙이려고 밀어낸 만큼 시작 쪽이 상자 밖으로 나가기 때문이다.
+   * 창이 좁을 때 선박·항차 셀렉트가 **사이드바 위로 올라타 있었다.**
+   *
+   * `flex-wrap`으로 줄을 넘긴다 — 넘친 것을 잘라내면 로그아웃이나 테마 토글이
+   * 사라지고, 그게 사라진 줄도 모른다. 높이는 `min-height`로 바꿔 한 줄일 때는
+   * 종전과 같은 56px을 유지한다.
+   */
+  flex-wrap: wrap;
+  row-gap: var(--spacing-sm);
+  min-height: 56px;
+  padding: var(--spacing-sm) var(--spacing-xl);
   background: var(--surface-card);
   color: var(--text-primary);
   border: var(--borderWidth-default) solid var(--border-default);
@@ -209,6 +222,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-sm);
+  /* 줄바꿈 전에 먼저 줄어들 수 있게 한다 — 없으면 셀렉트 폭이 하한이 된다. */
+  min-width: 0;
   font-size: var(--font-size-label);
   color: var(--text-secondary);
 }

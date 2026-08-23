@@ -107,6 +107,13 @@ const ICONS: Partial<Record<ScreenId, (p: IconProps) => ReactElement>> = {
   CII_FORECAST: ForecastIcon,
   ROUTE_COMPARISON: CompareIcon,
   ANNUAL_GRADE: AnnualIcon,
+  /*
+   * 사이드바에 있는 것은 **선박 관리**인데 아이콘은 선박 등록에 붙어 있었다.
+   * 선박 등록은 `OFF_NAV_ORDER`라 `NavIcon`이 불릴 일이 없으므로, **아이콘이
+   * 있는 화면은 안 그려지고 그려지는 화면은 아이콘이 없는** 상태였다.
+   * 등록 항목은 남겨 둔다 — 나중에 사이드바로 올라오면 그대로 쓴다.
+   */
+  VESSEL_MANAGEMENT: VesselIcon,
   VESSEL_REGISTRATION: VesselIcon,
   VESSEL_DETAIL: LocationIcon,
   REALTIME_CII: LocationIcon,

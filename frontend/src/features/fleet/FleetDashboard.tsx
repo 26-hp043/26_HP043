@@ -132,7 +132,11 @@ export function FleetDashboard() {
         </section>
       ) : null}
 
-      <section className="fleet__kpi" aria-label="선대 요약">
+      {/*
+        KPI 행이 카드 밖 맨몸으로 페이지 위에 얹혀 있었다. 아래 두 블록은
+        칸인데 여기만 아니라, **가장 먼저 읽혀야 할 줄이 가장 약하게** 보였다.
+      */}
+      <section className="card fleet__kpi" aria-label="선대 요약">
         <div className="kpi">
           <p className="kpi__label">운항 / 정박</p>
           <p className="kpi__value">
