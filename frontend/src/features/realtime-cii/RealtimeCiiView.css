@@ -73,7 +73,7 @@
 .rt__poll {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -163,14 +163,14 @@
 
 .rt__transition-arrow--flat,
 .rt__transition-label--flat {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .rt__note,
 .rt__nodata {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .rt__split {
@@ -214,7 +214,7 @@
   inset-block-start: calc(100% + var(--spacing-xs));
   inset-inline-end: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .rt__voyage-figures {
@@ -242,13 +242,13 @@
 
 .rt__segment-unit {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .rt__no-rating {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── ⑶ 연말 예상 ─────────────────────────────────────────────── */
@@ -282,7 +282,7 @@
 }
 
 .rt__direction--flat {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .rt__assumptions {
@@ -292,7 +292,7 @@
 
 .rt__assumptions summary {
   cursor: pointer;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .rt__assumptions summary:focus-visible {
@@ -309,7 +309,7 @@
 }
 
 .rt__assumptions dt {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .rt__assumptions dd {
@@ -336,7 +336,7 @@
 
 .rt__warnings li::before {
   content: '· ';
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /*

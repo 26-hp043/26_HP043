@@ -91,7 +91,7 @@
   margin-top: var(--spacing-xs);
   font-style: normal;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── 대상 선택 ──────────────────────────────────────────────────── */
@@ -134,7 +134,7 @@
 .rp__hint {
   font-style: normal;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── 동작 ───────────────────────────────────────────────────────── */
@@ -213,5 +213,5 @@
 .rp__note {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }

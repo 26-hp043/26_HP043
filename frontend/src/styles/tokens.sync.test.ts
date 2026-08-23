@@ -294,3 +294,92 @@ describe('시맨틱 색을 문자색으로 쓰지 않는다 — §0.2 제약 1 (
     expect(kept.length).toBeGreaterThan(0)
   })
 })
+
+describe('faint 계열을 문자색으로 쓰지 않는다 — §2.2 · §16 항목 1 ⓐ', () => {
+  /**
+   * **이름이 같아 보이는 것이 다른 값이다.** 생성 토큰 `--text-muted`는 문서의
+   * `text-muted`가 아니라 **`text-faint`**(`#8b8a83` / dark `#6b7686`)이며,
+   * 라이트 3.09~3.46:1 · 다크 3.47~4.11:1로 **양쪽 모두 §0.2 제약 1(4.5:1) 미달**이다.
+   *
+   * 그런데 이 값을 문자색으로 쓰는 자리가 **53곳**이었다 — 대시보드·실시간 CII·
+   * 선박 상세의 라벨과 캡션이 전부 여기 걸려 있었다. `#620`이 시맨틱 색에서 겪은 것과
+   * 같은 형태다: **화면이 깨지지 않아** 아무도 못 잡는다.
+   *
+   * 이 가드는 다시 들어오는 것을 막는다. 값을 바꾸는 길(§16-1 ⓑ)로는 닫히지 않는다 —
+   * `#647380`의 `4.86:1`은 흰 카드 위 값이고 `--surface-page` 위에서는 `4.35:1`이다.
+   *
+   * ## 허용하는 자리 둘 — 문자가 아니다
+   *
+   * ⑴ **면적** — `background`는 아예 보지 않는다. 비텍스트 3:1 기준이다
+   * ⑵ **비활성** — `:disabled` · `--disabled`. WCAG 1.4.3이 비활성 요소를 제외한다
+   *
+   * 아이콘 두 개(`--color`가 `stroke: currentcolor`로 흘러가는 자리)는 문자가 아니라
+   * 그래픽이므로 이름으로 예외를 둔다. **선택자를 적어 두면 새 자리가 조용히
+   * 늘어나지 않는다** — 늘리려면 이 목록을 고쳐야 하고, 그건 리뷰에 걸린다.
+   */
+  const FAINT = ['--color-text-faint', '--text-muted']
+  const ICON_EXCEPTIONS = ['.app-shell__util-icon', '.app-shell__iconbtn', '.history__swatch']
+
+  // 위 describe의 수집기는 그 블록 안에 갇혀 있다. 같은 규칙으로 다시 모은다.
+  function collect(dir: string): string[] {
+    const out: string[] = []
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue
+        out.push(...collect(full))
+      } else if (entry.name.endsWith('.css')) {
+        out.push(full)
+      }
+    }
+    return out
+  }
+
+  const HERE = fileURLToPath(new URL('.', import.meta.url))
+  const files = collect(join(HERE, '..'))
+
+  it('훑을 CSS 파일을 실제로 찾았다', () => {
+    expect(files.length).toBeGreaterThanOrEqual(15)
+  })
+
+  function faintTextHits(file: string): string[] {
+    const hits: string[] = []
+    let selector = ''
+    let pending: string[] = []
+    readFileSync(file, 'utf-8')
+      .split('\n')
+      .forEach((raw, i) => {
+        const line = raw.trim()
+        if (line.endsWith('{')) {
+          pending.push(line.slice(0, -1).trim())
+          selector = pending.join(' ')
+          pending = []
+        } else if (line.endsWith(',') && !line.startsWith('/') && !line.includes(':')) {
+          pending.push(line)
+        }
+        const decl = /^(color|fill)\s*:\s*var\((--color-text-faint|--text-muted)\)\s*;/.exec(line)
+        if (!decl) return
+        if (/:disabled|--disabled/.test(selector)) return
+        if (ICON_EXCEPTIONS.some((s) => selector.includes(s))) return
+        hits.push(`${file}:${i + 1}  ${selector} { ${line} }`)
+      })
+    return hits
+  }
+
+  it('color·fill 선언에 faint 계열이 없다 (비활성·아이콘 제외)', () => {
+    const hits = files.flatMap(faintTextHits)
+    expect(
+      hits,
+      `라벨·캡션·힌트는 --color-text-muted(=--text-secondary, 6.49:1)를 씁니다:\n${hits.join('\n')}`,
+    ).toEqual([])
+  })
+
+  it('토큰 자체는 남아 있다 — 면적·비활성이 쓴다', () => {
+    const tokens = readFileSync(join(HERE, 'tokens.css'), 'utf-8')
+    expect(tokens).toContain('--color-text-faint:')
+    const used = files.some((f) =>
+      FAINT.some((t) => new RegExp(`background[a-z-]*:\\s*var\\(${t}\\)`).test(readFileSync(f, 'utf-8'))),
+    )
+    expect(used).toBe(true)
+  })
+})

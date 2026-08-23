@@ -154,7 +154,7 @@
 }
 
 .vessel-management__specs dt {
-  color: var(--color-text-faint);
+  color: var(--color-text-muted);
   font-size: var(--font-size-micro);
 }
 

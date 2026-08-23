@@ -16,7 +16,7 @@
 }
 
 .acc__title-en {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-body);
 }
@@ -42,7 +42,7 @@
 
 .acc__facts dt {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .acc__facts dd {
