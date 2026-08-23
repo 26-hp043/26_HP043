@@ -234,6 +234,74 @@ describe('문자용 시맨틱 색 대비 — §0.2 제약 1 (#485)', () => {
   })
 })
 
+/**
+ * 중립 면 위의 대비 — `DESIGN_SYSTEM §0.2` 제약 1 · `§2.2`.
+ *
+ * ## 왜 면(surface)에 가드를 거는가
+ *
+ * 종전 가드는 **문자색만** 봤다. 그런데 대비는 두 값의 관계이고, 지금까지
+ * **바닥이 움직이지 않는다고 가정**하고 있었다.
+ *
+ * 그 가정이 실제로 깨졌다. `#699`가 `--text-faint`를 문자에서 걷어내면서
+ * 면적·비활성에는 남겼고 그 근거가 **「비텍스트 3:1을 넘는다」**였는데, 그 근거는
+ * 면 값에 매달려 있다. 라이트 중립이 `§2.2` 쿨톤으로 정렬될 때 `--surface-inset`
+ * 위 값이 **3.26 → 3.08**로 내려왔다. 통과하지만 **여섯 조합 중 가장 빠듯한
+ * 자리**이고, 면을 한 단만 더 어둡게 잡으면 여기가 먼저 깨진다.
+ *
+ * 그때 깨지는 것은 색이 아니라 **`#699`가 남긴 예외 세 자리의 정당성**이다.
+ * 화면은 멀쩡히 그려지므로 눈으로는 잡히지 않는다 — `#620`·`#699`가 겪은 것과
+ * 같은 형태다.
+ *
+ * ## 무엇을 거는가
+ *
+ * 세 면 × 두 테마 × 세 문자 토큰. `§16 항목 3`(중립색 팔레트)이 열려 있어
+ * **이 값들은 앞으로도 움직인다.** 움직여도 좋되, 기준을 밟으면 여기서 멈춘다.
+ */
+describe('중립 면 위 대비 — §2.2 · §16 항목 3', () => {
+  const SURFACES = ['surface.card', 'surface.page', 'surface.inset'] as const
+
+  /** `--text-muted`는 문서의 `text-faint`다 — 위 블록의 경고 참조. */
+  const ROLES = [
+    { key: 'text.primary', label: '본문', min: 4.5, basis: '§0.2 제약 1' },
+    { key: 'text.secondary', label: '보조 문자', min: 4.5, basis: '§0.2 제약 1' },
+    { key: 'text.muted', label: 'faint(면적·비활성)', min: 3, basis: '비텍스트 3:1' },
+  ] as const
+
+  const THEMES = [
+    ['라이트', light],
+    ['다크', dark],
+  ] as const
+
+  for (const [themeName, tokens] of THEMES) {
+    for (const surface of SURFACES) {
+      for (const role of ROLES) {
+        it(`${themeName} — ${role.label}가 ${surface} 위에서 ${role.min}:1을 넘는다 (${role.basis})`, () => {
+          const bg = hexOf(tokens[surface])
+          const fg = hexOf(tokens[role.key])
+          expect(bg, `${surface}가 ${themeName} 토큰에 없습니다`).toBeTruthy()
+          expect(fg, `${role.key}가 ${themeName} 토큰에 없습니다`).toBeTruthy()
+          expect(contrast(fg as string, bg as string)).toBeGreaterThanOrEqual(role.min)
+        })
+      }
+    }
+  }
+
+  /*
+   * 면과 카드가 **구분돼 보이는지**는 대비비로 잴 수 없다. 색상(hue)차가 명도차를
+   * 대신하기 때문이다 — 웜 `#f2f2ef`는 흰 카드와 명도비 1.12로 쿨 `#f4f6f9`(1.08)
+   * 보다 큰데도 더 밋밋하게 읽혔다. 그래서 여기서는 **명도가 아니라 「페이지가
+   * 카드와 다른 값이다」**만 건다. 같아지면 카드가 사라진다.
+   */
+  it('페이지 배경과 카드 면이 같은 값이 아니다', () => {
+    for (const [themeName, tokens] of THEMES) {
+      expect(
+        hexOf(tokens['surface.page']),
+        `${themeName}에서 페이지와 카드가 같은 값이면 카드가 면으로 보이지 않는다`,
+      ).not.toBe(hexOf(tokens['surface.card']))
+    }
+  })
+})
+
 describe('시맨틱 색을 문자색으로 쓰지 않는다 — §0.2 제약 1 (#620)', () => {
   /**
    * `#485` ⑤가 문자 전용 별칭을 만들고 **두 곳만** 옮겼고, `#620`이 나머지 33곳을
@@ -299,14 +367,14 @@ describe('faint 계열을 문자색으로 쓰지 않는다 — §2.2 · §16 항
   /**
    * **이름이 같아 보이는 것이 다른 값이다.** 생성 토큰 `--text-muted`는 문서의
    * `text-muted`가 아니라 **`text-faint`**(`#8b8a83` / dark `#6b7686`)이며,
-   * 라이트 3.09~3.46:1 · 다크 3.47~4.11:1로 **양쪽 모두 §0.2 제약 1(4.5:1) 미달**이다.
+   * 라이트 3.08~3.46:1 · 다크 3.47~4.11:1로 **양쪽 모두 §0.2 제약 1(4.5:1) 미달**이다.
    *
    * 그런데 이 값을 문자색으로 쓰는 자리가 **53곳**이었다 — 대시보드·실시간 CII·
    * 선박 상세의 라벨과 캡션이 전부 여기 걸려 있었다. `#620`이 시맨틱 색에서 겪은 것과
    * 같은 형태다: **화면이 깨지지 않아** 아무도 못 잡는다.
    *
    * 이 가드는 다시 들어오는 것을 막는다. 값을 바꾸는 길(§16-1 ⓑ)로는 닫히지 않는다 —
-   * `#647380`의 `4.86:1`은 흰 카드 위 값이고 `--surface-page` 위에서는 `4.35:1`이다.
+   * `#647380`의 `4.86:1`은 흰 카드 위 값이고 `--surface-inset` 위에서는 `4.34:1`이다.
    *
    * ## 허용하는 자리 둘 — 문자가 아니다
    *

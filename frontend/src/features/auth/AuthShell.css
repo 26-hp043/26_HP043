@@ -204,14 +204,28 @@
 
 /* ── 미인증 배너 (셸 상단) ──────────────────────────────────────── */
 
+/*
+ * 셸이 패널 언어로 바뀌면서 이 배너도 같이 띄운다. 전폭 띠로 두면 바로 아래
+ * 상단바보다 오른쪽으로 16px 더 나와, **혼자 옛 레이아웃에 남은 것처럼 보인다.**
+ *
+ * 여백은 상단바와 같은 값을 쓴다(`AppShell.css` 참조) — 위아래로 겹쳐 놓이는
+ * 두 요소라 여기서 값이 갈리면 어긋난 것이 바로 보인다.
+ *
+ * > **색은 손대지 않았다.** 이 배너는 `--cii-c-*`(등급 C)를 쓰고 있는데, `§0.2`
+ * > 제약 2는 「등급 색은 **항상 A~E 문자 또는 등급 축 라벨과 함께** 나타난다」고
+ * > 정한다. 이 배너에는 둘 다 없다 — 이메일 인증 안내이지 등급 정보가 아니다.
+ * > `§2.3` 시맨틱 색으로 옮겨야 하는 자리이며 **별건**이다(`#620`·`#694` 계열).
+ */
 .verify-banner {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
+  margin: var(--spacing-lg) var(--spacing-lg) 0 0;
   padding: var(--spacing-sm) var(--spacing-xl);
   background: var(--cii-c-bg);
   color: var(--cii-c-text);
-  border-bottom: var(--borderWidth-default) solid var(--cii-c-border);
+  border: var(--borderWidth-default) solid var(--cii-c-border);
+  border-radius: var(--radius-card);
   font-size: var(--font-size-label);
 }
 
