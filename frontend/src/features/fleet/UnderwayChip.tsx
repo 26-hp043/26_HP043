@@ -41,8 +41,13 @@ export function UnderwayChip({ vessel }: { vessel: FleetVessel }) {
   )
 }
 
-/** 진행 — 뱃머리가 만드는 물살. 방향이 있어 정박과 형태로 갈린다. */
-function UnderwayIcon() {
+/**
+ * 진행 — 뱃머리가 만드는 물살. 방향이 있어 정박과 형태로 갈린다.
+ *
+ * 선대 요약(`FleetDashboard`)도 같은 아이콘을 쓴다. **아래 카드에서 배운 기호를
+ * 위 요약에서 그대로 쓰게 하는 것**이 재사용의 목적이라 여기서 내보낸다.
+ */
+export function UnderwayIcon() {
   return (
     <svg className="vessel__state-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d="M3 16c2.2 0 2.2-2 4.4-2s2.2 2 4.4 2 2.2-2 4.4-2 2.2 2 4.4 2" />
@@ -51,8 +56,8 @@ function UnderwayIcon() {
   )
 }
 
-/** 정박 — 닻. 세로축과 갈고리라 물살과 겹치지 않는다. */
-function AnchorIcon() {
+/** 정박 — 닻. 세로축과 갈고리라 물살과 겹치지 않는다. 선대 요약도 쓴다. */
+export function AnchorIcon() {
   return (
     <svg className="vessel__state-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <circle cx="12" cy="5.4" r="2" />

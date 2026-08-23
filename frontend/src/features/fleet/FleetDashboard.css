@@ -117,9 +117,26 @@
  * 「규제 조치 대상」 타일을 걷어내 두 칸이 됐다 (`FleetDashboard.tsx` 주석 참조).
  * 남는 폭은 전부 등급 분포가 가져간다 — 대시보드에서 가장 먼저 읽혀야 할 값이다.
  */
+/*
+ * 세 칸이다 — 운항/정박 · 등급 분포 · GT 미입력.
+ *
+ * ## 폭을 셋으로 똑같이 나누고 각자 가운데에 둔다
+ *
+ * 종전에는 가운데만 `1fr`이라 **그 칸이 남는 폭을 전부 먹는데 내용은 짧았다** —
+ * 왼쪽 둘은 24px로 붙고 오른쪽 1200px이 비었다. `space-between`으로 간격을
+ * 고르게 해 봤으나, 그러면 칸 **경계**가 내용 길이를 따라 움직여 세 덩어리의
+ * 자리가 데이터에 따라 바뀐다.
+ *
+ * `repeat(3, minmax(0, 1fr))`은 경계를 고정하고, `justify-items: center`가 각
+ * 칸 안에서 내용을 가운데로 모은다. **선박 수가 바뀌어도 세 덩어리의 자리는
+ * 그대로다.**
+ *
+ * 좁아지면 아래 미디어 쿼리가 한 칸으로 떨어뜨린다.
+ */
 .fleet__kpi {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  justify-items: center;
   gap: var(--spacing-xl);
   align-items: start;
 }
@@ -137,11 +154,22 @@
  */
 .kpi {
   min-width: 0;
+  /* 칸 자체가 가운데 놓이므로 안쪽 글도 가운데로 모은다 — 아니면 라벨만 왼쪽에 뜬다. */
+  text-align: center;
 }
 
+/*
+ * 세 칸의 제목이다. 이 카드에는 `card__title`이 없고 **이 줄이 유일한 머리**라,
+ * 라벨 크기(13)로는 아래 큰 숫자에 눌려 무엇을 세는 수인지가 늦게 읽혔다.
+ *
+ * `§3`의 h3(16) + 라벨 굵기(500). 카드 제목(16/600)보다 한 단 가볍게 둔다 —
+ * 카드 안의 구획이지 카드 자체의 제목이 아니다. 색은 보조로 남겨 34px 숫자와
+ * 무게가 뒤집히지 않게 한다.
+ */
 .kpi__label {
   margin: 0 0 var(--spacing-sm);
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-label);
   color: var(--text-secondary);
 }
 
@@ -155,9 +183,35 @@
   font-variant-numeric: tabular-nums;
 }
 
-.kpi__slash {
+/*
+ * 운항·정박 두 쌍. 종전 `.kpi__slash`를 대신한다 — 슬래시가 분수로 읽히던 자리다.
+ * 아이콘은 `.vessel__state-icon`(16px)을 그대로 쓰되 숫자가 34px이라 살짝 키운다.
+ */
+.kpi__states {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--spacing-xl);
+  margin: 0;
+}
+
+.kpi__state {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--spacing-xs);
+}
+
+.kpi__state .vessel__state-icon {
+  inline-size: 18px;
+  block-size: 18px;
   color: var(--text-secondary);
-  font-weight: var(--font-weight-body);
+  /* baseline 정렬에서 아이콘이 글자 밑선에 앉지 않게 살짝 내린다. */
+  align-self: center;
+}
+
+.kpi__state-label {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
 }
 
 .kpi__foot {
@@ -169,6 +223,12 @@
 /* 등급 분포 타일은 폭을 제한하지 않는다 — 바가 남는 자리를 다 쓴다. */
 .kpi--wide {
   min-inline-size: 0;
+}
+
+/* KPI 각주 안의 링크 — 문장 안이라 밑줄로만 구분한다. */
+.kpi__link {
+  color: var(--color-primary);
+  text-decoration: underline;
 }
 
 
@@ -368,6 +428,13 @@
  * 좌표 범위 — 그림 밖이므로 뷰박스 배율을 타지 않는다. 일반 텍스트 토큰을 쓴다.
  */
 .position-chart__range {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+/* 그림 읽는 법 — 좌표 범위(micro)보다 한 단 크게. 문장이라 읽혀야 한다. */
+.position-chart__note {
   margin: var(--spacing-sm) 0 0;
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
@@ -577,6 +644,17 @@
   block-size: var(--icon-large);
 }
 
+/*
+ * 배너를 누르면 「조치 필요」로 간다. 배너 자체는 `role="alert"`라 링크를 밖에
+ * 씌우지 않고 **문장만 링크**로 만든다 — 경고 전체가 링크가 되면 보조기술에서
+ * 「링크」가 먼저 읽히고 경고라는 사실이 뒤로 밀린다.
+ */
+.warn__link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .warn__main {
   margin: 0;
   font-size: var(--font-size-h3);
@@ -667,6 +745,7 @@
 .dist__fleet {
   display: flex;
   align-items: flex-end;
+  justify-content: center;
   gap: var(--spacing-xl);
   flex-wrap: wrap;
 }

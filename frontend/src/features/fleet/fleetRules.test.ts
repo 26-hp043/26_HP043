@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   daysToDText,
   distributionAria,
+  distributionSlots,
   gradeDistributionSegments,
   showsInlineLabel,
   usesPictogram,
   PICTOGRAM_MAX_VESSELS,
   zeroRatings,
   isAtRisk,
+  missingGrossTonnageCount,
   relativeTime,
   riskReasonText,
   soonestDaysToD,
@@ -375,5 +377,59 @@ describe('픽토그램 ↔ 막대 전환', () => {
     ]
     expect(spread.reduce((s, x) => s + x.count, 0)).toBe(25)
     expect(usesPictogram(spread)).toBe(false)
+  })
+})
+
+describe('GT 미입력 척수', () => {
+  const ship = (grossTonnage: FleetVessel['grossTonnage']) =>
+    ({ grossTonnage }) as FleetVessel
+
+  it('`null`과 빈 문자열을 세지 않은 것으로 본다', () => {
+    expect(missingGrossTonnageCount([ship(null), ship(''), ship(25000)])).toBe(2)
+  })
+
+  /*
+   * 숫자로 바꿔 판정하면 `Number('')`이 `0`이라 **GT 0인 배와 구분이 사라진다.**
+   * 0은 「없다」가 아니라 「0으로 적혀 있다」이고, 둘은 다른 상태다.
+   */
+  it('GT 0은 미입력이 아니다', () => {
+    expect(missingGrossTonnageCount([ship(0), ship('0')])).toBe(0)
+  })
+
+  it('문자열로 온 값도 입력된 것으로 본다 — 서버가 소수를 문자열로 내린다', () => {
+    expect(missingGrossTonnageCount([ship('25000.5')])).toBe(0)
+  })
+})
+
+describe('등급 자리 — 픽토그램용', () => {
+  /* 위 describe의 `dist`는 그 블록 안에 갇혀 있다. 같은 형태로 다시 만든다. */
+  const dist = (over: Partial<Record<'A' | 'B' | 'C' | 'D' | 'E', number>> = {}) => ({
+    A: 0,
+    B: 0,
+    C: 0,
+    D: 0,
+    E: 0,
+    ...over,
+  })
+
+  it('다섯 등급을 A→E 순서로, 0척까지 낸다', () => {
+    expect(distributionSlots(dist({ B: 1, D: 1, E: 2 }))).toEqual([
+      { rating: 'A', count: 0 },
+      { rating: 'B', count: 1 },
+      { rating: 'C', count: 0 },
+      { rating: 'D', count: 1 },
+      { rating: 'E', count: 2 },
+    ])
+  })
+
+  /*
+   * 막대는 폭 0인 조각을 그릴 수 없어 0척을 뺀다(`gradeDistributionSegments`).
+   * 픽토그램은 자리를 차지하지 않고도 적을 수 있어 **판단이 갈린다** — 둘이
+   * 같은 목록을 쓰면 한쪽이 반드시 틀린다.
+   */
+  it('막대용 구간과 다르다 — 0척을 뺀 쪽과 섞이지 않는다', () => {
+    const distribution = dist({ B: 1, D: 1, E: 2 })
+    expect(distributionSlots(distribution)).toHaveLength(5)
+    expect(gradeDistributionSegments(distribution)).toHaveLength(3)
   })
 })

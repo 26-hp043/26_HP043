@@ -202,6 +202,102 @@ const LABEL_GAP = LABEL_FONT + 3
  * **잘려 사라진다.** 겹치는 것보다 나쁘다 — 겹친 글자는 halo 덕에 읽히지만
  * 잘린 글자는 없는 것과 같다. 그래서 한도에 닿으면 더 내리지 않고 겹침을 받는다.
  */
+/**
+ * 이보다 가까우면 **한 무리**로 본다. 배 하나가 22 유저 단위라 그 가까이 두 척이
+ * 있으면 실루엣이 겹쳐 한 척으로 보인다.
+ */
+const SPREAD_MIN_GAP = SHIP * 0.9
+
+/** 무리를 벌린 뒤에도 마커 중심이 그림 안에 남게 한다. */
+const clamp = (value: number, low: number, high: number) =>
+  Math.min(Math.max(value, low), high)
+
+/**
+ * 겹치는 마커를 무리 중심 둘레로 벌린다.
+ *
+ * ## 왜 필요한가
+ *
+ * 이 그림은 선대의 좌표 범위에 맞춰 확대된다. 시연 데이터가 **수에즈~한국 97°**를
+ * 걸치는데 네 척 중 셋이 한국 앞바다에 있어, 그 셋이 4px 안에 들어와 **한 덩어리로
+ * 뭉친다.** 「보유 선박 4척」이라 적어 놓고 그림에는 배가 둘로 보인다.
+ *
+ * `#701` ⑥이 「윤곽을 모든 마커에 줘서 몇 척인지 셀 수 있게」 한 것이 여기서
+ * 무력해진다 — **좌표가 거의 같으면 윤곽도 겹친다.**
+ *
+ * ## 벌려도 되는 근거
+ *
+ * 이 그림은 파일 머리주석대로 **「좌표 평면 위의 개략도」이지 값을 읽는 차트가
+ * 아니다.** 눈금도 격자도 없고 좌표 범위는 글로 따로 적는다. 몇 픽셀을 옮기는
+ * 대가로 **척수가 보이는 것**이 이 그림의 목적에 맞다. 이름표에는 이미
+ * `resolveCollisions`가 같은 일을 하고 있다.
+ *
+ * 벌린 사실은 **화면에 적는다** — 적지 않으면 그림이 없는 정밀도를 주장하게 된다.
+ *
+ * ## 어떻게
+ *
+ * 가까운 것끼리 이어 무리를 만들고(연결 성분), 무리 중심 둘레의 원에 고르게 놓는다.
+ * 반지름은 이웃 사이 현(chord)이 배 폭보다 길어지게 잡는다 — 그래야 벌린 뒤에도
+ * 다시 겹치지 않는다.
+ *
+ * **입력 순서가 같으면 배치도 같다.** 무리 안에서 원래 인덱스로 정렬해 자리를
+ * 나누므로, 다시 그려도 배가 자리를 바꾸지 않는다.
+ */
+function spreadOverlaps<T extends { x: number; y: number }>(
+  marks: T[],
+): { marks: T[]; spread: boolean } {
+  const groups: number[][] = []
+  const taken = new Set<number>()
+
+  for (let seed = 0; seed < marks.length; seed++) {
+    if (taken.has(seed)) continue
+    const queue = [seed]
+    taken.add(seed)
+    const group: number[] = []
+    while (queue.length > 0) {
+      const current = queue.pop() as number
+      group.push(current)
+      for (let other = 0; other < marks.length; other++) {
+        if (taken.has(other)) continue
+        const distance = Math.hypot(
+          marks[current].x - marks[other].x,
+          marks[current].y - marks[other].y,
+        )
+        if (distance < SPREAD_MIN_GAP) {
+          taken.add(other)
+          queue.push(other)
+        }
+      }
+    }
+    groups.push(group)
+  }
+
+  const placed = [...marks]
+  let spread = false
+
+  for (const group of groups) {
+    if (group.length < 2) continue
+    spread = true
+    group.sort((a, b) => a - b)
+
+    const centerX = group.reduce((sum, i) => sum + marks[i].x, 0) / group.length
+    const centerY = group.reduce((sum, i) => sum + marks[i].y, 0) / group.length
+    /* 이웃 사이 현이 배 폭 이상이 되는 반지름. 두 척일 때가 하한이다. */
+    const radius = Math.max(SHIP * 0.7, SHIP / (2 * Math.sin(Math.PI / group.length)))
+
+    group.forEach((index, slot) => {
+      // 12시 방향부터 시계 방향으로 나눈다.
+      const angle = -Math.PI / 2 + (2 * Math.PI * slot) / group.length
+      placed[index] = {
+        ...marks[index],
+        x: clamp(centerX + radius * Math.cos(angle), PADDING, VIEW_W - PADDING),
+        y: clamp(centerY + radius * Math.sin(angle), PADDING, VIEW_H - PADDING),
+      }
+    })
+  }
+
+  return { marks: placed, spread }
+}
+
 function resolveCollisions<T extends { y: number; centerX: number; halfWidth: number }>(
   labels: T[],
 ): T[] {
@@ -298,6 +394,16 @@ export function PositionChart({ vessels }: PositionChartProps) {
   const project = (p: Positioned) => at(p.lon, p.lat)
 
   /*
+   * 마커 자리를 **한 번만** 정한다. 이름표와 마커가 각자 계산하면 벌린 뒤 이름표가
+   * 원래 자리에 남아 엉뚱한 배를 가리킨다.
+   */
+  const { marks: placedMarks, spread } = spreadOverlaps(
+    points.map((p) => ({ id: p.vessel.id, ...project(p) })),
+  )
+  const placedById = new Map(placedMarks.map((m) => [m.id, m]))
+  const placed = (p: Positioned) => placedById.get(p.vessel.id) as { x: number; y: number }
+
+  /*
    * 이름표 자리를 **마커를 그리기 전에 한 번에** 정한다. 겹침은 이름표 하나만
    * 봐서는 알 수 없고 서로를 알아야 판정되기 때문이다. 마커 렌더 루프 안에서
    * 각자 계산하면 옆 이름표의 존재를 모른다.
@@ -306,7 +412,7 @@ export function PositionChart({ vessels }: PositionChartProps) {
     points
       .filter((p) => isAtRisk(p.vessel))
       .map((p) => {
-        const { x, y } = project(p)
+        const { x, y } = placed(p)
         return { id: p.vessel.id, name: p.vessel.name, ...labelPlacement(p.vessel.name, x, y) }
       }),
   )
@@ -386,7 +492,7 @@ export function PositionChart({ vessels }: PositionChartProps) {
         ↑N
       </text>
       {points.map((point) => {
-        const { x, y } = project(point)
+        const { x, y } = placed(point)
         const rating = point.vessel.ytdRating
         // 등급이 없는 선박(실적 없음)은 중립색 — 나쁜 등급으로 보이면 안 된다.
         const color = rating
@@ -483,6 +589,18 @@ export function PositionChart({ vessels }: PositionChartProps) {
       {' · '}
       경도 <span className="position-chart__coord">{formatLon(minLon)}</span>~
       <span className="position-chart__coord">{formatLon(maxLon)}</span>
+    </p>
+    {/*
+      그림을 읽는 법은 **그림이 소유한다.** 종전에는 이 설명이 대시보드 쪽
+      `card__note`에 있었는데, 그러면 차트가 무엇을 바꾸든 설명은 그대로 남는다.
+      실제로 겹침 분산을 넣으면서 적어야 할 문장이 하나 늘었다.
+
+      **벌렸다는 사실은 벌렸을 때만 적는다.** 안 벌린 그림에 그 문장이 있으면
+      없는 보정을 있다고 말하게 된다.
+    */}
+    <p className="position-chart__note">
+      대략적인 위치입니다. 배 색과 무늬는 올해 누적(YTD) 등급입니다.
+      {spread ? ' 가까운 배는 겹치지 않게 조금 벌려 그렸습니다.' : ''}
     </p>
     </>
   )
