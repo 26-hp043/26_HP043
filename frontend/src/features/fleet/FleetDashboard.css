@@ -460,14 +460,12 @@
   letter-spacing: var(--letterSpacing-snug);
 }
 
-.vessel__route {
-  grid-column: 1 / -1;
-  font-size: var(--font-size-label);
-  color: var(--text-secondary);
-}
-
+/*
+ * `grid-column`을 두지 않는다. 이 요소는 `.vessel__body`(flex) 안이라 그 속성이
+ * 아무 일도 하지 않는다 — 남겨 두면 읽는 사람이 그리드 자식으로 착각한다.
+ * 같은 파일에서 `.vessel__link`가 겪은 것과 같은 종류다.
+ */
 .vessel__stats {
-  grid-column: 1 / -1;
   display: flex;
   justify-content: space-between;
   gap: var(--spacing-md);
@@ -753,13 +751,17 @@
   color: var(--text-secondary);
 }
 
-/* ── 선박 행 — 배지 + 본문 2열 ──────────────────────────────────── */
+/* ── 선박 행 — 마크 열 + 본문 2열 (#701 ④) ──────────────────────── */
 
+/*
+ * `align-items`를 `center`에서 `start`로 바꾼다. 본문이 세 줄이 되면서 마크가
+ * 가운데 뜨면 **어느 줄에 붙는 값인지** 보이지 않는다. 이름 줄에 맞춘다.
+ */
 .vessel__link {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: var(--spacing-md);
-  align-items: center;
+  align-items: start;
   padding: var(--spacing-md);
   text-decoration: none;
   color: inherit;
@@ -769,12 +771,49 @@
 .vessel__body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--spacing-xs);
   min-inline-size: 0;
 }
 
-/* 등급이 없는 선박 — 배지 자리를 비우지 않고 자리표시자를 둔다. */
-.vessel__nograde {
+/* 이름과 규제 플래그를 한 줄에. 플래그는 이름을 밀지 않고 남는 자리에 붙는다. */
+.vessel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  min-inline-size: 0;
+}
+
+/* ── 선박 마크 (배 실루엣 + 등급 문자) ──────────────────────────── */
+
+.vessel__mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  inline-size: 44px;
+  flex: none;
+}
+
+/*
+ * 등급 문자는 마크의 일부다 (`§14` — 색 단독 금지). 등급색을 쓰되 **문자에는
+ * `text` 토큰**을 쓴다 — `fill`은 면적용이라 문자 대비 기준을 넘지 못한다.
+ */
+.vessel__mark-grade {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  line-height: 1;
+}
+
+.vessel__mark-grade--a { color: var(--cii-a-text); }
+.vessel__mark-grade--b { color: var(--cii-b-text); }
+.vessel__mark-grade--c { color: var(--cii-c-text); }
+.vessel__mark-grade--d { color: var(--cii-d-text); }
+.vessel__mark-grade--e { color: var(--cii-e-text); }
+
+/* 등급이 없는 선박 — 배를 그리지 않는다. 중립색 배는 「옅은 등급」으로 읽힌다. */
+.vessel__mark--none {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -784,6 +823,56 @@
   background: var(--cii-none-bg);
   color: var(--cii-none-text);
   border: var(--borderWidth-default) solid var(--cii-none-border);
+}
+
+/* ── 선종 · 상태 · 적용 여부 한 줄 (#701 ⑤) ─────────────────────── */
+
+.vessel__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+/*
+ * 상태 칩은 **중립색**이다. 운항 상태는 등급과 다른 축이라 등급색을 겹치면
+ * 한 축으로 읽힌다 — `§0.2` 제약 2가 막으려는 것과 같은 종류의 혼동이다.
+ * 구분은 색이 아니라 아이콘 형태(물살 ↔ 닻)가 맡는다.
+ */
+.vessel__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  border: var(--borderWidth-default) solid var(--border-default);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* 상태 미기록은 테두리를 점선으로 — 「정박」으로 읽히면 없는 사실이 된다. */
+.vessel__state--unknown {
+  border-style: dashed;
+  color: var(--text-secondary);
+}
+
+/* `§12` — 라인 아이콘 · stroke 1.5–1.6 · 단색. 텍스트 라벨이 항상 옆에 있다. */
+.vessel__state-icon {
+  inline-size: 16px;
+  block-size: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.vessel__type {
+  color: var(--text-secondary);
 }
 
 .vessel__days {

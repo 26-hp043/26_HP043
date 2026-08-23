@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
-import { GradeBadge } from '../../components/GradeBadge'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { RegulatoryFlags } from '../../components/RegulatoryFlag'
 import { GradeDistribution } from './GradeDistribution'
+import { VesselMark } from './VesselMark'
+import { UnderwayChip } from './UnderwayChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PositionChart } from './PositionChart'
 import { createApiFleetProvider } from './apiProvider'
@@ -16,8 +17,6 @@ import {
   sortVessels,
   unavailableHint,
   unavailableText,
-  detailStatusText,
-  underwayStateText,
   ytdCiiText,
   warningBannerText,
   type SortKey,
@@ -334,52 +333,44 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
     <li className={isAtRisk(vessel) ? 'vessel vessel--risk' : 'vessel'}>
       <Link className="vessel__link" to={`/vessels/${vessel.id}`}>
         {/*
-         * 등급 배지는 `GradeBadge`를 재사용한다(#351 체크리스트). 색·패턴·문자
-         * 세 채널을 함께 쓰는 컴포넌트라, 목록에서도 색만으로 구분되지 않는다(§14).
+         * 등급은 **왼쪽 마크**가 맡는다 (`#701` ④). 종전에는 축이 다른 배지 셋이
+         * 전부 이름 위에 가로로 깔려 이름이 네 번째 줄에 있었다.
+         *
+         * `GradeBadge`를 쓰지 않는다 — 색·패턴·문자 세 채널을 마크가 그대로 담고,
+         * 같은 등급을 두 번 말하지 않는다. 대신 이 화면은 위쪽 등급 분포와 **같은
+         * 배 모양**을 쓰게 되어, 두 블록이 하나의 언어로 읽힌다.
          */}
-        {vessel.ytdRating ? (
-          <GradeBadge
-            rating={vessel.ytdRating}
-            size="sm"
-            label={`${vessel.name} 올해 누적 등급 ${vessel.ytdRating}`}
-          />
-        ) : (
-          // 등급이 없는 **이유**를 읽어 주지 않으면, 사용자는 항차를 넣어야 하는지
-          // 제원을 넣어야 하는지 알 수 없다 (`#419`).
-          <span
-            className="vessel__nograde"
-            aria-label={`${vessel.name} — ${unavailableHint(vessel.unavailableReason)}`}
-          >
-            —
-          </span>
-        )}
-
-        {/*
-          규제 플래그는 등급 배지와 **별개 축**이다 (`DESIGN_SYSTEM §8`).
-          같은 D등급이라도 1년차와 3년차는 배지가 같고 플래그만 달라야 한다.
-          종전에는 이 정보가 아래 조치 목록에만 있어, 카드만 보는 사람은
-          규제 의무가 걸렸다는 사실을 알 수 없었다 (`#485` ④).
-        */}
-        <RegulatoryFlags reasons={vessel.riskReasons} vesselName={vessel.name} />
-
-        {/*
-          적용 대상 배지는 규제 플래그와 **또 다른 축**이다 (`#653`).
-          플래그는 「규제 의무가 걸렸다」, 이 배지는 「애초에 규제 대상인가」를 말한다.
-          대시보드에 없으면 사용자는 등급과 값만 보고 규제상 의미를 단정하게 된다.
-        */}
-        <ApplicabilityBadge
-          isCiiApplicableHint={vessel.isCiiApplicableHint}
-          grossTonnage={vessel.grossTonnage}
-          vesselName={vessel.name}
-        />
+        <VesselMark vessel={vessel} />
 
         <span className="vessel__body">
-          <span className="vessel__name">{vessel.name}</span>
-          {/* 선종·세부 상태를 코드가 아니라 표시 문구로 낸다(`UIFLOW 2-4`). */}
-          <span className="vessel__route">
-            {shipTypeLabel(vessel.shipType)} · {underwayStateText(vessel)}
-            {vessel.detailStatus ? ` · ${detailStatusText(vessel.detailStatus)}` : ''}
+          <span className="vessel__head">
+            <span className="vessel__name">{vessel.name}</span>
+            {/*
+              규제 플래그는 등급과 **별개 축**이다 (`§8`). 같은 D등급이라도 1년차와
+              3년차는 배지가 같고 플래그만 달라야 한다. 이름 옆에 두어 「이 배에
+              의무가 걸렸다」가 이름과 함께 읽히게 한다.
+            */}
+            <RegulatoryFlags reasons={vessel.riskReasons} vesselName={vessel.name} />
           </span>
+
+          {/*
+            선종·상태·적용 여부를 한 줄에 둔다 — 셋 다 「이 배가 어떤 배이고 지금
+            무엇을 하고 있나」다. 상태만 칩으로 빼 형태로 드러낸다 (`#701` ⑤).
+          */}
+          <span className="vessel__meta">
+            <UnderwayChip vessel={vessel} />
+            <span className="vessel__type">{shipTypeLabel(vessel.shipType)}</span>
+            {/*
+              적용 대상 배지는 규제 플래그와 **또 다른 축**이다 (`#653`).
+              플래그는 「의무가 걸렸다」, 이 배지는 「애초에 규제 대상인가」다.
+            */}
+            <ApplicabilityBadge
+              isCiiApplicableHint={vessel.isCiiApplicableHint}
+              grossTonnage={vessel.grossTonnage}
+              vesselName={vessel.name}
+            />
+          </span>
+
           <span className="vessel__stats">
             <span>
               <b className="vessel__k">YTD</b>
@@ -393,8 +384,6 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
              */}
             <span
               className="vessel__days"
-              // 짧은 문구만으로는 무엇을 해야 하는지 알 수 없다. 포인터에는 `title`로,
-              // 스크린리더에는 `aria-label`로 같은 안내를 전한다.
               title={
                 vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
               }
