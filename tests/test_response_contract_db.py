@@ -99,6 +99,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
         {
             "data",
             "data.numpy_version",
+            # 리포트 PDF에 한글을 그릴 수 있는가 (`#689`). "ok"/"missing"/"unavailable".
+            "data.pdf_korean_font",
             "data.rng_canonical_test",
             "data.status",
             "data.version",
