@@ -104,6 +104,12 @@
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-lv1);
   padding: var(--space-16);
+  /* 대시보드 선박 카드(`.vessel:hover`)와 같은 신호를 쓴다. */
+  transition: border-color 120ms ease;
+}
+
+.vessel-management__item:hover {
+  border-color: var(--border-strong);
 }
 
 .vessel-management__row {
@@ -113,9 +119,29 @@
   flex-wrap: wrap;
 }
 
+/*
+ * 배 실루엣 — 중립 회색이다(`VesselSilhouette` 주석 참조).
+ *
+ * `--text-secondary`를 쓴다. `--border-strong`은 흰 카드 위 1.3:1이라 40px에서도
+ * 거의 안 보이고, 등급색은 이 화면에 없는 축을 끌어들인다.
+ */
+.vessel-management__glyph {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  fill: var(--text-secondary);
+}
+
+/*
+ * `align-items`가 없으면 **세로 flex의 기본값 `stretch`**가 걸려, 배지가 열
+ * 전체 폭으로 늘어난다. `.applicability-badge`의 `flex: none`은 주축(세로)만
+ * 막으므로 이걸 못 막는다 — 목록에서 「GT 미입력」이 빈 상자처럼 길게 누워
+ * 있던 것이 그 때문이다.
+ */
 .vessel-management__ident {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-4);
   flex: 1 1 220px;
   min-width: 0;
