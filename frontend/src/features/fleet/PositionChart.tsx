@@ -243,6 +243,15 @@ export function PositionChart({ vessels }: PositionChartProps) {
     return Number.isFinite(lat) && Number.isFinite(lon) ? [{ vessel, lat, lon }] : []
   })
 
+  /*
+   * 좌표가 없는 선박은 위 `flatMap`에서 **조용히 빠진다.** 몇 척이 빠졌는지 세어
+   * 둔다 — 그림만 보면 남은 것이 선대 전부로 읽히기 때문이다(`#705`).
+   *
+   * 전부 빠진 경우는 아래 빈 상태가 받는다. 여기서 세는 것은 **일부만 빠진 경우**를
+   * 위한 것이고, 빈 상태가 이미 있다는 사실이 오히려 그 중간 상태를 가리고 있었다.
+   */
+  const missing = vessels.length - points.length
+
   if (points.length === 0) {
     return (
       <p className="position-chart__empty">
@@ -303,13 +312,19 @@ export function PositionChart({ vessels }: PositionChartProps) {
   )
   const labelById = new Map(labels.map((l) => [l.id, l]))
 
+  /*
+   * 결측을 **접근성 트리에도** 넣는다. 눈으로 보는 쪽에만 있으면 화면 낭독으로는
+   * 여전히 「선박 3척의 현재 위치 개략도」로 들려 빠진 것이 없는 것처럼 된다.
+   */
+  const missingAria = missing > 0 ? ` 좌표가 없는 ${missing}척은 빠져 있습니다.` : ''
+
   return (
     <>
     <svg
       className="position-chart"
       viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
       role="img"
-      aria-label={`선박 ${points.length}척의 현재 위치 개략도. 위도 ${formatLat(minLat)}~${formatLat(maxLat)}, 경도 ${formatLon(minLon)}~${formatLon(maxLon)} 범위입니다. 점의 색과 무늬는 올해 누적 등급입니다.`}
+      aria-label={`선박 ${points.length}척의 현재 위치 개략도.${missingAria} 위도 ${formatLat(minLat)}~${formatLat(maxLat)}, 경도 ${formatLon(minLon)}~${formatLon(maxLon)} 범위입니다. 점의 색과 무늬는 올해 누적 등급입니다.`}
     >
       {/*
         좌표축 — `DESIGN_SYSTEM §9.1` 축선(`--color-border-strong`, 1px).
@@ -439,6 +454,21 @@ export function PositionChart({ vessels }: PositionChartProps) {
         )
       })}
     </svg>
+    {/*
+      **빠진 선박의 이름은 적지 않는다.** 선박 목록에 네 척이 다 있고, `#701`이
+      「같은 사실이 한 화면에 네 번 나온다」를 걷어낸 직후다. 여기서 필요한 것은
+      「이 그림이 전부가 아니다」이지 「어느 배가 빠졌나」가 아니다 — 뒷문장은
+      목록이 답한다.
+
+      뒷줄은 빈 상태와 **같은 말**을 쓴다. 0척일 때와 일부일 때가 다른 말을 하면
+      같은 상황이 두 얼굴로 보인다.
+    */}
+    {missing > 0 ? (
+      <p className="position-chart__missing">
+        위치 미기록 {missing}척은 표시되지 않았습니다 — {vessels.length}척 중 {points.length}척.
+        선박 상세에서 현재 위치를 입력하면 여기에 표시됩니다.
+      </p>
+    ) : null}
     {/*
       좌표 범위를 그림 밖 글로 적는다.
       뷰박스 안에 눈금 숫자를 넣지 않는 이유는 두 가지다 — ⑴ 유저 단위라
