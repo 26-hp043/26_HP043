@@ -19,6 +19,8 @@ from sqlalchemy.ext.asyncio import create_async_engine
 _ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(_ROOT / "src"))
+from db_target import is_disposable, refusal_reason  # noqa: E402
+
 from cii_platform.config import DATABASE_URL  # noqa: E402
 from cii_platform.db.url import normalize_to_asyncpg  # noqa: E402
 
@@ -27,6 +29,36 @@ _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
 # async 엔진(conn fixture)용: asyncpg 드라이버로 정규화한 URL.
 # 4곳(alembic/seed/pytest/앱) 공유 정책 — db.url.normalize_to_asyncpg (#234).
 TEST_DATABASE_URL = normalize_to_asyncpg(_RAW_DATABASE_URL)
+
+
+def require_disposable_target() -> None:
+    """DB를 건드리기 전에 대상이 버려도 되는 곳인지 확인한다 (`#691`).
+
+    ## 왜 파일이 아니라 여기인가
+
+    `#507`이 같은 판정을 만들었으나 ``test_zz_roundtrip.py`` **한 파일에만** 걸었다.
+    계정·세션·토큰을 지우는 나머지 **12개 파일**은 아무 제약 없이 시연 DB에 붙었고,
+    2026-08-23에 가입 계정이 실제로 사라졌다. **스키마 드롭은 막혔는데 행 삭제는
+    안 막혀 있었다.**
+
+    파일마다 붙이는 방식은 **다음에 만드는 테스트를 놓친다.** 그래서 DB를 여는
+    자리(:func:`run_alembic` · :func:`migrated_db` · :func:`app_fresh_engine`)로
+    올린다 — 앞으로 추가되는 테스트도 자동으로 같은 규칙을 받는다.
+
+    ## 왜 skip이 아니라 fail인가
+
+    skip은 조용하다. **돌지 않은 것을 돌았다고 착각할 여지**를 남기는데, 이 사고의
+    본체가 바로 「아무 신호 없이 지나갔다」였다. CI는 이미 ``cii_test``를 쓰므로
+    (``.github/workflows/ci.yml``) fail로 두어도 **CI 동작은 달라지지 않는다.**
+
+    ## 무엇을 막지 않는가
+
+    **DB를 쓰지 않는 테스트는 그대로 돈다.** 세션 전체를 중단하면 `cii_test` 없이
+    돌리던 순수 단위 테스트까지 함께 잃는다 — 막아야 할 것은 「DB에 쓰는 것」이지
+    「테스트를 돌리는 것」이 아니다.
+    """
+    if not is_disposable(TEST_DATABASE_URL):
+        pytest.fail(refusal_reason(TEST_DATABASE_URL), pytrace=False)
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +116,7 @@ def run_alembic(*alembic_args: str) -> subprocess.CompletedProcess:
     # 드라이버 정규화는 alembic/env.py의 _to_async_url()이 담당하므로, 여기서는
     # 원본 URL을 그대로 전달한다. asyncpg form을 미리 넘겨 이중 변환하지 않음으로써,
     # 향후 config.py가 raw postgresql:// 형식을 검증하더라도 깨지지 않게 한다. (#86)
+    require_disposable_target()
     env = {**os.environ, "DATABASE_URL": _RAW_DATABASE_URL}
     return subprocess.run(
         [sys.executable, "-m", "alembic", *alembic_args],
@@ -120,7 +153,11 @@ def migrated_db() -> None:
     따로 넣으면 같은 데이터를 여러 벌 관리하게 된다.
 
     적재는 **멱등**이라(``ON CONFLICT DO NOTHING``) 매 세션 반복해도 행이 늘지 않는다.
+
+    대상 DB 판정을 먼저 한다 (`#691`) — :func:`run_alembic`이 같은 확인을 하지만,
+    **여기서 막아야 실패 지점이 「DB를 쓰는 fixture」로 읽힌다.**
     """
+    require_disposable_target()
     result = run_alembic("upgrade", "head")
     if result.returncode != 0:
         pytest.fail(f"alembic upgrade head 실패:\n{result.stdout}\n{result.stderr}")
@@ -165,7 +202,13 @@ def app_fresh_engine(monkeypatch: pytest.MonkeyPatch):
     ``attached to a different loop``로 실패한다 (#308 테스트). DB를 실제로 쓰는
     TestClient 테스트는 이 fixture로 요청마다 연결을 만드는 NullPool 엔진으로
     갈아끼운다 — 테스트 루프에서 검증·정리할 때도 같은 세션팩토리를 쓴다.
+
+    **``migrated_db``에 의존하지 않는다.** 그래서 대상 DB 판정을 여기서 따로 한다
+    (`#691`) — 이 fixture만 받아 DB에 쓰는 테스트가 생기면 위 판정을 통째로
+    비켜 간다.
     """
+    require_disposable_target()
+
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from cii_platform.db import session as db_session_mod
