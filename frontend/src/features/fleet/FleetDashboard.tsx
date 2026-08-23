@@ -189,7 +189,7 @@ export function FleetDashboard() {
               <PositionChart vessels={vessels} />
             </div>
             <p className="card__note">
-              지도 없이 상대 위치만 표시합니다. 점 색은 올해 누적(YTD) 등급입니다.
+              대략적인 위치입니다. 배 색과 무늬는 올해 누적(YTD) 등급입니다.
             </p>
           </section>
 

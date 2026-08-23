@@ -1,6 +1,8 @@
 import type { FleetVessel } from './types'
 import { isAtRisk } from './fleetRules'
 import { gradePatternUrl } from '../../components/gradePattern'
+import { VESSEL_GRID, VESSEL_PATHS } from './vesselShape'
+import { LAND_RINGS } from './landOutline'
 
 /**
  * 선박 위치 개략도.
@@ -20,6 +22,15 @@ import { gradePatternUrl } from '../../components/gradePattern'
  * `GET /fleet/summary`(`#350`)는 **현재 좌표만** 준다. 지나온 항적은 항차 계층
  * 데이터라 이 응답에 없다. 없는 것을 그리면 안 되므로 점만 찍는다 — 항적은 지도 API
  * 연동 또는 실시간 CII 화면(`#357`) 소관이다.
+ *
+ * ## 마커는 배 모양이다
+ *
+ * 같은 화면의 등급 분포와 선박 카드가 **배 한 척 = 마크 하나**로 그린다. 여기만 점을
+ * 쓰면 세 블록이 서로 다른 언어가 된다(`#701` ⑥).
+ *
+ * **격자와 눈금은 여전히 두지 않는다.** 시연 피드백의 「밋밋하다」는 「눈금이 없어
+ * 못 읽겠다」가 아니었다. 격자를 깔면 **읽을 수 없는 눈금을 읽으라고 내미는 것**이
+ * 되므로, 아래 축선 주석의 판단을 그대로 유지하고 마커 쪽을 바꿨다.
  *
  * ## 색만으로 구분하지 않는다 — 마커는 패턴이 필수다
  *
@@ -53,8 +64,13 @@ const PADDING = 24
 const VIEW_W = 480
 const VIEW_H = 300
 
-/** 마커 반지름. 4px 패턴 타일이 지름 안에 네 번쯤 들어가는 크기다. */
-const DOT_R = 7.8
+/**
+ * 배 마커 한 변 — 종전 점의 지름(15.6)보다 조금 크게 잡는다.
+ *
+ * 실루엣은 원과 달리 **속이 빈 부분이 있어** 같은 크기면 작아 보인다. 무늬가 앉는
+ * 면도 그만큼 줄어든다. 24를 넘기면 좌표가 가까운 배끼리 형태가 뭉친다.
+ */
+const SHIP = 22
 
 /** 이름표를 마커 위(또는 아래)로 띄우는 거리. */
 const LABEL_OFFSET = 18
@@ -245,11 +261,32 @@ export function PositionChart({ vessels }: PositionChartProps) {
   const latSpan = Math.max(maxLat - minLat, MIN_SPAN)
   const lonSpan = Math.max(maxLon - minLon, MIN_SPAN)
 
+  /*
+   * ## 위도와 경도를 **같은 배율**로 놓는다
+   *
+   * 종전에는 두 축을 각각 늘려 상자를 채웠다. 시연 화면이 위도 4.5° · 경도 96.7°
+   * 범위였는데 같은 폭에 펴 놓으니 **위도가 21배 부풀려져** 있었다 — 「서로 얼마나
+   * 떨어져 있나」를 보여 준다고 적어 놓고 그 거리를 왜곡하고 있었다.
+   *
+   * 육지를 그리려면 어차피 균등 배율이어야 한다(형태가 뭉개진다). 두 문제가 한
+   * 수정으로 닫힌다.
+   *
+   * **긴 축에 맞추고 짧은 축은 가운데 정렬**한다. 배들이 한쪽에 몰려 보일 수 있으나
+   * 그것이 사실이고, 남는 자리는 육지가 채운다.
+   */
+  const inner = { w: VIEW_W - PADDING * 2, h: VIEW_H - PADDING * 2 }
+  const scale = Math.min(inner.w / lonSpan, inner.h / latSpan)
+  const originX = PADDING + (inner.w - lonSpan * scale) / 2
+  const originY = PADDING + (inner.h - latSpan * scale) / 2
+  const midLat = (minLat + maxLat) / 2
+  const midLon = (minLon + maxLon) / 2
+
   /** 경도 → x, 위도 → y. **위도는 위쪽이 크므로 뒤집는다.** */
-  const project = (p: Positioned) => ({
-    x: PADDING + ((p.lon - minLon) / lonSpan) * (VIEW_W - PADDING * 2),
-    y: PADDING + (1 - (p.lat - minLat) / latSpan) * (VIEW_H - PADDING * 2),
+  const at = (lon: number, lat: number) => ({
+    x: originX + (lon - midLon + lonSpan / 2) * scale,
+    y: originY + (midLat + latSpan / 2 - lat) * scale,
   })
+  const project = (p: Positioned) => at(p.lon, p.lat)
 
   /*
    * 이름표 자리를 **마커를 그리기 전에 한 번에** 정한다. 겹침은 이름표 하나만
@@ -283,6 +320,23 @@ export function PositionChart({ vessels }: PositionChartProps) {
         `vector-effect`로 굵기를 고정한다 — 뷰박스 배율(1.6~2.2배)을 타면
         같은 1px이 화면에서 2px 넘게 그려진다.
       */}
+      {/*
+        육지 — `landOutline.ts`. 뷰박스를 넘는 부분은 SVG가 알아서 잘라 내므로
+        범위를 미리 거르지 않는다. 44개 링이라 전부 그려도 부담이 없고, 거르는
+        코드를 두면 **경계에 걸친 대륙이 잘려 보이는** 다른 문제가 생긴다.
+
+        축선보다 **먼저** 그린다 — 배경이므로 축과 마커가 그 위에 얹혀야 한다.
+      */}
+      <g className="position-chart__land" aria-hidden="true">
+        {LAND_RINGS.map((ring, i) => {
+          let d = ''
+          for (let k = 0; k < ring.length; k += 2) {
+            const { x, y } = at(ring[k], ring[k + 1])
+            d += `${k === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`
+          }
+          return <path key={i} d={`${d}Z`} />
+        })}
+      </g>
       <line
         className="position-chart__axis"
         x1={AXIS_INSET}
@@ -304,8 +358,8 @@ export function PositionChart({ vessels }: PositionChartProps) {
         지도가 아니므로 나침반을 그리지 않고 글자 하나만 둔다.
 
         **점 영역보다 위에 둔다.** 마커는 아무리 북쪽이어도 `PADDING`(24)까지만
-        올라오므로 윗변이 `24 - DOT_R` = 16.2다. 글자 밑변을 12에 두면 글자가
-        4~12를 쓰고 그 아래로 4.2가 남는다 — 종전 밑변 20은 16.2와 겹쳐서
+        올라오므로 배의 맨 윗점(연돌 꼭대기)이 17.8이다. 글자 밑변을 12에 두면
+        글자가 4~12를 쓰고 그 아래로 5.8이 남는다 — 종전 밑변 20은 그 위를 덮어
         **좌상단에 선박이 있으면 나침방이 마커에 가려 보이지 않았다.**
       */}
       <text
@@ -337,20 +391,38 @@ export function PositionChart({ vessels }: PositionChartProps) {
           <g key={point.vessel.id}>
             {/* 마우스오버·보조기술용. 무늬를 못 읽어도 등급이 글로 나온다. */}
             <title>{`${point.vessel.name} — ${rating ? `등급 ${rating}` : '등급 미상'}`}</title>
-            <circle cx={x} cy={y} r={DOT_R} fill={color} />
-            {pattern ? <circle cx={x} cy={y} r={DOT_R} fill={pattern} /> : null}
             {/*
-              테두리를 맨 위 빈 원으로 따로 그린다. 채움 원에 얹으면 패턴 원이
-              선의 안쪽 절반을 덮어 위험 표시가 반 두께로 보인다.
+              24 그리드 경로를 이 좌표계로 옮긴다. 배 한 변을 `SHIP`으로 잡고
+              중심이 (x, y)에 오도록 왼쪽 위 모서리를 반만큼 당긴다.
             */}
-            <circle
-              className={dotClass}
-              cx={x}
-              cy={y}
-              r={DOT_R}
-              fill="none"
-              vectorEffect="non-scaling-stroke"
-            />
+            <g transform={`translate(${x - SHIP / 2} ${y - SHIP / 2}) scale(${SHIP / VESSEL_GRID})`}>
+              {/*
+                채움 → 무늬 → 테두리 순서다. 테두리를 채움에 얹으면 무늬가 선의
+                안쪽 절반을 덮어 위험 표시가 반 두께로 보인다 — 점일 때와 같다.
+              */}
+              <g fill={color}>
+                {VESSEL_PATHS.map((d) => (
+                  <path key={d} d={d} />
+                ))}
+              </g>
+              {pattern ? (
+                <g fill={pattern}>
+                  {VESSEL_PATHS.map((d) => (
+                    <path key={d} d={d} />
+                  ))}
+                </g>
+              ) : null}
+              {/*
+                테두리는 **모든 마커**에 준다. 좌표가 가까운 두 배는 실루엣이 겹치는데,
+                윤곽이 없으면 한 덩어리로 보여 **몇 척인지 셀 수 없다.** 위험 선박은
+                같은 자리를 굵게 쓴다(`.position-chart__dot--risk`).
+              */}
+              <g className={dotClass} fill="none" vectorEffect="non-scaling-stroke">
+                {VESSEL_PATHS.map((d) => (
+                  <path key={d} d={d} vectorEffect="non-scaling-stroke" />
+                ))}
+              </g>
+            </g>
             {place ? (
               <text
                 className="position-chart__label"
