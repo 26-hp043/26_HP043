@@ -16,6 +16,7 @@ import numpy
 from fastapi import APIRouter
 
 from cii_platform.calc.rng import validate_rng
+from cii_platform.reports import pdf as pdf_module
 
 router = APIRouter(tags=["health"])
 
@@ -72,6 +73,31 @@ def _rng_canonical_test() -> str:
     return "passed"
 
 
+@lru_cache(maxsize=1)
+def _pdf_korean_font() -> str:
+    """리포트 PDF에 한글을 그릴 수 있는가 (`#689`).
+
+    ``"ok"`` — 한국어 글리프를 그릴 수 있다.
+    ``"missing"`` — 렌더러는 있으나 **한국어 폰트가 없다.** 이 상태에서 PDF를 요청하면
+    ``PdfUnavailableError``(500)로 거부되며, 종전에는 면책 문구가 □인 문서가 200으로
+    나갔다 (`TECH_SPEC §19.4`).
+    ``"unavailable"`` — WeasyPrint 런타임(Pango) 자체가 없다. PDF 기능 전체가 없는
+    환경이며 **폰트를 설치해도 해결되지 않는다** — 둘을 한 값으로 뭉치면 「무엇을
+    설치해야 하는가」에 답할 수 없다.
+
+    ``_rng_canonical_test``와 같은 이유로 **프로세스당 1회만** 계산한다 (`#400`).
+    판정에 프로브 문서 렌더링이 들어가므로 요청마다 하면 health가 비싸진다.
+
+    ``status``는 이 값과 무관하게 ``"ok"``를 유지한다 — 아래 :func:`health` 참조.
+    """
+    try:
+        if not pdf_module.is_available():
+            return "unavailable"
+        return "ok" if pdf_module.korean_font_available() else "missing"
+    except Exception:  # noqa: BLE001 — 진단 필드가 엔드포인트를 죽이지 않게 한다
+        return "unavailable"
+
+
 @router.get("/health")
 async def health() -> dict[str, dict[str, str]]:
     """서비스 상태를 반환한다 (API_SPEC §10).
@@ -85,6 +111,11 @@ async def health() -> dict[str, dict[str, str]]:
     오케스트레이터가 무한 재시작 루프에 빠지면서 원인은 그대로 남는다.
 
     신호는 필드가 전달한다. 모니터링이 이 값을 보고 알람을 걸어야 한다.
+
+    ``pdf_korean_font``도 **같은 규약**이다 (`#689`). ``"missing"``이어도 ``status``는
+    ``"ok"``다 — 프로세스는 살아 있고 CSV·HTML 리포트는 정상으로 나간다. 재시작으로
+    해결되지도 않는다(폰트 설치가 필요하다). 이 필드가 없던 동안 **폰트 부재를 볼
+    수단이 배포 환경에 하나도 없었고**, 그래서 시연 서버가 몇 판을 그 상태로 돌았다.
     """
     return {
         "data": {
@@ -92,5 +123,6 @@ async def health() -> dict[str, dict[str, str]]:
             "version": _app_version(),
             "numpy_version": numpy.__version__,
             "rng_canonical_test": _rng_canonical_test(),
+            "pdf_korean_font": _pdf_korean_font(),
         }
     }

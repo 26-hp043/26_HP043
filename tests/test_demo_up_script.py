@@ -133,3 +133,44 @@ def test_startup_still_requires_venv():
     assert "exit 1" in body
     # 안내는 그대로 남는다 (#477).
     assert "docker compose run --rm app alembic upgrade head" in body
+
+
+def test_step_seven_checks_the_korean_font():
+    """7단계가 리포트 PDF의 한글 폰트를 점검한다 (`#689`).
+
+    컨테이너(`Dockerfile`)와 CI(`ci.yml`)에는 `fonts-nanum`이 들어 있으나, **이
+    스크립트만 호스트 `.venv`로 uvicorn을 띄워** 그 방어를 우회한다. 폰트가 없으면
+    오류 없이 한글만 tofu(□)가 되므로 **점검이 없으면 아무도 모른다.**
+    """
+    text = _SCRIPT.read_text(encoding="utf-8")
+
+    assert 'step "7. 리포트 PDF 한글 폰트"' in text
+    # 판정은 /health 필드로 한다 — 파이썬 없이 확인된다 (#637).
+    assert "pdf_korean_font" in text
+    # 원인만 말하고 끝내지 않는다 — 무엇을 하면 되는지까지 낸다.
+    assert "apt-get install -y fonts-nanum" in text
+
+
+def test_font_check_does_not_call_python():
+    """7단계도 `.venv` 없이 돈다 — Docker만 있는 환경에서 점검이 막히지 않는다 (`#637`)."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    step_seven = text.split('step "7. 리포트 PDF 한글 폰트"', 1)[1].split("GUIDE", 1)[0]
+
+    offenders = [
+        line.strip()
+        for line in step_seven.splitlines()
+        if "$VENV" in line and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, f"7단계가 .venv를 부른다: {offenders}"
+
+
+def test_font_check_does_not_block_the_demo():
+    """폰트가 없어도 **기동을 세우지 않는다** (`#689`).
+
+    막히는 것은 PDF 내려받기 하나이고 DB·계산·화면은 전부 정상이다. 시연 전체를
+    세우는 것이 그 하나보다 비싸다 — 안내만 내고 계속한다.
+    """
+    text = _SCRIPT.read_text(encoding="utf-8")
+    step_seven = text.split('step "7. 리포트 PDF 한글 폰트"', 1)[1].split("GUIDE", 1)[0]
+
+    assert "exit 1" not in step_seven

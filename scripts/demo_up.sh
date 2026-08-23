@@ -309,6 +309,50 @@ else
   exit 1
 fi
 
+# --- 7. 리포트 PDF 한글 폰트 -----------------------------------------------------------
+#
+# **폰트가 없으면 오류가 나지 않는다.** 렌더링은 성공하고 한글만 tofu(□)가 되어,
+# 바이트 길이도 HTTP 상태도 정상이다. 그래서 시연 서버가 **면책 문구가 □인 리포트를
+# 200으로** 내보내고 있었고 아무 검사도 그것을 보지 않았다 (#689).
+#
+# 컨테이너(`Dockerfile:30·93`)와 CI(`ci.yml:105`)에는 `fonts-nanum`이 들어 있다.
+# **이 스크립트만 컨테이너를 쓰지 않고 호스트 `.venv`로 uvicorn을 띄우므로** 그
+# 방어를 통째로 우회한다. 여기가 유일하게 비어 있던 자리다.
+#
+# 판정은 `/health`의 `pdf_korean_font`로 한다 — **파이썬을 부르지 않는다 (#637).**
+# 이미 떠 있는 서버에 묻는 것이라 `.venv` 없는 환경에서도 확인된다.
+#
+# **기동을 막지 않는다.** 폰트가 없어도 DB·계산·화면은 전부 정상이고, 막히는 것은
+# PDF 내려받기 하나다(#689 B안 — 폰트 없으면 500 + CSV 안내). 시연 전체를 세우는
+# 것이 그 하나보다 비싸다.
+
+step "7. 리포트 PDF 한글 폰트"
+
+FONT=$(_field pdf_korean_font "$(curl -s http://localhost:8000/api/v1/health 2>/dev/null)")
+
+case "$FONT" in
+  ok)
+    ok "한글 렌더 가능 — PDF에 한국어 폰트가 임베드됩니다"
+    ;;
+  missing)
+    bad "한국어 폰트가 없습니다 — PDF 내려받기가 500으로 거부됩니다 (#689)"
+    info "설치한 뒤 백엔드를 다시 띄우십시오. DB·계산·화면은 그대로 씁니다."
+    printf '    sudo apt-get install -y fonts-nanum && fc-cache -f
+'
+    printf '    pkill -f "uvicorn cii_platform" && bash scripts/demo_up.sh
+'
+    ;;
+  unavailable)
+    bad "PDF 렌더러(WeasyPrint/Pango)가 없습니다 — 폰트를 넣어도 해결되지 않습니다"
+    info "리포트는 CSV·HTML로 내려받습니다."
+    printf '    sudo apt-get install -y libpango-1.0-0 libpangoft2-1.0-0
+'
+    ;;
+  *)
+    bad "폰트 상태를 읽지 못했습니다: ${FONT:-없음} — /health 응답을 확인하십시오"
+    ;;
+esac
+
 # --- 안내 ---------------------------------------------------------------------------
 
 # 안내 문구는 README 「화면은 항상 실 API로 돈다」와 같은 것을 말해야 한다.
