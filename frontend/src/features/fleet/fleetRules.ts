@@ -283,6 +283,22 @@ export function gradeDistributionSegments(
 }
 
 /** 0척인 등급. 바에서 빠지므로 화면이 이 목록을 따로 낸다. */
+/**
+ * 다섯 등급을 **A→E 순서 그대로**, 0척인 것까지 함께 낸다.
+ *
+ * `gradeDistributionSegments()`는 0척을 뺀다 — 폭 0인 막대 조각을 그릴 수 없기
+ * 때문이고, 그 판단은 막대에서 여전히 맞다.
+ *
+ * **픽토그램은 사정이 다르다.** 막대와 달리 자리를 차지하지 않고도 「A 0척」을
+ * 같은 줄에 적을 수 있고, 그러면 **등급 축이 A부터 E까지 끊기지 않는다.**
+ * 종전처럼 「B · D · E」만 서 있으면 A와 C가 어디쯤인지 세어 봐야 안다.
+ */
+export function distributionSlots(
+  distribution: Record<Rating, number>,
+): { rating: Rating; count: number }[] {
+  return RATINGS.map((rating) => ({ rating, count: distribution[rating] ?? 0 }))
+}
+
 export function zeroRatings(distribution: Readonly<Record<Rating, number>>): Rating[] {
   return RATINGS.filter((rating) => distribution[rating] === 0)
 }
@@ -315,4 +331,21 @@ export const PICTOGRAM_MAX_VESSELS = 24
 
 export function usesPictogram(segments: readonly DistributionSegment[]): boolean {
   return segments.reduce((sum, seg) => sum + seg.count, 0) <= PICTOGRAM_MAX_VESSELS
+}
+
+/**
+ * GT가 없는 선박 수.
+ *
+ * 선박 카드마다 붙는 「GT 미입력」 배지(`ApplicabilityBadge`)의 합이다. 종전에는
+ * **배마다 따로 보일 뿐 선대 단위로는 어디에도 없었다** — 몇 척이 그 상태인지
+ * 알려면 목록을 세어야 했다.
+ *
+ * `grossTonnage`는 `number | string | null`이다. 서버가 소수를 문자열로 내리는
+ * 자리라 빈 문자열도 없는 것으로 본다 — `Number('')`이 `0`이라 숫자로 바꿔
+ * 판정하면 **GT 0인 배와 구분이 사라진다.**
+ */
+export function missingGrossTonnageCount(vessels: FleetVessel[]): number {
+  return vessels.filter(
+    (vessel) => vessel.grossTonnage === null || vessel.grossTonnage === '',
+  ).length
 }

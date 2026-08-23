@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
+import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { RegulatoryFlags } from '../../components/RegulatoryFlag'
 import { GradeDistribution } from './GradeDistribution'
 import { VesselMark } from './VesselMark'
-import { UnderwayChip } from './UnderwayChip'
+import { AnchorIcon, UnderwayChip, UnderwayIcon } from './UnderwayChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PositionChart } from './PositionChart'
 import { createApiFleetProvider } from './apiProvider'
 import {
   daysToDText,
   isAtRisk,
+  missingGrossTonnageCount,
   relativeTime,
   soonestDaysToD,
   sortVessels,
@@ -102,6 +104,8 @@ export function FleetDashboard() {
   const { counts } = snapshot
   const banner = warningBannerText(counts.atRisk)
   const soonest = soonestDaysToD(vessels)
+  const hasActions = snapshot.actions.length > 0
+  const missingGt = missingGrossTonnageCount(vessels)
   const visible = expanded ? sorted : sorted.slice(0, INITIAL_VISIBLE)
   const remaining = sorted.length - visible.length
 
@@ -120,7 +124,21 @@ export function FleetDashboard() {
       {banner ? (
         <section className="warn" role="alert">
           <WarnIcon />
-          <p className="warn__main">{banner}</p>
+          {/*
+            답이 화면 한참 아래 「조치 필요」에 있는데 연결이 없었다. 배너는
+            **「지금 문제가 있다」**만 말하고(`#701`) 무엇을 해야 하는지는 그
+            목록이 말하므로, 둘을 이어 준다.
+
+            목록이 없으면(위험 선박이 있는데 서버가 조치를 안 내린 경우) 링크를
+            걸지 않는다 — 눌러도 아무 데도 가지 않는 링크가 더 나쁘다.
+          */}
+          {hasActions ? (
+            <a className="warn__main warn__link" href={`#${ACTIONS_ID}`}>
+              {banner}
+            </a>
+          ) : (
+            <p className="warn__main">{banner}</p>
+          )}
           {soonest ? (
             <p className="warn__sub">
               {/* 문구를 다시 쓰지 않고 `daysToDText`를 부른다 (#592). 종전에는
@@ -138,9 +156,29 @@ export function FleetDashboard() {
       */}
       <section className="card fleet__kpi" aria-label="선대 요약">
         <div className="kpi">
-          <p className="kpi__label">운항 / 정박</p>
-          <p className="kpi__value">
-            {counts.underWay} <span className="kpi__slash">/</span> {counts.notUnderWay}
+          <p className="kpi__label">운항 상태</p>
+          {/*
+            ## 슬래시를 뺀다
+
+            「1 / 3」은 **「3척 중 1척」이라는 분수로 읽힌다.** 실제로는 운항 1 ·
+            정박 3이고 합이 4다 — 분수로 읽으면 **분모가 틀린다.** 라벨의 「운항 /
+            정박」이 순서를 알려 주긴 했지만, 큰 숫자 두 개를 슬래시로 붙여 놓으면
+            라벨보다 그 모양이 먼저 읽힌다.
+
+            숫자마다 **아래 선박 카드가 쓰는 상태 아이콘**(물살·닻)과 짧은 라벨을
+            붙인다. 같은 화면에서 배운 기호라 따로 익힐 것이 없다.
+          */}
+          <p className="kpi__states">
+            <span className="kpi__state">
+              <UnderwayIcon />
+              <span className="kpi__value">{counts.underWay}</span>
+              <span className="kpi__state-label">운항 중</span>
+            </span>
+            <span className="kpi__state">
+              <AnchorIcon />
+              <span className="kpi__value">{counts.notUnderWay}</span>
+              <span className="kpi__state-label">정박 중</span>
+            </span>
           </p>
           {/* 상태 미기록을 운항·정박 어느 쪽에도 넣지 않는다 — 없는 사실이 된다. */}
           {counts.unknownState > 0 ? (
@@ -175,6 +213,29 @@ export function FleetDashboard() {
             <p className="kpi__foot">집계 불가 {counts.noData}척</p>
           ) : null}
         </div>
+
+        {/*
+          ## 세 번째 칸을 두는 이유
+          「GT 미입력」은 **배마다 배지로만** 보였다. 선대 단위로는 어디에도 없어
+          몇 척이 그 상태인지 알려면 목록을 세어야 했고, KPI 행은 오른쪽 절반이
+          비어 있었다.
+
+          **「계산이 안 된다」고 쓰지 않는다.** GT가 없어도 CII 값은 나온다 —
+          없는 것은 **적용 대상 판정**이다(`types.ts` `grossTonnage` 주석 ·
+          `#653`). 안 되는 일을 넓게 적으면 사용자가 다른 값까지 의심한다.
+        */}
+        <div className="kpi">
+          <p className="kpi__label">GT 미입력</p>
+          <p className="kpi__value">{missingGt}</p>
+          {missingGt > 0 ? (
+            <p className="kpi__foot">
+              CII 적용 대상 판정이 되지 않습니다 ·{' '}
+              <Link className="kpi__link" to={SCREEN_BY_ID.VESSEL_MANAGEMENT.path}>
+                선박 관리
+              </Link>
+            </p>
+          ) : null}
+        </div>
       </section>
 
       <div className="fleet__split">
@@ -190,15 +251,13 @@ export function FleetDashboard() {
               <span className="card__meta">사용자 입력 기준</span>
             </div>
             <div className="fleet__chartbox">
+              {/* 그림 읽는 법은 `PositionChart`가 스스로 적는다 — 차트가 바뀌면 설명도 함께 바뀐다. */}
               <PositionChart vessels={vessels} />
             </div>
-            <p className="card__note">
-              대략적인 위치입니다. 배 색과 무늬는 올해 누적(YTD) 등급입니다.
-            </p>
           </section>
 
           {snapshot.actions.length > 0 ? (
-            <section className="card" aria-label="조치 필요">
+            <section className="card" id={ACTIONS_ID} aria-label="조치 필요">
               <div className="card__head">
                 <h2 className="card__title">조치 필요</h2>
                 <span className="card__meta">MARPOL Annex VI Reg 28.7</span>
@@ -262,6 +321,9 @@ export function FleetDashboard() {
   )
 }
 
+/** 경고 배너가 가리키는 자리. 두 곳이 같은 문자열을 쓰므로 상수로 둔다. */
+const ACTIONS_ID = 'fleet-actions'
+
 function FleetHead({
   asOf,
   regulationYear,
@@ -287,7 +349,17 @@ function FleetHead({
         <p className="fleet__asof">
           {/* 상대 시각만으로는 어느 시점 데이터인지 특정할 수 없어 원본도 함께 둔다. */}
           <span className="fleet__asof-abs">
-            기준 {new Date(asOf).toLocaleString('ko-KR', { hour12: false })}
+            {/*
+              초를 내지 않는다. 선대 스냅숏의 기준 시각에 30초는 의미가 없고,
+              바로 옆에 상대 시각(「방금」)이 이미 있다. `toLocaleString`이
+              기본으로 초를 붙이는 것이라 형식을 명시해 끈다.
+            */}
+            기준{' '}
+            {new Date(asOf).toLocaleString('ko-KR', {
+              hour12: false,
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            })}
           </span>
           <span className="fleet__asof-rel">{relativeTime(asOf, new Date())}</span>
         </p>

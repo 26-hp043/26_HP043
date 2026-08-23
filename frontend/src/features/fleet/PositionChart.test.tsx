@@ -117,3 +117,82 @@ describe('위치 개략도 — 결측 표기', () => {
     expect(empty).toContain(shared)
   })
 })
+
+/**
+ * 겹치는 마커를 벌린다.
+ *
+ * 이 그림은 선대의 좌표 범위에 맞춰 확대된다. 시연 데이터가 수에즈~한국 97°를
+ * 걸치는데 네 척 중 셋이 한국 앞바다라, 그 셋이 몇 px 안에 들어와 **한 덩어리로
+ * 뭉쳤다.** 「보유 선박 4척」이라 적어 놓고 그림에는 배가 둘로 보였다.
+ *
+ * `#701` ⑥이 「윤곽을 모든 마커에 줘서 몇 척인지 셀 수 있게」 한 것이 여기서
+ * 무력해진다 — 좌표가 거의 같으면 윤곽도 겹친다.
+ */
+describe('위치 개략도 — 겹침 분산', () => {
+  /** 마커를 옮기는 `<g transform>`만 고른다. 안쪽 채움·무늬 `<g>`에는 없다. */
+  function markerTransforms(container: HTMLElement): string[] {
+    return [...container.querySelectorAll('g[transform]')].map(
+      (node) => node.getAttribute('transform') ?? '',
+    )
+  }
+
+  it('같은 좌표의 세 척이 서로 다른 자리에 그려진다', () => {
+    const { container } = render(
+      <PositionChart
+        vessels={[
+          vessel({ id: 'a', lat: '35.0', lon: '129.0' }),
+          vessel({ id: 'b', lat: '35.0', lon: '129.0' }),
+          vessel({ id: 'c', lat: '35.0', lon: '129.0' }),
+          vessel({ id: 'far', lat: '30.0', lon: '32.0' }),
+        ]}
+      />,
+    )
+    const transforms = markerTransforms(container)
+    expect(transforms).toHaveLength(4)
+    expect(new Set(transforms).size).toBe(4)
+  })
+
+  it('벌린 사실을 화면에 적는다 — 없는 정밀도를 주장하지 않는다', () => {
+    render(
+      <PositionChart
+        vessels={[
+          vessel({ id: 'a', lat: '35.0', lon: '129.0' }),
+          vessel({ id: 'b', lat: '35.0', lon: '129.0' }),
+        ]}
+      />,
+    )
+    expect(screen.getByText(/조금 벌려 그렸습니다/)).toBeTruthy()
+  })
+
+  it('겹치지 않으면 벌렸다고 적지 않는다', () => {
+    render(
+      <PositionChart
+        vessels={[
+          vessel({ id: 'a', lat: '35.0', lon: '129.0' }),
+          vessel({ id: 'b', lat: '30.0', lon: '32.0' }),
+        ]}
+      />,
+    )
+    expect(screen.queryByText(/조금 벌려 그렸습니다/)).toBeNull()
+  })
+
+  /*
+   * 자리를 무작위로 정하면 다시 그릴 때마다 배가 자리를 바꾼다. 시연 중 화면이
+   * 갱신되면 **같은 배가 움직인 것처럼 보인다.**
+   */
+  it('다시 그려도 같은 자리다 — 배치가 입력에만 달려 있다', () => {
+    const fleet = [
+      vessel({ id: 'a', lat: '35.0', lon: '129.0' }),
+      vessel({ id: 'b', lat: '35.0', lon: '129.0' }),
+      vessel({ id: 'c', lat: '35.0', lon: '129.0' }),
+    ]
+    const first = markerTransforms(render(<PositionChart vessels={fleet} />).container)
+    const second = markerTransforms(render(<PositionChart vessels={fleet} />).container)
+    expect(second).toEqual(first)
+  })
+
+  it('그림 설명을 차트가 낸다 — 대시보드가 따로 적지 않는다', () => {
+    render(<PositionChart vessels={[vessel({ id: 'a' })]} />)
+    expect(screen.getByText(/배 색과 무늬는 올해 누적\(YTD\) 등급입니다/)).toBeTruthy()
+  })
+})

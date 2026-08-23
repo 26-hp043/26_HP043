@@ -1,6 +1,7 @@
 import { gradePatternUrl } from '../../components/gradePattern'
 import {
   distributionAria,
+  distributionSlots,
   gradeDistributionSegments,
   showsInlineLabel,
   usesPictogram,
@@ -64,14 +65,35 @@ export function GradeDistribution({
   }
 
   if (usesPictogram(segments)) {
+    /*
+     * 0척인 등급도 **같은 줄에 같은 형식으로** 세운다 — 배 마크만 없다.
+     *
+     * 종전에는 「A · C등급 0척」을 아래 줄에 문장으로 붙였다. 두 가지가 아쉬웠다.
+     * ⑴ 그 칸만 한 줄 더 길어져 KPI 세 칸의 줄이 어긋나 보였고,
+     * ⑵ 남은 「B · D · E」만 서 있어 **등급 축이 끊겼다** — A와 C가 어디쯤인지
+     *   세어 봐야 알 수 있었다.
+     *
+     * 다섯이 A→E로 나란히 서면 순서가 그대로 보이고, 빈 자리는 마크가 없다는
+     * 것으로 드러난다. `#701` ②가 정한 **「0척인 등급을 감추지 않는다」**는
+     * 그대로다 — 감추지 않는 방법만 바뀐다.
+     */
     return (
       <div className="dist">
         <div className="dist__fleet" role="group" aria-label={`등급 분포 — ${distributionAria(segments)}`}>
-          {segments.map((seg) => (
-            <GradeGroup key={seg.rating} segment={seg} />
-          ))}
+          {distributionSlots(distribution).map((slot) => {
+            /*
+             * `as`로 찍어 내리지 않는다. `segments`가 0척을 빼고 오므로 **못 찾은
+             * 것이 곧 0척**이고, 그 사실을 캐스트로 감추면 나중에 `segments`의
+             * 계약이 바뀌어도 여기가 조용히 통과한다.
+             */
+            const segment = segments.find((seg) => seg.rating === slot.rating)
+            return segment ? (
+              <GradeGroup key={slot.rating} segment={segment} />
+            ) : (
+              <ZeroGroup key={slot.rating} rating={slot.rating} />
+            )
+          })}
         </div>
-        <ZeroNote zeros={zeros} />
       </div>
     )
   }
@@ -148,7 +170,26 @@ function GradeGroup({ segment }: { segment: DistributionSegment }) {
   )
 }
 
-/** 0척인 등급. 마크가 없으니 글로 남긴다 — 「한 척도 없다」도 정보다. */
+/**
+ * 배가 없는 등급 — 픽토그램용.
+ *
+ * **등급색을 쓰지 않는다.** 다른 묶음과 같은 색이면 「여기에도 뭔가 있다」로
+ * 잠깐 읽힌다. 없다는 사실이 색이 아니라 **빈 자리**로 드러나야 한다.
+ *
+ * 마크 자리를 채우지 않아도 라벨은 다른 묶음과 밑선이 맞는다 —
+ * `.dist__fleet`이 `align-items: flex-end`다.
+ */
+function ZeroGroup({ rating }: { rating: Rating }) {
+  return (
+    <div className="dist__group" role="img" aria-label={`${rating}등급 0척`}>
+      <p className="dist__group-label">
+        <b>{rating}</b> 0척
+      </p>
+    </div>
+  )
+}
+
+/** 0척인 등급 — 막대용. 막대는 폭 0인 조각을 그릴 수 없어 글로 남긴다. */
 function ZeroNote({ zeros }: { zeros: readonly string[] }) {
   if (zeros.length === 0) return null
   return <p className="dist__zero">{zeros.join(' · ')}등급 0척</p>
