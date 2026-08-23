@@ -59,7 +59,7 @@
 /* 상대 시각만 있으면 어느 시점 데이터인지 특정할 수 없어 원본도 함께 둔다. */
 .fleet__asof-abs {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -170,14 +170,14 @@
 }
 
 .kpi__slash {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-weight: var(--font-weight-body);
 }
 
 .kpi__foot {
   margin: var(--spacing-xs) 0 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* 즉시 행동이 필요한 하나만 강조한다. */
@@ -227,7 +227,7 @@
 
 .card__meta {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── 분할 ───────────────────────────────────────────────────────── */
@@ -379,7 +379,7 @@
 
 .position-chart__compass {
   font-family: var(--font-sans);
-  fill: var(--text-muted);
+  fill: var(--text-secondary);
 }
 
 /*
@@ -388,7 +388,7 @@
 .position-chart__range {
   margin: var(--spacing-sm) 0 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* §3 — 식별자용 mono는 IMO 번호·좌표 전용이다. */
@@ -400,7 +400,7 @@
   margin: 0;
   padding: var(--spacing-2xl);
   text-align: center;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: var(--font-size-label);
 }
 
@@ -484,7 +484,7 @@
 
 .vessel__k {
   font-weight: var(--font-weight-body);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   margin-right: var(--spacing-xs);
 }
 
@@ -629,7 +629,7 @@
 .card__note {
   margin: var(--spacing-md) 0 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── 선박 행 — 배지 + 본문 2열 ──────────────────────────────────── */
@@ -666,7 +666,7 @@
 }
 
 .vessel__days {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── 데이터 출처 문구 — PRD §6.3 ───────────────────────────────── */
@@ -674,5 +674,5 @@
 .fleet__source {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }

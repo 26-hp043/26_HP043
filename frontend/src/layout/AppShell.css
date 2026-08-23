@@ -84,7 +84,7 @@
 }
 
 .app-shell__util-key {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .app-shell__util-value {
@@ -101,7 +101,7 @@
  * 높이를 32px로 낮추고 폭 상한을 둔다.
  */
 .app-shell__util-label {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: var(--font-size-micro);
 }
 
@@ -131,7 +131,7 @@
 /* 아직 고르지 않은 컨텍스트 — 값처럼 진하게 두면 선택된 것으로 읽힌다. */
 .app-shell__util-value--empty {
   font-weight: var(--font-weight-body);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .app-shell__util-icon {

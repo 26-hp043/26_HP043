@@ -55,7 +55,7 @@
 .vd__asof {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
@@ -143,7 +143,7 @@
   margin: 0;
   inline-size: 100%;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .vd__nodata,
@@ -155,7 +155,7 @@
 
 .vd__note {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /* ── 제원 · 상태 ───────────────────────────────────────────────── */
@@ -188,7 +188,7 @@
 }
 
 .muted {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .vd__drill {
@@ -241,7 +241,7 @@
 .history__rating {
   font-family: var(--font-sans);
   font-size: 9px;
-  fill: var(--text-muted);
+  fill: var(--text-secondary);
 }
 
 .history__rating {
@@ -256,7 +256,7 @@
   padding: 0;
   list-style: none;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .history__legend li {
@@ -283,7 +283,7 @@
   margin: 0;
   padding: var(--spacing-xl);
   text-align: center;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: var(--font-size-label);
   background: var(--surface-inset);
   border-radius: var(--radius-control);
@@ -303,7 +303,7 @@
 .history__caption {
   text-align: left;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   padding-bottom: var(--spacing-sm);
 }
 
@@ -397,7 +397,7 @@
 .vd__pos-field em {
   font-style: normal;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .vd__pos select,
@@ -465,7 +465,7 @@
 /* 왜 저장이 막혔는지 적는다 — 죽은 버튼만 두면 고장으로 읽힌다. */
 .vd__pos-note {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 /*

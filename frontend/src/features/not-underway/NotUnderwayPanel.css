@@ -80,7 +80,7 @@
 .nu__hint {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .nu__field-error {
@@ -216,7 +216,7 @@
 
 .nu__figures dt {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .nu__figures dd {
@@ -243,7 +243,7 @@
 }
 
 .nu__cf {
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .nu__row-actions {

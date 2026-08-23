@@ -41,6 +41,35 @@
   --color-surface-2: var(--surface-inset);
   --color-text: var(--text-primary);
   --color-text-muted: var(--text-secondary);
+  /*
+   * ⚠️ **`--color-text-faint`는 문자에 쓰지 않는다** — `§2.2` · `§16 항목 1` ⓐ.
+   *
+   * **이름이 같아 보이는 것이 다른 값이다.** 생성 토큰 `--text-muted`는 문서의
+   * `text-muted`가 아니라 **`text-faint`**이며, 배경마다 다음과 같다.
+   *
+   * | 배경 | Light `#8b8a83` | Dark `#6b7686` |
+   * |---|---|---|
+   * | `--surface-card` | **3.46:1** | **3.47:1** |
+   * | `--surface-page` | **3.09:1** | 4.11:1 |
+   * | `--surface-inset` | **3.26:1** | 3.79:1 |
+   *
+   * `§0.2` 제약 1은 문자에 4.5:1을 요구하므로 **라이트·다크 양쪽에서 미달**이다.
+   * 그런데 이 값을 문자색으로 쓰는 자리가 53곳이었다 — 대시보드·실시간 CII·선박
+   * 상세의 라벨과 캡션이 전부 여기 걸려 있었다. **화면이 깨지지 않아** 오래 남았다.
+   *
+   * `§16 항목 1`은 ⓑ(`#647380`으로 교체)를 대안으로 적고 있었으나 그 `4.86:1`은
+   * **흰 카드 위 값**이고 `--surface-page`(`#f2f2ef`) 위에서는 `4.35:1`로 여전히
+   * 미달이다. 값을 바꾸는 길로는 닫히지 않는다.
+   *
+   * → **ⓐ 용도 축소.** 남는 자리는 둘뿐이며 **문자는 없다.**
+   *   ⑴ **면적** — `background` · 스와치 · 아이콘 `stroke`. 비텍스트 3:1 기준을 넘는다
+   *   ⑵ **비활성** — `:disabled` · `--disabled`. WCAG 1.4.3이 비활성 요소를 제외한다
+   *
+   * `§16 항목 1`의 ⓐ는 「플레이스홀더 전용」으로 적혀 있으나 **이 저장소에
+   * `::placeholder` 선언은 0건**이다. 실제 용도로 다시 적어야 한다(디자인 결정).
+   *
+   * 재발은 `tokens.sync.test.ts`가 막는다.
+   */
   --color-text-faint: var(--text-muted);
   --color-border: var(--border-default);
   --color-border-strong: var(--border-strong);

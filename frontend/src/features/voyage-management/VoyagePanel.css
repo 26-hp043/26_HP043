@@ -151,7 +151,7 @@
 
 .vy__figures dt {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .vy__figures dd {
@@ -176,7 +176,7 @@
 /* 왜 못 누르는지 버튼 옆에 적는다 — 눌러 보고 422를 받는 것보다 낫다. */
 .vy__blocker {
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   word-break: keep-all;
 }
 
@@ -308,7 +308,7 @@
 .vy-import__note {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   word-break: keep-all;
 }
 

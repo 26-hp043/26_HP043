@@ -74,7 +74,7 @@
 
 /* DESIGN_SYSTEM §14 — 한국어 라벨 + 영문 병기 */
 .voyage-cii-form__label-en {
-  color: var(--color-text-faint);
+  color: var(--color-text-muted);
   font-size: var(--font-size-micro);
   font-weight: var(--font-weight-body);
 }

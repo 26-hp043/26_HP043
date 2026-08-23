@@ -119,7 +119,7 @@
 }
 
 .vessel-registration__label-en {
-  color: var(--color-text-faint);
+  color: var(--color-text-muted);
   font-size: var(--font-size-micro);
   font-weight: var(--font-weight-body);
 }

@@ -194,7 +194,7 @@
 }
 
 .voyage-cii-result__metric-label-en {
-  color: var(--color-text-faint);
+  color: var(--color-text-muted);
 }
 
 .voyage-cii-result__metric-value {

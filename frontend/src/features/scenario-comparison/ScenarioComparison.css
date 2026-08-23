@@ -358,7 +358,7 @@
 }
 
 .scenario-card__type {
-  color: var(--color-text-faint);
+  color: var(--color-text-muted);
   font-size: var(--font-size-micro);
 }
 
