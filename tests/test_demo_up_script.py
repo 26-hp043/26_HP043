@@ -174,3 +174,79 @@ def test_font_check_does_not_block_the_demo():
     step_seven = text.split('step "7. 리포트 PDF 한글 폰트"', 1)[1].split("GUIDE", 1)[0]
 
     assert "exit 1" not in step_seven
+
+
+# --- 시연 계정 (#692) ---------------------------------------------------------
+
+
+def test_step_four_d_checks_the_demo_account():
+    """4d 단계가 시연 계정 유무를 본다 (`#692`).
+
+    계정이 없는 상태는 **오류가 아니라 로그인 실패로만 드러난다.** 시연 도중에
+    처음 알면 늦다 — `#587`이 선박 제원에 대해 같은 자리에서 하는 검사다.
+    """
+    text = _SCRIPT.read_text(encoding="utf-8")
+
+    assert 'step "4d. 시연 계정"' in text
+    # 없을 때 무엇을 하면 되는지까지 낸다.
+    assert "cii_platform.db.demo_seed" in text
+
+
+def test_account_check_does_not_call_python():
+    """4d도 `.venv` 없이 돈다 — psql로 직접 묻는다 (`#637`)."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    step = text.split('step "4d. 시연 계정"', 1)[1].split('step "5.', 1)[0]
+
+    offenders = [
+        line.strip()
+        for line in step.splitlines()
+        if "$VENV" in line and not line.lstrip().startswith("#") and "printf" not in line
+    ]
+    assert not offenders, f"4d가 .venv를 부른다: {offenders}"
+
+
+def test_account_check_does_not_block_the_demo():
+    """계정이 없어도 기동을 세우지 않는다 — 나머지 화면은 그대로 볼 수 있다."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    step = text.split('step "4d. 시연 계정"', 1)[1].split('step "5.', 1)[0]
+
+    assert "exit 1" not in step
+
+
+def test_script_credentials_match_the_seed():
+    """**스크립트에 적힌 계정 정보가 시드 상수와 같다** (`#692`).
+
+    스크립트는 점검(4d)과 안내문 두 곳에 이메일을 적고, 안내문에는 비밀번호도
+    적는다. 시드 상수가 바뀌었는데 여기가 안 바뀌면 **점검이 거짓말을 하고 안내문이
+    안 되는 비밀번호를 알려 준다** — 둘 다 시연 자리에서 드러난다.
+
+    상수를 셸에서 읽어 올 수단이 없으므로(스크립트는 파이썬을 부르지 않는다),
+    어긋남을 여기서 잡는다.
+    """
+    from cii_platform.db.demo_seed import DEMO_USER_EMAIL, DEMO_USER_PASSWORD
+
+    text = _SCRIPT.read_text(encoding="utf-8")
+
+    assert DEMO_USER_EMAIL in text, (
+        f"스크립트가 시드와 다른 이메일을 쓴다 — 상수는 {DEMO_USER_EMAIL!r}이다"
+    )
+    assert DEMO_USER_PASSWORD in text, (
+        "안내문의 비밀번호가 시드 상수와 다르다 — 그대로 치면 로그인에 실패한다"
+    )
+
+
+def test_guide_tells_how_to_log_in():
+    """안내문이 **로그인 화면으로 들어가는 법**을 알려 준다.
+
+    종전 안내는 브라우저 콘솔에 `dev-login`을 붙여넣는 길만 적었다. 그것은
+    로그인 화면을 통과하지 않으므로 ⑴ 로그인 화면 자체를 시연할 수 없고
+    ⑵ 개발자가 아닌 팀원은 쓰기 어렵다 (`#692`).
+    """
+    text = _SCRIPT.read_text(encoding="utf-8")
+    guide = text.split("cat <<'GUIDE'", 1)[1]
+
+    assert "로그인" in guide
+    assert "이메일" in guide
+    assert "비밀번호" in guide
+    # 프로덕션에서는 없는 계정이라는 것도 함께 말한다.
+    assert "APP_ENV=production" in guide

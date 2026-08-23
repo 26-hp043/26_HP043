@@ -210,6 +210,36 @@ PY
   fi
 fi
 
+# --- 4d. 시연 계정 (#692) -------------------------------------------------------------
+#
+# **계정이 없으면 로그인 화면으로 들어갈 수 없다.** 종전에는 시드가 계정을 만들지
+# 않아 DB를 다시 만들 때마다 사람이 직접 가입해야 했고, `#691` 이전의 테스트가
+# 계정을 지우고 나면 들어갈 길이 아예 없었다.
+#
+# **그 상태는 오류가 아니라 로그인 실패로만 드러난다** — 시연 도중에 처음 알면 늦다.
+# `#587`이 선박 제원에 대해 같은 자리에서 하는 검사와 성격이 같다.
+#
+# 판정은 **psql로 직접 묻는다 (#637)** — `.venv` 없는 환경에서도 확인된다.
+# 아래 이메일이 `demo_seed.DEMO_USER_EMAIL`과 어긋나면 점검이 거짓말을 하므로,
+# `tests/test_demo_up_script.py`가 두 값을 대조한다.
+
+step "4d. 시연 계정"
+
+DEMO_EMAIL="demo@bluelog.local"
+HAS_DEMO_USER=$("$DOCKER" compose exec -T db psql -U cii -d cii -tAc \
+  "SELECT count(*) FROM app_user WHERE email = '$DEMO_EMAIL' AND is_deleted = false" \
+  2>/dev/null | tr -d '\r' | tr -d ' ')
+
+if [ "$HAS_DEMO_USER" = "1" ]; then
+  ok "$DEMO_EMAIL — 로그인 화면으로 들어갈 수 있습니다"
+elif [ -z "$HAS_DEMO_USER" ]; then
+  bad "계정 조회에 실패했습니다 — app_user 테이블을 확인하십시오"
+else
+  bad "시연 계정이 없습니다 — 로그인 화면으로 들어갈 수 없습니다 (#692)"
+  info "데모 시드가 만듭니다. APP_ENV=production이면 만들지 않습니다."
+  printf '    %s\n' "$VENV/python -m cii_platform.db.demo_seed"
+fi
+
 # --- 5. 백엔드 ----------------------------------------------------------------------
 
 step "5. 백엔드 API"
@@ -377,7 +407,14 @@ cat <<'GUIDE'
      cd frontend && npm run build && npx vite preview --port 4173
 
  화면은 항상 실 API로 돕니다 (#542) — 백엔드가 떠 있어야 데이터가 보입니다.
- 로그인을 건너뛰려면 브라우저 콘솔에서:
+
+   로그인 (#692)
+     이메일    demo@bluelog.local
+     비밀번호  bluelog-demo-2026
+
+ 이 계정은 데모 시드가 넣습니다. APP_ENV=production에서는 만들어지지 않습니다.
+
+ 로그인 화면을 건너뛰려면 브라우저 콘솔에서:
 
      await fetch('/api/v1/auth/dev-login', { method: 'POST' }); location.href = '/'
 
