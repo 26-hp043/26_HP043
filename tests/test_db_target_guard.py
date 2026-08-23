@@ -20,12 +20,15 @@
 
 from __future__ import annotations
 
+import inspect
+
 import pytest
 from conftest import TEST_DATABASE_URL
 from db_target import (
     TEST_DB_SUFFIX,
     database_name,
     is_disposable,
+    refusal_reason,
     running_in_ci,
     skip_reason,
 )
@@ -119,3 +122,123 @@ def test_ci_runs_against_a_disposable_database():
         "test_zz_roundtrip.py가 전부 skip되어 롤백 회귀 검사가 사라진다. "
         ".github/workflows/ci.yml의 POSTGRES_DB를 확인하라 (#507)."
     )
+
+
+# --- 가드를 「거는 곳」 (#691) ---------------------------------------------------
+#
+# `#507`은 판정을 만들고 **한 파일에만** 걸었다. 나머지 12개 파일은 그대로 개발 DB에
+# 붙어 계정을 지웠고, 2026-08-23에 실제로 가입 계정이 사라졌다.
+#
+# **판정이 옳은 것과 그 판정이 실제로 걸려 있는 것은 다른 문제다.** 위 클래스들이
+# 앞을 보고, 아래가 뒤를 본다.
+
+
+class TestRefusalReason:
+    """막을 때 **대상·이유·해결**을 함께 말한다. 하나라도 빠지면 사람은 우회를 찾는다."""
+
+    def test_names_the_target_and_the_way_out(self):
+        reason = refusal_reason("postgresql+asyncpg://cii:cii@localhost:5432/cii")
+
+        assert "'cii'" in reason, "어느 DB가 막혔는지 말해야 한다"
+        assert "#691" in reason
+        assert "app_user" in reason, "무엇을 잃는지 말해야 한다"
+        assert "createdb -U cii cii_test" in reason, "해결 명령이 있어야 한다"
+        assert "DATABASE_URL=" in reason
+
+    def test_says_ci_is_unaffected(self):
+        """**CI가 막힌 줄 알고 되돌리는 것**을 막는다 — CI는 이미 cii_test를 쓴다."""
+        assert "cii_test" in refusal_reason("postgresql://u:p@h:5432/cii")
+        assert "ci.yml" in refusal_reason("postgresql://u:p@h:5432/cii")
+
+    def test_is_not_the_skip_reason(self):
+        """skip과 refusal은 읽는 사람이 할 일이 다르다 — 문장을 돌려 쓰지 않는다."""
+        url = "postgresql://u:p@h:5432/cii"
+        assert refusal_reason(url) != skip_reason(url)
+
+
+class TestGuardVerdict:
+    """``conftest.require_disposable_target``이 실제로 막고 실제로 통과시킨다."""
+
+    def test_refuses_the_development_database(self, monkeypatch: pytest.MonkeyPatch):
+        import conftest
+
+        monkeypatch.setattr(
+            conftest, "TEST_DATABASE_URL", "postgresql+asyncpg://cii:cii@localhost:5432/cii"
+        )
+        with pytest.raises(pytest.fail.Exception) as caught:
+            conftest.require_disposable_target()
+
+        # **skip이 아니라 fail이다.** skip은 조용해서 「돌았다고 착각」할 여지를 남긴다.
+        assert "#691" in str(caught.value)
+
+    def test_allows_a_test_database(self, monkeypatch: pytest.MonkeyPatch):
+        import conftest
+
+        monkeypatch.setattr(
+            conftest, "TEST_DATABASE_URL", "postgresql+asyncpg://cii:cii@localhost:5432/cii_test"
+        )
+        conftest.require_disposable_target()  # 예외가 없어야 한다
+
+
+class TestGuardIsActuallyWired:
+    """**`#507`이 놓친 것이 여기다** — 판정 함수는 있었고 부르는 곳이 없었다.
+
+    ``require_disposable_target``이 정의만 되고 fixture에서 빠지면 이 파일의 다른
+    테스트는 전부 통과한다. 그 상태가 정확히 2026-08-23 이전이었다.
+
+    그래서 **호출이 걸려 있는지**를 소스로 확인한다. `tests/test_demo_up_script.py`가
+    셸 스크립트를 같은 방식으로 검사한다.
+    """
+
+    #: DB를 여는 자리. 하나라도 빠지면 그 경로로 개발 DB에 붙을 수 있다.
+    ENTRY_POINTS = ("run_alembic", "migrated_db", "app_fresh_engine")
+
+    @pytest.mark.parametrize("name", ENTRY_POINTS)
+    def test_entry_point_calls_the_guard(self, name: str):
+        import conftest
+
+        target = getattr(conftest, name)
+        # fixture는 데코레이터에 싸여 있다 — 원본 함수를 본다.
+        source = inspect.getsource(getattr(target, "__wrapped__", target))
+
+        assert "require_disposable_target()" in source, (
+            f"conftest.{name}이 대상 DB 판정을 부르지 않는다. "
+            "이 경로로 개발 DB에 붙을 수 있다 (#691)."
+        )
+
+    def test_the_offending_files_all_go_through_a_guarded_fixture(self):
+        """`#691`이 지목한 12개 파일이 **가드가 걸린 fixture**를 통과한다.
+
+        파일마다 가드를 붙이지 않는 대신, 그 파일들이 실제로 이 경로를 지나는지를
+        확인한다. 어느 하나가 fixture 없이 DB를 열기 시작하면 여기서 드러난다.
+        """
+        from pathlib import Path
+
+        offenders = [
+            "test_account_self_service_db.py",
+            "test_app_user_migration.py",
+            "test_audit_actions_db.py",
+            "test_audit_events_db.py",
+            "test_auth_api.py",
+            "test_auth_failure_paths.py",
+            "test_auth_tokens.py",
+            "test_auth_wiring.py",
+            "test_calculations_query_db.py",
+            "test_cii_history.py",
+            "test_dev_auth.py",
+            "test_scenario_compare_db.py",
+        ]
+        tests_dir = Path(__file__).resolve().parent
+
+        unguarded = []
+        for name in offenders:
+            path = tests_dir / name
+            assert path.exists(), f"{name}이 없다 — 목록이 낡았는지 확인할 것"
+            text = path.read_text(encoding="utf-8")
+            if not any(f in text for f in ("migrated_db", "app_fresh_engine", "conn")):
+                unguarded.append(name)
+
+        assert not unguarded, (
+            f"가드가 걸린 fixture를 쓰지 않는 파일이 있다: {unguarded}. "
+            "이 파일들은 개발 DB에 직접 붙을 수 있다 (#691)."
+        )
