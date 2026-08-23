@@ -639,6 +639,10 @@ def test_no_implicit_float_in_layer1():
 | IT-STATE-005 | CONFIRMED → ARCHIVED | transition API | status = ARCHIVED, policy = EXCLUDE |
 | IT-STATE-006 | CANCELLED → CONFIRMED 불가 | 잘못된 전환 | 422 오류 |
 | IT-STATE-007 | 스냅샷 격리: 시뮬레이션 중 항차 수정 | sim 실행 중 voyage PATCH | 스냅샷은 변경되지 않음 |
+| IT-STATE-008 | **IN_PROGRESS → COMPLETED 정상 완료** | `annual_inclusion_policy=INCLUDE_AS_ACTUAL` 동반 | 200 · status·policy가 **함께** 반영 (`#688`) |
+
+> **`IT-STATE-008`을 뒤늦게 넣은 이유** — `001`~`007`에 **정상 완료가 없었다.** `004`는 실적이 없을 때 거부되는 쪽만 보고, 나머지는 다른 전이거나 거부 케이스다. `IN_PROGRESS → COMPLETED`는 `annual_inclusion_policy`가 **상태 그룹을 건너뛰는 유일한 전이**(`INCLUDE_AS_PLAN` → `INCLUDE_AS_ACTUAL`)인데, 그 경로를 확인하는 케이스가 없어 `chk_status_policy` 위반이 500으로 새어 나가는 상태가 오래 남아 있었다. **거부만 검사하면 전부 거부해도 통과한다** (`#636`이 같은 교훈을 남겼다).
+
 
 ### 3.2 시나리오 채택 (`test_scenario_adopt.py`)
 
@@ -1404,6 +1408,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_voyage_delete_db.py` | 2 | §5 DB · 제약·마이그레이션 |
 | `test_voyage_migrations.py` | 11 | §5 DB · 제약·마이그레이션 |
 | `test_voyage_state_machine.py` | 17 | §4 API · 선박·항차·계산 |
+| `test_voyage_transition_db.py` | 5 | **§3.1 통합 · 항차 상태 전이(DB 실동작)** — 정책 그룹 교차 · 조합 제약 · 실패 요청의 무영향 |
 | `test_voyage_actuals_db.py` | 10 | **§4 API · 항차 실적 입력** — 계획값 보존 · CF snapshot · 상태 경계 · 유종 중복 |
 | `test_voyages_api.py` | 25 | §4 API · 선박·항차·계산 (실적 입력 라우트 포함) |
 | `test_weather_seed.py` | 5 | **§5.7 DB · seed 적재** |
@@ -1415,7 +1420,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_ytd_engine.py` | 26 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 105개 파일 · 1378 함수 · 1682 수집.** (2026-08-23 실측)
+**합계 106개 파일 · 1383 함수 · 1687 수집.** (2026-08-23 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
@@ -1594,3 +1599,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-08-23 | `#493` | `test_annual_simulation_read_db.py` 18 → **24함수** · `test_hashing.py` 19 → **22함수** · 합계 실측 갱신(1360함수·1660수집 → **1369함수·1673수집**). 고정하는 것은 **재현이 살아 있는 선박을 읽지 않는다**이다 — 제원·capacity·선종을 고쳐도 결과가 그대로여야 한다. ⚠️ 첫 시도의 테스트가 **결함 상태에서도 통과**했다: `reference_speed_kn`을 `14 → 9`로 바꿨는데 결과가 같았기 때문이다. 실측하니 그 두 값은 `calc/annual_simulation.py`에서 **산술에 한 번도 쓰이지 않고** `_has_speed_model()`의 존재 여부 게이트일 뿐이었다 — 이슈 본문의 「그 값으로 표본을 흔든다」가 정확하지 않다. 값 변경이 아니라 **NULL↔비NULL 뒤집힘**으로 바꿔야 잡힌다. `input_hash` 쪽은 **필드마다 따로** 본다: 하나로 묶으면 한 필드만 빠져도 조용히 통과한다 (#493) |
 | 2026-08-23 | `#587` | `test_demo_vessel_seed.py` 13 → **17함수** · 합계 실측 갱신(1369함수·1673수집 → **1373함수·1677수집**). 샘플 로로의 `reference_daily_foc_ton`을 **이 배의 항차에서 역산**해 채웠고(`62.0t × 18.0kn × 24h ÷ 450nm = 59.52`), 테스트가 상수를 전사만 하지 않고 **항차에서 다시 낸다** — 항차가 바뀌면 함께 갱신을 강제한다. ⚠️ 더 중요한 것은 **시드가 기존 행을 갱신하지 않는다**는 사실이다: 시드에 값을 새로 채워도 볼륨을 유지한 환경(시연 노트북)에는 영원히 들어가지 않고, 그 상태는 오류가 아니라 화면의 `—`로만 드러난다. 덮어쓰기로 바꾸는 대신(사용자가 고친 값을 덮으면 안 된다) **어긋난 사실을 값으로 만들어** `demo_up.sh`가 시연 전에 경고하게 했다. 감지기가 정말 잡는지, 그리고 **시드가 비워 둔 값(회신 대기분)까지 잡지는 않는지**를 함께 박았다 — 무시해야 하는 경고는 진짜 경고도 함께 묻는다 (#587) |
 | 2026-08-23 | `#151` | §14 인벤토리에 `test_scenario_example_sync.py`(5) 등재 · 합계 실측 갱신(104파일·1373함수·1677수집 → **105파일·1378함수·1682수집**). `API_SPEC §5.1` 응답 예시를 **실행 결과로 교체**하고 그것이 다시 어긋나지 않게 잠근다. 이슈 본문이 「개별 수치만 고쳐도 다음 검토에서 다시 어긋난다」고 적었으므로 **문서에서 요청과 응답을 둘 다 읽어** 실제로 실행한다. 함께 막는 것 둘 — ⑴ `weather_model`이 `SIMPLE_RULE`로 돌아가는 것(Open-Meteo를 실제로 호출해 **문서 예시가 외부 서비스의 그날 값에 따라 달라진다**) ⑵ 예시가 다시 밋밋해지는 것(셋 다 등급 `E` → `next_worse_boundary_margin`이 전부 `null`이 되어 `[ORACLE-S-1]`이 그 필드를 추가한 목적이 사라진다). `DIRECT`와 `DETOUR`가 같은 CII를 내는 것이 **오기가 아님**도 단언으로 남겼다 (#151) |
+| 2026-08-23 | `#688` | **§3.1에 `IT-STATE-008` 신설 · §14 인벤토리에 `test_voyage_transition_db.py`(5) 등재 · 합계 실측 갱신(105파일·1378함수·1682수집 → **106파일·1383함수·1687수집**).** `IN_PROGRESS → COMPLETED`에 `INCLUDE_AS_ACTUAL`을 실어 보내면 **500**이 났다 — 서비스가 정책을 먼저 대입한 뒤 실적 가드가 SELECT를 날려 **autoflush**가 정책만 먼저 쓰고, `chk_status_policy`(`DB_SCHEMA §2.2`)가 `IN_PROGRESS` + `INCLUDE_AS_ACTUAL` 조합을 거부한다. ⚠️ **테스트 2,638건이 통과했다** — `test_voyage_state_machine.py`는 `_StubVoyage`, `test_voyages_api.py`는 `_FakeSession`이라 **DB 제약이 없고**, 정책을 넘긴 유일한 케이스가 거부값이라 검증에서 끝났다. 근본은 이 문서였다: `§3.1` 표에 **정상 완료 케이스가 없었다.** `EXCLUDE`는 모든 그룹에 있어 통과하므로 **그룹을 건너뛰는 값**으로만 재현되며, 그 경로가 화면의 「항해 완료」 버튼이다. 되돌려 확인했다 — 수정 전 코드에서 3건, 정책 대입만 빼면 4건이 실패한다 (#688) |

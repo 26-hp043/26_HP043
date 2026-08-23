@@ -314,6 +314,26 @@ async def transition_voyage(
     if to_status not in _TRANSITIONS.get(current, frozenset()):
         raise StateTransitionError(f"허용되지 않은 상태 전환입니다: {current} → {to_status}.")
 
+    # ── 정책을 「정하기」만 한다 — 대입은 아래 한 곳에서 상태와 함께 한다 (#688).
+    #
+    # 여기서 `voyage`에 바로 쓰면 상태와 정책이 **다른 flush에 실린다.** 아래
+    # `_guard_actual_data`가 실적 연료를 읽으려 SELECT를 날리는데, SQLAlchemy는
+    # 쿼리 직전 세션의 미반영 변경을 자동으로 먼저 쓴다(autoflush). 그 시점에
+    # 쌓여 있는 것이 정책 하나뿐이면 다음이 나간다.
+    #
+    #     UPDATE voyage SET annual_inclusion_policy='INCLUDE_AS_ACTUAL' ...
+    #     -- status는 아직 IN_PROGRESS
+    #
+    # `chk_status_policy`(`DB_SCHEMA §2.2`)는 **두 컬럼의 조합**에 걸린 제약이라
+    # 이 중간 상태를 거부하고, `IntegrityError`가 그대로 올라와 **500**이 된다.
+    # 그룹을 건너뛰는 유일한 전이가 `IN_PROGRESS → COMPLETED`(`INCLUDE_AS_PLAN` →
+    # `INCLUDE_AS_ACTUAL`)이라 거기서만 터졌다 — 그리고 그 경로가 화면의
+    # 「항해 완료」 버튼이다.
+    #
+    # 순서를 바꾸는 것(상태를 먼저 대입)으로도 이 한 번은 막히지만, **두 대입
+    # 사이에 조회가 하나라도 더 생기면 재발한다.** 조합 제약에는 두 컬럼을 함께
+    # 쓰는 코드가 대응하므로, 대입 자체를 한 자리로 모아 순서에 의존하지 않게 한다.
+    new_policy = voyage.annual_inclusion_policy
     if annual_inclusion_policy is not None:
         allowed = _POLICY_BY_STATUS.get(to_status, frozenset())
         if annual_inclusion_policy not in allowed:
@@ -325,11 +345,11 @@ async def transition_voyage(
                 f"annual_inclusion_policy를 {annual_inclusion_policy}로 설정하려면 "
                 "regulation_year가 필요합니다."
             )
-        voyage.annual_inclusion_policy = annual_inclusion_policy
+        new_policy = annual_inclusion_policy
     elif len(_POLICY_BY_STATUS.get(to_status, frozenset())) == 1:
         # EXCLUDE-only 상태(CANCELLED·ARCHIVED)는 스펙이 자동 설정을 규정한다
         # (API_SPEC §3.5 「자동 설정」·ORACLE-C-4).
-        voyage.annual_inclusion_policy = "EXCLUDE"
+        new_policy = "EXCLUDE"
     elif voyage.annual_inclusion_policy not in _POLICY_BY_STATUS[to_status]:
         # 미지정 = 현행 유지가 원칙이나, 목표 상태가 현행 policy를 허용하지 않으면
         # 조용히 보정하지 않고 명시적 재지정을 요구한다 (#310).
@@ -338,9 +358,11 @@ async def transition_voyage(
             "허용되지 않습니다. annual_inclusion_policy를 명시적으로 지정하세요."
         )
 
+    # 가드는 **전이 전** 항차를 본다 — 위에서 객체를 건드리지 않았으므로 그대로다.
     await _guard_actual_data(session, voyage, to_status)
 
     voyage.status = to_status
+    voyage.annual_inclusion_policy = new_policy
     await session.commit()
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
     return {**to_dict(voyage, fuel_uses), "_from_status": current}
