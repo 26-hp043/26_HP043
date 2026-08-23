@@ -214,6 +214,46 @@ SEED_VOYAGE_IDS = (
 )
 SEED_PERIOD_IDS = (P_CANAL, P_ANCHOR, P_DRYDOCK, P_IN_PORT)
 
+#: 시연용 계정 (`#692`).
+#:
+#: **시드가 계정을 만들지 않아 DB를 다시 만들 때마다 사람이 직접 가입해야 했다.**
+#: 선박·항차는 시드가 되살리는데 계정만 아무도 되살리지 않았고, `#691`의 테스트가
+#: 계정을 지우고 나면 로그인 화면으로 들어갈 길이 없었다.
+#:
+#: ``dev@localhost``(``auth_dev.py``)로는 대신할 수 없다. 그 계정은 **비밀번호
+#: 로그인이 의도적으로 막혀 있어**(``_STUB_PASSWORD_HASH``) ``POST /auth/login``으로
+#: 열리지 않으며, 그 설계는 옳다 — 알려진 이메일로 아무나 들어오는 것을 막는다.
+#: 문제는 그 대신 쓸 계정이 없다는 것이었다.
+#:
+#: UUID를 고정 상수로 둔다 — ``uuid4()``를 쓰면 시드를 다시 돌릴 때마다 PK가 달라져
+#: ``ON CONFLICT DO NOTHING``이 이메일 UNIQUE에서만 걸린다. 값 대역은 이 파일의
+#: 관례를 따른다(선박 ``…0001``~, 구간 ``…0201``~, 계정 ``…0301``~).
+DEMO_USER_ID = "00000000-0000-4000-8000-000000000301"
+
+#: 로그인 ID. **`.local`을 쓴다** — 실존 도메인이면 시연 중 실제 주소로 메일이 나간다.
+DEMO_USER_EMAIL = "demo@bluelog.local"
+
+#: 시연용 고정 비밀번호. **평문이 저장소에 들어간다** — 판단 근거는 `#692`이며,
+#: 요약하면 셋이다.
+#:
+#: 1. 이 계정은 **데모 데이터 전용**이고, 데모 시드 자체가 이미 공개 값이다
+#:    (선박 IMO·항차 실적이 전부 이 파일에 있다)
+#: 2. ``APP_ENV=production``에서는 **만들지 않는다** (:func:`seed_demo_user` 참조)
+#: 3. ``dev-login`` 라우트가 프로덕션에서 등록되지 않는 것과 같은 성격이다
+#:
+#: 길이는 ``MIN_PASSWORD_LENGTH``(10) 이상이어야 한다 — 짧으면 시드가 아니라
+#: :func:`hash_password` 앞의 정책 검사에서 막힌다.
+DEMO_USER_PASSWORD = "bluelog-demo-2026"
+
+DEMO_USER_DISPLAY_NAME = "시연 계정"
+
+#: 이메일 인증 완료 시각을 **채운다.**
+#:
+#: 비워 두면 시연 중 인증 안내가 뜬다. 이 계정은 인증 흐름을 보여 주기 위한 것이
+#: 아니라 **로그인 화면을 통과하기 위한 것**이며, 인증 메일 흐름은 실제 주소로
+#: 가입해 확인한다(`#693`). 값은 고정 시각이라 시드를 다시 돌려도 흔들리지 않는다.
+DEMO_USER_VERIFIED_AT = _utc(2026, 8, 23)
+
 # 018이 만든 3척(상태·위치 갱신 대상). id는 018 계약값.
 VESSEL_IDS_018 = (
     "00000000-0000-4000-8000-000000000001",
@@ -782,6 +822,16 @@ period_tbl = sa.table(
     sa.column("lon", sa.Numeric),
     sa.column("voyage_id", postgresql.UUID),
 )
+#: 시연 계정 (`#692`). 컬럼 정의의 주인은 022 마이그레이션이다 — 여기서는 시드가
+#: 쓰는 컬럼만 적는다(018 패턴). ``created_at``·``updated_at``은 서버 기본값이 채운다.
+app_user_tbl = sa.table(
+    "app_user",
+    sa.column("id", postgresql.UUID),
+    sa.column("email", sa.String),
+    sa.column("password_hash", sa.String),
+    sa.column("email_verified_at", sa.DateTime(timezone=True)),
+    sa.column("display_name", sa.String),
+)
 period_fuel_tbl = sa.table(
     "not_underway_fuel_use",
     sa.column("id", postgresql.UUID),
@@ -885,6 +935,66 @@ async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
     return drifted
 
 
+async def seed_demo_user(conn: AsyncConnection) -> int:
+    """시연용 계정을 적재하고 **신규 적재 행 수**를 돌려준다 (`#692`).
+
+    ## 프로덕션에서는 만들지 않는다
+
+    ``APP_ENV=production``이면 **아무것도 하지 않고 0을 돌려준다.** 고정 비밀번호를
+    가진 계정이 프로덕션에 존재하면 그 값이 알려진 순간 누구나 들어온다.
+
+    판정은 :func:`cii_platform.config.is_production`을 쓴다 — 환경 분기의 단일
+    출처다(`#648`). 여기서 ``os.environ``을 다시 읽으면 판정이 두 곳이 된다.
+
+    ## 해시를 미리 계산해 상수로 두지 않는다
+
+    :func:`hash_password`를 시드 시점에 부른다. 해시를 상수로 박으면 Argon2
+    파라미터가 바뀔 때 **저장소의 해시만 옛 파라미터로 남는다.** 평문은 어차피
+    :data:`DEMO_USER_PASSWORD`로 공개돼 있으므로 미리 계산해 얻는 것도 없다.
+
+    ## ``ON CONFLICT DO NOTHING``
+
+    이 파일의 다른 시드와 같은 규약이다 — **기존 행을 덮지 않는다.** 사람이 이
+    계정의 비밀번호를 바꿨다면 그 변경이 살아남는다.
+    """
+    from cii_platform.auth.password import hash_password
+    from cii_platform.config import is_production
+
+    if is_production():
+        return 0
+
+    return await _insert_ignoring_existing(
+        conn,
+        app_user_tbl,
+        [
+            {
+                "id": DEMO_USER_ID,
+                "email": DEMO_USER_EMAIL,
+                "password_hash": hash_password(DEMO_USER_PASSWORD),
+                "email_verified_at": DEMO_USER_VERIFIED_AT,
+                "display_name": DEMO_USER_DISPLAY_NAME,
+            }
+        ],
+    )
+
+
+async def demo_user_missing(conn) -> bool:
+    """시연 계정이 **DB에 없는가** (`#692`).
+
+    ``scripts/demo_up.sh --check``가 부른다. 계정은 `#691` 이전의 테스트나 DB
+    재생성으로 사라질 수 있고, **그 상태는 오류가 아니라 로그인 실패로만 드러난다**
+    — 시연 도중에 처음 알면 늦다.
+
+    :func:`missing_seeded_specs`가 선박 제원에 대해 하는 것과 같은 자리의 검사다
+    (`#587`).
+    """
+    row = await conn.execute(
+        sa.text("SELECT 1 FROM app_user WHERE email = :email AND is_deleted = false"),
+        {"email": DEMO_USER_EMAIL},
+    )
+    return row.first() is None
+
+
 async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
     """데모 데이터를 적재하고 테이블별 **신규 적재 행 수**를 돌려준다.
 
@@ -935,6 +1045,8 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
         period_fuel_tbl,
         [{**row, "cf_used": HFO_CF} for row in SEED_PERIOD_FUELS],
     )
+    # 시연 계정 (#692). 프로덕션에서는 0을 돌려준다.
+    counts["app_user"] = await seed_demo_user(conn)
     return counts
 
 

@@ -22,6 +22,11 @@
 ``fonts-noto-cjk``는 한·중·일을 모두 담아 이미지가 ~300MB 늘어난다. 이 제품의 문서는
 한국어이므로 한국어 폰트만 넣는다.
 
+**폰트가 없으면 PDF를 내주지 않는다** (`#689`). 컨테이너·CI에는 폰트가 들어 있으나
+호스트 ``.venv``로 직접 띄우는 경로(``scripts/demo_up.sh``)에는 없었고, 그 서버가
+**면책 문구가 □인 문서를 200으로** 내보내고 있었다. 판정 근거는 ``TECH_SPEC §19.4``에
+적었다.
+
 ## 지연 import
 
 WeasyPrint는 import 시점에 Pango를 연다. 이 모듈이 최상단에서 import하면 라이브러리가
@@ -30,6 +35,8 @@ PDF 요청 하나만 실패시키고, 그 실패에 설치 안내를 담는다.
 """
 
 from __future__ import annotations
+
+from functools import lru_cache
 
 from cii_platform.errors import AppError
 
@@ -70,7 +77,11 @@ def has_korean_font() -> bool:
     WeasyPrint는 그 상황에서 ``.notdef glyph rendered for Unicode string unsupported
     by fonts`` 경고를 로거로 낸다. 그 경고를 잡아 **없는 것을 없다고** 말한다.
 
-    진단용이다. 요청마다 부르지 않는다 — 매번 작은 문서를 렌더링하게 된다.
+    **진단용이다. 요청마다 부르지 않는다** — 매번 작은 문서를 렌더링하게 된다.
+    요청 경로에서는 프로세스당 1회로 묶은 :func:`korean_font_available`을 쓴다 (`#689`).
+
+    프로브는 :func:`_render`로 그린다. :func:`render_pdf`를 쓰면 그쪽이 다시 이 판정을
+    물어 **무한 재귀**가 된다 (`#689`).
     """
     if not is_available():
         return False
@@ -87,7 +98,7 @@ def has_korean_font() -> bool:
     handler = _Collector()
     logger.addHandler(handler)
     try:
-        render_pdf(_PROBE_HTML)
+        _render(_PROBE_HTML)
     except Exception:  # pragma: no cover - 환경 의존
         return False
     finally:
@@ -96,12 +107,58 @@ def has_korean_font() -> bool:
     return not any("notdef" in record.getMessage() for record in records)
 
 
+@lru_cache(maxsize=1)
+def korean_font_available() -> bool:
+    """한국어 글리프를 그릴 수 있는가 — **요청 경로에서 쓰는 캐시된 판정** (`#689`).
+
+    :func:`has_korean_font`는 부를 때마다 프로브 문서를 렌더링한다. 그대로 요청마다
+    부르면 PDF 한 건에 렌더링이 두 번 일어난다. 설치된 폰트는 **프로세스 수명 동안
+    바뀌지 않으므로** 1회만 판정한다 — ``health.py``의 ``_rng_canonical_test``가
+    같은 이유로 쓰는 방식이다 (`#400`).
+
+    **폰트를 설치한 뒤에는 서버를 다시 시작해야 반영된다.** 캐시를 요청마다 무르면
+    이 함수를 두는 의미가 없고, 폰트 설치는 배포·기동 시점의 일이지 운영 중에
+    일어나는 일이 아니다. 기동 점검(``scripts/demo_up.sh``)이 그 시점에 잡는다.
+    """
+    return has_korean_font()
+
+
 def render_pdf(html: str) -> bytes:
     """인쇄용 HTML을 PDF 바이트로 만든다.
+
+    **한국어 폰트가 없으면 렌더링하지 않고 거부한다** (`#689`). 종전에는 그 상태에서도
+    ``200``과 유효한 ``%PDF-1.7``이 나갔고, 문서 안에서 한글만 tofu(□)가 됐다 — 그중에
+    ``PRD §18.2``의 면책 문구가 있다. **읽을 수 없는 면책이 실린 문서는 리포트가 아니다.**
+
+    렌더러 자체가 없을 때와 **같은 방식**으로 다룬다(``PdfUnavailableError`` → 500 +
+    CSV 안내). 둘 다 사용자 입력의 문제가 아니라 배포 환경의 문제이고, 요청을 고쳐도
+    해결되지 않는다 (`TECH_SPEC §19.3`·`§19.4`).
+
+    검사 순서를 ``is_available()`` 먼저로 둔다. 렌더러가 없으면 :func:`has_korean_font`도
+    ``False``를 돌려주므로, 순서를 바꾸면 **Pango가 없는 환경에 폰트 문제라고 말하게
+    된다.** 그 경우는 :func:`_render`가 실제 import 오류를 그대로 담아 낸다.
 
     ``base_url``을 주지 않는다. 스타일은 문서에 인라인돼 있고 외부 자원이 없으므로
     상대 경로를 해석할 일이 없다 — 주면 오히려 렌더러가 로컬 파일을 읽을 수 있는
     경로가 열린다.
+    """
+    if is_available() and not korean_font_available():
+        raise PdfUnavailableError(
+            "한국어 폰트가 설치돼 있지 않아 한글이 □로 렌더링됩니다. "
+            "서버에 fonts-nanum을 설치한 뒤 다시 시작하십시오 "
+            "(sudo apt-get install -y fonts-nanum && fc-cache -f)."
+        )
+    return _render(html)
+
+
+def _render(html: str) -> bytes:
+    """폰트 판정을 거치지 않고 실제로 렌더링한다.
+
+    :func:`has_korean_font`의 프로브가 이 경로로 들어온다 — :func:`render_pdf`를 쓰면
+    폰트 판정이 다시 프로브를 부르는 **무한 재귀**가 된다 (`#689`).
+
+    **이 함수를 요청 경로에서 직접 쓰지 않는다.** 폰트 검사를 건너뛰는 것이 목적이
+    아니라, 검사 자신이 쓸 자리를 만드는 것이 목적이다.
     """
     try:
         from weasyprint import HTML

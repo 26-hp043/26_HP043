@@ -194,3 +194,105 @@ def test_rng_canonical_test_is_cached_per_process() -> None:
     finally:
         health_module.validate_rng = original  # type: ignore[assignment]
         health_module._rng_canonical_test.cache_clear()
+
+
+# --- pdf_korean_font (#689) ----------------------------------------------------
+
+
+def test_health_includes_pdf_korean_font(client: TestClient) -> None:
+    """API_SPEC §10이 규정한 필드가 응답에 있다 (`#689`).
+
+    이 필드가 없던 동안 **배포·시연 환경에서 폰트 부재를 볼 수단이 하나도 없었다.**
+    PDF는 200으로 나가고 한글만 □가 되므로, 응답을 봐서는 알 수 없었다.
+    """
+    data = client.get("/api/v1/health").json()["data"]
+    assert "pdf_korean_font" in data
+    assert data["pdf_korean_font"] in {"ok", "missing", "unavailable"}
+
+
+def test_health_survives_missing_korean_font(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """폰트가 없어도 health는 200이고 ``status``는 ``ok``를 유지한다 (`#689`).
+
+    ``rng_canonical_test``와 같은 규약이다 (`#400`). 프로세스는 살아 있고 CSV·HTML
+    리포트는 정상으로 나가므로 liveness를 내릴 이유가 없다. 내리면 오케스트레이터가
+    컨테이너를 죽이는데, **재시작으로는 폰트가 생기지 않는다.**
+    """
+    from cii_platform.api.routes import health as health_module
+
+    monkeypatch.setattr(health_module.pdf_module, "is_available", lambda: True)
+    monkeypatch.setattr(health_module.pdf_module, "korean_font_available", lambda: False)
+    health_module._pdf_korean_font.cache_clear()
+    try:
+        resp = client.get("/api/v1/health")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["pdf_korean_font"] == "missing"
+        assert data["status"] == "ok"
+    finally:
+        health_module._pdf_korean_font.cache_clear()
+
+
+def test_pdf_korean_font_distinguishes_renderer_from_font(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """렌더러 부재와 폰트 부재를 한 값으로 뭉치지 않는다 (`#689`).
+
+    둘은 **설치해야 할 것이 다르다** — 하나는 ``libpango``, 하나는 ``fonts-nanum``이다.
+    같은 값으로 내면 이 필드를 보고도 무엇을 해야 하는지 알 수 없다.
+    """
+    from cii_platform.api.routes import health as health_module
+
+    monkeypatch.setattr(health_module.pdf_module, "is_available", lambda: False)
+    health_module._pdf_korean_font.cache_clear()
+    try:
+        assert health_module._pdf_korean_font() == "unavailable"
+    finally:
+        health_module._pdf_korean_font.cache_clear()
+
+
+def test_pdf_korean_font_survives_a_probe_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """판정이 예외를 던져도 health가 500이 되지 않는다 (`#689`).
+
+    폰트 판정은 실제로 문서를 렌더링한다 — 렌더러가 깨진 환경에서 무엇이 튀어나올지
+    보장할 수 없다. **진단 필드 하나 때문에 가용성을 깎지 않는다** (`#400`과 같은 판단).
+    """
+    from cii_platform.api.routes import health as health_module
+
+    def _boom() -> bool:
+        raise RuntimeError("Pango가 세그폴트로 죽었다")
+
+    monkeypatch.setattr(health_module.pdf_module, "is_available", lambda: True)
+    monkeypatch.setattr(health_module.pdf_module, "korean_font_available", _boom)
+    health_module._pdf_korean_font.cache_clear()
+    try:
+        assert health_module._pdf_korean_font() == "unavailable"
+    finally:
+        health_module._pdf_korean_font.cache_clear()
+
+
+def test_pdf_korean_font_is_cached_per_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """프로세스당 1회만 판정한다 (`#689`).
+
+    판정에 프로브 문서 렌더링이 들어간다. health는 로드 밸런서가 주기적으로
+    호출하므로, 캐시하지 않으면 **헬스 체크마다 PDF를 한 장씩 그린다.**
+    """
+    from cii_platform.api.routes import health as health_module
+
+    calls = {"n": 0}
+
+    def _counting() -> bool:
+        calls["n"] += 1
+        return True
+
+    monkeypatch.setattr(health_module.pdf_module, "is_available", lambda: True)
+    monkeypatch.setattr(health_module.pdf_module, "korean_font_available", _counting)
+    health_module._pdf_korean_font.cache_clear()
+    try:
+        assert health_module._pdf_korean_font() == "ok"
+        assert health_module._pdf_korean_font() == "ok"
+        assert health_module._pdf_korean_font() == "ok"
+        assert calls["n"] == 1
+    finally:
+        health_module._pdf_korean_font.cache_clear()

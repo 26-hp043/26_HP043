@@ -277,6 +277,103 @@ def test_pdf_error_names_the_cause_and_offers_csv():
     assert "libpango" in error.message
 
 
+# --- 폰트가 없으면 PDF를 내주지 않는다 (#689) --------------------------------------
+
+
+def test_pdf_is_refused_when_korean_font_is_missing(monkeypatch: pytest.MonkeyPatch):
+    """폰트가 없는 서버는 PDF를 만들지 않는다 — 종전에는 □ 문서가 200으로 나갔다.
+
+    **이것이 `#689`의 본체다.** 렌더링은 성공하고 한글만 tofu(□)가 되므로 HTTP 상태도
+    바이트 길이도 예외도 정상이었다. 그 문서 안에 `PRD §18.2`의 면책 문구가 있다 —
+    읽을 수 없는 면책이 실린 문서는 리포트가 아니다.
+
+    렌더러 부재와 **같은 방식**으로 다룬다(500 + CSV 안내). 둘 다 사용자 입력의
+    문제가 아니라 배포 환경의 문제다 (`TECH_SPEC §19.3`·`§19.4`).
+    """
+    from cii_platform.reports import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "is_available", lambda: True)
+    monkeypatch.setattr(pdf_module, "korean_font_available", lambda: False)
+
+    with pytest.raises(pdf_module.PdfUnavailableError) as caught:
+        pdf_module.render_pdf(render_html(_document()))
+
+    message = caught.value.message
+    # 무엇이 없는지와 무엇을 하면 되는지를 함께 말한다 — 둘 중 하나만 있으면 막힌다.
+    assert "폰트" in message
+    assert "fonts-nanum" in message
+    assert "CSV" in message
+
+
+def test_missing_renderer_is_not_reported_as_a_font_problem(monkeypatch: pytest.MonkeyPatch):
+    """Pango가 없는 환경에 「폰트를 설치하라」고 말하지 않는다.
+
+    ``has_korean_font()``는 렌더러가 없을 때도 ``False``를 돌려준다. 그래서 검사
+    순서를 뒤집으면 **폰트를 아무리 설치해도 해결되지 않는 환경에 폰트 안내가 나간다.**
+    ``render_pdf``가 ``is_available()``을 먼저 보는 이유이며, 그 순서를 여기서 고정한다.
+    """
+    from cii_platform.reports import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "is_available", lambda: False)
+    monkeypatch.setattr(pdf_module, "korean_font_available", lambda: False)
+
+    def _no_renderer(_html: str) -> bytes:
+        raise pdf_module.PdfUnavailableError("libpango-1.0-0 not found")
+
+    monkeypatch.setattr(pdf_module, "_render", _no_renderer)
+
+    with pytest.raises(pdf_module.PdfUnavailableError) as caught:
+        pdf_module.render_pdf("<html><body>x</body></html>")
+
+    assert "libpango" in caught.value.message
+    assert "fonts-nanum" not in caught.value.message
+
+
+def test_font_verdict_is_cached_per_process(monkeypatch: pytest.MonkeyPatch):
+    """판정은 프로세스당 1회다 — 요청마다 프로브를 렌더링하지 않는다.
+
+    ``has_korean_font()``는 부를 때마다 작은 문서를 실제로 렌더링한다. 요청 경로에
+    그대로 두면 PDF 한 건에 렌더링이 두 번 일어난다. 설치된 폰트는 프로세스 수명
+    동안 바뀌지 않으므로 한 번만 본다 (`#400`의 ``_rng_canonical_test``와 같은 이유).
+    """
+    from cii_platform.reports import pdf as pdf_module
+
+    calls = {"n": 0}
+
+    def _counting() -> bool:
+        calls["n"] += 1
+        return True
+
+    pdf_module.korean_font_available.cache_clear()
+    monkeypatch.setattr(pdf_module, "has_korean_font", _counting)
+    try:
+        assert pdf_module.korean_font_available() is True
+        assert pdf_module.korean_font_available() is True
+        assert pdf_module.korean_font_available() is True
+        assert calls["n"] == 1
+    finally:
+        # 스텁이 캐시에 남아 다른 테스트를 오염시키지 않게 한다.
+        pdf_module.korean_font_available.cache_clear()
+
+
+def test_font_probe_does_not_go_through_the_guard(monkeypatch: pytest.MonkeyPatch):
+    """프로브는 폰트 검사를 거치지 않는다 — 거치면 무한 재귀다.
+
+    ``has_korean_font()``는 판정을 위해 문서를 렌더링하는데, 그 렌더링이 다시 판정을
+    물으면 서로를 부른다. 그래서 프로브는 ``_render``로 직접 그린다.
+
+    검사를 ``False``로 고정한 채 프로브가 ``True``를 돌려주는 것이 그 증거다 —
+    ``render_pdf``를 탔다면 거부 예외에 걸려 ``False``가 됐을 것이다.
+    """
+    from cii_platform.reports import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "is_available", lambda: True)
+    monkeypatch.setattr(pdf_module, "korean_font_available", lambda: False)
+    monkeypatch.setattr(pdf_module, "_render", lambda _html: b"%PDF-stub")
+
+    assert pdf_module.has_korean_font() is True
+
+
 # ---------------------------------------------------------------------------
 # 표시 형식 — DESIGN_SYSTEM §4 (#584)
 # ---------------------------------------------------------------------------
