@@ -243,10 +243,39 @@ fi
 # --- 5. 백엔드 ----------------------------------------------------------------------
 
 step "5. 백엔드 API"
+
+# `.env`를 **uvicorn에 실어 준다 (#693).**
+#
+# 종전에는 `DATABASE_URL` 하나만 넘겼다. 그래서 `.env`에 8/17부터 들어 있던
+# `MAIL_BACKEND=smtp`·`APP_PUBLIC_URL`이 서버에 닿지 않았고, **회원가입은 성공하는데
+# 인증 메일이 오지 않았다** — 메일은 로그에만 찍혔다. 「설정은 되어 있고 읽는 경로가
+# 없다」가 정확한 상태였다.
+#
+# 세 경로 중 **둘은 이미 `.env`를 읽고 이 스크립트만 안 읽었다.**
+#
+#   docker compose      `env_file: [.env]`            (docker-compose.yml)
+#   uvicorn --env-file  `.env.example`이 그 사용법을 전제로 적혀 있다
+#   demo_up.sh          ← 여기만 빠져 있었다
+#
+# **셸에서 `source`로 읽지 않는다.** `MAIL_FROM=BlueLog <26hp043@gmail.com>`의 `<`와
+# `>`를 셸이 리다이렉션으로 해석해 구문 오류가 난다. `uvicorn --env-file`과 docker의
+# `env_file`은 그 줄을 정상 처리한다 — 그래서 읽는 주체를 uvicorn에 맡긴다.
+#
+# **`DATABASE_URL`은 계속 `env`로 덮어쓴다.** uvicorn은 `load_dotenv(override=False)`라
+# **이미 있는 환경변수가 이긴다** — 스크립트가 결정한 대상 DB가 `.env` 값보다 우선한다.
+#
+# **`.env`가 없어도 기동한다.** 파일이 있을 때만 인자를 붙인다 — 없는 파일을 가리키면
+# uvicorn이 그 자리에서 실패해, 메일 설정 하나 때문에 시연 전체가 서지 않게 된다.
+ENV_FILE_ARGS=()
+if [ -f "$ROOT/.env" ]; then
+  ENV_FILE_ARGS=(--env-file "$ROOT/.env")
+fi
+
 if [ "$CHECK_ONLY" != "--check" ]; then
   pkill -f "uvicorn cii_platform" 2>/dev/null
   sleep 1
   nohup env DATABASE_URL="$DB_URL" "$VENV/uvicorn" cii_platform.api.main:app \
+    ${ENV_FILE_ARGS[@]+"${ENV_FILE_ARGS[@]}"} \
     --host 0.0.0.0 --port 8000 >/tmp/demo_api.log 2>&1 &
   disown
 fi
@@ -259,6 +288,75 @@ for i in $(seq 1 30); do
   [ "$i" = 30 ] && { bad "백엔드가 뜨지 않았습니다 — /tmp/demo_api.log 참조"; tail -10 /tmp/demo_api.log; exit 1; }
   sleep 1
 done
+
+# --- 5b. 메일 발송 설정 (#693) ---------------------------------------------------------
+#
+# **`console`이면 메일이 실제로 나가지 않는다.** 회원가입은 200으로 성공하고 메일은
+# 로그에만 찍히므로, **가입한 사람이 「안 왔다」고 말하기 전까지 아무도 모른다.**
+# 2026-08-23에 정확히 그 형태로 드러났다.
+#
+# ## 왜 `.env` 파일을 읽어 판정하지 않는가
+#
+# 파일을 읽으면 **「파일에 뭐라고 적혀 있나」만 알 뿐 그 값이 서버에 닿았는지는
+# 모른다.** 이 이슈의 결함이 바로 「설정은 되어 있고 읽는 경로가 없다」였으므로,
+# 파일을 보는 검사는 **같은 사고를 그대로 통과시킨다.**
+#
+# ## 왜 `/proc/<pid>/environ`도 아닌가
+#
+# 그것은 **exec 시점의 사본**이다. `uvicorn --env-file`은 프로세스가 뜬 뒤
+# `os.environ`에 실으므로 거기에는 나타나지 않는다. 이 방식으로 만들었다가
+# **고친 뒤에도 계속 console이라고 말하는** 검사를 얻었다.
+#
+# ## 그래서 서버가 남긴 로그를 본다
+#
+# 앱은 기동 시 `load_mail_settings()`를 부르고, **console이면 경고를 남긴다**
+# (`mail/config.py`). 그 줄의 유무가 곧 판정이다 — 서버 자신이 무엇을 집었는지
+# 말한 기록이라 파일과 어긋날 수 없다.
+#
+# 로그는 이 스크립트가 기동할 때마다 `>`로 새로 쓴다. 서버를 다른 방법으로 띄웠다면
+# 이 파일이 낡아 있을 수 있으므로, 그 경우는 판정 불가로 낸다.
+#
+# 비밀번호는 어디에도 출력하지 않는다.
+
+step "5b. 메일 발송 설정"
+
+API_LOG="/tmp/demo_api.log"
+
+if [ ! -r "$API_LOG" ]; then
+  bad "서버 로그($API_LOG)를 읽을 수 없어 메일 설정을 확인하지 못했습니다"
+  info "이 스크립트로 백엔드를 띄우면 로그가 생깁니다."
+elif ! grep -qa "Application startup complete" "$API_LOG"; then
+  bad "서버 로그에 기동 완료 기록이 없습니다 — 메일 설정을 확인하지 못했습니다"
+  info "백엔드를 이 스크립트로 다시 띄우십시오: bash scripts/demo_up.sh"
+elif grep -qa "MAIL_BACKEND=console" "$API_LOG"; then
+  bad "MAIL_BACKEND=console — 메일이 실제로 나가지 않습니다 (로그에만 찍힙니다)"
+  if [ -f "$ROOT/.env" ]; then
+    info ".env는 있습니다. MAIL_BACKEND=smtp와 SMTP_* 값이 채워져 있는지 보십시오."
+  else
+    info ".env 파일이 없습니다 — .env.example을 복사해 채우십시오."
+    printf '    cp .env.example .env\n'
+  fi
+else
+  ok "MAIL_BACKEND=smtp — 인증 메일이 실제로 발송됩니다"
+fi
+
+# `.env`가 실제로 실렸는지는 uvicorn이 직접 말한다 (#693). 이 줄이 없으면 `.env`의
+# APP_PUBLIC_URL·SMTP_* 가 **어느 것도 서버에 닿지 않았다**는 뜻이다.
+if [ -f "$ROOT/.env" ] && [ -r "$API_LOG" ]; then
+  if grep -qa "Loading environment from" "$API_LOG"; then
+    # 인증 링크의 기준 주소 (#429). 화면은 5173이고 API는 8000이라, 이 값이 없으면
+    # 링크가 8000을 가리켜 **눌러도 404가 난다.**
+    PUBLIC_URL=$(sed -n 's/^APP_PUBLIC_URL=//p' "$ROOT/.env" | head -1 | tr -d '\r')
+    if [ -n "$PUBLIC_URL" ]; then
+      ok ".env 적재됨 · APP_PUBLIC_URL=$PUBLIC_URL — 인증 링크가 이 주소로 나갑니다"
+    else
+      bad ".env에 APP_PUBLIC_URL이 없습니다 — 인증 링크가 API 포트를 가리켜 404가 납니다 (#429)"
+    fi
+  else
+    bad ".env가 있는데 서버가 싣지 않았습니다 — 메일·링크 설정이 전부 무시됩니다 (#693)"
+    info "백엔드를 이 스크립트로 다시 띄우십시오: bash scripts/demo_up.sh"
+  fi
+fi
 
 # --- 6. 실제 계산 한 번 --------------------------------------------------------------
 #
