@@ -132,12 +132,6 @@
   grid-column: 1 / -1;
 }
 
-.scenario-comparison__form-title {
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
-  margin: 0;
-}
-
 .scenario-comparison__field {
   display: flex;
   flex-direction: column;

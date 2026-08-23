@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { SCREEN_BY_ID } from '../../screens'
+import { PageHeader } from '../../components/PageHeader'
 import { Link } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { RegulatoryFlags } from '../../components/RegulatoryFlag'
@@ -268,12 +268,8 @@ function FleetHead({
   total?: number
 }) {
   return (
-    <header className="fleet__head">
-      <h1 className="fleet__title">
-        {SCREEN_BY_ID.MAINBOARD.label}
-        <span className="fleet__title-en"> {SCREEN_BY_ID.MAINBOARD.labelEn}</span>
-      </h1>
-      <p className="fleet__sub">
+    <PageHeader screen="MAINBOARD">
+      <p className="page-head__sub">
         {total !== undefined && regulationYear !== undefined
           ? `보유 선박 ${total}척 · ${regulationYear}년 누적(YTD) 기준`
           : '보유 선박 전체의 CII 등급과 위험 선박'}
@@ -292,7 +288,7 @@ function FleetHead({
           <span className="fleet__asof-rel">{relativeTime(asOf, new Date())}</span>
         </p>
       ) : null}
-    </header>
+    </PageHeader>
   )
 }
 

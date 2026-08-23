@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
+import { PageHeader } from '../../components/PageHeader'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
@@ -165,15 +166,16 @@ export function VesselManagement() {
 
   return (
     <section className="vessel-management">
-      <header>
-        <h1 className="vessel-management__title">
-          선박 관리 <span className="vessel-management__title-en">Vessel Management</span>
-        </h1>
-        <p className="vessel-management__lead">
+      {/*
+        이름을 손으로 적고 있었다 — 사이드바는 `screens.ts`를 쓰는데 여기만
+        문자열이라, 한쪽을 고치면 다른 쪽이 남는다.
+      */}
+      <PageHeader screen="VESSEL_MANAGEMENT">
+        <p className="page-head__sub">
           보유 선박의 제원을 확인하고 수정합니다. 제원이 비어 있으면 CII 계산과 항로
           비교가 실행되지 않으므로, 빠진 값을 함께 표시합니다.
         </p>
-      </header>
+      </PageHeader>
 
       <div className="vessel-management__actions">
         <Link

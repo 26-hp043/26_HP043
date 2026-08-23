@@ -223,7 +223,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
 
   return (
     <form className="voyage-cii-form" onSubmit={handleSubmit} noValidate>
-      <h2 className="voyage-cii-form__title">
+      <h2 className="card__title voyage-cii-form__title">
         항차 조건 입력
         <span className="voyage-cii-form__title-en"> Voyage Input</span>
       </h2>

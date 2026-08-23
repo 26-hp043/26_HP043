@@ -242,7 +242,7 @@ export function AppShell() {
         </ul>
       </nav>
 
-      <div className="app-shell__stack">
+      <div className={`app-shell__stack app-shell__stack--${width}`}>
         {/* 이메일 미인증 안내 — 인증 전에도 이용은 허용한다(PRD §7.10). */}
         <VerifyBanner />
         {/* 우측 정렬 유틸리티. 순서 = §7.2의 좌→우 배치: 선박 · 항차 · 알림 · 계정 */}
@@ -343,7 +343,7 @@ export function AppShell() {
           ) : null}
         </header>
 
-        <main className={`app-shell__main app-shell__main--${width}`}>
+        <main className="app-shell__main">
           <div className="app-shell__content">
             <Outlet context={outletContext} />
           </div>

@@ -1,6 +1,8 @@
 import { useCallback, useState } from 'react'
 import { DisclaimerBanner } from '../components/DisclaimerBanner'
+import { PageHeader } from '../components/PageHeader'
 import { AnnualSimulation } from '../features/annual-simulation/AnnualSimulation'
+import { ANNUAL_COPY } from '../features/annual-simulation/copy'
 import './AnnualGradePage.css'
 
 /**
@@ -20,6 +22,16 @@ export function AnnualGradePage() {
 
   return (
     <div className="annual-grade-page">
+      {/*
+        제목은 사이드바와 같은 이름(`screens.ts`)을 쓴다. 종전에는 이 화면만
+        「연간 CII 시뮬레이션」을 `h2`(20px)로 달고 있어, **누른 이름과 도착한
+        이름이 다르고 크기도 한 단 작았다.**
+
+        부제 문구는 `copy.ts`에 있다 — 금지 표현 가드가 검사하는 자리다.
+      */}
+      <PageHeader screen="ANNUAL_GRADE">
+        <p className="page-head__sub">{ANNUAL_COPY.lead}</p>
+      </PageHeader>
       <AnnualSimulation onDisclaimer={handleDisclaimer} />
       <DisclaimerBanner text={disclaimer} />
     </div>

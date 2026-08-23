@@ -195,7 +195,7 @@
 
 .vessel-registration__result {
   border-left: 3px solid var(--color-success);
-  border-radius: 0;
+  border-radius: var(--radius-card);
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
   border-right: 1px solid var(--color-border);
@@ -204,8 +204,8 @@
   padding: var(--space-16) var(--space-24);
 }
 
+/* 크기·굵기는 `.card__title`(`styles/card.css`)이 정한다. */
 .vessel-registration__result-title {
-  font-size: var(--font-size-h3);
   margin-bottom: var(--space-12);
 }
 
