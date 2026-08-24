@@ -1,5 +1,6 @@
+import './UnderwayChip.css'
 import { detailStatusText, underwayStateText } from './fleetRules'
-import type { FleetVessel } from './types'
+import type { UnderwayState } from './types'
 
 /**
  * 운항 / 정박 상태 칩 (`#701` ⑤).
@@ -25,7 +26,22 @@ import type { FleetVessel } from './types'
  * `§12` — 「의미 전달 아이콘에는 반드시 텍스트 라벨 또는 `aria-label` 병기」.
  * 여기서는 **텍스트 라벨이 항상 옆에 있다.**
  */
-export function UnderwayChip({ vessel }: { vessel: FleetVessel }) {
+/**
+ * 운항 상태 칩.
+ *
+ * ## prop이 `FleetVessel`이 아니다 (#719)
+ *
+ * 선박 관리(`GET /vessels`)도 같은 두 값을 갖는데 **타입 이름이 다르다.** 칩이
+ * `FleetVessel`을 요구하면 쓰는 쪽이 가짜 선대 객체를 만들거나 칩을 베낀다.
+ *
+ * 필요한 두 필드만 받는 **구조적 타입**으로 넓힌다. `FleetVessel`이 그대로 만족하므로
+ * 대시보드 쪽 호출과 테스트는 손대지 않는다.
+ */
+export function UnderwayChip({
+  vessel,
+}: {
+  vessel: { underwayState: UnderwayState | null; detailStatus: string | null }
+}) {
   const state = vessel.underwayState
   const detail = vessel.detailStatus ? detailStatusText(vessel.detailStatus) : null
 

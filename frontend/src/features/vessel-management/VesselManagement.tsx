@@ -6,6 +6,9 @@ import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
 import { SCREEN_BY_ID } from '../../screens'
 import { SHIP_TYPES } from '../vessel-registration/shipTypes'
 import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
+// 상태 칩은 대시보드와 **같은 컴포넌트**를 쓴다 — 베끼면 두 화면의 표기가 갈린다.
+import { UnderwayChip } from '../fleet/UnderwayChip'
+import { toUnderwayState } from '../fleet/fleetRules'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import type { Vessel } from '../vessel-registration/types'
 import {
@@ -21,10 +24,17 @@ import {
 } from './editRules'
 import {
   EMPTY_MESSAGE,
+  MISSING,
+  SORT_KEYS,
+  SORT_LABEL,
   blockedReasons,
   capacityCell,
+  dailyFuelCell,
   deleteConfirmMessage,
+  referenceSpeedCell,
   shipTypeLabel,
+  sortVessels,
+  type VesselSortKey,
 } from './listRules'
 import { VesselManagementError } from './provider'
 import { createVesselManagementProvider } from './providerSelection'
@@ -68,6 +78,14 @@ export function VesselManagement() {
   const [editState, setEditState] = useState<VesselEditState | null>(null)
   const [editErrors, setEditErrors] = useState<EditErrors>({})
   const [saving, setSaving] = useState(false)
+
+  /*
+   * 기본이 이름순이 아니다 — 근거는 `listRules.SORT_KEYS` 주석에 있다.
+   * 정렬은 파생이라 목록 상태(`vessels`)를 건드리지 않는다. 건드리면 수정 중이던
+   * 행이 정렬 때문에 사라지거나 다른 배의 폼으로 바뀐다.
+   */
+  const [sortKey, setSortKey] = useState<VesselSortKey>('gaps')
+  const sorted = useMemo(() => sortVessels(vessels, sortKey), [vessels, sortKey])
 
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [actionNotice, setActionNotice] = useState<string | null>(null)
@@ -207,95 +225,162 @@ export function VesselManagement() {
       )}
 
       {vessels.length > 0 && (
-        <ul className="vessel-management__list">
-          {vessels.map((vessel) => {
-            const capacity = capacityCell(vessel)
-            const blocked = blockedReasons(vessel)
-            const isEditing = editingId === vessel.id
-            return (
-              <li className="vessel-management__item" key={vessel.id}>
-                <div className="vessel-management__row">
-                  <VesselSilhouette />
-                  <div className="vessel-management__ident">
-                    <Link
-                      className="vessel-management__name"
-                      to={`/vessels/${vessel.id}`}
-                    >
-                      {vessel.name}
-                    </Link>
-                    <span className="vessel-management__imo">IMO {vessel.imo_number}</span>
+        <section className="card vm" aria-label="선박 목록">
+          <div className="card__head">
+            <h2 className="card__title">선박 {vessels.length}척</h2>
+            {/*
+              「불러온 만큼」임을 밝힌다. `GET /vessels`가 커서 페이지네이션이라
+              정렬은 **받은 페이지 안에서만** 성립한다 — 전체를 정렬한 것처럼
+              보이면 21척째부터 조용히 어긋난다.
+            */}
+            <label className="sort">
+              <span className="sr-only">정렬 기준</span>
+              <select
+                value={sortKey}
+                onChange={(event) => setSortKey(event.target.value as VesselSortKey)}
+                data-testid="vessel-sort"
+              >
+                {SORT_KEYS.map((key) => (
+                  <option key={key} value={key}>
+                    {SORT_LABEL[key]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <ul className="vm__list">
+            {/*
+              열 이름을 **한 번만** 적는다. 종전에는 행마다 `dt`가 따라다녀
+              같은 라벨이 네 번 반복되고, 정작 값은 세로로 맞지 않았다.
+
+              `aria-hidden`인 이유 — 아래 각 셀이 `sr-only` 라벨을 그대로 갖고
+              있어, 이 줄까지 읽히면 스크린 리더에서 이름이 두 번 나온다.
+            */}
+            <li className="vm__head" aria-hidden="true">
+              <span />
+              <span>선박</span>
+              <span>선종</span>
+              <span>용량</span>
+              <span>기준속도</span>
+              <span>일일 연료</span>
+              <span>운항 상태</span>
+              <span />
+            </li>
+
+            {sorted.map((vessel) => {
+              const capacity = capacityCell(vessel)
+              const blocked = blockedReasons(vessel)
+              const isEditing = editingId === vessel.id
+              return (
+                <li className="vm__item" key={vessel.id}>
+                  <div className="vm__row">
+                    <VesselSilhouette />
+
+                    <div className="vm__ident">
+                      <Link className="vm__name" to={`/vessels/${vessel.id}`}>
+                        {vessel.name}
+                      </Link>
+                      <span className="vm__meta">
+                        <span className="vm__imo">IMO {vessel.imo_number}</span>
+                        {/*
+                          CII 적용 대상 여부는 등록 결과 화면에만 있었다 (`#653`).
+                          선박을 식별하는 자리마다 같은 배지를 둔다.
+                        */}
+                        <ApplicabilityBadge
+                          isCiiApplicableHint={vessel.is_cii_applicable_hint}
+                          grossTonnage={vessel.gross_tonnage}
+                          vesselName={vessel.name}
+                        />
+                      </span>
+                    </div>
+
+                    <div className="vm__cell">
+                      <span className="sr-only">선종 </span>
+                      {shipTypeLabel(vessel.ship_type)}
+                    </div>
+
                     {/*
-                      CII 적용 대상 여부는 등록 결과 화면에만 있었다 (`#653`).
-                      선박을 식별하는 자리마다 같은 배지를 둔다 — 목록에서 보이지
-                      않으면 「계산은 되는데 규제상 의미가 없는 배」를 가려낼 방법이 없다.
+                      단위를 값 옆에 둔다. 선종마다 축이 달라(`capacityCell`) 열 이름
+                      하나로는 못 적는데, 그렇다고 라벨을 행마다 왼쪽에 세우면 값이
+                      세로로 안 맞는다. 값 뒤에 붙이면 열은 훑어지고 축은 남는다.
                     */}
-                    <ApplicabilityBadge
-                      isCiiApplicableHint={vessel.is_cii_applicable_hint}
-                      grossTonnage={vessel.gross_tonnage}
-                      vesselName={vessel.name}
+                    <div className="vm__cell vm__cell--num">
+                      <span className="sr-only">용량 </span>
+                      {capacity.value}
+                      <span className="vm__unit"> {capacity.label}</span>
+                    </div>
+
+                    {/*
+                      완성도 막대를 값 두 칸으로 바꿨다. 막대는 「2/3」까지만 말하고
+                      **무엇이** 빠졌는지는 아래 문장을 읽어야 했다. 값을 열에 두면
+                      `—`가 그 자리에 서고, 사용자가 채울 칸과 화면의 칸이 맞는다.
+                    */}
+                    <ValueCell label="기준속도" value={referenceSpeedCell(vessel)} />
+                    <ValueCell label="일일 연료" value={dailyFuelCell(vessel)} />
+
+                    <div className="vm__cell">
+                      <span className="sr-only">운항 상태 </span>
+                      <UnderwayChip
+                        vessel={{
+                          underwayState: toUnderwayState(vessel.underway_state),
+                          detailStatus: vessel.detail_status,
+                        }}
+                      />
+                    </div>
+
+                    <div className="vm__actions">
+                      <button
+                        type="button"
+                        className="vessel-management__button"
+                        onClick={() => (isEditing ? cancelEdit() : startEdit(vessel))}
+                      >
+                        {isEditing ? '취소' : '수정'}
+                      </button>
+                      <button
+                        type="button"
+                        className="vessel-management__button vessel-management__button--danger"
+                        onClick={() => {
+                          // 되돌리기 어려운 조작이라 확인을 받는다. soft delete임을
+                          // 문구가 밝힌다(`listRules.deleteConfirmMessage`).
+                          if (globalThis.confirm(deleteConfirmMessage(vessel))) {
+                            void handleDelete(vessel)
+                          }
+                        }}
+                        disabled={deletingId === vessel.id}
+                      >
+                        {deletingId === vessel.id ? '삭제 중…' : '삭제'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {blocked.length > 0 && (
+                    <ul className="vm__blocked">
+                      {blocked.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {isEditing && editState !== null && (
+                    <EditForm
+                      vessel={vessel}
+                      state={editState}
+                      errors={editErrors}
+                      fuels={fuels}
+                      fuelsLoading={fuelsLoading}
+                      fuelsFailed={fuelsFailed}
+                      saving={saving}
+                      onChange={setEditState}
+                      onSave={() => void handleSave()}
+                      onCancel={cancelEdit}
                     />
-                  </div>
-                  <dl className="vessel-management__specs">
-                    <div>
-                      <dt>선종</dt>
-                      <dd>{shipTypeLabel(vessel.ship_type)}</dd>
-                    </div>
-                    <div>
-                      <dt>{capacity.label}</dt>
-                      <dd>{capacity.value}</dd>
-                    </div>
-                  </dl>
-                  <div className="vessel-management__buttons">
-                    <button
-                      type="button"
-                      className="vessel-management__button"
-                      onClick={() => (isEditing ? cancelEdit() : startEdit(vessel))}
-                    >
-                      {isEditing ? '수정 취소' : '수정'}
-                    </button>
-                    <button
-                      type="button"
-                      className="vessel-management__button vessel-management__button--danger"
-                      onClick={() => {
-                        // 되돌리기 어려운 조작이라 확인을 받는다. soft delete임을
-                        // 문구가 밝힌다(`listRules.deleteConfirmMessage`).
-                        if (globalThis.confirm(deleteConfirmMessage(vessel))) {
-                          void handleDelete(vessel)
-                        }
-                      }}
-                      disabled={deletingId === vessel.id}
-                    >
-                      {deletingId === vessel.id ? '삭제 중…' : '삭제'}
-                    </button>
-                  </div>
-                </div>
-
-                {blocked.length > 0 && (
-                  <ul className="vessel-management__blocked">
-                    {blocked.map((reason) => (
-                      <li key={reason}>{reason}</li>
-                    ))}
-                  </ul>
-                )}
-
-                {isEditing && editState !== null && (
-                  <EditForm
-                    vessel={vessel}
-                    state={editState}
-                    errors={editErrors}
-                    fuels={fuels}
-                    fuelsLoading={fuelsLoading}
-                    fuelsFailed={fuelsFailed}
-                    saving={saving}
-                    onChange={setEditState}
-                    onSave={() => void handleSave()}
-                    onCancel={cancelEdit}
-                  />
-                )}
-              </li>
-            )
-          })}
-        </ul>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </section>
       )}
 
       {hasMore && nextCursor !== null && (
@@ -536,5 +621,23 @@ function VesselSilhouette() {
         <path key={d} d={d} />
       ))}
     </svg>
+  )
+}
+
+/**
+ * 제원 값 한 칸 (#719).
+ *
+ * **없을 때 빈칸으로 두지 않는다.** 빈칸이면 「항목 자체가 없는 배」로 읽히고,
+ * 이 화면에서 그 구분이 곧 용건이다(`#449` — 계산할 수 없을 때 그 사실을 값으로
+ * 만든다). `—`를 세우고 색을 낮춰 **값이 있는 칸과 없는 칸이 훑을 때 갈리게** 한다.
+ *
+ * 색만으로 구분하지 않는다 — `—`라는 문자 자체가 보조 채널이다 (`§14`).
+ */
+function ValueCell({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className={`vm__cell vm__cell--num${value === null ? ' vm__cell--empty' : ''}`}>
+      <span className="sr-only">{label} </span>
+      {value ?? MISSING}
+    </div>
   )
 }
