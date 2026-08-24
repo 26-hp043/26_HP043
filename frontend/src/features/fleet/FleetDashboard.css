@@ -455,22 +455,6 @@
 
 /* ── 선박 목록 ──────────────────────────────────────────────────── */
 
-.sort select {
-  border: var(--borderWidth-default) solid var(--border-default);
-  border-radius: var(--radius-control);
-  background: var(--surface-inset);
-  color: var(--text-secondary);
-  font-family: var(--font-sans);
-  font-size: var(--font-size-label);
-  padding: 4px var(--spacing-sm);
-  cursor: pointer;
-}
-
-.sort select:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .vessels {
   display: flex;
   flex-direction: column;
@@ -890,41 +874,6 @@
   flex-wrap: wrap;
   font-size: var(--font-size-label);
   color: var(--text-secondary);
-}
-
-/*
- * 상태 칩은 **중립색**이다. 운항 상태는 등급과 다른 축이라 등급색을 겹치면
- * 한 축으로 읽힌다 — `§0.2` 제약 2가 막으려는 것과 같은 종류의 혼동이다.
- * 구분은 색이 아니라 아이콘 형태(물살 ↔ 닻)가 맡는다.
- */
-.vessel__state {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs);
-  padding: 2px var(--spacing-sm);
-  border-radius: var(--radius-pill);
-  background: var(--surface-inset);
-  border: var(--borderWidth-default) solid var(--border-default);
-  color: var(--text-primary);
-  white-space: nowrap;
-}
-
-/* 상태 미기록은 테두리를 점선으로 — 「정박」으로 읽히면 없는 사실이 된다. */
-.vessel__state--unknown {
-  border-style: dashed;
-  color: var(--text-secondary);
-}
-
-/* `§12` — 라인 아이콘 · stroke 1.5–1.6 · 단색. 텍스트 라벨이 항상 옆에 있다. */
-.vessel__state-icon {
-  inline-size: 16px;
-  block-size: 16px;
-  flex: none;
-  fill: none;
-  stroke: currentcolor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .vessel__type {

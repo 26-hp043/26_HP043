@@ -89,36 +89,6 @@
   text-align: center;
 }
 
-.vessel-management__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-12);
-}
-
-.vessel-management__item {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv1);
-  padding: var(--space-16);
-  /* 대시보드 선박 카드(`.vessel:hover`)와 같은 신호를 쓴다. */
-  transition: border-color 120ms ease;
-}
-
-.vessel-management__item:hover {
-  border-color: var(--border-strong);
-}
-
-.vessel-management__row {
-  display: flex;
-  gap: var(--space-16);
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
-
 /*
  * 배 실루엣 — 중립 회색이다(`VesselSilhouette` 주석 참조).
  *
@@ -127,53 +97,10 @@
  */
 .vessel-management__glyph {
   flex: none;
-  width: 40px;
-  height: 40px;
+  /* 열 폭(32px)과 같다 — 다르면 뒤 열이 통째로 밀린다. */
+  inline-size: 32px;
+  block-size: 32px;
   fill: var(--text-secondary);
-}
-
-/*
- * `align-items`가 없으면 **세로 flex의 기본값 `stretch`**가 걸려, 배지가 열
- * 전체 폭으로 늘어난다. `.applicability-badge`의 `flex: none`은 주축(세로)만
- * 막으므로 이걸 못 막는다 — 목록에서 「GT 미입력」이 빈 상자처럼 길게 누워
- * 있던 것이 그 때문이다.
- */
-.vessel-management__ident {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-4);
-  flex: 1 1 220px;
-  min-width: 0;
-}
-
-.vessel-management__name {
-  color: var(--color-text);
-  font-weight: var(--font-weight-h3);
-  font-size: var(--font-size-h3);
-}
-
-.vessel-management__imo {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-micro);
-}
-
-.vessel-management__specs {
-  display: flex;
-  gap: var(--space-24);
-  margin: 0;
-  flex: 1 1 200px;
-}
-
-.vessel-management__specs dt {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-}
-
-.vessel-management__specs dd {
-  margin: 0;
-  font-variant-numeric: tabular-nums;
 }
 
 .vessel-management__buttons {
@@ -202,7 +129,15 @@
   cursor: not-allowed;
 }
 
-.vessel-management__button--danger {
+/*
+ * 삭제는 평상시 중립이다 (#719).
+ *
+ * 종전에는 붉은 테두리가 **상시** 켜져 있어 목록 오른쪽 끝에 빨간 상자가 줄줄이
+ * 섰다. `수정`과 크기·무게가 같아 둘 중 어느 쪽이 흔한 조작인지도 읽히지 않았다.
+ * 위험 신호는 **손이 그쪽으로 갔을 때** 켠다 — hover·포커스가 그 순간이다.
+ */
+.vessel-management__button--danger:hover:not(:disabled),
+.vessel-management__button--danger:focus-visible {
   border-color: var(--color-danger);
   color: var(--color-danger-text);
 }
@@ -231,9 +166,17 @@
  * 「이 배로 지금 할 수 없는 것」. 목록에서 바로 보여야 하는 정보다 —
  * 등급이 `—`인 이유를 사용자가 다른 화면에서 찾게 두지 않는다.
  */
-.vessel-management__blocked {
+.vm__blocked {
   list-style: none;
-  margin: var(--space-12) 0 0;
+  /*
+   * 이름 열부터 시작한다 — 마크 열(32) + 거터(12)만큼 들여쓴다. 종전에는 행 전체
+   * 폭을 차지해 **1576px을 가로지르는데 실제 글자는 550px**이었고, 목록에서 가장
+   * 큰 면적을 경고가 먹었다.
+   *
+   * 문구는 손대지 않는다 — `#630`이 「연간 시뮬레이션이 실패한다」가 사실과 다른
+   * 것을 확인하고 고친 문장이다.
+   */
+  margin: var(--space-8) 0 0 calc(32px + var(--space-12));
   padding: var(--space-8) var(--space-12);
   border-left: 3px solid var(--color-warning);
   background: var(--color-surface-2);
@@ -300,4 +243,166 @@
 .vessel-management__field-error {
   color: var(--color-danger-text);
   font-size: var(--font-size-micro);
+}
+
+/* ── 목록 (#719) ──────────────────────────────────────────────────── */
+
+/*
+ * ## flex를 버리고 열을 고정한다
+ *
+ * 종전에는 한 행이 flex였고 이름 칸과 제원 칸이 **둘 다 `flex: 1 1 …`**이었다.
+ * 1920에서 재면 남는 폭이 반씩 나뉘어 이렇게 된다.
+ *
+ * | 칸 | 실제 폭 | 안에 든 글자 | 빈칸 |
+ * |---|---|---|---|
+ * | 이름·IMO·배지 | 678 | ~260 | 418 |
+ * | 선종·용량 | **658** | ~180 | **478** |
+ *
+ * **이름은 x=56, 그 배의 DWT는 x≈750** — 사이가 700px 비어 있었다. `<dl>`이
+ * `flex-grow: 1`을 가질 이유가 없는데 갖고 있었던 것이다. 그리고 flex는 행마다
+ * 자기 내용에 맞춰 나누므로 **위아래 행의 열이 서로 맞지 않는다.**
+ *
+ * 열 정의를 한 곳에 두고 머리줄과 각 행이 **같은 변수**를 읽는다. `auto` 열을 두지
+ * 않는 이유가 여기 있다 — 머리줄은 비어 있고 행에는 버튼이 있어 `auto`면 둘의 폭이
+ * 달라진다.
+ *
+ * 최소폭 합은 `32+170+84+96+84+84+124+132 = 806`, 거터 `7×12 = 84`. 1280에서 콘텐츠가
+ * 936(카드 패딩 제외)이라 46px이 남는다 — 붙긴 하되 여유가 얇다.
+ *
+ * ## 넓은 창에서는 표를 늘리지 않는다
+ *
+ * 1920에서 열을 전부 늘리면 **약 730px이 다섯 칸에 골고루 퍼져** 이름과 그 배의 값
+ * 사이가 다시 벌어진다. 종전 flex가 만들던 것과 같은 모양이고, 열을 고정해도 `fr`로
+ * 늘리면 그대로 재현된다.
+ *
+ * 그래서 표에 상한을 두고 **왼쪽에 붙인다.** 남는 폭은 오른쪽에 둔다 — `#709`가
+ * 화면 열에 대해 내린 판단(「사이드바가 왼쪽에 고정이므로 본문의 왼쪽 끝도 고정이어야
+ * 한다」)과 같다. 1440 이하에서는 콘텐츠가 상한보다 좁아 애초에 걸리지 않는다.
+ */
+.vm__list {
+  --vm-cols:
+    32px
+    minmax(170px, 2.2fr)
+    minmax(84px, 1fr)
+    minmax(96px, 1.1fr)
+    minmax(84px, 1fr)
+    minmax(84px, 1fr)
+    minmax(124px, 1.4fr)
+    132px;
+
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.vm__head,
+.vm__row {
+  display: grid;
+  grid-template-columns: var(--vm-cols);
+  gap: var(--space-12);
+  align-items: center;
+  max-inline-size: 1240px;
+}
+
+/* 열 이름 — `§3` label 급. 값보다 가벼워야 값이 먼저 읽힌다. */
+.vm__head {
+  padding: 0 0 var(--space-8);
+  border-bottom: var(--borderWidth-default) solid var(--border-default);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--text-secondary);
+}
+
+/*
+ * 행은 카드가 아니다. 목록 전체가 이미 카드 하나이며, 행마다 또 면과 그림자를 주면
+ * **카드 안에 카드**가 되어 층이 두 겹으로 읽힌다. 구분은 선 하나가 맡는다.
+ */
+.vm__item {
+  padding: var(--space-12) 0;
+  border-bottom: var(--borderWidth-default) solid var(--border-default);
+}
+
+.vm__item:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.vm__item:hover {
+  background: var(--surface-inset);
+}
+
+.vm__ident {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.vm__name {
+  color: var(--text-primary);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+  text-decoration: none;
+}
+
+.vm__name:hover {
+  text-decoration: underline;
+}
+
+/*
+ * IMO와 적용 대상 배지를 한 줄에 둔다. 세로로 쌓으면 행 높이가 배지 있는 배와
+ * 없는 배에서 갈려 **열이 계단처럼 어긋난다.**
+ */
+.vm__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+  min-inline-size: 0;
+}
+
+.vm__imo {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-micro);
+}
+
+.vm__cell {
+  min-inline-size: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+}
+
+.vm__cell--num {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 값이 없는 칸. 빈칸으로 두면 「항목 자체가 없는 배」로 읽히므로 `—`를 세우고 색만
+ * 낮춘다 — 훑을 때 값 있는 칸과 갈리되, 없다는 사실은 문자가 말한다 (`§14`).
+ *
+ * `--text-secondary`를 쓴다. `--color-text-faint`는 `§2.2`가 「플레이스홀더·비활성
+ * 전용」으로 못박은 토큰이고 대비도 3.46:1이라 문자에 쓸 수 없다 (`#699`).
+ */
+.vm__cell--empty {
+  color: var(--text-secondary);
+}
+
+/* 단위는 값에 딸린 것이라 값보다 가볍게 둔다 — 열을 훑을 때 숫자가 먼저 잡힌다. */
+.vm__unit {
+  color: var(--text-secondary);
+  font-size: var(--font-size-micro);
+}
+
+.vm__actions {
+  display: flex;
+  gap: var(--space-8);
+  justify-content: flex-end;
+}
+
+/* 행 안에서는 좁게. 폭은 열이 정하고 글자는 두 자다. */
+.vm__actions .vessel-management__button {
+  padding: 0 var(--space-12);
 }

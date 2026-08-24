@@ -61,3 +61,26 @@
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
 }
+
+/*
+ * 카드 머리에 놓이는 정렬 셀렉트 (#719에서 `FleetDashboard.css`에서 옮겼다).
+ *
+ * `.card__head`가 이 파일에 있는데 그 안에 놓이는 컨트롤만 대시보드 파일에 남아
+ * 있었다. 선박 관리가 같은 셀렉트를 쓰면서 드러났다 — 이름이 `.sort`로 이미
+ * 전역인데 소유자만 한 화면이었다.
+ */
+.sort select {
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  padding: 4px var(--spacing-sm);
+  cursor: pointer;
+}
+
+.sort select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

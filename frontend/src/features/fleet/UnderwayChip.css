@@ -1,0 +1,46 @@
+/*
+ * 운항 상태 칩 (#719에서 `FleetDashboard.css`에서 옮겼다).
+ *
+ * ## 왜 옮겼나
+ *
+ * 컴포넌트 규격이 **한 화면의 스타일시트**에 살고 있었다. 그래서 선박 관리가 같은
+ * 칩을 쓰려 하자 마크업만 오고 모양은 오지 않았다 — 쓰는 쪽이 규칙을 베끼거나
+ * 대시보드 CSS를 통째로 부르는 두 갈래뿐이었고, 둘 다 갈린다.
+ *
+ * `.card`가 대시보드 파일에 있다가 `styles/card.css`로 나온 것과 같은 이유다.
+ */
+
+/*
+ * 상태 칩은 **중립색**이다. 운항 상태는 등급과 다른 축이라 등급색을 겹치면
+ * 한 축으로 읽힌다 — `§0.2` 제약 2가 막으려는 것과 같은 종류의 혼동이다.
+ * 구분은 색이 아니라 아이콘 형태(물살 ↔ 닻)가 맡는다.
+ */
+.vessel__state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 2px var(--spacing-sm);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  border: var(--borderWidth-default) solid var(--border-default);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* 상태 미기록은 테두리를 점선으로 — 「정박」으로 읽히면 없는 사실이 된다. */
+.vessel__state--unknown {
+  border-style: dashed;
+  color: var(--text-secondary);
+}
+
+/* `§12` — 라인 아이콘 · stroke 1.5–1.6 · 단색. 텍스트 라벨이 항상 옆에 있다. */
+.vessel__state-icon {
+  inline-size: 16px;
+  block-size: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

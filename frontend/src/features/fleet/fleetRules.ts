@@ -1,6 +1,12 @@
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
-import type { DaysReason, FleetVessel, RiskReason, UnavailableReason } from './types'
+import type {
+  DaysReason,
+  FleetVessel,
+  RiskReason,
+  UnavailableReason,
+  UnderwayState,
+} from './types'
 
 /**
  * 선대 화면의 표시 규칙.
@@ -152,7 +158,7 @@ export function unavailableHint(reason: UnavailableReason | null): string {
 }
 
 /** 운항 상태 표시. 상태 미기록을 「정박」으로 적지 않는다 — 없는 사실이 된다. */
-export function underwayStateText(vessel: FleetVessel): string {
+export function underwayStateText(vessel: { underwayState: UnderwayState | null }): string {
   if (vessel.underwayState === 'UNDER_WAY') return '운항 중'
   if (vessel.underwayState === 'NOT_UNDER_WAY') return '정박 중'
   return '상태 미기록'
@@ -188,6 +194,18 @@ const DETAIL_STATUS_TEXT: Readonly<Record<string, string>> = {
   STS: '선박 간 이적',
   CANAL_TRANSIT: '운하 통과',
   DRYDOCK: '드라이독',
+}
+
+/**
+ * 서버 원시 문자열 → `UnderwayState` (#719).
+ *
+ * `GET /vessels`는 `underway_state`를 **문자열**로 준다(`Vessel` 타입). 선대 요약은
+ * 이미 좁혀진 값을 주지만 선박 관리는 그렇지 않다. 화면이 각자 `as`로 단언하면
+ * **모르는 값이 조용히 「운항 중」으로 흘러든다** — 여기서 한 번만 좁히고,
+ * 아는 두 값이 아니면 `null`(상태 미기록)로 떨어뜨린다.
+ */
+export function toUnderwayState(code: string | null): UnderwayState | null {
+  return code === 'UNDER_WAY' || code === 'NOT_UNDER_WAY' ? code : null
 }
 
 export function detailStatusText(code: string | null): string | null {
