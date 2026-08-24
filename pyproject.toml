@@ -45,7 +45,7 @@ dev = [
     "pytest-cov>=7.1.0,<8.0",
     # PDF 텍스트 추출 (#361). 한글이 tofu로 렌더링되면 바이트 길이·HTTP 상태는
     # 정상이라 **추출된 텍스트로만** 잡을 수 있다.
-    "pypdf>=5.0,<7.0",
+    "pypdf>=6.16.1,<7.0",
 ]
 
 [tool.hatch.build.targets.wheel]
