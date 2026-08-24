@@ -31,7 +31,7 @@ dependencies = [
     # CSV 가져오기의 multipart/form-data 파싱 (#60). FastAPI가 `UploadFile`·`Form`을
     # 쓰는 라우트를 **등록하는 시점에** 이 패키지를 요구한다 — 없으면 요청이 아니라
     # 앱 기동이 실패하므로 선택 의존성으로 둘 수 없다 (`API_SPEC §8.2`).
-    "python-multipart>=0.0.20,<0.1",
+    "python-multipart>=0.0.32,<0.1",
 ]
 
 [project.optional-dependencies]
