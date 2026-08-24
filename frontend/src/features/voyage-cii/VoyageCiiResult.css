@@ -237,3 +237,177 @@
   color: var(--color-warning-text);
   flex: none;
 }
+
+/* ── 결과가 현재 입력과 어긋난 상태 (#727) ─────────────────────────── */
+
+/*
+ * 경고 블록과 같은 형태·같은 토큰을 쓴다. 이 화면에 이미 있는 「주의」 표현을
+ * 그대로 재사용하는 것이라 새 색 결합을 만들지 않는다.
+ */
+.voyage-cii-result__stale {
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+/*
+ * 안내문만 또렷하게 두고 나머지를 흐린다 — 문구를 못 보고 지나쳐도 **숫자 자체가
+ * 「지금 값이 아니다」로 보이게** 하기 위해서다. 제목은 흐리지 않는다: 카드가
+ * 무엇인지까지 흐려지면 로딩 중으로 읽힌다.
+ *
+ * `visibility`나 `display`가 아니라 `opacity`인 것은, 값을 **숨기지 않기**
+ * 위해서다. 직전 계산이 무엇이었는지는 여전히 볼 수 있어야 한다.
+ */
+.voyage-cii-result--stale > *:not(.voyage-cii-result__stale):not(.voyage-cii-result__title) {
+  opacity: 0.45;
+}
+
+/* ── 여유율 라벨 (#727) ────────────────────────────────────────────── */
+
+.voyage-cii-result__margin-label {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+  margin-right: var(--space-8);
+}
+
+/* ── 등급을 올리려면 (#727) ────────────────────────────────────────── */
+
+.voyage-cii-result__section-title {
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+  margin: 0;
+}
+
+.voyage-cii-result__targets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+.voyage-cii-result__targets-note {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+}
+
+/*
+ * 자릿수 정렬을 표 자신이 갖는다. 전역 `.num`을 쓰지 않는 것은 그 규칙의 소유자가
+ * `VesselDetail.css` 한 화면이라 이 경로에서는 아예 불러와지지 않기 때문이다
+ * (#709 · #719 · #723 · #725와 같은 「이름은 전역, 소유자는 한 화면」).
+ */
+.voyage-cii-result__targets-table,
+.voyage-cii-result__basis-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-label);
+  font-variant-numeric: tabular-nums;
+}
+
+.voyage-cii-result__targets-table th,
+.voyage-cii-result__targets-table td,
+.voyage-cii-result__basis-table th,
+.voyage-cii-result__basis-table td {
+  padding: var(--space-8) var(--space-12);
+  text-align: right;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* 첫 칸은 행의 이름이다 — 숫자 열과 같은 오른쪽 정렬이면 이름과 값이 섞여 보인다. */
+.voyage-cii-result__targets-table th:first-child,
+.voyage-cii-result__targets-table td:first-child,
+.voyage-cii-result__basis-table th:first-child,
+.voyage-cii-result__basis-table td:first-child {
+  text-align: left;
+  padding-left: 0;
+}
+
+.voyage-cii-result__targets-table thead th,
+.voyage-cii-result__basis-table thead th {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-label);
+}
+
+.voyage-cii-result__targets-table tbody tr:last-child th,
+.voyage-cii-result__targets-table tbody tr:last-child td,
+.voyage-cii-result__basis-table tbody tr:last-child th,
+.voyage-cii-result__basis-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.voyage-cii-result__cell-unit {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+.voyage-cii-result__cell-sub {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+/* ── 계산 근거 (#727) ──────────────────────────────────────────────── */
+
+.voyage-cii-result__basis {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-12);
+}
+
+.voyage-cii-result__basis-summary {
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text-muted);
+}
+
+.voyage-cii-result__basis-summary:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-control);
+}
+
+.voyage-cii-result__basis-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-8) var(--space-24);
+  margin: var(--space-12) 0 0;
+}
+
+@media (max-width: 900px) {
+  .voyage-cii-result__basis-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.voyage-cii-result__basis-list > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.voyage-cii-result__basis-list dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  flex: none;
+}
+
+.voyage-cii-result__basis-list dd {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.voyage-cii-result__basis-table {
+  margin-block-start: var(--space-12);
+}

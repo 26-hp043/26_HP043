@@ -7,6 +7,7 @@ import {
   toRequest,
   validateForm,
   type FormErrors,
+  sameInputs,
   type VoyageCiiFormState,
   pickDefaultYear,
 } from './formRules'
@@ -65,9 +66,14 @@ import type { ResultState } from './resultRules'
 interface VoyageCiiFormProps {
   /** 계산 상태 변화. 결과 렌더는 `VoyageCiiResult`(#136)가 맡는다. */
   onStateChange?: (state: ResultState) => void
+  /**
+   * 마지막 계산 이후 입력이 바뀌었는지 (`#727`). 결과 카드가 옛 숫자를 현재
+   * 조건의 답처럼 보여 주는 것을 막는다.
+   */
+  onStaleChange?: (stale: boolean) => void
 }
 
-export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
+export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormProps) {
   // 연료 선택지도 선박·연도와 같은 경계 뒤에 둔다 (#542). 종전에는 `selectableFuels()`가
   // 고정표(`referenceTable.ts`)를 직행으로 읽어, 실 API 모드에서도 서버가 아는 연료와
   // 화면이 보여 주는 연료가 갈릴 수 있었다.
@@ -81,6 +87,12 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   const [state, setState] = useState<VoyageCiiFormState>(initialFormState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [submitting, setSubmitting] = useState(false)
+  /*
+   * 성공한 계산이 어떤 입력으로 나온 것인지 (`#727`). 결과 자체는 페이지가 들고
+   * 있으므로 여기서는 **입력 쪽 사실**만 갖는다 — 폼이 결과를 알면 「입력과 결과가
+   * 서로를 알지 않는다」는 이 화면의 구조가 무너진다.
+   */
+  const [submittedState, setSubmittedState] = useState<VoyageCiiFormState | null>(null)
 
   // 연도 선택지도 같은 경계 뒤에 둔다 (#534). 종전에는 `selectableYears()`가
   // 고정표를 직행으로 읽어, 실 API 모드에서 고정표에 없는 선박(= 벌크선 외 전부)이
@@ -161,6 +173,19 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
   const selectedVessel = vessels.find((v) => v.id === state.vesselId)
 
   /** 한 필드를 갱신하고 그 필드의 오류만 지운다. 다른 필드의 오류는 그대로 둔다. */
+  /*
+   * 마지막 계산 이후 입력이 바뀌었는가 (#727).
+   *
+   * 렌더 중에 계산하고 효과로 알린다 — `update`마다 부모를 부르면 「어긋났다」를
+   * 알리는 책임이 입력 처리기 여섯 군데로 흩어지고, 셸이 선박을 바꿔 폼이
+   * 갱신되는 경로(위 효과)는 `update`를 거치지 않아 그 방식으로는 누락된다.
+   */
+  const stale = submittedState !== null && !sameInputs(submittedState, state)
+
+  useEffect(() => {
+    onStaleChange?.(stale)
+  }, [stale, onStaleChange])
+
   function update<K extends keyof VoyageCiiFormState>(
     key: K,
     value: VoyageCiiFormState[K],
@@ -198,6 +223,8 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
     setErrors(found)
     if (Object.keys(found).length > 0) {
       onStateChange?.({ status: 'idle' })
+      // 결과가 사라지므로 「어긋났다」고 말할 대상도 없다 (#727).
+      setSubmittedState(null)
       return
     }
 
@@ -206,6 +233,11 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
     try {
       const response = await provider.estimate(toRequest(state))
       onStateChange?.({ status: 'success', response })
+      /*
+       * `state`가 아니라 이 시점의 값을 그대로 담는다. 요청을 보내는 동안
+       * 사용자가 입력을 고쳤을 수 있고, 그러면 결과는 **보낸 값**의 답이다.
+       */
+      setSubmittedState(state)
     } catch (error) {
       // provider 검증은 화면 검증의 방어선이다. 여기 도달하면 두 규칙이 어긋난 것이다.
       const mapped = toFormErrors(error)
@@ -216,6 +248,7 @@ export function VoyageCiiForm({ onStateChange }: VoyageCiiFormProps) {
         setErrors(mapped)
         onStateChange?.({ status: 'idle' })
       }
+      setSubmittedState(null)
     } finally {
       setSubmitting(false)
     }

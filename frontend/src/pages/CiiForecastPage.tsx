@@ -33,6 +33,11 @@ import './CiiForecastPage.css'
  */
 export function CiiForecastPage() {
   const [result, setResult] = useState<ResultState>({ status: 'idle' })
+  /*
+   * 마지막 계산 이후 입력이 바뀌었는가 (#727). 결과와 마찬가지로 페이지가
+   * 중개한다 — 폼이 결과 컴포넌트를 직접 알게 하지 않기 위해서다.
+   */
+  const [stale, setStale] = useState(false)
 
   return (
     <div className="cii-forecast-page">
@@ -47,8 +52,8 @@ export function CiiForecastPage() {
         </p>
       </PageHeader>
       <div className="cii-forecast-page__split">
-        <VoyageCiiForm onStateChange={setResult} />
-        <VoyageCiiResult state={result} />
+        <VoyageCiiForm onStateChange={setResult} onStaleChange={setStale} />
+        <VoyageCiiResult state={result} stale={stale} />
       </div>
       <DisclaimerBanner
         text={result.status === 'success' ? result.response.disclaimer : undefined}
