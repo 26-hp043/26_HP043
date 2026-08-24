@@ -101,7 +101,8 @@ const KEPT: Readonly<Record<string, string>> = {
   'layout/voyageCatalog.ts::VoyageCatalogProvider': 'provider 경계 (#134)',
 
   // ── API 응답 계약: 추론으로만 쓰여도 계약이다 ─────────────────────────────
-  'auth/session.ts::CurrentUser': 'GET /auth/me 응답 계약',
+  // `auth/session.ts::CurrentUser`는 여기 있었다. `#717`에서 `AccountMenu`가 prop
+  // 타입으로 명시하면서 참조가 생겨 뺐다 — 남겨 두면 목록이 거짓말이 된다.
   'features/annual-simulation/types.ts::DeterministicBlock': 'API_SPEC §6.1 응답 계약',
   'features/annual-simulation/types.ts::RngMetadata': 'API_SPEC §6.1 응답 계약',
   'features/annual-simulation/types.ts::SnapshotBlock': 'API_SPEC §6.1 응답 계약',

@@ -451,3 +451,127 @@ describe('faint 계열을 문자색으로 쓰지 않는다 — §2.2 · §16 항
     expect(used).toBe(true)
   })
 })
+
+/**
+ * Primary 채움면 위 글자 대비 — `DESIGN_SYSTEM §0.2` 제약 1 (`#717`).
+ *
+ * ## 종전 가드가 못 보던 자리
+ *
+ * 위 두 가드는 **문자색 × 중립 면**만 본다. 그런데 `§8`이 정의한 Primary 버튼은
+ * 글자가 **브랜드색 면 위**에 얹힌다. 그 조합은 어느 가드에도 걸리지 않았고,
+ * 실제로 **아바타가 다크에서 3.76:1**인 채로 남아 있었다.
+ *
+ * ## `color-mix`를 계산한다
+ *
+ * 채움면은 다크에서 `color-mix(in srgb, var(--semantic-primary) 70%, var(--surface-page))`다.
+ * hex가 아니므로 위쪽 `declared()`처럼 정규식으로 뽑아 쓸 수 없다 — **여기서 직접
+ * 계산한다.** 계산하지 않으면 이 자리는 「선언돼 있다」까지만 확인되고 **값이 맞는지는
+ * 아무도 안 보는 상태**로 되돌아간다.
+ *
+ * 지원하는 문법은 이 파일이 실제로 쓰는 두 가지뿐이다 — `var(--x)`와
+ * `color-mix(in srgb, <색> N%, <색>)`. 더 넓히지 않는다. CSS 파서를 만드는 것이
+ * 목적이 아니라 **세 값이 4.5:1을 넘는지**를 잠그는 것이 목적이다.
+ */
+describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => {
+  /** `cii.a.fill` 꼴 경로를 CSS 이름으로 바꿔 hex를 찾는 표. */
+  const hexTable = (theme: Record<string, FlatToken>): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(theme)
+        .map(([path, token]) => [cssName(path), hexOf(token)])
+        .filter(([, hex]) => typeof hex === 'string'),
+    ) as Record<string, string>
+
+  /** 별칭 파일의 한 블록에서 `--name: value;` 를 전부 걷는다. */
+  function declarationsIn(marker: string): Record<string, string> {
+    const start = aliasCss.indexOf(marker)
+    expect(start, `${marker} 블록이 tokens.css에 없습니다`).toBeGreaterThan(-1)
+    const body = stripComments(aliasCss.slice(start + marker.length))
+    const end = body.indexOf('\n}')
+    const found: Record<string, string> = {}
+    for (const [, name, value] of body
+      .slice(0, end)
+      .matchAll(/(--[\w-]+):\s*([^;]+);/g)) {
+      found[name] = value.trim()
+    }
+    return found
+  }
+
+  const lightAlias = declarationsIn('\n:root {')
+  const darkAlias = {
+    ...lightAlias,
+    ...declarationsIn("\n:root[data-theme='dark'] {"),
+  }
+
+  function mix(a: string, b: string, percent: number): string {
+    const at = percent / 100
+    const channel = (i: number) =>
+      Math.round(
+        parseInt(a.slice(i, i + 2), 16) * at + parseInt(b.slice(i, i + 2), 16) * (1 - at),
+      )
+    return `#${[1, 3, 5].map((i) => channel(i).toString(16).padStart(2, '0')).join('')}`
+  }
+
+  function evaluate(expression: string, generated: Record<string, string>, alias: Record<string, string>): string {
+    const value = expression.trim()
+
+    if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase()
+
+    const variable = /^var\((--[\w-]+)\)$/.exec(value)
+    if (variable) {
+      const name = variable[1]
+      const resolved = generated[name] ?? alias[name]
+      expect(resolved, `${name}을 찾지 못했습니다`).toBeDefined()
+      return evaluate(resolved as string, generated, alias)
+    }
+
+    const mixed = /^color-mix\(in srgb,\s*(.+?)\s+(\d+)%,\s*(.+)\)$/.exec(value)
+    if (mixed) {
+      return mix(
+        evaluate(mixed[1], generated, alias),
+        evaluate(mixed[3], generated, alias),
+        Number(mixed[2]),
+      )
+    }
+
+    throw new Error(`지원하지 않는 색 표현입니다: ${value}`)
+  }
+
+  const THEMES = [
+    { name: '라이트', generated: hexTable(light), alias: lightAlias },
+    { name: '다크', generated: hexTable(dark), alias: darkAlias },
+  ]
+
+  it.each(THEMES)('$name — 채움면 위 글자가 4.5:1 이상이다', ({ generated, alias }) => {
+    const fill = evaluate(alias['--color-primary-solid'], generated, alias)
+    const hover = evaluate(alias['--color-primary-solid-hover'], generated, alias)
+    const text = evaluate(alias['--color-on-primary'], generated, alias)
+
+    expect(contrast(text, fill)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(text, hover)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('두 다크 블록이 같은 값을 선언한다 — 한쪽만 고치면 OS 다크와 명시 다크가 갈린다', () => {
+    const media = declarationsIn("\n  :root:not([data-theme='light']) {")
+    for (const name of [
+      '--color-primary-solid',
+      '--color-primary-solid-hover',
+      '--color-on-primary',
+    ]) {
+      expect(media[name], `@media 블록에 ${name}이 없습니다`).toBe(
+        declarationsIn("\n:root[data-theme='dark'] {")[name],
+      )
+    }
+  })
+
+  /*
+   * 되돌림 방지 — 「`--color-primary`를 그냥 쓰면 되지 않나」로 돌아가는 것을 막는다.
+   * 그 조합이 실제로 미달이라는 사실을 여기 숫자로 남긴다.
+   */
+  it('다크 --semantic-primary 위에는 쓸 만한 문자색이 없다', () => {
+    const g = hexTable(dark)
+    for (const name of ['--surface-card', '--text-primary']) {
+      expect(contrast(g[name], g['--semantic-primary'])).toBeLessThan(4.5)
+    }
+    expect(contrast('#ffffff', g['--semantic-primary'])).toBeLessThan(4.5)
+  })
+})
