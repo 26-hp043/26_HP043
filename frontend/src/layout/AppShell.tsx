@@ -17,17 +17,13 @@ import {
   type GlobalContextValue,
 } from './globalContext'
 import { BrandLogo } from '../components/BrandLogo'
+import { AccountMenu } from './AccountMenu'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { logout, useAuthUser } from '../auth/session'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
 import type { ShellContext } from './shellContext'
-
-/** 아바타 이니셜. 이메일이면 로컬파트 첫 글자를 쓴다. */
-function initialOf(name: string): string {
-  return (name.trim()[0] ?? '?').toUpperCase()
-}
 
 /**
  * 공통 셸 — `DESIGN_SYSTEM.md` §7.2.
@@ -322,15 +318,19 @@ export function AppShell() {
           {/* 테마 선택(해·달). */}
           <ThemeToggle />
 
-          {/* 계정 — #278: 현재 사용자 표시 + 로그아웃. */}
+          {/*
+            계정 — `#278` 현재 사용자 표시 + 로그아웃, `#717` 요약 팝오버.
+
+            **로그아웃은 팝오버 밖에 남는다.** 안으로 넣으면 시연에서 그 동작을
+            보이려고 한 번 더 눌러야 한다. 채움 버튼이라 자리도 분명하다.
+
+            감싸는 것이 `div`인 이유 — `AccountMenu`가 패널을 띄우려고 `div`를
+            쓰므로 `span`으로 감싸면 문단 내용(phrasing content)이 아닌 것을
+            담게 된다.
+          */}
           {user ? (
-            <span className="app-shell__account">
-              <span className="app-shell__avatar" aria-hidden="true">
-                {initialOf(user.displayName ?? user.email)}
-              </span>
-              <span className="app-shell__account-name">
-                {user.displayName ?? user.email}
-              </span>
+            <div className="app-shell__account">
+              <AccountMenu user={user} />
               <button
                 type="button"
                 className="app-shell__logout"
@@ -339,7 +339,7 @@ export function AppShell() {
               >
                 로그아웃
               </button>
-            </span>
+            </div>
           ) : null}
         </header>
 

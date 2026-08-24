@@ -61,9 +61,30 @@
  * 여기서 따로 `margin`을 두면 사이드바 양옆 틈이 다른 틈들과 갈린다.
  * 실제로 그렇게 갈려 있었다.
  */
+/*
+ * ## 스크롤을 따라 붙는다 (#717)
+ *
+ * 상단바는 이미 `sticky`인데 사이드바만 함께 올라갔다. 아래로 내리면 **흰 판만
+ * 남고 항목이 전부 위로 빠져** 화면을 옮기려면 매번 맨 위로 돌아가야 했다.
+ *
+ * `position: sticky`만으로는 붙지 않는다. 셸이 `display: flex`라 기본
+ * `align-items: stretch`가 사이드바를 **컨테이너 높이만큼 늘려** 놓기 때문이다 —
+ * 늘어난 상자에는 자기 안에서 밀려날 자리가 없다. `align-self: flex-start`로
+ * 내용 높이만 갖게 해야 그 위쪽이 비고, 그때 비로소 `top`이 걸린다.
+ *
+ * `top`은 상단바와 같은 게터다. 둘의 윗변이 스크롤 뒤에도 한 줄에 선다.
+ *
+ * 항목이 뷰포트보다 길어지는 경우(짧은 창·큰 글꼴)를 위해 상한과 내부 스크롤을
+ * 둔다. 없으면 아래쪽 항목이 잘려 **접근할 방법이 사라진다.**
+ */
 .app-shell__sidebar {
   flex: 0 0 var(--layout-sidebar-width);
   width: var(--layout-sidebar-width);
+  align-self: flex-start;
+  position: sticky;
+  top: var(--shell-gutter);
+  max-block-size: calc(100vh - var(--shell-gutter) * 2);
+  overflow-y: auto;
   padding: var(--space-16) var(--space-12);
   background: var(--surface-card);
   border: var(--borderWidth-default) solid var(--border-default);
@@ -330,27 +351,7 @@
   border-left: var(--borderWidth-default) solid var(--border-default);
 }
 
-.app-shell__avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  inline-size: var(--target-icon-button);
-  block-size: var(--target-icon-button);
-  border-radius: var(--radius-pill);
-  background: var(--semantic-primary);
-  color: var(--surface-card);
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
-}
-
-.app-shell__account-name {
-  font-size: var(--font-size-label);
-  color: var(--text-primary);
-  max-inline-size: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+/* 아바타·이름은 `AccountMenu.css`가 소유한다 — 이제 버튼 하나의 내부 구조다 (#717). */
 
 .app-shell__nav {
   list-style: none;
@@ -508,24 +509,54 @@
  * 그래서 평상시 `--text-secondary`(6.49:1 · 다크 6.42:1), hover에
  * `--text-primary`로 한 단계 올려 상태 변화를 글자에서도 읽히게 한다.
  */
+/*
+ * ## 아웃라인에서 채움으로 (#717)
+ *
+ * 위 이력이 「흰 글자를 흰 배경에」에서 시작해 **아웃라인**으로 착지했는데, 그
+ * 모양이 이번에는 **눌러야 할 것으로 읽히지 않는다**는 지적을 받았다. `§8`이
+ * 「Primary: navy 채움 / 흰 글자」를 이미 정의하므로 정본을 벗어나지 않는다.
+ *
+ * **높이만 `§8`의 40이 아니라 32다.** 상단바의 셀렉트·아이콘 버튼이 전부 32이고,
+ * 그 32는 「셀렉트가 커지면 네비게이션처럼 보인다」(`§7.2`)를 이유로 내린 값이다.
+ * 같은 줄에서 이것만 40이면 상단바가 한 단 두꺼워지고, `§7.2`가 막으려던 모양이
+ * 로그아웃 쪽에서 다시 생긴다.
+ *
+ * ## 색은 `--color-primary`가 아니라 채움면 토큰이다
+ *
+ * `--color-primary`(= `--semantic-primary`)를 그대로 칠하면 **다크에서 그 위
+ * 문자색이 4.5:1을 넘지 못한다.** 근거와 수치는 `styles/tokens.css`의
+ * 「Primary 채움면」 주석에 있다.
+ *
+ * hover는 면을 한 단 어둡게 한다 — **두 테마 모두 같은 방향**이다. 다크에서
+ * 밝히면 글자 대비가 4.11까지 내려간다.
+ */
 .app-shell__logout {
   margin-left: var(--space-8);
-  padding: var(--space-4) var(--space-12);
-  font-size: var(--font-size-micro);
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  block-size: var(--target-icon-button);
+  padding: 0 var(--space-12);
   font-family: inherit;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-strong);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-on-primary);
+  background: var(--color-primary-solid);
+  border: 0;
   border-radius: var(--radius-control);
   cursor: pointer;
 }
 
 .app-shell__logout:hover {
-  background: var(--surface-inset);
-  color: var(--text-primary);
+  background: var(--color-primary-solid-hover);
 }
 
+/*
+ * 포커스는 옆 컨트롤과 같은 링을 쓴다. 종전의 `outline: 2px solid var(--color-info)`는
+ * **`--color-info`가 `--semantic-primary`의 별칭**이라, 버튼이 그 색으로 채워진
+ * 지금은 테두리와 면이 같은 색이 된다.
+ */
 .app-shell__logout:focus-visible {
-  outline: 2px solid var(--color-info);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
