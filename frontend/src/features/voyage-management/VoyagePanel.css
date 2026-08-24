@@ -138,8 +138,14 @@
   color: var(--text-secondary);
 }
 
+/*
+ * 종전에는 `margin-inline-start: auto`로 행 오른쪽 끝에 밀어 두었다. 수치를 세 쌍으로
+ * 붙이고 나니(#721) **왼쪽 410px에 값이 뭉치고 이 표기만 1,810px 지점에 혼자 떠**
+ * 사이 1,400px이 비었다. 붙는 자리로 데려온다 — 항로 바로 다음이 그 자리다.
+ */
 .vy__policy {
-  margin-inline-start: auto;
+  color: var(--text-secondary);
+  font-size: var(--font-size-micro);
 }
 
 /*

@@ -26,7 +26,7 @@ const RATING_ORDER: Record<Rating, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 }
 const RATINGS: readonly Rating[] = ['A', 'B', 'C', 'D', 'E']
 
 /** 서버가 준 `riskReasons`가 비어 있지 않으면 위험 선박이다. 등급으로 재판정하지 않는다. */
-export function isAtRisk(vessel: FleetVessel): boolean {
+export function isAtRisk(vessel: { riskReasons: readonly RiskReason[] }): boolean {
   return vessel.riskReasons.length > 0
 }
 

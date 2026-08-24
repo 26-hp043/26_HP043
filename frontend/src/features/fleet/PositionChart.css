@@ -1,0 +1,137 @@
+/*
+ * 위치 개략도 (#723에서 `FleetDashboard.css`에서 옮겼다).
+ *
+ * ## 왜 옮겼나
+ *
+ * 그림의 규격이 **한 화면의 스타일시트**에 살고 있었다. 선박 상세가 같은 그림을
+ * 쓰려 하자 SVG만 오고 모양은 오지 않는다 — 쓰는 쪽이 규칙을 베끼거나 대시보드
+ * CSS를 통째로 부르는 두 갈래뿐이고, 둘 다 갈린다.
+ *
+ * `.card`(`#709`) · `.vessel__state`(`#719`)가 같은 이유로 나온 것과 같은 형태다.
+ * **이름이 이미 전역인데 소유자만 한 화면**인 상태가 반복해서 이 문제를 만든다.
+ */
+
+.position-chart {
+  display: block;
+  inline-size: 100%;
+  /* 뷰박스가 16:10이라 그대로 맞춘다 — 왜곡이 없다. */
+  aspect-ratio: 16 / 10;
+}
+
+/*
+ * 육지 — **배경이지 데이터가 아니다.** 배가 어디에 있는지 읽히게만 하고,
+ * 눈이 여기 머무르면 안 된다. 그래서 채움을 옅게 두고 윤곽만 살짝 준다.
+ *
+ * 등급색·시맨틱색을 쓰지 않는다 — 배경이 의미를 갖는 것으로 읽히면 안 된다.
+ * 중립 면 토큰(`--surface-page`)은 카드 배경(`--surface-inset`)과 명도가 가까워
+ * 라이트에서 육지가 사라진다. `--border-default`를 면으로 쓴다.
+ */
+.position-chart__land {
+  fill: var(--border-default);
+  stroke: var(--border-strong);
+  stroke-width: 0.5;
+  stroke-linejoin: round;
+}
+
+/*
+ * 마커 윤곽 — 배경색으로 두른다. 좌표가 가까운 두 배는 실루엣이 겹치는데,
+ * 윤곽이 없으면 한 덩어리로 보여 **몇 척인지 셀 수 없다.**
+ *
+ * 점일 때보다 얇다(2 → 1.6). 실루엣은 선실·연돌처럼 좁은 조각이 있어 같은 굵기면
+ * 윤곽이 안을 먹는다.
+ */
+.position-chart__dot {
+  stroke: var(--surface-inset);
+  stroke-width: 1.6;
+}
+
+/* 위험 선박은 색 외에 굵은 테두리로도 드러낸다 (§14). */
+.position-chart__dot--risk {
+  stroke: var(--cii-e-fill);
+  stroke-width: 2.5;
+}
+
+/*
+ * **`font-size`를 여기 두지 않는다.** 뷰박스 유저 단위라 넘침 계산과 값이 같아야
+ * 하므로 `PositionChart.tsx`의 `LABEL_FONT`가 소유하고 `fontSize` 속성으로 건다.
+ *
+ * CSS는 SVG presentation attribute를 이긴다. 여기에 `font-size`를 다시 적으면
+ * 인라인 값이 조용히 무시되고, 이름표가 뷰박스를 넘는지 계산한 결과와 실제로
+ * 그려지는 크기가 어긋난다. 종전의 `21px`(렌더 34~46px)이 그 상태였다.
+ */
+.position-chart__label {
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-label);
+
+  /*
+   * 글자 둘레에 배경색 테두리를 둘러 마커 위에서도 읽히게 한다.
+   *
+   * `resolveCollisions`가 이름표끼리는 떼어 놓지만 **마커는 피하지 못한다.**
+   * 선박이 한곳에 뭉치면(같은 항구에 두 척) 이름표가 다른 배의 마커 위를 지나는
+   * 것을 피할 수 없다. 지도에서 지명을 얹을 때 쓰는 방식을 그대로 쓴다.
+   *
+   * `paint-order`가 없으면 테두리가 글자 **위에** 그려져 획을 갉아먹는다.
+   * `stroke-width`는 뷰박스 유저 단위라 배율(1.6~2.2배)을 타는데, 2.5는 바깥으로
+   * 1.25단위(화면에서 2~3px)라 글자를 두껍게 만들지 않으면서 바탕을 가린다.
+   */
+  paint-order: stroke fill;
+  stroke: var(--surface-inset);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+
+/* 좌표축 — DESIGN_SYSTEM §9.1 축선. 굵기는 vector-effect가 고정한다. */
+.position-chart__axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.position-chart__compass {
+  font-family: var(--font-sans);
+  fill: var(--text-secondary);
+}
+
+/*
+ * 결측 안내 (`#705`) — 좌표 범위보다 **한 단 크게** 둔다.
+ *
+ * 「이 그림이 무엇을 안 담고 있나」는 놓치면 화면이 사실과 다른 말을 하게 되는
+ * 문장이라, 좌표 캡션(`--font-size-micro`)과 같은 무게로 둘 수 없다. 8/23 시연
+ * 피드백의 첫 줄이 「글자가 작다」이기도 하다.
+ *
+ * **경고색을 쓰지 않는다.** 데이터가 덜 들어온 것이지 위험이 아니다. 등급·위험과
+ * 같은 축으로 읽히면 `§0.2` 제약 2가 막으려는 혼동이 된다.
+ */
+.position-chart__missing {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+/*
+ * 좌표 범위 — 그림 밖이므로 뷰박스 배율을 타지 않는다. 일반 텍스트 토큰을 쓴다.
+ */
+.position-chart__range {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+/* 그림 읽는 법 — 좌표 범위(micro)보다 한 단 크게. 문장이라 읽혀야 한다. */
+.position-chart__note {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+/* §3 — 식별자용 mono는 IMO 번호·좌표 전용이다. */
+.position-chart__coord {
+  font-family: var(--font-mono);
+}
+
+.position-chart__empty {
+  margin: 0;
+  padding: var(--spacing-2xl);
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+}

@@ -8,6 +8,7 @@ import { VoyagePanel } from '../voyage-management/VoyagePanel'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import { detailStatusText } from '../fleet/fleetRules'
+import { PositionChart } from '../fleet/PositionChart'
 import { DISPLAY_DIGITS, formatCapacity, formatDecimalString } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
@@ -20,6 +21,17 @@ import type {
   VesselSpec,
 } from './types'
 import './VesselDetail.css'
+
+/**
+ * 상세 화면 지도의 최소 표시 범위(도) — 약 1,500km (#723).
+ *
+ * 배 한 척뿐이라 범위를 데이터가 정하지 못한다. 좁게 잡으면 해안선이 사라지고
+ * (`landOutline.ts`가 0.6° 허용 오차로 단순화돼 있다), 넓게 잡으면 배가 점이 된다.
+ *
+ * 14°는 부산을 중심에 놓았을 때 **한반도 전체와 일본 서안이 함께 들어오는** 범위다 —
+ * 「이 배가 어디 있나」에 답하는 데 필요한 최소한의 배경이다.
+ */
+const DETAIL_MAP_SPAN = 14
 
 /**
  * 선박 상세 — `UIFLOW v2.0` 2-8 · `#356`.
@@ -181,10 +193,18 @@ export function VesselDetail({
 
         {current?.dataAvailable && current.rating ? (
           <div className="ytd">
-            <GradeBadge
-              rating={current.rating}
-              label={`올해 누적 등급 ${current.rating}`}
-            />
+            {/*
+              등급에도 라벨을 붙인다 (#723). 옆 세 칸은 「실적」·「기준」·「항차」라는
+              머리를 갖는데 등급만 배지 하나로 떠 있어, **네 칸 중 하나만 다른 문법**으로
+              읽혔다.
+            */}
+            <div className="ytd__grade">
+              <p className="ytd__grade-label">등급</p>
+              <GradeBadge
+                rating={current.rating}
+                label={`올해 누적 등급 ${current.rating}`}
+              />
+            </div>
             <dl className="ytd__figures">
               {/*
                 `DESIGN_SYSTEM §4.1` 🔒 — CII는 **소수 3자리 고정**이고
@@ -280,23 +300,15 @@ export function VesselDetail({
               <Spec label="운항 상태" value={stateText(vessel.underwayState)} />
               {/* `UIFLOW 2-4`가 정한 7값 표기. 코드를 그대로 내지 않는다. */}
               <Spec label="세부 상태" value={detailStatusText(vessel.detailStatus)} />
-              <Spec
-                label="현재 위치"
-                value={
-                  vessel.lat && vessel.lon ? `${vessel.lat}, ${vessel.lon}` : null
-                }
-              />
-              <Spec
-                label="위치 갱신"
-                value={
-                  vessel.positionUpdatedAt
-                    ? new Date(vessel.positionUpdatedAt).toLocaleString('ko-KR', {
-                        hour12: false,
-                      })
-                    : null
-                }
-              />
+              {/*
+                「현재 위치」·「위치 갱신」 두 줄은 아래 **현재 위치 카드**로 옮겼다
+                (#723). 좌표 숫자와 그 좌표의 그림이 따로 있으면 같은 사실이 두 군데에
+                놓인다 — 그리고 개략도가 이미 그 값을 자기 밑에 적는다.
+
+                이 카드에는 **무엇을 하고 있나**만 남는다.
+              */}
             </dl>
+
             {/*
              * 진행 중 항차로 내려가는 경로. 항차 목록을 여기서 따로 부르지 않는다 —
              * 실시간 화면(#357)이 자기 데이터를 스스로 가져오는 편이 경계가 맞다.
@@ -353,6 +365,85 @@ export function VesselDetail({
       </div>
 
       {/*
+        ── 분할 둘째 줄 : 항차 기록 · 현재 위치 (#723) ──────────────────
+
+        ## 왜 한 줄로는 안 되나
+
+        두 그림이 다 `inline-size: 100%` + 고정 종횡비다. **열 폭이 바뀌면 카드 높이가
+        따라 바뀐다** — 연도별 이력은 7열(896)에서 392px, 전폭(1544)에서 675px이다.
+        그래서 카드를 왼쪽에 넣으면 왼쪽이, 오른쪽에 넣으면 오른쪽이 길어진다.
+        한 번의 7:5 분할로는 어느 쪽도 맞지 않는다.
+
+        높이를 재서 두 줄로 갈랐다.
+
+        | 줄 | 좌(7) | 우(5) |
+        |---|---|---|
+        | 1 | 연도별 이력 668 | 제원 260 + 현재 상태 200 |
+        | 2 | 항차 기록 620 | 현재 위치 480 |
+
+        양쪽 여백이 130px 안쪽이다. 두 분할이 **같은 7:5**라 세로선이 이어져 페이지가
+        일관된 2단으로 읽힌다.
+      */}
+      <div className="vd__split">
+        <div className="vd__main">
+          <VoyagePanel vesselId={vessel.id} />
+        </div>
+
+        <div className="vd__side">
+          <section className="card" aria-label="현재 위치">
+            <div className="card__head">
+              <h2 className="card__title">현재 위치</h2>
+              {vessel.positionUpdatedAt ? (
+                <span className="card__meta">
+                  {new Date(vessel.positionUpdatedAt).toLocaleString('ko-KR', {
+                    hour12: false,
+                  })}{' '}
+                  기준
+                </span>
+              ) : null}
+            </div>
+
+            {/*
+              대시보드와 **같은 컴포넌트**를 쓴다. 베끼면 두 화면의 투영·등급색·결측
+              표기가 갈리고, 갈린 쪽이 어디인지 화면을 봐서는 알 수 없다.
+
+              좌표를 따로 적지 않는다 — 개략도가 자기 밑에 「위치 30.6°N, 32.3°E」로
+              이미 적는다. 여기서 또 적으면 같은 값이 두 군데가 된다.
+
+              `minSpan`을 넓히는 이유는 그 프롭 주석에 있다.
+            */}
+            {vessel.lat && vessel.lon ? (
+              <div className="vd__map">
+                <PositionChart
+                  vessels={[
+                    {
+                      id: vessel.id,
+                      name: vessel.name,
+                      lat: vessel.lat,
+                      lon: vessel.lon,
+                      // 배 색·무늬는 올해 누적 등급이다 — 없으면 중립색으로 떨어진다.
+                      ytdRating: current?.rating ?? null,
+                    },
+                  ]}
+                  minSpan={DETAIL_MAP_SPAN}
+                />
+              </div>
+            ) : (
+              /*
+                **「못 불러왔다」가 아니라 「입력된 적이 없다」**를 적는다. 빈 상자를
+                두면 앞의 뜻으로 읽히고, 사용자는 기다린다(`#705`가 대시보드에서 같은
+                구분을 세웠다). 무엇을 하면 뜨는지도 함께 적는다.
+              */
+              <p className="vd__nodata">
+                위치가 기록되지 않았습니다. 위 「현재 상태」의 「위치 · 상태 수정」에서
+                입력하면 여기에 표시됩니다.
+              </p>
+            )}
+          </section>
+        </div>
+      </div>
+
+      {/*
        * 정박 기록 입력 (#370). 선박 상세 아래에 두는 이유는, 이 기록이 바로 위
        * 「올해 누적」의 분자를 늘리기 때문이다 — 값을 본 자리에서 고칠 수 있어야 한다.
        */}
@@ -360,7 +451,6 @@ export function VesselDetail({
         항차가 먼저다 — 정박·묘박은 항차와 항차 사이의 구간이라,
         운항 기록을 위에서 아래로 읽으면 순서가 이렇게 된다.
       */}
-      <VoyagePanel vesselId={vessel.id} />
       <NotUnderwayPanel vesselId={vessel.id} />
 
       <DisclaimerBanner />
