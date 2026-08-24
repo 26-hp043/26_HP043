@@ -16,7 +16,7 @@ dependencies = [
     "asyncpg>=0.31.0,<0.32",
     "alembic>=1.19.1,<2.0",
     "fastapi>=0.141.1,<0.150",
-    "uvicorn[standard]>=0.52.1,<0.60",
+    "uvicorn[standard]>=0.52.4,<0.60",
     "httpx>=0.28.1,<0.29",
     "pyjwt[crypto]>=2.8,<3.0",
     # 인증 메일 발송 (#407). console 백엔드만 쓰는 개발 환경에서는 import되지 않는다.
