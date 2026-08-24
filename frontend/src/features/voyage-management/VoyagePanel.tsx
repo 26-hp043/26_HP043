@@ -134,7 +134,8 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
 
       <p className="vy__why">
         계획을 먼저 만들고, 항해가 끝나면 실적을 입력합니다. 계획값은 실적을 넣어도 그대로
-        남습니다 — 계획 대비 실적 차이가 다음 항차의 예측을 다듬는 근거입니다.
+        남습니다 — 계획 대비 실적 차이가 다음 항차의 예측을 다듬는 근거입니다. 아래 수치는{' '}
+        <b>계획 → 실적</b> 순입니다.
       </p>
 
       {failure ? (
@@ -240,43 +241,35 @@ function VoyageRow({
         <span className="vy__policy">{POLICY_LABELS[voyage.inclusionPolicy]}</span>
       </div>
 
+      {/*
+        여섯 칸을 **세 쌍**으로 묶었다 (#721).
+
+        종전에는 `계획 거리 · 실제 거리 · 계획 속력 · 실제 평균 속력 · 계획 연료 ·
+        실제 연료`가 여섯 칸에 흩어져 있었다. **이 패널의 머리글 스스로**가
+        「계획 대비 실적 차이가 다음 항차의 예측을 다듬는 근거」라고 적어 두고,
+        정작 화면은 비교할 두 값을 갈라 놓고 있었다.
+
+        라벨이 절반이 되고 비교가 한 눈에 들어온다. 화살표의 뜻은 위 머리글이 적는다.
+      */}
       <dl className="vy__figures">
-        <div>
-          <dt>계획 거리</dt>
-          <dd className="num">
-            {quantity(voyage.plannedDistanceNm, DISPLAY_DIGITS.distanceNm)} {DISPLAY_UNITS.distance}
-          </dd>
-        </div>
-        <div>
-          <dt>실제 거리</dt>
-          <dd className="num">
-            {quantity(voyage.actualDistanceNm, DISPLAY_DIGITS.distanceNm)} {DISPLAY_UNITS.distance}
-          </dd>
-        </div>
-        <div>
-          <dt>계획 속력</dt>
-          <dd className="num">
-            {quantity(voyage.plannedSpeedKn, DISPLAY_DIGITS.speedKn)} {DISPLAY_UNITS.speed}
-          </dd>
-        </div>
-        <div>
-          <dt>실제 평균 속력</dt>
-          <dd className="num">
-            {quantity(voyage.actualAvgSpeedKn, DISPLAY_DIGITS.speedKn)} {DISPLAY_UNITS.speed}
-          </dd>
-        </div>
-        <div>
-          <dt>계획 연료</dt>
-          <dd className="num">
-            {quantity(totalFuel(voyage, 'planned'), DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
-          </dd>
-        </div>
-        <div>
-          <dt>실제 연료</dt>
-          <dd className="num">
-            {quantity(totalFuel(voyage, 'actual'), DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
-          </dd>
-        </div>
+        <Pair
+          label="거리"
+          planned={quantity(voyage.plannedDistanceNm, DISPLAY_DIGITS.distanceNm)}
+          actual={quantity(voyage.actualDistanceNm, DISPLAY_DIGITS.distanceNm)}
+          unit={DISPLAY_UNITS.distance}
+        />
+        <Pair
+          label="속력"
+          planned={quantity(voyage.plannedSpeedKn, DISPLAY_DIGITS.speedKn)}
+          actual={quantity(voyage.actualAvgSpeedKn, DISPLAY_DIGITS.speedKn)}
+          unit={DISPLAY_UNITS.speed}
+        />
+        <Pair
+          label="연료"
+          planned={quantity(totalFuel(voyage, 'planned'), DISPLAY_DIGITS.fuelTon)}
+          actual={quantity(totalFuel(voyage, 'actual'), DISPLAY_DIGITS.fuelTon)}
+          unit={DISPLAY_UNITS.fuel}
+        />
       </dl>
 
       {rowError ? (
@@ -667,6 +660,45 @@ function Field({
           {error}
         </p>
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * 계획·실적 한 쌍 (#721).
+ *
+ * ## 화살표에 뜻을 싣되 화살표에만 싣지 않는다
+ *
+ * 보이는 것은 `900 → 915 nm` 한 줄이지만, 스크린 리더에는 **「계획 900 실적 915」**로
+ * 읽히도록 `sr-only` 라벨을 함께 둔다. 화살표 하나가 유일한 채널이면 `§14`가 막는
+ * 「한 채널에만 의존」이 된다.
+ *
+ * 사람이 읽는 쪽의 근거는 패널 머리글이 한 번 적는다 — 행마다 적으면 여섯 칸을
+ * 세 칸으로 줄인 뜻이 없어진다.
+ */
+function Pair({
+  label,
+  planned,
+  actual,
+  unit,
+}: {
+  label: string
+  planned: string
+  actual: string
+  unit: string
+}) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd className="num">
+        <span className="sr-only">계획 </span>
+        {planned}
+        <span className="vy__arrow" aria-hidden="true">
+          {' → '}
+        </span>
+        <span className="sr-only">실적 </span>
+        {actual} {unit}
+      </dd>
     </div>
   )
 }
