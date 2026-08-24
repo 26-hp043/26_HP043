@@ -16,7 +16,10 @@ import {
   remainingDistanceNm,
   voyageProgressRatio,
   warningText,
+  ytdGradeScaleVector,
+  ytdRisk,
 } from './realtimeRules'
+import { buildGradeScale } from '../../components/gradeScale'
 import type { RealtimeCii } from './types'
 
 /**
@@ -44,6 +47,18 @@ const BASE: RealtimeCii = {
     rating: 'B',
     riskLevel: 'WATCH',
     marginRatio: '0.09321',
+    /*
+     * 경계는 **절대 CII 값**이다 (#725). 위 값들과 앞뒤가 맞게 골랐다 —
+     * `attained 18.637188`이 `superior`와 `lower` 사이(등급 B)에 놓이고,
+     * `lower`는 `attained + margin_ratio × required`(≈ 20.257)와 같다.
+     * 픽스처가 스스로 모순되면 스케일 바 테스트가 무엇을 재는지 흐려진다.
+     */
+    boundaries: {
+      superior: '17.375',
+      lower: '20.257',
+      upper: '22.000',
+      inferior: '24.000',
+    },
     totalCo2Ton: '620.00',
     totalFuelTon: '199.10',
     underwayDistanceNm: '10620.00',
@@ -394,5 +409,91 @@ describe('formatOrNull — 값이 없으면 포매터를 부르지 않는다', (
     expect(() =>
       formatDecimalString(null as unknown as string, DISPLAY_DIGITS.cii),
     ).toThrow()
+  })
+})
+
+describe('위험도 — 서버 코드를 좁힌다 (#725)', () => {
+  const withRisk = (level: string | null): RealtimeCii => ({
+    ...BASE,
+    ytd: { ...BASE.ytd, riskLevel: level },
+  })
+
+  it('네 코드는 그대로 통과한다', () => {
+    for (const level of ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']) {
+      expect(ytdRisk(withRisk(level).ytd)).toBe(level)
+    }
+  })
+
+  it('모르는 코드는 null이다 — 색 없는 라벨이 「낮음」으로 읽히지 않게', () => {
+    /*
+     * BASE의 `WATCH`가 바로 그 경우다. 서버(`DETERMINISTIC_RISK_TABLE`)가 내는
+     * 값은 넷뿐이고, 그 밖의 것을 화면에 그대로 흘리면 색 클래스가 붙지 않는다.
+     */
+    expect(ytdRisk(BASE.ytd)).toBeNull()
+    expect(ytdRisk(withRisk('watch').ytd)).toBeNull()
+    expect(ytdRisk(withRisk(null).ytd)).toBeNull()
+  })
+
+  it('연말 예상에도 그대로 쓴다 — 같은 축의 같은 코드다', () => {
+    /*
+     * 인자를 `YtdValues`로 좁혀 두면 판정을 한 벌 더 쓰게 된다. 이 단언이
+     * 그 타입을 다시 좁히는 변경을 컴파일 단계에서 막는다.
+     */
+    expect(ytdRisk({ ...BASE.projection, riskLevel: 'HIGH' })).toBe('HIGH')
+    expect(ytdRisk({ ...BASE.projection, riskLevel: 'unknown' })).toBeNull()
+  })
+})
+
+describe('등급 스케일 — 절대 경계를 비율 공간으로 (#725)', () => {
+  const withYtd = (patch: Partial<RealtimeCii['ytd']>): RealtimeCii['ytd'] => ({
+    ...BASE.ytd,
+    ...patch,
+  })
+
+  it('required_cii로 나눈 값이 d1~d4다', () => {
+    const d = ytdGradeScaleVector(BASE.ytd)!
+    expect(d).not.toBeNull()
+    // superior 17.375 / required 17.374582 ≈ 1.0000
+    expect(Number(d.d1)).toBeCloseTo(1.0, 4)
+    expect(Number(d.d2)).toBeCloseTo(20.257 / 17.374582, 6)
+    expect(Number(d.d4)).toBeGreaterThan(Number(d.d3))
+  })
+
+  it('그 d-vector로 그린 바에서 마커가 B 구간에 선다', () => {
+    /*
+     * 이 테스트가 이번 변경의 요점이다 — 나눗셈이 축을 바꿔 놓으면 바는 멀쩡히
+     * 그려지고 **위치만 틀린다.** BASE는 등급 B이므로 마커는 A 구간 오른쪽 끝과
+     * B 구간 오른쪽 끝 사이에 있어야 한다.
+     */
+    const scale = buildGradeScale(BASE.ytd.ratioToRequired!, ytdGradeScaleVector(BASE.ytd)!)!
+    expect(scale).not.toBeNull()
+
+    const endOf = (rating: string) => {
+      let acc = 0
+      for (const band of scale.bands) {
+        acc += band.fraction
+        if (band.rating === rating) return acc
+      }
+      return Number.NaN
+    }
+
+    expect(scale.markerFraction).toBeGreaterThan(endOf('A'))
+    expect(scale.markerFraction).toBeLessThanOrEqual(endOf('B'))
+  })
+
+  it('경계가 없으면 null — 균등 분할로 떨어지지 않는다', () => {
+    expect(ytdGradeScaleVector(withYtd({ boundaries: null }))).toBeNull()
+  })
+
+  it('required_cii가 없거나 0이면 null — 0으로 나누지 않는다', () => {
+    expect(ytdGradeScaleVector(withYtd({ requiredCii: null }))).toBeNull()
+    expect(ytdGradeScaleVector(withYtd({ requiredCii: '0.000000' }))).toBeNull()
+  })
+
+  it('경계 하나가 수치가 아니면 스케일 전체가 그려지지 않는다', () => {
+    const d = ytdGradeScaleVector(
+      withYtd({ boundaries: { ...BASE.ytd.boundaries!, upper: '' } }),
+    )!
+    expect(buildGradeScale(BASE.ytd.ratioToRequired!, d)).toBeNull()
   })
 })

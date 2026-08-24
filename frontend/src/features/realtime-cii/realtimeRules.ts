@@ -1,3 +1,5 @@
+import type { DVector } from '../../components/gradeScale'
+import type { RiskLevel } from '../voyage-cii/types'
 import type { Rating, RealtimeCii, YtdValues } from './types'
 
 /**
@@ -214,6 +216,74 @@ export const RATING_TRANSITION_TEXT: Readonly<Record<TransitionDirection, string
   IMPROVING: '등급 상승 예상',
   WORSENING: '등급 하락 예상',
   FLAT: '등급 유지 예상',
+}
+
+/**
+ * YTD 위험도 — **서버가 판정한다** (`#725`).
+ *
+ * `PRD §9.4.1`의 결정표는 서버(`calculate_deterministic_risk`)가 소유하고, 화면은
+ * 옮겨 적지 않는다. 여기서 하는 일은 **문자열을 타입으로 좁히는 것**뿐이다.
+ *
+ * 모르는 코드는 `null`이다. `riskLabel`이 모르는 코드를 코드 그대로 보여 주지만,
+ * 그 자리는 색 클래스(`rt__risk--{level}`)와 짝을 이루므로 좁히지 않은 값이
+ * 흘러가면 **색 없는 라벨**이 된다 — 「위험도가 낮다」로 읽힐 수 있는 상태다.
+ *
+ * 인자를 `YtdValues`가 아니라 **`riskLevel`을 가진 것**으로 받는다. 연말 예상
+ * (`YearEndProjection`)도 같은 축의 같은 코드를 싣는데, 타입을 좁게 잡으면
+ * 같은 판정을 한 벌 더 쓰게 된다 — `underwayStateText`(#719)와 같은 이유다.
+ */
+export function ytdRisk(ytd: { riskLevel: string | null }): RiskLevel | null {
+  const level = ytd.riskLevel
+  if (level === 'LOW' || level === 'MEDIUM' || level === 'HIGH' || level === 'CRITICAL') {
+    return level
+  }
+  return null
+}
+
+/**
+ * 등급 스케일 바가 받을 d-vector — **절대 경계를 비율 공간으로 옮긴다** (`#725`).
+ *
+ * ## 왜 나누는가
+ *
+ * `GradeScaleBar`는 `ratio_to_required`와 같은 축에서 그린다. 그 축의 눈금이 곧
+ * `d1`~`d4`인데(`API_SPEC §4.1`), 실시간 응답은 `parameters_used`를 싣지 않고
+ * **절대 CII 경계**(`boundaries`)를 싣는다. `superior = required_cii × d1`이므로
+ * `required_cii`로 나누면 같은 값이 나온다 — 서버에 필드를 더하지 않아도 된다.
+ *
+ * ## 나눗셈을 화면이 해도 되는 근거
+ *
+ * `API_SPEC §1.7`이 금지하는 것은 **표시값을 되돌리는 것**이고, 여기서 내는 것은
+ * `buildGradeScale`이 그대로 픽셀로 바꿀 기하값이다(그 함수의 docstring과 같은
+ * 판단). 표시되는 수치는 어디에서도 이 나눗셈을 거치지 않는다.
+ *
+ * ## 못 만들면 `null`
+ *
+ * 경계가 없거나 `required_cii`가 0·비수치면 `null`이다. 균등 분할로 떨어지게 두지
+ * 않는다 — `GradeScaleBar`가 경계값을 **필수 prop**으로 둔 이유와 같다.
+ */
+export function ytdGradeScaleVector(ytd: YtdValues): DVector | null {
+  const b = ytd.boundaries
+  if (b === null || ytd.requiredCii === null) return null
+
+  const required = Number(ytd.requiredCii)
+  if (!Number.isFinite(required) || required <= 0) return null
+
+  /*
+   * 숫자가 아닌 값은 **빈 문자열**로 넘긴다. `buildGradeScale`의 `toNumber`가
+   * 빈 문자열을 `NaN`으로 읽어 스케일 전체를 `null`로 만든다 — 그쪽이 「못 그린다」를
+   * 이미 화면에 적고 있으므로, 여기서 판정을 한 벌 더 만들지 않는다.
+   */
+  const toRatio = (raw: string): string => {
+    const value = Number(raw)
+    return Number.isFinite(value) ? String(value / required) : ''
+  }
+
+  return {
+    d1: toRatio(b.superior),
+    d2: toRatio(b.lower),
+    d3: toRatio(b.upper),
+    d4: toRatio(b.inferior),
+  }
 }
 
 /**

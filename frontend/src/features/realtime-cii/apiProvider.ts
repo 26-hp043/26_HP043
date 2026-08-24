@@ -5,6 +5,7 @@ import type {
   RealtimeCii,
   RealtimeCiiProvider,
   Rating,
+  RatingBoundaries,
   Substitution,
   VoyageSegment,
   YearEndProjection,
@@ -45,6 +46,7 @@ interface ServerYtd {
   rating: string | null
   risk_level: string | null
   margin_ratio: string | null
+  boundaries?: ServerBoundaries | null
   total_co2_ton: string | null
   total_fuel_ton: string | null
   underway_distance_nm: string | null
@@ -53,6 +55,19 @@ interface ServerYtd {
   voyage_count: number
   not_underway_period_count: number
   substitutions?: ServerSubstitution[]
+}
+
+/**
+ * 서버의 등급 경계 (`#725`).
+ *
+ * 키에 `_boundary`가 붙는다 — `rating_engine`의 `superior_boundary` 등을 그대로
+ * 내보낸 것이다. 화면 타입에서 접미사를 떼는 것은 **여기 한 곳에서만** 한다.
+ */
+interface ServerBoundaries {
+  superior_boundary?: unknown
+  lower_boundary?: unknown
+  upper_boundary?: unknown
+  inferior_boundary?: unknown
 }
 
 interface ServerSubstitution {
@@ -118,6 +133,7 @@ function toYtd(raw: ServerYtd): YtdValues {
     rating: raw.rating as Rating | null,
     riskLevel: raw.risk_level,
     marginRatio: raw.margin_ratio,
+    boundaries: toBoundaries(raw.boundaries),
     totalCo2Ton: raw.total_co2_ton,
     totalFuelTon: raw.total_fuel_ton,
     underwayDistanceNm: raw.underway_distance_nm,
@@ -132,6 +148,30 @@ function toYtd(raw: ServerYtd): YtdValues {
      */
     substitutions: (raw.substitutions ?? []).map(toSubstitution),
   }
+}
+
+/**
+ * 경계 넷 — **하나라도 없으면 `null`** (`#725`).
+ *
+ * `data_available`가 거짓이면 서버가 `boundaries` 자체를 `null`로 싣고, 개별 값이
+ * 빠지는 경우도 형태상 가능하다. 부분값을 그대로 올리면 스케일 바가 **구간 셋만
+ * 있는 축**을 그리려다 조용히 어긋난다 — 못 그리는 것은 여기서 확정한다.
+ */
+function toBoundaries(raw: ServerBoundaries | null | undefined): RatingBoundaries | null {
+  if (!raw) return null
+  const superior = raw.superior_boundary
+  const lower = raw.lower_boundary
+  const upper = raw.upper_boundary
+  const inferior = raw.inferior_boundary
+  if (
+    typeof superior !== 'string' ||
+    typeof lower !== 'string' ||
+    typeof upper !== 'string' ||
+    typeof inferior !== 'string'
+  ) {
+    return null
+  }
+  return { superior, lower, upper, inferior }
 }
 
 function toSubstitution(raw: ServerSubstitution): Substitution {
