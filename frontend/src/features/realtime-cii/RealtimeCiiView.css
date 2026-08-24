@@ -28,9 +28,18 @@
   border-radius: var(--radius-control);
 }
 
+/*
+ * ## 오른쪽 세 줄이 제목과 어긋나 보였다 (#725)
+ *
+ * 배지·기준 시각·갱신 주기가 **세 줄로 쌓여** 있는데 왼쪽은 제목·부제 두 줄이다.
+ * `flex-end`로 바닥만 맞추니 위쪽이 들쭉날쭉했다.
+ *
+ * 두 줄씩 맞춘다 — **배지는 제목 줄, 시각은 부제 줄.** 기준 시각과 갱신 주기는
+ * 한 문장으로 합친다(둘 다 「언제 값인가」라 나눌 이유가 없었다).
+ */
 .rt__head {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   justify-content: space-between;
   gap: var(--spacing-lg);
   flex-wrap: wrap;
@@ -56,7 +65,9 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  justify-content: space-between;
   gap: var(--spacing-xs);
+  text-align: right;
 }
 
 /* PRD R-5 — 감출 수 없어야 하므로 눈에 띄되, 값보다 앞서지 않는 크기로 둔다. */
@@ -69,8 +80,8 @@
   white-space: nowrap;
 }
 
-.rt__asof,
-.rt__poll {
+/* `.rt__poll`은 `#725`에서 이 문장에 합쳐졌다. */
+.rt__asof {
   margin: 0;
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
@@ -97,8 +108,123 @@
 
 /* ── ⑴ 연간 누적 ─────────────────────────────────────────────── */
 
+/*
+ * 다섯 칸이다 — 등급 전이 · 실적 · 기준 · 누적 거리 · 누적 연료 (#725).
+ * 기본값(4)이면 다섯째가 둘째 줄로 밀려 혼자 앉는다.
+ */
+/*
+ * 전이 블록 + 실적·기준·거리·연료·CO₂ = 6칸 (#725). 폭이 줄면 3칸으로 접는다 —
+ * 값 하나가 34px에 단위·보조줄까지 달려 있어 6칸은 1500 아래에서 서로를 민다.
+ * 1100 아래는 `VesselDetail.css`의 2칸 규칙이 이어받는다(그쪽이 `grid-template-columns`를
+ * 직접 쓰므로 이 변수를 덮는다).
+ */
+.rt__ytd .ytd {
+  --ytd-cols: 6;
+}
+
+@media (max-width: 1500px) {
+  .rt__ytd .ytd {
+    --ytd-cols: 3;
+  }
+}
+
 .rt__ytd .ytd__figures {
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 값 아래 한 줄 (#725). `<dd>` 안이라 34px·700을 물려받으므로 전부 되돌린다 —
+ * 내역은 값이 아니라 값의 설명이다.
+ */
+.rt__figure-hint {
+  display: block;
+  margin-block-start: var(--spacing-xs);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-micro);
+  color: var(--text-secondary);
+}
+
+/* ── ⑴ 축 — 기준 대비 · 위험도 · 여유율 · 등급 스케일 (#725) ──── */
+
+/*
+ * 수치 격자와 **선으로 가른다.** 위는 「무엇이 얼마인가」, 아래는 「그래서 어디쯤
+ * 인가」라 성격이 다르다. 선이 없으면 여섯 번째 수치 줄로 읽힌다.
+ */
+.rt__axis {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  margin-block-start: var(--spacing-xl);
+  padding-block-start: var(--spacing-lg);
+  border-block-start: 1px solid var(--border-default);
+}
+
+/*
+ * 세 사실은 **줄바꿈되는 흐름**으로 둔다. 격자로 잡으면 「해당 없음 — 최하위 등급」
+ * 같은 긴 문구가 한 칸을 밀어 나머지 둘의 자리가 데이터마다 달라진다.
+ */
+.rt__axis-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--spacing-sm) var(--spacing-xl);
+  margin: 0;
+}
+
+.rt__axis-facts > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  min-inline-size: 0;
+}
+
+.rt__axis-facts dt {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.rt__axis-facts dd {
+  margin: 0;
+  font-size: var(--font-size-h2);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+.rt__axis-facts .num {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 연말 예상 카드의 축 (#725). ⑴ 누적에서는 `.rt__axis`가 구분선을 그어 주지만
+ * 여기서는 카드가 작아 선을 하나 더 그으면 칸이 잘게 쪼개져 보인다 — 간격만 준다.
+ */
+.rt__axis-facts--projection {
+  margin-block-start: var(--spacing-md);
+}
+
+/*
+ * §2.5 (b) — **4단계 전용 색 램프를 만들지 않는다.** LOW·MEDIUM은 본문색 그대로다.
+ *
+ * ## 기능①과 한 토큰이 다르다
+ *
+ * `VoyageCiiResult.css`는 HIGH에 `--color-warning-text`를 쓴다. 그 토큰은 **다크에서
+ * `--cii-c-fill`(등급 C 램프)로 풀린다**(`tokens.css` 237·252) — 등급 문자도 등급 축
+ * 라벨도 없는 자리에 램프가 서는 것이라 `§0.2` 제약 2가 막으려는 상태다. 이 파일이
+ * 위에서 `--color-warning`을 거부한 것과 같은 사유이고, 미인증 배너 색과도 같은 형태다.
+ *
+ * 그래서 HIGH·CRITICAL을 **한 색**으로 두고 정도는 라벨이 담당하게 한다 — `§2.5 (b)`가
+ * 아이콘에 대해 적은 판단(*「아이콘은 주의가 필요하다만 전달하고 정도는 라벨이
+ * 담당한다」*)을 색에 그대로 적용한 것이다. 두 화면을 한 토큰으로 맞추는 일은
+ * `--color-warning-text`의 다크 정의를 정하는 일이라 `DESIGN_SYSTEM` 소유자 건이다.
+ */
+.rt__axis-facts .rt__risk--high,
+.rt__axis-facts .rt__risk--critical {
+  color: var(--color-danger-text);
+}
+
+.rt__risk-icon {
+  color: var(--color-danger-text);
 }
 
 /* ── ⑴ → ⑶ 등급 전이 ────────────────────────────────────────── */
@@ -110,12 +236,11 @@
 }
 
 /*
- * 두 배지 크기가 다르므로(주 표시 : 보조 표시) 아래를 맞춘다. 가운데를 맞추면
- * 작은 쪽이 떠 보여서 크기 차이가 「어긋난 정렬」로 읽힌다.
+ * 두 배지는 **같은 크기**다 (#725) — 두 단(段)의 높이가 같으므로 가운데를 맞춘다.
  */
 .rt__transition-pair {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--spacing-md);
 }
 
@@ -133,10 +258,13 @@
 
 /*
  * 화살표는 배지 줄에 맞춰 내린다 — 캡션까지 포함한 블록의 세로 가운데에 두면
- * 정작 이어야 할 두 배지 사이에서 위로 밀린다.
+ * 정작 이어야 할 두 배지 사이에서 위로 밀린다. 캡션 한 줄(글자×행간)과 그 아래
+ * 간격만큼을 위 여백으로 두면, 가운데 정렬이 정확히 배지 줄에 떨어진다.
  */
 .rt__transition-arrow {
-  padding-block-end: var(--spacing-md);
+  padding-block-start: calc(
+    var(--font-size-micro) * var(--line-height-micro) + var(--spacing-xs)
+  );
   font-size: var(--font-size-h2);
   line-height: 1;
 }
@@ -217,8 +345,24 @@
   color: var(--text-secondary);
 }
 
+/*
+ * 네 수치를 한 줄에 (#725). `.ytd__figures`를 빌려 쓰는데 그쪽은 **격자 안에서만**
+ * 사라지므로(`VesselDetail.css` 주석), 여기서는 자기 격자를 갖는다.
+ *
+ * 반 폭 카드(1920에서 약 760)라 한 칸이 190이다 — 34px 수치가 들어간다.
+ */
 .rt__voyage-figures {
-  margin-block-end: var(--spacing-lg);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  justify-items: center;
+  gap: var(--spacing-md) var(--spacing-lg);
+  margin-block: 0 var(--spacing-lg);
+}
+
+@media (max-width: 1100px) {
+  .rt__voyage-figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .rt__segment {

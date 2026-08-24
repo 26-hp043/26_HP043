@@ -147,7 +147,12 @@
  */
 .ytd {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /*
+   * 열 수를 **쓰는 쪽이 정한다** (#725). 선박 상세는 넷(등급·실적·기준·항차)인데
+   * 실시간 CII는 다섯(전이·실적·기준·누적거리·누적연료)이다. 4로 박아 두었더니
+   * 실시간 쪽 다섯째가 둘째 줄로 밀려 혼자 앉았다.
+   */
+  grid-template-columns: repeat(var(--ytd-cols, 4), minmax(0, 1fr));
   justify-items: center;
   align-items: center;
   gap: var(--spacing-lg) var(--spacing-xl);
@@ -159,7 +164,15 @@
   }
 }
 
-.ytd__figures {
+/*
+ * **`.ytd` 격자 안에서만** 사라진다 (#725).
+ *
+ * 선택자를 `.ytd__figures` 하나로 두었더니, 이 클래스를 **격자 밖에서** 쓰는
+ * 실시간 CII의 「항차 CII 기여도」까지 `display: contents`가 걸려 네 수치가
+ * 세로로 쌓였다. `.ytd`가 선박 상세의 클래스인데 다른 화면이 쓰고 있었다 —
+ * `.card`·`.vessel__state`·`.position-chart`와 같은 형태다.
+ */
+.ytd > .ytd__figures {
   display: contents;
 }
 

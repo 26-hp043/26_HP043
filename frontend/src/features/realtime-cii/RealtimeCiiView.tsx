@@ -3,7 +3,8 @@ import { Link, useParams } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
-import { ciiUnit } from '../voyage-cii/resultRules'
+import { GradeScaleBar } from '../../components/GradeScaleBar'
+import { ciiUnit, marginDisplay, riskLabel } from '../voyage-cii/resultRules'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -27,8 +28,16 @@ import {
   remainingDistanceNm,
   voyageProgressRatio,
   warningText,
+  ytdGradeScaleVector,
+  ytdRisk,
 } from './realtimeRules'
-import type { Rating, RealtimeCii, RealtimeCiiProvider } from './types'
+import type {
+  Rating,
+  RealtimeCii,
+  RealtimeCiiProvider,
+  YearEndProjection,
+  YtdValues,
+} from './types'
 import './RealtimeCiiView.css'
 
 /**
@@ -164,11 +173,14 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
               시뮬레이션 데이터
             </span>
           ) : null}
+          {/*
+            한 문장으로 합쳤다 (#725). 둘 다 「언제 값인가」를 말하는데 두 줄로
+            나뉘어 있어, 왼쪽 두 줄(제목·부제)과 높이가 어긋났다.
+          */}
           <p className="rt__asof">
             기준 {formatAsOf(data.asOf)}
-            {refreshing ? ' · 갱신 중…' : ''}
+            {refreshing ? ' · 갱신 중…' : ''} · {POLL_INTERVAL_MS / 1000}초마다 자동 갱신
           </p>
-          <p className="rt__poll">{POLL_INTERVAL_MS / 1000}초마다 자동 갱신</p>
         </div>
       </header>
 
@@ -220,12 +232,18 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
                   formatDecimalString(v, DISPLAY_DIGITS.cii),
                 )}
               />
+              {/*
+                누적 거리를 운항·정박으로 쪼갠다 (#725). 위의 정박 경고가 「거리는
+                늘지 않고 연료만 누적된다」고 말하는데, 그 말을 **뒷받침하는 숫자가
+                화면에 없었다** — 서버는 두 축을 나눠 싣고 있었고 화면이 합계만 읽었다.
+              */}
               <Figure
                 label="누적 거리"
                 value={formatOrNull(data.ytd.totalDistanceNm, (v) =>
                   formatGrouped(v, DISPLAY_DIGITS.distanceNm),
                 )}
                 suffix={` ${DISPLAY_UNITS.distance}`}
+                hint={distanceSplitHint(data.ytd)}
               />
               <Figure
                 label="누적 연료"
@@ -234,6 +252,19 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
                 )}
                 suffix={` ${DISPLAY_UNITS.fuel}`}
               />
+              {/*
+                CII의 **분자**다 (#725). 화면에는 분모 쪽(거리)과 그 재료(연료)만
+                있고 정작 규제가 세는 양이 없었다 — `total_co2_ton`은 `#357`부터
+                응답에 있었고 화면이 읽지 않았다. 연료 옆에 두어 연료 → CO₂ 순서로
+                읽히게 한다.
+              */}
+              <Figure
+                label="누적 CO₂"
+                value={formatOrNull(data.ytd.totalCo2Ton, (v) =>
+                  formatGrouped(v, DISPLAY_DIGITS.co2Ton),
+                )}
+                suffix={` ${DISPLAY_UNITS.co2}`}
+              />
             </dl>
           </div>
         ) : (
@@ -241,6 +272,10 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
             올해 등록된 실적이 없습니다. 항차 실적을 입력하면 누적값이 계산됩니다.
           </p>
         )}
+
+        {data.ytd.dataAvailable && data.ytd.rating ? (
+          <YtdAxis ytd={data.ytd} rating={data.ytd.rating} />
+        ) : null}
 
         <p className="rt__note">
           연중 누적 예측값이며 <b>공식 등급이 아닙니다</b>. 공식 등급은 연말 DCS
@@ -301,16 +336,127 @@ function Figure({
   label,
   value,
   suffix = '',
+  hint = null,
 }: {
   label: string
   value: string | null
   suffix?: string
+  /**
+   * 값 아래 한 줄 — **그 값이 무엇으로 이루어졌는가** (`#725`).
+   *
+   * `<dd>` 안에 둔다. `<dl>` 안에서 `<dt>`·`<dd>` 사이에 다른 요소를 끼울 수 없고,
+   * 이 문장은 값의 부속이지 별도 항목이 아니다.
+   */
+  hint?: string | null
 }) {
   return (
     <div>
       <dt>{label}</dt>
       {/* 빈칸이면 항목 자체가 없는 것으로 읽힌다. */}
-      <dd className={value ? 'num' : 'num muted'}>{value ? `${value}${suffix}` : '—'}</dd>
+      <dd className={value ? 'num' : 'num muted'}>
+        {value ? `${value}${suffix}` : '—'}
+        {hint ? <span className="rt__figure-hint">{hint}</span> : null}
+      </dd>
+    </div>
+  )
+}
+
+/**
+ * 누적 거리의 내역 — 운항 / 정박 (`#725`).
+ *
+ * **한쪽만 있어도 적는다.** 「정박 0」은 값이 없는 것과 다른 사실이고, 그 0이야말로
+ * 정박 경고를 읽는 사람이 확인하려는 숫자다. 둘 다 없으면 `null` — 없는 내역을
+ * 「— · —」로 적으면 줄만 늘고 뜻이 없다.
+ */
+function distanceSplitHint(ytd: YtdValues): string | null {
+  const underway = formatOrNull(ytd.underwayDistanceNm, (v) =>
+    formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+  )
+  const berth = formatOrNull(ytd.notUnderwayDistanceNm, (v) =>
+    formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+  )
+  if (underway === null && berth === null) return null
+  return `운항 ${underway ?? '—'} · 정박 ${berth ?? '—'}`
+}
+
+/**
+ * ⑴의 축 — 기준 대비 · 위험도 · 다음 경계까지 · 등급 스케일 (`#725`).
+ *
+ * ## 왜 한 덩어리인가
+ *
+ * 넷이 **같은 질문 하나**에 답한다 — 「이대로 가면 위험한가」. 종전에는 그 질문에
+ * 등급 전이(E→E) 하나로만 답하고 있었는데, 전이는 **경계를 넘을 때만** 움직이므로
+ * 경계 바로 앞과 구간 한가운데가 화면에서 같아 보였다.
+ *
+ * 위 수치 격자에 섞지 않는다. 그쪽은 「무엇이 얼마인가」(실적·기준·거리·연료)이고
+ * 여기는 「그래서 어디쯤인가」다. 다섯 칸을 여섯으로 늘리면 1280에서 34px 수치가
+ * 한 칸(약 136px)에 들어가지 않기도 한다.
+ *
+ * ## 값은 서버 것을 그대로 쓴다
+ *
+ * `risk_level`·`margin_ratio`는 `PRD §9.4.1`의 결정표를 서버가 적용한 결과다.
+ * 문구는 기능①이 이미 쓰는 `riskLabel`·`marginDisplay`를 그대로 부른다 — 같은
+ * 사실을 두 화면이 다른 말로 적으면 그 차이가 곧 버그 신고가 된다.
+ */
+function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
+  const risk = ytdRisk(ytd)
+  const riskText = risk === null ? null : riskLabel(risk)
+  const margin = marginDisplay(rating, ytd.marginRatio)
+  const ratio = formatOrNull(ytd.ratioToRequired, (v) => `${formatPercent(v)}%`)
+  const scale = ytdGradeScaleVector(ytd)
+
+  return (
+    <div className="rt__axis">
+      <dl className="rt__axis-facts">
+        <div>
+          <dt>기준 대비</dt>
+          {/*
+            「7.871 / 5.045」를 눈으로 나누고 있었다. 서버가 `ratio_to_required`를
+            이미 싣는다 — 기능①의 「기준 대비 비율」과 같은 값·같은 자릿수다.
+          */}
+          <dd className={ratio ? 'num' : 'num muted'}>{ratio ?? '—'}</dd>
+        </div>
+        <div>
+          <dt>위험도</dt>
+          <dd className={riskText ? `rt__risk rt__risk--${risk!.toLowerCase()}` : 'muted'}>
+            {riskText ? (
+              <>
+                {riskText.withIcon ? (
+                  // §2.5 (b) — 라벨이 바로 옆에 있으므로 aria-hidden.
+                  <span className="rt__risk-icon" aria-hidden="true">
+                    ⚠{' '}
+                  </span>
+                ) : null}
+                {riskText.text}
+              </>
+            ) : (
+              '—'
+            )}
+          </dd>
+        </div>
+        <div>
+          <dt>다음 경계까지</dt>
+          <dd>{margin.text}</dd>
+        </div>
+      </dl>
+
+      {/*
+        스케일 바는 격자 밖에 둔다 — 한 항목의 부속이 아니라 **위 세 값이 놓인 축**
+        이고, 폭도 카드 전체를 써야 눈금이 읽힌다(`VoyageCiiResult`와 같은 배치).
+
+        `boundaries`가 없거나 `required_cii`가 0이면 `scale`이 `null`이다. 그때는
+        바를 아예 만들지 않는다 — 컴포넌트에 넘겨 「못 읽는다」를 적게 하면, 값이
+        원래 없는 상태(실적 없음)까지 오류처럼 보인다.
+      */}
+      {scale && ytd.ratioToRequired && ratio ? (
+        <GradeScaleBar
+          ratioToRequired={ytd.ratioToRequired}
+          boundaries={scale}
+          rating={rating}
+          valueLabel={ratio}
+          label="연간 누적 CII의 등급 스케일"
+        />
+      ) : null}
     </div>
   )
 }
@@ -465,9 +611,14 @@ function RatingTransitionView({ data, current }: { data: RealtimeCii; current: R
 
         <div className="rt__transition-step">
           <span className="rt__transition-caption">연말 예상</span>
+          {/*
+           * 현재 누적과 **같은 크기**다 (#725). 종전에는 `sm`이었는데, 크기 차이는
+           * 「덜 중요하다」로 읽힌다 — 이 화면에서 사용자가 보러 오는 값이 바로
+           * 연말 예상이므로 정반대다. 두 값의 차이는 시점이고, 그 시점 차이는
+           * 캡션(현재 누적 / 연말 예상)과 화살표가 이미 말한다.
+           */}
           <GradeBadge
             rating={transition.to}
-            size="sm"
             label={`연말 예상 등급 ${transition.to}`}
           />
         </div>
@@ -477,6 +628,48 @@ function RatingTransitionView({ data, current }: { data: RealtimeCii; current: R
         {RATING_TRANSITION_TEXT[transition.direction]}
       </p>
     </div>
+  )
+}
+
+/**
+ * 연말 예상의 기준 대비 비율·위험도 — `#725`.
+ *
+ * 표기·클래스는 `YtdAxis`와 같은 것을 쓴다. 같은 뜻의 값을 화면 안에서 두 가지
+ * 모양으로 보여 주면, 나란히 놓인 두 카드가 서로 다른 지표처럼 읽힌다.
+ */
+function ProjectionAxis({ projection }: { projection: YearEndProjection }) {
+  const risk = ytdRisk(projection)
+  const riskText = risk === null ? null : riskLabel(risk)
+  const ratio = formatOrNull(projection.ratioToRequired, (v) => `${formatPercent(v)}%`)
+
+  // 둘 다 없으면 빈 격자만 남는다 — 그 자리는 「값이 0」으로 읽힌다.
+  if (ratio === null && riskText === null) return null
+
+  return (
+    <dl className="rt__axis-facts rt__axis-facts--projection">
+      <div>
+        <dt>기준 대비</dt>
+        <dd className={ratio ? 'num' : 'num muted'}>{ratio ?? '—'}</dd>
+      </div>
+      <div>
+        <dt>위험도</dt>
+        <dd className={riskText ? `rt__risk rt__risk--${risk!.toLowerCase()}` : 'muted'}>
+          {riskText ? (
+            <>
+              {riskText.withIcon ? (
+                // §2.5 (b) — 라벨이 바로 옆에 있으므로 aria-hidden.
+                <span className="rt__risk-icon" aria-hidden="true">
+                  ⚠{' '}
+                </span>
+              ) : null}
+              {riskText.text}
+            </>
+          ) : (
+            '—'
+          )}
+        </dd>
+      </div>
+    </dl>
   )
 }
 
@@ -494,9 +687,14 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
     <>
       <div className="rt__projection">
         {projection.rating ? (
+          /*
+            `sm`(13px)이었다. 옆 값이 h2(20px)라 배지가 눌려 **등급이 곁가지로**
+            읽혔다 — 이 카드의 주인공은 등급이다. `§8`의 `lg`(20px)로 올린다.
+            세 단 안이므로 정본을 벗어나지 않는다.
+          */
           <GradeBadge
             rating={projection.rating}
-            size="sm"
+            size="lg"
             label={`연말 예상 등급 ${projection.rating}`}
           />
         ) : null}
@@ -517,6 +715,17 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
           ) : null}
         </div>
       </div>
+
+      {/*
+       * ⑴ 누적과 **같은 축**을 붙인다 (`#725`). 서버는 연말 예상에도
+       * `ratio_to_required`·`risk_level`을 싣는데 화면이 읽지 않아, 위 카드는
+       * 「기준 대비 155.5% · 심각」이고 이 카드는 CII 숫자와 추세 문구뿐이었다.
+       * 축이 다르면 두 등급을 나란히 놓아도 **얼마나 벌어졌는지**를 셀 수 없다.
+       *
+       * 스케일 바는 여기 두지 않는다 — `boundaries`는 YTD에만 실리고, 연말 예상의
+       * 경계를 YTD 것으로 대신 그리면 다른 값의 눈금을 빌려 쓰는 것이 된다.
+       */}
+      <ProjectionAxis projection={projection} />
 
       {/*
        * 가정을 함께 보여 준다 — `PRD §3.3` ⑶ 요구. 이 값이 무엇을 전제로 나온

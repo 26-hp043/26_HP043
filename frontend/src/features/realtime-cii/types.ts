@@ -27,6 +27,28 @@ export interface Substitution {
   fuelType: string | null
 }
 
+/**
+ * 등급 경계 — **절대 CII 값**이다 (`#725`).
+ *
+ * `superior = required_cii × d1`이므로(`rating_engine`), `required_cii`로 나누면
+ * 그것이 곧 `d1`~`d4`다. 등급 스케일 바는 그 비율 공간에서 그린다
+ * (`components/gradeScale.ts`).
+ *
+ * 서버는 `#354`부터 이 값을 싣고 있었고 화면만 읽지 않았다. 네 값이 모두
+ * 있어야 뜻이 있으므로 **하나라도 없으면 통째로 `null`**이다 — 셋만 있는
+ * 경계로는 구간을 그릴 수 없고, 부분값은 「그릴 수 있다」로 잘못 읽힌다.
+ */
+export interface RatingBoundaries {
+  /** A/B 경계 (`superior_boundary`) */
+  superior: string
+  /** B/C 경계 (`lower_boundary`) */
+  lower: string
+  /** C/D 경계 (`upper_boundary`) */
+  upper: string
+  /** D/E 경계 (`inferior_boundary`) */
+  inferior: string
+}
+
 export interface YtdValues {
   dataAvailable: boolean
   attainedCii: string | null
@@ -35,6 +57,7 @@ export interface YtdValues {
   rating: Rating | null
   riskLevel: string | null
   marginRatio: string | null
+  boundaries: RatingBoundaries | null
   totalCo2Ton: string | null
   totalFuelTon: string | null
   underwayDistanceNm: string | null
