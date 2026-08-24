@@ -27,7 +27,7 @@ dependencies = [
     # (Dockerfile의 libpango-1.0-0 · libpangoft2-1.0-0). 그래서 reports/pdf.py가
     # 지연 import 한다 — 최상단에서 import하면 라이브러리가 없는 환경에서 앱 전체가
     # 뜨지 않고 CSV 내보내기까지 막힌다.
-    "weasyprint>=66,<70",
+    "weasyprint>=69.0,<70",
     # CSV 가져오기의 multipart/form-data 파싱 (#60). FastAPI가 `UploadFile`·`Form`을
     # 쓰는 라우트를 **등록하는 시점에** 이 패키지를 요구한다 — 없으면 요청이 아니라
     # 앱 기동이 실패하므로 선택 의존성으로 둘 수 없다 (`API_SPEC §8.2`).
