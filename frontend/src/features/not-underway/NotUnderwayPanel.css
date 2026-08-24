@@ -207,10 +207,11 @@
   padding: 0 var(--spacing-xs);
 }
 
+/* `auto-fit`이 네 칸을 카드 폭만큼 늘리고 있었다 — 근거는 `VoyagePanel.css` 참조 (#721). */
 .nu__figures {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  gap: var(--spacing-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm) var(--spacing-2xl);
   margin: 0;
 }
 
@@ -234,10 +235,23 @@
   gap: var(--spacing-xs);
 }
 
+/*
+ * ## 열이 넷인데 자식은 다섯이었다 (#721)
+ *
+ * 이 줄은 **소비처 · 연료 · 양 · CF · 삭제** 다섯을 그린다. 그런데 열 정의가
+ * `1fr 1fr auto auto` 넷이라 **다섯째(삭제 버튼)가 암묵 행으로 밀려났고**, 그 자리가
+ * 첫 열(`1fr`)이라 버튼이 카드 폭만큼 늘어났다 — 목록 한 줄마다 **전폭 빨간 띠**가
+ * 하나씩 서 있던 것이 이 때문이다.
+ *
+ * 열을 다섯으로 맞추고 **내용 폭**으로 잡는다. `1fr`로 두면 위 `auto-fit`과 같은
+ * 이유로 「보조기관」 네 글자가 700px 칸에 놓인다.
+ */
 .nu__fuels li {
   display: grid;
-  grid-template-columns: 1fr 1fr auto auto;
-  gap: var(--spacing-sm);
+  grid-template-columns: repeat(4, max-content) auto;
+  justify-content: start;
+  align-items: center;
+  gap: var(--spacing-sm) var(--spacing-lg);
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
 }

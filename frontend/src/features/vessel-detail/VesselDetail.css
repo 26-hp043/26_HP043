@@ -173,10 +173,22 @@
 
 /* ── 제원 · 상태 ───────────────────────────────────────────────── */
 
+/*
+ * ## 값을 오른쪽 끝에 붙이지 않는다 (#721)
+ *
+ * 종전에는 `auto 1fr` + `dd { text-align: right }`이라 **라벨은 왼쪽 끝, 값은 오른쪽
+ * 끝**이었다. 제원 카드가 약 624px이므로 「선종」과 「일반화물선」 사이가 500px 벌어져,
+ * 한 줄을 읽으려면 눈이 카드를 가로질러야 했다.
+ *
+ * 두 열을 **내용 폭**으로 잡고 왼쪽에 모은다. 값 열이 `max-content`라 그 안에서
+ * `text-align: right`이 여전히 걸리고, 자릿수 고정(`tabular-nums`)과 합쳐져 **숫자는
+ * 오른쪽 끝이 세로로 맞는다** — 잃는 것 없이 틈만 걷힌다.
+ */
 .spec {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: var(--spacing-sm) var(--spacing-lg);
+  grid-template-columns: max-content max-content;
+  justify-content: start;
+  gap: var(--spacing-sm) var(--spacing-xl);
   margin: 0;
 }
 
@@ -307,8 +319,20 @@
   overflow-x: auto;
 }
 
+/*
+ * ## 표를 카드 폭까지 늘리지 않는다 (#721)
+ *
+ * `inline-size: 100%`면 여섯 열이 카드 폭을 나눠 갖는다. 주 영역이 약 890px이라
+ * 한 열이 ~148px이 되는데 안에 든 것은 「2025」·「E」처럼 40px 안팎이다. 값 사이가
+ * 벌어져 **한 행을 가로로 읽는 일이 눈의 이동이 된다.**
+ *
+ * `max-content`로 열을 내용에 맞추고 왼쪽에 모은다. 좁은 창에서 넘칠 때를 위해
+ * 상한을 100%로 두고, 그때는 감싼 `.history__tablebox`가 가로로 스크롤한다
+ * (그 상자가 이미 `overflow-x: auto`다).
+ */
 .history__table {
-  inline-size: 100%;
+  inline-size: max-content;
+  max-inline-size: 100%;
   border-collapse: collapse;
   font-size: var(--font-size-label);
 }

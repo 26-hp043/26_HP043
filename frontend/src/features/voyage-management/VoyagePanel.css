@@ -142,11 +142,27 @@
   margin-inline-start: auto;
 }
 
+/*
+ * ## `auto-fit`이 칸을 늘리고 있었다 (#721)
+ *
+ * `repeat(auto-fit, minmax(9rem, 1fr))`는 **빈 트랙을 접고 남은 폭을 항목에 나눠
+ * 준다.** 1920에서 카드 안쪽이 약 1,544px이고 항목이 여섯이라 한 칸이 **250px**이
+ * 되는데, 안에 든 글자는 「900 nm」 ~70px이다. **한 줄에서만 빈칸이 1,080px** 생겼다.
+ *
+ * 한 단어 차이인 `auto-fill`은 빈 트랙을 **남겨** 항목이 최소폭에 머문다. 다만 여기서는
+ * 최소폭(9rem)도 내용보다 넓어, 트랙을 만들지 않고 **내용 폭 그대로 두고 줄만 넘긴다.**
+ * 항목이 셋으로 줄어(위 `Pair` 참조) 격자를 유지할 이유도 사라졌다.
+ */
 .vy__figures {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: var(--spacing-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm) var(--spacing-2xl);
   margin: 0;
+}
+
+/* 계획 → 실적. 값 사이에서 방향만 맡는다 — 뜻은 패널 머리글이 적는다. */
+.vy__arrow {
+  color: var(--text-secondary);
 }
 
 .vy__figures dt {
