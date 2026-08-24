@@ -196,3 +196,44 @@ describe('위치 개략도 — 겹침 분산', () => {
     expect(screen.getByText(/배 색과 무늬는 올해 누적\(YTD\) 등급입니다/)).toBeTruthy()
   })
 })
+
+/**
+ * 한 척짜리 그림 (#723).
+ *
+ * 선박 상세가 같은 컴포넌트를 쓴다. 선대와 다른 점이 둘 있고, 둘 다 **한 척이라서**
+ * 생긴다 — 범위를 데이터가 정하지 못하고, 범위가 곧 0이다.
+ */
+describe('한 척만 그릴 때 (#723)', () => {
+  it('범위가 아니라 자리로 적는다 — 같은 값을 물결로 잇지 않는다', () => {
+    render(<PositionChart vessels={[vessel({ id: 'a' })]} minSpan={14} />)
+    const range = document.querySelector('.position-chart__range')
+    expect(range?.textContent).toContain('위치')
+    expect(range?.textContent).not.toContain('~')
+  })
+
+  it('두 척부터는 범위로 적는다', () => {
+    render(
+      <PositionChart
+        vessels={[vessel({ id: 'a' }), vessel({ id: 'b', lat: '34.0', lon: '128.0' })]}
+      />,
+    )
+    expect(document.querySelector('.position-chart__range')?.textContent).toContain('~')
+  })
+
+  /*
+   * `minSpan`을 넘기지 않으면 기본값(선대용 0.5°)이 걸린다. 그 값으로 한 척을 그리면
+   * 육지 외곽선(0.6° 허용 오차)이 상자보다 성겨 **배경이 사라진다.** 프롭이 실제로
+   * 배율에 닿는지만 잠근다 — 그림이 달라지면 육지 경로의 좌표도 달라진다.
+   */
+  it('minSpan이 그림의 배율을 실제로 바꾼다', () => {
+    const narrow = render(<PositionChart vessels={[vessel({ id: 'a' })]} />)
+    const narrowLand = narrow.container.querySelector('.position-chart__land path')?.getAttribute('d')
+    narrow.unmount()
+
+    const wide = render(<PositionChart vessels={[vessel({ id: 'a' })]} minSpan={14} />)
+    const wideLand = wide.container.querySelector('.position-chart__land path')?.getAttribute('d')
+
+    expect(narrowLand).toBeTruthy()
+    expect(wideLand).not.toBe(narrowLand)
+  })
+})

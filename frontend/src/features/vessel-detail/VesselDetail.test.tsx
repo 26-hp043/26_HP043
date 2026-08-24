@@ -108,3 +108,39 @@ describe('실시간 CII 링크 (#588)', () => {
     await waitFor(() => expect(screen.getByText(/진행 중 항차가 없습니다/)).toBeDefined())
   })
 })
+
+/**
+ * 위치 개략도 (#723).
+ *
+ * 「현재 위치」가 `35.1, 129.0`이라는 **숫자**로만 있었다. 좌표를 숫자로 읽을 수 있는
+ * 사람은 없으므로 그림을 함께 둔다.
+ *
+ * 여기서 잠그는 것은 둘이다 — **좌표가 있으면 그린다**, 그리고 **없으면 빈 그림을
+ * 그리지 않는다.** 두 번째가 중요하다. 좌표 없는 배에 빈 상자가 뜨면 「위치를 못
+ * 불러왔다」로 읽히는데, 사실은 **입력된 적이 없는** 것이다(`#705`가 대시보드에서
+ * 같은 구분을 세웠다).
+ */
+describe('위치 개략도 (#723)', () => {
+  it('좌표가 있으면 그림을 그린다', async () => {
+    const { container } = renderAt(stub())
+    await waitFor(() => {
+      expect(container.querySelector('.position-chart')).not.toBeNull()
+    })
+  })
+
+  it('좌표가 없으면 그림 자리를 만들지 않는다', async () => {
+    const noPosition: Detail = {
+      ...DETAIL,
+      vessel: { ...DETAIL.vessel, lat: null, lon: null, positionUpdatedAt: null },
+    }
+    const { container } = renderAt(
+      stub({ load: vi.fn().mockResolvedValue(noPosition) }),
+    )
+
+    // 화면이 뜬 것을 먼저 확인한다 — 아직 로딩 중이라 없는 것과 구분해야 한다.
+    await waitFor(() => {
+      expect(screen.getByText('현재 상태')).toBeDefined()
+    })
+    expect(container.querySelector('.vd__map')).toBeNull()
+  })
+})

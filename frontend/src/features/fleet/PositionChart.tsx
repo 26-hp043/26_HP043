@@ -1,4 +1,6 @@
-import type { FleetVessel } from './types'
+import './PositionChart.css'
+import type { RiskReason } from './types'
+import type { Rating } from '../voyage-cii/types'
 import { isAtRisk } from './fleetRules'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
@@ -321,17 +323,50 @@ function resolveCollisions<T extends { y: number; centerX: number; halfWidth: nu
   return sorted
 }
 
+/**
+ * 이 그림이 **실제로 읽는 필드만** 요구한다 (#723).
+ *
+ * 종전에는 `FleetVessel`을 통째로 받았다. 그런데 쓰는 것은 여섯 중 다섯뿐이고,
+ * 선박 상세는 같은 배를 `VesselSpec`이라는 다른 이름으로 갖고 있다. 통째로 요구하면
+ * 쓰는 쪽이 **가짜 선대 객체를 지어내거나 그림을 통째로 베낀다** — `UnderwayChip`이
+ * `#719`에서 같은 이유로 넓어졌다.
+ *
+ * `FleetVessel`이 이 모양을 그대로 만족하므로 대시보드 호출은 바뀌지 않는다.
+ */
+interface ChartVessel {
+  id: string
+  name: string
+  lat: string | null
+  lon: string | null
+  ytdRating: Rating | null
+  /**
+   * 이름표는 **위험 선박에만** 붙는다(`§14`). 위험 판정을 갖지 않은 호출자는
+   * 넘기지 않는다 — 빈 배열을 지어내게 하면 「위험이 없다」는 판정을 한 셈이 된다.
+   */
+  riskReasons?: readonly RiskReason[]
+}
+
 interface Positioned {
-  vessel: FleetVessel
+  vessel: ChartVessel
   lat: number
   lon: number
 }
 
 interface PositionChartProps {
-  vessels: FleetVessel[]
+  vessels: ChartVessel[]
+  /**
+   * 최소 표시 범위(도). 기본 `0.5`는 **선대**를 전제한 값이다.
+   *
+   * 한 척만 그릴 때 이 값을 쓰면 상자가 약 55km가 되는데, 육지 외곽선은
+   * `0.6°`(약 66km) 허용 오차로 단순화돼 있어(`landOutline.ts`) **해안선이 직선
+   * 한 줄이거나 아예 안 보인다.** 배경이 사라지면 「배가 어디 있나」를 읽을 수 없다.
+   *
+   * 그래서 한 척짜리 그림은 호출자가 범위를 넓혀 준다.
+   */
+  minSpan?: number
 }
 
-export function PositionChart({ vessels }: PositionChartProps) {
+export function PositionChart({ vessels, minSpan = MIN_SPAN }: PositionChartProps) {
   const points: Positioned[] = vessels.flatMap((vessel) => {
     if (vessel.lat === null || vessel.lon === null) return []
     const lat = Number(vessel.lat)
@@ -363,8 +398,8 @@ export function PositionChart({ vessels }: PositionChartProps) {
   const maxLat = Math.max(...lats)
   const minLon = Math.min(...lons)
   const maxLon = Math.max(...lons)
-  const latSpan = Math.max(maxLat - minLat, MIN_SPAN)
-  const lonSpan = Math.max(maxLon - minLon, MIN_SPAN)
+  const latSpan = Math.max(maxLat - minLat, minSpan)
+  const lonSpan = Math.max(maxLon - minLon, minSpan)
 
   /*
    * ## 위도와 경도를 **같은 배율**로 놓는다
@@ -410,7 +445,7 @@ export function PositionChart({ vessels }: PositionChartProps) {
    */
   const labels = resolveCollisions(
     points
-      .filter((p) => isAtRisk(p.vessel))
+      .filter((p) => isAtRisk({ riskReasons: p.vessel.riskReasons ?? [] }))
       .map((p) => {
         const { x, y } = placed(p)
         return { id: p.vessel.id, name: p.vessel.name, ...labelPlacement(p.vessel.name, x, y) }
@@ -501,7 +536,7 @@ export function PositionChart({ vessels }: PositionChartProps) {
         // A는 solid라 패턴이 없다(§15.1). 등급 미상도 무늬를 주지 않는다 —
         // 없는 등급에 등급 무늬를 붙이면 있는 것처럼 읽힌다.
         const pattern = rating ? gradePatternUrl(rating) : undefined
-        const risky = isAtRisk(point.vessel)
+        const risky = isAtRisk({ riskReasons: point.vessel.riskReasons ?? [] })
         const dotClass = risky
           ? 'position-chart__dot position-chart__dot--risk'
           : 'position-chart__dot'
@@ -583,13 +618,26 @@ export function PositionChart({ vessels }: PositionChartProps) {
 
       좌표는 `§3`에 따라 mono로 적는다 — 「식별자용 mono는 IMO 번호·좌표 전용」.
     */}
-    <p className="position-chart__range">
-      위도 <span className="position-chart__coord">{formatLat(minLat)}</span>~
-      <span className="position-chart__coord">{formatLat(maxLat)}</span>
-      {' · '}
-      경도 <span className="position-chart__coord">{formatLon(minLon)}</span>~
-      <span className="position-chart__coord">{formatLon(maxLon)}</span>
-    </p>
+    {/*
+      한 척뿐이면 범위가 아니라 **자리**다 (#723). `minLat === maxLat`이라
+      「위도 35.1°N~35.1°N」이 되는데, 같은 값을 물결로 이어 놓으면 범위를 읽으려던
+      눈이 한 번 헛돈다. 그림이 그보다 넓게 그려진 것과도 어긋나 보인다.
+    */}
+    {points.length === 1 ? (
+      <p className="position-chart__range">
+        위치 <span className="position-chart__coord">{formatLat(minLat)}</span>
+        {', '}
+        <span className="position-chart__coord">{formatLon(minLon)}</span>
+      </p>
+    ) : (
+      <p className="position-chart__range">
+        위도 <span className="position-chart__coord">{formatLat(minLat)}</span>~
+        <span className="position-chart__coord">{formatLat(maxLat)}</span>
+        {' · '}
+        경도 <span className="position-chart__coord">{formatLon(minLon)}</span>~
+        <span className="position-chart__coord">{formatLon(maxLon)}</span>
+      </p>
+    )}
     {/*
       그림을 읽는 법은 **그림이 소유한다.** 종전에는 이 설명이 대시보드 쪽
       `card__note`에 있었는데, 그러면 차트가 무엇을 바꾸든 설명은 그대로 남는다.
