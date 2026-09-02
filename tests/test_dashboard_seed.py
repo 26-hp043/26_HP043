@@ -235,12 +235,20 @@ async def test_in_port_fuel_reaches_the_cii_numerator(conn):
 
     from cii_platform.services.ytd_cii import compute_ytd_cii
 
+    # ``as_of``는 **현재 시각**이다 (#792). 종전에는 ``2026-08-20``이 박혀 있었는데,
+    # 시드가 상대 시각으로 바뀌면서 접안 구간이 그 시점보다 **뒤로 이동해** 구간이
+    # 0건으로 잡혔다 — 같은 부류의 두 번째 자리다.
+    #
+    # 여기서 「현재 시각」이 옳은 이유는 **화면이 그렇게 묻기 때문**이다. 실시간 CII와
+    # 대시보드는 ``as_of``를 보내지 않고 서버가 현재 시각을 확정한다
+    # (``simulation_clock.resolve_as_of``). 시드의 열린 정박 구간은 언제 물어도
+    # 진행 중이므로 이 단언은 날짜와 무관하게 성립한다.
     async with AsyncSession(bind=conn, expire_on_commit=False) as session:
         result = await compute_ytd_cii(
             session,
             vessel_id=VESSEL_IDS["ro_ro"],
             regulation_year=2026,
-            as_of=datetime(2026, 8, 20, tzinfo=UTC),
+            as_of=datetime.now(UTC),
         )
 
     assert result.not_underway_period_count == 1, "2026년 정박 구간이 잡히지 않았다"
