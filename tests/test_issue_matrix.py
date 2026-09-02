@@ -27,15 +27,20 @@ def issue(number: int, *labels: str) -> dict:
 
 
 def test_layers_match_the_repository_labels():
-    """`#93`이 정의한 일곱 레이어. 라벨이 늘면 여기가 먼저 깨진다."""
+    """`#93`이 정의한 일곱 레이어. 라벨이 늘면 여기가 먼저 깨진다.
+
+    **순서가 계약이다** (#777). :func:`layer_of`가 이 목록 순서로 첫 라벨을
+    쓰므로, ``layer:assistant``가 ``layer:cross`` 뒤로 가면 두 라벨이 함께
+    붙은 이슈의 귀속이 조용히 바뀐다.
+    """
     assert [label for label, _ in LAYERS] == [
         "layer:base",
         "layer:fleet",
         "layer:vessel",
         "layer:voyage",
         "layer:report",
+        "layer:assistant",
         "layer:cross",
-        "layer:backlog",
     ]
 
 
