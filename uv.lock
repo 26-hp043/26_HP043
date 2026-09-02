@@ -334,7 +334,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.141.1,<0.150" },
     { name = "httpx", specifier = ">=0.28.1,<0.29" },
     { name = "numpy", specifier = "==2.1.0" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8,<3.0" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.13.0,<3.0" },
     { name = "pypdf", marker = "extra == 'dev'", specifier = ">=6.16.2,<7.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1,<10.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=1.4.0,<2.0" },
