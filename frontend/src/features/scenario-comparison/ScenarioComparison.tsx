@@ -19,7 +19,13 @@ import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { pickDefaultYear } from '../voyage-cii/formRules'
-import { lowestSummary } from './comparisonRules'
+import {
+  deltaFromDirect,
+  isZeroDelta,
+  lowestSummary,
+  type ScenarioDelta,
+} from './comparisonRules'
+import { ScenarioRouteGlyph } from './ScenarioRouteGlyph'
 import type { ScenarioComparisonResponse, ScenarioResult } from './types'
 
 /**
@@ -388,8 +394,19 @@ export function ScenarioComparison({
         </p>
 
         <div className="scenario-comparison__cards">
+          {/*
+            기준은 `DIRECT`다 (#739). 배열 첫 번째가 아니라 **타입으로** 찾는다 —
+            `PRD §11.2` 표 순서가 배열 순서와 같지만, 순서가 바뀌어도 기준이
+            따라 움직이면 안 된다. 없으면 `deltaFromDirect`가 `null`을 내고
+            차이 표시가 통째로 빠진다(잘못된 기준으로 빼는 것보다 낫다).
+          */}
           {response.scenarios.map((scenario) => (
-            <ScenarioCard key={scenario.scenario_type} scenario={scenario} unit={unit} />
+            <ScenarioCard
+              key={scenario.scenario_type}
+              scenario={scenario}
+              direct={response.scenarios.find((s) => s.scenario_type === 'DIRECT')}
+              unit={unit}
+            />
           ))}
         </div>
 
@@ -422,12 +439,21 @@ export function ScenarioComparison({
 
 /* ------------------------------------------------------------------ */
 
-function ScenarioCard({ scenario, unit }: { scenario: ScenarioResult; unit: string }) {
+function ScenarioCard({
+  scenario,
+  direct,
+  unit,
+}: {
+  scenario: ScenarioResult
+  direct: ScenarioResult | undefined
+  unit: string
+}) {
   const margin = marginDisplay(
     scenario.estimated_rating,
     scenario.next_worse_boundary_margin_ratio,
   )
   const risk = riskLabel(scenario.risk_level)
+  const delta = deltaFromDirect(scenario, direct)
 
   return (
     <article className="scenario-card">
@@ -443,12 +469,19 @@ function ScenarioCard({ scenario, unit }: { scenario: ScenarioResult; unit: stri
         />
       </header>
 
+      <ScenarioRouteGlyph type={scenario.scenario_type} />
+
       <p className="scenario-card__cii">
         {formatDecimalString(scenario.attained_cii, DISPLAY_DIGITS.cii)}
         <span className="scenario-card__cii-unit"> {unit}</span>
       </p>
 
-      <p className="scenario-card__margin">{margin.text}</p>
+      <CiiComparison scenario={scenario} direct={direct} delta={delta} />
+
+      <p className="scenario-card__margin">
+        <span className="scenario-card__margin-label">다음 경계까지</span>
+        {margin.text}
+      </p>
 
       <p className="scenario-card__risk">
         <span className="scenario-card__risk-label">위험도</span>
@@ -465,19 +498,113 @@ function ScenarioCard({ scenario, unit }: { scenario: ScenarioResult; unit: stri
         </span>
       </p>
 
+      {/*
+        차이를 값 **바로 옆**에 둔다 (#739). 아래에 「직항 대비」 묶음을 따로
+        만들면 같은 지표가 카드 안에서 두 번 나오고, 어느 숫자가 어느 차이인지를
+        다시 눈으로 짝지어야 한다.
+      */}
       <dl className="scenario-card__rows">
-        <Row label="항해거리" value={formatGrouped(String(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)} unit={DISPLAY_UNITS.distance} />
+        <Row label="항해거리" value={formatGrouped(String(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)} unit={DISPLAY_UNITS.distance} delta={delta?.distanceNm} deltaDigits={DISPLAY_DIGITS.distanceNm} />
         <Row label="평균 속력" value={String(scenario.speed_kn)} unit={DISPLAY_UNITS.speed} />
-        <Row label="예상 소요시간" value={formatDecimalString(scenario.duration_hours, DISPLAY_DIGITS.durationHours)} unit={DISPLAY_UNITS.duration} />
-        <Row label="예상 연료" value={formatGrouped(scenario.fuel_ton, DISPLAY_DIGITS.fuelTon)} unit={DISPLAY_UNITS.fuel} />
-        <Row label="CO₂ 배출량" value={formatGrouped(scenario.co2_emission_ton, DISPLAY_DIGITS.co2Ton)} unit={DISPLAY_UNITS.co2} />
+        <Row label="예상 소요시간" value={formatDecimalString(scenario.duration_hours, DISPLAY_DIGITS.durationHours)} unit={DISPLAY_UNITS.duration} delta={delta?.durationHours} deltaDigits={DISPLAY_DIGITS.durationHours} />
+        <Row label="예상 연료" value={formatGrouped(scenario.fuel_ton, DISPLAY_DIGITS.fuelTon)} unit={DISPLAY_UNITS.fuel} delta={delta?.fuelTon} deltaDigits={DISPLAY_DIGITS.fuelTon} />
+        <Row label="CO₂ 배출량" value={formatGrouped(scenario.co2_emission_ton, DISPLAY_DIGITS.co2Ton)} unit={DISPLAY_UNITS.co2} delta={delta?.co2Ton} deltaDigits={DISPLAY_DIGITS.co2Ton} />
         <Row label="기준 대비" value={`${formatPercent(scenario.ratio_to_required)}%`} />
       </dl>
     </article>
   )
 }
 
-function Row({ label, value, unit }: { label: string; value: string; unit?: string }) {
+/* ------------------------------------------------------------------ */
+
+/**
+ * CII가 직항과 어떻게 다른가 — `#739`.
+ *
+ * ## 같은 숫자 두 개를 그냥 두지 않는다
+ *
+ * 같은 속력으로 우회하면 **CII가 정확히 같다.** 연료가 시간에, 시간이 거리에
+ * 비례하므로 `attained = M / (용량 × 거리)`의 분자와 분모가 같은 비율로 늘기
+ * 때문이다. 화면은 그 사실을 말하지 않고 `6.614`와 `6.614`를 나란히 놓았고,
+ * **보는 사람은 계산이 틀렸다고 읽는다.**
+ *
+ * 이것은 추천이 아니라 사실 설명이므로 `PRD §11.2`의 「추천 시나리오를 표시하지
+ * 않는다」에 걸리지 않는다. 어느 쪽이 낫다고 말하지 않고, CO₂ 차이는 표가 따로
+ * 보여 준다 — 등급은 같아도 총량은 다르다는 것을 사용자가 직접 읽는다.
+ */
+function CiiComparison({
+  scenario,
+  direct,
+  delta,
+}: {
+  scenario: ScenarioResult
+  direct: ScenarioResult | undefined
+  delta: ScenarioDelta | null
+}) {
+  if (delta === null) {
+    return <p className="scenario-card__baseline">기준 시나리오</p>
+  }
+
+  if (!isZeroDelta(delta.cii)) {
+    return (
+      <p className="scenario-card__cii-delta">
+        <span className="scenario-card__delta-label">직항 대비</span>
+        <DeltaValue value={delta.cii} digits={DISPLAY_DIGITS.cii} />
+      </p>
+    )
+  }
+
+  // 거리가 같은데 CII도 같은 것은 설명할 일이 아니다 — 같은 조건이니 같은 값이다.
+  const longer = direct !== undefined && scenario.distance_nm > direct.distance_nm
+
+  return (
+    <p className="scenario-card__cii-same">
+      <strong>직항과 같습니다.</strong>{' '}
+      {longer
+        ? 'CII는 거리당 값이라, 같은 속력이면 거리가 늘어도 연료가 같은 비율로 늘어 값이 변하지 않습니다.'
+        : '같은 속력·같은 거리이므로 값이 같습니다.'}
+    </p>
+  )
+}
+
+/**
+ * 직항 대비 한 값 — `#739`.
+ *
+ * **색을 주지 않는다.** 늘어난 쪽을 빨강, 줄어든 쪽을 초록으로 칠하면 그것이 곧
+ * 「이쪽이 낫다」가 되어 `PRD §11.2`의 추천 금지에 걸린다. 게다가 항해거리가
+ * 늘어난 것이 나쁘다고 단정할 수도 없다 — 우회에는 이유가 있다. 방향은 `+`·`−`
+ * 문자가 말하고, 좋고 나쁨의 판단은 사용자에게 남긴다(`PRD §6.3`).
+ */
+function DeltaValue({ value, digits, unit }: { value: string; digits: number; unit?: string }) {
+  if (isZeroDelta(value)) {
+    return <span className="scenario-card__delta">동일</span>
+  }
+
+  const negative = value.startsWith('-')
+  const magnitude = formatGrouped(negative ? value.slice(1) : value, digits)
+
+  return (
+    <span className="scenario-card__delta">
+      {/* U+2212 MINUS SIGN — 하이픈은 좁아서 `+`와 폭이 어긋난다 */}
+      {negative ? '−' : '+'}
+      {magnitude}
+      {unit ? <span className="scenario-card__row-unit"> {unit}</span> : null}
+    </span>
+  )
+}
+
+function Row({
+  label,
+  value,
+  unit,
+  delta,
+  deltaDigits,
+}: {
+  label: string
+  value: string
+  unit?: string
+  delta?: string
+  deltaDigits?: number
+}) {
   return (
     <div className="scenario-card__row">
       <dt>{label}</dt>
@@ -485,6 +612,11 @@ function Row({ label, value, unit }: { label: string; value: string; unit?: stri
         {value}
         {unit ? <span className="scenario-card__row-unit"> {unit}</span> : null}
       </dd>
+      {delta !== undefined && deltaDigits !== undefined ? (
+        <dd className="scenario-card__row-delta">
+          <DeltaValue value={delta} digits={deltaDigits} />
+        </dd>
+      ) : null}
     </div>
   )
 }

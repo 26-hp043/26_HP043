@@ -33,14 +33,23 @@ import subprocess
 import sys
 
 #: 레이어 라벨과 표시 이름. 순서는 `#93` 본문의 레이어 구조를 따른다.
+#:
+#: **이 축은 「어느 계층인가」에만 답한다** (#777). 종전 `layer:backlog`가
+#: 「현 범위 밖」으로 범위 축을 겸하고 있었고, 그 라벨만 달린 이슈는 계층
+#: 정보를 갖지 못했다. 「지금 시작할 수 있는가」는 `blocked` 라벨이 답한다.
 LAYERS: tuple[tuple[str, str], ...] = (
     ("layer:base", "L0 기반"),
     ("layer:fleet", "L1 선대"),
     ("layer:vessel", "L2 선박"),
     ("layer:voyage", "L3 항차"),
     ("layer:report", "L4 산출물"),
+    #
+    # `layer:assistant`는 `layer:cross`보다 **앞**이다 (#777). `layer_of()`가 이
+    # 순서로 첫 라벨을 쓰므로, 뒤에 두면 횡단 라벨이 함께 붙은 챗봇 이슈가
+    # 어시스턴트가 아니라 횡단으로 세어진다.
+    #
+    ("layer:assistant", "LA 어시스턴트"),
     ("layer:cross", "LX 횡단"),
-    ("layer:backlog", "LB 백로그"),
 )
 
 #: 라벨이 없는 이슈를 담는 자리. **빈칸으로 두지 않는다** — 라벨을 빠뜨린 이슈가

@@ -1,5 +1,5 @@
 # Dependabot — 정기 의존성 갱신 (#235).
-# pip · npm · github-actions 3종을 weekly로 본다. PR을 자동으로 만들고
+# uv · npm · github-actions 3종을 weekly로 본다. PR을 자동으로 만들고
 # 리뷰를 거쳐 머지한다. 보안 업데이트는 별도 긴급 PR로 바로 열린다.
 #
 # **ignore 정책**:
@@ -8,10 +8,27 @@
 #   결정 후 진행한다 (#106).
 # - major 버전(typescript, actions/setup-*)은 그룹화하지 않고 개별 PR로 — breaking
 #   change 리뷰를 한 PR에 몰아넣지 않기 위해.
+# - jsdom major는 Node 런타임과 묶여 있다 — 아래 npm 항목 주석 참조.
 version: 2
 updates:
-  # Python (pyproject.toml)
-  - package-ecosystem: "pip"
+  # Python (pyproject.toml + uv.lock)
+  #
+  # **`pip`가 아니라 `uv`다.** `pip` 생태계는 `uv.lock`의 존재를 모르므로
+  # `pyproject.toml` 한 줄만 고치고 lock을 그대로 둔다. 그러면 `#399`가 만든
+  # `tests/test_uv_lock_sync.py`가 선언 어긋남을 잡아 **모든 파이썬 갱신 PR이 CI에서
+  # 떨어진다.** 2026-08-24에 열린 5건(#729 · #731 · #733 · #734 · #735)이 전부
+  # 그 형태였다.
+  #
+  #     ruff: pyproject=((), '==0.16.4') · uv.lock=((), '==0.16.3')
+  #
+  # **테스트를 고칠 일이 아니다.** 그 검사는 `uv.lock`이 6주 뒤처져 `uv sync` 환경이
+  # 깨졌던 사고(`#399`)를 막으려고 만든 것이고, 지금 설계대로 동작하고 있다.
+  # 고쳐야 할 것은 **lock을 안 고치는 쪽**이다.
+  #
+  # `uv` 생태계는 `pyproject.toml`과 `uv.lock`을 **함께** 갱신한다(2025-03 GA).
+  # 접두어는 `deps(python)`으로 둔다 — `AGENTS §7`이 Dependabot 예외로 적어 둔 값이라
+  # 바꾸면 `pr-title` CI가 걸린다.
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -40,6 +57,18 @@ updates:
       # @types/node는 Node 22 런타임과 동기화. Node 26 API 타입을 보고 코드를 쓰면
       # 런타임에 없는 API를 타입 체커가 통과시킨다 (#285). Node 런타임을 올릴 때 함께 올린다.
       - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # jsdom major도 같은 축이다 — **CI가 초록이어도 지원 범위 밖일 수 있다.**
+      #
+      #   jsdom 30.0.1  engines: ^22.22.2 || ^24.15.0 || >=26.0.0
+      #   ci.yml        node-version: 22.22.0      ← ^22.22.2 미달
+      #
+      # 이 저장소에는 `.npmrc`가 없어 `engine-strict`가 꺼져 있으므로(`ci.yml` 주석)
+      # **npm이 engines를 강제하지 않고 설치가 그냥 된다.** 그래서 `#737`(26 → 30)이
+      # 테스트까지 통과했고, 어긋남은 아무 데도 드러나지 않았다.
+      #
+      # `@types/node`와 같은 처리를 한다 — Node 런타임을 올릴 때 함께 올린다.
+      - dependency-name: "jsdom"
         update-types: ["version-update:semver-major"]
 
   # GitHub Actions workflows
