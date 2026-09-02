@@ -27,19 +27,31 @@ def issue(number: int, *labels: str) -> dict:
 
 
 def test_layers_match_the_repository_labels():
-    """`#93`이 정의한 일곱 레이어. 라벨이 늘면 여기가 먼저 깨진다.
+    """저장소의 레이어 라벨 열두 종. 라벨이 늘면 여기가 먼저 깨진다.
 
-    **순서가 계약이다** (#777). :func:`layer_of`가 이 목록 순서로 첫 라벨을
-    쓰므로, ``layer:assistant``가 ``layer:cross`` 뒤로 가면 두 라벨이 함께
-    붙은 이슈의 귀속이 조용히 바뀐다.
+    **순서가 계약이다** (#777 → #794). :func:`layer_of`가 이 목록 순서로 첫
+    라벨을 쓰므로, 순서가 바뀌면 두 라벨이 함께 붙은 이슈의 귀속이 **조용히**
+    바뀐다.
+
+    구성은 두 묶음이다 — **계층 스택**(정보 구조 그대로: 기반·계산·선대·선박·
+    항차·산출물)과 **계층을 가로지르는 축**(계정·어시스턴트·화면 규격·플랫폼·
+    검증). 폐지한 ``layer:cross``는 **맨 뒤에 남긴다**: 지우면 닫힌 이슈 59건의
+    이력이 사라지고, 목록에서 빼면 그 라벨만 달린 open 이슈가 ``(미부착)``으로
+    떨어진다(`#93`이 08-22에 겪은 상태). ``#777``이 ``layer:backlog``에 그렇게
+    했던 것을 되풀이하지 않는다.
     """
     assert [label for label, _ in LAYERS] == [
         "layer:base",
+        "layer:calc",
         "layer:fleet",
         "layer:vessel",
         "layer:voyage",
         "layer:report",
+        "layer:account",
         "layer:assistant",
+        "layer:ui",
+        "layer:platform",
+        "layer:assurance",
         "layer:cross",
     ]
 
