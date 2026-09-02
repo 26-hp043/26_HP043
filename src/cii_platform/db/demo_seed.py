@@ -60,7 +60,7 @@ asyncpg는 ``-1``을 돌려주며, 종전 코드의 ``result.rowcount or 0``은 
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -175,6 +175,50 @@ SEED_VESSELS: list[dict[str, object]] = [
 def _utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0) -> datetime:
     """TIMESTAMPTZ 리터럴용 UTC datetime."""
     return datetime(year, month, day, hour, minute, tzinfo=UTC)
+
+
+#: 이 시나리오가 작성될 때 쓰인 「오늘」. 상대 시각의 기준이자 연도 가드의 폴백이다.
+_ANCHOR_FALLBACK = _utc(2026, 8, 25)
+
+#: `regulation_year: 2026` 시나리오라 상대 시각이 2026년을 벗어나면 안 된다.
+#: 가장 이른 것이 `-15d`(컨테이너 출항), 가장 늦은 것이 `+18d`(PLANNED 도착 예정)이다.
+_ANCHOR_MIN = _utc(2026, 1, 16)
+_ANCHOR_MAX = _utc(2026, 12, 13)
+
+
+def _resolve_anchor() -> datetime:
+    """시드가 「오늘」로 삼을 시각 — UTC 자정으로 자른다 (`#792`).
+
+    종전에는 이 값이 **코드에 박힌 2026-08-25**였고, 진행 중 항차·열린 정박 구간·
+    현재 위치가 전부 그 날짜 기준 절대 시각이었다. 그 결과 **2026-09-02에
+    도착 예정일이 지나면서 `main`의 CI가 빨개졌다** — 코드가 바뀌어서가 아니라
+    날짜가 지나서다.
+
+    자정으로 자르는 이유는 **하루 안에서는 값이 고정되게** 하기 위해서다. 적재
+    시각을 그대로 쓰면 같은 날 두 번 적재한 시드가 서로 다른 값을 낸다.
+
+    연도를 벗어나면 폴백한다 — 이 시나리오는 ``regulation_year: 2026``이고
+    2025↔2026 등급 서사(``test_bulk_vessel_deteriorates_2025_to_2026``)가 거기
+    걸려 있다. 2027년에 적재하면 진행 중 항차만 2027년으로 가서 **연간 집계에서
+    빠진다** — 그때는 조용히 틀리는 대신 2026년 고정 기준으로 떨어진다.
+    """
+    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    if today < _ANCHOR_MIN or today > _ANCHOR_MAX:
+        return _ANCHOR_FALLBACK
+    return today
+
+
+#: 적재 중에 날짜가 넘어가도 값이 갈라지지 않게 **한 번만** 확정한다.
+DEMO_ANCHOR: datetime = _resolve_anchor()
+
+
+def _rel(days: float, hour: int = 0, minute: int = 0) -> datetime:
+    """`DEMO_ANCHOR` 기준 상대 시각 (`#792`).
+
+    ``days``는 자정 기준 일수, ``hour``·``minute``은 그날의 시각이다 —
+    ``_rel(-15, 6)``은 「15일 전 06:00」이다.
+    """
+    return DEMO_ANCHOR + timedelta(days=days, hours=hour, minutes=minute)
 
 
 # --- UUID 블록 (018 계약값 재사용 + 027 신규) ---------------------------------
@@ -293,7 +337,8 @@ SEED_VESSEL_GT_AXIS: list[dict[str, object]] = [
         "detail_status": "IN_PORT",
         "current_lat": Decimal("35.095000"),
         "current_lon": Decimal("129.040000"),
-        "position_updated_at": _utc(2026, 8, 15, 7, 20),
+        # `P_IN_PORT.started_at`과 **같은 식**이어야 한다 — 아래 구간 주석 참조 (#792).
+        "position_updated_at": _rel(-10, 7, 20),
     },
 ]
 
@@ -301,14 +346,14 @@ SEED_VESSEL_GT_AXIS: list[dict[str, object]] = [
 #: 하는 배분이다 — 항해 중(대한해협)·운하 통과(수에즈)·묘박(부산).
 SEED_STATE_UPDATES: list[tuple[str, str, str, str, str, str]] = [
     # (vessel_id, underway_state, detail_status, lat, lon, position_updated_at)
-    (BULK, "UNDER_WAY", "SAILING", "34.512345", "128.501234", "2026-08-15 06:00:00+00"),
+    (BULK, "UNDER_WAY", "SAILING", "34.512345", "128.501234", _rel(-10, 6).isoformat()),
     (
         CONTAINER,
         "NOT_UNDER_WAY",
         "CANAL_TRANSIT",
         "30.585200",
         "32.265400",
-        "2026-08-15 05:30:00+00",
+        _rel(-10, 5, 30).isoformat(),
     ),
     (
         GENERAL_CARGO,
@@ -316,7 +361,7 @@ SEED_STATE_UPDATES: list[tuple[str, str, str, str, str, str]] = [
         "AT_ANCHOR",
         "35.091234",
         "129.041234",
-        "2026-08-15 06:10:00+00",
+        _rel(-10, 6, 10).isoformat(),
     ),
 ]
 
@@ -413,9 +458,11 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "actual_distance_nm": None,
         "planned_speed_kn": Decimal("16.50"),
         "actual_avg_speed_kn": None,
-        "planned_departure_at": _utc(2026, 8, 10),
-        "planned_arrival_at": _utc(2026, 9, 6),
-        "actual_departure_at": _utc(2026, 8, 10, 6),
+        # 적재 시각 기준 상대 구간 (#792) — 15일 전 출항, 12일 뒤 도착 예정.
+        # 10,500nm ÷ 16.5kn ≈ 26.5일이라 27일 창과 맞고, 운하 통과 구간이 그 안에 든다.
+        "planned_departure_at": _rel(-15),
+        "planned_arrival_at": _rel(12),
+        "actual_departure_at": _rel(-15, 6),
         "actual_arrival_at": None,
     },
     {
@@ -512,24 +559,23 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "planned_speed_kn": Decimal("14.00"),
         "actual_avg_speed_kn": None,
         #
-        # 시각을 **도착 예정일이 아직 오지 않은 구간**으로 둔다 (#587).
+        # 시각을 **도착 예정일이 아직 오지 않은 구간**으로 둔다 (#587 → #792).
         #
-        # 시뮬레이션 시계는 도착 실적이 없으면 `as_of`까지 계속 누적한다
-        # (TECH_SPEC §시계 — `window_end = min(as_of, actual_arrival_at)`).
-        # 종전 값(08-12 출항 · 08-19 도착 예정)은 **도착 예정일이 이미 지나** 있어
-        # 누적이 날짜마다 늘었다 — 하루에 연료 약 23t · 거리 약 336nm씩이다.
-        # 그만큼 YTD가 매일 달라져 **같은 시연을 두 번 돌리면 값이 다르다.**
+        # 종전에는 이것을 **절대 날짜로 고정**해 두고 예정일이 다가오면 사람이 뒤로
+        # 밀었다. 그 완화가 `2026-09-02`에 만료돼 **CI가 통째로 빨개졌다** — 코드가
+        # 바뀌어서가 아니라 날짜가 지나서다. `#792`가 기준을 적재 시각으로 옮겼다.
         #
-        # 출항을 뒤로 옮겨 누적 구간을 좁힌다. 도착 예정을 09-02로 두어
-        # 그때까지는 「진행 중」 상태가 유지된다 — 실시간 CII 화면의 진행 중 항차
-        # 기여 카드가 시연 소재를 잃지 않는다.
+        # 5일 전 출항 · 8일 뒤 도착 예정. 2,300nm ÷ 14kn ≈ 6.8일이라 13일 창은
+        # 정박 구간을 포함한 여유이고, 적재 직후 진행률이 약 40%로 보인다 —
+        # 실시간 CII 화면의 「진행 중 항차 기여」 카드가 시연 소재를 잃지 않는다.
         #
-        # ⚠️ 이것은 **완화이지 해결이 아니다.** 도착 예정일을 지나면 같은 상태로
-        # 돌아간다. 시계가 예정일 초과를 어떻게 다룰지는 시드가 아니라 구현의
-        # 문제이므로 후속 이슈로 분리한다.
-        "planned_departure_at": _utc(2026, 8, 20),
-        "planned_arrival_at": _utc(2026, 9, 2),
-        "actual_departure_at": _utc(2026, 8, 20, 6),
+        # 값이 날마다 자라는 문제 자체는 `#649`가 이미 막았다(`simulation_clock.py`가
+        # `planned_arrival_at`에서 창을 자른다). 여기서 상대 시각을 쓰는 이유는
+        # **값이 아니라 화면**이다 — 예정일이 지나면 `IN_PROGRESS_PAST_ETA` 경고가
+        # 서고, 시연에서 「도착 예정일이 한 달 지난 진행 중 항차」가 보인다.
+        "planned_departure_at": _rel(-5),
+        "planned_arrival_at": _rel(8),
+        "actual_departure_at": _rel(-5, 6),
         "actual_arrival_at": None,
     },
     {
@@ -554,8 +600,11 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "actual_distance_nm": None,
         "planned_speed_kn": Decimal("14.00"),
         "actual_avg_speed_kn": None,
-        "planned_departure_at": _utc(2026, 9, 5),
-        "planned_arrival_at": _utc(2026, 9, 12),
+        # 계획 단계 항차는 **출항 예정이 미래**여야 한다 (#792) — 지나면 화면이
+        # 「계획인데 이미 출발했어야 하는 항차」를 보인다. 진행 중 항차의 도착
+        # 예정(`+8d`) 뒤에 두어 「다음 항차」로 읽히게 한다.
+        "planned_departure_at": _rel(11),
+        "planned_arrival_at": _rel(18),
         "actual_departure_at": None,
         "actual_arrival_at": None,
     },
@@ -641,7 +690,8 @@ SEED_PERIODS: list[dict[str, object]] = [
         "vessel_id": CONTAINER,
         "regulation_year": 2026,
         "period_type": "CANAL_TRANSIT",
-        "started_at": _utc(2026, 8, 14, 22),
+        # 컨테이너선 진행 중 항차(`-15d` 출항) 안에 들어야 한다 (#792).
+        "started_at": _rel(-11, 22),
         "ended_at": None,
         "port_name": "SUEZ CANAL",
         "lat": Decimal("30.585200"),
@@ -653,7 +703,7 @@ SEED_PERIODS: list[dict[str, object]] = [
         "vessel_id": GENERAL_CARGO,
         "regulation_year": 2026,
         "period_type": "AT_ANCHOR",
-        "started_at": _utc(2026, 8, 13, 4),
+        "started_at": _rel(-12, 4),
         "ended_at": None,
         "port_name": "BUSAN",
         "lat": Decimal("35.091234"),
@@ -677,7 +727,7 @@ SEED_PERIODS: list[dict[str, object]] = [
         "vessel_id": VESSEL_ID_RO_RO,
         "regulation_year": 2026,
         "period_type": "IN_PORT",
-        "started_at": _utc(2026, 8, 15, 7, 20),
+        "started_at": _rel(-10, 7, 20),
         "ended_at": None,
         "port_name": "BUSAN",
         "lat": Decimal("35.095000"),
