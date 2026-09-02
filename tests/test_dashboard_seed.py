@@ -291,16 +291,22 @@ async def test_underway_vessel_has_an_in_progress_voyage(conn):
 
 
 async def test_in_progress_voyage_arrival_is_still_ahead(conn):
-    """진행 중 항차의 도착 예정일이 아직 오지 않았다 (#587).
+    """진행 중 항차의 도착 예정일이 아직 오지 않았다 (#587 → #792).
 
-    시뮬레이션 시계는 도착 실적이 없으면 ``as_of``까지 계속 누적한다
-    (``TECH_SPEC §시계`` — ``window_end = min(as_of, actual_arrival_at)``).
-    도착 예정일이 지난 채로 두면 **누적이 날짜마다 늘어** 같은 시연을 두 번
-    돌렸을 때 값이 달라진다.
+    **이 단언이 지키는 것은 시드가 상대 시각을 쓴다는 계약이다.**
 
-    ⚠️ 이 단언은 **완화 장치**다. 시계가 예정일 초과를 어떻게 다룰지는 시드가
-    아니라 구현의 문제이므로 후속 이슈가 소유한다. 여기서는 시드가 그 상태로
-    들어가지 않는 것만 본다.
+    종전 문구는 근거를 「도착 예정일이 지나면 **누적이 날짜마다 늘어** 같은 시연을
+    두 번 돌렸을 때 값이 달라진다」로 적었다. 그 근거는 **더 이상 사실이 아니다** —
+    ``#649``(PR ``#664``)가 ``simulation_clock``에 상한을 넣어 실적이 없으면
+    ``window_end``를 ``planned_arrival_at``에서 자른다. 값은 자라지 않는다.
+
+    남은 이유는 **값이 아니라 화면**이다. 예정일을 지나면 ``IN_PROGRESS_PAST_ETA``
+    경고가 서고, 시연에서 「도착 예정일이 한참 지난 진행 중 항차」가 보인다.
+
+    ``#792`` 이전에는 시드가 **절대 날짜를 박아 두고 사람이 주기적으로 뒤로 미는**
+    구조였고, 그 완화가 ``2026-09-02``에 만료돼 **`main`의 CI가 통째로 빨개졌다.**
+    지금은 ``demo_seed._rel()``이 적재 시각을 기준으로 만든다 — 절대 시각이 다시
+    들어오면 **언젠가 반드시** 여기서 잡힌다.
     """
     overdue = (
         await conn.execute(
@@ -312,8 +318,34 @@ async def test_in_progress_voyage_arrival_is_still_ahead(conn):
         )
     ).all()
     assert not overdue, (
-        "진행 중 항차의 도착 예정일이 지났다 — 시계 누적이 날짜마다 달라진다: "
+        "진행 중 항차의 도착 예정일이 지났다 — 시드가 절대 시각으로 되돌아갔다"
+        f"(demo_seed._rel 참조 · #792): "
         f"{[(r.voyage_no, str(r.planned_arrival_at)) for r in overdue]}"
+    )
+
+
+async def test_planned_voyage_departure_is_still_ahead(conn):
+    """계획 단계 항차의 출항 예정일이 아직 오지 않았다 (#792).
+
+    진행 중 항차와 **같은 부류인데 아무도 보고 있지 않았다.** 계획 항차의 출항
+    예정일이 지나면 화면이 「계획인데 이미 출발했어야 하는 항차」를 보인다 —
+    ``#587``이 세운 「다음 항차가 보인다」는 시연 서사가 거기서 무너진다.
+
+    ``2026-09-02``에 진행 중 항차가 만료됐을 때 이 항차의 출항 예정일도 **사흘
+    뒤**였다. 같은 날 등록하지 않았으면 사흘 뒤 같은 실패를 다시 봤을 것이다.
+    """
+    overdue = (
+        await conn.execute(
+            text(
+                "SELECT voyage_no, planned_departure_at FROM voyage "
+                "WHERE status = 'PLANNED' AND planned_departure_at < now()"
+            )
+        )
+    ).all()
+    assert not overdue, (
+        "계획 항차의 출항 예정일이 지났다 — 시드가 절대 시각으로 되돌아갔다"
+        f"(demo_seed._rel 참조 · #792): "
+        f"{[(r.voyage_no, str(r.planned_departure_at)) for r in overdue]}"
     )
 
 
