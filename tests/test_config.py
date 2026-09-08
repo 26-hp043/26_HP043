@@ -106,3 +106,92 @@ def test_production_with_database_url_uses_provided_value(reload_config):
     reloaded = reload_config(APP_ENV="production", DATABASE_URL=url)
 
     assert url == reloaded.DATABASE_URL
+
+
+# ---------------------------------------------------------------------------
+# APP_ENV 정규화·허용값 검증 (#810)
+#
+# 종전에는 `_ENV = os.environ.get("APP_ENV", "development")`가 전부였다 —
+# strip()·lower()·허용값 검증이 하나도 없었다. 그래서 `prod` 한 번에 다섯 가드가
+# **동시에, 조용히** 열렸다: dev-login 등록 · /docs 공개 · 데모 계정 시드
+# (비밀번호가 README.md:285에 공개돼 있다) · DB URL 폴백 · console 메일 백엔드.
+# 앱은 정상 기동하고 /health도 200이라 틀렸다는 신호가 어디에도 없었다.
+# ---------------------------------------------------------------------------
+
+_PROD_URL = "postgresql+asyncpg://appuser:secret@db.internal:5432/cii"
+
+
+@pytest.mark.parametrize("raw", ["Production", "PRODUCTION", "production ", " production"])
+def test_app_env_variants_are_normalized_to_production(reload_config, raw):
+    """대소문자·앞뒤 공백이 달라도 프로덕션으로 닫힌다 (#810).
+
+    이것이 fail-open의 핵심이었다 — `APP_ENV=Production`이면 `_ENV == "production"`이
+    False가 되어 **프로덕션 의도인데 개발 환경으로 기동**했다.
+    """
+    reloaded = reload_config(APP_ENV=raw, DATABASE_URL=_PROD_URL)
+
+    assert reloaded._ENV == "production", raw
+    assert reloaded.is_production() is True, raw
+    assert reloaded.should_expose_dev_auth() is False, raw
+    assert reloaded.should_expose_api_docs() is False, raw
+
+
+def test_normalization_leaves_a_warning_in_the_log(reload_config, caplog):
+    """정규화가 값을 바꿨으면 로그에 남긴다 (#810).
+
+    `Production`을 조용히 받아들이면 「내가 쓴 값이 그대로 쓰인다」고 오해한다.
+    엄격 일치 안(값이 다르면 기동 거부)이 주는 「틀렸다는 신호」를 이 로그가 대신한다.
+    """
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="cii_platform.config"):
+        reload_config(APP_ENV="Production ", DATABASE_URL=_PROD_URL)
+
+    assert "APP_ENV" in caplog.text
+    assert "정규화" in caplog.text
+
+
+@pytest.mark.parametrize("raw", ["prod", "prd", "PROD", "productionn", "dev", "live"])
+def test_unknown_app_env_refuses_to_start(reload_config, raw):
+    """허용값이 아니면 기동을 거부한다 (#810).
+
+    정규화만으로는 `prod`가 여전히 development로 떨어진다 — 그리고 그 결과가
+    **가드 다섯이 열린 채 정상 기동**이다. DATABASE_URL을 함께 주어, 실패가
+    `#118`의 DB 가드가 아니라 APP_ENV 검증에서 나온 것임을 확실히 한다.
+    """
+    with pytest.raises(RuntimeError, match="APP_ENV"):
+        reload_config(APP_ENV=raw, DATABASE_URL=_PROD_URL)
+
+
+@pytest.mark.parametrize("env", ["development", "test", "staging", "production"])
+def test_every_allowed_app_env_starts(reload_config, env):
+    """허용값 넷은 전부 기동한다 (#810).
+
+    `staging`·`test`는 현재 어느 배포 경로도 쓰지 않지만 허용한다. 허용 목록이
+    배포 환경보다 좁으면, 환경을 늘리는 사람이 **가드를 여는 방향으로** 우회한다.
+    """
+    reloaded = reload_config(APP_ENV=env, DATABASE_URL=_PROD_URL)
+
+    assert env == reloaded._ENV
+    assert reloaded.is_production() is (env == "production")
+
+
+def test_empty_app_env_falls_back_to_development(reload_config):
+    """빈 문자열은 미설정과 같이 본다 (#810).
+
+    compose의 `${APP_ENV:-production}`이 아닌 경로에서 `APP_ENV=`만 남으면 빈 값이
+    들어온다. 빈 값을 허용값 검증에 걸어 기동을 세우면, 개발자가 이유 없이 막힌다.
+    """
+    reloaded = reload_config(APP_ENV="", DATABASE_URL=_PROD_URL)
+
+    assert reloaded._ENV == "development"
+    assert reloaded.is_production() is False
+
+
+def test_valid_app_envs_is_the_documented_set():
+    """허용값 집합이 `.env.example`·README와 같은 넷이다 (#810).
+
+    자기참조를 피하려고 리터럴로 대조한다 — `config.VALID_APP_ENVS`를 참조해
+    비교하면 아무것도 검증하지 않는다.
+    """
+    assert frozenset({"development", "test", "staging", "production"}) == config.VALID_APP_ENVS

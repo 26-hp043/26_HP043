@@ -49,6 +49,13 @@ services:
       # config.py 가드(#118) 발동용. Dockerfile prod stage의 ENV APP_ENV=production이
       # 이미지에 굳어 있어 compose에서 빼도 동작은 같지만, 가시성을 위해 명시한다 (#231).
       # APP_ENV 미설정 시 development로 떨어져 폴백이 일어날 수 있다는 경고 신호.
+      #
+      # 여기서 `:?`로 미설정을 막지 않는 이유 — 기본값이 production이라 셸에 값이 없어도
+      # 안전하고, 셸에 `APP_ENV=development`를 넣어 개발 모드로 같은 스택을 띄우는 것이
+      # README에 적힌 절차다. **틀린 값을 막는 것은 앱 쪽 가드다** (#810): 허용값은
+      # development·test·staging·production 넷이고, `prod` 같은 값이면 기동이 선다.
+      # 대소문자·앞뒤 공백은 정규화한다 — 종전에는 `Production` 하나로 프로덕션 가드
+      # 다섯이 조용히 열렸다.
       APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       # :? 로 미설정을 즉시 실패시킨다 — POSTGRES_* 와 같은 이유다 (#809).

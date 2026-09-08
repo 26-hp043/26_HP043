@@ -8,27 +8,60 @@ from cii_platform.api.routes.auth_dev import should_register_dev_auth
 
 
 def test_should_register_dev_returns_true_in_development():
-    """APP_ENV=development → True (#276)."""
-    import cii_platform.api.routes.auth_dev as mod
+    """APP_ENV=development → True (#276).
 
-    original = mod._ENV
-    mod._ENV = "development"
+    ``config._ENV``를 갈아 끼운다 — `#810`부터 이 함수가 자기 값을 들고 있지 않고
+    ``config.should_expose_dev_auth()``에 위임하기 때문이다. 종전에는
+    ``auth_dev._ENV``를 갈아야 했고, **그 이름이 존재한다는 것 자체가** 판정이
+    두 곳이라는 뜻이었다.
+    """
+    import cii_platform.config as config
+
+    original = config._ENV
+    config._ENV = "development"
     try:
         assert should_register_dev_auth() is True
     finally:
-        mod._ENV = original
+        config._ENV = original
 
 
 def test_should_register_dev_returns_false_in_production():
     """APP_ENV=production → False (#276)."""
-    import cii_platform.api.routes.auth_dev as mod
+    import cii_platform.config as config
 
-    original = mod._ENV
-    mod._ENV = "production"
+    original = config._ENV
+    config._ENV = "production"
     try:
         assert should_register_dev_auth() is False
     finally:
-        mod._ENV = original
+        config._ENV = original
+
+
+def test_dev_auth_does_not_hold_its_own_copy_of_app_env():
+    """``routes/auth_dev.py``가 ``APP_ENV``를 따로 들고 있지 않다 (#810).
+
+    종전 구현은 ``from cii_platform.config import _ENV``로 **import 시점에 값을
+    복사**했다. 그러면 ``config._ENV``만 바꿔도 이 함수의 답이 바뀌지 않는다 —
+    두 판정이 갈릴 수 있다는 뜻이고, 갈리면 dev-login이 401이 아니라 **404**가 되어
+    「여기에 무언가 있다」는 신호가 남는다(`#276`·`#593`).
+
+    이 테스트는 위임을 되돌리면 즉시 실패한다.
+    """
+    import cii_platform.api.routes.auth_dev as auth_dev
+    import cii_platform.config as config
+
+    assert not hasattr(auth_dev, "_ENV"), (
+        "auth_dev가 APP_ENV 사본을 갖고 있다 — config의 판정과 갈릴 수 있다 (#810)"
+    )
+
+    original = config._ENV
+    try:
+        config._ENV = "production"
+        assert should_register_dev_auth() is False
+        config._ENV = "development"
+        assert should_register_dev_auth() is True
+    finally:
+        config._ENV = original
 
 
 def test_stub_user_id_is_fixed_constant():

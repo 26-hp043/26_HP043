@@ -45,6 +45,31 @@ def test_production_with_console_backend_fails_to_start():
         load_mail_settings({"APP_ENV": "production"})
 
 
+@pytest.mark.parametrize("raw", ["Production", "PRODUCTION", "production "])
+def test_console_guard_survives_app_env_typos(raw):
+    """`APP_ENV`가 정규화되지 않으면 **이 가드만 조용히 비켜간다** (#810).
+
+    종전 `load_mail_settings()`는 `source.get("APP_ENV", "development")`로 원문을
+    받아 바로 아래에서 `== "production"`으로 비교했다 — 바로 옆줄의 `MAIL_BACKEND`는
+    `.strip().lower()`를 하는데도 그랬다. 그래서 `APP_ENV=Production`이면
+    **프로덕션인데 console 백엔드로 기동**하고, 비밀번호 재설정 메일이 로그로만
+    나가 사용자가 계정을 잃는다. 실패가 조용해서 문의가 올 때까지 드러나지 않는다.
+    """
+    with pytest.raises(RuntimeError, match="프로덕션에서 사용할 수 없습니다"):
+        load_mail_settings({"APP_ENV": raw})
+
+
+def test_unknown_app_env_refuses_to_load_mail_settings():
+    """모르는 `APP_ENV`면 메일 설정 단계에서도 기동을 세운다 (#810).
+
+    `config.py` import 시점에 이미 걸리지만, 이 함수는 **주입 dict**로도 불리므로
+    자기 입력을 스스로 검증해야 한다 — 그러지 않으면 `APP_ENV=prod`가 여기서만
+    development로 통과해 console 백엔드를 연다.
+    """
+    with pytest.raises(RuntimeError, match="APP_ENV"):
+        load_mail_settings({"APP_ENV": "prod", "MAIL_BACKEND": "smtp", "SMTP_HOST": "h"})
+
+
 def test_production_with_smtp_backend_is_allowed():
     settings = load_mail_settings(
         {

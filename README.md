@@ -186,10 +186,15 @@ VITE_API_BASE_URL=/api/v1 docker compose -f docker-compose.prod.yml build fronte
 
 | 대상 | 명령 |
 |---|---|
+| **`APP_ENV`** | `docker compose -f docker-compose.prod.yml run --rm app python -c "from cii_platform.config import _ENV; print(_ENV)"` → **`production`** |
 | 화면 | `curl -I http://localhost/` → `200` |
 | API (프록시 경유) | `curl http://localhost/api/v1/health` → `200` |
 | SPA fallback | `curl -I http://localhost/vessels/x` → `200` (404가 아님) |
 | 기능① | 브라우저에서 계산 실행 → 네트워크 탭에 `/api/v1/calculations/voyage-cii` |
+
+> **`APP_ENV` 확인을 맨 위에 둔 이유 (`#810`).** 아래 네 줄은 전부 「프로덕션 가드가 닫힌 상태」를 전제하는데, `APP_ENV`가 `development`로 떨어져도 **네 줄이 모두 통과한다.** 앱은 정상 기동하고 `/health`도 200이기 때문이다. 그 상태에서 함께 열리는 것은 다섯이다 — `POST /auth/dev-login`(미인증 세션 발급) · `/docs`·`/redoc`·`/openapi.json` · **데모 계정 시드**(비밀번호가 이 문서 아래에 공개돼 있다) · DB URL 개발 기본값 폴백 · `console` 메일 백엔드(재설정 메일이 로그로만 나간다).
+>
+> 허용값은 `development`·`test`·`staging`·`production` 넷뿐이고, **그 밖의 값이면 앱이 뜨지 않는다.** 대소문자와 앞뒤 공백은 정규화한다(`Production`·`"production "` → `production`, 경고 로그를 남긴다). 이 확인은 CI의 `docker` 잡에도 같은 형태로 들어 있다.
 
 > **같은 오리진 보장은 `:80` 경유일 때만 성립한다.** `app`이 `8000:8000`을 호스트에 열어 두므로 `http://localhost:8000`으로 백엔드에 직접 닿을 수도 있다(디버깅용). 화면은 항상 `:80`으로 접근한다 — `:8000`에는 정적 자산이 없다.
 

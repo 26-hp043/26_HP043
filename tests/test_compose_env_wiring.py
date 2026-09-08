@@ -129,3 +129,42 @@ def test_env_example_documents_every_variable_the_app_reads():
         f".env.example에 없는 환경변수를 앱이 읽는다: {', '.join(missing)}. "
         "본보기에 없으면 그 변수의 존재를 아는 방법이 없다."
     )
+
+
+def test_env_example_does_not_set_app_env():
+    """``.env.example``이 ``APP_ENV``를 **설정하지 않는다** (#810).
+
+    ## 무엇이 문제였나
+
+    ``docker-compose.prod.yml``의 ``APP_ENV: ${APP_ENV:-production}``은 compose 변수
+    치환이다. 치환은 셸 환경 다음으로 **저장소 루트의 ``.env``를 읽는다.** 그래서
+    ``.env``에 ``APP_ENV=development``가 있으면 그 값이 ``:-production`` 기본값을
+    이기고, 이미지에 굳어 있는 ``ENV APP_ENV=production``(``Dockerfile:85``)까지
+    ``environment:``가 덮는다 — **프로덕션 스택이 development로 뜬다.**
+
+    ``.env``가 운영 호스트에 없다는 가정은 성립하지 않는다. ``#524``가 프로덕션
+    메일 설정(``MAIL_BACKEND=smtp``·``SMTP_HOST``)을 요구하고, ``#508``이 그 값을
+    ``env_file: .env``로 컨테이너에 넣게 했다. **``.env``는 운영 설정 파일이기도 하다.**
+
+    ## 왜 열리면 조용한가
+
+    그 상태에서 앱은 정상 기동하고 ``/health``도 200이다. 함께 열리는 것은 다섯이다 —
+    dev-login(미인증 세션 발급) · ``/docs`` · 데모 계정 시드(비밀번호가 ``README.md``에
+    공개돼 있다) · DB URL 개발 기본값 폴백 · ``console`` 메일 백엔드.
+
+    ## 왜 주석으로 두는가
+
+    지우지 않는다. ``.env.example``은 **변수의 존재를 알리는 유일한 목록**이고
+    (:func:`test_env_example_documents_every_variable_the_app_reads`가 그것을 강제한다),
+    주석 처리된 줄도 그 목록에 든다. 개발에는 값이 필요 없다 — 미설정이 곧
+    ``development``이며 ``docker-compose.yml``은 이 변수를 넘기지도 않는다.
+    """
+    text = _ENV_EXAMPLE.read_text(encoding="utf-8")
+    live = [line for line in text.splitlines() if re.match(r"^\s*APP_ENV\s*=", line)]
+
+    assert not live, (
+        f".env.example이 APP_ENV를 설정한다: {live}. "
+        "이 파일을 그대로 .env로 복사하면 docker-compose.prod.yml의 "
+        "${APP_ENV:-production} 치환이 그 값을 읽어 프로덕션 스택이 그 환경으로 뜬다. "
+        "값이 필요하면 주석(`# APP_ENV=...`)으로 둔다 (#810)."
+    )
