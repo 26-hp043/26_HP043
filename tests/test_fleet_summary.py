@@ -22,6 +22,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.calc.rating_engine import DVector, determine_rating
 from cii_platform.errors import ValidationError
 from cii_platform.services import fleet_summary
 from cii_platform.services.fleet_summary import (
@@ -86,15 +87,67 @@ def test_c_never_triggers():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _ytd(**over) -> YtdCiiOutput:
+#: 픽스처가 쓰는 required CII와 d-vector (#814).
+#:
+#: 실제 IMO 값이 아니라 **경계가 읽기 쉬운 값으로 떨어지도록** 고른 것이다.
+#: ``attained = 5.0``과 짝지으면 아래가 된다.
+#:
+#: .. code-block:: text
+#:
+#:     superior = 6.0 × 0.70 = 4.2      lower    = 6.0 × 0.80 = 4.8
+#:     upper    = 6.0 × 1.00 = 6.0      inferior = 6.0 × 1.10 = 6.6
+#:     4.8 < 5.0 <= 6.0  →  등급 C · D 진입 경계(upper_boundary) = 6.0
+_FIXTURE_REQUIRED_CII = Decimal("6.0")
+_FIXTURE_D_VECTOR = DVector(
+    d1=Decimal("0.70"), d2=Decimal("0.80"), d3=Decimal("1.00"), d4=Decimal("1.10")
+)
+
+
+def _rating_of(attained: Decimal, required: Decimal = _FIXTURE_REQUIRED_CII):
+    """**실제 엔진**으로 등급과 경계를 만든다 (#814).
+
+    ## 왜 손으로 dict를 쓰지 않는가
+
+    종전 픽스처는 ``{"d": Decimal("6.0")}``이었다. ``determine_rating``은 **그런 키를
+    만들지 않는다** — 넷뿐이고 전부 ``*_boundary`` 형태다. 그래서 구현이 없는 키를
+    조회해 「D등급 진입까지 n일」이 **항상 `null`**이었는데도, 테스트는 자기가 만든
+    가짜 키를 자기가 읽어 **전부 통과**했다(`#814`).
+
+    엔진 출력을 쓰면 키 오타가 곧 테스트 실패가 된다.
+    """
+    return determine_rating(
+        attained_cii=attained,
+        required_cii=required,
+        d_vector=_FIXTURE_D_VECTOR,
+    )
+
+
+def _ytd(*, required_cii: Decimal = _FIXTURE_REQUIRED_CII, **over) -> YtdCiiOutput:
+    """검사용 YTD 결과.
+
+    ``attained_cii``를 주면 등급과 경계를 **엔진이 그 값으로 다시 만든다** —
+    손으로 적으면 둘이 어긋난 조합이 생기고, 그 조합에서만 통과하는 검사가 남는다.
+
+    ``required_cii``를 올리면 경계가 통째로 멀어진다(경계 = required × d). 「경계까지
+    여유가 매우 큰」 상황을 만들 때 쓴다.
+    """
+    attained = over.pop("attained_cii", Decimal("5.0"))
+    if attained is None:
+        # 「YTD를 낼 수 없는 선박」 — 등급도 경계도 없다. 엔진을 부를 수 없다.
+        rating, boundaries = None, None
+    else:
+        result = _rating_of(attained, required_cii)
+        rating, boundaries = result.rating, result.boundaries
+
     base = {
         "data_available": True,
         "regulation_year": YEAR,
         "capacity_axis": "DWT",
         "transport_capacity": Decimal("50000"),
-        "attained_cii": Decimal("5.0"),
-        "rating": "C",
-        "boundaries": {"d": Decimal("6.0")},
+        "attained_cii": attained,
+        "rating": rating,
+        "boundaries": boundaries,
+        "required_cii": required_cii,
         "underway_distance_nm": Decimal("1000"),
         # `#431` 산식이 누적 거리를 쓴다 — 정박 거리가 없는 선박이라 둘이 같다.
         "total_distance_nm": Decimal("1000"),
@@ -165,12 +218,14 @@ def test_days_not_computed_while_not_under_way():
 def test_days_not_this_year_when_far_away():
     """올해 안에 도달하지 않으면 숫자 대신 사유를 준다."""
     # 경계까지 여유가 매우 커서 외삽 결과가 연말을 넘는 경우.
+    #
+    # `#814` — 종전에는 `boundaries={"d": ...}`를 손으로 넣었다. 그 키는 엔진이 만들지
+    # 않는 것이라 **구현이 그것을 못 읽는다는 사실을 이 검사가 가렸다.** 지금은
+    # `required_cii`를 올려 경계 자체를 멀리 민다(경계 = required × d).
+    far = _ytd(attained_cii=Decimal("1.0"), required_cii=Decimal("99.0"))
     result = compute_days_to_target(
-        _ytd(attained_cii=Decimal("1.0"), boundaries={"d": Decimal("99.0")}),
-        past=_past(
-            recent_cii="99.5",
-            now=_ytd(attained_cii=Decimal("1.0"), boundaries={"d": Decimal("99.0")}),
-        ),
+        far,
+        past=_past(recent_cii="99.5", now=far),
         underway_state="UNDER_WAY",
         as_of=datetime(YEAR, 12, 20, tzinfo=UTC),
     )
@@ -382,6 +437,36 @@ async def _insert_voyage_with_fuel(session, vessel_id: str) -> None:
             "VALUES (:vid, 'HFO', 80, 80, 3.114, 'USER_INPUT')"
         ),
         {"vid": str(row.scalar_one())},
+    )
+
+
+async def _insert_voyage(
+    session, vessel_id: str, *, arrived: datetime, distance: int, fuel: int
+) -> None:
+    """도착 시각·거리·연료를 지정한 실적 한 건 (#814).
+
+    `_insert_voyage_with_fuel`은 값이 고정이라 **구간별 강도 차이**를 만들 수 없다.
+    `#431` 산식은 「최근 창의 강도 − 경계」로 소비율을 내므로, 창 안팎의 강도가 같으면
+    분모가 0 이하가 되어 `NOT_WORSENING`이 나온다.
+    """
+    row = await session.execute(
+        text(
+            "INSERT INTO voyage "
+            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+            " departure_port_name, arrival_port_name, planned_distance_nm, "
+            " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
+            "VALUES (:vid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', "
+            " :d, :d, 12, :arr) RETURNING id"
+        ),
+        {"vid": vessel_id, "yr": YEAR, "d": distance, "arr": arrived},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use "
+            "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
+            "VALUES (:vid, 'HFO', :f, :f, 3.114, 'USER_INPUT')"
+        ),
+        {"vid": str(row.scalar_one()), "f": fuel},
     )
 
 
@@ -772,3 +857,174 @@ async def test_empty_fleet_is_not_an_error_even_without_parameters(session):
 
     assert result["vessels"] == []
     assert result["summary"]["total"] == 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 「D등급 진입까지 n일」이 실제로 숫자를 낸다 (#814)
+#
+# `fleet_summary`가 `boundaries.get("d")`를 조회했는데 `determine_rating`은 그 키를
+# 만들지 않는다(넷뿐이고 전부 `*_boundary`). `boundary is None`이 **항상 참**이라
+# `#431`이 만든 산식 33줄이 한 줄도 실행되지 않았고, 사유는 언제나 `NO_DATA`였다.
+# 대시보드의 「D등급 진입까지 n일」은 **한 번도 숫자를 낸 적이 없다.**
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_the_d_entry_boundary_key_exists_in_the_engine_output():
+    """`fleet_summary`가 찾는 키가 **엔진이 실제로 만드는 키**다 (#814).
+
+    이 검사가 없으면 키를 다시 오타 내도 아무 데서도 드러나지 않는다 —
+    `dict.get()`은 없는 키에 `None`을 돌려주고, 그 `None`은 정상적인 사유
+    (`NO_DATA`)로 흡수된다. **오류도 로그도 남지 않는다.**
+    """
+    boundaries = _rating_of(Decimal("5.0")).boundaries
+
+    assert fleet_summary._D_ENTRY_BOUNDARY_KEY in boundaries, (
+        f"fleet_summary가 찾는 키 {fleet_summary._D_ENTRY_BOUNDARY_KEY!r}를 "
+        f"determine_rating이 만들지 않는다. 실제 키: {sorted(boundaries)}"
+    )
+    # C를 벗어나는 지점이 곧 D 진입점이다 — 판정 부등식(`attained <= upper` → C)과 짝.
+    assert fleet_summary._D_ENTRY_BOUNDARY_KEY == "upper_boundary"
+
+
+def test_every_boundary_key_used_in_src_exists_in_the_engine_output():
+    """``src/``가 참조하는 boundary 키가 **전부 실재한다** (#814).
+
+    ## 왜 문자열을 훑는가
+
+    `boundaries`는 dict이고 **API 응답과 `calculation_run.result_json`에 그 키 이름
+    그대로 실린다**(`API_SPEC §2.14`). 저장된 JSON을 다시 읽는 경로는 dataclass로
+    바꿔도 타입 검사가 닿지 않는다 — 그래서 타입이 아니라 **참조 전수 대조**로 막는다.
+
+    ## 무엇을 보지 않는가
+
+    반대 방향(「엔진이 만드는 키를 아무도 안 쓴다」)은 보지 않는다. 쓰지 않는 경계가
+    있는 것은 결함이 아니다.
+    """
+    import re
+    from pathlib import Path
+
+    boundaries = set(_rating_of(Decimal("5.0")).boundaries)
+    referenced: dict[str, set[str]] = {}
+    # 접근 대상 이름을 고정하지 않는다 — `annual_simulation`은 `decimal_bounds[...]`로
+    # 받는다. `*_boundary`로 끝나는 문자열 리터럴 조회를 전부 본다.
+    pattern = re.compile(r'(?:\.get\(\s*|\[\s*)"(\w*_boundary)"')
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    for py in src.rglob("*.py"):
+        for key in pattern.findall(py.read_text(encoding="utf-8")):
+            referenced.setdefault(key, set()).add(py.name)
+
+    assert referenced, "boundary 키 참조를 하나도 찾지 못했다 — 패턴이 낡았는지 확인할 것"
+
+    unknown = {k: sorted(v) for k, v in referenced.items() if k not in boundaries}
+    assert not unknown, (
+        f"determine_rating이 만들지 않는 boundary 키를 참조한다: {unknown}. "
+        f"실제 키: {sorted(boundaries)} (#814)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_days_to_d_is_a_number_for_a_worsening_vessel(session):
+    """운항 중이고 D보다 나은 선박에서 `days_to_d`에 **숫자**가 들어간다 (#814).
+
+    `#814`의 완료 기준 1이다. 순수 함수 검사(`compute_days_to_target`)는 종전에도
+    있었지만 **가짜 경계 dict**로 돌아 실제 배선을 보지 못했다 — 이 검사는
+    `get_fleet_summary` 응답까지 지나간다.
+
+    최근 30일이 그 이전보다 나빠야 소비율이 양수가 되므로, 항차를 **두 구간**으로
+    나눠 뒤 구간의 연료 강도를 높인다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    vessel_id = await _insert_vessel(
+        session,
+        imo="9000814",
+        name="DAYS TO D",
+        # `chk_vessel_state_pair`(마이그레이션 026) — 둘은 함께 있거나 함께 없어야 한다.
+        underway_state="UNDER_WAY",
+        detail_status="SAILING",
+    )
+
+    # 초반: 효율이 좋은 구간 (강도 낮음).
+    await _insert_voyage(
+        session, vessel_id, arrived=datetime(YEAR, 1, 20, tzinfo=UTC), distance=5000, fuel=200
+    )
+    # 최근 30일: 강도를 크게 올린다 — 이게 없으면 NOT_WORSENING이다.
+    await _insert_voyage(
+        session, vessel_id, arrived=datetime(YEAR, 6, 20, tzinfo=UTC), distance=1000, fuel=300
+    )
+
+    result = await get_fleet_summary(
+        session, regulation_year=YEAR, as_of=datetime(YEAR, 6, 25, tzinfo=UTC)
+    )
+    vessel = next(v for v in result["vessels"] if v["vessel_id"] == vessel_id)
+
+    assert vessel["days_to_d_reason"] != REASON_NO_DATA, (
+        f"사유가 NO_DATA다 — 경계값을 못 읽고 있다(#814의 결함이 되살아났다). 응답: {vessel}"
+    )
+    assert isinstance(vessel["days_to_d"], int), (
+        f"days_to_d가 숫자가 아니다: {vessel['days_to_d']!r} / 사유 {vessel['days_to_d_reason']!r}"
+    )
+    assert vessel["days_to_d"] >= 0
+    assert vessel["days_to_d_reason"] is None
+
+
+def test_days_to_d_reasons_match_the_api_spec_table():
+    """코드의 사유 상수와 `API_SPEC §2.8` 표가 같다 (#814).
+
+    ## 왜 어긋나 있었나
+
+    `#431`이 산식을 넣으며 `NO_RECENT_DATA`·`NOT_WORSENING` 둘을 추가했으나 정본에
+    옮기지 못했다. 그런데 **같은 시기에 경계 키 오타로 그 산식이 한 줄도 실행되지
+    않아**, 두 사유가 응답에 나온 적이 없었다 — 문서에 빠진 사실이 드러날 자리가
+    없었다. 결함 둘이 서로를 가린 형태다.
+
+    ## 무엇을 보는가
+
+    표에 있는 것이 코드에 있고, 코드에 있는 것이 표에 있는지 **양방향**으로 본다.
+    한 방향만 보면 「문서에만 있는 사유」나 「코드에만 있는 사유」 중 하나가 남는다
+    (`#591`이 엔드포인트 표에서 양방향 6종을 찾아낸 뒤의 관례다).
+    """
+    import re
+    from pathlib import Path
+
+    spec = (Path(__file__).resolve().parents[1] / "API_SPEC.md").read_text(encoding="utf-8")
+    section = spec.split("#### `days_to_d`")[1].split("#### `unavailable_reason`")[0]
+    documented = set(re.findall(r"^\| `([A-Z_]+)` \|", section, re.M))
+
+    in_code = {
+        REASON_ALREADY_AT_OR_BELOW,
+        REASON_NOT_THIS_YEAR,
+        REASON_NOT_UNDER_WAY,
+        REASON_NO_DATA,
+        REASON_NO_RECENT_DATA,
+        REASON_NOT_WORSENING,
+    }
+
+    assert documented, "§2.8의 사유 표를 읽지 못했다 — 형식이 바뀌었는지 확인할 것"
+    assert documented == in_code, (
+        f"문서에만 있는 사유: {sorted(documented - in_code)} / "
+        f"코드에만 있는 사유: {sorted(in_code - documented)}"
+    )
+
+
+def test_every_reason_constant_is_covered_by_the_contract_test():
+    """위 검사의 `in_code` 집합이 모듈의 `REASON_*` **전부**다 (#814).
+
+    이 검사가 없으면 새 사유를 추가하면서 위 집합에 넣는 것을 잊을 수 있고, 그러면
+    문서 대조가 **그 사유를 모르는 채로 통과**한다.
+    """
+    declared = {
+        value
+        for name, value in vars(fleet_summary).items()
+        if name.startswith("REASON_") and isinstance(value, str)
+    }
+
+    assert declared == {
+        REASON_ALREADY_AT_OR_BELOW,
+        REASON_NOT_THIS_YEAR,
+        REASON_NOT_UNDER_WAY,
+        REASON_NO_DATA,
+        REASON_NO_RECENT_DATA,
+        REASON_NOT_WORSENING,
+    }, f"모듈의 REASON_* 상수: {sorted(declared)}"

@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import resolve_transport_capacity
+from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import AppError, ParameterError, ValidationError
@@ -91,6 +92,20 @@ class DaysToTarget:
     days: int | None
     reason: str | None
 
+
+#: D **진입** 경계가 들어 있는 :attr:`RatingResult.boundaries` 키 (#814).
+#:
+#: 종전에는 ``"d"`` 리터럴이었다. **``determine_rating``은 그런 키를 만들지 않는다** —
+#: 넷뿐이고 전부 ``*_boundary`` 형태다(``superior``·``lower``·``upper``·``inferior``).
+#: 그래서 ``boundary``가 **언제나 ``None``**이었고, `#431`이 만든 산식 33줄이 한 줄도
+#: 실행되지 않은 채 사유는 늘 ``NO_DATA``였다. 대시보드의 「D등급 진입까지 n일」은
+#: 항상 빈칸이었다.
+#:
+#: 리터럴을 다시 쓰지 않고 :data:`NEXT_WORSE_BOUNDARY_KEY`에서 파생시킨다 —
+#: **C를 벗어나는 지점이 곧 D 진입점**이고, 그 대응표는 등급 판정에 쓴 부등식과 짝을
+#: 이루는 정본이다(``attained <= upper``로 C가 된다). 리터럴을 두면 경계 정의가
+#: 바뀔 때 이 파일만 옛 값을 가리킨다.
+_D_ENTRY_BOUNDARY_KEY = NEXT_WORSE_BOUNDARY_KEY["C"]
 
 #: ``DaysToTarget.reason`` 값 — 이슈 #350이 명시한 경계 4종.
 REASON_ALREADY_AT_OR_BELOW = "ALREADY_AT_OR_BELOW"
@@ -188,7 +203,7 @@ def compute_days_to_target(
     if underway_state == "NOT_UNDER_WAY":
         return DaysToTarget(None, REASON_NOT_UNDER_WAY)
 
-    boundary = ytd.boundaries.get("d") if ytd.boundaries else None
+    boundary = ytd.boundaries.get(_D_ENTRY_BOUNDARY_KEY) if ytd.boundaries else None
     distance_now = ytd.total_distance_nm
     if boundary is None or distance_now is None or distance_now <= 0:
         return DaysToTarget(None, REASON_NO_DATA)
