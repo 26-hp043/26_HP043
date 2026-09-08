@@ -214,12 +214,40 @@ class TestContractValues:
         assert basis["c"] == "0.622"
 
     def test_summary_neutral_minima(self, ok_body):
-        """AT-SC-002 — 추천 문구 없이 지표별 최소값만."""
+        """AT-SC-002 — 추천 문구 없이 지표별 최소값만.
+
+        ``#799`` — 동률이면 **전부** 싣는다. 하나를 골라 적으면 그 자체가 추천이다
+        (`PRD §11.2`).
+        """
         assert ok_body["data"]["summary"] == {
-            "lowest_cii_scenario": "SLOW_STEAMING",
-            "shortest_duration_scenario": "DIRECT",
-            "lowest_fuel_scenario": "SLOW_STEAMING",
+            "lowest_cii_scenarios": ["SLOW_STEAMING"],
+            "shortest_duration_scenarios": ["DIRECT"],
+            "lowest_fuel_scenarios": ["SLOW_STEAMING"],
         }
+
+    def test_summary_lists_every_tied_scenario(self, wired):
+        """**같은 속도의 직항과 우회는 CII가 정확히 같다** — 둘 다 실린다 (`#799`).
+
+        ``PRD §11.4.1`` cubic speed model에서 연료는 거리에 비례하고 AER은 거리로
+        나누므로 거리가 소거된다. 감속을 빼면 CII 최소값이 **동률**이 되고, 종전에는
+        먼저 등장한 `DIRECT` 하나만 실려 「직항이 CII가 가장 낮다」로 읽혔다.
+        """
+        # 감속 속도를 현재 속도와 같게 두면 세 시나리오의 속도가 모두 같아져
+        # CII가 셋 다 같아진다 — 동률을 만드는 가장 단순한 조건이다.
+        payload = {**VALID_PAYLOAD, "slow_speed_kn": VALID_PAYLOAD["current_speed_kn"]}
+
+        resp = wired.post(ENDPOINT, json=payload)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+
+        ciis = {s["scenario_type"]: s["attained_cii"] for s in body["data"]["scenarios"]}
+        assert len(set(ciis.values())) == 1, f"동률 전제가 깨졌다: {ciis}"
+
+        assert body["data"]["summary"]["lowest_cii_scenarios"] == [
+            "DIRECT",
+            "DETOUR",
+            "SLOW_STEAMING",
+        ]
 
     def test_weather_defaults_to_none(self, ok_body):
         for s in ok_body["data"]["scenarios"]:

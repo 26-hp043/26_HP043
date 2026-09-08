@@ -636,21 +636,46 @@ def _serialize_scenarios(
     return json_list
 
 
-def _build_summary(computed: list[_ScenarioComputed]) -> dict[str, str]:
-    """지표별 최소값만 중립적으로 표시한다 (PRD §11.2, AC-F2-005).
+def _build_summary(computed: list[_ScenarioComputed]) -> dict[str, list[str]]:
+    """지표별 최소값만 중립적으로 표시한다 (``PRD §11.2``, AC-F2-005).
 
-    동률이면 ``min``이 **먼저 등장한** 시나리오를 고른다 — 시나리오 순서가
-    DIRECT · DETOUR · SLOW_STEAMING(PRD §11.2 표 순서)로 정해져 있어 결과가
-    결정론적이다.
+    ## 동률이면 **전부** 싣는다 (#799)
+
+    종전에는 ``min``이 먼저 등장한 시나리오 하나를 골랐다. **같은 값 중 하나만
+    지목하는 것은 그 자체가 추천**이고, 같은 절의 「추천 시나리오를 표시하지
+    않는다」에 어긋난다 — 사용자는 두 시나리오의 CII가 화면에 같게 찍혀 있는데
+    한쪽만 「가장 낮은」으로 불리는 것을 보고 그쪽이 낫다고 읽는다.
+
+    **동률은 드문 일이 아니라 정의상 필연인 경우가 있다.** ``PRD §11.4.1`` cubic
+    speed model에서 연료는 거리에 비례하고 AER은 거리로 나누므로, 같은 속도의
+    직항과 우회는 ``attained_cii``가 **정확히 같다**. 자릿수를 늘려도 차이가 0이다.
+
+    순서는 ``computed``의 순서(``PRD §11.2`` 표 순서 — DIRECT · DETOUR ·
+    SLOW_STEAMING)를 따르므로 결정론적이다.
     """
+
+    def lowest(key, digits: int) -> list[str]:
+        # **응답에 실리는 자릿수로 비교한다** (#799). 내부 ``Decimal``은 `prec=30`
+        # 이라, 거리가 분자·분모에서 소거되는 직항·우회도 끝자리가 미세하게 갈린다 —
+        # 그대로 비교하면 **화면에 같은 값이 찍혀 있는데 동률이 아니라고 판정**한다.
+        # 사용자가 보는 것과 판정이 어긋나면 안 된다는 원칙은 `#739`·`#820`이 세웠다.
+        # 문자열이 아니라 **숫자로** 비교한다. ``_publish``가 낸 문자열을 그대로
+        # ``min``에 넣으면 사전순이 되어 `'154.61'` < `'99.00'`처럼 자릿수가 다를 때
+        # 뒤집힌다 — 기존 계약 테스트가 이 실수를 잡았다.
+        published = [
+            (item.plan.scenario_type, Decimal(_publish(key(item), digits))) for item in computed
+        ]
+        best = min(value for _, value in published)
+        return [scenario for scenario, value in published if value == best]
+
     return {
-        "lowest_cii_scenario": min(
-            computed, key=lambda item: item.layer1.attained_cii
-        ).plan.scenario_type,
-        "shortest_duration_scenario": min(
-            computed, key=lambda item: item.duration_hours
-        ).plan.scenario_type,
-        "lowest_fuel_scenario": min(computed, key=lambda item: item.fuel_ton).plan.scenario_type,
+        "lowest_cii_scenarios": lowest(
+            lambda item: item.layer1.attained_cii, SERIALIZATION_DIGITS["attained_cii"]
+        ),
+        "shortest_duration_scenarios": lowest(lambda item: item.duration_hours, _DURATION_DIGITS),
+        "lowest_fuel_scenarios": lowest(
+            lambda item: item.fuel_ton, SERIALIZATION_DIGITS["fuel_ton"]
+        ),
     }
 
 

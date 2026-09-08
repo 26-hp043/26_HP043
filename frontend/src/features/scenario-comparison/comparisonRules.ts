@@ -65,33 +65,46 @@ export type ComparableMetric = 'attained_cii' | 'duration_hours' | 'fuel_ton'
  * 동률이면 **먼저 나온 시나리오**를 고른다. `PRD §11.2` 표 순서가 곧 배열 순서라
  * 결과가 흔들리지 않는다.
  */
-export function lowestScenario(
+export function lowestScenarios(
   scenarios: readonly ScenarioResult[],
   metric: ComparableMetric,
-): ScenarioType | null {
-  if (scenarios.length === 0) return null
+): ScenarioType[] {
+  if (scenarios.length === 0) return []
 
-  let best = scenarios[0]
+  /*
+   * **동률이면 전부 돌려준다** (`PRD §11.2`, `#799`).
+   *
+   * 종전에는 하나만 골랐다. **같은 값 중 하나만 지목하는 것은 그 자체가 추천**이고,
+   * 같은 절의 「추천 시나리오를 표시하지 않는다」에 어긋난다 — 사용자는 두 시나리오의
+   * CII가 화면에 같게 찍혀 있는데 한쪽만 「가장 낮은」으로 불리는 것을 보고 그쪽이
+   * 낫다고 읽는다.
+   *
+   * 동률은 드문 일이 아니라 **정의상 필연**인 경우가 있다: `PRD §11.4.1` cubic speed
+   * model에서 연료는 거리에 비례하고 AER은 거리로 나누므로, **같은 속도의 직항과
+   * 우회는 `attained_cii`가 정확히 같다.**
+   */
+  let best = scenarios[0][metric]
   for (const candidate of scenarios.slice(1)) {
-    if (compareDecimalStrings(candidate[metric], best[metric]) < 0) {
-      best = candidate
-    }
+    if (compareDecimalStrings(candidate[metric], best) < 0) best = candidate[metric]
   }
-  return best.scenario_type
+  return scenarios
+    .filter((s) => compareDecimalStrings(s[metric], best) === 0)
+    .map((s) => s.scenario_type)
 }
 
 /** 화면에 그대로 쓰는 「가장 낮은 시나리오」 3줄. `PRD §11.2` 예시 문구 형식이다. */
 export interface LowestSummary {
   metric: ComparableMetric
   label: string
-  scenarioType: ScenarioType | null
+  /** 동률이면 여럿이다 (`PRD §11.2`, `#799`). 결과가 없으면 빈 배열이다. */
+  scenarioTypes: ScenarioType[]
 }
 
 export function lowestSummary(scenarios: readonly ScenarioResult[]): LowestSummary[] {
   return [
-    { metric: 'attained_cii', label: 'CII가 가장 낮은 시나리오', scenarioType: lowestScenario(scenarios, 'attained_cii') },
-    { metric: 'duration_hours', label: '소요시간이 가장 짧은 시나리오', scenarioType: lowestScenario(scenarios, 'duration_hours') },
-    { metric: 'fuel_ton', label: '연료 사용량이 가장 낮은 시나리오', scenarioType: lowestScenario(scenarios, 'fuel_ton') },
+    { metric: 'attained_cii', label: 'CII가 가장 낮은 시나리오', scenarioTypes: lowestScenarios(scenarios, 'attained_cii') },
+    { metric: 'duration_hours', label: '소요시간이 가장 짧은 시나리오', scenarioTypes: lowestScenarios(scenarios, 'duration_hours') },
+    { metric: 'fuel_ton', label: '연료 사용량이 가장 낮은 시나리오', scenarioTypes: lowestScenarios(scenarios, 'fuel_ton') },
   ]
 }
 

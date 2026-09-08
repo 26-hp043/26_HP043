@@ -205,7 +205,7 @@ const COMPARISON_BODY = {
         calculation_basis: { ship_type: 'BULK_CARRIER', transport_capacity_basis: 'DWT' },
       },
     ],
-    summary: { lowest_cii_scenario: 'SLOW_STEAMING' },
+    summary: { lowest_cii_scenarios: ['SLOW_STEAMING'] },
   },
 }
 
@@ -253,10 +253,11 @@ describe('기능② — 비교 결과가 표 문자열이 된다', () => {
 
     // 감속이 CII·연료는 낮지만 **소요시간은 길다.** 세 지표가 같은 시나리오를
     // 가리키지 않는 픽스처라야 순서가 실제로 잠긴다.
-    expect(lowestSummary(result.scenarios).map((s) => s.scenarioType)).toEqual([
-      'SLOW_STEAMING',
-      'DIRECT',
-      'SLOW_STEAMING',
+    // `#799` — 동률이면 여럿이므로 배열이다. 이 픽스처는 셋 다 단독 최소다.
+    expect(lowestSummary(result.scenarios).map((s) => s.scenarioTypes)).toEqual([
+      ['SLOW_STEAMING'],
+      ['DIRECT'],
+      ['SLOW_STEAMING'],
     ])
   })
 })

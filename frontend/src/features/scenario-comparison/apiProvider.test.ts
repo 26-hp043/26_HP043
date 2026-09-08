@@ -65,7 +65,7 @@ const OK_BODY = {
         },
       },
     ],
-    summary: { lowest_cii_scenario: 'SLOW_STEAMING' },
+    summary: { lowest_cii_scenarios: ['SLOW_STEAMING'] },
   },
 }
 
