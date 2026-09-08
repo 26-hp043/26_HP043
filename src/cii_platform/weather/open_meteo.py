@@ -36,6 +36,20 @@ MARINE_ENDPOINT = "https://marine-api.open-meteo.com/v1/marine"
 #: ``TECH_SPEC §7.2`` — 풍속·풍향.
 WIND_ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 
+#: 풍속 단위를 **요청에서 못 박는다** (`TECH_SPEC §7.2`, #813).
+#:
+#: Open-Meteo의 기본 단위는 ``km/h``다. 종전에는 이 파라미터를 보내지 않고 응답을
+#: 그대로 ``wind_speed_ms``에 넣어 **값이 3.6배 커졌다** — ``SIMPLE_RULE``의 풍속
+#: 계수는 「10 m/s당 약 5%」 전제라(`TECH_SPEC §8`), 실제 10 m/s에서 풍속항이
+#: ``0.05``가 아니라 ``0.18``이 됐다.
+#:
+#: ``/3.6``으로 나누지 않고 **요청에 단위를 싣는 이유**는, 나누는 쪽이 「기본값이
+#: 계속 km/h다」라는 가정에 기대기 때문이다. 기본값이 바뀌면 조용히 이중 변환이 된다.
+WIND_SPEED_UNIT = "ms"
+
+#: 응답 ``hourly_units.wind_speed_10m``이 이 값이어야 한다 (#813).
+EXPECTED_WIND_SPEED_UNIT = "m/s"
+
 #: 조회 타임아웃(초). `#61` 완료 기준.
 TIMEOUT_SECONDS = 5.0
 
@@ -120,6 +134,18 @@ def _pick(payload: dict, key: str, index: int) -> float | None:
     return None if value is None else float(value)
 
 
+def _has_expected_wind_unit(payload: dict) -> bool:
+    """응답이 실제로 m/s인가 (#813).
+
+    **단위가 적혀 있지 않으면 참으로 보지 않는다.** 없는 것을 「기본값이겠지」로
+    읽는 것이 이 결함을 만든 사고방식이다.
+    """
+    units = payload.get("hourly_units")
+    if not isinstance(units, dict):
+        return False
+    return units.get("wind_speed_10m") == EXPECTED_WIND_SPEED_UNIT
+
+
 class OpenMeteoProvider:
     """Open-Meteo 실 호출 구현.
 
@@ -155,8 +181,17 @@ class OpenMeteoProvider:
                 "latitude": lat,
                 "longitude": lon,
                 "hourly": "wind_speed_10m,wind_direction_10m",
+                "wind_speed_unit": WIND_SPEED_UNIT,
             },
         )
+        # 요청에 단위를 실었어도 **응답이 그 단위인지 확인한다** (#813).
+        #
+        # 이 결함은 조용했다 — 값이 3.6배 커져도 화면은 멀쩡했고, 전수 검토를 해야
+        # 드러났다. 단위가 예상과 다르면 **풍속을 쓰지 않는다.** 아래 fallback이
+        # 이미 있는 길이라(파고만 쓰거나 `weather_factor=1.0`), 틀린 값을 저장하는
+        # 것보다 낫다.
+        if wind is not None and not _has_expected_wind_unit(wind):
+            wind = None
 
         if marine is None and wind is None:
             raise WeatherFetchError(
