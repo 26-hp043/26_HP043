@@ -15,6 +15,8 @@ DB 없이 돈다 — ``calc`` 계층이라 이미 읽어 온 값만 받는다.
 
 from __future__ import annotations
 
+import platform
+import sys
 from decimal import Decimal
 
 import pytest
@@ -171,15 +173,42 @@ def test_rng_metadata_records_what_reproduction_needs():
     """
     meta = _simulate().rng_metadata
 
-    assert meta["seed"] == SEED
-    assert meta["generator"] == "PCG64DXSM"
-    for key in ("num_runs", "numpy_version", "python_version", "platform", "model_version"):
+    # 키와 형식은 `TECH_SPEC §2.2.1` 참조 구현 · `§2.2.2` 저장 스키마 그대로다 (#751).
+    assert set(meta) == {
+        "seed_entropy",
+        "bit_generator",
+        "numpy_version",
+        "python_version",
+        "platform",
+    }, "rng_metadata 키 집합이 정본과 다르다 (TECH_SPEC §2.2.2)"
+
+    # seed는 int가 아니라 **128-bit hex 문자열**이다 — JSON 정수는 2^53까지만
+    # 안전하므로 `API_SPEC §6.1 [ORACLE-S-3 정정]`이 hex 표기를 규정한다.
+    assert meta["seed_entropy"] == f"{SEED:#034x}"
+    assert int(meta["seed_entropy"], 16) == SEED
+
+    assert meta["bit_generator"] == "PCG64DXSM"
+    for key in ("numpy_version", "python_version", "platform"):
         assert meta[key], key
+
+    # `platform.platform()`이다. `sys.platform`("linux")은 커널·아키텍처가 빠지는데,
+    # 재현 실패를 「환경이 달라서」로 가를 때 필요한 것이 그쪽이다.
+    #
+    # **값을 직접 대조한다.** `!= sys.platform`으로는 「옛 값이 아니다」만 알 뿐,
+    # 실제로 올바른 값인지는 확인되지 않는다.
+    assert meta["platform"] == platform.platform()
+    assert meta["platform"] != sys.platform, (
+        "`sys.platform`으로 되돌아갔다 — 커널·아키텍처가 빠진다 (#751)"
+    )
 
 
 def test_rng_metadata_is_pure():
-    """진단용이라 부작용이 없어야 한다 — 같은 인자면 같은 값."""
-    assert rng_metadata(SEED, 5000) == rng_metadata(SEED, 5000)
+    """진단용이라 부작용이 없어야 한다 — 같은 인자면 같은 값.
+
+    ``runs``는 인자에서 뺐다 (#751) — `API_SPEC §6.1`이 ``monte_carlo.runs``를
+    **형제 필드**로 두므로 안에도 담으면 같은 값이 응답에 두 번 실린다.
+    """
+    assert rng_metadata(SEED) == rng_metadata(SEED)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -276,7 +276,10 @@ async def test_server_generates_a_seed_when_omitted(session, vessel_id):
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
     result = await _run(session, vessel_id, random_seed=None)
 
-    assert result["monte_carlo"]["rng_metadata"]["seed"] > 0
+    # `TECH_SPEC §2.2.2` — seed는 128-bit hex 문자열로 실린다 (#751).
+    entropy = result["monte_carlo"]["rng_metadata"]["seed_entropy"]
+    assert isinstance(entropy, str)
+    assert int(entropy, 16) > 0
 
 
 @pytest.mark.asyncio

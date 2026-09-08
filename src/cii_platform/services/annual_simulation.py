@@ -1012,6 +1012,29 @@ def _snapshot_voyage_view(snapshot_id, item: dict) -> dict[str, object]:
     }
 
 
+def _seed_from_metadata(metadata: dict) -> int | None:
+    """저장된 ``rng_metadata``에서 seed를 되읽는다 (#751).
+
+    ``TECH_SPEC §2.2.2``가 규정하는 키는 ``seed_entropy``이고 값은 **128-bit hex
+    문자열**이다. 종전 구현이 ``seed``(int)로 저장했으므로 **두 형태를 모두 읽는다.**
+
+    옛 행을 마이그레이션으로 고칠 수 없기 때문이다 — ``calculation_run``은
+    ``calc_run_guard()``(마이그레이션 024)가 ``needs_recalc`` false→true 외의
+    UPDATE를 전부 거부한다. 폴백을 두지 않으면 **이 변경 이전에 실행된 시뮬레이션이
+    전부 재현 불가**가 된다.
+
+    :returns: seed 정수. 어느 키도 없으면 ``None``.
+    """
+    entropy = metadata.get("seed_entropy")
+    if isinstance(entropy, str) and entropy:
+        # `f"{seed:#034x}"`가 만든 `0x…` 표기. int()가 접두어를 그대로 받는다.
+        return int(entropy, 16)
+    legacy = metadata.get("seed")
+    if isinstance(legacy, int):
+        return legacy
+    return None
+
+
 async def reproduce_annual_simulation(
     session: AsyncSession, simulation_id: UUID
 ) -> dict[str, object]:
@@ -1035,7 +1058,7 @@ async def reproduce_annual_simulation(
     row = await _load_run(session, simulation_id)
     stored = _stored_payload(row)
 
-    seed = (stored.get("monte_carlo") or {}).get("rng_metadata", {}).get("seed")
+    seed = _seed_from_metadata((stored.get("monte_carlo") or {}).get("rng_metadata") or {})
     if seed is None:
         raise NotFoundError("이 실행은 seed가 기록되지 않아 재현할 수 없습니다(#443 이전 실행).")
 
