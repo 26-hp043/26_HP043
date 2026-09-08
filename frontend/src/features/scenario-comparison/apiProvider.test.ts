@@ -184,3 +184,64 @@ describe('실패 경로', () => {
     )
   })
 })
+
+/*
+ * 서버가 보낸 경고·면책 문구를 버리지 않는다 (#821).
+ *
+ * 종전 provider는 `warnings: []`와 접두 `본 결과는 `이 붙은 별도 문자열을 넣었다.
+ * 화면의 배너 조건이 **영구 거짓**이 되어 「공식 CII 적용 대상이 아닐 수 있다」·
+ * 「기상 보정 없이 계산했다」가 이 화면에서만 사라졌다.
+ *
+ * ⚠️ **이 파일의 기존 검사는 그 결함을 하나도 잡지 못했다.** 응답 평탄화만 봤고
+ * 버려지는 필드는 단언하지 않았다 — 그래서 결함이 살아남았다.
+ */
+describe('서버 경고·면책 문구 (#821)', () => {
+  /** `API_SPEC §5.1` — 최상위에 실린다(`data` 안이 아니다). */
+  const WITH_WARNINGS = {
+    ...OK_BODY,
+    warnings: ['REFERENCE_ONLY', 'NON_CII_VESSEL', 'WEATHER_NONE_FALLBACK'],
+    disclaimer: '참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.',
+  }
+
+  it('경고 코드를 그대로 넘긴다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(WITH_WARNINGS))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+
+    expect(result.warnings).toEqual([
+      'REFERENCE_ONLY',
+      'NON_CII_VESSEL',
+      'WEATHER_NONE_FALLBACK',
+    ])
+  })
+
+  it('모르는 코드도 거르지 않는다 — 조용히 감추면 경고가 사라진다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({ ...OK_BODY, warnings: ['BRAND_NEW_CODE'] }),
+    )
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+
+    expect(result.warnings).toEqual(['BRAND_NEW_CODE'])
+  })
+
+  it('면책 문구를 서버 값 그대로 쓴다 — 접두사를 붙이지 않는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(WITH_WARNINGS))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+
+    expect(result.disclaimer).toBe(
+      '참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.',
+    )
+    expect(result.disclaimer.startsWith('본 결과는')).toBe(false)
+  })
+
+  it('서버가 두 필드를 빼면 빈 값이다 — 여기서 기본 문구를 만들지 않는다', async () => {
+    /*
+     * 기본 문구는 `DisclaimerBanner`가 `PRD §6.3`에서 한 번만 정의한다. 여기서
+     * 또 두면 **같은 문구가 두 곳**이 되어 다시 갈린다 — 그것이 이 결함의 모양이었다.
+     */
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+
+    expect(result.warnings).toEqual([])
+    expect(result.disclaimer).toBe('')
+  })
+})

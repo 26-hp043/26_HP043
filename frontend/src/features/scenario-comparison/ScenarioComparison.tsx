@@ -364,6 +364,24 @@ export function ScenarioComparison({
   const { response } = state
   const unit = ciiUnit(response.transport_capacity_basis)
   const summary = lowestSummary(response.scenarios)
+
+  /*
+   * 제목의 선박명 (#821).
+   *
+   * **서버 응답에는 이 값이 없다.** 종전에는 provider가 `vessel_display_name: ''`을
+   * 응답 타입에 채워 넣었고, 제목이 `` · 2026년 기준 · …``처럼 **구분점만 남은**
+   * 상태로 배포됐다. 그 필드가 응답 타입에 있던 것이 「서버가 준다」는 오해를
+   * 만들었으므로 타입에서 없앴다.
+   *
+   * 여기서 `GET /vessels/{id}`를 부르지 않는다 — **셸이 이미 목록을 들고 있고**,
+   * 위 선박 드롭다운이 같은 `displayName`을 렌더한다. 사용자가 고른 그 이름을
+   * 그대로 쓰는 것이 서버에서 다시 조회해 오는 것보다 화면과 일치한다.
+   *
+   * 목록이 아직 안 왔거나 그 사이 선박이 지워졌으면 `null`이라 이름 칸을 통째로
+   * 뺀다 — 빈 문자열을 두면 구분점만 남아 **레이아웃이 깨진 것처럼 보인다.**
+   */
+  const vesselName =
+    vessels?.find((option) => option.id === form.vesselId)?.displayName ?? null
   const nameOf = (type: string | null) =>
     response.scenarios.find((s) => s.scenario_type === type)?.scenario_name ?? '—'
 
@@ -398,8 +416,9 @@ export function ScenarioComparison({
             <span className="scenario-comparison__title-en"> Scenario Comparison</span>
           </h2>
           <p className="scenario-comparison__context">
-            {response.vessel_display_name} · {form.regulationYear}년 기준 ·
-            기준 CII {formatDecimalString(response.required_cii, DISPLAY_DIGITS.cii)} {unit}
+            {vesselName !== null && `${vesselName} · `}
+            {form.regulationYear}년 기준 · 기준 CII{' '}
+            {formatDecimalString(response.required_cii, DISPLAY_DIGITS.cii)} {unit}
           </p>
         </header>
 

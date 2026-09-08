@@ -76,7 +76,12 @@ export interface ScenarioComparisonResponse {
   /** 단위 파생용. 기능①과 같은 규칙(`DESIGN_SYSTEM §4.1`). */
   transport_capacity_basis: CapacityBasis
   ship_type: string
-  vessel_display_name: string
+  /**
+   * `API_SPEC §5.1` 응답 최상위의 `warnings`. 화면이 배너로 띄운다.
+   *
+   * 종전에는 provider가 `[]` 리터럴을 넣어 **배너 조건이 영구 거짓**이었다 (`#821`).
+   */
   warnings: string[]
+  /** `API_SPEC §5.1` 응답 최상위의 `disclaimer`. **서버 정본을 그대로** 쓴다 (`#821`). */
   disclaimer: string
 }

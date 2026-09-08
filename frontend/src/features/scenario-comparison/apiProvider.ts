@@ -72,6 +72,12 @@ interface ServerScenario {
 
 interface ServerBody {
   data?: { scenarios?: ServerScenario[] }
+  /*
+   * `API_SPEC §5.1` — 응답 **최상위**에 실린다(`data` 안이 아니다).
+   * `routes/scenarios.py`가 서비스 dict를 그대로 돌려주고 `meta`만 덧붙인다.
+   */
+  warnings?: string[]
+  disclaimer?: string
   error?: {
     code?: string
     message?: string
@@ -175,14 +181,30 @@ export function createApiScenarioProvider(
           basis.transport_capacity_basis as ScenarioComparisonResponse['transport_capacity_basis'],
         ship_type: basis.ship_type ?? '',
         /*
-         * 서버 응답에 선박 표시명이 없다. 화면이 제목에 쓰므로 빈 값을 두고,
-         * 필요하면 호출부가 `GET /vessels/{id}`로 채운다 — 여기서 추가 호출을
-         * 하면 provider가 두 엔드포인트에 묶인다.
+         * 서버가 보낸 경고를 그대로 넘긴다 (#821).
+         *
+         * 종전에는 `warnings: []` 리터럴이었다. 화면의 배너 조건
+         * (`ScenarioComparison.tsx`의 `response.warnings.length > 0`)이 **영구 거짓**이
+         * 되어 `NON_CII_VESSEL`·`CII_APPLICABILITY_UNKNOWN`·`WEATHER_NONE_FALLBACK`·
+         * `SLOW_SPEED_FLOOR`·`REFERENCE_ONLY`가 이 화면에서만 사라졌다. 같은 코드를
+         * 기능① CII 예측 화면은 정상 표시한다 — 문구 맵(`voyage-cii/resultRules.ts`)은
+         * 두 화면이 공유하므로 **값만 넘기면 된다.**
+         *
+         * 코드를 여기서 거르지 않는다. 모르는 코드는 `warningMessage()`가 **코드
+         * 자체를 보여 준다** — 조용히 감추면 경고가 사라진다(`#630`의 판단).
          */
-        vessel_display_name: '',
-        warnings: [],
-        disclaimer:
-          '본 결과는 참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.',
+        warnings: body?.warnings ?? [],
+        /*
+         * 면책 문구도 서버 값을 그대로 쓴다 (#821).
+         *
+         * 종전에는 접두 `본 결과는 `이 붙은 **별도 문자열**이라, 서버 정본
+         * (`services/voyage_cii.py`의 `DISCLAIMER`)을 고쳐도 이 화면만 옛 문구가
+         * 남았다. 기능①은 이미 서버 값을 쓴다(`CiiForecastPage.tsx`).
+         *
+         * 값이 비면 `DisclaimerBanner`가 `PRD §6.3` 기본 문구로 대체한다 — 여기서
+         * 다시 기본값을 두면 **같은 문구가 두 곳**이 되어 또 갈린다.
+         */
+        disclaimer: body?.disclaimer ?? '',
       }
     },
   }
