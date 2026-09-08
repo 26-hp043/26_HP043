@@ -1,3 +1,4 @@
+import { addFixed, compareFixed } from '../../display/decimal'
 import { formatPercent } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { MonteCarloBlock, SensitivityAnalysis, SensitivityEntry } from './types'
@@ -29,15 +30,40 @@ export const RATING_ORDER: readonly Rating[] = ['A', 'B', 'C', 'D', 'E'] as cons
  * 때만** 성립한다고 못박는다. 목표가 B인 화면에서 `1 − success`를 쓰면 C 확률까지
  * 위험으로 세어 값이 부풀려진다.
  *
- * 문자열 확률을 숫자로 바꾸는 유일한 자리다. 표시용 파생이라 Layer 1 정밀도가 필요하지
- * 않다 — 화면에 나가는 값은 백분율 1자리다(`DESIGN_SYSTEM §4.2`).
+ * ## `Number`로 더하지 않는다 — 십진 문자열로 더한다 (`#820`)
+ *
+ * 종전에는 `Number(D) + Number(E)`였다. 서버는 4자리로 양자화한 **정확한 십진
+ * 문자열**을 보내는데(`TECH_SPEC §2.4`), float으로 더하는 순간 값이 어긋난다.
+ *
+ * ```text
+ * 0.3500 + 0.0500 = 0.39999999999999997   (정확값 0.4)
+ * 0.1800 + 0.0200 = 0.19999999999999998   (정확값 0.2)
+ * ```
+ *
+ * 그 결과 **같은 40.0%가 D·E 배분에 따라 주황과 빨강으로 갈리고, 같은 20.0%가 ⚠
+ * 유무로 갈렸다.** `runs=5000`이면 확률 단위가 `1/5000`이라 `P(D)=0.3500`·
+ * `P(E)=0.0500`은 정상 도달 값이다.
+ *
+ * :returns: 소수 4자리 십진 문자열. 화면 표기는 `formatPercent`가 만든다.
  */
-export function probabilityOfDorE(probabilities: Record<Rating, string>): number {
-  return Number(probabilities.D ?? 0) + Number(probabilities.E ?? 0)
+export function probabilityOfDorE(probabilities: Record<Rating, string>): string {
+  return addFixed(probabilities.D ?? '0', probabilities.E ?? '0', PROBABILITY_DIGITS)
 }
 
 /** `P(D∪E)` 표기 등급 — `DESIGN_SYSTEM §2.5 (a)`. */
 export type RiskFlagTone = 'muted' | 'warning' | 'danger'
+
+/**
+ * 확률 문자열의 소수 자릿수 — 서버가 `TECH_SPEC §2.4`대로 4자리로 양자화해 보낸다.
+ *
+ * 십진 연산의 스케일이며 **표시 자릿수가 아니다.** 화면 표기는 백분율 1자리다
+ * (`DESIGN_SYSTEM §4.2`, `formatPercent`).
+ */
+const PROBABILITY_DIGITS = 4
+
+/** `DESIGN_SYSTEM §2.5 (a)` 위험 임계. 화면이 임의로 정하지 않는다. */
+const DANGER_THRESHOLD = '0.4'
+const WARNING_THRESHOLD = '0.2'
 
 /**
  * `DESIGN_SYSTEM §2.5 (a)` 위험도 표기.
@@ -52,10 +78,26 @@ export type RiskFlagTone = 'muted' | 'warning' | 'danger'
  * > 재조정한다(`DESIGN_SYSTEM §16`). **지금 따를 규칙은 위 표**이므로 그대로 옮긴다 —
  * > 임계를 화면이 임의로 정하면 재조정 때 어디를 고쳐야 하는지 알 수 없다.
  */
-export function riskFlag(pDorE: number): { tone: RiskFlagTone; text: string } {
-  const pct = (pDorE * 100).toFixed(1)
-  if (pDorE >= 0.4) return { tone: 'danger', text: `⚠ P(D/E) ${pct}%` }
-  if (pDorE >= 0.2) return { tone: 'warning', text: `⚠ P(D/E) ${pct}%` }
+export function riskFlag(pDorE: string): { tone: RiskFlagTone; text: string } {
+  /*
+   * 임계 비교와 표기를 **둘 다** 십진으로 한다 (`#820`).
+   *
+   * 종전에는 `pDorE >= 0.4`(float 비교)와 `(pDorE * 100).toFixed(1)`(표기)이었다.
+   *
+   * * 비교 — `0.3500 + 0.0500`이 `0.39999999999999997`이 되어 **표시된 40.0%가
+   *   주황으로** 칠해졌다. `DESIGN_SYSTEM §14`가 요구한 「색 외 보조 채널」인 ⚠
+   *   아이콘도 같은 값에서 나타났다 사라졌다 — 색맹 사용자가 의존하는 채널이다.
+   * * 표기 — `toFixed`는 정본의 `ROUND_HALF_UP`과 경계에서 갈린다. `'0.1235'`가
+   *   여기서는 `12.3%`, `formatPercent`에서는 `12.4%`였다. **바로 아래 `toPercent`가
+   *   이 결함을 이미 고쳤는데 이 함수만 옛 경로에 남아 있었다.**
+   */
+  const pct = formatPercent(pDorE)
+  if (compareFixed(pDorE, DANGER_THRESHOLD, PROBABILITY_DIGITS) >= 0) {
+    return { tone: 'danger', text: `⚠ P(D/E) ${pct}%` }
+  }
+  if (compareFixed(pDorE, WARNING_THRESHOLD, PROBABILITY_DIGITS) >= 0) {
+    return { tone: 'warning', text: `⚠ P(D/E) ${pct}%` }
+  }
   return { tone: 'muted', text: `P(D/E) ${pct}%` }
 }
 
