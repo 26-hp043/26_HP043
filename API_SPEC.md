@@ -284,7 +284,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 레이어 | 대상 필드 | JSON 표현 | 정밀도 보장 |
 |---|---|---|---|
 | Layer 1 (결정론) | 결정론 계산에서 생성되거나 Decimal로 표현되는 수치 응답 (예: `attained_cii`, `required_cii`). **`parameters_used.*` · `calculation_basis.*`의 파라미터 값도 문자열이다.** | **JSON 문자열** (예: `"4.982400"`) | **[#132 정정]** 문자열로 직렬화하여 JSON float 파싱에 의한 정밀도 손실을 방지한다. 구체적인 필드 경로와 JSON 표현은 각 endpoint의 응답 계약(응답 예시 및 명시된 타입 표)을 따른다. |
-| Layer 2 (Monte Carlo) | `p10`, `p50`, `p90`, `mean_cii`, `rating_probabilities.*`, `target_success_probability` | **JSON 숫자** (예: `0.0200`) | 4 유효숫자. float64 정밀도 |
+| Layer 2 (Monte Carlo) | `p10`, `p50`, `p90`, `mean_cii`, `rating_probabilities.*`, `target_success_probability` | **JSON 문자열** (예: `"0.0200"`) | **[#757 정정]** 소수 4자리 고정(`TECH_SPEC §2.4` ROUND_HALF_UP). 종전 표기는 **JSON 숫자**였으나 같은 행의 「4 유효숫자」·예시 `0.0200`과 성립하지 않는다 — JSON 숫자로는 후행 0을 표현할 수 없어 `0.0200`이 `0.02`가 된다. Layer 1을 문자열로 두는 이유(파싱 정밀도 손실)가 그대로 적용되며, 구현·화면도 문자열이다 |
 | 입력/CRUD | `distance_nm`, `speed_kn`, `fuel_ton`, `gross_tonnage`, `deadweight` | **JSON 숫자** (예: `1000.0`) | 사용자 입력 정밀도 |
 
 > 클라이언트는 `parameter_hash` + `input_hash`로 결과의 무결성을 검증한다. 값 자체의 bit-exact 비교는 JSON float 파싱으로 인해 신뢰할 수 없다.
@@ -2042,18 +2042,18 @@ POST /api/v1/annual-simulations
       },
       "runs": 5000,
       "rating_probabilities": {
-        "A": 0.0200,
-        "B": 0.2800,
-        "C": 0.5500,
-        "D": 0.1300,
-        "E": 0.0200
+        "A": "0.0200",
+        "B": "0.2800",
+        "C": "0.5500",
+        "D": "0.1300",
+        "E": "0.0200"
       },
-      "target_success_probability": 0.3000,
+      "target_success_probability": "0.3000",
       "target_rating": "B",
-      "p10": 4.71,
-      "p50": 5.04,
-      "p90": 5.42,
-      "mean_cii": 5.06
+      "p10": "4.7100",
+      "p50": "5.0400",
+      "p90": "5.4200",
+      "mean_cii": "5.0600"
     },
     "risk_level": "HIGH",
     "sensitivity_analysis": {
@@ -3023,3 +3023,4 @@ GET /api/v1/health
 | 2026-09-08 | `#812` | **§1.6에 `SIMULATION_PLAN_NO_FUEL` 추가.** 기능③의 계획 항차에 연료 정보가 없으면 그 항차를 연말 예상에서 제외한다. 거리만 넣는 대안은 「거리는 가는데 배출은 0」이라는 거짓 진술이 되어 분모만 키우고 **연말 예상 CII를 실제보다 좋게** 만든다 — 이 이슈가 고치는 결함(연료 2종 시 거리 2배 계상)과 같은 방향의 오류다. 빼되 **조용히 빼지 않는다**: 응답의 `remaining_voyage_count`는 스냅샷의 PLAN 행을 세므로, 경고가 없으면 「N건 중 일부만 계산했다」가 드러날 자리가 없다. 정본은 `TECH_SPEC §12.3`이며 이 절은 전사다 (#812) |
 | 2026-09-08 | `#750` | **§2.7 각주 정정 · §2.8에 YTD 정의 명시.** 「연간 누적(YTD)」이 엔드포인트마다 다른 값을 냈다 — 실측에서 같은 선박·같은 연도에 대시보드 8.9799 · `§2.7` 8.980 · `§2.14` 7.028270이 나왔고, 연간 실적 리포트는 **한 문서 안에 두 값을 함께 인쇄**했다. 원인은 `compute_ytd_cii`의 `in_progress` 인자를 넘기는 호출과 넘기지 않는 호출이 섞인 것인데, **정본이 정면으로 부딪혀 있어 구현만 맞출 수 없었다** — `PRD §3.3.8`은 진행 중 항차의 `IN_PROGRESS latest estimate`를 YTD에 넣으라 하고, 종전 `§2.7` 각주는 「`INCLUDE_AS_PLAN` 항차는 세지 않는다」로 적었다. `AGENTS §3.1`상 `PRD`(2위)가 이 문서(4위)보다 앞서므로 상위에 맞춘다. `§2.8`은 이 분기에 **침묵**해 대시보드가 어느 정의를 쓰는지 문서로 판정할 수 없었고, 그 값 위에서 위험 배너·등급 분포·정렬·`days_to_d`가 도므로(`PRD §3.3.7`) 정의가 갈리면 **규제 트리거 판정이 뒤집힐 수 있다** — 명시로 메웠다. 과거 연도는 영향이 없다(진행 중 항차는 올해에만 존재). `voyage_count`는 종전대로 실적 확정 항차 수이며, 항차 수와 누적값의 단위가 다른 문제는 `#800`이 다룬다 (#750) |
 | 2026-09-08 | `#796` | **§1.6에 `SIMULATION_NO_REFERENCE_SPEED` 추가.** 진행 중 항차의 누적 연료에 cubic speed model(`TECH_SPEC §4.1`) 보정을 적용하려면 `vessel.reference_speed_kn`이 필요한데 그 열은 nullable이다(`DB_SCHEMA §2.1`). 없으면 배수 1로 쌓되 **조용히 넘어가지 않는다** — 소모율도 속도도 있고 모르는 것이 보정 계수 하나뿐이라 기여를 통째로 빼지 않지만, 값이 정확하지 않다는 사실은 화면이 말할 수 있어야 사용자가 제원을 채운다(`SIMULATION_NO_FUEL_RATE`와 같은 방식). 정본은 `TECH_SPEC §12.3`이며 이 절은 전사다 (#796) |
+| 2026-09-08 | `#757` | **§1.7 Layer 2 행을 JSON 문자열로 정정 · §6.1 Monte Carlo 예시 교체.** 종전 표기는 **JSON 숫자**(예: `0.0200`)였으나 **같은 행의 「4 유효숫자」와 성립하지 않는다** — JSON 숫자로는 후행 0을 표현할 수 없어 `0.0200`이 `0.02`가 된다. 구현(`services/annual_simulation.py`)과 화면 타입(`types.ts` `MonteCarloBlock`)은 처음부터 문자열이었고, Layer 1을 문자열로 두는 이유(JSON float 파싱에 의한 정밀도 손실)가 Layer 2에도 그대로 적용된다. `#757`이 `TECH_SPEC §2.4`대로 `quantize(Decimal("0.0001"), ROUND_HALF_UP)`로 바꿔 **소수 4자리가 고정**되므로, 문자열이라야 그 계약이 응답까지 전달된다. `§6.1` 예시도 실제 직렬화(`"0.0200"`·`"4.7100"`)로 맞췄다 (#757) |

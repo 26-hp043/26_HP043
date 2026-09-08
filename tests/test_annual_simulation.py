@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import platform
 import sys
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -36,6 +36,7 @@ from cii_platform.calc.annual_simulation import (
     DistributionProfile,
     RemainingVoyage,
     TriangularBand,
+    _round,
     analyze_sensitivity,
     project_deterministic,
     rng_metadata,
@@ -243,9 +244,56 @@ def test_target_c_includes_a_and_b():
 
 
 def test_probabilities_are_rounded_to_four_places():
-    """`PRD §12.4.3` [ORACLE-C-1]."""
+    """`PRD §12.4.3` [ORACLE-C-1] — 자릿수가 **정확히** 4다 (`#757`).
+
+    종전에는 ``<= 4``였다. ``round()``가 후행 0을 버려 ``0.0``·``1.0``이 나가도
+    통과했다 — `API_SPEC §1.7`이 「4 유효숫자」를 적고 `§6.1` 예시가 `0.0200`을
+    드는 것과 다르다.
+    """
     for value in _simulate().rating_probabilities.values():
-        assert -value.as_tuple().exponent <= 4
+        assert -value.as_tuple().exponent == 4, f"자릿수가 4로 고정되지 않았다: {value}"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (0.00005, "0.0001"),
+        (0.12345, "0.1235"),
+        # 아래 셋이 은행가 반올림과 갈리는 지점이다 — `round()`는 각각
+        # 0.5678 · 0.0001 · 2.0을 낸다.
+        (0.56785, "0.5679"),
+        (0.00015, "0.0002"),
+        (2.00005, "2.0001"),
+        # 후행 0 고정 — `round()`는 "0.0"·"1.0"을 낸다.
+        (0.0, "0.0000"),
+        (1.0, "1.0000"),
+    ],
+)
+def test_round_matches_the_canonical_rounding(raw, expected):
+    """`TECH_SPEC §2.4` — Monte Carlo 집계는 **소수 4자리 ROUND_HALF_UP**이다 (`#757`).
+
+    자릿수는 `PRD §12.4.3`이, **반올림 모드는 `TECH_SPEC §2.4`가** 정한다. 종전
+    구현은 ``round()``(은행가 반올림)를 써서 정본과 다른 값을 냈다 — 자릿수만 보고
+    모드를 놓친 형태다.
+
+    **경계 입력을 값으로 고정한다.** 「4자리다」만 보면 모드가 무엇이든 통과한다.
+    """
+    assert str(_round(raw)) == expected
+
+
+def test_round_agrees_with_the_spec_reference_implementation():
+    """정본 `§2.4`의 참조 구현과 **같은 값**을 낸다 (`#757`).
+
+    위 검사는 손으로 적은 기대값을 본다. 여기서는 정본에 실린 식을 그대로 옮겨
+    돌려 대조한다 — 기대값을 잘못 적었을 때 두 검사가 함께 틀리지 않는다.
+    """
+
+    def round_probability(p: float) -> Decimal:
+        # `TECH_SPEC §2.4` 참조 구현 그대로.
+        return Decimal(str(p)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+
+    for raw in (0.00005, 0.12345, 0.56785, 0.00015, 2.00005, 0.0, 1.0, 0.3333, 0.66665):
+        assert _round(raw) == round_probability(raw), raw
 
 
 def test_percentiles_are_ordered():
