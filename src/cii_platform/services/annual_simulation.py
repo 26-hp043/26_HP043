@@ -79,6 +79,15 @@ from cii_platform.services.ytd_cii import (
     _select_reference_line,
 )
 
+#: 계획 항차에 연료 정보가 없어 그 항차를 연말 예상에서 제외했다 (`TECH_SPEC §12.3`, #812).
+#:
+#: 거리만 넣는 대안을 쓰지 않는 이유는 그것이 「거리는 가는데 배출은 0」이라는 거짓
+#: 진술이 되어 분모만 키우고, 연말 예상 CII를 **실제보다 좋게** 만들기 때문이다.
+#: 빼되 **조용히 빼지 않는다** — 응답의 ``remaining_voyage_count``는 스냅샷의 PLAN
+#: 행을 세므로, 이 경고가 없으면 일부만 계산했다는 사실이 드러날 자리가 없다.
+WARNING_PLAN_NO_FUEL = "SIMULATION_PLAN_NO_FUEL"
+
+
 if TYPE_CHECKING:
     from datetime import datetime
 
@@ -269,7 +278,7 @@ def _vessel_from_snapshot(payload: dict) -> VesselSnapshot:
 
 def _inputs_from_snapshot(
     rows: list[dict], vessel
-) -> tuple[CompletedTotals, list[RemainingVoyage]]:
+) -> tuple[CompletedTotals, list[RemainingVoyage], list[str]]:
     """스냅샷 항차 사본에서 계산 입력을 만든다 (``TECH_SPEC §11.4`` 2항).
 
     **계산은 원본 ``voyage`` 테이블이 아니라 이 사본에서 나온다.** 실행 경로와 재현
@@ -281,10 +290,36 @@ def _inputs_from_snapshot(
     종전에는 살아 있는 ``vessel`` 행을 받아 제원을 읽었고, 그래서 제원을 고치면 같은
     스냅샷·같은 seed로도 결과가 달라졌다 — ``input_hash``가 항차만 덮어 그 변화가
     해시에도 드러나지 않았다.
+
+    ## 계획 항차는 **연료 종류 수와 무관하게 한 줄**이다 (#812)
+
+    종전에는 ``fuel_uses``마다 한 줄을 만들면서 **항차 전체 거리를 그대로 복사**했다.
+    연료가 2종이면 그 항차 거리가 2배로 계상되어 분모만 커지고, 연말 예상 CII가
+    1/N로 낮아져 **목표 달성 확률이 0%↔100%로 뒤집혔다.** 확정(ACTUAL) 분기는 거리를
+    항차당 한 번만 더하는데 계획(PLAN) 분기만 규칙이 달랐다.
+
+    연료는 **CO₂ 기여로 합쳐** 유효 CF 하나로 만든다.
+
+    .. code-block:: text
+
+        fuel_ton = Σ fuel_ton_i
+        cf_eff   = Σ(fuel_ton_i × cf_i) / Σ fuel_ton_i
+
+    결정론 경로의 ``planned_co2``는 ``fuel_ton × cf_eff``이므로 **연료별 합과 같다.**
+    Monte Carlo도 이쪽이 옳다 — ``_sample_band``는 줄마다 독립으로 뽑는데, 한 항차의
+    두 연료가 따로 흔들리는 것은 실제 성질이 아니다(엔진 docstring의 「항차마다
+    독립으로 뽑는다」가 이제 성립한다).
+
+    항차 1건 = 1줄이 되면서 **두 가지가 함께 맞는다** — 서비스의 항차 수 가드와
+    엔진의 ``len(remaining)`` 가드가 같은 단위가 되고, 민감도 ``voyage_count ±1``이
+    연료 행이 아니라 항차를 가감한다.
+
+    :returns: ``(확정 누계, 잔여 항차, 경고)``
     """
     completed_co2_g = Decimal(0)
     completed_distance_nm = Decimal(0)
     remaining: list[RemainingVoyage] = []
+    skipped_no_fuel = 0
 
     reference_speed_kn = (
         None if vessel.reference_speed_kn is None else float(vessel.reference_speed_kn)
@@ -309,22 +344,45 @@ def _inputs_from_snapshot(
 
         planned_distance = float(Decimal(row.get("planned_distance_nm") or "0"))
         planned_speed = row.get("planned_speed_kn")
+
+        # 연료를 CO₂ 기여로 합친다. Decimal로 더한 뒤 마지막에 한 번만 float로
+        # 내린다 — 줄마다 float로 바꿔 더하면 오차가 연료 종류 수만큼 쌓인다.
+        fuel_ton = Decimal(0)
+        co2_g = Decimal(0)
         for fuel_use in fuel_uses:
-            remaining.append(
-                RemainingVoyage(
-                    distance_nm=planned_distance,
-                    fuel_ton=float(Decimal(fuel_use.get("planned_fuel_ton") or "0")),
-                    cf=float(Decimal(fuel_use["cf_used"])),
-                    speed_kn=None if planned_speed is None else float(Decimal(planned_speed)),
-                    reference_speed_kn=reference_speed_kn,
-                    base_daily_foc_ton=base_daily_foc_ton,
-                )
+            ton = Decimal(fuel_use.get("planned_fuel_ton") or "0")
+            fuel_ton += ton
+            co2_g += ton * Decimal(fuel_use["cf_used"])
+
+        if fuel_ton <= 0:
+            # 연료를 알 수 없는 계획 항차는 **계산에서 뺀다** (#812).
+            #
+            # 거리만 넣으면 「거리는 가는데 배출은 0」이 되어 분모만 커지고, 연말
+            # 예상 CII가 실제보다 **좋게** 나온다 — 이 이슈가 고치는 결함과 같은
+            # 방향의 오류다. 빼면 비율(M/W)이 왜곡되지 않는다.
+            #
+            # 대신 **조용히 빠지지 않게** 경고를 남긴다. 응답의
+            # `remaining_voyage_count`는 스냅샷의 PLAN 행을 세므로, 경고가 없으면
+            # 「4건 중 3건만 계산했다」는 사실이 어디에도 드러나지 않는다.
+            skipped_no_fuel += 1
+            continue
+
+        remaining.append(
+            RemainingVoyage(
+                distance_nm=planned_distance,
+                fuel_ton=float(fuel_ton),
+                cf=float(co2_g / fuel_ton),
+                speed_kn=None if planned_speed is None else float(Decimal(planned_speed)),
+                reference_speed_kn=reference_speed_kn,
+                base_daily_foc_ton=base_daily_foc_ton,
             )
+        )
 
     completed = CompletedTotals(
         co2_g=float(completed_co2_g), distance_nm=float(completed_distance_nm)
     )
-    return completed, remaining
+    warnings = [WARNING_PLAN_NO_FUEL] if skipped_no_fuel else []
+    return completed, remaining, warnings
 
 
 def _plan_voyage_count(rows: list[dict]) -> int:
@@ -433,7 +491,7 @@ async def run_annual_simulation(
     # 조립한 값과 어긋날 때 원인을 가릴 수 없다. 지금은 두 경로가 같은 함수를 쓴다.
     #
     voyages_json = _snapshot_payload(actual, planned, fuel_by_voyage)
-    completed, remaining = _inputs_from_snapshot(voyages_json, vessel)
+    completed, remaining, input_warnings = _inputs_from_snapshot(voyages_json, vessel)
 
     # 분포는 코드가 아니라 테이블에서 읽는다 (#434).
     profile_rows = await param_repo.load_distribution_profile(session, distribution_profile)
@@ -498,7 +556,7 @@ async def run_annual_simulation(
         completed_voyage_count=len(actual),
         remaining_voyage_count=len(planned),
         target_rating=target_rating,
-        warnings=[*outcome.warnings, *sensitivity_warnings],
+        warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings],
     )
 
     # **저장 전에 잰다.** DB 왕복은 계산 시간이 아니다 — 기능①도 계산이 끝난 지점에서
@@ -1377,7 +1435,7 @@ def _recompute(
         d4=Decimal(str(rating_boundary.d4)),
     )
 
-    completed, remaining = _inputs_from_snapshot(voyages_json, vessel)
+    completed, remaining, input_warnings = _inputs_from_snapshot(voyages_json, vessel)
     profile = profile_from_rows(profile_rows)
 
     deterministic = project_deterministic(
@@ -1428,7 +1486,7 @@ def _recompute(
         completed_voyage_count=len(voyages_json) - _plan_voyage_count(voyages_json),
         remaining_voyage_count=_plan_voyage_count(voyages_json),
         target_rating=target_rating,
-        warnings=[*outcome.warnings, *sensitivity_warnings],
+        warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings],
     )
 
 

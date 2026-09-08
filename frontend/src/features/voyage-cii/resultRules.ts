@@ -193,6 +193,8 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
   SENSITIVITY_ONE_AT_A_TIME: '각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다.',
   SENSITIVITY_SPEED_SKIPPED:
     '선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다.',
+  SIMULATION_PLAN_NO_FUEL:
+    '연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요.',
 }
 
 export function warningMessage(code: string): string {
