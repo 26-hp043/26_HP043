@@ -180,6 +180,9 @@ jobs:
       POSTGRES_USER: cii
       POSTGRES_PASSWORD: ci-docker-job
       POSTGRES_DB: cii
+      # 프로덕션 스택은 이 값이 없으면 뜨지 않는다 (#809) — 미설정 시 메일 링크가
+      # 요청의 Host 헤더를 따라가기 때문이다. POSTGRES_* 와 같은 CI 전용 값이다.
+      APP_PUBLIC_URL: https://ci.example
       COMPOSE: docker compose -f docker-compose.prod.yml
     steps:
       - uses: actions/checkout@v7
