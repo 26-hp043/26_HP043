@@ -367,6 +367,21 @@ export function ScenarioComparison({
   const nameOf = (type: string | null) =>
     response.scenarios.find((s) => s.scenario_type === type)?.scenario_name ?? '—'
 
+  /*
+   * 동률이면 **전부 적고 동률임을 밝힌다** (`PRD §11.2`, `#799`).
+   *
+   * 같은 값 중 하나만 지목하는 것은 그 자체가 추천이다 — 사용자는 두 시나리오의
+   * CII가 표에 같게 찍혀 있는데 한쪽만 「가장 낮은」으로 불리는 것을 보고 그쪽이
+   * 낫다고 읽는다. 「(동률)」을 붙이는 이유는 이름 두 개만으로는 **둘 다 최소인지**
+   * **둘을 함께 추천하는지** 읽는 사람이 가릴 수 없기 때문이다.
+   */
+  const namesOf = (types: readonly string[]) =>
+    types.length === 0
+      ? '—'
+      : types.length === 1
+        ? nameOf(types[0])
+        : `${types.map(nameOf).join(' · ')} (동률)`
+
   return (
     <section className="scenario-comparison">
       {/* 결과를 본 뒤 조건을 바꿔 다시 비교할 수 있어야 한다 — 폼을 남긴다. */}
@@ -418,7 +433,7 @@ export function ScenarioComparison({
           {summary.map((item) => (
             <div key={item.metric} className="scenario-comparison__lowest-row">
               <dt>{item.label}</dt>
-              <dd>{nameOf(item.scenarioType)}</dd>
+              <dd>{namesOf(item.scenarioTypes)}</dd>
             </div>
           ))}
         </dl>

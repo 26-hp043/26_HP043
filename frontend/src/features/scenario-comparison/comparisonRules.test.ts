@@ -3,7 +3,7 @@ import {
   compareDecimalStrings,
   deltaFromDirect,
   isZeroDelta,
-  lowestScenario,
+  lowestScenarios,
   lowestSummary,
   subtractFixed,
 } from './comparisonRules'
@@ -66,7 +66,7 @@ describe('compareDecimalStrings — Number를 거치지 않는다', () => {
   })
 })
 
-describe('lowestScenario — PRD §11.2', () => {
+describe('lowestScenarios — PRD §11.2', () => {
   const scenarios = [
     scenario('DIRECT', { cii: '4.982400', hours: '71.4286', fuel: '80.00' }),
     scenario('DETOUR', { cii: '5.219657', hours: '75.0000', fuel: '88.00' }),
@@ -74,38 +74,54 @@ describe('lowestScenario — PRD §11.2', () => {
   ]
 
   it('CII가 가장 낮은 시나리오', () => {
-    expect(lowestScenario(scenarios, 'attained_cii')).toBe('SLOW_STEAMING')
+    expect(lowestScenarios(scenarios, 'attained_cii')).toEqual(['SLOW_STEAMING'])
   })
 
   it('소요시간이 가장 짧은 시나리오', () => {
-    expect(lowestScenario(scenarios, 'duration_hours')).toBe('DIRECT')
+    expect(lowestScenarios(scenarios, 'duration_hours')).toEqual(['DIRECT'])
   })
 
   it('연료 사용량이 가장 낮은 시나리오', () => {
-    expect(lowestScenario(scenarios, 'fuel_ton')).toBe('SLOW_STEAMING')
+    expect(lowestScenarios(scenarios, 'fuel_ton')).toEqual(['SLOW_STEAMING'])
   })
 
   it('지표마다 답이 다를 수 있다 — 하나를 추천하지 않는다', () => {
     // PRD §11.2: 「시스템은 추천 시나리오를 표시하지 않는다」
     const picked = new Set(
       (['attained_cii', 'duration_hours', 'fuel_ton'] as const).map((m) =>
-        lowestScenario(scenarios, m),
+        lowestScenarios(scenarios, m).join(','),
       ),
     )
     expect(picked.size).toBeGreaterThan(1)
   })
 
-  it('동률이면 앞선 시나리오를 고른다 — 결과가 흔들리지 않는다', () => {
+  it('동률이면 전부 돌려준다 — 하나만 지목하면 그것이 추천이다 (#799)', () => {
+    // `PRD §11.4.1` cubic speed model에서 연료는 거리에 비례하고 AER은 거리로
+    // 나누므로, **같은 속도의 직항과 우회는 CII가 정확히 같다.** 종전에는 앞선
+    // 시나리오 하나만 골라 「직항이 CII가 가장 낮다」로 읽혔다.
     const tied = [
-      scenario('DIRECT', { cii: '5.0', hours: '10', fuel: '50' }),
-      scenario('DETOUR', { cii: '5.00', hours: '10', fuel: '50' }),
+      scenario('DIRECT', { cii: '4.982400', hours: '10', fuel: '50' }),
+      scenario('DETOUR', { cii: '4.982400', hours: '11', fuel: '52' }),
+      scenario('SLOW_STEAMING', { cii: '4.297320', hours: '12', fuel: '45' }),
     ]
-    expect(lowestScenario(tied, 'attained_cii')).toBe('DIRECT')
-    expect(lowestScenario(tied, 'fuel_ton')).toBe('DIRECT')
+
+    expect(lowestScenarios(tied, 'attained_cii')).toEqual(['SLOW_STEAMING'])
+    // 감속을 빼면 직항·우회가 동률이다.
+    expect(lowestScenarios(tied.slice(0, 2), 'attained_cii')).toEqual(['DIRECT', 'DETOUR'])
   })
 
-  it('빈 배열은 null', () => {
-    expect(lowestScenario([], 'attained_cii')).toBeNull()
+  it('표기가 달라도 값이 같으면 동률이다 — 5.0과 5.00', () => {
+    // 문자열 비교가 아니라 십진 비교임을 고정한다.
+    const tied = [
+      scenario('DIRECT', { cii: '5.0', hours: '10', fuel: '50' }),
+      scenario('DETOUR', { cii: '5.00', hours: '10', fuel: '50.0' }),
+    ]
+    expect(lowestScenarios(tied, 'attained_cii')).toEqual(['DIRECT', 'DETOUR'])
+    expect(lowestScenarios(tied, 'fuel_ton')).toEqual(['DIRECT', 'DETOUR'])
+  })
+
+  it('빈 배열은 빈 배열', () => {
+    expect(lowestScenarios([], 'attained_cii')).toEqual([])
   })
 })
 
@@ -116,11 +132,23 @@ describe('lowestSummary', () => {
       scenario('DETOUR', { cii: '5.219657', hours: '75.0000', fuel: '88.00' }),
       scenario('SLOW_STEAMING', { cii: '4.297320', hours: '76.9231', fuel: '69.00' }),
     ])
-    expect(summary.map((s) => `${s.label}: ${s.scenarioType}`)).toEqual([
+    expect(summary.map((s) => `${s.label}: ${s.scenarioTypes.join(' · ')}`)).toEqual([
       'CII가 가장 낮은 시나리오: SLOW_STEAMING',
       '소요시간이 가장 짧은 시나리오: DIRECT',
       '연료 사용량이 가장 낮은 시나리오: SLOW_STEAMING',
     ])
+  })
+
+  it('동률이면 세 줄 중 해당 줄에 둘이 실린다 (#799)', () => {
+    const summary = lowestSummary([
+      scenario('DIRECT', { cii: '4.982400', hours: '71.4286', fuel: '80.00' }),
+      scenario('DETOUR', { cii: '4.982400', hours: '75.0000', fuel: '84.00' }),
+    ])
+
+    expect(summary[0].scenarioTypes).toEqual(['DIRECT', 'DETOUR'])
+    // 나머지 축은 실제로 갈린다 — 우회의 대가가 드러나는 자리다.
+    expect(summary[1].scenarioTypes).toEqual(['DIRECT'])
+    expect(summary[2].scenarioTypes).toEqual(['DIRECT'])
   })
 })
 
