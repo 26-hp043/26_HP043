@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.errors import ValidationError
 from cii_platform.services.annual_simulation import run_annual_simulation
+from cii_platform.services.voyage_cii import DISCLAIMER
 
 YEAR = 2026
 AS_OF = datetime(YEAR, 7, 1, tzinfo=UTC)
@@ -142,8 +143,59 @@ async def test_response_carries_the_four_blocks(session, vessel_id):
     result = await _run(session, vessel_id)
 
     for key in ("deterministic", "monte_carlo", "sensitivity_analysis", "snapshot"):
-        assert key in result, key
-    assert result["risk_level"] in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+        assert key in result["data"], key
+    assert result["data"]["risk_level"] in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+
+@pytest.mark.asyncio
+async def test_response_follows_the_calculation_envelope(session, vessel_id):
+    """`API_SPEC §1.3.1` 계산 결과 응답 봉투 — 기능①·②와 **같은 최상위 키**다 (#752).
+
+    종전에는 `data` 하나뿐이라 `disclaimer`·해시·`parameters_used`가 전부 빠져 있었다.
+    그중 `disclaimer` 누락은 `PRD §0.3`(제품 내 모든 결과에 고지) 위반이다 — 화면이
+    자체 상수로 그리고 있어 눈에 띄지 않았을 뿐, 리포트·외부 소비처가 생기면 그대로
+    빠진다.
+
+    **집합 동등으로 본다.** 부분집합 비교로 두면 나중에 필드가 하나 빠져도 통과한다.
+    """
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+
+    result = await _run(session, vessel_id)
+
+    # `_duration_ms`는 라우트가 `meta.duration_ms`로 옮기고 응답에서 빼는 내부 키다.
+    assert set(result) == {
+        "data",
+        "parameters_used",
+        "calculation_run_id",
+        "model_version",
+        "input_hash",
+        "parameter_hash",
+        "warnings",
+        "disclaimer",
+        "_duration_ms",
+    }
+
+    # **`data` 밖으로 옮긴 두 개가 안에 남아 있지 않다** — 같은 값이 두 곳에 있으면
+    # 어긋났을 때 어느 쪽이 정본인지 알 수 없다 (#752).
+    assert "calculation_run_id" not in result["data"]
+    assert "warnings" not in result["data"]
+
+    assert result["disclaimer"] == DISCLAIMER
+    assert result["input_hash"].startswith("sha256:")
+    assert result["parameter_hash"].startswith("sha256:")
+    # `#816`으로 정본 6필드가 됐다. 봉투가 그 값을 그대로 올리는지 본다.
+    assert set(result["model_version"]) == {
+        "engine",
+        "decimal_precision",
+        "decimal_rounding",
+        "rng_algorithm",
+        "numpy_version",
+        "python_version",
+    }
+    # `TECH_SPEC §5.2.1.1` — 분포 프로파일이 응답에서 보여야 한다. 빠지면 분포가
+    # 바뀐 뒤 같은 seed로 돌려도 결과가 달라지는데 그 사실이 드러날 자리가 없다.
+    assert "simulation_profile" in result["parameters_used"]
+    assert result["_duration_ms"] >= 1
 
 
 @pytest.mark.asyncio
@@ -156,8 +208,8 @@ async def test_policy_decides_actual_versus_plan(session, vessel_id):
 
     result = await _run(session, vessel_id)
 
-    assert result["deterministic"]["completed_voyage_count"] == 1
-    assert result["deterministic"]["remaining_voyage_count"] == 1
+    assert result["data"]["deterministic"]["completed_voyage_count"] == 1
+    assert result["data"]["deterministic"]["remaining_voyage_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -169,9 +221,9 @@ async def test_risk_comes_from_probability_not_margin(session, vessel_id):
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
     result = await _run(session, vessel_id)
 
-    probability = Decimal(result["monte_carlo"]["target_success_probability"])
-    expected = "LOW" if probability >= Decimal("0.8") else result["risk_level"]
-    assert result["risk_level"] == expected
+    probability = Decimal(result["data"]["monte_carlo"]["target_success_probability"])
+    expected = "LOW" if probability >= Decimal("0.8") else result["data"]["risk_level"]
+    assert result["data"]["risk_level"] == expected
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -185,11 +237,11 @@ async def test_snapshot_records_the_voyages_used(session, vessel_id):
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED")
 
     result = await _run(session, vessel_id)
-    assert result["snapshot"]["voyage_count"] == 2
+    assert result["data"]["snapshot"]["voyage_count"] == 2
 
     stored = await session.scalar(
         text("SELECT jsonb_array_length(voyages_json) FROM simulation_snapshot WHERE id = :id"),
-        {"id": result["snapshot"]["snapshot_id"]},
+        {"id": result["data"]["snapshot"]["snapshot_id"]},
     )
     assert stored == 2
 
@@ -214,7 +266,7 @@ async def test_snapshot_survives_later_edits(session, vessel_id):
         text(
             "SELECT voyages_json->0->>'actual_distance_nm' FROM simulation_snapshot WHERE id = :id"
         ),
-        {"id": result["snapshot"]["snapshot_id"]},
+        {"id": result["data"]["snapshot"]["snapshot_id"]},
     )
     assert stored is not None and "99999" not in stored
 
@@ -230,7 +282,7 @@ async def test_snapshot_keeps_the_cf_used(session, vessel_id):
             "SELECT voyages_json->0->'fuel_uses'->0->>'cf_used' FROM simulation_snapshot "
             "WHERE id = :id"
         ),
-        {"id": result["snapshot"]["snapshot_id"]},
+        {"id": result["data"]["snapshot"]["snapshot_id"]},
     )
     assert stored == "3.114000"
 
@@ -264,10 +316,10 @@ async def test_same_seed_reproduces_the_same_result(session, vessel_id):
     second = await _run(session, vessel_id, random_seed=777)
 
     assert (
-        first["monte_carlo"]["rating_probabilities"]
-        == second["monte_carlo"]["rating_probabilities"]
+        first["data"]["monte_carlo"]["rating_probabilities"]
+        == second["data"]["monte_carlo"]["rating_probabilities"]
     )
-    assert first["monte_carlo"]["p50"] == second["monte_carlo"]["p50"]
+    assert first["data"]["monte_carlo"]["p50"] == second["data"]["monte_carlo"]["p50"]
 
 
 @pytest.mark.asyncio
@@ -277,7 +329,7 @@ async def test_server_generates_a_seed_when_omitted(session, vessel_id):
     result = await _run(session, vessel_id, random_seed=None)
 
     # `TECH_SPEC §2.2.2` — seed는 128-bit hex 문자열로 실린다 (#751).
-    entropy = result["monte_carlo"]["rng_metadata"]["seed_entropy"]
+    entropy = result["data"]["monte_carlo"]["rng_metadata"]["seed_entropy"]
     assert isinstance(entropy, str)
     assert int(entropy, 16) > 0
 
@@ -319,7 +371,7 @@ async def test_sensitivity_always_carries_the_interaction_note(session, vessel_i
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED")
 
     result = await _run(session, vessel_id)
-    assert "복합 효과" in result["sensitivity_analysis"]["interaction_note"]
+    assert "복합 효과" in result["data"]["sensitivity_analysis"]["interaction_note"]
 
 
 @pytest.mark.asyncio

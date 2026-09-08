@@ -261,10 +261,10 @@ describe('기능② — 비교 결과가 표 문자열이 된다', () => {
   })
 })
 
+// `API_SPEC §1.3.1` 봉투 (`#752`) — `calculation_run_id`·`warnings`는 `data` 밖이다.
 const ANNUAL_BODY = {
   data: {
     simulation_id: 'sim-1',
-    calculation_run_id: 'run-1',
     deterministic: {
       projected_attained_cii: '5.0248000000',
       projected_rating: 'C',
@@ -295,9 +295,15 @@ const ANNUAL_BODY = {
     risk_level: 'HIGH',
     sensitivity_analysis: { interaction_note: '개별 효과만 표시합니다.' },
     snapshot: { snapshot_id: 'snap-1', created_at: '2026-08-17T00:00:00Z', voyage_count: 12 },
-    warnings: ['REFERENCE_ONLY'],
   },
-  meta: { request_id: 'r', timestamp: 't' },
+  parameters_used: { regulation_year: { year: '2026', z_factor_percent: '11.0000' } },
+  calculation_run_id: 'run-1',
+  model_version: { engine: 'annual_simulation' },
+  input_hash: 'sha256:aa',
+  parameter_hash: 'sha256:bb',
+  warnings: ['REFERENCE_ONLY'],
+  disclaimer: '참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.',
+  meta: { request_id: 'r', timestamp: 't', duration_ms: 2840 },
 }
 
 describe('기능③ — 연간 시뮬레이션 표시값', () => {

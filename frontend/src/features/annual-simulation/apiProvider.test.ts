@@ -14,10 +14,11 @@ const REQUEST: AnnualSimulationRequest = {
   simulation_runs: 5000,
 }
 
+// `API_SPEC §1.3.1` 계산 결과 응답 봉투 (`#752`) — `calculation_run_id`와 `warnings`는
+// **`data` 밖**이다. 기능①·②도 최상위로 낸다.
 const OK_BODY = {
   data: {
     simulation_id: 'sim-1',
-    calculation_run_id: 'run-1',
     deterministic: {
       projected_attained_cii: '5.0248000000',
       projected_rating: 'C',
@@ -54,9 +55,15 @@ const OK_BODY = {
     risk_level: 'HIGH',
     sensitivity_analysis: { interaction_note: '개별 효과만 표시합니다.' },
     snapshot: { snapshot_id: 'snap-1', created_at: '2026-08-17T00:00:00Z', voyage_count: 12 },
-    warnings: ['REFERENCE_ONLY'],
   },
-  meta: { request_id: 'r', timestamp: 't' },
+  parameters_used: { regulation_year: { year: '2026', z_factor_percent: '11.0000' } },
+  calculation_run_id: 'run-1',
+  model_version: { engine: 'annual_simulation' },
+  input_hash: 'sha256:aa',
+  parameter_hash: 'sha256:bb',
+  warnings: ['REFERENCE_ONLY'],
+  disclaimer: '참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.',
+  meta: { request_id: 'r', timestamp: 't', duration_ms: 2840 },
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -130,5 +137,33 @@ describe('오류', () => {
     await expect(createApiAnnualSimulationProvider({ fetchImpl }).run(REQUEST)).rejects.toThrow(
       MALFORMED_ERROR_MESSAGE,
     )
+  })
+
+  // `#752` — 봉투의 최상위 필드가 빠지면 **조용히 넘어가지 않는다.**
+  //
+  // 빈 배열·빈 문자열로 채우면 「경고가 없다」와 「경고를 받지 못했다」가 화면에서
+  // 같아 보인다. 앞의 것은 정상이고 뒤의 것은 계약 위반이라, 뭉치면 서버가 필드를
+  // 빠뜨려도 아무도 모른다 — 이 이슈가 보고한 상태가 정확히 그것이다.
+  it.each([
+    ['calculation_run_id', { ...OK_BODY, calculation_run_id: undefined }],
+    ['warnings', { ...OK_BODY, warnings: undefined }],
+    ['calculation_run_id가 문자열이 아님', { ...OK_BODY, calculation_run_id: 42 }],
+    ['warnings가 배열이 아님', { ...OK_BODY, warnings: 'REFERENCE_ONLY' }],
+  ])('봉투에 %s 문제가 있으면 형식 오류다', async (_label, body) => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+    await expect(createApiAnnualSimulationProvider({ fetchImpl }).run(REQUEST)).rejects.toThrow(
+      MALFORMED_ERROR_MESSAGE,
+    )
+  })
+
+  it('봉투의 최상위 필드를 결과에 합친다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+
+    const result = await createApiAnnualSimulationProvider({ fetchImpl }).run(REQUEST)
+
+    // 화면 타입은 그대로다 — 합치는 자리가 provider 경계다 (`#752`).
+    expect(result.calculation_run_id).toBe('run-1')
+    expect(result.warnings).toEqual(['REFERENCE_ONLY'])
+    expect(result.simulation_id).toBe('sim-1')
   })
 })

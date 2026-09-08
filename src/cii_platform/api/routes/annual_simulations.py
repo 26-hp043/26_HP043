@@ -35,6 +35,19 @@ def _meta(request: Request, **extra: object) -> dict[str, object]:
     }
 
 
+def _with_meta(request: Request, result: dict[str, object]) -> dict[str, object]:
+    """서비스가 만든 ``API_SPEC §1.3.1`` 봉투에 ``meta``를 붙인다 (#752).
+
+    서비스가 잰 계산 시간을 ``meta.duration_ms``로 옮기고 내부 키(``_duration_ms``)는
+    응답에서 뺀다 — 기능①(``routes/calculations.py:116-123``)과 같은 방식이다.
+    **시간을 여기서 재지 않는 이유**는 라우트에서 재면 요청 파싱·직렬화가 섞여
+    ``PRD §16.1``의 「Monte Carlo 5,000회 p95 < 3초」와 다른 것을 재기 때문이다.
+    """
+    duration_ms = result.pop("_duration_ms")
+    result["meta"] = _meta(request, duration_ms=duration_ms)
+    return result
+
+
 @router.post("/annual-simulations")
 async def run_annual_simulation_route(
     request: Request,
@@ -58,7 +71,7 @@ async def run_annual_simulation_route(
         distribution_profile=payload.distribution_profile,
         as_of=payload.as_of,
     )
-    return {"data": data, "meta": _meta(request)}
+    return _with_meta(request, data)
 
 
 @router.get("/annual-simulations/{simulation_run_id}")
@@ -75,7 +88,7 @@ async def get_annual_simulation_route(
     결과가 돌아올 수 있다.** 리소스 이름(`annual-simulations`)과 같은 것을 받는다.
     """
     data = await get_annual_simulation(session, simulation_run_id)
-    return {"data": data, "meta": _meta(request)}
+    return _with_meta(request, data)
 
 
 @router.get("/annual-simulations/{simulation_run_id}/snapshot-voyages")
@@ -128,4 +141,4 @@ async def reproduce_annual_simulation_route(
     필요해지면 `AGENTS §3.2.3`에 따라 `PRD §5` 개정이 먼저다.
     """
     data = await reproduce_annual_simulation(session, simulation_run_id)
-    return {"data": data, "meta": _meta(request)}
+    return _with_meta(request, data)

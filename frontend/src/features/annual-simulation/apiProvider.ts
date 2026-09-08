@@ -124,12 +124,35 @@ export function createApiAnnualSimulationProvider(
       }
       if (!response.ok) throw toAnnualSimulationError(response.status, body)
 
-      const data = (body as { data?: unknown } | null)?.data
+      const envelope = body as {
+        data?: unknown
+        calculation_run_id?: unknown
+        warnings?: unknown
+      } | null
+      const data = envelope?.data
       if (data === null || typeof data !== 'object') {
         throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
       }
+
+      // `calculation_run_id`와 `warnings`는 **`data` 밖**에 있다 (`API_SPEC §1.3.1`,
+      // `#752`). 기능①·②도 최상위로 낸다. 화면 타입(`AnnualSimulationResult`)은
+      // 그대로 두고 **여기서 합친다** — provider 경계가 이런 용도로 있다.
+      //
+      // 값이 없으면 던진다. 조용히 빈 배열·빈 문자열로 채우면 「경고가 없다」와
+      // 「경고를 받지 못했다」가 구분되지 않는데, 앞의 것은 정상이고 뒤의 것은 계약
+      // 위반이다.
+      const runId = envelope?.calculation_run_id
+      const warnings = envelope?.warnings
+      if (typeof runId !== 'string' || !Array.isArray(warnings)) {
+        throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
+      }
+
       // Layer 1 값을 손대지 않고 그대로 넘긴다.
-      return data as AnnualSimulationResult
+      return {
+        ...(data as Omit<AnnualSimulationResult, 'calculation_run_id' | 'warnings'>),
+        calculation_run_id: runId,
+        warnings: warnings as string[],
+      }
     },
   }
 }
