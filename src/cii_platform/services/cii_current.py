@@ -86,6 +86,15 @@ WARNING_SIM_NO_FUEL_RATE = "SIMULATION_NO_FUEL_RATE"
 #: CF를 붙일 수 없어 같은 이유로 진행분을 넣지 않았다.
 WARNING_SIM_NO_FUEL_TYPE = "SIMULATION_NO_FUEL_TYPE"
 
+#: 기준 속도가 없어 진행분 연료에 cubic speed model 보정을 못 했다
+#: (`TECH_SPEC §12.3`, #796).
+#:
+#: 배수 1로 쌓되 **조용히 넘어가지 않는다.** 소모율도 속도도 있고 모르는 것이
+#: 보정 계수 하나뿐이라 기여를 통째로 빼지는 않지만, 값이 정확하지 않다는 사실은
+#: 화면이 말할 수 있어야 사용자가 제원을 채운다 — `SIMULATION_NO_FUEL_RATE`와
+#: 같은 방식이다.
+WARNING_SIM_NO_REFERENCE_SPEED = "SIMULATION_NO_REFERENCE_SPEED"
+
 #: 진행 중 항차가 **도착 예정일을 지났는데 도착 실적이 없다** (`#649`).
 #: 누적은 예정일까지만 반영했다 — 상한이 없으면 계획을 아무리 넘겨도 거리·연료가
 #: 계속 자란다(출항 90일 뒤면 계획의 7배). 실사용에서 이 상태는 「운항이 계속되고
@@ -370,6 +379,10 @@ async def _resolve_progress(session: AsyncSession, *, vessel, voyage, as_of: dat
         planned_arrival_at=voyage.planned_arrival_at,
         speed_kn=voyage.planned_speed_kn or vessel.reference_speed_kn,
         daily_foc_ton=vessel.reference_daily_foc_ton,
+        # cubic speed model의 기준점 (`TECH_SPEC §4.1`, `#796`). 종전에는 넘기지
+        # 않아 **거리는 계획 속도로 늘리면서 연료는 기준 속도의 소모율을 그대로**
+        # 곱했다 — 계획 14 kn · 기준 12 kn이면 연료가 1.588배 과소 산출된다.
+        reference_speed_kn=vessel.reference_speed_kn,
         not_underway_periods=[
             NotUnderwayWindow(started_at=p.started_at, ended_at=p.ended_at) for p in periods
         ],
@@ -491,6 +504,11 @@ async def resolve_in_progress_state(
     # 들어가고, 그때도 「왜 더 늘지 않는가」를 화면이 말해야 한다.
     if progress.past_planned_arrival:
         warnings.append(WARNING_IN_PROGRESS_PAST_ETA)
+
+    # 보정을 못 한 사실은 **값이 들어갔을 때만** 알린다 — 진행분이 0이면 보정
+    # 여부가 결과에 아무 영향이 없고, 그때 경고를 띄우면 고칠 것이 없는 안내가 된다.
+    if progress.speed_uncorrected:
+        warnings.append(WARNING_SIM_NO_REFERENCE_SPEED)
 
     return InProgressState(
         voyage, progress, contribution, fuel_code, warnings, voyage.regulation_year

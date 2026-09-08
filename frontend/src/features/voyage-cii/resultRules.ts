@@ -195,6 +195,8 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
     '선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다.',
   SIMULATION_PLAN_NO_FUEL:
     '연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요.',
+  SIMULATION_NO_REFERENCE_SPEED:
+    '기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요.',
 }
 
 export function warningMessage(code: string): string {

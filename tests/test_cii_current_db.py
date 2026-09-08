@@ -507,3 +507,35 @@ async def test_capacity_basis_comes_from_the_server(session):
     vessel_id = await _make_vessel(session)
     data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
     assert data["transport_capacity_basis"] == "DWT"
+
+
+@pytest.mark.asyncio
+async def test_warns_when_reference_speed_is_missing(session):
+    """기준 속도가 없으면 **보정을 못 했다는 사실을 알린다** (#796).
+
+    배수 1로 쌓되 조용히 넘어가지 않는다. 소모율도 속도도 있고 모르는 것이 보정
+    계수 하나뿐이라 기여를 통째로 빼지는 않지만, 값이 정확하지 않다는 사실은 화면이
+    말할 수 있어야 사용자가 제원을 채운다.
+    """
+    vessel_id = await _make_vessel(session, speed=None)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    # 항차 계획 속도는 있다 — 없는 것은 **선박 기준 속도**뿐이다.
+    await _make_voyage(session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC))
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    assert "SIMULATION_NO_REFERENCE_SPEED" in data["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_no_reference_speed_warning_when_the_spec_is_present(session):
+    """제원이 있으면 경고가 **붙지 않는다** — 늘 붙으면 판정이 무의미하다 (#796)."""
+    vessel_id = await _make_vessel(session)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    await _make_voyage(session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC))
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    assert "SIMULATION_NO_REFERENCE_SPEED" not in data["warnings"]

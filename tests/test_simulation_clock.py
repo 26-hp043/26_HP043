@@ -17,11 +17,13 @@ DB를 쓰지 않는다 — 이 모듈은 이미 읽어 온 행을 받는 순수 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pytest
 
+from cii_platform.calc.fuel_estimator import estimate_fuel_ton
 from cii_platform.calc.hash import INPUT_FIELDS, compute_input_hash
+from cii_platform.calc.precision import LAYER1_ROUNDING, LAYER1_WORKING_PRECISION
 from cii_platform.services.simulation_clock import (
     NotUnderwayWindow,
     compute_progress,
@@ -282,6 +284,11 @@ def test_missing_speed_or_foc_yields_zero_without_guessing():
 
     ``reference_daily_foc_ton``은 nullable이다(DB_SCHEMA §2.1). 기본값을 넣으면
     화면이 근거 없는 연료를 표시한다.
+
+    ``#796`` 정정 — 종전에는 속도가 없어도 연료가 쌓였다(*"연료는 속도와 무관하다"*).
+    cubic speed model(`TECH_SPEC §4.1`)에서 **연료는 속도의 함수**이므로 그 전제가
+    성립하지 않는다. 속도가 없으면 거리도 0이라, 연료만 쌓으면 **분자만 늘고 분모는
+    그대로**가 되어 항해할수록 등급이 나빠진다 — 방향만 반대일 뿐 같은 종류의 오류다.
     """
     as_of = DEPARTURE + timedelta(hours=6)
 
@@ -289,7 +296,7 @@ def test_missing_speed_or_foc_yields_zero_without_guessing():
     no_foc = _progress(as_of, daily_foc_ton=None)
 
     assert no_speed.distance_nm == Decimal(0)
-    assert no_speed.fuel_ton == Decimal("7.5")  # 연료는 속도와 무관하다
+    assert no_speed.fuel_ton == Decimal(0)
     assert no_foc.fuel_ton == Decimal(0)
     assert no_foc.distance_nm == Decimal("72")
 
@@ -405,3 +412,87 @@ def test_accumulation_is_linear_in_elapsed_hours(hours: int):
 
     assert result.distance_nm == SPEED * Decimal(hours)
     assert result.fuel_ton == DAILY_FOC * Decimal(hours) / Decimal("24")
+
+
+# --- 6. cubic speed model (#796) --------------------------------------------------
+
+
+def test_fuel_follows_the_cubic_speed_model():
+    """진행분 연료가 ``(v / v_ref)³``만큼 커진다 (`TECH_SPEC §4.1`, #796).
+
+    종전에는 **거리는 항차의 계획 속도로 늘리면서 연료는 선박 기준 속도의 소모율을
+    그대로** 곱했다. 계획 14 kn · 기준 12 kn이면 연료가 1.588배 **과소** 산출된다 —
+    과소는 「등급이 좋아 보이는」 방향이라 사용자가 조치를 미룬다.
+    """
+    as_of = DEPARTURE + timedelta(hours=24)
+
+    # 계획 14 kn · 기준 12 kn · 소모율 30 t/일(12 kn 기준)
+    faster = _progress(as_of, speed_kn=Decimal("14"), reference_speed_kn=Decimal("12"))
+
+    # **같은 정밀도 컨텍스트에서 기대값을 만든다.** 엔진은 Layer 1(`prec=30`,
+    # `TECH_SPEC §1.2.1`)에서 계산하는데 테스트가 기본 컨텍스트(`prec=28`)로 계산하면
+    # 끝자리가 갈려, 식이 맞아도 실패한다.
+    with localcontext(prec=LAYER1_WORKING_PRECISION, rounding=LAYER1_ROUNDING):
+        expected = DAILY_FOC * (Decimal("14") / Decimal("12")) ** 3
+
+    assert faster.fuel_ton == expected
+    assert faster.speed_uncorrected is False
+
+    # 보정 전 값과 **다르다** — 이 단언이 없으면 보정을 지워도 통과할 수 있다.
+    assert faster.fuel_ton != DAILY_FOC
+
+
+def test_reference_speed_equal_to_plan_leaves_fuel_unchanged():
+    """계획 속도 = 기준 속도면 배수가 1이라 값이 그대로다 (#796).
+
+    보정이 **늘 값을 바꾸는 것이 아님**을 고정한다. 이것이 없으면 배수를 아무 상수로
+    두어도 위 검사만으로는 드러나지 않는다.
+    """
+    as_of = DEPARTURE + timedelta(hours=24)
+
+    same = _progress(as_of, speed_kn=SPEED, reference_speed_kn=SPEED)
+
+    assert same.fuel_ton == DAILY_FOC
+
+
+def test_missing_reference_speed_accrues_without_correction_and_flags_it():
+    """기준 속도가 없으면 **배수 1로 쌓되 그 사실을 남긴다** (#796).
+
+    기여를 통째로 빼지 않는 이유는 소모율도 속도도 있고 **모르는 것이 보정 계수
+    하나뿐**이기 때문이다. 배수 1은 「계획 속도가 곧 기준 속도」라는 가정이며 어느
+    방향으로도 치우치지 않는다.
+
+    대신 조용히 넘어가지 않는다 — 호출부가 이 플래그를 보고
+    ``SIMULATION_NO_REFERENCE_SPEED``를 싣는다.
+    """
+    as_of = DEPARTURE + timedelta(hours=24)
+
+    unknown = _progress(as_of, speed_kn=Decimal("14"), reference_speed_kn=None)
+
+    assert unknown.fuel_ton == DAILY_FOC
+    assert unknown.speed_uncorrected is True
+
+
+def test_clock_and_scenario_agree_on_the_same_input():
+    """**시계와 기능②가 같은 입력에서 같은 연료를 낸다** (#796) — 완료 기준 2번.
+
+    같은 저장소 안에서 기능②는 cubic을 쓰고 실시간 CII의 진행분은 쓰지 않았다.
+    두 경로가 각자 계산하면 **같은 배·같은 속도인데 화면마다 연료가 다르다.**
+
+    여기서 대조하는 것은 값 하나가 아니라 **두 경로가 같은 식을 쓴다는 사실**이다.
+    """
+    hours = Decimal("24")
+    as_of = DEPARTURE + timedelta(hours=int(hours))
+    speed = Decimal("14")
+    reference = Decimal("12")
+
+    from_clock = _progress(as_of, speed_kn=speed, reference_speed_kn=reference)
+    from_scenario = estimate_fuel_ton(
+        distance_nm=speed * hours,
+        speed_kn=speed,
+        reference_speed_kn=reference,
+        base_daily_foc_ton=DAILY_FOC,
+    )
+
+    assert from_clock.distance_nm == speed * hours
+    assert from_clock.fuel_ton == from_scenario
