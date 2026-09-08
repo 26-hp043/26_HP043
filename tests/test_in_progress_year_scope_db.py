@@ -37,7 +37,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.fleet_summary import get_fleet_summary
 from cii_platform.services.report import build_annual_report
-from tests.test_ytd_definition_sync_db import _add_confirmed, _seed_parameters
 
 YEAR = 2026
 PAST = 2025
@@ -55,19 +54,76 @@ async def session(conn):
         yield db
 
 
+async def _seed_parameters(session, *, years: tuple[int, ...]) -> None:
+    """규정 파라미터. 이미 있으면 넣지 않는다(세션 seed와 공존).
+
+    **다른 테스트 파일에서 가져오지 않는다.** ``tests``는 패키지가 아니라
+    (``__init__.py``가 없다) 모듈 간 import가 CI에서 ``ModuleNotFoundError``로
+    깨진다 — DB 테스트마다 이 헬퍼를 각자 두는 것이 이 저장소의 관례다.
+    """
+    for year in years:
+        await session.execute(
+            text(
+                "INSERT INTO regulation_year "
+                "(year, z_factor_percent, effective_from, source_ref, version) "
+                "SELECT :y, 9.0, '2025-01-01', 'TEST', '1.0' "
+                "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = :y)"
+            ),
+            {"y": year},
+        )
+    await session.execute(
+        text(
+            "INSERT INTO cii_reference_line "
+            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
+            "WHERE NOT EXISTS "
+            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
+        )
+    )
+    await session.execute(
+        text(
+            "INSERT INTO cii_rating_boundary "
+            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
+            "WHERE NOT EXISTS "
+            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
+        )
+    )
+
+
+async def _add_confirmed(session, vessel_id, *, year: int) -> None:
+    """그 해의 실적 확정 항차 1건 — 5,000 nm · HFO 400 t."""
+    voyage_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO voyage (id, vessel_id, status, departure_port_name, "
+            "arrival_port_name, planned_distance_nm, planned_speed_kn, "
+            "actual_distance_nm, actual_arrival_at, annual_inclusion_policy, "
+            "regulation_year, created_from) "
+            "VALUES (:id, :vid, 'CONFIRMED', 'Busan', 'Singapore', 5000, 14, "
+            "5000, :arrived, 'INCLUDE_AS_ACTUAL', :year, 'MANUAL')"
+        ),
+        {
+            "id": voyage_id,
+            "vid": vessel_id,
+            "year": year,
+            "arrived": datetime(year, 6, 20, tzinfo=UTC),
+        },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
+            "actual_fuel_ton, cf_used, source) VALUES (:id, 'HFO', 400, 400, "
+            "3.114, 'USER_INPUT')"
+        ),
+        {"id": voyage_id},
+    )
+
+
 @pytest_asyncio.fixture
 async def vessel(session):
     """작년 확정 실적 + **올해** 진행 중 항차를 가진 선박."""
-    await _seed_parameters(session)
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "SELECT :y, 9.0, '2025-01-01', 'TEST', '1.0' "
-            "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = :y)"
-        ),
-        {"y": PAST},
-    )
+    await _seed_parameters(session, years=(PAST, YEAR))
 
     vessel_id = uuid4()
     await session.execute(
