@@ -170,6 +170,10 @@ WARNING_LABELS: dict[str, str] = {
         "연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. "
         "항차에 연료를 입력해 주세요."
     ),
+    "SIMULATION_NO_REFERENCE_SPEED": (
+        "기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. "
+        "선박 제원에 기준 속력을 입력해 주세요."
+    ),
 }
 
 #: 연말 예상을 내지 못한 사유 — 화면(``realtimeRules.ts`` ``PROJECTION_REASONS``)과 같은 값.

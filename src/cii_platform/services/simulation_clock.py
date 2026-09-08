@@ -41,6 +41,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from cii_platform.calc.fuel_estimator import MIN_SPEED_KN, estimate_fuel_ton
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -91,6 +93,10 @@ class VoyageProgress:
         지났는가 (`#649`). 이때 누적은 예정일까지만 세지만, **그 사실이 응답에
         드러나지 않으면 사용자는 값이 왜 멈췄는지 알 수 없다.** 호출부가 이 플래그를
         보고 ``IN_PROGRESS_PAST_ETA`` 경고를 싣는다.
+    :param speed_uncorrected: ``reference_speed_kn``이 없어 cubic speed model의
+        ``speed_factor``를 적용하지 못했는가 (`#796`). 이때 연료는 배수 1로 쌓인다 —
+        「계획 속도가 곧 기준 속도」라는 가정이며, 어느 방향으로도 치우치지 않지만
+        **정확한 값은 아니다.** 호출부가 이 플래그를 보고 경고를 싣는다.
     """
 
     as_of: datetime
@@ -99,6 +105,7 @@ class VoyageProgress:
     fuel_ton: Decimal
     is_simulated: bool
     past_planned_arrival: bool = False
+    speed_uncorrected: bool = False
 
 
 def _overlap_hours(
@@ -132,6 +139,7 @@ def compute_progress(
     arrival_at: datetime | None,
     speed_kn: Decimal | None,
     daily_foc_ton: Decimal | None,
+    reference_speed_kn: Decimal | None = None,
     planned_arrival_at: datetime | None = None,
     not_underway_periods: Iterable[NotUnderwayWindow] = (),
 ) -> VoyageProgress:
@@ -209,7 +217,13 @@ def compute_progress(
     underway_hours = max(elapsed_hours - nuw_hours, zero)
 
     distance_nm = (speed_kn or zero) * underway_hours
-    fuel_ton = (daily_foc_ton or zero) * underway_hours / HOURS_PER_DAY
+    fuel_ton, speed_uncorrected = _accrued_fuel(
+        distance_nm=distance_nm,
+        speed_kn=speed_kn,
+        reference_speed_kn=reference_speed_kn,
+        daily_foc_ton=daily_foc_ton,
+        underway_hours=underway_hours,
+    )
 
     return VoyageProgress(
         as_of=as_of,
@@ -218,4 +232,72 @@ def compute_progress(
         fuel_ton=fuel_ton,
         is_simulated=is_simulated and underway_hours > zero,
         past_planned_arrival=past_planned_arrival,
+        speed_uncorrected=speed_uncorrected,
+    )
+
+
+def _accrued_fuel(
+    *,
+    distance_nm: Decimal,
+    speed_kn: Decimal | None,
+    reference_speed_kn: Decimal | None,
+    daily_foc_ton: Decimal | None,
+    underway_hours: Decimal,
+) -> tuple[Decimal, bool]:
+    """진행분 연료를 cubic speed model로 낸다 (`TECH_SPEC §4.1`, #796).
+
+    종전에는 ``daily_foc_ton × underway_hours / 24``였다 — **거리는 항차의 계획
+    속도로 늘리면서 연료는 선박 기준 속도의 소모율을 그대로 곱했다.** 계획 14 kn ·
+    기준 12 kn이면 연료가 ``(14/12)³ = 1.588``배만큼 **과소** 산출된다. 과소는
+    「등급이 좋아 보이는」 방향이라 사용자가 조치를 미룬다.
+
+    같은 저장소의 기능②는 이미 이 식을 쓴다 — 한 경로만 규정을 벗어나 있었다.
+
+    **식을 여기서 다시 쓰지 않고 :func:`estimate_fuel_ton`에 위임한다.** 시계에는
+    ``underway_hours``가 있고 그 함수는 ``distance / speed / 24``로 기간을 구하는데,
+    ``distance = speed × underway_hours``이므로 **둘이 같은 값**이다. 즉 not under way
+    시간을 뺀 계산이 그대로 보존되고 달라지는 것은 ``speed_factor`` 하나다.
+
+    ``weather_factor``는 **적용하지 않는다.** 시계는 기상 스냅샷을 모르고 경과
+    구간의 기상 이력도 갖고 있지 않다. 없는 값을 지어내면 **사용자가 볼 수 없는
+    데이터에 누적량이 의존**하게 된다. 기본값 ``DEFAULT_WEATHER_FACTOR``(=
+    ``weather_model=NONE``, ``TECH_SPEC §4.4``)를 그대로 쓴다.
+
+    :returns: ``(연료 ton, 속도 보정을 못 했는가)``
+    """
+    zero = Decimal(0)
+
+    # `estimate_fuel_ton`의 가드(`TECH_SPEC §4.2`)에 걸릴 입력은 **여기서 거른다.**
+    # 시계에서 이 상태들은 오류가 아니라 정상이다 — 갓 출항한 항차·정박만 있는
+    # 구간·소모율 미등록 선박. 예외를 밖으로 내보내면 조회가 500이 되고 화면이
+    # 값을 아예 못 본다.
+    if (
+        underway_hours <= zero
+        or distance_nm <= zero
+        or speed_kn is None
+        or speed_kn < MIN_SPEED_KN
+        or daily_foc_ton is None
+        or daily_foc_ton <= zero
+    ):
+        return zero, False
+
+    if reference_speed_kn is None or reference_speed_kn <= zero:
+        # 기준 속도가 없으면 `speed_factor`를 만들 수 없다 (`#796`).
+        #
+        # 배수 1로 쌓는다 — 「계획 속도가 곧 기준 속도」라는 가정이며 어느 방향으로도
+        # 치우치지 않는다. 기여를 통째로 빼지 않는 이유는, 소모율도 속도도 다 있고
+        # **모르는 것이 보정 계수 하나뿐**이기 때문이다.
+        #
+        # 대신 **조용히 넘어가지 않는다.** 호출부가 경고를 실어 사용자가 제원을
+        # 채울 수 있게 한다 — `SIMULATION_NO_FUEL_RATE`와 같은 방식이다.
+        return daily_foc_ton * underway_hours / HOURS_PER_DAY, True
+
+    return (
+        estimate_fuel_ton(
+            distance_nm=distance_nm,
+            speed_kn=speed_kn,
+            reference_speed_kn=reference_speed_kn,
+            base_daily_foc_ton=daily_foc_ton,
+        ),
+        False,
     )
