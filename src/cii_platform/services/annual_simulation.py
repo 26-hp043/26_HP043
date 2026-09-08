@@ -63,6 +63,11 @@ from cii_platform.errors import (
     ValidationError,
 )
 from cii_platform.services.simulation_clock import resolve_as_of
+
+# `_model_version`을 기능①에서 가져온다 — 기능②도 같은 방식이다
+# (`services/scenario_compare.py:53`). 세 기능이 같은 함수를 써야
+# `TECH_SPEC:1236-1243`의 6필드가 갈리지 않는다 (#816).
+from cii_platform.services.voyage_cii import _model_version
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
     _load_regulation_year,
@@ -829,7 +834,12 @@ async def _persist(
                 "vessel_id": vessel_id,
                 "input_hash": input_hash,
                 "parameter_hash": parameter_hash,
-                "model_version": _json({"engine": "annual_simulation", "issue": "#63"}),
+                # `TECH_SPEC:1236-1243`이 규정한 6필드를 그대로 싣는다 (#816).
+                # 종전에는 `{"engine", "issue"}` 둘뿐이라 **하필 Monte Carlo 경로에서**
+                # `rng_algorithm`·`numpy_version`이 빠져 있었다 — `§10.2`의 「NumPy
+                # 마이너 변경 → model_version에 명시」가 성립하지 않았다.
+                # 기능①·②와 같은 함수를 써서 셋이 갈릴 수 없게 한다.
+                "model_version": _json(_model_version()),
                 "result": _json(result_json),
                 "parameters": _json(parameters_used),
                 "warnings": _json(warnings),
