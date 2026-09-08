@@ -170,6 +170,10 @@ def _run_in_production() -> dict[str, int]:
         # 프로덕션 + console 메일 백엔드 조합은 기동이 실패한다 (`.env.example`).
         "MAIL_BACKEND": "smtp",
         "SMTP_HOST": "smtp.example.test",
+        # 프로덕션은 `APP_PUBLIC_URL`이 없으면 기동을 거부한다 (#809). 미설정 시
+        # 메일 링크가 요청의 `Host` 헤더를 따라가기 때문이다 — 위 두 줄과 같은
+        # 종류의 「프로덕션에서만 켜지는 기동 가드」다.
+        "APP_PUBLIC_URL": "https://bluelog.example",
         "PYTHONPATH": str(_REPO / "src"),
     }
     done = subprocess.run(
@@ -184,6 +188,39 @@ def _run_in_production() -> dict[str, int]:
 
     line = next(x for x in done.stdout.splitlines() if x.startswith("RESULT "))
     return json.loads(line.removeprefix("RESULT "))
+
+
+def test_production_app_refuses_to_start_without_the_public_url():
+    """`APP_ENV=production`에서 `APP_PUBLIC_URL`이 없으면 **앱이 뜨지 않는다** (#809).
+
+    `#809`의 완료 기준 1이며, **진짜 프로세스로** 확인한다 — 함수 단위 검사
+    (`test_mail_link.py`)는 가드가 있다는 것만 보고, 그 가드가 **기동 경로에 실제로
+    연결됐는지**는 보지 못한다. lifespan에서 호출을 빠뜨려도 그쪽은 통과한다.
+
+    미설정 시 메일 링크가 요청의 `Host` 헤더를 따라가므로, **뜨는 것 자체가 결함**이다.
+    """
+    env = {
+        **os.environ,
+        "APP_ENV": "production",
+        "DATABASE_URL": "postgresql+asyncpg://cii:cii@localhost:5432/cii",
+        "MAIL_BACKEND": "smtp",
+        "SMTP_HOST": "smtp.example.test",
+        "PYTHONPATH": str(_REPO / "src"),
+    }
+    env.pop("APP_PUBLIC_URL", None)
+
+    done = subprocess.run(
+        [sys.executable, "-c", _PROBE],
+        env=env,
+        cwd=_REPO,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert done.returncode != 0, "APP_PUBLIC_URL 없이 프로덕션 앱이 기동했다 (#809)"
+    # 막는 것만으로는 부족하다 — **사유가 드러나야** 운영자가 원인을 안다.
+    assert "APP_PUBLIC_URL" in done.stderr, done.stderr[-500:]
 
 
 def test_production_app_hides_the_docs():

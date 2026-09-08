@@ -92,6 +92,16 @@ def should_expose_api_docs() -> bool:
     return not is_production()
 
 
+#: 프로덕션에서 ``APP_PUBLIC_URL``이 없을 때의 문구 (#809). 기동 검증과 호출 시점
+#: 방어가 **같은 문장**을 쓰도록 상수로 둔다 — 두 곳이 갈리면 운영자가 같은 원인을
+#: 다른 문제로 읽는다.
+_PUBLIC_URL_REQUIRED = (
+    "APP_PUBLIC_URL 환경변수가 설정되지 않았습니다 (APP_ENV=production). "
+    "미설정 시 메일 링크가 요청의 Host 헤더를 따라가, 공격자가 그 헤더를 바꾸면 "
+    "정상 발신지에서 온 메일에 공격자 도메인 링크가 실립니다."
+)
+
+
 def public_base_url(fallback: str) -> str:
     """메일 링크의 기준 주소 (#429).
 
@@ -114,4 +124,32 @@ def public_base_url(fallback: str) -> str:
         받는다 — 이 함수가 ``Request``를 알면 레이어 방향이 뒤집힌다.
     """
     configured = os.environ.get("APP_PUBLIC_URL", "").strip()
-    return (configured or fallback).rstrip("/")
+    if configured:
+        return configured.rstrip("/")
+    if is_production():
+        raise RuntimeError(_PUBLIC_URL_REQUIRED)
+    return fallback.rstrip("/")
+
+
+def validate_public_base_url() -> None:
+    """기동 시점에 ``APP_PUBLIC_URL`` 설정을 확인한다 (#809).
+
+    ## 왜 기동 시점인가
+
+    ``#524``가 메일 백엔드에 대해 같은 판단을 했다. 가드가 **첫 발송 시도**에서야
+    돌면, 드러나는 시점이 「배포 직후」가 아니라 **「첫 사용자가 계정을 잃을 뻔한
+    순간」**이 된다.
+
+    여기서는 그보다 나쁘다 — 메일 백엔드는 실패하면 500이라도 나지만, 이쪽은
+    **아무 오류 없이 공격자 도메인 링크가 발송**된다. 조용히 성공하는 결함이다.
+
+    ## 무엇을 하지 않는가
+
+    **주소가 실제로 살아 있는지 확인하지 않는다.** 기동을 외부 가용성에 묶는 일이고,
+    형식이 맞는데 응답이 없는 것은 배포가 멈춰야 할 이유가 아니다. 여기서 보는 것은
+    **설정이 있는가**뿐이다.
+    """
+    if not is_production():
+        return
+    if not os.environ.get("APP_PUBLIC_URL", "").strip():
+        raise RuntimeError(_PUBLIC_URL_REQUIRED)

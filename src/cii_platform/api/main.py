@@ -36,7 +36,7 @@ from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.auth.middleware import auth_middleware
-from cii_platform.config import should_expose_api_docs
+from cii_platform.config import should_expose_api_docs, validate_public_base_url
 from cii_platform.mail.config import load_mail_settings
 
 # API_SPEC §1.1: 모든 API는 /api/v1 prefix 아래에 둔다.
@@ -74,6 +74,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """
     settings = load_mail_settings()
     _log.info("메일 백엔드: %s", settings.backend)
+
+    # `APP_PUBLIC_URL`도 같은 자리에서 본다 (#809).
+    #
+    # 미설정이면 메일 링크가 요청의 `Host` 헤더를 따라간다 — 공격자가 그 헤더를
+    # 바꾸면 **정상 발신지에서 온 메일에 공격자 도메인 링크**가 실리고, 클릭 한 번에
+    # 유효한 재설정 토큰이 넘어간다. 메일 백엔드 결함은 500이라도 나지만 이쪽은
+    # **아무 오류 없이 성공**한다.
+    validate_public_base_url()
+
     yield
 
 

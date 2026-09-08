@@ -51,6 +51,12 @@ services:
       # APP_ENV 미설정 시 development로 떨어져 폴백이 일어날 수 있다는 경고 신호.
       APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # :? 로 미설정을 즉시 실패시킨다 — POSTGRES_* 와 같은 이유다 (#809).
+      #
+      # 미설정 시 메일 링크가 요청의 Host 헤더를 따라간다. 앱도 기동을 거부하지만
+      # (config.validate_public_base_url), compose에서 먼저 끊으면 **컨테이너가 뜨기도
+      # 전에** 무엇이 빠졌는지 드러난다.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL 미설정 — 메일 링크가 Host 헤더를 따라갑니다}
     depends_on:
       db:
         condition: service_healthy
