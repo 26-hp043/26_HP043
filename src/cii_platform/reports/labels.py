@@ -174,6 +174,10 @@ WARNING_LABELS: dict[str, str] = {
         "기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. "
         "선박 제원에 기준 속력을 입력해 주세요."
     ),
+    "PROJECTION_NO_REMAINING_PLAN": (
+        "잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. "
+        "예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다."
+    ),
 }
 
 #: 연말 예상을 내지 못한 사유 — 화면(``realtimeRules.ts`` ``PROJECTION_REASONS``)과 같은 값.

@@ -72,15 +72,16 @@ const OK_BODY: LooseBody = {
       ratio_to_required: '1.12234',
       rating: 'C',
       risk_level: 'WATCH',
+      warnings: [],
+      // `#798` — 산출 방식이 남은 거리 기반으로 바뀌며 필드가 통째로 교체됐다.
       assumptions: {
-        method: 'YTD_DAILY_AVERAGE',
-        elapsed_days: '227.73',
+        method: 'REMAINING_PLAN',
         remaining_days: '137.27',
-        daily_distance_nm: '46.63',
-        daily_fuel_ton: '0.87',
-        projected_extra_distance_nm: '6400.00',
-        projected_extra_fuel_ton: '120.00',
-        fuel_type: 'HFO',
+        remaining_voyage_count: 2,
+        planned_distance_nm: '4600.00',
+        planned_co2_ton: '2061.47',
+        completed_distance_nm: '4300.00',
+        completed_co2_ton: '1930.68',
       },
     },
     warnings: ['REFERENCE_ONLY', 'SIMULATION_NO_FUEL_RATE'],
@@ -162,6 +163,53 @@ describe('응답 매핑', () => {
     expect(result.projection.dataAvailable).toBe(false)
     expect(result.projection.reason).toBe('NO_BASIS')
     expect(result.projection.assumptions).toBeNull()
+  })
+
+  /*
+   * `#798` — 종전 provider는 `elapsed_days`·`daily_*`를 읽었다. 그 필드는 일평균
+   * 외삽에서만 뜻이 있었고, 방식이 바뀐 뒤에는 서버가 보내지 않는다.
+   */
+  it('남은 거리 기반 가정을 읽는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const result = await createApiRealtimeCiiProvider(fetchImpl).load(VESSEL)
+
+    expect(result.projection.assumptions).toEqual({
+      method: 'REMAINING_PLAN',
+      remainingDays: '137.27',
+      remainingVoyageCount: 2,
+      plannedDistanceNm: '4600.00',
+      plannedCo2Ton: '2061.47',
+      completedDistanceNm: '4300.00',
+      completedCo2Ton: '1930.68',
+    })
+  })
+
+  it('⑶에만 붙는 경고를 최상위 경고와 섞지 않는다', async () => {
+    /*
+     * 두 목록은 **범위가 다르다.** 최상위는 계산 전체에 붙고, ⑶의 것은 「이 값이
+     * 어떤 성격인가」를 말한다 — 잔여 계획이 0건이면 ⑶이 ⑴과 같은 값이 되는데,
+     * 그 사실을 말하지 않으면 종전 결함(항상 ⑴과 같음)과 구분되지 않는다.
+     */
+    const body = structuredClone(OK_BODY)
+    const projection = body.data.year_end_projection as { warnings?: string[] }
+    projection.warnings = ['PROJECTION_NO_REMAINING_PLAN']
+
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+    const result = await createApiRealtimeCiiProvider(fetchImpl).load(VESSEL)
+
+    expect(result.projection.warnings).toEqual(['PROJECTION_NO_REMAINING_PLAN'])
+    expect(result.warnings).not.toContain('PROJECTION_NO_REMAINING_PLAN')
+  })
+
+  it('서버가 ⑶ 경고를 빼면 빈 배열이다 — undefined가 화면으로 새지 않는다', async () => {
+    const body = structuredClone(OK_BODY)
+    const projection = body.data.year_end_projection as { warnings?: string[] }
+    delete projection.warnings
+
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+    const result = await createApiRealtimeCiiProvider(fetchImpl).load(VESSEL)
+
+    expect(result.projection.warnings).toEqual([])
   })
 })
 

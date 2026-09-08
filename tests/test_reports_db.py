@@ -321,13 +321,30 @@ async def test_projection_says_why_when_it_cannot_be_made(session, vessel_id):
 
 @pytest.mark.asyncio
 async def test_projection_carries_assumptions_when_available(session, vessel_id):
-    """`PRD §3.3` ⑶ — 가정 없이 실으면 확정값처럼 읽힌다."""
+    """`PRD §3.3` ⑶ — 가정 없이 실으면 확정값처럼 읽힌다.
+
+    `#798`에서 산출 방식이 **일평균 외삽 → 남은 거리 기반**으로 바뀌었다. 문서는
+    이 문구로 두 값(「누적」·「연말 예상」)이 왜 다른지를 설명한다 — 종전에는 방식
+    자체가 둘을 **구조적으로 같게** 만들어, 같은 숫자가 두 제목으로 나란히 찍혔다.
+    """
     await _make_voyage(session, vessel_id)
     document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
     rows = dict(_section(document, "연말 예상").rows)
 
-    assert rows["산출 방식"].startswith("지금까지의 일평균")
-    assert "잔여 일수" in rows
+    assert rows["산출 방식"] == "확정 실적에 잔여 계획 항차를 더한다 (남은 거리 기반)"
+    for label in (
+        "잔여 일수",
+        "잔여 계획 항차",
+        "잔여 계획 거리 (nm)",
+        "잔여 계획 CO₂ (t)",
+        "확정 실적 거리 (nm)",
+        "확정 실적 CO₂ (t)",
+    ):
+        assert label in rows, label
+
+    # 없어진 행이 되살아나면 문서가 뜻 없는 숫자를 다시 인쇄한다.
+    for gone in ("경과 일수", "일평균 거리 (nm)", "일평균 연료 (t)"):
+        assert gone not in rows, gone
 
 
 @pytest.mark.asyncio

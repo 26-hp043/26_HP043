@@ -429,6 +429,17 @@
   color: var(--text-secondary);
 }
 
+/* ⑶에만 붙는 경고 (#798). 최상위 경고 목록과 범위가 달라 위치도 나눈다. */
+.rt__projection-warnings {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
 .rt__assumptions {
   font-size: var(--font-size-micro);
   color: var(--text-secondary);

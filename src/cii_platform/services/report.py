@@ -503,13 +503,25 @@ async def build_annual_report(
                 rows=[
                     ("예상 CII", _display(projection["attained_cii"], "cii")),
                     ("연말 예상 등급", _text(projection["rating"])),
-                    ("산출 방식", "지금까지의 일평균이 연말까지 이어진다고 가정"),
+                    # `#798` — 종전 문구는 「지금까지의 일평균이 연말까지 이어진다고
+                    # 가정」이었다. 그 방식은 거리·연료를 같은 비율로 더해 연말 예상이
+                    # **구조적으로 YTD와 같은 값**이 됐고, 이 문서는 같은 숫자를
+                    # 「누적」과 「연말 예상」 두 제목으로 나란히 인쇄했다.
+                    ("산출 방식", "확정 실적에 잔여 계획 항차를 더한다 (남은 거리 기반)"),
                     # ``§4.2`` 일수 0자리 (#592). 종전에는 ``_text()``라 같은 표
-                    # 안에서 아래 두 행만 자릿수를 지키고 있었다.
-                    ("경과 일수", _display(assumptions["elapsed_days"], "days")),
+                    # 안에서 일부 행만 자릿수를 지키고 있었다.
                     ("잔여 일수", _display(assumptions["remaining_days"], "days")),
-                    ("일평균 거리 (nm)", _display(assumptions["daily_distance_nm"], "distance_nm")),
-                    ("일평균 연료 (t)", _display(assumptions["daily_fuel_ton"], "fuel_ton")),
+                    ("잔여 계획 항차", f"{assumptions['remaining_voyage_count']}건"),
+                    (
+                        "잔여 계획 거리 (nm)",
+                        _display(assumptions["planned_distance_nm"], "distance_nm"),
+                    ),
+                    ("잔여 계획 CO₂ (t)", _display(assumptions["planned_co2_ton"], "fuel_ton")),
+                    (
+                        "확정 실적 거리 (nm)",
+                        _display(assumptions["completed_distance_nm"], "distance_nm"),
+                    ),
+                    ("확정 실적 CO₂ (t)", _display(assumptions["completed_co2_ton"], "fuel_ton")),
                 ],
                 note="가정이 바뀌면 값이 바뀝니다. 확정값이 아닙니다.",
             )

@@ -26,6 +26,7 @@ from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.services.cii_current import (
     REASON_NO_BASIS,
     REASON_YEAR_COMPLETE,
+    WARNING_NO_REMAINING_PLAN,
     WARNING_SIM_NO_FUEL_RATE,
     get_current_cii,
 )
@@ -381,16 +382,170 @@ async def test_projection_is_not_made_after_year_end(session):
 
 @pytest.mark.asyncio
 async def test_projection_carries_its_assumptions(session):
-    """`PRD §3.3` ⑶ — 화면이 「⑶만 크게 표시하지 않는다」를 지키려면 근거가 필요하다."""
+    """`PRD §3.3` ⑶ — 화면이 「⑶만 크게 표시하지 않는다」를 지키려면 근거가 필요하다.
+
+    `#798`에서 `assumptions`의 내용이 바뀌었다. `daily_distance_nm`·`daily_fuel_ton`은
+    **일평균 외삽에서만 의미가 있던 값**이라 남은 거리 기반에서는 뜻이 없다.
+    """
     vessel_id = await _make_vessel(session)
     await _add_actuals(session, await _make_voyage(session, vessel_id))
 
     data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
     assumptions = data["year_end_projection"]["assumptions"]
 
-    assert assumptions["method"] == "YTD_DAILY_AVERAGE"
-    for key in ("elapsed_days", "remaining_days", "daily_distance_nm", "daily_fuel_ton"):
-        assert assumptions[key] is not None
+    assert assumptions["method"] == "REMAINING_PLAN"
+    for key in (
+        "remaining_days",
+        "remaining_voyage_count",
+        "planned_distance_nm",
+        "planned_co2_ton",
+        "completed_distance_nm",
+        "completed_co2_ton",
+    ):
+        assert assumptions[key] is not None, key
+
+    # 없어진 필드가 되살아나면 화면이 뜻 없는 숫자를 다시 인쇄한다.
+    for gone in ("elapsed_days", "daily_distance_nm", "daily_fuel_ton"):
+        assert gone not in assumptions, gone
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ⑶ 연말 예상은 「남은 거리 기반」이다 (#798)
+#
+# 종전 방식(`YTD_DAILY_AVERAGE`)은 지금까지의 일평균을 잔여 기간에 곱해 ⑴에 더했다.
+# 거리와 연료를 **같은 비율로** 더하므로 `M/W`가 보존되어 ⑶이 **구조적으로 ⑴과 항상
+# 같은 값**이 됐다 — 데모 4척 전부에서 실측됐고, 연간 리포트는 같은 숫자를 「누적」과
+# 「연말 예상」 두 제목으로 나란히 인쇄했다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _add_plan(session, vessel_id, *, distance="10000", fuel="1200") -> None:
+    """잔여 계획 항차 — ⑶의 근거를 만든다 (`annual_inclusion_policy=INCLUDE_AS_PLAN`).
+
+    연료를 **반드시 함께 넣는다.** 연료가 없는 계획 항차는 `#812`가 계산에서 빼므로,
+    거리만 넣으면 이 픽스처가 아무 잔여분도 만들지 못한다.
+    """
+    voyage_id = await _make_voyage(
+        session,
+        vessel_id,
+        status="PLANNED",
+        policy="INCLUDE_AS_PLAN",
+        departed_at=None,
+    )
+    await session.execute(
+        text("UPDATE voyage SET planned_distance_nm = :d WHERE id = :id"),
+        {"id": voyage_id, "d": Decimal(distance)},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
+            "cf_used, source) VALUES (:id, 'HFO', :fuel, 3.114, 'USER_INPUT')"
+        ),
+        {"id": voyage_id, "fuel": Decimal(fuel)},
+    )
+
+
+@pytest.mark.asyncio
+async def test_projection_differs_from_ytd_when_plans_remain(session):
+    """잔여 계획이 있으면 ⑶ ≠ ⑴ — `#798`의 완료 기준 1.
+
+    계획 항차의 **연료 강도**(1200t / 10000nm)를 확정분(400t / 5000nm)과 다르게 둔다.
+    같게 두면 남은 거리 기반으로 고쳐도 값이 같아져 이 검사가 통과해 버린다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    await _add_plan(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    projection = data["year_end_projection"]
+
+    assert projection["data_available"] is True
+    assert projection["attained_cii"] != data["ytd"]["attained_cii"], (
+        "⑶이 ⑴과 같다 — 일평균 외삽으로 되돌아갔다 (#798)"
+    )
+    assert projection["assumptions"]["remaining_voyage_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_projection_matches_the_annual_simulation(session):
+    """⑶이 기능③의 `projected_attained_cii`와 **문자 단위로 같다** — 완료 기준 2.
+
+    같은 이름의 값이 두 화면에서 다른 숫자였다(`#798` 실측: 7.654488 vs 8.971119).
+    두 경로가 같은 함수를 부르므로 이제 갈릴 수 없다 — 한쪽만 고치면 이 검사가 깨진다.
+
+    기능③ 자체를 돌리지 않고 **같은 입력 조립 + 같은 엔진**을 직접 불러 비교한다.
+    기능③ 실행은 스냅샷 저장·Monte Carlo를 동반해 이 검사의 대상이 아니다.
+    """
+    from cii_platform.calc.annual_simulation import project_deterministic
+    from cii_platform.services.annual_simulation import (
+        collect_annual_inputs,
+        load_projection_context,
+    )
+    from cii_platform.services.cii_current import _publish
+
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    await _add_plan(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    context = await load_projection_context(session, vessel_id=vessel_id, regulation_year=YEAR)
+    inputs = await collect_annual_inputs(
+        session, vessel=context.vessel, vessel_id=vessel_id, year=YEAR, as_of=MID_YEAR
+    )
+    deterministic = project_deterministic(
+        completed=inputs.completed,
+        remaining=inputs.remaining,
+        transport_capacity=context.transport_capacity,
+        required_cii=context.required_cii,
+        d_vector=context.d_vector,
+    )
+
+    assert data["year_end_projection"]["attained_cii"] == _publish(
+        deterministic.attained_cii, "cii"
+    )
+    assert data["year_end_projection"]["rating"] == deterministic.rating
+
+
+@pytest.mark.asyncio
+async def test_projection_says_when_no_plans_remain(session):
+    """잔여 계획이 0건이면 값을 내되 **왜 ⑴과 같은지** 말한다 — `#798` 판단 B.
+
+    빈칸을 두지 않는다: 잔여 계획이 없으면 「연말 = 지금」이 맞는 답이고, 빈칸은
+    「아직 로딩 중」으로 읽힌다. 다만 그 답은 **종전 결함(항상 ⑴과 같음)과 화면에서
+    구분되지 않으므로** 경고로 성격을 밝힌다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    projection = data["year_end_projection"]
+
+    assert projection["data_available"] is True
+    assert projection["attained_cii"] == data["ytd"]["attained_cii"]
+    assert WARNING_NO_REMAINING_PLAN in projection["warnings"]
+    assert projection["assumptions"]["remaining_voyage_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_projection_risk_level_is_one_of_the_four(session):
+    """`risk_level`이 실재하는 값이다 — `API_SPEC` 예시의 `"WATCH"`는 코드에 없다.
+
+    `calc/rating_engine.py`의 허용값은 넷뿐이다. 정본 예시가 없는 값을 인쇄하고
+    있었고(`#798` 곁가지), 이 이슈에서 함께 고쳤다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    await _add_plan(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    assert data["year_end_projection"]["risk_level"] in {
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "CRITICAL",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

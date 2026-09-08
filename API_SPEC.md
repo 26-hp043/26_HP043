@@ -272,6 +272,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `SENSITIVITY_SPEED_SKIPPED` | 기능③ 잔여 항차에 `reference_speed_kn`·`reference_daily_foc_ton`이 없어 **속도 지렛대를 산출하지 못함** (#630) | 선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다. |
 | `SIMULATION_PLAN_NO_FUEL` | 기능③ 계획 항차에 **연료 정보가 없어** 그 항차를 연말 예상에서 제외 (#812) | 연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요. |
 | `SIMULATION_NO_REFERENCE_SPEED` | 진행 중 항차의 누적 연료에 **속도 보정을 적용하지 못함** — 선박에 `reference_speed_kn`이 없음 (#796) | 기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요. |
+| `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상에 더할 **잔여 계획 항차가 0건** (#798) | 잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다. |
 
 > **⚠️ 기능③(연간 시뮬레이션) 경고 8종은 2026-08-22에 등재했다 (#630).** 기능③이 들어온 뒤 이 표가 갱신되지 않아 **코드가 내는 17종 중 7종이 표에 없었다.** 그 결과 화면의 `WARNING_MESSAGE`(이 표를 전사한 것)에도 없어, 연간 시뮬레이션 화면이 `SENSITIVITY_ONE_AT_A_TIME` 같은 **원문 코드를 그대로 노출**하고 있었다. 문구는 `PRD §12.8` 예외 처리 표에서 옮겨 적었으며, 그 표에 문구가 없는 3종(`NO_REMAINING_VOYAGES`·`MANY_REMAINING_VOYAGES`·`SIMULATION_RUNS_CLAMPED`)만 서술된 동작에 맞춰 새로 적었다.
 
@@ -1120,7 +1121,7 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
       "required_cii": "17.374582",
       "ratio_to_required": "1.07267",
       "rating": "B",
-      "risk_level": "WATCH",
+      "risk_level": "MEDIUM",
       "margin_ratio": "0.09321",
       "boundaries": { "superior_boundary": "…", "lower_boundary": "…", "upper_boundary": "…", "inferior_boundary": "…" },
       "total_co2_ton": "…", "total_fuel_ton": "…",
@@ -1145,13 +1146,14 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
     "year_end_projection": {
       "data_available": true, "reason": null,
       "attained_cii": "…", "required_cii": "…", "ratio_to_required": "…",
-      "rating": "C", "risk_level": "WATCH",
+      "rating": "C", "risk_level": "MEDIUM",
+      "warnings": [],
       "assumptions": {
-        "method": "YTD_DAILY_AVERAGE",
-        "elapsed_days": "227.73", "remaining_days": "137.27",
-        "daily_distance_nm": "46.63", "daily_fuel_ton": "3.51",
-        "projected_extra_distance_nm": "…", "projected_extra_fuel_ton": "…",
-        "fuel_type": "HFO"
+        "method": "REMAINING_PLAN",
+        "remaining_days": "137.27",
+        "remaining_voyage_count": 2,
+        "planned_distance_nm": "4600.00", "planned_co2_ton": "2061.47",
+        "completed_distance_nm": "4300.00", "completed_co2_ton": "1930.68"
       }
     },
 
@@ -1168,21 +1170,42 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
 
 모든 수치는 **문자열**이다 (`§1.7`). `parseFloat`으로 되돌리면 Layer 1이 `Decimal`로 지킨 정밀도가 사라진다.
 
-#### ⑶ 연말 예상의 산출 방식
+#### ⑶ 연말 예상의 산출 방식 — **남은 거리 기반** (`#798`)
 
-**가정은 하나다 — 「지금까지의 일평균이 연말까지 이어진다」.**
+**확정 실적에 잔여 계획 항차를 더한다.** `PRD §5.1`·사용자 여정이 규정한 「남은 거리 기반 연말 예상 등급」이다.
 
 ```text
-일평균 거리 = YTD 총거리 / 경과일
-일평균 연료 = YTD 총연료 / 경과일
-연말 예상   = YTD에 (일평균 × 잔여일)을 더해 같은 엔진으로 다시 산출
+연말 예상 = (확정 M + 잔여계획 M) / (capacity × (확정 Dt + 잔여계획 Dt))
 ```
 
-> **선박 제원의 설계 속력·설계 소모율을 쓰지 않는다.** 그 값이 실적과 다르면 ⑶이 ⑴과 **반대 방향으로** 움직인다 — 실적이 나쁜 배의 연말 예상이 좋게 나오면 화면은 사용자를 안심시키는 쪽으로 틀린다.
+- **확정** = `annual_inclusion_policy = INCLUDE_AS_ACTUAL` 항차의 실적(없으면 계획값 — `PRD §8.3` 우선순위)
+- **잔여계획** = `annual_inclusion_policy = INCLUDE_AS_PLAN` 항차의 계획 거리·연료
 
-> **계산식을 새로 만들지 않는다.** ⑴과 ⑶ 모두 `#353`의 YTD 엔진을 그대로 부르고, 다른 것은 주입하는 누적값뿐이다. 식이 갈리면 「⑴은 C인데 ⑶이 이미 C보다 좋다」 같은 모순이 조용히 생긴다.
+> ⚠️ **종전 방식(`YTD_DAILY_AVERAGE`)은 구조적으로 ⑴과 항상 같은 값을 냈다 (`#798`).**
+>
+> ```text
+> 일평균 거리 = YTD 총거리 / 경과일          일평균 연료 = YTD 총연료 / 경과일
+> 연말 예상   = (YTD_M + 일평균연료 × 잔여일) / (cap × (YTD_Dt + 일평균거리 × 잔여일))
+>             = YTD_M / (cap × YTD_Dt)      ← 강도가 보존되어 ⑴과 같다
+> ```
+>
+> 거리와 연료를 **같은 비율로** 더하므로 `M/W`가 변하지 않는다. 데모 4척 전부에서 `year_end_projection.attained_cii == ytd.attained_cii`가 실측됐고, 연간 리포트는 같은 숫자를 「누적」과 「연말 예상」 두 제목으로 나란히 인쇄했다 — `PRD §3.3.8`의 「구분해 표시」가 성립하지 않았다. 그 이름은 정본 어디에도 근거가 없었고 **이 절의 응답 예시에만** 있었다.
+
+> **기능③(`§6.1`)의 `deterministic.projected_attained_cii`와 같은 값이다.** 같은 입력 조립(`collect_annual_inputs`)과 같은 엔진(`project_deterministic`)을 부른다. 종전에는 같은 이름의 값이 두 화면에서 달랐다 — 실시간 CII는 진행 중 항차를 **경과분만** 세고 잔여 계획을 무시했고(7.654488), 기능③은 **계획 전량**으로 셌다(8.971119). 「이름을 다르게 붙인다」는 대안을 택하지 않은 이유는 그것이 *같은 질문에 두 답을 준다*는 문제를 그대로 남기기 때문이다.
+
+> **진행 중 항차는 ⑶에서 계획 전량으로 센다** (⑴은 경과 누적을 쓴다). ⑴의 경과 누적은 측정값이 아니라 시뮬레이션 시계(`TECH_SPEC §11`)가 **계획 속력·계획 소모율로 만든 모델값**이므로 `경과 누적 + 잔여 계획 ≈ 계획 전량`이다. 둘이 실질적으로 갈리는 것은 실적이 입력된 항차뿐인데, 그런 항차는 `INCLUDE_AS_ACTUAL`로 넘어가 확정분에 들어간다.
 
 `assumptions`를 함께 싣는 것은 `PRD §3.3` ⑶의 요구다 — 화면이 「⑶만 단독으로 크게 표시하지 않는다」를 지키려면 근거가 응답에 있어야 한다.
+
+| `assumptions` 필드 | 뜻 |
+|---|---|
+| `method` | `REMAINING_PLAN` 고정 |
+| `remaining_days` | 규제연도의 잔여 일수 |
+| `remaining_voyage_count` | 더한 잔여 계획 항차 수. **0이면 `warnings`에 `PROJECTION_NO_REMAINING_PLAN`** |
+| `planned_distance_nm` · `planned_co2_ton` | 잔여 계획분의 거리·CO₂ |
+| `completed_distance_nm` · `completed_co2_ton` | 확정분의 거리·CO₂ |
+
+> **잔여 계획이 0건이어도 값을 낸다.** 더할 계획이 없으면 「연말 = 지금」이 맞는 답이고, 빈칸은 「아직 로딩 중」으로 읽힌다. 다만 그 답은 종전 결함(항상 ⑴과 같음)과 화면에서 구분되지 않으므로 `PROJECTION_NO_REMAINING_PLAN`으로 **성격을 밝힌다.**
 
 #### `ytd.substitutions` — 실적 대신 계획값을 쓴 내역 (#449)
 
@@ -1202,7 +1225,7 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
 
 | `reason` | 뜻 |
 |---|---|
-| `NO_BASIS` | 올해 실적이 없어 일평균을 낼 수 없다. 0으로 두면 「연말에도 A등급」이라는 근거 없는 낙관이 나온다 |
+| `NO_BASIS` | 확정 실적도 잔여 계획도 없어 거리가 0이다(`PRD §12.8`). 0으로 두면 「연말에도 A등급」이라는 근거 없는 낙관이 나온다 |
 | `YEAR_COMPLETE` | 남은 기간이 0이다. 그때 ⑶은 ⑴과 같은 값이라 따로 낼 이유가 없다 |
 
 #### `warnings`

@@ -385,6 +385,126 @@ def _inputs_from_snapshot(
     return completed, remaining, warnings
 
 
+@dataclass(frozen=True)
+class ProjectionContext:
+    """연말 예상에 필요한 **선박 제원 + 규제 파라미터** 한 벌 (#798).
+
+    기능③과 실시간 CII가 같은 값을 내려면 항차 집계뿐 아니라 **분모(capacity)와
+    등급 경계(d-vector)**도 같은 방식으로 골라야 한다. 선택 규칙이 두 곳에 있으면
+    선박 유형·연도 경계에서 조용히 갈린다.
+    """
+
+    #: 스냅샷에서 복원한 제원 사본. 살아 있는 ORM 행이 아니다 (`#493`).
+    vessel: VesselSnapshot
+    #: ``simulation_snapshot.vessel_json``에 들어가는 원본 사본.
+    vessel_json: dict[str, str | None]
+    transport_capacity: Decimal
+    reference_capacity: Decimal
+    required_cii: Decimal
+    d_vector: DVector
+    regulation: object
+    reference_line: object
+    rating_boundary: object
+
+
+async def load_projection_context(
+    session: AsyncSession, *, vessel_id: UUID, regulation_year: int
+) -> ProjectionContext:
+    """선박 제원과 규제 파라미터를 확정한다 (#798).
+
+    ``run_annual_simulation``과 ``services/cii_current``의 ⑶ 연말 예상이 **이 함수를
+    공유한다.** 종전에는 실시간 CII가 자기 경로로 파라미터를 골랐고, 두 화면의
+    「연말 예상」이 갈리는 원인 중 하나였다.
+    """
+    live_vessel = await _load_vessel(session, vessel_id)
+    # 제원을 **사본으로 고정**하고 이후 계산은 전부 그 사본으로 한다 (`#493`).
+    vessel_json = _vessel_snapshot_payload(live_vessel)
+    vessel = _vessel_from_snapshot(vessel_json)
+
+    regulation = await _load_regulation_year(session, regulation_year)
+    reference_line = await _select_reference_line(session, vessel)
+    rating_boundary = await _select_rating_boundary(session, vessel)
+    transport_capacity = _resolve_transport_capacity(vessel)
+    reference_capacity = _resolve_reference_capacity(vessel, reference_line)
+
+    required = calculate_required_cii(
+        a=Decimal(str(reference_line.a_decimal)),
+        c=Decimal(str(reference_line.c)),
+        reference_capacity=reference_capacity,
+        z_factor_percent=Decimal(str(regulation.z_factor_percent)),
+    )
+
+    return ProjectionContext(
+        vessel=vessel,
+        vessel_json=vessel_json,
+        transport_capacity=transport_capacity,
+        reference_capacity=reference_capacity,
+        required_cii=required.required_cii,
+        d_vector=DVector(
+            d1=Decimal(str(rating_boundary.d1)),
+            d2=Decimal(str(rating_boundary.d2)),
+            d3=Decimal(str(rating_boundary.d3)),
+            d4=Decimal(str(rating_boundary.d4)),
+        ),
+        regulation=regulation,
+        reference_line=reference_line,
+        rating_boundary=rating_boundary,
+    )
+
+
+@dataclass(frozen=True)
+class AnnualInputs:
+    """연말 예상 계산의 입력 한 벌 (#798).
+
+    기능③(연간 등급 관리)과 실시간 CII의 ⑶ 연말 예상이 **이 한 벌을 공유한다.**
+    종전에는 두 화면이 각자 집계해 같은 선박·같은 연도에서 **다른 숫자**를 냈다
+    (`#798` 실측: 7.654488 vs 8.971119).
+
+    ``#493``이 실행 경로와 재현 경로의 조립을 하나로 모은 것과 같은 판단이다 —
+    조립이 둘이면 값이 갈릴 때 **엔진 문제인지 조립 문제인지** 구분되지 않는다.
+    """
+
+    #: ``simulation_snapshot.voyages_json``에 그대로 들어가는 항차 사본.
+    #: 기능③만 저장한다 — 실시간 CII는 스냅샷을 뜨지 않는다(조회 요청이다).
+    voyages_json: list[dict]
+    completed: CompletedTotals
+    remaining: list[RemainingVoyage]
+    #: 연료를 알 수 없어 제외한 계획 항차가 있으면 ``WARNING_PLAN_NO_FUEL``.
+    warnings: list[str]
+    #: 스냅샷의 PLAN 행 수. **제외된 항차도 센다** — 「4건 중 3건만 계산했다」를
+    #: 경고와 함께 읽을 수 있어야 한다.
+    plan_voyage_count: int
+
+
+async def collect_annual_inputs(
+    session: AsyncSession, *, vessel, vessel_id: UUID, year: int, as_of: datetime
+) -> AnnualInputs:
+    """살아 있는 항차에서 연말 예상의 계산 입력을 만든다 (#798).
+
+    **스냅샷 사본을 먼저 만들고 그 사본에서 입력을 뽑는다** (``TECH_SPEC §11.4`` 2항).
+    실시간 CII는 그 사본을 저장하지 않지만 **같은 경로로 만든 값**을 쓴다 — 저장 여부와
+    무관하게 조립이 하나여야 두 화면의 숫자가 갈리지 않는다.
+
+    :param vessel: :func:`_vessel_from_snapshot`이 복원한 제원 사본. 살아 있는 ORM 행을
+        넘기지 않는다 — `#493`이 그 차이로 「같은 스냅샷·같은 seed인데 결과가 달라지는」
+        상태를 만들었다.
+    """
+    actual, planned = await _collect_voyages(session, vessel_id=vessel_id, year=year, as_of=as_of)
+    fuel_by_voyage = await voyage_repo.list_fuel_uses_by_voyage_ids(
+        session, [v.id for v in (*actual, *planned)]
+    )
+    voyages_json = _snapshot_payload(actual, planned, fuel_by_voyage)
+    completed, remaining, warnings = _inputs_from_snapshot(voyages_json, vessel)
+
+    return AnnualInputs(
+        voyages_json=voyages_json,
+        completed=completed,
+        remaining=remaining,
+        warnings=warnings,
+        plan_voyage_count=_plan_voyage_count(voyages_json),
+    )
+
+
 def _plan_voyage_count(rows: list[dict]) -> int:
     """스냅샷에서 **잔여 계획 항차 수**. 연료 행이 아니라 항차를 센다."""
     return sum(1 for row in rows if row.get("kind") == "PLAN")
@@ -441,46 +561,18 @@ async def run_annual_simulation(
     # `PRD §12.4.3` 자동 seed — 결과에 실어 「이 seed로 다시 실행」이 가능하게 한다.
     seed = random_seed if random_seed is not None else secrets.randbits(_SEED_BITS)
 
-    live_vessel = await _load_vessel(session, vessel_id)
-    # 제원을 **여기서 사본으로 고정**하고, 이후 계산은 전부 그 사본으로 한다 (`#493`).
-    # 실행 경로가 살아 있는 행을 쓰고 재현 경로가 사본을 쓰면 두 경로가 갈린다 —
-    # `_inputs_from_snapshot` docstring이 항차에 대해 적은 것과 같은 이유다.
-    vessel_json = _vessel_snapshot_payload(live_vessel)
-    vessel = _vessel_from_snapshot(vessel_json)
-
-    regulation = await _load_regulation_year(session, regulation_year)
-    reference_line = await _select_reference_line(session, vessel)
-    rating_boundary = await _select_rating_boundary(session, vessel)
-    transport_capacity = _resolve_transport_capacity(vessel)
-    reference_capacity = _resolve_reference_capacity(vessel, reference_line)
-
-    required = calculate_required_cii(
-        a=Decimal(str(reference_line.a_decimal)),
-        c=Decimal(str(reference_line.c)),
-        reference_capacity=reference_capacity,
-        z_factor_percent=Decimal(str(regulation.z_factor_percent)),
+    # 제원·파라미터 확정은 실시간 CII의 ⑶ 연말 예상과 **같은 함수**를 쓴다 (`#798`).
+    context = await load_projection_context(
+        session, vessel_id=vessel_id, regulation_year=regulation_year
     )
-    d_vector = DVector(
-        d1=Decimal(str(rating_boundary.d1)),
-        d2=Decimal(str(rating_boundary.d2)),
-        d3=Decimal(str(rating_boundary.d3)),
-        d4=Decimal(str(rating_boundary.d4)),
-    )
-
-    actual, planned = await _collect_voyages(
-        session, vessel_id=vessel_id, year=regulation_year, as_of=resolved_as_of
-    )
-    if len(planned) > MAX_REMAINING_VOYAGES:
-        raise ValidationError(
-            f"잔여 항차가 {MAX_REMAINING_VOYAGES}건을 초과했습니다 ({len(planned)}건). "
-            "계산을 거부합니다.",
-            field="vessel_id",
-            field_label="선박",
-        )
-
-    fuel_by_voyage = await voyage_repo.list_fuel_uses_by_voyage_ids(
-        session, [v.id for v in (*actual, *planned)]
-    )
+    vessel = context.vessel
+    vessel_json = context.vessel_json
+    regulation = context.regulation
+    reference_line = context.reference_line
+    rating_boundary = context.rating_boundary
+    transport_capacity = context.transport_capacity
+    required_cii = context.required_cii
+    d_vector = context.d_vector
 
     #
     # **스냅샷을 먼저 만들고 그 사본에서 계산 입력을 뽑는다** (``TECH_SPEC §11.4`` 2항:
@@ -490,8 +582,19 @@ async def run_annual_simulation(
     # 결과는 같았지만 **조립 경로가 둘**이었고, 그러면 `reproduce`(§6.4)가 스냅샷에서
     # 조립한 값과 어긋날 때 원인을 가릴 수 없다. 지금은 두 경로가 같은 함수를 쓴다.
     #
-    voyages_json = _snapshot_payload(actual, planned, fuel_by_voyage)
-    completed, remaining, input_warnings = _inputs_from_snapshot(voyages_json, vessel)
+    inputs = await collect_annual_inputs(
+        session, vessel=vessel, vessel_id=vessel_id, year=regulation_year, as_of=resolved_as_of
+    )
+    if inputs.plan_voyage_count > MAX_REMAINING_VOYAGES:
+        raise ValidationError(
+            f"잔여 항차가 {MAX_REMAINING_VOYAGES}건을 초과했습니다 "
+            f"({inputs.plan_voyage_count}건). 계산을 거부합니다.",
+            field="vessel_id",
+            field_label="선박",
+        )
+
+    voyages_json = inputs.voyages_json
+    completed, remaining, input_warnings = inputs.completed, inputs.remaining, inputs.warnings
 
     # 분포는 코드가 아니라 테이블에서 읽는다 (#434).
     profile_rows = await param_repo.load_distribution_profile(session, distribution_profile)
@@ -501,14 +604,14 @@ async def run_annual_simulation(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
-        required_cii=required.required_cii,
+        required_cii=required_cii,
         d_vector=d_vector,
     )
     outcome = simulate_annual(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
-        required_cii=required.required_cii,
+        required_cii=required_cii,
         d_vector=d_vector,
         target_rating=target_rating,
         seed=seed,
@@ -519,7 +622,7 @@ async def run_annual_simulation(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
-        required_cii=required.required_cii,
+        required_cii=required_cii,
         d_vector=d_vector,
     )
 
@@ -530,7 +633,7 @@ async def run_annual_simulation(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
-        required_cii=required.required_cii,
+        required_cii=required_cii,
         d_vector=d_vector,
         target_rating=target_rating,
         seed=seed,
@@ -553,8 +656,10 @@ async def run_annual_simulation(
         outcome=outcome,
         sensitivity=sensitivity,
         transport_capacity=transport_capacity,
-        completed_voyage_count=len(actual),
-        remaining_voyage_count=len(planned),
+        # 항차 수도 **스냅샷 사본에서 센다** (`#798`). 종전에는 ORM 목록
+        # (`actual`·`planned`)을 셌는데, 조립은 사본에서 하므로 출처가 둘이었다.
+        completed_voyage_count=sum(1 for row in voyages_json if row.get("kind") == "ACTUAL"),
+        remaining_voyage_count=inputs.plan_voyage_count,
         target_rating=target_rating,
         warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings],
     )
@@ -1422,12 +1527,12 @@ def _recompute(
     """
     transport_capacity = _resolve_transport_capacity(vessel)
     reference_capacity = _resolve_reference_capacity(vessel, reference_line)
-    required = calculate_required_cii(
+    required_cii = calculate_required_cii(
         a=Decimal(str(reference_line.a_decimal)),
         c=Decimal(str(reference_line.c)),
         reference_capacity=reference_capacity,
         z_factor_percent=Decimal(str(regulation.z_factor_percent)),
-    )
+    ).required_cii
     d_vector = DVector(
         d1=Decimal(str(rating_boundary.d1)),
         d2=Decimal(str(rating_boundary.d2)),
@@ -1442,14 +1547,14 @@ def _recompute(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
-        required_cii=required.required_cii,
+        required_cii=required_cii,
         d_vector=d_vector,
     )
     outcome = simulate_annual(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
-        required_cii=required.required_cii,
+        required_cii=required_cii,
         d_vector=d_vector,
         target_rating=target_rating,
         seed=seed,
@@ -1460,7 +1565,7 @@ def _recompute(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
-        required_cii=required.required_cii,
+        required_cii=required_cii,
         d_vector=d_vector,
     )
     sensitivity = _build_sensitivity(
@@ -1470,7 +1575,7 @@ def _recompute(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
-        required_cii=required.required_cii,
+        required_cii=required_cii,
         d_vector=d_vector,
         target_rating=target_rating,
         seed=seed,

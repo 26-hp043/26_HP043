@@ -4,7 +4,7 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { GradeScaleBar } from '../../components/GradeScaleBar'
-import { ciiUnit, marginDisplay, riskLabel } from '../voyage-cii/resultRules'
+import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -731,24 +731,38 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
        * 가정을 함께 보여 준다 — `PRD §3.3` ⑶ 요구. 이 값이 무엇을 전제로 나온
        * 것인지 없으면 확정값처럼 읽힌다.
        */}
+      {/*
+       * ⑶에만 붙는 경고 (`#798`). 최상위 경고 목록과 **범위가 다르다** — 이쪽은
+       * 「이 값이 어떤 성격인가」를 말한다. 특히 잔여 계획이 0건이면 ⑶이 ⑴과 같은
+       * 값이 되는데, 그 사실을 말하지 않으면 종전 결함(항상 ⑴과 같음)과 화면에서
+       * 구분되지 않는다.
+       */}
+      {projection.warnings.length > 0 ? (
+        <ul className="rt__projection-warnings">
+          {projection.warnings.map((code) => (
+            <li key={code}>
+              <span aria-hidden="true">⚠</span> {warningMessage(code)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
       {projection.assumptions ? (
         <details className="rt__assumptions">
           <summary>산출 가정</summary>
           <dl>
             <div>
               <dt>방식</dt>
-              <dd>지금까지의 일평균이 연말까지 이어진다고 가정</dd>
+              {/* `#798` — 종전에는 「지금까지의 일평균이 연말까지 이어진다고 가정」이었다.
+                  그 방식은 거리·연료를 같은 비율로 더해 ⑶이 구조적으로 ⑴과 같아졌다. */}
+              <dd>확정 실적에 잔여 계획 항차를 더한다 (남은 거리 기반)</dd>
             </div>
             <div>
-              <dt>경과 / 잔여</dt>
+              <dt>잔여 계획</dt>
               <dd className="num">
-                {/* `§4.2` 일수 0자리 (#592). 종전에는 서버 값을 가공 없이 내보내
-                    `231.64 일`이 나갔다 — 같은 블록의 거리·연료는 이미 `§4.2`를
-                    따르고 있어 한 표 안에서 규율이 갈려 있었다. */}
-                {formatOrNull(projection.assumptions.elapsedDays, (v) =>
-                  formatDecimalString(v, DISPLAY_DIGITS.days),
-                ) ?? '—'}{' '}
-                {DISPLAY_UNITS.day} /{' '}
+                {projection.assumptions.remainingVoyageCount ?? '—'} 건 /{' '}
+                {/* `§4.2` 일수 0자리 (#592). 서버 값을 가공 없이 내보내면
+                    `231.64 일`이 나가 같은 표 안에서 규율이 갈린다. */}
                 {formatOrNull(projection.assumptions.remainingDays, (v) =>
                   formatDecimalString(v, DISPLAY_DIGITS.days),
                 ) ?? '—'}{' '}
@@ -756,18 +770,26 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
               </dd>
             </div>
             <div>
-              <dt>일평균 거리</dt>
+              <dt>잔여 계획 거리 / CO₂</dt>
               <dd className="num">
-                {formatOrNull(projection.assumptions.dailyDistanceNm, (v) =>
+                {formatOrNull(projection.assumptions.plannedDistanceNm, (v) =>
                   formatGrouped(v, DISPLAY_DIGITS.distanceNm),
                 ) ?? '—'}{' '}
-                {DISPLAY_UNITS.distance}
+                {DISPLAY_UNITS.distance} /{' '}
+                {formatOrNull(projection.assumptions.plannedCo2Ton, (v) =>
+                  formatGrouped(v, DISPLAY_DIGITS.fuelTon),
+                ) ?? '—'}{' '}
+                {DISPLAY_UNITS.fuel}
               </dd>
             </div>
             <div>
-              <dt>일평균 연료</dt>
+              <dt>확정 실적 거리 / CO₂</dt>
               <dd className="num">
-                {formatOrNull(projection.assumptions.dailyFuelTon, (v) =>
+                {formatOrNull(projection.assumptions.completedDistanceNm, (v) =>
+                  formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+                ) ?? '—'}{' '}
+                {DISPLAY_UNITS.distance} /{' '}
+                {formatOrNull(projection.assumptions.completedCo2Ton, (v) =>
                   formatGrouped(v, DISPLAY_DIGITS.fuelTon),
                 ) ?? '—'}{' '}
                 {DISPLAY_UNITS.fuel}
