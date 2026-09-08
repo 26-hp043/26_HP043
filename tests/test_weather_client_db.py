@@ -52,12 +52,29 @@ MARINE_BODY = {
     }
 }
 
+#: 실제 Open-Meteo 응답 형태다 — ``hourly_units``를 함께 싣는다 (#813).
+#:
+#: 종전 픽스처는 이 블록이 없어 **단위를 m/s로 단정**했다. 실제 API의 기본 단위는
+#: ``km/h``이고, 코드가 변환 없이 저장해 값이 3.6배 커지고 있었다. **픽스처가 잘못된
+#: 전제를 고정하면 그 결함이 테스트를 통과한다.**
 WIND_BODY = {
+    "hourly_units": {"time": "iso8601", "wind_speed_10m": "m/s", "wind_direction_10m": "°"},
     "hourly": {
         "time": ["2026-08-18T00:00", "2026-08-18T12:00"],
         "wind_speed_10m": [3.0, 11.5],
         "wind_direction_10m": [180.0, 200.0],
-    }
+    },
+}
+
+#: 단위가 예상과 다른 응답 — 요청에 ``wind_speed_unit=ms``를 실었어도 서버가 다른
+#: 단위를 주면 이 모양이 된다 (#813).
+WIND_BODY_KMH = {
+    "hourly_units": {"time": "iso8601", "wind_speed_10m": "km/h", "wind_direction_10m": "°"},
+    "hourly": {
+        "time": ["2026-08-18T00:00", "2026-08-18T12:00"],
+        "wind_speed_10m": [10.8, 41.4],
+        "wind_direction_10m": [180.0, 200.0],
+    },
 }
 
 
@@ -367,3 +384,78 @@ async def test_model_breakdown_is_not_a_server_error(session):
             snapshot=snapshot,
             ship_type="BULK_CARRIER",
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 풍속 단위 (#813)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_wind_request_pins_the_unit_to_ms():
+    """요청이 ``wind_speed_unit=ms``를 싣는다 (`TECH_SPEC §7.2`, #813).
+
+    Open-Meteo의 **기본 단위는 km/h**다. 종전에는 이 파라미터를 보내지 않고 응답을
+    그대로 ``wind_speed_ms``에 넣어 값이 **3.6배** 커졌다 — `SIMPLE_RULE`의 풍속
+    계수는 「10 m/s당 약 5%」 전제라(`TECH_SPEC §8`), 실제 10 m/s에서 풍속항이
+    `0.05`가 아니라 `0.18`이 됐다.
+
+    ``/3.6``으로 나누지 않고 **요청에 단위를 싣는 이유**는, 나누는 쪽이 「기본값이
+    계속 km/h다」라는 가정에 기대기 때문이다. 기본값이 바뀌면 조용히 이중 변환이 된다.
+    """
+    seen: list[httpx.URL] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url)
+        if str(request.url).startswith(MARINE_ENDPOINT):
+            return httpx.Response(200, json=MARINE_BODY)
+        return httpx.Response(200, json=WIND_BODY)
+
+    await provider_for(handler).fetch(35.1, 129.0, AT)
+
+    wind_url = next(url for url in seen if str(url).startswith(WIND_ENDPOINT))
+    assert wind_url.params["wind_speed_unit"] == "ms"
+
+
+@pytest.mark.asyncio
+async def test_unexpected_wind_unit_is_not_stored():
+    """단위가 예상과 다르면 **풍속을 쓰지 않는다** (#813).
+
+    요청에 단위를 실었어도 응답이 그 단위라는 보장은 없다. 이 결함은 조용했다 —
+    값이 3.6배 커져도 화면은 멀쩡했고 전수 검토를 해야 드러났다.
+
+    **틀린 값을 저장하는 것보다 쓰지 않는 편이 낫다.** 파고만 쓰거나
+    ``weather_factor=1.0``으로 가는 길은 이미 있다(`#62` fallback 체인).
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).startswith(MARINE_ENDPOINT):
+            return httpx.Response(200, json=MARINE_BODY)
+        return httpx.Response(200, json=WIND_BODY_KMH)
+
+    observation = await provider_for(handler).fetch(35.1, 129.0, AT)
+
+    assert observation.wind_speed_ms is None, (
+        f"km/h 응답이 m/s로 저장됐다: {observation.wind_speed_ms}"
+    )
+    assert observation.wind_direction_deg is None
+    # 파고는 살아 있다 — 한쪽 문제가 전체를 죽이지 않는다.
+    assert observation.wave_height_m == 2.5
+
+
+@pytest.mark.asyncio
+async def test_missing_unit_block_is_not_assumed_to_be_ms():
+    """단위가 **적혀 있지 않으면** 참으로 보지 않는다 (#813).
+
+    없는 것을 「기본값이겠지」로 읽는 것이 이 결함을 만든 사고방식이다.
+    """
+    body = {"hourly": WIND_BODY["hourly"]}  # `hourly_units` 없음
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).startswith(MARINE_ENDPOINT):
+            return httpx.Response(200, json=MARINE_BODY)
+        return httpx.Response(200, json=body)
+
+    observation = await provider_for(handler).fetch(35.1, 129.0, AT)
+
+    assert observation.wind_speed_ms is None
