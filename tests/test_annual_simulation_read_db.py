@@ -26,11 +26,16 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.calc.hash import compute_parameter_hash
 from cii_platform.errors import NotFoundError, ParameterError, ReproducibilityError
+from cii_platform.services import annual_simulation as annual_simulation_service
 from cii_platform.services.annual_simulation import (
+    PARAMETERS_SCHEMA_V1,
     _assert_same_outcome,
+    build_parameters_used,
     get_annual_simulation,
     list_snapshot_voyages,
+    parameters_schema_version,
     reproduce_annual_simulation,
     run_annual_simulation,
 )
@@ -312,6 +317,111 @@ async def test_reproduce_refuses_when_parameters_changed(session, executed):
 
     with pytest.raises(ParameterError):
         await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+
+
+@pytest.mark.asyncio
+async def test_reproduce_rebuilds_with_the_stored_schema_version(session, executed, monkeypatch):
+    """#816 — ``parameters_used``를 **저장된 행의 버전으로** 다시 만든다.
+
+    ``reproduce``는 저장된 ``parameter_hash``를 그대로 두고 **지금 코드로**
+    ``parameters_used``를 다시 만들어 비교한다. 그래서 빌더가 v2로 바뀌는 순간,
+    버전을 보지 않으면 **과거 실행 전부**가 409 ``PARAMETER_ERROR``를 받는다 — 바뀐
+    것은 규정이 아니라 우리 코드인데 사용자에게는 「규정 파라미터가 변경되어 재현할
+    수 없습니다」가 나간다. ``calculation_run``은 ``calc_run_guard()``(마이그레이션
+    024)가 UPDATE를 막으므로 **저장된 해시를 소급해 고칠 수도 없다.**
+
+    「409가 나지 않았다」만으로는 배선이 검증되지 않는다 — 버전을 통째로 무시해도
+    지금은 v1이 최신이라 그대로 통과한다. 그래서 넷을 모두 본다.
+
+    1. 버전 필드가 **없는** 행이 v1으로 판정된다 (``#816`` 이전 행이 전부 그렇다)
+    2. 빌더가 실제로 ``version=1``로 호출된다
+    3. 가상의 v2로 만들었다면 해시가 **달랐다** — 이 테스트에 판별력이 있음을 증명한다
+    4. 재현 결과와 해시가 원본과 **같다**
+
+    DB는 ``conn`` fixture의 트랜잭션이 종료 시 롤백하므로 남지 않는다. 파라미터는
+    ``_seed_parameters``의 합성값이라 선박·사용자 식별정보를 담지 않는다.
+    """
+    simulation_id = UUID(executed["simulation_id"])
+    row = (
+        await session.execute(
+            text(
+                "SELECT c.parameters_used, c.parameter_hash "
+                "FROM annual_simulation_run r "
+                "JOIN calculation_run c ON c.id = r.calculation_run_id "
+                "WHERE r.id = :id"
+            ),
+            {"id": simulation_id},
+        )
+    ).one()
+
+    # ⑴ 버전 필드가 없다 = v1. 이것이 기존 162건이 놓인 상태다.
+    assert "parameter_schema_version" not in row.parameters_used
+    assert parameters_schema_version(row.parameters_used) == PARAMETERS_SCHEMA_V1
+
+    seen: list[int] = []
+    captured: dict = {}
+
+    def _spy(version: int, **kwargs):
+        seen.append(version)
+        captured.update(kwargs)
+        # 모듈 속성이 아니라 **테스트가 import한 이름**이라 재귀하지 않는다.
+        return build_parameters_used(version, **kwargs)
+
+    monkeypatch.setattr(annual_simulation_service, "build_parameters_used", _spy)
+
+    again = await reproduce_annual_simulation(session, simulation_id)
+
+    # ⑵ 저장된 버전으로 **한 번** 호출됐다.
+    assert seen == [PARAMETERS_SCHEMA_V1], seen
+
+    # ⑶ 판별력 — 최신이 v2가 되면 해시가 달라진다. 이 단언이 없으면 위 ⑵는
+    #    「어차피 v1뿐이라 통과」와 구분되지 않는다.
+    v1_used = build_parameters_used(PARAMETERS_SCHEMA_V1, **captured)
+    marker = "__hypothetical_v2_field__"
+    assert marker not in v1_used, "표지가 v1과 충돌한다 — 이 단언의 판별력이 사라진다"
+    assert compute_parameter_hash({**v1_used, marker: "v2"}) != row.parameter_hash
+
+    # ⑷ 결과와 해시가 원본과 같다 — 「409가 안 났다」가 아니라 **같은 값**이다.
+    assert compute_parameter_hash(v1_used) == row.parameter_hash
+    assert again["deterministic"] == executed["deterministic"]
+    assert again["sensitivity_analysis"] == executed["sensitivity_analysis"]
+    assert (
+        again["monte_carlo"]["rating_probabilities"]
+        == executed["monte_carlo"]["rating_probabilities"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_reproduce_takes_the_version_from_the_row_not_a_constant(
+    session, executed, monkeypatch
+):
+    """#816 — 빌더에 넘기는 버전은 **행을 판정한 값**이지 상수가 아니다.
+
+    위 테스트는 「v1 행이 v1으로 재현된다」까지만 본다. 지금은 v1이 최신이라, 코드가
+    행을 보지 않고 ``PARAMETERS_SCHEMA_V1``을 그대로 넘겨도 똑같이 통과한다.
+
+    그래서 여기서는 **판정 함수만** 가상의 v2를 돌려주게 바꾸고, 빌더가 그 값을
+    받는지 본다. 상수를 넘기고 있었다면 ``seen``은 ``[1]``이 된다.
+
+    v2 빌더는 아직 없으므로 :class:`ValueError`가 아니라 `#816`의 미등록 버전 처리를
+    그대로 타야 한다 — 조용히 v1으로 떨어뜨리면 해시 불일치의 이유가 「버전이
+    다르다」인지 「값이 다르다」인지 가려진다.
+
+    DB는 ``conn`` fixture 롤백으로 정리된다.
+    """
+    seen: list[int] = []
+
+    def _spy(version: int, **kwargs):
+        seen.append(version)
+        return build_parameters_used(version, **kwargs)
+
+    monkeypatch.setattr(annual_simulation_service, "build_parameters_used", _spy)
+    monkeypatch.setattr(annual_simulation_service, "parameters_schema_version", lambda _: 2)
+
+    with pytest.raises(ValueError, match="알 수 없는 parameters_used 스키마 버전: 2"):
+        await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+
+    assert seen == [2], "행이 판정한 버전이 아니라 상수를 넘기고 있다 (#816)"
 
 
 @pytest.mark.asyncio
