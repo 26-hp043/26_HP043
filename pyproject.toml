@@ -39,13 +39,13 @@ dependencies = [
 # 여기만 고치면 로컬과 CI가 함께 따라온다. `ci.yml`에 버전을 적지 않는다.
 # pytest 계열은 마이너 버전 사이에서 큰 변화가 없어 상한만 둔다.
 dev = [
-    "ruff==0.16.5",
+    "ruff==0.16.6",
     "pytest>=9.1.1,<10.0",
     "pytest-asyncio>=1.4.0,<2.0",
     "pytest-cov>=7.1.0,<8.0",
     # PDF 텍스트 추출 (#361). 한글이 tofu로 렌더링되면 바이트 길이·HTTP 상태는
     # 정상이라 **추출된 텍스트로만** 잡을 수 있다.
-    "pypdf>=6.16.2,<7.0",
+    "pypdf>=6.17.0,<7.0",
 ]
 
 [tool.hatch.build.targets.wheel]
