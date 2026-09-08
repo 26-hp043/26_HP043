@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import platform
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -306,9 +306,34 @@ def _classify(attained: np.ndarray, bounds: tuple[float, float, float, float]) -
     return index
 
 
+#: ``TECH_SPEC §2.4`` Rounding 정책이 규정하는 Monte Carlo 집계의 양자화 단위.
+_PROBABILITY_QUANTUM = Decimal(1).scaleb(-PROBABILITY_DIGITS)
+
+
 def _round(value: float) -> Decimal:
-    """``PRD §12.4.3`` — 확률·분위수는 소수 4자리."""
-    return Decimal(str(round(float(value), PROBABILITY_DIGITS)))
+    """``TECH_SPEC §2.4`` — Monte Carlo 집계는 **소수 4자리 ROUND_HALF_UP**이다.
+
+    자릿수는 ``PRD §12.4.3``이, **반올림 모드는 ``TECH_SPEC §2.4``가** 정한다.
+    종전 구현은 ``round()``를 썼는데(`#757`) 그것은 **은행가 반올림**(half-to-even)
+    이라 정본과 다른 값을 낸다.
+
+    .. code-block:: text
+
+        0.56785  round()=0.5678   정본=0.5679
+        0.00015  round()=0.0001   정본=0.0002
+        2.00005  round()=2.0      정본=2.0001
+
+    ``quantize``를 쓰는 두 번째 이유는 **자릿수 고정**이다. ``round()``는 후행 0을
+    버려 ``rating_probabilities``가 ``"0.0"``·``"1.0"``으로 나갔다 — ``API_SPEC §1.7``이
+    그 열에 「4 유효숫자」를 적고 ``§6.1`` 예시가 ``0.0200``을 드는 것과 다르다.
+
+    은행가 반올림이 이 저장소에서 허용된 선례가 하나 있으나(``§3.3.2
+    [ORACLE-M-1]`` Beaufort 변환), 그쪽은 **정본이 사유를 적어 허용**한 것이다.
+
+    ``Decimal(str(value))``로 float을 받는 것은 그대로 둔다 — ``Decimal(float)``은
+    이진 오차를 그대로 들여와 ``0.1``이 ``0.1000000000000000055511…``이 된다.
+    """
+    return Decimal(str(float(value))).quantize(_PROBABILITY_QUANTUM, rounding=ROUND_HALF_UP)
 
 
 def simulate_annual(
