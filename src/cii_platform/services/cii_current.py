@@ -426,6 +426,30 @@ class InProgressState:
     contribution: InProgressContribution | None
     fuel_code: str | None
     warnings: list[str]
+    #: 진행 중 항차가 선언한 규제연도. 항차가 없으면 ``None``이다 (#815).
+    regulation_year: int | None = None
+
+    def for_year(self, regulation_year: int) -> InProgressState:
+        """조회 연도에 **속하는** 진행분만 남긴다 (#815).
+
+        진행 중 항차 조회에는 연도 조건이 없었고(``find_in_progress``), 기여분은
+        무조건 더해졌다. 그래서 ``?year=2024``로 물어도 **2026년에 항해 중인 항차의
+        누적분이 2024년 확정 실적에 합산**됐다 — 끝난 해의 실적이 조회할 때마다
+        달라졌고, 그 값이 연간 실적 리포트 PDF에도 그대로 실렸다.
+
+        **집계의 나머지는 이미 이 기준을 쓴다.** ``list_annual_inclusions``가
+        ``Voyage.regulation_year == regulation_year``로 거른다
+        (``db/repositories/voyage.py:224``). 진행분만 다른 기준을 쓰면 분자와 분모가
+        서로 다른 해의 항차를 섞는다.
+
+        **기여분만 지우지 않고 상태 전체를 비운다.** ⑵ 항차 구간값과
+        ``meta.simulated``도 같은 항차에서 나오므로, 하나만 지우면 화면이 「2024년을
+        보는데 지금 뛰는 항차의 구간값이 함께 떠 있는」 상태가 된다. 경고도 마찬가지다 —
+        범위 밖 항차에 대한 안내는 그 화면에서 뜻이 없다.
+        """
+        if self.regulation_year == regulation_year:
+            return self
+        return InProgressState(None, None, None, None, [], None)
 
 
 async def resolve_in_progress_state(
@@ -444,7 +468,7 @@ async def resolve_in_progress_state(
     """
     voyage = await voyage_repo.find_in_progress(session, vessel.id)
     if voyage is None:
-        return InProgressState(None, None, None, None, [])
+        return InProgressState(None, None, None, None, [], None)
 
     fuel_code = await _voyage_fuel_code(session, voyage=voyage, vessel=vessel)
     progress = await _resolve_progress(session, vessel=vessel, voyage=voyage, as_of=as_of)
@@ -468,7 +492,9 @@ async def resolve_in_progress_state(
     if progress.past_planned_arrival:
         warnings.append(WARNING_IN_PROGRESS_PAST_ETA)
 
-    return InProgressState(voyage, progress, contribution, fuel_code, warnings)
+    return InProgressState(
+        voyage, progress, contribution, fuel_code, warnings, voyage.regulation_year
+    )
 
 
 async def get_current_cii(
@@ -493,7 +519,14 @@ async def get_current_cii(
 
     # 진행분 산출은 **한 곳에만 둔다** (`#750`) — 같은 YTD를 내는 네 경로가 각자
     # 조립하면 인자가 갈리고, 그때 화면은 멀쩡한 채 값만 어긋난다.
-    state = await resolve_in_progress_state(session, vessel=vessel, as_of=resolved_as_of)
+    #
+    # **조회 연도에 속하는 항차만 본다** (`#815`). `?year=<과거>`로 물으면 지금
+    # 항해 중인 항차는 그 해의 것이 아니므로 ⑴ 누적·⑵ 구간값·`meta.simulated`
+    # 어디에도 들어가지 않는다.
+    #
+    state = (
+        await resolve_in_progress_state(session, vessel=vessel, as_of=resolved_as_of)
+    ).for_year(regulation_year)
     voyage = state.voyage
     progress = state.progress
     contribution = state.contribution
