@@ -1,4 +1,4 @@
-import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
+import { DISPLAY_DIGITS } from '../../display/format'
 import type { ScenarioResult, ScenarioType } from './types'
 
 /**
@@ -111,7 +111,7 @@ export function lowestSummary(scenarios: readonly ScenarioResult[]): LowestSumma
  *
  * ## **표시값**을 뺀다
  *
- * 원본이 아니라 `formatDecimalString`이 낸 고정 자릿수 문자열을 정수로 올려 뺀다.
+ * 원본이 아니라 표시 자릿수로 맞춘 문자열을 정수로 올려 뺀다(`display/decimal.ts`).
  * 사용자는 화면의 두 값을 눈으로 빼 보고 차이와 맞는지 확인한다. 원본을 빼면
  * `106.2` · `111.5` 옆에 `+5.4`가 붙는 일이 생긴다 — 숨은 자리 때문에 맞는 값인데,
  * **화면만 보는 사람에게는 셋 중 하나가 틀린 것으로 보인다.**
