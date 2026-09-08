@@ -15,7 +15,10 @@ DB 없이 돈다 — ``calc`` 계층이라 이미 읽어 온 값만 받는다.
 
 from __future__ import annotations
 
+import platform
+import sys
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
@@ -38,7 +41,13 @@ from cii_platform.calc.annual_simulation import (
     rng_metadata,
     simulate_annual,
 )
+from cii_platform.calc.hash import compute_parameter_hash
 from cii_platform.calc.rating_engine import DVector
+from cii_platform.services.annual_simulation import (
+    PARAMETERS_SCHEMA_V1,
+    build_parameters_used,
+    parameters_schema_version,
+)
 
 CF = 3.114
 CAPACITY = Decimal("50000")
@@ -171,15 +180,42 @@ def test_rng_metadata_records_what_reproduction_needs():
     """
     meta = _simulate().rng_metadata
 
-    assert meta["seed"] == SEED
-    assert meta["generator"] == "PCG64DXSM"
-    for key in ("num_runs", "numpy_version", "python_version", "platform", "model_version"):
+    # 키와 형식은 `TECH_SPEC §2.2.1` 참조 구현 · `§2.2.2` 저장 스키마 그대로다 (#751).
+    assert set(meta) == {
+        "seed_entropy",
+        "bit_generator",
+        "numpy_version",
+        "python_version",
+        "platform",
+    }, "rng_metadata 키 집합이 정본과 다르다 (TECH_SPEC §2.2.2)"
+
+    # seed는 int가 아니라 **128-bit hex 문자열**이다 — JSON 정수는 2^53까지만
+    # 안전하므로 `API_SPEC §6.1 [ORACLE-S-3 정정]`이 hex 표기를 규정한다.
+    assert meta["seed_entropy"] == f"{SEED:#034x}"
+    assert int(meta["seed_entropy"], 16) == SEED
+
+    assert meta["bit_generator"] == "PCG64DXSM"
+    for key in ("numpy_version", "python_version", "platform"):
         assert meta[key], key
+
+    # `platform.platform()`이다. `sys.platform`("linux")은 커널·아키텍처가 빠지는데,
+    # 재현 실패를 「환경이 달라서」로 가를 때 필요한 것이 그쪽이다.
+    #
+    # **값을 직접 대조한다.** `!= sys.platform`으로는 「옛 값이 아니다」만 알 뿐,
+    # 실제로 올바른 값인지는 확인되지 않는다.
+    assert meta["platform"] == platform.platform()
+    assert meta["platform"] != sys.platform, (
+        "`sys.platform`으로 되돌아갔다 — 커널·아키텍처가 빠진다 (#751)"
+    )
 
 
 def test_rng_metadata_is_pure():
-    """진단용이라 부작용이 없어야 한다 — 같은 인자면 같은 값."""
-    assert rng_metadata(SEED, 5000) == rng_metadata(SEED, 5000)
+    """진단용이라 부작용이 없어야 한다 — 같은 인자면 같은 값.
+
+    ``runs``는 인자에서 뺐다 (#751) — `API_SPEC §6.1`이 ``monte_carlo.runs``를
+    **형제 필드**로 두므로 안에도 담으면 같은 값이 응답에 두 번 실린다.
+    """
+    assert rng_metadata(SEED) == rng_metadata(SEED)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -458,3 +494,231 @@ def test_sensitivity_survives_a_lever_that_breaks_the_math():
     )
     assert entries  # 전부 죽지 않았다
     assert not [e for e in entries if e.variable == "voyage_count" and e.change == "-1"]
+
+
+# ─── parameters_used 스키마 버전 (#816) ──────────────────────────────────────
+#
+# **왜 동결이 필요한가.** `reproduce`는 저장된 해시를 두고 **지금 코드로**
+# `parameters_used`를 다시 만들어 비교한다(`services/annual_simulation.py`).
+# 빌더 출력이 한 글자만 바뀌어도 과거 실행 전부가 `ParameterError`(409)를 받는데,
+# 실제로 바뀐 것은 규정이 아니라 우리 코드다. 사용자에게는 「규정 파라미터가
+# 변경되어 재현할 수 없습니다」라는 **거짓 메시지**가 나간다.
+#
+# `calculation_run`은 `calc_run_guard()`(마이그레이션 024)가 UPDATE를 막아 저장된
+# 해시를 소급해 고칠 수도 없다. 그래서 v1 형식을 동결하고 여기서 지킨다.
+
+
+def _v1_kwargs() -> dict:
+    """v1 빌더 재료. ORM 행 대신 같은 속성을 가진 객체를 쓴다."""
+    return {
+        "regulation": SimpleNamespace(year=2026, z_factor_percent=Decimal("11.0000")),
+        "reference_line": SimpleNamespace(
+            ship_type="BULK_CARRIER",
+            capacity_rule="DWT",
+            a_decimal=Decimal("4745.000000"),
+            c=Decimal("0.622000"),
+            source_ref="MEPC.353(78)",
+        ),
+        "rating_boundary": SimpleNamespace(
+            ship_type="BULK_CARRIER",
+            d1=Decimal("0.8600"),
+            d2=Decimal("0.9400"),
+            d3=Decimal("1.0600"),
+            d4=Decimal("1.1800"),
+        ),
+        "profile_name": "DEFAULT",
+        "profile_rows": [],
+    }
+
+
+def test_missing_version_field_is_v1():
+    """버전 필드가 없는 저장 행은 v1로 판정한다 — `#816` 이전 행이 전부 그렇다."""
+    assert parameters_schema_version(None) == PARAMETERS_SCHEMA_V1
+    assert parameters_schema_version({}) == PARAMETERS_SCHEMA_V1
+    assert parameters_schema_version({"regulation_year": {"year": "2026"}}) == PARAMETERS_SCHEMA_V1
+
+
+def test_explicit_version_is_read():
+    """버전 필드가 있으면 그대로 읽는다 — **정수만** 받는다 (#816).
+
+    문자열 ``"2"``를 받아 주던 종전 안은 버렸다. JSONB는 정수를 정수로 돌려주므로
+    문자열이 온다는 것은 **저장 경로가 잘못됐다는 신호**이고, 흡수하면 그 신호가
+    사라진다.
+    """
+    assert parameters_schema_version({"parameter_schema_version": 1}) == 1
+    assert parameters_schema_version({"parameter_schema_version": 2}) == 2
+
+
+def test_unknown_version_raises():
+    """모르는 버전은 조용히 v1로 떨어뜨리지 않는다.
+
+    떨어뜨리면 해시 불일치의 원인이 「버전이 다르다」인지 「값이 다르다」인지
+    가려지지 않는다 — 가장 찾기 어려운 종류의 오보다.
+    """
+    with pytest.raises(ValueError, match="알 수 없는"):
+        build_parameters_used(99, **_v1_kwargs())
+
+
+def test_v1_block_set_is_frozen():
+    """**v1의 최상위 블록 집합을 고정한다.**
+
+    이 단언이 깨지면 과거 실행의 `parameter_hash`가 재현되지 않는다. 새 필드는
+    v1이 아니라 **v2 빌더**에 넣어야 한다.
+
+    지금 v1에 없는 것 — `fuel_types`(`#832` CF 적용 시점 판정 대기) ·
+    `parameter_source_version`(기준선 하나의 출처만 담아 이름이 실제보다 넓다.
+    `parameter_sources` 객체로 바꾸는 안과 함께 v2에서 정한다).
+    """
+    built = build_parameters_used(PARAMETERS_SCHEMA_V1, **_v1_kwargs())
+
+    assert set(built) == {
+        "regulation_year",
+        "reference_line",
+        "rating_boundary",
+        "simulation_profile",
+    }, "v1 블록 집합이 바뀌었다 — 과거 실행의 parameter_hash가 깨진다 (#816)"
+
+    # `rating_boundary.ship_type`은 `TECH_SPEC §5.2.1`에 없으나 **선택된 경계 행의
+    # 식별 근거**이고, 빼면 과거 해시가 깨진다. 정본 등재 대상이다 (#816).
+    assert built["rating_boundary"]["ship_type"] == "BULK_CARRIER"
+
+
+def test_v1_hash_is_stable_across_calls():
+    """같은 재료로 두 번 만들면 해시가 같다 — 키 순서·직렬화가 흔들리지 않는다."""
+    first = compute_parameter_hash(build_parameters_used(PARAMETERS_SCHEMA_V1, **_v1_kwargs()))
+    second = compute_parameter_hash(build_parameters_used(PARAMETERS_SCHEMA_V1, **_v1_kwargs()))
+    assert first == second
+
+
+#: **운영 DB에 실제로 저장돼 있던 v1 행**이다 (2026-09-08 채취).
+#:
+#: 골든 표본을 쓰는 이유 — :func:`test_v1_hash_is_stable_across_calls`는 같은 새
+#: 코드를 두 번 부르므로 **v1 출력이 실수로 바뀌어도 잡지 못한다.** 고정된 옛 해시와
+#: 대조해야 동결이 실제로 지켜지는지 알 수 있다.
+_V1_GOLDEN_STORED: dict = {
+    "reference_line": {
+        "c": "0.460000",
+        "a_decimal": "2023.000000",
+        "ship_type": "RO_RO_PASSENGER",
+        "reference_capacity_rule": "GT",
+    },
+    "rating_boundary": {
+        "d1": "0.7600",
+        "d2": "0.9200",
+        "d3": "1.1400",
+        "d4": "1.3000",
+        "ship_type": "RO_RO_PASSENGER",
+    },
+    "regulation_year": {"year": "2026", "z_factor_percent": "11.0000"},
+    "simulation_profile": {
+        "profile": "DEFAULT",
+        "version": "2026.08",
+        "parameters": [
+            {
+                "max": "1.0500",
+                "min": "0.9700",
+                "mode": "1.0000",
+                "variable": "DISTANCE",
+                "bound_type": "FACTOR",
+            },
+            {
+                "max": "1.1500",
+                "min": "0.9000",
+                "mode": "1.0000",
+                "variable": "FUEL",
+                "bound_type": "FACTOR",
+            },
+            {
+                "max": "1.0000",
+                "min": "-1.0000",
+                "mode": "0.0000",
+                "variable": "SPEED",
+                "bound_type": "DELTA",
+            },
+        ],
+    },
+}
+
+#: 위 행에 저장돼 있던 ``parameter_hash``. **이 값이 바뀌면 과거 실행이 재현되지 않는다.**
+_V1_GOLDEN_HASH = "sha256:315842dd0a4aaa1a20050e7bff5bca188306a851990238e8ba28d928afde8a3f"
+
+
+def test_v1_reproduces_the_stored_golden_hash():
+    """**운영에 저장된 v1 행의 해시를 지금 빌더가 그대로 낸다.**
+
+    이 단언이 이 파일에서 가장 중요하다. 깨지면 과거 실행 전부가 재실행에서
+    ``ParameterError``(409)를 받는다 — 규정이 아니라 우리 코드가 바뀐 것인데
+    사용자에게는 「규정 파라미터가 변경되었다」가 나간다 (`#816`).
+
+    새 필드는 v1이 아니라 **v2 빌더**에 넣어야 한다.
+    """
+    built = build_parameters_used(
+        PARAMETERS_SCHEMA_V1,
+        regulation=SimpleNamespace(year=2026, z_factor_percent=Decimal("11.0000")),
+        reference_line=SimpleNamespace(
+            ship_type="RO_RO_PASSENGER",
+            capacity_rule="GT",
+            a_decimal=Decimal("2023.000000"),
+            c=Decimal("0.460000"),
+            source_ref="MEPC.353(78)",
+        ),
+        rating_boundary=SimpleNamespace(
+            ship_type="RO_RO_PASSENGER",
+            d1=Decimal("0.7600"),
+            d2=Decimal("0.9200"),
+            d3=Decimal("1.1400"),
+            d4=Decimal("1.3000"),
+        ),
+        profile_name="DEFAULT",
+        profile_rows=[
+            SimpleNamespace(
+                version="2026.08",
+                variable="DISTANCE",
+                bound_type="FACTOR",
+                min_value=Decimal("0.9700"),
+                mode_value=Decimal("1.0000"),
+                max_value=Decimal("1.0500"),
+            ),
+            SimpleNamespace(
+                version="2026.08",
+                variable="FUEL",
+                bound_type="FACTOR",
+                min_value=Decimal("0.9000"),
+                mode_value=Decimal("1.0000"),
+                max_value=Decimal("1.1500"),
+            ),
+            SimpleNamespace(
+                version="2026.08",
+                variable="SPEED",
+                bound_type="DELTA",
+                min_value=Decimal("-1.0000"),
+                mode_value=Decimal("0.0000"),
+                max_value=Decimal("1.0000"),
+            ),
+        ],
+    )
+
+    assert built == _V1_GOLDEN_STORED, "v1 빌더 출력이 저장된 형식과 다르다 (#816)"
+    assert compute_parameter_hash(built) == _V1_GOLDEN_HASH, (
+        "v1 해시가 바뀌었다 — 과거 실행 전부가 재실행에서 409를 받는다 (#816)"
+    )
+
+
+def test_stored_golden_row_is_judged_v1():
+    """실제 저장 행에는 버전 필드가 없다 — v1으로 판정돼야 한다."""
+    assert "parameter_schema_version" not in _V1_GOLDEN_STORED
+    assert parameters_schema_version(_V1_GOLDEN_STORED) == PARAMETERS_SCHEMA_V1
+
+
+@pytest.mark.parametrize("bad", [None, "abc", 1.5, True, [], {}])
+def test_corrupted_version_field_is_rejected(bad):
+    """버전 필드가 **있는데** 정수가 아니면 거부한다 (#816).
+
+    v1으로 흡수하면 손상된 행이 「옛 형식」으로 오인되어, 해시가 맞지 않는 이유가
+    「버전이 다르다」인지 「값이 손상됐다」인지 가려진다.
+
+    ``True``를 함께 보는 이유 — 파이썬에서 ``isinstance(True, int)``는 참이라
+    가드가 없으면 ``True``가 **버전 1로 읽힌다.**
+    """
+    with pytest.raises(ValueError, match="정수가 아닙니다"):
+        parameters_schema_version({"parameter_schema_version": bad})
