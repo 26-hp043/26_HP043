@@ -36,6 +36,7 @@ immutable인 것도 같은 이유다 — 근거가 나중에 바뀌면 재현이
 from __future__ import annotations
 
 import secrets
+import time
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -67,7 +68,7 @@ from cii_platform.services.simulation_clock import resolve_as_of
 # `_model_version`을 기능①에서 가져온다 — 기능②도 같은 방식이다
 # (`services/scenario_compare.py:53`). 세 기능이 같은 함수를 써야
 # `TECH_SPEC:1236-1243`의 6필드가 갈리지 않는다 (#816).
-from cii_platform.services.voyage_cii import _model_version
+from cii_platform.services.voyage_cii import DISCLAIMER, _model_version
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
     _load_regulation_year,
@@ -362,7 +363,13 @@ async def run_annual_simulation(
 
     순서가 중요하다 — **스냅샷을 먼저 뜨고 그 사본으로 계산한다.** 계산 중에 원본이
     바뀌어도 결과가 흔들리지 않게 하는 것이 ``TECH_SPEC §11``의 요구다.
+
+    ``duration_ms``는 여기서 잰다 (#752). 계산 시간은 서비스의 관심사이고, 라우트가
+    재면 요청 파싱·직렬화까지 섞여 ``PRD §16.1``의 「Monte Carlo 5,000회 p95 < 3초」와
+    다른 것을 재게 된다 — 기능①(``services/voyage_cii.py:337-339``)과 같은 자리다.
     """
+    started = time.perf_counter()
+
     if target_rating not in _ALLOWED_TARGETS:
         raise ValidationError(
             "목표 등급 E는 의미 있는 분석이 아닙니다. A~C를 목표로 설정하세요."
@@ -494,7 +501,18 @@ async def run_annual_simulation(
         warnings=[*outcome.warnings, *sensitivity_warnings],
     )
 
-    snapshot_id, calculation_run_id, simulation_id, snapshot_created_at = await _persist(
+    # **저장 전에 잰다.** DB 왕복은 계산 시간이 아니다 — 기능①도 계산이 끝난 지점에서
+    # 끊는다(`services/voyage_cii.py:410`). 0ms로 내려가지 않게 최소 1을 준다.
+    duration_ms = max(1, round((time.perf_counter() - started) * 1000))
+
+    (
+        snapshot_id,
+        calculation_run_id,
+        simulation_id,
+        snapshot_created_at,
+        input_hash,
+        parameter_hash,
+    ) = await _persist(
         session,
         vessel_id=vessel_id,
         regulation_year=regulation_year,
@@ -506,6 +524,7 @@ async def run_annual_simulation(
         result_json=payload,
         warnings=payload["warnings"],
         seed=seed,
+        duration_ms=duration_ms,
     )
 
     return _envelope(
@@ -517,6 +536,11 @@ async def run_annual_simulation(
             "created_at": snapshot_created_at.isoformat(),
             "voyage_count": len(voyages_json),
         },
+        parameters_used=parameters_used,
+        model_version=_model_version(),
+        input_hash=input_hash,
+        parameter_hash=parameter_hash,
+        duration_ms=duration_ms,
     )
 
 
@@ -778,21 +802,53 @@ def _payload(
     }
 
 
-def _envelope(*, simulation_id, calculation_run_id, payload: dict, snapshot: dict) -> dict:
-    """저장된 본문에 식별자·스냅샷을 붙여 ``API_SPEC §6.1`` 응답을 만든다.
+def _envelope(
+    *,
+    simulation_id,
+    calculation_run_id,
+    payload: dict,
+    snapshot: dict,
+    parameters_used: dict,
+    model_version: dict,
+    input_hash: str,
+    parameter_hash: str,
+    duration_ms: int,
+) -> dict:
+    """``API_SPEC §1.3.1`` 계산 결과 응답 봉투를 만든다 (#752).
 
-    키 순서를 §6.1 예시와 같게 둔다. **실행(§6.1)·조회(§6.2)·재실행(§6.4)이 모두 이
+    키 순서를 ``§6.1`` 예시와 같게 둔다. **실행(§6.1)·조회(§6.2)·재실행(§6.4)이 모두 이
     함수를 지나므로 셋의 응답 모양이 갈릴 수 없다.**
+
+    ## ``warnings``와 ``calculation_run_id``는 ``data`` 밖이다 (#752)
+
+    종전에는 둘 다 ``data`` 안에 있었다. ``§1.3.1``과 ``§6.1`` 예시가 **최상위**로
+    규정하고 기능①·②(``services/voyage_cii.py:425-435``)가 그렇게 낸다. 양쪽에 두면
+    같은 값이 한 응답에 두 번 실려, 어긋났을 때 어느 쪽이 정본인지 알 수 없다.
+
+    ``simulation_id``는 ``data`` 안에 남는다 — ``§6.1`` 예시에 최상위 자리가 없다.
+    (예시가 ``simulation_id``를 아예 적지 않는 것은 정본 쪽 불일치이며 별건이다.)
+
+    ``duration_ms``는 ``_duration_ms``라는 내부 키로 넘긴다. ``meta``를 만드는 것은
+    라우트의 일이므로(``TECH_SPEC §16.1`` 계층 분리) 서비스는 값만 실어 보내고,
+    라우트가 꺼내 ``meta.duration_ms``에 넣는다 — 기능①과 같은 방식이다.
     """
     return {
-        "simulation_id": str(simulation_id),
+        "data": {
+            "simulation_id": str(simulation_id),
+            "deterministic": payload["deterministic"],
+            "monte_carlo": payload["monte_carlo"],
+            "risk_level": payload["risk_level"],
+            "sensitivity_analysis": payload["sensitivity_analysis"],
+            "snapshot": snapshot,
+        },
+        "parameters_used": parameters_used,
         "calculation_run_id": str(calculation_run_id),
-        "deterministic": payload["deterministic"],
-        "monte_carlo": payload["monte_carlo"],
-        "risk_level": payload["risk_level"],
-        "sensitivity_analysis": payload["sensitivity_analysis"],
-        "snapshot": snapshot,
+        "model_version": model_version,
+        "input_hash": input_hash,
+        "parameter_hash": parameter_hash,
         "warnings": payload["warnings"],
+        "disclaimer": DISCLAIMER,
+        "_duration_ms": duration_ms,
     }
 
 
@@ -843,6 +899,7 @@ async def _persist(
     result_json: dict,
     warnings: list[str],
     seed: int,
+    duration_ms: int,
 ):
     """스냅샷 → 계산 이력 → 시뮬레이션 실행 순으로 저장한다.
 
@@ -895,10 +952,10 @@ async def _persist(
                 # 포함돼 있고, 별도 행으로 나누면 같은 실행이 이력에서 둘로 보인다.
                 "INSERT INTO calculation_run "
                 "(calculation_type, vessel_id, input_hash, parameter_hash, model_version, "
-                " result_json, parameters_used, warnings_json) "
+                " result_json, parameters_used, warnings_json, duration_ms) "
                 "VALUES ('ANNUAL_MONTE_CARLO', :vessel_id, :input_hash, :parameter_hash, "
                 " CAST(:model_version AS jsonb), CAST(:result AS jsonb), "
-                " CAST(:parameters AS jsonb), CAST(:warnings AS jsonb)) "
+                " CAST(:parameters AS jsonb), CAST(:warnings AS jsonb), :duration_ms) "
                 "RETURNING id"
             ),
             {
@@ -914,6 +971,10 @@ async def _persist(
                 "result": _json(result_json),
                 "parameters": _json(parameters_used),
                 "warnings": _json(warnings),
+                # `#752` 이전에는 이 컬럼을 비워 두었다. `PRD §16.1`의 「Monte Carlo
+                # 5,000회 p95 < 3초」를 나중에 되짚으려면 실행마다 남아 있어야 한다 —
+                # 응답에만 실으면 그 순간 말고는 확인할 길이 없다.
+                "duration_ms": duration_ms,
             },
         )
     ).one()
@@ -939,7 +1000,14 @@ async def _persist(
     ).one()
 
     await session.commit()
-    return snapshot_row.id, run_row.id, simulation_row.id, snapshot_row.created_at
+    return (
+        snapshot_row.id,
+        run_row.id,
+        simulation_row.id,
+        snapshot_row.created_at,
+        input_hash,
+        parameter_hash,
+    )
 
 
 def _json(value: object) -> str:
@@ -970,6 +1038,7 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 "SELECT r.id AS simulation_id, r.calculation_run_id, r.vessel_id, "
                 "       r.regulation_year, r.target_rating, r.simulation_runs, r.snapshot_id, "
                 "       c.result_json, c.parameters_used, c.input_hash, c.parameter_hash, "
+                "       c.model_version, c.duration_ms, "
                 "       s.created_at AS snapshot_created_at, "
                 "       jsonb_array_length(s.voyages_json) AS voyage_count "
                 "FROM annual_simulation_run r "
@@ -1027,6 +1096,16 @@ async def get_annual_simulation(session: AsyncSession, simulation_id: UUID) -> d
         calculation_run_id=row.calculation_run_id,
         payload=_stored_payload(row),
         snapshot=_snapshot_block(row),
+        # **저장된 값을 그대로 낸다.** 지금 값을 읽으면 조회했을 뿐인데 파라미터가
+        # 달라 보인다 — 이 함수가 다시 계산하지 않는 것과 같은 이유다 (#752).
+        parameters_used=row.parameters_used or {},
+        model_version=row.model_version or {},
+        input_hash=row.input_hash,
+        parameter_hash=row.parameter_hash,
+        # **원본 실행에 걸린 시간**이다. 조회에 걸린 몇 ms를 「계산 시간」 자리에
+        # 넣으면 `PRD §16.1` 성능 판단이 오도된다. `#752` 이전 행은 이 컬럼이
+        # 비어 있으므로 0으로 낸다 — 「측정되지 않았다」는 뜻이다.
+        duration_ms=row.duration_ms or 0,
     )
 
 
@@ -1136,6 +1215,8 @@ async def reproduce_annual_simulation(
     그 중 무엇이 원본인지 구분이 흐려진다. 그래서 응답의 식별자도 **원본의 것**이다 —
     「원본 실행을 다시 돌려 확인했다」가 이 응답의 뜻이다.
     """
+    started = time.perf_counter()
+
     row = await _load_run(session, simulation_id)
     stored = _stored_payload(row)
 
@@ -1211,6 +1292,17 @@ async def reproduce_annual_simulation(
         calculation_run_id=row.calculation_run_id,
         payload=payload,
         snapshot=_snapshot_block(row),
+        # 재구성한 것을 싣는다 — 위에서 해시가 원본과 같음을 확인했으므로 저장분과
+        # 같은 값이고, **이번 계산이 실제로 쓴 것**이 무엇인지가 응답의 뜻이다 (#752).
+        parameters_used=parameters_used,
+        # 반대로 ``model_version``은 **저장된 것**이다. 지금 값을 실으면 원본이 어느
+        # 환경에서 돌았는지가 응답에서 사라진다 — 재현 판정의 근거가 그쪽이다.
+        model_version=row.model_version or {},
+        input_hash=row.input_hash,
+        parameter_hash=row.parameter_hash,
+        # **이번 재계산에 걸린 시간**이다. 실제로 다시 돌렸으므로 그 값이 정직하다
+        # (조회 §6.2가 저장분을 내는 것과 갈리는 지점).
+        duration_ms=max(1, round((time.perf_counter() - started) * 1000)),
     )
 
 

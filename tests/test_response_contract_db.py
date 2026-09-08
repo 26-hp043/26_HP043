@@ -576,6 +576,112 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "warnings",
         }
     ),
+    # `API_SPEC §6.1` · `§1.3.1` — 기능③ 실행 (`#752`). **`§6.2` 조회도 같은 집합**이라
+    # 두 경로가 이 하나를 공유한다. 갈리면 「§6.1의 응답과 동일」이 거짓이 된다.
+    "POST /annual-simulations": frozenset(
+        {
+            "calculation_run_id",
+            "data",
+            "data.deterministic",
+            "data.deterministic.completed_M_gco2",
+            "data.deterministic.completed_W_capacity_nm",
+            "data.deterministic.completed_voyage_count",
+            "data.deterministic.planned_M_gco2",
+            "data.deterministic.planned_W_capacity_nm",
+            "data.deterministic.projected_attained_cii",
+            "data.deterministic.projected_rating",
+            "data.deterministic.remaining_voyage_count",
+            "data.monte_carlo",
+            "data.monte_carlo.mean_cii",
+            "data.monte_carlo.p10",
+            "data.monte_carlo.p50",
+            "data.monte_carlo.p90",
+            "data.monte_carlo.rating_probabilities",
+            "data.monte_carlo.rating_probabilities.A",
+            "data.monte_carlo.rating_probabilities.B",
+            "data.monte_carlo.rating_probabilities.C",
+            "data.monte_carlo.rating_probabilities.D",
+            "data.monte_carlo.rating_probabilities.E",
+            "data.monte_carlo.rng_metadata",
+            "data.monte_carlo.rng_metadata.bit_generator",
+            "data.monte_carlo.rng_metadata.numpy_version",
+            "data.monte_carlo.rng_metadata.platform",
+            "data.monte_carlo.rng_metadata.python_version",
+            "data.monte_carlo.rng_metadata.seed_entropy",
+            "data.monte_carlo.runs",
+            "data.monte_carlo.target_rating",
+            "data.monte_carlo.target_success_probability",
+            "data.risk_level",
+            "data.sensitivity_analysis",
+            "data.sensitivity_analysis.distance_minus_5pct",
+            "data.sensitivity_analysis.distance_minus_5pct.projected_cii",
+            "data.sensitivity_analysis.distance_minus_5pct.rating_change",
+            "data.sensitivity_analysis.distance_plus_5pct",
+            "data.sensitivity_analysis.distance_plus_5pct.projected_cii",
+            "data.sensitivity_analysis.distance_plus_5pct.rating_change",
+            "data.sensitivity_analysis.fuel_minus_10pct",
+            "data.sensitivity_analysis.fuel_minus_10pct.projected_cii",
+            "data.sensitivity_analysis.fuel_minus_10pct.rating_change",
+            "data.sensitivity_analysis.fuel_minus_10pct.target_probability_change",
+            "data.sensitivity_analysis.fuel_plus_10pct",
+            "data.sensitivity_analysis.fuel_plus_10pct.projected_cii",
+            "data.sensitivity_analysis.fuel_plus_10pct.rating_change",
+            "data.sensitivity_analysis.fuel_plus_10pct.target_probability_change",
+            "data.sensitivity_analysis.interaction_note",
+            "data.sensitivity_analysis.speed_minus_1kn",
+            "data.sensitivity_analysis.speed_minus_1kn.projected_cii",
+            "data.sensitivity_analysis.speed_minus_1kn.rating_change",
+            "data.sensitivity_analysis.speed_minus_1kn.target_probability_change",
+            "data.sensitivity_analysis.speed_plus_1kn",
+            "data.sensitivity_analysis.speed_plus_1kn.projected_cii",
+            "data.sensitivity_analysis.speed_plus_1kn.rating_change",
+            "data.sensitivity_analysis.speed_plus_1kn.target_probability_change",
+            "data.simulation_id",
+            "data.snapshot",
+            "data.snapshot.created_at",
+            "data.snapshot.snapshot_id",
+            "data.snapshot.voyage_count",
+            "disclaimer",
+            "input_hash",
+            "meta",
+            "meta.duration_ms",
+            "meta.request_id",
+            "meta.timestamp",
+            "model_version",
+            "model_version.decimal_precision",
+            "model_version.decimal_rounding",
+            "model_version.engine",
+            "model_version.numpy_version",
+            "model_version.python_version",
+            "model_version.rng_algorithm",
+            "parameter_hash",
+            "parameters_used",
+            "parameters_used.rating_boundary",
+            "parameters_used.rating_boundary.d1",
+            "parameters_used.rating_boundary.d2",
+            "parameters_used.rating_boundary.d3",
+            "parameters_used.rating_boundary.d4",
+            "parameters_used.rating_boundary.ship_type",
+            "parameters_used.reference_line",
+            "parameters_used.reference_line.a_decimal",
+            "parameters_used.reference_line.c",
+            "parameters_used.reference_line.reference_capacity_rule",
+            "parameters_used.reference_line.ship_type",
+            "parameters_used.regulation_year",
+            "parameters_used.regulation_year.year",
+            "parameters_used.regulation_year.z_factor_percent",
+            "parameters_used.simulation_profile",
+            "parameters_used.simulation_profile.parameters",
+            "parameters_used.simulation_profile.parameters[].bound_type",
+            "parameters_used.simulation_profile.parameters[].max",
+            "parameters_used.simulation_profile.parameters[].min",
+            "parameters_used.simulation_profile.parameters[].mode",
+            "parameters_used.simulation_profile.parameters[].variable",
+            "parameters_used.simulation_profile.profile",
+            "parameters_used.simulation_profile.version",
+            "warnings",
+        }
+    ),
 }
 
 
@@ -627,6 +733,39 @@ def test_voyage_cii_response_fields_match_the_contract(client):
 
     assert response.status_code == 200, response.text
     assert flatten(response.json()) == CONTRACTS["POST /calculations/voyage-cii"]
+
+
+def test_annual_simulation_response_fields_match_the_contract(client):
+    """`API_SPEC §6.1`·`§6.2` (`#752`) — 기능③이 계산 결과 응답 봉투를 따르는가.
+
+    **이 파일의 다른 테스트에 의존하지 않는다.** 실행을 여기서 만들고 바로 조회한다 —
+    「먼저 만들어 두는 테스트」를 앞에 두는 방식은 정의 순서에 기대는 것이라, 함수를
+    옮기면 조용히 깨진다(`#838`이 그 상태를 다룬다).
+
+    **실행과 조회를 같은 표로 본다.** `§6.2`가 「§6.1의 응답과 동일」로 규정하므로
+    둘이 갈리면 그 규정이 거짓이 된다 — 표를 나누면 갈린 것을 볼 수 없다.
+    """
+    response = client.post(
+        f"{API_V1_PREFIX}/annual-simulations",
+        headers={"X-CSRF-Token": client.cookies.get("csrf")},
+        json={
+            "vessel_id": DEMO_VESSEL,
+            "regulation_year": 2026,
+            "target_rating": "C",
+            "simulation_runs": 1000,
+            "random_seed": 12345,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert flatten(response.json()) == CONTRACTS["POST /annual-simulations"]
+
+    # `§6.2` — 같은 봉투다.
+    simulation_id = response.json()["data"]["simulation_id"]
+    fetched = client.get(f"{API_V1_PREFIX}/annual-simulations/{simulation_id}")
+
+    assert fetched.status_code == 200, fetched.text
+    assert flatten(fetched.json()) == CONTRACTS["POST /annual-simulations"]
 
 
 def test_calculation_history_is_not_empty_before_it_is_compared(client):

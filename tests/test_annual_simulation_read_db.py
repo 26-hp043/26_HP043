@@ -148,6 +148,16 @@ async def executed(session, vessel_id):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _without_duration(envelope: dict) -> dict:
+    """``_duration_ms``만 뺀 응답 (#752).
+
+    **두 실행의 계산 시간은 당연히 다르다.** 그 하나 때문에 응답 전체 비교를 포기하고
+    ``data``만 보면, 해시·``parameters_used``·``model_version``이 어긋나도 통과한다 —
+    재현 판정이 봐야 하는 것이 정확히 그쪽이다.
+    """
+    return {k: v for k, v in envelope.items() if k != "_duration_ms"}
+
+
 @pytest.mark.asyncio
 async def test_get_returns_exactly_the_run_response(session, executed):
     """**이 엔드포인트의 계약**이다 — `API_SPEC §6.2` 「§6.1의 응답과 동일」.
@@ -155,7 +165,7 @@ async def test_get_returns_exactly_the_run_response(session, executed):
     키 일부가 아니라 **전체가 같은지** 본다. 부분 비교로 두면 나중에 블록이 추가될 때
     조회 응답에만 빠져도 통과한다.
     """
-    fetched = await get_annual_simulation(session, UUID(executed["simulation_id"]))
+    fetched = await get_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
     assert fetched == executed
 
@@ -171,12 +181,12 @@ async def test_get_does_not_recalculate(session, executed):
         text("UPDATE regulation_year SET z_factor_percent = 25 WHERE year = 2026")
     )
 
-    fetched = await get_annual_simulation(session, UUID(executed["simulation_id"]))
+    fetched = await get_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
-    assert fetched["deterministic"] == executed["deterministic"]
+    assert fetched["data"]["deterministic"] == executed["data"]["deterministic"]
     assert (
-        fetched["monte_carlo"]["rating_probabilities"]
-        == (executed["monte_carlo"]["rating_probabilities"])
+        fetched["data"]["monte_carlo"]["rating_probabilities"]
+        == (executed["data"]["monte_carlo"]["rating_probabilities"])
     )
 
 
@@ -194,9 +204,9 @@ async def test_get_unknown_id_is_not_found(session):
 @pytest.mark.asyncio
 async def test_snapshot_voyages_carry_the_contract_fields(session, executed):
     """`API_SPEC §6.3` 응답 필드가 모두 채워진다."""
-    rows = await list_snapshot_voyages(session, UUID(executed["simulation_id"]))
+    rows = await list_snapshot_voyages(session, UUID(executed["data"]["simulation_id"]))
 
-    assert len(rows) == executed["snapshot"]["voyage_count"]
+    assert len(rows) == executed["data"]["snapshot"]["voyage_count"]
     for row in rows:
         assert row["snapshot_voyage_id"]
         assert row["original_voyage_id"]
@@ -215,7 +225,7 @@ async def test_snapshot_voyages_show_actuals_where_they_exist(session, executed)
     스냅샷에는 두 벌이 다 들어 있으므로, 어느 쪽을 보이는지가 계산과 어긋나면 화면이
     「계산에 쓰이지 않은 값」을 근거로 제시하게 된다.
     """
-    rows = await list_snapshot_voyages(session, UUID(executed["simulation_id"]))
+    rows = await list_snapshot_voyages(session, UUID(executed["data"]["simulation_id"]))
     by_policy = {row["annual_inclusion_policy"]: row for row in rows}
 
     assert by_policy["INCLUDE_AS_ACTUAL"]["distance_nm"] == pytest.approx(3100.0)
@@ -232,14 +242,14 @@ async def test_snapshot_voyages_do_not_follow_later_edits(session, executed, ves
     경로가 원본을 읽지 않는가**다 — 스냅샷을 저장해 두고 조회에서 원본을 읽으면
     격리는 지켜졌는데 사용자에게는 깨져 보인다.
     """
-    before = await list_snapshot_voyages(session, UUID(executed["simulation_id"]))
+    before = await list_snapshot_voyages(session, UUID(executed["data"]["simulation_id"]))
 
     await session.execute(
         text("UPDATE voyage SET actual_distance_nm = 9999 WHERE vessel_id = :vid"),
         {"vid": vessel_id},
     )
 
-    after = await list_snapshot_voyages(session, UUID(executed["simulation_id"]))
+    after = await list_snapshot_voyages(session, UUID(executed["data"]["simulation_id"]))
     assert after == before
 
 
@@ -257,14 +267,14 @@ async def test_snapshot_voyages_unknown_id_is_not_found(session):
 @pytest.mark.asyncio
 async def test_reproduce_returns_the_same_result(session, executed):
     """IT-SNAP-004 — 같은 seed·같은 스냅샷이면 결과가 같다."""
-    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
     assert (
-        again["monte_carlo"]["rating_probabilities"]
-        == (executed["monte_carlo"]["rating_probabilities"])
+        again["data"]["monte_carlo"]["rating_probabilities"]
+        == (executed["data"]["monte_carlo"]["rating_probabilities"])
     )
-    assert again["deterministic"] == executed["deterministic"]
-    assert again["sensitivity_analysis"] == executed["sensitivity_analysis"]
+    assert again["data"]["deterministic"] == executed["data"]["deterministic"]
+    assert again["data"]["sensitivity_analysis"] == executed["data"]["sensitivity_analysis"]
 
 
 @pytest.mark.asyncio
@@ -279,19 +289,19 @@ async def test_reproduce_ignores_later_voyage_edits(session, executed, vessel_id
         {"vid": vessel_id},
     )
 
-    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
-    assert again["deterministic"] == executed["deterministic"]
+    assert again["data"]["deterministic"] == executed["data"]["deterministic"]
 
 
 @pytest.mark.asyncio
 async def test_reproduce_keeps_the_original_identifiers(session, executed):
     """응답의 식별자는 **원본의 것**이다 — 「원본을 다시 돌려 확인했다」는 뜻이다."""
-    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
-    assert again["simulation_id"] == executed["simulation_id"]
+    assert again["data"]["simulation_id"] == executed["data"]["simulation_id"]
     assert again["calculation_run_id"] == executed["calculation_run_id"]
-    assert again["snapshot"] == executed["snapshot"]
+    assert again["data"]["snapshot"] == executed["data"]["snapshot"]
 
 
 @pytest.mark.asyncio
@@ -299,7 +309,7 @@ async def test_reproduce_does_not_record_a_new_run(session, executed, vessel_id)
     """검증이지 실행이 아니다 — 이력이 늘면 무엇이 원본인지 흐려진다."""
     before = await _count_runs(session, vessel_id)
 
-    await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+    await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
     assert await _count_runs(session, vessel_id) == before
 
@@ -316,7 +326,7 @@ async def test_reproduce_refuses_when_parameters_changed(session, executed):
     )
 
     with pytest.raises(ParameterError):
-        await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+        await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
 
 @pytest.mark.asyncio
@@ -341,7 +351,7 @@ async def test_reproduce_rebuilds_with_the_stored_schema_version(session, execut
     DB는 ``conn`` fixture의 트랜잭션이 종료 시 롤백하므로 남지 않는다. 파라미터는
     ``_seed_parameters``의 합성값이라 선박·사용자 식별정보를 담지 않는다.
     """
-    simulation_id = UUID(executed["simulation_id"])
+    simulation_id = UUID(executed["data"]["simulation_id"])
     row = (
         await session.execute(
             text(
@@ -383,11 +393,11 @@ async def test_reproduce_rebuilds_with_the_stored_schema_version(session, execut
 
     # ⑷ 결과와 해시가 원본과 같다 — 「409가 안 났다」가 아니라 **같은 값**이다.
     assert compute_parameter_hash(v1_used) == row.parameter_hash
-    assert again["deterministic"] == executed["deterministic"]
-    assert again["sensitivity_analysis"] == executed["sensitivity_analysis"]
+    assert again["data"]["deterministic"] == executed["data"]["deterministic"]
+    assert again["data"]["sensitivity_analysis"] == executed["data"]["sensitivity_analysis"]
     assert (
-        again["monte_carlo"]["rating_probabilities"]
-        == executed["monte_carlo"]["rating_probabilities"]
+        again["data"]["monte_carlo"]["rating_probabilities"]
+        == executed["data"]["monte_carlo"]["rating_probabilities"]
     )
 
 
@@ -419,7 +429,7 @@ async def test_reproduce_takes_the_version_from_the_row_not_a_constant(
     monkeypatch.setattr(annual_simulation_service, "parameters_schema_version", lambda _: 2)
 
     with pytest.raises(ValueError, match="알 수 없는 parameters_used 스키마 버전: 2"):
-        await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+        await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
     assert seen == [2], "행이 판정한 버전이 아니라 상수를 넘기고 있다 (#816)"
 
@@ -536,7 +546,7 @@ async def test_snapshot_records_the_vessel_specs(session, executed):
                 "SELECT s.vessel_json FROM simulation_snapshot s "
                 "JOIN annual_simulation_run r ON r.snapshot_id = s.id WHERE r.id = :id"
             ),
-            {"id": UUID(executed["simulation_id"])},
+            {"id": UUID(executed["data"]["simulation_id"])},
         )
     ).scalar_one()
 
@@ -564,9 +574,9 @@ async def test_reproduce_ignores_later_spec_removal(session, executed, vessel_id
         {"id": vessel_id},
     )
 
-    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
-    assert again == executed
+    assert _without_duration(again) == _without_duration(executed)
 
 
 @pytest.mark.asyncio
@@ -580,9 +590,9 @@ async def test_reproduce_ignores_later_capacity_edits(session, executed, vessel_
         text("UPDATE vessel SET deadweight = 12345 WHERE id = :id"), {"id": vessel_id}
     )
 
-    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
-    assert again == executed
+    assert _without_duration(again) == _without_duration(executed)
 
 
 @pytest.mark.asyncio
@@ -597,9 +607,9 @@ async def test_reproduce_ignores_later_ship_type_edits(session, executed, vessel
         text("UPDATE vessel SET ship_type = 'TANKER' WHERE id = :id"), {"id": vessel_id}
     )
 
-    again = await reproduce_annual_simulation(session, UUID(executed["simulation_id"]))
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
-    assert again == executed
+    assert _without_duration(again) == _without_duration(executed)
 
 
 @pytest.mark.asyncio
@@ -613,7 +623,7 @@ async def test_reproduce_refuses_runs_made_before_the_spec_snapshot(session, exe
     (immutable 트리거 때문에 UPDATE로 만들 수 없어 **행을 새로 넣어** 그 상태를
     재현한다.)
     """
-    simulation_id = UUID(executed["simulation_id"])
+    simulation_id = UUID(executed["data"]["simulation_id"])
     legacy_snapshot = uuid4()
     await session.execute(
         text(
