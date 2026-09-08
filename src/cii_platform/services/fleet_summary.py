@@ -38,6 +38,7 @@ from cii_platform.calc.capacity import resolve_transport_capacity
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import AppError, ParameterError, ValidationError
+from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import YtdCiiOutput, compute_ytd_cii
@@ -369,12 +370,33 @@ async def _derive_vessel(
     상세)에서는 무엇을 채워야 하는지 알려 줘야** 하기 때문이다. 「한 척의 실패가 전체
     실패가 아니다」를 아는 것은 선대를 도는 이쪽이므로, 판단도 여기서 한다.
     """
+    # 진행 중 항차 기여분을 넣는다 (`PRD §3.3.8`, `#750`).
+    #
+    # 종전에는 `as_of`만 넘기고 `in_progress`를 넘기지 않아 **실적 확정분만** 집계했다.
+    # 같은 선박을 두고 대시보드는 8.980을, 실시간 CII 화면은 7.028을 냈다 — 이 모듈
+    # docstring이 막겠다고 선언한 바로 그 실패다. 수식을 다시 구현하지는 않았고,
+    # **인자가 갈려** 같은 결과가 났다.
+    #
+    # 대시보드의 위험 배너·등급 분포·정렬·`days_to_d`가 전부 이 값 위에서 돌므로
+    # (`PRD §3.3.7`), 정의가 다르면 **규제 트리거 판정이 갈릴 수 있다.**
+    #
+    # 진행분 조회 실패가 선박 전체를 무효로 만들지 않게 `AppError`를 잡는다 — 이
+    # 함수가 통째로 지키려는 원칙(「한 척의 실패가 선대 전체의 실패가 아니다」)이
+    # 진행분에도 그대로 적용된다.
+    try:
+        in_progress = (
+            await resolve_in_progress_state(session, vessel=vessel, as_of=resolved)
+        ).contribution
+    except AppError:
+        in_progress = None
+
     try:
         ytd = await compute_ytd_cii(
             session,
             vessel_id=vessel.id,
             regulation_year=year,
             as_of=resolved,
+            in_progress=in_progress,
         )
     except ParameterError:
         # 호출부가 연도를 먼저 확인하므로, 여기 남는 것은 선종별 기준선·등급 경계다.

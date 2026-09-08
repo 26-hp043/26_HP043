@@ -29,8 +29,9 @@ from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
+from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.simulation_clock import resolve_as_of
-from cii_platform.services.ytd_cii import compute_ytd_cii
+from cii_platform.services.ytd_cii import InProgressContribution, compute_ytd_cii
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,13 +109,25 @@ async def _year_row(
     vessel_id: UUID,
     year: int,
     current_year: int,
+    as_of: datetime,
+    in_progress: InProgressContribution | None,
 ) -> dict[str, object]:
-    """연도 1건의 이력 행. 파라미터 확인 → YTD 집계 위임 → 상태·직렬화."""
+    """연도 1건의 이력 행. 파라미터 확인 → YTD 집계 위임 → 상태·직렬화.
+
+    ``in_progress``는 **올해 행에만** 실린다 (`#750`). 과거 연도에 넣으면 그 해에는
+    없던 항차가 확정 이력을 흔든다.
+    """
     params = await param_repo.get_regulation_year(session, year)
     if params is None:
         return _empty_row(year, current_year, REASON_NO_REGULATION_PARAMS)
 
-    result = await compute_ytd_cii(session, vessel_id=vessel_id, regulation_year=year)
+    result = await compute_ytd_cii(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=year,
+        as_of=as_of,
+        in_progress=in_progress if year == current_year else None,
+    )
     status = STATUS_CONFIRMED if year < current_year else STATUS_IN_PROGRESS
     if not result.data_available:
         row = _empty_row(year, current_year, REASON_NO_DATA)
@@ -176,9 +189,23 @@ async def list_cii_history(
 
     :param from_year: 시작 연도. 기본 ``to - 2`` (최근 3년 창).
     :param to_year: 종료 연도. 기본 ``as_of`` 연도(올해).
-    :param as_of: 확정/진행 중 판정의 기준 시각(``#368`` 계약 ⑵). 미지정이면
-        서버가 현재 시각을 확정한다. **연도 집계 자체에는 쓰지 않는다** — 집계
-        컷은 각 연도 데이터의 존재 범위가 정한다.
+    :param as_of: 기준 시각(``#368`` 계약 ⑵). 미지정이면 서버가 현재 시각을 확정한다.
+        확정/진행 중 판정에 쓰고, **올해 행의 집계 컷으로도 쓴다** (`#750`).
+
+    ## 올해 행은 진행 중 항차 기여분을 포함한다 (`PRD §3.3.8`, `#750`)
+
+    종전에는 :func:`compute_ytd_cii`에 ``as_of``도 ``in_progress``도 넘기지 않아
+    **실적 확정분만** 집계했다. 같은 선박·같은 연도를 두고 실시간 CII 화면은 진행분을
+    포함한 값을, 이 이력은 포함하지 않은 값을 냈다 — 심사에서 대시보드 → 선박 상세 →
+    실시간 CII로 드릴다운하면 **같은 라벨의 숫자가 설명 없이 바뀌었다.**
+
+    ``PRD §3.3.8``이 정본이다. ``INCLUDE_AS_PLAN``의 계획 전량은 넣지 않되, ``§8.3``이
+    요구하는 ``IN_PROGRESS latest estimate``(경과 시간에서 산출)는 넣는다.
+
+    **과거 연도는 영향이 없다** — 진행 중 항차는 올해에만 존재한다.
+
+    ``as_of``를 함께 넘기는 것도 같은 이유다. 종전에는 「확정/진행 중」은 ``as_of``로
+    판정하면서 집계는 연도 전체를 훑어, 상태와 숫자가 다른 시점을 가리켰다.
     """
     resolved = resolve_as_of(as_of)
     current_year = resolved.year
@@ -190,8 +217,19 @@ async def list_cii_history(
     if vessel is None:
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
 
+    # 진행분은 **한 번만** 구해 올해 행에 넘긴다 — 연도마다 다시 구하면 같은 값을
+    # 연도 수만큼 조회하게 되고, 과거 연도에는 쓰이지도 않는다.
+    state = await resolve_in_progress_state(session, vessel=vessel, as_of=resolved)
+
     years = [
-        await _year_row(session, vessel_id=vessel_id, year=year, current_year=current_year)
+        await _year_row(
+            session,
+            vessel_id=vessel_id,
+            year=year,
+            current_year=current_year,
+            as_of=resolved,
+            in_progress=state.contribution,
+        )
         for year in range(start, end + 1)
     ]
 
