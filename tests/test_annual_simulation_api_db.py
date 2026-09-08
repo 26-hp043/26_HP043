@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -26,7 +27,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.errors import ValidationError
-from cii_platform.services.annual_simulation import run_annual_simulation
+from cii_platform.services.annual_simulation import (
+    _inputs_from_snapshot,
+    run_annual_simulation,
+)
 from cii_platform.services.voyage_cii import DISCLAIMER
 
 YEAR = 2026
@@ -113,6 +117,35 @@ async def _add_voyage(session, vessel_id, *, policy: str, status: str, fuel: str
             "actual": Decimal(fuel) if policy == "INCLUDE_AS_ACTUAL" else None,
         },
     )
+    return voyage_id
+
+
+async def _add_plan_voyage(session, vessel_id, *, fuels: list[tuple[str, str, str]]):
+    """계획 항차 1건 + 연료 행 N건 (#812).
+
+    ``fuels``는 ``(fuel_type, planned_fuel_ton, cf_used)`` 목록이다. **빈 목록이면
+    연료 행을 만들지 않는다** — `voyage_fuel_use`에 `idx_fuel_use_unique`가 있어
+    연료 종류별 다중 행이 설계상 정상이고, 0건인 상태도 DB 차원에서는 가능하다.
+    """
+    voyage_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO voyage (id, vessel_id, status, departure_port_name, "
+            "arrival_port_name, planned_distance_nm, planned_speed_kn, "
+            "annual_inclusion_policy, regulation_year, created_from) "
+            "VALUES (:id, :vid, 'PLANNED', 'Busan', 'Singapore', 3000, 14, "
+            "'INCLUDE_AS_PLAN', 2026, 'MANUAL')"
+        ),
+        {"id": voyage_id, "vid": vessel_id},
+    )
+    for fuel_type, ton, cf in fuels:
+        await session.execute(
+            text(
+                "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
+                "cf_used, source) VALUES (:id, :ft, :ton, :cf, 'USER_INPUT')"
+            ),
+            {"id": voyage_id, "ft": fuel_type, "ton": Decimal(ton), "cf": Decimal(cf)},
+        )
     return voyage_id
 
 
@@ -380,3 +413,154 @@ async def test_no_remaining_plan_is_reported(session, vessel_id):
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
     result = await _run(session, vessel_id)
     assert "NO_REMAINING_VOYAGES" in result["warnings"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 다중 연료 계획 항차 (#812)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fuel_type_count_does_not_change_the_result(session, vessel_id):
+    """**연료 종류 수가 결과를 바꾸지 않는다** (#812) — 이 이슈의 완료 기준 1번.
+
+    종전에는 계획 항차의 ``fuel_uses``마다 한 줄을 만들면서 **항차 전체 거리를 그대로
+    복사**했다. 연료가 2종이면 그 항차 거리가 2배로 계상되어 분모만 커지고, 연말 예상
+    CII가 1/N로 낮아져 **목표 달성 확률이 0%↔100%로 뒤집혔다.**
+
+    총 연료·총 CO₂·거리가 같은 두 입력을 **연료 행 수만 다르게** 넣어 대조한다.
+    HFO 150t(cf 3.114) 한 줄과, 같은 CO₂가 되도록 나눈 두 줄이다.
+    """
+    single = await _add_plan_voyage(session, vessel_id, fuels=[("HFO", "150", "3.114")])
+    result_single = await _run(session, vessel_id)
+
+    await session.execute(text("DELETE FROM voyage WHERE id = :id"), {"id": single})
+    # 같은 CO₂: 100×3.114 + 50×3.114 = 150×3.114. 종류만 갈랐다.
+    await _add_plan_voyage(
+        session,
+        vessel_id,
+        fuels=[("HFO", "100", "3.114"), ("DIESEL_GAS_OIL", "50", "3.114")],
+    )
+    result_split = await _run(session, vessel_id)
+
+    one = result_single["data"]["deterministic"]
+    two = result_split["data"]["deterministic"]
+
+    # **거리가 먼저다.** 이것이 어긋나면 아래 CII 비교는 원인을 가리지 못한다.
+    assert two["planned_W_capacity_nm"] == one["planned_W_capacity_nm"], (
+        "연료 행 수가 거리를 바꿨다 — 항차당 한 줄이 아니다 (#812)"
+    )
+    assert two["planned_M_gco2"] == one["planned_M_gco2"]
+    assert two["projected_attained_cii"] == one["projected_attained_cii"]
+    assert two["projected_rating"] == one["projected_rating"]
+    assert two["remaining_voyage_count"] == one["remaining_voyage_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mixed_fuels_keep_the_exact_co2_sum(session, vessel_id):
+    """CF가 **다른** 연료를 섞어도 CO₂ 합이 정확하다 (#812).
+
+    위 테스트는 같은 CF로 나눠 「거리」를 본다. 여기서는 CF가 다른 두 연료를 넣어
+    **유효 CF로 합치는 계산 자체**를 본다 — 유효 CF가 틀리면 거리가 맞아도 배출이
+    틀린다.
+
+    HFO 100t(3.114) + DIESEL_GAS_OIL 50t(3.206) = 471.7 tCO₂ = 471,700,000 gCO₂.
+    """
+    await _add_plan_voyage(
+        session,
+        vessel_id,
+        fuels=[("HFO", "100", "3.114"), ("DIESEL_GAS_OIL", "50", "3.206")],
+    )
+
+    result = await _run(session, vessel_id)
+
+    planned_co2 = Decimal(result["data"]["deterministic"]["planned_M_gco2"])
+    expected = (Decimal("100") * Decimal("3.114") + Decimal("50") * Decimal("3.206")) * Decimal(
+        1_000_000
+    )
+    # 유효 CF가 float이라 마지막 자리에 표현 오차가 남는다. 상대오차로 본다 —
+    # 절대 동등을 요구하면 float 표현 때문에 실패하고, 자릿수를 버리면 유효 CF가
+    # 틀려도 통과한다.
+    assert abs(planned_co2 - expected) / expected < Decimal("1e-12"), (
+        f"유효 CF 합산이 연료별 합과 다르다: {planned_co2} vs {expected}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_plan_voyage_without_fuel_is_excluded_with_a_warning(session, vessel_id):
+    """연료를 알 수 없는 계획 항차는 **빼되 조용히 빼지 않는다** (#812).
+
+    거리만 넣는 대안은 「거리는 가는데 배출은 0」이라는 거짓 진술이 되어 분모만 키우고
+    연말 예상 CII를 **실제보다 좋게** 만든다 — 이 이슈가 고치는 결함과 같은 방향이다.
+
+    빼는 대신 경고를 남긴다. 응답의 ``remaining_voyage_count``는 스냅샷의 PLAN 행을
+    세므로, 경고가 없으면 **「2건 중 1건만 계산했다」가 어디에도 드러나지 않는다.**
+    """
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+    await _add_plan_voyage(session, vessel_id, fuels=[("HFO", "150", "3.114")])
+    await _add_plan_voyage(session, vessel_id, fuels=[])
+
+    result = await _run(session, vessel_id)
+
+    assert "SIMULATION_PLAN_NO_FUEL" in result["warnings"]
+    # 항차 수는 스냅샷 기준이라 2건 그대로다 — 그래서 경고가 필요하다.
+    assert result["data"]["deterministic"]["remaining_voyage_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_no_warning_when_every_plan_voyage_has_fuel(session, vessel_id):
+    """경고가 **늘 붙지는 않는다** — 붙는 조건이 실제로 판정되는지 본다 (#812)."""
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+    await _add_plan_voyage(session, vessel_id, fuels=[("HFO", "150", "3.114")])
+
+    result = await _run(session, vessel_id)
+
+    assert "SIMULATION_PLAN_NO_FUEL" not in result["warnings"]
+
+
+def test_remaining_rows_are_one_per_voyage():
+    """``len(remaining)``이 **항차 수**다 (#812) — 두 가드가 같은 단위를 보게 하는 불변식.
+
+    이 값 하나에 두 가지가 걸려 있다.
+
+    * **가드 단위** — 서비스는 ``len(planned)``(항차)로, 엔진은 ``len(remaining)``으로
+      상한을 본다(``calc/annual_simulation.py`` ``MAX_REMAINING_VOYAGES``). 둘이 다르면
+      200항차 × 2연료 = 400줄에서 **엔진이 ValueError를 던지는데 서비스가 잡지 않는다.**
+    * **민감도 ``voyage_count ±1``** — ``remaining[:-1]``이 연료 행 하나가 아니라
+      **항차 하나**를 가감해야 `PRD §12.6`의 「잔여 항차 1개 취소/추가」가 된다.
+
+    DB를 쓰지 않는다 — 조립 함수의 불변식이라 스냅샷 사본만 있으면 확인된다.
+    """
+    vessel = SimpleNamespace(
+        ship_type="BULK_CARRIER",
+        deadweight=Decimal("50000"),
+        gross_tonnage=None,
+        reference_speed_kn=Decimal("14"),
+        reference_daily_foc_ton=Decimal("30"),
+    )
+
+    def plan(*fuels):
+        return {
+            "kind": "PLAN",
+            "planned_distance_nm": "3000",
+            "planned_speed_kn": "14",
+            "fuel_uses": [{"planned_fuel_ton": ton, "cf_used": cf} for ton, cf in fuels],
+        }
+
+    rows = [
+        plan(("100", "3.114")),  # 연료 1종
+        plan(("100", "3.114"), ("50", "3.206")),  # 연료 2종
+        plan(("40", "3.114"), ("30", "3.206"), ("30", "2.750")),  # 연료 3종
+    ]
+
+    _completed, remaining, warnings = _inputs_from_snapshot(rows, vessel)
+
+    assert len(remaining) == 3, "연료 행 수가 아니라 항차 수여야 한다 (#812)"
+    assert [v.distance_nm for v in remaining] == [3000.0, 3000.0, 3000.0]
+    assert not warnings
+
+    # 연료를 알 수 없는 항차는 빠지고 경고가 붙는다 — 줄 수도 함께 줄어든다.
+    _c2, remaining2, warnings2 = _inputs_from_snapshot([*rows, plan()], vessel)
+
+    assert len(remaining2) == 3
+    assert warnings2 == ["SIMULATION_PLAN_NO_FUEL"]
