@@ -29,9 +29,9 @@ from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
-from cii_platform.services.cii_current import resolve_in_progress_state
+from cii_platform.services.cii_current import InProgressState, resolve_in_progress_state
 from cii_platform.services.simulation_clock import resolve_as_of
-from cii_platform.services.ytd_cii import InProgressContribution, compute_ytd_cii
+from cii_platform.services.ytd_cii import compute_ytd_cii
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -110,12 +110,12 @@ async def _year_row(
     year: int,
     current_year: int,
     as_of: datetime,
-    in_progress: InProgressContribution | None,
+    in_progress: InProgressState,
 ) -> dict[str, object]:
     """연도 1건의 이력 행. 파라미터 확인 → YTD 집계 위임 → 상태·직렬화.
 
-    ``in_progress``는 **올해 행에만** 실린다 (`#750`). 과거 연도에 넣으면 그 해에는
-    없던 항차가 확정 이력을 흔든다.
+    ``in_progress``는 **그 항차가 선언한 연도의 행에만** 실린다 (`#750` · `#815`).
+    다른 해에 넣으면 그 해에는 없던 항차가 확정 이력을 흔든다.
     """
     params = await param_repo.get_regulation_year(session, year)
     if params is None:
@@ -126,7 +126,9 @@ async def _year_row(
         vessel_id=vessel_id,
         regulation_year=year,
         as_of=as_of,
-        in_progress=in_progress if year == current_year else None,
+        # **그 해에 속하는 진행분만** 넣는다 (`#815`). `#750`은 「올해 행에만」이라는
+        # 약한 기준을 썼는데, 그것은 진행 중 항차가 늘 올해 것이라는 가정에 기댄다.
+        in_progress=in_progress.for_year(year).contribution,
     )
     status = STATUS_CONFIRMED if year < current_year else STATUS_IN_PROGRESS
     if not result.data_available:
@@ -228,7 +230,7 @@ async def list_cii_history(
             year=year,
             current_year=current_year,
             as_of=resolved,
-            in_progress=state.contribution,
+            in_progress=state,
         )
         for year in range(start, end + 1)
     ]

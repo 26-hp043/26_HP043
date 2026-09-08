@@ -78,6 +78,35 @@ async def _seed_parameters(session) -> None:
     )
 
 
+async def _add_confirmed(session, vessel_id, *, year: int) -> None:
+    """그 해의 실적 확정 항차 1건 — 5,000 nm · HFO 400 t."""
+    voyage_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO voyage (id, vessel_id, status, departure_port_name, "
+            "arrival_port_name, planned_distance_nm, planned_speed_kn, "
+            "actual_distance_nm, actual_arrival_at, annual_inclusion_policy, "
+            "regulation_year, created_from) "
+            "VALUES (:id, :vid, 'CONFIRMED', 'Busan', 'Singapore', 5000, 14, "
+            "5000, :arrived, 'INCLUDE_AS_ACTUAL', :year, 'MANUAL')"
+        ),
+        {
+            "id": voyage_id,
+            "vid": vessel_id,
+            "year": year,
+            "arrived": datetime(year, 6, 20, tzinfo=UTC),
+        },
+    )
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
+            "actual_fuel_ton, cf_used, source) VALUES (:id, 'HFO', 400, 400, "
+            "3.114, 'USER_INPUT')"
+        ),
+        {"id": voyage_id},
+    )
+
+
 @pytest_asyncio.fixture
 async def vessel_with_voyage_in_progress(session):
     """실적 확정 1건 + **진행 중** 1건을 가진 선박.
@@ -97,26 +126,7 @@ async def vessel_with_voyage_in_progress(session):
         {"id": vessel_id, "imo": f"9{vessel_id.int % 1000000:06d}"},
     )
 
-    confirmed = uuid4()
-    await session.execute(
-        text(
-            "INSERT INTO voyage (id, vessel_id, status, departure_port_name, "
-            "arrival_port_name, planned_distance_nm, planned_speed_kn, "
-            "actual_distance_nm, actual_arrival_at, annual_inclusion_policy, "
-            "regulation_year, created_from) "
-            "VALUES (:id, :vid, 'CONFIRMED', 'Busan', 'Singapore', 5000, 14, "
-            "5000, :arrived, 'INCLUDE_AS_ACTUAL', 2026, 'MANUAL')"
-        ),
-        {"id": confirmed, "vid": vessel_id, "arrived": datetime(YEAR, 6, 20, tzinfo=UTC)},
-    )
-    await session.execute(
-        text(
-            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
-            "actual_fuel_ton, cf_used, source) VALUES (:id, 'HFO', 400, 400, "
-            "3.114, 'USER_INPUT')"
-        ),
-        {"id": confirmed},
-    )
+    await _add_confirmed(session, vessel_id, year=YEAR)
 
     in_progress = uuid4()
     await session.execute(
