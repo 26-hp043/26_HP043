@@ -29,7 +29,12 @@ from cii_platform.db.models.voyage_scenario import VoyageScenario
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
-from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
+from cii_platform.errors import (
+    CalculationError,
+    NotFoundError,
+    StateTransitionError,
+    ValidationError,
+)
 from cii_platform.reports.document import (
     VOYAGE_CII_NOTE,
     KeyValueSection,
@@ -422,18 +427,37 @@ async def build_annual_report(
     ytd = current["ytd"]
     projection = current["year_end_projection"]
 
+    # `PRD §25.3`은 YTD 행의 데이터 출처를 **연도별 이력 API(`#355`)**로 지정한다.
+    # 종전에는 이 행만 `get_current_cii`에서 그려 **한 문서 안에 두 소스**가 있었고,
+    # 두 API의 YTD 정의가 갈리는 동안 같은 문서에 7.028과 8.980이 함께 인쇄됐다
+    # (`#750`).
+    #
+    # 정의를 통일한 것만으로 값은 같아지지만, 그것은 **「지금은 같다」**일 뿐이다.
+    # 같은 표에 들어가는 숫자를 같은 행에서 뽑아야 다시 갈릴 수 없다.
+    #
+    # `risk_level`·`total_co2_ton`은 이력 행에 없어 `current`에서 온다 — 연도별 추이
+    # 표에는 나오지 않는 값이라 중복되지 않는다.
+    year_row = next(
+        (row for row in history["years"] if row["regulation_year"] == target_year),
+        None,
+    )
+    if year_row is None:  # pragma: no cover - 창이 target_year를 포함하므로 도달하지 않는다
+        raise CalculationError(
+            f"연도별 이력에 {target_year}년 행이 없어 리포트를 만들 수 없습니다."
+        )
+
     sections: list[KeyValueSection | TableSection] = [
         KeyValueSection(
             title=f"{target_year}년 누적 (YTD)",
             rows=[
-                ("실적 CII (attained)", _display(ytd["attained_cii"], "cii")),
-                ("기준 CII (required)", _display(ytd["required_cii"], "cii")),
-                ("현재 누적 기준 예상 등급", _text(ytd["rating"])),
+                ("실적 CII (attained)", _display(year_row["attained_cii"], "cii")),
+                ("기준 CII (required)", _display(year_row["required_cii"], "cii")),
+                ("현재 누적 기준 예상 등급", _text(year_row["rating"])),
                 ("위험도", risk_label(ytd["risk_level"])),
-                ("누적 거리 (nm)", _display(ytd["total_distance_nm"], "distance_nm")),
-                ("누적 연료 (t)", _display(ytd["total_fuel_ton"], "fuel_ton")),
+                ("누적 거리 (nm)", _display(year_row["total_distance_nm"], "distance_nm")),
+                ("누적 연료 (t)", _display(year_row["total_fuel_ton"], "fuel_ton")),
                 ("누적 CO₂ (t)", _display(ytd["total_co2_ton"], "co2_ton")),
-                ("항차 수", _text(ytd["voyage_count"])),
+                ("항차 수", _text(year_row["voyage_count"])),
                 ("표시 단위", f"gCO₂/({current['transport_capacity_basis']}·nm)"),
             ],
             note=(

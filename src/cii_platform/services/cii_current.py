@@ -38,6 +38,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -406,6 +407,70 @@ async def _voyage_fuel_code(session: AsyncSession, *, voyage, vessel) -> str | N
 # ─── 진입점 ──────────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class InProgressState:
+    """진행 중 항차가 YTD에 기여하는 몫과, 기여하지 못한 사유 (#750).
+
+    **YTD의 정의가 이 값에 걸려 있다.** ``PRD §3.3.8``은 진행 중 항차의
+    「경과 시간으로부터 산출한 estimate」를 연간 누적에 넣도록 규정한다. 종전에는 이
+    계산이 :func:`get_current_cii` 안에만 있어, 같은 YTD를 내는 다른 세 경로
+    (``fleet_summary`` · ``cii_history`` · 연간 실적 리포트)가 **인자를 넘기지 않아
+    실적 확정분만 집계**했다 — 같은 라벨의 숫자가 화면마다 달랐다.
+
+    그래서 **여기 하나만 둔다.** 네 경로가 각자 조립하면 인자가 다시 갈릴 수 있고,
+    그때 화면은 멀쩡한 채 값만 어긋난다.
+    """
+
+    voyage: object | None
+    progress: object | None
+    contribution: InProgressContribution | None
+    fuel_code: str | None
+    warnings: list[str]
+
+
+async def resolve_in_progress_state(
+    session: AsyncSession, *, vessel, as_of: datetime
+) -> InProgressState:
+    """진행 중 항차의 YTD 기여분을 만든다 (``PRD §3.3.8`` · `#750`).
+
+    **거리와 연료가 둘 다 있을 때만 기여분을 만든다.** 한쪽만 넣으면 CII가 한 방향
+    으로만 틀리는데, 특히 거리만 넣는 경우가 위험하다 — 분모 ``Dt``만 늘고 분자 ``M``은
+    그대로라 **항해할수록 등급이 좋아진다.** ``vessel.reference_daily_foc_ton``은
+    nullable이라(``DB_SCHEMA §2.1``) 소모율이 없는 선박에서 시계가 연료를 0으로
+    내놓고, 그때 이 상태가 된다.
+
+    넣지 않은 이유는 경고로 싣는다. 값이 안 변하는 것을 화면이 「아직 출항 전」으로
+    오해하면 사용자는 없는 제원을 채울 생각을 하지 못한다.
+    """
+    voyage = await voyage_repo.find_in_progress(session, vessel.id)
+    if voyage is None:
+        return InProgressState(None, None, None, None, [])
+
+    fuel_code = await _voyage_fuel_code(session, voyage=voyage, vessel=vessel)
+    progress = await _resolve_progress(session, vessel=vessel, voyage=voyage, as_of=as_of)
+
+    contribution: InProgressContribution | None = None
+    warnings: list[str] = []
+
+    if progress.distance_nm > 0 and progress.fuel_ton > 0 and fuel_code is not None:
+        contribution = InProgressContribution(
+            distance_nm=progress.distance_nm,
+            fuel_uses=((fuel_code, progress.fuel_ton),),
+        )
+    elif progress.distance_nm > 0 and progress.fuel_ton <= 0:
+        warnings.append(WARNING_SIM_NO_FUEL_RATE)
+    elif progress.distance_nm > 0 and fuel_code is None:
+        warnings.append(WARNING_SIM_NO_FUEL_TYPE)
+
+    # 예정일에서 잘렸다는 사실은 **값이 들어갔든 아니든** 알린다 (`#649`).
+    # 위 세 갈래와 배타적이지 않다 — 자르고도 거리·연료가 정상이면 값은 누적에
+    # 들어가고, 그때도 「왜 더 늘지 않는가」를 화면이 말해야 한다.
+    if progress.past_planned_arrival:
+        warnings.append(WARNING_IN_PROGRESS_PAST_ETA)
+
+    return InProgressState(voyage, progress, contribution, fuel_code, warnings)
+
+
 async def get_current_cii(
     session: AsyncSession,
     vessel_id: UUID,
@@ -426,43 +491,14 @@ async def get_current_cii(
     if vessel is None or vessel.is_deleted:
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
 
-    voyage = await voyage_repo.find_in_progress(session, vessel_id)
-
-    progress = None
-    contribution: InProgressContribution | None = None
-    fuel_code: str | None = None
-    live_warnings: list[str] = []
-
-    if voyage is not None:
-        fuel_code = await _voyage_fuel_code(session, voyage=voyage, vessel=vessel)
-        progress = await _resolve_progress(
-            session, vessel=vessel, voyage=voyage, as_of=resolved_as_of
-        )
-        # 진행분은 **거리와 연료가 둘 다 있을 때만** 넣는다.
-        #
-        # 한쪽만 넣으면 CII가 한 방향으로만 틀린다. 특히 거리만 넣는 경우가
-        # 위험하다 — 분모 Dt만 늘고 분자 M은 그대로라 **항해할수록 등급이
-        # 좋아진다.** vessel.reference_daily_foc_ton은 nullable이라(DB_SCHEMA
-        # §2.1) 소모율이 없는 선박에서 시계가 연료를 0으로 내놓고, 그때 이
-        # 상태가 된다.
-        #
-        # 넣지 않은 이유를 경고로 싣는다. 값이 안 변하는 것을 화면이 「아직 출항
-        # 전」으로 오해하면 사용자는 없는 제원을 채울 생각을 하지 못한다.
-        if progress.distance_nm > 0 and progress.fuel_ton > 0 and fuel_code is not None:
-            contribution = InProgressContribution(
-                distance_nm=progress.distance_nm,
-                fuel_uses=((fuel_code, progress.fuel_ton),),
-            )
-        elif progress.distance_nm > 0 and progress.fuel_ton <= 0:
-            live_warnings.append(WARNING_SIM_NO_FUEL_RATE)
-        elif progress.distance_nm > 0 and fuel_code is None:
-            live_warnings.append(WARNING_SIM_NO_FUEL_TYPE)
-
-        # 예정일에서 잘렸다는 사실은 **값이 들어갔든 아니든** 알린다 (`#649`).
-        # 위 세 갈래와 배타적이지 않다 — 자르고도 거리·연료가 정상이면 값은
-        # 누적에 들어가고, 그때도 「왜 더 늘지 않는가」를 화면이 말해야 한다.
-        if progress.past_planned_arrival:
-            live_warnings.append(WARNING_IN_PROGRESS_PAST_ETA)
+    # 진행분 산출은 **한 곳에만 둔다** (`#750`) — 같은 YTD를 내는 네 경로가 각자
+    # 조립하면 인자가 갈리고, 그때 화면은 멀쩡한 채 값만 어긋난다.
+    state = await resolve_in_progress_state(session, vessel=vessel, as_of=resolved_as_of)
+    voyage = state.voyage
+    progress = state.progress
+    contribution = state.contribution
+    fuel_code = state.fuel_code
+    live_warnings: list[str] = [*state.warnings]
 
     try:
         ytd = await compute_ytd_cii(
