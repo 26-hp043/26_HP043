@@ -30,7 +30,21 @@ services:
     # crash 시 자동 재기동 — 단 명시적 stop에는 재기동 안 함 (#232).
     # `always`가 아닌 이유: deploy가 의도한 중지(by `docker compose down`)에도 뜨면 안 된다.
     restart: unless-stopped
-    ports: ["8000:8000"]
+    #
+    # 호스트 포트를 열지 않는다 (#811). 종전에는 `ports: ["8000:8000"]`이었고,
+    # 그러면 **nginx가 제공하는 보호가 전부 우회된다** — `X-Forwarded-For` 덮어쓰기
+    # (`frontend/nginx.conf:24`) · `client_max_body_size` · TLS 종단 · `Host` 검사.
+    #
+    # ⚠️ 이것이 `#786` ⑵의 선행 조건이다. `USE_FORWARDED_FOR=true`로 바꾸면서 이
+    # 포트가 열려 있으면, 공격자가 `:8000`에 직접 붙어 `X-Forwarded-For`를 위조해
+    # **요청 한도를 완전히 우회**한다 — 수정이 상황을 악화시킨다.
+    #
+    # `expose`는 compose 네트워크 안에서만 유효하며 호스트에 바인딩하지 않는다.
+    # nginx(`frontend`)가 같은 네트워크에서 `http://app:8000`으로 프록시한다.
+    # 백엔드에 직접 붙어야 하면 `docker compose ... exec app` 또는 임시로
+    # `--publish 8000:8000`을 쓴다 — 상시 노출로 두지 않는다.
+    #
+    expose: ["8000"]
     #
     # `.env`를 컨테이너에 주입한다 (#508). dev와 같은 이유이며, 운영에서 더 중요하다 —
     # `MAIL_BACKEND`가 비면 `mail/config.py`가 `console`로 떨어지고, 그 상태에서

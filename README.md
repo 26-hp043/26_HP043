@@ -196,7 +196,7 @@ VITE_API_BASE_URL=/api/v1 docker compose -f docker-compose.prod.yml build fronte
 >
 > 허용값은 `development`·`test`·`staging`·`production` 넷뿐이고, **그 밖의 값이면 앱이 뜨지 않는다.** 대소문자와 앞뒤 공백은 정규화한다(`Production`·`"production "` → `production`, 경고 로그를 남긴다). 이 확인은 CI의 `docker` 잡에도 같은 형태로 들어 있다.
 
-> **같은 오리진 보장은 `:80` 경유일 때만 성립한다.** `app`이 `8000:8000`을 호스트에 열어 두므로 `http://localhost:8000`으로 백엔드에 직접 닿을 수도 있다(디버깅용). 화면은 항상 `:80`으로 접근한다 — `:8000`에는 정적 자산이 없다.
+> **`app`은 호스트 포트를 열지 않는다 (`#811`).** 프로덕션 스택에서 외부로 열리는 포트는 nginx의 `:80` 하나뿐이며, 백엔드는 compose 네트워크 안에서 `http://app:8000`으로만 닿는다. 종전에는 `app`이 `8000:8000`을 열어 두어 **nginx가 제공하는 보호가 전부 우회 가능**했다 — `X-Forwarded-For` 덮어쓰기(`frontend/nginx.conf:24`) · `client_max_body_size` · TLS 종단 · `Host` 검사. 디버깅으로 백엔드에 직접 붙어야 하면 `docker compose -f docker-compose.prod.yml exec app …`을 쓰거나 그때만 `--publish 8000:8000`을 붙인다.
 
 ### ⚠️ 프로덕션에서는 스텁 인증이 등록되지 않는다
 

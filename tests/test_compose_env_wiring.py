@@ -168,3 +168,49 @@ def test_env_example_does_not_set_app_env():
         "${APP_ENV:-production} 치환이 그 값을 읽어 프로덕션 스택이 그 환경으로 뜬다. "
         "값이 필요하면 주석(`# APP_ENV=...`)으로 둔다 (#810)."
     )
+
+
+def test_prod_app_does_not_publish_a_host_port():
+    """프로덕션 ``app``이 호스트 포트를 열지 않는다 (#811).
+
+    ## 무엇을 막는가
+
+    종전에는 ``ports: ["8000:8000"]``이었다. 그러면 **nginx가 제공하는 보호가 전부
+    우회 가능**하다 — ``X-Forwarded-For`` 덮어쓰기(``frontend/nginx.conf:24``) ·
+    ``client_max_body_size`` · TLS 종단 · ``Host`` 검사.
+
+    ## 왜 지금 특히 중요한가
+
+    ``#786`` ⑵가 ``USE_FORWARDED_FOR=true``로 바꾸려 한다. 이 포트가 열린 채로 그것을
+    켜면 공격자가 ``:8000``에 직접 붙어 ``X-Forwarded-For``를 위조해 **요청 한도를
+    완전히 우회**한다 — 수정이 상황을 악화시킨다. 이 검사가 그 선행 조건을 고정한다.
+
+    ## 개발 compose는 대상이 아니다
+
+    ``docker-compose.yml``의 ``8000:8000``은 그대로 둔다. Vite dev 서버가 ``/api``를
+    ``127.0.0.1:8000``으로 프록시하고(``#138``), ``scripts/demo_up.sh``도 그 주소를
+    본다. 개발 스택 앞에는 nginx가 없으므로 우회할 보호도 없다.
+    """
+    service = _app_service(_PROD)
+
+    assert "ports" not in service, (
+        f"docker-compose.prod.yml의 app이 호스트 포트를 연다: {service.get('ports')}. "
+        "nginx의 X-Forwarded-For 덮어쓰기·client_max_body_size·Host 검사가 "
+        "전부 우회된다 (#811 · #786 ⑵의 선행 조건)."
+    )
+    # 열지 않는 것만으로 충분하지만, `expose`가 있어야 「깜빡 지웠다」와 구분된다.
+    assert "8000" in {str(port) for port in service.get("expose", [])}, (
+        "app에 expose: ['8000']이 없다 — 포트를 의도적으로 닫았음이 드러나지 않는다."
+    )
+
+
+def test_dev_app_still_publishes_8000():
+    """개발 compose는 ``8000:8000``을 유지한다 (#811).
+
+    `#811`이 프로덕션 쪽만 닫았다는 것을 고정한다. 개발 쪽까지 닫으면 Vite dev 서버의
+    ``/api`` 프록시(``#138``)와 ``scripts/demo_up.sh``의 health 확인이 함께 죽는다 —
+    그 실패는 「화면은 뜨는데 데이터가 안 온다」로 나타나 원인을 찾기 어렵다.
+    """
+    ports = {str(port) for port in _app_service(_DEV).get("ports", [])}
+
+    assert "8000:8000" in ports, f"개발 compose의 app이 8000을 열지 않는다: {ports}"

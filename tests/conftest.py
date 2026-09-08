@@ -87,6 +87,10 @@ def _fresh_rate_limiter():
     깨진다. 같은 한도의 **새 인스턴스**를 끼우면 공개된 생성자만 쓴다 — 미들웨어가
     요청마다 ``request.app.state.rate_limiter``를 다시 읽으므로 교체가 그대로 든다.
 
+    **``limits``를 통째로 넘긴다** (`#811`). 종전에는 ``RateLimiter(previous.limit)``,
+    즉 기본 버킷 값 하나만 넘겼다 — 버킷이 생긴 뒤로 그렇게 하면 **인증 10 · 계산 60이
+    전부 300으로 통일**되어, ``main.app``을 쓰는 25개 파일에서 새 한도가 조용히 사라진다.
+
     ## 무엇을 무력화하지 않는가
 
     **한도 자체는 그대로 살아 있다.** 한 테스트 안에서 300건을 넘기면 여전히 429가
@@ -99,7 +103,7 @@ def _fresh_rate_limiter():
 
     previous = getattr(app.state, "rate_limiter", None)
     if previous is not None:
-        app.state.rate_limiter = RateLimiter(previous.limit)
+        app.state.rate_limiter = RateLimiter(previous.limits)
     try:
         yield
     finally:
