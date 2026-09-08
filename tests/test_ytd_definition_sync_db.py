@@ -237,3 +237,29 @@ async def test_past_years_are_not_touched_by_the_in_progress_voyage(
     # 작년에는 항차가 없다 — 진행분이 새어 들어가면 값이 생긴다.
     assert last_year["data_available"] is False
     assert last_year["attained_cii"] is None
+
+
+@pytest.mark.asyncio
+async def test_dashboard_past_year_is_not_touched_by_the_in_progress_voyage(
+    session, vessel_with_voyage_in_progress
+):
+    """대시보드도 **과거 연도에는 진행분을 넣지 않는다** (#750 · `#815`).
+
+    `#750`이 선대 요약에 진행분을 넣으면서 **과거 연도 조회에도 더해지는 경로가
+    열렸다.** 확정된 과거 실적이 오염되고, 대시보드는 값이 틀려도 멀쩡해 보인다 —
+    `#815`가 `cii/current`에서 보고한 것과 같은 종류의 오염이다.
+
+    이 검사는 :func:`test_past_years_are_not_touched_by_the_in_progress_voyage`의
+    선대 요약 판이다. 두 경로가 **각각** 막혀 있어야 한다 — 한쪽만 보면 다른 쪽이
+    열려도 통과한다.
+    """
+    fleet = await get_fleet_summary(session, regulation_year=YEAR - 1, as_of=MID_YEAR)
+
+    mine = next(
+        v for v in fleet["vessels"] if v["vessel_id"] == str(vessel_with_voyage_in_progress)
+    )
+
+    # 작년에는 항차가 없다 — 진행분이 새어 들어가면 값이 생긴다.
+    assert mine["ytd_attained_cii"] is None, (
+        f"과거 연도에 진행분이 섞였다: {mine['ytd_attained_cii']}"
+    )

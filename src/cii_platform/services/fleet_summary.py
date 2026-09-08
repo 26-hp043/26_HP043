@@ -380,15 +380,22 @@ async def _derive_vessel(
     # 대시보드의 위험 배너·등급 분포·정렬·`days_to_d`가 전부 이 값 위에서 돌므로
     # (`PRD §3.3.7`), 정의가 다르면 **규제 트리거 판정이 갈릴 수 있다.**
     #
+    # **올해를 볼 때만 넣는다.** 진행 중 항차는 올해에만 존재하므로, 과거 연도
+    # 조회에 더하면 **그 해에는 없던 항차가 확정 실적을 오염시킨다** — `cii_history`가
+    # 올해 행에만 싣는 것과 같은 이유다. `#815`가 `cii/current`에서 같은 종류의
+    # 오염을 보고했고, 여기서도 열리지 않게 막는다.
+    #
     # 진행분 조회 실패가 선박 전체를 무효로 만들지 않게 `AppError`를 잡는다 — 이
     # 함수가 통째로 지키려는 원칙(「한 척의 실패가 선대 전체의 실패가 아니다」)이
     # 진행분에도 그대로 적용된다.
-    try:
-        in_progress = (
-            await resolve_in_progress_state(session, vessel=vessel, as_of=resolved)
-        ).contribution
-    except AppError:
-        in_progress = None
+    in_progress = None
+    if year == resolved.year:
+        try:
+            in_progress = (
+                await resolve_in_progress_state(session, vessel=vessel, as_of=resolved)
+            ).contribution
+        except AppError:
+            in_progress = None
 
     try:
         ytd = await compute_ytd_cii(
