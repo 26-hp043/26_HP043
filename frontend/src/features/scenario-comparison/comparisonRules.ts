@@ -1,4 +1,4 @@
-import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
+import { DISPLAY_DIGITS } from '../../display/format'
 import type { ScenarioResult, ScenarioType } from './types'
 
 /**
@@ -111,33 +111,20 @@ export function lowestSummary(scenarios: readonly ScenarioResult[]): LowestSumma
  *
  * ## **표시값**을 뺀다
  *
- * 원본이 아니라 `formatDecimalString`이 낸 고정 자릿수 문자열을 정수로 올려 뺀다.
+ * 원본이 아니라 표시 자릿수로 맞춘 문자열을 정수로 올려 뺀다(`display/decimal.ts`).
  * 사용자는 화면의 두 값을 눈으로 빼 보고 차이와 맞는지 확인한다. 원본을 빼면
  * `106.2` · `111.5` 옆에 `+5.4`가 붙는 일이 생긴다 — 숨은 자리 때문에 맞는 값인데,
  * **화면만 보는 사람에게는 셋 중 하나가 틀린 것으로 보인다.**
  */
 
-/** 고정 자릿수 십진 문자열을 그 자릿수만큼 올린 정수로. `'106.2'`·1 → `1062n` */
-function displayScaled(value: string, digits: number): bigint {
-  const fixed = formatDecimalString(value, digits)
-  const negative = fixed.startsWith('-')
-  const magnitude = BigInt(fixed.replace(/[^0-9]/g, ''))
-  return negative ? -magnitude : magnitude
-}
+/*
+ * 십진 사칙은 `display/decimal.ts`로 옮겼다 (`#820`). 연간 시뮬레이션 화면이 같은
+ * 계산을 필요로 했고, **복사하면 한쪽만 고쳐질 수 있다** — `#820`이 고치는 결함이
+ * 정확히 그 모양이다. 이 모듈의 공개 이름(`subtractFixed`)은 그대로 둔다.
+ */
+import { subtractFixed } from '../../display/decimal'
 
-/** 올린 정수를 다시 십진 문자열로. `53n`·1 → `'5.3'` */
-function unscale(scaled: bigint, digits: number): string {
-  const negative = scaled < 0n
-  const absolute = (negative ? -scaled : scaled).toString().padStart(digits + 1, '0')
-  const cut = absolute.length - digits
-  const body = digits === 0 ? absolute : `${absolute.slice(0, cut)}.${absolute.slice(cut)}`
-  return negative ? `-${body}` : body
-}
-
-/** 표시 자릿수에서의 `a - b`. 부호를 포함한 십진 문자열이다. */
-export function subtractFixed(a: string, b: string, digits: number): string {
-  return unscale(displayScaled(a, digits) - displayScaled(b, digits), digits)
-}
+export { subtractFixed }
 
 /** 직항 대비 차이 한 벌. 전부 부호를 포함한 십진 문자열이다. */
 export interface ScenarioDelta {

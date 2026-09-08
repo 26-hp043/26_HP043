@@ -16,38 +16,78 @@ const P = { A: '0.0200', B: '0.2800', C: '0.5500', D: '0.1300', E: '0.0200' }
 
 describe('P(D∪E) — PRD §12.5', () => {
   it('P(D) + P(E)로 계산한다', () => {
-    expect(probabilityOfDorE(P)).toBeCloseTo(0.15, 6)
+    // `#820` — 십진 문자열이다. `toBeCloseTo`로 보면 float 오차가 가려진다.
+    expect(probabilityOfDorE(P)).toBe('0.1500')
   })
 
   it('1 − 목표 달성 확률로 계산하지 않는다', () => {
     // `PRD §12.5` — 여사건 관계는 **목표가 C일 때만** 성립한다. 목표가 B인 화면에서
     // `1 − success`를 쓰면 C 확률까지 위험으로 세어 값이 부풀려진다.
-    const successForTargetB = 0.02 + 0.28
-    expect(probabilityOfDorE(P)).not.toBeCloseTo(1 - successForTargetB, 3)
+    expect(probabilityOfDorE(P)).not.toBe('0.7000')
+  })
+
+  it.each([
+    // 화면에 같은 숫자가 뜨는데 D·E 배분만 다른 조합들 (`#820`).
+    // `Number` 합은 각각 0.39999999999999997 · 0.19999999999999998이 된다.
+    [{ D: '0.3500', E: '0.0500' }, '0.4000'],
+    [{ D: '0.4000', E: '0.0000' }, '0.4000'],
+    [{ D: '0.2900', E: '0.1100' }, '0.4000'],
+    [{ D: '0.0400', E: '0.3600' }, '0.4000'],
+    [{ D: '0.1800', E: '0.0200' }, '0.2000'],
+    [{ D: '0.2000', E: '0.0000' }, '0.2000'],
+  ])('배분이 달라도 합은 같다: %j → %s', (split, expected) => {
+    expect(probabilityOfDorE({ A: '0', B: '0', C: '0', ...split })).toBe(expected)
   })
 })
 
 describe('위험도 표기 — DESIGN_SYSTEM §2.5 (a)', () => {
   it('20% 미만은 경고 기호를 붙이지 않는다', () => {
-    const flag = riskFlag(0.15)
+    const flag = riskFlag('0.1500')
     expect(flag.tone).toBe('muted')
     expect(flag.text).not.toContain('⚠')
   })
 
   it('20% 이상 40% 미만은 Warning이다', () => {
-    expect(riskFlag(0.28).tone).toBe('warning')
-    expect(riskFlag(0.2).tone).toBe('warning')
+    expect(riskFlag('0.2800').tone).toBe('warning')
+    expect(riskFlag('0.2000').tone).toBe('warning')
   })
 
   it('40% 이상은 Danger다', () => {
-    expect(riskFlag(0.4).tone).toBe('danger')
-    expect(riskFlag(0.47).tone).toBe('danger')
+    expect(riskFlag('0.4000').tone).toBe('danger')
+    expect(riskFlag('0.4700').tone).toBe('danger')
   })
 
   it('경계값이 위쪽 구간에 속한다', () => {
     // 20%·40% 정확히 걸린 값을 아래 구간으로 넣으면 임계의 뜻이 「초과」가 된다.
-    expect(riskFlag(0.199).tone).toBe('muted')
-    expect(riskFlag(0.399).tone).toBe('warning')
+    expect(riskFlag('0.1990').tone).toBe('muted')
+    expect(riskFlag('0.3990').tone).toBe('warning')
+  })
+
+  it.each([
+    // `#820` — **같은 숫자가 화면에 뜨는데 색이 갈리던** 조합. `Number` 합은
+    // 0.39999999999999997이라 종전에는 warning으로 칠해졌다.
+    [{ D: '0.3500', E: '0.0500' }, 'danger'],
+    [{ D: '0.4000', E: '0.0000' }, 'danger'],
+    [{ D: '0.2900', E: '0.1100' }, 'danger'],
+    [{ D: '0.0400', E: '0.3600' }, 'danger'],
+    // 같은 20.0%인데 ⚠가 붙었다 안 붙었다 하던 조합.
+    [{ D: '0.1800', E: '0.0200' }, 'warning'],
+    [{ D: '0.2000', E: '0.0000' }, 'warning'],
+  ])('배분이 달라도 같은 색·같은 아이콘: %j → %s', (split, tone) => {
+    const flag = riskFlag(probabilityOfDorE({ A: '0', B: '0', C: '0', ...split }))
+
+    expect(flag.tone).toBe(tone)
+    // `DESIGN_SYSTEM §14` — 색맹 사용자가 의존하는 **색 외 보조 채널**이다.
+    // 같은 값에서 나타났다 사라지면 색과 아이콘 두 채널이 함께 무너진다.
+    expect(flag.text).toContain('⚠')
+  })
+
+  it('표기 반올림이 toPercent와 같다 — ROUND_HALF_UP', () => {
+    // `#820` ⑵ — 종전에는 `toFixed`라 `'0.1235'`가 여기서는 12.3%,
+    // `toPercent`에서는 12.4%였다. **바로 아래 함수가 이미 고친 결함이
+    // 형제에 남아 있었다.**
+    expect(riskFlag('0.1235').text).toContain('12.4%')
+    expect(riskFlag('0.1235').text).toBe(`P(D/E) ${toPercent('0.1235')}`)
   })
 })
 
