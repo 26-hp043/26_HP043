@@ -50,7 +50,6 @@ model(``fuel_estimator``)을 통해 다룬다 — 그쪽은 연결이 명시돼 
 from __future__ import annotations
 
 import platform
-import sys
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -420,7 +419,7 @@ def simulate_annual(
         p90=_round(float(np.percentile(attained, 90))),
         mean=_round(float(attained.mean())),
         runs=runs,
-        rng_metadata=rng_metadata(seed, runs),
+        rng_metadata=rng_metadata(seed),
         warnings=warnings,
     )
 
@@ -451,21 +450,30 @@ def _sample_band(
     return np.where(degenerate, mode, sampled)
 
 
-def rng_metadata(seed: int, runs: int) -> dict[str, object]:
+def rng_metadata(seed: int) -> dict[str, object]:
     """``PRD §12.4.3`` [ORACLE-C-1] — 재현에 필요한 것을 전부 남긴다.
 
     ``NEP 19``에 따라 NumPy Generator는 **버전 간 bit-for-bit 호환을 보장하지 않는다.**
     그래서 seed만으로는 부족하고 라이브러리·플랫폼까지 함께 기록해야, 값이 재현되지
     않을 때 「환경이 달라서」인지 「코드가 바뀌어서」인지 가를 수 있다.
+
+    키와 형식은 ``TECH_SPEC §2.2.1`` 참조 구현과 ``§2.2.2`` 저장 스키마를 그대로
+    따른다(``API_SPEC §6.1`` 응답 예시도 같다). **다섯 개가 전부다** (#751).
+
+    * ``seed_entropy`` — 128-bit hex. **int가 아니다.** JSON 정수는 2^53까지만
+      안전하므로 ``API_SPEC §6.1 [ORACLE-S-3 정정]``이 hex 표기를 규정한다.
+    * ``platform`` — ``platform.platform()``이다. ``sys.platform``은 ``"linux"``만
+      주어 커널·아키텍처가 빠지는데, 재현 실패를 가를 때 필요한 것이 그쪽이다.
+
+    ``runs``는 여기 넣지 않는다 — ``API_SPEC §6.1``이 ``monte_carlo.runs``를
+    **형제 필드**로 두므로 안에도 두면 같은 값이 응답에 두 번 실린다.
     """
     return {
-        "seed": seed,
-        "generator": RNG_ALGORITHM,
-        "num_runs": runs,
+        "seed_entropy": f"{seed:#034x}",
+        "bit_generator": RNG_ALGORITHM,
         "numpy_version": np.__version__,
         "python_version": platform.python_version(),
-        "platform": sys.platform,
-        "model_version": f"python-numpy-{np.__version__}-{RNG_ALGORITHM.lower()}",
+        "platform": platform.platform(),
     }
 
 

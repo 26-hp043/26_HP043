@@ -63,6 +63,11 @@ from cii_platform.errors import (
     ValidationError,
 )
 from cii_platform.services.simulation_clock import resolve_as_of
+
+# `_model_version`을 기능①에서 가져온다 — 기능②도 같은 방식이다
+# (`services/scenario_compare.py:53`). 세 기능이 같은 함수를 써야
+# `TECH_SPEC:1236-1243`의 6필드가 갈리지 않는다 (#816).
+from cii_platform.services.voyage_cii import _model_version
 from cii_platform.services.ytd_cii import (
     POLICY_INCLUDE_AS_ACTUAL,
     _load_regulation_year,
@@ -468,7 +473,9 @@ async def run_annual_simulation(
         profile=profile,
     )
 
-    parameters_used = _parameters_used(
+    # 새 실행은 최신 스키마로 만든다. 지금은 v1뿐이다 (#816).
+    parameters_used = build_parameters_used(
+        PARAMETERS_SCHEMA_V1,
         regulation=regulation,
         reference_line=reference_line,
         rating_boundary=rating_boundary,
@@ -588,10 +595,79 @@ def _build_sensitivity(
     return block
 
 
-def _parameters_used(
+#: ``parameters_used`` 스키마 버전. 버전 필드가 **없는** 저장 행은 ``v1``이다 (#816).
+#:
+#: 왜 버전이 필요한가 — ``reproduce``는 저장된 해시를 그대로 두고 **지금 코드로**
+#: ``parameters_used``를 다시 만들어 비교한다. 따라서 빌더 출력이 한 글자만 바뀌어도
+#: **과거 실행 전부**가 재실행에서 ``ParameterError``(409)를 받는다 — 실제로 바뀐 것은
+#: 규정이 아니라 우리 코드인데 사용자에게는 「규정 파라미터가 변경되어 재현할 수
+#: 없습니다」가 나간다.
+#:
+#: ``calculation_run``은 ``calc_run_guard()``(마이그레이션 024)가 UPDATE를 막으므로
+#: **저장된 해시를 소급해 고칠 수도 없다.** 그래서 옛 형식을 빌더로 동결해 둔다.
+PARAMETERS_SCHEMA_V1 = 1
+
+
+def parameters_schema_version(stored: dict | None) -> int:
+    """저장된 ``parameters_used``가 어느 스키마 버전인지 판정한다 (#816).
+
+    버전 필드가 **없으면** ``v1``이다 — `#816` 이전에 저장된 행이 전부 그렇다.
+
+    필드가 **있는데** 정수가 아니면 :class:`ValueError`다. ``null``·``"abc"``·
+    ``1.5``·``true``를 v1으로 흡수하면 손상된 행이 옛 형식으로 오인된다.
+
+    :raises ValueError: 버전 필드가 있으나 정수가 아닐 때.
+    """
+    if not stored:
+        return PARAMETERS_SCHEMA_V1
+    if "parameter_schema_version" not in stored:
+        # 필드 자체가 없다 = `#816` 이전 행 = v1. **이것만이 유일한 암묵 판정이다.**
+        return PARAMETERS_SCHEMA_V1
+
+    raw = stored["parameter_schema_version"]
+    # 필드가 **있는데** 읽을 수 없으면 조용히 v1로 떨어뜨리지 않는다 (#816).
+    # 떨어뜨리면 손상된 행이 「옛 형식」으로 오인되어, 해시가 맞지 않는 이유가
+    # 「버전이 다르다」인지 「값이 손상됐다」인지 가려진다.
+    #
+    # `bool`을 먼저 막는다 — 파이썬에서 `isinstance(True, int)`는 참이라
+    # `True`가 버전 1로 읽힌다.
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ValueError(
+            f"parameter_schema_version이 정수가 아닙니다: {raw!r} "
+            f"({type(raw).__name__}). 저장 행이 손상됐을 수 있습니다."
+        )
+    return raw
+
+
+def build_parameters_used(version: int, **kwargs) -> dict[str, object]:
+    """스키마 버전에 맞는 빌더를 고른다 (#816).
+
+    ``reproduce``가 **저장된 행의 버전으로** 다시 만들어야 옛 해시가 재현된다.
+    새 실행은 최신 버전을 쓴다.
+
+    :raises ValueError: 모르는 버전. 조용히 v1로 떨어뜨리지 않는다 — 그러면 해시가
+        맞지 않는 이유가 「버전이 다르다」인지 「값이 다르다」인지 가려지지 않는다.
+    """
+    if version == PARAMETERS_SCHEMA_V1:
+        return _parameters_used_v1(**kwargs)
+    raise ValueError(f"알 수 없는 parameters_used 스키마 버전: {version}")
+
+
+def _parameters_used_v1(
     *, regulation, reference_line, rating_boundary, profile_name: str, profile_rows
 ) -> dict[str, object]:
-    """``TECH_SPEC §5.2.1`` + ``§5.2.1.1``.
+    """``TECH_SPEC §5.2.1`` + ``§5.2.1.1`` — **v1 형식으로 동결** (#816).
+
+    ⚠️ **이 함수를 고치면 과거 실행의 ``parameter_hash``가 재현되지 않는다.**
+    새 필드는 ``v2`` 빌더를 신설해 거기 넣는다.
+
+    v1에 손대지 않고 남겨 둔 미결 (근거는 `#816` 코멘트):
+
+    * ``fuel_types`` — 넣을지가 `#832`(CF 적용 시점) 판정에 달려 있다
+    * ``parameter_source_version`` — 기준선 하나의 ``source_ref``만 담아 이름이 실제
+      의미보다 넓다. ``parameter_sources`` 객체로 바꾸는 안과 함께 v2에서 정한다
+    * ``rating_boundary.ship_type`` — 사양서에 없으나 **선택된 경계 행의 식별 근거**
+      이고 제거하면 과거 해시가 깨지므로 유지한다. 정본 등재 대상이다
 
     **분포 프로파일을 함께 싣는 것이 이 함수의 요점**이다(``#434``). 싣지 않으면
     ``simulation_parameter``가 바뀐 뒤 같은 seed로 돌려도 결과가 달라지는데
@@ -829,7 +905,12 @@ async def _persist(
                 "vessel_id": vessel_id,
                 "input_hash": input_hash,
                 "parameter_hash": parameter_hash,
-                "model_version": _json({"engine": "annual_simulation", "issue": "#63"}),
+                # `TECH_SPEC:1236-1243`이 규정한 6필드를 그대로 싣는다 (#816).
+                # 종전에는 `{"engine", "issue"}` 둘뿐이라 **하필 Monte Carlo 경로에서**
+                # `rng_algorithm`·`numpy_version`이 빠져 있었다 — `§10.2`의 「NumPy
+                # 마이너 변경 → model_version에 명시」가 성립하지 않았다.
+                # 기능①·②와 같은 함수를 써서 셋이 갈릴 수 없게 한다.
+                "model_version": _json(_model_version()),
                 "result": _json(result_json),
                 "parameters": _json(parameters_used),
                 "warnings": _json(warnings),
@@ -1012,6 +1093,29 @@ def _snapshot_voyage_view(snapshot_id, item: dict) -> dict[str, object]:
     }
 
 
+def _seed_from_metadata(metadata: dict) -> int | None:
+    """저장된 ``rng_metadata``에서 seed를 되읽는다 (#751).
+
+    ``TECH_SPEC §2.2.2``가 규정하는 키는 ``seed_entropy``이고 값은 **128-bit hex
+    문자열**이다. 종전 구현이 ``seed``(int)로 저장했으므로 **두 형태를 모두 읽는다.**
+
+    옛 행을 마이그레이션으로 고칠 수 없기 때문이다 — ``calculation_run``은
+    ``calc_run_guard()``(마이그레이션 024)가 ``needs_recalc`` false→true 외의
+    UPDATE를 전부 거부한다. 폴백을 두지 않으면 **이 변경 이전에 실행된 시뮬레이션이
+    전부 재현 불가**가 된다.
+
+    :returns: seed 정수. 어느 키도 없으면 ``None``.
+    """
+    entropy = metadata.get("seed_entropy")
+    if isinstance(entropy, str) and entropy:
+        # `f"{seed:#034x}"`가 만든 `0x…` 표기. int()가 접두어를 그대로 받는다.
+        return int(entropy, 16)
+    legacy = metadata.get("seed")
+    if isinstance(legacy, int):
+        return legacy
+    return None
+
+
 async def reproduce_annual_simulation(
     session: AsyncSession, simulation_id: UUID
 ) -> dict[str, object]:
@@ -1035,7 +1139,7 @@ async def reproduce_annual_simulation(
     row = await _load_run(session, simulation_id)
     stored = _stored_payload(row)
 
-    seed = (stored.get("monte_carlo") or {}).get("rng_metadata", {}).get("seed")
+    seed = _seed_from_metadata((stored.get("monte_carlo") or {}).get("rng_metadata") or {})
     if seed is None:
         raise NotFoundError("이 실행은 seed가 기록되지 않아 재현할 수 없습니다(#443 이전 실행).")
 
@@ -1053,7 +1157,11 @@ async def reproduce_annual_simulation(
     )
     profile_rows = await param_repo.load_distribution_profile(session, profile_name)
 
-    parameters_used = _parameters_used(
+    # **저장된 행의 스키마 버전으로** 다시 만든다 (#816). 최신 버전으로 만들면
+    # 빌더가 바뀐 순간 과거 실행이 전부 `ParameterError`(409)를 받는다 — 규정이
+    # 아니라 우리 코드가 바뀐 것인데 「규정 파라미터가 변경되었다」로 나간다.
+    parameters_used = build_parameters_used(
+        parameters_schema_version(row.parameters_used),
         regulation=regulation,
         reference_line=reference_line,
         rating_boundary=rating_boundary,
