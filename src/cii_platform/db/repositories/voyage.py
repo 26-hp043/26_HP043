@@ -101,8 +101,24 @@ async def get_by_id(session: AsyncSession, voyage_id: UUID) -> Voyage | None:
 
 
 async def list_fuel_uses(session: AsyncSession, voyage_id: UUID) -> list[VoyageFuelUse]:
-    """항차의 연료 사용 내역을 조회한다."""
-    stmt = select(VoyageFuelUse).where(VoyageFuelUse.voyage_id == voyage_id)
+    """항차의 연료 사용 내역을 조회한다. 정렬은 유종순이다 (#867).
+
+    **정렬이 없으면 PostgreSQL이 힙 순서를 준다** — 행 하나를 UPDATE하는 정상
+    조작만으로 순서가 바뀐다. 소비처가 「첫 항목」에 의존하고 있어(진행 중 항차의
+    대표 유종, :func:`~cii_platform.services.cii_current._voyage_fuel_code`) 그
+    순간 CO₂ 기여가 튄다 — 실측에서 HFO CF 3.114가 DIESEL_GAS_OIL 3.206으로
+    뒤집혔다. 형제 저장소(``not_underway.list_fuel_uses``)는 처음부터 정렬을
+    명시하고 있었고 이쪽만 빠져 있었다.
+
+    ``id``를 2차 키로 두는 이유는 ``idx_fuel_use_unique``가 ``(voyage_id,
+    fuel_type)``이라 같은 유종이 둘일 수 없어도, 인덱스가 바뀌었을 때 순서가
+    다시 미정이 되지 않게 하기 위해서다.
+    """
+    stmt = (
+        select(VoyageFuelUse)
+        .where(VoyageFuelUse.voyage_id == voyage_id)
+        .order_by(VoyageFuelUse.fuel_type, VoyageFuelUse.id)
+    )
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -113,10 +129,17 @@ async def list_fuel_uses_by_voyage_ids(
 
     목록 조회의 N+1(항차마다 ``list_fuel_uses``)을 없앤다. 반환은
     ``{voyage_id: [fuel_use, …]}`` 그룹핑 — 내역이 없는 항차는 키가 없다.
+
+    정렬은 :func:`list_fuel_uses`와 **같은 기준**이다 (#867). 한쪽만 정렬하면
+    같은 항차의 ``fuel_uses``가 단건 조회와 목록 조회에서 다른 순서로 나온다.
     """
     if not voyage_ids:
         return {}
-    stmt = select(VoyageFuelUse).where(VoyageFuelUse.voyage_id.in_(voyage_ids))
+    stmt = (
+        select(VoyageFuelUse)
+        .where(VoyageFuelUse.voyage_id.in_(voyage_ids))
+        .order_by(VoyageFuelUse.fuel_type, VoyageFuelUse.id)
+    )
     rows = (await session.execute(stmt)).scalars().all()
     grouped: dict[UUID, list[VoyageFuelUse]] = {}
     for fuel_use in rows:

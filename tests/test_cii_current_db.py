@@ -22,6 +22,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.services.cii_current import (
     REASON_NO_BASIS,
@@ -29,6 +30,7 @@ from cii_platform.services.cii_current import (
     WARNING_NO_REMAINING_PLAN,
     WARNING_SIM_NO_FUEL_RATE,
     get_current_cii,
+    resolve_in_progress_state,
 )
 
 YEAR = 2026
@@ -694,3 +696,59 @@ async def test_no_reference_speed_warning_when_the_spec_is_present(session):
     data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
 
     assert "SIMULATION_NO_REFERENCE_SPEED" not in data["warnings"]
+
+
+@pytest.mark.asyncio
+async def test_representative_fuel_survives_a_row_update(session):
+    """연료 행 하나를 고쳐도 진행 중 항차의 **대표 유종이 바뀌지 않는다** (#867).
+
+    ## 무엇이 문제였나
+
+    ``voyage_repo.list_fuel_uses``에 ``ORDER BY``가 없어 PostgreSQL이 힙 순서를
+    줬다. 소비처(``_voyage_fuel_code``)가 **「첫 항목」에 의존**하므로, 행 하나를
+    UPDATE하는 정상 조작만으로 대표 유종이 뒤집혀 CO₂ 기여가 튀었다 — 실측에서
+    HFO(CF 3.114)가 DIESEL_GAS_OIL(3.206)로 바뀌었다.
+
+    ## 무엇을 보는가
+
+    2유종 항차에서 조회 → UPDATE → 재조회의 대표 유종이 같은지 본다. 정렬이
+    유종순이므로 사전순 앞인 ``DIESEL_GAS_OIL``이 안정적으로 대표가 된다.
+
+    ⚠️ **어느 유종이 대표여야 하는가는 이 검사의 범위가 아니다** — 정본에 규칙이
+    없어 별도 이슈로 분리했다(계획 비율 안분). 여기서 고정하는 것은 **같은
+    데이터가 같은 답을 내는가**다.
+    """
+    vessel_id = await _make_vessel(session)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    in_progress = await _make_voyage(
+        session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC)
+    )
+    # 2유종 — 삽입 순서를 사전순의 반대로 둬서 정렬이 실제로 일하는지 본다.
+    for fuel_type, cf in (("HFO", "3.114"), ("DIESEL_GAS_OIL", "3.206")):
+        await session.execute(
+            text(
+                "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
+                "cf_used, source) VALUES (:id, :ft, 100, :cf, 'USER_INPUT')"
+            ),
+            {"id": in_progress, "ft": fuel_type, "cf": Decimal(cf)},
+        )
+
+    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    before = (await resolve_in_progress_state(session, vessel=vessel, as_of=MID_YEAR)).fuel_code
+
+    # 힙 순서를 흔드는 정상 조작 — 실적 연료를 한 줄 채워 넣는다.
+    await session.execute(
+        text(
+            "UPDATE voyage_fuel_use SET actual_fuel_ton = 50 "
+            "WHERE voyage_id = :id AND fuel_type = 'HFO'"
+        ),
+        {"id": in_progress},
+    )
+
+    after = (await resolve_in_progress_state(session, vessel=vessel, as_of=MID_YEAR)).fuel_code
+
+    assert before == after, f"행 하나를 고쳤더니 대표 유종이 바뀌었다: {before} → {after}"
+    assert before == "DIESEL_GAS_OIL", (
+        f"정렬이 유종순이 아니다 — 삽입 순서(HFO 먼저)가 남아 있다: {before}"
+    )
