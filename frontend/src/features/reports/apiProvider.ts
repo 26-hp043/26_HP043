@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import { isReportable } from './reportRules'
 import { filenameFrom, saveBlob } from '../../download/file'
@@ -85,7 +85,7 @@ export function createApiReportsProvider(
 
     if (response.status === 401) {
       redirectToLogin()
-      throw new ReportsError('세션이 만료되었습니다.')
+      throw new ReportsError(SESSION_EXPIRED_MESSAGE)
     }
     if (!response.ok) {
       /*

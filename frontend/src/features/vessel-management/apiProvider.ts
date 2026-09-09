@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import {
   VesselManagementError,
@@ -54,7 +54,6 @@ export const NETWORK_ERROR_MESSAGE =
 
 export const MALFORMED_ERROR_MESSAGE = '서버 응답을 해석하지 못했습니다.'
 
-export const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.'
 
 /** 서버 오류 응답을 `VesselManagementError`로 옮긴다. */
 export function toVesselManagementError(

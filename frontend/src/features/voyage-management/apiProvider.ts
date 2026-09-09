@@ -256,7 +256,7 @@ export function createApiVoyageManagementProvider(
 
     if (response.status === 401) {
       redirectToLogin()
-      throw new VoyageError('세션이 만료되었습니다.')
+      throw new VoyageError(SESSION_EXPIRED_MESSAGE)
     }
 
     const body = (await response.json().catch(() => null)) as
@@ -396,7 +396,7 @@ export function createApiVoyageManagementProvider(
 
       if (response.status === 401) {
         redirectToLogin()
-        throw new VoyageError('세션이 만료되었습니다.')
+        throw new VoyageError(SESSION_EXPIRED_MESSAGE)
       }
 
       const body = (await response.json().catch(() => null)) as

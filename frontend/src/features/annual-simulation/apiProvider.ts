@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import type {
   AnnualSimulationProvider,
   AnnualSimulationRequest,
@@ -33,7 +33,6 @@ export const NETWORK_ERROR_MESSAGE =
 
 export const MALFORMED_ERROR_MESSAGE = '서버 응답을 해석하지 못했습니다.'
 
-export const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.'
 
 /** 기능③ 실행 실패. 화면은 이 오류만 안다. */
 /**

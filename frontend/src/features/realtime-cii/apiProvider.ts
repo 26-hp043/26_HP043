@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type {
   CapacityBasis,
@@ -256,7 +256,7 @@ export function createApiRealtimeCiiProvider(
 
       if (response.status === 401) {
         redirectToLogin()
-        throw new RealtimeCiiError('세션이 만료되었습니다.')
+        throw new RealtimeCiiError(SESSION_EXPIRED_MESSAGE)
       }
       if (response.status === 404) {
         throw new RealtimeCiiError('선박을 찾을 수 없습니다.', { notFound: true })
