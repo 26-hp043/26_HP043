@@ -82,6 +82,8 @@ export function AppShell() {
    * 말했다 — 항차가 1,000건이어도 그렇다.
    */
   const [voyagesState, setVoyagesState] = useState<'loading' | 'ready' | 'failed'>('ready')
+  /** 로그아웃이 서버에서 실패했을 때의 문구 (`#825` ⑵). */
+  const [logoutFailure, setLogoutFailure] = useState<string | null>(null)
   // 계층 밖 화면에서 보일 「기억해 둔 선택」. 계층 화면에서는 URL이 이긴다.
   const [remembered, setRemembered] = useState<GlobalContextValue>(EMPTY_CONTEXT)
 
@@ -128,6 +130,15 @@ export function AppShell() {
     setRemembered(fromUrl)
     saveStored(fromUrl)
   }, [pathname, search])
+
+  const runLogout = async () => {
+    setLogoutFailure(null)
+    try {
+      await logout()
+    } catch (error) {
+      setLogoutFailure(error instanceof Error ? error.message : '로그아웃하지 못했습니다.')
+    }
+  }
 
   // 항차 목록은 선박이 정해진 뒤에만 의미가 있다.
   useEffect(() => {
@@ -362,11 +373,28 @@ export function AppShell() {
               <button
                 type="button"
                 className="app-shell__logout"
-                onClick={() => void logout()}
+                onClick={() => void runLogout()}
                 data-testid="logout-button"
               >
                 로그아웃
               </button>
+              {/*
+                로그아웃이 **서버에서** 실패했음을 알린다 (`#825` ⑵).
+
+                종전에는 `logout()`이 HTTP 상태를 보지 않아 403·500에도 **로그아웃한
+                척**하고 로그인 화면으로 갔다 — `sid`는 살아 있고
+                `user_session.revoked_at`도 `NULL`이라, 백엔드가 돌아온 뒤 다시
+                들어가면 **재로그인 없이 진입**된다. 공용 PC에서 문제가 된다.
+
+                실패하면 **이동하지 않는다.** 이동하면 전체 페이지가 다시 로드되어
+                이 문구가 사라지고, 사용자는 로그아웃됐다고 믿는다. 버튼은 그대로
+                남아 다시 누를 수 있다 — 「로그아웃 버튼에 갇힌다」가 아니다.
+              */}
+              {logoutFailure !== null ? (
+                <span className="app-shell__logout-failure" role="alert">
+                  {logoutFailure}
+                </span>
+              ) : null}
             </div>
           ) : null}
         </header>
