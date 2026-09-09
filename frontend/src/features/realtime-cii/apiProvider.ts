@@ -109,7 +109,9 @@ interface ServerProjection {
   ratio_to_required?: string | null
   rating?: string | null
   risk_level?: string | null
-  assumptions?: Record<string, string | null>
+  /** ⑶에만 붙는 경고 (`#798`). 최상위 `warnings`와 다른 범위다. */
+  warnings?: string[]
+  assumptions?: Record<string, string | number | null>
 }
 
 interface ServerData {
@@ -215,16 +217,21 @@ function toProjection(raw: ServerProjection): YearEndProjection {
     ratioToRequired: raw.ratio_to_required ?? null,
     rating: (raw.rating ?? null) as Rating | null,
     riskLevel: raw.risk_level ?? null,
+    warnings: raw.warnings ?? [],
+    /*
+     * `#798` — 산출 방식이 남은 거리 기반으로 바뀌며 필드가 교체됐다.
+     * `remaining_voyage_count`만 숫자다(나머지는 `API_SPEC §1.7` 문자열 직렬화).
+     */
     assumptions: a
       ? {
-          method: a.method ?? '',
-          elapsedDays: a.elapsed_days ?? null,
-          remainingDays: a.remaining_days ?? null,
-          dailyDistanceNm: a.daily_distance_nm ?? null,
-          dailyFuelTon: a.daily_fuel_ton ?? null,
-          projectedExtraDistanceNm: a.projected_extra_distance_nm ?? null,
-          projectedExtraFuelTon: a.projected_extra_fuel_ton ?? null,
-          fuelType: a.fuel_type ?? null,
+          method: (a.method as string | undefined) ?? '',
+          remainingDays: (a.remaining_days as string | null | undefined) ?? null,
+          remainingVoyageCount:
+            typeof a.remaining_voyage_count === 'number' ? a.remaining_voyage_count : null,
+          plannedDistanceNm: (a.planned_distance_nm as string | null | undefined) ?? null,
+          plannedCo2Ton: (a.planned_co2_ton as string | null | undefined) ?? null,
+          completedDistanceNm: (a.completed_distance_nm as string | null | undefined) ?? null,
+          completedCo2Ton: (a.completed_co2_ton as string | null | undefined) ?? null,
         }
       : null,
   }

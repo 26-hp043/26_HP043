@@ -1378,6 +1378,7 @@ class SimulationSnapshot:
 | `SENSITIVITY_SPEED_SKIPPED` | 기능③ 잔여 항차에 `reference_speed_kn`·`reference_daily_foc_ton`이 없어 속도 지렛대를 산출하지 못함 (`#630`) | `선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다.` |
 | `SIMULATION_PLAN_NO_FUEL` | 기능③ 계획 항차에 연료 행이 없거나 계획 연료량 합이 0이라 CO₂를 낼 수 없어 그 항차를 제외 (`#812`) | `연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요.` |
 | `SIMULATION_NO_REFERENCE_SPEED` | 진행 중 항차의 누적 연료에 cubic speed model(`§4.1`) 보정을 못 함 — `vessel.reference_speed_kn`이 없어 `speed_factor`를 만들 수 없다 (`#796`) | `기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요.` |
+| `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상의 근거가 될 **잔여 계획 항차가 0건** — 값은 내되(연말 = 지금) 그것이 「예측이 없다」가 아니라 「더할 계획이 없다」임을 밝힌다 (`#798`) | `잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다.` |
 
 > **이 표가 경고 코드의 정본이다 (`AGENTS §3.1`).** `API_SPEC §1.6`은 이 표를 전사한 것이며, 화면의 `WARNING_MESSAGE`는 다시 `§1.6`을 전사한다. 사슬은 `TECH_SPEC §12.3` → `API_SPEC §1.6` → `frontend/src/features/voyage-cii/resultRules.ts` 순이다.
 >

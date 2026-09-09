@@ -93,16 +93,23 @@ export interface VoyageSegment {
   rating: null
 }
 
-/** ⑶ 연말 예상이 쓴 가정 — `PRD §3.3` ⑶이 표시를 요구한다. */
+/**
+ * ⑶ 연말 예상이 쓴 가정 — `PRD §3.3` ⑶이 표시를 요구한다.
+ *
+ * `#798`에서 산출 방식이 **일평균 외삽 → 남은 거리 기반**으로 바뀌면서 필드가
+ * 통째로 교체됐다. `elapsedDays`·`dailyDistanceNm`·`dailyFuelTon`·
+ * `projectedExtra*`·`fuelType`은 일평균 외삽에서만 뜻이 있던 값이다.
+ */
 export interface ProjectionAssumptions {
+  /** `REMAINING_PLAN` 고정. 종전 값은 `YTD_DAILY_AVERAGE`였다. */
   method: string
-  elapsedDays: string | null
   remainingDays: string | null
-  dailyDistanceNm: string | null
-  dailyFuelTon: string | null
-  projectedExtraDistanceNm: string | null
-  projectedExtraFuelTon: string | null
-  fuelType: string | null
+  /** 더한 잔여 계획 항차 수. **0이면 ⑶이 ⑴과 같은 값이다.** */
+  remainingVoyageCount: number | null
+  plannedDistanceNm: string | null
+  plannedCo2Ton: string | null
+  completedDistanceNm: string | null
+  completedCo2Ton: string | null
 }
 
 /** ⑶ 연말 예상. 낼 수 없으면 `reason`이 이유를 말한다. */
@@ -114,6 +121,11 @@ export interface YearEndProjection {
   ratioToRequired: string | null
   rating: Rating | null
   riskLevel: string | null
+  /**
+   * ⑶에만 붙는 경고 (`#798`). 최상위 `warnings`와 **범위가 다르다** — 이쪽은
+   * 「이 값이 어떤 성격인가」를 말한다(예: 잔여 계획이 없어 ⑴과 같음).
+   */
+  warnings: string[]
   assumptions: ProjectionAssumptions | null
 }
 

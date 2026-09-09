@@ -43,14 +43,24 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from cii_platform.calc.annual_simulation import project_deterministic
 from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
 from cii_platform.calc.precision import LAYER1_ROUNDING
+from cii_platform.calc.rating_engine import (
+    calculate_deterministic_risk,
+    calculate_margin_ratio,
+    select_next_worse_boundary,
+)
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
+from cii_platform.services.annual_simulation import (
+    collect_annual_inputs,
+    load_projection_context,
+)
 from cii_platform.services.simulation_clock import (
     NotUnderwayWindow,
     compute_progress,
@@ -103,8 +113,27 @@ WARNING_SIM_NO_REFERENCE_SPEED = "SIMULATION_NO_REFERENCE_SPEED"
 WARNING_IN_PROGRESS_PAST_ETA = "IN_PROGRESS_PAST_ETA"
 
 #: ⑶을 낼 수 없다 — 연말이 지났거나 ``as_of``가 연말이다. 남은 기간이 0이면
-#: 외삽분도 0이고, 그때 ⑶은 ⑴과 같은 값이라 따로 낼 이유가 없다.
+#: 잔여 계획도 남지 않아 ⑶은 ⑴과 같은 값이 되고, 따로 낼 이유가 없다.
 REASON_YEAR_COMPLETE = "YEAR_COMPLETE"
+
+#: ⑶의 산출 방식 (`API_SPEC §2.7`, #798).
+#:
+#: 종전 값은 ``"YTD_DAILY_AVERAGE"``였다 — 지금까지의 **일평균**을 잔여 기간에 그대로
+#: 곱하는 방식이다. 거리와 연료를 **같은 비율로** 더하므로 ``M/W``가 보존되어 ⑶이
+#: **구조적으로 ⑴과 항상 같은 값**이 됐다(데모 4척 전부에서 실측). 예측이 아무 정보를
+#: 주지 못했고, 리포트는 같은 숫자를 「2026년 누적」과 「연말 예상」 두 제목으로
+#: 나란히 인쇄했다 — `PRD §3.3.8`이 요구한 「구분해 표시」가 성립하지 않았다.
+#:
+#: 그 이름은 정본 어디에도 근거가 없었다(`API_SPEC` 응답 **예시에만** 있었다).
+#: `PRD §5.1`·사용자 여정은 **「남은 거리 기반」**을 규정한다.
+PROJECTION_METHOD = "REMAINING_PLAN"
+
+#: 잔여 계획 항차가 0건이라 ⑶이 ⑴과 같은 값이다 (`TECH_SPEC §12.3`, #798).
+#:
+#: **값을 내지 않는 것이 아니라 값의 성격을 말한다.** 잔여 계획이 없으면 「연말 =
+#: 지금」이 맞는 답이고, 빈칸을 두면 「아직 로딩 중」으로 읽힌다. 다만 그 답과
+#: 종전 결함(항상 ⑴과 같음)은 화면에서 구분되지 않으므로, **왜 같은지**를 말한다.
+WARNING_NO_REMAINING_PLAN = "PROJECTION_NO_REMAINING_PLAN"
 
 
 def _publish(value: Decimal | None, kind: str) -> str | None:
@@ -236,50 +265,14 @@ def _year_bounds(year: int) -> tuple[datetime, datetime]:
     return datetime(year, 1, 1, tzinfo=UTC), datetime(year + 1, 1, 1, tzinfo=UTC)
 
 
-def _projection_basis(
-    *, ytd, as_of: datetime, regulation_year: int
-) -> tuple[Decimal, Decimal, Decimal, Decimal] | str:
-    """외삽의 근거 넷을 만든다 — ``(경과일, 잔여일, 일평균 거리, 일평균 연료)``.
+def _remaining_days(*, as_of: datetime, regulation_year: int) -> Decimal:
+    """규제연도의 잔여 일수. ``as_of``가 그 해 밖이면 경계로 자른다.
 
-    **가정은 「지금까지의 일평균이 연말까지 이어진다」 하나다.** 선박 제원의
-    설계 속력·설계 소모율을 쓰지 않는 이유는, 그 값이 실적과 다를 때 ⑶이 ⑴과
-    **반대 방향으로** 움직이기 때문이다 — 실적이 나쁜 배의 연말 예상이 좋게 나오면
-    화면은 사용자를 안심시키는 쪽으로 틀린다.
-
-    이 함수는 근거만 만들고 판단은 하지 않는다. 근거를 세울 수 없으면 사유 문자열을
-    돌려주고, 호출부가 그 사유를 그대로 화면에 싣는다 — **왜 못 냈는지 말하지 않는
-    빈칸은 「아직 로딩 중」으로 읽힌다.**
-
-    :returns: 넷의 튜플, 또는 ``REASON_*`` 문자열.
+    과거 연도를 조회하면 연중 어느 시점이 아니라 **그 해 전체**가 대상이므로 0이다.
     """
     year_start, year_end = _year_bounds(regulation_year)
-    # as_of가 그 해 밖이면 경계로 자른다 — 과거 연도를 조회하면 연중 어느 시점이
-    # 아니라 그 해 전체가 대상이다.
     cursor = min(max(as_of, year_start), year_end)
-
-    elapsed_days = Decimal(str((cursor - year_start).total_seconds())) / Decimal("86400")
-    remaining_days = Decimal(str((year_end - cursor).total_seconds())) / Decimal("86400")
-
-    if remaining_days <= 0:
-        return REASON_YEAR_COMPLETE
-    if (
-        not ytd.data_available
-        or elapsed_days <= 0
-        or ytd.total_distance_nm is None
-        or ytd.total_distance_nm <= 0
-        or ytd.total_fuel_ton is None
-        or ytd.total_fuel_ton <= 0
-    ):
-        # 실적이 없으면 외삽할 비율이 없다. 0으로 두면 「연말에도 A등급」이라는
-        # 근거 없는 낙관이 나온다.
-        return REASON_NO_BASIS
-
-    return (
-        elapsed_days,
-        remaining_days,
-        ytd.total_distance_nm / elapsed_days,
-        ytd.total_fuel_ton / elapsed_days,
-    )
+    return Decimal(str((year_end - cursor).total_seconds())) / Decimal("86400")
 
 
 async def _project_year_end(
@@ -288,68 +281,129 @@ async def _project_year_end(
     vessel_id: UUID,
     regulation_year: int,
     as_of: datetime,
-    ytd,
-    base_contribution: InProgressContribution | None,
-    fuel_code: str | None,
 ) -> dict[str, object]:
-    """⑶ 연말 예상 — ⑴에 남은 기간의 외삽분을 더해 **같은 엔진으로** 다시 낸다.
+    """⑶ 연말 예상 — **확정 실적 + 잔여 계획 항차**로 낸다 (`PRD §5.1`, #798).
 
-    외삽분을 ``InProgressContribution``에 실어 ``compute_ytd_cii``를 한 번 더 부른다.
-    ``M``과 ``Dt``의 합만 달라지므로 등급 판정 경로는 ⑴과 **완전히 같다.**
+    ## 종전 방식과 무엇이 다른가
 
-    (그 결과 외삽분이 응답 안에서 「항해 중」 갈래에 잡힌다. ⑶은 항해/정박 내역을
-    내보내지 않으므로 표시에 영향이 없고, 합계는 어느 갈래든 같다.)
+    종전에는 ``YTD_DAILY_AVERAGE``였다 — 지금까지의 일평균을 잔여 기간에 곱해
+    ⑴에 더했다.
+
+    .. code-block:: text
+
+        daily_distance = YTD_Dt / elapsed_days
+        daily_fuel     = YTD_M  / elapsed_days
+        projected      = (YTD_M + daily_fuel × remaining)
+                       / (cap × (YTD_Dt + daily_distance × remaining))
+                       = YTD_M / (cap × YTD_Dt)          ← 강도가 보존된다
+
+    **거리와 연료를 같은 비율로 더하므로 ``M/W``가 변하지 않는다.** 그래서 ⑶이
+    구조적으로 ⑴과 **항상 같은 값**이었다 — 데모 4척 전부에서 실측됐다. 예측이
+    아무 정보를 주지 못했고, 연간 리포트는 같은 숫자를 「누적」과 「연말 예상」 두
+    제목으로 나란히 인쇄했다(``PRD §3.3.8``의 「구분해 표시」가 성립하지 않았다).
+
+    지금은 **DB에 등록된 잔여 계획 항차의 실제 거리·연료**를 쓴다. 비가 달라지므로
+    ⑶이 ⑴과 갈린다.
+
+    ## 왜 기능③과 같은 함수를 부르는가
+
+    같은 이름의 값이 두 화면에서 **다른 숫자**였다(`#798` 실측: 7.654488 vs
+    8.971119). 실시간 CII는 진행 중 항차를 경과분만 세고 잔여 계획을 통째로
+    무시했으며, 기능③은 진행 중 항차를 계획 전량으로 셌다.
+
+    ``annual_simulation``의 :func:`load_projection_context`·
+    :func:`collect_annual_inputs`·``project_deterministic``을 그대로 부르면 **값이
+    갈릴 수 없다.** 「이름을 다르게 붙인다」는 대안은 *같은 질문에 두 답을 준다*는
+    문제를 그대로 남긴다.
+
+    ## 진행 중 항차의 경과분을 ⑶에 쓰지 않는 이유
+
+    ⑶은 진행 중 항차를 **계획 전량**으로 센다(기능③과 같다). ⑴이 쓰는 경과 누적은
+    측정값이 아니라 **계획에서 나온 모델값**이다 — 시뮬레이션 시계(`#368`)가
+    ``planned_speed_kn``·``reference_daily_foc_ton``으로 만든다. 따라서
+    ``경과 누적 + 잔여 계획 ≈ 계획 전량``이고, 둘이 실질적으로 갈리는 것은 실적이
+    입력된 항차뿐인데 그런 항차는 ``INCLUDE_AS_ACTUAL``로 넘어가 확정분에 들어간다.
+
+    쪼개는 대안은 ``RemainingVoyage``의 거리·연료를 깎아야 하는데, 그 목록이 기능③
+    **Monte Carlo 표본추출의 입력**이자 ``simulation_snapshot``의 근거다. 재현성
+    계약(`#816`)이 열려 있는 경로라 이 이슈에서 건드리지 않는다.
+
+    ## 잔여 계획이 0건이면
+
+    **값을 내되 그 사실을 말한다.** 잔여 계획이 없으면 「연말 = 지금」이 맞는 답이고,
+    빈칸을 두면 「아직 로딩 중」으로 읽힌다. 다만 그 답은 종전 결함(항상 ⑴과 같음)과
+    화면에서 구분되지 않으므로 :data:`WARNING_NO_REMAINING_PLAN`을 함께 싣는다.
     """
-    basis = _projection_basis(ytd=ytd, as_of=as_of, regulation_year=regulation_year)
-    if isinstance(basis, str):
-        return {"data_available": False, "reason": basis}
+    remaining_days = _remaining_days(as_of=as_of, regulation_year=regulation_year)
+    if remaining_days <= 0:
+        return {"data_available": False, "reason": REASON_YEAR_COMPLETE}
 
-    elapsed_days, remaining_days, daily_distance, daily_fuel = basis
-
-    if fuel_code is None:
-        # CF를 붙일 유종이 없으면 연료를 더할 수 없다. 거리만 늘리면 CII가 좋아지는
-        # 쪽으로만 틀린다 — 아예 내지 않는 편이 맞다.
-        return {"data_available": False, "reason": REASON_NO_BASIS}
-
-    extra_distance = daily_distance * remaining_days
-    extra_fuel = daily_fuel * remaining_days
-
-    base_distance = base_contribution.distance_nm if base_contribution else Decimal(0)
-    base_fuels = list(base_contribution.fuel_uses) if base_contribution else []
-
-    projected = await compute_ytd_cii(
+    context = await load_projection_context(
+        session, vessel_id=vessel_id, regulation_year=regulation_year
+    )
+    inputs = await collect_annual_inputs(
         session,
+        vessel=context.vessel,
         vessel_id=vessel_id,
-        regulation_year=regulation_year,
+        year=regulation_year,
         as_of=as_of,
-        in_progress=InProgressContribution(
-            distance_nm=base_distance + extra_distance,
-            fuel_uses=(*base_fuels, (fuel_code, extra_fuel)),
-        ),
     )
 
-    if not projected.data_available:
+    try:
+        deterministic = project_deterministic(
+            completed=inputs.completed,
+            remaining=inputs.remaining,
+            transport_capacity=context.transport_capacity,
+            required_cii=context.required_cii,
+            d_vector=context.d_vector,
+        )
+    except ValueError:
+        # 거리가 0이면 ``PRD §12.8``이 계산 중단을 규정한다. ⑶은 조회 응답의 한
+        # 갈래이므로 500으로 올리지 않고 **못 낸 사유를 싣는다.**
         return {"data_available": False, "reason": REASON_NO_BASIS}
+
+    ratio = deterministic.attained_cii / context.required_cii
+    # 위험도는 ⑴과 **같은 방식**(마진 기반)으로 낸다. 기능③의 `risk_level`은 목표
+    # 달성 확률 기반이라 여기 쓰면 같은 열 이름에 다른 척도가 섞인다.
+    next_worse = select_next_worse_boundary(deterministic.rating, deterministic.boundaries)
+    margin_ratio = (
+        None
+        if next_worse is None
+        else calculate_margin_ratio(
+            attained_cii=deterministic.attained_cii,
+            required_cii=context.required_cii,
+            next_worse_boundary=next_worse,
+        )
+    )
+    risk = calculate_deterministic_risk(deterministic.rating, margin_ratio)
+
+    warnings = list(inputs.warnings)
+    if inputs.plan_voyage_count == 0:
+        warnings.append(WARNING_NO_REMAINING_PLAN)
 
     return {
         "data_available": True,
         "reason": None,
-        "attained_cii": _publish(projected.attained_cii, "cii"),
-        "required_cii": _publish(projected.required_cii, "cii"),
-        "ratio_to_required": _publish(projected.ratio_to_required, "ratio"),
-        "rating": projected.rating,
-        "risk_level": projected.risk_level,
+        "attained_cii": _publish(deterministic.attained_cii, "cii"),
+        "required_cii": _publish(context.required_cii, "cii"),
+        "ratio_to_required": _publish(ratio, "ratio"),
+        "rating": deterministic.rating,
+        "risk_level": risk,
+        "warnings": sorted(set(warnings)),
         # 가정을 함께 싣는다 — `PRD §3.3` ⑶이 요구한다. 「⑶만 단독으로 크게
         # 표시하지 않는다」를 화면이 지키려면 근거가 응답에 있어야 한다.
         "assumptions": {
-            "method": "YTD_DAILY_AVERAGE",
-            "elapsed_days": _publish(elapsed_days, "distance_nm"),
+            "method": PROJECTION_METHOD,
             "remaining_days": _publish(remaining_days, "distance_nm"),
-            "daily_distance_nm": _publish(daily_distance, "distance_nm"),
-            "daily_fuel_ton": _publish(daily_fuel, "fuel_ton"),
-            "projected_extra_distance_nm": _publish(extra_distance, "distance_nm"),
-            "projected_extra_fuel_ton": _publish(extra_fuel, "fuel_ton"),
-            "fuel_type": fuel_code,
+            "remaining_voyage_count": inputs.plan_voyage_count,
+            "planned_distance_nm": _publish(deterministic.planned_distance_nm, "distance_nm"),
+            "planned_co2_ton": _publish(
+                deterministic.planned_co2_g / Decimal(1_000_000), "fuel_ton"
+            ),
+            "completed_distance_nm": _publish(deterministic.completed_distance_nm, "distance_nm"),
+            "completed_co2_ton": _publish(
+                deterministic.completed_co2_g / Decimal(1_000_000), "fuel_ton"
+            ),
         },
     }
 
@@ -387,22 +441,6 @@ async def _resolve_progress(session: AsyncSession, *, vessel, voyage, as_of: dat
             NotUnderwayWindow(started_at=p.started_at, ended_at=p.ended_at) for p in periods
         ],
     )
-
-
-def _dominant_fuel(ytd) -> str | None:
-    """올해 **가장 많이 태운** 유종.
-
-    ⑶의 외삽에 쓴다. 선박의 `default_fuel_type`보다 이쪽을 먼저 보는 이유는 둘이다 —
-    그 열이 nullable이라 비어 있는 선박이 실제로 있고(시드의 `DONGJIN ENDURANCE`),
-    **등록된 기본 연료와 실제로 태운 연료가 다를 수 있기** 때문이다. 연말까지 무엇을
-    태울지 가장 잘 말해 주는 것은 올해 실적이다.
-
-    배출량(g) 기준으로 고른다 — 톤 기준으로 고르면 CF가 낮은 연료가 과대 대표된다.
-    """
-    breakdown = ytd.fuel_breakdown_g
-    if not breakdown:
-        return None
-    return max(breakdown.items(), key=lambda item: item[1])[0]
 
 
 async def _voyage_fuel_code(session: AsyncSession, *, voyage, vessel) -> str | None:
@@ -562,11 +600,6 @@ async def get_current_cii(
     except ValueError as exc:  # pragma: no cover - 방어
         raise CalculationError(str(exc)) from exc
 
-    # ⑶은 **YTD를 근거로 외삽**하므로 진행 중 항차가 없어도 낼 수 있다. 항차가
-    # 없다고 ⑶까지 비면 「연말 예상」이 정박 중에만 사라지는데, 그때야말로 사용자가
-    # 가장 보고 싶어 하는 값이다.
-    projection_fuel_code = fuel_code or _dominant_fuel(ytd) or vessel.default_fuel_type
-
     cf_by_fuel: dict[str, Decimal] = {}
     if fuel_code is not None:
         rows = await param_repo.get_fuel_types_by_codes(session, [fuel_code])
@@ -590,14 +623,13 @@ async def get_current_cii(
                 fuel_code=fuel_code,
             )
         ),
+        # ⑶은 **잔여 계획 항차**를 근거로 낸다 (`#798`). 진행 중 항차가 없어도,
+        # 정박 중이어도 낼 수 있다 — 그때야말로 사용자가 가장 보고 싶어 하는 값이다.
         "year_end_projection": await _project_year_end(
             session,
             vessel_id=vessel_id,
             regulation_year=regulation_year,
             as_of=resolved_as_of,
-            ytd=ytd,
-            base_contribution=contribution,
-            fuel_code=projection_fuel_code,
         ),
         # `API_SPEC §1.6` — 모든 계산 결과에 붙는다. `#353`이 붙인 경고를 함께 싣되
         # 중복은 제거한다.
