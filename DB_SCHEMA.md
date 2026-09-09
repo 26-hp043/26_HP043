@@ -231,7 +231,7 @@ ALTER TABLE voyage ADD CONSTRAINT chk_arr_lon_range
 | `fuel_type` | VARCHAR(30) | NOT NULL, **FK → fuel_type(code) ON UPDATE CASCADE** [S-1] | 연료 종류 |
 | `planned_fuel_ton` | NUMERIC(12,4) | NULL | 계획 연료 사용량 |
 | `actual_fuel_ton` | NUMERIC(12,4) | NULL | 실제 연료 사용량 |
-| `cf_used` | NUMERIC(10,6) | NOT NULL | 계산 시점 CF snapshot |
+| `cf_used` | NUMERIC(10,6) | NOT NULL | **입력 시점의 CF 기록** — 확정 실적의 계산 근거. 계획 항차 예측은 실행 시점 활성 CF(`fuel_type.cf`)를 쓴다 (`#832`) |
 | `source` | VARCHAR(30) | NOT NULL | USER_INPUT, MODEL_ESTIMATE, IMPORT, SAMPLE |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
@@ -1466,3 +1466,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-21 | `#602` | `§N-M` 표기 정리에 따른 참조 갱신 (`AGENTS §4.7` 신설분 반영). 본문 내용 변경 없음. **이 행은 `#641`이 뒤늦게 채웠다** (#602) |
 | 2026-08-23 | `#589` | 헤더 「상위 문서」의 `API_SPEC`을 v1.18 → **v1.20**으로 갱신. **그 사이 변경이 본 문서에 영향을 주지 않음을 대조로 확인했다** — v1.19(`§8.2` CSV 가져오기)가 쓰는 `created_from = IMPORT`는 `§2.2`에 이미 있고, v1.20(`§2.8` 선대 응답 필드 2종)의 `is_cii_applicable_hint`·`gross_tonnage`도 `§2.1`에 이미 있다 — **둘 다 응답 계약 확장이지 스키마 변경이 아니다.** `§4.3`상 헤더 정정이라 버전은 올리지 않는다 (#589) |
 | 2026-08-23 | `#493` | **v1.16 — §2.7 `simulation_snapshot`에 `vessel_json` 신설** (마이그레이션 037). 계산에 쓰는 선박 제원 사본이며 `TECH_SPEC §11.2` 표 개정에 대응한다. **nullable이다** — 이 테이블은 immutable이라(`trg_snapshot_immutable`) 기존 행에 값을 넣을 수 없고, NOT NULL로 두면 마이그레이션 자체가 실패한다. 값이 없는 행은 재현 경로가 사유를 밝히고 끊는다(`#443` 이전 실행을 끊는 선례와 같다). 수치는 **문자열로** 담는다 — float으로 거치면 `NUMERIC` 원본과 다른 값이 보관된다 (#493) |
+| 2026-09-09 | `#832` | §2.3 `voyage_fuel_use.cf_used` 역할 재정의 — 「계산 시점 CF snapshot」에서 **「입력 시점의 CF 기록」**으로. 확정 실적의 계산 근거이며, 계획 항차 예측은 실행 시점 활성 CF(`fuel_type.cf`)를 쓴다. 종전 표기는 계획 항차까지 이 열로 계산해야 하는 것처럼 읽혀 `PRD §8.4`의 「변경 이후 계산에만 적용」과 충돌했다. §2.18 `not_underway_fuel_use.cf_used`는 변경 없음 — 양쪽 다 그때의 기록을 남기는 열이다 (#832) |

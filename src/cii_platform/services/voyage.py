@@ -549,8 +549,10 @@ async def _apply_fuel_actuals(
 
         row = existing.get(code)
         if row is not None:
-            # 계획값은 그대로 둔다 (`PRD §8.4`). `cf_used`도 그대로 — 그때 박은
-            # snapshot을 지금 값으로 덮으면 과거 계산이 재현되지 않는다.
+            # 계획값은 그대로 둔다 (`PRD §8.4`). `cf_used`도 그대로 둔다 — 이 열은
+            # **기록**이다(#832). 확정 실적은 그때 실제로 그 계수로 배출했고(#863),
+            # 계획 항차의 예측은 계산 실행 시점의 활성 CF를 쓰므로 이 열을 덮어쓸
+            # 필요가 없다. 덮으면 그때의 기록이 사라진다.
             row.actual_fuel_ton = item["actual_fuel_ton"]
             if item.get("source") is not None:
                 row.source = item["source"]

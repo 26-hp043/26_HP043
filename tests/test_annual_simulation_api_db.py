@@ -320,6 +320,34 @@ async def test_snapshot_keeps_the_cf_used(session, vessel_id):
     assert stored == "3.114000"
 
 
+@pytest.mark.asyncio
+async def test_plan_voyages_use_the_live_cf_at_run_time(session, vessel_id):
+    """CF 개정 뒤 새로 실행하면 계획 항차가 **새 CF**로 예측된다 (#832).
+
+    확정 실적은 기록 스냅샷을 유지하고(#863), 아직 배출되지 않은 계획분만
+    실행 시점의 활성 CF를 따른다(PRD §8.4 「변경 이후 계산에만 적용」).
+    """
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+    await _add_plan_voyage(session, vessel_id, fuels=[("HFO", "200", "3.114")])
+    # CF 개정 — 계획 항차의 행(cf_used 3.114)은 그대로 둔다(현행 기록 동작).
+    await session.execute(text("UPDATE fuel_type SET cf = 4.114 WHERE code = 'HFO'"))
+
+    result = await _run(session, vessel_id)
+
+    row = (
+        await session.execute(
+            text(
+                "SELECT voyages_json->0->'fuel_uses'->0->>'cf_used' AS actual_cf, "
+                "voyages_json->1->'fuel_uses'->0->>'cf_used' AS plan_cf "
+                "FROM simulation_snapshot WHERE id = :id"
+            ),
+            {"id": result["data"]["snapshot"]["snapshot_id"]},
+        )
+    ).one()
+    assert row.actual_cf == "3.114000"  # 확정 실적 — 기록 유지 (#863)
+    assert row.plan_cf == "4.114000"  # 계획 — 실행 시점 활성 CF (#832)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 재현성 — #434 · TECH_SPEC §5.2.1.1
 # ─────────────────────────────────────────────────────────────────────────────
@@ -430,7 +458,13 @@ async def test_fuel_type_count_does_not_change_the_result(session, vessel_id):
 
     총 연료·총 CO₂·거리가 같은 두 입력을 **연료 행 수만 다르게** 넣어 대조한다.
     HFO 150t(cf 3.114) 한 줄과, 같은 CO₂가 되도록 나눈 두 줄이다.
+
+    ⚠️ #832 이후 계획 항차는 실행 시점 **활성 CF**를 쓰므로, 이 검사는 활성 CF를
+    3.114로 고정해 행 수만의 효과를 분리한다 — 가스오일의 활성 CF는 3.206이다.
     """
+    await session.execute(
+        text("UPDATE fuel_type SET cf = 3.114 WHERE code IN ('HFO', 'DIESEL_GAS_OIL')")
+    )
     single = await _add_plan_voyage(session, vessel_id, fuels=[("HFO", "150", "3.114")])
     result_single = await _run(session, vessel_id)
 
