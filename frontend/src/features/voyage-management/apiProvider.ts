@@ -3,7 +3,7 @@ import { readPageMeta } from '../vessel-management/apiProvider'
 import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type { ImportResult, ImportRowError } from './importRules'
-import { actualsPayload, policyForTransition } from './voyageRules'
+import { actualsPayload, policyForTransition, toIsoInstant } from './voyageRules'
 import type {
   ActualsDraft,
   InclusionPolicy,
@@ -83,6 +83,10 @@ interface ServerVoyage {
   planned_speed_kn?: unknown
   actual_distance_nm?: unknown
   actual_avg_speed_kn?: unknown
+  planned_departure_at?: unknown
+  planned_arrival_at?: unknown
+  actual_departure_at?: unknown
+  actual_arrival_at?: unknown
   fuel_uses?: unknown
 }
 
@@ -128,6 +132,11 @@ function toVoyage(raw: ServerVoyage): ManagedVoyage {
     plannedSpeedKn: num(raw.planned_speed_kn),
     actualDistanceNm: num(raw.actual_distance_nm),
     actualAvgSpeedKn: num(raw.actual_avg_speed_kn),
+    // 시각 4종 (`#873`). 서버가 준 ISO 문자열 그대로 — 실적 폼이 초기값으로 되읽는다.
+    plannedDepartureAt: text(raw.planned_departure_at),
+    plannedArrivalAt: text(raw.planned_arrival_at),
+    actualDepartureAt: text(raw.actual_departure_at),
+    actualArrivalAt: text(raw.actual_arrival_at),
     fuelUses: Array.isArray(raw.fuel_uses) ? (raw.fuel_uses as ServerFuelUse[]).map(toFuelUse) : [],
   }
 }
@@ -276,6 +285,8 @@ export function createApiVoyageManagementProvider(
 
     async create(vesselId, draft) {
       const year = draft.regulationYear.trim()
+      const departureAt = toIsoInstant(draft.plannedDepartureAt)
+      const arrivalAt = toIsoInstant(draft.plannedArrivalAt)
       const body = await call(`/vessels/${vesselId}/voyages`, {
         method: 'POST',
         body: JSON.stringify({
@@ -286,6 +297,16 @@ export function createApiVoyageManagementProvider(
           planned_speed_kn: Number(draft.plannedSpeedKn),
           // optional — `INCLUDE_AS_PLAN` 전환 시점에만 필수(`§3.3` [#150]).
           ...(year === '' ? {} : { regulation_year: Number(year) }),
+          /*
+           * 계획 시각 2종 (`#873`). **빈 칸은 키 자체를 넣지 않는다** — `§3.3`이
+           * optional로 규정하므로 생략이 곧 「없음」이다.
+           *
+           * 종전에는 이 두 줄이 아예 없었다. 서버는 처음부터 받고 있었는데 화면이
+           * 보내지 않아, 화면으로 만든 항차는 출항 시각이 영원히 `null`이었고
+           * 진행 중 누적이 **조용히 0**이 됐다(`simulation_clock.py:177`).
+           */
+          ...(departureAt === null ? {} : { planned_departure_at: departureAt }),
+          ...(arrivalAt === null ? {} : { planned_arrival_at: arrivalAt }),
           /*
            * 연료를 **여러 줄로** 보낸다 (`#636`). 종전에는 폼이 단일 값이라 배열에
            * 한 줄만 담았고, 화면으로 만든 항차는 연료가 반드시 한 종이었다.

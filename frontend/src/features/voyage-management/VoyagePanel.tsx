@@ -11,6 +11,7 @@ import {
   canEnterActuals,
   hasErrors,
   nextStatuses,
+  toLocalInput,
   transitionBlocker,
   validateActuals,
   validateDraft,
@@ -338,6 +339,8 @@ function VoyageForm({
     arrivalPortName: '',
     plannedDistanceNm: '',
     plannedSpeedKn: '',
+    plannedDepartureAt: '',
+    plannedArrivalAt: '',
     regulationYear: '',
     fuelUses: [{ fuelType: fuelTypes[0] ?? '', plannedFuelTon: '' }],
   })
@@ -399,6 +402,35 @@ function VoyageForm({
       <Field id="vy-to" label="도착항" value={draft.arrivalPortName} onChange={set('arrivalPortName')} error={errors.arrivalPortName} />
       <Field id="vy-dist" label={`계획 거리 (${DISPLAY_UNITS.distance})`} value={draft.plannedDistanceNm} onChange={set('plannedDistanceNm')} error={errors.plannedDistanceNm} inputMode="decimal" />
       <Field id="vy-speed" label={`계획 속력 (${DISPLAY_UNITS.speed})`} value={draft.plannedSpeedKn} onChange={set('plannedSpeedKn')} error={errors.plannedSpeedKn} inputMode="decimal" />
+      {/*
+        계획 출항·도착 시각 (`#873`).
+
+        **종전에는 이 두 칸이 없었다.** 서버는 `§3.3`에서 처음부터 받고 있었는데
+        화면이 보내지 않아, 화면으로 만든 항차는 출항 시각이 영원히 `null`이었다.
+        그 항차를 진행 중으로 옮기면 시뮬레이션 시계가 곧바로 거리·연료 **0**을
+        돌려주고(`services/simulation_clock.py:177`), 경고 체계는 `distance_nm > 0`을
+        전제하므로 그 0도 잡지 못한다 — **조용히 0으로 기여한다.**
+
+        `§3.3`이 optional이라 여기서도 필수로 만들지 않는다. 대신 결과를 말한다.
+      */}
+      <Field
+        id="vy-dep-at"
+        label="계획 출항 시각"
+        type="datetime-local"
+        value={draft.plannedDepartureAt}
+        onChange={set('plannedDepartureAt')}
+        error={errors.plannedDepartureAt}
+        hint="비워 두면 진행 중 누적에 0으로 기여합니다. 나중에 실적 입력에서 채울 수 있습니다."
+      />
+      <Field
+        id="vy-arr-at"
+        label="계획 도착 시각"
+        type="datetime-local"
+        value={draft.plannedArrivalAt}
+        onChange={set('plannedArrivalAt')}
+        error={errors.plannedArrivalAt}
+        hint="도착 실적이 없을 때 진행 중 누적의 상한이 됩니다."
+      />
       {/*
         연료는 여러 줄이다 (`#636`).
 
@@ -530,6 +562,9 @@ function ActualsForm({
   const [draft, setDraft] = useState<ActualsDraft>({
     actualDistanceNm: voyage.actualDistanceNm?.toString() ?? '',
     actualAvgSpeedKn: voyage.actualAvgSpeedKn?.toString() ?? '',
+    // 이미 넣어 둔 시각을 되읽는다 (`#873`) — 빈 폼으로 시작하면 저장할 때 지워진다.
+    actualDepartureAt: toLocalInput(voyage.actualDepartureAt),
+    actualArrivalAt: toLocalInput(voyage.actualArrivalAt),
     actualFuelTon: Object.fromEntries(
       voyage.fuelUses.map((use) => [use.fuelType, use.actualFuelTon?.toString() ?? '']),
     ),
@@ -578,6 +613,41 @@ function ActualsForm({
         inputMode="decimal"
       />
 
+      {/*
+        실제 출항·도착 시각 (`#873`).
+
+        출항 실적은 계획보다 **먼저 읽힌다**(`cii_current.py:429`
+        `actual_departure_at or planned_departure_at`). 도착 실적은 시계의 상한이라
+        입력하는 순간 누적이 그 시각에서 멈춘다 — 결과 화면의 「도착 실적을 입력하면
+        확정됩니다」가 가리키던 칸이 **제품에 없던** 상태를 이번에 메운다.
+      */}
+      <Field
+        id={`ac-dep-at-${voyage.id}`}
+        label="실제 출항 시각"
+        type="datetime-local"
+        value={draft.actualDepartureAt}
+        onChange={(value) => setDraft((prev) => ({ ...prev, actualDepartureAt: value }))}
+        error={errors.actualDepartureAt}
+        hint={
+          voyage.plannedDepartureAt === null
+            ? '계획 출항 시각이 없습니다. 이 칸을 채우면 진행 중 누적이 계산됩니다.'
+            : `계획 ${toLocalInput(voyage.plannedDepartureAt)}`
+        }
+      />
+      <Field
+        id={`ac-arr-at-${voyage.id}`}
+        label="실제 도착 시각"
+        type="datetime-local"
+        value={draft.actualArrivalAt}
+        onChange={(value) => setDraft((prev) => ({ ...prev, actualArrivalAt: value }))}
+        error={errors.actualArrivalAt}
+        hint={
+          voyage.plannedArrivalAt === null
+            ? undefined
+            : `계획 ${toLocalInput(voyage.plannedArrivalAt)}`
+        }
+      />
+
       {voyage.fuelUses.map((use) => (
         <Field
           key={use.fuelType}
@@ -623,6 +693,7 @@ function Field({
   error,
   hint,
   inputMode,
+  type = 'text',
 }: {
   id: string
   label: string
@@ -631,6 +702,14 @@ function Field({
   error?: string
   hint?: string
   inputMode?: 'decimal' | 'numeric'
+  /**
+   * `datetime-local`을 쓰는 칸이 생겼다 (`#873`).
+   *
+   * 텍스트로 두고 형식을 안내하는 대신 **브라우저 달력 UI**를 쓴다 — 시각 입력은
+   * 사용자가 형식을 틀리기 가장 쉬운 칸이고, 이 폼은 그 틀림을 저장 뒤에야
+   * 알려 줄 수 있다(서버가 받는 값이 `null`이 되어도 오류가 아니다).
+   */
+  type?: 'text' | 'datetime-local'
 }) {
   const errorId = `${id}-error`
   const hintId = `${id}-hint`
@@ -644,6 +723,7 @@ function Field({
       <input
         id={id}
         className={error ? 'vy__input vy__input--error' : 'vy__input'}
+        type={type}
         value={value}
         inputMode={inputMode}
         onChange={(event) => onChange(event.target.value)}

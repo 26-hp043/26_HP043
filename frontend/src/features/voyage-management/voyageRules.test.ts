@@ -5,6 +5,8 @@ import {
   hasErrors,
   nextStatuses,
   policyForTransition,
+  toIsoInstant,
+  toLocalInput,
   transitionBlocker,
   validateActuals,
   validateDraft,
@@ -23,6 +25,10 @@ const voyage = (over: Partial<ManagedVoyage> = {}): ManagedVoyage => ({
   plannedSpeedKn: 14,
   actualDistanceNm: null,
   actualAvgSpeedKn: null,
+  plannedDepartureAt: null,
+  plannedArrivalAt: null,
+  actualDepartureAt: null,
+  actualArrivalAt: null,
   fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 800, actualFuelTon: null }],
   ...over,
 })
@@ -33,6 +39,8 @@ const draft = (over: Partial<VoyageDraft> = {}): VoyageDraft => ({
   arrivalPortName: 'Singapore',
   plannedDistanceNm: '2800',
   plannedSpeedKn: '13.5',
+  plannedDepartureAt: '',
+  plannedArrivalAt: '',
   regulationYear: '2026',
   fuelUses: [{ fuelType: 'HFO', plannedFuelTon: '210' }],
   ...over,
@@ -41,6 +49,8 @@ const draft = (over: Partial<VoyageDraft> = {}): VoyageDraft => ({
 const actuals = (over: Partial<ActualsDraft> = {}): ActualsDraft => ({
   actualDistanceNm: '',
   actualAvgSpeedKn: '',
+  actualDepartureAt: '',
+  actualArrivalAt: '',
   actualFuelTon: {},
   ...over,
 })
@@ -226,5 +236,98 @@ describe('actualsPayload — 빈 칸은 키 자체를 보내지 않는다', () =
 
   it('아무것도 안 넣으면 빈 본문이다', () => {
     expect(actualsPayload(actuals())).toEqual({})
+  })
+})
+
+/**
+ * 항차 시각 4종 (#873).
+ *
+ * **화면이 이 네 값을 어디에서도 수집하지 않았다** — 프론트 전체 참조 0건(grep 실측).
+ * 서버는 `§3.3`·`§3.6`에서 처음부터 받고 있었으므로 계약이 아니라 화면이 빠져 있었다.
+ *
+ * 결과: 화면으로 만든 항차는 출항 시각이 영원히 `null`이고, 진행 중으로 옮기면
+ * 시뮬레이션 시계가 `departure_at is None`에서 거리·연료 **0**을 돌려준다
+ * (`services/simulation_clock.py:177`). 경고 체계는 `distance_nm > 0`을 전제하므로
+ * 그 0도 잡지 못한다 — **조용히 0으로 기여한다.**
+ *
+ * ⚠️ 로컬 스택 실측으로 확정했다(`#616` 선례). 화면의 `create` 본문 그대로 보내
+ * 201을 받았고 `planned_departure_at`이 `None`이었으며, `IN_PROGRESS` 전환 뒤
+ * `/cii/current`의 `warnings`가 `null`이었다.
+ */
+describe('항차 시각 다리 — 화면 값 ↔ 서버 값 (#873)', () => {
+  it('빈 칸은 null이다 — 「보내지 않는다」의 표현이다', () => {
+    expect(toIsoInstant('')).toBeNull()
+    expect(toIsoInstant('   ')).toBeNull()
+  })
+
+  it('읽을 수 없는 값도 null이다 — 지어내지 않는다', () => {
+    expect(toIsoInstant('내일 아침')).toBeNull()
+  })
+
+  it('지역 시각으로 읽어 UTC 문자열로 낸다 — 왕복하면 같은 값이다', () => {
+    const local = '2026-06-01T09:00'
+    const iso = toIsoInstant(local)
+    expect(iso).not.toBeNull()
+    /*
+     * 고정 오프셋을 단언하지 않는다 — 이 검사는 실행 환경의 표준시각에 따라 값이
+     * 달라지는 것이 **정상**이다(사용자가 적은 9시는 자기 지역의 9시다). 대신
+     * **왕복이 보존되는지**를 본다.
+     */
+    expect(toLocalInput(iso)).toBe(local)
+  })
+
+  it('서버 값이 없으면 빈 폼으로 시작한다 — 틀린 시각을 보여 주지 않는다', () => {
+    expect(toLocalInput(null)).toBe('')
+    expect(toLocalInput('')).toBe('')
+    expect(toLocalInput('not-a-date')).toBe('')
+  })
+
+  it('초를 남기지 않는다 — 항차마다 칸 모양이 달라지지 않게', () => {
+    expect(toLocalInput('2026-06-01T00:00:37Z')).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)
+  })
+})
+
+describe('시각 검증 — 비어 있는 것은 오류가 아니다 (#873)', () => {
+  it('생성 폼: 두 칸이 비어도 통과한다 — §3.3이 optional이다', () => {
+    expect(hasErrors(validateDraft(draft()))).toBe(false)
+  })
+
+  it('생성 폼: 도착이 출항보다 빠르면 막는다', () => {
+    const found = validateDraft(
+      draft({ plannedDepartureAt: '2026-06-08T09:00', plannedArrivalAt: '2026-06-01T09:00' }),
+    )
+    expect(found.plannedArrivalAt).toBeDefined()
+  })
+
+  it('생성 폼: 같은 시각도 막는다 — 항해 시간이 0이면 누적도 0이다', () => {
+    const found = validateDraft(
+      draft({ plannedDepartureAt: '2026-06-01T09:00', plannedArrivalAt: '2026-06-01T09:00' }),
+    )
+    expect(found.plannedArrivalAt).toBeDefined()
+  })
+
+  it('생성 폼: 출항만 넣어도 통과한다 — 도착은 나중에 온다', () => {
+    expect(hasErrors(validateDraft(draft({ plannedDepartureAt: '2026-06-01T09:00' })))).toBe(false)
+  })
+
+  it('실적 폼: 도착이 출항보다 빠르면 막는다', () => {
+    const found = validateActuals(
+      actuals({ actualDepartureAt: '2026-06-08T09:00', actualArrivalAt: '2026-06-01T09:00' }),
+    )
+    expect(found.actualArrivalAt).toBeDefined()
+  })
+})
+
+describe('actualsPayload — 시각 두 칸 (#873)', () => {
+  it('입력한 시각을 UTC 문자열로 싣는다', () => {
+    const payload = actualsPayload(actuals({ actualDepartureAt: '2026-06-01T09:00' }))
+    expect(typeof payload.actual_departure_at).toBe('string')
+    expect(payload.actual_departure_at).toBe(toIsoInstant('2026-06-01T09:00'))
+  })
+
+  it('빈 칸은 키 자체를 넣지 않는다 — null을 보내면 이미 넣은 시각이 지워진다', () => {
+    const payload = actualsPayload(actuals({ actualDistanceNm: '11200' }))
+    expect(payload).not.toHaveProperty('actual_departure_at')
+    expect(payload).not.toHaveProperty('actual_arrival_at')
   })
 })

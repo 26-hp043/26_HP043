@@ -54,6 +54,17 @@ export interface ManagedVoyage {
   plannedSpeedKn: number | null
   actualDistanceNm: number | null
   actualAvgSpeedKn: number | null
+  /**
+   * 항차 시각 4종 (`#873`). 서버가 주는 ISO 8601 문자열 그대로 둔다.
+   *
+   * **`Date`로 바꾸지 않는다** — 화면이 쓰는 곳은 실적 폼의 초기값뿐이고, 거기서
+   * 다시 `datetime-local` 문자열로 내려간다. 중간에 `Date`를 거치면 왕복마다
+   * 브라우저 표준시각 해석이 한 번 더 끼어든다.
+   */
+  plannedDepartureAt: string | null
+  plannedArrivalAt: string | null
+  actualDepartureAt: string | null
+  actualArrivalAt: string | null
   fuelUses: VoyageFuelUse[]
 }
 
@@ -77,6 +88,19 @@ export interface VoyageDraft {
   arrivalPortName: string
   plannedDistanceNm: string
   plannedSpeedKn: string
+  /**
+   * 계획 출항·도착 시각 (`#873`). `datetime-local` 값(`2026-06-01T09:00`)이며
+   * 빈 문자열은 「보내지 않는다」다.
+   *
+   * **종전에는 이 두 칸이 화면에 없었다.** 서버는 `§3.3`에서 처음부터 받고
+   * 있었는데(`planned_departure_at`·`planned_arrival_at`) 화면이 보내지 않아,
+   * 화면으로 만든 항차는 **출항 시각이 영원히 `null`**이었다. 그 항차를
+   * 진행 중으로 옮기면 시뮬레이션 시계가 `departure_at is None`에서 곧바로
+   * 거리·연료 **0**을 돌려준다(`services/simulation_clock.py:177`) — 누적에
+   * 조용히 0으로 기여한다.
+   */
+  plannedDepartureAt: string
+  plannedArrivalAt: string
   /** optional — `INCLUDE_AS_PLAN` 전환 시점에만 필수(`§3.3` [#150]). */
   regulationYear: string
   /** 최소 한 줄 — 서버가 `min_length=1`을 요구한다(`§3.3`). */
@@ -92,6 +116,16 @@ export interface VoyageDraft {
 export interface ActualsDraft {
   actualDistanceNm: string
   actualAvgSpeedKn: string
+  /**
+   * 실제 출항·도착 시각 (`#873`). 서버는 `§3.6`에서 둘 다 받는다.
+   *
+   * 실적 출항 시각이 계획보다 **먼저 읽힌다**(`services/cii_current.py:429`
+   * `actual_departure_at or planned_departure_at`). 도착 실적은 시계의 상한이라,
+   * 이 칸이 없으면 「도착 실적을 입력하면 확정됩니다」라는 결과 화면 문구
+   * (`voyage-cii/resultRules.ts`)가 **가리키는 입력 칸이 제품에 없는** 상태가 된다.
+   */
+  actualDepartureAt: string
+  actualArrivalAt: string
   /** 연료별 실적. 키는 `fuelType`. 빈 문자열은 「변경 없음」이다. */
   actualFuelTon: Record<string, string>
 }
