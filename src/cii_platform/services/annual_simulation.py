@@ -618,6 +618,29 @@ async def run_annual_simulation(
 
     # 분포는 코드가 아니라 테이블에서 읽는다 (#434).
     profile_rows = await param_repo.load_distribution_profile(session, distribution_profile)
+    #
+    # **행이 하나도 없으면 그 프로파일은 존재하지 않는 것이다** (#870).
+    #
+    # 저장소는 없는 프로파일에 빈 목록을 돌려주고, 그 판단을 서비스에 넘긴다
+    # (``load_distribution_profile`` docstring). 종전에는 그대로 넘겨
+    # ``profile_from_rows([])``가 상수 기본값으로 조용히 폴백했다 — 오타나 없는
+    # 이름(`CONSERVATIVE`·소문자 `default`)이 **200으로 통과**하고, 응답의
+    # ``parameters_used.simulation_profile.profile``에는 **사용자가 보낸 이름이
+    # 그대로** 실렸다. 보수적 분포를 고른 줄 아는 목표 달성 확률·P10/P50/P90이
+    # 기본 분포 값인데 화면은 고른 이름을 보여 준다 — 오인을 확인할 방법이 없다.
+    #
+    # **일부 변수만 빠진 경우는 종전대로 기본값으로 채운다** — 그것은 「행 하나가
+    # 비었다」이지 「프로파일이 없다」가 아니고, 파라미터 한 줄 때문에 시뮬레이션
+    # 전체를 죽일 이유가 없다(``profile_from_rows`` docstring).
+    #
+    # 모르는 선종을 422로 거부하는 ``services/parameters.py``와 같은 판단이다.
+    #
+    if not profile_rows:
+        raise ValidationError(
+            f"알 수 없는 분포 프로파일입니다: {distribution_profile}",
+            field="distribution_profile",
+            field_label="분포 프로파일",
+        )
     profile = profile_from_rows(profile_rows)
 
     deterministic = project_deterministic(

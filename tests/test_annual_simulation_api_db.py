@@ -369,6 +369,65 @@ async def test_parameters_used_carries_the_distribution_profile(session, vessel_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["CONSERVATIVE", "default", "DEFAUL", "", "  "])
+async def test_unknown_distribution_profile_is_rejected(session, vessel_id, name: str):
+    """모르는 분포 프로파일은 **거부한다** (#870).
+
+    종전에는 저장소가 빈 목록을 돌려주고 ``profile_from_rows([])``가 상수 기본값으로
+    조용히 폴백해 **200으로 통과**했다. 그런데 응답의
+    ``parameters_used.simulation_profile.profile``에는 **사용자가 보낸 이름이 그대로**
+    실려, 보수적 분포를 고른 줄 아는 목표 달성 확률·P10/P50/P90이 사실은 기본 분포
+    값인데 화면은 고른 이름을 보여 준다 — 사용자가 오인을 확인할 방법이 없다.
+
+    소문자 ``default``도 거부한다. 조회가 대소문자를 구분하므로 그 이름의 행은
+    실제로 없고, 「있는데 못 찾았다」와 「없다」를 구분해 줄 근거가 없다.
+    """
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+
+    with pytest.raises(ValidationError, match="분포 프로파일"):
+        await _run(session, vessel_id, distribution_profile=name)
+
+
+@pytest.mark.asyncio
+async def test_known_distribution_profile_still_runs(session, vessel_id):
+    """심어진 프로파일(``DEFAULT``)은 그대로 돈다 — 가드가 정상 경로를 막지 않는다 (#870)."""
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+
+    result = await _run(session, vessel_id, distribution_profile="DEFAULT")
+
+    assert result["data"]["deterministic"]["projected_attained_cii"]
+
+
+@pytest.mark.asyncio
+async def test_a_missing_variable_row_still_falls_back(session, vessel_id):
+    """**변수 한 줄이 빠진 것은 「프로파일이 없다」가 아니다** — 종전대로 채운다 (#870).
+
+    가드는 행이 **0건**일 때만 건다. 파라미터 한 줄이 비었다고 시뮬레이션 전체를
+    죽일 이유가 없고, 무엇이 기본값으로 채워졌는지는 ``parameters_used``의 행 목록에
+    드러난다(`profile_from_rows` docstring). 이 구분이 없으면 운영자가 행 하나를
+    비활성화하는 순간 기능③이 통째로 멈춘다.
+    """
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+    # 속도 행만 비활성화 — 거리·연료 2행은 남는다.
+    await session.execute(
+        text(
+            "UPDATE simulation_parameter SET is_active = false "
+            "WHERE profile = 'DEFAULT' AND variable = 'SPEED'"
+        )
+    )
+
+    result = await _run(session, vessel_id)
+
+    assert result["data"]["deterministic"]["projected_attained_cii"]
+    profile = await session.scalar(
+        text("SELECT parameters_used->'simulation_profile' FROM calculation_run WHERE id = :id"),
+        {"id": result["calculation_run_id"]},
+    )
+    # 남은 2행만 실린다 — 무엇이 기본값으로 채워졌는지가 여기서 드러난다.
+    assert len(profile["parameters"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_same_seed_reproduces_the_same_result(session, vessel_id):
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED")
