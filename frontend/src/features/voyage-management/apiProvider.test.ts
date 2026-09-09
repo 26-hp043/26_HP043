@@ -333,3 +333,97 @@ describe('오류', () => {
     ).rejects.toBeInstanceOf(VoyageError)
   })
 })
+
+/**
+ * 운항 기록 내보내기 (#890 · `API_SPEC §8.1`).
+ *
+ * `PRD §5.1` MUST인데 **화면에서 도달할 수 없었다** — 서버·검사가 완비돼 있고 프론트
+ * 호출부가 0건이었다. 여기서 보는 것은 **조건이 실제로 쿼리에 실리는가**와
+ * **응답이 파일로 넘어가는가**다.
+ */
+describe('exportData — API_SPEC §8.1', () => {
+  function csvResponse(disposition: string | null): Response {
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => (name === 'Content-Disposition' ? disposition : null) },
+      blob: async () => new Blob(['voyage_no\n2026-01\n'], { type: 'text/csv' }),
+    } as unknown as Response
+  }
+
+  it('type·year·format을 쿼리에 싣는다', async () => {
+    const fetchMock = fakeFetch({ '/export': csvResponse(null) })
+    const saved: Array<[Blob, string]> = []
+    const provider = createApiVoyageManagementProvider(fetchMock, '', (blob, name) =>
+      saved.push([blob, name]),
+    )
+
+    await provider.exportData('v-1', 'type=voyages&format=csv&year=2026', 'voyages_2026.csv')
+
+    const url = String((fetchMock as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0])
+    expect(url).toContain('/vessels/v-1/export?')
+    expect(url).toContain('type=voyages')
+    expect(url).toContain('year=2026')
+    expect(url).toContain('format=csv')
+  })
+
+  it('서버가 준 파일명을 그대로 쓴다 — 우리가 지어내지 않는다', async () => {
+    const disposition = "attachment; filename=\"voyages_2026.csv\"; filename*=UTF-8''voyages_2026.csv"
+    const fetchMock = fakeFetch({ '/export': csvResponse(disposition) })
+    const saved: string[] = []
+    const provider = createApiVoyageManagementProvider(fetchMock, '', (_blob, name) =>
+      saved.push(name),
+    )
+
+    const name = await provider.exportData('v-1', 'type=voyages&format=csv', '대체.csv')
+
+    expect(name).toBe('voyages_2026.csv')
+    expect(saved).toEqual(['voyages_2026.csv'])
+  })
+
+  it('헤더가 없으면 대체 이름을 쓴다 — 이름 없는 파일을 내려보내지 않는다', async () => {
+    const fetchMock = fakeFetch({ '/export': csvResponse(null) })
+    const saved: string[] = []
+    const provider = createApiVoyageManagementProvider(fetchMock, '', (_blob, name) =>
+      saved.push(name),
+    )
+
+    expect(await provider.exportData('v-1', 'type=voyages&format=json', 'voyages.json')).toBe(
+      'voyages.json',
+    )
+    expect(saved).toEqual(['voyages.json'])
+  })
+
+  it('실패 응답을 파일로 저장하지 않는다 — 오류 봉투를 화면 문구로 올린다', async () => {
+    /*
+     * ⚠️ 이것이 이 묶음의 핵심이다. 실패 응답은 CSV가 아니라 `§1.3.2` 오류 봉투다.
+     * 그대로 저장하면 사용자는 **「받았다」고 믿고 열어서야** 오류 JSON을 본다.
+     */
+    const fetchMock = fakeFetch({
+      '/export': fail(422, { error: { message: '지원하지 않는 형식입니다: xlsx' } }),
+    })
+    const saved: string[] = []
+    const provider = createApiVoyageManagementProvider(fetchMock, '', (_blob, name) =>
+      saved.push(name),
+    )
+
+    await expect(provider.exportData('v-1', 'type=voyages&format=xlsx', 'x.csv')).rejects.toThrow(
+      '지원하지 않는 형식입니다: xlsx',
+    )
+    expect(saved).toEqual([])
+  })
+
+  it('연결 실패를 VoyageError로 감싼다', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('boom')
+    }) as unknown as typeof globalThis.fetch
+
+    await expect(
+      createApiVoyageManagementProvider(fetchMock, '', () => {}).exportData(
+        'v-1',
+        'type=voyages&format=csv',
+        'x.csv',
+      ),
+    ).rejects.toBeInstanceOf(VoyageError)
+  })
+})

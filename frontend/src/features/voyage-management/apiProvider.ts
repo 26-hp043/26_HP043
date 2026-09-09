@@ -1,4 +1,5 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { csrfHeaders, redirectToLogin, SESSION_EXPIRED_MESSAGE } from '../../auth/session'
+import { filenameFrom, saveBlob } from '../../download/file'
 import { readPageMeta } from '../vessel-management/apiProvider'
 import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
@@ -172,6 +173,18 @@ export interface VoyageManagementProvider {
    * 되돌릴 수 없는 상태가 만들어진다.
    */
   importCsv(vesselId: string, file: File, options: { dryRun: boolean }): Promise<ImportResult>
+  /**
+   * 운항 기록 내보내기 (`API_SPEC §8.1` · `#890`).
+   *
+   * **파일로 저장하고 그 이름을 돌려준다.** 화면이 blob을 다루지 않게 하는 것은
+   * `features/reports/`의 `download`와 같은 규약이다 — 저장은 DOM 일이고, 화면이
+   * 알아야 하는 것은 「무엇이 저장됐는가」뿐이다.
+   *
+   * `format=json`도 파일로 내려보낸다. 서버는 그쪽에 `Content-Disposition`을 붙이지
+   * 않지만(화면·스크립트가 읽는 형태라는 것이 라우트 주석의 판단), **화면에서 고른
+   * 이상 사용자는 파일을 기대한다** — 이름은 `fallbackFilename`이 만든다.
+   */
+  exportData(vesselId: string, query: string, fallbackName: string): Promise<string>
 }
 
 interface ServerImportError {
@@ -212,6 +225,12 @@ function toImportResult(raw: ServerImportResult): ImportResult {
 export function createApiVoyageManagementProvider(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
   baseUrl: string = DEFAULT_API_BASE_URL,
+  /**
+   * 파일 저장 지점 (`#890`). 주입 가능한 이유는 **provider 검사에 DOM이 없기**
+   * 때문이다 — 이 저장소의 vitest 기본 환경은 node라 `document`가 없다
+   * (`features/reports/apiProvider.ts`와 같은 규약).
+   */
+  saveFile: (blob: Blob, filename: string) => void = saveBlob,
 ): VoyageManagementProvider {
   const parameters = createApiParametersProvider(fetchImpl, baseUrl)
 
@@ -399,6 +418,48 @@ export function createApiVoyageManagementProvider(
       const data = (body?.data ?? null) as ServerImportResult | null
       if (!data) throw new VoyageError('응답 형식이 올바르지 않습니다.')
       return toImportResult(data)
+    },
+
+    async exportData(vesselId, query, fallbackName) {
+      /*
+       * `call()`을 쓰지 않는다 — 그쪽은 본문을 JSON으로 파싱해 돌려주는데, 여기서
+       * 필요한 것은 **파일 그대로**이고 `Content-Disposition` 헤더도 읽어야 한다.
+       */
+      let response: Response
+      try {
+        response = await fetchImpl(`${baseUrl}/vessels/${vesselId}/export?${query}`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { Accept: 'text/csv, application/json' },
+        })
+      } catch (cause) {
+        throw new VoyageError('서버에 연결하지 못했습니다.', { cause })
+      }
+
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new VoyageError(SESSION_EXPIRED_MESSAGE)
+      }
+
+      if (!response.ok) {
+        /*
+         * 실패 응답은 **CSV가 아니라 오류 봉투**다(`§1.3.2`). 파일로 저장해 버리면
+         * 사용자가 「받았다」고 믿고 열어서야 오류 JSON을 본다 — 그래서 여기서 읽어
+         * 화면 문구로 올린다.
+         */
+        const body = (await response.json().catch(() => null)) as ServerError | null
+        const detail = body?.error?.details?.[0]
+        throw new VoyageError(
+          body?.error?.message ?? `내보내지 못했습니다 (HTTP ${response.status}).`,
+          { field: detail?.field },
+        )
+      }
+
+      const blob = await response.blob()
+      // 서버가 준 이름을 쓴다. 없을 때만 대체 이름을 만든다 (`features/reports/`와 같은 규칙).
+      const filename = filenameFrom(response.headers.get('Content-Disposition')) ?? fallbackName
+      saveFile(blob, filename)
+      return filename
     },
 
     async saveActuals(voyageId, draft) {

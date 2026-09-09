@@ -1,6 +1,7 @@
 import { csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
-import { filenameFrom, isReportable } from './reportRules'
+import { isReportable } from './reportRules'
+import { filenameFrom, saveBlob } from '../../download/file'
 import type {
   DownloadFormat,
   ReportTarget,
@@ -68,7 +69,7 @@ interface ServerVoyage {
 export function createApiReportsProvider(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
   baseUrl: string = DEFAULT_API_BASE_URL,
-  saveFile: (blob: Blob, filename: string) => void = defaultSaveFile,
+  saveFile: (blob: Blob, filename: string) => void = saveBlob,
 ): ReportsProvider {
   const call = async (path: string): Promise<Response> => {
     let response: Response
@@ -186,23 +187,4 @@ export function createApiReportsProvider(
   }
 }
 
-/**
- * blob을 파일로 저장한다.
- *
- * 주입 가능한 인자로 둔 이유는 **테스트에 DOM이 없기** 때문이다. 이 저장소의
- * vitest는 node 환경이라 `document`가 없고, provider를 검증하려면 이 부분을
- * 갈아 끼울 수 있어야 한다.
- *
- * `revokeObjectURL`을 반드시 부른다 — 부르지 않으면 blob이 탭이 닫힐 때까지
- * 메모리에 남고, 리포트를 여러 번 받는 화면에서 그대로 누적된다.
- */
-function defaultSaveFile(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
+
