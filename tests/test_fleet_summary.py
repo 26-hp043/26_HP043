@@ -14,8 +14,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -23,8 +24,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.calc.rating_engine import DVector, determine_rating
+from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import ValidationError
 from cii_platform.services import fleet_summary
+from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.fleet_summary import (
     REASON_ALREADY_AT_OR_BELOW,
     REASON_NO_DATA,
@@ -40,7 +43,7 @@ from cii_platform.services.fleet_summary import (
     evaluate_risk_reasons,
     get_fleet_summary,
 )
-from cii_platform.services.ytd_cii import YtdCiiOutput
+from cii_platform.services.ytd_cii import YtdCiiOutput, compute_ytd_cii
 
 YEAR = 2026
 HFO_CF = Decimal("3.114")
@@ -967,6 +970,113 @@ async def test_days_to_d_is_a_number_for_a_worsening_vessel(session):
     )
     assert vessel["days_to_d"] >= 0
     assert vessel["days_to_d_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_days_to_d_baseline_counts_the_in_progress_contribution(session):
+    """「D등급까지 n일」의 30일 전 기준선에도 **그 시점의 진행분**이 들어간다 (#864).
+
+    현재값에는 진행 중 항차의 연초부터 누적이 들어 있는데 기준선에 빠지면 그
+    전체가 30일 창의 증가분으로 계상되어 n일이 실제보다 몇 배 짧아진다. 서비스의
+    `days_to_d`가 **올바른 기준선으로 직접 계산한 값**과 같은지, 그리고 결함
+    기준선(진행분 누락)의 값과 실제로 갈리는지를 나란히 본다 — 둘 중 하나만 보면
+    「같은 잘못을 같이 하면 통과한다」에 걸린다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    vessel_id = await _insert_vessel(
+        session,
+        imo="9000864",
+        name="DAYS BASELINE",
+        # `chk_vessel_state_pair`(마이그레이션 026) — 둘은 함께 있거나 함께 없어야 한다.
+        underway_state="UNDER_WAY",
+        detail_status="SAILING",
+    )
+    # 시뮬레이션 시계(#368)가 진행분 연료를 내려면 소모율·유종 제원이 필요하다.
+    # foc 30t/일 × 14kn의 소비율은 D 진입 경계보다 나빠야 소비율이 양수가 된다.
+    await session.execute(
+        text(
+            "UPDATE vessel SET reference_speed_kn = 14, reference_daily_foc_ton = 30, "
+            "default_fuel_type = 'HFO' WHERE id = :id"
+        ),
+        {"id": UUID(vessel_id)},
+    )
+    # 확정 실적 — 등급을 D보다 좋은 밴드로 띄우되 attained가 경계 근처에 붙게 한다.
+    # 경계에서 멀면 외삽 일수가 연말을 넘어 `NOT_THIS_YEAR`(None)가 되어 버리니,
+    # 올바른 기준선의 n일이 연말 안에 들어오도록 확정 연료를 잡는다.
+    await _insert_voyage(
+        session, vessel_id, arrived=datetime(YEAR, 3, 20, tzinfo=UTC), distance=5000, fuel=300
+    )
+    # 진행 중 항차 — 창 시작보다 앞서 출항해 기준선 기여분이 실재하게 만든다.
+    # foc와 경과일이 attained를 D 진입 경계 너머로 밀면 `ALREADY_AT_OR_BELOW`가
+    # 되어 n일이 사라지므로, 확정 실적을 낮게 잡아 B 밴드에 둔다.
+    await session.execute(
+        text(
+            "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
+            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
+            " actual_departure_at, planned_arrival_at, created_from) "
+            "VALUES (:vid, 'IN_PROGRESS', 'INCLUDE_AS_PLAN', :yr, 'BUSAN', 'SINGAPORE', "
+            " 3000, 14, :departed, NULL, 'MANUAL')"
+        ),
+        {"vid": vessel_id, "yr": YEAR, "departed": datetime(YEAR, 7, 20, tzinfo=UTC)},
+    )
+
+    as_of = datetime(YEAR, 9, 1, tzinfo=UTC)
+    window_start = as_of - timedelta(days=30)
+    vessel_row = await vessel_repo.get_by_id(session, UUID(vessel_id))
+
+    in_progress_now = (
+        (await resolve_in_progress_state(session, vessel=vessel_row, as_of=as_of))
+        .for_year(YEAR)
+        .contribution
+    )
+    now = await compute_ytd_cii(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        as_of=as_of,
+        in_progress=in_progress_now,
+    )
+    in_progress_past = (
+        (await resolve_in_progress_state(session, vessel=vessel_row, as_of=window_start))
+        .for_year(YEAR)
+        .contribution
+    )
+    past_fixed = await compute_ytd_cii(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        as_of=window_start,
+        in_progress=in_progress_past,
+    )
+    past_buggy = await compute_ytd_cii(
+        session, vessel_id=vessel_id, regulation_year=YEAR, as_of=window_start
+    )
+
+    days_fixed = compute_days_to_target(
+        now, past=past_fixed, underway_state="UNDER_WAY", as_of=as_of
+    )
+    days_buggy = compute_days_to_target(
+        now, past=past_buggy, underway_state="UNDER_WAY", as_of=as_of
+    )
+
+    assert days_fixed.days is not None, (
+        f"올바른 기준선에서도 값을 못 냈다: fixed={days_fixed!r} buggy={days_buggy!r}"
+    )
+    # 결함 기준선의 증상은 둘 중 하나다 — 겉소비율이 경계 아래로 내려가 값이
+    # 소실되거나(NOT_WORSENING), 남는 증가분이 전부 진행분으로 계상되어 과대
+    # 짧은 n일이 나온다.
+    assert days_buggy.days is None or days_fixed.days > days_buggy.days, (
+        f"기준선의 진행분이 값을 바꾸지 못했다 — 재현 데이터가 결함을 덮는다: "
+        f"fixed={days_fixed!r} buggy={days_buggy!r}"
+    )
+
+    fleet = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of)
+    vessel = next(v for v in fleet["vessels"] if v["vessel_id"] == vessel_id)
+    assert vessel["days_to_d"] == days_fixed.days, (
+        f"서비스 days_to_d({vessel['days_to_d']!r})가 올바른 기준선 값({days_fixed.days!r})과 "
+        f"다르다 — 결함 기준선 결과는 {days_buggy!r} (#864)"
+    )
 
 
 def test_days_to_d_reasons_match_the_api_spec_table():

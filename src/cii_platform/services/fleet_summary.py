@@ -458,12 +458,27 @@ async def _derive_vessel(
     window_start = resolved - timedelta(days=RECENT_WINDOW_DAYS)
     past = None
     if window_start.year >= year:
+        # #864 — 기준선에도 **그 시점의 진행분**이 들어가야 한다. 현재값에는 진행
+        # 중 항차의 연초부터 누적이 들어 있으므로 기준선에 빠지면 그 전체가 30일
+        # 창의 증가분으로 계상되어 「D등급까지 n일」이 실제보다 몇 배 짧아진다.
+        try:
+            baseline_in_progress = (
+                (await resolve_in_progress_state(session, vessel=vessel, as_of=window_start))
+                .for_year(year)
+                .contribution
+            )
+        except AppError:
+            # 진행분을 못 재면 기준선을 확정분만으로 둔다 — n일이 과대 짧아질 수
+            # 있으나 선박 요약 전체를 무효로 하지는 않는다(#431의 창 미제외 경로와
+            # 같은 태도다).
+            baseline_in_progress = None
         try:
             past = await compute_ytd_cii(
                 session,
                 vessel_id=vessel.id,
                 regulation_year=year,
                 as_of=window_start,
+                in_progress=baseline_in_progress,
             )
         except AppError:
             # 최근 구간을 못 재면 「n일」만 사유로 비운다. 올해 누적값은 그대로 쓴다.
