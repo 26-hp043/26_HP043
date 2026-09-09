@@ -1,4 +1,9 @@
-import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString } from '../../display/format'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  formatDecimalString,
+  toDecimalInput,
+} from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type {
   DaysReason,
@@ -77,7 +82,7 @@ export function riskReasonText(reason: RiskReason): string {
  */
 export function daysToDText(days: number | null, reason: DaysReason | null): string {
   if (days !== null) {
-    const text = formatDecimalString(String(days), DISPLAY_DIGITS.days)
+    const text = formatDecimalString(toDecimalInput(days), DISPLAY_DIGITS.days)
     return `D등급까지 ${text}${DISPLAY_UNITS.day}`
   }
   switch (reason) {

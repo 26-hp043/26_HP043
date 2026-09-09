@@ -1,4 +1,4 @@
-import { formatGrouped } from '../../display/format'
+import { formatGrouped, toDecimalInput } from '../../display/format'
 import type { FuelUseDraft, Period, PeriodDraft } from './types'
 
 /**
@@ -168,10 +168,12 @@ export function hasErrors(errors: DraftErrors): boolean {
  *
  * ## 반올림은 한 번만 한다
  *
- * `toFixed(BRIDGE_DIGITS)`는 **자리를 맞추는 것이 아니라 지수 표기를 피하려는 것**이다
- * (`String(1e-7)`은 `"1e-7"`이 되어 포매터가 던진다). 실제 반올림은 `formatGrouped`가
- * 한 번 한다. 6자리에서 한 번 더 걸리는 경우는 소수 7번째 자리가 정확히 경계일 때뿐인데,
- * 이 화면의 입력 정밀도에서는 나오지 않는다.
+ * 숫자를 문자열로 옮기는 다리는 `display/format`의 `toDecimalInput`이 소유한다
+ * (`#872`). **자리를 맞추는 것이 아니라 지수 표기를 피하려는 것**이며(`String(1e-7)`은
+ * `"1e-7"`이 되어 포매터가 던진다), 실제 반올림은 `formatGrouped`가 한 번 한다.
+ * 종전에는 이 파일이 그 다리를 자체 구현하고 있었는데, 같은 규율이 다섯 화면에 더
+ * 필요해져 공용으로 올렸다 — **복사하면 한쪽만 고쳐진다**(`display/decimal.ts`가
+ * `#820`에서 옮겨진 것과 같은 이유).
  *
  * ## 없는 값은 포매터에 넣지 않는다
  *
@@ -179,12 +181,10 @@ export function hasErrors(errors: DraftErrors): boolean {
  * 한 곳만 빠뜨려도 그 필드가 비어 오는 응답에서만 터진다 — `#566`이 같은 이유로
  * `formatOrNull`을 한 곳에 모았다.
  */
-const BRIDGE_DIGITS = 6
-
 /** 값이 없을 때 쓰는 표시. 「0」과 구분된다 — 안 넣은 것과 0은 다르다. */
 export const NO_VALUE_TEXT = '—'
 
 export function quantityText(value: number | null | undefined, digits: number): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return NO_VALUE_TEXT
-  return formatGrouped(value.toFixed(BRIDGE_DIGITS), digits)
+  return formatGrouped(toDecimalInput(value), digits)
 }

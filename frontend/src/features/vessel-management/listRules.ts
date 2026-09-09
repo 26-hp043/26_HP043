@@ -4,6 +4,7 @@ import {
   formatCapacity,
   formatDecimalString,
   formatGrouped,
+  toDecimalInput,
 } from '../../display/format'
 import { capacityAxisOf, shipTypeLabel } from '../vessel-registration/shipTypes'
 import type { Vessel } from '../vessel-registration/types'
@@ -226,13 +227,13 @@ export function deleteConfirmMessage(vessel: Vessel): string {
  */
 export function referenceSpeedCell(vessel: Vessel): string | null {
   if (vessel.reference_speed_kn === null) return null
-  const value = formatDecimalString(String(vessel.reference_speed_kn), DISPLAY_DIGITS.speedKn)
+  const value = formatDecimalString(toDecimalInput(vessel.reference_speed_kn), DISPLAY_DIGITS.speedKn)
   return `${value} ${DISPLAY_UNITS.speed}`
 }
 
 export function dailyFuelCell(vessel: Vessel): string | null {
   if (vessel.reference_daily_foc_ton === null) return null
-  const value = formatGrouped(String(vessel.reference_daily_foc_ton), DISPLAY_DIGITS.fuelTon)
+  const value = formatGrouped(toDecimalInput(vessel.reference_daily_foc_ton), DISPLAY_DIGITS.fuelTon)
   return `${value} ${DISPLAY_UNITS.fuel}`
 }
 

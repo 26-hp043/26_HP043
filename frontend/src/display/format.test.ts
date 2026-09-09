@@ -7,6 +7,7 @@ import {
   formatDecimalString,
   formatGrouped,
   formatPercent,
+  toDecimalInput,
 } from './format'
 
 describe('formatDecimalString', () => {
@@ -225,5 +226,45 @@ describe('DISPLAY_UNITS', () => {
 
   it('CII 단위는 여기 없다 — 선종 capacity 축에서 파생된다 (§4.1)', () => {
     expect(DISPLAY_UNITS).not.toHaveProperty('cii')
+  })
+})
+
+
+describe('toDecimalInput (#872)', () => {
+  it('지수 표기가 되는 극소값을 십진 문자열로 옮긴다', () => {
+    // `String(5e-7)`은 `"5e-7"`이고, 그 문자열이 포매터에 들어가면 던진다.
+    expect(String(5e-7)).toBe('5e-7')
+    expect(toDecimalInput(5e-7)).toBe('0.000000')
+  })
+
+  it('포매터가 그 결과를 받는다 — 화면이 죽지 않는다', () => {
+    // 이 조합이 실시간 CII 화면을 통째로 죽였다. 계획 거리가 큰 항차의 출항 직후
+    // 진행률이 이 범위에 들어간다.
+    expect(() => formatPercent(String(5e-7))).toThrow(TypeError)
+    expect(formatPercent(toDecimalInput(5e-7))).toBe('0.0')
+  })
+
+  it('평범한 값은 그대로 통과한다 — 표시값이 바뀌지 않는다', () => {
+    expect(formatPercent(toDecimalInput(0.5))).toBe(formatPercent('0.5'))
+    expect(formatGrouped(toDecimalInput(1234.5), 2)).toBe(formatGrouped('1234.5', 2))
+    expect(formatDecimalString(toDecimalInput(12.75), 1)).toBe(formatDecimalString('12.75', 1))
+  })
+
+  it('반올림은 포매터가 한 번만 한다 — 6자리는 그보다 넉넉하다', () => {
+    // 다리에서 자르는 자리가 표시 자릿수보다 깊어야 이중 반올림이 생기지 않는다.
+    expect(toDecimalInput(0.9999999)).toBe('1.000000')
+    expect(formatDecimalString(toDecimalInput(4.9825), 3)).toBe('4.983')
+  })
+
+  it('유한하지 않으면 던진다 — 조용히 「없음」으로 바꾸지 않는다', () => {
+    // 포매터의 기존 규율과 같다 (`#823` 판정: 조용한 폴백은 틀린 값을 숨긴다).
+    expect(() => toDecimalInput(Number.NaN)).toThrow(TypeError)
+    expect(() => toDecimalInput(Number.POSITIVE_INFINITY)).toThrow(TypeError)
+  })
+
+  it('1e21 이상은 여전히 포매터가 던진다 — 그 경계는 입력 하한·상한 문제다', () => {
+    // `toFixed`도 그 위에서는 지수 표기를 낸다. `#860`이 서버에서 막는다.
+    expect(toDecimalInput(1e21)).toBe('1e+21')
+    expect(() => formatGrouped(toDecimalInput(1e21), 2)).toThrow(TypeError)
   })
 })
