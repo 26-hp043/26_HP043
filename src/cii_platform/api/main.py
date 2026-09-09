@@ -16,8 +16,8 @@ from fastapi import FastAPI
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.middleware import RequestContextMiddleware
 from cii_platform.api.rate_limit import (
-    DEFAULT_RATE_LIMIT,
     RateLimiter,
+    RateLimits,
     rate_limit_middleware,
 )
 from cii_platform.api.routes.annual_simulations import router as annual_simulations_router
@@ -126,7 +126,10 @@ app = FastAPI(
 # - auth가 가장 안쪽: 세션을 검증하고 request.state에 사용자·세션을 주입한다.
 #   공개 경로(health · auth/*)는 통과한다 (auth/dependencies.py PUBLIC_PATHS).
 app.middleware("http")(auth_middleware)
-app.state.rate_limiter = RateLimiter(DEFAULT_RATE_LIMIT)
+# 버킷별 한도 — 인증 10 / 계산 60 / 그 밖 300 (API_SPEC §13.2 · #811).
+# 종전에는 단일 한도 300 하나였다: 로그인 무차별 대입에 300회/분은 방어가 아니고,
+# 계산 경로에는 정본이 규정한 60이 적용되지 않았다.
+app.state.rate_limiter = RateLimiter(RateLimits.from_env())
 app.middleware("http")(rate_limit_middleware)
 app.add_middleware(RequestContextMiddleware)
 
