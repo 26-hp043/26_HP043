@@ -560,3 +560,19 @@
   outline: none;
   box-shadow: var(--focus-ring);
 }
+
+/*
+ * 로그아웃이 **서버에서** 실패했음을 알리는 문구 (`#825` ⑵).
+ *
+ * 버튼 옆에 붙는다 — 버튼을 대신하면 다시 누를 수 없고, 그것이 `#825` ⑸에서
+ * 고친 것과 같은 종류의 실수다.
+ *
+ * 색은 `--color-danger-text`다 — `--semantic-danger`는 라이트에서 문자 대비가
+ * 4.13:1이라 `DESIGN_SYSTEM §0.2` 제약 1(≥4.5:1)을 못 넘는다.
+ */
+.app-shell__logout-failure {
+  margin-left: var(--space-8);
+  color: var(--color-danger-text);
+  font-size: var(--font-size-micro);
+  word-break: keep-all;
+}

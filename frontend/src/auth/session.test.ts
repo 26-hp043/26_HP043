@@ -13,6 +13,7 @@ import {
   updateDisplayName,
 } from './session'
 import { safeNext } from '../features/auth/authRules'
+import { STORAGE_KEY } from '../layout/globalContext'
 
 /**
  * 인증 세션 클라이언트 검증 (#278).
@@ -166,14 +167,70 @@ describe('logout', () => {
     expect(getCachedUser()).toBeNull()
   })
 
-  it('서버 호출 실패로 로그아웃이 막히지 않는다 — 상태는 초기화', async () => {
+  it('서버 호출이 실패해도 이 기기의 상태는 초기화한다', async () => {
+    /*
+     * ⚠️ **이 검사의 전제가 `#825` ⑵에서 바뀌었다.**
+     *
+     * 종전 이름은 「서버 호출 실패로 로그아웃이 **막히지 않는다**」였고, 실패해도
+     * 로그인 화면으로 이동하는 것을 옳다고 봤다 — 근거는 *「로그아웃 버튼에 갇히는
+     * 것이 최악의 경험이다」*였다.
+     *
+     * 그런데 그 동작은 **서버 세션이 살아 있는데 로그아웃된 것처럼 보이게** 한다.
+     * `sid`가 유효하고 `user_session.revoked_at`도 `NULL`이라, 백엔드가 돌아온 뒤
+     * 다시 들어가면 **재로그인 없이 진입**된다 — 공용 PC에서 문제가 된다.
+     *
+     * 지금은 **이 기기의 상태는 지우되(캐시·전역 컨텍스트) 이동하지 않고 던진다.**
+     * 화면(`AppShell`)이 그 문구를 띄우고 버튼은 그대로 남아 다시 누를 수 있다 —
+     * 「갇힌다」가 아니다. 그 자리가 이 검사가 지키는 것이다.
+     */
     await probeCurrentUser(async () => ME_OK)
-    await logout(
-      async () => {
+
+    await expect(
+      logout(async () => {
         throw new TypeError('Failed to fetch')
-      },
-    )
+      }),
+    ).rejects.toThrow(/연결하지 못했습니다/)
+
+    // 이 기기에 남길 이유가 없는 것은 지운다.
     expect(getCachedUser()).toBeNull()
+  })
+
+  it('HTTP 실패도 잡는다 — fetch는 네트워크 실패에서만 reject한다 (#825 ⑵)', async () => {
+    /*
+     * 종전 구현은 `try/catch`만 있어 **403(CSRF 불일치)·500을 성공으로 취급**했다.
+     * `fetch`가 reject하지 않기 때문이다 — 이것이 결함의 정확한 기전이다.
+     */
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      logout(
+        (async () =>
+          jsonResponse({ error: { message: 'CSRF 토큰이 누락되었습니다.' } }, 403)) as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow('CSRF 토큰이 누락되었습니다.')
+  })
+
+  it('성공하면 전역 컨텍스트 저장값도 지운다 (#825 ⑶)', async () => {
+    /*
+     * `sessionStorage`는 「탭 수명」이지 「로그인 세션 수명」이 아니고, 로그아웃은
+     * **같은 탭 안에서** 이동한다. 지우지 않으면 다음 계정이 앞 계정의 선박 선택을
+     * 물려받아, 쿼리로 선박을 싣는 화면에서 **없는 UUID로 404/403**이 난다.
+     */
+    // 이 파일은 노드 환경이라 `sessionStorage`가 없다 — 최소 구현을 끼운다.
+    const store = new Map<string, string>([
+      [STORAGE_KEY, JSON.stringify({ vesselId: 'a-vessel', voyageId: null })],
+    ])
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    })
+    await probeCurrentUser(async () => ME_OK)
+
+    await logout((async () => jsonResponse({}, 204)) as unknown as typeof fetch)
+
+    expect(store.has(STORAGE_KEY)).toBe(false)
+    vi.unstubAllGlobals()
   })
 })
 
@@ -395,5 +452,55 @@ describe('비밀번호 변경의 401을 사유별로 가른다 (#878)', () => {
 
     expect(message).toContain('비밀번호를 변경했습니다')
     expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+describe('비밀번호 변경 후 캐시를 비운다 (#825 ⑷)', () => {
+  it('성공하면 `getCachedUser()`가 null이다', async () => {
+    /*
+     * 종전에는 캐시를 남겼다. 근거는 *「라우트 가드가 즉시 밀어내면 안내를 볼 틈이
+     * 없다」*였는데, 그 결과 **화면이 주는 「로그인 화면으로」 버튼이 로그인 화면에
+     * 도달하지 못했다.**
+     *
+     * ```
+     * /login → 살아 있는 캐시 → LoginPage가 <Navigate to={next}> → /dashboard
+     *        → 가드 통과 → GET /fleet/summary 401 → redirectToLogin()
+     *        → 전체 페이지 재로드 → 그제서야 로그인 폼
+     * ```
+     *
+     * `confirmPasswordReset`이 이미 같은 처리를 한다 — **대칭이 깨져 있었다.**
+     */
+    await probeCurrentUser(async () => ME_OK)
+    expect(getCachedUser()).not.toBeNull()
+
+    const message = await changePassword(
+      '현재비밀번호1!',
+      '새비밀번호2@',
+      (async () =>
+        jsonResponse({ data: { message: '비밀번호를 변경했습니다.' } })) as unknown as typeof fetch,
+    )
+
+    expect(message).toContain('비밀번호를 변경했습니다')
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('실패하면 캐시를 건드리지 않는다 — 비밀번호를 잘못 친 것만으로 로그아웃되지 않는다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    const fetchImpl = vi.fn(async (url: unknown) =>
+      String(url).includes('/auth/me')
+        ? ME_OK
+        : jsonResponse(
+            { error: { code: 'UNAUTHORIZED', message: '현재 비밀번호가 올바르지 않습니다.' } },
+            401,
+          ),
+    ) as unknown as typeof fetch
+
+    await expect(
+      changePassword('틀린비밀번호1!', '새비밀번호2@', fetchImpl),
+    ).rejects.toThrow('현재 비밀번호가 올바르지 않습니다.')
+
+    expect(getCachedUser()).not.toBeNull()
   })
 })

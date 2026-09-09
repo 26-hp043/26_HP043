@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { clearStored } from '../layout/globalContext'
 
 /**
  * 인증 세션 클라이언트 — `UIFLOW.md` §0 (#278).
@@ -73,6 +74,8 @@ type Listener = () => void
 const listeners = new Set<Listener>()
 let currentUser: CurrentUser | null = null
 let probing: Promise<CurrentUser | null> | null = null
+//: 세션을 한 번이라도 확인했는가 (`#825` ⑴). `isAuthResolved()` 주석 참조.
+let authResolved = false
 
 function notify(): void {
   for (const listener of listeners) listener()
@@ -85,9 +88,31 @@ function subscribeAuth(listener: Listener): () => void {
   return () => listeners.delete(listener)
 }
 
-/** 현재 캐시된 사용자. 없으면 `null` — 아직 확인 전과 비인증을 구분하지 않는다. */
+/** 현재 캐시된 사용자. 없으면 `null`. */
 export function getCachedUser(): CurrentUser | null {
   return currentUser
+}
+
+/**
+ * 세션을 **한 번이라도 확인했는가** (`#825` ⑴).
+ *
+ * ## 왜 필요한가
+ *
+ * `currentUser`가 `null`인 데는 두 이유가 있다 — **아직 안 물어봤다**와 **비인증이다**.
+ * 종전에는 둘을 구분하지 않아 `RequireAuth`가 **첫 렌더에서 무조건 로그인으로**
+ * 보냈다. 프로브는 `useEffect`라 커밋 **이후**에 돌기 때문이다.
+ *
+ * 그래서 로그인 상태로 새로고침할 때마다 주소가 `/login?next=…`로 바뀌며 **로그인
+ * 카드가 그려졌다가 되돌아왔다.** `RequireAuth`의 주석은 *「확인 중에는 자식을
+ * 렌더하지 않되 레이아웃을 유지한다 — 깜빡임으로 로그인 화면을 잠깐 보여주는 것보다
+ * 낫다」*를 이미 규정하고 있었다 — **문서화된 동작이 구현되지 않은 상태**였다.
+ *
+ * 실패(401·네트워크 모두)도 「확인됨」이다. fail-closed는 그대로다 — 확인 결과가
+ * 「비인증」일 뿐이고, 그 판정을 **내렸다는 사실**이 여기 기록된다.
+ */
+// 이 파일 안에서만 쓴다 — 화면은 `useAuthResolved()`를 쓴다 (#594).
+function isAuthResolved(): boolean {
+  return authResolved
 }
 
 /**
@@ -125,7 +150,11 @@ export async function probeCurrentUser(
       notify()
       return null
     } finally {
+      // 성공·실패 모두 **확인은 끝났다** (`#825` ⑴). `notify()`보다 먼저 세워야
+      // 구독자가 깨어난 시점에 이미 확정된 값을 본다.
+      authResolved = true
       probing = null
+      notify()
     }
   })()
   return probing
@@ -352,17 +381,58 @@ export function redirectToLogin(next?: string): void {
 export async function logout(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<void> {
+  /*
+   * **HTTP 상태를 본다** (`#825` ⑵).
+   *
+   * `fetch`는 **네트워크 실패에서만 reject**한다. 종전에는 `try/catch`만 있어
+   * **403(CSRF 불일치)·500에도 로그아웃한 척**했다 — 화면은 로그인으로 가는데
+   * `sid`는 살아 있고 `user_session.revoked_at`도 `NULL`이라, 백엔드가 돌아온 뒤
+   * `/dashboard`로 들어가면 **재로그인 없이 진입**된다. 공용 PC에서 문제가 된다.
+   *
+   * **같은 파일이 정답을 갖고 있었다** — `postJson`이 `if (!response.ok) throw`를 한다.
+   */
+  let failure: string | null = null
   try {
-    await fetchImpl(LOGOUT_API_URL, {
+    const response = await fetchImpl(LOGOUT_API_URL, {
       method: 'POST',
       credentials: 'include',
       headers: { ...csrfHeaders() },
     })
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: { message?: string }
+      } | null
+      failure = body?.error?.message ?? `로그아웃하지 못했습니다 (HTTP ${response.status}).`
+    }
   } catch {
-    // 의도된 무시 — 위 주석 참조.
+    failure = '서버에 연결하지 못했습니다.'
   }
+
+  /*
+   * ⑶ 전역 컨텍스트를 지운다.
+   *
+   * `sessionStorage`는 「탭 수명」이지 「로그인 세션 수명」이 아니고, 아래 이동은
+   * **같은 탭 안에서** 일어난다. 지우지 않으면 다음 계정이 **앞 계정의 선박 선택**을
+   * 물려받는다(`globalContext.clearStored` 주석 참조).
+   *
+   * **실패했더라도 지운다** — 이 기기의 화면 상태를 남길 이유는 없다.
+   */
+  clearStored()
   currentUser = null
+  authResolved = true
   notify()
+
+  /*
+   * 실패했으면 **알리고 멈춘다.** 종전처럼 이동하면 사용자는 로그아웃됐다고 믿는데
+   * 서버 세션이 살아 있다 — 그것이 이 결함의 핵심이다.
+   *
+   * 던지는 이유는 `AuthRequestError`가 이미 「화면이 그대로 보여 줄 문구」를 담는
+   * 계약이기 때문이다. 호출부가 그것을 띄운다.
+   */
+  if (failure !== null) {
+    throw new AuthRequestError(failure, 0)
+  }
+
   if (typeof window !== 'undefined') {
     window.location.assign(LOGIN_PATH)
   }
@@ -499,6 +569,35 @@ export async function changePassword(
     throw new AuthRequestError(body?.error?.message ?? '비밀번호를 바꾸지 못했습니다.', response.status)
   }
 
+  /*
+   * ⑷ 캐시를 비운다 (`#825`).
+   *
+   * ## 종전 주석의 판단은 옳았지만 결과가 반대였다
+   *
+   * 위 「캐시를 비우지 않는다」는 *「라우트 가드가 즉시 로그인 화면으로 밀어내면
+   * 안내를 볼 틈이 없다」*를 근거로 삼았다. 그 걱정 자체는 맞다 — 그런데 **화면이
+   * 그 뒤에 주는 「로그인 화면으로」 버튼이 실제로는 로그인 화면에 가지 못했다.**
+   *
+   * ```
+   * /login → useAuthUser()가 살아 있는 캐시 반환 → LoginPage가 <Navigate to={next}>
+   *        → /dashboard → RequireAuth 통과 → GET /fleet/summary 401
+   *        → redirectToLogin() → 전체 페이지 재로드 → 그제서야 로그인 폼
+   * ```
+   *
+   * **버튼이 가리키는 곳에 갈 수 없고**, 없애려던 「왜 튕겼지」가 그대로 재현된다.
+   *
+   * ## 그러면 안내는 어떻게 보이나
+   *
+   * `AccountPanel`은 성공 문구를 **자기 상태에 담아** 그린다. 라우트 가드가 무엇을
+   * 하든 그 문구는 이미 화면에 있고, 사용자가 「로그인 화면으로」를 누르면 이번에는
+   * **정말로** 로그인 폼이 나온다.
+   *
+   * `confirmPasswordReset`이 이미 같은 처리를 한다 — **대칭이 깨져 있던 것**을 맞춘다.
+   */
+  currentUser = null
+  authResolved = true
+  notify()
+
   return body?.data?.message ?? '비밀번호를 변경했습니다.'
 }
 
@@ -569,4 +668,15 @@ export async function deleteAccount(
 /** 현재 사용자를 구독한다 — 가드·상단바가 함께 쓴다. */
 export function useAuthUser(): CurrentUser | null {
   return useSyncExternalStore(subscribeAuth, getCachedUser, getCachedUser)
+}
+
+/**
+ * 세션 확인이 끝났는지 구독한다 (`#825` ⑴).
+ *
+ * `useAuthUser`와 **같은 구독**을 쓴다 — 확인이 끝나는 순간 `notify()`가 돌므로
+ * 두 훅이 같은 프레임에서 함께 갱신된다. 별도 구독을 두면 둘이 한 프레임 어긋나
+ * 「확인은 끝났는데 사용자는 아직 `null`」인 순간이 생긴다.
+ */
+export function useAuthResolved(): boolean {
+  return useSyncExternalStore(subscribeAuth, isAuthResolved, isAuthResolved)
 }

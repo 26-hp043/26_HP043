@@ -271,6 +271,29 @@ export function saveStored(
   }
 }
 
+/**
+ * 저장된 선택을 지운다 (`#825` ⑶).
+ *
+ * ## 왜 로그아웃이 이것을 불러야 하는가
+ *
+ * 위 설계 근거가 *「로그아웃 뒤 다른 계정으로 들어왔을 때 남의 선택이 남아 있으면
+ * 안 된다」*를 적어 두었는데, **그 이유가 성립하지 않고 있었다.**
+ *
+ * `sessionStorage`는 「탭 수명」이지 「로그인 세션 수명」이 아니다. 그리고 `logout()`은
+ * `window.location.assign(LOGIN_PATH)`로 **같은 탭 안에서** 이동하므로 저장값이 그대로
+ * 남는다. A로 로그인해 배를 고르고 로그아웃한 뒤 같은 탭에서 B로 로그인하면
+ * **A의 `vesselId`가 복원**되고, 쿼리로 선박을 싣는 화면에서 B에게 없는 UUID로
+ * 404/403이 난다.
+ */
+export function clearStored(storage: Storage | undefined = safeSessionStorage()): void {
+  if (!storage) return
+  try {
+    storage.removeItem(STORAGE_KEY)
+  } catch {
+    /* 지우기 실패도 무시한다 — 저장과 같은 이유. */
+  }
+}
+
 /** SSR·테스트 환경에 `sessionStorage`가 없을 수 있다. */
 function safeSessionStorage(): Storage | undefined {
   try {

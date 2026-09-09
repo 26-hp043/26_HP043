@@ -255,3 +255,18 @@
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-badge);
 }
+
+/*
+ * 재발송 실패 문구 (`#825` ⑸).
+ *
+ * `margin-left: auto`를 주지 않는다 — 그 자리는 버튼이 차지하고, 실패 문구는
+ * **버튼 옆에** 붙어야 한다. 버튼을 밀어내면 「다시 시도해 주세요」라면서 수단을
+ * 없앤 종전 상태로 돌아간다.
+ *
+ * 색은 `--color-danger-text`다 — `--semantic-danger`는 라이트에서 문자 대비가
+ * 4.13:1이라 `DESIGN_SYSTEM §0.2` 제약 1(≥4.5:1)을 못 넘는다.
+ */
+.verify-banner__failure {
+  color: var(--color-danger-text);
+  font-size: var(--font-size-micro);
+}
