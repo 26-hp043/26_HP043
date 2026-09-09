@@ -197,7 +197,19 @@ export function VesselDetail({
           </span>
         </div>
 
-        {current?.dataAvailable && current.rating ? (
+        {/*
+          게이트는 `dataAvailable` 하나다 (#876).
+
+          종전에는 `current.rating`도 함께 봤다. 그런데 **등급 null은 비정상이 아니다**
+          — `API_SPEC §2.7`이 `rating: string | null`로 규정하고, `#834`(RO_RO
+          여객선 고속선의 등급 경계 누락)가 그 조건을 실재시킨다. 등급 하나가 비었다고
+          **서버가 준 실적·기준·항차 수를 전부 버리고** 「올해 등록된 항차 실적이
+          없습니다」를 내면, 실적이 있는데 없다고 말하는 것이 된다.
+
+          아래 칸들은 이미 각자 null을 `—`로 처리한다 — 바깥 게이트가 그 처리를
+          무효화하고 있었다. `GradeBadge`도 null을 「없음」 변형으로 그린다.
+        */}
+        {current?.dataAvailable ? (
           <div className="ytd">
             {/*
               등급에도 라벨을 붙인다 (#723). 옆 세 칸은 「실적」·「기준」·「항차」라는
@@ -208,7 +220,9 @@ export function VesselDetail({
               <p className="ytd__grade-label">등급</p>
               <GradeBadge
                 rating={current.rating}
-                label={`올해 누적 등급 ${current.rating}`}
+                label={
+                  current.rating ? `올해 누적 등급 ${current.rating}` : '올해 누적 등급 없음'
+                }
               />
             </div>
             <dl className="ytd__figures">
