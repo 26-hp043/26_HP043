@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { formatCapacity } from '../../display/format'
 import { applicabilityHint, numberOrMissing } from './resultRules'
 import type { Vessel } from './types'
 
@@ -68,5 +69,36 @@ describe('numberOrMissing', () => {
 
   it('천 단위를 구분해 읽기 쉽게 만든다', () => {
     expect(numberOrMissing(50000)).toBe('50,000')
+  })
+})
+
+/*
+ * 용량 자릿수가 다른 화면과 같다 (#822).
+ *
+ * 종전 `numberOrMissing`은 `value.toLocaleString('ko-KR')`이라 **소수를 그대로 살렸다.**
+ * 시드의 `6405.77`이 이 화면에서는 `6,405.77`, 선박 관리·상세에서는 `6,406`이었다.
+ *
+ * `DESIGN_SYSTEM §4.2`가 그 결함을 이름으로 지목하고 있다 —
+ * *"용량에 자릿수 규정이 없어 같은 값이 화면마다 달랐다 (#633)"*.
+ * **`#633`의 수정 대상에서 이 화면이 빠져 있었다.**
+ */
+describe('numberOrMissing — 용량 자릿수 (#822)', () => {
+  it('소수를 살리지 않는다 — `DISPLAY_DIGITS.capacity`는 0자리다', () => {
+    // 시드의 실제 DWT 값이다 (`demo_seed.py`).
+    expect(numberOrMissing(6405.77)).toBe('6,406')
+  })
+
+  it('다른 화면의 포매터와 같은 답을 낸다', () => {
+    // 같은 값을 두 경로로 그리면 반드시 같아야 한다 — 그것이 이 결함의 본질이다.
+    expect(numberOrMissing(6405.77)).toBe(formatCapacity('6405.77'))
+    expect(numberOrMissing(50000)).toBe(formatCapacity('50000'))
+  })
+
+  it('천단위 구분자를 유지한다 — `GROUPED_FIELDS`', () => {
+    expect(numberOrMissing(1234567)).toBe('1,234,567')
+  })
+
+  it('`0`은 「미입력」이 아니다', () => {
+    expect(numberOrMissing(0)).toBe('0')
   })
 })

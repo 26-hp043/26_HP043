@@ -9,6 +9,7 @@ import {
   INLINE_LABEL_MIN_PERCENT,
   showsInlineLabel,
   toPercent,
+  toSignedPercent,
 } from './annualRules'
 import type { MonteCarloBlock } from './types'
 
@@ -215,5 +216,94 @@ describe('스택 바 구간 안 문자 — DESIGN_SYSTEM §10.2', () => {
     expect(stackSegments({ A: '0.1235', B: '0', C: '0', D: '0', E: '0' })[0].label).toBe(
       toPercent('0.1235'),
     )
+  })
+})
+
+/*
+ * 「달성 확률 변화」가 백분율로 나간다 (#822).
+ *
+ * 종전에는 서버 값(`+0.12`)을 그대로 그렸다. 같은 화면 위쪽 지표가 `30.0%`라
+ * 사용자는 **0.12%p로 읽지만 실제는 12%p** — 100배 오독이다.
+ */
+describe('sensitivityRows의 「달성 확률 변화」 (#822)', () => {
+  /*
+   * 종전에는 컴포넌트 안 삼항 연산자가 **서버 원값을 그대로** 그렸다 — 검사가 닿지
+   * 않는 자리였다. 표시 결정을 이 함수로 옮겨 DOM 없이 고정한다.
+   */
+  it('백분율로 환산해 부호를 유지한다', () => {
+    const rows = sensitivityRows({
+      interaction_note: 'n',
+      speed_minus_1kn: {
+        projected_cii: '4.85',
+        rating_change: 'C→B',
+        target_probability_change: '+0.12',
+      },
+    })
+
+    expect(rows[0].probabilityChange).toBe('+12.0%')
+    // 서버 원값이 화면으로 새지 않는다 — 그것이 100배 오독의 원인이었다.
+    expect(rows[0].probabilityChange).not.toBe('+0.12')
+  })
+
+  it('악화 방향의 부호를 잃지 않는다', () => {
+    const rows = sensitivityRows({
+      interaction_note: 'n',
+      speed_plus_1kn: {
+        projected_cii: '5.20',
+        rating_change: 'B→C',
+        target_probability_change: '-0.08',
+      },
+    })
+
+    expect(rows[0].probabilityChange).toBe('-8.0%')
+  })
+
+  it('확률을 함께 내지 않는 지렛대는 「—」다', () => {
+    // `API_SPEC §6.1` — 확률 변화는 일부 지렛대만 낸다. 나머지는 등급 변화만 보인다.
+    const rows = sensitivityRows({
+      interaction_note: 'n',
+      distance_minus_5pct: { projected_cii: '4.90', rating_change: 'C→C' },
+    })
+
+    expect(rows[0].probabilityChange).toBe('—')
+  })
+
+  it('변화가 0이면 「—」가 아니다 — 0은 값이다', () => {
+    const rows = sensitivityRows({
+      interaction_note: 'n',
+      fuel_minus_10pct: {
+        projected_cii: '4.90',
+        rating_change: 'C→C',
+        target_probability_change: '+0.0000',
+      },
+    })
+
+    expect(rows[0].probabilityChange).toBe('+0.0%')
+  })
+})
+
+describe('toSignedPercent (#822)', () => {
+  it('양수에 `+`를 유지한다 — 개선과 악화가 구분돼야 한다', () => {
+    // `formatPercent`는 앞의 `+`를 떼어 버린다. 그래서 별도 함수가 필요하다.
+    expect(formatPercent('+0.12')).toBe('12.0')
+    expect(toSignedPercent('+0.12')).toBe('+12.0%')
+  })
+
+  it('음수 부호를 잃지 않는다', () => {
+    expect(toSignedPercent('-0.08')).toBe('-8.0%')
+  })
+
+  it('0은 `+0.0%`다 — 서버의 `_signed`가 0에 `+`를 붙인다', () => {
+    expect(toSignedPercent('+0.0000')).toBe('+0.0%')
+  })
+
+  it('반올림이 `formatPercent`와 같다 — ROUND_HALF_UP', () => {
+    // `toFixed`였다면 `12.3%`. 정본은 `ROUND_HALF_UP`이라 `12.4%`다.
+    expect(toSignedPercent('+0.1235')).toBe(`+${formatPercent('0.1235')}%`)
+    expect(toSignedPercent('+0.1235')).toBe('+12.4%')
+  })
+
+  it('앞뒤 공백을 견딘다', () => {
+    expect(toSignedPercent(' +0.12 ')).toBe('+12.0%')
   })
 })

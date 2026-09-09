@@ -539,7 +539,16 @@ function ScenarioCard({
       */}
       <dl className="scenario-card__rows">
         <Row label="항해거리" value={formatGrouped(String(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)} unit={DISPLAY_UNITS.distance} delta={delta?.distanceNm} deltaDigits={DISPLAY_DIGITS.distanceNm} />
-        <Row label="평균 속력" value={String(scenario.speed_kn)} unit={DISPLAY_UNITS.speed} />
+        {/*
+          `#822` — 종전에는 `String(...)` 그대로였다. 이 `<dl>`의 나머지 5행은 전부
+          포매터를 거치는데 이 한 행만 빠져 있었다. `12.8`은 우연히 1자리라 눈에
+          띄지 않지만 `12`나 `12.75`가 오면 같은 표 안에서 자릿수가 갈린다.
+        */}
+        <Row
+          label="평균 속력"
+          value={formatDecimalString(String(scenario.speed_kn), DISPLAY_DIGITS.speedKn)}
+          unit={DISPLAY_UNITS.speed}
+        />
         <Row label="예상 소요시간" value={formatDecimalString(scenario.duration_hours, DISPLAY_DIGITS.durationHours)} unit={DISPLAY_UNITS.duration} delta={delta?.durationHours} deltaDigits={DISPLAY_DIGITS.durationHours} />
         <Row label="예상 연료" value={formatGrouped(scenario.fuel_ton, DISPLAY_DIGITS.fuelTon)} unit={DISPLAY_UNITS.fuel} delta={delta?.fuelTon} deltaDigits={DISPLAY_DIGITS.fuelTon} />
         <Row label="CO₂ 배출량" value={formatGrouped(scenario.co2_emission_ton, DISPLAY_DIGITS.co2Ton)} unit={DISPLAY_UNITS.co2} delta={delta?.co2Ton} deltaDigits={DISPLAY_DIGITS.co2Ton} />

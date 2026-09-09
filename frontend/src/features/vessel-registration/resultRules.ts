@@ -1,4 +1,5 @@
 import { applicabilityState } from '../../components/applicability'
+import { formatCapacity } from '../../display/format'
 import type { Vessel } from './types'
 
 /**
@@ -40,12 +41,27 @@ export function applicabilityHint(vessel: Vessel): string {
 }
 
 /**
- * 제원 값의 표시. 없으면 **「미입력」으로 적는다.**
+ * 용량(DWT·GT) 표시. 없으면 **「미입력」으로 적는다.**
  *
  * 빈 칸으로 두면 「입력했는데 안 보인다」와 구분되지 않는다 — `#449`가 경고를 값으로
  * 만든 것과 같은 원칙이다. 없다는 사실도 정보다.
+ *
+ * ## 자릿수는 `formatCapacity`가 정한다 (#822)
+ *
+ * 종전에는 `value.toLocaleString('ko-KR')`이었다. 그것은 **소수를 그대로 살려**
+ * 시드의 `6405.77`을 `6,405.77`로 냈는데, 같은 값이 선박 관리·상세에서는
+ * `formatCapacity`를 거쳐 `6,406`이었다 — **같은 값이 화면마다 달랐다.**
+ *
+ * `DESIGN_SYSTEM §4.2`가 그 결함을 이름으로 지목하고 있다: *"용량에 자릿수 규정이
+ * 없어 같은 값이 화면마다 달랐다 (#633)"*. **`#633`의 수정 대상에서 이 화면이
+ * 빠져 있었다.**
  */
 export function numberOrMissing(value: number | null): string {
   if (value === null) return '미입력'
-  return value.toLocaleString('ko-KR')
+  // `formatCapacity`는 십진 문자열을 받는다 — `number`를 넘기면 안전 정수 범위
+  // 밖에서 값이 뭉개진다(`format.ts` 참조).
+  //
+  // `null` 갈래는 위에서 이미 걸렀다. `formatCapacity`의 반환 타입이
+  // `string | null`인 것은 자기 인자가 `null`일 수 있어서다.
+  return formatCapacity(String(value)) ?? '미입력'
 }
