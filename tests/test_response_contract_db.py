@@ -517,6 +517,212 @@ CONTRACTS: dict[str, frozenset[str]] = {
         }
     ),
     # `API_SPEC §4.1`
+    # `API_SPEC §5.1` — 기능② 시나리오 비교 (#753). 계산 봉투 7필드를 함께 본다.
+    "POST /scenarios/compare": frozenset(
+        {
+            "calculation_run_id",
+            "data",
+            "data.scenarios",
+            "data.scenarios[].attained_cii",
+            "data.scenarios[].calculation_basis",
+            "data.scenarios[].calculation_basis.a_decimal",
+            "data.scenarios[].calculation_basis.c",
+            "data.scenarios[].calculation_basis.reference_capacity",
+            "data.scenarios[].calculation_basis.reference_capacity_rule",
+            "data.scenarios[].calculation_basis.ship_type",
+            "data.scenarios[].calculation_basis.transport_capacity",
+            "data.scenarios[].calculation_basis.transport_capacity_basis",
+            "data.scenarios[].calculation_basis.z_factor_percent",
+            "data.scenarios[].co2_emission_ton",
+            "data.scenarios[].distance_nm",
+            "data.scenarios[].duration_hours",
+            "data.scenarios[].estimated_rating",
+            "data.scenarios[].fuel_ton",
+            "data.scenarios[].next_worse_boundary_margin",
+            "data.scenarios[].next_worse_boundary_margin_ratio",
+            "data.scenarios[].ratio_to_required",
+            "data.scenarios[].required_cii",
+            "data.scenarios[].risk_level",
+            "data.scenarios[].scenario_id",
+            "data.scenarios[].scenario_name",
+            "data.scenarios[].scenario_type",
+            "data.scenarios[].speed_kn",
+            "data.scenarios[].weather_factor",
+            "data.scenarios[].weather_model_used",
+            "data.summary",
+            "data.summary.lowest_cii_scenarios",
+            "data.summary.lowest_fuel_scenarios",
+            "data.summary.shortest_duration_scenarios",
+            "disclaimer",
+            "input_hash",
+            "meta",
+            "meta.duration_ms",
+            "meta.request_id",
+            "meta.timestamp",
+            "model_version",
+            "model_version.decimal_precision",
+            "model_version.decimal_rounding",
+            "model_version.engine",
+            "model_version.numpy_version",
+            "model_version.python_version",
+            "model_version.rng_algorithm",
+            "parameter_hash",
+            "parameters_used",
+            "parameters_used.fuel_types",
+            "parameters_used.fuel_types[].cf",
+            "parameters_used.fuel_types[].code",
+            "parameters_used.parameter_source_version",
+            "parameters_used.rating_boundary",
+            "parameters_used.rating_boundary.d1",
+            "parameters_used.rating_boundary.d2",
+            "parameters_used.rating_boundary.d3",
+            "parameters_used.rating_boundary.d4",
+            "parameters_used.reference_line",
+            "parameters_used.reference_line.a_decimal",
+            "parameters_used.reference_line.c",
+            "parameters_used.reference_line.reference_capacity_rule",
+            "parameters_used.reference_line.ship_type",
+            "parameters_used.regulation_year",
+            "parameters_used.regulation_year.year",
+            "parameters_used.regulation_year.z_factor_percent",
+            "warnings",
+        }
+    ),
+    # `API_SPEC §6.3` — 실행 당시 스냅샷 항차 (#753). 저장 형태가 아니라 **응답 형태**다.
+    "GET /annual-simulations/{id}/snapshot-voyages": frozenset(
+        {
+            "data",
+            "data[].annual_inclusion_policy",
+            "data[].distance_nm",
+            "data[].fuel_uses",
+            "data[].fuel_uses[].cf_used",
+            "data[].fuel_uses[].fuel_ton",
+            "data[].fuel_uses[].fuel_type",
+            "data[].original_voyage_id",
+            "data[].snapshot_voyage_id",
+            "data[].speed_kn",
+            "data[].status_at_snapshot",
+            "data[].voyage_no",
+            "meta",
+            "meta.request_id",
+            "meta.timestamp",
+        }
+    ),
+    # `API_SPEC §6.4` — 재현 검증 (#753). `§6.1`과 같은 봉투여야 한다.
+    #
+    # ⚠️ **민감도의 `voyage_plus_1`·`voyage_minus_1`은 이 표에 없다.**
+    # `calc/annual_simulation.py`가 `if remaining:`으로 가른다 — `PRD §12.6`의 「잔여
+    # 항차 1개 취소/추가」는 **항차가 있어야 성립하는 지렛대**이기 때문이다. 데모 시드는
+    # 스냅샷에 잔여 계획이 잡히지 않아 그 여섯 키가 나오지 않는다.
+    #
+    # 표에 넣으면 거짓 실패가 나고, 뺐으므로 **그 지렛대가 사라져도 이 검사는 통과한다.**
+    # 그 공백을 감추지 않고 적어 둔다 — 지렛대 자체의 검증은 `#756`(기능③ 민감도)
+    # 소관이고, 시드에 잔여 계획을 넣는 것은 이 파일의 다른 계약(항차 목록·선대 요약)을
+    # 함께 흔든다.
+    "POST /annual-simulations/{id}/reproduce": frozenset(
+        {
+            "calculation_run_id",
+            "data",
+            "data.deterministic",
+            "data.deterministic.completed_M_gco2",
+            "data.deterministic.completed_W_capacity_nm",
+            "data.deterministic.completed_voyage_count",
+            "data.deterministic.planned_M_gco2",
+            "data.deterministic.planned_W_capacity_nm",
+            "data.deterministic.projected_attained_cii",
+            "data.deterministic.projected_rating",
+            "data.deterministic.remaining_voyage_count",
+            "data.monte_carlo",
+            "data.monte_carlo.mean_cii",
+            "data.monte_carlo.p10",
+            "data.monte_carlo.p50",
+            "data.monte_carlo.p90",
+            "data.monte_carlo.rating_probabilities",
+            "data.monte_carlo.rating_probabilities.A",
+            "data.monte_carlo.rating_probabilities.B",
+            "data.monte_carlo.rating_probabilities.C",
+            "data.monte_carlo.rating_probabilities.D",
+            "data.monte_carlo.rating_probabilities.E",
+            "data.monte_carlo.rng_metadata",
+            "data.monte_carlo.rng_metadata.bit_generator",
+            "data.monte_carlo.rng_metadata.numpy_version",
+            "data.monte_carlo.rng_metadata.platform",
+            "data.monte_carlo.rng_metadata.python_version",
+            "data.monte_carlo.rng_metadata.seed_entropy",
+            "data.monte_carlo.runs",
+            "data.monte_carlo.target_rating",
+            "data.monte_carlo.target_success_probability",
+            "data.risk_level",
+            "data.sensitivity_analysis",
+            "data.sensitivity_analysis.distance_minus_5pct",
+            "data.sensitivity_analysis.distance_minus_5pct.projected_cii",
+            "data.sensitivity_analysis.distance_minus_5pct.rating_change",
+            "data.sensitivity_analysis.distance_plus_5pct",
+            "data.sensitivity_analysis.distance_plus_5pct.projected_cii",
+            "data.sensitivity_analysis.distance_plus_5pct.rating_change",
+            "data.sensitivity_analysis.fuel_minus_10pct",
+            "data.sensitivity_analysis.fuel_minus_10pct.projected_cii",
+            "data.sensitivity_analysis.fuel_minus_10pct.rating_change",
+            "data.sensitivity_analysis.fuel_minus_10pct.target_probability_change",
+            "data.sensitivity_analysis.fuel_plus_10pct",
+            "data.sensitivity_analysis.fuel_plus_10pct.projected_cii",
+            "data.sensitivity_analysis.fuel_plus_10pct.rating_change",
+            "data.sensitivity_analysis.fuel_plus_10pct.target_probability_change",
+            "data.sensitivity_analysis.interaction_note",
+            "data.sensitivity_analysis.speed_minus_1kn",
+            "data.sensitivity_analysis.speed_minus_1kn.projected_cii",
+            "data.sensitivity_analysis.speed_minus_1kn.rating_change",
+            "data.sensitivity_analysis.speed_minus_1kn.target_probability_change",
+            "data.sensitivity_analysis.speed_plus_1kn",
+            "data.sensitivity_analysis.speed_plus_1kn.projected_cii",
+            "data.sensitivity_analysis.speed_plus_1kn.rating_change",
+            "data.sensitivity_analysis.speed_plus_1kn.target_probability_change",
+            "data.simulation_id",
+            "data.snapshot",
+            "data.snapshot.created_at",
+            "data.snapshot.snapshot_id",
+            "data.snapshot.voyage_count",
+            "disclaimer",
+            "input_hash",
+            "meta",
+            "meta.duration_ms",
+            "meta.request_id",
+            "meta.timestamp",
+            "model_version",
+            "model_version.decimal_precision",
+            "model_version.decimal_rounding",
+            "model_version.engine",
+            "model_version.numpy_version",
+            "model_version.python_version",
+            "model_version.rng_algorithm",
+            "parameter_hash",
+            "parameters_used",
+            "parameters_used.rating_boundary",
+            "parameters_used.rating_boundary.d1",
+            "parameters_used.rating_boundary.d2",
+            "parameters_used.rating_boundary.d3",
+            "parameters_used.rating_boundary.d4",
+            "parameters_used.rating_boundary.ship_type",
+            "parameters_used.reference_line",
+            "parameters_used.reference_line.a_decimal",
+            "parameters_used.reference_line.c",
+            "parameters_used.reference_line.reference_capacity_rule",
+            "parameters_used.reference_line.ship_type",
+            "parameters_used.regulation_year",
+            "parameters_used.regulation_year.year",
+            "parameters_used.regulation_year.z_factor_percent",
+            "parameters_used.simulation_profile",
+            "parameters_used.simulation_profile.parameters",
+            "parameters_used.simulation_profile.parameters[].bound_type",
+            "parameters_used.simulation_profile.parameters[].max",
+            "parameters_used.simulation_profile.parameters[].min",
+            "parameters_used.simulation_profile.parameters[].mode",
+            "parameters_used.simulation_profile.parameters[].variable",
+            "parameters_used.simulation_profile.profile",
+            "parameters_used.simulation_profile.version",
+            "warnings",
+        }
+    ),
     "POST /calculations/voyage-cii": frozenset(
         {
             "calculation_run_id",
@@ -707,7 +913,11 @@ def _get(client: TestClient, path: str):
     return client.get(f"{API_V1_PREFIX}{_resolve(client, path)}")
 
 
-@pytest.mark.parametrize("path", [p for p in CONTRACTS if not p.startswith("POST ")])
+@pytest.mark.parametrize(
+    "path",
+    # 접두가 붙은 것은 각자 전용 테스트가 본다 — 만들어야 하거나 식별자가 필요하다.
+    [p for p in CONTRACTS if not p.startswith(("POST ", "GET "))],
+)
 def test_response_fields_match_the_contract(client, path):
     """GET 응답의 필드 집합이 계약과 **같다**."""
     response = _get(client, path)
@@ -736,6 +946,68 @@ def test_voyage_cii_response_fields_match_the_contract(client):
 
     assert response.status_code == 200, response.text
     assert flatten(response.json()) == CONTRACTS["POST /calculations/voyage-cii"]
+
+
+def test_scenario_compare_response_fields_match_the_contract(client):
+    """`POST /scenarios/compare` (`API_SPEC §5.1`) — 기능②가 계산 결과 봉투를 따르는가 (`#753`).
+
+    **이 자리가 비어 있었다.** `#751`(`rng_metadata` 키 불일치)·`#752`(계산 봉투 7필드
+    누락)가 어느 가드에도 걸리지 않은 이유가 그것이다 — 계약 표가 계산 엔드포인트의
+    절반을 덮지 않았다.
+
+    `test_scenario_example_sync.py`가 같은 엔드포인트의 **값**을 본다. 층이 다르다 —
+    이쪽은 **필드 집합**이고, 값이 맞아도 필드가 빠지면 화면에 `undefined`가 뜬다.
+    """
+    response = client.post(
+        f"{API_V1_PREFIX}/scenarios/compare",
+        headers={"X-CSRF-Token": client.cookies.get("csrf")},
+        json={
+            "vessel_id": DEMO_VESSEL,
+            "regulation_year": 2026,
+            "direct_distance_nm": 1000,
+            "current_speed_kn": 12.8,
+            "base_daily_foc_ton": 26.88,
+            "fuel_type": "HFO",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert flatten(response.json()) == CONTRACTS["POST /scenarios/compare"]
+
+
+def test_snapshot_voyages_and_reproduce_match_the_contract(client):
+    """`API_SPEC §6.3`·`§6.4` — 스냅샷 조회와 재현 검증 (`#753`).
+
+    **한 테스트에서 둘을 본다.** 둘 다 실행 하나를 먼저 만들어야 하는데, 나누면 같은
+    준비를 두 번 하거나 **정의 순서에 기대게** 된다(`#838`이 그 상태를 다룬다).
+
+    `§6.4`가 「`§6.1`과 같은 봉투」를 규정하므로 재현 응답의 필드 집합은 실행 응답과
+    같아야 한다 — 갈리면 그 규정이 거짓이 된다.
+    """
+    created = client.post(
+        f"{API_V1_PREFIX}/annual-simulations",
+        headers={"X-CSRF-Token": client.cookies.get("csrf")},
+        json={
+            "vessel_id": DEMO_VESSEL,
+            "regulation_year": 2026,
+            "target_rating": "C",
+            "simulation_runs": 1000,
+            "random_seed": 12345,
+        },
+    )
+    assert created.status_code == 200, created.text
+    simulation_id = created.json()["data"]["simulation_id"]
+
+    snapshot = client.get(f"{API_V1_PREFIX}/annual-simulations/{simulation_id}/snapshot-voyages")
+    assert snapshot.status_code == 200, snapshot.text
+    assert flatten(snapshot.json()) == CONTRACTS["GET /annual-simulations/{id}/snapshot-voyages"]
+
+    reproduced = client.post(
+        f"{API_V1_PREFIX}/annual-simulations/{simulation_id}/reproduce",
+        headers={"X-CSRF-Token": client.cookies.get("csrf")},
+    )
+    assert reproduced.status_code == 200, reproduced.text
+    assert flatten(reproduced.json()) == CONTRACTS["POST /annual-simulations/{id}/reproduce"]
 
 
 def test_annual_simulation_response_fields_match_the_contract(client):
@@ -800,8 +1072,8 @@ def test_every_contract_is_actually_checked():
     파라미터라이즈 목록이 `CONTRACTS`에서 나오므로 표를 지우면 검사도 함께
     사라진다 — 그것이 조용히 일어나지 않게 개수를 박는다.
     """
-    assert len(CONTRACTS) >= 16
-    assert sum(len(keys) for keys in CONTRACTS.values()) >= 400
+    assert len(CONTRACTS) >= 19
+    assert sum(len(keys) for keys in CONTRACTS.values()) >= 600
     # 중첩까지 본다 — 최상위만 보면 `data` 한 칸이 통째로 바뀌어도 통과한다.
     assert any("." in key for keys in CONTRACTS.values() for key in keys)
     assert any("[]" in key for keys in CONTRACTS.values() for key in keys)
