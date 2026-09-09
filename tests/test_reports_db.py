@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.reports.csv_export import render_csv
 from cii_platform.reports.document import TableSection
+from cii_platform.services import report as report_service
 from cii_platform.services.report import build_annual_report, build_voyage_report
 
 YEAR = 2026
@@ -292,6 +293,65 @@ async def test_not_underway_section_splits_by_type(session, vessel_id):
 
     # §4.2 🔒 — 거리 0자리 · 연료 1자리 (#584)
     assert section.rows[0] == ["운하 통과", "1", "80", "15.0"]
+
+
+@pytest.mark.asyncio
+async def test_not_underway_fuel_is_read_in_one_query(session, vessel_id, monkeypatch):
+    """정박 연료를 **구간마다** 읽지 않는다 (#827).
+
+    목록 화면(`services/not_underway.py:249`)은 배치 함수를 쓰는데 **리포트 경로만
+    빠져 있었다.** 정박은 항차마다 최소 2회 생겨 한 해 구간 수가 금방 수백 건이 되고,
+    그 수가 그대로 쿼리 수가 된다.
+
+    **구간을 셋 넣는다** — 한 건이면 N+1과 배치의 쿼리 수가 같아 구분되지 않는다.
+    """
+    for index, period_type in enumerate(("CANAL_TRANSIT", "DRIFTING", "STS")):
+        period_id = uuid4()
+        await session.execute(
+            text(
+                "INSERT INTO not_underway_period (id, vessel_id, regulation_year, "
+                "period_type, started_at, ended_at, distance_nm) VALUES "
+                "(:id, :vid, 2026, :ptype, :start, :end, 10)"
+            ),
+            {
+                "id": period_id,
+                "vid": vessel_id,
+                "ptype": period_type,
+                # 바인드 파라미터에는 **문자열이 아니라 datetime**을 넘긴다 — asyncpg가
+                # 직접 받는 자리라 SQL 리터럴처럼 문자열을 쓰면 DataError가 난다.
+                "start": datetime(2026, 5, index + 1, tzinfo=UTC),
+                "end": datetime(2026, 5, index + 2, tzinfo=UTC),
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO not_underway_fuel_use (period_id, consumer_type, fuel_type, "
+                "fuel_ton, cf_used) VALUES (:id, 'MAIN_ENGINE', 'HFO', 2, 3.114)"
+            ),
+            {"id": period_id},
+        )
+
+    calls = {"batch": 0}
+    original = report_service.not_underway_repo.list_fuel_uses_for_periods
+
+    async def counted(*args, **kwargs):
+        calls["batch"] += 1
+        return await original(*args, **kwargs)
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("구간마다 조회하면 N+1이다 — 배치 함수를 쓴다")
+
+    monkeypatch.setattr(report_service.not_underway_repo, "list_fuel_uses_for_periods", counted)
+    monkeypatch.setattr(report_service.not_underway_repo, "list_fuel_uses", forbidden)
+
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+    section = _section(document, "not under way 기여")
+
+    # 구간이 셋인데 조회는 **한 번**이다.
+    assert calls["batch"] == 1
+    # 호출 수만 보면 결과가 비어도 통과한다 — 값이 맞는지 함께 본다.
+    assert sorted(row[0] for row in section.rows) == ["STS 이송", "운하 통과", "표류"]
+    assert all(row[3] == "2.0" for row in section.rows)
 
 
 @pytest.mark.asyncio

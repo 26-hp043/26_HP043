@@ -23,6 +23,11 @@ dependencies = [
     "aiosmtplib>=5.1.2,<6.0",
     # 비밀번호 해싱 (#414). Argon2id — bcrypt의 72바이트 절단·PBKDF2의 GPU 취약을 피한다.
     "argon2-cffi>=25.1.0,<26",
+    # `auth/password.py`가 해싱을 스레드로 내보낼 때 직접 쓴다 (#827). starlette가
+    # 이미 끌어오지만 **직접 import하므로 직접 적는다** — 상위 패키지가 의존을 바꾸면
+    # 적지 않은 쪽이 조용히 깨진다. `starlette.concurrency.run_in_threadpool`이 아닌
+    # 이유는 그쪽이 `limiter`를 받지 않아 전용 동시 실행 한도를 걸 수 없어서다.
+    "anyio>=4.14.1,<5",
     # 리포트 PDF 렌더링 (#361). 순수 Python 패키지지만 **런타임에 Pango가 필요**하다
     # (Dockerfile의 libpango-1.0-0 · libpangoft2-1.0-0). 그래서 reports/pdf.py가
     # 지연 import 한다 — 최상단에서 import하면 라이브러리가 없는 환경에서 앱 전체가

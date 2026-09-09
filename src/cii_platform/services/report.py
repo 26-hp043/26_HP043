@@ -379,6 +379,14 @@ async def _not_underway_section(
         session, vessel_id=vessel_id, regulation_year=year
     )
 
+    # 연료는 **한 번에** 읽는다 (#827). 구간마다 조회하면 N+1이 되고, 정박은 항차마다
+    # 최소 2회 생겨 한 해 구간 수가 금방 수백 건이 된다 — 그 수가 그대로 쿼리 수가 된다.
+    # 목록 화면(`services/not_underway.py:249`)은 이미 이 배치 함수를 쓰는데
+    # **리포트 경로만 빠져 있었다.**
+    fuel_by_period = await not_underway_repo.list_fuel_uses_for_periods(
+        session, [period.id for period in periods]
+    )
+
     by_type: dict[str, dict[str, Decimal | int]] = {}
     for period in periods:
         bucket = by_type.setdefault(
@@ -386,7 +394,7 @@ async def _not_underway_section(
         )
         bucket["count"] = int(bucket["count"]) + 1
         bucket["distance"] = Decimal(bucket["distance"]) + Decimal(period.distance_nm)
-        for fuel_use in await not_underway_repo.list_fuel_uses(session, period.id):
+        for fuel_use in fuel_by_period.get(period.id, []):
             bucket["fuel"] = Decimal(bucket["fuel"]) + Decimal(fuel_use.fuel_ton)
 
     rows = [

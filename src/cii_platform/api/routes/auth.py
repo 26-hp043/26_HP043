@@ -44,10 +44,10 @@ from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import AuthenticationError, require_csrf
 from cii_platform.auth.password import (
     PasswordPolicyError,
-    hash_password,
+    hash_password_async,
     validate_password,
-    verify_dummy,
-    verify_password,
+    verify_dummy_async,
+    verify_password_async,
 )
 from cii_platform.auth.session import (
     COOKIE_ATTRIBUTES,
@@ -173,7 +173,7 @@ async def signup(
     email = _normalize_email(payload.email)
 
     try:
-        password_hash = hash_password(payload.password)
+        password_hash = await hash_password_async(payload.password)
     except PasswordPolicyError as exc:
         return _error_response(request, 422, "VALIDATION_ERROR", str(exc))
 
@@ -260,7 +260,7 @@ async def login(
     if user is None:
         # 즉시 거부하면 응답 시간 차이로 가입 여부를 알아낼 수 있다.
         # 결과를 쓰지 않는다 — 목적이 시간을 쓰는 것이다.
-        verify_dummy(payload.password)
+        await verify_dummy_async(payload.password)
         await audit_svc.record_login_failure(
             session,
             reason="unknown_email",
@@ -269,7 +269,7 @@ async def login(
         await session.commit()
         return _error_response(request, 401, "UNAUTHORIZED", LOGIN_FAILED_MESSAGE)
 
-    if not verify_password(payload.password, user.password_hash):
+    if not await verify_password_async(payload.password, user.password_hash):
         await audit_svc.record_login_failure(
             session,
             reason="bad_password",
@@ -367,12 +367,12 @@ async def change_password(
 
     # 현재 비밀번호가 틀리면 여기서 끝낸다. **새 비밀번호 정책 검사보다 먼저** 본다 —
     # 순서가 반대면 「현재 비밀번호가 틀렸는데 새 비밀번호 규칙만 알려 주는」 응답이 난다.
-    if not verify_password(payload.current_password, user.password_hash):
+    if not await verify_password_async(payload.current_password, user.password_hash):
         return _error_response(request, 401, "UNAUTHORIZED", "현재 비밀번호가 올바르지 않습니다.")
 
     try:
         validate_password(payload.new_password)
-        new_hash = hash_password(payload.new_password)
+        new_hash = await hash_password_async(payload.new_password)
     except PasswordPolicyError as exc:
         return _error_response(request, 422, "VALIDATION_ERROR", str(exc))
 
