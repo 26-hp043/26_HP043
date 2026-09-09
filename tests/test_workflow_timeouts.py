@@ -136,3 +136,46 @@ def test_apt_get을_직접_호출하지_않는다() -> None:
         "`timeout`으로 감싸지 않은 `apt-get` 호출:\n  " + "\n  ".join(offenders) + "\n"
         "→ `sudo timeout 120 apt-get update` 형태로 감싸세요 (#533)."
     )
+
+
+def _font_step() -> str:
+    """``PDF 폰트 설치`` 스텝의 스크립트 본문 (#908)."""
+    text = (_WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    assert "PDF 폰트 설치" in text, "폰트 설치 스텝을 찾지 못했다 — 이름이 바뀌었는지 확인할 것"
+    after = text.split("PDF 폰트 설치", 1)[1]
+    # 다음 스텝(`      - `)까지가 이 스텝이다.
+    return after.split("\n      - ", 1)[0]
+
+
+def test_폰트_설치_실패는_여전히_잡을_중단시킨다() -> None:
+    """`#908`이 옮긴 것은 **중단 지점**이지 방어선이 아니다.
+
+    ``apt-get update`` 실패를 경고로 낮췄으므로, **설치 실패가 여전히 하드 실패인지**를
+    못 박는다. 둘 다 경고가 되면 **폰트 없이 CI가 초록으로 통과**하고, 그 상태에서는
+    PDF 한글이 tofu로 나오는 회귀를 아무도 잡지 못한다(``#361`` 완료 기준).
+    """
+    step = _font_step()
+    install = step.split("apt-get install", 1)[1]
+    assert "::error::" in install, (
+        "폰트 설치 실패가 `::error::`로 보고되지 않는다 — 경고로 낮추면 폰트 없이 통과한다 (#361)"
+    )
+    assert "exit 1" in install, "폰트 설치가 세 번 실패해도 잡이 멈추지 않는다 (#361)"
+
+
+def test_인덱스_갱신_실패는_잡을_중단시키지_않는다() -> None:
+    """러너 이미지의 **무관한 저장소** 하나가 깨져도 잡이 죽지 않아야 한다 (#908).
+
+    ``apt-get update``는 소스 하나만 실패해도 ``exit 1``이다. 2026-09-10에
+    ``dl.google.com``의 인덱스가 ``Hash Sum mismatch``를 내 무관한 잡이 죽었고,
+    **해시 불일치는 결정적이라 재시도로 낫지 않았다**(재실행에서 동일 실패).
+
+    갱신 구간에 ``exit 1``이 다시 들어오면 같은 사고가 되풀이된다.
+    """
+    step = _font_step()
+    update = step.split("apt-get install", 1)[0]
+    assert "exit 1" not in update, (
+        "`apt-get update` 실패가 다시 잡을 중단시킨다 — 무관한 저장소 하나로 CI가 죽는다 (#908)"
+    )
+    assert "::warning::" in update, (
+        "갱신 실패가 조용히 지나간다 — 로그에 사유가 남지 않으면 다음 사람이 원인을 찾지 못한다"
+    )
