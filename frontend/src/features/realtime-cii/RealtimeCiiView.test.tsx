@@ -258,3 +258,44 @@ describe('탭이 숨으면 요청하지 않는다 (UIFLOW 2-9 v2.2)', () => {
     await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
   })
 })
+
+describe('출항 직후 극소 진행률이 화면을 죽이지 않는다 (#872)', () => {
+  /**
+   * 계획 거리가 큰 항차의 **출항 직후**면 진행률이 `1e-7` 근처가 된다.
+   * `String(5e-7)`은 `"5e-7"`이고 포매터는 십진 문자열만 받으므로 던졌다 —
+   * React 19는 렌더 예외에서 루트를 언마운트하므로 **화면이 통째로 백지**가 됐다.
+   *
+   * ⚠️ 순수 함수 검사(`format.test.ts`)만으로는 이 배선이 증명되지 않는다.
+   * 그 함정을 `#823`·`#755`가 각각 겪었다 — 실제로 화면을 그려 확인한다.
+   */
+  function withTinyProgress(): RealtimeCii {
+    return {
+      ...BASE,
+      currentVoyage: {
+        ...BASE.currentVoyage!,
+        // 12,000 nm 계획에 0.005 nm 진행 → 비율 약 4.2e-7
+        plannedDistanceNm: '12000.00',
+        distanceNm: '0.0050',
+      },
+    }
+  }
+
+  it('진행률 막대가 그려지고 화면이 살아 있다', async () => {
+    const provider: RealtimeCiiProvider = { load: vi.fn(async () => withTinyProgress()) }
+    renderView(provider)
+
+    // 화면의 다른 내용이 정상적으로 나온다 — 크래시했다면 여기서 이미 못 찾는다.
+    expect(await screen.findByText(BASE.vesselName)).toBeTruthy()
+    // 극소 비율은 표시 자릿수에서 0.0%로 떨어진다. 「값이 없다」가 아니다.
+    expect(screen.getByText('0.0%')).toBeTruthy()
+  })
+
+  it('보통 진행률은 종전과 같은 값을 낸다', async () => {
+    const provider: RealtimeCiiProvider = { load: vi.fn(async () => BASE) }
+    renderView(provider)
+
+    await screen.findByText(BASE.vesselName)
+    // 1848 / 3000 = 0.616 → 61.6%
+    expect(screen.getByText('61.6%')).toBeTruthy()
+  })
+})

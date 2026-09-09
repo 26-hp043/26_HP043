@@ -10,7 +10,14 @@ import {
   type ComparisonFormState,
   type FormErrors,
 } from './requestRules'
-import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  formatDecimalString,
+  formatGrouped,
+  formatPercent,
+  toDecimalInput,
+} from '../../display/format'
 import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
 import { ESTIMATE_NOTICE, NO_AUTO_DECISION_NOTICE } from './notices'
@@ -540,7 +547,7 @@ function ScenarioCard({
         다시 눈으로 짝지어야 한다.
       */}
       <dl className="scenario-card__rows">
-        <Row label="항해거리" value={formatGrouped(String(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)} unit={DISPLAY_UNITS.distance} delta={delta?.distanceNm} deltaDigits={DISPLAY_DIGITS.distanceNm} />
+        <Row label="항해거리" value={formatGrouped(toDecimalInput(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)} unit={DISPLAY_UNITS.distance} delta={delta?.distanceNm} deltaDigits={DISPLAY_DIGITS.distanceNm} />
         {/*
           `#822` — 종전에는 `String(...)` 그대로였다. 이 `<dl>`의 나머지 5행은 전부
           포매터를 거치는데 이 한 행만 빠져 있었다. `12.8`은 우연히 1자리라 눈에
@@ -548,7 +555,7 @@ function ScenarioCard({
         */}
         <Row
           label="평균 속력"
-          value={formatDecimalString(String(scenario.speed_kn), DISPLAY_DIGITS.speedKn)}
+          value={formatDecimalString(toDecimalInput(scenario.speed_kn), DISPLAY_DIGITS.speedKn)}
           unit={DISPLAY_UNITS.speed}
         />
         <Row label="예상 소요시간" value={formatDecimalString(scenario.duration_hours, DISPLAY_DIGITS.durationHours)} unit={DISPLAY_UNITS.duration} delta={delta?.durationHours} deltaDigits={DISPLAY_DIGITS.durationHours} />

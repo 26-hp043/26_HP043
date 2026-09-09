@@ -11,6 +11,7 @@ import {
   formatDecimalString,
   formatGrouped,
   formatPercent,
+  toDecimalInput,
 } from '../../display/format'
 import { createApiRealtimeCiiProvider, RealtimeCiiError } from './apiProvider'
 import {
@@ -529,7 +530,7 @@ function VoyagePanel({ data, unit }: { data: RealtimeCii; unit: string }) {
             `§4.2` 「비율」 — 백분율 1자리. `Math.round(ratio * 100)`은 화면이
             직접 셈하는 것이라 규정 자릿수와 무관하게 정수로 떨어졌다.
           */}
-          <span className="rt__progress-text num">{formatPercent(String(ratio))}%</span>
+          <span className="rt__progress-text num">{formatPercent(toDecimalInput(ratio))}%</span>
         </div>
       ) : null}
 

@@ -1,5 +1,12 @@
 import './VoyageCiiResult.css'
-import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped, formatPercent } from '../../display/format'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  formatDecimalString,
+  formatGrouped,
+  formatPercent,
+  toDecimalInput,
+} from '../../display/format'
 import {
   ciiUnit,
   displayWarnings,
@@ -181,7 +188,7 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
         />
         <Metric
           label="항해거리"
-          value={formatGrouped(String(data.distance_nm), DISPLAY_DIGITS.distanceNm)}
+          value={formatGrouped(toDecimalInput(data.distance_nm), DISPLAY_DIGITS.distanceNm)}
           unit={DISPLAY_UNITS.distance}
         />
       </dl>

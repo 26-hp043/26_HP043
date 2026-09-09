@@ -256,7 +256,51 @@ export function formatGrouped(value: string, digits: number): string {
  */
 export function formatCapacity(value: number | string | null): string | null {
   if (value === null || value === undefined) return null
+  // ⚠️ 여기는 `toDecimalInput`을 쓰지 않는다 (#872). `#823`이 **던지는 설계를
+  // 유지하기로 판정**했고, 그 근거가 *"조용한 폴백은 틀린 값을 숨긴다 — 실제로
+  // `formatCapacity(0.000001)`은 던지지 않고 `0`을 낸다"* 였다. 여기에 다리를
+  // 놓으면 `1e-7` DWT가 `0`으로 표시되어 그 판정을 뒤집는다. 입력 하한은
+  // `#860`이 서버에서 막는다.
   return formatGrouped(String(value), DISPLAY_DIGITS.capacity)
+}
+
+/** :func:`toDecimalInput`이 쓰는 중간 자릿수. 표시 자릿수보다 넉넉하다. */
+const BRIDGE_DIGITS = 6
+
+/**
+ * JSON number를 포매터가 받는 **십진 문자열**로 옮긴다 (#872).
+ *
+ * ## 왜 `String(value)`면 안 되나
+ *
+ * 포매터는 십진 문자열만 받고 아니면 던진다. 그런데 자바스크립트는 `1e-6` 미만과
+ * `1e21` 이상에서 **지수 표기로 전환**한다 — `String(5e-7)`은 `"5e-7"`이고, 그
+ * 문자열이 포매터에 들어가면 `TypeError`가 나 **화면이 통째로 죽는다.**
+ *
+ * 실제로 그렇게 죽었다. 실시간 CII 화면의 진행률이 `formatPercent(String(ratio))`
+ * 였고, 계획 거리가 큰 항차가 **출항 직후**면 비율이 `5e-7` 근처가 된다.
+ *
+ * ## `toFixed`는 자릿수를 맞추려는 것이 아니다
+ *
+ * **지수 표기를 피하려는 것**이다. 실제 반올림은 포매터가 규정 자릿수로 한 번 한다
+ * — 여기서 6자리로 자르는 것은 그보다 넉넉해 표시값에 영향을 주지 않는다. 이 설명은
+ * `features/not-underway/periodRules.ts`가 먼저 적어 둔 것이고, 같은 규율이 여러
+ * 화면에 필요해져 이 자리로 올렸다(`display/decimal.ts`가 `#820`에서 옮겨진 것과
+ * 같은 이유 — **복사하면 한쪽만 고쳐진다**).
+ *
+ * ## 유한하지 않으면 던진다
+ *
+ * `NaN`·`Infinity`는 표시할 수 없다. 「없음」으로 바꿔 주지 않는 이유는 포매터의
+ * 기존 규율과 같다 — 조용한 폴백은 틀린 값을 숨긴다(`#823` 판정). 값이 없을 수 있는
+ * 자리는 호출부가 `null` 가드를 **먼저** 둔다.
+ *
+ * ⚠️ `1e21` 이상은 `toFixed`도 지수 표기를 내므로 이 다리를 지나도 포매터가 던진다.
+ * 그 경계는 값이 아니라 **입력 하한·상한**의 문제이고 `#860`이 서버에서 다룬다.
+ */
+export function toDecimalInput(value: number): string {
+  if (!Number.isFinite(value)) {
+    throw new TypeError(`유한한 수가 아닙니다: ${JSON.stringify(value)}`)
+  }
+  return value.toFixed(BRIDGE_DIGITS)
 }
 
 export function formatPercent(value: string, digits: number = DISPLAY_DIGITS.percent): string {
