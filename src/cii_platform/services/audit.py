@@ -128,15 +128,21 @@ async def record_calculation_run(
     ip_address: str | None = None,
     calculation_type: str = "VOYAGE_ESTIMATE",
     status: str = "SUCCESS",
+    details_extra: dict[str, object] | None = None,
 ) -> None:
-    """계산 실행 — TECH_SPEC §13.1 필드 표를 그대로 ``details``에 옮긴다."""
-    await audit_repo.insert_event(
-        session,
-        action="CALCULATION_RUN",
-        user_id=user_id,
-        entity_type="calculation_run",
-        entity_id=run_id,
-        details={
+    """계산 실행 — TECH_SPEC §13.1 필드 표를 그대로 ``details``에 옮긴다.
+
+    ``details_extra``는 §13.1 표에 **덧붙이는** 구분 표식이다 (#869). 재현 검증
+    (``§6.4 reproduce``)은 새 ``calculation_run`` 행을 만들지 않고 원본의
+    ``run_id``를 그대로 쓰므로, 표식이 없으면 **원본 실행과 구분되지 않는다.**
+    같은 스트림에 변형을 플래그로 구분하는 것은 §13.1 자신의 방식이다 — 스텁
+    dev-login이 ``dev_login`` 플래그로 구분된다.
+
+    표의 필드는 덮어쓸 수 없다 — 덧붙인 키가 표와 겹치면 표 쪽이 이긴다.
+    """
+    details: dict[str, object] = dict(details_extra or {})
+    details.update(
+        {
             "calculation_type": calculation_type,
             "input_hash": input_hash,
             "parameter_hash": parameter_hash,
@@ -144,7 +150,15 @@ async def record_calculation_run(
             "duration_ms": duration_ms,
             "status": status,
             "warnings_count": warnings_count,
-        },
+        }
+    )
+    await audit_repo.insert_event(
+        session,
+        action="CALCULATION_RUN",
+        user_id=user_id,
+        entity_type="calculation_run",
+        entity_id=run_id,
+        details=details,
         ip_address=ip_address,
     )
 
