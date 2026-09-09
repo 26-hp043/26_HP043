@@ -142,6 +142,7 @@ async def _insert_voyage_fuel(
     actual_ton: float | None = 80,
     planned_ton: float | None = 80,
     fuel_type: str = "HFO",
+    cf: float | None = None,
 ) -> None:
     await session.execute(
         text(
@@ -154,7 +155,7 @@ async def _insert_voyage_fuel(
             "ft": fuel_type,
             "pt": planned_ton,
             "at": actual_ton,
-            "cf": float(HFO_CF),
+            "cf": float(HFO_CF) if cf is None else cf,
         },
     )
 
@@ -585,3 +586,28 @@ async def test_mixed_cf_snapshots_each_use_their_own_value(session, vessel_id):
     # 대표 CF를 골랐을 때의 두 후보값과는 실제로 다르다 — 테스트가 공허하지 않음을 고정.
     assert expected_not_underway_g != Decimal("20") * HFO_CF * Decimal("1000000")
     assert expected_not_underway_g != Decimal("20") * (HFO_CF + 1) * Decimal("1000000")
+
+
+async def test_voyage_fuel_keeps_each_snapshot_cf(session, vessel_id):
+    """항차 연료의 같은 유종이 snapshot을 둘이면 **각자의 CF로** 곱해진다 (#863).
+
+    ``test_mixed_cf_snapshots_each_use_their_own_value``의 항해 쪽 쌍이다.
+    유종별로 톤수를 합쳐 어느 한 CF로 곱하는 구현이면 이 검사가 깨진다 — 그 상태는
+    CF 개정이 지난 실적을 소급해 바꾸는 것이라 PRD §8.4 위반이다.
+    """
+    first = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, first, actual_ton=80, cf=float(HFO_CF))
+    second = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, second, actual_ton=80, cf=float(HFO_CF) + 1)
+
+    result = await _compute(session, vessel_id)
+
+    # 80t는 CF 3.114로, 나머지 80t는 CF 4.114로 곱해진다.
+    expected_underway_g = (Decimal("80") * HFO_CF + Decimal("80") * (HFO_CF + 1)) * Decimal(
+        "1000000"
+    )
+    assert result.underway_co2_g == expected_underway_g
+
+    # 유종별 합산(160t)에 대표 CF 하나를 골랐을 때의 두 후보와는 다르다 — 공허한 통과 방지.
+    assert expected_underway_g != Decimal("160") * HFO_CF * Decimal("1000000")
+    assert expected_underway_g != Decimal("160") * (HFO_CF + 1) * Decimal("1000000")
