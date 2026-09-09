@@ -101,12 +101,56 @@ def test_port_must_be_an_integer():
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [("true", True), ("1", True), ("on", True), ("false", False), ("0", False)],
+    [
+        ("true", True),
+        ("1", True),
+        ("on", True),
+        ("yes", True),
+        ("false", False),
+        ("0", False),
+        ("off", False),
+        ("no", False),
+        # 대소문자·공백은 정규화한다 — 사람이 쓰는 값이다.
+        ("TRUE", True),
+        ("  Off  ", False),
+    ],
 )
 def test_use_tls_parses_strings_not_truthiness(raw: str, expected: bool):
     """환경변수는 전부 문자열이라 ``bool("false")``가 ``True``가 되는 함정이 있다."""
     settings = load_mail_settings({"MAIL_BACKEND": "smtp", "SMTP_HOST": "h", "SMTP_USE_TLS": raw})
     assert settings.smtp_use_tls is expected
+
+
+@pytest.mark.parametrize("raw", ["enabled", "Y", "TLS", "starttls", "참", "2"])
+def test_unknown_use_tls_value_stops_startup(raw: str):
+    """모르는 ``SMTP_USE_TLS`` 값은 **기동을 막는다** (#868).
+
+    종전에는 참으로 읽는 목록에 없으면 전부 거짓이었다 — 오류도 경고도 없이
+    TLS가 꺼져 **SMTP 자격증명과 비밀번호 재설정·이메일 인증 토큰 링크가 평문**
+    으로 나갔다. 메일은 정상 도착하므로 배포 후에도 드러나지 않는다.
+
+    같은 파일의 ``MAIL_BACKEND``·``SMTP_PORT``는 이미 모르는 값을 거부한다 —
+    **보안 스위치 하나만 fail-open**이었다.
+    """
+    with pytest.raises(RuntimeError, match="SMTP_USE_TLS"):
+        load_mail_settings({"MAIL_BACKEND": "smtp", "SMTP_HOST": "h", "SMTP_USE_TLS": raw})
+
+
+def test_missing_use_tls_defaults_to_on():
+    """미설정·빈 값은 **켠 상태**가 기본이다 — 안전한 쪽으로 떨어진다 (#868)."""
+    for value in (None, "", "   "):
+        env = {"MAIL_BACKEND": "smtp", "SMTP_HOST": "h"}
+        if value is not None:
+            env["SMTP_USE_TLS"] = value
+        assert load_mail_settings(env).smtp_use_tls is True, f"입력 {value!r}"
+
+
+def test_explicit_off_is_still_allowed():
+    """``false``는 **정당한 선택**이다 (465 포트 implicit TLS 등) — 막지 않는다 (#868)."""
+    settings = load_mail_settings(
+        {"MAIL_BACKEND": "smtp", "SMTP_HOST": "h", "SMTP_USE_TLS": "false"}
+    )
+    assert settings.smtp_use_tls is False
 
 
 def test_backend_selection(monkeypatch: pytest.MonkeyPatch):
