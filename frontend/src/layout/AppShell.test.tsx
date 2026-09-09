@@ -2,7 +2,7 @@
 import '../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { AppShell } from './AppShell'
 import { useShellContext } from './shellContext'
@@ -171,5 +171,93 @@ describe('셸 조회가 한 번만 나간다 — 무한 루프 회귀 (#557)', (
 
     const vesselCalls = calls.filter((u) => u.includes('/vessels') && !u.includes('/voyages'))
     expect(vesselCalls).toHaveLength(1)
+  })
+})
+
+/*
+ * 화면이 깨져도 셸은 남는다 (`#823`).
+ *
+ * ## 왜 컴포넌트 검사만으로는 부족한가
+ *
+ * `ErrorBoundary.test.tsx`가 경계 **자체**를 잠근다. 하지만 그 경계가 셸에 실제로
+ * 배선됐는지는 보지 않는다 — `#535`가 정확히 그 층에서 났던 결함이다(규칙은 맞는데
+ * 부르는 쪽이 없었다). 실제로 배선의 `key`를 지워도 컴포넌트 검사 11건은 전부
+ * 통과했다.
+ *
+ * 그래서 여기서는 **진짜 `AppShell`에 던지는 화면을 물려** 셸이 남는지 본다.
+ */
+
+/** 렌더 중 던지는 화면. */
+function BoomScreen(): never {
+  throw new Error('화면이 터졌다')
+}
+
+const MANAGEMENT_PATH = SCREEN_BY_ID.VESSEL_MANAGEMENT.path
+
+function renderShellWithBoom(path: string = FORECAST_PATH) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route path={FORECAST_PATH} element={<BoomScreen />} />
+          <Route path={MANAGEMENT_PATH} element={<div>다른 화면</div>} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+describe('화면이 깨져도 셸은 남는다 (#823)', () => {
+  it('오류 화면을 그리고 사이드바는 살아 있다', async () => {
+    stubServer()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    renderShellWithBoom()
+
+    expect(await screen.findByText('화면을 표시하지 못했습니다')).toBeTruthy()
+    // 셸이 남아야 사용자가 다른 화면으로 갈 수 있다 — 이것이 루트 경계와의 차이다.
+    expect(screen.getByRole('navigation')).toBeTruthy()
+    expect(
+      screen.getByRole('link', { name: new RegExp(SCREEN_BY_ID.VESSEL_MANAGEMENT.label) }),
+    ).toBeTruthy()
+  })
+
+  it('오류 화면 안에도 나갈 길이 있다 — 「대시보드로」', async () => {
+    stubServer()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    renderShellWithBoom()
+
+    await screen.findByText('화면을 표시하지 못했습니다')
+    expect(screen.getByRole('link', { name: '대시보드로' })).toBeTruthy()
+  })
+
+  it('다른 화면으로 이동하면 오류 화면이 사라진다 — 경계가 경로로 리셋된다', async () => {
+    stubServer()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    renderShellWithBoom()
+    await screen.findByText('화면을 표시하지 못했습니다')
+
+    /*
+     * ⚠️ 이 단언이 `key={pathname}`을 잠근다. key가 없으면 경계가 스스로 리셋되지
+     * 않아 **경로가 바뀌어도 오류 화면이 그대로 남는다** — 사용자 입장에서는
+     * 백지와 다르지 않다.
+     */
+    fireEvent.click(
+      screen.getByRole('link', { name: new RegExp(SCREEN_BY_ID.VESSEL_MANAGEMENT.label) }),
+    )
+
+    expect(await screen.findByText('다른 화면')).toBeTruthy()
+    expect(screen.queryByText('화면을 표시하지 못했습니다')).toBeNull()
+  })
+
+  it('던지지 않는 화면은 평소대로 그린다', async () => {
+    stubServer()
+
+    renderShellWithBoom(MANAGEMENT_PATH)
+
+    expect(await screen.findByText('다른 화면')).toBeTruthy()
+    expect(screen.queryByText('화면을 표시하지 못했습니다')).toBeNull()
   })
 })

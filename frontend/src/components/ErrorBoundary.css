@@ -1,0 +1,96 @@
+/*
+ * 오류 화면 (`#823`).
+ *
+ * 문구·배치는 `ErrorScreen`이 소유한다 — `#694`(에러 상태 패턴)가 확정되면 여기와
+ * 그 컴포넌트 한 곳만 고치면 된다. 경계마다 따로 적으면 그때 일부가 남는다.
+ *
+ * 토큰만 쓴다 (`DESIGN_SYSTEM §15`). 루트 경계는 셸 밖에서도 렌더되므로 셸 CSS에
+ * 의존할 수 없다.
+ */
+
+.error-screen {
+  display: grid;
+  gap: var(--spacing-md);
+  justify-items: start;
+  max-width: var(--layout-max-form);
+  margin: var(--spacing-xl) auto;
+  padding: var(--spacing-lg);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  /* `DESIGN_SYSTEM §5` — 카드 면은 그림자 Lv1까지가 한 벌이다 (`cardSpec.test.ts`가 검사). */
+  box-shadow: var(--shadow-lv1);
+  background: var(--surface-card);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  line-height: var(--line-height-body);
+}
+
+.error-screen__title {
+  margin: 0;
+  font-size: var(--font-size-h2);
+  line-height: var(--line-height-h2);
+  color: var(--color-danger-text);
+}
+
+.error-screen__body {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.error-screen__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
+
+.error-screen__detail {
+  width: 100%;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+.error-screen__detail summary {
+  cursor: pointer;
+}
+
+/* 오류 원문은 줄바꿈이 없을 수 있다 — 가로 스크롤 대신 강제 줄바꿈으로 가둔다. */
+.error-screen__message {
+  margin: var(--spacing-sm) 0 0;
+  padding: var(--spacing-sm);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/*
+ * 오류 화면의 행동 버튼.
+ *
+ * 이 저장소에는 전역 버튼 클래스가 없다 — 기능마다 자기 것을 정의한다
+ * (`acc__submit`·`vessel-management__submit` …). 그 관례를 따르되, **루트 경계는
+ * 셸 밖에서도 렌더되므로** 기능 CSS에 기대지 않고 여기서 완결한다.
+ */
+.error-screen__button {
+  border: var(--borderWidth-default) solid var(--semantic-primary);
+  border-radius: var(--radius-control);
+  padding: var(--spacing-xs) var(--spacing-md);
+  background: var(--surface-card);
+  color: var(--semantic-primary);
+  font-family: inherit;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.error-screen__button--primary {
+  background: var(--semantic-primary);
+  color: var(--surface-card);
+}
+
+.error-screen__button:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
