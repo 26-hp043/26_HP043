@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type {
@@ -124,7 +124,7 @@ export function createApiNotUnderwayProvider(
 
     if (response.status === 401) {
       redirectToLogin()
-      throw new NotUnderwayError('세션이 만료되었습니다.')
+      throw new NotUnderwayError(SESSION_EXPIRED_MESSAGE)
     }
 
     const body = (await response.json().catch(() => null)) as

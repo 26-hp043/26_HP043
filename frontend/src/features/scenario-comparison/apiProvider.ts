@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import {
   ScenarioComparisonError,
@@ -158,7 +158,7 @@ export function createApiScenarioProvider(
         redirectToLogin()
         throw new ScenarioComparisonError(
           'CALCULATION_ERROR',
-          '세션이 만료되었습니다.',
+          SESSION_EXPIRED_MESSAGE,
         )
       }
 

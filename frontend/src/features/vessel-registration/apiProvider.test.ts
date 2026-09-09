@@ -1,9 +1,9 @@
+import { SESSION_EXPIRED_MESSAGE } from '../../auth/session'
 import { describe, expect, it, vi } from 'vitest'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import {
   MALFORMED_ERROR_MESSAGE,
   NETWORK_ERROR_MESSAGE,
-  SESSION_EXPIRED_MESSAGE,
   createApiVesselRegistrationProvider,
   toVesselRegistrationError,
 } from './apiProvider'

@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 
 /**
@@ -85,7 +85,7 @@ export function createApiParametersProvider(
 
       if (response.status === 401) {
         redirectToLogin()
-        throw new ParametersError('세션이 만료되었습니다.')
+        throw new ParametersError(SESSION_EXPIRED_MESSAGE)
       }
       if (!response.ok) {
         throw new ParametersError(`연료 목록을 불러오지 못했습니다 (HTTP ${response.status}).`)
@@ -109,7 +109,7 @@ export function createApiParametersProvider(
 
       if (response.status === 401) {
         redirectToLogin()
-        throw new ParametersError('세션이 만료되었습니다.')
+        throw new ParametersError(SESSION_EXPIRED_MESSAGE)
       }
       if (!response.ok) {
         throw new ParametersError(`규제연도 목록을 불러오지 못했습니다 (HTTP ${response.status}).`)

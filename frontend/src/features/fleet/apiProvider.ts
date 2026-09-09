@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type { FleetProvider, FleetSnapshot, FleetVessel } from './types'
 
@@ -152,7 +152,7 @@ export function createApiFleetProvider(
       // 세션 만료는 화면이 처리할 문제가 아니다 — 로그인으로 보낸다(기능①과 동일).
       if (response.status === 401) {
         redirectToLogin()
-        throw new FleetUnavailableError('세션이 만료되었습니다.')
+        throw new FleetUnavailableError(SESSION_EXPIRED_MESSAGE)
       }
 
       if (!response.ok) {

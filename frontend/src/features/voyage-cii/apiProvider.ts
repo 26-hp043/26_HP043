@@ -1,4 +1,4 @@
-import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { VoyageCiiError, type VoyageCiiErrorCode, type VoyageCiiProvider } from './provider'
 import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
 
@@ -72,8 +72,6 @@ export const NETWORK_ERROR_MESSAGE =
 export const MALFORMED_ERROR_MESSAGE = '서버 응답을 해석하지 못했습니다.'
 
 /** 세션 만료(401) 문구 — 전환과 함께 로그인 화면으로 보낸다 (#278). */
-export const SESSION_EXPIRED_MESSAGE =
-  '로그인이 만료되었습니다. 다시 로그인해 주세요.'
 
 /**
  * 서버 오류 응답을 `VoyageCiiError`로 옮긴다.
