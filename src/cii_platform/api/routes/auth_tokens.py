@@ -36,7 +36,7 @@ from cii_platform.api.schemas.auth_tokens import (
     VerifyEmailRequest,
 )
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.auth.password import PasswordPolicyError, hash_password
+from cii_platform.auth.password import PasswordPolicyError, hash_password_async
 from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_token import (
@@ -217,7 +217,7 @@ async def confirm_password_reset(
 ) -> Response:
     """토큰을 검증하고 비밀번호를 교체한 뒤 **기존 세션을 전부 무효화**한다."""
     try:
-        new_hash = hash_password(payload.password)
+        new_hash = await hash_password_async(payload.password)
     except PasswordPolicyError as exc:
         return _error(request, 422, "VALIDATION_ERROR", str(exc))
 

@@ -11,6 +11,28 @@
 - **PBKDF2**는 GPU 병렬화에 약하다.
 - **Argon2id**는 메모리를 함께 요구해 GPU·ASIC 우위를 줄인다. OWASP 현행 권고다.
 
+## 해싱은 스레드로 내보낸다 (#827)
+
+Argon2 검증 1회가 **약 60 ms**(12코어 개발기 기준)이고, 그동안 uvicorn의 이벤트
+루프가 통째로 멈춘다(``Dockerfile:132`` — 워커는 1개다). 미인증 상태에서 가능하며,
+없는 계정도 :func:`verify_dummy`로 같은 비용을 치른다.
+
+실측 — 로그인 **1건**이 도는 동안 ``/health`` 최대 지연 (각 6회 중앙값):
+
+=====================  =========================  ==============================
+ 판본                   대조군(로그인 없음)         로그인 1건 동안
+=====================  =========================  ==============================
+ 동기                    11.9 ms                    **56.4 ms**
+ 스레드풀                11.4 ms                    **22.5 ms**
+=====================  =========================  ==============================
+
+막는 몫이 44.5 ms에서 11.1 ms로 줄었다. **0이 되지는 않는다** — 스레드 전환 비용과
+메모리 대역폭 경합이 남는다. 루프 자체는 비어 있다(아래 :data:`MAX_CONCURRENT_HASHES`
+주석의 직접 측정: 루프 최대 정지 65.7 ms -> 3.3 ms).
+
+그래서 ``*_async`` 형을 두고 라우트가 그쪽을 부른다. 동기 형은 남긴다 —
+시드(``db/demo_seed.py``)와 순수 함수 검사는 이벤트 루프 없이 부른다.
+
 ## 타이밍 공격 방어
 
 로그인 실패 시 **계정이 없어도 해시 검증을 수행한다**(`verify_dummy`). 없는 계정을
@@ -20,6 +42,8 @@
 
 from __future__ import annotations
 
+import anyio
+import anyio.to_thread
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
@@ -35,6 +59,33 @@ MIN_PASSWORD_LENGTH = 10
 MAX_PASSWORD_LENGTH = 128
 
 _hasher = PasswordHasher()
+
+#: 동시에 해싱할 수 있는 요청 수.
+#:
+#: **실측에서 나온 숫자다.** 같은 해시를 N개 동시에 검증한 결과(12코어):
+#:
+#: ====  ========  ======
+#:  N     소요      가속
+#: ====  ========  ======
+#:  1      57.5 ms  1.01x
+#:  2      73.7 ms  1.57x
+#:  4     115.8 ms  2.00x
+#:  8     237.2 ms  1.96x   <- 4를 넘으면 늘지 않는다
+#: ====  ========  ======
+#:
+#: Argon2가 1회당 64 MiB를 훑어(``memory_cost=65536 KiB``) **메모리 대역폭**에
+#: 걸린다. 코어가 남아도 4를 넘기면 처리량은 그대로이고 순간 메모리만 늘어난다 —
+#: 4 x 64 MiB = **256 MiB**가 상한이고, 8이면 같은 처리량에 512 MiB를 쓴다.
+#:
+#: anyio 기본 스레드 한도(40)를 그대로 쓰면 **40 x 64 MiB = 2.5 GiB**가 되어,
+#: 「이벤트 루프 정지」를 「메모리 고갈」로 바꾸는 것에 지나지 않는다. 컨테이너에
+#: 메모리 상한이 걸려 있지 않아(``docker-compose.prod.yml``) 그 폭주는 호스트까지 간다.
+#:
+#: 전용 한도를 두는 이유는 **기본 스레드풀을 공유하지 않기 위해서**이기도 하다 —
+#: 로그인이 몰릴 때 다른 스레드 작업까지 굶기지 않는다.
+MAX_CONCURRENT_HASHES = 4
+
+_hash_limiter = anyio.CapacityLimiter(MAX_CONCURRENT_HASHES)
 
 #: 존재하지 않는 계정에 대해 검증 시간을 맞추기 위한 더미 해시.
 #: 모듈 로드 시 한 번 만든다 — 매 요청 생성하면 그 자체가 비용이다.
@@ -77,6 +128,24 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+async def hash_password_async(password: str) -> str:
+    """:func:`hash_password`를 스레드에서 실행한다 (#827).
+
+    정책 검사는 **여기서 먼저** 한다 — 길이만으로 거를 입력에 스레드 확보 비용까지
+    치를 이유가 없고, :class:`PasswordPolicyError`가 스레드 경계를 넘어오는 것보다
+    호출부에 가까운 자리에서 나는 편이 낫다.
+    """
+    validate_password(password)
+    return await anyio.to_thread.run_sync(_hasher.hash, password, limiter=_hash_limiter)
+
+
+async def verify_password_async(password: str, password_hash: str) -> bool:
+    """:func:`verify_password`를 스레드에서 실행한다 (#827)."""
+    return await anyio.to_thread.run_sync(
+        verify_password, password, password_hash, limiter=_hash_limiter
+    )
+
+
 def verify_dummy(password: str) -> None:
     """존재하지 않는 계정에 대해 **검증 시간을 맞춘다.**
 
@@ -84,6 +153,15 @@ def verify_dummy(password: str) -> None:
     결과는 쓰지 않는다 — 목적이 시간을 쓰는 것이다.
     """
     verify_password(password, _DUMMY_HASH)
+
+
+async def verify_dummy_async(password: str) -> None:
+    """:func:`verify_dummy`를 스레드에서 실행한다 (#827).
+
+    **없는 계정도 같은 한도를 지난다.** 다른 경로로 빠지면 대기 시간 차이가 그대로
+    가입 여부 신호가 되어, 이 함수가 막으려던 것이 한도 쪽에서 되살아난다.
+    """
+    await verify_password_async(password, _DUMMY_HASH)
 
 
 def needs_rehash(password_hash: str) -> bool:
