@@ -128,27 +128,11 @@ export function sameTarget(a: ReportTarget | null, b: ReportTarget | null): bool
   return false
 }
 
-/**
- * `Content-Disposition` 헤더에서 파일명을 꺼낸다.
+/*
+ * `filenameFrom`은 `download/file.ts`로 옮겼다 (`#890`).
  *
- * 서버는 ASCII `filename`과 UTF-8 `filename*`을 **둘 다** 보낸다(RFC 6266 §4.3).
- * `filename*`을 우선한다 — 그쪽이 사람이 읽는 한글 이름이다.
- *
- * 헤더가 없으면 `null`이다. 호출부가 대체 이름을 만든다 — 여기서 지어 내면
- * 「서버가 준 이름」과 「우리가 만든 이름」이 섞여 어느 쪽인지 알 수 없다.
+ * `#890`이 운항 기록 CSV 내보내기를 항차 패널에 붙이며 **두 번째 소비처**가 생겼다.
+ * 여기서 다시 내보내는 것은 **기존 검사·호출부가 이 경로를 쓰고 있기 때문**이고,
+ * 구현은 한 곳뿐이다.
  */
-export function filenameFrom(disposition: string | null): string | null {
-  if (!disposition) return null
-
-  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition)
-  if (utf8) {
-    try {
-      return decodeURIComponent(utf8[1])
-    } catch {
-      // 잘못 인코딩된 헤더로 다운로드 전체를 실패시키지 않는다 — ASCII로 내려간다.
-    }
-  }
-
-  const ascii = /filename="([^"]+)"/i.exec(disposition)
-  return ascii ? ascii[1] : null
-}
+export { filenameFrom } from '../../download/file'

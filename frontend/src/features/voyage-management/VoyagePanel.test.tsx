@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { VoyagePanel } from './VoyagePanel'
 import type { VoyageManagementProvider } from './apiProvider'
@@ -57,9 +57,36 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
       errors: [],
       dryRun: true,
     })),
+    exportData: vi.fn(async () => 'voyages.csv'),
     ...over,
   }
 }
+
+/*
+ * 연도 선택지는 **provider가 아니라 서버**에서 온다 (`#632`가 세 화면에 세운 규칙 —
+ * `parameters/yearCatalog`). `VoyagePanel`이 쓰는 유일한 직접 fetch라, 스텁하지 않으면
+ * `#890` 내보내기 구획의 연도 칸이 「불러오지 못했습니다」 갈래로 떨어진다.
+ */
+beforeEach(() => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [{ year: 2026 }, { year: 2027 }] }),
+        } as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ data: {} }) } as Response
+    }),
+  )
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('생성 폼에 계획 시각 두 칸이 있다 (#873)', () => {
   it('「항차 추가」를 열면 출항·도착 시각 칸이 그려진다', async () => {
@@ -126,5 +153,82 @@ describe('실적 폼에 실제 시각 두 칸이 있다 (#873)', () => {
 
     await waitFor(() => expect(saveActuals).toHaveBeenCalled())
     expect(saveActuals.mock.calls[0][1].actualDepartureAt).toBe('2026-06-02T08:30')
+  })
+})
+
+/**
+ * 운항 기록 내보내기가 **화면에서 도달 가능한가** (#890).
+ *
+ * `PRD §5.1`이 MUST로 규정하고 서버·검사가 완비돼 있는데 **호출부가 0건**이었다.
+ *
+ * ```
+ * $ grep -rn "/export" frontend/src --include=*.ts --include=*.tsx | grep -v test | wc -l
+ * 0
+ * ```
+ *
+ * ⚠️ 이 결함은 「값이 틀렸다」가 아니라 **「버튼이 없다」**였다. 규칙 함수와 provider를
+ * 아무리 검사해도 화면이 그것을 부르지 않으면 기능은 없는 것이다 — `#873`이 같은
+ * 종류였다.
+ *
+ * 자리는 **가져오기 옆**이다. `PRD:636`이 `SCR-007`을 「Data Import/Export」 한 항목으로
+ * 규정하므로 두 방향이 갈리면 정본이 한 화면으로 정한 것이 쪼개진다.
+ */
+describe('자료 내보내기가 항차 패널에 있다 (#890)', () => {
+  it('가져오기와 같은 구획에 내보내기가 그려진다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+
+    const exportSection = await screen.findByRole('region', { name: '자료 내보내기' })
+    expect(exportSection).toBeTruthy()
+    // 두 방향이 같은 패널 안에 있다 — `SCR-007`은 한 항목이다.
+    expect(screen.getByRole('region', { name: 'CSV 가져오기' })).toBeTruthy()
+  })
+
+  it('종류·연도·형식을 고를 수 있다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+    await screen.findByRole('region', { name: '자료 내보내기' })
+
+    expect((screen.getByLabelText('종류') as HTMLSelectElement).value).toBe('voyages')
+    expect((screen.getByLabelText('형식') as HTMLSelectElement).value).toBe('csv')
+    // 연도는 「전체」가 기본이다 — `§8.1`의 `year`는 optional이다.
+    expect((await screen.findByLabelText('연도')).tagName).toBe('SELECT')
+  })
+
+  it('고른 조건이 provider까지 도달한다 — 폼과 요청이 이어져 있다', async () => {
+    const exportData = vi.fn(async () => 'calculations.csv')
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ exportData })} />)
+    await screen.findByRole('region', { name: '자료 내보내기' })
+
+    fireEvent.change(screen.getByLabelText('종류'), { target: { value: 'calculations' } })
+    fireEvent.change(screen.getByLabelText('형식'), { target: { value: 'json' } })
+    fireEvent.click(screen.getByRole('button', { name: '내보내기' }))
+
+    await waitFor(() => expect(exportData).toHaveBeenCalled())
+    const [vesselId, query] = exportData.mock.calls[0] as unknown as [string, string]
+    expect(vesselId).toBe('ves-1')
+    expect(query).toContain('type=calculations')
+    expect(query).toContain('format=json')
+    // 「전체」이므로 연도 키가 없다.
+    expect(query).not.toContain('year')
+  })
+
+  it('저장한 파일 이름을 화면이 말한다 — 무엇을 받았는지 알 수 있어야 한다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+    await screen.findByRole('region', { name: '자료 내보내기' })
+
+    fireEvent.click(screen.getByRole('button', { name: '내보내기' }))
+
+    expect(await screen.findByText(/voyages\.csv/)).toBeTruthy()
+  })
+
+  it('실패하면 서버 문구를 보여 준다 — 조용히 아무 일도 안 일어나지 않는다', async () => {
+    const exportData = vi.fn(async () => {
+      throw new Error('내보낼 자료가 없습니다.')
+    })
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ exportData })} />)
+    await screen.findByRole('region', { name: '자료 내보내기' })
+
+    fireEvent.click(screen.getByRole('button', { name: '내보내기' }))
+
+    expect(await screen.findByText('내보낼 자료가 없습니다.')).toBeTruthy()
   })
 })

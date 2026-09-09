@@ -3,6 +3,7 @@ import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped } from '../../display/form
 import { withRo } from '../../display/josa'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { VoyageError, createApiVoyageManagementProvider } from './apiProvider'
+import { ExportCsv } from './ExportCsv'
 import { ImportCsv } from './ImportCsv'
 import type { VoyageManagementProvider } from './apiProvider'
 import {
@@ -198,6 +199,11 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
        * 버튼이 옳게 그려진다(`API_SPEC §8.2`).
        */}
       <ImportCsv vesselId={vesselId} provider={api} onImported={() => void load()} />
+      {/*
+        가져오기 **바로 아래**다 (`#890`). `PRD:636`이 `SCR-007`을 「Data Import/Export」
+        한 항목으로 규정하므로 두 방향이 한 자리에 있어야 한다.
+      */}
+      <ExportCsv vesselId={vesselId} provider={api} />
     </section>
   )
 }
