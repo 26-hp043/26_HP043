@@ -2,10 +2,10 @@
 import '../../test/renderSetup'
 
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { VesselDetail } from './VesselDetail'
-import type { VesselDetail as Detail, VesselDetailProvider } from './types'
+import type { CiiYear, VesselDetail as Detail, VesselDetailProvider } from './types'
 
 /**
  * 진행 중 항차가 없을 때 실시간 CII 링크가 거짓 신호를 주지 않는다 (`#588`).
@@ -194,5 +194,84 @@ describe('제원 표시 자릿수·단위 (#822)', () => {
     await screen.findByText(/기준 속력/)
     // 단위만 덩그러니 남는 `— kn` 같은 상태가 되면 안 된다.
     expect(screen.queryByText(/^\s*kn\s*$/)).toBeNull()
+  })
+})
+
+describe('등급이 없어도 누적값은 보인다 (#876)', () => {
+  /**
+   * 서버가 실적·기준·항차 수를 다 줬는데 **등급 하나가 null**이면 종전 게이트가
+   * 그 전부를 버리고 「올해 등록된 항차 실적이 없습니다」를 냈다.
+   *
+   * ⚠️ **등급 null은 비정상이 아니다** — `API_SPEC §2.7`이 `rating: string | null`로
+   * 규정하고, `#834`(RO_RO 여객선 고속선의 등급 경계 누락)가 그 조건을 실재시킨다.
+   * 실적이 있는데 없다고 말하면 사용자는 항차를 다시 등록하려 한다.
+   */
+  const YEAR_WITHOUT_RATING: CiiYear = {
+    regulationYear: 2026,
+    status: 'IN_PROGRESS' as const,
+    dataAvailable: true,
+    reason: null,
+    attainedCii: '8.979907',
+    requiredCii: '9.512340',
+    rating: null,
+    voyageCount: 17,
+    totalDistanceNm: '10620.00',
+    totalFuelTon: '199.10',
+  }
+
+  function withYear(year: CiiYear) {
+    return stub({ load: vi.fn().mockResolvedValue({ ...DETAIL, years: [year] }) })
+  }
+
+  /** 같은 값이 연도별 이력 표에도 나오므로 YTD 카드로 좁혀 본다. */
+  async function ytdCard(container: HTMLElement) {
+    let card: Element | null = null
+    await waitFor(() => {
+      card = container.querySelector('.ytd')
+      expect(card).toBeTruthy()
+    })
+    return within(card as unknown as HTMLElement)
+  }
+
+  it('등급이 null이어도 실적·기준·항차 수가 그대로 나온다', async () => {
+    const { container } = renderAt(withYear(YEAR_WITHOUT_RATING))
+    const card = await ytdCard(container)
+
+    // `DESIGN_SYSTEM §4.1` — CII는 소수 3자리.
+    expect(card.getByText('8.980')).toBeTruthy()
+    expect(card.getByText('9.512')).toBeTruthy()
+    expect(card.getByText('17')).toBeTruthy()
+    // 「실적이 없다」는 문구가 나오면 안 된다 — 실적은 있다.
+    expect(screen.queryByText(/올해 등록된 항차 실적이 없습니다/)).toBeNull()
+  })
+
+  it('등급 자리는 「없음」으로 표시된다 — 빈칸이 아니다', async () => {
+    renderAt(withYear(YEAR_WITHOUT_RATING))
+
+    // 배지가 「없음」 변형으로 그려지고 스크린리더에도 그렇게 읽힌다.
+    expect(await screen.findByLabelText('올해 누적 등급 없음')).toBeTruthy()
+  })
+
+  it('등급이 있으면 종전과 같다', async () => {
+    const { container } = renderAt(withYear({ ...YEAR_WITHOUT_RATING, rating: 'C' as const }))
+
+    expect(await screen.findByLabelText('올해 누적 등급 C')).toBeTruthy()
+    const card = await ytdCard(container)
+    expect(card.getByText('8.980')).toBeTruthy()
+  })
+
+  it('데이터 자체가 없으면 종전대로 사유를 말한다', async () => {
+    renderAt(
+      withYear({
+        ...YEAR_WITHOUT_RATING,
+        dataAvailable: false,
+        reason: 'NO_DATA',
+        attainedCii: null,
+        requiredCii: null,
+        voyageCount: 0,
+      }),
+    )
+
+    expect(await screen.findByText(/올해 등록된 항차 실적이 없습니다/)).toBeTruthy()
   })
 })
