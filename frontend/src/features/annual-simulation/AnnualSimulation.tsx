@@ -465,7 +465,7 @@ function Result({ result }: { result: AnnualSimulationResult }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ key, label, entry }) => (
+                {rows.map(({ key, label, entry, probabilityChange }) => (
                   <tr key={key}>
                     <th scope="row">
                       {label}
@@ -473,7 +473,13 @@ function Result({ result }: { result: AnnualSimulationResult }) {
                     </th>
                     <td>{formatDecimalString(entry.projected_cii, DISPLAY_DIGITS.cii)}</td>
                     <td>{entry.rating_change}</td>
-                    <td>{entry.target_probability_change ?? '—'}</td>
+                    {/*
+                      `#822` — 종전에는 서버 값(`+0.12`)을 **그대로** 그렸다. 이 표
+                      위쪽 지표가 `30.0%`라 사용자는 0.12%p로 읽지만 실제는 12%p다.
+                      백분율 환산은 `sensitivityRows`가 한다 — 컴포넌트 안 삼항
+                      연산자는 검사가 닿지 않는 자리였다.
+                    */}
+                    <td>{probabilityChange}</td>
                   </tr>
                 ))}
               </tbody>

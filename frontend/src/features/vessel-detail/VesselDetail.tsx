@@ -9,7 +9,13 @@ import { ciiUnit } from '../voyage-cii/resultRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import { detailStatusText } from '../fleet/fleetRules'
 import { PositionChart } from '../fleet/PositionChart'
-import { DISPLAY_DIGITS, formatCapacity, formatDecimalString } from '../../display/format'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  formatCapacity,
+  formatDecimalString,
+  formatGrouped,
+} from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
 import { PositionForm } from './PositionForm'
@@ -282,11 +288,33 @@ export function VesselDetail({
               ) : (
                 <Spec label="총톤수 (GT)" value={formatCapacity(vessel.grossTonnage)} />
               )}
-              <Spec label="기준 속력" value={vessel.referenceSpeedKn} suffix=" kn" />
+              {/*
+                `#822` — 종전에는 서버 문자열을 **그대로** 그리고 단위를 리터럴로
+                박았다. `18.00`이 이 화면에서는 `18`, 선박 관리 목록에서는 `18.0 kn`이
+                되어 같은 값이 화면마다 달랐다. 단위 리터럴은 `DESIGN_SYSTEM §4.2` 🔒가
+                금지한다 — *「화면에 리터럴로 박지 않는다」*.
+              */}
+              <Spec
+                label="기준 속력"
+                value={
+                  vessel.referenceSpeedKn === null
+                    ? null
+                    : formatDecimalString(vessel.referenceSpeedKn, DISPLAY_DIGITS.speedKn)
+                }
+                suffix={` ${DISPLAY_UNITS.speed}`}
+              />
+              {/*
+                연료는 `GROUPED_FIELDS`라 천단위 구분자가 필수다 (`§4.2` 🔒) —
+                `1234.5 t`가 아니라 `1,234.5 t`다.
+              */}
               <Spec
                 label="기준 일일 연료"
-                value={vessel.referenceDailyFocTon}
-                suffix=" t"
+                value={
+                  vessel.referenceDailyFocTon === null
+                    ? null
+                    : formatGrouped(vessel.referenceDailyFocTon, DISPLAY_DIGITS.fuelTon)
+                }
+                suffix={` ${DISPLAY_UNITS.fuel}`}
               />
               <Spec label="기본 연료" value={vessel.defaultFuelType} />
             </dl>

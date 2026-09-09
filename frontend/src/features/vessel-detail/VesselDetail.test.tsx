@@ -144,3 +144,55 @@ describe('위치 개략도 (#723)', () => {
     expect(container.querySelector('.vd__map')).toBeNull()
   })
 })
+
+/*
+ * 제원 수치가 `DESIGN_SYSTEM §4.2`를 지킨다 (#822).
+ *
+ * 종전에는 서버 문자열을 **그대로** 그리고 단위를 리터럴로 박았다. 같은 값이 화면마다
+ * 달랐다 — 시드의 기준 속력 `18.00`이 이 화면에서는 `18`, 선박 관리 목록에서는
+ * `18.0 kn`이었다.
+ */
+describe('제원 표시 자릿수·단위 (#822)', () => {
+  it('기준 속력이 1자리로, 단위는 상수에서 온다', async () => {
+    renderAt(
+      stub({
+        load: vi.fn().mockResolvedValue({
+          ...DETAIL,
+          vessel: { ...DETAIL.vessel, referenceSpeedKn: '18.00' },
+        }),
+      }),
+    )
+
+    // 종전에는 `18 kn`(서버 문자열 그대로 + 리터럴 단위)이었다.
+    expect(await screen.findByText('18.0 kn')).toBeTruthy()
+  })
+
+  it('기준 일일 연료에 천단위 구분자가 붙는다 — `GROUPED_FIELDS`', async () => {
+    renderAt(
+      stub({
+        load: vi.fn().mockResolvedValue({
+          ...DETAIL,
+          vessel: { ...DETAIL.vessel, referenceDailyFocTon: '1234.50' },
+        }),
+      }),
+    )
+
+    // 종전에는 `1234.5 t`였다 — 구분자가 없어 자리 수를 세야 읽혔다.
+    expect(await screen.findByText('1,234.5 t')).toBeTruthy()
+  })
+
+  it('값이 없으면 「—」다 — 포매터가 빈 문자열을 만들지 않는다', async () => {
+    renderAt(
+      stub({
+        load: vi.fn().mockResolvedValue({
+          ...DETAIL,
+          vessel: { ...DETAIL.vessel, referenceSpeedKn: null, referenceDailyFocTon: null },
+        }),
+      }),
+    )
+
+    await screen.findByText(/기준 속력/)
+    // 단위만 덩그러니 남는 `— kn` 같은 상태가 되면 안 된다.
+    expect(screen.queryByText(/^\s*kn\s*$/)).toBeNull()
+  })
+})

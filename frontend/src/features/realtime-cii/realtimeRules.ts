@@ -1,4 +1,5 @@
 import type { DVector } from '../../components/gradeScale'
+import { warningMessage } from '../voyage-cii/resultRules'
 import type { RiskLevel } from '../voyage-cii/types'
 import type { Rating, RealtimeCii, YtdValues } from './types'
 
@@ -69,8 +70,29 @@ const WARNING_TEXT: Readonly<Record<string, string>> = {
     '총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.',
 }
 
+/**
+ * 경고 코드 → 사람 말.
+ *
+ * ## 왜 폴백이 필요한가 (#822)
+ *
+ * 위 맵은 이 화면이 자주 만나는 코드의 **화면 맞춤 문구**다(7종). 그런데 서버는
+ * 그보다 많은 코드를 낸다 — 실제로 `COMPLETED_NO_DISTANCE`(실거리가 비어 계획거리로
+ * 대체된 완료 항차)가 여기 없어, 사용자가 실시간 CII 화면에서 **`COMPLETED_NO_DISTANCE`
+ * 라는 영문 대문자를 그대로** 봤다. 종전 `?? code`가 그렇게 동작한다.
+ *
+ * `voyage-cii/resultRules.ts`의 `warningMessage`는 `API_SPEC §1.6` **전수 전사**이고
+ * `#630`의 동기화 가드가 그 완전성을 강제한다. 그쪽으로 떨어뜨리면 **정본에 있는
+ * 코드는 원문으로 노출될 수 없다.**
+ *
+ * ## 왜 위 맵을 지우고 완전히 위임하지 않는가
+ *
+ * 두 맵의 문구가 2종에서 다르다(`REFERENCE_ONLY`·`COMPLETED_NO_FUEL`). 화면 문구는
+ * `AGENTS §3.2.2`상 **디자인 소관**이고, 이 파일의 머리주석이 *「`SIMULATION_NO_FUEL_*`는
+ * 행동을 안내해야 한다」*며 그 화면의 문구를 의도적으로 골랐다고 적고 있다. 구현이
+ * 임의로 통일할 사안이 아니다.
+ */
 export function warningText(code: string): string {
-  return WARNING_TEXT[code] ?? code
+  return WARNING_TEXT[code] ?? warningMessage(code)
 }
 
 export function projectionReason(code: string | null): string {

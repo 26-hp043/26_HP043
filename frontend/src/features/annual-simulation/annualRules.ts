@@ -115,6 +115,32 @@ export function toPercent(probability: string): string {
 }
 
 /**
+ * **부호 있는** 확률 변화 → 백분율 표시 (`DESIGN_SYSTEM §4.2` · #822).
+ *
+ * ## 왜 `toPercent`를 쓸 수 없나
+ *
+ * `formatPercent`는 앞의 `+`를 **떼어 버린다**(`format.ts` — 음수만 다시 붙인다).
+ * 민감도 표의 「달성 확률 변화」는 서버가 `+0.12`/`-0.08`처럼 **부호를 붙여** 보내므로
+ * (`services/annual_simulation._signed`), 부호가 사라지면 개선과 악화가 구분되지 않는다.
+ *
+ * ## 무엇이 문제였나
+ *
+ * 종전에는 서버 값을 **그대로** 그렸다(`AnnualSimulation.tsx`). 같은 화면 위쪽이
+ * `30.0%`(백분율)인데 그 아래 표에 `+0.12`가 놓여, 사용자는 **0.12%p로 읽지만 실제는
+ * 12%p**다 — **100배 오독**이다. 열 이름은 「달성 확률 변화」(`copy.ts`)다.
+ *
+ * `DESIGN_SYSTEM §4.2`가 확률을 「백분율 1자리」로, 비율을 🔒로 규정한다 —
+ * *「백분율 환산과 반올림은 표시 시점에만」*.
+ */
+export function toSignedPercent(change: string): string {
+  const trimmed = change.trim()
+  const negative = trimmed.startsWith('-')
+  // `formatPercent`가 음수 부호는 스스로 붙인다. 양수·0에만 `+`를 얹는다.
+  const sign = negative ? '' : '+'
+  return `${sign}${formatPercent(trimmed)}%`
+}
+
+/**
  * 확률 스택 바의 구간 — `DESIGN_SYSTEM §10.2`.
  *
  * 폭이 0인 구간도 **목록에서 빼지 않는다.** 화면이 A~E 다섯 등급을 항상 같은 순서로
@@ -173,11 +199,33 @@ const SENSITIVITY_ROWS: ReadonlyArray<{ key: keyof SensitivityAnalysis; label: s
  */
 export function sensitivityRows(
   analysis: SensitivityAnalysis,
-): Array<{ key: string; label: string; entry: SensitivityEntry }> {
+): Array<{
+  key: string
+  label: string
+  entry: SensitivityEntry
+  /**
+   * 「달성 확률 변화」 표시 문자열 (#822).
+   *
+   * **컴포넌트가 아니라 여기서 만든다.** 이 저장소의 관례상 판정은 DOM 없이 검증할
+   * 수 있어야 하는데(`realtimeRules.ts` 머리주석), 종전에는 컴포넌트 안 삼항
+   * 연산자가 **서버 원값을 그대로** 그렸다 — 검사가 닿지 않는 자리였다.
+   */
+  probabilityChange: string
+}> {
   return SENSITIVITY_ROWS.flatMap(({ key, label }) => {
     const entry = analysis[key]
     if (!entry || typeof entry === 'string') return []
-    return [{ key: String(key), label, entry }]
+    const change = entry.target_probability_change
+    return [
+      {
+        key: String(key),
+        label,
+        entry,
+        // 확률을 함께 내지 않는 지렛대가 있다(`API_SPEC §6.1`) — 그때는 「—」다.
+        // `0`은 값이므로 `??`로 거른다(`||`면 `'0.0000'`이 아니라 빈 문자열이 걸린다).
+        probabilityChange: change === null || change === undefined ? '—' : toSignedPercent(change),
+      },
+    ]
   })
 }
 
