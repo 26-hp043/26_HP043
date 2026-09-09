@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import './AppShell.css'
-import { NAV_SCREENS, findScreenByPath } from '../screens'
+import { DEFAULT_PATH, NAV_SCREENS, findScreenByPath } from '../screens'
 import { createVesselCatalog, type VesselOption } from '../features/voyage-cii/vesselCatalog'
 import { createVoyageCatalog, type VoyageOption } from './voyageCatalog'
 import {
@@ -17,6 +17,7 @@ import {
   type GlobalContextValue,
 } from './globalContext'
 import { BrandLogo } from '../components/BrandLogo'
+import { ErrorBoundary, ErrorScreen } from '../components/ErrorBoundary'
 import { AccountMenu } from './AccountMenu'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { logout, useAuthUser } from '../auth/session'
@@ -345,7 +346,51 @@ export function AppShell() {
 
         <main className="app-shell__main">
           <div className="app-shell__content">
-            <Outlet context={outletContext} />
+            {/*
+              화면 단위 에러 경계 (`#823`).
+
+              **한 화면이 깨져도 셸은 남는다** — 사이드바·상단바가 살아 있어야
+              사용자가 다른 화면으로 갈 수 있다. 루트 경계만 두면 화면 하나의 예외에
+              앱 전체가 오류 화면으로 바뀌고, 그 상태는 백지와 실질적으로 같다.
+
+              ⚠️ **`key`에 경로를 준다.** 에러 경계는 스스로 리셋되지 않으므로,
+              key가 없으면 사이드바를 눌러 경로가 바뀌어도 **오류 화면이 그대로
+              남는다.** 경로가 바뀌면 React가 인스턴스를 새로 만들어 회복된다.
+
+              ⚠️ 라우터의 `pathname`을 쓴다. `window.location.pathname`을 쓰면
+              타입 검사는 통과하지만(전역 `Location`) 라우터 상태가 아니라 브라우저
+              URL을 보게 된다 — 이 작업 중 실제로 그렇게 썼다가 잡았다.
+            */}
+            <ErrorBoundary
+              key={pathname}
+              name="screen"
+              fallback={({ error, reset }) => (
+                <ErrorScreen
+                  error={error}
+                  actions={
+                    <>
+                      <button
+                        type="button"
+                        className="error-screen__button error-screen__button--primary"
+                        onClick={reset}
+                      >
+                        다시 시도
+                      </button>
+                      {/*
+                        여기서는 라우터가 살아 있다 — 셸이 그리는 자리이므로
+                        `Link`를 쓴다. 셸이 남아 있어 사이드바로도 이동할 수 있지만,
+                        오류 화면 안에도 나갈 길을 둔다.
+                      */}
+                      <Link to={DEFAULT_PATH} className="error-screen__button">
+                        대시보드로
+                      </Link>
+                    </>
+                  }
+                />
+              )}
+            >
+              <Outlet context={outletContext} />
+            </ErrorBoundary>
           </div>
         </main>
       </div>
