@@ -28,6 +28,7 @@ NOT-COVERED: IT-AUDIT-002 — 기능이 없으므로 케이스도 `#444`로 옮�
 
 from __future__ import annotations
 
+import json
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -398,3 +399,120 @@ async def test_reproduce_is_distinguishable_in_the_audit_log(migrated_db, app_fr
             assert len({str(e["entity_id"]) for e in events}) == 1
     finally:
         await _cleanup()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 계정 자체를 넘길 수 있는 사건 (#828 ⑷)
+#
+# `services/audit.py`가 두 액션을 기록하는데 **어느 검사도 그것을 단언하지 않았다** —
+# `test_account_self_service_db.py`는 두 동작을 HTTP로 실제로 부르면서도 파일에
+# `audit` 문자열이 **0건**이었다.
+#
+# 두 사건은 `TECH_SPEC §13.1`이 로그인 3종을 기록 대상으로 둔 것과 같은 근거로
+# 남긴다 — **계정을 넘길 수 있는 사건**이라 「누가 언제」에 답할 수 있어야 한다.
+# 특히 탈퇴는 `app_user`에 시각 컬럼이 없어(`is_deleted` 불리언뿐) **이 기록이 유일한
+# 시점 근거**다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _signup(client: TestClient, email: str, password: str) -> str:
+    response = client.post("/api/v1/auth/signup", json={"email": email, "password": password})
+    assert response.status_code == 201, response.text
+    return response.json()["data"]["id"]
+
+
+async def _drop_account(email: str) -> None:
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text(
+                # `audit_log.user_id`는 VARCHAR이고 `app_user.id`는 UUID다 —
+                # 캐스트가 없으면 `character varying = uuid`로 막힌다.
+                "DELETE FROM audit_log WHERE user_id IN "
+                "(SELECT id::text FROM app_user WHERE email = :e)"
+            ),
+            {"e": email},
+        )
+        await s.execute(
+            text(
+                "DELETE FROM user_token WHERE user_id IN (SELECT id FROM app_user WHERE email = :e)"
+            ),
+            {"e": email},
+        )
+        await s.execute(
+            text(
+                "DELETE FROM user_session WHERE user_id IN "
+                "(SELECT id FROM app_user WHERE email = :e)"
+            ),
+            {"e": email},
+        )
+        await s.execute(text("DELETE FROM app_user WHERE email = :e"), {"e": email})
+        await s.commit()
+
+
+async def test_password_change_records_an_audit_event(migrated_db, app_fresh_engine):
+    """`action=PASSWORD_CHANGE` 행이 남고 **무효화된 세션 수**를 담는다 (#828 ⑷).
+
+    그 숫자가 이 기록의 요점이다 — *「본인이 모르는 기기가 있었는지 사후에 드러난다」*
+    (`services/audit.py`). 행만 남기고 숫자를 빼면 그 질문에 답할 수 없다.
+
+    **자격 증명은 절대 담기지 않는다**(`TECH_SPEC §13.1` `#277`) — 옛 비밀번호도 새
+    비밀번호도 해시조차 남기지 않는다. 그것도 함께 못 박는다.
+    """
+    email = "audit-pw@example.com"
+    old_password = "correct-horse-battery"
+    new_password = "brand-new-passphrase"
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            await _signup(client, email, old_password)
+            response = client.post(
+                "/api/v1/auth/password-change",
+                json={"current_password": old_password, "new_password": new_password},
+                headers=_csrf(client),
+            )
+            assert response.status_code == 200, response.text
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            events = await _fetch_events(s, "PASSWORD_CHANGE")
+            assert len(events) == 1
+            event = events[0]
+            assert event["user_id"], "주체가 비어 있다"
+            assert "revoked_sessions" in (event["details_json"] or {})
+            # 가입 직후의 그 세션이 끊긴다 — 0이면 무효화가 돌지 않은 것이다.
+            assert event["details_json"]["revoked_sessions"] >= 1
+
+            recorded = json.dumps(dict(event["details_json"] or {}), ensure_ascii=False)
+            assert old_password not in recorded
+            assert new_password not in recorded
+    finally:
+        await _drop_account(email)
+
+
+async def test_account_delete_records_an_audit_event(migrated_db, app_fresh_engine):
+    """`action=ACCOUNT_DELETE` 행이 남는다 (#828 ⑷).
+
+    탈퇴는 **soft delete**라 행이 지워지지 않는데, `app_user`에 탈퇴 시각 컬럼이 없다
+    (`is_deleted` 불리언뿐). 그래서 **이 기록이 「언제 탈퇴했는가」의 유일한 답**이다 —
+    빠지면 그 질문에 답할 근거가 저장소 어디에도 없다.
+    """
+    email = "audit-del@example.com"
+    password = "correct-horse-battery"
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            user_id = await _signup(client, email, password)
+            response = client.delete("/api/v1/auth/me", headers=_csrf(client))
+            assert response.status_code == 204, response.text
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            events = await _fetch_events(s, "ACCOUNT_DELETE")
+            assert len(events) == 1
+            event = events[0]
+            assert str(event["user_id"]) == user_id
+            assert "revoked_sessions" in (event["details_json"] or {})
+    finally:
+        await _drop_account(email)
