@@ -90,6 +90,28 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
   }
 
   /*
+   * 선박 전환 세대 (`#874`).
+   *
+   * ## 왜 `alive` 지역 변수로는 안 되는가
+   *
+   * `/vessels/:vesselId/voyages/:voyageId`는 **라우트 파라미터만 바뀌므로 언마운트
+   * 없이 선박이 전환된다.** `VesselDetail.tsx`가 쓰는 「effect 안의 `let alive`,
+   * 정리 함수에서 `false`」 선례는 요청을 **그 effect가 시작한 경우에만** 덮는다.
+   *
+   * 이 화면은 다르다 — 60초 폴링이 **effect 밖에서** `load`를 부른다. 정리 함수가
+   * `clearInterval`을 해도 **이미 날아간 요청은 취소되지 않고**, 그 응답이 돌아와
+   * `setData(A)`로 B의 화면을 덮는다. 다음 폴링까지 60초간 복구가 없다.
+   *
+   * 그래서 소유권을 effect가 아니라 **ref 하나**가 갖는다. 리셋 effect가 세대를
+   * 올리고, `load`는 시작할 때 받은 표를 응답 시점에 대조해 **자기 세대가 아니면
+   * 아무 상태도 건드리지 않는다.**
+   *
+   * `vesselId` 자체를 비교하지 않는 것은 A → B → A 왕복 때문이다. 그때 첫 A의
+   * 인플라이트 응답은 `vesselId`가 같아 통과하지만 **더 오래된 값**이다.
+   */
+  const generationRef = useRef(0)
+
+  /*
    * `load`는 **상태를 읽지 않는다** (`#755`).
    *
    * ## 종전에 무엇이 틀렸나
@@ -116,13 +138,17 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
   const load = useCallback(
     async (options: { silent?: boolean } = {}) => {
       if (!vesselId) return
+      // 이 요청이 어느 선박의 것인지 (`#874`). 응답 시점에 대조한다.
+      const ticket = generationRef.current
       if (options.silent) setRefreshing(true)
       try {
         const next = await providerRef.current!.load(vesselId)
+        if (ticket !== generationRef.current) return
         setData(next)
         setFailure(null)
         setStale(false)
       } catch (error) {
+        if (ticket !== generationRef.current) return
         const message =
           error instanceof Error ? error.message : '값을 불러오지 못했습니다.'
         const notFound = error instanceof RealtimeCiiError && error.notFound
@@ -142,11 +168,31 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
           return prev
         })
       } finally {
-        setRefreshing(false)
+        if (ticket === generationRef.current) setRefreshing(false)
       }
     },
     [vesselId],
   )
+
+  /*
+   * 선박이 바뀌면 **화면을 먼저 비운다** (`#874`).
+   *
+   * 종전에는 전환을 아무도 몰랐다 — `load`는 새 `vesselId`로 다시 돌지만 `data`·
+   * `failure`·`stale`이 그대로라 ⑴ A의 이름·등급이 B의 URL 아래 남고(「불러오는
+   * 중」은 두 번째 선박부터 영영 뜨지 않는다) ⑵ A의 404 오류 패널이 B에서 유지되며
+   * 그 안의 「← 선박 상세」가 URL과 다른 배를 가리켰다.
+   *
+   * **이 effect가 아래 로드 effect보다 먼저 선언돼 있어야 한다.** React는 선언
+   * 순서대로 실행하므로, 세대를 올리는 일이 `load()` 호출보다 앞서야 새 요청이
+   * 새 표를 받는다.
+   */
+  useEffect(() => {
+    generationRef.current += 1
+    setData(null)
+    setFailure(null)
+    setStale(false)
+    setRefreshing(false)
+  }, [vesselId])
 
   useEffect(() => {
     void load()
@@ -195,7 +241,13 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 
   return (
     <div className="rt">
-      <BackLink vesselId={data.vesselId} />
+      {/*
+        URL의 선박을 가리킨다 (`#874`). 종전에는 `data.vesselId`였는데, 전환 후
+        옛 선박의 값이 남는 동안 이 링크가 **주소창과 다른 배**를 가리켰다. 리셋이
+        그 잔류를 없앴지만, 기준을 URL로 두면 애초에 어긋날 수 없다 — 위 실패 갈래도
+        같은 값을 쓴다.
+      */}
+      <BackLink vesselId={vesselId} />
 
       <header className="rt__head">
         <div>
