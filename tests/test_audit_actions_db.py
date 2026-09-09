@@ -305,3 +305,96 @@ async def test_calculation_run_records_hashes(migrated_db, app_fresh_engine):
             assert events[0]["user_id"]
     finally:
         await _cleanup()
+
+
+def _run_annual(client: TestClient) -> dict:
+    """기능③을 한 번 돌린다. 재현 검증까지 쓰므로 seed를 고정한다.
+
+    ⚠️ 이 실행이 남기는 ``calculation_run``·``simulation_snapshot``·
+    ``annual_simulation_run`` 행은 **치우지 않는다** — 앞의 둘은 트리거가 생성 후
+    수정·삭제를 막는 불변 테이블이다(`immutable table`, `#493`·`#277`). 위의
+    ``test_calculation_run_records_hashes``도 같은 이유로 ``audit_log``만 치운다.
+    다른 검사가 자기 선박·연도로 거르므로 간섭하지 않는다.
+    """
+    response = client.post(
+        "/api/v1/annual-simulations",
+        json={
+            "vessel_id": DEMO_VESSEL,
+            "regulation_year": 2026,
+            "target_rating": "C",
+            "simulation_runs": 1000,
+            "random_seed": 42,
+        },
+        headers=_csrf(client),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_annual_simulation_records_a_calculation_run(migrated_db, app_fresh_engine):
+    """기능③ 실행이 감사 로그에 남는다 (`TECH_SPEC §13.1`, #869).
+
+    §13.1은 「**모든** ``CalculationRun`` 생성 시」로 적고 ``calculation_type`` 행에
+    ``ANNUAL_MONTE_CARLO``를 **명시**한다. 그런데 이 라우트는 ``calculation_run``
+    행을 실제로 만들면서 감사 기록만 빠뜨렸다 — 세 기능 중 **가장 무거운 계산**의
+    실행 이력이 남지 않았고, 사후 복구가 불가능했다(`grep record_calculation_run`
+    이 기능①·②만 짚었다).
+    """
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            body = _run_annual(client)
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            events = await _fetch_events(s, "CALCULATION_RUN")
+            assert len(events) == 1, f"기능③ 실행이 감사 로그에 남지 않았다: {events}"
+            details = events[0]["details_json"]
+            # `TECH_SPEC §13.1` 필드 표 — 기능①과 같은 항목을 같은 이름으로 남긴다.
+            assert details["calculation_type"] == "ANNUAL_MONTE_CARLO"
+            assert details["input_hash"] == body["input_hash"]
+            assert details["parameter_hash"] == body["parameter_hash"]
+            assert details["status"] == "SUCCESS"
+            assert isinstance(details["duration_ms"], int)
+            assert details["warnings_count"] == len(body["warnings"])
+            assert str(events[0]["entity_id"]) == body["calculation_run_id"]
+            assert events[0]["user_id"]
+            # 원본 실행에는 재현 표식이 없다 — 아래 검사의 대조군이다.
+            assert "reproduced" not in details
+    finally:
+        await _cleanup()
+
+
+async def test_reproduce_is_distinguishable_in_the_audit_log(migrated_db, app_fresh_engine):
+    """재현 검증도 기록되고 **원본과 구분된다** (#869).
+
+    ``§6.4 reproduce``는 새 ``calculation_run`` 행을 만들지 않고 원본의 ``run_id``를
+    그대로 쓴다. 표식이 없으면 감사 로그에서 두 실행이 같은 모양이 되어 「재현
+    검증을 언제 돌렸나」를 답할 수 없다. 같은 스트림에 변형을 플래그로 구분하는
+    것은 §13.1 자신의 방식이다 — 스텁 dev-login이 ``dev_login``으로 구분된다.
+    """
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            body = _run_annual(client)
+            simulation_id = body["data"]["simulation_id"]
+            again = client.post(
+                f"/api/v1/annual-simulations/{simulation_id}/reproduce",
+                headers=_csrf(client),
+            )
+            assert again.status_code == 200, again.text
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            events = await _fetch_events(s, "CALCULATION_RUN")
+            assert len(events) == 2, f"재현이 감사 로그에 남지 않았다: {events}"
+            flags = sorted(bool(e["details_json"].get("reproduced")) for e in events)
+            assert flags == [False, True], (
+                f"원본과 재현이 구분되지 않는다: {[e['details_json'] for e in events]}"
+            )
+            # 둘 다 같은 calculation_run을 가리킨다 — 재현은 행을 새로 만들지 않는다.
+            assert len({str(e["entity_id"]) for e in events}) == 1
+    finally:
+        await _cleanup()
