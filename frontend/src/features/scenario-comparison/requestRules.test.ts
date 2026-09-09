@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   FIELD,
+  MIN_SPEED_KN,
   initialFormState,
   toRequest as toRequestWith,
   validateForm as validateFormWith,
+  weatherNeedsCoordinates,
   type ComparisonFormState,
 } from './requestRules'
 
@@ -143,5 +145,147 @@ describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () =
       { code: 'AMMONIA', displayName: '암모니아' },
     ])
     expect(errors).not.toHaveProperty(FIELD.fuelType)
+  })
+})
+
+
+/**
+ * #892 — 선택 입력 5종.
+ *
+ * ## 이 블록이 잠그는 것
+ *
+ * **「비운 칸은 키가 되지 않는다」**는 성질이다. `detour_distance_nm: 0`은 서버에서
+ * 「기본을 쓰라」가 아니라 「0마일로 우회하라」이고 VAL-002에 걸려 422가 된다.
+ * `null`도 마찬가지로 `extra="forbid"` 스키마의 명시적 값이다. 미지정을 표현하는
+ * 방법은 **키를 넣지 않는 것 하나**뿐이다 (`API_SPEC §5.1` 기본값 표).
+ */
+describe('선택 입력 — 비운 칸 (#892)', () => {
+  it('선택 넷은 비어 있고 기상만 NONE이다', () => {
+    const initial = initialFormState()
+    expect(initial.detourDistanceNm).toBe('')
+    expect(initial.slowSpeedKn).toBe('')
+    expect(initial.currentLat).toBe('')
+    expect(initial.currentLon).toBe('')
+    // 셀렉트에는 「미선택」 항목이 없다 — `NONE`이 그 자리다.
+    expect(initial.weatherModel).toBe('NONE')
+  })
+
+  it('비워 두어도 오류가 아니다', () => {
+    expect(validateForm(state())).toEqual({})
+  })
+
+  it('요청에 키 자체가 없다 — 0이나 null을 보내지 않는다', () => {
+    const request = toRequest(state())
+    expect(request).not.toHaveProperty('detour_distance_nm')
+    expect(request).not.toHaveProperty('slow_speed_kn')
+    expect(request).not.toHaveProperty('current_lat')
+    expect(request).not.toHaveProperty('current_lon')
+    // NONE도 보내지 않는다 — 서버 기본이 NONE이라 명시해도 결과가 같다.
+    expect(request).not.toHaveProperty('weather_model')
+  })
+})
+
+describe('선택 입력 — 채운 칸이 요청에 실린다 (#892)', () => {
+  it('네 숫자가 서버 필드명 그대로 실린다', () => {
+    const request = toRequest(
+      state({
+        detourDistanceNm: '1200',
+        slowSpeedKn: '10.5',
+        currentLat: '35.1',
+        currentLon: '129.05',
+      }),
+    )
+    expect(request).toMatchObject({
+      detour_distance_nm: 1200,
+      slow_speed_kn: 10.5,
+      current_lat: 35.1,
+      current_lon: 129.05,
+    })
+  })
+
+  it('NONE이 아닌 기상 모델은 실린다', () => {
+    expect(toRequest(state({ weatherModel: 'SIMPLE_RULE' }))).toMatchObject({
+      weather_model: 'SIMPLE_RULE',
+    })
+  })
+})
+
+describe('선택 입력 — 검증 (#892)', () => {
+  it('우회 거리는 0보다 커야 한다 (VAL-002)', () => {
+    expect(validateForm(state({ detourDistanceNm: '0' }))).toHaveProperty(
+      FIELD.detourDistanceNm,
+    )
+  })
+
+  it('감속 속력의 하한은 0이 아니라 1.0이다 (VAL-009)', () => {
+    /*
+     * **0.5는 `> 0`을 통과한다.** 다른 칸과 같은 규칙(VAL-002)을 쓰면 여기를
+     * 빠져나가 서버 422가 된다 — `PRD §9.1`이 이 칸에만 1.0 floor를 규정한다.
+     */
+    expect(validateForm(state({ slowSpeedKn: '0.5' }))).toHaveProperty(FIELD.slowSpeedKn)
+    expect(validateForm(state({ slowSpeedKn: '0.999' }))).toHaveProperty(FIELD.slowSpeedKn)
+  })
+
+  it('경계값 1.0은 통과한다 — floor는 포함이다', () => {
+    expect(validateForm(state({ slowSpeedKn: String(MIN_SPEED_KN) }))).toEqual({})
+  })
+
+  it('좌표를 한쪽만 넣으면 나머지 칸에 오류가 붙는다 (API_SPEC:572)', () => {
+    // 서버가 422로 되돌리는 조합이다. 어느 칸이 빈지는 화면이 이미 안다.
+    expect(validateForm(state({ currentLat: '35.1' }))).toHaveProperty(FIELD.currentLon)
+    expect(validateForm(state({ currentLon: '129.0' }))).toHaveProperty(FIELD.currentLat)
+  })
+
+  it('둘 다 넣으면 통과한다', () => {
+    expect(validateForm(state({ currentLat: '35.1', currentLon: '129.0' }))).toEqual({})
+  })
+
+  it('좌표 범위를 잡는다 (VAL-007)', () => {
+    const errors = validateForm(state({ currentLat: '91', currentLon: '181' }))
+    expect(errors).toHaveProperty(FIELD.currentLat)
+    expect(errors).toHaveProperty(FIELD.currentLon)
+  })
+
+  it('0은 유효한 좌표다 — 적도·본초자오선이 빈 칸으로 읽히면 안 된다', () => {
+    expect(validateForm(state({ currentLat: '0', currentLon: '0' }))).toEqual({})
+    expect(toRequest(state({ currentLat: '0', currentLon: '0' }))).toMatchObject({
+      current_lat: 0,
+      current_lon: 0,
+    })
+  })
+
+  it('알 수 없는 기상 모델을 잡는다', () => {
+    expect(validateForm(state({ weatherModel: 'ECMWF' }))).toHaveProperty(FIELD.weatherModel)
+  })
+})
+
+/**
+ * `weatherNeedsCoordinates` — 고른 모델이 **실제로 적용되는지**.
+ *
+ * 좌표 없는 요청은 `services/weather.py:276-280`이 보정 없이 되돌린다. 실 API
+ * 측정으로 확인했다 — `SIMPLE_RULE` + 좌표 없음의 `fuel_ton`이 모델 없음과
+ * **완전히 같았다**(87.50 대 87.50). 좌표를 넣으면 94.22가 된다.
+ */
+describe('기상 모델이 적용되는 조건 (#892)', () => {
+  it('NONE이면 좌표가 없어도 알릴 것이 없다', () => {
+    expect(weatherNeedsCoordinates(state())).toBe(false)
+  })
+
+  it('모델을 골랐는데 좌표가 없으면 true다', () => {
+    expect(weatherNeedsCoordinates(state({ weatherModel: 'SIMPLE_RULE' }))).toBe(true)
+  })
+
+  it('한쪽만 있어도 true다 — 서버는 둘 다 있어야 조회한다', () => {
+    expect(
+      weatherNeedsCoordinates(state({ weatherModel: 'SIMPLE_RULE', currentLat: '35.1' })),
+    ).toBe(true)
+  })
+
+  it('둘 다 있으면 false다', () => {
+    expect(
+      weatherNeedsCoordinates(
+        state({ weatherModel: 'SIMPLE_RULE', currentLat: '35.1', currentLon: '129.0' }),
+      ),
+    ).toBe(false)
   })
 })

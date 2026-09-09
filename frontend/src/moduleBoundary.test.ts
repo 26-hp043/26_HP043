@@ -114,7 +114,6 @@ const KEPT: Readonly<Record<string, string>> = {
   'features/voyage-cii/types.ts::ModelVersion': 'API_SPEC §1.8 재현성 계약',
   'features/voyage-cii/types.ts::ParametersUsed': 'API_SPEC §4.1 재현성 계약',
   'features/voyage-cii/types.ts::ResponseMeta': 'API_SPEC §1.1 공통 meta 계약',
-  'features/voyage-cii/types.ts::WeatherModel': 'API_SPEC §4.1 weather_model enum',
   'features/fleet/types.ts::FleetAction': 'API_SPEC §2.8 응답 계약',
   'features/fleet/types.ts::FleetCounts': 'API_SPEC §2.8 응답 계약',
   'features/vessel-detail/types.ts::YearStatus': '선박 상세 연도별 상태 계약',

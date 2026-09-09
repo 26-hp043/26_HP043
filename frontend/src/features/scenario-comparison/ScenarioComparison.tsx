@@ -3,10 +3,13 @@ import './ScenarioComparison.css'
 import { useShellContext } from '../../layout/shellContext'
 import {
   FIELD,
+  MIN_SPEED_KN,
   NO_VESSEL_MESSAGE,
+  WEATHER_MODELS,
   initialFormState,
   toRequest,
   validateForm,
+  weatherNeedsCoordinates,
   type ComparisonFormState,
   type FormErrors,
 } from './requestRules'
@@ -355,6 +358,129 @@ export function ScenarioComparison({
         {errors[FIELD.fuelType] !== undefined && (
           <span className="scenario-comparison__field-error">{errors[FIELD.fuelType]}</span>
         )}
+      </label>
+
+      {/*
+        선택 입력 (#892).
+
+        여기부터는 **비워 두면 서버 기본**이 쓰인다. 소제목을 두는 이유는 위쪽
+        여섯 칸과 성격이 다르기 때문이다 — 위는 없으면 계산이 안 되고, 아래는
+        없어도 계산된다.
+      */}
+      <h3 className="scenario-comparison__form-subtitle">
+        선택 입력
+        <span className="scenario-comparison__form-title-en"> Optional</span>
+        <span className="scenario-comparison__field-hint">
+          비워 두면 기본 규칙(우회 +5% · 감속 −1kn)으로 계산합니다.
+        </span>
+      </h3>
+
+      <label className="scenario-comparison__field">
+        <span>우회 거리 ({DISPLAY_UNITS.distance})</span>
+        <input
+          inputMode="decimal"
+          value={form.detourDistanceNm}
+          onChange={(e) => setForm({ ...form, detourDistanceNm: e.target.value })}
+          aria-invalid={FIELD.detourDistanceNm in errors}
+          placeholder="직항 × 1.05"
+        />
+        {errors[FIELD.detourDistanceNm] !== undefined && (
+          <span className="scenario-comparison__field-error">
+            {errors[FIELD.detourDistanceNm]}
+          </span>
+        )}
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>감속 속력 ({DISPLAY_UNITS.speed})</span>
+        <input
+          inputMode="decimal"
+          value={form.slowSpeedKn}
+          onChange={(e) => setForm({ ...form, slowSpeedKn: e.target.value })}
+          aria-invalid={FIELD.slowSpeedKn in errors}
+          placeholder={`현재 속력 − 1 (최소 ${MIN_SPEED_KN})`}
+        />
+        {errors[FIELD.slowSpeedKn] !== undefined && (
+          <span className="scenario-comparison__field-error">
+            {errors[FIELD.slowSpeedKn]}
+          </span>
+        )}
+        {/* `PRD §9.1` VAL-009 — floor가 1.0kn이라는 사실을 넣기 전에 알린다.
+            도달했을 때의 경고(`SLOW_SPEED_FLOOR`)는 서버가 결과에 붙인다. */}
+        <span className="scenario-comparison__field-hint">
+          최소 {MIN_SPEED_KN}kn까지 내릴 수 있습니다.
+        </span>
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>기상 보정 모델</span>
+        <select
+          value={form.weatherModel}
+          onChange={(e) => setForm({ ...form, weatherModel: e.target.value })}
+          aria-invalid={FIELD.weatherModel in errors}
+        >
+          {WEATHER_MODELS.map((model) => (
+            <option key={model.code} value={model.code}>
+              {model.label}
+            </option>
+          ))}
+        </select>
+        {errors[FIELD.weatherModel] !== undefined && (
+          <span className="scenario-comparison__field-error">
+            {errors[FIELD.weatherModel]}
+          </span>
+        )}
+        {/*
+          좌표 없이 모델만 고르면 **보정이 통째로 건너뛴다.** 결과에 붙는
+          `WEATHER_NONE_FALLBACK` 배너로는 계산이 끝난 뒤에야 알 수 있어,
+          누르기 전에 같은 사실을 알린다 (`requestRules.ts`의 측정치 참조).
+        */}
+        {weatherNeedsCoordinates(form) && (
+          <span className="scenario-comparison__field-hint" role="status">
+            현재 좌표를 입력해야 기상 보정이 적용됩니다. 비워 두면 보정 없이 계산합니다.
+          </span>
+        )}
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>현재 위도 (°)</span>
+        <input
+          inputMode="decimal"
+          value={form.currentLat}
+          onChange={(e) => setForm({ ...form, currentLat: e.target.value })}
+          aria-invalid={FIELD.currentLat in errors}
+          placeholder="-90 ~ 90"
+        />
+        {errors[FIELD.currentLat] !== undefined && (
+          <span className="scenario-comparison__field-error">{errors[FIELD.currentLat]}</span>
+        )}
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>현재 경도 (°)</span>
+        <input
+          inputMode="decimal"
+          value={form.currentLon}
+          onChange={(e) => setForm({ ...form, currentLon: e.target.value })}
+          aria-invalid={FIELD.currentLon in errors}
+          placeholder="-180 ~ 180"
+        />
+        {errors[FIELD.currentLon] !== undefined && (
+          <span className="scenario-comparison__field-error">{errors[FIELD.currentLon]}</span>
+        )}
+        {/*
+          목적항 좌표는 이 화면에 없다 — 거리를 직접 입력하므로 대권거리 경로를
+          타지 않고(`_resolve_direct_distance()`), 항만을 고르는 UI는 `#760`(샘플
+          항만 테이블)이 선행한다.
+
+          문구에 **다른 칸의 이름을 넣지 않는다.** 힌트가 `<label>` 안에 있어
+          접근성 이름에 섞이고, 같은 낱말이 두 칸에 들어가면 라벨로 칸을 특정할 수
+          없게 된다 — 실제로 기존 검사의 `getByLabelText(/직항 거리/)`가
+          중복 일치로 깨졌다.
+        */}
+        <span className="scenario-comparison__field-hint">
+          기상 보정에만 사용합니다. 항해거리는 위에서 입력한 값을 그대로 씁니다.
+        </span>
       </label>
 
       <div className="scenario-comparison__form-actions">
