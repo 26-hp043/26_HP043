@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { VoyagePanel } from './VoyagePanel'
 import type { VoyageManagementProvider } from './apiProvider'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft } from './types'
@@ -230,5 +230,112 @@ describe('자료 내보내기가 항차 패널에 있다 (#890)', () => {
     fireEvent.click(screen.getByRole('button', { name: '내보내기' }))
 
     expect(await screen.findByText('내보낼 자료가 없습니다.')).toBeTruthy()
+  })
+})
+
+/**
+ * 저장 실패에 입력이 사라지지 않는다 (#824 ⑸).
+ *
+ * 종전에는 `await run(...)` 뒤에 **무조건** 폼을 닫았다. `run()`이 오류를 잡아
+ * 표시하고 끝이라 호출부가 성공·실패를 가릴 수 없었고, `ActualsForm`이 `useState`로
+ * 초안을 들고 있어 **언마운트와 함께 실제 거리·평균 속력·연료별 실적이 전부
+ * 소실**됐다.
+ *
+ * ⚠️ **바로 옆 `VoyageForm`(항차 생성)은 정반대로 처리한다** — 자체 `try/catch`로
+ * 폼을 열어 둔다. **두 폼의 규율이 갈려 있었다.**
+ */
+describe('실적 저장이 실패해도 폼이 닫히지 않는다 (#824 ⑸)', () => {
+  it('실패하면 폼이 남고 입력값도 남는다', async () => {
+    const saveActuals = vi.fn(async () => {
+      throw new Error('실적을 저장하지 못했습니다.')
+    })
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ saveActuals })} />)
+    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+
+    const distance = await screen.findByLabelText(/실제 거리/)
+    fireEvent.change(distance, { target: { value: '4321' } })
+    fireEvent.click(screen.getByRole('button', { name: '실적 저장' }))
+
+    await waitFor(() => expect(saveActuals).toHaveBeenCalled())
+
+    // 폼이 살아 있고
+    expect(await screen.findByLabelText(/실제 거리/)).toBeTruthy()
+    // 넣은 값도 그대로다 — 이것이 사라지던 것이 결함이다.
+    expect((screen.getByLabelText(/실제 거리/) as HTMLInputElement).value).toBe('4321')
+    // 사유도 보인다.
+    expect(await screen.findByText('실적을 저장하지 못했습니다.')).toBeTruthy()
+  })
+
+  it('성공하면 종전대로 닫힌다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    fireEvent.change(await screen.findByLabelText(/실제 거리/), { target: { value: '4321' } })
+    fireEvent.click(screen.getByRole('button', { name: '실적 저장' }))
+
+    await waitFor(() => expect(screen.queryByLabelText(/실제 거리/)).toBeNull())
+  })
+})
+
+/**
+ * 연료가 선택돼 보이면 그 값으로 저장된다 (#824 ⑹).
+ *
+ * `draft.fuelUses`는 `useState` 초기화 때 `fuelTypes[0] ?? ''`로 굳는데 `fuelTypes`는
+ * 비동기로 채워진다. 목록이 오기 전에 「항차 추가」를 누르면 `fuelType: ''`로 **굳고
+ * 이후에도 재동기되지 않는다.** `<option value="">`가 없으므로 브라우저는
+ * `selectedIndex=0`, 즉 **첫 연료가 선택된 것처럼 그린다** — 사용자는 고른 것으로 보고
+ * 저장을 누르는데 「연료 종류를 선택해 주세요.」가 뜬다.
+ */
+describe('연료가 선택돼 보이면 그대로 저장된다 (#824 ⑹)', () => {
+  it('연료 목록이 늦게 와도 화면이 그리는 값으로 저장된다', async () => {
+    /*
+     * **폼이 열린 뒤에 목록이 도착해야** 결함이 재현된다.
+     *
+     * `VoyageForm`의 `useState` 초기화가 `fuelTypes[0] ?? ''`를 읽는데, 그 시점에
+     * 목록이 비어 있으면 `''`로 **굳고 이후 도착해도 재동기되지 않는다.** 스텁이
+     * 즉시 응답하면 이 조건이 만들어지지 않아, 첫 검사 판본은 돌연변이 검사에서
+     * 통과해 버렸다.
+     */
+    let release: ((rows: { voyages: ManagedVoyage[]; fuelTypes: string[]; nextCursor: null; hasMore: false }) => void) | null =
+      null
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    const provider = stubProvider({
+      create,
+      list: vi.fn(
+        async () =>
+          new Promise<{
+            voyages: ManagedVoyage[]
+            fuelTypes: string[]
+            nextCursor: null
+            hasMore: false
+          }>((resolve) => {
+            release = resolve
+          }),
+      ),
+    })
+    render(<VoyagePanel vesselId="ves-1" provider={provider} />)
+
+    // 목록이 오기 전에 연다 — 이때 초안의 연료가 빈 문자열로 굳는다.
+    fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+
+    await act(async () => {
+      release?.({ voyages: [IN_PROGRESS], fuelTypes: ['HFO', 'MDO'], nextCursor: null, hasMore: false })
+    })
+
+    // 셀렉트가 그리고 있는 값 = 첫 연료. 상태는 비어 있어도 화면은 이렇게 보인다.
+    const fuel = (await screen.findByLabelText(/연료 종류 1/)) as HTMLSelectElement
+    expect(fuel.value).toBe('HFO')
+
+    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-09' } })
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2300' } })
+    fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
+    fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '331' } })
+
+    fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    // 화면이 보인 값과 보낸 값이 같다 — 갈리면 「선택해 주세요」로 거부된다.
+    expect(create.mock.calls[0][1].fuelUses[0].fuelType).toBe('HFO')
   })
 })

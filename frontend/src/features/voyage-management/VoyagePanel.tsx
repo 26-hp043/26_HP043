@@ -221,17 +221,30 @@ function VoyageRow({
   const [rowError, setRowError] = useState<string | null>(null)
   const [actualsOpen, setActualsOpen] = useState(false)
 
-  const run = async (task: () => Promise<ManagedVoyage>) => {
+  /**
+   * 한 항차의 요청을 돌리고 **성공 여부를 돌려준다** (`#824` ⑸).
+   *
+   * 종전에는 오류를 잡아 표시하고 끝이라 호출부가 성공·실패를 가릴 수 없었다. 실적
+   * 입력이 그것을 그대로 밟았다 — `await run(...)` 뒤에 무조건 폼을 닫아, **저장이
+   * 실패해도 폼이 사라지고 사용자가 넣은 실제 거리·평균 속력·연료별 실적이 전부
+   * 소실**됐다(`ActualsForm`이 `useState`로 들고 있다).
+   *
+   * 던지지 않고 `boolean`을 돌려주는 것은 **오류 표시가 이미 이 함수의 일**이기
+   * 때문이다. 다시 던지면 호출부마다 같은 `try/catch`가 생긴다.
+   */
+  const run = async (task: () => Promise<ManagedVoyage>): Promise<boolean> => {
     setBusy(true)
     setRowError(null)
     try {
       onChange(await task())
+      return true
     } catch (error) {
       setRowError(
         error instanceof VoyageError || error instanceof Error
           ? error.message
           : '처리하지 못했습니다.',
       )
+      return false
     } finally {
       setBusy(false)
     }
@@ -321,8 +334,8 @@ function VoyageRow({
           voyage={voyage}
           onCancel={() => setActualsOpen(false)}
           onSubmit={async (draft) => {
-            await run(() => api.saveActuals(voyage.id, draft))
-            setActualsOpen(false)
+            // 성공했을 때만 닫는다 (`#824` ⑸) — 실패에 닫으면 입력이 사라진다.
+            if (await run(() => api.saveActuals(voyage.id, draft))) setActualsOpen(false)
           }}
         />
       ) : null}
@@ -382,14 +395,28 @@ function VoyageForm({
       noValidate
       onSubmit={async (event) => {
         event.preventDefault()
-        const found = validateDraft(draft)
+        /*
+          화면이 그리는 값과 **같은 값으로** 검증·전송한다 (`#824` ⑹).
+
+          셀렉트가 첫 연료를 그리고 있는데 상태가 비어 있으면, 눈에 보이는 것과
+          보내는 것이 갈린다. 빈 칸을 여기서 메워 그 어긋남을 없앤다 — 목록조차
+          비어 있으면 그대로 두고 `validateDraft`가 잡는다.
+        */
+        const filled: VoyageDraft = {
+          ...draft,
+          fuelUses: draft.fuelUses.map((fu) => ({
+            ...fu,
+            fuelType: fu.fuelType || (fuelTypes[0] ?? ''),
+          })),
+        }
+        const found = validateDraft(filled)
         setErrors(found)
         if (hasErrors(found)) return
 
         setBusy(true)
         setFailure(null)
         try {
-          await onSubmit(draft)
+          await onSubmit(filled)
         } catch (error) {
           setFailure(error instanceof Error ? error.message : '항차를 만들지 못했습니다.')
         } finally {
@@ -452,10 +479,26 @@ function VoyageForm({
 
         {draft.fuelUses.map((fu, index) => (
           <div className="vy__fuel-row" key={index}>
+            {/*
+              값이 비어 있으면 **렌더 시점에** 첫 연료로 본다 (`#824` ⑹).
+
+              `draft.fuelUses`는 `useState` 초기화 때 `fuelTypes[0] ?? ''`로 굳는데,
+              `fuelTypes`는 비동기로 채워진다. 목록이 오기 전에 「항차 추가」를 누르면
+              `fuelType: ''`로 **굳고 이후에도 재동기되지 않는다.**
+
+              그 상태에서 `<option value="">`가 없으므로 브라우저는 `selectedIndex=0`,
+              즉 **첫 연료가 선택된 것처럼 그린다.** 사용자는 고른 것으로 보고 저장을
+              누르는데 「연료 종류를 선택해 주세요.」가 뜬다 — **화면과 상태가 다른
+              말을 한다.**
+
+              `NotUnderwayPanel`이 같은 문제를 렌더 시점 계산으로 피한다
+              (`periodType || choices.periodTypes[0]`). 여기서는 **화면이 보이는 값을
+              상태에도 반영**해야 저장이 그 값을 쓴다.
+            */}
             <select
               className="vy__input"
               aria-label={`연료 종류 ${index + 1}`}
-              value={fu.fuelType}
+              value={fu.fuelType || (fuelTypes[0] ?? '')}
               onChange={(event) => setFuel(index, { fuelType: event.target.value })}
             >
               {fuelTypes.map((code) => (

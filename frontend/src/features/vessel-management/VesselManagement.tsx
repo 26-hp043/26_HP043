@@ -220,6 +220,23 @@ export function VesselManagement() {
         </p>
       )}
 
+      {/*
+        최초 조회 중에는 **본문이 통째로 비어 있었다** (`#824` ⑷).
+
+        `loading`을 읽는 렌더 분기가 「더 보기」 버튼뿐이었고 그 버튼은 `hasMore`일
+        때만 존재한다. 그래서 첫 로드 동안 오류도·빈 상태도(`!loading`으로 배제)·
+        목록도 없어 **머리말과 링크 두 개만 남았다** — 사용자는 선박이 없는 화면으로
+        읽는다.
+
+        다른 목록 화면은 전부 이 자리를 채운다(`FleetDashboard`·`VoyagePanel`·
+        `NotUnderwayPanel`).
+      */}
+      {loading && vessels.length === 0 && loadError === null && (
+        <p className="vessel-management__empty" aria-busy="true">
+          선박 목록을 불러오는 중입니다…
+        </p>
+      )}
+
       {!loading && vessels.length === 0 && loadError === null && (
         <p className="vessel-management__empty">{EMPTY_MESSAGE}</p>
       )}

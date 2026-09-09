@@ -72,6 +72,16 @@ export function AppShell() {
   // 화면이 그 셋을 다르게 안내할 수 있도록 함께 내린다 (#484).
   const [vesselsState, setVesselsState] = useState<ShellContext['vesselsState']>('loading')
   const [voyages, setVoyages] = useState<VoyageOption[]>([])
+  /*
+   * 항차 목록 조회가 어느 단계인가 (`#824` ⑶).
+   *
+   * **빈 배열의 이유를 구분하기 위해 있다** — 바로 위 선박 축이 `vesselsState`로 같은
+   * 판단을 이미 해 두었다(`shellContext.ts`: *「`ready`인데 비었으면 등록된 배가 없는
+   * 것이고, `failed`면 서버를 못 읽은 것이다」*). **항차 축에만 대응 필드가
+   * 없었고**, 조회가 실패하면 `setVoyages([])`로 떨어져 셀렉트가 **「항차 없음」**을
+   * 말했다 — 항차가 1,000건이어도 그렇다.
+   */
+  const [voyagesState, setVoyagesState] = useState<'loading' | 'ready' | 'failed'>('ready')
   // 계층 밖 화면에서 보일 「기억해 둔 선택」. 계층 화면에서는 URL이 이긴다.
   const [remembered, setRemembered] = useState<GlobalContextValue>(EMPTY_CONTEXT)
 
@@ -124,14 +134,22 @@ export function AppShell() {
     let alive = true
     if (context.vesselId === null) {
       setVoyages([])
+      setVoyagesState('ready')
       return
     }
+    setVoyages([])
+    setVoyagesState('loading')
     voyageCatalog.listVoyages(context.vesselId).then(
       (options) => {
-        if (alive) setVoyages(options)
+        if (!alive) return
+        setVoyages(options)
+        setVoyagesState('ready')
       },
       () => {
-        if (alive) setVoyages([])
+        if (!alive) return
+        // 실패를 `ready`인 빈 목록으로 두면 「항차 없음」이 된다 (`#824` ⑶).
+        setVoyages([])
+        setVoyagesState('failed')
       },
     )
     return () => {
@@ -294,12 +312,21 @@ export function AppShell() {
                 applyContext(selectVoyage(context, event.target.value || null))
               }
             >
+              {/*
+                세 상태를 구분해 말한다 (`#824` ⑶). 종전에는 조회 실패도 「항차
+                없음」이라 사용자가 **항차를 만들어야 하는지 서버를 봐야 하는지**
+                알 수 없었다 — 선박 셀렉트는 이미 그 셋을 가른다.
+              */}
               <option value="">
                 {context.vesselId === null
                   ? '선박 먼저 선택'
-                  : voyages.length === 0
-                    ? '항차 없음'
-                    : '항차 선택 안 함'}
+                  : voyagesState === 'loading'
+                    ? '불러오는 중…'
+                    : voyagesState === 'failed'
+                      ? '항차를 불러오지 못했습니다'
+                      : voyages.length === 0
+                        ? '항차 없음'
+                        : '항차 선택 안 함'}
               </option>
               {voyages.map((option) => (
                 <option key={option.id} value={option.id}>

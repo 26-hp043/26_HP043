@@ -166,3 +166,44 @@ describe('선박이 없으면 조회하지 않는다', () => {
     expect(calls.filter((c) => c.url.includes('regulation-years'))).toHaveLength(0)
   })
 })
+
+/**
+ * 선박이 없어도 연도 로딩이 끝난다 (#824 ⑴).
+ *
+ * 종전 자체 구현은 `if (!state.vesselId) return`으로 조기 반환하면서 `yearsLoading`을
+ * **`true`로 남겨 뒀다.** 이 화면은 목록의 첫 배를 자동 선택하므로 평시에는 드러나지
+ * 않지만, **선박이 0척이거나 `GET /vessels`가 실패하면** 같은 상태가 된다.
+ *
+ * ⚠️ 그때 「선박」 칸은 **정확히** 안내하는데 바로 아래 「규제연도」만 영원히 로딩이라
+ * **한 화면에서 두 칸이 다른 사실을 말한다.**
+ */
+describe('선박이 없을 때도 연도 칸이 로딩에서 벗어난다 (#824 ⑴)', () => {
+  it('등록된 선박이 0척이면 「불러오는 중」이 사라진다', async () => {
+    stubServer()
+
+    renderForm({ vesselId: null, vessels: [], vesselsState: 'ready' })
+
+    await waitFor(() =>
+      expect(screen.queryByText(/규제연도 목록을 불러오는 중/)).toBeNull(),
+    )
+  })
+
+  it('선박 목록 조회가 실패해도 연도 칸이 멈추지 않는다', async () => {
+    stubServer()
+
+    renderForm({ vesselId: null, vessels: [], vesselsState: 'failed' })
+
+    await waitFor(() =>
+      expect(screen.queryByText(/규제연도 목록을 불러오는 중/)).toBeNull(),
+    )
+  })
+
+  it('선박이 정해지면 종전대로 목록을 채운다 — 이관이 동작을 바꾸지 않았다', async () => {
+    stubServer()
+
+    renderForm()
+
+    const select = await screen.findByLabelText(/규제연도/)
+    await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(3))
+  })
+})
