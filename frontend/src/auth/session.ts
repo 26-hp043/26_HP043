@@ -431,6 +431,58 @@ export async function changePassword(
   return body?.data?.message ?? '비밀번호를 변경했습니다.'
 }
 
+/**
+ * 탈퇴 — `DELETE /auth/me` (`API_SPEC §1.2`, `#754`).
+ *
+ * ## 서버가 하는 일
+ *
+ * `app_user.is_deleted`를 세우는 **soft delete**이고 행을 지우지 않는다. 그 사용자가
+ * 남긴 `calculation_run`(immutable)·`audit_log`(보존 대상)는 **그대로 남는다** —
+ * 규제 대응의 근거가 되는 기록이기 때문이다. 세션은 전량 무효화되고 쿠키 2종이
+ * 지워지며 응답은 **204**(돌려줄 사용자 정보가 없다)다.
+ *
+ * ## 실패해도 이동하지 않는다 — `logout`과 다르다
+ *
+ * `logout`은 서버 호출이 실패해도 클라이언트 상태를 비우고 이동한다. **로그아웃
+ * 버튼에 갇히는 것이 최악**이기 때문이다.
+ *
+ * 탈퇴는 반대다. 실패한 채 로그인 화면으로 보내면 사용자는 **탈퇴됐다고 믿는데
+ * 계정이 살아 있다.** 그래서 실패를 그대로 던지고 화면이 사유를 보여 준다.
+ *
+ * ## 성공하면 캐시를 비우고 로그인 화면으로
+ *
+ * 서버가 세션을 무효화했으므로 어느 화면에 남아 있어도 다음 요청이 401이다.
+ * 화면이 아니라 여기서 이동시키는 것은 `logout`과 같은 이유 — 상태 초기화와 이동이
+ * 갈리면 「로그아웃된 화면에 옛 사용자 이름이 남는」 상태가 생긴다.
+ */
+export async function deleteAccount(
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<void> {
+  let response: Response
+  try {
+    response = await fetchImpl(ME_URL, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { Accept: 'application/json', ...csrfHeaders() },
+    })
+  } catch {
+    throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
+  }
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string }
+    } | null
+    throw new AuthRequestError(body?.error?.message ?? '탈퇴하지 못했습니다.', response.status)
+  }
+
+  currentUser = null
+  notify()
+  if (typeof window !== 'undefined') {
+    window.location.assign(LOGIN_PATH)
+  }
+}
+
 /** 현재 사용자를 구독한다 — 가드·상단바가 함께 쓴다. */
 export function useAuthUser(): CurrentUser | null {
   return useSyncExternalStore(subscribeAuth, getCachedUser, getCachedUser)
