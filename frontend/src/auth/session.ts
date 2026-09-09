@@ -192,6 +192,41 @@ export class AuthRequestError extends Error {
   }
 }
 
+/**
+ * 세션 만료 문구 (`#878`).
+ *
+ * 이 파일이 정본 자리다 — 종전에는 **같은 상태를 두 문구로** 말하고 있었다:
+ * `features/<기능>/apiProvider.ts` 네 곳이 이 문구를, 나머지 열 곳이 「세션이
+ * 만료되었습니다.」를 각자 리터럴로 들고 있다. 이번 작업은 **새 사본을 만들지 않는
+ * 것**까지만 하고, 열네 곳의 통합은 `#901`로 갈랐다 — 13파일을 건드리는 것은 이
+ * 이슈의 범위가 아니다(`AGENTS §7` 1 PR = 1 이슈).
+ */
+export const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.'
+
+/**
+ * 세션이 만료된 요청을 끝낸다 — **캐시를 비우고 로그인 화면으로 보낸 뒤 던진다**
+ * (`#878`).
+ *
+ * ## 왜 `postJson`에 넣지 않는가
+ *
+ * `postJson`을 쓰는 것은 로그인·가입·메일 인증·비밀번호 재설정이다. **그쪽의 401은
+ * 세션 만료가 아니라 「자격 증명이 틀렸다」**이고, 거기서 로그인 화면으로 튕기면
+ * 로그인 실패가 화면 이동으로 나타난다 — 사용자는 무엇이 틀렸는지 보지 못한다.
+ *
+ * 세션이 있어야만 부를 수 있는 요청(`PATCH`·`DELETE /auth/me`,
+ * `POST /auth/password-change`)에서만 부른다.
+ *
+ * `redirectToLogin()`은 현재 경로를 `next`로 보존하므로, 다시 로그인하면 하던
+ * 화면으로 돌아온다 — `logout`·탈퇴 성공이 쓰는 `LOGIN_PATH` 직행과 다른 점이고,
+ * 그 차이가 「끝났다」와 「다시 하라」를 가른다.
+ */
+function failExpiredSession(): never {
+  currentUser = null
+  notify()
+  redirectToLogin()
+  throw new AuthRequestError(SESSION_EXPIRED_MESSAGE, 401)
+}
+
 async function postJson(
   url: string,
   payload: unknown,
@@ -363,6 +398,9 @@ export async function updateDisplayName(
     throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
   }
 
+  // `PATCH /auth/me`의 401은 세션 문제뿐이다 — 이 라우트에 다른 401 원인이 없다.
+  if (response.status === 401) failExpiredSession()
+
   const body = await response.json().catch(() => null)
   if (!response.ok) {
     throw new AuthRequestError(
@@ -388,6 +426,11 @@ export async function updateDisplayName(
  *
  * 캐시를 그대로 두면 다음 요청이 401을 받아 `redirectToLogin()`으로 간다. 그 사이에
  * 화면이 사유를 설명한다 — 사용자가 「왜 튕겼지」로 받지 않게 하는 것이 목적이다.
+ *
+ * ⚠️ **그 「다음 요청」이 이 모듈 안에는 없었다** (`#878`). `redirectToLogin()`의
+ * 소비처는 `features/<기능>/apiProvider.ts` 열세 곳뿐이고, 설정 화면에 머무는 동안에는
+ * 그중 아무것도 불리지 않는다 — 이름 변경·비밀번호 변경·탈퇴가 전부 이 파일의
+ * 요청이기 때문이다. 이제 이 파일의 세 요청도 401에서 `failExpiredSession()`을 지난다.
  *
  * @returns 서버가 준 안내 문구. 무효화된 기기 수를 담고 있다.
  */
@@ -419,6 +462,34 @@ export async function changePassword(
     data?: { message?: string }
     error?: { message?: string }
   } | null
+
+  /*
+   * 401 하나에 두 사유가 섞여 있다 (`#878`).
+   *
+   * ## 실측 — `code`로는 가를 수 없다
+   *
+   * ```
+   * 세션 만료   {"code":"UNAUTHORIZED","message":"인증이 필요합니다."}
+   * 비번 오입력 {"code":"UNAUTHORIZED","message":"현재 비밀번호가 올바르지 않습니다."}
+   * ```
+   *
+   * 이슈 본문은 「서버 응답의 code로」 가르라고 적었으나 **두 응답의 `code`가 같다.**
+   * `API_SPEC:194`는 `UNAUTHORIZED`를 「세션 없음·만료·무효」로 정의하므로 비밀번호
+   * 오입력에 그 코드를 쓰는 것 자체가 정본과 어긋나는데(`#902`), 그 수정은 서버 몫이다.
+   *
+   * ## 문구로 가르지 않는다
+   *
+   * 문구 대조는 서버가 한 글자만 고쳐도 조용히 깨지고, 그 실패는 **세션이 만료됐는데
+   * 폼에 머무는** 방향이라 사용자가 갇힌다. 대신 **세션이 실제로 살아 있는지 직접
+   * 확인한다** — 비밀번호가 틀린 것뿐이라면 `GET /auth/me`는 200이다.
+   *
+   * 요청 한 번이 더 드는 것은 **실패 경로에서만**이고, 그 대가로 판정이 서버 문구에
+   * 의존하지 않는다. 성공 경로는 건드리지 않는다.
+   */
+  if (response.status === 401) {
+    const alive = await probeCurrentUser(fetchImpl)
+    if (alive === null) failExpiredSession()
+  }
 
   if (!response.ok) {
     /*
@@ -468,6 +539,18 @@ export async function deleteAccount(
   } catch {
     throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
   }
+
+  /*
+   * 401은 **탈퇴 실패가 아니라 세션 만료**다 — 이 라우트에 다른 401 원인이 없다
+   * (`#878`). 종전에는 「탈퇴하지 못했습니다」류의 서버 문구가 폼 아래 붙을 뿐
+   * 화면이 설정에 갇혔고, 그 상태에서는 **어떤 동작도 401이라 빠져나갈 길이 없었다.**
+   *
+   * 위 「실패해도 이동하지 않는다」와 어긋나지 않는다: 그 규칙은 **탈퇴가 거부된**
+   * 경우(사용자가 계정이 지워졌다고 오해하면 안 된다)를 말하고, 여기는 요청이 아예
+   * 접수되지 않은 경우다. `next`가 붙은 로그인 이동이라 다시 로그인하면 설정 화면으로
+   * 돌아와 탈퇴를 다시 시도할 수 있다 — 성공 경로의 `LOGIN_PATH` 직행과 다르다.
+   */
+  if (response.status === 401) failExpiredSession()
 
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
