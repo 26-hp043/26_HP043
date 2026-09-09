@@ -53,7 +53,7 @@ from cii_platform.reports.labels import (
     warning_label,
 )
 from cii_platform.services.applicability import applicability_state
-from cii_platform.services.cii_current import get_current_cii
+from cii_platform.services.cii_current import get_current_cii, resolve_in_progress_state
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import compute_ytd_cii
@@ -241,7 +241,24 @@ async def build_voyage_report(
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
 
     # YTD는 「이 항차가 연간 누적에서 차지한 비중」을 내기 위해 필요하다.
-    ytd = await compute_ytd_cii(session, vessel_id=vessel.id, regulation_year=year)
+    #
+    # `as_of`·`in_progress`를 함께 넘긴다 (#866). `#750`이 YTD 정의를 통일할 때
+    # **이 호출만 옛 형태로 남아** 리포트의 「연간 누적 CO₂」와 화면의 값이 29%
+    # 어긋났다(1,930.68 t vs 2,495.46 t). `as_of`를 넘기지 않으면 그 시점 이후
+    # 도착 예정 항차까지 집계되고, `in_progress`를 넘기지 않으면 진행 중 항차의
+    # 기여가 통째로 빠진다 — 리포트는 되물을 수단이 없는 산출물이다.
+    in_progress = (
+        (await resolve_in_progress_state(session, vessel=vessel, as_of=resolved))
+        .for_year(year)
+        .contribution
+    )
+    ytd = await compute_ytd_cii(
+        session,
+        vessel_id=vessel.id,
+        regulation_year=year,
+        as_of=resolved,
+        in_progress=in_progress,
+    )
 
     voyage_co2_g = sum(
         (
