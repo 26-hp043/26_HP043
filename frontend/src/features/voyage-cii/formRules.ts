@@ -89,9 +89,22 @@ export function initialFormState(): VoyageCiiFormState {
  * 키를 하나씩 적지 않고 `Object.keys`로 도는 것은 **필드가 늘 때 자동으로
  * 포함시키기 위해서다** — 새 입력을 여기 추가하는 것을 잊으면, 그 필드만 고쳤을 때
  * 안내가 나오지 않고 그 누락은 화면이 깨지지 않아 발견이 늦다.
+ *
+ * ## 폼 형태를 고정하지 않는다 (#875)
+ *
+ * 항로 비교(`scenario-comparison`)가 같은 어긋남을 갖고 있었다(#875). 그 폼도 전 필드가
+ * 문자열이고 「전부 같아야 최신」이라는 규칙도 같으므로 **구현을 복사하지 않고**
+ * 형태만 열었다 — 복사하면 위 `Object.keys` 규율이 한쪽에서만 유지된다(`#820`·`#872`가
+ * 각각 같은 이유로 공용화한 선례).
  */
-export function sameInputs(a: VoyageCiiFormState, b: VoyageCiiFormState): boolean {
-  const keys = Object.keys(a) as Array<keyof VoyageCiiFormState>
+/*
+ * 제약이 `Record<string, string>`이 아니라 `Record<keyof T, string>`인 것은
+ * **`interface`에 인덱스 시그니처가 없기 때문**이다. 두 폼 상태가 모두 `interface`라
+ * 앞의 형태로는 `TS2345`가 난다(`npm run build`에서만 잡힌다 — `vitest`는 타입을
+ * 보지 않는다). 이 형태는 「T의 모든 칸이 문자열」만 요구해 `interface`도 통과한다.
+ */
+export function sameInputs<T extends Record<keyof T, string>>(a: T, b: T): boolean {
+  const keys = Object.keys(a) as Array<keyof T>
   return keys.every((key) => a[key] === b[key])
 }
 

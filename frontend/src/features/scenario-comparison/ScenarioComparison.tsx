@@ -25,7 +25,7 @@ import { selectScenarioProvider } from './providerSelection'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
-import { pickDefaultYear } from '../voyage-cii/formRules'
+import { pickDefaultYear, sameInputs } from '../voyage-cii/formRules'
 import {
   deltaFromDirect,
   isZeroDelta,
@@ -76,8 +76,29 @@ import type { ScenarioComparisonResponse, ScenarioResult } from './types'
 type LoadState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'success'; response: ScenarioComparisonResponse }
+  | { status: 'success'; response: ScenarioComparisonResponse; snapshot: ResultSnapshot }
   | { status: 'error'; message: string }
+
+/**
+ * 계산 시점에 고정해 두는 것들 (#875).
+ *
+ * **숫자는 스냅샷인데 제목만 살아 있었다.** 제목의 선박명·연도가 `form`을 직접
+ * 읽어, 결과를 본 뒤 상단바에서 배를 바꾸면 **A선의 계산 결과 위에 B선의 이름**이
+ * 붙었다(연도도 같다 — 「2027년 기준」 제목 아래 2026년 계산이 남았다).
+ *
+ * 스냅샷을 응답 옆에 함께 둔다. 「제목만 따로 조심한다」로는 같은 결함이 다음에
+ * 추가되는 표시값에서 되풀이된다 — **계산 시점 값은 계산 결과와 같은 자리에**
+ * 있어야 한다.
+ *
+ * `inputs`는 제목의 출처이자 「결과가 낡음」의 비교 기준이다. 연도를 따로 복사해
+ * 두지 않는 것은 두 곳이 갈라지지 않게 하기 위해서다.
+ */
+interface ResultSnapshot {
+  /** 계산 시점 셸 목록에서 읽은 이름. 목록이 아직 없거나 지워진 배면 `null`. */
+  vesselName: string | null
+  /** 계산에 실제로 쓴 조건 전부. */
+  inputs: ComparisonFormState
+}
 
 export function ScenarioComparison({
   onDisclaimer,
@@ -151,10 +172,19 @@ export function ScenarioComparison({
       return
     }
     setErrors({})
+    /*
+     * 스냅샷은 **응답이 온 뒤가 아니라 지금** 뜬다 (#875). 계산이 도는 동안에도
+     * 상단바에서 배를 바꿀 수 있으므로, 응답 시점에 읽으면 사용자가 「비교하기」를
+     * 누를 때 화면에 있던 이름이 아니라 그 사이에 바뀐 이름이 박힌다.
+     */
+    const snapshot: ResultSnapshot = {
+      vesselName: vessels?.find((option) => option.id === form.vesselId)?.displayName ?? null,
+      inputs: form,
+    }
     setState({ status: 'loading' })
     provider.compare(toRequest(form, fuels)).then(
       (response) => {
-        setState({ status: 'success', response })
+        setState({ status: 'success', response, snapshot })
         onDisclaimer?.(response.disclaimer)
       },
       (error: unknown) => {
@@ -370,12 +400,12 @@ export function ScenarioComparison({
     )
   }
 
-  const { response } = state
+  const { response, snapshot } = state
   const unit = ciiUnit(response.transport_capacity_basis)
   const summary = lowestSummary(response.scenarios)
 
   /*
-   * 제목의 선박명 (#821).
+   * 제목의 선박명 (#821 · #875).
    *
    * **서버 응답에는 이 값이 없다.** 종전에는 provider가 `vessel_display_name: ''`을
    * 응답 타입에 채워 넣었고, 제목이 `` · 2026년 기준 · …``처럼 **구분점만 남은**
@@ -388,9 +418,26 @@ export function ScenarioComparison({
    *
    * 목록이 아직 안 왔거나 그 사이 선박이 지워졌으면 `null`이라 이름 칸을 통째로
    * 뺀다 — 빈 문자열을 두면 구분점만 남아 **레이아웃이 깨진 것처럼 보인다.**
+   *
+   * `#875`가 여기서 **`form`이 아니라 스냅샷을 읽게** 바꿨다. 종전에는 결과를 본 뒤
+   * 상단바에서 배를 바꾸면 옛 숫자 위에 새 이름이 붙었다.
    */
-  const vesselName =
-    vessels?.find((option) => option.id === form.vesselId)?.displayName ?? null
+  const { vesselName } = snapshot
+
+  /*
+   * 결과가 낡았는가 (#875 · 선례 `#727`).
+   *
+   * 제목을 고정하면 이번에는 **제목·숫자와 폼이 어긋난 상태**가 화면에 남는다.
+   * 어긋남 자체는 정상이다(결과를 보며 조건을 고치는 것이 이 화면의 사용법이다) —
+   * 다만 **그 사실을 화면이 말해야** 사용자가 옛 숫자를 현재 조건의 답으로 읽지
+   * 않는다. 기능①이 같은 이유로 같은 표시를 갖고 있다.
+   *
+   * 비교는 폼 전체를 본다 — 선박·연도만 보면 거리나 연료만 고쳤을 때 안내가
+   * 빠진다. 판정은 `sameInputs`가 하고, 그 함수는 키를 열거하지 않아 폼에 칸이
+   * 늘어도 자동으로 포함된다.
+   */
+  const stale = !sameInputs(snapshot.inputs, form)
+
   const nameOf = (type: string | null) =>
     response.scenarios.find((s) => s.scenario_type === type)?.scenario_name ?? '—'
 
@@ -418,7 +465,9 @@ export function ScenarioComparison({
         폼 옆에 올리고 `__notice`부터는 아래 줄로 흘려보낸다 — 결과가 두 단에
         걸쳐 쪼개진다.
       */}
-      <div className="scenario-comparison__results">
+      <div
+        className={`scenario-comparison__results${stale ? ' scenario-comparison__results--stale' : ''}`}
+      >
         <header className="scenario-comparison__header">
           <h2 className="scenario-comparison__title">
             시나리오 비교
@@ -426,10 +475,22 @@ export function ScenarioComparison({
           </h2>
           <p className="scenario-comparison__context">
             {vesselName !== null && `${vesselName} · `}
-            {form.regulationYear}년 기준 · 기준 CII{' '}
+            {snapshot.inputs.regulationYear}년 기준 · 기준 CII{' '}
             {formatDecimalString(response.required_cii, DISPLAY_DIGITS.cii)} {unit}
           </p>
         </header>
+
+        {/*
+          입력이 바뀌었는데 결과가 그대로 남아 있는 상태 (#875, 선례 `#727`).
+          문구를 기능①과 같은 형태로 두되 버튼 이름만 이 화면의 것(`비교하기`)을
+          쓴다 — 다시 눌러야 할 버튼이 화면에 실제로 있는 이름이어야 한다.
+        */}
+        {stale ? (
+          <p className="scenario-comparison__stale" role="status">
+            <strong>입력이 바뀌었습니다.</strong> 아래는 이전 입력으로 계산한 값입니다 —
+            <strong> 비교하기</strong>를 다시 눌러 주세요.
+          </p>
+        ) : null}
 
         {/* PRD §6.3 — 「추정값 사용」·「자동 결정 금지」 문구를 그대로 쓴다 */}
         <p className="scenario-comparison__notice">
