@@ -379,22 +379,47 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 
 **`calculation_type = VOYAGE_ESTIMATE`**
 
+> **[#879] 실제 기록되는 15키 전부다.** 종전 예시는 7키였는데 그중 **실물과 겹치는
+> 것이 3키뿐**이었다 — `rating`은 실제 `estimated_rating`, `co2_ton`은
+> `co2_emission_ton`이고(`API_SPEC §4.1`과도 어긋났다), `weather_factor`·
+> `weather_snapshot_id`는 **`result_json`에 들어가지 않는다**(아래 각주). 라이브
+> 덤프로 대조해 교체했다. 값은 `PRD §13.1` Fixture 1 그대로다.
+
 ```json
 {
   "attained_cii": "4.982400",
   "required_cii": "5.045066",
-  "rating": "C",
-  "co2_ton": "249.12",
+  "ratio_to_required": "0.98758",
+  "estimated_rating": "C",
+  "next_worse_boundary_margin": "0.365370",
+  "next_worse_boundary_margin_ratio": "0.0724",
+  "co2_emission_ton": "249.12",
+  "fuel_consumption_ton": "80.00",
+  "distance_nm": 1000.0,
   "risk_level": "MEDIUM",
-  "weather_factor": "1.0482",
-  "weather_snapshot_id": "uuid-or-null"
+  "transport_capacity": "50000",
+  "transport_capacity_basis": "DWT",
+  "reference_capacity": "50000",
+  "reference_capacity_rule": "DWT",
+  "calculation_basis": {
+    "ship_type": "BULK_CARRIER",
+    "z_factor_percent": "11.0",
+    "fuel_cf_details": [
+      { "fuel_type": "HFO", "cf": "3.114", "fuel_ton": "80.0" }
+    ],
+    "a_decimal": "4745",
+    "c": "0.622"
+  }
 }
 ```
 
 | 필드 | 설명 |
 |---|---|
-| `weather_factor` | **[#102]** 재현성 계약(`TECH_SPEC §5.4`). `weather_model = NONE`이거나 fallback이면 `"1.0"` |
-| `weather_snapshot_id` | **[#102]** 계산에 사용한 기상 스냅샷. 없으면 `null` |
+| `distance_nm` | **입력 에코라 JSON 숫자다** — 나머지 수치는 Layer 1 결과라 `API_SPEC §1.7`에 따라 문자열이다. 한 블록 안에 두 타입이 섞이는 것은 의도다 |
+| `next_worse_boundary_*` | 등급 E는 악화 방향 경계가 없어 `null`이다 (`#171` · `PRD §9.2`) |
+| `reference_capacity_rule` | enum이 아니다 — 파라미터 테이블 값 그대로(`fixed 279000` 등) |
+| `weather_snapshot_id` | **[#102]** 계산에 사용한 기상 스냅샷. **`result_json`이 아니라 위 컬럼 표의 실물 컬럼**이다. 없으면 `null` |
+| `weather_factor` | **[#102·#879]** `TECH_SPEC §5.4`가 재현성 계약으로 규정하나 **현재 어디에도 기록되지 않는다** — `result_json`·`parameters_used` 어느 쪽에도 없다(라이브 덤프 확인). `weather_model = NONE`만 쓰이는 동안에는 항상 `1.0`이라 드러나지 않으며, 모델이 켜지면 재현 근거가 빠진다. `#904`로 분리 |
 
 **`calculation_type = ANNUAL_MONTE_CARLO`**
 
@@ -410,10 +435,17 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
       "platform": "Linux-6.5.0-x86_64"
     },
     "runs": 5000,
-    "rating_probabilities": { "A": 0.02, "B": 0.28, "C": 0.55, "D": 0.13, "E": 0.02 }
+    "rating_probabilities": {
+      "A": "0.0200", "B": "0.2800", "C": "0.5500", "D": "0.1300", "E": "0.0200"
+    }
   }
 }
 ```
+
+> **[#879] `rating_probabilities`는 JSON 숫자가 아니라 문자열이다.** 종전 예시는
+> `0.02`처럼 적었으나 구현은 `str(value)`로 기록한다 — `API_SPEC §1.7`이 계산 결과를
+> 문자열로 직렬화하도록 규정하기 때문이고, float로 내면 **`0.0`·`1.0`으로 자릿수가
+> 뭉개진다**(그 회귀가 실제로 있었다). 자릿수는 4자리다.
 
 **`model_version` JSONB 구조:**
 
@@ -493,22 +525,68 @@ ALTER TABLE simulation_snapshot ADD CONSTRAINT chk_snap_param_hash_format
 
 **`voyages_json` 구조:**
 
+> **[#879] 이 예시는 「저장된 컬럼 그대로」다.** 종전 예시는 **API 응답(`§6.3`
+> `/snapshot-voyages`)의 모양**을 적고 있었다 — `snapshot_voyage_id`·
+> `original_voyage_id`·`status_at_snapshot`·`distance_nm`·`fuel_ton`은 전부 응답 쪽
+> 이름이고, 저장 컬럼에는 그런 키가 없다. 그 결과 **컬럼의 키 이름을 규정하는 정본이
+> 사실상 없었다** — `TECH_SPEC §11.2`는 스냅샷 **대상**만 규정한다. 라이브 덤프로
+> 대조해 교체했고, `tests/test_dbschema_json_example_sync.py`가 이 블록을 실제
+> 기록 코드와 대조한다.
+
 ```json
 [
   {
-    "snapshot_voyage_id": "uuid",
-    "original_voyage_id": "uuid",
-    "voyage_no": "V-2026-001",
-    "status_at_snapshot": "CONFIRMED",
-    "distance_nm": "11200.00",
-    "speed_kn": "13.50",
+    "voyage_id": "00000000-0000-4000-8000-000000000102",
+    "kind": "ACTUAL",
+    "voyage_no": "2026-01",
+    "status": "COMPLETED",
+    "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
+    "planned_distance_nm": "4200.00",
+    "actual_distance_nm": "4300.00",
+    "planned_speed_kn": "12.00",
     "fuel_uses": [
-      { "fuel_type": "HFO", "fuel_ton": "850.0000", "cf_used": "3.114000" }
-    ],
-    "annual_inclusion_policy": "INCLUDE_AS_ACTUAL"
+      {
+        "fuel_type": "HFO",
+        "planned_fuel_ton": "530.0000",
+        "actual_fuel_ton": "620.0000",
+        "cf_used": "3.114000"
+      }
+    ]
+  },
+  {
+    "voyage_id": "00000000-0000-4000-8000-000000000110",
+    "kind": "PLAN",
+    "voyage_no": "2026-02",
+    "status": "IN_PROGRESS",
+    "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+    "planned_distance_nm": "2300.00",
+    "actual_distance_nm": null,
+    "planned_speed_kn": "14.00",
+    "fuel_uses": [
+      {
+        "fuel_type": "HFO",
+        "planned_fuel_ton": "331.0000",
+        "actual_fuel_ton": null,
+        "cf_used": "3.114000"
+      }
+    ]
   }
 ]
 ```
+
+| 필드 | 설명 |
+|---|---|
+| `voyage_id` | 원본 항차의 ID. **사본에는 별도 ID가 없다** — API 응답의 `snapshot_voyage_id`는 조회 시점에 `{snapshot_id}:{voyage_id}`로 만든다 |
+| `kind` | **[#879]** `"ACTUAL"` / `"PLAN"`. 스냅샷 시점의 `annual_inclusion_policy`로 정해지며, **코드가 실제로 읽는다**(완료 항차 수 집계·잔여 항차 수·CF 선택). 종전 문서에 없던 키다 |
+| `status` | **스냅샷 시점의** 항차 상태. 지금의 상태가 아니다 |
+| `planned_*` / `actual_*` | **두 벌을 모두 남긴다.** 계산은 「실적이 있으면 실적, 없으면 계획」(`PRD §8.3`)으로 고르는데, 사본에 한 벌만 두면 **어느 쪽이 쓰였는지**를 나중에 알 수 없다 |
+| `fuel_uses[].cf_used` | 그때 쓴 CF다. 지금의 `fuel_type.cf`가 아니다(`#378`). 계획 항차는 **그 실행의 활성 CF**(`#832`), 확정 실적은 입력 시점 값(`#863`) |
+
+> **API 응답과 모양이 다른 것은 의도다.** `voyages_json`은 **계산 입력을 만들기 위한
+> 내부 형태**(`kind` · 계획/실적 두 벌)이고, `§6.3` 응답은 **읽는 사람을 위한
+> 형태**(`status_at_snapshot` · 실제 쓰인 값 한 벌)다. 투영 규칙은 계산과 같다 —
+> **실적이 있으면 실적, 없으면 계획**. 응답 쪽 수치는 JSON **숫자**이고 저장 쪽은
+> **문자열**이라는 점도 다르다.
 
 > 스냅샷은 변경 불가(immutable)이다. 한 번 생성되면 수정되지 않는다.
 
