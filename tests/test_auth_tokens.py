@@ -27,6 +27,7 @@ from cii_platform.db.models.user_token import (
     PURPOSE_EMAIL_VERIFY,
     PURPOSE_PASSWORD_RESET,
 )
+from cii_platform.mail import MailDeliveryError
 from cii_platform.services.auth_token import (
     TokenError,
     consume_token,
@@ -333,3 +334,199 @@ class TestPasswordReset:
         )
         assert resp.status_code == 400
         assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 성공 경로 — `#871`
+#
+# `#871`이 「테스트가 통과하는데 라우트 본문이 실행되지 않는다」를 보고했고, 원인의
+# **대부분은 커버리지 계측**이었다(`pyproject.toml`의 `concurrency` 참조). 다만 계측을
+# 고친 뒤에도 `auth_tokens.py`가 80%였고, 남은 구멍은 **진짜 미검사**였다.
+#
+#   136-150  인증 메일 재발송의 성공 경로와 메일 실패 502
+#   166-176  인증 확인의 성공 경로
+#   206-207  재설정 메일 실패 502
+#   232-233  재설정 확인에서 토큰은 유효한데 사용자가 없는 경우
+#
+# 종전 검사는 **거부 경로만** 보고 있었다 — 위조 토큰·모르는 주소·약한 비밀번호.
+# 「막아야 할 것을 막는가」만 보고 **「해야 할 일을 하는가」를 보지 않은** 상태다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _FailingMailer:
+    """발송이 실패하는 메일러. `MailDeliveryError`는 백엔드가 감싸 던지는 예외다."""
+
+    async def send(self, _message) -> None:
+        raise MailDeliveryError("테스트 강제 실패")
+
+
+async def _user_id(email: str):
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        row = await s.execute(text("SELECT id FROM app_user WHERE email = :e"), {"e": email})
+        return row.scalar_one()
+
+
+async def _verified_at(email: str):
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        row = await s.execute(
+            text("SELECT email_verified_at FROM app_user WHERE email = :e"), {"e": email}
+        )
+        return row.scalar_one()
+
+
+class TestEmailVerificationSucceeds:
+    async def test_resend_issues_a_new_token_for_an_unverified_account(self, client):
+        """재발송이 **실제로 새 토큰을 낸다.**
+
+        종전에는 「모르는 주소도 같은 응답」만 검사했다 — 그 검사는 `user is None`
+        갈래만 지나므로, 재발송이 아무 일도 하지 않아도 통과한다.
+        """
+        email = "resend@example.com"
+        try:
+            assert (
+                client.post(
+                    "/api/v1/auth/signup", json={"email": email, "password": PASSWORD}
+                ).status_code
+                == 201
+            )
+            first = await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY)
+            assert first is not None
+
+            resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["data"]["message"] == RESET_REQUESTED_MESSAGE
+
+            # 재발송이면 **다른 토큰**이어야 한다 — 같으면 이전 것이 그대로 살아 있다.
+            assert await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY) != first
+        finally:
+            await _cleanup(email)
+
+    async def test_confirming_marks_the_account_verified(self, client):
+        """인증 확인이 **실제로 `email_verified_at`을 기록한다.**
+
+        종전에는 위조 토큰 거부만 검사했다. 성공 경로가 비어 있으면 「인증했는데
+        인증되지 않은」 상태를 아무도 잡지 못한다.
+        """
+        from cii_platform.db.session import get_sessionmaker
+        from cii_platform.services.auth_token import issue_token as issue
+
+        email = "confirm@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            assert await _verified_at(email) is None
+
+            async with get_sessionmaker()() as s:
+                raw = await issue(s, user_id=await _user_id(email), purpose=PURPOSE_EMAIL_VERIFY)
+                await s.commit()
+
+            resp = client.post("/api/v1/auth/verify-email/confirm", json={"token": raw})
+            assert resp.status_code == 200, resp.text
+            assert await _verified_at(email) is not None
+        finally:
+            await _cleanup(email)
+
+    async def test_already_verified_account_gets_no_new_token(self, client):
+        """이미 인증된 계정은 **토큰을 더 만들지 않되 응답은 같다.**
+
+        응답을 다르게 하면 「이 주소는 이미 인증됨」이 밖에서 확인된다.
+        """
+        from cii_platform.db.session import get_sessionmaker
+        from cii_platform.services.auth_token import issue_token as issue
+
+        email = "already@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            async with get_sessionmaker()() as s:
+                raw = await issue(s, user_id=await _user_id(email), purpose=PURPOSE_EMAIL_VERIFY)
+                await s.commit()
+            client.post("/api/v1/auth/verify-email/confirm", json={"token": raw})
+            settled = await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY)
+
+            resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
+            assert resp.status_code == 200
+            assert resp.json()["data"]["message"] == RESET_REQUESTED_MESSAGE
+            assert await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY) == settled
+        finally:
+            await _cleanup(email)
+
+    async def test_mail_failure_is_reported_but_the_token_survives(
+        self, client, monkeypatch: pytest.MonkeyPatch
+    ):
+        """발송이 실패하면 502를 내되 **토큰은 되돌리지 않는다** (`#407` 경계).
+
+        되돌리면 사용자는 오류를 본 뒤 그 토큰으로 아무것도 할 수 없다. 라우트 주석이
+        *「토큰은 이미 커밋됐다 — 되돌리지 않는다」*로 그 판단을 적어 두었다.
+        """
+        from cii_platform.api.routes import auth_tokens as module
+
+        email = "mailfail@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            monkeypatch.setattr(module, "get_mailer", _FailingMailer)
+
+            resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
+            assert resp.status_code == 502, resp.text
+            assert resp.json()["error"]["code"] == "INTERNAL_ERROR"
+            # 커밋된 토큰이 남아 있다.
+            assert await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY) is not None
+        finally:
+            await _cleanup(email)
+
+
+class TestPasswordResetEdges:
+    async def test_mail_failure_is_reported(self, client, monkeypatch: pytest.MonkeyPatch):
+        """재설정 메일 발송 실패도 502다 — 조용히 성공한 척하지 않는다."""
+        from cii_platform.api.routes import auth_tokens as module
+
+        email = "resetmail@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            monkeypatch.setattr(module, "get_mailer", _FailingMailer)
+
+            resp = client.post("/api/v1/auth/password-reset/request", json={"email": email})
+            assert resp.status_code == 502, resp.text
+        finally:
+            await _cleanup(email)
+
+    async def test_token_for_a_deleted_account_is_rejected_generically(self, client):
+        """계정이 사라진 뒤의 토큰도 **같은 문구**로 거부한다.
+
+        구분하면 「그 계정은 지워졌다」가 밖에서 확인된다.
+
+        ⚠️ **어느 갈래로 거부되는지는 이 검사가 규정하지 않는다.** `user_token`의 FK가
+        `ON DELETE CASCADE`(`fk_user_token_user`)라 사용자를 지우면 토큰 행도 함께
+        사라지고, 그래서 `consume_token`이 먼저 `TokenError`를 낸다 — 라우트의
+        「토큰은 유효한데 사용자가 없다」 분기(`auth_tokens.py:168-169`·`232-233`)는
+        **API로 도달할 수 없는 방어 코드**다. 그 4문장이 커버리지에 남는 이유이며,
+        도달시키려면 `session.get`을 갈아 끼워야 하는데 그것은 **구현을 검사하는 것이지
+        동작을 검사하는 것이 아니다.** 여기서 지키는 것은 **밖에서 보이는 계약**이다.
+        """
+        from cii_platform.db.session import get_sessionmaker
+        from cii_platform.services.auth_token import issue_token as issue
+
+        email = "gone@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            user_id = await _user_id(email)
+            async with get_sessionmaker()() as s:
+                raw = await issue(s, user_id=user_id, purpose=PURPOSE_PASSWORD_RESET)
+                await s.commit()
+
+            # 행을 지운다 — soft delete가 아니라 물리 삭제여야 `session.get`이 None이다.
+            async with get_sessionmaker()() as s:
+                await s.execute(text("DELETE FROM user_session WHERE user_id = :i"), {"i": user_id})
+                await s.execute(text("DELETE FROM app_user WHERE id = :i"), {"i": user_id})
+                await s.commit()
+
+            resp = client.post(
+                "/api/v1/auth/password-reset/confirm",
+                json={"token": raw, "password": NEW_PASSWORD},
+            )
+            assert resp.status_code == 400, resp.text
+            assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
+        finally:
+            await _cleanup(email)
