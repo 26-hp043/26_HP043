@@ -36,11 +36,42 @@ class MailSettings:
     smtp_use_tls: bool = True
 
 
-def _as_bool(raw: str | None, *, default: bool) -> bool:
-    """환경변수는 전부 문자열이라 ``bool("false")``가 ``True``가 되는 함정이 있다."""
+#: ``_as_bool``이 참·거짓으로 읽는 값. **이 밖의 값은 거부한다** (#868).
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
+
+
+def _as_bool(raw: str | None, *, name: str, default: bool) -> bool:
+    """환경변수는 전부 문자열이라 ``bool("false")``가 ``True``가 되는 함정이 있다.
+
+    **모르는 값은 기본값으로 폴백하지 않고 거부한다** (#868). 종전에는 참으로
+    읽는 목록에 없으면 전부 거짓이었다 — ``SMTP_USE_TLS=enabled``·``Y``·``TLS``가
+    **오류도 경고도 없이 「끔」**이 됐다. 그 스위치가 꺼지면 SMTP 자격증명과
+    비밀번호 재설정·이메일 인증 토큰 링크가 평문으로 나가는데, **메일은 정상
+    도착하므로 배포 후에도 드러나지 않는다.**
+
+    같은 파일의 ``MAIL_BACKEND``·``SMTP_PORT``는 이미 모르는 값을 ``RuntimeError``로
+    막는다. 이 함수만 fail-open이었다 — 모듈 docstring이 선언한 「프로덕션에서
+    설정이 없으면 조용히 개발용 기본값으로 폴백하지 않고 기동 시점에 실패한다」를
+    보안 스위치 하나가 깨고 있었다.
+
+    ``False``는 **정당한 선택**이다(465 포트 implicit TLS 등). 그래서 「거짓으로
+    읽는 값」을 따로 두고, 그 목록에도 없는 것만 거부한다.
+    """
     if raw is None:
         return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
+    value = raw.strip().lower()
+    if not value:
+        return default
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise RuntimeError(
+        f"{name} 값이 올바르지 않습니다: {raw!r}. "
+        f"참: {', '.join(sorted(_TRUE_VALUES))} · "
+        f"거짓: {', '.join(sorted(_FALSE_VALUES))}"
+    )
 
 
 def load_mail_settings(env: dict[str, str] | None = None) -> MailSettings:
@@ -108,5 +139,5 @@ def load_mail_settings(env: dict[str, str] | None = None) -> MailSettings:
         smtp_port=port,
         smtp_user=source.get("SMTP_USER") or None,
         smtp_password=source.get("SMTP_PASSWORD") or None,
-        smtp_use_tls=_as_bool(source.get("SMTP_USE_TLS"), default=True),
+        smtp_use_tls=_as_bool(source.get("SMTP_USE_TLS"), name="SMTP_USE_TLS", default=True),
     )
