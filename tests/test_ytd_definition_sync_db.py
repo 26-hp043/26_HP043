@@ -1,4 +1,4 @@
-"""YTD 정의가 네 경로에서 같은가 (`PRD §3.3.8`, #750).
+"""YTD 정의가 모든 경로에서 같은가 (`PRD §3.3.8`, #750 · #866).
 
 ## 무엇이 문제였나
 
@@ -12,12 +12,18 @@
 
 ## 왜 이 파일이 따로 있나
 
-네 경로는 각자의 테스트 파일이 있고 **각자는 통과했다.** 갈린 것은 경로 사이라,
-한 파일에서 넷을 나란히 놓고 대조해야 잡힌다.
+각 경로는 자기 테스트 파일이 있고 **각자는 통과했다.** 갈린 것은 경로 사이라,
+한 파일에서 나란히 놓고 대조해야 잡힌다.
+
+⚠️ **경로를 빠뜨리면 그 경로는 계속 갈린 채로 남는다** (`#866`). 종전에는 리포트
+쪽에서 **연간 실적** 리포트만 보고 있었고, 같은 파일의 ``build_voyage_report``
+(항차 완료 리포트)가 ``as_of``·``in_progress`` 없이 부르는 것을 덮지 못했다 —
+그 리포트의 「연간 누적 CO₂」가 화면과 29% 어긋난 채 배포됐다(1,930.68 t vs
+2,495.46 t). 지금은 **항차 완료 리포트를 다섯 번째 경로로** 함께 본다.
 
 ## 진행 중 항차가 있어야 한다
 
-**진행 중 항차가 없으면 네 경로가 원래 같은 값을 낸다.** 그런 선박으로 검사하면
+**진행 중 항차가 없으면 모든 경로가 원래 같은 값을 낸다.** 그런 선박으로 검사하면
 정의가 다시 갈려도 통과한다 — 이 파일의 모든 검사가 진행 중 항차를 만드는 이유다.
 
 케이스 (`TEST_PLAN §14.5`): 정본 정합 — `PRD §3.3.8` · `API_SPEC §2.7`·`§2.8`
@@ -37,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.fleet_summary import get_fleet_summary
-from cii_platform.services.report import build_annual_report
+from cii_platform.services.report import build_annual_report, build_voyage_report
 
 YEAR = 2026
 MID_YEAR = datetime(YEAR, 7, 1, tzinfo=UTC)
@@ -149,12 +155,28 @@ async def vessel_with_voyage_in_progress(session):
     return vessel_id
 
 
-async def _four_paths(session, vessel_id) -> dict[str, str | None]:
-    """네 경로의 올해 attained CII를 모은다."""
+async def _all_paths(session, vessel_id) -> dict[str, str | None]:
+    """YTD를 내는 **모든 경로**의 올해 attained CII를 모은다.
+
+    ``#866`` — 항차 완료 리포트를 다섯 번째 경로로 넣었다. 종전에는 **연간 실적**
+    리포트만 보고 있어, 같은 파일의 :func:`build_voyage_report`가 ``as_of``·
+    ``in_progress`` 없이 부르는 것을 이 검사가 덮지 못했다. 경로를 하나 빠뜨리면
+    그 경로는 「각자는 통과하는」 상태로 남는다 — 이 파일의 존재 이유가 그것이다.
+    """
     current, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
     history = await list_cii_history(session, vessel_id=vessel_id, to_year=YEAR, as_of=MID_YEAR)
     fleet = await get_fleet_summary(session, regulation_year=YEAR, as_of=MID_YEAR)
     document = await build_annual_report(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    confirmed_id = await session.scalar(
+        text(
+            "SELECT id FROM voyage WHERE vessel_id = :vid AND status = 'CONFIRMED' "
+            "ORDER BY created_at LIMIT 1"
+        ),
+        {"vid": vessel_id},
+    )
+    voyage_document = await build_voyage_report(session, confirmed_id, as_of=MID_YEAR)
+    contribution = next(s for s in voyage_document.sections if s.title == "CII 기여도")
 
     this_year = next(row for row in history["years"] if row["regulation_year"] == YEAR)
     mine = next(v for v in fleet["vessels"] if v["vessel_id"] == str(vessel_id))
@@ -167,6 +189,7 @@ async def _four_paths(session, vessel_id) -> dict[str, str | None]:
         "fleet_summary": mine["ytd_attained_cii"],
         "report_header": dict(header.rows)["실적 CII (attained)"],
         "report_trend": next(r[2] for r in trend.rows if r[0] == str(YEAR)),
+        "voyage_report": dict(contribution.rows)["연간 누적 CII"],
     }
 
 
@@ -179,7 +202,7 @@ async def test_the_in_progress_voyage_actually_moves_the_number(
     이 검사가 없으면 아래 대조는 무의미하다 — 진행분이 0이면 네 경로가 어떤 정의를
     쓰든 같은 값이 나오고, 정의가 다시 갈려도 통과한다.
     """
-    values = await _four_paths(session, vessel_with_voyage_in_progress)
+    values = await _all_paths(session, vessel_with_voyage_in_progress)
 
     # 실적 확정분만 집계했을 때의 값: 400t × 3.114 × 1e6 / (50000 × 5000)
     actual_only = (Decimal("400") * Decimal("3.114") * Decimal(1_000_000)) / (
@@ -192,20 +215,20 @@ async def test_the_in_progress_voyage_actually_moves_the_number(
 
 
 @pytest.mark.asyncio
-async def test_four_paths_report_the_same_ytd(session, vessel_with_voyage_in_progress):
-    """`PRD §3.3.8` — 네 경로가 **같은 attained CII**를 낸다 (#750).
+async def test_all_paths_report_the_same_ytd(session, vessel_with_voyage_in_progress):
+    """`PRD §3.3.8` — 모든 경로가 **같은 attained CII**를 낸다 (#750 · #866).
 
     등급이 붙는 값은 ⑴ YTD 하나뿐이고(`PRD §3.3` 표), 그 값 위에서 대시보드의 위험
     배너·등급 분포·정렬·`days_to_d`가 돈다(`§3.3.7`). 경로마다 다르면 **규제 트리거
     판정이 갈릴 수 있다.**
     """
-    values = await _four_paths(session, vessel_with_voyage_in_progress)
+    values = await _all_paths(session, vessel_with_voyage_in_progress)
 
     # 표시 자릿수가 경로마다 다르므로 값으로 비교한다 — 문자열 비교는 6자리와
     # 3자리를 「다르다」로 판정해 진짜 불일치를 가린다.
     numbers = {name: Decimal(value) for name, value in values.items() if value is not None}
 
-    assert len(numbers) == 5, f"값을 내지 못한 경로가 있다: {values}"
+    assert len(numbers) == 6, f"값을 내지 못한 경로가 있다: {values}"
 
     reference = numbers["cii_current"]
     for name, value in numbers.items():
@@ -220,7 +243,7 @@ async def test_annual_report_prints_one_ytd(session, vessel_with_voyage_in_progr
     문서에 7.028과 8.980이 함께** 인쇄됐다. `PRD §25.3`은 YTD 행의 출처를 연도별
     이력 API(`#355`)로 지정한다 — 이제 둘이 같은 행에서 나온다.
     """
-    values = await _four_paths(session, vessel_with_voyage_in_progress)
+    values = await _all_paths(session, vessel_with_voyage_in_progress)
 
     assert values["report_header"] == values["report_trend"]
 
