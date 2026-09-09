@@ -36,7 +36,7 @@ from sqlalchemy import select, update
 from cii_platform.db.models.voyage_scenario import VoyageScenario
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
-from cii_platform.services.voyage import create_voyage
+from cii_platform.services.voyage import PLANNING_STATUSES, create_voyage
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -50,7 +50,8 @@ MODE_CREATE = "CREATE_NEW_VOYAGE"
 ADOPT_MODES: tuple[str, ...] = (MODE_UPDATE, MODE_CREATE)
 
 #: 계획값을 바꿀 수 있는 상태. 모듈 docstring 참조.
-PLANNING_STATUSES: frozenset[str] = frozenset({"DRAFT", "PLANNED"})
+# PLANNING_STATUSES는 services/voyage.py에서 import한다 — #865에서 PATCH 가드가
+# 같은 상수를 쓰며, 두 경로의 기준이 갈리면 한쪽만 막힌다.
 
 #: 채택이 바꾸는 항차 필드 (``API_SPEC §5.2`` 응답 ``updated_fields``).
 UPDATED_FIELDS: tuple[str, ...] = (
