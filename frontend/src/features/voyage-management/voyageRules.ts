@@ -161,6 +161,76 @@ export function hasErrors(errors: FieldErrors): boolean {
  * 서버가 거부할 것을 미리 잡는 것이 아니라 **사용자가 다시 입력하지 않게** 하는
  * 것이 목적이다. 서버만 아는 것(`VAL-005` 기준연도 실재 여부)은 서버에 맡긴다.
  */
+/**
+ * 항차 시각의 화면 ↔ 서버 다리 (`#873`).
+ *
+ * ## 왜 다리가 필요한가
+ *
+ * 화면 입력은 `<input type="datetime-local">`이라 값이 **표준시각 정보가 없는
+ * 벽시계 문자열**(`2026-06-01T09:00`)이고, 서버는 `datetime`을 받아 UTC로 저장한다.
+ * 그대로 보내면 「9시」가 어느 지역의 9시인지 서버가 알 수 없다.
+ *
+ * ## 브라우저의 표준시각으로 읽는다
+ *
+ * `new Date('2026-06-01T09:00')`은 **지역 시각**으로 해석된다(뒤에 `Z`가 없을 때의
+ * ECMAScript 규정). 사용자가 「9시에 출항」이라고 적을 때 뜻하는 것이 자기 지역의
+ * 9시이므로 그 해석이 맞다. UTC로 고정해 읽으면 한국 사용자의 입력이 9시간 어긋난다.
+ */
+export function toIsoInstant(local: string): string | null {
+  const trimmed = local.trim()
+  if (trimmed === '') return null
+  const parsed = new Date(trimmed)
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+}
+
+/**
+ * 서버가 준 ISO 문자열을 `datetime-local` 값으로 되돌린다 (`#873`).
+ *
+ * **분까지만 남긴다.** `datetime-local`은 초를 포함한 값도 받지만, 넣으면 브라우저가
+ * 초 칸을 하나 더 그려 폼의 칸 모양이 항차마다 달라진다.
+ *
+ * 읽을 수 없으면 빈 문자열이다 — 폼이 「값 없음」으로 시작하는 것이 **틀린 시각을
+ * 보여 주는 것보다 낫다.**
+ */
+export function toLocalInput(iso: string | null): string {
+  if (iso === null || iso.trim() === '') return ''
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return (
+    `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}` +
+    `T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
+  )
+}
+
+/**
+ * 출항·도착 시각 한 쌍을 본다 (`#873`).
+ *
+ * 읽을 수 없는 값과 **도착이 출항보다 빠른 것**을 잡는다. 뒤쪽은 서버가 막지 않는데,
+ * 그 상태로 진행 중이 되면 시뮬레이션 시계가 경과 시간을 음수로 계산해 **0으로
+ * 잘린다**(`services/simulation_clock.py`) — 값이 틀리는 것이 아니라 조용히 0이
+ * 되므로 사용자는 원인을 알 수 없다.
+ */
+function checkInstantPair(
+  departure: string,
+  arrival: string,
+  keys: { departure: string; arrival: string },
+  errors: FieldErrors,
+): void {
+  const from = departure.trim() === '' ? null : toIsoInstant(departure)
+  const to = arrival.trim() === '' ? null : toIsoInstant(arrival)
+
+  if (departure.trim() !== '' && from === null) {
+    errors[keys.departure] = '출항 시각을 날짜와 시각으로 입력해 주세요.'
+  }
+  if (arrival.trim() !== '' && to === null) {
+    errors[keys.arrival] = '도착 시각을 날짜와 시각으로 입력해 주세요.'
+  }
+  if (from !== null && to !== null && to <= from) {
+    errors[keys.arrival] = '도착 시각은 출항 시각보다 뒤여야 합니다.'
+  }
+}
+
 export function validateDraft(draft: VoyageDraft): FieldErrors {
   const errors: FieldErrors = {}
 
@@ -225,6 +295,21 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
     errors.regulationYear = '기준연도는 연도 네 자리입니다.'
   }
 
+  /*
+   * 시각 두 칸은 **필수가 아니다** (`#873`). `API_SPEC §3.3`이 optional로 규정하고,
+   * 화면이 서버보다 엄격해지면 CSV·API로 만든 항차와 화면으로 만든 항차의 계약이
+   * 갈린다. 비어 있는 것은 오류가 아니고, **들어온 값이 앞뒤가 맞는지만** 본다.
+   *
+   * 대신 폼이 「없으면 누적에 0으로 기여한다」를 안내 문구로 말한다 — 규칙을 바꾸지
+   * 않고 결과를 알린다.
+   */
+  checkInstantPair(
+    draft.plannedDepartureAt,
+    draft.plannedArrivalAt,
+    { departure: 'plannedDepartureAt', arrival: 'plannedArrivalAt' },
+    errors,
+  )
+
   return errors
 }
 
@@ -255,6 +340,13 @@ export function validateActuals(draft: ActualsDraft): FieldErrors {
     }
   }
 
+  checkInstantPair(
+    draft.actualDepartureAt,
+    draft.actualArrivalAt,
+    { departure: 'actualDepartureAt', arrival: 'actualArrivalAt' },
+    errors,
+  )
+
   return errors
 }
 
@@ -278,6 +370,17 @@ export function actualsPayload(draft: ActualsDraft): Record<string, unknown> {
     }))
 
   if (fuelUses.length > 0) payload.fuel_uses = fuelUses
+
+  /*
+   * 시각 두 칸 (`#873`). **빈 칸은 키 자체를 넣지 않는다** — `§3.6`에서 생략은
+   * 「변경 없음」이고 명시적 `null`은 「지움」이라, 빈 칸을 `null`로 보내면 이미
+   * 넣어 둔 시각이 지워진다.
+   */
+  const departure = toIsoInstant(draft.actualDepartureAt)
+  if (departure !== null) payload.actual_departure_at = departure
+
+  const arrival = toIsoInstant(draft.actualArrivalAt)
+  if (arrival !== null) payload.actual_arrival_at = arrival
 
   return payload
 }

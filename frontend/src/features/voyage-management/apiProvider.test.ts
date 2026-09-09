@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createApiVoyageManagementProvider, VoyageError } from './apiProvider'
+import { toIsoInstant } from './voyageRules'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft } from './types'
 
 /**
@@ -46,6 +47,8 @@ const DRAFT: VoyageDraft = {
   arrivalPortName: 'Singapore',
   plannedDistanceNm: '2800',
   plannedSpeedKn: '13.5',
+  plannedDepartureAt: '',
+  plannedArrivalAt: '',
   regulationYear: '2026',
   fuelUses: [{ fuelType: 'HFO', plannedFuelTon: '210' }],
 }
@@ -62,6 +65,10 @@ const VOYAGE: ManagedVoyage = {
   plannedSpeedKn: 14,
   actualDistanceNm: null,
   actualAvgSpeedKn: null,
+  plannedDepartureAt: null,
+  plannedArrivalAt: null,
+  actualDepartureAt: null,
+  actualArrivalAt: null,
   fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 800, actualFuelTon: 850 }],
 }
 
@@ -176,6 +183,33 @@ describe('create — API_SPEC §3.3', () => {
     expect(bodyOf(fetchMock)).not.toHaveProperty('regulation_year')
   })
 
+  /*
+   * 시각 2종 (#873). 종전에는 이 두 키가 본문에 **아예 없었다** — 프론트 전체에서
+   * 참조 0건이었다. 서버는 `§3.3`에서 처음부터 받고 있었다.
+   */
+  it('입력한 계획 시각을 UTC 문자열로 보낸다', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', {
+      ...DRAFT,
+      plannedDepartureAt: '2026-06-01T09:00',
+      plannedArrivalAt: '2026-06-08T09:00',
+    })
+
+    const sent = bodyOf(fetchMock)
+    expect(typeof sent.planned_departure_at).toBe('string')
+    expect(sent.planned_departure_at).toBe(toIsoInstant('2026-06-01T09:00'))
+    expect(sent.planned_arrival_at).toBe(toIsoInstant('2026-06-08T09:00'))
+  })
+
+  it('시각이 비어 있으면 키 자체를 넣지 않는다 — optional이다 (§3.3)', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', DRAFT)
+
+    const sent = bodyOf(fetchMock)
+    expect(sent).not.toHaveProperty('planned_departure_at')
+    expect(sent).not.toHaveProperty('planned_arrival_at')
+  })
+
   it('연료 여러 줄을 그대로 fuel_uses[]로 보낸다 (#636)', async () => {
     const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
     await createApiVoyageManagementProvider(fetchMock, '').create('v-1', {
@@ -239,6 +273,8 @@ describe('saveActuals — API_SPEC §3.6', () => {
   const draft: ActualsDraft = {
     actualDistanceNm: '11200',
     actualAvgSpeedKn: '',
+    actualDepartureAt: '',
+    actualArrivalAt: '',
     actualFuelTon: { HFO: '850' },
   }
 
@@ -290,6 +326,8 @@ describe('오류', () => {
       createApiVoyageManagementProvider(fetchMock, '').saveActuals('f0a1', {
         actualDistanceNm: '1',
         actualAvgSpeedKn: '',
+        actualDepartureAt: '',
+        actualArrivalAt: '',
         actualFuelTon: {},
       }),
     ).rejects.toBeInstanceOf(VoyageError)
