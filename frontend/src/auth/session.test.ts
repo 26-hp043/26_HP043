@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  deleteAccount,
   getCachedUser,
   logout,
   probeCurrentUser,
@@ -176,5 +177,80 @@ describe('logout', () => {
 describe('redirectToLogin', () => {
   it('window가 없는 환경(노드 테스트)에서는 no-op — 예외 없이 통과', () => {
     expect(() => redirectToLogin('/anywhere')).not.toThrow()
+  })
+})
+
+/*
+ * 탈퇴 — `DELETE /auth/me` (`#754`).
+ *
+ * ## 왜 여기서 보는가
+ *
+ * `AccountPanel.test.tsx`는 이 함수를 **대역으로 바꿔** 화면 흐름만 본다. 그래서
+ * 실패 처리를 되돌려도 그쪽 검사 18건이 전부 통과했다(실측). 실제 구현의 계약은
+ * 여기서 잠근다.
+ *
+ * ## `logout`과 반대다
+ *
+ * `logout`은 서버 호출이 실패해도 상태를 비우고 이동한다 — **로그아웃 버튼에 갇히는
+ * 것이 최악**이기 때문이다. 탈퇴는 반대다: 실패한 채 로그인 화면으로 보내면 사용자는
+ * **탈퇴됐다고 믿는데 계정이 살아 있다.**
+ */
+describe('deleteAccount (#754)', () => {
+  it('DELETE /auth/me를 CSRF 헤더와 함께 부른다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    const fetchImpl = vi.fn(async () => jsonResponse({}, 204))
+    await deleteAccount(fetchImpl as unknown as typeof fetch)
+
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/v1/auth/me')
+    expect(init.method).toBe('DELETE')
+    // `API_SPEC §1.2` — 상태를 바꾸는 요청은 CSRF 헤더가 필요하다.
+    expect(init.credentials).toBe('include')
+  })
+
+  it('성공하면 캐시를 비운다 — 상단바에 옛 이름이 남지 않는다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+    expect(getCachedUser()).not.toBeNull()
+
+    await deleteAccount((async () => jsonResponse({}, 204)) as unknown as typeof fetch)
+
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('서버가 거부하면 던지고 캐시를 비우지 않는다 — 탈퇴된 척하지 않는다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      deleteAccount(
+        (async () =>
+          jsonResponse({ error: { message: '세션이 만료되었습니다.' } }, 401)) as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow('세션이 만료되었습니다.')
+
+    /*
+     * ⚠️ 캐시가 비워지면 화면이 「로그아웃됨」으로 읽힌다. 계정은 살아 있는데
+     * 사용자는 탈퇴했다고 믿게 된다 — 그 상태가 이 검사가 막는 것이다.
+     */
+    expect(getCachedUser()).not.toBeNull()
+  })
+
+  it('서버가 사유를 안 주면 기본 문구를 던진다 — 빈 오류로 끝나지 않는다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      deleteAccount((async () => jsonResponse(null, 500)) as unknown as typeof fetch),
+    ).rejects.toThrow('탈퇴하지 못했습니다.')
+  })
+
+  it('연결 자체가 실패해도 던진다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      deleteAccount(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    ).rejects.toThrow(/서버에 연결하지 못했습니다/)
+    expect(getCachedUser()).not.toBeNull()
   })
 })

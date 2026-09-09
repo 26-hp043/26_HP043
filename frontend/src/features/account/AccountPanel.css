@@ -114,3 +114,40 @@
   cursor: not-allowed;
   opacity: 0.55;
 }
+
+/*
+ * 탈퇴 절 (`#754`).
+ *
+ * 되돌릴 수 없는 조작이라 같은 카드 흐름 안에서도 **구분이 필요하다.** 색만으로
+ * 구분하지 않는다(`DESIGN_SYSTEM §14` — 색 외 보조 채널) — 위쪽 테두리로 절을
+ * 끊고, 확인 단계가 별도 블록으로 열린다.
+ */
+.acc__section--danger {
+  border-top: var(--borderWidth-strong, 2px) solid var(--color-danger-text);
+}
+
+.acc__submit--danger {
+  border-color: var(--color-danger-text);
+  color: var(--color-danger-text);
+}
+
+.acc__confirm {
+  display: grid;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  border: var(--borderWidth-default) solid var(--color-danger-text);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+}
+
+.acc__confirm-ask {
+  margin: 0;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.acc__confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+}
