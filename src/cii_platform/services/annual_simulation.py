@@ -153,22 +153,22 @@ async def _collect_voyages(session: AsyncSession, *, vessel_id: UUID, year: int,
     return actual, planned
 
 
-def _snapshot_payload(actual, planned, fuel_by_voyage) -> list[dict]:
+def _snapshot_payload(actual, planned, fuel_by_voyage, live_cf: dict[str, Decimal]) -> list[dict]:
     """``simulation_snapshot.voyages_json``에 넣을 항차 사본 (``TECH_SPEC §11.2``).
 
     **계산에 쓴 값을 그대로 담는다.** 나중에 「그때 무슨 데이터로 돌렸나」에 답해야
     하므로, 원본을 다시 조회하면 알 수 없는 것(확정 시점의 실적·CF snapshot)을 함께
-    남긴다.
+    남긴다. 계획 항차의 CF는 이 실행에 쓴 활성 CF다(#832) — 스냅샷이 그 기록이 된다.
     """
     rows = []
     for voyage, kind in ((v, "ACTUAL") for v in actual):
-        rows.append(_snapshot_row(voyage, kind, fuel_by_voyage.get(voyage.id, [])))
+        rows.append(_snapshot_row(voyage, kind, fuel_by_voyage.get(voyage.id, []), live_cf))
     for voyage in planned:
-        rows.append(_snapshot_row(voyage, "PLAN", fuel_by_voyage.get(voyage.id, [])))
+        rows.append(_snapshot_row(voyage, "PLAN", fuel_by_voyage.get(voyage.id, []), live_cf))
     return rows
 
 
-def _snapshot_row(voyage, kind: str, fuel_uses) -> dict:
+def _snapshot_row(voyage, kind: str, fuel_uses, live_cf: dict[str, Decimal]) -> dict:
     return {
         "voyage_id": str(voyage.id),
         "kind": kind,
@@ -190,7 +190,9 @@ def _snapshot_row(voyage, kind: str, fuel_uses) -> dict:
                     None if fu.actual_fuel_ton is None else str(fu.actual_fuel_ton)
                 ),
                 # CF snapshot을 함께 남긴다 — CF가 개정되면 원본으로는 재현할 수 없다(#378).
-                "cf_used": str(fu.cf_used),
+                # 계획 항차는 **이 실행의 활성 CF**를 쓴다(#832). 확정 실적은 행의
+                # cf_used — 그때 실제로 그 계수로 배출했다(#863).
+                "cf_used": str(live_cf[fu.fuel_type] if kind == "PLAN" else fu.cf_used),
             }
             for fu in fuel_uses
         ],
@@ -493,7 +495,25 @@ async def collect_annual_inputs(
     fuel_by_voyage = await voyage_repo.list_fuel_uses_by_voyage_ids(
         session, [v.id for v in (*actual, *planned)]
     )
-    voyages_json = _snapshot_payload(actual, planned, fuel_by_voyage)
+
+    # #832 — 계획 항차의 CF는 **계산 실행 시점의 활성 CF**다(PRD §8.4 「연료 CF
+    # 변경 → 변경 이후 계산에만 적용」). 아직 배출되지 않은 항차를 항차 생성 시점에
+    # 박힌 CF로 예측하면, CF가 개정된 뒤 새로 실행해도 옛 계수로 계산된다. 확정
+    # 실적은 그때 실제로 그 계수로 배출했으므로 행의 cf_used(#863)를 유지한다.
+    # 스냅샷은 실행 시점에 쓴 값을 기록하므로(#378) 재현성은 그대로다.
+    live_cf: dict[str, Decimal] = {}
+    if planned:
+        codes = sorted({fu.fuel_type for v in planned for fu in fuel_by_voyage.get(v.id, [])})
+        fuel_rows = await param_repo.get_fuel_types_by_codes(session, codes)
+        for code in codes:
+            if code not in fuel_rows:
+                raise ValidationError(
+                    f"알 수 없는 연료 종류입니다: {code}",
+                    field="fuel_type",
+                    field_label="연료 종류",
+                )
+            live_cf[code] = Decimal(str(fuel_rows[code].cf))
+    voyages_json = _snapshot_payload(actual, planned, fuel_by_voyage, live_cf)
     completed, remaining, warnings = _inputs_from_snapshot(voyages_json, vessel)
 
     return AnnualInputs(
