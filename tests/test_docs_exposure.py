@@ -315,22 +315,36 @@ def test_public_paths_all_carry_the_api_prefix():
 
 
 def test_the_two_dev_auth_judgements_agree():
-    """같은 판정이 두 곳에 있다 — 갈리면 dev-login이 다시 404가 된다.
+    """dev-login 판정이 **하나의 값**에서 나온다 — 갈리면 dev-login이 다시 404가 된다.
 
     ``auth/dependencies.py``가 ``routes/auth_dev.py``를 import하면 ``TECH_SPEC §16``
-    계층 규칙을 어기므로(auth는 routes보다 아래층) ``config.py``에 따로 두었다.
-    **여기서 대조하는 것이 그 대가다.**
+    계층 규칙을 어기므로(auth는 routes보다 아래층) 판정을 ``config.py``에 두었다.
+
+    **`#810` 이전에는 그 대가로 판정이 둘이었다.** ``routes/auth_dev.py``가
+    ``config._ENV``를 import 시점에 복사해 ``!= "production"``으로 다시 비교했고,
+    이 테스트는 두 값을 **함께** 갈아 끼워 답이 같은지만 봤다 — 즉 *「둘이 같은 값을
+    받으면 같은 답을 낸다」*는 약한 단언이었다. 실제 위험은 **둘이 다른 값을 받는
+    것**이었는데 그건 보지 않았다.
+
+    지금은 ``config._ENV`` **하나만** 갈아 끼우고 양쪽 답이 함께 따라오는지를 본다.
+    위임을 되돌려 사본을 다시 만들면 ``should_register_dev_auth()``가 옛 값에 묶여
+    이 테스트가 실패한다.
     """
     import cii_platform.api.routes.auth_dev as auth_dev
     import cii_platform.config as config
 
-    original_config, original_route = config._ENV, auth_dev._ENV
+    original = config._ENV
     try:
         for env in ("production", "development", "staging"):
-            config._ENV = auth_dev._ENV = env
+            config._ENV = env
             assert should_expose_dev_auth() is auth_dev.should_register_dev_auth(), env
+        # 값이 실제로 갈리는지도 본다 — 양쪽이 상수 True를 돌려줘도 위 단언은 통과한다.
+        config._ENV = "production"
+        assert auth_dev.should_register_dev_auth() is False
+        config._ENV = "development"
+        assert auth_dev.should_register_dev_auth() is True
     finally:
-        config._ENV, auth_dev._ENV = original_config, original_route
+        config._ENV = original
 
 
 def test_production_hides_the_dev_login_the_same_way():

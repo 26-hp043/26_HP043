@@ -13,8 +13,87 @@ import os
 #: 잘 올라오지 않아 폴백이 눈에 띄지 않는다 (#231). 로거를 쓰면 매 import마다 남는다.
 _log = logging.getLogger(__name__)
 
-# 환경 구분. 미설정 시 개발 환경으로 본다.
-_ENV = os.environ.get("APP_ENV", "development")
+#: ``APP_ENV``의 허용값 (#810).
+#:
+#: **모르는 값이면 기동을 거부한다.** 종전에는 원문을 그대로 ``== "production"``과
+#: 비교했고, 검증이 어디에도 없었다 — ``prod``·``Production``·후행 공백 하나로
+#: 프로덕션 가드 다섯이 **동시에, 조용히** 열렸다. 앱은 정상 기동하고 ``/health``도
+#: 200이라 틀렸다는 신호가 남지 않는다.
+#:
+#: ``staging``·``test``는 현재 어느 배포 경로도 쓰지 않지만 허용값에 둔다. 허용
+#: 목록이 배포 환경보다 좁으면, 환경을 늘리는 사람이 **가드를 여는 방향으로**
+#: 우회하게 된다.
+VALID_APP_ENVS = frozenset({"development", "test", "staging", "production"})
+
+#: 프로덕션 환경 이름. ``"production"`` 리터럴을 이 한 곳으로 모은다 — 리터럴이
+#: ``config.py``·``routes/auth_dev.py``·``mail/config.py`` 셋에 흩어져 있던 것이
+#: `#810`의 원인이다. 비교는 :func:`is_production_env`로만 한다.
+_PRODUCTION = "production"
+
+#: ``APP_ENV`` 미설정·빈 값일 때의 환경.
+#:
+#: ``.env.example``은 이 변수를 **설정하지 않는다** (#810) — 그 파일을 그대로
+#: ``.env``로 복사하면 ``docker-compose.prod.yml``의 ``${APP_ENV:-production}`` 치환이
+#: 그 값을 읽어 **프로덕션 스택이 development로 뜬다.** 개발에는 값이 필요 없다:
+#: 미설정이 여기서 ``development``가 되고, ``docker-compose.yml``은 이 변수를
+#: 컨테이너에 넘기지도 않는다.
+_DEFAULT_APP_ENV = "development"
+
+
+def normalize_app_env(raw: str | None) -> str:
+    """``APP_ENV`` 원문을 정규화하고 허용값인지 확인한다 (#810).
+
+    ## 왜 정규화만으로는 부족한가
+
+    ``.strip().lower()``만 하면 ``Production``·``"production "``은 구제되지만
+    ``prod``·``prd``·``PROD``는 여전히 ``development``로 떨어진다 — 그리고 그 결과가
+    **가드 다섯이 열린 채 정상 기동**이다. 그래서 정규화 **다음에** 허용값 검증을
+    두고, 모르는 값이면 ``RuntimeError``로 기동을 세운다.
+
+    ## 왜 반대로 「엄격 일치만」 하지 않는가
+
+    ``Production``을 거부하는 안도 fail-open을 없애지만, 대문자 하나로 운영 배포가
+    서는 대가를 치른다. **두 안 모두 「production 의도인데 dev로 열린다」를 제거하며
+    차이는 관용도뿐**이므로, ``MAIL_BACKEND``가 이미 쓰는 저장소 관례
+    (``.strip().lower()`` 후 허용값 검증, ``mail/config.py:54``)를 따른다.
+    정규화가 값을 바꾸면 **경고 로그를 남겨** 「틀렸다는 신호」는 보존한다.
+
+    :raises RuntimeError: 정규화 후에도 :data:`VALID_APP_ENVS`에 없는 값일 때.
+    """
+    if raw is None:
+        return _DEFAULT_APP_ENV
+
+    value = raw.strip().lower()
+    if not value:
+        return _DEFAULT_APP_ENV
+
+    if value not in VALID_APP_ENVS:
+        raise RuntimeError(
+            f"APP_ENV 값이 올바르지 않습니다: {raw!r}. "
+            f"허용: {', '.join(sorted(VALID_APP_ENVS))}. "
+            "모르는 값을 development로 취급하면 dev-login·/docs·데모 계정 시드·"
+            "DB URL 폴백·console 메일 백엔드가 프로덕션에서 함께 열립니다."
+        )
+
+    if value != raw:
+        _log.warning("APP_ENV %r을 %r로 정규화했습니다.", raw, value)
+
+    return value
+
+
+def is_production_env(app_env: str) -> bool:
+    """정규화된 ``APP_ENV`` 값이 프로덕션인가 (#810).
+
+    :func:`is_production`은 이 모듈이 읽은 값에 대해 이것을 부른다.
+    ``mail/config.py``는 테스트 주입용 dict에서 읽은 값에 대해 부른다 — 그쪽이
+    ``os.environ``을 다시 읽고 ``== "production"`` 리터럴 비교를 하던 것이
+    **`#810`이 놓칠 뻔한 다섯 번째 가드**였다.
+    """
+    return app_env == _PRODUCTION
+
+
+# 환경 구분. 미설정 시 개발 환경으로 본다. 모르는 값이면 여기서 기동이 선다 (#810).
+_ENV = normalize_app_env(os.environ.get("APP_ENV"))
 
 # 로컬 개발용 기본 접속 URL. docker-compose.yml · .env.example과 같은 값이다.
 _DEFAULT_DATABASE_URL = "postgresql+asyncpg://cii:cii@localhost:5432/cii"
@@ -22,7 +101,7 @@ _DEFAULT_DATABASE_URL = "postgresql+asyncpg://cii:cii@localhost:5432/cii"
 _url = os.environ.get("DATABASE_URL")
 
 if _url is None:
-    if _ENV == "production":
+    if is_production_env(_ENV):
         raise RuntimeError(
             "DATABASE_URL 환경변수가 설정되지 않았습니다 (APP_ENV=production). "
             "프로덕션에서는 개발용 기본값으로 폴백하지 않습니다."
@@ -39,21 +118,35 @@ DATABASE_URL: str = _url
 def is_production() -> bool:
     """``APP_ENV=production``인가 — 환경 분기의 단일 출처 (#648).
 
-    아래 두 판정이 같은 말을 두 번 쓰지 않게 한다. ``routes/auth_dev.py``의
-    ``should_register_dev_auth()``는 `#276`이 만든 것이라 그대로 두었다 — 그쪽까지
-    옮기면 `#276`의 테스트를 함께 고쳐야 한다.
+    아래 두 판정(:func:`should_expose_dev_auth`·:func:`should_expose_api_docs`)이 같은
+    말을 두 번 쓰지 않게 한다. ``routes/auth_dev.py``의 ``should_register_dev_auth()``도
+    `#810`에서 :func:`should_expose_dev_auth` 위임으로 바꿔 **판정이 하나만 남았다** —
+    그전에는 그쪽이 ``config._ENV``라는 private 이름을 import해 ``!= "production"``으로
+    다시 비교했다.
+
+    읽는 값은 :func:`normalize_app_env`를 통과한 것이므로 ``Production``·
+    ``"production "``도 여기서 True다 (#810).
     """
-    return _ENV == "production"
+    return is_production_env(_ENV)
 
 
 def should_expose_dev_auth() -> bool:
-    """``routes/auth_dev.py``의 ``should_register_dev_auth()``와 **같은 판정**이다 (#648).
+    """dev-login을 여는가 — ``routes/auth_dev.py``도 이 함수를 부른다 (#648 · #810).
 
-    ## 왜 같은 판정이 두 곳에 있는가
+    ## 왜 판정이 여기에 있는가
 
     ``auth/dependencies.py``의 공개 경로 목록이 이 값을 필요로 하는데, 거기서
     ``routes/auth_dev.py``를 import하면 **``TECH_SPEC §16`` 계층 규칙을 어긴다** —
-    auth는 routes보다 아래층이다.
+    auth는 routes보다 아래층이다. 그래서 두 소비자(``auth/dependencies.py``와
+    ``routes/auth_dev.py``)보다 아래인 ``config.py``에 둔다.
+
+    ## 종전에는 판정이 둘이었다 (#810에서 하나로)
+
+    ``routes/auth_dev.py``의 ``should_register_dev_auth()``가 ``config._ENV``라는
+    **private 이름을 import**해 ``_ENV != "production"``으로 **다시** 비교했다.
+    부정형이라 ``APP_ENV``에 모르는 값이 들어오면 **여는 쪽으로** 틀렸고, 아래에 적힌
+    「갈리면 무슨 일이 생기는가」가 실제로 일어날 수 있는 배선이었다. 지금은
+    ``should_register_dev_auth()``가 이 함수를 그대로 위임한다.
 
     ## 갈리면 무슨 일이 생기는가
 

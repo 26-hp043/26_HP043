@@ -10,6 +10,8 @@ import logging
 import os
 from dataclasses import dataclass
 
+from cii_platform.config import is_production_env, normalize_app_env
+
 _log = logging.getLogger(__name__)
 
 #: 로그로만 출력하는 개발용 백엔드.
@@ -48,9 +50,15 @@ def load_mail_settings(env: dict[str, str] | None = None) -> MailSettings:
     한다(`session.py`·`theme.ts`와 같은 주입 패턴).
 
     :raises RuntimeError: 프로덕션인데 설정이 개발용일 때. 아래 docstring 참조.
+    :raises RuntimeError: ``APP_ENV``가 허용값이 아닐 때 (#810).
     """
     source = os.environ if env is None else env
-    app_env = source.get("APP_ENV", "development")
+    # `APP_ENV`를 여기서 다시 해석하지 않는다 (#810). 종전에는 원문을 그대로 받아
+    # 아래에서 `== "production"`으로 비교했고, 그래서 `APP_ENV=Production`이면
+    # **프로덕션인데 console 백엔드 가드가 발동하지 않았다** — 재설정 메일이 로그로만
+    # 나가고 사용자는 계정을 잃는다. `config.py`가 `os.environ`을 읽는 반면 이 함수는
+    # 주입 dict를 받으므로 `config._ENV`를 쓸 수 없어, 해석 함수 쪽을 공유한다.
+    app_env = normalize_app_env(source.get("APP_ENV"))
     backend = source.get("MAIL_BACKEND", BACKEND_CONSOLE).strip().lower()
 
     if backend not in _VALID_BACKENDS:
@@ -68,7 +76,7 @@ def load_mail_settings(env: dict[str, str] | None = None) -> MailSettings:
     #
     # DATABASE_URL이 프로덕션에서 폴백하지 않는 것과 같은 판단이다(config.py).
     #
-    if app_env == "production" and backend == BACKEND_CONSOLE:
+    if is_production_env(app_env) and backend == BACKEND_CONSOLE:
         raise RuntimeError(
             "MAIL_BACKEND=console은 프로덕션에서 사용할 수 없습니다 "
             "(APP_ENV=production). 콘솔 백엔드는 메일을 로그로만 출력하므로 "
@@ -79,7 +87,7 @@ def load_mail_settings(env: dict[str, str] | None = None) -> MailSettings:
     mail_from = source.get("MAIL_FROM", "").strip() or _DEFAULT_FROM
 
     if backend == BACKEND_CONSOLE:
-        if app_env != "production":
+        if not is_production_env(app_env):
             _log.warning("MAIL_BACKEND=console — 메일을 실제로 보내지 않고 로그로 출력합니다.")
         return MailSettings(backend=backend, mail_from=mail_from)
 

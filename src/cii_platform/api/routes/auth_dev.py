@@ -3,7 +3,7 @@
 CI와 오프라인 시연에서 외부 IdP(구글) 없이 인증을 통과할 수 있게 한다.
 **``APP_ENV=production``에서는 라우트 자체를 등록하지 않는다** — 런타임 조건 분기가
 아니라 **기동 시점에** 가른다. 이는 ``config.py``의 ``APP_ENV=production`` 가드와
-같은 패턴이다.
+같은 패턴이며, `#810`부터는 **판정도 그쪽 함수를 그대로 쓴다**.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from cii_platform.auth.session import (
     SESSION_COOKIE_NAME,
     create_session_fields,
 )
-from cii_platform.config import _ENV
+from cii_platform.config import should_expose_dev_auth
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.session import get_session
 from cii_platform.services import audit as audit_svc
@@ -53,7 +53,7 @@ async def dev_login(
     """고정 테스트 사용자로 세션을 발급한다 (#276).
 
     **이 라우트는 ``APP_ENV=production``에서 등록되지 않는다.**
-    ``main.py``에서 ``_ENV != "production"``일 때만 ``include_router``한다.
+    ``main.py``가 :func:`should_register_dev_auth`가 True일 때만 ``include_router``한다.
     """
     user = await session.get(AppUser, _STUB_USER_ID)
     if user is None:
@@ -118,5 +118,21 @@ async def dev_login(
 
 
 def should_register_dev_auth() -> bool:
-    """``APP_ENV=production``이면 False — ``main.py``가 기동 시점에 호출한다."""
-    return _ENV != "production"
+    """``APP_ENV=production``이면 False — ``main.py``가 기동 시점에 호출한다.
+
+    **판정 자체를 하지 않고 :func:`cii_platform.config.should_expose_dev_auth`에
+    위임한다 (#810).** 종전에는 ``config._ENV``라는 private 이름을 import해
+    ``_ENV != "production"``으로 다시 비교했다. 그 형태에는 두 가지 문제가 있었다.
+
+    ⑴ **부정형이라 틀리는 방향이 「여는 쪽」이다.** ``APP_ENV``에 ``prod`` 같은
+    모르는 값이 들어오면 그 비교는 True가 되어 **프로덕션 의도인데 dev-login이
+    등록된다** — 미인증 세션 발급이다. `#810`이 고친 fail-open의 대표 사례다.
+
+    ⑵ **판정이 두 곳이라 갈릴 수 있었다.** ``auth/dependencies.py``의 공개 경로
+    목록은 ``config.should_expose_dev_auth()``를 쓰는데, 이쪽이 다른 답을 내면
+    dev-login만 401이 아니라 **404**가 되어 「여기에 무언가 있다」는 신호가 남는다
+    (`#276`·`#593`이 없앤 것과 같은 신호).
+
+    이름과 시그니처는 그대로 둔다 — ``main.py``와 `#276`의 테스트가 이 이름을 쓴다.
+    """
+    return should_expose_dev_auth()
