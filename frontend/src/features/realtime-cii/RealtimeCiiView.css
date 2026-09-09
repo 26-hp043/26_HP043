@@ -504,3 +504,18 @@
   gap: var(--spacing-sm);
   flex-wrap: wrap;
 }
+
+/*
+ * 갱신 실패 안내 (`#755`).
+ *
+ * 값을 남기는 것과 **값이 최신인 척하는 것**은 다르다. 오류 패널(`empty--error`)이
+ * 아니라 기준 시각 아래 한 줄로 둔다 — 화면은 여전히 유효한 값을 보여 주고 있고,
+ * 다음 주기에 스스로 회복한다.
+ */
+.rt__stale {
+  margin: var(--spacing-xs) 0 0;
+  color: var(--color-danger-text);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-label);
+  text-align: right;
+}

@@ -70,6 +70,14 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
     null,
   )
   const [refreshing, setRefreshing] = useState(false)
+  /*
+   * 마지막 폴링이 실패해 화면의 값이 낡았다 (`#755`).
+   *
+   * 값을 지우지 않는 것과 **값이 최신인 척하는 것**은 다르다. 종전에는 실패가 화면에
+   * 드러나는 자리가 없어, 고친 뒤에는 값이 조용히 낡을 수 있었다 — 이 화면은
+   * 「항해 중 CII가 변하는 것을 보여 주는」 자리(`UIFLOW 2-9`)라 그 침묵이 특히 나쁘다.
+   */
+  const [stale, setStale] = useState(false)
 
   /*
    * provider를 ref에 담는다. 매 렌더마다 새로 만들면 아래 effect의 의존성이 계속
@@ -80,6 +88,30 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
     providerRef.current = provider ?? createApiRealtimeCiiProvider()
   }
 
+  /*
+   * `load`는 **상태를 읽지 않는다** (`#755`).
+   *
+   * ## 종전에 무엇이 틀렸나
+   *
+   * 실패 처리가 `if (data === null)`로 「최초 로드인가」를 갈랐고, 그래서 `load`가
+   * `data`에 의존했다(`[vesselId, data]`). 그런데 폴링 타이머는 **effect가 돈 시점의
+   * `load`를 캡처**한다 — 그 클로저에 담긴 `data`는 첫 렌더의 `null`이고, 이후 값이
+   * 들어와도 **그 클로저 안에서는 영원히 `null`이다.**
+   *
+   * 결과: 판정이 항상 「최초 로드」로 떨어져 **폴링이 한 번 실패하면 화면이 통째로
+   * 비워졌다.** 바로 위 주석은 정반대를 적고 있었다.
+   *
+   * `oxlint`가 못 잡은 것은 폴링 effect에 `exhaustive-deps` 억제 주석이 붙어 있었기
+   * 때문이다. 그 억제는 이제 필요 없다 — 아래 두 effect의 의존성이 전부 안정적이다.
+   *
+   * ## 어떻게 고쳤나
+   *
+   * 「최초인가」를 상태에서 읽지 않고 **`setData`의 함수형 갱신 안에서** 판정한다.
+   * React가 넘겨주는 `prev`는 **항상 최신값**이라 클로저 나이와 무관하다.
+   *
+   * ref에 최신 `load`나 `data`를 담는 대안도 있으나, 그러면 **같은 사실이 상태와 ref
+   * 두 곳에** 있게 된다. 여기서는 상태 하나로 끝난다.
+   */
   const load = useCallback(
     async (options: { silent?: boolean } = {}) => {
       if (!vesselId) return
@@ -88,30 +120,36 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         const next = await providerRef.current!.load(vesselId)
         setData(next)
         setFailure(null)
+        setStale(false)
       } catch (error) {
+        const message =
+          error instanceof Error ? error.message : '값을 불러오지 못했습니다.'
+        const notFound = error instanceof RealtimeCiiError && error.notFound
+
         /*
          * 폴링 중 실패는 **화면을 비우지 않는다.** 마지막으로 받은 값이 여전히
          * 「방금 전 기준」으로 유효하고, 통신 오류로 값을 지우면 사용자는 정박도
          * 항해도 아닌 빈 화면을 본다. 최초 로드 실패만 화면을 대체한다.
+         *
+         * 판정을 `setData` 안에서 한다 — `prev`가 최신값이라 타이머가 붙든 클로저의
+         * 나이에 영향받지 않는다. 값은 그대로 두고(`prev` 반환) 판정만 한다.
          */
-        if (data === null) {
-          setFailure({
-            message:
-              error instanceof Error ? error.message : '값을 불러오지 못했습니다.',
-            notFound: error instanceof RealtimeCiiError && error.notFound,
-          })
-        }
+        setData((prev) => {
+          if (prev === null) setFailure({ message, notFound })
+          // 값이 있으면 남긴다. 대신 낡았다는 사실을 화면이 말한다.
+          else setStale(true)
+          return prev
+        })
       } finally {
         setRefreshing(false)
       }
     },
-    [vesselId, data],
+    [vesselId],
   )
 
   useEffect(() => {
     void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vesselId])
+  }, [load])
 
   useEffect(() => {
     if (!vesselId) return
@@ -124,8 +162,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
       void load({ silent: true })
     }, POLL_INTERVAL_MS)
     return () => clearInterval(timer)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vesselId])
+  }, [vesselId, load])
 
   if (failure) {
     return (
@@ -181,6 +218,18 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
             기준 {formatAsOf(data.asOf)}
             {refreshing ? ' · 갱신 중…' : ''} · {POLL_INTERVAL_MS / 1000}초마다 자동 갱신
           </p>
+          {/*
+            `#755` — 갱신에 실패하면 **그 사실을 말한다.** 값을 남기는 것과 값이
+            최신인 척하는 것은 다르다. `role="status"`로 내는 것은 이것이 오류
+            상황이 아니라 **상태 안내**이기 때문이다 — 화면은 여전히 유효한 값을
+            보여 주고 있고, 다음 주기에 스스로 회복한다.
+          */}
+          {stale ? (
+            <p className="rt__stale" role="status">
+              마지막 갱신에 실패했습니다. 위 기준 시각의 값을 보여 주는 중이며,
+              {POLL_INTERVAL_MS / 1000}초 뒤 다시 시도합니다.
+            </p>
+          ) : null}
         </div>
       </header>
 
