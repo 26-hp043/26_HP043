@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
@@ -176,11 +177,11 @@ const COMPARE_BODY = {
   disclaimer: '참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.',
 }
 
-function stubServerWithComparison(body: unknown = COMPARE_BODY) {
+function stubServerWithComparison(body: unknown = COMPARE_BODY, years: number[] = [2026]) {
   const fetchImpl = vi.fn(async (input: unknown) => {
     const url = String(input)
     if (url.includes('/parameters/regulation-years')) {
-      return jsonResponse({ data: [{ year: 2026 }] })
+      return jsonResponse({ data: years.map((year) => ({ year })) })
     }
     if (url.includes('/parameters/fuel-types')) {
       return jsonResponse({
@@ -319,5 +320,128 @@ describe('선박명이 제목에 표시된다 (#821)', () => {
     const context = await screen.findByText(/2026년 기준/)
     expect(context.textContent?.trimStart().startsWith('·')).toBe(false)
     expect(context.textContent).not.toContain('다른 배')
+  })
+})
+
+/**
+ * 결과 제목이 계산 시점에 고정된다 (#875).
+ *
+ * 종전에는 제목이 살아 있는 `form`을 읽고 숫자만 응답 스냅샷을 읽었다. 결과를 본
+ * 뒤 배를 바꾸면 **A선의 계산 결과 위에 B선의 이름**이 붙었다.
+ *
+ * ⚠️ 위 `#821` 검사들이 이 결함을 못 잡은 이유는 **전환 이후를 보지 않아서**다.
+ * 계산 직후의 제목만 확인하면 두 출처가 우연히 같은 값을 가리키는 순간만 본다.
+ */
+
+/** 셸 선택을 실제로 바꿀 수 있는 하네스. `selectVesselId`가 상태를 갱신한다. */
+function renderSwitchable(
+  vessels: ShellContext['vessels'],
+  initialId: string | null,
+) {
+  function Harness() {
+    const [vesselId, setVesselId] = useState<string | null>(initialId)
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId,
+      vessels,
+      vesselsState: 'ready',
+      selectVesselId: setVesselId,
+    }
+    return (
+      <MemoryRouter initialEntries={['/scenarios']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/scenarios" element={<ScenarioComparison />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+  }
+  return render(<Harness />)
+}
+
+const TWO_VESSELS: ShellContext['vessels'] = [
+  {
+    id: '00000000-0000-4000-8000-000000000001',
+    displayName: '샘플 벌크선',
+    shipType: 'BULK_CARRIER',
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000002',
+    displayName: '두 번째 배',
+    shipType: 'BULK_CARRIER',
+  },
+]
+
+describe('결과 제목은 계산 시점에 고정된다 (#875)', () => {
+  it('결과를 본 뒤 선박을 바꿔도 제목의 선박명이 그대로다', async () => {
+    stubServerWithComparison()
+    renderSwitchable(TWO_VESSELS, TWO_VESSELS[0].id)
+    await compareAndWaitForResult()
+    expect(await screen.findByText(/샘플 벌크선 · 2026년 기준/)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('선박'), {
+      target: { value: TWO_VESSELS[1].id },
+    })
+
+    // 폼은 새 배를 가리키는데 제목·숫자는 이전 계산 그대로여야 한다.
+    await waitFor(() =>
+      expect((screen.getByLabelText('선박') as HTMLSelectElement).value).toBe(
+        TWO_VESSELS[1].id,
+      ),
+    )
+    expect(screen.getByText(/2026년 기준/).textContent).toContain('샘플 벌크선')
+    expect(screen.getByText(/2026년 기준/).textContent).not.toContain('두 번째 배')
+  })
+
+  it('결과를 본 뒤 연도를 바꿔도 제목의 연도가 그대로다', async () => {
+    stubServerWithComparison(COMPARE_BODY, [2026, 2027])
+    renderScreen()
+    await compareAndWaitForResult()
+    expect(await screen.findByText(/2026년 기준/)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('규제연도'), { target: { value: '2027' } })
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('규제연도') as HTMLSelectElement).value).toBe('2027'),
+    )
+    expect(screen.getByText(/년 기준/).textContent).toContain('2026년 기준')
+    expect(screen.queryByText(/2027년 기준/)).toBeNull()
+  })
+
+  it('계산 직후에는 낡음 표시가 없다', async () => {
+    stubServerWithComparison()
+    renderScreen()
+    await compareAndWaitForResult()
+
+    expect(screen.queryByText(/입력이 바뀌었습니다/)).toBeNull()
+  })
+
+  it('입력이 바뀌면 결과가 낡았음을 알린다 — 선박·연도 밖의 칸도 마찬가지다', async () => {
+    stubServerWithComparison()
+    renderScreen()
+    await compareAndWaitForResult()
+
+    fireEvent.change(screen.getByLabelText(/직항 거리/), { target: { value: '1500' } })
+
+    expect(await screen.findByText(/입력이 바뀌었습니다/)).toBeTruthy()
+  })
+
+  it('다시 비교하면 제목이 새 조건으로 갱신되고 낡음 표시가 사라진다', async () => {
+    stubServerWithComparison()
+    renderSwitchable(TWO_VESSELS, TWO_VESSELS[0].id)
+    await compareAndWaitForResult()
+
+    fireEvent.change(screen.getByLabelText('선박'), {
+      target: { value: TWO_VESSELS[1].id },
+    })
+    expect(await screen.findByText(/입력이 바뀌었습니다/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /비교하기/ }))
+
+    await waitFor(() =>
+      expect(screen.getByText(/2026년 기준/).textContent).toContain('두 번째 배'),
+    )
+    expect(screen.queryByText(/입력이 바뀌었습니다/)).toBeNull()
   })
 })
