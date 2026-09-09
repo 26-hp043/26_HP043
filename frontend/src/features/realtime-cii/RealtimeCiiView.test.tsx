@@ -2,8 +2,8 @@
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
 import { RealtimeCiiView } from './RealtimeCiiView'
 import { RealtimeCiiError } from './apiProvider'
 import { POLL_INTERVAL_MS } from './realtimeRules'
@@ -297,5 +297,169 @@ describe('출항 직후 극소 진행률이 화면을 죽이지 않는다 (#872)
     await screen.findByText(BASE.vesselName)
     // 1848 / 3000 = 0.616 → 61.6%
     expect(screen.getByText('61.6%')).toBeTruthy()
+  })
+})
+
+/**
+ * 선박 전환을 화면이 안다 (#874).
+ *
+ * `/vessels/:vesselId/voyages/:voyageId`는 **라우트 파라미터만 바뀌므로 언마운트 없이
+ * 선박이 전환된다.** 종전에는 이 화면이 그 전환을 전혀 몰라 ⑴ A선의 이름·등급이 B선의
+ * URL 아래 그대로 남고(「불러오는 중」은 두 번째 선박부터 영영 안 뜬다) ⑵ 늦게 도착한
+ * A의 폴링이 B의 화면을 덮으며(60초간 복구 없음) ⑶ A의 404 오류 패널이 B에서 유지됐다.
+ *
+ * ⚠️ **위 검사들이 이 결함을 하나도 잡지 못했다** — 전부 선박 하나로 시작해 끝까지
+ * 그 선박이었다. 전환을 밟지 않는 검사는 이 종류의 결함을 원리적으로 놓친다.
+ */
+
+const OTHER: RealtimeCii = {
+  ...BASE,
+  vesselId: 'v-2',
+  vesselName: 'PAN HORIZON',
+}
+
+/** 라우트를 갈아 끼울 수 있는 하네스. 같은 `path`라 컴포넌트는 **언마운트되지 않는다.** */
+function renderSwitchable(provider: RealtimeCiiProvider) {
+  function Switcher() {
+    const navigate = useNavigate()
+    return (
+      <button type="button" onClick={() => navigate('/vessels/v-2/voyages/current')}>
+        다른 배로
+      </button>
+    )
+  }
+  return render(
+    <MemoryRouter initialEntries={['/vessels/v-1/voyages/current']}>
+      <Switcher />
+      <Routes>
+        <Route
+          path="/vessels/:vesselId/voyages/:voyageId"
+          element={<RealtimeCiiView provider={provider} />}
+        />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+function switchVessel() {
+  fireEvent.click(screen.getByRole('button', { name: '다른 배로' }))
+}
+
+describe('선박을 바꾸면 옛 선박의 값이 남지 않는다 (#874)', () => {
+  it('전환 직후 옛 이름이 사라지고 「불러오는 중」이 다시 뜬다', async () => {
+    let releaseOther: ((value: RealtimeCii) => void) | null = null
+    const provider: RealtimeCiiProvider = {
+      load: vi.fn(async (id: string) => {
+        if (id === 'v-1') return BASE
+        return new Promise<RealtimeCii>((resolve) => {
+          releaseOther = resolve
+        })
+      }),
+    }
+    renderSwitchable(provider)
+    await screen.findByText(BASE.vesselName)
+
+    switchVessel()
+
+    /*
+     * 두 번째 선박부터 「불러오는 중」이 영영 안 뜨던 것이 종전 상태다 — `data`가
+     * 남아 있어 로딩 갈래에 도달하지 못했다.
+     */
+    await waitFor(() => expect(screen.queryByText(BASE.vesselName)).toBeNull())
+    expect(screen.getByText(/실시간 값을 불러오는 중입니다/)).toBeTruthy()
+    // 그 창에서도 「← 선박 상세」는 **주소창의 배**를 가리켜야 한다.
+    expect(screen.getByRole('link', { name: /선박 상세/ }).getAttribute('href')).toBe(
+      '/vessels/v-2',
+    )
+
+    await act(async () => {
+      releaseOther?.(OTHER)
+    })
+    expect(await screen.findByText(OTHER.vesselName)).toBeTruthy()
+  })
+
+  it('늦게 도착한 옛 선박의 응답이 새 화면을 덮지 않는다', async () => {
+    let releaseFirst: ((value: RealtimeCii) => void) | null = null
+    const provider: RealtimeCiiProvider = {
+      load: vi.fn(async (id: string) => {
+        if (id === 'v-1') {
+          return new Promise<RealtimeCii>((resolve) => {
+            releaseFirst = resolve
+          })
+        }
+        return OTHER
+      }),
+    }
+    renderSwitchable(provider)
+    // 첫 요청이 아직 떠 있는 상태에서 전환한다.
+    switchVessel()
+    expect(await screen.findByText(OTHER.vesselName)).toBeTruthy()
+
+    // 이제서야 A가 돌아온다. 종전에는 이 한 줄이 B의 화면을 통째로 덮었다.
+    await act(async () => {
+      releaseFirst?.(BASE)
+    })
+
+    expect(screen.getByText(OTHER.vesselName)).toBeTruthy()
+    expect(screen.queryByText(BASE.vesselName)).toBeNull()
+  })
+
+  it('옛 선박의 오류 패널이 새 선박을 기다리는 동안 유지되지 않는다', async () => {
+    /*
+     * **새 선박의 응답을 늦춘다.** 곧바로 돌려주면 성공 경로가 `setFailure(null)`을
+     * 하므로 패널이 어차피 사라져, 리셋이 없어도 검사가 통과한다 — 결함이 실제로
+     * 보이는 창은 **전환 직후 응답 전까지**다. 그 창을 만들지 않은 첫 판본은
+     * 돌연변이 검사에서 통과해 버렸다.
+     */
+    let releaseOther: ((value: RealtimeCii) => void) | null = null
+    const provider: RealtimeCiiProvider = {
+      load: vi.fn(async (id: string) => {
+        if (id === 'v-1') {
+          throw new RealtimeCiiError('선박을 찾을 수 없습니다.', { notFound: true })
+        }
+        return new Promise<RealtimeCii>((resolve) => {
+          releaseOther = resolve
+        })
+      }),
+    }
+    renderSwitchable(provider)
+    await screen.findByText('선박을 찾을 수 없습니다.')
+
+    switchVessel()
+
+    await waitFor(() =>
+      expect(screen.queryByText('선박을 찾을 수 없습니다.')).toBeNull(),
+    )
+    expect(screen.getByText(/실시간 값을 불러오는 중입니다/)).toBeTruthy()
+
+    await act(async () => {
+      releaseOther?.(OTHER)
+    })
+    expect(await screen.findByText(OTHER.vesselName)).toBeTruthy()
+  })
+
+  /*
+   * ⚠️ **이 검사는 돌연변이 검사로 고정되지 않는다.** `load`가 `vesselId`에 의존해
+   * 재생성되므로 폴링 타이머는 리셋·가드가 없어도 새 선박을 조회한다. 그래도 남기는
+   * 것은 `#755`가 이 자리에서 **클로저가 옛 값을 붙든** 결함을 겪었기 때문이다 —
+   * 그 회귀가 다시 나면 이 검사가 잡는다.
+   */
+  it('전환 뒤 폴링은 새 선박만 조회한다 — 옛 선박으로 되돌아가지 않는다', async () => {
+    const provider: RealtimeCiiProvider = {
+      load: vi.fn(async (id: string) => (id === 'v-1' ? BASE : OTHER)),
+    }
+    renderSwitchable(provider)
+    await screen.findByText(BASE.vesselName)
+
+    switchVessel()
+    await screen.findByText(OTHER.vesselName)
+
+    const before = (provider.load as ReturnType<typeof vi.fn>).mock.calls.length
+    await tickOnePoll()
+
+    const calls = (provider.load as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.length).toBeGreaterThan(before)
+    expect(calls.slice(before).every(([id]) => id === 'v-2')).toBe(true)
+    expect(screen.getByText(OTHER.vesselName)).toBeTruthy()
   })
 })
