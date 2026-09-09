@@ -207,7 +207,10 @@ class YtdCiiOutput:
 class _Aggregated:
     """DB에서 긁어 모은 **확정 전** 누적 입력."""
 
-    underway_fuel: dict[str, Decimal]
+    #: 항해 연료 — **유종 × CF snapshot**별 묶음. 키가 ``(fuel_type, cf_used)``인
+    #: 이유는 CF 개정 후 같은 유종에 snapshot이 둘 이상 생기기 때문이다 (#863).
+    #: 각 묶음이 **자기 snapshot CF로** 곱해진다 — PRD §8.4 snapshot 보존.
+    underway_fuel: dict[tuple[str, Decimal], Decimal]
     #: not under way 연료 — **유종 × CF snapshot**별 묶음 (030 · ``#378``).
     #: dict가 아닌 목록인 이유는 CF 개정 후 같은 유종에 snapshot이 둘 이상 생기기
     #: 때문이다. 엔진이 같은 ``fuel_code``를 합산하므로 묶음을 그대로 넘긴다.
@@ -216,8 +219,6 @@ class _Aggregated:
     not_underway_distance_nm: Decimal
     voyage_count: int
     warnings: list[str]
-    #: 유종별 CF — 항차 쪽 ``voyage_fuel_use.cf_used`` snapshot.
-    underway_cf: dict[str, Decimal]
     #: 실적 대신 계획값을 쓴 항차별 기록 (#449).
     substitutions: list[Substitution]
 
@@ -383,8 +384,8 @@ async def compute_ytd_cii(
     try:
         layer1 = _compute_layer1(
             underway_fuel_uses=[
-                FuelUse(fuel_code=code, fuel_ton=ton, cf_value=aggregated.underway_cf[code])
-                for code, ton in aggregated.underway_fuel.items()
+                FuelUse(fuel_code=code, fuel_ton=ton, cf_value=cf)
+                for (code, cf), ton in aggregated.underway_fuel.items()
             ],
             # 030 (#378) — 각 묶음이 **자기 snapshot CF로** 곱해진다. 같은 유종이
             # 여러 번 들어와도 엔진이 배출량을 합산한다.
@@ -472,8 +473,7 @@ async def _aggregate(
         session, [voyage.id for voyage in voyages]
     )
 
-    underway_fuel: dict[str, Decimal] = {}
-    underway_cf: dict[str, Decimal] = {}
+    underway_fuel: dict[tuple[str, Decimal], Decimal] = {}
     distance = Decimal(0)
     warnings: list[str] = []
     substitutions: list[Substitution] = []
@@ -505,13 +505,12 @@ async def _aggregate(
             if ton is None:
                 # 계획값마저 없으면 더할 것이 없다. 0을 더하는 것과 같으므로 건너뛴다.
                 continue
-            code = row.fuel_type
-            underway_fuel[code] = underway_fuel.get(code, Decimal(0)) + Decimal(ton)
-            # cf_used는 NOT NULL이다(DB_SCHEMA §2.3). 같은 유종이 항차마다 다른
-            # snapshot을 가질 수 있으나, 유종 하나에 CF 하나만 실을 수 있으므로
-            # **가장 최근 항차의 snapshot**을 쓴다 — voyages가 created_at 오름차순이라
-            # 나중 항차가 앞선 값을 덮어쓴다.
-            underway_cf[code] = Decimal(row.cf_used)
+            # cf_used는 NOT NULL이다(DB_SCHEMA §2.3). 묶음은 **유종 × CF snapshot** —
+            # 같은 유종이 항차마다 다른 snapshot을 가지면 **각 묶음이 자기 CF로**
+            # 곱해진다. CF 개정이 과거 실적을 소급해 바꾸지 않는다는 것은 PRD §8.4이고,
+            # 같은 규정을 not under way 쪽에 이미 적용한 것이 #378/030이다 (#863).
+            key = (row.fuel_type, Decimal(row.cf_used))
+            underway_fuel[key] = underway_fuel.get(key, Decimal(0)) + Decimal(ton)
 
     axes = {item.axis for item in substitutions}
     if SUBSTITUTION_AXIS_FUEL in axes:
@@ -519,23 +518,25 @@ async def _aggregate(
     if SUBSTITUTION_AXIS_DISTANCE in axes:
         warnings.append(WARNING_COMPLETED_NO_DISTANCE)
 
+    # #368 주입분(진행 중 항차)은 voyage_fuel_use 행이 없어 cf_used snapshot이 없다.
+    # 진행 중 항차는 **현재 계산**이므로 현재 활성 CF를 붙인다(PRD §8.4 — 변경 이후
+    # 계산에 적용). snapshot이 있는 묶음과 섞지 않고 **별개 묶음**으로 더한다 (#863).
     if in_progress is not None:
         distance += in_progress.distance_nm
+        pending: dict[str, Decimal] = {}
         for code, ton in in_progress.fuel_uses:
-            underway_fuel[code] = underway_fuel.get(code, Decimal(0)) + Decimal(ton)
-
-    # #368 주입분과 계획값 대입 경로는 cf_used가 없다 — 현재 CF로 채운다.
-    missing_cf = [code for code in underway_fuel if code not in underway_cf]
-    if missing_cf:
-        rows = await param_repo.get_fuel_types_by_codes(session, missing_cf)
-        for code in missing_cf:
-            if code not in rows:
-                raise ValidationError(
-                    f"알 수 없는 연료 종류입니다: {code}",
-                    field="fuel_type",
-                    field_label="연료 종류",
-                )
-            underway_cf[code] = Decimal(rows[code].cf)
+            pending[code] = pending.get(code, Decimal(0)) + Decimal(ton)
+        if pending:
+            rows = await param_repo.get_fuel_types_by_codes(session, list(pending))
+            for code, ton in pending.items():
+                if code not in rows:
+                    raise ValidationError(
+                        f"알 수 없는 연료 종류입니다: {code}",
+                        field="fuel_type",
+                        field_label="연료 종류",
+                    )
+                key = (code, Decimal(rows[code].cf))
+                underway_fuel[key] = underway_fuel.get(key, Decimal(0)) + Decimal(ton)
 
     not_underway_totals = await not_underway_repo.sum_fuel_by_type(
         session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
@@ -552,7 +553,6 @@ async def _aggregate(
         not_underway_distance_nm=not_underway_distance,
         voyage_count=len(voyages),
         warnings=warnings,
-        underway_cf=underway_cf,
         substitutions=substitutions,
     )
 
