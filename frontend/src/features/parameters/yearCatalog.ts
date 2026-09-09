@@ -42,7 +42,13 @@ import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
  */
 
 /** 규제연도 선택지 조회의 데이터 경계. 화면은 출처를 알지 않는다 (`#134`). */
-export interface YearCatalogProvider {
+/*
+ * `export`를 뗐다 (`#824` ⑴). 마지막 소비처였던 `AnnualSimulation`·`VoyageCiiForm`이
+ * `useYearOptions` 훅으로 옮겨가며 **이 파일 밖에서 이 타입을 쓰는 곳이 없어졌다.**
+ * 남겨 두면 `moduleBoundary.test.ts`(`#594`)가 잡는 「아무도 쓰지 않는 export」가
+ * 되고, 모듈 경계가 실제보다 넓어 보인다.
+ */
+interface YearCatalogProvider {
   /**
    * 해당 선박이 고를 수 있는 규제연도. 오름차순.
    *

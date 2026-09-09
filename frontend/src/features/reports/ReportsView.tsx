@@ -49,7 +49,17 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
 
   const [kind, setKind] = useState<ReportKind>('ANNUAL')
   const [vessels, setVessels] = useState<VesselOption[] | null>(null)
-  const [voyages, setVoyages] = useState<VoyageOption[] | null>(null)
+  /*
+   * 항차 목록 (`#824` ⑵).
+   *
+   * `null`은 **「아직 모른다」**, `'failed'`는 **「못 읽었다」**, 배열은 **「이만큼이
+   * 전부다」**다. 종전에는 실패도 `[]`여서 항차가 1,000건이어도 「이 선박에 등록된
+   * 항차가 없습니다」로 나갔다.
+   *
+   * **이 파일이 스스로 세운 규칙을 어기고 있었다** — 선박·연도 셀렉트는 「불러오는
+   * 중」과 「없음」을 구분한다(`#613`). 항차 셀렉트만 예외였다.
+   */
+  const [voyages, setVoyages] = useState<VoyageOption[] | 'failed' | null>(null)
   const [vesselId, setVesselId] = useState('')
   const [voyageId, setVoyageId] = useState('')
   const [year, setYear] = useState(() => new Date().getFullYear())
@@ -97,16 +107,45 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
       })
   }, [api])
 
+  /*
+   * 선박이 바뀌면 항차를 다시 받는다 (`#824` ⑵).
+   *
+   * ## 취소 플래그가 없으면 경합이 난다
+   *
+   * 이 조회는 **단발이 아니라 커서 전량 순회**(`apiProvider.ts`)라 응답 시간이 항차
+   * 수에 비례한다. 항차가 많은 A → 적은 B로 빠르게 전환하면 **B가 먼저 오고 A가
+   * 덮어쓴다** — 선박 셀렉트는 B인데 항차 셀렉트는 A의 항차이고, 그대로 만들면
+   * **선박 B 화면에서 선박 A의 문서**가 나오거나 404/422가 난다. 다음 전환 전까지
+   * 복구되지 않는다.
+   *
+   * 이 저장소의 다른 재조회 열 곳은 전부 이 플래그를 갖고 있었다.
+   *
+   * ## 비우고 시작한다
+   *
+   * `setVoyages(null)`을 하지 않으면 **두 번째 선박부터 「불러오는 중」이 영영 뜨지
+   * 않고**, 사용자는 A의 항차를 B의 것으로 읽는다 — `#874`가 실시간 CII에서 고친
+   * 것과 같은 결함이다.
+   */
   useEffect(() => {
     if (!vesselId) {
       setVoyages(null)
       return
     }
+    let alive = true
     setVoyageId('')
-    api
-      .listVoyages(vesselId)
-      .then(setVoyages)
-      .catch(() => setVoyages([]))
+    setVoyages(null)
+    api.listVoyages(vesselId).then(
+      (rows) => {
+        if (alive) setVoyages(rows)
+      },
+      () => {
+        // 실패를 `[]`로 두면 「등록된 항차가 없습니다」가 되어 **원인이 뒤바뀐다**.
+        if (alive) setVoyages('failed')
+      },
+    )
+    return () => {
+      alive = false
+    }
   }, [api, vesselId])
 
   const resolve = useCallback((): ReportTarget | string => {
@@ -261,7 +300,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                 data-testid="voyage-select"
               >
                 <option value="">선택하세요</option>
-                {(voyages ?? []).map((voyage) => (
+                {(Array.isArray(voyages) ? voyages : []).map((voyage) => (
                   <option
                     key={voyage.id}
                     value={voyage.id}
@@ -279,10 +318,21 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                   항차 목록을 불러오는 중입니다…
                 </em>
               ) : null}
-              {vesselId && voyages !== null && voyages.length === 0 ? (
+              {/*
+                실패는 「없음」과 다르다 (`#824` ⑵). 종전에는 둘이 같은 문구로
+                나가서, 조회가 실패한 선박이 **항차가 없는 선박으로 보였다.**
+              */}
+              {vesselId && voyages === 'failed' ? (
+                <em className="rp__hint" role="alert">
+                  항차 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+                </em>
+              ) : null}
+              {vesselId && Array.isArray(voyages) && voyages.length === 0 ? (
                 <em className="rp__hint">이 선박에 등록된 항차가 없습니다.</em>
               ) : null}
-              {voyages !== null && voyages.length > 0 && !voyages.some((v) => v.reportable) ? (
+              {Array.isArray(voyages) &&
+              voyages.length > 0 &&
+              !voyages.some((v) => v.reportable) ? (
                 <em className="rp__hint">
                   완료된 항차가 없습니다. 진행 중 항차는 실적이 확정된 뒤 생성할 수
                   있습니다.

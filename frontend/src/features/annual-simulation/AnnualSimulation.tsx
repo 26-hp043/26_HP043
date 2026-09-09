@@ -4,7 +4,7 @@ import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
-import { createYearCatalog } from '../parameters/yearCatalog'
+import { useYearOptions } from '../parameters/yearCatalog'
 import { GradeBadge } from '../../components/GradeBadge'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
@@ -81,52 +81,54 @@ export function AnnualSimulation({
 
   // 연도 선택지도 CII 예측과 **같은 경계** 뒤에 둔다 (`#534` · `#558`). 기준이 갈리면
   // 두 화면이 서로 다른 해를 보여 주고, 그 차이는 값이 아니라 목록에서 나타나 늦게 발견된다.
-  const yearCatalog = useMemo(() => createYearCatalog(), [])
-  const [years, setYears] = useState<number[]>([])
   const [year, setYear] = useState('')
-  const [yearsLoading, setYearsLoading] = useState(true)
-  const [yearsFailed, setYearsFailed] = useState(false)
 
   /*
-   * 선박이 정해진 뒤 그 선박의 연도 선택지를 받는다.
+   * 연도 선택지는 **공용 훅**이 받는다 (`#632`가 만든 것 · `#824` ⑴로 이관).
    *
-   * 실 API 구현은 `vesselId`를 쓰지 않지만(Z계수는 전 선종 공통) 인자를 넘긴다 —
-   * `YearCatalogProvider` 서명이 그렇고, 화면이 구현의 사정을 알지 않는다.
+   * ## 왜 자체 구현을 걷어냈나
+   *
+   * 종전에는 같은 로직이 이 파일에 복사돼 있었고, **선박이 아직 정해지지 않은 첫
+   * 진입에서 영구 로딩**이 됐다.
+   *
+   * ```
+   * const [yearsLoading, setYearsLoading] = useState(true)   // 초기값 true
+   * useEffect(() => {
+   *   if (shell.vesselId === null) return                    // ← false로 되돌리지 않고 나간다
+   *   …
+   *   .finally(() => setYearsLoading(false))                 // ← 유일한 false 경로
+   * })
+   * ```
+   *
+   * `EMPTY_CONTEXT`의 `vesselId`가 `null`이고 이 화면은 선박을 자동 선택하지
+   * 않으므로(`AnnualGradePage`) **그것이 기본 진입 상태**다 — 「규제연도 목록을
+   * 불러오는 중…」에서 끝내 바뀌지 않고 `<select>`가 렌더되지 않는다. 요청은 아예
+   * 나가지도 않는다.
+   *
+   * **공용 훅은 이 자리를 이미 막고 있다** — 빈 `vesselId`면 목록을 비우고
+   * `loading`을 내린다. `#632`가 훅을 만들며 항로 비교·보고서만 이관했고 이 화면과
+   * `VoyageCiiForm`이 남아 있었다.
+   */
+  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(
+    shell.vesselId ?? '',
+  )
+
+  /*
+   * 목록이 오면 기본 선택을 맞춘다 (`ScenarioComparison`과 같은 형태).
+   *
+   * `VoyageCiiForm`과 **같은 함수**를 쓴다. 종전에는 이 화면만 「가장 최근 해」를
+   * 골랐는데, 규제연도가 2023~2030이라 기본값이 **2030**이었다 — 아직 실적이 없는
+   * 해다. 「올해 남은 항차로 목표 등급을 맞출 수 있는가」를 보는 화면이므로
+   * (`PRD §12`) 올해가 맞다.
+   *
+   * 올해를 **여기서 읽어** 순수 함수에 넘긴다 — 함수 안에서 `new Date()`를 부르면
+   * 검사가 해를 고정할 수 없다.
    */
   useEffect(() => {
-    if (shell.vesselId === null) return
-    let cancelled = false
-    setYearsLoading(true)
-    setYearsFailed(false)
-    yearCatalog
-      .listYears(shell.vesselId)
-      .then((rows) => {
-        if (cancelled) return
-        setYears(rows)
-        /*
-         * `VoyageCiiForm`과 **같은 함수**를 쓴다. 종전에는 이 화면만
-         * `selectedYear`로 「가장 최근 해」를 골랐는데, 규제연도가 2023~2030이라
-         * 기본값이 **2030**이었다 — 아직 실적이 없는 해다. 「올해 남은 항차로 목표
-         * 등급을 맞출 수 있는가」를 보는 화면이므로(`PRD §12`) 올해가 맞다.
-         *
-         * 옛 주석이 「과거 연도를 기본으로 두면 첫 화면이 의미를 잃는다」고 적은
-         * 의도는 그대로다 — 올해를 고르는 편이 그 의도를 더 정확히 지킨다.
-         */
-        const thisYear = new Date().getFullYear()
-        setYear((prev) => pickDefaultYear(rows, thisYear, prev))
-      })
-      .catch(() => {
-        if (cancelled) return
-        setYearsFailed(true)
-        setYears([])
-      })
-      .finally(() => {
-        if (!cancelled) setYearsLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [yearCatalog, shell.vesselId])
+    if (years.length === 0) return
+    const thisYear = new Date().getFullYear()
+    setYear((prev) => pickDefaultYear(years, thisYear, prev))
+  }, [years])
 
   const run = useCallback(async () => {
     if (shell.vesselId === null) {

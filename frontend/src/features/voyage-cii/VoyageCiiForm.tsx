@@ -14,7 +14,7 @@ import {
 import { DISPLAY_UNITS } from '../../display/format'
 import { createVoyageCiiProvider } from './providerSelection'
 import { useShellContext } from '../../layout/shellContext'
-import { createYearCatalog } from '../parameters/yearCatalog'
+import { useYearOptions } from '../parameters/yearCatalog'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import type { ResultState } from './resultRules'
@@ -97,10 +97,17 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
   // 연도 선택지도 같은 경계 뒤에 둔다 (#534). 종전에는 `selectableYears()`가
   // 고정표를 직행으로 읽어, 실 API 모드에서 고정표에 없는 선박(= 벌크선 외 전부)이
   // 연도를 못 받아 계산 자체가 불가능했다.
-  const yearCatalog = useMemo(() => createYearCatalog(), [])
-  const [years, setYears] = useState<number[]>([])
-  const [yearsLoading, setYearsLoading] = useState(true)
-  const [yearsFailed, setYearsFailed] = useState(false)
+  /*
+   * 연도 선택지는 **공용 훅**이 받는다 (`#632`가 만든 것 · `#824` ⑴로 이관).
+   *
+   * 종전 자체 구현은 `if (!state.vesselId) return`으로 조기 반환하면서
+   * `yearsLoading`을 `true`로 남겨 뒀다. 이 화면은 목록의 첫 배를 자동 선택하므로
+   * 평시에는 드러나지 않지만, **선박이 0척이거나 `GET /vessels`가 실패하면** 같은
+   * 영구 로딩이 된다 — 그때 「선박」 칸은 「등록된 선박이 없습니다」로 정확히
+   * 안내하는데 바로 아래 「규제연도」만 영원히 로딩이라, **한 화면에서 두 칸이 다른
+   * 사실을 말한다.** 공용 훅은 빈 `vesselId`에서 목록을 비우고 `loading`을 내린다.
+   */
+  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(state.vesselId)
 
   // demo ↔ 실 API 전환은 providerSelection이 판단한다(#138). 화면은 어느 쪽이
   // 선택됐는지 알지 않는다 — 그것이 #134가 provider 경계를 그은 이유다.
@@ -126,49 +133,24 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
     if (vessels.length > 0) selectVesselId(vessels[0].id)
   }, [shellVesselId, vessels, selectVesselId])
 
-  /**
-   * 선박이 정해진 뒤 그 선박의 연도 선택지를 받는다.
+  /*
+   * 목록이 오면 기본 선택을 맞춘다 (`ScenarioComparison`과 같은 형태).
    *
-   * **선박 로딩과 한 효과로 묶지 않는다.** 사용자가 선박을 바꿀 때마다 다시 돌아야
-   * 하는데, 선박 목록은 한 번만 받으면 되기 때문이다. demo 구현은 고정표를
-   * `(vesselId, year)` 키로 들고 있어 선박마다 결과가 갈린다.
+   * `pickDefaultYear`가 정한다 — 이미 고른 해는 유지하고, 없으면 올해를, 올해가
+   * 목록에 없으면 가장 최근 해를 고른다.
+   *
+   * 올해를 **여기서 읽어** 순수 함수에 넘긴다. 함수 안에서 `new Date()`를 부르면
+   * 검사가 해를 고정할 수 없다. 이 값은 셀렉트의 초기 선택을 정할 뿐이고 **서버로
+   * 가는 것은 사용자가 고른 값**이다(함수 주석 참조).
    */
   useEffect(() => {
-    if (!state.vesselId) return
-    let cancelled = false
-    setYearsLoading(true)
-    setYearsFailed(false)
-    yearCatalog
-      .listYears(state.vesselId)
-      .then((rows) => {
-        if (cancelled) return
-        setYears(rows)
-        /*
-         * 기본 선택은 `pickDefaultYear`가 정한다 — 이미 고른 해는 유지하고, 없으면
-         * 올해를, 올해가 목록에 없으면 가장 최근 해를 고른다.
-         *
-         * 올해를 **여기서 읽어** 순수 함수에 넘긴다. 함수 안에서 `new Date()`를
-         * 부르면 테스트가 해를 고정할 수 없다. 이 값은 셀렉트의 초기 선택을 정할
-         * 뿐이고 **서버로 가는 것은 사용자가 고른 값**이다(함수 주석 참조).
-         */
-        const thisYear = new Date().getFullYear()
-        setState((prev) => {
-          const next = pickDefaultYear(rows, thisYear, prev.regulationYear)
-          return next === prev.regulationYear ? prev : { ...prev, regulationYear: next }
-        })
-      })
-      .catch(() => {
-        if (cancelled) return
-        setYearsFailed(true)
-        setYears([])
-      })
-      .finally(() => {
-        if (!cancelled) setYearsLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [yearCatalog, state.vesselId])
+    if (years.length === 0) return
+    const thisYear = new Date().getFullYear()
+    setState((prev) => {
+      const next = pickDefaultYear(years, thisYear, prev.regulationYear)
+      return next === prev.regulationYear ? prev : { ...prev, regulationYear: next }
+    })
+  }, [years])
 
   const selectedVessel = vessels.find((v) => v.id === state.vesselId)
 

@@ -261,3 +261,53 @@ describe('화면이 깨져도 셸은 남는다 (#823)', () => {
     expect(screen.queryByText('화면을 표시하지 못했습니다')).toBeNull()
   })
 })
+
+/**
+ * 상단바 항차 셀렉트가 **세 상태를 구분**한다 (#824 ⑶).
+ *
+ * 종전에는 조회가 실패해도 `setVoyages([])`로 떨어져 셀렉트가 **「항차 없음」**을
+ * 말했다 — 항차가 1,000건이어도 그렇다. 사용자는 **항차를 만들어야 하는지 서버를
+ * 봐야 하는지** 알 수 없다.
+ *
+ * ⚠️ **같은 파일의 선박 셀렉트는 셋을 정확히 구분한다** — `shellContext.ts`가
+ * *「`ready`인데 비었으면 등록된 배가 없는 것이고, `failed`면 서버를 못 읽은 것이다」*
+ * 로 그 판단을 적어 두었다. **항차 축에만 대응 필드가 없었다.**
+ */
+describe('상단바 항차 셀렉트가 조회 실패를 「없음」으로 말하지 않는다 (#824 ⑶)', () => {
+  function stubWithVoyages(handler: (url: string) => Response | null) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/auth/me')) {
+          return jsonResponse({ data: { id: 'u1', email: 'a@b.c', display_name: '테스터' } })
+        }
+        if (url.includes('/vessels') && url.includes('/voyages')) {
+          const custom = handler(url)
+          if (custom) return custom
+          return jsonResponse({ data: [] })
+        }
+        if (url.includes('/vessels')) return jsonResponse(VESSELS)
+        return jsonResponse({ data: [] })
+      }),
+    )
+  }
+
+  it('조회가 실패하면 「불러오지 못했습니다」로 말한다', async () => {
+    stubWithVoyages(() => jsonResponse({ error: { message: '서버 오류' } }, 500))
+
+    renderShell()
+
+    expect(await screen.findByText('항차를 불러오지 못했습니다')).toBeTruthy()
+    expect(screen.queryByText('항차 없음')).toBeNull()
+  })
+
+  it('진짜로 항차가 없으면 종전대로 「항차 없음」이다', async () => {
+    stubWithVoyages(() => null)
+
+    renderShell()
+
+    expect(await screen.findByText('항차 없음')).toBeTruthy()
+    expect(screen.queryByText('항차를 불러오지 못했습니다')).toBeNull()
+  })
+})
