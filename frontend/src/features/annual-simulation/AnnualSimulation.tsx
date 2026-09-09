@@ -14,7 +14,6 @@ import {
   riskFlag,
   sensitivityRows,
   stackSegments,
-  showsInlineLabel,
   toPercent,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
@@ -360,7 +359,7 @@ function Result({ result }: { result: AnnualSimulationResult }) {
         >
           {segments.map((seg) => {
             const pattern = gradePatternUrl(seg.rating)
-            const inline = showsInlineLabel(seg.percent)
+            const inline = seg.inline
             const text = `${seg.rating} ${seg.label}`
 
             return (

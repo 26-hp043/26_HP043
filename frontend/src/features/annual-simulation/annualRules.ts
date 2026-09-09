@@ -148,10 +148,29 @@ export function toSignedPercent(change: string): string {
  */
 export function stackSegments(
   probabilities: Record<Rating, string>,
-): Array<{ rating: Rating; percent: number; label: string }> {
+): Array<{ rating: Rating; percent: number; label: string; inline: boolean }> {
   return RATING_ORDER.map((rating) => {
-    const raw = Number(probabilities[rating] ?? 0)
-    return { rating, percent: raw * 100, label: toPercent(probabilities[rating] ?? '0') }
+    const value = probabilities[rating] ?? '0'
+    const raw = Number(value)
+    return {
+      // 그리는 폭은 float 그대로 쓴다 — 반올림하면 칸들의 합이 100%에서 더 벌어진다.
+      percent: raw * 100,
+      /*
+       * **판정을 여기서 끝낸다** (#846).
+       *
+       * 화면에 값을 넘겨 거기서 판정하게 두면, 넘기는 값을 `percent`로 바꾸는 것만으로
+       * 결함이 되살아나고 **순수 함수 검사는 그것을 잡지 못한다**(실제로 돌연변이
+       * 검사에서 확인했다). 고를 수 있는 값이 하나뿐이면 틀릴 수가 없다.
+       *
+       * 근거는 **화면에 쓰인 숫자**다. `percent`는 float 곱셈이고 `label`은
+       * ROUND_HALF_UP이라 경계에서 갈린다: `'0.0795'`는 `7.949999…`이면서 표시는
+       * `8.0%`다. 종전 판정은 **「8.0%」라고 쓰인 칸을 8% 미만으로 취급**해 문자를
+       * 툴팁으로 밀었다. 사용자가 읽는 근거는 그려진 폭이 아니라 그 칸에 적힌 숫자다.
+       */
+      inline: showsInlineLabel(Number(formatPercent(value))),
+      rating,
+      label: toPercent(value),
+    }
   })
 }
 
@@ -167,13 +186,20 @@ export const INLINE_LABEL_MIN_PERCENT = 8
  *
  * `§10.2`가 정한 8%는 **경계를 포함한다**(`≥`). 정확히 8%인 구간은 안에 넣는다.
  *
+ * ## 넘기는 값은 `shownPercent`다 (#846)
+ *
+ * `percent`(float)를 넘기면 **화면에 「8.0%」라고 쓰인 칸이 문자를 못 받는다** —
+ * `'0.0795'`가 `7.949999…`이기 때문이다. 사용자가 읽는 근거는 그 칸에 적힌
+ * 숫자이므로, 표시와 같은 반올림을 거친 값으로 판정한다.
+ *
  * ## 합이 100%가 아니어도 정규화하지 않는다
  *
- * 판정은 **구간 자신의 폭**만 본다. 서버 확률의 합이 반올림으로 99.9%나 100.1%가
- * 되는 일이 있는데, 그때 100%로 맞춰 늘렸다가는 **화면에 그려진 폭과 판정 근거가
- * 어긋난다** — 8.0%로 그려진 칸이 문자를 못 받거나 그 반대가 된다. 폭이 곧 근거다.
+ * 판정은 **구간 자신의 값**만 본다. 서버 확률의 합이 반올림으로 99.9%나 100.1%가
+ * 되는 일이 있는데, 그때 100%로 맞춰 늘렸다가는 화면에 쓰인 숫자와 판정 근거가
+ * 또 어긋난다.
  */
-export function showsInlineLabel(percent: number): boolean {
+// 이 파일 안에서만 쓴다 — `stackSegments`가 판정을 끝내므로 밖에서 부를 일이 없다 (#594).
+function showsInlineLabel(percent: number): boolean {
   return percent >= INLINE_LABEL_MIN_PERCENT
 }
 

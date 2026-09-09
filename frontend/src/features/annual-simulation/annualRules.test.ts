@@ -7,7 +7,6 @@ import {
   sensitivityRows,
   stackSegments,
   INLINE_LABEL_MIN_PERCENT,
-  showsInlineLabel,
   toPercent,
   toSignedPercent,
 } from './annualRules'
@@ -158,6 +157,11 @@ describe('표시 변환', () => {
  * `AGENTS §4.6`에 따라 문구는 리터럴로 단언하지 않는다. 다만 **8% 임계와 자릿수는
  * 정본이 확정한 값**이므로 그대로 단언한다.
  */
+/** C 구간에만 확률을 세운 스택. 판정은 구간 자신의 값만 보므로 나머지는 0이면 된다. */
+function segmentC(value: string) {
+  return stackSegments({ A: '0', B: '0', C: value, D: '0', E: '0' })[2]
+}
+
 describe('스택 바 구간 안 문자 — DESIGN_SYSTEM §10.2', () => {
   it('임계는 정본이 정한 8이다', () => {
     expect(INLINE_LABEL_MIN_PERCENT).toBe(8)
@@ -165,38 +169,38 @@ describe('스택 바 구간 안 문자 — DESIGN_SYSTEM §10.2', () => {
 
   it('8% 경계를 포함한다 — 정확히 8%면 안에 넣는다', () => {
     // §10.2가 `≥`로 적었다. `>`로 잘못 쓰면 딱 8%인 구간만 조용히 빠진다.
-    expect(showsInlineLabel(8)).toBe(true)
+    expect(segmentC('0.0800').inline).toBe(true)
   })
 
   it('8% 바로 아래는 넣지 않는다', () => {
-    expect(showsInlineLabel(7.9)).toBe(false)
-    expect(showsInlineLabel(7.999)).toBe(false)
+    expect(segmentC('0.0790').inline).toBe(false)
+    expect(segmentC('0.0700').inline).toBe(false)
   })
 
   it('8% 바로 위는 넣는다', () => {
-    expect(showsInlineLabel(8.001)).toBe(true)
-    expect(showsInlineLabel(8.1)).toBe(true)
+    expect(segmentC('0.0810').inline).toBe(true)
+    expect(segmentC('0.0900').inline).toBe(true)
   })
 
   it('0% 구간은 넣지 않는다', () => {
     // 폭이 0이라 글자가 들어갈 자리가 없다. 구간 자체는 목록에서 빼지 않는다.
-    expect(showsInlineLabel(0)).toBe(false)
+    expect(segmentC('0').inline).toBe(false)
   })
 
   it('합이 100%가 아니어도 구간 자신의 폭으로 판정한다', () => {
     /*
      * 서버 확률의 합은 반올림으로 99.9%나 100.1%가 되곤 한다. 100%로 정규화해
-     * 판정하면 **화면에 그려진 폭과 근거가 어긋난다** — 폭이 곧 근거다.
+     * 판정하면 **화면에 쓰인 숫자와 근거가 어긋난다** — 그 숫자가 곧 근거다 (#846).
      */
     const under = stackSegments({ A: '0.079', B: '0.30', C: '0.30', D: '0.20', E: '0.12' })
     const sum = under.reduce((acc, seg) => acc + seg.percent, 0)
     expect(sum).toBeLessThan(100)
     // 합이 99.9%여도 7.9%짜리 A는 여전히 8% 미만이다.
-    expect(showsInlineLabel(under[0].percent)).toBe(false)
+    expect(under[0].inline).toBe(false)
 
     const over = stackSegments({ A: '0.081', B: '0.30', C: '0.30', D: '0.20', E: '0.12' })
     expect(over.reduce((acc, seg) => acc + seg.percent, 0)).toBeGreaterThan(100)
-    expect(showsInlineLabel(over[0].percent)).toBe(true)
+    expect(over[0].inline).toBe(true)
   })
 
   it('구간 문자의 퍼센트는 소수 1자리다', () => {
@@ -305,5 +309,36 @@ describe('toSignedPercent (#822)', () => {
 
   it('앞뒤 공백을 견딘다', () => {
     expect(toSignedPercent(' +0.12 ')).toBe('+12.0%')
+  })
+})
+
+/**
+ * #846 — 구간 안 문자 판정이 **표시된 숫자**를 따른다.
+ *
+ * `percent`는 float 곱셈(`0.0795 * 100 = 7.949999…`)이고 `label`은 ROUND_HALF_UP
+ * (`8.0%`)이라, 둘이 경계에서 갈렸다. 종전에는 **화면에 「8.0%」라고 쓰인 칸이
+ * 문자를 못 받고 툴팁으로 밀렸다.**
+ */
+describe('스택 바 — 표시된 숫자로 판정한다 (#846)', () => {
+  it('8.0%로 표시되는 확률 전 범위가 안쪽 배치다', () => {
+    // 서버가 보내는 4자리 확률 중 8.0%로 **반올림되는** 것들이다.
+    for (const value of ['0.0795', '0.0796', '0.0797', '0.0798', '0.0799', '0.0800']) {
+      const seg = segmentC(value)
+      expect(seg.label).toBe('8.0%')
+      expect(seg.inline).toBe(true)
+    }
+  })
+
+  it('7.9%로 표시되면 안쪽이 아니다 — 임계를 낮추는 것이 아니다', () => {
+    const seg = segmentC('0.0794')
+    expect(seg.label).toBe('7.9%')
+    expect(seg.inline).toBe(false)
+  })
+
+  it('그리는 폭은 그대로 float다 — 판정만 표시값을 쓴다', () => {
+    // 폭까지 반올림하면 칸들의 합이 100%에서 더 벌어진다.
+    const seg = segmentC('0.0795')
+    expect(seg.percent).toBeCloseTo(7.95, 6)
+    expect(seg.inline).toBe(true)
   })
 })
