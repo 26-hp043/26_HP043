@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  changePassword,
   deleteAccount,
   getCachedUser,
   logout,
@@ -8,6 +9,8 @@ import {
   csrfHeaders,
   csrfToken,
   redirectToLogin,
+  SESSION_EXPIRED_MESSAGE,
+  updateDisplayName,
 } from './session'
 import { safeNext } from '../features/auth/authRules'
 
@@ -221,12 +224,21 @@ describe('deleteAccount (#754)', () => {
   it('서버가 거부하면 던지고 캐시를 비우지 않는다 — 탈퇴된 척하지 않는다', async () => {
     await probeCurrentUser(async () => ME_OK)
 
+    /*
+     * ⚠️ **종전에는 이 검사가 `401`을 예시로 썼다** (`#878`에서 정정). 검사의 의도는
+     * 「탈퇴가 **거부**됐을 때」인데, `401`은 거부가 아니라 **세션이 사라진 것**이다 —
+     * 그 경우에는 캐시를 비우고 로그인으로 보내는 편이 맞고, 아래 별도 검사가 그것을
+     * 단언한다. 의도를 살려 **세션과 무관한 실패**로 바꿨다.
+     */
     await expect(
       deleteAccount(
         (async () =>
-          jsonResponse({ error: { message: '세션이 만료되었습니다.' } }, 401)) as unknown as typeof fetch,
+          jsonResponse(
+            { error: { message: '탈퇴 처리 중 오류가 발생했습니다.' } },
+            500,
+          )) as unknown as typeof fetch,
       ),
-    ).rejects.toThrow('세션이 만료되었습니다.')
+    ).rejects.toThrow('탈퇴 처리 중 오류가 발생했습니다.')
 
     /*
      * ⚠️ 캐시가 비워지면 화면이 「로그아웃됨」으로 읽힌다. 계정은 살아 있는데
@@ -252,5 +264,136 @@ describe('deleteAccount (#754)', () => {
       }),
     ).rejects.toThrow(/서버에 연결하지 못했습니다/)
     expect(getCachedUser()).not.toBeNull()
+  })
+})
+
+/**
+ * 세션 만료 상태의 설정 화면 동작 (#878).
+ *
+ * `redirectToLogin()`의 소비처는 `features/<기능>/apiProvider.ts` 열세 곳뿐이고
+ * **`auth/session.ts` 자신의 요청은 0곳**이었다. 그래서 세션이 만료된 채 설정 화면에서
+ * 이름 변경·비밀번호 변경·탈퇴를 하면 서버 문구가 폼 아래 붙을 뿐 **화면이 설정에
+ * 갇혔다** — 그 상태에서는 어떤 동작도 401이라 빠져나갈 길이 없다.
+ *
+ * `changePassword.md` 주석의 「다음 요청이 401을 받아 `redirectToLogin`으로 간다」는
+ * **이 모듈 안의 요청에는 성립하지 않았다.**
+ *
+ * ⚠️ 이 파일은 노드 환경이라 `window`가 없어 `redirectToLogin()`이 no-op다. 화면 이동
+ * 자체는 단언할 수 없으므로 **관측 가능한 두 결과**를 본다: 세션 만료 문구를 던지는가,
+ * 캐시를 비우는가(비우지 않으면 상단바에 옛 사용자가 남는다).
+ */
+describe('세션 만료(401)를 설정 화면 동작이 스스로 처리한다 (#878)', () => {
+  it('표시 이름 변경 — 401이면 만료 문구를 던지고 캐시를 비운다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+    expect(getCachedUser()).not.toBeNull()
+
+    await expect(
+      updateDisplayName(
+        '새 이름',
+        (async () =>
+          jsonResponse({ error: { message: '인증이 필요합니다.' } }, 401)) as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow(SESSION_EXPIRED_MESSAGE)
+
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('탈퇴 — 401이면 만료 문구를 던지고 캐시를 비운다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      deleteAccount(
+        (async () =>
+          jsonResponse({ error: { message: '인증이 필요합니다.' } }, 401)) as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow(SESSION_EXPIRED_MESSAGE)
+
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('표시 이름 변경 — 401이 아닌 실패는 종전대로 서버 문구를 던지고 캐시를 남긴다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      updateDisplayName(
+        '가'.repeat(200),
+        (async () =>
+          jsonResponse({ error: { message: '표시 이름이 너무 깁니다.' } }, 422)) as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow('표시 이름이 너무 깁니다.')
+
+    expect(getCachedUser()).not.toBeNull()
+  })
+})
+
+/**
+ * 비밀번호 변경의 401은 두 사유가 섞여 있다 (#878).
+ *
+ * 실측 — **`code`가 같다.**
+ *
+ * ```
+ * 세션 만료   {"code":"UNAUTHORIZED","message":"인증이 필요합니다."}
+ * 비번 오입력 {"code":"UNAUTHORIZED","message":"현재 비밀번호가 올바르지 않습니다."}
+ * ```
+ *
+ * 그래서 문구가 아니라 **세션이 실제로 살아 있는지**로 가른다.
+ */
+describe('비밀번호 변경의 401을 사유별로 가른다 (#878)', () => {
+  /** `POST /auth/password-change`는 401, `GET /auth/me`는 주어진 응답을 낸다. */
+  function passwordChangeThen(meResponse: Response) {
+    return vi.fn(async (url: unknown) =>
+      String(url).includes('/auth/me')
+        ? meResponse
+        : jsonResponse({ error: { code: 'UNAUTHORIZED', message: '…' } }, 401),
+    ) as unknown as typeof fetch
+  }
+
+  it('세션이 죽었으면 만료로 처리한다 — 캐시를 비운다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      changePassword('현재비밀번호1!', '새비밀번호2@', passwordChangeThen(jsonResponse(null, 401))),
+    ).rejects.toThrow(SESSION_EXPIRED_MESSAGE)
+
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('세션이 살아 있으면 비밀번호 오입력이다 — 서버 문구를 폼에 남긴다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    const fetchImpl = vi.fn(async (url: unknown) =>
+      String(url).includes('/auth/me')
+        ? ME_OK
+        : jsonResponse(
+            { error: { code: 'UNAUTHORIZED', message: '현재 비밀번호가 올바르지 않습니다.' } },
+            401,
+          ),
+    ) as unknown as typeof fetch
+
+    await expect(
+      changePassword('틀린비밀번호1!', '새비밀번호2@', fetchImpl),
+    ).rejects.toThrow('현재 비밀번호가 올바르지 않습니다.')
+
+    /*
+     * ⚠️ 여기서 캐시가 비워지면 **비밀번호를 잘못 친 것만으로 로그아웃**된다.
+     * 종전 결함의 정반대 방향 판본이라 함께 못 박는다.
+     */
+    expect(getCachedUser()).not.toBeNull()
+  })
+
+  it('세션 확인은 실패 경로에서만 한다 — 성공하면 추가 요청이 없다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ data: { message: '비밀번호를 변경했습니다. 3개 기기에서 로그아웃됩니다.' } }),
+    )
+    const message = await changePassword(
+      '현재비밀번호1!',
+      '새비밀번호2@',
+      fetchImpl as unknown as typeof fetch,
+    )
+
+    expect(message).toContain('비밀번호를 변경했습니다')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 })
