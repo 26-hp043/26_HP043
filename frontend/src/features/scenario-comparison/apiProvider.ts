@@ -120,6 +120,16 @@ export function createApiScenarioProvider(
             Accept: 'application/json',
             ...csrfHeaders(),
           },
+          /*
+           * 선택 입력 5종은 **`undefined`면 키가 사라진다** — `JSON.stringify`가
+           * `undefined` 값을 가진 키를 통째로 뺀다. 서버 스키마가
+           * `extra="forbid"`이면서 각 필드의 기본을 `None`으로 두므로, 키를 빼는
+           * 것이 곧 「서버 기본을 쓴다」는 표현이다 (#892).
+           *
+           * 이름이 바뀌는 둘(`base_distance_nm` → `direct_distance_nm`,
+           * `base_speed_kn` → `current_speed_kn`)만 여기서 옮긴다 — 나머지는
+           * 서버 필드명을 그대로 쓴다.
+           */
           body: JSON.stringify({
             vessel_id: request.vessel_id,
             regulation_year: request.regulation_year,
@@ -127,6 +137,11 @@ export function createApiScenarioProvider(
             fuel_type: request.fuel_type,
             direct_distance_nm: request.base_distance_nm,
             base_daily_foc_ton: request.base_daily_foc_ton,
+            detour_distance_nm: request.detour_distance_nm,
+            slow_speed_kn: request.slow_speed_kn,
+            current_lat: request.current_lat,
+            current_lon: request.current_lon,
+            weather_model: request.weather_model,
           }),
         })
       } catch (cause) {

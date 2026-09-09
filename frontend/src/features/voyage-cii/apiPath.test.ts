@@ -221,6 +221,12 @@ describe('기능② — 비교 결과가 표 문자열이 된다', () => {
           baseSpeedKn: '14',
           baseDailyFocTon: '26.88',
           fuelType: 'HFO',
+          // 선택 입력은 비운다 — 이 검사의 관심은 응답 표시 자릿수다 (#892).
+          detourDistanceNm: '',
+          slowSpeedKn: '',
+          weatherModel: 'NONE',
+          currentLat: '',
+          currentLon: '',
         },
         FUELS,
       ),

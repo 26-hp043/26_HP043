@@ -94,6 +94,57 @@ describe('요청 매핑', () => {
     })
   })
 
+  /*
+   * #892 — 선택 입력 5종이 **실제 요청 본문에 실리는지** 본다.
+   *
+   * 폼이 그려지는 것만 확인하면 배선이 증명되지 않는다. `#821`의 선례가 그것이다 —
+   * 프론트 검사 59건이 전부 통과하는 동안 `warnings: []` 리터럴이 배너 조건을
+   * 영구 거짓으로 만들고 있었다. 그래서 `fetchImpl`이 받은 body를 직접 판다.
+   */
+  it('선택 입력 5종을 서버 필드명 그대로 싣는다 (#892)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    await createApiScenarioProvider(fetchImpl).compare({
+      ...REQUEST,
+      detour_distance_nm: 1200,
+      slow_speed_kn: 10.5,
+      current_lat: 35.1,
+      current_lon: 129.05,
+      weather_model: 'SIMPLE_RULE',
+    })
+
+    const sent = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string)
+    expect(sent).toMatchObject({
+      detour_distance_nm: 1200,
+      slow_speed_kn: 10.5,
+      current_lat: 35.1,
+      current_lon: 129.05,
+      weather_model: 'SIMPLE_RULE',
+    })
+  })
+
+  it('미지정 선택 입력은 본문에서 키가 사라진다 (#892)', async () => {
+    /*
+     * `JSON.stringify`가 `undefined` 값을 가진 키를 통째로 뺀다. 이것이 「서버
+     * 기본을 쓴다」의 표현이다 — `null`을 보내면 `extra="forbid"` 스키마에서
+     * **명시적 null**이 되어 기본값 규칙(`API_SPEC §5.1`)이 발동하지 않는다.
+     */
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+
+    const body = (fetchImpl.mock.calls[0][1] as RequestInit).body as string
+    for (const key of [
+      'detour_distance_nm',
+      'slow_speed_kn',
+      'current_lat',
+      'current_lon',
+      'weather_model',
+    ]) {
+      expect(JSON.parse(body)).not.toHaveProperty(key)
+      // 직렬화된 문자열에도 없어야 한다 — `"key":null`이 남으면 위 단언은 통과한다.
+      expect(body).not.toContain(key)
+    }
+  })
+
   it('총 연료량을 보내지 않는다 — 서버 계약은 일일 소모량이다', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
     await createApiScenarioProvider(fetchImpl).compare(REQUEST)

@@ -27,7 +27,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 function stubServer(years: number[] = [2026, 2027, 2030]) {
-  const fetchImpl = vi.fn(async (input: unknown) => {
+  // `init`을 받는 이유는 **보낸 본문을 검사하기 위해서**다 (#892). 두 번째 인자를
+  // 선언하지 않으면 `mock.calls[n][1]`의 타입이 없어 본문에 닿을 수 없다.
+  const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+    void init
     const url = String(input)
     if (url.includes('/parameters/regulation-years')) {
       return jsonResponse({ data: years.map((year) => ({ year })) })
@@ -178,7 +181,10 @@ const COMPARE_BODY = {
 }
 
 function stubServerWithComparison(body: unknown = COMPARE_BODY, years: number[] = [2026]) {
-  const fetchImpl = vi.fn(async (input: unknown) => {
+  // `init`을 받는 이유는 **보낸 본문을 검사하기 위해서**다 (#892). 두 번째 인자를
+  // 선언하지 않으면 `mock.calls[n][1]`의 타입이 없어 본문에 닿을 수 없다.
+  const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+    void init
     const url = String(input)
     if (url.includes('/parameters/regulation-years')) {
       return jsonResponse({ data: years.map((year) => ({ year })) })
@@ -443,5 +449,118 @@ describe('결과 제목은 계산 시점에 고정된다 (#875)', () => {
       expect(screen.getByText(/2026년 기준/).textContent).toContain('두 번째 배'),
     )
     expect(screen.queryByText(/입력이 바뀌었습니다/)).toBeNull()
+  })
+})
+
+/**
+ * 선택 입력 5종의 배선 (#892).
+ *
+ * ## 폼이 그려지는 것만으로는 증명되지 않는다
+ *
+ * `#821`이 그 선례다 — 프론트 검사 59건이 전부 통과하는 동안 `warnings: []` 리터럴이
+ * 배너 조건을 영구 거짓으로 만들고 있었다. 그래서 여기서는 **입력창에 친 값이
+ * `fetch` 본문까지 도달하는지**를 본다. 화면 → 규칙 → provider 세 층을 한 번에 지난다.
+ */
+describe('선택 입력이 요청까지 도달한다 (#892)', () => {
+  /*
+   * 라벨을 **정규식으로** 찾는다. 힌트 문구가 `<label>` 안에 있어 완전 일치가
+   * 실패하기 때문이다 — 기존 칸들(`기준 일일 연료소모량`)과 같은 구조다.
+   */
+  async function fillAndCompare(values: Array<[RegExp, string]>) {
+    const fetchImpl = stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    for (const [label, value] of values) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    }
+    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+
+    await waitFor(() => {
+      expect(
+        fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare')),
+      ).toBe(true)
+    })
+    const call = fetchImpl.mock.calls.find(([url]) =>
+      String(url).includes('/scenarios/compare'),
+    )!
+    return (call[1] as RequestInit).body as string
+  }
+
+  it('우회 거리·감속 속력·기상 모델·현재 좌표가 본문에 실린다', async () => {
+    const body = await fillAndCompare([
+      [/우회 거리/, '1200'],
+      [/감속 속력/, '10.5'],
+      [/기상 보정 모델/, 'SIMPLE_RULE'],
+      [/현재 위도/, '35.1'],
+      [/현재 경도/, '129.05'],
+    ])
+
+    expect(JSON.parse(body)).toMatchObject({
+      detour_distance_nm: 1200,
+      slow_speed_kn: 10.5,
+      weather_model: 'SIMPLE_RULE',
+      current_lat: 35.1,
+      current_lon: 129.05,
+    })
+  })
+
+  it('손대지 않으면 다섯 키가 본문에 없다 — 서버 기본이 그대로 쓰인다', async () => {
+    const body = await fillAndCompare([])
+
+    for (const key of [
+      'detour_distance_nm',
+      'slow_speed_kn',
+      'weather_model',
+      'current_lat',
+      'current_lon',
+    ]) {
+      expect(body).not.toContain(key)
+    }
+  })
+
+  it('감속 속력 0.5는 요청을 보내지 않는다 — VAL-009 하한은 1.0이다', async () => {
+    const fetchImpl = stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    fireEvent.change(screen.getByLabelText(/감속 속력/), { target: { value: '0.5' } })
+    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+
+    expect(await screen.findByText(/감속 속력은\(는\) 1 이상이어야 합니다\./)).toBeTruthy()
+    expect(
+      fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare')),
+    ).toBe(false)
+  })
+
+  it('좌표를 한쪽만 넣으면 요청을 보내지 않는다 (API_SPEC:572)', async () => {
+    const fetchImpl = stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    fireEvent.change(screen.getByLabelText(/현재 위도/), { target: { value: '35.1' } })
+    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+
+    expect(await screen.findByText(/현재 경도도 함께 입력해 주세요/)).toBeTruthy()
+    expect(
+      fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare')),
+    ).toBe(false)
+  })
+
+  it('좌표 없이 기상 모델만 고르면 누르기 전에 알린다', async () => {
+    // 결과에 붙는 `WEATHER_NONE_FALLBACK` 배너로는 계산이 끝난 뒤에야 알 수 있다.
+    stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    expect(screen.queryByText(/현재 좌표를 입력해야 기상 보정이 적용됩니다/)).toBeNull()
+    fireEvent.change(screen.getByLabelText(/기상 보정 모델/), {
+      target: { value: 'SIMPLE_RULE' },
+    })
+    expect(screen.getByText(/현재 좌표를 입력해야 기상 보정이 적용됩니다/)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText(/현재 위도/), { target: { value: '35.1' } })
+    fireEvent.change(screen.getByLabelText(/현재 경도/), { target: { value: '129.05' } })
+    expect(screen.queryByText(/현재 좌표를 입력해야 기상 보정이 적용됩니다/)).toBeNull()
   })
 })

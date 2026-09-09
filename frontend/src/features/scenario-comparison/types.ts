@@ -1,4 +1,4 @@
-import type { CapacityBasis, Rating, RiskLevel } from '../voyage-cii/types'
+import type { CapacityBasis, Rating, RiskLevel, WeatherModel } from '../voyage-cii/types'
 
 /**
  * 기능②(운항 중 시나리오 비교)의 요청·응답 타입.
@@ -65,6 +65,34 @@ export interface ScenarioComparisonRequest {
   base_daily_foc_ton: number
   /** `fuel_type` 테이블의 code (예: `HFO`). */
   fuel_type: string
+  /*
+   * --- 선택 입력 (#892) -------------------------------------------------------
+   *
+   * 전부 **없으면 키를 넣지 않는다.** `API_SPEC §5.1`이 미지정 시의 기본을 서버
+   * 규칙으로 규정하므로(`detour = direct x 1.05` · `slow = max(current-1, 1.0)` ·
+   * `weather = NONE`), `null`을 실어 보내면 그 규칙과 「명시적 null」이 갈린다.
+   */
+  /** 미지정 시 서버가 `direct x 1.05` (`API_SPEC §5.1`). */
+  detour_distance_nm?: number
+  /** VAL-009 `>= 1.0`. 미지정 시 서버가 `max(current_speed - 1, 1.0)`. */
+  slow_speed_kn?: number
+  /**
+   * `PRD §11.3` 현재 위치. **기상 조회의 유일한 입력**이다.
+   *
+   * 거리를 직접 입력하는 이 화면에서는 대권거리 계산에 쓰이지 않는다 —
+   * `_resolve_direct_distance()`가 `direct_distance_nm`을 먼저 보기 때문이다.
+   * 목적항 좌표(`destination_*`)는 그 대권거리 경로의 나머지 절반이라
+   * **`#760`(샘플 항만 테이블) 소관으로 남긴다.**
+   */
+  current_lat?: number
+  current_lon?: number
+  /**
+   * `API_SPEC §5.1` enum. 미지정 = `NONE`.
+   *
+   * 기능①의 타입을 **그대로 쓴다** — 유니온을 여기 다시 적으면 서버가 모델을
+   * 추가할 때 두 화면 중 하나만 따라간다. `§4.1`과 `§5.1`의 enum이 같은 집합이다.
+   */
+  weather_model?: WeatherModel
 }
 
 /** 시나리오 비교 응답. */
