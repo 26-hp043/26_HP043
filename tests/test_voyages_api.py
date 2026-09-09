@@ -359,6 +359,13 @@ class TestUpdateNullSemantics:
         monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
         monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses", fake_list_fuel_uses)
 
+        async def fake_mark_recalc(_session, _voyage_id):
+            return 0
+
+        # #865 — 계획값 변경 시 무효화 호출이 추가됐다. 가짜 세션으로는 실제
+        # 저장소를 돌릴 수 없으므로 대역으로 대체한다.
+        monkeypatch.setattr(svc.voyage_repo, "mark_calculations_needing_recalc", fake_mark_recalc)
+
         async def override_session():
             yield _FakeSession()
 
@@ -401,6 +408,46 @@ class TestUpdateNullSemantics:
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
         assert "data" not in resp.json()
+
+    def test_plan_field_change_rejected_on_confirmed_voyage(self, update_app):
+        """CONFIRMED 항차의 계획값 변경 → 거부 (#865).
+
+        확정 뒤 계획을 바꾸면 `PRD §8.3` 값 우선순위가 「실적이 있는데 계획이
+        나중에 바뀐」 상태가 된다 — 시나리오 반영(`#580`)이 이미 막는 것을
+        일반 PATCH만 놓치고 있었다.
+        """
+        client, store = update_app
+        voyage_id = next(iter(store))
+        store[voyage_id].status = "CONFIRMED"
+        resp = client.patch(f"/api/v1/voyages/{voyage_id}", json={"planned_distance_nm": 99999})
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
+
+    def test_regulation_year_change_rejected_on_confirmed_voyage(self, update_app):
+        """CONFIRMED 항차의 귀속 연도 변경 → 거부 (#865).
+
+        `regulation_year`를 바꾸면 그 항차의 배출·거리가 다른 규제연도로 옮겨 간다.
+        """
+        client, store = update_app
+        voyage_id = next(iter(store))
+        store[voyage_id].status = "CONFIRMED"
+        resp = client.patch(f"/api/v1/voyages/{voyage_id}", json={"regulation_year": 2024})
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
+        assert store[voyage_id].regulation_year == 2026
+
+    def test_notes_remain_editable_on_confirmed_voyage(self, update_app):
+        """계산 입력이 아닌 notes는 확정 항차에서도 바꿀 수 있다 (#865).
+
+        가드는 계획값·귀속 연도에만 걸린다 — 기록 성격의 필드까지 막으면
+        정정 메모조차 못 달게 된다.
+        """
+        client, store = update_app
+        voyage_id = next(iter(store))
+        store[voyage_id].status = "CONFIRMED"
+        resp = client.patch(f"/api/v1/voyages/{voyage_id}", json={"notes": "정정 메모"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["notes"] == "정정 메모"
 
 
 def test_list_uses_single_batched_fuel_query(voyage_app):

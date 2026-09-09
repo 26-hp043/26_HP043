@@ -255,6 +255,24 @@ _POLICY_BY_STATUS: dict[str, frozenset[str]] = {
     "ARCHIVED": frozenset({"EXCLUDE"}),
 }
 
+#: PATCH로 계획값을 바꿀 수 있는 상태 — 시나리오 반영(#580)과 같은 기준이다.
+#: 출항한 뒤 계획을 갈아 끼우면 `PRD §8.3` 값 우선순위가 「실적이 있는데 계획이
+#: 나중에 바뀐」 상태가 된다(#865).
+PLANNING_STATUSES: frozenset[str] = frozenset({"DRAFT", "PLANNED"})
+
+#: PATCH 가드의 대상 필드 — 계획값 4종과 귀속 연도. `regulation_year`를 바꾸면
+#: 그 항차의 배출·거리가 `list_annual_inclusions` 필터를 타고 다른 규제연도로
+#: 옮겨 간다. 항구명·좌표·notes는 계산 입력이 아니므로 가드하지 않는다 (#865).
+_PLAN_GUARD_FIELDS: frozenset[str] = frozenset(
+    {
+        "planned_distance_nm",
+        "planned_speed_kn",
+        "planned_departure_at",
+        "planned_arrival_at",
+        "regulation_year",
+    }
+)
+
 
 async def update_voyage(
     session: AsyncSession,
@@ -283,8 +301,25 @@ async def update_voyage(
             field_label="기준연도",
         )
 
+    # #865 — 확정·진행 등 계획 단계를 벗어난 항차의 계획값·귀속 연도 변경을 거부한다.
+    # `scenario_adopt`가 같은 필드를 `PLANNING_STATUSES`로 막는 것과 같은 기준이며,
+    # 일반 PATCH에만 가드가 없었다.
+    changed_plan_fields = sorted(set(fields) & _PLAN_GUARD_FIELDS)
+    if changed_plan_fields and voyage.status not in PLANNING_STATUSES:
+        raise StateTransitionError(
+            f"계획 단계 항차만 계획값을 바꿀 수 있습니다 (현재 상태: {voyage.status}). "
+            f"대상 필드: {', '.join(changed_plan_fields)} · "
+            f"허용 상태: {' · '.join(sorted(PLANNING_STATUSES))}"
+        )
+
     for key, value in fields.items():
         setattr(voyage, key, value)
+
+    if changed_plan_fields:
+        # `PRD §8.4` — 항차 계획 변경 → 해당 항차 계산 결과 무효화 후 재계산.
+        # `calculation_run.voyage_id`가 항상 NULL인 #817 때문에 지금은 no-op이지만
+        # 호출 규약은 이 자리에 있고, #817 해소 시 함께 동작한다.
+        await voyage_repo.mark_calculations_needing_recalc(session, voyage.id)
 
     await session.commit()
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
