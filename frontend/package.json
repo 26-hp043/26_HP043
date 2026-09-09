@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "vitest run",
+    "test": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json && node scripts/check-test-files.mjs",
     "lint": "oxlint",
     "preview": "vite preview",
     "build:tokens": "node scripts/build-tokens.mjs"
