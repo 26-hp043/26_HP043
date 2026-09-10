@@ -1,0 +1,58 @@
+/*
+ * 지정 서체 자체 호스팅 — `DESIGN_SYSTEM §3` · `#925`.
+ *
+ * ## 왜 CDN이 아닌가
+ *
+ * `#791`이 **「인터넷이 없다고 가정한 경로가 반드시 함께 있어야 한다」**로 못 박는다.
+ * 운영사무국이 기자재를 지원하지 않고, 인터넷 제공 여부가 어느 문서에도 없으며,
+ * 발표 순번이 14/14라 앞 13팀이 쓴 뒤의 네트워크를 받는다. Google Fonts 링크로
+ * 넣으면 **바로 그 상황에서 폰트가 또 빠진다.**
+ *
+ * ## 왜 그 전에는 아무도 몰랐나
+ *
+ * 토큰은 `Noto Sans KR`을 가리키고 있었는데 **가리키는 파일이 없었다.**
+ * 폰트가 깔린 PC에서는 OS가 대신 그려 주므로 정상으로 보인다 — 개발자 PC에는
+ * 대개 깔려 있어 아무도 알아채지 못했다. 드러나는 자리는 **외부로 나가는 화면**
+ * (시연 영상·캡처·심사 화면)이고, 그때는 이미 늦다.
+ *
+ * ## 파일
+ *
+ * `scripts/build_fonts.py`가 만든다. 한글 전체(11,172음절) 서브셋이며 굵기는
+ * `§3`이 쓰는 **400·500** 두 벌이다. mono는 **IMO 번호·좌표 전용**이라(`§3`)
+ * 라틴·숫자만 있어 훨씬 작다.
+ *
+ * `font-display: swap` — 폰트를 기다리며 글자를 감추지 않는다. 로컬 파일이라
+ * 교체가 거의 즉시 일어나고, 느리더라도 **글이 안 보이는 것보다 낫다.**
+ */
+
+@font-face {
+  font-family: 'Noto Sans KR';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/noto-sans-kr-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans KR';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/noto-sans-kr-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/noto-sans-mono-400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Noto Sans Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/noto-sans-mono-500.woff2') format('woff2');
+}

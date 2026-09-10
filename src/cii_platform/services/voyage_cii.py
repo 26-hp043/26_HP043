@@ -291,15 +291,15 @@ def _percent(value: Decimal) -> str:
     ``"11.0"``을 쓴다.** 프론트엔드 고정표도 같은 값을 복사해 두었으나 ``#542``가
     그 표를 없앴다 — 기준은 계약 fixture다.
 
-    ⚠️ **API_SPEC §4.1 예시가 두 곳에서 서로 다르다.**
+    **응답 안의 두 자리 모두 ``"11.0"``이다** — ``data.calculation_basis.z_factor_percent``
+    와 ``parameters_used.regulation_year.z_factor_percent``. 같은 컬럼에서 온 같은 값이라
+    표기가 갈리면 문자열 비교에서 **다른 값으로 읽힌다**(`API_SPEC §1.7` — Layer 1 수치는
+    문자열이라 표기가 곧 값이다). ``tests/test_voyage_cii_api.py``가 두 자리를 함께 잠근다.
 
-    - ``data.calculation_basis.z_factor_percent`` → ``"11.0"``
-    - ``parameters_used.regulation_year.z_factor_percent`` → ``"11"``
-
-    같은 컬럼에서 온 같은 값인데 표기가 갈린 것이라 **예시의 오기로 본다.** 한쪽을
-    따라 두 형태를 만들면 같은 값이 응답 안에서 다르게 보인다. 프론트엔드 demo
-    provider가 **양쪽 모두 ``"11.0"``**을 쓰므로 그쪽으로 통일한다.
-    이 불일치는 별건으로 제기한다.
+    > 이 자리에는 종전에 「`API_SPEC §4.1` 예시가 두 곳에서 서로 다르다(``"11.0"`` ·
+    > ``"11"``) — 별건으로 제기한다」가 적혀 있었다. **예시는 2026-08-12 `PR #218`에서
+    > 이미 ``"11.0"``으로 통일됐는데 이 주석만 남아**, 8/29 전수 검토가 이 문장을 근거로
+    > `#774`를 등록했다. 정본이 아니라 **낡은 주석이 이슈를 만든** 사례라 경위를 남긴다.
     """
     normalized = value.normalize()
     if normalized == normalized.to_integral_value():

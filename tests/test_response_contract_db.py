@@ -66,6 +66,48 @@ def client(migrated_db, app_fresh_engine):
         yield c
 
 
+def _ensure_calculation_history(c: TestClient) -> None:
+    """계산 이력이 **최소 한 건** 있게 한다.
+
+    `/calculations`는 **새 DB에서 0건**이다(`#559` 작업 중 실측). 이력이 없으면 응답의
+    ``data``가 빈 배열이 되어 ``data[].*`` 키가 **통째로 사라지고**, 집합 동등 비교가
+    「계약이 바뀌었다」로 실패한다 — **실제 원인은 「행이 없다」인데.**
+    """
+    c.post(
+        f"{API_V1_PREFIX}/calculations/voyage-cii",
+        headers={"X-CSRF-Token": c.cookies.get("csrf")},
+        json={
+            "vessel_id": DEMO_VESSEL,
+            "distance_nm": 1100,
+            "speed_kn": 12.8,
+            "regulation_year": 2026,
+            "fuel_uses": [{"fuel_type": "HFO", "fuel_ton": 45}],
+        },
+    )
+
+
+@pytest.fixture
+def client_with_history(client):
+    """계산 이력이 보장된 ``client`` (`#838`).
+
+    ## 왜 fixture인가
+
+    종전에는 이력을 만드는 테스트(``test_calculation_history_is_not_empty_before_it_is_compared``)가
+    **비교 테스트보다 파일 아래쪽**에 있었다. pytest는 정의 순서로 돌므로 **비교가 먼저**
+    돌았고, 그 docstring은 「여기서 **먼저** 하나 만들어 둔다」라고 적고 있었다 —
+    **의도는 「먼저」인데 배치가 「나중」이었다.**
+
+    전체 스위트에서는 알파벳순으로 앞선 파일들이 이미 행을 만들어 두어 **가려졌다.**
+    드러나는 것은 이 파일만 단독으로 돌릴 때 — 계약을 고칠 때 가장 자연스러운 작업
+    방식이다 — 그리고 DB를 막 새로 띄웠을 때다(2026-09-11 Docker 재시작 직후 실제로 났다).
+
+    순서를 바꾸는 대신 **의존을 선언**한다. 순서에 기대면 무작위 순서 도구를 넣는 순간
+    CI에서도 간헐 실패가 된다.
+    """
+    _ensure_calculation_history(client)
+    return client
+
+
 def flatten(value: Any, prefix: str = "") -> set[str]:
     """응답을 **점 경로 키 집합**으로 편다.
 
@@ -918,9 +960,9 @@ def _get(client: TestClient, path: str):
     # 접두가 붙은 것은 각자 전용 테스트가 본다 — 만들어야 하거나 식별자가 필요하다.
     [p for p in CONTRACTS if not p.startswith(("POST ", "GET "))],
 )
-def test_response_fields_match_the_contract(client, path):
+def test_response_fields_match_the_contract(client_with_history, path):
     """GET 응답의 필드 집합이 계약과 **같다**."""
-    response = _get(client, path)
+    response = _get(client_with_history, path)
 
     assert response.status_code == 200, response.text
     assert flatten(response.json()) == CONTRACTS[path]
@@ -1050,17 +1092,7 @@ def test_calculation_history_is_not_empty_before_it_is_compared(client):
     통과했을 것이다. 집합 동등 비교라 실패하지만 **원인이 「계약이 바뀌었다」로
     읽히므로** 여기서 먼저 하나 만들어 둔다.
     """
-    client.post(
-        f"{API_V1_PREFIX}/calculations/voyage-cii",
-        headers={"X-CSRF-Token": client.cookies.get("csrf")},
-        json={
-            "vessel_id": DEMO_VESSEL,
-            "distance_nm": 1100,
-            "speed_kn": 12.8,
-            "regulation_year": 2026,
-            "fuel_uses": [{"fuel_type": "HFO", "fuel_ton": 45}],
-        },
-    )
+    _ensure_calculation_history(client)
 
     body = _get(client, "/calculations?type=VOYAGE_ESTIMATE").json()
     assert body["data"], "계산 이력이 비어 있다 — 아래 계약 대조가 의미를 잃는다"
