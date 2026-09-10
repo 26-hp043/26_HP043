@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.16 |
+| 버전 | v1.17 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-08-23 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -347,7 +347,7 @@ CREATE INDEX idx_scenario_voyage ON voyage_scenario (voyage_id);
 | `parameters_used` | JSONB | NOT NULL | TECH_SPEC §5.2.1 스키마 |
 | `warnings_json` | JSONB | NULL | 경고 목록 배열 |
 | `duration_ms` | INTEGER | NULL | 계산 소요 시간 (ms) |
-| `needs_recalc` | BOOLEAN | NOT NULL DEFAULT false **[#283]** | 재계산 필요 표시. 선박 DWT/GT 변경 시 서비스가 false→true로만 플립한다 (PRD §8.4) |
+| `needs_recalc` | BOOLEAN | NOT NULL DEFAULT false **[#283]** | 재계산 필요 표시. 선박 제원(DWT/GT · 선종) 변경 시 서비스가 false→true로만 플립한다 (PRD §8.4 · #944) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
@@ -1545,3 +1545,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-08-23 | `#589` | 헤더 「상위 문서」의 `API_SPEC`을 v1.18 → **v1.20**으로 갱신. **그 사이 변경이 본 문서에 영향을 주지 않음을 대조로 확인했다** — v1.19(`§8.2` CSV 가져오기)가 쓰는 `created_from = IMPORT`는 `§2.2`에 이미 있고, v1.20(`§2.8` 선대 응답 필드 2종)의 `is_cii_applicable_hint`·`gross_tonnage`도 `§2.1`에 이미 있다 — **둘 다 응답 계약 확장이지 스키마 변경이 아니다.** `§4.3`상 헤더 정정이라 버전은 올리지 않는다 (#589) |
 | 2026-08-23 | `#493` | **v1.16 — §2.7 `simulation_snapshot`에 `vessel_json` 신설** (마이그레이션 037). 계산에 쓰는 선박 제원 사본이며 `TECH_SPEC §11.2` 표 개정에 대응한다. **nullable이다** — 이 테이블은 immutable이라(`trg_snapshot_immutable`) 기존 행에 값을 넣을 수 없고, NOT NULL로 두면 마이그레이션 자체가 실패한다. 값이 없는 행은 재현 경로가 사유를 밝히고 끊는다(`#443` 이전 실행을 끊는 선례와 같다). 수치는 **문자열로** 담는다 — float으로 거치면 `NUMERIC` 원본과 다른 값이 보관된다 (#493) |
 | 2026-09-09 | `#832` | §2.3 `voyage_fuel_use.cf_used` 역할 재정의 — 「계산 시점 CF snapshot」에서 **「입력 시점의 CF 기록」**으로. 확정 실적의 계산 근거이며, 계획 항차 예측은 실행 시점 활성 CF(`fuel_type.cf`)를 쓴다. 종전 표기는 계획 항차까지 이 열로 계산해야 하는 것처럼 읽혀 `PRD §8.4`의 「변경 이후 계산에만 적용」과 충돌했다. §2.18 `not_underway_fuel_use.cf_used`는 변경 없음 — 양쪽 다 그때의 기록을 남기는 열이다 (#832) |
+| 2026-09-11 | `#944` | v1.17: §2.5 `needs_recalc` 설명에 선종 변경 추가 — `PRD §8.4` v4.6을 따른다 (#944) |
