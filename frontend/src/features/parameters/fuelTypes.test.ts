@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FUEL_TYPE_LABELS, fuelTypeLabel, fuelTypeOptionText } from './fuelTypes'
+import { FUEL_TYPE_LABELS, fuelTypeOptionText } from './fuelTypes'
 
 describe('FUEL_TYPE_LABELS (#598)', () => {
   it('DB_SCHEMA §3.2 값 표의 8종을 덮는다', () => {
@@ -28,18 +28,6 @@ describe('FUEL_TYPE_LABELS (#598)', () => {
     // 두 이름이 서로를 포함해 라벨만으로는 겹쳐 보인다. 셀렉트에서 코드가 가른다.
     expect(fuelTypeOptionText('HFO')).toBe('중유 (HFO)')
     expect(fuelTypeOptionText('LFO')).toBe('경질중유 (LFO)')
-  })
-})
-
-describe('fuelTypeLabel', () => {
-  it('모르는 코드는 코드를 그대로 낸다', () => {
-    // 서버에 연료가 늘었을 때 빈 칸·「기타」로 뭉개면 무엇을 고르는지 알 수 없고,
-    // 표가 낡았다는 사실도 사라진다.
-    expect(fuelTypeLabel('BIO_LNG')).toBe('BIO_LNG')
-  })
-
-  it('아는 코드는 한국어를 낸다', () => {
-    expect(fuelTypeLabel('LNG')).toBe('액화천연가스')
   })
 })
 

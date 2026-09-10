@@ -249,16 +249,6 @@
   color: var(--text-secondary);
 }
 
-.app-shell__util-key {
-  color: var(--text-secondary);
-}
-
-.app-shell__util-value {
-  font-weight: var(--font-weight-label);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
 /*
  * 전역 컨텍스트 선택기 (#512).
  *
@@ -292,12 +282,6 @@
 .app-shell__util-select:disabled {
   color: var(--text-muted);
   cursor: not-allowed;
-}
-
-/* 아직 고르지 않은 컨텍스트 — 값처럼 진하게 두면 선택된 것으로 읽힌다. */
-.app-shell__util-value--empty {
-  font-weight: var(--font-weight-body);
-  color: var(--text-secondary);
 }
 
 .app-shell__util-icon {

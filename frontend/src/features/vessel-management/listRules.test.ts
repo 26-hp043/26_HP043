@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { Vessel } from '../vessel-registration/types'
 import {
-  MISSING,
   SORT_KEYS,
   blockedReasons,
   capacityCell,
-  cellNumber,
   dailyFuelCell,
   deleteConfirmMessage,
   referenceSpeedCell,
@@ -46,16 +44,6 @@ function vessel(overrides: Partial<Vessel> = {}): Vessel {
     ...overrides,
   }
 }
-
-describe('cellNumber — 없는 값을 빈 칸으로 두지 않는다', () => {
-  it('null은 —로 적는다', () => {
-    expect(cellNumber(null)).toBe(MISSING)
-  })
-
-  it('숫자는 천단위 구분자를 넣는다', () => {
-    expect(cellNumber(50000)).toBe('50,000')
-  })
-})
 
 describe('shipTypeLabel', () => {
   it('아는 선종은 한국어 라벨로 보인다', () => {

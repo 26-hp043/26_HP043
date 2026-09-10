@@ -26,17 +26,13 @@ import type { Vessel } from '../vessel-registration/types'
 /** 표에서 「없음」을 나타내는 문자. `DESIGN_SYSTEM §2.4.3` 등급 없음과 같은 기호다. */
 export const MISSING = '—'
 
-/**
- * 숫자를 목록 셀 문자열로. 없으면 `—`.
+/*
+ * `cellNumber`(숫자 → 목록 셀 문자열)를 걷어냈다 (#831 ⑺). 참조가 검사뿐이었다.
  *
- * ⚠️ **용량(DWT·GT)에는 쓰지 않는다** — `capacityCell`이 `formatCapacity`를 쓴다
- * (`DESIGN_SYSTEM §4.2` · `#633`). `toLocaleString`은 자릿수를 고정하지 않아
- * `50,000`과 `6,405.77`이 섞이고, 선박 상세와도 값이 갈렸다.
+ * 그 주석이 *"용량(DWT·GT)에는 쓰지 않는다"*를 경고하고 있었는데, **쓰는 곳이 애초에
+ * 없었다.** 아래 `capacityText`가 `formatCapacity`(`DESIGN_SYSTEM §4.2` · `#633`)를
+ * 거치는 것이 이 파일의 유일한 숫자 경로다.
  */
-export function cellNumber(value: number | null): string {
-  if (value === null) return MISSING
-  return value.toLocaleString('ko-KR')
-}
 
 /** 용량 셀 — `§4.2` 규정을 거친다. 없으면 `—`. */
 function capacityText(value: number | null): string {

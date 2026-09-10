@@ -54,13 +54,6 @@
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
 }
-/* ── 카드 보조 문구 ─────────────────────────────────────────────── */
-
-.card__note {
-  margin: var(--spacing-md) 0 0;
-  font-size: var(--font-size-micro);
-  color: var(--text-secondary);
-}
 
 /*
  * 카드 머리에 놓이는 정렬 셀렉트 (#719에서 `FleetDashboard.css`에서 옮겼다).

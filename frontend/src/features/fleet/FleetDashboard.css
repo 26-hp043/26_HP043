@@ -284,42 +284,6 @@
   }
 }
 
-/* ── 필터 칩 ────────────────────────────────────────────────────── */
-
-.chips {
-  display: flex;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-md);
-}
-
-.chip {
-  block-size: var(--target-chip);
-  padding: 0 var(--spacing-md);
-  border: var(--borderWidth-default) solid var(--border-default);
-  border-radius: var(--radius-pill);
-  background: var(--surface-card);
-  color: var(--text-secondary);
-  font-family: var(--font-sans);
-  font-size: var(--font-size-label);
-  cursor: pointer;
-}
-
-.chip:hover {
-  border-color: var(--border-strong);
-  color: var(--text-primary);
-}
-
-.chip:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.chip--on {
-  background: var(--semantic-primary);
-  border-color: var(--semantic-primary);
-  color: var(--surface-card);
-}
-
 /* ── 항로 개략도 ────────────────────────────────────────────────── */
 
 .fleet__chartbox {
@@ -392,10 +356,6 @@
   font-weight: var(--font-weight-body);
   color: var(--text-secondary);
   margin-right: var(--spacing-xs);
-}
-
-.vessel__eta {
-  text-align: right;
 }
 
 .more {
@@ -471,17 +431,14 @@
   opacity: 0.9;
 }
 
-/* 스크린리더 전용 */
-.sr-only {
-  position: absolute;
-  inline-size: 1px;
-  block-size: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
+/*
+ * `.sr-only`는 **전역 유틸리티다** — `styles/global.css`가 소유한다 (#831 ⑸).
+ *
+ * 여기에도 정의가 있었고 구현이 달랐다(`inline-size`+`clip-path` vs
+ * `width`+`clip`+`border: 0`). **특이도가 같아 로드 순서가 승자를 정하므로**
+ * 화면마다 낭독 전용 텍스트의 동작이 갈릴 수 있었다. 기능 CSS에서 전역
+ * 유틸리티를 재정의하지 않는다.
+ */
 
 /* ── 경고 배너 — PRD §6.3 확정 문구 (#352) ──────────────────────── */
 

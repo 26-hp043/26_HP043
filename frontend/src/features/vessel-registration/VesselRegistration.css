@@ -32,17 +32,6 @@
   color: var(--color-text-muted);
 }
 
-/*
- * 데모 모드 안내. 오류가 아니므로 danger를 쓰지 않는다 — 사용자가 잘못한 것이 없다.
- */
-.vessel-registration__banner {
-  border-left: 3px solid var(--color-primary);
-  border-radius: 0;
-  background: var(--color-surface-2);
-  color: var(--color-text);
-  padding: var(--space-12) var(--space-16);
-}
-
 .vessel-registration__form {
   background: var(--color-surface);
   border: 1px solid var(--color-border);

@@ -70,12 +70,6 @@
   gap: var(--space-16);
 }
 
-.voyage-cii-result__badge {
-  width: 64px;
-  height: 64px;
-  flex: none;
-}
-
 .voyage-cii-result__grade-meta {
   display: flex;
   flex-direction: column;
