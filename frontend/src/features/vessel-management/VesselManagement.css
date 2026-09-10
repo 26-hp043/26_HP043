@@ -50,14 +50,6 @@
   padding: var(--space-12) var(--space-16);
 }
 
-.vessel-management__error {
-  border-left: 3px solid var(--color-danger);
-  border-radius: 0;
-  background: var(--color-surface-2);
-  color: var(--color-danger-text);
-  padding: var(--space-12) var(--space-16);
-}
-
 /*
  * 「지울 수 없다」·「재계산이 걸린다」 안내. 오류가 아니라 경고이므로 warning을 쓰고,
  * §14대로 **색만으로 의미를 전달하지 않는다** — 문장이 무엇이 일어나는지 적는다.
@@ -187,7 +179,8 @@
   gap: var(--space-12);
 }
 
-.vessel-management__form > .vessel-management__error,
+/* 실패 표시가 공용 컴포넌트로 바뀌었다 (`#694`). 배치는 여전히 이 폼의 몫이다. */
+.vessel-management__form > .error-state,
 .vessel-management__form > .vessel-management__warn,
 .vessel-management__form > .vessel-management__readonly,
 .vessel-management__form > .vessel-management__buttons {

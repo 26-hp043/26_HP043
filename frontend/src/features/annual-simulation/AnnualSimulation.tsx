@@ -18,6 +18,7 @@ import {
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationResult } from './types'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 기능③ 연간 CII 시뮬레이션 화면 (#157 · **#442에서 실 API 연결**).
@@ -276,10 +277,7 @@ export function AnnualSimulation({
           다른 화면 8곳이 모두 이 형태다 (#613).
         */}
         {state.status === 'error' ? (
-          <div className="annual-sim__error" role="alert">
-            <strong>{ANNUAL_COPY.errorTitle}</strong>
-            <p>{state.message}</p>
-          </div>
+          <ErrorState level="region" title={ANNUAL_COPY.errorTitle} message={state.message} />
         ) : null}
 
         {state.status === 'success' ? <Result result={state.result} /> : null}

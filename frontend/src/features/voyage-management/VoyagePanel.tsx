@@ -20,6 +20,7 @@ import {
 import type { FieldErrors } from './voyageRules'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageFuelDraft } from './types'
 import './VoyagePanel.css'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 항차 기록 패널 — `2-8 선박 상세` 안의 한 구획 (`#610`).
@@ -141,9 +142,7 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
       </p>
 
       {failure ? (
-        <p className="vy__error" role="alert">
-          {failure}
-        </p>
+        <ErrorState level="region" size="compact" message={failure} />
       ) : null}
 
       {formOpen ? (
@@ -293,9 +292,7 @@ function VoyageRow({
       </dl>
 
       {rowError ? (
-        <p className="vy__error" role="alert">
-          {rowError}
-        </p>
+        <ErrorState level="region" size="compact" message={rowError} />
       ) : null}
 
       <div className="vy__row-actions">
@@ -383,9 +380,11 @@ function VoyageForm({
      * 연료 목록과 갈라지고, 사용자는 저장 단계에서야 거부를 만난다.
      */
     return (
-      <p className="vy__error" role="alert">
-        연료 선택지를 불러오지 못해 항차를 추가할 수 없습니다.
-      </p>
+      <ErrorState
+        level="region"
+        size="compact"
+        message="연료 선택지를 불러오지 못해 항차를 추가할 수 없습니다."
+      />
     )
   }
 
@@ -425,9 +424,7 @@ function VoyageForm({
       }}
     >
       {failure ? (
-        <p className="vy__error" role="alert">
-          {failure}
-        </p>
+        <ErrorState level="region" size="compact" message={failure} />
       ) : null}
 
       <Field id="vy-no" label="항차 번호" value={draft.voyageNo} onChange={set('voyageNo')} error={errors.voyageNo} />

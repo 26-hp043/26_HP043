@@ -45,8 +45,16 @@ function walk(dir: string): string[] {
   })
 }
 
+/*
+ * 결과를 기억한다. 두 검사가 각각 부르면 `src/` 전체를 **두 번** 읽어 5초 제한을
+ * 넘는다 — 실제로 넘겼다. 읽는 대상이 같으므로 한 번이면 된다.
+ */
+const cache = new Map<boolean, string[]>()
+
 function deadClasses(options: { applyKept?: boolean } = {}): string[] {
   const applyKept = options.applyKept ?? true
+  const cached = cache.get(applyKept)
+  if (cached) return cached
   const files = walk(SRC)
   /*
    * **소스의 주석도 걷어낸다.** 안 그러면 「이 클래스는 지금 안 쓴다」고 적어 둔 주석
@@ -77,15 +85,24 @@ function deadClasses(options: { applyKept?: boolean } = {}): string[] {
       dead.push(`${file.slice(SRC.length)} :: .${cls}`)
     }
   }
-  return [...new Set(dead)].sort()
+  const result = [...new Set(dead)].sort()
+  cache.set(applyKept, result)
+  return result
 }
 
+/*
+ * 기본 5초로는 모자란다 — `src/` 전체(.css + .ts/.tsx)를 읽고 주석을 걷어낸다.
+ * 트리가 커지면 더 걸리므로 여유를 둔다. **줄이려고 대상을 좁히지 않는다** — 훑지
+ * 않은 파일이 곧 놓치는 파일이다.
+ */
+const SCAN_TIMEOUT_MS = 20_000
+
 describe('죽은 CSS 클래스 (#831)', () => {
-  it('참조되지 않는 클래스가 없다', () => {
+  it('참조되지 않는 클래스가 없다', { timeout: SCAN_TIMEOUT_MS }, () => {
     expect(deadClasses()).toEqual([])
   })
 
-  it('보존 목록이 낡지 않았다 — 참조가 생긴 것은 뺀다', () => {
+  it('보존 목록이 낡지 않았다 — 참조가 생긴 것은 뺀다', { timeout: SCAN_TIMEOUT_MS }, () => {
     // `moduleBoundary.test.ts`가 미참조 export에 대해 하는 것과 같은 규율이다.
     // 보존 목록을 **적용하지 않은** 결과로 본다 — 적용하면 KEPT 항목이 결과에서
     // 빠져 이 검사가 언제나 통과한다.

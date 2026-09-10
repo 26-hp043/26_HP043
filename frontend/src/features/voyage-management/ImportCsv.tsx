@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { VoyageError, type VoyageManagementProvider } from './apiProvider'
+import { ErrorState } from '../../components/ErrorState'
 import {
   IMPORT_NOTICE,
   MAX_ROWS,
@@ -122,9 +123,7 @@ export function ImportCsv({
       ) : null}
 
       {failure ? (
-        <p className="vy-import__error" role="alert">
-          {failure}
-        </p>
+        <ErrorState level="region" size="compact" message={failure} />
       ) : null}
 
       {result ? <ResultView result={result} /> : null}

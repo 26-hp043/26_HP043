@@ -40,6 +40,7 @@ import type {
   YtdValues,
 } from './types'
 import './RealtimeCiiView.css'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 실시간 CII — `UIFLOW 2-9` · `#357`.
@@ -215,14 +216,22 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
     return (
       <div className="rt">
         <BackLink vesselId={vesselId} />
-        <section className="empty empty--error" role="alert">
-          <p className="empty__msg">{failure.message}</p>
-          {failure.notFound ? (
-            <Link className="empty__cta" to="/dashboard">
-              대시보드로 돌아가기
-            </Link>
-          ) : null}
-        </section>
+        {/*
+          없는 대상(404)에는 재시도를 주지 않는다 — 다시 눌러도 같은 실패다 (`#694`).
+          그 경우에는 나갈 길(대시보드)을 준다.
+        */}
+        <ErrorState
+          level="page"
+          message={failure.message}
+          onRetry={failure.notFound ? undefined : () => window.location.reload()}
+          action={
+            failure.notFound ? (
+              <Link className="error-state__retry" to="/dashboard">
+                대시보드로 돌아가기
+              </Link>
+            ) : null
+          }
+        />
       </div>
     )
   }

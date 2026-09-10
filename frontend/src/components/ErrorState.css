@@ -1,0 +1,92 @@
+/*
+ * 실패 표시 (`#694` · 2026-09-10 디자인 확정).
+ *
+ * **전역 클래스를 더 얹지 않는다.** 종전 `.empty--error`는 전역 `.empty`를 확장한
+ * 것이었고, 그러면 실패 표시를 고칠 때마다 빈 상태가 함께 흔들린다. 여기 클래스는
+ * `ErrorState` 하나만 쓴다.
+ *
+ * 색은 `§0.2` 제약 2·3을 따른다 — **면은 중립, 위험색은 아이콘·문구에만**.
+ */
+.error-state {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-12);
+  padding: var(--space-16);
+  border: var(--borderWidth-default) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-2);
+}
+
+/* 화면 전체가 뜨지 않은 경우 — 자리를 차지해 「비어 있는 것」과 구분된다. */
+.error-state--page {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-16);
+  padding: var(--space-32) var(--space-24);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lv1);
+}
+
+/* 한 줄 형태 — 종전 `<p class="X__error">`가 있던 자리다. */
+.error-state--compact {
+  align-items: center;
+  padding: var(--space-8) var(--space-12);
+  border-radius: var(--radius-control);
+}
+
+.error-state__icon {
+  flex: none;
+  /* 위험색은 여기와 제목에만 — 면적으로 쓰지 않는다. */
+  color: var(--color-danger-text);
+}
+
+.error-state__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.error-state__title {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-label);
+  color: var(--color-danger-text);
+}
+
+.error-state__message {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+.error-state--compact .error-state__message {
+  font-size: var(--font-size-label);
+}
+
+.error-state__retry {
+  flex: none;
+  height: 40px;
+  padding: 0 var(--space-16);
+  border: var(--borderWidth-default) solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.error-state__retry:hover {
+  border-color: var(--color-primary);
+}
+
+.error-state--compact .error-state__retry {
+  height: 28px;
+  padding: 0 var(--space-12);
+  font-size: var(--font-size-micro);
+}

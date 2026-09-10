@@ -20,6 +20,7 @@ import { GradeScaleBar } from '../../components/GradeScaleBar'
 import { gradeTargets } from './targetRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import type { VoyageCiiResponse } from './types'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 기능① 결과 화면 (#136).
@@ -78,10 +79,7 @@ export function VoyageCiiResult({ state, stale = false }: VoyageCiiResultProps) 
 
   if (state.status === 'error') {
     return (
-      <section className="voyage-cii-result voyage-cii-result--error" aria-live="assertive">
-        <p className="voyage-cii-result__error-title">계산에 실패했습니다</p>
-        <p className="voyage-cii-result__error-message">{state.message}</p>
-      </section>
+      <ErrorState level="region" title="계산에 실패했습니다" message={state.message} />
     )
   }
 

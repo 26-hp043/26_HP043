@@ -18,6 +18,7 @@ import {
 } from './periodRules'
 import type { FuelUseDraft, NotUnderwayProvider, Period, PeriodDraft } from './types'
 import './NotUnderwayPanel.css'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * not under way 구간 입력 — 선박 상세(`#356`) 하위 (`UIFLOW 2-8` · `#370`).
@@ -102,9 +103,7 @@ export function NotUnderwayPanel({
       </p>
 
       {failure ? (
-        <p className="nu__error" role="alert">
-          {failure}
-        </p>
+        <ErrorState level="region" size="compact" message={failure} />
       ) : null}
 
       {formOpen ? (
@@ -366,9 +365,7 @@ function PeriodRow({
       {fuelError ? <em className="nu__field-error" role="alert">{fuelError}</em> : null}
 
       {rowError ? (
-        <p className="nu__error" role="alert">
-          {rowError}
-        </p>
+        <ErrorState level="region" size="compact" message={rowError} />
       ) : null}
 
       <div className="nu__row-actions">
@@ -448,9 +445,11 @@ function PeriodForm({
    */
   if (!ready) {
     return (
-      <p className="nu__error" role="alert">
-        입력 선택지를 불러오지 못해 구간을 추가할 수 없습니다.
-      </p>
+      <ErrorState
+        level="region"
+        size="compact"
+        message="입력 선택지를 불러오지 못해 구간을 추가할 수 없습니다."
+      />
     )
   }
 
@@ -489,9 +488,7 @@ function PeriodForm({
   return (
     <div className="nu__form">
       {failure ? (
-        <p className="nu__error" role="alert">
-          {failure}
-        </p>
+        <ErrorState level="region" size="compact" message={failure} />
       ) : null}
 
       <div className="nu__grid">

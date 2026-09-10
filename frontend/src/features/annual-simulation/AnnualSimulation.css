@@ -450,19 +450,3 @@
   color: var(--color-text-muted);
   margin: 0;
 }
-
-.annual-sim__error {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-left: 3px solid var(--color-danger);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv1);
-  padding: var(--space-16) var(--space-24);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.annual-sim__error strong {
-  color: var(--color-danger-text);
-}

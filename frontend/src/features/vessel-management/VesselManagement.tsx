@@ -39,6 +39,7 @@ import {
 import { VesselManagementError } from './provider'
 import { createVesselManagementProvider } from './providerSelection'
 import './VesselManagement.css'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 선박 관리 화면 — 목록 · 수정 · 삭제 (#510).
@@ -215,9 +216,7 @@ export function VesselManagement() {
       )}
 
       {loadError !== null && (
-        <p className="vessel-management__error" role="alert">
-          {loadError}
-        </p>
+        <ErrorState level="region" size="compact" message={loadError} />
       )}
 
       {/*
@@ -459,9 +458,7 @@ function EditForm({
       }}
     >
       {errors[EDIT_FIELD.form] !== undefined && (
-        <p className="vessel-management__error" role="alert">
-          {errors[EDIT_FIELD.form]}
-        </p>
+        <ErrorState level="region" size="compact" message={errors[EDIT_FIELD.form]} />
       )}
 
       {/* 근거는 `API_SPEC §2.4` — 화면에는 적지 않는다 (#529). */}

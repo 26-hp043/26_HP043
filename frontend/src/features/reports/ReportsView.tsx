@@ -19,6 +19,7 @@ import type {
   VoyageOption,
 } from './types'
 import './ReportsView.css'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 보고서 — `UIFLOW 2-5` · `#362`.
@@ -371,9 +372,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
         </div>
 
         {failure ? (
-          <p className="rp__error" role="alert">
-            {failure}
-          </p>
+          <ErrorState level="region" size="compact" message={failure} />
         ) : null}
         {saved ? (
           <p className="rp__ok" role="status">
