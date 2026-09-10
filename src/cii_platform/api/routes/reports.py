@@ -103,7 +103,9 @@ async def annual_report_route(
     request: Request,
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
-    year: Annotated[int | None, Query(description="규제연도. 기본 as_of 연도")] = None,
+    year: Annotated[
+        int | None, Query(ge=2000, le=2100, description="규제연도. 기본 as_of 연도")
+    ] = None,
     format: Annotated[str, Query(description="pdf · csv · html")] = "pdf",
     as_of: Annotated[datetime | None, Query(description="기준 시각 (ISO 8601 UTC)")] = None,
 ) -> Response:

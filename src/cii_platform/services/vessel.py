@@ -27,6 +27,7 @@ from cii_platform.db.repositories.vessel import (
 )
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
 from cii_platform.services import applicability
+from cii_platform.services.pagination import normalize_limit as _normalize_limit
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -94,17 +95,10 @@ def to_dict(vessel) -> dict[str, object]:
 def normalize_limit(limit: int | None) -> int:
     """``limit`` 쿼리 파라미터를 정규화한다 (API_SPEC §2.1 「기본 20, 최대 100」).
 
-    **초과값을 오류로 만들지 않고 잘라 낸다.** 목록 조회에서 큰 ``limit``은 공격이
-    아니라 오해인 경우가 대부분이고, 422를 내면 클라이언트가 재시도 로직을 따로
-    만들어야 한다. 상한을 넘겨도 상한만큼은 정상 응답한다.
+    정책은 :mod:`cii_platform.services.pagination`이 소유한다 — 같은 규칙이 세 곳에
+    각자 적혀 있었고 **항차 목록만 빠져 있었다** (`#818` ⑵).
     """
-    if limit is None:
-        return DEFAULT_LIMIT
-    if limit < 1:
-        raise ValidationError(
-            "limit은 1 이상이어야 합니다.", field="limit", field_label="페이지 크기"
-        )
-    return min(limit, MAX_LIMIT)
+    return _normalize_limit(limit, default=DEFAULT_LIMIT, maximum=MAX_LIMIT)
 
 
 def _parse_cursor(cursor: str | None) -> Cursor | None:
@@ -245,6 +239,8 @@ async def update_vessel(
     if vessel is None:
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
 
+    # 분기 밖에서 먼저 세운다 — 안에서만 대입하면 선종을 안 바꾼 요청에서 NameError다.
+    ship_type_changed = False
     if ship_type is not None and ship_type != vessel.ship_type:
         ref_lines = await param_repo.list_reference_lines(session, ship_type)
         if not ref_lines:
@@ -253,11 +249,21 @@ async def update_vessel(
                 field="ship_type",
                 field_label="선종",
             )
+        # 이 분기의 조건이 이미 「값이 실제로 바뀐다」이다.
+        ship_type_changed = True
         vessel.ship_type = ship_type
 
-    # #283 (PRD §8.4): DWT/GT가 실제로 바뀌면 이 선박의 계산 결과에 재계산 필요
+    # #283 (PRD §8.4): 제원이 실제로 바뀌면 이 선박의 계산 결과에 재계산 필요
     # 표시를 남긴다. None은 "안 바꾼다", 같은 값 재전송도 표시를 만들지 않는다.
-    specs_changed = False
+    #
+    # ⚠️ **선종도 제원이다** (`#818` ⑶). 종전에는 DWT/GT만 봤는데, 선종은
+    # **capacity 축(DWT↔GT)·기준선 `a`/`c`·등급 경계 `d1~d4`를 전부** 바꾼다 —
+    # DWT/GT 변경보다 영향이 크다. `BULK_CARRIER → TANKER`로 고치면 과거
+    # `calculation_run`이 전부 `needs_recalc=false`인 채 **유효한 것처럼 남았다.**
+    #
+    # `PRD §8.4`의 행은 「선박 DWT/GT 변경」으로 좁게 적혀 있다. 코드가 문서보다
+    # **넓게 보호하는 쪽**이므로 모순은 아니나, 문구 확장은 별건으로 등록했다.
+    specs_changed = ship_type_changed
 
     if name is not None:
         vessel.name = name

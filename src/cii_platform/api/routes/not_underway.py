@@ -54,7 +54,9 @@ async def list_periods_route(
     request: Request,
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
-    regulation_year: Annotated[int | None, Query(description="규제연도 필터")] = None,
+    regulation_year: Annotated[
+        int | None, Query(ge=2000, le=2100, description="규제연도 필터")
+    ] = None,
     started_from: Annotated[datetime | None, Query(description="시작 시각 하한")] = None,
     started_to: Annotated[datetime | None, Query(description="시작 시각 상한")] = None,
 ) -> dict[str, object]:

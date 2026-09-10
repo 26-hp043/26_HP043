@@ -52,8 +52,10 @@ async def list_voyages_route(
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
     status: Annotated[str | None, Query(description="상태 필터")] = None,
-    regulation_year: Annotated[int | None, Query(description="기준연도 필터")] = None,
-    limit: Annotated[int | None, Query(description="페이지 크기")] = None,
+    regulation_year: Annotated[
+        int | None, Query(ge=2000, le=2100, description="기준연도 필터")
+    ] = None,
+    limit: Annotated[int | None, Query(ge=1, description="페이지 크기")] = None,
     cursor: Annotated[str | None, Query(description="페이지네이션 커서")] = None,
 ) -> dict[str, object]:
     """선박별 항차 목록을 조회한다 (API_SPEC §3.1)."""

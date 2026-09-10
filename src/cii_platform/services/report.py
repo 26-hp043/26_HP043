@@ -54,7 +54,11 @@ from cii_platform.reports.labels import (
 )
 from cii_platform.services.applicability import applicability_state
 from cii_platform.services.cii_current import get_current_cii, resolve_in_progress_state
-from cii_platform.services.cii_history import list_cii_history
+from cii_platform.services.cii_history import (
+    DEFAULT_WINDOW_YEARS,
+    MIN_REGULATION_YEAR,
+    list_cii_history,
+)
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import compute_ytd_cii
 
@@ -446,7 +450,21 @@ async def build_annual_report(
         session, vessel_id, year=target_year, as_of=resolved
     )
     history = await list_cii_history(
-        session, vessel_id=vessel_id, to_year=target_year, as_of=resolved
+        session,
+        vessel_id=vessel_id,
+        # ⚠️ ``from_year``를 넘기지 않으면 ``to - 2``가 기본이고, ``target_year``가
+        # 2019·2020이면 그 값이 **2017·2018**이 되어 `API_SPEC §2.7`의
+        # ``from ≥ 2019`` 검증에 걸린다 (`#818` ⑴).
+        #
+        # 그 422는 **사용자가 보낸 적 없는 필드에 대한 것**이다. `§2.7`의 검증은
+        # 쿼리 파라미터를 겨냥하고, 여기 2017은 리포트가 스스로 만든 파생값이다.
+        # 리포트의 ``year`` 자체는 `API_SPEC §2.13`상 **2019~2100이 유효**하다.
+        #
+        # 오류를 삼켜 이력을 비우지 않는다 — 그러면 2019년 리포트에서 **2019년 행까지
+        # 사라진다.** 있는 데이터는 그대로 싣고 창만 좁힌다.
+        from_year=max(MIN_REGULATION_YEAR, target_year - (DEFAULT_WINDOW_YEARS - 1)),
+        to_year=target_year,
+        as_of=resolved,
     )
 
     ytd = current["ytd"]
