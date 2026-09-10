@@ -77,6 +77,10 @@ function deadClasses(options: { applyKept?: boolean } = {}): string[] {
       .replace(/\/\*[\s\S]*?\*\//g, '')
       // `@import './tokens.generated.css'`의 **파일명**이 선택자로 잡힌다.
       .replace(/@import[^;]*;/g, '')
+      // 같은 이유로 `url(...)` 안의 **확장자**도 잡힌다 — `#925`의
+      // `url('/fonts/noto-sans-kr-400.woff2')`가 `.woff2` 클래스로 읽혀 CI가 실패했다.
+      // `url()`의 인자는 경로이지 선택자가 아니다.
+      .replace(/url\([^)]*\)/g, 'url()')
     for (const match of css.matchAll(/\.(-?[A-Za-z_][\w-]*)/g)) {
       const cls = match[1]
       if (used.has(cls)) continue

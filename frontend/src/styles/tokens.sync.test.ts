@@ -752,6 +752,38 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     },
   )
 
+  it.each(THEMES)(
+    '$name — 브랜드 판의 바깥 경계가 인지된다 (#941 · 확정 3-4)',
+    ({ generated, alias }) => {
+      /*
+       * 확정 3-4가 미리 지적한 자리다 — *「다크 모드에서 판과 카드가 붙어 보일 수
+       * 있습니다. 판이 딥네이비이고 카드가 거의 검정이면 경계가 사라집니다」*.
+       * 실측하니 다크에서 판↔페이지가 `2.34`였다.
+       *
+       * ## 잠그는 것은 「선이 있는가」가 아니다
+       *
+       * 라이트는 판과 페이지 대비가 `11.21`이라 선이 필요 없다. 선의 존재를 잠그면
+       * **필요 없는 테마에까지 선을 강제**하게 된다. 잠그는 것은 **경계가 인지되는가**다 —
+       * 판과 페이지가 스스로 갈리거나, 아니면 그 사이의 선이 페이지와 갈리거나.
+       *
+       * 확정값(37번)이 어떤 밝기로 오든 이 단언은 그대로 유효하다.
+       */
+      const panel = evaluate(alias['--brand-gradient-from'], generated, alias)
+      const page = evaluate('var(--surface-page)', generated, alias)
+      const edge = evaluate(alias['--brand-panel-edge'], generated, alias)
+
+      // 비텍스트 경계 기준 (`§0.2` · WCAG 1.4.11).
+      const perceivable =
+        contrast(panel, page) >= 3 || contrast(edge, page) >= 3
+
+      expect(
+        perceivable,
+        `판 ${panel} ↔ 페이지 ${page} = ${contrast(panel, page).toFixed(2)}, ` +
+          `선 ${edge} ↔ 페이지 = ${contrast(edge, page).toFixed(2)}`,
+      ).toBe(true)
+    },
+  )
+
   it('⚠️ 다크 브랜드 값은 임시다 — 확정이 오면 이 가드를 지운다 (#608 · 37번)', () => {
     /*
      * 확정 3-4는 「테마 불변」이었다. 지금 다크에서 덮고 있는 것은 **그대로 두면
