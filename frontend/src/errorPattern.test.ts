@@ -3,7 +3,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 /*
- * 확정 문서의 재발 방지 가드 2건. 소스로 본다 — **화면이 깨지지 않는 성질**이라
+ * `rlatnals4114`의 2026-09-10 확정 문서가 정한 규격을 잠그는 가드 2건.
+ * **규격은 확정자가 정했고 개발은 가드만 만들었다**(`AGENTS §7.3`). 소스로 본다 — **화면이 깨지지 않는 성질**이라
  * 렌더 검사로는 잡히지 않는다.
  */
 const SRC = new URL('.', import.meta.url).pathname
