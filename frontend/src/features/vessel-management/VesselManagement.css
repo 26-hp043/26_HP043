@@ -116,7 +116,7 @@
 }
 
 .vessel-management__button:disabled {
-  color: var(--color-text-faint);
+  color: var(--color-text-disabled);
   cursor: not-allowed;
 }
 
@@ -149,7 +149,7 @@
 }
 
 .vessel-management__submit:disabled {
-  background: var(--color-text-faint);
+  background: var(--color-text-disabled);
   cursor: not-allowed;
 }
 
@@ -374,8 +374,9 @@
  * 값이 없는 칸. 빈칸으로 두면 「항목 자체가 없는 배」로 읽히므로 `—`를 세우고 색만
  * 낮춘다 — 훑을 때 값 있는 칸과 갈리되, 없다는 사실은 문자가 말한다 (`§14`).
  *
- * `--text-secondary`를 쓴다. `--color-text-faint`는 `§2.2`가 「플레이스홀더·비활성
- * 전용」으로 못박은 토큰이고 대비도 3.46:1이라 문자에 쓸 수 없다 (`#699`).
+ * `--text-secondary`를 쓴다. 종전 `--color-text-faint`는 대비가 3.46:1이라 문자에
+ * 쓸 수 없었고(`#699`), `#747`에서 **폐기**돼 비활성(`--color-text-disabled`)과
+ * 면적(`--color-surface-muted`)으로 쪼개졌다 — 어느 쪽도 문자용이 아니다.
  */
 .vm__cell--empty {
   color: var(--text-secondary);

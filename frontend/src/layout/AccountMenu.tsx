@@ -4,6 +4,8 @@ import { SCREEN_BY_ID } from '../screens'
 import { isEmailVerified } from '../features/auth/authRules'
 import type { CurrentUser } from '../auth/session'
 import './AccountMenu.css'
+import { ChevronDown } from 'lucide-react'
+import { Icon } from '../components/Icon'
 
 /**
  * 상단바 계정 영역 (#717).
@@ -99,7 +101,8 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
           {initialOf(label)}
         </span>
         <span className="account-menu__name">{label}</span>
-        <ChevronGlyph />
+        {/* 여닫힘 표시. 장식이므로 라벨을 주지 않는다 — 이름은 버튼이 이미 맡는다 (§14). */}
+        <Icon glyph={ChevronDown} className="account-menu__chevron" />
       </button>
 
       <div
@@ -130,16 +133,3 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
   )
 }
 
-/** 여닫힘 표시. 장식이므로 `aria-hidden`이며, 이름이 라벨을 이미 맡는다 (§14). */
-function ChevronGlyph() {
-  return (
-    <svg
-      className="account-menu__chevron"
-      viewBox="0 0 20 20"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M6 8l4 4 4-4" />
-    </svg>
-  )
-}

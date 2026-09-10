@@ -172,7 +172,9 @@ a {
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-link);
-  box-shadow: var(--shadow-lv2);
+  /* 초점을 받으면 화면 위에 떠오른다 — 오버레이다 (`#747` 2-2). */
+  box-shadow: var(--shadow-overlay);
+  border: var(--borderWidth-default) solid var(--color-border);
   transform: translateY(-200%);
 }
 

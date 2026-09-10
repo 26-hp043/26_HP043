@@ -385,7 +385,16 @@ describe('faint 계열을 문자색으로 쓰지 않는다 — §2.2 · §16 항
    * 그래픽이므로 이름으로 예외를 둔다. **선택자를 적어 두면 새 자리가 조용히
    * 늘어나지 않는다** — 늘리려면 이 목록을 고쳐야 하고, 그건 리뷰에 걸린다.
    */
-  const FAINT = ['--color-text-faint', '--text-muted']
+  /*
+   * `--color-text-faint`는 `#747`에서 **폐기**되고 용도별로 쪼개졌다.
+   * 그래도 목록에 남겨 둔다 — **되살아나는 것**을 잡아야 하기 때문이다.
+   */
+  const FAINT = [
+    '--color-text-faint',
+    '--color-text-disabled',
+    '--color-surface-muted',
+    '--text-muted',
+  ]
   const ICON_EXCEPTIONS = ['.app-shell__util-icon', '.app-shell__iconbtn', '.history__swatch']
 
   // 위 describe의 수집기는 그 블록 안에 갇혀 있다. 같은 규칙으로 다시 모은다.
@@ -425,7 +434,9 @@ describe('faint 계열을 문자색으로 쓰지 않는다 — §2.2 · §16 항
         } else if (line.endsWith(',') && !line.startsWith('/') && !line.includes(':')) {
           pending.push(line)
         }
-        const decl = /^(color|fill)\s*:\s*var\((--color-text-faint|--text-muted)\)\s*;/.exec(line)
+        const decl = new RegExp(
+          `^(color|fill)\\s*:\\s*var\\((${FAINT.join('|')})\\)\\s*;`,
+        ).exec(line)
         if (!decl) return
         if (/:disabled|--disabled/.test(selector)) return
         if (ICON_EXCEPTIONS.some((s) => selector.includes(s))) return
@@ -442,13 +453,24 @@ describe('faint 계열을 문자색으로 쓰지 않는다 — §2.2 · §16 항
     ).toEqual([])
   })
 
-  it('토큰 자체는 남아 있다 — 면적·비활성이 쓴다', () => {
+  it('`--color-text-faint`가 폐기됐다 — 용도별 토큰으로 쪼개졌다 (#747)', () => {
+    /*
+     * 이름만 `text`이고 **글자에 쓰이는 자리는 하나도 없었다.** 남은 용도가
+     * 비활성과 면적뿐이라 그 둘로 갈랐다. 이름을 되살리면 「문자에 써도 되는
+     * 토큰」이라는 오해가 함께 돌아온다.
+     */
     const tokens = readFileSync(join(HERE, 'tokens.css'), 'utf-8')
-    expect(tokens).toContain('--color-text-faint:')
-    const used = files.some((f) =>
-      FAINT.some((t) => new RegExp(`background[a-z-]*:\\s*var\\(${t}\\)`).test(readFileSync(f, 'utf-8'))),
-    )
-    expect(used).toBe(true)
+    expect(tokens).not.toMatch(/^\s*--color-text-faint:/m)
+    expect(tokens).toMatch(/^\s*--color-text-disabled:/m)
+    expect(tokens).toMatch(/^\s*--color-surface-muted:/m)
+  })
+
+  it('쪼갠 토큰이 각자 실제로 쓰인다', () => {
+    const all = files.map((f) => readFileSync(f, 'utf-8')).join('\n')
+    // 비활성 — `:disabled` 규칙 안에서 쓰인다.
+    expect(all).toMatch(/var\(--color-text-disabled\)/)
+    // 면적 — `background` 계열로 쓰인다.
+    expect(all).toMatch(/background[a-z-]*:\s*var\(--color-surface-muted\)/)
   })
 })
 
@@ -591,6 +613,86 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     for (const surface of TEXT_SURFACES) {
       // WCAG 1.4.11 Non-text Contrast — 비텍스트는 3:1이다.
       expect(contrast(color, generated[surface]), `${surface} 위 포커스 링`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  /*
+   * `§0.2` **제약 6** — 문자 토큰의 대비는 **가장 어두운 표면** 기준으로 잰다 (`#747`).
+   *
+   * `§16` 항목 1이 여태 닫히지 않은 이유가 이것이다. 대안으로 적힌 `#647380`의
+   * `4.86:1`은 **흰 카드 위** 값이었고, `--surface-inset` 위에서는 `4.34`로 미달이다.
+   * 한 표면만 보고 통과 판정을 내리면 **가장 빠듯한 자리를 놓친다.**
+   */
+  const TEXT_TOKENS = [
+    '--color-text',
+    '--color-text-muted',
+    '--color-link',
+    '--color-danger-text',
+    '--color-warning-text',
+  ]
+
+  /*
+   * **제외** — 둘 다 문자가 아니다.
+   *
+   * - `--color-text-disabled` — WCAG 1.4.3이 비활성 요소를 대비 요구에서 **명시적으로 제외**
+   * - `--color-surface-muted` — 면적. 1.4.11의 3:1이 기준이고 위 `면적` 검사가 본다
+   */
+  it.each(THEMES)('$name — 모든 문자 토큰이 모든 표면에서 4.5:1 이상이다', ({ generated, alias }) => {
+    const failures: string[] = []
+    for (const token of TEXT_TOKENS) {
+      const value = alias[token] ?? generated[token]
+      expect(value, `${token}을 찾지 못했습니다`).toBeDefined()
+      const color = evaluate(value as string, generated, alias)
+      for (const surface of TEXT_SURFACES) {
+        const ratio = contrast(color, generated[surface])
+        if (ratio < 4.5) failures.push(`${token} on ${surface} = ${ratio.toFixed(2)}`)
+      }
+    }
+    expect(failures).toEqual([])
+  })
+
+  it.each(THEMES)('$name — 면적용 토큰이 비텍스트 3:1을 넘는다', ({ generated, alias }) => {
+    // 글자가 아니므로 4.5가 아니라 1.4.11의 3:1이다.
+    const color = evaluate(alias['--color-surface-muted'], generated, alias)
+    for (const surface of TEXT_SURFACES) {
+      expect(contrast(color, generated[surface]), `${surface} 위`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('다크에서 카드 그림자를 쓰지 않는다 — `§5` (#747 2-2)', () => {
+    /*
+     * 어두운 배경 위의 검은 그림자는 거의 보이지 않고, 보이는 만큼은 얼룩으로 보인다.
+     * 종전 코드가 정본과 **정반대**를 하고 있었다.
+     */
+    for (const name of ['--shadow-lv1', '--shadow-lv2']) {
+      expect(darkAlias[name], `다크 ${name}`).toBe('none')
+      expect(lightAlias[name], `라이트 ${name}은 그림자가 있어야 한다`).not.toBe('none')
+    }
+  })
+
+  it('오버레이 그림자는 다크에서도 none이 아니다', () => {
+    // 떠 있는 면은 무엇 위에 뜰지 모른다 — 표면색만으로 분리되지 않는다.
+    expect(darkAlias['--shadow-overlay'], '--shadow-overlay를 찾지 못했습니다').toBeDefined()
+    expect(darkAlias['--shadow-overlay']).not.toBe('none')
+  })
+
+  it('브랜드 색은 테마 불변이다 — 누락이 아니라 결정이다 (#747 3-4)', () => {
+    for (const name of ['--brand-gradient-from', '--brand-gradient-to']) {
+      expect(lightAlias[name], `${name}을 찾지 못했습니다`).toBeDefined()
+      // 다크 블록에서 덮지 않으므로 별칭 병합 결과가 라이트와 같아야 한다.
+      expect(darkAlias[name]).toBe(lightAlias[name])
+    }
+  })
+
+  it('`--cii-none-bg`가 중립 표면과 같다 (#747 2-3)', () => {
+    /*
+     * 「none 등급」은 등급이 없다는 뜻이지 고유한 색을 가진 등급이 아니다.
+     * 종전 라이트 값 `#f2f2ef`는 **종전 웜 페이지색**이라 쿨톤 위에서 떴다.
+     */
+    for (const theme of THEMES) {
+      expect(theme.generated['--cii-none-bg'], `${theme.name}`).toBe(
+        theme.generated['--surface-inset'],
+      )
     }
   })
 

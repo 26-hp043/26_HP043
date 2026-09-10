@@ -446,7 +446,8 @@
   inline-size: 12px;
   block-size: 12px;
   border-radius: 2px;
-  background: var(--text-muted);
+  /* 면적이라 비텍스트 3:1이 기준이다 — 글자가 아니다 (`#747` 2-1). */
+  background: var(--color-surface-muted);
 }
 
 .history__swatch--line {

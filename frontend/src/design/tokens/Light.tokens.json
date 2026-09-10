@@ -415,12 +415,12 @@
         "$value": {
           "colorSpace": "srgb",
           "components": [
-            0.9490196108818054,
-            0.9490196108818054,
-            0.9372549057006836
+            0.9333333333333333,
+            0.9490196078431372,
+            0.9647058823529412
           ],
           "alpha": 1,
-          "hex": "#F2F2EF"
+          "hex": "#EEF2F6"
         },
         "$extensions": {
           "com.figma.variableId": "VariableID:1:318",
