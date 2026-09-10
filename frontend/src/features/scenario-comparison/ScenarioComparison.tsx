@@ -37,6 +37,7 @@ import {
 } from './comparisonRules'
 import { ScenarioRouteGlyph } from './ScenarioRouteGlyph'
 import type { ScenarioComparisonResponse, ScenarioResult } from './types'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 기능② 시나리오 비교 (#156).
@@ -516,10 +517,13 @@ export function ScenarioComparison({
             </p>
           )}
           {state.status === 'error' && (
-            <div className="scenario-comparison__error" aria-live="assertive">
-              <p className="scenario-comparison__error-title">비교에 실패했습니다</p>
-              <p className="scenario-comparison__error-message">{state.message}</p>
-            </div>
+            // 여기는 조건이 폼에 그대로 남아 있어 **다시 시도할 수 있는** 실패다.
+            <ErrorState
+              level="region"
+              title="비교에 실패했습니다"
+              message={state.message}
+              onRetry={runComparison}
+            />
           )}
         </div>
       </section>

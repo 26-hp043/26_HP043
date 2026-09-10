@@ -67,14 +67,6 @@
   cursor: default;
 }
 
-/* ── 상태 문구 ──────────────────────────────────────────────────── */
-
-.nu__error {
-  margin: 0;
-  font-size: var(--font-size-label);
-  color: var(--color-danger-text);
-}
-
 .nu__loading,
 .nu__empty,
 .nu__hint {

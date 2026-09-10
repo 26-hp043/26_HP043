@@ -79,14 +79,16 @@
   line-height: var(--line-height-body);
 }
 
-.empty--error {
-  border-color: var(--cii-e-border);
-  background: var(--cii-e-bg);
-}
-
-.empty--error .empty__msg {
-  color: var(--cii-e-text);
-}
+/*
+ * `.empty--error`를 걷어냈다 (`#694` · 2026-09-10 디자인 확정).
+ *
+ * 이 규칙은 **등급 E 토큰**(`--cii-e-*`)을 쓰고 있었고, 그 코드가 살아 있는 화면이
+ * 하필 **등급을 보여 주는 선박 상세**였다. 사용자 눈에 「데이터를 못 불러왔습니다」가
+ * **「이 배는 E등급입니다」로 읽힌다** — `§0.2` 제약 2(채널 분리) 위반이다.
+ *
+ * 실패 표시는 `components/ErrorState`가 맡는다. 전역 `.empty`를 확장하지 않는다 —
+ * 그러면 실패 표시를 고칠 때마다 빈 상태가 함께 흔들린다.
+ */
 
 .empty__cta {
   display: inline-flex;

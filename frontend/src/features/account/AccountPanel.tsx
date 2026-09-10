@@ -19,6 +19,7 @@ import {
 } from './accountRules'
 import type { AccountFieldErrors, PasswordChangeDraft } from './accountRules'
 import './AccountPanel.css'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 계정 관리 — `설정` 화면의 계정 절 (`#506`).
@@ -117,9 +118,7 @@ function DisplayNameForm({ initial }: { initial: string }) {
       </div>
 
       {failure ? (
-        <p className="acc__error" role="alert">
-          {failure}
-        </p>
+        <ErrorState level="region" size="compact" message={failure} />
       ) : null}
       {done ? (
         <p className="acc__ok" role="status">
@@ -221,9 +220,7 @@ function PasswordSection() {
         />
 
         {failure ? (
-          <p className="acc__error" role="alert">
-            {failure}
-          </p>
+          <ErrorState level="region" size="compact" message={failure} />
         ) : null}
 
         <button type="submit" className="acc__submit" disabled={busy}>
@@ -333,9 +330,7 @@ function WithdrawalSection() {
       <p className="acc__notice">{WITHDRAWAL_NOTICE}</p>
 
       {error !== null ? (
-        <p className="acc__error" role="alert">
-          {error}
-        </p>
+        <ErrorState level="region" size="compact" message={error} />
       ) : null}
 
       {confirming ? (

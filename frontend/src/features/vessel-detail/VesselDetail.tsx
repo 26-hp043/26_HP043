@@ -27,6 +27,7 @@ import type {
   VesselSpec,
 } from './types'
 import './VesselDetail.css'
+import { ErrorState } from '../../components/ErrorState'
 
 /**
  * 상세 화면 지도의 최소 표시 범위(도) — 약 1,500km (#723).
@@ -133,14 +134,22 @@ export function VesselDetail({
     return (
       <div className="vd">
         <BackLink />
-        <section className="empty empty--error" role="alert">
-          <p className="empty__msg">{failure.message}</p>
-          {failure.notFound ? (
-            <Link className="empty__cta" to="/dashboard">
-              대시보드로 돌아가기
-            </Link>
-          ) : null}
-        </section>
+        {/*
+          없는 대상(404)에는 재시도를 주지 않는다 — 다시 눌러도 같은 실패다 (`#694`).
+          그 경우에는 나갈 길(대시보드)을 준다.
+        */}
+        <ErrorState
+          level="page"
+          message={failure.message}
+          onRetry={failure.notFound ? undefined : () => window.location.reload()}
+          action={
+            failure.notFound ? (
+              <Link className="error-state__retry" to="/dashboard">
+                대시보드로 돌아가기
+              </Link>
+            ) : null
+          }
+        />
       </div>
     )
   }

@@ -156,16 +156,25 @@
   line-height: var(--line-height-body);
 }
 
+/*
+ * **등급 토큰을 쓰지 않는다** (`#694` · `§0.2` 제약 2).
+ *
+ * 종전에는 실패가 `--cii-e-*`(등급 E), 성공이 `--cii-a-*`(등급 A)였다.
+ * `.empty--error`와 **같은 부류의 위반**이며, 확정 문서가 1-0에서 지적한 것이 그것이다.
+ *
+ * 색면은 중립으로 빼고 **문구에만** 시맨틱 색을 준다 — BlueLog는 화면 어디서나
+ * 색이 곧 등급을 뜻하는 제품이라, 큰 색면은 토큰을 분리해도 등급 신호로 읽힌다.
+ */
 .auth-alert--error {
-  background: var(--cii-e-bg);
-  border: var(--borderWidth-default) solid var(--cii-e-border);
-  color: var(--cii-e-text);
+  background: var(--color-surface-2);
+  border: var(--borderWidth-default) solid var(--color-border);
+  color: var(--color-danger-text);
 }
 
 .auth-alert--ok {
-  background: var(--cii-a-bg);
-  border: var(--borderWidth-default) solid var(--cii-a-border);
-  color: var(--cii-a-text);
+  background: var(--color-surface-2);
+  border: var(--borderWidth-default) solid var(--color-border);
+  color: var(--color-text);
 }
 
 /* ── 보조 링크 ──────────────────────────────────────────────────── */

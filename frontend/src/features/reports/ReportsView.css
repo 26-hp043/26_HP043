@@ -160,12 +160,6 @@
   opacity: 0.9;
 }
 
-.rp__error {
-  margin: 0;
-  font-size: var(--font-size-label);
-  color: var(--color-danger-text);
-}
-
 .rp__ok {
   margin: 0;
   font-size: var(--font-size-label);

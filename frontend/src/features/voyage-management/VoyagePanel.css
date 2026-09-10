@@ -66,7 +66,6 @@
   outline-offset: 2px;
 }
 
-.vy__error,
 .vy__field-error {
   margin: 0;
   font-size: var(--font-size-micro);
@@ -217,7 +216,8 @@
   margin-block-start: var(--spacing-sm);
 }
 
-.vy__form > .vy__error,
+/* 실패 표시가 공용 컴포넌트로 바뀌었다 (`#694`). 배치는 여전히 이 폼의 몫이다. */
+.vy__form > .error-state,
 .vy__form > .vy__hint,
 .vy__form-actions {
   grid-column: 1 / -1;
@@ -331,17 +331,6 @@
   margin: 0;
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
-  word-break: keep-all;
-}
-
-/*
- * 오류 문구는 `--color-danger-text`다 — `--semantic-danger`는 라이트에서 문자 대비가
- * 4.13:1이라 `DESIGN_SYSTEM §0.2` 제약 1(≥4.5:1)을 못 넘는다.
- */
-.vy-import__error {
-  margin: 0;
-  font-size: var(--font-size-micro);
-  color: var(--color-danger-text);
   word-break: keep-all;
 }
 

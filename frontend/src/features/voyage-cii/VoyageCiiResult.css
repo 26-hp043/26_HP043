@@ -29,23 +29,6 @@
   text-align: center;
 }
 
-/* 실패 */
-.voyage-cii-result--error {
-  border-left: 3px solid var(--color-danger);
-  border-radius: 0;
-  gap: var(--space-4);
-}
-
-.voyage-cii-result__error-title {
-  color: var(--color-danger-text);
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
-}
-
-.voyage-cii-result__error-message {
-  color: var(--color-text-muted);
-}
-
 .voyage-cii-result__title-en {
   color: var(--color-text-muted);
   font-size: var(--font-size-h3);
