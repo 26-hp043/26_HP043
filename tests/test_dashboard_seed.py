@@ -12,9 +12,11 @@
 쓴다 — 등급은 시연 서사의 핵심이므로 전사 대신 실제 산출으로 잠근다.
 """
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.calc.capacity import (
     resolve_reference_capacity,
@@ -28,12 +30,15 @@ from cii_platform.db.seed import (
     SEED_REFERENCE_LINES,
     SEED_Z_FACTORS,
 )
+from cii_platform.services.fleet_summary import get_fleet_summary
 
 VESSEL_IDS = {
     "bulk": "00000000-0000-4000-8000-000000000001",
     "container": "00000000-0000-4000-8000-000000000002",
     "general": "00000000-0000-4000-8000-000000000003",
     "ro_ro": "00000000-0000-4000-8000-000000000004",
+    # `#889` — 「D등급까지 n일」이 숫자로 보이는 관찰 대상 선박.
+    "watch": "00000000-0000-4000-8000-000000000005",
 }
 
 
@@ -67,7 +72,7 @@ async def test_operation_statuses_are_mixed(conn):
 
 
 async def test_every_vessel_has_two_year_history(conn):
-    """4척 모두 2025·2026 두 연도에 COMPLETED 항차를 갖는다 (연도별 이력 화면용)."""
+    """5척 모두 2025·2026 두 연도에 COMPLETED 항차를 갖는다 (연도별 이력 화면용)."""
     rows = (
         await conn.execute(
             text(
@@ -392,9 +397,14 @@ async def _rating_for_2026_completed_voyage(conn, vessel_id: str) -> str:
 
     규제 파라미터는 ``cii_platform.db.seed`` 상수에서 온다(CI에서
     ``scripts/seed.py``가 적재되지 않으므로 상수 직접 사용).
+
+    **항차를 전부 합산한다** (`#889`). 종전에는 ``one()``으로 한 건을 전제했는데,
+    관찰 대상 선박은 2026년에 **두 구간**을 갖는다 — 최근 30일이 그 이전보다 나빠야
+    「D등급까지 n일」이 숫자가 되기 때문이다. 합산이 연간 등급의 정의이기도 하다
+    (``attained = M / W``이고 둘 다 누적이다).
     """
     vessel = await _vessel_row(conn, vessel_id)
-    voyage = (
+    legs = (
         await conn.execute(
             text(
                 "SELECT v.actual_distance_nm, f.fuel_type, f.actual_fuel_ton, f.cf_used "
@@ -403,16 +413,18 @@ async def _rating_for_2026_completed_voyage(conn, vessel_id: str) -> str:
                 "AND v.regulation_year = 2026",
             ).bindparams(vid=vessel_id)
         )
-    ).one()
+    ).all()
+    assert legs, f"{vessel_id}: 2026 COMPLETED 항차가 없다"
+    total_distance = sum(leg.actual_distance_nm for leg in legs)
 
     ref_line = select_reference_line(vessel, SEED_REFERENCE_LINES)
     boundary = select_rating_boundary(vessel, SEED_RATING_BOUNDARIES)
     z_2026 = {row.year: row.z_factor_percent for row in SEED_Z_FACTORS}[2026]
 
     attained = calculate_attained_cii(
-        [FuelUse(voyage.fuel_type, voyage.actual_fuel_ton, voyage.cf_used)],
+        [FuelUse(leg.fuel_type, leg.actual_fuel_ton, leg.cf_used) for leg in legs],
         resolve_transport_capacity(vessel),
-        voyage.actual_distance_nm,
+        total_distance,
     )
     required = calculate_required_cii(
         ref_line.a_decimal,
@@ -480,3 +492,53 @@ async def test_bulk_vessel_deteriorates_2025_to_2026(conn):
         ).rating
 
     assert ratings_by_year == {2025: "D", 2026: "E"}
+
+
+async def test_days_to_d_is_a_number_for_at_least_one_seeded_vessel(conn):
+    """데모 선대에서 「D등급까지 n일」이 **숫자로 보이는 배가 있다** (#889).
+
+    ## 왜 비어 있었나 — 결함이 아니었다
+
+    종전 4척의 사유는 전부 규정대로였다. 셋은 이미 D 이하라
+    ``ALREADY_AT_OR_BELOW``(「진입까지」가 정의되지 않는다), 하나는 정박 중이라
+    ``NOT_UNDER_WAY``다. **그래서 「아직 여유가 있는 배가 언제 D에 진입하는가」를
+    보여 줄 배가 하나도 없었다** — `PRD §3.3.7`이 대시보드 위험 지표로 규정한 칼럼이
+    시연에서 한 번도 값을 내지 않았다.
+
+    ## 숫자가 나오려면 넷이 동시에 성립해야 한다
+
+    ⑴ 등급이 D보다 낫고 ⑵ 운항 중이며 ⑶ **최근 30일이 그 이전보다 나쁘고**
+    ⑷ 외삽 일수가 **연말을 넘지 않는다**. 하나라도 어긋나면 다시 ``—``다.
+    관찰 대상 선박은 2026년 항차를 **두 구간**으로 나눠 ⑶을 만족시킨다.
+    """
+    # `get_fleet_summary`는 세션을 받는다 — 이 파일의 `conn`은 연결이라 감싼다.
+    async with AsyncSession(bind=conn, expire_on_commit=False) as session:
+        result = await get_fleet_summary(session, regulation_year=2026, as_of=datetime.now(UTC))
+    rows = result["vessels"]
+
+    numeric = [row for row in rows if isinstance(row["days_to_d"], int)]
+    assert numeric, (
+        "「D등급까지 n일」이 숫자인 선박이 없다 — 심사에서 그 칼럼이 통째로 빈다: "
+        + repr({row["name"]: row["days_to_d_reason"] for row in rows})
+    )
+    for row in numeric:
+        assert row["days_to_d"] >= 0
+        assert row["days_to_d_reason"] is None
+
+
+async def test_risk_narrative_survives_the_watch_vessel(conn):
+    """관찰 대상 선박을 더해도 **위험 선박 서사가 그대로다** (#889).
+
+    데모 데이터는 심사 서사 그 자체다. 한 척을 더하는 것이 기존 이야기를 흐리면
+    안 된다 — E 2척과 ``at_risk`` 2가 유지되고, 등급 분포에 C가 생겨 스택 바가
+    오히려 다양해진다.
+    """
+    async with AsyncSession(bind=conn, expire_on_commit=False) as session:
+        result = await get_fleet_summary(session, regulation_year=2026, as_of=datetime.now(UTC))
+    summary = result["summary"]
+
+    assert summary["rating_distribution"]["E"] == 2, "위험 선박 2척이 유지되어야 한다"
+    assert summary["at_risk"] == 2
+    # 종전에는 0이었다 — C가 생겨야 「D 진입 전」 구간이 화면에 나타난다.
+    assert summary["rating_distribution"]["C"] >= 1
+    assert summary["rating_distribution"]["D"] >= 1, "로로 여객선의 D 표시가 사라지면 안 된다"

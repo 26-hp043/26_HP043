@@ -31,6 +31,7 @@ VESSEL_ID_BULK = "00000000-0000-4000-8000-000000000001"
 VESSEL_ID_CONTAINER = "00000000-0000-4000-8000-000000000002"
 VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
 VESSEL_ID_RO_RO = "00000000-0000-4000-8000-000000000004"
+VESSEL_ID_WATCH = "00000000-0000-4000-8000-000000000005"
 
 # (id, imo_number, name, ship_type, gross_tonnage, deadweight, hint)
 EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None, bool], ...] = (
@@ -70,6 +71,16 @@ EXPECTED_VESSELS: tuple[tuple[str, str, str, str, Decimal | None, Decimal | None
         None,
         True,
     ),
+    # `#889` — 「D등급까지 n일」이 숫자로 보이는 배. 그 칼럼이 데모 4척 전부 `—`였다.
+    (
+        VESSEL_ID_WATCH,
+        "0000036",
+        "샘플 벌크선 (30,000 DWT)",
+        "BULK_CARRIER",
+        Decimal("18000.00"),
+        Decimal("30000.00"),
+        True,
+    ),
 )
 
 # GT >= 5000 이면 공식 CII 적용 대상 (PRD §7 · DB_SCHEMA §2.1).
@@ -77,9 +88,13 @@ CII_APPLICABLE_GT_THRESHOLD = Decimal("5000")
 
 
 async def test_seed_row_count(conn):
-    """upgrade head 후 vessel이 정확히 4행이다 (018 DWT축 3척 + 027 GT축 1척)."""
+    """데모 적재 후 vessel이 정확히 5행이다.
+
+    018 DWT축 3척 + 027 GT축 1척 + `#889` 관찰 대상 1척이다. 마지막 한 척은
+    마이그레이션이 아니라 `db/demo_seed.py`가 넣는다 — 데모 데이터이지 스키마가 아니다.
+    """
     count = await conn.scalar(text("SELECT count(*) FROM vessel"))
-    assert count == len(EXPECTED_VESSELS) == 4
+    assert count == len(EXPECTED_VESSELS) == 5
 
 
 async def test_seed_values_match_expected(conn):
@@ -113,6 +128,7 @@ async def test_uuids_are_the_contracted_values(conn):
         VESSEL_ID_CONTAINER,
         VESSEL_ID_GENERAL_CARGO,
         VESSEL_ID_RO_RO,
+        VESSEL_ID_WATCH,
     ]
 
 
@@ -211,29 +227,36 @@ async def test_cii_applicable_hint_follows_gross_tonnage(conn):
 
 
 async def test_imo_numbers_satisfy_format_constraint(conn):
-    """4척 모두 ``chk_imo_format``(7자리 숫자)을 만족한다.
+    """5척 모두 ``chk_imo_format``(7자리 숫자)을 만족한다.
 
     DB가 이미 강제하므로 INSERT가 성공한 것 자체가 증거지만, **합성 IMO가 실선
-    대역과 겹치지 않는다는 것**은 별도 성질이라 함께 확인한다. 합성은 2개다 —
-    1번(벌크선, 018)과 4번(로로 여객선, 027).
+    대역과 겹치지 않는다는 것**은 별도 성질이라 함께 확인한다. 합성은 3개다 —
+    1번(벌크선, 018)·4번(로로 여객선, 027)·5번(관찰 대상, `#889`).
     """
     rows = (await conn.execute(text("SELECT imo_number FROM vessel ORDER BY id"))).all()
     for row in rows:
         assert len(row.imo_number) == 7
         assert row.imo_number.isdigit()
 
-    # 합성 IMO 2개(0000012·0000024)는 실선 대역(5,000,000~)과 겹치지 않는 0 시작이며,
-    # **IMO 체크섬도 만족한다**(#525). 종전 0000001·0000002는 대역만 지키고 체크섬은
-    # 고려하지 않아, 시연에서 「샘플이 규격을 안 지킨다」는 지적이 가능했다.
+    # 합성 IMO 3개(0000012·0000024·0000036)는 실선 대역(5,000,000~)과 겹치지 않는
+    # 0 시작이며, **IMO 체크섬도 만족한다**(#525). 종전 0000001·0000002는 대역만
+    # 지키고 체크섬은 고려하지 않아, 시연에서 「샘플이 규격을 안 지킨다」는 지적이
+    # 가능했다. `0000036`도 같은 규칙이다 — 앞 여섯 자리 `000003`에 가중치를 곱하면
+    # `3 x 2 = 6`이라 마지막 자리가 6이다.
     synthetics = [row.imo_number for row in rows if row.imo_number.startswith("0")]
-    assert synthetics == ["0000012", "0000024"], "합성 IMO는 실선 대역과 겹치지 않아야 한다"
+    assert synthetics == ["0000012", "0000024", "0000036"], (
+        "합성 IMO는 실선 대역과 겹치지 않아야 한다"
+    )
 
 
 async def test_vessel_axes_are_dwt_and_gt(conn):
-    """DWT축 3척 + GT축 1척 — **#347이 #207 잔여분(GT축 선박)을 채웠다는 고정.**
+    """DWT축 4척 + GT축 1척 — **#347이 #207 잔여분(GT축 선박)을 채웠다는 고정.**
 
     종전 ``test_all_seeded_vessels_are_dwt_axis``는 GT축 선박 부재를 고정하는
     테스트였으며, 이 갱신이 곧 이슈의 완료 시점이었다(이슈 #347 체크리스트).
+
+    `#889`가 더한 관찰 대상 선박도 DWT축이다 — 그 배의 목적은 축 다양성이 아니라
+    「D등급까지 n일」이 숫자로 보이는 것이다.
     """
     from cii_platform.calc.capacity import capacity_axis
 
@@ -244,12 +267,19 @@ async def test_vessel_axes_are_dwt_and_gt(conn):
         VESSEL_ID_CONTAINER: "DWT",
         VESSEL_ID_GENERAL_CARGO: "DWT",
         VESSEL_ID_RO_RO: "GT",
+        VESSEL_ID_WATCH: "DWT",
     }
 
 
 @pytest.mark.parametrize(
     "vessel_id",
-    [VESSEL_ID_BULK, VESSEL_ID_CONTAINER, VESSEL_ID_GENERAL_CARGO, VESSEL_ID_RO_RO],
+    [
+        VESSEL_ID_BULK,
+        VESSEL_ID_CONTAINER,
+        VESSEL_ID_GENERAL_CARGO,
+        VESSEL_ID_RO_RO,
+        VESSEL_ID_WATCH,
+    ],
 )
 async def test_seeded_ship_types_have_reference_lines(conn, vessel_id):
     """네 선종 모두 ``cii_reference_line``에 대응 행이 있다.
