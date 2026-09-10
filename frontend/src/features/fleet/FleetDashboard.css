@@ -227,7 +227,7 @@
 
 /* KPI 각주 안의 링크 — 문장 안이라 밑줄로만 구분한다. */
 .kpi__link {
-  color: var(--color-primary);
+  color: var(--color-link);
   text-decoration: underline;
 }
 

@@ -396,7 +396,7 @@
 
 .app-shell__nav-link--active {
   background: var(--color-primary-subtle);
-  color: var(--color-primary);
+  color: var(--color-link);
 }
 
 .app-shell__nav-label {
@@ -412,7 +412,7 @@
 }
 
 .app-shell__nav-link--active .app-shell__nav-label-en {
-  color: var(--color-primary);
+  color: var(--color-link);
 }
 
 /*

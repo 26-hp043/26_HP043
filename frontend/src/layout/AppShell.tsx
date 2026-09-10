@@ -57,6 +57,12 @@ import type { ShellContext } from './shellContext'
  *
  * 메인 영역의 최대 폭·좌우 패딩은 §7.1 폭 정책을 화면별로 적용한다.
  */
+/** 본문 영역의 id — 건너뛰기 링크와 라우트 변경 시 초점 이동이 같은 값을 쓴다. */
+const MAIN_ID = 'main-content'
+
+/** 문서 제목의 꼬리. 화면 이름 뒤에 붙는다. */
+const APP_TITLE = 'BlueLog'
+
 export function AppShell() {
   const { pathname, search } = useLocation()
   const navigate = useNavigate()
@@ -119,6 +125,26 @@ export function AppShell() {
    * 판정 규칙은 `globalContext.readContext`가 소유한다(#484).
    */
   const context: GlobalContextValue = readContext(pathname, search, remembered)
+
+  /*
+   * 화면이 바뀌었음을 알린다 (#829 ⑸c · WCAG 2.4.3).
+   *
+   * SPA는 문서를 다시 읽지 않으므로, 사이드바에서 「보고서」를 눌러도 스크린 리더
+   * 입장에서는 **아무 일도 일어나지 않은 것과 구분되지 않았다.** 제목을 갱신하고
+   * 본문으로 초점을 옮긴다 — 둘 다 브라우저가 전체 이동에서 해 주던 일이다.
+   *
+   * 첫 진입에서는 옮기지 않는다. 페이지를 열자마자 초점이 본문으로 뛰면 주소창에서
+   * Tab으로 들어오는 흐름이 끊긴다.
+   */
+  const firstRender = useRef(true)
+  useEffect(() => {
+    document.title = screen ? `${screen.label} · ${APP_TITLE}` : APP_TITLE
+    if (firstRender.current) {
+      firstRender.current = false
+      return
+    }
+    document.getElementById(MAIN_ID)?.focus()
+  }, [pathname, screen])
 
   // URL을 통해 들어온 선택도 기억한다 — 대시보드로 나가도 유지되어야 한다.
   useEffect(() => {
@@ -218,6 +244,17 @@ export function AppShell() {
   return (
     <div className="app-shell">
       <GradePatternDefs />
+
+      {/*
+        본문 바로가기 (#829 ⑸c · WCAG 2.4.1).
+
+        매 화면 진입마다 **사이드바 항목을 전부 Tab으로 지나야** 본문에 닿았다.
+        평소에는 화면 밖에 있다가 초점을 받으면 나타난다 — `.skip-link`가 그 규칙을
+        `global.css`에 갖고 있다.
+      */}
+      <a className="skip-link" href={`#${MAIN_ID}`}>
+        본문으로 건너뛰기
+      </a>
 
       <nav className="app-shell__sidebar" aria-label="주요 화면">
         <p className="app-shell__brand">
@@ -399,7 +436,7 @@ export function AppShell() {
           ) : null}
         </header>
 
-        <main className="app-shell__main">
+        <main className="app-shell__main" id={MAIN_ID} tabIndex={-1}>
           <div className="app-shell__content">
             {/*
               화면 단위 에러 경계 (`#823`).

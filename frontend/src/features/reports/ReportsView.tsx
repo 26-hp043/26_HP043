@@ -246,7 +246,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
               빈 셀렉트만 보여 **선박이 등록되지 않은 앱**으로 읽힌다 (#613).
             */}
             {vessels === null ? (
-              <em className="rp__hint" aria-busy="true">
+              <em className="rp__hint" aria-busy="true" role="status">
                 선박 목록을 불러오는 중입니다…
               </em>
             ) : null}
@@ -314,7 +314,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
               </select>
               {/* 선박을 고른 뒤에만 항차를 부른다 — 고르기 전 「불러오는 중」은 거짓말이다. */}
               {vesselId && voyages === null ? (
-                <em className="rp__hint" aria-busy="true">
+                <em className="rp__hint" aria-busy="true" role="status">
                   항차 목록을 불러오는 중입니다…
                 </em>
               ) : null}

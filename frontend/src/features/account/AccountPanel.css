@@ -89,7 +89,7 @@
 .acc__ok {
   margin: 0;
   font-size: var(--font-size-micro);
-  color: var(--semantic-primary);
+  color: var(--color-link);
   word-break: keep-all;
 }
 
@@ -97,7 +97,7 @@
   align-self: flex-start;
   border: 1px solid var(--semantic-primary);
   background: var(--surface-card);
-  color: var(--semantic-primary);
+  color: var(--color-link);
   border-radius: var(--radius-control);
   padding: var(--spacing-xs) var(--spacing-md);
   font-size: var(--font-size-label);

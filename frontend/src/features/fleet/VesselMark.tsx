@@ -40,6 +40,12 @@ export function VesselMark({ vessel }: { vessel: FleetVessel }) {
     return (
       <span
         className="vessel__mark vessel__mark--none"
+        /*
+         * `role="img"`가 있어야 `aria-label`이 읽힌다 (#829 ⑸b). 아래 등급 있는
+         * 갈래에는 있었고 **이 갈래에만 빠져 있었다** — 등급이 없는 선박일수록
+         * 「왜 없는지」가 유일한 정보라 낭독에서 사라지면 안 된다.
+         */
+        role="img"
         aria-label={`${vessel.name} — ${unavailableHint(vessel.unavailableReason)}`}
       >
         —

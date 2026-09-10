@@ -119,7 +119,7 @@ export function NotUnderwayPanel({
       ) : null}
 
       {periods === null && !failure ? (
-        <p className="nu__loading" aria-busy="true">
+        <p className="nu__loading" aria-busy="true" role="status">
           구간을 불러오는 중입니다…
         </p>
       ) : null}
@@ -363,7 +363,7 @@ function PeriodRow({
         </div>
       )}
 
-      {fuelError ? <em className="nu__field-error">{fuelError}</em> : null}
+      {fuelError ? <em className="nu__field-error" role="alert">{fuelError}</em> : null}
 
       {rowError ? (
         <p className="nu__error" role="alert">
@@ -517,8 +517,9 @@ function PeriodForm({
             value={startedAt}
             onChange={(event) => setStartedAt(event.target.value)}
             data-testid="nu-started-at"
+            aria-invalid={errors.startedAt !== undefined}
           />
-          {errors.startedAt ? <em className="nu__field-error">{errors.startedAt}</em> : null}
+          {errors.startedAt ? <em className="nu__field-error" role="alert">{errors.startedAt}</em> : null}
         </label>
 
         <label>
@@ -528,10 +529,11 @@ function PeriodForm({
             value={endedAt}
             onChange={(event) => setEndedAt(event.target.value)}
             data-testid="nu-ended-at"
+            aria-invalid={errors.endedAt !== undefined}
           />
           {/* 비워 두는 것이 정상 경로다 — 정박이 시작될 때는 끝을 모른다. */}
           <em className="nu__hint">비워 두면 「진행 중」으로 기록됩니다.</em>
-          {errors.endedAt ? <em className="nu__field-error">{errors.endedAt}</em> : null}
+          {errors.endedAt ? <em className="nu__field-error" role="alert">{errors.endedAt}</em> : null}
         </label>
 
         <label>
@@ -553,13 +555,14 @@ function PeriodForm({
             value={distanceNm}
             onChange={(event) => setDistanceNm(event.target.value)}
             data-testid="nu-distance"
+            aria-invalid={errors.distanceNm !== undefined}
           />
           {/* 왜 0이 기본인지 말해 준다 — 안 그러면 사용자가 빈칸으로 두거나 지어 낸다. */}
           <em className="nu__hint">
             접안·묘박은 0입니다. 운하 통과·표류·STS만 값이 있습니다.
           </em>
           {errors.distanceNm ? (
-            <em className="nu__field-error">{errors.distanceNm}</em>
+            <em className="nu__field-error" role="alert">{errors.distanceNm}</em>
           ) : null}
         </label>
       </div>
@@ -651,7 +654,7 @@ function PeriodForm({
         </div>
       ))}
 
-      {errors.fuelUses ? <em className="nu__field-error">{errors.fuelUses}</em> : null}
+      {errors.fuelUses ? <em className="nu__field-error" role="alert">{errors.fuelUses}</em> : null}
 
       <button
         className="nu__submit"

@@ -129,7 +129,7 @@ h3 {
 }
 
 a {
-  color: var(--color-primary);
+  color: var(--color-link);
 }
 
 /* DESIGN_SYSTEM §5 · §14 — 키보드 포커스 가시화 */
@@ -137,6 +137,47 @@ a {
   outline: none;
   box-shadow: var(--focus-ring);
   border-radius: var(--radius-control);
+}
+
+/*
+ * 고대비 모드에서는 **`box-shadow`가 제거된다** (#829 ⑴).
+ *
+ * Windows 고대비(`forced-colors: active`)는 그림자를 그리지 않는다. 위 규칙이
+ * `outline: none`으로 기본 윤곽선을 끄고 그림자로 대체하므로, 그 모드에서는
+ * **포커스가 통째로 사라진다** — 고대비를 쓰는 사람이 정확히 키보드로 다니는
+ * 사람이라 영향이 크다.
+ *
+ * `Highlight`는 시스템이 주는 색이라 대비가 보장된다.
+ */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * 본문 바로가기 (#829 ⑸c).
+ *
+ * `.sr-only`처럼 감추기만 하면 **초점을 받아도 보이지 않아** 쓸 수 없다. 화면 밖으로
+ * 밀어 두었다가 초점을 받으면 제자리로 들어온다 — 마우스 사용자에게는 없는 것과 같고
+ * 키보드 사용자에게는 첫 Tab에서 나타난다.
+ */
+.skip-link {
+  position: absolute;
+  inset-block-start: var(--space-8);
+  inset-inline-start: var(--space-8);
+  z-index: 100;
+  padding: var(--space-8) var(--space-16);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-link);
+  box-shadow: var(--shadow-lv2);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 /* 스크린 리더 전용 텍스트 */

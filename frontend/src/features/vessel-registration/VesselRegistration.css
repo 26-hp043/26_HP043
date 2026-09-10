@@ -244,7 +244,7 @@
 }
 
 .vessel-registration__link {
-  color: var(--color-primary);
+  color: var(--color-link);
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
 }

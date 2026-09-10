@@ -82,7 +82,9 @@ export function FleetDashboard() {
     return (
       <div className="fleet" aria-busy="true">
         <FleetHead />
-        <p className="fleet__loading">선대 현황을 불러오는 중입니다…</p>
+        <p className="fleet__loading" role="status">
+          선대 현황을 불러오는 중입니다…
+        </p>
       </div>
     )
   }
@@ -459,6 +461,12 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
               title={
                 vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
               }
+              /*
+               * `role` 없는 `<span>`의 `aria-label`은 무시된다 (#829 ⑸b).
+               * 라벨이 붙는 조건과 **같은 조건**으로 준다 — 값이 있을 때는 본문
+               * 텍스트가 그대로 읽히면 되므로 역할을 만들지 않는다.
+               */
+              role={vessel.dataAvailable ? undefined : 'img'}
               aria-label={
                 vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
               }

@@ -36,7 +36,7 @@
 .nu__row-actions button:hover,
 .nu__fuel-head button:hover {
   border-color: var(--semantic-primary);
-  color: var(--semantic-primary);
+  color: var(--color-link);
 }
 
 .nu__toggle:focus-visible,
@@ -201,7 +201,7 @@
 
 .nu__badge {
   font-size: var(--font-size-micro);
-  color: var(--semantic-primary);
+  color: var(--color-link);
   border: 1px solid var(--semantic-primary);
   border-radius: var(--radius-pill);
   padding: 0 var(--spacing-xs);

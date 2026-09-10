@@ -12,7 +12,7 @@
 .coming-soon__badge {
   display: inline-block;
   background: var(--color-primary-subtle);
-  color: var(--color-primary);
+  color: var(--color-link);
   border-radius: var(--radius-pill);
   padding: var(--space-4) var(--space-12);
   font-size: var(--font-size-label);

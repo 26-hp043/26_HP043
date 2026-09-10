@@ -386,7 +386,7 @@ export function VesselDetail({
               것」을 보이는 형태를 이미 쓴다.
             */}
             {inProgress === 'loading' ? (
-              <span className="vd__drill vd__drill--off" aria-busy="true">
+              <span className="vd__drill vd__drill--off" aria-busy="true" role="status">
                 진행 중 항차 확인 중…
               </span>
             ) : inProgress === null ? (

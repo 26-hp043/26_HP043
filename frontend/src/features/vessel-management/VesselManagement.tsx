@@ -232,7 +232,7 @@ export function VesselManagement() {
         `NotUnderwayPanel`).
       */}
       {loading && vessels.length === 0 && loadError === null && (
-        <p className="vessel-management__empty" aria-busy="true">
+        <p className="vessel-management__empty" aria-busy="true" role="status">
           선박 목록을 불러오는 중입니다…
         </p>
       )}
@@ -477,7 +477,7 @@ function EditForm({
           aria-invalid={EDIT_FIELD.name in errors}
         />
         {errors[EDIT_FIELD.name] !== undefined && (
-          <span className="vessel-management__field-error">{errors[EDIT_FIELD.name]}</span>
+          <span className="vessel-management__field-error" role="alert">{errors[EDIT_FIELD.name]}</span>
         )}
       </label>
 
@@ -496,7 +496,7 @@ function EditForm({
           ))}
         </select>
         {errors[EDIT_FIELD.shipType] !== undefined && (
-          <span className="vessel-management__field-error">
+          <span className="vessel-management__field-error" role="alert">
             {errors[EDIT_FIELD.shipType]}
           </span>
         )}
@@ -511,7 +511,7 @@ function EditForm({
           aria-invalid={EDIT_FIELD.grossTonnage in errors}
         />
         {errors[EDIT_FIELD.grossTonnage] !== undefined && (
-          <span className="vessel-management__field-error">
+          <span className="vessel-management__field-error" role="alert">
             {errors[EDIT_FIELD.grossTonnage]}
           </span>
         )}
@@ -526,7 +526,7 @@ function EditForm({
           aria-invalid={EDIT_FIELD.deadweight in errors}
         />
         {errors[EDIT_FIELD.deadweight] !== undefined && (
-          <span className="vessel-management__field-error">
+          <span className="vessel-management__field-error" role="alert">
             {errors[EDIT_FIELD.deadweight]}
           </span>
         )}
@@ -541,7 +541,7 @@ function EditForm({
           aria-invalid={EDIT_FIELD.referenceSpeedKn in errors}
         />
         {errors[EDIT_FIELD.referenceSpeedKn] !== undefined && (
-          <span className="vessel-management__field-error">
+          <span className="vessel-management__field-error" role="alert">
             {errors[EDIT_FIELD.referenceSpeedKn]}
           </span>
         )}
@@ -556,7 +556,7 @@ function EditForm({
           aria-invalid={EDIT_FIELD.referenceDailyFocTon in errors}
         />
         {errors[EDIT_FIELD.referenceDailyFocTon] !== undefined && (
-          <span className="vessel-management__field-error">
+          <span className="vessel-management__field-error" role="alert">
             {errors[EDIT_FIELD.referenceDailyFocTon]}
           </span>
         )}
@@ -583,7 +583,7 @@ function EditForm({
           ))}
         </select>
         {errors[EDIT_FIELD.defaultFuelType] !== undefined && (
-          <span className="vessel-management__field-error">
+          <span className="vessel-management__field-error" role="alert">
             {errors[EDIT_FIELD.defaultFuelType]}
           </span>
         )}

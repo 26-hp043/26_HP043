@@ -180,7 +180,7 @@
 
 .auth-links a,
 .auth-footer a {
-  color: var(--semantic-primary);
+  color: var(--color-link);
   text-decoration: none;
 }
 

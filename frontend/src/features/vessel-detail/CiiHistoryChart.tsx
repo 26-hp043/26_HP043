@@ -2,6 +2,7 @@ import type { CapacityBasis } from '../voyage-cii/types'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import type { CiiYear } from './types'
+import { gradePatternUrl } from '../../components/gradePattern'
 
 /**
  * 연도별 CII 이력 차트.
@@ -118,21 +119,38 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
             )
           })}
 
-          {marks.map(({ year, cx, y, reqY }) => (
+          {marks.map(({ year, cx, y, reqY }) => {
+            /*
+             * 등급 무늬를 채움 위에 덮는다 (#829 ⑸g · `§2.4.4`).
+             *
+             * `gradePatternUrl()` 소비처 다섯 중 **등급색 차트로 이 그림만 빠져
+             * 있었다.** 인접 등급의 채움색 대비가 라이트 B↔C **1.21** · C↔D
+             * **1.19** · 다크 D↔E **1.04**라, 색만으로는 막대 두 개를 구분할 수 없다.
+             *
+             * 방식은 `VesselGlyph`·`PositionChart`와 같다 — **같은 도형을 한 번 더
+             * 그려** 무늬로 덮는다. 등급 A는 무늬가 없어 `undefined`가 온다.
+             */
+            const pattern = year.rating ? gradePatternUrl(year.rating) : undefined
+            const bar = {
+              x: cx - barW / 2,
+              y,
+              width: barW,
+              height: Math.max(PAD_T + plotH - y, 1),
+              rx: '3',
+            }
+
+            return (
             <g key={year.regulationYear}>
               <rect
                 className="history__bar"
-                x={cx - barW / 2}
-                y={y}
-                width={barW}
-                height={Math.max(PAD_T + plotH - y, 1)}
-                rx="3"
+                {...bar}
                 fill={
                   year.rating
                     ? `var(--cii-${year.rating.toLowerCase()}-fill)`
                     : 'var(--cii-none-fill)'
                 }
               />
+              {pattern ? <rect className="history__bar" {...bar} fill={pattern} /> : null}
               {/*
                 기준선 — 파선이라 색을 못 봐도 구분된다 (`§14`). 막대보다 **넓게**
                 긋는다. 막대 폭에 맞추면 막대의 뚜껑처럼 보여, 견주는 선이 아니라
@@ -149,7 +167,8 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
                 />
               ) : null}
             </g>
-          ))}
+            )
+          })}
         </svg>
 
         {marks.map(({ year, cx, capY }) => (

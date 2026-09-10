@@ -38,6 +38,14 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
   const [open, setOpen] = useState(false)
   const panelId = useId()
   const root = useRef<HTMLDivElement>(null)
+  /*
+   * Escape로 닫을 때 **초점을 여는 버튼으로 되돌린다** (#829 ⑸d · WCAG 2.4.3).
+   *
+   * 패널은 `hidden={!open}`으로 감춰지는데, 그 안에 초점이 있는 채로 감추면 초점이
+   * `<body>`로 떨어진다. 키보드 사용자는 그 자리에서 Tab을 누르면 **문서 맨 앞으로
+   * 돌아간다** — 방금 있던 자리를 잃는다.
+   */
+  const trigger = useRef<HTMLButtonElement>(null)
   const { pathname } = useLocation()
 
   /*
@@ -52,7 +60,10 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
     if (!open) return
 
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      // 바깥 클릭으로 닫을 때는 되돌리지 않는다 — 그때 초점은 사용자가 누른 곳에 있다.
+      trigger.current?.focus()
     }
     /*
      * `mousedown`이지 `click`이 아니다. `click`으로 잡으면 패널 안의 링크를 누를 때
@@ -77,6 +88,7 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
     <div className="account-menu" ref={root}>
       <button
         type="button"
+        ref={trigger}
         className="account-menu__trigger"
         aria-expanded={open}
         aria-controls={panelId}
