@@ -913,6 +913,33 @@ def _get(client: TestClient, path: str):
     return client.get(f"{API_V1_PREFIX}{_resolve(client, path)}")
 
 
+def _ensure_calculation_history(client: TestClient) -> None:
+    """``/calculations``를 비교하기 **직전에** 계산 이력을 하나 만든다 (`#838`).
+
+    이력이 비면 응답의 ``data``가 빈 배열이 되어 ``data[].*`` 키가 **통째로 사라지고**,
+    집합 동등 비교가 「계약이 바뀌었다」로 실패한다. 원인은 「행이 없다」인데 메시지가
+    그것을 가린다.
+
+    ⚠️ **정의 순서에 기대지 않는다.** 종전에는 행을 만드는 테스트가 비교보다 **파일
+    뒤쪽**에 있어, 새 DB에서 이 파일만 돌리면 비교가 먼저 돌아 실패했다. 전체
+    스위트에서는 알파벳순으로 앞선 파일들이 행을 남겨 **가려졌다.** 함수를 옮기는
+    것으로 고치면 누가 다시 옮기는 순간 조용히 되돌아가므로 — `#559`에서 이미 한 번
+    겪었다 — 비교하는 쪽이 스스로 보장한다.
+    """
+    response = client.post(
+        f"{API_V1_PREFIX}/calculations/voyage-cii",
+        headers={"X-CSRF-Token": client.cookies.get("csrf")},
+        json={
+            "vessel_id": DEMO_VESSEL,
+            "distance_nm": 1100,
+            "speed_kn": 12.8,
+            "regulation_year": 2026,
+            "fuel_uses": [{"fuel_type": "HFO", "fuel_ton": 45}],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
 @pytest.mark.parametrize(
     "path",
     # 접두가 붙은 것은 각자 전용 테스트가 본다 — 만들어야 하거나 식별자가 필요하다.
@@ -920,6 +947,8 @@ def _get(client: TestClient, path: str):
 )
 def test_response_fields_match_the_contract(client, path):
     """GET 응답의 필드 집합이 계약과 **같다**."""
+    if path.startswith("/calculations"):
+        _ensure_calculation_history(client)
     response = _get(client, path)
 
     assert response.status_code == 200, response.text
@@ -1048,19 +1077,9 @@ def test_calculation_history_is_not_empty_before_it_is_compared(client):
 
     이력이 없으면 `data[]` 아래 키가 통째로 사라지고, 부분집합 비교였다면 그대로
     통과했을 것이다. 집합 동등 비교라 실패하지만 **원인이 「계약이 바뀌었다」로
-    읽히므로** 여기서 먼저 하나 만들어 둔다.
+    읽히므로** 이력을 먼저 만들어 둔다 — 비교 쪽도 같은 헬퍼를 부른다(`#838`).
     """
-    client.post(
-        f"{API_V1_PREFIX}/calculations/voyage-cii",
-        headers={"X-CSRF-Token": client.cookies.get("csrf")},
-        json={
-            "vessel_id": DEMO_VESSEL,
-            "distance_nm": 1100,
-            "speed_kn": 12.8,
-            "regulation_year": 2026,
-            "fuel_uses": [{"fuel_type": "HFO", "fuel_ton": 45}],
-        },
-    )
+    _ensure_calculation_history(client)
 
     body = _get(client, "/calculations?type=VOYAGE_ESTIMATE").json()
     assert body["data"], "계산 이력이 비어 있다 — 아래 계약 대조가 의미를 잃는다"
