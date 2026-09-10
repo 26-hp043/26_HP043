@@ -5,6 +5,7 @@ import { hasErrors, safeNext, validateLogin } from '../features/auth/authRules'
 import type { FieldErrors } from '../features/auth/authRules'
 import {
   AuthRequestError,
+  LOGIN_PATH,
   PASSWORD_RESET_PATH,
   SIGNUP_PATH,
   login,
@@ -122,7 +123,7 @@ export function LoginFailurePage() {
       title="로그인하지 못했습니다"
       description="잠시 후 다시 시도해 주세요. 문제가 계속되면 관리자에게 문의해 주십시오."
     >
-      <Link className="auth-submit auth-submit--link" to="/login">
+      <Link className="auth-submit auth-submit--link" to={LOGIN_PATH}>
         다시 시도하기
       </Link>
     </AuthShell>

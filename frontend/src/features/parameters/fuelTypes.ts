@@ -57,11 +57,6 @@ export const FUEL_TYPE_LABELS: Readonly<Record<string, string>> = {
   ETHANOL: '에탄올',
 }
 
-/** 표시 문구. 모르는 코드는 코드를 그대로 돌려준다. */
-export function fuelTypeLabel(code: string): string {
-  return FUEL_TYPE_LABELS[code] ?? code
-}
-
 /**
  * 셀렉트 한 줄 — `중유 (HFO)`.
  *

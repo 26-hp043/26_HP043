@@ -85,22 +85,6 @@
   }
 }
 
-.scenario-comparison--placeholder,
-.scenario-comparison--error {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv1);
-  padding: var(--space-24);
-  color: var(--color-text-muted);
-}
-
-.scenario-comparison--error {
-  border-left: 3px solid var(--color-danger);
-  border-radius: 0;
-  gap: var(--space-4);
-}
-
 .scenario-comparison__error-title {
   color: var(--color-danger-text);
   font-size: var(--font-size-h3);

@@ -1,5 +1,6 @@
 /// <reference types="node" />
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   ALL_SCREEN_IDS,
@@ -9,6 +10,20 @@ import {
   SCREEN_BY_ID,
   findScreenByPath,
 } from './screens'
+
+const SRC_DIR = new URL('.', import.meta.url).pathname
+
+/** `src/` 아래 검사가 아닌 소스 파일 전부. 경로 정본 가드가 훑는 대상이다. */
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name)
+    if (statSync(path).isDirectory()) return sourceFiles(path)
+    if (!/\.tsx?$/.test(name) || name.includes('.test.')) return []
+    return [path]
+  })
+}
+
+
 
 /**
  * #348 — UIFLOW v2.0 3계층 재편의 라우팅·네비게이션 계약.
@@ -238,22 +253,45 @@ describe('implemented ↔ 실제 구현 상태 (#527)', () => {
   })
 })
 
-describe('경로 상수 ↔ SCREEN_BY_ID (#594)', () => {
+describe('화면 경로의 정본은 screens.ts 하나다 (#594 · #831)', () => {
   /*
-   * `auth/session.ts`가 화면 경로 다섯 개를 상수로 갖고, `screens.ts`가 같은 문자열을
-   * `path`에 다시 적는다. 둘이 갈리면 **로그인 리다이렉트가 없는 화면으로 간다** —
-   * 404가 아니라 빈 화면이라 원인을 찾기 어렵다.
+   * 종전에는 `auth/session.ts`가 같은 경로 다섯 개를 **문자열로 다시 적고**, 이 검사가
+   * 둘을 대조해 일치를 지켰다. 그 구조의 약점은 **한쪽만 고쳤을 때**다 — 라우트는 옛
+   * 경로에 남고 `findScreenByPath()`는 새 경로를 가리켜, 404가 아니라 `AppShell`의
+   * 폭 정책(`DESIGN_SYSTEM §7.1`)만 조용히 어긋난다.
    *
-   * 이 대조가 `LOGIN_FAILURE_PATH`의 유일한 참조이기도 하다 (#594). 그 상수는 코드
-   * 어디에서도 쓰이지 않는데, 지우면 `screens.ts:102`의 하드코딩이 유일본이 된다.
+   * 지금은 `session.ts`가 `SCREEN_BY_ID`에서 **파생**시키므로 대조할 것이 없다.
+   * 대신 **경로 문자열을 다시 적은 파일이 있는지**를 본다 — 그것이 실제 위험이다.
    */
-  it('다섯 상수가 화면 정의의 경로와 같다', async () => {
+  const AUTH_PATHS = [
+    SCREEN_BY_ID.LOGIN.path,
+    SCREEN_BY_ID.LOGIN_FAILURE.path,
+    SCREEN_BY_ID.SIGNUP.path,
+    SCREEN_BY_ID.PASSWORD_RESET.path,
+    SCREEN_BY_ID.VERIFY_EMAIL.path,
+  ]
+
+  it('session.ts가 screens.ts에서 파생시킨다', async () => {
     const session = await import('./auth/session')
 
     expect(session.LOGIN_PATH).toBe(SCREEN_BY_ID.LOGIN.path)
-    expect(session.LOGIN_FAILURE_PATH).toBe(SCREEN_BY_ID.LOGIN_FAILURE.path)
     expect(session.SIGNUP_PATH).toBe(SCREEN_BY_ID.SIGNUP.path)
     expect(session.PASSWORD_RESET_PATH).toBe(SCREEN_BY_ID.PASSWORD_RESET.path)
     expect(session.VERIFY_EMAIL_PATH).toBe(SCREEN_BY_ID.VERIFY_EMAIL.path)
+  })
+
+  it('경로 문자열을 screens.ts 밖에서 다시 적지 않는다', () => {
+    const offenders: string[] = []
+    for (const file of sourceFiles(SRC_DIR)) {
+      if (file.endsWith('screens.ts')) continue
+      const text = readFileSync(file, 'utf8')
+      for (const path of AUTH_PATHS) {
+        // 따옴표로 감싼 완전 일치만 본다 — 주석에 적힌 경로는 잡지 않는다.
+        if (text.includes(`'${path}'`) || text.includes(`"${path}"`)) {
+          offenders.push(`${file.slice(SRC_DIR.length)} :: ${path}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
   })
 })

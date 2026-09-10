@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { clearStored } from '../layout/globalContext'
+import { SCREEN_BY_ID } from '../screens'
 
 /**
  * 인증 세션 클라이언트 — `UIFLOW.md` §0 (#278).
@@ -44,14 +45,21 @@ export interface CurrentUser {
   emailVerifiedAt: string | null
 }
 
-export const LOGIN_PATH = '/login'
-// ⚠️ 이 파일에서도 쓰이지 않는다 (#594). 지우지 않는 이유는 `screens.ts`가 같은
-// 경로를 문자열로 박아 두고 있어, 상수를 없애면 그 하드코딩이 유일본이 되기
-// 때문이다. `screens.test.ts`가 다섯 상수를 `SCREEN_BY_ID`의 `path`와 대조한다.
-export const LOGIN_FAILURE_PATH = '/login/failure'
-export const SIGNUP_PATH = '/signup'
-export const PASSWORD_RESET_PATH = '/password-reset'
-export const VERIFY_EMAIL_PATH = '/verify-email'
+/*
+ * 인증 화면 경로는 **`screens.ts`에서 파생시킨다** (#831 ⑺).
+ *
+ * 종전에는 같은 경로가 두 곳에 문자열로 박혀 있었고, `screens.test.ts`가 둘을
+ * 대조해 일치를 지켰다. 그 구조에서는 **한쪽만 고치면 라우트는 옛 경로에 남고
+ * `findScreenByPath()`는 새 경로를 가리킨다** — 화면이 깨지지 않고 `AppShell`의
+ * 폭 정책(`DESIGN_SYSTEM §7.1`)만 조용히 어긋나 발견이 늦다.
+ *
+ * 파생시키면 대조할 것이 없어진다. `LOGIN_FAILURE_PATH`는 참조가 없어 지웠다 —
+ * `App.tsx`가 이미 `SCREEN_BY_ID.LOGIN_FAILURE.path`를 쓴다.
+ */
+export const LOGIN_PATH = SCREEN_BY_ID.LOGIN.path
+export const SIGNUP_PATH = SCREEN_BY_ID.SIGNUP.path
+export const PASSWORD_RESET_PATH = SCREEN_BY_ID.PASSWORD_RESET.path
+export const VERIFY_EMAIL_PATH = SCREEN_BY_ID.VERIFY_EMAIL.path
 
 /** 상대 경로 — 개발은 vite 프록시, 프로덕션은 같은 출처(vite.config 참조). */
 const AUTH_API_BASE = '/api/v1'
