@@ -40,7 +40,8 @@ async def get_fleet_summary_route(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     regulation_year: Annotated[
-        int | None, Query(description="집계 대상 규제연도. 미지정이면 as_of 연도")
+        int | None,
+        Query(ge=2000, le=2100, description="집계 대상 규제연도. 미지정이면 as_of 연도"),
     ] = None,
     as_of: Annotated[
         datetime | None,

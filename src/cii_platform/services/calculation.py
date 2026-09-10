@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.errors import ValidationError
+from cii_platform.services.pagination import normalize_limit as _normalize_limit
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -33,17 +34,11 @@ def _iso(value) -> str | None:
 def normalize_limit(limit: int | None) -> int:
     """``limit`` 쿼리 파라미터를 정규화한다 (API_SPEC §1.9 「기본 20, 최대 100」).
 
-    **초과값을 오류로 만들지 않고 잘라 낸다** — 목록 조회에서 큰 ``limit``은 공격이
-    아니라 오해인 경우가 대부분이다(vessel §2.1과 같은 정책). 반면 1 미만(0, 음수)은
-    ``ValidationError`` — 0건 페이지가 의미가 없어 오타로 보기 때문이다.
+    정책은 :mod:`cii_platform.services.pagination`이 소유한다 (`#818` ⑵).
     """
-    if limit is None:
-        return calc_run_repo.DEFAULT_LIMIT
-    if limit < 1:
-        raise ValidationError(
-            "limit은 1 이상이어야 합니다.", field="limit", field_label="페이지 크기"
-        )
-    return min(limit, calc_run_repo.MAX_LIMIT)
+    return _normalize_limit(
+        limit, default=calc_run_repo.DEFAULT_LIMIT, maximum=calc_run_repo.MAX_LIMIT
+    )
 
 
 def _to_dict(run: CalculationRun) -> dict[str, object]:

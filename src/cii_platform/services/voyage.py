@@ -16,6 +16,7 @@ from cii_platform.errors import (
     StateTransitionError,
     ValidationError,
 )
+from cii_platform.services.pagination import normalize_limit
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -187,7 +188,13 @@ async def list_voyages(
     regulation_year: int | None = None,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
     """항차 목록과 페이지네이션 메타를 반환한다 (API_SPEC §3.1)."""
-    page_size = min(limit or voyage_repo.DEFAULT_LIMIT, voyage_repo.MAX_LIMIT)
+    # ⚠️ 종전에는 ``min(limit or DEFAULT, MAX)``였다 — **아무것도 막지 않았다** (`#818` ⑵).
+    # ``limit=-2``는 ``.limit(-1)``이 되어 PostgreSQL이 500을 냈고, ``limit=-1``은 0행인데
+    # ``has_more=true``·``next_cursor=null``이라 **따라갈 커서가 없는 「다음 페이지」**를
+    # 냈으며, ``limit=0``은 조용히 20건이었다. 선박·계산 목록은 같은 입력에 422였다.
+    page_size = normalize_limit(
+        limit, default=voyage_repo.DEFAULT_LIMIT, maximum=voyage_repo.MAX_LIMIT
+    )
 
     parsed_cursor = None
     if cursor is not None:

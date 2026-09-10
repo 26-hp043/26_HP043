@@ -67,7 +67,7 @@ async def export_vessel_data_route(
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
     type: Annotated[str, Query(description="voyages · calculations · simulations")],
-    year: Annotated[int | None, Query(description="기준연도 필터")] = None,
+    year: Annotated[int | None, Query(ge=2000, le=2100, description="기준연도 필터")] = None,
     format: Annotated[str, Query(description="csv (기본) · json")] = "csv",
 ) -> Response:
     """선박 자료를 CSV/JSON으로 내보낸다 (``API_SPEC §8.1``).
