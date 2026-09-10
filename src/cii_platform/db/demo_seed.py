@@ -660,7 +660,7 @@ SEED_VOYAGES: list[dict[str, object]] = [
 ]
 
 #: 항차 연료. 전부 HFO(017 seed 코드). 진행 중 항차는 계획값만.
-#: cf_used는 MEPC.364(79) §2.2.1의 HFO CF 3.114000 (DB_SCHEMA §3.2).
+#: cf_used는 적재 시점에 `fuel_type` 표에서 읽는다 — 여기 값을 적지 않는다 (`#797`).
 #: `#889` 관찰 대상 선박의 두 구간.
 #:
 #: **초기 구간은 30일 창 밖, 최근 구간은 창 안**이어야 한다. 초기는 절대 날짜로,
@@ -1072,8 +1072,27 @@ period_fuel_tbl = sa.table(
     sa.column("cf_used", sa.Numeric),
 )
 
+
 # HFO CF (tCO₂/tFuel) — 017 seed·DB_SCHEMA §3.2와 동일한 값.
-HFO_CF = Decimal("3.114000")
+async def _cf_by_fuel(conn: AsyncConnection) -> dict[str, Decimal]:
+    """``fuel_type`` 표에서 코드 → CF를 읽는다.
+
+    **상수로 적어 두지 않는다.** `#797`이 정확히 그 방식으로 틀렸다 — 연료 종류와
+    무관하게 ``HFO_CF``를 찍어 ``DIESEL_GAS_OIL`` 6행이 정본 ``3.206`` 대신
+    ``3.114``를 스냅샷으로 갖고 있었다.
+
+    값을 여기 다시 적으면 **원문 대조를 마친 표가 둘이 되고**, 규정이 개정될 때 한쪽만
+    바뀐다. `031`이 ``content_hash``까지 적재해 개정을 추적하는 그 표를 그대로 읽는다.
+
+    CF 스냅샷을 얼리는 설계 자체는 옳다 — `PRD §8.4`가 요구한다. **문제는 얼린 값이
+    처음부터 틀렸다는 것이었다.**
+    """
+    rows = (await conn.execute(sa.text("SELECT code, cf FROM fuel_type"))).mappings().all()
+    table = {row["code"]: Decimal(str(row["cf"])) for row in rows}
+    if not table:  # pragma: no cover - 마이그레이션이 끝난 DB에서는 비지 않는다
+        raise RuntimeError("fuel_type 표가 비어 있습니다 — 마이그레이션을 먼저 적용하세요")
+    return table
+
 
 # 적재 대상 테이블의 경량 선언. 실제 컬럼 정의는 각 스키마 마이그레이션이 소유한다.
 #
@@ -1258,11 +1277,13 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
 
     counts["voyage"] = await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES)
     counts["voyage"] += await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES_WATCH)
+    cf = await _cf_by_fuel(conn)
+
     counts["voyage_fuel_use"] = await _insert_ignoring_existing(
         conn,
         voyage_fuel_tbl,
         [
-            {**row, "fuel_type": "HFO", "cf_used": HFO_CF, "source": "SAMPLE"}
+            {**row, "fuel_type": "HFO", "cf_used": cf["HFO"], "source": "SAMPLE"}
             for row in SEED_VOYAGE_FUELS
         ],
     )
@@ -1270,7 +1291,8 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
     counts["not_underway_fuel_use"] = await _insert_ignoring_existing(
         conn,
         period_fuel_tbl,
-        [{**row, "cf_used": HFO_CF} for row in SEED_PERIOD_FUELS],
+        # ⚠️ **행의 `fuel_type`을 봐야 한다.** 종전에는 보지 않고 HFO CF를 찍었다 (`#797`).
+        [{**row, "cf_used": cf[str(row["fuel_type"])]} for row in SEED_PERIOD_FUELS],
     )
     # 시연 계정 (#692). 프로덕션에서는 0을 돌려준다.
     counts["app_user"] = await seed_demo_user(conn)
