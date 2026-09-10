@@ -50,6 +50,12 @@
 
   /* 보조 문자용 — 같은 색을 눌러 위계를 만든다. 대비는 가드가 잰다. */
   --auth-brand-muted: color-mix(in srgb, var(--color-on-primary) 78%, transparent);
+
+  /*
+   * 판의 바깥 경계 — 다크에서만 보인다(`#941`). 라이트에서는 토큰이 판과 같은 값이라
+   * 선이 그려져도 눈에 띄지 않는다. 값은 `styles/tokens.css`가 테마별로 정한다.
+   */
+  border-inline-end: var(--borderWidth-default) solid var(--brand-panel-edge);
 }
 
 /*
@@ -348,6 +354,10 @@
     /* 세로 여백을 줄여 띠로 만든다. 좌우는 카드와 같은 여백을 쓴다. */
     gap: var(--spacing-md);
     padding: var(--spacing-xl) var(--spacing-lg);
+
+    /* 접히면 판이 위에 눕는다 — 경계도 오른쪽이 아니라 아래로 옮긴다. */
+    border-inline-end: none;
+    border-block-end: var(--borderWidth-default) solid var(--brand-panel-edge);
   }
 
   .auth-brand {
