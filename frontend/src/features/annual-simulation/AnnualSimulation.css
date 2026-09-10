@@ -277,7 +277,7 @@
 }
 
 .annual-sim__form button[type='submit']:disabled {
-  background: var(--color-text-faint);
+  background: var(--color-text-disabled);
   cursor: not-allowed;
 }
 

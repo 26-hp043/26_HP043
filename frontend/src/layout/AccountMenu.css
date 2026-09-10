@@ -110,9 +110,15 @@
   gap: var(--space-4);
   padding: var(--space-16);
   background: var(--surface-popover);
+  /*
+   * 테두리는 **다크에서 필수다** (`#747` 2-2). 다크는 `--shadow-lv*`가 `none`이고
+   * 이 판은 `--shadow-overlay`를 쓰는데, 그림자만으로는 어두운 배경에서 경계가
+   * 서지 않는다 — 판과 바탕의 명도가 가깝다.
+   */
   border: var(--borderWidth-default) solid var(--border-default);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv2);
+  /* 떠 있는 면이다 — 카드(`--shadow-lv2`)가 아니라 오버레이 토큰을 쓴다. */
+  box-shadow: var(--shadow-overlay);
 }
 
 .account-menu__panel[hidden] {

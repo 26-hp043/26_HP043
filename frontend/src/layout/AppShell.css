@@ -422,12 +422,12 @@
  */
 .app-shell__nav-link--disabled {
   cursor: default;
-  color: var(--color-text-faint);
+  color: var(--color-text-disabled);
 }
 
 .app-shell__nav-link--disabled .app-shell__nav-label,
 .app-shell__nav-link--disabled .app-shell__nav-label-en {
-  color: var(--color-text-faint);
+  color: var(--color-text-disabled);
 }
 
 .app-shell__nav-tag {
