@@ -472,6 +472,39 @@ describe('faint 계열을 문자색으로 쓰지 않는다 — §2.2 · §16 항
     // 면적 — `background` 계열로 쓰인다.
     expect(all).toMatch(/background[a-z-]*:\s*var\(--color-surface-muted\)/)
   })
+
+  it('세 번째 토큰은 선언과 사용이 함께 간다 — 한쪽만 있으면 실패한다 (#747)', () => {
+    /*
+     * 확정 문서가 이름을 부른 토큰 셋 중 **하나는 만들지 않았다.** 아이콘
+     * stroke·테두리 용도인데 그 자리가 저장소에 **0곳**이고, 같은 날 `#831`이
+     * 참조 0건 토큰 10개를 걷어낸 참이었다. 바로 뒤에 참조 0건 토큰을 새로
+     * 만들면 같은 규율이 한 PR 안에서 반대로 간다.
+     *
+     * 그래서 「지금 만들지 않는다」가 아니라 **「선언과 사용이 함께 간다」**를
+     * 잠근다 — 미룬 것을 잠그면 쓸 자리가 생겼을 때 가드를 지워야 하고, 지우는
+     * 순간 판단이 사라진다. 이 형태면 쓸 자리가 생기는 날 **선언 한 줄을 더하는
+     * 것만으로** 통과하고, 소비처 없이 되살리면 그때 걸린다.
+     *
+     * ## 주석을 걷어내는 두 자리는 성격이 다르다
+     *
+     * - `all` 쪽은 **실측으로 무는 것을 확인했다.** 다른 CSS가 주석으로
+     *   `var(--border-faint)를 쓸 예정`이라고만 적어도, 걷어내지 않으면 그 문장이
+     *   **사용으로 읽혀** 이 가드가 헛되이 실패한다
+     * - `tokens.css` 쪽은 **선제 조치다.** 지금 설명문은 `이름(용도)는` 꼴이고
+     *   블록 주석 줄이 `*`로 시작해 걷어내지 않아도 통과한다 — 확인했다.
+     *   `이름: 값` 꼴 예시가 한 줄 들어오는 순간 자기 설명을 선언으로 읽는다
+     *
+     * `#831`·`#829`·`#694`에서 세 번 밟은 함정이라 양쪽 다 먼저 막는다.
+     */
+    const NAME = '--border-faint'
+    const tokens = stripComments(readFileSync(join(HERE, 'tokens.css'), 'utf-8'))
+    const all = stripComments(files.map((f) => readFileSync(f, 'utf-8')).join('\n'))
+
+    const declared = new RegExp(`^\\s*${NAME}:`, 'm').test(tokens)
+    const used = new RegExp(`var\\(${NAME}[),]`).test(all)
+
+    expect(declared).toBe(used)
+  })
 })
 
 /**
