@@ -96,10 +96,24 @@
    * ⚠️ **두 값이 매우 가까워 그라데이션이 사실상 보이지 않는다** — 지금 단계에서는
    * 평면에 가까운 딥네이비 판이 되는 것이 정상이다. 결함이 아니다.
    *
-   * **테마 불변** — 아래 다크 블록에서 덮지 않는다. 브랜드 색은 테마에 따라 바뀌는
-   * 성질이 아니고, 아무도 디자인하지 않은 다크용 그라데이션을 발명하는 것보다 낫다.
-   * `§0.2` 제약 5는 「두 값을 함께 정의」를 요구하는데, **같은 값을 쓰기로 한 결정**을
-   * 여기 적어 두는 것이 그 요구를 만족시키는 방법이다(누락과 구분된다).
+   * **테마 불변으로 정해졌으나 실제로는 지켜지지 않고 있었다** — `#608` 착수 중 발견.
+   * 이 두 줄을 다크 블록에서 덮지 않는 것은 맞는데, **값이 가리키는
+   * `--semantic-primary`가 다크에서 덮인다**(`#1a365d` → `#4a7cc0`). 별칭 한 겹
+   * 아래에서 갈라졌고, `#747`이 넣은 가드는 **선언 문자열만 비교**해 양쪽 다
+   * `var(--color-primary)`라 통과했다. 해석된 색까지 따라가지 않았다.
+   *
+   * 그 결과 **브랜드 판 위 흰 글자가 다크에서 `4.25:1`**로 `§0.2` 제약 1(4.5)에
+   * 미달한다. 로그인 브랜드 판(`#608`)이 정확히 그런 화면이라 그대로 두면
+   * **대비 위반 화면을 새로 하나 만드는 셈**이다.
+   *
+   * ## ⚠️ 아래 다크 값은 임시다 — `#608` 아티팩트 37번 확정 대기
+   *
+   * 확정자가 Light·Dark 배경색을 정해 주시기 전까지 **다크에서만 면을 내려**
+   * 대비를 회복시킨다(`8.07:1`). `--color-primary-solid`가 같은 이유로 쓰는 방식이라
+   * **새 색을 만들지 않는다.** 확정값이 오면 이 블록을 지우거나 값만 바꾼다.
+   *
+   * 선례는 `--color-danger-text`·`--color-warning-text`다(`#620`) — 시맨틱 색이
+   * 문자 대비에 못 미쳐 임시 별칭으로 두고 그 사실을 여기 적어 두었다.
    */
   --brand-gradient-from: var(--color-primary);
   --brand-gradient-to: var(--color-primary-hover);
@@ -337,6 +351,13 @@
     --color-primary-solid-hover: color-mix(in srgb, var(--semantic-primary) 60%, var(--surface-page));
     --color-link: color-mix(in srgb, var(--semantic-primary) 70%, var(--text-primary));
     --color-on-primary: var(--text-primary);
+
+    /*
+     * ⚠️ **임시** — 브랜드 판 위 흰 글자가 `4.25:1`이라 면을 내린다 (`#608` · 37번 대기).
+     * 확정 3-4의 「테마 불변」과 어긋나는 것을 알고 넣는다 — 지키면 글자가 안 읽힌다.
+     */
+    --brand-gradient-from: color-mix(in srgb, var(--semantic-primary) 60%, var(--surface-page));
+    --brand-gradient-to: color-mix(in srgb, var(--semantic-primary) 45%, var(--surface-page));
   }
 }
 
@@ -355,6 +376,10 @@
   --color-primary-solid-hover: color-mix(in srgb, var(--semantic-primary) 60%, var(--surface-page));
   --color-link: color-mix(in srgb, var(--semantic-primary) 70%, var(--text-primary));
   --color-on-primary: var(--text-primary);
+
+  /* ⚠️ **임시** — 위 @media 블록과 같은 값이다 (`#608` · 37번 대기). */
+  --brand-gradient-from: color-mix(in srgb, var(--semantic-primary) 60%, var(--surface-page));
+  --brand-gradient-to: color-mix(in srgb, var(--semantic-primary) 45%, var(--surface-page));
 }
 
 /*

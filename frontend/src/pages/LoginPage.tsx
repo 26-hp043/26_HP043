@@ -63,9 +63,14 @@ export function LoginPage() {
 
   return (
     <AuthShell
-      title="중소선사를 위한 선대 CII 관리"
-      description="항차 CII 추정, 운항 시나리오 비교, 연간 등급 시뮬레이션을 하나의 화면에서 확인합니다."
+      /*
+       * 종전 제목은 「중소선사를 위한 선대 CII 관리」였고 설명문이 서비스 소개였다.
+       * 둘 다 **브랜드 판으로 옮겼다**(`intro`) — 카드 제목은 이 카드가 무엇을
+       * 하는 곳인지 적는 자리다(`#608`).
+       */
+      title="로그인"
       disclaimer
+      intro
       footer={
         <>
           계정이 없으신가요? <Link to={SIGNUP_PATH}>회원가입</Link>
