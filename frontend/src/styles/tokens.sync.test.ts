@@ -709,12 +709,64 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     expect(darkAlias['--shadow-overlay']).not.toBe('none')
   })
 
-  it('브랜드 색은 테마 불변이다 — 누락이 아니라 결정이다 (#747 3-4)', () => {
-    for (const name of ['--brand-gradient-from', '--brand-gradient-to']) {
-      expect(lightAlias[name], `${name}을 찾지 못했습니다`).toBeDefined()
-      // 다크 블록에서 덮지 않으므로 별칭 병합 결과가 라이트와 같아야 한다.
-      expect(darkAlias[name]).toBe(lightAlias[name])
-    }
+  /*
+   * ## 이 가드는 한 번 틀렸다 (`#608`에서 고침)
+   *
+   * 종전 형태는 **선언 문자열만** 비교했다.
+   *
+   * ```ts
+   * expect(darkAlias[name]).toBe(lightAlias[name])   // 둘 다 'var(--color-primary)'
+   * ```
+   *
+   * 두 줄을 다크에서 덮지 않는 것은 맞았는데, **값이 가리키는 `--semantic-primary`가
+   * 다크에서 덮인다**(`#1a365d` → `#4a7cc0`). 별칭 한 겹 아래에서 갈라지는 것을
+   * 문자열 비교가 볼 수 없어, 「테마 불변」이라 적어 놓고 **실제로는 테마마다 다른**
+   * 상태가 그대로 통과했다.
+   *
+   * 드러난 것은 `#608`이 그 색면 위에 흰 글자를 얹으면서다 — 다크에서 `4.25:1`이었다.
+   *
+   * ## 그래서 무엇을 잠그는가
+   *
+   * 「같은 선언인가」가 아니라 **「판 위 글자가 읽히는가」**를 잠근다. 확정값이 어떤
+   * 형태로 오든(불변이든, 테마별이든, 시안 색이든) 이 단언은 그대로 유효하다.
+   * 불변 여부만 잠갔다면 확정이 테마별로 오는 순간 가드를 지워야 한다.
+   */
+  it.each(THEMES)(
+    '$name — 브랜드 판 위 글자가 4.5:1 이상이다 (#608 · 종전 가드가 놓친 자리)',
+    ({ generated, alias }) => {
+      const from = evaluate(alias['--brand-gradient-from'], generated, alias)
+      const to = evaluate(alias['--brand-gradient-to'], generated, alias)
+      // 판 위 글자는 `AuthShell.css`가 `--color-on-primary`로 고정한다.
+      // 「브랜드색 면 위의 글자」용 토큰이라 양 테마에서 모두 밝다.
+      const text = evaluate(alias['--color-on-primary'], generated, alias)
+
+      // 보조 문자는 같은 색을 78%로 눌러 쓴다(`--auth-brand-muted`).
+      // 알파는 판 위에 얹히므로 **면과 섞은 결과**가 실제 색이다.
+      const muted = (surface: string) => mix(text, surface, 78)
+
+      // 그러데이션이므로 **양 끝 모두** 넘어야 한다. 중간은 두 값 사이에 있다.
+      for (const surface of [from, to]) {
+        expect(contrast(text, surface)).toBeGreaterThanOrEqual(4.5)
+        expect(contrast(muted(surface), surface)).toBeGreaterThanOrEqual(4.5)
+      }
+    },
+  )
+
+  it('⚠️ 다크 브랜드 값은 임시다 — 확정이 오면 이 가드를 지운다 (#608 · 37번)', () => {
+    /*
+     * 확정 3-4는 「테마 불변」이었다. 지금 다크에서 덮고 있는 것은 **그대로 두면
+     * 글자가 안 읽혀서**이며, 확정자 판정을 기다리는 임시 상태다.
+     *
+     * 임시임을 코드에 적어 두기만 하면 **주석은 낡는다.** 이 단언이 있으면
+     * 확정값이 반영되는 순간(다크 덮기가 사라지거나 값이 바뀌면) 여기서 걸려
+     * 「37번이 아직 열려 있다」는 기록을 함께 지우게 된다.
+     */
+    const dark = declarationsIn("\n:root[data-theme='dark'] {")
+    expect(
+      dark['--brand-gradient-from'],
+      '다크 브랜드 임시값이 사라졌습니다 — 37번이 확정됐다면 이 가드와 tokens.css 주석을 함께 정리하세요',
+    ).toBeDefined()
+    expect(aliasCss).toContain('#608` · 37번 대기')
   })
 
   it('`--cii-none-bg`가 중립 표면과 같다 (#747 2-3)', () => {

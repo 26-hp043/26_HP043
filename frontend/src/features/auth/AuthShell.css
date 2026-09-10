@@ -3,15 +3,77 @@
  * 로그인·회원가입·비밀번호 찾기·이메일 인증이 공유한다.
  */
 
+/*
+ * ## 좌우 2단 (`#608`)
+ *
+ * `DESIGN_SYSTEM §7.1`의 12컬럼에서 **5:7**을 쓴다. 브랜드 판이 좁은 쪽이다 —
+ * 넓은 쪽을 주면 폼이 밀려 **입력이 곁다리로 보인다.** 로그인 화면의 목적은
+ * 소개가 아니라 로그인이다.
+ *
+ * 판은 화면 높이를 꽉 채운다. 카드처럼 떠 있으면 배경 위에 얹힌 또 하나의
+ * 카드가 되어 우측 카드와 위계가 같아진다.
+ */
 .auth-page {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  min-block-size: 100vh;
+  background: var(--surface-page);
+}
+
+/*
+ * 브랜드 판 — `--brand-*` 두 토큰만 쓴다(`§15`. 여기에 hex를 적지 않는다).
+ *
+ * ⚠️ **다크 값은 임시다** — `styles/tokens.css`의 `--brand-gradient-*` 주석 참조.
+ * 확정 전까지 면을 내려 흰 글자 대비를 `8.07:1`로 맞춰 두었다(`#608` · 37번 대기).
+ */
+.auth-brand-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--spacing-2xl);
+  padding: var(--spacing-2xl) clamp(var(--spacing-xl), 6vw, 72px);
+  background: linear-gradient(
+    160deg,
+    var(--brand-gradient-from) 0%,
+    var(--brand-gradient-to) 100%
+  );
+
+  /*
+   * 판은 **항상 어두운 면**이라 글자도 항상 밝아야 한다.
+   *
+   * ⚠️ 처음에 `--surface-card`를 썼다가 가드에 걸렸다 — 라이트에서는 흰색이지만
+   * **다크에서는 어두운 카드색**이라 어두운 판 위에 어두운 글자가 됐다(`1.98:1`).
+   * `--color-on-primary`는 「브랜드색 면 위의 글자」를 위해 있는 토큰이라
+   * **양 테마에서 모두 밝다**(라이트 `#ffffff` · 다크 `#e6e9ee`).
+   */
+  color: var(--color-on-primary);
+
+  /* 보조 문자용 — 같은 색을 눌러 위계를 만든다. 대비는 가드가 잰다. */
+  --auth-brand-muted: color-mix(in srgb, var(--color-on-primary) 78%, transparent);
+}
+
+/*
+ * 로고는 **어두운 배경용 한 장으로 고정**한다.
+ *
+ * `BrandLogo`는 테마에 따라 두 장 중 하나를 고르는데, 이 판은 테마와 무관하게
+ * 어둡다. 그대로 두면 라이트에서 **어두운 로고가 어두운 면에** 얹힌다.
+ * 확정 문서 3-2가 「세로형은 제작하지 않고 가로형 `dark`를 쓴다」로 정했다.
+ */
+.auth-brand-panel .brand-logo__img--light {
+  display: none;
+}
+
+.auth-brand-panel .brand-logo__img--dark {
+  display: block;
+}
+
+.auth-column {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--spacing-lg);
-  min-block-size: 100vh;
   padding: var(--spacing-2xl) var(--spacing-lg);
-  background: var(--surface-page);
 }
 
 .auth-card {
@@ -28,15 +90,70 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
-  margin: 0 0 var(--spacing-xl);
+  margin: 0;
 
   /* 로고 높이는 쓰는 쪽이 정한다 — components/BrandLogo.css 참조. */
-  --brand-logo-height: 30px;
+  --brand-logo-height: 34px;
 }
 
 .auth-brand-sub {
   font-size: var(--font-size-micro);
-  color: var(--text-secondary);
+  color: var(--auth-brand-muted);
+}
+
+/* ── 서비스 소개 (`UIFLOW §0`) ──────────────────────────────────── */
+
+.auth-intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.auth-intro-lead {
+  margin: 0;
+  max-inline-size: 34ch;
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+  font-weight: var(--font-weight-h3);
+  letter-spacing: var(--letterSpacing-snug);
+
+  /* 한국어는 어절 안에서 끊으면 읽기 어렵다 — `DESIGN_SYSTEM §3`. */
+  word-break: keep-all;
+}
+
+/*
+ * 세 계층 — `UIFLOW §2.1` 구조도 그대로다.
+ *
+ * 목록이지 표가 아니다. 값이 아니라 **이 서비스가 무엇을 보여 주는지**를
+ * 적는 자리라 정렬을 맞추지 않는다.
+ */
+.auth-tiers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-tier {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-md);
+  word-break: keep-all;
+}
+
+.auth-tier-name {
+  flex: none;
+  min-inline-size: 3.5em;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-h3);
+}
+
+.auth-tier-detail {
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-body);
+  color: var(--auth-brand-muted);
 }
 
 .auth-title {
@@ -209,6 +326,45 @@
   margin: 0;
   font-size: var(--font-size-label);
   color: var(--text-secondary);
+}
+
+/* ── 1100px 이하 — 숨기지 않고 접는다 (확정 3-3) ──────────────── */
+
+/*
+ * ⚠️ **이슈 본문(`#608`)은 「숨기고」라고 적었으나 그 뒤 확정 문서 3-3이
+ * 「숨기지 않고 접음」으로 정했다.** 확정 문서를 따른다.
+ *
+ * 숨기면 좁은 화면에서 **로고와 서비스 이름이 통째로 사라진다** — 로그인 화면은
+ * 대개 그 제품에 처음 닿는 자리라, 무엇에 로그인하는지가 사라지는 셈이다.
+ * 접으면 판이 상단 띠가 되어 로고·태그라인은 남고 소개 본문만 빠진다.
+ */
+@media (width <= 1100px) {
+  .auth-page {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .auth-brand-panel {
+    /* 세로 여백을 줄여 띠로 만든다. 좌우는 카드와 같은 여백을 쓴다. */
+    gap: var(--spacing-md);
+    padding: var(--spacing-xl) var(--spacing-lg);
+  }
+
+  .auth-brand {
+    /* 띠에서는 로고와 태그라인을 한 줄로 눕힌다 — 두 줄이면 띠가 두꺼워진다. */
+    flex-direction: row;
+    align-items: baseline;
+    gap: var(--spacing-md);
+    --brand-logo-height: 28px;
+  }
+
+  /*
+   * 소개 본문만 접는다. `hidden`이 아니라 `display: none`이라 접근성 트리에서도
+   * 빠진다 — 화면에 없는 문장을 스크린 리더가 읽으면 위치를 짐작할 수 없다.
+   */
+  .auth-intro {
+    display: none;
+  }
 }
 
 /* ── 미인증 배너 (셸 상단) ──────────────────────────────────────── */
