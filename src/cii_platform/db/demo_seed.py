@@ -89,6 +89,8 @@ VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
 #: 이미 적재된 DB는 마이그레이션 ``036``이 고친다 — 이 seed는
 #: ``ON CONFLICT DO NOTHING``이라 덮어쓰지 않는다.
 SYNTHETIC_IMO_BULK = "0000012"
+#: 합성 IMO — 실선 대역과 겹치지 않는 0 시작(018 규칙). 로로(`0000024`) 다음 값이다.
+SYNTHETIC_IMO_WATCH = "0000036"
 
 # 3척. 값의 출처를 행마다 주석으로 남긴다.
 #
@@ -224,6 +226,17 @@ def _rel(days: float, hour: int = 0, minute: int = 0) -> datetime:
 # --- UUID 블록 (018 계약값 재사용 + 027 신규) ---------------------------------
 VESSEL_ID_RO_RO = "00000000-0000-4000-8000-000000000004"
 
+#: 「D등급까지 n일」이 **숫자로 보이는 배** (#889).
+#:
+#: 이 칼럼(`PRD §3.3.7` 대시보드 위험 지표)이 데모 4척 전부 `—`였다. 셋은 이미 D
+#: 이하이고(`ALREADY_AT_OR_BELOW`) 하나는 정박 중(`NOT_UNDER_WAY`)이라 **규정대로**
+#: 나온 사유인데, 그래서 **「아직 여유가 있는 배가 언제 D에 진입하는가」를 보여 줄 배가
+#: 하나도 없었다.**
+#:
+#: 기존 서사는 그대로 둔다 — E 2척·`at_risk` 2·로로 여객선 D등급이 전부 유지되고
+#: 등급 분포만 `B:1 C:0 D:1 E:2` → `B:1 C:1 D:1 E:2`가 되어 스택 바도 다양해진다.
+VESSEL_ID_WATCH = "00000000-0000-4000-8000-000000000005"
+
 # voyage: …0101~0109
 V1_2025 = "00000000-0000-4000-8000-000000000101"
 V1_2026 = "00000000-0000-4000-8000-000000000102"
@@ -237,6 +250,14 @@ V4_2026 = "00000000-0000-4000-8000-000000000109"
 # 벌크선(발표 동선의 위험 선박)에 진행 중·계획 항차를 준다 (#587).
 V1_IN_PROGRESS = "00000000-0000-4000-8000-000000000110"
 V1_PLANNED = "00000000-0000-4000-8000-000000000111"
+# 관찰 대상 선박의 두 구간 (#889). **두 구간으로 나누는 것이 요점**이다 — 최근 30일이
+# 그 이전보다 나빠야 소비율이 양수가 되고, 강도가 같으면 `NOT_WORSENING`이 나온다.
+V5_EARLY = "00000000-0000-4000-8000-000000000112"
+V5_RECENT = "00000000-0000-4000-8000-000000000113"
+# 2025 이력과 진행 중 항차 — 다른 4척과 같은 규율이다. `test_dashboard_seed.py`가
+# 「모든 선박에 2년 이력」과 「운항 중이면 진행 중 항차」를 잠근다.
+V5_2025 = "00000000-0000-4000-8000-000000000114"
+V5_IN_PROGRESS = "00000000-0000-4000-8000-000000000115"
 
 # not_underway_period: …0201~0203
 P_CANAL = "00000000-0000-4000-8000-000000000201"
@@ -310,6 +331,34 @@ VESSEL_IDS_018 = (
 BULK, CONTAINER, GENERAL_CARGO = VESSEL_IDS_018
 
 #: GT축 신규 선박. GT 25,000 ≥ 5,000 → is_cii_applicable_hint = true (§2.1 규칙).
+#: 「D등급까지 n일」 시연용 선박 (#889). DWT 축이라 `SEED_VESSELS`와 같은 계열이다.
+SEED_VESSEL_WATCH: list[dict[str, object]] = [
+    {
+        "id": VESSEL_ID_WATCH,
+        "imo_number": SYNTHETIC_IMO_WATCH,
+        "name": "샘플 벌크선 (30,000 DWT)",
+        "ship_type": "BULK_CARRIER",
+        "gross_tonnage": Decimal("18000.00"),
+        "deadweight": Decimal("30000.00"),
+        "default_fuel_type": None,  # 018과 같은 이유로 NULL (017 downgrade 보호).
+        "reference_speed_kn": Decimal("13.00"),
+        # 아래 두 항차에서 역산했다 — 벌크선(`23.04`)·로로(`59.52`)와 **같은 식**이다.
+        #
+        #   358.0t x 13.0kn x 24h / 5,200nm = 21.48
+        #
+        # 지어낸 값이 아니라 이 배가 실제로 갖게 되는 항차와 앞뒤가 맞는 값이다.
+        "reference_daily_foc_ton": Decimal("21.48"),
+        "is_cii_applicable_hint": True,
+        # 운항 중이어야 한다 — 정박 중이면 `NOT_UNDER_WAY`로 다시 `—`가 된다.
+        "underway_state": "UNDER_WAY",
+        "detail_status": "SAILING",
+        # 대한해협 남단. 기존 3척(대한해협·수에즈·부산)과 겹치지 않는 자리다.
+        "current_lat": Decimal("34.100000"),
+        "current_lon": Decimal("128.500000"),
+        "position_updated_at": _rel(-1, 9, 0),
+    },
+]
+
 SEED_VESSEL_GT_AXIS: list[dict[str, object]] = [
     {
         "id": VESSEL_ID_RO_RO,
@@ -612,7 +661,133 @@ SEED_VOYAGES: list[dict[str, object]] = [
 
 #: 항차 연료. 전부 HFO(017 seed 코드). 진행 중 항차는 계획값만.
 #: cf_used는 MEPC.364(79) §2.2.1의 HFO CF 3.114000 (DB_SCHEMA §3.2).
+#: `#889` 관찰 대상 선박의 두 구간.
+#:
+#: **초기 구간은 30일 창 밖, 최근 구간은 창 안**이어야 한다. 초기는 절대 날짜로,
+#: 최근은 `_rel()`로 둔다 — 최근 구간이 절대 날짜면 시간이 지나며 창을 벗어나
+#: `NO_RECENT_DATA`로 다시 `—`가 된다.
+#:
+#: 값은 산식에서 역산했다(`services/fleet_summary.py:compute_days_to_target`).
+#: `BULK_CARRIER` 30,000 DWT · 2026년 `required = 6.931972` · D 진입 경계
+#: `1.06R = 7.347890`이고, `attained = fuel x 1e6 x 3.114 / (30,000 x distance)`다.
+#:
+#:   YTD      103.8 x 358.0 / 5,200 = 7.146  -> ratio 1.031  -> **C**
+#:   최근 강도 103.8 x  95.0 / 1,200 = 8.218  -> 경계 7.348보다 **높다**(악화 중)
+#:   n일      30 x (7.348 x 5,200 - 103.8 x 358.0) / (103.8 x 95.0 - 7.348 x 1,200) ~= **30**
+#:
+#: 30일을 고른 이유는 **연말까지 남은 날수**와의 관계다. 이 값이 남은 날수보다 크면
+#: `NOT_THIS_YEAR`로 다시 `—`가 된다 — 45일로 두면 11월 중순부터 빈다.
+SEED_VOYAGES_WATCH: list[dict[str, object]] = [
+    {
+        # 2025 이력 — 연도별 이력 화면용. `regulation_year: 2025`라 2026 YTD에는
+        # 들어가지 않으므로 위 산식에 영향을 주지 않는다.
+        "id": V5_2025,
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2025-W1",
+        "status": "COMPLETED",
+        "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
+        "regulation_year": 2025,
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "ULSAN",
+        "planned_distance_nm": Decimal("3800.00"),
+        "actual_distance_nm": Decimal("3800.00"),
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": Decimal("13.10"),
+        "planned_departure_at": _utc(2025, 5, 8),
+        "planned_arrival_at": _utc(2025, 5, 20),
+        "actual_departure_at": _utc(2025, 5, 8, 7),
+        "actual_arrival_at": _utc(2025, 5, 20, 15),
+    },
+    {
+        # 진행 중 항차 — 이 배가 `UNDER_WAY`이므로 있어야 한다.
+        # `INCLUDE_AS_PLAN`이라 실적 누적(위 산식)에는 들어가지 않는다.
+        "id": V5_IN_PROGRESS,
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2026-W3",
+        "status": "IN_PROGRESS",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "SHANGHAI",
+        "planned_distance_nm": Decimal("500.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": None,
+        # 상대 시각 — 절대 날짜로 두면 예정일이 지나며 CI가 빨개진다 (`#792`).
+        "planned_departure_at": _rel(-2),
+        "planned_arrival_at": _rel(+4),
+        "actual_departure_at": _rel(-2, 5),
+        "actual_arrival_at": None,
+    },
+    {
+        # 초기 구간 — 효율이 좋다(강도 6.83). 이 구간만 있으면 C 안쪽에 머문다.
+        "id": V5_EARLY,
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2026-W1",
+        "status": "COMPLETED",
+        "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
+        "regulation_year": 2026,
+        "departure_port_name": "ULSAN",
+        "arrival_port_name": "KAOHSIUNG",
+        "planned_distance_nm": Decimal("4000.00"),
+        "actual_distance_nm": Decimal("4000.00"),
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": Decimal("13.00"),
+        "planned_departure_at": _utc(2026, 4, 10),
+        "planned_arrival_at": _utc(2026, 4, 23),
+        "actual_departure_at": _utc(2026, 4, 10, 6),
+        "actual_arrival_at": _utc(2026, 4, 23, 18),
+    },
+    {
+        # 최근 구간 — 강도를 8.22로 올린다. **이것이 없으면 `NOT_WORSENING`이다.**
+        "id": V5_RECENT,
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2026-W2",
+        "status": "COMPLETED",
+        "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
+        "regulation_year": 2026,
+        "departure_port_name": "KAOHSIUNG",
+        "arrival_port_name": "BUSAN",
+        "planned_distance_nm": Decimal("1200.00"),
+        "actual_distance_nm": Decimal("1200.00"),
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": Decimal("12.20"),
+        "planned_departure_at": _rel(-12),
+        "planned_arrival_at": _rel(-8),
+        "actual_departure_at": _rel(-12, 4),
+        "actual_arrival_at": _rel(-8, 20),
+    },
+]
+
 SEED_VOYAGE_FUELS: list[dict[str, object]] = [
+    {
+        # `#889` 2025 이력.
+        "id": "00000000-0000-4000-8000-000000000414",
+        "voyage_id": V5_2025,
+        "planned_fuel_ton": Decimal("245.00"),
+        "actual_fuel_ton": Decimal("240.00"),
+    },
+    {
+        # `#889` 진행 중 항차 — 실적은 아직 없다.
+        "id": "00000000-0000-4000-8000-000000000415",
+        "voyage_id": V5_IN_PROGRESS,
+        "planned_fuel_ton": Decimal("34.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        # `#889` 초기 구간 — 계획대로 나온 항차다.
+        "id": "00000000-0000-4000-8000-000000000412",
+        "voyage_id": V5_EARLY,
+        "planned_fuel_ton": Decimal("263.00"),
+        "actual_fuel_ton": Decimal("263.00"),
+    },
+    {
+        # `#889` 최근 구간 — 계획 82t 대비 **95t 초과**. 이 초과가 곧 「악화 중」이다.
+        "id": "00000000-0000-4000-8000-000000000413",
+        "voyage_id": V5_RECENT,
+        "planned_fuel_ton": Decimal("82.00"),
+        "actual_fuel_ton": Decimal("95.00"),
+    },
     {
         "id": "00000000-0000-4000-8000-000000000401",
         "voyage_id": V1_2025,
@@ -965,7 +1140,7 @@ async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
     from sqlalchemy import text
 
     drifted: list[tuple[str, str]] = []
-    for vessel in (*SEED_VESSELS, *SEED_VESSEL_GT_AXIS):
+    for vessel in (*SEED_VESSELS, *SEED_VESSEL_GT_AXIS, *SEED_VESSEL_WATCH):
         wanted = {c: vessel[c] for c in SPEC_COLUMNS if vessel[c] is not None}
         if not wanted:
             continue
@@ -1054,6 +1229,7 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
         "vessel": await _insert_ignoring_existing(conn, _vessel, SEED_VESSELS),
     }
     counts["vessel"] += await _insert_ignoring_existing(conn, vessel_tbl, SEED_VESSEL_GT_AXIS)
+    counts["vessel"] += await _insert_ignoring_existing(conn, vessel_tbl, SEED_VESSEL_WATCH)
 
     #
     # 운항 상태·위치는 018의 3척에 **덧씌우는** 값이라 INSERT가 아니라 UPDATE다.
@@ -1081,6 +1257,7 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
         )
 
     counts["voyage"] = await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES)
+    counts["voyage"] += await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES_WATCH)
     counts["voyage_fuel_use"] = await _insert_ignoring_existing(
         conn,
         voyage_fuel_tbl,
@@ -1120,9 +1297,9 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
     때문이다. **데모 데이터는 스키마가 아니므로 스키마 롤백이 그것을 치우게 만들지
     않는다** — 지우는 것은 이 함수의 몫이다.
     """
-    voyage_ids = [row["id"] for row in SEED_VOYAGES]
+    voyage_ids = [row["id"] for row in (*SEED_VOYAGES, *SEED_VOYAGES_WATCH)]
     period_ids = [row["id"] for row in SEED_PERIODS]
-    vessel_ids = [row["id"] for row in SEED_VESSELS] + [row["id"] for row in SEED_VESSEL_GT_AXIS]
+    vessel_ids = [row["id"] for row in (*SEED_VESSELS, *SEED_VESSEL_GT_AXIS, *SEED_VESSEL_WATCH)]
 
     counts: dict[str, int] = {}
 

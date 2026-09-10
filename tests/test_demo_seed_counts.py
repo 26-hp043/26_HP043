@@ -33,9 +33,11 @@ from cii_platform.db.demo_seed import (
     SEED_PERIOD_FUELS,
     SEED_PERIODS,
     SEED_VESSEL_GT_AXIS,
+    SEED_VESSEL_WATCH,
     SEED_VESSELS,
     SEED_VOYAGE_FUELS,
     SEED_VOYAGES,
+    SEED_VOYAGES_WATCH,
     clear_demo,
     seed_demo,
 )
@@ -43,8 +45,8 @@ from cii_platform.db.demo_seed import (
 #: 테이블별 seed 정의 건수. **코드의 상수에서 세며 여기 숫자를 적지 않는다** —
 #: 적어 두면 seed가 늘 때 이 파일이 조용히 낡는다.
 EXPECTED_ROWS: dict[str, int] = {
-    "vessel": len(SEED_VESSELS) + len(SEED_VESSEL_GT_AXIS),
-    "voyage": len(SEED_VOYAGES),
+    "vessel": len(SEED_VESSELS) + len(SEED_VESSEL_GT_AXIS) + len(SEED_VESSEL_WATCH),
+    "voyage": len(SEED_VOYAGES) + len(SEED_VOYAGES_WATCH),
     "voyage_fuel_use": len(SEED_VOYAGE_FUELS),
     "not_underway_period": len(SEED_PERIODS),
     "not_underway_fuel_use": len(SEED_PERIOD_FUELS),
