@@ -159,7 +159,7 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
       ) : null}
 
       {voyages === null ? (
-        <p className="vy__loading" aria-busy="true">
+        <p className="vy__loading" aria-busy="true" role="status">
           항차를 불러오는 중입니다…
         </p>
       ) : voyages.length === 0 && !failure ? (
@@ -538,10 +538,10 @@ function VoyageForm({
             ) : null}
 
             {errors[`fuelType.${index}`] ? (
-              <em className="vy__field-error">{errors[`fuelType.${index}`]}</em>
+              <em className="vy__field-error" role="alert">{errors[`fuelType.${index}`]}</em>
             ) : null}
             {errors[`plannedFuelTon.${index}`] ? (
-              <em className="vy__field-error">{errors[`plannedFuelTon.${index}`]}</em>
+              <em className="vy__field-error" role="alert">{errors[`plannedFuelTon.${index}`]}</em>
             ) : null}
           </div>
         ))}
@@ -574,7 +574,7 @@ function VoyageForm({
           + 연료 추가
         </button>
 
-        {errors.fuelUses ? <em className="vy__field-error">{errors.fuelUses}</em> : null}
+        {errors.fuelUses ? <em className="vy__field-error" role="alert">{errors.fuelUses}</em> : null}
       </fieldset>
 
       <Field

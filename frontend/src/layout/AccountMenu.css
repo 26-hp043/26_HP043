@@ -156,7 +156,7 @@
 
 .account-menu__link:hover {
   background: var(--color-primary-subtle);
-  color: var(--color-primary);
+  color: var(--color-link);
 }
 
 .account-menu__link:focus-visible {

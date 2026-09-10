@@ -43,7 +43,7 @@
 
 .vy__submit {
   border-color: var(--semantic-primary);
-  color: var(--semantic-primary);
+  color: var(--color-link);
   font-weight: var(--font-weight-label);
 }
 
@@ -129,7 +129,7 @@
 .vy__badge--in_progress,
 .vy__badge--completed {
   border-color: var(--semantic-primary);
-  color: var(--semantic-primary);
+  color: var(--color-link);
 }
 
 .vy__route,

@@ -550,12 +550,57 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     expect(contrast(text, hover)).toBeGreaterThanOrEqual(4.5)
   })
 
+  /*
+   * #829 ⑵ — **링크 문자색**이 네 면 위에서 4.5:1을 넘는다.
+   *
+   * 종전에는 `--color-primary`를 그대로 글자로 썼고, 다크에서 popover 3.39 ·
+   * card 3.76 · inset 4.10 · page 4.44로 **네 면 모두 미달**이었다. 바로 위
+   * 채움면 검사가 같은 색을 「면」으로 쓸 때만 보고 있어, **글자로 쓰는 경로가
+   * 그대로 남아 있었다.**
+   */
+  const TEXT_SURFACES = ['--surface-card', '--surface-page', '--surface-inset', '--surface-popover']
+
+  it.each(THEMES)('$name — 링크 문자색이 네 면 위에서 4.5:1 이상이다', ({ generated, alias }) => {
+    const link = evaluate(alias['--color-link'], generated, alias)
+    for (const surface of TEXT_SURFACES) {
+      expect(
+        contrast(link, generated[surface]),
+        `${surface} 위 링크 대비`,
+      ).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  /*
+   * #829 ⑴ — 포커스 링에 **알파를 넣지 않는다.**
+   *
+   * `45%` 알파 한 줄이 8개 면 조합을 전부 무너뜨렸다(2.03~2.50). 색 자체는 옳았고
+   * 불투명이면 라이트 12.14 · 다크 4.82로 통과한다. 반투명이 배경과 섞이면서
+   * 실효 대비가 떨어진 것이라, **투명도가 다시 들어오는 것**을 막는다.
+   */
+  it('포커스 링이 반투명이 아니다', () => {
+    const value = lightAlias['--focus-ring']
+    expect(value, '--focus-ring을 찾지 못했습니다').toBeDefined()
+    expect(value).not.toMatch(/transparent|color-mix|rgba?\(|\/\s*\d/)
+  })
+
+  it.each(THEMES)('$name — 포커스 링이 네 면 위에서 3:1 이상이다', ({ generated, alias }) => {
+    // `0 0 0 3px <색>`에서 색만 꺼낸다.
+    const ring = /3px\s+(.+)$/.exec(alias['--focus-ring'])
+    expect(ring, '포커스 링 색을 읽지 못했습니다').not.toBeNull()
+    const color = evaluate((ring as RegExpExecArray)[1], generated, alias)
+    for (const surface of TEXT_SURFACES) {
+      // WCAG 1.4.11 Non-text Contrast — 비텍스트는 3:1이다.
+      expect(contrast(color, generated[surface]), `${surface} 위 포커스 링`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
   it('두 다크 블록이 같은 값을 선언한다 — 한쪽만 고치면 OS 다크와 명시 다크가 갈린다', () => {
     const media = declarationsIn("\n  :root:not([data-theme='light']) {")
     for (const name of [
       '--color-primary-solid',
       '--color-primary-solid-hover',
       '--color-on-primary',
+      '--color-link',
     ]) {
       expect(media[name], `@media 블록에 ${name}이 없습니다`).toBe(
         declarationsIn("\n:root[data-theme='dark'] {")[name],

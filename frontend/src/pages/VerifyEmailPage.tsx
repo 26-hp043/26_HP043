@@ -84,7 +84,7 @@ export function VerifyEmailPage() {
       }
     >
       {state === 'working' ? (
-        <p className="auth-description" aria-busy="true">
+        <p className="auth-description" aria-busy="true" role="status">
           인증을 확인하고 있습니다…
         </p>
       ) : null}

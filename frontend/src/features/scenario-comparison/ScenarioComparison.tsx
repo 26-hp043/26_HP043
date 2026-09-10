@@ -240,7 +240,7 @@ export function ScenarioComparison({
           ))}
         </select>
         {errors[FIELD.vesselId] !== undefined && (
-          <span className="scenario-comparison__field-error">{errors[FIELD.vesselId]}</span>
+          <span className="scenario-comparison__field-error" role="alert">{errors[FIELD.vesselId]}</span>
         )}
       </label>
 
@@ -271,7 +271,7 @@ export function ScenarioComparison({
           <span className="scenario-comparison__field-note">등록된 규제연도가 없습니다</span>
         )}
         {errors[FIELD.regulationYear] !== undefined && (
-          <span className="scenario-comparison__field-error">
+          <span className="scenario-comparison__field-error" role="alert">
             {errors[FIELD.regulationYear]}
           </span>
         )}
@@ -286,7 +286,7 @@ export function ScenarioComparison({
           aria-invalid={FIELD.baseDistanceNm in errors}
         />
         {errors[FIELD.baseDistanceNm] !== undefined && (
-          <span className="scenario-comparison__field-error">
+          <span className="scenario-comparison__field-error" role="alert">
             {errors[FIELD.baseDistanceNm]}
           </span>
         )}
@@ -301,7 +301,7 @@ export function ScenarioComparison({
           aria-invalid={FIELD.baseSpeedKn in errors}
         />
         {errors[FIELD.baseSpeedKn] !== undefined && (
-          <span className="scenario-comparison__field-error">
+          <span className="scenario-comparison__field-error" role="alert">
             {errors[FIELD.baseSpeedKn]}
           </span>
         )}
@@ -320,7 +320,7 @@ export function ScenarioComparison({
           aria-invalid={FIELD.baseDailyFocTon in errors}
         />
         {errors[FIELD.baseDailyFocTon] !== undefined && (
-          <span className="scenario-comparison__field-error">
+          <span className="scenario-comparison__field-error" role="alert">
             {errors[FIELD.baseDailyFocTon]}
           </span>
         )}
@@ -356,7 +356,7 @@ export function ScenarioComparison({
           ))}
         </select>
         {errors[FIELD.fuelType] !== undefined && (
-          <span className="scenario-comparison__field-error">{errors[FIELD.fuelType]}</span>
+          <span className="scenario-comparison__field-error" role="alert">{errors[FIELD.fuelType]}</span>
         )}
       </label>
 
@@ -385,7 +385,7 @@ export function ScenarioComparison({
           placeholder="직항 × 1.05"
         />
         {errors[FIELD.detourDistanceNm] !== undefined && (
-          <span className="scenario-comparison__field-error">
+          <span className="scenario-comparison__field-error" role="alert">
             {errors[FIELD.detourDistanceNm]}
           </span>
         )}
@@ -401,7 +401,7 @@ export function ScenarioComparison({
           placeholder={`현재 속력 − 1 (최소 ${MIN_SPEED_KN})`}
         />
         {errors[FIELD.slowSpeedKn] !== undefined && (
-          <span className="scenario-comparison__field-error">
+          <span className="scenario-comparison__field-error" role="alert">
             {errors[FIELD.slowSpeedKn]}
           </span>
         )}
@@ -426,7 +426,7 @@ export function ScenarioComparison({
           ))}
         </select>
         {errors[FIELD.weatherModel] !== undefined && (
-          <span className="scenario-comparison__field-error">
+          <span className="scenario-comparison__field-error" role="alert">
             {errors[FIELD.weatherModel]}
           </span>
         )}
@@ -452,7 +452,7 @@ export function ScenarioComparison({
           placeholder="-90 ~ 90"
         />
         {errors[FIELD.currentLat] !== undefined && (
-          <span className="scenario-comparison__field-error">{errors[FIELD.currentLat]}</span>
+          <span className="scenario-comparison__field-error" role="alert">{errors[FIELD.currentLat]}</span>
         )}
       </label>
 
@@ -466,7 +466,7 @@ export function ScenarioComparison({
           placeholder="-180 ~ 180"
         />
         {errors[FIELD.currentLon] !== undefined && (
-          <span className="scenario-comparison__field-error">{errors[FIELD.currentLon]}</span>
+          <span className="scenario-comparison__field-error" role="alert">{errors[FIELD.currentLon]}</span>
         )}
         {/*
           목적항 좌표는 이 화면에 없다 — 거리를 직접 입력하므로 대권거리 경로를

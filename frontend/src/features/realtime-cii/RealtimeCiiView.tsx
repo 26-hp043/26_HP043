@@ -576,7 +576,20 @@ function VoyagePanel({ data, unit }: { data: RealtimeCii; unit: string }) {
       </p>
 
       {ratio !== null ? (
-        <div className="rt__progress" aria-label="항해 진행률">
+        /*
+         * 진행률에는 **값도 함께** 알린다 (#829 ⑸b). `aria-label`만으로는 「항해
+         * 진행률」이라는 이름만 읽히고 **몇 퍼센트인지는 읽히지 않았다.**
+         * `role="progressbar"`와 `aria-valuenow`가 짝이다.
+         */
+        <div
+          className="rt__progress"
+          role="progressbar"
+          aria-label="항해 진행률"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Number(formatPercent(toDecimalInput(ratio)))}
+          aria-valuetext={`${formatPercent(toDecimalInput(ratio))}%`}
+        >
           <div className="rt__progress-bar" style={{ inlineSize: `${ratio * 100}%` }} />
           {/*
             `§4.2` 「비율」 — 백분율 1자리. `Math.round(ratio * 100)`은 화면이

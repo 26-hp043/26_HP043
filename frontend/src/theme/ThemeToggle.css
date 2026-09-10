@@ -42,7 +42,7 @@
 /* 선택된 칸 — 카드 색으로 떠 보이게 한다. */
 .theme-toggle__option--on {
   background: var(--surface-card);
-  color: var(--semantic-primary);
+  color: var(--color-link);
   box-shadow: var(--shadow-lv1);
 }
 

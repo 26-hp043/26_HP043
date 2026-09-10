@@ -39,7 +39,7 @@
 }
 
 .vessel-management__link {
-  color: var(--color-primary);
+  color: var(--color-link);
 }
 
 .vessel-management__notice {
@@ -112,7 +112,7 @@
 
 .vessel-management__button:hover:not(:disabled) {
   border-color: var(--color-primary);
-  color: var(--color-primary);
+  color: var(--color-link);
 }
 
 .vessel-management__button:disabled {

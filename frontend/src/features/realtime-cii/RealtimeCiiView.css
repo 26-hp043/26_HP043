@@ -19,7 +19,7 @@
 }
 
 .rt__back:hover {
-  color: var(--semantic-primary);
+  color: var(--color-link);
 }
 
 .rt__back:focus-visible {
@@ -73,7 +73,7 @@
 /* PRD R-5 — 감출 수 없어야 하므로 눈에 띄되, 값보다 앞서지 않는 크기로 둔다. */
 .rt__sim {
   font-size: var(--font-size-micro);
-  color: var(--semantic-primary);
+  color: var(--color-link);
   border: 1px solid var(--semantic-primary);
   border-radius: var(--radius-pill);
   padding: 0 var(--spacing-sm);

@@ -136,7 +136,7 @@
 
 .rp__actions button:hover:not(:disabled) {
   border-color: var(--semantic-primary);
-  color: var(--semantic-primary);
+  color: var(--color-link);
 }
 
 .rp__actions button:focus-visible {
