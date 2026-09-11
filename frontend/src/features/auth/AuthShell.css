@@ -388,10 +388,17 @@
  * 놓이는 요소들이 서로 다른 폭·간격을 갖게 되고, 그것이 종전에 실제로 일어난 일이다.
  * 셸 밖에서 쓰이면 변수가 없어 폭 제한이 걸리지 않는다.
  *
- * > **색은 손대지 않았다.** 이 배너는 `--cii-c-*`(등급 C)를 쓰고 있는데, `§0.2`
- * > 제약 2는 「등급 색은 **항상 A~E 문자 또는 등급 축 라벨과 함께** 나타난다」고
- * > 정한다. 이 배너에는 둘 다 없다 — 이메일 인증 안내이지 등급 정보가 아니다.
- * > `§2.3` 시맨틱 색으로 옮겨야 하는 자리이며 **별건**이다(`#620`·`#694` 계열).
+ * ## 색 — 등급 C가 아니라 `§2.3` Info 스트라이프 (`#748`)
+ *
+ * 종전에는 `--cii-c-*`(등급 C)였다. `§0.2` 제약 2는 「등급 색은 **항상 A~E 문자 또는
+ * 등급 축 라벨과 함께** 나타난다」고 정하는데 이 배너에는 둘 다 없다 — 사용자가 대시보드에서
+ * 「C등급」으로 배운 색 띠가 로그인 직후 떠서 **등급에 관한 무언가로 읽혔다.**
+ *
+ * `--color-warning`으로 옮기지 않은 것은 그 토큰이 **`--cii-c-fill`의 별칭**이라 값이
+ * 그대로이기 때문이다(디자이너 세트에 Warning이 없다). 대신 `§2.3` 표가 「**안내 배너**」의
+ * 색으로 적은 **Info**를 쓰고, 모양은 `§8` 「상태색 좌측 스트라이프」를 따른다 — 기능①·②의
+ * 고지(`voyage-cii-result__estimate-notice` · `scenario-comparison__notice`)와 같은 형태다.
+ * 면은 중립이라 **글자 대비는 문자 토큰 가드가 이미 잰다.**
  */
 .verify-banner {
   display: flex;
@@ -400,10 +407,11 @@
   width: 100%;
   max-width: var(--shell-column, none);
   padding: var(--spacing-sm) var(--spacing-xl);
-  background: var(--cii-c-bg);
-  color: var(--cii-c-text);
-  border: var(--borderWidth-default) solid var(--cii-c-border);
-  border-radius: var(--radius-card);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  border-left: 3px solid var(--color-info);
+  /* `§8` — 좌측 테두리만 있으면 radius 0. */
+  border-radius: 0;
   font-size: var(--font-size-label);
 }
 

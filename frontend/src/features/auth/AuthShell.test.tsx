@@ -126,3 +126,24 @@ describe('AuthShell 브랜드 판 — #608', () => {
     expect(rules).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
   })
 })
+
+describe('미인증 배너 — 등급 색을 쓰지 않는다 (#748)', () => {
+  it('배너 규칙이 등급 토큰에도, 그 별칭(`--color-warning`)에도 닿지 않는다', () => {
+    /*
+     * `§0.2` 제약 2 — 등급 색은 A~E 문자나 등급 축 라벨과 함께만 나타난다. 이 배너는
+     * 이메일 인증 안내라 둘 다 없다. `--color-warning`·`--color-warning-text`는
+     * **`--cii-c-fill`을 가리키므로**(`tokens.css`) 이름만 바꿔 옮기면 값이 그대로다.
+     */
+    const banner = [...rules.matchAll(/([^{}]*verify-banner[^{}]*)\{([^}]*)\}/g)]
+    expect(banner.length, '.verify-banner 규칙을 찾지 못했습니다').toBeGreaterThan(0)
+    for (const [, selector, body] of banner) {
+      expect(body, selector.trim()).not.toMatch(/var\(--cii-|var\(--color-warning/)
+    }
+  })
+
+  it('안내 배너는 `§2.3` Info 스트라이프다 — `§8` 상태색 좌측 스트라이프', () => {
+    const [, body] = /\.verify-banner\s*\{([^}]*)\}/.exec(rules) ?? []
+    expect(body).toMatch(/border-left:\s*3px solid var\(--color-info\)/)
+    expect(body).toMatch(/border-radius:\s*0/)
+  })
+})
