@@ -2473,6 +2473,7 @@ GET /api/v1/vessels/{vessel_id}/export?type=voyages&year=2026&format=csv
 | `type` | string | Y | `voyages`, `calculations`, `simulations` |
 | `year` | int | N | 기준연도 필터 |
 | `format` | string | N | `csv` (기본), `json` |
+| `calculation_run_id` | uuid | N | **[#891]** `type=calculations`에서 **계산 한 건**만. 기능①의 「CSV 다운로드」(`PRD §10.5`)가 쓴다. 다른 `type`과 함께 오면 422(조용히 무시하면 한 건을 받으려다 전체 파일을 받는다) · 이 선박의 계산이 아니면 404. 파일 이름은 `calculations_{id 앞 8자}.csv` |
 
 > **`type`에 기본값을 두지 않는다.** 기본값이 있으면 오타(`voyage`)가 조용히 `voyages`로 처리되어, 사용자는 계산 이력을 받으려다 항차 파일을 받고도 알아채지 못한다.
 
@@ -3158,3 +3159,4 @@ GET /api/v1/health
 | 2026-09-11 | `#833` | §1.4·§6.4에 409 `MODEL_VERSION_MISMATCH` · §1.6에 `MODEL_VERSION_DIFFERS` · §6.4 응답에 `model_version` 판정 각주. 종전에는 재현이 `model_version`을 보지 않아 NumPy 업그레이드 뒤의 결과 차이가 500 `REPRODUCIBILITY_ERROR`(계산 결함)로 나갔다. 판정 표는 `TECH_SPEC §10.3`. `AGENTS §4.3`상 소규모 행 추가·각주라 버전은 올리지 않는다 (#833) |
 | 2026-09-11 | `#808` | **§1.2 「가입 제한」 행 신설 · 가입 엔드포인트 설명에 `invite_code`·가입 제한 확인 추가.** 사내 도구로 확정(2026-09-11)되어 가입을 허용 도메인(`SIGNUP_ALLOWED_DOMAINS`) 또는 초대 코드(`SIGNUP_INVITE_CODE`)로 제한한다. 거절은 기존 `422 VALIDATION_ERROR`로 낸다 — `403`은 §1.4에서 CSRF 전용이라 쓰지 않는다. 프로덕션에서 두 설정이 모두 비면 기동을 거부한다(`#809`·`#524`와 같은 기동 시점 가드). 행 추가라 버전은 올리지 않는다 (#808) |
 | 2026-09-11 | `#982` | **v1.26 — §2.15 샘플 선박 목록 조회 신설**(`GET /vessels/samples`) · 엔드포인트 색인 행 추가. 선박 등록 화면이 제원을 채우는 출발점이다(`PRD §5.1` 「샘플 선박 선택」 복원). 값은 데모 시드의 합성 샘플 3척이며 `sample_id`는 선박 UUID가 아니다 — 데모 선박의 id를 실으면 화면이 상세 링크로 오인할 수 있다. 수치는 CRUD 층이라 JSON 숫자(§1.7). 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#982) |
+| 2026-09-11 | `#891` | **§8.1 파라미터 표에 `calculation_run_id` 행 추가** — `type=calculations`에서 계산 한 건만 내보낸다(기능① 「CSV 다운로드」 · `PRD §10.5`). 화면이 CSV를 따로 만들지 않고 서버의 수식 주입 방어·BOM·CRLF를 그대로 쓰기 위해서다. 다른 `type`과 함께면 422, 다른 선박의 계산이면 404. 행 추가라 버전은 올리지 않는다 (#891) |

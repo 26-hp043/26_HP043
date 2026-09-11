@@ -163,7 +163,16 @@ export interface VoyageManagementProvider {
     hasMore: boolean
   }>
   create(vesselId: string, draft: VoyageDraft): Promise<ManagedVoyage>
-  transition(voyage: ManagedVoyage, to: VoyageStatus): Promise<ManagedVoyage>
+  /**
+   * 상태 전환 (`API_SPEC §3.5`). `policy`를 주면 **그 정책을 싣는다** — 기능① 「계획 저장」이
+   * `DRAFT → PLANNED`에서 `INCLUDE_AS_PLAN`을 고를 때 쓴다(#891). 주지 않으면 종전대로
+   * 규칙(`policyForTransition`)이 정한다.
+   */
+  transition(
+    voyage: ManagedVoyage,
+    to: VoyageStatus,
+    policy?: InclusionPolicy,
+  ): Promise<ManagedVoyage>
   saveActuals(voyageId: string, draft: ActualsDraft): Promise<ManagedVoyage>
   /**
    * CSV 가져오기 (`API_SPEC §8.2`).
@@ -347,7 +356,7 @@ export function createApiVoyageManagementProvider(
       return readVoyage(body)
     },
 
-    async transition(voyage, to) {
+    async transition(voyage, to, explicitPolicy) {
       /*
        * **policy를 언제 실을지는 규칙 모듈이 정한다.**
        *
@@ -355,7 +364,7 @@ export function createApiVoyageManagementProvider(
        * 보정하지 않고 422로 거부한다(`§3.5`). `INCLUDE_AS_PLAN` 항차를 완료로
        * 옮기는 데모 마지막 걸음이 정확히 그 경우다.
        */
-      const policy = policyForTransition(voyage.inclusionPolicy, to)
+      const policy = explicitPolicy ?? policyForTransition(voyage.inclusionPolicy, to)
       const body = await call(`/voyages/${voyage.id}/transition`, {
         method: 'POST',
         body: JSON.stringify({

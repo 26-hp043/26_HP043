@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
@@ -81,7 +82,13 @@ export function AnnualSimulation({
 
   // 연도 선택지도 CII 예측과 **같은 경계** 뒤에 둔다 (`#534` · `#558`). 기준이 갈리면
   // 두 화면이 서로 다른 해를 보여 주고, 그 차이는 값이 아니라 목록에서 나타나 늦게 발견된다.
-  const [year, setYear] = useState('')
+  /*
+   * 첫 연도는 주소의 `?year=`에서 받는다 (#891 · `PRD §10.5` 「해당 선박·**연도**로 이동」).
+   * 기능①의 「연간 시뮬레이터에서 보기」가 싣는다. 목록에 없는 해면 아래 `pickDefaultYear`가
+   * 기본값으로 바꾼다 — 주소 값을 검증 없이 쓰지 않는다.
+   */
+  const [searchParams] = useSearchParams()
+  const [year, setYear] = useState(() => searchParams.get('year') ?? '')
 
   /*
    * 연도 선택지는 **공용 훅**이 받는다 (`#632`가 만든 것 · `#824` ⑴로 이관).

@@ -89,7 +89,7 @@ function stubServer(reproduce: () => Response = () => jsonResponse(body('sim-1')
   return fetchImpl
 }
 
-function renderScreen() {
+function renderScreen(entry = '/annual') {
   const value: ShellContext = {
     ...EMPTY_SHELL_CONTEXT,
     vesselId: VESSEL_ID,
@@ -98,7 +98,7 @@ function renderScreen() {
     selectVesselId: () => {},
   }
   return render(
-    <MemoryRouter initialEntries={['/annual']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route element={<Outlet context={value} />}>
           <Route path="/annual" element={<AnnualSimulation />} />
@@ -226,5 +226,47 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     await runOnce()
 
     expect(screen.queryByText(ANNUAL_COPY.distanceNote)).toBeNull()
+  })
+})
+
+/**
+ * 기능①의 「연간 시뮬레이터에서 보기」가 싣는 연도 (#891 · `PRD §10.5` 「해당 선박·연도로」).
+ *
+ * 주소의 `?year=`가 선택지에 있으면 그 해로 실행하고, 없으면 화면 기본값(`pickDefaultYear`)으로
+ * 떨어진다 — 주소 값을 검증 없이 쓰지 않는다.
+ */
+describe('주소의 연도로 시작한다 (#891)', () => {
+  function stubYears(years: number[]) {
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) {
+        return jsonResponse({ data: years.map((year) => ({ year })) })
+      }
+      if (url.endsWith('/annual-simulations')) {
+        void init
+        return jsonResponse(body('sim-y'))
+      }
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  async function submittedYear(fetchImpl: ReturnType<typeof stubYears>): Promise<number> {
+    await runOnce()
+    const call = fetchImpl.mock.calls.find(([url]) => String(url).endsWith('/annual-simulations'))
+    return JSON.parse(String((call as unknown as [string, RequestInit])[1].body)).regulation_year
+  }
+
+  it('선택지에 있는 해면 그 해로 실행한다', async () => {
+    const fetchImpl = stubYears([2025, 2026, 2027])
+    renderScreen('/annual?year=2025')
+    expect(await submittedYear(fetchImpl)).toBe(2025)
+  })
+
+  it('선택지에 없는 해면 기본값으로 떨어진다 — 주소 값을 그대로 쓰지 않는다', async () => {
+    const fetchImpl = stubYears([2026])
+    renderScreen('/annual?year=1999')
+    expect(await submittedYear(fetchImpl)).toBe(2026)
   })
 })

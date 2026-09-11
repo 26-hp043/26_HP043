@@ -529,6 +529,57 @@ async def test_scenario_run_keeps_identifiers_and_leaves_value_cells_empty(sessi
 
 
 @pytest.mark.asyncio
+async def test_single_calculation_run_is_exported_alone(session, vessel_id):
+    """IT-EXPORT-008 — 기능① 「CSV 다운로드」(#891 · `PRD §10.5`)는 **지금 결과 한 건**이다.
+
+    같은 선박의 다른 계산이 섞이면 사용자가 받은 파일의 첫 행이 방금 본 결과라는 보장이
+    없다. 파일 이름에 id 앞 8자를 붙인다 — 여러 번 받은 파일이 같은 이름으로 덮이지 않게.
+    """
+    older = await _insert_calculation_run(session, vessel_id)
+    target = await _insert_calculation_run(
+        session, vessel_id, created_at=datetime(2026, 4, 1, 0, 0, tzinfo=UTC)
+    )
+
+    table = await build_export(session, vessel_id, type="calculations", calculation_run_id=target)
+    rows = _parse(_render(table))
+
+    assert [r["calculation_run_id"] for r in rows] == [str(target)]
+    assert str(older) not in _render(table)
+    assert table.filename_stem == f"calculations_{str(target)[:8]}"
+
+
+@pytest.mark.asyncio
+async def test_single_run_of_another_vessel_is_not_found(session, vessel_id):
+    """IT-EXPORT-008 — 경로의 선박과 계산의 선박이 다르면 404다 — 남의 선박 계산을 내주지 않는다."""
+    other = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, 'OTHER', 'BULK_CARRIER', 40000)"
+        ),
+        {"id": other, "imo": f"8{other.int % 1000000:06d}"},
+    )
+    foreign = await _insert_calculation_run(session, other)
+
+    with pytest.raises(NotFoundError):
+        await build_export(session, vessel_id, type="calculations", calculation_run_id=foreign)
+    with pytest.raises(NotFoundError):
+        await build_export(session, vessel_id, type="calculations", calculation_run_id=uuid4())
+
+
+@pytest.mark.asyncio
+async def test_single_run_filter_is_refused_outside_calculations(session, vessel_id):
+    """IT-EXPORT-008 — ``calculation_run_id``를 다른 type에서 조용히 무시하지 않는다.
+
+    무시하면 한 건을 받으려다 전체 항차 파일을 받고도 알아채지 못한다(``type`` 기본값을
+    두지 않는 것과 같은 이유).
+    """
+    with pytest.raises(ValidationError) as exc:
+        await build_export(session, vessel_id, type="voyages", calculation_run_id=uuid4())
+    assert exc.value.field == "calculation_run_id"
+
+
+@pytest.mark.asyncio
 async def test_calculations_year_filters_by_creation_year_in_kst(session, vessel_id):
     """IT-EXPORT-008 — `calculations`의 `year`만 뜻이 다르다 — **만든 해**(KST)다.
 

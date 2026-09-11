@@ -45,8 +45,16 @@
   grid-column: span var(--grid-split-secondary);
 }
 
-.cii-forecast-page__split > .voyage-cii-result {
+/*
+ * 결과 단 — 결과 카드와 액션 카드(#891)를 세로로 쌓는다. 액션을 그리드의 셋째 자식으로
+ * 두면 폼이 결과보다 길 때 그 아래 행으로 밀려 결과와 떨어진다.
+ */
+.cii-forecast-page__split > .cii-forecast-page__result {
   grid-column: span var(--grid-split-primary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+  min-width: 0;
 }
 
 /*
@@ -76,7 +84,7 @@
   }
 
   .cii-forecast-page__split > .voyage-cii-form,
-  .cii-forecast-page__split > .voyage-cii-result {
+  .cii-forecast-page__split > .cii-forecast-page__result {
     grid-column: auto;
   }
 }

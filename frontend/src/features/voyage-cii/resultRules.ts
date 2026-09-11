@@ -1,5 +1,11 @@
 import { DISPLAY_DIGITS, formatPercent } from '../../display/format'
-import type { CapacityBasis, Rating, RiskLevel, VoyageCiiResponse } from './types'
+import type {
+  CapacityBasis,
+  Rating,
+  RiskLevel,
+  VoyageCiiRequest,
+  VoyageCiiResponse,
+} from './types'
 
 /**
  * 기능① 결과 화면의 표시 규칙 (#136).
@@ -16,11 +22,14 @@ import type { CapacityBasis, Rating, RiskLevel, VoyageCiiResponse } from './type
  * 결과 영역의 4개 상태 (`#136` 완료 기준).
  *
  * 폼이 아니라 페이지가 들고 있다 — 입력과 결과가 같은 상태를 두고 다투지 않게 한다.
+ *
+ * 성공 상태가 **보낸 요청**을 함께 든다 (#891). 결과 화면의 액션(계획 저장 등)이 그 요청의
+ * 거리·속력·연료로 항차를 만든다 — 폼의 현재 값을 읽으면 계산 뒤에 고친 값이 섞인다.
  */
 export type ResultState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'success'; response: VoyageCiiResponse }
+  | { status: 'success'; response: VoyageCiiResponse; request: VoyageCiiRequest }
   | { status: 'error'; message: string }
 
 /**
