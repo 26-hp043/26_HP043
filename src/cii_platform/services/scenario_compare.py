@@ -444,14 +444,20 @@ def _resolve_reference_capacity(vessel, reference_line) -> Decimal:
 
 
 def _resolve_base_daily_foc(payload, vessel) -> Decimal:
-    """PRD §11.4 우선순위 — 요청값 → 선박 기준값 → 계산 불가(422)."""
+    """PRD §11.4 우선순위 — 요청값 → 선박 기준값 → 계산 불가(422).
+
+    **3단계(「샘플 선박 기본값」)는 여기 없다 — 선박 등록 시점에 실현된다** (#997 ·
+    ``PRD §11.4`` 각주). 등록 화면이 샘플을 고르면 그 기준 연료를 선박에 옮기므로 샘플에서
+    채워 등록한 선박은 2단계(선박 기준값)로 계산된다. 여기서 샘플 값을 따로 찾으면 사용자가
+    일부러 비운 값을 몰래 채우거나 다른 배의 연료로 CII를 만든다.
+    """
     value = payload.base_daily_foc_ton
     if value is None:
         value = vessel.reference_daily_foc_ton
     if value is None or Decimal(value) <= 0:
+        # 필드명 원문을 문장에 섞지 않는다 — `API_SPEC §1.3.2` 언어 규정(#900 · #997).
         raise ValidationError(
-            "기준 일일 연료소모량이 필요합니다. base_daily_foc_ton을 입력하거나 선박에"
-            " reference_daily_foc_ton을 등록해 주세요.",
+            "기준 일일 연료소모량이 필요합니다. 비교할 때 입력하거나 선박 제원에 등록해 주세요.",
             field="base_daily_foc_ton",
             field_label="기준 일일 연료소모량",
         )
