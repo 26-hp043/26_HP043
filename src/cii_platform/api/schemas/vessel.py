@@ -16,6 +16,47 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 
 
+def _storable(precision: int, scale: int) -> dict[str, Decimal]:
+    """DB ``NUMERIC(precision, scale)`` 컬럼이 **담을 수 있는** 양수 범위 (`#860`).
+
+    ## 왜 필요한가
+
+    종전 스키마는 ``gt=0``만 봤다. DB는 ``NUMERIC(12,2)`` 같은 고정 정밀도라, API를
+    통과한 값이 **저장 단계에서 죽었다.**
+
+    .. code-block:: text
+
+        deadweight = 1e-7   →  0.00으로 반올림  →  chk_dwt_positive 위반  →  500
+        deadweight = 1e10   →  정밀도 12·소수 2 초과                       →  500
+
+    **아무것도 저장되지 않는다** — DB가 이미 막고 있었다. 결함은 「이상한 값이 저장된다」가
+    아니라 「DB가 거부할 값을 API가 통과시켜 500이 난다」였다.
+
+    ## 도메인 하한이 아니다
+
+    여기 경계는 **저장 형식에서 나온다** — 가장 작은 저장 가능한 양수(``0.01``)와 가장 큰
+    값(``10^(precision-scale) − 0.01``). 「DWT는 최소 100톤」 같은 도메인 판단은 이 결함을
+    고치는 데 필요 없고, 여기서 정하지 않는다.
+
+    소수 셋째 자리 이하는 **막지 않는다.** 종전처럼 받아서 DB가 반올림한다 — ``decimal_places``로
+    거부하면 ``50000.125``처럼 멀쩡한 입력까지 422가 된다.
+
+    값은 ORM 모델(``db/models/vessel.py``)의 ``Numeric(precision, scale)``과 같아야 하며,
+    ``tests/test_vessel_spec_bounds.py``가 둘을 대조한다.
+    """
+    smallest = Decimal(1).scaleb(-scale)
+    largest = Decimal(10) ** (precision - scale) - smallest
+    return {"ge": smallest, "le": largest}
+
+
+#: ``NUMERIC(12,2)`` — DWT · GT.
+_TONNAGE = _storable(12, 2)
+#: ``NUMERIC(6,2)`` — 기준 속력(kn).
+_SPEED = _storable(6, 2)
+#: ``NUMERIC(8,2)`` — 기준 일일 연료(t).
+_DAILY_FOC = _storable(8, 2)
+
+
 class VesselCreateRequest(BaseModel):
     """``POST /api/v1/vessels`` 요청 본문 (API_SPEC §2.3).
 
@@ -31,12 +72,12 @@ class VesselCreateRequest(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=100)]
     # VAL-004(파라미터 테이블 존재)는 서비스가 DB 조회로 검증.
     ship_type: Annotated[str, Field(min_length=1, max_length=50)]
-    # VAL-002: > 0. None 허용(선택 입력).
-    gross_tonnage: Annotated[Decimal | None, Field(gt=0)] = None
-    deadweight: Annotated[Decimal | None, Field(gt=0)] = None
+    # VAL-002: > 0. None 허용(선택 입력). 상·하한은 DB 저장 범위에서 온다 (`_storable`, #860).
+    gross_tonnage: Annotated[Decimal | None, Field(**_TONNAGE)] = None
+    deadweight: Annotated[Decimal | None, Field(**_TONNAGE)] = None
     default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
-    reference_speed_kn: Annotated[Decimal | None, Field(gt=0)] = None
-    reference_daily_foc_ton: Annotated[Decimal | None, Field(gt=0)] = None
+    reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED)] = None
+    reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC)] = None
 
 
 class VesselUpdateRequest(BaseModel):
@@ -52,11 +93,11 @@ class VesselUpdateRequest(BaseModel):
     name: Annotated[str | None, Field(min_length=1, max_length=100)] = None
     # VAL-004(파라미터 테이블 존재)는 서비스가 DB 조회로 검증.
     ship_type: Annotated[str | None, Field(min_length=1, max_length=50)] = None
-    gross_tonnage: Annotated[Decimal | None, Field(gt=0)] = None
-    deadweight: Annotated[Decimal | None, Field(gt=0)] = None
+    gross_tonnage: Annotated[Decimal | None, Field(**_TONNAGE)] = None
+    deadweight: Annotated[Decimal | None, Field(**_TONNAGE)] = None
     default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
-    reference_speed_kn: Annotated[Decimal | None, Field(gt=0)] = None
-    reference_daily_foc_ton: Annotated[Decimal | None, Field(gt=0)] = None
+    reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED)] = None
+    reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC)] = None
 
 
 class VesselPositionUpdateRequest(BaseModel):

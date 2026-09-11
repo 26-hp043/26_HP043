@@ -1,4 +1,5 @@
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
+import { STORABLE, checkOptionalPositive } from '../vessel-registration/formRules'
 import { findShipType } from '../vessel-registration/shipTypes'
 import type { Vessel } from '../vessel-registration/types'
 import type { VesselUpdateRequest } from './provider'
@@ -85,24 +86,6 @@ function toNumber(raw: string): number | null {
   return Number.isFinite(value) ? value : null
 }
 
-/** 선택 입력 한 칸의 검증. 비면 오류가 아니고, 값이 있으면 `> 0`이어야 한다(VAL-002). */
-function checkOptionalPositive(
-  raw: string,
-  field: string,
-  label: string,
-  errors: EditErrors,
-): void {
-  const trimmed = raw.trim()
-  if (trimmed === '') return
-  const value = toNumber(trimmed)
-  if (value === null) {
-    errors[field] = `${label}을(를) 숫자로 입력해 주세요.`
-    return
-  }
-  if (!(value > 0)) {
-    errors[field] = `${label}은(는) 0보다 커야 합니다.`
-  }
-}
 
 /**
  * 수정 폼을 검증한다. 위반을 전부 모아 반환한다.
@@ -130,19 +113,33 @@ export function validateEdit(
     errors[EDIT_FIELD.shipType] = `알 수 없는 선종입니다: ${state.shipType}`
   }
 
-  checkOptionalPositive(state.grossTonnage, EDIT_FIELD.grossTonnage, '총톤수(GT)', errors)
-  checkOptionalPositive(state.deadweight, EDIT_FIELD.deadweight, '재화중량톤수(DWT)', errors)
+  checkOptionalPositive(
+    state.grossTonnage,
+    EDIT_FIELD.grossTonnage,
+    '총톤수(GT)',
+    errors,
+    STORABLE.tonnage,
+  )
+  checkOptionalPositive(
+    state.deadweight,
+    EDIT_FIELD.deadweight,
+    '재화중량톤수(DWT)',
+    errors,
+    STORABLE.tonnage,
+  )
   checkOptionalPositive(
     state.referenceSpeedKn,
     EDIT_FIELD.referenceSpeedKn,
     '기준속도',
     errors,
+    STORABLE.speed,
   )
   checkOptionalPositive(
     state.referenceDailyFocTon,
     EDIT_FIELD.referenceDailyFocTon,
     '기준 일일 연료소모량',
     errors,
+    STORABLE.dailyFoc,
   )
 
   if (state.defaultFuelType !== '' && !isKnownFuel(state.defaultFuelType, fuels)) {

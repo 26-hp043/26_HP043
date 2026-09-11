@@ -100,12 +100,40 @@ function toNumber(raw: string): number | null {
   return Number.isFinite(value) ? value : null
 }
 
-/** 선택 입력 한 칸의 검증. 비어 있으면 오류가 아니고, 값이 있으면 `> 0`이어야 한다. */
-function checkOptionalPositive(
+/**
+ * DB 컬럼 `NUMERIC(precision, scale)`이 **담을 수 있는** 양수 범위 (`#860`).
+ *
+ * 서버 스키마(`api/schemas/vessel.py`의 `_storable`)와 **같은 식**이다. 종전에는 화면도
+ * 서버도 `> 0`만 봐서 `1e-7`이 통과했고, DB가 `0.00`으로 반올림한 뒤 CHECK 제약에 걸려
+ * **500**이 났다. 한쪽만 막으면 다른 쪽이 통과시키므로 두 층이 같은 경계를 쓴다.
+ *
+ * 도메인 하한(「DWT 최소 100톤」 등)이 아니라 **저장 형식**에서 나온 경계다.
+ */
+export function storableRange(precision: number, scale: number): { min: number; max: number } {
+  const min = 10 ** -scale
+  return { min, max: 10 ** (precision - scale) - min }
+}
+
+/** 필드별 저장 범위 — `db/models/vessel.py`의 `Numeric(...)`과 같다. */
+export const STORABLE = {
+  tonnage: storableRange(12, 2),
+  speed: storableRange(6, 2),
+  dailyFoc: storableRange(8, 2),
+} as const
+
+/**
+ * 선택 입력 한 칸의 검증. 비어 있으면 오류가 아니고, 값이 있으면 저장 범위 안이어야 한다.
+ *
+ * **등록·수정 두 폼이 함께 쓴다** (`#860`). 종전에는 `vessel-management/editRules.ts`에
+ * 같은 함수가 한 벌 더 있었다 — 한쪽만 고치면 수정 화면이 다시 뚫린다. 수정 폼이 등록
+ * 폼을 재사용하지 않는 이유(PATCH의 「빈 칸 = 안 바꾼다」)는 이 한 칸 검사와 무관하다.
+ */
+export function checkOptionalPositive(
   raw: string,
   field: string,
   label: string,
-  errors: FormErrors,
+  errors: Record<string, string>,
+  range: { min: number; max: number },
 ): void {
   const trimmed = raw.trim()
   if (trimmed === '') return
@@ -114,9 +142,16 @@ function checkOptionalPositive(
     errors[field] = `${label}을(를) 숫자로 입력해 주세요.`
     return
   }
-  // VAL-002 — 서버 스키마도 `gt=0`이다.
+  // VAL-002 — 0 이하는 종전 문구를 그대로 쓴다(사용자에게 가장 흔한 실수다).
   if (!(value > 0)) {
     errors[field] = `${label}은(는) 0보다 커야 합니다.`
+    return
+  }
+  // `#860` — 0보다 크지만 DB가 담을 수 없는 값. 서버는 같은 경계로 422를 낸다.
+  if (value < range.min || value > range.max) {
+    errors[field] =
+      `${label}은(는) ${range.min.toLocaleString('ko-KR')} 이상 ` +
+      `${range.max.toLocaleString('ko-KR', { maximumFractionDigits: 2 })} 이하로 입력해 주세요.`
   }
 }
 
@@ -156,14 +191,33 @@ export function validateForm(
     errors[FIELD.shipType] = `알 수 없는 선종입니다: ${state.shipType}`
   }
 
-  checkOptionalPositive(state.grossTonnage, FIELD.grossTonnage, '총톤수(GT)', errors)
-  checkOptionalPositive(state.deadweight, FIELD.deadweight, '재화중량톤수(DWT)', errors)
-  checkOptionalPositive(state.referenceSpeedKn, FIELD.referenceSpeedKn, '기준속도', errors)
+  checkOptionalPositive(
+    state.grossTonnage,
+    FIELD.grossTonnage,
+    '총톤수(GT)',
+    errors,
+    STORABLE.tonnage,
+  )
+  checkOptionalPositive(
+    state.deadweight,
+    FIELD.deadweight,
+    '재화중량톤수(DWT)',
+    errors,
+    STORABLE.tonnage,
+  )
+  checkOptionalPositive(
+    state.referenceSpeedKn,
+    FIELD.referenceSpeedKn,
+    '기준속도',
+    errors,
+    STORABLE.speed,
+  )
   checkOptionalPositive(
     state.referenceDailyFocTon,
     FIELD.referenceDailyFocTon,
     '기준 일일 연료소모량',
     errors,
+    STORABLE.dailyFoc,
   )
 
   if (state.defaultFuelType !== '' && !isKnownFuel(state.defaultFuelType, fuels)) {
