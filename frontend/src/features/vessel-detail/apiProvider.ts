@@ -80,6 +80,8 @@ interface ServerYear {
   required_cii: string | null
   rating: string | null
   voyage_count: number
+  /** `#800`. 없는 응답(구버전 서버)이면 0으로 읽는다. */
+  in_progress_voyage_count?: number
   total_distance_nm: string | null
   total_fuel_ton: string | null
 }
@@ -125,6 +127,7 @@ function toYear(raw: ServerYear): CiiYear {
     requiredCii: raw.required_cii,
     rating: raw.rating as CiiYear['rating'],
     voyageCount: raw.voyage_count,
+    inProgressVoyageCount: raw.in_progress_voyage_count ?? 0,
     totalDistanceNm: raw.total_distance_nm,
     totalFuelTon: raw.total_fuel_ton,
   }

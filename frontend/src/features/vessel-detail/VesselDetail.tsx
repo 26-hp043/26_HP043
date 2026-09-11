@@ -28,6 +28,7 @@ import type {
 } from './types'
 import './VesselDetail.css'
 import { ErrorState } from '../../components/ErrorState'
+import { voyageCountText } from './voyageCount'
 
 /**
  * 상세 화면 지도의 최소 표시 범위(도) — 약 1,500km (#723).
@@ -264,8 +265,9 @@ export function VesselDetail({
                 </dd>
               </div>
               <div>
-                <dt>항차</dt>
-                <dd className="num">{current.voyageCount}</dd>
+                {/* 완료 항차 수다 — 진행분이 CII에 들어가 있으면 함께 적는다 (#987). */}
+                <dt>완료 항차</dt>
+                <dd className="num">{voyageCountText(current)}</dd>
               </div>
             </dl>
             {/* 단위는 서버가 준 축에서 파생한다 — 고정 문자열 금지(§4.1 🔒). */}

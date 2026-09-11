@@ -3,6 +3,7 @@ import { ciiUnit } from '../voyage-cii/resultRules'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import type { CiiYear } from './types'
 import { gradePatternUrl } from '../../components/gradePattern'
+import { voyageCountText } from './voyageCount'
 
 /**
  * 연도별 CII 이력 차트.
@@ -244,7 +245,7 @@ function HistoryTable({ years, unit }: { years: CiiYear[]; unit: string }) {
             <th scope="col">실적</th>
             <th scope="col">기준</th>
             <th scope="col">등급</th>
-            <th scope="col">항차</th>
+            <th scope="col">완료 항차</th>
           </tr>
         </thead>
         <tbody>
@@ -265,7 +266,7 @@ function HistoryTable({ years, unit }: { years: CiiYear[]; unit: string }) {
               </td>
               {/* 등급을 색으로만 구분하지 않는다 — 문자를 그대로 싣는다 (§14). */}
               <td>{year.rating ?? '—'}</td>
-              <td className="num">{year.voyageCount}</td>
+              <td className="num">{voyageCountText(year)}</td>
             </tr>
           ))}
         </tbody>

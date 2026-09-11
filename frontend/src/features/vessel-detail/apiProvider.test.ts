@@ -63,6 +63,7 @@ const HISTORY_BODY = {
         required_cii: '17.374582',
         rating: 'E',
         voyage_count: 1,
+        in_progress_voyage_count: 1,
         total_distance_nm: '1130.00',
         total_fuel_ton: '48.00',
       },
@@ -104,6 +105,13 @@ describe('정상 응답', () => {
     const urls = fetchImpl.mock.calls.map((c) => String(c[0]))
     expect(urls).toContain('/api/v1/vessels/v1')
     expect(urls).toContain('/api/v1/vessels/v1/cii-history')
+  })
+
+  it('진행 중 항차 수를 받는다 — 없는 응답(구버전)은 0으로 읽는다 (#987)', async () => {
+    const snapshot = await createApiVesselDetailProvider(routed() as never).load('v1')
+
+    expect(snapshot.years[0].inProgressVoyageCount).toBe(0)
+    expect(snapshot.years[1].inProgressVoyageCount).toBe(1)
   })
 
   it('CII 값을 문자열 그대로 둔다 — 되돌리면 정밀도가 사라진다', async () => {
