@@ -472,6 +472,42 @@ def test_sensitivity_speed_uses_the_cubic_model():
     assert slower.attained_cii < faster.attained_cii
 
 
+def _distance_rows(completed):
+    entries, _ = analyze_sensitivity(
+        completed=completed,
+        remaining=REMAINING,
+        transport_capacity=CAPACITY,
+        required_cii=REQUIRED,
+        d_vector=D_VECTOR,
+    )
+    down = next(e for e in entries if e.variable == "distance" and e.change == "-5%")
+    up = next(e for e in entries if e.variable == "distance" and e.change == "+5%")
+    return down.attained_cii, up.attained_cii
+
+
+def test_distance_lever_moves_fuel_with_distance():
+    """거리 ±5%는 **연료를 같은 비율로 함께** 움직인다 (`PRD §12.6` 각주 · #756).
+
+    거리만 늘리면 「같은 연료로 더 갔다」가 되어 CII가 좋아지는 쪽으로만 틀린다. 함께
+    움직이면 CII는 거리당 값이라 **잔여분만 있을 때 정확히 같다** — 이 행이 거의 움직이지
+    않는 것은 결함이 아니라 모델의 성질이고, 화면이 그 이유를 말한다.
+    거리만 움직이도록 바뀌면 두 값이 약 10% 벌어져 여기서 실패한다.
+    """
+    down, up = _distance_rows(CompletedTotals(co2_g=0.0, distance_nm=0.0))
+    assert abs(down - up) < Decimal("1e-9")
+
+
+def test_distance_lever_moves_only_through_the_completed_mix():
+    """확정 실적이 섞이면 **그 혼합비만큼만** 움직인다 — 5%에 한참 못 미친다.
+
+    `#756` 실측(샘플 벌크선)에서 차이는 기준값 대비 약 0.002%였다. 여기서는 1% 미만을
+    본다 — 거리만 움직였다면 확정분이 섞여도 수 % 차이가 난다.
+    """
+    down, up = _distance_rows(COMPLETED)
+    assert down != up
+    assert abs(down - up) / up < Decimal("0.01")
+
+
 def test_sensitivity_skips_speed_when_specs_are_missing():
     """제원이 없으면 임의 기본값을 넣지 않는다 — 화면은 안 깨지고 값만 틀린다.
 

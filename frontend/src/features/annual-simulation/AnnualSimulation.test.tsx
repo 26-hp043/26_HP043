@@ -179,3 +179,51 @@ describe('이 seed로 다시 실행 (#776)', () => {
     expect(screen.queryByText(ANNUAL_COPY.reproduceSuccess)).toBeNull()
   })
 })
+
+describe('민감도 — 거리 행의 이유 (#756)', () => {
+  function withSensitivity(analysis: Record<string, unknown>) {
+    const payload = body('sim-1')
+    payload.data.sensitivity_analysis = {
+      interaction_note: '개별 효과만 표시합니다.',
+      ...analysis,
+    } as typeof payload.data.sensitivity_analysis
+    return payload
+  }
+
+  function stubWith(payload: unknown) {
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) {
+        return jsonResponse({ data: [{ year: 2026 }] })
+      }
+      if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+  }
+
+  it('거리 행이 있으면 거의 변하지 않는 이유를 말한다 — 「효과 없음」으로 읽히지 않게', async () => {
+    stubWith(
+      withSensitivity({
+        distance_minus_5pct: { projected_cii: '8.971337', rating_change: 'E→E' },
+        distance_plus_5pct: { projected_cii: '8.970912', rating_change: 'E→E' },
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.distanceNote)).toBeTruthy()
+  })
+
+  it('거리 행이 없으면 말하지 않는다', async () => {
+    stubWith(
+      withSensitivity({
+        fuel_minus_10pct: { projected_cii: '8.1', rating_change: 'E→D' },
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    expect(screen.queryByText(ANNUAL_COPY.distanceNote)).toBeNull()
+  })
+})

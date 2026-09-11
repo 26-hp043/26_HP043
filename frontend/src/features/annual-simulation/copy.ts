@@ -102,6 +102,12 @@ export const ANNUAL_COPY = {
   columnProjectedCii: '예측 CII',
   columnRatingChange: '등급 변화',
   columnProbabilityChange: '달성 확률 변화',
+  /*
+   * 거리 행이 기준과 거의 같은 이유 (`PRD §12.6` 각주 · #756). 말하지 않으면 「효과 없음」으로
+   * 읽힌다 — 기능②의 같은 성질에 붙인 문구(`ScenarioComparison.tsx`, #739)와 같은 설명이다.
+   */
+  distanceNote:
+    '거리 ±5%는 연료도 같은 비율로 함께 바꿔 계산합니다. CII는 거리당 값이라, 같은 속력이면 거리가 늘어도 연료가 같은 비율로 늘어 값이 거의 변하지 않습니다.',
 
   /* ── 재현성 (TECH_SPEC §5.2 · §11) ─────────────────────────────────── */
   reproTitle: '재현 정보',

@@ -501,6 +501,13 @@ function Result({
           <p className="annual-sim__caption">
             {result.sensitivity_analysis.interaction_note}
           </p>
+          {/*
+            거리 행은 기준과 거의 같은 값이 나온다 — 모델의 성질이지 결함이 아니다(#756).
+            그 행이 표에 있을 때만 이유를 말한다. 없는데 말하면 무엇을 설명하는지 모른다.
+          */}
+          {rows.some((row) => row.key.startsWith('distance_')) ? (
+            <p className="annual-sim__caption">{ANNUAL_COPY.distanceNote}</p>
+          ) : null}
           <div className="annual-sim__tablewrap">
             <table className="annual-sim__table">
               <thead>
