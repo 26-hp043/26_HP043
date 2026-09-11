@@ -257,6 +257,7 @@ def project_deterministic(
         raise ValueError(f"transport_capacity must be > 0: got {transport_capacity}")
     if required_cii <= 0:
         raise ValueError(f"required_cii must be > 0: got {required_cii}")
+    _reject_non_positive_plans(remaining)
 
     completed_co2 = Decimal(str(completed.co2_g))
     completed_distance = Decimal(str(completed.distance_nm))
@@ -284,6 +285,27 @@ def project_deterministic(
         planned_co2_g=planned_co2,
         planned_distance_nm=planned_distance,
     )
+
+
+def _reject_non_positive_plans(remaining: Sequence[RemainingVoyage]) -> None:
+    """``TECH_SPEC §2.3.1`` [ORACLE-S-1] — 계획값이 0 이하인 잔여 항차는 **거부**한다 (#967).
+
+    삼각분포는 ``plan_value > 0``을 전제한다. 종전에는 폭 0 표본으로 조용히 받아 그 항차가
+    매 반복 0으로 고정됐다 — 값이 틀리지는 않아도(거리 0은 분모에 기여하지 않는다) 입력
+    누락이 어디에도 드러나지 않았다. 정본이 거부를 규정하므로 그대로 따른다.
+
+    실제 서비스에서는 여기까지 오지 않는다 — `API_SPEC §3.3`의 ``gt=0`` 검증과
+    `DB_SCHEMA §2.2`의 ``chk_distance_positive``·``chk_fuel_positive``가 0 이하를 저장 전에
+    막고, 연료를 모르는 항차는 서비스가 먼저 뺀다(`#812`). 이 가드는 **엔진을 직접 부르는
+    경로**(테스트·벤치마크·향후 다른 호출자)에서 정본의 전제가 깨지지 않게 하는 것이다.
+    """
+    for i, v in enumerate(remaining):
+        if v.distance_nm <= 0 or v.fuel_ton <= 0:
+            raise ValueError(
+                f"잔여 항차 {i}의 계획값이 0 이하입니다 "
+                f"(distance_nm={v.distance_nm}, fuel_ton={v.fuel_ton}). "
+                "삼각분포 표본추출은 계획값 > 0을 요구합니다 (TECH_SPEC §2.3.1)."
+            )
 
 
 # ─── Monte Carlo (Layer 2 · float64) ─────────────────────────────────────────
@@ -383,6 +405,7 @@ def simulate_annual(
         )
     if len(remaining) > WARN_REMAINING_VOYAGES:
         warnings.append(WARNING_MANY_VOYAGES)
+    _reject_non_positive_plans(remaining)
 
     if runs > MAX_SIMULATION_RUNS or runs < MIN_SIMULATION_RUNS:
         # 거부가 아니라 자른다 — `PRD §12.8`이 「최대값으로 제한하고 안내」로 적는다.
@@ -456,8 +479,8 @@ def _sample_band(
 
     **폭이 0인 항차를 따로 다룬다.** ``numpy.triangular``는 ``left == right``를 거부하는데,
     ``PRD §12.4.1`` 가드가 뒤집힌 파라미터를 재조정하면 그 상태가 실제로 나온다
-    (``min_factor=1.5``·``max_factor=0.5``면 셋이 모두 mode로 모인다). 계획값이 0인
-    항차도 마찬가지다.
+    (``min_factor=1.5``·``max_factor=0.5``면 셋이 모두 mode로 모인다). 계획값 0은 여기
+    오지 않는다 — ``_reject_non_positive_plans``가 앞에서 거부한다(`#967`).
 
     폭이 0이라는 것은 **변동이 없다**는 뜻이므로 계획값을 그대로 쓴다. 억지로 폭을
     만들면 근거 없는 변동이 결과에 섞인다.
