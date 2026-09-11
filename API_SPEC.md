@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.24 |
+| 버전 | v1.25 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-11 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -623,7 +623,8 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
 | `attained_cii` | string \| null | 연도 누적 attained CII (6자리) |
 | `required_cii` | string \| null | 해당 연도 required CII (6자리) |
 | `rating` | string \| null | A~E. `IN_PROGRESS` 연도는 **YTD 등급** — 공식 등급이 아니다(`PRD §3.3.8`) |
-| `voyage_count` | integer | 실적 확정(`INCLUDE_AS_ACTUAL`) 항차 수 |
+| `voyage_count` | integer | 실적 확정(`INCLUDE_AS_ACTUAL`) 항차 수. **진행 중 항차는 세지 않는다** |
+| `in_progress_voyage_count` | integer | **[#800]** 이 행의 거리·연료에 **기여분이 포함된** 진행 중 항차 수(0 또는 1). 진행 중 항차가 선언한 연도의 행에만 1이며 과거 확정 연도는 늘 0이다 |
 | `total_distance_nm` | string \| null | 두 갈래(항해 + not under way) 거리 합 (2자리) |
 | `total_fuel_ton` | string \| null | 두 갈래 연료 합 (2자리). `data_available=false`여도 거리·연료 값 자체는 실릴 수 있다 |
 
@@ -633,7 +634,7 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
 >
 > 그대로 두면 **같은 라벨의 숫자가 화면마다 달라진다.** 실측(2026-08-29)에서 같은 선박·같은 연도에 대시보드 8.9799 · 이 엔드포인트 8.980 · `GET /vessels/{id}/cii/current` 7.028270이 나왔고, 연간 실적 리포트는 **한 문서 안에 7.028과 8.980을 함께** 인쇄했다.
 >
-> **과거 연도는 영향이 없다** — 진행 중 항차는 올해에만 존재한다. `voyage_count`는 종전대로 **실적 확정(`INCLUDE_AS_ACTUAL`) 항차 수**이며 진행 중 항차를 세지 않는다(항차 수와 누적값의 단위가 다른 문제는 `#800`이 다룬다).
+> **과거 연도는 영향이 없다** — 진행 중 항차는 올해에만 존재한다. `voyage_count`는 종전대로 **실적 확정(`INCLUDE_AS_ACTUAL`) 항차 수**이며 진행 중 항차를 세지 않는다(항차 수와 누적값이 어긋나던 문제는 **`#800`이 `in_progress_voyage_count`로 해소**했다 — 뜻을 바꾸지 않고 진행분을 따로 센다).
 
 #### 응답 예시 (200 OK)
 
@@ -653,6 +654,7 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
         "required_cii": null,
         "rating": null,
         "voyage_count": 0,
+        "in_progress_voyage_count": 0,
         "total_distance_nm": "0.00",
         "total_fuel_ton": "0.00"
       },
@@ -665,6 +667,7 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
         "required_cii": "5.158439",
         "rating": "D",
         "voyage_count": 1,
+        "in_progress_voyage_count": 0,
         "total_distance_nm": "4265.00",
         "total_fuel_ton": "400.00"
       },
@@ -677,6 +680,7 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
         "required_cii": "5.045066",
         "rating": "E",
         "voyage_count": 1,
+        "in_progress_voyage_count": 1,
         "total_distance_nm": "4300.00",
         "total_fuel_ton": "620.00"
       }
@@ -1137,7 +1141,7 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
       "boundaries": { "superior_boundary": "…", "lower_boundary": "…", "upper_boundary": "…", "inferior_boundary": "…" },
       "total_co2_ton": "…", "total_fuel_ton": "…",
       "underway_distance_nm": "…", "not_underway_distance_nm": "…", "total_distance_nm": "10620.00",
-      "voyage_count": 3, "not_underway_period_count": 1,
+      "voyage_count": 3, "in_progress_voyage_count": 1, "not_underway_period_count": 1,
       "substitutions": [
         { "voyage_id": "…", "axis": "FUEL", "fuel_type": "HFO" },
         { "voyage_id": "…", "axis": "DISTANCE", "fuel_type": null }
@@ -3067,6 +3071,7 @@ GET /api/v1/health
 | 2026-09-11 | `#840` | **v1.22 — §6.1 응답 예시의 `data` 첫머리에 `simulation_id` 추가.** v1.15(`PR #437`) 변경 이력이 *「응답에 `simulation_id`·`calculation_run_id`를 추가했다」*로 적었는데 **예시만 반영되지 않았다.** `§6.2` 조회와 `§6.4` 재실행의 경로 파라미터가 바로 이 값(`annual_simulation_run.id`)이고 `calculation_run_id`와 **다른 값**이라, 예시만 읽고 클라이언트를 만들면 두 경로에 도달할 수 없다. 구현(`_envelope`)·라우트 docstring·변경 이력 셋이 이미 일치하고 **예시 하나만 빠져 있었다.** 최상위가 아니라 `data` 안에 둔 것은 최상위가 `§1.3.1` 계산 결과 공통 필드의 자리이고 `simulation_id`는 그 목록에 없기 때문이다 — 구현도 그렇게 낸다 (#840) |
 | 2026-09-11 | `#944` | **v1.23 — §1.9 · §2.4의 `needs_recalc` 설명에 선종 변경 추가.** `PRD §8.4`가 v4.6에서 「선박 제원 변경 (DWT/GT · 선종)」으로 넓어진 것을 따랐다. 구현은 `#818`에서 이미 그렇게 동작한다 (#944) |
 | 2026-09-11 | `#860` | **v1.24 — §2.3 검증 표에 선박 제원의 저장 경계 기재 · `reference_daily_foc_ton` 행 추가.** 종전 표는 `> 0`만 적어 `1e-7`·`1e10`이 API를 통과한 뒤 DB에서 500이 났다. 경계는 `NUMERIC(p,s)` 정밀도에서 나오며 도메인 하한이 아니다 (#860) |
+| 2026-09-11 | `#800` | **v1.25 — `in_progress_voyage_count` 신설(§2.7 연도 행 · §2.8 `ytd`).** 진행 중 항차의 기여분은 거리·연료에 들어가는데 `voyage_count`는 세지 않아 연간 리포트 한 표 안에서 **두 항차의 거리를 1항차로 적었다.** `voyage_count`의 뜻(실적 확정 항차 수)은 바꾸지 않았다 — 뒤집으면 과거 연도와 올해가 다른 것을 센다. 추가 필드라 기존 소비자는 영향이 없다 (#800) |
 | 2026-08-23 | `#591` | **§9 Weather API 2종을 「미구현」으로 명시** — 세 안 중 C(스펙에 남긴다). 빠진 것은 **HTTP 노출뿐**이고 조회·저장·fallback은 다 구현돼 시나리오 비교가 실제로 쓴다 — 지우면 「기상 fallback을 바깥에서 들여다볼 수단을 두려 했다」는 판단까지 사라진다. 구현은 인가 설계(`#359` — 1차 시연 범위 밖)가 선행한다. 표기는 새 기호를 만들지 않고 `§12`의 기존 선례(`/auth/dev-login`의 「(프로덕션 미등록)」)를 따랐다. ⚠️ 함께 **어긋남이 양방향이라는 것을 실측으로 확인**했다 — `§12` 요약표에 `#506`의 계정 관리 3종(`PATCH`·`DELETE /auth/me` · `POST /auth/password-change`)이 **등재돼 있지 않았다.** `§1.2` 본문에는 있어 **같은 문서가 자기와 어긋난** 상태였다. 3행을 등재하고, 같은 표에서 같은 상태인 `POST /parameters/import`(`#444`)도 함께 표시했다. 이 판정이 낡지 않게 **`§12` ↔ 실제 라우트 대조 가드**를 신설했다 — 누군가 구현하면 테스트가 깨져 표시를 지우게 한다. `§4.3`상 각주 보강·소규모 행 추가라 버전은 올리지 않는다 (#591) |
 | 2026-08-23 | `#559` | **§1.3에 응답 계약 가드 각주 추가.** 요청은 Pydantic이 강제하는데 응답은 강제하는 것이 없었다 — 오퍼레이션 50개 중 requestBody 스키마 23건, **200 응답 스키마 0건**. 네 안(응답 모델 · 필드 집합 테스트 · 예시 대조 · 하지 않는다) 중 **B(필드 집합 테스트)**를 택했다: A는 `§1.7` Layer-1 문자열 표기와의 양립 검토가 선행하고 그 검토가 이 작업보다 크며, C는 예시 30곳의 값까지 맞춰야 해 유지비가 크다. **값이 아니라 키를 본다** — 이 결함의 실제 모습은 이름이 바뀌거나 필드가 빠지는 것이고, 그때 화면에는 오류가 아니라 `undefined`가 뜬다. **집합 동등**이라 필드를 더해도 실패한다(화면 세 곳이 같은 응답을 각자 타입으로 적고 있어 넓어지는 변화도 리뷰에 보여야 한다). `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#559) |
 | 2026-08-23 | `#151` | **§5.1 응답 예시 3블록을 실행 결과로 교체.** 종전 예시는 **인쇄된 입력으로 재현되지 않았다** — `fuel_ton`·`attained_cii`·`co2_emission_ton`이 서로 맞지 않았고 `next_worse_boundary_margin`은 `§4.1`에서 이미 정정된 오기(`0.365537`)를 그대로 갖고 있었다. 원인은 **기준 선박의 `reference_speed_kn`이 명시되지 않은 것**이다: 연료 추정이 cubic speed model이라 `v_ref` 없이는 `fuel_ton`이 정해지지 않는다. 그래서 이 이슈가 「입력 가정 확정이 선행한다」고 적었고, 그 가정을 **저장소의 데모 선박(`…0001` · `v_ref = 12.00`)으로 고정**해 실제로 실행하고 그 응답을 실었다. 요청 예시도 둘 고쳤다 — ⑴ `base_daily_foc_ton` `35.0` → **`18.0`**: `35.0`이면 세 시나리오가 모두 등급 `E`가 되어 `next_worse_boundary_margin`이 전부 `null`이 되고 `[ORACLE-S-1]`이 그 필드를 추가한 목적이 예시에서 사라진다. `18.0`은 **감속이 등급을 한 단계 올리는**(C → B) 구간이다 ⑵ `weather_model` `SIMPLE_RULE` → **`NONE`**: 전자는 Open-Meteo를 실제로 호출해 **문서 예시가 외부 서비스의 그날 값에 따라 달라진다.** 함께 `DIRECT`와 `DETOUR`의 `attained_cii`가 같은 이유를 각주로 남겼다 — 우회는 `M`과 `D`를 같은 비율로 키워 등급을 바꾸지 않는다. `§4.3`상 값 정정·각주 보강이라 버전은 올리지 않는다 (#151) |
