@@ -59,6 +59,8 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
       missingDepartureCount: 0,
     })),
     exportData: vi.fn(async () => 'voyages.csv'),
+    samplePorts: vi.fn(async () => []),
+    greatCircle: vi.fn(async () => 0),
     ...over,
   }
 }
@@ -340,3 +342,91 @@ describe('연료가 선택돼 보이면 그대로 저장된다 (#824 ⑹)', () =
     expect(create.mock.calls[0][1].fuelUses[0].fuelType).toBe('HFO')
   })
 })
+
+/**
+ * 출발·도착항 — 샘플 항만에서 고르면 좌표가 따라오고, 추정 거리로 채울 수 있다 (#760).
+ *
+ * `PRD §15.1` 「샘플 항만 테이블」 MUST. 종전에는 항만명이 자유 텍스트뿐이라 좌표를 사람이
+ * 직접 찾아 넣어야 했다.
+ */
+describe('샘플 항만 선택 (#760)', () => {
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGKEP', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+  ]
+
+  async function openForm(over: Partial<VoyageManagementProvider> = {}) {
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    const greatCircle = vi.fn(async () => 2470.2)
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({ create, greatCircle, samplePorts: vi.fn(async () => PORTS), ...over })}
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+    return { create, greatCircle }
+  }
+
+  it('고른 두 항의 좌표로 추정 거리를 채우고, 그 값이 추정값임을 표시한다', async () => {
+    const { create, greatCircle } = await openForm()
+    // 목록이 오기 전에는 좌표를 붙일 수 없다 — 선택지가 그려진 뒤에 고른다.
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: '부산' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'singapore' } })
+    fireEvent.click(await screen.findByRole('button', { name: '좌표 기반 추정 거리로 채우기' }))
+
+    await waitFor(() =>
+      expect((screen.getByLabelText(/계획 거리/) as HTMLInputElement).value).toBe('2470.20'),
+    )
+    expect(greatCircle).toHaveBeenCalledWith({ lat: 35.1, lon: 129.0333 }, { lat: 1.2833, lon: 103.85 })
+    expect(screen.getByText(/좌표 기반 추정 거리 — /)).toBeTruthy()
+    // 고른 항은 저장 이름(대문자 영문)으로 바뀐다 — 데모 시드와 같은 표기로 쌓인다.
+    expect((screen.getByLabelText('출발항') as HTMLInputElement).value).toBe('BUSAN')
+
+    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-10' } })
+    fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
+    fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '331' } })
+    fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    const draft = create.mock.calls[0][1]
+    expect(draft.departureCoord).toEqual({ lat: 35.1, lon: 129.0333 })
+    expect(draft.arrivalCoord).toEqual({ lat: 1.2833, lon: 103.85 })
+  })
+
+  it('거리를 고치면 추정값 표시를 내린다 — 사용자가 넣은 값은 추정이 아니다', async () => {
+    await openForm()
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'BUSAN' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'SINGAPORE' } })
+    fireEvent.click(await screen.findByRole('button', { name: '좌표 기반 추정 거리로 채우기' }))
+    await screen.findByText(/좌표 기반 추정 거리 — /)
+
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2600' } })
+
+    expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
+  })
+
+  it('목록에 없는 항은 자유 입력이다 — 좌표가 없고 추정 버튼도 없다', async () => {
+    await openForm()
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan New Port' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'SINGAPORE' } })
+
+    expect((screen.getByLabelText('출발항') as HTMLInputElement).value).toBe('Busan New Port')
+    expect(screen.queryByRole('button', { name: '좌표 기반 추정 거리로 채우기' })).toBeNull()
+  })
+
+  it('목록을 못 받아도 폼은 그대로 쓴다 — 목록은 편의다', async () => {
+    await openForm({ samplePorts: vi.fn(async () => Promise.reject(new Error('down'))) })
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
+
+    expect((screen.getByLabelText('출발항') as HTMLInputElement).value).toBe('Busan')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+

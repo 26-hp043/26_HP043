@@ -183,6 +183,25 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "meta.timestamp",
         }
     ),
+    # `API_SPEC §3.8` (#760) — 항차 입력이 출발·도착항의 이름·좌표를 채우는 샘플 항만
+    "/ports/samples": frozenset(
+        {
+            "data",
+            "data[].country_code",
+            "data[].lat",
+            "data[].locode",
+            "data[].lon",
+            "data[].name",
+            "data[].name_ko",
+            "meta",
+            "meta.request_id",
+            "meta.timestamp",
+        }
+    ),
+    # `API_SPEC §3.9` (#760) — 좌표 기반 추정 거리(부산 → 싱가포르)
+    "/ports/great-circle?from_lat=35.1&from_lon=129.0333&to_lat=1.2833&to_lon=103.85": frozenset(
+        {"data", "data.distance_nm", "data.method", "meta", "meta.request_id", "meta.timestamp"}
+    ),
     # `API_SPEC §2.1`
     "/vessels": frozenset(
         {

@@ -31,6 +31,7 @@ from cii_platform.api.routes.fleet import router as fleet_router
 from cii_platform.api.routes.health import router as health_router
 from cii_platform.api.routes.not_underway import router as not_underway_router
 from cii_platform.api.routes.parameters import router as parameters_router
+from cii_platform.api.routes.ports import router as ports_router
 from cii_platform.api.routes.reports import router as reports_router
 from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
@@ -147,6 +148,8 @@ app.include_router(health_router, prefix=API_V1_PREFIX)
 # #51 선박 조회 · #55 기능① 계산 · #57 기능② 시나리오 비교.
 app.include_router(vessels_router, prefix=API_V1_PREFIX)
 app.include_router(voyages_router, prefix=API_V1_PREFIX)
+# 샘플 항만 · 좌표 기반 추정 거리 (#760 · API_SPEC §3.8 · §3.9)
+app.include_router(ports_router, prefix=API_V1_PREFIX)
 app.include_router(calculations_router, prefix=API_V1_PREFIX)
 app.include_router(scenarios_router, prefix=API_V1_PREFIX)
 # #350 선대 요약 — 대시보드가 한 번의 호출로 선대 전체 현황을 받는다.

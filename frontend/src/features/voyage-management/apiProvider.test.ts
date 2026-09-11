@@ -446,3 +446,54 @@ describe('exportData — API_SPEC §8.1', () => {
     ).rejects.toBeInstanceOf(VoyageError)
   })
 })
+
+/**
+ * 샘플 항만 · 좌표 기반 추정 거리 (`API_SPEC §3.8` · `§3.9` · #760).
+ */
+describe('샘플 항만 (#760)', () => {
+  const PORT = { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 }
+
+  it('목록을 받는다', async () => {
+    const fetchMock = fakeFetch({ '/ports/samples': ok({ data: [PORT] }) })
+    expect(await createApiVoyageManagementProvider(fetchMock, '').samplePorts()).toEqual([PORT])
+  })
+
+  it('모양이 계약과 다르면 던진다 — 「없다」와 「못 받았다」를 구분한다', async () => {
+    const fetchMock = fakeFetch({ '/ports/samples': ok({ data: [{ name: 'BUSAN' }] }) })
+    await expect(createApiVoyageManagementProvider(fetchMock, '').samplePorts()).rejects.toThrow(
+      '계약과 다릅니다',
+    )
+  })
+
+  it('추정 거리는 네 좌표를 쿼리로 보내고 distance_nm을 읽는다', async () => {
+    const fetchMock = fakeFetch({
+      '/ports/great-circle': ok({ data: { distance_nm: 2470.2, method: 'GREAT_CIRCLE' } }),
+    })
+    const distance = await createApiVoyageManagementProvider(fetchMock, '').greatCircle(
+      { lat: 35.1, lon: 129.0333 },
+      { lat: 1.2833, lon: 103.85 },
+    )
+
+    expect(distance).toBe(2470.2)
+    const url = String((fetchMock as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0])
+    expect(url).toContain('from_lat=35.1')
+    expect(url).toContain('to_lon=103.85')
+  })
+
+  it('항차를 만들 때 고른 항의 좌표를 싣고, 자유 입력이면 좌표 키를 넣지 않는다', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    const provider = createApiVoyageManagementProvider(fetchMock, '')
+
+    await provider.create('v-1', {
+      ...DRAFT,
+      departureCoord: { lat: 35.1, lon: 129.0333 },
+      arrivalCoord: null,
+    })
+
+    const sent = bodyOf(fetchMock)
+    expect(sent.departure_lat).toBe(35.1)
+    expect(sent.departure_lon).toBe(129.0333)
+    expect(sent).not.toHaveProperty('arrival_lat')
+  })
+})
+

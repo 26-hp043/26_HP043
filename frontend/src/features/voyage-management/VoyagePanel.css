@@ -450,6 +450,28 @@
   border-color: var(--color-border-strong);
 }
 
+/* 좌표 기반 추정 거리 채우기 (#760) — 연료 줄 추가와 같은 보조 버튼 무게. 개발 임시안. */
+.vy__estimate {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.vy__estimate:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+}
+
+.vy__estimate:disabled {
+  color: var(--color-text-disabled);
+  cursor: progress;
+}
+
 /* 구간 삭제(`vy__danger`)보다 작게 둔다 — 같은 크기면 무게가 같게 읽힌다. */
 .vy__fuel-remove {
   padding: 2px 8px;

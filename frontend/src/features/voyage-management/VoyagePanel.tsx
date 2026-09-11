@@ -18,6 +18,13 @@ import {
   validateDraft,
 } from './voyageRules'
 import type { FieldErrors } from './voyageRules'
+import {
+  ESTIMATED_DISTANCE_HINT,
+  distanceInput,
+  matchSamplePort,
+  portOptionLabel,
+  type SamplePort,
+} from './samplePorts'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageFuelDraft } from './types'
 import './VoyagePanel.css'
 import { ErrorState } from '../../components/ErrorState'
@@ -147,6 +154,7 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
 
       {formOpen ? (
         <VoyageForm
+          api={api}
           fuelTypes={fuelTypes}
           onCancel={() => setFormOpen(false)}
           onSubmit={async (draft) => {
@@ -341,10 +349,12 @@ function VoyageRow({
 }
 
 function VoyageForm({
+  api,
   fuelTypes,
   onCancel,
   onSubmit,
 }: {
+  api: VoyageManagementProvider
   fuelTypes: string[]
   onCancel: () => void
   onSubmit: (draft: VoyageDraft) => Promise<void>
@@ -363,9 +373,61 @@ function VoyageForm({
   const [errors, setErrors] = useState<FieldErrors>({})
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  /*
+   * 샘플 항만 (#760 · `PRD §15.1`). 못 받아도 폼은 그대로 쓴다 — 목록은 편의이고 항만명은
+   * 자유 입력이다. 그래서 실패를 폼 오류로 올리지 않고 선택지만 비운다.
+   */
+  const [ports, setPorts] = useState<SamplePort[]>([])
+  /** 계획 거리 칸이 **좌표 기반 추정 거리**로 채워졌는가 — 사용자가 고치면 내린다. */
+  const [estimated, setEstimated] = useState(false)
+  const [estimating, setEstimating] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    api
+      .samplePorts()
+      .then((rows) => {
+        if (alive) setPorts(rows)
+      })
+      .catch(() => {
+        if (alive) setPorts([])
+      })
+    return () => {
+      alive = false
+    }
+    // api는 렌더마다 새로 만들어질 수 있다 — 폼이 열릴 때 한 번만 받는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const set = (key: keyof VoyageDraft) => (value: string) =>
     setDraft((prev) => ({ ...prev, [key]: value }))
+
+  /** 항만명 칸 — 목록의 항과 **정확히** 같으면 좌표를 붙이고, 아니면 좌표를 뗀다. */
+  const setPort = (side: 'departure' | 'arrival') => (value: string) => {
+    const match = matchSamplePort(ports, value)
+    const coord = match ? { lat: match.lat, lon: match.lon } : null
+    setDraft((prev) =>
+      side === 'departure'
+        ? { ...prev, departurePortName: match ? match.name : value, departureCoord: coord }
+        : { ...prev, arrivalPortName: match ? match.name : value, arrivalCoord: coord },
+    )
+  }
+
+  const canEstimate = Boolean(draft.departureCoord && draft.arrivalCoord)
+
+  const estimateDistance = async () => {
+    if (!draft.departureCoord || !draft.arrivalCoord || estimating) return
+    setEstimating(true)
+    try {
+      const distance = await api.greatCircle(draft.departureCoord, draft.arrivalCoord)
+      setDraft((prev) => ({ ...prev, plannedDistanceNm: distanceInput(distance) }))
+      setEstimated(true)
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : '추정 거리를 받지 못했습니다.')
+    } finally {
+      setEstimating(false)
+    }
+  }
 
   /** 연료 한 줄의 필드를 바꾼다 (`#636`). */
   const setFuel = (index: number, patch: Partial<VoyageFuelDraft>) =>
@@ -428,9 +490,31 @@ function VoyageForm({
       ) : null}
 
       <Field id="vy-no" label="항차 번호" value={draft.voyageNo} onChange={set('voyageNo')} error={errors.voyageNo} />
-      <Field id="vy-from" label="출발항" value={draft.departurePortName} onChange={set('departurePortName')} error={errors.departurePortName} />
-      <Field id="vy-to" label="도착항" value={draft.arrivalPortName} onChange={set('arrivalPortName')} error={errors.arrivalPortName} />
-      <Field id="vy-dist" label={`계획 거리 (${DISPLAY_UNITS.distance})`} value={draft.plannedDistanceNm} onChange={set('plannedDistanceNm')} error={errors.plannedDistanceNm} inputMode="decimal" />
+      {/* 샘플 항만 선택지 (#760) — 자유 입력과 함께 쓴다(`PRD §20 O-11`). */}
+      <datalist id="vy-ports">
+        {ports.map((port) => (
+          <option key={port.locode} value={port.name} label={portOptionLabel(port)} />
+        ))}
+      </datalist>
+      <Field id="vy-from" label="출발항" value={draft.departurePortName} onChange={setPort('departure')} error={errors.departurePortName} list="vy-ports" hint={draft.departureCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined} />
+      <Field id="vy-to" label="도착항" value={draft.arrivalPortName} onChange={setPort('arrival')} error={errors.arrivalPortName} list="vy-ports" hint={draft.arrivalCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined} />
+      <Field
+        id="vy-dist"
+        label={`계획 거리 (${DISPLAY_UNITS.distance})`}
+        value={draft.plannedDistanceNm}
+        onChange={(value) => {
+          setEstimated(false) // 사용자가 고친 값은 추정값이 아니다
+          set('plannedDistanceNm')(value)
+        }}
+        error={errors.plannedDistanceNm}
+        inputMode="decimal"
+        hint={estimated ? ESTIMATED_DISTANCE_HINT : undefined}
+      />
+      {canEstimate ? (
+        <button type="button" className="vy__estimate" onClick={estimateDistance} disabled={estimating}>
+          {estimating ? '추정 거리를 계산하는 중…' : '좌표 기반 추정 거리로 채우기'}
+        </button>
+      ) : null}
       <Field id="vy-speed" label={`계획 속력 (${DISPLAY_UNITS.speed})`} value={draft.plannedSpeedKn} onChange={set('plannedSpeedKn')} error={errors.plannedSpeedKn} inputMode="decimal" />
       {/*
         계획 출항·도착 시각 (`#873`).
@@ -740,6 +824,7 @@ function Field({
   hint,
   inputMode,
   type = 'text',
+  list,
 }: {
   id: string
   label: string
@@ -748,6 +833,8 @@ function Field({
   error?: string
   hint?: string
   inputMode?: 'decimal' | 'numeric'
+  /** 선택지(`<datalist>`)의 id — 자유 입력을 막지 않고 제안만 한다 (#760). */
+  list?: string
   /**
    * `datetime-local`을 쓰는 칸이 생겼다 (`#873`).
    *
@@ -772,6 +859,7 @@ function Field({
         type={type}
         value={value}
         inputMode={inputMode}
+        list={list}
         onChange={(event) => onChange(event.target.value)}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy || undefined}
