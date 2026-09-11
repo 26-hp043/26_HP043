@@ -27,6 +27,8 @@ ERROR_HTTP_STATUS: dict[str, int] = {
     "CSRF_ERROR": 403,  # API_SPEC §1.4: CSRF 토큰 누락·불일치 (#275)
     "NOT_FOUND": 404,  # API_SPEC §1.4: 존재하지 않는 리소스 ID
     "PARAMETER_ERROR": 409,  # TECH_SPEC §12.1: 규정 파라미터 누락/불일치
+    # TECH_SPEC §12.1: 재현 시 환경(model_version)이 원본과 다르고 결과도 다름 (#833)
+    "MODEL_VERSION_MISMATCH": 409,
     "CONFLICT": 409,  # API_SPEC §1.4: 리소스 중복 (동일 IMO 재등록 등)
     "VALIDATION_ERROR": 422,  # TECH_SPEC §12.1: VAL-001~010 위반
     "CALCULATION_ERROR": 422,  # TECH_SPEC §12.1: 분모 0, overflow, 유효하지 않은 결과
@@ -162,6 +164,25 @@ class ReproducibilityError(AppError):
 
     def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
         super().__init__("REPRODUCIBILITY_ERROR", message, details=details)
+
+
+class ModelVersionMismatchError(AppError):
+    """원본과 다른 환경에서 재현했고 결과가 달랐다 (TECH_SPEC §12.1 · §10.3). HTTP 409.
+
+    ``TECH_SPEC §5.4`` 1항은 **같은 ``model_version``**일 때만 같은 결과를 약속한다.
+    NumPy·엔진·정밀도가 달라진 뒤의 재현은 그 약속 밖이라, 값이 달라도 **계약이 깨진
+    것이 아니다** — 「NumPy 2.1.0에서 만든 실행을 2.3.0에서 돌렸더니 난수열이 달랐다」는
+    설명 가능한 변화다(``NEP 19``).
+
+    그래서 ``REPRODUCIBILITY_ERROR``(500)가 아니라 409다. 500은 「같은 환경인데 값이
+    다르다 = 계산이 깨졌다」라 관리자가 조사할 일이고, 이쪽은 「환경이 바뀌었으니 새로
+    실행하라」다(`#833`). 둘을 한 코드로 묶으면 **환경 업그레이드가 계산 결함으로 보고**된다.
+
+    ``details``에 어느 필드가 달랐는지(``stored`` · ``current``)를 싣는다.
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("MODEL_VERSION_MISMATCH", message, details=details)
 
 
 class WeatherFetchError(AppError):

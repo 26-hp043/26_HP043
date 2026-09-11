@@ -178,6 +178,9 @@ WARNING_LABELS: dict[str, str] = {
         "잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. "
         "예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다."
     ),
+    "MODEL_VERSION_DIFFERS": (
+        "원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다."
+    ),
 }
 
 #: 연말 예상을 내지 못한 사유 — 화면(``realtimeRules.ts`` ``PROJECTION_REASONS``)과 같은 값.

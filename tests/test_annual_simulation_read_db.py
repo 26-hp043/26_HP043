@@ -27,11 +27,18 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.calc.hash import compute_parameter_hash
-from cii_platform.errors import NotFoundError, ParameterError, ReproducibilityError
+from cii_platform.errors import (
+    ModelVersionMismatchError,
+    NotFoundError,
+    ParameterError,
+    ReproducibilityError,
+)
 from cii_platform.services import annual_simulation as annual_simulation_service
 from cii_platform.services.annual_simulation import (
     PARAMETERS_SCHEMA_V1,
+    WARNING_MODEL_VERSION_DIFFERS,
     _assert_same_outcome,
+    _model_version_diff,
     build_parameters_used,
     get_annual_simulation,
     list_snapshot_voyages,
@@ -539,16 +546,107 @@ async def _count_runs(session, vessel_id) -> int:
 
 
 def test_error_codes_match_the_spec_status_table():
-    """`API_SPEC §6.4` 오류 표 — 409 `PARAMETER_ERROR` · 500 `REPRODUCIBILITY_ERROR`.
+    """`API_SPEC §6.4` 오류 표 — 409 `PARAMETER_ERROR` · 409 `MODEL_VERSION_MISMATCH` ·
+    500 `REPRODUCIBILITY_ERROR`.
 
     서비스가 올바른 예외를 던져도 **상태 코드 매핑이 없으면 500으로 뭉개진다.**
-    두 실패는 사용자가 할 일이 다르므로(새로 실행 vs 관리자 문의) 코드가 갈려야 한다.
+    세 실패는 사용자가 할 일이 다르므로(새로 실행 vs 새 환경에서 새로 실행 vs 관리자
+    문의) 코드가 갈려야 한다.
     """
     from cii_platform.errors import ERROR_HTTP_STATUS
 
     assert ERROR_HTTP_STATUS[ParameterError("x").code] == 409
+    assert ERROR_HTTP_STATUS[ModelVersionMismatchError("x").code] == 409
     assert ERROR_HTTP_STATUS[ReproducibilityError("x").code] == 500
-    assert ParameterError("x").code != ReproducibilityError("x").code
+    codes = {
+        ParameterError("x").code,
+        ModelVersionMismatchError("x").code,
+        ReproducibilityError("x").code,
+    }
+    assert len(codes) == 3
+
+
+# ── model_version — 재현성 계약의 셋째 조건 (#833 · TECH_SPEC §5.4 1항) ─────────
+
+
+def _foreign_environment(monkeypatch, stored_version: dict) -> dict:
+    """지금 환경의 ``model_version``을 **NumPy만 다른** 값으로 바꾼다 (`§10.2` 업그레이드)."""
+    changed = {**stored_version, "numpy_version": "9.9.9"}
+    monkeypatch.setattr(annual_simulation_service, "_model_version", lambda: changed)
+    return changed
+
+
+@pytest.mark.asyncio
+async def test_reproduce_warns_when_the_environment_differs_but_the_result_matches(
+    session, executed, monkeypatch
+):
+    """환경이 달라도 값이 같으면 재현은 성공이다 — 다만 그 사실을 경고로 남긴다.
+
+    NumPy 마이너 업그레이드 뒤에도 값은 대개 같다(`§10.2`). 거절하면 사용자가 확인하려던
+    것을 못 하고, 조용히 통과시키면 환경이 바뀐 뒤 처음 값이 갈리는 순간이 「갑자기
+    깨졌다」로 보인다.
+    """
+    _foreign_environment(monkeypatch, executed["model_version"])
+
+    result = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+    assert WARNING_MODEL_VERSION_DIFFERS in result["warnings"]
+    # 응답의 model_version은 여전히 **저장된 것**이다 — 원본이 어느 환경에서 돌았는지가 뜻이다.
+    assert result["model_version"] == executed["model_version"]
+
+
+@pytest.mark.asyncio
+async def test_reproduce_gives_409_not_500_when_environment_and_result_both_differ(
+    session, executed, monkeypatch
+):
+    """`API_SPEC §6.4` — 409 `MODEL_VERSION_MISMATCH`.
+
+    종전에는 이 경우도 500 `REPRODUCIBILITY_ERROR`였다 — 원인은 환경 변화인데
+    「우리 계산이 깨졌다」로 보고됐다(`#833`). 어느 필드가 달랐는지를 ``details``에 싣는다.
+    """
+    _foreign_environment(monkeypatch, executed["model_version"])
+
+    def _drift(stored, reproduced):
+        raise ReproducibilityError("재현 결과가 원본과 다릅니다(p50).")
+
+    monkeypatch.setattr(annual_simulation_service, "_assert_same_outcome", _drift)
+
+    with pytest.raises(ModelVersionMismatchError) as exc:
+        await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+    assert exc.value.details == [
+        {
+            "field": "numpy_version",
+            "stored": executed["model_version"]["numpy_version"],
+            "current": "9.9.9",
+        }
+    ]
+    assert "계산 결함이 아닙니다" in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_reproduce_keeps_500_when_the_environment_is_the_same_and_the_result_differs(
+    session, executed, monkeypatch
+):
+    """같은 환경에서 값이 다르면 여전히 재현성 계약 위반(500)이다 — 409로 눌러 감추지 않는다."""
+
+    def _drift(stored, reproduced):
+        raise ReproducibilityError("재현 결과가 원본과 다릅니다(p50).")
+
+    monkeypatch.setattr(annual_simulation_service, "_assert_same_outcome", _drift)
+
+    with pytest.raises(ReproducibilityError):
+        await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+
+def test_model_version_diff_compares_every_field_and_treats_missing_as_different():
+    """여섯 필드 전부를 본다. 저장값이 비면(기록 이전 실행) 전부 다른 것으로 본다."""
+    current = {"engine": "e", "numpy_version": "2.1.0", "python_version": "3.12.4"}
+    assert _model_version_diff(current, current) == []
+    assert _model_version_diff({**current, "python_version": "3.12.5"}, current) == [
+        {"field": "python_version", "stored": "3.12.5", "current": "3.12.4"}
+    ]
+    assert {d["field"] for d in _model_version_diff({}, current)} == set(current)
 
 
 def test_the_three_routes_are_registered():

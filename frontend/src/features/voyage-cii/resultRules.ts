@@ -201,6 +201,10 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
     '잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다.',
   SIMULATION_NO_REFERENCE_SPEED:
     '기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요.',
+  // `#833` — 재현(§6.4)을 원본과 다른 환경에서 돌렸는데 결과는 같았다. 값이 달랐다면
+  // 경고가 아니라 409 `MODEL_VERSION_MISMATCH`다.
+  MODEL_VERSION_DIFFERS:
+    '원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다.',
 }
 
 export function warningMessage(code: string): string {
