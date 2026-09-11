@@ -59,6 +59,90 @@ def require_disposable_target() -> None:
     """
     if not is_disposable(TEST_DATABASE_URL):
         pytest.fail(refusal_reason(TEST_DATABASE_URL), pytrace=False)
+    _hold_suite_lock()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 실행 단위 잠금 (#894)
+#
+# 스위트 두 개가 같은 테스트 DB를 동시에 쓰면 서로의 행을 지우고(전역 DELETE·UPDATE로
+# 정리하는 검사들) 스키마까지 내린다(`test_zz_roundtrip.py`). 2026-09-09에 세 번 겪었고,
+# 증상은 「220 failed」라 **원인이 아니라 내 수정을 의심하게 된다.**
+#
+# 병렬을 가능하게 하는 것이 아니라 **겹친 순간 원인을 말하며 멈추게** 한다. 실제 병렬
+# 수요가 생기면 템플릿 DB 복제(`CREATE DATABASE … TEMPLATE`)로 간다.
+#
+# `#691`의 판정(대상이 버려도 되는 DB인가)과 층이 다르다 — 이쪽은 **지금 누가 그 DB를
+# 쓰는가**다. 둘 다 「DB를 여는 자리」에서 확인하므로 같은 함수에 붙였다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: 잠금 키. 어드바이저리 잠금은 **데이터베이스 단위**라 다른 DB(시연 `cii`)와 섞이지 않는다.
+SUITE_LOCK_KEY = 894_000_001
+
+#: 잠금을 쥔 연결과 그 이벤트 루프. 프로세스가 끝나면 연결이 끊겨 잠금도 풀린다 —
+#: 실행이 강제 종료돼도 잠금이 남지 않는다.
+_suite_lock: dict[str, object] = {}
+
+SUITE_LOCK_MESSAGE = (
+    "다른 pytest 실행이 이 테스트 DB를 쓰고 있습니다 ({db}). "
+    "두 실행이 겹치면 서로의 데이터를 지우고 스키마까지 내립니다(#894). "
+    "앞 실행이 끝난 뒤 다시 돌리십시오."
+)
+
+
+def _plain_dsn(url: str) -> str:
+    """SQLAlchemy URL(``postgresql+asyncpg://``)을 asyncpg가 받는 형태로 바꾼다."""
+    return url.replace("postgresql+asyncpg://", "postgresql://", 1)
+
+
+def _hold_suite_lock() -> None:
+    """이 프로세스가 테스트 DB의 실행 잠금을 쥔다. 이미 누가 쥐고 있으면 즉시 멈춘다.
+
+    **한 번만 잡는다** — DB를 여는 fixture마다 불리지만 두 번째부터는 아무것도 하지
+    않는다. 잠금은 **전용 연결**에 걸어 세션 내내 쥔다(테스트의 연결은 수시로 열고
+    닫히므로 거기 걸면 곧 풀린다).
+
+    DB에 닿지 못하면 잠그지 않는다 — 그 경우는 뒤따르는 fixture가 원래의 오류로
+    알린다. 이 함수가 연결 실패를 대신 보고하면 원인이 가려진다.
+    """
+    if _suite_lock:
+        return
+
+    import asyncio
+
+    import asyncpg
+
+    loop = asyncio.new_event_loop()
+    try:
+        connection = loop.run_until_complete(asyncpg.connect(_plain_dsn(TEST_DATABASE_URL)))
+    except (OSError, asyncpg.PostgresError):
+        loop.close()
+        return
+    acquired = loop.run_until_complete(
+        connection.fetchval("SELECT pg_try_advisory_lock($1)", SUITE_LOCK_KEY)
+    )
+    if not acquired:
+        loop.run_until_complete(connection.close())
+        loop.close()
+        database = TEST_DATABASE_URL.rsplit("/", 1)[-1]
+        pytest.exit(SUITE_LOCK_MESSAGE.format(db=database), returncode=3)
+    _suite_lock.update(loop=loop, connection=connection)
+
+
+def _release_suite_lock() -> None:
+    if not _suite_lock:
+        return
+    loop = _suite_lock.pop("loop")
+    connection = _suite_lock.pop("connection")
+    try:
+        loop.run_until_complete(connection.close())  # type: ignore[attr-defined]
+    finally:
+        loop.close()  # type: ignore[attr-defined]
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """세션이 끝나면 잠금을 푼다 — 연결을 닫으면 PostgreSQL이 잠금을 거둔다."""
+    _release_suite_lock()
 
 
 @pytest.fixture(autouse=True)
@@ -164,7 +248,7 @@ def migrated_db() -> None:
     require_disposable_target()
     result = run_alembic("upgrade", "head")
     if result.returncode != 0:
-        pytest.fail(f"alembic upgrade head 실패:\n{result.stdout}\n{result.stderr}")
+        pytest.fail(_upgrade_failure_message(result), pytrace=False)
 
     import asyncio
 
@@ -179,6 +263,26 @@ def migrated_db() -> None:
             await engine.dispose()
 
     asyncio.run(_seed())
+
+
+def _upgrade_failure_message(result: subprocess.CompletedProcess) -> str:
+    """``upgrade head`` 실패를 **DB가 어느 리비전에 남았는지**와 함께 알린다 (#894).
+
+    `test_zz_roundtrip.py`가 ``downgrade base``와 ``upgrade head`` 사이에서 끊기면 DB가
+    **중간 리비전에 남는다.** 그 상태에서 다음 실행은 잔존 데이터와 충돌해 실패하는데,
+    alembic 원문만으로는 「이전 실행이 중간에 끊겼다」가 읽히지 않는다(2026-09-09 실측:
+    ``017``·테이블 15개로 남았고 복구 절차를 찾는 데 시간이 들었다).
+    """
+    current = run_alembic("current")
+    revision = (current.stdout.strip().split() or ["(없음)"])[0]
+    return (
+        "alembic upgrade head 실패 — 테스트 DB가 리비전 "
+        f"{revision}에 남아 있습니다.\n"
+        "이전 실행의 왕복 검사(test_zz_roundtrip.py)가 중간에 끊긴 흔적일 수 있습니다. "
+        "복구: 테스트 DB를 지우고 다시 만든 뒤 `alembic upgrade head` "
+        "(README 「테스트 DB 복구」).\n\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
 
 
 @pytest_asyncio.fixture
