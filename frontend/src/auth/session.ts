@@ -292,6 +292,12 @@ function requireUser(body: unknown, status: number): CurrentUser {
 export const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.'
 
 /**
+ * 자격 증명이 틀렸다는 서버 코드 — 세션 문제(`UNAUTHORIZED`)와 다르다 (`API_SPEC §1.4` · #902).
+ * 로그인 실패와 비밀번호 변경의 현재 비밀번호 오입력이 쓴다.
+ */
+const INVALID_CREDENTIALS_CODE = 'INVALID_CREDENTIALS'
+
+/**
  * 세션이 만료된 요청을 끝낸다 — **캐시를 비우고 로그인 화면으로 보낸 뒤 던진다**
  * (`#878`).
  *
@@ -598,35 +604,22 @@ export async function changePassword(
 
   const body = (await response.json().catch(() => null)) as {
     data?: { message?: string }
-    error?: { message?: string }
+    error?: { code?: string; message?: string }
   } | null
 
   /*
-   * 401 하나에 두 사유가 섞여 있다 (`#878`).
+   * 401의 두 사유를 **코드로** 가른다 (`#902`).
    *
-   * ## 실측 — `code`로는 가를 수 없다
+   * 서버는 현재 비밀번호 오입력에 `INVALID_CREDENTIALS`를, 세션 문제에 `UNAUTHORIZED`를
+   * 쓴다(`API_SPEC §1.4`). 종전에는 둘 다 `UNAUTHORIZED`라 `#878`이 `GET /auth/me`로 세션을
+   * 한 번 더 확인해 갈랐다 — 서버가 코드를 가르면서 그 요청이 사라졌다.
    *
-   * ```
-   * 세션 만료   {"code":"UNAUTHORIZED","message":"인증이 필요합니다."}
-   * 비번 오입력 {"code":"UNAUTHORIZED","message":"현재 비밀번호가 올바르지 않습니다."}
-   * ```
-   *
-   * 이슈 본문은 「서버 응답의 code로」 가르라고 적었으나 **두 응답의 `code`가 같다.**
-   * `API_SPEC:194`는 `UNAUTHORIZED`를 「세션 없음·만료·무효」로 정의하므로 비밀번호
-   * 오입력에 그 코드를 쓰는 것 자체가 정본과 어긋나는데(`#902`), 그 수정은 서버 몫이다.
-   *
-   * ## 문구로 가르지 않는다
-   *
-   * 문구 대조는 서버가 한 글자만 고쳐도 조용히 깨지고, 그 실패는 **세션이 만료됐는데
-   * 폼에 머무는** 방향이라 사용자가 갇힌다. 대신 **세션이 실제로 살아 있는지 직접
-   * 확인한다** — 비밀번호가 틀린 것뿐이라면 `GET /auth/me`는 200이다.
-   *
-   * 요청 한 번이 더 드는 것은 **실패 경로에서만**이고, 그 대가로 판정이 서버 문구에
-   * 의존하지 않는다. 성공 경로는 건드리지 않는다.
+   * **모르는 코드·코드 없는 401은 만료로 본다.** 폼에 머무는 쪽으로 틀리면 사용자가 갇히고
+   * (어떤 동작도 401), 로그인 화면으로 틀리면 다시 로그인하면 된다. 문구로 가르지 않는다 —
+   * 서버가 한 글자만 고쳐도 조용히 깨진다.
    */
-  if (response.status === 401) {
-    const alive = await probeCurrentUser(fetchImpl)
-    if (alive === null) failExpiredSession()
+  if (response.status === 401 && body?.error?.code !== INVALID_CREDENTIALS_CODE) {
+    failExpiredSession()
   }
 
   if (!response.ok) {

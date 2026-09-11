@@ -387,61 +387,79 @@ describe('세션 만료(401)를 설정 화면 동작이 스스로 처리한다 (
 })
 
 /**
- * 비밀번호 변경의 401은 두 사유가 섞여 있다 (#878).
- *
- * 실측 — **`code`가 같다.**
+ * 비밀번호 변경의 401을 **코드로** 가른다 (#902 — 종전 #878은 세션을 한 번 더 조회했다).
  *
  * ```
  * 세션 만료   {"code":"UNAUTHORIZED","message":"인증이 필요합니다."}
- * 비번 오입력 {"code":"UNAUTHORIZED","message":"현재 비밀번호가 올바르지 않습니다."}
+ * 비번 오입력 {"code":"INVALID_CREDENTIALS","message":"현재 비밀번호가 올바르지 않습니다.",
+ *              "details":[{"field":"current_password", …}]}
  * ```
- *
- * 그래서 문구가 아니라 **세션이 실제로 살아 있는지**로 가른다.
  */
-describe('비밀번호 변경의 401을 사유별로 가른다 (#878)', () => {
-  /** `POST /auth/password-change`는 401, `GET /auth/me`는 주어진 응답을 낸다. */
-  function passwordChangeThen(meResponse: Response) {
-    return vi.fn(async (url: unknown) =>
-      String(url).includes('/auth/me')
-        ? meResponse
-        : jsonResponse({ error: { code: 'UNAUTHORIZED', message: '…' } }, 401),
-    ) as unknown as typeof fetch
-  }
-
-  it('세션이 죽었으면 만료로 처리한다 — 캐시를 비운다', async () => {
+describe('비밀번호 변경의 401을 코드로 가른다 (#902)', () => {
+  it('세션 문제(UNAUTHORIZED)면 만료로 처리한다 — 추가 조회 없이', async () => {
     await probeCurrentUser(async () => ME_OK)
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: { code: 'UNAUTHORIZED', message: '인증이 필요합니다.' } }, 401),
+    )
 
     await expect(
-      changePassword('현재비밀번호1!', '새비밀번호2@', passwordChangeThen(jsonResponse(null, 401))),
+      changePassword('현재비밀번호1!', '새비밀번호2@', fetchImpl as unknown as typeof fetch),
     ).rejects.toThrow(SESSION_EXPIRED_MESSAGE)
 
     expect(getCachedUser()).toBeNull()
+    expect(fetchImpl).toHaveBeenCalledTimes(1) // 종전에는 GET /auth/me가 한 번 더 나갔다
   })
 
-  it('세션이 살아 있으면 비밀번호 오입력이다 — 서버 문구를 폼에 남긴다', async () => {
+  it('자격 증명 오류(INVALID_CREDENTIALS)면 폼에 남긴다 — 칸을 짚은 채로', async () => {
     await probeCurrentUser(async () => ME_OK)
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        {
+          error: {
+            code: 'INVALID_CREDENTIALS',
+            message: '현재 비밀번호가 올바르지 않습니다.',
+            details: [
+              {
+                field: 'current_password',
+                field_label: '현재 비밀번호',
+                message: '현재 비밀번호가 올바르지 않습니다.',
+              },
+            ],
+          },
+        },
+        401,
+      ),
+    )
 
-    const fetchImpl = vi.fn(async (url: unknown) =>
-      String(url).includes('/auth/me')
-        ? ME_OK
-        : jsonResponse(
-            { error: { code: 'UNAUTHORIZED', message: '현재 비밀번호가 올바르지 않습니다.' } },
-            401,
-          ),
-    ) as unknown as typeof fetch
+    const error = (await changePassword(
+      '틀린비밀번호1!',
+      '새비밀번호2@',
+      fetchImpl as unknown as typeof fetch,
+    ).catch((e: unknown) => e)) as AuthRequestError
 
-    await expect(
-      changePassword('틀린비밀번호1!', '새비밀번호2@', fetchImpl),
-    ).rejects.toThrow('현재 비밀번호가 올바르지 않습니다.')
-
+    expect(error).toBeInstanceOf(AuthRequestError)
+    expect(error.fieldErrors).toEqual({ current_password: '현재 비밀번호가 올바르지 않습니다.' })
     /*
      * ⚠️ 여기서 캐시가 비워지면 **비밀번호를 잘못 친 것만으로 로그아웃**된다.
      * 종전 결함의 정반대 방향 판본이라 함께 못 박는다.
      */
     expect(getCachedUser()).not.toBeNull()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('세션 확인은 실패 경로에서만 한다 — 성공하면 추가 요청이 없다', async () => {
+  it('코드 없는 401은 만료로 본다 — 폼에 갇히는 쪽으로 틀리지 않는다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      changePassword(
+        '현재비밀번호1!',
+        '새비밀번호2@',
+        (async () => jsonResponse(null, 401)) as unknown as typeof fetch,
+      ),
+    ).rejects.toThrow(SESSION_EXPIRED_MESSAGE)
+  })
+
+  it('성공하면 요청은 한 번이다', async () => {
     await probeCurrentUser(async () => ME_OK)
 
     const fetchImpl = vi.fn(async () =>
@@ -491,13 +509,12 @@ describe('비밀번호 변경 후 캐시를 비운다 (#825 ⑷)', () => {
   it('실패하면 캐시를 건드리지 않는다 — 비밀번호를 잘못 친 것만으로 로그아웃되지 않는다', async () => {
     await probeCurrentUser(async () => ME_OK)
 
-    const fetchImpl = vi.fn(async (url: unknown) =>
-      String(url).includes('/auth/me')
-        ? ME_OK
-        : jsonResponse(
-            { error: { code: 'UNAUTHORIZED', message: '현재 비밀번호가 올바르지 않습니다.' } },
-            401,
-          ),
+    // 서버는 현재 비밀번호 오입력에 `INVALID_CREDENTIALS`를 쓴다 (#902).
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        { error: { code: 'INVALID_CREDENTIALS', message: '현재 비밀번호가 올바르지 않습니다.' } },
+        401,
+      ),
     ) as unknown as typeof fetch
 
     await expect(

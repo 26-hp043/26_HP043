@@ -154,11 +154,35 @@ class TestPasswordChange:
                 headers=_csrf_headers(client),
             )
             assert resp.status_code == 401, resp.text
+            # 세션 만료와 **다른 코드**이고, 어느 칸이 틀렸는지 짚는다 (#902 · #877).
+            error = resp.json()["error"]
+            assert error["code"] == "INVALID_CREDENTIALS"
+            assert error["details"] == [
+                {
+                    "field": "current_password",
+                    "field_label": "현재 비밀번호",
+                    "message": "현재 비밀번호가 올바르지 않습니다.",
+                }
+            ]
 
             after = await _fetch_user(email)
             assert after["password_hash"] == before["password_hash"]
         finally:
             await _cleanup([email])
+
+    async def test_no_session_is_still_unauthorized(self, client):
+        """세션이 없으면 여전히 `UNAUTHORIZED`다 — **코드만으로** 두 사유가 갈린다 (#902).
+
+        종전에는 이 응답과 현재 비밀번호 오입력의 봉투가 같아, 화면이 세션을 한 번 더
+        조회해 갈라야 했다(`#878`).
+        """
+        client.cookies.clear()
+        resp = client.post(
+            "/api/v1/auth/password-change",
+            json={"current_password": "whatever-pass", "new_password": NEW_PASSWORD},
+        )
+        assert resp.status_code == 401, resp.text
+        assert resp.json()["error"]["code"] == "UNAUTHORIZED"
 
     async def test_current_password_is_checked_before_policy(self, client):
         """현재 비밀번호가 틀리면 **새 비밀번호 규칙을 알려 주지 않는다.**
