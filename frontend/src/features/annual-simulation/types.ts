@@ -147,4 +147,11 @@ export interface AnnualSimulationResult {
 /** provider 경계 — 화면은 이 인터페이스만 안다 (`#134`와 같은 모양). */
 export interface AnnualSimulationProvider {
   run(request: AnnualSimulationRequest): Promise<AnnualSimulationResult>
+  /**
+   * 저장된 실행을 **같은 스냅샷·같은 seed로** 다시 계산한다 (`API_SPEC §6.4` · #776).
+   *
+   * 새 실행이 아니라 **검증**이다 — 서버가 결과를 원본과 대조해 다르면 500을 내고,
+   * 식별자도 원본의 것을 돌려준다.
+   */
+  reproduce(simulationId: string): Promise<AnnualSimulationResult>
 }

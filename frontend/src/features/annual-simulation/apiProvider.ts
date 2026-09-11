@@ -6,7 +6,8 @@ import type {
 } from './types'
 
 /**
- * 기능③ 실 API provider — `POST /annual-simulations` (`API_SPEC §6.1`, #442).
+ * 기능③ 실 API provider — `POST /annual-simulations` (`API_SPEC §6.1`, #442) ·
+ * `POST /annual-simulations/{id}/reproduce` (`§6.4`, #776).
  *
  * ## 왜 이 파일이 늦게 생겼는가
  *
@@ -91,67 +92,78 @@ export function createApiAnnualSimulationProvider(
   const baseUrl = options.baseUrl ?? DEFAULT_API_BASE_URL
   const doFetch = options.fetchImpl ?? globalThis.fetch
 
+  /*
+   * `run`과 `reproduce`는 **같은 봉투**를 받는다(`API_SPEC §6.4` — 「§6.1의 응답과
+   * 동일」). 파싱을 한 곳에 두어 둘이 갈리지 않게 한다 — 봉투 규칙(`#752`)을 한쪽에만
+   * 고치면 재현 결과만 `calculation_run_id`가 빠진 채 화면에 닿는다.
+   */
+  async function post(path: string, body?: unknown): Promise<AnnualSimulationResult> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (options.apiKey) headers['X-API-Key'] = options.apiKey
+    // CSRF — 서버가 검증하는 것은 헤더뿐이다(`API_SPEC §1.2`).
+    Object.assign(headers, csrfHeaders())
+
+    let response: Response
+    try {
+      response = await doFetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      })
+    } catch (cause) {
+      // fetch는 네트워크 실패에서만 reject한다. HTTP 4xx·5xx는 정상 resolve다.
+      throw new AnnualSimulationError(NETWORK_ERROR_MESSAGE, undefined, { cause })
+    }
+
+    let parsed: unknown = null
+    try {
+      parsed = await response.json()
+    } catch {
+      parsed = null
+    }
+
+    if (response.status === 401) {
+      redirectToLogin()
+      throw new AnnualSimulationError(SESSION_EXPIRED_MESSAGE)
+    }
+    if (!response.ok) throw toAnnualSimulationError(response.status, parsed)
+
+    const envelope = parsed as {
+      data?: unknown
+      calculation_run_id?: unknown
+      warnings?: unknown
+    } | null
+    const data = envelope?.data
+    if (data === null || typeof data !== 'object') {
+      throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
+    }
+
+    // `calculation_run_id`와 `warnings`는 **`data` 밖**에 있다 (`API_SPEC §1.3.1`,
+    // `#752`). 기능①·②도 최상위로 낸다. 화면 타입(`AnnualSimulationResult`)은
+    // 그대로 두고 **여기서 합친다** — provider 경계가 이런 용도로 있다.
+    //
+    // 값이 없으면 던진다. 조용히 빈 배열·빈 문자열로 채우면 「경고가 없다」와
+    // 「경고를 받지 못했다」가 구분되지 않는데, 앞의 것은 정상이고 뒤의 것은 계약
+    // 위반이다.
+    const runId = envelope?.calculation_run_id
+    const warnings = envelope?.warnings
+    if (typeof runId !== 'string' || !Array.isArray(warnings)) {
+      throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
+    }
+
+    // Layer 1 값을 손대지 않고 그대로 넘긴다.
+    return {
+      ...(data as Omit<AnnualSimulationResult, 'calculation_run_id' | 'warnings'>),
+      calculation_run_id: runId,
+      warnings: warnings as string[],
+    }
+  }
+
   return {
-    async run(request: AnnualSimulationRequest): Promise<AnnualSimulationResult> {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (options.apiKey) headers['X-API-Key'] = options.apiKey
-      // CSRF — 서버가 검증하는 것은 헤더뿐이다(`API_SPEC §1.2`).
-      Object.assign(headers, csrfHeaders())
-
-      let response: Response
-      try {
-        response = await doFetch(`${baseUrl}/annual-simulations`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(request),
-        })
-      } catch (cause) {
-        // fetch는 네트워크 실패에서만 reject한다. HTTP 4xx·5xx는 정상 resolve다.
-        throw new AnnualSimulationError(NETWORK_ERROR_MESSAGE, undefined, { cause })
-      }
-
-      let body: unknown = null
-      try {
-        body = await response.json()
-      } catch {
-        body = null
-      }
-
-      if (response.status === 401) {
-        redirectToLogin()
-        throw new AnnualSimulationError(SESSION_EXPIRED_MESSAGE)
-      }
-      if (!response.ok) throw toAnnualSimulationError(response.status, body)
-
-      const envelope = body as {
-        data?: unknown
-        calculation_run_id?: unknown
-        warnings?: unknown
-      } | null
-      const data = envelope?.data
-      if (data === null || typeof data !== 'object') {
-        throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
-      }
-
-      // `calculation_run_id`와 `warnings`는 **`data` 밖**에 있다 (`API_SPEC §1.3.1`,
-      // `#752`). 기능①·②도 최상위로 낸다. 화면 타입(`AnnualSimulationResult`)은
-      // 그대로 두고 **여기서 합친다** — provider 경계가 이런 용도로 있다.
-      //
-      // 값이 없으면 던진다. 조용히 빈 배열·빈 문자열로 채우면 「경고가 없다」와
-      // 「경고를 받지 못했다」가 구분되지 않는데, 앞의 것은 정상이고 뒤의 것은 계약
-      // 위반이다.
-      const runId = envelope?.calculation_run_id
-      const warnings = envelope?.warnings
-      if (typeof runId !== 'string' || !Array.isArray(warnings)) {
-        throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
-      }
-
-      // Layer 1 값을 손대지 않고 그대로 넘긴다.
-      return {
-        ...(data as Omit<AnnualSimulationResult, 'calculation_run_id' | 'warnings'>),
-        calculation_run_id: runId,
-        warnings: warnings as string[],
-      }
-    },
+    run: (request: AnnualSimulationRequest) => post('/annual-simulations', request),
+    // 본문이 없다 — 조건은 서버가 원본 실행에서 읽는다(`API_SPEC §6.4`). 화면이 조건을
+    // 다시 보내면 폼을 고친 뒤 누른 경우 **원본이 아닌 조건**으로 재현을 시도하게 된다.
+    reproduce: (simulationId: string) =>
+      post(`/annual-simulations/${encodeURIComponent(simulationId)}/reproduce`),
   }
 }
