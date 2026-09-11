@@ -31,14 +31,9 @@
 
 .page-head__title {
   /*
-   * `§3`의 자간 조임값. 종전에는 `.fleet__title`·`.rp__title`이 각자 이 줄을
-   * 갖고 있었고 나머지 화면에는 없었다 — 제목이 화면마다 다르게 조여 있었다.
-   *
-   * 원칙적으로는 `global.css`의 `h1`에 두는 것이 맞다(`§3`은 크기가 아니라
-   * **display 급 제목**에 조임을 건다). 그러면 인증 화면·드릴다운 화면의 제목도
-   * 함께 바뀌므로 **별건으로 둔다** — 이 PR은 화면 제목만 다룬다.
+   * `§3`의 자간 조임은 `global.css`의 `h1`이 건다 (#749). 종전에는 이 자리에 있었고
+   * `.fleet__title`·`.rp__title`이 각자 갖던 것을 `#709`가 여기로 모았다.
    */
-  letter-spacing: var(--letterSpacing-tight);
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;

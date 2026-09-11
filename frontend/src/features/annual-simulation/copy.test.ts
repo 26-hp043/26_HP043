@@ -1,22 +1,39 @@
 import { describe, expect, it } from 'vitest'
 import { ANNUAL_COPY, FORBIDDEN_PHRASES } from './copy'
+import { WARNING_MESSAGE } from '../voyage-cii/resultRules'
 
 /**
- * `#157` 완료 기준 — 「연말 예상」·「누적 기준」 등 **근거 없는 표현이 화면에 없음**.
+ * 기능③ 화면이 그리는 문구에 금지 표현이 없다 (`#157` · **범위는 `#749`에서 넓혔다**).
  *
- * 문구가 JSX에 흩어져 있으면 이 검사를 할 수 없다. `copy.ts`에 모아 둔 이유다.
+ * 종전에는 `ANNUAL_COPY`만 봤는데 테스트 이름은 「어느 문구에도 없다」였다. 이 화면은
+ * 경고를 `voyage-cii/resultRules.ts`의 `WARNING_MESSAGE`로 그리므로(`warningMessage`)
+ * **그쪽 문구가 검사 밖**이었고, 실제로 금지 낱말이 든 경고가 데모 선박 두 척에서 떴다.
+ *
+ * 범위를 이름에 적는다 — 이 화면이 문구를 가져오는 두 곳이다. 문구를 가져오는 곳이
+ * 늘면 여기에 더한다.
  */
-describe('화면 문구에 근거 없는 표현이 없다', () => {
-  const entries = Object.entries(ANNUAL_COPY)
+describe('기능③이 그리는 문구에 금지 표현이 없다', () => {
+  const entries: Array<[string, string]> = [
+    ...Object.entries(ANNUAL_COPY).map(([key, text]): [string, string] => [`ANNUAL_COPY.${key}`, text]),
+    ...Object.entries(WARNING_MESSAGE).map(([key, text]): [string, string] => [
+      `WARNING_MESSAGE.${key}`,
+      text,
+    ]),
+  ]
 
-  it.each(FORBIDDEN_PHRASES)('「%s」가 어느 문구에도 없다', (phrase) => {
+  it('검사 대상에 경고 문구가 들어 있다', () => {
+    // 범위가 다시 `ANNUAL_COPY`로 좁아지면 아래 검사는 통과하지만 경고 문구를 못 본다.
+    expect(entries.some(([key]) => key === 'WARNING_MESSAGE.NO_REMAINING_VOYAGES')).toBe(true)
+  })
+
+  it.each(FORBIDDEN_PHRASES)('「%s」가 화면 문구·경고 문구 어디에도 없다', (phrase) => {
     const hits = entries.filter(([, text]) => text.includes(phrase))
     expect(hits.map(([key]) => key)).toEqual([])
   })
 
   it('등급 레이블이 금지 표현을 쓰지 않는다', () => {
-    // 요건은 「참고 등급」이라는 문구 자체가 아니라 **「예상 등급」을 쓰지 않는 것**이다
-    // (#136). 금지 표현 전수 검사가 위에 있으므로 여기서는 레이블이 비지 않았는지만 본다.
+    // `#136`의 「예상 등급」 금지는 `#749`에서 풀렸다(근거 소멸 · `PRD COR-2` — `copy.ts`
+    // 표). 금지 표현 전수 검사가 위에 있으므로 여기서는 레이블이 비지 않았는지만 본다.
     expect(ANNUAL_COPY.projectedRatingLabel.length).toBeGreaterThan(0)
     expect(
       FORBIDDEN_PHRASES.some((phrase) => ANNUAL_COPY.projectedRatingLabel.includes(phrase)),
