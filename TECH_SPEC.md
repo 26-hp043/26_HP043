@@ -5,7 +5,7 @@
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.9 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-09-11 |
+| 최종 수정일 | 2026-09-12 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -932,7 +932,7 @@ def compute_input_hash(calculation_input: dict) -> str:
 1. **재현성의 단위는 `input_hash`다.** 동일 `input_hash` + 동일 `parameter_hash` + 동일 `model_version`(Monte Carlo는 동일 seed 포함) → 항상 동일 결과.
 2. `input_hash`는 **확정된(resolved) `weather_factor`를 포함**한다(§5.3 `INPUT_FIELDS`, [ORACLE-S-5]). 따라서 기상 데이터가 갱신되면 `weather_factor`가 달라져 새로운 `input_hash`가 생성되고, 이는 **별개의 새 계산으로 취급한다. 이것은 의도된 동작(by design)이다.**
 3. **"동일 항차 → 동일 결과"는 계약이 아니다.** 같은 항차라도 계산 시점의 기상(캐시 상태)에 따라 `weather_factor`가 달라질 수 있으며, 이때 결과가 달라지는 것은 재현성 위반(버그)이 아니라 **입력이 달라진 것**이다. 재현성 위반은 오직 "동일 `input_hash`인데 결과가 다른 경우"만을 뜻한다.
-4. **추적성**: 계산에 사용된 기상 스냅샷은 `calculation_run.weather_snapshot_id`(DB_SCHEMA §2.5 — #103의 `weather_snapshot` 테이블(013) 생성 후 016+ 후속 마이그레이션에서 컬럼 추가)로 기록하여 "이 계산은 어떤 기상 데이터로 실행되었나"를 사후 감사할 수 있다. `weather_factor` 값과 `weather_snapshot_id`는 `result_json`에도 포함한다.
+4. **추적성**: 계산에 사용된 기상 스냅샷은 `calculation_run.weather_snapshot_id`(DB_SCHEMA §2.5 — #103의 `weather_snapshot` 테이블(013) 생성 후 016+ 후속 마이그레이션에서 컬럼 추가)로 기록하여 "이 계산은 어떤 기상 데이터로 실행되었나"를 사후 감사할 수 있다. `weather_factor`도 같은 테이블의 실물 컬럼(039, `weather_snapshot_id` 옆)에 기록한다 [#904 정정 — 종전 문구는 둘 다 `result_json`에 포함한다고 적었으나 `result_json`은 `API_SPEC §4.1` `data` 블록과 같은 dict라 값을 넣으면 응답 계약이 함께 바뀐다. `weather_snapshot_id`는 애초에 `result_json`에 없는 컬럼이었고(#879 확인), `weather_factor`도 같은 자리(컬럼)로 정했다. 컬럼 이전 행은 NULL이며 읽는 쪽이 1.0으로 해석한다].
 5. **스냅샷 없는 계산도 정상 경로다.** `weather_model = NONE`이거나 캐시 만료 fallback(§7.3) 시 `weather_factor = 1.0`이고 `weather_snapshot_id`는 NULL이다.
 6. **재검증 절차**: 과거 계산의 재현은 새 기상 조회 없이 저장된 입력(동일 `weather_factor` 포함)으로 수행한다. 재현 결과가 원본과 불일치하면 `ReproducibilityError`(§12.1)로 처리한다 — **단, `model_version`이 원본과 다르면 `ModelVersionMismatchError`(409)다.** 같은 결과를 약속한 조건(1항) 밖이라 계약 위반이 아니며, 환경이 달라도 결과가 같으면 `MODEL_VERSION_DIFFERS` 경고를 싣고 성공한다(§10.3 · `#833`).
 7. **계약의 범위(경계)**: 본 계약은 **입력 식별(hashing) 차원**의 재현성을 정의한다. 수치 연산 자체의 결정론 — Layer 1 Decimal bit-exact(§1), Monte Carlo RNG 고정(PCG64DXSM, §2) — 은 본 계약의 **전제조건**이며, NumPy 버전 변경에 따른 난수 재현성 정책은 **§10.3**이 정의한다(`#106`). 따라서 6항의 `ReproducibilityError`는 입력 동일성이 확인된 뒤 발생한 수치 불일치를 가리키며, 그 근본 원인 규명(numpy 버전·RNG 구현 변경 등)은 #106의 정책을 따른다.
@@ -1928,3 +1928,4 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-11 | `#67` | §13.2에 `[#67]` 각주 — 성능 벤치마크의 CI 통합 방식(별도 잡이 아니라 `test` 잡 안의 `test_benchmarks.py`) · 「캐시 시」 조건을 재지 않는 이유. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#67) |
 | 2026-09-11 | `#833` · `#106` | **v1.9 — §10.3 「NumPy 업그레이드 절차와 재현성의 한계」 신설** · §12.1에 `ModelVersionMismatchError`(409) · §12.3에 `MODEL_VERSION_DIFFERS` · §5.4 6항·7항 정정(「#106에서 별도로 정의한다」 → §10.3). `reproduce`가 §5.4 1항의 셋째 조건(`model_version`)을 보지 않아 **NumPy 업그레이드가 계산 결함(500)으로 보고**될 상태였다. 판정 표 4행(같음/다름 × 같은 결과/다른 결과)으로 500과 409를 갈랐고, 환경이 달라도 결과가 같으면 경고만 싣는다. 여섯 필드 전부를 비교한다 — 엄격해도 결과가 같으면 비용이 없다. 과거 결과는 `result_json`에 이미 보존돼 재계산 없이 읽히므로 `#106`의 「분포 전체 저장」 대안은 필요 없다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#833 · #106) |
 | 2026-09-11 | `#969` | §5.1.1 「배열 정렬」 행 정정 · §5.1.2 참조 구현에 UUID 분기 추가. 규칙(UUID 배열은 문자열 정렬)이 §5.1.1에만 있고 §5.1.2 참조 구현과 `calc/hash.py` 어디에도 정렬 분기가 없었다 — 정본 안에서 규칙과 구현이 갈라져 있었다. 규칙을 지우지 않고 구현한다: 판별은 **원소 전부 `uuid.UUID`**로 좁힌다(집합이라는 뜻을 호출부가 형으로 밝힌다). UUID **모양의 문자열** 배열은 정렬할지 알 수 없으므로 에러 — 조용히 순서 의존이 되는 경로를 닫는다. 지금 해싱 대상 필드에 순수 UUID 배열이 없어 저장된 해시는 바뀌지 않는다. 행 정정·참조 구현 보강이라 버전은 올리지 않는다 (#969) |
+| 2026-09-12 | `#904` | §5.4 4항 정정 — 종전 문구는 `weather_factor`·`weather_snapshot_id`가 **`result_json`에도 포함된다**고 적었으나 실제로는 어느 쪽도 `result_json`에 없었고(라이브 덤프 확인, #879), `result_json`은 `API_SPEC §4.1` `data` 블록과 같은 dict라 값을 넣으면 응답 계약이 함께 바뀐다. **`weather_factor`는 `calculation_run` 실물 컬럼(039, `weather_snapshot_id` 옆)에 기록한다**로 바로잡는다(#904 C안). 컬럼 이전 행은 NULL이며 읽는 쪽이 1.0으로 해석한다. `AGENTS §4.3` 「값 정정·각주 보강」이라 버전은 올리지 않는다 (#904) |

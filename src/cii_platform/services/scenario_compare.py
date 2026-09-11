@@ -357,6 +357,8 @@ async def compare_scenarios(
         parameters_used=parameters_used,
         warnings=warnings,
         duration_ms=duration_ms,
+        # #904 — input_hash에 들어간 확정 인자와 같은 값. 세 시나리오가 공유했다.
+        weather_factor=weather.factor,
     )
     await session.commit()
 

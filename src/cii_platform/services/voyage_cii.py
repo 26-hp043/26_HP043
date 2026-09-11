@@ -50,6 +50,7 @@ from cii_platform.calc.cii_engine import (
     calculate_attained_cii,
     calculate_required_cii,
 )
+from cii_platform.calc.fuel_estimator import DEFAULT_WEATHER_FACTOR
 from cii_platform.calc.hash import compute_input_hash, compute_parameter_hash
 from cii_platform.calc.precision import (
     LAYER1_CANONICAL_SIGNIFICANT_DIGITS,
@@ -419,6 +420,11 @@ async def estimate_voyage_cii(session: AsyncSession, payload: VoyageCiiInput) ->
         parameters_used=parameters_used,
         warnings=warnings,
         duration_ms=duration_ms,
+        # #904 — 기능①은 연료를 직접 받아 기상 보정을 적용하지 않는다. 유효 인자는
+        # 항상 1.0이다(WEATHER_NONE_FALLBACK이 NONE 아닌 요청도 NONE으로 계산).
+        # compute_input_hash가 None에 대입하는 값과 같은 상수를 쓴다 — 해시와 컬럼이
+        # 다른 값을 말하면 재현성 계약(§5.4)이 갈라진다.
+        weather_factor=DEFAULT_WEATHER_FACTOR,
     )
     await session.commit()
 

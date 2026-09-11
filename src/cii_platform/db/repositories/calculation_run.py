@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import binascii
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
@@ -113,6 +114,7 @@ async def insert_voyage_estimate(
     parameters_used: dict[str, object],
     warnings: list[str],
     duration_ms: int,
+    weather_factor: Decimal | None = None,
 ) -> CalculationRun:
     """기능① 계산 이력 1건을 저장하고 flush한다.
 
@@ -124,12 +126,17 @@ async def insert_voyage_estimate(
 
     ``warnings``를 ``warnings_json``에 넣을 때 리스트를 그대로 쓴다 — 컬럼이 JSONB이고
     TECH_SPEC §12.2 4항이 「모든 오류를 warnings_json에 기록」으로 규정한다.
+
+    ``weather_factor``는 계산에 실제로 쓴 인자다 (#904 · TECH_SPEC §5.4 4항).
+    ``None``이면 컬럼도 NULL — 기능①은 연료를 직접 받으므로 기상 인자가 계산에
+    쓰이지 않았다는 뜻으로, **1.0과 구분된다**.
     """
     run = CalculationRun(
         calculation_type=CALCULATION_TYPE_VOYAGE,
         vessel_id=vessel_id,
         voyage_id=None,
         weather_snapshot_id=None,
+        weather_factor=weather_factor,
         input_hash=input_hash,
         parameter_hash=parameter_hash,
         model_version=model_version,
@@ -154,6 +161,7 @@ async def insert_scenario(
     parameters_used: dict[str, object],
     warnings: list[str],
     duration_ms: int,
+    weather_factor: Decimal | None = None,
 ) -> CalculationRun:
     """기능② 시나리오 비교 계산 이력 1건을 저장하고 flush 한다 (#57).
 
@@ -161,12 +169,16 @@ async def insert_scenario(
     응답에 실을 PK 확보를 위해 한다. ``calculation_type``만 ``SCENARIO``로
     다르다. 3개 시나리오 전체가 **1건의 계산 이력**으로 저장된다 — 비교 요청의
     재현성 단위는 요청 전체지 시나리오 1건이 아니기 때문이다.
+
+    ``weather_factor``는 세 시나리오가 공유한 확정 인자다 (#904) — ``input_hash``에
+    들어간 그 값과 같아야 재현 계약(TECH_SPEC §5.4 2항)이 성립한다.
     """
     run = CalculationRun(
         calculation_type=CALCULATION_TYPE_SCENARIO,
         vessel_id=vessel_id,
         voyage_id=None,
         weather_snapshot_id=None,
+        weather_factor=weather_factor,
         input_hash=input_hash,
         parameter_hash=parameter_hash,
         model_version=model_version,

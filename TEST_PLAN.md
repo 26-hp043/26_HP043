@@ -1418,6 +1418,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_weather_model.py` | 18 | **§2 단위 · 기상 보정 모델** — Townsin-Kwon 경험식(BN·Cβ 보간·적용 한계)과 SIMPLE_RULE(clamp·상한). **두 모델의 실패 규칙이 서로 새지 않는지** (`#61`) |
 | `test_weather_client_db.py` | 19 | **§3 통합 · 기상 조회** — 두 엔드포인트 · 부분 실패 · 시각 선택 · 캐시 격자 · 스냅샷 저장 · 모델 디스패치 (`#61`) |
 | `test_weather_fallback_db.py` | 12 | **§3 통합 · 기상 fallback** — `PRD §11.6` 네 칸(최신·6h·6~24h·없음) · 실험 모델 배지 · 「보정하지 않았다」를 조용히 넘기지 않는다 (`#62`) |
+| `test_weather_factor_run_db.py` | 2 | **§3 통합 · `calculation_run.weather_factor` 기록** (`#904`) — 기능②의 확정 인자(≠1.0)가 시나리오 행·`input_hash`와 같은 값으로 남는지 · 기능①의 유효 인자 1.0. **기록 위치(C안 컬럼)**만 보고 fallback 체인은 `test_weather_fallback_db.py`가 잠근다 |
 | `test_weather_simulation_migrations.py` | 12 | §5 DB · 제약·마이그레이션 |
 | `test_ytd_cii_service_db.py` | 21 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_ytd_engine.py` | 26 | **§2.10 단위 · YTD 산출 엔진** |
@@ -1425,7 +1426,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_migration_guard.py` | 12 | **§5 DB · 마이그레이션 · 되돌릴 수 없는 downgrade** — 프로덕션에서만 막고 리비전을 하나씩 명시해야 풀리는지(와일드카드 없음) · 목록의 모든 리비전이 **실제 호출에서** 무엇이든 지우기 전에 끊기는지 · 파괴적 `downgrade()`가 전부 세 분류 중 하나에 들어 있는지 (`DB_SCHEMA §8.1.2` · `#819`) |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 124개 파일 · 1683 함수 · 2128 수집.** (2026-09-12 실측)
+**합계 125개 파일 · 1685 함수 · 2130 수집.** (2026-09-12 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 

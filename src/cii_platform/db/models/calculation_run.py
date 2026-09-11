@@ -32,6 +32,9 @@ class CalculationRun(Base):
     vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
     voyage_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
     weather_snapshot_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    # #904 — TECH_SPEC §5.4 4항. 계산에 사용한 기상 보정 계수(스냅샷 옆).
+    # 과거 행은 NULL이며 읽는 쪽이 1.0으로 해석한다(039 마이그레이션 참조).
+    weather_factor = sa.Column(sa.Numeric(precision=8, scale=4), nullable=True)
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
     model_version = sa.Column(postgresql.JSONB(), nullable=False)

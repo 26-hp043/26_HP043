@@ -74,6 +74,11 @@ IRREVERSIBLE: dict[str, str] = {
         "simulation_snapshot.vessel_json — 보존 대상 테이블이라 다시 upgrade해도 기존 "
         "행을 채울 수 없고, 과거 연간 시뮬레이션이 전부 재현 불가가 된다"
     ),
+    "039": (
+        "calculation_run.weather_factor — 보존 대상 테이블이라 다시 upgrade해도 기존 "
+        "행을 채울 수 없다. 어느 계산이 어떤 기상 인자로 돌았는지가 사라진다(016과 "
+        "같은 구조)"
+    ),
 }
 
 #: 지워도 되는 일시 데이터 — 사라지면 다시 로그인하거나 메일을 다시 요청하면 된다.

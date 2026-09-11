@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.19 |
+| 버전 | v1.20 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
-| 최종 수정일 | 2026-09-11 |
+| 최종 수정일 | 2026-09-12 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
@@ -346,6 +346,7 @@ CREATE INDEX idx_scenario_voyage ON voyage_scenario (voyage_id);
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 대상 선박 |
 | `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE RESTRICT** [DB-C-3, #28 정정] | 관련 항차 (있으면). 계산 이력 보존을 위해 항차 물리 삭제를 차단 |
 | `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE RESTRICT** [#102] | 계산에 사용한 기상 스냅샷 (있으면). NONE 모델·fallback 계산은 NULL. ⚠️ 실물 컬럼·FK는 #103(013 `weather_snapshot`) 생성 후 **016+ 후속 마이그레이션**에서 추가 |
+| `weather_factor` | NUMERIC(8,4) | NULL [#904] | 계산에 사용한 기상 보정 계수 — `weather_snapshot_id`가 출처라면 이것은 그 출처에서 유도된 인자. **039 컬럼 이전 행은 NULL이며 읽는 쪽이 `1.0`으로 해석한다**(이 컬럼 생김 이전 계산은 전부 NONE=1.0 시대다). 기능①은 연료를 직접 받아 유효 인자가 항상 `1.0`, 기능②는 세 시나리오가 공유한 확정 인자 |
 | `input_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `parameter_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `model_version` | JSONB | NOT NULL | TECH_SPEC §10.1 structured JSON |
@@ -425,7 +426,7 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 | `next_worse_boundary_*` | 등급 E는 악화 방향 경계가 없어 `null`이다 (`#171` · `PRD §9.2`) |
 | `reference_capacity_rule` | enum이 아니다 — 파라미터 테이블 값 그대로(`fixed 279000` 등) |
 | `weather_snapshot_id` | **[#102]** 계산에 사용한 기상 스냅샷. **`result_json`이 아니라 위 컬럼 표의 실물 컬럼**이다. 없으면 `null` |
-| `weather_factor` | **[#102·#879]** `TECH_SPEC §5.4`가 재현성 계약으로 규정하나 **현재 어디에도 기록되지 않는다** — `result_json`·`parameters_used` 어느 쪽에도 없다(라이브 덤프 확인). `weather_model = NONE`만 쓰이는 동안에는 항상 `1.0`이라 드러나지 않으며, 모델이 켜지면 재현 근거가 빠진다. `#904`로 분리 |
+| `weather_factor` | **[#904]** `TECH_SPEC §5.4` 4항이 재현성 계약으로 규정. **위 컬럼 표의 실물 컬럼(039)이다** — `result_json`에 넣으면 API 응답 계약이 함께 바뀌고(같은 dict를 쓴다), `parameters_used`는 「요청마다 달라지는 값을 넣지 않는다」는 규율과 충돌하므로 C안(컬럼)으로 정했다. `[#879]`가 확인한 「어디에도 기록되지 않는다」는 이 컬럼으로 해소됐다. 과거 행(NULL)은 `1.0`으로 읽는다 |
 
 **`calculation_type = ANNUAL_MONTE_CARLO`**
 
@@ -1576,3 +1577,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-11 | `#819` | **v1.19: §8.1.2 「되돌릴 수 없는 downgrade」 신설 · §8.1 rollback 정책 행 보강.** `037`을 되돌렸다 올리면 보존 대상 테이블이라 `vessel_json`을 영원히 채울 수 없는데 경고조차 없었다. 전 이력(001~038)을 재검토해 **되돌릴 수 없음 18 · 일시 데이터 2 · 재생성됨 13**으로 분류하고, 첫째를 프로덕션에서 막는다. 해제는 리비전 단위로만 한다 (#819) |
 | 2026-09-11 | `#758` | §2.5 `weather_snapshot_id` 각주의 **저장소에 없는 문서 인용**(`ROADMAP §4.1`)을 걷고 실제 결과(`016`이 수행)로 바꿨다 — `ROADMAP.md`는 로컬 전용 파일이라 클론한 사람이 그 근거에 닿을 수 없다. `AGENTS §4.3` 「오기 정정」이라 버전은 올리지 않는다 (#758) |
 | 2026-09-11 | `#830` | §2.7 `simulation_snapshot` `[X-2]` 각주 정정 — 「유일한 예외는 `needs_recalc` 플립」은 §2.5 `calculation_run` 각주의 **통째 복사**였다. 이 테이블엔 그 컬럼이 없고 트리거는 예외 없는 `prevent_mutation()`이다(§7.3 · 마이그레이션 009). `AGENTS §4.3`상 각주 정정이라 버전은 올리지 않는다 (#830) |
+| 2026-09-12 | `#904` | **v1.20: §2.5에 `weather_factor` 컬럼(039) 신설 · 필드 표의 「어디에도 기록되지 않는다」 행을 실제 위치로 정정.** `TECH_SPEC §5.4` 4항이 재현성 계약으로 규정한 값이 `result_json`·`parameters_used` 어느 쪽에도 없었다(라이브 덤프 확인, #879 경유). **C안(실물 컬럼, `weather_snapshot_id` 옆)** — A안은 `result_json`이 API `data` 블록과 같은 dict라 응답 계약이 함께 바뀌고, B안은 그 쪽의 「요청마다 달라지는 값 금지」 규율과 충돌한다. NUMERIC(8,4)는 `voyage_scenario.weather_factor`와 같은 스케일. 컬럼 이전 행은 NULL이며 읽는 쪽이 1.0으로 해석한다(#751 폴백 선례 — 이 컬럼 이전의 계산은 전부 NONE=1.0 시대다) (#904) |
