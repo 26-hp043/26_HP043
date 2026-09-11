@@ -356,6 +356,26 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest
 
 CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
 
+### 스위트를 겹쳐 돌리지 못한다 (`#894`)
+
+두 실행이 같은 `cii_test`를 동시에 쓰면 서로의 행을 지우고 스키마까지 내린다. 그래서 **DB를 여는 첫 순간 실행 잠금을 잡고**, 이미 다른 실행이 쥐고 있으면 곧바로 멈춘다.
+
+```
+다른 pytest 실행이 이 테스트 DB를 쓰고 있습니다 (cii_test). 두 실행이 겹치면 …
+```
+
+**앞 실행이 끝난 뒤 다시 돌리면 된다.** 잠금은 연결에 걸려 있어 실행이 강제 종료돼도 남지 않는다. DB를 쓰지 않는 검사는 겹쳐 돌려도 된다.
+
+### 테스트 DB 복구
+
+`test_zz_roundtrip.py`가 `downgrade base`와 `upgrade head` 사이에서 끊기면 DB가 **중간 리비전에 남는다.** 다음 실행은 「`alembic upgrade head` 실패 — 테스트 DB가 리비전 ○○○에 남아 있습니다」로 알린다. 테스트 DB는 버려도 되는 곳이므로 **다시 만든다.**
+
+```bash
+docker compose exec -T db dropdb -U cii cii_test
+docker compose exec -T db createdb -U cii cii_test
+DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest   # 첫 fixture가 upgrade head를 한다
+```
+
 ---
 
 ## 참고 문헌
@@ -440,6 +460,7 @@ CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.git
 | 2026-09-11 | `#800` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.25**로 갱신 — YTD·연도별 이력에 `in_progress_voyage_count` 신설 반영 (#800) |
 | 2026-09-11 | `#885` | 문서 구조 표의 `PRD.md` 행을 **v4.7**로 갱신 — §3.3.8 진행 중 항차의 유종별 연료 배분 규칙 신설 반영 (#885) |
 | 2026-09-11 | `#819` | 문서 구조 표의 `DB_SCHEMA.md` 행을 **v1.19**로 갱신 — §8.1.2 「되돌릴 수 없는 downgrade」 신설(프로덕션 차단 · 리비전 단위 해제) (#819) |
+| 2026-09-11 | `#894` | 「로컬에서 테스트를 돌리는 법」에 **스위트를 겹쳐 돌리지 못한다**(실행 잠금)와 **테스트 DB 복구** 절차 두 소절을 추가 — 겹친 실행이 서로의 데이터를 지우고 스키마를 내렸고(2026-09-09 세 번), 왕복 검사가 끊겨 DB가 중간 리비전에 남았을 때 복구 절차를 찾는 데 시간이 들었다. 실패 메시지가 이 절을 가리킨다 (#894) |
 | 2026-08-23 | `#59` | 문서 구조 표의 `API_SPEC.md` 행을 v1.21로, `TEST_PLAN.md` 행을 v1.12로 갱신 — §8.1 CSV 내보내기 컬럼 확정·§3.10 자료 내보내기 케이스 신설 반영. `TEST_PLAN` 실측 수치도 함께 맞췄다 — **세 판본 낡아 있었다**(99파일·1274함수) (#59) |
 | 2026-08-23 | `#591` | 문서 구조 표의 `TEST_PLAN.md` 실측 수치 갱신 — `API_SPEC §12` ↔ 실제 라우트 대조 가드 신설분. 두 정본의 버전은 올리지 않았다(`AGENTS §4.3` 각주 보강·소규모 행 추가) (#591) |
 | 2026-08-23 | `#598` | 문서 구조 표의 `TEST_PLAN.md` 실측 수치 갱신 — 연료 표시 문구 동기화 가드 신설분. 정본 버전은 올리지 않았다(표시 문구는 정본 개정 대상이 아니다 · `AGENTS §4.6`) (#598) |
