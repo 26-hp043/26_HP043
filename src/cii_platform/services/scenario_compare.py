@@ -44,6 +44,7 @@ from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage_scenario as scenario_repo
 from cii_platform.errors import NotFoundError, ParameterError, ValidationError
+from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
 from cii_platform.services.voyage_cii import (
     DISCLAIMER,
     SERIALIZATION_DIGITS,
@@ -266,7 +267,7 @@ async def compare_scenarios(
             weather_factor=weather.factor,
         )
     except ValueError as exc:
-        raise ValidationError(f"시나리오 계산 오류: 입력값을 확인하세요. ({exc})") from exc
+        raise ValidationError(log_calculation_failure("기능② 시나리오", exc)) from exc
 
     warnings = [
         *_build_warnings(vessel),
@@ -386,7 +387,7 @@ async def _load_vessel(session, vessel_id: UUID):
 async def _load_regulation_year(session, year: int):
     row = await param_repo.get_regulation_year(session, year)
     if row is None:
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (regulation_year={year})")
+        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
     return row
 
 
@@ -397,7 +398,7 @@ async def _select_reference_line(session, vessel):
     try:
         return select_reference_line(vessel, rows)
     except ValueError as exc:
-        raise ParameterError(f"기준선을 선택할 수 없습니다: {exc}") from exc
+        raise selection_error("기준선", exc) from exc
 
 
 async def _select_rating_boundary(session, vessel):
@@ -407,7 +408,7 @@ async def _select_rating_boundary(session, vessel):
     try:
         return select_rating_boundary(vessel, rows)
     except ValueError as exc:
-        raise ParameterError(f"등급 경계를 선택할 수 없습니다: {exc}") from exc
+        raise selection_error("등급 경계", exc) from exc
 
 
 async def _load_fuel_type(session, fuel_type: str):
@@ -425,22 +426,14 @@ def _resolve_transport_capacity(vessel) -> Decimal:
     try:
         return resolve_transport_capacity(vessel)
     except ValueError as exc:
-        raise ValidationError(
-            f"선박 제원이 부족해 계산할 수 없습니다: {exc}",
-            field="vessel_id",
-            field_label="선박",
-        ) from exc
+        raise spec_error(exc) from exc
 
 
 def _resolve_reference_capacity(vessel, reference_line) -> Decimal:
     try:
         return resolve_reference_capacity(vessel, reference_line)
     except ValueError as exc:
-        raise ValidationError(
-            f"선박 제원이 부족해 계산할 수 없습니다: {exc}",
-            field="vessel_id",
-            field_label="선박",
-        ) from exc
+        raise spec_error(exc) from exc
 
 
 def _resolve_base_daily_foc(payload, vessel) -> Decimal:
@@ -469,7 +462,8 @@ def _resolve_reference_speed(vessel) -> Decimal:
     value = vessel.reference_speed_kn
     if value is None or Decimal(value) <= 0:
         raise ValidationError(
-            "선박에 reference_speed_kn(기준 속력)이 등록되어 있지 않아 연료를 추정할 수 없습니다.",
+            "선박에 기준속도가 등록되어 있지 않아 연료를 추정할 수 없습니다. "
+            "선박 제원에 기준속도를 입력해 주세요.",
             field="vessel_id",
             field_label="선박",
         )
@@ -496,8 +490,8 @@ def _resolve_direct_distance(payload) -> Decimal:
             )
         return distance
     raise ValidationError(
-        "직항 거리가 필요합니다. direct_distance_nm을 입력하거나 현재·목적항 좌표를"
-        " 모두 보내주세요.",
+        "직항 거리가 필요합니다. 직항 거리를 입력하거나 현재 위치와 목적지 좌표를"
+        " 모두 입력해 주세요.",
         field="direct_distance_nm",
         field_label="직항 거리",
     )

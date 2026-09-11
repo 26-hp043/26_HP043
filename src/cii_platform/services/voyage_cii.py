@@ -77,6 +77,7 @@ from cii_platform.errors import (
     ValidationError,
 )
 from cii_platform.services import applicability
+from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -380,7 +381,7 @@ async def estimate_voyage_cii(session: AsyncSession, payload: VoyageCiiInput) ->
     except ValueError as exc:
         # Layer 1 엔진은 ValueError로 중단한다(TECH_SPEC §12.2 1항). 그대로 올리면
         # 500이 되지만 원인은 입력이므로 422로 바꾼다.
-        raise CalculationError(f"계산 오류: 입력값을 확인하세요. ({exc})") from exc
+        raise CalculationError(log_calculation_failure("기능① 항차 CII", exc)) from exc
 
     parameters_used = _build_parameters_used(
         regulation=regulation,
@@ -476,7 +477,7 @@ async def _load_regulation_year(session: AsyncSession, year: int):
     """
     row = await param_repo.get_regulation_year(session, year)
     if row is None:
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (regulation_year={year})")
+        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
     return row
 
 
@@ -492,7 +493,7 @@ async def _select_reference_line(session: AsyncSession, vessel):
     try:
         return select_reference_line(vessel, rows)
     except ValueError as exc:
-        raise ParameterError(f"기준선을 선택할 수 없습니다: {exc}") from exc
+        raise selection_error("기준선", exc) from exc
 
 
 async def _select_rating_boundary(session: AsyncSession, vessel):
@@ -502,7 +503,7 @@ async def _select_rating_boundary(session: AsyncSession, vessel):
     try:
         return select_rating_boundary(vessel, rows)
     except ValueError as exc:
-        raise ParameterError(f"등급 경계를 선택할 수 없습니다: {exc}") from exc
+        raise selection_error("등급 경계", exc) from exc
 
 
 async def _load_fuel_types(session: AsyncSession, payload: VoyageCiiInput):
@@ -533,22 +534,14 @@ def _resolve_transport_capacity(vessel) -> Decimal:
     try:
         return resolve_transport_capacity(vessel)
     except ValueError as exc:
-        raise ValidationError(
-            f"선박 제원이 부족해 계산할 수 없습니다: {exc}",
-            field="vessel_id",
-            field_label="선박",
-        ) from exc
+        raise spec_error(exc) from exc
 
 
 def _resolve_reference_capacity(vessel, reference_line) -> Decimal:
     try:
         return resolve_reference_capacity(vessel, reference_line)
     except ValueError as exc:
-        raise ValidationError(
-            f"선박 제원이 부족해 계산할 수 없습니다: {exc}",
-            field="vessel_id",
-            field_label="선박",
-        ) from exc
+        raise spec_error(exc) from exc
 
 
 # --- 응답 조립 --------------------------------------------------------------------

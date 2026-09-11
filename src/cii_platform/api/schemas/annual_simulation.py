@@ -46,7 +46,7 @@ class AnnualSimulationRequest(BaseModel):
         try:
             seed = int(value)
         except (TypeError, ValueError) as exc:
-            raise ValueError("random_seed는 정수여야 합니다.") from exc
+            raise ValueError("난수 시드(seed)는 정수여야 합니다.") from exc
         if not 0 <= seed < 2**128:
-            raise ValueError("random_seed는 0 이상 2^128 미만이어야 합니다.")
+            raise ValueError("난수 시드(seed)는 0 이상 2^128 미만이어야 합니다.")
         return seed

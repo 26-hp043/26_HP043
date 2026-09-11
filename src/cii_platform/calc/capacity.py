@@ -127,6 +127,23 @@ def capacity_axis(ship_type: str) -> str:
     )
 
 
+class CapacityUnavailableError(ValueError):
+    """선종의 capacity 축(DWT/GT) 값이 비었거나 0 이하다 — **선박 제원에서 고치는** 원인 (#999).
+
+    ``ValueError``의 하위형이라 종전의 ``except ValueError``는 그대로 잡는다. 서비스는 이
+    형으로 「무엇이 비었는지」를 한국어로 말하고(``services/calc_errors.py``), 나머지
+    ``ValueError``(기준선 구간의 빈틈 등 사용자가 고칠 수 없는 원인)와 가른다. 메시지는 엔진
+    검사가 단언하는 영문 그대로 둔다 — 사용자에게 옮기는 것은 서비스의 몫이다.
+    """
+
+    def __init__(self, message: str, *, axis: str, reason: str) -> None:
+        super().__init__(message)
+        #: ``"DWT"`` 또는 ``"GT"``.
+        self.axis = axis
+        #: ``"missing"``(비었다) 또는 ``"non_positive"``(0 이하).
+        self.reason = reason
+
+
 def _capacity_for_axis(vessel: _Vessel, axis: str) -> Decimal:
     """축에 해당하는 실제 capacity를 Decimal로 반환한다.
 
@@ -136,14 +153,18 @@ def _capacity_for_axis(vessel: _Vessel, axis: str) -> Decimal:
     """
     raw = vessel.deadweight if axis == "DWT" else vessel.gross_tonnage
     if raw is None:
-        raise ValueError(
+        raise CapacityUnavailableError(
             f"{'deadweight' if axis == 'DWT' else 'gross_tonnage'} is required for "
-            f"ship_type {vessel.ship_type!r} ({axis} 기준) but was None"
+            f"ship_type {vessel.ship_type!r} ({axis} 기준) but was None",
+            axis=axis,
+            reason="missing",
         )
     value = Decimal(str(raw))
     if value <= 0:
-        raise ValueError(
-            f"{'deadweight' if axis == 'DWT' else 'gross_tonnage'} must be > 0: got {value}"
+        raise CapacityUnavailableError(
+            f"{'deadweight' if axis == 'DWT' else 'gross_tonnage'} must be > 0: got {value}",
+            axis=axis,
+            reason="non_positive",
         )
     return value
 
