@@ -53,6 +53,7 @@ describe('기능③이 그리는 문구에 금지 표현이 없다', () => {
     // 화면이 깨지지 않을 것 — #157 완료 기준
     expect(ANNUAL_COPY.loading.length).toBeGreaterThan(0)
     expect(ANNUAL_COPY.empty.length).toBeGreaterThan(0)
-    expect(ANNUAL_COPY.errorTitle.length).toBeGreaterThan(0)
+    expect(ANNUAL_COPY.errorAction.length).toBeGreaterThan(0)
+    expect(ANNUAL_COPY.errorFallback.length).toBeGreaterThan(0)
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { finalConsonant, ro, withRo } from './josa'
+import { eulReul, finalConsonant, ro, withEulReul, withRo } from './josa'
 import { STATUS_LABELS } from '../features/voyage-management/voyageRules'
 
 describe('finalConsonant', () => {
@@ -69,5 +69,26 @@ describe('withRo — 항차 상태 7종 (#598)', () => {
   it('7종이 모두 검사됐다', () => {
     // 상태가 늘면 위 목록이 낡는다. 개수를 함께 박아 조용히 빠지지 않게 한다.
     expect(Object.keys(STATUS_LABELS)).toHaveLength(7)
+  })
+})
+
+describe('eulReul — 목적격 조사 (2026-09-11 디자인 확정 B)', () => {
+  it('받침이 있으면 「을」, 없으면 「를」', () => {
+    expect(withEulReul('선박 목록')).toBe('선박 목록을')
+    expect(withEulReul('규제연도 목록')).toBe('규제연도 목록을')
+    expect(withEulReul('항차')).toBe('항차를')
+    expect(withEulReul('선박 정보')).toBe('선박 정보를')
+  })
+
+  it('ㄹ 받침도 「을」이다 — 「로」와 달리 예외가 없다', () => {
+    expect(eulReul('선대 현황 자료')).toBe('를')
+    expect(eulReul('실시간 값')).toBe('을')
+    expect(eulReul('규칙')).toBe('을')
+    expect(eulReul('연료 일')).toBe('을')
+  })
+
+  it('한글로 끝나지 않으면 「를」', () => {
+    expect(eulReul('CSV')).toBe('를')
+    expect(eulReul('HFO')).toBe('를')
   })
 })

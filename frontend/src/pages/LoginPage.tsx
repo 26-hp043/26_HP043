@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router'
 import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
+import { PAGE_FAILURE_MESSAGE } from '../components/errorCopy'
 import { hasErrors, safeNext, validateLogin } from '../features/auth/authRules'
 import type { FieldErrors } from '../features/auth/authRules'
 import {
@@ -123,13 +124,15 @@ export function LoginPage() {
  * 드물다. 세션 발급 자체가 실패한 경우를 위해 남긴다.
  */
 export function LoginFailurePage() {
+  /*
+   * 본문은 페이지 실패 기본 본문과 같은 문장이다(`PRD §6.4`) — 이 화면의 문장이
+   * 기본값의 출처였고, 한 문장 안에 「주세요」와 「주십시오」가 섞여 있어 통일했다.
+   * 버튼 문구도 재시도 단일 문구 「다시 시도」다(종전 「다시 시도하기」).
+   */
   return (
-    <AuthShell
-      title="로그인하지 못했습니다"
-      description="잠시 후 다시 시도해 주세요. 문제가 계속되면 관리자에게 문의해 주십시오."
-    >
+    <AuthShell title="로그인하지 못했습니다" description={PAGE_FAILURE_MESSAGE}>
       <Link className="auth-submit auth-submit--link" to={LOGIN_PATH}>
-        다시 시도하기
+        다시 시도
       </Link>
     </AuthShell>
   )

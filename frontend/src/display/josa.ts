@@ -67,3 +67,21 @@ export function ro(word: string): string {
 export function withRo(word: string): string {
   return `${word}${ro(word)}`
 }
+
+/**
+ * 목적격 조사 — 「을」 또는 「를」 (2026-09-11 디자인 확정 B).
+ *
+ * 받침이 있으면 「을」(「선박 목록**을**」), 없으면 「를」(「연료**를**」).
+ *
+ * 한글로 끝나지 않으면 **「를」을 쓴다** — `ro`와 같은 판단이다. `CSV`·`HFO`는 영문
+ * 이름으로 읽으면 받침이 없다.
+ */
+export function eulReul(word: string): string {
+  const final = finalConsonant(word)
+  return final === null || final === 0 ? '를' : '을'
+}
+
+/** 「{말}을」 · 「{말}를」을 한 문자열로. */
+export function withEulReul(word: string): string {
+  return `${word}${eulReul(word)}`
+}

@@ -98,4 +98,24 @@ describe('에러 표현 규격 가드 (#694)', () => {
       .map((f) => f.slice(SRC.length))
     expect(offenders).toEqual([])
   })
+
+  it('재시도 문구는 「다시 시도」 하나다 — 공용 컴포넌트 밖에서도', () => {
+    /*
+     * `ErrorState`는 문구를 인자로 받지 않아 호출부가 바꿀 수 없다. 그런데 **컴포넌트를
+     * 거치지 않는 화면**은 그 보호를 받지 못한다 — 로그인 실패 화면이 「다시 시도하기」를
+     * 쓰고 있었다(2026-09-11 확정 C ⑴). 갈라진 변형이 소스에 다시 들어오는 것을 막는다.
+     */
+    const VARIANTS = /다시 시도하기|다시 불러오기|재시도하기/
+    const offenders = files
+      .filter((f) => (f.endsWith('.tsx') || f.endsWith('.ts')) && !f.includes('.test.'))
+      .filter((f) =>
+        VARIANTS.test(
+          readFileSync(f, 'utf8')
+            .replace(/\/\*[\s\S]*?\*\//g, '')
+            .replace(/(^|[^:])\/\/.*$/gm, '$1'),
+        ),
+      )
+      .map((f) => f.slice(SRC.length))
+    expect(offenders).toEqual([])
+  })
 })

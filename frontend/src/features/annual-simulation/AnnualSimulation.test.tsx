@@ -159,7 +159,8 @@ describe('이 seed로 다시 실행 (#776)', () => {
     fireEvent.click(await runOnce())
 
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain(ANNUAL_COPY.reproduceErrorTitle)
+    // 제목은 `PRD §6.4` 처리 실패 패턴으로 컴포넌트가 짓는다 (2026-09-11 확정 B).
+    expect(alert.textContent).toContain('재현에 실패했습니다')
     expect(alert.textContent).toContain(message)
     // 실패를 성공 문구와 함께 내지 않는다.
     expect(screen.queryByText(ANNUAL_COPY.reproduceSuccess)).toBeNull()

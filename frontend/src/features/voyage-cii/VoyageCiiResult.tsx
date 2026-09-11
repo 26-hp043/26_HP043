@@ -82,7 +82,7 @@ export function VoyageCiiResult({ state, stale = false }: VoyageCiiResultProps) 
 
   if (state.status === 'error') {
     return (
-      <ErrorState level="region" title="계산에 실패했습니다" message={state.message} />
+      <ErrorState level="region" action="계산" message={state.message} />
     )
   }
 
