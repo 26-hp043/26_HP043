@@ -53,6 +53,9 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[1]
 _TEST_PLAN = _ROOT / "TEST_PLAN.md"
 _TESTS_DIR = _ROOT / "tests"
+#: 프론트엔드 검사 파일 — `TEST_PLAN §14.6`이 화면 접근성(`§7`)의 관할을 이 문서에 두므로,
+#: `A11Y-*`처럼 **문서가 정의하고 vitest가 덮는** 케이스는 여기서 세어야 한다 (#68).
+_FRONTEND_TESTS_DIR = _ROOT / "frontend" / "src"
 
 #: 케이스 ID 문법 — **접두어마다 모양이 다르다** (#758).
 #:
@@ -152,7 +155,23 @@ def _ids_in_code() -> set[str]:
     """
     files = [p for p in _TESTS_DIR.rglob("*.py") if p.name != Path(__file__).name]
     lines = [ln for ln in _text_of(files).splitlines() if not _NOT_COVERED.search(ln)]
+    lines += [
+        ln for ln in _text_of(_frontend_test_files()).splitlines() if not _NOT_COVERED.search(ln)
+    ]
     return set(_ID.findall("\n".join(lines)))
+
+
+def _frontend_test_files() -> list[Path]:
+    """vitest 검사 파일 (`*.test.ts` · `*.test.tsx`) — 구현 파일은 세지 않는다 (#68).
+
+    파이썬 쪽과 같은 규칙이다: **테스트 코드**의 인용만 커버리지 주장이다. `src/`의
+    컴포넌트가 케이스를 설명으로 적는 것은 세지 않는다.
+    """
+    if not _FRONTEND_TESTS_DIR.exists():
+        return []
+    return sorted(
+        p for p in _FRONTEND_TESTS_DIR.rglob("*.test.ts*") if "node_modules" not in p.parts
+    )
 
 
 def test_every_case_id_is_classified():
@@ -227,6 +246,8 @@ def _scan(tmp_path, monkeypatch, **files: str) -> set[str]:
     for name, body in files.items():
         (tmp_path / f"{name}.py").write_text(body, encoding="utf-8")
     monkeypatch.setattr(_SELF, "_TESTS_DIR", tmp_path)
+    # 프론트 검사 파일은 가짜 디렉토리로 비운다 — 실제 A11Y 인용이 규칙 검사에 섞이지 않게.
+    monkeypatch.setattr(_SELF, "_FRONTEND_TESTS_DIR", tmp_path / "frontend")
     return _ids_in_code()
 
 
@@ -272,4 +293,24 @@ def test_src_citations_are_not_coverage(tmp_path, monkeypatch):
     empty_tests = tmp_path / "tests_only"
     empty_tests.mkdir()
     monkeypatch.setattr(_SELF, "_TESTS_DIR", empty_tests)
+    # 프론트 쪽도 같은 규칙 — 검사 디렉토리 밖(실제 `frontend/src`)을 훑지 않는다.
+    monkeypatch.setattr(_SELF, "_FRONTEND_TESTS_DIR", empty_tests / "frontend")
     assert _ids_in_code() == set()
+
+
+def test_frontend_test_files_count_as_coverage(tmp_path, monkeypatch):
+    """vitest 파일의 인용도 커버리지 주장이다 — 단, 검사 파일(`*.test.ts*`)만 (#68).
+
+    `A11Y-001`~`004`는 `TEST_PLAN §7`이 정의하고 화면(vitest)이 덮는다. 파이썬 `tests/`만
+    보면 그 넷은 **영원히 「미대응」**이고, 화면 구현 파일까지 보면 설명 인용이 커버리지가
+    된다(#498의 함정). 그래서 프론트에서도 검사 파일만 센다.
+    """
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "a11y.test.tsx").write_text("// 케이스: A11Y-001\n", encoding="utf-8")
+    (frontend / "Widget.tsx").write_text("// A11Y-002를 지키는 구현\n", encoding="utf-8")
+    monkeypatch.setattr(_SELF, "_TESTS_DIR", tmp_path)
+    monkeypatch.setattr(_SELF, "_FRONTEND_TESTS_DIR", frontend)
+    found = _ids_in_code()
+    assert "A11Y-001" in found
+    assert "A11Y-002" not in found
