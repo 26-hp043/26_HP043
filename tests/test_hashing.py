@@ -5,6 +5,7 @@ TEST_PLAN §2.5 UT-HASH-001~005 + 지수 표기 회귀 · golden hash · DB 제�
 
 import re
 from decimal import Decimal
+from uuid import UUID
 
 import pytest
 
@@ -195,6 +196,53 @@ def test_numeric_array_order_preserved():
     """§5.1.1 — 수치 배열은 원래 순서를 유지한다(정렬하지 않음)."""
     unsorted = {"d": [Decimal("3"), Decimal("1"), Decimal("2")]}
     assert canonical_json(unsorted) == '{"d":["3","1","2"]}'
+
+
+# ── §5.1.1 「UUID 배열은 문자열 정렬」 (#969) ──────────────────────────────────
+
+_U1 = UUID("00000000-0000-4000-8000-000000000001")
+_U2 = UUID("00000000-0000-4000-8000-000000000002")
+_U3 = UUID("00000000-0000-4000-8000-000000000003")
+
+
+def test_uuid_array_is_sorted_as_strings():
+    """§5.1.1 — UUID 배열은 넣은 순서와 무관하게 같은 canonical이다.
+
+    종전 구현은 규칙(§5.1.1)만 있고 정렬 분기가 없었다(`#969`). 지금은 대상 필드에 순수
+    UUID 배열이 없어 무해했지만, 생기는 날 같은 입력의 해시가 요청 순서에 따라 갈린다.
+    """
+    assert canonical_json({"ids": [_U3, _U1, _U2]}) == canonical_json({"ids": [_U1, _U2, _U3]})
+    assert canonical_json({"ids": [_U3, _U1]}) == (
+        '{"ids":["00000000-0000-4000-8000-000000000001","00000000-0000-4000-8000-000000000003"]}'
+    )
+
+
+def test_uuid_shaped_string_array_is_rejected():
+    """UUID **모양의 문자열** 배열은 거절한다 — 정렬해야 할 집합인지 순서 있는 배열인지 알 수 없다.
+
+    판별을 문자열까지 넓혀 정렬하면 순서가 뜻인 배열의 뜻을 지우고, 정렬하지 않으면
+    「UUID 배열」이 조용히 순서 의존이 된다. 어느 쪽도 조용해서는 안 되므로 실패시킨다.
+    """
+    with pytest.raises(TypeError, match="UUID-shaped string array"):
+        canonical_json({"ids": [str(_U1), str(_U2)]})
+    # 원소 하나라도 UUID 모양이 아니면 보통 문자열 배열이다 — 순서 유지
+    assert canonical_json({"tags": [str(_U2), "x"]}) == f'{{"tags":["{_U2}","x"]}}'
+
+
+def test_single_uuid_serializes_as_its_string():
+    """UUID 값 하나는 그 문자열과 같은 canonical이다 — 호출부가 `str()`을 먼저 해도 같다."""
+    assert canonical_json({"vessel_id": _U1}) == canonical_json({"vessel_id": str(_U1)})
+
+
+def test_object_and_empty_arrays_keep_their_order():
+    """정렬은 순수 UUID 배열에만 — 객체 배열(`fuel_uses` 모양)은 원래 순서, 빈 배열은 빈 배열."""
+    a = {"fuel_uses": [{"fuel_type": "HFO"}, {"fuel_type": "LNG"}]}
+    b = {"fuel_uses": [{"fuel_type": "LNG"}, {"fuel_type": "HFO"}]}
+    assert canonical_json(a) != canonical_json(b)
+    assert canonical_json({"ids": []}) == '{"ids":[]}'
+    # 섞인 배열(UUID + 다른 값)은 「전부 UUID」가 아니므로 정렬하지 않는다 — 판별을 any로
+    # 느슨하게 하면 이 배열이 문자열 정렬되어 순서가 지워진다
+    assert canonical_json({"m": [_U2, "x", _U1]}) == f'{{"m":["{_U2}","x","{_U1}"]}}'
 
 
 def test_int_and_bool_pass_through():

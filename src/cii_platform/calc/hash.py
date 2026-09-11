@@ -15,12 +15,21 @@
 * 모든 수치는 Decimal 문자열로 변환. ``float``는 **금지**(``TypeError``) [ORACLE-M-4]
 * Decimal은 ``normalize()`` 후 고정 소수점 표기 [ORACLE-C-2]
 * ``None``은 JSON ``null``로 직렬화하며 필드를 생략하지 않는다 [ORACLE-M-3]
+* UUID 배열(원소 전부 :class:`uuid.UUID`)은 문자열로 바꿔 정렬한다. UUID **모양의 문자열**
+  배열은 ``TypeError`` — 정렬 대상(집합)인지 순서 있는 배열인지 알 수 없다 (#969)
 """
 
 import hashlib
 import json
+import re
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
+
+#: UUID 모양 문자열 — `#969` 가드가 「정렬해야 할지 모르는 배열」을 알아보는 데 쓴다.
+_UUID_SHAPED = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 #: ``input_hash`` 대상 필드와 그 순서 (TECH_SPEC §5.3).
 #:
@@ -80,6 +89,15 @@ def canonical_json(obj: Any) -> str:
     ``parameters_used`` 스키마가 모든 값을 문자열로 규정하고 있다.
 
     :raises TypeError: ``float``가 포함된 경우 (중첩 dict·list 포함) [ORACLE-M-4]
+    :raises TypeError: 원소가 전부 UUID **모양의 문자열**인 배열 (#969) — 아래 참조
+
+    **UUID 배열은 문자열 정렬한다 (§5.1.1 「배열 정렬」).** 원소가 전부 :class:`uuid.UUID`일
+    때만이다 — 그 배열은 집합(어느 선박들인가)이지 순서가 아니므로, 요청이 넘긴 순서에
+    따라 해시가 갈리면 같은 입력이 다른 재현성 단위가 된다. 판별을 「UUID 모양 문자열」까지
+    넓히지 않는다: 문자열 배열은 순서가 뜻일 수도 있어서, 정렬하면 그 뜻을 지운다. 대신
+    그런 배열은 **거절**한다 — 정렬 대상이면 :class:`uuid.UUID`로 넣고, 순서가 뜻이면
+    UUID가 아닌 값으로 넣는다. 지금 해싱 대상 필드(§5.3 · 기능②·③ 목록)에 순수 UUID
+    배열은 없으므로 저장된 해시는 바뀌지 않는다.
     """
 
     def convert(o: Any) -> Any:
@@ -88,9 +106,19 @@ def canonical_json(obj: Any) -> str:
         if isinstance(o, float):
             # [ORACLE-M-4] float는 허용하지 않음 — Decimal 사용 강제
             raise TypeError(f"float not allowed in canonical_json: {o}. Use Decimal instead.")
+        if isinstance(o, UUID):
+            return str(o)
         if isinstance(o, dict):
             return {k: convert(v) for k, v in sorted(o.items())}
         if isinstance(o, (list, tuple)):
+            if o and all(isinstance(item, UUID) for item in o):
+                # §5.1.1 「UUID 배열은 문자열 정렬」 (#969)
+                return sorted(str(item) for item in o)
+            if o and all(isinstance(item, str) and _UUID_SHAPED.match(item) for item in o):
+                raise TypeError(
+                    "UUID-shaped string array in canonical_json: "
+                    "pass uuid.UUID values to sort as a set, or non-UUID values to keep order."
+                )
             return [convert(item) for item in o]
         if o is None:
             return None  # [ORACLE-M-3] JSON null
