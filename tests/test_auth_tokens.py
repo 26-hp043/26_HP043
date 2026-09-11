@@ -530,3 +530,95 @@ class TestPasswordResetEdges:
             assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
         finally:
             await _cleanup(email)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 메일 실패의 원인이 로그에 남는다 (#819)
+#
+# 백엔드(`mail/backends.py`)는 SMTP 예외를 `MailDeliveryError(..., cause=exc) from exc`로
+# 감싸 원인을 보존하는데, **소비자 세 곳이 전부 버리고 있었다** — 두 곳은 로그 0줄,
+# 한 곳은 `warning`이라 `__cause__`가 빠졌다. SMTP 비밀번호가 만료되면 모든 재설정
+# 요청이 502를 내는데 `535`가 어디에도 남지 않는다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _SmtpAuthError(Exception):
+    """SMTP 인증 실패를 흉내 낸다. 로그에 **이 이름과 문구**가 남아야 한다."""
+
+
+_CAUSE_TEXT = "535 5.7.8 authentication credentials invalid"
+
+
+class _CausedFailingMailer:
+    """실제 백엔드처럼 원인을 달아 던지는 메일러."""
+
+    async def send(self, _message) -> None:
+        try:
+            raise _SmtpAuthError(_CAUSE_TEXT)
+        except _SmtpAuthError as exc:
+            raise MailDeliveryError("메일을 보내지 못했습니다: smtp:587", cause=exc) from exc
+
+
+def _cause_logged(caplog: pytest.LogCaptureFixture, logger: str) -> bool:
+    """그 로거의 레코드 중 **원인 예외까지** 담은 것이 있는가.
+
+    메시지 문자열이 아니라 `exc_info`의 `__cause__`를 본다 — 「실패했다」 한 줄은 종전
+    `warning`도 남겼다. 빠졌던 것은 **왜**다.
+    """
+    for record in caplog.records:
+        if record.name != logger or not record.exc_info:
+            continue
+        cause = record.exc_info[1].__cause__
+        if isinstance(cause, _SmtpAuthError) and _CAUSE_TEXT in str(cause):
+            return True
+    return False
+
+
+class TestMailFailureCauseIsLogged:
+    async def test_verification_resend(self, client, monkeypatch, caplog):
+        from cii_platform.api.routes import auth_tokens as module
+
+        email = "cause-verify@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            monkeypatch.setattr(module, "get_mailer", _CausedFailingMailer)
+            caplog.set_level("ERROR", logger=module.__name__)
+
+            resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
+
+            assert resp.status_code == 502, resp.text
+            assert _cause_logged(caplog, module.__name__)
+        finally:
+            await _cleanup(email)
+
+    async def test_password_reset(self, client, monkeypatch, caplog):
+        from cii_platform.api.routes import auth_tokens as module
+
+        email = "cause-reset@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            monkeypatch.setattr(module, "get_mailer", _CausedFailingMailer)
+            caplog.set_level("ERROR", logger=module.__name__)
+
+            resp = client.post("/api/v1/auth/password-reset/request", json={"email": email})
+
+            assert resp.status_code == 502, resp.text
+            assert _cause_logged(caplog, module.__name__)
+        finally:
+            await _cleanup(email)
+
+    async def test_signup(self, client, monkeypatch, caplog):
+        """가입은 메일이 실패해도 201이다 — 그래서 로그가 **유일한** 흔적이다."""
+        from cii_platform.api.routes import auth as module
+
+        email = "cause-signup@example.com"
+        try:
+            monkeypatch.setattr(module, "get_mailer", _CausedFailingMailer)
+            caplog.set_level("ERROR", logger=module.__name__)
+
+            resp = client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+
+            assert resp.status_code == 201, resp.text
+            assert _cause_logged(caplog, module.__name__)
+        finally:
+            await _cleanup(email)

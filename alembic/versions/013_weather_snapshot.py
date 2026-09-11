@@ -25,6 +25,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
+from cii_platform.db.migration_guard import guard_irreversible_downgrade
 
 # revision identifiers, used by Alembic.
 revision: str = "013"
@@ -84,6 +85,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # 운영 데이터를 복구 불가능하게 지운다 — 프로덕션에서는 막는다 (#819).
+    guard_irreversible_downgrade("013")
     # 참조하는 FK를 먼저 드롭해야 피참조 테이블을 드롭할 수 있다.
     op.drop_constraint("fk_voyage_scenario_weather", "voyage_scenario", type_="foreignkey")
     op.drop_table("weather_snapshot")
