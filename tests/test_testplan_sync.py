@@ -239,3 +239,45 @@ def test_totals_match_reality():
 
     assert files == len(actual), f"파일 수: 문서 {files} / 실측 {len(actual)}"
     assert funcs == sum(actual.values()), f"함수 수: 문서 {funcs} / 실측 {sum(actual.values())}"
+
+
+#: 「현재 수치」로 읽히는 모양 — ``121개 파일`` · ``1631 함수`` · ``2061 수집`` · 표의 합계 행.
+_STATED_COUNT = re.compile(r"\d[\d,]*\s*(?:개\s*파일|함수|수집)|\*\*합계\*\*")
+
+
+def _section(text: str, heading: str, next_heading: str) -> str:
+    start = text.index(heading)
+    return text[start : text.index(next_heading, start)]
+
+
+def test_counts_live_only_in_the_inventory_totals():
+    """파일·함수·수집 수는 ``§14.2`` 합계 문장 **한 곳에만** 있다 (#830).
+
+    ``§11.1``은 2026-08-15 영역별 표(62파일 · 469함수)에서 멈춰 있었고, 같은 문서
+    ``§14.2``는 그사이 두 배 가까이 늘었다. ``README`` 문서 구조 표도 1426함수에서 멈춰
+    있었다. 둘 다 **가드가 보지 않는 사본**이었다 — 수치를 다시 적으면 여기서 실패한다.
+
+    인용 블록(``>``)은 뺀다: 정정 각주가 「종전 값」을 기록으로 남기는 자리다.
+    """
+    plan = _section(_plan_text(), "### 11.1 ", "### 11.2 ")
+    stated = [
+        line
+        for line in plan.splitlines()
+        if not line.lstrip().startswith(">") and _STATED_COUNT.search(line)
+    ]
+    assert not stated, f"§11.1이 수치를 다시 적었다 — §14.2 합계를 가리킬 것: {stated}"
+
+    readme = (_TEST_PLAN.parent / "README.md").read_text(encoding="utf-8")
+    row = next(line for line in readme.splitlines() if line.startswith("| [`TEST_PLAN.md`]"))
+    assert not _STATED_COUNT.search(row), f"README 문서 구조 표가 수치를 적었다: {row}"
+    assert "§14.2" in row, "README 문서 구조 표가 수치의 정본(§14.2)을 가리키지 않는다"
+
+
+def test_the_stated_count_pattern_catches_what_it_should():
+    """위 가드의 정규식이 과거에 실제로 있던 모양을 전부 잡는다."""
+    for sample in (
+        "— **107개 파일 · 1426 함수 · 1732 수집**(2026-08-23 실측)",
+        "| **합계** | **62** | **469** |",
+        "**107파일·1418함수·1727수집**",
+    ):
+        assert _STATED_COUNT.search(sample), sample

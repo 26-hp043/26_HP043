@@ -29,6 +29,7 @@ from cii_platform.auth.password import (
     verify_password,
     verify_password_async,
 )
+from cii_platform.auth.session import SESSION_TTL_DAYS
 
 VALID = "correct-horse-battery"
 
@@ -203,3 +204,25 @@ class TestRoutesDoNotBlock:
         """이름만 `_async`인 함수를 잡는다."""
         for func in (hash_password_async, verify_password_async, verify_dummy_async):
             assert inspect.iscoroutinefunction(func), func.__name__
+
+
+class TestPolicyIsCanonical:
+    """정책값이 **정본에도 같은 값으로** 적혀 있다 (`API_SPEC §1.2` · #830).
+
+    두 값은 코드에만 있었다 — `auth/session.py`는 「API_SPEC §1.2 참조」라고 적는데 그 절에
+    유효기간이 없었고, `UIFLOW`는 「비밀번호 규칙 안내」를 요구하는데 규칙이 정본 어디에도
+    없었다. 등재한 뒤 한쪽만 바뀌면 여기서 실패한다.
+    """
+
+    def _policy_row(self, label: str) -> str:
+        spec = Path("API_SPEC.md").read_text(encoding="utf-8")
+        rows = [line for line in spec.splitlines() if line.startswith(f"| {label} |")]
+        assert len(rows) == 1, f"API_SPEC §1.2에 「{label}」 행이 하나가 아니다: {len(rows)}"
+        return rows[0]
+
+    def test_password_length_bounds(self):
+        row = self._policy_row("비밀번호 규칙")
+        assert f"{MIN_PASSWORD_LENGTH}자 이상 {MAX_PASSWORD_LENGTH}자 이하" in row, row
+
+    def test_session_lifetime(self):
+        assert f"발급 후 {SESSION_TTL_DAYS}일" in self._policy_row("세션 유효기간")

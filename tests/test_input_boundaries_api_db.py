@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from cii_platform.api.main import app
+from cii_platform.db.demo_seed import VESSEL_ID_BULK
 
 _BASE = "https://testserver"
 
@@ -182,3 +183,40 @@ async def test_선종_변경이_재계산_표시를_남긴다(conn):
             )
         ).scalar_one()
         assert after == 1, "선종을 바꿨는데 재계산 표시가 남지 않았습니다"
+
+
+async def test_시뮬레이션_횟수_상한_초과는_제한과_경고다(migrated_db, app_fresh_engine):
+    """``PRD §12.8`` — 「simulation_runs 초과 → 최대값(10000)으로 제한하고 안내」(#830 ⑴).
+
+    엔진은 처음부터 자르고 ``SIMULATION_RUNS_CLAMPED``를 붙였는데, 요청 스키마가
+    ``le=10_000``으로 먼저 422를 내 **그 경고가 HTTP로 도달할 수 없었다.** 문서 두 절
+    (`API_SPEC §1.6` 경고 표 · `§6.1` 요청 표)이 상반된 동작을 적고 있었다.
+
+    **하한은 그대로 422다** — ``PRD §12.8``은 초과만 규정한다. 위 ``limit`` 검사와 같은
+    판단이다: 큰 값은 오해인 경우가 대부분이라 잘라서 답한다.
+    """
+    body = {
+        "vessel_id": VESSEL_ID_BULK,
+        "regulation_year": 2026,
+        "target_rating": "C",
+        "random_seed": 12345,
+    }
+    with TestClient(app, base_url=_BASE) as client:
+        assert client.post("/api/v1/auth/dev-login").status_code == 200
+
+        over = client.post(
+            "/api/v1/annual-simulations",
+            headers=_csrf(client),
+            json={**body, "simulation_runs": 20_000},
+        )
+        assert over.status_code == 200, over.text
+        assert over.json()["data"]["monte_carlo"]["runs"] == 10_000
+        assert "SIMULATION_RUNS_CLAMPED" in over.json()["warnings"]
+
+        under = client.post(
+            "/api/v1/annual-simulations",
+            headers=_csrf(client),
+            json={**body, "simulation_runs": 999},
+        )
+        assert under.status_code == 422, under.text
+        assert under.json()["error"]["details"][0]["field"] == "simulation_runs"
