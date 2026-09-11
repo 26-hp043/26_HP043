@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
@@ -35,6 +36,8 @@ from cii_platform.services.ytd_cii import compute_ytd_cii
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+_log = logging.getLogger(__name__)
 
 #: 이력 창 상한. 연도별 집계가 이미 계산된 값을 재쓰는 조회라도 무한 창을
 #: 허용하면 요청 하나가 열 개의 연도 집계를 강제한다 — 방어 상한이다.
@@ -163,9 +166,9 @@ async def _year_row(
         if value is None
     ]
     if missing:
-        raise CalculationError(
-            f"YTD 결과 불변식 위반 — data_available=True인데 비어 있는 필드: {missing}"
-        )
+        # 서버 결함이다 — 사용자에게는 VAL-008 원문만, 어느 필드가 비었는지는 로그로 (#999).
+        _log.error("YTD 결과 불변식 위반 — data_available=True인데 비어 있는 필드: %s", missing)
+        raise CalculationError("계산 오류: 입력값을 확인하세요.")
 
     return {
         "regulation_year": year,

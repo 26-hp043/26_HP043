@@ -16,6 +16,7 @@ from cii_platform.errors import (
     StateTransitionError,
     ValidationError,
 )
+from cii_platform.reports.labels import inclusion_policy_label, voyage_status_label
 from cii_platform.services.pagination import normalize_limit
 
 if TYPE_CHECKING:
@@ -303,7 +304,8 @@ async def update_voyage(
         and voyage.annual_inclusion_policy != "EXCLUDE"
     ):
         raise ValidationError(
-            "annual_inclusion_policy가 EXCLUDE가 아닌 항차에서 regulation_year를 지울 수 없습니다.",
+            "연간에 반영하는 항차는 기준연도를 지울 수 없습니다. "
+            "「연간 반영 안 함」으로 바꾼 뒤 지워 주세요.",
             field="regulation_year",
             field_label="기준연도",
         )
@@ -380,12 +382,13 @@ async def transition_voyage(
         allowed = _POLICY_BY_STATUS.get(to_status, frozenset())
         if annual_inclusion_policy not in allowed:
             raise StateTransitionError(
-                f"상태 {to_status}에서 policy {annual_inclusion_policy}는 허용되지 않습니다."
+                f"「{voyage_status_label(to_status)}」 상태에서는 "
+                f"「{inclusion_policy_label(annual_inclusion_policy)}」을 고를 수 없습니다."
             )
         if annual_inclusion_policy != "EXCLUDE" and voyage.regulation_year is None:
             raise StateTransitionError(
-                f"annual_inclusion_policy를 {annual_inclusion_policy}로 설정하려면 "
-                "regulation_year가 필요합니다."
+                f"「{inclusion_policy_label(annual_inclusion_policy)}」으로 바꾸려면 "
+                "기준연도가 필요합니다."
             )
         new_policy = annual_inclusion_policy
     elif len(_POLICY_BY_STATUS.get(to_status, frozenset())) == 1:
@@ -396,8 +399,9 @@ async def transition_voyage(
         # 미지정 = 현행 유지가 원칙이나, 목표 상태가 현행 policy를 허용하지 않으면
         # 조용히 보정하지 않고 명시적 재지정을 요구한다 (#310).
         raise StateTransitionError(
-            f"상태 {to_status}에서 policy {voyage.annual_inclusion_policy}는 "
-            "허용되지 않습니다. annual_inclusion_policy를 명시적으로 지정하세요."
+            f"「{voyage_status_label(to_status)}」 상태에서는 지금의 "
+            f"「{inclusion_policy_label(voyage.annual_inclusion_policy)}」을 쓸 수 없습니다. "
+            "연간 반영 구분을 함께 골라 주세요."
         )
 
     # 가드는 **전이 전** 항차를 본다 — 위에서 객체를 건드리지 않았으므로 그대로다.
@@ -424,8 +428,7 @@ async def _guard_actual_data(session: AsyncSession, voyage, to_status: str) -> N
         )
         if not has_actual:
             raise StateTransitionError(
-                "실적 연료 사용량(actual_fuel_ton)이 1건 이상 입력되어야 "
-                "COMPLETED로 전환할 수 있습니다."
+                "실제 연료량을 한 건 이상 입력해야 「항해 완료」로 바꿀 수 있습니다."
             )
 
     elif to_status == "CONFIRMED":
@@ -437,13 +440,11 @@ async def _guard_actual_data(session: AsyncSession, voyage, to_status: str) -> N
         ]
         if incomplete:
             raise StateTransitionError(
-                f"확정(CONFIRMED) 전에 모든 연료의 실적이 필요합니다 — 미입력: "
+                f"「실적 확정」 전에 모든 연료의 실제 연료량이 필요합니다 — 미입력: "
                 f"{', '.join(incomplete)}."
             )
         if voyage.actual_distance_nm is None or voyage.actual_distance_nm <= 0:
-            raise StateTransitionError(
-                "확정(CONFIRMED) 전에 실항거리(actual_distance_nm)가 필요합니다."
-            )
+            raise StateTransitionError("「실적 확정」 전에 실제 거리가 필요합니다.")
 
 
 async def delete_voyage(
@@ -466,9 +467,7 @@ async def delete_voyage(
 
     if voyage.status in hard_delete_statuses:
         if await voyage_repo.has_calculation_run_refs(session, voyage_id):
-            raise ConflictError(
-                "이 항차를 참조하는 계산 이력(calculation_run)이 있어 삭제할 수 없습니다."
-            )
+            raise ConflictError("이 항차를 참조하는 계산 이력이 있어 삭제할 수 없습니다.")
         await session.delete(voyage)
         await session.commit()
         return {"id": str(voyage.id), "deleted": True, "hard_delete": True}

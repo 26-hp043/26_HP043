@@ -104,4 +104,4 @@ def test_custom_validator_keeps_its_korean_message(client):
         headers=_csrf(client),
     )
     details = _korean_422(resp)
-    assert details["random_seed"] == ("난수 시드(seed)", "random_seed는 정수여야 합니다.")
+    assert details["random_seed"] == ("난수 시드(seed)", "난수 시드(seed)는 정수여야 합니다.")

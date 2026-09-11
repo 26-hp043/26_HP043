@@ -396,7 +396,7 @@ async def build_export(
         # 한 건을 받으려다 전체 파일을 받고도 알아채지 못한다
         # (``type``에 기본값을 두지 않는 것과 같은 이유).
         raise ValidationError(
-            "calculation_run_id는 type=calculations에서만 쓸 수 있습니다.",
+            "계산 이력 한 건은 계산 이력 내보내기에서만 지정할 수 있습니다.",
             field="calculation_run_id",
             field_label="계산 이력 ID",
         )
