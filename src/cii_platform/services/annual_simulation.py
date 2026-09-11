@@ -35,6 +35,7 @@ immutable인 것도 같은 이유다 — 근거가 나중에 바뀌면 재현이
 
 from __future__ import annotations
 
+import logging
 import secrets
 import time
 from dataclasses import dataclass
@@ -86,6 +87,8 @@ from cii_platform.services.ytd_cii import (
 #: 빼되 **조용히 빼지 않는다** — 응답의 ``remaining_voyage_count``는 스냅샷의 PLAN
 #: 행을 세므로, 이 경고가 없으면 일부만 계산했다는 사실이 드러날 자리가 없다.
 WARNING_PLAN_NO_FUEL = "SIMULATION_PLAN_NO_FUEL"
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -1456,14 +1459,20 @@ async def reproduce_annual_simulation(
         profile_name=profile_name,
         profile_rows=profile_rows,
     )
-    if compute_parameter_hash(parameters_used) != row.parameter_hash:
-        raise ParameterError(
-            "원본 실행 이후 규정 파라미터가 변경되어 같은 조건으로 재현할 수 없습니다. "
-            "새로 실행하면 현재 파라미터 기준의 결과를 얻을 수 있습니다."
-        )
+    # ⚠️ **두 해시를 모두 검사한 뒤 판정한다** (`#837`). 종전에는 파라미터 해시가
+    # 어긋나면 곧바로 409를 던져 **입력 해시 검사가 실행조차 되지 않았다.** 두 조건이
+    # 겹치면 늘 409만 나가고, 스냅샷 무결성이 깨졌다는 신호(500)가 사라졌다.
+    #
+    # `API_SPEC §6.4`가 둘을 **다른 실패**로 규정한다 — 409는 「새로 실행하세요」,
+    # 500은 「관리자에게 문의하세요」. 사용자는 409 안내대로 새로 실행하고 정상 결과를
+    # 받으므로, 무결성 실패는 **아무 데도 드러나지 않은 채** 묻힌다.
+    #
+    # 비용은 늘지 않는다 — 스냅샷 항차는 아래 재계산에 어차피 필요해 **읽는 순서만**
+    # 앞당겨진다.
+    parameters_changed = compute_parameter_hash(parameters_used) != row.parameter_hash
 
     voyages_json = await _load_snapshot_voyages(session, row.snapshot_id)
-    if (
+    input_mismatch = (
         _input_hash(
             vessel_id=row.vessel_id,
             regulation_year=row.regulation_year,
@@ -1474,10 +1483,25 @@ async def reproduce_annual_simulation(
             vessel_json=await _load_snapshot_vessel(session, row.snapshot_id),
         )
         != row.input_hash
-    ):
-        # 스냅샷은 immutable인데 해시가 다르다 — 저장된 것과 계산식 중 하나가 어긋났다.
+    )
+
+    # 더 심각한 쪽이 이긴다. 스냅샷은 immutable(`009` `trg_snapshot_immutable`)인데
+    # 해시가 다르다는 것은 **저장된 값과 계산식 중 하나가 어긋났다**는 뜻이다.
+    if input_mismatch:
+        if parameters_changed:
+            # 가려진 쪽도 기록한다 — 관리자가 조사할 때 파라미터 변경이 함께 있었다는
+            # 사실이 원인 판단을 바꾼다.
+            logger.warning(
+                "reproduce %s: input_hash와 parameter_hash가 모두 어긋남 — 500을 우선한다",
+                simulation_id,
+            )
         raise ReproducibilityError(
             "재현 입력의 해시가 원본과 다릅니다. 재현성 검증 실패 — 관리자에게 문의하세요."
+        )
+    if parameters_changed:
+        raise ParameterError(
+            "원본 실행 이후 규정 파라미터가 변경되어 같은 조건으로 재현할 수 없습니다. "
+            "새로 실행하면 현재 파라미터 기준의 결과를 얻을 수 있습니다."
         )
 
     payload = _recompute(

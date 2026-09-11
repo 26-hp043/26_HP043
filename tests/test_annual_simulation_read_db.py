@@ -330,6 +330,49 @@ async def test_reproduce_refuses_when_parameters_changed(session, executed):
 
 
 @pytest.mark.asyncio
+async def test_reproduce_reports_the_integrity_failure_when_both_hashes_mismatch(
+    session, executed, monkeypatch, caplog
+):
+    """두 해시가 **동시에** 어긋나면 500이 409를 이긴다 (`#837`).
+
+    종전에는 파라미터 해시가 어긋나는 순간 409를 던져 **입력 해시 검사가 실행조차
+    되지 않았다.** 사용자는 409 안내대로 새로 실행하고 정상 결과를 받으므로, 스냅샷
+    무결성이 깨졌다는 사실은 **아무 데도 드러나지 않는다.**
+
+    입력 해시 불일치는 immutable 스냅샷(`009`)에서 「저장된 값과 계산식 중 하나가
+    어긋났다」는 뜻이라 더 심각하다. 가려진 파라미터 변경도 로그로 남는지 함께 본다.
+    """
+    await session.execute(
+        text("UPDATE regulation_year SET z_factor_percent = 25 WHERE year = 2026")
+    )
+    monkeypatch.setattr(annual_simulation_service, "_input_hash", lambda **_: "sha256:" + "f" * 64)
+
+    with (
+        caplog.at_level("WARNING", logger=annual_simulation_service.__name__),
+        pytest.raises(ReproducibilityError),
+    ):
+        await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+    assert "parameter_hash" in caplog.text, "가려진 파라미터 변경이 로그에 남지 않았습니다"
+
+
+@pytest.mark.asyncio
+async def test_reproduce_still_gives_409_when_only_parameters_changed(session, executed):
+    """파라미터**만** 바뀐 흔한 경우는 여전히 409다 — 순서를 바꾼 부작용이 없는지.
+
+    입력 해시를 먼저 계산하게 되면서, 파라미터만 바뀐 정상 상황이 스냅샷 문제(500)로
+    **오인되지 않는가**가 요점이다. 그렇게 되면 사용자가 「새로 실행」 대신 관리자를
+    찾게 된다.
+    """
+    await session.execute(
+        text("UPDATE regulation_year SET z_factor_percent = 25 WHERE year = 2026")
+    )
+
+    with pytest.raises(ParameterError):
+        await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+
+@pytest.mark.asyncio
 async def test_reproduce_rebuilds_with_the_stored_schema_version(session, executed, monkeypatch):
     """#816 — ``parameters_used``를 **저장된 행의 버전으로** 다시 만든다.
 
