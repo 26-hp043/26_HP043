@@ -318,6 +318,40 @@ jobs:
           # SPA fallback — 클라이언트 라우터 경로가 404가 되면 안 된다 (#348)
           probe http://localhost/vessels/x
 
+      # 백업 · 복구 리허설 · 교체를 이 스택에서 실제로 돌린다 (#827).
+      #
+      # 만들기만 하고 복구해 보지 않은 백업은 백업이 아니다. 스크립트의 판단은
+      # `tests/test_db_backup_script.py`가 대역으로 보지만, **실제 `pg_dump`·`pg_restore`가
+      # 이 이미지·이 compose에서 도는지**는 여기서만 확인된다. 교체(restore)까지 돌리는
+      # 이유 — 운영 DB 이름을 바꿔 끼우는 순서가 틀리면 앱이 빈 DB에 붙거나 뜨지 않는다.
+      #
+      # 데모 데이터를 먼저 넣는다 — 규제 파라미터만 있는 DB로는 행 수 대조가 거의 비어 있다.
+      - name: 백업 · 복구 리허설 · 교체 (#827)
+        run: |
+          set -e
+          $COMPOSE run --rm app python -m cii_platform.db.demo_seed
+          q() { $COMPOSE exec -T db psql -U "$POSTGRES_USER" -d "$1" -tAc "$2" | tr -d '[:space:]'; }
+          python3 scripts/db_backup.py backup
+          # 되돌릴 수 없는 downgrade의 해제 조건(migration_guard)이 읽는 행. 덤프 **뒤에** 쓰이므로
+          # 교체된 DB에는 없다 — 그래서 교체 전에 확인한다.
+          backups=$(q "$POSTGRES_DB" "SELECT count(*) FROM audit_log WHERE action = 'DB_BACKUP'")
+          [ "$backups" = "1" ] || { echo "::error::백업 기록(DB_BACKUP)이 1건이 아니다 ($backups)"; exit 1; }
+          dump=$(ls -1 backups/*.dump | tail -1)
+          python3 scripts/db_backup.py rehearse "$dump"
+          python3 scripts/db_backup.py restore "$dump" --confirm "$POSTGRES_DB"
+          # 교체 뒤에도 앱이 같은 DB 이름으로 붙어 응답하는가
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost/api/v1/health || true)
+            if [ "$code" = "200" ]; then echo "  교체 뒤 /api/v1/health → 200"; break; fi
+            sleep 2
+          done
+          [ "$code" = "200" ] || { echo "::error::교체 뒤 앱이 응답하지 않는다 ($code)"; exit 1; }
+          vessels=$(q "$POSTGRES_DB" "SELECT count(*) FROM vessel")
+          [ "$vessels" -gt 0 ] || { echo "::error::교체된 DB에 선박이 없다"; exit 1; }
+          kept=$(q postgres "SELECT count(*) FROM pg_database WHERE datname LIKE '${POSTGRES_DB}_before_restore_%'")
+          [ "$kept" = "1" ] || { echo "::error::이전 DB가 남지 않았다 ($kept)"; exit 1; }
+          echo "  선박 $vessels척 · 이전 DB 보존 · 백업 기록 $backups건"
+
       # 실패 원인을 로그 없이 추측하지 않도록 남긴다.
       - name: 실패 시 컨테이너 로그
         if: failure()

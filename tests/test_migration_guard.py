@@ -2,7 +2,8 @@
 
 세 가지를 본다.
 
-1. **가드 자체** — 프로덕션에서만 막고, 리비전을 명시해야만 풀린다
+1. **가드 자체** — 프로덕션에서만 막고, 리비전을 명시하고 **24시간 안의 백업 기록**이
+   있어야만 풀린다(#827)
 2. **배선** — 목록에 올린 리비전의 ``downgrade()``가 **무엇이든 지우기 전에** 가드에서
    끊기는가. 소스를 읽지 않고 **실제로 호출**한다: ``op``를 건드리는 순간 실패하는 대역을
    끼워 두면, 가드가 빠졌거나 뒤로 밀린 것이 그대로 드러난다
@@ -18,6 +19,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,7 @@ import pytest
 from cii_platform.db import migration_guard
 from cii_platform.db.migration_guard import (
     ALLOW_ENV,
+    BACKUP_MAX_AGE,
     EPHEMERAL,
     IRREVERSIBLE,
     REGENERABLE,
@@ -43,6 +46,22 @@ def _files() -> dict[str, Path]:
 def production(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(migration_guard, "is_production", lambda: True)
     monkeypatch.delenv(ALLOW_ENV, raising=False)
+
+
+def _backup_age(monkeypatch: pytest.MonkeyPatch, age: timedelta | None) -> None:
+    """마지막 ``DB_BACKUP`` 기록을 ``age`` 전으로 둔다(``None``이면 기록 없음).
+
+    가드는 마이그레이션의 연결로 감사 로그를 읽는다. 여기서는 연결 없이 그 시각만 바꾼다 —
+    실제 조회는 ``tests/test_migration_guard_backup_db.py``가 DB로 확인한다.
+    """
+    at = None if age is None else datetime.now(UTC) - age
+    monkeypatch.setattr(migration_guard, "_migration_bind", lambda: object())
+    monkeypatch.setattr(migration_guard, "last_backup_at", lambda bind: at)
+
+
+@pytest.fixture
+def fresh_backup(monkeypatch: pytest.MonkeyPatch) -> None:
+    _backup_age(monkeypatch, timedelta(hours=1))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -70,7 +89,7 @@ def test_does_not_block_outside_production(monkeypatch: pytest.MonkeyPatch):
     guard_irreversible_downgrade("037")
 
 
-def test_named_revision_unlocks_and_leaves_a_warning(production, monkeypatch, caplog):
+def test_named_revision_unlocks_and_leaves_a_warning(production, fresh_backup, monkeypatch, caplog):
     monkeypatch.setenv(ALLOW_ENV, "016, 037")
     caplog.set_level("WARNING", logger=migration_guard.__name__)
 
@@ -91,6 +110,58 @@ def test_there_is_no_wildcard(production, monkeypatch, value):
     monkeypatch.setenv(ALLOW_ENV, value)
     with pytest.raises(RuntimeError):
         guard_irreversible_downgrade("037")
+
+
+# ── 백업 연계 (#827 · 2026-09-11 결정 2-⑤) ────────────────────────────────────
+
+
+def test_naming_the_revision_is_not_enough_without_a_backup(production, monkeypatch):
+    """종전(#819)에는 명시 한 번으로 백업 없이 지울 수 있었다.
+
+    「백업을 뜬 뒤」가 오류 문구에만 있었다.
+    """
+    monkeypatch.setenv(ALLOW_ENV, "037")
+    _backup_age(monkeypatch, None)
+
+    with pytest.raises(RuntimeError) as exc:
+        guard_irreversible_downgrade("037")
+
+    assert "백업 기록이 없습니다" in str(exc.value)
+    assert "scripts/db_backup.py backup" in str(exc.value), "무엇을 하면 풀리는지 말한다"
+
+
+def test_a_backup_older_than_the_window_does_not_count(production, monkeypatch):
+    monkeypatch.setenv(ALLOW_ENV, "037")
+    _backup_age(monkeypatch, BACKUP_MAX_AGE + timedelta(minutes=1))
+
+    with pytest.raises(RuntimeError, match="마지막 백업이"):
+        guard_irreversible_downgrade("037")
+
+
+def test_a_backup_inside_the_window_counts(production, monkeypatch):
+    monkeypatch.setenv(ALLOW_ENV, "037")
+    _backup_age(monkeypatch, BACKUP_MAX_AGE - timedelta(minutes=1))
+
+    guard_irreversible_downgrade("037")
+
+
+def test_the_backup_is_not_consulted_before_the_revision_is_named(production, monkeypatch):
+    """명시되지 않은 리비전은 백업이 있어도 막힌다 — 백업은 해제 조건의 **추가**다."""
+    _backup_age(monkeypatch, timedelta(minutes=5))
+
+    with pytest.raises(RuntimeError, match=f"{ALLOW_ENV}=037"):
+        guard_irreversible_downgrade("037")
+
+
+def test_the_backup_is_not_consulted_outside_production(monkeypatch: pytest.MonkeyPatch):
+    """개발·테스트에는 백업이 없다 — 연결을 찾기만 해도 roundtrip 검증이 깨진다."""
+    monkeypatch.setattr(migration_guard, "is_production", lambda: False)
+
+    def _no_bind():
+        raise AssertionError("프로덕션이 아니면 백업을 찾지 않는다")
+
+    monkeypatch.setattr(migration_guard, "_migration_bind", _no_bind)
+    guard_irreversible_downgrade("037")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -133,10 +204,25 @@ def test_downgrade_guards_its_own_revision(production, monkeypatch, revision):
     해제가 엉뚱한 번호에 걸린다. 자기 번호로만 풀리는지를 여기서 본다.
     """
     monkeypatch.setenv(ALLOW_ENV, revision)
+    _backup_age(monkeypatch, timedelta(hours=1))
     module = _load(_files()[revision])
     module.op = _TrapOp()
 
     with pytest.raises(_OpTouched):
+        module.downgrade()
+
+
+@pytest.mark.parametrize("revision", sorted(IRREVERSIBLE))
+def test_named_but_unbacked_downgrade_stops_before_touching_anything(
+    production, monkeypatch, revision
+):
+    """명시했어도 백업이 없으면 **무엇이든 지우기 전에** 끊긴다 (#827)."""
+    monkeypatch.setenv(ALLOW_ENV, revision)
+    _backup_age(monkeypatch, None)
+    module = _load(_files()[revision])
+    module.op = _TrapOp()
+
+    with pytest.raises(RuntimeError, match="백업"):
         module.downgrade()
 
 

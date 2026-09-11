@@ -19,8 +19,14 @@
 
 리비전을 **하나씩 명시**해야 풀린다 — ``ALLOW_IRREVERSIBLE_DOWNGRADE=037,016``.
 「전부 허용」 스위치를 두지 않는 것은 그 스위치가 켜진 채로 남으면 다음 롤백에서 같은
-손실이 조용히 재현되기 때문이다. 풀기 전에 백업을 떠 두는 것이 전제다 — 절차는
-``#827``(백업·복구)이 정한다.
+손실이 조용히 재현되기 때문이다.
+
+**명시만으로는 풀리지 않는다 — 24시간 안의 백업 기록이 함께 있어야 한다** (#827 ·
+2026-09-11 결정 2-⑤ 「#827 백업과 연계」). 백업 스크립트(``scripts/db_backup.py``)는 덤프를
+검증한 뒤 ``audit_log``에 ``DB_BACKUP`` 행을 남기고, 가드는 **마이그레이션이 쓰는 그
+연결로** 그 행을 찾는다. 파일이 아니라 DB에서 찾는 이유 — 마이그레이션은 앱 컨테이너에서
+돌고 덤프는 호스트에 떨어져, 파일 경로로는 서로를 볼 수 없다. 종전(#819)에는 「백업을 뜬
+뒤」가 오류 문구에만 있어, 명시 한 번으로 백업 없이 지울 수 있었다.
 
 개발·테스트 환경에서는 막지 않는다. ``tests/test_zz_roundtrip.py``가 ``downgrade base``를
 돌려 모든 ``downgrade()``가 실행 가능한지 검증하므로, 막으면 그 검증이 사라진다.
@@ -37,6 +43,10 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import sqlalchemy as sa
 
 from cii_platform.config import is_production
 
@@ -44,6 +54,15 @@ _log = logging.getLogger(__name__)
 
 #: 해제 환경변수. 값은 쉼표로 구분한 리비전 목록이다.
 ALLOW_ENV = "ALLOW_IRREVERSIBLE_DOWNGRADE"
+
+#: 백업 스크립트가 남기는 감사 로그 ``action`` (``DB_SCHEMA §2.14`` · #827).
+#: ``scripts/db_backup.py``의 같은 이름 상수와 같아야 한다 — 검사가 대조한다.
+BACKUP_ACTION = "DB_BACKUP"
+
+#: 해제에 쓸 수 있는 백업의 최대 나이. 하루 한 번 백업(``scripts/db_backup.py`` 기본 주기)이면
+#: 언제 롤백하든 마지막 정기 백업이 이 안에 든다 — 그래도 **롤백 직전에 한 번 더 뜨는 것**이
+#: 절차다(``DB_SCHEMA §8.1.2``). 그 사이에 쌓인 데이터는 정기 백업에 없다.
+BACKUP_MAX_AGE = timedelta(hours=24)
 
 #: 되돌리면 운영 데이터가 복구 불가능하게 사라지는 리비전 → 무엇이 사라지는가.
 IRREVERSIBLE: dict[str, str] = {
@@ -106,8 +125,43 @@ def _allowed() -> set[str]:
     return {item.strip() for item in raw.split(",") if item.strip()}
 
 
+def last_backup_at(bind: Any) -> datetime | None:
+    """가장 최근 ``DB_BACKUP`` 감사 기록의 시각. 없으면 ``None``.
+
+    ``bind``는 동기 연결이다 — 마이그레이션 안에서는 ``op.get_bind()``가 준다.
+    """
+    return bind.execute(
+        sa.text("SELECT max(timestamp) FROM audit_log WHERE action = :action"),
+        {"action": BACKUP_ACTION},
+    ).scalar()
+
+
+def _migration_bind() -> Any:
+    """지금 돌고 있는 마이그레이션의 연결. 마이그레이션 밖에서 부르면 alembic이 던진다."""
+    from alembic import op
+
+    return op.get_bind()
+
+
+def _require_recent_backup(revision: str) -> None:
+    last = last_backup_at(_migration_bind())
+    if last is not None and datetime.now(UTC) - last <= BACKUP_MAX_AGE:
+        return
+    seen = "백업 기록이 없습니다" if last is None else f"마지막 백업이 {last.isoformat()}입니다"
+    hours = int(BACKUP_MAX_AGE.total_seconds() // 3600)
+    raise RuntimeError(
+        f"리비전 {revision}의 downgrade는 {ALLOW_ENV}로 명시했지만 {hours}시간 안의 "
+        f"백업이 없어 막았습니다 — {seen}. "
+        "먼저 `python3 scripts/db_backup.py backup`으로 백업을 뜨고 다시 실행하십시오 "
+        "(#827 · DB_SCHEMA §8.1.2)."
+    )
+
+
 def guard_irreversible_downgrade(revision: str) -> None:
-    """프로덕션에서 ``revision``의 downgrade를 막는다. 해제돼 있으면 경고만 남긴다.
+    """프로덕션에서 ``revision``의 downgrade를 막는다.
+
+    풀리는 조건은 둘 다다 — ``ALLOW_IRREVERSIBLE_DOWNGRADE``에 이 리비전이 있고, **24시간
+    안의 백업 기록**이 있다(#827). 둘 다 맞으면 경고만 남기고 지나간다.
 
     각 리비전의 ``downgrade()`` **맨 앞**에서 부른다 — 무엇이든 지우기 전에 끊어야 한다.
     PostgreSQL은 DDL도 트랜잭션이라 여러 리비전을 한 번에 내릴 때 뒤에서 끊겨도 앞의
@@ -116,17 +170,18 @@ def guard_irreversible_downgrade(revision: str) -> None:
     loss = IRREVERSIBLE[revision]
     if not is_production():
         return
-    if revision in _allowed():
-        _log.warning(
-            "되돌릴 수 없는 downgrade를 해제 상태로 실행합니다 — %s: %s (%s=%s)",
-            revision,
-            loss,
-            ALLOW_ENV,
-            os.environ.get(ALLOW_ENV, ""),
+    if revision not in _allowed():
+        raise RuntimeError(
+            f"리비전 {revision}의 downgrade는 프로덕션에서 막혀 있습니다 — {loss}. "
+            f"백업을 뜬 뒤(`python3 scripts/db_backup.py backup` · #827) "
+            f"{ALLOW_ENV}={revision} 로 이 리비전을 명시해 해제하십시오 "
+            "(DB_SCHEMA §8.1.2)."
         )
-        return
-    raise RuntimeError(
-        f"리비전 {revision}의 downgrade는 프로덕션에서 막혀 있습니다 — {loss}. "
-        f"백업을 뜬 뒤(#827) {ALLOW_ENV}={revision} 로 이 리비전을 명시해 해제하십시오 "
-        "(DB_SCHEMA §8.1.2)."
+    _require_recent_backup(revision)
+    _log.warning(
+        "되돌릴 수 없는 downgrade를 해제 상태로 실행합니다 — %s: %s (%s=%s)",
+        revision,
+        loss,
+        ALLOW_ENV,
+        os.environ.get(ALLOW_ENV, ""),
     )
