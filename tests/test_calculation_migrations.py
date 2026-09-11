@@ -135,6 +135,7 @@ async def test_calculation_run_delete_rejected(conn):
 
 @pytest.mark.asyncio
 async def test_calculation_run_hash_check_rejects_bad_format(conn):
+    # 케이스 DB-CHK-004 (`TEST_PLAN §5.1`)
     """chk_input_hash_format: sha256: + 64 hex 형식이 아니면 거부된다."""
     vessel_id = await _insert_vessel(conn)
     with pytest.raises(IntegrityError):

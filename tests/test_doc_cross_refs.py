@@ -58,10 +58,19 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[1]
 
-#: 참조 대상이 되는 소관 한정 정본 (`AGENTS §3.2`). 이 둘이 서로를 가리키다 어긋났다.
+#: 참조 대상 정본. `#583`은 서로를 가리키다 어긋난 **두 문서**만 넣었다.
+#:
+#: `#758`에서 나머지 여섯을 더했다 — 그쪽 참조가 훨씬 많은데 무검사였고, 넓히자마자
+#: 실제로 끊긴 참조가 나왔다(`UIFLOW`의 `API_SPEC §12.1` — 존재한 적 없는 하위 절).
 TARGETS: dict[str, str] = {
     "UIFLOW": "UIFLOW.md",
     "DESIGN_SYSTEM": "DESIGN_SYSTEM.md",
+    "PRD": "PRD.md",
+    "TECH_SPEC": "TECH_SPEC.md",
+    "API_SPEC": "API_SPEC.md",
+    "DB_SCHEMA": "DB_SCHEMA.md",
+    "TEST_PLAN": "TEST_PLAN.md",
+    "AGENTS": "AGENTS.md",
 }
 
 #: 스캔 대상. 문서뿐 아니라 코드 주석도 같은 참조를 쓴다.
@@ -85,7 +94,8 @@ _SCREEN_REF = re.compile(
 )
 
 #: ``## 📊 2. 계층별 상세 화면`` · ``### 2.2 화면 ↔ 계층 매핑`` — 절 헤딩.
-_SECTION_HEAD = re.compile(r"^#{2,4}\s+(?:[^0-9\s]+\s+)?(?P<num>[0-9]+(?:\.[0-9]+)*)[.\s]")
+#: **5단까지 본다** (#758) — ``TECH_SPEC §5.2.1.1``이 ``#####``라 4단까지만 보면 「없는 절」이 된다.
+_SECTION_HEAD = re.compile(r"^#{2,5}\s+(?:[^0-9\s]+\s+)?(?P<num>[0-9]+(?:\.[0-9]+)*)[.\s]")
 #: 화면 정의 자리 세 가지 — ``### 2-4.`` 헤딩 · ``| **0-1** |`` 표 · ``*   **1-1.`` 목록.
 _SCREEN_DEFS = (
     re.compile(r"^#{2,4}\s+(?P<num>[0-9]+-[0-9]+)\."),
@@ -235,3 +245,33 @@ def test_화면_번호에_섹션_기호를_붙이지_않는다() -> None:
         "→ `§`를 떼십시오 (`UIFLOW §2-4` → `UIFLOW 2-4`). "
         "`§`는 절만 가리킵니다. 절 안의 항목은 `§N 항목 M`으로 적습니다 (`AGENTS §4.7`)."
     )
+
+
+#: 로컬 전용 문서. `.git/info/exclude`로 저장소에서 빠져 있어 **클론한 사람은 읽을 수 없다.**
+_LOCAL_ONLY_DOC = re.compile(r"\bROADMAP\b")
+
+
+def test_저장소에_없는_문서를_근거로_인용하지_않는다() -> None:
+    """근거로 든 문서가 저장소에 없으면 따라간 사람이 막힌다 (#758).
+
+    `DB_SCHEMA`와 마이그레이션 010이 ``ROADMAP``의 절·가드레일을 근거로 들고 있었다.
+    그 파일은 사용자 전용 로컬 파일이라 **절 참조 가드로는 잡을 수 없다** — 대상 목록에
+    없는 문서이기 때문이다. 이름으로 막는다.
+
+    **변경 이력 행은 보지 않는다.** 「무엇을 고쳤다」를 적으려면 옛 인용을 그대로 적어야
+    하고, 그 행은 과거 사실의 기록이지 근거 인용이 아니다.
+    """
+    paths = [
+        *(_ROOT / name for name in TARGETS.values()),
+        _ROOT / "README.md",
+        *sorted((_ROOT / "alembic" / "versions").glob("*.py")),
+        *sorted((_ROOT / "src").rglob("*.py")),
+        *_SRC,
+    ]
+    hits = [
+        f"{path.relative_to(_ROOT).as_posix()}:{number}"
+        for path in paths
+        for number, line in _prose_lines(path)
+        if not line.startswith("| 20") and _LOCAL_ONLY_DOC.search(line)
+    ]
+    assert not hits, "저장소에 없는 로컬 전용 문서(ROADMAP)를 근거로 인용한다:\n" + "\n".join(hits)

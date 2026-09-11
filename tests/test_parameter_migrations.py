@@ -94,16 +94,19 @@ async def test_refline_allows_zero_c(conn):
 
 
 async def test_refline_rejects_nonpositive_a_decimal(conn):
+    # 케이스 DB-CHK-019 (`TEST_PLAN §5.1`)
     with pytest.raises(IntegrityError, match="chk_a_decimal_positive"):
         await _insert_refline(conn, a_decimal="0")
 
 
 async def test_refline_rejects_negative_c(conn):
+    # 케이스 DB-CHK-020 (`TEST_PLAN §5.1`)
     with pytest.raises(IntegrityError, match="chk_c_positive"):
         await _insert_refline(conn, c="-0.1")
 
 
 async def test_refline_capacity_rule_rejects_invalid(conn):
+    # 케이스 DB-CHK-008 (`TEST_PLAN §5.1`)
     # [M-7]: 'fixed' 뒤에 숫자만 허용.
     with pytest.raises(IntegrityError, match="chk_capacity_rule"):
         await _insert_refline(conn, capacity_rule="fixed abc")
@@ -123,6 +126,7 @@ async def test_boundary_insert_ok(conn):
 
 
 async def test_boundary_d_order_rejects_disorder(conn):
+    # 케이스 DB-CHK-003 (`TEST_PLAN §5.1`)
     # [M-3]: d1 < d2 < d3 < d4 위반 (d2 < d1).
     with pytest.raises(IntegrityError, match="chk_d_order"):
         await _insert_boundary(conn, d1="0.94", d2="0.86")

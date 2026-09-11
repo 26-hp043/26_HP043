@@ -54,8 +54,26 @@ _ROOT = Path(__file__).resolve().parents[1]
 _TEST_PLAN = _ROOT / "TEST_PLAN.md"
 _TESTS_DIR = _ROOT / "tests"
 
-#: 케이스 ID 문법. ``UT-RISK-003B``처럼 뒤에 알파벳이 붙는 변형이 있다(#172 재배정).
-_ID = re.compile(r"\b((?:UT|IT|AT|PT|SEC|A11Y)-[A-Z0-9]+-\d+[A-Z]?)\b")
+#: 케이스 ID 문법 — **접두어마다 모양이 다르다** (#758).
+#:
+#: 종전에는 ``(?:UT|IT|AT|PT|SEC|A11Y)-[A-Z0-9]+-\d+``(3단) 하나였다. 그래서
+#:
+#: - ``A11Y-001``은 **접두어 목록에 있는데도 한 건도 안 잡혔다** — 2단 ID라 모양이 달랐다
+#: - ``PERF-001``·``DB-CHK-001``은 접두어가 없었다
+#: - ``DB-CHK-001a``의 **소문자 접미**(``ORACLE-S-3``)도 못 잡았다
+#: - ``PT``·``SEC``는 ``TEST_PLAN``에 **ID가 0개**인 죽은 접두어였다
+#:
+#: 합해서 **케이스 34개가 분류 검사를 받지 않고 지나갔다.** 넣어 둔 사람은 동작한다고
+#: 믿었을 것이다 — :func:`test_every_prefix_matches_a_defined_id`가 그 믿음을 검사한다.
+_ID_FORMS: dict[str, str] = {
+    "UT": r"UT-[A-Z0-9]+-\d+[A-Z]?",  # UT-RISK-003B처럼 대문자 접미가 있다(#172 재배정)
+    "IT": r"IT-[A-Z0-9]+-\d+[A-Z]?",
+    "AT": r"AT-[A-Z0-9]+-\d+[A-Z]?",
+    "DB-CHK": r"DB-CHK-\d+[a-z]?",  # DB-CHK-001a~001e (ORACLE-S-3)
+    "A11Y": r"A11Y-\d+",
+    "PERF": r"PERF-\d+",
+}
+_ID = re.compile(r"\b(" + "|".join(f"(?:{form})" for form in _ID_FORMS.values()) + r")\b")
 
 #: ``§14.5``의 표에서 쓰는 범위 표기 — ``UT-WX-001`~`005`` 형태.
 _RANGE = re.compile(r"`([A-Z0-9-]+)-(\d+)`\s*~\s*`?(\d+)`?")
@@ -148,6 +166,17 @@ def test_every_case_id_is_classified():
         f"어디에도 없는 케이스 ID {len(orphans)}건: {', '.join(orphans)}\n"
         "테스트에 ID를 달거나, TEST_PLAN §14.5의 「미대응」·「계획분」 표에 이유와 함께 적는다."
     )
+
+
+def test_every_prefix_matches_a_defined_id():
+    """문법 표의 모든 접두어가 ``TEST_PLAN``의 ID를 **하나 이상** 잡는다 (#758).
+
+    ``A11Y``가 접두어 목록에 있으면서 모양이 달라 한 건도 안 잡혔다. 잡히지 않는 접두어는
+    **검사하는 척만 한다** — 그 접두어의 케이스는 전부 분류 검사 밖으로 빠진다.
+    """
+    defined = _defined_ids()
+    dead = [prefix for prefix in _ID_FORMS if not any(i.startswith(f"{prefix}-") for i in defined)]
+    assert not dead, f"ID를 하나도 잡지 못하는 접두어: {dead} — 모양이 틀렸거나 죽은 접두어다"
 
 
 def test_no_ghost_ids_in_code():
