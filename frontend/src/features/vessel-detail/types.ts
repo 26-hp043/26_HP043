@@ -30,7 +30,13 @@ export interface CiiYear {
   attainedCii: string | null
   requiredCii: string | null
   rating: Rating | null
+  /** **완료(실적 확정) 항차 수**다 — 진행 중 항차는 세지 않는다(`API_SPEC §2.7`). */
   voyageCount: number
+  /**
+   * 이 행의 거리·연료(와 CII)에 기여분이 들어간 **진행 중 항차 수**(0 또는 1 · `#800`).
+   * 화면은 `voyageCountText`로 두 수를 함께 적는다(#987).
+   */
+  inProgressVoyageCount: number
   totalDistanceNm: string | null
   totalFuelTon: string | null
 }

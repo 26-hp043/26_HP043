@@ -22,6 +22,7 @@ function year(overrides: Partial<CiiYear> & { regulationYear: number }): CiiYear
     requiredCii: '5.500000',
     rating: 'B',
     voyageCount: 3,
+    inProgressVoyageCount: 0,
     totalDistanceNm: '1000.00',
     totalFuelTon: '80.00',
     ...overrides,

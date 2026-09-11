@@ -215,6 +215,7 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
     requiredCii: '9.512340',
     rating: null,
     voyageCount: 17,
+    inProgressVoyageCount: 0,
     totalDistanceNm: '10620.00',
     totalFuelTon: '199.10',
   }
@@ -273,5 +274,17 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
     )
 
     expect(await screen.findByText(/올해 등록된 항차 실적이 없습니다/)).toBeTruthy()
+  })
+
+  it('올해 카드의 항차 칸은 「완료 항차」이고 진행분을 함께 적는다 (#987)', async () => {
+    /*
+     * `voyage_count`는 완료 항차만 센다. 같은 카드의 CII에는 진행 중 항차의 기여분이
+     * 들어 있으므로, 완료 수만 적으면 두 값이 가리키는 항차 집합이 어긋나 보인다.
+     */
+    const { container } = renderAt(withYear({ ...YEAR_WITHOUT_RATING, inProgressVoyageCount: 1 }))
+    const card = await ytdCard(container)
+
+    const label = card.getByText('완료 항차')
+    expect(label.nextElementSibling?.textContent).toBe('17 (+진행 중 1)')
   })
 })
