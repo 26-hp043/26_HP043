@@ -170,6 +170,7 @@ async def test_annual_sim_insert_ok(conn):
 
 
 async def test_annual_sim_rejects_rating_e(conn):
+    # 케이스 DB-CHK-005 (`TEST_PLAN §5.1`)
     # [M-4]: 목표 등급 E 불가.
     vessel_id = await _insert_vessel(conn)
     calc_id = await _insert_calculation_run(conn, vessel_id)
@@ -179,6 +180,7 @@ async def test_annual_sim_rejects_rating_e(conn):
 
 
 async def test_annual_sim_rejects_zero_runs(conn):
+    # 케이스 DB-CHK-006 (`TEST_PLAN §5.1`)
     # [M-5]: simulation_runs > 0.
     vessel_id = await _insert_vessel(conn)
     calc_id = await _insert_calculation_run(conn, vessel_id)

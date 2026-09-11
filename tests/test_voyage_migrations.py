@@ -78,7 +78,7 @@ async def _insert_voyage_scenario(
 
 @pytest.mark.asyncio
 async def test_chk_actual_fuel_positive_rejects_negative(conn):
-    """actual_fuel_ton 음수는 chk_actual_fuel_positive로 거부된다.
+    """actual_fuel_ton 음수는 chk_actual_fuel_positive로 거부된다. (`DB-CHK-014`)
 
     참조하는 'HFO'는 017이 적재한 seed 행이다 (#83). 예전에는 테스트가 직접 INSERT했으나
     uq_fuel_type_code가 seed와 충돌하므로 seed 행을 그대로 쓴다.
@@ -128,7 +128,7 @@ async def test_voyage_fuel_use_cascade_delete(conn):
 
 @pytest.mark.asyncio
 async def test_status_policy_check_rejects_invalid_combo(conn):
-    """DRAFT + INCLUDE_AS_PLAN 조합은 chk_status_policy로 거부된다."""
+    """DRAFT + INCLUDE_AS_PLAN 조합은 chk_status_policy로 거부된다. (`DB-CHK-001`)"""
     vessel_id = await _insert_vessel(conn)
     with pytest.raises(IntegrityError):
         await _insert_voyage(conn, vessel_id, status="DRAFT", policy="INCLUDE_AS_PLAN")
@@ -187,7 +187,7 @@ async def test_fuel_type_no_action_delete(conn):
 
 @pytest.mark.asyncio
 async def test_scenario_distance_positive_rejects_zero(conn):
-    """chk_scenario_distance_positive: distance_nm = 0은 거부된다. (#84)"""
+    """chk_scenario_distance_positive: distance_nm = 0은 거부된다. (#84) (`DB-CHK-012`)"""
     vessel_id = await _insert_vessel(conn)
     with pytest.raises(IntegrityError):
         await _insert_voyage_scenario(conn, vessel_id, distance_nm=0)
@@ -211,7 +211,7 @@ async def test_scenario_fuel_positive_rejects_zero(conn):
 
 @pytest.mark.asyncio
 async def test_scenario_speed_positive_rejects_below_one(conn):
-    """chk_scenario_speed_positive: speed_kn = 0.7(1.0 미만)은 거부된다. (#84)
+    """chk_scenario_speed_positive: speed_kn = 0.7(1.0 미만)은 거부된다. (#84) (`DB-CHK-013`)
 
     speed_kn 기준은 voyage(§2.2) chk_speed_positive와 통일해 >= 1.0이다. > 0이었다면
     0.7이 통과해 채택(#58) 시 voyage 쪽에서 뒤늦게 실패했을 것이다.
