@@ -20,6 +20,7 @@ import {
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
+import { SnapshotVoyages } from './SnapshotVoyages'
 
 /**
  * 기능③ 연간 CII 시뮬레이션 화면 (#157 · **#442에서 실 API 연결**).
@@ -566,6 +567,12 @@ function Result({
           <dt>{ANNUAL_COPY.runIdLabel}</dt>
           <dd>{result.calculation_run_id}</dd>
         </dl>
+        {/* 이 실행에 쓴 항차 — 펼칠 때 불러온다 (`API_SPEC §6.3` · #992). */}
+        <SnapshotVoyages
+          simulationId={result.simulation_id}
+          voyageCount={result.snapshot.voyage_count}
+          provider={provider}
+        />
         {/*
           `PRD §12.4.3` 「결과 재현 버튼」(#776). `#556`은 이 경로를 「검증 수단이지
           사용자 기능이 아니다」로 판정했으나 `PRD §12.4.3`이 버튼을 요구해 뒤집혔다.

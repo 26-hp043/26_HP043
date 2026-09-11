@@ -29,6 +29,7 @@ import type {
 import './VesselDetail.css'
 import { ErrorState } from '../../components/ErrorState'
 import { voyageCountText } from './voyageCount'
+import { CalculationHistory } from './CalculationHistory'
 
 /**
  * 상세 화면 지도의 최소 표시 범위(도) — 약 1,500km (#723).
@@ -505,6 +506,12 @@ export function VesselDetail({
         운항 기록을 위에서 아래로 읽으면 순서가 이렇게 된다.
       */}
       <NotUnderwayPanel vesselId={vessel.id} />
+
+      {/*
+        계산 이력 · 재계산 필요 표시 (#992 · `PRD §8.4`). 운항 기록(항차 · 정박) 아래에 두는
+        이유 — 그 기록을 고치면 여기 계산이 「재계산 필요」로 바뀐다. 원인 아래에 결과를 둔다.
+      */}
+      <CalculationHistory vesselId={vessel.id} />
 
       <DisclaimerBanner />
       <p className="fleet__source">일부 값은 사용자 입력 또는 모델 추정값입니다.</p>

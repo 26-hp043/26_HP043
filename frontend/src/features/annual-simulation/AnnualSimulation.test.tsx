@@ -270,3 +270,52 @@ describe('주소의 연도로 시작한다 (#891)', () => {
     expect(await submittedYear(fetchImpl)).toBe(2026)
   })
 })
+
+/**
+ * 「이 실행에 쓴 항차」 (#992 · `API_SPEC §6.3`) — 서버에 있는데 화면에서 닿을 수 없던 조회다.
+ *
+ * **펼칠 때만** 부른다 — 결과마다 미리 받으면 쓰지 않을 조회가 실행마다 는다.
+ */
+describe('이 실행에 쓴 항차 (#992)', () => {
+  const SNAPSHOT = {
+    data: [
+      {
+        snapshot_voyage_id: 'sv-1',
+        original_voyage_id: 'v-1',
+        voyage_no: 'V-2026-001',
+        status_at_snapshot: 'COMPLETED',
+        distance_nm: 11200,
+        speed_kn: 13.5,
+        fuel_uses: [{ fuel_type: 'HFO', fuel_ton: 850, cf_used: 3.114 }],
+        annual_inclusion_policy: 'INCLUDE_AS_ACTUAL',
+      },
+    ],
+  }
+
+  it('펼치기 전에는 부르지 않고, 펼치면 그 실행의 스냅샷 항차를 그린다', async () => {
+    const fetchImpl = stubServer()
+    fetchImpl.mockImplementation(async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.endsWith('/snapshot-voyages')) return jsonResponse(SNAPSHOT)
+      if (url.endsWith('/annual-simulations')) return jsonResponse(body('sim-1'))
+      return jsonResponse({ data: {} })
+    })
+    renderScreen()
+    await runOnce()
+
+    const calls = () => fetchImpl.mock.calls.map(([u]) => String(u))
+    expect(calls().some((u) => u.endsWith('/snapshot-voyages'))).toBe(false)
+
+    const summary = screen.getByText(/이 실행에 쓴 항차 보기/)
+    const details = summary.closest('details') as HTMLDetailsElement
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+
+    expect(await screen.findByText('V-2026-001')).toBeTruthy()
+    expect(calls()).toContain('/api/v1/annual-simulations/sim-1/snapshot-voyages')
+    expect(screen.getByText('연간 반영 — 실적')).toBeTruthy()
+    expect(screen.getByText('HFO 850.0t')).toBeTruthy()
+  })
+})
+

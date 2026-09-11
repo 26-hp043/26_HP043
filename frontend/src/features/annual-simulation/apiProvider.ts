@@ -3,6 +3,7 @@ import type {
   AnnualSimulationProvider,
   AnnualSimulationRequest,
   AnnualSimulationResult,
+  SnapshotVoyage,
 } from './types'
 
 /**
@@ -159,8 +160,39 @@ export function createApiAnnualSimulationProvider(
     }
   }
 
+  /** 조회(GET) — 스냅샷 항차 (`§6.3` · #992). 봉투는 `{data: [...]}`다. */
+  async function getSnapshotVoyages(simulationId: string): Promise<SnapshotVoyage[]> {
+    const headers: Record<string, string> = { Accept: 'application/json' }
+    if (options.apiKey) headers['X-API-Key'] = options.apiKey
+    let response: Response
+    try {
+      response = await doFetch(
+        `${baseUrl}/annual-simulations/${encodeURIComponent(simulationId)}/snapshot-voyages`,
+        { method: 'GET', credentials: 'include', headers },
+      )
+    } catch (cause) {
+      throw new AnnualSimulationError(NETWORK_ERROR_MESSAGE, undefined, { cause })
+    }
+    let parsed: unknown = null
+    try {
+      parsed = await response.json()
+    } catch {
+      parsed = null
+    }
+    if (response.status === 401) {
+      redirectToLogin()
+      throw new AnnualSimulationError(SESSION_EXPIRED_MESSAGE)
+    }
+    if (!response.ok) throw toAnnualSimulationError(response.status, parsed)
+    const rows = (parsed as { data?: unknown } | null)?.data
+    // 빈 배열로 삼키지 않는다 — 「쓴 항차가 없다」와 「못 받았다」가 구분되지 않는다.
+    if (!Array.isArray(rows)) throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
+    return rows as SnapshotVoyage[]
+  }
+
   return {
     run: (request: AnnualSimulationRequest) => post('/annual-simulations', request),
+    snapshotVoyages: getSnapshotVoyages,
     // 본문이 없다 — 조건은 서버가 원본 실행에서 읽는다(`API_SPEC §6.4`). 화면이 조건을
     // 다시 보내면 폼을 고친 뒤 누른 경우 **원본이 아닌 조건**으로 재현을 시도하게 된다.
     reproduce: (simulationId: string) =>

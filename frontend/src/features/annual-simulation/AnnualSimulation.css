@@ -490,3 +490,21 @@
   color: var(--color-text-muted);
   margin: 0;
 }
+
+/*
+ * 「이 실행에 쓴 항차」 펼침 (#992 · `API_SPEC §6.3`). 표는 민감도 표(`annual-sim__table`)와
+ * 같은 모양이다 — 같은 화면의 표가 서로 다르면 다른 종류의 정보로 읽힌다. **개발 임시안.**
+ */
+.annual-sim__snapshot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  margin-top: var(--space-12);
+}
+
+.annual-sim__snapshot > summary {
+  cursor: pointer;
+  color: var(--color-link);
+  font-weight: var(--font-weight-label);
+  font-size: var(--font-size-label);
+}

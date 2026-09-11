@@ -154,4 +154,23 @@ export interface AnnualSimulationProvider {
    * 식별자도 원본의 것을 돌려준다.
    */
   reproduce(simulationId: string): Promise<AnnualSimulationResult>
+  /**
+   * 이 실행이 쓴 항차 — 실행 시점 스냅샷의 사본 (`API_SPEC §6.3` · #992).
+   *
+   * 확률·p50이 **어느 항차 목록으로** 나온 것인지 보여 준다. 스냅샷은 immutable이라
+   * 그 뒤에 항차를 고쳐도 여기 값은 바뀌지 않는다(`TECH_SPEC §11`).
+   */
+  snapshotVoyages(simulationId: string): Promise<SnapshotVoyage[]>
+}
+
+/** `GET /annual-simulations/{id}/snapshot-voyages` 한 행 (`API_SPEC §6.3`). */
+export interface SnapshotVoyage {
+  snapshot_voyage_id: string
+  original_voyage_id: string | null
+  voyage_no: string | null
+  status_at_snapshot: string
+  distance_nm: number | string | null
+  speed_kn: number | string | null
+  fuel_uses: Array<{ fuel_type: string; fuel_ton: number | string | null; cf_used: number | string | null }>
+  annual_inclusion_policy: string
 }
