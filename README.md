@@ -173,6 +173,28 @@ docker compose -f docker-compose.prod.yml up -d
 
 > `alembic`이 컨테이너 안에서 도는 것은 prod 이미지가 `alembic.ini`·`alembic/`을 포함하기 때문이다(루트 `Dockerfile`). 재적재 진입점이 `scripts/seed.py`가 아니라 `python -m cii_platform.db.seed`인 것도 같은 이유다 — 프로덕션 이미지는 wheel만 설치하므로 `scripts/`가 들어 있지 않다.
 
+### 백업·복구 (`#827`)
+
+**만들기만 하고 복구해 보지 않은 백업은 백업이 아니다.** 스크립트 하나가 셋을 한다 — 호스트에 `python3`만 있으면 되고(표준 라이브러리만 쓴다), `pg_dump`·`pg_restore`는 **db 컨테이너 안의 것**을 부른다.
+
+```bash
+# 백업 — 덤프 → pg_restore로 읽히는지 확인 → 매니페스트(.json) → 감사 기록(DB_BACKUP) → 최근 14개만 남긴다
+python3 scripts/db_backup.py backup
+
+# 복구 리허설 — 새 DB(<DB>_restore_check)에 복구해 리비전·테이블·행 수·트리거를 대조하고 지운다
+python3 scripts/db_backup.py rehearse backups/<파일>.dump
+
+# 복구 — 운영 DB를 덤프로 교체한다. 대조에 실패하면 앱을 멈추기 전에 끝나고,
+#        성공하면 이전 DB는 지우지 않고 <DB>_before_restore_<시각>으로 남긴다
+python3 scripts/db_backup.py restore backups/<파일>.dump --confirm "$POSTGRES_DB"
+```
+
+- **주기는 하루 한 번이다** — 호스트 crontab 한 줄: `17 3 * * * cd <저장소> && python3 scripts/db_backup.py backup && python3 scripts/db_backup.py rehearse "$(ls -1 backups/*.dump | tail -1)"`. 보존 개수는 `BACKUP_KEEP`, 위치는 `BACKUP_DIR`(기본 `backups/` · `.gitignore`·`.dockerignore`)로 바꾼다
+- **덤프는 같은 호스트에 쌓인다.** 호스트 자체를 잃는 사고에는 쓸 수 없다 — 호스트 밖으로 옮기는 것은 DB를 어디에 둘지(`#788`)와 함께 정한다
+- **되돌릴 수 없는 downgrade 전에는 반드시 한 번 더 뜬다.** 프로덕션 가드가 24시간 안의 `DB_BACKUP` 기록을 요구하며, 없으면 `ALLOW_IRREVERSIBLE_DOWNGRADE`로 명시해도 막힌다(`DB_SCHEMA §8.1.2`)
+- CI의 docker 잡이 프로덕션 스택에서 **백업 → 리허설 → 교체**를 매 실행 돌린다 — 절차가 낡으면 거기서 드러난다
+- 개발 스택에 쓰려면 `COMPOSE="docker compose" python3 scripts/db_backup.py …`
+
 ### ⚠️ Vite 환경변수는 빌드 시점에 굳는다
 
 `VITE_API_BASE_URL`은 **런타임 환경변수로 바뀌지 않는다.** Vite가 빌드할 때 값을 코드에 인라인하기 때문이다. 그래서 compose가 이 값을 `build.args`로 넘긴다.
@@ -484,3 +506,4 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-11 | `#833` | 문서 구조 표의 `TECH_SPEC.md` 행을 **v1.9**로 갱신 — §10.3 「NumPy 업그레이드 절차와 재현성의 한계」 신설(#833 · #106) |
 | 2026-09-11 | `#808` | 「배포」 절 1단계에 **가입 게이트 설정**(`SIGNUP_ALLOWED_DOMAINS` 또는 `SIGNUP_INVITE_CODE`) 안내 추가 — 프로덕션에서 둘 다 없으면 앱이 기동하지 않는다(사내 도구로 확정 · `API_SPEC §1.2` 「가입 제한」) (#808) |
 | 2026-09-11 | `#982` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.26**으로 갱신 — §2.15 샘플 선박 목록 조회 신설 반영 (#982) |
+| 2026-09-12 | `#827` | 「배포」 절에 **「백업·복구」 소절 신설** — `scripts/db_backup.py`(백업 · 복구 리허설 · 교체), 하루 한 번 주기, 같은 호스트 보관의 한계(`#788`), 되돌릴 수 없는 downgrade 전 백업 의무(`DB_SCHEMA §8.1.2`) (#827) |
