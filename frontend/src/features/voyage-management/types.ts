@@ -105,6 +105,12 @@ export interface VoyageDraft {
   regulationYear: string
   /** 최소 한 줄 — 서버가 `min_length=1`을 요구한다(`§3.3`). */
   fuelUses: VoyageFuelDraft[]
+  /**
+   * 출발·도착항 좌표 (#760). 샘플 항만을 **골랐을 때만** 있다 — 자유 입력은 좌표가 없다.
+   * 없으면 요청에 좌표 키를 넣지 않는다(`§3.3` optional).
+   */
+  departureCoord?: { lat: number; lon: number } | null
+  arrivalCoord?: { lat: number; lon: number } | null
 }
 
 /**

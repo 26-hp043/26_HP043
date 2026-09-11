@@ -4,6 +4,7 @@ import { readPageMeta } from '../vessel-management/apiProvider'
 import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type { ImportResult, ImportRowError } from './importRules'
+import type { PortCoord, SamplePort } from './samplePorts'
 import { actualsPayload, policyForTransition, toIsoInstant } from './voyageRules'
 import type {
   ActualsDraft,
@@ -182,6 +183,10 @@ export interface VoyageManagementProvider {
    * 되돌릴 수 없는 상태가 만들어진다.
    */
   importCsv(vesselId: string, file: File, options: { dryRun: boolean }): Promise<ImportResult>
+  /** 샘플 항만 목록 (`API_SPEC §3.8` · #760). 항차 추가의 출발·도착항 선택지다. */
+  samplePorts(): Promise<SamplePort[]>
+  /** 두 좌표의 대권거리(해리) — **추정값**이다 (`API_SPEC §3.9` · `PRD §15.2` · #760). */
+  greatCircle(from: PortCoord, to: PortCoord): Promise<number>
   /**
    * 운항 기록 내보내기 (`API_SPEC §8.1` · `#890`).
    *
@@ -233,6 +238,17 @@ function toImportResult(raw: ServerImportResult): ImportResult {
     missingDepartureCount:
       typeof raw.missing_departure_count === 'number' ? raw.missing_departure_count : 0,
   }
+}
+
+function isSamplePort(row: unknown): row is SamplePort {
+  if (typeof row !== 'object' || row === null) return false
+  const r = row as Record<string, unknown>
+  return (
+    typeof r.name === 'string' &&
+    typeof r.name_ko === 'string' &&
+    typeof r.lat === 'number' &&
+    typeof r.lon === 'number'
+  )
 }
 
 export function createApiVoyageManagementProvider(
@@ -339,6 +355,13 @@ export function createApiVoyageManagementProvider(
            */
           ...(departureAt === null ? {} : { planned_departure_at: departureAt }),
           ...(arrivalAt === null ? {} : { planned_arrival_at: arrivalAt }),
+          // 샘플 항만을 골랐을 때만 좌표를 싣는다 (#760). 자유 입력은 좌표가 없다.
+          ...(draft.departureCoord
+            ? { departure_lat: draft.departureCoord.lat, departure_lon: draft.departureCoord.lon }
+            : {}),
+          ...(draft.arrivalCoord
+            ? { arrival_lat: draft.arrivalCoord.lat, arrival_lon: draft.arrivalCoord.lon }
+            : {}),
           /*
            * 연료를 **여러 줄로** 보낸다 (`#636`). 종전에는 폼이 단일 값이라 배열에
            * 한 줄만 담았고, 화면으로 만든 항차는 연료가 반드시 한 종이었다.
@@ -377,6 +400,34 @@ export function createApiVoyageManagementProvider(
         }),
       })
       return readVoyage(body)
+    },
+
+    async samplePorts() {
+      const body = await call('/ports/samples')
+      const rows = body?.data
+      /*
+       * 모양이 계약과 다르면 던진다 — 빈 목록으로 삼키면 「샘플이 없다」와 「못 받았다」가
+       * 구분되지 않는다. 화면은 실패해도 자유 입력으로 계속 쓸 수 있다.
+       */
+      if (!Array.isArray(rows) || !rows.every(isSamplePort)) {
+        throw new VoyageError('샘플 항만 응답이 계약과 다릅니다.')
+      }
+      return rows
+    },
+
+    async greatCircle(from, to) {
+      const query = new URLSearchParams({
+        from_lat: String(from.lat),
+        from_lon: String(from.lon),
+        to_lat: String(to.lat),
+        to_lon: String(to.lon),
+      })
+      const body = await call(`/ports/great-circle?${query}`)
+      const distance = (body?.data as { distance_nm?: unknown } | undefined)?.distance_nm
+      if (typeof distance !== 'number' || !Number.isFinite(distance)) {
+        throw new VoyageError('추정 거리 응답이 계약과 다릅니다.')
+      }
+      return distance
     },
 
     async importCsv(vesselId, file, options) {

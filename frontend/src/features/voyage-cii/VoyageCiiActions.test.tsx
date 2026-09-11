@@ -59,6 +59,8 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
     saveActuals: vi.fn(),
     importCsv: vi.fn(),
     exportData: vi.fn(async () => 'calculations_run-abcd.csv'),
+    samplePorts: vi.fn(async () => []),
+    greatCircle: vi.fn(async () => 0),
     ...over,
   } as unknown as VoyageManagementProvider
 }
