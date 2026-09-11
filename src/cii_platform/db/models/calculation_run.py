@@ -39,7 +39,8 @@ class CalculationRun(Base):
     parameters_used = sa.Column(postgresql.JSONB(), nullable=False)
     warnings_json = sa.Column(postgresql.JSONB(), nullable=True)
     duration_ms = sa.Column(sa.Integer(), nullable=True)
-    # #283: DWT/GT 변경 시 서비스가 false→true로만 플립한다(가드 트리거 024 참조).
+    # #283 · #944: 선박 제원(DWT/GT · 선종) 변경 시 서비스가 false→true로만 플립한다.
+    # 되돌림은 가드 트리거(024)가 막는다.
     needs_recalc = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
     created_at = sa.Column(
         sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
