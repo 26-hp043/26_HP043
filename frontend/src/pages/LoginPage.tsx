@@ -2,16 +2,18 @@ import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useSearchParams } from 'react-router'
 import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
 import { PAGE_FAILURE_MESSAGE } from '../components/errorCopy'
-import { hasErrors, safeNext, validateLogin } from '../features/auth/authRules'
+import { hasErrors, safeNext, splitSubmitFailure, validateLogin } from '../features/auth/authRules'
 import type { FieldErrors } from '../features/auth/authRules'
 import {
-  AuthRequestError,
   LOGIN_PATH,
   PASSWORD_RESET_PATH,
   SIGNUP_PATH,
   login,
   useAuthUser,
 } from '../auth/session'
+
+/** 서버 필드 경로 → 이 폼의 칸 (#877 ⑴). */
+const LOGIN_SERVER_FIELDS = { email: 'email', password: 'password' } as const
 
 /**
  * 로그인 화면 — `UIFLOW v2.1` §0 (#415).
@@ -52,11 +54,14 @@ export function LoginPage() {
       await login(email, password)
       // 성공하면 `useAuthUser`가 갱신되어 위 Navigate가 처리한다.
     } catch (error) {
-      setFailure(
-        error instanceof AuthRequestError
-          ? error.message
-          : '로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      // 서버가 짚은 칸은 그 입력칸에, 나머지는 폼 위에 (#877 ⑴).
+      const next = splitSubmitFailure(
+        error,
+        '로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        LOGIN_SERVER_FIELDS,
       )
+      setErrors(next.errors)
+      setFailure(next.failure)
     } finally {
       setBusy(false)
     }
