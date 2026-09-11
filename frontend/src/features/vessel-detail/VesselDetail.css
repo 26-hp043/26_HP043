@@ -719,3 +719,56 @@
   background: var(--surface-inset);
   border-radius: var(--radius-control);
 }
+
+/* ── 계산 이력 · 재계산 필요 표시 (#992 · PRD §8.4) ─────────────────── */
+
+/*
+ * 표는 바로 위 연도별 이력 표(`.history__table`)를 그대로 쓴다 — 같은 화면의 표가 서로 다르면
+ * 다른 종류의 정보로 읽힌다. **개발 임시안**이며 디자인 확정 요청에 올린다. 「재계산 필요」
+ * 배지의 색은 시맨틱 Warning 문자색을 쓴다 — 그 값은 디자인 확정 요청 44번(Warning 값) 회신으로
+ * 바뀔 수 있다.
+ */
+.vd-calcs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.vd-calcs__lead,
+.vd-calcs__note {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+  word-break: keep-all;
+}
+
+.vd-calcs__tag {
+  margin-left: var(--spacing-sm);
+  padding: 0 var(--spacing-sm);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: var(--font-size-micro);
+}
+
+.vd-calcs__badge {
+  color: var(--color-warning-text);
+  font-weight: var(--font-weight-label);
+}
+
+.vd-calcs__more {
+  align-self: flex-start;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.vd-calcs__more:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+

@@ -126,6 +126,11 @@ export const ANNUAL_COPY = {
   snapshotLabel: '데이터 스냅샷',
   snapshotHint: '실행 시점의 항차 데이터를 따로 보관합니다.',
   runIdLabel: '계산 이력',
+  /* 이 실행에 쓴 항차 (`API_SPEC §6.3` · #992) — 펼칠 때 불러온다. */
+  snapshotVoyagesToggle: '이 실행에 쓴 항차 보기',
+  snapshotVoyagesLoading: '항차를 불러오는 중입니다…',
+  snapshotVoyagesCaption: '실행 시점에 보관한 사본입니다. 그 뒤에 항차를 고쳐도 이 목록은 바뀌지 않습니다.',
+  snapshotVoyagesErrorSubject: '이 실행에 쓴 항차',
   // `PRD §12.4.3` 「결과 재현 버튼」의 원문이다(#776). 버튼 문구를 바꾸면 정본과 갈린다.
   reproduceButton: '이 seed로 다시 실행',
   reproducing: '같은 조건으로 다시 계산하는 중입니다…',

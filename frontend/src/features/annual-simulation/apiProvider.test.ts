@@ -215,3 +215,24 @@ describe('재현 — 이 seed로 다시 실행', () => {
     ).rejects.toThrow(message)
   })
 })
+
+describe('스냅샷 항차 — API_SPEC §6.3 (#992)', () => {
+  it('GET으로 그 실행의 경로를 부르고 data 배열을 돌려준다', async () => {
+    const rows = [{ snapshot_voyage_id: 'sv-1', fuel_uses: [] }]
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: rows }) }) as Response)
+    const got = await createApiAnnualSimulationProvider({ baseUrl: '/api/v1', fetchImpl }).snapshotVoyages('sim 1')
+
+    expect(got).toEqual(rows)
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/v1/annual-simulations/sim%201/snapshot-voyages')
+    expect(init.method).toBe('GET')
+  })
+
+  it('data가 배열이 아니면 던진다 — 「쓴 항차가 없다」로 삼키지 않는다', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: {} }) }) as Response)
+    await expect(
+      createApiAnnualSimulationProvider({ baseUrl: '/api/v1', fetchImpl }).snapshotVoyages('s'),
+    ).rejects.toThrow()
+  })
+})
+
