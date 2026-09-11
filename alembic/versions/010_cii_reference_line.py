@@ -7,7 +7,7 @@ Create Date: 2026-07-18
 DB_SCHEMA.md §2.10 (cii_reference_line: 컬럼/인덱스/검증 제약, [EXT-P0-1], [M-7]) 참조.
 이슈 #103 체크리스트 010.
 
-주의 (AGENTS §3, ROADMAP 가드레일):
+주의 (AGENTS §3):
 - 이 마이그레이션은 스키마만 생성한다. seed 값(§3.3)은 넣지 않는다 — a_decimal 손입력
   금지, 값 주입은 #33 seed가 파서 #36(parse_imo_scientific)으로 수행한다.
 - capacity_rule은 reference CII 공식에만 적용된다([EXT-P0-1] — attained CII의

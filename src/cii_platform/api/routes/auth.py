@@ -227,7 +227,9 @@ async def signup(
             )
         )
     except MailDeliveryError:
-        _log.warning("가입 확인 메일 발송 실패 — 계정은 생성됨: user_id=%s", user.id)
+        # `exception`으로 남긴다 — `warning`은 원인 예외(`__cause__`)를 버려, SMTP 비밀번호가
+        # 만료돼도 로그에 「실패」만 남고 이유가 없었다 (#819).
+        _log.exception("가입 확인 메일 발송 실패 — 계정은 생성됨: user_id=%s", user.id)
 
     response = JSONResponse(
         status_code=201,

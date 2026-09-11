@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.18 |
+| 버전 | v1.19 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
-| 최종 수정일 | 2026-08-23 |
+| 최종 수정일 | 2026-09-11 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
@@ -472,7 +472,7 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 >
 > **[#28 정정]** `voyage_id`의 ON DELETE 정책을 `SET NULL` → `RESTRICT`로 정정했다 (이슈 #28). 근거: `calculation_run`은 immutable(§7.3, `BEFORE UPDATE OR DELETE` 트리거)이다. `SET NULL`은 PostgreSQL 내부적으로 자식 행 UPDATE로 실행되는데, immutable 트리거가 이 UPDATE를 차단하여 부모 `voyage` 삭제 트랜잭션 전체가 롤백된다. 즉 `SET NULL`은 원리적으로 달성 불가능하고 실효 동작이 `RESTRICT`다. 실효 동작에 문서를 맞추고, §7.1의 "immutable 테이블 참조는 RESTRICT" 관례와 대칭을 회복한다. (평소에는 voyage가 soft-delete(§2.2 `is_deleted`)만 되므로 이 경로가 드물어 잠복해 있던 모순이다.)
 >
-> **[#102] `weather_snapshot_id` 컬럼 (스펙 선행 정의):** 계산에 사용한 기상 스냅샷을 기록하여 재현성 계약(TECH_SPEC §5.4)의 추적성을 보장한다. 이슈 #102 본문의 "행 삭제 시 NULL로 설정"(SET NULL)은 [#28 정정]과 동일한 이유(immutable 트리거가 자식 UPDATE 차단)로 달성 불가능하므로 **RESTRICT로 정정**한다. NULL 허용 근거: `weather_model = NONE`·캐시 만료 fallback(TECH_SPEC §7.3)은 스냅샷 없이 계산하는 정상 경로이며, 컬럼 추가 이전의 기존 행도 backfill이 불가능하다. 실물 컬럼·FK·ORM 모델 반영은 #103(013 `weather_snapshot` 테이블) 완료 후 016+ 후속 마이그레이션에서 수행한다(ROADMAP §4.1 번호 규약).
+> **[#102] `weather_snapshot_id` 컬럼 (스펙 선행 정의):** 계산에 사용한 기상 스냅샷을 기록하여 재현성 계약(TECH_SPEC §5.4)의 추적성을 보장한다. 이슈 #102 본문의 "행 삭제 시 NULL로 설정"(SET NULL)은 [#28 정정]과 동일한 이유(immutable 트리거가 자식 UPDATE 차단)로 달성 불가능하므로 **RESTRICT로 정정**한다. NULL 허용 근거: `weather_model = NONE`·캐시 만료 fallback(TECH_SPEC §7.3)은 스냅샷 없이 계산하는 정상 경로이며, 컬럼 추가 이전의 기존 행도 backfill이 불가능하다. 실물 컬럼·FK·ORM 모델 반영은 #103(013 `weather_snapshot` 테이블) 완료 후 016 이후의 후속 마이그레이션에서 수행한다(실제로 `016_calc_run_weather_snapshot`이 했다).
 
 ---
 
@@ -1324,7 +1324,7 @@ CREATE TRIGGER trg_snapshot_immutable
 |---|---|---|
 | 마이그레이션 도구 | **Alembic** (Python) | TECH_SPEC의 Python 스택과 일치. SQLAlchemy와 통합 |
 | 명명 규칙 | `{revision}_{description}.py` (예: `001_initial_schema.py`) | Alembic 기본 규칙 준수 |
-| rollback 정책 | 모든 마이그레이션에 `downgrade()` 구현 필수 | 프로덕션 안전성 |
+| rollback 정책 | 모든 마이그레이션에 `downgrade()` 구현 필수 · **되돌릴 수 없는 downgrade는 프로덕션에서 막는다** | 프로덕션 안전성 · 아래 §8.1.2 |
 | seed 데이터 | **값·로직은 `src/cii_platform/db/seed.py`가 관리. 적재는 Alembic data migration** | 아래 §8.1.1 |
 
 #### 8.1.1 seed의 위치와 적재 경로 [#127]
@@ -1365,6 +1365,24 @@ CREATE TRIGGER trg_snapshot_immutable
 **data migration에 upsert를 쓰지 않는다 🔒** — Alembic은 각 마이그레이션을 한 번만 실행하는 모델이고, upsert는 덮어쓴 원래 값을 모르므로 `downgrade()`를 정의할 수 없다. 위 표의 「모든 마이그레이션에 `downgrade()` 구현 필수」와 충돌한다. 재적재가 필요하면 `seed_all()`을 쓴다.
 
 **downgrade는 자기가 넣은 키만 지운다 🔒** — 전체 DELETE는 운영 중 추가된 행까지 지운다.
+
+#### 8.1.2 되돌릴 수 없는 downgrade [#819]
+
+**`downgrade()`가 운영 데이터를 지우고, 다시 `upgrade`해도 그 값을 되살릴 수 없는 리비전은 프로덕션(`APP_ENV=production`)에서 막는다.** 배포 후 롤백은 정상 운영 절차인데, 그 절차 안에 이런 리비전이 섞여 있으면 **한 번의 롤백이 복구 불가능한 손실**이 된다. 경고 문구만으로는 부족하다고 판정했다(`#819` · 2026-09-08).
+
+| 분류 | 예 | 처리 |
+|---|---|---|
+| **되돌릴 수 없음** | 사용자가 쌓은 테이블의 드롭(선박·항차·계산 이력·계정 …) · **보존 대상 테이블의 열 드롭**(`016`·`024`·`037`) · 행 삭제(`033`) | **막는다** |
+| 일시 데이터 | `user_session` · `user_token` | 막지 않는다 — 다시 로그인하거나 메일을 다시 요청하면 된다 |
+| 재생성됨 | 규정·시드 테이블(`fuel_type`·`regulation_year` …) · 제약·인덱스 | 막지 않는다 — 다시 `upgrade`하면 같은 값이 돌아온다 |
+
+**보존 대상 테이블의 열 드롭이 가장 조용하다.** `simulation_snapshot`·`calculation_run`은 UPDATE가 트리거로 막혀 있어(§7.3 `[X-2]`) `037`을 되돌렸다 다시 올리면 **열은 생기지만 기존 행은 영원히 NULL**이고, 과거 연간 시뮬레이션이 전부 재현 불가로 끊긴다. 오류도 나지 않는다.
+
+- **목록과 사유는 `src/cii_platform/db/migration_guard.py` 한 곳에 둔다.** 해당 리비전의 `downgrade()`는 **맨 앞에서** `guard_irreversible_downgrade("<리비전>")`을 부른다 — 무엇이든 지우기 전에 끊는다. 가드는 값이 아니라 **지금의 운영 정책**이라 위 「`src/` 상수를 import하지 않는다」의 대상이 아니다(과거 시점으로 고정할 이유가 없다)
+- **새 마이그레이션은 분류를 빠뜨릴 수 없다.** `tests/test_migration_guard.py`가 파괴적 연산(`drop_table`·`drop_column`·`DELETE`·Core `delete()`/`update()`)을 가진 모든 `downgrade()`가 세 분류 중 하나에 **사유와 함께** 들어 있는지 검사한다
+- **해제는 리비전을 하나씩 명시한다** — `ALLOW_IRREVERSIBLE_DOWNGRADE=037,016 alembic downgrade 035`. 「전부 허용」 값은 없다. **`.env`에 넣지 않고 그 명령 한 번에만 준다** — 남아 있으면 다음 롤백에서 같은 손실이 조용히 재현된다. 해제 전에 백업을 떠 두는 것이 전제이며, 백업 절차는 `#827`이 정한다
+- **개발·테스트에서는 막지 않는다.** `tests/test_zz_roundtrip.py`가 `downgrade base`로 모든 `downgrade()`가 실행 가능한지 검증하므로, 막으면 그 검증이 사라진다
+- PostgreSQL은 DDL도 트랜잭션이라 여러 리비전을 한 번에 내릴 때 가드에서 끊기면 **앞서 실행된 downgrade도 함께 되돌려진다**(`038`→`037`에서 끊긴 뒤 `038` 유지를 실측으로 확인했다)
 
 ### 8.2 마이그레이션 워크플로우
 
@@ -1553,3 +1571,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-09 | `#832` | §2.3 `voyage_fuel_use.cf_used` 역할 재정의 — 「계산 시점 CF snapshot」에서 **「입력 시점의 CF 기록」**으로. 확정 실적의 계산 근거이며, 계획 항차 예측은 실행 시점 활성 CF(`fuel_type.cf`)를 쓴다. 종전 표기는 계획 항차까지 이 열로 계산해야 하는 것처럼 읽혀 `PRD §8.4`의 「변경 이후 계산에만 적용」과 충돌했다. §2.18 `not_underway_fuel_use.cf_used`는 변경 없음 — 양쪽 다 그때의 기록을 남기는 열이다 (#832) |
 | 2026-09-11 | `#944` | v1.17: §2.5 `needs_recalc` 설명에 선종 변경 추가 — `PRD §8.4` v4.6을 따른다 (#944) |
 | 2026-09-11 | `#860` | v1.18: §2.1 `vessel`에 제원 4컬럼의 정밀도 = API 입력 경계 각주 신설 (#860) |
+| 2026-09-11 | `#819` | **v1.19: §8.1.2 「되돌릴 수 없는 downgrade」 신설 · §8.1 rollback 정책 행 보강.** `037`을 되돌렸다 올리면 보존 대상 테이블이라 `vessel_json`을 영원히 채울 수 없는데 경고조차 없었다. 전 이력(001~038)을 재검토해 **되돌릴 수 없음 18 · 일시 데이터 2 · 재생성됨 13**으로 분류하고, 첫째를 프로덕션에서 막는다. 해제는 리비전 단위로만 한다 (#819) |
+| 2026-09-11 | `#758` | §2.5 `weather_snapshot_id` 각주의 **저장소에 없는 문서 인용**(`ROADMAP §4.1`)을 걷고 실제 결과(`016`이 수행)로 바꿨다 — `ROADMAP.md`는 로컬 전용 파일이라 클론한 사람이 그 근거에 닿을 수 없다. `AGENTS §4.3` 「오기 정정」이라 버전은 올리지 않는다 (#758) |

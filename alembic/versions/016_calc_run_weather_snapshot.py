@@ -34,6 +34,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
+from cii_platform.db.migration_guard import guard_irreversible_downgrade
 
 # revision identifiers, used by Alembic.
 revision: str = "016"
@@ -66,7 +67,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Downgrade schema."""
+    """``weather_snapshot_id`` 열을 지운다. **기존 계산의 기상 스냅샷 연결은 복원되지 않는다.**
+
+    ``calculation_run``은 ``needs_recalc`` 플립 외의 UPDATE가 트리거로 막혀 있어
+    (``024`` ``calc_run_guard`` · ``DB_SCHEMA §7.3 [X-2]``) 되돌린 뒤 다시 ``upgrade``하면
+    **열은 생기지만 기존 행은 영원히 NULL**이다 — 어느 계산이 어떤 기상 데이터를 썼는지가
+    사라진다.
+
+    그래서 프로덕션에서는 막는다(``DB_SCHEMA §8.1.2`` · #819).
+    """
+    # 운영 데이터를 복구 불가능하게 지운다 — 프로덕션에서는 막는다 (#819).
+    guard_irreversible_downgrade("016")
     # 컬럼을 드롭하면 딸린 인덱스·FK도 함께 사라지지만, 생성의 역순으로 명시한다.
     op.execute("DROP INDEX idx_calc_weather_snapshot;")
     op.drop_constraint("fk_calculation_run_weather_snapshot", "calculation_run", type_="foreignkey")

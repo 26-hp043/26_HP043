@@ -17,7 +17,7 @@ import {
   toPercent,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
-import type { AnnualSimulationResult } from './types'
+import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
 
 /**
@@ -280,14 +280,62 @@ export function AnnualSimulation({
           <ErrorState level="region" title={ANNUAL_COPY.errorTitle} message={state.message} />
         ) : null}
 
-        {state.status === 'success' ? <Result result={state.result} /> : null}
+        {/*
+          재현 상태(`ReproduceState`)가 **직전 실행의 「재현 확인」을 새 결과 옆에 남기지
+          않아야** 한다 — 새 결과는 아직 아무도 재현하지 않았다.
+
+          지금은 실행 중(`running`)에 결과가 내려가 어차피 새로 그려진다. `key`는 그
+          경로에 기대지 않으려고 둔다 — 실행 중에도 직전 결과를 남기도록 바뀌는 날
+          재현 확인이 새 결과에 붙는다. 동작은 `AnnualSimulation.test.tsx`가 잠근다.
+        */}
+        {state.status === 'success' ? (
+          <Result
+            key={state.result.simulation_id}
+            result={state.result}
+            provider={provider}
+          />
+        ) : null}
       </div>
     </section>
   )
 }
 
-function Result({ result }: { result: AnnualSimulationResult }) {
+/**
+ * 「이 seed로 다시 실행」의 상태 (`PRD §12.4.3` · #776).
+ *
+ * 성공은 **값을 갈아 끼우지 않는다** — 서버가 원본과 대조해 같을 때만 200을 내므로
+ * (`API_SPEC §6.4`, 다르면 500) 새로 그릴 값이 없다. 확인했다는 사실만 알린다.
+ */
+type ReproduceState =
+  | { status: 'idle' }
+  | { status: 'running' }
+  | { status: 'success' }
+  | { status: 'error'; message: string }
+
+function Result({
+  result,
+  provider,
+}: {
+  result: AnnualSimulationResult
+  provider: AnnualSimulationProvider
+}) {
   const { deterministic: det, monte_carlo: mc } = result
+  const [reproduce, setReproduce] = useState<ReproduceState>({ status: 'idle' })
+
+  const runReproduce = useCallback(async () => {
+    setReproduce({ status: 'running' })
+    try {
+      await provider.reproduce(result.simulation_id)
+      setReproduce({ status: 'success' })
+    } catch (error: unknown) {
+      // 서버 문구를 그대로 낸다 — 409(파라미터 변경 → 새로 실행)와 500(무결성 실패
+      // → 관리자 문의)은 **사용자가 할 일이 다르고** 그 안내가 문구에 들어 있다(#837).
+      setReproduce({
+        status: 'error',
+        message: error instanceof Error ? error.message : ANNUAL_COPY.reproduceErrorTitle,
+      })
+    }
+  }, [provider, result.simulation_id])
   const risk = riskLabel(result.risk_level)
   const pDorE = probabilityOfDorE(mc.rating_probabilities)
   const flag = riskFlag(pDorE)
@@ -453,6 +501,13 @@ function Result({ result }: { result: AnnualSimulationResult }) {
           <p className="annual-sim__caption">
             {result.sensitivity_analysis.interaction_note}
           </p>
+          {/*
+            거리 행은 기준과 거의 같은 값이 나온다 — 모델의 성질이지 결함이 아니다(#756).
+            그 행이 표에 있을 때만 이유를 말한다. 없는데 말하면 무엇을 설명하는지 모른다.
+          */}
+          {rows.some((row) => row.key.startsWith('distance_')) ? (
+            <p className="annual-sim__caption">{ANNUAL_COPY.distanceNote}</p>
+          ) : null}
           <div className="annual-sim__tablewrap">
             <table className="annual-sim__table">
               <thead>
@@ -504,6 +559,36 @@ function Result({ result }: { result: AnnualSimulationResult }) {
           <dt>{ANNUAL_COPY.runIdLabel}</dt>
           <dd>{result.calculation_run_id}</dd>
         </dl>
+        {/*
+          `PRD §12.4.3` 「결과 재현 버튼」(#776). `#556`은 이 경로를 「검증 수단이지
+          사용자 기능이 아니다」로 판정했으나 `PRD §12.4.3`이 버튼을 요구해 뒤집혔다.
+
+          seed를 입력칸에 옮겨 적는 우회로 대신 두는 것이다 — 그 우회는 **폼의 다른 칸이
+          바뀌었으면 다른 조건으로** 돌고, 결과가 달라도 그것이 재현 실패인지 알 수 없다.
+        */}
+        <div className="annual-sim__reproduce">
+          <button
+            type="button"
+            onClick={() => void runReproduce()}
+            disabled={reproduce.status === 'running'}
+          >
+            {reproduce.status === 'running'
+              ? ANNUAL_COPY.reproducing
+              : ANNUAL_COPY.reproduceButton}
+          </button>
+          {reproduce.status === 'success' ? (
+            <p className="annual-sim__hint" role="status">
+              {ANNUAL_COPY.reproduceSuccess}
+            </p>
+          ) : null}
+        </div>
+        {reproduce.status === 'error' ? (
+          <ErrorState
+            level="region"
+            title={ANNUAL_COPY.reproduceErrorTitle}
+            message={reproduce.message}
+          />
+        ) : null}
       </section>
 
       {result.warnings.length > 0 ? (

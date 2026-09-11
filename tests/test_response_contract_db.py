@@ -46,6 +46,9 @@
 
 from __future__ import annotations
 
+import ast
+import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -57,6 +60,7 @@ from cii_platform.api.main import API_V1_PREFIX, app
 DEMO_VESSEL = "00000000-0000-4000-8000-000000000003"
 
 _BASE = "https://testserver"
+_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture
@@ -1125,3 +1129,468 @@ def test_meta_block_is_on_every_json_response():
         if path != "/health" and not {"meta.request_id", "meta.timestamp"} <= keys
     ]
     assert without_meta == []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 쓰기 응답 (#753)
+#
+# 쓰기 라우트는 대부분 **조회와 같은 자원**을 돌려준다. 화면은 저장한 뒤 그 응답을
+# 그대로 목록·상세에 끼워 넣으므로(`VoyagePanel` · `VesselManagement`), 저장 응답의 모양이
+# 조회와 갈리면 **저장 직후에만** 칸이 비고 새로고침하면 멀쩡해진다 — 가장 늦게 발견되는
+# 형태다. 그래서 새 계약을 쓰지 않고 **조회 계약과 같은지**를 본다.
+#
+# 데이터는 **새 선박 하나**에 만든다. 데모 선박에 항차를 더하면 위 조회 계약들이
+# `_resolve`로 읽는 「첫 항차」가 바뀔 수 있다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: 쓰기 전용 응답 — 조회에 같은 모양이 없는 것만 적는다.
+WRITE_CONTRACTS: dict[str, frozenset[str]] = {
+    "DELETE /vessels/{id}": frozenset(
+        {"data", "data.deleted", "data.id", "meta", "meta.request_id", "meta.timestamp"}
+    ),
+    #: 정박 구간·그 연료 기록의 삭제는 같은 모양이다 — 둘 다 소프트 삭제 표지를 돌려준다.
+    "DELETE /not-underway-periods/{id}": frozenset(
+        {"data", "data.deleted", "data.id", "meta", "meta.request_id", "meta.timestamp"}
+    ),
+    "DELETE /not-underway-periods/{id}/fuel-uses/{id}": frozenset(
+        {"data", "data.deleted", "data.id", "meta", "meta.request_id", "meta.timestamp"}
+    ),
+    #: ⚠️ ``errors``는 **성공하면 빈 배열**이라 원소의 키는 여기서 잠기지 않는다. 행별 오류의
+    #: 모양은 `test_voyage_import_db.py`가 서비스 수준에서 본다.
+    "POST /vessels/{id}/import": frozenset(
+        {
+            "data",
+            "data.dry_run",
+            "data.errors",
+            "data.imported_count",
+            "data.skipped_count",
+            "meta",
+            "meta.request_id",
+            "meta.timestamp",
+        }
+    ),
+    "POST /scenarios/{id}/adopt": frozenset(
+        {
+            "data",
+            "data.adopted_scenario_type",
+            "data.invalidated_calculation_runs",
+            "data.updated_fields",
+            "data.voyage_id",
+            "meta",
+            "meta.request_id",
+            "meta.timestamp",
+        }
+    ),
+    "DELETE /voyages/{id}": frozenset(
+        {
+            "data",
+            "data.deleted",
+            "data.hard_delete",
+            "data.id",
+            "meta",
+            "meta.request_id",
+            "meta.timestamp",
+        }
+    ),
+}
+
+_WRITE_IMO = "9876543"
+
+
+def _csrf(client: TestClient) -> dict[str, str]:
+    return {"X-CSRF-Token": client.cookies.get("csrf", "")}
+
+
+def _item_of(list_contract: frozenset[str]) -> frozenset[str]:
+    """목록 계약(``data[].x``)을 단건 모양(``data.x``)으로 바꾼다 — ``meta``는 따로 본다."""
+    return frozenset(
+        k.replace("data[]", "data", 1) for k in list_contract if k.startswith("data")
+    ) | {"meta", "meta.request_id", "meta.timestamp"}
+
+
+async def _purge_vessel(vessel_id: str) -> None:
+    """쓰기 테스트가 만든 선박과 딸린 행을 지운다 — 계산 이력은 만들지 않는다."""
+    from uuid import UUID
+
+    from sqlalchemy import text
+
+    from cii_platform.db.session import get_sessionmaker
+
+    vid = UUID(vessel_id)
+    async with get_sessionmaker()() as s:
+        for sql in (
+            "DELETE FROM not_underway_fuel_use WHERE period_id IN "
+            "(SELECT id FROM not_underway_period WHERE vessel_id = :v)",
+            "DELETE FROM not_underway_period WHERE vessel_id = :v",
+            "DELETE FROM voyage_scenario WHERE vessel_id = :v",
+            "DELETE FROM voyage_fuel_use WHERE voyage_id IN "
+            "(SELECT id FROM voyage WHERE vessel_id = :v)",
+            "DELETE FROM voyage WHERE vessel_id = :v",
+            "DELETE FROM vessel WHERE id = :v",
+        ):
+            await s.execute(text(sql), {"v": vid})
+        await s.commit()
+
+
+def _new_vessel(client: TestClient):
+    response = client.post(
+        f"{API_V1_PREFIX}/vessels",
+        headers=_csrf(client),
+        json={
+            "imo_number": _WRITE_IMO,
+            "name": "CONTRACT WRITE",
+            "ship_type": "BULK_CARRIER",
+            "deadweight": 50000,
+            "gross_tonnage": 30000,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response
+
+
+def _new_voyage(client: TestClient, vessel_id: str, voyage_no: str):
+    response = client.post(
+        f"{API_V1_PREFIX}/vessels/{vessel_id}/voyages",
+        headers=_csrf(client),
+        json={
+            "voyage_no": voyage_no,
+            "departure_port_name": "BUSAN",
+            "arrival_port_name": "TOKYO",
+            "planned_distance_nm": 900,
+            "planned_speed_kn": 13.0,
+            "regulation_year": 2026,
+            "fuel_uses": [{"fuel_type": "HFO", "planned_fuel_ton": 90}],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response
+
+
+async def test_vessel_write_responses_match_the_read_contract(client):
+    """선박 생성·수정·위치 갱신은 **상세 조회와 같은 모양**을 돌려준다. 삭제는 따로다."""
+    created = _new_vessel(client)
+    vessel_id = created.json()["data"]["id"]
+    try:
+        read = CONTRACTS["/vessels/{vessel_id}"]
+        assert flatten(created.json()) == read
+
+        patched = client.patch(
+            f"{API_V1_PREFIX}/vessels/{vessel_id}",
+            headers=_csrf(client),
+            json={"name": "CONTRACT WRITE 2"},
+        )
+        assert patched.status_code == 200, patched.text
+        assert flatten(patched.json()) == read
+
+        moved = client.patch(
+            f"{API_V1_PREFIX}/vessels/{vessel_id}/position",
+            headers=_csrf(client),
+            json={
+                "underway_state": "UNDER_WAY",
+                "detail_status": "SAILING",
+                "current_lat": "35.1",
+                "current_lon": "129.0",
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        assert flatten(moved.json()) == read
+
+        deleted = client.delete(f"{API_V1_PREFIX}/vessels/{vessel_id}", headers=_csrf(client))
+        assert deleted.status_code == 200, deleted.text
+        assert flatten(deleted.json()) == WRITE_CONTRACTS["DELETE /vessels/{id}"]
+    finally:
+        await _purge_vessel(vessel_id)
+
+
+async def test_voyage_write_responses_match_the_read_contract(client):
+    """항차 생성·수정·상태 전이·실적 입력은 **상세 조회와 같은 모양**이다. 삭제는 따로다.
+
+    상태 전이는 화면이 「출항」·「항해 완료」 버튼 뒤에 **응답으로 행을 갈아 끼우는**
+    자리다(`VoyagePanel`). 모양이 갈리면 누른 직후 그 행만 칸이 빈다.
+    """
+    vessel_id = _new_vessel(client).json()["data"]["id"]
+    try:
+        read = CONTRACTS["/voyages/{voyage_id}"]
+
+        created = _new_voyage(client, vessel_id, "CW-1")
+        voyage_id = created.json()["data"]["id"]
+        assert flatten(created.json()) == read
+
+        steps = [
+            ("PATCH", f"/voyages/{voyage_id}", {"planned_distance_nm": 950}),
+            (
+                "POST",
+                f"/voyages/{voyage_id}/transition",
+                {"to_status": "PLANNED", "annual_inclusion_policy": "INCLUDE_AS_PLAN"},
+            ),
+            ("POST", f"/voyages/{voyage_id}/transition", {"to_status": "IN_PROGRESS"}),
+            (
+                "PUT",
+                f"/voyages/{voyage_id}/actuals",
+                {
+                    "actual_distance_nm": 905,
+                    "actual_avg_speed_kn": 12.6,
+                    "fuel_uses": [{"fuel_type": "HFO", "actual_fuel_ton": 92}],
+                },
+            ),
+        ]
+        for method, path, body in steps:
+            response = client.request(
+                method, f"{API_V1_PREFIX}{path}", headers=_csrf(client), json=body
+            )
+            assert response.status_code == 200, f"{method} {path}: {response.text}"
+            assert flatten(response.json()) == read, f"{method} {path}"
+
+        draft = _new_voyage(client, vessel_id, "CW-2").json()["data"]["id"]
+        deleted = client.delete(f"{API_V1_PREFIX}/voyages/{draft}", headers=_csrf(client))
+        assert deleted.status_code == 200, deleted.text
+        assert flatten(deleted.json()) == WRITE_CONTRACTS["DELETE /voyages/{id}"]
+    finally:
+        await _purge_vessel(vessel_id)
+
+
+async def test_not_underway_write_responses_match_the_read_contract(client):
+    """정박 구간 생성·수정은 **목록의 한 원소와 같은 모양**이다."""
+    vessel_id = _new_vessel(client).json()["data"]["id"]
+    try:
+        item = _item_of(CONTRACTS["/vessels/{vessel_id}/not-underway-periods"])
+
+        created = client.post(
+            f"{API_V1_PREFIX}/vessels/{vessel_id}/not-underway-periods",
+            headers=_csrf(client),
+            json={
+                "period_type": "AT_ANCHOR",
+                "started_at": "2026-08-10T00:00:00Z",
+                "ended_at": "2026-08-12T00:00:00Z",
+                "port_name": "Busan",
+                "distance_nm": "0",
+                "fuel_uses": [
+                    {"consumer_type": "AUX_ENGINE", "fuel_type": "HFO", "fuel_ton": "1.5"}
+                ],
+            },
+        )
+        assert created.status_code == 201, created.text
+        period_id = created.json()["data"]["id"]
+        assert flatten(created.json()) == item
+
+        patched = client.patch(
+            f"{API_V1_PREFIX}/not-underway-periods/{period_id}",
+            headers=_csrf(client),
+            json={"port_name": "Busan North"},
+        )
+        assert patched.status_code == 200, patched.text
+        assert flatten(patched.json()) == item
+
+        added = client.post(
+            f"{API_V1_PREFIX}/not-underway-periods/{period_id}/fuel-uses",
+            headers=_csrf(client),
+            json={"consumer_type": "MAIN_ENGINE", "fuel_type": "HFO", "fuel_ton": "0.5"},
+        )
+        assert added.status_code == 201, added.text
+        # 목록 원소의 ``fuel_uses[]`` 한 칸과 같은 모양이다 — 화면이 그 배열에 끼워 넣는다.
+        fuel_item = frozenset(
+            k.replace("data[].fuel_uses[]", "data", 1)
+            for k in CONTRACTS["/vessels/{vessel_id}/not-underway-periods"]
+            if k.startswith("data[].fuel_uses[].")
+        ) | {"data", "meta", "meta.request_id", "meta.timestamp"}
+        assert flatten(added.json()) == fuel_item
+        fuel_use_id = added.json()["data"]["id"]
+
+        removed = client.delete(
+            f"{API_V1_PREFIX}/not-underway-periods/{period_id}/fuel-uses/{fuel_use_id}",
+            headers=_csrf(client),
+        )
+        assert removed.status_code == 200, removed.text
+        assert (
+            flatten(removed.json())
+            == WRITE_CONTRACTS["DELETE /not-underway-periods/{id}/fuel-uses/{id}"]
+        )
+
+        gone = client.delete(
+            f"{API_V1_PREFIX}/not-underway-periods/{period_id}", headers=_csrf(client)
+        )
+        assert gone.status_code == 200, gone.text
+        assert flatten(gone.json()) == WRITE_CONTRACTS["DELETE /not-underway-periods/{id}"]
+    finally:
+        await _purge_vessel(vessel_id)
+
+
+async def test_import_and_adopt_responses_match_the_contract(client):
+    """CSV 가져오기와 시나리오 채택 — 조회에 같은 모양이 없는 두 쓰기 응답.
+
+    채택할 시나리오는 SQL로 넣는다(`test_scenario_adopt_db.py`와 같은 방식). 비교 화면에서
+    저장까지 거치면 이 검사가 기능② 계산 전체에 묶인다.
+    """
+    from uuid import UUID
+
+    from sqlalchemy import text
+
+    from cii_platform.db.session import get_sessionmaker
+
+    vessel_id = _new_vessel(client).json()["data"]["id"]
+    try:
+        csv_body = (
+            b"voyage_no,departure_port_name,arrival_port_name,planned_distance_nm,"
+            b"planned_speed_kn,fuel_type,planned_fuel_ton\n"
+            b"CW-IMPORT,BUSAN,TOKYO,900,13,HFO,90\n"
+        )
+        imported = client.post(
+            f"{API_V1_PREFIX}/vessels/{vessel_id}/import",
+            headers=_csrf(client),
+            files={"file": ("voyages.csv", csv_body, "text/csv")},
+        )
+        assert imported.status_code == 200, imported.text
+        assert flatten(imported.json()) == WRITE_CONTRACTS["POST /vessels/{id}/import"]
+
+        target = _new_voyage(client, vessel_id, "CW-ADOPT").json()["data"]["id"]
+        planned = client.post(
+            f"{API_V1_PREFIX}/voyages/{target}/transition",
+            headers=_csrf(client),
+            json={"to_status": "PLANNED", "annual_inclusion_policy": "INCLUDE_AS_PLAN"},
+        )
+        assert planned.status_code == 200, planned.text
+
+        async with get_sessionmaker()() as s:
+            scenario_id = (
+                await s.execute(
+                    text(
+                        "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, "
+                        " distance_nm, speed_kn, duration_hours, fuel_ton, cii_value, "
+                        " estimated_rating, risk_level) "
+                        "VALUES (:vid, 'SLOW_STEAMING', '감속 운항', 1000, 10.5, 95.2, 60.5, "
+                        " 5.1, 'C', 'MEDIUM') RETURNING id"
+                    ),
+                    {"vid": UUID(vessel_id)},
+                )
+            ).scalar_one()
+            await s.commit()
+
+        adopted = client.post(
+            f"{API_V1_PREFIX}/scenarios/{scenario_id}/adopt",
+            headers=_csrf(client),
+            json={"target_voyage_id": target},
+        )
+        assert adopted.status_code == 200, adopted.text
+        assert flatten(adopted.json()) == WRITE_CONTRACTS["POST /scenarios/{id}/adopt"]
+    finally:
+        await _purge_vessel(vessel_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 누락 감지 — 계약 표에 없는 라우트가 조용히 남지 않는다 (#753)
+#
+# 계약 표는 손으로 유지하는 목록이라 **넓힐수록 「표에 없는 라우트」가 는다.** 그 문제를
+# `test_api_spec_endpoints_sync.py`와 같은 방식으로 막는다 — 실제 라우트를 전부 세고, 표에
+# 없는 것은 **어느 테스트가 보는지** 또는 **왜 보지 않는지**를 적게 한다.
+# `#751`·`#752`가 늦게 잡힌 이유가 「표에 없는 것이 왜 없는지 아무 데도 적혀 있지 않았다」였다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_THIS = "tests/test_response_contract_db.py"
+_AUTH = "tests/test_auth_api.py"
+_TOKENS = "tests/test_auth_tokens.py"
+_FILES = "tests/test_report_export_routes_api_db.py"
+
+#: 두 계약 표 밖의 라우트 → 필드 집합을 보는 테스트(``파일::함수``) 또는 ``면제: 사유``.
+ROUTE_COVERAGE: dict[str, str] = {
+    # 조회 계약과 같은 모양 — 새 계약을 쓰지 않고 조회 계약과 대조한다
+    "POST /vessels": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
+    "PATCH /vessels/{}": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
+    "PATCH /vessels/{}/position": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
+    "POST /vessels/{}/voyages": f"{_THIS}::test_voyage_write_responses_match_the_read_contract",
+    "PATCH /voyages/{}": f"{_THIS}::test_voyage_write_responses_match_the_read_contract",
+    "POST /voyages/{}/transition": f"{_THIS}::test_voyage_write_responses_match_the_read_contract",
+    "PUT /voyages/{}/actuals": f"{_THIS}::test_voyage_write_responses_match_the_read_contract",
+    "POST /vessels/{}/not-underway-periods": (
+        f"{_THIS}::test_not_underway_write_responses_match_the_read_contract"
+    ),
+    "PATCH /not-underway-periods/{}": (
+        f"{_THIS}::test_not_underway_write_responses_match_the_read_contract"
+    ),
+    "POST /not-underway-periods/{}/fuel-uses": (
+        f"{_THIS}::test_not_underway_write_responses_match_the_read_contract"
+    ),
+    # §6.2는 「§6.1과 같은 봉투」 — 실행 계약으로 조회를 본다
+    "GET /annual-simulations/{}": (
+        f"{_THIS}::test_annual_simulation_response_fields_match_the_contract"
+    ),
+    # 인증 — 계정을 만들고 지우는 파일에 둔다(이 파일은 데모 시드를 읽는다)
+    "POST /auth/signup": f"{_AUTH}::test_account_routes_share_the_user_contract",
+    "POST /auth/login": f"{_AUTH}::test_account_routes_share_the_user_contract",
+    "PATCH /auth/me": f"{_AUTH}::test_account_routes_share_the_user_contract",
+    "POST /auth/password-change": f"{_AUTH}::test_account_routes_share_the_user_contract",
+    "POST /auth/logout": f"{_AUTH}::test_logout_and_delete_have_no_body",
+    "DELETE /auth/me": f"{_AUTH}::test_logout_and_delete_have_no_body",
+    "POST /auth/verify-email/request": f"{_TOKENS}::test_token_routes_match_the_contract",
+    "POST /auth/verify-email/confirm": f"{_TOKENS}::test_token_routes_match_the_contract",
+    "POST /auth/password-reset/request": f"{_TOKENS}::test_token_routes_match_the_contract",
+    "POST /auth/password-reset/confirm": f"{_TOKENS}::test_token_routes_match_the_contract",
+    # 파일 응답 — 필드 집합이 없다. 형식·첨부 헤더(리포트)와 헤더 행(내보내기)이 계약이다
+    "GET /vessels/{}/export": f"{_FILES}::test_내보내기_헤더_행이_정본의_열과_같다",
+    "GET /vessels/{}/annual-report": f"{_FILES}::test_연간_리포트_csv는_첨부로_내려간다",
+    "GET /voyages/{}/report": f"{_FILES}::test_항차_리포트_라우트도_같은_형식_분기를_탄다",
+    # 면제
+    "POST /auth/dev-login": (
+        "면제: 개발 전용 — 프로덕션에서 등록되지 않는다(`test_dev_auth.py`). "
+        "화면이 응답을 읽지 않고 쿠키만 쓴다"
+    ),
+}
+
+
+def _normalize(key: str) -> str:
+    """``"GET /x/{vessel_id}?a=1"``·``"/x/{id}"`` → ``"GET /x/{}"``. 접두가 없으면 GET이다."""
+    method, _, path = key.partition(" ") if key[:1].isupper() else ("GET", " ", key)
+    path = path.split("?", 1)[0].removeprefix(API_V1_PREFIX)
+    return f"{method} {re.sub(r'\{[^}]*\}', '{}', path)}"
+
+
+def _operations() -> set[str]:
+    return {
+        _normalize(f"{method.upper()} {path}")
+        for path, item in app.openapi()["paths"].items()
+        for method in item
+        if method in {"get", "post", "put", "patch", "delete"}
+    }
+
+
+def _defined_tests(relative: str) -> set[str]:
+    """그 파일에 정의된 테스트 함수 이름(클래스 메서드 포함) — 주석·문자열은 보지 않는다."""
+    tree = ast.parse((_ROOT / relative).read_text(encoding="utf-8"))
+    return {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+
+
+def test_every_route_has_a_contract_or_a_reason():
+    """모든 라우트가 계약 표에 있거나, 보는 테스트를 가리키거나, 면제 사유를 적었다.
+
+    새 엔드포인트를 만들고 아무것도 적지 않으면 여기서 걸린다 — 계약을 쓰거나, 왜
+    쓰지 않는지를 적어야 한다. 사유를 적는 목록도 손으로 유지하지만 **근거가 남는다.**
+    """
+    tabled = {_normalize(k) for k in CONTRACTS} | {_normalize(k) for k in WRITE_CONTRACTS}
+    missing = sorted(_operations() - tabled - ROUTE_COVERAGE.keys())
+    assert not missing, (
+        f"계약도 사유도 없는 라우트 {len(missing)}개: {missing}\n"
+        "CONTRACTS·WRITE_CONTRACTS에 넣거나, ROUTE_COVERAGE에 보는 테스트·면제 사유를 적을 것"
+    )
+
+
+def test_route_coverage_points_at_real_routes_and_tests():
+    """가리키는 라우트와 테스트가 **실재한다** — 이름을 바꾸면 목록이 조용히 낡는다."""
+    stale_routes = sorted(ROUTE_COVERAGE.keys() - _operations())
+    assert not stale_routes, f"없는 라우트를 가리킨다: {stale_routes}"
+
+    tabled = {_normalize(k) for k in CONTRACTS} | {_normalize(k) for k in WRITE_CONTRACTS}
+    doubled = sorted(ROUTE_COVERAGE.keys() & tabled)
+    assert not doubled, f"계약 표에도 있고 ROUTE_COVERAGE에도 있다: {doubled}"
+
+    broken = []
+    for route, where in ROUTE_COVERAGE.items():
+        if where.startswith("면제:"):
+            assert len(where) > len("면제: ") + 10, f"{route}: 면제 사유가 비어 있다"
+            continue
+        relative, _, name = where.partition("::")
+        if name not in _defined_tests(relative):
+            broken.append(f"{route} → {where}")
+    assert not broken, "가리키는 테스트가 없다:\n" + "\n".join(broken)

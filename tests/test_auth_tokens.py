@@ -530,3 +530,156 @@ class TestPasswordResetEdges:
             assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
         finally:
             await _cleanup(email)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 메일 실패의 원인이 로그에 남는다 (#819)
+#
+# 백엔드(`mail/backends.py`)는 SMTP 예외를 `MailDeliveryError(..., cause=exc) from exc`로
+# 감싸 원인을 보존하는데, **소비자 세 곳이 전부 버리고 있었다** — 두 곳은 로그 0줄,
+# 한 곳은 `warning`이라 `__cause__`가 빠졌다. SMTP 비밀번호가 만료되면 모든 재설정
+# 요청이 502를 내는데 `535`가 어디에도 남지 않는다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class _SmtpAuthError(Exception):
+    """SMTP 인증 실패를 흉내 낸다. 로그에 **이 이름과 문구**가 남아야 한다."""
+
+
+_CAUSE_TEXT = "535 5.7.8 authentication credentials invalid"
+
+
+class _CausedFailingMailer:
+    """실제 백엔드처럼 원인을 달아 던지는 메일러."""
+
+    async def send(self, _message) -> None:
+        try:
+            raise _SmtpAuthError(_CAUSE_TEXT)
+        except _SmtpAuthError as exc:
+            raise MailDeliveryError("메일을 보내지 못했습니다: smtp:587", cause=exc) from exc
+
+
+def _cause_logged(caplog: pytest.LogCaptureFixture, logger: str) -> bool:
+    """그 로거의 레코드 중 **원인 예외까지** 담은 것이 있는가.
+
+    메시지 문자열이 아니라 `exc_info`의 `__cause__`를 본다 — 「실패했다」 한 줄은 종전
+    `warning`도 남겼다. 빠졌던 것은 **왜**다.
+    """
+    for record in caplog.records:
+        if record.name != logger or not record.exc_info:
+            continue
+        cause = record.exc_info[1].__cause__
+        if isinstance(cause, _SmtpAuthError) and _CAUSE_TEXT in str(cause):
+            return True
+    return False
+
+
+class TestMailFailureCauseIsLogged:
+    async def test_verification_resend(self, client, monkeypatch, caplog):
+        from cii_platform.api.routes import auth_tokens as module
+
+        email = "cause-verify@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            monkeypatch.setattr(module, "get_mailer", _CausedFailingMailer)
+            caplog.set_level("ERROR", logger=module.__name__)
+
+            resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
+
+            assert resp.status_code == 502, resp.text
+            assert _cause_logged(caplog, module.__name__)
+        finally:
+            await _cleanup(email)
+
+    async def test_password_reset(self, client, monkeypatch, caplog):
+        from cii_platform.api.routes import auth_tokens as module
+
+        email = "cause-reset@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            monkeypatch.setattr(module, "get_mailer", _CausedFailingMailer)
+            caplog.set_level("ERROR", logger=module.__name__)
+
+            resp = client.post("/api/v1/auth/password-reset/request", json={"email": email})
+
+            assert resp.status_code == 502, resp.text
+            assert _cause_logged(caplog, module.__name__)
+        finally:
+            await _cleanup(email)
+
+    async def test_signup(self, client, monkeypatch, caplog):
+        """가입은 메일이 실패해도 201이다 — 그래서 로그가 **유일한** 흔적이다."""
+        from cii_platform.api.routes import auth as module
+
+        email = "cause-signup@example.com"
+        try:
+            monkeypatch.setattr(module, "get_mailer", _CausedFailingMailer)
+            caplog.set_level("ERROR", logger=module.__name__)
+
+            resp = client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+
+            assert resp.status_code == 201, resp.text
+            assert _cause_logged(caplog, module.__name__)
+        finally:
+            await _cleanup(email)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 응답 계약 — 토큰 경로 네 개의 필드 집합 (#753)
+#
+# `test_response_contract_db.py`의 누락 감지가 이 테스트를 이름으로 가리킨다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _flatten(value, prefix: str = "") -> set[str]:
+    """`test_response_contract_db.flatten`과 같은 규칙 — 테스트 파일끼리 import하지 않는다."""
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        for name, child in value.items():
+            path = f"{prefix}{name}"
+            keys.add(path)
+            keys |= _flatten(child, f"{path}.")
+    elif isinstance(value, list):
+        for item in value:
+            keys |= _flatten(item, f"{prefix[:-1]}[].")
+    return keys
+
+
+#: 네 경로가 같은 모양이다. 요청 두 경로는 **가입 여부와 무관하게 같은 문구**를 내므로
+#: 모양이 갈리면 그 차이로 가입 여부가 드러난다.
+MESSAGE_CONTRACT = frozenset({"data", "data.message", "meta", "meta.request_id", "meta.timestamp"})
+
+
+class TestTokenRouteContract:
+    async def test_token_routes_match_the_contract(self, client):
+        from cii_platform.db.session import get_sessionmaker
+        from cii_platform.services.auth_token import issue_token as issue
+
+        email = "contract-token@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+
+            requests = ("/api/v1/auth/verify-email/request", "/api/v1/auth/password-reset/request")
+            for path in requests:
+                resp = client.post(path, json={"email": email})
+                assert resp.status_code == 200, f"{path}: {resp.text}"
+                assert _flatten(resp.json()) == MESSAGE_CONTRACT, path
+
+            user_id = await _user_id(email)
+            async with get_sessionmaker()() as s:
+                verify = await issue(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
+                reset = await issue(s, user_id=user_id, purpose=PURPOSE_PASSWORD_RESET)
+                await s.commit()
+
+            confirmed = client.post("/api/v1/auth/verify-email/confirm", json={"token": verify})
+            assert confirmed.status_code == 200, confirmed.text
+            assert _flatten(confirmed.json()) == MESSAGE_CONTRACT
+
+            done = client.post(
+                "/api/v1/auth/password-reset/confirm",
+                json={"token": reset, "password": NEW_PASSWORD},
+            )
+            assert done.status_code == 200, done.text
+            assert _flatten(done.json()) == MESSAGE_CONTRACT
+        finally:
+            await _cleanup(email)

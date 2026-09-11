@@ -239,7 +239,7 @@ W = transport_capacity × Distance_nm
 
 > 주의: Container ship의 capacity 처리는 CII G1/G2 기준을 우선한다. EEDI와 혼동하지 않도록 `RegulationParameter.capacity_rule`에 명시한다.
 > 
-> **[EXT-P0-1]** IMO G1(MEPC.352(78), as amended by MEPC.412(84))과 G2(MEPC.353(78))은 **서로 다른 capacity 개녁**을 사용한다.
+> **[EXT-P0-1]** IMO G1(MEPC.352(78), as amended by MEPC.412(84))과 G2(MEPC.353(78))은 **서로 다른 capacity 개념**을 사용한다.
 > - **G1 (attained CII)**: `transport_capacity` = 선박의 **실제** DWT 또는 GT. 예: 300,000 DWT 벌크캐리어 → `W = 300,000 × Distance_nm`
 > - **G2 (reference CII)**: `reference_capacity` = G2 표의 capacity rule에 따른 값. `fixed X`인 경우 X를 사용. 예: 300,000 DWT 벌크캐리어 → `CII_ref = 4745 × 279,000^(-0.622)`
 >
@@ -449,9 +449,11 @@ MVP는 모든 CII 대상 선종을 파라미터 테이블로 저장할 수 있�
 | RO_RO_CARGO_VEHICLE | 30,000 ≤ GT < 57,700 | GT | 3627 | 0.590 | P3 |
 | RO_RO_CARGO_VEHICLE | GT < 30,000 | GT | 330 | 0.329 | P3 |
 | RO_RO_CARGO | all | GT | 1967 | 0.485 | P3 |
-| RO_RO_PASSENGER | Ro-ro passenger ship | GT | 2023 | 0.460 | P3 |
-| RO_RO_PASSENGER_HSC | SOLAS Chapter X HSC | GT | 4196 | 0.460 | P3 |
+| RO_RO_PASSENGER | all | GT | 2023 | 0.460 | P3 |
+| RO_RO_PASSENGER_HSC | all | GT | 4196 | 0.460 | P3 |
 | CRUISE_PASSENGER | all | GT | 930 | 0.383 | P3 |
+
+> **[#759] 조건 열은 조건식이다.** `RO_RO_PASSENGER`·`RO_RO_PASSENGER_HSC` 두 행이 선종 설명(「Ro-ro passenger ship」·「SOLAS Chapter X HSC」)을 이 열에 적고 있었다. 나머지 18행은 `all`·`DWT ≥ N`·`N ≤ GT < M` 형태이고 DB와 `DB_SCHEMA §3.3`도 두 행 다 `all`이며, 설명 문자열은 `calc/capacity.py`의 `evaluate_condition`이 해석하지 못한다. 선종 구분은 `ship_type` 열이 한다 — `RO_RO_PASSENGER_HSC`는 **SOLAS 제X장의 고속선(HSC)**이다(`MEPC.353(78)` G2의 별도 행).
 
 > 구현 주의: `14405E7`, `14479E10`, `14779E10`은 IMO 표 원문 표기다. DB 저장 시에는 문자열 원문값과 Decimal 변환값을 모두 저장한다. 예: `14405E7` → `14405 × 10^7`.
 
@@ -760,7 +762,7 @@ erDiagram
 | `actual_fuel_ton` | decimal | N | 실제 연료 사용량 |
 | `cf_used` | decimal | Y | 계산 시점 CF snapshot |
 | `source` | enum | Y | USER_INPUT, MODEL_ESTIMATE, IMPORT, SAMPLE |
-> **[ORACLE-C-4]** `Voyage.status = COMPLETED`로 전환 시, 최소 1개 `VoyageFuelUse.actual_fuel_ton`이 0보다 큰 값으로 입력되어야 한다. `actual_fuel_ton`이 모두 NULL인 COMPLETED 상태를 허용하지 않는다. 실적 입력 없이 완료 처리가 필요한 경우 `IN_PROGRESS` 상태를 유지하거나, 계획값을 임시 실적으로 복사 후 `source = MODEL_ESTIMATE`로 명시한다. 단, 과거 데이터 마이그레이션 등 부듍이하게 NULL actual_fuel_ton으로 COMPLETED가 된 경우는 §8.3 [ORACLE-C-4B] 정책을 따른다.
+> **[ORACLE-C-4]** `Voyage.status = COMPLETED`로 전환 시, 최소 1개 `VoyageFuelUse.actual_fuel_ton`이 0보다 큰 값으로 입력되어야 한다. `actual_fuel_ton`이 모두 NULL인 COMPLETED 상태를 허용하지 않는다. 실적 입력 없이 완료 처리가 필요한 경우 `IN_PROGRESS` 상태를 유지하거나, 계획값을 임시 실적으로 복사 후 `source = MODEL_ESTIMATE`로 명시한다. 단, 과거 데이터 마이그레이션 등 부득이하게 NULL actual_fuel_ton으로 COMPLETED가 된 경우는 §8.3 [ORACLE-C-4B] 정책을 따른다.
 
 ### 7.5 VoyageScenario
 
@@ -1522,6 +1524,8 @@ SHAP는 사용하지 않는다. MVP는 one-at-a-time 민감도 분석을 사용�
 | 연료 CF | 대체 연료 선택 시 | CO₂ 및 등급 변화 |
 | 잔여 항차 1개 취소/추가 | ±1 voyage | 등급 변화 |
 
+> **[#756] 거리 ±5%는 연료를 같은 비율로 함께 움직인다 — 그래서 CII가 거의 변하지 않는다.** 거리만 늘리면 「같은 연료로 더 갔다」가 되어 CII가 좋아지는 쪽으로만 틀리므로, 거리와 연료를 같은 배율로 바꾼다. CII는 거리당 값이라 잔여분만 보면 변화가 **0**이고, 확정 실적과 섞인 비율만큼만 움직인다(샘플 벌크선 실측: 기준 대비 약 0.002%). 이 행은 **「효과 없음」이 아니라 「거리만으로는 CII가 움직이지 않는다」**를 말하며, 화면은 그 이유를 표 아래에 적는다. 기능②의 같은 성질(직항과 우회의 CII가 같다 — `§11.2`, `#799`)과 같은 처리다.
+
 ### 12.7 출력
 
 | 출력 | 설명 |
@@ -1707,7 +1711,7 @@ POST /api/v1/calculations/voyage-cii
 }
 ```
 
-> **[EXT-2-6]** PRD §14 API 예시를 API_SPEC v1.1 포맧(data/meta 구조, Layer 1 문자열 직렬화, REFERENCE_ONLY warning 코드)과 일치시켰다. 상세한 API 스펙은 `API_SPEC.md`를 참조한다.
+> **[EXT-2-6]** PRD §14 API 예시를 API_SPEC v1.1 포맷(data/meta 구조, Layer 1 문자열 직렬화, REFERENCE_ONLY warning 코드)과 일치시켰다. 상세한 API 스펙은 `API_SPEC.md`를 참조한다.
 
 ### 14.3 Scenario comparison API
 
@@ -1773,7 +1777,7 @@ GET /api/v1/annual-simulations/{simulation_run_id}
 }
 ```
 
-> **[EXT-3-1]** PRD §14.4 API 예시를 §14.2 및 API_SPEC v1.2 포맧(data/meta 구조, Layer 1 deterministic 문자열 직렬화, REFERENCE_ONLY warning 코드)과 일치시켰다.
+> **[EXT-3-1]** PRD §14.4 API 예시를 §14.2 및 API_SPEC v1.2 포맷(data/meta 구조, Layer 1 deterministic 문자열 직렬화, REFERENCE_ONLY warning 코드)과 일치시켰다.
 
 ### 14.5 Parameter API
 
@@ -1974,6 +1978,8 @@ WeatherProvider interface
 
 ## 19. 마일스톤
 
+> **[#759] 이 표는 폐지된 체제의 기록이다.** 기능①②③ 축으로 짠 시간 버킷이며, 관리 중심 전환(`#343`·`#344`) 뒤로 성립하지 않아 **마일스톤 체제를 폐지하고 레이어를 1차 조직 축으로 쓴다**(`README` 「작업 조직 축 — 레이어」). 순서는 이슈 간 선후 관계로 관리한다. 당시의 계획을 되짚는 근거로 남긴다 — 지금 일정을 뜻하지 않는다.
+
 | 시점 | 산출물 | 성공 기준 |
 |---|---|---|
 | 2026.07 | 계산 모듈·파라미터 seed·Fixture 테스트 | Fixture 1~3 통과 |
@@ -2096,6 +2102,8 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 ---
 
 ## 23. 부록 — 구현자 체크리스트
+
+> **[#759] 아래 23.2~23.4의 「8월 데모 전」·「9월 제출 전」·「10월 통합 시연 전」은 `§19` 마일스톤 체제의 구분이다.** 그 체제는 폐지됐고(`§19` 각주), 항목의 진행은 이 체크박스가 아니라 이슈로 추적한다. 체크박스가 비어 있는 것은 「안 했다」가 아니라 **이 목록을 더 갱신하지 않는다**는 뜻이다.
 
 ### 23.1 개발 착수 전
 
@@ -2305,3 +2313,5 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 | 2026-09-10 | `#433` | **v4.5 — §12.3.1 「필요 감축량(목표 역산)」 신설 · §12.7 출력 표에 같은 행 추가.** `§12`는 「목표 달성 **확률**」까지만 정의했고 **「목표에서 역산한 필요 감축량」은 출력 목록에 없었다** — `UIFLOW 2-10`이 요구하는 값의 정의가 정본에 없는 상태였다. ⚠️ **부등식의 미지수가 둘이라 무엇을 고정할지가 곧 산출물을 정한다.** 잔여 계획 **거리를 고정**했다 — `UIFLOW 2-10`의 비용 요약이 「추가 항해일」·「용선료 손실」을 두는데, **항차를 취소하면 항해일이 줄지 늘지 않으므로** 그 구조는 같은 항차를 느리게 뛰는 경우에만 성립한다. 항차 취소는 이미 `§12.6` 민감도 변수다. **배분 규칙은 정의하지 않는다** — `UIFLOW 2-10`이 자동 최적 배분을 범위 밖으로 두고 사용자가 선박별로 조정한다. **§5.2 각주의 `2-10` 조건 둘 중 하나가 해소**됐고, 용선료 단가 입력 경로는 남는다 (#433 · #513) |
 | 2026-09-11 | `#944` | **v4.6 — §8.4 「선박 DWT/GT 변경」 행을 「선박 제원 변경 (DWT/GT · 선종)」으로 확장.** 선종은 capacity 축·기준선 `a`/`c`·등급 경계 `d1~d4`를 전부 바꿔 DWT/GT보다 영향이 큰데 행에서 빠져 있었다. **구현(`#818`)이 먼저 고쳐져 코드가 문서보다 넓게 보호하던 상태**를 문서에 맞췄다. 하위 문서의 「상위 문서」 필드는 `AGENTS §4.4`에 따라 올리지 않았다 (#944) |
 | 2026-09-11 | `#885` | **v4.7 — §3.3.8에 진행 중 항차의 유종별 연료 배분 규칙 신설.** 진행 연료 총량을 **계획 연료량 비율로** 나눠 각 유종의 CF를 곱한다. 종전에는 연료 기록의 첫 유종 하나가 전량을 받았는데 정본에 그 규칙이 없었다(`#867` 처리 중 PRD·TECH_SPEC·API_SPEC·DB_SCHEMA grep 0건). 같은 누적의 다른 갈래(`#863` · `030`)가 이미 유종별이던 원칙을 진행분에 맞췄다. 단일 유종은 값이 변하지 않는다 (#885) |
+| 2026-09-11 | `#756` | **§12.6에 거리 지렛대 각주 추가** — 거리 ±5%는 연료를 함께 움직여 CII가 거의 변하지 않는다는 모델의 성질을 적었다. 구현(`_shift_distance`)은 처음부터 그랬는데 정본에 근거가 없어, 화면에서 그 행이 「효과 없음」으로 읽혔다. 기능② `#799`와 같은 처리(화면이 이유를 말한다). 「연료 CF 대체 연료」 행은 판정 대기로 남는다. `AGENTS §4.3` 「각주 보강」이라 버전은 올리지 않는다 (#756) |
+| 2026-09-11 | `#759` | **정본 드리프트 정정** — ⑴ §3.4.3 `RO_RO_PASSENGER`·`_HSC` 두 행의 조건 열을 `all`로(선종 설명이 조건식 자리에 있어 `evaluate_condition`이 해석하지 못했다 · DB·`DB_SCHEMA §3.3`과 일치) + 각주 ⑵ §19 마일스톤 표·§23 부록 체크리스트가 **폐지된 체제의 기록**임을 각주로 명시 ⑶ 오탈자 4곳(개녁 · 부듍이하게 · 포맧 ×2). `AGENTS §4.3` 「오기·값 정정·각주 보강」이라 버전은 올리지 않는다 (#759) |

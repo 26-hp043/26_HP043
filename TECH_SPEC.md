@@ -5,7 +5,7 @@
 | 문서명 | TECH_SPEC.md |
 | 버전 | v1.8 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-08-23 |
+| 최종 수정일 | 2026-09-11 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -578,7 +578,7 @@ BN = round(3.5 × √Hs)    where Hs in meters
 ### 3.5 계산 알고리즘
 
 ```python
-def towns_in_kwon_weather_factor(
+def townsin_kwon_weather_factor(
     hs_m: float,
     ship_type: str,
     wave_heading_deg: float = 0.0,
@@ -1112,7 +1112,7 @@ def get_weather_factor_for_segment(
     elif weather_model == "SIMPLE_RULE":
         return simple_rule_factor(snapshot)
     elif weather_model == "TOWNSIN_KWON_ALPHA":
-        return towns_in_kwon_weather_factor(
+        return townsin_kwon_weather_factor(
             hs_m=snapshot.wave_height_m,
             ship_type=vessel.ship_type,
         )
@@ -1445,7 +1445,7 @@ class SimulationSnapshot:
 | ORACLE-S-3 | `parse_imo_scientific`이 NaN/Infinity 허용 | §9.2 — `is_nan()`, `is_infinite()`, `<= 0` 검증 추가 | **수정 완료** |
 | ORACLE-S-4 | Fixture 1 중간값 `10.8198 × 0.622 = 6.7301...` 산술 오류 (정확값: 6.7299...) | §1.2.3 — 중간값 수정 | **수정 완료** |
 | ORACLE-S-5 | INPUT_FIELDS에 weather_factor timing 미명시 | §5.3 — weather_factor hash 전 확정 의무화, None 시 기본값 적용 | **수정 완료** |
-| ORACLE-S-6 | PRD §8.4 스냅샷 격리 구현 명실 누락 | §11 (신규) — 스냅샷 격리 섹션 추가 | **수정 완료** |
+| ORACLE-S-6 | PRD §8.4 스냅샷 격리 구현 명세 누락 | §11 (신규) — 스냅샷 격리 섹션 추가 | **수정 완료** |
 
 ### 14.3 Minor Issues
 
@@ -1625,8 +1625,8 @@ frontend/
 > 제출용은 계속 제외), **2-6은 `#359`가 「계정 관리만 MVP」로 확정했다**(2026-08-23 — 어드민
 > 계정이 1차 시연 범위 밖이라 파라미터·조직 설정은 post-MVP다. 재개는 `#672`).
 > `PRD §6.2`에 SCR ID ↔ UIFLOW 절 대응 각주가 있다. 화면 구조의 정본은
-> `AGENTS §3.2.1`대로 `UIFLOW`다. 남은 별도 작업은 `API_SPEC`의 엔드포인트↔화면 매핑 표
-> 정리다 — SCR-001 재정의와 SCR-008~010 신설이 아직 반영되지 않았다.
+> `AGENTS §3.2.1`대로 `UIFLOW`다. `API_SPEC §12` 엔드포인트 표에는 SCR-001 재정의와
+> SCR-008·SCR-009 대응이 반영돼 있다(`#759` 정정 — 종전에는 「아직 반영되지 않았다」로 적혀 있었다).
 
 - **토큰 단일화**: 컴포넌트는 `styles/tokens.css`의 CSS 커스텀 프로퍼티만 참조하고
   hex를 하드코딩하지 않는다(DESIGN_SYSTEM §15).
@@ -1883,3 +1883,4 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-08 | `#812` | **§12.3에 `SIMULATION_PLAN_NO_FUEL` 추가.** 계획 항차에 연료 행이 없거나 계획 연료량 합이 0이면 CO₂를 낼 수 없어 그 항차를 연말 예상에서 제외하고 경고를 낸다. 함께 고친 것은 조립부다 — 종전에는 계획 항차의 `fuel_uses`마다 `RemainingVoyage`를 만들면서 **항차 전체 거리를 그대로 복사**해, 연료가 2종이면 거리가 2배로 계상됐다(확정 항차 분기는 항차당 한 번만 더한다). 이제 연료를 CO₂ 기여로 합쳐 **항차 1건 = 1줄**로 만든다(`fuel_ton = Σ fuel_ton_i` · `cf_eff = Σ(fuel_ton_i × cf_i) / Σ fuel_ton_i`). 이것이 §2.3의 Monte Carlo 가정과도 맞는다 — 표본추출은 줄마다 독립인데, 한 항차의 두 연료가 따로 흔들리는 것은 실제 성질이 아니다. 부수적으로 잔여 항차 상한 가드(서비스는 항차 수, 엔진은 `len(remaining)`)와 §12.6 민감도 「잔여 항차 1개 취소/추가」가 같은 단위가 된다 (#812) |
 | 2026-09-08 | `#796` | **§12.3에 `SIMULATION_NO_REFERENCE_SPEED` 추가 · 시뮬레이션 시계가 §4.1 cubic speed model을 따르게 함.** 진행 중 항차의 누적 연료가 `daily_foc_ton × underway_hours / 24`로, **거리는 항차의 계획 속도로 늘리면서 연료는 선박 기준 속도의 소모율을 그대로** 곱하고 있었다 — 계획 14 kn · 기준 12 kn이면 `(14/12)³ = 1.588`배 과소 산출된다. `§4.1`이 `speed_factor = (v / v_ref)³`을 규정하고 `calc/fuel_estimator.estimate_fuel_ton`이 구현하며 기능②는 이미 그것을 쓴다 — **한 경로만 규정을 벗어나 있었다.** 시계는 `underway_hours`를 갖고 그 함수는 `distance / speed / 24`로 기간을 구하는데 `distance = speed × underway_hours`이므로 **둘이 같은 값**이다: not under way 시간을 뺀 계산이 그대로 보존되고 달라지는 것은 `speed_factor` 하나다. `weather_factor`는 적용하지 않는다 — 시계는 기상 스냅샷을 모르고 경과 구간의 기상 이력도 없어, 없는 값을 지어내면 **사용자가 볼 수 없는 데이터에 누적량이 의존**하게 된다(`§4.4` 기본값 `weather_model=NONE`). `§4.2` 가드 위반 입력(갓 출항·정박 전용 구간·소모율 미등록)은 시계에서 정상 상태이므로 예외를 밖으로 내보내지 않고 0으로 둔다 — 조회가 500이 되면 화면이 값을 아예 못 본다 (#796) |
 | 2026-09-08 | `#813` | **§7.2 풍속 요청에 `wind_speed_unit=ms` 추가 · 단위 검증 규정 신설.** Open-Meteo의 기본 단위는 `km/h`인데 종전 규정에 `wind_speed_unit`이 없었고 구현도 변환 없이 `wind_speed_ms`에 저장해 **값이 3.6배** 커졌다(실측: 같은 좌표·같은 시각에 기본 `15.4`, `wind_speed_unit=ms`로 `4.27`). `§8` `SIMPLE_RULE`의 풍속 계수가 「10 m/s당 약 5%」 전제라 실제 10 m/s에서 풍속항이 `0.05`가 아니라 `0.18`이 되고, 파고 2 m와 합치면 `weather_factor`가 1.09여야 할 자리에 **1.22**가 나온다(약 12%p 과대). `/3.6` 변환 대신 **요청에 단위를 싣는** 이유는 나누는 쪽이 「기본값이 계속 km/h다」라는 가정에 기대기 때문이다. 더해 **응답의 `hourly_units`를 검증**한다 — 다르거나 **없으면** 풍속을 쓰지 않고 `#62` fallback으로 넘긴다. 이 결함은 조용했다(값이 3.6배여도 화면은 멀쩡했고 전수 검토를 해야 드러났다). 테스트 픽스처가 `hourly_units` 없이 m/s를 단정하고 있어 **잘못된 전제를 고정**하고 있던 것도 함께 고쳤다 (#813) |
+| 2026-09-11 | `#759` | **정본 드리프트 정정** — ⑴ §16.2 각주의 「`API_SPEC` 엔드포인트↔화면 매핑에 SCR-001·SCR-008~010이 아직 반영되지 않았다」가 사실이 아니라 정정(`API_SPEC §12`에 반영돼 있다) ⑵ §3.5·§7.3 의사코드 함수명 `towns_in_kwon_weather_factor` → 구현과 같은 `townsin_kwon_weather_factor` ⑶ 오탈자(명실 → 명세). `AGENTS §4.3` 「오기·값 정정·각주 보강」이라 버전은 올리지 않는다 (#759) |
