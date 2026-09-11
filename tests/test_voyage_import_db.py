@@ -13,11 +13,13 @@
    `DRAFT`/`EXCLUDE`다. 출처(`created_from`)만 다르다
 
 케이스 (`TEST_PLAN §14.5`):
-    IT-CSV-001 · IT-CSV-002 · IT-CSV-003 · IT-CSV-004 · IT-CSV-005 · IT-CSV-006 · IT-CSV-007
+    IT-CSV-001 · IT-CSV-002 · IT-CSV-003 · IT-CSV-004 · IT-CSV-005 · IT-CSV-006 · IT-CSV-007 ·
+    IT-CSV-008
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -249,6 +251,117 @@ async def test_empty_required_cell_is_a_row_error(session, vessel_id):
     )
 
     assert result["errors"][0]["field"] == "voyage_no"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 출항·도착 예정 시각 — 선택 컬럼 (#906)
+# ─────────────────────────────────────────────────────────────────────────────
+
+TIMED_HEADER = HEADER + ",planned_departure_at,planned_arrival_at"
+
+
+async def _times(session, vessel_id: UUID) -> list:
+    result = await session.execute(
+        text(
+            "SELECT voyage_no, planned_departure_at, planned_arrival_at "
+            "FROM voyage WHERE vessel_id = :vid ORDER BY voyage_no"
+        ),
+        {"vid": vessel_id},
+    )
+    return list(result)
+
+
+@pytest.mark.asyncio
+async def test_planned_times_are_imported_as_utc(session, vessel_id):
+    """IT-CSV-008 — 종전에는 두 시각을 받는 컬럼이 없어 **가져온 항차는 늘 시각이 비었다.**
+
+    시각이 없는 항차는 진행 중으로 옮겨도 시뮬레이션 시계가 누적을 0으로 만든다(`#873`).
+    시간대가 붙은 값을 받아 UTC로 저장한다(`DB_SCHEMA §0.1` [X-6]).
+    """
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V-1,Busan,Tokyo,1000,13.5,HFO,80,2026-09-12T09:00:00+09:00,2026-09-15T21:00:00+09:00",
+            "V-2,Busan,Tokyo,1000,13.5,HFO,80,2026-09-20T00:00:00Z,",
+            header=TIMED_HEADER,
+        ),
+    )
+
+    assert result["errors"] == []
+    assert result["missing_departure_count"] == 0
+    first, second = await _times(session, vessel_id)
+    assert first.planned_departure_at == datetime(2026, 9, 12, 0, 0, tzinfo=UTC)
+    assert first.planned_arrival_at == datetime(2026, 9, 15, 12, 0, tzinfo=UTC)
+    assert second.planned_departure_at == datetime(2026, 9, 20, 0, 0, tzinfo=UTC)
+    assert second.planned_arrival_at is None  # 빈 칸은 비어 들어간다
+
+
+@pytest.mark.asyncio
+async def test_old_files_without_time_columns_still_import(session, vessel_id):
+    """**선택 컬럼이다** — 필수로 두면 기존 양식이 전부 거부된다. 대신 빈 수를 알린다."""
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes("V-1,Busan,Tokyo,1000,13.5,HFO,80", "V-2,Busan,Tokyo,900,13,HFO,70"),
+    )
+
+    assert result["imported_count"] == 2
+    assert result["missing_departure_count"] == 2
+    assert all(row.planned_departure_at is None for row in await _times(session, vessel_id))
+
+
+@pytest.mark.asyncio
+async def test_time_without_zone_is_a_row_error_not_a_guess(session, vessel_id):
+    """시간대 없는 값을 UTC로 읽으면 한국 시각으로 적은 항차가 **9시간 어긋난다.**"""
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V-1,Busan,Tokyo,1000,13.5,HFO,80,2026-09-12T09:00:00,", header=TIMED_HEADER
+        ),
+    )
+
+    assert result["imported_count"] == 0
+    assert result["errors"] == [
+        {
+            "row": 2,
+            "field": "planned_departure_at",
+            "message": "시간대가 필요합니다(예: 2026-09-12T09:00:00+09:00).",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_formula_in_time_column_is_rejected_not_stored(session, vessel_id):
+    """시각 칸의 수식은 숫자 칸과 같은 방향이다 — 값이 아니라 오류."""
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes("V-1,Busan,Tokyo,1000,13.5,HFO,80,,=NOW()", header=TIMED_HEADER),
+    )
+
+    assert result["errors"][0]["field"] == "planned_arrival_at"
+    assert result["errors"][0]["message"].startswith("시각으로 읽을 수 없습니다")
+
+
+@pytest.mark.asyncio
+async def test_dry_run_counts_missing_departures_among_rows_that_would_go_in(session, vessel_id):
+    """확정 전에 알려야 한다 — 저장한 뒤에야 알면 사용자는 항차를 하나씩 고쳐야 한다."""
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V-1,Busan,Tokyo,1000,13.5,HFO,80,2026-09-12T00:00:00Z,",
+            "V-2,Busan,Tokyo,1000,13.5,HFO,80,,",
+            "V-3,Busan,Tokyo,0,13.5,HFO,80,,",  # 거리 0 — 들어가지 않으니 세지 않는다
+            header=TIMED_HEADER,
+        ),
+        dry_run=True,
+    )
+
+    assert result["imported_count"] == 2
+    assert result["missing_departure_count"] == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────

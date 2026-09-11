@@ -5,6 +5,7 @@ import {
   MAX_ROWS,
   REQUIRED_COLUMNS,
   canCommit,
+  missingDepartureNotice,
   resultSummary,
   validateFile,
   type ImportResult,
@@ -19,7 +20,14 @@ import {
  */
 
 function result(over: Partial<ImportResult> = {}): ImportResult {
-  return { importedCount: 0, skippedCount: 0, errors: [], dryRun: true, ...over }
+  return {
+    importedCount: 0,
+    skippedCount: 0,
+    errors: [],
+    dryRun: true,
+    missingDepartureCount: 0,
+    ...over,
+  }
 }
 
 function fileOf(bytes: number): File {
@@ -116,5 +124,31 @@ describe('초안으로 들어온다는 사실을 말한다', () => {
 
   it('내부 문서 참조가 새어 나오지 않는다 (#529)', () => {
     expect(IMPORT_NOTICE).not.toMatch(/§|API_SPEC|PRD|DESIGN_SYSTEM/)
+  })
+})
+
+/**
+ * 출항 예정 시각이 빈 행 (#906).
+ *
+ * 들어가는 것은 맞으므로 오류가 아니다. 그러나 진행 중으로 옮겨도 누적에 0으로
+ * 기여한다 — 말하지 않으면 사용자는 누적이 늘지 않는 것을 고장으로 읽는다.
+ */
+describe('missingDepartureNotice (#906)', () => {
+  it('빈 행이 없으면 아무 말도 하지 않는다', () => {
+    expect(missingDepartureNotice(result({ importedCount: 5 }))).toBeNull()
+  })
+
+  it('검증 단계에서 먼저 알린다 — 저장 전에 파일을 고칠 수 있게', () => {
+    const text = missingDepartureNotice(result({ importedCount: 5, missingDepartureCount: 2 }))
+    expect(text).toContain('2건이 들어갑니다')
+    expect(text).toContain('누적 CII에 반영되지 않습니다')
+    expect(text).toContain('planned_departure_at')
+  })
+
+  it('저장 뒤에는 「들어갔습니다」로 — 이미 들어간 것을 「들어갑니다」로 쓰지 않는다', () => {
+    const text = missingDepartureNotice(
+      result({ importedCount: 5, missingDepartureCount: 2, dryRun: false }),
+    )
+    expect(text).toContain('2건이 들어갔습니다')
   })
 })

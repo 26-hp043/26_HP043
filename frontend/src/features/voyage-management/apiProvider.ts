@@ -206,6 +206,7 @@ interface ServerImportResult {
   imported_count?: unknown
   skipped_count?: unknown
   errors?: unknown
+  missing_departure_count?: unknown
   dry_run?: unknown
 }
 
@@ -228,6 +229,9 @@ function toImportResult(raw: ServerImportResult): ImportResult {
      * 사용자는 같은 파일을 한 번 더 올린다.
      */
     dryRun: raw.dry_run === true,
+    // #906 — 이 필드가 없던 서버에서는 0이다(알릴 것이 없다).
+    missingDepartureCount:
+      typeof raw.missing_departure_count === 'number' ? raw.missing_departure_count : 0,
   }
 }
 

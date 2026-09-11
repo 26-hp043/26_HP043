@@ -3,9 +3,12 @@ import { VoyageError, type VoyageManagementProvider } from './apiProvider'
 import { ErrorState } from '../../components/ErrorState'
 import {
   IMPORT_NOTICE,
+  INSTANT_EXAMPLE,
   MAX_ROWS,
+  OPTIONAL_COLUMNS,
   REQUIRED_COLUMNS,
   canCommit,
+  missingDepartureNotice,
   resultSummary,
   validateFile,
   type ImportResult,
@@ -89,6 +92,11 @@ export function ImportCsv({
       <p className="vy-import__hint">
         필수 컬럼 {REQUIRED_COLUMNS.length}개 — <code>{REQUIRED_COLUMNS.join(', ')}</code>
       </p>
+      {/* 선택 컬럼 (#906) — 비우면 진행 중 누적에 0으로 기여하므로 있다는 것을 알린다. */}
+      <p className="vy-import__hint">
+        선택 컬럼 — <code>{OPTIONAL_COLUMNS.join(', ')}</code> (시간대 포함, 예:{' '}
+        <code>{INSTANT_EXAMPLE}</code>)
+      </p>
       <p className="vy-import__hint">
         UTF-8 · 최대 5MB · {MAX_ROWS.toLocaleString('ko-KR')}행까지.
       </p>
@@ -132,6 +140,7 @@ export function ImportCsv({
 }
 
 function ResultView({ result }: { result: ImportResult }) {
+  const missingDeparture = missingDepartureNotice(result)
   return (
     <div className="vy-import__result" role="status">
       <p className={result.dryRun ? 'vy-import__summary' : 'vy-import__summary vy-import__summary--done'}>
@@ -142,6 +151,9 @@ function ResultView({ result }: { result: ImportResult }) {
       {!result.dryRun && result.importedCount > 0 ? (
         <p className="vy-import__note">{IMPORT_NOTICE}</p>
       ) : null}
+
+      {/* 검증 단계에서도 낸다 — 저장 전에 파일을 고칠 수 있게 (#906). */}
+      {missingDeparture ? <p className="vy-import__note">{missingDeparture}</p> : null}
 
       {result.errors.length > 0 ? (
         <table className="vy-import__errors">
