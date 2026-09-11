@@ -383,11 +383,21 @@ export function AppShell() {
               ))}
             </select>
           </span>
+          {/*
+            알림 — **알림 체계가 아직 없다** (`DESIGN_SYSTEM §16` 항목 10 · `#771` ⑽).
+            자리는 `§7.2`가 정한 대로 두되(선박 · 항차 · 알림 · 계정) **누를 수 없게**
+            한다. 종전에는 `onClick`이 없는 살아 있는 버튼이었다 — 누르게 생겼는데
+            아무 일도 없고, `aria-label`은 「읽지 않음 없음」이라 **셀 것이 없는 상태**를
+            「없다」로 단정했다. 사이드바의 비활성 항목과 같은 판단이다 — 자리가
+            사라지면 「이 제품에는 그런 기능이 없다」로 읽히고, 살아 있으면 동작을
+            기대한다. 알림 체계가 정해지면(PO) 이 `disabled`와 문구만 걷어낸다.
+          */}
           <button
             type="button"
             className="app-shell__iconbtn"
-            aria-label="알림 (읽지 않음 없음)"
-            title="알림"
+            aria-label="알림 (준비 중)"
+            title="알림 — 준비 중"
+            disabled
           >
             <BellGlyph />
           </button>
