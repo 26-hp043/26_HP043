@@ -148,6 +148,7 @@ _TYPE_MESSAGES: dict[str, Callable[[str, dict[str, Any]], str]] = {
 def _multiple_of(label: str, ctx: dict[str, Any]) -> str:
     return f"{_subject(label)} {_number(ctx['multiple_of'])}의 배수여야 합니다."
 
+
 #: ``*_type`` 계열(``string_type``·``int_type``·``model_type``…)은 끝 접미사로
 #: 분류한다 — 종류가 늘어나도 목록을 다시 적지 않게. 전부 같은 문구다.
 _TYPE_SUFFIX = "_type"
