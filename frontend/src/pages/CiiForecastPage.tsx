@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { DisclaimerBanner } from '../components/DisclaimerBanner'
 import { PageHeader } from '../components/PageHeader'
+import { VoyageCiiActions } from '../features/voyage-cii/VoyageCiiActions'
 import { VoyageCiiForm } from '../features/voyage-cii/VoyageCiiForm'
 import { VoyageCiiResult } from '../features/voyage-cii/VoyageCiiResult'
 import type { ResultState } from '../features/voyage-cii/resultRules'
@@ -53,7 +54,11 @@ export function CiiForecastPage() {
       </PageHeader>
       <div className="cii-forecast-page__split">
         <VoyageCiiForm onStateChange={setResult} onStaleChange={setStale} />
-        <VoyageCiiResult state={result} stale={stale} />
+        {/* 결과와 그 결과로 할 수 있는 일(#891 · `PRD §10.5`)을 한 단에 둔다. */}
+        <div className="cii-forecast-page__result">
+          <VoyageCiiResult state={result} stale={stale} />
+          <VoyageCiiActions state={result} stale={stale} />
+        </div>
       </div>
       <DisclaimerBanner
         text={result.status === 'success' ? result.response.disclaimer : undefined}

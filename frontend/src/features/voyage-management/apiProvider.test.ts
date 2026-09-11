@@ -267,6 +267,25 @@ describe('transition — API_SPEC §3.5', () => {
 
     expect(bodyOf(fetchMock)).toEqual({ to_status: 'IN_PROGRESS' })
   })
+
+  it('정책을 명시하면 그것을 싣는다 — 기능① 계획 저장의 연간 반영 (#891)', async () => {
+    /*
+     * `DRAFT → PLANNED`에서 규칙은 현행(`EXCLUDE`)을 유지해 policy를 생략한다. 계획 저장이
+     * 연간 반영을 고르면 그 규칙을 넘어서 `INCLUDE_AS_PLAN`을 실어야 한다 — 싣지 않으면
+     * 저장은 되는데 **기능③에 조용히 반영되지 않는다.**
+     */
+    const fetchMock = fakeFetch({ '/transition': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').transition(
+      { ...VOYAGE, status: 'DRAFT', inclusionPolicy: 'EXCLUDE' },
+      'PLANNED',
+      'INCLUDE_AS_PLAN',
+    )
+
+    expect(bodyOf(fetchMock)).toEqual({
+      to_status: 'PLANNED',
+      annual_inclusion_policy: 'INCLUDE_AS_PLAN',
+    })
+  })
 })
 
 describe('saveActuals — API_SPEC §3.6', () => {

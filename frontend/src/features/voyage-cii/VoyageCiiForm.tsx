@@ -213,8 +213,9 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
     setSubmitting(true)
     onStateChange?.({ status: 'loading' })
     try {
-      const response = await provider.estimate(toRequest(state))
-      onStateChange?.({ status: 'success', response })
+      const request = toRequest(state)
+      const response = await provider.estimate(request)
+      onStateChange?.({ status: 'success', response, request })
       /*
        * `state`가 아니라 이 시점의 값을 그대로 담는다. 요청을 보내는 동안
        * 사용자가 입력을 고쳤을 수 있고, 그러면 결과는 **보낸 값**의 답이다.

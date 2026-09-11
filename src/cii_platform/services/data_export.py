@@ -45,6 +45,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from cii_platform.db.models.calculation_run import CalculationRun
 from cii_platform.db.repositories import annual_simulation as sim_repo
 from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -155,10 +156,18 @@ class ExportTable:
     year: int | None
     columns: tuple[str, ...]
     rows: list[list[str]]
+    #: 계산 한 건만 내보낼 때 그 id (#891). 파일 이름에 앞 8자를 붙인다.
+    calculation_run_id: UUID | None = None
 
     @property
     def filename_stem(self) -> str:
-        """``voyages_2026`` · ``voyages`` (``API_SPEC §8.1`` 응답 예시)."""
+        """``voyages_2026`` · ``voyages`` (``API_SPEC §8.1`` 응답 예시).
+
+        계산 한 건이면 ``calculations_1a2b3c4d``다 — 여러 번 받은 파일이 같은 이름으로
+        덮이면 어느 계산의 파일인지 알 수 없다.
+        """
+        if self.calculation_run_id is not None:
+            return f"{self.type}_{str(self.calculation_run_id)[:8]}"
         return self.type if self.year is None else f"{self.type}_{self.year}"
 
     def as_dicts(self) -> list[dict[str, str]]:
@@ -263,7 +272,10 @@ def _voyage_row(voyage, fuel_use) -> list[str]:
 
 
 async def _calculation_rows(
-    session: AsyncSession, vessel_id: UUID, year: int | None
+    session: AsyncSession,
+    vessel_id: UUID,
+    year: int | None,
+    calculation_run_id: UUID | None = None,
 ) -> list[list[str]]:
     """계산 이력.
 
@@ -274,7 +286,15 @@ async def _calculation_rows(
     시나리오 비교(``SCENARIO``) 실행은 결과가 여러 안이라 **한 행에 담기지 않는다.**
     식별자·해시만 싣고 값 칸은 비운다 — ``calculation_type`` 열이 그 이유를 말한다.
     """
-    runs = await calc_run_repo.list_runs(session, limit=_CALC_LIMIT, vessel_id=vessel_id)
+    if calculation_run_id is not None:
+        # 한 건 (#891 · 기능① 「CSV 다운로드」). 목록에서 거르지 않고 **id로 직접** 읽는다 —
+        # 목록은 ``_CALC_LIMIT``에서 잘리므로 오래된 계산이 「없다」로 보일 수 있다.
+        run = await session.get(CalculationRun, calculation_run_id)
+        if run is None or run.vessel_id != vessel_id:
+            raise NotFoundError("이 선박의 계산 이력에서 해당 계산을 찾을 수 없습니다.")
+        runs = [run]
+    else:
+        runs = await calc_run_repo.list_runs(session, limit=_CALC_LIMIT, vessel_id=vessel_id)
     if year is not None:
         runs = [run for run in runs if run.created_at.astimezone(_EXPORT_TIMEZONE).year == year]
 
@@ -356,6 +376,7 @@ async def build_export(
     *,
     type: str,
     year: int | None = None,
+    calculation_run_id: UUID | None = None,
 ) -> ExportTable:
     """내보낼 표를 만든다 (``API_SPEC §8.1``).
 
@@ -370,13 +391,29 @@ async def build_export(
             field_label="자료 종류",
         )
 
+    if calculation_run_id is not None and type != "calculations":
+        # 계산 한 건은 계산 이력에만 있다 — 다른 type에서 조용히 무시하면 사용자는
+        # 한 건을 받으려다 전체 파일을 받고도 알아채지 못한다
+        # (``type``에 기본값을 두지 않는 것과 같은 이유).
+        raise ValidationError(
+            "calculation_run_id는 type=calculations에서만 쓸 수 있습니다.",
+            field="calculation_run_id",
+            field_label="계산 이력 ID",
+        )
+
     await _require_vessel(session, vessel_id)
 
     if type == "voyages":
         rows = await _voyage_rows(session, vessel_id, year)
     elif type == "calculations":
-        rows = await _calculation_rows(session, vessel_id, year)
+        rows = await _calculation_rows(session, vessel_id, year, calculation_run_id)
     else:
         rows = await _simulation_rows(session, vessel_id, year)
 
-    return ExportTable(type=type, year=year, columns=COLUMNS_BY_TYPE[type], rows=rows)
+    return ExportTable(
+        type=type,
+        year=year,
+        columns=COLUMNS_BY_TYPE[type],
+        rows=rows,
+        calculation_run_id=calculation_run_id,
+    )
