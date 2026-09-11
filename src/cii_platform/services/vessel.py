@@ -261,8 +261,8 @@ async def update_vessel(
     # DWT/GT 변경보다 영향이 크다. `BULK_CARRIER → TANKER`로 고치면 과거
     # `calculation_run`이 전부 `needs_recalc=false`인 채 **유효한 것처럼 남았다.**
     #
-    # `PRD §8.4`의 행은 「선박 DWT/GT 변경」으로 좁게 적혀 있다. 코드가 문서보다
-    # **넓게 보호하는 쪽**이므로 모순은 아니나, 문구 확장은 별건으로 등록했다.
+    # `PRD §8.4`의 행이 종전에는 「선박 DWT/GT 변경」으로 좁게 적혀 있었고, v4.6에서
+    # 「선박 제원 변경 (DWT/GT · 선종)」으로 맞췄다 (`#944`).
     specs_changed = ship_type_changed
 
     if name is not None:
