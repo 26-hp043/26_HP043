@@ -150,6 +150,68 @@ def test_non_positive_capacity_is_rejected():
         _project(transport_capacity=Decimal(0))
 
 
+# ── `TECH_SPEC §2.3.1` [ORACLE-S-1] — 계획값 0 이하 거부 (#967) ───────────────
+
+
+def _voyage(**over) -> RemainingVoyage:
+    kwargs = {
+        "distance_nm": 3000.0,
+        "fuel_ton": 250.0,
+        "cf": CF,
+        "speed_kn": None,
+        "reference_speed_kn": None,
+        "base_daily_foc_ton": None,
+    }
+    kwargs.update(over)
+    return RemainingVoyage(**kwargs)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param({"distance_nm": 0.0}, id="distance-0"),
+        pytest.param({"fuel_ton": 0.0}, id="fuel-0"),
+        pytest.param({"distance_nm": -1.0}, id="distance-negative"),
+    ],
+)
+def test_deterministic_projection_rejects_non_positive_plan_values(bad):
+    """`TECH_SPEC §2.3.1` — `plan_value <= 0`은 거부다. 조용히 0으로 고정하지 않는다.
+
+    종전 구현은 폭 0 표본으로 받아 넘겼다(`#967`). 거리 0은 분모에 기여하지 않아 결과가
+    틀리지는 않지만, 입력 누락이 어디에도 드러나지 않는다. 메시지에 **어느 항차**인지 싣는다.
+    """
+    remaining = [_voyage(), _voyage(**bad)]
+    with pytest.raises(ValueError, match=r"잔여 항차 1의 계획값이 0 이하"):
+        _project(remaining=remaining)
+
+
+def test_monte_carlo_rejects_non_positive_plan_values_before_sampling():
+    """결정론과 같은 가드가 Monte Carlo에도 걸린다 — 두 경로가 다른 입력을 받으면 안 된다."""
+    with pytest.raises(ValueError, match=r"잔여 항차 0의 계획값이 0 이하"):
+        _simulate(remaining=[_voyage(distance_nm=0.0)])
+
+
+def test_degenerate_band_still_returns_the_plan_value():
+    """폭 0 처리(`_sample_band`)는 남는다 — 뒤집힌 파라미터가 셋을 mode로 모으는 경우다.
+
+    계획값 0 거부와 별개의 경로다: 계획값은 양수인데 `min_factor > max_factor`로 폭이 0이 된
+    항차는 계획값 그대로가 표본이어야 한다(억지 폭은 근거 없는 변동이다).
+    """
+    profile = DistributionProfile(
+        distance=TriangularBand(min_factor=1.5, mode_factor=1.0, max_factor=0.5),
+        fuel=TriangularBand(min_factor=1.5, mode_factor=1.0, max_factor=0.5),
+    )
+    remaining = [_voyage()]
+    result = _simulate(remaining=remaining, profile=profile)
+    expected = _project(remaining=remaining)
+    # p10·p90은 4자리로 반올림된 Decimal — 폭이 0이면 셋이 같고 결정론 값과 같다.
+    assert (
+        result.p10
+        == result.p90
+        == expected.attained_cii.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 재현성 — PRD §12.4.3 · AC-F3-002
 # ─────────────────────────────────────────────────────────────────────────────
