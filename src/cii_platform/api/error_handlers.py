@@ -33,6 +33,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from cii_platform.api.field_labels import field_label
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.api.validation_messages import korean_validation_message
 from cii_platform.errors import ERROR_HTTP_STATUS, AppError
 
 if TYPE_CHECKING:
@@ -141,14 +142,19 @@ def _validation_details(exc: RequestValidationError) -> list[dict[str, object]]:
 
     ``field_label``은 :func:`~cii_platform.api.field_labels.field_label`이 채운다.
     미등록 필드는 필드명 원문이 그대로 돌아온다(조회 실패 계약).
+
+    ``message``는 Pydantic 영문 원문을 싣지 않고
+    :func:`~cii_platform.api.validation_messages.korean_validation_message`가
+    만든 한국어 문구를 싣는다 (#900 · API_SPEC §1.3.2 언어 규정).
     """
     details: list[dict[str, object]] = []
     for error in exc.errors():
         field = _field_path(tuple(error.get("loc", ())))
+        label = field_label(field)
         entry: dict[str, object] = {
             "field": field,
-            "field_label": field_label(field),
-            "message": str(error.get("msg", "")),
+            "field_label": label,
+            "message": korean_validation_message(error, label),
         }
         details.append(entry)
     return details
