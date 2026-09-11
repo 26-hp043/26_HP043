@@ -29,7 +29,9 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import ValidationError
+from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.voyage_import import (
     MAX_ROWS,
     import_voyages,
@@ -362,6 +364,65 @@ async def test_dry_run_counts_missing_departures_among_rows_that_would_go_in(ses
 
     assert result["imported_count"] == 2
     assert result["missing_departure_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_imported_in_progress_voyage_now_counts_toward_the_running_total(session):
+    """이슈 완료 기준 — **CSV로 만든 진행 중 항차가 누적에 기여한다** (#906).
+
+    시각이 저장되는 것만으로는 완료 기준을 채우지 못한다 — 그 시각을 시뮬레이션 시계가
+    실제로 읽어 거리·연료를 만들어야 한다. 시각을 담은 행과 비운 행을 나란히 가져와
+    **앞의 것만** 기여하는지 본다(뒤의 것이 0인 것이 종전 결함 그대로다).
+
+    진행 중 전이는 가드(출항 시각·기준연도 등)를 따로 검사하는 경로라 여기서는 상태만
+    직접 옮긴다 — 보려는 것은 「가져온 행이 화면 경로와 같은 재료를 갖는가」다.
+    """
+    vessel_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight, "
+            "default_fuel_type, reference_speed_kn, reference_daily_foc_ton, "
+            "underway_state, detail_status) VALUES (:id, :imo, 'IMPORT CLOCK', "
+            "'BULK_CARRIER', 50000, 'HFO', 14, 30, 'UNDER_WAY', 'SAILING')"
+        ),
+        {"id": vessel_id, "imo": f"9{vessel_id.int % 1000000:06d}"},
+    )
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "TIMED,Busan,Tokyo,6000,14,HFO,300,2026-06-25T00:00:00Z,2026-07-15T00:00:00Z",
+            "UNTIMED,Busan,Tokyo,6000,14,HFO,300,,",
+            header=TIMED_HEADER,
+        ),
+    )
+    assert result["imported_count"] == 2
+    as_of = datetime(2026, 7, 1, tzinfo=UTC)
+
+    async def contribution_of(voyage_no: str):
+        # 한 선박에 진행 중 항차는 하나다 — 차례로 하나만 진행 중으로 둔다.
+        await session.execute(
+            text("UPDATE voyage SET status = 'DRAFT' WHERE vessel_id = :vid"),
+            {"vid": vessel_id},
+        )
+        await session.execute(
+            text(
+                "UPDATE voyage SET status = 'IN_PROGRESS', regulation_year = 2026 "
+                "WHERE vessel_id = :vid AND voyage_no = :no"
+            ),
+            {"vid": vessel_id, "no": voyage_no},
+        )
+        vessel = await vessel_repo.get_by_id(session, vessel_id)
+        state = await resolve_in_progress_state(session, vessel=vessel, as_of=as_of)
+        return state.contribution
+
+    timed = await contribution_of("TIMED")
+    assert timed is not None, "출항 시각을 담아 가져온 항차는 누적에 기여해야 한다"
+    assert timed.distance_nm > 0
+    assert sum(fuel for _code, fuel in timed.fuel_uses) > 0
+
+    untimed = await contribution_of("UNTIMED")
+    assert untimed is None, "출항 시각이 없으면 여전히 0 — 그래서 응답이 그 수를 알린다"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
