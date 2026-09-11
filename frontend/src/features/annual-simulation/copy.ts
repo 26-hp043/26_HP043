@@ -130,9 +130,12 @@ export const ANNUAL_COPY = {
   reproduceButton: '이 seed로 다시 실행',
   reproducing: '같은 조건으로 다시 계산하는 중입니다…',
   reproduceSuccess: '원본과 같은 결과가 나왔습니다. 같은 스냅샷·seed·규정 파라미터로 다시 계산해 확인했습니다.',
-  reproduceErrorTitle: '같은 결과를 재현하지 못했습니다',
+  // 제목은 `ErrorState`가 「{동작}에 실패했습니다」로 짓는다(`PRD §6.4` · 2026-09-11 확정 B).
+  reproduceErrorAction: '재현',
+  reproduceErrorFallback: '같은 결과를 재현하지 못했습니다.',
 
   loading: '시뮬레이션을 실행하는 중입니다…',
   empty: '실행 조건을 고르고 실행해 주세요.',
-  errorTitle: '시뮬레이션을 실행하지 못했습니다',
+  errorAction: '시뮬레이션',
+  errorFallback: '시뮬레이션을 실행하지 못했습니다.',
 } as const

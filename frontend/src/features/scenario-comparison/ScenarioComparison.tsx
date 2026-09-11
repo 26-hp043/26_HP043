@@ -520,7 +520,7 @@ export function ScenarioComparison({
             // 여기는 조건이 폼에 그대로 남아 있어 **다시 시도할 수 있는** 실패다.
             <ErrorState
               level="region"
-              title="비교에 실패했습니다"
+              action="비교"
               message={state.message}
               onRetry={runComparison}
             />

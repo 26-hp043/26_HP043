@@ -142,7 +142,7 @@ export function VesselDetail({
           level="page"
           message={failure.message}
           onRetry={failure.notFound ? undefined : () => window.location.reload()}
-          action={
+          alternative={
             failure.notFound ? (
               <Link className="error-state__retry" to="/dashboard">
                 대시보드로 돌아가기

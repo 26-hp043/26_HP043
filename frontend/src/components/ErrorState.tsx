@@ -2,6 +2,12 @@ import type { ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import './ErrorState.css'
 import { Icon } from './Icon'
+import {
+  PAGE_FAILURE_MESSAGE,
+  PAGE_FAILURE_TITLE,
+  actionFailureTitle,
+  loadFailureTitle,
+} from './errorCopy'
 
 /**
  * 실패 표시 — **화면 전체가 이 하나를 쓴다** (`#694` · 2026-09-10 디자인 확정).
@@ -20,6 +26,10 @@ import { Icon } from './Icon'
  * 종전에는 그 둘을 나눠 두었는데, 사용자 입장에서 둘 다 「이 영역이 실패했다」이고
  * **차이는 크기뿐**이다. 크기는 층위가 아니라 `size` 속성으로 다룬다.
  *
+ * **폼 컨트롤 안의 실패도 `region` + `compact`다** — 선택지를 불러오지 못해 셀렉트
+ * 자리에 실패 문구를 두는 것(`VoyageCiiForm`의 선박·규제연도·연료)은 입력값 검증이
+ * 아니라 **선택지 로드 실패**이므로 필드 층위가 아니다 (2026-09-11 확정 C ⑷).
+ *
  * 필드 검증은 이 컴포넌트가 다루지 않는다 — **폼 규격 소관**이다.
  * CSV 행 오류 표도 대상이 아니다. 그것은 상태 표시가 아니라 **결과 데이터**다.
  *
@@ -33,20 +43,25 @@ import { Icon } from './Icon'
  * 배경·테두리는 중립, **아이콘과 문구만 위험색**이다. 색각 이상 사용자에게 아이콘이
  * 두 번째 단서가 되는 이점도 함께 온다(`§0.2` 제약 3).
  */
-export function ErrorState({
-  level,
-  size = 'block',
-  title,
-  message,
-  onRetry,
-  action,
-}: {
-  level: 'page' | 'region'
-  /** `region`에서만 뜻이 있다. 한 줄로 낼 때 `compact`. */
-  size?: 'compact' | 'block'
-  /** 없으면 층위 기본 제목을 쓴다. */
-  title?: string
-  message: string
+/**
+ * ## 제목은 호출부가 쓰지 않는다 (2026-09-11 디자인 확정 B)
+ *
+ * 문구 원문은 `PRD §6.4`에 있고, `ErrorState.test.tsx`가 그 표와 대조한다.
+ *
+ * - `page` — **고정 제목** 「화면을 불러오지 못했습니다」. 본문을 주지 않으면 기본 본문을 쓴다
+ * - `region` — **기본 제목이 없다.** 문장이 아니라 **대상 명사 하나**를 받는다
+ *   - 조회 실패 `subject="선박 목록"` → 「선박 목록을 불러오지 못했습니다」
+ *   - 처리 실패 `action="계산"` → 「계산에 실패했습니다」
+ * - `compact` — 제목 없음. 한 줄이 곧 제목이자 본문이다
+ *
+ * 영역 실패는 **화면 일부만 실패한 자리**라 사용자는 어느 부분이 실패했는지를 알아야
+ * 한다. 「불러오지 못했습니다」 같은 기본값이 있으면 그 기본값이 쓰이고, 주어를
+ * 붙여 두던 자리도 컴포넌트로 옮기며 주어를 잃는다. 명사 하나만 넘기게 하면 **올바른
+ * 쪽이 더 쉬운 길**이 된다 — 조사(을/를)는 컴포넌트가 붙인다.
+ *
+ * **제목에는 마침표를 찍지 않고 본문에는 찍는다**(`PRD §6.4`).
+ */
+type Common = {
   /**
    * 재시도 수단. **`page`에서는 필수다** — 없으면 사용자가 할 수 있는 것이
    * 브라우저 새로고침뿐이다. `region`은 다시 시도할 수 있는 실패일 때만 준다.
@@ -58,10 +73,29 @@ export function ErrorState({
    * 재시도와 **함께 두지 않는다.** 다시 시도해도 소용없는 실패에 재시도 버튼을
    * 두면 사용자가 같은 실패를 반복한다.
    */
-  action?: ReactNode
-}) {
-  const compact = level === 'region' && size === 'compact'
-  const heading = title ?? (level === 'page' ? '화면을 불러오지 못했습니다' : '불러오지 못했습니다')
+  alternative?: ReactNode
+}
+
+type Props = Common &
+  (
+    | { level: 'page'; message?: string; size?: never; subject?: never; action?: never }
+    | { level: 'region'; size: 'compact'; message: string; subject?: never; action?: never }
+    | { level: 'region'; size?: 'block'; message: string; subject: string; action?: never }
+    | { level: 'region'; size?: 'block'; message: string; action: string; subject?: never }
+  )
+
+function headingOf(props: Props): string | null {
+  if (props.level === 'page') return PAGE_FAILURE_TITLE
+  if (props.size === 'compact') return null
+  if (props.subject !== undefined) return loadFailureTitle(props.subject)
+  return actionFailureTitle(props.action as string)
+}
+
+export function ErrorState(props: Props) {
+  const { level, onRetry, alternative } = props
+  const heading = headingOf(props)
+  const compact = heading === null
+  const message = props.message ?? PAGE_FAILURE_MESSAGE
 
   return (
     <div
@@ -71,7 +105,7 @@ export function ErrorState({
       <Icon glyph={AlertTriangle} className="error-state__icon" size={compact ? 16 : 20} />
       <div className="error-state__body">
         {/* compact는 제목을 두지 않는다 — 한 줄이 곧 제목이자 본문이다. */}
-        {compact ? null : <p className="error-state__title">{heading}</p>}
+        {heading === null ? null : <p className="error-state__title">{heading}</p>}
         <p className="error-state__message">{message}</p>
       </div>
       {onRetry ? (
@@ -80,7 +114,7 @@ export function ErrorState({
           다시 시도
         </button>
       ) : (
-        action ?? null
+        alternative ?? null
       )}
     </div>
   )

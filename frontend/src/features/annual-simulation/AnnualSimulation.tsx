@@ -161,7 +161,7 @@ export function AnnualSimulation({
     } catch (error: unknown) {
       setState({
         status: 'error',
-        message: error instanceof Error ? error.message : ANNUAL_COPY.errorTitle,
+        message: error instanceof Error ? error.message : ANNUAL_COPY.errorFallback,
       })
     }
   }, [provider, shell.vesselId, year, yearsFailed, target, runs, seed, onDisclaimer])
@@ -277,7 +277,7 @@ export function AnnualSimulation({
           다른 화면 8곳이 모두 이 형태다 (#613).
         */}
         {state.status === 'error' ? (
-          <ErrorState level="region" title={ANNUAL_COPY.errorTitle} message={state.message} />
+          <ErrorState level="region" action={ANNUAL_COPY.errorAction} message={state.message} />
         ) : null}
 
         {/*
@@ -332,7 +332,7 @@ function Result({
       // → 관리자 문의)은 **사용자가 할 일이 다르고** 그 안내가 문구에 들어 있다(#837).
       setReproduce({
         status: 'error',
-        message: error instanceof Error ? error.message : ANNUAL_COPY.reproduceErrorTitle,
+        message: error instanceof Error ? error.message : ANNUAL_COPY.reproduceErrorFallback,
       })
     }
   }, [provider, result.simulation_id])
@@ -585,7 +585,7 @@ function Result({
         {reproduce.status === 'error' ? (
           <ErrorState
             level="region"
-            title={ANNUAL_COPY.reproduceErrorTitle}
+            action={ANNUAL_COPY.reproduceErrorAction}
             message={reproduce.message}
           />
         ) : null}
