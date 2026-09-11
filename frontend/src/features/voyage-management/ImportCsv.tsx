@@ -7,6 +7,7 @@ import {
   REQUIRED_COLUMNS,
   canCommit,
   resultSummary,
+  rowsWithoutDepartureNotice,
   validateFile,
   type ImportResult,
 } from './importRules'
@@ -141,6 +142,16 @@ function ResultView({ result }: { result: ImportResult }) {
       {/* 저장된 뒤에만 낸다 — 검증 단계에서는 아직 아무것도 들어가지 않았다. */}
       {!result.dryRun && result.importedCount > 0 ? (
         <p className="vy-import__note">{IMPORT_NOTICE}</p>
+      ) : null}
+
+      {/*
+       * 출항 시각 없는 행은 오류가 아니라 안내다 (#906) — 검증 단계에서 미리 보여
+       * 컬럼을 채워 다시 올릴 기회를 준다. 0건이면 줄 자체가 없다.
+       */}
+      {result.rowsWithoutDepartureAt > 0 ? (
+        <p className="vy-import__note">
+          {rowsWithoutDepartureNotice(result.rowsWithoutDepartureAt)}
+        </p>
       ) : null}
 
       {result.errors.length > 0 ? (

@@ -198,6 +198,7 @@ interface ServerImportResult {
   skipped_count?: unknown
   errors?: unknown
   dry_run?: unknown
+  rows_without_departure_at?: unknown
 }
 
 function toImportError(raw: ServerImportError): ImportRowError {
@@ -213,6 +214,8 @@ function toImportResult(raw: ServerImportResult): ImportResult {
     importedCount: typeof raw.imported_count === 'number' ? raw.imported_count : 0,
     skippedCount: typeof raw.skipped_count === 'number' ? raw.skipped_count : 0,
     errors: Array.isArray(raw.errors) ? raw.errors.map(toImportError) : [],
+    rowsWithoutDepartureAt:
+      typeof raw.rows_without_departure_at === 'number' ? raw.rows_without_departure_at : 0,
     /*
      * **`dry_run`을 응답에서 읽는다.** 요청에 무엇을 보냈는지로 판단하지 않는다 —
      * 두 값이 갈리면 저장된 것을 「아직 저장 안 됨」으로 보이게 되고, 그 화면에서

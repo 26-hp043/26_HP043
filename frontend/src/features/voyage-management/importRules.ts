@@ -56,6 +56,11 @@ export interface ImportResult {
   importedCount: number
   skippedCount: number
   errors: ImportRowError[]
+  /**
+   * 출항 시각 없이 들어간 행 수 (#906). 오류가 아니라 안내다 — 그런 항차를
+   * 진행 중으로 옮기면 누적에 0으로 기여하므로(`#873`) 저장 뒤에 알린다.
+   */
+  rowsWithoutDepartureAt: number
   /** `true`면 아직 아무것도 저장되지 않았다 — `importedCount`는 「들어갈 수 있는 행 수」다. */
   dryRun: boolean
 }
@@ -111,3 +116,8 @@ export function canCommit(result: ImportResult | null): boolean {
  */
 export const IMPORT_NOTICE =
   '가져온 항차는 초안 상태로 들어오며 연간 집계에 바로 반영되지 않습니다. 목록에서 상태를 전환해 주세요.'
+
+/** 출항 시각 없는 행 안내 (#906) — 문구가 아니라 수를 포함한다. */
+export function rowsWithoutDepartureNotice(count: number): string {
+  return `출항 시각이 없는 행이 ${count}건 있습니다. 이 항차를 진행 중 상태로 옮기면 누적(CII)에 0으로 기여합니다.`
+}

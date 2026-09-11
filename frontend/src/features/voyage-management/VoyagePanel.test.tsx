@@ -55,6 +55,7 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
       importedCount: 0,
       skippedCount: 0,
       errors: [],
+      rowsWithoutDepartureAt: 0,
       dryRun: true,
     })),
     exportData: vi.fn(async () => 'voyages.csv'),

@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
@@ -74,6 +75,14 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
     "fuel_type",
     "planned_fuel_ton",
 )
+
+#: ``API_SPEC §8.2`` 선택 컬럼 — 항차 시각 2종 (#906).
+#:
+#: 선택인 이유는 `§3.3`이 API에서 optional로 규정한 것과 같은 층이기 때문이다(#873
+#: 화면 축도 필수로 만들지 않았다). **비워 두면 ``None``으로 저장되며**, 그런 항차를
+#: 진행 중으로 옮기면 시뮬레이션 시계가 거리·연료 0을 돌려주므로(`simulation_clock`의
+#: ``departure_at is None`` 갈래) 가져오기 결과가 그 행 수를 함께 알린다.
+OPTIONAL_DATETIME_COLUMNS: tuple[str, ...] = ("planned_departure_at", "planned_arrival_at")
 
 
 class RowError(Exception):
@@ -150,6 +159,24 @@ def _text(row: dict[str, str], column: str) -> str:
     return sanitize(raw)
 
 
+def _optional_datetime(row: dict[str, str], column: str) -> datetime | None:
+    """선택 시각 열을 ``datetime``으로. **빈 칸은 ``None``** — 잘못된 형식은 행 오류.
+
+    ``datetime.fromisoformat``을 쓰는 이유는 API 경로(``§3.3`` Pydantic)와 같은
+    규칙이어야 하기 때문이다 — ``YYYY-MM-DDTHH:MM``·오프셋·``Z``를 받는다.
+    Excel이 내보내는 공백 구분자(``2026-09-01 08:00``)도 Python 3.11+의
+    ``fromisoformat``이 받는다. tz 없는 값은 서버가 UTC로 간주한다
+    (``simulation_clock.resolve_as_of`` 계약).
+    """
+    raw = (row.get(column) or "").strip()
+    if raw == "":
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise RowError(column, f"날짜·시각 형식이 올바르지 않습니다: {raw}") from exc
+
+
 def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     """행 하나를 ``create_voyage`` 인자로 옮긴다. 실패는 :class:`RowError`.
 
@@ -177,6 +204,8 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
         "planned_speed_kn": speed,
         "fuel_type": fuel_type,
         "planned_fuel_ton": _numeric(row, "planned_fuel_ton"),
+        "planned_departure_at": _optional_datetime(row, "planned_departure_at"),
+        "planned_arrival_at": _optional_datetime(row, "planned_arrival_at"),
     }
 
 
@@ -214,6 +243,16 @@ def read_rows(
             continue
         rows.append(row)
     return rows, truncated
+
+
+def _rows_without_departure(parsed: list[dict[str, object]]) -> int:
+    """출항 시각 없이 들어갈 행 수 — 진행 중 누적에 0으로 기여하는 행 (#906).
+
+    오류가 아니라 안내다. 시각은 선택 컬럼이고 기존 파일과의 호환을 깨지 않되,
+    「시각이 없으면 진행 중 상태에서 누적이 0이 된다」는 사실을 조용히 넘기지
+    않는다(#873 실측).
+    """
+    return sum(1 for item in parsed if item["planned_departure_at"] is None)
 
 
 async def import_voyages(
@@ -262,6 +301,7 @@ async def import_voyages(
             "imported_count": len(parsed),
             "skipped_count": len(errors),
             "errors": errors,
+            "rows_without_departure_at": _rows_without_departure(parsed),
             "dry_run": True,
         }
 
@@ -279,8 +319,8 @@ async def import_voyages(
             arrival_lon=None,
             planned_distance_nm=item["planned_distance_nm"],
             planned_speed_kn=item["planned_speed_kn"],
-            planned_departure_at=None,
-            planned_arrival_at=None,
+            planned_departure_at=item["planned_departure_at"],
+            planned_arrival_at=item["planned_arrival_at"],
             regulation_year=None,
             fuel_uses=[
                 {
@@ -298,5 +338,6 @@ async def import_voyages(
         "imported_count": imported,
         "skipped_count": len(errors),
         "errors": errors,
+        "rows_without_departure_at": _rows_without_departure(parsed),
         "dry_run": False,
     }

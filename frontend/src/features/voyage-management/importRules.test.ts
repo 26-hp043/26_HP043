@@ -6,6 +6,7 @@ import {
   REQUIRED_COLUMNS,
   canCommit,
   resultSummary,
+  rowsWithoutDepartureNotice,
   validateFile,
   type ImportResult,
 } from './importRules'
@@ -19,7 +20,14 @@ import {
  */
 
 function result(over: Partial<ImportResult> = {}): ImportResult {
-  return { importedCount: 0, skippedCount: 0, errors: [], dryRun: true, ...over }
+  return {
+    importedCount: 0,
+    skippedCount: 0,
+    errors: [],
+    rowsWithoutDepartureAt: 0,
+    dryRun: true,
+    ...over,
+  }
 }
 
 function fileOf(bytes: number): File {
@@ -116,5 +124,26 @@ describe('초안으로 들어온다는 사실을 말한다', () => {
 
   it('내부 문서 참조가 새어 나오지 않는다 (#529)', () => {
     expect(IMPORT_NOTICE).not.toMatch(/§|API_SPEC|PRD|DESIGN_SYSTEM/)
+  })
+})
+
+/**
+ * 출항 시각 없는 행 안내 (#906).
+ *
+ * 표시 문구라 리터럴로 단언하지 않는다(AGENTS §4.6) — **성질**을 본다: 행 수를
+ * 싣는다, 누적 0 기여라는 이유를 말한다, 내부 문서 참조가 없다(#529와 같은 이유).
+ */
+describe('rowsWithoutDepartureNotice — 출항 시각 없는 행 안내 (#906)', () => {
+  it('행 수를 싣는다 — 문구가 아니라 수로 안내한다', () => {
+    expect(rowsWithoutDepartureNotice(3)).toContain('3')
+    expect(rowsWithoutDepartureNotice(12)).toContain('12')
+  })
+
+  it('진행 중 누적에 0으로 기여한다는 이유를 말한다', () => {
+    expect(rowsWithoutDepartureNotice(3)).toContain('0')
+  })
+
+  it('내부 문서 참조가 새어 나오지 않는다 (#529)', () => {
+    expect(rowsWithoutDepartureNotice(3)).not.toMatch(/§|API_SPEC|PRD|DESIGN_SYSTEM/)
   })
 })

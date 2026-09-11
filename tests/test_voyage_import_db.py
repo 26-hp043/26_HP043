@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -28,6 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.errors import ValidationError
+from cii_platform.services.simulation_clock import compute_progress
 from cii_platform.services.voyage_import import (
     MAX_ROWS,
     import_voyages,
@@ -368,6 +370,143 @@ def test_the_route_is_registered():
     from cii_platform.api.main import app
 
     assert "post" in app.openapi()["paths"]["/api/v1/vessels/{vessel_id}/import"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 항차 시각 선택 컬럼 (#906) — 진행 중 누적이 0이 되는 결함의 CSV 축
+# ─────────────────────────────────────────────────────────────────────────────
+
+HEADER_WITH_TIMES = (
+    "voyage_no,departure_port_name,arrival_port_name,"
+    "planned_distance_nm,planned_speed_kn,fuel_type,planned_fuel_ton,"
+    "planned_departure_at,planned_arrival_at"
+)
+
+
+async def _times(session, vessel_id: UUID) -> list:
+    result = await session.execute(
+        text(
+            "SELECT voyage_no, planned_departure_at, planned_arrival_at "
+            "FROM voyage WHERE vessel_id = :vid ORDER BY voyage_no"
+        ),
+        {"vid": vessel_id},
+    )
+    return list(result)
+
+
+@pytest.mark.asyncio
+async def test_time_columns_are_imported(session, vessel_id):
+    """시각 컬럼 값이 항차에 그대로 들어간다 — 빈 칸은 ``NULL`` (#906).
+
+    시각 없는 행은 진행 중 누적이 0이므로(``simulation_clock``의 ``departure_at is
+    None`` 갈래) **그 수를 결과가 알린다**. 섞여 있을 때의 세기가 실제 사용 모양이다.
+    """
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V-1,Busan,Tokyo,6384,14,HFO,532,2026-06-01T00:00:00Z,2026-06-20T00:00:00Z",
+            "V-2,Busan,Tokyo,3000,14,HFO,250,,",
+            header=HEADER_WITH_TIMES,
+        ),
+    )
+
+    assert result["imported_count"] == 2
+    assert result["rows_without_departure_at"] == 1
+
+    rows = await _times(session, vessel_id)
+    assert rows[0][1] == datetime(2026, 6, 1, tzinfo=UTC)
+    assert rows[0][2] == datetime(2026, 6, 20, tzinfo=UTC)
+    assert rows[1][1] is None
+
+
+@pytest.mark.asyncio
+async def test_old_seven_column_files_still_pass(session, vessel_id):
+    """선택 컬럼이다 — 기존 양식(7컬럼)이 거부되면 안 된다 (#906 권장안)."""
+    result = await import_voyages(
+        session, vessel_id, content=csv_bytes("V-1,Busan,Tokyo,1000,13.5,HFO,80")
+    )
+
+    assert result["imported_count"] == 1
+    assert result["rows_without_departure_at"] == 1
+
+
+@pytest.mark.asyncio
+async def test_bad_time_format_is_a_row_error(session, vessel_id):
+    """잘못된 형식은 그 행만 ``errors[]``로 간다 — 부분 성공 계약(§8.2)."""
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V-1,Busan,Tokyo,1000,13.5,HFO,80,어제,2026-06-20T00:00:00Z",
+            "V-2,Busan,Tokyo,1000,13.5,HFO,80,2026-06-01T00:00:00Z,",
+            header=HEADER_WITH_TIMES,
+        ),
+    )
+
+    assert result["imported_count"] == 1
+    assert result["skipped_count"] == 1
+    assert result["errors"][0]["field"] == "planned_departure_at"
+    assert "날짜·시각" in result["errors"][0]["message"]
+    assert result["rows_without_departure_at"] == 0
+
+
+@pytest.mark.asyncio
+async def test_imported_times_feed_the_simulation_clock(session, vessel_id):
+    """완료 기준(#906) — CSV로 만든 항차가 화면 경로와 같은 누적 기여를 낸다.
+
+    ``#873`` 실측: 시각이 있으면 456시간 → 6384nm, 없으면 0. 같은 seam
+    (``compute_progress``)에서 두 경우를 대조한다.
+    """
+    await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V-1,Busan,Tokyo,6384,14,HFO,532,2026-06-01T00:00:00Z,",
+            header=HEADER_WITH_TIMES,
+        ),
+    )
+    await import_voyages(
+        session, vessel_id, content=csv_bytes("V-2,Busan,Tokyo,6384,14,HFO,532")
+    )
+
+    rows = {row[0]: row for row in await _times(session, vessel_id)}
+    as_of = datetime(2026, 6, 20, tzinfo=UTC)  # 출항 + 456h
+    speed = Decimal("14")
+
+    with_time = compute_progress(
+        as_of=as_of,
+        departure_at=rows["V-1"][1],
+        arrival_at=None,
+        speed_kn=speed,
+        daily_foc_ton=Decimal("28"),
+    )
+    without_time = compute_progress(
+        as_of=as_of,
+        departure_at=rows["V-2"][1],
+        arrival_at=None,
+        speed_kn=speed,
+        daily_foc_ton=Decimal("28"),
+    )
+
+    assert with_time.underway_hours == Decimal("456")
+    assert with_time.distance_nm == Decimal("6384")
+    assert without_time.underway_hours == 0
+    assert without_time.distance_nm == 0
+
+
+@pytest.mark.asyncio
+async def test_dry_run_reports_rows_without_departure(session, vessel_id):
+    """검증 단계에서도 같은 안내가 나간다 — 확정하고 나서야 알면 늦다."""
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes("V-1,Busan,Tokyo,1000,13.5,HFO,80"),
+        dry_run=True,
+    )
+
+    assert result["dry_run"] is True
+    assert result["rows_without_departure_at"] == 1
 
 
 # ─────────────────────────────────────────────────────────────────────────────

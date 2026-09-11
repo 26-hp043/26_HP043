@@ -2570,6 +2570,7 @@ POST /api/v1/vessels/{vessel_id}/import
 | Content-Type 검증 | `text/csv`, `application/vnd.ms-excel` 허용. 그 외 거부 |
 | 수식 주입 방지 | 셀 값이 `=`, `@`, `+`, `-`로 시작하는 경우 앞에 `'` (apostrophe)를 prefix하여 escape (formula injection 방지). 숫자 컬럼은 numeric parser로 검증하여 문자열 수식 거부 |
 | 필수 컬럼 | `voyage_no`, `departure_port_name`, `arrival_port_name`, `planned_distance_nm`, `planned_speed_kn`, `fuel_type`, `planned_fuel_ton` |
+| 선택 컬럼 | `planned_departure_at`, `planned_arrival_at` — ISO 8601(예: `2026-09-01T08:00`, 오프셋·`Z` 허용). **비워 두면 `null`로 저장된다.** 잘못된 형식은 그 행만 `errors[]`로 간다(부분 성공 계약). 기존 파일(7컬럼)은 그대로 통과한다 (#906) |
 
 #### 응답 (200 OK)
 
@@ -2581,6 +2582,7 @@ POST /api/v1/vessels/{vessel_id}/import
     "errors": [
       { "row": 5, "field": "distance_nm", "message": "0보다 커야 합니다." }
     ],
+    "rows_without_departure_at": 3,
     "dry_run": false
   },
   "meta": { ... }
@@ -2588,6 +2590,8 @@ POST /api/v1/vessels/{vessel_id}/import
 ```
 
 > **행 번호는 파일에서 보이는 번호다** — 헤더가 1행이므로 첫 데이터 행이 `2`다.
+>
+> **`rows_without_departure_at`는 오류가 아니라 안내다** (#906). 출항 시각 없이 들어간(`planned_departure_at`이 비어 있거나 컬럼 자체가 없는) 행 수를 센다 — 그런 항차를 진행 중으로 옮기면 시뮬레이션 시계가 거리·연료 **0**을 누적에 기여시키므로(`#873` 실측), 화면이 이 수를 보고 사용자에게 미리 알린다. `dry_run` 응답에도 같은 키가 있다.
 >
 > **틀린 행이 파일 전체를 되돌리지 않는다.** 유효한 행은 들어가고 나머지는 `errors[]`에 사유와 함께 남는다 — 응답이 `imported_count`·`skipped_count`를 따로 두는 이유다. (규정 파라미터 import(`§7.5`)는 반대다. 일부만 들어가면 계산 근거가 반쪽이 되므로 전부 아니면 전무여야 한다.)
 >
@@ -3122,3 +3126,4 @@ GET /api/v1/health
 | 2026-09-11 | `#833` | §1.4·§6.4에 409 `MODEL_VERSION_MISMATCH` · §1.6에 `MODEL_VERSION_DIFFERS` · §6.4 응답에 `model_version` 판정 각주. 종전에는 재현이 `model_version`을 보지 않아 NumPy 업그레이드 뒤의 결과 차이가 500 `REPRODUCIBILITY_ERROR`(계산 결함)로 나갔다. 판정 표는 `TECH_SPEC §10.3`. `AGENTS §4.3`상 소규모 행 추가·각주라 버전은 올리지 않는다 (#833) |
 | 2026-09-11 | `#808` | **§1.2 「가입 제한」 행 신설 · 가입 엔드포인트 설명에 `invite_code`·가입 제한 확인 추가.** 사내 도구로 확정(2026-09-11)되어 가입을 허용 도메인(`SIGNUP_ALLOWED_DOMAINS`) 또는 초대 코드(`SIGNUP_INVITE_CODE`)로 제한한다. 거절은 기존 `422 VALIDATION_ERROR`로 낸다 — `403`은 §1.4에서 CSRF 전용이라 쓰지 않는다. 프로덕션에서 두 설정이 모두 비면 기동을 거부한다(`#809`·`#524`와 같은 기동 시점 가드). 행 추가라 버전은 올리지 않는다 (#808) |
 | 2026-09-12 | `#902` | **§1.4에 401 `INVALID_CREDENTIALS` 행 신설.** 종전에는 비밀번호 변경의 「현재 비밀번호 오입력」이 세션 만료와 같은 `UNAUTHORIZED`를 써 클라이언트가 **문구 대조**로만 가를 수 있었다 — 서버가 한 글자만 고쳐도 조용히 깨지고, 그 실패는 세션이 만료됐는데 폼에 머무는 방향이었다. 로그인 실패(없는 계정·비밀번호 오류)도 같은 코드로 옮긴다 — code는 성공/실패만 말하고 존재 여부는 말하지 않으므로 §1.2 비노출 규칙과 충돌하지 않는다. 행 추가라 버전은 올리지 않는다 (#902) |
+| 2026-09-12 | `#906` | **§8.2에 선택 컬럼 `planned_departure_at`·`planned_arrival_at` 신설 · 응답에 `rows_without_departure_at` 추가.** CSV로 만든 항차에는 출항 시각이 없어, 그 항차를 진행 중으로 옮기면 시뮬레이션 시계가 거리·연료 0을 돌려주는데 경고 체계가 잡지 못했다(`#873` 실측 · `#906`). **선택 컬럼**인 것은 기존 양식과의 호환을 깨지 않기 위해서고(필수로 만들면 배포된 파일이 전부 거부된다), 빈 칸이 여전히 0 기여인 것은 안내 수로 알린다. 행 추가·예시 갱신이라 버전은 올리지 않는다 (#906) |

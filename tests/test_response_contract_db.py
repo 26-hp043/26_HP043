@@ -1163,6 +1163,7 @@ WRITE_CONTRACTS: dict[str, frozenset[str]] = {
             "data.dry_run",
             "data.errors",
             "data.imported_count",
+            "data.rows_without_departure_at",
             "data.skipped_count",
             "meta",
             "meta.request_id",
