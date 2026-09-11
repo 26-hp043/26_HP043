@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  AuthRequestError,
   changePassword,
   deleteAccount,
   getCachedUser,
+  login,
   logout,
   probeCurrentUser,
   readCookie,
@@ -519,5 +521,89 @@ describe('signup — 초대 코드 (#808)', () => {
     await signup('captain@bluelog.kr', 'pw-long-enough', '김선장', fetchImpl as unknown as typeof fetch, '  ')
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(JSON.parse(String(init.body))).not.toHaveProperty('invite_code')
+  })
+})
+
+/**
+ * 오류 봉투의 `details[].field`와 모양 불일치 200 (#877).
+ *
+ * 데이터 경계 9곳(`VoyageError` 등)은 `details[0].field`를 입력창에 붙이는데
+ * 인증 계층만 `message`를 읽었다 — 422의 영문 Pydantic 원문이 화면에 그대로 뜨는
+ * 상태였다. 이제 `AuthRequestError.field`로 같은 계약을 따른다. 또 200 OK인데
+ * 사용자를 못 읽으면 `null`을 통과시키지 않고 예외로 끝낸다 — 종전에는 버튼만
+ * 「로그인 중…」으로 돌아오고 아무 일도 일어나지 않았다.
+ */
+describe('오류 봉투 details와 모양 불일치 200 (#877)', () => {
+  it('422의 details[0].field를 AuthRequestError.field로 내려준다', async () => {
+    await probeCurrentUser(async () => jsonResponse(null, 401))
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: '이메일 형식이 올바르지 않습니다.',
+            details: [
+              { field: 'email', field_label: '이메일', message: '이메일 형식이 올바르지 않습니다.' },
+            ],
+          },
+        },
+        422,
+      ),
+    ) as unknown as typeof fetch
+
+    const failure = await login('not-an-email', 'pw-long-enough', fetchImpl).catch((e: unknown) => e)
+    expect(failure).toBeInstanceOf(AuthRequestError)
+    expect((failure as AuthRequestError).field).toBe('email')
+    expect((failure as AuthRequestError).message).toBe('이메일 형식이 올바르지 않습니다.')
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('가입의 422도 같은 계약이다 — invite_code를 가리킨다', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: '초대 코드을(를) 확인해 주세요.',
+            details: [
+              {
+                field: 'invite_code',
+                field_label: '초대 코드',
+                message: '초대 코드을(를) 확인해 주세요.',
+              },
+            ],
+          },
+        },
+        422,
+      ),
+    ) as unknown as typeof fetch
+
+    const failure = await signup(
+      'guest@example.com',
+      'pw-long-enough',
+      null,
+      fetchImpl,
+      'bad-code',
+    ).catch((e: unknown) => e)
+    expect(failure).toBeInstanceOf(AuthRequestError)
+    expect((failure as AuthRequestError).field).toBe('invite_code')
+  })
+
+  it('200 OK에서 사용자를 못 읽으면 예외로 끝낸다 — 성공한 척하지 않는다', async () => {
+    await probeCurrentUser(async () => jsonResponse(null, 401))
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: {} })) as unknown as typeof fetch
+
+    await expect(login('captain@example.com', 'pw-long-enough', fetchImpl)).rejects.toThrow(
+      '서버 응답을 해석하지 못했습니다.',
+    )
+    await expect(
+      signup('captain@example.com', 'pw-long-enough', null, fetchImpl),
+    ).rejects.toThrow('서버 응답을 해석하지 못했습니다.')
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('프로브는 예외가 아니라 「로그인 안 됨」(null)으로 치환한다 — 부팅 경로가 깨지지 않는다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: {} })) as unknown as typeof fetch
+    await expect(probeCurrentUser(fetchImpl)).resolves.toBeNull()
   })
 })

@@ -68,6 +68,9 @@ export interface FieldErrors {
   email?: string
   password?: string
   passwordConfirm?: string
+  /** 서버 422 `details[].field`(`display_name`·`invite_code`)가 붙는 자리 (#877). */
+  displayName?: string
+  inviteCode?: string
 }
 
 export function validateEmail(email: string): string | undefined {

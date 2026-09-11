@@ -214,21 +214,67 @@ function toCurrentUser(body: unknown): CurrentUser | null {
 }
 
 /**
+ * 가입·로그인의 200 OK에서 사용자를 **반드시** 뽑아낸다 (#877).
+ *
+ * 종전에는 봉투에서 사용자를 못 읽으면 `null`을 돌려주고 그대로 통과했다 — 호출부의
+ * `catch`가 돌지 않아 **버튼만 「로그인 중…」→「로그인」으로 돌아오고 아무 일도 일어나지
+ * 않는** 상태가 됐다. 실패는 실패로 보이게 예외로 끝낸다. 성공은 항상 실제 세션 확보로
+ * 끝난다(이슈 완료 기준). `probeCurrentUser`는 이 검사를 쓰지 않는다 — 조회의 「못
+ * 읽음」은 「로그인 안 됨」으로 치환되는 것이 맞고, 예외로 만들면 부팅 경로가 깨진다.
+ */
+function requireUser(body: unknown): CurrentUser {
+  const user = toCurrentUser(body)
+  if (!user) throw new AuthRequestError(MALFORMED_USER_MESSAGE, 0)
+  return user
+}
+
+/**
  * 인증 요청 실패 — 화면이 사용자에게 그대로 보여 줄 문구를 담는다.
  *
  * **서버 문구를 그대로 쓴다.** 로그인 실패·재설정 요청 문구는 「계정 존재 여부를
  * 노출하지 않는다」는 규칙에 맞춰 정본이 확정한 것이라(`PRD §6.3`), 화면이 다시
  * 쓰면 그 규칙이 깨질 수 있다.
+ *
+ * `field`는 422 `details[].field`다 (`API_SPEC §1.3.2` · #877) — 데이터 경계
+ * 9곳(`VoyageError` 등)과 같은 계약으로, 화면이 이 값을 해당 입력창 아래에 붙인다.
+ * 종전에는 `message`만 읽어 필드 오류도 배너 한 줄로만 나갔다.
  */
 export class AuthRequestError extends Error {
   readonly status: number
 
-  constructor(message: string, status: number) {
+  readonly field?: string
+
+  constructor(message: string, status: number, field?: string) {
     super(message)
     this.name = 'AuthRequestError'
     this.status = status
+    this.field = field
   }
 }
+
+/** `API_SPEC §1.3.2` 오류 봉투 — 서버가 이 형태를 보장한다 (#116). */
+interface ServerErrorBody {
+  error?: {
+    code?: string
+    message?: string
+    details?: Array<{ field?: string; field_label?: string; message?: string }>
+  }
+}
+
+/**
+ * 서버 오류 봉투를 `AuthRequestError`로 옮긴다 (#877).
+ *
+ * `message`가 없으면 `fallback` 문구를 쓴다 — 봉투가 깨진 응답에서 영문·빈 문구가
+ * 새어 나가지 않게 하는 최후의 자리다. `details[0].field`만 뒤에 싣는다(데이터
+ * 경계의 `toVoyageCiiError`와 같은 취사 — 폼은 필드 하나씩만 붙인다).
+ */
+function toAuthRequestError(status: number, body: unknown, fallback: string): AuthRequestError {
+  const error = (body as ServerErrorBody | null)?.error
+  return new AuthRequestError(error?.message ?? fallback, status, error?.details?.[0]?.field)
+}
+
+/** 200 OK인데 봉투에서 사용자를 못 읽는 응답의 문구 — 성공인 척하지 않는다 (#877). */
+const MALFORMED_USER_MESSAGE = '서버 응답을 해석하지 못했습니다.'
 
 /**
  * 세션 만료 문구 (`#878`).
@@ -284,10 +330,8 @@ async function postJson(
 
   const body = await response.json().catch(() => null)
   if (!response.ok) {
-    const message =
-      (body as { error?: { message?: string } } | null)?.error?.message ??
-      '요청을 처리하지 못했습니다.'
-    throw new AuthRequestError(message, response.status)
+    // #877 — details[].field까지 함께 옮긴다(입력창 매핑은 화면이 한다).
+    throw toAuthRequestError(response.status, body, '요청을 처리하지 못했습니다.')
   }
   return body
 }
@@ -297,9 +341,9 @@ export async function login(
   email: string,
   password: string,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
-): Promise<CurrentUser | null> {
+): Promise<CurrentUser> {
   const body = await postJson(LOGIN_API_URL, { email, password }, fetchImpl)
-  currentUser = toCurrentUser(body)
+  currentUser = requireUser(body)
   notify()
   return currentUser
 }
@@ -316,7 +360,7 @@ export async function signup(
   displayName: string | null,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
   inviteCode: string | null = null,
-): Promise<CurrentUser | null> {
+): Promise<CurrentUser> {
   const code = inviteCode?.trim()
   const body = await postJson(
     SIGNUP_API_URL,
@@ -328,7 +372,7 @@ export async function signup(
     },
     fetchImpl,
   )
-  currentUser = toCurrentUser(body)
+  currentUser = requireUser(body)
   notify()
   return currentUser
 }
@@ -494,11 +538,7 @@ export async function updateDisplayName(
 
   const body = await response.json().catch(() => null)
   if (!response.ok) {
-    throw new AuthRequestError(
-      (body as { error?: { message?: string } } | null)?.error?.message ??
-        '표시 이름을 바꾸지 못했습니다.',
-      response.status,
-    )
+    throw toAuthRequestError(response.status, body, '표시 이름을 바꾸지 못했습니다.')
   }
 
   currentUser = toCurrentUser(body)
@@ -578,8 +618,10 @@ export async function changePassword(
     /*
      * 현재 비밀번호가 틀렸다는 것도 서버 문구를 그대로 쓴다. 화면이 다시 쓰면
      * 「계정 존재 여부를 숨기는」 규칙(`API_SPEC §1.2`)과 문구가 갈라진다.
+     * `INVALID_CREDENTIALS`의 `details[].field`(current_password)도 함께 옮겨
+     * 화면이 입력창에 붙일 수 있게 한다 (#877).
      */
-    throw new AuthRequestError(body?.error?.message ?? '비밀번호를 바꾸지 못했습니다.', response.status)
+    throw toAuthRequestError(response.status, body, '비밀번호를 바꾸지 못했습니다.')
   }
 
   /*
@@ -665,10 +707,8 @@ export async function deleteAccount(
   if (response.status === 401) failExpiredSession()
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new AuthRequestError(body?.error?.message ?? '탈퇴하지 못했습니다.', response.status)
+    const body = await response.json().catch(() => null)
+    throw toAuthRequestError(response.status, body, '탈퇴하지 못했습니다.')
   }
 
   currentUser = null

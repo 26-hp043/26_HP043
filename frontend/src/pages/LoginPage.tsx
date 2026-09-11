@@ -52,11 +52,19 @@ export function LoginPage() {
       await login(email, password)
       // 성공하면 `useAuthUser`가 갱신되어 위 Navigate가 처리한다.
     } catch (error) {
-      setFailure(
-        error instanceof AuthRequestError
-          ? error.message
-          : '로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.',
-      )
+      /*
+       * 서버 422의 `details[].field`는 해당 입력창 아래에 붙인다 (#877) — 데이터
+       * 경계 9곳과 같은 계약. 필드를 못 가리키는 실패(INVALID_CREDENTIALS 포함)는
+       * 배너 한 줄로 나간다.
+       */
+      const authError = error instanceof AuthRequestError ? error : null
+      const field = authError?.field
+      if (authError && (field === 'email' || field === 'password')) {
+        const message = authError.message
+        setErrors((prev) => ({ ...prev, [field]: message }))
+      } else {
+        setFailure(authError?.message ?? '로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+      }
     } finally {
       setBusy(false)
     }

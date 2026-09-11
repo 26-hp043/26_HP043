@@ -12,6 +12,14 @@ import {
 import { AuthRequestError, LOGIN_PATH, signup, useAuthUser } from '../auth/session'
 import { DEFAULT_PATH } from '../screens'
 
+/** 서버 422 필드명 → 폼 오류 키 (#877). 대응 없는 필드는 배너로 간다. */
+const SERVER_FIELD_KEYS: Record<string, keyof FieldErrors> = {
+  email: 'email',
+  password: 'password',
+  display_name: 'displayName',
+  invite_code: 'inviteCode',
+}
+
 /**
  * 회원가입 — `UIFLOW v2.1` 0-1 (#415).
  *
@@ -60,11 +68,17 @@ export function SignupPage() {
       await signup(email, password, displayName.trim() || null, undefined, inviteCode)
       // 성공하면 세션이 발급되어 위 Navigate가 대시보드로 보낸다.
     } catch (error) {
-      setFailure(
-        error instanceof AuthRequestError
-          ? error.message
-          : '가입하지 못했습니다. 잠시 후 다시 시도해 주세요.',
-      )
+      /*
+       * 서버 422의 `details[].field`를 해당 입력창 아래에 붙인다 (#877). 서버 필드명
+       * (`display_name`·`invite_code`)과 폼 키가 달라 여기서만 대응한다.
+       */
+      const authError = error instanceof AuthRequestError ? error : null
+      const fieldKey = SERVER_FIELD_KEYS[authError?.field ?? '']
+      if (authError && fieldKey) {
+        setErrors((prev) => ({ ...prev, [fieldKey]: authError.message }))
+      } else {
+        setFailure(authError?.message ?? '가입하지 못했습니다. 잠시 후 다시 시도해 주세요.')
+      }
     } finally {
       setBusy(false)
     }
@@ -119,6 +133,7 @@ export function SignupPage() {
           type="text"
           value={displayName}
           onChange={setDisplayName}
+          error={errors.displayName}
           autoComplete="name"
         />
         <AuthField
@@ -127,6 +142,7 @@ export function SignupPage() {
           type="text"
           value={inviteCode}
           onChange={setInviteCode}
+          error={errors.inviteCode}
           autoComplete="off"
           hint={INVITE_CODE_HINT}
         />
