@@ -28,6 +28,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from cii_platform.db.migration_guard import guard_irreversible_downgrade
 
 revision: str = "024"
 down_revision: str | Sequence[str] | None = "023"
@@ -79,6 +80,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # 운영 데이터를 복구 불가능하게 지운다 — 프로덕션에서는 막는다 (#819).
+    guard_irreversible_downgrade("024")
     op.execute("DROP TRIGGER IF EXISTS trg_calcrun_immutable ON calculation_run;")
     op.execute(
         """

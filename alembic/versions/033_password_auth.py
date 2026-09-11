@@ -37,6 +37,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
+from cii_platform.db.migration_guard import guard_irreversible_downgrade
 
 revision: str = "033"
 down_revision: str | Sequence[str] | None = "032"
@@ -85,6 +86,8 @@ def downgrade() -> None:
     테이블이 비어 있다」는 전제를 downgrade에도 적용한 것이 원인이며, downgrade는
     **계정이 쌓인 뒤에** 실행된다.
     """
+    # 운영 데이터를 복구 불가능하게 지운다 — 프로덕션에서는 막는다 (#819).
+    guard_irreversible_downgrade("033")
     op.execute("DELETE FROM app_user")
 
     op.drop_index("idx_app_user_email", table_name="app_user")

@@ -19,6 +19,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
+from cii_platform.db.migration_guard import guard_irreversible_downgrade
 
 # revision identifiers, used by Alembic.
 revision: str = "005"
@@ -180,6 +181,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # 운영 데이터를 복구 불가능하게 지운다 — 프로덕션에서는 막는다 (#819).
+    guard_irreversible_downgrade("005")
     # 트리거·인덱스·제약은 테이블과 함께 삭제되지만 트리거는 명시적으로 제거한다.
     op.execute("DROP TRIGGER IF EXISTS trg_voyage_updated ON voyage;")
     op.drop_table("voyage")

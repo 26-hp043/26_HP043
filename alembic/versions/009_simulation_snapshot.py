@@ -25,6 +25,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
+from cii_platform.db.migration_guard import guard_irreversible_downgrade
 
 # revision identifiers, used by Alembic.
 revision: str = "009"
@@ -85,6 +86,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # 운영 데이터를 복구 불가능하게 지운다 — 프로덕션에서는 막는다 (#819).
+    guard_irreversible_downgrade("009")
     op.execute("DROP TRIGGER IF EXISTS trg_snapshot_immutable ON simulation_snapshot;")
     op.drop_table("simulation_snapshot")
     # 공유 함수 prevent_mutation()은 여기서 드롭하지 않는다. 008의 트리거가 아직 의존하므로

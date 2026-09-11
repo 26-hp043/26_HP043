@@ -44,6 +44,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 from alembic import op
+from cii_platform.db.migration_guard import guard_irreversible_downgrade
 
 revision: str = "037"
 down_revision: str | Sequence[str] | None = "036"
@@ -59,4 +60,15 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """``vessel_json`` 열을 지운다. **기존 스냅샷의 제원 사본은 복원되지 않는다.**
+
+    ``simulation_snapshot``은 UPDATE가 트리거로 막혀 있어(``009`` ``trg_snapshot_immutable``
+    · ``DB_SCHEMA §7.3 [X-2]``) 되돌린 뒤 다시 ``upgrade``하면 **열은 생기지만 기존 행은
+    영원히 NULL**이다. 그 행들로 만든 과거 연간 시뮬레이션은 전부 재현 불가로 끊긴다
+    (``services/annual_simulation.py`` :func:`_load_snapshot_vessel`).
+
+    그래서 프로덕션에서는 막는다(``DB_SCHEMA §8.1.2`` · #819).
+    """
+    # 운영 데이터를 복구 불가능하게 지운다 — 프로덕션에서는 막는다 (#819).
+    guard_irreversible_downgrade("037")
     op.drop_column("simulation_snapshot", "vessel_json")

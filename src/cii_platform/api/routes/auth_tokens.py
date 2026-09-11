@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
@@ -55,6 +56,8 @@ from cii_platform.services.auth_token import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+_log = logging.getLogger(__name__)
 
 #: 재설정 요청 결과 문구 — `PRD §6.3` 확정 원문.
 #: **가입 여부와 무관하게 이 문구 하나만 쓴다.**
@@ -144,6 +147,10 @@ async def request_email_verification(
             )
         )
     except MailDeliveryError:
+        # 원인 예외(`__cause__` — SMTP 인증 실패 등)를 로그에 남긴다 (#819). 백엔드가
+        # `from exc`로 보존한 것을 여기서 버리면 502만 쌓이고 왜인지는 어디에도 없다.
+        # 주소는 남기지 않는다 — 식별은 user_id로 충분하다.
+        _log.exception("인증 메일 재발송 실패: user_id=%s", user.id)
         # 토큰은 이미 커밋됐다 — 되돌리지 않는다(#407 경계).
         return _error(request, 502, "INTERNAL_ERROR", MAIL_FAILED_MESSAGE)
 
@@ -204,6 +211,8 @@ async def request_password_reset(
             )
         )
     except MailDeliveryError:
+        # 위 재발송과 같다 — 원인 예외를 남긴다 (#819).
+        _log.exception("비밀번호 재설정 메일 발송 실패: user_id=%s", user.id)
         return _error(request, 502, "INTERNAL_ERROR", MAIL_FAILED_MESSAGE)
 
     return _ok(request, RESET_REQUESTED_MESSAGE)
