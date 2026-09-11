@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.8 |
+| 버전 | v1.9 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
 | 최종 수정일 | 2026-09-11 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -923,8 +923,8 @@ def compute_input_hash(calculation_input: dict) -> str:
 3. **"동일 항차 → 동일 결과"는 계약이 아니다.** 같은 항차라도 계산 시점의 기상(캐시 상태)에 따라 `weather_factor`가 달라질 수 있으며, 이때 결과가 달라지는 것은 재현성 위반(버그)이 아니라 **입력이 달라진 것**이다. 재현성 위반은 오직 "동일 `input_hash`인데 결과가 다른 경우"만을 뜻한다.
 4. **추적성**: 계산에 사용된 기상 스냅샷은 `calculation_run.weather_snapshot_id`(DB_SCHEMA §2.5 — #103의 `weather_snapshot` 테이블(013) 생성 후 016+ 후속 마이그레이션에서 컬럼 추가)로 기록하여 "이 계산은 어떤 기상 데이터로 실행되었나"를 사후 감사할 수 있다. `weather_factor` 값과 `weather_snapshot_id`는 `result_json`에도 포함한다.
 5. **스냅샷 없는 계산도 정상 경로다.** `weather_model = NONE`이거나 캐시 만료 fallback(§7.3) 시 `weather_factor = 1.0`이고 `weather_snapshot_id`는 NULL이다.
-6. **재검증 절차**: 과거 계산의 재현은 새 기상 조회 없이 저장된 입력(동일 `weather_factor` 포함)으로 수행한다. 재현 결과가 원본과 불일치하면 `ReproducibilityError`(§12.1)로 처리한다.
-7. **계약의 범위(경계)**: 본 계약은 **입력 식별(hashing) 차원**의 재현성을 정의한다. 수치 연산 자체의 결정론 — Layer 1 Decimal bit-exact(§1), Monte Carlo RNG 고정(PCG64DXSM, §2) — 은 본 계약의 **전제조건**이며, NumPy 버전 변경에 따른 난수 재현성 정책은 **#106**에서 별도로 정의한다. 따라서 6항의 `ReproducibilityError`는 입력 동일성이 확인된 뒤 발생한 수치 불일치를 가리키며, 그 근본 원인 규명(numpy 버전·RNG 구현 변경 등)은 #106의 정책을 따른다.
+6. **재검증 절차**: 과거 계산의 재현은 새 기상 조회 없이 저장된 입력(동일 `weather_factor` 포함)으로 수행한다. 재현 결과가 원본과 불일치하면 `ReproducibilityError`(§12.1)로 처리한다 — **단, `model_version`이 원본과 다르면 `ModelVersionMismatchError`(409)다.** 같은 결과를 약속한 조건(1항) 밖이라 계약 위반이 아니며, 환경이 달라도 결과가 같으면 `MODEL_VERSION_DIFFERS` 경고를 싣고 성공한다(§10.3 · `#833`).
+7. **계약의 범위(경계)**: 본 계약은 **입력 식별(hashing) 차원**의 재현성을 정의한다. 수치 연산 자체의 결정론 — Layer 1 Decimal bit-exact(§1), Monte Carlo RNG 고정(PCG64DXSM, §2) — 은 본 계약의 **전제조건**이며, NumPy 버전 변경에 따른 난수 재현성 정책은 **§10.3**이 정의한다(`#106`). 따라서 6항의 `ReproducibilityError`는 입력 동일성이 확인된 뒤 발생한 수치 불일치를 가리키며, 그 근본 원인 규명(numpy 버전·RNG 구현 변경 등)은 #106의 정책을 따른다.
 
 #### 5.4.1 `as_of` 계약 — 시각 의존 계산의 재현성 (#368)
 
@@ -1272,6 +1272,31 @@ dual-precision-v1_decimal30-pcg64dxsm_numpy2.1.0
 | 계산 엔진 로직 변경 (예: rounding 정책) | 결정론 결과 변화 가능 | major version bump. 영향받는 범위 표시 |
 | Decimal precision 변경 | 결정론 결과 미세 변화 가능 | precision 값을 model_version에 명시하여 추적 |
 
+### 10.3 NumPy 업그레이드 절차와 재현성의 한계 [#106 · #833]
+
+`NEP 19`에 따라 NumPy `Generator`는 **버전 간 bit-for-bit 호환을 보장하지 않는다.** 같은 seed라도 NumPy가 바뀌면 난수열이 달라질 수 있고, 그것은 결함이 아니라 라이브러리의 명시된 성질이다. 그래서 §5.4 1항은 같은 결과의 조건에 **`model_version`**을 넣는다 — `numpy_version`이 그 필드 중 하나다(§10.1).
+
+**재현성의 한계 — 과거 결과는 보존되고, 재현은 같은 환경에서만 약속된다.**
+
+| 상황 | 동작 | 응답 |
+|---|---|---|
+| 같은 `model_version` · 같은 결과 | 정상 재현 | 200 |
+| 같은 `model_version` · 다른 결과 | **계약 위반** — 계산이 깨졌다 | 500 `REPRODUCIBILITY_ERROR` (§12.1) |
+| 다른 `model_version` · 같은 결과 | 재현 성공. 환경이 달랐다는 사실을 남긴다 | 200 + `MODEL_VERSION_DIFFERS` (§12.3) |
+| 다른 `model_version` · 다른 결과 | **약속 밖** — 새 환경에서 새로 실행한다 | 409 `MODEL_VERSION_MISMATCH` (§12.1) |
+
+- 비교는 §10.1의 **여섯 필드 전부**다. 골라 비교하면 「어느 필드는 봐도 된다」는 판단이 코드에 숨는다. 엄격해도 비용은 없다 — 달라도 결과가 같으면 경고만 붙는다.
+- `model_version`이 기록되지 않은 실행(기록 도입 이전)은 **환경을 알 수 없으므로 다른 환경으로 본다.**
+- 과거 실행의 **결과 자체는 재계산 없이 읽을 수 있다** — `calculation_run.result_json`이 등급 확률·p10/p50/p90·결정론 값을 그대로 보존한다(§6.2 조회). 재현(§6.4)은 저장값을 다시 만드는 것이 아니라 **검증**이다. 그래서 「스냅샷에 난수 분포 전체를 저장한다」는 대안은 필요하지 않다 — 이미 저장돼 있다.
+
+**업그레이드 절차** (`pyproject.toml`의 `numpy` 핀과 dependabot ignore를 풀 때):
+
+1. NumPy release note에서 `Generator`·`PCG64DXSM`·`triangular` 변경 여부를 확인한다. 변경이 있으면 §10.2 「BitGenerator 변경」 행이며 major bump다.
+2. 새 버전에서 canonical vector(`UT-RNG-001` · `/health`의 `rng_canonical_test`)와 시뮬레이션 bit-exact 검사(`UT-CII-008` · `AC-F3-002`)를 **먼저** 돌린다. 여기서 갈리면 업그레이드를 멈추고 §10.2를 따른다.
+3. 통과하면 핀을 올린다. `model_version.numpy_version`은 코드가 런타임에 읽으므로(§10.1) **새 실행은 자동으로 새 버전을 기록**하고, 과거 실행은 그대로 남는다(§10.2 「기존 CalculationRun 보존」).
+4. 업그레이드 전 실행 중 대표 건(선종·연도별 1건 이상)을 §6.4로 재현해 **409의 비율을 기록**한다. 0이면 위 표의 셋째 행(200 + 경고)만 나오는 상태이고, 0이 아니면 그 실행들은 「현재 환경에서 재현되지 않는 과거 결과」로 남는다 — 지우지 않고, 필요하면 새로 실행한다.
+5. 사용자에게 알리는 수단은 응답 자체다 — 경고 코드와 409 메시지가 위 표대로 나간다. 별도 공지 채널은 두지 않는다.
+
 ---
 
 ## 11. 스냅샷 격리 (Snapshot Isolation)
@@ -1342,6 +1367,7 @@ class SimulationSnapshot:
 | `CalculationError` | 분모 0, overflow, 유효하지 않은 결과 | 422 Unprocessable Entity | `계산 오류: 입력값을 확인하세요.` |
 | `ModelBreakdownError` | BN > 8, ΔV/V ≥ 100% | 422 Unprocessable Entity | `기상 조건이 너무 가혹하여 모델을 적용할 수 없습니다.` |
 | `ReproducibilityError` | canonical test vector 불일치 | 500 Internal Server Error | `재현성 검증 실패. 관리자에게 문의하세요.` |
+| `ModelVersionMismatchError` | 재현(§6.4) 시 `model_version`이 원본과 다르고 **결과도 다름** — 약속(§5.4 1항) 밖의 변화. 환경이 달라도 결과가 같으면 `MODEL_VERSION_DIFFERS` 경고만 싣는다 (`#833` · §10.3) | 409 Conflict | `원본 실행과 다른 환경에서 돌려 같은 결과를 재현하지 못했습니다. 환경 차이로 인한 것이며 계산 결함이 아닙니다. 새로 실행하면 현재 환경 기준의 결과를 얻을 수 있습니다.` |
 
 ### 12.2 오류 전파 규칙
 
@@ -1379,6 +1405,7 @@ class SimulationSnapshot:
 | `SIMULATION_PLAN_NO_FUEL` | 기능③ 계획 항차에 연료 행이 없거나 계획 연료량 합이 0이라 CO₂를 낼 수 없어 그 항차를 제외 (`#812`) | `연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요.` |
 | `SIMULATION_NO_REFERENCE_SPEED` | 진행 중 항차의 누적 연료에 cubic speed model(`§4.1`) 보정을 못 함 — `vessel.reference_speed_kn`이 없어 `speed_factor`를 만들 수 없다 (`#796`) | `기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요.` |
 | `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상의 근거가 될 **잔여 계획 항차가 0건** — 값은 내되(연말 = 지금) 그것이 「예측이 없다」가 아니라 「더할 계획이 없다」임을 밝힌다 (`#798`) | `잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다.` |
+| `MODEL_VERSION_DIFFERS` | 재현(§6.4)을 **원본과 다른 `model_version`**(NumPy·엔진·정밀도 등 §10.1 필드)에서 돌렸는데 결과는 같았다 (`#833` · §10.3). 결과가 달랐다면 경고가 아니라 409 `MODEL_VERSION_MISMATCH`다 | `원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다.` |
 
 > **이 표가 경고 코드의 정본이다 (`AGENTS §3.1`).** `API_SPEC §1.6`은 이 표를 전사한 것이며, 화면의 `WARNING_MESSAGE`는 다시 `§1.6`을 전사한다. 사슬은 `TECH_SPEC §12.3` → `API_SPEC §1.6` → {화면 `frontend/src/features/voyage-cii/resultRules.ts` · 리포트 `src/cii_platform/reports/labels.py`}이다. 뒤의 둘은 **`§1.6`에서 각자 옮겨 적는다**(서로를 베끼지 않는다). 각 고리의 대조는 `tests/test_warning_codes_sync.py`(`§12.3`↔`§1.6`↔화면)와 `tests/test_reports.py`(`§1.6`↔리포트)가 본다 — #830 정정: 종전 이 문장은 리포트 사본을 빼고 세 단계만 적었다.
 >
@@ -1888,3 +1915,4 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-11 | `#759` | **정본 드리프트 정정** — ⑴ §16.2 각주의 「`API_SPEC` 엔드포인트↔화면 매핑에 SCR-001·SCR-008~010이 아직 반영되지 않았다」가 사실이 아니라 정정(`API_SPEC §12`에 반영돼 있다) ⑵ §3.5·§7.3 의사코드 함수명 `towns_in_kwon_weather_factor` → 구현과 같은 `townsin_kwon_weather_factor` ⑶ 오탈자(명실 → 명세). `AGENTS §4.3` 「오기·값 정정·각주 보강」이라 버전은 올리지 않는다 (#759) |
 | 2026-09-11 | `#830` | 경고 코드 표 `SIMULATION_RUNS_CLAMPED` 조건을 「1,000~10,000 범위를 벗어나」 → **「10,000을 넘어」**로 정정 — 하한 미만은 요청 검증에서 422라 이 경고에 닿지 않는다(`API_SPEC §6.1`). 상한은 종전 요청 검증이 먼저 막아 **어느 쪽으로도 도달하지 않던 경고**였고, 코드를 `PRD §12.8`에 맞췄다. 함께 §12.3 각주의 전사 사슬에 **리포트 사본(`reports/labels.py`)과 각 고리의 대조 테스트**를 적었다 — 사본은 `#631`부터 `tests/test_reports.py`가 대조하고 있었는데 사슬 서술이 그것을 빼고 있었다. `AGENTS §4.3`상 값 정정·각주 보강이라 버전은 올리지 않는다 (#830) |
 | 2026-09-11 | `#67` | §13.2에 `[#67]` 각주 — 성능 벤치마크의 CI 통합 방식(별도 잡이 아니라 `test` 잡 안의 `test_benchmarks.py`) · 「캐시 시」 조건을 재지 않는 이유. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#67) |
+| 2026-09-11 | `#833` · `#106` | **v1.9 — §10.3 「NumPy 업그레이드 절차와 재현성의 한계」 신설** · §12.1에 `ModelVersionMismatchError`(409) · §12.3에 `MODEL_VERSION_DIFFERS` · §5.4 6항·7항 정정(「#106에서 별도로 정의한다」 → §10.3). `reproduce`가 §5.4 1항의 셋째 조건(`model_version`)을 보지 않아 **NumPy 업그레이드가 계산 결함(500)으로 보고**될 상태였다. 판정 표 4행(같음/다름 × 같은 결과/다른 결과)으로 500과 409를 갈랐고, 환경이 달라도 결과가 같으면 경고만 싣는다. 여섯 필드 전부를 비교한다 — 엄격해도 결과가 같으면 비용이 없다. 과거 결과는 `result_json`에 이미 보존돼 재계산 없이 읽히므로 `#106`의 「분포 전체 저장」 대안은 필요 없다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#833 · #106) |

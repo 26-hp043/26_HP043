@@ -59,6 +59,7 @@ from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import (
+    ModelVersionMismatchError,
     NotFoundError,
     ParameterError,
     ReproducibilityError,
@@ -87,6 +88,10 @@ from cii_platform.services.ytd_cii import (
 #: 빼되 **조용히 빼지 않는다** — 응답의 ``remaining_voyage_count``는 스냅샷의 PLAN
 #: 행을 세므로, 이 경고가 없으면 일부만 계산했다는 사실이 드러날 자리가 없다.
 WARNING_PLAN_NO_FUEL = "SIMULATION_PLAN_NO_FUEL"
+#: 재현(§6.4)을 **원본과 다른 환경**(`model_version`)에서 돌렸는데 결과는 같았다 (#833).
+#: 같은 결과라도 그 사실을 감추면, 환경이 바뀐 뒤 처음으로 값이 갈리는 순간이
+#: 「갑자기 깨졌다」로 보인다.
+WARNING_MODEL_VERSION_DIFFERS = "MODEL_VERSION_DIFFERS"
 
 logger = logging.getLogger(__name__)
 
@@ -1516,7 +1521,34 @@ async def reproduce_annual_simulation(
         profile_rows=profile_rows,
     )
 
-    _assert_same_outcome(stored, payload)
+    # `TECH_SPEC §5.4` 1항 — 같은 결과를 약속하는 조건은 **input_hash · parameter_hash ·
+    # model_version 셋**이다. 앞의 둘은 위에서 봤고, 셋째는 여기서 본다 (#833).
+    #
+    # 환경이 달라졌다고 재현을 거절하지는 않는다 — NumPy 마이너 업그레이드 뒤에도 값은
+    # 대개 같고(`§10.2`), 같다면 그것이 곧 사용자가 원하는 확인이다. 갈리는 것은 **값이
+    # 달랐을 때의 뜻**이다: 같은 환경이면 계산이 깨진 것(500), 다른 환경이면 약속 밖의
+    # 변화(409 · `§10.3`). 종전에는 둘 다 500이라 **NumPy 업그레이드가 계산 결함으로
+    # 보고**됐다.
+    version_diff = _model_version_diff(row.model_version or {}, _model_version())
+    try:
+        _assert_same_outcome(stored, payload)
+    except ReproducibilityError as exc:
+        if version_diff:
+            raise ModelVersionMismatchError(
+                "원본 실행과 다른 환경에서 돌려 같은 결과를 재현하지 못했습니다("
+                + ", ".join(f"{d['field']}: {d['stored']} → {d['current']}" for d in version_diff)
+                + "). 환경 차이로 인한 것이며 계산 결함이 아닙니다. "
+                "새로 실행하면 현재 환경 기준의 결과를 얻을 수 있습니다.",
+                details=version_diff,
+            ) from exc
+        raise
+    if version_diff:
+        logger.info(
+            "reproduce %s: model_version이 원본과 다르나 결과는 같음 — %s",
+            simulation_id,
+            version_diff,
+        )
+        payload = {**payload, "warnings": [*payload["warnings"], WARNING_MODEL_VERSION_DIFFERS]}
 
     return _envelope(
         simulation_id=row.simulation_id,
@@ -1535,6 +1567,24 @@ async def reproduce_annual_simulation(
         # (조회 §6.2가 저장분을 내는 것과 갈리는 지점).
         duration_ms=max(1, round((time.perf_counter() - started) * 1000)),
     )
+
+
+def _model_version_diff(stored: dict, current: dict) -> list[dict[str, object]]:
+    """``model_version`` 두 값이 다른 필드 목록. 같으면 빈 목록.
+
+    **여섯 필드 전부**를 본다 — `TECH_SPEC §10.1`의 필드가 전부 결과를 바꿀 수 있는 값이라
+    골라 비교하면 「어느 필드는 봐도 된다」는 판단이 코드에 숨는다. 엄격한 만큼 비용은
+    없다: 달라도 결과가 같으면 경고만 붙고(200), 결과가 다를 때만 409가 된다.
+
+    저장된 값이 비어 있으면(``model_version`` 기록 이전의 실행) 전부 다른 것으로 본다 —
+    어느 환경에서 돌았는지 모르는 실행은 같은 환경이라고 말할 수 없다.
+    """
+    fields = sorted(set(stored) | set(current))
+    return [
+        {"field": f, "stored": stored.get(f), "current": current.get(f)}
+        for f in fields
+        if stored.get(f) != current.get(f)
+    ]
 
 
 async def _load_snapshot_vessel(session: AsyncSession, snapshot_id) -> dict:

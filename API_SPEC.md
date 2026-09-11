@@ -201,6 +201,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 **경로** (프레임워크 자동 발생 — `#183`에서 §1.3.2 포맷으로 변환). 리소스 ID 미존재와 동일한 코드를 쓴다 |
 | 405 Method Not Allowed | `METHOD_NOT_ALLOWED` | 경로는 존재하나 HTTP 메서드가 허용되지 않음 (프레임워크 자동 발생 — `#183`에서 변환) |
 | 409 Conflict | `PARAMETER_ERROR` | 규정 파라미터 누락 또는 불일치. 재현 시 파라미터 변경 |
+| 409 Conflict | `MODEL_VERSION_MISMATCH` | 재현(§6.4) 시 `model_version`이 원본과 다르고 결과도 다름 — 약속 밖의 변화(`TECH_SPEC §10.3` · #833) |
 | 409 Conflict | `CONFLICT` | 리소스 중복 (예: 동일 IMO 번호 선박 재등록) |
 | 422 Unprocessable Entity | `VALIDATION_ERROR` | VAL-001~010 위반 |
 | 422 Unprocessable Entity | `CALCULATION_ERROR` | 분모 0, overflow, 음수 결과 |
@@ -277,6 +278,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `SIMULATION_PLAN_NO_FUEL` | 기능③ 계획 항차에 **연료 정보가 없어** 그 항차를 연말 예상에서 제외 (#812) | 연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요. |
 | `SIMULATION_NO_REFERENCE_SPEED` | 진행 중 항차의 누적 연료에 **속도 보정을 적용하지 못함** — 선박에 `reference_speed_kn`이 없음 (#796) | 기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요. |
 | `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상에 더할 **잔여 계획 항차가 0건** (#798) | 잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다. |
+| `MODEL_VERSION_DIFFERS` | 재현(§6.4)을 **원본과 다른 `model_version`**에서 돌렸는데 결과는 같았다 (#833) | 원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다. |
 
 > **⚠️ 기능③(연간 시뮬레이션) 경고 8종은 2026-08-22에 등재했다 (#630).** 기능③이 들어온 뒤 이 표가 갱신되지 않아 **코드가 내는 17종 중 7종이 표에 없었다.** 그 결과 화면의 `WARNING_MESSAGE`(이 표를 전사한 것)에도 없어, 연간 시뮬레이션 화면이 `SENSITIVITY_ONE_AT_A_TIME` 같은 **원문 코드를 그대로 노출**하고 있었다. 문구는 `PRD §12.8` 예외 처리 표에서 옮겨 적었으며, 그 표에 문구가 없는 3종(`NO_REMAINING_VOYAGES`·`MANY_REMAINING_VOYAGES`·`SIMULATION_RUNS_CLAMPED`)만 서술된 동작에 맞춰 새로 적었다.
 
@@ -2248,6 +2250,8 @@ POST /api/v1/annual-simulations/{simulation_run_id}/reproduce
 
 §6.1의 응답과 동일. 결과는 동일해야 한다 (재현성 보장).
 
+> **[#833] `model_version`도 판정 조건이다.** `TECH_SPEC §5.4` 1항의 세 조건(`input_hash` · `parameter_hash` · `model_version`)을 전부 본다. 원본과 다른 환경(NumPy·엔진·정밀도 — `TECH_SPEC §10.1`)에서 돌렸는데 결과가 같으면 **200 + `warnings`에 `MODEL_VERSION_DIFFERS`**, 결과가 다르면 **409 `MODEL_VERSION_MISMATCH`**(500이 아니다 — 약속 밖의 변화라 계산 결함이 아니다). 응답의 `model_version`은 여전히 **원본이 돌았던 환경**이다. 판정 표는 `TECH_SPEC §10.3`.
+
 #### 오류
 
 > **[ORACLE-S-4 추가]**
@@ -2255,6 +2259,7 @@ POST /api/v1/annual-simulations/{simulation_run_id}/reproduce
 | Status | Code | 조건 |
 |---|---|---|
 | 409 Conflict | `PARAMETER_ERROR` | 원본 실행 이후 규정 파라미터가 변경됨. `parameter_hash` 불일치. |
+| 409 Conflict | `MODEL_VERSION_MISMATCH` | 원본과 다른 `model_version`에서 재현했고 **결과도 다름**. `details[]`에 달라진 필드(`field` · `stored` · `current`). 새 환경에서 새로 실행한다 (#833) |
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | 재현 결과의 `input_hash` 또는 Monte Carlo 결과가 원본과 불일치. canonical test vector 실패 가능. |
 
 ---
@@ -3112,3 +3117,4 @@ GET /api/v1/health
 | 2026-09-11 | `#756` | **§6.1 예시의 거리 민감도 두 행을 구현과 맞춤**(`4.96`·`5.08` → 기준값 `5.02`) · 그 이유와 **`fuel_cf_alternative` 미구현 사실**을 예시 아래 각주로 적었다. 거리 지렛대는 연료를 함께 움직여 CII가 거의 변하지 않는다(`PRD §12.6` 각주). `AGENTS §4.3` 「값 정정」이라 버전은 올리지 않는다 (#756) |
 | 2026-09-11 | `#759` | **정본 드리프트 정정** — ⑴ §3.1 `[ORACLE-MISS-3]`의 「대시보드는 클라이언트에서 다중 선박 조회 후 병합한다」 → `§2.8` `GET /fleet/summary`(`#350`) ⑵ §2.5 「완전 삭제는 관리자 권한 필요」 → `§1.2` 「권한 분리 없음」과 모순이라 정정 ⑶ 마침표 오기(`。`) 2곳. `AGENTS §4.3` 「오기·값 정정·각주 보강」이라 버전은 올리지 않는다 (#759) |
 | 2026-09-11 | `#830` | **정본↔구현 정합 정정** — ⑴ §6.1 `simulation_runs` 「1000~10000」 → **1000 이상 · 10000 초과는 잘라 실행하고 `SIMULATION_RUNS_CLAMPED`**(`PRD §12.8`). 요청 스키마가 `le=10000`으로 먼저 422를 내 §1.6 경고 표가 규정한 경고가 **HTTP로 도달할 수 없었다** — 코드를 `PRD`에 맞췄고 §1.6 조건도 「상한 초과」로 좁혔다(하한 미만은 422). 같은 행의 필수 표기도 기본값 5000과 모순이라 N으로 ⑵ §1.2 「알고리즘은 `TECH_SPEC`이 확정한다」 → **Argon2id**(`TECH_SPEC`에 그 규정이 없었다) · 코드에만 있던 **비밀번호 규칙(10~128자)·세션 유효기간(7일)** 행 신설 — `auth/session.py`가 이 절을 가리키는데 절에 값이 없었다 ⑶ §1.10 `meta.is_simulated` → `meta.simulated`(§2.14·코드와 통일) ⑷ §2.9 「`meta.fuel_types`는 계속 싣는다」 → 이미 뺐다(`#444`) ⑸ §2.7 예시에 `transport_capacity_basis` ⑹ §3.5 응답이 **항차 객체 전체**임을 명시 ⑺ §5.1 `current_lat/lon` 「Y」 → 조건부(스키마는 처음부터 선택) ⑻ §5.2 예시에 `invalidated_calculation_runs` ⑼ §7.5 미구현 배너(§9와 같은 표기) ⑽ §12 파라미터 Import 추적처 `#444`(닫힘) → `#673`. `AGENTS §4.3` 「오기·값 정정·각주 보강·소규모 행 추가」라 버전은 올리지 않는다 (#830) |
+| 2026-09-11 | `#833` | §1.4·§6.4에 409 `MODEL_VERSION_MISMATCH` · §1.6에 `MODEL_VERSION_DIFFERS` · §6.4 응답에 `model_version` 판정 각주. 종전에는 재현이 `model_version`을 보지 않아 NumPy 업그레이드 뒤의 결과 차이가 500 `REPRODUCIBILITY_ERROR`(계산 결함)로 나갔다. 판정 표는 `TECH_SPEC §10.3`. `AGENTS §4.3`상 소규모 행 추가·각주라 버전은 올리지 않는다 (#833) |
