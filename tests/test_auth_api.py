@@ -27,6 +27,7 @@ from sqlalchemy import text
 
 from cii_platform.api.main import app
 from cii_platform.api.routes.auth import EMAIL_TAKEN_MESSAGE, LOGIN_FAILED_MESSAGE
+from cii_platform.auth.signup_gate import REJECTED_MESSAGE as SIGNUP_REJECTED_MESSAGE
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -104,6 +105,48 @@ class TestSignup:
             assert second.json()["error"]["message"] == EMAIL_TAKEN_MESSAGE
         finally:
             await _cleanup(["dup@example.com"])
+
+    async def test_gate_rejects_outside_domain_without_code(self, client, monkeypatch):
+        """사내 도구 가입 게이트 (#808) — 허용 도메인이 아니고 코드도 없으면 422.
+
+        거절 문구는 어느 조건에서 떨어졌는지 말하지 않는다(`PRD §6.3`). 계정은 만들어지지
+        않고 세션도 발급되지 않는다.
+        """
+        monkeypatch.setenv("SIGNUP_ALLOWED_DOMAINS", "bluelog.kr")
+        monkeypatch.delenv("SIGNUP_INVITE_CODE", raising=False)
+        try:
+            resp = client.post(
+                "/api/v1/auth/signup",
+                json={"email": "outsider@example.com", "password": PASSWORD},
+            )
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["error"]["message"] == SIGNUP_REJECTED_MESSAGE
+            assert "sid" not in resp.cookies
+        finally:
+            await _cleanup(["outsider@example.com"])
+
+    async def test_gate_admits_invite_code_or_allowed_domain(self, client, monkeypatch):
+        """둘 중 하나만 맞으면 된다 — 협력사는 코드로, 사내는 도메인으로 (#808)."""
+        monkeypatch.setenv("SIGNUP_ALLOWED_DOMAINS", "bluelog.kr")
+        monkeypatch.setenv("SIGNUP_INVITE_CODE", "harbour-2026-xyz")
+        emails = ["guest@example.com", "captain@bluelog.kr"]
+        try:
+            guest = client.post(
+                "/api/v1/auth/signup",
+                json={
+                    "email": emails[0],
+                    "password": PASSWORD,
+                    "invite_code": "harbour-2026-xyz",
+                },
+            )
+            assert guest.status_code == 201, guest.text
+            client.cookies.clear()
+            staff = client.post(
+                "/api/v1/auth/signup", json={"email": emails[1], "password": PASSWORD}
+            )
+            assert staff.status_code == 201, staff.text
+        finally:
+            await _cleanup(emails)
 
     def test_short_password_is_rejected(self, client):
         resp = client.post(

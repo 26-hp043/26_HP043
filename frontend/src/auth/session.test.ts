@@ -10,6 +10,7 @@ import {
   csrfToken,
   redirectToLogin,
   SESSION_EXPIRED_MESSAGE,
+  signup,
   updateDisplayName,
 } from './session'
 import { safeNext } from '../features/auth/authRules'
@@ -502,5 +503,34 @@ describe('비밀번호 변경 후 캐시를 비운다 (#825 ⑷)', () => {
     ).rejects.toThrow('현재 비밀번호가 올바르지 않습니다.')
 
     expect(getCachedUser()).not.toBeNull()
+  })
+})
+
+/**
+ * 가입 게이트의 초대 코드 (#808).
+ *
+ * 비었으면 **필드를 보내지 않는다** — 회사 메일로 가입하는 평상시 요청 본문을 바꾸지 않는다.
+ * 서버 스키마가 `extra="forbid"`라, 필드 이름을 틀리면 가입이 422로 막힌다.
+ */
+describe('signup — 초대 코드 (#808)', () => {
+  const created = jsonResponse({ data: { id: 'u1', email: 'guest@example.com' } }, 201)
+
+  it('코드가 있으면 invite_code로 싣는다 — 앞뒤 공백은 떼고', async () => {
+    const fetchImpl = vi.fn(async () => created)
+    await signup('guest@example.com', 'pw-long-enough', null, fetchImpl as unknown as typeof fetch, ' code-1 ')
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({
+      email: 'guest@example.com',
+      password: 'pw-long-enough',
+      display_name: null,
+      invite_code: 'code-1',
+    })
+  })
+
+  it('코드가 비었으면 필드 자체를 보내지 않는다', async () => {
+    const fetchImpl = vi.fn(async () => created)
+    await signup('captain@bluelog.kr', 'pw-long-enough', '김선장', fetchImpl as unknown as typeof fetch, '  ')
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).not.toHaveProperty('invite_code')
   })
 })

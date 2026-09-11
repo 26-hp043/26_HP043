@@ -304,16 +304,28 @@ export async function login(
   return currentUser
 }
 
-/** 회원가입 — 성공 시 **즉시 로그인 상태**가 된다(`API_SPEC §1.2`). */
+/**
+ * 회원가입 — 성공 시 **즉시 로그인 상태**가 된다(`API_SPEC §1.2`).
+ *
+ * `inviteCode`는 회사 메일이 아닌 사람이 가입할 때만 쓴다(#808 가입 게이트). 비었으면
+ * 필드를 보내지 않는다 — 허용 도메인으로 가입하는 평상시 요청을 바꾸지 않기 위해서다.
+ */
 export async function signup(
   email: string,
   password: string,
   displayName: string | null,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+  inviteCode: string | null = null,
 ): Promise<CurrentUser | null> {
+  const code = inviteCode?.trim()
   const body = await postJson(
     SIGNUP_API_URL,
-    { email, password, display_name: displayName || null },
+    {
+      email,
+      password,
+      display_name: displayName || null,
+      ...(code ? { invite_code: code } : {}),
+    },
     fetchImpl,
   )
   currentUser = toCurrentUser(body)

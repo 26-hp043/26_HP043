@@ -36,6 +36,7 @@ from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.auth.middleware import auth_middleware
+from cii_platform.auth.signup_gate import validate_signup_gate
 from cii_platform.config import should_expose_api_docs, validate_public_base_url
 from cii_platform.mail.config import load_mail_settings
 
@@ -82,6 +83,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 유효한 재설정 토큰이 넘어간다. 메일 백엔드 결함은 500이라도 나지만 이쪽은
     # **아무 오류 없이 성공**한다.
     validate_public_base_url()
+
+    # 가입 게이트도 같은 자리에서 본다 (#808). 프로덕션인데 허용 도메인·초대 코드가 둘 다
+    # 비어 있으면 **누구나 가입해 모든 선박·항차를 고칠 수 있다** — 첫 가입 요청에서
+    # 막으면 이미 누군가 들어온 뒤에야 드러난다.
+    validate_signup_gate()
 
     yield
 

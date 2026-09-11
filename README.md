@@ -143,6 +143,8 @@ DB → 마이그레이션 → 앱·화면 순서다. **앱을 마지막에 올�
 ```bash
 # 1) credential 주입 — 미설정이면 compose가 즉시 실패한다 (기본값을 허용하지 않는다)
 export POSTGRES_USER=... POSTGRES_PASSWORD=... POSTGRES_DB=...
+#    가입 게이트는 .env에 둔다 — SIGNUP_ALLOWED_DOMAINS 또는 SIGNUP_INVITE_CODE.
+#    둘 다 없으면 앱이 기동하지 않는다 (사내 도구 · #808 · .env.example 참조)
 
 # 2) 이미지를 먼저 굽는다 ⚠️ 건너뛰지 말 것 (아래 주의 참조)
 docker compose -f docker-compose.prod.yml build
@@ -480,3 +482,4 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-11 | `#930` · `#932` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 **v2.8**로 갱신 — **`rlatnals4114`의 2026-09-11 확정** 반영(`§5` 〔확정〕/〔제안〕 정의 · 오버레이 두 값과 「그림자 + 테두리」 규정 · `§8` 슬라이더 · `§8.3` 등급 전이 표기 신설 · `§2.1`·`§15` 정정). 값·규격을 정한 것은 확정자이며 개발은 반영만 했다 (`AGENTS §7.3`) |
 | 2026-09-11 | `#931` | 문서 구조 표의 `PRD.md` 행을 **v4.8**로 갱신 — §6.4 「상태 문구」 신설(**`rlatnals4114`의 2026-09-11 확정 B·C**). 에러 · 로딩 · 빈 상태의 기본 문구와 패턴을 정본에 등재했다 (#931) |
 | 2026-09-11 | `#833` | 문서 구조 표의 `TECH_SPEC.md` 행을 **v1.9**로 갱신 — §10.3 「NumPy 업그레이드 절차와 재현성의 한계」 신설(#833 · #106) |
+| 2026-09-11 | `#808` | 「배포」 절 1단계에 **가입 게이트 설정**(`SIGNUP_ALLOWED_DOMAINS` 또는 `SIGNUP_INVITE_CODE`) 안내 추가 — 프로덕션에서 둘 다 없으면 앱이 기동하지 않는다(사내 도구로 확정 · `API_SPEC §1.2` 「가입 제한」) (#808) |

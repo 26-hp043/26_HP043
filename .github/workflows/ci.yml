@@ -225,12 +225,16 @@ jobs:
       # 연결은 열지 않는다. `#524`의 검증은 설정이 앞뒤가 맞는가만 보고 SMTP 서버에
       # 붙지 않는다. 그래서 더미 호스트로 충분하다 — 이 잡은 메일 발송을 검증하지 않는다.
       #
+      # 가입 게이트도 같은 이유로 준다 (#808) — 프로덕션에서 허용 도메인·초대 코드가
+      # 둘 다 비면 앱이 뜨지 않는다. CI 전용 도메인이며 이 잡은 가입을 검증하지 않는다.
+      #
       - name: 메일 설정 주입 (.env)
         run: |
           cat > .env <<'ENVEOF'
           MAIL_BACKEND=smtp
           SMTP_HOST=localhost.invalid
           MAIL_FROM=ci@localhost.invalid
+          SIGNUP_ALLOWED_DOMAINS=ci.example
           ENVEOF
 
       - name: 이미지 빌드 (app · frontend)

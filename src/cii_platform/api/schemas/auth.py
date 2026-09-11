@@ -41,6 +41,9 @@ class SignupRequest(BaseModel):
     #: 길이 정책은 `auth.password`가 본다. 여기서는 빈 값만 막는다.
     password: Annotated[str, Field(min_length=1)]
     display_name: Annotated[str | None, Field(default=None, max_length=100)]
+    #: 회사 메일이 아닌 사람이 가입할 때 쓰는 초대 코드 (#808 · `auth/signup_gate.py`).
+    #: 허용 도메인으로 가입하면 비워 둔다.
+    invite_code: Annotated[str | None, Field(default=None, max_length=200)] = None
 
 
 class LoginRequest(BaseModel):
