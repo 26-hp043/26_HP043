@@ -76,6 +76,18 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 #: **「없는 이메일」과 「비밀번호 불일치」에 같은 문구를 쓴다.**
 LOGIN_FAILED_MESSAGE = "이메일 또는 비밀번호가 올바르지 않습니다."
 
+#: 자격 증명이 틀렸다 — **세션 문제(`UNAUTHORIZED`)와 다른 코드**다 (`API_SPEC §1.4` · #902).
+#:
+#: 종전에는 로그인 실패와 현재 비밀번호 오입력이 세션 만료와 같은 `UNAUTHORIZED`였다. 정본은
+#: 그 코드를 「세션 없음·만료·무효」로 좁혀 정의하고, 봉투가 같아 클라이언트는 문구를
+#: 대조하거나(`#878` 전) 세션을 한 번 더 조회해야(`#878`) 두 사유를 갈랐다. 로그인 실패에도
+#: 쓰지만 **없는 이메일과 틀린 비밀번호가 같은 코드·같은 문구**라 계정 존재 여부는 여전히
+#: 드러나지 않는다(`§1.2`).
+INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
+
+#: 비밀번호 변경의 현재 비밀번호 오입력 문구.
+CURRENT_PASSWORD_WRONG_MESSAGE = "현재 비밀번호가 올바르지 않습니다."
+
 #: 회원가입 이메일 중복 문구 — `PRD §6.3` 확정 원문.
 EMAIL_TAKEN_MESSAGE = "이미 가입된 이메일입니다. 로그인하거나 비밀번호를 찾아 주세요."
 
@@ -97,12 +109,20 @@ def _meta(request: Request) -> dict[str, object]:
     }
 
 
-def _error_response(request: Request, status: int, code: str, message: str) -> JSONResponse:
+def _error_response(
+    request: Request,
+    status: int,
+    code: str,
+    message: str,
+    *,
+    details: list[dict[str, object]] | None = None,
+) -> JSONResponse:
     """`API_SPEC §1.3.2` 형식의 오류 응답 — meta(request_id·timestamp)를 채운다."""
     state = getattr(request, "state", None)
     body = to_error_response(
         code,
         message,
+        details=details,
         request_id=getattr(state, "request_id", None),
         timestamp=getattr(state, "timestamp", None) or iso_utc_now(),
     )
@@ -277,7 +297,7 @@ async def login(
             ip_address=_client_ip(request),
         )
         await session.commit()
-        return _error_response(request, 401, "UNAUTHORIZED", LOGIN_FAILED_MESSAGE)
+        return _error_response(request, 401, INVALID_CREDENTIALS, LOGIN_FAILED_MESSAGE)
 
     if not await verify_password_async(payload.password, user.password_hash):
         await audit_svc.record_login_failure(
@@ -286,7 +306,7 @@ async def login(
             ip_address=_client_ip(request),
         )
         await session.commit()
-        return _error_response(request, 401, "UNAUTHORIZED", LOGIN_FAILED_MESSAGE)
+        return _error_response(request, 401, INVALID_CREDENTIALS, LOGIN_FAILED_MESSAGE)
 
     session_token, csrf_token = await _issue_session(session, request, user)
     await audit_svc.record_login_success(
@@ -378,7 +398,20 @@ async def change_password(
     # 현재 비밀번호가 틀리면 여기서 끝낸다. **새 비밀번호 정책 검사보다 먼저** 본다 —
     # 순서가 반대면 「현재 비밀번호가 틀렸는데 새 비밀번호 규칙만 알려 주는」 응답이 난다.
     if not await verify_password_async(payload.current_password, user.password_hash):
-        return _error_response(request, 401, "UNAUTHORIZED", "현재 비밀번호가 올바르지 않습니다.")
+        # 칸을 짚는다 — 화면이 현재 비밀번호 입력칸에 붙인다(#877 `splitSubmitFailure`).
+        return _error_response(
+            request,
+            401,
+            INVALID_CREDENTIALS,
+            CURRENT_PASSWORD_WRONG_MESSAGE,
+            details=[
+                {
+                    "field": "current_password",
+                    "field_label": "현재 비밀번호",
+                    "message": CURRENT_PASSWORD_WRONG_MESSAGE,
+                }
+            ],
+        )
 
     try:
         validate_password(payload.new_password)

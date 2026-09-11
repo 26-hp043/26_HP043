@@ -222,6 +222,8 @@ class TestLogin:
                 == LOGIN_FAILED_MESSAGE
             )
             assert wrong_password.json()["error"]["code"] == unknown_email.json()["error"]["code"]
+            # 세션 문제(`UNAUTHORIZED`)와 다른 코드다 — 둘이 같은 코드라 존재 여부는 숨겨진다(#902).
+            assert wrong_password.json()["error"]["code"] == "INVALID_CREDENTIALS"
         finally:
             await _cleanup(["secret@example.com"])
 
