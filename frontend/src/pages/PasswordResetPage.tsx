@@ -4,12 +4,12 @@ import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
 import {
   MIN_PASSWORD_LENGTH,
   hasErrors,
+  splitSubmitFailure,
   validateEmail,
   validatePassword,
   type FieldErrors,
 } from '../features/auth/authRules'
 import {
-  AuthRequestError,
   LOGIN_PATH,
   confirmPasswordReset,
   requestPasswordReset,
@@ -59,11 +59,13 @@ function RequestForm() {
     try {
       setDone(await requestPasswordReset(email))
     } catch (error) {
-      setFailure(
-        error instanceof AuthRequestError
-          ? error.message
-          : '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      const next = splitSubmitFailure(
+        error,
+        '요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        { email: 'email' } as const,
       )
+      setErrors(next.errors)
+      setFailure(next.failure)
     } finally {
       setBusy(false)
     }
@@ -131,11 +133,12 @@ function ResetForm({ token }: { token: string }) {
     try {
       setDone(await confirmPasswordReset(token, password))
     } catch (error) {
-      setFailure(
-        error instanceof AuthRequestError
-          ? error.message
-          : '비밀번호를 변경하지 못했습니다.',
-      )
+      // 만료된 링크(`token`)는 칸이 없어 폼 위에 뜬다 (#877 ⑴).
+      const next = splitSubmitFailure(error, '비밀번호를 변경하지 못했습니다.', {
+        password: 'password',
+      } as const)
+      setErrors(next.errors)
+      setFailure(next.failure)
     } finally {
       setBusy(false)
     }

@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  AuthRequestError,
   changePassword,
   deleteAccount,
   getCachedUser,
+  login,
   logout,
   probeCurrentUser,
   readCookie,
@@ -532,5 +534,87 @@ describe('signup — 초대 코드 (#808)', () => {
     await signup('captain@bluelog.kr', 'pw-long-enough', '김선장', fetchImpl as unknown as typeof fetch, '  ')
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(JSON.parse(String(init.body))).not.toHaveProperty('invite_code')
+  })
+})
+
+/**
+ * 인증 요청의 실패를 **실패로**, 필드 오류를 **그 칸의 것으로** (#877).
+ *
+ * ⑴ 종전에는 `error.message` 한 줄만 읽고 `details[]`를 버렸다 — 어느 칸이 틀렸는지 화면이
+ * 알 수 없었다. ⑵ 성공 응답의 모양이 어긋나면 `toCurrentUser`가 `null`을 돌려주고 **그대로
+ * 성공으로** 끝났다 — 로그인 버튼이 돌아올 뿐 실패 문구도 이동도 없었다.
+ */
+describe('인증 실패의 모양 (#877)', () => {
+  const invalid = jsonResponse(
+    {
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: '표시 이름은 100자 이하여야 합니다.',
+        details: [
+          { field: 'display_name', field_label: '표시 이름', message: '표시 이름은 100자 이하여야 합니다.' },
+          { field: 'display_name', field_label: '표시 이름', message: '두 번째 문구는 버린다' },
+          { field: 'email', field_label: '이메일', message: '이메일 형식이 올바르지 않습니다.' },
+          { field: 42, message: '필드가 문자열이 아니면 버린다' },
+        ],
+      },
+    },
+    422,
+  )
+
+  it('⑴ details[]를 필드별 문구로 싣는다 — 같은 필드는 첫 문구만', async () => {
+    const fetchImpl = vi.fn(async () => invalid)
+    const error = await signup('x', 'pw-long-enough', '가'.repeat(200), fetchImpl as unknown as typeof fetch).catch(
+      (e: unknown) => e,
+    )
+    expect(error).toBeInstanceOf(AuthRequestError)
+    expect((error as AuthRequestError).status).toBe(422)
+    expect((error as AuthRequestError).message).toBe('표시 이름은 100자 이하여야 합니다.')
+    expect((error as AuthRequestError).fieldErrors).toEqual({
+      display_name: '표시 이름은 100자 이하여야 합니다.',
+      email: '이메일 형식이 올바르지 않습니다.',
+    })
+  })
+
+  it('⑴ details가 없는 실패는 필드 문구가 비고 서버 문구를 그대로 쓴다', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: { code: 'UNAUTHORIZED', message: '이메일 또는 비밀번호가 올바르지 않습니다.' } }, 401),
+    )
+    const error = (await login('a@b.c', 'wrong', fetchImpl as unknown as typeof fetch).catch(
+      (e: unknown) => e,
+    )) as AuthRequestError
+    expect(error.fieldErrors).toEqual({})
+    expect(error.message).toBe('이메일 또는 비밀번호가 올바르지 않습니다.')
+  })
+
+  it('⑵ 로그인 200인데 사용자가 없으면 던진다 — 성공한 척하지 않는다', async () => {
+    await probeCurrentUser(vi.fn(async () => jsonResponse({}, 401)) as unknown as typeof fetch)
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: { id: 'u1' } }))
+
+    await expect(login('a@b.c', 'pw', fetchImpl as unknown as typeof fetch)).rejects.toThrow(
+      /서버 응답을 확인하지 못했습니다/,
+    )
+    expect(getCachedUser()).toBeNull()
+  })
+
+  it('⑵ 가입 201인데 사용자가 없어도 던진다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: null }, 201))
+    const error = (await signup('a@b.c', 'pw-long-enough', null, fetchImpl as unknown as typeof fetch).catch(
+      (e: unknown) => e,
+    )) as AuthRequestError
+    expect(error).toBeInstanceOf(AuthRequestError)
+    expect(error.status).toBe(201)
+  })
+
+  it('⑵ 표시 이름 변경 200인데 사용자가 없어도 던진다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: 'ok' }))
+    await expect(updateDisplayName('새 이름', fetchImpl as unknown as typeof fetch)).rejects.toThrow(
+      /서버 응답을 확인하지 못했습니다/,
+    )
+  })
+
+  it('정상 응답은 그대로 사용자를 돌려준다', async () => {
+    const fetchImpl = vi.fn(async () => ME_OK)
+    const user = await login('captain@example.com', 'pw', fetchImpl as unknown as typeof fetch)
+    expect(user.email).toBe('captain@example.com')
   })
 })

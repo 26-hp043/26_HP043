@@ -1,3 +1,5 @@
+import { AuthRequestError } from '../../auth/session'
+
 /**
  * 인증 화면의 입력 검증 (#415).
  *
@@ -68,6 +70,8 @@ export interface FieldErrors {
   email?: string
   password?: string
   passwordConfirm?: string
+  displayName?: string
+  inviteCode?: string
 }
 
 export function validateEmail(email: string): string | undefined {
@@ -119,6 +123,37 @@ export function validateSignup(
 
 export function hasErrors(errors: FieldErrors): boolean {
   return Object.values(errors).some(Boolean)
+}
+
+/**
+ * 제출 실패를 화면 상태로 옮긴다 (#877 ⑴).
+ *
+ * 서버가 `error.details[]`로 **짚은 필드는 그 입력칸에** 붙이고, 이 폼에 칸이 없는 필드나
+ * 필드 없는 실패(로그인 실패 · 가입 게이트 · 만료된 링크)는 **폼 위 문구**로 보인다.
+ * 선박 등록(`vessel-registration/formRules.ts` `toFormErrors`)과 같은 규율이다.
+ *
+ * 문구는 **서버가 준 그대로** 쓴다 — 화면이 다시 쓰면 「계정 존재 여부를 숨긴다」는
+ * 규칙(`PRD §6.3`)과 갈라질 수 있고, 한국어화는 서버가 한다(`API_SPEC §1.3.2` · `#900`).
+ *
+ * @param fields 서버 필드 경로(`display_name`) → 이 폼의 키(`displayName`)
+ */
+export function splitSubmitFailure<K extends string>(
+  error: unknown,
+  fallback: string,
+  fields: Readonly<Record<string, K>>,
+): { errors: Partial<Record<K, string>>; failure: string | null } {
+  if (!(error instanceof AuthRequestError)) return { errors: {}, failure: fallback }
+  const entries = Object.entries(error.fieldErrors)
+  if (entries.length === 0) return { errors: {}, failure: error.message }
+
+  const errors: Partial<Record<K, string>> = {}
+  const unplaced: string[] = []
+  for (const [path, message] of entries) {
+    const key = Object.hasOwn(fields, path) ? fields[path] : undefined
+    if (key === undefined) unplaced.push(message)
+    else if (!errors[key]) errors[key] = message
+  }
+  return { errors, failure: unplaced[0] ?? null }
 }
 
 /**
