@@ -766,7 +766,7 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
        * **필요 없는 테마에까지 선을 강제**하게 된다. 잠그는 것은 **경계가 인지되는가**다 —
        * 판과 페이지가 스스로 갈리거나, 아니면 그 사이의 선이 페이지와 갈리거나.
        *
-       * 확정값(37번)이 어떤 밝기로 오든 이 단언은 그대로 유효하다.
+       * 확정값(`#933`)이 어떤 밝기로 오든 이 단언은 그대로 유효하다.
        */
       const panel = evaluate(alias['--brand-gradient-from'], generated, alias)
       const page = evaluate('var(--surface-page)', generated, alias)
@@ -784,21 +784,21 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     },
   )
 
-  it('⚠️ 다크 브랜드 값은 임시다 — 확정이 오면 이 가드를 지운다 (#608 · 37번)', () => {
+  it('⚠️ 다크 브랜드 값은 임시다 — 확정이 오면 이 가드를 지운다 (#608 · #933)', () => {
     /*
-     * 확정 3-4는 「테마 불변」이었다. 지금 다크에서 덮고 있는 것은 **그대로 두면
-     * 글자가 안 읽혀서**이며, 확정자 판정을 기다리는 임시 상태다.
+     * 판 표면이 테마를 따르는 것은 2026-09-11 확정 정정 ⑴로 정본이 됐다. 남은 것은
+     * **비율**이다 — 확정 G의 값은 판 위 보조 문자가 생기기 전 기준이라 재확인을 기다린다.
      *
      * 임시임을 코드에 적어 두기만 하면 **주석은 낡는다.** 이 단언이 있으면
      * 확정값이 반영되는 순간(다크 덮기가 사라지거나 값이 바뀌면) 여기서 걸려
-     * 「37번이 아직 열려 있다」는 기록을 함께 지우게 된다.
+     * 「`#933`이 아직 열려 있다」는 기록을 함께 지우게 된다.
      */
     const dark = declarationsIn("\n:root[data-theme='dark'] {")
     expect(
       dark['--brand-gradient-from'],
-      '다크 브랜드 임시값이 사라졌습니다 — 37번이 확정됐다면 이 가드와 tokens.css 주석을 함께 정리하세요',
+      '다크 브랜드 임시값이 사라졌습니다 — #933(확정 G 재확인)이 닫혔다면 이 가드와 tokens.css 주석을 함께 정리하세요',
     ).toBeDefined()
-    expect(aliasCss).toContain('#608` · 37번 대기')
+    expect(aliasCss).toContain('`#608` · `#933` 재확인 대기')
   })
 
   it('`--cii-none-bg`가 중립 표면과 같다 (#747 2-3)', () => {
@@ -837,5 +837,44 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
       expect(contrast(g[name], g['--semantic-primary'])).toBeLessThan(4.5)
     }
     expect(contrast('#ffffff', g['--semantic-primary'])).toBeLessThan(4.5)
+  })
+})
+
+describe('오버레이 면은 그림자와 테두리를 함께 쓴다 — §5 (2026-09-11 확정 A ⑶)', () => {
+  /*
+   * 다크에서는 검은 그림자가 거의 보이지 않아 **실제 분리는 테두리와 표면색이 담당한다.**
+   * 그런데 테두리는 그림자 토큰이 아니라 **컴포넌트가 가진다** — 지금은 `AccountMenu`와
+   * 본문 바로가기가 각자 갖고 있다. 다음 모달·토스트가 그림자 토큰만 가져다 쓰면
+   * **다크에서 분리가 사라지고 라이트에서는 멀쩡해 보인다.** 라이트에서 눈으로 보고
+   * 통과시키게 되는 결함이라 소스로 막는다.
+   */
+  function cssFiles(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : cssFiles(full)
+      return entry.name.endsWith('.css') ? [full] : []
+    })
+  }
+
+  const ROOT = fileURLToPath(new URL('..', import.meta.url))
+  const rules = cssFiles(ROOT)
+    .filter((file) => !file.endsWith('tokens.css') && !file.endsWith('tokens.generated.css'))
+    .flatMap((file) =>
+      [...stripComments(readFileSync(file, 'utf-8')).matchAll(/([^{}]*)\{([^}]*)\}/g)].map(
+        ([, selector, body]) => ({ where: `${file.slice(ROOT.length)} :: ${selector.trim()}`, body }),
+      ),
+    )
+  const overlays = rules.filter(({ body }) => /box-shadow\s*:[^;]*var\(--shadow-overlay\)/.test(body))
+
+  it('오버레이 그림자를 쓰는 규칙을 실제로 찾았다', () => {
+    // 수집이 깨지면 아래 검사가 빈 목록으로 통과한다. 지금 쓰는 곳은 둘이다.
+    expect(overlays.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('오버레이 그림자를 쓰는 규칙은 테두리를 함께 선언한다', () => {
+    const missing = overlays
+      .filter(({ body }) => !/(^|[;\s])border(-width)?\s*:\s*(?!none|0\b)[^;]+/.test(body))
+      .map(({ where }) => where)
+    expect(missing).toEqual([])
   })
 })
