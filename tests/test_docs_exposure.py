@@ -174,6 +174,8 @@ def _run_in_production() -> dict[str, int]:
         # 메일 링크가 요청의 `Host` 헤더를 따라가기 때문이다 — 위 두 줄과 같은
         # 종류의 「프로덕션에서만 켜지는 기동 가드」다.
         "APP_PUBLIC_URL": "https://bluelog.example",
+        # 프로덕션은 가입 게이트가 비면 기동을 거부한다 (#808) — 같은 종류의 가드다.
+        "SIGNUP_ALLOWED_DOMAINS": "bluelog.example",
         "PYTHONPATH": str(_REPO / "src"),
     }
     done = subprocess.run(

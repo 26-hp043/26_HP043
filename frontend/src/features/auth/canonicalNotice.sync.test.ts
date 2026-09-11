@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { EMAIL_IMMUTABLE_NOTICE, WITHDRAWAL_NOTICE } from './authRules'
+import { EMAIL_IMMUTABLE_NOTICE, INVITE_CODE_HINT, WITHDRAWAL_NOTICE } from './authRules'
 
 /**
  * 정본 문구 ↔ `PRD §6.3` 표 드리프트 가드 (`#754`).
@@ -58,5 +58,9 @@ describe('정본이 확정한 문구를 화면이 그대로 쓴다 (#754)', () =
      * 함께 잠근다.
      */
     expect(EMAIL_IMMUTABLE_NOTICE).toBe(noticeInPrd('회원가입 — 이메일 변경 불가 고지'))
+  })
+
+  it('초대 코드 안내도 같다 — 가입 게이트 (#808)', () => {
+    expect(INVITE_CODE_HINT).toBe(noticeInPrd('회원가입 — 초대 코드 안내'))
   })
 })

@@ -3,6 +3,7 @@ import { Link, Navigate } from 'react-router'
 import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
 import {
   EMAIL_IMMUTABLE_NOTICE,
+  INVITE_CODE_HINT,
   MIN_PASSWORD_LENGTH,
   hasErrors,
   validateSignup,
@@ -26,6 +27,12 @@ import { DEFAULT_PATH } from '../screens'
  *
  * 로그인 실패와 **반대 방향**이다. 감추면 사용자가 가입에 성공했다고 오해한다
  * (`PRD §6.3`의 의도된 비대칭). 서버가 준 문구를 그대로 보여 준다.
+ *
+ * ## 초대 코드 (#808)
+ *
+ * 가입은 **회사 메일 도메인 또는 초대 코드**가 있어야 된다(사내 도구 · `API_SPEC §1.2`).
+ * 칸은 늘 보이되 선택 입력이다 — 회사 메일로 가입하는 평상시에는 비워 둔다. 어느 쪽이
+ * 필요한지는 서버만 알고(설정값), 거절 문구가 둘 다 안내한다.
  */
 export function SignupPage() {
   const user = useAuthUser()
@@ -34,6 +41,7 @@ export function SignupPage() {
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [displayName, setDisplayName] = useState('')
+  const [inviteCode, setInviteCode] = useState('')
   const [errors, setErrors] = useState<FieldErrors>({})
   const [failure, setFailure] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -49,7 +57,7 @@ export function SignupPage() {
     setBusy(true)
     setFailure(null)
     try {
-      await signup(email, password, displayName.trim() || null)
+      await signup(email, password, displayName.trim() || null, undefined, inviteCode)
       // 성공하면 세션이 발급되어 위 Navigate가 대시보드로 보낸다.
     } catch (error) {
       setFailure(
@@ -112,6 +120,15 @@ export function SignupPage() {
           value={displayName}
           onChange={setDisplayName}
           autoComplete="name"
+        />
+        <AuthField
+          id="signup-invite-code"
+          label="초대 코드 (선택)"
+          type="text"
+          value={inviteCode}
+          onChange={setInviteCode}
+          autoComplete="off"
+          hint={INVITE_CODE_HINT}
         />
 
         <button

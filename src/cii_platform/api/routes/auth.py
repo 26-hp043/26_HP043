@@ -56,6 +56,8 @@ from cii_platform.auth.session import (
     create_session_fields,
     hash_token,
 )
+from cii_platform.auth.signup_gate import REJECTED_MESSAGE as SIGNUP_REJECTED_MESSAGE
+from cii_platform.auth.signup_gate import load_signup_gate
 from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_session import UserSession
@@ -171,6 +173,12 @@ async def signup(
     (`PRD §7.10`), 인증 메일 발송은 `#408`이 이 자리에 붙인다.
     """
     email = _normalize_email(payload.email)
+
+    # 가입 게이트 (#808) — 해싱보다 **먼저** 본다. 거절될 요청에 Argon2 한 번(약 60 ms ·
+    # 64 MiB)을 쓰면 게이트가 비용 증폭기가 된다. 거절 문구는 어느 조건에서 떨어졌는지
+    # 말하지 않는다(허용 도메인을 하나씩 캐낼 수 없게).
+    if not load_signup_gate().allows(email, payload.invite_code):
+        return _error_response(request, 422, "VALIDATION_ERROR", SIGNUP_REJECTED_MESSAGE)
 
     try:
         password_hash = await hash_password_async(payload.password)
