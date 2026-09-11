@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.25 |
+| 버전 | v1.26 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-11 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1277,6 +1277,42 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
 | 422 | `VALIDATION_ERROR` | `year`가 2019~2100 밖 |
 
 > **실적이 없는 것은 오류가 아니다.** `ytd.data_available: false`로 200을 반환한다. 404로 내면 신규 등록 선박이 전부 오류로 보인다.
+
+### 2.15 샘플 선박 목록 조회 (#982)
+
+```http
+GET /api/v1/vessels/samples
+```
+
+선박 등록(§2.3) 화면이 **제원을 채우는 출발점**이다(`PRD §5.1` 「샘플 선박 선택」 · `§6.2 SCR-002`). 목록만 돌려주고 선박을 만들지 않는다 — 등록은 사용자가 선명·IMO를 넣어 §2.3으로 한다.
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": [
+    {
+      "sample_id": "bulk-50000-dwt",
+      "label": "샘플 벌크선 (50,000 DWT)",
+      "ship_type": "BULK_CARRIER",
+      "gross_tonnage": 30000.0,
+      "deadweight": 50000.0,
+      "default_fuel_type": null,
+      "reference_speed_kn": 12.0,
+      "reference_daily_foc_ton": 23.04
+    }
+  ],
+  "meta": { "request_id": "…", "timestamp": "…" }
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `sample_id` | 샘플 식별자(문자열). **선박 id가 아니다** — 데모 선박의 UUID를 싣지 않는 이유는 화면이 그것을 상세 화면 링크로 오인할 수 있기 때문이다 |
+| `label` | 목록에 보일 이름. **등록할 배의 선명으로 채우지 않는다** |
+| 나머지 6필드 | §2.3 등록 요청의 **신원(IMO·선명)을 뺀 전 필드.** 수치는 CRUD 층이라 JSON 숫자다(§1.7) |
+
+> **값은 데모 시드의 합성 샘플 3척에서 온다** — 새 제원을 만들지 않는다. 기준속도·기준 일일 연료는 정본 픽스처에서 역산해 검증된 값이다(`#587`). 실존 선박(시드의 2척)은 넣지 않는다: 남의 배 제원을 권하는 꼴이고, 기준 일일 연료가 비어 샘플의 목적(바로 계산되는 제원)에 맞지 않는다. `default_fuel_type`은 시드와 같이 `null`이다(마이그레이션 017 downgrade 보호 · `#451`).
 
 ---
 
@@ -2883,6 +2919,7 @@ GET /api/v1/health
 | POST | `/api/v1/auth/password-reset/confirm` | 비밀번호 재설정 확인 | §1.2 |
 | GET | `/api/v1/vessels` | 선박 목록 | §6.2 SCR-002 |
 | POST | `/api/v1/vessels` | 선박 등록 | §6.2 SCR-002 |
+| GET | `/api/v1/vessels/samples` | 샘플 선박 제원 목록 (#982) | §5.1 · §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}` | 선박 상세 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}/cii-history` | 연도별 CII 이력 | §6.2 SCR-008 |
 | GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
@@ -3120,3 +3157,4 @@ GET /api/v1/health
 | 2026-09-11 | `#830` | **정본↔구현 정합 정정** — ⑴ §6.1 `simulation_runs` 「1000~10000」 → **1000 이상 · 10000 초과는 잘라 실행하고 `SIMULATION_RUNS_CLAMPED`**(`PRD §12.8`). 요청 스키마가 `le=10000`으로 먼저 422를 내 §1.6 경고 표가 규정한 경고가 **HTTP로 도달할 수 없었다** — 코드를 `PRD`에 맞췄고 §1.6 조건도 「상한 초과」로 좁혔다(하한 미만은 422). 같은 행의 필수 표기도 기본값 5000과 모순이라 N으로 ⑵ §1.2 「알고리즘은 `TECH_SPEC`이 확정한다」 → **Argon2id**(`TECH_SPEC`에 그 규정이 없었다) · 코드에만 있던 **비밀번호 규칙(10~128자)·세션 유효기간(7일)** 행 신설 — `auth/session.py`가 이 절을 가리키는데 절에 값이 없었다 ⑶ §1.10 `meta.is_simulated` → `meta.simulated`(§2.14·코드와 통일) ⑷ §2.9 「`meta.fuel_types`는 계속 싣는다」 → 이미 뺐다(`#444`) ⑸ §2.7 예시에 `transport_capacity_basis` ⑹ §3.5 응답이 **항차 객체 전체**임을 명시 ⑺ §5.1 `current_lat/lon` 「Y」 → 조건부(스키마는 처음부터 선택) ⑻ §5.2 예시에 `invalidated_calculation_runs` ⑼ §7.5 미구현 배너(§9와 같은 표기) ⑽ §12 파라미터 Import 추적처 `#444`(닫힘) → `#673`. `AGENTS §4.3` 「오기·값 정정·각주 보강·소규모 행 추가」라 버전은 올리지 않는다 (#830) |
 | 2026-09-11 | `#833` | §1.4·§6.4에 409 `MODEL_VERSION_MISMATCH` · §1.6에 `MODEL_VERSION_DIFFERS` · §6.4 응답에 `model_version` 판정 각주. 종전에는 재현이 `model_version`을 보지 않아 NumPy 업그레이드 뒤의 결과 차이가 500 `REPRODUCIBILITY_ERROR`(계산 결함)로 나갔다. 판정 표는 `TECH_SPEC §10.3`. `AGENTS §4.3`상 소규모 행 추가·각주라 버전은 올리지 않는다 (#833) |
 | 2026-09-11 | `#808` | **§1.2 「가입 제한」 행 신설 · 가입 엔드포인트 설명에 `invite_code`·가입 제한 확인 추가.** 사내 도구로 확정(2026-09-11)되어 가입을 허용 도메인(`SIGNUP_ALLOWED_DOMAINS`) 또는 초대 코드(`SIGNUP_INVITE_CODE`)로 제한한다. 거절은 기존 `422 VALIDATION_ERROR`로 낸다 — `403`은 §1.4에서 CSRF 전용이라 쓰지 않는다. 프로덕션에서 두 설정이 모두 비면 기동을 거부한다(`#809`·`#524`와 같은 기동 시점 가드). 행 추가라 버전은 올리지 않는다 (#808) |
+| 2026-09-11 | `#982` | **v1.26 — §2.15 샘플 선박 목록 조회 신설**(`GET /vessels/samples`) · 엔드포인트 색인 행 추가. 선박 등록 화면이 제원을 채우는 출발점이다(`PRD §5.1` 「샘플 선박 선택」 복원). 값은 데모 시드의 합성 샘플 3척이며 `sample_id`는 선박 UUID가 아니다 — 데모 선박의 id를 실으면 화면이 상세 링크로 오인할 수 있다. 수치는 CRUD 층이라 JSON 숫자(§1.7). 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#982) |

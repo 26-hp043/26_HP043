@@ -29,6 +29,7 @@ from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.cii_history import list_cii_history
+from cii_platform.services.sample_vessels import list_sample_vessels
 from cii_platform.services.vessel import (
     create_vessel,
     delete_vessel,
@@ -69,6 +70,16 @@ async def list_vessels_route(
         session, limit=limit, cursor=cursor, ship_type=ship_type, search=search
     )
     return {"data": data, "meta": _meta(request, **page_meta)}
+
+
+@router.get("/vessels/samples")
+async def list_sample_vessels_route(request: Request) -> dict[str, object]:
+    """샘플 선박 제원 목록 (API_SPEC §2.15 · #982). 선박 등록 화면이 제원을 채우는 출발점.
+
+    **``/vessels/{vessel_id}``보다 먼저 등록한다.** 뒤에 두면 ``samples``가 경로 변수로
+    먼저 잡혀 UUID 검증에서 422가 난다 — 라우트는 등록 순서대로 대조된다.
+    """
+    return {"data": list_sample_vessels(), "meta": _meta(request)}
 
 
 @router.get("/vessels/{vessel_id}")

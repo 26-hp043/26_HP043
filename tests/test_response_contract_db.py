@@ -166,6 +166,23 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "meta.timestamp",
         }
     ),
+    # `API_SPEC §2.15` (#982) — 선박 등록 화면이 제원을 채우는 샘플 목록
+    "/vessels/samples": frozenset(
+        {
+            "data",
+            "data[].default_fuel_type",
+            "data[].deadweight",
+            "data[].gross_tonnage",
+            "data[].label",
+            "data[].reference_daily_foc_ton",
+            "data[].reference_speed_kn",
+            "data[].sample_id",
+            "data[].ship_type",
+            "meta",
+            "meta.request_id",
+            "meta.timestamp",
+        }
+    ),
     # `API_SPEC §2.1`
     "/vessels": frozenset(
         {
