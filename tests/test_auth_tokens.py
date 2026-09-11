@@ -622,3 +622,64 @@ class TestMailFailureCauseIsLogged:
             assert _cause_logged(caplog, module.__name__)
         finally:
             await _cleanup(email)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 응답 계약 — 토큰 경로 네 개의 필드 집합 (#753)
+#
+# `test_response_contract_db.py`의 누락 감지가 이 테스트를 이름으로 가리킨다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _flatten(value, prefix: str = "") -> set[str]:
+    """`test_response_contract_db.flatten`과 같은 규칙 — 테스트 파일끼리 import하지 않는다."""
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        for name, child in value.items():
+            path = f"{prefix}{name}"
+            keys.add(path)
+            keys |= _flatten(child, f"{path}.")
+    elif isinstance(value, list):
+        for item in value:
+            keys |= _flatten(item, f"{prefix[:-1]}[].")
+    return keys
+
+
+#: 네 경로가 같은 모양이다. 요청 두 경로는 **가입 여부와 무관하게 같은 문구**를 내므로
+#: 모양이 갈리면 그 차이로 가입 여부가 드러난다.
+MESSAGE_CONTRACT = frozenset({"data", "data.message", "meta", "meta.request_id", "meta.timestamp"})
+
+
+class TestTokenRouteContract:
+    async def test_token_routes_match_the_contract(self, client):
+        from cii_platform.db.session import get_sessionmaker
+        from cii_platform.services.auth_token import issue_token as issue
+
+        email = "contract-token@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+
+            requests = ("/api/v1/auth/verify-email/request", "/api/v1/auth/password-reset/request")
+            for path in requests:
+                resp = client.post(path, json={"email": email})
+                assert resp.status_code == 200, f"{path}: {resp.text}"
+                assert _flatten(resp.json()) == MESSAGE_CONTRACT, path
+
+            user_id = await _user_id(email)
+            async with get_sessionmaker()() as s:
+                verify = await issue(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
+                reset = await issue(s, user_id=user_id, purpose=PURPOSE_PASSWORD_RESET)
+                await s.commit()
+
+            confirmed = client.post("/api/v1/auth/verify-email/confirm", json={"token": verify})
+            assert confirmed.status_code == 200, confirmed.text
+            assert _flatten(confirmed.json()) == MESSAGE_CONTRACT
+
+            done = client.post(
+                "/api/v1/auth/password-reset/confirm",
+                json={"token": reset, "password": NEW_PASSWORD},
+            )
+            assert done.status_code == 200, done.text
+            assert _flatten(done.json()) == MESSAGE_CONTRACT
+        finally:
+            await _cleanup(email)

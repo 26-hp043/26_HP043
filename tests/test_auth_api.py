@@ -248,3 +248,107 @@ class TestEnvExample:
         content = (_PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
         assert "GOOGLE_CLIENT_ID" not in content
         assert "OIDC_REDIRECT_URI" not in content
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 응답 계약 — 인증 경로의 필드 집합 (#753)
+#
+# `test_response_contract_db.py`는 데모 시드를 **읽는** 파일이라 계정을 만들고 지우는
+# 경로를 여기 둔다 — 이 파일은 이미 계정을 만들고 `_cleanup`으로 지운다. 그 파일의
+# 누락 감지(`test_every_route_has_a_contract_or_a_reason`)가 이 테스트를 이름으로 가리킨다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _flatten(value, prefix: str = "") -> set[str]:
+    """`test_response_contract_db.flatten`과 같은 규칙 — 테스트 파일끼리 import하지 않는다."""
+    keys: set[str] = set()
+    if isinstance(value, dict):
+        for name, child in value.items():
+            path = f"{prefix}{name}"
+            keys.add(path)
+            keys |= _flatten(child, f"{path}.")
+    elif isinstance(value, list):
+        for item in value:
+            keys |= _flatten(item, f"{prefix[:-1]}[].")
+    return keys
+
+
+_META = {"meta", "meta.request_id", "meta.timestamp"}
+
+#: 사용자 공개 표현(`routes/auth.py` `_user_payload`). 가입·로그인·조회·이름 변경이 같다.
+USER_CONTRACT = frozenset(
+    {
+        "data",
+        "data.display_name",
+        "data.email",
+        "data.email_verified_at",
+        "data.id",
+        "data.last_login_at",
+    }
+    | _META
+)
+
+PASSWORD_CHANGE_CONTRACT = frozenset({"data", "data.message", "data.revoked_sessions"} | _META)
+
+
+class TestResponseContract:
+    async def test_account_routes_share_the_user_contract(self, client):
+        """가입·로그인·내 정보·이름 변경은 **같은 사용자 표현**을 돌려준다.
+
+        화면(`auth/session.ts`)은 넷의 응답을 같은 캐시에 넣는다. 한 곳만 필드가 빠지면
+        그 경로로 들어온 사용자만 이름이 비어 보인다.
+        """
+        email = "contract-account@example.com"
+        new_password = "another-correct-horse"
+        try:
+            signed_up = client.post(
+                "/api/v1/auth/signup", json={"email": email, "password": PASSWORD}
+            )
+            assert signed_up.status_code == 201, signed_up.text
+            assert _flatten(signed_up.json()) == USER_CONTRACT
+
+            me = client.get("/api/v1/auth/me")
+            assert _flatten(me.json()) == USER_CONTRACT
+
+            csrf = {"X-CSRF-Token": client.cookies.get("csrf", "")}
+            renamed = client.patch("/api/v1/auth/me", headers=csrf, json={"display_name": "계약"})
+            assert renamed.status_code == 200, renamed.text
+            assert _flatten(renamed.json()) == USER_CONTRACT
+
+            changed = client.post(
+                "/api/v1/auth/password-change",
+                headers=csrf,
+                json={"current_password": PASSWORD, "new_password": new_password},
+            )
+            assert changed.status_code == 200, changed.text
+            assert _flatten(changed.json()) == PASSWORD_CHANGE_CONTRACT
+
+            logged_in = client.post(
+                "/api/v1/auth/login", json={"email": email, "password": new_password}
+            )
+            assert logged_in.status_code == 200, logged_in.text
+            assert _flatten(logged_in.json()) == USER_CONTRACT
+        finally:
+            await _cleanup([email])
+
+    async def test_logout_and_delete_have_no_body(self, client):
+        """로그아웃·탈퇴는 **204 · 본문 없음**이다.
+
+        화면이 본문을 읽으려 하면 JSON 파싱이 깨진다 — 본문이 생기거나 사라지는 것
+        모두 계약 변경이다.
+        """
+        email = "contract-bye@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            csrf = {"X-CSRF-Token": client.cookies.get("csrf", "")}
+            out = client.post("/api/v1/auth/logout", headers=csrf)
+            assert out.status_code == 204, out.text
+            assert out.content == b""
+
+            client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+            csrf = {"X-CSRF-Token": client.cookies.get("csrf", "")}
+            gone = client.delete("/api/v1/auth/me", headers=csrf)
+            assert gone.status_code == 204, gone.text
+            assert gone.content == b""
+        finally:
+            await _cleanup([email])
