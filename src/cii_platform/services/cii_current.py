@@ -207,6 +207,7 @@ def _voyage_segment(
     transport_capacity: Decimal,
     cf_by_fuel: dict[str, Decimal],
     fuel_code: str | None,
+    fuel_split: FuelSplit | None = None,
 ) -> dict[str, object]:
     """진행 중 항차 **구간만**의 CII (``PRD §3.3`` ⑵ · ``COR-1``).
 
@@ -235,7 +236,8 @@ def _voyage_segment(
         "co2_ton": None,
     }
 
-    if fuel_code is None or fuel_code not in cf_by_fuel:
+    split = fuel_split or (((fuel_code, Decimal(1)),) if fuel_code is not None else ())
+    if not split or any(code not in cf_by_fuel for code, _ in split):
         # 유종을 모르면 CO₂를 만들 수 없다. 임의의 CF를 넣으면 화면은 깨지지 않고
         # 값만 틀린다.
         return base
@@ -243,12 +245,11 @@ def _voyage_segment(
         return base
 
     result = calculate_attained_cii(
+        # YTD 기여분과 **같은 몫**으로 나눈다 (`#885`). 한쪽만 나누면 같은 항차의 구간
+        # CO₂와 누적에 들어간 CO₂가 설명 없이 다르다.
         fuel_uses=[
-            FuelUse(
-                fuel_code=fuel_code,
-                fuel_ton=progress.fuel_ton,
-                cf_value=cf_by_fuel[fuel_code],
-            )
+            FuelUse(fuel_code=code, fuel_ton=ton, cf_value=cf_by_fuel[code])
+            for code, ton in _split_fuel(progress.fuel_ton, split)
         ],
         transport_capacity=transport_capacity,
         distance_nm=progress.distance_nm,
@@ -444,16 +445,68 @@ async def _resolve_progress(session: AsyncSession, *, vessel, voyage, as_of: dat
     )
 
 
-async def _voyage_fuel_code(session: AsyncSession, *, voyage, vessel) -> str | None:
-    """진행 중 항차가 태우는 유종.
+#: 유종별 몫. ``((유종, 몫), …)`` — 몫의 합은 1이다.
+FuelSplit = tuple[tuple[str, Decimal], ...]
 
-    항차 연료 기록의 첫 유종을 쓰고, 없으면 선박 기본 연료로 내려간다. 둘 다 없으면
-    ``None`` — **임의로 ``HFO``를 채우지 않는다.** CF가 달라 CO₂가 틀리고, 화면은
-    그 사실을 알 수 없다.
+
+async def _voyage_fuel_split(session: AsyncSession, *, voyage, vessel) -> FuelSplit | None:
+    """진행 중 항차의 연료를 유종별로 나눌 몫 (``PRD §3.3.8`` · `#885`).
+
+    ## 왜 몫인가
+
+    시뮬레이션 시계(`#368`)는 ``reference_daily_foc_ton × 경과시간``으로 **총 연료량
+    하나**를 낸다. 종전에는 그 총량 전부에 **연료 기록의 첫 유종** CF를 곱했다 — `#867`의
+    정렬로 순서는 안정됐으나 **사전순 첫 유종이 대표가 되는 근거는 정본에 없었다.**
+    HFO 60 t + 가스오일 40 t 계획이면 소수 유종인 가스오일의 CF(3.206)가 전량에 곱해진다.
+
+    같은 축의 다른 갈래는 이미 유종별이다 — YTD 항해 연료(`#863`)와 not under way(`030`).
+    진행분만 하나로 뭉개져 있었다. **계획 연료량 비율로 나눈다.** 입력은 이미 있다.
+
+    ## 종전 동작을 지키는 곳
+
+    - 계획량이 비어 있으면(전부 ``NULL`` — 실적만 기록된 연료 행) **종전대로 첫 유종 하나**(몫 1).
+      비율을 만들 근거가 없다. ``chk_fuel_positive``가 0을 막아 합이 0이 되는 길은 ``NULL``뿐이다
+    - 연료 기록이 없으면 **선박 기본 연료** 하나
+    - 둘 다 없으면 ``None`` — **임의로 ``HFO``를 채우지 않는다.** CF가 달라 CO₂가 틀리고,
+      화면은 그 사실을 알 수 없다
+    - 단일 유종이면 몫이 1이라 **값이 종전과 같다**(현재 대다수)
     """
-    for fuel_use in await voyage_repo.list_fuel_uses(session, voyage.id):
-        return fuel_use.fuel_type
-    return vessel.default_fuel_type
+    fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
+    planned = [(fu.fuel_type, Decimal(str(fu.planned_fuel_ton or 0))) for fu in fuel_uses]
+    total = sum((ton for _, ton in planned), Decimal(0))
+    if total > 0:
+        return tuple((code, ton / total) for code, ton in planned if ton > 0)
+    if fuel_uses:
+        return ((fuel_uses[0].fuel_type, Decimal(1)),)
+    if vessel.default_fuel_type is not None:
+        return ((vessel.default_fuel_type, Decimal(1)),)
+    return None
+
+
+def _split_fuel(total_ton: Decimal, split: FuelSplit) -> tuple[tuple[str, Decimal], ...]:
+    """총 연료를 몫대로 나눈다. **마지막 몫은 「총량 − 나머지 합」**이다.
+
+    몫마다 곱하면 반올림 찌꺼기로 합이 총량과 어긋날 수 있다 — 누적 연료가 원래보다
+    미세하게 늘거나 줄면 같은 화면의 「누적 연료」와 CO₂가 설명되지 않는다.
+    """
+    parts: list[tuple[str, Decimal]] = []
+    assigned = Decimal(0)
+    for index, (code, share) in enumerate(split):
+        ton = total_ton - assigned if index == len(split) - 1 else total_ton * share
+        parts.append((code, ton))
+        assigned += ton
+    return tuple(parts)
+
+
+def _display_fuel(split: FuelSplit | None) -> str | None:
+    """``current_voyage.fuel_type``에 싣는 유종 — **계획량이 가장 큰 유종**이다.
+
+    필드는 문자열 하나다(`API_SPEC §2.8`). 목록으로 바꾸면 계약이 깨지므로 계산은
+    몫으로 하고 표시는 대표 하나로 한다. 몫이 같으면 유종순(`#867`)의 앞이다.
+    """
+    if not split:
+        return None
+    return max(split, key=lambda item: item[1])[0]
 
 
 # ─── 진입점 ──────────────────────────────────────────────────────────────────
@@ -480,6 +533,8 @@ class InProgressState:
     warnings: list[str]
     #: 진행 중 항차가 선언한 규제연도. 항차가 없으면 ``None``이다 (#815).
     regulation_year: int | None = None
+    #: 진행 연료를 나눌 유종별 몫 (`#885`). ``fuel_code``는 이 중 표시용 대표 하나다.
+    fuel_split: FuelSplit | None = None
 
     def for_year(self, regulation_year: int) -> InProgressState:
         """조회 연도에 **속하는** 진행분만 남긴다 (#815).
@@ -522,20 +577,22 @@ async def resolve_in_progress_state(
     if voyage is None:
         return InProgressState(None, None, None, None, [], None)
 
-    fuel_code = await _voyage_fuel_code(session, voyage=voyage, vessel=vessel)
+    fuel_split = await _voyage_fuel_split(session, voyage=voyage, vessel=vessel)
+    fuel_code = _display_fuel(fuel_split)
     progress = await _resolve_progress(session, vessel=vessel, voyage=voyage, as_of=as_of)
 
     contribution: InProgressContribution | None = None
     warnings: list[str] = []
 
-    if progress.distance_nm > 0 and progress.fuel_ton > 0 and fuel_code is not None:
+    if progress.distance_nm > 0 and progress.fuel_ton > 0 and fuel_split is not None:
         contribution = InProgressContribution(
             distance_nm=progress.distance_nm,
-            fuel_uses=((fuel_code, progress.fuel_ton),),
+            # 유종별로 나눠 각자의 CF를 곱한다 (`#885`). 종전에는 유종 하나였다.
+            fuel_uses=_split_fuel(progress.fuel_ton, fuel_split),
         )
     elif progress.distance_nm > 0 and progress.fuel_ton <= 0:
         warnings.append(WARNING_SIM_NO_FUEL_RATE)
-    elif progress.distance_nm > 0 and fuel_code is None:
+    elif progress.distance_nm > 0 and fuel_split is None:
         warnings.append(WARNING_SIM_NO_FUEL_TYPE)
 
     # 예정일에서 잘렸다는 사실은 **값이 들어갔든 아니든** 알린다 (`#649`).
@@ -550,7 +607,13 @@ async def resolve_in_progress_state(
         warnings.append(WARNING_SIM_NO_REFERENCE_SPEED)
 
     return InProgressState(
-        voyage, progress, contribution, fuel_code, warnings, voyage.regulation_year
+        voyage,
+        progress,
+        contribution,
+        fuel_code,
+        warnings,
+        voyage.regulation_year,
+        fuel_split=fuel_split,
     )
 
 
@@ -588,6 +651,7 @@ async def get_current_cii(
     progress = state.progress
     contribution = state.contribution
     fuel_code = state.fuel_code
+    fuel_split = state.fuel_split
     live_warnings: list[str] = [*state.warnings]
 
     try:
@@ -602,8 +666,8 @@ async def get_current_cii(
         raise CalculationError(str(exc)) from exc
 
     cf_by_fuel: dict[str, Decimal] = {}
-    if fuel_code is not None:
-        rows = await param_repo.get_fuel_types_by_codes(session, [fuel_code])
+    if fuel_split:
+        rows = await param_repo.get_fuel_types_by_codes(session, [c for c, _ in fuel_split])
         cf_by_fuel = {code: Decimal(str(row.cf)) for code, row in rows.items()}
 
     data: dict[str, object] = {
@@ -622,6 +686,7 @@ async def get_current_cii(
                 transport_capacity=ytd.transport_capacity,
                 cf_by_fuel=cf_by_fuel,
                 fuel_code=fuel_code,
+                fuel_split=fuel_split,
             )
         ),
         # ⑶은 **잔여 계획 항차**를 근거로 낸다 (`#798`). 진행 중 항차가 없어도,

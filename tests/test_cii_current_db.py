@@ -714,9 +714,10 @@ async def test_representative_fuel_survives_a_row_update(session):
     2유종 항차에서 조회 → UPDATE → 재조회의 대표 유종이 같은지 본다. 정렬이
     유종순이므로 사전순 앞인 ``DIESEL_GAS_OIL``이 안정적으로 대표가 된다.
 
-    ⚠️ **어느 유종이 대표여야 하는가는 이 검사의 범위가 아니다** — 정본에 규칙이
-    없어 별도 이슈로 분리했다(계획 비율 안분). 여기서 고정하는 것은 **같은
-    데이터가 같은 답을 내는가**다.
+    ⚠️ **어느 유종이 대표여야 하는가는 이 검사의 범위가 아니다.** `#885`가 연료를
+    **계획 비율로 안분**하도록 바꿨고, 대표 유종은 표시용(계획량 최대, 같으면 유종순
+    앞)으로만 남았다 — 아래 두 유종은 계획량이 같아 유종순 앞이 대표다. 여기서 고정하는
+    것은 **같은 데이터가 같은 답을 내는가**다.
     """
     vessel_id = await _make_vessel(session)
     confirmed = await _make_voyage(session, vessel_id)
@@ -752,3 +753,131 @@ async def test_representative_fuel_survives_a_row_update(session):
     assert before == "DIESEL_GAS_OIL", (
         f"정렬이 유종순이 아니다 — 삽입 순서(HFO 먼저)가 남아 있다: {before}"
     )
+
+
+async def _add_planned_fuels(session, voyage_id, plans):
+    for fuel_type, planned, cf in plans:
+        await session.execute(
+            text(
+                "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
+                "cf_used, source) VALUES (:id, :ft, :planned, :cf, 'USER_INPUT')"
+            ),
+            {"id": voyage_id, "ft": fuel_type, "planned": planned, "cf": Decimal(cf)},
+        )
+
+
+@pytest.mark.asyncio
+async def test_multi_fuel_progress_is_split_by_planned_ratio(session):
+    """다유종 진행 항차의 연료가 **계획 비율로 나뉘어** 각 유종의 CF를 받는다 (`#885`).
+
+    종전에는 총 진행 연료 **전량에 첫 유종 하나의 CF**를 곱했다. HFO 60 t + 가스오일
+    40 t 계획이면 소수 유종인 가스오일(3.206)이 전체를 대표했다. 같은 축의 다른
+    갈래(YTD 항해 연료 `#863` · not under way `030`)는 이미 유종별이었다.
+
+    **합이 총량과 정확히 같은지**도 본다 — 몫마다 곱하면 반올림 찌꺼기로 누적 연료가
+    원래보다 미세하게 달라질 수 있어, 마지막 몫은 「총량 − 나머지」로 둔다.
+    """
+    vessel_id = await _make_vessel(session)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    in_progress = await _make_voyage(
+        session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC)
+    )
+    await _add_planned_fuels(
+        session, in_progress, [("HFO", 60, "3.114"), ("DIESEL_GAS_OIL", 40, "3.206")]
+    )
+
+    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    state = await resolve_in_progress_state(session, vessel=vessel, as_of=MID_YEAR)
+    assert state.contribution is not None, "사전 조건: 진행분이 누적에 들어가야 한다"
+
+    total = state.progress.fuel_ton
+    parts = dict(state.contribution.fuel_uses)
+    assert set(parts) == {"HFO", "DIESEL_GAS_OIL"}
+    assert parts["HFO"] + parts["DIESEL_GAS_OIL"] == total
+    # 60 : 40 — 반올림 찌꺼기는 마지막 몫이 흡수하므로 근사로 본다.
+    assert abs(parts["HFO"] / total - Decimal("0.6")) < Decimal("1e-20")
+    # 표시용 대표는 계획량이 가장 큰 유종이다.
+    assert state.fuel_code == "HFO"
+
+
+@pytest.mark.asyncio
+async def test_segment_co2_uses_the_same_split(session):
+    """``current_voyage`` 구간 CO₂가 누적 기여분과 **같은 몫**으로 계산된다 (`#885`).
+
+    한쪽만 나누면 같은 항차의 구간 CO₂와 누적에 들어간 CO₂가 설명 없이 다르다.
+    """
+    vessel_id = await _make_vessel(session)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    in_progress = await _make_voyage(
+        session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC)
+    )
+    await _add_planned_fuels(
+        session, in_progress, [("HFO", 60, "3.114"), ("DIESEL_GAS_OIL", 40, "3.206")]
+    )
+
+    data, _meta = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    segment = data["current_voyage"]
+    fuel = Decimal(segment["fuel_ton"])
+    expected = fuel * (Decimal("0.6") * Decimal("3.114") + Decimal("0.4") * Decimal("3.206"))
+    # 공개값은 2자리 반올림이다(`co2_ton`).
+    assert abs(Decimal(segment["co2_ton"]) - expected) <= Decimal("0.01"), (
+        f"구간 CO₂ {segment['co2_ton']} ≠ 안분 기대값 {expected:.4f}"
+    )
+    assert segment["fuel_type"] == "HFO"
+
+
+@pytest.mark.asyncio
+async def test_single_fuel_progress_is_unchanged(session):
+    """단일 유종 항차는 **종전과 같은 값**을 낸다 — 몫이 1이다 (현재 대다수)."""
+    vessel_id = await _make_vessel(session)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    in_progress = await _make_voyage(
+        session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC)
+    )
+    await _add_planned_fuels(session, in_progress, [("HFO", 80, "3.114")])
+
+    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    state = await resolve_in_progress_state(session, vessel=vessel, as_of=MID_YEAR)
+    assert state.contribution.fuel_uses == (("HFO", state.progress.fuel_ton),)
+
+
+@pytest.mark.asyncio
+async def test_missing_planned_fuel_falls_back_to_the_first_fuel(session):
+    """계획량이 비어 있으면(전부 ``NULL``) **종전대로 첫 유종 하나**다 — 비율을 만들 근거가 없다.
+
+    ``chk_fuel_positive``가 계획량 0을 막으므로 합이 0이 되는 길은 ``NULL``뿐이다 —
+    계획 없이 **실적만 기록된** 연료 행이다.
+    """
+    vessel_id = await _make_vessel(session)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    in_progress = await _make_voyage(
+        session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC)
+    )
+    await _add_planned_fuels(
+        session, in_progress, [("HFO", None, "3.114"), ("DIESEL_GAS_OIL", None, "3.206")]
+    )
+
+    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    state = await resolve_in_progress_state(session, vessel=vessel, as_of=MID_YEAR)
+    # 유종순(`#867`) 첫 항목이 전량을 받는다.
+    assert state.contribution.fuel_uses == (("DIESEL_GAS_OIL", state.progress.fuel_ton),)
+
+
+def test_split_parts_sum_exactly_to_the_total():
+    """몫대로 나눈 연료의 합이 **총량과 정확히 같다** — 반올림 찌꺼기가 없다 (`#885`).
+
+    3등분처럼 몫이 딱 떨어지지 않으면 곱한 값의 합이 총량에서 미세하게 벗어난다.
+    실측에서 ``91.3333``이 ``91.33329999…``가 됐다. 누적 연료가 원래보다 달라지면 같은
+    화면의 「누적 연료」와 CO₂가 설명되지 않는다 — 그래서 마지막 몫을 「총량 − 나머지」로
+    둔다. 60:40 같은 비율은 찌꺼기가 없어 위 DB 검사로는 이 보정을 볼 수 없다.
+    """
+    from cii_platform.services.cii_current import _split_fuel
+
+    third = Decimal(1) / Decimal(3)
+    for total in (Decimal("91.3333"), Decimal("0.7777"), Decimal("137.4521")):
+        parts = _split_fuel(total, (("A", third), ("B", third), ("C", third)))
+        assert sum(ton for _, ton in parts) == total, f"{total}: 합이 어긋남"
