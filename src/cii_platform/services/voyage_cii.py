@@ -69,6 +69,7 @@ from cii_platform.calc.rating_engine import (
 from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
+from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import (
     CalculationError,
     NotFoundError,
@@ -153,6 +154,8 @@ class VoyageCiiInput:
     speed_kn: Decimal
     fuel_uses: tuple[FuelUseInput, ...]
     weather_model: str | None = None
+    #: 귀속 항차 (#817). 결과·``input_hash``에 영향이 없다 — 이력의 주소일 뿐이다.
+    voyage_id: UUID | None = None
 
 
 # --- Layer 1 계산 결과 -------------------------------------------------------------
@@ -339,6 +342,8 @@ async def estimate_voyage_cii(session: AsyncSession, payload: VoyageCiiInput) ->
     started = time.perf_counter()
 
     vessel = await _load_vessel(session, payload.vessel_id)
+    if payload.voyage_id is not None:
+        await _require_voyage_of_vessel(session, payload.voyage_id, payload.vessel_id)
     regulation = await _load_regulation_year(session, payload.regulation_year)
     reference_line = await _select_reference_line(session, vessel)
     rating_boundary = await _select_rating_boundary(session, vessel)
@@ -412,6 +417,7 @@ async def estimate_voyage_cii(session: AsyncSession, payload: VoyageCiiInput) ->
     run = await calc_run_repo.insert_voyage_estimate(
         session,
         vessel_id=payload.vessel_id,
+        voyage_id=payload.voyage_id,
         input_hash=input_hash,
         parameter_hash=parameter_hash,
         model_version=model_version,
@@ -436,6 +442,23 @@ async def estimate_voyage_cii(session: AsyncSession, payload: VoyageCiiInput) ->
 
 
 # --- 조회 + 규칙 적용 --------------------------------------------------------------
+
+
+async def _require_voyage_of_vessel(
+    session: AsyncSession, voyage_id: UUID, vessel_id: UUID
+) -> None:
+    """귀속 항차가 **이 선박의 살아 있는 항차**인지 확인한다 (#817).
+
+    다른 선박의 항차에 붙으면 그 항차의 계획이 바뀔 때 **엉뚱한 선박의 계산**이 재계산
+    필요로 표시된다. 없는 항차면 404 — 선박이 없을 때와 같다.
+    """
+    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    if voyage is None or voyage.is_deleted:
+        raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
+    if voyage.vessel_id != vessel_id:
+        raise ValidationError(
+            "이 선박의 항차가 아닙니다.", field="voyage_id", field_label="귀속 항차"
+        )
 
 
 async def _load_vessel(session: AsyncSession, vessel_id: UUID):

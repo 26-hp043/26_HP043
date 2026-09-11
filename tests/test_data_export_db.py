@@ -198,9 +198,13 @@ async def test_exported_file_can_be_imported_again(session, vessel_id):
 def test_voyage_table_has_no_cii_columns():
     """IT-EXPORT-002 — 항차 표에 `attained_cii`·`rating`이 **없다**.
 
-    `calculation_run.voyage_id`가 항상 NULL이라 어떤 항차의 계산인지 되짚을 수 없고,
-    「항차 하나의 CII」는 정본에 정의된 양도 아니다(`PRD §8.1.2` — CII는 연간
-    집계량). 열을 두고 비워 놓으면 「아직 계산 안 됨」으로 읽힌다.
+    「항차 하나의 CII」는 정본에 정의된 양이 아니다(`PRD §8.1.2` — CII는 연간 집계량).
+    열을 두고 비워 놓으면 「아직 계산 안 됨」으로 읽힌다.
+
+    ⚠️ **종전의 둘째 근거(`calculation_run.voyage_id`가 항상 NULL)는 `#817`로 사라졌다** —
+    항차를 밝힌 기능① 계산은 이제 그 항차에 붙는다. 그래서 전제를 잠그던 검사를 걷어내고
+    다시 판단했다: 귀속된 계산이 있어도 그것은 **「그 항차 조건의 가정 계산」**이지 정본이
+    말하는 CII(연간 집계)가 아니므로 **열을 두지 않는 판단은 그대로다**(`API_SPEC §8.1`).
     """
     assert "attained_cii" not in VOYAGE_COLUMNS
     assert "rating" not in VOYAGE_COLUMNS
@@ -208,19 +212,6 @@ def test_voyage_table_has_no_cii_columns():
     # 반대 방향 — CO₂는 연료 × CF로 **계산할 수 있으므로** 싣는다. 둘을 함께 빼면
     # 「어려우니 다 뺐다」가 되고 파일의 쓸모가 사라진다.
     assert "co2_ton" in VOYAGE_COLUMNS
-
-
-@pytest.mark.asyncio
-async def test_calculation_run_is_never_linked_to_a_voyage(session, vessel_id):
-    """IT-EXPORT-002 — 위 판단의 **전제**를 직접 잠근다.
-
-    언젠가 `voyage_id`를 채우게 되면 이 단언이 깨지고, 그때 항차 표에 CII를 실을지
-    다시 판단하게 된다. 전제를 적어만 두면 조건이 바뀐 것을 아무도 모른다.
-    """
-    linked = await session.scalar(
-        text("SELECT count(*) FROM calculation_run WHERE voyage_id IS NOT NULL")
-    )
-    assert linked == 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────

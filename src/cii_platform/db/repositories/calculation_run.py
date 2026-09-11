@@ -106,6 +106,7 @@ async def insert_voyage_estimate(
     session: AsyncSession,
     *,
     vessel_id: UUID,
+    voyage_id: UUID | None = None,
     input_hash: str,
     parameter_hash: str,
     model_version: dict[str, object],
@@ -128,7 +129,9 @@ async def insert_voyage_estimate(
     run = CalculationRun(
         calculation_type=CALCULATION_TYPE_VOYAGE,
         vessel_id=vessel_id,
-        voyage_id=None,
+        # 요청이 항차를 밝힌 경우만 귀속한다 (#817 · 2026-09-11 결정 2-③). 밝히지 않은
+        # 기능① 계산은 NULL이다 — 항차를 특정하지 않은 가정 계산이기 때문이다.
+        voyage_id=voyage_id,
         weather_snapshot_id=None,
         input_hash=input_hash,
         parameter_hash=parameter_hash,

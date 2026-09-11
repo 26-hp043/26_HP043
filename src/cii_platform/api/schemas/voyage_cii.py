@@ -53,3 +53,7 @@ class VoyageCiiRequest(BaseModel):
     # 최소 1개. 빈 배열이면 계산할 CO₂가 없다.
     fuel_uses: Annotated[list[FuelUseRequest], Field(min_length=1)]
     weather_model: WeatherModel | None = None
+    #: 이 계산이 **어느 항차의 것인가** (#817 · 선택). 주면 계산 이력이 그 항차에 붙어,
+    #: 항차 계획이 바뀔 때 재계산 필요로 표시된다(`PRD §8.4`). 결과에는 영향이 없다 —
+    #: ``input_hash``에 넣지 않는다.
+    voyage_id: UUID | None = None
