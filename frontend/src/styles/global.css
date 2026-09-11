@@ -114,6 +114,14 @@ h1 {
   font-size: var(--font-size-display);
   font-weight: var(--font-weight-display);
   line-height: var(--line-height-display);
+  /*
+   * `DESIGN_SYSTEM §3` 자간 — display·title 급은 조인다. `§3`은 화면이 아니라 **크기
+   * 토큰**에 조임을 거므로 display 크기를 정하는 이 자리에 둔다 (#749).
+   *
+   * 종전에는 `PageHeader`의 제목에만 있어 같은 display 크기인 선박 등록 화면 제목은
+   * 조여지지 않았다. 자체 자간을 적은 제목(인증 화면 `.auth-title`)은 그 값이 이긴다.
+   */
+  letter-spacing: var(--letterSpacing-tight);
 }
 
 h2 {
