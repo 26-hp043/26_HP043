@@ -222,6 +222,9 @@ class TestLogin:
                 == LOGIN_FAILED_MESSAGE
             )
             assert wrong_password.json()["error"]["code"] == unknown_email.json()["error"]["code"]
+            # #902 — 자격 증명 오류는 INVALID_CREDENTIALS. 세션 문제(UNAUTHORIZED)와
+            # code로 가른다. 문구·시간은 여전히 같으므로 존재 비노출(§1.2)은 지켜진다.
+            assert wrong_password.json()["error"]["code"] == "INVALID_CREDENTIALS"
         finally:
             await _cleanup(["secret@example.com"])
 

@@ -24,6 +24,9 @@ from __future__ import annotations
 ERROR_HTTP_STATUS: dict[str, int] = {
     "BAD_REQUEST": 400,  # API_SPEC §1.4: JSON 파싱 오류, 잘못된 Content-Type
     "UNAUTHORIZED": 401,  # API_SPEC §1.4: 세션 없음·만료·무횜 (#275)
+    # API_SPEC §1.4: 자격 증명 불일치 — 클라이언트가 code만으로 세션 문제와
+    # 가른다 (#902). 세션 오류와 같은 401이지만 code가 다르다.
+    "INVALID_CREDENTIALS": 401,
     "CSRF_ERROR": 403,  # API_SPEC §1.4: CSRF 토큰 누락·불일치 (#275)
     "NOT_FOUND": 404,  # API_SPEC §1.4: 존재하지 않는 리소스 ID
     "PARAMETER_ERROR": 409,  # TECH_SPEC §12.1: 규정 파라미터 누락/불일치

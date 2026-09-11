@@ -277,7 +277,9 @@ async def login(
             ip_address=_client_ip(request),
         )
         await session.commit()
-        return _error_response(request, 401, "UNAUTHORIZED", LOGIN_FAILED_MESSAGE)
+        # INVALID_CREDENTIALS — 세션 문제(UNAUTHORIZED)와 code로 가른다 (#902).
+        # 문구·응답 시간은 여전히 같다(계정 존재 비노출, §1.2).
+        return _error_response(request, 401, "INVALID_CREDENTIALS", LOGIN_FAILED_MESSAGE)
 
     if not await verify_password_async(payload.password, user.password_hash):
         await audit_svc.record_login_failure(
@@ -286,7 +288,7 @@ async def login(
             ip_address=_client_ip(request),
         )
         await session.commit()
-        return _error_response(request, 401, "UNAUTHORIZED", LOGIN_FAILED_MESSAGE)
+        return _error_response(request, 401, "INVALID_CREDENTIALS", LOGIN_FAILED_MESSAGE)
 
     session_token, csrf_token = await _issue_session(session, request, user)
     await audit_svc.record_login_success(
@@ -378,7 +380,11 @@ async def change_password(
     # 현재 비밀번호가 틀리면 여기서 끝낸다. **새 비밀번호 정책 검사보다 먼저** 본다 —
     # 순서가 반대면 「현재 비밀번호가 틀렸는데 새 비밀번호 규칙만 알려 주는」 응답이 난다.
     if not await verify_password_async(payload.current_password, user.password_hash):
-        return _error_response(request, 401, "UNAUTHORIZED", "현재 비밀번호가 올바르지 않습니다.")
+        # INVALID_CREDENTIALS — 세션이 살아 있고 자격 증명만 틀렸다 (#902).
+        # 클라이언트는 폼에 머물러 이 문구를 보여 준다(세션 만료와 가른다).
+        return _error_response(
+            request, 401, "INVALID_CREDENTIALS", "현재 비밀번호가 올바르지 않습니다."
+        )
 
     try:
         validate_password(payload.new_password)

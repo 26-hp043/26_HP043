@@ -154,11 +154,29 @@ class TestPasswordChange:
                 headers=_csrf_headers(client),
             )
             assert resp.status_code == 401, resp.text
+            # #902 — 자격 증명 오류는 INVALID_CREDENTIALS. 세션 없음(UNAUTHORIZED)과
+            # code로 가른다 — 클라이언트가 문구 대조로 판별하지 않게 한다.
+            assert resp.json()["error"]["code"] == "INVALID_CREDENTIALS"
 
             after = await _fetch_user(email)
             assert after["password_hash"] == before["password_hash"]
         finally:
             await _cleanup([email])
+
+    async def test_missing_session_and_wrong_password_have_different_codes(self, client):
+        """같은 401이라 **사유가 다르면 code가 다르다** (#902 · `API_SPEC §1.4`).
+
+        세션 없음 → `UNAUTHORIZED`(세션 문제), 현재 비밀번호 오입력 →
+        `INVALID_CREDENTIALS`(자격 증명 문제). 클라이언트는 이 판별로
+        「폼에 머물러 문구를 보여 준다」와 「로그인 화면으로 보낸다」를 가른다.
+        """
+        client.cookies.clear()
+        unauthenticated = client.post(
+            "/api/v1/auth/password-change",
+            json={"current_password": "x", "new_password": NEW_PASSWORD},
+        )
+        assert unauthenticated.status_code == 401
+        assert unauthenticated.json()["error"]["code"] == "UNAUTHORIZED"
 
     async def test_current_password_is_checked_before_policy(self, client):
         """현재 비밀번호가 틀리면 **새 비밀번호 규칙을 알려 주지 않는다.**

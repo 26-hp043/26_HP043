@@ -551,35 +551,27 @@ export async function changePassword(
 
   const body = (await response.json().catch(() => null)) as {
     data?: { message?: string }
-    error?: { message?: string }
+    error?: { code?: string; message?: string }
   } | null
 
   /*
-   * 401 하나에 두 사유가 섞여 있다 (`#878`).
-   *
-   * ## 실측 — `code`로는 가를 수 없다
+   * 401의 두 사유를 `code`로 가른다 (#902).
    *
    * ```
-   * 세션 만료   {"code":"UNAUTHORIZED","message":"인증이 필요합니다."}
-   * 비번 오입력 {"code":"UNAUTHORIZED","message":"현재 비밀번호가 올바르지 않습니다."}
+   * 세션 만료   {"code":"UNAUTHORIZED",          "message":"인증이 필요합니다."}
+   * 비번 오입력 {"code":"INVALID_CREDENTIALS",   "message":"현재 비밀번호가 올바르지 않습니다."}
    * ```
    *
-   * 이슈 본문은 「서버 응답의 code로」 가르라고 적었으나 **두 응답의 `code`가 같다.**
-   * `API_SPEC:194`는 `UNAUTHORIZED`를 「세션 없음·만료·무효」로 정의하므로 비밀번호
-   * 오입력에 그 코드를 쓰는 것 자체가 정본과 어긋나는데(`#902`), 그 수정은 서버 몫이다.
-   *
-   * ## 문구로 가르지 않는다
-   *
-   * 문구 대조는 서버가 한 글자만 고쳐도 조용히 깨지고, 그 실패는 **세션이 만료됐는데
-   * 폼에 머무는** 방향이라 사용자가 갇힌다. 대신 **세션이 실제로 살아 있는지 직접
-   * 확인한다** — 비밀번호가 틀린 것뿐이라면 `GET /auth/me`는 200이다.
-   *
-   * 요청 한 번이 더 드는 것은 **실패 경로에서만**이고, 그 대가로 판정이 서버 문구에
-   * 의존하지 않는다. 성공 경로는 건드리지 않는다.
+   * 종전(#878)에는 두 `code`가 같아 `GET /auth/me`로 세션 생존을 직접 확인했다 —
+   * 실패 경로마다 요청이 한 번 더 나갔다. 서버가 코드를 갈라 주므로(#902) 그 요청은
+   * 필요 없다. `INVALID_CREDENTIALS`는 아래 `!response.ok`로 흘러 서버 문구를 그대로
+   * 폼에 보여 주고, 그 외 401(`UNAUTHORIZED`·code 없음)은 세션 만료로 끝낸다.
+   * code가 없는 쪽으로 기우는 이유 — 이 라우트의 401은 두 종류뿐이고, 봉투가
+   * 깨진 응답을 「자격 증명 오류」로 잘못 읽으면 사용자가 폼에 갇힌다.
    */
-  if (response.status === 401) {
-    const alive = await probeCurrentUser(fetchImpl)
-    if (alive === null) failExpiredSession()
+  const error = body?.error ?? null
+  if (response.status === 401 && error?.code !== 'INVALID_CREDENTIALS') {
+    failExpiredSession()
   }
 
   if (!response.ok) {

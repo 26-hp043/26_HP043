@@ -385,47 +385,41 @@ describe('세션 만료(401)를 설정 화면 동작이 스스로 처리한다 (
 })
 
 /**
- * 비밀번호 변경의 401은 두 사유가 섞여 있다 (#878).
- *
- * 실측 — **`code`가 같다.**
+ * 비밀번호 변경의 401은 두 사유가 섞여 있다 — 서버가 `code`로 가른다 (#902).
  *
  * ```
- * 세션 만료   {"code":"UNAUTHORIZED","message":"인증이 필요합니다."}
- * 비번 오입력 {"code":"UNAUTHORIZED","message":"현재 비밀번호가 올바르지 않습니다."}
+ * 세션 만료   {"code":"UNAUTHORIZED",        "message":"인증이 필요합니다."}
+ * 비번 오입력 {"code":"INVALID_CREDENTIALS", "message":"현재 비밀번호가 올바르지 않습니다."}
  * ```
  *
- * 그래서 문구가 아니라 **세션이 실제로 살아 있는지**로 가른다.
+ * 종전(#878)에는 두 code가 같아 `GET /auth/me`로 세션 생존을 확인했고, 실패 경로마다
+ * 요청이 한 번 더 나갔다. 이제 code 판정 하나로 끝난다.
  */
-describe('비밀번호 변경의 401을 사유별로 가른다 (#878)', () => {
-  /** `POST /auth/password-change`는 401, `GET /auth/me`는 주어진 응답을 낸다. */
-  function passwordChangeThen(meResponse: Response) {
-    return vi.fn(async (url: unknown) =>
-      String(url).includes('/auth/me')
-        ? meResponse
-        : jsonResponse({ error: { code: 'UNAUTHORIZED', message: '…' } }, 401),
-    ) as unknown as typeof fetch
-  }
-
-  it('세션이 죽었으면 만료로 처리한다 — 캐시를 비운다', async () => {
+describe('비밀번호 변경의 401을 code로 가른다 (#902)', () => {
+  it('UNAUTHORIZED는 세션 만료다 — 캐시를 비우고 추가 요청 없이 끝낸다', async () => {
     await probeCurrentUser(async () => ME_OK)
 
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: { code: 'UNAUTHORIZED', message: '인증이 필요합니다.' } }, 401),
+    ) as unknown as typeof fetch
+
     await expect(
-      changePassword('현재비밀번호1!', '새비밀번호2@', passwordChangeThen(jsonResponse(null, 401))),
+      changePassword('현재비밀번호1!', '새비밀번호2@', fetchImpl),
     ).rejects.toThrow(SESSION_EXPIRED_MESSAGE)
 
     expect(getCachedUser()).toBeNull()
+    // #878의 세션 확인 요청(GET /auth/me)은 더 나가지 않는다 — 코드가 답한다.
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('세션이 살아 있으면 비밀번호 오입력이다 — 서버 문구를 폼에 남긴다', async () => {
+  it('INVALID_CREDENTIALS는 비밀번호 오입력이다 — 서버 문구를 폼에 남긴다', async () => {
     await probeCurrentUser(async () => ME_OK)
 
-    const fetchImpl = vi.fn(async (url: unknown) =>
-      String(url).includes('/auth/me')
-        ? ME_OK
-        : jsonResponse(
-            { error: { code: 'UNAUTHORIZED', message: '현재 비밀번호가 올바르지 않습니다.' } },
-            401,
-          ),
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        { error: { code: 'INVALID_CREDENTIALS', message: '현재 비밀번호가 올바르지 않습니다.' } },
+        401,
+      ),
     ) as unknown as typeof fetch
 
     await expect(
@@ -437,22 +431,17 @@ describe('비밀번호 변경의 401을 사유별로 가른다 (#878)', () => {
      * 종전 결함의 정반대 방향 판본이라 함께 못 박는다.
      */
     expect(getCachedUser()).not.toBeNull()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('세션 확인은 실패 경로에서만 한다 — 성공하면 추가 요청이 없다', async () => {
+  it('code가 없는 401은 세션 만료 쪽으로 간다 — 봉투가 깨진 응답에 폼에 갇히지 않는다', async () => {
     await probeCurrentUser(async () => ME_OK)
 
-    const fetchImpl = vi.fn(async () =>
-      jsonResponse({ data: { message: '비밀번호를 변경했습니다. 3개 기기에서 로그아웃됩니다.' } }),
-    )
-    const message = await changePassword(
-      '현재비밀번호1!',
-      '새비밀번호2@',
-      fetchImpl as unknown as typeof fetch,
-    )
+    const fetchImpl = vi.fn(async () => jsonResponse({}, 401)) as unknown as typeof fetch
 
-    expect(message).toContain('비밀번호를 변경했습니다')
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    await expect(
+      changePassword('현재비밀번호1!', '새비밀번호2@', fetchImpl),
+    ).rejects.toThrow(SESSION_EXPIRED_MESSAGE)
   })
 })
 
@@ -489,13 +478,11 @@ describe('비밀번호 변경 후 캐시를 비운다 (#825 ⑷)', () => {
   it('실패하면 캐시를 건드리지 않는다 — 비밀번호를 잘못 친 것만으로 로그아웃되지 않는다', async () => {
     await probeCurrentUser(async () => ME_OK)
 
-    const fetchImpl = vi.fn(async (url: unknown) =>
-      String(url).includes('/auth/me')
-        ? ME_OK
-        : jsonResponse(
-            { error: { code: 'UNAUTHORIZED', message: '현재 비밀번호가 올바르지 않습니다.' } },
-            401,
-          ),
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(
+        { error: { code: 'INVALID_CREDENTIALS', message: '현재 비밀번호가 올바르지 않습니다.' } },
+        401,
+      ),
     ) as unknown as typeof fetch
 
     await expect(
