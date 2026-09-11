@@ -47,6 +47,13 @@ async def get_fleet_summary_route(
         datetime | None,
         Query(description="기준 시각 (ISO 8601 UTC). 미지정이면 서버가 확정"),
     ] = None,
+    sort: Annotated[str, Query(description="vessels[] 정렬 — risk(기본) · name · grade")] = (
+        "risk"
+    ),
+    limit: Annotated[int | None, Query(description="vessels[] 페이지 크기 (기본 20, 최대 100)")] = (
+        None
+    ),
+    cursor: Annotated[str | None, Query(description="이전 응답의 meta.next_cursor")] = None,
 ) -> dict[str, object]:
     """대시보드가 한 번의 호출로 선대 전체 현황을 받는다 (#350).
 
@@ -58,7 +65,12 @@ async def get_fleet_summary_route(
         session,
         regulation_year=regulation_year,
         as_of=as_of,
+        sort=sort,
+        limit=limit,
+        cursor=cursor,
     )
+    # `vessels[]` 페이지 정보는 `§1.5`대로 meta에 싣는다 (#772). summary·actions는 선대 전체다.
+    page = data.pop("_page")
     # `as_of` 계약 ⑵ — 실제로 사용한 값을 meta에도 싣는다. 클라이언트가 이 값으로
-    # 다시 물어 같은 결과를 얻을 수 있어야 한다.
-    return {"data": data, "meta": _meta(request, as_of=data["as_of"])}
+    # 다시 물어 같은 결과를 얻을 수 있어야 한다. 다음 페이지도 이 값으로 묻는다.
+    return {"data": data, "meta": _meta(request, as_of=data["as_of"], **page)}

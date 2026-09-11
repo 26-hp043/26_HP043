@@ -209,9 +209,42 @@ describe('정상 응답', () => {
     await createApiFleetProvider(fetchImpl).load()
 
     expect(fetchImpl).toHaveBeenCalledWith(
-      '/api/v1/fleet/summary',
+      '/api/v1/fleet/summary?sort=risk&limit=100',
       expect.objectContaining({ method: 'GET', credentials: 'include' }),
     )
+  })
+
+  it('다음 페이지는 같은 정렬·커서·첫 페이지의 기준 시각으로 묻는다 (#772)', async () => {
+    /*
+     * 시각이 바뀌면 서버의 순서가 바뀌어 페이지 사이에 선박이 겹치거나 빠진다 —
+     * 첫 페이지 응답의 `as_of`를 그대로 싣는다(`TECH_SPEC §5.4.1` 계약 ⑶).
+     */
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    await createApiFleetProvider(fetchImpl).load({
+      sort: 'name',
+      cursor: 'abc',
+      asOf: '2026-08-16T12:00:00+00:00',
+    })
+
+    const url = new URL(String(fetchImpl.mock.calls[0][0]), 'https://x')
+    expect(url.pathname).toBe('/api/v1/fleet/summary')
+    expect(url.searchParams.get('sort')).toBe('name')
+    expect(url.searchParams.get('cursor')).toBe('abc')
+    expect(url.searchParams.get('as_of')).toBe('2026-08-16T12:00:00+00:00')
+  })
+
+  it('페이지 정보를 meta에서 읽는다 — 없으면 다음 페이지가 없는 것이다', async () => {
+    const paged = await createApiFleetProvider(
+      vi.fn().mockResolvedValue(
+        jsonResponse({ ...OK_BODY, meta: { next_cursor: 'n1', has_more: true } }),
+      ),
+    ).load()
+    expect(paged.nextCursor).toBe('n1')
+    expect(paged.hasMore).toBe(true)
+
+    const single = await createApiFleetProvider(vi.fn().mockResolvedValue(jsonResponse(OK_BODY))).load()
+    expect(single.nextCursor).toBeNull()
+    expect(single.hasMore).toBe(false)
   })
 })
 

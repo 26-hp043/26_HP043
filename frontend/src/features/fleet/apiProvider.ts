@@ -1,6 +1,9 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
-import type { FleetProvider, FleetSnapshot, FleetVessel } from './types'
+import type { FleetLoadOptions, FleetProvider, FleetSnapshot, FleetVessel } from './types'
+
+/** `API_SPEC §1.5` 상한. 첫 페이지를 크게 두는 이유는 `load()` 주석. */
+const PAGE_SIZE = 100
 
 /**
  * 선대 요약 실 API provider — `GET /fleet/summary` (`API_SPEC §2.8` · `#350`).
@@ -61,6 +64,7 @@ interface ServerSummary {
 }
 
 interface ServerBody {
+  meta?: { next_cursor?: string | null; has_more?: boolean }
   data?: {
     as_of?: string
     regulation_year?: number
@@ -137,10 +141,17 @@ export function createApiFleetProvider(
   baseUrl: string = DEFAULT_API_BASE_URL,
 ): FleetProvider {
   return {
-    async load(): Promise<FleetSnapshot> {
+    async load(options: FleetLoadOptions = {}): Promise<FleetSnapshot> {
+      /*
+       * 목록은 **한 번에 최대치(100)**를 받는다 — 지도(`PositionChart`)와 파생 표시가
+       * 불러온 선박으로 그려지므로 첫 페이지를 크게 둔다. 그 뒤는 「다음 선박 불러오기」다.
+       */
+      const params = new URLSearchParams({ sort: options.sort ?? 'risk', limit: String(PAGE_SIZE) })
+      if (options.cursor) params.set('cursor', options.cursor)
+      if (options.asOf) params.set('as_of', options.asOf)
       let response: Response
       try {
-        response = await fetchImpl(`${baseUrl}/fleet/summary`, {
+        response = await fetchImpl(`${baseUrl}/fleet/summary?${params.toString()}`, {
           method: 'GET',
           credentials: 'include',
           headers: { Accept: 'application/json', ...csrfHeaders() },
@@ -185,6 +196,8 @@ export function createApiFleetProvider(
           noData: summary?.no_data ?? 0,
         },
         vessels: (data.vessels ?? []).map(toVessel),
+        nextCursor: body.meta?.next_cursor ?? null,
+        hasMore: body.meta?.has_more === true,
         actions: (data.actions ?? []).map((a) => ({
           vesselId: a.vessel_id,
           vesselName: a.vessel_name,

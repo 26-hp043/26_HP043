@@ -123,11 +123,28 @@ export interface FleetSnapshot {
   /** `TECH_SPEC §5.4.1` 계약 ⑵ — 서버가 확정해 돌려준 기준 시각. */
   asOf: string
   regulationYear: number
+  /** **선대 전체** 기준이다 — 페이지와 무관하다(#772). */
   counts: FleetCounts
+  /** **서버가 정렬해 자른 한 페이지**다(#772). 화면은 다시 정렬하지 않는다. */
   vessels: FleetVessel[]
+  /** 선대 전체 기준(#772). */
   actions: FleetAction[]
+  /** 다음 페이지 — `API_SPEC §1.5` `meta.next_cursor`·`has_more`. */
+  nextCursor: string | null
+  hasMore: boolean
+}
+
+/** 선박 목록 정렬 키 — 서버가 정렬한다(`API_SPEC §2.8` `sort` · #772). */
+export type FleetSort = 'risk' | 'name' | 'grade'
+
+export interface FleetLoadOptions {
+  sort?: FleetSort
+  /** 다음 페이지를 물을 때 — 첫 페이지 응답의 `meta.next_cursor`. */
+  cursor?: string | null
+  /** 다음 페이지는 **첫 페이지의 `as_of`로** 묻는다 — 시각이 바뀌면 순서가 바뀌어 겹치거나 빠진다. */
+  asOf?: string | null
 }
 
 export interface FleetProvider {
-  load(): Promise<FleetSnapshot>
+  load(options?: FleetLoadOptions): Promise<FleetSnapshot>
 }
