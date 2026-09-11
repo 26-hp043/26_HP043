@@ -44,6 +44,17 @@ export const REQUIRED_COLUMNS: readonly string[] = [
   'planned_fuel_ton',
 ]
 
+/**
+ * `§8.2` 선택 컬럼 (#906) — 출항·도착 예정 시각. **시간대가 붙은 ISO 8601**만 받는다.
+ *
+ * 비워도 들어가지만, 출항 예정 시각이 빈 항차는 진행 중으로 옮겨도 누적에 **0으로**
+ * 기여한다(`#873`). 그래서 결과 화면이 빈 수를 알린다(`missingDepartureNotice`).
+ */
+export const OPTIONAL_COLUMNS: readonly string[] = ['planned_departure_at', 'planned_arrival_at']
+
+/** 시각 칸의 예. 서버 `INSTANT_EXAMPLE`과 같은 값이다. */
+export const INSTANT_EXAMPLE = '2026-09-12T09:00:00+09:00'
+
 export interface ImportRowError {
   /** **파일에서 보이는 행 번호다** — 헤더가 1행이므로 첫 데이터 행이 `2`다 (`§8.2`). */
   row: number
@@ -58,6 +69,11 @@ export interface ImportResult {
   errors: ImportRowError[]
   /** `true`면 아직 아무것도 저장되지 않았다 — `importedCount`는 「들어갈 수 있는 행 수」다. */
   dryRun: boolean
+  /**
+   * 들어가는(`dryRun`이면 들어갈) 행 가운데 **출항 예정 시각이 빈 수** (#906).
+   * 그 항차들은 진행 중으로 옮겨도 누적에 0으로 기여한다.
+   */
+  missingDepartureCount: number
 }
 
 /** 올려 보기 전에 알 수 있는 것만 본다. 통과해도 서버가 최종 판정한다. */
@@ -91,6 +107,25 @@ export function resultSummary(result: ImportResult): string {
   return skippedCount === 0
     ? `${importedCount}건을 가져왔습니다.`
     : `${importedCount}건을 가져왔고, ${skippedCount}건은 건너뛰었습니다.`
+}
+
+/**
+ * 출항 예정 시각이 빈 행을 알린다 (#906) — 없으면 `null`.
+ *
+ * 들어가는 것은 맞으므로 오류가 아니다. 그러나 **말하지 않으면** 사용자는 진행 중으로
+ * 옮긴 항차의 누적이 늘지 않는 것을 고장으로 읽는다. 검증 단계에서 먼저 알려야 저장
+ * 전에 파일을 고칠 수 있다.
+ */
+export function missingDepartureNotice(result: ImportResult): string | null {
+  const count = result.missingDepartureCount
+  if (count <= 0) return null
+  const head = result.dryRun
+    ? `출항 예정 시각이 없는 행 ${count}건이 들어갑니다.`
+    : `출항 예정 시각이 없는 행 ${count}건이 들어갔습니다.`
+  return (
+    `${head} 이 항차들은 진행 중으로 옮겨도 누적 CII에 반영되지 않습니다. ` +
+    '파일에 planned_departure_at을 넣거나, 가져온 뒤 항차에서 출항 예정 시각을 입력해 주세요.'
+  )
 }
 
 /**

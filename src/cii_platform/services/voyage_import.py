@@ -36,12 +36,27 @@
 
 ``created_from``만 다르다(``DB_SCHEMA §2.2``의 5값 중 ``IMPORT``). 나중에 「이 항차는
 어디서 왔나」를 물을 수 있어야 한다.
+
+## 출항·도착 예정 시각 — 선택 컬럼 (#906)
+
+종전에는 두 시각을 받는 컬럼이 없어 **가져온 항차는 늘 시각이 비었다.** 시각이 없는
+항차는 진행 중으로 옮겨도 시뮬레이션 시계가 누적을 **0으로** 만든다(``#873`` ·
+``services/simulation_clock.py``). 화면 경로는 ``#873``이 메웠고, 여기서 CSV 경로를 맞춘다.
+
+- **선택 컬럼이다** — API(``§3.3``)에서도 선택이고 화면도 필수로 두지 않았다. 필수로 두면
+  기존 파일이 전부 거부되고, 경로마다 규칙이 갈린다
+- **시간대를 요구한다** — ``2026-09-12T09:00:00+09:00`` 또는 ``…Z``. 시간대 없는 값을 UTC로
+  읽으면 한국 시각으로 적은 사람의 항차가 **9시간 어긋난다.** 추측하지 않고 행 오류로 낸다
+- 저장은 UTC다(``DB_SCHEMA §0.1`` [X-6])
+- 출항 예정 시각이 빈 채 들어간 행 수를 응답에 싣는다(``missing_departure_count``) — 들어간
+  것은 맞지만 진행 중 누적에 기여하지 않는다는 사실을 화면이 알린다
 """
 
 from __future__ import annotations
 
 import csv
 import io
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
@@ -74,6 +89,13 @@ REQUIRED_COLUMNS: tuple[str, ...] = (
     "fuel_type",
     "planned_fuel_ton",
 )
+
+
+#: ``API_SPEC §8.2`` 선택 컬럼 — 비어 있으면 ``None``(#906).
+OPTIONAL_COLUMNS: tuple[str, ...] = ("planned_departure_at", "planned_arrival_at")
+
+#: 시각 칸의 예. 오류 문구와 화면 안내가 같은 예를 쓴다.
+INSTANT_EXAMPLE = "2026-09-12T09:00:00+09:00"
 
 
 class RowError(Exception):
@@ -150,6 +172,24 @@ def _text(row: dict[str, str], column: str) -> str:
     return sanitize(raw)
 
 
+def _instant(row: dict[str, str], column: str) -> datetime | None:
+    """선택 시각 칸을 UTC ``datetime``으로. 비었으면 ``None``.
+
+    **시간대가 없으면 행 오류다** — 모듈 설명 참조. 수식 문자열(``=NOW()``)은 시각으로
+    읽히지 않아 여기서 걸린다 — 숫자 열과 같은 방향(값이 아니라 오류)이다.
+    """
+    raw = (row.get(column) or "").strip()
+    if raw == "":
+        return None
+    try:
+        value = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise RowError(column, f"시각으로 읽을 수 없습니다(예: {INSTANT_EXAMPLE}).") from exc
+    if value.tzinfo is None:
+        raise RowError(column, f"시간대가 필요합니다(예: {INSTANT_EXAMPLE}).")
+    return value.astimezone(UTC)
+
+
 def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     """행 하나를 ``create_voyage`` 인자로 옮긴다. 실패는 :class:`RowError`.
 
@@ -177,6 +217,8 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
         "planned_speed_kn": speed,
         "fuel_type": fuel_type,
         "planned_fuel_ton": _numeric(row, "planned_fuel_ton"),
+        "planned_departure_at": _instant(row, "planned_departure_at"),
+        "planned_arrival_at": _instant(row, "planned_arrival_at"),
     }
 
 
@@ -230,8 +272,9 @@ async def import_voyages(
     전에 「몇 행이 걸리는지」를 먼저 볼 수 있어야 한다 — 그 확인 없이 올리면 부분 성공
     상태에서 무엇을 고쳐 다시 올려야 하는지 사용자가 계산해야 한다.
 
-    반환값은 §8.2 그대로 ``imported_count`` · ``skipped_count`` · ``errors[]``이며,
-    ``dry_run``일 때 ``imported_count``는 **들어갈 수 있는 행 수**다.
+    반환값은 §8.2 그대로 ``imported_count`` · ``skipped_count`` · ``errors[]`` ·
+    ``missing_departure_count``이며, ``dry_run``일 때 ``imported_count``는 **들어갈 수 있는
+    행 수**다(``missing_departure_count``도 들어갈 행 가운데의 수다).
     """
     rows, truncated = read_rows(content, content_type=content_type)
     known_fuels = {row.code for row in await param_repo.list_active_fuel_types(session)}
@@ -257,11 +300,15 @@ async def import_voyages(
             # 행 번호는 **파일에서 보이는 번호**다 — 헤더가 1행이므로 +2.
             errors.append({"row": index + 2, "field": error.field, "message": error.message})
 
+    # 들어가는 행 가운데 출항 예정 시각이 빈 수 — 진행 중 누적에 0으로 기여한다 (#906).
+    missing_departure = sum(1 for item in parsed if item["planned_departure_at"] is None)
+
     if dry_run:
         return {
             "imported_count": len(parsed),
             "skipped_count": len(errors),
             "errors": errors,
+            "missing_departure_count": missing_departure,
             "dry_run": True,
         }
 
@@ -279,8 +326,8 @@ async def import_voyages(
             arrival_lon=None,
             planned_distance_nm=item["planned_distance_nm"],
             planned_speed_kn=item["planned_speed_kn"],
-            planned_departure_at=None,
-            planned_arrival_at=None,
+            planned_departure_at=item["planned_departure_at"],
+            planned_arrival_at=item["planned_arrival_at"],
             regulation_year=None,
             fuel_uses=[
                 {
@@ -298,5 +345,6 @@ async def import_voyages(
         "imported_count": imported,
         "skipped_count": len(errors),
         "errors": errors,
+        "missing_departure_count": missing_departure,
         "dry_run": False,
     }
