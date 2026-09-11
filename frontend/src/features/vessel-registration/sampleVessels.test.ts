@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { initialFormState } from './formRules'
+import { initialFormState, toRequest } from './formRules'
 import { applySample, fetchSampleVessels, type SampleVessel } from './sampleVessels'
 
 /**
@@ -73,5 +73,24 @@ describe('fetchSampleVessels', () => {
   it('HTTP 실패도 던진다', async () => {
     const fetchImpl = vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) }) as Response)
     await expect(fetchSampleVessels(fetchImpl as unknown as typeof fetch, '/api/v1')).rejects.toThrow('500')
+  })
+})
+
+/**
+ * `PRD §11.4` 연료 산정 3단계(「샘플 선박 기본값」)는 **등록 시점에 실현된다** (#997).
+ *
+ * 샘플을 고르면 기준 일일 연료가 **등록 요청에 실린다** — 그래서 그 선박은 계산 때 2단계
+ * (선박 기준값)로 계산된다. 이 연결이 끊기면 샘플로 등록한 배가 항로 비교에서 「기준 일일
+ * 연료소모량이 필요합니다」로 막힌다. 두 단계(`applySample` · `toRequest`)를 **이어서** 본다.
+ */
+describe('샘플 → 등록 요청 (#997)', () => {
+  it.each([BULK, RO_RO])('$label의 기준 연료·기준속도가 등록 요청까지 간다', (sample) => {
+    const request = toRequest({
+      ...applySample(initialFormState(), sample),
+      imoNumber: '9000001',
+      name: '새 배',
+    })
+    expect(request.reference_daily_foc_ton).toBe(sample.reference_daily_foc_ton)
+    expect(request.reference_speed_kn).toBe(sample.reference_speed_kn)
   })
 })

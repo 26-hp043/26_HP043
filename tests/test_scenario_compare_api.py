@@ -435,6 +435,10 @@ class TestValidationErrors:
         assert resp.status_code == 422
         fields = [d["field"] for d in resp.json()["error"]["details"]]
         assert "base_daily_foc_ton" in fields
+        # 필드명 원문이 한국어 문장에 섞이지 않는다 (`API_SPEC §1.3.2` · #997).
+        message = resp.json()["error"]["message"]
+        assert "base_daily_foc_ton" not in message and "reference_daily_foc_ton" not in message
+        assert message.startswith("기준 일일 연료소모량이 필요합니다.")
 
     def test_no_distance_no_coordinates(self, wired):
         payload = {k: v for k, v in VALID_PAYLOAD.items() if k != "direct_distance_nm"}
