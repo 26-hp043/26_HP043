@@ -310,9 +310,15 @@
   cursor: pointer;
 }
 
-.app-shell__iconbtn:hover {
+.app-shell__iconbtn:hover:not(:disabled) {
   background: var(--surface-inset);
   color: var(--text-secondary);
+}
+
+/* 준비 중인 유틸리티(알림 · `#771` ⑽) — 자리는 두고 누를 수 없음을 보인다. */
+.app-shell__iconbtn:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
 }
 
 .app-shell__iconbtn:focus-visible {
