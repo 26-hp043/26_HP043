@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { distanceInput, matchSamplePort, portOptionLabel, type SamplePort } from './samplePorts'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  distanceInput,
+  fetchSamplePorts,
+  matchSamplePort,
+  portOptionLabel,
+  type SamplePort,
+} from './samplePorts'
 
 /**
  * 샘플 항만 입력 규칙 (#760 · `PRD §15.1`).
@@ -43,3 +49,27 @@ describe('표시', () => {
     expect(distanceInput(2470.2)).toBe('2470.20')
   })
 })
+
+describe('fetchSamplePorts (#1005 — 세 화면이 같은 경로로 받는다)', () => {
+  function respond(body: unknown, status = 200) {
+    return vi.fn(async () => ({ ok: status < 400, status, json: async () => body }) as Response)
+  }
+
+  it('GET /ports/samples를 세션 쿠키와 함께 부른다', async () => {
+    const fetchImpl = respond({ data: [BUSAN] })
+    expect(await fetchSamplePorts(fetchImpl as unknown as typeof fetch, '/api/v1')).toEqual([BUSAN])
+    const [url, init] = (fetchImpl.mock.calls as unknown as Array<[string, RequestInit]>)[0]
+    expect(url).toBe('/api/v1/ports/samples')
+    expect(init.credentials).toBe('include')
+  })
+
+  it('모양이 계약과 다르거나 HTTP가 실패하면 던진다 — 「없다」와 「못 받았다」를 가른다', async () => {
+    await expect(
+      fetchSamplePorts(respond({ data: [{ name: 'BUSAN' }] }) as unknown as typeof fetch, ''),
+    ).rejects.toThrow('계약과 다릅니다')
+    await expect(fetchSamplePorts(respond({}, 500) as unknown as typeof fetch, '')).rejects.toThrow(
+      'HTTP 500',
+    )
+  })
+})
+

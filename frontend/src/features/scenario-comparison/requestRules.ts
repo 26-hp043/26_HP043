@@ -45,9 +45,16 @@ export interface ComparisonFormState {
   slowSpeedKn: string
   /** `API_SPEC §5.1` enum. 빈 문자열이 아니라 `NONE`이 기본이다 (아래 주석 참조). */
   weatherModel: string
-  /** `PRD §11.3` 현재 위치. 기상 조회의 유일한 입력이다 (#892 주석 참조). */
+  /** `PRD §11.3` 현재 위치. 기상 조회의 입력이자, 직항 거리를 비울 때 대권거리의 출발점이다. */
   currentLat: string
   currentLon: string
+  /**
+   * 목적항 (#1005). 이름은 자유 입력이고, **샘플 항만을 골랐을 때만** 좌표가 채워진다 —
+   * 비슷한 이름을 추측해 좌표를 붙이지 않는다(`features/ports/samplePorts.ts`).
+   */
+  destinationPortName: string
+  destinationLat: string
+  destinationLon: string
 }
 
 /**
@@ -76,6 +83,7 @@ export const FIELD = {
   weatherModel: 'weather_model',
   currentLat: 'current_lat',
   currentLon: 'current_lon',
+  destinationPortName: 'destination_port_name',
   form: '__form__',
 } as const
 
@@ -116,6 +124,9 @@ export function initialFormState(): ComparisonFormState {
     slowSpeedKn: '',
     currentLat: '',
     currentLon: '',
+    destinationPortName: '',
+    destinationLat: '',
+    destinationLon: '',
     // 기상만 빈 칸이 아니다 — 셀렉트에는 「미선택」이 없고 `NONE`이 그 자리다.
     weatherModel: 'NONE',
   }
@@ -231,7 +242,15 @@ export function validateForm(
     errors[FIELD.regulationYear] = '규제연도를 4자리 숫자로 입력해 주세요.'
   }
 
-  checkRequiredPositive(state.baseDistanceNm, FIELD.baseDistanceNm, '직항 거리', errors)
+  // 직항 거리는 **좌표로 대신할 수 있을 때만** 비워도 된다 (#1005 · `PRD §11.2`).
+  if (usesCoordinateDistance(state)) {
+    // 서버가 현재 위치 → 목적항 대권거리로 계산한다. 화면이 따로 셀 것이 없다.
+  } else if (state.baseDistanceNm.trim() === '') {
+    errors[FIELD.baseDistanceNm] =
+      '직항 거리를 입력하거나, 현재 위치와 목적항을 샘플 항만에서 골라 주세요.'
+  } else {
+    checkRequiredPositive(state.baseDistanceNm, FIELD.baseDistanceNm, '직항 거리', errors)
+  }
   checkRequiredPositive(state.baseSpeedKn, FIELD.baseSpeedKn, '현재 속력', errors)
   checkRequiredPositive(
     state.baseDailyFocTon,
@@ -286,7 +305,8 @@ export function toRequest(
   const request: ScenarioComparisonRequest = {
     vessel_id: state.vesselId.trim(),
     regulation_year: Number(state.regulationYear),
-    base_distance_nm: Number(state.baseDistanceNm),
+    // 비웠으면 싣지 않는다 — 서버가 좌표 대권거리로 계산한다(#1005).
+    ...(state.baseDistanceNm.trim() === '' ? {} : { base_distance_nm: Number(state.baseDistanceNm) }),
     base_speed_kn: Number(state.baseSpeedKn),
     base_daily_foc_ton: Number(state.baseDailyFocTon),
     fuel_type: state.fuelType,
@@ -306,6 +326,13 @@ export function toRequest(
   ] as const
   for (const [key, raw] of optionalNumbers) {
     if (raw.trim() !== '') request[key] = Number(raw)
+  }
+  // 목적항 (#1005) — 이름은 채운 경우만, 좌표는 샘플 항만을 골랐을 때만 싣는다.
+  const destination = state.destinationPortName.trim()
+  if (destination !== '') request.destination_port_name = destination
+  if (state.destinationLat.trim() !== '' && state.destinationLon.trim() !== '') {
+    request.destination_lat = Number(state.destinationLat)
+    request.destination_lon = Number(state.destinationLon)
   }
   // `NONE`은 보내지 않는다 — 서버 기본이 `NONE`이고(`API_SPEC §5.1`), 명시해도
   // 결과가 같다. 보내지 않는 쪽이 「기상을 쓰지 않는 요청」임이 본문에 드러난다.
@@ -348,3 +375,19 @@ export function weatherNeedsCoordinates(state: ComparisonFormState): boolean {
  */
 export const NO_VESSEL_MESSAGE =
   '등록된 선박이 없어 비교할 대상이 없습니다. 선박을 먼저 등록해 주세요.'
+
+/**
+ * 직항 거리를 **좌표 기반 추정 거리**로 계산하는가 (#1005 · `PRD §11.2` · `§15.2`).
+ *
+ * 직항 거리를 비웠고, 현재 위치 두 칸과 목적항 좌표가 모두 있을 때다. 이때 서버가
+ * 대권거리로 계산하므로 화면은 결과에 「좌표 기반 추정 거리」라고 표시해야 한다 —
+ * 대권거리는 운하·해협을 돌아가는 실제 항로보다 짧다.
+ */
+export function usesCoordinateDistance(state: ComparisonFormState): boolean {
+  return (
+    state.baseDistanceNm.trim() === '' &&
+    [state.currentLat, state.currentLon, state.destinationLat, state.destinationLon].every(
+      (raw) => raw.trim() !== '',
+    )
+  )
+}

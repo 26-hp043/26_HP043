@@ -1,6 +1,7 @@
 import { SCREEN_BY_ID } from '../../screens'
 import type { InclusionPolicy, VoyageDraft } from '../voyage-management/types'
 import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
+import type { PortCoord } from '../ports/samplePorts'
 
 /**
  * 기능① 결과 화면의 사용자 액션 3종 — 규칙 (`PRD §10.5` · #891).
@@ -23,6 +24,9 @@ export interface PlanSaveForm {
   plannedDepartureAt: string
   /** 연간 시뮬레이션에 반영할지 — `INCLUDE_AS_PLAN` / `EXCLUDE`. */
   includeInAnnual: boolean
+  /** 샘플 항만을 골랐을 때의 좌표 (#1005). 자유 입력이면 없다. */
+  departureCoord?: PortCoord | null
+  arrivalCoord?: PortCoord | null
 }
 
 export function initialPlanSaveForm(): PlanSaveForm {
@@ -100,6 +104,9 @@ export function planDraftFrom(request: VoyageCiiRequest, form: PlanSaveForm): Vo
       fuelType: fu.fuel_type,
       plannedFuelTon: String(fu.fuel_ton),
     })),
+    // 항차 추가와 같다 — 샘플 항만을 골랐을 때만 좌표가 따라간다 (#1005).
+    departureCoord: form.departureCoord ?? null,
+    arrivalCoord: form.arrivalCoord ?? null,
   }
 }
 
