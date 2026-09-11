@@ -18,6 +18,12 @@ import {
 } from './formRules'
 import { createVesselRegistrationProvider } from './providerSelection'
 import { applicabilityHint, numberOrMissing } from './resultRules'
+import {
+  SAMPLE_FILLED_FIELDS,
+  SAMPLE_LOAD_FAILED_MESSAGE,
+  applySample,
+  useSampleVessels,
+} from './sampleVessels'
 import { SHIP_TYPES } from './shipTypes'
 import type { Vessel } from './types'
 
@@ -45,6 +51,11 @@ import type { Vessel } from './types'
  * 등록한 경우의 안내가 사용자를 지나친다. 그래서 결과 카드에 대시보드·선박 상세
  * 링크를 두어 **사용자가 넘어가게** 한다.
  *
+ * ## 샘플 선박에서 채우기 (#982)
+ *
+ * `PRD §5.1` 「샘플 선박 선택」. 고르면 선종·제원을 채우고 **IMO·선명은 그대로 둔다**
+ * (`sampleVessels.ts`). 채운 뒤에도 고칠 수 있고, 목록을 못 불러와도 화면은 그대로 쓴다.
+ *
  * **이동 대상의 우선순위는 대시보드다** (#510). `#490`이 요구한 「선박 상세로 이동」의
  * 근거(`UIFLOW v3.0 §4.11`)는 `PR #462`가 닫히며 사라졌고, 살아 있는 `UIFLOW 1-2`와
  * `#510`이 모두 대시보드를 가리킨다. 링크 순서가 그 판단을 반영한다.
@@ -59,6 +70,21 @@ export function VesselRegistration() {
   const [errors, setErrors] = useState<FormErrors>({})
   const [submitting, setSubmitting] = useState(false)
   const [registered, setRegistered] = useState<Vessel | null>(null)
+  const { samples, loading: samplesLoading, failed: samplesFailed } = useSampleVessels()
+  const [sampleId, setSampleId] = useState('')
+
+  /** 샘플을 고르면 제원을 채우고 **채운 필드의 오류만** 지운다. 비우면 아무것도 바꾸지 않는다. */
+  function chooseSample(id: string) {
+    setSampleId(id)
+    const sample = samples.find((s) => s.sample_id === id)
+    if (!sample) return
+    setState((prev) => applySample(prev, sample))
+    setErrors((prev) => {
+      const next = { ...prev }
+      for (const field of SAMPLE_FILLED_FIELDS) delete next[field]
+      return next
+    })
+  }
 
   const notice = specGapNotice(state)
 
@@ -87,6 +113,7 @@ export function VesselRegistration() {
       setRegistered(vessel)
       // 폼을 비운다 — 같은 값이 남아 있으면 두 번째 제출이 409를 맞는다.
       setState(initialFormState())
+      setSampleId('')
       setErrors({})
     } catch (error) {
       setErrors(toFormErrors(error))
@@ -118,6 +145,44 @@ export function VesselRegistration() {
             {errors[FIELD.form]}
           </p>
         ) : null}
+
+        <fieldset className="vessel-registration__fieldset">
+          <legend className="vessel-registration__legend">샘플 선박 · 선택 입력</legend>
+          <div className="vessel-registration__grid">
+            <Field
+              id="sample-vessel"
+              label="샘플 선박에서 채우기"
+              labelEn="Sample Vessel"
+              hint="선종과 제원을 채웁니다. IMO 번호와 선명은 직접 입력해 주세요."
+            >
+              <select
+                id="sample-vessel"
+                className="vessel-registration__control"
+                value={sampleId}
+                aria-describedby="sample-vessel-hint"
+                onChange={(e) => chooseSample(e.target.value)}
+              >
+                <option value="">
+                  {samplesLoading
+                    ? '샘플 목록을 불러오는 중…'
+                    : samplesFailed
+                      ? '샘플 목록을 불러오지 못했습니다'
+                      : '선택하지 않음'}
+                </option>
+                {samples.map((sample) => (
+                  <option key={sample.sample_id} value={sample.sample_id}>
+                    {sample.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+          {samplesFailed ? (
+            <p className="vessel-registration__notice" role="status">
+              {SAMPLE_LOAD_FAILED_MESSAGE}
+            </p>
+          ) : null}
+        </fieldset>
 
         <fieldset className="vessel-registration__fieldset">
           <legend className="vessel-registration__legend">필수 정보</legend>
