@@ -23,7 +23,10 @@ class AnnualSimulationRequest(BaseModel):
     #: A~D. **E는 거부**한다 (`PRD §12.8`) — 검증은 서비스가 하고, 여기서는 길이만 본다.
     #: 열거값을 두 곳에 두면 갈리므로 정본 하나(`services.annual_simulation`)만 둔다.
     target_rating: Annotated[str, Field(min_length=1, max_length=1)]
-    simulation_runs: Annotated[int, Field(ge=1_000, le=10_000)] = 5_000
+    #: **하한만 막는다** (#830). ``PRD §12.8``이 「simulation_runs 초과 → 최대값(10000)으로
+    #: 제한하고 안내」로 정했다 — 엔진이 자르고 ``SIMULATION_RUNS_CLAMPED``를 붙인다.
+    #: 종전에는 여기서 ``le=10_000``으로 422를 내 **그 경고가 HTTP로 도달할 수 없었다.**
+    simulation_runs: Annotated[int, Field(ge=1_000)] = 5_000
     #: `API_SPEC §6.1` [ORACLE-S-3] — 0 ~ 2^128−1. **JSON int는 2^53까지만 안전**하므로
     #: 큰 값은 문자열로 보낸다. 둘 다 받아 int로 정규화한다.
     random_seed: int | str | None = None

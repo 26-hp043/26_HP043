@@ -58,7 +58,9 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 항목 | MVP 정책 |
 |---|---|
 | 인증 방식 | 이메일·비밀번호 → 서버 발급 세션 쿠키 `sid` |
-| 비밀번호 저장 | **해시만 저장한다.** 알고리즘은 `TECH_SPEC`이 확정한다. 평문을 로그·감사 기록에 남기지 않는다 |
+| 비밀번호 저장 | **해시만 저장한다.** 알고리즘은 **Argon2id**다(`PRD §7.10` · `DB_SCHEMA §2.15`). 평문을 로그·감사 기록에 남기지 않는다 |
+| 비밀번호 규칙 | **10자 이상 128자 이하.** 대문자·특수문자 같은 복잡도 규칙은 두지 않는다 — 길이만 본다. 상한은 매우 긴 입력이 해싱 비용으로 서비스 거부 수단이 되는 것을 막는다 (`auth/password.py` · 화면 `authRules.ts`가 같은 값) |
+| 세션 유효기간 | **발급 후 7일.** 요청이 와도 연장하지 않는다(고정 만료). 로그아웃·비밀번호 변경은 그 전에 무효화한다 (`auth/session.py`) |
 | 쿠키 속성 | `HttpOnly` · `Secure` · `SameSite=Lax` · `Path=/` |
 | 권한 분리 | 없음. 인증된 모든 사용자가 동일 권한을 가진다 |
 | 데이터 격리 | 없음. 선박·항차 데이터는 전 사용자가 공유한다 (`PRD §5.2`) |
@@ -268,7 +270,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `NO_COMPLETED_VOYAGES` | 기능③ 누적 실적 없음 (PRD §12.8) | 누적 실적이 없어 현재 CII는 계산할 수 없습니다. 잔여 계획 기반 예측만 수행할 수 있습니다. |
 | `NO_REMAINING_VOYAGES` | 기능③ 잔여 계획 항차 없음 (PRD §12.8) | 잔여 계획 항차가 없어 확정 실적만으로 연말 예상 등급을 산출했습니다. |
 | `MANY_REMAINING_VOYAGES` | 기능③ 잔여 항차 100개 초과 (PRD §12.8 · 200개 초과는 거부) | 잔여 항차가 많아 계산 시간이 길어질 수 있습니다. |
-| `SIMULATION_RUNS_CLAMPED` | 기능③ `simulation_runs`가 1,000~10,000 범위를 벗어나 상한·하한으로 잘림 (PRD §12.8) | 시뮬레이션 횟수를 허용 범위(1,000~10,000)로 조정했습니다. |
+| `SIMULATION_RUNS_CLAMPED` | 기능③ `simulation_runs`가 10,000을 넘어 상한으로 잘림 (PRD §12.8). **하한(1,000) 미만은 요청 검증에서 422**라 이 경고에 닿지 않는다(`§6.1` · #830) | 시뮬레이션 횟수를 허용 범위(1,000~10,000)로 조정했습니다. |
 | `TARGET_RATING_D` | 기능③ 목표 등급이 D (PRD §12.8 · E는 거부) | 목표 등급 D는 위험 구간입니다. |
 | `SENSITIVITY_ONE_AT_A_TIME` | 기능③ 민감도는 one-at-a-time이라 변수 간 상호작용 미포함 (PRD §12.8) | 각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다. |
 | `SENSITIVITY_SPEED_SKIPPED` | 기능③ 잔여 항차에 `reference_speed_kn`·`reference_daily_foc_ton`이 없어 **속도 지렛대를 산출하지 못함** (#630) | 선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다. |
@@ -375,7 +377,7 @@ GET /vessels/{id}/cii/current?as_of=2026-08-15T15:00:00Z
   "data": { "...": "..." },
   "meta": {
     "as_of": "2026-08-15T15:00:00Z",
-    "is_simulated": true
+    "simulated": true
   }
 }
 ```
@@ -383,7 +385,7 @@ GET /vessels/{id}/cii/current?as_of=2026-08-15T15:00:00Z
 | 필드 | 의미 |
 |---|---|
 | `meta.as_of` | 이 응답을 만든 기준 시각. **이 값으로 다시 요청하면 같은 결과가 나온다** |
-| `meta.is_simulated` | 시뮬레이션 시계가 만든 값인지. `true`면 화면은 「시뮬레이션 데이터」 배지를 표시한다(`PRD R-5`). 실적이 확정된 구간은 `false` |
+| `meta.simulated` | 시뮬레이션 시계가 만든 값인지. `true`면 화면은 「시뮬레이션 데이터」 배지를 표시한다(`PRD R-5`). 실적이 확정된 구간은 `false` |
 
 **보장**
 
@@ -648,6 +650,7 @@ GET /api/v1/vessels/{vessel_id}/cii-history?from=2025&to=2026
     "vessel_id": "00000000-0000-4000-8000-000000000001",
     "from": 2024,
     "to": 2026,
+    "transport_capacity_basis": "DWT",
     "years": [
       {
         "regulation_year": 2024,
@@ -919,7 +922,6 @@ GET /api/v1/vessels/{vessel_id}/not-underway-periods?regulation_year=2026
     "total": 1,
     "period_types": ["IN_PORT", "AT_ANCHOR", "DRIFTING", "STS", "CANAL_TRANSIT", "DRYDOCK"],
     "consumer_types": ["MAIN_ENGINE", "AUX_ENGINE", "OIL_FIRED_BOILER", "OTHER"],
-    "fuel_types": ["DIESEL_GAS_OIL", "ETHANOL", "HFO", "LFO", "LNG", "LPG_BUTANE", "LPG_PROPANE", "METHANOL"],
     "request_id": "…",
     "timestamp": "2026-08-17T02:30:00Z"
   }
@@ -938,7 +940,7 @@ GET /api/v1/vessels/{vessel_id}/not-underway-periods?regulation_year=2026
 
 > **2026-08-22 정정 (`#641`).** `§7.2` `GET /parameters/fuel-types`가 **구현됐고(`#444`) 화면이 그쪽을 쓴다**(`frontend/src/features/not-underway/apiProvider.ts`). 종전 서술이 예고한 「그 엔드포인트가 생기면 옮길 수 있다」가 이미 실행된 상태다.
 >
-> **그럼에도 `meta.fuel_types`는 계속 싣는다.** 빼는 것은 **응답 계약 축소**라 이 정정의 범위가 아니다 — 이 필드를 읽는 클라이언트가 더 없다는 것을 확인한 뒤 별도로 판정한다.
+> ~~그럼에도 `meta.fuel_types`는 계속 싣는다.~~ **[#830 정정] 이미 뺐다.** 이 문장이 「별도로 판정한다」고 남긴 판정은 `#444`가 내렸다 — 연료 선택지는 이 엔드포인트의 소관이 아니고, 남겨 두면 같은 목록을 주는 곳이 둘이 된다(`routes/not_underway.py` docstring). 문서만 「계속 싣는다」로 남아 **문서와 코드가 정반대**였다. 지금 `meta`의 선택지는 `period_types`·`consumer_types` 둘이다.
 
 > **기록이 없는 것은 오류가 아니다.** 정박 기록이 없는 선박은 정상 상태이므로 200에 빈 배열을 반환한다.
 
@@ -1459,16 +1461,21 @@ POST /api/v1/voyages/{voyage_id}/transition
 
 #### 응답 (200 OK)
 
+**전환 후의 항차 객체 전체**다 — `§3.1`의 단일 항차 객체와 같은 모양(`fuel_uses` 포함)이며 아래는 요점만 적었다.
+
 ```json
 {
   "data": {
     "id": "uuid",
     "status": "PLANNED",
-    "annual_inclusion_policy": "INCLUDE_AS_PLAN"
+    "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+    "...": "§3.1 항차 객체의 나머지 필드"
   },
   "meta": { ... }
 }
 ```
+
+> **[#830 정정]** 종전 예시는 세 필드만 보여 **응답이 그 셋뿐인 것처럼** 읽혔다. 구현은 항차 전체를 돌려준다(`services/voyage.py` `transition_voyage`).
 
 #### 오류 (422)
 
@@ -1827,8 +1834,8 @@ POST /api/v1/scenarios/compare
 |---|---|---|---|---|
 | `vessel_id` | UUID | Y | 존재 확인 | 대상 선박 |
 | `regulation_year` | int | Y | VAL-005 | 등급 기준연도 |
-| `current_lat` | decimal | Y | VAL-007: −90 ~ +90 | 현재 위도 |
-| `current_lon` | decimal | Y | VAL-007: −180 ~ +180 | 현재 경도 |
+| `current_lat` | decimal | 조건부 | VAL-007: −90 ~ +90 | 현재 위도. `direct_distance_nm`이 없으면 목적항 좌표와 함께 필요(서비스가 검증) — #830 정정, 종전 「Y」 |
+| `current_lon` | decimal | 조건부 | VAL-007: −180 ~ +180 | 현재 경도. 위와 같다 |
 | `destination_lat` | decimal | 조건부 | VAL-007 | 목적항 위도 (거리 자동 계산 시 필요) |
 | `destination_lon` | decimal | 조건부 | VAL-007 | 목적항 경도 |
 | `current_speed_kn` | decimal | Y | VAL-009: ≥ 1.0 | 현재 속도 |
@@ -2012,11 +2019,18 @@ POST /api/v1/scenarios/{scenario_id}/adopt
       "planned_distance_nm",
       "planned_speed_kn",
       "planned_arrival_at"
-    ]
+    ],
+    "invalidated_calculation_runs": 2
   },
   "meta": { ... }
 }
 ```
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `voyage_id` | UUID | 반영된 항차. `CREATE_NEW_VOYAGE`면 **새로 만든** 항차 |
+| `invalidated_calculation_runs` | int | 이번 채택으로 **새로 재계산 필요 표시가 붙은** 그 항차의 계산 결과 수. 이미 표시된 결과는 세지 않으므로 `0`은 「계산 이력이 없다」와 「이미 전부 표시돼 있다」 둘 다일 수 있다 (#830 정정 — 종전 예시에 없었다) |
+
 
 > 시나리오 채택 시 해당 Voyage의 계산 결과는 무효화되고 재계산 필요 표시가 설정된다 (PRD §8.4).
 
@@ -2048,7 +2062,7 @@ POST /api/v1/annual-simulations
 | `vessel_id` | UUID | Y | 존재 확인 | 대상 선박 |
 | `regulation_year` | int | Y | VAL-005 | 기준연도 |
 | `target_rating` | string | Y | enum: A, B, C, D (E 불가, PRD §12.8) | 목표 등급 |
-| `simulation_runs` | int | Y | 1000~10000 | Monte Carlo 반복 횟수 |
+| `simulation_runs` | int | N | 1000 이상. **10000 초과는 10000으로 잘라 실행하고 `SIMULATION_RUNS_CLAMPED`를 싣는다** (`PRD §12.8` · #830) | Monte Carlo 반복 횟수. 기본 5000 |
 | `random_seed` | int/string | N | 0 ~ 2^128-1. 큰 값은 문자열로 전송 권장 | 미지정 시 서버가 128-bit entropy 자동 생성. 응답의 `rng_metadata.seed_entropy`에서 hex 형태로 반환 |
 | `distribution_profile` | string | N | enum: DEFAULT | 기본: DEFAULT |
 
@@ -2355,6 +2369,10 @@ GET /api/v1/parameters/rating-boundaries?ship_type=BULK_CARRIER
 ```
 
 ### 7.5 파라미터 Import
+
+> ## ⏸ 이 엔드포인트는 **아직 구현하지 않았다** (`#673` 추적)
+>
+> 규정 개정 적재는 **누가 부를 수 있는가**가 먼저 정해져야 한다 — 어드민 범위(`#672`)에 종속되며, 그 범위는 **1차 시연 범위 밖**으로 판정됐다(`PRD` O-14 각주). 아래 요청·응답은 도입 시의 계약으로 남긴다. `§12` 요약표도 같은 표시를 달고 있고, 누군가 구현하면 요약표↔라우트 대조 가드(`tests/test_api_spec_endpoints_sync.py`)가 깨져 이 표시를 지우게 한다 (#830 — `§9`와 같은 표기로 맞췄다).
 
 ```http
 POST /api/v1/parameters/import
@@ -2891,7 +2909,7 @@ GET /api/v1/health
 | GET | `/api/v1/parameters/fuel-types` | 연료 조회 | §6.2 SCR-006 |
 | GET | `/api/v1/parameters/reference-lines` | Reference line 조회 | §6.2 SCR-006 |
 | GET | `/api/v1/parameters/rating-boundaries` | 등급 경계 조회 | §6.2 SCR-006 |
-| POST | `/api/v1/parameters/import` | 파라미터 Import (**미구현 — `#444`**) | §6.2 SCR-006 |
+| POST | `/api/v1/parameters/import` | 파라미터 Import (**미구현 — `#673`**) | §6.2 SCR-006 |
 | GET | `/api/v1/voyages/{id}/report` | 항차 완료 리포트 (PDF·CSV·HTML) | §25.2 |
 | GET | `/api/v1/vessels/{id}/annual-report` | 연간 실적 리포트 (PDF·CSV·HTML) | §25.3 |
 | GET | `/api/v1/vessels/{id}/export` | CSV 내보내기 | §6.2 SCR-007 |
@@ -3093,3 +3111,4 @@ GET /api/v1/health
 | 2026-09-11 | `#753` | **§1.3 응답 계약 가드 각주 보강** — 대상이 「화면이 쓰는 16종」에서 **모든 라우트**로 넓어졌다(계약 표 · 조회 계약과 대조하는 쓰기 응답 · 파일 응답의 형식·헤더 행 · 사유 있는 면제). 종전 숫자(16종)는 낡아 뺐다. `AGENTS §4.3` 「각주 보강」이라 버전은 올리지 않는다 (#753) |
 | 2026-09-11 | `#756` | **§6.1 예시의 거리 민감도 두 행을 구현과 맞춤**(`4.96`·`5.08` → 기준값 `5.02`) · 그 이유와 **`fuel_cf_alternative` 미구현 사실**을 예시 아래 각주로 적었다. 거리 지렛대는 연료를 함께 움직여 CII가 거의 변하지 않는다(`PRD §12.6` 각주). `AGENTS §4.3` 「값 정정」이라 버전은 올리지 않는다 (#756) |
 | 2026-09-11 | `#759` | **정본 드리프트 정정** — ⑴ §3.1 `[ORACLE-MISS-3]`의 「대시보드는 클라이언트에서 다중 선박 조회 후 병합한다」 → `§2.8` `GET /fleet/summary`(`#350`) ⑵ §2.5 「완전 삭제는 관리자 권한 필요」 → `§1.2` 「권한 분리 없음」과 모순이라 정정 ⑶ 마침표 오기(`。`) 2곳. `AGENTS §4.3` 「오기·값 정정·각주 보강」이라 버전은 올리지 않는다 (#759) |
+| 2026-09-11 | `#830` | **정본↔구현 정합 정정** — ⑴ §6.1 `simulation_runs` 「1000~10000」 → **1000 이상 · 10000 초과는 잘라 실행하고 `SIMULATION_RUNS_CLAMPED`**(`PRD §12.8`). 요청 스키마가 `le=10000`으로 먼저 422를 내 §1.6 경고 표가 규정한 경고가 **HTTP로 도달할 수 없었다** — 코드를 `PRD`에 맞췄고 §1.6 조건도 「상한 초과」로 좁혔다(하한 미만은 422). 같은 행의 필수 표기도 기본값 5000과 모순이라 N으로 ⑵ §1.2 「알고리즘은 `TECH_SPEC`이 확정한다」 → **Argon2id**(`TECH_SPEC`에 그 규정이 없었다) · 코드에만 있던 **비밀번호 규칙(10~128자)·세션 유효기간(7일)** 행 신설 — `auth/session.py`가 이 절을 가리키는데 절에 값이 없었다 ⑶ §1.10 `meta.is_simulated` → `meta.simulated`(§2.14·코드와 통일) ⑷ §2.9 「`meta.fuel_types`는 계속 싣는다」 → 이미 뺐다(`#444`) ⑸ §2.7 예시에 `transport_capacity_basis` ⑹ §3.5 응답이 **항차 객체 전체**임을 명시 ⑺ §5.1 `current_lat/lon` 「Y」 → 조건부(스키마는 처음부터 선택) ⑻ §5.2 예시에 `invalidated_calculation_runs` ⑼ §7.5 미구현 배너(§9와 같은 표기) ⑽ §12 파라미터 Import 추적처 `#444`(닫힘) → `#673`. `AGENTS §4.3` 「오기·값 정정·각주 보강·소규모 행 추가」라 버전은 올리지 않는다 (#830) |
