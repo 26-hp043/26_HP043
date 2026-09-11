@@ -167,3 +167,51 @@ describe('오류', () => {
     expect(result.simulation_id).toBe('sim-1')
   })
 })
+
+// `PRD §12.4.3` 「결과 재현 버튼」의 데이터 경계 (#776). 화면 배선은
+// `AnnualSimulation.test.tsx`가 본다.
+describe('재현 — 이 seed로 다시 실행', () => {
+  it('원본 실행의 경로로 본문 없이 POST한다', async () => {
+    // 본문을 싣지 않는 것이 요점이다 — 조건은 서버가 원본에서 읽는다(`API_SPEC §6.4`).
+    // 화면이 폼 값을 실으면 폼을 고친 뒤 누른 경우 원본이 아닌 조건이 섞인다.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    await createApiAnnualSimulationProvider({ fetchImpl }).reproduce('sim-1')
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('/api/v1/annual-simulations/sim-1/reproduce')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeUndefined()
+  })
+
+  it('실행과 같은 봉투 규칙으로 결과를 합친다', async () => {
+    // `§6.4` — 「§6.1의 응답과 동일」. 파싱이 갈리면 재현 결과만 봉투 필드가 빠진다.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const result = await createApiAnnualSimulationProvider({ fetchImpl }).reproduce('sim-1')
+
+    expect(result.calculation_run_id).toBe('run-1')
+    expect(result.warnings).toEqual(['REFERENCE_ONLY'])
+  })
+
+  it('봉투가 깨지면 재현에서도 형식 오류다', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ ...OK_BODY, calculation_run_id: undefined }))
+    await expect(
+      createApiAnnualSimulationProvider({ fetchImpl }).reproduce('sim-1'),
+    ).rejects.toThrow(MALFORMED_ERROR_MESSAGE)
+  })
+
+  it('파라미터 변경(409) 문구를 고쳐 쓰지 않는다', async () => {
+    // 409와 500은 사용자가 할 일이 다르다(새로 실행 / 관리자 문의) — 그 안내가 서버
+    // 문구에 들어 있다(`#837`).
+    const message =
+      '원본 실행 이후 규정 파라미터가 변경되어 같은 조건으로 재현할 수 없습니다. ' +
+      '새로 실행하면 현재 파라미터 기준의 결과를 얻을 수 있습니다.'
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: { code: 'PARAMETER_ERROR', message } }, 409))
+    await expect(
+      createApiAnnualSimulationProvider({ fetchImpl }).reproduce('sim-1'),
+    ).rejects.toThrow(message)
+  })
+})

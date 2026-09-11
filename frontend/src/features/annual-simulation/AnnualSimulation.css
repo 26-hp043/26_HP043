@@ -441,6 +441,46 @@
   word-break: break-all;
 }
 
+/*
+ * 「이 seed로 다시 실행」(`PRD §12.4.3` · #776) — `DESIGN_SYSTEM §8` **Secondary(아웃라인)**.
+ *
+ * 실행 버튼(Primary)과 같은 무게로 두지 않는다 — 이 버튼은 새 결과를 만드는 조작이
+ * 아니라 **이미 본 결과를 검증**하는 조작이다. 값은 `VesselManagement.css`의 아웃라인
+ * 버튼을 그대로 따랐다(같은 규정을 두 번 해석하지 않는다).
+ */
+.annual-sim__reproduce {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-16);
+  margin-top: var(--space-16);
+}
+
+.annual-sim__reproduce button {
+  height: 40px;
+  padding: 0 var(--space-16);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.annual-sim__reproduce button:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-link);
+}
+
+.annual-sim__reproduce button:focus-visible {
+  outline: var(--focus-ring);
+}
+
+.annual-sim__reproduce button:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
 .annual-sim__placeholder {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
