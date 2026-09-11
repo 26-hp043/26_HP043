@@ -748,7 +748,7 @@ fuel_ton = base_foc_per_day × speed_factor × 1.0 × duration_days
 | 수치 표현 | 모든 수치는 Decimal 문자열로 변환. float 리터럴 **금지** (에러 발생) |
 | **Decimal 정규화** | **[ORACLE-C-2]** Decimal 직렬화 전 `normalize()` 적용하여 trailing zeros 제거 (예: `Decimal("3.114000")` → `"3.114"`). normalize 후 지수 표기법인 경우 `format(d, 'f')`로 고정 소수점 변환 |
 | null 처리 | **[ORACLE-M-3]** `None` 값은 JSON `null`로 직렬화한다 (필드 자체를 생략하지 않음). `"null"` 문자열이 아님 |
-| 배열 정렬 | UUID 배열은 문자열 정렬. 수치 배열은 원래 순서 유지 |
+| 배열 정렬 | UUID 배열(원소 전부 `uuid.UUID`)은 문자열로 바꿔 정렬. **UUID 모양의 문자열 배열은 에러 발생** — 집합인지 순서 있는 배열인지 알 수 없다(`#969`). 수치·객체 배열은 원래 순서 유지 |
 | 공백 | 불필요한 공백 없음 (minified JSON) |
 | 인코딩 | UTF-8 |
 
@@ -756,7 +756,11 @@ fuel_ton = base_foc_per_day × speed_factor × 1.0 × duration_days
 
 ```python
 import json
+import re
 from decimal import Decimal
+from uuid import UUID
+
+_UUID_SHAPED = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 
 def _decimal_to_canonical_str(d: Decimal) -> str:
     """
@@ -785,9 +789,16 @@ def canonical_json(obj: dict) -> str:
                 f"float not allowed in canonical_json: {o}. "
                 f"Use Decimal instead."
             )
+        if isinstance(o, UUID):
+            return str(o)
         if isinstance(o, dict):
             return {k: convert(v) for k, v in sorted(o.items())}
         if isinstance(o, (list, tuple)):
+            if o and all(isinstance(item, UUID) for item in o):
+                return sorted(str(item) for item in o)  # §5.1.1 UUID 배열 정렬 (#969)
+            if o and all(isinstance(item, str) and _UUID_SHAPED.match(item) for item in o):
+                raise TypeError("UUID-shaped string array: pass uuid.UUID to sort, "
+                                "or non-UUID values to keep order.")
             return [convert(item) for item in o]
         if o is None:
             return None  # [ORACLE-M-3] JSON null
@@ -1916,3 +1927,4 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-11 | `#830` | 경고 코드 표 `SIMULATION_RUNS_CLAMPED` 조건을 「1,000~10,000 범위를 벗어나」 → **「10,000을 넘어」**로 정정 — 하한 미만은 요청 검증에서 422라 이 경고에 닿지 않는다(`API_SPEC §6.1`). 상한은 종전 요청 검증이 먼저 막아 **어느 쪽으로도 도달하지 않던 경고**였고, 코드를 `PRD §12.8`에 맞췄다. 함께 §12.3 각주의 전사 사슬에 **리포트 사본(`reports/labels.py`)과 각 고리의 대조 테스트**를 적었다 — 사본은 `#631`부터 `tests/test_reports.py`가 대조하고 있었는데 사슬 서술이 그것을 빼고 있었다. `AGENTS §4.3`상 값 정정·각주 보강이라 버전은 올리지 않는다 (#830) |
 | 2026-09-11 | `#67` | §13.2에 `[#67]` 각주 — 성능 벤치마크의 CI 통합 방식(별도 잡이 아니라 `test` 잡 안의 `test_benchmarks.py`) · 「캐시 시」 조건을 재지 않는 이유. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#67) |
 | 2026-09-11 | `#833` · `#106` | **v1.9 — §10.3 「NumPy 업그레이드 절차와 재현성의 한계」 신설** · §12.1에 `ModelVersionMismatchError`(409) · §12.3에 `MODEL_VERSION_DIFFERS` · §5.4 6항·7항 정정(「#106에서 별도로 정의한다」 → §10.3). `reproduce`가 §5.4 1항의 셋째 조건(`model_version`)을 보지 않아 **NumPy 업그레이드가 계산 결함(500)으로 보고**될 상태였다. 판정 표 4행(같음/다름 × 같은 결과/다른 결과)으로 500과 409를 갈랐고, 환경이 달라도 결과가 같으면 경고만 싣는다. 여섯 필드 전부를 비교한다 — 엄격해도 결과가 같으면 비용이 없다. 과거 결과는 `result_json`에 이미 보존돼 재계산 없이 읽히므로 `#106`의 「분포 전체 저장」 대안은 필요 없다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#833 · #106) |
+| 2026-09-11 | `#969` | §5.1.1 「배열 정렬」 행 정정 · §5.1.2 참조 구현에 UUID 분기 추가. 규칙(UUID 배열은 문자열 정렬)이 §5.1.1에만 있고 §5.1.2 참조 구현과 `calc/hash.py` 어디에도 정렬 분기가 없었다 — 정본 안에서 규칙과 구현이 갈라져 있었다. 규칙을 지우지 않고 구현한다: 판별은 **원소 전부 `uuid.UUID`**로 좁힌다(집합이라는 뜻을 호출부가 형으로 밝힌다). UUID **모양의 문자열** 배열은 정렬할지 알 수 없으므로 에러 — 조용히 순서 의존이 되는 경로를 닫는다. 지금 해싱 대상 필드에 순수 UUID 배열이 없어 저장된 해시는 바뀌지 않는다. 행 정정·참조 구현 보강이라 버전은 올리지 않는다 (#969) |
