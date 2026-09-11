@@ -199,7 +199,14 @@ class YtdCiiOutput:
     #: ``data_available``가 ``False``여도 값 자체는 계산돼 있어 그대로 실린다 —
     #: 「거리는 없고 정박 연료만 있다」는 상태를 화면이 구분할 수 있게 한다.
     total_fuel_ton: Decimal | None = None
+    #: **실적 확정(`INCLUDE_AS_ACTUAL`) 항차 수** — 진행 중 항차를 세지 않는다 (`API_SPEC §2.7`).
     voyage_count: int = 0
+    #: 누적에 **포함된** 진행 중 항차 수(0 또는 1) (`#800`).
+    #:
+    #: 진행 중 항차의 기여분은 거리·연료에 더해지는데 ``voyage_count``는 세지 않아,
+    #: 리포트 한 표 안에서 **두 항차의 거리를 1항차로 적었다.** ``voyage_count``의 뜻을
+    #: 바꾸지 않고(정본이 「확정 항차 수」로 정해 두었다) 진행분을 따로 센다.
+    in_progress_voyage_count: int = 0
     not_underway_period_count: int = 0
 
 
@@ -373,6 +380,7 @@ async def compute_ytd_cii(
             total_distance_nm=total_distance_nm,
             total_fuel_ton=total_fuel_ton,
             voyage_count=aggregated.voyage_count,
+            in_progress_voyage_count=0 if in_progress is None else 1,
             not_underway_period_count=period_count,
         )
 
@@ -446,6 +454,7 @@ async def compute_ytd_cii(
         total_distance_nm=layer1.ytd.total_distance_nm,
         total_fuel_ton=total_fuel_ton,
         voyage_count=aggregated.voyage_count,
+        in_progress_voyage_count=0 if in_progress is None else 1,
         not_underway_period_count=period_count,
     )
 

@@ -180,6 +180,7 @@ def _ytd_to_dict(ytd) -> dict[str, object]:
         "not_underway_distance_nm": _publish(ytd.not_underway_distance_nm, "distance_nm"),
         "total_distance_nm": _publish(ytd.total_distance_nm, "distance_nm"),
         "voyage_count": ytd.voyage_count,
+        "in_progress_voyage_count": ytd.in_progress_voyage_count,
         "not_underway_period_count": ytd.not_underway_period_count,
         #
         # 대체 내역 (#449). 경고(`warnings`)는 「있었다」만 말한다 — **무엇을 고쳐야

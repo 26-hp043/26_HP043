@@ -98,6 +98,7 @@ def _empty_row(year: int, current_year: int, reason: str) -> dict[str, object]:
         "required_cii": None,
         "rating": None,
         "voyage_count": 0,
+        "in_progress_voyage_count": 0,
         "total_distance_nm": None,
         "total_fuel_ton": None,
     }
@@ -136,6 +137,7 @@ async def _year_row(
         # 거리·연료는 0이어도(또는 연료만 있어도) 값 자체를 실어 화면이
         # 「없음」과 「거리 없음」을 구분할 수 있게 한다.
         row["voyage_count"] = result.voyage_count
+        row["in_progress_voyage_count"] = result.in_progress_voyage_count
         row["total_distance_nm"] = (
             None
             if result.total_distance_nm is None
@@ -174,6 +176,8 @@ async def _year_row(
         "required_cii": _publish(result.required_cii, _DIGITS["cii"]),
         "rating": result.rating,
         "voyage_count": result.voyage_count,
+        # 거리·연료에 들어간 진행분을 센다 — 없으면 한 행 안에서 검산이 안 맞는다 (`#800`).
+        "in_progress_voyage_count": result.in_progress_voyage_count,
         "total_distance_nm": _publish(result.total_distance_nm, _DIGITS["distance_nm"]),
         "total_fuel_ton": _publish(result.total_fuel_ton, _DIGITS["fuel_ton"]),
     }

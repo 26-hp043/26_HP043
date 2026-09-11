@@ -423,6 +423,18 @@ async def _not_underway_section(
     )
 
 
+def _voyage_count_cell(row: dict[str, object]) -> str:
+    """연도별 추이 표의 항차 칸 — 진행분이 거리·연료에 들어갔으면 함께 적는다 (`#800`).
+
+    올해 행은 진행 중 항차의 기여분을 거리·연료에 포함한다(`#750`). 칸에 확정 항차만
+    적으면 같은 행의 거리와 맞지 않는다. 열을 따로 두지 않는 이유는 **과거 연도는 전부
+    0**이라 열 하나가 거의 비기 때문이다.
+    """
+    done = _text(row["voyage_count"])
+    ongoing = row.get("in_progress_voyage_count") or 0
+    return f"{done} (+진행 중 {ongoing})" if ongoing else done
+
+
 async def build_annual_report(
     session: AsyncSession,
     vessel_id: UUID,
@@ -500,7 +512,14 @@ async def build_annual_report(
                 ("누적 거리 (nm)", _display(year_row["total_distance_nm"], "distance_nm")),
                 ("누적 연료 (t)", _display(year_row["total_fuel_ton"], "fuel_ton")),
                 ("누적 CO₂ (t)", _display(ytd["total_co2_ton"], "co2_ton")),
-                ("항차 수", _text(year_row["voyage_count"])),
+                # ⚠️ 거리·연료에는 진행 중 항차가 들어가는데 이 칸은 **확정 항차만** 센다
+                # (`API_SPEC §2.7`). 라벨이 「항차 수」면 두 항차의 거리를 1항차로 읽는다 —
+                # 검산하면 항차당 거리가 실제의 1.4배로 나왔다 (`#800`). 둘을 갈라 적는다.
+                ("완료 항차 수", _text(year_row["voyage_count"])),
+                (
+                    "진행 중 항차 (거리·연료에 포함)",
+                    _text(year_row.get("in_progress_voyage_count", 0)),
+                ),
                 ("표시 단위", f"gCO₂/({current['transport_capacity_basis']}·nm)"),
             ],
             note=(
@@ -516,7 +535,7 @@ async def build_annual_report(
                 "실적 CII",
                 "기준 CII",
                 "등급",
-                "항차 수",
+                "완료 항차",
                 "거리 (nm)",
                 "연료 (t)",
             ],
@@ -527,7 +546,7 @@ async def build_annual_report(
                     _display(row["attained_cii"], "cii"),
                     _display(row["required_cii"], "cii"),
                     _text(row["rating"]),
-                    _text(row["voyage_count"]),
+                    _voyage_count_cell(row),
                     _display(row["total_distance_nm"], "distance_nm"),
                     _display(row["total_fuel_ton"], "fuel_ton"),
                 ]
