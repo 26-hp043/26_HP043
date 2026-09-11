@@ -148,3 +148,35 @@ describe('실패는 화면에 남는다 — 탈퇴된 척하지 않는다 (#754)
     await waitFor(() => expect(call).toHaveBeenCalledTimes(2))
   })
 })
+
+/**
+ * 서버가 짚은 칸에 오류를 붙인다 (#877 ⑴).
+ *
+ * 종전에는 서버 문구를 폼 아래 한 줄로만 보였다 — 세 칸 중 어느 것이 틀렸는지 사용자가
+ * 추측해야 했다.
+ */
+describe('비밀번호 변경 — 서버 필드 오류 (#877)', () => {
+  it('새 비밀번호를 짚은 422는 그 칸 아래에 뜨고 폼 아래 문구는 없다', async () => {
+    stubUser()
+    vi.spyOn(session, 'changePassword').mockRejectedValue(
+      new session.AuthRequestError('새 비밀번호는 128자 이하여야 합니다.', 422, {
+        new_password: '새 비밀번호는 128자 이하여야 합니다.',
+      }),
+    )
+    renderPanel()
+
+    fireEvent.change(screen.getByLabelText('현재 비밀번호'), { target: { value: 'current-pass-1' } })
+    fireEvent.change(screen.getByLabelText('새 비밀번호'), { target: { value: 'new-pass-long-1' } })
+    fireEvent.change(screen.getByLabelText('새 비밀번호 확인'), { target: { value: 'new-pass-long-1' } })
+    fireEvent.click(screen.getByRole('button', { name: '비밀번호 바꾸기' }))
+
+    const input = await screen.findByLabelText('새 비밀번호')
+    await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'))
+    expect(document.getElementById('acc-new-error')?.textContent).toBe(
+      '새 비밀번호는 128자 이하여야 합니다.',
+    )
+    expect(screen.getByLabelText('현재 비밀번호').getAttribute('aria-invalid')).toBeNull()
+    // 폼 아래 문구로 한 번 더 뜨지 않는다 — 같은 문구가 두 곳에 있으면 어느 쪽이 원인인지 흐려진다.
+    expect(screen.getAllByText('새 비밀번호는 128자 이하여야 합니다.')).toHaveLength(1)
+  })
+})

@@ -222,12 +222,62 @@ function toCurrentUser(body: unknown): CurrentUser | null {
  */
 export class AuthRequestError extends Error {
   readonly status: number
+  /**
+   * 서버가 `error.details[]`로 알려 준 **필드별 문구** — 키는 요청 본문 기준 경로다
+   * (`display_name` · `new_password`). 화면이 이것을 해당 입력칸에 붙인다 (#877 ⑴).
+   *
+   * 종전에는 `error.message` 한 줄만 읽고 `details`를 버려, 어느 칸이 틀렸는지를 화면이
+   * 알 수 없었다. 데이터 경계 아홉 곳(`features/<기능>/apiProvider.ts`)은 이미 읽는다.
+   */
+  readonly fieldErrors: Readonly<Record<string, string>>
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, fieldErrors: Record<string, string> = {}) {
     super(message)
     this.name = 'AuthRequestError'
     this.status = status
+    this.fieldErrors = fieldErrors
   }
+}
+
+/** `API_SPEC §1.3.2` 오류 봉투에서 필드별 문구를 꺼낸다. 같은 필드는 **첫 문구**만 남긴다. */
+function fieldErrorsOf(body: unknown): Record<string, string> {
+  const details = (body as { error?: { details?: unknown } } | null)?.error?.details
+  const found: Record<string, string> = {}
+  if (!Array.isArray(details)) return found
+  for (const detail of details as Array<{ field?: unknown; message?: unknown }>) {
+    if (typeof detail?.field !== 'string' || !detail.field) continue
+    if (typeof detail.message !== 'string' || !detail.message) continue
+    if (!(detail.field in found)) found[detail.field] = detail.message
+  }
+  return found
+}
+
+/** 실패 응답 → `AuthRequestError`. 서버 문구가 없으면 `fallback`을 쓴다. */
+function authErrorOf(body: unknown, status: number, fallback: string): AuthRequestError {
+  const message = (body as { error?: { message?: unknown } } | null)?.error?.message
+  return new AuthRequestError(
+    typeof message === 'string' && message ? message : fallback,
+    status,
+    fieldErrorsOf(body),
+  )
+}
+
+/**
+ * 성공 응답에 사용자가 없을 때의 문구 (#877 ⑵).
+ *
+ * 종전에는 `toCurrentUser`가 `null`을 돌려주고 **그대로 성공으로** 끝났다 — 로그인
+ * 버튼이 「로그인 중…」에서 「로그인」으로 돌아올 뿐 실패 문구도 이동도 없었다. 서버는
+ * 요청을 처리했을 수 있으므로(가입이면 계정이 이미 만들어졌을 수 있다) 「다시 시도」가
+ * 아니라 **새로 고침해 상태를 확인**하라고 말한다.
+ */
+const UNEXPECTED_RESPONSE_MESSAGE =
+  '서버 응답을 확인하지 못했습니다. 새로 고침한 뒤 로그인 상태를 확인해 주세요.'
+
+/** 성공 응답에서 사용자를 꺼낸다. **모양이 어긋나면 실패로 던진다** — 성공한 척하지 않는다. */
+function requireUser(body: unknown, status: number): CurrentUser {
+  const user = toCurrentUser(body)
+  if (!user) throw new AuthRequestError(UNEXPECTED_RESPONSE_MESSAGE, status)
+  return user
 }
 
 /**
@@ -270,6 +320,14 @@ async function postJson(
   payload: unknown,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<unknown> {
+  return (await postJsonWithStatus(url, payload, fetchImpl)).body
+}
+
+async function postJsonWithStatus(
+  url: string,
+  payload: unknown,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<{ body: unknown; status: number }> {
   let response: Response
   try {
     response = await fetchImpl(url, {
@@ -283,13 +341,8 @@ async function postJson(
   }
 
   const body = await response.json().catch(() => null)
-  if (!response.ok) {
-    const message =
-      (body as { error?: { message?: string } } | null)?.error?.message ??
-      '요청을 처리하지 못했습니다.'
-    throw new AuthRequestError(message, response.status)
-  }
-  return body
+  if (!response.ok) throw authErrorOf(body, response.status, '요청을 처리하지 못했습니다.')
+  return { body, status: response.status }
 }
 
 /** 이메일·비밀번호로 로그인하고 사용자 상태를 갱신한다. */
@@ -297,9 +350,9 @@ export async function login(
   email: string,
   password: string,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
-): Promise<CurrentUser | null> {
-  const body = await postJson(LOGIN_API_URL, { email, password }, fetchImpl)
-  currentUser = toCurrentUser(body)
+): Promise<CurrentUser> {
+  const { body, status } = await postJsonWithStatus(LOGIN_API_URL, { email, password }, fetchImpl)
+  currentUser = requireUser(body, status)
   notify()
   return currentUser
 }
@@ -316,9 +369,9 @@ export async function signup(
   displayName: string | null,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
   inviteCode: string | null = null,
-): Promise<CurrentUser | null> {
+): Promise<CurrentUser> {
   const code = inviteCode?.trim()
-  const body = await postJson(
+  const { body, status } = await postJsonWithStatus(
     SIGNUP_API_URL,
     {
       email,
@@ -328,7 +381,7 @@ export async function signup(
     },
     fetchImpl,
   )
-  currentUser = toCurrentUser(body)
+  currentUser = requireUser(body, status)
   notify()
   return currentUser
 }
@@ -472,7 +525,7 @@ export async function logout(
 export async function updateDisplayName(
   displayName: string | null,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
-): Promise<CurrentUser | null> {
+): Promise<CurrentUser> {
   let response: Response
   try {
     response = await fetchImpl(ME_URL, {
@@ -493,15 +546,9 @@ export async function updateDisplayName(
   if (response.status === 401) failExpiredSession()
 
   const body = await response.json().catch(() => null)
-  if (!response.ok) {
-    throw new AuthRequestError(
-      (body as { error?: { message?: string } } | null)?.error?.message ??
-        '표시 이름을 바꾸지 못했습니다.',
-      response.status,
-    )
-  }
+  if (!response.ok) throw authErrorOf(body, response.status, '표시 이름을 바꾸지 못했습니다.')
 
-  currentUser = toCurrentUser(body)
+  currentUser = requireUser(body, response.status)
   notify()
   return currentUser
 }
@@ -587,7 +634,7 @@ export async function changePassword(
      * 현재 비밀번호가 틀렸다는 것도 서버 문구를 그대로 쓴다. 화면이 다시 쓰면
      * 「계정 존재 여부를 숨기는」 규칙(`API_SPEC §1.2`)과 문구가 갈라진다.
      */
-    throw new AuthRequestError(body?.error?.message ?? '비밀번호를 바꾸지 못했습니다.', response.status)
+    throw authErrorOf(body, response.status, '비밀번호를 바꾸지 못했습니다.')
   }
 
   /*
@@ -673,10 +720,8 @@ export async function deleteAccount(
   if (response.status === 401) failExpiredSession()
 
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
-      error?: { message?: string }
-    } | null
-    throw new AuthRequestError(body?.error?.message ?? '탈퇴하지 못했습니다.', response.status)
+    const body = await response.json().catch(() => null)
+    throw authErrorOf(body, response.status, '탈퇴하지 못했습니다.')
   }
 
   currentUser = null

@@ -1,9 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { EMAIL_IMMUTABLE_NOTICE, WITHDRAWAL_NOTICE } from '../auth/authRules'
+import { EMAIL_IMMUTABLE_NOTICE, WITHDRAWAL_NOTICE, splitSubmitFailure } from '../auth/authRules'
 import {
   LOGIN_PATH,
-  AuthRequestError,
   changePassword,
   deleteAccount,
   updateDisplayName,
@@ -81,9 +80,11 @@ function DisplayNameForm({ initial }: { initial: string }) {
       await updateDisplayName(displayNamePayload(name).display_name)
       setDone(true)
     } catch (caught) {
-      setFailure(
-        caught instanceof AuthRequestError ? caught.message : '표시 이름을 바꾸지 못했습니다.',
-      )
+      const next = splitSubmitFailure(caught, '표시 이름을 바꾸지 못했습니다.', {
+        display_name: 'name',
+      } as const)
+      setError(next.errors.name)
+      setFailure(next.failure)
     } finally {
       setBusy(false)
     }
@@ -159,9 +160,13 @@ function PasswordSection() {
       const message = await changePassword(draft.currentPassword, draft.newPassword)
       setChanged(message)
     } catch (caught) {
-      setFailure(
-        caught instanceof AuthRequestError ? caught.message : '비밀번호를 바꾸지 못했습니다.',
-      )
+      // 서버가 짚은 칸(현재·새 비밀번호)은 그 입력칸에, 나머지는 폼 위에 (#877 ⑴).
+      const next = splitSubmitFailure(caught, '비밀번호를 바꾸지 못했습니다.', {
+        current_password: 'currentPassword',
+        new_password: 'newPassword',
+      } as const)
+      setErrors(next.errors)
+      setFailure(next.failure)
     } finally {
       setBusy(false)
     }

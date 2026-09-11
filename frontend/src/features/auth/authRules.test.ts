@@ -6,11 +6,13 @@ import {
   hasErrors,
   isEmailVerified,
   safeNext,
+  splitSubmitFailure,
   validateEmail,
   validateLogin,
   validatePassword,
   validateSignup,
 } from './authRules'
+import { AuthRequestError } from '../../auth/session'
 
 /**
  * 인증 화면 입력 규칙 (#415).
@@ -138,5 +140,56 @@ describe('이메일 변경 불가 고지 (#506)', () => {
     // 이메일을 다시 쓸 수 있게 두었으므로(부분 유일 인덱스) 그 길을 안내한다.
     expect(EMAIL_IMMUTABLE_NOTICE).toContain('탈퇴')
     expect(EMAIL_IMMUTABLE_NOTICE).toContain('다시 가입')
+  })
+})
+
+/**
+ * 제출 실패를 칸과 폼 위로 나눈다 (#877 ⑴).
+ *
+ * 서버가 짚은 필드가 이 폼에 있으면 **그 칸에만**, 없으면 **폼 위**에. 선박 등록의
+ * `toFormErrors`와 같은 규율이다.
+ */
+describe('splitSubmitFailure (#877)', () => {
+  const FIELDS = { email: 'email', display_name: 'displayName' } as const
+
+  it('이 폼의 칸이면 그 칸에만 붙이고 폼 위는 비운다', () => {
+    const error = new AuthRequestError('표시 이름은 100자 이하여야 합니다.', 422, {
+      display_name: '표시 이름은 100자 이하여야 합니다.',
+    })
+    expect(splitSubmitFailure(error, '기본', FIELDS)).toEqual({
+      errors: { displayName: '표시 이름은 100자 이하여야 합니다.' },
+      failure: null,
+    })
+  })
+
+  it('칸이 없는 필드의 문구는 폼 위로 — 버리지 않는다', () => {
+    const error = new AuthRequestError('링크가 만료되었습니다.', 422, {
+      token: '링크가 만료되었습니다.',
+      email: '이메일 형식이 올바르지 않습니다.',
+    })
+    expect(splitSubmitFailure(error, '기본', FIELDS)).toEqual({
+      errors: { email: '이메일 형식이 올바르지 않습니다.' },
+      failure: '링크가 만료되었습니다.',
+    })
+  })
+
+  it('필드가 없는 실패는 서버 문구를 폼 위에', () => {
+    const error = new AuthRequestError('가입이 허용되지 않았습니다.', 422)
+    expect(splitSubmitFailure(error, '기본', FIELDS)).toEqual({
+      errors: {},
+      failure: '가입이 허용되지 않았습니다.',
+    })
+  })
+
+  it('인증 요청 오류가 아니면 화면의 기본 문구를 쓴다', () => {
+    expect(splitSubmitFailure(new TypeError('x'), '기본 문구', FIELDS)).toEqual({
+      errors: {},
+      failure: '기본 문구',
+    })
+  })
+
+  it('프로토타입 속성 이름을 필드로 오인하지 않는다', () => {
+    const error = new AuthRequestError('m', 422, { toString: '이상한 필드' })
+    expect(splitSubmitFailure(error, '기본', FIELDS).failure).toBe('이상한 필드')
   })
 })

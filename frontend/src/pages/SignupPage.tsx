@@ -6,11 +6,20 @@ import {
   INVITE_CODE_HINT,
   MIN_PASSWORD_LENGTH,
   hasErrors,
+  splitSubmitFailure,
   validateSignup,
   type FieldErrors,
 } from '../features/auth/authRules'
-import { AuthRequestError, LOGIN_PATH, signup, useAuthUser } from '../auth/session'
+import { LOGIN_PATH, signup, useAuthUser } from '../auth/session'
 import { DEFAULT_PATH } from '../screens'
+
+/** 서버 필드 경로 → 이 폼의 칸 (#877 ⑴). */
+const SIGNUP_SERVER_FIELDS = {
+  email: 'email',
+  password: 'password',
+  display_name: 'displayName',
+  invite_code: 'inviteCode',
+} as const
 
 /**
  * 회원가입 — `UIFLOW v2.1` 0-1 (#415).
@@ -60,11 +69,14 @@ export function SignupPage() {
       await signup(email, password, displayName.trim() || null, undefined, inviteCode)
       // 성공하면 세션이 발급되어 위 Navigate가 대시보드로 보낸다.
     } catch (error) {
-      setFailure(
-        error instanceof AuthRequestError
-          ? error.message
-          : '가입하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+      // 서버가 짚은 칸은 그 입력칸에, 나머지(가입 게이트·중복 이메일)는 폼 위에 (#877 ⑴).
+      const next = splitSubmitFailure(
+        error,
+        '가입하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        SIGNUP_SERVER_FIELDS,
       )
+      setErrors(next.errors)
+      setFailure(next.failure)
     } finally {
       setBusy(false)
     }
@@ -119,6 +131,7 @@ export function SignupPage() {
           type="text"
           value={displayName}
           onChange={setDisplayName}
+          error={errors.displayName}
           autoComplete="name"
         />
         <AuthField
@@ -127,6 +140,7 @@ export function SignupPage() {
           type="text"
           value={inviteCode}
           onChange={setInviteCode}
+          error={errors.inviteCode}
           autoComplete="off"
           hint={INVITE_CODE_HINT}
         />
