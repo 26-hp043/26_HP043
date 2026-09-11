@@ -94,7 +94,7 @@ export const SCREEN_BY_ID = {
     label: '로그인',
     labelEn: 'Login',
     uiflowRef: '0',
-    purpose: '구글 OIDC 로그인 진입 — 서비스 소개·면책 문구·단일 버튼',
+    purpose: '이메일·비밀번호 로그인 — 서비스 소개·면책 문구 · 회원가입·비밀번호 찾기 링크',
     width: 'form',
     implemented: true, // 인증 화면 — 실 API로 돈다 (#414 · #415 · #628)
   },
