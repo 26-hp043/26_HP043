@@ -25,6 +25,11 @@ export type ScenarioType = 'DIRECT' | 'DETOUR' | 'SLOW_STEAMING'
 
 /** 시나리오 1건. */
 export interface ScenarioResult {
+  /**
+   * 저장된 시나리오 행의 id — `POST /scenarios/{scenario_id}/adopt`의 경로 값
+   * (`API_SPEC §5.1` `[EXT-P0-5]` · `#580`).
+   */
+  scenario_id: string
   scenario_type: ScenarioType
   /** 화면 표시명. `PRD §7.5 scenario_name`. */
   scenario_name: string
@@ -112,4 +117,18 @@ export interface ScenarioComparisonResponse {
   warnings: string[]
   /** `API_SPEC §5.1` 응답 최상위의 `disclaimer`. **서버 정본을 그대로** 쓴다 (`#821`). */
   disclaimer: string
+}
+
+/**
+ * 시나리오 채택 결과 — `POST /scenarios/{id}/adopt` (`API_SPEC §5.2` · `#580`).
+ *
+ * `invalidated_calculation_runs`는 **받지 않는다.** `#817`(`calculation_run.voyage_id`가
+ * 늘 `NULL`)이 닫히기 전에는 이 수가 항상 `0`이고 참값이 아니다 — 화면에 내보내면
+ * 거짓을 보여 준다(2026-09-08 착수 판정).
+ */
+export interface ScenarioAdoptResult {
+  voyage_id: string
+  adopted_scenario_type: ScenarioType
+  /** 서버가 덮어쓴 항차 필드 — `planned_distance_nm` 등 */
+  updated_fields: string[]
 }
