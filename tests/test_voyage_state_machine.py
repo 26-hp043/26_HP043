@@ -277,13 +277,13 @@ class TestActualFuelGuard:
     async def test_no_actuals_is_rejected(self, monkeypatch):
         voyage = _StubVoyage("IN_PROGRESS", "EXCLUDE", regulation_year=2026)
         session = _install(monkeypatch, voyage, fuel_uses=[_StubFuelUse(None)])
-        with pytest.raises(StateTransitionError, match="actual_fuel_ton"):
+        with pytest.raises(StateTransitionError, match="실제 연료량"):
             await svc.transition_voyage(session, voyage.id, "COMPLETED")
 
     async def test_zero_actuals_is_rejected(self, monkeypatch):
         voyage = _StubVoyage("IN_PROGRESS", "EXCLUDE", regulation_year=2026)
         session = _install(monkeypatch, voyage, fuel_uses=[_StubFuelUse(Decimal("0"))])
-        with pytest.raises(StateTransitionError, match="actual_fuel_ton"):
+        with pytest.raises(StateTransitionError, match="실제 연료량"):
             await svc.transition_voyage(session, voyage.id, "COMPLETED")
 
     async def test_one_positive_actual_passes(self, monkeypatch):
@@ -317,14 +317,14 @@ class TestConfirmCompletenessGuard:
     async def test_missing_distance_is_rejected(self, monkeypatch):
         voyage = _StubVoyage("COMPLETED", "INCLUDE_AS_ACTUAL", regulation_year=2026)
         session = _install(monkeypatch, voyage)  # 연료는 완전, 거리 None
-        with pytest.raises(StateTransitionError, match="actual_distance_nm"):
+        with pytest.raises(StateTransitionError, match="실제 거리"):
             await svc.transition_voyage(session, voyage.id, "CONFIRMED")
 
     async def test_zero_distance_is_rejected(self, monkeypatch):
         voyage = _StubVoyage("COMPLETED", "INCLUDE_AS_ACTUAL", regulation_year=2026)
         voyage.actual_distance_nm = Decimal("0")
         session = _install(monkeypatch, voyage)
-        with pytest.raises(StateTransitionError, match="actual_distance_nm"):
+        with pytest.raises(StateTransitionError, match="실제 거리"):
             await svc.transition_voyage(session, voyage.id, "CONFIRMED")
 
     async def test_complete_actuals_pass(self, monkeypatch):

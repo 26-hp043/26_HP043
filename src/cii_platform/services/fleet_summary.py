@@ -566,7 +566,7 @@ async def get_fleet_summary(
     # 「기능이 고장났다」로 읽는다. 계산할 대상이 없으므로 파라미터도 필요 없다.
     #
     if vessels and await param_repo.get_regulation_year(session, year) is None:
-        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (regulation_year={year})")
+        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
 
     rows: list[dict[str, object]] = []
     actions: list[dict[str, object]] = []

@@ -435,6 +435,30 @@ class TestValidationErrors:
         assert resp.status_code == 422
         fields = [d["field"] for d in resp.json()["error"]["details"]]
         assert "base_daily_foc_ton" in fields
+        # 필드명 원문이 한국어 문장에 섞이지 않는다 (`API_SPEC §1.3.2` · #997).
+        message = resp.json()["error"]["message"]
+        assert "base_daily_foc_ton" not in message and "reference_daily_foc_ton" not in message
+        assert message.startswith("기준 일일 연료소모량이 필요합니다.")
+
+    def test_vessel_without_dwt_is_a_korean_422_not_a_409(self, wired, monkeypatch):
+        """DWT가 빈 벌크선 — **종전에는 409 + 엔진 영문 예외**였다 (#999).
+
+        기준선 조건식(``DWT < 279000``)을 평가하다 터져 「기준선을 선택할 수 없습니다:
+        deadweight is required …」가 규정 파라미터 오류(409)로 나갔다. 사용자가 제원을
+        채우면 풀리는 일이므로 422이고, 무엇이 비었는지 한국어로 말한다.
+        """
+        from cii_platform.services import scenario_compare as svc
+
+        async def fake_get_by_id(_session, vessel_id):
+            return FakeVessel(reference_speed_kn=Decimal("14.0"), deadweight=None)
+
+        monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
+        resp = wired.post(ENDPOINT, json=VALID_PAYLOAD)
+
+        assert resp.status_code == 422, resp.text
+        message = resp.json()["error"]["message"]
+        assert message.startswith("재화중량톤수(DWT)가 없어 이 선박의 CII를 계산할 수 없습니다.")
+        assert "deadweight" not in message
 
     def test_no_distance_no_coordinates(self, wired):
         payload = {k: v for k, v in VALID_PAYLOAD.items() if k != "direct_distance_nm"}
