@@ -16,15 +16,13 @@ import {
   missingGrossTonnageCount,
   relativeTime,
   soonestDaysToD,
-  sortVessels,
   unavailableHint,
   unavailableText,
   ytdCiiText,
   warningBannerText,
-  type SortKey,
 } from './fleetRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
-import type { FleetSnapshot, FleetVessel } from './types'
+import type { FleetSnapshot, FleetSort, FleetVessel } from './types'
 import './FleetDashboard.css'
 
 /**
@@ -44,6 +42,12 @@ import './FleetDashboard.css'
  *
  * KPI와 위험 판정은 서버(`#350`)가 확정한 값을 그대로 쓴다. 화면이 다시 세면
  * 필터·정렬이 붙었을 때 서버와 달라지는데 **그 차이는 눈으로 발견되지 않는다.**
+ *
+ * ## 정렬도 서버가 한다 (#772)
+ *
+ * 선박 목록은 서버가 정렬해 **페이지로 자른다**. KPI·배너·조치는 선대 전체 기준이다. 화면이
+ * 받은 페이지를 다시 정렬하면 1쪽의 위험 선박 뒤에 2쪽의 더 위험한 선박이 오는 순서가 된다.
+ * 정렬을 바꾸면 첫 페이지부터 다시 받고, 다음 페이지는 첫 페이지의 기준 시각으로 받는다.
  */
 
 const INITIAL_VISIBLE = 6
@@ -51,13 +55,16 @@ const INITIAL_VISIBLE = 6
 export function FleetDashboard() {
   const [snapshot, setSnapshot] = useState<FleetSnapshot | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
-  const [sortKey, setSortKey] = useState<SortKey>('risk')
+  const [sortKey, setSortKey] = useState<FleetSort>('risk')
   const [expanded, setExpanded] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const provider = useMemo(() => createApiFleetProvider(), [])
 
+  // 정렬이 바뀌면 첫 페이지부터 다시 받는다 — 서버가 정렬한다(#772).
   useEffect(() => {
     let alive = true
-    createApiFleetProvider()
-      .load()
+    provider
+      .load({ sort: sortKey })
       .then((data) => {
         if (alive) setSnapshot(data)
       })
@@ -71,10 +78,39 @@ export function FleetDashboard() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [provider, sortKey])
+
+  /** 다음 페이지 — 같은 정렬·**첫 페이지의 기준 시각**으로 묻고 뒤에 붙인다. */
+  async function loadMore() {
+    if (!snapshot?.nextCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const next = await provider.load({
+        sort: sortKey,
+        cursor: snapshot.nextCursor,
+        asOf: snapshot.asOf,
+      })
+      setSnapshot((prev) =>
+        prev
+          ? {
+              ...prev,
+              vessels: [...prev.vessels, ...next.vessels],
+              nextCursor: next.nextCursor,
+              hasMore: next.hasMore,
+            }
+          : prev,
+      )
+      setExpanded(true)
+    } catch (error: unknown) {
+      setFailure(error instanceof Error ? error.message : '선대 현황을 불러오지 못했습니다.')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   const vessels = useMemo(() => snapshot?.vessels ?? [], [snapshot])
-  const sorted = useMemo(() => sortVessels(vessels, sortKey), [vessels, sortKey])
+  // 서버 순서 그대로다(#772) — 다시 정렬하지 않는다.
+  const sorted = vessels
 
   if (failure) return <FleetPlaceholder tone="error" message={failure} />
 
@@ -289,7 +325,7 @@ export function FleetDashboard() {
               <span className="sr-only">정렬 기준</span>
               <select
                 value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                onChange={(e) => setSortKey(e.target.value as FleetSort)}
                 data-testid="fleet-sort"
               >
                 <option value="risk">위험도순</option>
@@ -308,6 +344,17 @@ export function FleetDashboard() {
           {remaining > 0 ? (
             <button type="button" className="more" onClick={() => setExpanded(true)}>
               {remaining}척 더 보기
+            </button>
+          ) : null}
+          {/*
+            서버에 다음 페이지가 있으면(`API_SPEC §2.8` · #772) 이어서 받는다. 위 「더 보기」는
+            받은 선박을 펼치는 것이고, 이것은 **아직 받지 않은 선박**을 받는 것이다.
+          */}
+          {remaining === 0 && snapshot.hasMore ? (
+            <button type="button" className="more" onClick={loadMore} disabled={loadingMore}>
+              {loadingMore
+                ? '선박을 더 불러오는 중…'
+                : `다음 선박 불러오기 (전체 ${counts.total}척 중 ${vessels.length}척 표시)`}
             </button>
           ) : null}
         </section>

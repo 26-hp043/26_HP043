@@ -482,6 +482,9 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.vessels[].ytd_required_cii",
             "meta",
             "meta.as_of",
+            # `vessels[]`만 페이지로 자른다 — `§1.5` 페이지 정보 (#772)
+            "meta.has_more",
+            "meta.next_cursor",
             "meta.request_id",
             "meta.timestamp",
         }

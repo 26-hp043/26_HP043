@@ -21,46 +21,21 @@ import type {
  * 위험 선박 판정(`PRD §3.3.7`)과 KPI 집계는 **서버가 확정한다**(`#350`). 화면이 다시
  * 세면 필터·정렬이 붙었을 때 서버와 달라지고, **그 차이는 눈으로 발견되지 않는다.**
  *
- * 그래서 이 모듈은 **정렬과 문구**만 맡는다 — 서버가 관여하지 않는 영역이다.
+ * 그래서 이 모듈은 **문구**만 맡는다. 정렬도 서버로 옮겼다(#772) — 목록을 페이지로 자르면
+ * 화면이 전체를 정렬할 수 없다.
  */
 
-/** 나쁜 등급이 큰 값이다 — 정렬 비교용. */
-const RATING_ORDER: Record<Rating, number> = { A: 0, B: 1, C: 2, D: 3, E: 4 }
-
-/** 표시 순서. `RATING_ORDER`는 정렬 키라 열거에 쓸 수 없다. */
+/**
+ * 표시 순서.
+ *
+ * 정렬 규칙(위험도·등급·이름)은 **서버로 옮겼다**(`services/fleet_summary.sort_fleet_rows` ·
+ * #772). 목록을 페이지로 자르면 화면이 전체를 정렬할 수 없다.
+ */
 const RATINGS: readonly Rating[] = ['A', 'B', 'C', 'D', 'E']
 
 /** 서버가 준 `riskReasons`가 비어 있지 않으면 위험 선박이다. 등급으로 재판정하지 않는다. */
 export function isAtRisk(vessel: { riskReasons: readonly RiskReason[] }): boolean {
   return vessel.riskReasons.length > 0
-}
-
-export type SortKey = 'risk' | 'name' | 'grade'
-
-/** 등급이 없는 선박(실적 없음)은 가장 뒤로 — 나쁜 등급으로 오해되면 안 된다. */
-function ratingRank(vessel: FleetVessel): number {
-  return vessel.ytdRating === null ? -1 : RATING_ORDER[vessel.ytdRating]
-}
-
-/**
- * 선박 목록 정렬.
- *
- * 기본값이 **위험도순**인 것은 이 화면의 목적이 「위험 선박 식별」이기 때문이다
- * (`PRD §2.3` 관제 가능성). 이름순이 기본이면 위험 선박이 목록 아래로 숨는다.
- */
-export function sortVessels(vessels: FleetVessel[], key: SortKey): FleetVessel[] {
-  const copy = [...vessels]
-  if (key === 'name') return copy.sort((a, b) => a.name.localeCompare(b.name))
-  if (key === 'grade') return copy.sort((a, b) => ratingRank(b) - ratingRank(a))
-
-  // 위험도순 — ⑴ 규제 트리거 선박 먼저 ⑵ YTD 등급이 나쁜 순 ⑶ 이름
-  return copy.sort((a, b) => {
-    const risk = Number(isAtRisk(b)) - Number(isAtRisk(a))
-    if (risk !== 0) return risk
-    const grade = ratingRank(b) - ratingRank(a)
-    if (grade !== 0) return grade
-    return a.name.localeCompare(b.name)
-  })
 }
 
 /** 위험 사유 문구. 규제 용어는 `PRD §3.3.7`을 따른다. */

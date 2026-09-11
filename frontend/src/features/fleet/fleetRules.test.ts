@@ -13,7 +13,6 @@ import {
   relativeTime,
   riskReasonText,
   soonestDaysToD,
-  sortVessels,
   unavailableHint,
   unavailableText,
   underwayStateText,
@@ -184,41 +183,10 @@ describe('운항 상태 문구', () => {
   })
 })
 
-describe('정렬', () => {
-  const plain = vessel({ id: 'a', name: 'MV Alpha', ytdRating: 'A' })
-  const risky = vessel({ id: 'r', name: 'MV Zulu', ytdRating: 'D', riskReasons: ['D_THIRD_YEAR'] })
-  const worse = vessel({ id: 'w', name: 'MV Bravo', ytdRating: 'E' })
-  const nodata = vessel({ id: 'n', name: 'MV Nodata', ytdRating: null, dataAvailable: false })
-
-  it('위험도순은 규제 트리거 선박을 맨 앞에 둔다', () => {
-    // 이 화면의 목적이 위험 선박 식별이라, E등급보다 규제 트리거가 앞선다.
-    expect(sortVessels([plain, worse, risky], 'risk')[0].id).toBe('r')
-  })
-
-  it('트리거가 같으면 나쁜 등급이 앞선다', () => {
-    expect(sortVessels([plain, worse], 'risk').map((v) => v.id)).toEqual(['w', 'a'])
-  })
-
-  it('실적 없는 선박은 나쁜 등급으로 취급하지 않는다', () => {
-    // 등급이 없다고 맨 앞에 오면 「가장 위험한 배」로 읽힌다.
-    const sorted = sortVessels([nodata, worse], 'risk')
-    expect(sorted[0].id).toBe('w')
-  })
-
-  it('이름순', () => {
-    expect(sortVessels([risky, plain, worse], 'name').map((v) => v.name)).toEqual([
-      'MV Alpha',
-      'MV Bravo',
-      'MV Zulu',
-    ])
-  })
-
-  it('원본 배열을 바꾸지 않는다', () => {
-    const input = [plain, worse, risky]
-    sortVessels(input, 'risk')
-    expect(input.map((v) => v.id)).toEqual(['a', 'w', 'r'])
-  })
-})
+/*
+ * 「정렬」 검사는 서버로 옮겼다(`tests/test_fleet_summary.py` `sort_fleet_rows` · #772) —
+ * 목록을 페이지로 자르면 화면이 전체를 정렬할 수 없어 규칙 자체가 서버로 갔다.
+ */
 
 describe('가장 임박한 D등급 진입', () => {
   it('여러 척이면 가장 짧은 것을 고른다', () => {

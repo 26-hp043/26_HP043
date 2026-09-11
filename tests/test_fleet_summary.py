@@ -42,6 +42,7 @@ from cii_platform.services.fleet_summary import (
     compute_days_to_target,
     evaluate_risk_reasons,
     get_fleet_summary,
+    sort_fleet_rows,
 )
 from cii_platform.services.ytd_cii import YtdCiiOutput, compute_ytd_cii
 
@@ -1138,3 +1139,118 @@ def test_every_reason_constant_is_covered_by_the_contract_test():
         REASON_NO_RECENT_DATA,
         REASON_NOT_WORSENING,
     }, f"모듈의 REASON_* 상수: {sorted(declared)}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# vessels[]만 페이지로 자른다 — summary·actions는 선대 전체 (#772 · 결정 3-⑤)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _row(name: str, *, rating: str | None, at_risk: bool = False, vid: str = "") -> dict:
+    return {
+        "vessel_id": vid or f"id-{name}",
+        "name": name,
+        "ytd_rating": rating,
+        "risk_reasons": ["E_THIS_YEAR"] if at_risk else [],
+    }
+
+
+def test_risk_sort_puts_triggers_first_then_worse_grades_and_unrated_last():
+    """기본 정렬 — 이 화면의 목적이 「위험 선박 식별」이다(`PRD §2.3`).
+
+    종전에는 화면(`fleetRules.sortVessels`)이 이 규칙을 가졌다. 페이지로 자르면 화면이
+    전체를 정렬할 수 없어 서버로 옮겼다 — 규칙은 그대로다.
+    """
+    rows = [
+        _row("알파", rating="B"),
+        _row("무등급", rating=None),
+        _row("위험선", rating="C", at_risk=True),
+        _row("나쁜선", rating="D"),
+    ]
+    assert [r["name"] for r in sort_fleet_rows(rows, "risk")] == [
+        "위험선",
+        "나쁜선",
+        "알파",
+        "무등급",
+    ]
+
+
+def test_grade_and_name_sorts_and_stable_ties():
+    rows = [
+        _row("b-ship", rating="C", vid="2"),
+        _row("A-ship", rating="C", vid="1"),
+        _row("무등급", rating=None, vid="3"),
+    ]
+    # 이름은 대소문자를 가르지 않는다 — `A-ship`이 `b-ship` 앞
+    assert [r["name"] for r in sort_fleet_rows(rows, "name")] == ["A-ship", "b-ship", "무등급"]
+    # 등급순 — 등급 없는 선박은 나쁜 등급으로 오해되지 않게 가장 뒤
+    assert [r["name"] for r in sort_fleet_rows(rows, "grade")][-1] == "무등급"
+    # 동명·동급이면 id로 고정된다 — 요청마다 순서가 바뀌면 페이지 사이에 선박이 겹치거나 빠진다
+    twins = [_row("같은", rating="C", vid="9"), _row("같은", rating="C", vid="1")]
+    assert [r["vessel_id"] for r in sort_fleet_rows(twins, "name")] == ["1", "9"]
+
+
+@pytest.mark.asyncio
+async def test_summary_counts_the_whole_fleet_while_vessels_are_paged(session):
+    """`summary`는 페이지가 아니라 **선대 전체**다.
+
+    「이 페이지의 위험 선박 수」가 되면 대시보드 배너가 뜻을 잃는다(`PRD §6.2 SCR-001`).
+
+    다음 페이지는 첫 페이지의 `as_of`와 커서로 묻는다. 두 페이지를 합치면 **겹치지도 빠지지도
+    않는다.**
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    for i, name in enumerate(["가선", "나선", "다선"]):
+        await _insert_vessel(session, imo=f"920500{i}", name=name)
+
+    first = await get_fleet_summary(
+        session, regulation_year=YEAR, as_of=AS_OF, sort="name", limit=2
+    )
+    assert first["summary"]["total"] == 3
+    assert [r["name"] for r in first["vessels"]] == ["가선", "나선"]
+    assert first["_page"]["has_more"] is True
+
+    second = await get_fleet_summary(
+        session,
+        regulation_year=YEAR,
+        as_of=AS_OF,
+        sort="name",
+        limit=2,
+        cursor=first["_page"]["next_cursor"],
+    )
+    assert [r["name"] for r in second["vessels"]] == ["다선"]
+    assert second["summary"] == first["summary"]
+    assert second["_page"] == {"next_cursor": None, "has_more": False}
+
+
+@pytest.mark.asyncio
+async def test_bad_sort_limit_and_cursor_are_422_not_silently_accepted(session):
+    """정렬을 바꾸고 옛 커서로 물으면 다른 순서의 n번째부터가 나온다 — 조용히 받지 않는다."""
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    for i, name in enumerate(["가선", "나선"]):
+        await _insert_vessel(session, imo=f"920510{i}", name=name)
+    first = await get_fleet_summary(
+        session, regulation_year=YEAR, as_of=AS_OF, sort="name", limit=1
+    )
+
+    with pytest.raises(ValidationError) as other_sort:
+        await get_fleet_summary(
+            session,
+            regulation_year=YEAR,
+            as_of=AS_OF,
+            sort="risk",
+            limit=1,
+            cursor=first["_page"]["next_cursor"],
+        )
+    assert other_sort.value.field == "cursor"
+    with pytest.raises(ValidationError) as broken:
+        await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF, cursor="%%%")
+    assert broken.value.field == "cursor"
+    with pytest.raises(ValidationError) as bad_sort:
+        await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF, sort="size")
+    assert bad_sort.value.field == "sort"
+    with pytest.raises(ValidationError) as bad_limit:
+        await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF, limit=0)
+    assert bad_limit.value.field == "limit"

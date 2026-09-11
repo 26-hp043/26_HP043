@@ -121,6 +121,17 @@ async def insert(session: AsyncSession, **fields: object) -> Vessel:
     return vessel
 
 
+async def list_all_active(session: AsyncSession) -> list[Vessel]:
+    """활성 선박 **전부**를 ``(name, id)`` 순으로 (선대 요약 · #772).
+
+    선대 요약은 ``summary``·``actions``가 **선대 전체** 기준이라 선박을 자를 수 없다
+    (`API_SPEC §2.8`). 종전에는 ``list_active(limit=200)``을 잘라 써서 201번째 선박부터
+    집계에서 **조용히** 빠졌다. 페이지는 서비스가 계산 뒤에 자른다.
+    """
+    stmt = select(Vessel).where(Vessel.is_deleted.is_(False)).order_by(Vessel.name, Vessel.id)
+    return list((await session.execute(stmt)).scalars().all())
+
+
 async def list_active(
     session: AsyncSession,
     *,

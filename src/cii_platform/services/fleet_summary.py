@@ -28,6 +28,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
@@ -41,6 +43,7 @@ from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import AppError, ParameterError, ValidationError
 from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.cii_history import list_cii_history
+from cii_platform.services.pagination import normalize_limit
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import YtdCiiOutput, compute_ytd_cii
 
@@ -58,6 +61,13 @@ _TARGET_RATING = "D"
 
 #: 등급 악화 순서. 값이 클수록 나쁘다.
 _RATING_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
+
+#: ``vessels[]`` 정렬 키 (#772). 종전에는 화면(``fleetRules.sortVessels``)이 가졌다.
+FLEET_SORT_KEYS: tuple[str, ...] = ("risk", "name", "grade")
+DEFAULT_FLEET_SORT = "risk"
+#: `API_SPEC §1.5` — 목록 조회 공통 기본·상한.
+_DEFAULT_PAGE = 20
+_MAX_PAGE = 100
 
 #: 값을 낼 수 없는 사유 (#419). ``data_available=False``인 선박이 **왜** 그런지 구분한다.
 #:
@@ -497,21 +507,49 @@ async def get_fleet_summary(
     *,
     regulation_year: int | None = None,
     as_of: datetime | None = None,
+    sort: str = DEFAULT_FLEET_SORT,
+    limit: int | None = None,
+    cursor: str | None = None,
 ) -> dict[str, object]:
     """선대 전체 현황을 한 번에 반환한다 (`API_SPEC §2.8`).
 
     :param regulation_year: 집계 대상 규제연도. 미지정이면 ``as_of`` 연도.
     :param as_of: 기준 시각(``as_of`` 계약 ⑵). 미지정이면 서버가 확정하며,
         응답에 **실제 사용한 값을 반드시 싣는다** — 클라이언트가 같은 값으로 다시
-        물어 같은 결과를 얻을 수 있어야 한다(계약 ⑶).
+        물어 같은 결과를 얻을 수 있어야 한다(계약 ⑶). **다음 페이지를 물을 때도 첫
+        페이지의 ``as_of``를 그대로 싣는다** — 시각이 바뀌면 순서가 바뀌어 페이지 사이에
+        선박이 빠지거나 겹친다.
+    :param sort: ``vessels[]`` 정렬 — ``risk``(기본) · ``name`` · ``grade`` (#772).
+    :param limit: ``vessels[]`` 페이지 크기(`§1.5` — 기본 20, 최대 100).
+    :param cursor: 이전 응답의 ``next_cursor``.
+
+    ## 무엇을 자르고 무엇을 자르지 않는가 (#772 · 2026-09-11 결정 3-⑤)
+
+    **``summary``·``actions``는 선대 전체다. ``vessels[]``만 페이지로 자른다.** 위험 선박
+    배너·등급 분포는 「이 페이지의 위험 선박 수」가 되는 순간 뜻을 잃는다(`PRD §6.2 SCR-001`).
+    그래서 페이지와 무관하게 **전 선박을 계산**한다 — 페이지네이션이 계산량을 줄이지는
+    않고, 줄이는 것은 응답 크기다.
+
+    **정렬은 서버가 한다.** 페이지로 자르면 화면이 전체를 정렬할 수 없다 — 1쪽의 위험
+    선박 뒤에 2쪽의 더 위험한 선박이 올 수 있다.
+
+    ⚠️ **종전에는 200척에서 조용히 잘렸다** — ``list_active(limit=200)[:200]``이라 201번째
+    선박부터 ``summary.total``에도 배너에도 없었다(`#772` 실측: 등록 201척 → total 200).
+    이제 자르지 않는다.
     """
     resolved = resolve_as_of(as_of)
     year = regulation_year if regulation_year is not None else resolved.year
+    if sort not in FLEET_SORT_KEYS:
+        raise ValidationError(
+            f"sort는 {' · '.join(FLEET_SORT_KEYS)} 중 하나여야 합니다: {sort}",
+            field="sort",
+            field_label="정렬",
+        )
+    page_size = normalize_limit(limit, default=_DEFAULT_PAGE, maximum=_MAX_PAGE)
+    offset = _decode_fleet_cursor(cursor, sort) if cursor else 0
 
     # 선박 목록은 한 번에 가져온다. 여기서 개별 조회를 돌면 그 자체가 N+1이다.
-    # ``list_active``는 「다음 페이지 있음」 판정용으로 ``limit + 1``건을 준다 —
-    # 초과분을 잘라내는 것은 호출부 몫이다.
-    vessels = (await vessel_repo.list_active(session, limit=_MAX_FLEET_SIZE))[:_MAX_FLEET_SIZE]
+    vessels = await vessel_repo.list_all_active(session)
 
     #
     # 연도 파라미터는 **선대 공통**이라 루프 밖에서 한 번 확인한다 (#419).
@@ -590,18 +628,88 @@ async def get_fleet_summary(
                 }
             )
 
+    ordered = sort_fleet_rows(rows, sort)
+    page = ordered[offset : offset + page_size]
+    has_more = offset + page_size < len(ordered)
     return {
         "as_of": resolved.isoformat(),
         "regulation_year": year,
+        # 선대 전체 — 페이지와 무관하다(위 docstring).
         "summary": _aggregate_counts(rows),
-        "vessels": rows,
+        "vessels": page,
         "actions": actions,
+        # 라우트가 `meta`로 옮긴다(`§1.5`). `data`에 남기지 않는다.
+        "_page": {
+            "next_cursor": _encode_fleet_cursor(offset + page_size, sort) if has_more else None,
+            "has_more": has_more,
+        },
     }
 
 
-#: 한 번에 집계하는 최대 선박 수. 중소선사 대상이라 실무상 충분하며,
-#: 넘어가면 페이지네이션이 필요하다는 신호다(후속 이슈).
-_MAX_FLEET_SIZE = 200
+def _rating_rank(row: dict[str, object]) -> int:
+    """나쁜 등급이 큰 값. **등급이 없는 선박(실적 없음)은 가장 뒤**(-1).
+
+    나쁜 등급으로 오해되면 안 된다 — 실적이 없는 것이지 나쁜 것이 아니다.
+    """
+    rating = row["ytd_rating"]
+    return _RATING_ORDER[rating] if isinstance(rating, str) and rating in _RATING_ORDER else -1
+
+
+def _name_key(row: dict[str, object]) -> str:
+    """이름순 — 대소문자를 가르지 않는다(화면의 ``localeCompare`` 기본과 같은 방향)."""
+    return str(row["name"]).casefold()
+
+
+def sort_fleet_rows(rows: list[dict[str, object]], sort: str) -> list[dict[str, object]]:
+    """``vessels[]`` 정렬 (#772 — 종전 ``frontend/.../fleetRules.sortVessels``를 옮겼다).
+
+    * ``risk`` (기본) — ⑴ 규제 트리거 선박 먼저 ⑵ YTD 등급이 나쁜 순 ⑶ 이름. 이 화면의 목적이
+      「위험 선박 식별」이라 기본이다(`PRD §2.3`) — 이름순이 기본이면 위험 선박이 아래로 숨는다
+    * ``grade`` — 등급이 나쁜 순, 같으면 이름
+    * ``name`` — 이름
+
+    **마지막 키는 늘 ``vessel_id``다.** 동명·동급 선박의 순서가 요청마다 바뀌면 페이지 사이에
+    선박이 겹치거나 빠진다.
+    """
+    if sort == "name":
+        key = lambda r: (_name_key(r), str(r["vessel_id"]))  # noqa: E731
+    elif sort == "grade":
+        key = lambda r: (-_rating_rank(r), _name_key(r), str(r["vessel_id"]))  # noqa: E731
+    else:
+        key = lambda r: (  # noqa: E731
+            0 if r["risk_reasons"] else 1,
+            -_rating_rank(r),
+            _name_key(r),
+            str(r["vessel_id"]),
+        )
+    return sorted(rows, key=key)
+
+
+def _encode_fleet_cursor(offset: int, sort: str) -> str:
+    """불투명 커서 — 다음 페이지의 시작 위치와 **그 순서를 만든 정렬 키**를 담는다."""
+    return base64.urlsafe_b64encode(json.dumps({"o": offset, "s": sort}).encode()).decode("ascii")
+
+
+def _decode_fleet_cursor(token: str, sort: str) -> int:
+    """커서를 되돌린다. 깨졌거나 **다른 정렬의 커서**면 422다.
+
+    정렬을 바꾸고 옛 커서로 물으면 다른 순서의 n번째부터가 나와 선박이 겹치거나 빠진다 —
+    조용히 받아 주지 않는다.
+    """
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(token.encode("ascii")))
+        offset, cursor_sort = int(payload["o"]), str(payload["s"])
+    except (ValueError, KeyError, TypeError, UnicodeError):
+        raise ValidationError(
+            "cursor 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
+        ) from None
+    if offset < 0 or cursor_sort != sort:
+        raise ValidationError(
+            "cursor가 이 정렬의 것이 아닙니다. 첫 페이지부터 다시 불러오세요.",
+            field="cursor",
+            field_label="커서",
+        )
+    return offset
 
 
 def _aggregate_counts(rows: list[dict[str, object]]) -> dict[str, object]:
