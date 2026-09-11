@@ -6,6 +6,7 @@ import {
   type ScenarioComparisonProvider,
 } from './provider'
 import type {
+  ScenarioAdoptResult,
   ScenarioComparisonRequest,
   ScenarioComparisonResponse,
   ScenarioResult,
@@ -54,6 +55,7 @@ interface ServerCalculationBasis {
 }
 
 interface ServerScenario {
+  scenario_id: string
   scenario_type: string
   scenario_name: string
   distance_nm: number
@@ -87,6 +89,7 @@ interface ServerBody {
 
 function toScenario(raw: ServerScenario): ScenarioResult {
   return {
+    scenario_id: raw.scenario_id,
     scenario_type: raw.scenario_type as ScenarioResult['scenario_type'],
     scenario_name: raw.scenario_name,
     distance_nm: raw.distance_nm,
@@ -220,6 +223,66 @@ export function createApiScenarioProvider(
          * 다시 기본값을 두면 **같은 문구가 두 곳**이 되어 또 갈린다.
          */
         disclaimer: body?.disclaimer ?? '',
+      }
+    },
+
+    async adopt(scenarioId: string, targetVoyageId: string): Promise<ScenarioAdoptResult> {
+      let response: Response
+      try {
+        response = await fetchImpl(
+          `${baseUrl}/scenarios/${encodeURIComponent(scenarioId)}/adopt`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+              ...csrfHeaders(),
+            },
+            // 모드를 **명시한다.** 서버 기본이 `UPDATE_EXISTING_PLAN`이지만, 기본이
+            // 바뀌면 화면이 모르는 채 새 항차를 만들게 된다.
+            body: JSON.stringify({
+              target_voyage_id: targetVoyageId,
+              adopt_mode: 'UPDATE_EXISTING_PLAN',
+            }),
+          },
+        )
+      } catch (cause) {
+        throw new ScenarioComparisonError(
+          'CALCULATION_ERROR',
+          '서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+          undefined,
+          { cause },
+        )
+      }
+
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new ScenarioComparisonError('CALCULATION_ERROR', SESSION_EXPIRED_MESSAGE)
+      }
+
+      const body = (await response.json().catch(() => null)) as {
+        data?: Partial<ScenarioAdoptResult>
+        error?: { code?: string; message?: string }
+      } | null
+
+      if (!response.ok) {
+        // 서버 문구를 그대로 쓴다 — 「계획 단계 항차에만 반영할 수 있습니다 (현재 상태: …)」처럼
+        // **무엇이 막혔는지**를 서버가 가장 정확히 안다(`STATE_TRANSITION_ERROR` 409).
+        throw new ScenarioComparisonError(
+          SERVER_CODE_MAP[body?.error?.code ?? 'INTERNAL_ERROR'] ?? 'CALCULATION_ERROR',
+          body?.error?.message ?? `계획에 반영하지 못했습니다 (HTTP ${response.status}).`,
+        )
+      }
+
+      const data = body?.data
+      if (!data || typeof data.voyage_id !== 'string') {
+        throw new ScenarioComparisonError('CALCULATION_ERROR', '반영 결과를 해석하지 못했습니다.')
+      }
+      return {
+        voyage_id: data.voyage_id,
+        adopted_scenario_type: data.adopted_scenario_type as ScenarioAdoptResult['adopted_scenario_type'],
+        updated_fields: Array.isArray(data.updated_fields) ? data.updated_fields : [],
       }
     },
   }

@@ -1,0 +1,117 @@
+/*
+ * 계획에 반영 (#580) — 결과 묶음의 마지막 카드.
+ *
+ * 카드 모양은 바로 위 `scenario-comparison__lowest`와 같다(면 · 테두리 · Lv1 · 16).
+ * 같은 묶음 안에서 카드마다 모양이 다르면 서로 다른 종류의 정보로 읽힌다.
+ */
+.scenario-adopt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+  padding: var(--space-16);
+}
+
+.scenario-adopt__title {
+  margin: 0;
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+}
+
+.scenario-adopt__title-en {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-body);
+}
+
+.scenario-adopt__lead {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+  word-break: keep-all;
+}
+
+.scenario-adopt__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-12);
+}
+
+.scenario-adopt__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.scenario-adopt__field label {
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+}
+
+.scenario-adopt__field select {
+  height: 40px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.scenario-adopt__note {
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+  word-break: keep-all;
+}
+
+/*
+ * Secondary(아웃라인) — `§8`. 이 화면의 Primary는 「비교하기」다. 한 화면에 채움 버튼이
+ * 둘이면 어느 쪽이 주 동작인지 흐려지고, 반영은 되돌릴 수 없는 조작이라 눈에 덜
+ * 띄는 쪽이 맞다(`annual-sim__reproduce`와 같은 모양).
+ */
+.scenario-adopt__submit {
+  align-self: flex-start;
+  height: 40px;
+  padding: 0 var(--space-16);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.scenario-adopt__submit:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-link);
+}
+
+.scenario-adopt__submit:disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* 반영 결과 — `§8` 상태색 좌측 스트라이프(Info). 성공이지만 **해야 할 일**(재계산)을 함께 말한다. */
+.scenario-adopt__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  border-left: 3px solid var(--color-info);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  padding: var(--space-12) var(--space-16);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.scenario-adopt__result p {
+  margin: 0;
+}
+
+.scenario-adopt__link {
+  color: var(--color-link);
+  font-weight: var(--font-weight-label);
+}

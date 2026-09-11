@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import './ScenarioComparison.css'
 import { useShellContext } from '../../layout/shellContext'
+import { ScenarioAdoptPanel } from './ScenarioAdoptPanel'
 import {
   FIELD,
   MIN_SPEED_KN,
@@ -666,6 +667,18 @@ export function ScenarioComparison({
             ))}
           </ul>
         ) : null}
+
+        {/*
+          비교 뒤 그 판단을 항차 계획으로 옮기는 경로 (#580). 선박은 **비교를 실행한**
+          선박이다 — 폼에서 배를 바꿨으면 결과가 낡은(`stale`) 상태라 반영을 막는다.
+        */}
+        <ScenarioAdoptPanel
+          provider={provider}
+          vesselId={snapshot.inputs.vesselId}
+          scenarios={response.scenarios}
+          stale={stale}
+          preferredVoyageId={shell.voyageId}
+        />
       </div>
     </section>
   )

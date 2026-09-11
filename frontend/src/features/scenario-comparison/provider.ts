@@ -1,4 +1,8 @@
-import type { ScenarioComparisonRequest, ScenarioComparisonResponse } from './types'
+import type {
+  ScenarioAdoptResult,
+  ScenarioComparisonRequest,
+  ScenarioComparisonResponse,
+} from './types'
 
 /**
  * 기능② 시나리오 비교의 데이터 경계.
@@ -12,6 +16,13 @@ import type { ScenarioComparisonRequest, ScenarioComparisonResponse } from './ty
  */
 export interface ScenarioComparisonProvider {
   compare(request: ScenarioComparisonRequest): Promise<ScenarioComparisonResponse>
+  /**
+   * 시나리오를 **기존 항차의 계획**에 반영한다 (`API_SPEC §5.2` `UPDATE_EXISTING_PLAN` · `#580`).
+   *
+   * `CREATE_NEW_VOYAGE`는 열지 않는다 — 항구·출발 시각 입력 폼이 더 붙어야 하고,
+   * 디자인 판정(`#580` 2026-08-23 ④)이 범위를 이 모드로 좁혔다.
+   */
+  adopt(scenarioId: string, targetVoyageId: string): Promise<ScenarioAdoptResult>
 }
 
 /**

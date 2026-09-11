@@ -152,6 +152,7 @@ describe('규제연도 — 자유 입력이 아니라 서버 목록이다 (#632)
 const COMPARE_BODY = {
   data: {
     scenarios: ['DIRECT', 'DETOUR', 'SLOW_STEAMING'].map((type, index) => ({
+      scenario_id: `sc-${type.toLowerCase()}`,
       scenario_type: type,
       scenario_name: ['직항', '우회', '감속'][index],
       distance_nm: 1000,
@@ -562,5 +563,154 @@ describe('선택 입력이 요청까지 도달한다 (#892)', () => {
     fireEvent.change(screen.getByLabelText(/현재 위도/), { target: { value: '35.1' } })
     fireEvent.change(screen.getByLabelText(/현재 경도/), { target: { value: '129.05' } })
     expect(screen.queryByText(/현재 좌표를 입력해야 기상 보정이 적용됩니다/)).toBeNull()
+  })
+})
+
+/**
+ * 비교 결과를 **항차 계획에 반영**한다 (`#580`).
+ *
+ * 서버는 `#58`로 있었는데 화면 소비처가 0곳이었다. 흐름은 디자인 판정(2026-08-23)을
+ * 따른다 — 계획 단계 항차만 · 같은 화면에 남는다 · 되돌리기 없음을 **채택 전에** 알린다.
+ */
+describe('계획에 반영 (#580)', () => {
+  const VESSEL = '00000000-0000-4000-8000-000000000001'
+  const VOYAGES = [
+    { id: 'v-draft', voyage_no: '2026-05', status: 'DRAFT' },
+    { id: 'v-planned', voyage_no: '2026-06', status: 'PLANNED' },
+    { id: 'v-sailing', voyage_no: '2026-04', status: 'IN_PROGRESS' },
+    { id: 'v-done', voyage_no: '2026-03', status: 'CONFIRMED' },
+  ]
+
+  function stubAdoptServer(adoptStatus = 200) {
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      if (url.includes('/scenarios/compare')) return jsonResponse(COMPARE_BODY)
+      if (url.includes(`/vessels/${VESSEL}/voyages`)) return jsonResponse({ data: VOYAGES })
+      if (url.includes('/adopt')) {
+        return adoptStatus === 200
+          ? jsonResponse({
+              data: {
+                voyage_id: 'v-planned',
+                adopted_scenario_type: 'SLOW_STEAMING',
+                updated_fields: ['planned_distance_nm', 'planned_speed_kn', 'planned_arrival_at'],
+                // 서버가 수를 보내도 화면은 쓰지 않는다 — `#817` 전에는 참값이 아니다.
+                invalidated_calculation_runs: 7,
+              },
+            })
+          : jsonResponse({ error: { code: 'STATE_TRANSITION_ERROR', message: '계획 단계 항차에만 반영할 수 있습니다.' } }, 409)
+      }
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  async function openPanel() {
+    await compareAndWaitForResult()
+    return screen.findByRole('region', { name: /계획에 반영/ })
+  }
+
+  it('계획 단계 항차만 고를 수 있다 — 출항한 항차의 계획은 바꾸지 않는다', async () => {
+    stubAdoptServer()
+    renderScreen()
+    await openPanel()
+
+    const select = (await screen.findByLabelText('대상 항차')) as HTMLSelectElement
+    const labels = [...select.querySelectorAll('option')].map((o) => o.textContent)
+    expect(labels).toEqual(['선택', '2026-05 · 작성 중', '2026-06 · 계획 확정'])
+  })
+
+  it('상단바에서 고른 항차가 반영 가능하면 그것을 기본으로 둔다', async () => {
+    stubAdoptServer()
+    renderScreen({ voyageId: 'v-planned' })
+    await openPanel()
+
+    const select = (await screen.findByLabelText('대상 항차')) as HTMLSelectElement
+    await waitFor(() => expect(select.value).toBe('v-planned'))
+  })
+
+  it('상단바의 항차가 출항한 항차면 기본으로 두지 않는다 — 고를 수 없는 항차다', async () => {
+    stubAdoptServer()
+    renderScreen({ voyageId: 'v-sailing' })
+    await openPanel()
+
+    const select = (await screen.findByLabelText('대상 항차')) as HTMLSelectElement
+    expect(select.value).toBe('')
+  })
+
+  it('반영 전에 되돌릴 수 없음을 확인받는다 — 거절하면 요청을 보내지 않는다', async () => {
+    const fetchImpl = stubAdoptServer()
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    renderScreen()
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+    fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+    fireEvent.click(screen.getByRole('button', { name: '계획에 반영' }))
+
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(String(confirm.mock.calls[0])).toContain('되돌릴 수 없습니다')
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/adopt'))).toBe(false)
+  })
+
+  it('반영하면 무엇이 바뀌었는지 · 재계산이 필요하다는 것 · 그 항차로 가는 길을 낸다', async () => {
+    const fetchImpl = stubAdoptServer()
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    renderScreen()
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+    fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+    fireEvent.click(screen.getByRole('button', { name: '계획에 반영' }))
+
+    expect(await screen.findByText(/시나리오를 반영했습니다/)).toBeTruthy()
+    expect(screen.getByText(/바뀐 값 — 항해거리 · 평균 속력 · 도착 예정 시각/)).toBeTruthy()
+    expect(screen.getByText(/기존 계산 결과는 다시 계산해야 합니다/)).toBeTruthy()
+    const link = screen.getByRole('link', { name: '반영한 항차 보기' })
+    expect(link.getAttribute('href')).toBe(`/vessels/${VESSEL}/voyages/v-planned`)
+
+    const [, init] = fetchImpl.mock.calls.find(([url]) => String(url).includes('/adopt')) ?? []
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      target_voyage_id: 'v-planned',
+      adopt_mode: 'UPDATE_EXISTING_PLAN',
+    })
+    // 서버가 보낸 재계산 건수(7)를 화면에 내지 않는다 — `#817` 전에는 참값이 아니다.
+    expect(screen.queryByText(/7건/)).toBeNull()
+  })
+
+  it('거부되면 서버 사유를 그대로 보인다', async () => {
+    stubAdoptServer(409)
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    renderScreen()
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-direct' } })
+    fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-draft' } })
+    fireEvent.click(screen.getByRole('button', { name: '계획에 반영' }))
+
+    expect(await screen.findByText('계획 단계 항차에만 반영할 수 있습니다.')).toBeTruthy()
+    expect(screen.queryByText(/시나리오를 반영했습니다/)).toBeNull()
+  })
+
+  it('입력이 바뀌어 결과가 낡으면 반영하지 않는다 — 보고 있는 값과 반영될 값이 갈린다', async () => {
+    stubAdoptServer()
+    renderScreen()
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-direct' } })
+    fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-draft' } })
+    fireEvent.change(screen.getByLabelText(/직항 거리/), { target: { value: '1500' } })
+
+    const button = (await screen.findByRole('button', { name: '계획에 반영' })) as HTMLButtonElement
+    await waitFor(() => expect(button.disabled).toBe(true))
+    expect(screen.getByText(/다시 비교한 뒤 반영할 수 있습니다/)).toBeTruthy()
   })
 })

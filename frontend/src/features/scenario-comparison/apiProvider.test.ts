@@ -296,3 +296,53 @@ describe('서버 경고·면책 문구 (#821)', () => {
     expect(result.disclaimer).toBe('')
   })
 })
+
+describe('시나리오 채택 — POST /scenarios/{id}/adopt (#580)', () => {
+  it('비교 응답의 scenario_id를 화면 타입에 옮긴다 — 채택 경로의 식별자다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+
+    expect(result.scenarios.map((s) => s.scenario_id)).toEqual(['a', 'b'])
+  })
+
+  it('기존 항차 계획 모드를 명시해 보낸다 — 서버 기본에 기대지 않는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          voyage_id: 'v-1',
+          adopted_scenario_type: 'SLOW_STEAMING',
+          updated_fields: ['planned_distance_nm', 'planned_speed_kn', 'planned_arrival_at'],
+          invalidated_calculation_runs: 0,
+        },
+      }),
+    )
+    const result = await createApiScenarioProvider(fetchImpl).adopt('sc 1', 'v-1')
+
+    const [url, init] = fetchImpl.mock.calls[0]
+    // 경로 값은 인코딩한다 — id에 예상 밖 문자가 오면 다른 경로를 부르게 된다.
+    expect(url).toBe('/api/v1/scenarios/sc%201/adopt')
+    expect((init as RequestInit).method).toBe('POST')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({
+      target_voyage_id: 'v-1',
+      adopt_mode: 'UPDATE_EXISTING_PLAN',
+    })
+    expect(result).toEqual({
+      voyage_id: 'v-1',
+      adopted_scenario_type: 'SLOW_STEAMING',
+      updated_fields: ['planned_distance_nm', 'planned_speed_kn', 'planned_arrival_at'],
+    })
+    // 재계산 건수는 옮기지 않는다 — `#817`이 닫히기 전에는 참값이 아니다.
+    expect(result).not.toHaveProperty('invalidated_calculation_runs')
+  })
+
+  it('거부되면 서버 문구를 그대로 낸다 — 무엇이 막혔는지는 서버가 안다', async () => {
+    const message = '계획 단계 항차에만 반영할 수 있습니다 (현재 상태: IN_PROGRESS). 허용 상태: DRAFT · PLANNED'
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: { code: 'STATE_TRANSITION_ERROR', message } }, 409))
+
+    await expect(createApiScenarioProvider(fetchImpl).adopt('a', 'v-1')).rejects.toMatchObject({
+      message,
+    })
+  })
+})

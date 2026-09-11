@@ -14,6 +14,7 @@ function scenario(
   values: { cii: string; hours: string; fuel: string },
 ): ScenarioResult {
   return {
+    scenario_id: `id-${type}`,
     scenario_type: type,
     scenario_name: type,
     distance_nm: 1000,
