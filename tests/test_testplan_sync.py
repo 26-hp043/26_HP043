@@ -62,7 +62,6 @@ PLANNED_ONLY: frozenset[str] = frozenset(
         # 스냅샷 정책 (#105)
         "test_simulation_policy_filter.py",
         # 성능 벤치마크 (#67)
-        "test_benchmarks.py",
         # 소프트 삭제 통합 (#66)
         "test_soft_delete.py",
         # 감사 로그 (#65)
