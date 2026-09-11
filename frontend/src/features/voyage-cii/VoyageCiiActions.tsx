@@ -18,6 +18,8 @@ import {
   type PlanSaveForm,
 } from './actionRules'
 import type { ResultState } from './resultRules'
+import type { VoyageCiiProvider } from './provider'
+import { createVoyageCiiProvider } from './providerSelection'
 
 /**
  * 기능① 결과 화면의 사용자 액션 3종 (`PRD §10.5` · #891).
@@ -40,13 +42,17 @@ export function VoyageCiiActions({
   state,
   stale,
   provider,
+  estimator,
 }: {
   state: ResultState
   stale: boolean
   /** 검사에서 갈아 끼우는 주입점. */
   provider?: VoyageManagementProvider
+  /** 계획 저장 뒤 계산을 그 항차에 귀속해 한 번 더 기록할 때 쓴다 (#817). 검사 주입점. */
+  estimator?: VoyageCiiProvider
 }) {
   const api = useMemo(() => provider ?? createApiVoyageManagementProvider(), [provider])
+  const calc = useMemo(() => estimator ?? createVoyageCiiProvider(), [estimator])
   const navigate = useNavigate()
   const [panelOpen, setPanelOpen] = useState(false)
   const [form, setForm] = useState<PlanSaveForm>(initialPlanSaveForm)
@@ -82,10 +88,25 @@ export function VoyageCiiActions({
       // 생성은 늘 `DRAFT`·`EXCLUDE`다(`API_SPEC §3.3` [EXT-P0-4]) — `PLANNED` 전환에서 정책을 싣는다.
       const created = await api.create(request.vessel_id, planDraftFrom(request, form))
       await api.transition(created, 'PLANNED', planPolicy(form))
+      /*
+       * 이 계산을 **새 항차에 귀속해 한 번 더 기록한다** (#817 · 결정 2-③ 「항차 컨텍스트가
+       * 있는 요청만 귀속」). 방금 본 계산 이력은 항차가 생기기 전에 만들어져 항차가 없고,
+       * 계산 이력은 고칠 수 없다(immutable). 같은 입력이라 값도 해시도 같다 — 달라지는 것은
+       * 「이 항차의 계산」이라는 주소뿐이고, 그래야 이 항차의 계획이 바뀔 때 재계산 필요로 표시된다.
+       */
+      let attached = true
+      try {
+        await calc.estimate({ ...request, voyage_id: created.id })
+      } catch {
+        attached = false
+      }
+      const base = form.includeInAnnual
+        ? '계획 항차로 저장했습니다. 연간 시뮬레이션의 잔여 계획에 반영됩니다.'
+        : '계획 항차로 저장했습니다. 연간 시뮬레이션에는 반영하지 않았습니다.'
       setSaved(
-        form.includeInAnnual
-          ? '계획 항차로 저장했습니다. 연간 시뮬레이션의 잔여 계획에 반영됩니다.'
-          : '계획 항차로 저장했습니다. 연간 시뮬레이션에는 반영하지 않았습니다.',
+        attached
+          ? base
+          : `${base} 다만 이 계산을 항차에 연결하지 못해, 계획이 바뀌어도 재계산 필요로 표시되지 않습니다.`,
       )
       setPanelOpen(false)
       setForm(initialPlanSaveForm())

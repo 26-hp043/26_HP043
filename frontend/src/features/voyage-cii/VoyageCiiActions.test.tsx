@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { VoyageCiiActions } from './VoyageCiiActions'
 import type { ResultState } from './resultRules'
 import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
+import type { VoyageCiiProvider } from './provider'
 import type { VoyageManagementProvider } from '../voyage-management/apiProvider'
 import type { ManagedVoyage } from '../voyage-management/types'
 
@@ -62,13 +63,29 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
   } as unknown as VoyageManagementProvider
 }
 
-function renderActions(state: ResultState, provider: VoyageManagementProvider, stale = false) {
+function stubEstimator(over: Partial<VoyageCiiProvider> = {}): VoyageCiiProvider {
+  return { estimate: vi.fn(async () => ({}) as VoyageCiiResponse), ...over }
+}
+
+function renderActions(
+  state: ResultState,
+  provider: VoyageManagementProvider,
+  stale = false,
+  estimator: VoyageCiiProvider = stubEstimator(),
+) {
   return render(
     <MemoryRouter initialEntries={['/cii']}>
       <Routes>
         <Route
           path="/cii"
-          element={<VoyageCiiActions state={state} stale={stale} provider={provider} />}
+          element={
+            <VoyageCiiActions
+              state={state}
+              stale={stale}
+              provider={provider}
+              estimator={estimator}
+            />
+          }
         />
         <Route path="/annual-grade" element={<p>연간 화면</p>} />
       </Routes>
@@ -112,6 +129,31 @@ describe('기능① 결과 액션 (#891)', () => {
       }),
     )
     expect(provider.transition).toHaveBeenCalledWith(DRAFT, 'PLANNED', 'INCLUDE_AS_PLAN')
+  })
+
+  it('저장한 항차에 계산을 귀속해 한 번 더 기록한다 — 계획이 바뀌면 재계산 필요로 표시되게 (#817)', async () => {
+    const estimator = stubEstimator()
+    renderActions(SUCCESS, stubProvider(), false, estimator)
+    fillPlan()
+    fireEvent.click(screen.getByRole('button', { name: '계획으로 저장' }))
+
+    await screen.findByText(/계획 항차로 저장했습니다/)
+    expect(estimator.estimate).toHaveBeenCalledWith({ ...REQUEST, voyage_id: 'voy-1' })
+  })
+
+  it('귀속 기록이 실패해도 저장은 성공이다 — 다만 그 한계를 알린다 (#817)', async () => {
+    const estimator = stubEstimator({
+      estimate: vi.fn(async () => {
+        throw new Error('network')
+      }),
+    })
+    renderActions(SUCCESS, stubProvider(), false, estimator)
+    fillPlan()
+    fireEvent.click(screen.getByRole('button', { name: '계획으로 저장' }))
+
+    expect(
+      await screen.findByText(/항차에 연결하지 못해, 계획이 바뀌어도 재계산 필요로 표시되지 않습니다/),
+    ).toBeTruthy()
   })
 
   it('반영을 끄면 EXCLUDE로 옮긴다 — 계획 저장과 연간 반영은 별개다', async () => {

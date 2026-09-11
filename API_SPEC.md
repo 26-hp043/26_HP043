@@ -1671,6 +1671,7 @@ POST /api/v1/calculations/voyage-cii
 | `fuel_uses[].fuel_type` | string | Y | VAL-006 | 연료 코드 |
 | `fuel_uses[].fuel_ton` | decimal | Y | VAL-002: > 0 | 연료 사용량 (ton) |
 | `weather_model` | string | N | enum: NONE, SIMPLE_RULE, TOWNSIN_KWON_ALPHA | 기본: NONE |
+| `voyage_id` | UUID | N | 이 선박의 살아 있는 항차(다른 선박이면 422 · 없으면 404) | **[#817] 이 계산이 어느 항차의 것인가.** 주면 계산 이력(`calculation_run.voyage_id`)이 그 항차에 붙어, 항차 계획이 바뀔 때 재계산 필요(`needs_recalc`)로 표시된다(`PRD §8.4`). **결과와 `input_hash`에는 영향이 없다** — 이력의 주소일 뿐이다. 기능① 「계획 저장」이 만든 항차에 계산을 한 번 더 기록할 때 쓴다(`PRD §10.5`) |
 
 #### 응답 (200 OK)
 
@@ -2528,7 +2529,7 @@ voyage_id,voyage_no,departure_port_name,arrival_port_name,planned_distance_nm,pl
 
 > **`attained_cii`·`rating` 열은 두지 않는다** (`#59`). 채울 근거가 없다.
 >
-> 1. `calculation_run.voyage_id`는 열은 있지만 **항상 NULL**이다 — 계산을 만드는 두 자리(`§4.1` 항차 예측 · `§5.1` 시나리오 비교)가 모두 NULL을 넣는다. 어떤 항차의 계산인지 되짚을 방법이 없다
+> 1. ~~`calculation_run.voyage_id`는 열은 있지만 **항상 NULL**이다~~ — **[#817] 항차를 밝힌 `§4.1` 계산은 이제 그 항차에 붙는다.** 그래도 그것은 「그 항차 조건의 가정 계산」이지 아래 2의 CII가 아니므로 이 근거가 사라져도 판단은 그대로다
 > 2. 「항차 하나의 CII」는 **정본에 정의된 양이 아니다.** CII는 연간 집계량이고(`PRD §8.1.2`), 항차 완료 리포트조차 「연간 누적 CII」만 싣는다
 >
 > 열을 두고 비워 놓으면 「아직 계산 안 됨」으로 읽히지만 실제로는 **영원히 채워지지 않는 칸**이다. 항차별 CII가 필요해지면 먼저 ⑴ 계산-항차 연결과 ⑵ 그 양의 정의가 정본에 서야 한다.
@@ -3170,3 +3171,4 @@ GET /api/v1/health
 | 2026-09-11 | `#982` | **v1.26 — §2.15 샘플 선박 목록 조회 신설**(`GET /vessels/samples`) · 엔드포인트 색인 행 추가. 선박 등록 화면이 제원을 채우는 출발점이다(`PRD §5.1` 「샘플 선박 선택」 복원). 값은 데모 시드의 합성 샘플 3척이며 `sample_id`는 선박 UUID가 아니다 — 데모 선박의 id를 실으면 화면이 상세 링크로 오인할 수 있다. 수치는 CRUD 층이라 JSON 숫자(§1.7). 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#982) |
 | 2026-09-11 | `#891` | **§8.1 파라미터 표에 `calculation_run_id` 행 추가** — `type=calculations`에서 계산 한 건만 내보낸다(기능① 「CSV 다운로드」 · `PRD §10.5`). 화면이 CSV를 따로 만들지 않고 서버의 수식 주입 방어·BOM·CRLF를 그대로 쓰기 위해서다. 다른 `type`과 함께면 422, 다른 선박의 계산이면 404. 행 추가라 버전은 올리지 않는다 (#891) |
 | 2026-09-11 | `#772` | **§2.8 `vessels[]` 페이지네이션 · 서버 정렬** — 쿼리 `sort`(`risk`·`grade`·`name`) · `limit`·`cursor`(`§1.5`) 행, `meta.next_cursor`·`has_more`, 「`vessels[]`만 자르고 `summary`·`actions`는 선대 전체」 각주. 2026-09-11 결정 3-⑤. 종전 200척 상한(**조용한 절단**)을 없앴고, 다음 페이지는 첫 페이지의 `as_of`로 묻는다. 정렬 규칙은 화면(`fleetRules.sortVessels`)에서 서버로 옮겼다 — 페이지로 자르면 화면이 전체를 정렬할 수 없다. 행·각주 추가라 버전은 올리지 않는다 (#772) |
+| 2026-09-11 | `#817` | **§4.1 요청에 `voyage_id`(선택) 행 추가 · §8.1 CII 열 근거 1 정정.** 결정 2-③ 「항차 컨텍스트가 있는 요청만 귀속, 기존 NULL 행은 포기」. 종전에는 계산 이력을 만드는 세 자리가 모두 `voyage_id`를 NULL로 넣어 **항차 단위 무효화가 항상 0행**이었다(`scenario_adopt`의 `invalidated_calculation_runs`도 늘 0). 항차를 밝힌 기능① 계산만 귀속하고(결과·`input_hash` 무영향), 기능① 「계획 저장」이 만든 항차에 한 번 더 기록한다. 과거 NULL 행은 `calc_run_guard()`(024)가 `needs_recalc` 외 UPDATE를 막아 채우지 않는다. §8.1의 「항상 NULL」 근거는 사라졌지만 「항차 하나의 CII는 정본의 양이 아니다」가 남아 열은 여전히 두지 않는다. 행 추가·정정이라 버전은 올리지 않는다 (#817) |

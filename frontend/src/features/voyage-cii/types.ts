@@ -45,6 +45,11 @@ export interface VoyageCiiRequest {
   /** 최소 1개. 동일 `fuel_type`이 여러 행이면 합산한다. */
   fuel_uses: FuelUseInput[]
   weather_model?: WeatherModel
+  /**
+   * 이 계산이 **어느 항차의 것인가** (#817 · `API_SPEC §4.1`). 「계획 저장」이 만든 항차로
+   * 계산을 한 번 더 기록할 때만 싣는다 — 그래야 그 항차 계획이 바뀔 때 재계산 필요로 표시된다.
+   */
+  voyage_id?: string
 }
 
 /**

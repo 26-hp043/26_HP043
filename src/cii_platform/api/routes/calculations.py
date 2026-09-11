@@ -116,6 +116,7 @@ async def voyage_cii(
                 for item in payload.fuel_uses
             ),
             weather_model=payload.weather_model,
+            voyage_id=payload.voyage_id,
         ),
     )
 
