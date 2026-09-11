@@ -33,6 +33,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from cii_platform.api.field_labels import field_label
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.api.validation_messages import korean_message
 from cii_platform.errors import ERROR_HTTP_STATUS, AppError
 
 if TYPE_CHECKING:
@@ -131,6 +132,11 @@ def _field_path(loc: tuple[object, ...]) -> str:
     return path
 
 
+#: 필드가 아니라 **본문 전체**에 걸린 오류. ``loc``의 뒤쪽이 필드 경로가 아니다.
+_WHOLE_BODY_ERRORS = frozenset({"json_invalid", "json_type"})
+_WHOLE_BODY_LABEL = "요청 본문"
+
+
 def _validation_details(exc: RequestValidationError) -> list[dict[str, object]]:
     """Pydantic 오류를 API_SPEC §1.3.2 ``details[]`` 형식으로 옮긴다.
 
@@ -140,15 +146,23 @@ def _validation_details(exc: RequestValidationError) -> list[dict[str, object]]:
     직접 던지며 그쪽에서 ``details``를 구성한다.
 
     ``field_label``은 :func:`~cii_platform.api.field_labels.field_label`이 채운다.
-    미등록 필드는 필드명 원문이 그대로 돌아온다(조회 실패 계약).
+    미등록 필드는 필드명 원문이 그대로 돌아온다(조회 실패 계약) — 요청 필드가 전부
+    등록돼 있는지는 ``tests/test_validation_messages.py``가 OpenAPI로 대조한다(#900).
+
+    ``message``는 **Pydantic 원문이 아니라** ``type``·``ctx``에서 새로 만든 한국어다
+    (``API_SPEC §1.3.2`` 언어 규정 · :mod:`~cii_platform.api.validation_messages`).
     """
     details: list[dict[str, object]] = []
     for error in exc.errors():
         field = _field_path(tuple(error.get("loc", ())))
+        # 본문이 JSON이 아니면 ``loc``이 ``("body", 12)``처럼 **글자 위치**다 — 필드가 아니다.
+        if error.get("type") in _WHOLE_BODY_ERRORS:
+            field = ""
+        label = field_label(field) if field else _WHOLE_BODY_LABEL
         entry: dict[str, object] = {
             "field": field,
-            "field_label": field_label(field),
-            "message": str(error.get("msg", "")),
+            "field_label": label,
+            "message": korean_message(error, label),
         }
         details.append(entry)
     return details
