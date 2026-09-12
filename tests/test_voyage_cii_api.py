@@ -72,8 +72,9 @@ def wired(monkeypatch: pytest.MonkeyPatch, session: FakeSession) -> Iterator[Tes
     async def fake_reference_lines(_session, ship_type):
         return [FakeReferenceLine()] if ship_type == "BULK_CARRIER" else []
 
-    async def fake_rating_boundaries(_session, ship_type):
-        return [FakeRatingBoundary()] if ship_type == "BULK_CARRIER" else []
+    async def fake_rating_boundaries(_session, ship_type=None):
+        # 실제 저장소와 같은 규약 — ``ship_type``이 없으면 전 선종을 준다(`#834`).
+        return [FakeRatingBoundary()] if ship_type in (None, "BULK_CARRIER") else []
 
     async def fake_fuel_types(_session, codes):
         known = {"HFO": FakeFuelType()}
