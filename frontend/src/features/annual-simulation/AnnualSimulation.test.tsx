@@ -217,7 +217,10 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
       distance_plus_5pct: { projected_cii: '19.789', rating_change: 'D→D' },
     })
     // ⚠️ `warnings`는 **`data` 밖**이다 (`API_SPEC §1.3.1` · `apiProvider.ts:142`).
-    payload.warnings = ['NO_REMAINING_VOYAGES']
+    //
+    // `body()`의 `warnings: []`가 `never[]`로 추론되므로 대입에 타입을 붙인다 —
+    // vitest는 통과하고 `npm run build`(tsc)에서만 걸리는 자리다.
+    ;(payload as { warnings: string[] }).warnings = ['NO_REMAINING_VOYAGES']
     stubWith(payload)
     renderScreen()
     await runOnce()
