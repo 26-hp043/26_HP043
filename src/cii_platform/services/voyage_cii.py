@@ -497,9 +497,21 @@ async def _select_reference_line(session: AsyncSession, vessel):
 
 
 async def _select_rating_boundary(session: AsyncSession, vessel):
-    rows = await param_repo.list_rating_boundaries(session, vessel.ship_type)
+    # ⚠️ **선종으로 걸러 조회하지 않는다** (`#834` 실측).
+    #
+    # :func:`select_rating_boundary`는 HSC 폴백을 갖는다 — `RO_RO_PASSENGER_HSC`는
+    # G4 원문에 행이 없고, `PRD §3.4.4` 각주(`#126` · 원문 대조 확인 sky01170851)가
+    # **`RO_RO_PASSENGER` 행을 적용한다**로 정했다.
+    #
+    # 그런데 선종으로 걸러서 주면 **폴백 대상 행이 목록에 없어 폴백이 실행될 기회조차
+    # 없다.** 실제로 HSC 선박이 409로 거부됐다. 그 함수의 docstring이 *「걸러지지 않은
+    # 전체 목록이어도 된다」*로 적은 이유가 이것이다.
+    #
+    # 표가 25행이라 거르지 않아도 비용 차이가 없고, 요청 캐시(`#989`)는 선종별로
+    # 따로 담던 것을 **한 번만** 담게 된다.
+    rows = await param_repo.list_rating_boundaries(session)
     if not rows:
-        raise ParameterError(f"선종의 등급 경계가 없습니다: {vessel.ship_type}")
+        raise ParameterError("등급 경계 파라미터가 비어 있습니다.")
     try:
         return select_rating_boundary(vessel, rows)
     except ValueError as exc:
