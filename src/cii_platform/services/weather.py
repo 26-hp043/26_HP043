@@ -325,6 +325,69 @@ async def resolve_with_fallback(
     )
 
 
+#: ``API_SPEC §9.1`` 신선도 값. 기준은 fallback 체인과 **같은 시간**을 쓴다 (`PRD §11.6`).
+FRESHNESS_FRESH = "FRESH"
+FRESHNESS_STALE = "STALE"
+FRESHNESS_EXPIRED = "EXPIRED"
+
+
+def freshness_of(age_hours: float) -> str:
+    """``age_hours`` → ``FRESH``·``STALE``·``EXPIRED`` (`API_SPEC §9.1` 표).
+
+    **판정을 여기 한 곳에 둔다.** 같은 경계를 조회 응답과 fallback 체인이 각자 적으면
+    「경고는 붙었는데 화면은 신선하다고 말하는」 상태가 생긴다.
+    """
+    if age_hours > EXPIRED_AFTER_HOURS:
+        return FRESHNESS_EXPIRED
+    if age_hours > STALE_AFTER_HOURS:
+        return FRESHNESS_STALE
+    return FRESHNESS_FRESH
+
+
+async def get_snapshot_view(
+    session: AsyncSession,
+    *,
+    lat: Decimal | float,
+    lon: Decimal | float,
+    at: datetime | None = None,
+) -> dict[str, object] | None:
+    """그 격자의 **가장 최근 스냅샷**을 `API_SPEC §9.1` 모양으로 (`#767`).
+
+    **만료된 스냅샷도 돌려준다.** 이 엔드포인트는 「계산에 쓸 값」이 아니라 **「저장된 것이
+    무엇인가」**를 보여 준다 — 계산이 왜 보정 없이 돌았는지 설명하려면 **만료된 값이 거기
+    있다는 사실 자체**가 답이다. 쓸지 말지는 fallback 체인(`resolve_with_fallback`)이 정한다.
+
+    저장된 것이 없으면 ``None``. 라우트가 404로 옮긴다.
+    """
+    resolved_at = at or datetime.now(UTC)
+    snapshot = await weather_repo.find_last_snapshot(
+        session, lat_rounded=round_to_grid(lat), lon_rounded=round_to_grid(lon)
+    )
+    if snapshot is None:
+        return None
+
+    age = _age_hours(snapshot.fetched_at, resolved_at)
+    return {
+        "lat": _plain(snapshot.lat),
+        "lon": _plain(snapshot.lon),
+        "fetched_at": snapshot.fetched_at.isoformat(),
+        "wave_height_m": _plain(snapshot.wave_height_m),
+        "wave_direction_deg": _plain(snapshot.wave_direction_deg),
+        "wave_period_s": _plain(snapshot.wave_period_s),
+        "wind_speed_ms": _plain(snapshot.wind_speed_ms),
+        "wind_direction_deg": _plain(snapshot.wind_direction_deg),
+        "source": snapshot.source,
+        "age_hours": round(age, 2),
+        "freshness": freshness_of(age),
+    }
+
+
+def _plain(value) -> float | None:
+    """``Decimal`` → JSON 숫자. **Layer 1 결과가 아니라 관측값**이라 문자열로 굳히지 않는다
+    (`API_SPEC §1.7`은 계산 결과에 적용된다 — `§9.1` 예시도 숫자다)."""
+    return None if value is None else float(value)
+
+
 async def _fallback_snapshot(
     session: AsyncSession, *, lat: Decimal | float, lon: Decimal | float, now: datetime
 ):
