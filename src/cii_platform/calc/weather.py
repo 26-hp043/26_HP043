@@ -112,6 +112,23 @@ def beaufort_number(hs_m: float) -> int:
     return round(3.5 * math.sqrt(hs_m))
 
 
+def relative_wave_heading(wave_direction_deg: float, course_deg: float) -> float:
+    """파향과 침로에서 **입사각 β**(0~180°)를 낸다 (`TECH_SPEC §3.3.1` · `#766` ⑴).
+
+    ## 왜 뺄셈 한 번이 아닌가
+
+    ``wave_direction``은 **파랑이 오는 방향**이다(Open-Meteo 문서: *"Wave directions are
+    always reported as the direction the waves come from. 0° = From north towards south"*).
+    그래서 **배가 가는 쪽에서 파랑이 오면 head sea**이고 그때 β = 0이다 — 두 각이 같을 때
+    β가 0이 되는 것이 맞다.
+
+    β는 좌현·우현을 구분하지 않는다(`§3.3.1` 표가 0~180°만 준다). 방향 차를 ±180°로
+    접은 뒤 절댓값을 쓴다 — 왼쪽 30°와 오른쪽 30°는 같은 감소 계수다.
+    """
+    delta = (float(wave_direction_deg) - float(course_deg)) % 360.0
+    return 360.0 - delta if delta > 180.0 else delta
+
+
 def interpolate_cbeta(wave_heading_deg: float) -> Decimal:
     """파향 → Cβ. 표에 없는 각도는 **이웃 두 점의 선형 보간**이다 (``§3.3.1``).
 

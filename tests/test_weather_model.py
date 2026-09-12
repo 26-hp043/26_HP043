@@ -29,6 +29,7 @@ from cii_platform.calc.weather import (
     beaufort_number,
     cform_applies,
     interpolate_cbeta,
+    relative_wave_heading,
     simple_rule_factor,
     townsin_kwon_weather_factor,
 )
@@ -217,3 +218,42 @@ def test_simple_rule_treats_missing_values_as_zero():
 def test_simple_rule_caps_at_two():
     """`§8.3` 상한 2.0 — 파고 25m·풍속 100m/s 이상은 데이터 오류에 가깝다."""
     assert simple_rule_factor(hs_m=999.0, wind_speed_ms=999.0) == SIMPLE_RULE_MAX_FACTOR
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 입사각 유도 — 파향과 침로에서 β (`#766` ⑴ · `TECH_SPEC §3.3.1`)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_waves_from_ahead_are_head_sea():
+    """**파향은 「오는 방향」이다**(Open-Meteo: *"the direction the waves come from"*).
+
+    그래서 배가 가는 쪽에서 파랑이 오면 head sea이고 β = 0이다 — 두 각이 같을 때 0이
+    되는 것이 맞다. 여기를 반대로 두면 정면 파랑이 following sea로 계산돼 **속도 손실이
+    가장 큰 상황이 가장 작은 것으로** 뒤집힌다.
+    """
+    assert relative_wave_heading(90.0, 90.0) == 0.0
+
+
+def test_waves_from_behind_are_following_sea():
+    assert relative_wave_heading(270.0, 90.0) == 180.0
+
+
+def test_port_and_starboard_are_the_same_angle():
+    """β는 좌현·우현을 구분하지 않는다 — `§3.3.1` 표가 0~180°만 준다."""
+    assert relative_wave_heading(60.0, 90.0) == relative_wave_heading(120.0, 90.0) == 30.0
+
+
+def test_the_angle_wraps_around_north():
+    """0°를 넘어가는 조합도 짧은 쪽으로 접는다 (350° ↔ 10°는 20°)."""
+    assert relative_wave_heading(350.0, 10.0) == 20.0
+    assert relative_wave_heading(10.0, 350.0) == 20.0
+
+
+def test_derived_angle_feeds_the_coefficient_table():
+    """유도한 β가 `§3.3.1` 표의 계수로 그대로 이어진다 (beam sea가 가장 작다)."""
+    beam = interpolate_cbeta(relative_wave_heading(0.0, 90.0))
+    head = interpolate_cbeta(relative_wave_heading(90.0, 90.0))
+
+    assert beam < head
+    assert head == Decimal("1.000")

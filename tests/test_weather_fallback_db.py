@@ -271,3 +271,43 @@ async def test_simple_rule_is_not_marked_experimental(session):
     result = await _resolve(session, weather_model=MODEL_SIMPLE_RULE)
 
     assert WARNING_EXPERIMENTAL_MODEL not in result.warnings
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UT-WX-006 · 입사각을 파향과 침로에서 유도한다 (`#766` ⑴)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_course_derives_the_wave_heading(session):
+    """침로를 주면 **저장된 파향과의 상대각**이 적용된다.
+
+    화면·API에 입사각 입력 칸이 없어 종전에는 늘 head sea(β=0)였다. 사용자는 파랑이
+    어느 쪽에서 오는지 모르고, 아는 것은 어디서 어디로 가는가다 — 그 좌표는 요청에
+    이미 있다(`#760`·`#1005`).
+    """
+    await _seed_cache(session, age_hours=1.0)
+
+    # 파향 0°(북에서 옴) · 침로 0°(북으로 감) → head sea
+    head = await _resolve(
+        session, weather_model=MODEL_TOWNSIN_KWON, provider=dead_provider(), course_deg=0.0
+    )
+    # 같은 스냅샷, 침로만 90°(동으로 감) → beam sea
+    beam = await _resolve(
+        session, weather_model=MODEL_TOWNSIN_KWON, provider=dead_provider(), course_deg=90.0
+    )
+
+    assert head.wave_heading_deg == 0.0
+    assert beam.wave_heading_deg == 90.0
+    # beam sea는 방향 감소 계수가 작아 **속도 손실이 적다** → 보정 계수도 작다.
+    assert beam.factor < head.factor
+
+
+@pytest.mark.asyncio
+async def test_without_a_course_it_stays_head_sea(session):
+    """침로를 주지 않으면 종전대로 β=0이다 — **없는 값을 지어내지 않는다.**"""
+    await _seed_cache(session, age_hours=1.0)
+
+    result = await _resolve(session, weather_model=MODEL_TOWNSIN_KWON, provider=dead_provider())
+
+    assert result.wave_heading_deg == 0.0

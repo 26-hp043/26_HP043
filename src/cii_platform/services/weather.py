@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from cii_platform.calc.weather import (
     NEUTRAL_FACTOR,
+    relative_wave_heading,
     simple_rule_factor,
     townsin_kwon_weather_factor,
 )
@@ -220,6 +221,8 @@ class WeatherResolution:
     warnings: tuple[str, ...]
     snapshot_id: object | None = None
     synced_at: datetime | None = None
+    #: 실제로 적용한 파랑 입사각(도). 보정하지 않았으면 ``0.0``(head sea 기본값)이다.
+    wave_heading_deg: float = 0.0
 
 
 def _age_hours(fetched_at: datetime, now: datetime) -> float:
@@ -237,6 +240,7 @@ async def resolve_with_fallback(
     provider: WeatherProvider | None = None,
     block_coefficient: Decimal | None = None,
     wave_heading_deg: float = 0.0,
+    course_deg: float | None = None,
 ) -> WeatherResolution:
     """``PRD §11.6`` 기상 장애 정책을 그대로 옮긴다.
 
@@ -300,12 +304,19 @@ async def resolve_with_fallback(
         # 캐시도 없다 — 보정 없이 계산한다. **값을 지어내지 않는다.**
         return WeatherResolution(NEUTRAL_FACTOR, MODEL_NONE, (WARNING_WEATHER_NONE_FALLBACK,))
 
+    # 입사각은 **파향과 침로에서 유도한다** (`#766` ⑴ · `TECH_SPEC §3.3.1`). 사용자는
+    # 파랑이 어느 쪽에서 오는지 모른다 — 아는 것은 어디서 어디로 가는가이고, 그 좌표는
+    # 요청에 이미 있다. 둘 중 하나라도 없으면 종전대로 head sea(β=0)다.
+    heading = wave_heading_deg
+    if course_deg is not None and snapshot.wave_direction_deg is not None:
+        heading = relative_wave_heading(float(snapshot.wave_direction_deg), course_deg)
+
     factor = await resolve_weather_factor(
         session,
         weather_model=model,
         snapshot=snapshot,
         ship_type=ship_type,
-        wave_heading_deg=wave_heading_deg,
+        wave_heading_deg=heading,
         block_coefficient=block_coefficient,
     )
 
@@ -322,6 +333,7 @@ async def resolve_with_fallback(
         warnings=tuple(warnings),
         snapshot_id=getattr(snapshot, "id", None),
         synced_at=getattr(snapshot, "fetched_at", None),
+        wave_heading_deg=heading,
     )
 
 
