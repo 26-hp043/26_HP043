@@ -136,6 +136,13 @@ jobs:
       - run: pytest --cov=cii_platform --cov-report=xml --cov-report=term-missing --cov-fail-under=90
         env:
           DATABASE_URL: postgresql://cii:cii@localhost:5432/cii_test
+      # 파일별 하한 (#955): 위 게이트는 **전체 합계만** 본다. 합계가 96%여도 파일
+      # 하나가 60%대로 남을 수 있고, 이 저장소에서 실제로 두 번 오래 남았다
+      # (#871 auth 41~58% · #911 reports 61% · exports 65%).
+      #
+      # 위 단계가 만든 coverage.xml을 읽는다 — **검사를 다시 돌리지 않는다.**
+      # 위가 실패하면 여기까지 오지 않으므로 `if: always()`를 두지 않는다.
+      - run: python3 scripts/check_coverage_floor.py
 
   frontend:
     runs-on: ubuntu-latest
