@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
@@ -79,19 +80,23 @@ async def test_fleet_summary_reads_each_parameter_once(session, monkeypatch):
 
 
 async def test_the_cache_does_not_change_the_answer(session, monkeypatch, conn):
-    """IT-CACHE-002 — 캐시를 끈 실행과 응답이 같다. 값이 달라지면 성능 개선이 아니라 결함이다."""
-    with_cache = await fleet_summary.get_fleet_summary(session, regulation_year=YEAR)
+    """IT-CACHE-002 — 캐시를 끈 실행과 응답이 같다. 값이 달라지면 성능 개선이 아니라 결함이다.
+
+    **기준 시각을 고정해 부른다.** 서버가 확정하게 두면 두 실행의 `as_of`가 몇 ms 차이로
+    갈리는데, 그 값은 「D등급까지 n일」의 30일 창 시작점이라 **시간 경계를 넘는 순간 파생값이
+    달라진다.** 처음에는 응답에서 `as_of` 키만 빼고 비교했다가 CI에서 걸렸다 — 지운 것은
+    시각이고 그 시각으로 계산한 값은 그대로 남아 있었다.
+    """
+    at = datetime(2026, 9, 12, 3, 0, tzinfo=UTC)
+
+    with_cache = await fleet_summary.get_fleet_summary(session, regulation_year=YEAR, as_of=at)
 
     # 같은 요청을 캐시 없이 — `enable`을 아무 일도 하지 않게 바꾼다.
     monkeypatch.setattr(fleet_summary, "enable_request_cache", lambda _session: None)
     async with AsyncSession(bind=conn, expire_on_commit=False) as plain:
-        without_cache = await fleet_summary.get_fleet_summary(plain, regulation_year=YEAR)
+        without_cache = await fleet_summary.get_fleet_summary(plain, regulation_year=YEAR, as_of=at)
         assert not request_cache.is_enabled(plain)
 
-    # `as_of`는 서버가 확정하는 시각이라 두 실행이 다르다 — 그 파생값만 빼고 비교한다.
-    for body in (with_cache, without_cache):
-        body.pop("as_of", None)
-        body.get("summary", {}).pop("as_of", None)
     assert with_cache == without_cache
 
 
