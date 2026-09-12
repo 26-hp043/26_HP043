@@ -440,6 +440,43 @@ async def test_another_users_session_is_not_found(migrated_db, app_fresh_engine)
         await _cleanup()
 
 
+async def test_history_window_always_starts_with_a_question(migrated_db, app_fresh_engine):
+    """IT-CHAT-061 — ⚠️ 이력 창이 **질문부터 시작한다**.
+
+    ``list_messages(limit=…)``는 **최근 N건**을 준다. 대화가 `U A U A …`로 쌓이므로
+    N이 짝수면 **4번째 질문부터 창이 답변으로 시작한다.**
+
+    .. code-block:: text
+
+        3번째 질문   U A U A U        창 = U A U A U
+        4번째 질문   U A U A U A U    창 =   A U A U A U   ← 답변으로 시작
+
+    그 창은 **질문이 잘려 나간 답변**으로 대화를 연다. 모델은 무엇에 대한 답인지
+    모른 채 그것을 맥락으로 삼는다 — 수치를 인용하는 제품에서 특히 나쁘다.
+
+    네 번을 주고받아 그 지점을 실제로 지난다.
+    """
+    _use(FakeProvider([LLMResponse(text=f"{i}번째 답입니다.") for i in range(1, 6)]))
+    provider = app.dependency_overrides[get_provider]()
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            session_id = None
+            for i in range(1, 5):
+                body = {"message": f"{i}번째 질문"}
+                if session_id:
+                    body["session_id"] = session_id
+                data = client.post("/api/v1/chat", json=body, headers=headers).json()["data"]
+                session_id = data["session_id"]
+
+        sent = provider.calls[-1]
+        # 첫 줄은 역할 지시문이고, 그다음이 대화의 시작이다.
+        assert sent[0]["role"] == "system"
+        assert sent[1]["role"] == "user", [m["role"] for m in sent]
+    finally:
+        await _cleanup()
+
+
 async def test_history_is_kept_across_turns(migrated_db, app_fresh_engine):
     """IT-CHAT-033 — ``session_id``를 다시 주면 **이전 대화를 싣고** 부른다 (`#121`)."""
     _use(FakeProvider([LLMResponse(text="첫 답입니다."), LLMResponse(text="둘째 답입니다.")]))

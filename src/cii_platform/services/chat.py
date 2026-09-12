@@ -43,10 +43,12 @@ from cii_platform.services.chat_tools import run_tool, tool_schemas
 from cii_platform.services.llm_guard import NumberFabricationError, verify_numbers
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from cii_platform.db.models.chat import ChatMessage
     from cii_platform.llm.provider import LLMProvider
 
 #: 응답을 폐기했을 때 사용자에게 나가는 문구.
@@ -112,6 +114,38 @@ def _digest(value: object) -> str:
     ).hexdigest()
 
 
+def _from_a_question(history: Sequence[ChatMessage]) -> list[ChatMessage]:
+    """이력 창이 **질문부터 시작하게** 자른다.
+
+    ## 왜 필요한가
+
+    ``list_messages(limit=…)``는 **최근 N건**을 준다. 대화가 ``U A U A …``로 쌓이므로
+    N이 짝수면 **4번째 질문부터 창이 답변으로 시작한다.**
+
+    .. code-block:: text
+
+        3번째 질문   U A U A U        창 = U A U A U      ← 질문으로 시작
+        4번째 질문   U A U A U A U    창 =   A U A U A U  ← ⚠️ 답변으로 시작
+
+    그 창은 **질문이 잘려 나간 답변**으로 대화를 연다. 모델은 무엇에 대한 답인지
+    모른 채 그것을 맥락으로 삼는다 — 수치를 인용하는 제품에서 특히 나쁘다.
+
+    벤더 문서도 *"Our models are trained to operate on alternating user and assistant
+    conversational turns"* 로 적는다. (API가 이 창을 거절하는지는 문서에서 확인하지
+    못했다 — 거절하지 않더라도 위 이유로 고칠 값어치가 있다.)
+
+    ## 자르는 쪽을 고른 이유
+
+    ``limit``을 홀수로 두는 대안은 **폐기가 섞이면 다시 어긋난다** — 버려진 답은
+    저장되지 않아(``answer`` 참조) ``U U A U``처럼 쌓이는 자리가 생긴다. 창의 **앞을
+    보고 자르는** 쪽이 그런 경우까지 덮는다.
+    """
+    start = 0
+    while start < len(history) and history[start].role != ROLE_USER:
+        start += 1
+    return list(history[start:])
+
+
 async def answer(
     session: AsyncSession,
     *,
@@ -149,7 +183,7 @@ async def answer(
     messages: list[dict[str, object]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += [
         {"role": "user" if row.role == ROLE_USER else "assistant", "content": row.content}
-        for row in history
+        for row in _from_a_question(history)
     ]
 
     tool_outputs: list[str] = []
