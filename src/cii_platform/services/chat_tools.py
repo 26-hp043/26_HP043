@@ -19,7 +19,9 @@
 목록의 뜻이 흐려진다.
 
 경계는 하나다 — **선박·항차·연료·조직에서 온 값은 전부 도메인**이고 필터를 지난다.
-봉투에는 **우리가 만든 상수만** 담는다. 이 규칙을 어기면(봉투에 선박명을 넣으면)
+봉투에는 **우리가 만든 상수만** 담는다. ⚠️ **오류 문구도 마찬가지다** — 도메인 오류의
+원문에는 식별자가 흔히 들어 있어, 그대로 넘기면 화이트리스트가 오류 경로로 뚫린다
+(아래 :data:`_ERROR_TEXT`). 이 규칙을 어기면(봉투에 선박명을 넣으면)
 화이트리스트가 통째로 무의미해지므로, ``tests/test_chat_tools_db.py``가 그것을 막는다.
 """
 
@@ -195,6 +197,49 @@ def _publishable(payload: dict[str, object], keys: tuple[str, ...]) -> dict[str,
     return filter_outbound(picked)
 
 
+#: 도메인 오류 → **우리가 만든 고정 문구**.
+#:
+#: ⚠️ **원문을 그대로 넘기면 화이트리스트가 오류 경로로 뚫린다** (2026-09-13 실측).
+#:
+#: .. code-block:: text
+#:
+#:     {"error": "선박을 찾을 수 없습니다: 3d56c710-089e-4299-95b3-e48650318d45", ...}
+#:                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#:     `PRD §16.3.1`이 `vessel_id`를 **전송 금지**로 둔 값이 그대로 외부 모델로 갔다.
+#:
+#: 도메인 오류 문구는 식별자를 흔히 담는다 — ``vessel_id``·``voyage_id``·
+#: ``ship_type``·연료 코드·항만명이 전부 후보다. **어느 문구가 안전한지 목록으로
+#: 관리하는 것은 성립하지 않는다** — 새 오류가 생길 때마다 검토가 필요하고, 빠뜨리면
+#: 조용히 샌다(전송은 되돌릴 수 없다).
+#:
+#: 그래서 **종류별 고정 문구**로 바꾼다. 봉투의 원칙(「우리가 만든 상수만 담는다」)이
+#: 오류 칸에도 그대로 선다.
+#:
+#: **잃는 것** — 구체성이다. 「속력은 1.0 이상이어야 합니다」가 「입력값이 올바르지
+#: 않습니다」가 된다. 감수하는 이유는 ⑴ 화면 폼은 여전히 구체적 문구를 그대로 받고
+#: (이 경로는 챗봇 전용이다) ⑵ 챗봇의 입력은 **모델이 만든 것**이라 사용자가 고칠
+#: 값이 아니며 ⑶ 좁게 시작해 넓히는 것이 반대보다 쉽다(`#120` 화이트리스트와 같은 판단).
+_ERROR_TEXT: tuple[tuple[type[Exception], str], ...] = (
+    (NotFoundError, "요청하신 대상을 찾을 수 없습니다."),
+    (ParameterError, "그 조건에 필요한 규정 파라미터가 없습니다."),
+    (CalculationError, "이 조건으로는 계산할 수 없습니다."),
+    (ValidationError, "입력값이 올바르지 않습니다. 숫자 범위를 확인해 주세요."),
+)
+
+
+def _error_text(exc: Exception) -> str:
+    """예외 → 고정 문구. **원문을 쓰지 않는다.**
+
+    순서가 있다 — ``ValidationError``를 마지막에 둔다. 하위 클래스 관계가 생기더라도
+    더 좁은 것이 먼저 잡히게 한다.
+    """
+    for kind, text in _ERROR_TEXT:
+        if isinstance(exc, kind):
+            return text
+    # 여기 오면 `run_tool`의 except 절과 이 표가 갈린 것이다 — 그래도 원문은 안 쓴다.
+    return "요청을 처리할 수 없습니다."
+
+
 async def run_tool(
     session: AsyncSession,
     *,
@@ -227,8 +272,8 @@ async def run_tool(
             return await _compare_scenarios(session, arguments, vessel_id)
         return await _run_annual_simulation(session, arguments, vessel_id)
     except (ValidationError, NotFoundError, ParameterError, CalculationError) as exc:
-        # 도메인 오류는 사용자에게 설명할 수 있는 것이다 — 문구를 그대로 넘긴다.
-        return envelope(name, error=str(exc))
+        # ⚠️ **원문을 넘기지 않는다.** 아래 `_ERROR_TEXT` 주석 참조.
+        return envelope(name, error=_error_text(exc))
 
 
 async def _search_vessel(session: AsyncSession, arguments: dict[str, object]) -> str:
