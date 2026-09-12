@@ -36,6 +36,7 @@ from cii_platform.llm.provider import (
     LLMError,
 )
 from cii_platform.services import audit
+from cii_platform.services.chat_explain import glossary_prompt
 from cii_platform.services.chat_tools import run_tool, tool_schemas
 from cii_platform.services.llm_guard import NumberFabricationError, verify_numbers
 
@@ -71,15 +72,24 @@ DISCLAIMER = (
 #:
 #: **No-Advice를 프롬프트로도 적는다** — 코드 가드가 최종 방어지만, 모델이 애초에
 #: 권고를 만들지 않으면 폐기가 줄어든다. **가드를 프롬프트로 대신하지는 않는다.**
-SYSTEM_PROMPT = (
+_RULES = (
     "당신은 선박 탄소집약도지수(CII) 도구의 설명 도우미입니다.\n"
     "- 수치는 **도구가 돌려준 값만** 인용하십시오. 직접 계산하거나 어림하지 마십시오.\n"
     "- 더하기·빼기도 계산입니다. 도구가 주지 않은 수는 쓰지 마십시오.\n"
     "- 시나리오에 순위를 매기거나 「더 낫다·최적」 같은 비교 표현을 쓰지 마십시오.\n"
     "- 행동을 제안하지 마십시오. 사용자가 직접 요청한 계산만 도구로 실행하십시오.\n"
+    "- 등급에 「보통」·「불량」 같은 형용사를 붙이지 마십시오. 아래 풀이의 말만 쓰십시오.\n"
+    "- 규정 번호나 연도 같은 수를 지어내지 마십시오.\n"
     "- 선박명·IMO 번호는 답변에 쓰지 마십시오.\n"
     "- 한국어로 간결하게 답하십시오."
 )
+
+#: 역할 지시 + 용어 풀이 (`#123`).
+#:
+#: **풀이를 매 호출에 싣는다.** 도구로 만들면 용어를 물을 때마다 왕복이 한 번 더
+#: 들고, 왕복이 비용 폭주의 실제 경로다(``PRD §16.1`` 가드 2). 풀이는 정적이고
+#: 짧아 프롬프트에 두는 편이 싸다.
+SYSTEM_PROMPT = f"{_RULES}\n\n{glossary_prompt()}"
 
 
 def _digest(value: object) -> str:
