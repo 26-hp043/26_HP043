@@ -38,6 +38,13 @@ interface ServerVessel {
   current_lat: string | null
   current_lon: string | null
   position_updated_at: string | null
+  /** `#763`. 진행 중 항차가 없으면 `null`이고, 구버전 서버에는 아예 없다. */
+  route?: {
+    departure_lat: string
+    departure_lon: string
+    arrival_lat: string
+    arrival_lon: string
+  } | null
   data_available: boolean
   unavailable_reason?: string | null
   //: `#653`에서 추가된 필드. 선택적으로 둔 것은 구버전 서버 응답을 받아도
@@ -114,6 +121,14 @@ function toVessel(raw: ServerVessel): FleetVessel {
     lat: raw.current_lat,
     lon: raw.current_lon,
     positionUpdatedAt: raw.position_updated_at,
+    route: raw.route
+      ? {
+          departureLat: raw.route.departure_lat,
+          departureLon: raw.route.departure_lon,
+          arrivalLat: raw.route.arrival_lat,
+          arrivalLon: raw.route.arrival_lon,
+        }
+      : null,
     // CII 적용 대상 표시 (`#653`). `is_cii_applicable_hint`가 **없는 응답**이면
     // `true`로 두어 배지를 그리지 않는다 — 서버가 판정을 보내지 않았는데 화면이
     // 「대상 아님」을 단정하면 없는 사실을 만든다.

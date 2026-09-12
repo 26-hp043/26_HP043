@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
@@ -9,6 +9,15 @@ import { VesselMark } from './VesselMark'
 import { AnchorIcon, UnderwayChip, UnderwayIcon } from './UnderwayChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { PositionChart } from './PositionChart'
+/*
+ * 지도는 **자산이 있을 때만** 내려받는다 (`#763`).
+ *
+ * MapLibre가 gzip 기준 약 311 KB다 — 번들에 그냥 넣으면 141 KB였던 첫 로드가
+ * 452 KB가 된다. 자산이 없는 환경(개략도로 떨어지는 환경)은 그 311 KB를 받을
+ * 이유가 없고, 있는 환경도 **지도를 그릴 차례가 왔을 때** 받으면 된다.
+ */
+const FleetMap = lazy(() => import('./FleetMap').then((m) => ({ default: m.FleetMap })))
+import { BASEMAP_MISSING_NOTICE, hasBasemap } from './basemap'
 import { createApiFleetProvider } from './apiProvider'
 import {
   daysToDText,
@@ -57,10 +66,26 @@ export function FleetDashboard() {
   const [failure, setFailure] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<FleetSort>('risk')
   const [expanded, setExpanded] = useState(false)
+  /**
+   * 지도 자산이 있는가 (`#763`). `null`은 **아직 모른다**는 뜻이다 — 그동안은
+   * 개략도를 그리되 「없다」는 문구를 붙이지 않는다. 잠깐 보였다 사라지는 경고는
+   * 사용자에게 **고장으로 읽힌다.**
+   */
+  const [basemap, setBasemap] = useState<boolean | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const provider = useMemo(() => createApiFleetProvider(), [])
 
   // 정렬이 바뀌면 첫 페이지부터 다시 받는다 — 서버가 정렬한다(#772).
+  useEffect(() => {
+    let alive = true
+    void hasBasemap().then((found) => {
+      if (alive) setBasemap(found)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   useEffect(() => {
     let alive = true
     provider
@@ -289,8 +314,24 @@ export function FleetDashboard() {
               <span className="card__meta">사용자 입력 기준</span>
             </div>
             <div className="fleet__chartbox">
-              {/* 그림 읽는 법은 `PositionChart`가 스스로 적는다 — 차트가 바뀌면 설명도 함께 바뀐다. */}
-              <PositionChart vessels={vessels} />
+              {/*
+                지도 자산이 있으면 지도, 없으면 개략도다 (`#763` ⓑ).
+                **개략도를 지우지 않았다** — 지우면 자산이 없는 환경에서 위치 화면이
+                통째로 빈다. 그림 읽는 법은 각자가 스스로 적는다.
+              */}
+              {basemap === true ? (
+                // 내려받는 동안에는 개략도를 그대로 둔다 — 빈 칸이 번쩍이지 않는다.
+                <Suspense fallback={<PositionChart vessels={vessels} />}>
+                  <FleetMap vessels={vessels} />
+                </Suspense>
+              ) : (
+                <>
+                  {basemap === false ? (
+                    <p className="fleet__note">{BASEMAP_MISSING_NOTICE}</p>
+                  ) : null}
+                  <PositionChart vessels={vessels} />
+                </>
+              )}
             </div>
           </section>
 
