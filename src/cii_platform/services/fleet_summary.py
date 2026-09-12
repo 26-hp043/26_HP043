@@ -44,6 +44,9 @@ from cii_platform.errors import AppError, ParameterError, ValidationError
 from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.pagination import normalize_limit
+from cii_platform.services.request_cache import cached
+from cii_platform.services.request_cache import enable as enable_request_cache
+from cii_platform.services.request_cache import put as cache_put
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import YtdCiiOutput, compute_ytd_cii
 
@@ -548,8 +551,16 @@ async def get_fleet_summary(
     page_size = normalize_limit(limit, default=_DEFAULT_PAGE, maximum=_MAX_PAGE)
     offset = _decode_fleet_cursor(cursor, sort) if cursor else 0
 
+    # 같은 요청 안에서 규제 파라미터·선박을 다시 읽지 않는다 (`#989` ⑴). 이 경로는
+    # 읽기만 하므로 요청이 도는 동안 그 값이 바뀌지 않는다 — 고치는 경로는 캐시를 켜지
+    # 않는다(`services/request_cache.py`).
+    enable_request_cache(session)
+
     # 선박 목록은 한 번에 가져온다. 여기서 개별 조회를 돌면 그 자체가 N+1이다.
     vessels = await vessel_repo.list_all_active(session)
+    # 그 목록이 곧 `compute_ytd_cii`가 선박마다 다시 읽던 행이다 — 미리 넣어 둔다.
+    for row in vessels:
+        cache_put(session, ("vessel", row.id), row)
 
     #
     # 연도 파라미터는 **선대 공통**이라 루프 밖에서 한 번 확인한다 (#419).
@@ -565,7 +576,15 @@ async def get_fleet_summary(
     # 만나는 상태이고(`API_SPEC §2.8`), 그 화면에 파라미터 오류를 띄우면 사용자는
     # 「기능이 고장났다」로 읽는다. 계산할 대상이 없으므로 파라미터도 필요 없다.
     #
-    if vessels and await param_repo.get_regulation_year(session, year) is None:
+    if (
+        vessels
+        and await cached(
+            session,
+            ("regulation_year", year),
+            lambda: param_repo.get_regulation_year(session, year),
+        )
+        is None
+    ):
         raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
 
     rows: list[dict[str, object]] = []
