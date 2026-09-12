@@ -25,6 +25,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_coverage_floor.py"
 
 
@@ -101,10 +103,10 @@ def test_it_cov_004_an_exempt_file_passes_but_a_further_drop_fails(tmp_path, mon
         "KNOWN_BELOW_FLOOR",
         {"legacy.py": gate.Exemption(60.0, "라우트 본문 미도달 잔여 — #828")},
     )
-    ok = gate.collect(_write(tmp_path, {"src/legacy.py": (100, 35)}))
+    ok = gate.collect(_write(tmp_path, {"legacy.py": (100, 35)}))
     assert gate.evaluate(ok) == [], "65%는 개별 하한 60% 위라 통과해야 한다"
 
-    dropped = gate.collect(_write(tmp_path, {"src/legacy.py": (100, 45)}))
+    dropped = gate.collect(_write(tmp_path, {"legacy.py": (100, 45)}))
     assert gate.evaluate(dropped), "55%로 떨어졌는데 통과했다"
 
 
@@ -119,7 +121,7 @@ def test_it_cov_005_a_recovered_file_must_leave_the_list(tmp_path, monkeypatch):
         "KNOWN_BELOW_FLOOR",
         {"fixed.py": gate.Exemption(60.0, "검사 공백 — #911")},
     )
-    files = gate.collect(_write(tmp_path, {"src/fixed.py": (100, 5)}))
+    files = gate.collect(_write(tmp_path, {"fixed.py": (100, 5)}))
     problems = gate.evaluate(files)
     assert problems, "95%인데 목록에 남아 있는 것이 통과했다"
     assert "빼라" in problems[0], problems
@@ -156,20 +158,30 @@ def test_it_cov_007_every_exemption_carries_a_reason(monkeypatch):
     assert gate.validate_exemptions(), "이슈 번호 없는 사유가 통과했다"
 
 
-def test_it_cov_008_src_prefixed_paths_are_the_same_file(tmp_path, monkeypatch):
-    """IT-COV-008 — ⚠️ **`src/` 접두사가 붙어도 같은 파일이다**.
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "src/cii_platform/services/a.py",
+        "cii_platform/services/a.py",
+        "services/a.py",
+    ],
+)
+def test_it_cov_008_the_three_path_shapes_are_the_same_file(filename, tmp_path, monkeypatch):
+    """IT-COV-008 — ⚠️ **세 가지 경로 형태가 같은 파일로 모인다**.
 
-    CI는 설치된 패키지를(`--cov=cii_platform`), 로컬은 소스를 직접 재는 경우가
-    많다(`--cov=src/cii_platform`). 맞추지 않으면 **예외 목록이 CI에서만 맞고
-    로컬에서는 「없는 경로」로 실패**하거나 그 반대가 된다.
+    Cobertura의 `filename`은 `<source>` 루트 기준 상대경로이고, 그 루트는 `--cov`를
+    어떻게 주느냐에 따라 달라진다 — 2026-09-13에 **세 형태를 전부** 실측했다.
+
+    맞추지 않으면 한 형태에서만 맞고, 나머지에서는 **「없는 경로」와 「목록에 없는
+    위반」이 동시에** 뜬다. 실제로 그렇게 나왔다(`#955` 처리 중 게이트 자체의 결함).
     """
     monkeypatch.setattr(
         gate,
         "KNOWN_BELOW_FLOOR",
-        {"cii_platform/a.py": gate.Exemption(60.0, "검사 공백 — #911")},
+        {"services/a.py": gate.Exemption(60.0, "검사 공백 — #911")},
     )
-    files = gate.collect(_write(tmp_path, {"src/cii_platform/a.py": (100, 35)}))
-    assert "cii_platform/a.py" in files, files
+    files = gate.collect(_write(tmp_path, {filename: (100, 35)}))
+    assert "services/a.py" in files, files
     assert gate.evaluate(files) == []
 
 
