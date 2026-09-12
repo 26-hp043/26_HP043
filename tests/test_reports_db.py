@@ -618,3 +618,75 @@ def _looks_like_iso(value: str) -> bool:
     import re
 
     return bool(re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:", value))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 제출 전 자체 점검 (`PRD §21` 「공식 보고서 보조」 · `#770`)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_self_check_section_is_part_of_the_annual_report(session, vessel_id):
+    """IT-REPORT-001 — **새 리포트가 아니라 절**이다.
+
+    `PRD §25.1`이 「대관 제출용 공식 보고서 생성」을 하지 않는다로 못박았다. 「제출 전
+    검토용」이라는 이름의 별도 문서를 만들면 그 경계가 흐려진다 — 받는 사람은 제목으로
+    용도를 읽는다.
+    """
+    await _make_voyage(session, vessel_id)
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    section = _section(document, "제출 전 자체 점검")
+    assert section is not None
+    assert document.title.startswith("연간 실적 리포트")
+
+
+@pytest.mark.asyncio
+async def test_self_check_says_it_is_not_for_submission(session, vessel_id):
+    """IT-REPORT-002 — **용도 고지**가 절에 실린다. 「이상 없음」은 적합 판정이 아니다."""
+    await _make_voyage(session, vessel_id)
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    note = _section(document, "제출 전 자체 점검").note or ""
+    assert "제출용 문서가 아닙니다" in note
+    assert "규제 적합 판정이 아닙니다" in note
+
+
+@pytest.mark.asyncio
+async def test_self_check_counts_substitutions_by_axis(session, vessel_id):
+    """IT-REPORT-003 — 대체 계산을 **축으로 나눈다.** 연료와 거리는 고칠 곳이 다르다."""
+    await _make_voyage(session, vessel_id)
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    rows = {row[0]: row for row in _section(document, "제출 전 자체 점검").rows}
+    assert "연료 대체 계산" in rows
+    assert "거리 대체 계산" in rows
+    # 판정 칸은 건수에서 나온다 — 0건이면 「이상 없음」이다.
+    for label in ("연료 대체 계산", "거리 대체 계산"):
+        count = int(rows[label][1].removesuffix("건"))
+        assert rows[label][2] == ("확인 필요" if count else "이상 없음"), label
+
+
+@pytest.mark.asyncio
+async def test_missing_capacity_stops_the_report_itself(session, vessel_id):
+    """IT-REPORT-004 — 제원이 비면 **리포트가 아예 나오지 않는다.**
+
+    처음에는 자체 점검 표에 「선박 제원」 행을 두었는데, 용량 축이 비면 YTD 계산이 서지
+    않아 **리포트 생성이 먼저 막힌다.** 그 행은 늘 「확인」만 찍히는 죽은 칸이었다 —
+    검사가 그것을 드러내 뺐다. 대신 **막힌다는 사실**을 여기서 잠근다.
+    """
+    from sqlalchemy import text
+
+    from cii_platform.errors import AppError
+
+    await _make_voyage(session, vessel_id)
+    await session.execute(
+        text("UPDATE vessel SET deadweight = NULL, gross_tonnage = NULL WHERE id = :vid"),
+        {"vid": vessel_id},
+    )
+    await session.commit()
+
+    with pytest.raises(AppError) as error:
+        await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    assert "재화중량톤수" in str(error.value) or "총톤수" in str(error.value)
