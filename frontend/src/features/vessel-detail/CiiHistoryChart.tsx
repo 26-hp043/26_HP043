@@ -49,6 +49,7 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
           표시할 연도별 실적이 없습니다. 항차를 등록하면 이력이 쌓입니다.
         </p>
         <HistoryTable years={years} unit={unit} />
+        <FuelTable years={years} />
       </div>
     )
   }
@@ -224,6 +225,7 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
       </p>
 
       <HistoryTable years={years} unit={unit} />
+      <FuelTable years={years} />
     </div>
   )
 }
@@ -233,6 +235,67 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
  *
  * 차트가 없어도 이 표만으로 값을 전부 읽을 수 있어야 한다.
  */
+/**
+ * 연료별 내역 — `PRD §21` 「통계 분석」의 **연료축** (`#769`).
+ *
+ * ## 차트를 두지 않았다
+ *
+ * 유종 수가 배마다 다르고(1~4종) 연도까지 곱해지면 축이 둘이다. 쌓은 막대로 그리면
+ * **작은 유종이 색으로만 구분**되어 `DESIGN_SYSTEM §14`(색 단독 금지)에 걸리고,
+ * 그걸 피하려 무늬를 넣으면 얇은 조각에서 무늬가 안 보인다. 표는 값을 그대로
+ * 읽히게 하며 `PRD §16.4`(표 대체 요약)를 애초에 만족한다.
+ *
+ * ## 비중은 서버가 계산한 **CO₂ 기준**을 그대로 쓴다
+ *
+ * 화면에서 톤으로 다시 나누면 CF를 무시하게 된다 — CII의 분자는 배출량이다.
+ */
+function FuelTable({ years }: { years: CiiYear[] }) {
+  const rows = years.flatMap((year) => year.fuels.map((fuel) => ({ year, fuel })))
+  if (rows.length === 0) return null
+
+  return (
+    <div className="history__tablebox">
+      <table className="history__table">
+        <caption className="history__caption">
+          연도별 연료 내역 · 비중은 CO₂ 기준
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">연도</th>
+            <th scope="col">유종</th>
+            <th scope="col">투입 (t)</th>
+            <th scope="col">CO₂ (t)</th>
+            <th scope="col">비중 (%)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ year, fuel }) => (
+            <tr key={`${year.regulationYear}-${fuel.fuelType}`}>
+              <th scope="row">{year.regulationYear}</th>
+              <td>{fuel.fuelType}</td>
+              <td className="num">{formatDecimalString(fuel.fuelTon, DISPLAY_DIGITS.fuelTon)}</td>
+              {/*
+                거리가 0이라 Layer 1을 타지 않은 해는 배출량이 없다. 연료는 실제로
+                들어갔으므로 행 자체는 남기고, 모르는 칸만 「—」로 둔다.
+              */}
+              <td className="num">
+                {fuel.co2Ton === null
+                  ? '—'
+                  : formatDecimalString(fuel.co2Ton, DISPLAY_DIGITS.co2Ton)}
+              </td>
+              <td className="num">
+                {fuel.co2SharePercent === null
+                  ? '—'
+                  : formatDecimalString(fuel.co2SharePercent, DISPLAY_DIGITS.percent)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function HistoryTable({ years, unit }: { years: CiiYear[]; unit: string }) {
   return (
     <div className="history__tablebox">

@@ -276,6 +276,12 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.years[].total_fuel_ton",
             "data.years[].voyage_count",
             "data.years[].in_progress_voyage_count",
+            # `#769` 연료축
+            "data.years[].fuels",
+            "data.years[].fuels[].fuel_type",
+            "data.years[].fuels[].fuel_ton",
+            "data.years[].fuels[].co2_ton",
+            "data.years[].fuels[].co2_share_percent",
             "meta",
             "meta.as_of",
             "meta.request_id",

@@ -25,6 +25,7 @@ function year(overrides: Partial<CiiYear> & { regulationYear: number }): CiiYear
     inProgressVoyageCount: 0,
     totalDistanceNm: '1000.00',
     totalFuelTon: '80.00',
+    fuels: [],
     ...overrides,
   }
 }
@@ -93,5 +94,80 @@ describe('연도별 이력 막대의 등급 무늬 (#829)', () => {
     for (const attr of ['x', 'y', 'width', 'height']) {
       expect(bars[0].getAttribute(attr)).toBe(bars[1].getAttribute(attr))
     }
+  })
+})
+
+/**
+ * 연료별 내역 표 (#769) — `PRD §21` 「통계 분석」의 연료축.
+ *
+ * 값을 **서버가 준 그대로** 자릿수만 맞춰 적는지, 그리고 배출량을 모르는 해가
+ * 표에서 사라지지 않는지를 본다.
+ */
+describe('연도별 연료 내역 (#769)', () => {
+  function fuelTable(container: HTMLElement): HTMLTableElement | null {
+    return (
+      [...container.querySelectorAll('table.history__table')].find((table) =>
+        (table.querySelector('caption')?.textContent ?? '').includes('연료'),
+      ) as HTMLTableElement | undefined
+    ) ?? null
+  }
+
+  function cellsOf(table: HTMLTableElement): string[][] {
+    return [...table.querySelectorAll('tbody tr')].map((row) =>
+      [...row.querySelectorAll('th, td')].map((cell) => cell.textContent?.trim() ?? ''),
+    )
+  }
+
+  it('유종별로 한 줄씩, 서버가 준 순서 그대로 적는다', () => {
+    const { container } = render(
+      <CiiHistoryChart
+        years={[
+          year({
+            regulationYear: 2026,
+            fuels: [
+              { fuelType: 'HFO', fuelTon: '300.00', co2Ton: '934.20', co2SharePercent: '77.3' },
+              { fuelType: 'LNG', fuelTon: '100.00', co2Ton: '275.00', co2SharePercent: '22.7' },
+            ],
+          }),
+        ]}
+        basis="DWT"
+      />,
+    )
+
+    const table = fuelTable(container)
+    expect(table).toBeTruthy()
+    expect(cellsOf(table as HTMLTableElement)).toEqual([
+      ['2026', 'HFO', '300.0', '934.2', '77.3'],
+      ['2026', 'LNG', '100.0', '275.0', '22.7'],
+    ])
+  })
+
+  it('배출량을 모르는 해도 행이 남는다 — 모르는 칸만 「—」다', () => {
+    // 거리가 0이라 Layer 1을 타지 않은 해다. 행을 빼면 「정박만 한 해」가 사라진다.
+    const { container } = render(
+      <CiiHistoryChart
+        years={[
+          year({
+            regulationYear: 2026,
+            fuels: [
+              { fuelType: 'MDO', fuelTon: '12.50', co2Ton: null, co2SharePercent: null },
+            ],
+          }),
+        ]}
+        basis="DWT"
+      />,
+    )
+
+    expect(cellsOf(fuelTable(container) as HTMLTableElement)).toEqual([
+      ['2026', 'MDO', '12.5', '—', '—'],
+    ])
+  })
+
+  it('연료 내역이 없으면 표 자체를 그리지 않는다', () => {
+    const { container } = render(
+      <CiiHistoryChart years={[year({ regulationYear: 2026 })]} basis="DWT" />,
+    )
+
+    expect(fuelTable(container)).toBeNull()
   })
 })

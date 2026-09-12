@@ -12,6 +12,17 @@
 모듈의 결함이다 — 그래서 연 수치는 ``compute_ytd_cii`` 위임 그대로 두고 여기서
 재계산하지 않는다.
 
+## 연료축을 여기에 붙인다 (`#769`)
+
+``PRD §21`` 「통계 분석 — 선박별·항로별·연료별 CII 추세」 중 **연료별** 축을 이
+엔드포인트의 연도 행에 실었다(``fuels``). 새 화면을 만들지 않은 이유는 셋이다 —
+⑴ 선박별 축은 이 화면이 이미 연도로 열고 있고, ⑵ 항로별 축은 항만명이 자유
+텍스트라 ``BUSAN``·``Busan``·``부산``이 서로 다른 항로가 되어 집계가 성립하지 않으며,
+⑶ 화면 신설은 ``AGENTS §3.2.3``상 ``PRD §5`` 판정이 선행한다.
+
+**추세는 연도 축이 만든다.** 연료별 수치를 연도 행 안에 두면 같은 표에서 연도를
+가로질러 읽을 수 있고, 축이 하나 더 생기지 않는다.
+
 확정/진행 중의 기준은 ``as_of`` 연도다 — ``#368`` 계약 ⑵에 따라 ``resolve_as_of``
 가 시각을 확정하고, 그 연도가 곧 「올해」다. 올해의 값은 연말 확정 전이므로 YTD
 임을 ``status``로 표시한다(``PRD §3.3.7`` 배너 판정 기준과 같은 축).
@@ -62,7 +73,11 @@ REASON_NO_DATA = "NO_DATA"
 
 #: 수치 직렬화 자릿수 (API_SPEC §1.7 — 문자열 직렬화).
 #: ``voyage_cii.SERIALIZATION_DIGITS``와 같은 기준을 이력 필드에 맞게 재정의한다.
-_DIGITS = {"cii": 6, "distance_nm": 2, "fuel_ton": 2}
+_DIGITS = {"cii": 6, "distance_nm": 2, "fuel_ton": 2, "co2_ton": 2, "share_percent": 1}
+
+#: 그램 → 톤. ``calc.annual_simulation.GRAMS_PER_TON``과 같은 값이되, 여기서는
+#: **표시 단위 환산**에만 쓴다(계산은 Layer 1이 이미 끝냈다).
+_GRAMS_PER_TON = Decimal(1_000_000)
 
 
 def _publish(value: Decimal, digits: int) -> str:
@@ -91,6 +106,57 @@ def _validate_window(start: int, end: int) -> None:
         )
 
 
+def _fuel_rows(
+    ton_breakdown: dict[str, Decimal],
+    co2_breakdown_g: dict[str, Decimal] | None,
+) -> list[dict[str, object]]:
+    """연료축 한 해치 — 유종별 투입 톤·CO₂·비중 (`#769`).
+
+    ``PRD §21`` 「통계 분석」의 **연료별** 축이다. 선박축은 이미 이 엔드포인트가
+    연도로 열고 있고, 항로축은 항만명이 자유 텍스트라 집계가 성립하지 않는다.
+
+    ## 비중은 CO₂ 기준이다 — 톤 기준이 아니다
+
+    CII의 분자는 배출량이므로, **어느 연료가 등급을 끌고 있는지**를 말하려면 CO₂
+    비중이어야 한다. 톤 비중으로 적으면 CF가 낮은 연료를 많이 쓴 해가 실제보다
+    나빠 보인다(같은 톤이라도 LNG는 HFO보다 CO₂가 적다 — ``PRD §8.3`` CF 표).
+
+    ## 배출을 모르는 해에도 톤은 싣는다
+
+    거리가 0인 해는 Layer 1을 타지 않아 CO₂가 없다. 그렇다고 행을 빼면 **「정박만
+    한 해」가 연료축에서 통째로 사라진다** — 연료는 실제로 들어갔는데도.
+    """
+    total_co2_g = sum((co2_breakdown_g or {}).values(), Decimal(0))
+    rows: list[dict[str, object]] = []
+    for fuel_type, ton in ton_breakdown.items():
+        co2_g = (co2_breakdown_g or {}).get(fuel_type)
+        rows.append(
+            {
+                "fuel_type": fuel_type,
+                "fuel_ton": _publish(ton, _DIGITS["fuel_ton"]),
+                "co2_ton": (
+                    None if co2_g is None else _publish(co2_g / _GRAMS_PER_TON, _DIGITS["co2_ton"])
+                ),
+                "co2_share_percent": (
+                    None
+                    if co2_g is None or total_co2_g <= 0
+                    else _publish(co2_g / total_co2_g * 100, _DIGITS["share_percent"])
+                ),
+            }
+        )
+    # 큰 것부터 — 화면이 정렬을 다시 하지 않게 서버가 순서를 정한다. 배출량이 없는
+    # 해는 톤으로 견주고, 같으면 유종 이름으로 고정한다(순서가 요청마다 흔들리면
+    # 표를 눈으로 대조할 수 없다).
+    rows.sort(
+        key=lambda row: (
+            -(co2_breakdown_g or {}).get(str(row["fuel_type"]), Decimal(0)),
+            -ton_breakdown[str(row["fuel_type"])],
+            str(row["fuel_type"]),
+        )
+    )
+    return rows
+
+
 def _empty_row(year: int, current_year: int, reason: str) -> dict[str, object]:
     """계산 없이 내보내는 행 — 데이터가 없는 해도 이력 축에서는 한 칸이다."""
     return {
@@ -105,6 +171,9 @@ def _empty_row(year: int, current_year: int, reason: str) -> dict[str, object]:
         "in_progress_voyage_count": 0,
         "total_distance_nm": None,
         "total_fuel_ton": None,
+        # 연료축은 **늘 배열**이다 (`#769`). 없는 해에 `null`을 주면 화면이 배열과
+        # null 둘 다를 다뤄야 하고, 한쪽을 잊으면 그 해에서만 터진다.
+        "fuels": [],
     }
 
 
@@ -154,6 +223,8 @@ async def _year_row(
             if result.total_fuel_ton is None
             else _publish(result.total_fuel_ton, _DIGITS["fuel_ton"])
         )
+        # 거리가 0이라 CII는 못 내도 **연료는 들어갔을 수 있다**(정박만 한 해).
+        row["fuels"] = _fuel_rows(result.fuel_ton_breakdown, result.fuel_breakdown_g)
         return row
 
     # data_available=True인데 수치가 비었다는 것은 ytd_cii의 불변식이 깨진 것이다 —
@@ -186,6 +257,7 @@ async def _year_row(
         "in_progress_voyage_count": result.in_progress_voyage_count,
         "total_distance_nm": _publish(result.total_distance_nm, _DIGITS["distance_nm"]),
         "total_fuel_ton": _publish(result.total_fuel_ton, _DIGITS["fuel_ton"]),
+        "fuels": _fuel_rows(result.fuel_ton_breakdown, result.fuel_breakdown_g),
     }
 
 
