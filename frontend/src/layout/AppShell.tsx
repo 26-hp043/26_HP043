@@ -24,6 +24,7 @@ import { logout, useAuthUser } from '../auth/session'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import { AssistantOverlay } from '../features/assistant/AssistantOverlay'
 import type { ShellContext } from './shellContext'
 
 /**
@@ -495,6 +496,19 @@ export function AppShell() {
             </ErrorBoundary>
           </div>
         </main>
+
+        {/*
+          AI 어시스턴트 (`UIFLOW 2-7` · `#121`) — **셸 안, 본문 밖**이다.
+
+          본문 안에 두면 화면이 바뀔 때마다 대화가 사라진다. `2-7`이 *"별도
+          라우트/화면 전환이 없다"*고 규정하므로 라우트가 바뀌어도 살아 있어야 한다.
+
+          ⚠️ **에러 경계 밖이기도 하다.** 본문 경계 안에 두면 화면 하나가 깨졌을 때
+          어시스턴트도 함께 사라지는데, `PRD §16.2` 격리는 그 반대 방향까지
+          요구한다 — **서로 영향을 주지 않는다.** 어시스턴트 자신의 실패는 컴포넌트가
+          자기 안에서 말풍선으로 만든다.
+        */}
+        <AssistantOverlay vesselId={context.vesselId ?? undefined} />
       </div>
     </div>
   )

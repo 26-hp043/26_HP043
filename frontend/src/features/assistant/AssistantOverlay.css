@@ -1,0 +1,213 @@
+/*
+ * AI 어시스턴트 오버레이 (`UIFLOW 2-7` · `#121`).
+ *
+ * ⚠️ **화면 규격 미확정 — 임시안이다.** `DESIGN_SYSTEM`에 챗봇 항목이 없다.
+ * **새 토큰을 만들지 않았다** — 기존 값만 조합했다. 확정이 오면 이 파일만 고친다.
+ *
+ * 떠 있는 면이므로 `--shadow-overlay` + 테두리를 **함께** 쓴다 (`DESIGN_SYSTEM §5`
+ * · 2026-09-11 확정 · `tokens.sync.test.ts`가 이 짝을 검사한다).
+ */
+
+.assistant__launcher,
+.assistant {
+  position: fixed;
+  right: var(--space-24);
+  bottom: var(--space-24);
+  z-index: 40;
+}
+
+.assistant__launcher {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-overlay);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: var(--space-8) var(--space-16);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.assistant__launcher:hover {
+  background: var(--color-surface-2);
+}
+
+.assistant {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: min(380px, calc(100vw - var(--space-32)));
+  max-height: min(560px, calc(100vh - var(--space-32)));
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+  background: var(--color-surface);
+  padding: var(--space-16);
+}
+
+.assistant__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+}
+
+.assistant__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-h3);
+  font-weight: var(--font-weight-h3);
+}
+
+/* 실험 기능임을 제목 옆에서 계속 보인다 — 열고 나서 잊히지 않게. */
+.assistant__tag {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  padding: 0 var(--space-8);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+.assistant__close {
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--color-text-muted);
+  padding: var(--space-4) var(--space-8);
+  font-size: var(--font-size-body);
+  cursor: pointer;
+}
+
+.assistant__close:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.assistant__intro {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-label);
+}
+
+.assistant__log {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-height: 120px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-12);
+}
+
+.assistant__turn {
+  max-width: 90%;
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: var(--space-8) var(--space-12);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-body);
+  white-space: pre-wrap;
+}
+
+.assistant__turn--user {
+  align-self: flex-end;
+  background: var(--color-primary-subtle);
+  color: var(--color-text);
+}
+
+.assistant__turn--assistant {
+  align-self: flex-start;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+/*
+ * ⚠️ 버려진 답 — **답과 다르게 보인다** (`API_SPEC §15.2`).
+ *
+ * 같은 모양으로 두면 사용자는 「답을 받았다」고 읽는다. 받은 것은 답이 아니라
+ * 「답을 못 드린 이유」다. 색만으로 나누지 않고 **좌측 스트라이프**를 쓴다 —
+ * `DESIGN_SYSTEM §8`의 경고 배너와 같은 표현이고, 색각 이상에서도 구분된다.
+ */
+.assistant__turn--discarded {
+  border-left: 4px solid var(--color-warning);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  color: var(--color-text-muted);
+}
+
+.assistant__turn--pending {
+  align-self: flex-start;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+}
+
+.assistant__disclaimer {
+  margin: 0;
+  border-left: 4px solid var(--color-warning);
+  background: var(--color-surface-2);
+  padding: var(--space-8) var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-label);
+}
+
+.assistant__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+}
+
+/* 라벨은 스크린리더에만 — 자리 대비 정보량이 적고, placeholder가 같은 말을 한다. */
+.assistant__label {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  white-space: nowrap;
+}
+
+.assistant__input {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  padding: var(--space-8);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  resize: vertical;
+}
+
+.assistant__input:disabled {
+  background: var(--color-surface-2);
+  color: var(--color-text-disabled);
+}
+
+.assistant__send {
+  align-self: flex-end;
+  border: 1px solid var(--color-primary-solid);
+  border-radius: var(--radius-control);
+  background: var(--color-primary-solid);
+  color: var(--color-on-primary);
+  padding: var(--space-8) var(--space-16);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.assistant__send:hover:not(:disabled) {
+  border-color: var(--color-primary-solid-hover);
+  background: var(--color-primary-solid-hover);
+}
+
+.assistant__send:disabled {
+  border-color: var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
