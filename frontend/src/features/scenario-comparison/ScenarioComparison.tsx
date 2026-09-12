@@ -9,11 +9,13 @@ import {
   WEATHER_MODELS,
   initialFormState,
   toRequest,
+  usesCoordinateDistance,
   validateForm,
   weatherNeedsCoordinates,
   type ComparisonFormState,
   type FormErrors,
 } from './requestRules'
+import { matchSamplePort, portOptionLabel, useSamplePorts } from '../ports/samplePorts'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -24,7 +26,7 @@ import {
 } from '../../display/format'
 import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
-import { ESTIMATE_NOTICE, NO_AUTO_DECISION_NOTICE } from './notices'
+import { COORDINATE_DISTANCE_NOTICE, ESTIMATE_NOTICE, NO_AUTO_DECISION_NOTICE } from './notices'
 import { selectScenarioProvider } from './providerSelection'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
@@ -126,6 +128,12 @@ export function ScenarioComparison({
   const catalogError = vesselsState === 'failed' ? '선박 목록을 불러오지 못했습니다.' : null
 
   const [form, setForm] = useState<ComparisonFormState>(initialFormState)
+  /*
+   * 샘플 항만 (#1005 · `PRD §15.1`). 못 받아도 폼은 그대로 쓴다 — 좌표는 손으로도 넣는다.
+   * 「현재 위치」 칸은 **입력 보조**다 — 고르면 위도·경도 칸을 채울 뿐 요청에 따로 싣지 않는다.
+   */
+  const ports = useSamplePorts()
+  const [currentPortText, setCurrentPortText] = useState('')
   const [errors, setErrors] = useState<FormErrors>({})
   const [state, setState] = useState<LoadState>({ status: 'idle' })
 
@@ -292,6 +300,12 @@ export function ScenarioComparison({
             {errors[FIELD.baseDistanceNm]}
           </span>
         )}
+        {/* 비우면 좌표로 계산한다는 것을 **누르기 전에** 알린다 (#1005 · `PRD §15.2`). */}
+        {usesCoordinateDistance(form) && (
+          <span className="scenario-comparison__field-hint" role="status">
+            비워 두면 현재 위치와 목적항 좌표로 계산합니다(좌표 기반 추정 거리).
+          </span>
+        )}
       </label>
 
       <label className="scenario-comparison__field">
@@ -444,6 +458,29 @@ export function ScenarioComparison({
         )}
       </label>
 
+      {/* 샘플 항만 선택지 (#1005) — 현재 위치·목적항 두 칸이 같이 쓴다. */}
+      <datalist id="sc-ports">
+        {ports.map((port) => (
+          <option key={port.locode} value={port.name} label={portOptionLabel(port)} />
+        ))}
+      </datalist>
+
+      <label className="scenario-comparison__field">
+        <span>현재 위치 (항만에서 고르기)</span>
+        <input
+          list="sc-ports"
+          value={currentPortText}
+          onChange={(e) => {
+            setCurrentPortText(e.target.value)
+            const match = matchSamplePort(ports, e.target.value)
+            if (match) {
+              setForm({ ...form, currentLat: String(match.lat), currentLon: String(match.lon) })
+            }
+          }}
+          placeholder="예: BUSAN — 비워 두고 아래에 좌표를 넣어도 됩니다"
+        />
+      </label>
+
       <label className="scenario-comparison__field">
         <span>현재 위도 (°)</span>
         <input
@@ -471,18 +508,35 @@ export function ScenarioComparison({
           <span className="scenario-comparison__field-error" role="alert">{errors[FIELD.currentLon]}</span>
         )}
         {/*
-          목적항 좌표는 이 화면에 없다 — 거리를 직접 입력하므로 대권거리 경로를
-          타지 않고(`_resolve_direct_distance()`), 항만을 고르는 UI는 `#760`(샘플
-          항만 테이블)이 선행한다.
-
           문구에 **다른 칸의 이름을 넣지 않는다.** 힌트가 `<label>` 안에 있어
           접근성 이름에 섞이고, 같은 낱말이 두 칸에 들어가면 라벨로 칸을 특정할 수
           없게 된다 — 실제로 기존 검사의 `getByLabelText(/직항 거리/)`가
           중복 일치로 깨졌다.
         */}
         <span className="scenario-comparison__field-hint">
-          기상 보정에만 사용합니다. 항해거리는 위에서 입력한 값을 그대로 씁니다.
+          기상 보정에 쓰고, 항해거리를 비웠을 때는 대권거리의 출발점이 됩니다.
         </span>
+      </label>
+
+      <label className="scenario-comparison__field">
+        <span>목적항</span>
+        <input
+          list="sc-ports"
+          value={form.destinationPortName}
+          onChange={(e) => {
+            // 샘플 항만과 **정확히** 같을 때만 좌표를 붙인다 — 추측하지 않는다(#1005).
+            const match = matchSamplePort(ports, e.target.value)
+            setForm({
+              ...form,
+              destinationPortName: match ? match.name : e.target.value,
+              destinationLat: match ? String(match.lat) : '',
+              destinationLon: match ? String(match.lon) : '',
+            })
+          }}
+        />
+        {form.destinationLat !== '' && (
+          <span className="scenario-comparison__field-hint">샘플 항만 — 좌표가 함께 쓰입니다.</span>
+        )}
       </label>
 
       <div className="scenario-comparison__form-actions">
@@ -627,6 +681,10 @@ export function ScenarioComparison({
         <p className="scenario-comparison__notice">
           {ESTIMATE_NOTICE} {NO_AUTO_DECISION_NOTICE}
         </p>
+        {/* `PRD §15.2` — 좌표로 계산한 거리는 「좌표 기반 추정 거리」라고 표시한다 (#1005). */}
+        {usesCoordinateDistance(snapshot.inputs) ? (
+          <p className="scenario-comparison__notice">{COORDINATE_DISTANCE_NOTICE}</p>
+        ) : null}
 
         <div className="scenario-comparison__cards">
           {/*

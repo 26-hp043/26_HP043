@@ -24,7 +24,7 @@ import {
   matchSamplePort,
   portOptionLabel,
   type SamplePort,
-} from './samplePorts'
+} from '../ports/samplePorts'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageFuelDraft } from './types'
 import './VoyagePanel.css'
 import { ErrorState } from '../../components/ErrorState'

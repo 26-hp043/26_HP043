@@ -222,3 +222,41 @@ describe('기능① 결과 액션 (#891)', () => {
     }
   })
 })
+
+/**
+ * 계획 저장의 출발·도착항도 샘플 항만에서 고른다 (#1005).
+ *
+ * 항차 추가(#760)와 같은 선택지다 — 같은 항차가 경로마다 다른 표기로 쌓이지 않게 한다.
+ */
+describe('계획 저장 — 샘플 항만 (#1005)', () => {
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+  ]
+
+  it('고른 항은 저장 이름과 좌표로, 목록에 없는 항은 이름만으로 저장한다', async () => {
+    const samplePorts = vi.fn(async () => PORTS)
+    const provider = stubProvider({ samplePorts })
+    renderActions(SUCCESS, provider)
+    fireEvent.click(screen.getByRole('button', { name: '계획 저장' }))
+    await waitFor(() => expect(document.querySelectorAll('#plan-ports option')).toHaveLength(1))
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'busan' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore Anchorage' } })
+    fireEvent.change(screen.getByLabelText('출항 예정 시각'), {
+      target: { value: '2026-10-01T09:00' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '계획으로 저장' }))
+
+    await screen.findByText(/계획 항차로 저장했습니다/)
+    expect(provider.create).toHaveBeenCalledWith(
+      'vessel-1',
+      expect.objectContaining({
+        departurePortName: 'BUSAN',
+        departureCoord: { lat: 35.1, lon: 129.0333 },
+        arrivalPortName: 'Singapore Anchorage',
+        arrivalCoord: null,
+      }),
+    )
+  })
+})
+

@@ -714,3 +714,88 @@ describe('계획에 반영 (#580)', () => {
     expect(screen.getByText(/다시 비교한 뒤 반영할 수 있습니다/)).toBeTruthy()
   })
 })
+
+/**
+ * 샘플 항만으로 현재 위치·목적항을 고르고, 직항 거리를 비우면 좌표로 계산한다 (#1005).
+ *
+ * `PRD §11.2` 「직항 거리 = 사용자 입력 **또는 좌표 기반 대권거리**」의 뒤엣것을 화면에서
+ * 쓸 수 없었다 — 목적항 칸이 없었다. `PRD §15.2`대로 결과가 「좌표 기반 추정 거리」라고 말하는지도 본다.
+ */
+describe('샘플 항만 — 현재 위치·목적항 (#1005)', () => {
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGKEP', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+  ]
+
+  function stubServerWithPorts() {
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/ports/samples')) return jsonResponse({ data: PORTS })
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      if (url.includes('/scenarios/compare')) return jsonResponse(COMPARE_BODY)
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  it('고른 두 항의 좌표로 계산하고, 결과가 좌표 기반 추정 거리라고 말한다', async () => {
+    const fetchImpl = stubServerWithPorts()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(2))
+
+    fireEvent.change(screen.getByLabelText(/현재 위치/), { target: { value: '부산' } })
+    // 현재 위치는 입력 보조다 — 고르면 위도·경도 칸을 채운다.
+    expect((screen.getByLabelText(/현재 위도/) as HTMLInputElement).value).toBe('35.1')
+    expect((screen.getByLabelText(/현재 경도/) as HTMLInputElement).value).toBe('129.0333')
+    fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'singapore' } })
+    expect((screen.getByLabelText(/목적항/) as HTMLInputElement).value).toBe('SINGAPORE')
+    fireEvent.change(screen.getByLabelText(/직항 거리/), { target: { value: '' } })
+    expect(screen.getByText(/비워 두면 현재 위치와 목적항 좌표로 계산합니다/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+
+    await waitFor(() =>
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare'))).toBe(true),
+    )
+    const call = fetchImpl.mock.calls.find(([url]) => String(url).includes('/scenarios/compare'))!
+    const body = JSON.parse((call[1] as RequestInit).body as string)
+    expect(body).not.toHaveProperty('direct_distance_nm')
+    expect(body).toMatchObject({
+      current_lat: 35.1,
+      current_lon: 129.0333,
+      destination_port_name: 'SINGAPORE',
+      destination_lat: 1.2833,
+      destination_lon: 103.85,
+    })
+    expect(await screen.findByText(/직항 거리는 좌표 기반 추정 거리입니다/)).toBeTruthy()
+  })
+
+  it('목록에 없는 목적항은 이름만 싣는다 — 좌표를 추측하지 않는다', async () => {
+    const fetchImpl = stubServerWithPorts()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(2))
+
+    fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'Busan New Port' } })
+    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+
+    await waitFor(() =>
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare'))).toBe(true),
+    )
+    const call = fetchImpl.mock.calls.find(([url]) => String(url).includes('/scenarios/compare'))!
+    const body = JSON.parse((call[1] as RequestInit).body as string)
+    expect(body.destination_port_name).toBe('Busan New Port')
+    expect(body).not.toHaveProperty('destination_lat')
+    // 직항 거리를 그대로 두었으므로 결과는 좌표 추정이라고 말하지 않는다.
+    expect(screen.queryByText(/직항 거리는 좌표 기반 추정 거리입니다/)).toBeNull()
+  })
+})
+

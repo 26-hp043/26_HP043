@@ -144,6 +144,9 @@ export function createApiScenarioProvider(
             slow_speed_kn: request.slow_speed_kn,
             current_lat: request.current_lat,
             current_lon: request.current_lon,
+            destination_port_name: request.destination_port_name,
+            destination_lat: request.destination_lat,
+            destination_lon: request.destination_lon,
             weather_model: request.weather_model,
           }),
         })

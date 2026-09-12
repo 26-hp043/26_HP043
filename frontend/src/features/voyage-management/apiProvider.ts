@@ -4,7 +4,7 @@ import { readPageMeta } from '../vessel-management/apiProvider'
 import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type { ImportResult, ImportRowError } from './importRules'
-import type { PortCoord, SamplePort } from './samplePorts'
+import { isSamplePort, type PortCoord, type SamplePort } from '../ports/samplePorts'
 import { actualsPayload, policyForTransition, toIsoInstant } from './voyageRules'
 import type {
   ActualsDraft,
@@ -238,17 +238,6 @@ function toImportResult(raw: ServerImportResult): ImportResult {
     missingDepartureCount:
       typeof raw.missing_departure_count === 'number' ? raw.missing_departure_count : 0,
   }
-}
-
-function isSamplePort(row: unknown): row is SamplePort {
-  if (typeof row !== 'object' || row === null) return false
-  const r = row as Record<string, unknown>
-  return (
-    typeof r.name === 'string' &&
-    typeof r.name_ko === 'string' &&
-    typeof r.lat === 'number' &&
-    typeof r.lon === 'number'
-  )
 }
 
 export function createApiVoyageManagementProvider(

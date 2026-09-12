@@ -57,8 +57,13 @@ export interface ScenarioResult {
 export interface ScenarioComparisonRequest {
   vessel_id: string
   regulation_year: number
-  /** `DIRECT` 시나리오의 거리. 나머지는 `PRD §11.2` 생성 방식을 따른다. */
-  base_distance_nm: number
+  /**
+   * `DIRECT` 시나리오의 거리. 나머지는 `PRD §11.2` 생성 방식을 따른다.
+   *
+   * **비울 수 있다**(#1005) — 현재 위치와 목적항 좌표가 모두 있으면 서버가 대권거리로
+   * 계산한다(`_resolve_direct_distance()` · `PRD §11.2` 「사용자 입력 또는 좌표 기반 대권거리」).
+   */
+  base_distance_nm?: number
   base_speed_kn: number
   /**
    * **일일** 연료 소모량 — `API_SPEC §5.1`의 `base_daily_foc_ton`.
@@ -84,13 +89,15 @@ export interface ScenarioComparisonRequest {
   /**
    * `PRD §11.3` 현재 위치. **기상 조회의 유일한 입력**이다.
    *
-   * 거리를 직접 입력하는 이 화면에서는 대권거리 계산에 쓰이지 않는다 —
-   * `_resolve_direct_distance()`가 `direct_distance_nm`을 먼저 보기 때문이다.
-   * 목적항 좌표(`destination_*`)는 그 대권거리 경로의 나머지 절반이라
-   * **`#760`(샘플 항만 테이블) 소관으로 남긴다.**
+   * 직항 거리를 비우면 목적항 좌표와 함께 **대권거리**의 두 끝이 된다(#1005).
+   * 직항 거리가 있으면 서버가 그것을 먼저 쓴다(`_resolve_direct_distance()`).
    */
   current_lat?: number
   current_lon?: number
+  /** 목적항 (#1005 · `API_SPEC §5.1`). 샘플 항만에서 골랐을 때만 좌표가 있다. */
+  destination_port_name?: string
+  destination_lat?: number
+  destination_lon?: number
   /**
    * `API_SPEC §5.1` enum. 미지정 = `NONE`.
    *
