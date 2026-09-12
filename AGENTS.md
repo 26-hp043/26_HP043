@@ -52,6 +52,7 @@ AI 에이전트(리뷰·분석 에이전트 등)가 다음 유형의 finding을 
 | CII Rating (G4) | MEPC.354(78) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.354%2878%29.pdf) |
 | CII Guidelines (G1) | MEPC.352(78), as amended by MEPC.412(84) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.352%2878%29.pdf) · [개정 PDF](https://wwwcdn.imo.org/localresources/en/OurWork/Environment/Documents/Annex%2014.pdf) |
 | 연료 CF 값 | MEPC.364(79) §2.2.1 (G1 §4.1이 참조 지정) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.364%2879%29.pdf) |
+| **보정계수·항해 조정 (G5)** | **MEPC.355(78)** — 2022 Interim Guidelines on Correction Factors and Voyage Adjustments for CII Calculations (`MEPC 78/17/Add.1` Annex 17, 채택 2022-06-10) | [PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.355%2878%29.pdf) |
 | 등급 하락의 귀결 (시정조치계획) | MARPOL Annex VI Reg 6.8·26.3.2·28.7~28.9 (MEPC.328(76)) · SEEMP Part III는 MEPC.395(82) §9.4·§15.4.1 | [MARPOL PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.328%2876%29.pdf) · [SEEMP PDF](https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/MEPCDocuments/MEPC.395%2882%29.pdf) |
 
 > **[#148] Capacity 축 · G2 Table 1 로케이터의 원문 대조 확인: sky01170851 (2026-07-30).** G1 `§4.2`가 `W_s = C × D_t`의 `C`를 **DWT 8종 / GT 4종**으로 규정하며, 이 12종 구분이 G2 Table 1의 최상위 선종 12종과 일치한다는 판정은 IMO 원문을 직접 대조해 확인한 결과다. `RO_RO_PASSENGER_HSC`가 별도 코드인 것은 G2 Table 1이 `Ro-ro passenger ship` 칸 아래 하위 2행을 두기 때문이다(#126).
@@ -59,6 +60,14 @@ AI 에이전트(리뷰·분석 에이전트 등)가 다음 유형의 finding을 
 > **[#163] G1은 `MEPC.412(84)`로 개정됐다 — 다만 `§4.2`(Transport work) 한 절만이다.** 다른 절은 원문 그대로 유효하며, 지표 명칭을 정하는 `§2.5`는 개정되지 않았다. 결의 자체를 대체한 문서는 없으므로 인용은 **`MEPC.352(78), as amended by MEPC.412(84)`** 형태로 적는다. 같은 형태를 IMO 문서가 쓴 선례가 `MEPC.364(79)`에 있다.
 >
 > **원문 대조 확인: 신하늘(`sky01170851`), 2026-08-06.** `§2.5`(MEPC 78/17/Add.1 Annex 14, 3쪽) · 개정 `§4.2`(같은 Annex 14, 5쪽) · `MEPC.412(84)`의 *"Section 4.2 is replaced with the following"* 문언과 DWT 8종·GT 4종 목록을 IMO 원문과 직접 대조해 확인했다.
+
+> **[#762] G5는 `잠정(Interim)` 지침이며 2026-01-01까지 재검토가 예정돼 있다.** 결의안 본문 4항이 *"AGREES to keep the Guidelines under review … a review of the operational measure … shall be completed by 1 January 2026"* 로 적는다. **값을 옮겨 적기 전에 최신 개정 여부를 확인한다** — G1이 `MEPC.412(84)`로 개정된 것과 같은 경로다(`#163`).
+>
+> ⚠️ **G5의 보정계수 상당수는 G5가 값을 갖고 있지 않다.** `f_i`·`f_m`·`f_c`·`f_i,VSE`는 **EEDI 계산 지침**(`MEPC.308(73)`, `MEPC.322(74)`·`MEPC.332(76)` 개정)을 참조 지정하며, G5 §4.6이 *"provided they are included in the ship's EEDI Technical File or EEXI Technical file"* 로 **선박별 기술 파일**을 전제한다. 즉 이 넷은 **규제값 표가 아니라 선박 문서**에서 온다 — 우리 파라미터 표에 담을 수 있는 성질이 아니다.
+>
+> **G5가 직접 값을 주는 것은 둘뿐이다** — `AF_Tanker,STS = 6.1742 × DWT^(-0.246)` · `AF_Tanker,Shuttle = 5.6805 × DWT^(-0.208)`(§4.2). 그 외에 기본값 `SFOC` 175 g/kWh(2행정)·200 g/kWh(4행정)과 냉동 컨테이너 기본 소비 `C_x = 2.75 kW/h`(부록 1 Part A)가 있다.
+>
+> **원문 대조 확인: 미완 — 팀원 확인 대기(`§2.1`).** 위 수치는 2026-09-12에 IMO 공개 PDF에서 기계 추출한 것이며, `#762` 착수 전 **사람이 인쇄면과 대조**해야 한다.
 
 > **MEPC.364(79)는 EEDI 계산 지침이며, CII G2 reference line과 무관하다.** G2 인용 시 MEPC.353(78)을 사용한다.
 >
@@ -487,3 +496,4 @@ UIFLOW §9-3        아무것도 아님   ← `#583`이 지운 끊긴 참조
 | 2026-08-21 | `#601` | **v1.9 — §7에 PR 제목 형식 조항 신설.** `종류(#이슈번호): 설명` 규격이 **PR 템플릿 주석과 `#467` 본문에만** 있었고, 둘 다 근거로 §7을 인용하는데 §7에는 언어 규정뿐이었다. 끊긴 지점은 `#465`다 — *「§7이 PR 제목 형식과 본문 4절을 이미 규정합니다」*라고 적었으나 **본문 4절만 있었다.** `AGENTS.md`만 읽고 시작하면 규격에 닿을 방법이 없어 2026-08-20 `fix(ui)` 3건이 나왔다. 함께 **squash 제목의 출처를 정본에 명시**했다 — 설정이 `COMMIT_OR_PR_TITLE`이라 **커밋 1개 PR에서는 커밋 제목이 이겼고**(`#595`가 깨진 heredoc 문자열을 `main` 제목으로 밀어 넣었다), `PR_TITLE`로 고정해 그 경로를 없앴다. §7 CI 표에 `pr-title` 행 추가 (#600) |
 | 2026-08-21 | `#605` | §7 required check 변경 명령의 `-f strict=true`를 **`-F`로 정정**하고 사유를 각주로 남겼다. `-f`는 값을 문자열로 보내 `"true" is not a boolean`(422)으로 거부된다 — **정본에 적힌 명령이 그대로는 동작하지 않았다.** `#600`에서 `pr-title`을 required로 올릴 때 실제로 실패했다. `contexts[]`는 문자열 배열이라 `-f`가 맞아 **둘을 섞어 쓰는 것이 정상**이며, 그 사실을 적어 두지 않으면 다음에 `-f`로 되돌아간다. `§4.3`상 오기 정정이므로 버전은 올리지 않는다 (#603) |
 | 2026-08-21 | `#606` | **v1.10 — §4.7 절·화면 참조 표기 신설.** `§N-M` 한 모양이 **세 가지**를 뜻하고 있었다 — 화면 번호 · `§16` 표의 행 번호 · 아무것도 아닌 것(`#583`이 지운 끊긴 참조). 모양으로 구분되지 않으면 **실재 여부를 판정할 수 없다** — `#583`의 끊긴 참조 7종 중 두 개가 이 자리에 숨어 있었고, 원 이슈의 `grep`은 그것을 화면 참조로 읽었다. `§`는 절만 가리키게 하고 화면은 `N-M`, 절 안의 항목은 `§N 항목 M`으로 고정한다. 저장소 전체 42곳을 규칙에 맞춰 정리했고 `tests/test_doc_cross_refs.py`가 재발을 막는다 (#602) |
+| 2026-09-12 | `#762` | §2.2 권위 소스 표에 **G5(`MEPC.355(78)`) 행 추가** + 각주 신설. 이 저장소의 규제값은 전부 이 표를 거치는데 **G5만 행이 없어** 결의안 번호부터 확정해야 했다. 원문(IMO 공개 PDF · 16쪽)을 받아 확인한 것 셋 — ⑴ **잠정(Interim) 지침**이고 2026-01-01까지 재검토가 예정돼 있다(본문 4항) ⑵ **보정계수 상당수는 G5가 값을 갖고 있지 않다** — `f_i`·`f_m`·`f_c`·`f_i,VSE`는 EEDI 지침(`MEPC.308(73)` 개정판)을 참조 지정하고 §4.6이 **선박별 기술 파일**을 전제한다(파라미터 표에 담을 성질이 아니다) ⑶ G5가 직접 값을 주는 것은 **셔틀탱커·STS 보정 둘**(`6.1742 × DWT^-0.246` · `5.6805 × DWT^-0.208`)과 기본값 몇 개뿐이다. ⚠️ **원문 대조 확인자는 아직 없다** — 기계 추출이라 `§2.1`에 따라 사람이 인쇄면과 대조해야 한다. `§4.3`상 행 추가·각주 보강이라 버전은 올리지 않는다 (#762) |
