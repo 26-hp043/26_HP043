@@ -551,23 +551,98 @@ def test_distance_lever_moves_fuel_with_distance():
     """거리 ±5%는 **연료를 같은 비율로 함께** 움직인다 (`PRD §12.6` 각주 · #756).
 
     거리만 늘리면 「같은 연료로 더 갔다」가 되어 CII가 좋아지는 쪽으로만 틀린다. 함께
-    움직이면 CII는 거리당 값이라 **잔여분만 있을 때 정확히 같다** — 이 행이 거의 움직이지
-    않는 것은 결함이 아니라 모델의 성질이고, 화면이 그 이유를 말한다.
+    움직이면 잔여분만 있을 때 **정확히 같다.**
     거리만 움직이도록 바뀌면 두 값이 약 10% 벌어져 여기서 실패한다.
     """
     down, up = _distance_rows(CompletedTotals(co2_g=0.0, distance_nm=0.0))
     assert abs(down - up) < Decimal("1e-9")
 
 
-def test_distance_lever_moves_only_through_the_completed_mix():
-    """확정 실적이 섞이면 **그 혼합비만큼만** 움직인다 — 5%에 한참 못 미친다.
+def _completed_at(intensity_ratio: float, distance_nm: float) -> CompletedTotals:
+    """잔여분과 강도비가 ``intensity_ratio``인 확정 실적."""
+    remaining_intensity = (4 * 250.0 * CF * 1e6) / (4 * 3000.0)
+    return CompletedTotals(
+        co2_g=remaining_intensity * intensity_ratio * distance_nm, distance_nm=distance_nm
+    )
 
-    `#756` 실측(샘플 벌크선)에서 차이는 기준값 대비 약 0.002%였다. 여기서는 1% 미만을
-    본다 — 거리만 움직였다면 확정분이 섞여도 수 % 차이가 난다.
+
+@pytest.mark.parametrize("completed_distance", [0.0, 1000.0, 5000.0, 200_000.0])
+def test_distance_lever_is_exactly_zero_when_intensities_match(completed_distance):
+    """⚠️ 강도가 같으면 **혼합비와 무관하게 정확히 0**이다 (#756 · 2026-09-13 정정).
+
+    종전 이 자리의 검사는 「**섞인 비율**만큼만 움직인다」를 단언했는데 **메커니즘이
+    틀렸다.** 결정하는 것은 혼합비가 아니라 **두 구간의 배출 강도 차이**다.
+
+    대수적으로도 그렇다 — ``C/Cd = R/Rd = k``이면
+
+    .. code-block:: text
+
+        CII(f) = (C + f·R) / (cap·(Cd + f·Rd)) = k·(Cd + f·Rd) / (cap·(Cd + f·Rd)) = k/cap
+
+    로 ``f``가 약분된다. 확정 거리를 0에서 200,000 nm까지 바꿔도 결과가 같아야 한다.
+
+    **이 구분이 화면 문구를 정한다.** 「거의 변하지 않습니다」는 조건부 사실인데 종전
+    문구가 무조건으로 적혀 있었고, 실적이 계획에서 벌어져 이 행이 움직이는 날 화면이
+    사실과 다른 말을 하게 된다.
     """
-    down, up = _distance_rows(COMPLETED)
+    down, up = _distance_rows(_completed_at(1.0, completed_distance))
+    assert abs(down - up) < Decimal("1e-9")
+
+
+def test_distance_lever_moves_when_intensities_diverge():
+    """강도가 벌어지면 **움직인다** — 그리고 그 방향이 뜻을 갖는다 (#756).
+
+    잔여 계획이 확정 실적보다 **더 더럽게**(강도비 < 1 → 확정이 더 깨끗) 돌면, 거리를
+    늘릴수록 연말 CII가 나빠진다. 「거리 행은 언제나 무의미하다」가 아니라는 것이
+    여기서 고정된다.
+    """
+    down, up = _distance_rows(_completed_at(0.7, 5000.0))
     assert down != up
-    assert abs(down - up) / up < Decimal("0.01")
+    # 잔여가 상대적으로 더 더러우므로 거리를 늘리면(+5%) 값이 커진다.
+    assert up > down
+
+
+#: `PRD §12.6` 표의 변수 ↔ 구현 지렛대 이름.
+#:
+#: ⚠️ **`연료 CF`는 구현이 없다** (`#756` ⑴). 「어느 연료를 대체 후보로 고를지」가
+#: 정본에 없어 값을 지어낼 수 없다 — 판정 대기다. 목록에 **사유와 함께** 적어 두고,
+#: 아래 검사가 목록과 정확히 대조한다: 새 공백이 생겨도, 채워진 뒤 목록을 안 지워도
+#: 실패한다(`#834`·`#594`·`#591`과 같은 방식).
+_PRD_LEVERS: dict[str, str | None] = {
+    "잔여 항차 평균 속도": "speed",
+    "잔여 항차 연료 사용량": "fuel",
+    "잔여 항차 거리": "distance",
+    "연료 CF": None,  # 미구현 — 대체 연료 선택 근거가 정본에 없다 (#756 ⑴)
+    "잔여 항차 1개 취소/추가": "voyage_count",
+}
+
+
+def test_prd_sensitivity_table_matches_the_implemented_levers():
+    """`PRD §12.6` 다섯 변수와 실제 지렛대가 **일대일로 대응**한다 (#756).
+
+    정본이 든 변수와 구현이 도는 지렛대가 갈리면 **표의 한 행이 영영 비고**, 그
+    사실이 화면에서는 「효과 없음」과 구분되지 않는다 — `#630`(속도)·`#756`(거리)이
+    둘 다 그 모양이었다.
+
+    ⚠️ 아직 **하나가 비어 있다**(`연료 CF`). 비었다는 사실을 :data:`_PRD_LEVERS`에
+    사유와 함께 적고 목록과 대조한다 — 구현되는 날 이 검사가 깨져 목록을 지우게
+    한다. **낡은 목록은 거짓말이다.**
+    """
+    from pathlib import Path
+
+    prd = (Path(__file__).resolve().parents[1] / "PRD.md").read_text(encoding="utf-8")
+    # 정본 표에 다섯 변수가 그대로 있는지부터 본다 — 표가 바뀌면 이 대응도 낡는다.
+    for label in _PRD_LEVERS:
+        assert f"| {label} |" in prd, label
+
+    entries, _ = _sens()
+    implemented = {e.variable for e in entries}
+    expected = {name for name in _PRD_LEVERS.values() if name is not None}
+
+    assert implemented == expected, (
+        f"구현 {sorted(implemented)} ≠ 정본 대응 {sorted(expected)} — "
+        "새 지렛대면 `_PRD_LEVERS`에 넣고, 미구현이 채워졌으면 `None`을 지울 것"
+    )
 
 
 def test_sensitivity_skips_speed_when_specs_are_missing():
