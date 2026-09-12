@@ -4,6 +4,7 @@ import {
   MIN_SPEED_KN,
   initialFormState,
   toRequest as toRequestWith,
+  usesCoordinateDistance,
   validateForm as validateFormWith,
   weatherNeedsCoordinates,
   type ComparisonFormState,
@@ -289,3 +290,44 @@ describe('기상 모델이 적용되는 조건 (#892)', () => {
     ).toBe(false)
   })
 })
+
+/**
+ * 직항 거리를 좌표로 대신하는 조건 (#1005 · `PRD §11.2`).
+ */
+describe('좌표 기반 직항 거리 (#1005)', () => {
+  const withCoords = {
+    ...initialFormState(),
+    vesselId: 'v-1',
+    baseDistanceNm: '',
+    currentLat: '35.1',
+    currentLon: '129.0333',
+    destinationPortName: 'SINGAPORE',
+    destinationLat: '1.2833',
+    destinationLon: '103.85',
+  }
+
+  it('거리가 비었고 네 좌표가 다 있을 때만 좌표로 계산한다', () => {
+    expect(usesCoordinateDistance(withCoords)).toBe(true)
+    expect(usesCoordinateDistance({ ...withCoords, baseDistanceNm: '900' })).toBe(false)
+    expect(usesCoordinateDistance({ ...withCoords, destinationLat: '' })).toBe(false)
+  })
+
+  it('좌표가 모자라면 직항 거리를 비울 수 없다 — 무엇을 하면 되는지 말한다', () => {
+    const errors = validateForm({ ...withCoords, destinationLat: '', destinationLon: '' })
+    expect(errors.direct_distance_nm).toBe(
+      '직항 거리를 입력하거나, 현재 위치와 목적항을 샘플 항만에서 골라 주세요.',
+    )
+  })
+
+  it('좌표로 계산할 때는 거리 키를 싣지 않고 목적항을 싣는다', () => {
+    expect(validateForm(withCoords)).toEqual({})
+    const request = toRequest(withCoords)
+    expect(request).not.toHaveProperty('base_distance_nm')
+    expect(request).toMatchObject({
+      destination_port_name: 'SINGAPORE',
+      destination_lat: 1.2833,
+      destination_lon: 103.85,
+    })
+  })
+})
+

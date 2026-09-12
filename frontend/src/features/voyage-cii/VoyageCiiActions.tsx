@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import './VoyageCiiActions.css'
 import { vesselPath } from '../../layout/globalContext'
@@ -18,6 +18,7 @@ import {
   type PlanSaveForm,
 } from './actionRules'
 import type { ResultState } from './resultRules'
+import { matchSamplePort, portOptionLabel, type SamplePort } from '../ports/samplePorts'
 import type { VoyageCiiProvider } from './provider'
 import { createVoyageCiiProvider } from './providerSelection'
 
@@ -61,6 +62,23 @@ export function VoyageCiiActions({
   const [saved, setSaved] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
+  /* 샘플 항만 (#1005) — 못 받아도 항만명은 자유 입력이다. 패널을 열 때 한 번 받는다. */
+  const [ports, setPorts] = useState<SamplePort[]>([])
+  useEffect(() => {
+    if (!panelOpen || ports.length > 0) return
+    let alive = true
+    api
+      .samplePorts()
+      .then((rows) => {
+        if (alive) setPorts(rows)
+      })
+      .catch(() => {
+        if (alive) setPorts([])
+      })
+    return () => {
+      alive = false
+    }
+  }, [panelOpen, api, ports.length])
 
   if (state.status !== 'success') return null
   const { request, response } = state
@@ -205,20 +223,45 @@ export function VoyageCiiActions({
               onChange={(e) => update('voyageNo', e.target.value)}
             />
           </PlanField>
-          <PlanField id="plan-departure" label="출발항" error={errors.departurePortName}>
+          <datalist id="plan-ports">
+            {ports.map((port) => (
+              <option key={port.locode} value={port.name} label={portOptionLabel(port)} />
+            ))}
+          </datalist>
+          <PlanField
+            id="plan-departure"
+            label="출발항"
+            error={errors.departurePortName}
+            hint={form.departureCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined}
+          >
             <input
               id="plan-departure"
+              list="plan-ports"
               value={form.departurePortName}
               aria-invalid={Boolean(errors.departurePortName)}
-              onChange={(e) => update('departurePortName', e.target.value)}
+              onChange={(e) => {
+                const match = matchSamplePort(ports, e.target.value)
+                update('departurePortName', match ? match.name : e.target.value)
+                update('departureCoord', match ? { lat: match.lat, lon: match.lon } : null)
+              }}
             />
           </PlanField>
-          <PlanField id="plan-arrival" label="도착항" error={errors.arrivalPortName}>
+          <PlanField
+            id="plan-arrival"
+            label="도착항"
+            error={errors.arrivalPortName}
+            hint={form.arrivalCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined}
+          >
             <input
               id="plan-arrival"
+              list="plan-ports"
               value={form.arrivalPortName}
               aria-invalid={Boolean(errors.arrivalPortName)}
-              onChange={(e) => update('arrivalPortName', e.target.value)}
+              onChange={(e) => {
+                const match = matchSamplePort(ports, e.target.value)
+                update('arrivalPortName', match ? match.name : e.target.value)
+                update('arrivalCoord', match ? { lat: match.lat, lon: match.lon } : null)
+              }}
             />
           </PlanField>
           <PlanField
