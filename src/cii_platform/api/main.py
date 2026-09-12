@@ -26,6 +26,7 @@ from cii_platform.api.routes.auth_dev import router as auth_dev_router
 from cii_platform.api.routes.auth_dev import should_register_dev_auth
 from cii_platform.api.routes.auth_tokens import router as auth_tokens_router
 from cii_platform.api.routes.calculations import router as calculations_router
+from cii_platform.api.routes.chat import router as chat_router
 from cii_platform.api.routes.exports import router as exports_router
 from cii_platform.api.routes.fleet import router as fleet_router
 from cii_platform.api.routes.health import router as health_router
@@ -173,6 +174,9 @@ app.include_router(exports_router, prefix=API_V1_PREFIX)
 # 사용자가 외부 API 호출을 직접 일으키는 유일한 경로이고, 기상은 계산 요청이 알아서
 # 갱신하므로 없어도 제품이 성립한다(그 판단은 API_SPEC §9.2 각주).
 app.include_router(weather_router, prefix=API_V1_PREFIX)
+# #121 챗봇 (실험 · O-12) — `API_SPEC §15`. 키가 없으면 **이 경로만** 503이다:
+# 앱 기동을 막지 않는 것이 `PRD §16.2` 장애 격리다.
+app.include_router(chat_router, prefix=API_V1_PREFIX)
 # #414 이메일·비밀번호 인증 — signup·login은 공개 경로(PUBLIC_PATHS)다.
 app.include_router(auth_router, prefix=API_V1_PREFIX)
 # #408 이메일 인증·비밀번호 재설정 — 메일 링크로 진입하므로 세션이 없다(공개 경로).

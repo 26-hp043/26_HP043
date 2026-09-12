@@ -38,6 +38,9 @@ ERROR_HTTP_STATUS: dict[str, int] = {
     "STATE_TRANSITION_ERROR": 422,  # API_SPEC §1.4: 허용되지 않은 상태 전환 (PRD §8.1.1)
     "WEATHER_FETCH_ERROR": 422,  # TECH_SPEC §12.1: 기상 API 실패 + 사용자가 NONE fallback 거부
     "RATE_LIMIT_EXCEEDED": 429,  # API_SPEC §1.4: 분당 요청 한도 초과
+    # API_SPEC §1.4·§15.4: 챗봇을 쓸 수 없다 (`LLM_API_KEY` 미설정·외부 모델 실패).
+    # **`/chat`에서만 난다** — PRD §16.2 장애 격리 (#121)
+    "CHAT_UNAVAILABLE": 503,
     "INTERNAL_ERROR": 500,  # API_SPEC §1.4: 서버 내부 오류
     "REPRODUCIBILITY_ERROR": 500,  # TECH_SPEC §12.1: canonical test vector 불일치
 }
@@ -222,6 +225,24 @@ class RateLimitError(AppError):
 
     def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
         super().__init__("RATE_LIMIT_EXCEEDED", message, details=details)
+
+
+class ChatUnavailableError(AppError):
+    """챗봇을 쓸 수 없다 (``API_SPEC §15.4``). HTTP 503.
+
+    ``LLM_API_KEY``가 없거나 외부 모델 호출이 실패한 경우다.
+
+    ⚠️ **이 예외는 ``/chat``에서만 난다.** ``PRD §16.2`` 장애 격리가 규정하는
+    경계가 그것이다 — 챗봇은 실험 기능(MAY)이고, 그것 때문에 계산·보고가 못 뜨면
+    격리가 아니다. 그래서 키 부재를 **앱 기동에서 보지 않는다**(``SIGNUP_*``와
+    다른 점이다).
+
+    500이 아니라 503인 이유 — 서버 코드가 잘못된 것이 아니라 **의존하는 것이 지금
+    없는** 상태다. 500으로 내면 오류 추적이 우리 버그를 찾으러 간다.
+    """
+
+    def __init__(self, message: str, *, details: list[dict[str, object]] | None = None) -> None:
+        super().__init__("CHAT_UNAVAILABLE", message, details=details)
 
 
 class StateTransitionError(AppError):

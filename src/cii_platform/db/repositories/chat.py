@@ -46,6 +46,18 @@ async def create_session(
     return row
 
 
+async def get_session_row(session: AsyncSession, *, session_id: UUID) -> ChatSession | None:
+    """대화 하나. 없으면 ``None``.
+
+    **주인 확인은 호출부가 한다** — 저장소는 「누가 볼 수 있는가」를 모른다. 여기서
+    ``user_id``까지 받으면 라우트가 404와 403을 구분할 근거를 잃는다
+    (``API_SPEC §15.4``는 남의 대화를 **404**로 규정한다).
+    """
+    return (
+        await session.execute(select(ChatSession).where(ChatSession.id == session_id))
+    ).scalar_one_or_none()
+
+
 async def add_message(
     session: AsyncSession,
     *,

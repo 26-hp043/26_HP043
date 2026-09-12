@@ -25,6 +25,9 @@ _ARRAY_INDEX = re.compile(r"\[\d+\]")
 _FIELD_LABELS: dict[str, str] = {
     # --- 기능① 요청 필드 (#55 · API_SPEC §4.1) ---
     "vessel_id": "선박",
+    # `API_SPEC §15.1` 챗봇 (#121) — 라벨은 화면의 입력칸 이름을 따른다.
+    "message": "질문",
+    "session_id": "대화",
     "regulation_year": "규제연도",
     "distance_nm": "운항 거리",  # API_SPEC §1.3.2 예시, §11 VAL-002
     "speed_kn": "속력",  # API_SPEC §11 VAL-009

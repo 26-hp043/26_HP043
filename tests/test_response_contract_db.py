@@ -1555,6 +1555,10 @@ ROUTE_COVERAGE: dict[str, str] = {
     "GET /weather/snapshot": (
         "tests/test_weather_api_db.py::test_snapshot_is_returned_in_the_spec_shape"
     ),
+    # `API_SPEC §15.1` (#121) — 응답이 **외부 모델의 답**이라 데모 시드로는 볼 수 없다.
+    # 그 파일이 `FakeProvider`를 끼워 봉투 다섯 칸(`session_id`·`answer`·
+    # `disclaimer`·`tool_calls`·`discarded`)을 각각 단언한다.
+    "POST /chat": "tests/test_chat_api_db.py::test_plain_answer_carries_the_canonical_disclaimer",
     # 조회 계약과 같은 모양 — 새 계약을 쓰지 않고 조회 계약과 대조한다
     "POST /vessels": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
     "PATCH /vessels/{}": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
