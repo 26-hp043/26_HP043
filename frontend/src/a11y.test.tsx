@@ -11,6 +11,8 @@ import { AppShell } from './layout/AppShell'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from './layout/shellContext'
 import { NAV_ORDER, SCREEN_BY_ID } from './screens'
 import { DisclaimerBanner } from './components/DisclaimerBanner'
+import type { ComponentProps } from 'react'
+
 import { GradeScaleBar } from './components/GradeScaleBar'
 import { GradeDistribution } from './features/fleet/GradeDistribution'
 import { AnnualSimulation } from './features/annual-simulation/AnnualSimulation'
@@ -103,6 +105,30 @@ describe('A11Y-001 — 위험도는 색 없이도 읽힌다', () => {
     // 막대 전체는 보조기술에 문자로 읽힌다 — 등급과 기준 대비 값.
     const track = screen.getByRole('img', { name: /현재 등급 C, 기준 대비 98\.8%/ })
     expect(track).toBeTruthy()
+  })
+
+  it('패턴을 끄는 길이 없다 — 호출부가 어떤 속성을 줘도 A 외 네 등급에 무늬가 남는다', () => {
+    /*
+     * 2026-09-12 디자인 확정 O(`#831` ⑹) — 「패턴을 끄는 예외를 두지 않는다」. 종전에는
+     * `showPattern` 속성이 있었고 정본도 「끄는 쪽이 예외」라 적었는데, **조건이 적히지
+     * 않은 예외 조항은 다음 사람이 자기 판단으로 끄는 근거**가 된다. 속성을 지웠으므로
+     * 모르는 속성을 넘겨도 무늬가 사라지지 않아야 한다.
+     */
+    const props = {
+      ratioToRequired: '0.98758',
+      boundaries: { d1: '0.86', d2: '0.94', d3: '1.06', d4: '1.18' },
+      rating: 'C' as const,
+      valueLabel: '98.8%',
+      label: '기준 대비 위치',
+      showPattern: false,
+    }
+    // 지워진 속성을 굳이 넘겨 본다 — 타입에 없으므로 캐스팅해야 통과한다.
+    const { container } = render(
+      <GradeScaleBar {...(props as unknown as ComponentProps<typeof GradeScaleBar>)} />,
+    )
+
+    const patterned = container.querySelectorAll('.grade-scale-bar__band .grade-scale-bar__pattern')
+    expect(patterned).toHaveLength(4)
   })
 })
 
