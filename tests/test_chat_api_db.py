@@ -143,12 +143,81 @@ async def test_search_vessel_never_sends_names_to_the_model(migrated_db, app_fre
                 == 200
             )
 
-        # 두 번째 호출의 메시지에 도구 응답이 실려 있다.
+        # 두 번째 호출의 메시지에 도구 응답이 `tool_result` 블록으로 실려 있다.
         sent = provider.calls[-1]
-        tool_messages = [m["content"] for m in sent if m["content"].startswith("{")]
-        assert tool_messages, sent
-        body = json.loads(tool_messages[-1])
+        results = [
+            block
+            for message in sent
+            if isinstance(message["content"], list)
+            for block in message["content"]
+            if block.get("type") == "tool_result"
+        ]
+        assert results, sent
+        body = json.loads(results[-1]["content"])
         assert set(body["result"]) == {"matched"}
+
+        # ⚠️ **`tool_result`에만** 단언한다. 「DEMO」는 사용자가 친 문장과 모델이
+        # 그로부터 만든 `tool_use` 인자에도 있는데, 둘 다 `PRD §16.3.1`이 「보내도
+        # 되는 것」 첫 행으로 **대상 밖**에 둔 값이다(본인 입력). 우리가 붙이는 것은
+        # `tool_result`뿐이고, 거기에 이름이 섞이면 화이트리스트가 뚫린다.
+        assert "DEMO" not in json.dumps(results, ensure_ascii=False, default=str)
+    finally:
+        await _cleanup()
+
+
+async def test_tool_round_trip_is_sent_as_a_pair(migrated_db, app_fresh_engine):
+    """IT-CHAT-056 — ⚠️ 오케스트레이션이 **짝으로** 만든다.
+
+    ``IT-CHAT-053``은 공급자가 받은 것을 그대로 보내는지 본다. 이 검사는 **누가 그
+    모양을 만드는가** — ``services/chat.py``가 모델의 ``tool_use``를 되돌려 넣고
+    ``tool_result``로 답하는지 — 를 본다.
+
+    둘이 다 필요하다. 종전 코드는 도구 결과를 **평범한 `user` 문장**으로 보냈는데,
+    공급자 검사만 있으면 그 상태로도 통과한다(공급자는 받은 대로 보내기 때문이다).
+    """
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                text="찾아보겠습니다.",
+                tool_calls=(ToolCall(name="search_vessel", arguments={"name": "A"}, id="toolu_7"),),
+            ),
+            LLMResponse(text="찾았습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            assert (
+                client.post(
+                    "/api/v1/chat", json={"message": "A 찾아줘"}, headers=headers
+                ).status_code
+                == 200
+            )
+
+        sent = provider.calls[-1]
+        # 모델의 `tool_use`가 assistant 턴으로 되돌아가 있다.
+        assistant = [m for m in sent if m["role"] == "assistant"]
+        uses = [
+            block
+            for m in assistant
+            if isinstance(m["content"], list)
+            for block in m["content"]
+            if block.get("type") == "tool_use"
+        ]
+        assert len(uses) == 1, sent
+        assert uses[0]["id"] == "toolu_7"
+
+        # 그 바로 뒤 user 턴이 같은 id의 `tool_result`다.
+        results = [
+            block
+            for m in sent
+            if m["role"] == "user" and isinstance(m["content"], list)
+            for block in m["content"]
+            if block.get("type") == "tool_result"
+        ]
+        assert len(results) == 1, sent
+        assert results[0]["tool_use_id"] == "toolu_7"
     finally:
         await _cleanup()
 

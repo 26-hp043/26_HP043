@@ -83,10 +83,20 @@ class ToolCall:
     """모델이 고른 도구 한 번.
 
     :param name: 도구 이름. **인자는 감사 로그에 해시로만 남는다** (`Q19`).
+    :param id: 공급자가 붙인 호출 식별자.
+
+    ## ``id``가 왜 필요한가
+
+    Anthropic Messages API는 도구 왕복을 **짝**으로 요구한다 — 모델의 ``tool_use``
+    블록을 그대로 되돌려 보내고, 같은 ``tool_use_id``를 단 ``tool_result``로 답해야
+    한다. 그 짝을 맞추는 것이 이 값이다.
+
+    공급자에 따라 없을 수 있어 기본값을 둔다(``FakeProvider``가 그렇다).
     """
 
     name: str
     arguments: dict[str, object] = field(default_factory=dict)
+    id: str = ""
 
 
 @dataclass(frozen=True)
@@ -110,13 +120,15 @@ class LLMProvider(Protocol):
     async def complete(
         self,
         *,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, object]],
         tools: list[dict[str, object]] | None = None,
     ) -> LLMResponse:
         """대화를 넘기고 응답 하나를 받는다.
 
-        :param messages: ``{"role": ..., "content": ...}`` 목록. **호출부가 이미
-            화이트리스트를 통과시킨 것**이어야 한다 — 이 계층은 필터하지 않는다.
+        :param messages: ``{"role": ..., "content": ...}`` 목록. ``content``는
+            **문자열이거나 블록 목록**이다 — 도구 왕복이 블록을 요구한다
+            (:class:`ToolCall` 참조). **호출부가 이미 화이트리스트를 통과시킨 것**
+            이어야 한다 — 이 계층은 필터하지 않는다.
         """
         ...
 
@@ -132,12 +144,12 @@ class FakeProvider:
 
     def __init__(self, responses: list[LLMResponse] | None = None) -> None:
         self._responses = list(responses or [])
-        self.calls: list[list[dict[str, str]]] = []
+        self.calls: list[list[dict[str, object]]] = []
 
     async def complete(
         self,
         *,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, object]],
         tools: list[dict[str, object]] | None = None,
     ) -> LLMResponse:
         self.calls.append([dict(m) for m in messages])

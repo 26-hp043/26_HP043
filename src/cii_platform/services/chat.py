@@ -132,7 +132,7 @@ async def answer(
     history = await chat_repo.list_messages(
         session, session_id=chat_session_id, limit=MAX_HISTORY_TURNS
     )
-    messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict[str, object]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     messages += [
         {"role": "user" if row.role == ROLE_USER else "assistant", "content": row.content}
         for row in history
@@ -156,13 +156,29 @@ async def answer(
         if len(used_tools) + len(response.tool_calls) > MAX_TOOL_CALLS_PER_TURN:
             return _result(TOOL_BUDGET_MESSAGE, tool_outputs, used_tools, discarded=True)
 
+        # ⚠️ **도구 왕복은 짝으로 보낸다** (`Anthropic Messages API` 규격).
+        #
+        # 모델의 `tool_use` 블록을 그대로 되돌려 보내고, 같은 `tool_use_id`를 단
+        # `tool_result`로 답해야 한다. 종전에는 도구 결과를 **평범한 `user` 문장**으로
+        # 보냈다 — 그러면 모델이 **자기가 도구를 불렀다는 것을 모른 채** 데이터만 보고,
+        # 같은 도구를 다시 부를 수 있다.
+        assistant_blocks: list[dict[str, object]] = []
+        if response.text:
+            assistant_blocks.append({"type": "text", "text": response.text})
+        assistant_blocks += [
+            {"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments}
+            for call in response.tool_calls
+        ]
+        messages.append({"role": "assistant", "content": assistant_blocks})
+
+        results: list[dict[str, object]] = []
         for call in response.tool_calls:
             output = await run_tool(
                 session, name=call.name, arguments=call.arguments, vessel_id=vessel_id
             )
             tool_outputs.append(output)
             used_tools.append(call.name)
-            messages.append({"role": "user", "content": output})
+            results.append({"type": "tool_result", "tool_use_id": call.id, "content": output})
             await audit.record_chat_tool_call(
                 session,
                 user_id=user_id,
@@ -171,6 +187,7 @@ async def answer(
                 arguments_digest=_digest(call.arguments),
                 ip_address=ip_address,
             )
+        messages.append({"role": "user", "content": results})
     else:
         return _result(TOOL_BUDGET_MESSAGE, tool_outputs, used_tools, discarded=True)
 
