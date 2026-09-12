@@ -29,6 +29,7 @@ from cii_platform.db.models.simulation_snapshot import SimulationSnapshot
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.models.user_token import UserToken
 from cii_platform.db.models.vessel import Vessel
+from cii_platform.db.models.vessel_position_snapshot import VesselPositionSnapshot
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
 from cii_platform.db.models.voyage_scenario import VoyageScenario
@@ -53,6 +54,7 @@ __all__ = [
     "UserSession",
     "UserToken",
     "Vessel",
+    "VesselPositionSnapshot",
     "Voyage",
     "VoyageFuelUse",
     "VoyageScenario",

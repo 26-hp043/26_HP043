@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.20 |
+| 버전 | v1.21 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-09-11 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1073,6 +1073,55 @@ CREATE TABLE port_geocode (
 >
 > **보존 분류**: 캐시라 보존 의무가 없다(`§8` 참조). 비워도 잃는 것은 다음 조회의 왕복 한 번뿐이다.
 
+### 2.21 `vessel_position_snapshot` — 선박 위치 이력 (#764)
+
+`vessel.current_lat/lon`(`§2.1` · 026)은 **덮어쓰는 한 칸**이라 새 값이 들어오면 직전 값이 사라진다. 「지금 어디인가」는 알 수 있어도 **「어디를 지나왔는가」는 남지 않는다.** 자동 수집(AIS)은 값을 자주 밀어 넣으므로, 덮어쓰기만 있는 구조 위에 올리면 **수집할수록 잃는 것이 늘어난다.**
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, `gen_random_uuid()` | |
+| `vessel_id` | UUID | NOT NULL, FK → `vessel(id)` ON DELETE **RESTRICT** | 위치 이력이 있는 선박은 물리 삭제 거부 (`§7.1`) |
+| `source` | VARCHAR(20) | NOT NULL, CHECK | `MANUAL`(사람) · `AIS`(자동 수집) · `SIMULATED`(시뮬레이션 시계) |
+| `lat` | NUMERIC(9,6) | NOT NULL, CHECK −90~90 | |
+| `lon` | NUMERIC(9,6) | NOT NULL, CHECK −180~180 | |
+| `sog_kn` | NUMERIC(6,2) | NULL, CHECK ≥ 0 | 대지속력. AIS가 주고 사람 입력에는 없다 |
+| `cog_deg` | NUMERIC(6,2) | NULL, CHECK 0 ≤ x < 360 | 대지침로 |
+| `nav_status` | SMALLINT | NULL, CHECK 0~15 | ITU-R M.1371 항행 상태 **원본 코드** |
+| `observed_at` | TIMESTAMPTZ | NOT NULL | **배가 그 자리에 있던 시각** |
+| `received_at` | TIMESTAMPTZ | NOT NULL, `now()` | **우리가 받은 시각** |
+| `created_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
+
+```sql
+CREATE TABLE vessel_position_snapshot (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vessel_id     UUID          NOT NULL REFERENCES vessel(id) ON DELETE RESTRICT,
+    source        VARCHAR(20)   NOT NULL,
+    lat           NUMERIC(9,6)  NOT NULL,
+    lon           NUMERIC(9,6)  NOT NULL,
+    sog_kn        NUMERIC(6,2),
+    cog_deg       NUMERIC(6,2),
+    nav_status    SMALLINT,
+    observed_at   TIMESTAMPTZ   NOT NULL,
+    received_at   TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    CONSTRAINT chk_vessel_position_snapshot_source
+        CHECK (source IN ('MANUAL','AIS','SIMULATED'))
+);
+
+CREATE INDEX idx_vessel_position_snapshot_vessel_observed
+    ON vessel_position_snapshot (vessel_id, observed_at DESC);
+CREATE UNIQUE INDEX uq_vessel_position_snapshot_observation
+    ON vessel_position_snapshot (vessel_id, source, observed_at);
+```
+
+> **`observed_at`과 `received_at`을 나눈다.** AIS는 지연·재전송이 있어 둘이 벌어진다. 신선도를 `received_at`으로 재면 **「30분 전 위치를 방금 받았다」가 최신으로 읽힌다.**
+
+> **`(vessel_id, source, observed_at)`이 UNIQUE다.** AIS는 **같은 관측을 여러 번 보내는 것이 정상**이다(재전송·구독 중복). 중복을 그대로 쌓으면 항적이 같은 점에서 여러 번 꺾인 것처럼 보이고, 행 수로 수집 상태를 가늠할 수 없게 된다. `voyage_fuel_use`의 `idx_fuel_use_unique`와 같은 성격의 방어다.
+
+> **`nav_status`는 파생 결과가 아니라 원본이다.** `underway_state`·`detail_status`로 옮기는 규칙(`ais/provider.py` `NAV_STATUS_TO_STATE`)이 바뀌어도 **과거 행을 다시 읽을 수 있어야** 한다. 옮길 수 있는 코드는 넷뿐이다(0·8 → `UNDER_WAY`/`SAILING` · 1 → `AT_ANCHOR` · 5 → `IN_PORT`); 나머지는 판정하지 않는다.
+
+> **보존 분류**: 보존 대상이다(`§8`). 지나간 시각의 좌표는 되살릴 방법이 없어 마이그레이션 040을 `IRREVERSIBLE`로 분류했다(`§8.1.2`).
+
 ---
 
 ## 3. 시드 데이터
@@ -1623,3 +1672,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-12 | `#827` | **§8.1.2 해제 조건에 「24시간 안의 백업 기록」 추가** + §2.14 `action`에 `DB_BACKUP` · 각주. 2026-09-11 결정 2-⑤ 「프로덕션에서 특정 리비전 이하 downgrade 차단 + `#827` 백업과 연계」의 뒷부분이다 — `#819`가 차단을 넣었으나 백업은 오류 문구에만 있었고, 백업 수단 자체가 저장소에 없었다(`scripts/`에 `pg_dump` 0건). `scripts/db_backup.py`(백업 · 복구 리허설 · 교체)가 덤프를 검증한 뒤 감사 로그에 남기고, 가드가 마이그레이션 연결로 그 행을 읽는다. 행·각주·항목 추가라 버전은 올리지 않는다 (#827) |
 | 2026-09-12 | `#904` | §2.5 `weather_snapshot_id` 컬럼 설명 · `[#102]` 각주 · `VOYAGE_ESTIMATE` 필드 표 `weather_snapshot_id`·`weather_factor` 행 정정. **`weather_factor`는 「어디에도 기록되지 않는다」가 아니었다** — 기상 보정을 적용하는 유일한 계산인 기능②가 `result_json.scenarios[].weather_factor`에 이미 적고 있었고(개발 DB 252건 전부), 보고는 기능① 행을 본 것이었다(기능①은 연료량이 입력이라 인자가 정의상 `1.0`). 정작 빈 곳은 **컬럼**이었다: 삽입 경로가 `None` 고정이라 보정한 계산도 스냅샷을 가리키지 않았다 — 기능②가 쓴 스냅샷을 적도록 고쳤다. 새 `weather_factor` 컬럼은 같은 값을 두 곳에 두게 되어 두지 않았다. 스키마·마이그레이션 변경 없음. `AGENTS §4.3` 「각주 보강·오기 정정」이라 버전은 올리지 않는다 (#904) |
 | 2026-09-12 | `#768` | **v1.20 — §2.20 `port_geocode` 신설**(마이그레이션 039). 항만명을 좌표로 바꾸는 경로가 없어 사용자가 개발자도구로 좌표를 찾아야 했다(`PRD §1 COR-5`). 공개 Nominatim 사용 정책이 **결과 캐시를 요구**하므로 이 표는 성능이 아니라 **정책 준수의 실체**다. 샘플 항만 43곳(코드 상수 · NGA WPI)과 **섞지 않는다** — 출처가 다르고, 한 표에 담으면 어느 좌표가 어디서 왔는지 말할 수 없게 된다. FK를 두지 않는다: 항차에는 좌표 값이 복사돼 들어가므로 캐시를 비워도 항차가 온전하다 (#768) |
+| 2026-09-12 | `#764` | **v1.21 — §2.21 `vessel_position_snapshot` 신설**(마이그레이션 040). 위치에 **이력이 없었다** — `vessel.current_lat/lon`은 덮어쓰는 한 칸이라 새 값이 들어오면 직전 값이 사라진다. 자동 수집(AIS)은 값을 자주 밀어 넣으므로 **수집할수록 잃는 것이 늘어나는** 구조였다. `observed_at`(배가 그 자리에 있던 시각)과 `received_at`(우리가 받은 시각)을 나눈 이유는 AIS에 지연·재전송이 있어서다 — 수신 시각으로 신선도를 재면 「30분 전 위치를 방금 받았다」가 최신으로 읽힌다. `(vessel_id, source, observed_at)` UNIQUE는 **같은 관측의 재전송**을 한 행으로 접는다(AIS에서는 정상 동작이다). `nav_status`는 **원본 코드**를 적는다 — 운항 상태로 옮기는 규칙이 바뀌어도 과거 행을 다시 읽을 수 있어야 한다. 지나간 시각의 좌표는 되살릴 수 없어 040을 `IRREVERSIBLE`로 분류했다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올리고 README 문서 구조 표를 함께 갱신했다 (#764) |

@@ -93,6 +93,9 @@ IRREVERSIBLE: dict[str, str] = {
         "simulation_snapshot.vessel_json — 보존 대상 테이블이라 다시 upgrade해도 기존 "
         "행을 채울 수 없고, 과거 연간 시뮬레이션이 전부 재현 불가가 된다"
     ),
+    # 지나간 시각의 좌표는 되살릴 방법이 없다. AIS는 재조회로 과거를 주지 않고
+    # (aisstream.io는 끊긴 구간 복구가 없다), 사람이 넣은 위치는 애초에 재현 불가다.
+    "040": "vessel_position_snapshot 테이블 — 수집한 위치 이력 전부",
 }
 
 #: 지워도 되는 일시 데이터 — 사라지면 다시 로그인하거나 메일을 다시 요청하면 된다.
