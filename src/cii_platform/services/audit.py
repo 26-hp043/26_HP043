@@ -200,3 +200,89 @@ async def record_voyage_confirm(
         },
         ip_address=ip_address,
     )
+
+
+def content_digest(text: str) -> str:
+    """본문의 지문 (`#120`).
+
+    ⚠️ **감사 로그에 원문을 남기지 않는다.** ``audit_log``는 **지우지 않는 기록**이고
+    ``chat_message``는 **90일 뒤 지우는 기록**이다(``PRD §16.3``). 같은 내용을 두 곳에
+    넣으면 삭제 요청이 왔을 때 **한쪽을 지울 수 없어 요구를 만족시킬 수 없다.**
+
+    해시로 남기면 「같은 내용이었나」는 대조할 수 있고 원문은 90일 뒤 사라진다.
+    """
+    import hashlib
+
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+async def record_chat_message(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    session_id: UUID,
+    role: str,
+    content: str,
+    ip_address: str | None = None,
+) -> None:
+    """챗봇 메시지 한 건 (`#120` 완료 기준 「모든 에이전트 호출이 audit_log에 기록됨」).
+
+    **본문 대신 해시와 길이**를 담는다 — 위 :func:`content_digest` 참조. 본문은
+    ``chat_message.content``에 있고 90일 뒤 지워진다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="CHAT_MESSAGE",
+        user_id=user_id,
+        entity_type="chat_session",
+        entity_id=session_id,
+        details={
+            "role": role,
+            "content_sha256": content_digest(content),
+            "content_length": len(content),
+        },
+        ip_address=ip_address,
+    )
+
+
+async def record_chat_tool_call(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    session_id: UUID,
+    tool_name: str,
+    arguments_digest: str,
+    calculation_run_id: UUID | None = None,
+    status: str = "SUCCESS",
+    ip_address: str | None = None,
+) -> None:
+    """챗봇이 도구를 부른 것 한 건 (`#120` 가드레일 표 「감사 추적성」).
+
+    ## 인자를 해시로 남기는 이유
+
+    도구 인자에 **선박 데이터가 들어 있다.** 외부 전송을 화이트리스트로 좁혀
+    놓고(``PRD §16.3.1``) 내부 감사 로그에 원문을 쌓으면, **지우지 못하는 저장소가
+    하나 더 느는 것**이라 `§16.3` 삭제 정책과 정면으로 부딪친다.
+
+    ## 재현은 `calculation_run`을 따라간다
+
+    ``calculation_run_id``만 있으면 「그때 무엇을 근거로 답했나」에 완전히 답할 수
+    있다 — **계산 원본은 이미 정본 경로에 있으므로 챗봇이 중복 보관할 이유가 없다**
+    (`#120` 아키텍처 — 에이전트는 API 클라이언트일 뿐 계산 원본을 만들지 않는다).
+    """
+    details: dict[str, object] = {
+        "tool_name": tool_name,
+        "arguments_sha256": arguments_digest,
+        "status": status,
+    }
+    if calculation_run_id is not None:
+        details["calculation_run_id"] = str(calculation_run_id)
+    await audit_repo.insert_event(
+        session,
+        action="CHAT_TOOL_CALL",
+        user_id=user_id,
+        entity_type="chat_session",
+        entity_id=session_id,
+        details=details,
+        ip_address=ip_address,
+    )

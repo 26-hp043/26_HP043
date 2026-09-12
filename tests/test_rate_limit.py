@@ -354,7 +354,7 @@ def test_login_eleventh_attempt_is_rate_limited() -> None:
     from cii_platform.api.rate_limit import RateLimits
 
     app = FastAPI()
-    app.state.rate_limiter = RateLimiter(RateLimits(default=300, auth=10, calculation=60))
+    app.state.rate_limiter = RateLimiter(RateLimits(default=300, auth=10, calculation=60, chat=10))
     app.middleware("http")(rate_limit_middleware)
     register_exception_handlers(app)
 
@@ -373,7 +373,7 @@ def test_calculation_sixty_first_request_is_rate_limited() -> None:
     from cii_platform.api.rate_limit import RateLimits
 
     app = FastAPI()
-    app.state.rate_limiter = RateLimiter(RateLimits(default=300, auth=10, calculation=60))
+    app.state.rate_limiter = RateLimiter(RateLimits(default=300, auth=10, calculation=60, chat=10))
     app.middleware("http")(rate_limit_middleware)
     register_exception_handlers(app)
 
@@ -395,7 +395,7 @@ def test_buckets_do_not_share_a_counter() -> None:
     from cii_platform.api.rate_limit import RateLimits
 
     app = FastAPI()
-    app.state.rate_limiter = RateLimiter(RateLimits(default=5, auth=2, calculation=5))
+    app.state.rate_limiter = RateLimiter(RateLimits(default=5, auth=2, calculation=5, chat=5))
     app.middleware("http")(rate_limit_middleware)
     register_exception_handlers(app)
     app.include_router(health_router, prefix="/api/v1")

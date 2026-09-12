@@ -17,6 +17,7 @@ from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.audit_log import AuditLog
 from cii_platform.db.models.base import Base
 from cii_platform.db.models.calculation_run import CalculationRun
+from cii_platform.db.models.chat import ChatMessage, ChatSession
 from cii_platform.db.models.cii_rating_boundary import CiiRatingBoundary
 from cii_platform.db.models.cii_reference_line import CiiReferenceLine
 from cii_platform.db.models.fuel_type import FuelType
@@ -42,6 +43,8 @@ __all__ = [
     "AppUser",
     "AuditLog",
     "CalculationRun",
+    "ChatMessage",
+    "ChatSession",
     "CiiRatingBoundary",
     "CiiReferenceLine",
     "FuelType",
