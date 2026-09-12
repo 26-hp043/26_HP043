@@ -288,6 +288,19 @@ export function ScenarioComparison({
               </option>
             ))}
           </select>
+        ) : !form.vesselId ? (
+          /*
+           * ⚠️ **「선박을 아직 안 골랐다」와 「그 선박에 연도가 없다」는 다르다** (#829 계열).
+           *
+           * `useYearOptions`는 선박이 없으면 조회하지 않고 **빈 목록**을 돌려준다. 종전에는
+           * 그때도 「등록된 규제연도가 없습니다」가 떴는데, **사실이 아니다** — 연도는
+           * 등재되어 있고 선박을 고르지 않았을 뿐이다. 화면에 처음 들어온 사용자는 그것을
+           * **데이터가 없다**로 읽고 선박을 고를 생각을 못 한다(2026-09-13 실측 5/5 재현).
+           *
+           * 보고서 화면(`ReportsView`)이 이미 `vesselId &&`로 같은 구분을 하고 있다 —
+           * 그 형태에 맞춘다.
+           */
+          <span className="scenario-comparison__field-note">선박을 먼저 골라 주세요</span>
         ) : (
           <span className="scenario-comparison__field-note">등록된 규제연도가 없습니다</span>
         )}

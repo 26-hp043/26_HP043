@@ -110,6 +110,25 @@ describe('규제연도 — 자유 입력이 아니라 서버 목록이다 (#632)
     expect(values).not.toContain('2035')
   })
 
+  it('⚠️ 선박을 안 골랐으면 「없습니다」가 아니라 「선박을 먼저」다 (2026-09-13 실측)', async () => {
+    /*
+     * `useYearOptions`는 선박이 없으면 **조회하지 않고 빈 목록**을 돌려준다. 종전에는
+     * 그때도 「등록된 규제연도가 없습니다」가 떴는데 **사실이 아니다** — 연도는 등재되어
+     * 있고 선박을 고르지 않았을 뿐이다.
+     *
+     * 화면에 처음 들어온 사용자는 그것을 **데이터가 없다**로 읽고 선박을 고를 생각을
+     * 못 한다. 브라우저로 5번 돌려 전부 재현했다.
+     *
+     * 보고서 화면이 이미 `vesselId &&`로 같은 구분을 한다 — 그 형태에 맞췄다.
+     */
+    stubServer()
+
+    renderScreen({ vesselId: null })
+
+    expect(await screen.findByText(/선박을 먼저 골라 주세요/)).toBeTruthy()
+    expect(screen.queryByText(/등록된 규제연도가 없습니다/)).toBeNull()
+  })
+
   it('목록이 비면 「등록된 규제연도가 없습니다」 — 빈 셀렉트를 그리지 않는다', async () => {
     stubServer([])
 
