@@ -102,6 +102,9 @@ IRREVERSIBLE: dict[str, str] = {
 EPHEMERAL: dict[str, str] = {
     "021": "user_session — 로그인 세션. 사라지면 전원 다시 로그인한다",
     "034": "user_token — 인증·재설정 링크. 사라지면 메일을 다시 요청한다",
+    # 90일 뒤 어차피 지워지는 대화 기록이다(`PRD §16.3` 채팅 보존 정책). 계산
+    # 원본은 `calculation_run`에 따로 있고 챗봇 로그는 가리키기만 한다 (`#120`).
+    "041": "chat_session·chat_message — 90일 보존 대화 기록. 계산 원본은 남는다",
 }
 
 #: 다시 upgrade하면 같은 값이 돌아오는 것 — 마이그레이션이 적재하는 규정·시드 값이다.

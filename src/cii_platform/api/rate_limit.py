@@ -14,7 +14,7 @@
 
 카운터 키가 ``(버킷, IP)``다. 인증 한도를 다 써도 CRUD·계산은 막히지 않는다.
 ``API_SPEC §13.2``가 계산과 CRUD를 **별도 행**으로 규정하는 것과 같은 해석이다.
-따라서 한 IP의 분당 상한은 세 버킷의 합(기본 370)이며, 어느 한 버킷의 값이 아니다.
+따라서 한 IP의 분당 상한은 네 버킷의 합(기본 380)이며, 어느 한 버킷의 값이 아니다.
 
 ## 구현은 고정 윈도 in-memory 카운터다
 
@@ -51,6 +51,13 @@ from cii_platform.errors import RateLimitError
 BUCKET_AUTH = "auth"
 #: 계산 경로 — ``API_SPEC §13.2``의 「계산 API」 행.
 BUCKET_CALCULATION = "calculation"
+#: 챗봇 경로 — ``API_SPEC §13.2``의 「챗봇 API」 행 (`#120`).
+#:
+#: ⚠️ **계산 버킷(60)을 함께 쓰지 않는 이유가 둘이다.** ⑴ 사람이 채팅을 치는 속도로
+#: 분당 10이면 넉넉하다 — 분당 60은 사람이 낼 수 없는 속도다 ⑵ **챗봇은 호출마다
+#: 외부 LLM 비용이 붙는다.** 다른 API는 초과 호출이 서버 부하로 끝나지만 챗봇은
+#: **금액**으로 끝난다.
+BUCKET_CHAT = "chat"
 #: 그 밖의 전부 — ``API_SPEC §13.2``의 「CRUD API」 행.
 BUCKET_DEFAULT = "default"
 
@@ -78,6 +85,13 @@ AUTH_PATHS = frozenset(
         f"{_API_V1}/auth/verify-email/request",
     }
 )
+
+#: 분당 10회를 거는 챗봇 경로 (``API_SPEC §13.2`` 「챗봇 API」 · `#120`).
+#:
+#: 지금은 비어 있다 — 라우트가 아직 없다(`#121`이 `POST /chat`을 연다). **버킷과
+#: 한도를 먼저 두는 이유**는 라우트가 생기는 순간 한도가 함께 서게 하기 위해서다.
+#: 나중에 붙이면 그 사이에 한도 없는 경로가 열려 있게 된다.
+CHAT_PATHS: frozenset[str] = frozenset()
 
 #: 분당 60회를 거는 경로 (``API_SPEC §13.2`` 「계산 API」).
 #:
@@ -115,30 +129,34 @@ class RateLimits:
     default: int
     auth: int
     calculation: int
+    chat: int
 
     @classmethod
     def from_env(cls) -> RateLimits:
-        """환경변수에서 읽는다. 기본값은 ``API_SPEC §13.2`` + `#811`."""
+        """환경변수에서 읽는다. 기본값은 ``API_SPEC §13.2`` + `#811` + `#120`."""
         return cls(
             default=int(os.environ.get("RATE_LIMIT_PER_MINUTE", "300")),
             auth=int(os.environ.get("RATE_LIMIT_AUTH_PER_MINUTE", "10")),
             calculation=int(os.environ.get("RATE_LIMIT_CALC_PER_MINUTE", "60")),
+            chat=int(os.environ.get("RATE_LIMIT_CHAT_PER_MINUTE", "10")),
         )
 
     @classmethod
     def uniform(cls, limit: int) -> RateLimits:
-        """세 버킷을 같은 한도로 (테스트용).
+        """네 버킷을 같은 한도로 (테스트용).
 
         버킷 경계가 아니라 **카운터 자체**를 검증하는 테스트가 쓴다 — 그런 테스트에
         버킷별 값을 따로 주면 무엇을 재는 검사인지 흐려진다.
         """
-        return cls(default=limit, auth=limit, calculation=limit)
+        return cls(default=limit, auth=limit, calculation=limit, chat=limit)
 
     def for_bucket(self, bucket: str) -> int:
         if bucket == BUCKET_AUTH:
             return self.auth
         if bucket == BUCKET_CALCULATION:
             return self.calculation
+        if bucket == BUCKET_CHAT:
+            return self.chat
         return self.default
 
 
@@ -151,6 +169,8 @@ def resolve_bucket(method: str, path: str) -> str:
     """
     if path in AUTH_PATHS:
         return BUCKET_AUTH
+    if path in CHAT_PATHS:
+        return BUCKET_CHAT
     if (method, path) in CALCULATION_ROUTES:
         return BUCKET_CALCULATION
     if method == "POST" and path.startswith(_REPRODUCE_PREFIX) and path.endswith(_REPRODUCE_SUFFIX):
