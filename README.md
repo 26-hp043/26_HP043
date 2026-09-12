@@ -173,6 +173,20 @@ docker compose -f docker-compose.prod.yml up -d
 
 > `alembic`이 컨테이너 안에서 도는 것은 prod 이미지가 `alembic.ini`·`alembic/`을 포함하기 때문이다(루트 `Dockerfile`). 재적재 진입점이 `scripts/seed.py`가 아니라 `python -m cii_platform.db.seed`인 것도 같은 이유다 — 프로덕션 이미지는 wheel만 설치하므로 `scripts/`가 들어 있지 않다.
 
+### 배포 전 점검 — 계정 (`#808`)
+
+**가입 게이트는 앞으로의 가입만 막는다.** 게이트를 켜기 전에 만들어진 계정은 그대로 남아 있고, 그 계정은 로그인해 남의 선박까지 고칠 수 있다(`#808` 실측 — 데이터 격리가 `PRD §5.2` OUT OF SCOPE다). 그래서 **올리기 전에 계정 목록을 눈으로 확인한다.**
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T db \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "SELECT email, created_at, email_verified_at FROM app_user ORDER BY created_at;"
+```
+
+- **팀 계정과 시연용 계정만 있어야 한다.** 데모 시드를 넣었다면 `demo@bluelog.local`이 함께 보인다(`#692`).
+- 모르는 주소가 있으면 **배포를 멈춘다.** 지우는 것은 사람의 데이터를 지우는 일이라 담당이 판단한다 — 그 계정이 만든 항차·계산 이력이 함께 걸려 있을 수 있고, 계산 이력은 `DB_SCHEMA §7.3` immutable 가드가 삭제를 막는다.
+- 게이트 자체가 켜져 있는지는 기동이 말해 준다 — 프로덕션에서 `SIGNUP_ALLOWED_DOMAINS`·`SIGNUP_INVITE_CODE`가 둘 다 없으면 앱이 뜨지 않는다(`#808`).
+
 ### 백업·복구 (`#827`)
 
 **만들기만 하고 복구해 보지 않은 백업은 백업이 아니다.** 스크립트 하나가 셋을 한다 — 호스트에 `python3`만 있으면 되고(표준 라이브러리만 쓴다), `pg_dump`·`pg_restore`는 **db 컨테이너 안의 것**을 부른다.
@@ -508,3 +522,4 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-11 | `#982` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.26**으로 갱신 — §2.15 샘플 선박 목록 조회 신설 반영 (#982) |
 | 2026-09-12 | `#827` | 「배포」 절에 **「백업·복구」 소절 신설** — `scripts/db_backup.py`(백업 · 복구 리허설 · 교체), 하루 한 번 주기, 같은 호스트 보관의 한계(`#788`), 되돌릴 수 없는 downgrade 전 백업 의무(`DB_SCHEMA §8.1.2`) (#827) |
 | 2026-09-12 | `#760` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.27**로 갱신 — §3.8 샘플 항만 목록 · §3.9 좌표 기반 추정 거리 신설 반영 (#760) |
+| 2026-09-12 | `#808` 잔여 | 「배포」 절에 **「배포 전 점검 — 계정」 소절 신설** — 가입 게이트는 앞으로의 가입만 막으므로 게이트 이전 계정이 남을 수 있다. `app_user` 목록을 확인하는 명령과, 모르는 주소가 있을 때 멈추는 규칙을 적었다. 지우는 판단을 문서가 대신하지 않는다 — 계산 이력은 `DB_SCHEMA §7.3` immutable 가드가 삭제를 막는다. `#808` 체크리스트 「기존 계정 외에 가입된 계정이 없는지 배포 전 확인 절차를 둔다」의 이행이다 (#808) |
