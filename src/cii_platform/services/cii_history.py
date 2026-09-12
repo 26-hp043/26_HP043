@@ -31,6 +31,7 @@ from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
 from cii_platform.services.cii_current import InProgressState, resolve_in_progress_state
+from cii_platform.services.request_cache import cached
 from cii_platform.services.simulation_clock import resolve_as_of
 from cii_platform.services.ytd_cii import compute_ytd_cii
 
@@ -121,7 +122,9 @@ async def _year_row(
     ``in_progress``는 **그 항차가 선언한 연도의 행에만** 실린다 (`#750` · `#815`).
     다른 해에 넣으면 그 해에는 없던 항차가 확정 이력을 흔든다.
     """
-    params = await param_repo.get_regulation_year(session, year)
+    params = await cached(
+        session, ("regulation_year", year), lambda: param_repo.get_regulation_year(session, year)
+    )
     if params is None:
         return _empty_row(year, current_year, REASON_NO_REGULATION_PARAMS)
 
@@ -222,7 +225,9 @@ async def list_cii_history(
     start = from_year if from_year is not None else end - (DEFAULT_WINDOW_YEARS - 1)
     _validate_window(start, end)
 
-    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    vessel = await cached(
+        session, ("vessel", vessel_id), lambda: vessel_repo.get_by_id(session, vessel_id)
+    )
     if vessel is None:
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
 

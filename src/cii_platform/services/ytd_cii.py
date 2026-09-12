@@ -89,6 +89,7 @@ from cii_platform.errors import (
 )
 from cii_platform.services import applicability
 from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
+from cii_platform.services.request_cache import cached
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -537,7 +538,12 @@ async def _aggregate(
         for code, ton in in_progress.fuel_uses:
             pending[code] = pending.get(code, Decimal(0)) + Decimal(ton)
         if pending:
-            rows = await param_repo.get_fuel_types_by_codes(session, list(pending))
+            codes = tuple(sorted(pending))
+            rows = await cached(
+                session,
+                ("fuel_types", codes),
+                lambda: param_repo.get_fuel_types_by_codes(session, list(codes)),
+            )
             for code, ton in pending.items():
                 if code not in rows:
                     raise ValidationError(
@@ -571,7 +577,10 @@ async def _aggregate(
 
 
 async def _load_vessel(session: AsyncSession, vessel_id: UUID):
-    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    # 선대 요약은 같은 선박으로 이 함수를 최대 네 번 지난다 (`#989` ⑴).
+    vessel = await cached(
+        session, ("vessel", vessel_id), lambda: vessel_repo.get_by_id(session, vessel_id)
+    )
     if vessel is None:
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
     return vessel
@@ -579,14 +588,20 @@ async def _load_vessel(session: AsyncSession, vessel_id: UUID):
 
 async def _load_regulation_year(session: AsyncSession, year: int):
     """VAL-005 — 해당 연도의 규정 파라미터가 있어야 한다 (409, voyage_cii와 같은 근거)."""
-    row = await param_repo.get_regulation_year(session, year)
+    row = await cached(
+        session, ("regulation_year", year), lambda: param_repo.get_regulation_year(session, year)
+    )
     if row is None:
         raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
     return row
 
 
 async def _select_reference_line(session: AsyncSession, vessel):
-    rows = await param_repo.list_reference_lines(session, vessel.ship_type)
+    rows = await cached(
+        session,
+        ("reference_lines", vessel.ship_type),
+        lambda: param_repo.list_reference_lines(session, vessel.ship_type),
+    )
     if not rows:
         raise ParameterError(f"선종의 기준선이 없습니다: {vessel.ship_type}")
     try:
@@ -596,7 +611,11 @@ async def _select_reference_line(session: AsyncSession, vessel):
 
 
 async def _select_rating_boundary(session: AsyncSession, vessel):
-    rows = await param_repo.list_rating_boundaries(session, vessel.ship_type)
+    rows = await cached(
+        session,
+        ("rating_boundaries", vessel.ship_type),
+        lambda: param_repo.list_rating_boundaries(session, vessel.ship_type),
+    )
     if not rows:
         raise ParameterError(f"선종의 등급 경계가 없습니다: {vessel.ship_type}")
     try:
