@@ -109,6 +109,19 @@ class FakeVoyageScenario:
     id: UUID = field(default_factory=uuid4)
 
 
+class _FakeResult:
+    """``session.execute`` 결과 대역 — 아무 행도 없다."""
+
+    def scalar_one_or_none(self) -> None:
+        return None
+
+    def scalars(self) -> _FakeResult:
+        return self
+
+    def all(self) -> list[Any]:
+        return []
+
+
 class FakeSession:
     """``AsyncSession`` 대역.
 
@@ -121,6 +134,19 @@ class FakeSession:
         self.committed = 0
         self.flushed = 0
         self.added: list[Any] = []
+        self.executed: list[Any] = []
+
+    async def execute(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
+        """실행하지 않고 **기록만** 한다 (`#764`).
+
+        저장소 함수를 monkeypatch로 갈아 끼우는 것이 이 대역의 규약이지만, 서비스가
+        저장소를 거치지 않고 `session.execute`로 직접 쓰는 자리가 생겼다
+        (`services/position_snapshot.py`의 ``ON CONFLICT DO NOTHING`` — 먼저 조회해
+        보고 넣는 방식은 경쟁 조건에서 샌다). 그 호출이 `AttributeError`로 죽지
+        않게 하고, **무엇을 실행했는지는 남겨** 검사가 볼 수 있게 한다.
+        """
+        self.executed.append(statement)
+        return _FakeResult()
 
     async def commit(self) -> None:
         self.committed += 1

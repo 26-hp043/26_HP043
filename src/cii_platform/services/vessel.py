@@ -28,6 +28,7 @@ from cii_platform.db.repositories.vessel import (
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
 from cii_platform.services import applicability
 from cii_platform.services.pagination import normalize_limit as _normalize_limit
+from cii_platform.services.position_snapshot import record_manual_position
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -471,6 +472,18 @@ async def update_vessel_position(
         vessel.current_lon = next_lon
 
     vessel.position_updated_at = now or datetime.now(UTC)
+
+    if position_touched and next_lat is not None and next_lon is not None:
+        # 같은 입력을 스냅샷에도 남긴다 (`#764`). 이 컬럼은 **덮어쓰는 한 칸**이라
+        # 직전 값이 사라진다 — 「지금 어디인가」만 남고 「어디를 지나왔는가」는
+        # 남지 않는다. AIS가 붙기 전에도 항적이 쌓이게 하려면 여기가 유일한 문이다.
+        await record_manual_position(
+            session,
+            vessel_id=vessel.id,
+            lat=next_lat,
+            lon=next_lon,
+            observed_at=vessel.position_updated_at,
+        )
 
     await session.commit()
     return to_dict(vessel)

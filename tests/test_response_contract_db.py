@@ -1272,6 +1272,9 @@ async def _purge_vessel(vessel_id: str) -> None:
             "DELETE FROM voyage_fuel_use WHERE voyage_id IN "
             "(SELECT id FROM voyage WHERE vessel_id = :v)",
             "DELETE FROM voyage WHERE vessel_id = :v",
+            # 위치 이력은 `RESTRICT`라 선박보다 먼저 지워야 한다 (`#764` ·
+            # `DB_SCHEMA §7.1`). 갱신 계약 검사가 위치를 한 번 옮기므로 행이 생긴다.
+            "DELETE FROM vessel_position_snapshot WHERE vessel_id = :v",
             "DELETE FROM vessel WHERE id = :v",
         ):
             await s.execute(text(sql), {"v": vid})
