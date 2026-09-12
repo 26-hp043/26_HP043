@@ -543,11 +543,33 @@ def _shift_fuel(remaining: Sequence[RemainingVoyage], factor: float):
 
 
 def _shift_distance(remaining: Sequence[RemainingVoyage], factor: float):
+    """거리와 연료를 **같은 배율로** 움직인다 (``PRD §12.6`` 각주 · `#756`).
+
+    ## 이 지렛대가 실제로 재는 것
+
+    거리만 늘리면 「같은 연료로 더 갔다」가 되어 CII가 좋아지는 쪽으로만 틀린다.
+    함께 움직이면 다음이 성립한다 — 확정분 ``(C, Cd)``·잔여분 ``(R, Rd)``에 배율
+    ``f``를 잔여에만 적용하면
+
+    .. code-block:: text
+
+        CII(f) = (C + f·R) / (cap · (Cd + f·Rd))
+
+    **두 구간의 배출 강도가 같으면**(``C/Cd = R/Rd = k``) 분자·분모의 ``(Cd + f·Rd)``가
+    약분되어 ``CII(f) = k/cap``이 되고, ``f``와 무관해진다.
+
+    ⚠️ **혼합비와도 무관하다.** 확정분이 아무리 많아도 강도가 같으면 변화는 **정확히
+    0**이다 — 종전 주석·정본은 「섞인 비율만큼 움직인다」로 적었는데 **메커니즘이
+    틀렸다**(2026-09-13 실측: 확정 거리 0·1,000·20,000·200,000 nm 전부
+    ``0.000000000``). 혼합비는 **존재 여부가 아니라 크기**를 정한다.
+
+    따라서 이 행은 **「거리는 효과가 없다」가 아니라 「잔여 계획이 지금까지의 실적과
+    같은 강도로 도는 한 거리는 CII를 바꾸지 않는다」**를 말한다. 실적이 계획에서
+    벌어지면 이 행도 함께 움직인다.
+    """
     return [
         RemainingVoyage(
             distance_nm=v.distance_nm * factor,
-            # 거리가 늘면 연료도 는다 — 거리만 늘리면 「같은 연료로 더 갔다」가 되어
-            # CII가 좋아지는 쪽으로만 틀린다.
             fuel_ton=v.fuel_ton * factor,
             cf=v.cf,
             speed_kn=v.speed_kn,
