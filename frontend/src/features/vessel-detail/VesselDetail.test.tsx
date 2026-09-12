@@ -218,6 +218,7 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
     inProgressVoyageCount: 0,
     totalDistanceNm: '10620.00',
     totalFuelTon: '199.10',
+    fuels: [],
   }
 
   function withYear(year: CiiYear) {
