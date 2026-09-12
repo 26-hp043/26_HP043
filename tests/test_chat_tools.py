@@ -16,6 +16,12 @@ import json
 
 import pytest
 
+from cii_platform.errors import (
+    CalculationError,
+    NotFoundError,
+    ParameterError,
+    ValidationError,
+)
 from cii_platform.services import chat_tools
 from cii_platform.services.llm_guard import OUTBOUND_WHITELIST, OutboundFieldError
 
@@ -112,6 +118,52 @@ async def test_unknown_tool_returns_an_error_envelope() -> None:
     )
     assert body["ok"] is False
     assert "error" in body
+
+
+def test_domain_error_text_never_carries_the_original_message() -> None:
+    """IT-CHAT-048 — ⚠️ **도메인 오류의 원문을 봉투에 넣지 않는다** (2026-09-13 실측 결함).
+
+    ``NotFoundError("선박을 찾을 수 없습니다: <UUID>")`` 같은 문구를 그대로 넘기고
+    있었다. ``PRD §16.3.1``이 ``vessel_id``를 **전송 금지**로 두는데, 그 값이 오류
+    칸을 타고 외부 모델로 나갔다 — **화이트리스트가 오류 경로로 뚫렸다.**
+
+    어느 문구가 안전한지 목록으로 관리하는 방식은 성립하지 않는다: 새 오류가 생길
+    때마다 검토가 필요하고, 빠뜨리면 조용히 샌다. 그래서 **종류별 고정 문구**로
+    바꿨고, 이 검사가 그 규칙을 잠근다.
+    """
+    secret = "3d56c710-089e-4299-95b3-e48650318d45"
+    for kind in (NotFoundError, ParameterError, CalculationError, ValidationError):
+        text = chat_tools._error_text(kind(f"선박을 찾을 수 없습니다: {secret}"))
+        assert secret not in text, kind.__name__
+        # 우리가 만든 상수여야 한다 — 표에 있는 문구 그대로.
+        assert text in {t for _k, t in chat_tools._ERROR_TEXT}, (kind.__name__, text)
+
+
+async def test_unknown_vessel_does_not_leak_its_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """IT-CHAT-049 — **실제 경로**로도 식별자가 나가지 않는다.
+
+    위 검사는 함수 하나를 본다. 이것은 ``run_tool``의 ``except`` 절이 그 함수를 **실제로
+    쓰는지**를 본다 — `#121`에서 반복해 겪은 「구현은 있고 부르는 곳이 없는」 형태를
+    막는다.
+    """
+    from uuid import uuid4
+
+    ghost = uuid4()
+
+    async def _boom(*_a, **_k):
+        raise NotFoundError(f"선박을 찾을 수 없습니다: {ghost}")
+
+    monkeypatch.setattr(chat_tools, "_calc_voyage_cii", _boom)
+    body = json.loads(
+        await chat_tools.run_tool(
+            None,  # type: ignore[arg-type]
+            name=chat_tools.TOOL_CALC_VOYAGE_CII,
+            arguments={},
+            vessel_id=ghost,
+        )
+    )
+    assert body["ok"] is False
+    assert str(ghost) not in json.dumps(body, ensure_ascii=False)
 
 
 async def test_calculation_tools_need_a_vessel_first() -> None:
