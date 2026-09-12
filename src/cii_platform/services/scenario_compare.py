@@ -358,6 +358,10 @@ async def compare_scenarios(
         parameters_used=parameters_used,
         warnings=warnings,
         duration_ms=duration_ms,
+        # 시나리오 3행과 **같은 스냅샷**이다 — 한 요청이 한 번 조회한 기상으로 세 계획을
+        # 모두 보정한다. 보정 인자 자체는 ``result_json.scenarios[].weather_factor``에
+        # 있다(``TECH_SPEC §5.4`` 4항 · #904).
+        weather_snapshot_id=weather.snapshot_id,
     )
     await session.commit()
 

@@ -696,6 +696,7 @@ def test_no_implicit_float_in_layer1():
 | IT-WX-001 | API 정상 → factor 적용 | Open-Meteo 정상 응답 | weather_factor > 1.0, warning 없음 |
 | IT-WX-002 | API 실패 + 6h 캐시 | API timeout, 캐시 존재 | 캐시 factor 사용, `WEATHER_STALE` warning |
 | IT-WX-003 | API 실패 + 캐시 없음 | API timeout, 캐시 없음 | weather_model = NONE, `WEATHER_NONE_FALLBACK` warning |
+| IT-WX-004 | **보정한 계산이 근거를 남긴다** [#904] (`test_scenario_compare_db.py`) | 기능② `SIMPLE_RULE` + 좌표 + 6시간 이내 캐시 / `NONE` / 좌표 없음 | 보정하면 `calculation_run.weather_snapshot_id` = 시나리오 3행의 스냅샷 = 쓴 스냅샷, `result_json.scenarios[].weather_factor` > 1.0(값 하나). `NONE`·fallback은 스냅샷 NULL · 인자 1.0 — 캐시가 있어도 **쓰지 않은 기상을 근거로 적지 않는다** (`TECH_SPEC §5.4` 4·5항) |
 
 ### 3.7 감사 로그 (`test_audit_log.py`) [ORACLE-X-3]
 
@@ -1401,7 +1402,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_risk_level.py` | 26 | §2 단위 · 계산 엔진 |
 | `test_rng_reproducibility.py` | 4 | §2 단위 · 계산 엔진 |
 | `test_scenario_compare_api.py` | 36 | §4 API · 기능② 시나리오 |
-| `test_scenario_compare_db.py` | 2 | §4 API · 기능② 시나리오 |
+| `test_scenario_compare_db.py` | 5 | §4 API · 기능② 시나리오 · **보정한 계산이 쓴 기상 스냅샷을 계산 이력에 남기는가**(`IT-WX-004` · `#904`) |
 | `test_scenario_adopt_db.py` | 17 | **§3 통합 · 시나리오 채택** — 계획값 반영 · 계산 무효화(항차 범위) · 계획 단계 항차만 허용 · 항차당 채택 하나 · `CREATE_NEW_VOYAGE` (`#58`) |
 | `test_seed_data.py` | 17 | **§5.7 DB · seed 적재** |
 | `test_seed_migration.py` | 8 | **§5.7 DB · seed 적재** |
@@ -1434,7 +1435,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_db_backup_script.py` | 20 | **§5 DB · 백업 · 복구 리허설 · 교체** (`scripts/db_backup.py`) — 컨테이너 호출을 대역으로 바꿔 판단을 본다: `pg_restore`로 읽히지 않는 덤프는 **확정도 기록도 하지 않는다** · 가드가 찾는 `DB_BACKUP` 행을 남긴다 · 보존 개수는 같은 DB의 덤프만 센다 · 손상된 덤프(sha256)는 **서버에 닿기 전에** 거절 · 리허설이 행 수가 다른 테이블을 **이름으로** 말한다 · 교체는 운영 DB 이름을 그대로 적어야 하고, 대조에 실패하면 **앱을 멈추기 전에** 끝나며, 성공하면 이전 DB를 지우지 않고 남긴다 · 스크립트가 **표준 라이브러리만** 쓴다(배포 호스트에 가상환경이 없다). 실제 `pg_dump`·`pg_restore`는 CI docker 잡이 프로덕션 스택에서 매 실행 돌린다 (`#827`) |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 132개 파일 · 1753 함수 · 2223 수집.** (2026-09-12 실측)
+**합계 132개 파일 · 1756 함수 · 2226 수집.** (2026-09-12 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
@@ -1707,3 +1708,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-09-12 | `#902` | `test_account_self_service_db.py` 18 → **19** · 합계 실측 갱신(131파일·1743함수·2208수집 → **131파일·1744함수·2209수집**). 자격 증명 오류(로그인 실패 · 현재 비밀번호 오입력)가 세션 문제와 **다른 코드**(`INVALID_CREDENTIALS`)로 오는지, 세션 없음은 여전히 `UNAUTHORIZED`인지를 잠갔다 — 종전에는 봉투가 같아 화면이 세션을 한 번 더 조회해 갈랐다(`#878`) (#902) |
 | 2026-09-12 | `#906` 후속 | `test_voyage_import_db.py` 28 → **29** · 합계 실측 갱신(131파일·1744함수·2209수집 → **131파일·1745함수·2210수집**). 이슈 완료 기준 「CSV로 만든 진행 중 항차가 화면 경로와 같은 누적 기여를 낸다」를 **시각 저장이 아니라 시계의 결과로** 잠갔다 — PR #1001은 시각이 UTC로 저장되는 것까지만 보았다(최종보고서 점검에서 드러난 빈틈). 출항 시각을 비운 행은 여전히 0임도 함께 본다 (#906) |
 | 2026-09-12 | `#760` | §14 인벤토리에 `test_sample_ports.py`(8함수) 등재 · `test_response_contract_db.py` 계약 표에 `/ports/samples` · `/ports/great-circle` · 합계 실측 갱신(131파일·1745함수·2210수집 → **132파일·1753함수·2223수집**). 값이 원본(NGA World Port Index)에서 온 그대로인지 몇 곳을 도·분 표기로 고정했다 — 좌표는 한 번 들어가면 틀려도 드러나지 않는다 (#760) |
+| 2026-09-12 | `#904` | §3.6 `IT-WX-004`(보정한 계산이 근거를 남긴다) 추가 · `test_scenario_compare_db.py` 2 → **5** · 합계 실측 갱신(132파일·1753함수·2223수집 → **132파일·1756함수·2226수집**). 기능②가 기상 스냅샷으로 보정해도 `calculation_run.weather_snapshot_id`가 늘 NULL이었다 — 같은 요청의 시나리오 3행에는 스냅샷이 붙는데 계산 이력만 비었다. 보정·`NONE`·fallback 세 갈래를 **실제 DB 행으로** 본다: 보정하면 이력과 시나리오 3행이 **같은 스냅샷**을 가리키고 인자가 결과에 남으며, 보정하지 않으면 캐시가 있어도 가리키지 않는다(쓰지 않은 기상을 근거로 적지 않는다). 수정 전 코드로 되돌리면 첫 케이스가 `None == UUID(...)`로 실패함을 확인했다 (#904) |

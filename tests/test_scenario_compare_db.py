@@ -11,12 +11,18 @@
 손으로 심던 값과 seed 값이 같은 결과를 낸다 — 이 테스트의 선박은
 ``BULK_CARRIER`` · DWT 50,000이고, seed의 ``DWT < 279000`` 행이 선택되어
 ``capacity_rule=DWT`` · ``a=4745`` · ``c=0.622``가 적용된다(전에 직접 넣던 값과 동일).
+
+케이스: IT-WX-004 (`TEST_PLAN §3.6` · #904)
 """
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -209,3 +215,154 @@ async def test_compare_idempotent_rows_on_repeat(migrated_db, app_fresh_engine):
         if vessel_id:
             async with sessionmaker() as s:
                 await _cleanup(s, vessel_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IT-WX-004 · 보정한 계산이 그 근거를 남긴다 (#904)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ``TECH_SPEC §5.4`` 4항 — 「이 계산은 어떤 기상 데이터로 실행되었나」를 사후에 답할 수
+# 있어야 한다. 종전에는 ``calculation_run.weather_snapshot_id``가 삽입 경로에서 ``None``
+# 으로 고정돼, **같은 요청의 시나리오 3행에는 스냅샷이 붙는데 계산 이력만 비었다**
+# (라이브 DB 실측: 보정 모델을 쓴 시나리오 행 12개가 스냅샷을 가리키는데 SCENARIO 계산
+# 이력 252건은 전부 NULL).
+#
+# 외부 조회는 **실패하게** 두고 캐시를 심는다 — 실제 시각에 맞는 응답을 지어낼 필요가
+# 없고, 캐시 경로도 스냅샷을 쓰는 정상 경로다(``PRD §11.6`` 「6시간 이내 캐시」).
+
+_WX_LAT, _WX_LON = Decimal("-12.34"), Decimal("56.78")
+
+
+def _dead_provider():
+    import httpx
+
+    from cii_platform.weather.open_meteo import OpenMeteoProvider
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timeout")
+
+    return OpenMeteoProvider(
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+
+
+async def _seed_fresh_snapshot(session) -> UUID:
+    from cii_platform.db.repositories import weather as weather_repo
+    from cii_platform.services.weather import round_to_grid
+
+    snapshot = await weather_repo.insert_snapshot(
+        session,
+        lat=_WX_LAT,
+        lon=_WX_LON,
+        lat_rounded=round_to_grid(float(_WX_LAT)),
+        lon_rounded=round_to_grid(float(_WX_LON)),
+        fetched_at=datetime.now(UTC) - timedelta(hours=1),
+        wave_height_m=Decimal("3.0"),
+        wave_direction_deg=Decimal("0"),
+        wave_period_s=Decimal("7"),
+        wind_speed_ms=Decimal("8.0"),
+        wind_direction_deg=Decimal("90"),
+        source="sample",
+    )
+    return snapshot.id
+
+
+async def _compare(session, *, weather_model: str | None, with_coordinates: bool = True):
+    from cii_platform.db.demo_seed import VESSEL_ID_BULK
+    from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
+
+    coordinates = {"current_lat": _WX_LAT, "current_lon": _WX_LON} if with_coordinates else {}
+    payload = ScenarioCompareInput(
+        vessel_id=UUID(VESSEL_ID_BULK),
+        regulation_year=2026,
+        current_speed_kn=Decimal("12.0"),
+        fuel_type="HFO",
+        base_daily_foc_ton=Decimal("23.04"),
+        direct_distance_nm=Decimal("5000"),
+        weather_model=weather_model,
+        **coordinates,
+    )
+    return await compare_scenarios(session, payload, weather_provider=_dead_provider())
+
+
+async def _recorded(session, run_id: str):
+    run = (
+        await session.execute(
+            text("SELECT weather_snapshot_id, result_json FROM calculation_run WHERE id = :id"),
+            {"id": run_id},
+        )
+    ).one()
+    scenario_ids = [s["scenario_id"] for s in run.result_json["scenarios"]]
+    scenario_snapshots = (
+        (
+            await session.execute(
+                text("SELECT weather_snapshot_id FROM voyage_scenario WHERE id = ANY(:ids)"),
+                {"ids": [UUID(i) for i in scenario_ids]},
+            )
+        )
+        .scalars()
+        .all()
+    )
+    factors = {s["weather_factor"] for s in run.result_json["scenarios"]}
+    return run.weather_snapshot_id, set(scenario_snapshots), factors
+
+
+@pytest_asyncio.fixture
+async def wx_session(conn):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    async with AsyncSession(bind=conn, expire_on_commit=False) as db:
+        yield db
+
+
+async def test_corrected_comparison_records_the_snapshot_it_used(wx_session):
+    """IT-WX-004 — 보정한 계산은 계산 이력이 **그 스냅샷**을 가리키고, 인자가 결과에 남는다."""
+    snapshot_id = await _seed_fresh_snapshot(wx_session)
+
+    result = await _compare(wx_session, weather_model="SIMPLE_RULE")
+
+    run_snapshot, scenario_snapshots, factors = await _recorded(
+        wx_session, result["calculation_run_id"]
+    )
+    assert run_snapshot == snapshot_id
+    # 시나리오 3행과 계산 이력이 **같은 스냅샷**을 가리킨다 — 한 요청이 한 번 조회한다.
+    assert scenario_snapshots == {snapshot_id}
+    # 보정 인자는 결과에 남는다. 세 계획이 같은 기상을 쓰므로 값은 하나다.
+    assert len(factors) == 1
+    (factor,) = factors
+    assert factor > 1.0
+    assert result["data"]["scenarios"][0]["weather_model_used"] == "SIMPLE_RULE"
+
+
+async def test_uncorrected_comparison_points_at_no_snapshot(wx_session):
+    """IT-WX-004 — ``NONE``은 스냅샷 없이 계산하는 정상 경로다(``TECH_SPEC §5.4`` 5항).
+
+    캐시가 있어도 **조회하지 않았으니** 가리키지 않는다 — 가리키면 쓰지 않은 기상을
+    근거로 적게 된다.
+    """
+    await _seed_fresh_snapshot(wx_session)
+
+    result = await _compare(wx_session, weather_model="NONE")
+
+    run_snapshot, scenario_snapshots, factors = await _recorded(
+        wx_session, result["calculation_run_id"]
+    )
+    assert run_snapshot is None
+    assert scenario_snapshots == {None}
+    assert factors == {1.0}
+
+
+async def test_fallback_comparison_points_at_no_snapshot(wx_session):
+    """IT-WX-004 — 좌표가 없어 보정을 못 한 계산도 스냅샷을 가리키지 않는다.
+
+    요청은 ``SIMPLE_RULE``이었으나 적용된 것은 ``NONE``이다 — 경고가 그 사실을 말하고,
+    계산 이력은 **실제로 쓴 것**(없음)을 적는다.
+    """
+    await _seed_fresh_snapshot(wx_session)
+
+    result = await _compare(wx_session, weather_model="SIMPLE_RULE", with_coordinates=False)
+
+    run_snapshot, _, factors = await _recorded(wx_session, result["calculation_run_id"])
+    assert run_snapshot is None
+    assert factors == {1.0}
+    assert "WEATHER_NONE_FALLBACK" in result["warnings"]

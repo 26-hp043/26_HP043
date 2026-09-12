@@ -345,7 +345,7 @@ CREATE INDEX idx_scenario_voyage ON voyage_scenario (voyage_id);
 | `calculation_type` | VARCHAR(30) | NOT NULL | VOYAGE_ESTIMATE, SCENARIO, ANNUAL_DETERMINISTIC, ANNUAL_MONTE_CARLO |
 | `vessel_id` | UUID | NOT NULL, FK → vessel(id) **ON DELETE RESTRICT** [DB-C-3] | 대상 선박 |
 | `voyage_id` | UUID | NULL, FK → voyage(id) **ON DELETE RESTRICT** [DB-C-3, #28 정정] | 관련 항차 (있으면). 계산 이력 보존을 위해 항차 물리 삭제를 차단 |
-| `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE RESTRICT** [#102] | 계산에 사용한 기상 스냅샷 (있으면). NONE 모델·fallback 계산은 NULL. ⚠️ 실물 컬럼·FK는 #103(013 `weather_snapshot`) 생성 후 **016+ 후속 마이그레이션**에서 추가 |
+| `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE RESTRICT** [#102] | 계산에 사용한 기상 스냅샷 (있으면). NONE 모델·fallback 계산은 NULL. **[#904]** 기상 보정을 적용하는 기능②(`SCENARIO`)만 채운다 — 2026-09-12 이전에는 삽입 경로가 `None`으로 고정돼 **보정한 계산도 NULL**이다(아래 `[#102]` 각주). ⚠️ 실물 컬럼·FK는 #103(013 `weather_snapshot`) 생성 후 **016+ 후속 마이그레이션**에서 추가 |
 | `input_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `parameter_hash` | VARCHAR(71) | NOT NULL | `sha256:` + 64 hex chars |
 | `model_version` | JSONB | NOT NULL | TECH_SPEC §10.1 structured JSON |
@@ -424,8 +424,8 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 | `distance_nm` | **입력 에코라 JSON 숫자다** — 나머지 수치는 Layer 1 결과라 `API_SPEC §1.7`에 따라 문자열이다. 한 블록 안에 두 타입이 섞이는 것은 의도다 |
 | `next_worse_boundary_*` | 등급 E는 악화 방향 경계가 없어 `null`이다 (`#171` · `PRD §9.2`) |
 | `reference_capacity_rule` | enum이 아니다 — 파라미터 테이블 값 그대로(`fixed 279000` 등) |
-| `weather_snapshot_id` | **[#102]** 계산에 사용한 기상 스냅샷. **`result_json`이 아니라 위 컬럼 표의 실물 컬럼**이다. 없으면 `null` |
-| `weather_factor` | **[#102·#879]** `TECH_SPEC §5.4`가 재현성 계약으로 규정하나 **현재 어디에도 기록되지 않는다** — `result_json`·`parameters_used` 어느 쪽에도 없다(라이브 덤프 확인). `weather_model = NONE`만 쓰이는 동안에는 항상 `1.0`이라 드러나지 않으며, 모델이 켜지면 재현 근거가 빠진다. `#904`로 분리 |
+| `weather_snapshot_id` | **[#102]** 계산에 사용한 기상 스냅샷. **`result_json`이 아니라 위 컬럼 표의 실물 컬럼**이다. 없으면 `null`. **[#904]** 채워지는 것은 기상 보정을 적용한 기능②(`SCENARIO`) 행뿐이다 — 아래 `weather_factor` 행 |
+| `weather_factor` | **[#102·#879·#904]** 이 블록(`VOYAGE_ESTIMATE`)에는 **없고, 없는 것이 맞다** — 기능①은 연료량을 입력으로 받아 기상 보정이 개입하지 않으므로 인자는 정의상 `1.0`이다(`TECH_SPEC §5.4` 5항). 보정을 적용하는 계산은 기능②뿐이며, 그 인자는 `SCENARIO` 행의 `result_json.scenarios[].weather_factor`에 **이미 기록돼 있다**(개발 DB 실측 252건 전부). `#904`가 「어디에도 기록되지 않는다」로 보고한 것은 이 블록의 행을 본 것이었다. 새 컬럼은 두지 않는다 — 같은 값을 두 곳에 두게 된다 |
 
 **`calculation_type = ANNUAL_MONTE_CARLO`**
 
@@ -472,7 +472,7 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 >
 > **[#28 정정]** `voyage_id`의 ON DELETE 정책을 `SET NULL` → `RESTRICT`로 정정했다 (이슈 #28). 근거: `calculation_run`은 immutable(§7.3, `BEFORE UPDATE OR DELETE` 트리거)이다. `SET NULL`은 PostgreSQL 내부적으로 자식 행 UPDATE로 실행되는데, immutable 트리거가 이 UPDATE를 차단하여 부모 `voyage` 삭제 트랜잭션 전체가 롤백된다. 즉 `SET NULL`은 원리적으로 달성 불가능하고 실효 동작이 `RESTRICT`다. 실효 동작에 문서를 맞추고, §7.1의 "immutable 테이블 참조는 RESTRICT" 관례와 대칭을 회복한다. (평소에는 voyage가 soft-delete(§2.2 `is_deleted`)만 되므로 이 경로가 드물어 잠복해 있던 모순이다.)
 >
-> **[#102] `weather_snapshot_id` 컬럼 (스펙 선행 정의):** 계산에 사용한 기상 스냅샷을 기록하여 재현성 계약(TECH_SPEC §5.4)의 추적성을 보장한다. 이슈 #102 본문의 "행 삭제 시 NULL로 설정"(SET NULL)은 [#28 정정]과 동일한 이유(immutable 트리거가 자식 UPDATE 차단)로 달성 불가능하므로 **RESTRICT로 정정**한다. NULL 허용 근거: `weather_model = NONE`·캐시 만료 fallback(TECH_SPEC §7.3)은 스냅샷 없이 계산하는 정상 경로이며, 컬럼 추가 이전의 기존 행도 backfill이 불가능하다. 실물 컬럼·FK·ORM 모델 반영은 #103(013 `weather_snapshot` 테이블) 완료 후 016 이후의 후속 마이그레이션에서 수행한다(실제로 `016_calc_run_weather_snapshot`이 했다).
+> **[#102] `weather_snapshot_id` 컬럼 (스펙 선행 정의):** 계산에 사용한 기상 스냅샷을 기록하여 재현성 계약(TECH_SPEC §5.4)의 추적성을 보장한다. 이슈 #102 본문의 "행 삭제 시 NULL로 설정"(SET NULL)은 [#28 정정]과 동일한 이유(immutable 트리거가 자식 UPDATE 차단)로 달성 불가능하므로 **RESTRICT로 정정**한다. NULL 허용 근거: `weather_model = NONE`·캐시 만료 fallback(TECH_SPEC §7.3)은 스냅샷 없이 계산하는 정상 경로이며, 컬럼 추가 이전의 기존 행도 backfill이 불가능하다. 실물 컬럼·FK·ORM 모델 반영은 #103(013 `weather_snapshot` 테이블) 완료 후 016 이후의 후속 마이그레이션에서 수행한다(실제로 `016_calc_run_weather_snapshot`이 했다). **[#904] 컬럼은 생겼으나 2026-09-12까지 아무도 채우지 않았다** — 삽입 경로 둘(기능① · 기능②)이 `None`으로 고정돼, 기능②가 스냅샷으로 보정하고 같은 요청의 `voyage_scenario` 3행에 그 스냅샷을 붙여도 계산 이력은 NULL이었다(개발 DB 실측: 스냅샷을 가리키는 시나리오 행 12개 · `SCENARIO` 이력 252건 전부 NULL). 이제 기능②가 보정에 쓴 스냅샷을 적는다. 이전 행은 immutable이라 채울 수 없고, 그 스냅샷은 `result_json.scenarios[].scenario_id` → `voyage_scenario.weather_snapshot_id`로 찾는다 — 시나리오 행은 처음부터 적고 있었다.
 
 ---
 
@@ -1580,3 +1580,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-11 | `#758` | §2.5 `weather_snapshot_id` 각주의 **저장소에 없는 문서 인용**(`ROADMAP §4.1`)을 걷고 실제 결과(`016`이 수행)로 바꿨다 — `ROADMAP.md`는 로컬 전용 파일이라 클론한 사람이 그 근거에 닿을 수 없다. `AGENTS §4.3` 「오기 정정」이라 버전은 올리지 않는다 (#758) |
 | 2026-09-11 | `#830` | §2.7 `simulation_snapshot` `[X-2]` 각주 정정 — 「유일한 예외는 `needs_recalc` 플립」은 §2.5 `calculation_run` 각주의 **통째 복사**였다. 이 테이블엔 그 컬럼이 없고 트리거는 예외 없는 `prevent_mutation()`이다(§7.3 · 마이그레이션 009). `AGENTS §4.3`상 각주 정정이라 버전은 올리지 않는다 (#830) |
 | 2026-09-12 | `#827` | **§8.1.2 해제 조건에 「24시간 안의 백업 기록」 추가** + §2.14 `action`에 `DB_BACKUP` · 각주. 2026-09-11 결정 2-⑤ 「프로덕션에서 특정 리비전 이하 downgrade 차단 + `#827` 백업과 연계」의 뒷부분이다 — `#819`가 차단을 넣었으나 백업은 오류 문구에만 있었고, 백업 수단 자체가 저장소에 없었다(`scripts/`에 `pg_dump` 0건). `scripts/db_backup.py`(백업 · 복구 리허설 · 교체)가 덤프를 검증한 뒤 감사 로그에 남기고, 가드가 마이그레이션 연결로 그 행을 읽는다. 행·각주·항목 추가라 버전은 올리지 않는다 (#827) |
+| 2026-09-12 | `#904` | §2.5 `weather_snapshot_id` 컬럼 설명 · `[#102]` 각주 · `VOYAGE_ESTIMATE` 필드 표 `weather_snapshot_id`·`weather_factor` 행 정정. **`weather_factor`는 「어디에도 기록되지 않는다」가 아니었다** — 기상 보정을 적용하는 유일한 계산인 기능②가 `result_json.scenarios[].weather_factor`에 이미 적고 있었고(개발 DB 252건 전부), 보고는 기능① 행을 본 것이었다(기능①은 연료량이 입력이라 인자가 정의상 `1.0`). 정작 빈 곳은 **컬럼**이었다: 삽입 경로가 `None` 고정이라 보정한 계산도 스냅샷을 가리키지 않았다 — 기능②가 쓴 스냅샷을 적도록 고쳤다. 새 `weather_factor` 컬럼은 같은 값을 두 곳에 두게 되어 두지 않았다. 스키마·마이그레이션 변경 없음. `AGENTS §4.3` 「각주 보강·오기 정정」이라 버전은 올리지 않는다 (#904) |

@@ -157,6 +157,7 @@ async def insert_scenario(
     parameters_used: dict[str, object],
     warnings: list[str],
     duration_ms: int,
+    weather_snapshot_id: UUID | None = None,
 ) -> CalculationRun:
     """기능② 시나리오 비교 계산 이력 1건을 저장하고 flush 한다 (#57).
 
@@ -164,12 +165,17 @@ async def insert_scenario(
     응답에 실을 PK 확보를 위해 한다. ``calculation_type``만 ``SCENARIO``로
     다르다. 3개 시나리오 전체가 **1건의 계산 이력**으로 저장된다 — 비교 요청의
     재현성 단위는 요청 전체지 시나리오 1건이 아니기 때문이다.
+
+    ``weather_snapshot_id``는 **보정에 쓴 기상 스냅샷**이다(``TECH_SPEC §5.4`` 4항 ·
+    ``DB_SCHEMA §2.5``). 종전에는 ``None``으로 고정돼, 같은 요청의 ``voyage_scenario``
+    3행에는 스냅샷이 붙는데 계산 이력에는 끝내 비었다(#904). 보정하지 않은 계산
+    (``NONE`` · fallback)은 ``None``이다 — 스냅샷 없는 계산도 정상 경로다(같은 절 5항).
     """
     run = CalculationRun(
         calculation_type=CALCULATION_TYPE_SCENARIO,
         vessel_id=vessel_id,
         voyage_id=None,
-        weather_snapshot_id=None,
+        weather_snapshot_id=weather_snapshot_id,
         input_hash=input_hash,
         parameter_hash=parameter_hash,
         model_version=model_version,
