@@ -9,6 +9,13 @@ import { useYearOptions } from '../parameters/yearCatalog'
 import { GradeBadge } from '../../components/GradeBadge'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
+
+/**
+ * 잔여 계획 항차가 0건임을 알리는 경고 코드 (`calc/annual_simulation.py`).
+ *
+ * 문구는 `resultRules.WARNING_MESSAGE`가 갖는다 — 여기서는 **있는지만** 본다.
+ */
+const NO_REMAINING_VOYAGES = 'NO_REMAINING_VOYAGES'
 import {
   probabilityOfDorE,
   reproducibilityLine,
@@ -510,11 +517,18 @@ function Result({
             {result.sensitivity_analysis.interaction_note}
           </p>
           {/*
-            거리 행은 잔여 계획과 확정 실적의 배출 강도가 같으면 기준과 **정확히 같은**
-            값이 나온다 — 모델의 성질이지 결함이 아니다(#756 · `PRD §12.6` 각주).
-            그 행이 표에 있을 때만 이유를 말한다. 없는데 말하면 무엇을 설명하는지 모른다.
+            ⚠️ **잔여 계획이 0건이면 여섯 행이 전부 같은 값**이다 — 지렛대가 움직일
+            대상이 없다(#756 · 2026-09-13 화면 실측). 그때 거리 행 설명만 띄우면
+            **나머지 행은 의미가 있는 것처럼 읽힌다.** 응답이 이미 `NO_REMAINING_VOYAGES`를
+            싣고 있으므로, 화면이 아는 사실을 이 자리에서 말한다(`#630`과 같은 처리).
+
+            잔여가 있을 때만 거리 행 설명을 띄운다. 거리 행은 잔여 계획과 확정 실적의
+            배출 강도가 같으면 기준과 **정확히 같은** 값이 나온다 — 모델의 성질이지
+            결함이 아니다(`PRD §12.6` 각주). 그 행이 표에 있을 때만 이유를 말한다.
           */}
-          {rows.some((row) => row.key.startsWith('distance_')) ? (
+          {result.warnings.includes(NO_REMAINING_VOYAGES) ? (
+            <p className="annual-sim__caption">{ANNUAL_COPY.sensitivityNoRemainingNote}</p>
+          ) : rows.some((row) => row.key.startsWith('distance_')) ? (
             <p className="annual-sim__caption">{ANNUAL_COPY.distanceNote}</p>
           ) : null}
           <div className="annual-sim__tablewrap">

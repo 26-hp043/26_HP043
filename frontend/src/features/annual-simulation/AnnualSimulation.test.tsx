@@ -203,6 +203,30 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     vi.stubGlobal('fetch', fetchImpl)
   }
 
+  it('⚠️ 잔여 계획이 0건이면 표 전체가 무의미하다고 말한다 (2026-09-13 화면 실측)', async () => {
+    /*
+     * 지렛대는 **잔여 계획 항차를 움직여** 결과를 다시 낸다. 0건이면 무엇을 바꿔도
+     * 확정 실적만 남아 **여섯 행이 전부 같은 값**이 된다. 그때 거리 행 설명만 띄우면
+     * **나머지 행은 의미가 있는 것처럼 읽힌다.**
+     *
+     * 실제 화면에서 그 상태를 봤다 — 데모 선박 하나가 잔여 계획이 없어 여섯 행이
+     * 전부 `19.789`였다. 응답에는 `NO_REMAINING_VOYAGES`가 이미 실려 있었다.
+     */
+    const payload = withSensitivity({
+      distance_minus_5pct: { projected_cii: '19.789', rating_change: 'D→D' },
+      distance_plus_5pct: { projected_cii: '19.789', rating_change: 'D→D' },
+    })
+    // ⚠️ `warnings`는 **`data` 밖**이다 (`API_SPEC §1.3.1` · `apiProvider.ts:142`).
+    payload.warnings = ['NO_REMAINING_VOYAGES']
+    stubWith(payload)
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.sensitivityNoRemainingNote)).toBeTruthy()
+    // 거리 행 설명은 **띄우지 않는다** — 그것만 띄우면 나머지 행이 유효해 보인다.
+    expect(screen.queryByText(ANNUAL_COPY.distanceNote)).toBeNull()
+  })
+
   it('거리 행이 있으면 거의 변하지 않는 이유를 말한다 — 「효과 없음」으로 읽히지 않게', async () => {
     stubWith(
       withSensitivity({
