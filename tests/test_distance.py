@@ -21,7 +21,11 @@ from decimal import Decimal
 
 import pytest
 
-from cii_platform.calc.distance import EARTH_RADIUS_NM, great_circle_distance_nm
+from cii_platform.calc.distance import (
+    EARTH_RADIUS_NM,
+    great_circle_distance_nm,
+    initial_bearing_deg,
+)
 
 D = Decimal
 
@@ -113,3 +117,33 @@ def test_result_is_a_decimal_fixed_to_two_places():
 def test_radius_is_the_value_in_tech_spec():
     """`TECH_SPEC §6` — `R = 3440.065 nm`. 기하 상수라도 **문서와 같은 값**이어야 한다."""
     assert EARTH_RADIUS_NM == 3440.065
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 초기 방위각 — 기상 입사각의 입력 (`#766` ⑴)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_bearing_of_the_cardinal_directions():
+    """정북·정동·정남·정서. 0°가 북이고 시계 방향이다."""
+    assert round(initial_bearing_deg(D("0"), D("0"), D("10"), D("0"))) == 0
+    assert round(initial_bearing_deg(D("0"), D("0"), D("0"), D("10"))) == 90
+    assert round(initial_bearing_deg(D("0"), D("0"), D("-10"), D("0"))) == 180
+    assert round(initial_bearing_deg(D("0"), D("0"), D("0"), D("-10"))) == 270
+
+
+def test_bearing_is_not_symmetric():
+    """대권 항로는 **가는 방위와 오는 방위가 서로의 반대각이 아니다.**
+
+    평면 지도의 감각으로 「돌아오는 길은 +180°」로 두면 고위도에서 어긋난다 — 부산 →
+    로테르담이 그 예다. 이 성질 때문에 침로를 **출발 시점**으로 정의했다.
+    """
+    there = initial_bearing_deg(D("35.1"), D("129.0"), D("51.9"), D("4.1"))
+    back = initial_bearing_deg(D("51.9"), D("4.1"), D("35.1"), D("129.0"))
+
+    assert abs((there + 180) % 360 - back) > 1.0
+
+
+def test_same_point_has_no_bearing():
+    """두 점이 같으면 방위가 정의되지 않는다 — 0을 준다(거리 0이라 보정도 무의미)."""
+    assert initial_bearing_deg(D("35.1"), D("129.0"), D("35.1"), D("129.0")) == 0.0

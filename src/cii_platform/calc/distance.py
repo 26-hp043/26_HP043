@@ -40,3 +40,23 @@ def great_circle_distance_nm(lat1: Decimal, lon1: Decimal, lat2: Decimal, lon2: 
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
     nm = EARTH_RADIUS_NM * 2 * math.asin(math.sqrt(a))
     return Decimal(str(nm)).quantize(_DISTANCE_QUANTUM, rounding=ROUND_HALF_UP)
+
+
+def initial_bearing_deg(lat1: Decimal, lon1: Decimal, lat2: Decimal, lon2: Decimal) -> float:
+    """출발점에서 목적지를 향하는 **초기 방위각**(0~360°, 북=0, 시계 방향).
+
+    대권 항로는 방위각이 도중에 바뀐다 — 여기서 내는 것은 **출발 시점의 침로**다.
+    기상 보정의 입사각(`TECH_SPEC §3.3.1` Cβ)에 쓰며, 항차 하나에 보정 계수가
+    하나인 현재 모델(`#766` ⑷가 다루는 구간별 합성 전)과 같은 단위다.
+
+    두 점이 같으면 방위가 정의되지 않아 ``0.0``을 준다 — 거리 0이라 보정도 무의미하다.
+    """
+    phi1 = math.radians(float(lat1))
+    phi2 = math.radians(float(lat2))
+    dlam = math.radians(float(lon2) - float(lon1))
+
+    y = math.sin(dlam) * math.cos(phi2)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlam)
+    if y == 0.0 and x == 0.0:
+        return 0.0
+    return math.degrees(math.atan2(y, x)) % 360.0

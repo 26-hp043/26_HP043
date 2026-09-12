@@ -31,7 +31,7 @@ from cii_platform.calc.capacity import (
     select_reference_line,
 )
 from cii_platform.calc.cii_engine import FuelUse
-from cii_platform.calc.distance import great_circle_distance_nm
+from cii_platform.calc.distance import great_circle_distance_nm, initial_bearing_deg
 from cii_platform.calc.fuel_estimator import estimate_fuel_ton
 from cii_platform.calc.hash import (
     compute_parameter_hash,
@@ -529,7 +529,27 @@ async def _resolve_weather(
         lon=payload.current_lon,
         ship_type=vessel.ship_type,
         provider=provider,
+        course_deg=_course_deg(payload),
     )
+
+
+def _course_deg(payload) -> float | None:
+    """현재 위치 → 목적항의 **초기 방위각**. 넷 중 하나라도 없으면 ``None`` (`#766` ⑴).
+
+    이 값이 기상 보정의 입사각이 된다 — 파향(스냅샷)과의 상대각이 `TECH_SPEC §3.3.1`의
+    β다. 목적항 좌표는 `#1005`가 화면에 붙였고 `API_SPEC §5.1`이 이미 받고 있었다.
+
+    ``None``이면 종전대로 head sea(β=0)로 계산한다 — **없는 값을 지어내지 않는다.**
+    """
+    corners = (
+        payload.current_lat,
+        payload.current_lon,
+        payload.destination_lat,
+        payload.destination_lon,
+    )
+    if any(value is None for value in corners):
+        return None
+    return initial_bearing_deg(*corners)
 
 
 def _slow_floor_warnings(slow_plan: _ScenarioPlan) -> list[str]:
