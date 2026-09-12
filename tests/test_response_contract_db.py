@@ -1532,6 +1532,11 @@ _FILES = "tests/test_report_export_routes_api_db.py"
 
 #: 두 계약 표 밖의 라우트 → 필드 집합을 보는 테스트(``파일::함수``) 또는 ``면제: 사유``.
 ROUTE_COVERAGE: dict[str, str] = {
+    # `API_SPEC §9.1` (#767) — 응답이 **저장된 스냅샷 하나**라 데모 시드로는 볼 수 없다.
+    # 그 파일이 자기 좌표에 심고 지우며 키 11개를 정확히 단언한다(AT-WX-001).
+    "GET /weather/snapshot": (
+        "tests/test_weather_api_db.py::test_snapshot_is_returned_in_the_spec_shape"
+    ),
     # 조회 계약과 같은 모양 — 새 계약을 쓰지 않고 조회 계약과 대조한다
     "POST /vessels": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",
     "PATCH /vessels/{}": f"{_THIS}::test_vessel_write_responses_match_the_read_contract",

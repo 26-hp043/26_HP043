@@ -36,6 +36,7 @@ from cii_platform.api.routes.reports import router as reports_router
 from cii_platform.api.routes.scenarios import router as scenarios_router
 from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
+from cii_platform.api.routes.weather import router as weather_router
 from cii_platform.auth.middleware import auth_middleware
 from cii_platform.auth.signup_gate import validate_signup_gate
 from cii_platform.config import should_expose_api_docs, validate_public_base_url
@@ -168,6 +169,10 @@ app.include_router(reports_router, prefix=API_V1_PREFIX)
 # 가져오기(§8.2)가 voyages 라우터에 있는 것과 짝을 이루지만, 계산·시뮬레이션까지
 # 덮으므로 항차 모듈에 두지 않는다.
 app.include_router(exports_router, prefix=API_V1_PREFIX)
+# #767 기상 스냅샷 조회 (§9.1) — **조회만** 연다. 수동 갱신(§9.2)은 열지 않는다:
+# 사용자가 외부 API 호출을 직접 일으키는 유일한 경로이고, 기상은 계산 요청이 알아서
+# 갱신하므로 없어도 제품이 성립한다(그 판단은 API_SPEC §9.2 각주).
+app.include_router(weather_router, prefix=API_V1_PREFIX)
 # #414 이메일·비밀번호 인증 — signup·login은 공개 경로(PUBLIC_PATHS)다.
 app.include_router(auth_router, prefix=API_V1_PREFIX)
 # #408 이메일 인증·비밀번호 재설정 — 메일 링크로 진입하므로 세션이 없다(공개 경로).

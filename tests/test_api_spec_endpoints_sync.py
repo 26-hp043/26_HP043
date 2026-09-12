@@ -13,14 +13,25 @@
 문서가 자기와 어긋난** 상태로 두 판(v1.19 → v1.21)을 지났다. 사람이 51행을 눈으로
 훑어 찾을 수 있는 종류가 아니다.
 
-## 「미구현」을 문서에만 적으면 낡는다
+## 「라우트가 없다」를 문서에만 적으면 낡는다
 
 `#591`의 판정은 C안(스펙에 남긴다)이다. 그런데 **라우트가 없어** `#556`처럼
 docstring에 판정을 남길 자리가 없다. 문서에만 적으면 누군가 구현했을 때 표시가
-그대로 남아 「미구현」이라고 거짓말한다.
+그대로 남아 거짓말한다.
 
-그래서 표시를 **검사 가능한 주장**으로 바꾼다 — 「미구현이라고 적은 것은 정말
-없어야 한다」. 구현되는 날 이 테스트가 깨지고, 표시를 지우게 한다.
+그래서 표시를 **검사 가능한 주장**으로 바꾼다 — 「없다고 적은 것은 정말 없어야
+한다」. 구현되는 날 이 테스트가 깨지고, 표시를 지우게 한다.
+
+**없다고 적는 방식이 둘이다** (`#767`).
+
+=================  ==========================================================
+ 「미구현」          아직 만들지 않았다. 언젠가 만든다
+ 「열지 않는다」      **열지 않기로 정했다.** `§9.2` 수동 갱신이 그 예다 —
+                    사용자가 외부 API 호출을 직접 일으키는 경로라 정책으로 닫았다
+=================  ==========================================================
+
+가드에게는 같은 주장(「라우트가 없다」)이라 둘 다 읽는다. **문구를 나눈 이유는
+사람이 읽기 때문**이다 — 「미구현」으로 남기면 다음 사람이 만들러 간다.
 
 ## `app.routes`를 보지 않는다
 
@@ -37,8 +48,8 @@ from pathlib import Path
 #: `API_SPEC §12` 행 — `| GET | `/api/v1/...` | 기능 | 참조 |`
 _ROW = re.compile(r"^\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`\s*\|([^|]*)\|", re.M)
 
-#: 기능 칸에 이 문구가 있으면 「명세는 있으나 라우트는 없다」는 주장이다.
-_UNIMPLEMENTED = "미구현"
+#: 기능 칸에 이 중 하나가 있으면 「라우트가 없다」는 주장이다 (위 docstring의 두 방식).
+_ABSENT_MARKERS = ("미구현", "열지 않는다")
 
 _SPEC = Path(__file__).resolve().parents[1] / "API_SPEC.md"
 
@@ -53,12 +64,17 @@ def _normalize(path: str) -> str:
     return re.sub(r"\{[^}]*\}", "{}", path)
 
 
-def _documented() -> dict[tuple[str, str], bool]:
-    """`{(method, path): 미구현인가}`."""
+def _section() -> str:
+    """`§12` 요약표 구역 원문."""
     text = _SPEC.read_text(encoding="utf-8")
-    section = text.split("## 12. 엔드포인트 요약", 1)[1].split("\n---", 1)[0]
+    return text.split("## 12. 엔드포인트 요약", 1)[1].split("\n---", 1)[0]
+
+
+def _documented() -> dict[tuple[str, str], bool]:
+    """`{(method, path): 라우트가 없다고 적었는가}`."""
+    section = _section()
     return {
-        (method, _normalize(path)): _UNIMPLEMENTED in feature
+        (method, _normalize(path)): any(marker in feature for marker in _ABSENT_MARKERS)
         for method, path, feature in _ROW.findall(section)
     }
 
@@ -82,8 +98,12 @@ def test_the_summary_table_is_parsed_at_all() -> None:
 
     assert len(documented) >= 50, f"§12 표를 읽지 못했다: {len(documented)}행"
     assert ("GET", "/api/v1/health") in documented
-    # 「미구현」 표시가 실제로 읽히는지 — 문구가 바뀌면 판정이 조용히 사라진다.
-    assert any(documented.values()), "「미구현」으로 표시된 행을 하나도 읽지 못했다"
+    # 「없다」 표시가 실제로 읽히는지 — 문구가 바뀌면 판정이 조용히 사라진다.
+    assert any(documented.values()), "「없다」로 표시된 행을 하나도 읽지 못했다"
+    # 두 문구가 **각각** 읽히는지 — 하나만 살아 있으면 다른 쪽이 조용히 통과한다.
+    section = _section()
+    for marker in _ABSENT_MARKERS:
+        assert marker in section, f"§12에 「{marker}」로 표시된 행이 없다"
 
 
 def test_routes_are_discovered_at_all() -> None:
@@ -95,20 +115,19 @@ def test_routes_are_discovered_at_all() -> None:
 
 
 def test_unimplemented_endpoints_really_have_no_route() -> None:
-    """「미구현」이라고 적은 것은 **정말 없어야** 한다 (`#591` C안 판정).
+    """「미구현」·「열지 않는다」로 적은 것은 **정말 없어야** 한다 (`#591` · `#767`).
 
-    구현되는 날 여기가 깨진다 — 그때 `§9`의 ⏸ 블록과 `§12`의 표시를 함께 지운다.
+    구현되는 날 여기가 깨진다 — 그때 `§9`의 판정 블록과 `§12`의 표시를 함께 고친다.
     """
     documented = _documented()
     implemented = _implemented()
 
-    claimed = {key for key, unimplemented in documented.items() if unimplemented}
-    assert claimed, "「미구현」 행이 하나도 없다 — 표시 문구가 바뀌었는지 확인할 것"
+    claimed = {key for key, absent in documented.items() if absent}
+    assert claimed, "「없다」 행이 하나도 없다 — 표시 문구가 바뀌었는지 확인할 것"
 
     lying = sorted(claimed & implemented)
-    assert not lying, (
-        "§12가 「미구현」이라고 적었지만 라우트가 있습니다. 표시를 지우세요:\n"
-        + "\n".join(f"  {method} {path}" for method, path in lying)
+    assert not lying, "§12가 「없다」고 적었지만 라우트가 있습니다. 표시를 지우세요:\n" + "\n".join(
+        f"  {method} {path}" for method, path in lying
     )
 
 
@@ -118,12 +137,10 @@ def test_documented_endpoints_exist_unless_marked() -> None:
     implemented = _implemented()
 
     missing = sorted(
-        key
-        for key, unimplemented in documented.items()
-        if not unimplemented and key not in implemented
+        key for key, absent in documented.items() if not absent and key not in implemented
     )
     assert not missing, (
-        "§12에 있으나 라우트가 없습니다. 구현하거나 「미구현」으로 표시하세요:\n"
+        "§12에 있으나 라우트가 없습니다. 구현하거나 「미구현」·「열지 않는다」로 표시하세요:\n"
         + "\n".join(f"  {method} {path}" for method, path in missing)
     )
 
