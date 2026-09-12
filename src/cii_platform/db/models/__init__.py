@@ -22,6 +22,7 @@ from cii_platform.db.models.cii_reference_line import CiiReferenceLine
 from cii_platform.db.models.fuel_type import FuelType
 from cii_platform.db.models.not_underway_fuel_use import NotUnderwayFuelUse
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
+from cii_platform.db.models.port_geocode import PortGeocode
 from cii_platform.db.models.regulation_year import RegulationYear
 from cii_platform.db.models.simulation_parameter import SimulationParameter
 from cii_platform.db.models.simulation_snapshot import SimulationSnapshot
@@ -45,6 +46,7 @@ __all__ = [
     "FuelType",
     "NotUnderwayFuelUse",
     "NotUnderwayPeriod",
+    "PortGeocode",
     "SimulationParameter",
     "RegulationYear",
     "SimulationSnapshot",

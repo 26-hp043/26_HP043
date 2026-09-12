@@ -5,6 +5,9 @@ import {
   matchSamplePort,
   portOptionLabel,
   type SamplePort,
+  LOOKUP_FAILED_FALLBACK,
+  LOOKUP_SOURCE_NOTICE,
+  lookupPort,
 } from './samplePorts'
 
 /**
@@ -73,3 +76,47 @@ describe('fetchSamplePorts (#1005 — 세 화면이 같은 경로로 받는다)'
   })
 })
 
+
+describe('lookupPort (#768 — 목록 밖 항만의 좌표)', () => {
+  function respond(body: unknown, status = 200) {
+    return vi.fn(async () => ({ ok: status < 400, status, json: async () => body }) as Response)
+  }
+
+  it('이름을 URL 인코딩해 GET /ports/lookup을 부른다', async () => {
+    const fetchImpl = respond({ data: { name: 'PORT KLANG', lat: 3, lon: 101.4, source: 'LOOKUP' } })
+
+    const result = await lookupPort('PORT KLANG', fetchImpl as unknown as typeof fetch, '/api/v1')
+
+    expect(result).toEqual({
+      ok: true,
+      port: { name: 'PORT KLANG', lat: 3, lon: 101.4, source: 'LOOKUP' },
+    })
+    const [url, init] = (fetchImpl.mock.calls as unknown as Array<[string, RequestInit]>)[0]
+    expect(url).toBe('/api/v1/ports/lookup?name=PORT%20KLANG')
+    expect(init.credentials).toBe('include')
+  })
+
+  it('찾지 못하면 **서버 문구를 그대로** 돌려준다 — 화면이 문장을 만들지 않는다', async () => {
+    const fetchImpl = respond({ error: { message: '그 이름으로 항만을 찾지 못했습니다.' } }, 404)
+
+    const result = await lookupPort('없는항만', fetchImpl as unknown as typeof fetch, '')
+
+    expect(result).toEqual({ ok: false, message: '그 이름으로 항만을 찾지 못했습니다.' })
+  })
+
+  it('네트워크가 죽어도 던지지 않는다 — 좌표가 없어도 항차는 만들 수 있어야 한다', async () => {
+    const dead = vi.fn(async () => {
+      throw new Error('offline')
+    })
+
+    const result = await lookupPort('BUSAN', dead as unknown as typeof fetch, '')
+
+    expect(result).toEqual({ ok: false, message: LOOKUP_FAILED_FALLBACK })
+  })
+
+  it('출처마다 다른 문구를 쓴다 — 어디서 온 좌표인지 사용자가 알아야 한다', () => {
+    expect(LOOKUP_SOURCE_NOTICE.SAMPLE).toContain('샘플')
+    expect(LOOKUP_SOURCE_NOTICE.CACHE).toContain('전에')
+    expect(LOOKUP_SOURCE_NOTICE.LOOKUP).toContain('OpenStreetMap')
+  })
+})

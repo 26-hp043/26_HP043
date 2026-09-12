@@ -1532,6 +1532,11 @@ _FILES = "tests/test_report_export_routes_api_db.py"
 
 #: 두 계약 표 밖의 라우트 → 필드 집합을 보는 테스트(``파일::함수``) 또는 ``면제: 사유``.
 ROUTE_COVERAGE: dict[str, str] = {
+    # `API_SPEC §3.10` (#768) — 응답이 **외부 조회 결과**라 데모 시드로는 볼 수 없다.
+    # 그 파일이 가짜 제공자로 샘플·캐시·조회 세 경로의 응답을 각각 확인한다.
+    "GET /ports/lookup": (
+        "tests/test_port_geocoding_db.py::test_lookup_is_cached_and_asked_only_once"
+    ),
     # `API_SPEC §9.1` (#767) — 응답이 **저장된 스냅샷 하나**라 데모 시드로는 볼 수 없다.
     # 그 파일이 자기 좌표에 심고 지우며 키 11개를 정확히 단언한다(AT-WX-001).
     "GET /weather/snapshot": (

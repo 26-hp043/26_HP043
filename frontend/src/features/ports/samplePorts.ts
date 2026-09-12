@@ -116,3 +116,63 @@ export function useSamplePorts(env: ImportMetaEnv = import.meta.env): SamplePort
   }, [baseUrl])
   return ports
 }
+
+/**
+ * `GET /ports/lookup` 응답의 좌표 (`API_SPEC §3.10` · `#768`).
+ *
+ * 내보내지 않는다 — `lookupPort`의 반환 타입으로만 쓰이고, 호출부는 값으로 받는다.
+ * 쓰는 곳 없이 내보내면 `moduleBoundary` 가드가 막는다(`#594`).
+ */
+interface LookedUpPort {
+  name: string
+  lat: number
+  lon: number
+  /** SAMPLE · CACHE · LOOKUP — 어디서 온 값인지 화면이 말한다. */
+  source: string
+}
+
+/** 조회 결과의 출처 문구. 「어디서 온 좌표인가」를 사용자가 알아야 한다. */
+export const LOOKUP_SOURCE_NOTICE: Record<string, string> = {
+  SAMPLE: '샘플 항만 목록에서 찾았습니다.',
+  CACHE: '전에 조회해 둔 좌표입니다.',
+  LOOKUP: '지도 서비스(OpenStreetMap)에서 찾은 좌표입니다. 확인 후 쓰세요.',
+}
+
+/** 조회에 실패했을 때 화면이 쓰는 문구 — 서버가 준 문장을 그대로 보인다. */
+export const LOOKUP_FAILED_FALLBACK =
+  '항만 좌표를 찾지 못했습니다. 좌표를 직접 입력하거나 그대로 진행하세요.'
+
+/**
+ * 항만명으로 좌표를 찾는다 (`API_SPEC §3.10`).
+ *
+ * **입력 중에 부르지 않는다** — 공개 Nominatim 사용 정책이 자동완성을 금지한다. 호출부는
+ * 사용자가 「좌표 찾기」를 눌렀을 때만 부른다.
+ *
+ * 실패는 **오류로 올리지 않는다.** 좌표가 없어도 항차는 만들 수 있어야 하므로(`PRD §16.2`)
+ * `{ ok: false, message }`로 돌려주고 화면이 그 문장을 보인다.
+ */
+export async function lookupPort(
+  name: string,
+  fetchImpl: typeof fetch = globalThis.fetch,
+  baseUrl: string = DEFAULT_API_BASE_URL,
+): Promise<{ ok: true; port: LookedUpPort } | { ok: false; message: string }> {
+  try {
+    const response = await fetchImpl(`${baseUrl}/ports/lookup?name=${encodeURIComponent(name)}`, {
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+    const body = (await response.json().catch(() => null)) as
+      | { data?: unknown; error?: { message?: string } }
+      | null
+    if (!response.ok) {
+      return { ok: false, message: body?.error?.message || LOOKUP_FAILED_FALLBACK }
+    }
+    const data = body?.data as LookedUpPort | undefined
+    if (!data || typeof data.lat !== 'number' || typeof data.lon !== 'number') {
+      return { ok: false, message: LOOKUP_FAILED_FALLBACK }
+    }
+    return { ok: true, port: data }
+  } catch {
+    return { ok: false, message: LOOKUP_FAILED_FALLBACK }
+  }
+}
