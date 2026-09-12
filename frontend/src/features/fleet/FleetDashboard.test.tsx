@@ -72,8 +72,16 @@ function stubFetch() {
   return fetchImpl
 }
 
+/**
+ * 선대 요약 호출만 고른다.
+ *
+ * 같은 전역 `fetch`로 **지도 자산이 있는지 묻는 `HEAD` 한 번**(`#763`)이 함께 나간다.
+ * 호출 순서 번호로 집으면 그 한 번에 밀려 검사가 엉뚱한 요청을 본다 — 경로로 고른다.
+ */
 function urls(fetchImpl: ReturnType<typeof stubFetch>): URL[] {
-  return fetchImpl.mock.calls.map(([u]) => new URL(String(u), 'https://x'))
+  return fetchImpl.mock.calls
+    .map(([u]) => new URL(String(u), 'https://x'))
+    .filter((url) => url.pathname.includes('/fleet/summary'))
 }
 
 afterEach(() => {
@@ -92,7 +100,7 @@ describe('선대 대시보드 — 서버 정렬·페이지 (#772)', () => {
     expect(urls(fetchImpl)[0].searchParams.get('sort')).toBe('risk')
 
     fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
-    await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(urls(fetchImpl)).toHaveLength(2))
     const second = urls(fetchImpl)[1]
     expect(second.searchParams.get('sort')).toBe('name')
     expect(second.searchParams.get('cursor')).toBeNull()

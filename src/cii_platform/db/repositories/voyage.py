@@ -15,6 +15,8 @@ from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 #: API_SPEC §3.1 — 페이지 크기 기본 20, 최대 100 (vessel과 동일).
@@ -297,6 +299,37 @@ async def find_in_progress(session: AsyncSession, vessel_id: UUID) -> Voyage | N
         .limit(1)
     )
     return (await session.execute(stmt)).scalars().first()
+
+
+async def find_in_progress_for_vessels(
+    session: AsyncSession, vessel_ids: Sequence[UUID]
+) -> dict[UUID, Voyage]:
+    """여러 선박의 진행 중 항차를 **쿼리 한 번**으로 모아 온다 (`#763`).
+
+    선대 지도가 항로선을 그리려면 선박마다 진행 중 항차의 출발·도착 좌표가 필요하다.
+    :func:`find_in_progress`를 척마다 부르면 200척에 200쿼리가 붙는데, 그 엔드포인트는
+    **방금 쿼리 수를 줄여 놓은 자리**다(`#989` — 212쿼리 → 129쿼리). 그래서 한 번에 묻는다.
+
+    선박당 하나만 남긴다 — 고르는 규칙은 :func:`find_in_progress`와 **같다**(실제 출항
+    시각 내림차순, NULL은 뒤). 두 경로가 다른 항차를 고르면 같은 화면의 두 값이 서로
+    다른 항차를 가리킨다.
+    """
+    if not vessel_ids:
+        return {}
+    stmt = (
+        select(Voyage)
+        .where(
+            Voyage.vessel_id.in_(list(vessel_ids)),
+            Voyage.status == "IN_PROGRESS",
+            Voyage.is_deleted.is_(False),
+        )
+        .order_by(Voyage.actual_departure_at.desc().nullslast(), Voyage.id)
+    )
+    found: dict[UUID, Voyage] = {}
+    for voyage in (await session.execute(stmt)).scalars():
+        # 정렬이 이미 우선순위라 **먼저 온 것만** 남긴다.
+        found.setdefault(voyage.vessel_id, voyage)
+    return found
 
 
 async def mark_calculations_needing_recalc(session: AsyncSession, voyage_id: UUID) -> int:

@@ -1179,6 +1179,40 @@ async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
     return drifted
 
 
+def _fill_port_coords(voyages: list[dict[str, object]]) -> None:
+    """항만명으로 출발·도착 좌표를 채운다 (`#763`).
+
+    ## 왜 시드에 넣나
+
+    지도가 항로선을 그리려면 좌표가 있어야 하는데, 데모 항차는 **항만 이름만** 갖고
+    있었다. 이름만으로는 선을 그릴 수 없어 심사 화면에서 **배는 보이고 항로는 안
+    보이는** 상태가 된다.
+
+    ## 좌표를 여기 다시 적지 않는다
+
+    ``services.sample_ports``의 43곳이 항만 좌표의 **단일 출처**다(NGA World Port
+    Index). 아홉 쌍을 여기 복사하면 출처가 둘이 되고, 한쪽만 고치면 같은 항만이
+    화면마다 다른 자리에 찍힌다. 계층으로는 ``db``가 ``services``를 올려다보는
+    모양이지만, **좌표를 두 벌 두는 쪽이 더 나쁘다.**
+
+    이미 좌표가 있는 행은 건드리지 않는다 — 손으로 넣은 값을 덮지 않기 위해서다.
+    """
+    from cii_platform.services.sample_ports import SAMPLE_PORTS
+
+    by_name = {port.name: port for port in SAMPLE_PORTS}
+    for row in voyages:
+        for side in ("departure", "arrival"):
+            port = by_name.get(str(row.get(f"{side}_port_name") or ""))
+            if port is None:
+                continue
+            row.setdefault(f"{side}_lat", Decimal(port.lat))
+            row.setdefault(f"{side}_lon", Decimal(port.lon))
+
+
+_fill_port_coords(SEED_VOYAGES)
+_fill_port_coords(SEED_VOYAGES_WATCH)
+
+
 async def seed_demo_user(conn: AsyncConnection) -> int:
     """시연용 계정을 적재하고 **신규 적재 행 수**를 돌려준다 (`#692`).
 

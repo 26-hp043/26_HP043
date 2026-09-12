@@ -15,7 +15,10 @@
     "build:tokens": "node scripts/build-tokens.mjs"
   },
   "dependencies": {
+    "@protomaps/basemaps": "^5.7.2",
     "lucide-react": "^1.43.0",
+    "maplibre-gl": "^6.9.0",
+    "pmtiles": "^4.5.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.3.1"

@@ -40,6 +40,7 @@ from cii_platform.calc.capacity import resolve_transport_capacity
 from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
+from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import AppError, ParameterError, ValidationError
 from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.cii_history import list_cii_history
@@ -150,6 +151,28 @@ def _publish(value: Decimal | None, digits: int) -> str | None:
     if value is None:
         return None
     return f"{value:.{digits}f}"
+
+
+def _route_of(voyage) -> dict[str, str] | None:
+    """진행 중 항차의 출발·도착 좌표 (`#763`).
+
+    지도가 항로선을 그리는 근거다. **넷 중 하나라도 비면 ``None``** — 반쪽 선분을
+    그리면 배가 어디로 가는지 잘못 말하고, 화면은 그 사실을 알 수 없다.
+
+    항차가 없으면(정박 중이거나 아직 출항 전) ``None``이다. 그때는 선이 없고 점만
+    남는다 — 없는 항로를 지어내지 않는다.
+    """
+    if voyage is None:
+        return None
+    corners = (voyage.departure_lat, voyage.departure_lon, voyage.arrival_lat, voyage.arrival_lon)
+    if any(value is None for value in corners):
+        return None
+    return {
+        "departure_lat": _publish(voyage.departure_lat, 6) or "",
+        "departure_lon": _publish(voyage.departure_lon, 6) or "",
+        "arrival_lat": _publish(voyage.arrival_lat, 6) or "",
+        "arrival_lon": _publish(voyage.arrival_lon, 6) or "",
+    }
 
 
 def _spec_number(value: Decimal | None) -> float | None:
@@ -587,6 +610,13 @@ async def get_fleet_summary(
     ):
         raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
 
+    # 진행 중 항차의 출발·도착 좌표 — 지도가 항로선을 그리는 근거다 (`#763`).
+    # **쿼리 한 번**으로 선대 전체를 모은다. 척마다 물으면 200척에 200쿼리가 붙는데,
+    # 이 엔드포인트는 방금 쿼리 수를 줄여 놓은 자리다(`#989`).
+    in_progress = await voyage_repo.find_in_progress_for_vessels(
+        session, [vessel.id for vessel in vessels]
+    )
+
     rows: list[dict[str, object]] = []
     actions: list[dict[str, object]] = []
 
@@ -618,6 +648,9 @@ async def get_fleet_summary(
                 "gross_tonnage": _spec_number(vessel.gross_tonnage),
                 "current_lat": _publish(vessel.current_lat, 6),
                 "current_lon": _publish(vessel.current_lon, 6),
+                # 진행 중 항차의 항로 (`#763`). 좌표가 한쪽이라도 비면 **행을 싣지
+                # 않는다** — 반쪽 선분을 그리면 배가 어디로 가는지 잘못 말한다.
+                "route": _route_of(in_progress.get(vessel.id)),
                 "position_updated_at": (
                     vessel.position_updated_at.isoformat()
                     if vessel.position_updated_at is not None
