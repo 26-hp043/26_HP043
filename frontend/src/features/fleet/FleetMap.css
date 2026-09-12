@@ -1,0 +1,86 @@
+/*
+ * 선대 지도 (`#763`).
+ *
+ * 값은 전부 토큰에서 온다 — `DESIGN_SYSTEM §0.2` 제약 1(리터럴 색 금지).
+ * MapLibre가 그리는 캔버스 자체는 스타일 JSON이 색을 정하므로 여기서 건드리지
+ * 않는다. 여기가 정하는 것은 **우리가 얹은 것**(마커·틀·설명)뿐이다.
+ */
+
+.fleetmap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fleetmap__canvas {
+  width: 100%;
+  /* 개략도(`PositionChart`)의 480×300 비율을 그대로 이어받는다 — 카드 높이가 갑자기
+     바뀌면 같은 화면의 다른 카드와 줄이 어긋난다. */
+  aspect-ratio: 8 / 5;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.fleetmap__hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* --- 마커 ------------------------------------------------------------------ */
+
+.fleetmap__marker {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  cursor: default;
+}
+
+.fleetmap__marker svg {
+  width: 22px;
+  height: 22px;
+  /* 배경이 지도라 밝은 바다 위에서 마커가 묻힌다 — 얇은 테두리로 띄운다. */
+  filter: drop-shadow(0 0 1px var(--surface-default));
+}
+
+.fleetmap__marker svg path {
+  fill: var(--cii-none-fill);
+}
+
+.fleetmap__marker--a svg path {
+  fill: var(--cii-a-fill);
+}
+.fleetmap__marker--b svg path {
+  fill: var(--cii-b-fill);
+}
+.fleetmap__marker--c svg path {
+  fill: var(--cii-c-fill);
+}
+.fleetmap__marker--d svg path {
+  fill: var(--cii-d-fill);
+}
+.fleetmap__marker--e svg path {
+  fill: var(--cii-e-fill);
+}
+
+/*
+ * 등급 문자. **색 단독 금지**(`§14`)를 여기서 지킨다 — 지도 마커는 DOM 요소라
+ * 개략도가 쓰는 SVG `<pattern>` 정의를 가져올 수 없다.
+ */
+.fleetmap__badge {
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-default);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.4;
+  border: 1px solid var(--border-default);
+}
+
+/* 주의 대상은 테두리를 굵게 — 색만으로 말하지 않는다. */
+.fleetmap__marker--risk .fleetmap__badge {
+  border-width: 2px;
+  border-color: var(--semantic-danger);
+}

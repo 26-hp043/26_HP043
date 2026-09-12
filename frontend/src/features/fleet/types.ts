@@ -54,6 +54,18 @@ export type UnavailableReason =
   /** 위 어느 것으로도 설명되지 않는 계산 실패 — 사용자가 할 수 있는 것이 없다 */
   | 'CALCULATION_ERROR'
 
+/**
+ * 항로 한 구간 — 출발·도착 좌표. 표시용 문자열이다(`API_SPEC §1.7`).
+ *
+ * 내보내지 않는다 — `FleetVessel` 안에서만 쓰인다(`#594` 미참조 export 규율).
+ */
+interface FleetRoute {
+  departureLat: string
+  departureLon: string
+  arrivalLat: string
+  arrivalLon: string
+}
+
 export interface FleetVessel {
   id: string
   name: string
@@ -66,6 +78,11 @@ export interface FleetVessel {
   lat: string | null
   lon: string | null
   positionUpdatedAt: string | null
+  /**
+   * 진행 중 항차의 항로 (`#763`). 항차가 없거나 좌표가 한쪽이라도 비면 `null`이다 —
+   * **반쪽 선분을 그리면 배가 어디로 가는지 잘못 말한다.**
+   */
+  route: FleetRoute | null
   /**
    * 서버가 내린 CII 적용 대상 판정 (`API_SPEC §2.3` · `#653`).
    * **화면이 GT로 다시 판정하지 않는다.**
