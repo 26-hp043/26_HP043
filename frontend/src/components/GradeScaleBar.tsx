@@ -21,8 +21,12 @@ import type { Rating } from '../features/voyage-cii/types'
  * ## 색 + 패턴 (`§2.4.4` 🔒)
  *
  * 구간에는 등급 문자가 들어가지 않으므로 **패턴이 필수다.** 3색 체계라 초록·주황·빨강
- * 세 색상군이 적록색맹에서 모두 황갈색으로 수렴한다. `showPattern` 기본값이 `true`이고
- * *"끄는 쪽이 예외"* 인 것도 §2.4.4의 문구 그대로다.
+ * 세 색상군이 적록색맹에서 모두 황갈색으로 수렴한다.
+ *
+ * **끄는 길을 두지 않는다** (2026-09-12 디자인 확정 O · `#831` ⑹). 종전에는 `showPattern`
+ * 속성이 있었고 정본도 *"끄는 쪽이 예외"* 라 적었는데, **호출부 어느 쪽도 넘기지 않았다** —
+ * 조건이 적히지 않은 예외 조항은 다음 사람이 자기 판단으로 끄는 근거가 될 뿐이다.
+ * 패턴을 쓰지 않는 자리(등급 배지 · 차트 선)는 `§2.4.4`가 이미 이름으로 정하고 있다.
  *
  * 패턴은 `GradePatternDefs`(공통 셸에 1회)를 참조한다. 여기서 다시 정의하면 같은 무늬가
  * 두 벌이 되어 한쪽만 고쳐지는 드리프트가 생긴다.
@@ -50,8 +54,6 @@ interface GradeScaleBarProps {
   valueLabel: string
   /** 스크린 리더가 읽을 이름. 화면마다 무엇의 등급인지 다르다. */
   label: string
-  /** `§2.4.4` — 끄는 쪽이 예외다. */
-  showPattern?: boolean
 }
 
 export function GradeScaleBar({
@@ -60,7 +62,6 @@ export function GradeScaleBar({
   rating,
   valueLabel,
   label,
-  showPattern = true,
 }: GradeScaleBarProps) {
   const scale = buildGradeScale(ratioToRequired, boundaries)
 
@@ -90,7 +91,7 @@ export function GradeScaleBar({
         <div className="grade-scale-bar__bands">
           {scale.bands.map((band) => {
             const lower = band.rating.toLowerCase()
-            const pattern = showPattern ? gradePatternUrl(band.rating) : undefined
+            const pattern = gradePatternUrl(band.rating)
 
             return (
               <div
