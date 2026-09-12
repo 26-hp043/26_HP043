@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import re
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 #: 외부 LLM으로 내보내도 되는 키 (``PRD §16.3.1`` · `Q7` ⓐ).
 #:
@@ -122,10 +123,57 @@ def extract_numbers(text: str) -> list[str]:
     return found
 
 
+#: 도구 값을 허용할 때 함께 인정하는 **표시 자릿수**.
+#:
+#: ⚠️ **화면과 같은 자릿수로 말할 수 없으면 면책이 거짓이 된다.** 챗봇 면책은
+#: *「이 답변은 **화면의 계산 결과**를 풀어 쓴 것입니다」*인데(``PRD §6.3``), 도구는
+#: ``attained_cii``를 **6자리**로 내려주고 화면은 **3자리**로 보인다
+#: (``services/voyage_cii.SERIALIZATION_DIGITS`` vs ``DESIGN_SYSTEM §4.1`` 🔒).
+#:
+#: 그래서 모델이 화면과 같게 ``4.982``라고 쓰면 **폐기됐다** — 도구가 준
+#: ``4.982400``과 문자열이 다르기 때문이다. 값이 틀린 것이 아니라 **표기가 다른** 것이다.
+#:
+#: 제품의 표시 자릿수는 전부 3 이하다 — CII 3 · 연료·CO₂ 1 · 거리·일수 0
+#: (``DESIGN_SYSTEM §4.1``·``§4.2`` · ``frontend/src/display/format.ts``).
+_DISPLAY_PLACES = (0, 1, 2, 3)
+
+
+def _rounded_forms(token: str) -> set[str]:
+    """한 수치의 **표시 자릿수 표기**들. 값은 그대로이고 자릿수만 줄인다.
+
+    ``4.9824`` → ``{4.9824, 5, 5.0, 4.98, 4.982}``
+
+    파생 계산은 여전히 막힌다 — ``4.9824``와 ``5.045066``의 차 ``0.06``은 **어느
+    쪽의 반올림도 아니다.** 여기서 넓히는 것은 **같은 값의 다른 표기**뿐이다.
+    """
+    forms = {token}
+    if "." not in token:
+        return forms
+    try:
+        value = Decimal(token)
+    except InvalidOperation:  # pragma: no cover - 정규식이 걸러 여기 오지 않는다
+        return forms
+    for places in _DISPLAY_PLACES:
+        quantum = Decimal(1).scaleb(-places)
+        shown = value.quantize(quantum, rounding=ROUND_HALF_UP)
+        text = f"{shown:f}"
+        forms.add(text)
+        if "." in text:
+            forms.add(text.rstrip("0").rstrip("."))
+    return forms
+
+
 def _tool_output_numbers(tool_outputs: list[str]) -> set[str]:
+    """허용 집합 — 도구가 준 수치와 **그 표시 자릿수 표기**.
+
+    ``IT-CHAT-008``이 「막을 것은 표기가 아니라 **출처**」를 세웠다. 종전 구현은
+    끝자리 0만 다뤘고 **반올림은 다루지 않아**, 같은 성질의 표기 차이 중 한쪽만
+    허용하고 있었다 — 위 :data:`_DISPLAY_PLACES` 참조.
+    """
     numbers: set[str] = set()
     for output in tool_outputs:
-        numbers.update(extract_numbers(output))
+        for token in extract_numbers(output):
+            numbers.update(_rounded_forms(token))
     return numbers
 
 

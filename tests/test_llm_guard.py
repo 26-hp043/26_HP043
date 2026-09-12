@@ -1,6 +1,6 @@
 """챗봇 가드 둘 — 전송 화이트리스트와 수학 검증 (#120).
 
-케이스: IT-CHAT-001 ~ IT-CHAT-009 (`TEST_PLAN §3.17`)
+케이스: IT-CHAT-001 ~ IT-CHAT-009 · IT-CHAT-050~051 (`TEST_PLAN §3.17`)
 
 ``PRD §20 O-12`` 3대 봉쇄 원칙 중 둘을 코드가 실제로 막는지 본다.
 
@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from cii_platform.services.llm_guard import (
+    _DISPLAY_PLACES,
     OUTBOUND_FORBIDDEN_EXAMPLES,
     OUTBOUND_WHITELIST,
     NumberFabricationError,
@@ -129,6 +130,65 @@ def test_trailing_zeros_are_the_same_number():
     아니라 출처**다.
     """
     verify_numbers("attained 4.980입니다.", ['{"attained_cii": "4.98"}'])
+
+
+def test_display_rounding_is_a_notation_difference_not_a_new_value():
+    """IT-CHAT-050 — ⚠️ **화면 자릿수로 인용해도 통과한다** (2026-09-13 실측 결함).
+
+    도구는 ``attained_cii``를 **6자리**로 내려주고 화면은 **3자리**로 보인다
+    (`services/voyage_cii.SERIALIZATION_DIGITS` vs `DESIGN_SYSTEM §4.1` 🔒).
+    종전에는 모델이 화면과 같게 ``4.982``라고 쓰면 **폐기됐다.**
+
+    **면책이 「이 답변은 화면의 계산 결과를 풀어 쓴 것입니다」인데, 화면과 같은
+    자릿수로 말할 수 없으면 그 면책이 거짓이 된다.**
+
+    `IT-CHAT-008`이 이미 「막을 것은 표기가 아니라 **출처**」를 세웠다 — 끝자리 0만
+    다루고 반올림은 다루지 않아 **같은 성질의 표기 차이 중 한쪽만** 허용하고 있었다.
+    """
+    tool = ['{"attained_cii": "4.982400", "required_cii": "5.045066"}']
+    verify_numbers("attained CII는 4.982입니다.", tool)  # 화면 자릿수(3)
+    verify_numbers("required CII는 5.045입니다.", tool)  # 화면 자릿수(3)
+    verify_numbers("attained CII는 4.98입니다.", tool)  # 더 줄여도 같은 값
+
+
+def test_display_rounding_does_not_open_derived_numbers():
+    """IT-CHAT-051 — ⚠️ 표기를 넓혀도 **파생 계산은 그대로 막힌다**.
+
+    `IT-CHAT-050`이 넓히는 것은 **같은 값의 다른 표기**뿐이다. 두 값의 차는 어느
+    쪽의 반올림도 아니므로 여전히 걸린다 — **빼기도 계산이다.**
+
+    이 검사가 없으면 「표기 허용」이 「계산 허용」으로 번져도 아무도 모른다.
+    """
+    tool = ['{"attained_cii": "4.982400", "required_cii": "5.045066"}']
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("required보다 0.06 낮습니다.", tool)  # 차 — 파생
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("attained CII는 7.31입니다.", tool)  # 지어낸 값
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("1200해리 항해입니다.", tool)  # 도구가 주지 않은 수
+
+
+def test_allowed_places_cover_every_display_precision_the_product_uses():
+    """IT-CHAT-052 — 허용 자릿수가 **화면이 쓰는 자릿수를 전부 덮는다**.
+
+    ⚠️ **화면 자릿수가 늘면 다시 폐기가 시작된다.** 누군가 CII 표시를 4자리로 바꾸면
+    모델이 화면과 같게 말할 때마다 답이 버려지고, 증상은 「챗봇이 가끔 답을 안 준다」로
+    나타나 **원인을 찾기 어렵다.**
+
+    그래서 화면 쪽 정본(`frontend/src/display/format.ts` `DISPLAY_DIGITS` —
+    `DESIGN_SYSTEM §4.2`가 소유)을 읽어 대조한다. 값을 옮겨 적지 않는다 — 옮겨 적으면
+    한쪽만 바뀐다.
+    """
+    fmt = (
+        Path(__file__).resolve().parents[1] / "frontend" / "src" / "display" / "format.ts"
+    ).read_text(encoding="utf-8")
+    block = fmt.split("export const DISPLAY_DIGITS = {", 1)[1].split("} as const", 1)[0]
+    digits = [int(m) for m in re.findall(r"^\s*\w+:\s*(\d+),", block, re.M)]
+    assert digits, "DISPLAY_DIGITS를 읽지 못했다 — 형식이 바뀌었는지 확인할 것"
+    assert max(digits) <= max(_DISPLAY_PLACES), (
+        f"화면 자릿수 최대 {max(digits)} > 허용 {max(_DISPLAY_PLACES)} — "
+        "`llm_guard._DISPLAY_PLACES`를 함께 넓힐 것"
+    )
 
 
 def test_years_and_single_digits_do_not_trip_the_guard():
