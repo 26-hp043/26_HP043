@@ -498,6 +498,10 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.vessels[].position_updated_at",
             "data.vessels[].risk_level",
             "data.vessels[].risk_reasons",
+            # `#763` 항로선. **하위 키는 여기 적지 않는다** — 진행 중 항차가 없거나
+            # 좌표가 비면 `null`이라 키 자체가 나오지 않는다. 하위 구조는
+            # `test_fleet_route_db.py`가 좌표를 심어 두고 본다.
+            "data.vessels[].route",
             "data.vessels[].ship_type",
             "data.vessels[].unavailable_reason",
             "data.vessels[].underway_state",
