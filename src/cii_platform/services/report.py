@@ -423,6 +423,75 @@ async def _not_underway_section(
     )
 
 
+def _self_check_section(
+    *,
+    ytd: dict[str, object],
+    year_row: dict[str, object],
+) -> TableSection:
+    """제출 전 자체 점검 (``PRD §21`` 「공식 보고서 보조」 · `#770`).
+
+    ## 새 리포트가 아니라 절이다
+
+    `PRD §25.1`이 **「대관 제출용 공식 보고서 생성」을 하지 않는다**로 못박았다. 「제출 전
+    검토용」이라는 이름의 **별도 문서**를 만들면 그 경계가 흐려진다 — 받는 사람은 제목으로
+    용도를 읽는다. 같은 데이터를 보는 **절 하나**를 연간 실적 리포트 안에 둔다.
+
+    ## 무엇을 적는가
+
+    「우리가 가진 값이 어떤 상태인가」다. 검증기관이 물을 것을 미리 훑는 자리이지, 그
+    양식을 흉내 내는 자리가 아니다(`§21`의 「보조」).
+
+    - **대체 계산** — 실적 대신 계획값을 쓴 항차가 몇 건인가(`ytd.substitutions` · `#449`).
+      축(연료·거리)으로 나눈다: 고칠 곳이 다르다
+    - **실적 미입력** — 진행 중 항차가 몇 건 섞여 있는가. 확정 전 값이라 제출 전에 닫아야 한다
+
+    **제원 결측은 여기서 세지 않는다.** 용량 축(DWT·GT)이 비면 YTD 계산이 서지 않아
+    **리포트 생성 자체가 422로 막힌다**(`services/ytd_cii.py`). 이 표에 행을 두면 늘
+    「확인」만 찍히는 죽은 칸이 된다 — 처음에 두었다가 검사에서 드러나 뺐다.
+
+    화면(`#513` 2-11 데이터 점검)과 재료가 같다. **나누는 기준은 매체다** — 화면은 고치러
+    들어가는 자리이고, 이 절은 인쇄물에 남기는 요약이다.
+    """
+    substitutions = ytd.get("substitutions") or []
+    fuel_rows = [item for item in substitutions if item.get("axis") == "FUEL"]
+    distance_rows = [item for item in substitutions if item.get("axis") == "DISTANCE"]
+    in_progress = int(year_row.get("in_progress_voyage_count") or 0)
+
+    def _verdict(count: int) -> str:
+        return "확인 필요" if count else "이상 없음"
+
+    rows = [
+        [
+            "연료 대체 계산",
+            f"{len(fuel_rows)}건",
+            _verdict(len(fuel_rows)),
+            "실적 연료가 없어 계획값으로 계산했습니다",
+        ],
+        [
+            "거리 대체 계산",
+            f"{len(distance_rows)}건",
+            _verdict(len(distance_rows)),
+            "실적 거리가 없어 계획값으로 계산했습니다",
+        ],
+        [
+            "실적 미입력 (진행 중)",
+            f"{in_progress}건",
+            _verdict(in_progress),
+            "확정 전 항차가 누적에 섞여 있습니다",
+        ],
+    ]
+
+    return TableSection(
+        title="제출 전 자체 점검",
+        headers=["점검 항목", "건수", "판정", "뜻"],
+        rows=rows,
+        note=(
+            "제출용 문서가 아닙니다. 검증기관에 내기 전에 우리 데이터의 상태를 훑는"
+            " 내부 자료이며, 이 표의 「이상 없음」은 규제 적합 판정이 아닙니다."
+        ),
+    )
+
+
 def _voyage_count_cell(row: dict[str, object]) -> str:
     """연도별 추이 표의 항차 칸 — 진행분이 거리·연료에 들어갔으면 함께 적는다 (`#800`).
 
@@ -554,6 +623,10 @@ async def build_annual_report(
             ],
         ),
         await _not_underway_section(session, vessel_id=vessel_id, year=target_year),
+        # `PRD §21` 「공식 보고서 보조」 — 제출 **전에** 우리 데이터의 상태를 훑는 절이다
+        # (`#770`). 별도 리포트로 만들지 않는다: 「제출 전 검토용」이라는 제목의 문서가
+        # 따로 있으면 `§25.1`의 「대관 제출용은 하지 않는다」와 경계가 흐려진다.
+        _self_check_section(ytd=ytd, year_row=year_row),
     ]
 
     # 연말 예상은 **가정과 함께** 싣는다 (`PRD §3.3` ⑶). 값만 실으면 확정값처럼 읽힌다.
