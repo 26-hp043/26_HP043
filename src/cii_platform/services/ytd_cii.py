@@ -194,6 +194,15 @@ class YtdCiiOutput:
     underway_co2_g: Decimal | None = None
     not_underway_co2_g: Decimal | None = None
     fuel_breakdown_g: dict[str, Decimal] | None = None
+    #: 유종별 **투입 톤** 합계 — 두 갈래(항해 중 + not under way)를 합친다 (`#769`).
+    #:
+    #: ``fuel_breakdown_g``와 축이 같고 단위만 다르지만, 둘을 **함께** 실어야
+    #: 「많이 넣었는데 배출이 적은 연료」가 보인다. CO₂만 있으면 유종별 CF 차이가
+    #: 투입량 차이에 가려지고, 톤만 있으면 CII에 미친 영향을 알 수 없다.
+    #:
+    #: ``fuel_breakdown_g``와 달리 ``data_available``가 ``False``여도 채워진다 —
+    #: Layer 1을 타지 않는 값이라 거리가 0인 해에도 집계할 수 있다.
+    fuel_ton_breakdown: dict[str, Decimal] = field(default_factory=dict)
     underway_distance_nm: Decimal | None = None
     not_underway_distance_nm: Decimal | None = None
     total_distance_nm: Decimal | None = None
@@ -357,9 +366,8 @@ async def compute_ytd_cii(
         )
     )
 
-    total_fuel_ton = sum(aggregated.underway_fuel.values(), Decimal(0)) + sum(
-        (Decimal(row.fuel_ton) for row in aggregated.not_underway_fuel), Decimal(0)
-    )
+    fuel_ton_breakdown = _fuel_ton_breakdown(aggregated)
+    total_fuel_ton = sum(fuel_ton_breakdown.values(), Decimal(0))
 
     # 분모는 두 갈래의 **합**이다 (MEPC.412(84) §4.2).
     total_distance_nm = aggregated.underway_distance_nm + aggregated.not_underway_distance_nm
@@ -381,6 +389,7 @@ async def compute_ytd_cii(
             not_underway_distance_nm=aggregated.not_underway_distance_nm,
             total_distance_nm=total_distance_nm,
             total_fuel_ton=total_fuel_ton,
+            fuel_ton_breakdown=fuel_ton_breakdown,
             voyage_count=aggregated.voyage_count,
             in_progress_voyage_count=0 if in_progress is None else 1,
             not_underway_period_count=period_count,
@@ -455,10 +464,27 @@ async def compute_ytd_cii(
         not_underway_distance_nm=aggregated.not_underway_distance_nm,
         total_distance_nm=layer1.ytd.total_distance_nm,
         total_fuel_ton=total_fuel_ton,
+        fuel_ton_breakdown=fuel_ton_breakdown,
         voyage_count=aggregated.voyage_count,
         in_progress_voyage_count=0 if in_progress is None else 1,
         not_underway_period_count=period_count,
     )
+
+
+def _fuel_ton_breakdown(aggregated: _Aggregated) -> dict[str, Decimal]:
+    """유종별 투입 톤을 두 갈래에서 모아 합친다 (`#769`).
+
+    ``_Aggregated``는 유종을 **CF snapshot과 묶어** 들고 있다(`#863` — CF가 개정되면
+    같은 유종에 snapshot이 둘 이상 생긴다). 배출량 계산은 묶음별로 해야 맞지만,
+    **투입량은 유종 하나로 합쳐야** 사용자가 읽을 수 있다 — 화면에 `HFO`가 CF만 다른
+    두 줄로 나오면 같은 기름을 두 종류로 읽는다.
+    """
+    totals: dict[str, Decimal] = {}
+    for (code, _cf), ton in aggregated.underway_fuel.items():
+        totals[code] = totals.get(code, Decimal(0)) + ton
+    for row in aggregated.not_underway_fuel:
+        totals[row.fuel_type] = totals.get(row.fuel_type, Decimal(0)) + Decimal(row.fuel_ton)
+    return totals
 
 
 # --- 집계 -------------------------------------------------------------------------

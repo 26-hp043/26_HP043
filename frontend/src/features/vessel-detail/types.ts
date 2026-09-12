@@ -19,6 +19,25 @@ import type { PositionPayload } from './positionRules'
 /** 연도 상태 — 확정은 연말 DCS 보고·검증 이후다(`PRD §3.3.7` 각주). */
 export type YearStatus = 'CONFIRMED' | 'IN_PROGRESS'
 
+/**
+ * 한 해의 **유종 한 줄** (`#769` · `API_SPEC §2.7`).
+ *
+ * 비중은 **CO₂ 기준**이다 — CII의 분자가 배출량이라, 「어느 연료가 등급을 끌고
+ * 있나」를 톤으로 말하면 CF가 낮은 연료를 많이 쓴 해가 실제보다 나빠 보인다.
+ *
+ * 배출량이 없는 해(거리 0이라 Layer 1을 타지 않은 해)는 `co2*`가 `null`이고 톤만
+ * 있다. 그 해를 빼면 「정박만 한 해」가 연료축에서 통째로 사라진다.
+ *
+ * 내보내지 않는다 — `CiiYear` 안에서만 쓰인다(`#594` 미참조 export 규율).
+ */
+interface CiiYearFuel {
+  fuelType: string
+  /** 표시용 문자열 — 되돌려 계산하지 않는다(`API_SPEC §1.7`). */
+  fuelTon: string
+  co2Ton: string | null
+  co2SharePercent: string | null
+}
+
 export interface CiiYear {
   regulationYear: number
   status: YearStatus
@@ -39,6 +58,8 @@ export interface CiiYear {
   inProgressVoyageCount: number
   totalDistanceNm: string | null
   totalFuelTon: string | null
+  /** 유종별 내역 (`#769`). **늘 배열이다** — 실적이 없는 해는 빈 배열. */
+  fuels: CiiYearFuel[]
 }
 
 export interface VesselSpec {

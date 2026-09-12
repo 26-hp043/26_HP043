@@ -84,6 +84,13 @@ interface ServerYear {
   in_progress_voyage_count?: number
   total_distance_nm: string | null
   total_fuel_ton: string | null
+  /** `#769`. 없는 응답(구버전 서버)이면 빈 배열로 읽는다. */
+  fuels?: Array<{
+    fuel_type: string
+    fuel_ton: string
+    co2_ton: string | null
+    co2_share_percent: string | null
+  }>
 }
 
 /** 숫자로 와도 문자열로 통일한다 — 화면은 표시만 하므로 형을 하나로 둔다. */
@@ -130,6 +137,12 @@ function toYear(raw: ServerYear): CiiYear {
     inProgressVoyageCount: raw.in_progress_voyage_count ?? 0,
     totalDistanceNm: raw.total_distance_nm,
     totalFuelTon: raw.total_fuel_ton,
+    fuels: (raw.fuels ?? []).map((fuel) => ({
+      fuelType: fuel.fuel_type,
+      fuelTon: fuel.fuel_ton,
+      co2Ton: fuel.co2_ton,
+      co2SharePercent: fuel.co2_share_percent,
+    })),
   }
 }
 
