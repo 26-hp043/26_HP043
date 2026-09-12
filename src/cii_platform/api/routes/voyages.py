@@ -23,6 +23,7 @@ from cii_platform.auth.dependencies import require_csrf
 from cii_platform.db.session import get_session
 from cii_platform.errors import ValidationError
 from cii_platform.services import audit as audit_svc
+from cii_platform.services.not_underway_import import import_not_underway_periods
 from cii_platform.services.voyage import (
     create_voyage,
     delete_voyage,
@@ -202,6 +203,16 @@ async def delete_voyage_route(
     return {"data": data, "meta": _meta(request)}
 
 
+#: ``type`` 값 → 가져오기 함수 (`API_SPEC §8.2` 표 · `#765`).
+#:
+#: **표를 코드가 갖는다.** 값마다 `if`를 늘리면 새 종류를 더할 때 검증·분기·문서가
+#: 따로 놀고, `§8.2` 표에 없는 값이 조용히 통과하는 경로가 생긴다.
+_IMPORTERS = {
+    "voyages": import_voyages,
+    "not_underway_periods": import_not_underway_periods,
+}
+
+
 @router.post("/vessels/{vessel_id}/import")
 async def import_voyages_route(
     request: Request,
@@ -209,7 +220,9 @@ async def import_voyages_route(
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
     file: Annotated[UploadFile, File(description="CSV 파일 (UTF-8, BOM 허용)")],
-    type: Annotated[str, Form(description="가져올 자료 종류. 현재는 voyages뿐")] = "voyages",
+    type: Annotated[
+        str, Form(description="가져올 자료 종류 — voyages · not_underway_periods")
+    ] = "voyages",
     dry_run: Annotated[bool, Query(description="검증만 하고 저장하지 않는다 (#60)")] = False,
 ) -> dict[str, object]:
     """항차 CSV를 가져온다 (API_SPEC §8.2, #60).
@@ -217,11 +230,11 @@ async def import_voyages_route(
     **vessel-scoped다.** CSV에 선박 식별자가 없고, 있어도 경로와 다르면 무엇을 따를지
     정해야 한다 — 경로 하나로 두면 그 물음 자체가 생기지 않는다.
 
-    ``type``은 폼 필드로 받되 현재 값은 ``voyages`` 하나다(§8.2 표). 다른 값을
-    **조용히 무시하지 않고** 거부한다 — 무시하면 사용자는 `calculations`를 올렸다고
-    믿는데 항차가 들어간다.
+    ``type``은 폼 필드로 받는다(§8.2 표). 값은 ``voyages``와 ``not_underway_periods``
+    둘이며(`#765`), 모르는 값은 **조용히 무시하지 않고** 거부한다 — 무시하면 사용자는
+    정박 구간을 올렸다고 믿는데 항차가 들어가거나 아무것도 안 들어간다.
     """
-    if type != "voyages":
+    if type not in _IMPORTERS:
         raise ValidationError(
             f"지원하지 않는 가져오기 종류입니다: {type}",
             field="type",
@@ -229,7 +242,7 @@ async def import_voyages_route(
         )
 
     content = await file.read()
-    data = await import_voyages(
+    data = await _IMPORTERS[type](
         session,
         vessel_id,
         content=content,
