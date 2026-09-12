@@ -15,7 +15,13 @@ import {
   type ComparisonFormState,
   type FormErrors,
 } from './requestRules'
-import { matchSamplePort, portOptionLabel, useSamplePorts } from '../ports/samplePorts'
+import {
+  LOOKUP_SOURCE_NOTICE,
+  lookupPort,
+  matchSamplePort,
+  portOptionLabel,
+  useSamplePorts,
+} from '../ports/samplePorts'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -135,6 +141,11 @@ export function ScenarioComparison({
   const ports = useSamplePorts()
   const [currentPortText, setCurrentPortText] = useState('')
   const [errors, setErrors] = useState<FormErrors>({})
+  // 목적항 좌표 찾기 상태 (#768). 실패해도 폼을 막지 않으므로 오류가 아니라 안내다.
+  const [lookup, setLookup] = useState<{ status: 'idle' | 'loading' | 'done'; message: string }>({
+    status: 'idle',
+    message: '',
+  })
   const [state, setState] = useState<LoadState>({ status: 'idle' })
 
   /*
@@ -536,6 +547,40 @@ export function ScenarioComparison({
         />
         {form.destinationLat !== '' && (
           <span className="scenario-comparison__field-hint">샘플 항만 — 좌표가 함께 쓰입니다.</span>
+        )}
+        {/*
+          목록 밖 항만은 **누르면** 좌표를 찾는다 (#768). 입력 중에 부르지 않는 이유는
+          공개 Nominatim 사용 정책이 자동완성을 금지하기 때문이다 — 타이핑에 붙이면
+          곧바로 위반이다. 실패해도 폼은 그대로 쓸 수 있다(`PRD §16.2`).
+        */}
+        {form.destinationPortName.trim().length >= 2 && form.destinationLat === '' && (
+          <button
+            type="button"
+            className="scenario-comparison__lookup"
+            onClick={async () => {
+              setLookup({ status: 'loading', message: '' })
+              const result = await lookupPort(form.destinationPortName.trim())
+              if (result.ok) {
+                setForm((current) => ({
+                  ...current,
+                  destinationLat: String(result.port.lat),
+                  destinationLon: String(result.port.lon),
+                }))
+                setLookup({
+                  status: 'done',
+                  message: LOOKUP_SOURCE_NOTICE[result.port.source] ?? '',
+                })
+                return
+              }
+              setLookup({ status: 'done', message: result.message })
+            }}
+            disabled={lookup.status === 'loading'}
+          >
+            {lookup.status === 'loading' ? '찾는 중…' : '좌표 찾기'}
+          </button>
+        )}
+        {lookup.message !== '' && (
+          <span className="scenario-comparison__field-hint">{lookup.message}</span>
         )}
       </label>
 

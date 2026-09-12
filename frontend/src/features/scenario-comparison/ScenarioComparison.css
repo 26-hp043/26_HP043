@@ -596,3 +596,26 @@
   font-weight: var(--font-weight-body);
   margin-right: var(--space-8);
 }
+
+/* 목적항 좌표 찾기 (#768) — 칸 안의 보조 동작이라 제출 버튼보다 약하게 둔다. */
+.scenario-comparison__lookup {
+  align-self: flex-start;
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-8);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--semantic-primary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.scenario-comparison__lookup:hover:not(:disabled) {
+  background: var(--surface-subtle);
+}
+
+.scenario-comparison__lookup:disabled {
+  color: var(--text-muted);
+  cursor: progress;
+}

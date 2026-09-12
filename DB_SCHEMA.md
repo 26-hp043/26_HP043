@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.19 |
+| 버전 | v1.20 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-09-11 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1034,6 +1034,47 @@ CREATE UNIQUE INDEX idx_sim_param_unique ON simulation_parameter (profile, varia
 
 `voyage_fuel_use.cf_used`가 CF 개정에 대해 하는 일과 같은 처리다(`#378`).
 
+### 2.20 `port_geocode` — 항만명 좌표 조회 캐시 (#768)
+
+**캐시는 선택이 아니라 의무다.** 공개 Nominatim 사용 정책이 *"Results must be cached on your side"*로 요구하고, 같은 질의를 반복하면 차단 대상이 된다(`PRD §22` 참고문헌 11). 이 표는 성능이 아니라 **정책 준수의 실체**다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, `gen_random_uuid()` | |
+| `query` | VARCHAR(200) | NOT NULL, **UNIQUE** | 정규화한 질의(공백 정리 + 대문자). 같은 이름을 두 번 묻지 않는 키 |
+| `raw_query` | VARCHAR(200) | NOT NULL | 사용자가 넣은 원문 |
+| `display_name` | VARCHAR(500) | NOT NULL | 제공자가 준 표시명. **무엇으로 찾았는지**를 사람이 확인하는 근거 |
+| `lat` | NUMERIC(9,6) | NOT NULL | |
+| `lon` | NUMERIC(9,6) | NOT NULL | |
+| `kind` | VARCHAR(50) | NOT NULL | 항만 판정에 쓴 분류 (`harbour` · `port` · `ferry_terminal` · `anchorage`) |
+| `source` | VARCHAR(50) | NOT NULL | 제공자 (`nominatim`) |
+| `fetched_at` | TIMESTAMPTZ | NOT NULL | 조회 시각 |
+| `created_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
+
+```sql
+CREATE TABLE port_geocode (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    query         VARCHAR(200)  NOT NULL,
+    raw_query     VARCHAR(200)  NOT NULL,
+    display_name  VARCHAR(500)  NOT NULL,
+    lat           NUMERIC(9,6)  NOT NULL,
+    lon           NUMERIC(9,6)  NOT NULL,
+    kind          VARCHAR(50)   NOT NULL,
+    source        VARCHAR(50)   NOT NULL,
+    fetched_at    TIMESTAMPTZ   NOT NULL,
+    created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    CONSTRAINT uq_port_geocode_query UNIQUE (query)
+);
+```
+
+> **샘플 항만(`services/sample_ports.py` 43곳)과 섞지 않는다.** 그쪽은 **NGA World Port Index를 옮긴 고정 목록**이고 코드 상수다(`#760`이 「테이블로 두면 마이그레이션·시드·보존 분류가 따라오는데 얻는 것이 없다」고 판단했다). 이 표는 **사용자 질의로 생긴 외부 조회 결과**다 — 한 표에 담으면 **어느 좌표가 어디서 왔는지 말할 수 없게 된다.**
+>
+> **FK가 없다.** 항차에는 좌표 **값이 복사돼** 들어가므로(`voyage`의 출발·도착 좌표) 이 행을 지워도 항차는 온전하다. 그래서 캐시를 비우는 것이 안전하다 — 다시 물으면 다시 채워진다.
+>
+> **보존 분류**: 캐시라 보존 의무가 없다(`§8` 참조). 비워도 잃는 것은 다음 조회의 왕복 한 번뿐이다.
+
+---
+
 ## 3. 시드 데이터
 
 ### 3.1 규정 연도 Z-factor
@@ -1581,3 +1622,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-11 | `#830` | §2.7 `simulation_snapshot` `[X-2]` 각주 정정 — 「유일한 예외는 `needs_recalc` 플립」은 §2.5 `calculation_run` 각주의 **통째 복사**였다. 이 테이블엔 그 컬럼이 없고 트리거는 예외 없는 `prevent_mutation()`이다(§7.3 · 마이그레이션 009). `AGENTS §4.3`상 각주 정정이라 버전은 올리지 않는다 (#830) |
 | 2026-09-12 | `#827` | **§8.1.2 해제 조건에 「24시간 안의 백업 기록」 추가** + §2.14 `action`에 `DB_BACKUP` · 각주. 2026-09-11 결정 2-⑤ 「프로덕션에서 특정 리비전 이하 downgrade 차단 + `#827` 백업과 연계」의 뒷부분이다 — `#819`가 차단을 넣었으나 백업은 오류 문구에만 있었고, 백업 수단 자체가 저장소에 없었다(`scripts/`에 `pg_dump` 0건). `scripts/db_backup.py`(백업 · 복구 리허설 · 교체)가 덤프를 검증한 뒤 감사 로그에 남기고, 가드가 마이그레이션 연결로 그 행을 읽는다. 행·각주·항목 추가라 버전은 올리지 않는다 (#827) |
 | 2026-09-12 | `#904` | §2.5 `weather_snapshot_id` 컬럼 설명 · `[#102]` 각주 · `VOYAGE_ESTIMATE` 필드 표 `weather_snapshot_id`·`weather_factor` 행 정정. **`weather_factor`는 「어디에도 기록되지 않는다」가 아니었다** — 기상 보정을 적용하는 유일한 계산인 기능②가 `result_json.scenarios[].weather_factor`에 이미 적고 있었고(개발 DB 252건 전부), 보고는 기능① 행을 본 것이었다(기능①은 연료량이 입력이라 인자가 정의상 `1.0`). 정작 빈 곳은 **컬럼**이었다: 삽입 경로가 `None` 고정이라 보정한 계산도 스냅샷을 가리키지 않았다 — 기능②가 쓴 스냅샷을 적도록 고쳤다. 새 `weather_factor` 컬럼은 같은 값을 두 곳에 두게 되어 두지 않았다. 스키마·마이그레이션 변경 없음. `AGENTS §4.3` 「각주 보강·오기 정정」이라 버전은 올리지 않는다 (#904) |
+| 2026-09-12 | `#768` | **v1.20 — §2.20 `port_geocode` 신설**(마이그레이션 039). 항만명을 좌표로 바꾸는 경로가 없어 사용자가 개발자도구로 좌표를 찾아야 했다(`PRD §1 COR-5`). 공개 Nominatim 사용 정책이 **결과 캐시를 요구**하므로 이 표는 성능이 아니라 **정책 준수의 실체**다. 샘플 항만 43곳(코드 상수 · NGA WPI)과 **섞지 않는다** — 출처가 다르고, 한 표에 담으면 어느 좌표가 어디서 왔는지 말할 수 없게 된다. FK를 두지 않는다: 항차에는 좌표 값이 복사돼 들어가므로 캐시를 비워도 항차가 온전하다 (#768) |
