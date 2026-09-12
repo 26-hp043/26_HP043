@@ -50,32 +50,39 @@ API_VERSION = "2023-06-01"
 TIMEOUT_SECONDS = 30.0
 
 
-def _split_system(messages: list[dict[str, str]]) -> tuple[str | None, list[dict[str, str]]]:
+def _split_system(
+    messages: list[dict[str, object]],
+) -> tuple[str | None, list[dict[str, object]]]:
     """``system`` 역할을 본문에서 떼어낸다.
 
     Anthropic은 ``system``을 **메시지 배열이 아니라 별도 필드**로 받는다. 배열에
     남겨 보내면 400이다. 오케스트레이션은 역할 하나로 다루는 편이 단순하므로
     **여기서 갈라 준다** — 공급자 규격을 서비스가 알 필요는 없다.
     """
-    system = "\n".join(m["content"] for m in messages if m.get("role") == "system") or None
+    system = "\n".join(str(m["content"]) for m in messages if m.get("role") == "system") or None
     rest = [m for m in messages if m.get("role") != "system"]
     return system, rest
 
 
-def _merge_consecutive(messages: Iterable[dict[str, str]]) -> list[dict[str, str]]:
-    """같은 역할이 이어지면 하나로 합친다.
+def _merge_consecutive(messages: Iterable[dict[str, object]]) -> list[dict[str, object]]:
+    """같은 역할이 **글자로** 이어지면 하나로 합친다.
 
-    ⚠️ 도구 응답을 ``user``로 되돌려 넣기 때문에(``services/chat.py``) **``user``가
-    연달아 두 번** 오는 일이 생긴다. Anthropic은 역할이 번갈아야 한다고 요구한다.
+    Anthropic은 역할이 번갈아야 한다고 요구한다. 이력이 어긋난 채 들어오는 경우를
+    대비한 방어다.
 
-    합치지 않고 ``assistant`` 빈 메시지를 끼우는 대안은 고르지 않았다 — 빈 응답이
-    이력에 남아 다음 호출의 입력 토큰을 늘리고, 모델이 그것을 「대답하지 못한 것」으로
-    읽는다.
+    ⚠️ **블록 목록은 합치지 않는다.** 도구 왕복의 ``tool_use``·``tool_result``는
+    짝으로 읽히므로, 합치면 짝이 깨진다. 문자열 둘일 때만 잇는다.
     """
-    merged: list[dict[str, str]] = []
+    merged: list[dict[str, object]] = []
     for message in messages:
-        if merged and merged[-1]["role"] == message["role"]:
-            merged[-1]["content"] = f"{merged[-1]['content']}\n{message['content']}"
+        previous = merged[-1] if merged else None
+        if (
+            previous is not None
+            and previous["role"] == message["role"]
+            and isinstance(previous["content"], str)
+            and isinstance(message["content"], str)
+        ):
+            previous["content"] = f"{previous['content']}\n{message['content']}"
         else:
             merged.append(dict(message))
     return merged
@@ -101,6 +108,8 @@ def _parse(payload: dict[str, Any]) -> LLMResponse:
                 ToolCall(
                     name=str(block.get("name") or ""),
                     arguments=dict(arguments) if isinstance(arguments, dict) else {},
+                    # 다음 요청의 `tool_result`가 이 id로 짝을 맞춘다.
+                    id=str(block.get("id") or ""),
                 )
             )
     return LLMResponse(text="\n".join(p for p in text_parts if p).strip(), tool_calls=tuple(calls))
@@ -127,7 +136,7 @@ class AnthropicProvider:
     async def complete(
         self,
         *,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, object]],
         tools: list[dict[str, object]] | None = None,
     ) -> LLMResponse:
         if not self._key:

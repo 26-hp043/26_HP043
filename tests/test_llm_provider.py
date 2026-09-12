@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -100,6 +102,85 @@ async def test_request_carries_the_output_cap_and_version_header() -> None:
     assert body["system"] == "규칙"  # type: ignore[index]
     assert seen["version"] == API_VERSION
     assert seen["key"] == "test-key"
+
+
+async def test_tool_round_trip_matches_the_documented_protocol() -> None:
+    """IT-CHAT-053 — ⚠️ 도구 왕복이 **벤더 규격 그대로** 나간다.
+
+    Anthropic Messages API는 짝을 요구한다 — 모델의 ``tool_use`` 블록을 **그대로
+    되돌려 보내고**, 같은 ``tool_use_id``를 단 ``tool_result``로 답해야 한다.
+
+    종전에는 도구 결과를 **평범한 `user` 문장**으로 보냈다. 오류가 나지는 않지만
+    모델이 **자기가 도구를 불렀다는 것을 모른 채** 데이터만 보고, 같은 도구를 다시
+    부를 수 있다. 「실제 모델이 도구를 제대로 고르는가」는 검사할 수 없으므로,
+    **요청 본문이 규격과 같은지**를 대신 잠근다.
+
+    ⚠️ 이 검사가 없으면 틀린 모양이 **키를 넣는 날 처음** 드러난다.
+    """
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["messages"] = json.loads(request.content)["messages"]
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "네."}]})
+
+    conversation = [
+        {"role": "user", "content": "등급 알려줘"},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "찾아보겠습니다."},
+                {"type": "tool_use", "id": "toolu_1", "name": "search_vessel", "input": {}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "toolu_1", "content": "{}"},
+            ],
+        },
+    ]
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await AnthropicProvider(key="k", client=client).complete(messages=conversation)
+
+    sent = seen["messages"]
+    assert [m["role"] for m in sent] == ["user", "assistant", "user"]  # type: ignore[union-attr]
+    tool_use = sent[1]["content"][1]  # type: ignore[index]
+    tool_result = sent[2]["content"][0]  # type: ignore[index]
+    assert tool_use["type"] == "tool_use"
+    assert tool_result["type"] == "tool_result"
+    # 짝을 맞추는 것이 이 id다 — 어긋나면 API가 요청을 거절한다.
+    assert tool_result["tool_use_id"] == tool_use["id"]
+
+
+def test_tool_use_id_survives_parsing() -> None:
+    """IT-CHAT-054 — 응답의 ``tool_use`` id를 **잃지 않는다**.
+
+    이 값을 흘리면 다음 요청의 ``tool_result``가 짝을 잃는다. ``ToolCall.id``의
+    기본값이 빈 문자열이라 **조용히 빈 채로 나갈 수 있다** — 그래서 단언한다.
+    """
+    response = _parse(
+        {"content": [{"type": "tool_use", "id": "toolu_9", "name": "x", "input": {}}]}
+    )
+    assert response.tool_calls[0].id == "toolu_9"
+
+
+def test_block_contents_are_not_merged_across_messages() -> None:
+    """IT-CHAT-055 — ⚠️ **블록 목록은 합치지 않는다**.
+
+    ``_merge_consecutive``는 이력이 어긋났을 때를 위한 방어인데, 도구 왕복의
+    블록까지 합치면 ``tool_use``·``tool_result`` 짝이 깨진다. 문자열 둘일 때만 잇는다.
+    """
+    merged = _merge_consecutive(
+        [
+            {"role": "user", "content": "질문"},
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t", "content": "{}"}],
+            },
+        ]
+    )
+    assert len(merged) == 2
+    assert isinstance(merged[1]["content"], list)
 
 
 async def test_http_failure_becomes_an_llm_error_without_the_body() -> None:
