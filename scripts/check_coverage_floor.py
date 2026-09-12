@@ -94,8 +94,9 @@ class Exemption:
 KNOWN_BELOW_FLOOR: dict[str, Exemption] = {
     "cii_platform/auth/dependencies.py": Exemption(
         65.0,
-        "require_session의 세션 조회 본문(135~162)이 검사에서 한 번도 실행되지 않는다 — "
-        "픽스처가 의존성 자체를 대체한다. #871·#828이 다룬 접합부 미검증의 잔여분이다",
+        "get_current_user의 DB 조회 본문(132~162)이 도달하지 않는다 — auth_middleware가 "
+        "모든 비공개 경로에서 request.state.session_user를 먼저 채우므로 캐시 확인에서 "
+        "반환된다. 검사 공백이 아니라 **중복 경로**다. 정리 판단은 #955 후속",
     ),
     "cii_platform/services/chat_tools.py": Exemption(
         60.0,
