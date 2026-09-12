@@ -23,7 +23,13 @@ from sqlalchemy import text
 from cii_platform.api.main import app
 from cii_platform.api.routes.chat import get_provider
 from cii_platform.llm.provider import FakeProvider, LLMResponse, ToolCall
-from cii_platform.services.chat import DISCARDED_MESSAGE, DISCLAIMER, TOOL_BUDGET_MESSAGE
+from cii_platform.services.chat import (
+    DISCARDED_MESSAGE,
+    DISCLAIMER,
+    REFUSAL_MESSAGE,
+    TOOL_BUDGET_MESSAGE,
+    TRUNCATED_MESSAGE,
+)
 
 _BASE = "https://testserver"
 
@@ -265,6 +271,75 @@ async def test_discarded_answer_is_not_stored(migrated_db, app_fresh_engine):
                 await s.execute(text("SELECT role FROM chat_message ORDER BY sent_at"))
             ).scalars()
             assert list(roles) == ["USER"]
+    finally:
+        await _cleanup()
+
+
+async def test_truncated_answer_is_discarded(migrated_db, app_fresh_engine):
+    """IT-CHAT-058 — ⚠️ **출력 상한에서 잘린 답을 보이지 않는다**.
+
+    문장 중간에서 끊긴 설명은 **뜻이 뒤집힐 수 있다**(「등급은 C가 아니라」에서
+    끊기면). 그런데 화면은 그것을 **완성된 답으로** 그린다.
+
+    벤더 문서는 `max_tokens`를 올리거나 이어 받으라고 적지만 **둘 다 하지 않는다** —
+    출력 상한은 `PRD §16.1` 가드 1이고, 이어 받는 것은 왕복을 늘려 가드 2와 부딪힌다.
+    """
+    _use(FakeProvider([LLMResponse(text="등급은 C가 아니라", stop_reason="max_tokens")]))
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post("/api/v1/chat", json={"message": "설명해줘"}, headers=headers)
+            assert response.status_code == 200
+            data = response.json()["data"]
+            assert data["discarded"] is True
+            assert data["answer"] == TRUNCATED_MESSAGE
+    finally:
+        await _cleanup()
+
+
+async def test_truncated_tool_call_is_not_executed(migrated_db, app_fresh_engine):
+    """IT-CHAT-059 — ⚠️ **잘린 응답으로는 도구도 돌리지 않는다**.
+
+    잘린 `tool_use` 블록은 **인자까지 잘려** 있을 수 있다(벤더 문서). 그대로 돌리면
+    **엉뚱한 값으로 계산**하고, ⚠️ **그 결과는 수학 검증을 통과한다** — 도구가 실제로
+    낸 값이기 때문이다. 가드가 못 잡는 자리라 여기서 막는다.
+    """
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                tool_calls=(ToolCall(name="search_vessel", arguments={"name": "A"}, id="t1"),),
+                stop_reason="max_tokens",
+            )
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            data = client.post("/api/v1/chat", json={"message": "찾아줘"}, headers=headers).json()[
+                "data"
+            ]
+            assert data["discarded"] is True
+            # 도구를 **부르지 않았다**.
+            assert data["tool_calls"] == []
+    finally:
+        await _cleanup()
+
+
+async def test_refusal_is_reported_without_inventing_a_reason(migrated_db, app_fresh_engine):
+    """IT-CHAT-060 — 모델이 거절하면 **사유를 지어내지 않는다**.
+
+    「왜 거절했는지」는 우리가 모른다. 추측해 적으면 그것이 곧 지어낸 말이다.
+    """
+    _use(FakeProvider([LLMResponse(text="", stop_reason="refusal")]))
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            data = client.post("/api/v1/chat", json={"message": "..."}, headers=headers).json()[
+                "data"
+            ]
+            assert data["discarded"] is True
+            assert data["answer"] == REFUSAL_MESSAGE
     finally:
         await _cleanup()
 

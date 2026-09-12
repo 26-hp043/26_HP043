@@ -33,6 +33,8 @@ from cii_platform.db.repositories import chat as chat_repo
 from cii_platform.llm.provider import (
     MAX_HISTORY_TURNS,
     MAX_TOOL_CALLS_PER_TURN,
+    STOP_REFUSAL,
+    STOP_TRUNCATED,
     LLMError,
 )
 from cii_platform.services import audit
@@ -58,6 +60,18 @@ DISCARDED_MESSAGE = (
 
 #: 도구 호출 상한에 걸렸을 때.
 TOOL_BUDGET_MESSAGE = "한 번에 처리하기에 너무 많은 조회가 필요합니다. 질문을 나눠서 물어봐 주세요."
+
+#: ⚠️ 응답이 **출력 상한에서 잘렸을 때**.
+#:
+#: 벤더 문서는 `max_tokens`를 올리거나 이어 받으라고 적지만 **둘 다 하지 않는다** —
+#: 출력 상한은 ``PRD §16.1`` 가드 1이고, 이어 받는 것은 왕복을 늘려 가드 2와 부딪힌다.
+#:
+#: **잘린 답을 그대로 보이지 않는다.** 문장 중간에서 끊긴 설명은 뜻이 뒤집힐 수 있고
+#: (「등급은 C가 아니라」에서 끊기면), 화면은 그것을 완성된 답으로 그린다.
+TRUNCATED_MESSAGE = "답변이 길어 중간에서 끊겼습니다. 질문을 나눠서 물어봐 주세요."
+
+#: 모델이 답하기를 거절했을 때. **사유를 지어내지 않는다.**
+REFUSAL_MESSAGE = "이 질문에는 답변하지 않았습니다. 다르게 물어봐 주세요."
 
 #: 모든 응답에 붙는 면책 (``PRD §6.3`` 챗봇 행 · `#120` 완료 기준).
 #:
@@ -148,6 +162,15 @@ async def answer(
         except LLMError as exc:
             # 공급자 실패는 숨기지 않되 **챗봇 안에서 끝난다** (`PRD §16.2`).
             return _result(str(exc), tool_outputs, used_tools, discarded=True)
+
+        if response.stop_reason == STOP_REFUSAL:
+            return _result(REFUSAL_MESSAGE, tool_outputs, used_tools, discarded=True)
+
+        # ⚠️ **잘린 응답으로는 도구도 돌리지 않는다.** `tool_use` 블록의 **인자가
+        # 잘려** 있을 수 있어(벤더 문서), 그대로 돌리면 **엉뚱한 값으로 계산한다** —
+        # 그리고 그 결과는 수학 검증을 통과한다(도구가 실제로 낸 값이므로).
+        if response.stop_reason in STOP_TRUNCATED:
+            return _result(TRUNCATED_MESSAGE, tool_outputs, used_tools, discarded=True)
 
         if not response.tool_calls:
             reply = response.text

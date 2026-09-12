@@ -112,7 +112,12 @@ def _parse(payload: dict[str, Any]) -> LLMResponse:
                     id=str(block.get("id") or ""),
                 )
             )
-    return LLMResponse(text="\n".join(p for p in text_parts if p).strip(), tool_calls=tuple(calls))
+    return LLMResponse(
+        text="\n".join(p for p in text_parts if p).strip(),
+        tool_calls=tuple(calls),
+        # ⚠️ **판정하지 않고 옮기기만 한다.** 무엇을 폐기할지는 서비스가 정한다.
+        stop_reason=str(payload.get("stop_reason") or ""),
+    )
 
 
 class AnthropicProvider:

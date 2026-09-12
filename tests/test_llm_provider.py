@@ -104,6 +104,16 @@ async def test_request_carries_the_output_cap_and_version_header() -> None:
     assert seen["key"] == "test-key"
 
 
+def test_stop_reason_is_carried_not_judged() -> None:
+    """IT-CHAT-057 — 공급자는 ``stop_reason``을 **옮기기만** 한다.
+
+    무엇을 폐기할지는 ``services/chat.py``가 정한다 — 공급자가 판정하면 정책이
+    두 곳에 생기고, 모델을 바꿀 때 함께 옮겨야 한다(`Q4` 교체 용이성).
+    """
+    assert _parse({"content": [], "stop_reason": "max_tokens"}).stop_reason == "max_tokens"
+    assert _parse({"content": []}).stop_reason == ""
+
+
 async def test_tool_round_trip_matches_the_documented_protocol() -> None:
     """IT-CHAT-053 — ⚠️ 도구 왕복이 **벤더 규격 그대로** 나간다.
 

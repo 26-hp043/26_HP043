@@ -99,15 +99,38 @@ class ToolCall:
     id: str = ""
 
 
+#: 응답이 **끝까지 나온** 상태 (`Anthropic Messages API` `stop_reason`).
+#:
+#: 나머지는 전부 「덜 나왔거나 못 낸」 상태다 — :data:`STOP_TRUNCATED` 참조.
+STOP_END_TURN = "end_turn"
+STOP_TOOL_USE = "tool_use"
+
+#: ⚠️ **응답이 잘린 상태.** 텍스트가 문장 중간에서 끊겼을 수 있고, 더 나쁘게는
+#: ``tool_use`` 블록의 **인자가 잘려** 있을 수 있다 — 그대로 도구를 돌리면 **엉뚱한
+#: 값으로 계산한다.**
+#:
+#: 벤더 문서가 *"Response is truncated"* 로 규정하며 `max_tokens`를 올리거나 이어
+#: 받으라고 적는다. **둘 다 하지 않는다** — 출력 상한은 `PRD §16.1` 가드 1이고,
+#: 이어 받는 것은 왕복을 늘려 가드 2와 부딪힌다.
+STOP_TRUNCATED = frozenset({"max_tokens", "model_context_window_exceeded"})
+
+#: 모델이 답하기를 거절한 상태.
+STOP_REFUSAL = "refusal"
+
+
 @dataclass(frozen=True)
 class LLMResponse:
     """한 번의 모델 호출 결과.
 
     ``tool_calls``가 비어 있으면 최종 응답이고, 있으면 도구를 부른 뒤 다시 물어야 한다.
+
+    :param stop_reason: 왜 멈췄는가. **판정은 여기서 하지 않는다** — 공급자는 값을
+        옮기기만 하고, 무엇을 폐기할지는 ``services/chat.py``가 정한다(계층 규칙).
     """
 
     text: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
+    stop_reason: str = ""
 
 
 class LLMProvider(Protocol):
