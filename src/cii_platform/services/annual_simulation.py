@@ -48,6 +48,7 @@ from cii_platform.calc.annual_simulation import (
     CompletedTotals,
     RemainingVoyage,
     analyze_sensitivity,
+    backsolve_required_cut,
     profile_from_rows,
     project_deterministic,
     simulate_annual,
@@ -658,6 +659,14 @@ async def run_annual_simulation(
         required_cii=required_cii,
         d_vector=d_vector,
     )
+    # `PRD §12.3.1` — 목표 역산. **같은 `deterministic`에서 파생시킨다.**
+    # 데이터를 다시 읽으면 「확률은 78%인데 감축량은 다른 전제」가 생긴다.
+    reduction_plan = backsolve_required_cut(
+        projection=deterministic,
+        remaining=remaining,
+        transport_capacity=transport_capacity,
+        target_rating=target_rating,
+    )
     outcome = simulate_annual(
         completed=completed,
         remaining=remaining,
@@ -704,6 +713,7 @@ async def run_annual_simulation(
 
     payload = _payload(
         deterministic=deterministic,
+        reduction_plan=reduction_plan,
         outcome=outcome,
         sensitivity=sensitivity,
         transport_capacity=transport_capacity,
@@ -952,6 +962,7 @@ def _parameters_used_v1(
 def _payload(
     *,
     deterministic,
+    reduction_plan,
     outcome,
     sensitivity,
     transport_capacity: Decimal,
@@ -990,6 +1001,18 @@ def _payload(
             "planned_W_capacity_nm": _publish(
                 transport_capacity * deterministic.planned_distance_nm
             ),
+        },
+        #
+        # `PRD §12.3.1` 필요 감축량 — **Monte Carlo를 부르지 않는다**(`UIFLOW 2-10`).
+        # 같은 `deterministic`에서 파생되므로 확률 결과와 전제가 갈릴 수 없다.
+        #
+        "reduction_plan": {
+            "target_rating": reduction_plan.target_rating,
+            "target_cii": _publish(reduction_plan.target_cii),
+            "allowed_planned_M_gco2": _publish(reduction_plan.allowed_planned_co2_g),
+            "required_cut_gco2": _publish(reduction_plan.required_cut_g),
+            "required_cut_fuel_ton": _publish(reduction_plan.required_cut_fuel_ton),
+            "achievable": reduction_plan.achievable,
         },
         "monte_carlo": {
             "rng_metadata": outcome.rng_metadata,
@@ -1282,6 +1305,9 @@ def _stored_payload(row) -> dict:
     사실과 조치를 함께 적는다.
     """
     payload = row.result_json or {}
+    # ⚠️ `reduction_plan`(`PRD §12.3.1` · `#433`)이 없는 실행은 **404로 끊지 않는다.**
+    # 그 블록이 생기기 전의 실행도 나머지는 온전하고, 없는 값을 지금 계산하면 위와
+    # 같은 이유로 조회가 아니라 재실행이 된다. 화면이 블록의 부재를 다룬다.
     if "deterministic" not in payload:
         raise NotFoundError(
             "이 실행은 결과 본문을 저장하기 전(#443)에 만들어져 조회할 수 없습니다. "
@@ -1668,6 +1694,14 @@ def _recompute(
         required_cii=required_cii,
         d_vector=d_vector,
     )
+    # 재현 경로도 같은 블록을 낸다 — `§6.2`가 「§6.1과 동일한 응답」을 규정하고,
+    # `§6.4`가 그 둘을 대조한다. 여기서 빠지면 **대조 대상이 달라진다.**
+    reduction_plan = backsolve_required_cut(
+        projection=deterministic,
+        remaining=remaining,
+        transport_capacity=transport_capacity,
+        target_rating=target_rating,
+    )
     outcome = simulate_annual(
         completed=completed,
         remaining=remaining,
@@ -1703,6 +1737,7 @@ def _recompute(
 
     return _payload(
         deterministic=deterministic,
+        reduction_plan=reduction_plan,
         outcome=outcome,
         sensitivity=sensitivity,
         transport_capacity=transport_capacity,

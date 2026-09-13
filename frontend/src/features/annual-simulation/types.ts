@@ -53,6 +53,26 @@ export interface DeterministicBlock {
 }
 
 /**
+ * 필요 감축량 — 목표 역산 (`PRD §12.3.1` · `#433`).
+ *
+ * **Monte Carlo를 부르지 않는다.** 같은 실행의 `deterministic`에서 파생되므로
+ * 확률 결과와 전제가 갈릴 수 없다.
+ */
+export interface ReductionPlanBlock {
+  target_rating: Rating
+  /** Layer 1 — 목표 등급의 경계값. 이 값 **이하**여야 그 등급이다 */
+  target_cii: string
+  /** Layer 1 — **음수일 수 있다.** 확정 실적만으로 이미 넘겼다는 뜻 */
+  allowed_planned_M_gco2: string
+  /** Layer 1 — **`"0"`이면 이미 목표를 넘고 있다** */
+  required_cut_gco2: string
+  /** Layer 1 — 잔여 계획이 없으면 `null`. 줄일 **대상이 없는 것**과 줄일 **것이 없는 것**은 다르다 */
+  required_cut_fuel_ton: string | null
+  /** `false`면 잔여 계획을 **전부 없애도** 목표에 닿지 못한다 */
+  achievable: boolean
+}
+
+/**
  * 재현성 메타데이터 — `TECH_SPEC §5.2`.
  *
  * **이 블록이 없으면 「이 seed로 다시 실행」이 거짓말이 된다.** 화면이 보관·표시해야
@@ -129,6 +149,14 @@ export interface AnnualSimulationResult {
   simulation_id: string
   calculation_run_id: string
   deterministic: DeterministicBlock
+  /**
+   * `PRD §12.3.1` 필요 감축량.
+   *
+   * ⚠️ **`#433` 이전에 만들어진 실행에는 없다** — `§6.2` 조회는 저장된 본문을
+   * 그대로 돌려주고, 지금 계산해 채우면 조회가 아니라 재실행이 된다. 화면이 부재를
+   * 다룬다(카드를 그리지 않는다).
+   */
+  reduction_plan?: ReductionPlanBlock
   monte_carlo: MonteCarloBlock
   /** `PRD §9.4.2` — **목표 달성 확률 기반**이다. 화면이 다시 판정하지 않는다 */
   risk_level: RiskLevel

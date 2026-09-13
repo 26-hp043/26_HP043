@@ -38,6 +38,7 @@ from cii_platform.calc.annual_simulation import (
     TriangularBand,
     _round,
     analyze_sensitivity,
+    backsolve_required_cut,
     project_deterministic,
     rng_metadata,
     simulate_annual,
@@ -943,3 +944,128 @@ def test_corrupted_version_field_is_rejected(bad):
     """
     with pytest.raises(ValueError, match="정수가 아닙니다"):
         parameters_schema_version({"parameter_schema_version": bad})
+
+
+# ── 필요 감축량 — 목표 역산 (PRD §12.3.1 · #433) ─────────────────────────────
+#
+# 정본이 산식을 그대로 준다.
+#
+#     allowed_M    = target_CII × (completed_W + planned_W) − completed_M
+#     required_cut = max(0, planned_M − allowed_M)
+#
+# ⚠️ **가장 중요한 검사는 「감축분을 빼면 목표 경계에 정착하는가」**다. 산식을 옮겨
+# 적기만 하면 부호나 항 하나가 틀려도 값이 그럴듯하게 나오고, 화면은 그대로 뜬다.
+
+
+def _cut(**over):
+    kwargs = {
+        "projection": _project(),
+        "remaining": REMAINING,
+        "transport_capacity": CAPACITY,
+        "target_rating": "B",
+    }
+    kwargs.update(over)
+    return backsolve_required_cut(**kwargs)
+
+
+@pytest.mark.parametrize("target", ["A", "B", "C", "D"])
+def test_cutting_the_required_amount_lands_exactly_on_the_target_boundary(target):
+    """⚠️ **역산의 실질** — 줄이라는 만큼 줄이면 목표 경계에 **정확히** 닿는다.
+
+    산식을 옮겨 적기만 하면 항 하나가 틀려도 「그럴듯한 양」이 나온다. 되짚어
+    계산해 경계와 맞춰야 그것이 드러난다.
+    """
+    projection = _project()
+    plan = _cut(projection=projection, target_rating=target)
+    if plan.required_cut_g == 0:
+        pytest.skip(f"목표 {target}는 이미 달성 상태라 역산할 것이 없다")
+
+    total_m = projection.completed_co2_g + projection.planned_co2_g - plan.required_cut_g
+    total_w = CAPACITY * (projection.completed_distance_nm + projection.planned_distance_nm)
+
+    assert total_m / total_w == plan.target_cii
+
+
+def test_the_target_boundary_comes_from_the_same_table_as_the_rating():
+    """목표 경계는 **등급 판정이 쓴 그 경계**다 — 새 표를 만들지 않는다.
+
+    두 벌이 되면 「경계를 넘었다는데 등급은 그대로」가 생긴다.
+    """
+    projection = _project()
+    assert _cut(target_rating="A").target_cii == projection.boundaries["superior_boundary"]
+    assert _cut(target_rating="B").target_cii == projection.boundaries["lower_boundary"]
+    assert _cut(target_rating="C").target_cii == projection.boundaries["upper_boundary"]
+    assert _cut(target_rating="D").target_cii == projection.boundaries["inferior_boundary"]
+
+
+def test_already_inside_the_target_needs_no_cut():
+    """이미 목표 안이면 **0**이다 — 음수로 내려가지 않는다.
+
+    음수를 그대로 두면 화면이 「−30t 줄이세요」를 그린다.
+    """
+    plan = _cut(target_rating="D")
+    assert plan.required_cut_g >= 0
+    assert plan.achievable
+
+
+def test_fuel_conversion_keeps_the_planned_fuel_mix():
+    """연료 환산은 **비례**다 (`PRD §12.2` 구성비 유지).
+
+    구성비를 유지한다는 것이 곧 비례이므로, 연료별 `CF`를 다시 곱하지 않는다.
+    """
+    projection = _project()
+    plan = _cut(target_rating="A")
+    planned_fuel = sum(Decimal(str(v.fuel_ton)) for v in REMAINING)
+
+    # ⚠️ 기대값을 **같은 자릿수로 맞춰** 비교한다. 함수는 `@layer1_context`(작업 정밀도
+    # 50자리 이상) 안에서 나누고 이 검사는 기본 컨텍스트(28자리)라, 값이 같아도 마지막
+    # 자리가 갈린다 — `TECH_SPEC §1.2.1`이 정한 이중 정밀도의 정상 동작이다.
+    digits = Decimal(1).scaleb(-20)
+    expected = planned_fuel * (plan.required_cut_g / projection.planned_co2_g)
+    assert plan.required_cut_fuel_ton.quantize(digits) == expected.quantize(digits)
+
+
+def test_no_remaining_plan_reports_none_not_zero():
+    """⚠️ **줄일 대상이 없는 것**과 **줄일 것이 없는 것**은 다르다.
+
+    둘 다 0으로 적으면 화면이 「이미 목표 안이다」로 말하는데, 실제로는 계산할
+    대상이 없는 것이다.
+    """
+    projection = _project(remaining=[])
+    plan = _cut(projection=projection, remaining=[])
+    assert plan.required_cut_fuel_ton is None
+
+
+def test_unreachable_target_is_flagged():
+    """⚠️ 잔여 계획을 **전부 없애도** 목표에 닿지 못하면 `achievable=False`.
+
+    그 경우 「n톤 줄이세요」는 거짓이 된다 — 확정 실적만으로 이미 넘겼기 때문이다.
+    """
+    heavy = CompletedTotals(co2_g=4000 * CF * 1e6, distance_nm=5000.0)
+    projection = _project(completed=heavy)
+    plan = _cut(projection=projection, target_rating="A")
+
+    assert not plan.achievable
+    assert plan.allowed_planned_co2_g < 0
+
+
+def test_backsolve_rejects_target_rating_e():
+    """`PRD §12.8` — 목표 등급 E는 의미 있는 분석이 아니다.
+
+    역산 쪽에도 같은 문이 있어야 한다 — 엔진을 직접 부르는 경로가 있다.
+    """
+    with pytest.raises(ValueError, match="A~D"):
+        _cut(target_rating="E")
+
+
+def test_backsolve_does_not_read_data_again():
+    """⚠️ **재현성** — `projection`만 받는다. 항차·파라미터를 다시 읽지 않는다.
+
+    `PRD §12.3.1`이 *「기능③이 반환한 `snapshot_id`와 동일한 스냅샷으로 계산해야
+    한다」*를 요구한다. 인자에 `required_cii`·`d_vector`가 **없다**는 것이 그 보장이다 —
+    다시 읽을 수단 자체가 없다.
+    """
+    import inspect
+
+    params = set(inspect.signature(backsolve_required_cut).parameters)
+    assert params == {"projection", "remaining", "transport_capacity", "target_rating"}
