@@ -1,0 +1,6 @@
+/* UIFLOW 2-10 — 페이지는 세로 흐름만 잡는다. 폭은 셸(`wide`)이 정한다. */
+.fleet-reduction-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}

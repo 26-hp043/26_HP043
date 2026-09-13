@@ -82,6 +82,16 @@ function LocationIcon(props: IconProps) {
   )
 }
 
+/** 함대 감축 계획 — 내려가는 추세와 기준선. */
+function ReductionIcon(props: IconProps) {
+  return (
+    <svg {...props} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M3.5 7.5 9 13l4-4 7.5 7.5" />
+      <path d="M20.5 16.5v-4.2M20.5 16.5h-4.2M3.5 20.5h17" />
+    </svg>
+  )
+}
+
 /** 데이터 점검 — 목록과 확인 표시. */
 function CheckListIcon(props: IconProps) {
   return (
@@ -127,6 +137,7 @@ const ICONS: Partial<Record<ScreenId, (p: IconProps) => ReactElement>> = {
   VESSEL_REGISTRATION: VesselIcon,
   VESSEL_DETAIL: LocationIcon,
   REALTIME_CII: LocationIcon,
+  FLEET_REDUCTION: ReductionIcon,
   DATA_QUALITY: CheckListIcon,
   REPORTS: ReportIcon,
   SETTINGS: SettingsIcon,

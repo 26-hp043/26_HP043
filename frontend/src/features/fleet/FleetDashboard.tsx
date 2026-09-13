@@ -340,6 +340,10 @@ export function FleetDashboard() {
               <div className="card__head">
                 <h2 className="card__title">조치 필요</h2>
                 <span className="card__meta">MARPOL Annex VI Reg 28.7</span>
+                {/* `UIFLOW 2-10` 진입 조건 — 위험 선박을 선대 단위 감속안으로 이어 준다 (#513). */}
+                <Link className="card__meta" to={SCREEN_BY_ID.FLEET_REDUCTION.path}>
+                  함대 감축 계획 세우기
+                </Link>
               </div>
               <ul className="actions">
                 {snapshot.actions.map((action) => (

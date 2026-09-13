@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
@@ -9,6 +9,7 @@ import { useYearOptions } from '../parameters/yearCatalog'
 import { GradeBadge } from '../../components/GradeBadge'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
+import { SCREEN_BY_ID } from '../../screens'
 
 /**
  * 잔여 계획 항차가 0건임을 알리는 경고 코드 (`calc/annual_simulation.py`).
@@ -209,6 +210,10 @@ export function AnnualSimulation({
         }}
       >
         <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.runTitle}</h2>
+        {/* `UIFLOW 2-10` 진입 조건 — 한 척에서 선대 단위 조치로 넘어간다 (#513). */}
+        <Link className="annual-sim__fleet-link" to={SCREEN_BY_ID.FLEET_REDUCTION.path}>
+          {ANNUAL_COPY.fleetLink}
+        </Link>
 
         <label className="annual-sim__field">
           <span className="annual-sim__label">기준연도</span>
