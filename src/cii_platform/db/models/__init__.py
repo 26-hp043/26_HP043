@@ -20,6 +20,7 @@ from cii_platform.db.models.calculation_run import CalculationRun
 from cii_platform.db.models.chat import ChatMessage, ChatSession
 from cii_platform.db.models.cii_rating_boundary import CiiRatingBoundary
 from cii_platform.db.models.cii_reference_line import CiiReferenceLine
+from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
 from cii_platform.db.models.fuel_type import FuelType
 from cii_platform.db.models.not_underway_fuel_use import NotUnderwayFuelUse
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
@@ -47,6 +48,7 @@ __all__ = [
     "ChatSession",
     "CiiRatingBoundary",
     "CiiReferenceLine",
+    "FleetReductionPlan",
     "FuelType",
     "NotUnderwayFuelUse",
     "NotUnderwayPeriod",

@@ -714,7 +714,7 @@ async def test_history_failure_does_not_erase_this_years_value(session, monkeypa
     async def _boom(*args, **kwargs):
         raise ValidationError("from은 2019 이상이어야 합니다", field="from_year")
 
-    monkeypatch.setattr(fleet_summary, "_prior_confirmed_ratings", _boom)
+    monkeypatch.setattr(fleet_summary, "prior_confirmed_ratings", _boom)
 
     row = (await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF))["vessels"][0]
 
