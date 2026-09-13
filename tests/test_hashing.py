@@ -398,6 +398,7 @@ def test_feedback_off_keeps_the_old_hash():
         "켠 실행이 끈 실행과 같은 해시다 — 재현이 구분하지 못한다"
     )
 
+
 ANNUAL_INPUT = {
     "vessel_id": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
     "regulation_year": 2026,
