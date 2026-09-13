@@ -1,0 +1,298 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router'
+import { ErrorState } from '../../components/ErrorState'
+import { GradeBadge } from '../../components/GradeBadge'
+import { formatDecimalString, formatPercent } from '../../display/format'
+import { pickDefaultYear } from '../voyage-cii/formRules'
+import { useYearOptions } from '../parameters/yearCatalog'
+import { createApiDataQualityProvider } from './apiProvider'
+import {
+  DATA_QUALITY_COPY as COPY,
+  IMPACT_REASON_TEXT,
+  SEVERITY_MEANING,
+  SEVERITY_TITLE,
+  reasonText,
+} from './copy'
+import {
+  SEVERITIES,
+  type DataQualityIssue,
+  type DataQualityProvider,
+  type DataQualitySnapshot,
+  type Severity,
+} from './types'
+import './DataQuality.css'
+
+/**
+ * `UIFLOW 2-11` 데이터 점검 — 선대 계층 (#513).
+ *
+ * ## 네 그룹을 **항상** 그린다
+ *
+ * 0건인 그룹을 지우면 「확인했더니 없다」와 「확인하지 않았다」가 같은 화면이 된다.
+ * `PRD §5.2` 각주가 이 화면을 반쪽으로 열지 않은 이유가 그것이었다.
+ *
+ * ## 그룹은 접히지 않는다 (`UIFLOW 2-11`)
+ *
+ * 아코디언은 반드시 봐야 할 항목을 닫힌 채 지나치게 한다.
+ */
+
+type LoadState =
+  | { status: 'loading' }
+  | { status: 'error'; message: string }
+  | { status: 'ready'; snapshot: DataQualitySnapshot }
+
+/** 연도 목록 훅은 선박 키를 받는다 — 이 화면은 선대 단위라 고정 키를 준다. */
+const FLEET_KEY = 'fleet'
+
+export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
+  const api = useMemo(() => provider ?? createApiDataQualityProvider(), [provider])
+  const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY)
+  const [year, setYear] = useState('')
+  const [state, setState] = useState<LoadState>({ status: 'loading' })
+
+  useEffect(() => {
+    if (years.length === 0) return
+    setYear((prev) => pickDefaultYear(years, new Date().getFullYear(), prev))
+  }, [years])
+
+  useEffect(() => {
+    // 연도 목록을 못 받으면 서버 기본(올해)으로 부른다 — 화면 전체를 막지 않는다.
+    if (yearsLoading) return
+    if (years.length > 0 && year === '') return
+    let cancelled = false
+    setState({ status: 'loading' })
+    api
+      .load(year === '' ? undefined : Number(year))
+      .then((snapshot) => {
+        if (!cancelled) setState({ status: 'ready', snapshot })
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setState({
+          status: 'error',
+          message: error instanceof Error ? error.message : COPY.loading,
+        })
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [api, year, years.length, yearsLoading])
+
+  return (
+    <section className="dq">
+      <div className="dq__controls">
+        <label className="dq__field" htmlFor="dq-year">
+          <span className="dq__label">{COPY.yearLabel}</span>
+          <select
+            id="dq-year"
+            value={year}
+            disabled={years.length === 0}
+            onChange={(event) => setYear(event.target.value)}
+          >
+            {years.map((y) => (
+              <option key={y} value={String(y)}>
+                {y}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="dq__note">{COPY.readOnlyNote}</p>
+      </div>
+
+      {state.status === 'loading' ? (
+        <p className="dq__placeholder" aria-live="polite">
+          {COPY.loading}
+        </p>
+      ) : null}
+      {state.status === 'error' ? (
+        <ErrorState level="region" subject={COPY.loadSubject} message={state.message} />
+      ) : null}
+      {state.status === 'ready' ? <Result snapshot={state.snapshot} /> : null}
+    </section>
+  )
+}
+
+function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
+  if (snapshot.vessels.length === 0) {
+    return <p className="dq__placeholder">{COPY.noVessels}</p>
+  }
+  const bySeverity = (severity: Severity) =>
+    snapshot.issues.filter((issue) => issue.severity === severity)
+
+  return (
+    <>
+      <section className="card dq__summary" aria-labelledby="dq-summary-title">
+        <h2 id="dq-summary-title" className="card__title">
+          {COPY.summaryTitle}
+        </h2>
+        <dl className="dq__tiles">
+          {(['SUBSTITUTED', 'UNAVAILABLE', 'ANOMALY'] as const).map((severity) => (
+            <div key={severity} className={`dq__tile dq__tile--${severity.toLowerCase()}`}>
+              <dt>{SEVERITY_TITLE[severity]}</dt>
+              <dd>
+                {snapshot.counts[severity]}
+                <span className="dq__unit">{COPY.countSuffix}</span>
+              </dd>
+              {severity === 'ANOMALY' && snapshot.anomalyUnjudged > 0 ? (
+                <dd className="dq__hint">{COPY.unjudgedHint(snapshot.anomalyUnjudged)}</dd>
+              ) : null}
+            </div>
+          ))}
+          <div className="dq__tile">
+            <dt>{COPY.completenessLabel}</dt>
+            <dd>
+              {snapshot.completenessRatio === null
+                ? COPY.completenessNone
+                : `${formatPercent(snapshot.completenessRatio)}%`}
+            </dd>
+            <dd className="dq__hint">{COPY.completenessHint}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section className="card dq__list" aria-labelledby="dq-list-title">
+        <h2 id="dq-list-title" className="card__title">
+          {COPY.listTitle}
+        </h2>
+        <p className="dq__caption">{COPY.impactCaption}</p>
+        {SEVERITIES.map((severity) => (
+          <IssueGroup key={severity} severity={severity} issues={bySeverity(severity)} />
+        ))}
+      </section>
+
+      <section className="card dq__vessels" aria-labelledby="dq-vessels-title">
+        <h2 id="dq-vessels-title" className="card__title">
+          {COPY.vesselsTitle}
+        </h2>
+        <div className="dq__table-wrap">
+          <table className="dq__table">
+            <thead>
+              <tr>
+                <th scope="col">{COPY.colVessel}</th>
+                <th scope="col">{COPY.colRating}</th>
+                <th scope="col">{COPY.colVoyages}</th>
+                <th scope="col">{COPY.colCompleteness}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {snapshot.vessels.map((vessel) => (
+                <tr key={vessel.vesselId}>
+                  <th scope="row">
+                    <Link to={`/vessels/${vessel.vesselId}`}>{vessel.vesselName}</Link>
+                  </th>
+                  <td>
+                    {vessel.ytdRating ? (
+                      <GradeBadge rating={vessel.ytdRating} size="sm" />
+                    ) : vessel.unavailableReason ? (
+                      reasonText(vessel.unavailableReason)
+                    ) : (
+                      // 항차가 없는 선박은 「계산 불가」가 아니다 — 아직 셀 것이 없다.
+                      COPY.noActualVoyages
+                    )}
+                  </td>
+                  <td className="dq__num">{vessel.voyageCount}</td>
+                  <td className="dq__num">
+                    {vessel.completenessRatio === null
+                      ? '—'
+                      : `${formatPercent(vessel.completenessRatio)}%`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  )
+}
+
+function IssueGroup({ severity, issues }: { severity: Severity; issues: DataQualityIssue[] }) {
+  const titleId = `dq-group-${severity.toLowerCase()}`
+  return (
+    <section className={`dq__group dq__group--${severity.toLowerCase()}`} aria-labelledby={titleId}>
+      <h3 id={titleId} className="dq__group-title">
+        {SEVERITY_TITLE[severity]}
+        <span className="dq__group-count">
+          {issues.length}
+          {COPY.countSuffix}
+        </span>
+      </h3>
+      <p className="dq__caption">{SEVERITY_MEANING[severity]}</p>
+      {issues.length === 0 ? (
+        <p className="dq__empty">{COPY.emptyGroup}</p>
+      ) : (
+        <div className="dq__table-wrap">
+          <table className="dq__table">
+            <thead>
+              <tr>
+                <th scope="col">{COPY.colVessel}</th>
+                <th scope="col">{COPY.colVoyage}</th>
+                <th scope="col">{COPY.colProblem}</th>
+                <th scope="col">{COPY.colImpact}</th>
+                <th scope="col">{COPY.colGo}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {issues.map((issue) => (
+                <tr key={`${issue.vesselId}-${issue.voyageId ?? 'vessel'}-${issue.codes.join()}`}>
+                  <th scope="row">{issue.vesselName}</th>
+                  <td>{issue.voyageId === null ? COPY.vesselLevel : (issue.voyageNo ?? '—')}</td>
+                  <td>
+                    <ul className="dq__codes">
+                      {issue.codes.map((code) => (
+                        <li key={code}>{reasonText(code)}</li>
+                      ))}
+                    </ul>
+                  </td>
+                  <td>
+                    <Impact issue={issue} />
+                  </td>
+                  <td>
+                    <Link to={`/vessels/${issue.vesselId}`}>{COPY.goToVessel}</Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/**
+ * CII 영향 칸 — 차이 + 등급이 바뀌면 전이(`DESIGN_SYSTEM §8.3`).
+ *
+ * **바뀌지 않으면 전이를 그리지 않는다**(`§8.3`). 부호에 색을 입히지 않는다 — 등급 배지 옆에
+ * 시맨틱 색이 들어오면 `§0.2` 제약 2 위반이다.
+ */
+function Impact({ issue }: { issue: DataQualityIssue }) {
+  if (issue.voyageId === null) return <span className="dq__muted">—</span>
+  if (issue.cii === null) {
+    return (
+      <span className="dq__muted">
+        {IMPACT_REASON_TEXT[issue.ciiReason ?? ''] ?? issue.ciiReason ?? '—'}
+      </span>
+    )
+  }
+  const delta = formatDecimalString(issue.cii.delta, 3)
+  const signed = delta.startsWith('-') || delta === '0.000' ? delta : `+${delta}`
+  const { rating, ratingWithout } = issue.cii
+  return (
+    <span className="dq__impact">
+      <span className="dq__num">{signed}</span>
+      {rating && ratingWithout && rating !== ratingWithout ? (
+        <span
+          className="dq__transition"
+          role="img"
+          aria-label={`이 항차가 없으면 ${ratingWithout}, 있으면 ${rating}`}
+        >
+          <GradeBadge rating={ratingWithout} size="xs" />
+          <span className="dq__connector" aria-hidden="true">
+            →
+          </span>
+          <GradeBadge rating={rating} size="xs" />
+        </span>
+      ) : null}
+    </span>
+  )
+}

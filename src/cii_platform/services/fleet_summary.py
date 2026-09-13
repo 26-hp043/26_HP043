@@ -362,7 +362,7 @@ def _unavailable_ytd(year: int) -> YtdCiiOutput:
     )
 
 
-def _spec_gap(vessel: Vessel) -> str | None:
+def spec_gap(vessel: Vessel) -> str | None:
     """실패가 **이 선박 자신의 제원으로 설명되는가** (#419).
 
     ``ValidationError``가 났다는 사실만으로는 「제원 미비」라고 말할 수 없다. 같은
@@ -461,9 +461,9 @@ async def _derive_vessel(
         return _Derived(_unavailable_ytd(year), [], None, UNAVAILABLE_NO_PARAMETERS)
     except ValidationError:
         # **예외의 종류로 사유를 단정하지 않는다.** 선박을 직접 보고 판정한다 —
-        # `_spec_gap` 참조.
+        # `spec_gap` 참조.
         return _Derived(
-            _unavailable_ytd(year), [], None, _spec_gap(vessel) or UNAVAILABLE_CALCULATION_ERROR
+            _unavailable_ytd(year), [], None, spec_gap(vessel) or UNAVAILABLE_CALCULATION_ERROR
         )
     except AppError:
         # `CalculationError`(엔진 가드) · `NotFoundError`(목록 조회와 개별 조회 사이의

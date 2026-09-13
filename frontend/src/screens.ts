@@ -85,6 +85,7 @@ export type ScreenId =
   | 'CII_FORECAST'
   | 'ROUTE_COMPARISON'
   | 'ANNUAL_GRADE'
+  | 'DATA_QUALITY'
   | 'REPORTS'
   | 'SETTINGS'
 
@@ -227,6 +228,16 @@ export const SCREEN_BY_ID = {
     // #442 실 API 연결 완료 — demo provider는 백엔드 없이 화면만 볼 때만 쓴다.
     implemented: true,
   },
+  DATA_QUALITY: {
+    path: '/data-quality',
+    label: '데이터 점검',
+    labelEn: 'Data Quality',
+    uiflowRef: '2-11',
+    purpose: 'CII 계산에 실측이 아닌 값이 쓰인 항차를 선대 단위로 — 대체 계산 · 계산 불가 · 이상치 · 실적 미입력',
+    // 선대 계층 · 전폭(`UIFLOW 2-11` — 목록이 전부라 좌우 분할은 한 행 정보만 줄인다).
+    width: 'wide',
+    implemented: true, // #513 — `GET /fleet/data-quality` 실 API
+  },
   REPORTS: {
     path: '/reports',
     label: '보고서',
@@ -277,8 +288,9 @@ export const NAV_ORDER = [
   'CII_FORECAST',     // 3. 항해 전 조건을 넣어 본다
   'ROUTE_COMPARISON', // 4. 그 조건의 대안을 견준다
   'ANNUAL_GRADE',     // 5. 항차들이 쌓인 결과를 연 단위로 본다
-  'REPORTS',          // 6. 위 결과를 내보낸다
-  'SETTINGS',         // 7. 상시 사용이 아니므로 끝
+  'DATA_QUALITY',     // 6. 내보내기 전에 그 결과가 무엇으로 계산됐는지 본다 (#513)
+  'REPORTS',          // 7. 위 결과를 내보낸다
+  'SETTINGS',         // 8. 상시 사용이 아니므로 끝
 ] as const satisfies readonly ScreenId[]
 
 /**
