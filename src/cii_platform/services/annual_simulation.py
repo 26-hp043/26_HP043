@@ -1070,15 +1070,29 @@ def _envelope(
     라우트의 일이므로(``TECH_SPEC §16.1`` 계층 분리) 서비스는 값만 실어 보내고,
     라우트가 꺼내 ``meta.duration_ms``에 넣는다 — 기능①과 같은 방식이다.
     """
+    data: dict[str, object] = {
+        "simulation_id": str(simulation_id),
+        "deterministic": payload["deterministic"],
+        "monte_carlo": payload["monte_carlo"],
+        "risk_level": payload["risk_level"],
+        "sensitivity_analysis": payload["sensitivity_analysis"],
+        "snapshot": snapshot,
+    }
+    #
+    # ⚠️ **`reduction_plan`을 옮겨 싣는다** (`PRD §12.3.1` · `#433`).
+    #
+    # 이 함수는 저장 본문에서 **키를 골라** 응답을 만든다. `#433`(PR #1054)이 본문에
+    # 블록을 넣고도 **여기를 고치지 않아, 응답에 한 번도 실리지 않았다** — 화면 카드는
+    # 블록이 없으면 그리지 않도록 만들어 두었으므로 **오류 없이 조용히 사라졌다.**
+    # 계산 검사는 엔진을, 화면 검사는 가짜 응답을 봐서 둘 다 통과했다.
+    #
+    # 옛 실행(블록 이전)에는 키가 없다 — 그때는 싣지 않는다. 지금 계산해 채우면 조회가
+    # 아니라 재실행이다(`#443`).
+    #
+    if "reduction_plan" in payload:
+        data["reduction_plan"] = payload["reduction_plan"]
     return {
-        "data": {
-            "simulation_id": str(simulation_id),
-            "deterministic": payload["deterministic"],
-            "monte_carlo": payload["monte_carlo"],
-            "risk_level": payload["risk_level"],
-            "sensitivity_analysis": payload["sensitivity_analysis"],
-            "snapshot": snapshot,
-        },
+        "data": data,
         "parameters_used": parameters_used,
         "calculation_run_id": str(calculation_run_id),
         "model_version": model_version,

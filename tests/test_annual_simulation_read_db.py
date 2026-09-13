@@ -812,3 +812,41 @@ async def test_input_hash_covers_the_vessel_specs(session, vessel_id):
     changed = _input_hash(**common, vessel_json={"deadweight": "12345.00"})
 
     assert base != changed
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 필요 감축량이 응답에 실리는가 (PRD §12.3.1 · #433 결함)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_response_carries_the_reduction_plan(session, executed):
+    """⚠️ **실행 응답에 `reduction_plan`이 있다.**
+
+    `#433`(PR #1054)은 저장 본문에만 블록을 넣고 **응답을 조립하는 `_envelope`를 고치지
+    않아** 블록이 한 번도 나가지 않았다. 화면 카드는 블록이 없으면 그리지 않으므로 오류
+    없이 사라졌고, 계산 검사(엔진)도 화면 검사(가짜 응답)도 통과했다. **이 층위에서만
+    드러나는 결함**이라 여기서 잠근다.
+    """
+    plan = executed["data"]["reduction_plan"]
+    assert plan["target_rating"] == "C"
+    assert set(plan) == {
+        "target_rating",
+        "target_cii",
+        "allowed_planned_M_gco2",
+        "required_cut_gco2",
+        "required_cut_fuel_ton",
+        "achievable",
+    }
+
+
+@pytest.mark.asyncio
+async def test_read_and_reproduce_carry_the_same_reduction_plan(session, executed):
+    """`§6.2` 조회와 `§6.4` 재현도 **같은 블록**을 싣는다 — 세 경로가 같은 `_envelope`를 쓴다."""
+    simulation_id = UUID(executed["data"]["simulation_id"])
+
+    read = await get_annual_simulation(session, simulation_id)
+    again = await reproduce_annual_simulation(session, simulation_id)
+
+    assert read["data"]["reduction_plan"] == executed["data"]["reduction_plan"]
+    assert again["data"]["reduction_plan"] == executed["data"]["reduction_plan"]
