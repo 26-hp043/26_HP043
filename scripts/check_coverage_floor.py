@@ -92,8 +92,8 @@ class Exemption:
 #: 키는 :func:`normalize`가 만드는 **패키지 루트 기준 경로**다 — `auth/dependencies.py`
 #: 이지 `cii_platform/auth/...`도 `src/...`도 아니다.
 #:
-#: 2026-09-13 실측(157파일 · 합계 96.5%)에서 셋이 걸렸고, 그중 `services/chat_tools.py`
-#: (66.2%)는 `#120`에서 검사를 채워 **99%가 되어 목록에서 뺐다.** 분포에
+#: 2026-09-13 실측(157파일 · 합계 96.5%)에서 셋이 걸렸고, 그중 둘을 같은 날 채워 뺐다 —
+#: `services/chat_tools.py` 66.2% → 99%(`#120`) · `depcheck.py` 77.3% → 98%(`#523`). 분포에
 #: **77.3% → 83.3%** 빈 구간이 있어 :data:`FLOOR_PERCENT` 80이 어느 무리도 가르지 않는다.
 KNOWN_BELOW_FLOOR: dict[str, Exemption] = {
     "auth/dependencies.py": Exemption(
@@ -101,11 +101,6 @@ KNOWN_BELOW_FLOOR: dict[str, Exemption] = {
         "get_current_user의 DB 조회 본문(132~162)이 도달하지 않는다 — auth_middleware가 "
         "모든 비공개 경로에서 request.state.session_user를 먼저 채우므로 캐시 확인에서 "
         "반환된다. 검사 공백이 아니라 **중복 경로**다. 정리 판단은 #955 후속",
-    ),
-    "depcheck.py": Exemption(
-        70.0,
-        "main()은 컨테이너 기동 시에만 도는 진입점이다(Dockerfile CMD · #523). "
-        "실행은 docker 잡이 매번 하고, 단위 검사 대상은 위쪽 순수 함수들이다",
     ),
 }
 

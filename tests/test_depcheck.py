@@ -4,7 +4,16 @@
 `#60`이 `python-multipart`를 추가한 뒤 재빌드하지 않은 환경에서 앱이 기동조차 못 했고,
 그때 나온 오류는 컨테이너 안에서는 **틀린 해법**(`pip install …`)을 안내했다.
 
-이 파일은 순수 함수만 본다. 컨테이너 기동 자체는 CI docker 잡과 사람이 확인한다.
+순수 함수에 더해 **판정을 조립하는 `main()`**도 본다. `#955`(파일별 커버리지 하한)가
+붙었을 때 이 모듈이 77.3%로 걸렸고, 미커버 구간이 `main()` 전체였다 — 이 모듈은
+`Dockerfile`의 `CMD`가 uvicorn **앞에** 두는 물건이라 **종료 코드가 곧 컨테이너가
+뜨느냐 마느냐**다.
+
+⚠️ **검사가 불가능한 것과 검사가 실패한 것은 다르다.** `pyproject.toml`이 없으면
+(마운트 누락) 기동을 막지 않는다(0) — 막으면 그 환경에서 앱이 영영 뜨지 않는다.
+없는 패키지는 막는다(1). 둘을 같게 만드는 실수는 **코드 리뷰로 놓치기 쉬운 한 줄**이다.
+
+컨테이너 기동 자체는 CI docker 잡과 사람이 확인한다.
 """
 
 from __future__ import annotations
@@ -12,6 +21,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
+from cii_platform import depcheck
 from cii_platform.depcheck import (
     distribution_names,
     missing_distributions,
@@ -129,3 +139,54 @@ class TestAgainstRealPyproject:
         assert requirements is not None
 
         assert "python-multipart" in distribution_names(requirements)
+
+
+class TestMain:
+    """판정과 **종료 코드** (`#955`가 드러낸 공백).
+
+    `main()`은 `read_requirements()`·`missing_distributions()`를 조립한다. 그 둘은
+    위에서 실물로 검사하므로 여기서는 대역으로 바꿔 **판정만** 본다.
+    """
+
+    def test_pyproject가_없으면_기동을_막지_않는다(self, monkeypatch, capsys) -> None:
+        # ⚠️ 막으면 마운트가 빠진 환경에서 앱이 **영영 뜨지 않는다.** 대신 왜 못
+        # 했는지를 남긴다 — 조용히 넘기면 이 모듈이 있으나 마나가 된다.
+        monkeypatch.setattr(depcheck, "read_requirements", lambda: None)
+
+        assert depcheck.main() == 0
+
+        err = capsys.readouterr().err
+        assert "건너뜁니다" in err
+        assert "pyproject.toml" in err
+
+    def test_없는_패키지는_기동을_막는다(self, monkeypatch, capsys) -> None:
+        # `#60`에서 실제로 난 실패다 — `python-multipart`가 없어 폼 요청이 죽었다.
+        monkeypatch.setattr(depcheck, "read_requirements", lambda: ["python-multipart>=0.0.9"])
+        monkeypatch.setattr(depcheck, "missing_distributions", lambda names: ["python-multipart"])
+
+        assert depcheck.main() == 1
+
+        assert "python-multipart" in capsys.readouterr().err
+
+    def test_문구가_옳은_해법을_가리킨다(self, monkeypatch, capsys) -> None:
+        # 기동 오류가 안내하는 해법(`pip install …`)은 **컨테이너 안에서는 틀린
+        # 해법**이다 — 다음 `up`에서 사라진다. 이미지를 다시 구우라고 말해야 한다.
+        monkeypatch.setattr(depcheck, "read_requirements", lambda: ["x"])
+        monkeypatch.setattr(depcheck, "missing_distributions", lambda names: ["x"])
+
+        depcheck.main()
+
+        err = capsys.readouterr().err
+        assert "docker compose build app" in err
+        assert "pip install로 넣지 마십시오" in err
+
+    def test_전부_설치돼_있으면_조용히_통과한다(self, monkeypatch, capsys) -> None:
+        # 기동 경로라 통과할 때 시끄러우면 진짜 문제가 묻힌다.
+        monkeypatch.setattr(depcheck, "read_requirements", lambda: ["x"])
+        monkeypatch.setattr(depcheck, "missing_distributions", lambda names: [])
+
+        assert depcheck.main() == 0
+
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert captured.out == ""
