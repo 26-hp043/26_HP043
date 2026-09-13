@@ -57,7 +57,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from cii_platform.calc.precision import layer1_context, validate_layer1_result
-from cii_platform.calc.rating_engine import DVector, determine_rating
+from cii_platform.calc.rating_engine import (
+    NEXT_WORSE_BOUNDARY_KEY,
+    DVector,
+    determine_rating,
+)
 from cii_platform.calc.rng import RNG_ALGORITHM, create_rng
 
 if TYPE_CHECKING:
@@ -194,6 +198,28 @@ class DeterministicProjection:
 
 
 @dataclass(frozen=True)
+class ReductionPlan:
+    """필요 감축량 — 목표 역산 (``PRD §12.3.1`` · `#433`).
+
+    :param target_cii: 목표 등급의 경계값. 이 값 **이하**여야 그 등급이다.
+    :param allowed_planned_co2_g: 잔여 계획에서 배출해도 되는 CO₂ 상한.
+        **음수일 수 있다** — 확정 실적만으로 이미 목표를 넘겼다는 뜻이고,
+        그때는 잔여 계획을 0으로 만들어도 목표에 닿지 못한다.
+    :param required_cut_g: 줄여야 하는 CO₂ 질량. **0이면 이미 목표를 넘고 있다.**
+    :param required_cut_fuel_ton: 위를 연료 톤으로 환산한 값. 잔여 계획이
+        0이면 ``None``이다 — 줄일 대상이 없다.
+    :param achievable: 잔여 계획을 **전부 없애도** 목표에 닿지 못하면 ``False``.
+    """
+
+    target_rating: str
+    target_cii: Decimal
+    allowed_planned_co2_g: Decimal
+    required_cut_g: Decimal
+    required_cut_fuel_ton: Decimal | None
+    achievable: bool
+
+
+@dataclass(frozen=True)
 class SensitivityEntry:
     """민감도 한 줄 (``PRD §12.6``)."""
 
@@ -284,6 +310,84 @@ def project_deterministic(
         completed_distance_nm=completed_distance,
         planned_co2_g=planned_co2,
         planned_distance_nm=planned_distance,
+    )
+
+
+@layer1_context
+def backsolve_required_cut(
+    *,
+    projection: DeterministicProjection,
+    remaining: Sequence[RemainingVoyage],
+    transport_capacity: Decimal,
+    target_rating: str,
+) -> ReductionPlan:
+    """목표 등급에서 역산해 **줄여야 하는 CO₂ 질량**을 낸다 (``PRD §12.3.1``).
+
+    .. code-block:: text
+
+        allowed_M    = target_CII × (completed_W + planned_W) − completed_M
+        required_cut = max(0, planned_M − allowed_M)
+
+    ## ``projection``을 받는다 — 다시 계산하지 않는다
+
+    ``PRD §12.3.1``의 재현성 각주가 *「기능③이 반환한 ``snapshot_id``와 동일한
+    스냅샷으로 계산해야 한다」*를 요구한다. 데이터를 다시 읽으면 **「확률은 78%인데
+    감축량은 다른 전제」**가 생긴다.
+
+    :func:`project_deterministic`의 결과를 그대로 받으면 그 조건이 **구조적으로**
+    만족된다 — 같은 네 값(``completed_M``·``completed_W``·``planned_M``·
+    ``planned_W``)에서 파생되므로 갈릴 자리가 없다.
+
+    ## 거리를 고정한다
+
+    부등식은 한 줄인데 ``planned_M``·``planned_W``가 **둘 다 미지수**다. 정본이
+    **잔여 계획 거리를 고정**하기로 정했다 — ``UIFLOW 2-10``의 비용 요약이
+    「추가 항해일」·「용선료 손실」을 두는데, **항차를 취소하면 항해일이 줄지 늘지
+    않으므로** 그 구조는 같은 항차를 느리게 뛰는 경우에만 성립한다. 항차 취소는
+    감축 수단이 아니라 ``§12.6``의 민감도 변수다.
+
+    ## 연료 환산은 비례식이다
+
+    ``§12.2``가 정한 **잔여 계획의 연료 구성비를 그대로** 쓰므로, 연료별 ``CF``를
+    각각 다시 곱할 필요가 없다 — 구성비를 유지한다는 것이 곧 비례다.
+
+    .. code-block:: text
+
+        required_cut_ton = planned_fuel_ton × (required_cut / planned_M)
+
+    :raises ValueError: 목표 등급이 ``A``~``D`` 밖일 때.
+        ``E``는 ``§12.8``이 거부한다.
+    """
+    if target_rating not in NEXT_WORSE_BOUNDARY_KEY:
+        raise ValueError(
+            f"목표 등급이 올바르지 않습니다: {target_rating!r} — A~D여야 합니다 (PRD §12.8)"
+        )
+
+    target_cii = projection.boundaries[NEXT_WORSE_BOUNDARY_KEY[target_rating]]
+
+    total_w = transport_capacity * (
+        projection.completed_distance_nm + projection.planned_distance_nm
+    )
+    allowed = target_cii * total_w - projection.completed_co2_g
+    required_cut = max(Decimal(0), projection.planned_co2_g - allowed)
+
+    planned_fuel_ton = sum((Decimal(str(v.fuel_ton)) for v in remaining), Decimal(0))
+    if projection.planned_co2_g > 0 and planned_fuel_ton > 0:
+        cut_ton: Decimal | None = planned_fuel_ton * (required_cut / projection.planned_co2_g)
+    else:
+        # 잔여 계획이 없으면 줄일 대상이 없다. 0으로 적으면 「줄일 것이 없다」와
+        # 「이미 목표를 넘었다」가 같은 표시가 된다 — 다른 사실이다.
+        cut_ton = None
+
+    return ReductionPlan(
+        target_rating=target_rating,
+        target_cii=target_cii,
+        allowed_planned_co2_g=allowed,
+        required_cut_g=required_cut,
+        required_cut_fuel_ton=cut_ton,
+        #: 잔여 계획을 **전부 없애도**(planned_M = 0) 목표에 닿지 못하는 경우다.
+        #: 확정 실적만으로 이미 넘겼다는 뜻이라, 「n톤 줄이세요」가 거짓이 된다.
+        achievable=allowed >= 0,
     )
 
 

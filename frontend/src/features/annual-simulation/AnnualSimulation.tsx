@@ -334,7 +334,7 @@ function Result({
   result: AnnualSimulationResult
   provider: AnnualSimulationProvider
 }) {
-  const { deterministic: det, monte_carlo: mc } = result
+  const { deterministic: det, monte_carlo: mc, reduction_plan: cut } = result
   const [reproduce, setReproduce] = useState<ReproduceState>({ status: 'idle' })
 
   const runReproduce = useCallback(async () => {
@@ -392,6 +392,56 @@ function Result({
           />
         </div>
       </section>
+
+      {/*
+        ── 필요 감축량 (PRD §12.3.1 · #433) ──────────────────────────
+
+        **Monte Carlo를 부르지 않는다**(UIFLOW 2-10). 위 결정론 블록과 같은 실행에서
+        파생되므로 확률 결과와 전제가 갈릴 수 없다.
+
+        ⚠️ `#433` 이전에 만들어진 실행에는 블록이 없다 — 그때는 카드를 그리지 않는다.
+        없는 것을 0으로 그리면 「줄일 것이 없다」로 읽힌다.
+      */}
+      {cut && (
+        <section className="annual-sim__block">
+          <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.reductionTitle}</h2>
+          <p className="annual-sim__caption">{ANNUAL_COPY.reductionCaption}</p>
+
+          <div className="annual-sim__metrics">
+            <div className="annual-sim__metric">
+              <span className="annual-sim__label">{ANNUAL_COPY.reductionTargetLabel}</span>
+              <GradeBadge
+                rating={cut.target_rating}
+                size="lg"
+                label={`${ANNUAL_COPY.reductionTargetLabel} ${cut.target_rating}`}
+              />
+            </div>
+            <Metric
+              label={ANNUAL_COPY.reductionBoundaryLabel}
+              value={formatDecimalString(cut.target_cii, DISPLAY_DIGITS.cii)}
+            />
+          </div>
+
+          {!cut.achievable ? (
+            <p className="annual-sim__notice">{ANNUAL_COPY.reductionUnreachable}</p>
+          ) : cut.required_cut_fuel_ton === null ? (
+            <p className="annual-sim__caption">{ANNUAL_COPY.reductionNoPlan}</p>
+          ) : cut.required_cut_gco2 === '0' || Number(cut.required_cut_gco2) === 0 ? (
+            <p className="annual-sim__caption">{ANNUAL_COPY.reductionNoneNeeded}</p>
+          ) : (
+            <div className="annual-sim__metrics">
+              <Metric
+                label={ANNUAL_COPY.reductionCutLabel}
+                value={`${formatDecimalString(cut.required_cut_gco2, 0)} g`}
+              />
+              <Metric
+                label={ANNUAL_COPY.reductionCutFuelLabel}
+                value={`${formatDecimalString(cut.required_cut_fuel_ton, 2)} t`}
+              />
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── 확률 (PRD §12.4 · §12.5 · DESIGN_SYSTEM §10.2) ─────────── */}
       <section className="annual-sim__block">

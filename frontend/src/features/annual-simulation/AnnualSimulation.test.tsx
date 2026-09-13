@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { AnnualSimulation } from './AnnualSimulation'
 import { ANNUAL_COPY } from './copy'
+import type { ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 
 /**
@@ -346,3 +347,116 @@ describe('이 실행에 쓴 항차 (#992)', () => {
   })
 })
 
+
+/**
+ * 필요 감축량 카드 (`PRD §12.3.1` · #433).
+ *
+ * 계산 자체는 `calc/annual_simulation.py`가 잠근다. 여기서는 **네 상태를 화면이
+ * 구분해 말하는가**만 본다 — 넷을 같은 모양으로 두면 사용자가 **가장 좋은 해석**을
+ * 고르고, 그 해석이 대개 틀리다.
+ *
+ * | 상태 | 화면이 말해야 하는 것 |
+ * |---|---|
+ * | 줄여야 한다 | 몇 g · 연료 몇 t |
+ * | 이미 목표 안 | 줄일 것이 없다 |
+ * | 잔여 계획 0건 | 줄일 **대상**이 없다 (위와 다르다) |
+ * | 다 없애도 못 닿음 | **「n톤 줄이세요」가 거짓이 되는 경우** |
+ */
+describe('필요 감축량 — 목표 역산 (#433)', () => {
+  function withPlan(plan: ReductionPlanBlock | null) {
+    const payload = body('sim-1') as Record<string, any>
+    if (plan === null) delete payload.data.reduction_plan
+    else payload.data.reduction_plan = plan
+    return payload
+  }
+
+  function stubWith(payload: unknown) {
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) {
+        return jsonResponse({ data: [{ year: 2026 }] })
+      }
+      if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+  }
+
+  /** 타입을 붙여 **필드명 오타가 빌드에서 잡히게** 한다 — 응답 계약과 같은 모양이다. */
+  const BASE = {
+    target_rating: 'B',
+    target_cii: '4.742300',
+    allowed_planned_M_gco2: '665580000.000000',
+    achievable: true,
+  } satisfies Omit<ReductionPlanBlock, 'required_cut_gco2' | 'required_cut_fuel_ton'>
+
+  it('줄여야 하는 양이 있으면 CO₂와 연료를 함께 보인다', async () => {
+    stubWith(
+      withPlan({ ...BASE, required_cut_gco2: '330900000.000000', required_cut_fuel_ton: '36.260000' }),
+    )
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.reductionTitle)).toBeTruthy()
+    expect(screen.getByText(ANNUAL_COPY.reductionCutLabel)).toBeTruthy()
+    expect(screen.getByText(/36\.26/)).toBeTruthy()
+  })
+
+  it('⚠️ 무엇을 고정했는지 말한다 — 「항차를 줄여도 되지 않나」로 읽히지 않게', async () => {
+    /*
+     * 부등식의 미지수가 둘이라 **무엇을 고정하느냐가 곧 산출물을 정한다**
+     * (`PRD §12.3.1`). 거리를 고정했다는 사실을 적지 않으면 사용자가 다른 전제로 읽는다.
+     */
+    stubWith(
+      withPlan({ ...BASE, required_cut_gco2: '330900000.000000', required_cut_fuel_ton: '36.260000' }),
+    )
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.reductionCaption)).toBeTruthy()
+  })
+
+  it('이미 목표 안이면 0을 보이지 않고 그렇다고 말한다', async () => {
+    stubWith(withPlan({ ...BASE, required_cut_gco2: '0', required_cut_fuel_ton: '0.000000' }))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.reductionNoneNeeded)).toBeTruthy()
+    expect(screen.queryByText(ANNUAL_COPY.reductionCutLabel)).toBeNull()
+  })
+
+  it('⚠️ 잔여 계획이 없는 것과 줄일 것이 없는 것을 구분한다', async () => {
+    /* 둘을 같게 두면 「이미 목표 안이다」로 읽히는데, 실제로는 **계산할 대상이 없다.** */
+    stubWith(withPlan({ ...BASE, required_cut_gco2: '45765000.000000', required_cut_fuel_ton: null }))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.reductionNoPlan)).toBeTruthy()
+    expect(screen.queryByText(ANNUAL_COPY.reductionNoneNeeded)).toBeNull()
+  })
+
+  it('⚠️ 다 없애도 못 닿으면 그렇게 말한다 — 「n톤 줄이세요」가 거짓이 되는 경우', async () => {
+    stubWith(
+      withPlan({
+        ...BASE,
+        allowed_planned_M_gco2: '-6739000000.000000',
+        required_cut_gco2: '7735140000.000000',
+        required_cut_fuel_ton: '2484.000000',
+        achievable: false,
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.reductionUnreachable)).toBeTruthy()
+    expect(screen.queryByText(ANNUAL_COPY.reductionCutLabel)).toBeNull()
+  })
+
+  it('블록이 없는 옛 실행에서는 카드를 그리지 않는다 — 0으로 그리면 「줄일 것 없음」이 된다', async () => {
+    stubWith(withPlan(null))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.queryByText(ANNUAL_COPY.reductionTitle)).toBeNull()
+  })
+})
