@@ -85,6 +85,7 @@ export type ScreenId =
   | 'CII_FORECAST'
   | 'ROUTE_COMPARISON'
   | 'ANNUAL_GRADE'
+  | 'FLEET_REDUCTION'
   | 'DATA_QUALITY'
   | 'REPORTS'
   | 'SETTINGS'
@@ -228,6 +229,16 @@ export const SCREEN_BY_ID = {
     // #442 실 API 연결 완료 — demo provider는 백엔드 없이 화면만 볼 때만 쓴다.
     implemented: true,
   },
+  FLEET_REDUCTION: {
+    path: '/fleet-reduction',
+    label: '함대 감축 계획',
+    labelEn: 'Fleet Reduction',
+    uiflowRef: '2-10',
+    purpose: '선박별 감속을 정해 목표 등급 달성 여부와 비용(추가 항해일 · 용선료 손실 · 연료비 절감)을 함께 본다',
+    // 7:5 두 단 — 선박별 조정과 결과를 나란히 본다(`UIFLOW 2-10` · `DESIGN_SYSTEM §7.1`).
+    width: 'wide',
+    implemented: true, // #513 — `POST /fleet/reduction-plans/evaluate` 실 API
+  },
   DATA_QUALITY: {
     path: '/data-quality',
     label: '데이터 점검',
@@ -288,9 +299,10 @@ export const NAV_ORDER = [
   'CII_FORECAST',     // 3. 항해 전 조건을 넣어 본다
   'ROUTE_COMPARISON', // 4. 그 조건의 대안을 견준다
   'ANNUAL_GRADE',     // 5. 항차들이 쌓인 결과를 연 단위로 본다
-  'DATA_QUALITY',     // 6. 내보내기 전에 그 결과가 무엇으로 계산됐는지 본다 (#513)
-  'REPORTS',          // 7. 위 결과를 내보낸다
-  'SETTINGS',         // 8. 상시 사용이 아니므로 끝
+  'FLEET_REDUCTION',  // 6. 연 단위 결과를 선대 단위 조치로 옮긴다 (#513)
+  'DATA_QUALITY',     // 7. 내보내기 전에 그 결과가 무엇으로 계산됐는지 본다 (#513)
+  'REPORTS',          // 8. 위 결과를 내보낸다
+  'SETTINGS',         // 9. 상시 사용이 아니므로 끝
 ] as const satisfies readonly ScreenId[]
 
 /**

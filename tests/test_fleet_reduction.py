@@ -160,3 +160,40 @@ def test_meeting_a_target_means_that_grade_or_better():
     assert meets_target("B", "C") is True
     assert meets_target("C", "C") is True
     assert meets_target("D", "C") is False
+
+
+def test_slowed_fuel_equals_route_comparison_at_the_new_speed():
+    """⚠️ `#513` 완료 기준 — **`2-10`의 연료가 `2-2 항로 비교`와 같은 값을 낸다.**
+
+    항로 비교는 `estimate_fuel_ton`(cubic model)으로 속력마다 연료를 낸다. 계획 연료가 그 모델로
+    원래 속력에서 나온 값이면, 감속 후 연료는 **같은 모델을 새 속력에 넣은 값**과 같아야 한다.
+    """
+    from cii_platform.calc.fuel_estimator import estimate_fuel_ton
+
+    planned = estimate_fuel_ton(
+        distance_nm=Decimal("2880"),
+        speed_kn=Decimal("12"),
+        reference_speed_kn=Decimal("12"),
+        base_daily_foc_ton=Decimal("24"),
+    )
+    voyage = RemainingVoyage(
+        distance_nm=2880.0,
+        fuel_ton=float(planned),
+        cf=3.114,
+        speed_kn=12.0,
+        reference_speed_kn=12.0,
+        base_daily_foc_ton=24.0,
+    )
+    leg = PlannedLeg(
+        distance_nm=Decimal("2880"), speed_kn=Decimal("12"), fuel_ton_by_type={"HFO": planned}
+    )
+
+    slowed = apply_slowdown([voyage], [leg], Decimal(15)).remaining[0].fuel_ton
+    route_comparison = estimate_fuel_ton(
+        distance_nm=Decimal("2880"),
+        speed_kn=Decimal("10.2"),
+        reference_speed_kn=Decimal("12"),
+        base_daily_foc_ton=Decimal("24"),
+    )
+
+    assert slowed == pytest.approx(float(route_comparison))

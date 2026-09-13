@@ -1,0 +1,227 @@
+/*
+ * 함대 감축 계획 (`UIFLOW 2-10` · #513).
+ *
+ * **7:5 두 단**(`DESIGN_SYSTEM §7.1`) — 왼쪽 선박별 조정, 오른쪽 결과. 좁으면 한 단.
+ * 슬라이더 채움은 `--color-primary-solid`(`§8` 🔒 — 등급 색을 쓰지 않는다).
+ *
+ * ⚠️ 치수(트랙·썸)는 `§8`의 〔제안〕 출발점 — 디자인 확정 대상.
+ */
+
+.fr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.fr__notice {
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 4px solid var(--color-border-strong);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+.fr__controls,
+.fr__save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-16);
+}
+
+.fr__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.fr__label,
+.fr__caption,
+.fr__hint,
+.fr__muted,
+.fr__placeholder {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+.fr__caption,
+.fr__placeholder {
+  margin: 0;
+}
+
+.fr__hint {
+  display: block;
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-micro);
+}
+
+.fr__field select,
+.fr__field input,
+.fr__charter {
+  height: 40px;
+  padding: 0 var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+}
+
+.fr__charter {
+  width: 6.5rem;
+}
+
+.fr__field select:focus-visible,
+.fr__field input:focus-visible,
+.fr__charter:focus-visible,
+.fr__slider input:focus-visible,
+.fr__button:focus-visible {
+  outline: var(--focus-ring);
+}
+
+.fr__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--space-16);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .fr__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.fr__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+
+.fr__table-wrap {
+  overflow-x: auto;
+}
+
+.fr__table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--font-size-label);
+}
+
+.fr__main .fr__table {
+  min-width: 560px;
+}
+
+.fr__table th,
+.fr__table td {
+  padding: var(--space-8);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.fr__table thead th {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  border-bottom-color: var(--color-border-strong);
+  white-space: nowrap;
+}
+
+.fr__num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fr__slider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.fr__slider input[type='range'] {
+  width: 6.5rem;
+  accent-color: var(--color-primary-solid);
+}
+
+.fr__slider output {
+  min-width: 3rem;
+  text-align: right;
+}
+
+.fr__transition {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.fr__connector {
+  color: var(--color-text-muted);
+}
+
+.fr__status {
+  margin: 0;
+  border-left: 4px solid var(--color-border-strong);
+}
+
+.fr__status--met {
+  border-left-color: var(--color-success);
+}
+
+.fr__status--missed {
+  border-left-color: var(--color-warning);
+}
+
+.fr__costs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12);
+  margin: var(--space-12) 0 0;
+}
+
+.fr__costs dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+.fr__costs dd {
+  margin: var(--space-4) 0 0;
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-h3);
+}
+
+.fr__prices {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: var(--space-8);
+  margin-top: var(--space-8);
+}
+
+.fr__button {
+  height: 40px;
+  padding: 0 var(--space-24);
+  border: none;
+  border-radius: var(--radius-control);
+  background: var(--color-primary-solid);
+  color: var(--color-on-primary);
+  font-family: inherit;
+  font-size: var(--font-size-body);
+  cursor: pointer;
+}
+
+.fr__button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.fr__warnings {
+  margin: var(--space-12) 0 0;
+  padding-left: var(--space-16);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
+
+/* 연말 등급 칸 — 배지 아래 목표 판정 한 줄이 들어가 좁으면 세로로 길어진다. */
+.fr__main .fr__table td:nth-child(2) {
+  min-width: 9rem;
+}
