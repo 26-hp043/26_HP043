@@ -27,6 +27,9 @@ class AnnualSimulationRun(Base):
     target_rating = sa.Column(sa.String(length=1), nullable=False)
     simulation_runs = sa.Column(sa.Integer(), nullable=False)
     snapshot_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    #: 실적 보정계수를 켜고 돌렸는가 (``PRD §12.2.1`` · `#363` · 마이그레이션 ``042``).
+    #: **계수 값은 저장하지 않는다** — 같은 실행의 스냅샷에서 다시 계산하면 같은 값이다.
+    apply_feedback_factor = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
     created_at = sa.Column(
         sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
     )

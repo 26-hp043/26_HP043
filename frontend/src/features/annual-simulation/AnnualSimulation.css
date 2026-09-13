@@ -223,6 +223,19 @@
   gap: var(--space-4);
 }
 
+/* 체크박스 한 줄 — `VoyageCiiActions.css`의 `__check`와 같은 값을 쓴다. */
+.annual-sim__check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  font-size: var(--font-size-label);
+  color: var(--color-text);
+}
+
+.annual-sim__check input:focus-visible {
+  outline: var(--focus-ring);
+}
+
 .annual-sim__label {
   font-size: var(--font-size-label);
   color: var(--color-text-muted);

@@ -358,6 +358,44 @@ def test_annual_input_fields_locked():
         "random_seed",
         "voyages",
         "vessel",
+        "apply_feedback_factor",
+    )
+
+
+def test_feedback_off_keeps_the_old_hash():
+    """⚠️ **보정계수를 끈 실행은 종전과 같은 해시다** (`#363`).
+
+    끈 실행에 `apply_feedback_factor=False`를 넣으면 **기존 실행 전부의 해시가 바뀌고**,
+    저장된 해시는 UPDATE 트리거가 막아 고칠 수 없어 재현이 전부 500으로 깨진다. 그래서
+    서비스는 **켰을 때만** 키를 넘긴다.
+
+    **서비스의 `_input_hash`를 직접 본다.** 해시 함수만 보면 「키가 없으면 종전과 같다」는
+    당연한 사실만 확인하고, 서비스가 `False`를 넣는 결함은 통과한다 — 첫 판 검사가 실제로
+    그랬다(돌연변이로 확인).
+    """
+    from uuid import UUID
+
+    from cii_platform.calc.hash import compute_annual_input_hash
+    from cii_platform.services.annual_simulation import _input_hash
+
+    common = {
+        "vessel_id": UUID(ANNUAL_INPUT["vessel_id"]),
+        "regulation_year": ANNUAL_INPUT["regulation_year"],
+        "target_rating": ANNUAL_INPUT["target_rating"],
+        "runs": ANNUAL_INPUT["simulation_runs"],
+        "seed": int(ANNUAL_INPUT["random_seed"]),
+        "voyages_json": ANNUAL_INPUT["voyages"],
+        "vessel_json": ANNUAL_INPUT["vessel"],
+    }
+    # 이 기능이 생기기 전의 재료 — 일곱 키. 저장된 실행의 해시가 이것으로 만들어졌다.
+    before_363 = compute_annual_input_hash(dict(ANNUAL_INPUT))
+
+    assert _input_hash(**common) == before_363
+    assert _input_hash(**common, apply_feedback_factor=False) == before_363, (
+        "끈 실행의 해시가 종전과 다르다 — 저장된 실행 전부가 재현 불가가 된다"
+    )
+    assert _input_hash(**common, apply_feedback_factor=True) != before_363, (
+        "켠 실행이 끈 실행과 같은 해시다 — 재현이 구분하지 못한다"
     )
 
 

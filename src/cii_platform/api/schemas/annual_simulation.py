@@ -32,6 +32,9 @@ class AnnualSimulationRequest(BaseModel):
     random_seed: int | str | None = None
     distribution_profile: Annotated[str, Field(max_length=30)] = "DEFAULT"
     as_of: datetime | None = None
+    #: 실적 보정계수를 잔여 계획 연료에 곱한다 (``PRD §12.2.1`` · `#363`). **기본은 끔** —
+    #: 켜지 않은 실행은 종전과 같은 결과·같은 ``input_hash``를 갖는다.
+    apply_feedback_factor: bool = False
 
     @field_validator("random_seed")
     @classmethod

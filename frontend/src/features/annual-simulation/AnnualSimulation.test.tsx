@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { AnnualSimulation } from './AnnualSimulation'
 import { ANNUAL_COPY } from './copy'
-import type { ReductionPlanBlock } from './types'
+import type { FeedbackBlock, ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 
 /**
@@ -458,5 +458,105 @@ describe('필요 감축량 — 목표 역산 (#433)', () => {
     await runOnce()
 
     expect(screen.queryByText(ANNUAL_COPY.reductionTitle)).toBeNull()
+  })
+})
+
+
+/**
+ * 실적 보정계수 (`PRD §12.2.1` · #363).
+ *
+ * 계수 계산과 재현은 백엔드 검사가 잠근다. 여기서는 ⑴ **켠 것만 요청에 실리는가**와
+ * ⑵ **세 상태(곱함 · 안 곱함 · 계산 못 함)를 화면이 구분해 말하는가**를 본다.
+ */
+describe('실적 보정계수 (#363)', () => {
+  function withFeedback(block: FeedbackBlock | null) {
+    const payload = body('sim-1') as Record<string, any>
+    if (block === null) delete payload.data.feedback
+    else payload.data.feedback = block
+    return payload
+  }
+
+  function stubWith(payload: unknown) {
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) {
+        return jsonResponse({ data: [{ year: 2026 }] })
+      }
+      if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  function runBody(fetchImpl: ReturnType<typeof stubWith>): Record<string, unknown> {
+    const call = fetchImpl.mock.calls.find(([url]) => String(url).endsWith('/annual-simulations'))
+    return JSON.parse(String(call?.[1]?.body))
+  }
+
+  const APPLIED = {
+    factor: '1.064516',
+    sample_size: 4,
+    min_sample: 3,
+    requested: true,
+    applied: true,
+  } satisfies FeedbackBlock
+
+  it('끈 채로 실행하면 요청에 싣지 않는다 — 종전 요청과 같은 모양이다', async () => {
+    const fetchImpl = stubWith(withFeedback(null))
+    renderScreen()
+    await runOnce()
+
+    expect(runBody(fetchImpl)).not.toHaveProperty('apply_feedback_factor')
+  })
+
+  it('켜고 실행하면 apply_feedback_factor=true를 보낸다', async () => {
+    const fetchImpl = stubWith(withFeedback(APPLIED))
+    renderScreen()
+    fireEvent.click(screen.getByLabelText(ANNUAL_COPY.feedbackToggle))
+    await runOnce()
+
+    expect(runBody(fetchImpl)).toMatchObject({ apply_feedback_factor: true })
+  })
+
+  it('곱했으면 비율과 「이번 실행에 반영했다」를 보인다', async () => {
+    stubWith(withFeedback(APPLIED))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.feedbackTitle)).toBeTruthy()
+    expect(screen.getByText(/1\.0645/)).toBeTruthy()
+    expect(screen.getByText(ANNUAL_COPY.feedbackApplied)).toBeTruthy()
+  })
+
+  it('켜지 않았으면 값은 보이되 반영하지 않았다고 말한다', async () => {
+    stubWith(withFeedback({ ...APPLIED, requested: false, applied: false }))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.feedbackNotApplied)).toBeTruthy()
+    expect(screen.queryByText(ANNUAL_COPY.feedbackApplied)).toBeNull()
+  })
+
+  it('⚠️ 표본이 모자라면 1.0이 아니라 「계산하지 않음」이다 — 계획대로 쓰는 것처럼 읽히지 않게', async () => {
+    stubWith(
+      withFeedback({ factor: null, sample_size: 1, min_sample: 3, requested: true, applied: false }),
+    )
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByText(ANNUAL_COPY.feedbackUnavailableValue)).toBeTruthy()
+    expect(screen.getByText(ANNUAL_COPY.feedbackUnavailable)).toBeTruthy()
+    expect(screen.queryByText(ANNUAL_COPY.feedbackApplied)).toBeNull()
+    expect(screen.queryByText(/× 1/)).toBeNull()
+  })
+
+  it('블록이 없는 옛 실행에서는 카드를 그리지 않는다', async () => {
+    stubWith(withFeedback(null))
+    renderScreen()
+    await runOnce()
+
+    expect(screen.queryByText(ANNUAL_COPY.feedbackTitle)).toBeNull()
   })
 })

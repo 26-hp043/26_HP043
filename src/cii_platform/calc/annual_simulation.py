@@ -90,6 +90,14 @@ WARNING_NO_COMPLETED = "NO_COMPLETED_VOYAGES"
 #: ``PRD §12.8`` — 잔여 항차가 없다. 확정 실적만으로 연말 값을 낸다.
 WARNING_NO_REMAINING = "NO_REMAINING_VOYAGES"
 
+#: 실적 보정계수를 내는 데 필요한 **최소 확정 항차 수** (``PRD §12.2.1`` · `#363`).
+#: 1~2건이면 이상 항차 한 번(악천후·우회)이 계수를 좌우한다.
+MIN_FEEDBACK_SAMPLE = 3
+
+#: 보정계수를 켰는데 표본이 모자라 **적용하지 않았다**. 조용히 넘기면 사용자는 켠 대로
+#: 계산된 줄 안다.
+WARNING_FEEDBACK_UNAVAILABLE = "FEEDBACK_FACTOR_UNAVAILABLE"
+
 #: ``PRD §12.8`` — one-at-a-time이라 변수 간 상호작용은 포함되지 않는다.
 WARNING_SENSITIVITY_OAT = "SENSITIVITY_ONE_AT_A_TIME"
 
@@ -195,6 +203,29 @@ class DeterministicProjection:
     completed_distance_nm: Decimal
     planned_co2_g: Decimal
     planned_distance_nm: Decimal
+
+
+@dataclass(frozen=True)
+class CompletedPair:
+    """확정 항차 하나의 **계획 · 실적** 짝 (``PRD §17.1`` 계획값·실측값 분리)."""
+
+    planned_distance_nm: Decimal
+    planned_fuel_ton: Decimal
+    actual_distance_nm: Decimal
+    actual_fuel_ton: Decimal
+
+
+@dataclass(frozen=True)
+class FeedbackFactor:
+    """실적 보정계수 (``PRD §12.2.1`` · `#363`).
+
+    :param factor: 실적 연료 강도 ÷ 계획 연료 강도. **표본이 모자라면 ``None``**이다 —
+        1.0으로 두면 「보정할 것이 없다」와 「보정할 근거가 없다」가 같아진다.
+    :param sample_size: 계수에 쓴 확정 항차 수(계획·실적이 모두 있는 것만).
+    """
+
+    factor: Decimal | None
+    sample_size: int
 
 
 @dataclass(frozen=True)
@@ -311,6 +342,74 @@ def project_deterministic(
         planned_co2_g=planned_co2,
         planned_distance_nm=planned_distance,
     )
+
+
+@layer1_context
+def feedback_factor(pairs: Sequence[CompletedPair]) -> FeedbackFactor:
+    """확정 항차의 계획 대비 실적으로 **연료 강도 보정계수**를 낸다 (``PRD §12.2.1``).
+
+    .. code-block:: text
+
+        factor = (Σ actual_fuel / Σ actual_distance) ÷ (Σ planned_fuel / Σ planned_distance)
+
+    ## 학습 범위는 보정계수까지다 — ML이 아니다
+
+    `#363`에서 정했다. 이 제품의 핵심 계약이 재현성이고(`#102`), 규제 대응 도구라
+    검증기관에 **설명할 수 있는 근거**가 필요하다. 「이 배는 지난 항차에서 계획보다
+    연료를 평균 8% 더 썼다」는 사용자가 이해하고 반박할 수 있다.
+
+    ## 왜 강도의 비인가 — 연료 총량의 비가 아니다
+
+    잔여 계획의 **거리는 그대로 두고 연료만** 보정한다(``§12.3.1`` 거리 고정과 같은 축).
+    총량 비(Σ실적연료 ÷ Σ계획연료)를 쓰면 **실제로 더 멀리 간 항차**가 「연료를 더
+    썼다」로 잡혀, 거리가 같은 잔여 계획의 연료를 부당하게 부풀린다.
+
+    ## 표본
+
+    계획·실적 **넷 다 양수**인 항차만 센다. 하나라도 비면 강도를 낼 수 없다.
+    :data:`MIN_FEEDBACK_SAMPLE` 미만이면 ``factor=None``이다.
+    """
+    usable = [
+        p
+        for p in pairs
+        if p.planned_distance_nm > 0
+        and p.planned_fuel_ton > 0
+        and p.actual_distance_nm > 0
+        and p.actual_fuel_ton > 0
+    ]
+    if len(usable) < MIN_FEEDBACK_SAMPLE:
+        return FeedbackFactor(factor=None, sample_size=len(usable))
+
+    actual_intensity = sum((p.actual_fuel_ton for p in usable), Decimal(0)) / sum(
+        (p.actual_distance_nm for p in usable), Decimal(0)
+    )
+    planned_intensity = sum((p.planned_fuel_ton for p in usable), Decimal(0)) / sum(
+        (p.planned_distance_nm for p in usable), Decimal(0)
+    )
+    return FeedbackFactor(factor=actual_intensity / planned_intensity, sample_size=len(usable))
+
+
+def apply_feedback(remaining: Sequence[RemainingVoyage], factor: Decimal) -> list[RemainingVoyage]:
+    """잔여 계획의 **연료만** 계수로 보정한다. 거리·속력·제원은 그대로다.
+
+    ``base_daily_foc_ton``(선박 제원)은 **건드리지 않는다.** 속도 지렛대
+    (:func:`_shift_speed`)가 그 값을 **있는지만** 보고 연료는 항차의 ``fuel_ton``에
+    비율을 곱해 내므로, 보정된 ``fuel_ton``이 그대로 이어진다. 제원을 고치면 「이 배의
+    기준 일일 연료가 바뀌었다」로 읽히는데, 바뀐 것은 제원이 아니라 계획의 신뢰도다.
+
+    새 목록을 돌려준다 — 원본을 고치면 같은 실행 안에서 보정 전 값을 다시 볼 수 없다.
+    """
+    return [
+        RemainingVoyage(
+            distance_nm=v.distance_nm,
+            fuel_ton=float(Decimal(str(v.fuel_ton)) * factor),
+            cf=v.cf,
+            speed_kn=v.speed_kn,
+            reference_speed_kn=v.reference_speed_kn,
+            base_daily_foc_ton=v.base_daily_foc_ton,
+        )
+        for v in remaining
+    ]
 
 
 @layer1_context

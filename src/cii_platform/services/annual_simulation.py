@@ -45,10 +45,15 @@ from uuid import UUID
 
 from cii_platform.calc.annual_simulation import (
     MAX_REMAINING_VOYAGES,
+    MIN_FEEDBACK_SAMPLE,
+    WARNING_FEEDBACK_UNAVAILABLE,
+    CompletedPair,
     CompletedTotals,
     RemainingVoyage,
     analyze_sensitivity,
+    apply_feedback,
     backsolve_required_cut,
+    feedback_factor,
     profile_from_rows,
     project_deterministic,
     simulate_annual,
@@ -285,6 +290,62 @@ def _vessel_from_snapshot(payload: dict) -> VesselSnapshot:
         reference_speed_kn=number("reference_speed_kn"),
         reference_daily_foc_ton=number("reference_daily_foc_ton"),
     )
+
+
+def _completed_pairs(rows: list[dict]) -> list[CompletedPair]:
+    """스냅샷의 확정 항차에서 **계획 · 실적** 짝을 뽑는다 (``PRD §12.2.1`` · `#363`).
+
+    **스냅샷에서 뽑는다.** 원본 ``voyage``를 읽으면 재현 시 그 사이의 편집이 섞인다 —
+    계수를 따로 저장하지 않아도 되는 이유가 이것이다(같은 스냅샷이면 같은 계수).
+    """
+    pairs = []
+    for row in rows:
+        if row.get("kind") != "ACTUAL":
+            continue
+        fuel_uses = row.get("fuel_uses") or []
+        actual_distance = row.get("actual_distance_nm")
+        actual_fuels = [fu.get("actual_fuel_ton") for fu in fuel_uses]
+        # 실적이 하나라도 비면 강도를 낼 수 없다 — 계획값으로 채우면 「계획대로 썼다」가
+        # 표본에 섞여 계수가 1.0 쪽으로 끌려간다.
+        if actual_distance is None or not fuel_uses or any(v is None for v in actual_fuels):
+            continue
+        pairs.append(
+            CompletedPair(
+                planned_distance_nm=Decimal(row.get("planned_distance_nm") or "0"),
+                planned_fuel_ton=sum(
+                    (Decimal(fu.get("planned_fuel_ton") or "0") for fu in fuel_uses), Decimal(0)
+                ),
+                actual_distance_nm=Decimal(actual_distance),
+                actual_fuel_ton=sum((Decimal(v) for v in actual_fuels), Decimal(0)),
+            )
+        )
+    return pairs
+
+
+def _resolve_feedback(
+    rows: list[dict], remaining: list[RemainingVoyage], *, requested: bool
+) -> tuple[list[RemainingVoyage], dict[str, object], list[str]]:
+    """보정계수를 내고, **요청됐고 낼 수 있을 때만** 잔여 계획에 적용한다.
+
+    실행·재현 두 경로가 **이 함수 하나**를 쓴다 — 각자 조립하면 재현이 실패할 때 원인이
+    엔진인지 조립인지 가릴 수 없다(:func:`_inputs_from_snapshot`과 같은 이유).
+
+    **계수는 요청과 무관하게 늘 계산해 응답에 싣는다.** 사용자가 켜기 전에 「이 배는
+    계획보다 n% 더 쓴다」를 보고 판단할 수 있어야 한다.
+
+    :returns: ``(잔여 계획, 응답 블록, 경고)``
+    """
+    result = feedback_factor(_completed_pairs(rows))
+    applied = requested and result.factor is not None
+    warnings = [WARNING_FEEDBACK_UNAVAILABLE] if requested and result.factor is None else []
+    block = {
+        "factor": _publish(result.factor),
+        "sample_size": result.sample_size,
+        "min_sample": MIN_FEEDBACK_SAMPLE,
+        "requested": requested,
+        "applied": applied,
+    }
+    return (apply_feedback(remaining, result.factor) if applied else remaining), block, warnings
 
 
 def _inputs_from_snapshot(
@@ -565,6 +626,7 @@ async def run_annual_simulation(
     random_seed: int | None = None,
     distribution_profile: str = "DEFAULT",
     as_of: datetime | None = None,
+    apply_feedback_factor: bool = False,
 ) -> dict[str, object]:
     """연간 시뮬레이션을 실행하고 결과를 저장한다 (``API_SPEC §6.1``).
 
@@ -624,6 +686,11 @@ async def run_annual_simulation(
 
     voyages_json = inputs.voyages_json
     completed, remaining, input_warnings = inputs.completed, inputs.remaining, inputs.warnings
+    # `PRD §12.2.1` 실적 보정계수 — 켰을 때만 잔여 계획 연료에 곱한다(`#363`).
+    remaining, feedback, feedback_warnings = _resolve_feedback(
+        voyages_json, remaining, requested=apply_feedback_factor
+    )
+    input_warnings = [*input_warnings, *feedback_warnings]
 
     # 분포는 코드가 아니라 테이블에서 읽는다 (#434).
     profile_rows = await param_repo.load_distribution_profile(session, distribution_profile)
@@ -713,6 +780,7 @@ async def run_annual_simulation(
 
     payload = _payload(
         deterministic=deterministic,
+        feedback=feedback,
         reduction_plan=reduction_plan,
         outcome=outcome,
         sensitivity=sensitivity,
@@ -749,6 +817,7 @@ async def run_annual_simulation(
         warnings=payload["warnings"],
         seed=seed,
         duration_ms=duration_ms,
+        apply_feedback_factor=apply_feedback_factor,
     )
 
     return _envelope(
@@ -962,6 +1031,7 @@ def _parameters_used_v1(
 def _payload(
     *,
     deterministic,
+    feedback,
     reduction_plan,
     outcome,
     sensitivity,
@@ -1006,6 +1076,8 @@ def _payload(
         # `PRD §12.3.1` 필요 감축량 — **Monte Carlo를 부르지 않는다**(`UIFLOW 2-10`).
         # 같은 `deterministic`에서 파생되므로 확률 결과와 전제가 갈릴 수 없다.
         #
+        # `PRD §12.2.1` 실적 보정계수 — 켜지 않아도 늘 싣는다(`#363`).
+        "feedback": feedback,
         "reduction_plan": {
             "target_rating": reduction_plan.target_rating,
             "target_cii": _publish(reduction_plan.target_cii),
@@ -1091,6 +1163,9 @@ def _envelope(
     #
     if "reduction_plan" in payload:
         data["reduction_plan"] = payload["reduction_plan"]
+    # `PRD §12.2.1` 실적 보정계수(`#363`) — 같은 이유로 옮겨 싣고, 블록 이전 실행에는 없다.
+    if "feedback" in payload:
+        data["feedback"] = payload["feedback"]
     return {
         "data": data,
         "parameters_used": parameters_used,
@@ -1113,6 +1188,7 @@ def _input_hash(
     seed: int,
     voyages_json: list[dict],
     vessel_json: dict,
+    apply_feedback_factor: bool = False,
 ) -> str:
     """``input_hash``의 재료를 한 곳에 둔다 (``TECH_SPEC §5.3``).
 
@@ -1125,17 +1201,22 @@ def _input_hash(
     못한다.** 이 재료가 바뀌었으므로 `037` **이전 실행의 해시는 이 식으로 재현되지
     않는다**; 그 행들은 ``vessel_json``이 NULL이라 재현 경로가 앞에서 끊는다.
     """
-    return compute_annual_input_hash(
-        {
-            "vessel_id": str(vessel_id),
-            "regulation_year": regulation_year,
-            "target_rating": target_rating,
-            "simulation_runs": runs,
-            "random_seed": str(seed),
-            "voyages": voyages_json,
-            "vessel": vessel_json,
-        }
-    )
+    material: dict[str, object] = {
+        "vessel_id": str(vessel_id),
+        "regulation_year": regulation_year,
+        "target_rating": target_rating,
+        "simulation_runs": runs,
+        "random_seed": str(seed),
+        "voyages": voyages_json,
+        "vessel": vessel_json,
+    }
+    # ⚠️ **켰을 때만 넣는다** (`#363`). 끈 실행에 `False`를 넣으면 **기존 실행 전부의
+    # 해시가 바뀌어** 재현이 500으로 깨진다 — 저장된 해시는 UPDATE 트리거가 막아 고칠
+    # 수도 없다(`#816` 2026-09-08 코멘트가 확인한 벽). 키가 없으면 필터가 건너뛰므로
+    # 끈 실행은 종전과 같은 해시를 갖는다.
+    if apply_feedback_factor:
+        material["apply_feedback_factor"] = True
+    return compute_annual_input_hash(material)
 
 
 async def _persist(
@@ -1152,6 +1233,7 @@ async def _persist(
     warnings: list[str],
     seed: int,
     duration_ms: int,
+    apply_feedback_factor: bool = False,
 ):
     """스냅샷 → 계산 이력 → 시뮬레이션 실행 순으로 저장한다.
 
@@ -1171,6 +1253,7 @@ async def _persist(
         seed=seed,
         voyages_json=voyages_json,
         vessel_json=vessel_json,
+        apply_feedback_factor=apply_feedback_factor,
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
@@ -1236,8 +1319,8 @@ async def _persist(
             text(
                 "INSERT INTO annual_simulation_run "
                 "(calculation_run_id, vessel_id, regulation_year, target_rating, "
-                " simulation_runs, snapshot_id) "
-                "VALUES (:run_id, :vessel_id, :year, :target, :runs, :snapshot_id) "
+                " simulation_runs, snapshot_id, apply_feedback_factor) "
+                "VALUES (:run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback) "
                 "RETURNING id"
             ),
             {
@@ -1247,6 +1330,7 @@ async def _persist(
                 "target": target_rating,
                 "runs": runs,
                 "snapshot_id": snapshot_row.id,
+                "feedback": apply_feedback_factor,
             },
         )
     ).one()
@@ -1289,6 +1373,7 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
             text(
                 "SELECT r.id AS simulation_id, r.calculation_run_id, r.vessel_id, "
                 "       r.regulation_year, r.target_rating, r.simulation_runs, r.snapshot_id, "
+                "       r.apply_feedback_factor, "
                 "       c.result_json, c.parameters_used, c.input_hash, c.parameter_hash, "
                 "       c.model_version, c.duration_ms, "
                 "       s.created_at AS snapshot_created_at, "
@@ -1526,6 +1611,7 @@ async def reproduce_annual_simulation(
             seed=seed,
             voyages_json=voyages_json,
             vessel_json=await _load_snapshot_vessel(session, row.snapshot_id),
+            apply_feedback_factor=row.apply_feedback_factor,
         )
         != row.input_hash
     )
@@ -1559,6 +1645,7 @@ async def reproduce_annual_simulation(
         runs=row.simulation_runs,
         seed=seed,
         profile_rows=profile_rows,
+        apply_feedback_factor=row.apply_feedback_factor,
     )
 
     # `TECH_SPEC §5.4` 1항 — 같은 결과를 약속하는 조건은 **input_hash · parameter_hash ·
@@ -1677,6 +1764,7 @@ def _recompute(
     runs: int,
     seed: int,
     profile_rows,
+    apply_feedback_factor: bool = False,
 ) -> dict[str, object]:
     """스냅샷으로 계산만 다시 한다. 저장하지 않는다.
 
@@ -1699,6 +1787,12 @@ def _recompute(
     )
 
     completed, remaining, input_warnings = _inputs_from_snapshot(voyages_json, vessel)
+    # 원본 실행이 켰는지는 행에 저장돼 있다(마이그레이션 `042`). 계수는 같은 스냅샷에서
+    # 다시 계산하므로 같은 값이다.
+    remaining, feedback, feedback_warnings = _resolve_feedback(
+        voyages_json, remaining, requested=apply_feedback_factor
+    )
+    input_warnings = [*input_warnings, *feedback_warnings]
     profile = profile_from_rows(profile_rows)
 
     deterministic = project_deterministic(
@@ -1751,6 +1845,7 @@ def _recompute(
 
     return _payload(
         deterministic=deterministic,
+        feedback=feedback,
         reduction_plan=reduction_plan,
         outcome=outcome,
         sensitivity=sensitivity,

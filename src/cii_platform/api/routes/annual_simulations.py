@@ -114,6 +114,7 @@ async def run_annual_simulation_route(
         random_seed=payload.random_seed,
         distribution_profile=payload.distribution_profile,
         as_of=payload.as_of,
+        apply_feedback_factor=payload.apply_feedback_factor,
     )
     result = _with_meta(request, data)
     await _record_run(request, session, result)

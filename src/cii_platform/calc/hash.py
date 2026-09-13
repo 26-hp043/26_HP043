@@ -225,6 +225,9 @@ ANNUAL_INPUT_FIELDS: tuple[str, ...] = (
     "random_seed",
     "voyages",  # simulation_snapshot.voyages_json 그대로
     "vessel",  # simulation_snapshot.vessel_json 그대로 (#493)
+    # 실적 보정계수 적용 (#363). ⚠️ **켠 실행만 이 키를 넘긴다** — 끈 실행에 `False`를
+    # 넣으면 기존 실행 전부의 해시가 바뀐다. 없는 키는 `_filter_fields`가 건너뛴다.
+    "apply_feedback_factor",
 )
 
 
