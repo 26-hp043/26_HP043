@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.29 |
+| 버전 | v1.30 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-13 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1397,6 +1397,96 @@ GET /api/v1/vessels/samples
 | 나머지 6필드 | §2.3 등록 요청의 **신원(IMO·선명)을 뺀 전 필드.** 수치는 CRUD 층이라 JSON 숫자다(§1.7) |
 
 > **값은 데모 시드의 합성 샘플 3척에서 온다** — 새 제원을 만들지 않는다. 기준속도·기준 일일 연료는 정본 픽스처에서 역산해 검증된 값이다(`#587`). 실존 선박(시드의 2척)은 넣지 않는다: 남의 배 제원을 권하는 꼴이고, 기준 일일 연료가 비어 샘플의 목적(바로 계산되는 제원)에 맞지 않는다. `default_fuel_type`은 시드와 같이 `null`이다(마이그레이션 017 downgrade 보호 · `#451`).
+
+### 2.16 데이터 점검 (#513)
+
+```http
+GET /api/v1/fleet/data-quality?regulation_year=2026
+```
+
+`UIFLOW 2-11` 데이터 점검 화면의 본체다. **선대 CII 계산에 실측이 아닌 값이 어디에 들어갔는지**를 네 심각도로 나눠 낸다. 판정 규칙은 `PRD §17.4`이고 **읽기 전용**이다.
+
+| 쿼리 | 필수 | 설명 |
+|---|---|---|
+| `regulation_year` | N | 점검 대상 규제연도(2000~2100). 미지정이면 올해 |
+
+> **집계 기준은 실적 확정 항차(`INCLUDE_AS_ACTUAL`)다 — 진행 중 항차는 넣지 않는다.** 진행분은 시계가 만든 추정이라(`#368`) 「실측이 아니다」가 정의상 참이고, 조회마다 값이 바뀐다. 그래서 `vessels[].ytd_attained_cii`는 `§2.8` 대시보드 값(진행분 포함)과 **다를 수 있다.**
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": {
+    "regulation_year": 2026,
+    "summary": {
+      "substituted_count": 1,
+      "unavailable_count": 0,
+      "anomaly_count": 1,
+      "unconfirmed_count": 2,
+      "anomaly_unjudged_count": 0,
+      "completeness_ratio": "0.9420"
+    },
+    "vessels": [
+      {
+        "vessel_id": "…",
+        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "data_available": true,
+        "unavailable_reason": null,
+        "ytd_attained_cii": "8.9799",
+        "ytd_rating": "E",
+        "voyage_count": 3,
+        "completeness_ratio": "0.9420"
+      }
+    ],
+    "issues": [
+      {
+        "severity": "SUBSTITUTED",
+        "vessel_id": "…",
+        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "voyage_id": "…",
+        "voyage_no": "2026-03",
+        "codes": ["FUEL:HFO"],
+        "cii_impact": {
+          "attained_cii": "8.9799",
+          "attained_cii_without": "8.7512",
+          "delta": "0.2287",
+          "rating": "E",
+          "rating_without": "D"
+        },
+        "cii_impact_reason": null
+      }
+    ]
+  },
+  "meta": { "request_id": "…", "timestamp": "…" }
+}
+```
+
+**`issues[].severity`** — 목록은 이 순서로 정렬된다(`DESIGN_SYSTEM §2.3.1` 표 순서).
+
+| 값 | 화면 | 판정 | `codes` |
+|---|---|---|---|
+| `SUBSTITUTED` | 대체 계산 | 실적 대신 계획값이 들어갔다 (`PRD §8.3` · `ytd.substitutions` `§2.14`) | `DISTANCE` · `FUEL:<유종>` |
+| `UNAVAILABLE` | 계산 불가 | ⑴ 선박 CII를 낼 수 없다(`voyage_id`가 `null`) ⑵ 연료 행에 실적도 계획도 없다 | ⑴ `§2.8` `unavailable_reason`과 같은 어휘(`NO_DATA` · `MISSING_SPEC` · `NO_PARAMETERS` · `CALCULATION_ERROR`) ⑵ `FUEL_UNFILLED:<유종>` |
+| `ANOMALY` | 이상치 | `PRD §17.4.1` | `FUEL_VS_MODEL` · `SPEED_ABOVE_REFERENCE` · `SPEED_MISMATCH` |
+| `UNCONFIRMED` | 실적 미입력 | `COMPLETED`에서 `CONFIRMED`로 미전이 (`PRD §8.4`) | `COMPLETED` |
+
+한 항차가 여러 심각도에 걸리면 **심각도마다 한 행**이다(예: 대체 계산이면서 실적 미입력). `summary.*_count`는 그 행 수다.
+
+| 필드 | 설명 |
+|---|---|
+| `summary.anomaly_unjudged_count` | 이상치를 **판정하지 못한** 항차 수 — 선박 제원·운항 시각이 없어 세 검사 중 하나도 돌릴 수 없었다. **이상치 0건과 섞지 않는다** |
+| `summary.completeness_ratio` · `vessels[].completeness_ratio` | 누적 CO₂ 중 실측으로 계산된 비율(`PRD §17.4.3`) · 소수 4자리 문자열. 배출이 없거나 계산할 수 없으면 `null` — **100%로 채우지 않는다** |
+| `issues[].cii_impact` | 그 항차를 **뺀** 누적 CII와의 차이(`PRD §17.4.2`). `delta` = `attained_cii` − `attained_cii_without` — **양수면 이 항차가 누적 CII를 높이고(나쁘게) 있다** |
+| `issues[].cii_impact_reason` | `cii_impact`가 `null`인 이유 — `ONLY_VOYAGE`(이 항차뿐이라 빼면 누적이 없다) · `BASE_UNAVAILABLE`(선박 누적 CII를 낼 수 없다). 선박 단위 행이면 둘 다 `null` |
+
+#### 오류
+
+| Status | Code | 조건 |
+|---|---|---|
+| 409 | `PARAMETER_ERROR` | 그 해의 규정 파라미터가 없다 — **선박이 1척 이상일 때만** (`§2.8`과 같은 규약) |
+| 422 | `VALIDATION_ERROR` | `regulation_year` 범위 밖 |
+
+> **선박이 0척이면 200에 빈 배열이다** — `§2.8`과 같은 이유로 오류가 아니다.
 
 ---
 
@@ -3186,6 +3276,7 @@ GET /api/v1/health
 | GET | `/api/v1/vessels/{id}` | 선박 상세 | §6.2 SCR-002 |
 | GET | `/api/v1/vessels/{id}/cii-history` | 연도별 CII 이력 | §6.2 SCR-008 |
 | GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
+| GET | `/api/v1/fleet/data-quality` | 데이터 점검 (#513) | `UIFLOW 2-11` · §17.4 |
 | PATCH | `/api/v1/vessels/{id}` | 선박 수정 | §6.2 SCR-002 |
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
 | PATCH | `/api/v1/vessels/{id}/position` | 위치 갱신 | §6.2 SCR-001 |
@@ -3540,3 +3631,4 @@ POST /api/v1/chat
 | 2026-09-13 | `#121` | **§15 Chat API 신설**(`POST /api/v1/chat`) + §1.4에 `503 CHAT_UNAVAILABLE` 행 + §12 요약표 행. 절 번호를 **15로 뒤에 붙인 이유**는 §11~§14가 요약·정정 절이라, API 계열을 그 앞에 끼우면 네 절과 그것을 가리키는 상위 문서 참조가 전부 밀리기 때문이다. ⚠️ **스트리밍(SSE)을 쓰지 않는다**(`§15.5`) — `§15.2` 수학 검증은 **답 전체를 봐야** 판정하는데, 토큰을 흘려보내면 이미 뜬 문장을 거둬들여야 하고 그것은 「버린다」가 아니라 「보여 줬다가 지운다」다. 응답을 버리는 세 경우를 `discarded`로 드러내되 **200을 낸다** — 버리는 것은 사용자 잘못이 아니라 모델의 답이 규율을 어긴 것이고, 4xx를 내면 화면이 고칠 수 없는 입력을 고치라고 안내하게 된다. `§4.3`상 절 신설이라 **v1.28 → v1.29** (#121) |
 | 2026-09-13 | `#756` | §6.1 거리 민감도 각주 정정 — 「거의 변하지 않는다」를 **「잔여 계획의 배출 강도가 확정 실적과 같으면 정확히 변하지 않는다」**로 고쳤다. 종전 문구는 조건부 사실을 무조건으로 적어, 실적이 계획에서 벌어져 그 행이 실제로 움직이는 경우를 설명하지 못했다(`PRD §12.6` 각주와 함께 정정). `AGENTS §4.3` 「각주 정정」이라 버전은 올리지 않는다 (#756) |
 | 2026-09-13 | `#363` | **§6.1 요청에 `apply_feedback_factor` · 응답 예시에 `feedback` 블록 · §6.1.2 신설 · §1.6에 `FEEDBACK_FACTOR_UNAVAILABLE`.** `PRD §12.2.1` 실적 보정계수를 그대로 낸다. **켜지 않아도 계수를 싣는다** — 켜기 전에 판단할 수 있어야 한다. 표본이 모자라면 `factor`를 `1`로 채우지 않고 `null`로 둔다(「계획대로 쓰고 있다」와 구분). 켠 사실은 `input_hash`에 켰을 때만 들어가 기존 실행의 해시가 바뀌지 않는다. `AGENTS §4.3`상 소규모 행 추가·소절 신설이라 버전은 올리지 않는다 (#363) |
+| 2026-09-13 | `#513` | **v1.30 — §2.16 데이터 점검 신설** · §12 요약표 1행. `UIFLOW 2-11`의 본체로 **실측이 아닌 값이 들어간 항차**를 네 심각도(대체 계산 · 계산 불가 · 이상치 · 실적 미입력)로 낸다(`PRD §17.4`). 계산 불가 어휘는 `§2.8` `unavailable_reason`을 그대로 쓴다 — 대시보드와 다른 이름을 붙이면 같은 문제를 둘로 읽는다. **판정하지 못한 이상치 수를 따로 싣는다** — 0건과 섞으면 제원이 없는 선박이 가장 깨끗해 보인다. 집계에 진행 중 항차를 넣지 않아 누적 CII가 `§2.8`과 다를 수 있음을 적었다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |

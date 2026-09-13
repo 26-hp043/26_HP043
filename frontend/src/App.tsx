@@ -19,6 +19,7 @@ import { RealtimeCiiPage } from './pages/RealtimeCiiPage'
 import { CiiForecastPage } from './pages/CiiForecastPage'
 import { RouteComparisonPage } from './pages/RouteComparisonPage'
 import { AnnualGradePage } from './pages/AnnualGradePage'
+import { DataQualityPage } from './pages/DataQualityPage'
 import { ReportsPage } from './pages/ReportsPage'
 import { SettingsPage } from './pages/SettingsPage'
 
@@ -94,6 +95,7 @@ export default function App() {
             element={<RouteComparisonPage />}
           />
           <Route path={SCREEN_BY_ID.ANNUAL_GRADE.path} element={<AnnualGradePage />} />
+          <Route path={SCREEN_BY_ID.DATA_QUALITY.path} element={<DataQualityPage />} />
           <Route path={SCREEN_BY_ID.REPORTS.path} element={<ReportsPage />} />
           <Route path={SCREEN_BY_ID.SETTINGS.path} element={<SettingsPage />} />
 

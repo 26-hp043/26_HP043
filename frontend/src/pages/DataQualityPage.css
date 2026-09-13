@@ -1,0 +1,9 @@
+/*
+ * UIFLOW 2-11 데이터 점검 — 페이지는 세로 흐름만 잡는다. 폭은 셸(`wide`)이 정한다
+ * (`AnnualGradePage.css`와 같은 판단).
+ */
+.data-quality-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}

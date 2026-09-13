@@ -1575,6 +1575,10 @@ _FILES = "tests/test_report_export_routes_api_db.py"
 
 #: 두 계약 표 밖의 라우트 → 필드 집합을 보는 테스트(``파일::함수``) 또는 ``면제: 사유``.
 ROUTE_COVERAGE: dict[str, str] = {
+    # `API_SPEC §2.16` (#513) — `issues[]`의 영향 블록 유무가 **DB에 있는 항차에 따라** 갈려
+    # 공용 데이터로 필드 집합을 비교할 수 없다. 그 파일이 자기 데이터로 양쪽 모양을 모두 보고,
+    # HTTP 경로(인증·봉투·422)는 따로 본다.
+    "GET /fleet/data-quality": ("tests/test_data_quality_db.py::test_the_route_answers_over_http"),
     # `API_SPEC §3.10` (#768) — 응답이 **외부 조회 결과**라 데모 시드로는 볼 수 없다.
     # 그 파일이 가짜 제공자로 샘플·캐시·조회 세 경로의 응답을 각각 확인한다.
     "GET /ports/lookup": (

@@ -50,8 +50,9 @@ describe('NAV_ORDER — 작업 흐름 순서 (UIFLOW §2.2.1)', () => {
       'CII_FORECAST', // 3. 2-1
       'ROUTE_COMPARISON', // 4. 2-2
       'ANNUAL_GRADE', // 5. 2-3
-      'REPORTS', // 6. 2-5
-      'SETTINGS', // 7. 2-6
+      'DATA_QUALITY', // 6. 2-11 (#513)
+      'REPORTS', // 7. 2-5
+      'SETTINGS', // 8. 2-6
     ])
   })
 
@@ -59,11 +60,15 @@ describe('NAV_ORDER — 작업 흐름 순서 (UIFLOW §2.2.1)', () => {
    * 순서와 별개로 **구성원은 바뀌지 않았다.** 개정은 배열의 차례만 건드렸고,
    * 어느 화면이 사이드바에 있는지는 그대로다 — 그것까지 흔들리면 개정 범위가
    * 「순서만」이 아니게 된다.
+   *
+   * **구성원이 늘어난 것은 한 번이다** — `#513`이 `2-11 데이터 점검`을 범위 안으로 옮기며
+   * 사이드바에 더했다(`UIFLOW §2.2.1` 개정).
    */
-  it('사이드바 구성원은 그대로다 — 개정은 순서만 바꿨다', () => {
+  it('사이드바 구성원은 정본 표와 같다', () => {
     expect([...NAV_ORDER].sort()).toEqual(
       [
         'ANNUAL_GRADE',
+        'DATA_QUALITY',
         'CII_FORECAST',
         'MAINBOARD',
         'REPORTS',
@@ -179,6 +184,7 @@ describe('implemented ↔ 실제 구현 상태 (#527)', () => {
     // 사이드바
     MAINBOARD: 'MainboardPage',
     ANNUAL_GRADE: 'AnnualGradePage',
+    DATA_QUALITY: 'DataQualityPage',
     CII_FORECAST: 'CiiForecastPage',
     ROUTE_COMPARISON: 'RouteComparisonPage',
     REPORTS: 'ReportsPage',

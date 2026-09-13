@@ -82,6 +82,16 @@ function LocationIcon(props: IconProps) {
   )
 }
 
+/** 데이터 점검 — 목록과 확인 표시. */
+function CheckListIcon(props: IconProps) {
+  return (
+    <svg {...props} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 6.5 5.5 8 8 5.5M4 12.5 5.5 14 8 11.5M4 18.5 5.5 20 8 17.5" />
+      <path d="M11 7h9.5M11 13h9.5M11 19h9.5" />
+    </svg>
+  )
+}
+
 /** 보고서 — 문서. */
 function ReportIcon(props: IconProps) {
   return (
@@ -117,6 +127,7 @@ const ICONS: Partial<Record<ScreenId, (p: IconProps) => ReactElement>> = {
   VESSEL_REGISTRATION: VesselIcon,
   VESSEL_DETAIL: LocationIcon,
   REALTIME_CII: LocationIcon,
+  DATA_QUALITY: CheckListIcon,
   REPORTS: ReportIcon,
   SETTINGS: SettingsIcon,
 }

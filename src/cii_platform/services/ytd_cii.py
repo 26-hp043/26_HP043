@@ -178,6 +178,12 @@ class YtdCiiOutput:
     #: 실적 대신 계획값을 쓴 항차별 기록 (#449). 경고는 「있었다」만 말하고
     #: 이 목록이 **어느 항차의 무엇인지**를 말한다.
     substitutions: list[Substitution] = field(default_factory=list)
+    #: **실적도 계획값도 없어 더하지 못한** 연료 행 (`#513` · `PRD §17.4` 「계산 불가」).
+    #:
+    #: 종전에는 조용히 건너뛰었다 — 0을 더하는 것과 같아 합계가 그만큼 작게 나오는데
+    #: 경고도 기록도 없었다. 대체(``substitutions``)와 성질이 달라 목록을 따로 둔다:
+    #: 대체는 **추정값이 들어간 것**이고 이것은 **아무것도 들어가지 않은 것**이다.
+    unfilled: list[Substitution] = field(default_factory=list)
 
     attained_cii: Decimal | None = None
     required_cii: Decimal | None = None
@@ -239,6 +245,8 @@ class _Aggregated:
     warnings: list[str]
     #: 실적 대신 계획값을 쓴 항차별 기록 (#449).
     substitutions: list[Substitution]
+    #: 실적도 계획값도 없어 더하지 못한 연료 행 (#513).
+    unfilled: list[Substitution]
 
 
 # --- Layer 1 --------------------------------------------------------------------
@@ -341,6 +349,7 @@ async def compute_ytd_cii(
     regulation_year: int,
     as_of: datetime | None = None,
     in_progress: InProgressContribution | None = None,
+    exclude_voyage_ids: frozenset[UUID] = frozenset(),
 ) -> YtdCiiOutput:
     """선박의 연초~확정 시점 누적 CII를 산출한다.
 
@@ -349,6 +358,9 @@ async def compute_ytd_cii(
         일은 저장소 WHERE 절을 좁히는 것뿐이다 (``#368`` 계약 ⑸).
     :param in_progress: ``#368``이 확정한 진행 중 항차 기여분. 미지정이면 실적
         확정분만 집계한다.
+    :param exclude_voyage_ids: 집계에서 뺄 항차 (`#513` · `PRD §17.4.2` 「CII 영향」).
+        데이터 점검이 **그 항차가 없었다면 누적 CII가 얼마였는가**를 내려고 쓴다.
+        화면의 누적값 경로는 넘기지 않는다.
     """
     vessel = await _load_vessel(session, vessel_id)
     transport_capacity = _resolve_transport_capacity(vessel)
@@ -359,6 +371,7 @@ async def compute_ytd_cii(
         regulation_year=regulation_year,
         as_of=as_of,
         in_progress=in_progress,
+        exclude_voyage_ids=exclude_voyage_ids,
     )
     period_count = len(
         await not_underway_repo.list_periods_for_year(
@@ -385,6 +398,7 @@ async def compute_ytd_cii(
                 *aggregated.warnings,
             ],
             substitutions=aggregated.substitutions,
+            unfilled=aggregated.unfilled,
             underway_distance_nm=aggregated.underway_distance_nm,
             not_underway_distance_nm=aggregated.not_underway_distance_nm,
             total_distance_nm=total_distance_nm,
@@ -446,6 +460,7 @@ async def compute_ytd_cii(
             *aggregated.warnings,
         ],
         substitutions=aggregated.substitutions,
+        unfilled=aggregated.unfilled,
         attained_cii=layer1.ytd.attained_cii,
         required_cii=layer1.required_cii,
         cii_ref=layer1.cii_ref,
@@ -497,6 +512,7 @@ async def _aggregate(
     regulation_year: int,
     as_of: datetime | None,
     in_progress: InProgressContribution | None,
+    exclude_voyage_ids: frozenset[UUID] = frozenset(),
 ) -> _Aggregated:
     """실적 확정 항차 + not under way 기록 + ``#368`` 주입분을 하나로 모은다."""
     voyages = await voyage_repo.list_annual_inclusions(
@@ -506,6 +522,8 @@ async def _aggregate(
         policy=POLICY_INCLUDE_AS_ACTUAL,
         as_of=as_of,
     )
+    if exclude_voyage_ids:
+        voyages = [voyage for voyage in voyages if voyage.id not in exclude_voyage_ids]
     fuel_by_voyage = await voyage_repo.list_fuel_uses_by_voyage_ids(
         session, [voyage.id for voyage in voyages]
     )
@@ -514,6 +532,7 @@ async def _aggregate(
     distance = Decimal(0)
     warnings: list[str] = []
     substitutions: list[Substitution] = []
+    unfilled: list[Substitution] = []
 
     for voyage in voyages:
         # PRD §8.3 값 우선순위 — 실적이 있으면 실적, 없으면 계획값.
@@ -540,7 +559,19 @@ async def _aggregate(
                     )
                 )
             if ton is None:
-                # 계획값마저 없으면 더할 것이 없다. 0을 더하는 것과 같으므로 건너뛴다.
+                # 계획값마저 없으면 더할 것이 없다 — 합계에서 빠진다. **기록은 남긴다**
+                # (`#513`): 종전에는 조용히 건너뛰어 데이터 점검이 이 행을 볼 수 없었다.
+                #
+                # 위의 대체 기록은 **지우지 않는다.** `ytd.substitutions`·`COMPLETED_NO_FUEL`은
+                # 이미 응답 계약(`API_SPEC §2.14`)이라 뜻을 바꾸면 다른 화면이 흔들린다. 둘을
+                # 가르는 것은 이 목록을 읽는 쪽(데이터 점검)이다.
+                unfilled.append(
+                    Substitution(
+                        voyage_id=voyage.id,
+                        axis=SUBSTITUTION_AXIS_FUEL,
+                        fuel_type=row.fuel_type,
+                    )
+                )
                 continue
             # cf_used는 NOT NULL이다(DB_SCHEMA §2.3). 묶음은 **유종 × CF snapshot** —
             # 같은 유종이 항차마다 다른 snapshot을 가지면 **각 묶음이 자기 CF로**
@@ -596,6 +627,7 @@ async def _aggregate(
         voyage_count=len(voyages),
         warnings=warnings,
         substitutions=substitutions,
+        unfilled=unfilled,
     )
 
 

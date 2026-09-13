@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.db.session import get_session
+from cii_platform.services.data_quality import get_fleet_data_quality
 from cii_platform.services.fleet_summary import get_fleet_summary
 
 router = APIRouter(tags=["fleet"])
@@ -74,3 +75,20 @@ async def get_fleet_summary_route(
     # `as_of` 계약 ⑵ — 실제로 사용한 값을 meta에도 싣는다. 클라이언트가 이 값으로
     # 다시 물어 같은 결과를 얻을 수 있어야 한다. 다음 페이지도 이 값으로 묻는다.
     return {"data": data, "meta": _meta(request, as_of=data["as_of"], **page)}
+
+
+@router.get("/fleet/data-quality")
+async def get_fleet_data_quality_route(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    regulation_year: Annotated[
+        int | None,
+        Query(ge=2000, le=2100, description="점검 대상 규제연도. 미지정이면 올해"),
+    ] = None,
+) -> dict[str, object]:
+    """선대의 CII 계산에 **실측이 아닌 값이** 어디에 들어갔는지 (`API_SPEC §2.16` · #513).
+
+    **읽기 전용이다** (`UIFLOW 2-11`). 고치는 경로는 실적 보정(`PRD §17.2`)과 항차 편집이다.
+    """
+    data = await get_fleet_data_quality(session, regulation_year=regulation_year)
+    return {"data": data, "meta": _meta(request)}
