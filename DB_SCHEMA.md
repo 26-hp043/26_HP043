@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.23 |
+| 버전 | v1.24 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-09-13 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1125,6 +1125,45 @@ CREATE UNIQUE INDEX uq_vessel_position_snapshot_observation
 
 > **보존 분류**: 보존 대상이다(`§8`). 지나간 시각의 좌표는 되살릴 방법이 없어 마이그레이션 040을 `IRREVERSIBLE`로 분류했다(`§8.1.2`).
 
+### 2.22 `fleet_reduction_plan` — 함대 감축 계획 (#513)
+
+`UIFLOW 2-10`에서 담당자가 만든 **감축 계획안 한 건**이다(`PRD §12.3.2` ⑺). 경영진에 보고하는 산출물이라 휘발되면 안 된다. 슬라이더를 움직이는 동안은 화면 상태이고 **「저장」한 것만 행이 된다.**
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, `gen_random_uuid()` | |
+| `name` | VARCHAR(100) | NOT NULL, CHECK 공백 아님 | 계획 이름 |
+| `regulation_year` | INTEGER | NOT NULL | |
+| `target` | VARCHAR(20) | NOT NULL, CHECK | `NO_AT_RISK` · `ALL_C_OR_BETTER` |
+| `adjustments` | JSONB | NOT NULL | `[{vessel_id, speed_reduction_percent}]` — 수치는 **문자열** |
+| `prices` | JSONB | NOT NULL | `{charter_usd_per_day: {vessel_id: …}, fuel_usd_per_ton: {fuel_type: …}}` — **이 계획이 가정한 단가(USD)** |
+| `result` | JSONB | NOT NULL | 저장 시점에 서버가 낸 결과 전체(`API_SPEC §2.17.1` `data`) |
+| `created_by` | UUID | NULL, FK → `app_user(id)` ON DELETE **SET NULL** | 계정이 지워져도 계획은 남는다 |
+| `created_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
+
+```sql
+CREATE TABLE fleet_reduction_plan (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name             VARCHAR(100) NOT NULL,
+    regulation_year  INTEGER      NOT NULL,
+    target           VARCHAR(20)  NOT NULL,
+    adjustments      JSONB        NOT NULL,
+    prices           JSONB        NOT NULL,
+    result           JSONB        NOT NULL,
+    created_by       UUID REFERENCES app_user(id) ON DELETE SET NULL,
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT chk_fleet_reduction_plan_target CHECK (target IN ('NO_AT_RISK','ALL_C_OR_BETTER')),
+    CONSTRAINT chk_fleet_reduction_plan_name   CHECK (length(trim(name)) > 0)
+);
+CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_at DESC);
+```
+
+> **단가를 선박 제원에 두지 않고 계획에 둔다** (2026-09-13 결정 C). 제원에 두면 단가를 고친 순간 **과거 계획의 손익이 조용히 바뀐다** — 보고한 숫자와 다시 연 숫자가 갈린다.
+
+> **`result`는 다시 계산해 채우지 않는다.** 저장 뒤 항차가 바뀌면 다시 낸 값은 그때 보고한 숫자가 아니다. 선박을 지워도(`vessel` soft delete) 계획의 `result`는 그대로다 — FK를 두지 않는 이유가 이것이다(JSONB 안의 `vessel_id`는 참조가 아니라 **기록**이다).
+
+> **보존 분류**: 보존 대상이다. 사람이 만든 계획안이라 되살릴 방법이 없어 마이그레이션 043을 `IRREVERSIBLE`로 분류했다(`§8.1.2`).
+
 ---
 
 ## 3. 시드 데이터
@@ -1728,3 +1767,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-12 | `#764` | **v1.21 — §2.21 `vessel_position_snapshot` 신설**(마이그레이션 040). 위치에 **이력이 없었다** — `vessel.current_lat/lon`은 덮어쓰는 한 칸이라 새 값이 들어오면 직전 값이 사라진다. 자동 수집(AIS)은 값을 자주 밀어 넣으므로 **수집할수록 잃는 것이 늘어나는** 구조였다. `observed_at`(배가 그 자리에 있던 시각)과 `received_at`(우리가 받은 시각)을 나눈 이유는 AIS에 지연·재전송이 있어서다 — 수신 시각으로 신선도를 재면 「30분 전 위치를 방금 받았다」가 최신으로 읽힌다. `(vessel_id, source, observed_at)` UNIQUE는 **같은 관측의 재전송**을 한 행으로 접는다(AIS에서는 정상 동작이다). `nav_status`는 **원본 코드**를 적는다 — 운항 상태로 옮기는 규칙이 바뀌어도 과거 행을 다시 읽을 수 있어야 한다. 지나간 시각의 좌표는 되살릴 수 없어 040을 `IRREVERSIBLE`로 분류했다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올리고 README 문서 구조 표를 함께 갱신했다 (#764) |
 | 2026-09-12 | `#775` | **v1.22 — §4.2·§9.2에 착수 조건 소절 신설.** 「향후 확장」은 아무도 보지 않으면 잊히고, 반대로 지금 하면 얻는 것 없이 위험만 진다 — 그래서 **숫자로** 적었다: 파티셔닝은 **단일 테이블 1,000만 행**(실측 2026-09-12 — `calculation_run` 751행), 다중 회사는 **두 번째 선사 확정**(⛔ `#672` 선행). ⚠️ **파티셔닝이 PK와 FK를 함께 바꾼다**는 것을 실측으로 확인해 적었다 — 파티션 키가 UNIQUE에 포함돼야 해 PK가 `(id)` → `(id, created_at)`이 되고, `annual_simulation_run` → `calculation_run` FK가 복합 FK가 되거나 사라진다. immutable 트리거는 PG13+ 파티션 부모에서 그대로 돈다(이 저장소는 PG 16). 격리 방식은 **두 번째 회사에서는 인스턴스 분리**로 판정했다 — 행 단위 `org_id`는 회사가 하나인 동안 조건이 항상 참이라 얻는 것 없이 누락 위험만 만든다. `§9.2` 경로에 빠져 있던 테이블 셋의 처리도 적었다(`port_geocode`는 공용 캐시라 회사에 속하지 않는다). 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#775) |
 | 2026-09-13 | `#363` | **v1.23 — §2.6 `annual_simulation_run.apply_feedback_factor` 컬럼 추가**(마이그레이션 042) + 각주. 실적 보정계수(`PRD §12.2.1`)를 **켰는지만** 저장하고 계수 값은 저장하지 않는다 — 같은 스냅샷에서 다시 계산하면 같은 값이라 두 곳에 두면 갈릴 수 있다. 기존 행은 `false`(사실과 같음). downgrade는 `IRREVERSIBLE`. 컬럼 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#363) |
+| 2026-09-13 | `#513` | **v1.24 — §2.22 `fleet_reduction_plan` 신설**(마이그레이션 043). `UIFLOW 2-10` 함대 감축 계획의 저장본. ⚠️ **단가를 계획에 저장**한다(2026-09-13 결정 C) — 선박 제원에 두면 단가를 고친 순간 과거 계획의 손익이 조용히 바뀐다. `result`는 저장 시점 결과를 그대로 두고 다시 계산하지 않는다. `created_by`는 SET NULL(계정이 지워져도 계획은 남는다). downgrade는 `IRREVERSIBLE`. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |

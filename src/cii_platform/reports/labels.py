@@ -181,6 +181,10 @@ WARNING_LABELS: dict[str, str] = {
     "MODEL_VERSION_DIFFERS": (
         "원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다."
     ),
+    "SLOWDOWN_SKIPPED_NO_SPEED_MODEL": (
+        "기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 그 항차에는 감속을 적용하지 "
+        "못했습니다. 선박 제원을 입력해 주세요."
+    ),
     "FEEDBACK_FACTOR_UNAVAILABLE": (
         "실적 보정계수를 켰지만 확정 항차가 모자라 적용하지 않았습니다. "
         "이번 결과는 계획 연료 그대로 계산했습니다."

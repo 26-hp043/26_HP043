@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.30 |
+| 버전 | v1.31 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-13 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -289,6 +289,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상에 더할 **잔여 계획 항차가 0건** (#798) | 잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다. |
 | `MODEL_VERSION_DIFFERS` | 재현(§6.4)을 **원본과 다른 `model_version`**에서 돌렸는데 결과는 같았다 (#833) | 원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다. |
 | `FEEDBACK_FACTOR_UNAVAILABLE` | 기능③ `apply_feedback_factor=true`인데 확정 항차 표본이 최소(3건)보다 적어 **적용하지 않음** (`PRD §12.2.1` · #363) | 실적 보정계수를 켰지만 확정 항차가 모자라 적용하지 않았습니다. 이번 결과는 계획 연료 그대로 계산했습니다. |
+| `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` | 함대 감축 계획(`§2.17`)에서 기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 **감속을 적용하지 못함** (#513) | 기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 그 항차에는 감속을 적용하지 못했습니다. 선박 제원을 입력해 주세요. |
 
 > **⚠️ 기능③(연간 시뮬레이션) 경고 8종은 2026-08-22에 등재했다 (#630).** 기능③이 들어온 뒤 이 표가 갱신되지 않아 **코드가 내는 17종 중 7종이 표에 없었다.** 그 결과 화면의 `WARNING_MESSAGE`(이 표를 전사한 것)에도 없어, 연간 시뮬레이션 화면이 `SENSITIVITY_ONE_AT_A_TIME` 같은 **원문 코드를 그대로 노출**하고 있었다. 문구는 `PRD §12.8` 예외 처리 표에서 옮겨 적었으며, 그 표에 문구가 없는 3종(`NO_REMAINING_VOYAGES`·`MANY_REMAINING_VOYAGES`·`SIMULATION_RUNS_CLAMPED`)만 서술된 동작에 맞춰 새로 적었다.
 
@@ -1487,6 +1488,142 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 | 422 | `VALIDATION_ERROR` | `regulation_year` 범위 밖 |
 
 > **선박이 0척이면 200에 빈 배열이다** — `§2.8`과 같은 이유로 오류가 아니다.
+
+### 2.17 함대 감축 계획 (#513)
+
+`UIFLOW 2-10` 함대 감축 계획의 본체다. 계산 규칙은 `PRD §12.3.2`이며 **Monte Carlo를 부르지 않는다** — 화면이 슬라이더를 움직일 때마다 부를 수 있게 결정론만 쓴다.
+
+#### 2.17.1 계산 (저장하지 않음)
+
+```http
+POST /api/v1/fleet/reduction-plans/evaluate
+```
+
+```json
+{
+  "regulation_year": 2026,
+  "target": "ALL_C_OR_BETTER",
+  "adjustments": [
+    { "vessel_id": "00000000-0000-4000-8000-000000000001", "speed_reduction_percent": 10 }
+  ],
+  "prices": {
+    "charter_usd_per_day": { "00000000-0000-4000-8000-000000000001": 15000 },
+    "fuel_usd_per_ton": { "HFO": 600 }
+  }
+}
+```
+
+| 필드 | 타입 | 필수 | 검증 | 설명 |
+|---|---|---|---|---|
+| `regulation_year` | int | Y | 2000~2100 | |
+| `target` | string | Y | `NO_AT_RISK` · `ALL_C_OR_BETTER` | 위험 선박 0척 / 전 선박 C 이상 (`PRD §12.3.2` ⑸) |
+| `adjustments[]` | list | N | `speed_reduction_percent` 0~50 | 선박별 감속률(%). **목록에 없는 선박은 0%** · 모르는 선박이면 422 |
+| `prices.charter_usd_per_day` | map | N | 0 이상 | 선박 ID → 일일 용선료(USD). **계획의 가정값** |
+| `prices.fuel_usd_per_ton` | map | N | 0 이상 | 유종 코드 → 연료 단가(USD/t) |
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": {
+    "regulation_year": 2026,
+    "target": "ALL_C_OR_BETTER",
+    "target_met": false,
+    "vessels": [
+      {
+        "vessel_id": "00000000-0000-4000-8000-000000000001",
+        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "speed_reduction_percent": "10.0",
+        "unavailable_reason": null,
+        "before": { "attained_cii": "8.9711", "rating": "E" },
+        "after": { "attained_cii": "8.0909", "rating": "E" },
+        "target_rating": "C",
+        "meets_target": false,
+        "extra_days": "1.52",
+        "fuel_saved_ton": "125.78",
+        "skipped_voyages": 0,
+        "remaining_voyage_count": 2,
+        "required_cut_fuel_ton": "392.01",
+        "achievable": true
+      }
+    ],
+    "rating_distribution": {
+      "before": { "A": 0, "B": 1, "C": 1, "D": 1, "E": 1 },
+      "after": { "A": 0, "B": 1, "C": 1, "D": 1, "E": 1 }
+    },
+    "costs": {
+      "currency": "USD",
+      "extra_days": "1.52",
+      "charter_loss": "22817.46",
+      "fuel_saving": "75468.00",
+      "net": "52650.54",
+      "fuel_saved_ton_by_type": { "HFO": "125.78" },
+      "missing_charter_rates": [],
+      "missing_fuel_prices": []
+    },
+    "warnings": []
+  },
+  "meta": { "request_id": "…", "timestamp": "…" }
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `target_met` | 계산할 수 있는 모든 선박이 조정 후 목표 이상이면 `true`. **계산할 수 있는 선박이 0척이면 `null`** |
+| `vessels[].unavailable_reason` | 계산하지 못한 선박 — `§2.8`과 같은 어휘. 이때 `before` 이하 필드가 없다 |
+| `vessels[].before` | **`§6.1` 결정론 연말 예상과 같은 값**(같은 입력 조립) |
+| `vessels[].target_rating` | 그 선박이 넘지 말아야 할 등급 — `NO_AT_RISK`면 D, 직전 2개 연도 확정 D면 C |
+| `vessels[].skipped_voyages` | 기준 속력·기준 일일 연료가 없어 **감속을 적용하지 못한** 잔여 항차 수 — 0보다 크면 `warnings`에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` |
+| `vessels[].required_cut_fuel_ton` · `achievable` | 조정 **후**에도 남는 필요 감축량(`§6.1.1` · `PRD §12.3.1`). 잔여 계획이 없으면 `null` |
+| `costs.charter_loss` · `fuel_saving` · `net` | **필요한 단가가 하나라도 없으면 `null`** — 0으로 채우지 않는다. 무엇이 비었는지는 `missing_charter_rates`(선박 ID) · `missing_fuel_prices`(유종) |
+
+#### 2.17.2 저장
+
+```http
+POST /api/v1/fleet/reduction-plans
+```
+
+§2.17.1 본문 + `plan_name`(1~100자 — `name`이 아닌 이유는 필드 라벨이 필드명 하나로 매겨지는데 `name`이 이미 「선명」이라서다). **서버가 다시 계산해** 결과까지 저장하고 **201**에 저장본을 돌려준다 — 화면이 보낸 결과를 받지 않는다.
+
+```json
+{
+  "data": {
+    "plan_id": "…",
+    "plan_name": "9월 감속안",
+    "regulation_year": 2026,
+    "target": "ALL_C_OR_BETTER",
+    "adjustments": [ … ],
+    "prices": { … },
+    "result": { "…": "§2.17.1 data와 같은 모양" },
+    "created_at": "2026-09-13T14:00:00+00:00"
+  },
+  "meta": { "request_id": "…", "timestamp": "…" }
+}
+```
+
+#### 2.17.3 목록
+
+```http
+GET /api/v1/fleet/reduction-plans
+```
+
+최근 저장순 **20건**. 각 항목은 §2.17.2의 `data`에서 **`result`를 뺀** 모양이다 — 목록에는 무거워서다. 화면은 첫 항목의 `prices`를 새 계획의 기본값으로 쓴다.
+
+#### 2.17.4 단건
+
+```http
+GET /api/v1/fleet/reduction-plans/{plan_id}
+```
+
+§2.17.2의 `data` 그대로. ⚠️ **`result`는 저장 시점의 값이다 — 다시 계산하지 않는다.** 그 사이 항차가 바뀌었어도 보고한 숫자를 그대로 돌려준다.
+
+#### 오류
+
+| Status | Code | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | §2.17.4 — 없는 계획 |
+| 422 | `VALIDATION_ERROR` | 감속률 0~50 밖 · 모르는 `target` · 모르는 선박 · 음수 단가 · `plan_name` 누락 |
+| 403 | `CSRF_ERROR` | §2.17.1·§2.17.2 — `X-CSRF-Token` 누락·불일치(`§1.4`) |
 
 ---
 
@@ -3277,6 +3414,10 @@ GET /api/v1/health
 | GET | `/api/v1/vessels/{id}/cii-history` | 연도별 CII 이력 | §6.2 SCR-008 |
 | GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
 | GET | `/api/v1/fleet/data-quality` | 데이터 점검 (#513) | `UIFLOW 2-11` · §17.4 |
+| POST | `/api/v1/fleet/reduction-plans/evaluate` | 함대 감축 계획 계산 (#513) | `UIFLOW 2-10` · §12.3.2 |
+| POST | `/api/v1/fleet/reduction-plans` | 함대 감축 계획 저장 (#513) | `UIFLOW 2-10` · §12.3.2 |
+| GET | `/api/v1/fleet/reduction-plans` | 함대 감축 계획 목록 (#513) | `UIFLOW 2-10` |
+| GET | `/api/v1/fleet/reduction-plans/{id}` | 함대 감축 계획 단건 (#513) | `UIFLOW 2-10` |
 | PATCH | `/api/v1/vessels/{id}` | 선박 수정 | §6.2 SCR-002 |
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
 | PATCH | `/api/v1/vessels/{id}/position` | 위치 갱신 | §6.2 SCR-001 |
@@ -3632,3 +3773,4 @@ POST /api/v1/chat
 | 2026-09-13 | `#756` | §6.1 거리 민감도 각주 정정 — 「거의 변하지 않는다」를 **「잔여 계획의 배출 강도가 확정 실적과 같으면 정확히 변하지 않는다」**로 고쳤다. 종전 문구는 조건부 사실을 무조건으로 적어, 실적이 계획에서 벌어져 그 행이 실제로 움직이는 경우를 설명하지 못했다(`PRD §12.6` 각주와 함께 정정). `AGENTS §4.3` 「각주 정정」이라 버전은 올리지 않는다 (#756) |
 | 2026-09-13 | `#363` | **§6.1 요청에 `apply_feedback_factor` · 응답 예시에 `feedback` 블록 · §6.1.2 신설 · §1.6에 `FEEDBACK_FACTOR_UNAVAILABLE`.** `PRD §12.2.1` 실적 보정계수를 그대로 낸다. **켜지 않아도 계수를 싣는다** — 켜기 전에 판단할 수 있어야 한다. 표본이 모자라면 `factor`를 `1`로 채우지 않고 `null`로 둔다(「계획대로 쓰고 있다」와 구분). 켠 사실은 `input_hash`에 켰을 때만 들어가 기존 실행의 해시가 바뀌지 않는다. `AGENTS §4.3`상 소규모 행 추가·소절 신설이라 버전은 올리지 않는다 (#363) |
 | 2026-09-13 | `#513` | **v1.30 — §2.16 데이터 점검 신설** · §12 요약표 1행. `UIFLOW 2-11`의 본체로 **실측이 아닌 값이 들어간 항차**를 네 심각도(대체 계산 · 계산 불가 · 이상치 · 실적 미입력)로 낸다(`PRD §17.4`). 계산 불가 어휘는 `§2.8` `unavailable_reason`을 그대로 쓴다 — 대시보드와 다른 이름을 붙이면 같은 문제를 둘로 읽는다. **판정하지 못한 이상치 수를 따로 싣는다** — 0건과 섞으면 제원이 없는 선박이 가장 깨끗해 보인다. 집계에 진행 중 항차를 넣지 않아 누적 CII가 `§2.8`과 다를 수 있음을 적었다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |
+| 2026-09-13 | `#513` | **v1.31 — §2.17 함대 감축 계획 신설**(계산 · 저장 · 목록 · 단건) · §12 요약표 4행 · §1.6에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL`. `UIFLOW 2-10`의 본체로 `PRD §12.3.2` 계산을 낸다. **단가는 요청의 가정값**이고 저장본에 함께 남는다 — 필요한 단가가 비면 비용 칸은 `null`(0으로 채우지 않는다). 저장은 **서버가 다시 계산**하며 단건 조회는 **저장 시점 결과를 그대로** 돌려준다. `before`가 `§6.1` 결정론 예상과 같다는 사실을 계약으로 적었다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |

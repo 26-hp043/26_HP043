@@ -287,7 +287,7 @@ def _days_left_in_year(as_of: datetime) -> int:
     return max((year_end - as_of).days, 0)
 
 
-async def _prior_confirmed_ratings(
+async def prior_confirmed_ratings(
     session: AsyncSession,
     *,
     vessel_id: UUID,
@@ -405,7 +405,7 @@ async def _derive_vessel(
     ## 세 호출을 따로 잡는다
 
     이 선박을 계산하는 경로가 셋이다 — 현재 시점(``compute_ytd_cii``), 직전 2개 연도
-    (``_prior_confirmed_ratings`` → ``list_cii_history``, 안에서 **연도마다** 같은 계산을
+    (``prior_confirmed_ratings`` → ``list_cii_history``, 안에서 **연도마다** 같은 계산을
     부르므로 선박당 최대 4회), 최근 구간 시작점(#431).
 
     **셋을 한 울타리에 넣으면 안 된다.** 첫 호출이 성공해도 뒤가 던지면 이미 나온
@@ -475,7 +475,7 @@ async def _derive_vessel(
     # 아래 둘은 **이미 나온 ``ytd``를 무효로 만들지 않는다.**
     #
     try:
-        prior = await _prior_confirmed_ratings(
+        prior = await prior_confirmed_ratings(
             session,
             vessel_id=vessel.id,
             current_year=year,
