@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.22 |
+| 버전 | v1.23 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
-| 최종 수정일 | 2026-09-11 |
+| 최종 수정일 | 2026-09-13 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
@@ -487,7 +487,10 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 | `target_rating` | VARCHAR(1) | NOT NULL | 목표 등급 (A~D, E 불가) |
 | `simulation_runs` | INTEGER | NOT NULL | Monte Carlo 반복 횟수 |
 | `snapshot_id` | UUID | NOT NULL, FK → simulation_snapshot(id) **ON DELETE RESTRICT** [DB-C-3] | 스냅샷 참조. UNIQUE (1:1) |
+| `apply_feedback_factor` | BOOLEAN | NOT NULL DEFAULT false | 실적 보정계수(`PRD §12.2.1`)를 켜고 돌렸는가 [#363 · 마이그레이션 042] |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
+
+> **[#363] 계수 값은 저장하지 않는다 — 켰는지만 저장한다.** 계수는 같은 행의 `snapshot_id`가 가리키는 스냅샷의 확정 항차에서 **다시 계산해도 같은 값**이라, 따로 적으면 같은 사실이 두 곳에 생긴다. 켜짐 여부는 스냅샷 어디에도 없는 사용자 선택이라 재현(`API_SPEC §6.4`)이 원본 설정을 알려면 저장해야 한다. 기존 행은 `false`로 채웠고 전부 보정 없이 계산됐으므로 사실과 같다. **downgrade는 되돌릴 수 없다**(`IRREVERSIBLE`) — 어느 실행이 켜고 돌았는지가 사라져 그 실행들은 재현할 수 없게 된다.
 
 **검증 제약 [M-4, M-5]:**
 
@@ -1724,3 +1727,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-12 | `#768` | **v1.20 — §2.20 `port_geocode` 신설**(마이그레이션 039). 항만명을 좌표로 바꾸는 경로가 없어 사용자가 개발자도구로 좌표를 찾아야 했다(`PRD §1 COR-5`). 공개 Nominatim 사용 정책이 **결과 캐시를 요구**하므로 이 표는 성능이 아니라 **정책 준수의 실체**다. 샘플 항만 43곳(코드 상수 · NGA WPI)과 **섞지 않는다** — 출처가 다르고, 한 표에 담으면 어느 좌표가 어디서 왔는지 말할 수 없게 된다. FK를 두지 않는다: 항차에는 좌표 값이 복사돼 들어가므로 캐시를 비워도 항차가 온전하다 (#768) |
 | 2026-09-12 | `#764` | **v1.21 — §2.21 `vessel_position_snapshot` 신설**(마이그레이션 040). 위치에 **이력이 없었다** — `vessel.current_lat/lon`은 덮어쓰는 한 칸이라 새 값이 들어오면 직전 값이 사라진다. 자동 수집(AIS)은 값을 자주 밀어 넣으므로 **수집할수록 잃는 것이 늘어나는** 구조였다. `observed_at`(배가 그 자리에 있던 시각)과 `received_at`(우리가 받은 시각)을 나눈 이유는 AIS에 지연·재전송이 있어서다 — 수신 시각으로 신선도를 재면 「30분 전 위치를 방금 받았다」가 최신으로 읽힌다. `(vessel_id, source, observed_at)` UNIQUE는 **같은 관측의 재전송**을 한 행으로 접는다(AIS에서는 정상 동작이다). `nav_status`는 **원본 코드**를 적는다 — 운항 상태로 옮기는 규칙이 바뀌어도 과거 행을 다시 읽을 수 있어야 한다. 지나간 시각의 좌표는 되살릴 수 없어 040을 `IRREVERSIBLE`로 분류했다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올리고 README 문서 구조 표를 함께 갱신했다 (#764) |
 | 2026-09-12 | `#775` | **v1.22 — §4.2·§9.2에 착수 조건 소절 신설.** 「향후 확장」은 아무도 보지 않으면 잊히고, 반대로 지금 하면 얻는 것 없이 위험만 진다 — 그래서 **숫자로** 적었다: 파티셔닝은 **단일 테이블 1,000만 행**(실측 2026-09-12 — `calculation_run` 751행), 다중 회사는 **두 번째 선사 확정**(⛔ `#672` 선행). ⚠️ **파티셔닝이 PK와 FK를 함께 바꾼다**는 것을 실측으로 확인해 적었다 — 파티션 키가 UNIQUE에 포함돼야 해 PK가 `(id)` → `(id, created_at)`이 되고, `annual_simulation_run` → `calculation_run` FK가 복합 FK가 되거나 사라진다. immutable 트리거는 PG13+ 파티션 부모에서 그대로 돈다(이 저장소는 PG 16). 격리 방식은 **두 번째 회사에서는 인스턴스 분리**로 판정했다 — 행 단위 `org_id`는 회사가 하나인 동안 조건이 항상 참이라 얻는 것 없이 누락 위험만 만든다. `§9.2` 경로에 빠져 있던 테이블 셋의 처리도 적었다(`port_geocode`는 공용 캐시라 회사에 속하지 않는다). 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#775) |
+| 2026-09-13 | `#363` | **v1.23 — §2.6 `annual_simulation_run.apply_feedback_factor` 컬럼 추가**(마이그레이션 042) + 각주. 실적 보정계수(`PRD §12.2.1`)를 **켰는지만** 저장하고 계수 값은 저장하지 않는다 — 같은 스냅샷에서 다시 계산하면 같은 값이라 두 곳에 두면 갈릴 수 있다. 기존 행은 `false`(사실과 같음). downgrade는 `IRREVERSIBLE`. 컬럼 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#363) |

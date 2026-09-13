@@ -24,6 +24,7 @@ import pytest
 
 from cii_platform.calc.annual_simulation import (
     DEFAULT_PROFILE,
+    MIN_FEEDBACK_SAMPLE,
     RATINGS,
     WARNING_MANY_VOYAGES,
     WARNING_NO_COMPLETED,
@@ -32,13 +33,16 @@ from cii_platform.calc.annual_simulation import (
     WARNING_SENSITIVITY_OAT,
     WARNING_SENSITIVITY_SPEED_SKIPPED,
     WARNING_TARGET_RATING_D,
+    CompletedPair,
     CompletedTotals,
     DistributionProfile,
     RemainingVoyage,
     TriangularBand,
     _round,
     analyze_sensitivity,
+    apply_feedback,
     backsolve_required_cut,
+    feedback_factor,
     project_deterministic,
     rng_metadata,
     simulate_annual,
@@ -1069,3 +1073,75 @@ def test_backsolve_does_not_read_data_again():
 
     params = set(inspect.signature(backsolve_required_cut).parameters)
     assert params == {"projection", "remaining", "transport_capacity", "target_rating"}
+
+
+# ── 실적 보정계수 (PRD §12.2.1 · #363) ────────────────────────────────────────
+#
+# 학습 범위는 **보정계수까지**다 — ML이 아니다(`#363` 결정). 계수는 연료 **강도의 비**다.
+
+
+def _pair(pd=1000, pf=100, ad=1000, af=100) -> CompletedPair:
+    return CompletedPair(
+        planned_distance_nm=Decimal(str(pd)),
+        planned_fuel_ton=Decimal(str(pf)),
+        actual_distance_nm=Decimal(str(ad)),
+        actual_fuel_ton=Decimal(str(af)),
+    )
+
+
+def test_factor_is_the_ratio_of_fuel_intensities():
+    """계획 0.10 t/nm · 실적 0.11 t/nm → 계수 1.1."""
+    result = feedback_factor([_pair(af=110)] * 3)
+    assert result.factor == Decimal("1.1")
+    assert result.sample_size == 3
+
+
+def test_a_longer_voyage_is_not_counted_as_more_fuel():
+    """⚠️ **총량 비가 아니라 강도 비다.**
+
+    실제로 더 멀리 가서 연료를 더 쓴 항차는 **강도가 같으면 계수 1**이어야 한다. 총량
+    비를 쓰면 이 항차가 「계획보다 연료를 더 썼다」로 잡혀, 거리가 같은 잔여 계획의
+    연료를 부당하게 부풀린다.
+    """
+    result = feedback_factor([_pair(ad=1200, af=120)] * 3)
+    assert result.factor == Decimal(1)
+
+
+def test_too_few_voyages_gives_no_factor():
+    """표본이 모자라면 **`None`**이다 — 1.0이 아니다.
+
+    1.0으로 두면 「보정할 것이 없다」와 「보정할 근거가 없다」가 같아진다.
+    """
+    result = feedback_factor([_pair(af=150)] * (MIN_FEEDBACK_SAMPLE - 1))
+    assert result.factor is None
+    assert result.sample_size == MIN_FEEDBACK_SAMPLE - 1
+
+
+def test_pairs_missing_a_value_are_not_counted():
+    """넷 중 하나라도 0이면 강도를 낼 수 없어 표본에서 뺀다."""
+    pairs = [_pair(), _pair(), _pair(af=0), _pair(ad=0)]
+    result = feedback_factor(pairs)
+    assert result.sample_size == 2
+    assert result.factor is None
+
+
+def test_feedback_changes_only_the_fuel():
+    """보정은 **연료만** 바꾼다. 거리·속력·제원은 그대로다.
+
+    `base_daily_foc_ton`(선박 제원)을 고치면 「기준 일일 연료가 바뀌었다」로 읽힌다 —
+    바뀐 것은 제원이 아니라 계획의 신뢰도다.
+    """
+    [before] = REMAINING[:1]
+    [after] = apply_feedback([before], Decimal("1.1"))
+
+    assert after.fuel_ton == pytest.approx(before.fuel_ton * 1.1)
+    assert after.distance_nm == before.distance_nm
+    assert after.speed_kn == before.speed_kn
+    assert after.base_daily_foc_ton == before.base_daily_foc_ton
+
+
+def test_feedback_raises_the_projection_when_the_ship_burns_more():
+    """방향 — 계획보다 연료를 더 쓰는 배면 보정 뒤 연말 CII가 **올라간다**."""
+    plain = _project()
+    corrected = _project(remaining=apply_feedback(REMAINING, Decimal("1.1")))
+    assert corrected.attained_cii > plain.attained_cii

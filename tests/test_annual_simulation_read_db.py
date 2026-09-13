@@ -850,3 +850,101 @@ async def test_read_and_reproduce_carry_the_same_reduction_plan(session, execute
 
     assert read["data"]["reduction_plan"] == executed["data"]["reduction_plan"]
     assert again["data"]["reduction_plan"] == executed["data"]["reduction_plan"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 실적 보정계수 (PRD §12.2.1 · #363)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ⚠️ 이 절이 지키는 것은 **재현성**이다. 계수는 따로 저장하지 않고 **같은 스냅샷에서
+# 다시 계산**하며, 켰는지만 행에 남긴다(마이그레이션 `042`). 그 설계가 성립하는지 —
+# 켜고 돌린 실행이 **재현되는가**, 끈 실행의 해시가 **종전과 같은가** — 를 실제 DB로 본다.
+
+
+async def _with_actuals(session, vessel_id, count: int) -> None:
+    """확정 항차 `count`건(계획 3000nm·250t → 실적 3100nm·260t) + 계획 항차 1건."""
+    for i in range(count):
+        await _add_voyage(
+            session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED", no=f"V-A-{i}"
+        )
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED", no="V-P")
+
+
+async def _run_feedback(session, vessel_id, *, apply: bool):
+    return await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=1000,
+        random_seed=12345,
+        apply_feedback_factor=apply,
+    )
+
+
+@pytest.mark.asyncio
+async def test_factor_is_reported_even_when_not_applied(session, vessel_id):
+    """켜지 않아도 계수를 **싣는다** — 켜기 전에 보고 판단할 수 있어야 한다."""
+    await _with_actuals(session, vessel_id, 3)
+    result = await _run_feedback(session, vessel_id, apply=False)
+
+    feedback = result["data"]["feedback"]
+    # (260/3100) ÷ (250/3000)
+    assert Decimal(feedback["factor"]) == pytest.approx(Decimal("1.006452"), abs=Decimal("1e-6"))
+    assert feedback["sample_size"] == 3
+    assert feedback["requested"] is False
+    assert feedback["applied"] is False
+
+
+@pytest.mark.asyncio
+async def test_applying_the_factor_raises_the_projection(session, vessel_id):
+    """방향 — 계획보다 더 쓰는 배면 켰을 때 연말 예상이 **올라간다**."""
+    await _with_actuals(session, vessel_id, 3)
+    plain = await _run_feedback(session, vessel_id, apply=False)
+    corrected = await _run_feedback(session, vessel_id, apply=True)
+
+    assert corrected["data"]["feedback"]["applied"] is True
+    assert Decimal(corrected["data"]["deterministic"]["planned_M_gco2"]) > Decimal(
+        plain["data"]["deterministic"]["planned_M_gco2"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_run_with_the_factor_on_reproduces(session, vessel_id):
+    """⚠️ **켜고 돌린 실행이 재현된다** — 이 설계의 실질이다.
+
+    재현은 행에 저장된 켜짐 여부를 재생하고, 계수는 같은 스냅샷에서 다시 낸다. 둘 중
+    하나라도 어긋나면 `input_hash`가 다르거나(500) 결과가 달라진다.
+    """
+    await _with_actuals(session, vessel_id, 3)
+    executed = await _run_feedback(session, vessel_id, apply=True)
+
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+
+    assert again["data"]["deterministic"] == executed["data"]["deterministic"]
+    assert again["data"]["feedback"] == executed["data"]["feedback"]
+
+
+@pytest.mark.asyncio
+async def test_turning_the_factor_off_keeps_the_input_hash(session, vessel_id):
+    """⚠️ **끈 실행의 `input_hash`는 켜짐 필드가 생기기 전과 같다.**
+
+    같은 입력으로 켠 실행과 끈 실행의 해시가 **달라야** 재현이 둘을 구분하고, 끈 쪽이
+    종전 식과 **같아야** 기존 실행이 깨지지 않는다.
+    """
+    await _with_actuals(session, vessel_id, 3)
+    off = await _run_feedback(session, vessel_id, apply=False)
+    on = await _run_feedback(session, vessel_id, apply=True)
+
+    assert off["input_hash"] != on["input_hash"]
+
+
+@pytest.mark.asyncio
+async def test_too_few_voyages_does_not_apply_and_says_so(session, vessel_id):
+    """표본이 모자라면 켜도 **적용하지 않고 경고**한다 — 조용히 넘기면 켠 줄 안다."""
+    await _with_actuals(session, vessel_id, 2)
+    result = await _run_feedback(session, vessel_id, apply=True)
+
+    assert result["data"]["feedback"]["factor"] is None
+    assert result["data"]["feedback"]["applied"] is False
+    assert "FEEDBACK_FACTOR_UNAVAILABLE" in result["warnings"]

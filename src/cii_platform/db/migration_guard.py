@@ -96,6 +96,10 @@ IRREVERSIBLE: dict[str, str] = {
     # 지나간 시각의 좌표는 되살릴 방법이 없다. AIS는 재조회로 과거를 주지 않고
     # (aisstream.io는 끊긴 구간 복구가 없다), 사람이 넣은 위치는 애초에 재현 불가다.
     "040": "vessel_position_snapshot 테이블 — 수집한 위치 이력 전부",
+    "042": (
+        "annual_simulation_run.apply_feedback_factor — 어느 실행이 실적 보정계수를 켜고 "
+        "돌았는지가 사라져 그 실행들이 재현 불가가 된다(보존 대상이라 다시 채울 근거가 없다)"
+    ),
 }
 
 #: 지워도 되는 일시 데이터 — 사라지면 다시 로그인하거나 메일을 다시 요청하면 된다.

@@ -181,6 +181,10 @@ WARNING_LABELS: dict[str, str] = {
     "MODEL_VERSION_DIFFERS": (
         "원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다."
     ),
+    "FEEDBACK_FACTOR_UNAVAILABLE": (
+        "실적 보정계수를 켰지만 확정 항차가 모자라 적용하지 않았습니다. "
+        "이번 결과는 계획 연료 그대로 계산했습니다."
+    ),
 }
 
 #: 연말 예상을 내지 못한 사유 — 화면(``realtimeRules.ts`` ``PROJECTION_REASONS``)과 같은 값.

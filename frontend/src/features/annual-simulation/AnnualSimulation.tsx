@@ -87,6 +87,8 @@ export function AnnualSimulation({
   const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>('B')
   const [runs, setRuns] = useState('5000')
   const [seed, setSeed] = useState('')
+  // `PRD §12.2.1` 실적 보정계수 — 기본은 끔(`#363`). 켜지 않은 실행은 종전과 같다.
+  const [applyFeedback, setApplyFeedback] = useState(false)
 
   // 연도 선택지도 CII 예측과 **같은 경계** 뒤에 둔다 (`#534` · `#558`). 기준이 갈리면
   // 두 화면이 서로 다른 해를 보여 주고, 그 차이는 값이 아니라 목록에서 나타나 늦게 발견된다.
@@ -170,6 +172,8 @@ export function AnnualSimulation({
         simulation_runs: Number(runs),
         // 빈 문자열을 보내지 않는다 — 서버가 「지정했는데 비었다」로 볼 수 있다.
         ...(seed.trim() ? { random_seed: seed.trim() } : {}),
+        // 끈 상태는 보내지 않는다 — 서버 기본이 끔이고, 요청 모양이 종전과 같게 남는다.
+        ...(applyFeedback ? { apply_feedback_factor: true } : {}),
       })
       setState({ status: 'success', result })
       onDisclaimer?.(undefined)
@@ -179,7 +183,7 @@ export function AnnualSimulation({
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorFallback,
       })
     }
-  }, [provider, shell.vesselId, year, yearsFailed, target, runs, seed, onDisclaimer])
+  }, [provider, shell.vesselId, year, yearsFailed, target, runs, seed, applyFeedback, onDisclaimer])
 
   return (
     <section className="annual-sim">
@@ -267,6 +271,22 @@ export function AnnualSimulation({
           <span className="annual-sim__hint">{ANNUAL_COPY.seedHint}</span>
         </label>
 
+        <div className="annual-sim__field">
+          <label className="annual-sim__check" htmlFor="annual-sim-feedback">
+            <input
+              id="annual-sim-feedback"
+              type="checkbox"
+              checked={applyFeedback}
+              aria-describedby="annual-sim-feedback-hint"
+              onChange={(event) => setApplyFeedback(event.target.checked)}
+            />
+            {ANNUAL_COPY.feedbackToggle}
+          </label>
+          <span id="annual-sim-feedback-hint" className="annual-sim__hint">
+            {ANNUAL_COPY.feedbackToggleHint}
+          </span>
+        </div>
+
         <button type="submit" disabled={state.status === 'running'}>
           {state.status === 'running' ? ANNUAL_COPY.submitting : ANNUAL_COPY.submit}
         </button>
@@ -334,7 +354,7 @@ function Result({
   result: AnnualSimulationResult
   provider: AnnualSimulationProvider
 }) {
-  const { deterministic: det, monte_carlo: mc, reduction_plan: cut } = result
+  const { deterministic: det, monte_carlo: mc, reduction_plan: cut, feedback } = result
   const [reproduce, setReproduce] = useState<ReproduceState>({ status: 'idle' })
 
   const runReproduce = useCallback(async () => {
@@ -392,6 +412,43 @@ function Result({
           />
         </div>
       </section>
+
+      {/*
+        ── 실적 보정계수 (PRD §12.2.1 · #363) ─────────────────────────
+
+        세 상태를 가른다 — ⑴ 곱했다 ⑵ 값은 있으나 곱하지 않았다 ⑶ 표본이 모자라 값이
+        없다. ⚠️ ⑶을 1.0이나 빈칸으로 그리면 「계획대로 쓰고 있다」로 읽힌다.
+
+        `#363` 이전 실행에는 블록이 없다 — 그때는 카드를 그리지 않는다.
+      */}
+      {feedback && (
+        <section className="annual-sim__block">
+          <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.feedbackTitle}</h2>
+          <p className="annual-sim__caption">{ANNUAL_COPY.feedbackCaption}</p>
+          <div className="annual-sim__metrics">
+            <Metric
+              label={ANNUAL_COPY.feedbackFactorLabel}
+              value={
+                feedback.factor === null
+                  ? ANNUAL_COPY.feedbackUnavailableValue
+                  : `× ${formatDecimalString(feedback.factor, 4)}`
+              }
+            />
+            <Metric
+              label={ANNUAL_COPY.feedbackSampleLabel}
+              value={`${feedback.sample_size}건`}
+              hint={`${ANNUAL_COPY.feedbackMinSampleHint} ${feedback.min_sample}건`}
+            />
+          </div>
+          {feedback.factor === null ? (
+            <p className="annual-sim__caption">{ANNUAL_COPY.feedbackUnavailable}</p>
+          ) : feedback.applied ? (
+            <p className="annual-sim__notice">{ANNUAL_COPY.feedbackApplied}</p>
+          ) : (
+            <p className="annual-sim__caption">{ANNUAL_COPY.feedbackNotApplied}</p>
+          )}
+        </section>
+      )}
 
       {/*
         ── 필요 감축량 (PRD §12.3.1 · #433) ──────────────────────────

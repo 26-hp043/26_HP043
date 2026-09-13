@@ -34,6 +34,11 @@ export interface AnnualSimulationRequest {
   random_seed?: number | string
   /** enum: `DEFAULT`. 분포는 `simulation_parameter` 테이블이 소유한다(`#434`). */
   distribution_profile?: string
+  /**
+   * 실적 보정계수를 잔여 계획 연료에 곱한다 (`PRD §12.2.1` · `#363`). 기본은 끔 —
+   * 켜지 않은 실행은 종전과 같은 결과를 낸다.
+   */
+  apply_feedback_factor?: boolean
 }
 
 /** 결정론 예측 — `PRD §12.3`. Monte Carlo와 달리 **같은 입력이면 항상 같은 값**이다. */
@@ -70,6 +75,25 @@ export interface ReductionPlanBlock {
   required_cut_fuel_ton: string | null
   /** `false`면 잔여 계획을 **전부 없애도** 목표에 닿지 못한다 */
   achievable: boolean
+}
+
+/**
+ * 실적 보정계수 — `PRD §12.2.1` · `#363`.
+ *
+ * **켜지 않아도 늘 실린다** — 켜기 전에 「이 배는 계획보다 얼마나 더 쓰는가」를 보고
+ * 판단할 수 있어야 한다.
+ */
+export interface FeedbackBlock {
+  /** 연료 강도 비(실적 ÷ 계획). **확정 항차가 `min_sample`보다 적으면 `null`** */
+  factor: string | null
+  /** **숫자** — 계산에 쓸 수 있었던 확정 항차 수(계획·실적 넷 다 있는 것) */
+  sample_size: number
+  /** **숫자** — 계수를 내는 데 필요한 최소 항차 수 */
+  min_sample: number
+  /** 사용자가 켰는가 */
+  requested: boolean
+  /** 실제로 곱했는가. **켰어도 표본이 모자라면 `false`** */
+  applied: boolean
 }
 
 /**
@@ -157,6 +181,11 @@ export interface AnnualSimulationResult {
    * 다룬다(카드를 그리지 않는다).
    */
   reduction_plan?: ReductionPlanBlock
+  /**
+   * `PRD §12.2.1` 실적 보정계수. ⚠️ **`#363` 이전 실행에는 없다** — 필요 감축량과 같은
+   * 이유다. 화면이 부재를 다룬다(카드를 그리지 않는다).
+   */
+  feedback?: FeedbackBlock
   monte_carlo: MonteCarloBlock
   /** `PRD §9.4.2` — **목표 달성 확률 기반**이다. 화면이 다시 판정하지 않는다 */
   risk_level: RiskLevel
