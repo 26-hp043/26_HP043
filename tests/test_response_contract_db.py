@@ -728,6 +728,15 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.deterministic.planned_W_capacity_nm",
             "data.deterministic.projected_attained_cii",
             "data.deterministic.projected_rating",
+            # `PRD §12.3.1` 필요 감축량 (#433). ⚠️ PR #1054가 저장 본문에만 넣고 응답에
+            # 싣지 않았는데 이 표에도 없어서 **가드가 그 누락을 정답으로 보고 있었다.**
+            "data.reduction_plan",
+            "data.reduction_plan.target_rating",
+            "data.reduction_plan.target_cii",
+            "data.reduction_plan.allowed_planned_M_gco2",
+            "data.reduction_plan.required_cut_gco2",
+            "data.reduction_plan.required_cut_fuel_ton",
+            "data.reduction_plan.achievable",
             "data.deterministic.remaining_voyage_count",
             "data.monte_carlo",
             "data.monte_carlo.mean_cii",
@@ -896,6 +905,15 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.deterministic.planned_W_capacity_nm",
             "data.deterministic.projected_attained_cii",
             "data.deterministic.projected_rating",
+            # `PRD §12.3.1` 필요 감축량 (#433). ⚠️ PR #1054가 저장 본문에만 넣고 응답에
+            # 싣지 않았는데 이 표에도 없어서 **가드가 그 누락을 정답으로 보고 있었다.**
+            "data.reduction_plan",
+            "data.reduction_plan.target_rating",
+            "data.reduction_plan.target_cii",
+            "data.reduction_plan.allowed_planned_M_gco2",
+            "data.reduction_plan.required_cut_gco2",
+            "data.reduction_plan.required_cut_fuel_ton",
+            "data.reduction_plan.achievable",
             "data.deterministic.remaining_voyage_count",
             "data.monte_carlo",
             "data.monte_carlo.mean_cii",
