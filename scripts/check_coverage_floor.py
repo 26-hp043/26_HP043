@@ -89,21 +89,20 @@ class Exemption:
 #:
 #: ⚠️ 올라가면 여기서 **빼야 한다.** 남겨 두면 검사가 거짓말한다.
 #:
-#: 2026-09-13 실측(157파일 · 합계 96.5%)에서 걸린 셋이다. 분포에 **77.3% → 83.3%**
-#: 빈 구간이 있어 :data:`FLOOR_PERCENT` 80이 어느 무리도 가르지 않는다.
+#: 키는 :func:`normalize`가 만드는 **패키지 루트 기준 경로**다 — `auth/dependencies.py`
+#: 이지 `cii_platform/auth/...`도 `src/...`도 아니다.
+#:
+#: 2026-09-13 실측(157파일 · 합계 96.5%)에서 셋이 걸렸고, 그중 `services/chat_tools.py`
+#: (66.2%)는 `#120`에서 검사를 채워 **99%가 되어 목록에서 뺐다.** 분포에
+#: **77.3% → 83.3%** 빈 구간이 있어 :data:`FLOOR_PERCENT` 80이 어느 무리도 가르지 않는다.
 KNOWN_BELOW_FLOOR: dict[str, Exemption] = {
-    "cii_platform/auth/dependencies.py": Exemption(
+    "auth/dependencies.py": Exemption(
         65.0,
         "get_current_user의 DB 조회 본문(132~162)이 도달하지 않는다 — auth_middleware가 "
         "모든 비공개 경로에서 request.state.session_user를 먼저 채우므로 캐시 확인에서 "
         "반환된다. 검사 공백이 아니라 **중복 경로**다. 정리 판단은 #955 후속",
     ),
-    "cii_platform/services/chat_tools.py": Exemption(
-        60.0,
-        "도구 4종 본문이 오케스트레이션 대역(FakeProvider)으로만 지나가고 "
-        "DB를 붙인 실행 경로가 없다 — #121에서 신설한 계층이다",
-    ),
-    "cii_platform/depcheck.py": Exemption(
+    "depcheck.py": Exemption(
         70.0,
         "main()은 컨테이너 기동 시에만 도는 진입점이다(Dockerfile CMD · #523). "
         "실행은 docker 잡이 매번 하고, 단위 검사 대상은 위쪽 순수 함수들이다",
@@ -119,15 +118,33 @@ def _rate(elem: ET.Element) -> tuple[int, int]:
     return total, missing
 
 
-def normalize(name: str) -> str:
-    """경로를 ``cii_platform/...`` 한 가지로 맞춘다.
+#: 정규화할 때 떼어내는 접두사 — **순서대로** 한 번씩.
+_PREFIXES: tuple[str, ...] = ("src/", "cii_platform/")
 
-    ⚠️ CI는 설치된 패키지를 재고(``--cov=cii_platform``), 로컬에서는 소스를 직접
-    재는 경우가 많다(``--cov=src/cii_platform``). 그러면 같은 파일이
-    ``cii_platform/api/routes/auth.py``와 ``src/cii_platform/…`` 두 이름으로 나와
-    **예외 목록이 한쪽에서만 맞는다.** 맨 앞 ``src/``만 떼면 둘이 같아진다.
+
+def normalize(name: str) -> str:
+    """경로를 **패키지 루트 기준** 한 가지로 맞춘다.
+
+    ⚠️ Cobertura의 ``filename``은 ``<source>`` 루트에 대한 상대경로다. 그 루트는
+    ``--cov``를 어떻게 주느냐에 따라 달라져 **같은 파일이 세 이름으로 나온다**
+    (2026-09-13 실측).
+
+    ==========================================  ==============================
+     ``--cov-report=xml`` 별도 실행               ``src/cii_platform/auth/x.py``
+     ``--cov=cii_platform`` (설치 패키지 · CI)    ``cii_platform/auth/x.py``
+     ``--cov=src/cii_platform`` 인라인 보고서      ``auth/x.py``
+    ==========================================  ==============================
+
+    맞추지 않으면 **예외 목록이 한 형태에서만 맞고** 나머지에서는 「없는 경로」와
+    「목록에 없는 위반」이 **동시에** 뜬다. 실제로 그렇게 나왔다.
+
+    그래서 접두사를 떼어 **패키지 루트 기준**(``auth/x.py``)으로 통일한다. 보고서가
+    이 패키지만 담으므로 이름이 겹칠 여지가 없다.
     """
-    return name[4:] if name.startswith("src/") else name
+    for prefix in _PREFIXES:
+        if name.startswith(prefix):
+            name = name[len(prefix) :]
+    return name
 
 
 def collect(report: Path) -> dict[str, tuple[int, int]]:
