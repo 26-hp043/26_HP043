@@ -3,7 +3,7 @@ import '../../test/renderSetup'
 
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { ScenarioComparison } from './ScenarioComparison'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
@@ -321,31 +321,24 @@ describe('선박명이 제목에 표시된다 (#821)', () => {
     expect(await screen.findByText(/샘플 벌크선 · 2026년 기준/)).toBeTruthy()
   })
 
-  it('목록에 없는 선박이면 구분점만 남기지 않는다', async () => {
+  it('목록에 없는 선박이면 그 배로 계산하지 않는다 — 선택을 풀고 안내한다 (#1097 ⑵)', async () => {
     stubServerWithComparison()
     /*
-     * 선박이 선택돼 있는데 **그 배가 목록에 없는** 경우(삭제·권한 변경 직후).
-     * 종전에는 이름이 빈 문자열이라 제목이 `` · 2026년 기준``으로 시작해
-     * **레이아웃이 깨진 것처럼 보였다.** 지금은 이름 칸을 통째로 뺀다.
-     *
-     * 목록을 비우지 않고 **다른 배 하나**를 넣는다 — 목록이 완전히 비면 화면이
-     * 「등록된 선박이 없습니다」 갈래로 가 폼 제출 자체가 막힌다.
+     * 상단바가 기억한 배가 목록에 없는 경우(삭제·권한 변경 직후). 종전 검사는 그 id로
+     * 계산이 되고 제목에서 이름 칸만 빠지는 것을 확인했는데, **보이는 대상과 계산 대상이
+     * 다른 것** 자체가 `#1097`이 든 결함이다. 지금은 선택을 풀고 안내한다.
      */
+    const selectVesselId = vi.fn()
     renderScreen({
       vesselId: '00000000-0000-4000-8000-000000000001',
       vessels: [
-        {
-          id: '00000000-0000-4000-8000-00000000ffff',
-          displayName: '다른 배',
-          shipType: 'BULK_CARRIER',
-        },
+        { id: '00000000-0000-4000-8000-00000000ffff', displayName: '다른 배', shipType: 'BULK_CARRIER' },
       ],
+      selectVesselId,
     })
-    await compareAndWaitForResult()
-
-    const context = await screen.findByText(/2026년 기준/)
-    expect(context.textContent?.trimStart().startsWith('·')).toBe(false)
-    expect(context.textContent).not.toContain('다른 배')
+    expect(await screen.findByText(/상단바에서 고른 선박이 목록에 없습니다/)).toBeTruthy()
+    expect(selectVesselId).toHaveBeenCalledWith(null)
+    expect((screen.getByRole('combobox', { name: /선박/ }) as HTMLSelectElement).value).toBe('')
   })
 })
 
@@ -815,6 +808,73 @@ describe('샘플 항만 — 현재 위치·목적항 (#1005)', () => {
     expect(body).not.toHaveProperty('destination_lat')
     // 직항 거리를 그대로 두었으므로 결과는 좌표 추정이라고 말하지 않는다.
     expect(screen.queryByText(/직항 거리는 좌표 기반 추정 거리입니다/)).toBeNull()
+  })
+})
+
+describe('보이는 대상 = 계산 대상 (#1097)', () => {
+  it('⑴ 좌표를 찾는 동안 목적항 이름이 바뀌면 늦게 온 좌표를 버린다', async () => {
+    let release: ((r: Response) => void) | null = null
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/ports/lookup')) {
+          return new Promise<Response>((resolve) => {
+            release = resolve
+          })
+        }
+        if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+        if (url.includes('/parameters/fuel-types')) {
+          return jsonResponse({
+            data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+          })
+        }
+        return jsonResponse({ data: [] })
+      }),
+    )
+    renderScreen()
+    fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'Rotterdam' } })
+    fireEvent.click(await screen.findByRole('button', { name: /좌표 찾기/ }))
+    await waitFor(() => expect(release).not.toBeNull())
+    // 응답이 오기 전에 이름을 바꾼다
+    fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'Busan' } })
+    await act(async () => {
+      release!(jsonResponse({ data: { lat: 51.9, lon: 4.5, source: 'ONLINE' } }))
+    })
+    expect((screen.getByLabelText(/목적지 위도|도착 위도|위도/) as HTMLInputElement).value).toBe('')
+  })
+
+  it('⑶ 서버가 칸을 짚은 422는 그 입력칸에 붙는다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/scenarios/compare')) {
+          return jsonResponse(
+            {
+              error: {
+                code: 'VALIDATION_ERROR',
+                message: '직항 거리가 너무 큽니다.',
+                details: [{ field: 'direct_distance_nm', field_label: '직항 거리', message: '직항 거리가 너무 큽니다.' }],
+              },
+            },
+            422,
+          )
+        }
+        if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+        if (url.includes('/parameters/fuel-types')) {
+          return jsonResponse({
+            data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+          })
+        }
+        return jsonResponse({ data: [] })
+      }),
+    )
+    renderScreen()
+    fireEvent.click(await screen.findByRole('button', { name: /비교하기/ }))
+    const alerts = await screen.findAllByText('직항 거리가 너무 큽니다.')
+    // 폼 위 오류와 **입력칸 아래** 오류 — 둘 다 있다
+    expect(alerts.length).toBeGreaterThanOrEqual(2)
   })
 })
 

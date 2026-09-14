@@ -207,3 +207,21 @@ describe('선박이 없을 때도 연도 칸이 로딩에서 벗어난다 (#824 
     await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(3))
   })
 })
+
+describe('상단바 선박이 목록에 없을 때 (#1097 ⑵)', () => {
+  it('첫 배로 바꾸고 안내한다 — 삭제된 배의 id로 계산하지 않는다', async () => {
+    const selectVesselId = vi.fn()
+    renderForm({
+      vesselId: '00000000-0000-4000-8000-00000000dead',
+      vessels: [
+        { id: '00000000-0000-4000-8000-000000000001', displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' },
+        { id: '00000000-0000-4000-8000-000000000002', displayName: 'DONGJIN', shipType: 'CONTAINER_SHIP' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId,
+    })
+    expect(await screen.findByText(/상단바에서 고른 선박이 목록에 없어/)).toBeTruthy()
+    expect(selectVesselId).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000001')
+  })
+})
+
