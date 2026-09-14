@@ -17,6 +17,7 @@ import {
   type PlanSaveErrors,
   type PlanSaveForm,
 } from './actionRules'
+import type { ManagedVoyage } from '../voyage-management/types'
 import type { ResultState } from './resultRules'
 import { matchSamplePort, portOptionLabel, type SamplePort } from '../ports/samplePorts'
 import type { VoyageCiiProvider } from './provider'
@@ -60,6 +61,21 @@ export function VoyageCiiActions({
   const [errors, setErrors] = useState<PlanSaveErrors>({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
+  /*
+   * 전환에 실패한 DRAFT 항차 (`#1098` ⑵). 종전에는 `create`가 성공하고 `transition`이 409·네트워크
+   * 오류로 실패하면 그 사실을 잊어, 다시 저장할 때마다 DRAFT·EXCLUDE 항차가 하나씩 쌓였다.
+   * 같은 계획(같은 폼)으로 다시 저장하면 **전환만** 다시 한다. 폼이 바뀌었으면 새로 만든다.
+   */
+  const [pending, setPending] = useState<{ voyage: ManagedVoyage; draft: string } | null>(null)
+  /*
+   * 계산 결과가 바뀌면 앞 결과의 저장 문구·실패·보류 항차를 지운다 (`#1098` ⑴). 종전에는
+   * 「계획 저장」을 다시 누를 때만 지워, 재계산한 새 결과 아래에 「저장했습니다」가 남았다.
+   */
+  useEffect(() => {
+    setSaved(null)
+    setFailure(null)
+    setPending(null)
+  }, [state])
   const [failure, setFailure] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   /* 샘플 항만 (#1005) — 못 받아도 항만명은 자유 입력이다. 패널을 열 때 한 번 받는다. */
@@ -104,8 +120,16 @@ export function VoyageCiiActions({
     setFailure(null)
     try {
       // 생성은 늘 `DRAFT`·`EXCLUDE`다(`API_SPEC §3.3` [EXT-P0-4]) — `PLANNED` 전환에서 정책을 싣는다.
-      const created = await api.create(request.vessel_id, planDraftFrom(request, form))
+      const draft = planDraftFrom(request, form)
+      const draftKey = JSON.stringify(draft)
+      const created =
+        pending !== null && pending.draft === draftKey
+          ? pending.voyage
+          : await api.create(request.vessel_id, draft)
+      // 전환이 실패하면 다음 시도는 전환만 다시 한다 — DRAFT가 쌓이지 않는다 (⑵).
+      setPending({ voyage: created, draft: draftKey })
       await api.transition(created, 'PLANNED', planPolicy(form))
+      setPending(null)
       /*
        * 이 계산을 **새 항차에 귀속해 한 번 더 기록한다** (#817 · 결정 2-③ 「항차 컨텍스트가
        * 있는 요청만 귀속」). 방금 본 계산 이력은 항차가 생기기 전에 만들어져 항차가 없고,
