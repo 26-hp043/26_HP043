@@ -54,7 +54,7 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
     vi.stubGlobal('fetch', fetchImpl)
     await createApiVoyageCatalog('/api/v1').listVoyages('v1')
     const [url] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('/api/v1/vessels/v1/voyages')
+    expect(url).toBe('/api/v1/vessels/v1/voyages?limit=100')
     vi.unstubAllGlobals()
   })
 
@@ -116,3 +116,33 @@ describe('createVoyageCatalog', () => {
     vi.unstubAllGlobals()
   })
 })
+
+/**
+ * 커서를 끝까지 따른다 (`#1073`) — 이슈 완료 기준: 항차 25건인 선박에서 25번째 항차를 고를 수 있다.
+ */
+describe('페이지 따라가기 (#1073)', () => {
+  it('25건이면 두 페이지를 이어 받아 25번째가 목록에 있다', async () => {
+    const voyage = (n: number) => ({ id: `v${n}`, voyage_no: `NO-${n}`, status: 'PLANNED' })
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        urls.push(url)
+        if (url.includes('cursor=c2')) {
+          return jsonResponse({ data: [21, 22, 23, 24, 25].map(voyage), meta: { next_cursor: null } })
+        }
+        return jsonResponse({
+          data: Array.from({ length: 20 }, (_, i) => voyage(i + 1)),
+          meta: { next_cursor: 'c2' },
+        })
+      }),
+    )
+    const rows = await createApiVoyageCatalog('/api/v1').listVoyages('vessel-1')
+    expect(rows).toHaveLength(25)
+    expect(rows.at(-1)?.id).toBe('v25')
+    expect(urls[1]).toContain('cursor=c2')
+    vi.unstubAllGlobals()
+  })
+})
+

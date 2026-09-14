@@ -64,7 +64,7 @@ describe('실 API 카탈로그', () => {
 
     expect(spy).toHaveBeenCalledTimes(1)
     const [url, init] = spy.mock.calls[0] as [string, RequestInit]
-    expect(url).toBe('/api/v1/vessels')
+    expect(url).toBe('/api/v1/vessels?limit=100')
     expect(init.method).toBe('GET')
     expect(init.credentials).toBe('include')
   })
@@ -137,3 +137,30 @@ describe('전환 규칙', () => {
   })
 
 })
+
+/**
+ * 커서를 끝까지 따른다 (`#1073`). 종전에는 첫 페이지만 받아 서버 기본 `limit` 20에서
+ * 잘렸다 — 21번째 배는 고를 수 없었다.
+ */
+describe('페이지 따라가기 (#1073)', () => {
+  it('next_cursor가 있으면 다음 페이지를 이어 받고, 없으면 멈춘다', async () => {
+    const page = (ids: string[], next: string | null) => ({
+      data: ids.map((id) => ({ id, name: `V-${id}`, ship_type: 'BULK_CARRIER' })),
+      meta: { next_cursor: next },
+    })
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        urls.push(url)
+        return jsonResponse(url.includes('cursor=c2') ? page(['21'], null) : page(['1', '2'], 'c2'))
+      }),
+    )
+    const rows = await createApiVesselCatalog('/api/v1').listVessels()
+    expect(rows.map((r) => r.id)).toEqual(['1', '2', '21'])
+    expect(urls).toEqual(['/api/v1/vessels?limit=100', '/api/v1/vessels?limit=100&cursor=c2'])
+    vi.unstubAllGlobals()
+  })
+})
+
