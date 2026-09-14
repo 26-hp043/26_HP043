@@ -18,6 +18,10 @@ export const FLEET_REDUCTION_COPY = {
   targetLabel: '목표',
   loading: '계산하는 중입니다…',
   loadSubject: '함대 감축 계획',
+  /* 실패 문구 대체값 — 진행 문구(「계산하는 중」)를 쓰면 실패가 진행 중으로 읽힌다 (#1069). */
+  evaluateFailed: '계산 결과를 받지 못했습니다.',
+  staleResult: '아래 표는 마지막으로 계산에 성공한 조건의 결과입니다.',
+  priceInvalid: '0 이상의 숫자를 입력하세요.',
 
   vesselsTitle: '선박별 감속',
   colVessel: '선박',
@@ -56,6 +60,8 @@ export const FLEET_REDUCTION_COPY = {
   saveButton: '저장',
   saving: '저장하는 중…',
   saved: (name: string) => `「${name}」을 저장했습니다.`,
+  saveFailed: '계획을 저장하지 못했습니다.',
+  plansFailed: '저장한 계획 목록을 불러오지 못했습니다.',
   loadLabel: '저장한 계획 불러오기',
   loadPlaceholder: '저장한 계획 선택',
   noPlans: '저장한 계획이 없습니다.',

@@ -8,6 +8,7 @@ import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { createApiFleetReductionProvider } from './apiProvider'
+import { hasInvalidPrice, isInvalidPrice } from './priceRules'
 import { FLEET_REDUCTION_COPY as COPY, TARGET_TEXT, UNAVAILABLE_TEXT } from './copy'
 import {
   MAX_REDUCTION_PERCENT,
@@ -40,10 +41,13 @@ const EVALUATE_DELAY_MS = 300
 const FLEET_KEY = 'fleet'
 const RATINGS: readonly Rating[] = ['A', 'B', 'C', 'D', 'E']
 
-type LoadState =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; result: EvaluateResult }
+/**
+ * 계산 상태 — **실패해도 마지막 성공 결과를 버리지 않는다** (#1069).
+ *
+ * 종전에는 `loading | error | ready` 중 하나라 실패하는 순간 선박 표·단가 칸·저장이 함께 사라졌다.
+ * 실패 원인이 입력(예: 음수 단가 → 422)이면 **고칠 칸이 없어** 새로고침 말고는 빠져나올 수 없었다.
+ */
+type EvalState = { result: EvaluateResult | null; error: string | null }
 
 const EMPTY_PRICES: Prices = { charterUsdPerDay: {}, fuelUsdPerTon: {} }
 
@@ -55,8 +59,11 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   const [target, setTarget] = useState<Target>('NO_AT_RISK')
   const [percents, setPercents] = useState<Record<string, number>>({})
   const [prices, setPrices] = useState<Prices>(EMPTY_PRICES)
-  const [state, setState] = useState<LoadState>({ status: 'loading' })
+  const [evaluation, setEvaluation] = useState<EvalState>({ result: null, error: null })
+  const [retryKey, setRetryKey] = useState(0)
   const [plans, setPlans] = useState<SavedPlanSummary[]>([])
+  const [plansFailed, setPlansFailed] = useState(false)
+  const [plansKey, setPlansKey] = useState(0)
   const [planName, setPlanName] = useState('')
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -75,18 +82,20 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       .then((rows) => {
         if (cancelled) return
         setPlans(rows)
+        setPlansFailed(false)
         if (!pricesSeeded.current && rows.length > 0) {
           pricesSeeded.current = true
           setPrices(rows[0].prices)
         }
       })
       .catch(() => {
-        if (!cancelled) setPlans([])
+        // 조회 실패를 「저장한 계획이 없습니다」로 보이지 않는다 — 없는 것과 못 가져온 것은 다르다.
+        if (!cancelled) setPlansFailed(true)
       })
     return () => {
       cancelled = true
     }
-  }, [api])
+  }, [api, plansKey])
 
   const request = useMemo(
     () => ({
@@ -97,42 +106,45 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
     }),
     [year, target, percents, prices],
   )
+  const pricesInvalid = hasInvalidPrice(prices)
 
   useEffect(() => {
     if (yearsLoading) return
     if (years.length > 0 && year === '') return
+    // 잘못된 단가로는 묻지 않는다 — 칸에 오류를 보이고 마지막 결과를 그대로 둔다.
+    if (pricesInvalid) return
     let cancelled = false
     const timer = setTimeout(() => {
       api
         .evaluate(request)
         .then((result) => {
-          if (!cancelled) setState({ status: 'ready', result })
+          if (!cancelled) setEvaluation({ result, error: null })
         })
         .catch((error: unknown) => {
           if (cancelled) return
-          setState({
-            status: 'error',
-            message: error instanceof Error ? error.message : COPY.loading,
-          })
+          setEvaluation((prev) => ({
+            result: prev.result,
+            error: error instanceof Error ? error.message : COPY.evaluateFailed,
+          }))
         })
     }, EVALUATE_DELAY_MS)
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [api, request, years.length, year, yearsLoading])
+  }, [api, request, years.length, year, yearsLoading, pricesInvalid, retryKey])
+
+  const shown = evaluation.result
 
   const fuelCodes = useMemo(() => {
     const codes = new Set(fuels.map((f) => f.code))
-    if (state.status === 'ready') {
-      state.result.costs.missingFuelPrices.forEach((c) => codes.add(c))
-    }
+    shown?.costs.missingFuelPrices.forEach((c) => codes.add(c))
     return [...codes].sort()
-  }, [fuels, state])
+  }, [fuels, shown])
 
   const save = async () => {
     const name = planName.trim()
-    if (name === '') return
+    if (name === '' || pricesInvalid) return
     setSaving(true)
     setSaveMessage(null)
     try {
@@ -141,7 +153,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       setSaveMessage(COPY.saved(saved.planName))
       setPlanName('')
     } catch (error: unknown) {
-      setSaveMessage(error instanceof Error ? error.message : COPY.saving)
+      setSaveMessage(error instanceof Error ? error.message : COPY.saveFailed)
     } finally {
       setSaving(false)
     }
@@ -188,16 +200,21 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
         </label>
       </div>
 
-      {state.status === 'loading' ? (
+      {shown === null && evaluation.error === null ? (
         <p className="fr__placeholder" aria-live="polite">
           {COPY.loading}
         </p>
       ) : null}
-      {state.status === 'error' ? (
-        <ErrorState level="region" subject={COPY.loadSubject} message={state.message} />
+      {evaluation.error !== null ? (
+        <ErrorState
+          level="region"
+          subject={COPY.loadSubject}
+          message={shown === null ? evaluation.error : `${evaluation.error} ${COPY.staleResult}`}
+          onRetry={() => setRetryKey((k) => k + 1)}
+        />
       ) : null}
 
-      {state.status === 'ready' ? (
+      {shown !== null ? (
         <div className="fr__grid">
           <section className="card fr__main" aria-labelledby="fr-vessels-title">
             <h2 id="fr-vessels-title" className="card__title">
@@ -216,12 +233,13 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   </tr>
                 </thead>
                 <tbody>
-                  {state.result.vessels.map((vessel) => (
+                  {shown.vessels.map((vessel) => (
                     <VesselRow
                       key={vessel.vesselId}
                       vessel={vessel}
                       percent={percents[vessel.vesselId] ?? 0}
                       charter={prices.charterUsdPerDay[vessel.vesselId] ?? ''}
+                      charterInvalid={isInvalidPrice(prices.charterUsdPerDay[vessel.vesselId] ?? '')}
                       onPercent={(value) =>
                         setPercents((prev) => ({ ...prev, [vessel.vesselId]: value }))
                       }
@@ -236,9 +254,9 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                 </tbody>
               </table>
             </div>
-            {state.result.warnings.length > 0 ? (
+            {shown.warnings.length > 0 ? (
               <ul className="fr__warnings">
-                {state.result.warnings.map((code) => (
+                {shown.warnings.map((code) => (
                   <li key={code}>{warningMessage(code)}</li>
                 ))}
               </ul>
@@ -246,35 +264,44 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
           </section>
 
           <aside className="fr__side">
-            <Status result={state.result} adjusted={Object.values(percents).some((p) => p > 0)} />
-            <Costs result={state.result} />
+            <Status result={shown} adjusted={Object.values(percents).some((p) => p > 0)} />
+            <Costs result={shown} />
             <section className="card" aria-labelledby="fr-fuel-title">
               <h2 id="fr-fuel-title" className="card__title">
                 {COPY.fuelPricesTitle}
               </h2>
               <p className="fr__caption">{COPY.pricesNote}</p>
               <div className="fr__prices">
-                {fuelCodes.map((code) => (
-                  <label key={code} className="fr__field" htmlFor={`fr-fuel-${code}`}>
-                    <span className="fr__label">{code}</span>
-                    <input
-                      id={`fr-fuel-${code}`}
-                      type="number"
-                      min={0}
-                      inputMode="decimal"
-                      value={prices.fuelUsdPerTon[code] ?? ''}
-                      onChange={(e) =>
-                        setPrices((prev) => ({
-                          ...prev,
-                          fuelUsdPerTon: { ...prev.fuelUsdPerTon, [code]: e.target.value },
-                        }))
-                      }
-                    />
-                  </label>
-                ))}
+                {fuelCodes.map((code) => {
+                  const invalid = isInvalidPrice(prices.fuelUsdPerTon[code] ?? '')
+                  return (
+                    <label key={code} className="fr__field" htmlFor={`fr-fuel-${code}`}>
+                      <span className="fr__label">{code}</span>
+                      <input
+                        id={`fr-fuel-${code}`}
+                        type="number"
+                        min={0}
+                        inputMode="decimal"
+                        value={prices.fuelUsdPerTon[code] ?? ''}
+                        aria-invalid={invalid ? true : undefined}
+                        onChange={(e) =>
+                          setPrices((prev) => ({
+                            ...prev,
+                            fuelUsdPerTon: { ...prev.fuelUsdPerTon, [code]: e.target.value },
+                          }))
+                        }
+                      />
+                      {invalid ? (
+                        <em className="fr__field-error" role="alert">
+                          {COPY.priceInvalid}
+                        </em>
+                      ) : null}
+                    </label>
+                  )
+                })}
               </div>
             </section>
-            <Distribution result={state.result} />
+            <Distribution result={shown} />
             <section className="card" aria-labelledby="fr-save-title">
               <h2 id="fr-save-title" className="card__title">
                 {COPY.saveTitle}
@@ -293,7 +320,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                 <button
                   type="button"
                   className="fr__button"
-                  disabled={saving || planName.trim() === ''}
+                  disabled={saving || planName.trim() === '' || pricesInvalid}
                   onClick={() => void save()}
                 >
                   {saving ? COPY.saving : COPY.saveButton}
@@ -304,11 +331,23 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   {saveMessage}
                 </p>
               ) : null}
-              <label className="fr__field" htmlFor="fr-load">
-                <span className="fr__label">{COPY.loadLabel}</span>
-                {plans.length === 0 ? (
-                  <span className="fr__caption">{COPY.noPlans}</span>
-                ) : (
+              {plansFailed || plans.length === 0 ? (
+                <div className="fr__field">
+                  <span className="fr__label">{COPY.loadLabel}</span>
+                  {plansFailed ? (
+                    <ErrorState
+                      level="region"
+                      size="compact"
+                      message={COPY.plansFailed}
+                      onRetry={() => setPlansKey((k) => k + 1)}
+                    />
+                  ) : (
+                    <span className="fr__caption">{COPY.noPlans}</span>
+                  )}
+                </div>
+              ) : (
+                <label className="fr__field" htmlFor="fr-load">
+                  <span className="fr__label">{COPY.loadLabel}</span>
                   <select id="fr-load" value="" onChange={(e) => loadPlan(e.target.value)}>
                     <option value="">{COPY.loadPlaceholder}</option>
                     {plans.map((p) => (
@@ -317,8 +356,8 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                       </option>
                     ))}
                   </select>
-                )}
-              </label>
+                </label>
+              )}
             </section>
           </aside>
         </div>
@@ -331,12 +370,14 @@ function VesselRow({
   vessel,
   percent,
   charter,
+  charterInvalid,
   onPercent,
   onCharter,
 }: {
   vessel: VesselResult
   percent: number
   charter: string
+  charterInvalid: boolean
   onPercent: (value: number) => void
   onCharter: (value: string) => void
 }) {
@@ -399,8 +440,14 @@ function VesselRow({
           aria-label={`${vessel.vesselName} ${COPY.colCharter}`}
           value={charter}
           disabled={unavailable}
+          aria-invalid={charterInvalid ? true : undefined}
           onChange={(e) => onCharter(e.target.value)}
         />
+        {charterInvalid ? (
+          <em className="fr__field-error" role="alert">
+            {COPY.priceInvalid}
+          </em>
+        ) : null}
       </td>
     </tr>
   )
