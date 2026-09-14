@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.schemas.fleet_reduction import ReductionPlanRequest, ReductionPlanSaveRequest
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.auth.dependencies import require_csrf
+from cii_platform.auth.dependencies import require_csrf, require_office
 from cii_platform.db.session import get_session
 from cii_platform.services.data_quality import get_fleet_data_quality
 from cii_platform.services.fleet_reduction import (
@@ -128,6 +128,7 @@ async def evaluate_reduction_plan_route(
     body: ReductionPlanRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """감축 계획안을 **계산만** 한다 — 저장하지 않는다 (`API_SPEC §2.17.1` · #513).
 
@@ -143,6 +144,7 @@ async def save_reduction_plan_route(
     body: ReductionPlanSaveRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """계획안을 저장한다 — 서버가 **다시 계산해** 결과까지 남긴다 (`API_SPEC §2.17.2`)."""
     state = getattr(request, "state", None)
@@ -161,6 +163,7 @@ async def save_reduction_plan_route(
 async def list_reduction_plans_route(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """저장한 계획안 — 최근순 20건 (`API_SPEC §2.17.3`). 결과 본문은 단건 조회에 있다."""
     return {"data": await list_reduction_plans(session), "meta": _meta(request)}
@@ -171,6 +174,7 @@ async def get_reduction_plan_route(
     request: Request,
     plan_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """저장한 계획안 한 건 — 저장 시점의 결과 그대로 (`API_SPEC §2.17.4`)."""
     return {"data": await get_reduction_plan(session, plan_id), "meta": _meta(request)}

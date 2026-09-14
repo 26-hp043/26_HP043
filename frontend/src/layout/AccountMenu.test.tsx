@@ -26,6 +26,7 @@ const USER: CurrentUser = {
   id: 'u1',
   email: 'demo@bluelog.local',
   displayName: '시연용',
+  role: 'OFFICE',
   emailVerifiedAt: null,
 }
 

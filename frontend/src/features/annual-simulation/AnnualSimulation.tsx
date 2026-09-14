@@ -29,6 +29,8 @@ import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { SnapshotVoyages } from './SnapshotVoyages'
+import { isOffice, useAuthUser } from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 
 /**
  * 기능③ 연간 CII 시뮬레이션 화면 (#157 · **#442에서 실 API 연결**).
@@ -84,6 +86,8 @@ export function AnnualSimulation({
   // 박혀 있어, 상단에서 어떤 배를 골라도 늘 같은 배로 계산했다.
   const shell = useShellContext()
   const provider = useMemo(() => createAnnualSimulationProvider(), [])
+  // 실행은 사무직 전용이다 (`API_SPEC §1.2` · #672). 현장직은 폼을 읽되 실행 버튼이 잠긴다.
+  const office = isOffice(useAuthUser())
   const [state, setState] = useState<RunState>({ status: 'idle' })
   /*
    * 실행 **세대 번호** — 늦은 응답을 버린다 (`#1094` · `#874` 선례).
@@ -336,9 +340,18 @@ export function AnnualSimulation({
           </span>
         </div>
 
-        <button type="submit" disabled={state.status === 'running'}>
+        <button
+          type="submit"
+          disabled={state.status === 'running' || !office}
+          aria-describedby={office ? undefined : 'annual-sim-office-only'}
+        >
           {state.status === 'running' ? ANNUAL_COPY.submitting : ANNUAL_COPY.submit}
         </button>
+        {office ? null : (
+          <span id="annual-sim-office-only" className="annual-sim__hint">
+            {OFFICE_ONLY_ACTION_HINT}
+          </span>
+        )}
       </form>
 
       {/*

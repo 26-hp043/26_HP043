@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.31 |
+| 버전 | v1.32 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-09-14 |
+| 최종 수정일 | 2026-09-15 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -51,7 +51,7 @@ MVP에서는 단일 인스턴스를 가정한다. 향후 멀티테넌트 확장 
 
 ### 1.2 인증
 
-MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사용한다. 단일 조직·단일 역할을 가정하므로 권한 분리는 두지 않는다 (`PRD §5.2` · `§20 O-14`).
+MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사용한다. 단일 조직을 가정하며, 계정은 **사무직(`OFFICE`)·현장직(`FIELD`) 두 역할** 중 하나다 (`PRD §5.2` · `§20 O-14` · `#672`). 데이터 격리는 없다 — 두 역할이 같은 선박·항차를 본다.
 
 > **[#413] 구글 OIDC를 완전히 제거했다.** 종전에는 인증을 구글에 위임했으나(`O-13`), 2026-08-16 결정으로 제품이 이메일과 비밀번호를 직접 관리한다. **세션·CSRF·감사 로그 계층은 그대로다** — 인증 수단과 무관하기 때문이다. 바뀐 것은 「자격을 확인하는 방법」 하나다.
 
@@ -62,13 +62,15 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 비밀번호 규칙 | **10자 이상 128자 이하.** 대문자·특수문자 같은 복잡도 규칙은 두지 않는다 — 길이만 본다. 상한은 매우 긴 입력이 해싱 비용으로 서비스 거부 수단이 되는 것을 막는다 (`auth/password.py` · 화면 `authRules.ts`가 같은 값) |
 | 세션 유효기간 | **발급 후 7일.** 요청이 와도 연장하지 않는다(고정 만료). 로그아웃·비밀번호 변경은 그 전에 무효화한다 (`auth/session.py`) |
 | 쿠키 속성 | `HttpOnly` · `Secure` · `SameSite=Lax` · `Path=/` |
-| 권한 분리 | 없음. 인증된 모든 사용자가 동일 권한을 가진다 |
-| 데이터 격리 | 없음. 선박·항차 데이터는 전 사용자가 공유한다 (`PRD §5.2`) |
+| 권한 분리 | **[#672] 역할 2종 — 사무직(`OFFICE`)·현장직(`FIELD`).** `app_user.role`(`DB_SCHEMA §2.15`). **현장직은 「넣고 본다」, 사무직은 「정하고 낸다」** — 아래 「사무직 전용 경로」 표에 없는 경로는 두 역할 모두 쓴다. 거부는 `403 FORBIDDEN_ROLE`(`§1.4`) |
+| 최초 사무직 | **[#672] 설정 `INITIAL_OFFICE_EMAILS`(쉼표 목록).** 여기 든 이메일은 **가입할 때와 로그인할 때** 사무직으로 맞춘다 — 목록에 있는 동안은 강등해도 다음 로그인에서 되돌아온다(「항상 사무직인 사람」). 새로 가입하는 나머지 계정은 **현장직**으로 시작하고, 사무직이 `PATCH /auth/users/{id}/role`로 올린다. 마이그레이션 044가 **기존 계정은 전부 사무직**으로 채웠다. **`APP_ENV=production`에서 목록이 비면 서버가 기동하지 않는다** — 새 DB에서 사무직 0명이 되지 않게 |
+| 마지막 사무직 | **[#672] 탈퇴(`DELETE /auth/me`)·강등(`PATCH /auth/users/{id}/role`)을 `409 CONFLICT`로 거절한다.** 사무직이 0명이면 아무도 역할을 되돌릴 수 없다. 판정은 사무직 행을 잠근 채 한다(동시 강등 방지). 문구는 `PRD §6.3` 「마지막 사무직」 |
+| 데이터 격리 | 없음. 선박·항차 데이터는 전 사용자가 공유한다 (`PRD §5.2`). **역할은 행위 권한이지 소유권이 아니다** (`PRD §7.10`) |
 | 가입 제한 | **[#808] 사내 도구다 — 허용 도메인 또는 초대 코드가 있어야 가입된다.** 설정 `SIGNUP_ALLOWED_DOMAINS`(쉼표 목록) · `SIGNUP_INVITE_CODE` 중 **하나만 맞으면** 된다. 가입 요청 본문의 `invite_code`(선택)가 초대 코드다. 거절은 `422 VALIDATION_ERROR` · `PRD §6.3` 「회원가입 — 가입 제한」 문구 — **어느 조건에서 떨어졌는지 말하지 않는다.** 검사는 비밀번호 해싱 **전에** 한다(거절될 요청에 해싱 비용을 쓰지 않는다). **`APP_ENV=production`에서 두 설정이 모두 비면 서버가 기동하지 않는다** — 개발·테스트에서는 비워 두면 열려 있다 |
 | 미인증 응답 | `401 UNAUTHORIZED` |
 | CSRF | 상태 변경 요청(POST·PATCH·DELETE)에 `X-CSRF-Token` 헤더 요구. **세션을 요구하는 라우트에 예외를 두지 않는다** (`#634`) |
 | 이메일 인증 | 가입 시 확인 메일 발송. **미인증 상태에서도 로그인은 허용**한다 (`PRD §7.10`) |
-| 향후 확장 | 역할 기반 접근 제어(RBAC), 사용자별 데이터 격리 |
+| 하지 않는 것 | 사용자별 데이터 격리 · 셋 이상의 역할 · 화면별 세부 권한. **필요해지면 `PRD §5.2`를 먼저 개정한다** — 「향후 확장」으로 두지 않는다(10/10 뒤 개발 없음) |
 
 **인증 예외 경로** — 다음은 세션 없이 접근할 수 있다.
 
@@ -82,6 +84,27 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 
 그 밖의 모든 `/api/v1/*` 경로는 유효한 세션을 요구한다.
 
+**사무직 전용 경로** — `require_office`(`auth/dependencies.py`)가 걸린 라우트. 현장직은 `403 FORBIDDEN_ROLE`이다. **이 표가 목록의 주인이고 `tests/test_roles_db.py`가 소스와 대조한다** — 한쪽만 바뀌면 CI가 실패한다.
+
+| 경로 | 화면 | 왜 사무직인가 |
+|---|---|---|
+| `POST /vessels` | 1-2 선박 등록 | 선박 제원은 기준값이다 |
+| `PATCH /vessels/{vessel_id}` | SCR-002 선박 관리 · 2-8 선박 상세 | 〃. **위치·운항 상태(`PATCH /vessels/{id}/position`)는 현황 입력이라 두 역할 모두** |
+| `DELETE /vessels/{vessel_id}` | SCR-002 선박 관리 | 〃 |
+| `POST /annual-simulations` | 2-3 연간 등급 관리 | 시뮬레이션 실행은 계획 업무. 결과 조회(`GET`)는 두 역할 모두 |
+| `POST /annual-simulations/{simulation_run_id}/reproduce` | 2-3 연간 등급 관리 | 〃 |
+| `POST /scenarios/{scenario_id}/adopt` | 2-2 항로 비교 | 채택은 계획 확정 행위. 비교(`compare`)는 두 역할 모두 |
+| `GET /voyages/{voyage_id}/report` | 2-5 보고서 | 대외 산출물 |
+| `GET /vessels/{vessel_id}/annual-report` | 2-5 보고서 | 〃 |
+| `POST /fleet/reduction-plans/evaluate` | 2-10 함대 감축 계획 | 선대 단위 경영 판단 — 화면 전체가 사무직 |
+| `POST /fleet/reduction-plans` | 2-10 함대 감축 계획 | 〃 |
+| `GET /fleet/reduction-plans` | 2-10 함대 감축 계획 | 〃 |
+| `GET /fleet/reduction-plans/{plan_id}` | 2-10 함대 감축 계획 | 〃 |
+| `GET /auth/users` | 2-6 설정 | 계정 목록은 역할 지정의 재료 |
+| `PATCH /auth/users/{user_id}/role` | 2-6 설정 | 역할 지정 |
+
+> **두 역할 모두 쓰는 것** — 항차 등록·수정·실적·전환·CSV 가져오기(`§3`) · 정박 구간(`§4`) · 기능① 계산·기능② 비교(`§2`·`§5`) · 위치 갱신 · 운항 기록 CSV 내보내기(`§8.1` — 산출물이 아니라 **자기가 넣은 기록**이다) · 대시보드·데이터 점검 조회 · 파라미터 **조회**(선택지 목록의 재료) · 챗봇(`§15`) · 자기 계정 관리. 규정 파라미터 **개정 적재**(`§7.5` · `#673`)는 구현 시 사무직 전용이다.
+
 > 파라미터 변경(POST/PATCH `/parameters/*`) 및 항차 확정(CONFIRMED 전환)은 감사 로그에 기록된다 (`TECH_SPEC §13.1`). **`audit_log.user_id`에 `app_user.id`를 기록한다.**
 
 **인증 엔드포인트**
@@ -91,14 +114,16 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `POST` | `/auth/signup` | 불필요 | 이메일·비밀번호(+ 선택 `invite_code`) 가입 → **가입 제한 확인**(위 표) → 인증 메일 발송 → 세션 발급 |
 | `POST` | `/auth/login` | 불필요 | 이메일·비밀번호 검증 → 세션 발급 |
 | `POST` | `/auth/logout` | **필요** | 세션 즉시 무효화 + 쿠키 만료 → 204. **세션이 없으면 401**이다 (`#634`) |
-| `GET` | `/auth/me` | **필요** | 현재 사용자 정보 (`id` · `email` · `display_name` · `email_verified_at`) |
+| `GET` | `/auth/me` | **필요** | 현재 사용자 정보 (`id` · `email` · `display_name` · **`role`** · `email_verified_at` · `last_login_at`) |
 | `POST` | `/auth/verify-email/request` | 불필요 | 인증 메일 재발송 |
 | `POST` | `/auth/verify-email/confirm` | 불필요 | 토큰 검증 → `email_verified_at` 기록 |
 | `POST` | `/auth/password-reset/request` | 불필요 | 재설정 메일 발송 |
 | `POST` | `/auth/password-reset/confirm` | 불필요 | 토큰 검증 → 비밀번호 교체 + **해당 사용자의 기존 세션 전량 무효화** |
 | `POST` | `/auth/password-change` | **필요** | 현재 비밀번호 검증 → 교체 + **기존 세션 전량 무효화** (로그인 상태에서의 변경) |
 | `PATCH` | `/auth/me` | **필요** | 표시 이름(`display_name`) 변경. **`email`은 받지 않는다** |
-| `DELETE` | `/auth/me` | **필요** | 탈퇴 — `is_deleted` soft delete + 세션 전량 무효화. **계산·감사 기록은 보존** |
+| `DELETE` | `/auth/me` | **필요** | 탈퇴 — `is_deleted` soft delete + 세션 전량 무효화. **계산·감사 기록은 보존.** 마지막 사무직이면 `409 CONFLICT` (`#672`) |
+| `GET` | `/auth/users` | **사무직** | 살아 있는 계정 전부 — `/auth/me`와 같은 사용자 객체의 배열, 이메일 순 (`#672`) |
+| `PATCH` | `/auth/users/{user_id}/role` | **사무직** | 본문 `{"role": "OFFICE" \| "FIELD"}`. 같은 값이면 쓰지 않는다. 마지막 사무직 강등은 `409 CONFLICT`. 감사 로그 `ROLE_CHANGE`(행위자 `user_id` · 대상 `entity_id`) (`#672`) |
 
 > **⚠️ 계정 존재 여부를 노출하지 않는다.** `POST /auth/login` 실패와 `POST /auth/password-reset/request`는 **가입 여부와 무관하게 같은 응답·같은 소요시간**을 반환한다. 「없는 이메일입니다」를 내면 **가입자 목록을 캐낼 수 있다.** 문구는 `PRD §6.3`이 확정한다.
 >
@@ -205,6 +230,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 401 Unauthorized | `UNAUTHORIZED` | 세션 없음, 세션 만료, 세션 무효 |
 | 401 Unauthorized | `INVALID_CREDENTIALS` | 자격 증명 오류 — 로그인 실패(없는 이메일·틀린 비밀번호가 **같은 코드·같은 문구**) · 비밀번호 변경의 현재 비밀번호 오입력(`details[].field` = `current_password`). **세션 문제가 아니다** (#902) |
 | 403 Forbidden | `CSRF_ERROR` | CSRF 토큰 누락 또는 불일치 |
+| 403 Forbidden | `FORBIDDEN_ROLE` | 역할이 허용하지 않는 작업 — 현장직이 사무직 전용 경로(`§1.2` 표)를 부름. 문구 `"이 작업은 사무직 계정만 할 수 있습니다."`. **CSRF와 같은 403이지만 코드가 다르다** — 화면은 `error.code`로 가른다: CSRF는 토큰을 다시 실어 재시도, 역할은 안내하고 끝낸다 (#672) |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 리소스 ID |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 **경로** (프레임워크 자동 발생 — `#183`에서 §1.3.2 포맷으로 변환). 리소스 ID 미존재와 동일한 코드를 쓴다 |
 | 405 Method Not Allowed | `METHOD_NOT_ALLOWED` | 경로는 존재하나 HTTP 메서드가 허용되지 않음 (프레임워크 자동 발생 — `#183`에서 변환) |
@@ -562,7 +588,7 @@ DELETE /api/v1/vessels/{vessel_id}
 }
 ```
 
-> 연관된 Voyage, CalculationRun이 있는 경우 soft delete. 완전 삭제 경로는 두지 않는다 — `§1.2`가 「권한 분리 없음」으로 규정해 「관리자 권한」이라는 개념이 없다(`#759` 정정. 권한 설계는 `#672`).
+> 연관된 Voyage, CalculationRun이 있는 경우 soft delete. 완전 삭제 경로는 두지 않는다 — 삭제된 선박의 계산 이력은 보존 대상이다(`#759` 정정). **선박 등록·제원 수정·삭제는 사무직 전용**이다(`§1.2` · `#672`).
 
 ### 2.6 선박 위치·운항 상태 갱신 (#369)
 
@@ -2868,7 +2894,7 @@ GET /api/v1/parameters/rating-boundaries?ship_type=BULK_CARRIER
 
 > ## ⏸ 이 엔드포인트는 **아직 구현하지 않았다** (`#673` 추적)
 >
-> 규정 개정 적재는 **누가 부를 수 있는가**가 먼저 정해져야 한다 — 어드민 범위(`#672`)에 종속되며, 그 범위는 **1차 시연 범위 밖**으로 판정됐다(`PRD` O-14 각주). 아래 요청·응답은 도입 시의 계약으로 남긴다. `§12` 요약표도 같은 표시를 달고 있고, 누군가 구현하면 요약표↔라우트 대조 가드(`tests/test_api_spec_endpoints_sync.py`)가 깨져 이 표시를 지우게 한다 (#830 — `§9`와 같은 표기로 맞췄다).
+> 규정 개정 적재는 **누가 부를 수 있는가**가 먼저 정해져야 한다 — **2026-09-15 `#672`로 정해졌다: 사무직 전용**(`§1.2` 역할 표 · `require_office`). 구현은 `#673`이 한다. 아래 요청·응답은 도입 시의 계약으로 남긴다. `§12` 요약표도 같은 표시를 달고 있고, 누군가 구현하면 요약표↔라우트 대조 가드(`tests/test_api_spec_endpoints_sync.py`)가 깨져 이 표시를 지우게 한다 (#830 — `§9`와 같은 표기로 맞췄다).
 
 ```http
 POST /api/v1/parameters/import
@@ -3411,6 +3437,8 @@ GET /api/v1/health
 | GET | `/api/v1/auth/me` | 현재 사용자 | §1.2 |
 | PATCH | `/api/v1/auth/me` | 표시 이름 변경 (`email`은 받지 않는다) | §6.3 |
 | DELETE | `/api/v1/auth/me` | 탈퇴 (soft delete + 세션 전량 무효화) | §6.3 |
+| GET | `/api/v1/auth/users` | 계정 목록 (**사무직**) | §1.2 |
+| PATCH | `/api/v1/auth/users/{user_id}/role` | 역할 지정 (**사무직**) | §1.2 |
 | POST | `/api/v1/auth/password-change` | 비밀번호 변경 (로그인 상태) | §6.3 |
 | POST | `/api/v1/auth/dev-login` | 개발용 로그인 (**프로덕션 미등록**) | §1.2 |
 | POST | `/api/v1/auth/verify-email/request` | 메일 인증 요청 | §1.2 |

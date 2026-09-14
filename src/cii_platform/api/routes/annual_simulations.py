@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.schemas.annual_simulation import AnnualSimulationRequest
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.auth.dependencies import require_csrf
+from cii_platform.auth.dependencies import require_csrf, require_office
 from cii_platform.db.session import get_session
 from cii_platform.services import audit as audit_svc
 from cii_platform.services.annual_simulation import (
@@ -98,6 +98,7 @@ async def run_annual_simulation_route(
     payload: AnnualSimulationRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """연간 시뮬레이션을 실행한다 (API_SPEC §6.1).
 
@@ -166,6 +167,7 @@ async def reproduce_annual_simulation_route(
     simulation_run_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """같은 seed·같은 스냅샷으로 재실행해 결과가 같은지 확인한다 (API_SPEC §6.4).
 

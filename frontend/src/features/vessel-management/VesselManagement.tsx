@@ -38,6 +38,8 @@ import {
 } from './listRules'
 import { VesselManagementError } from './provider'
 import { createVesselManagementProvider } from './providerSelection'
+import { isOffice, useAuthUser } from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import './VesselManagement.css'
 import { ErrorState } from '../../components/ErrorState'
 
@@ -66,6 +68,11 @@ import { ErrorState } from '../../components/ErrorState'
  */
 export function VesselManagement() {
   const provider = useMemo(() => createVesselManagementProvider(), [])
+  /*
+   * 제원 수정·삭제는 사무직 전용이다 (`API_SPEC §1.2` · #672). 현장직에게는 버튼을 두지
+   * 않고 짧은 안내만 남긴다 — 눌러서 403을 받게 하는 것은 「되는 것처럼 보이는」 것이다.
+   */
+  const office = isOffice(useAuthUser())
   // 기본 연료 선택지는 서버가 준다 (#542). 종전에는 고정표를 직접 순회했다.
   const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
@@ -346,27 +353,33 @@ export function VesselManagement() {
                     </div>
 
                     <div className="vm__actions">
-                      <button
-                        type="button"
-                        className="vessel-management__button"
-                        onClick={() => (isEditing ? cancelEdit() : startEdit(vessel))}
-                      >
-                        {isEditing ? '취소' : '수정'}
-                      </button>
-                      <button
-                        type="button"
-                        className="vessel-management__button vessel-management__button--danger"
-                        onClick={() => {
-                          // 되돌리기 어려운 조작이라 확인을 받는다. soft delete임을
-                          // 문구가 밝힌다(`listRules.deleteConfirmMessage`).
-                          if (globalThis.confirm(deleteConfirmMessage(vessel))) {
-                            void handleDelete(vessel)
-                          }
-                        }}
-                        disabled={deletingId === vessel.id}
-                      >
-                        {deletingId === vessel.id ? '삭제 중…' : '삭제'}
-                      </button>
+                      {office ? (
+                        <>
+                          <button
+                            type="button"
+                            className="vessel-management__button"
+                            onClick={() => (isEditing ? cancelEdit() : startEdit(vessel))}
+                          >
+                            {isEditing ? '취소' : '수정'}
+                          </button>
+                          <button
+                            type="button"
+                            className="vessel-management__button vessel-management__button--danger"
+                            onClick={() => {
+                              // 되돌리기 어려운 조작이라 확인을 받는다. soft delete임을
+                              // 문구가 밝힌다(`listRules.deleteConfirmMessage`).
+                              if (globalThis.confirm(deleteConfirmMessage(vessel))) {
+                                void handleDelete(vessel)
+                              }
+                            }}
+                            disabled={deletingId === vessel.id}
+                          >
+                            {deletingId === vessel.id ? '삭제 중…' : '삭제'}
+                          </button>
+                        </>
+                      ) : (
+                        <span className="vm__office-only">{OFFICE_ONLY_ACTION_HINT}</span>
+                      )}
                     </div>
                   </div>
 

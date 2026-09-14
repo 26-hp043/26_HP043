@@ -1053,6 +1053,7 @@ app_user_tbl = sa.table(
     "app_user",
     sa.column("id", postgresql.UUID),
     sa.column("email", sa.String),
+    sa.column("role", sa.String),
     sa.column("password_hash", sa.String),
     sa.column("email_verified_at", sa.DateTime(timezone=True)),
     sa.column("display_name", sa.String),
@@ -1251,6 +1252,9 @@ async def seed_demo_user(conn: AsyncConnection) -> int:
                 "password_hash": hash_password(DEMO_USER_PASSWORD),
                 "email_verified_at": DEMO_USER_VERIFIED_AT,
                 "display_name": DEMO_USER_DISPLAY_NAME,
+                # 시연 계정은 사무직이다 — 시연에서 리포트·연간 시뮬레이션·계정 관리까지
+                # 보여야 한다 (#672 · 착수 결정 「시연은 사무직 계정 하나로」).
+                "role": "OFFICE",
             }
         ],
     )

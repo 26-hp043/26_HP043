@@ -32,11 +32,20 @@ import { SCREEN_BY_ID } from '../screens'
  * 상태 라이브러리 없이(#133 제약) React 19 표준 수단만 쓴다.
  */
 
+/**
+ * 역할 2종 (`API_SPEC §1.2` · `#672`). 사무직(`OFFICE`)은 「정하고 낸다」, 현장직(`FIELD`)은
+ * 「넣고 본다」. 서버가 `403 FORBIDDEN_ROLE`로 막는 것과 별개로, 화면은 이 값으로 사무직
+ * 전용 화면·조작을 **안 되는 것으로 보이게** 한다.
+ */
+export type UserRole = 'OFFICE' | 'FIELD'
+
 /** 인증된 사용자 — `GET /auth/me` 응답의 `data` 블록. */
 export interface CurrentUser {
   id: string
   email: string
   displayName: string | null
+  /** 사무직·현장직. 응답에 없으면 **현장직으로 본다** — 넓게 틀리는 쪽보다 낫다. */
+  role: UserRole
   /**
    * 이메일 인증 완료 시각. `null`이면 미인증.
    *
@@ -73,6 +82,7 @@ const VERIFY_CONFIRM_URL = `${AUTH_API_BASE}/auth/verify-email/confirm`
 const RESET_REQUEST_URL = `${AUTH_API_BASE}/auth/password-reset/request`
 const RESET_CONFIRM_URL = `${AUTH_API_BASE}/auth/password-reset/confirm`
 const PASSWORD_CHANGE_URL = `${AUTH_API_BASE}/auth/password-change`
+const USERS_URL = `${AUTH_API_BASE}/auth/users`
 
 /** dev-login이 내려주는 CSRF 쿠키 이름(auth_dev.py와 계약). */
 const CSRF_COOKIE_NAME = 'csrf'
@@ -208,9 +218,15 @@ function toCurrentUser(body: unknown): CurrentUser | null {
     email: data.email,
     displayName:
       typeof data.display_name === 'string' && data.display_name ? data.display_name : null,
+    role: data.role === 'OFFICE' ? 'OFFICE' : 'FIELD',
     emailVerifiedAt:
       typeof data.email_verified_at === 'string' ? data.email_verified_at : null,
   }
+}
+
+/** 사무직인가. `null`(비인증)은 아니다 — 모르면 좁은 쪽이다. */
+export function isOffice(user: CurrentUser | null): boolean {
+  return user?.role === 'OFFICE'
 }
 
 /**
@@ -660,6 +676,75 @@ export async function changePassword(
   notify()
 
   return body?.data?.message ?? '비밀번호를 변경했습니다.'
+}
+
+/**
+ * 계정 목록 — `GET /auth/users` (`API_SPEC §1.2` · `#672`). **사무직 전용.**
+ *
+ * 응답은 `/auth/me`와 같은 사용자 객체의 배열이라 `toCurrentUser`를 그대로 쓴다 — 모양이
+ * 어긋난 원소는 버리지 않고 실패로 던진다(`requireUser`와 같은 판단: 성공한 척하지 않는다).
+ */
+export async function listUsers(
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<CurrentUser[]> {
+  let response: Response
+  try {
+    response = await fetchImpl(USERS_URL, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    })
+  } catch {
+    throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
+  }
+  if (response.status === 401) failExpiredSession()
+  const body = await response.json().catch(() => null)
+  if (!response.ok) throw authErrorOf(body, response.status, '계정 목록을 불러오지 못했습니다.')
+  const rows = (body as { data?: unknown } | null)?.data
+  if (!Array.isArray(rows)) throw new AuthRequestError(UNEXPECTED_RESPONSE_MESSAGE, response.status)
+  return rows.map((row) => {
+    const user = toCurrentUser({ data: row })
+    if (!user) throw new AuthRequestError(UNEXPECTED_RESPONSE_MESSAGE, response.status)
+    return user
+  })
+}
+
+/**
+ * 역할 지정 — `PATCH /auth/users/{id}/role` (`API_SPEC §1.2` · `#672`). **사무직 전용.**
+ *
+ * 마지막 사무직 강등은 서버가 `409`로 거절하고 문구(`PRD §6.3` 「마지막 사무직」)를 준다 —
+ * 화면은 그 문구를 그대로 보인다. **자기 자신을 바꿨으면 캐시도 갱신한다** — 상단바와
+ * 사이드바가 같은 사용자를 보고 있다.
+ */
+export async function updateUserRole(
+  userId: string,
+  role: UserRole,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<CurrentUser> {
+  let response: Response
+  try {
+    response = await fetchImpl(`${USERS_URL}/${encodeURIComponent(userId)}/role`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...csrfHeaders(),
+      },
+      body: JSON.stringify({ role }),
+    })
+  } catch {
+    throw new AuthRequestError('서버에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.', 0)
+  }
+  if (response.status === 401) failExpiredSession()
+  const body = await response.json().catch(() => null)
+  if (!response.ok) throw authErrorOf(body, response.status, '역할을 바꾸지 못했습니다.')
+  const changed = requireUser(body, response.status)
+  if (currentUser !== null && currentUser.id === changed.id) {
+    currentUser = changed
+    notify()
+  }
+  return changed
 }
 
 /**

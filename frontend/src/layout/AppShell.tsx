@@ -20,7 +20,7 @@ import { BrandLogo } from '../components/BrandLogo'
 import { ErrorBoundary, ErrorScreen } from '../components/ErrorBoundary'
 import { AccountMenu } from './AccountMenu'
 import { GradePatternDefs } from '../components/GradePatternDefs'
-import { logout, useAuthUser } from '../auth/session'
+import { isOffice, logout, useAuthUser } from '../auth/session'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
@@ -264,8 +264,23 @@ export function AppShell() {
         </p>
 
         <ul className="app-shell__nav">
-          {NAV_SCREENS.map((item) =>
-            item.implemented ? (
+          {NAV_SCREENS.map((item) => {
+            /*
+             * 두 가지 이유로 비활성이 된다 — **미구현**(「준비 중」)과 **사무직 전용**
+             * (「사무직 전용」 · `#672`). 둘 다 숨기지 않고 자리를 남긴다. 숨기면 현장직은
+             * 「이 제품에는 보고서가 없다」로 읽고, 사무직에게 요청할 생각을 못 한다.
+             *
+             * 사용자를 **아직 모르면**(`null`) 잠그지 않는다 — 셸은 `RequireAuth` 안에서만
+             * 그려지므로 실제 앱에서는 이 순간이 없고, 잠그면 사무직 화면이 한 프레임
+             * 「사무직 전용」으로 깜빡인다. 주소로 직접 들어오는 경우는 `RequireOffice`가
+             * `null`을 현장직과 같게 막는다 — 그쪽이 fail-closed의 자리다.
+             */
+            const lockedTag = !item.implemented
+              ? '준비 중'
+              : item.officeOnly && user !== null && !isOffice(user)
+                ? '사무직 전용'
+                : null
+            return lockedTag === null ? (
               <li key={item.id}>
                 <NavLink
                   to={item.path}
@@ -298,11 +313,11 @@ export function AppShell() {
                     <span className="app-shell__nav-label">{item.label}</span>
                     <span className="app-shell__nav-label-en">{item.labelEn}</span>
                   </span>
-                  <span className="app-shell__nav-tag">준비 중</span>
+                  <span className="app-shell__nav-tag">{lockedTag}</span>
                 </span>
               </li>
-            ),
-          )}
+            )
+          })}
         </ul>
       </nav>
 

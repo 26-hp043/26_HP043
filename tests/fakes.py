@@ -189,10 +189,15 @@ class FakeUserSessionRow:
 
 @dataclass
 class FakeAppUserRow:
-    """``AppUser`` 대역."""
+    """``AppUser`` 대역.
+
+    ``role``은 사무직이다 — 계약 검사가 사무직 전용 라우트(리포트·함대 감축 계획 등)도
+    지나야 하기 때문이다(#672). 현장직 거부는 ``test_roles_db.py``가 실제 DB로 본다.
+    """
 
     id: UUID = FAKE_USER_ID
     is_deleted: bool = False
+    role: str = "OFFICE"
 
 
 class _FakeAuthResult:
