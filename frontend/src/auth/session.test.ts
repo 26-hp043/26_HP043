@@ -106,6 +106,8 @@ describe('probeCurrentUser', () => {
       id: 'u1',
       email: 'a@b.c',
       displayName: null,
+      // `role`이 없으면 현장직이다 — 넓게 틀리는 쪽보다 낫다 (#672).
+      role: 'FIELD',
       emailVerifiedAt: null,
     })
     expect(getCachedUser()?.id).toBe('u1')

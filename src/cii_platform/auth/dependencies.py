@@ -16,7 +16,7 @@ from cii_platform.auth.session import (
     verify_csrf,
 )
 from cii_platform.config import should_expose_api_docs, should_expose_dev_auth
-from cii_platform.db.models.app_user import AppUser
+from cii_platform.db.models.app_user import ROLE_OFFICE, AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.session import get_sessionmaker
 from cii_platform.errors import AppError
@@ -34,6 +34,21 @@ class CsrfError(AppError):
 
     def __init__(self, message: str = "CSRF 토큰이 올바르지 않습니다."):
         super().__init__("CSRF_ERROR", message)
+
+
+#: 역할 거부 문구 (`API_SPEC §1.4` · `PRD §6.3`).
+OFFICE_ONLY_MESSAGE = "이 작업은 사무직 계정만 할 수 있습니다."
+
+
+class RoleForbiddenError(AppError):
+    """역할이 허용하지 않는 작업 (API_SPEC §1.4). HTTP 403 · ``FORBIDDEN_ROLE`` (#672).
+
+    CSRF와 **같은 403이지만 코드가 다르다.** 한 status가 두 원인을 가리키면 화면이 갈라 쓸 수
+    없다 — CSRF는 토큰을 다시 실어 재시도할 일이고, 역할은 안내하고 끝낼 일이다.
+    """
+
+    def __init__(self, message: str = OFFICE_ONLY_MESSAGE):
+        super().__init__("FORBIDDEN_ROLE", message)
 
 
 #: OpenAPI 문서 경로. **프로덕션에서는 공개 경로에 넣지 않는다** (#593).
@@ -187,3 +202,22 @@ def require_csrf(
         raise CsrfError("CSRF 토큰이 누락되었습니다.")
     if not verify_csrf(csrf_header, user_session.csrf_token_hash):
         raise CsrfError("CSRF 토큰이 올바르지 않습니다.")
+
+
+def require_office(request: Request) -> None:
+    """사무직만 지나가는 라우트에 건다 (#672 · `API_SPEC §1.2` 역할 표).
+
+    ``Depends(require_office)``로 ``require_csrf`` 옆에 둔다. 미들웨어가 채운
+    ``request.state.session_user``의 ``role``만 본다 — DB를 다시 읽지 않는다.
+
+    **fail-closed** — 사용자가 없으면(배선 어김) 통과시키지 않고 ``AuthenticationError``다.
+    ``require_csrf``가 ``session_row``에 대해 같은 판단을 한다(#311).
+
+    어느 라우트에 걸리는가는 ``API_SPEC §1.2``의 역할 표가 정하고,
+    ``tests/test_roles_db.py``가 소스와 대조한다 — 한쪽만 바뀌면 거기서 걸린다.
+    """
+    user = getattr(request.state, "session_user", None)
+    if user is None:
+        raise AuthenticationError()
+    if getattr(user, "role", None) != ROLE_OFFICE:
+        raise RoleForbiddenError()

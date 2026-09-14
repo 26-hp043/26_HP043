@@ -161,6 +161,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.email_verified_at",
             "data.id",
             "data.last_login_at",
+            # 사무직·현장직 (#672) — 화면이 사이드바·버튼을 이 값으로 가른다
+            "data.role",
             "meta",
             "meta.request_id",
             "meta.timestamp",
@@ -1635,6 +1637,14 @@ ROUTE_COVERAGE: dict[str, str] = {
     "POST /auth/password-change": f"{_AUTH}::test_account_routes_share_the_user_contract",
     "POST /auth/logout": f"{_AUTH}::test_logout_and_delete_have_no_body",
     "DELETE /auth/me": f"{_AUTH}::test_logout_and_delete_have_no_body",
+    # 역할 (#672) — 사무직 전용이고 계정을 만들고 지우는 파일에 둔다. 목록은 `/auth/me`와
+    # 같은 사용자 계약의 배열이고, 역할 변경 응답은 그 계약 하나다.
+    "GET /auth/users": (
+        "tests/test_roles_db.py::test_user_list_and_role_update_share_the_user_contract"
+    ),
+    "PATCH /auth/users/{}/role": (
+        "tests/test_roles_db.py::test_user_list_and_role_update_share_the_user_contract"
+    ),
     "POST /auth/verify-email/request": f"{_TOKENS}::test_token_routes_match_the_contract",
     "POST /auth/verify-email/confirm": f"{_TOKENS}::test_token_routes_match_the_contract",
     "POST /auth/password-reset/request": f"{_TOKENS}::test_token_routes_match_the_contract",

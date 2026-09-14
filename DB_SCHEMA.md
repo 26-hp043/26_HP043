@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.24 |
+| 버전 | v1.25 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
-| 최종 수정일 | 2026-09-13 |
+| 최종 수정일 | 2026-09-15 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | PostgreSQL 16 (권장) |
@@ -786,7 +786,7 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | PARAMETER_CHANGE, VOYAGE_CONFIRM, CALCULATION_RUN, VOYAGE_TRANSITION, IMPORT, EXPORT, **LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT** [#277] · **DB_BACKUP** [#827] |
+| `action` | VARCHAR(50) | NOT NULL | PARAMETER_CHANGE, VOYAGE_CONFIRM, CALCULATION_RUN, VOYAGE_TRANSITION, IMPORT, EXPORT, **LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT** [#277] · **DB_BACKUP** [#827] · **ROLE_CHANGE** [#672] (`user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after`) |
 | `entity_type` | VARCHAR(30) | NULL | `vessel`, `voyage`, `calculation_run`, **`regulation_year`**, **`fuel_type`**, **`reference_line`** **[Oracle 관찰 #4]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |
@@ -819,6 +819,7 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 | `email_verified_at` | TIMESTAMPTZ | NULL | 이메일 인증 완료 시각. `NULL`이면 미인증 |
 | `email` | VARCHAR(320) | NOT NULL | 표시·연락용. **식별자가 아니다** |
 | `display_name` | VARCHAR(100) | NULL | 표시 이름 |
+| `role` | VARCHAR(10) | NOT NULL DEFAULT 'FIELD', **CHECK `chk_app_user_role` (`OFFICE`·`FIELD`)** | 사무직·현장직 (`#672` · `PRD §7.10` · 마이그레이션 044). **기본값이 현장직**이다 — 새 계정은 좁게 시작하고 사무직이 넓혀 준다. 044가 **기존 행은 전부 `OFFICE`**로 채웠다(그전까지 전원이 전 기능을 썼다) |
 | `last_login_at` | TIMESTAMPTZ | NULL | 마지막 로그인 시각 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
@@ -1628,7 +1629,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 |---|---|
 | 착수 기준 | **실제 두 번째 선사**가 이 시스템을 쓰기로 확정될 때 |
 | ⛔ 선행 | **`#672` 어드민 계정·권한 재판정** — 테넌시는 권한 체계 **위에** 선다 |
-| 실측 (2026-09-12) | 회사 1곳 · `app_user` 계정은 **역할 구분이 없다**(`#808` — 「사내 도구 · 로그인 사용자 공유」) |
+| 실측 (2026-09-15) | 회사 1곳 · `app_user`는 **사무직·현장직 2종**(`#672` · §2.15 `role`). 회사 소속 컬럼은 없다 — 역할은 행위 권한이지 소속·소유가 아니다(`PRD §7.10`) |
 
 > **고객 수가 조건인 이유.** 행 단위 격리(`org_id`)는 **모든 테이블에 컬럼이 붙고 모든 쿼리에 조건이 붙는다.** 한 회사만 쓰는 동안 그 조건은 **항상 참**이라, 얻는 것 없이 모든 쿼리가 한 겹 무거워지고 조건을 빠뜨린 쿼리가 **조용히 남의 데이터를 보여 줄** 위험만 생긴다.
 >
@@ -1768,3 +1769,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-12 | `#775` | **v1.22 — §4.2·§9.2에 착수 조건 소절 신설.** 「향후 확장」은 아무도 보지 않으면 잊히고, 반대로 지금 하면 얻는 것 없이 위험만 진다 — 그래서 **숫자로** 적었다: 파티셔닝은 **단일 테이블 1,000만 행**(실측 2026-09-12 — `calculation_run` 751행), 다중 회사는 **두 번째 선사 확정**(⛔ `#672` 선행). ⚠️ **파티셔닝이 PK와 FK를 함께 바꾼다**는 것을 실측으로 확인해 적었다 — 파티션 키가 UNIQUE에 포함돼야 해 PK가 `(id)` → `(id, created_at)`이 되고, `annual_simulation_run` → `calculation_run` FK가 복합 FK가 되거나 사라진다. immutable 트리거는 PG13+ 파티션 부모에서 그대로 돈다(이 저장소는 PG 16). 격리 방식은 **두 번째 회사에서는 인스턴스 분리**로 판정했다 — 행 단위 `org_id`는 회사가 하나인 동안 조건이 항상 참이라 얻는 것 없이 누락 위험만 만든다. `§9.2` 경로에 빠져 있던 테이블 셋의 처리도 적었다(`port_geocode`는 공용 캐시라 회사에 속하지 않는다). 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#775) |
 | 2026-09-13 | `#363` | **v1.23 — §2.6 `annual_simulation_run.apply_feedback_factor` 컬럼 추가**(마이그레이션 042) + 각주. 실적 보정계수(`PRD §12.2.1`)를 **켰는지만** 저장하고 계수 값은 저장하지 않는다 — 같은 스냅샷에서 다시 계산하면 같은 값이라 두 곳에 두면 갈릴 수 있다. 기존 행은 `false`(사실과 같음). downgrade는 `IRREVERSIBLE`. 컬럼 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#363) |
 | 2026-09-13 | `#513` | **v1.24 — §2.22 `fleet_reduction_plan` 신설**(마이그레이션 043). `UIFLOW 2-10` 함대 감축 계획의 저장본. ⚠️ **단가를 계획에 저장**한다(2026-09-13 결정 C) — 선박 제원에 두면 단가를 고친 순간 과거 계획의 손익이 조용히 바뀐다. `result`는 저장 시점 결과를 그대로 두고 다시 계산하지 않는다. `created_by`는 SET NULL(계정이 지워져도 계획은 남는다). downgrade는 `IRREVERSIBLE`. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |
+| 2026-09-15 | `#672` | **v1.25 — §2.15 `app_user.role` 컬럼 추가**(마이그레이션 044 · CHECK `chk_app_user_role`). 사무직(`OFFICE`)·현장직(`FIELD`) 2종, 기본값 현장직, **기존 행은 전부 사무직**으로 채웠다 — 그전까지 전원이 전 기능을 썼으므로 그래야 아무도 잃지 않는다. §2.14 `action` 열거에 `ROLE_CHANGE` 추가(행위자·대상·전후 값). §9.2 실측 행 갱신(역할 구분이 생겼고 회사 소속은 여전히 없다). downgrade는 열을 지워 지정 기록이 사라지므로 `IRREVERSIBLE`(`migration_guard.py`). 컬럼 추가라 버전을 올린다(`#363`이 042 컬럼 추가에서 올린 선례) (#672) |

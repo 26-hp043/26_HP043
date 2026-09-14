@@ -9,6 +9,7 @@ import {
   OFF_NAV_ORDER,
   SCREEN_BY_ID,
   findScreenByPath,
+  type ScreenMeta,
 } from './screens'
 
 const SRC_DIR = new URL('.', import.meta.url).pathname
@@ -302,5 +303,32 @@ describe('화면 경로의 정본은 screens.ts 하나다 (#594 · #831)', () =>
       }
     }
     expect(offenders).toEqual([])
+  })
+})
+
+/**
+ * 사무직 전용 화면 ↔ 라우트 가드 배선 (`#672`).
+ *
+ * `officeOnly`는 사이드바(`AppShell`)가 읽고, 라우트는 `App.tsx`가 `<RequireOffice>`로
+ * 감싼다. **한쪽만 고치면** 사이드바는 잠겼는데 주소로는 열리거나 그 반대가 된다 —
+ * 두 목록을 소스에서 대조한다.
+ */
+describe('officeOnly ↔ App.tsx의 RequireOffice 배선 (#672)', () => {
+  const officeOnlyIds = ALL_SCREEN_IDS.filter((id) => (SCREEN_BY_ID[id] as ScreenMeta).officeOnly === true)
+
+  it('사무직 전용 화면은 정본 표와 같다 — 보고서 · 함대 감축 계획 · 선박 등록', () => {
+    expect([...officeOnlyIds].sort()).toEqual(['FLEET_REDUCTION', 'REPORTS', 'VESSEL_REGISTRATION'])
+  })
+
+  it('officeOnly 화면마다 App.tsx가 <RequireOffice>로 감싼다 — 개수와 짝이 같다', () => {
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf-8')
+    const wrapped = app.match(/<RequireOffice>/g) ?? []
+    expect(wrapped).toHaveLength(officeOnlyIds.length)
+    for (const id of officeOnlyIds) {
+      const at = app.indexOf(`SCREEN_BY_ID.${id}.path}`)
+      expect(at, `${id}의 라우트를 App.tsx에서 찾지 못했다`).toBeGreaterThan(-1)
+      const after = app.slice(at, at + 200)
+      expect(after, `${id}의 라우트가 <RequireOffice>로 감싸여 있지 않다`).toContain('<RequireOffice>')
+    }
   })
 })

@@ -27,6 +27,9 @@ ERROR_HTTP_STATUS: dict[str, int] = {
     # API_SPEC §1.4: 로그인 실패 · 현재 비밀번호 오입력 — 세션과 무관한 자격 증명 오류 (#902)
     "INVALID_CREDENTIALS": 401,
     "CSRF_ERROR": 403,  # API_SPEC §1.4: CSRF 토큰 누락·불일치 (#275)
+    # API_SPEC §1.4: 역할이 허용하지 않는 작업 — 같은 403이지만 CSRF와 **코드가 다르다**.
+    # 화면은 `error.code`로 갈라 CSRF는 재시도, 역할은 안내로 처리한다 (#672)
+    "FORBIDDEN_ROLE": 403,
     "NOT_FOUND": 404,  # API_SPEC §1.4: 존재하지 않는 리소스 ID
     "PARAMETER_ERROR": 409,  # TECH_SPEC §12.1: 규정 파라미터 누락/불일치
     # TECH_SPEC §12.1: 재현 시 환경(model_version)이 원본과 다르고 결과도 다름 (#833)

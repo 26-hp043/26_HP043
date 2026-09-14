@@ -176,6 +176,8 @@ def _run_in_production() -> dict[str, int]:
         "APP_PUBLIC_URL": "https://bluelog.example",
         # 프로덕션은 가입 게이트가 비면 기동을 거부한다 (#808) — 같은 종류의 가드다.
         "SIGNUP_ALLOWED_DOMAINS": "bluelog.example",
+        # 최초 사무직도 같은 종류다 (#672) — 비면 사무직 0명으로 뜨는 것을 막는다.
+        "INITIAL_OFFICE_EMAILS": "office@bluelog.example",
         "PYTHONPATH": str(_REPO / "src"),
     }
     done = subprocess.run(

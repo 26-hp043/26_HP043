@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { AnnualSimulation } from './AnnualSimulation'
+import * as session from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { ANNUAL_COPY } from './copy'
 import type { FeedbackBlock, ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
@@ -123,6 +125,21 @@ async function runOnce(): Promise<HTMLElement> {
   fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
   return screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton })
 }
+
+/** 기존 검사는 전부 **사무직** 전제다 — 실행이 사무직 전용이 됐다 (#672). */
+function stubRole(role: session.UserRole) {
+  vi.spyOn(session, 'useAuthUser').mockReturnValue({
+    id: 'u-1',
+    email: 'tester@bluelog.local',
+    displayName: null,
+    role,
+    emailVerifiedAt: null,
+  })
+}
+
+beforeEach(() => {
+  stubRole('OFFICE')
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -680,5 +697,37 @@ describe('선박 전환과 늦은 응답 (#1094)', () => {
 
     // 앞 선박의 성공 결과가 새 선박 화면에 붙지 않는다.
     expect(screen.queryByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeNull()
+  })
+})
+
+/**
+ * 현장직은 폼을 읽되 실행 버튼이 잠긴다 (`API_SPEC §1.2` · #672). 결과 조회는 두 역할
+ * 모두라 화면 자체는 열린다 — 잠기는 것은 「실행」 하나다.
+ */
+describe('역할 — 현장직은 실행 버튼이 비활성이다 (#672)', () => {
+  it('현장직: 버튼 disabled + 안내, 요청은 나가지 않는다', async () => {
+    stubRole('FIELD')
+    const fetchImpl = stubServer()
+    renderScreen()
+    const button = (await screen.findByRole('button', {
+      name: ANNUAL_COPY.submit,
+    })) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(screen.getByText(OFFICE_ONLY_ACTION_HINT)).toBeTruthy()
+    fireEvent.click(button)
+    await act(async () => {})
+    expect(
+      fetchImpl.mock.calls.some(([input]) => String(input).endsWith('/annual-simulations')),
+    ).toBe(false)
+  })
+
+  it('사무직: 버튼이 살아 있고 안내가 없다', async () => {
+    stubServer()
+    renderScreen()
+    const button = (await screen.findByRole('button', {
+      name: ANNUAL_COPY.submit,
+    })) as HTMLButtonElement
+    await waitFor(() => expect(button.disabled).toBe(false))
+    expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
   })
 })

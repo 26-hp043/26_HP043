@@ -1,12 +1,23 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { EMAIL_IMMUTABLE_NOTICE, WITHDRAWAL_NOTICE, splitSubmitFailure } from '../auth/authRules'
+import {
+  EMAIL_IMMUTABLE_NOTICE,
+  ROLE_DESCRIPTION,
+  ROLE_LABEL,
+  WITHDRAWAL_NOTICE,
+  splitSubmitFailure,
+} from '../auth/authRules'
 import {
   LOGIN_PATH,
   changePassword,
   deleteAccount,
+  isOffice,
+  listUsers,
   updateDisplayName,
+  updateUserRole,
   useAuthUser,
+  type CurrentUser,
+  type UserRole,
 } from '../../auth/session'
 import {
   MAX_DISPLAY_NAME_LENGTH,
@@ -21,13 +32,13 @@ import './AccountPanel.css'
 import { ErrorState } from '../../components/ErrorState'
 
 /**
- * 계정 관리 — `설정` 화면의 계정 절 (`#506`).
+ * 계정 관리 — `설정` 화면의 계정 절 (`#506`) + 계정 목록·역할 지정 (`#672`).
  *
- * ## 어드민 범위를 건드리지 않는다
+ * ## 역할 2종
  *
- * `UIFLOW 2-6`은 `#359`(어드민 계정·권한 도입 범위) 결정 대기로 「판정 보류」다.
- * **자기 계정 관리는 권한과 무관하므로** `PRD §5` 계정 관리 MUST 근거로 먼저 넣고,
- * 조직·권한 설정은 손대지 않는다. 그래서 정본 개정이 선행하지 않는다.
+ * `#359`가 미뤄 둔 어드민 범위가 `#672`로 정해졌다 — 사무직·현장직(`PRD §20 O-14` ·
+ * `UIFLOW 2-6`). 계정 정보에 자기 역할을 보이고, **사무직에게만** 「계정 · 역할」 절을
+ * 보인다(`RoleSection`). 조직·세부 권한 설정은 여전히 없다(`PRD §5.2`).
  *
  * ## 이메일은 읽기 전용이다
  *
@@ -48,15 +59,125 @@ export function AccountPanel() {
             <dt>이메일</dt>
             <dd>{user.email}</dd>
           </div>
+          <div>
+            <dt>역할</dt>
+            <dd data-testid="acc-role">{ROLE_LABEL[user.role]}</dd>
+          </div>
         </dl>
         <p className="acc__notice">{EMAIL_IMMUTABLE_NOTICE}</p>
+        {/* `PRD §6.3` 「역할 설명」 — 정본 문구다. 두 역할 모두 자기 역할이 무엇을 뜻하는지 본다. */}
+        <p className="acc__notice">{ROLE_DESCRIPTION}</p>
 
         <DisplayNameForm initial={user.displayName ?? ''} />
       </section>
 
+      {isOffice(user) ? <RoleSection me={user} /> : null}
       <PasswordSection />
       <WithdrawalSection />
     </div>
+  )
+}
+
+/**
+ * 계정 목록 · 역할 지정 — 사무직 전용 (`UIFLOW 2-6` · `API_SPEC §1.2` · `#672`).
+ *
+ * ## 마지막 사무직은 서버가 막는다
+ *
+ * 사무직이 하나뿐이면 강등 요청은 `409`로 돌아오고 문구(`PRD §6.3` 「마지막 사무직」)가
+ * 온다 — 화면은 그 문구를 그대로 보인다. 여기서 미리 세어 막지 않는다: 목록은 조회 시점의
+ * 스냅샷이라 그 사이 다른 사무직이 바뀌었을 수 있고, **판정은 행을 잠근 서버 한 곳**이 한다.
+ *
+ * ## 셀렉트로 바꾼다
+ *
+ * 값이 둘뿐이고 「바꾼다」가 곧 저장이다. 별도 저장 버튼을 두면 바꿨는지 저장했는지가
+ * 갈린다. 실패하면 셀렉트를 **원래 값으로 되돌린다** — 화면이 서버와 다르게 남지 않게.
+ */
+function RoleSection({ me }: { me: CurrentUser }) {
+  const [users, setUsers] = useState<CurrentUser[] | null>(null)
+  const [loadFailure, setLoadFailure] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    listUsers().then(
+      (rows) => {
+        if (alive) setUsers(rows)
+      },
+      (caught: unknown) => {
+        if (alive) setLoadFailure(caught instanceof Error ? caught.message : '계정 목록을 불러오지 못했습니다.')
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const change = async (target: CurrentUser, role: UserRole) => {
+    setBusyId(target.id)
+    setFailure(null)
+    setNotice(null)
+    try {
+      const changed = await updateUserRole(target.id, role)
+      setUsers((prev) => prev?.map((row) => (row.id === changed.id ? changed : row)) ?? prev)
+      setNotice(`${changed.email}: ${ROLE_LABEL[changed.role]}으로 바꿨습니다.`)
+    } catch (caught) {
+      setFailure(caught instanceof Error ? caught.message : '역할을 바꾸지 못했습니다.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <section className="card acc__section" aria-label="계정 · 역할">
+      <h2 className="card__title">계정 · 역할</h2>
+      <p className="acc__notice">
+        사무직만 다른 계정의 역할을 바꿀 수 있습니다. 마지막 남은 사무직은 현장직으로 바꿀 수
+        없습니다.
+      </p>
+
+      {loadFailure !== null ? (
+        <ErrorState level="region" size="compact" message={loadFailure} />
+      ) : users === null ? (
+        // `role="status"` — `aria-busy` 단독은 낭독되지 않는다 (`a11yWiring.test.ts`).
+        <p className="acc__hint" role="status" aria-busy="true">
+          계정 목록을 불러오는 중…
+        </p>
+      ) : (
+        <ul className="acc__users" data-testid="acc-users">
+          {users.map((row) => {
+            const selectId = `acc-role-${row.id}`
+            return (
+              <li key={row.id} className="acc__user">
+                <label className="acc__label" htmlFor={selectId}>
+                  {row.email}
+                  {row.id === me.id ? ' (나)' : ''}
+                  {row.displayName ? ` · ${row.displayName}` : ''}
+                </label>
+                <select
+                  id={selectId}
+                  className="acc__input acc__input--select"
+                  value={row.role}
+                  disabled={busyId !== null}
+                  onChange={(event) => void change(row, event.target.value as UserRole)}
+                >
+                  <option value="OFFICE">{ROLE_LABEL.OFFICE}</option>
+                  <option value="FIELD">{ROLE_LABEL.FIELD}</option>
+                </select>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      {failure !== null ? <ErrorState level="region" size="compact" message={failure} /> : null}
+      {notice !== null ? (
+        <p className="acc__ok" role="status">
+          {notice}
+        </p>
+      ) : null}
+    </section>
   )
 }
 

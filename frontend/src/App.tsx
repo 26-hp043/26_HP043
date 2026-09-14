@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router'
 import { AppShell } from './layout/AppShell'
 import { RequireAuth } from './auth/RequireAuth'
+import { RequireOffice } from './auth/RequireOffice'
 import {
   PASSWORD_RESET_PATH,
   SIGNUP_PATH,
@@ -77,9 +78,18 @@ export default function App() {
             path={SCREEN_BY_ID.REALTIME_CII.path}
             element={<RealtimeCiiPage />}
           />
+          {/*
+            사무직 전용 화면 3종 (`UIFLOW §2.2` 역할 열 · #672) — `RequireOffice`가 현장직에게
+            안내를 보인다. 목록은 `screens.ts`의 `officeOnly`가 정본이고 `screens.test.ts`가
+            이 배선과 대조한다.
+          */}
           <Route
             path={SCREEN_BY_ID.VESSEL_REGISTRATION.path}
-            element={<VesselRegistrationPage />}
+            element={
+              <RequireOffice>
+                <VesselRegistrationPage />
+              </RequireOffice>
+            }
           />
           {/*
             [계층 밖] SCR-002 선박 관리 (#510). `/vessels`는 선박 상세
@@ -96,9 +106,23 @@ export default function App() {
             element={<RouteComparisonPage />}
           />
           <Route path={SCREEN_BY_ID.ANNUAL_GRADE.path} element={<AnnualGradePage />} />
-          <Route path={SCREEN_BY_ID.FLEET_REDUCTION.path} element={<FleetReductionPage />} />
+          <Route
+            path={SCREEN_BY_ID.FLEET_REDUCTION.path}
+            element={
+              <RequireOffice>
+                <FleetReductionPage />
+              </RequireOffice>
+            }
+          />
           <Route path={SCREEN_BY_ID.DATA_QUALITY.path} element={<DataQualityPage />} />
-          <Route path={SCREEN_BY_ID.REPORTS.path} element={<ReportsPage />} />
+          <Route
+            path={SCREEN_BY_ID.REPORTS.path}
+            element={
+              <RequireOffice>
+                <ReportsPage />
+              </RequireOffice>
+            }
+          />
           <Route path={SCREEN_BY_ID.SETTINGS.path} element={<SettingsPage />} />
 
           <Route path="*" element={<Navigate to={DEFAULT_PATH} replace />} />

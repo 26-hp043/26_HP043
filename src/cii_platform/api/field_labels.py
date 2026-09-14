@@ -54,6 +54,8 @@ _FIELD_LABELS: dict[str, str] = {
     "new_password": "새 비밀번호",
     "display_name": "표시 이름",
     "invite_code": "초대 코드",
+    "role": "역할",
+    "user_id": "계정",
     "token": "메일 링크",
     # 선박 (§2)
     "imo_number": "IMO 번호",

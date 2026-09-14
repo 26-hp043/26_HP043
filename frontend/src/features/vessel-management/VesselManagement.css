@@ -391,3 +391,9 @@
 .vm__actions .vessel-management__button {
   padding: 0 var(--space-12);
 }
+
+/* 현장직에게는 수정·삭제 대신 짧은 안내 (#672). */
+.vm__office-only {
+  font-size: var(--cii-font-size-sm, 0.8125rem);
+  color: var(--cii-text-muted, var(--color-text-muted));
+}

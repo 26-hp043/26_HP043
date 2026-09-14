@@ -59,6 +59,29 @@ export const INVITE_CODE_HINT = '회사 이메일이 아니면 관리자에게 �
 export const WITHDRAWAL_NOTICE =
   '탈퇴하면 로그인할 수 없습니다. 계산·감사 기록은 규제 대응을 위해 보존되며, 같은 이메일로 다시 가입할 수 있습니다.'
 
+/**
+ * 역할 라벨 (`#672`). 서버 값은 `OFFICE`·`FIELD`이고 화면은 직군 이름으로 보인다 —
+ * 「관리자/일반」이 아니라 **무엇을 하는 사람인지**가 드러나는 이름이다(`PRD §20 O-14`).
+ */
+export const ROLE_LABEL = { OFFICE: '사무직', FIELD: '현장직' } as const
+
+/**
+ * 역할 설명 — **`PRD §6.3` 표의 원문**이다(「역할 설명 (설정 화면)」 행). 설정 화면의 계정
+ * 정보 절이 그대로 보인다. `canonicalNotice.sync.test.ts`가 정본과 문자 단위로 대조한다.
+ */
+export const ROLE_DESCRIPTION =
+  '현장직은 항차 실적을 넣고 현황을 봅니다. 사무직은 선박 제원·연간 시뮬레이션·보고서·함대 감축 계획과 계정 역할을 다룹니다.'
+
+/**
+ * 사무직 전용 **화면**에 현장직이 들어왔을 때 (`RequireOffice`). 표시 문구다 — 서버의
+ * `403 FORBIDDEN_ROLE` 문구(「이 작업은 …」)는 조작 단위라 화면 단위 안내는 따로 적는다.
+ */
+export const OFFICE_ONLY_SCREEN_NOTICE =
+  '이 화면은 사무직 계정만 쓸 수 있습니다. 필요하면 사무직 담당자에게 역할 변경을 요청해 주세요.'
+
+/** 사무직 전용 **조작**을 현장직 화면에서 비활성으로 둘 때의 짧은 설명. 표시 문구다. */
+export const OFFICE_ONLY_ACTION_HINT = '사무직 계정만 할 수 있는 작업입니다.'
+
 export const MIN_PASSWORD_LENGTH = 10
 /** 서버 `MAX_PASSWORD_LENGTH`와 같은 값. */
 export const MAX_PASSWORD_LENGTH = 128
