@@ -49,6 +49,14 @@
   margin: 0;
 }
 
+.fr__field-error {
+  display: block;
+  margin-top: var(--space-4);
+  font-size: var(--font-size-micro);
+  font-style: normal;
+  color: var(--color-danger-text);
+}
+
 .fr__hint {
   display: block;
   margin: var(--space-4) 0 0;
