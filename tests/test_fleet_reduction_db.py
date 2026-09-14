@@ -16,6 +16,8 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.routes.fleet import _payload
+from cii_platform.api.schemas.fleet_reduction import ReductionPlanRequest
 from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.services.annual_simulation import run_annual_simulation
 from cii_platform.services.fleet_reduction import (
@@ -60,7 +62,7 @@ async def vessel_id(session) -> UUID:
     return new_id
 
 
-async def _voyage(session, vessel_id: UUID, *, no: str, actual: bool) -> UUID:
+async def _voyage(session, vessel_id: UUID, *, no: str, actual: bool, fuel: bool = True) -> UUID:
     voyage_id = uuid4()
     await session.execute(
         text(
@@ -79,6 +81,8 @@ async def _voyage(session, vessel_id: UUID, *, no: str, actual: bool) -> UUID:
             "actual": Decimal(2880) if actual else None,
         },
     )
+    if not fuel:
+        return voyage_id
     await session.execute(
         text(
             "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
@@ -263,3 +267,98 @@ def test_the_routes_answer_over_http(migrated_db, app_fresh_engine):
         assert any(p["plan_id"] == plan_id for p in client.get(base).json()["data"])
         assert client.get(f"{base}/{plan_id}").json()["data"]["plan_name"] == "HTTP 검사안"
         assert client.get(f"{base}/{uuid4()}").status_code == 404
+
+
+# ─── 요청 검증 틈 (#1070) ─────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_an_uppercase_vessel_key_still_prices_the_charter(session, vessel_id):
+    """⚠️ #1070 ⑵ — 대문자 UUID 키로 보낸 용선료도 계산에 쓰인다.
+
+    종전에는 키를 그대로 써서 ``str(UUID)``(소문자)와 맞지 않아 「단가 입력 필요」가 됐다.
+    화면과 같은 경로(요청 모델 → ``_payload``)를 타야 정규화가 검사된다.
+    """
+    body = ReductionPlanRequest(
+        regulation_year=YEAR,
+        target="ALL_C_OR_BETTER",
+        adjustments=[{"vessel_id": str(vessel_id), "speed_reduction_percent": "10"}],
+        prices={
+            "charter_usd_per_day": {str(vessel_id).upper(): "10000"},
+            "fuel_usd_per_ton": {"HFO": "600"},
+        },
+    )
+    result = await evaluate_reduction_plan(session, **_payload(body))
+
+    assert result["costs"]["charter_loss"] == "22222.22"
+    assert str(vessel_id) not in result["costs"]["missing_charter_rates"]
+
+
+@pytest.mark.asyncio
+async def test_a_plan_voyage_without_fuel_is_counted_and_warned(session, vessel_id):
+    """⚠️ #1070 ⑷ — 연료 없는 계획 항차는 계산에서 빠지지만 **조용히 빠지지 않는다.**
+
+    항차 수는 연간 등급 관리(`API_SPEC §6.1`)와 같은 기준(스냅샷의 계획 항차 수)이고,
+    그 차이는 ``SIMULATION_PLAN_NO_FUEL`` 경고가 말한다.
+    """
+    await _voyage(session, vessel_id, no="NOFUEL", actual=False, fuel=False)
+
+    result = await _evaluate(session, vessel_id, "10")
+    annual = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=1000,
+        random_seed=12345,
+    )
+
+    assert "SIMULATION_PLAN_NO_FUEL" in result["warnings"]
+    assert _mine(result, vessel_id)["remaining_voyage_count"] == 3
+    assert (
+        _mine(result, vessel_id)["remaining_voyage_count"]
+        == annual["data"]["deterministic"]["remaining_voyage_count"]
+    )
+
+
+def test_invalid_requests_are_422_not_500(migrated_db, app_fresh_engine):
+    """⚠️ #1070 ⑴⑵⑶ — 고칠 수 있는 입력은 **422와 그 칸의 라벨**로 끝난다(500이 아니다)."""
+    from fastapi.testclient import TestClient
+
+    from cii_platform.api.main import API_V1_PREFIX, app
+
+    one = "00000000-0000-4000-8000-000000000001"
+    with TestClient(app, base_url="https://testserver") as client:
+        client.post(f"{API_V1_PREFIX}/auth/dev-login", json={})
+        headers = {"X-CSRF-Token": client.cookies.get("csrf")}
+        base = f"{API_V1_PREFIX}/fleet/reduction-plans"
+        body = {"regulation_year": YEAR, "target": "ALL_C_OR_BETTER"}
+
+        cases = {
+            # ⑴ 공백만 있는 이름 — 종전에는 DB 제약에 걸려 500
+            "plan_name": (base, {**body, "plan_name": "   "}, "계획 이름"),
+            # ⑶ 같은 선박 두 번
+            "adjustments": (
+                f"{base}/evaluate",
+                {
+                    **body,
+                    "adjustments": [
+                        {"vessel_id": one, "speed_reduction_percent": 10},
+                        {"vessel_id": one.upper(), "speed_reduction_percent": 40},
+                    ],
+                },
+                "선박별 감속",
+            ),
+            # ⑵ UUID가 아닌 용선료 키
+            "prices.charter_usd_per_day": (
+                f"{base}/evaluate",
+                {**body, "prices": {"charter_usd_per_day": {"MV One": 10000}}},
+                "일일 용선료",
+            ),
+        }
+        for field, (url, payload, label) in cases.items():
+            response = client.post(url, headers=headers, json=payload)
+            assert response.status_code == 422, (field, response.text)
+            detail = response.json()["error"]["details"][0]
+            assert detail["field"] == field
+            assert detail["field_label"] == label
