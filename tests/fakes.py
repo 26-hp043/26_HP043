@@ -241,16 +241,18 @@ class _FakeAuthSessionmaker:
 
 
 def install_fake_auth(monkeypatch: Any) -> None:
-    """auth_middleware의 DB 조회를 대역으로 교체한다 (#307).
+    """세션 검증의 DB 조회를 대역으로 교체한다 (#307).
 
-    ``cii_platform.auth.middleware``는 함수 안에서
-    ``from cii_platform.db.session import get_sessionmaker``을 부르므로
-    원본 모듈의 속성을 갈아끼운다. 요청에는
-    ``FAKE_SESSION_TOKEN`` 쿠키와 ``FAKE_CSRF_TOKEN`` 헤더를 함께 보낸다.
+    검증은 ``auth/dependencies.py``의 ``resolve_session`` **한 벌**이고 미들웨어가 그것을
+    부른다(#1050). 그 모듈은 ``get_sessionmaker``를 **모듈 수준에서** import하므로 원본
+    모듈(``cii_platform.db.session``)만 갈아끼우면 닿지 않는다 — 두 곳을 함께 바꾼다.
+    요청에는 ``FAKE_SESSION_TOKEN`` 쿠키와 ``FAKE_CSRF_TOKEN`` 헤더를 함께 보낸다.
     """
+    import cii_platform.auth.dependencies as dependencies_mod
     import cii_platform.db.session as db_session_mod
 
     monkeypatch.setattr(db_session_mod, "get_sessionmaker", _FakeAuthSessionmaker)
+    monkeypatch.setattr(dependencies_mod, "get_sessionmaker", _FakeAuthSessionmaker)
 
 
 def auth_cookie_header() -> dict[str, str]:

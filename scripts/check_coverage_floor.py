@@ -95,14 +95,9 @@ class Exemption:
 #: 2026-09-13 실측(157파일 · 합계 96.5%)에서 셋이 걸렸고, 그중 둘을 같은 날 채워 뺐다 —
 #: `services/chat_tools.py` 66.2% → 99%(`#120`) · `depcheck.py` 77.3% → 98%(`#523`). 분포에
 #: **77.3% → 83.3%** 빈 구간이 있어 :data:`FLOOR_PERCENT` 80이 어느 무리도 가르지 않는다.
-KNOWN_BELOW_FLOOR: dict[str, Exemption] = {
-    "auth/dependencies.py": Exemption(
-        65.0,
-        "get_current_user의 DB 조회 본문(132~162)이 도달하지 않는다 — auth_middleware가 "
-        "모든 비공개 경로에서 request.state.session_user를 먼저 채우므로 캐시 확인에서 "
-        "반환된다. 검사 공백이 아니라 **중복 경로**다. 정리 판단은 #955 후속",
-    ),
-}
+#: 2026-09-15 `#1050`이 `auth/dependencies.py`(65%)를 뺐다 — 두 벌이던 세션 검증을
+#: `resolve_session` 한 벌로 합쳐 미들웨어가 그것을 부르므로 본문이 매 요청 실행된다.
+KNOWN_BELOW_FLOOR: dict[str, Exemption] = {}
 
 
 def _rate(elem: ET.Element) -> tuple[int, int]:
