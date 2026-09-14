@@ -199,6 +199,16 @@ describe('recalcNotice — 재계산이 걸리는 변경 (PRD §8.4, #283)', () 
     expect(recalcNotice(vessel(), state({ name: '새 이름' }))).toBeNull()
   })
 
+  it('선종을 바꿔도 안내한다 — 서버가 needs_recalc를 세우는 조건과 같다 (#1100 ⑶)', () => {
+    /*
+     * 서버(`services/vessel.py`)는 선종만 바꿔도 표시를 남긴다(`#818` ⑶ — 선종은 capacity
+     * 축·기준선·등급 경계를 전부 바꾼다). 안내가 서버보다 좁으면 사용자가 모르는 채 붙는다.
+     */
+    const notice = recalcNotice(vessel({ ship_type: 'BULK_CARRIER' }), state({ shipType: 'TANKER' }))
+    expect(notice).not.toBeNull()
+    expect(notice).toContain('선종')
+  })
+
   it('같은 값을 다시 넣으면 안내하지 않는다 — 서버도 표시를 만들지 않는다', () => {
     expect(recalcNotice(vessel(), state({ deadweight: '50000' }))).toBeNull()
   })
@@ -206,9 +216,28 @@ describe('recalcNotice — 재계산이 걸리는 변경 (PRD §8.4, #283)', () 
 
 describe('validateEdit — 주입된 목록이 판정을 정한다 (#542)', () => {
   it('목록에 없으면 거부된다', () => {
-    expect(validateEditWith(state({ defaultFuelType: 'HFO' }), [])).toHaveProperty(
+    // 빈 배열은 「그 연료가 없다」가 아니라 「목록을 못 받았다」다 (`#1100` ⑴) — 다른 연료 하나를 준다.
+    expect(
+      validateEditWith(state({ defaultFuelType: 'HFO' }), [{ code: 'LNG', displayName: '액화천연가스' }]),
+    ).toHaveProperty(EDIT_FIELD.defaultFuelType)
+  })
+
+  it('목록을 못 받았으면(로딩·실패) 연료 검사를 보류한다 (#1100 ⑴)', () => {
+    // 종전에는 목록이 비면 `isKnownFuel`이 늘 false라, 연료를 건드리지 않은 제원 수정까지 막혔다.
+    expect(validateEditWith(state({ defaultFuelType: 'HFO' }), [])).not.toHaveProperty(
       EDIT_FIELD.defaultFuelType,
     )
+  })
+
+  it('원본과 같은 값이면 목록에 없어도 통과한다 — 서버가 이미 받아 준 값이다 (#1100 ⑴)', () => {
+    const original = vessel({ default_fuel_type: 'RETIRED_FUEL' })
+    expect(
+      validateEditWith(
+        state({ defaultFuelType: 'RETIRED_FUEL' }),
+        [{ code: 'LNG', displayName: '액화천연가스' }],
+        original,
+      ),
+    ).not.toHaveProperty(EDIT_FIELD.defaultFuelType)
   })
 
   it('목록에 있으면 통과한다 — 고정표에 없던 코드라도 마찬가지다', () => {
