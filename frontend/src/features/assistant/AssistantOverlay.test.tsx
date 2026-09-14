@@ -60,12 +60,104 @@ describe('열고 닫기 (`UIFLOW 2-7`)', () => {
     expect(screen.getByRole('button', { name: /실험/ })).toBeTruthy()
   })
 
-  it('Escape로 닫힌다', () => {
+  it('패널 안에서 Escape를 누르면 닫힌다', () => {
+    /*
+     * 종전 이 검사는 `window`에 Escape를 쏘아 **전역 리스너를 정답으로 들고
+     * 있었다**(`#1101` ⑵). 패널 안에서 눌러 닫히는 것이 규정이고, 바깥에서
+     * 눌러도 닫히지 않아야 한다 — 아래 검사가 그 반대쪽을 잠근다.
+     */
     setup()
     open()
     expect(screen.getByLabelText('질문')).toBeTruthy()
-    fireEvent.keyDown(window, { key: 'Escape' })
+    fireEvent.keyDown(screen.getByLabelText('질문'), { key: 'Escape' })
     expect(screen.queryByLabelText('질문')).toBeNull()
+  })
+
+  it('본문 다른 입력에서 Escape를 눌러도 닫히지 않는다 (`#1101` ⑵)', () => {
+    /*
+     * Escape는 화면 곳곳에서 쓰인다 — 조합 취소·검색어 지우기가 그렇다.
+     * 전역으로 받으면 사용자가 자기 입력에서 Escape를 누른 것만으로 이 패널이
+     * 사라진다.
+     */
+    render(
+      <>
+        <input aria-label="바깥 입력" />
+        <AssistantOverlay provider={{ ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER) }} />
+      </>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /AI 어시스턴트 열기/ }))
+    expect(screen.getByLabelText('질문')).toBeTruthy()
+
+    fireEvent.keyDown(screen.getByLabelText('바깥 입력'), { key: 'Escape' })
+
+    expect(screen.getByLabelText('질문')).toBeTruthy()
+  })
+
+  it('닫으면 **여는 버튼으로 초점이 돌아온다** (WCAG 2.4.3)', () => {
+    setup()
+    open()
+    fireEvent.click(screen.getByRole('button', { name: 'AI 어시스턴트 닫기' }))
+
+    const launcher = screen.getByRole('button', { name: /AI 어시스턴트 열기/ })
+    expect(document.activeElement).toBe(launcher)
+  })
+
+  it('닫힌 여는 버튼은 **없는 id를 가리키지 않는다**', () => {
+    /*
+     * 닫혀 있을 때 패널은 DOM에 없다. 그 상태의 `aria-controls`는 실재하지 않는
+     * id를 가리켜, 보조기술이 따라갈 곳이 없는 참조가 된다.
+     */
+    setup()
+    const launcher = screen.getByRole('button', { name: /AI 어시스턴트 열기/ })
+    const controls = launcher.getAttribute('aria-controls')
+    expect(controls === null || document.getElementById(controls) !== null).toBe(true)
+  })
+})
+
+describe('한글 조합 중 Enter (`#1101` ⑴)', () => {
+  it('조합 중 Enter는 보내지 않는다 — 마지막 음절이 깨진다', () => {
+    const { ask } = setup()
+    open()
+    const input = screen.getByLabelText('질문')
+    fireEvent.change(input, { target: { value: '등급이 왜 D야' } })
+
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+
+    expect(ask).not.toHaveBeenCalled()
+  })
+
+  it('`isComposing`을 채우지 않는 조합 경로도 막는다 — `keyCode 229`', () => {
+    const { ask } = setup()
+    open()
+    const input = screen.getByLabelText('질문')
+    fireEvent.change(input, { target: { value: '등급이 왜 D야' } })
+
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 })
+
+    expect(ask).not.toHaveBeenCalled()
+  })
+
+  it('조합이 끝난 Enter는 보낸다 — 막기만 하면 전송이 죽는다', async () => {
+    const { ask } = setup()
+    open()
+    const input = screen.getByLabelText('질문')
+    fireEvent.change(input, { target: { value: '등급이 왜 D야' } })
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1))
+    expect(ask.mock.calls[0][0].message).toBe('등급이 왜 D야')
+  })
+
+  it('Shift+Enter는 줄바꿈이다 — 보내지 않는다', () => {
+    const { ask } = setup()
+    open()
+    const input = screen.getByLabelText('질문')
+    fireEvent.change(input, { target: { value: '등급이 왜 D야' } })
+
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+
+    expect(ask).not.toHaveBeenCalled()
   })
 })
 
