@@ -22,6 +22,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cii_platform.api.schemas.bounds import DISTANCE, SPEED
 from cii_platform.api.schemas.voyage_cii import WeatherModel
 
 
@@ -41,16 +42,17 @@ class ScenarioCompareRequest(BaseModel):
     destination_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     destination_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
     # VAL-009: >= 1.0. > 0이 아니다 — PRD §9.1이 1.0 하한을 규정한다.
-    current_speed_kn: Annotated[Decimal, Field(ge=Decimal("1.0"))]
+    # 상한은 DB `voyage_scenario.speed_kn NUMERIC(6,2)`에서 온다 (#1086 ③ · `schemas/bounds.py`).
+    current_speed_kn: Annotated[Decimal, Field(**SPEED)]
     # VAL-006 코드 존재·active 여부는 서비스가 확인한다.
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
     # VAL-002: > 0. 선박 기준값(vessel.reference_daily_foc_ton)이 있으면 생략 가능.
     base_daily_foc_ton: Annotated[Decimal | None, Field(gt=0)] = None
-    direct_distance_nm: Annotated[Decimal | None, Field(gt=0)] = None
+    direct_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
     # 미지정 시 서버가 direct × 1.05 (API_SPEC §5.1).
-    detour_distance_nm: Annotated[Decimal | None, Field(gt=0)] = None
+    detour_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
     # VAL-009. 미지정 시 서버가 max(current_speed − 1, 1.0)로 계산 (API_SPEC §5.1).
-    slow_speed_kn: Annotated[Decimal | None, Field(ge=Decimal("1.0"))] = None
+    slow_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
     # 기본 NONE. #61(기상 연동) 전까지 NONE이 아닌 값은 fallback warning과 함께
     # NONE으로 계산한다 (API_SPEC §1.6 WEATHER_NONE_FALLBACK).
     weather_model: WeatherModel | None = None

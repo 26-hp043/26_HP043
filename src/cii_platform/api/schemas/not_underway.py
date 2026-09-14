@@ -18,6 +18,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from cii_platform.api.schemas.bounds import (
+    NOT_UNDERWAY_DISTANCE,
+    NOT_UNDERWAY_FUEL,
+    REGULATION_YEAR,
+)
+
 
 class NotUnderwayFuelUseCreateRequest(BaseModel):
     """``fuel_uses[]`` 한 건.
@@ -32,7 +38,8 @@ class NotUnderwayFuelUseCreateRequest(BaseModel):
     consumer_type: Annotated[str, Field(min_length=1, max_length=20)]
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
     # chk_not_underway_fuel_positive: > 0. 0톤 기록은 「안 썼다」가 아니라 오타다.
-    fuel_ton: Annotated[Decimal, Field(gt=0)]
+    # 상·하한은 DB 저장 범위 `NUMERIC(12,2)`에서 온다 (#1086 · `schemas/bounds.py`).
+    fuel_ton: Annotated[Decimal, Field(**NOT_UNDERWAY_FUEL)]
 
 
 class NotUnderwayPeriodCreateRequest(BaseModel):
@@ -49,9 +56,10 @@ class NotUnderwayPeriodCreateRequest(BaseModel):
     lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
     #: ``chk_nup_distance_non_negative``: >= 0. 접안·묘박은 0이 정상값이라 ``gt``가
     #: 아니라 ``ge``다(마이그레이션 028). 이 값은 CII 분모 ``Dt``에 더해진다.
-    distance_nm: Annotated[Decimal, Field(ge=0)] = Decimal(0)
+    distance_nm: Annotated[Decimal, Field(**NOT_UNDERWAY_DISTANCE)] = Decimal(0)
     #: 생략하면 서버가 ``started_at``의 연도로 채운다.
-    regulation_year: Annotated[int | None, Field(ge=2000, le=2100)] = None
+    # DB CHECK `BETWEEN 2019 AND 2050`과 같다 (#1086 ①). 실재 여부는 서비스가 본다.
+    regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
     #: 맥락 참조용. 구간은 항차가 아니라 **선박+연도**에 귀속된다(``#345``).
     voyage_id: UUID | None = None
     #: 비워 둘 수 있다 — 정박이 끝나야 소모량을 아는 것이 보통이라, §2.13으로 뒤에
@@ -91,6 +99,6 @@ class NotUnderwayPeriodUpdateRequest(BaseModel):
     port_name: Annotated[str | None, Field(max_length=200)] = None
     lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
-    distance_nm: Annotated[Decimal | None, Field(ge=0)] = None
-    regulation_year: Annotated[int | None, Field(ge=2000, le=2100)] = None
+    distance_nm: Annotated[Decimal | None, Field(**NOT_UNDERWAY_DISTANCE)] = None
+    regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
     voyage_id: UUID | None = None
