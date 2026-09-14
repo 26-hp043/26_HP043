@@ -150,3 +150,30 @@ describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
   })
 })
 
+
+describe('「D등급까지」 사유 (#1091 · `API_SPEC §2.8`)', () => {
+  /**
+   * 규칙은 `fleetRules.test.ts`·`daysReason.sync.test.ts`가 잠근다. 여기서는 **화면이
+   * 그 규칙을 실제로 부르는가**를 본다 — 규칙만 검사하면 목록이 옛 문구를 직접 적어도
+   * 초록이다(`#592`가 같은 자리에서 겪은 일이다).
+   */
+  it.each([
+    ['NOT_WORSENING', '이대로면 진입 없음'],
+    ['NO_RECENT_DATA', '최근 항해 없음'],
+  ])('실적이 있는 선박에 「실적 없음」을 붙이지 않는다 — %s', async (reason, expected) => {
+    const row = { ...vessel('v1', '가선'), days_to_d_reason: reason }
+    const body = page([row], { next_cursor: null, has_more: false })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText(expected)).toBeTruthy()
+    expect(screen.queryByText('실적 없음')).toBeNull()
+  })
+})
