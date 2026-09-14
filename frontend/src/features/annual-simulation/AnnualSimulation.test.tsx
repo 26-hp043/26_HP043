@@ -560,3 +560,125 @@ describe('실적 보정계수 (#363)', () => {
     expect(screen.queryByText(ANNUAL_COPY.feedbackTitle)).toBeNull()
   })
 })
+
+/**
+ * 대상이 바뀌면 앞의 결과를 남기지 않는다 (`#1094` · `#874` 선례).
+ *
+ * 결과 카드에 **선박명이 없다.** 그래서 앞 배의 숫자가 남아 있어도 화면만 보고는
+ * 알아챌 수 없다 — 「아직 안 돌렸다」와 「앞 배 결과」가 같은 모양이면 안 된다.
+ */
+describe('선박 전환과 늦은 응답 (#1094)', () => {
+  const OTHER_ID = '00000000-0000-4000-8000-000000000002'
+
+  /** 상단바 선택을 바꿀 수 있게 `vesselId`를 밖에서 주입한다. */
+  function renderWith(vesselId: string) {
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId,
+      vessels: [
+        { id: VESSEL_ID, displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' },
+        { id: OTHER_ID, displayName: '다른 배', shipType: 'BULK_CARRIER' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+    return render(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  it('선박을 바꾸면 앞 선박의 결과가 사라진다', async () => {
+    stubServer()
+    const { rerender } = renderWith(VESSEL_ID)
+    await runOnce()
+    expect(screen.getByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeTruthy()
+
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId: OTHER_ID,
+      vessels: [
+        { id: VESSEL_ID, displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' },
+        { id: OTHER_ID, displayName: '다른 배', shipType: 'BULK_CARRIER' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+    rerender(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeNull()
+    })
+  })
+
+  it('실행 중에 선박을 바꾸면 앞 선박의 늦은 응답이 붙지 않는다', async () => {
+    /*
+     * 앞 선박의 요청을 **손에 쥐고 있다가** 전환 뒤에 풀어 준다. Monte Carlo
+     * 10,000회는 초 단위라 실제로 전환할 시간이 충분하다.
+     */
+    let release: (() => void) | null = null
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ data: [{ year: 2026 }] })
+        }
+        if (url.endsWith('/annual-simulations')) {
+          await held
+          return jsonResponse(body('sim-late'))
+        }
+        return jsonResponse({ data: {} })
+      }),
+    )
+
+    const { rerender } = renderWith(VESSEL_ID)
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId: OTHER_ID,
+      vessels: [
+        { id: VESSEL_ID, displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' },
+        { id: OTHER_ID, displayName: '다른 배', shipType: 'BULK_CARRIER' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+    rerender(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await act(async () => {
+      release?.()
+      await held
+    })
+
+    // 앞 선박의 성공 결과가 새 선박 화면에 붙지 않는다.
+    expect(screen.queryByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeNull()
+  })
+})
