@@ -647,34 +647,18 @@ export async function changePassword(
   }
 
   /*
-   * ⑷ 캐시를 비운다 (`#825`).
+   * ⑷ 여기서 캐시를 **비우지 않는다** (`#1099` — `#825` ⑷의 회귀 정정).
    *
-   * ## 종전 주석의 판단은 옳았지만 결과가 반대였다
+   * `#825` ⑷는 성공 뒤 캐시를 비웠다. 그러면 `useAuthUser()`가 `null`이 되어 `RequireAuth`가
+   * **즉시** 로그인으로 보내고 `AccountPanel`도 `null`을 그린다 — 「모든 기기에서 로그아웃됐다」는
+   * 안내가 **한 번도 보이지 않았다.** 그때 주석은 「문구는 이미 화면에 있다」고 적었지만 패널
+   * 자체가 사용자 없이는 그려지지 않는다.
    *
-   * 위 「캐시를 비우지 않는다」는 *「라우트 가드가 즉시 로그인 화면으로 밀어내면
-   * 안내를 볼 틈이 없다」*를 근거로 삼았다. 그 걱정 자체는 맞다 — 그런데 **화면이
-   * 그 뒤에 주는 「로그인 화면으로」 버튼이 실제로는 로그인 화면에 가지 못했다.**
-   *
-   * ```
-   * /login → useAuthUser()가 살아 있는 캐시 반환 → LoginPage가 <Navigate to={next}>
-   *        → /dashboard → RequireAuth 통과 → GET /fleet/summary 401
-   *        → redirectToLogin() → 전체 페이지 재로드 → 그제서야 로그인 폼
-   * ```
-   *
-   * **버튼이 가리키는 곳에 갈 수 없고**, 없애려던 「왜 튕겼지」가 그대로 재현된다.
-   *
-   * ## 그러면 안내는 어떻게 보이나
-   *
-   * `AccountPanel`은 성공 문구를 **자기 상태에 담아** 그린다. 라우트 가드가 무엇을
-   * 하든 그 문구는 이미 화면에 있고, 사용자가 「로그인 화면으로」를 누르면 이번에는
-   * **정말로** 로그인 폼이 나온다.
-   *
-   * `confirmPasswordReset`이 이미 같은 처리를 한다 — **대칭이 깨져 있던 것**을 맞춘다.
+   * 지금은 캐시를 두고 화면이 안내를 보인다. 서버 세션은 이미 죽어 있으므로 다음 요청은 401이고,
+   * 안내를 읽은 사용자가 「로그인 화면으로」를 누르면 `leaveAfterPasswordChange()`가 캐시를 비우고
+   * **전체 페이지 이동**으로 로그인 폼에 간다 — `#825`가 겪은 `/login → next → 401` 왕복이 없다.
+   * `confirmPasswordReset`(셸 밖 화면)과의 대칭은 「안내를 본 뒤 로그인으로 간다」로 유지된다.
    */
-  currentUser = null
-  authResolved = true
-  notify()
-
   return body?.data?.message ?? '비밀번호를 변경했습니다.'
 }
 
@@ -745,6 +729,23 @@ export async function updateUserRole(
     notify()
   }
   return changed
+}
+
+/**
+ * 비밀번호 변경 안내를 읽은 뒤 로그인 화면으로 (`#1099`).
+ *
+ * 서버 세션은 이미 전량 무효화됐다. 캐시를 비우고 **전체 페이지 이동**으로 로그인 폼에 간다 —
+ * `logout` 성공 경로와 같은 방식이다. 라우터 이동(`<Link>`)을 쓰면 캐시가 살아 있는 동안
+ * `/login`이 `next`로 되돌려 보내고 다음 요청의 401에서야 로그인 폼이 나온다(`#825` ⑷).
+ */
+export function leaveAfterPasswordChange(): void {
+  clearStored()
+  currentUser = null
+  authResolved = true
+  notify()
+  if (typeof window !== 'undefined') {
+    window.location.assign(LOGIN_PATH)
+  }
 }
 
 /**

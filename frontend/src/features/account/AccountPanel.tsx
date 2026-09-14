@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router'
 import {
   EMAIL_IMMUTABLE_NOTICE,
   ROLE_DESCRIPTION,
@@ -8,10 +7,10 @@ import {
   splitSubmitFailure,
 } from '../auth/authRules'
 import {
-  LOGIN_PATH,
   changePassword,
   deleteAccount,
   isOffice,
+  leaveAfterPasswordChange,
   listUsers,
   updateDisplayName,
   updateUserRole,
@@ -305,9 +304,13 @@ function PasswordSection() {
           {changed}
         </p>
         <p className="acc__notice">{PASSWORD_CHANGE_NOTICE}</p>
-        <Link className="acc__submit acc__submit--link" to={LOGIN_PATH}>
+        {/*
+          라우터 링크가 아니라 **전체 페이지 이동**이다 (`#1099`). 세션 캐시가 살아 있는 동안
+          `/login`은 `next`로 되돌려 보내 안내를 읽은 사용자가 로그인 폼에 닿지 못했다.
+        */}
+        <button type="button" className="acc__submit" onClick={leaveAfterPasswordChange}>
           로그인 화면으로
-        </Link>
+        </button>
       </section>
     )
   }
