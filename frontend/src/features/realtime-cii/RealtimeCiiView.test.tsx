@@ -463,3 +463,21 @@ describe('선박을 바꾸면 옛 선박의 값이 남지 않는다 (#874)', () 
     expect(screen.getByText(OTHER.vesselName)).toBeTruthy()
   })
 })
+
+describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
+  it('신뢰도 배지가 붙으면 옆에 「데이터 점검」 링크가 있고, 전부 실측이면 없다', async () => {
+    const substituted: RealtimeCii = {
+      ...BASE,
+      ytd: { ...BASE.ytd, substitutions: [{ voyageId: 'vy-0', axis: 'FUEL', fuelType: 'HFO' }] },
+    }
+    const first = renderView({ load: vi.fn(async () => substituted) })
+    const link = await screen.findByRole('link', { name: '데이터 점검' })
+    expect(link.getAttribute('href')).toBe('/data-quality')
+    first.unmount()
+
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByRole('link', { name: '데이터 점검' })).toBeNull()
+  })
+})
+

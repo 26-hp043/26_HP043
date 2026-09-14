@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { FleetDashboard } from './FleetDashboard'
 
@@ -128,3 +128,25 @@ describe('선대 대시보드 — 서버 정렬·페이지 (#772)', () => {
     expect(screen.queryByRole('button', { name: /다음 선박 불러오기/ })).toBeNull()
   })
 })
+
+describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
+  it('조치 항목이 있으면 조치 카드에 「데이터 점검」 링크가 있다', async () => {
+    const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+    body.data.actions = [
+      { vessel_id: 'v1', vessel_name: '가선', reason: 'RATING_D', severity: 'warning', message: 'D등급' },
+    ] as never
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    const card = await screen.findByLabelText('조치 필요')
+    const link = within(card).getByRole('link', { name: '데이터 점검' })
+    expect(link.getAttribute('href')).toBe('/data-quality')
+  })
+})
+

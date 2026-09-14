@@ -344,6 +344,13 @@ export function FleetDashboard() {
                 <Link className="card__meta" to={SCREEN_BY_ID.FLEET_REDUCTION.path}>
                   함대 감축 계획 세우기
                 </Link>
+                {/*
+                  `UIFLOW 2-11` 진입 조건 — 조치 항목의 등급이 **실측이 아닌 값으로 계산됐는지**
+                  확인하러 가는 길 (#1082). 사이드바로만 들어갈 수 있었다.
+                */}
+                <Link className="card__meta" to={SCREEN_BY_ID.DATA_QUALITY.path}>
+                  {SCREEN_BY_ID.DATA_QUALITY.label}
+                </Link>
               </div>
               <ul className="actions">
                 {snapshot.actions.map((action) => (

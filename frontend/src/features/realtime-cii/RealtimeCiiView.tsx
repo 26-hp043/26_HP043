@@ -41,6 +41,7 @@ import type {
 } from './types'
 import './RealtimeCiiView.css'
 import { ErrorState } from '../../components/ErrorState'
+import { SCREEN_BY_ID } from '../../screens'
 
 /**
  * 실시간 CII — `UIFLOW 2-9` · `#357`.
@@ -696,7 +697,13 @@ function RatingTransitionView({ data, current }: { data: RealtimeCii; current: R
    * 추정인지 어긋난다. 판정은 `§8.1`을 구현한 `hasSubstitutedInputs`가 소유한다.
    */
   const confidence = hasSubstitutedInputs(data.ytd) ? (
-    <DataConfidenceBadge detail={substitutionSummary(data.ytd)} />
+    <>
+      <DataConfidenceBadge detail={substitutionSummary(data.ytd)} />
+      {/* 무엇이 추정인지 선대 단위로 보는 곳 — `UIFLOW 2-11` 진입 조건 「신뢰도 표시」 (#1082). */}
+      <Link className="rt__confidence-link" to={SCREEN_BY_ID.DATA_QUALITY.path}>
+        {SCREEN_BY_ID.DATA_QUALITY.label}
+      </Link>
+    </>
   ) : null
 
   /*
