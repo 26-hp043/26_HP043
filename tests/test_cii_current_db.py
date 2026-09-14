@@ -117,7 +117,12 @@ async def _make_voyage(
         "departed": departed_at or datetime(YEAR, 6, 1, tzinfo=UTC),
         # `#649` — 시계가 예정일에서 자르는지 검증하려면 이 값이 필요하다.
         "planned_arrival": planned_arrival_at,
-        "policy": "EXCLUDE",
+        # ⚠️ **기본값은 `INCLUDE_AS_PLAN`이다** (`#1085`). 종전에는 `EXCLUDE`였고, 이 파일의
+        # 진행분 검사 8건이 **「연간 반영 안 함」 항차가 누적에 들어가는 것을 사전 조건으로**
+        # 단언했다 — `#1085`가 고친 결함을 검사가 정답으로 들고 있었다. `_add_actuals`는
+        # 실적 확정 시 정책을 `INCLUDE_AS_ACTUAL`로 덮으므로 확정분 경로는 영향이 없다.
+        # `EXCLUDE`를 보는 검사는 그 값을 **명시적으로** 넘긴다.
+        "policy": "INCLUDE_AS_PLAN",
         "year": YEAR,
     }
     fields.update(over)
@@ -881,3 +886,74 @@ def test_split_parts_sum_exactly_to_the_total():
     for total in (Decimal("91.3333"), Decimal("0.7777"), Decimal("137.4521")):
         parts = _split_fuel(total, (("A", third), ("B", third), ("C", third)))
         assert sum(ton for _, ton in parts) == total, f"{total}: 합이 어긋남"
+
+
+# ─── 「연간 반영 안 함」 진행 항차 (#1085) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_an_excluded_in_progress_voyage_is_not_accumulated(session):
+    """⚠️ #1085 — `EXCLUDE` 진행 항차는 YTD에 **한 톤도 더하지 않는다**.
+
+    `PRD §3.3.8` 「집계에 넣는 항차의 범위」 표가 `EXCLUDE`를 「넣지 않는다」로 정한다.
+    확정분은 `list_annual_inclusions`가 정책으로 거르는데 진행분은 `find_in_progress`가
+    **상태로만** 골라 정책을 보지 않았다 — `PRD §8.1.2`상 `IN_PROGRESS + EXCLUDE`는
+    합법이라 데이터 오류로 걸러지지도 않는다.
+
+    **확정분만 있는 선대와 값이 같아야 한다**가 이 검사의 요지다. 「진행분이 줄었다」가
+    아니라 「없는 것과 같다」를 봐야 종전 결함(항해 중에는 늘다가 완료되는 순간 빠져
+    누적 CII가 한 번에 뛰는 것)이 잡힌다.
+    """
+    vessel_id = await _make_vessel(session)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    baseline, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    excluded = await _make_voyage(
+        session,
+        vessel_id,
+        policy="EXCLUDE",
+        departed_at=datetime(YEAR, 6, 25, tzinfo=UTC),
+    )
+    await _add_planned_fuels(session, excluded, [("HFO", 60, "3.114")])
+    after, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    assert after["ytd"] == baseline["ytd"], "EXCLUDE 진행 항차가 누적을 바꿨다"
+    # ⑵ 항차 구간값은 **그대로 보인다** — `§3.3.8`의 3종 표에서 ⑵는 ⑴과 별개 값이고,
+    # 집계 범위 표는 ⑴에만 걸린다. 지금 실제로 뛰는 항차를 화면에서 지울 이유가 없다.
+    assert after["current_voyage"] is not None
+
+
+@pytest.mark.asyncio
+async def test_an_excluded_voyage_does_not_ask_the_user_to_fix_specs(session):
+    """⚠️ #1085 — `EXCLUDE` 항차에는 **누적 반영 경고를 띄우지 않는다**.
+
+    `API_SPEC §1.6`의 진행분 경고 문구는 전부 「…진행분이 **누적에 반영되지 않았습니다**.
+    …입력해 주세요」 꼴이다. 사용자가 스스로 반영하지 않기로 둔 항차에 그 문구를 띄우면
+    **제원을 채우면 반영될 것처럼 읽히는 거짓 안내**가 된다.
+
+    기준 일일 연료소모량이 없는 선박 **두 척**을 같은 조건으로 세우고 정책만 다르게 둔다 —
+    `INCLUDE_AS_PLAN`에서 경고가 **나오는 것**까지 함께 보지 않으면 「경고 자체가 죽었다」와
+    구분되지 않는다. 정책을 나중에 `UPDATE`로 바꾸지 않는 것은, raw SQL이 ORM identity map을
+    갱신하지 않아 :func:`find_in_progress`가 바꾸기 전 객체를 돌려주기 때문이다.
+    """
+
+    async def _state(policy: str):
+        vessel_id = await _make_vessel(session, foc=None)
+        voyage_id = await _make_voyage(
+            session,
+            vessel_id,
+            policy=policy,
+            departed_at=datetime(YEAR, 6, 25, tzinfo=UTC),
+        )
+        await _add_planned_fuels(session, voyage_id, [("HFO", 60, "3.114")])
+        vessel = await vessel_repo.get_by_id(session, vessel_id)
+        return await resolve_in_progress_state(session, vessel=vessel, as_of=MID_YEAR)
+
+    included = await _state("INCLUDE_AS_PLAN")
+    assert WARNING_SIM_NO_FUEL_RATE in included.warnings, "사전 조건: 반영 대상이면 경고가 나온다"
+
+    excluded = await _state("EXCLUDE")
+    assert excluded.contribution is None
+    assert excluded.warnings == []
+    assert excluded.voyage is not None, "화면이 그릴 ⑵의 근거는 남는다"
