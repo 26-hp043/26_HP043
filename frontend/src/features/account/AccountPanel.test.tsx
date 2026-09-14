@@ -247,3 +247,28 @@ describe('역할 — 계정 정보와 역할 지정 절 (#672)', () => {
     expect(screen.queryByTestId('acc-users')).toBeNull()
   })
 })
+
+/**
+ * 비밀번호 변경 성공 안내가 **보인다** (`#1099`). `#825` ⑷가 성공 뒤 캐시를 비워 패널이 사용자
+ * 없이 그려지지 않았고, 안내(무효화된 기기 수)는 한 번도 보이지 않았다.
+ */
+describe('비밀번호 변경 성공 안내 (#1099)', () => {
+  it('안내와 「로그인 화면으로」가 보이고, 누르면 그때 세션을 해제한다', async () => {
+    stubUser('FIELD')
+    vi.spyOn(session, 'changePassword').mockResolvedValue(
+      '비밀번호가 변경되었습니다. 로그인된 기기 2대에서 로그아웃되었습니다.',
+    )
+    const leave = vi.spyOn(session, 'leaveAfterPasswordChange').mockImplementation(() => {})
+    renderPanel()
+    fireEvent.change(screen.getByLabelText('현재 비밀번호'), { target: { value: 'old-password-1' } })
+    fireEvent.change(screen.getByLabelText('새 비밀번호'), { target: { value: 'new-password-12' } })
+    fireEvent.change(screen.getByLabelText('새 비밀번호 확인'), { target: { value: 'new-password-12' } })
+    fireEvent.click(screen.getByRole('button', { name: '비밀번호 바꾸기' }))
+    expect(await screen.findByText(/로그인된 기기 2대에서 로그아웃되었습니다/)).toBeTruthy()
+    const button = screen.getByRole('button', { name: '로그인 화면으로' })
+    expect(leave).not.toHaveBeenCalled()
+    fireEvent.click(button)
+    expect(leave).toHaveBeenCalledTimes(1)
+  })
+})
+

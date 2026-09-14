@@ -106,9 +106,6 @@
   cursor: pointer;
 }
 
-.acc__submit--link {
-  text-decoration: none;
-}
 
 .acc__submit:disabled {
   cursor: not-allowed;

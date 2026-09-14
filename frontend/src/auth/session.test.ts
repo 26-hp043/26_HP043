@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   AuthRequestError,
   changePassword,
+  leaveAfterPasswordChange,
   deleteAccount,
   getCachedUser,
   login,
@@ -110,7 +111,7 @@ describe('probeCurrentUser', () => {
       role: 'FIELD',
       emailVerifiedAt: null,
     })
-    expect(getCachedUser()?.id).toBe('u1')
+    expect(getCachedUser()).not.toBeNull()
   })
 
   it('401이면 비인증 — 캐시도 비운다(fail-closed)', async () => {
@@ -480,7 +481,7 @@ describe('비밀번호 변경의 401을 코드로 가른다 (#902)', () => {
 
 
 describe('비밀번호 변경 후 캐시를 비운다 (#825 ⑷)', () => {
-  it('성공하면 `getCachedUser()`가 null이다', async () => {
+  it('성공해도 `getCachedUser()`가 남는다 — 안내를 읽을 때까지 (#1099가 #825 ⑷를 정정)', async () => {
     /*
      * 종전에는 캐시를 남겼다. 근거는 *「라우트 가드가 즉시 밀어내면 안내를 볼 틈이
      * 없다」*였는데, 그 결과 **화면이 주는 「로그인 화면으로」 버튼이 로그인 화면에
@@ -505,7 +506,8 @@ describe('비밀번호 변경 후 캐시를 비운다 (#825 ⑷)', () => {
     )
 
     expect(message).toContain('비밀번호를 변경했습니다')
-    expect(getCachedUser()).toBeNull()
+    // 안내를 본 뒤 「로그인 화면으로」에서 비운다 (`leaveAfterPasswordChange`)
+    expect(getCachedUser()).not.toBeNull()
   })
 
   it('실패하면 캐시를 건드리지 않는다 — 비밀번호를 잘못 친 것만으로 로그아웃되지 않는다', async () => {
@@ -635,5 +637,29 @@ describe('인증 실패의 모양 (#877)', () => {
     const fetchImpl = vi.fn(async () => ME_OK)
     const user = await login('captain@example.com', 'pw', fetchImpl as unknown as typeof fetch)
     expect(user.email).toBe('captain@example.com')
+  })
+})
+
+describe('비밀번호 변경 뒤 안내가 보인다 (#1099)', () => {
+  it('성공해도 캐시를 비우지 않고, 「로그인 화면으로」에서 비운다', async () => {
+    await probeCurrentUser(async () => ME_OK)
+    const message = await changePassword('old-password-1', 'new-password-12', async () =>
+      jsonResponse({
+        data: { message: '비밀번호가 변경되었습니다. 로그인된 기기 2대에서 로그아웃되었습니다.', revoked_sessions: 2 },
+      }),
+    )
+    expect(message).toContain('2대')
+    expect(getCachedUser()).not.toBeNull()
+
+    // node 환경이라 `window`가 없다 — 전체 페이지 이동만 흉내 낸다
+    const assign = vi.fn()
+    ;(globalThis as { window?: unknown }).window = { location: { assign } }
+    try {
+      leaveAfterPasswordChange()
+      expect(getCachedUser()).toBeNull()
+      expect(assign).toHaveBeenCalledWith('/login')
+    } finally {
+      delete (globalThis as { window?: unknown }).window
+    }
   })
 })
