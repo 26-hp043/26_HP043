@@ -232,6 +232,11 @@ async def evaluate_reduction_plan(
             fuel_saved[fuel_type] = fuel_saved.get(fuel_type, Decimal(0)) + ton
         if slowed.skipped_voyages and WARNING_SLOWDOWN_SKIPPED not in warnings:
             warnings.append(WARNING_SLOWDOWN_SKIPPED)
+        # 입력 조립이 뺀 항차(연료 없는 계획 항차 → `SIMULATION_PLAN_NO_FUEL` · #812)를 조용히
+        # 버리지 않는다 — 연간 등급 관리는 같은 경고를 싣는다 (#1070 ⑷).
+        for code in inputs.warnings:
+            if code not in warnings:
+                warnings.append(code)
 
         rows.append(
             {
@@ -252,7 +257,9 @@ async def evaluate_reduction_plan(
                     sum(slowed.fuel_saved_ton_by_type.values(), Decimal(0)), _TON_DIGITS
                 ),
                 "skipped_voyages": slowed.skipped_voyages,
-                "remaining_voyage_count": len(inputs.remaining),
+                # 스냅샷의 계획 항차 수 — 연간 등급 관리(`API_SPEC §6.1`)와 같은 기준이다
+                # (#1070 ⑷). 계산에서 뺀 항차가 있으면 `warnings`가 그 사실을 말한다.
+                "remaining_voyage_count": inputs.plan_voyage_count,
                 # 조정 **후**에도 남는 필요 감축량 — 목표까지 연료를 더 줄여야 하는 양(`§12.3.1`).
                 "required_cut_fuel_ton": _publish(cut.required_cut_fuel_ton, _TON_DIGITS),
                 "achievable": cut.achievable,
