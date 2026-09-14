@@ -652,3 +652,21 @@ async def test_broken_cursor_is_422_not_500(session, vessel_id):
     for value in broken:
         with pytest.raises(ValidationError):
             await list_voyages(session, vessel_id=vessel_id, limit=3, cursor=value)
+
+
+async def test_unstorable_distance_is_a_row_error_not_a_500(session, vessel_id):
+    """⑥ `0.001` nm는 `NUMERIC(12,2)`에서 0.00으로 반올림돼 `chk_distance_positive` 500 (`#1086`).
+
+    이제 행 오류다 — 너무 큰 값도 같다.
+    """
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V-T1,Busan,Tokyo,0.001,13.5,HFO,80",
+            "V-T2,Busan,Tokyo,10000000000,13.5,HFO,80",
+        ),
+    )
+    assert result["imported_count"] == 0
+    assert len(result["errors"]) == 2
+    assert all("planned_distance_nm" in str(e) or "distance" in str(e) for e in result["errors"])

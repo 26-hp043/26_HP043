@@ -149,3 +149,18 @@ async def test_missing_required_column_rejects_the_whole_file(session, vessel_id
         assert "필수 컬럼" in str(error)
     else:  # pragma: no cover - 실패 경로
         raise AssertionError("필수 컬럼이 없는 파일이 통과했다")
+
+
+async def test_fuel_zero_row_is_a_row_error_not_a_500(session, vessel_id):
+    """⑤ `fuel_ton=0`은 행 오류다 (`#1086`).
+
+    종전에는 `< 0`만 막아 DB `chk_not_underway_fuel_positive`에서 IntegrityError 500이 났고,
+    앞 행은 이미 커밋된 뒤라 다시 올리면 「겹침」으로 막혔다.
+    """
+    content = _csv(
+        "IN_PORT,2026-04-01T00:00:00+09:00,2026-04-02T00:00:00+09:00,0,HFO,0,AUX_ENGINE,BUSAN",
+        "IN_PORT,2026-04-03T00:00:00+09:00,2026-04-04T00:00:00+09:00,0,HFO,0.001,AUX_ENGINE,BUSAN",
+    )
+    result = await import_not_underway_periods(session, vessel_id, content=content)
+    assert result["imported_count"] == 0
+    assert [e["field"] for e in result["errors"]] == ["fuel_ton", "fuel_ton"]
