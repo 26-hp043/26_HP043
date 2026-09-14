@@ -505,6 +505,11 @@
   flex-wrap: wrap;
 }
 
+/* 신뢰도 배지 옆 「데이터 점검」 링크 (#1082) — 배지보다 작게, 본문 링크색. */
+.rt__confidence-link {
+  font-size: var(--font-size-label);
+}
+
 /*
  * 갱신 실패 안내 (`#755`).
  *

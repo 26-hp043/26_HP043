@@ -289,3 +289,13 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
     expect(label.nextElementSibling?.textContent).toBe('17 (+진행 중 1)')
   })
 })
+
+describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
+  it('올해 누적 카드 머리에 「데이터 점검」 링크가 있다', async () => {
+    renderAt(stub())
+    const card = await screen.findByLabelText('올해 누적 CII')
+    const link = within(card).getByRole('link', { name: '데이터 점검' })
+    expect(link.getAttribute('href')).toBe('/data-quality')
+  })
+})
+
