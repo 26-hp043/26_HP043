@@ -147,3 +147,122 @@ describe('함대 감축 계획 화면 (#513)', () => {
     expect(button.disabled).toBe(false)
   })
 })
+
+/**
+ * 오류 경로 (#1069) — 실패 한 번에 입력 칸까지 사라지면 **고칠 곳이 없어** 새로고침 말고는 빠져나올 수 없다.
+ */
+describe('함대 감축 계획 화면 — 실패해도 빠져나올 수 있다 (#1069)', () => {
+  function renderProvider(provider: FleetReductionProvider) {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+    render(
+      <MemoryRouter>
+        <FleetReduction provider={provider} />
+      </MemoryRouter>,
+    )
+  }
+
+  it('⚠️ 음수 단가는 서버에 묻지 않고 그 칸에 오류를 보인다 — 고치면 다시 계산한다', async () => {
+    const evaluate = vi.fn(async (_req: EvaluateRequest) => result())
+    renderProvider({ evaluate, save: vi.fn(), list: vi.fn(async () => []) })
+    const charter = await screen.findByLabelText('MV One 일일 용선료 (USD)')
+    await waitFor(() => expect(evaluate).toHaveBeenCalled())
+    const before = evaluate.mock.calls.length
+
+    await act(async () => {
+      fireEvent.change(charter, { target: { value: '-5' } })
+    })
+    expect(await screen.findByText(FLEET_REDUCTION_COPY.priceInvalid)).toBeTruthy()
+    expect(charter.getAttribute('aria-invalid')).toBe('true')
+    // 칸이 사라지지 않았고, 음수로는 요청하지 않았다.
+    await new Promise((r) => setTimeout(r, 400))
+    expect(evaluate.mock.calls.length).toBe(before)
+    expect(screen.getByText('MV One')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText(FLEET_REDUCTION_COPY.planNameLabel), {
+      target: { value: '9월안' },
+    })
+    const saveButton = screen.getByRole('button', { name: FLEET_REDUCTION_COPY.saveButton })
+    expect((saveButton as HTMLButtonElement).disabled).toBe(true)
+
+    await act(async () => {
+      fireEvent.change(charter, { target: { value: '12000' } })
+    })
+    await waitFor(() => {
+      const last = evaluate.mock.calls.at(-1)?.[0]
+      expect(last?.prices.charterUsdPerDay).toEqual({ v1: '12000' })
+    })
+    expect(screen.queryByText(FLEET_REDUCTION_COPY.priceInvalid)).toBeNull()
+  })
+
+  it('⚠️ 계산이 실패해도 마지막 결과와 입력 칸이 남고, 그 사실을 적고, 다시 시도할 수 있다', async () => {
+    let fail = false
+    const evaluate = vi.fn(async (_req: EvaluateRequest) => {
+      if (fail) throw new Error('일시적인 오류입니다.')
+      return result()
+    })
+    renderProvider({ evaluate, save: vi.fn(), list: vi.fn(async () => []) })
+    const slider = await screen.findByLabelText('MV One 감속률')
+
+    fail = true
+    fireEvent.change(slider, { target: { value: '10' } })
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('일시적인 오류입니다.')
+    expect(alert.textContent).toContain(FLEET_REDUCTION_COPY.staleResult)
+    expect(screen.getByLabelText('MV One 감속률')).toBeTruthy()
+
+    fail = false
+    const calls = evaluate.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    await waitFor(() => expect(evaluate.mock.calls.length).toBeGreaterThan(calls))
+    await waitFor(() => expect(screen.queryByText(/일시적인 오류입니다/)).toBeNull())
+  })
+
+  it('처음부터 실패하면 오류와 재시도만 — 대체 문구는 진행 문구가 아니라 실패 문구다', async () => {
+    let fail = true
+    const evaluate = vi.fn(async (_req: EvaluateRequest) => {
+      if (fail) throw 'not an Error'
+      return result()
+    })
+    renderProvider({ evaluate, save: vi.fn(), list: vi.fn(async () => []) })
+
+    expect(await screen.findByText(FLEET_REDUCTION_COPY.evaluateFailed)).toBeTruthy()
+    expect(screen.queryByText(FLEET_REDUCTION_COPY.loading)).toBeNull()
+
+    fail = false
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByText('MV One')).toBeTruthy()
+  })
+
+  it('⚠️ 계획 목록을 못 받으면 「저장한 계획이 없습니다」가 아니라 실패를 보인다', async () => {
+    let fail = true
+    const list = vi.fn(async () => {
+      if (fail) throw new Error('down')
+      return []
+    })
+    renderProvider({ evaluate: vi.fn(async () => result()), save: vi.fn(), list })
+
+    expect(await screen.findByText(FLEET_REDUCTION_COPY.plansFailed)).toBeTruthy()
+    expect(screen.queryByText(FLEET_REDUCTION_COPY.noPlans)).toBeNull()
+
+    fail = false
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }))
+    expect(await screen.findByText(FLEET_REDUCTION_COPY.noPlans)).toBeTruthy()
+  })
+
+  it('저장이 서버 문구 없이 실패하면 「저장하는 중」이 아니라 실패 문구다', async () => {
+    const save = vi.fn(async () => {
+      throw 'boom'
+    })
+    renderProvider({ evaluate: vi.fn(async () => result()), save, list: vi.fn(async () => []) })
+    await screen.findByText('MV One')
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(FLEET_REDUCTION_COPY.planNameLabel), {
+        target: { value: '9월안' },
+      })
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: FLEET_REDUCTION_COPY.saveButton }))
+    })
+    expect(await screen.findByText(FLEET_REDUCTION_COPY.saveFailed)).toBeTruthy()
+  })
+})
+
