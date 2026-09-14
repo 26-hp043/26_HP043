@@ -268,10 +268,8 @@ export function VesselRegistration() {
               <input
                 id="deadweight"
                 className="vessel-registration__control"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 value={state.deadweight}
                 aria-invalid={FIELD.deadweight in errors}
                 aria-describedby={describedBy('deadweight', FIELD.deadweight in errors, false)}
@@ -289,10 +287,8 @@ export function VesselRegistration() {
               <input
                 id="gross-tonnage"
                 className="vessel-registration__control"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 value={state.grossTonnage}
                 aria-invalid={FIELD.grossTonnage in errors}
                 aria-describedby={describedBy(
@@ -314,10 +310,8 @@ export function VesselRegistration() {
               <input
                 id="reference-speed"
                 className="vessel-registration__control"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 value={state.referenceSpeedKn}
                 aria-invalid={FIELD.referenceSpeedKn in errors}
                 aria-describedby={describedBy(
@@ -341,10 +335,8 @@ export function VesselRegistration() {
               <input
                 id="reference-foc"
                 className="vessel-registration__control"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 value={state.referenceDailyFocTon}
                 aria-invalid={FIELD.referenceDailyFocTon in errors}
                 aria-describedby={describedBy(

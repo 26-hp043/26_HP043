@@ -142,7 +142,7 @@ export function VesselManagement() {
 
   const handleSave = async () => {
     if (editing === null || editState === null) return
-    const errors = validateEdit(editState, fuels)
+    const errors = validateEdit(editState, fuels, editing)
     if (Object.keys(errors).length > 0) {
       setEditErrors(errors)
       return

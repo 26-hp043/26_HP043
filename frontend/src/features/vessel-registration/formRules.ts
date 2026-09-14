@@ -220,7 +220,8 @@ export function validateForm(
     STORABLE.dailyFoc,
   )
 
-  if (state.defaultFuelType !== '' && !isKnownFuel(state.defaultFuelType, fuels)) {
+  // 목록을 못 받은 상태(로딩·실패)에서는 연료 검사를 보류한다 (`#1100` ⑴) — 서버가 최종 판정한다.
+  if (state.defaultFuelType !== '' && fuels.length > 0 && !isKnownFuel(state.defaultFuelType, fuels)) {
     errors[FIELD.defaultFuelType] = `알 수 없는 연료 종류입니다: ${state.defaultFuelType}`
   }
 
