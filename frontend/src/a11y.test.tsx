@@ -353,9 +353,13 @@ describe('A11Y-004 — 결과 화면마다 면책 문구가 있다', () => {
     { file: 'pages/CiiForecastPage.tsx', branches: 1 },
     { file: 'pages/RouteComparisonPage.tsx', branches: 1 },
     { file: 'pages/AnnualGradePage.tsx', branches: 1 },
+    // #513으로 생긴 선대 계층 두 화면(#1071) — 감축 계획은 연말 등급·USD 손익을, 데이터 점검은
+    // 완결성·CII 영향을 **집계해** 보인다. 위 정의대로 결과 화면이다.
+    { file: 'pages/FleetReductionPage.tsx', branches: 1 },
+    { file: 'pages/DataQualityPage.tsx', branches: 1 },
   ]
 
-  it('결과 화면 7종이 전부 DisclaimerBanner를 그린다 — 결과 분기마다', () => {
+  it('결과 화면 9종이 전부 DisclaimerBanner를 그린다 — 결과 분기마다', () => {
     for (const { file, branches } of RESULT_SCREENS) {
       const source = readFileSync(join(SRC, file), 'utf-8')
         .replace(/\/\*[\s\S]*?\*\//g, '')
