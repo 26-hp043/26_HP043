@@ -7,6 +7,23 @@ import { MemoryRouter } from 'react-router'
 import { FleetDashboard } from './FleetDashboard'
 
 /**
+ * 지도는 대역으로 둔다 (`#1091`).
+ *
+ * `FleetDashboard`는 `FleetMap`을 `lazy()`로 불러오고, 그 안의 `maplibre-gl`이
+ * 마운트되는 순간 **WebGL2 컨텍스트를 요구한다.** jsdom에는 그것이 없어
+ * `GPUInitializationError`가 **테스트 밖에서(uncaught)** 던져진다 — 단언은 전부
+ * 통과하는데 러너가 `Errors 2`로 실패한다(CI `frontend` 잡에서 실측).
+ *
+ * 종전에 드러나지 않은 이유는 **lazy chunk가 풀리기 전에 검사가 끝났기 때문**이다.
+ * 기다리는 검사를 하나 더 넣자 chunk가 먼저 풀려 지도가 실제로 마운트됐다 — 즉
+ * 종전 초록은 **타이밍에 기댄 것**이었다.
+ *
+ * 이 파일의 어느 검사도 지도를 단언하지 않는다(목록·정렬·페이지·링크·문구만 본다).
+ * 지도 자체는 자산 유무를 묻는 `HEAD` 요청(`#763`)과 함께 별도로 다룬다.
+ */
+vi.mock('./FleetMap', () => ({ FleetMap: () => null }))
+
+/**
  * 대시보드가 **서버 정렬·페이지**를 쓰는가 (#772 · `API_SPEC §2.8`).
  *
  * 규칙(정렬·자르기)은 서버 검사(`tests/test_fleet_summary.py`)가 잠근다. 여기서는 화면이
