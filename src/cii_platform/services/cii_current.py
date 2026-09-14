@@ -584,6 +584,38 @@ async def resolve_in_progress_state(
     contribution: InProgressContribution | None = None
     warnings: list[str] = []
 
+    if voyage.annual_inclusion_policy != "INCLUDE_AS_PLAN":
+        # ⚠️ **「연간 반영 안 함」 항차는 누적에 넣지 않는다** (`PRD §3.3.8` · `#1085`).
+        #
+        # `§3.3.8`의 「집계에 넣는 항차의 범위」 표가 `EXCLUDE`를 「넣지 않는다」로 정하는데
+        # 진행분만 그 필터를 지나지 않았다. 확정분은 `list_annual_inclusions`가 정책으로
+        # 거르고(`db/repositories/voyage.py:224`), 진행분은 `find_in_progress`가 상태로만
+        # 골라(`:278-301`) 정책을 보지 않았다 — `PRD §8.1.2`상 `IN_PROGRESS + EXCLUDE`는
+        # 합법이므로 데이터 오류로 걸러지지도 않는다.
+        #
+        # 결과는 **항해 중에는 누적이 늘다가, 완료되는 순간 집계에서 빠져 누적 CII가 한 번에
+        # 뛰는 것**이었다(시운전 항차를 `EXCLUDE`로 두고 항해하는 경우).
+        #
+        # **경고도 함께 비운다.** 위 세 갈래의 경고 문구는 `API_SPEC §1.6`에서 전부
+        # 「…진행분이 **누적에 반영되지 않았습니다**. …입력해 주세요」 꼴이다. 사용자가 스스로
+        # 반영하지 않기로 둔 항차에 그 문구를 띄우면 **고치면 반영될 것처럼 읽히는 거짓
+        # 안내**가 된다(조건부 사실을 무조건으로 적지 않는다). `#815`의 :meth:`for_year`가
+        # 「범위 밖 항차에 대한 안내는 그 화면에서 뜻이 없다」로 같은 판단을 이미 내렸다.
+        #
+        # **`voyage`·`progress`는 남긴다** — ⑵ 항차 구간값(`current_voyage`)은
+        # :func:`_voyage_segment`가 이 둘로 만들고 ``contribution``을 쓰지 않는다.
+        # `§3.3.8`의 3종 표에서 ⑵는 ⑴과 별개 값이고, 집계 범위 표는 ⑴에만 걸린다.
+        # 지금 실제로 뛰고 있는 항차를 화면에서 지울 이유가 없다.
+        return InProgressState(
+            voyage,
+            progress,
+            None,
+            fuel_code,
+            [],
+            voyage.regulation_year,
+            fuel_split=fuel_split,
+        )
+
     if progress.distance_nm > 0 and progress.fuel_ton > 0 and fuel_split is not None:
         contribution = InProgressContribution(
             distance_nm=progress.distance_nm,

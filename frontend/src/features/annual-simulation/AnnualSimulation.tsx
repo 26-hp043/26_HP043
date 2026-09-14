@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
@@ -85,6 +85,15 @@ export function AnnualSimulation({
   const shell = useShellContext()
   const provider = useMemo(() => createAnnualSimulationProvider(), [])
   const [state, setState] = useState<RunState>({ status: 'idle' })
+  /*
+   * 실행 **세대 번호** — 늦은 응답을 버린다 (`#1094` · `#874` 선례).
+   *
+   * 실행 중에 상단바에서 선박을 바꾸면, 앞 선박의 요청은 그대로 날아가고 있다.
+   * 그 응답이 돌아오면 `setState({ status: 'success', … })`가 **새 선박 화면에**
+   * 성공 결과를 붙였다 — 결과 카드에 선박명이 없어 사용자가 알아챌 수 없다.
+   * Monte Carlo 10,000회는 초 단위라 전환할 시간이 충분하다.
+   */
+  const generationRef = useRef(0)
   const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>('B')
   const [runs, setRuns] = useState('5000')
   const [seed, setSeed] = useState('')
@@ -148,6 +157,34 @@ export function AnnualSimulation({
     setYear((prev) => pickDefaultYear(years, thisYear, prev))
   }, [years])
 
+  /*
+   * ⚠️ **대상이 바뀌면 앞의 결과를 지운다** (`#1094`).
+   *
+   * 종전에는 상단바에서 선박을 바꿔도 `state`가 그대로여서 **앞 선박의 P50·달성
+   * 확률·필요 감축량이 새 선박을 고른 상태로 계속 보였다.** 결과 카드에 선박명이
+   * 없으므로 화면만 보고는 어느 배의 숫자인지 알 수 없다 — **「아직 안 돌렸다」와
+   * 「앞 배 결과」가 같은 모양**이었고, 사용자는 둘을 구분할 방법이 없었다.
+   *
+   * 연도도 같다 — 2026년 결과를 2027년을 고른 상태로 두면 같은 문제다.
+   *
+   * **세대를 함께 올려** 이미 날아간 요청의 응답을 버린다. `Result`의 재현 상태는
+   * 그 컴포넌트 안에 있으므로 `idle`로 돌아가면 언마운트되며 함께 사라진다.
+   *
+   * `target`·`runs`·`seed`·`applyFeedback`은 **지우지 않는다.** 사용자가 정한 조건이고,
+   * 배를 바꿨다고 조건까지 되돌리면 같은 조건으로 두 배를 비교할 수 없다. 그래서
+   * 페이지에 `key`를 주어 통째로 다시 만드는 방법을 쓰지 않았다.
+   *
+   * ⚠️ **`onDisclaimer`를 여기서 부르지 않는다.** 그것을 의존성에 넣으면 호출자가
+   * 함수를 `useCallback`으로 감싸지 않는 순간 **매 렌더마다 결과가 지워진다** —
+   * 화면이 「실행했는데 아무 일도 안 일어난다」가 된다. 지금 호출자(`AnnualGradePage`)는
+   * 안정적이지만 그 성질에 기대는 설계를 두지 않는다. 배너는 `undefined`일 때
+   * 기본 문구를 쓰므로(`DisclaimerBanner`) 여기서 비울 것도 없다.
+   */
+  useEffect(() => {
+    generationRef.current += 1
+    setState({ status: 'idle' })
+  }, [shell.vesselId, year])
+
   const run = useCallback(async () => {
     if (shell.vesselId === null) {
       setState({ status: 'error', message: '상단에서 선박을 먼저 선택해 주세요.' })
@@ -165,6 +202,7 @@ export function AnnualSimulation({
       return
     }
     setState({ status: 'running' })
+    const ticket = generationRef.current
     try {
       const result = await provider.run({
         vessel_id: shell.vesselId,
@@ -176,9 +214,15 @@ export function AnnualSimulation({
         // 끈 상태는 보내지 않는다 — 서버 기본이 끔이고, 요청 모양이 종전과 같게 남는다.
         ...(applyFeedback ? { apply_feedback_factor: true } : {}),
       })
+      // 기다리는 동안 대상이 바뀌었으면 **버린다** — 새 선박 화면에 앞 배의 성공
+      // 결과를 붙이지 않는다 (`#1094`).
+      if (ticket !== generationRef.current) return
       setState({ status: 'success', result })
       onDisclaimer?.(undefined)
     } catch (error: unknown) {
+      // 실패도 같다. 앞 배의 오류 문구를 새 배 화면에 띄우면 사용자는 새 배에
+      // 문제가 있다고 읽는다.
+      if (ticket !== generationRef.current) return
       setState({
         status: 'error',
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorFallback,
