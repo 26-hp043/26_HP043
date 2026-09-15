@@ -469,13 +469,24 @@ def _install_cubrid_param_converter(engine):
             statement = re.sub(r"\s+RETURNING\s+.+$", "", statement)
 
         # 4. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
-        if (
-            statement.lstrip().upper().startswith("INSERT INTO")
-            and "(id," not in statement
-            and "(id)" not in statement
+        #
+        # ⚠️ **공백에 관대해야 한다.** 종전 정규식은 `INSERT INTO <표> (` 사이를 **공백
+        # 하나**로만 봤는데, SQLAlchemy가 내는 구문은 줄바꿈과 여러 칸을 섞는다.
+        #
+        #     INSERT INTO voyage_fuel_use   (voyage_id, …) VALUES (?, ?,   ?, ?)
+        #
+        # 매칭이 빗나가면 `id`가 붙지 않고 그대로 나가 이렇게 선다 —
+        # `Missing value for attribute "id" with the NOT NULL constraint (errno=-225)`.
+        # 오류가 **구문이 아니라 데이터 문제처럼** 보여 원인이 셈에 있다는 것이 가려진다.
+        if statement.lstrip().upper().startswith("INSERT INTO") and not re.search(
+            r"\(\s*id\s*[,)]", statement, re.I
         ):
             # VALUES 안의 괄호까지 포함하여 마지막 )를 찾기
-            m = re.match(r"(INSERT INTO \S+ )\(([^)]+)\)( VALUES )\((.+)\)\s*$", statement)
+            m = re.match(
+                r"(INSERT INTO \S+\s+)\(([^)]+)\)(\s*VALUES\s*)\((.+)\)\s*$",
+                statement,
+                re.S,
+            )
             if m:
                 prefix, cols, mid, vals = m.groups()
                 new_id = uuid.uuid4().hex
