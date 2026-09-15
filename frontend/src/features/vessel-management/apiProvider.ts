@@ -76,7 +76,6 @@ export function toVesselManagementError(
 
 export interface ApiProviderOptions {
   baseUrl?: string
-  apiKey?: string
   fetchImpl?: typeof fetch
 }
 
@@ -109,7 +108,6 @@ export function createApiVesselManagementProvider(
   ): Promise<unknown> {
     const headers: Record<string, string> = {}
     if (init.body !== undefined) headers['Content-Type'] = 'application/json'
-    if (options.apiKey) headers['X-API-Key'] = options.apiKey
     // 쓰기 라우트에는 `Depends(require_csrf)`가 붙어 있다(`routes/vessels.py`).
     // 붙이지 않으면 403이 나는데 그 실패는 입력 오류처럼 보이지 않는다.
     if (init.write) Object.assign(headers, csrfHeaders())

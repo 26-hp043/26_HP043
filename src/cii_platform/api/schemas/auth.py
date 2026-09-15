@@ -19,7 +19,7 @@ IMO 번호에 대해 *"형식은 여기서, DB CHK 제약과 이중 방어"* 라
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -91,3 +91,15 @@ class MeUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: Annotated[str | None, Field(default=None, max_length=100)]
+
+
+class RoleUpdateRequest(BaseModel):
+    """``PATCH /api/v1/auth/users/{user_id}/role`` (`API_SPEC §1.2`, #672).
+
+    값은 둘뿐이다(`DB_SCHEMA §2.15` CHECK). 모르는 값은 여기서 422로 끝난다 — DB 제약에
+    닿아 500이 되지 않게.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["OFFICE", "FIELD"]

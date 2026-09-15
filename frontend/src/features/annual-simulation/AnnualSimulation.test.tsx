@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { AnnualSimulation } from './AnnualSimulation'
+import * as session from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { ANNUAL_COPY } from './copy'
 import type { FeedbackBlock, ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
@@ -123,6 +125,21 @@ async function runOnce(): Promise<HTMLElement> {
   fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
   return screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton })
 }
+
+/** 기존 검사는 전부 **사무직** 전제다 — 실행이 사무직 전용이 됐다 (#672). */
+function stubRole(role: session.UserRole) {
+  vi.spyOn(session, 'useAuthUser').mockReturnValue({
+    id: 'u-1',
+    email: 'tester@bluelog.local',
+    displayName: null,
+    role,
+    emailVerifiedAt: null,
+  })
+}
+
+beforeEach(() => {
+  stubRole('OFFICE')
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -558,5 +575,328 @@ describe('실적 보정계수 (#363)', () => {
     await runOnce()
 
     expect(screen.queryByText(ANNUAL_COPY.feedbackTitle)).toBeNull()
+  })
+})
+
+/**
+ * 대상이 바뀌면 앞의 결과를 남기지 않는다 (`#1094` · `#874` 선례).
+ *
+ * 결과 카드에 **선박명이 없다.** 그래서 앞 배의 숫자가 남아 있어도 화면만 보고는
+ * 알아챌 수 없다 — 「아직 안 돌렸다」와 「앞 배 결과」가 같은 모양이면 안 된다.
+ */
+describe('선박 전환과 늦은 응답 (#1094)', () => {
+  const OTHER_ID = '00000000-0000-4000-8000-000000000002'
+
+  /** 상단바 선택을 바꿀 수 있게 `vesselId`를 밖에서 주입한다. */
+  function renderWith(vesselId: string) {
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId,
+      vessels: [
+        { id: VESSEL_ID, displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' },
+        { id: OTHER_ID, displayName: '다른 배', shipType: 'BULK_CARRIER' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+    return render(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  it('선박을 바꾸면 앞 선박의 결과가 사라진다', async () => {
+    stubServer()
+    const { rerender } = renderWith(VESSEL_ID)
+    await runOnce()
+    expect(screen.getByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeTruthy()
+
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId: OTHER_ID,
+      vessels: [
+        { id: VESSEL_ID, displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' },
+        { id: OTHER_ID, displayName: '다른 배', shipType: 'BULK_CARRIER' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+    rerender(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeNull()
+    })
+  })
+
+  it('실행 중에 선박을 바꾸면 앞 선박의 늦은 응답이 붙지 않는다', async () => {
+    /*
+     * 앞 선박의 요청을 **손에 쥐고 있다가** 전환 뒤에 풀어 준다. Monte Carlo
+     * 10,000회는 초 단위라 실제로 전환할 시간이 충분하다.
+     */
+    let release: (() => void) | null = null
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ data: [{ year: 2026 }] })
+        }
+        if (url.endsWith('/annual-simulations')) {
+          await held
+          return jsonResponse(body('sim-late'))
+        }
+        return jsonResponse({ data: {} })
+      }),
+    )
+
+    const { rerender } = renderWith(VESSEL_ID)
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId: OTHER_ID,
+      vessels: [
+        { id: VESSEL_ID, displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' },
+        { id: OTHER_ID, displayName: '다른 배', shipType: 'BULK_CARRIER' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+    rerender(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await act(async () => {
+      release?.()
+      await held
+    })
+
+    // 앞 선박의 성공 결과가 새 선박 화면에 붙지 않는다.
+    expect(screen.queryByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeNull()
+  })
+})
+
+/**
+ * 현장직은 폼을 읽되 실행 버튼이 잠긴다 (`API_SPEC §1.2` · #672). 결과 조회는 두 역할
+ * 모두라 화면 자체는 열린다 — 잠기는 것은 「실행」 하나다.
+ */
+describe('역할 — 현장직은 실행 버튼이 비활성이다 (#672)', () => {
+  it('현장직: 버튼 disabled + 안내, 요청은 나가지 않는다', async () => {
+    stubRole('FIELD')
+    const fetchImpl = stubServer()
+    renderScreen()
+    const button = (await screen.findByRole('button', {
+      name: ANNUAL_COPY.submit,
+    })) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    expect(screen.getByText(OFFICE_ONLY_ACTION_HINT)).toBeTruthy()
+    fireEvent.click(button)
+    await act(async () => {})
+    expect(
+      fetchImpl.mock.calls.some(([input]) => String(input).endsWith('/annual-simulations')),
+    ).toBe(false)
+  })
+
+  it('사무직: 버튼이 살아 있고 안내가 없다', async () => {
+    stubServer()
+    renderScreen()
+    const button = (await screen.findByRole('button', {
+      name: ANNUAL_COPY.submit,
+    })) as HTMLButtonElement
+    await waitFor(() => expect(button.disabled).toBe(false))
+    expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
+  })
+})
+
+/*
+ * ── 입력 폼 결함 5종 (#1096) ───────────────────────────────────────────────
+ */
+
+/** `POST /annual-simulations` 요청 본문. 없으면 `null` — 요청이 나가지 않았다는 뜻이다. */
+function submittedBody(fetchImpl: {
+  mock: { calls: unknown[][] }
+}): Record<string, unknown> | null {
+  const call = fetchImpl.mock.calls.find((c) => String(c[0]).endsWith('/annual-simulations'))
+  if (!call) return null
+  return JSON.parse(String((call[1] as RequestInit).body))
+}
+
+describe('⑴ 반복 횟수 — step이 아니라 서버 규칙으로 검증한다 (#1096)', () => {
+  it('2,500은 서버가 받는 값이다 — 그대로 보낸다', async () => {
+    const fetchImpl = stubServer()
+    renderScreen()
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+
+    fireEvent.change(screen.getByLabelText(/반복 횟수/), { target: { value: '2500' } })
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton })
+    expect(submittedBody(fetchImpl)?.simulation_runs).toBe(2500)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('1,000 미만은 화면 오류 자리에 문구가 서고 요청은 나가지 않는다', async () => {
+    const fetchImpl = stubServer()
+    renderScreen()
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+
+    const input = screen.getByLabelText(/반복 횟수/)
+    fireEvent.change(input, { target: { value: '500' } })
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe(ANNUAL_COPY.runsBelowMin)
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(submittedBody(fetchImpl)).toBeNull()
+
+    // 값을 고치면 문구가 사라진다.
+    fireEvent.change(input, { target: { value: '1000' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('10,000 초과도 막는다 — 잘려서 실행되는 값을 받아 주지 않는다', async () => {
+    const fetchImpl = stubServer()
+    renderScreen()
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+
+    fireEvent.change(screen.getByLabelText(/반복 횟수/), { target: { value: '20000' } })
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ANNUAL_COPY.runsAboveMax)
+    expect(submittedBody(fetchImpl)).toBeNull()
+  })
+})
+
+describe('⑵ 확률 스택 바 — 0% 구간에는 초점이 가지 않는다 (#1096)', () => {
+  it('「0.0%」 구간은 바에 그리지 않고 범례에만 남는다', async () => {
+    const payload = body('sim-z')
+    payload.data.monte_carlo.rating_probabilities = {
+      A: '0.0000',
+      B: '0.3000',
+      C: '0.5500',
+      D: '0.1500',
+      E: '0.0000',
+    }
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    renderScreen()
+    await runOnce()
+
+    // 바 안의 구간은 세 개뿐이다 — 초점을 받을 수 있는 보이지 않는 요소가 없다.
+    const bar = screen.getByRole('group', { name: /확률/ })
+    expect(bar.querySelectorAll('.annual-sim__seg').length).toBe(3)
+    expect(bar.querySelectorAll('[tabindex]').length).toBe(0)
+    expect(screen.queryByRole('img', { name: 'A 0.0%' })).toBeNull()
+    // 값은 범례에서 읽힌다.
+    expect(screen.getByText(/^A 0\.0%$/)).toBeTruthy()
+    expect(screen.getByText(/^E 0\.0%$/)).toBeTruthy()
+  })
+})
+
+describe('⑶ 제목 단계를 건너뛰지 않는다 (#1096)', () => {
+  it('섹션 h2 아래 소제목은 h3이고 h4는 없다', async () => {
+    stubServer()
+    renderScreen()
+    await runOnce()
+
+    expect(screen.getByRole('heading', { level: 3, name: ANNUAL_COPY.spreadTitle })).toBeTruthy()
+    expect(screen.queryAllByRole('heading', { level: 4 })).toEqual([])
+  })
+})
+
+describe('⑷ 주소의 연도는 목록과 대조된 뒤에만 쓴다 (#1096)', () => {
+  it('목록이 오지 않으면 주소의 해로 실행하지 않는다 — 안내가 서고 요청은 없다', async () => {
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) {
+        return jsonResponse({ error: { code: 'INTERNAL_ERROR', message: 'x' } }, 500)
+      }
+      if (url.endsWith('/annual-simulations')) return jsonResponse(body('sim-x'))
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    renderScreen('/annual?year=2099')
+
+    await screen.findByText('규제연도 목록을 불러오지 못했습니다')
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    expect((await screen.findByRole('status')).textContent).toBe(ANNUAL_COPY.yearsUnavailable)
+    expect(submittedBody(fetchImpl)).toBeNull()
+    // 실패가 아니라 안내다.
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('숫자가 아닌 주소 값은 기본값으로 떨어진다 — NaN을 보내지 않는다', async () => {
+    const fetchImpl = stubServer()
+    renderScreen('/annual?year=abc')
+    await runOnce()
+
+    expect(submittedBody(fetchImpl)?.regulation_year).toBe(2026)
+  })
+})
+
+describe('⑸ 선박 미선택은 실패가 아니라 안내다 (#1096)', () => {
+  function renderWithoutVessel() {
+    const value: ShellContext = { ...EMPTY_SHELL_CONTEXT, vesselsState: 'ready' }
+    return render(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  it('실행을 누르면 「실패했습니다」 없이 선박을 고르라는 안내만 선다', async () => {
+    const fetchImpl = stubServer()
+    renderWithoutVessel()
+
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    const status = await screen.findByRole('status')
+    expect(status.textContent).toBe(ANNUAL_COPY.needVessel)
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText(/실패했습니다/)).toBeNull()
+    expect(submittedBody(fetchImpl)).toBeNull()
+  })
+
+  it('누르기 전에도 빈 자리가 선박부터 고르라고 말한다', () => {
+    stubServer()
+    renderWithoutVessel()
+    expect(screen.getByText(ANNUAL_COPY.needVessel)).toBeTruthy()
   })
 })

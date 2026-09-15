@@ -1,4 +1,5 @@
 import { csrfHeaders, redirectToLogin } from '../auth/session'
+import { MAX_PAGES, nextCursorOf, pagedUrl } from './catalogPaging'
 import { DEFAULT_API_BASE_URL } from '../features/voyage-cii/apiProvider'
 import { API_BASE_URL_ENV_KEY } from '../features/voyage-cii/providerSelection'
 
@@ -61,40 +62,45 @@ export class VoyageCatalogError extends Error {
 /**
  * 실 API 구현 — `GET /api/v1/vessels/{id}/voyages` (`API_SPEC §3.1`).
  *
- * 페이지네이션은 따라가지 않는다. 셀렉트가 감당하는 규모를 넘어가면 그것은
- * 드롭다운이 아니라 검색 UI가 필요한 별개 문제다(`vesselCatalog.ts`와 같은 판단).
+ * **페이지네이션을 끝까지 따른다** (`#1073` · `layout/catalogPaging.ts`). 종전에는 첫 페이지만
+ * 받아 서버 기본 `limit` 20에서 잘렸다 — `#627`이 범위에 넣고 처리하지 않은 곳이다.
+ * 셀렉트가 감당하는 규모(5,000건)를 넘어가면 검색 UI가 필요한 별개 문제다.
  */
 export function createApiVoyageCatalog(baseUrl?: string): VoyageCatalogProvider {
   const base = baseUrl || DEFAULT_API_BASE_URL
   return {
     async listVoyages(vesselId: string) {
-      let response: Response
-      try {
-        response = await fetch(`${base}/vessels/${vesselId}/voyages`, {
-          method: 'GET',
-          credentials: 'include',
-          headers: csrfHeaders(),
-        })
-      } catch (cause) {
-        throw new VoyageCatalogError('서버에 연결하지 못했습니다.', { cause })
+      // 커서를 끝까지 따른다 (#1073) — 종전에는 첫 페이지(20건)만 받아 21번째 항차를 고를 수 없었다.
+      const rows: VoyageListItem[] = []
+      let cursor: string | null = null
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        let response: Response
+        try {
+          response = await fetch(pagedUrl(`${base}/vessels/${vesselId}/voyages`, cursor), {
+            method: 'GET',
+            credentials: 'include',
+            headers: csrfHeaders(),
+          })
+        } catch (cause) {
+          throw new VoyageCatalogError('서버에 연결하지 못했습니다.', { cause })
+        }
+        if (response.status === 401) {
+          redirectToLogin()
+          throw new VoyageCatalogError('로그인이 필요합니다.')
+        }
+        if (!response.ok) {
+          throw new VoyageCatalogError('항차 목록을 불러오지 못했습니다.')
+        }
+        let body: { data?: unknown }
+        try {
+          body = (await response.json()) as { data?: unknown }
+        } catch (cause) {
+          throw new VoyageCatalogError('항차 목록 응답을 해석하지 못했습니다.', { cause })
+        }
+        if (Array.isArray(body.data)) rows.push(...(body.data as VoyageListItem[]))
+        cursor = nextCursorOf(body)
+        if (cursor === null) break
       }
-
-      if (response.status === 401) {
-        redirectToLogin()
-        throw new VoyageCatalogError('로그인이 필요합니다.')
-      }
-      if (!response.ok) {
-        throw new VoyageCatalogError('항차 목록을 불러오지 못했습니다.')
-      }
-
-      let body: { data?: unknown }
-      try {
-        body = (await response.json()) as { data?: unknown }
-      } catch (cause) {
-        throw new VoyageCatalogError('항차 목록 응답을 해석하지 못했습니다.', { cause })
-      }
-
-      const rows = Array.isArray(body.data) ? (body.data as VoyageListItem[]) : []
       return rows
         .filter((row) => typeof row.id === 'string')
         .map((row) => ({

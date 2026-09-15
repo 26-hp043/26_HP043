@@ -593,7 +593,7 @@ def _db_rows(computed: list[_ScenarioComputed]) -> list[dict[str, Decimal]]:
     응답(``_serialize_scenarios``)과 같은 확정 원본에서 만들어야 자릿수가 어긋나지
     않는다. ``cii_value``는 [M-8] denormalized 캐시로 컬럼 스케일(15,8)이다.
     """
-    return [
+    rows = [
         {
             "distance_nm": item.plan.distance_nm,
             "speed_kn": item.plan.speed_kn,
@@ -604,6 +604,17 @@ def _db_rows(computed: list[_ScenarioComputed]) -> list[dict[str, Decimal]]:
         }
         for item in computed
     ]
+    # 1 nm를 250 kn으로 가면 0.004 h → 컬럼 스케일(0.01)로 0.00 → `chk_scenario_duration_positive`
+    # 위반으로 500이었다 (#1086 ④). 저장할 수 없는 결과는 계산 단계에서 422로 끝낸다.
+    for row in rows:
+        if row["duration_hours"] <= 0 or row["fuel_ton"] <= 0:
+            raise ValidationError(
+                "항차 소요시간이 0.01시간 미만이라 시나리오를 저장할 수 없습니다. "
+                "거리를 늘리거나 속력을 낮춰 주세요.",
+                field="direct_distance_nm",
+                field_label="직항 거리",
+            )
+    return rows
 
 
 def _serialize_scenarios(

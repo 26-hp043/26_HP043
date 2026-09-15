@@ -68,8 +68,24 @@ export function daysToDText(days: number | null, reason: DaysReason | null): str
     case 'NOT_UNDER_WAY':
       // 정박 중에는 값이 요동쳐 서버가 산정하지 않는다. 그 사실을 그대로 말한다.
       return '정박 중 — 산정 안 함'
-    default:
+    case 'NO_DATA':
       return '실적 없음'
+    case 'NO_RECENT_DATA':
+      // `NO_DATA`와 다르다 — 실적은 있는데 **최근 30일**이 비어 기울기를 못 낸 것이다.
+      // 「실적 없음」으로 뭉치면 사용자가 없는 항차를 찾으러 간다 (`#1091`).
+      return '최근 항해 없음'
+    case 'NOT_WORSENING':
+      // 0일이 아니라 「해당 없음」이다 — 숫자를 만들면 「곧 진입한다」로 읽힌다.
+      // A~C 선박 대부분이 이 사유라 가장 흔한 상태다 (`API_SPEC §2.8`).
+      return '이대로면 진입 없음'
+    default:
+      // ⚠️ **모르는 사유를 「실적 없음」으로 적지 않는다** (`#1091`).
+      //
+      // 종전 폴백이 그것이었고, 서버가 `#431`로 추가한 `NO_RECENT_DATA`·
+      // `NOT_WORSENING` 두 사유가 이 자리로 떨어져 **실적이 있는 선박에 「실적 없음」**이
+      // 붙었다. 폴백이 뜻을 지어내면 틀린 쪽이 맞는 것처럼 보인다 — 중립 표시로 둔다.
+      // 어느 사유가 왔는지는 `daysReason.sync.test.ts`가 정본과 대조해 막는다.
+      return '—'
   }
 }
 

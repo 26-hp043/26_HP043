@@ -244,6 +244,9 @@ jobs:
       # 가입 게이트도 같은 이유로 준다 (#808) — 프로덕션에서 허용 도메인·초대 코드가
       # 둘 다 비면 앱이 뜨지 않는다. CI 전용 도메인이며 이 잡은 가입을 검증하지 않는다.
       #
+      # 최초 사무직도 같은 자리다 (#672) — 프로덕션에서 `INITIAL_OFFICE_EMAILS`가 비면
+      # 앱이 뜨지 않는다(새 DB에서 사무직 0명이 되지 않게). 이 잡은 역할을 검증하지 않는다.
+      #
       - name: 메일 설정 주입 (.env)
         run: |
           cat > .env <<'ENVEOF'
@@ -251,6 +254,7 @@ jobs:
           SMTP_HOST=localhost.invalid
           MAIL_FROM=ci@localhost.invalid
           SIGNUP_ALLOWED_DOMAINS=ci.example
+          INITIAL_OFFICE_EMAILS=office@ci.example
           ENVEOF
 
       - name: 이미지 빌드 (app · frontend)

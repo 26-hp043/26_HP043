@@ -217,6 +217,13 @@
   margin: 0;
 }
 
+/* 입력 아래 위반 문구 (#1096 ⑴) — `VoyageCiiForm.css`의 `__error`와 같은 값. */
+.annual-sim__field-error {
+  color: var(--color-danger-text);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+}
+
 .annual-sim__field {
   display: flex;
   flex-direction: column;
@@ -519,5 +526,11 @@
   cursor: pointer;
   color: var(--color-link);
   font-weight: var(--font-weight-label);
+  font-size: var(--font-size-label);
+}
+
+/* `2-10` 진입 링크 (#513) — 실행 조건 제목 아래 한 줄. */
+.annual-sim__fleet-link {
+  align-self: flex-start;
   font-size: var(--font-size-label);
 }

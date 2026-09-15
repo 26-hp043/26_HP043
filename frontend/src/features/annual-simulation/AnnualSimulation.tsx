@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
@@ -9,6 +9,7 @@ import { useYearOptions } from '../parameters/yearCatalog'
 import { GradeBadge } from '../../components/GradeBadge'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
+import { SCREEN_BY_ID } from '../../screens'
 
 /**
  * 잔여 계획 항차가 0건임을 알리는 경고 코드 (`calc/annual_simulation.py`).
@@ -17,17 +18,22 @@ import { ANNUAL_COPY } from './copy'
  */
 const NO_REMAINING_VOYAGES = 'NO_REMAINING_VOYAGES'
 import {
+  RUNS_MAX,
+  RUNS_MIN,
   probabilityOfDorE,
   reproducibilityLine,
   riskFlag,
   sensitivityRows,
   stackSegments,
   toPercent,
+  validateRuns,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { SnapshotVoyages } from './SnapshotVoyages'
+import { isOffice, useAuthUser } from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 
 /**
  * 기능③ 연간 CII 시뮬레이션 화면 (#157 · **#442에서 실 API 연결**).
@@ -55,6 +61,12 @@ import { SnapshotVoyages } from './SnapshotVoyages'
 
 type RunState =
   | { status: 'idle' }
+  /*
+   * 실행 **전**에 막힌 상태 (#1096 ⑸). 선박 미선택·연도 목록 미도착·목록 실패는
+   * 실행한 적이 없으니 `error`가 아니다 — 종전에는 `error`로 넣어 「시뮬레이션에
+   * 실패했습니다」 제목 아래 「선박을 먼저 선택해 주세요」가 나왔다.
+   */
+  | { status: 'blocked'; message: string }
   | { status: 'running' }
   | { status: 'success'; result: AnnualSimulationResult }
   | { status: 'error'; message: string }
@@ -83,9 +95,22 @@ export function AnnualSimulation({
   // 박혀 있어, 상단에서 어떤 배를 골라도 늘 같은 배로 계산했다.
   const shell = useShellContext()
   const provider = useMemo(() => createAnnualSimulationProvider(), [])
+  // 실행은 사무직 전용이다 (`API_SPEC §1.2` · #672). 현장직은 폼을 읽되 실행 버튼이 잠긴다.
+  const office = isOffice(useAuthUser())
   const [state, setState] = useState<RunState>({ status: 'idle' })
+  /*
+   * 실행 **세대 번호** — 늦은 응답을 버린다 (`#1094` · `#874` 선례).
+   *
+   * 실행 중에 상단바에서 선박을 바꾸면, 앞 선박의 요청은 그대로 날아가고 있다.
+   * 그 응답이 돌아오면 `setState({ status: 'success', … })`가 **새 선박 화면에**
+   * 성공 결과를 붙였다 — 결과 카드에 선박명이 없어 사용자가 알아챌 수 없다.
+   * Monte Carlo 10,000회는 초 단위라 전환할 시간이 충분하다.
+   */
+  const generationRef = useRef(0)
   const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>('B')
   const [runs, setRuns] = useState('5000')
+  /** 반복 횟수 위반 문구. 실행을 누를 때 판정하고, 값을 고치면 지운다 (#1096 ⑴). */
+  const [runsError, setRunsError] = useState<string | null>(null)
   const [seed, setSeed] = useState('')
   // `PRD §12.2.1` 실적 보정계수 — 기본은 끔(`#363`). 켜지 않은 실행은 종전과 같다.
   const [applyFeedback, setApplyFeedback] = useState(false)
@@ -94,11 +119,18 @@ export function AnnualSimulation({
   // 두 화면이 서로 다른 해를 보여 주고, 그 차이는 값이 아니라 목록에서 나타나 늦게 발견된다.
   /*
    * 첫 연도는 주소의 `?year=`에서 받는다 (#891 · `PRD §10.5` 「해당 선박·**연도**로 이동」).
-   * 기능①의 「연간 시뮬레이터에서 보기」가 싣는다. 목록에 없는 해면 아래 `pickDefaultYear`가
-   * 기본값으로 바꾼다 — 주소 값을 검증 없이 쓰지 않는다.
+   * 기능①의 「연간 시뮬레이터에서 보기」가 싣는다.
+   *
+   * ⚠️ **주소 값은 목록과 대조되기 전에는 `year`가 되지 않는다** (#1096 ⑷). 종전에는
+   * 주소 값을 곧바로 상태에 넣어, 목록을 못 받으면 `?year=2099`가 검증 없이 전송되고
+   * `?year=abc`는 `Number('abc')` = `NaN` → JSON `null` → 422가 됐다 — 「값을 지어내
+   * 계산하지 않는다」는 아래 `run`의 주석과 반대였다. 주소 값은 **후보**로만 두고,
+   * 목록이 오면 `pickDefaultYear`가 목록 안의 값일 때만 고른다. 목록이 없으면 `year`는
+   * 빈 채로 남고 `run`이 실행을 막는다.
    */
   const [searchParams] = useSearchParams()
-  const [year, setYear] = useState(() => searchParams.get('year') ?? '')
+  const requestedYear = searchParams.get('year') ?? ''
+  const [year, setYear] = useState('')
 
   /*
    * 연도 선택지는 **공용 훅**이 받는다 (`#632`가 만든 것 · `#824` ⑴로 이관).
@@ -144,26 +176,62 @@ export function AnnualSimulation({
   useEffect(() => {
     if (years.length === 0) return
     const thisYear = new Date().getFullYear()
-    setYear((prev) => pickDefaultYear(years, thisYear, prev))
-  }, [years])
+    // 아직 고른 해가 없으면 주소의 후보를 넘긴다 — 목록에 있을 때만 채택된다.
+    setYear((prev) => pickDefaultYear(years, thisYear, prev || requestedYear))
+  }, [years, requestedYear])
+
+  /*
+   * ⚠️ **대상이 바뀌면 앞의 결과를 지운다** (`#1094`).
+   *
+   * 종전에는 상단바에서 선박을 바꿔도 `state`가 그대로여서 **앞 선박의 P50·달성
+   * 확률·필요 감축량이 새 선박을 고른 상태로 계속 보였다.** 결과 카드에 선박명이
+   * 없으므로 화면만 보고는 어느 배의 숫자인지 알 수 없다 — **「아직 안 돌렸다」와
+   * 「앞 배 결과」가 같은 모양**이었고, 사용자는 둘을 구분할 방법이 없었다.
+   *
+   * 연도도 같다 — 2026년 결과를 2027년을 고른 상태로 두면 같은 문제다.
+   *
+   * **세대를 함께 올려** 이미 날아간 요청의 응답을 버린다. `Result`의 재현 상태는
+   * 그 컴포넌트 안에 있으므로 `idle`로 돌아가면 언마운트되며 함께 사라진다.
+   *
+   * `target`·`runs`·`seed`·`applyFeedback`은 **지우지 않는다.** 사용자가 정한 조건이고,
+   * 배를 바꿨다고 조건까지 되돌리면 같은 조건으로 두 배를 비교할 수 없다. 그래서
+   * 페이지에 `key`를 주어 통째로 다시 만드는 방법을 쓰지 않았다.
+   *
+   * ⚠️ **`onDisclaimer`를 여기서 부르지 않는다.** 그것을 의존성에 넣으면 호출자가
+   * 함수를 `useCallback`으로 감싸지 않는 순간 **매 렌더마다 결과가 지워진다** —
+   * 화면이 「실행했는데 아무 일도 안 일어난다」가 된다. 지금 호출자(`AnnualGradePage`)는
+   * 안정적이지만 그 성질에 기대는 설계를 두지 않는다. 배너는 `undefined`일 때
+   * 기본 문구를 쓰므로(`DisclaimerBanner`) 여기서 비울 것도 없다.
+   */
+  useEffect(() => {
+    generationRef.current += 1
+    setState({ status: 'idle' })
+  }, [shell.vesselId, year])
 
   const run = useCallback(async () => {
+    // 실행 전 차단은 `blocked`다 — 실패가 아니라 안내 (#1096 ⑸).
     if (shell.vesselId === null) {
-      setState({ status: 'error', message: '상단에서 선박을 먼저 선택해 주세요.' })
+      setState({ status: 'blocked', message: ANNUAL_COPY.needVessel })
       return
     }
     if (year === '') {
       // 목록을 못 받았거나 아직 오는 중이다. 값을 지어내 계산하지 않는다 — 종전
       // 고정값(2026)이 정확히 그런 형태였고, 사용자는 다른 해를 볼 수 없었다.
+      // 주소의 `?year=`도 여기서 막힌다 — 목록과 대조되지 않은 값은 `year`가 아니다.
       setState({
-        status: 'error',
-        message: yearsFailed
-          ? '규제연도 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
-          : '규제연도 목록을 불러오는 중입니다.',
+        status: 'blocked',
+        message: yearsFailed ? ANNUAL_COPY.yearsUnavailable : ANNUAL_COPY.yearsPending,
       })
       return
     }
+    // 반복 횟수는 서버와 같은 규칙으로 화면에서 먼저 막는다 (#1096 ⑴).
+    const runsProblem = validateRuns(runs)
+    if (runsProblem !== null) {
+      setRunsError(runsProblem)
+      return
+    }
     setState({ status: 'running' })
+    const ticket = generationRef.current
     try {
       const result = await provider.run({
         vessel_id: shell.vesselId,
@@ -175,9 +243,15 @@ export function AnnualSimulation({
         // 끈 상태는 보내지 않는다 — 서버 기본이 끔이고, 요청 모양이 종전과 같게 남는다.
         ...(applyFeedback ? { apply_feedback_factor: true } : {}),
       })
+      // 기다리는 동안 대상이 바뀌었으면 **버린다** — 새 선박 화면에 앞 배의 성공
+      // 결과를 붙이지 않는다 (`#1094`).
+      if (ticket !== generationRef.current) return
       setState({ status: 'success', result })
       onDisclaimer?.(undefined)
     } catch (error: unknown) {
+      // 실패도 같다. 앞 배의 오류 문구를 새 배 화면에 띄우면 사용자는 새 배에
+      // 문제가 있다고 읽는다.
+      if (ticket !== generationRef.current) return
       setState({
         status: 'error',
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorFallback,
@@ -201,14 +275,24 @@ export function AnnualSimulation({
         </header>
       ) : null}
 
+      {/*
+        `noValidate` — 브라우저 기본 검증(툴팁)을 끄고 화면이 직접 검증한다 (#1096 ⑴).
+        종전에는 `step={1000}`이 2,500을 툴팁으로만 막아 **화면 오류 자리는 비어 있고
+        서버는 받는 값**이었다. 지금은 `validateRuns`가 판정하고 그 결과가 입력 아래 선다.
+      */}
       <form
         className="annual-sim__form"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault()
           void run()
         }}
       >
         <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.runTitle}</h2>
+        {/* `UIFLOW 2-10` 진입 조건 — 한 척에서 선대 단위 조치로 넘어간다 (#513). */}
+        <Link className="annual-sim__fleet-link" to={SCREEN_BY_ID.FLEET_REDUCTION.path}>
+          {ANNUAL_COPY.fleetLink}
+        </Link>
 
         <label className="annual-sim__field">
           <span className="annual-sim__label">기준연도</span>
@@ -249,15 +333,25 @@ export function AnnualSimulation({
 
         <label className="annual-sim__field">
           <span className="annual-sim__label">{ANNUAL_COPY.runsLabel}</span>
+          {/* `step`을 두지 않는다 — 서버 규칙(정수 · 1,000 이상)에 없는 제약이다. */}
           <input
             type="number"
-            min={1000}
-            max={10000}
-            step={1000}
+            min={RUNS_MIN}
+            max={RUNS_MAX}
             value={runs}
-            onChange={(event) => setRuns(event.target.value)}
+            aria-invalid={runsError !== null}
+            aria-describedby={runsError === null ? undefined : 'annual-sim-runs-error'}
+            onChange={(event) => {
+              setRuns(event.target.value)
+              setRunsError(null)
+            }}
           />
           <span className="annual-sim__hint">{ANNUAL_COPY.runsHint}</span>
+          {runsError === null ? null : (
+            <span id="annual-sim-runs-error" className="annual-sim__field-error" role="alert">
+              {runsError}
+            </span>
+          )}
         </label>
 
         <label className="annual-sim__field">
@@ -287,9 +381,18 @@ export function AnnualSimulation({
           </span>
         </div>
 
-        <button type="submit" disabled={state.status === 'running'}>
+        <button
+          type="submit"
+          disabled={state.status === 'running' || !office}
+          aria-describedby={office ? undefined : 'annual-sim-office-only'}
+        >
           {state.status === 'running' ? ANNUAL_COPY.submitting : ANNUAL_COPY.submit}
         </button>
+        {office ? null : (
+          <span id="annual-sim-office-only" className="annual-sim__hint">
+            {OFFICE_ONLY_ACTION_HINT}
+          </span>
+        )}
       </form>
 
       {/*
@@ -299,7 +402,19 @@ export function AnnualSimulation({
       */}
       <div className="annual-sim__results">
         {state.status === 'idle' ? (
-          <p className="annual-sim__placeholder">{ANNUAL_COPY.empty}</p>
+          <p className="annual-sim__placeholder">
+            {/* 선박이 없으면 「조건을 고르라」보다 먼저 할 일을 말한다 (#1096 ⑸). */}
+            {shell.vesselId === null ? ANNUAL_COPY.needVessel : ANNUAL_COPY.empty}
+          </p>
+        ) : null}
+        {/*
+          실행 전 차단은 안내다 — `role="status"`로 읽히고 「실패했습니다」 제목이 없다.
+          `alert`로 내면 실행한 적 없는 일이 실패한 것으로 읽힌다 (#1096 ⑸).
+        */}
+        {state.status === 'blocked' ? (
+          <p className="annual-sim__placeholder" role="status">
+            {state.message}
+          </p>
         ) : null}
         {state.status === 'running' ? (
           <p className="annual-sim__placeholder" aria-live="polite">
@@ -526,6 +641,9 @@ function Result({
           aria-label={`${ANNUAL_COPY.probabilityTitle} — ${stackAria(segments)}`}
         >
           {segments.map((seg) => {
+            // 「0.0%」 구간은 그리지 않는다 — 폭이 없어 보이지 않는 요소에 초점이 가던
+            // 자리다 (#1096 ⑵). 값은 아래 범례와 그룹의 대체 텍스트에 그대로 있다.
+            if (seg.empty) return null
             const pattern = gradePatternUrl(seg.rating)
             const inline = seg.inline
             const text = `${seg.rating} ${seg.label}`
@@ -591,7 +709,8 @@ function Result({
           </div>
         </div>
 
-        <h4 className="annual-sim__sub-title">{ANNUAL_COPY.spreadTitle}</h4>
+        {/* 섹션 제목이 `h2`라 다음 단계는 `h3`다 — 단계를 건너뛰지 않는다 (#1096 ⑶). */}
+        <h3 className="annual-sim__sub-title">{ANNUAL_COPY.spreadTitle}</h3>
         <div className="annual-sim__metrics">
           <Metric
             label={ANNUAL_COPY.p10Label}

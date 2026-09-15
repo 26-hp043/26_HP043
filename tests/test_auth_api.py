@@ -329,6 +329,8 @@ USER_CONTRACT = frozenset(
         "data.email_verified_at",
         "data.id",
         "data.last_login_at",
+        # 사무직·현장직 (#672)
+        "data.role",
     }
     | _META
 )

@@ -16,7 +16,7 @@ from cii_platform.auth.session import (
     verify_csrf,
 )
 from cii_platform.config import should_expose_api_docs, should_expose_dev_auth
-from cii_platform.db.models.app_user import AppUser
+from cii_platform.db.models.app_user import ROLE_OFFICE, AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.session import get_sessionmaker
 from cii_platform.errors import AppError
@@ -34,6 +34,21 @@ class CsrfError(AppError):
 
     def __init__(self, message: str = "CSRF 토큰이 올바르지 않습니다."):
         super().__init__("CSRF_ERROR", message)
+
+
+#: 역할 거부 문구 (`API_SPEC §1.4` · `PRD §6.3`).
+OFFICE_ONLY_MESSAGE = "이 작업은 사무직 계정만 할 수 있습니다."
+
+
+class RoleForbiddenError(AppError):
+    """역할이 허용하지 않는 작업 (API_SPEC §1.4). HTTP 403 · ``FORBIDDEN_ROLE`` (#672).
+
+    CSRF와 **같은 403이지만 코드가 다르다.** 한 status가 두 원인을 가리키면 화면이 갈라 쓸 수
+    없다 — CSRF는 토큰을 다시 실어 재시도할 일이고, 역할은 안내하고 끝낼 일이다.
+    """
+
+    def __init__(self, message: str = OFFICE_ONLY_MESSAGE):
+        super().__init__("FORBIDDEN_ROLE", message)
 
 
 #: OpenAPI 문서 경로. **프로덕션에서는 공개 경로에 넣지 않는다** (#593).
@@ -116,13 +131,30 @@ def is_public_path(path: str) -> bool:
     return path in PUBLIC_PATHS
 
 
-async def get_current_user(request: Request) -> AppUser:
-    """현재 인증된 사용자를 반환한다. 미인증 시 ``AuthenticationError``.
+#: 세션 실패 문구 — 미들웨어와 의존성이 **같은 한 벌**을 쓴다 (#1050).
+SESSION_NOT_FOUND_MESSAGE = "세션을 찾을 수 없습니다."
+SESSION_EXPIRED_MESSAGE = "로그인 세션이 만료되었습니다. 다시 로그인하세요."
+USER_NOT_FOUND_MESSAGE = "사용자 계정을 찾을 수 없습니다."
 
-    ``Depends(get_current_user)``로 라우트에 직접 걸 수 있다 (#315) — 세션이
-    없으면 ``request.state.session_user`` 캐시 확인 → 쿠키 검증 → DB 조회 순으로
-    진행하며, DB 세션은 내부에서 ``get_sessionmaker()``로 만든다(auth_middleware와
-    같은 패턴). 같은 요청에서 두 번째 호출은 DB 조회 없이 캐시된 값을 돌려준다.
+
+async def resolve_session(request: Request) -> AppUser:
+    """쿠키 → 토큰 해시 → 세션 행 → 만료·폐기 판정 → 사용자 조회 — **세션 검증의 유일한 한 벌**
+    (#1050).
+
+    ## 왜 한 곳인가
+
+    종전에는 이 다섯 단계가 ``auth_middleware``와 ``get_current_user``에 **두 벌** 있었고,
+    미들웨어가 모든 비공개 경로에서 먼저 돌아 ``request.state.session_user``를 채우므로 의존성
+    쪽 본문은 **운영에서 한 번도 실행되지 않았다**(`#955` 커버리지 하한이 드러낸 공백). 갈려도
+    증상이 없다가, 미들웨어 배선이 바뀌는 날 갈린 쪽이 판정을 맡는다. 지금은 미들웨어도
+    의존성도 이 함수를 부른다.
+
+    결과는 ``request.state``에 캐시한다 — 같은 요청에서 두 번째 호출은 DB를 다시 읽지 않는다.
+    DB 세션은 내부에서 ``get_sessionmaker()``로 만든다(미들웨어에는 의존성 주입이 없다).
+
+    :raises AuthenticationError: 쿠키 없음 · 세션 없음 · 만료 · 폐기 · 삭제된 계정. 문구는
+        분기마다 다르고(`API_SPEC §1.4` ``UNAUTHORIZED``), 미들웨어는 그 문구를 그대로 401
+        응답에 싣는다.
     """
     cached = getattr(request.state, "session_user", None)
     if cached is not None:
@@ -143,9 +175,9 @@ async def get_current_user(request: Request) -> AppUser:
         user_session = result.scalar_one_or_none()
 
         if user_session is None:
-            raise AuthenticationError("세션을 찾을 수 없습니다.")
+            raise AuthenticationError(SESSION_NOT_FOUND_MESSAGE)
         if not is_valid(user_session.expires_at, user_session.revoked_at):
-            raise AuthenticationError("로그인 세션이 만료되었습니다. 다시 로그인하세요.")
+            raise AuthenticationError(SESSION_EXPIRED_MESSAGE)
 
         user_stmt = select(AppUser).where(
             AppUser.id == user_session.user_id,
@@ -155,11 +187,21 @@ async def get_current_user(request: Request) -> AppUser:
         user = user_result.scalar_one_or_none()
 
         if user is None:
-            raise AuthenticationError("사용자 계정을 찾을 수 없습니다.")
+            raise AuthenticationError(USER_NOT_FOUND_MESSAGE)
 
         request.state.session_user = user
         request.state.session_row = user_session
         return user
+
+
+async def get_current_user(request: Request) -> AppUser:
+    """현재 인증된 사용자를 반환한다. 미인증 시 ``AuthenticationError``.
+
+    ``Depends(get_current_user)``로 라우트에 직접 걸 수 있다 (#315). 판정은
+    :func:`resolve_session` 한 벌이다 (#1050) — 비공개 경로에서는 미들웨어가 이미 채운 캐시를
+    돌려주고, 공개 경로에 걸면 여기서 쿠키를 읽어 같은 규칙으로 판정한다.
+    """
+    return await resolve_session(request)
 
 
 def require_csrf(
@@ -187,3 +229,22 @@ def require_csrf(
         raise CsrfError("CSRF 토큰이 누락되었습니다.")
     if not verify_csrf(csrf_header, user_session.csrf_token_hash):
         raise CsrfError("CSRF 토큰이 올바르지 않습니다.")
+
+
+def require_office(request: Request) -> None:
+    """사무직만 지나가는 라우트에 건다 (#672 · `API_SPEC §1.2` 역할 표).
+
+    ``Depends(require_office)``로 ``require_csrf`` 옆에 둔다. 미들웨어가 채운
+    ``request.state.session_user``의 ``role``만 본다 — DB를 다시 읽지 않는다.
+
+    **fail-closed** — 사용자가 없으면(배선 어김) 통과시키지 않고 ``AuthenticationError``다.
+    ``require_csrf``가 ``session_row``에 대해 같은 판단을 한다(#311).
+
+    어느 라우트에 걸리는가는 ``API_SPEC §1.2``의 역할 표가 정하고,
+    ``tests/test_roles_db.py``가 소스와 대조한다 — 한쪽만 바뀌면 거기서 걸린다.
+    """
+    user = getattr(request.state, "session_user", None)
+    if user is None:
+        raise AuthenticationError()
+    if getattr(user, "role", None) != ROLE_OFFICE:
+        raise RoleForbiddenError()

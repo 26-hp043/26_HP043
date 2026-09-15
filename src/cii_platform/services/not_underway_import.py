@@ -35,6 +35,7 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from cii_platform.api.schemas.bounds import NOT_UNDERWAY_FUEL
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import AppError, ValidationError
 from cii_platform.services.not_underway import (
@@ -83,7 +84,18 @@ def _text(row: dict[str, str], column: str) -> str:
     return (row.get(column) or "").strip()
 
 
-def _decimal(row: dict[str, str], column: str, *, label: str) -> Decimal:
+#: 정박 연료·거리 컬럼 `NUMERIC(12,2)`의 저장 범위 (`schemas/bounds.py`와 같은 값 · #1086).
+_FUEL_MIN = NOT_UNDERWAY_FUEL["ge"]
+_NUMERIC_MAX = NOT_UNDERWAY_FUEL["le"]
+
+
+def _decimal(row: dict[str, str], column: str, *, label: str, positive: bool = False) -> Decimal:
+    """``NUMERIC(12,2)``에 담을 수 있는 값만 받는다 (#1086 ⑤ · `schemas/bounds.py`).
+
+    ``positive``면 0도 거부한다 — ``fuel_ton``은 DB가 ``> 0``을 요구하고, 종전에는 ``< 0``만
+    막아 ``0``이 **행 오류가 아니라 IntegrityError 500**이 됐다. 앞 행은 이미 커밋된 뒤라
+    다시 올리면 「겹침」으로 막혔다. 거리는 0이 정상값이다(접안·묘박).
+    """
     raw = _text(row, column)
     if not raw:
         raise RowError(column, f"{label}이(가) 비어 있습니다.")
@@ -91,8 +103,14 @@ def _decimal(row: dict[str, str], column: str, *, label: str) -> Decimal:
         value = Decimal(raw)
     except (InvalidOperation, ValueError) as exc:
         raise RowError(column, f"{label}은(는) 숫자여야 합니다: {raw}") from exc
-    if value < 0:
+    if not value.is_finite():
+        raise RowError(column, f"{label}은(는) 숫자여야 합니다: {raw}")
+    if positive and value < _FUEL_MIN:
+        raise RowError(column, f"{label}은(는) {_FUEL_MIN} 이상이어야 합니다: {raw}")
+    if not positive and value < 0:
         raise RowError(column, f"{label}은(는) 0 이상이어야 합니다: {raw}")
+    if value > _NUMERIC_MAX:
+        raise RowError(column, f"{label}이(가) 너무 큽니다(최대 {_NUMERIC_MAX}): {raw}")
     return value
 
 
@@ -150,7 +168,7 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
         "lon": _optional_decimal(row, "lon", label="경도"),
         "distance_nm": _decimal(row, "distance_nm", label="이동 거리"),
         "fuel_type": fuel_type,
-        "fuel_ton": _decimal(row, "fuel_ton", label="연료량"),
+        "fuel_ton": _decimal(row, "fuel_ton", label="연료량", positive=True),
         "consumer_type": consumer_type,
     }
 

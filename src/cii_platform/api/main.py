@@ -40,6 +40,7 @@ from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.api.routes.weather import router as weather_router
 from cii_platform.auth.middleware import auth_middleware
+from cii_platform.auth.role_bootstrap import validate_initial_office
 from cii_platform.auth.signup_gate import validate_signup_gate
 from cii_platform.config import should_expose_api_docs, validate_public_base_url
 from cii_platform.mail.config import load_mail_settings
@@ -92,6 +93,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 비어 있으면 **누구나 가입해 모든 선박·항차를 고칠 수 있다** — 첫 가입 요청에서
     # 막으면 이미 누군가 들어온 뒤에야 드러난다.
     validate_signup_gate()
+
+    # 최초 사무직도 같은 자리에서 본다 (#672). 새 DB에서 목록이 비면 **아무도 사무직이
+    # 아니라** 리포트·연간 시뮬레이션·계정 관리를 아무도 못 쓴다 — 첫 사용자가 리포트를
+    # 열 때에야 드러난다.
+    validate_initial_office()
 
     yield
 

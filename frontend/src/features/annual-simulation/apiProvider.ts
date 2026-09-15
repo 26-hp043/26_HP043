@@ -81,7 +81,6 @@ export function toAnnualSimulationError(status: number, body: unknown): AnnualSi
 
 export interface ApiProviderOptions {
   baseUrl?: string
-  apiKey?: string
   /** 테스트에서 갈아 끼우기 위한 주입점. */
   fetchImpl?: typeof fetch
 }
@@ -100,7 +99,6 @@ export function createApiAnnualSimulationProvider(
    */
   async function post(path: string, body?: unknown): Promise<AnnualSimulationResult> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (options.apiKey) headers['X-API-Key'] = options.apiKey
     // CSRF — 서버가 검증하는 것은 헤더뿐이다(`API_SPEC §1.2`).
     Object.assign(headers, csrfHeaders())
 
@@ -163,7 +161,6 @@ export function createApiAnnualSimulationProvider(
   /** 조회(GET) — 스냅샷 항차 (`§6.3` · #992). 봉투는 `{data: [...]}`다. */
   async function getSnapshotVoyages(simulationId: string): Promise<SnapshotVoyage[]> {
     const headers: Record<string, string> = { Accept: 'application/json' }
-    if (options.apiKey) headers['X-API-Key'] = options.apiKey
     let response: Response
     try {
       response = await doFetch(

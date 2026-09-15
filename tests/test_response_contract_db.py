@@ -162,6 +162,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.email_verified_at",
             "data.id",
             "data.last_login_at",
+            # 사무직·현장직 (#672) — 화면이 사이드바·버튼을 이 값으로 가른다
+            "data.role",
             "meta",
             "meta.request_id",
             "meta.timestamp",
@@ -1573,6 +1575,20 @@ _FILES = "tests/test_report_export_routes_api_db.py"
 
 #: 두 계약 표 밖의 라우트 → 필드 집합을 보는 테스트(``파일::함수``) 또는 ``면제: 사유``.
 ROUTE_COVERAGE: dict[str, str] = {
+    # `API_SPEC §2.17` (#513) — 계산 결과가 **DB의 모든 선박·항차에 따라** 갈리고 저장은
+    # 행을 만든다. 그 파일이 자기 선박으로 값을 보고, HTTP 경로(봉투·422·201·404)를 본다.
+    "POST /fleet/reduction-plans/evaluate": (
+        "tests/test_fleet_reduction_db.py::test_the_routes_answer_over_http"
+    ),
+    "POST /fleet/reduction-plans": (
+        "tests/test_fleet_reduction_db.py::test_the_routes_answer_over_http"
+    ),
+    "GET /fleet/reduction-plans": (
+        "tests/test_fleet_reduction_db.py::test_the_routes_answer_over_http"
+    ),
+    "GET /fleet/reduction-plans/{}": (
+        "tests/test_fleet_reduction_db.py::test_the_routes_answer_over_http"
+    ),
     # `API_SPEC §2.16` (#513) — `issues[]`의 영향 블록 유무가 **DB에 있는 항차에 따라** 갈려
     # 공용 데이터로 필드 집합을 비교할 수 없다. 그 파일이 자기 데이터로 양쪽 모양을 모두 보고,
     # HTTP 경로(인증·봉투·422)는 따로 본다.
@@ -1619,6 +1635,14 @@ ROUTE_COVERAGE: dict[str, str] = {
     "POST /auth/password-change": f"{_AUTH}::test_account_routes_share_the_user_contract",
     "POST /auth/logout": f"{_AUTH}::test_logout_and_delete_have_no_body",
     "DELETE /auth/me": f"{_AUTH}::test_logout_and_delete_have_no_body",
+    # 역할 (#672) — 사무직 전용이고 계정을 만들고 지우는 파일에 둔다. 목록은 `/auth/me`와
+    # 같은 사용자 계약의 배열이고, 역할 변경 응답은 그 계약 하나다.
+    "GET /auth/users": (
+        "tests/test_roles_db.py::test_user_list_and_role_update_share_the_user_contract"
+    ),
+    "PATCH /auth/users/{}/role": (
+        "tests/test_roles_db.py::test_user_list_and_role_update_share_the_user_contract"
+    ),
     "POST /auth/verify-email/request": f"{_TOKENS}::test_token_routes_match_the_contract",
     "POST /auth/verify-email/confirm": f"{_TOKENS}::test_token_routes_match_the_contract",
     "POST /auth/password-reset/request": f"{_TOKENS}::test_token_routes_match_the_contract",

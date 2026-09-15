@@ -129,13 +129,26 @@ export interface ScenarioComparisonResponse {
 /**
  * 시나리오 채택 결과 — `POST /scenarios/{id}/adopt` (`API_SPEC §5.2` · `#580`).
  *
- * `invalidated_calculation_runs`는 **받지 않는다.** `#817`(`calculation_run.voyage_id`가
- * 늘 `NULL`)이 닫히기 전에는 이 수가 항상 `0`이고 참값이 아니다 — 화면에 내보내면
- * 거짓을 보여 준다(2026-09-08 착수 판정).
+ * `invalidated_calculation_runs`는 **받는다** (`#1077`). 종전에는 `#817`
+ * (`calculation_run.voyage_id`가 늘 `NULL`)이 닫히기 전에는 이 수가 항상 `0`이고 참값이
+ * 아니라 받지 않았는데(2026-09-08 착수 판정), **`#817`이 2026-09-11에 닫혔다** —
+ * 항차를 밝힌 계산이 그 항차에 귀속되므로 이제 참값이다.
+ *
+ * ⚠️ **선택 필드로 둔다.** 서버가 싣지 않은 응답(`0`이 아니라 **필드 자체가 없는** 경우)과
+ * `0`은 뜻이 다르다 — 앞은 「알 수 없다」이고 뒤는 「새로 표시된 계산이 없다」이다. 둘을
+ * 같은 모양으로 그리면 사용자는 가장 나쁜 해석을 고른다.
  */
 export interface ScenarioAdoptResult {
   voyage_id: string
   adopted_scenario_type: ScenarioType
   /** 서버가 덮어쓴 항차 필드 — `planned_distance_nm` 등 */
   updated_fields: string[]
+  /**
+   * 이번 채택으로 **새로** 재계산 필요 표시가 붙은 그 항차의 계산 결과 수 (`API_SPEC §5.2`).
+   *
+   * `0`은 「계산 이력이 없다」와 「이미 전부 표시돼 있다」 **둘 다**일 수 있다(정본 명시).
+   * 그래서 `0`을 「무효화된 것이 없다」로 단정해 적지 않는다. 서버가 필드를 싣지 않았으면
+   * `undefined`이며, 그때는 **수를 말하지 않는다.**
+   */
+  invalidated_calculation_runs?: number
 }

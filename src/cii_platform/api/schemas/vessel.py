@@ -15,6 +15,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cii_platform.api.schemas.bounds import storable
+
 
 def _storable(precision: int, scale: int) -> dict[str, Decimal]:
     """DB ``NUMERIC(precision, scale)`` 컬럼이 **담을 수 있는** 양수 범위 (`#860`).
@@ -44,9 +46,8 @@ def _storable(precision: int, scale: int) -> dict[str, Decimal]:
     값은 ORM 모델(``db/models/vessel.py``)의 ``Numeric(precision, scale)``과 같아야 하며,
     ``tests/test_vessel_spec_bounds.py``가 둘을 대조한다.
     """
-    smallest = Decimal(1).scaleb(-scale)
-    largest = Decimal(10) ** (precision - scale) - smallest
-    return {"ge": smallest, "le": largest}
+    # 계산은 공용 모듈이 한다 (#1086 — 항차·시나리오·정박도 같은 규칙).
+    return storable(precision, scale)
 
 
 #: ``NUMERIC(12,2)`` — DWT · GT.

@@ -78,6 +78,8 @@ IRREVERSIBLE: dict[str, str] = {
         "upgrade하면 빈 테이블이 생길 뿐이고, `calculation_run`·`simulation_snapshot`은 "
         "보존 대상이라 되살릴 근거 자체가 없다"
     ),
+    # 다시 upgrade하면 전원이 사무직이 된다 — 잠기지는 않지만 누가 현장직이었는지는 사라진다.
+    "044": "app_user.role — 사무직·현장직 지정 전부",
 }
 
 #: 지워도 되는 일시 데이터 — 사라지면 다시 로그인하거나 메일을 다시 요청하면 된다.

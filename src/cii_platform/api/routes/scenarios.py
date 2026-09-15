@@ -20,7 +20,7 @@ from cii_platform.api.schemas.scenario_compare import (
     ScenarioCompareRequest,
 )
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.auth.dependencies import require_csrf
+from cii_platform.auth.dependencies import require_csrf, require_office
 from cii_platform.db.session import get_session
 from cii_platform.services import audit as audit_svc
 from cii_platform.services.scenario_adopt import adopt_scenario
@@ -91,6 +91,7 @@ async def adopt_scenario_route(
     payload: ScenarioAdoptRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """시나리오를 항차 계획에 반영한다 (API_SPEC §5.2, #58).
 

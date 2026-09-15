@@ -115,6 +115,32 @@ async def record_account_delete(
     )
 
 
+async def record_role_change(
+    session: AsyncSession,
+    *,
+    actor_user_id: str,
+    target_user_id: UUID,
+    role_before: str,
+    role_after: str,
+    ip_address: str | None = None,
+) -> None:
+    """역할 변경 (#672) — 누가 누구를 무엇에서 무엇으로.
+
+    역할은 리포트·연간 시뮬레이션·계정 관리의 문이다. 문이 열리고 닫힌 기록이 없으면
+    「이 계정이 언제부터 사무직이었나」에 답할 수 없다. ``entity_id``가 대상, ``user_id``가
+    행위자다 — 자기 자신을 바꿔도 둘 다 적힌다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="ROLE_CHANGE",
+        user_id=actor_user_id,
+        entity_type="app_user",
+        entity_id=target_user_id,
+        details={"role_before": role_before, "role_after": role_after},
+        ip_address=ip_address,
+    )
+
+
 async def record_calculation_run(
     session: AsyncSession,
     *,

@@ -51,6 +51,7 @@ from cii_platform.calc.annual_simulation import (
     WARNING_FEEDBACK_UNAVAILABLE,
     CompletedPair,
     CompletedTotals,
+    DeterministicProjection,
     RemainingVoyage,
     analyze_sensitivity,
     apply_feedback,
@@ -68,6 +69,7 @@ from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.db.types import JSONText
 from cii_platform.errors import (
+    CalculationError,
     ModelVersionMismatchError,
     NotFoundError,
     ParameterError,
@@ -598,6 +600,32 @@ async def collect_annual_inputs(
     )
 
 
+#: 확정 실적도 거리 있는 잔여 계획도 없을 때의 안내 문구 (`#1084`).
+#:
+#: **한 곳에만 둔다** — 실행(`§6.1`)과 재현(`§6.4`)이 같은 상태를 다른 말로 설명하면
+#: 사용자는 두 화면이 다른 문제를 만났다고 읽는다.
+NO_BASIS_MESSAGE = (
+    "확정 실적도 잔여 계획도 없어 연말 예상을 낼 수 없습니다. 항차를 등록하고 거리를 입력해 주세요."
+)
+
+
+def _project_or_domain_error(**kwargs: object) -> DeterministicProjection:
+    """엔진의 ``ValueError``를 **도메인 오류(422)** 로 옮긴다 (`#1084`).
+
+    ``project_deterministic``은 ``completed_W + planned_W = 0``이면 ``ValueError``를
+    던진다(`PRD §12.8` 계산 중단 · ``calc/annual_simulation.py:328``). 그대로 올리면
+    ``api/error_handlers.py``의 catch-all이 받아 **500 `INTERNAL_ERROR`** 가 되는데,
+    이것은 서버가 고장 난 것이 아니라 **그 선박에 계산할 거리가 없는 상태**다 — 사용자가
+    항차를 등록하면 풀린다. 실시간 CII ⑶(``services/cii_current.py:354``)은 같은 예외를
+    이미 받아 사유를 싣는다. ⑶은 조회 응답의 한 갈래라 사유로 내려가지만, 기능③은
+    **실행 요청**이라 422가 맞는 층위다(``TECH_SPEC §12.1`` — 입력이 만든 상태).
+    """
+    try:
+        return project_deterministic(**kwargs)  # type: ignore[arg-type]
+    except ValueError as exc:
+        raise CalculationError(NO_BASIS_MESSAGE) from exc
+
+
 def _plan_voyage_count(rows: list[dict]) -> int:
     """스냅샷에서 **잔여 계획 항차 수**. 연료 행이 아니라 항차를 센다."""
     return sum(1 for row in rows if row.get("kind") == "PLAN")
@@ -722,7 +750,7 @@ async def run_annual_simulation(
         )
     profile = profile_from_rows(profile_rows)
 
-    deterministic = project_deterministic(
+    deterministic = _project_or_domain_error(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,
@@ -1824,7 +1852,7 @@ def _recompute(
     input_warnings = [*input_warnings, *feedback_warnings]
     profile = profile_from_rows(profile_rows)
 
-    deterministic = project_deterministic(
+    deterministic = _project_or_domain_error(
         completed=completed,
         remaining=remaining,
         transport_capacity=transport_capacity,

@@ -97,6 +97,7 @@ function toNumber(raw: string): number | null {
 export function validateEdit(
   state: VesselEditState,
   fuels: readonly FuelOption[],
+  original?: Vessel,
 ): EditErrors {
   const errors: EditErrors = {}
 
@@ -142,7 +143,18 @@ export function validateEdit(
     STORABLE.dailyFoc,
   )
 
-  if (state.defaultFuelType !== '' && !isKnownFuel(state.defaultFuelType, fuels)) {
+  /*
+   * 연료 검사는 **목록이 있을 때, 값을 바꿨을 때만** 한다 (`#1100` ⑴). 종전에는 목록을 못
+   * 받은 상태(로딩·실패)에서 `isKnownFuel`이 늘 false라, 연료를 건드리지 않은 제원 수정까지
+   * 「알 수 없는 연료」로 막혔다. 원본과 같은 값은 서버가 이미 받아 준 값이다.
+   */
+  const fuelUnchanged = original !== undefined && state.defaultFuelType === (original.default_fuel_type ?? '')
+  if (
+    state.defaultFuelType !== '' &&
+    fuels.length > 0 &&
+    !fuelUnchanged &&
+    !isKnownFuel(state.defaultFuelType, fuels)
+  ) {
     errors[EDIT_FIELD.defaultFuelType] = `알 수 없는 연료 종류입니다: ${state.defaultFuelType}`
   }
 
@@ -210,9 +222,12 @@ export function recalcNotice(vessel: Vessel, state: VesselEditState): string | n
   const dwt = toNumber(state.deadweight)
   const gtChanged = gt !== null && gt !== vessel.gross_tonnage
   const dwtChanged = dwt !== null && dwt !== vessel.deadweight
-  if (!gtChanged && !dwtChanged) return null
+  // 선종도 제원이다 (`#1100` ⑶ · `#818` ⑶) — 서버(`services/vessel.py`)는 선종만 바꿔도
+  // `needs_recalc`를 세운다. 안내가 서버 조건보다 좁으면 사용자가 모르는 채 표시가 붙는다.
+  const shipTypeChanged = state.shipType !== '' && state.shipType !== vessel.ship_type
+  if (!gtChanged && !dwtChanged && !shipTypeChanged) return null
   return (
-    '총톤수·재화중량톤수를 바꾸면 이 선박의 기존 계산 결과에 ' +
+    '총톤수·재화중량톤수·선종을 바꾸면 이 선박의 기존 계산 결과에 ' +
     '「재계산 필요」 표시가 붙습니다. 저장된 값 자체는 바뀌지 않습니다.'
   )
 }

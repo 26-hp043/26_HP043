@@ -265,7 +265,14 @@ describe('toFormErrors', () => {
 
 describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () => {
   it('목록에 없으면 거부된다', () => {
-    expect(validateFormWith(state({ defaultFuelType: 'HFO' }), [])).toHaveProperty(
+    // 빈 배열은 「목록을 못 받았다」다 (`#1100` ⑴) — 다른 연료 하나를 준다.
+    expect(
+      validateFormWith(state({ defaultFuelType: 'HFO' }), [{ code: 'LNG', displayName: '액화천연가스' }]),
+    ).toHaveProperty(FIELD.defaultFuelType)
+  })
+
+  it('목록을 못 받았으면(로딩·실패) 연료 검사를 보류한다 — 서버가 최종 판정 (#1100 ⑴)', () => {
+    expect(validateFormWith(state({ defaultFuelType: 'HFO' }), [])).not.toHaveProperty(
       FIELD.defaultFuelType,
     )
   })
@@ -278,3 +285,15 @@ describe('validateForm — 주입된 목록이 판정을 정한다 (#542)', () =
     ).not.toHaveProperty(FIELD.defaultFuelType)
   })
 })
+
+describe('숫자 칸의 잘못된 입력이 조용히 빠지지 않는다 (#1100 ⑵)', () => {
+  /*
+   * 종전 등록 폼은 `type="number"`였다. 브라우저는 「12,5」 같은 무효 입력의 `value`를 **빈
+   * 문자열**로 돌려주므로, 폼은 「선택 항목을 비워 둔 것」으로 읽고 그대로 저장했다 — 사용자가
+   * 넣은 값이 조용히 사라졌다. 이제 `type="text"`라 원문이 그대로 들어오고 검증이 잡는다.
+   */
+  it.each(['12,5', '1.2.3', 'abc'])('「%s」는 오류다 — 빈 값으로 읽지 않는다', (raw) => {
+    expect(validateForm(state({ deadweight: raw }))).toHaveProperty(FIELD.deadweight)
+  })
+})
+

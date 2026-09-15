@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.31 |
+| 버전 | v1.33 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-15 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -51,7 +51,7 @@ MVP에서는 단일 인스턴스를 가정한다. 향후 멀티테넌트 확장 
 
 ### 1.2 인증
 
-MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사용한다. 단일 조직·단일 역할을 가정하므로 권한 분리는 두지 않는다 (`PRD §5.2` · `§20 O-14`).
+MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사용한다. 단일 조직을 가정하며, 계정은 **사무직(`OFFICE`)·현장직(`FIELD`) 두 역할** 중 하나다 (`PRD §5.2` · `§20 O-14` · `#672`). 데이터 격리는 없다 — 두 역할이 같은 선박·항차를 본다.
 
 > **[#413] 구글 OIDC를 완전히 제거했다.** 종전에는 인증을 구글에 위임했으나(`O-13`), 2026-08-16 결정으로 제품이 이메일과 비밀번호를 직접 관리한다. **세션·CSRF·감사 로그 계층은 그대로다** — 인증 수단과 무관하기 때문이다. 바뀐 것은 「자격을 확인하는 방법」 하나다.
 
@@ -62,13 +62,15 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 비밀번호 규칙 | **10자 이상 128자 이하.** 대문자·특수문자 같은 복잡도 규칙은 두지 않는다 — 길이만 본다. 상한은 매우 긴 입력이 해싱 비용으로 서비스 거부 수단이 되는 것을 막는다 (`auth/password.py` · 화면 `authRules.ts`가 같은 값) |
 | 세션 유효기간 | **발급 후 7일.** 요청이 와도 연장하지 않는다(고정 만료). 로그아웃·비밀번호 변경은 그 전에 무효화한다 (`auth/session.py`) |
 | 쿠키 속성 | `HttpOnly` · `Secure` · `SameSite=Lax` · `Path=/` |
-| 권한 분리 | 없음. 인증된 모든 사용자가 동일 권한을 가진다 |
-| 데이터 격리 | 없음. 선박·항차 데이터는 전 사용자가 공유한다 (`PRD §5.2`) |
+| 권한 분리 | **[#672] 역할 2종 — 사무직(`OFFICE`)·현장직(`FIELD`).** `app_user.role`(`DB_SCHEMA §2.15`). **현장직은 「넣고 본다」, 사무직은 「정하고 낸다」** — 아래 「사무직 전용 경로」 표에 없는 경로는 두 역할 모두 쓴다. 거부는 `403 FORBIDDEN_ROLE`(`§1.4`) |
+| 최초 사무직 | **[#672] 설정 `INITIAL_OFFICE_EMAILS`(쉼표 목록).** 여기 든 이메일은 **가입할 때와 로그인할 때** 사무직으로 맞춘다 — 목록에 있는 동안은 강등해도 다음 로그인에서 되돌아온다(「항상 사무직인 사람」). 새로 가입하는 나머지 계정은 **현장직**으로 시작하고, 사무직이 `PATCH /auth/users/{id}/role`로 올린다. 마이그레이션 044가 **기존 계정은 전부 사무직**으로 채웠다. **`APP_ENV=production`에서 목록이 비면 서버가 기동하지 않는다** — 새 DB에서 사무직 0명이 되지 않게 |
+| 마지막 사무직 | **[#672] 탈퇴(`DELETE /auth/me`)·강등(`PATCH /auth/users/{id}/role`)을 `409 CONFLICT`로 거절한다.** 사무직이 0명이면 아무도 역할을 되돌릴 수 없다. 판정은 사무직 행을 잠근 채 한다(동시 강등 방지). 문구는 `PRD §6.3` 「마지막 사무직」 |
+| 데이터 격리 | 없음. 선박·항차 데이터는 전 사용자가 공유한다 (`PRD §5.2`). **역할은 행위 권한이지 소유권이 아니다** (`PRD §7.10`) |
 | 가입 제한 | **[#808] 사내 도구다 — 허용 도메인 또는 초대 코드가 있어야 가입된다.** 설정 `SIGNUP_ALLOWED_DOMAINS`(쉼표 목록) · `SIGNUP_INVITE_CODE` 중 **하나만 맞으면** 된다. 가입 요청 본문의 `invite_code`(선택)가 초대 코드다. 거절은 `422 VALIDATION_ERROR` · `PRD §6.3` 「회원가입 — 가입 제한」 문구 — **어느 조건에서 떨어졌는지 말하지 않는다.** 검사는 비밀번호 해싱 **전에** 한다(거절될 요청에 해싱 비용을 쓰지 않는다). **`APP_ENV=production`에서 두 설정이 모두 비면 서버가 기동하지 않는다** — 개발·테스트에서는 비워 두면 열려 있다 |
 | 미인증 응답 | `401 UNAUTHORIZED` |
 | CSRF | 상태 변경 요청(POST·PATCH·DELETE)에 `X-CSRF-Token` 헤더 요구. **세션을 요구하는 라우트에 예외를 두지 않는다** (`#634`) |
 | 이메일 인증 | 가입 시 확인 메일 발송. **미인증 상태에서도 로그인은 허용**한다 (`PRD §7.10`) |
-| 향후 확장 | 역할 기반 접근 제어(RBAC), 사용자별 데이터 격리 |
+| 하지 않는 것 | 사용자별 데이터 격리 · 셋 이상의 역할 · 화면별 세부 권한. **필요해지면 `PRD §5.2`를 먼저 개정한다** — 「향후 확장」으로 두지 않는다(10/10 뒤 개발 없음) |
 
 **인증 예외 경로** — 다음은 세션 없이 접근할 수 있다.
 
@@ -82,6 +84,27 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 
 그 밖의 모든 `/api/v1/*` 경로는 유효한 세션을 요구한다.
 
+**사무직 전용 경로** — `require_office`(`auth/dependencies.py`)가 걸린 라우트. 현장직은 `403 FORBIDDEN_ROLE`이다. **이 표가 목록의 주인이고 `tests/test_roles_db.py`가 소스와 대조한다** — 한쪽만 바뀌면 CI가 실패한다.
+
+| 경로 | 화면 | 왜 사무직인가 |
+|---|---|---|
+| `POST /vessels` | 1-2 선박 등록 | 선박 제원은 기준값이다 |
+| `PATCH /vessels/{vessel_id}` | SCR-002 선박 관리 · 2-8 선박 상세 | 〃. **위치·운항 상태(`PATCH /vessels/{id}/position`)는 현황 입력이라 두 역할 모두** |
+| `DELETE /vessels/{vessel_id}` | SCR-002 선박 관리 | 〃 |
+| `POST /annual-simulations` | 2-3 연간 등급 관리 | 시뮬레이션 실행은 계획 업무. 결과 조회(`GET`)는 두 역할 모두 |
+| `POST /annual-simulations/{simulation_run_id}/reproduce` | 2-3 연간 등급 관리 | 〃 |
+| `POST /scenarios/{scenario_id}/adopt` | 2-2 항로 비교 | 채택은 계획 확정 행위. 비교(`compare`)는 두 역할 모두 |
+| `GET /voyages/{voyage_id}/report` | 2-5 보고서 | 대외 산출물 |
+| `GET /vessels/{vessel_id}/annual-report` | 2-5 보고서 | 〃 |
+| `POST /fleet/reduction-plans/evaluate` | 2-10 함대 감축 계획 | 선대 단위 경영 판단 — 화면 전체가 사무직 |
+| `POST /fleet/reduction-plans` | 2-10 함대 감축 계획 | 〃 |
+| `GET /fleet/reduction-plans` | 2-10 함대 감축 계획 | 〃 |
+| `GET /fleet/reduction-plans/{plan_id}` | 2-10 함대 감축 계획 | 〃 |
+| `GET /auth/users` | 2-6 설정 | 계정 목록은 역할 지정의 재료 |
+| `PATCH /auth/users/{user_id}/role` | 2-6 설정 | 역할 지정 |
+
+> **두 역할 모두 쓰는 것** — 항차 등록·수정·실적·전환·CSV 가져오기(`§3`) · 정박 구간(`§4`) · 기능① 계산·기능② 비교(`§2`·`§5`) · 위치 갱신 · 운항 기록 CSV 내보내기(`§8.1` — 산출물이 아니라 **자기가 넣은 기록**이다) · 대시보드·데이터 점검 조회 · 파라미터 **조회**(선택지 목록의 재료) · 챗봇(`§15`) · 자기 계정 관리. 규정 파라미터 **개정 적재**(`§7.5` · `#673`)는 구현 시 사무직 전용이다.
+
 > 파라미터 변경(POST/PATCH `/parameters/*`) 및 항차 확정(CONFIRMED 전환)은 감사 로그에 기록된다 (`TECH_SPEC §13.1`). **`audit_log.user_id`에 `app_user.id`를 기록한다.**
 
 **인증 엔드포인트**
@@ -91,14 +114,16 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `POST` | `/auth/signup` | 불필요 | 이메일·비밀번호(+ 선택 `invite_code`) 가입 → **가입 제한 확인**(위 표) → 인증 메일 발송 → 세션 발급 |
 | `POST` | `/auth/login` | 불필요 | 이메일·비밀번호 검증 → 세션 발급 |
 | `POST` | `/auth/logout` | **필요** | 세션 즉시 무효화 + 쿠키 만료 → 204. **세션이 없으면 401**이다 (`#634`) |
-| `GET` | `/auth/me` | **필요** | 현재 사용자 정보 (`id` · `email` · `display_name` · `email_verified_at`) |
+| `GET` | `/auth/me` | **필요** | 현재 사용자 정보 (`id` · `email` · `display_name` · **`role`** · `email_verified_at` · `last_login_at`) |
 | `POST` | `/auth/verify-email/request` | 불필요 | 인증 메일 재발송 |
 | `POST` | `/auth/verify-email/confirm` | 불필요 | 토큰 검증 → `email_verified_at` 기록 |
 | `POST` | `/auth/password-reset/request` | 불필요 | 재설정 메일 발송 |
 | `POST` | `/auth/password-reset/confirm` | 불필요 | 토큰 검증 → 비밀번호 교체 + **해당 사용자의 기존 세션 전량 무효화** |
 | `POST` | `/auth/password-change` | **필요** | 현재 비밀번호 검증 → 교체 + **기존 세션 전량 무효화** (로그인 상태에서의 변경) |
 | `PATCH` | `/auth/me` | **필요** | 표시 이름(`display_name`) 변경. **`email`은 받지 않는다** |
-| `DELETE` | `/auth/me` | **필요** | 탈퇴 — `is_deleted` soft delete + 세션 전량 무효화. **계산·감사 기록은 보존** |
+| `DELETE` | `/auth/me` | **필요** | 탈퇴 — `is_deleted` soft delete + 세션 전량 무효화. **계산·감사 기록은 보존.** 마지막 사무직이면 `409 CONFLICT` (`#672`) |
+| `GET` | `/auth/users` | **사무직** | 살아 있는 계정 전부 — `/auth/me`와 같은 사용자 객체의 배열, 이메일 순 (`#672`) |
+| `PATCH` | `/auth/users/{user_id}/role` | **사무직** | 본문 `{"role": "OFFICE" \| "FIELD"}`. 같은 값이면 쓰지 않는다. 마지막 사무직 강등은 `409 CONFLICT`. 감사 로그 `ROLE_CHANGE`(행위자 `user_id` · 대상 `entity_id`) (`#672`) |
 
 > **⚠️ 계정 존재 여부를 노출하지 않는다.** `POST /auth/login` 실패와 `POST /auth/password-reset/request`는 **가입 여부와 무관하게 같은 응답·같은 소요시간**을 반환한다. 「없는 이메일입니다」를 내면 **가입자 목록을 캐낼 수 있다.** 문구는 `PRD §6.3`이 확정한다.
 >
@@ -205,6 +230,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 401 Unauthorized | `UNAUTHORIZED` | 세션 없음, 세션 만료, 세션 무효 |
 | 401 Unauthorized | `INVALID_CREDENTIALS` | 자격 증명 오류 — 로그인 실패(없는 이메일·틀린 비밀번호가 **같은 코드·같은 문구**) · 비밀번호 변경의 현재 비밀번호 오입력(`details[].field` = `current_password`). **세션 문제가 아니다** (#902) |
 | 403 Forbidden | `CSRF_ERROR` | CSRF 토큰 누락 또는 불일치 |
+| 403 Forbidden | `FORBIDDEN_ROLE` | 역할이 허용하지 않는 작업 — 현장직이 사무직 전용 경로(`§1.2` 표)를 부름. 문구 `"이 작업은 사무직 계정만 할 수 있습니다."`. **CSRF와 같은 403이지만 코드가 다르다** — 화면은 `error.code`로 가른다: CSRF는 토큰을 다시 실어 재시도, 역할은 안내하고 끝낸다 (#672) |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 리소스 ID |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 **경로** (프레임워크 자동 발생 — `#183`에서 §1.3.2 포맷으로 변환). 리소스 ID 미존재와 동일한 코드를 쓴다 |
 | 405 Method Not Allowed | `METHOD_NOT_ALLOWED` | 경로는 존재하나 HTTP 메서드가 허용되지 않음 (프레임워크 자동 발생 — `#183`에서 변환) |
@@ -289,6 +315,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상에 더할 **잔여 계획 항차가 0건** (#798) | 잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다. |
 | `MODEL_VERSION_DIFFERS` | 재현(§6.4)을 **원본과 다른 `model_version`**에서 돌렸는데 결과는 같았다 (#833) | 원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다. |
 | `FEEDBACK_FACTOR_UNAVAILABLE` | 기능③ `apply_feedback_factor=true`인데 확정 항차 표본이 최소(3건)보다 적어 **적용하지 않음** (`PRD §12.2.1` · #363) | 실적 보정계수를 켰지만 확정 항차가 모자라 적용하지 않았습니다. 이번 결과는 계획 연료 그대로 계산했습니다. |
+| `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` | 함대 감축 계획(`§2.17`)에서 기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 **감속을 적용하지 못함** (#513) | 기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 그 항차에는 감속을 적용하지 못했습니다. 선박 제원을 입력해 주세요. |
 
 > **⚠️ 기능③(연간 시뮬레이션) 경고 8종은 2026-08-22에 등재했다 (#630).** 기능③이 들어온 뒤 이 표가 갱신되지 않아 **코드가 내는 17종 중 7종이 표에 없었다.** 그 결과 화면의 `WARNING_MESSAGE`(이 표를 전사한 것)에도 없어, 연간 시뮬레이션 화면이 `SENSITIVITY_ONE_AT_A_TIME` 같은 **원문 코드를 그대로 노출**하고 있었다. 문구는 `PRD §12.8` 예외 처리 표에서 옮겨 적었으며, 그 표에 문구가 없는 3종(`NO_REMAINING_VOYAGES`·`MANY_REMAINING_VOYAGES`·`SIMULATION_RUNS_CLAMPED`)만 서술된 동작에 맞춰 새로 적었다.
 
@@ -561,7 +588,7 @@ DELETE /api/v1/vessels/{vessel_id}
 }
 ```
 
-> 연관된 Voyage, CalculationRun이 있는 경우 soft delete. 완전 삭제 경로는 두지 않는다 — `§1.2`가 「권한 분리 없음」으로 규정해 「관리자 권한」이라는 개념이 없다(`#759` 정정. 권한 설계는 `#672`).
+> 연관된 Voyage, CalculationRun이 있는 경우 soft delete. 완전 삭제 경로는 두지 않는다 — 삭제된 선박의 계산 이력은 보존 대상이다(`#759` 정정). **선박 등록·제원 수정·삭제는 사무직 전용**이다(`§1.2` · `#672`).
 
 ### 2.6 선박 위치·운항 상태 갱신 (#369)
 
@@ -1346,6 +1373,12 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
 
 > **진행분은 거리와 연료가 둘 다 있을 때만 넣는다.** 한쪽만 넣으면 CII가 한 방향으로만 틀리고, 특히 **거리만 넣는 경우가 위험하다** — 분모 `Dt`만 늘고 분자 `M`은 그대로라 **항해할수록 등급이 좋아진다.** `vessel.reference_daily_foc_ton`은 nullable이므로(`DB_SCHEMA §2.1`) 이 상태는 실제로 발생한다. 넣지 않은 이유를 경고로 싣는 것은, 값이 안 변하는 것을 화면이 「아직 출항 전」으로 오해하면 사용자가 없는 제원을 채울 생각을 하지 못하기 때문이다.
 
+> **`annual_inclusion_policy = EXCLUDE`인 진행 중 항차는 애초에 넣지 않는다** (`PRD §3.3.8` 집계 범위 표 · `#1085`). `PRD §8.1.2`상 `IN_PROGRESS + EXCLUDE`는 **합법 조합**이므로 데이터 오류가 아니다. 종전에는 진행분만 이 필터를 지나지 않아, 시운전 항차를 `EXCLUDE`로 두고 항해하면 **항해 중에는 누적이 늘다가 완료되는 순간 집계에서 빠져 누적 CII가 한 번에 뛰었다.**
+>
+> ⚠️ **이때 위 경고들도 싣지 않는다.** 세 문구가 전부 「…진행분이 **누적에 반영되지 않았습니다**. …입력해 주세요」 꼴이라, 사용자가 스스로 반영하지 않기로 둔 항차에 띄우면 **고치면 반영될 것처럼 읽히는 거짓 안내**가 된다. `§6.2` `for_year`가 연도 밖 항차에 대해 같은 판단(「범위 밖 항차에 대한 안내는 그 화면에서 뜻이 없다」)을 이미 내렸다.
+>
+> **⑵ 항차 구간값(`current_voyage`)은 그대로 낸다.** `PRD §3.3.8`의 3종 표에서 ⑵는 ⑴과 **별개 값**이고 집계 범위 표는 ⑴에만 걸린다 — 지금 실제로 뛰고 있는 항차를 화면에서 지울 이유가 없다.
+
 #### `meta.simulated`
 
 `PRD R-5` 「시뮬레이션 데이터」 배지의 근거다. 시계가 만든 값이 하나라도 섞였으면 참이다.
@@ -1487,6 +1520,144 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 | 422 | `VALIDATION_ERROR` | `regulation_year` 범위 밖 |
 
 > **선박이 0척이면 200에 빈 배열이다** — `§2.8`과 같은 이유로 오류가 아니다.
+
+### 2.17 함대 감축 계획 (#513)
+
+`UIFLOW 2-10` 함대 감축 계획의 본체다. 계산 규칙은 `PRD §12.3.2`이며 **Monte Carlo를 부르지 않는다** — 화면이 슬라이더를 움직일 때마다 부를 수 있게 결정론만 쓴다.
+
+#### 2.17.1 계산 (저장하지 않음)
+
+```http
+POST /api/v1/fleet/reduction-plans/evaluate
+```
+
+```json
+{
+  "regulation_year": 2026,
+  "target": "ALL_C_OR_BETTER",
+  "adjustments": [
+    { "vessel_id": "00000000-0000-4000-8000-000000000001", "speed_reduction_percent": 10 }
+  ],
+  "prices": {
+    "charter_usd_per_day": { "00000000-0000-4000-8000-000000000001": 15000 },
+    "fuel_usd_per_ton": { "HFO": 600 }
+  }
+}
+```
+
+| 필드 | 타입 | 필수 | 검증 | 설명 |
+|---|---|---|---|---|
+| `regulation_year` | int | Y | 2000~2100 | |
+| `target` | string | Y | `NO_AT_RISK` · `ALL_C_OR_BETTER` | 위험 선박 0척 / 전 선박 C 이상 (`PRD §12.3.2` ⑸) |
+| `adjustments[]` | list | N | `speed_reduction_percent` 0~50 | 선박별 감속률(%). **목록에 없는 선박은 0%** · 모르는 선박이면 422 · **같은 선박이 두 번 오면 422**(`#1070` ⑶ — 받아 주면 계산은 마지막 값으로 하고 저장본에는 두 값이 다 남아, 다시 연 계획이 어느 감속률이었는지 답할 수 없다) |
+| `prices.charter_usd_per_day` | map | N | 0 이상 | 선박 ID → 일일 용선료(USD). **계획의 가정값**. 키는 **UUID 표준 표기(소문자)로 정규화**해 받으므로 대문자로 보내도 같은 선박이다 · UUID가 아니면 422 · 정규화 후 같은 선박이 두 번이면 422 (`#1070` ⑵) |
+| `prices.fuel_usd_per_ton` | map | N | 0 이상 | 유종 코드 → 연료 단가(USD/t) |
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": {
+    "regulation_year": 2026,
+    "target": "ALL_C_OR_BETTER",
+    "target_met": false,
+    "vessels": [
+      {
+        "vessel_id": "00000000-0000-4000-8000-000000000001",
+        "vessel_name": "샘플 벌크선 (50,000 DWT)",
+        "speed_reduction_percent": "10.0",
+        "unavailable_reason": null,
+        "before": { "attained_cii": "8.9711", "rating": "E" },
+        "after": { "attained_cii": "8.0909", "rating": "E" },
+        "target_rating": "C",
+        "meets_target": false,
+        "extra_days": "1.52",
+        "fuel_saved_ton": "125.78",
+        "skipped_voyages": 0,
+        "remaining_voyage_count": 2,
+        "required_cut_fuel_ton": "392.01",
+        "achievable": true
+      }
+    ],
+    "rating_distribution": {
+      "before": { "A": 0, "B": 1, "C": 1, "D": 1, "E": 1 },
+      "after": { "A": 0, "B": 1, "C": 1, "D": 1, "E": 1 }
+    },
+    "costs": {
+      "currency": "USD",
+      "extra_days": "1.52",
+      "charter_loss": "22817.46",
+      "fuel_saving": "75468.00",
+      "net": "52650.54",
+      "fuel_saved_ton_by_type": { "HFO": "125.78" },
+      "missing_charter_rates": [],
+      "missing_fuel_prices": []
+    },
+    "warnings": []
+  },
+  "meta": { "request_id": "…", "timestamp": "…" }
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `target_met` | 계산할 수 있는 모든 선박이 조정 후 목표 이상이면 `true`. **계산할 수 있는 선박이 0척이면 `null`** |
+| `vessels[].unavailable_reason` | 계산하지 못한 선박 — `§2.8`과 같은 어휘. 이때 `before` 이하 필드가 없다 |
+| `vessels[].before` | **`§6.1` 결정론 연말 예상과 같은 값**(같은 입력 조립) |
+| `vessels[].target_rating` | 그 선박이 넘지 말아야 할 등급 — `NO_AT_RISK`면 D, 직전 2개 연도 확정 D면 C |
+| `vessels[].skipped_voyages` | 기준 속력·기준 일일 연료가 없어 **감속을 적용하지 못한** 잔여 항차 수 — 0보다 크면 `warnings`에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` |
+| `vessels[].remaining_voyage_count` | **스냅샷의 잔여 계획(PLAN) 항차 수** — `§6.1` `deterministic.remaining_voyage_count`와 **같은 기준**이다(`#1070` ⑷). 계산에서 뺀 항차가 있어도 이 수는 줄지 않는다. 무엇을 뺐는지는 `warnings`가 말한다 — 종전에는 제외 **후** 개수를 실어, 같은 선박·같은 연도인데 연간 등급 관리 화면과 항차 수가 달랐다 |
+| `vessels[].required_cut_fuel_ton` · `achievable` | 조정 **후**에도 남는 필요 감축량(`§6.1.1` · `PRD §12.3.1`). 잔여 계획이 없으면 `null` |
+| `costs.charter_loss` · `fuel_saving` · `net` | **필요한 단가가 하나라도 없으면 `null`** — 0으로 채우지 않는다. 무엇이 비었는지는 `missing_charter_rates`(선박 ID) · `missing_fuel_prices`(유종) |
+| `warnings` | 선대 전체에 한 번씩만 싣는 경고(`§1.6`). `SLOWDOWN_SKIPPED_NO_SPEED_MODEL`(감속 미적용 항차 있음) · `SIMULATION_PLAN_NO_FUEL`(연료 정보가 없어 연말 예상에서 뺀 계획 항차 있음 — `#812`·`#1070` ⑷). **입력 조립이 낸 경고를 버리지 않는다** |
+
+#### 2.17.2 저장
+
+```http
+POST /api/v1/fleet/reduction-plans
+```
+
+§2.17.1 본문 + `plan_name`(**앞뒤 공백을 걷고** 1~100자 — 공백만 있는 이름은 **422**다. `name`이 아닌 이유는 필드 라벨이 필드명 하나로 매겨지는데 `name`이 이미 「선명」이라서다. 종전에는 공백만 있는 이름이 검증을 통과해 선대 전체 계산을 한 번 돌린 뒤 DB 제약 `chk_fleet_reduction_plan_name`에 걸려 **500**이 났다 — `#1070` ⑴). **서버가 다시 계산해** 결과까지 저장하고 **201**에 저장본을 돌려준다 — 화면이 보낸 결과를 받지 않는다.
+
+```json
+{
+  "data": {
+    "plan_id": "…",
+    "plan_name": "9월 감속안",
+    "regulation_year": 2026,
+    "target": "ALL_C_OR_BETTER",
+    "adjustments": [ … ],
+    "prices": { … },
+    "result": { "…": "§2.17.1 data와 같은 모양" },
+    "created_at": "2026-09-13T14:00:00+00:00"
+  },
+  "meta": { "request_id": "…", "timestamp": "…" }
+}
+```
+
+#### 2.17.3 목록
+
+```http
+GET /api/v1/fleet/reduction-plans
+```
+
+최근 저장순 **20건**. 각 항목은 §2.17.2의 `data`에서 **`result`를 뺀** 모양이다 — 목록에는 무거워서다. 화면은 첫 항목의 `prices`를 새 계획의 기본값으로 쓴다.
+
+#### 2.17.4 단건
+
+```http
+GET /api/v1/fleet/reduction-plans/{plan_id}
+```
+
+§2.17.2의 `data` 그대로. ⚠️ **`result`는 저장 시점의 값이다 — 다시 계산하지 않는다.** 그 사이 항차가 바뀌었어도 보고한 숫자를 그대로 돌려준다.
+
+#### 오류
+
+| Status | Code | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | §2.17.4 — 없는 계획 |
+| 422 | `VALIDATION_ERROR` | 감속률 0~50 밖 · 모르는 `target` · 모르는 선박 · 음수 단가 · `plan_name` 누락 |
+| 403 | `CSRF_ERROR` | §2.17.1·§2.17.2 — `X-CSRF-Token` 누락·불일치(`§1.4`) |
 
 ---
 
@@ -2373,6 +2544,7 @@ POST /api/v1/annual-simulations
 |---|---|---|
 | 422 | `VALIDATION_ERROR` | target_rating = E (PRD §12.8: 실행 거부) |
 | 422 | `VALIDATION_ERROR` | 잔여 항차 200개 초과 (PRD §12.8: DoS 방지) |
+| 422 | `CALCULATION_ERROR` | **확정 실적도 거리 있는 잔여 계획도 없다** — `completed_W + planned_W = 0` (PRD §12.8: 계산 중단). 새로 등록한 선박 · 항차가 전부 DRAFT/EXCLUDE인 선박 · 계획 항차가 모두 연료 없음(`SIMULATION_PLAN_NO_FUEL`로 제외)이고 확정 실적도 없는 선박이 여기 걸린다. **500이 아니다** — 서버 고장이 아니라 항차를 등록하면 풀리는 상태다. `§6.4` 재현도 같은 코드·같은 문구를 쓴다 (`#1084`) |
 
 #### 응답 (200 OK)
 
@@ -2605,6 +2777,7 @@ POST /api/v1/annual-simulations/{simulation_run_id}/reproduce
 | 409 Conflict | `PARAMETER_ERROR` | 원본 실행 이후 규정 파라미터가 변경됨. `parameter_hash` 불일치. |
 | 409 Conflict | `MODEL_VERSION_MISMATCH` | 원본과 다른 `model_version`에서 재현했고 **결과도 다름**. `details[]`에 달라진 필드(`field` · `stored` · `current`). 새 환경에서 새로 실행한다 (#833) |
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | 재현 결과의 `input_hash` 또는 Monte Carlo 결과가 원본과 불일치. canonical test vector 실패 가능. |
+| 422 | `CALCULATION_ERROR` | 스냅샷에 **거리가 없다** — `§6.1`과 같은 코드·같은 문구다(`#1084`). 실행 단계에서 이미 422로 막히므로 저장된 실행으로는 여기에 닿지 않지만, **두 경로가 같은 상태를 다르게 설명하지 않도록** 배선을 한 곳에 두었다 |
 
 ---
 
@@ -2721,7 +2894,7 @@ GET /api/v1/parameters/rating-boundaries?ship_type=BULK_CARRIER
 
 > ## ⏸ 이 엔드포인트는 **아직 구현하지 않았다** (`#673` 추적)
 >
-> 규정 개정 적재는 **누가 부를 수 있는가**가 먼저 정해져야 한다 — 어드민 범위(`#672`)에 종속되며, 그 범위는 **1차 시연 범위 밖**으로 판정됐다(`PRD` O-14 각주). 아래 요청·응답은 도입 시의 계약으로 남긴다. `§12` 요약표도 같은 표시를 달고 있고, 누군가 구현하면 요약표↔라우트 대조 가드(`tests/test_api_spec_endpoints_sync.py`)가 깨져 이 표시를 지우게 한다 (#830 — `§9`와 같은 표기로 맞췄다).
+> 규정 개정 적재는 **누가 부를 수 있는가**가 먼저 정해져야 한다 — **2026-09-15 `#672`로 정해졌다: 사무직 전용**(`§1.2` 역할 표 · `require_office`). 구현은 `#673`이 한다. 아래 요청·응답은 도입 시의 계약으로 남긴다. `§12` 요약표도 같은 표시를 달고 있고, 누군가 구현하면 요약표↔라우트 대조 가드(`tests/test_api_spec_endpoints_sync.py`)가 깨져 이 표시를 지우게 한다 (#830 — `§9`와 같은 표기로 맞췄다).
 
 ```http
 POST /api/v1/parameters/import
@@ -3264,6 +3437,8 @@ GET /api/v1/health
 | GET | `/api/v1/auth/me` | 현재 사용자 | §1.2 |
 | PATCH | `/api/v1/auth/me` | 표시 이름 변경 (`email`은 받지 않는다) | §6.3 |
 | DELETE | `/api/v1/auth/me` | 탈퇴 (soft delete + 세션 전량 무효화) | §6.3 |
+| GET | `/api/v1/auth/users` | 계정 목록 (**사무직**) | §1.2 |
+| PATCH | `/api/v1/auth/users/{user_id}/role` | 역할 지정 (**사무직**) | §1.2 |
 | POST | `/api/v1/auth/password-change` | 비밀번호 변경 (로그인 상태) | §6.3 |
 | POST | `/api/v1/auth/dev-login` | 개발용 로그인 (**프로덕션 미등록**) | §1.2 |
 | POST | `/api/v1/auth/verify-email/request` | 메일 인증 요청 | §1.2 |
@@ -3277,6 +3452,10 @@ GET /api/v1/health
 | GET | `/api/v1/vessels/{id}/cii-history` | 연도별 CII 이력 | §6.2 SCR-008 |
 | GET | `/api/v1/fleet/summary` | 선대 요약 (대시보드) | §6.2 SCR-001 |
 | GET | `/api/v1/fleet/data-quality` | 데이터 점검 (#513) | `UIFLOW 2-11` · §17.4 |
+| POST | `/api/v1/fleet/reduction-plans/evaluate` | 함대 감축 계획 계산 (#513) | `UIFLOW 2-10` · §12.3.2 |
+| POST | `/api/v1/fleet/reduction-plans` | 함대 감축 계획 저장 (#513) | `UIFLOW 2-10` · §12.3.2 |
+| GET | `/api/v1/fleet/reduction-plans` | 함대 감축 계획 목록 (#513) | `UIFLOW 2-10` |
+| GET | `/api/v1/fleet/reduction-plans/{id}` | 함대 감축 계획 단건 (#513) | `UIFLOW 2-10` |
 | PATCH | `/api/v1/vessels/{id}` | 선박 수정 | §6.2 SCR-002 |
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
 | PATCH | `/api/v1/vessels/{id}/position` | 위치 갱신 | §6.2 SCR-001 |
@@ -3363,7 +3542,7 @@ GET /api/v1/health
 |---|---|
 | 허용 Origin | 동일 출처 또는 명시적 화이트리스트 |
 | 허용 Method | GET, POST, PATCH, PUT, DELETE, **OPTIONS** |
-| 허용 Header | Content-Type, X-API-Key, Authorization, X-CSRF-Token |
+| 허용 Header | Content-Type, Authorization, X-CSRF-Token |
 
 > 쿠키 기반 세션을 사용하므로 CORS 설정은 `allow_credentials = true`가 필요하며, **`allow_origins`에 와일드카드(`*`)를 쓸 수 없다.** 허용 출처를 명시적으로 나열한다 (#272).
 
@@ -3632,4 +3811,9 @@ POST /api/v1/chat
 | 2026-09-13 | `#756` | §6.1 거리 민감도 각주 정정 — 「거의 변하지 않는다」를 **「잔여 계획의 배출 강도가 확정 실적과 같으면 정확히 변하지 않는다」**로 고쳤다. 종전 문구는 조건부 사실을 무조건으로 적어, 실적이 계획에서 벌어져 그 행이 실제로 움직이는 경우를 설명하지 못했다(`PRD §12.6` 각주와 함께 정정). `AGENTS §4.3` 「각주 정정」이라 버전은 올리지 않는다 (#756) |
 | 2026-09-13 | `#363` | **§6.1 요청에 `apply_feedback_factor` · 응답 예시에 `feedback` 블록 · §6.1.2 신설 · §1.6에 `FEEDBACK_FACTOR_UNAVAILABLE`.** `PRD §12.2.1` 실적 보정계수를 그대로 낸다. **켜지 않아도 계수를 싣는다** — 켜기 전에 판단할 수 있어야 한다. 표본이 모자라면 `factor`를 `1`로 채우지 않고 `null`로 둔다(「계획대로 쓰고 있다」와 구분). 켠 사실은 `input_hash`에 켰을 때만 들어가 기존 실행의 해시가 바뀌지 않는다. `AGENTS §4.3`상 소규모 행 추가·소절 신설이라 버전은 올리지 않는다 (#363) |
 | 2026-09-13 | `#513` | **v1.30 — §2.16 데이터 점검 신설** · §12 요약표 1행. `UIFLOW 2-11`의 본체로 **실측이 아닌 값이 들어간 항차**를 네 심각도(대체 계산 · 계산 불가 · 이상치 · 실적 미입력)로 낸다(`PRD §17.4`). 계산 불가 어휘는 `§2.8` `unavailable_reason`을 그대로 쓴다 — 대시보드와 다른 이름을 붙이면 같은 문제를 둘로 읽는다. **판정하지 못한 이상치 수를 따로 싣는다** — 0건과 섞으면 제원이 없는 선박이 가장 깨끗해 보인다. 집계에 진행 중 항차를 넣지 않아 누적 CII가 `§2.8`과 다를 수 있음을 적었다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |
-| 2026-09-15 | `#1058` | **v1.31 — §1.2 스텁 인증 등록 조건을 「`APP_ENV != production`」에서 「`development`·`test`에서만」으로 좁혔다.** 종전 조건은 허용값 넷 중 셋에서 `POST /auth/dev-login`을 열었고, `#524`가 `APP_ENV=production` + `MAIL_BACKEND=console`을 기동 실패로 막기 때문에 **SMTP가 준비되기 전 배포는 `staging`을 고르는 것이 정상 경로**다(`docs/OPERATIONS.md §4.5`). 2026-09-15 OCI 배포(app-01:8001, Security List `0.0.0.0/0`)에서 그 경로가 실제로 200을 냈다 — **누구나 미인증 세션을 받을 수 있었다.** 판정을 부정형에서 **여는 목록**(`_DEV_SURFACE_ENVS`)으로 뒤집어, 모르는 값·새 환경이 늘 때 **닫는 쪽으로** 틀리게 했다(`#810`이 `should_register_dev_auth()`의 부정형을 없앤 것과 같은 판단). `/docs`·`/redoc`·`/openapi.json`과 시연 계정 시드도 같은 판정을 쓴다. `staging`이 허용값에 남는 이유는 그대로다 — 메일 백엔드(`#524`)·`APP_PUBLIC_URL`(`#809`)·가입 게이트(`#808`) 가드가 프로덕션 전용이라 SMTP 없이 배포를 검증하는 자리가 필요하고, 이 변경은 그 자리를 **닫힌 채로** 만든다. 규칙 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#1058) |
+| 2026-09-13 | `#513` | **v1.31 — §2.17 함대 감축 계획 신설**(계산 · 저장 · 목록 · 단건) · §12 요약표 4행 · §1.6에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL`. `UIFLOW 2-10`의 본체로 `PRD §12.3.2` 계산을 낸다. **단가는 요청의 가정값**이고 저장본에 함께 남는다 — 필요한 단가가 비면 비용 칸은 `null`(0으로 채우지 않는다). 저장은 **서버가 다시 계산**하며 단건 조회는 **저장 시점 결과를 그대로** 돌려준다. `before`가 `§6.1` 결정론 예상과 같다는 사실을 계약으로 적었다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |
+| 2026-09-14 | `#1070` | **§2.17 요청 검증 4종을 계약으로 적었다** — ⑴ `plan_name`은 **앞뒤 공백을 걷고** 길이를 재 공백만 있으면 422(종전에는 검증을 통과해 선대 전체 계산을 한 번 돌린 뒤 DB 제약에 걸려 500) · ⑵ `prices.charter_usd_per_day` 키를 **UUID 표준 표기로 정규화**(대문자 키가 조회 키와 어긋나 단가를 넣고도 「단가 입력 필요」가 됐다) · ⑶ 같은 선박의 감속률이 두 번이면 422(받아 주면 계산은 마지막 값, 저장본에는 두 값이 남아 재현이 성립하지 않는다) · ⑷ `vessels[].remaining_voyage_count`를 **스냅샷의 PLAN 항차 수**로 통일하고 입력 조립의 경고를 `warnings`에 전달. ⑷의 기준은 새로 정한 것이 아니라 `#812`가 `§6.1`에 이미 세운 「빼되 조용히 빼지 않는다」를 같은 값에 적용한 것이다 — 종전에는 제외 **후** 개수를 실어 같은 선박·같은 연도인데 연간 등급 관리 화면과 항차 수가 달랐다. `AGENTS §4.3`상 **소규모 행 추가·검증 규칙 명시**라 버전은 올리지 않는다 (#1070) |
+| 2026-09-14 | `#1084` | **§6.1·§6.4 오류 표에 `CALCULATION_ERROR`(422) 행 추가.** 확정 실적도 거리 있는 잔여 계획도 없는 선박(`completed_W + planned_W = 0` · `PRD §12.8`)에서 기능③이 **500 `INTERNAL_ERROR`** 로 끝났다 — 엔진의 `ValueError`를 서비스가 도메인 오류로 옮기지 않아 catch-all이 받았다. **서버가 고장 난 것이 아니라 항차를 등록하면 풀리는 상태**인데 화면이 그렇게 안내할 자리가 없었다. 같은 엔진을 부르는 실시간 CII ⑶(`services/cii_current.py:354`)은 이미 이 예외를 받아 사유(`NO_BASIS`)를 싣는다 — ⑶은 **조회** 응답의 한 갈래라 사유로 내려가고, 기능③은 **실행 요청**이라 422가 맞는 층위다(`TECH_SPEC §12.1` 「입력이 만든 상태」). 실행과 재현 두 경로가 같은 문구를 쓰도록 변환을 한 함수(`_project_or_domain_error`)에 두었다 — 두 화면이 같은 상태를 다르게 설명하면 사용자는 서로 다른 문제를 만났다고 읽는다. `AGENTS §4.3`상 오류 표 행 추가라 버전은 올리지 않는다 (#1084) |
+| 2026-09-14 | `#1085` | **§2.8 `warnings` 절에 `EXCLUDE` 진행 항차 규정 추가.** 「연간 반영 안 함」으로 둔 **진행 중** 항차가 YTD·구간값·선대 요약·이력·연간 리포트에 더해지고 있었다 — 확정분은 `list_annual_inclusions`가 정책으로 거르는데 진행분은 `find_in_progress`가 **상태로만** 골라(`db/repositories/voyage.py:278-301`) 정책을 보지 않았고, `PRD §8.1.2`상 `IN_PROGRESS + EXCLUDE`가 합법 조합이라 데이터 오류로도 걸러지지 않았다. 결과는 **항해 중에는 누적이 늘다가 `COMPLETED + EXCLUDE`로 넘어가는 순간 집계에서 빠져 누적 CII가 한 번에 뛰는 것**이었다. `PRD §3.3.8`의 집계 범위 표는 이미 `EXCLUDE`를 「넣지 않는다」로 정하고 있었으므로 **정본을 바꾼 것이 아니라 코드를 정본에 맞춘 것**이고, 이 절에는 그 사실을 적었다. ⚠️ **경고도 함께 비운다** — 세 경고 문구가 「누적에 반영되지 않았습니다 … 입력해 주세요」 꼴이라 반영하지 않기로 한 항차에 띄우면 거짓 안내가 된다. **⑵ 항차 구간값은 그대로 낸다** — `§3.3.8`의 3종 표에서 ⑵는 ⑴과 별개 값이고 집계 범위 표는 ⑴에만 걸린다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#1085) |
+| 2026-09-15 | `#1075` | **§13.3 CORS 허용 Header에서 `X-API-Key`를 뺐다** — `#104`가 API Key 인증을 세션 쿠키 인증으로 대체(슈퍼시드)해 `§1.2`에 API Key가 정의돼 있지 않고 서버가 그 헤더를 읽지 않는데, 허용 목록에만 남아 있었다. `#104` 닫는 코멘트가 잔존물로 기록한 두 자리(이 행 · `voyage-cii/apiProvider.ts`) 가운데 프론트 쪽은 provider 4개의 `apiKey` 옵션과 `providerSelection` 4개의 `VITE_API_KEY` 읽기를 함께 걷었다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1075) |
+| 2026-09-15 | `#1058` | **v1.33 — §1.2 스텁 인증 등록 조건을 「`APP_ENV != production`」에서 「`development`·`test`에서만」으로 좁혔다.** 종전 조건은 허용값 넷 중 셋에서 `POST /auth/dev-login`을 열었고, `#524`가 `APP_ENV=production` + `MAIL_BACKEND=console`을 기동 실패로 막기 때문에 **SMTP가 준비되기 전 배포는 `staging`을 고르는 것이 정상 경로**다(`docs/OPERATIONS.md §4.5`). 2026-09-15 OCI 배포(app-01:8001, Security List `0.0.0.0/0`)에서 그 경로가 실제로 200을 냈다 — **누구나 미인증 세션을 받을 수 있었다.** 판정을 부정형에서 **여는 목록**(`_DEV_SURFACE_ENVS`)으로 뒤집어, 모르는 값·새 환경이 늘 때 **닫는 쪽으로** 틀리게 했다(`#810`이 `should_register_dev_auth()`의 부정형을 없앤 것과 같은 판단). `/docs`·`/redoc`·`/openapi.json`과 시연 계정 시드도 같은 판정을 쓴다. `staging`이 허용값에 남는 이유는 그대로다 — 메일 백엔드(`#524`)·`APP_PUBLIC_URL`(`#809`)·가입 게이트(`#808`) 가드가 프로덕션 전용이라 SMTP 없이 배포를 검증하는 자리가 필요하고, 이 변경은 그 자리를 **닫힌 채로** 만든다. 규칙 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#1058) |

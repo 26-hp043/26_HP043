@@ -347,6 +347,13 @@
   min-inline-size: 0;
 }
 
+/* 뒤 페이지가 남아 있을 때 정렬 범위를 밝히는 한 줄 (#1102 ⑶). 경고가 아니라 사실이다. */
+.vm__partial {
+  margin: 0 0 var(--space-8);
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+}
+
 .vm__imo {
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -390,4 +397,10 @@
 /* 행 안에서는 좁게. 폭은 열이 정하고 글자는 두 자다. */
 .vm__actions .vessel-management__button {
   padding: 0 var(--space-12);
+}
+
+/* 현장직에게는 수정·삭제 대신 짧은 안내 (#672). */
+.vm__office-only {
+  font-size: var(--cii-font-size-sm, 0.8125rem);
+  color: var(--cii-text-muted, var(--color-text-muted));
 }

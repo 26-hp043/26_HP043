@@ -24,7 +24,7 @@ import {
   applySample,
   useSampleVessels,
 } from './sampleVessels'
-import { SHIP_TYPES } from './shipTypes'
+import { SHIP_TYPES, shipTypeLabel } from './shipTypes'
 import type { Vessel } from './types'
 
 /**
@@ -102,6 +102,10 @@ export function VesselRegistration() {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (submitting) return
+
+    // 새 시도가 시작되면 이전 결과 카드를 거둔다 (#1102 ⑷). 두 번째 등록이 실패해도
+    // 첫 선박의 「등록 완료」가 남아 있으면 실패한 쪽이 등록된 것처럼 읽힌다.
+    setRegistered(null)
 
     const found = validateForm(state, fuels)
     setErrors(found)
@@ -268,10 +272,8 @@ export function VesselRegistration() {
               <input
                 id="deadweight"
                 className="vessel-registration__control"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 value={state.deadweight}
                 aria-invalid={FIELD.deadweight in errors}
                 aria-describedby={describedBy('deadweight', FIELD.deadweight in errors, false)}
@@ -289,10 +291,8 @@ export function VesselRegistration() {
               <input
                 id="gross-tonnage"
                 className="vessel-registration__control"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 value={state.grossTonnage}
                 aria-invalid={FIELD.grossTonnage in errors}
                 aria-describedby={describedBy(
@@ -314,10 +314,8 @@ export function VesselRegistration() {
               <input
                 id="reference-speed"
                 className="vessel-registration__control"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 value={state.referenceSpeedKn}
                 aria-invalid={FIELD.referenceSpeedKn in errors}
                 aria-describedby={describedBy(
@@ -341,10 +339,8 @@ export function VesselRegistration() {
               <input
                 id="reference-foc"
                 className="vessel-registration__control"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 value={state.referenceDailyFocTon}
                 aria-invalid={FIELD.referenceDailyFocTon in errors}
                 aria-describedby={describedBy(
@@ -421,7 +417,8 @@ function RegisteredCard({ vessel }: { vessel: Vessel }) {
       <dl className="vessel-registration__result-list">
         <Spec label="선명" value={vessel.name} />
         <Spec label="IMO 번호" value={vessel.imo_number} />
-        <Spec label="선종" value={vessel.ship_type} />
+        {/* 목록·상세와 같은 한글명 (#1102 ⑷). 코드(`BULK_CARRIER`)는 사용자 언어가 아니다. */}
+        <Spec label="선종" value={shipTypeLabel(vessel.ship_type)} />
         <Spec label="재화중량톤수 (DWT)" value={numberOrMissing(vessel.deadweight)} />
         <Spec label="총톤수 (GT)" value={numberOrMissing(vessel.gross_tonnage)} />
         <Spec

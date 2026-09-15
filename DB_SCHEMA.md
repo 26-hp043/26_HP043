@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.24 |
+| 버전 | v1.26 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-09-15 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -786,7 +786,7 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | PARAMETER_CHANGE, VOYAGE_CONFIRM, CALCULATION_RUN, VOYAGE_TRANSITION, IMPORT, EXPORT, **LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT** [#277] · **DB_BACKUP** [#827] |
+| `action` | VARCHAR(50) | NOT NULL | PARAMETER_CHANGE, VOYAGE_CONFIRM, CALCULATION_RUN, VOYAGE_TRANSITION, IMPORT, EXPORT, **LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT** [#277] · **DB_BACKUP** [#827] · **ROLE_CHANGE** [#672] (`user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after`) |
 | `entity_type` | VARCHAR(30) | NULL | `vessel`, `voyage`, `calculation_run`, **`regulation_year`**, **`fuel_type`**, **`reference_line`** **[Oracle 관찰 #4]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |
@@ -819,6 +819,7 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 | `email_verified_at` | TIMESTAMPTZ | NULL | 이메일 인증 완료 시각. `NULL`이면 미인증 |
 | `email` | VARCHAR(320) | NOT NULL | 표시·연락용. **식별자가 아니다** |
 | `display_name` | VARCHAR(100) | NULL | 표시 이름 |
+| `role` | VARCHAR(10) | NOT NULL DEFAULT 'FIELD', **CHECK `chk_app_user_role` (`OFFICE`·`FIELD`)** | 사무직·현장직 (`#672` · `PRD §7.10` · 마이그레이션 044). **기본값이 현장직**이다 — 새 계정은 좁게 시작하고 사무직이 넓혀 준다. 044가 **기존 행은 전부 `OFFICE`**로 채웠다(그전까지 전원이 전 기능을 썼다) |
 | `last_login_at` | TIMESTAMPTZ | NULL | 마지막 로그인 시각 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
@@ -1124,6 +1125,45 @@ CREATE UNIQUE INDEX uq_vessel_position_snapshot_observation
 > **`nav_status`는 파생 결과가 아니라 원본이다.** `underway_state`·`detail_status`로 옮기는 규칙(`ais/provider.py` `NAV_STATUS_TO_STATE`)이 바뀌어도 **과거 행을 다시 읽을 수 있어야** 한다. 옮길 수 있는 코드는 넷뿐이다(0·8 → `UNDER_WAY`/`SAILING` · 1 → `AT_ANCHOR` · 5 → `IN_PORT`); 나머지는 판정하지 않는다.
 
 > **보존 분류**: 보존 대상이다(`§8`). 지나간 시각의 좌표는 되살릴 방법이 없어 마이그레이션 040을 `IRREVERSIBLE`로 분류했다(`§8.1.2`).
+
+### 2.22 `fleet_reduction_plan` — 함대 감축 계획 (#513)
+
+`UIFLOW 2-10`에서 담당자가 만든 **감축 계획안 한 건**이다(`PRD §12.3.2` ⑺). 경영진에 보고하는 산출물이라 휘발되면 안 된다. 슬라이더를 움직이는 동안은 화면 상태이고 **「저장」한 것만 행이 된다.**
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK, `gen_random_uuid()` | |
+| `name` | VARCHAR(100) | NOT NULL, CHECK 공백 아님 | 계획 이름 |
+| `regulation_year` | INTEGER | NOT NULL | |
+| `target` | VARCHAR(20) | NOT NULL, CHECK | `NO_AT_RISK` · `ALL_C_OR_BETTER` |
+| `adjustments` | JSONB | NOT NULL | `[{vessel_id, speed_reduction_percent}]` — 수치는 **문자열** |
+| `prices` | JSONB | NOT NULL | `{charter_usd_per_day: {vessel_id: …}, fuel_usd_per_ton: {fuel_type: …}}` — **이 계획이 가정한 단가(USD)** |
+| `result` | JSONB | NOT NULL | 저장 시점에 서버가 낸 결과 전체(`API_SPEC §2.17.1` `data`) |
+| `created_by` | UUID | NULL, FK → `app_user(id)` ON DELETE **SET NULL** | 계정이 지워져도 계획은 남는다 |
+| `created_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
+
+```sql
+CREATE TABLE fleet_reduction_plan (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name             VARCHAR(100) NOT NULL,
+    regulation_year  INTEGER      NOT NULL,
+    target           VARCHAR(20)  NOT NULL,
+    adjustments      JSONB        NOT NULL,
+    prices           JSONB        NOT NULL,
+    result           JSONB        NOT NULL,
+    created_by       UUID REFERENCES app_user(id) ON DELETE SET NULL,
+    created_at       TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT chk_fleet_reduction_plan_target CHECK (target IN ('NO_AT_RISK','ALL_C_OR_BETTER')),
+    CONSTRAINT chk_fleet_reduction_plan_name   CHECK (length(trim(name)) > 0)
+);
+CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_at DESC);
+```
+
+> **단가를 선박 제원에 두지 않고 계획에 둔다** (2026-09-13 결정 C). 제원에 두면 단가를 고친 순간 **과거 계획의 손익이 조용히 바뀐다** — 보고한 숫자와 다시 연 숫자가 갈린다.
+
+> **`result`는 다시 계산해 채우지 않는다.** 저장 뒤 항차가 바뀌면 다시 낸 값은 그때 보고한 숫자가 아니다. 선박을 지워도(`vessel` soft delete) 계획의 `result`는 그대로다 — FK를 두지 않는 이유가 이것이다(JSONB 안의 `vessel_id`는 참조가 아니라 **기록**이다).
+
+> **보존 분류**: 보존 대상이다. 사람이 만든 계획안이라 되살릴 방법이 없어 마이그레이션 043을 `IRREVERSIBLE`로 분류했다(`§8.1.2`).
 
 ---
 
@@ -1661,7 +1701,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 |---|---|
 | 착수 기준 | **실제 두 번째 선사**가 이 시스템을 쓰기로 확정될 때 |
 | ⛔ 선행 | **`#672` 어드민 계정·권한 재판정** — 테넌시는 권한 체계 **위에** 선다 |
-| 실측 (2026-09-12) | 회사 1곳 · `app_user` 계정은 **역할 구분이 없다**(`#808` — 「사내 도구 · 로그인 사용자 공유」) |
+| 실측 (2026-09-15) | 회사 1곳 · `app_user`는 **사무직·현장직 2종**(`#672` · §2.15 `role`). 회사 소속 컬럼은 없다 — 역할은 행위 권한이지 소속·소유가 아니다(`PRD §7.10`) |
 
 > **고객 수가 조건인 이유.** 행 단위 격리(`org_id`)는 **모든 테이블에 컬럼이 붙고 모든 쿼리에 조건이 붙는다.** 한 회사만 쓰는 동안 그 조건은 **항상 참**이라, 얻는 것 없이 모든 쿼리가 한 겹 무거워지고 조건을 빠뜨린 쿼리가 **조용히 남의 데이터를 보여 줄** 위험만 생긴다.
 >
@@ -1800,5 +1840,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-12 | `#764` | **v1.21 — §2.21 `vessel_position_snapshot` 신설**(마이그레이션 040). 위치에 **이력이 없었다** — `vessel.current_lat/lon`은 덮어쓰는 한 칸이라 새 값이 들어오면 직전 값이 사라진다. 자동 수집(AIS)은 값을 자주 밀어 넣으므로 **수집할수록 잃는 것이 늘어나는** 구조였다. `observed_at`(배가 그 자리에 있던 시각)과 `received_at`(우리가 받은 시각)을 나눈 이유는 AIS에 지연·재전송이 있어서다 — 수신 시각으로 신선도를 재면 「30분 전 위치를 방금 받았다」가 최신으로 읽힌다. `(vessel_id, source, observed_at)` UNIQUE는 **같은 관측의 재전송**을 한 행으로 접는다(AIS에서는 정상 동작이다). `nav_status`는 **원본 코드**를 적는다 — 운항 상태로 옮기는 규칙이 바뀌어도 과거 행을 다시 읽을 수 있어야 한다. 지나간 시각의 좌표는 되살릴 수 없어 040을 `IRREVERSIBLE`로 분류했다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올리고 README 문서 구조 표를 함께 갱신했다 (#764) |
 | 2026-09-12 | `#775` | **v1.22 — §4.2·§9.2에 착수 조건 소절 신설.** 「향후 확장」은 아무도 보지 않으면 잊히고, 반대로 지금 하면 얻는 것 없이 위험만 진다 — 그래서 **숫자로** 적었다: 파티셔닝은 **단일 테이블 1,000만 행**(실측 2026-09-12 — `calculation_run` 751행), 다중 회사는 **두 번째 선사 확정**(⛔ `#672` 선행). ⚠️ **파티셔닝이 PK와 FK를 함께 바꾼다**는 것을 실측으로 확인해 적었다 — 파티션 키가 UNIQUE에 포함돼야 해 PK가 `(id)` → `(id, created_at)`이 되고, `annual_simulation_run` → `calculation_run` FK가 복합 FK가 되거나 사라진다. immutable 트리거는 PG13+ 파티션 부모에서 그대로 돈다(이 저장소는 PG 16). 격리 방식은 **두 번째 회사에서는 인스턴스 분리**로 판정했다 — 행 단위 `org_id`는 회사가 하나인 동안 조건이 항상 참이라 얻는 것 없이 누락 위험만 만든다. `§9.2` 경로에 빠져 있던 테이블 셋의 처리도 적었다(`port_geocode`는 공용 캐시라 회사에 속하지 않는다). 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#775) |
 | 2026-09-13 | `#363` | **v1.23 — §2.6 `annual_simulation_run.apply_feedback_factor` 컬럼 추가**(마이그레이션 042) + 각주. 실적 보정계수(`PRD §12.2.1`)를 **켰는지만** 저장하고 계수 값은 저장하지 않는다 — 같은 스냅샷에서 다시 계산하면 같은 값이라 두 곳에 두면 갈릴 수 있다. 기존 행은 `false`(사실과 같음). downgrade는 `IRREVERSIBLE`. 컬럼 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#363) |
+| 2026-09-13 | `#513` | **v1.24 — §2.22 `fleet_reduction_plan` 신설**(마이그레이션 043). `UIFLOW 2-10` 함대 감축 계획의 저장본. ⚠️ **단가를 계획에 저장**한다(2026-09-13 결정 C) — 선박 제원에 두면 단가를 고친 순간 과거 계획의 손익이 조용히 바뀐다. `result`는 저장 시점 결과를 그대로 두고 다시 계산하지 않는다. `created_by`는 SET NULL(계정이 지워져도 계획은 남는다). downgrade는 `IRREVERSIBLE`. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |
+| 2026-09-15 | `#672` | **v1.25 — §2.15 `app_user.role` 컬럼 추가**(마이그레이션 044 · CHECK `chk_app_user_role`). 사무직(`OFFICE`)·현장직(`FIELD`) 2종, 기본값 현장직, **기존 행은 전부 사무직**으로 채웠다 — 그전까지 전원이 전 기능을 썼으므로 그래야 아무도 잃지 않는다. §2.14 `action` 열거에 `ROLE_CHANGE` 추가(행위자·대상·전후 값). §9.2 실측 행 갱신(역할 구분이 생겼고 회사 소속은 여전히 없다). downgrade는 열을 지워 지정 기록이 사라지므로 `IRREVERSIBLE`(`migration_guard.py`). 컬럼 추가라 버전을 올린다(`#363`이 042 컬럼 추가에서 올린 선례) (#672) |
 
-| 2026-09-15 | `#1058` | **v1.24 — `§7.4` 신설**: CUBRID는 `CHECK`를 강제하지 않는다. 빈 테이블로 재현했다(`CHECK (n > 0)`에 `-5`가 들어가 조회된다). 이 문서와 ORM에 적힌 CHECK가 **배포에서 아무것도 막지 않는다**는 사실을 적어 두지 않으면 다음 사람이 「적혀 있으니 막힌다」로 읽는다 — 그것이 이 절을 만든 이유다. 전환 분기점(`0f4b062`) 대조로 **CHECK 6 · FK 3**이 사라졌고 **트리거는 0개**였음을 실측했다(`§7.3` immutable 보호가 통째로 없었다). 마이그레이션 `a7d3e9b14f26`이 재현성·참조 정합 9가지를 트리거 15개로 되살린다. `§7.1` 연료 코드 FK 세 행과 `DB 엔진` 줄에 CUBRID 단서를 달았다 — FK가 **PK만** 가리킬 수 있어(`errno=-920`) 그 세 행은 FK로 성립하지 않고, `ON UPDATE CASCADE`도 지원되지 않아 전파 대신 막힌다. 값 범위 CHECK(`chk_gt_positive` 등)와 **부모 쪽 연료 삭제 금지**는 되살리지 않았다 — 뒤엣것은 한 번 넣었다가 뺐다. `REPLACE INTO`가 DELETE + INSERT로 구현돼 seed 재적재가 통째로 막혔고(`test_seed_data.py` 7건이 fixture에서 죽었다), 트리거는 REPLACE의 DELETE와 사람이 친 DELETE를 구분하지 못한다. 남는 구멍을 §7.4에 적고 `test_parent_side_delete_is_deliberately_not_guarded`로 고정했다 (#1058) |
+| 2026-09-15 | `#1058` | **v1.26 — `§7.4` 신설**: CUBRID는 `CHECK`를 강제하지 않는다. 빈 테이블로 재현했다(`CHECK (n > 0)`에 `-5`가 들어가 조회된다). 이 문서와 ORM에 적힌 CHECK가 **배포에서 아무것도 막지 않는다**는 사실을 적어 두지 않으면 다음 사람이 「적혀 있으니 막힌다」로 읽는다 — 그것이 이 절을 만든 이유다. 전환 분기점(`0f4b062`) 대조로 **CHECK 6 · FK 3**이 사라졌고 **트리거는 0개**였음을 실측했다(`§7.3` immutable 보호가 통째로 없었다). 마이그레이션 `a7d3e9b14f26`이 재현성·참조 정합 9가지를 트리거 15개로 되살린다. `§7.1` 연료 코드 FK 세 행과 `DB 엔진` 줄에 CUBRID 단서를 달았다 — FK가 **PK만** 가리킬 수 있어(`errno=-920`) 그 세 행은 FK로 성립하지 않고, `ON UPDATE CASCADE`도 지원되지 않아 전파 대신 막힌다. 값 범위 CHECK(`chk_gt_positive` 등)와 **부모 쪽 연료 삭제 금지**는 되살리지 않았다 — 뒤엣것은 한 번 넣었다가 뺐다. `REPLACE INTO`가 DELETE + INSERT로 구현돼 seed 재적재가 통째로 막혔고(`test_seed_data.py` 7건이 fixture에서 죽었다), 트리거는 REPLACE의 DELETE와 사람이 친 DELETE를 구분하지 못한다. 남는 구멍을 §7.4에 적고 `test_parent_side_delete_is_deliberately_not_guarded`로 고정했다 (#1058) |

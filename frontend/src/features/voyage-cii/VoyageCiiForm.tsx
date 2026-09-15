@@ -73,6 +73,8 @@ interface VoyageCiiFormProps {
   onStaleChange?: (stale: boolean) => void
 }
 
+const SHELL_VESSEL_MISSING = '상단바에서 고른 선박이 목록에 없어 첫 번째 선박으로 바꿨습니다. 확인해 주세요.'
+
 export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormProps) {
   // 연료 선택지도 선박·연도와 같은 경계 뒤에 둔다 (#542). 종전에는 `selectableFuels()`가
   // 고정표(`referenceTable.ts`)를 직행으로 읽어, 실 API 모드에서도 서버가 아는 연료와
@@ -125,8 +127,16 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
    * 이 경로로 함께 해소된다 — 첫 배는 항상 서버 목록에서 고른다.
    */
   const shellVesselId = shell.vesselId
+  /** 상단바가 기억한 선박이 목록에 없을 때의 안내 (`#1097` ⑵). 사용자가 배를 고르면 지운다. */
+  const [vesselNotice, setVesselNotice] = useState<string | null>(null)
   useEffect(() => {
     if (shellVesselId !== null) {
+      // 목록에 없는 선박(삭제됨)이면 첫 배로 바꾸고 안내한다 — 그 id로 계산하지 않는다 (#1097 ⑵).
+      if (vessels.length > 0 && !vessels.some((vessel) => vessel.id === shellVesselId)) {
+        setVesselNotice(SHELL_VESSEL_MISSING)
+        selectVesselId(vessels[0].id)
+        return
+      }
       setState((prev) => (prev.vesselId === shellVesselId ? prev : { ...prev, vesselId: shellVesselId }))
       return
     }
@@ -262,7 +272,10 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
               id="vessel"
               className="voyage-cii-form__control"
               value={state.vesselId}
-              onChange={(e) => changeVessel(e.target.value)}
+              onChange={(e) => {
+                setVesselNotice(null)
+                changeVessel(e.target.value)
+              }}
             >
               {vessels.map((vessel) => (
                 <option key={vessel.id} value={vessel.id}>
@@ -270,6 +283,11 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
                 </option>
               ))}
             </select>
+            {vesselNotice !== null ? (
+              <p className="voyage-cii-form__hint" role="alert">
+                {vesselNotice}
+              </p>
+            ) : null}
           </Field>
         ) : (
           <StaticField

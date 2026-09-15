@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useRef, useEffect, useMemo, useState } from 'react'
 import './ScenarioComparison.css'
 import { useShellContext } from '../../layout/shellContext'
 import { ScenarioAdoptPanel } from './ScenarioAdoptPanel'
@@ -22,6 +22,7 @@ import {
   portOptionLabel,
   useSamplePorts,
 } from '../ports/samplePorts'
+import { ScenarioComparisonError } from './provider'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -134,6 +135,9 @@ export function ScenarioComparison({
   const catalogError = vesselsState === 'failed' ? '선박 목록을 불러오지 못했습니다.' : null
 
   const [form, setForm] = useState<ComparisonFormState>(initialFormState)
+  /** 지금 입력칸의 목적지 이름 — 늦게 온 좌표 조회 응답이 대조한다 (#1097 ⑴). */
+  const destinationNameRef = useRef('')
+  destinationNameRef.current = form.destinationPortName.trim()
   /*
    * 샘플 항만 (#1005 · `PRD §15.1`). 못 받아도 폼은 그대로 쓴다 — 좌표는 손으로도 넣는다.
    * 「현재 위치」 칸은 **입력 보조**다 — 고르면 위도·경도 칸을 채울 뿐 요청에 따로 싣지 않는다.
@@ -142,6 +146,11 @@ export function ScenarioComparison({
   const [currentPortText, setCurrentPortText] = useState('')
   const [errors, setErrors] = useState<FormErrors>({})
   // 목적항 좌표 찾기 상태 (#768). 실패해도 폼을 막지 않으므로 오류가 아니라 안내다.
+  /*
+   * 상단바가 기억한 선박이 목록에 없을 때의 안내 (`#1097` ⑵). 삭제된 배를 상단바가 기억하고
+   * 있으면 셀렉트는 빈 채로 폼은 그 id로 계산했다 — 보이는 대상과 계산 대상이 달랐다.
+   */
+  const SHELL_VESSEL_MISSING = '상단바에서 고른 선박이 목록에 없습니다. 다시 선택해 주세요.'
   const [lookup, setLookup] = useState<{ status: 'idle' | 'loading' | 'done'; message: string }>({
     status: 'idle',
     message: '',
@@ -183,11 +192,24 @@ export function ScenarioComparison({
   const shellVesselId = shell.vesselId
   useEffect(() => {
     if (shellVesselId !== null) {
+      // 목록에 없는 선박(삭제됨)이면 선택을 풀고 안내한다 — 그 id로 계산하지 않는다 (#1097 ⑵).
+      if (vessels !== null && !vessels.some((option) => option.id === shellVesselId)) {
+        selectVesselId(null)
+        setForm((prev) => ({ ...prev, vesselId: '' }))
+        setErrors((prev) => ({ ...prev, [FIELD.vesselId]: SHELL_VESSEL_MISSING }))
+        return
+      }
       setForm((prev) => (prev.vesselId === shellVesselId ? prev : { ...prev, vesselId: shellVesselId }))
       return
     }
     if (vessels !== null && vessels.length === 1) selectVesselId(vessels[0].id)
-  }, [shellVesselId, vessels, selectVesselId])
+  }, [shellVesselId, vessels, selectVesselId, SHELL_VESSEL_MISSING])
+
+  // 목적지 이름이 바뀌면 앞 조회의 안내는 다른 항만 것이다 — 지운다 (#1097 ⑴).
+  const destinationName = form.destinationPortName.trim()
+  useEffect(() => {
+    setLookup({ status: 'idle', message: '' })
+  }, [destinationName])
 
   const runComparison = () => {
     const found = validateForm(form, fuels)
@@ -212,6 +234,16 @@ export function ScenarioComparison({
         onDisclaimer?.(response.disclaimer)
       },
       (error: unknown) => {
+        // 서버가 칸을 짚어 주면(`details[0].field`) 그 입력칸에 붙인다 (#1097 ⑶ · `#936`).
+        // 종전에는 `ScenarioComparisonError.field`를 담아 던지고 아무도 읽지 않았다.
+        if (
+          error instanceof ScenarioComparisonError &&
+          typeof error.field === 'string' &&
+          (Object.values(FIELD) as string[]).includes(error.field)
+        ) {
+          const field = error.field
+          setErrors((prev) => ({ ...prev, [field]: error.message }))
+        }
         setState({
           status: 'error',
           message: error instanceof Error ? error.message : '비교에 실패했습니다.',
@@ -571,8 +603,11 @@ export function ScenarioComparison({
             type="button"
             className="scenario-comparison__lookup"
             onClick={async () => {
+              const requested = form.destinationPortName.trim()
               setLookup({ status: 'loading', message: '' })
-              const result = await lookupPort(form.destinationPortName.trim())
+              const result = await lookupPort(requested)
+              // 조회하는 동안 이름이 바뀌었으면 이 좌표는 다른 항만 것이다 — 버린다 (#1097 ⑴).
+              if (destinationNameRef.current !== requested) return
               if (result.ok) {
                 setForm((current) => ({
                   ...current,

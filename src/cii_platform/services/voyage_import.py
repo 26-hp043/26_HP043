@@ -60,6 +60,7 @@ from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
+from cii_platform.api.schemas.bounds import DISTANCE
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import ValidationError
 from cii_platform.reports.csv_export import sanitize
@@ -158,10 +159,21 @@ def _numeric(row: dict[str, str], column: str) -> Decimal:
         raise RowError(column, f"숫자로 읽을 수 없습니다: {raw}") from exc
     if not value.is_finite():
         raise RowError(column, f"숫자로 읽을 수 없습니다: {raw}")
-    # VAL-002 — 거리·연료는 0보다 커야 한다 (`PRD §9.1`).
+    # VAL-002 — 거리·연료는 0보다 커야 한다 (`PRD §9.1`). 그리고 **DB가 담을 수 있어야**
+    # 한다 (#1086 ⑥) — `0.001`은 `NUMERIC(12,2)`에서 0.00으로 반올림돼 500이었다. 거리·연료
+    # 중 좁은 쪽(거리 `12,2`)의 경계를 쓴다 — 연료(`12,4`)도 그 안에 든다.
     if value <= 0:
         raise RowError(column, "0보다 커야 합니다.")
+    if value < _MIN_STORABLE:
+        raise RowError(column, f"{_MIN_STORABLE} 이상이어야 합니다.")
+    if value > _MAX_STORABLE:
+        raise RowError(column, f"너무 큽니다(최대 {_MAX_STORABLE}).")
     return value
+
+
+#: 항차 거리 `NUMERIC(12,2)`의 저장 범위 (`schemas/bounds.py` · #1086).
+_MIN_STORABLE = DISTANCE["ge"]
+_MAX_STORABLE = DISTANCE["le"]
 
 
 def _text(row: dict[str, str], column: str) -> str:

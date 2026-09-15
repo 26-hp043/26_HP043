@@ -9,6 +9,7 @@ import {
   OFF_NAV_ORDER,
   SCREEN_BY_ID,
   findScreenByPath,
+  type ScreenMeta,
 } from './screens'
 
 const SRC_DIR = new URL('.', import.meta.url).pathname
@@ -50,9 +51,10 @@ describe('NAV_ORDER — 작업 흐름 순서 (UIFLOW §2.2.1)', () => {
       'CII_FORECAST', // 3. 2-1
       'ROUTE_COMPARISON', // 4. 2-2
       'ANNUAL_GRADE', // 5. 2-3
-      'DATA_QUALITY', // 6. 2-11 (#513)
-      'REPORTS', // 7. 2-5
-      'SETTINGS', // 8. 2-6
+      'FLEET_REDUCTION', // 6. 2-10 (#513)
+      'DATA_QUALITY', // 7. 2-11 (#513)
+      'REPORTS', // 8. 2-5
+      'SETTINGS', // 9. 2-6
     ])
   })
 
@@ -61,14 +63,15 @@ describe('NAV_ORDER — 작업 흐름 순서 (UIFLOW §2.2.1)', () => {
    * 어느 화면이 사이드바에 있는지는 그대로다 — 그것까지 흔들리면 개정 범위가
    * 「순서만」이 아니게 된다.
    *
-   * **구성원이 늘어난 것은 한 번이다** — `#513`이 `2-11 데이터 점검`을 범위 안으로 옮기며
-   * 사이드바에 더했다(`UIFLOW §2.2.1` 개정).
+   * **구성원이 늘어난 것은 `#513` 한 이슈다** — `2-10 함대 감축 계획`·`2-11 데이터 점검`을
+   * 범위 안으로 옮기며 사이드바에 더했다(`UIFLOW §2.2.1` 개정).
    */
   it('사이드바 구성원은 정본 표와 같다', () => {
     expect([...NAV_ORDER].sort()).toEqual(
       [
         'ANNUAL_GRADE',
         'DATA_QUALITY',
+        'FLEET_REDUCTION',
         'CII_FORECAST',
         'MAINBOARD',
         'REPORTS',
@@ -185,6 +188,7 @@ describe('implemented ↔ 실제 구현 상태 (#527)', () => {
     MAINBOARD: 'MainboardPage',
     ANNUAL_GRADE: 'AnnualGradePage',
     DATA_QUALITY: 'DataQualityPage',
+    FLEET_REDUCTION: 'FleetReductionPage',
     CII_FORECAST: 'CiiForecastPage',
     ROUTE_COMPARISON: 'RouteComparisonPage',
     REPORTS: 'ReportsPage',
@@ -299,5 +303,32 @@ describe('화면 경로의 정본은 screens.ts 하나다 (#594 · #831)', () =>
       }
     }
     expect(offenders).toEqual([])
+  })
+})
+
+/**
+ * 사무직 전용 화면 ↔ 라우트 가드 배선 (`#672`).
+ *
+ * `officeOnly`는 사이드바(`AppShell`)가 읽고, 라우트는 `App.tsx`가 `<RequireOffice>`로
+ * 감싼다. **한쪽만 고치면** 사이드바는 잠겼는데 주소로는 열리거나 그 반대가 된다 —
+ * 두 목록을 소스에서 대조한다.
+ */
+describe('officeOnly ↔ App.tsx의 RequireOffice 배선 (#672)', () => {
+  const officeOnlyIds = ALL_SCREEN_IDS.filter((id) => (SCREEN_BY_ID[id] as ScreenMeta).officeOnly === true)
+
+  it('사무직 전용 화면은 정본 표와 같다 — 보고서 · 함대 감축 계획 · 선박 등록', () => {
+    expect([...officeOnlyIds].sort()).toEqual(['FLEET_REDUCTION', 'REPORTS', 'VESSEL_REGISTRATION'])
+  })
+
+  it('officeOnly 화면마다 App.tsx가 <RequireOffice>로 감싼다 — 개수와 짝이 같다', () => {
+    const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf-8')
+    const wrapped = app.match(/<RequireOffice>/g) ?? []
+    expect(wrapped).toHaveLength(officeOnlyIds.length)
+    for (const id of officeOnlyIds) {
+      const at = app.indexOf(`SCREEN_BY_ID.${id}.path}`)
+      expect(at, `${id}의 라우트를 App.tsx에서 찾지 못했다`).toBeGreaterThan(-1)
+      const after = app.slice(at, at + 200)
+      expect(after, `${id}의 라우트가 <RequireOffice>로 감싸여 있지 않다`).toContain('<RequireOffice>')
+    }
   })
 })

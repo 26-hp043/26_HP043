@@ -28,6 +28,7 @@ import type {
 } from './types'
 import './VesselDetail.css'
 import { ErrorState } from '../../components/ErrorState'
+import { SCREEN_BY_ID } from '../../screens'
 import { voyageCountText } from './voyageCount'
 import { CalculationHistory } from './CalculationHistory'
 
@@ -206,6 +207,14 @@ export function VesselDetail({
           <span className="card__meta">
             {current ? `${current.regulationYear}년 · 진행 중` : '—'}
           </span>
+          {/*
+            `UIFLOW 2-11` 진입 조건 「`2-8` 선박 상세의 신뢰도 표시」 (#1082). 선박 상세에는 아직
+            신뢰도 표시(`DataConfidenceBadge`)가 없다 — 그 모양은 디자인 확정 대상(`#1052`)이라
+            여기서 만들지 않고, **누적값의 출처를 확인하는 길**만 누적 카드 머리에 둔다.
+          */}
+          <Link className="card__meta" to={SCREEN_BY_ID.DATA_QUALITY.path}>
+            {SCREEN_BY_ID.DATA_QUALITY.label}
+          </Link>
         </div>
 
         {/*

@@ -2,9 +2,26 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { FleetDashboard } from './FleetDashboard'
+
+/**
+ * 지도는 대역으로 둔다 (`#1091`).
+ *
+ * `FleetDashboard`는 `FleetMap`을 `lazy()`로 불러오고, 그 안의 `maplibre-gl`이
+ * 마운트되는 순간 **WebGL2 컨텍스트를 요구한다.** jsdom에는 그것이 없어
+ * `GPUInitializationError`가 **테스트 밖에서(uncaught)** 던져진다 — 단언은 전부
+ * 통과하는데 러너가 `Errors 2`로 실패한다(CI `frontend` 잡에서 실측).
+ *
+ * 종전에 드러나지 않은 이유는 **lazy chunk가 풀리기 전에 검사가 끝났기 때문**이다.
+ * 기다리는 검사를 하나 더 넣자 chunk가 먼저 풀려 지도가 실제로 마운트됐다 — 즉
+ * 종전 초록은 **타이밍에 기댄 것**이었다.
+ *
+ * 이 파일의 어느 검사도 지도를 단언하지 않는다(목록·정렬·페이지·링크·문구만 본다).
+ * 지도 자체는 자산 유무를 묻는 `HEAD` 요청(`#763`)과 함께 별도로 다룬다.
+ */
+vi.mock('./FleetMap', () => ({ FleetMap: () => null }))
 
 /**
  * 대시보드가 **서버 정렬·페이지**를 쓰는가 (#772 · `API_SPEC §2.8`).
@@ -128,3 +145,162 @@ describe('선대 대시보드 — 서버 정렬·페이지 (#772)', () => {
     expect(screen.queryByRole('button', { name: /다음 선박 불러오기/ })).toBeNull()
   })
 })
+
+describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
+  it('조치 항목이 있으면 조치 카드에 「데이터 점검」 링크가 있다', async () => {
+    const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+    body.data.actions = [
+      { vessel_id: 'v1', vessel_name: '가선', reason: 'RATING_D', severity: 'warning', message: 'D등급' },
+    ] as never
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    const card = await screen.findByLabelText('조치 필요')
+    const link = within(card).getByRole('link', { name: '데이터 점검' })
+    expect(link.getAttribute('href')).toBe('/data-quality')
+  })
+})
+
+
+describe('「D등급까지」 사유 (#1091 · `API_SPEC §2.8`)', () => {
+  /**
+   * 규칙은 `fleetRules.test.ts`·`daysReason.sync.test.ts`가 잠근다. 여기서는 **화면이
+   * 그 규칙을 실제로 부르는가**를 본다 — 규칙만 검사하면 목록이 옛 문구를 직접 적어도
+   * 초록이다(`#592`가 같은 자리에서 겪은 일이다).
+   */
+  it.each([
+    ['NOT_WORSENING', '이대로면 진입 없음'],
+    ['NO_RECENT_DATA', '최근 항해 없음'],
+  ])('실적이 있는 선박에 「실적 없음」을 붙이지 않는다 — %s', async (reason, expected) => {
+    const row = { ...vessel('v1', '가선'), days_to_d_reason: reason }
+    const body = page([row], { next_cursor: null, has_more: false })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => body }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText(expected)).toBeTruthy()
+    expect(screen.queryByText('실적 없음')).toBeNull()
+  })
+})
+
+/**
+ * 정렬 변경 × 「다음 선박 불러오기」 경합과 추가 조회 실패 (`#1092`).
+ *
+ * 응답을 **손으로 풀어** 순서를 정한다 — ⓐ 옛 목록이 보이는 동안 버튼이 잠기는가,
+ * ⓑ 늦게 온 옛 정렬 2페이지를 버리는가, ⓒ 추가 조회 실패가 받은 목록을 지우지 않는가.
+ */
+describe('정렬 변경 · 추가 조회 경합 (#1092)', () => {
+  type Deferred = { resolve: (r: Response) => void }
+  function deferredFetch() {
+    const pending: Array<{ url: URL; d: Deferred }> = []
+    // 선대 요약만 손으로 푼다 — 지도 자산 확인(`hasBasemap`) 같은 다른 fetch는 바로 404다.
+    const fetchImpl = vi.fn((input: unknown) => {
+      const url = new URL(String(input), 'https://x')
+      if (!url.pathname.includes('/fleet/summary')) {
+        return Promise.resolve({ ok: false, status: 404, json: async () => ({}) } as Response)
+      }
+      return new Promise<Response>((resolve) => {
+        pending.push({ url, d: { resolve } })
+      })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return { pending, ok: (body: unknown) => ({ ok: true, status: 200, json: async () => body }) as Response }
+  }
+  const first = () => page([vessel('v1', '가선'), vessel('v2', '나선')], { next_cursor: 'c2', has_more: true })
+
+  it('ⓐ 정렬을 바꿔 첫 페이지를 다시 받는 동안 「다음 선박」이 잠긴다', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    const more = (await screen.findByRole('button', { name: /다음 선박 불러오기/ })) as HTMLButtonElement
+    expect(more.disabled).toBe(false)
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    // 옛 목록은 그대로 보이지만 버튼은 잠긴다 — 옛 커서를 새 정렬에 보내면 422다
+    const locked = screen.getByRole('button', { name: /정렬을 바꾸는 중/ }) as HTMLButtonElement
+    expect(locked.disabled).toBe(true)
+    fireEvent.click(locked)
+    expect(pending).toHaveLength(2)
+
+    await act(async () => pending[1].d.resolve(ok(first())))
+    await screen.findByRole('button', { name: /다음 선박 불러오기/ })
+  })
+
+  it('ⓑ 추가 조회 중 정렬을 바꾸면 늦게 온 옛 정렬 2페이지를 버린다', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    fireEvent.click(await screen.findByRole('button', { name: /다음 선박 불러오기/ }))
+    await waitFor(() => expect(pending).toHaveLength(2))
+    expect(pending[1].url.searchParams.get('cursor')).toBe('c2')
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(pending).toHaveLength(3))
+    // 새 정렬 1페이지가 먼저, 옛 정렬 2페이지가 늦게 온다
+    await act(async () =>
+      pending[2].d.resolve(ok(page([vessel('v9', '라선')], { next_cursor: 'n2', has_more: true }))),
+    )
+    await act(async () =>
+      pending[1].d.resolve(ok(page([vessel('v3', '다선')], { next_cursor: null, has_more: false }))),
+    )
+    expect(screen.getByText('라선')).toBeTruthy()
+    expect(screen.queryByText('다선')).toBeNull()
+    // 커서도 새 정렬 것이다 — 버튼이 남아 있고 다음 요청에 n2를 보낸다
+    fireEvent.click(await screen.findByRole('button', { name: /다음 선박 불러오기/ }))
+    await waitFor(() => expect(pending).toHaveLength(4))
+    expect(pending[3].url.searchParams.get('cursor')).toBe('n2')
+    expect(pending[3].url.searchParams.get('sort')).toBe('name')
+  })
+
+  it('ⓒ 추가 조회가 실패해도 받은 목록·KPI는 남고, 아래에 오류와 「다시 시도」가 생긴다', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    fireEvent.click(await screen.findByRole('button', { name: /다음 선박 불러오기/ }))
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () =>
+      pending[1].d.resolve({ ok: false, status: 503, json: async () => ({ error: { message: '잠시 뒤' } }) } as Response),
+    )
+    expect(await screen.findByText(/다음 선박을 불러오지 못했습니다/)).toBeTruthy()
+    expect(screen.getByText('가선')).toBeTruthy()
+    expect(screen.getByText('나선')).toBeTruthy()
+    const retry = screen.getByRole('button', { name: /다시 시도/ })
+    fireEvent.click(retry)
+    await waitFor(() => expect(pending).toHaveLength(3))
+    expect(pending[2].url.searchParams.get('cursor')).toBe('c2')
+    await act(async () =>
+      pending[2].d.resolve(ok(page([vessel('v3', '다선')], { next_cursor: null, has_more: false }))),
+    )
+    expect(await screen.findByText('다선')).toBeTruthy()
+    expect(screen.queryByText(/다음 선박을 불러오지 못했습니다/)).toBeNull()
+  })
+})
+

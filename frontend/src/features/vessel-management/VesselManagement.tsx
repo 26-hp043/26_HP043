@@ -23,7 +23,7 @@ import {
   type VesselEditState,
 } from './editRules'
 import {
-  EMPTY_MESSAGE,
+  LOADED_PARTIAL_HINT,
   MISSING,
   SORT_KEYS,
   SORT_LABEL,
@@ -31,13 +31,18 @@ import {
   capacityCell,
   dailyFuelCell,
   deleteConfirmMessage,
+  emptyMessage,
+  listTitle,
   referenceSpeedCell,
+  saveFailureNotice,
   shipTypeLabel,
   sortVessels,
   type VesselSortKey,
 } from './listRules'
 import { VesselManagementError } from './provider'
 import { createVesselManagementProvider } from './providerSelection'
+import { isOffice, useAuthUser } from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import './VesselManagement.css'
 import { ErrorState } from '../../components/ErrorState'
 
@@ -63,9 +68,26 @@ import { ErrorState } from '../../components/ErrorState'
  *
  * `GET /vessels`는 커서 페이지네이션이다(`routes/vessels.py:54`). 「더 보기」를
  * 두지 않으면 **21척째부터 조용히 사라진다** — 사용자는 없는 배를 그리워할 수 없다.
+ *
+ * ## 진행 중인 조작은 선박 id에 묶는다 (#1102)
+ *
+ * 저장·삭제는 응답이 오기 전에 다른 선박의 조작이 시작될 수 있다. 종전에는 수정 폼
+ * 하나·`saving` 하나·`deletingId` 하나가 화면 전체의 상태였다 —
+ *
+ * - A 저장 중 B 「수정」 → A 성공이 **B 폼을 닫아 입력이 사라지고**, A의 422가
+ *   B 폼 같은 칸에 붙었다.
+ * - A 삭제 중 B 삭제 → A가 끝나면 B의 「삭제 중…」도 풀려 다시 누르면 404였다.
+ *
+ * 그래서 폼은 `{ id, state, errors }` 한 덩어리로 두고 응답이 오면 **요청 당시의
+ * id와 대조**해 그 선박의 폼일 때만 반영한다. 삭제 진행은 id 집합이다.
  */
 export function VesselManagement() {
   const provider = useMemo(() => createVesselManagementProvider(), [])
+  /*
+   * 제원 수정·삭제는 사무직 전용이다 (`API_SPEC §1.2` · #672). 현장직에게는 버튼을 두지
+   * 않고 짧은 안내만 남긴다 — 눌러서 403을 받게 하는 것은 「되는 것처럼 보이는」 것이다.
+   */
+  const office = isOffice(useAuthUser())
   // 기본 연료 선택지는 서버가 준다 (#542). 종전에는 고정표를 직접 순회했다.
   const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
@@ -75,10 +97,16 @@ export function VesselManagement() {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editState, setEditState] = useState<VesselEditState | null>(null)
-  const [editErrors, setEditErrors] = useState<EditErrors>({})
-  const [saving, setSaving] = useState(false)
+  /** 열려 있는 수정 폼. 어느 선박의 폼인지·입력·오류를 한 덩어리로 갖는다 (#1102 ⑴). */
+  const [edit, setEdit] = useState<EditSession | null>(null)
+  /** 저장 응답을 기다리는 선박. 폼이 다른 선박으로 바뀌어도 이 값은 요청을 따라간다. */
+  const [savingId, setSavingId] = useState<string | null>(null)
+  /*
+   * 마지막 저장 실패. **어느 선박의 실패인지**를 갖고, 표시할 자리는 렌더에서 정한다 —
+   * 그 선박의 폼이 아직 열려 있으면 폼 안에, 폼이 다른 선박으로 바뀌었거나 닫혔으면
+   * 폼 밖에 이름을 달아 알린다. 응답이 온 시점의 폼을 비동기 콜백에서 읽지 않는다.
+   */
+  const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null)
 
   /*
    * 기본이 이름순이 아니다 — 근거는 `listRules.SORT_KEYS` 주석에 있다.
@@ -88,8 +116,14 @@ export function VesselManagement() {
   const [sortKey, setSortKey] = useState<VesselSortKey>('gaps')
   const sorted = useMemo(() => sortVessels(vessels, sortKey), [vessels, sortKey])
 
-  const [deletingId, setDeletingId] = useState<string | null>(null)
+  /** 삭제 응답을 기다리는 선박들. 한 칸이면 먼저 끝난 삭제가 다른 배의 표시를 푼다 (#1102 ⑵). */
+  const [deletingIds, setDeletingIds] = useState<ReadonlySet<string>>(() => new Set())
   const [actionNotice, setActionNotice] = useState<string | null>(null)
+  /*
+   * 조작(저장·삭제)의 실패. `loadError`와 가른다 — 종전에는 삭제 실패가 `loadError`에
+   * 남아 **다음 성공 안내와 나란히** 보였다. 새 조작이 시작되면 비운다.
+   */
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const loadPage = useCallback(
     async (cursor?: string) => {
@@ -119,70 +153,102 @@ export function VesselManagement() {
   }, [loadPage])
 
   const startEdit = (vessel: Vessel) => {
-    setEditingId(vessel.id)
-    setEditState(toEditState(vessel))
-    setEditErrors({})
+    setEdit({ id: vessel.id, state: toEditState(vessel), errors: {} })
+    setSaveFailure(null)
     setActionNotice(null)
+    setActionError(null)
   }
 
   const cancelEdit = () => {
-    setEditingId(null)
-    setEditState(null)
-    setEditErrors({})
+    setEdit(null)
+    setSaveFailure(null)
   }
 
-  const editing = editingId === null ? null : (vessels.find((v) => v.id === editingId) ?? null)
+  /** 폼 오류를 **그 선박의 폼이 아직 열려 있을 때만** 바꾼다. */
+  const setEditErrorsFor = (vesselId: string, errors: EditErrors) =>
+    setEdit((current) => (current !== null && current.id === vesselId ? { ...current, errors } : current))
+
+  const editing = edit === null ? null : (vessels.find((v) => v.id === edit.id) ?? null)
 
   const handleSave = async () => {
-    if (editing === null || editState === null) return
-    const errors = validateEdit(editState, fuels)
+    if (editing === null || edit === null) return
+    setSaveFailure(null)
+    const errors = validateEdit(edit.state, fuels, editing)
     if (Object.keys(errors).length > 0) {
-      setEditErrors(errors)
+      setEditErrorsFor(editing.id, errors)
       return
     }
-    const patch = toUpdateRequest(editing, editState)
+    const patch = toUpdateRequest(editing, edit.state)
     if (isEmptyPatch(patch)) {
       // 보낼 것이 없으면 요청을 만들지 않는다. 「저장됨」을 표시하면 사용자가 비운
       // 칸이 지워진 것으로 읽는다(`clearAttemptNotice`가 그 사실을 이미 알린다).
-      setEditErrors({ [EDIT_FIELD.form]: '바뀐 값이 없습니다.' })
+      setEditErrorsFor(editing.id, { [EDIT_FIELD.form]: '바뀐 값이 없습니다.' })
       return
     }
 
-    setSaving(true)
-    setEditErrors({})
+    // 요청 당시의 선박을 붙잡는다 — 응답이 올 때 폼은 다른 선박의 것일 수 있다.
+    const target = editing
+    setSavingId(target.id)
+    setEditErrorsFor(target.id, {})
+    setActionError(null)
     try {
-      const updated = await provider.update(editing.id, patch)
+      const updated = await provider.update(target.id, patch)
       setVessels((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))
       setActionNotice(`${updated.name}의 정보를 저장했습니다.`)
-      cancelEdit()
+      // 이 선박의 폼일 때만 닫는다. 그 사이 열린 다른 선박의 폼은 그대로 둔다.
+      setEdit((current) => (current !== null && current.id === target.id ? null : current))
     } catch (error) {
-      if (error instanceof VesselManagementError) {
-        // 서버가 필드를 지목했으면 그 입력창에, 아니면 폼 상단에 붙인다.
-        setEditErrors({ [error.field ?? EDIT_FIELD.form]: error.message })
-      } else {
-        setEditErrors({ [EDIT_FIELD.form]: '수정에 실패했습니다.' })
-      }
+      // 어느 선박의 실패인지만 기록한다. 폼 안에 붙일지 밖에 알릴지는 렌더가 정한다.
+      setSaveFailure({
+        id: target.id,
+        name: target.name,
+        message: error instanceof VesselManagementError ? error.message : '수정에 실패했습니다.',
+        field: error instanceof VesselManagementError ? error.field : undefined,
+      })
     } finally {
-      setSaving(false)
+      setSavingId((current) => (current === target.id ? null : current))
     }
   }
 
   const handleDelete = async (vessel: Vessel) => {
-    setDeletingId(vessel.id)
+    setDeletingIds((prev) => new Set(prev).add(vessel.id))
+    setSaveFailure(null)
     setActionNotice(null)
+    setActionError(null)
     try {
       await provider.remove(vessel.id)
       setVessels((prev) => prev.filter((v) => v.id !== vessel.id))
-      if (editingId === vessel.id) cancelEdit()
+      setEdit((current) => (current !== null && current.id === vessel.id ? null : current))
       setActionNotice(`${vessel.name}을(를) 목록에서 제거했습니다.`)
     } catch (error) {
-      setLoadError(
+      setActionError(
         error instanceof VesselManagementError ? error.message : '삭제에 실패했습니다.',
       )
     } finally {
-      setDeletingId(null)
+      setDeletingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(vessel.id)
+        return next
+      })
     }
   }
+
+  /*
+   * 저장 실패를 놓을 자리. 그 선박의 폼이 열려 있으면 폼 오류에 합치고(서버가 필드를
+   * 지목했으면 그 입력창, 아니면 폼 상단), 아니면 폼 밖 안내가 된다 (#1102 ⑴).
+   */
+  const failureInForm = saveFailure !== null && edit !== null && saveFailure.id === edit.id
+  const formErrors: EditErrors =
+    edit === null
+      ? {}
+      : failureInForm
+        ? { ...edit.errors, [saveFailure.field ?? EDIT_FIELD.form]: saveFailure.message }
+        : edit.errors
+  const shownActionError =
+    actionError ??
+    (saveFailure !== null && !failureInForm
+      ? saveFailureNotice(saveFailure.name, saveFailure.message)
+      : null)
 
   return (
     <section className="vessel-management">
@@ -219,6 +285,10 @@ export function VesselManagement() {
         <ErrorState level="region" size="compact" message={loadError} />
       )}
 
+      {shownActionError !== null && (
+        <ErrorState level="region" size="compact" message={shownActionError} />
+      )}
+
       {/*
         최초 조회 중에는 **본문이 통째로 비어 있었다** (`#824` ⑷).
 
@@ -236,19 +306,23 @@ export function VesselManagement() {
         </p>
       )}
 
+      {/*
+        빈 목록 판정에 `hasMore`를 넣는다 (#1102 ⑶). 불러온 20척을 모두 지웠는데
+        뒤 페이지가 남아 있으면 「등록된 선박이 없습니다」는 거짓이다.
+      */}
       {!loading && vessels.length === 0 && loadError === null && (
-        <p className="vessel-management__empty">{EMPTY_MESSAGE}</p>
+        <p className="vessel-management__empty">{emptyMessage(hasMore)}</p>
       )}
 
       {vessels.length > 0 && (
         <section className="card vm" aria-label="선박 목록">
           <div className="card__head">
-            <h2 className="card__title">선박 {vessels.length}척</h2>
             {/*
-              「불러온 만큼」임을 밝힌다. `GET /vessels`가 커서 페이지네이션이라
-              정렬은 **받은 페이지 안에서만** 성립한다 — 전체를 정렬한 것처럼
-              보이면 21척째부터 조용히 어긋난다.
+              「불러온 만큼」임을 밝힌다 (#1102 ⑶). `GET /vessels`가 커서 페이지네이션이라
+              화면은 전체 수를 모르고, 정렬은 **받은 페이지 안에서만** 성립한다 —
+              전체를 정렬한 것처럼 보이면 21척째부터 조용히 어긋난다.
             */}
+            <h2 className="card__title">{listTitle(vessels.length, hasMore)}</h2>
             <label className="sort">
               <span className="sr-only">정렬 기준</span>
               <select
@@ -264,6 +338,8 @@ export function VesselManagement() {
               </select>
             </label>
           </div>
+
+          {hasMore && <p className="vm__partial">{LOADED_PARTIAL_HINT}</p>}
 
           <ul className="vm__list">
             {/*
@@ -287,7 +363,8 @@ export function VesselManagement() {
             {sorted.map((vessel) => {
               const capacity = capacityCell(vessel)
               const blocked = blockedReasons(vessel)
-              const isEditing = editingId === vessel.id
+              const isEditing = edit !== null && edit.id === vessel.id
+              const isDeleting = deletingIds.has(vessel.id)
               return (
                 <li className="vm__item" key={vessel.id}>
                   <div className="vm__row">
@@ -346,27 +423,33 @@ export function VesselManagement() {
                     </div>
 
                     <div className="vm__actions">
-                      <button
-                        type="button"
-                        className="vessel-management__button"
-                        onClick={() => (isEditing ? cancelEdit() : startEdit(vessel))}
-                      >
-                        {isEditing ? '취소' : '수정'}
-                      </button>
-                      <button
-                        type="button"
-                        className="vessel-management__button vessel-management__button--danger"
-                        onClick={() => {
-                          // 되돌리기 어려운 조작이라 확인을 받는다. soft delete임을
-                          // 문구가 밝힌다(`listRules.deleteConfirmMessage`).
-                          if (globalThis.confirm(deleteConfirmMessage(vessel))) {
-                            void handleDelete(vessel)
-                          }
-                        }}
-                        disabled={deletingId === vessel.id}
-                      >
-                        {deletingId === vessel.id ? '삭제 중…' : '삭제'}
-                      </button>
+                      {office ? (
+                        <>
+                          <button
+                            type="button"
+                            className="vessel-management__button"
+                            onClick={() => (isEditing ? cancelEdit() : startEdit(vessel))}
+                          >
+                            {isEditing ? '취소' : '수정'}
+                          </button>
+                          <button
+                            type="button"
+                            className="vessel-management__button vessel-management__button--danger"
+                            onClick={() => {
+                              // 되돌리기 어려운 조작이라 확인을 받는다. soft delete임을
+                              // 문구가 밝힌다(`listRules.deleteConfirmMessage`).
+                              if (globalThis.confirm(deleteConfirmMessage(vessel))) {
+                                void handleDelete(vessel)
+                              }
+                            }}
+                            disabled={isDeleting}
+                          >
+                            {isDeleting ? '삭제 중…' : '삭제'}
+                          </button>
+                        </>
+                      ) : (
+                        <span className="vm__office-only">{OFFICE_ONLY_ACTION_HINT}</span>
+                      )}
                     </div>
                   </div>
 
@@ -378,16 +461,22 @@ export function VesselManagement() {
                     </ul>
                   )}
 
-                  {isEditing && editState !== null && (
+                  {isEditing && (
                     <EditForm
                       vessel={vessel}
-                      state={editState}
-                      errors={editErrors}
+                      state={edit.state}
+                      errors={formErrors}
                       fuels={fuels}
                       fuelsLoading={fuelsLoading}
                       fuelsFailed={fuelsFailed}
-                      saving={saving}
-                      onChange={setEditState}
+                      saving={savingId === vessel.id}
+                      onChange={(next) =>
+                        setEdit((current) =>
+                          current !== null && current.id === vessel.id
+                            ? { ...current, state: next }
+                            : current,
+                        )
+                      }
                       onSave={() => void handleSave()}
                       onCancel={cancelEdit}
                     />
@@ -411,6 +500,21 @@ export function VesselManagement() {
       )}
     </section>
   )
+}
+
+/** 열려 있는 수정 폼 — 어느 선박의 것인지를 입력·오류와 떼어 놓지 않는다 (#1102 ⑴). */
+interface EditSession {
+  id: string
+  state: VesselEditState
+  errors: EditErrors
+}
+
+/** 저장 실패 한 건. `id`가 폼과 맞을 때만 폼 안에 붙는다. */
+interface SaveFailure {
+  id: string
+  name: string
+  message: string
+  field?: string
 }
 
 interface EditFormProps {

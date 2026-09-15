@@ -22,7 +22,7 @@ from cii_platform.auth.session import (
     create_session_fields,
 )
 from cii_platform.config import should_expose_dev_auth
-from cii_platform.db.models.app_user import AppUser
+from cii_platform.db.models.app_user import ROLE_OFFICE, AppUser
 from cii_platform.db.session import get_session
 from cii_platform.services import audit as audit_svc
 
@@ -62,9 +62,15 @@ async def dev_login(
             email=_STUB_EMAIL,
             password_hash=_STUB_PASSWORD_HASH,
             display_name="Dev Stub User",
+            # 개발 계정은 사무직이다 — 검사·시연이 전 기능을 지나야 한다 (#672).
+            role=ROLE_OFFICE,
         )
         session.add(user)
         await session.flush()
+    elif user.role != ROLE_OFFICE:
+        # 044 이전에 만들어진 스텁 행은 044가 사무직으로 채웠지만, 이후 화면에서 강등됐을 수
+        # 있다. 개발 계정은 늘 사무직으로 되돌린다 — dev-login은 프로덕션에 없다.
+        user.role = ROLE_OFFICE
 
     # 로그인 시각 기록 — 신규 생성·재사용 두 경로 모두 갱신 (#317 연계).
     # app_user.updated_at은 022의 trg_app_user_updated가 자동 갱신한다.

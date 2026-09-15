@@ -104,8 +104,6 @@ export function toVoyageCiiError(status: number, body: unknown): VoyageCiiError 
 export interface ApiProviderOptions {
   /** base URL. 기본값은 상대 경로 `/api/v1` — 개발 서버 프록시를 탄다. */
   baseUrl?: string
-  /** `#104` API Key가 적용된 경우 주입할 키. 없으면 헤더를 붙이지 않는다. */
-  apiKey?: string
   /** 테스트에서 갈아 끼우기 위한 주입점. */
   fetchImpl?: typeof fetch
 }
@@ -113,8 +111,8 @@ export interface ApiProviderOptions {
 /**
  * 실 API를 호출하는 provider를 만든다.
  *
- * `#104`(API Key)가 적용되지 않은 지금은 `apiKey`가 없으면 헤더 자체를 붙이지 않는다 —
- * 빈 값을 보내면 서버가 「키가 있는데 틀렸다」로 볼 수 있다.
+ * 인증은 세션 쿠키다(`API_SPEC §1.2`). API Key 옵션은 `#104`가 세션 인증으로 대체한 뒤
+ * 서버가 읽지 않는 헤더를 계속 싣고 있어 `#1075`가 걷었다.
  */
 export function createApiProvider(options: ApiProviderOptions = {}): VoyageCiiProvider {
   const baseUrl = options.baseUrl ?? DEFAULT_API_BASE_URL
@@ -123,7 +121,6 @@ export function createApiProvider(options: ApiProviderOptions = {}): VoyageCiiPr
   return {
     async estimate(request: VoyageCiiRequest): Promise<VoyageCiiResponse> {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (options.apiKey) headers['X-API-Key'] = options.apiKey
       // #278: CSRF — 서버가 검증하는 경로는 헤더뿐이다(API_SPEC §1.2). 쿠키의
       // csrf 원문을 X-CSRF-Token으로 옮겨 실는다.
       Object.assign(headers, csrfHeaders())

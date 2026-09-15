@@ -13,6 +13,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cii_platform.api.schemas.bounds import DISTANCE, REGULATION_YEAR, SPEED, VOYAGE_FUEL
+
 
 class VoyageFuelUseCreateRequest(BaseModel):
     """``fuel_uses[]`` 한 건."""
@@ -20,8 +22,8 @@ class VoyageFuelUseCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
-    # VAL-002: > 0
-    planned_fuel_ton: Annotated[Decimal, Field(gt=0)]
+    # VAL-002: > 0. 상·하한은 DB 저장 범위 `NUMERIC(12,4)`에서 온다 (#1086 · `schemas/bounds.py`).
+    planned_fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL)]
     source: Annotated[str, Field(default="USER_INPUT", max_length=30)]
 
 
@@ -37,12 +39,14 @@ class VoyageCreateRequest(BaseModel):
     arrival_port_name: Annotated[str, Field(min_length=1, max_length=200)]
     arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
-    # VAL-002 / VAL-009
-    planned_distance_nm: Annotated[Decimal, Field(gt=0)]
-    planned_speed_kn: Annotated[Decimal, Field(ge=Decimal("1.0"))]
+    # VAL-002 / VAL-009. 상·하한은 DB 저장 범위에서 온다 (#1086 · `schemas/bounds.py`) —
+    # `0.001`은 0.00으로 반올림돼 `chk_distance_positive` 위반, `10000` kn은 `NUMERIC(6,2)` 초과.
+    planned_distance_nm: Annotated[Decimal, Field(**DISTANCE)]
+    planned_speed_kn: Annotated[Decimal, Field(**SPEED)]
     planned_departure_at: datetime | None = None
     planned_arrival_at: datetime | None = None
-    regulation_year: Annotated[int | None, Field(ge=2000, le=2100)] = None
+    # DB CHECK `BETWEEN 2019 AND 2050`과 같다 (#1086 ①). 실재 여부(VAL-005)는 서비스가 본다.
+    regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
     fuel_uses: Annotated[list[VoyageFuelUseCreateRequest], Field(min_length=1)]
     notes: str | None = None
 
@@ -63,11 +67,11 @@ class VoyageUpdateRequest(BaseModel):
     arrival_port_name: Annotated[str | None, Field(min_length=1, max_length=200)] = None
     arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
-    planned_distance_nm: Annotated[Decimal | None, Field(gt=0)] = None
-    planned_speed_kn: Annotated[Decimal | None, Field(ge=Decimal("1.0"))] = None
+    planned_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
+    planned_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
     planned_departure_at: datetime | None = None
     planned_arrival_at: datetime | None = None
-    regulation_year: Annotated[int | None, Field(ge=2000, le=2100)] = None
+    regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
     notes: str | None = None
 
 
@@ -93,7 +97,7 @@ class VoyageFuelActualRequest(BaseModel):
     fuel_type: Annotated[str, Field(min_length=1, max_length=30)]
     #: `chk_actual_fuel_positive` — DB도 같은 조건을 건다. 0을 「안 썼다」로 쓰려면
     #: 그 행을 넣지 않는 것이 맞다.
-    actual_fuel_ton: Annotated[Decimal, Field(gt=0)]
+    actual_fuel_ton: Annotated[Decimal, Field(**VOYAGE_FUEL)]
     source: Annotated[str | None, Field(default=None, max_length=30)] = None
 
 
@@ -106,10 +110,10 @@ class VoyageActualsRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    actual_distance_nm: Annotated[Decimal | None, Field(gt=0)] = None
+    actual_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
     #: `chk_actual_speed_min` — DB가 1.0 이상을 요구한다. 스키마가 더 느슨하면
     #: 사용자는 422가 아니라 500(제약 위반)을 받는다.
-    actual_avg_speed_kn: Annotated[Decimal | None, Field(ge=Decimal("1.0"))] = None
+    actual_avg_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
     actual_departure_at: datetime | None = None
     actual_arrival_at: datetime | None = None
     fuel_uses: list[VoyageFuelActualRequest] | None = None

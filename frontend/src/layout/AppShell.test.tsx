@@ -8,6 +8,7 @@ import { AppShell } from './AppShell'
 import { useShellContext } from './shellContext'
 import { VESSEL_QUERY_KEY } from './globalContext'
 import { NAV_ORDER, SCREEN_BY_ID } from '../screens'
+import * as session from '../auth/session'
 
 /**
  * 셸 → 화면 **전역 컨텍스트 배선** 검증 (#557).
@@ -41,7 +42,10 @@ function stubServer() {
       const url = String(input)
       calls.push(url)
       if (url.includes('/auth/me')) {
-        return jsonResponse({ data: { id: 'u1', email: 'a@b.c', display_name: '테스터' } })
+        // 기존 검사는 전 화면이 열린 사무직을 전제한다. 현장직은 아래 별도 describe.
+        return jsonResponse({
+          data: { id: 'u1', email: 'a@b.c', display_name: '테스터', role: 'OFFICE' },
+        })
       }
       if (url.includes('/vessels') && url.includes('/voyages')) return jsonResponse({ data: [] })
       if (url.includes('/vessels')) return jsonResponse(VESSELS)
@@ -330,5 +334,58 @@ describe('상단바 알림 버튼 — 알림 체계가 없는 동안은 준비 �
     // §7.2 배치 — 항차 셀렉트 뒤, 계정 앞에 그대로 있다.
     const topbar = bell.closest('.app-shell__topbar')
     expect(topbar).not.toBeNull()
+  })
+})
+
+/**
+ * 역할 2종 (`#672` · `UIFLOW §2.2` 역할 열).
+ *
+ * 현장직에게 사무직 전용 화면(보고서·함대 감축 계획)은 **「사무직 전용」 뱃지의 비활성
+ * 항목**이다 — 숨기지 않는다(`implemented: false`의 「준비 중」과 같은 판단). 사무직에게는
+ * 그대로 링크다.
+ */
+describe('사이드바 — 현장직에게 사무직 전용 화면은 비활성 항목이다 (#672)', () => {
+  /*
+   * 셸은 캐시된 사용자만 읽는다(프로브는 `RequireAuth`가 한다). 그래서 역할은
+   * `useAuthUser`를 직접 세운다 — 위 검사들은 사용자를 세우지 않아 `null`이고,
+   * 그때는 잠그지 않는다(실제 앱에서는 셸이 사용자 확인 뒤에만 그려진다).
+   */
+  function stubRole(role: session.UserRole) {
+    vi.spyOn(session, 'useAuthUser').mockReturnValue({
+      id: 'u2',
+      email: 'crew@b.c',
+      displayName: '갑판장',
+      role,
+      emailVerifiedAt: null,
+    })
+  }
+
+  it('현장직: 보고서·함대 감축 계획은 링크가 아니고 「사무직 전용」이 붙는다', async () => {
+    stubRole('FIELD')
+    stubServer()
+    renderShell()
+    const nav = await screen.findByRole('navigation', { name: '주요 화면' })
+    const tags = Array.from(nav.querySelectorAll('.app-shell__nav-tag')).map((el) => el.textContent)
+    expect(tags.filter((t) => t === '사무직 전용')).toHaveLength(2)
+    for (const id of ['REPORTS', 'FLEET_REDUCTION'] as const) {
+      const item = screen.getByText(SCREEN_BY_ID[id].label).closest('li')!
+      expect(item.querySelector('a')).toBeNull()
+      expect(item.querySelector('[aria-disabled="true"]')).not.toBeNull()
+    }
+    // 두 역할 모두 쓰는 화면은 그대로 링크다
+    const dashboard = screen.getByText(SCREEN_BY_ID.MAINBOARD.label).closest('li')!
+    expect(dashboard.querySelector('a')).not.toBeNull()
+  })
+
+  it('사무직: 같은 두 화면이 링크다', async () => {
+    stubRole('OFFICE')
+    stubServer()
+    renderShell()
+    const nav = await screen.findByRole('navigation', { name: '주요 화면' })
+    expect(nav.textContent).not.toContain('사무직 전용')
+    for (const id of ['REPORTS', 'FLEET_REDUCTION'] as const) {
+      const item = screen.getByText(SCREEN_BY_ID[id].label).closest('li')!
+      expect(item.querySelector('a')).not.toBeNull()
+    }
   })
 })

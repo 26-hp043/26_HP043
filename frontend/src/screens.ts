@@ -64,6 +64,16 @@ export interface ScreenMeta {
    * 남아 있었다. 데모 모드를 폐기하면서 이름을 뜻에 맞춘다 — 값은 바뀌지 않는다.
    */
   implemented: boolean
+  /**
+   * 사무직 전용 화면인가 (`UIFLOW §2.2` 역할 열 · `API_SPEC §1.2` · `#672`).
+   *
+   * 현장직에게는 사이드바에 **「사무직 전용」 뱃지의 비활성 항목**으로 남기고(숨기지
+   * 않는다 — `implemented: false`와 같은 판단), 라우트는 `RequireOffice`가 안내로 막는다.
+   * 서버가 `403 FORBIDDEN_ROLE`로 막는 것과 별개다 — 여기는 「안 되는 것을 되는 것처럼
+   * 보이지 않게」 하는 자리다. 화면 안의 개별 조작(제원 수정·시뮬레이션 실행·채택)은
+   * 각 화면이 `isOffice()`로 가른다.
+   */
+  officeOnly?: boolean
 }
 
 /**
@@ -85,6 +95,7 @@ export type ScreenId =
   | 'CII_FORECAST'
   | 'ROUTE_COMPARISON'
   | 'ANNUAL_GRADE'
+  | 'FLEET_REDUCTION'
   | 'DATA_QUALITY'
   | 'REPORTS'
   | 'SETTINGS'
@@ -152,6 +163,8 @@ export const SCREEN_BY_ID = {
     uiflowRef: '1-2',
     purpose: '사용자의 선박 기본 정보 입력 및 시스템 등록',
     width: 'form',
+    // 선박 등록은 사무직 전용이다 — 제원은 기준값이다 (`API_SPEC §1.2` · #672).
+    officeOnly: true,
     // 온보딩 흐름 — 사이드바 밖(`OFF_NAV_ORDER`)이라 이 값이 표시에 영향을 주지 않는다.
     //
     // **`false`였고, 그 근거가 폐기된 데모 모드였다 (#628).** 「등록은 쓰기라 데모
@@ -228,6 +241,17 @@ export const SCREEN_BY_ID = {
     // #442 실 API 연결 완료 — demo provider는 백엔드 없이 화면만 볼 때만 쓴다.
     implemented: true,
   },
+  FLEET_REDUCTION: {
+    path: '/fleet-reduction',
+    label: '함대 감축 계획',
+    labelEn: 'Fleet Reduction',
+    uiflowRef: '2-10',
+    purpose: '선박별 감속을 정해 목표 등급 달성 여부와 비용(추가 항해일 · 용선료 손실 · 연료비 절감)을 함께 본다',
+    // 7:5 두 단 — 선박별 조정과 결과를 나란히 본다(`UIFLOW 2-10` · `DESIGN_SYSTEM §7.1`).
+    width: 'wide',
+    implemented: true, // #513 — `POST /fleet/reduction-plans/evaluate` 실 API
+    officeOnly: true, // 선대 단위 경영 판단 — 화면 전체가 사무직 (`UIFLOW §2.2` · #672)
+  },
   DATA_QUALITY: {
     path: '/data-quality',
     label: '데이터 점검',
@@ -246,6 +270,7 @@ export const SCREEN_BY_ID = {
     purpose: '항차 완료 리포트 · 연간 실적 리포트 생성·내보내기 (PDF · CSV)',
     width: 'form',
     implemented: true,  // #362 구현 완료 (API는 #361)
+    officeOnly: true, // 대외 산출물 — 사무직 (`UIFLOW §2.2` · #672)
   },
   SETTINGS: {
     path: '/settings',
@@ -288,9 +313,10 @@ export const NAV_ORDER = [
   'CII_FORECAST',     // 3. 항해 전 조건을 넣어 본다
   'ROUTE_COMPARISON', // 4. 그 조건의 대안을 견준다
   'ANNUAL_GRADE',     // 5. 항차들이 쌓인 결과를 연 단위로 본다
-  'DATA_QUALITY',     // 6. 내보내기 전에 그 결과가 무엇으로 계산됐는지 본다 (#513)
-  'REPORTS',          // 7. 위 결과를 내보낸다
-  'SETTINGS',         // 8. 상시 사용이 아니므로 끝
+  'FLEET_REDUCTION',  // 6. 연 단위 결과를 선대 단위 조치로 옮긴다 (#513)
+  'DATA_QUALITY',     // 7. 내보내기 전에 그 결과가 무엇으로 계산됐는지 본다 (#513)
+  'REPORTS',          // 8. 위 결과를 내보낸다
+  'SETTINGS',         // 9. 상시 사용이 아니므로 끝
 ] as const satisfies readonly ScreenId[]
 
 /**
@@ -313,8 +339,11 @@ export const OFF_NAV_ORDER = [
 /** 라우팅 대상 전체. */
 export const ALL_SCREEN_IDS = [...NAV_ORDER, ...OFF_NAV_ORDER] as const
 
-/** 사이드바 렌더링용 배열. */
-export const NAV_SCREENS = NAV_ORDER.map((id) => ({ id, ...SCREEN_BY_ID[id] }))
+/** 사이드바 렌더링용 배열. `ScreenMeta`로 넓힌다 — `officeOnly` 같은 선택 필드를 항목마다 읽는다. */
+export const NAV_SCREENS: ReadonlyArray<ScreenMeta & { id: ScreenId }> = NAV_ORDER.map((id) => ({
+  id,
+  ...SCREEN_BY_ID[id],
+}))
 
 /**
  * 기본 진입 경로 — 대시보드(선대 계층).

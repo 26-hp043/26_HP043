@@ -3,7 +3,7 @@ import './test/renderSetup'
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
@@ -16,6 +16,7 @@ import type { ComponentProps } from 'react'
 import { GradeScaleBar } from './components/GradeScaleBar'
 import { GradeDistribution } from './features/fleet/GradeDistribution'
 import { AnnualSimulation } from './features/annual-simulation/AnnualSimulation'
+import * as session from './auth/session'
 import { ANNUAL_COPY } from './features/annual-simulation/copy'
 import { riskLabel } from './features/voyage-cii/resultRules'
 import type { RiskLevel } from './features/voyage-cii/types'
@@ -220,6 +221,17 @@ describe('A11Y-002 — Tab 키로 주요 액션에 닿는다', () => {
 
 describe('A11Y-003 — 확률 차트의 값이 글로도 있다', () => {
   const VESSEL_ID = '00000000-0000-4000-8000-000000000001'
+
+  // 실행은 사무직 전용이다 (#672) — 이 검사는 실행 결과의 차트를 보므로 사무직으로 세운다.
+  beforeEach(() => {
+    vi.spyOn(session, 'useAuthUser').mockReturnValue({
+      id: 'u-a11y',
+      email: 'office@bluelog.local',
+      displayName: null,
+      role: 'OFFICE',
+      emailVerifiedAt: null,
+    })
+  })
   const PROBABILITIES = { A: '0.0200', B: '0.2800', C: '0.5500', D: '0.1300', E: '0.0200' }
 
   function simulationBody() {
@@ -353,9 +365,13 @@ describe('A11Y-004 — 결과 화면마다 면책 문구가 있다', () => {
     { file: 'pages/CiiForecastPage.tsx', branches: 1 },
     { file: 'pages/RouteComparisonPage.tsx', branches: 1 },
     { file: 'pages/AnnualGradePage.tsx', branches: 1 },
+    // #513으로 생긴 선대 계층 두 화면(#1071) — 감축 계획은 연말 등급·USD 손익을, 데이터 점검은
+    // 완결성·CII 영향을 **집계해** 보인다. 위 정의대로 결과 화면이다.
+    { file: 'pages/FleetReductionPage.tsx', branches: 1 },
+    { file: 'pages/DataQualityPage.tsx', branches: 1 },
   ]
 
-  it('결과 화면 7종이 전부 DisclaimerBanner를 그린다 — 결과 분기마다', () => {
+  it('결과 화면 9종이 전부 DisclaimerBanner를 그린다 — 결과 분기마다', () => {
     for (const { file, branches } of RESULT_SCREENS) {
       const source = readFileSync(join(SRC, file), 'utf-8')
         .replace(/\/\*[\s\S]*?\*\//g, '')

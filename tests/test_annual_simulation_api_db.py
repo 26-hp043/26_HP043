@@ -16,8 +16,10 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -28,9 +30,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from conftest import ensure_regulation_year, insert_if_not_exists
 
-from cii_platform.errors import ValidationError
+from cii_platform.errors import CalculationError, ValidationError
 from cii_platform.services.annual_simulation import (
+    NO_BASIS_MESSAGE,
     _inputs_from_snapshot,
+    _project_or_domain_error,  # noqa: F401  — 배선 검사가 이름으로 본다
     run_annual_simulation,
 )
 from cii_platform.services.voyage_cii import DISCLAIMER
@@ -648,3 +652,109 @@ def test_remaining_rows_are_one_per_voyage():
 
     assert len(remaining2) == 3
     assert warnings2 == ["SIMULATION_PLAN_NO_FUEL"]
+
+
+# ─── 계산할 거리가 없는 선박 (#1084) ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_vessel_without_any_distance_is_a_domain_error(session, vessel_id):
+    """⚠️ #1084 — 거리가 없으면 **500이 아니라 422**다.
+
+    ``project_deterministic``은 ``completed_W + planned_W = 0``에서 ``ValueError``를
+    던진다(`PRD §12.8`). 종전에는 그것이 그대로 올라가 catch-all이 받아
+    ``INTERNAL_ERROR`` 500이 됐다 — **서버가 고장 난 것이 아니라 항차를 등록하면
+    풀리는 상태**인데 화면이 그렇게 말할 수 없었다.
+
+    항차를 **한 건도 만들지 않는다** — 새로 등록한 선박이 정확히 이 상태다.
+    """
+    with pytest.raises(CalculationError) as caught:
+        await _run(session, vessel_id)
+
+    assert caught.value.code == "CALCULATION_ERROR"
+    assert caught.value.http_status == 422
+    # 사용자가 할 일이 문구에 있어야 한다 — 「계산 실패」만으로는 항차를 등록할 생각을
+    # 하지 못한다.
+    assert "항차" in caught.value.message
+
+
+@pytest.mark.asyncio
+async def test_the_same_message_is_used_on_both_paths(session, vessel_id):
+    """⚠️ #1084 — 실행(`§6.1`)과 재현(`§6.4`)이 **같은 문구**를 쓴다.
+
+    두 경로가 같은 상태를 다른 말로 설명하면 사용자는 서로 다른 문제를 만났다고 읽는다.
+    문구를 한 곳(`NO_BASIS_MESSAGE`)에 두었는지 **호출부 수로** 확인한다 — 재현 경로는
+    저장된 스냅샷에서 거리가 0이 될 수 없어(실행할 때 이미 422로 막힌다) 실데이터로는
+    지나갈 수 없는 갈래다. 그래서 배선을 본다.
+    """
+    source = Path(inspect.getsourcefile(run_annual_simulation) or "").read_text(encoding="utf-8")
+
+    assert source.count("_project_or_domain_error(") == 3, (
+        "정의 1 + 호출부 2(실행·재현)여야 한다 — 하나라도 직접 project_deterministic을 "
+        "부르면 그 경로만 500으로 남는다"
+    )
+    assert "deterministic = project_deterministic(" not in source
+    assert NO_BASIS_MESSAGE.startswith("확정 실적도 잔여 계획도 없어")
+
+
+def test_a_vessel_without_voyages_answers_422_over_http(migrated_db, app_fresh_engine):
+    """⚠️ #1084 — **실제 HTTP로** 422를 받는다.
+
+    서비스가 도메인 오류를 던져도 ``error_handlers``가 그것을 422로 옮기지 않으면
+    사용자는 여전히 500을 본다. 그 층위를 건너뛰지 않는다 (`AGENTS §3.3`).
+
+    ``TestClient``는 실제로 커밋하므로 전용 선박을 만들고 ``finally``에서 지운다 —
+    남기면 다음 실행의 선대 집계가 이 행을 본다(`test_input_boundaries_api_db`와 같은 이유).
+    """
+    import asyncio
+
+    from fastapi.testclient import TestClient
+
+    from cii_platform.api.main import API_V1_PREFIX, app
+
+    vessel_uuid = uuid4()
+
+    async def seed() -> None:
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            await s.execute(
+                text(
+                    "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight, "
+                    "default_fuel_type, reference_speed_kn, reference_daily_foc_ton) "
+                    "VALUES (:id, :imo, 'NO BASIS 1084', 'BULK_CARRIER', 50000, 'HFO', 14, 30)"
+                ),
+                {"id": vessel_uuid, "imo": f"9{vessel_uuid.int % 1000000:06d}"},
+            )
+            await s.commit()
+
+    async def cleanup() -> None:
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            await s.execute(
+                text("DELETE FROM calculation_run WHERE vessel_id = :v"), {"v": vessel_uuid}
+            )
+            await s.execute(text("DELETE FROM vessel WHERE id = :v"), {"v": vessel_uuid})
+            await s.commit()
+
+    asyncio.run(seed())
+    try:
+        with TestClient(app, base_url="https://testserver") as client:
+            assert client.post(f"{API_V1_PREFIX}/auth/dev-login", json={}).status_code == 200
+            response = client.post(
+                f"{API_V1_PREFIX}/annual-simulations",
+                headers={"X-CSRF-Token": client.cookies["csrf"]},
+                json={
+                    "vessel_id": str(vessel_uuid),
+                    "regulation_year": YEAR,
+                    "target_rating": "C",
+                    "simulation_runs": 1000,
+                },
+            )
+
+        assert response.status_code == 422, response.text
+        assert response.json()["error"]["code"] == "CALCULATION_ERROR"
+        assert "항차" in response.json()["error"]["message"]
+    finally:
+        asyncio.run(cleanup())

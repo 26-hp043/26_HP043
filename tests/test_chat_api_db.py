@@ -268,7 +268,7 @@ async def test_discarded_answer_is_not_stored(migrated_db, app_fresh_engine):
 
         async with get_sessionmaker()() as s:
             roles = (
-                await s.execute(text("SELECT role FROM chat_message ORDER BY sent_at"))
+                await s.execute(text('SELECT "role" FROM chat_message ORDER BY sent_at'))
             ).scalars()
             assert list(roles) == ["USER"]
     finally:

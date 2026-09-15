@@ -25,7 +25,7 @@ from cii_platform.api.schemas.vessel import (
     VesselUpdateRequest,
 )
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.auth.dependencies import require_csrf
+from cii_platform.auth.dependencies import require_csrf, require_office
 from cii_platform.db.session import get_session
 from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.cii_history import list_cii_history
@@ -149,6 +149,7 @@ async def create_vessel_route(
     payload: VesselCreateRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """선박을 등록한다 (API_SPEC §2.3, #50). 성공 시 201 Created.
 
@@ -176,6 +177,7 @@ async def update_vessel_route(
     payload: VesselUpdateRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """선박을 수정한다 (API_SPEC §2.4, #52). 없으면 404."""
     data = await update_vessel(
@@ -223,6 +225,7 @@ async def delete_vessel_route(
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
 ) -> dict[str, object]:
     """선박을 soft delete 한다 (API_SPEC §2.5, #52).
 

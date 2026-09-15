@@ -260,3 +260,44 @@ describe('계획 저장 — 샘플 항만 (#1005)', () => {
   })
 })
 
+describe('계획 항차로 저장 — 문구 잔존 · DRAFT 누적 (#1098)', () => {
+  it('⑴ 계산 결과가 바뀌면 저장 완료 문구가 사라진다', async () => {
+    const provider = stubProvider()
+    const view = renderActions(SUCCESS, provider)
+    fillPlan()
+    fireEvent.click(screen.getByRole('button', { name: '계획으로 저장' }))
+    await screen.findByText(/계획 항차로 저장했습니다/)
+    // 거리를 고쳐 재계산한 새 결과 — state 객체가 바뀐다
+    const next: ResultState = { ...SUCCESS, request: { ...REQUEST, distance_nm: 2400 } }
+    view.rerender(
+      <MemoryRouter initialEntries={['/cii']}>
+        <Routes>
+          <Route
+            path="/cii"
+            element={<VoyageCiiActions state={next} stale={false} provider={provider} estimator={stubEstimator()} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(screen.queryByText(/계획 항차로 저장했습니다/)).toBeNull())
+  })
+
+  it('⑵ 전환이 실패한 뒤 다시 저장하면 항차를 새로 만들지 않고 전환만 다시 한다', async () => {
+    const transition = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('잠시 뒤 다시 시도'))
+      .mockResolvedValue({ ...DRAFT, status: 'PLANNED' as const })
+    const provider = stubProvider({ transition })
+    renderActions(SUCCESS, provider)
+    fillPlan()
+    fireEvent.click(screen.getByRole('button', { name: '계획으로 저장' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('잠시 뒤 다시 시도')
+    expect(provider.create).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: '계획으로 저장' }))
+    await screen.findByText(/계획 항차로 저장했습니다/)
+    expect(provider.create).toHaveBeenCalledTimes(1)
+    expect(transition).toHaveBeenCalledTimes(2)
+  })
+})
+

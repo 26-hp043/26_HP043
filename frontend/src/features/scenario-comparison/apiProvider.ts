@@ -286,6 +286,11 @@ export function createApiScenarioProvider(
         voyage_id: data.voyage_id,
         adopted_scenario_type: data.adopted_scenario_type as ScenarioAdoptResult['adopted_scenario_type'],
         updated_fields: Array.isArray(data.updated_fields) ? data.updated_fields : [],
+        // 수가 아닌 값(문자열·null)은 **없는 것으로** 넘긴다 — 그래야 화면이 「알 수 없다」를
+        // 그리고, `Number(null) === 0` 같은 변환으로 **0건이라고 단정하지 않는다** (`#1077`).
+        ...(typeof data.invalidated_calculation_runs === 'number'
+          ? { invalidated_calculation_runs: data.invalidated_calculation_runs }
+          : {}),
       }
     },
   }

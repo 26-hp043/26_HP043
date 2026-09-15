@@ -70,12 +70,31 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
   const sessionRef = useRef<string | undefined>(undefined)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const logRef = useRef<HTMLDivElement | null>(null)
+  const launcherRef = useRef<HTMLButtonElement | null>(null)
+  /** 한 번이라도 열렸는지. 첫 렌더에서 초점을 빼앗지 않기 위한 표시다. */
+  const openedOnceRef = useRef(false)
   const panelId = useId()
 
   const client = provider ?? createApiAssistantProvider()
 
   useEffect(() => {
-    if (open) inputRef.current?.focus()
+    if (open) {
+      openedOnceRef.current = true
+      inputRef.current?.focus()
+      return
+    }
+    /*
+     * 닫으면 **여는 버튼으로 초점을 돌려준다** (WCAG 2.4.3 · `#1101`).
+     * 돌려주지 않으면 초점이 `body`로 떨어져, 키보드 사용자는 방금 있던 자리를
+     * 잃고 문서 처음부터 다시 Tab을 눌러야 한다.
+     *
+     * 첫 렌더에서는 돌려주지 않는다 — 열어 본 적이 없는데 초점을 가져오면
+     * 화면에 들어오자마자 초점이 이 버튼으로 끌려간다.
+     */
+    if (openedOnceRef.current) {
+      openedOnceRef.current = false
+      launcherRef.current?.focus()
+    }
   }, [open])
 
   useEffect(() => {
@@ -83,15 +102,6 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
     const log = logRef.current
     if (log) log.scrollTop = log.scrollHeight
   }, [turns, pending])
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open])
 
   const send = useCallback(async () => {
     const message = draft.trim()
@@ -144,8 +154,8 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
       <button
         type="button"
         className="assistant__launcher"
+        ref={launcherRef}
         aria-expanded={false}
-        aria-controls={panelId}
         onClick={() => setOpen(true)}
       >
         {OPEN_LABEL}
@@ -154,7 +164,24 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
   }
 
   return (
-    <section className="assistant" id={panelId} aria-label={PANEL_LABEL}>
+    <section
+      className="assistant"
+      id={panelId}
+      aria-label={PANEL_LABEL}
+      /*
+       * Escape를 **패널 안에서만** 받는다 (`#1101`). 종전에는 `window`에 걸어
+       * 두어, 본문 다른 입력에서 Escape를 눌러도(조합 취소·검색어 지우기 같은
+       * 보통의 동작이다) 이 패널이 함께 닫혔다.
+       */
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') setOpen(false)
+      }}
+      /*
+       * 로그 같은 초점을 받지 못하는 자리를 눌러도 초점이 패널 안에 머물게 한다 —
+       * `body`로 떨어지면 위의 Escape가 닿지 않는다.
+       */
+      tabIndex={-1}
+    >
       <header className="assistant__head">
         <h2 className="assistant__title">
           {PANEL_LABEL}
@@ -223,6 +250,15 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
           disabled={stopped}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            /*
+             * 한글 IME는 **조합 중에도 Enter를 보낸다**. 그 Enter는 조합을
+             * 확정하는 키이지 전송이 아니다 — 여기서 보내면 마지막 음절이
+             * 깨진 채 나간다(`#1101`).
+             *
+             * `keyCode === 229`도 함께 본다. `isComposing`을 채우지 않는 조합
+             * 경로가 남아 있고, 그 값은 이 한 자리에서만 읽는다.
+             */
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
             // Enter로 보내고 Shift+Enter로 줄을 바꾼다 — 채팅의 관례다.
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()

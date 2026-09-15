@@ -588,6 +588,103 @@ async def test_calculations_year_filters_by_creation_year_in_kst(session, vessel
     assert len((await build_export(session, vessel_id, type="calculations", year=2025)).rows) == 0
 
 
+async def _bulk_insert_calculation_runs(
+    session, vessel_id: UUID, *, count: int, first_created_at: datetime
+) -> None:
+    """계산 이력 ``count``건을 1초 간격으로 한 문장에 넣는다.
+
+    파이썬 루프로 넣으면 10,000건에 왕복이 10,000번이라 검사가 분 단위가 된다.
+    ``generate_series``로 DB 안에서 만들면 한 문장이다. 값은 전부 같아도 되는데,
+    **여기서 잠그는 것은 행 수**이지 내용이 아니다.
+    """
+    await session.execute(
+        text(
+            "INSERT INTO calculation_run (vessel_id, calculation_type, input_hash, "
+            "  parameter_hash, model_version, result_json, parameters_used, created_at) "
+            "SELECT :vessel_id, 'VOYAGE_ESTIMATE', :input_hash, :parameter_hash, "
+            "  '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, "
+            "  CAST(:first_created_at AS timestamptz) + make_interval(secs => g) "
+            "FROM generate_series(0, :last) AS g"
+        ),
+        {
+            "vessel_id": vessel_id,
+            "input_hash": _HASH_A,
+            "parameter_hash": _HASH_B,
+            "first_created_at": first_created_at,
+            "last": count - 1,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_calculations_export_is_not_truncated_by_a_row_limit(session, vessel_id):
+    """IT-EXPORT-009 — `API_SPEC §8.1`「행 수 상한을 두지 않는다」가 계산 이력에도 걸린다 (#1078).
+
+    종전에는 이 조회만 페이지네이션 함수(`list_runs`)를 빌려 써서 ``limit + 1`` =
+    **10,001행에서 조용히 잘렸다.** 잘린 파일을 연간 자료로 쓰는 것이 바로 그 규정이
+    막으려던 일이다 — 파일 끝이 잘린 것을 사용자가 알 방법이 없다.
+
+    10,002건을 넣는 이유는 **종전 코드가 10,001건까지는 전부 돌려주었기** 때문이다.
+    한 건 적게 넣으면 고치기 전에도 통과하는 검사가 된다.
+    """
+    await _bulk_insert_calculation_runs(
+        session,
+        vessel_id,
+        count=10_002,
+        first_created_at=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+    )
+
+    table = await build_export(session, vessel_id, type="calculations")
+
+    assert len(table.rows) == 10_002
+
+
+@pytest.mark.asyncio
+async def test_calculations_year_filter_reaches_past_the_former_row_limit(session, vessel_id):
+    """IT-EXPORT-009 — 연도 필터가 **쿼리에서** 걸린다 (#1078).
+
+    종전에는 상한으로 최신 10,001건을 자른 **뒤** 파이썬에서 연도를 걸렀다. 그래서
+    최신 10,001건이 전부 2026년이면 `year=2025`는 **0건**이 나왔다 — 2025년 자료가
+    DB에 멀쩡히 있는데도 「그 해에는 계산이 없다」로 보인다.
+    """
+    old_run = await _insert_calculation_run(
+        session, vessel_id, created_at=datetime(2025, 6, 1, 0, 0, tzinfo=UTC)
+    )
+    await _bulk_insert_calculation_runs(
+        session,
+        vessel_id,
+        count=10_001,
+        first_created_at=datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+    )
+
+    rows = (await build_export(session, vessel_id, type="calculations", year=2025)).rows
+
+    assert [row[0] for row in rows] == [str(old_run)]
+
+
+@pytest.mark.asyncio
+async def test_calculations_year_boundary_is_half_open_in_kst(session, vessel_id):
+    """IT-EXPORT-009 — 연도 경계는 **반열림**이다 — 시작은 포함, 다음 해 첫 순간은 제외 (#1078).
+
+    닫힌 구간으로 두면 2027-01-01 00:00:00 KST의 계산이 **2026년 파일과 2027년 파일
+    양쪽에** 들어가, 두 파일을 합친 사용자의 건수가 실제보다 하나 많아진다.
+    """
+    # KST 2027-01-01 00:00:00 = UTC 2026-12-31 15:00:00.
+    first_moment = await _insert_calculation_run(
+        session, vessel_id, created_at=datetime(2026, 12, 31, 15, 0, tzinfo=UTC)
+    )
+    # 그 1초 전은 아직 2026년이다.
+    last_moment = await _insert_calculation_run(
+        session, vessel_id, created_at=datetime(2026, 12, 31, 14, 59, 59, tzinfo=UTC)
+    )
+
+    rows_2026 = (await build_export(session, vessel_id, type="calculations", year=2026)).rows
+    rows_2027 = (await build_export(session, vessel_id, type="calculations", year=2027)).rows
+
+    assert [row[0] for row in rows_2026] == [str(last_moment)]
+    assert [row[0] for row in rows_2027] == [str(first_moment)]
+
+
 @pytest.mark.asyncio
 async def test_simulations_export_carries_run_and_result(session, vessel_id):
     """IT-EXPORT-008 — 시뮬레이션은 실행 행과 결과 본문을 한 행으로 합친다."""

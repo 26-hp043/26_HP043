@@ -402,16 +402,32 @@ async def test_imported_in_progress_voyage_now_counts_toward_the_running_total(s
     async def contribution_of(voyage_no: str):
         # 한 선박에 진행 중 항차는 하나다 — 차례로 하나만 진행 중으로 둔다.
         await session.execute(
-            text("UPDATE voyage SET status = 'DRAFT' WHERE vessel_id = :vid"),
+            # `DRAFT`는 `EXCLUDE`만 허용한다(`PRD §8.1.2` · `chk_status_policy`) —
+            # 정책을 함께 되돌리지 않으면 두 번째 회차에서 제약을 어긴다.
+            text(
+                "UPDATE voyage SET status = 'DRAFT', "
+                "annual_inclusion_policy = 'EXCLUDE' WHERE vessel_id = :vid"
+            ),
             {"vid": vessel_id},
         )
         await session.execute(
             text(
-                "UPDATE voyage SET status = 'IN_PROGRESS', regulation_year = 2026 "
+                "UPDATE voyage SET status = 'IN_PROGRESS', regulation_year = 2026, "
+                # ⚠️ **정책도 함께 옮긴다** (`#1085`). CSV 가져오기는
+                # `DRAFT + EXCLUDE`로 만들고(`services/voyage_import.py:33`),
+                # `EXCLUDE` 진행 항차는 누적에 넣지 않는다(`PRD §3.3.8`). 종전에는
+                # 진행분이 정책을 보지 않아 상태만 옮겨도 기여가 생겼고, 이 검사가
+                # **그 결함을 사전 조건으로** 삼고 있었다. 실제 전환 API도
+                # `INCLUDE_AS_PLAN`을 지정해야 연간에 반영한다(`API_SPEC §3.5`).
+                "annual_inclusion_policy = 'INCLUDE_AS_PLAN' "
                 "WHERE vessel_id = :vid AND voyage_no = :no"
             ),
             {"vid": vessel_id, "no": voyage_no},
         )
+        # raw ``UPDATE``는 ORM identity map을 갱신하지 않는다 — 비우지 않으면
+        # ``find_in_progress``가 **가져올 때의 `EXCLUDE`를 든 객체**를 돌려준다.
+        # ``vessel``은 이 다음에 새로 읽으므로 만료 대상이 아니다.
+        session.expire_all()
         vessel = await vessel_repo.get_by_id(session, vessel_id)
         state = await resolve_in_progress_state(session, vessel=vessel, as_of=as_of)
         return state.contribution
@@ -636,3 +652,21 @@ async def test_broken_cursor_is_422_not_500(session, vessel_id):
     for value in broken:
         with pytest.raises(ValidationError):
             await list_voyages(session, vessel_id=vessel_id, limit=3, cursor=value)
+
+
+async def test_unstorable_distance_is_a_row_error_not_a_500(session, vessel_id):
+    """⑥ `0.001` nm는 `NUMERIC(12,2)`에서 0.00으로 반올림돼 `chk_distance_positive` 500 (`#1086`).
+
+    이제 행 오류다 — 너무 큰 값도 같다.
+    """
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(
+            "V-T1,Busan,Tokyo,0.001,13.5,HFO,80",
+            "V-T2,Busan,Tokyo,10000000000,13.5,HFO,80",
+        ),
+    )
+    assert result["imported_count"] == 0
+    assert len(result["errors"]) == 2
+    assert all("planned_distance_nm" in str(e) or "distance" in str(e) for e in result["errors"])

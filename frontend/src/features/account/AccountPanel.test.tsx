@@ -21,12 +21,14 @@ import * as session from '../../auth/session'
  * *「다른 주소를 쓰려면 탈퇴 후 다시 가입해 주세요」*라고 안내하는데 탈퇴할 수가 없었다.
  */
 
-function stubUser() {
+function stubUser(role: session.UserRole = 'FIELD') {
   vi.spyOn(session, 'useAuthUser').mockReturnValue({
     id: 'u-1',
     email: 'demo@bluelog.local',
     displayName: '테스터',
-  } as ReturnType<typeof session.useAuthUser>)
+    role,
+    emailVerifiedAt: null,
+  })
 }
 
 function renderPanel() {
@@ -180,3 +182,93 @@ describe('비밀번호 변경 — 서버 필드 오류 (#877)', () => {
     expect(screen.getAllByText('새 비밀번호는 128자 이하여야 합니다.')).toHaveLength(1)
   })
 })
+
+/**
+ * 역할 2종 (`#672` · `UIFLOW 2-6`).
+ *
+ * 계정 정보에 자기 역할이 보이고, **사무직에게만** 「계정 · 역할」 절이 있다. 역할 변경은
+ * 셀렉트 한 번이 곧 저장이고, 마지막 사무직 강등처럼 서버가 거절하면 **서버 문구를 그대로**
+ * 보인다 — 판정은 행을 잠근 서버 한 곳이 한다.
+ */
+describe('역할 — 계정 정보와 역할 지정 절 (#672)', () => {
+  it('현장직은 자기 역할을 보되 역할 지정 절은 없다', () => {
+    stubUser('FIELD')
+    renderPanel()
+    expect(screen.getByTestId('acc-role').textContent).toBe('현장직')
+    expect(screen.queryByRole('region', { name: '계정 · 역할' })).toBeNull()
+    expect(session.listUsers).toBeDefined()
+  })
+
+  it('사무직은 계정 목록을 받아 셀렉트로 역할을 바꾼다', async () => {
+    stubUser('OFFICE')
+    const rows: session.CurrentUser[] = [
+      { id: 'u-1', email: 'demo@bluelog.local', displayName: '테스터', role: 'OFFICE', emailVerifiedAt: null },
+      { id: 'u-2', email: 'crew@bluelog.local', displayName: null, role: 'FIELD', emailVerifiedAt: null },
+    ]
+    vi.spyOn(session, 'listUsers').mockResolvedValue(rows)
+    const update = vi
+      .spyOn(session, 'updateUserRole')
+      .mockResolvedValue({ ...rows[1], role: 'OFFICE' })
+    renderPanel()
+
+    expect(screen.getByTestId('acc-role').textContent).toBe('사무직')
+    const select = (await screen.findByLabelText(/crew@bluelog.local/)) as HTMLSelectElement
+    expect(select.value).toBe('FIELD')
+    // 「(나)」 표시 — 자기 행을 알아본다
+    expect(screen.getByLabelText(/demo@bluelog.local \(나\)/)).toBeTruthy()
+
+    fireEvent.change(select, { target: { value: 'OFFICE' } })
+    await waitFor(() => expect(update).toHaveBeenCalledWith('u-2', 'OFFICE'))
+    await waitFor(() => expect(select.value).toBe('OFFICE'))
+    expect(screen.getByRole('status').textContent).toContain('사무직')
+  })
+
+  it('서버가 거절하면(마지막 사무직 409) 문구를 그대로 보이고 셀렉트는 원래 값이다', async () => {
+    stubUser('OFFICE')
+    const rows: session.CurrentUser[] = [
+      { id: 'u-1', email: 'demo@bluelog.local', displayName: '테스터', role: 'OFFICE', emailVerifiedAt: null },
+    ]
+    vi.spyOn(session, 'listUsers').mockResolvedValue(rows)
+    const message = '마지막 사무직 계정은 탈퇴하거나 현장직으로 바꿀 수 없습니다. 다른 계정을 먼저 사무직으로 지정해 주세요.'
+    vi.spyOn(session, 'updateUserRole').mockRejectedValue(new session.AuthRequestError(message, 409))
+    renderPanel()
+
+    const select = (await screen.findByLabelText(/demo@bluelog.local/)) as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 'FIELD' } })
+    await waitFor(() => expect(screen.getByText(message)).toBeTruthy())
+    expect(select.value).toBe('OFFICE')
+  })
+
+  it('목록 조회가 실패하면 실패라고 말한다 — 빈 목록으로 보이지 않는다', async () => {
+    stubUser('OFFICE')
+    vi.spyOn(session, 'listUsers').mockRejectedValue(new session.AuthRequestError('계정 목록을 불러오지 못했습니다.', 500))
+    renderPanel()
+    await waitFor(() => expect(screen.getByText('계정 목록을 불러오지 못했습니다.')).toBeTruthy())
+    expect(screen.queryByTestId('acc-users')).toBeNull()
+  })
+})
+
+/**
+ * 비밀번호 변경 성공 안내가 **보인다** (`#1099`). `#825` ⑷가 성공 뒤 캐시를 비워 패널이 사용자
+ * 없이 그려지지 않았고, 안내(무효화된 기기 수)는 한 번도 보이지 않았다.
+ */
+describe('비밀번호 변경 성공 안내 (#1099)', () => {
+  it('안내와 「로그인 화면으로」가 보이고, 누르면 그때 세션을 해제한다', async () => {
+    stubUser('FIELD')
+    vi.spyOn(session, 'changePassword').mockResolvedValue(
+      '비밀번호가 변경되었습니다. 로그인된 기기 2대에서 로그아웃되었습니다.',
+    )
+    const leave = vi.spyOn(session, 'leaveAfterPasswordChange').mockImplementation(() => {})
+    renderPanel()
+    fireEvent.change(screen.getByLabelText('현재 비밀번호'), { target: { value: 'old-password-1' } })
+    fireEvent.change(screen.getByLabelText('새 비밀번호'), { target: { value: 'new-password-12' } })
+    fireEvent.change(screen.getByLabelText('새 비밀번호 확인'), { target: { value: 'new-password-12' } })
+    fireEvent.click(screen.getByRole('button', { name: '비밀번호 바꾸기' }))
+    expect(await screen.findByText(/로그인된 기기 2대에서 로그아웃되었습니다/)).toBeTruthy()
+    const button = screen.getByRole('button', { name: '로그인 화면으로' })
+    expect(leave).not.toHaveBeenCalled()
+    fireEvent.click(button)
+    expect(leave).toHaveBeenCalledTimes(1)
+  })
+})
+

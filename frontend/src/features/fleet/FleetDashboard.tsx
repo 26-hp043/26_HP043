@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
@@ -8,6 +8,7 @@ import { GradeDistribution } from './GradeDistribution'
 import { VesselMark } from './VesselMark'
 import { AnchorIcon, UnderwayChip, UnderwayIcon } from './UnderwayChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
+import { ErrorState } from '../../components/ErrorState'
 import { PositionChart } from './PositionChart'
 /*
  * 지도는 **자산이 있을 때만** 내려받는다 (`#763`).
@@ -73,6 +74,24 @@ export function FleetDashboard() {
    */
   const [basemap, setBasemap] = useState<boolean | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
+  /*
+   * 추가 조회 실패는 **목록 아래 영역**의 오류다 (`#1092` ⓒ). 종전에는 `failure`로 올라가
+   * 이미 받은 100척·KPI·경고 배너가 전부 오류 문구로 바뀌고 새로고침만 남았다.
+   */
+  const [moreFailure, setMoreFailure] = useState<string | null>(null)
+  /*
+   * 정렬이 바뀌어 첫 페이지를 다시 받는 동안 (`#1092` ⓐ). 옛 목록이 보이는 그 사이에 「다음
+   * 선박」을 누르면 새 정렬에 옛 정렬의 커서를 보내 서버가 422로 끊었다 — 버튼을 잠근다.
+   */
+  const [sortLoading, setSortLoading] = useState(false)
+  /*
+   * 조회 **세대 번호** — 늦은 응답을 버린다 (`#1092` ⓑ · `#1094`·`#874` 선례).
+   *
+   * 추가 조회 중 정렬을 바꾸면 앞 정렬의 2페이지가 새 정렬의 1페이지 **뒤에** 붙고
+   * `nextCursor`는 옛 정렬 것이 됐다. 정렬 effect가 세대를 올리고, 추가 조회는 시작할 때의
+   * 세대와 응답 시점의 세대가 다르면 결과를 버린다.
+   */
+  const generationRef = useRef(0)
   const provider = useMemo(() => createApiFleetProvider(), [])
 
   // 정렬이 바뀌면 첫 페이지부터 다시 받는다 — 서버가 정렬한다(#772).
@@ -88,17 +107,24 @@ export function FleetDashboard() {
 
   useEffect(() => {
     let alive = true
+    generationRef.current += 1
+    const generation = generationRef.current
+    setSortLoading(true)
+    setMoreFailure(null)
     provider
       .load({ sort: sortKey })
       .then((data) => {
-        if (alive) setSnapshot(data)
+        if (alive && generation === generationRef.current) setSnapshot(data)
       })
       .catch((error: unknown) => {
-        if (alive) {
+        if (alive && generation === generationRef.current) {
           setFailure(
             error instanceof Error ? error.message : '선대 현황을 불러오지 못했습니다.',
           )
         }
+      })
+      .finally(() => {
+        if (alive && generation === generationRef.current) setSortLoading(false)
       })
     return () => {
       alive = false
@@ -107,14 +133,18 @@ export function FleetDashboard() {
 
   /** 다음 페이지 — 같은 정렬·**첫 페이지의 기준 시각**으로 묻고 뒤에 붙인다. */
   async function loadMore() {
-    if (!snapshot?.nextCursor || loadingMore) return
+    if (!snapshot?.nextCursor || loadingMore || sortLoading) return
+    const generation = generationRef.current
     setLoadingMore(true)
+    setMoreFailure(null)
     try {
       const next = await provider.load({
         sort: sortKey,
         cursor: snapshot.nextCursor,
         asOf: snapshot.asOf,
       })
+      // 그 사이 정렬이 바뀌었으면 이 응답은 옛 정렬의 2페이지다 — 버린다 (ⓑ).
+      if (generation !== generationRef.current) return
       setSnapshot((prev) =>
         prev
           ? {
@@ -127,8 +157,13 @@ export function FleetDashboard() {
       )
       setExpanded(true)
     } catch (error: unknown) {
-      setFailure(error instanceof Error ? error.message : '선대 현황을 불러오지 못했습니다.')
+      if (generation !== generationRef.current) return
+      // 받은 목록은 그대로 둔다 — 실패한 것은 「다음 페이지」뿐이다 (ⓒ).
+      setMoreFailure(
+        error instanceof Error ? error.message : '다음 선박을 불러오지 못했습니다.',
+      )
     } finally {
+      // 세대와 무관하게 푼다 — 버린 응답이라도 「불러오는 중」 상태는 이 컴포넌트의 것이다.
       setLoadingMore(false)
     }
   }
@@ -340,6 +375,17 @@ export function FleetDashboard() {
               <div className="card__head">
                 <h2 className="card__title">조치 필요</h2>
                 <span className="card__meta">MARPOL Annex VI Reg 28.7</span>
+                {/* `UIFLOW 2-10` 진입 조건 — 위험 선박을 선대 단위 감속안으로 이어 준다 (#513). */}
+                <Link className="card__meta" to={SCREEN_BY_ID.FLEET_REDUCTION.path}>
+                  함대 감축 계획 세우기
+                </Link>
+                {/*
+                  `UIFLOW 2-11` 진입 조건 — 조치 항목의 등급이 **실측이 아닌 값으로 계산됐는지**
+                  확인하러 가는 길 (#1082). 사이드바로만 들어갈 수 있었다.
+                */}
+                <Link className="card__meta" to={SCREEN_BY_ID.DATA_QUALITY.path}>
+                  {SCREEN_BY_ID.DATA_QUALITY.label}
+                </Link>
               </div>
               <ul className="actions">
                 {snapshot.actions.map((action) => (
@@ -391,11 +437,27 @@ export function FleetDashboard() {
             서버에 다음 페이지가 있으면(`API_SPEC §2.8` · #772) 이어서 받는다. 위 「더 보기」는
             받은 선박을 펼치는 것이고, 이것은 **아직 받지 않은 선박**을 받는 것이다.
           */}
+          {moreFailure !== null ? (
+            <ErrorState
+              level="region"
+              size="compact"
+              message={`다음 선박을 불러오지 못했습니다 — ${moreFailure}`}
+            />
+          ) : null}
           {remaining === 0 && snapshot.hasMore ? (
-            <button type="button" className="more" onClick={loadMore} disabled={loadingMore}>
+            <button
+              type="button"
+              className="more"
+              onClick={loadMore}
+              disabled={loadingMore || sortLoading}
+            >
               {loadingMore
                 ? '선박을 더 불러오는 중…'
-                : `다음 선박 불러오기 (전체 ${counts.total}척 중 ${vessels.length}척 표시)`}
+                : sortLoading
+                  ? '정렬을 바꾸는 중…'
+                  : moreFailure !== null
+                    ? '다시 시도'
+                    : `다음 선박 불러오기 (전체 ${counts.total}척 중 ${vessels.length}척 표시)`}
             </button>
           ) : null}
         </section>

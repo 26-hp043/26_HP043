@@ -1,4 +1,5 @@
 import { csrfHeaders, redirectToLogin } from '../../auth/session'
+import { MAX_PAGES, nextCursorOf, pagedUrl } from '../../layout/catalogPaging'
 import { DEFAULT_API_BASE_URL } from './apiProvider'
 import { API_BASE_URL_ENV_KEY } from './providerSelection'
 
@@ -53,38 +54,48 @@ interface VesselListItem {
  *
  * 페이지네이션은 따라가지 않는다. `API_SPEC §1.5` 기본 limit 안에서 선택지가 끝나는
  * 규모이며, 넘어가면 셀렉트가 아니라 검색 UI가 필요한 별개 문제다.
+ *
+ * **페이지는 끝까지 따른다** (`#1073` · `layout/catalogPaging.ts`). 종전에는 첫 페이지만 받아
+ * 서버 기본 `limit` 20에서 잘렸다 — 21번째 배는 고를 수 없었다.
  */
 export function createApiVesselCatalog(baseUrl?: string): VesselCatalogProvider {
   const base = baseUrl || DEFAULT_API_BASE_URL
   return {
     async listVessels() {
-      let response: Response
-      try {
-        response = await fetch(`${base}/vessels`, {
-          method: 'GET',
-          credentials: 'include',
-          headers: csrfHeaders(),
-        })
-      } catch (cause) {
-        throw new VesselCatalogError('서버에 연결하지 못했습니다.', { cause })
+      // 커서를 끝까지 따른다 (#1073) — 종전에는 첫 페이지(20척)만 받아 21번째 배를 고를 수 없었다.
+      const rows: VesselListItem[] = []
+      let cursor: string | null = null
+      for (let page = 0; page < MAX_PAGES; page += 1) {
+        let response: Response
+        try {
+          response = await fetch(pagedUrl(`${base}/vessels`, cursor), {
+            method: 'GET',
+            credentials: 'include',
+            headers: csrfHeaders(),
+          })
+        } catch (cause) {
+          throw new VesselCatalogError('서버에 연결하지 못했습니다.', { cause })
+        }
+
+        if (response.status === 401) {
+          redirectToLogin()
+          throw new VesselCatalogError('로그인이 필요합니다.')
+        }
+        if (!response.ok) {
+          throw new VesselCatalogError('선박 목록을 불러오지 못했습니다.')
+        }
+
+        let body: { data?: unknown }
+        try {
+          body = (await response.json()) as { data?: unknown }
+        } catch (cause) {
+          throw new VesselCatalogError('선박 목록 응답을 해석하지 못했습니다.', { cause })
+        }
+        if (Array.isArray(body.data)) rows.push(...(body.data as VesselListItem[]))
+        cursor = nextCursorOf(body)
+        if (cursor === null) break
       }
 
-      if (response.status === 401) {
-        redirectToLogin()
-        throw new VesselCatalogError('로그인이 필요합니다.')
-      }
-      if (!response.ok) {
-        throw new VesselCatalogError('선박 목록을 불러오지 못했습니다.')
-      }
-
-      let body: { data?: unknown }
-      try {
-        body = (await response.json()) as { data?: unknown }
-      } catch (cause) {
-        throw new VesselCatalogError('선박 목록 응답을 해석하지 못했습니다.', { cause })
-      }
-
-      const rows = Array.isArray(body.data) ? (body.data as VesselListItem[]) : []
       return rows
         .filter((row) => typeof row.id === 'string' && typeof row.name === 'string')
         .map((row) => ({

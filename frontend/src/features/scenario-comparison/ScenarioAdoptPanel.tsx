@@ -8,7 +8,7 @@ import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { VoyageStatus } from '../voyage-management/types'
 import type { ScenarioComparisonProvider } from './provider'
 import type { ScenarioAdoptResult, ScenarioResult } from './types'
-import { adoptConfirmMessage, fieldLabel, isPlanning } from './adoptRules'
+import { adoptConfirmMessage, fieldLabel, invalidatedMessage, isPlanning } from './adoptRules'
 
 /**
  * 비교한 시나리오를 **항차 계획에 반영**한다 (`#580` · `API_SPEC §5.2`).
@@ -26,12 +26,17 @@ import { adoptConfirmMessage, fieldLabel, isPlanning } from './adoptRules'
  *   값이 없다. 다른 시나리오를 다시 반영하면 바뀐다는 것을 함께 알린다
  * - **`UPDATE_EXISTING_PLAN`만 연다** — 새 항차 만들기는 항구·출발 시각 입력이 더 붙는다
  *
- * ## 재계산 건수는 보이지 않는다
+ * ## 재계산 건수를 보인다 (`#1077`)
  *
  * 디자인 판정은 응답의 `invalidated_calculation_runs`를 보이자고 했으나, `#817`
  * (`calculation_run.voyage_id`가 늘 `NULL`)이 닫히기 전에는 그 수가 **항상 0이고
- * 참값이 아니다**(2026-09-08 착수 판정). 수 대신 **사실만** 말한다 — 계획이 바뀌었으니
- * 기존 결과는 다시 계산해야 한다. 이것은 무효화 표시가 실제로 붙었는지와 무관하게 참이다.
+ * 참값이 아니라** 유예했다(2026-09-08 착수 판정). **`#817`이 2026-09-11에 닫혀** 해제
+ * 조건이 충족됐으므로 판정대로 보인다(`AGENTS §6.1` 유예 처리).
+ *
+ * 문구는 `invalidatedMessage`가 만든다 — **「없음」이 세 종류**라서다(미수신 · `0` ·
+ * `n`건). 특히 `0`은 「계산 이력이 없다」와 「이미 전부 표시돼 있다」 **둘 다**일 수 있어
+ * (`API_SPEC §5.2` 명시) 둘 중 하나로 단정하지 않는다. 어느 경우든 **사실**은 그대로
+ * 남는다 — 계획이 바뀌었으니 기존 결과는 다시 계산해야 한다.
  *
  * ## 무엇을 근거로 고르는가
  *
@@ -210,7 +215,7 @@ export function ScenarioAdoptPanel({
             바뀐 값 —{' '}
             {adopt.result.updated_fields.map(fieldLabel).join(' · ')}
           </p>
-          <p>계획이 바뀌어 이 항차의 기존 계산 결과는 다시 계산해야 합니다.</p>
+          <p>{invalidatedMessage(adopt.result.invalidated_calculation_runs)}</p>
           <Link className="scenario-adopt__link" to={voyagePath(vesselId, adopt.result.voyage_id)}>
             반영한 항차 보기
           </Link>

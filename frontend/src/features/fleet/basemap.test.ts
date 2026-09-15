@@ -7,6 +7,26 @@ import { BASEMAP_FONTS_URL, BASEMAP_URL, MAX_ZOOM, hasBasemap } from './basemap'
  * **자산이 없을 때 개략도로 떨어지는 것**이 이 모듈의 존재 이유다(ⓑ 결정). 판정이
  * 틀리면 위치 화면이 통째로 빈다.
  */
+/** PMTiles 아카이브의 첫 7바이트. */
+const MAGIC = new Uint8Array([0x50, 0x4d, 0x54, 0x69, 0x6c, 0x65, 0x73])
+
+/**
+ * `hasBasemap`이 보는 만큼만 갖춘 응답 — 상태 코드와 앞머리 바이트다 (`#1144`).
+ *
+ * 종전 모의는 `{ ok: true }` 하나였고, 그 모양이 **실제로 문제가 된 응답**
+ * (SPA fallback의 `200` + `index.html`)과 구분되지 않아 결함을 정답으로 들고 있었다.
+ */
+function respond(status: number, body: Uint8Array) {
+  return {
+    status,
+    body: { cancel: vi.fn().mockResolvedValue(undefined) },
+    arrayBuffer: () => Promise.resolve(body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength)),
+  }
+}
+
+/** SPA fallback이 돌려주는 `index.html`의 앞머리. */
+const HTML = new TextEncoder().encode('<!doctype html>\n<html lang="ko">')
+
 describe('지도 자산 (#763)', () => {
   it('자산은 우리 오리진이다 — 키도 외부 호스트도 없다', () => {
     // 온라인 타일을 쓰면 ⑴ 무료 티어가 대부분 비상업 전용이고 ⑵ 키가 번들에 박히며
@@ -22,16 +42,49 @@ describe('지도 자산 (#763)', () => {
     expect(MAX_ZOOM).toBe(10)
   })
 
-  it('있으면 true', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({ ok: true })
+  it('있으면 true — 매직 넘버가 맞는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(respond(206, MAGIC))
 
     await expect(hasBasemap(fetchImpl as unknown as typeof fetch)).resolves.toBe(true)
-    // 83 MB를 확인용으로 당기지 않는다 — `HEAD`다.
-    expect(fetchImpl).toHaveBeenCalledWith(BASEMAP_URL, { method: 'HEAD' })
+    // 80 MB를 확인용으로 당기지 않는다 — 앞 7바이트만 받는다.
+    expect(fetchImpl).toHaveBeenCalledWith(BASEMAP_URL, { headers: { Range: 'bytes=0-6' } })
   })
 
   it('404면 false — 개략도로 떨어진다', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({ ok: false })
+    const fetchImpl = vi.fn().mockResolvedValue(respond(404, new Uint8Array()))
+
+    await expect(hasBasemap(fetchImpl as unknown as typeof fetch)).resolves.toBe(false)
+  })
+
+  it('SPA fallback의 200 index.html은 false다 (#1144)', async () => {
+    // 이것이 실제로 겪은 모양이다 — Vite도 nginx의 `try_files … /index.html`도
+    // 없는 경로에 index.html을 200으로 돌려준다. 상태 코드만 보면 「있다」가 되고,
+    // 그러면 개략도로 떨어지지 않아 **지도 배경도 선박 마커도 없는 회색 사각형**만
+    // 남는다(maplibre의 `load`가 오지 않아 마커를 붙이는 자리가 실행되지 않는다).
+    const fetchImpl = vi.fn().mockResolvedValue(respond(200, HTML))
+
+    await expect(hasBasemap(fetchImpl as unknown as typeof fetch)).resolves.toBe(false)
+  })
+
+  it('206인데 내용이 HTML이면 false다', async () => {
+    // Range를 받아 주면서 fallback 본문을 주는 서버도 있을 수 있다.
+    const fetchImpl = vi.fn().mockResolvedValue(respond(206, HTML))
+
+    await expect(hasBasemap(fetchImpl as unknown as typeof fetch)).resolves.toBe(false)
+  })
+
+  it('Range를 지원하지 않으면(200) 본문을 끌어오지 않고 false다', async () => {
+    // 200이면 80 MB가 딸려 온다 — 읽지 않고 끊어야 한다.
+    // PMTiles는 Range로 파일 일부만 읽으므로 이런 서버에서는 어차피 지도가 뜨지 않는다.
+    const response = respond(200, MAGIC)
+    const fetchImpl = vi.fn().mockResolvedValue(response)
+
+    await expect(hasBasemap(fetchImpl as unknown as typeof fetch)).resolves.toBe(false)
+    expect(response.body.cancel).toHaveBeenCalled()
+  })
+
+  it('앞머리가 잘려 오면 false다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(respond(206, MAGIC.slice(0, 3)))
 
     await expect(hasBasemap(fetchImpl as unknown as typeof fetch)).resolves.toBe(false)
   })

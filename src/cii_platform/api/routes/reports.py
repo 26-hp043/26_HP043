@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.auth.dependencies import require_office
 from cii_platform.db.session import get_session
 from cii_platform.errors import ValidationError
 from cii_platform.reports.csv_export import iter_csv
@@ -86,6 +87,7 @@ async def voyage_report_route(
     request: Request,
     voyage_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _office: Annotated[None, Depends(require_office)],
     format: Annotated[str, Query(description="pdf · csv · html")] = "pdf",
     as_of: Annotated[datetime | None, Query(description="기준 시각 (ISO 8601 UTC)")] = None,
 ) -> Response:
@@ -103,6 +105,7 @@ async def annual_report_route(
     request: Request,
     vessel_id: UUID,
     session: Annotated[AsyncSession, Depends(get_session)],
+    _office: Annotated[None, Depends(require_office)],
     year: Annotated[
         int | None, Query(ge=2000, le=2100, description="규제연도. 기본 as_of 연도")
     ] = None,
