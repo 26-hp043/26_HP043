@@ -47,7 +47,20 @@ async def insert_snapshot(
         .on_duplicate_key_update(source=source)
     )
     result = await session.execute(statement)
-    return result.rowcount > 0
+    # **`== 1`이다. `> 0`이 아니다** (`#1058`).
+    #
+    # CUBRID에는 `RETURNING`이 없어 `ON CONFLICT DO NOTHING … RETURNING id`를
+    # `ON DUPLICATE KEY UPDATE`로 옮겼는데, 그 구문은 중복일 때 **행을 갱신한다.**
+    # CUBRID는 MySQL 규약을 따라 삽입이면 1, 갱신이면 2를 돌려준다 — 로컬 실측이다.
+    #
+    #     최초 INSERT      rowcount=1
+    #     중복(값 그대로)  rowcount=2
+    #     중복(값 바뀜)    rowcount=2
+    #
+    # `> 0`이면 **중복도 참**이 되어 이 함수의 약속(「이미 있으면 넣지 않고 False」)이
+    # 깨진다. AIS는 같은 관측을 여러 번 보내는 것이 정상이라(위 docstring) 그 판정이
+    # 무너지면 수집 상태를 스냅샷 수로 가늠할 수 없게 된다.
+    return result.rowcount == 1
 
 
 async def latest_for_vessel(
