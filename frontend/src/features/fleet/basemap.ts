@@ -58,6 +58,19 @@ export const INITIAL_ZOOM = 2
  * 실패(404 · 네트워크 오류 · Range 미지원 서버)는 **전부 「없음」으로 접는다.**
  * 사용자에게는 어느 쪽이든 결과가 같고(개략도로 떨어진다), 원인을 화면에서 가르면
  * 문구만 늘어난다.
+ *
+ * ## 상태 코드만으로는 모자란다 (`#1144`)
+ *
+ * SPA fallback을 쓰는 정적 서버는 **없는 경로에 `index.html`을 200으로 돌려준다**
+ * — 개발 Vite도, 운영 nginx의 `try_files $uri $uri/ /index.html`도 그랬다. 그래서
+ * `response.ok`만 보면 자산이 없는데 **「있다」로 판정**하고, 개략도로 떨어지지
+ * 않는다. 그 다음은 maplibre가 HTML을 PMTiles로 읽다 실패하는데, 이때 지도의
+ * `load` 이벤트가 끝내 오지 않아 **마커와 항로까지 그려지지 않는다**(`FleetMap`).
+ * 화면에는 회색 사각형만 남고 안내 문구도 없다 — 고장인지 아닌지 알 수 없는 상태다.
+ *
+ * 그래서 **HTML이면 자산이 아니다**로 본다. 정적 서버가 무엇이든(Vite · nginx ·
+ * 미리보기) 같게 동작한다. 서버 쪽에서도 `/basemap/`을 fallback에서 빼 두었지만
+ * (`frontend/nginx.conf`), 그 설정이 닿지 않는 자리가 있으므로 이 판정을 남긴다.
  */
 export async function hasBasemap(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
@@ -65,8 +78,21 @@ export async function hasBasemap(
 ): Promise<boolean> {
   try {
     const response = await fetchImpl(url, { method: 'HEAD' })
-    return response.ok
+    if (!response.ok) return false
+    return !isHtml(response.headers.get('content-type'))
   } catch {
     return false
   }
+}
+
+/**
+ * 응답이 HTML인가 — 즉 자산이 아니라 SPA fallback인가 (`#1144`).
+ *
+ * `content-type`이 없는 응답은 **HTML로 보지 않는다.** 헤더를 주지 않는 정적 서버가
+ * 있고, 그 경우까지 「없음」으로 접으면 자산이 실제로 있는 환경에서 지도가 사라진다 —
+ * 놓치는 쪽이 잘못 끄는 쪽보다 낫다.
+ */
+function isHtml(contentType: string | null): boolean {
+  if (contentType === null) return false
+  return contentType.split(';', 1)[0].trim().toLowerCase() === 'text/html'
 }
