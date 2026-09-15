@@ -41,5 +41,7 @@ services:
       - ./TECH_SPEC.md:/app/TECH_SPEC.md:ro
       - ./DESIGN_SYSTEM.md:/app/DESIGN_SYSTEM.md:ro
       - ./AGENTS.md:/app/AGENTS.md:ro
+      - ./TEST_PLAN.md:/app/TEST_PLAN.md:ro
+      - ./README.md:/app/README.md:ro
 volumes:
   cubrid-data:

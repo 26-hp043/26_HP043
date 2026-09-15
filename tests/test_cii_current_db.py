@@ -55,7 +55,7 @@ async def _seed_parameters(session) -> None:
     await insert_if_not_exists(session,
         "INSERT INTO cii_rating_boundary "
         "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
 
 
 async def _make_vessel(session, **over) -> object:
