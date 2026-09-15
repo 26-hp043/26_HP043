@@ -26,6 +26,8 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import ensure_regulation_year, insert_if_not_exists
+
 from cii_platform.calc.hash import compute_parameter_hash
 from cii_platform.errors import (
     ModelVersionMismatchError,
@@ -58,32 +60,15 @@ async def session(conn):
 
 async def _seed_parameters(session) -> None:
     """이 선종·연도의 규정 파라미터. 이미 있으면 넣지 않는다(세션 seed와 공존)."""
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "SELECT 2026, 11.0, '2026-01-01', 'TEST', '1.0' "
-            "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = 2026)"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
+    await ensure_regulation_year(session, 2026)
+    await insert_if_not_exists(session,
+        "INSERT INTO cii_reference_line "
+        "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST')")
+    await insert_if_not_exists(session,
+        "INSERT INTO cii_rating_boundary "
+        "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
 
 
 @pytest_asyncio.fixture
@@ -185,7 +170,7 @@ async def test_get_does_not_recalculate(session, executed):
     계약(`TECH_SPEC §5.4`)이 지키려는 것이 정확히 그것이다.
     """
     await session.execute(
-        text("UPDATE regulation_year SET z_factor_percent = 25 WHERE year = 2026")
+        text('UPDATE regulation_year SET z_factor_percent = 25 WHERE "year" = 2026')
     )
 
     fetched = await get_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
@@ -329,7 +314,7 @@ async def test_reproduce_refuses_when_parameters_changed(session, executed):
     것은 정상이며, 사용자가 할 일은 「새로 실행」이다.
     """
     await session.execute(
-        text("UPDATE regulation_year SET z_factor_percent = 25 WHERE year = 2026")
+        text('UPDATE regulation_year SET z_factor_percent = 25 WHERE "year" = 2026')
     )
 
     with pytest.raises(ParameterError):
@@ -350,7 +335,7 @@ async def test_reproduce_reports_the_integrity_failure_when_both_hashes_mismatch
     어긋났다」는 뜻이라 더 심각하다. 가려진 파라미터 변경도 로그로 남는지 함께 본다.
     """
     await session.execute(
-        text("UPDATE regulation_year SET z_factor_percent = 25 WHERE year = 2026")
+        text('UPDATE regulation_year SET z_factor_percent = 25 WHERE "year" = 2026')
     )
     monkeypatch.setattr(annual_simulation_service, "_input_hash", lambda **_: "sha256:" + "f" * 64)
 
@@ -372,7 +357,7 @@ async def test_reproduce_still_gives_409_when_only_parameters_changed(session, e
     찾게 된다.
     """
     await session.execute(
-        text("UPDATE regulation_year SET z_factor_percent = 25 WHERE year = 2026")
+        text('UPDATE regulation_year SET z_factor_percent = 25 WHERE "year" = 2026')
     )
 
     with pytest.raises(ParameterError):

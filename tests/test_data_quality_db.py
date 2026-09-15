@@ -18,6 +18,8 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import ensure_regulation_year
+
 from cii_platform.services.data_quality import (
     IMPACT_ONLY_VOYAGE,
     SEVERITY_ANOMALY,
@@ -41,14 +43,7 @@ async def session(conn):
 @pytest_asyncio.fixture
 async def vessel_id(session) -> str:
     """기준 속력 12kn · 기준 일일 연료 24t — 2,880nm를 12kn로 가면 기대 연료 240t."""
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "SELECT 2026, 11.0, '2026-01-01', 'TEST', '1.0' "
-            "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = 2026)"
-        )
-    )
+    await ensure_regulation_year(session, 2026)
     row = await session.execute(
         text(
             "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "

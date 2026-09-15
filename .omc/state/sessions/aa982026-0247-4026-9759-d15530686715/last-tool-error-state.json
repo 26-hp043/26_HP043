@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"cd /data/GitHub/26_HP043/tests && python -m py_compile test_in_progress_year_scope_db.py test_annual_simulation_api_db.py test_cii_current_db.py test_cii_history_fuel_db.py test_ytd_cii_se...",
+  "error": "Exit code 127\n(eval):1: command not found: python",
+  "timestamp": "2026-09-15T02:52:53.689Z",
+  "retry_count": 1
+}

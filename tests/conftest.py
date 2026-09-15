@@ -90,6 +90,40 @@ SUITE_LOCK_MESSAGE = (
 )
 
 
+async def insert_if_not_exists(session, sql_with_values: str, params: dict | None = None) -> None:
+    """CUBRID 호환 idempotent INSERT.
+
+    PostgreSQL의 ``INSERT ... SELECT ... WHERE NOT EXISTS`` 패턴 대체.
+    CUBRID는 이 패턴을 지원하지 않으므로 INSERT + 예외 무시로 처리한다 (#1058).
+
+    ``sql_with_values``는 일반 INSERT 문이어야 한다 (WHERE NOT EXISTS 없이).
+    """
+    from sqlalchemy import text
+
+    try:
+        await session.execute(text(sql_with_values), params or {})
+    except Exception:
+        pass  # 이미 존재 (UNIQUE/PK 위반)
+
+
+async def ensure_regulation_year(session, year: int, z_factor: float = 11.0) -> None:
+    """테스트에 필요한 regulation_year 행을 넣는다 (이미 있으면 무시)."""
+    await insert_if_not_exists(
+        session,
+        'INSERT INTO regulation_year (id, "year", z_factor_percent, '
+        "effective_from, source_ref, version, is_active) "
+        "VALUES (:id, :y, :z, :eff, :src, :ver, 1)",
+        {
+            "id": __import__("uuid").uuid4().hex,
+            "y": year,
+            "z": z_factor,
+            "eff": f"{year}-01-01",
+            "src": "TEST",
+            "ver": "1.0",
+        },
+    )
+
+
 def _hold_suite_lock() -> None:
     """CUBRID에는 advisory lock이 없으므로 no-op (#1058)."""
     pass

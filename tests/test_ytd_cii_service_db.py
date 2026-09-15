@@ -29,6 +29,8 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import ensure_regulation_year, insert_if_not_exists
+
 from cii_platform.services.ytd_cii import (
     SUBSTITUTION_AXIS_DISTANCE,
     SUBSTITUTION_AXIS_FUEL,
@@ -62,32 +64,15 @@ async def _seed_parameters(session) -> None:
     INSERT하면 ``uq_regulation_year_year``에 걸리므로, 없을 때만 넣는다. 값은 어느
     쪽이든 ``PRD §13.1`` Fixture 1과 같은 정본값이라 기대값이 갈리지 않는다.
     """
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "SELECT 2026, 11.0, '2026-01-01', 'TEST', '1.0' "
-            "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = 2026)"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
+    await ensure_regulation_year(session, 2026)
+    await insert_if_not_exists(session,
+        "INSERT INTO cii_reference_line "
+        "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST')")
+    await insert_if_not_exists(session,
+        "INSERT INTO cii_rating_boundary "
+        "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
 
 
 async def _insert_vessel(session, imo: str = "9100001") -> str:

@@ -34,6 +34,8 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import ensure_regulation_year, insert_if_not_exists
+
 from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.fleet_summary import get_fleet_summary
 from cii_platform.services.report import build_annual_report
@@ -62,33 +64,15 @@ async def _seed_parameters(session, *, years: tuple[int, ...]) -> None:
     깨진다 — DB 테스트마다 이 헬퍼를 각자 두는 것이 이 저장소의 관례다.
     """
     for year in years:
-        await session.execute(
-            text(
-                "INSERT INTO regulation_year "
-                "(year, z_factor_percent, effective_from, source_ref, version) "
-                "SELECT :y, 9.0, '2025-01-01', 'TEST', '1.0' "
-                "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = :y)"
-            ),
-            {"y": year},
-        )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
+        await ensure_regulation_year(session, year, z_factor=9.0)
+    await insert_if_not_exists(session,
+        "INSERT INTO cii_reference_line "
+        "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST')")
+    await insert_if_not_exists(session,
+        "INSERT INTO cii_rating_boundary "
+        "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
 
 
 async def _add_confirmed(session, vessel_id, *, year: int) -> None:

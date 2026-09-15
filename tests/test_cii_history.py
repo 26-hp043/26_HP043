@@ -25,6 +25,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import ensure_regulation_year, insert_if_not_exists
+
 from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.services.cii_history import (
     MAX_YEAR_SPAN,
@@ -63,32 +65,15 @@ async def _ensure_params(session, *years: int) -> None:
     대부분 no-op다. ``scripts/seed.py``를 돌린 로컬 DB에서도 성립해야 한다 — 없을 때만 넣는다.
     """
     for year in years:
-        await session.execute(
-            text(
-                "INSERT INTO regulation_year "
-                "(year, z_factor_percent, effective_from, source_ref, version) "
-                f"SELECT {year}, 11.0, '{year}-01-01', 'TEST', '1.0' "
-                f"WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = {year})"
-            )
-        )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
+        await ensure_regulation_year(session, year)
+    await insert_if_not_exists(session,
+        "INSERT INTO cii_reference_line "
+        "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST')")
+    await insert_if_not_exists(session,
+        "INSERT INTO cii_rating_boundary "
+        "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
 
 
 async def _insert_vessel_with_history(session) -> str:
@@ -186,7 +171,7 @@ async def test_year_without_regulation_params_is_a_row(session):
     """파라미터가 없는 해 — 요청 전체가 409로 죽지 않고 그 해만 NO_REGULATION_PARAMS."""
     await _ensure_params(session, 2026)
     # 로컬 DB에 이미 심어져 있을 수 있으므로 '확보 후 삭제'로 결정적으로 만든다.
-    await session.execute(text("DELETE FROM regulation_year WHERE year = 2025"))
+    await session.execute(text('DELETE FROM regulation_year WHERE "year" = 2025'))
     vessel_id = await _insert_vessel_with_history(session)
 
     result = await list_cii_history(
