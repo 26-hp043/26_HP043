@@ -54,15 +54,27 @@ def test_docs_are_closed_in_production():
         mod._ENV = original
 
 
-def test_docs_are_open_outside_production():
-    """개발·스테이징에서는 연다. ``APP_ENV`` 미설정도 개발로 본다 (``config.py``)."""
+def test_docs_are_open_only_in_development_and_test():
+    """``development``·``test``에서만 연다 — **``staging``은 닫힌다** (#1058).
+
+    종전에는 ``staging``도 여는 쪽이었다(판정이 ``not is_production()``이었다). `#524`가
+    ``APP_ENV=production`` + ``MAIL_BACKEND=console``을 기동 실패로 막아, **SMTP 준비
+    전 배포는 ``staging``을 고를 수밖에 없다** — 그래서 그 조합은 예외가 아니라 정상
+    경로였고, 2026-09-15 OCI 배포에서 ``/docs``가 실제로 200을 냈다.
+
+    허용값 넷을 **모두** 돈다. 여는 것만 확인하면 새로 늘어난 환경이 어느 쪽으로
+    떨어지는지 보이지 않는다 — `#810`이 「후보 밖은 안 보인다」로 겪은 것과 같다.
+    """
     import cii_platform.config as mod
 
     original = mod._ENV
     try:
-        for env in ("development", "staging", "test"):
+        for env in ("development", "test"):
             mod._ENV = env
             assert should_expose_api_docs() is True, env
+        for env in ("staging", "production"):
+            mod._ENV = env
+            assert should_expose_api_docs() is False, env
     finally:
         mod._ENV = original
 

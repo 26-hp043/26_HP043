@@ -92,6 +92,38 @@ def is_production_env(app_env: str) -> bool:
     return app_env == _PRODUCTION
 
 
+#: 개발 편의 표면(스텁 인증 · OpenAPI 문서 · 시연 계정 시드)을 여는 환경 (#1058).
+#:
+#: **`production`만 빼는 방식이었다가 배포에서 `staging`이 그대로 열렸다.** 판정이
+#: ``not is_production()``이라 허용값 넷 중 셋(``development``·``test``·``staging``)이
+#: 전부 여는 쪽이었고, `#524`가 ``APP_ENV=production`` + ``MAIL_BACKEND=console``을
+#: 기동 실패로 막기 때문에 **SMTP가 준비되기 전 배포는 `staging`을 고를 수밖에 없다**
+#: (`docs/OPERATIONS.md §4.5`·`§9.4`). 즉 그 조합은 우연이 아니라 **정상 경로**였다.
+#:
+#: 2026-09-15 OCI 배포(app-01:8001, Security List ``0.0.0.0/0``)에서 실제로
+#: ``POST /auth/dev-login``이 200을 냈다 — **누구나 미인증 세션을 받는 상태**였다.
+#:
+#: 그래서 판정을 **여는 목록**으로 뒤집는다. 부정형(``!= production``)은 모르는 값·새
+#: 환경에서 **여는 쪽으로** 틀리고, 긍정형(``in {development, test}``)은 **닫는 쪽으로**
+#: 틀린다 — `#810`이 ``should_register_dev_auth()``의 부정형을 없앤 것과 같은 판단이다.
+#:
+#: ``staging``이 허용값에 남는 이유는 그대로다: 메일 백엔드 가드(`#524`)·``APP_PUBLIC_URL``
+#: 가드(`#809`)·가입 게이트(`#808`)는 **프로덕션 전용**이라, SMTP 없이 배포를 검증하는
+#: 자리가 필요하다. 이 변경은 그 자리를 **닫힌 채로** 만든다.
+_DEV_SURFACE_ENVS = frozenset({"development", "test"})
+
+
+def exposes_dev_surfaces(app_env: str) -> bool:
+    """정규화된 ``APP_ENV``가 개발 편의 표면을 여는 환경인가 (#1058).
+
+    :func:`is_production_env`와 **짝이 아니다** — 여는 환경이 「프로덕션이 아닌 것
+    전부」보다 좁다. ``staging``은 둘 다 False다.
+
+    :param app_env: :func:`normalize_app_env`를 통과한 값.
+    """
+    return app_env in _DEV_SURFACE_ENVS
+
+
 # 환경 구분. 미설정 시 개발 환경으로 본다. 모르는 값이면 여기서 기동이 선다 (#810).
 _ENV = normalize_app_env(os.environ.get("APP_ENV"))
 
@@ -133,6 +165,10 @@ def is_production() -> bool:
 def should_expose_dev_auth() -> bool:
     """dev-login을 여는가 — ``routes/auth_dev.py``도 이 함수를 부른다 (#648 · #810).
 
+    ``development``·``test``에서만 True다 (#1058) — 종전에는 ``not is_production()``
+    이라 **``staging`` 배포에서 미인증 세션 발급이 열렸다.** :data:`_DEV_SURFACE_ENVS`
+    주석에 경위가 있다.
+
     ## 왜 판정이 여기에 있는가
 
     ``auth/dependencies.py``의 공개 경로 목록이 이 값을 필요로 하는데, 거기서
@@ -158,11 +194,14 @@ def should_expose_dev_auth() -> bool:
 
     **두 판정이 어긋나면 ``tests/test_docs_exposure.py``가 잡는다.**
     """
-    return not is_production()
+    return exposes_dev_surfaces(_ENV)
 
 
 def should_expose_api_docs() -> bool:
-    """``APP_ENV=production``이면 False — OpenAPI 문서를 열지 않는다 (#593).
+    """OpenAPI 문서를 여는가 — ``development``·``test``에서만 True다 (#593 · #1058).
+
+    종전에는 ``not is_production()``이라 **``staging`` 배포에서 ``/docs``가 열렸다.**
+    :data:`_DEV_SURFACE_ENVS` 주석에 경위가 있다.
 
     ## 무엇을 막는가
 
@@ -182,7 +221,21 @@ def should_expose_api_docs() -> bool:
     런타임 조건 분기가 아니라 **기동 시점에** 가른다. 요청마다 판정하면 환경변수를
     바꿔 켤 수 있는 것처럼 읽히고, 실제로는 프로세스 수명 동안 바뀌지 않는다.
     """
-    return not is_production()
+    return exposes_dev_surfaces(_ENV)
+
+
+def should_seed_demo_user() -> bool:
+    """시연 계정을 적재하는가 — ``development``·``test``에서만 True다 (#692 · #1058).
+
+    ``db/demo_seed.py``가 이 함수를 부른다. **그쪽에서 ``_ENV``를 직접 import하지
+    않게** 하려고 여기에 둔다 — `#810`이 ``routes/auth_dev.py``에서 없앤 것이 정확히
+    그 배선이다(private 이름을 복사해 판정을 두 벌로 만든다).
+
+    종전에는 ``not is_production()``이라 **``staging`` 배포가 시연 계정을 만들었다.**
+    이 계정의 비밀번호는 ``README.md``에 공개돼 있어, 공개 주소에 존재하면 그대로
+    로그인 수단이 된다.
+    """
+    return exposes_dev_surfaces(_ENV)
 
 
 #: 프로덕션에서 ``APP_PUBLIC_URL``이 없을 때의 문구 (#809). 기동 검증과 호출 시점

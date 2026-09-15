@@ -149,13 +149,23 @@ async def test_existing_row_is_not_overwritten(conn: AsyncConnection):
 
 
 @pytest.mark.asyncio
-async def test_production_does_not_get_the_account(
-    conn: AsyncConnection, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("app_env", ["production", "staging"])
+async def test_deployed_environments_do_not_get_the_account(
+    conn: AsyncConnection, monkeypatch: pytest.MonkeyPatch, app_env: str
 ):
-    """``APP_ENV=production``에서는 만들지 않는다 — **이 이슈의 보안 조건**이다.
+    """``production``·``staging``에서는 만들지 않는다 — **이 이슈의 보안 조건**이다.
 
-    고정 비밀번호를 가진 계정이 프로덕션에 있으면 그 값이 알려진 순간 누구나
-    들어온다. ``dev-login`` 라우트가 프로덕션에서 등록되지 않는 것과 같은 성격이다.
+    고정 비밀번호를 가진 계정이 공개 주소에 있으면 그 값이 알려진 순간 누구나
+    들어온다 — 이 계정의 비밀번호는 ``README.md``에 적혀 있다. ``dev-login`` 라우트가
+    등록되지 않는 것과 같은 성격이다.
+
+    **``staging``을 함께 도는 이유** (#1058). 종전 판정은 ``not is_production()``이라
+    ``staging``이 여는 쪽이었고, `#524`가 ``APP_ENV=production`` + ``MAIL_BACKEND=console``
+    을 기동 실패로 막기 때문에 **SMTP 준비 전 배포는 ``staging``을 고를 수밖에 없다**
+    (`docs/OPERATIONS.md §4.5`). 2026-09-15 OCI 배포가 실제로 그 상태였다.
+
+    판정은 ``config.should_seed_demo_user``를 갈아 끼운다 — 시드가 **그 함수**를 부르는지
+    까지 본다. ``is_production``을 갈면 배선이 바뀌어도 검사가 조용히 통과한다.
     """
     from cii_platform.db import demo_seed as seed_module
 
@@ -165,12 +175,16 @@ async def test_production_does_not_get_the_account(
 
     import cii_platform.config as config_module
 
-    monkeypatch.setattr(config_module, "is_production", lambda: True)
+    monkeypatch.setattr(
+        config_module,
+        "should_seed_demo_user",
+        lambda: config_module.exposes_dev_surfaces(app_env),
+    )
 
     added = await seed_module.seed_demo_user(conn)
 
     assert added == 0
-    assert await _count(conn) == 0, "프로덕션인데 계정이 만들어졌다"
+    assert await _count(conn) == 0, f"APP_ENV={app_env}인데 계정이 만들어졌다"
 
 
 @pytest.mark.asyncio

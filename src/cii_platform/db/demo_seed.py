@@ -1228,13 +1228,18 @@ _fill_port_coords(SEED_VOYAGES_WATCH)
 async def seed_demo_user(conn: AsyncConnection) -> int:
     """시연용 계정을 적재하고 **신규 적재 행 수**를 돌려준다 (`#692`).
 
-    ## 프로덕션에서는 만들지 않는다
+    ## ``development``·``test``에서만 만든다
 
-    ``APP_ENV=production``이면 **아무것도 하지 않고 0을 돌려준다.** 고정 비밀번호를
-    가진 계정이 프로덕션에 존재하면 그 값이 알려진 순간 누구나 들어온다.
+    그 밖의 환경(``staging``·``production``)에서는 **아무것도 하지 않고 0을 돌려준다.**
+    고정 비밀번호를 가진 계정이 공개 주소에 존재하면 그 값이 알려진 순간 누구나
+    들어온다 — 이 계정의 비밀번호는 ``README.md``에 적혀 있다.
 
-    판정은 :func:`cii_platform.config.is_production`을 쓴다 — 환경 분기의 단일
-    출처다(`#648`). 여기서 ``os.environ``을 다시 읽으면 판정이 두 곳이 된다.
+    **종전에는 ``production``만 뺐다** (#692). 2026-09-15 OCI 배포가 SMTP 미설정
+    때문에 ``APP_ENV=staging``으로 떴고(`docs/OPERATIONS.md §4.5`), 그 상태에서
+    이 시드가 도는 배선이었다 (#1058).
+
+    판정은 :func:`cii_platform.config.should_seed_demo_user`를 쓴다 — 환경 분기의
+    단일 출처다(`#648`). 여기서 ``os.environ``을 다시 읽으면 판정이 두 곳이 된다.
 
     ## 해시를 미리 계산해 상수로 두지 않는다
 
@@ -1248,9 +1253,9 @@ async def seed_demo_user(conn: AsyncConnection) -> int:
     계정의 비밀번호를 바꿨다면 그 변경이 살아남는다.
     """
     from cii_platform.auth.password import hash_password
-    from cii_platform.config import is_production
+    from cii_platform.config import should_seed_demo_user
 
-    if is_production():
+    if not should_seed_demo_user():
         return 0
 
     return await _insert_ignoring_existing(

@@ -37,6 +37,29 @@ def test_should_register_dev_returns_false_in_production():
         config._ENV = original
 
 
+def test_should_register_dev_returns_false_in_staging():
+    """APP_ENV=staging → False (#1058).
+
+    **이 자리가 비어 있어서 배포가 열렸다.** 종전 판정은 ``not is_production()``이라
+    허용값 넷 중 셋이 여는 쪽이었는데, 이 파일은 ``development``와 ``production``만
+    확인해 ``staging``이 어느 쪽으로 떨어지는지 한 번도 보지 않았다.
+
+    ``staging``은 예외적인 값이 아니다 — `#524`가 ``APP_ENV=production`` +
+    ``MAIL_BACKEND=console``을 기동 실패로 막기 때문에 **SMTP가 준비되기 전 배포는
+    ``staging``을 고르는 것이 정상 경로**다(`docs/OPERATIONS.md §4.5`·`§9.4`).
+    2026-09-15 OCI 배포(app-01:8001)에서 ``POST /auth/dev-login``이 실제로 200을 냈고,
+    Security List가 ``0.0.0.0/0``이라 **누구나 미인증 세션을 받을 수 있었다.**
+    """
+    import cii_platform.config as config
+
+    original = config._ENV
+    config._ENV = "staging"
+    try:
+        assert should_register_dev_auth() is False
+    finally:
+        config._ENV = original
+
+
 def test_dev_auth_does_not_hold_its_own_copy_of_app_env():
     """``routes/auth_dev.py``가 ``APP_ENV``를 따로 들고 있지 않다 (#810).
 
