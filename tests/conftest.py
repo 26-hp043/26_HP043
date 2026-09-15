@@ -90,58 +90,17 @@ SUITE_LOCK_MESSAGE = (
 )
 
 
-def _plain_dsn(url: str) -> str:
-    """SQLAlchemy URL(``postgresql+asyncpg://``)을 asyncpg가 받는 형태로 바꾼다."""
-    return url.replace("postgresql+asyncpg://", "postgresql://", 1)
-
-
 def _hold_suite_lock() -> None:
-    """이 프로세스가 테스트 DB의 실행 잠금을 쥔다. 이미 누가 쥐고 있으면 즉시 멈춘다.
-
-    **한 번만 잡는다** — DB를 여는 fixture마다 불리지만 두 번째부터는 아무것도 하지
-    않는다. 잠금은 **전용 연결**에 걸어 세션 내내 쥔다(테스트의 연결은 수시로 열고
-    닫히므로 거기 걸면 곧 풀린다).
-
-    DB에 닿지 못하면 잠그지 않는다 — 그 경우는 뒤따르는 fixture가 원래의 오류로
-    알린다. 이 함수가 연결 실패를 대신 보고하면 원인이 가려진다.
-    """
-    if _suite_lock:
-        return
-
-    import asyncio
-
-    import asyncpg
-
-    loop = asyncio.new_event_loop()
-    try:
-        connection = loop.run_until_complete(asyncpg.connect(_plain_dsn(TEST_DATABASE_URL)))
-    except (OSError, asyncpg.PostgresError):
-        loop.close()
-        return
-    acquired = loop.run_until_complete(
-        connection.fetchval("SELECT pg_try_advisory_lock($1)", SUITE_LOCK_KEY)
-    )
-    if not acquired:
-        loop.run_until_complete(connection.close())
-        loop.close()
-        database = TEST_DATABASE_URL.rsplit("/", 1)[-1]
-        pytest.exit(SUITE_LOCK_MESSAGE.format(db=database), returncode=3)
-    _suite_lock.update(loop=loop, connection=connection)
+    """CUBRID에는 advisory lock이 없으므로 no-op (#1058)."""
+    pass
 
 
 def _release_suite_lock() -> None:
-    if not _suite_lock:
-        return
-    loop = _suite_lock.pop("loop")
-    connection = _suite_lock.pop("connection")
-    try:
-        loop.run_until_complete(connection.close())  # type: ignore[attr-defined]
-    finally:
-        loop.close()  # type: ignore[attr-defined]
+    pass
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """세션이 끝나면 잠금을 푼다 — 연결을 닫으면 PostgreSQL이 잠금을 거둔다."""
+    """세션이 끝나면 잠금을 푼다."""
     _release_suite_lock()
 
 

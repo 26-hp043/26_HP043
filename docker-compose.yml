@@ -33,5 +33,7 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./pyproject.toml:/app/pyproject.toml:ro
+      - ./tests:/app/tests:ro
+      - ./scripts:/app/scripts:ro
 volumes:
   cubrid-data:
