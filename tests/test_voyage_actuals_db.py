@@ -21,6 +21,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import insert_returning_id
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.voyage import set_actuals
 
@@ -32,30 +33,26 @@ async def session(conn):
 
 
 async def _insert_vessel(session, imo: str = "9440001") -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, deadweight) "
-            "VALUES (:imo, 'ACTUALS TEST', 'BULK_CARRIER', 50000) RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, deadweight) "
+        "VALUES (:imo, 'ACTUALS TEST', 'BULK_CARRIER', 50000) RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(session, vessel_id: str, *, status: str = "COMPLETED") -> str:
     policy = "INCLUDE_AS_ACTUAL" if status in {"COMPLETED", "CONFIRMED"} else "INCLUDE_AS_PLAN"
     if status in {"DRAFT", "CANCELLED", "ARCHIVED"}:
         policy = "EXCLUDE"
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12) RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12) RETURNING id",
         {"vid": vessel_id, "st": status, "pol": policy},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_fuel(session, voyage_id: str, *, planned: float = 100) -> None:

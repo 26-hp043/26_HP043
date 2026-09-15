@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from conftest import insert_returning_id
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.auth.dependencies import require_csrf
@@ -23,28 +24,24 @@ VALID_HASH = "sha256:" + "b" * 64
 
 
 async def _insert_vessel(session, imo: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'DELETE TEST', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'DELETE TEST', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_draft_voyage(session, vessel_id: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, 'DRAFT', 'EXCLUDE', 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, 'DRAFT', 'EXCLUDE', 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
         {"vid": vessel_id},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_calculation_run(session, vessel_id: str, voyage_id: str) -> None:

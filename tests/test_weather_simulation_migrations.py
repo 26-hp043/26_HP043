@@ -13,6 +13,8 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from conftest import insert_returning_id
+
 VALID_HASH = "sha256:" + "a" * 64
 
 # DB_SCHEMA §2 정본 테이블 14개 (pg_trgm은 확장이라 제외).
@@ -48,78 +50,68 @@ EXPECTED_NEW_INDEXES = {
 
 
 async def _insert_vessel(conn, imo="7654321") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_weather_snapshot(conn) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO weather_snapshot "
-            "(lat, lon, lat_rounded, lon_rounded, fetched_at, source) "
-            "VALUES (35.1, 129.0, 35.0, 129.0, now(), 'sample') RETURNING id"
-        )
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO weather_snapshot "
+        "(lat, lon, lat_rounded, lon_rounded, fetched_at, source) "
+        "VALUES (35.1, 129.0, 35.0, 129.0, now(), 'sample') RETURNING id",
+        {},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_scenario(conn, vessel_id, weather_snapshot_id=None) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage_scenario "
-            "(vessel_id, scenario_type, scenario_name, distance_nm, speed_kn, "
-            " duration_hours, fuel_ton, cii_value, estimated_rating, risk_level, "
-            " weather_snapshot_id) "
-            "VALUES (:vid, 'DIRECT', 'TEST SCENARIO', 1000, 12, 80, 100, "
-            " 5.1, 'C', 'MEDIUM', :wid) RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO voyage_scenario "
+        "(vessel_id, scenario_type, scenario_name, distance_nm, speed_kn, "
+        " duration_hours, fuel_ton, cii_value, estimated_rating, risk_level, "
+        " weather_snapshot_id) "
+        "VALUES (:vid, 'DIRECT', 'TEST SCENARIO', 1000, 12, 80, 100, "
+        " 5.1, 'C', 'MEDIUM', :wid) RETURNING id",
         {"vid": vessel_id, "wid": weather_snapshot_id},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_calculation_run(conn, vessel_id) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO calculation_run "
-            "(calculation_type, vessel_id, input_hash, parameter_hash, "
-            " model_version, result_json, parameters_used) "
-            "VALUES ('ANNUAL_MONTE_CARLO', :vid, :ih, :ph, "
-            " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb) RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO calculation_run "
+        "(calculation_type, vessel_id, input_hash, parameter_hash, "
+        " model_version, result_json, parameters_used) "
+        "VALUES ('ANNUAL_MONTE_CARLO', :vid, :ih, :ph, "
+        " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb) RETURNING id",
         {"vid": vessel_id, "ih": VALID_HASH, "ph": VALID_HASH},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_sim_snapshot(conn, vessel_id) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO simulation_snapshot "
-            "(vessel_id, regulation_year, voyages_json, input_hash, parameter_hash) "
-            "VALUES (:vid, 2026, '[]'::jsonb, :ih, :ph) RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO simulation_snapshot "
+        "(vessel_id, regulation_year, voyages_json, input_hash, parameter_hash) "
+        "VALUES (:vid, 2026, '[]'::jsonb, :ih, :ph) RETURNING id",
         {"vid": vessel_id, "ih": VALID_HASH, "ph": VALID_HASH},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_annual_run(
     conn, calculation_run_id, vessel_id, snapshot_id, target_rating="C", simulation_runs=1000
 ) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO annual_simulation_run "
-            "(calculation_run_id, vessel_id, regulation_year, target_rating, "
-            " simulation_runs, snapshot_id) "
-            "VALUES (:cid, :vid, 2026, :tr, :runs, :sid) RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO annual_simulation_run "
+        "(calculation_run_id, vessel_id, regulation_year, target_rating, "
+        " simulation_runs, snapshot_id) "
+        "VALUES (:cid, :vid, 2026, :tr, :runs, :sid) RETURNING id",
         {
             "cid": calculation_run_id,
             "vid": vessel_id,
@@ -128,7 +120,6 @@ async def _insert_annual_run(
             "sid": snapshot_id,
         },
     )
-    return str(row.scalar_one())
 
 
 # --- weather_snapshot (013) ---

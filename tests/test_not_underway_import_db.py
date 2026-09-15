@@ -20,6 +20,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import insert_returning_id
 from cii_platform.services.not_underway_import import import_not_underway_periods
 
 HEADER = "period_type,started_at,ended_at,distance_nm,fuel_type,fuel_ton,consumer_type,port_name\n"
@@ -34,15 +35,13 @@ async def session(conn):
 
 @pytest_asyncio.fixture
 async def vessel_id(session):
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
-            "reference_speed_kn) VALUES "
-            "(:imo, 'NU IMPORT TEST', 'BULK_CARRIER', 30000, 50000, 14.0) RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
+        "reference_speed_kn) VALUES "
+        "(:imo, 'NU IMPORT TEST', 'BULK_CARRIER', 30000, 50000, 14.0) RETURNING id",
         {"imo": IMO},
     )
-    return row.scalar_one()
 
 
 def _csv(*rows: str) -> bytes:

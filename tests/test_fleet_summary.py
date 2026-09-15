@@ -23,7 +23,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import ensure_regulation_year, insert_if_not_exists
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
 
 from cii_platform.calc.rating_engine import DVector, determine_rating
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -384,14 +384,13 @@ async def _insert_vessel(
     # 직접 INSERT하는 이 헬퍼가 대신 계산해 넣는다 — 컬럼 기본값에 맡기면 GT가
     # 30,000인 선박도 「미해당」으로 앉는다.
     hint = gross_tonnage is not None and gross_tonnage >= 5000
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel "
-            "(imo_number, name, ship_type, gross_tonnage, deadweight, "
-            " is_cii_applicable_hint, underway_state, detail_status) "
-            "VALUES (:imo, :name, :ship_type, :gt, :dwt, :hint, :st, :ds) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel "
+        "(imo_number, name, ship_type, gross_tonnage, deadweight, "
+        " is_cii_applicable_hint, underway_state, detail_status) "
+        "VALUES (:imo, :name, :ship_type, :gt, :dwt, :hint, :st, :ds) "
+        "RETURNING id",
         {
             "imo": imo,
             "name": name,
@@ -403,20 +402,18 @@ async def _insert_vessel(
             "ds": detail_status,
         },
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage_with_fuel(session, vessel_id: str) -> None:
     """실적 한 건. 이 선박이 「실적 없음」이 아니게 만드는 것이 목적이다."""
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, "
-            " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
-            "VALUES (:vid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', "
-            " 1000, 1000, 12, :arr) RETURNING id"
-        ),
+    voyage_id = await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, "
+        " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
+        "VALUES (:vid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', "
+        " 1000, 1000, 12, :arr) RETURNING id",
         {"vid": vessel_id, "yr": YEAR, "arr": datetime(YEAR, 3, 1, tzinfo=UTC)},
     )
     await session.execute(
@@ -425,7 +422,7 @@ async def _insert_voyage_with_fuel(session, vessel_id: str) -> None:
             "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
             "VALUES (:vid, 'HFO', 80, 80, 3.114, 'USER_INPUT')"
         ),
-        {"vid": str(row.scalar_one())},
+        {"vid": voyage_id},
     )
 
 
@@ -438,15 +435,14 @@ async def _insert_voyage(
     `#431` 산식은 「최근 창의 강도 − 경계」로 소비율을 내므로, 창 안팎의 강도가 같으면
     분모가 0 이하가 되어 `NOT_WORSENING`이 나온다.
     """
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, "
-            " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
-            "VALUES (:vid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', "
-            " :d, :d, 12, :arr) RETURNING id"
-        ),
+    voyage_id = await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, "
+        " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
+        "VALUES (:vid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', "
+        " :d, :d, 12, :arr) RETURNING id",
         {"vid": vessel_id, "yr": YEAR, "d": distance, "arr": arrived},
     )
     await session.execute(
@@ -455,7 +451,7 @@ async def _insert_voyage(
             "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
             "VALUES (:vid, 'HFO', :f, :f, 3.114, 'USER_INPUT')"
         ),
-        {"vid": str(row.scalar_one()), "f": fuel},
+        {"vid": voyage_id, "f": fuel},
     )
 
 

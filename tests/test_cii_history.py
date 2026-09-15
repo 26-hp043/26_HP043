@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import ensure_regulation_year, insert_if_not_exists
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
 
 from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.services.cii_history import (
@@ -78,26 +78,24 @@ async def _ensure_params(session, *years: int) -> None:
 
 async def _insert_vessel_with_history(session) -> str:
     """2025·2026 두 해에 COMPLETED 항차를 가진 선박을 넣고 id를 반환한다."""
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            "VALUES ('7200301', 'HISTORY TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id"
-        )
+    vessel_id = await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+        "VALUES ('7200301', 'HISTORY TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id",
+        {},
     )
-    vessel_id = str(row.scalar_one())
 
     for year, fuel, distance in [(2025, "400.00", "4265.00"), (2026, "620.00", "4300.00")]:
-        voyage = await session.execute(
-            text(
-                "INSERT INTO voyage "
-                "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-                " departure_port_name, arrival_port_name, planned_distance_nm, "
-                " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
-                f"VALUES ('{vessel_id}'::uuid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
-                f"'BUSAN', 'SINGAPORE', {distance}, {distance}, 12.0, 11.5) RETURNING id"
-            )
+        voyage_id = await insert_returning_id(
+            session,
+            "INSERT INTO voyage "
+            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+            " departure_port_name, arrival_port_name, planned_distance_nm, "
+            " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
+            f"VALUES ('{vessel_id}'::uuid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
+            f"'BUSAN', 'SINGAPORE', {distance}, {distance}, 12.0, 11.5) RETURNING id",
+            {},
         )
-        voyage_id = voyage.scalar_one()
         await session.execute(
             text(
                 "INSERT INTO voyage_fuel_use "

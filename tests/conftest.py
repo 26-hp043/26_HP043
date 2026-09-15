@@ -330,7 +330,46 @@ def _install_cubrid_param_converter(engine):
                 new_id = uuid.uuid4().hex
                 statement = f"{prefix}(id, {cols}){mid}('{new_id}', {vals})"
 
+        # 3. CUBRID: IS 0 → = 0, IS 1 → = 1 (Boolean SMALLINT 호환)
+        statement = re.sub(r'\bIS 0\b', '= 0', statement)
+        statement = re.sub(r'\bIS 1\b', '= 1', statement)
+
+        # 4. CUBRID: INTERVAL 구문 변환 (PostgreSQL → CUBRID)
+        statement = statement.replace("interval '1 hour'", "1/24.0")
+
+        # 5. CUBRID: RETURNING 미지원 — INSERT RETURNING id를 INSERT로 변환
+        #    id는 auto-id 삽입에서 이미 생성됨
+        if " RETURNING " in statement:
+            statement = re.sub(r"\s+RETURNING\s+\w+", "", statement)
+
         return statement, parameters
+
+
+async def insert_returning_id(session, sql: str, params: dict) -> str:
+    """CUBRID 호환 INSERT RETURNING id 대체.
+
+    INSERT에 id를 자동 생성하여 넣고, 그 id를 반환한다.
+    before_cursor_execute가 id를 자동 추가하므로, 추가된 id를 찾아 반환한다.
+    """
+    import re as _re
+    import uuid as _uuid
+
+    generated_id = _uuid.uuid4().hex
+    sql_no_returning = _re.sub(r"\s+RETURNING\s+\w+", "", sql)
+    if "(id," not in sql_no_returning:
+        sql_no_returning = sql_no_returning.replace(
+            "VALUES (", f"VALUES ('{generated_id}', ", 1
+        )
+        # 컬럼 리스트에 id 추가
+        sql_no_returning = _re.sub(
+            r"\((\w)", r"(id, \1", sql_no_returning, count=1
+        )
+    else:
+        # id가 이미 있으면 params에서 가져온다
+        generated_id = str(params.get("id", generated_id)).replace("-", "")
+
+    await execute_sql(session, sql_no_returning, params)
+    return generated_id
 
 
 @pytest_asyncio.fixture

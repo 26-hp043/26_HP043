@@ -14,16 +14,16 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from conftest import insert_returning_id
+
 
 async def _insert_vessel(conn, imo="1234567") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _update_state(conn, vessel_id: str, set_clause: str) -> None:

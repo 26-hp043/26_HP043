@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from cii_platform.api.main import app
+from conftest import insert_returning_id
 
 _BASE = "https://testserver"
 
@@ -25,14 +26,12 @@ OTHER_HASH = "sha256:" + "b" * 64
 
 
 async def _insert_vessel(session, imo: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'CALC QUERY TEST', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'CALC QUERY TEST', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_run(
@@ -45,14 +44,13 @@ async def _insert_run(
 ) -> str:
     # JSONB 값은 CAST(:param AS jsonb)로 바인딩한다 — 리터럴 안에 ':1' 같은 열쇠가
     # 있으면 text()가 bind parameter로 오해해 파싱이 깨진다.
-    row = await session.execute(
-        text(
-            "INSERT INTO calculation_run "
-            "(calculation_type, vessel_id, voyage_id, "
-            " input_hash, parameter_hash, model_version, result_json, parameters_used) "
-            "VALUES (:ctype, :vid, NULL, :ih, :ph, "
-            " CAST(:mv AS jsonb), CAST(:rj AS jsonb), '{}'::jsonb) RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO calculation_run "
+        "(calculation_type, vessel_id, voyage_id, "
+        " input_hash, parameter_hash, model_version, result_json, parameters_used) "
+        "VALUES (:ctype, :vid, NULL, :ih, :ph, "
+        " CAST(:mv AS jsonb), CAST(:rj AS jsonb), '{}'::jsonb) RETURNING id",
         {
             "ctype": calculation_type,
             "vid": vessel_id,
@@ -62,7 +60,6 @@ async def _insert_run(
             "rj": '{"attained_cii": "4.9824", "estimated_rating": "C"}',
         },
     )
-    return str(row.scalar_one())
 
 
 async def _cleanup(session, vessel_id: str) -> None:

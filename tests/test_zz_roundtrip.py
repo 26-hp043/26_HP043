@@ -18,7 +18,7 @@ import sys
 import warnings
 
 import pytest
-from conftest import TEST_DATABASE_URL, run_alembic
+from conftest import TEST_DATABASE_URL, insert_returning_id, run_alembic
 from db_target import is_disposable, skip_reason
 from sqlalchemy import pool, text
 from sqlalchemy.exc import DBAPIError
@@ -140,26 +140,21 @@ async def _assert_calculation_run_immutable() -> None:
     connection = await engine.connect()
     trans = await connection.begin()
     try:
-        vessel_id = (
-            await connection.execute(
-                text(
-                    "INSERT INTO vessel (imo_number, name, ship_type) "
-                    "VALUES ('9990001', 'IMMUT TEST', 'BULK_CARRIER') RETURNING id"
-                )
-            )
-        ).scalar_one()
-        calc_id = (
-            await connection.execute(
-                text(
-                    "INSERT INTO calculation_run "
-                    "(calculation_type, vessel_id, input_hash, parameter_hash, "
-                    " model_version, result_json, parameters_used) "
-                    "VALUES ('VOYAGE_ESTIMATE', :vid, :ih, :ph, "
-                    " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb) RETURNING id"
-                ),
-                {"vid": vessel_id, "ih": VALID_HASH, "ph": VALID_HASH},
-            )
-        ).scalar_one()
+        vessel_id = await insert_returning_id(
+            connection,
+            "INSERT INTO vessel (imo_number, name, ship_type) "
+            "VALUES ('9990001', 'IMMUT TEST', 'BULK_CARRIER') RETURNING id",
+            {},
+        )
+        calc_id = await insert_returning_id(
+            connection,
+            "INSERT INTO calculation_run "
+            "(calculation_type, vessel_id, input_hash, parameter_hash, "
+            " model_version, result_json, parameters_used) "
+            "VALUES ('VOYAGE_ESTIMATE', :vid, :ih, :ph, "
+            " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb) RETURNING id",
+            {"vid": vessel_id, "ih": VALID_HASH, "ph": VALID_HASH},
+        )
 
         with pytest.raises(DBAPIError) as exc:
             await connection.execute(

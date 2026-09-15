@@ -25,8 +25,8 @@ class WeatherModelParameter(Base):
     )
     # NONE, SIMPLE_RULE, TOWNSIN_KWON_ALPHA (§2.12 설명 — CHECK는 정본에 없음).
     model_version = sa.Column(sa.String(length=50), nullable=False)
-    key = sa.Column(sa.String(length=100), nullable=False)
-    value = sa.Column(sa.String(length=200), nullable=False)
+    key = sa.Column("key", sa.String(length=100), nullable=False, quote=True)
+    value = sa.Column("value", sa.String(length=200), nullable=False, quote=True)
     unit = sa.Column(sa.String(length=30), nullable=True)
     source_ref = sa.Column(sa.String(length=200), nullable=True)
     created_at = sa.Column(

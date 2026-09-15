@@ -26,6 +26,7 @@ import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from conftest import insert_returning_id
 from cii_platform.api.main import app
 
 _BASE = "https://testserver"
@@ -42,16 +43,14 @@ PAYLOAD: dict[str, Any] = {
 
 
 async def _insert_vessel(session) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
-            "reference_speed_kn) "
-            "VALUES (:imo, 'SCENARIO DB TEST', 'BULK_CARRIER', 30000, 50000, 14.0) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
+        "reference_speed_kn) "
+        "VALUES (:imo, 'SCENARIO DB TEST', 'BULK_CARRIER', 30000, 50000, 14.0) "
+        "RETURNING id",
         {"imo": IMO},
     )
-    return str(row.scalar_one())
 
 
 async def _cleanup(session, vessel_id: str) -> None:

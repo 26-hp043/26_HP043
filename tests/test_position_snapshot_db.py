@@ -24,6 +24,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import insert_returning_id
 from cii_platform.ais.provider import (
     NOT_UNDER_WAY,
     SOURCE_AIS,
@@ -51,13 +52,12 @@ async def session(conn):
 
 
 async def _insert_vessel(session, imo: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            f"VALUES ('{imo}', 'AIS TEST {imo}', 'BULK_CARRIER', 30000, 50000) RETURNING id"
-        )
+    return await insert_returning_id(
+        session,
+        f"INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+        f"VALUES ('{imo}', 'AIS TEST {imo}', 'BULK_CARRIER', 30000, 50000) RETURNING id",
+        {},
     )
-    return str(row.scalar_one())
 
 
 class _FakeProvider:

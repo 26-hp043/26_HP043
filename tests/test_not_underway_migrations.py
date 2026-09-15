@@ -21,30 +21,28 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from conftest import insert_returning_id
+
 
 async def _insert_vessel(conn, imo="1234567") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(conn, vessel_id) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, 'DRAFT', 'EXCLUDE', NULL, 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, 'DRAFT', 'EXCLUDE', NULL, 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
         {"vid": vessel_id},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_period(
@@ -57,16 +55,15 @@ async def _insert_period(
     voyage_id=None,
 ) -> str:
     voyage_expr = f"'{voyage_id}'::uuid" if voyage_id is not None else "NULL"
-    row = await conn.execute(
-        text(
-            "INSERT INTO not_underway_period "
-            "(vessel_id, regulation_year, period_type, started_at, ended_at, voyage_id) "
-            f"VALUES ('{vessel_id}'::uuid, 2026, :ptype, {started_at}, {ended_at}, "
-            f"{voyage_expr}) "
-            "RETURNING id"
-        ).bindparams(ptype=period_type),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO not_underway_period "
+        "(vessel_id, regulation_year, period_type, started_at, ended_at, voyage_id) "
+        f"VALUES ('{vessel_id}'::uuid, 2026, :ptype, {started_at}, {ended_at}, "
+        f"{voyage_expr}) "
+        "RETURNING id",
+        {"ptype": period_type},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_fuel(
@@ -317,13 +314,12 @@ async def test_period_update_touches_updated_at(migrated_db):
     period_id = None
     try:
         async with sessionmaker() as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO vessel (imo_number, name, ship_type) "
-                    "VALUES ('7654321', 'TRG VESSEL', 'BULK_CARRIER') RETURNING id"
-                )
+            vessel_id = await insert_returning_id(
+                s,
+                "INSERT INTO vessel (imo_number, name, ship_type) "
+                "VALUES ('7654321', 'TRG VESSEL', 'BULK_CARRIER') RETURNING id",
+                {},
             )
-            vessel_id = row.scalar_one()
             row = await s.execute(
                 text(
                     "INSERT INTO not_underway_period "

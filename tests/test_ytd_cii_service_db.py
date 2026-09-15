@@ -29,7 +29,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import ensure_regulation_year, insert_if_not_exists
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
 
 from cii_platform.services.ytd_cii import (
     SUBSTITUTION_AXIS_DISTANCE,
@@ -76,14 +76,12 @@ async def _seed_parameters(session) -> None:
 
 
 async def _insert_vessel(session, imo: str = "9100001") -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            "VALUES (:imo, 'YTD TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+        "VALUES (:imo, 'YTD TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(
@@ -98,15 +96,14 @@ async def _insert_voyage(
     actual_distance: float | None | str = "same",
     arrival_at: str | None = "2026-03-01T00:00:00+00",
 ) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, "
-            " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
-            "VALUES (:vid, :st, :pol, :yr, 'BUSAN', 'SINGAPORE', :dist, :actual, 12, :arr) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, "
+        " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
+        "VALUES (:vid, :st, :pol, :yr, 'BUSAN', 'SINGAPORE', :dist, :actual, 12, :arr) "
+        "RETURNING id",
         {
             "vid": vessel_id,
             "st": status,
@@ -117,7 +114,6 @@ async def _insert_voyage(
             "arr": None if arrival_at is None else datetime.fromisoformat(arrival_at),
         },
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage_fuel(
@@ -156,13 +152,12 @@ async def _insert_stay(
     distance_nm: float = 0,
     cf_used: float | None = None,
 ) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO not_underway_period "
-            "(vessel_id, regulation_year, period_type, started_at, ended_at, is_deleted, "
-            " distance_nm) "
-            "VALUES (:vid, :yr, 'AT_ANCHOR', :start, NULL, :del, :dist) RETURNING id"
-        ),
+    period_id = await insert_returning_id(
+        session,
+        "INSERT INTO not_underway_period "
+        "(vessel_id, regulation_year, period_type, started_at, ended_at, is_deleted, "
+        " distance_nm) "
+        "VALUES (:vid, :yr, 'AT_ANCHOR', :start, NULL, :del, :dist) RETURNING id",
         {
             "vid": vessel_id,
             "yr": YEAR,
@@ -171,7 +166,6 @@ async def _insert_stay(
             "dist": distance_nm,
         },
     )
-    period_id = str(row.scalar_one())
     # 030 (#378) — cf_used는 NOT NULL. 기록 시점의 CF snapshot을 함께 넣는다.
     await session.execute(
         text(

@@ -18,7 +18,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import ensure_regulation_year
+from conftest import ensure_regulation_year, insert_returning_id
 
 from cii_platform.services.data_quality import (
     IMPACT_ONLY_VOYAGE,
@@ -44,14 +44,13 @@ async def session(conn):
 async def vessel_id(session) -> str:
     """기준 속력 12kn · 기준 일일 연료 24t — 2,880nm를 12kn로 가면 기대 연료 240t."""
     await ensure_regulation_year(session, 2026)
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
-            " reference_speed_kn, reference_daily_foc_ton) "
-            "VALUES ('9513001', 'DQ TEST', 'BULK_CARRIER', 30000, 50000, 12, 24) RETURNING id"
-        )
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
+        " reference_speed_kn, reference_daily_foc_ton) "
+        "VALUES ('9513001', 'DQ TEST', 'BULK_CARRIER', 30000, 50000, 12, 24) RETURNING id",
+        {},
     )
-    return str(row.scalar_one())
 
 
 async def _voyage(
@@ -68,15 +67,14 @@ async def _voyage(
 ) -> str:
     departure = datetime.fromisoformat("2026-03-01T00:00:00+00:00")
     arrival = None if hours is None else departure + timedelta(hours=hours)
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, voyage_no, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, actual_distance_nm, "
-            " planned_speed_kn, actual_avg_speed_kn, actual_departure_at, actual_arrival_at) "
-            "VALUES (:vid, :no, :st, 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', 2880, "
-            " :dist, 12, :spd, :dep, :arr) RETURNING id"
-        ),
+    voyage_id = await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, voyage_no, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, actual_distance_nm, "
+        " planned_speed_kn, actual_avg_speed_kn, actual_departure_at, actual_arrival_at) "
+        "VALUES (:vid, :no, :st, 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', 2880, "
+        " :dist, 12, :spd, :dep, :arr) RETURNING id",
         {
             "vid": vessel_id,
             "no": no,
@@ -88,7 +86,6 @@ async def _voyage(
             "arr": arrival,
         },
     )
-    voyage_id = str(row.scalar_one())
     await session.execute(
         text(
             "INSERT INTO voyage_fuel_use "

@@ -20,6 +20,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import insert_returning_id
 from cii_platform.db.models.chat import RETENTION_DAYS, ROLE_ASSISTANT, ROLE_USER
 from cii_platform.db.repositories import chat as chat_repo
 from cii_platform.services.audit import content_digest
@@ -35,10 +36,13 @@ async def session(conn):
 
 
 async def _insert_user(session, email: str) -> UUID:
-    row = await session.execute(
-        text(f"INSERT INTO app_user (email, password_hash) VALUES ('{email}', 'x') RETURNING id")
+    return UUID(
+        await insert_returning_id(
+            session,
+            f"INSERT INTO app_user (email, password_hash) VALUES ('{email}', 'x') RETURNING id",
+            {},
+        )
     )
-    return row.scalar_one()
 
 
 @pytest.mark.asyncio

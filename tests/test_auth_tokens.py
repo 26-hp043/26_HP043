@@ -27,6 +27,7 @@ from cii_platform.db.models.user_token import (
     PURPOSE_EMAIL_VERIFY,
     PURPOSE_PASSWORD_RESET,
 )
+from conftest import insert_returning_id
 from cii_platform.mail import MailDeliveryError
 from cii_platform.services.auth_token import (
     TokenError,
@@ -93,13 +94,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('tok@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('tok@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
 
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
@@ -118,13 +118,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('twice@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('twice@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
 
@@ -138,13 +137,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('exp@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('exp@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_PASSWORD_RESET)
             await s.flush()
 
@@ -158,13 +156,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('mix@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('mix@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
 
@@ -176,13 +173,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('re@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('re@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
 
             old = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()

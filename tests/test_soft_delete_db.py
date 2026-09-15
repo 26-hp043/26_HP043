@@ -28,6 +28,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import insert_returning_id
+
 from cii_platform.errors import NotFoundError
 from cii_platform.services.vessel import create_vessel, delete_vessel, get_vessel, list_vessels
 from cii_platform.services.voyage import delete_voyage
@@ -192,16 +194,14 @@ async def test_service_still_refuses_duplicate_active_imo(session):
 
 async def _new_voyage(session, vessel_id: str, *, status: str) -> str:
     policy = {"COMPLETED": "INCLUDE_AS_ACTUAL", "PLANNED": "INCLUDE_AS_PLAN"}.get(status, "EXCLUDE")
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (CAST(:vid AS uuid), :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (CAST(:vid AS uuid), :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
         {"vid": vessel_id, "st": status, "pol": policy},
     )
-    return str(row.scalar_one())
 
 
 @pytest.mark.asyncio
