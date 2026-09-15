@@ -336,10 +336,10 @@ def _install_cubrid_param_converter(engine):
 
         # 4. CUBRID: PostgreSQL 구문 변환
         statement = statement.replace("interval '1 hour'", "1/24.0")
-        # CAST(? AS uuid) → ? (CUBRID에 uuid 타입 없음)
-        statement = re.sub(r'CAST\(\? AS uuid\)', '?', statement)
+        # CAST(? AS type) → ? (CUBRID에 uuid/jsonb 등 타입 없음)
+        statement = re.sub(r'CAST\(\? AS \w+\)', '?', statement)
         # PostgreSQL cast ::type 제거
-        statement = re.sub(r'::(uuid|timestamptz|timestamp|text)', '', statement)
+        statement = re.sub(r'::(uuid|timestamptz|timestamp|text|jsonb)', '', statement)
 
         # 5. CUBRID: RETURNING 미지원 — INSERT RETURNING id를 INSERT로 변환
         #    id는 auto-id 삽입에서 이미 생성됨

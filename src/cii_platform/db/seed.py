@@ -466,8 +466,80 @@ async def _upsert_fuel_types(conn: AsyncConnection) -> int:
     return count
 
 
+# 시뮬레이션 파라미터 (035_simulation_parameter.py에서 이전)
+_SIM_PARAM_ROWS = (
+    # (variable, bound_type, min, mode, max, floor)
+    ("DISTANCE", "FACTOR", "0.9700", "1.0000", "1.0500", None),
+    ("FUEL", "FACTOR", "0.9000", "1.0000", "1.1500", None),
+    ("SPEED", "DELTA", "-1.0000", "0.0000", "1.0000", "1.0000"),
+)
+_SIM_PARAM_PROFILE = "DEFAULT"
+
+
+async def _upsert_simulation_parameters(conn: AsyncConnection) -> int:
+    """simulation_parameter 3행을 upsert한다."""
+    import uuid as _uuid
+
+    from cii_platform.db.models.simulation_parameter import SimulationParameter
+
+    count = 0
+    for variable, bound_type, min_v, mode_v, max_v, floor_v in _SIM_PARAM_ROWS:
+        row = {
+            "id": _uuid.uuid4(),
+            "profile": _SIM_PARAM_PROFILE,
+            "variable": variable,
+            "distribution": "TRIANGULAR",
+            "bound_type": bound_type,
+            "min_value": Decimal(min_v),
+            "mode_value": Decimal(mode_v),
+            "max_value": Decimal(max_v),
+            "floor_value": Decimal(floor_v) if floor_v else None,
+            "source_ref": "PRD §12.4.1",
+            "version": PARAMETER_SET_VERSION,
+        }
+        await conn.execute(cubrid_replace(SimulationParameter.__table__).values(row))
+        count += 1
+    return count
+
+
+# 기상 모델 파라미터 (019_seed_weather_model_parameter.py에서 이전)
+_WEATHER_PARAMS = [
+    ("TOWNSIN_KWON_ALPHA", "cu_a.BULK_CARRIER", "0.5", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.BULK_CARRIER", "0.5", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_a.TANKER", "0.7", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.TANKER", "0", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_a.CONTAINER_SHIP", "0.6", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.CONTAINER_SHIP", "0.2", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_a.GENERAL_CARGO_SHIP", "0.5", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.GENERAL_CARGO_SHIP", "0.5", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_a.LNG_CARRIER", "0.7", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.LNG_CARRIER", "0", "dimensionless"),
+]
+
+
+async def _upsert_weather_params(conn: AsyncConnection) -> int:
+    """weather_model_parameter 10행을 upsert한다."""
+    import uuid as _uuid
+
+    from cii_platform.db.models.weather_model_parameter import WeatherModelParameter
+
+    count = 0
+    for model_ver, key, value, unit in _WEATHER_PARAMS:
+        row = {
+            "id": _uuid.uuid4(),
+            "model_version": model_ver,
+            "key": key,
+            "value": value,
+            "unit": unit,
+            "source_ref": "TECH_SPEC §3.3 (Kwon 2008 단순화)",
+        }
+        await conn.execute(cubrid_replace(WeatherModelParameter.__table__).values(row))
+        count += 1
+    return count
+
+
 async def seed_all(conn: AsyncConnection) -> dict[str, int]:
-    """규제 파라미터 + 연료 종류를 upsert하고 테이블별 적재 행 수를 돌려준다.
+    """규제 파라미터 + 연료 종류 + 시뮬레이션 파라미터를 upsert한다.
 
     재실행해도 같은 결과가 되도록 모두 upsert를 쓴다.
     호출자가 트랜잭션을 관리한다 — 이 함수는 commit하지 않는다.
@@ -478,6 +550,8 @@ async def seed_all(conn: AsyncConnection) -> dict[str, int]:
         "regulation_year": await _upsert_z_factors(conn),
         "cii_reference_line": await _upsert_reference_lines(conn),
         "cii_rating_boundary": await _upsert_rating_boundaries(conn),
+        "simulation_parameter": await _upsert_simulation_parameters(conn),
+        "weather_model_parameter": await _upsert_weather_params(conn),
     }
 
 
