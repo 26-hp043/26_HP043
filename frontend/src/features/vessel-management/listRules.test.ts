@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { Vessel } from '../vessel-registration/types'
 import {
+  EMPTY_MESSAGE,
+  LOADED_EMPTY_MESSAGE,
+  LOADED_PARTIAL_HINT,
   SORT_KEYS,
   blockedReasons,
   capacityCell,
   dailyFuelCell,
   deleteConfirmMessage,
+  emptyMessage,
+  listTitle,
   referenceSpeedCell,
+  saveFailureNotice,
   shipTypeLabel,
   sortVessels,
   specChecklist,
@@ -292,5 +298,58 @@ describe('제원 값 셀 — 없으면 null, 있으면 §4.2 표기', () => {
     const one = vessel({ reference_daily_foc_ton: null })
     expect(dailyFuelCell(one)).toBeNull()
     expect(specProgress(one)).toEqual({ filled: 2, total: 3 })
+  })
+})
+
+/*
+ * 불러온 수와 전체 수를 가르지 않았다 (#1102 ⑶).
+ *
+ * `GET /vessels`는 커서 페이지네이션이고 `meta`에 전체 수가 없다(`API_SPEC §2.1`).
+ * 화면은 불러온 만큼만 아는데 제목이 「선박 20척」이라 35척 선대에서 전체 수처럼
+ * 읽혔다. 불러온 20척을 모두 지우면 「등록된 선박이 없습니다」와 「더 보기」가 함께
+ * 떠 서로 반대 말을 했다.
+ */
+describe('불러온 수 / 전체 수 (#1102 ⑶)', () => {
+  it('뒤 페이지가 남아 있으면 제목이 「불러옴」을 말한다 — 전체 수가 아니다', () => {
+    expect(listTitle(20, true)).toBe('선박 20척 불러옴')
+    expect(listTitle(20, true)).not.toBe(listTitle(20, false))
+  })
+
+  it('다 불러왔으면 「불러옴」을 붙이지 않는다 — 그때는 전체 수다', () => {
+    expect(listTitle(3, false)).toBe('선박 3척')
+    expect(listTitle(3, false)).not.toContain('불러옴')
+  })
+
+  it('전체 수를 지어내지 않는다 — 서버가 주지 않는 값이다', () => {
+    // 제목·안내 어디에도 불러온 수 밖의 숫자가 없다.
+    expect(listTitle(20, true)).not.toMatch(/\/|전체|중/)
+    expect(LOADED_PARTIAL_HINT).not.toMatch(/\d/)
+  })
+
+  it('불러온 것을 모두 지웠는데 뒤 페이지가 남았으면 「등록된 선박이 없다」고 하지 않는다', () => {
+    expect(emptyMessage(true)).toBe(LOADED_EMPTY_MESSAGE)
+    expect(emptyMessage(true)).not.toBe(EMPTY_MESSAGE)
+    // 다음 행동(「더 보기」)을 문장이 말한다.
+    expect(emptyMessage(true)).toContain('더 보기')
+  })
+
+  it('뒤 페이지가 없으면 종전 빈 목록 안내 그대로다', () => {
+    expect(emptyMessage(false)).toBe(EMPTY_MESSAGE)
+  })
+})
+
+/*
+ * 폼을 떠난 선박의 저장 실패 (#1102 ⑴). A 저장 중 B 「수정」을 누르면 A의 폼이 없다 —
+ * 그 실패를 B 폼에 붙이면 엉뚱한 배의 오류가 되고, 버리면 A가 저장된 줄 안다.
+ */
+describe('saveFailureNotice (#1102 ⑴)', () => {
+  it('어느 선박의 실패인지 이름으로 밝히고 서버 문구를 그대로 잇는다', () => {
+    const notice = saveFailureNotice('알파호', '선명이 너무 깁니다.')
+    expect(notice).toContain('알파호')
+    expect(notice).toContain('선명이 너무 깁니다.')
+  })
+
+  it('저장되지 않았다는 사실을 말한다 — 성공 안내와 헷갈리지 않는다', () => {
+    expect(saveFailureNotice('알파호', 'x')).toContain('저장하지 못했습니다')
   })
 })

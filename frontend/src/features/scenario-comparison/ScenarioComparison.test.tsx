@@ -612,7 +612,7 @@ describe('계획에 반영 (#580)', () => {
                 voyage_id: 'v-planned',
                 adopted_scenario_type: 'SLOW_STEAMING',
                 updated_fields: ['planned_distance_nm', 'planned_speed_kn', 'planned_arrival_at'],
-                // 서버가 수를 보내도 화면은 쓰지 않는다 — `#817` 전에는 참값이 아니다.
+                // 화면이 이 수를 **그대로 적는다** — `#817`이 닫혀 참값이 됐다 (`#1077`).
                 invalidated_calculation_runs: 7,
               },
             })
@@ -685,7 +685,11 @@ describe('계획에 반영 (#580)', () => {
 
     expect(await screen.findByText(/시나리오를 반영했습니다/)).toBeTruthy()
     expect(screen.getByText(/바뀐 값 — 항해거리 · 평균 속력 · 도착 예정 시각/)).toBeTruthy()
-    expect(screen.getByText(/기존 계산 결과는 다시 계산해야 합니다/)).toBeTruthy()
+    // `#1077` — 사실만이 아니라 **건수**까지 적는다. 종전에는 이 단언이 문장 앞부분만 보아
+    // 수가 빠진 것을 잡지 못했다(`#817` 유예를 정답으로 들고 있었다).
+    expect(
+      screen.getByText(/계산 결과 7건에 재계산 필요 표시를 남겼습니다/),
+    ).toBeTruthy()
     const link = screen.getByRole('link', { name: '반영한 항차 보기' })
     expect(link.getAttribute('href')).toBe(`/vessels/${VESSEL}/voyages/v-planned`)
 
@@ -694,8 +698,8 @@ describe('계획에 반영 (#580)', () => {
       target_voyage_id: 'v-planned',
       adopt_mode: 'UPDATE_EXISTING_PLAN',
     })
-    // 서버가 보낸 재계산 건수(7)를 화면에 내지 않는다 — `#817` 전에는 참값이 아니다.
-    expect(screen.queryByText(/7건/)).toBeNull()
+    // 서버가 보낸 재계산 건수(7)를 화면이 **그대로 낸다** — `#817`이 닫혀 참값이 됐다 (`#1077`).
+    expect(screen.getByText(/7건/)).toBeTruthy()
   })
 
   it('거부되면 서버 사유를 그대로 보인다', async () => {

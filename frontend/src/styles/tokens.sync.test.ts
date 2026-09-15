@@ -876,3 +876,27 @@ describe('오버레이 면은 그림자와 테두리를 함께 쓴다 — §5 (2
     expect(missing).toEqual([])
   })
 })
+
+describe('등급 색을 비-등급 맥락에서 쓰지 않는다 — §0.2 제약 2 (#748)', () => {
+  /**
+   * `§0.2` 제약 2: 등급 색(`--cii-*`)은 항상 A~E 문자 또는 등급 축 라벨과 함께 나타난다.
+   *
+   * `.warn` 선대 경고 배너는 "시정조치계획 대상 위험 선박 N척" 문구를 쓰며
+   * 등급 문자가 없다. 이전에 `--cii-e-*` 토큰을 써서 제약을 위반했으므로
+   * 시맨틱 Danger 토큰으로 교체하고 이 가드로 재진입을 막는다.
+   */
+  const fleetCss = readFileSync(
+    join(fileURLToPath(new URL('.', import.meta.url)), '../features/fleet/FleetDashboard.css'),
+    'utf-8',
+  )
+
+  it('.warn 배너에 --cii-* 등급 토큰이 없다', () => {
+    // .warn { … } 블록만 추출한다 (중괄호 중첩 없음).
+    const warnBlock = fleetCss.match(/\.warn\s*\{([^}]+)\}/)
+    expect(warnBlock, '.warn 규칙을 찾지 못했다 — 선택자가 바뀐 경우 이 테스트도 갱신하세요').not.toBeNull()
+    expect(
+      warnBlock![1],
+      '.warn 배너에 --cii-* 토큰이 있습니다. §0.2 제약 2 위반 — 시맨틱 Danger 토큰(--color-danger 등)으로 바꾸세요',
+    ).not.toMatch(/--cii-/)
+  })
+})

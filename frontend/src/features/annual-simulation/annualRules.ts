@@ -2,6 +2,7 @@ import { addFixed, compareFixed } from '../../display/decimal'
 import { formatPercent } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { MonteCarloBlock, SensitivityAnalysis, SensitivityEntry } from './types'
+import { ANNUAL_COPY } from './copy'
 
 /**
  * 기능③ 화면의 표시 규칙 (#442).
@@ -148,13 +149,21 @@ export function toSignedPercent(change: string): string {
  */
 export function stackSegments(
   probabilities: Record<Rating, string>,
-): Array<{ rating: Rating; percent: number; label: string; inline: boolean }> {
+): Array<{ rating: Rating; percent: number; label: string; inline: boolean; empty: boolean }> {
   return RATING_ORDER.map((rating) => {
     const value = probabilities[rating] ?? '0'
     const raw = Number(value)
+    const shownPercent = Number(formatPercent(value))
     return {
       // 그리는 폭은 float 그대로 쓴다 — 반올림하면 칸들의 합이 100%에서 더 벌어진다.
       percent: raw * 100,
+      /*
+       * **바에 그리지 않는 구간** (#1096 ⑵). 화면에 「0.0%」로 쓰이는 구간은 폭이 없어
+       * 보이지 않는데, 종전에는 툴팁·`tabIndex`가 붙어 **보이지 않는 요소에 초점이
+       * 두 번** 갔다(A 0% · E 0%). 범례에는 그대로 남는다 — 다섯 등급의 순서와 값은
+       * 거기서 읽는다. 판정 근거는 `inline`과 같이 **화면에 쓰인 숫자**다.
+       */
+      empty: shownPercent === 0,
       /*
        * **판정을 여기서 끝낸다** (#846).
        *
@@ -167,11 +176,36 @@ export function stackSegments(
        * `8.0%`다. 종전 판정은 **「8.0%」라고 쓰인 칸을 8% 미만으로 취급**해 문자를
        * 툴팁으로 밀었다. 사용자가 읽는 근거는 그려진 폭이 아니라 그 칸에 적힌 숫자다.
        */
-      inline: showsInlineLabel(Number(formatPercent(value))),
+      inline: showsInlineLabel(shownPercent),
       rating,
       label: toPercent(value),
     }
   })
+}
+
+/*
+ * ── 반복 횟수 검증 (#1096 ⑴) ─────────────────────────────────────────────
+ *
+ * 서버 규칙은 `Field(ge=1_000)`(`api/schemas/annual_simulation.py`) — **정수 1,000
+ * 이상**이면 받고, 10,000 초과는 상한으로 잘라 실행하며 `SIMULATION_RUNS_CLAMPED`를
+ * 싣는다(`API_SPEC §6.1`). 화면은 하한·정수를 서버와 같게 막고, **상한도 막는다** —
+ * 잘려서 실행되는 값을 받아 주면 사용자가 넣은 횟수와 돌아간 횟수가 다르고, 그 차이는
+ * 경고 한 줄로만 드러난다. 힌트가 이미 「1,000~10,000회」라 적고 있다.
+ *
+ * 종전의 `step={1000}`은 이 규칙 어디에도 없는 제약이었다 — 2,500이 브라우저 기본
+ * 툴팁으로만 막혔다.
+ */
+export const RUNS_MIN = 1_000
+export const RUNS_MAX = 10_000
+
+/** 반복 횟수 입력의 위반. 없으면 `null`. 문구는 `copy.ts`가 갖는다. */
+export function validateRuns(text: string): string | null {
+  const trimmed = text.trim()
+  if (!/^-?\d+$/.test(trimmed)) return ANNUAL_COPY.runsNotInteger
+  const value = Number(trimmed)
+  if (value < RUNS_MIN) return ANNUAL_COPY.runsBelowMin
+  if (value > RUNS_MAX) return ANNUAL_COPY.runsAboveMax
+  return null
 }
 
 /**

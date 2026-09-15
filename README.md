@@ -237,8 +237,13 @@ python3 scripts/purge_expired.py
 
 ```bash
 # pmtiles CLI가 필요하다 — https://github.com/protomaps/go-pmtiles/releases
-scripts/fetch_basemap.sh ./basemap      # 약 95 MB · 5~10분
+scripts/fetch_basemap.sh                # 약 92 MB · 5~10분
 ```
+
+기본 출력은 `frontend/public/basemap`이고, **개발과 배포가 같은 자리를 쓴다** — Vite가
+`public/`을 오리진 루트로 서빙하고, `npm run build`가 그대로 `dist/`로 옮기며, 프론트
+이미지가 그 `dist`를 nginx 문서 루트로 COPY 한다. 받아 둔 환경에서만 이미지가 커진다.
+`.gitignore`가 이 경로를 막아 두었다.
 
 | 층 | 용량(2026-09-12 실측) |
 |---|---|
@@ -248,7 +253,11 @@ scripts/fetch_basemap.sh ./basemap      # 약 95 MB · 5~10분
 
 **받지 않아도 된다.** 자산이 없으면 화면이 **개략도로 떨어지고**, 지도 라이브러리(gzip 약 294 KB)도 내려받지 않는다. 저장소에 넣지 않는 이유는 이미지가 이미 699 MB이기 때문이다.
 
-> 정적 서버가 `/basemap/`을 서빙하고 **HTTP Range 요청을 지원**해야 한다(PMTiles가 파일 일부만 읽는다). nginx는 기본 지원한다.
+> 정적 서버가 `/basemap/`을 서빙하고 **HTTP Range 요청을 지원**해야 한다(PMTiles가 파일 일부만 읽는다). Vite와 nginx 모두 지원한다.
+
+**자산이 있는데 지도가 회색 사각형이면** `#1146`을 먼저 본다 — 개발 서버에서 maplibre의
+Web Worker가 404이면 타일을 한 장도 요청하지 못한다. `vite.config.ts`의
+`optimizeDeps.exclude`에 `maplibre-gl`이 들어 있어야 한다.
 
 ### ⚠️ Vite 환경변수는 빌드 시점에 굳는다
 
