@@ -1,4 +1,4 @@
-import { API_BASE_URL_ENV_KEY, API_KEY_ENV_KEY } from '../voyage-cii/providerSelection'
+import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 import { createApiAnnualSimulationProvider } from './apiProvider'
 import type { AnnualSimulationProvider } from './types'
 
@@ -16,6 +16,5 @@ export function createAnnualSimulationProvider(
 ): AnnualSimulationProvider {
   return createApiAnnualSimulationProvider({
     baseUrl: env[API_BASE_URL_ENV_KEY] as string | undefined,
-    apiKey: env[API_KEY_ENV_KEY] as string | undefined,
   })
 }
