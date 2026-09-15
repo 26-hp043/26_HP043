@@ -66,7 +66,6 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy_cubrid.dml import insert as cubrid_insert
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
@@ -321,9 +320,9 @@ DEMO_USER_VERIFIED_AT = _utc(2026, 8, 23)
 
 # 018이 만든 3척(상태·위치 갱신 대상). id는 018 계약값.
 VESSEL_IDS_018 = (
-    "00000000-0000-4000-8000-000000000001",
-    "00000000-0000-4000-8000-000000000002",
-    "00000000-0000-4000-8000-000000000003",
+    uuid.UUID("00000000-0000-4000-8000-000000000001"),
+    uuid.UUID("00000000-0000-4000-8000-000000000002"),
+    uuid.UUID("00000000-0000-4000-8000-000000000003"),
 )
 
 # --- 데이터 --------------------------------------------------------------------
@@ -393,7 +392,7 @@ SEED_VESSEL_GT_AXIS: list[dict[str, object]] = [
 
 #: 018의 3척에 부여하는 운항 상태·위치. 대시보드가 4가지 상태를 다르게 보이게
 #: 하는 배분이다 — 항해 중(대한해협)·운하 통과(수에즈)·묘박(부산).
-SEED_STATE_UPDATES: list[tuple[str, str, str, str, str, str]] = [
+SEED_STATE_UPDATES: list[tuple] = [
     # (vessel_id, underway_state, detail_status, lat, lon, position_updated_at)
     (BULK, "UNDER_WAY", "SAILING", "34.512345", "128.501234", _rel(-10, 6).isoformat()),
     (
@@ -762,95 +761,95 @@ SEED_VOYAGES_WATCH: list[dict[str, object]] = [
 SEED_VOYAGE_FUELS: list[dict[str, object]] = [
     {
         # `#889` 2025 이력.
-        "id": "00000000-0000-4000-8000-000000000414",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000414"),
         "voyage_id": V5_2025,
         "planned_fuel_ton": Decimal("245.00"),
         "actual_fuel_ton": Decimal("240.00"),
     },
     {
         # `#889` 진행 중 항차 — 실적은 아직 없다.
-        "id": "00000000-0000-4000-8000-000000000415",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000415"),
         "voyage_id": V5_IN_PROGRESS,
         "planned_fuel_ton": Decimal("34.00"),
         "actual_fuel_ton": None,
     },
     {
         # `#889` 초기 구간 — 계획대로 나온 항차다.
-        "id": "00000000-0000-4000-8000-000000000412",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000412"),
         "voyage_id": V5_EARLY,
         "planned_fuel_ton": Decimal("263.00"),
         "actual_fuel_ton": Decimal("263.00"),
     },
     {
         # `#889` 최근 구간 — 계획 82t 대비 **95t 초과**. 이 초과가 곧 「악화 중」이다.
-        "id": "00000000-0000-4000-8000-000000000413",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000413"),
         "voyage_id": V5_RECENT,
         "planned_fuel_ton": Decimal("82.00"),
         "actual_fuel_ton": Decimal("95.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000401",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000401"),
         "voyage_id": V1_2025,
         "planned_fuel_ton": Decimal("420.00"),
         "actual_fuel_ton": Decimal("400.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000402",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000402"),
         "voyage_id": V1_2026,
         "planned_fuel_ton": Decimal("530.00"),
         "actual_fuel_ton": Decimal("620.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000403",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000403"),
         "voyage_id": V2_2025,
         "planned_fuel_ton": Decimal("580.00"),
         "actual_fuel_ton": Decimal("585.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000404",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000404"),
         "voyage_id": V2_2026,
         "planned_fuel_ton": Decimal("590.00"),
         "actual_fuel_ton": Decimal("600.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000405",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000405"),
         "voyage_id": V2_IN_PROGRESS,
         "planned_fuel_ton": Decimal("590.00"),
         "actual_fuel_ton": None,
     },
     {
-        "id": "00000000-0000-4000-8000-000000000406",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000406"),
         "voyage_id": V3_2025,
         "planned_fuel_ton": Decimal("36.00"),
         "actual_fuel_ton": Decimal("34.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000407",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000407"),
         "voyage_id": V3_2026,
         "planned_fuel_ton": Decimal("45.00"),
         "actual_fuel_ton": Decimal("46.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000408",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000408"),
         "voyage_id": V4_2025,
         "planned_fuel_ton": Decimal("53.00"),
         "actual_fuel_ton": Decimal("55.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000409",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000409"),
         "voyage_id": V4_2026,
         "planned_fuel_ton": Decimal("62.00"),
         "actual_fuel_ton": Decimal("70.00"),
     },
     {
         # 진행 중 항차 — 계획값만. 실적은 항해가 끝나야 들어온다.
-        "id": "00000000-0000-4000-8000-000000000410",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000410"),
         "voyage_id": V1_IN_PROGRESS,
         "planned_fuel_ton": Decimal("331.00"),
         "actual_fuel_ton": None,
     },
     {
-        "id": "00000000-0000-4000-8000-000000000411",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000411"),
         "voyage_id": V1_PLANNED,
         "planned_fuel_ton": Decimal("331.00"),
         "actual_fuel_ton": None,
@@ -926,42 +925,42 @@ SEED_PERIODS: list[dict[str, object]] = [
 #: not under way 연료. consumer_type 4값 전부 포함(메인엔진은 운하 저속 통항만).
 SEED_PERIOD_FUELS: list[dict[str, object]] = [
     {
-        "id": "00000000-0000-4000-8000-000000000301",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000301"),
         "period_id": P_CANAL,
         "consumer_type": "MAIN_ENGINE",
         "fuel_type": "HFO",
         "fuel_ton": Decimal("1.80"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000302",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000302"),
         "period_id": P_CANAL,
         "consumer_type": "AUX_ENGINE",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("3.20"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000303",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000303"),
         "period_id": P_ANCHOR,
         "consumer_type": "AUX_ENGINE",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("4.50"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000304",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000304"),
         "period_id": P_DRYDOCK,
         "consumer_type": "AUX_ENGINE",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("28.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000305",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000305"),
         "period_id": P_DRYDOCK,
         "consumer_type": "OIL_FIRED_BOILER",
         "fuel_type": "HFO",
         "fuel_ton": Decimal("6.50"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000306",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000306"),
         "period_id": P_DRYDOCK,
         "consumer_type": "OTHER",
         "fuel_type": "DIESEL_GAS_OIL",
@@ -971,14 +970,14 @@ SEED_PERIOD_FUELS: list[dict[str, object]] = [
     # 계산되지 않았다.** 여객선은 접안 중에도 승객 설비 때문에 보조기관과 보일러가
     # 계속 돈다 — 화물선의 묘박(`P_ANCHOR`, 보조기관만)과 구성이 다른 이유다.
     {
-        "id": "00000000-0000-4000-8000-000000000307",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000307"),
         "period_id": P_IN_PORT,
         "consumer_type": "AUX_ENGINE",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("5.60"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000308",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000308"),
         "period_id": P_IN_PORT,
         "consumer_type": "OIL_FIRED_BOILER",
         "fuel_type": "DIESEL_GAS_OIL",
@@ -1023,6 +1022,10 @@ voyage_tbl = sa.table(
     sa.column("planned_arrival_at", sa.DateTime(timezone=True)),
     sa.column("actual_departure_at", sa.DateTime(timezone=True)),
     sa.column("actual_arrival_at", sa.DateTime(timezone=True)),
+    sa.column("departure_lat", sa.Numeric),
+    sa.column("departure_lon", sa.Numeric),
+    sa.column("arrival_lat", sa.Numeric),
+    sa.column("arrival_lon", sa.Numeric),
 )
 voyage_fuel_tbl = sa.table(
     "voyage_fuel_use",
@@ -1087,7 +1090,11 @@ async def _cf_by_fuel(conn: AsyncConnection) -> dict[str, Decimal]:
     CF 스냅샷을 얼리는 설계 자체는 옳다 — `PRD §8.4`가 요구한다. **문제는 얼린 값이
     처음부터 틀렸다는 것이었다.**
     """
-    rows = (await conn.execute(sa.text("SELECT code, cf FROM fuel_type"))).mappings().all()
+    from cii_platform.db.models.fuel_type import FuelType
+
+    rows = (
+        await conn.execute(sa.select(FuelType.__table__.c.code, FuelType.__table__.c.cf))
+    ).mappings().all()
     table = {row["code"]: Decimal(str(row["cf"])) for row in rows}
     if not table:  # pragma: no cover - 마이그레이션이 끝난 DB에서는 비지 않는다
         raise RuntimeError("fuel_type 표가 비어 있습니다 — 마이그레이션을 먼저 적용하세요")
@@ -1125,10 +1132,15 @@ async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dic
     """
     if not rows:
         return 0
-    result = await conn.execute(
-        cubrid_insert(table).on_duplicate_key_update(id=table.c.id), rows
-    )
-    return result.rowcount
+    # Row-by-row INSERT to avoid #371 (multi-row ODKU bind mismatch).
+    inserted = 0
+    for row in rows:
+        try:
+            await conn.execute(sa.insert(table).values(row))
+            inserted += 1
+        except sa.exc.IntegrityError:
+            pass  # 이미 존재 — 무시
+    return inserted
 
 
 #: 시드가 값을 갖는 선박 제원 컬럼. :func:`missing_seeded_specs`가 이 목록만 본다.
@@ -1266,9 +1278,13 @@ async def demo_user_missing(conn) -> bool:
     :func:`missing_seeded_specs`가 선박 제원에 대해 하는 것과 같은 자리의 검사다
     (`#587`).
     """
+    from cii_platform.db.models.app_user import AppUser
+
     row = await conn.execute(
-        sa.text("SELECT 1 FROM app_user WHERE email = :email AND is_deleted = false"),
-        {"email": DEMO_USER_EMAIL},
+        sa.select(sa.literal(1)).select_from(AppUser.__table__).where(
+            AppUser.__table__.c.email == DEMO_USER_EMAIL,
+            AppUser.__table__.c.is_deleted == 0,
+        )
     )
     return row.first() is None
 
@@ -1288,25 +1304,19 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
     # 운항 상태·위치는 018의 3척에 **덧씌우는** 값이라 INSERT가 아니라 UPDATE다.
     # 이미 상태가 있는 선박은 건드리지 않는다 — 사용자가 위치를 갱신했을 수 있다.
     #
+    from cii_platform.db.models.vessel import Vessel
+
     for vid, underway, detail, lat, lon, updated in SEED_STATE_UPDATES:
         await conn.execute(
-            sa.text(
-                "UPDATE vessel SET underway_state = :st, detail_status = :ds, "
-                "current_lat = :lat, current_lon = :lon, "
-                "position_updated_at = :ts "
-                "WHERE id = :vid AND underway_state IS NULL"
-            ),
-            {
-                "st": underway,
-                "ds": detail,
-                "lat": lat,
-                "lon": lon,
-                # 문자열을 그대로 바인딩하면 asyncpg가 거부한다 — 서버 타입이
-                # timestamptz인데 파라미터가 str이면 캐스팅하지 않는다. 이 데이터는
-                # 027에서 raw SQL 리터럴로 쓰였던 것이라 문자열로 남아 있다.
-                "ts": datetime.fromisoformat(updated),
-                "vid": vid,
-            },
+            sa.update(Vessel.__table__)
+            .where(Vessel.__table__.c.id == vid, Vessel.__table__.c.underway_state == None)  # noqa: E711
+            .values(
+                underway_state=underway,
+                detail_status=detail,
+                current_lat=lat,
+                current_lon=lon,
+                position_updated_at=datetime.fromisoformat(updated),
+            )
         )
 
     counts["voyage"] = await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES)
@@ -1381,39 +1391,34 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
     return counts
 
 
-async def _delete_where(conn: AsyncConnection, table: str, column: str, ids: list) -> int:
-    """지운 행 수를 돌려준다. CUBRID 호환 — row-by-row DELETE (#1058)."""
+async def _delete_where(conn: AsyncConnection, table_name: str, column: str, ids: list) -> int:
+    """지운 행 수를 돌려준다. SQLAlchemy Core 사용 (#1141)."""
     if not ids:
         return 0
+    tbl = sa.table(table_name, sa.column(column))
     deleted = 0
     for uid in ids:
-        result = await conn.execute(
-            sa.text(f'DELETE FROM {table} WHERE "{column}" = :uid'),  # noqa: S608
-            {"uid": str(uid).replace("-", "")},
-        )
+        result = await conn.execute(sa.delete(tbl).where(tbl.c[column] == uid))
         deleted += result.rowcount
     return deleted
 
 
 async def _delete_unreferenced(
     conn: AsyncConnection,
-    table: str,
+    table_name: str,
     ids: list,
     calc_run_column: str,
 ) -> int:
-    """``calculation_run``이 참조하지 않는 행만 지운다. CUBRID 호환 (#1058)."""
+    """calculation_run이 참조하지 않는 행만 지운다. SQLAlchemy Core (#1141)."""
     if not ids:
         return 0
+    tbl = sa.table(table_name, sa.column("id"))
+    calc = sa.table("calculation_run", sa.column(calc_run_column))
+    subq = sa.select(calc.c[calc_run_column]).where(calc.c[calc_run_column] != None)  # noqa: E711
     deleted = 0
     for uid in ids:
-        hex_id = str(uid).replace("-", "")
         result = await conn.execute(
-            sa.text(  # noqa: S608
-                f"DELETE FROM {table} WHERE id = :uid "
-                f'AND id NOT IN (SELECT "{calc_run_column}" FROM calculation_run '
-                f'WHERE "{calc_run_column}" IS NOT NULL)'
-            ),
-            {"uid": hex_id},
+            sa.delete(tbl).where(tbl.c.id == uid, tbl.c.id.not_in(subq))
         )
         deleted += result.rowcount
     return deleted

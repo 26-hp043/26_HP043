@@ -9,7 +9,7 @@ services:
     ports: ["33100:33000"]
     volumes: [cubrid-data:/var/lib/cubrid]
     healthcheck:
-      test: ["CMD", "csql", "-u", "dba", "cii", "-c", "SELECT 1 FROM db_root"]
+      test: ["CMD", "sh", "-c", "csql -u dba ${CUBRID_DB:-cii} -c 'SELECT 1 FROM db_root'"]
       interval: 10s
       timeout: 5s
       retries: 30

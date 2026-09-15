@@ -51,6 +51,7 @@ from sqlalchemy_cubrid.dml import replace as cubrid_replace
 
 from cii_platform.calc.imo_parser import parse_imo_scientific
 from cii_platform.db.models import CiiRatingBoundary, CiiReferenceLine, RegulationYear
+from cii_platform.db.models.fuel_type import FuelType
 
 # 출처(source_ref). 권위 소스는 AGENTS.md §2.2 표를 따른다.
 SOURCE_Z_FACTOR = "MEPC.400(83)"
@@ -432,14 +433,49 @@ async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
     return len(values)
 
 
-async def seed_all(conn: AsyncConnection) -> dict[str, int]:
-    """규제 파라미터 3종을 upsert하고 테이블별 적재 행 수를 돌려준다.
+# IMO 2018 Guidelines — PRD §3.4 연료 종류별 CO₂ 배출 계수 (tCO₂/tFuel).
+_CF_ROWS = (
+    ("MDO", "Marine Diesel Oil", "3.206000"),
+    ("MGO", "Marine Gas Oil", "3.206000"),
+    ("LFO", "Light Fuel Oil", "3.151000"),
+    ("HFO", "Heavy Fuel Oil", "3.114000"),
+    ("LPG_PROPANE", "LPG Propane", "3.000000"),
+    ("LPG_BUTANE", "LPG Butane", "3.030000"),
+    ("LNG", "Liquefied Natural Gas", "2.750000"),
+    ("METHANOL", "Methanol", "1.375000"),
+    ("ETHANOL", "Ethanol", "1.913000"),
+)
+SOURCE_FUEL_TYPE = "IMO 2018 Guidelines"
 
-    재실행해도 같은 결과가 되도록 모두 ``ON CONFLICT DO UPDATE``를 쓴다(이슈 #33).
+
+async def _upsert_fuel_types(conn: AsyncConnection) -> int:
+    """fuel_type 8행을 upsert한다."""
+    import uuid as _uuid
+
+    count = 0
+    for code, display_name, cf in _CF_ROWS:
+        row = {
+            "id": _uuid.uuid4(),
+            "code": code,
+            "display_name": display_name,
+            "cf": Decimal(cf),
+            "source_ref": SOURCE_FUEL_TYPE,
+            "version": PARAMETER_SET_VERSION,
+        }
+        await conn.execute(cubrid_replace(FuelType.__table__).values(row))
+        count += 1
+    return count
+
+
+async def seed_all(conn: AsyncConnection) -> dict[str, int]:
+    """규제 파라미터 + 연료 종류를 upsert하고 테이블별 적재 행 수를 돌려준다.
+
+    재실행해도 같은 결과가 되도록 모두 upsert를 쓴다.
     호출자가 트랜잭션을 관리한다 — 이 함수는 commit하지 않는다.
     """
     validate_reference_lines()
     return {
+        "fuel_type": await _upsert_fuel_types(conn),
         "regulation_year": await _upsert_z_factors(conn),
         "cii_reference_line": await _upsert_reference_lines(conn),
         "cii_rating_boundary": await _upsert_rating_boundaries(conn),
