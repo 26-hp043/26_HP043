@@ -10,7 +10,7 @@
 #   docker compose -f docker-compose.prod.db.yml up -d
 #
 # 크로스 VM 접근은 4층 방어로 제한한다 (our-tax #86 패턴):
-#   1. OCI Security List   -- app-01 사설 IP /32만 :33000 허용
+#   1. OCI Security List   -- app-01 사설 IP /32만 :33100 허용
 #   2. Host ufw            -- 동일 /32 allow, 나머지 거부
 #   3. CUBRID broker ACL   -- broker_access.conf
 #   4. CUBRID server ACL   -- server_access.conf
@@ -36,7 +36,8 @@ services:
       # ALTER USER dba PASSWORD '...'로 설정해야 한다 (deploy 워크플로가 자동 처리).
     ports:
       # 모든 인터페이스에 바인딩 -- OCI Security List + ufw가 인그레스를 제한해야 한다.
-      - "33000:33000"
+      # ourtax-cubrid가 33000을 사용하므로 호스트 33100으로 매핑한다.
+      - "33100:33000"
     volumes:
       - cubrid-data:/var/lib/cubrid
       # CUBRID 설정 -- 개별 파일을 read-only bind-mount한다.

@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"# db-01: ACL 치환 + CUBRID 기동\\nssh -i ~/.ssh/oci_ourtax_vm -o ConnectTimeout=10 ubuntu@132.226.170.195 'bash -s' <<'ENDSSH'\\nset -euo pipefail\\ncd ~/bluelog\\n\\n# ACL 템플릿 치환: app-01 사설 IP\\nse...",
+  "error": "Exit code 1\n=== broker_access.conf ===\n# broker_access.conf -- CUBRID 브로커 레벨 ACL (4층 방어 중 3층).\n#\n# cubrid_broker.conf의 BROKER1 섹션에서 로드:\n#   ACCESS_CONTROL      =ON\n#   ACCESS_CONTROL_FILE =/home/cubrid/CUBRID/conf/broker_access.conf\n#\n# 형식 (CUBRID Administrator's Guide \"Broker ACL\"):\n#   [%<BROKER_NAME>]\n#   <dbname>:<dbuser>:<ip-or-prefix-list>\n#\n# 재로드 (재시작 불필요):\n#   broker_changer BROKER1 access_control reload\n#\n# ----- BlueLog 프로덕션 규칙 -----\n# 10.0.1.216를 app-01 사설 IP로 바꿔야 한다.\n# deploy 워크플로가 s...",
+  "timestamp": "2026-09-15T10:09:51.863Z",
+  "retry_count": 1
+}

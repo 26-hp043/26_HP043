@@ -9,7 +9,7 @@ Cloudflare Pages (프론트엔드 SPA)
         v
   app-01 (131.186.22.10)              db-01 (132.226.170.195)
   +---------------------------+       +---------------------------+
-  | cii-backend :8001->:8000  |       | cii-cubrid :33000         |
+  | cii-backend :8001->:8000  |       | cii-cubrid :33100->:33000         |
   | (GHCR image)              | ----> | (cubrid/cubrid:11.4)      |
   |                           | VCN   |                           |
   | ourtax-backend :8000 (기존)|      | ourtax-cubrid :33000 (기존)|
@@ -116,7 +116,7 @@ curl http://localhost:8001/api/v1/health
 
 | 층 | 위치 | 설정 |
 |----|------|------|
-| 1 | OCI Security List | app-01 사설 IP만 :33000 허용 |
+| 1 | OCI Security List | app-01 사설 IP만 :33100 허용 |
 | 2 | db-01 ufw | `ops/host/ufw-db-01.sh` |
 | 3 | CUBRID broker ACL | `ops/cubrid/conf/broker_access.conf` |
 | 4 | CUBRID server ACL | `ops/cubrid/conf/server_access.conf` |

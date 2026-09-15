@@ -286,7 +286,7 @@ jobs:
           cat > .env <<EOF
           CUBRID_HOST=${CUBRID_HOST}
           CUBRID_PASSWORD=${CUBRID_PASSWORD}
-          DATABASE_URL=cubrid+aiopycubrid://dba:${CUBRID_PASSWORD_ENC}@${CUBRID_HOST}:33000/cii
+          DATABASE_URL=cubrid+aiopycubrid://dba:${CUBRID_PASSWORD_ENC}@${CUBRID_HOST}:33100/cii
           CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS}
           APP_PUBLIC_URL=${APP_PUBLIC_URL}
           SIGNUP_ALLOWED_DOMAINS=${SIGNUP_ALLOWED_DOMAINS}

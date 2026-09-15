@@ -348,10 +348,17 @@ def _install_cubrid_param_converter(engine):
                     converted.append(p)
             parameters = tuple(converted)
 
-        # 2. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
-        #    ? placeholder를 추가하고 parameters에 id를 prepend한다.
+        # 2. CUBRID: PostgreSQL 구문 변환 (auto-id 전에 실행해야 regex가 깨지지 않음)
+        statement = statement.replace("interval '1 hour'", "1/24.0")
+        statement = re.sub(r'CAST\(\? AS \w+\)', '?', statement)
+        statement = re.sub(r'::(uuid|timestamptz|timestamp|text|jsonb)', '', statement)
+        statement = re.sub(r'\bIS 0\b', '= 0', statement)
+        statement = re.sub(r'\bIS 1\b', '= 1', statement)
+
+        # 3. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
         if statement.lstrip().upper().startswith("INSERT INTO") and "(id," not in statement and "(id)" not in statement:
-            m = re.match(r"(INSERT INTO \S+ )\((.+?)\)( VALUES )\((.+?)\)", statement, re.DOTALL)
+            # VALUES 안의 괄호까지 포함하여 마지막 )를 찾기
+            m = re.match(r"(INSERT INTO \S+ )\(([^)]+)\)( VALUES )\((.+)\)\s*$", statement)
             if m:
                 prefix, cols, mid, vals = m.groups()
                 new_id = uuid.uuid4().hex
@@ -360,17 +367,6 @@ def _install_cubrid_param_converter(engine):
                     parameters = (new_id, *parameters)
                 elif isinstance(parameters, list):
                     parameters = [new_id] + parameters
-
-        # 3. CUBRID: IS 0 → = 0, IS 1 → = 1 (Boolean SMALLINT 호환)
-        statement = re.sub(r'\bIS 0\b', '= 0', statement)
-        statement = re.sub(r'\bIS 1\b', '= 1', statement)
-
-        # 4. CUBRID: PostgreSQL 구문 변환
-        statement = statement.replace("interval '1 hour'", "1/24.0")
-        # CAST(? AS type) → ? (CUBRID에 uuid/jsonb 등 타입 없음)
-        statement = re.sub(r'CAST\(\? AS \w+\)', '?', statement)
-        # PostgreSQL cast ::type 제거
-        statement = re.sub(r'::(uuid|timestamptz|timestamp|text|jsonb)', '', statement)
 
         # 5. CUBRID: RETURNING 미지원 — INSERT RETURNING id를 INSERT로 변환
         #    id는 auto-id 삽입에서 이미 생성됨

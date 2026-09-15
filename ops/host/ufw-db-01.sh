@@ -24,7 +24,7 @@ echo "==> BlueLog db-01 ufw 규칙 추가 (app-01=${APP_01_PRIVATE_IP})"
 ufw allow 22/tcp comment 'SSH'
 
 # CUBRID: app-01 사설 IP만 허용.
-ufw allow from "${APP_01_PRIVATE_IP}" to any port 33000 proto tcp \
+ufw allow from "${APP_01_PRIVATE_IP}" to any port 33100 proto tcp \
   comment "BlueLog CUBRID from app-01"
 
 # ufw가 비활성이면 활성화한다.
