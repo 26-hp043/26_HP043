@@ -26,9 +26,35 @@ from cii_platform.db.url import normalize_to_async  # noqa: E402
 
 # config/환경변수의 원본 URL. run_alembic은 이 raw 값을 그대로 넘긴다(아래 참조).
 _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
-# async 엔진(conn fixture)용: asyncpg 드라이버로 정규화한 URL.
-# 4곳(alembic/seed/pytest/앱) 공유 정책 — db.url.normalize_to_async (#234).
 TEST_DATABASE_URL = normalize_to_async(_RAW_DATABASE_URL)
+
+_IS_CUBRID = "cubrid" in TEST_DATABASE_URL
+
+# CUBRID 환경에서 skip할 테스트 파일들 (#1058):
+# - migration guard: 42개 개별 migration 파일 기대 → 1개 initial로 합침
+# - db_check_cases: CHECK constraint 강제를 기대 → CUBRID는 CHECK 미강제
+# - *_migrations: 개별 migration upgrade/downgrade 테스트
+_CUBRID_SKIP_FILES = {
+    "test_migration_guard.py",
+    "test_db_check_cases.py",
+    "test_not_underway_migrations.py",
+    "test_vessel_position_state_migrations.py",
+    "test_weather_simulation_migrations.py",
+    "test_calculation_migrations.py",
+    "test_parameter_migrations.py",
+    "test_voyage_migrations.py",
+    "test_db_hardening_023.py",
+}
+
+
+def pytest_collection_modifyitems(config, items):
+    """CUBRID 환경에서 migration/CHECK 의존 테스트를 skip한다."""
+    if not _IS_CUBRID:
+        return
+    skip_cubrid = pytest.mark.skip(reason="CUBRID: migration 구조/CHECK 미강제 (#1058)")
+    for item in items:
+        if item.path and item.path.name in _CUBRID_SKIP_FILES:
+            item.add_marker(skip_cubrid)
 
 
 def require_disposable_target() -> None:
@@ -323,12 +349,17 @@ def _install_cubrid_param_converter(engine):
             parameters = tuple(converted)
 
         # 2. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
+        #    ? placeholder를 추가하고 parameters에 id를 prepend한다.
         if statement.lstrip().upper().startswith("INSERT INTO") and "(id," not in statement and "(id)" not in statement:
             m = re.match(r"(INSERT INTO \S+ )\((.+?)\)( VALUES )\((.+?)\)", statement, re.DOTALL)
             if m:
                 prefix, cols, mid, vals = m.groups()
                 new_id = uuid.uuid4().hex
-                statement = f"{prefix}(id, {cols}){mid}('{new_id}', {vals})"
+                statement = f"{prefix}(id, {cols}){mid}(?, {vals})"
+                if isinstance(parameters, tuple):
+                    parameters = (new_id, *parameters)
+                elif isinstance(parameters, list):
+                    parameters = [new_id] + parameters
 
         # 3. CUBRID: IS 0 → = 0, IS 1 → = 1 (Boolean SMALLINT 호환)
         statement = re.sub(r'\bIS 0\b', '= 0', statement)
@@ -412,6 +443,7 @@ def app_fresh_engine(monkeypatch: pytest.MonkeyPatch):
     from cii_platform.db import session as db_session_mod
 
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    _install_cubrid_param_converter(engine)
     patched_maker = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(db_session_mod, "get_engine", lambda: engine)
     monkeypatch.setattr(db_session_mod, "get_sessionmaker", lambda: patched_maker)
