@@ -29,7 +29,9 @@ _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
 TEST_DATABASE_URL = normalize_to_async(_RAW_DATABASE_URL)
 
 _IS_CUBRID = "cubrid" in TEST_DATABASE_URL
-_cubrid_engine_kw: dict = {"implicit_returning": False} if _IS_CUBRID else {}
+# sqlalchemy-cubrid dialect는 이미 insert_returning=False를 설정한다.
+# implicit_returning은 deprecated이므로 사용하지 않는다.
+_cubrid_engine_kw: dict = {}
 
 # CUBRID 환경에서 skip할 테스트 파일들 (#1058):
 # - migration guard: 42개 개별 migration 파일 기대 → 1개 initial로 합침
