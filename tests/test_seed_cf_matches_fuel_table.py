@@ -25,7 +25,7 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from cii_platform.db.demo_seed import (
@@ -34,6 +34,7 @@ from cii_platform.db.demo_seed import (
     clear_demo,
     seed_demo,
 )
+from cii_platform.db.types import UuidText
 
 #: 시드가 넣은 행만 고른다. ``source = 'SAMPLE'``은 항차 연료 쪽 표식이고,
 #: 정박 연료는 시드 상수의 ``id``로 좁힌다.
@@ -42,20 +43,32 @@ _MISMATCHED_PERIOD_FUEL = text(
     SELECT u.fuel_type, u.cf_used, ft.cf
       FROM not_underway_fuel_use u
       JOIN fuel_type ft ON ft.code = u.fuel_type
-     WHERE u.id = ANY(CAST(:ids AS uuid[]))
+     WHERE u.id IN :ids
        AND u.cf_used <> ft.cf
     """
-)
+    # `= ANY(CAST(:ids AS uuid[]))`는 PostgreSQL 배열이다 — CUBRID에는 `uuid[]`도
+    # `ANY(배열)`도 없고, pycubrid는 목록을 **한 파라미터로 보내지 못한다** (`#1058`).
+    #
+    # `expanding=True`가 실행 시점에 `IN (?, ?, …)`로 펼친다. `UuidText`를 붙여
+    # 원소마다 저장 형식(`CHAR(32)`)으로 바뀌게 한다 — 대시 형식을 그대로 보내면
+    # **오류 없이 0건**이 와서 「불일치 없음」으로 통과해 버린다.
+).bindparams(bindparam("ids", expanding=True, type_=UuidText()))
 
 _MISMATCHED_VOYAGE_FUEL = text(
     """
     SELECT u.fuel_type, u.cf_used, ft.cf
       FROM voyage_fuel_use u
       JOIN fuel_type ft ON ft.code = u.fuel_type
-     WHERE u.id = ANY(CAST(:ids AS uuid[]))
+     WHERE u.id IN :ids
        AND u.cf_used <> ft.cf
     """
-)
+    # `= ANY(CAST(:ids AS uuid[]))`는 PostgreSQL 배열이다 — CUBRID에는 `uuid[]`도
+    # `ANY(배열)`도 없고, pycubrid는 목록을 **한 파라미터로 보내지 못한다** (`#1058`).
+    #
+    # `expanding=True`가 실행 시점에 `IN (?, ?, …)`로 펼친다. `UuidText`를 붙여
+    # 원소마다 저장 형식(`CHAR(32)`)으로 바뀌게 한다 — 대시 형식을 그대로 보내면
+    # **오류 없이 0건**이 와서 「불일치 없음」으로 통과해 버린다.
+).bindparams(bindparam("ids", expanding=True, type_=UuidText()))
 
 
 def _ids(rows: list[dict[str, object]]) -> list[str]:
