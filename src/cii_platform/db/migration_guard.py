@@ -104,6 +104,12 @@ EPHEMERAL: dict[str, str] = {}
 #: `alembic upgrade head` 경로에 들어 있다」가 정본이다. `6c7496c4d122`가 그 경로를
 #: 되살렸으므로 분류도 제자리로 돌린다.
 REGENERABLE: dict[str, str] = {
+    # `031`이 채우던 값이다. CUBRID 전환이 001~042를 합치면서 `017`의 동작(NULL)만
+    # 옮기고 `031`을 빠뜨려 8행이 전부 비어 있었다 — `045`가 되살린다 (`#1058`).
+    "045": (
+        "fuel_type.content_hash 8행 — 다시 upgrade하면 같은 값이 돌아온다"
+        "(`DB_SCHEMA §8.3.1`의 산출 규약이 결정론적이다)"
+    ),
     "6c7496c4d122": (
         "규제 파라미터 50행(연료 CF 8 · Z-factor 8 · 기준선 20 · d-vector 14) — "
         "자기가 넣은 키만 지우고, 다시 upgrade하면 같은 값이 돌아온다"
