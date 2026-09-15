@@ -17,6 +17,14 @@ import sqlalchemy as sa
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 
+# CUBRID용 Alembic DDL 구현을 **등록**한다 (`#1058`). import 자체가 부작용으로
+# alembic의 방언→impl 표에 `cubrid`를 넣는다. 없으면 `MigrationContext.configure()`가
+# `KeyError: 'cubrid'`로 선다 — `alembic/env.py`가 같은 import를 하고 있어서
+# 마이그레이션 경로만 돌고 **이 검사만** 죽었다.
+#
+# `noqa: F401`은 「쓰지 않는 import」가 아니라 **등록이 목적인 import**라는 표시다.
+from sqlalchemy_cubrid.alembic_impl import CubridImpl  # noqa: F401
+
 from cii_platform.db.models import Base
 
 
