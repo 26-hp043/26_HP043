@@ -66,6 +66,7 @@ from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
+from cii_platform.db.types import JSONText
 from cii_platform.errors import (
     ModelVersionMismatchError,
     NotFoundError,
@@ -1393,6 +1394,14 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 "JOIN calculation_run c ON c.id = r.calculation_run_id "
                 "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
                 "WHERE r.id = :id"
+                # raw SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result processor가 돌지
+                # 않는다 (`#1058`). PostgreSQL 시절에는 `JSONB`라 psycopg가 알아서 파싱했지만
+                # CUBRID는 TEXT라 **문자열이 그대로 온다** — 그대로 쓰면 `.get`에서 선다.
+                # `.columns()`로 그 컬럼에만 타입을 붙인다(나머지 컬럼은 그대로 나온다).
+            ).columns(
+                result_json=JSONText(),
+                parameters_used=JSONText(),
+                model_version=JSONText(),
             ),
             {"id": simulation_id},
         )
@@ -1485,7 +1494,8 @@ async def list_snapshot_voyages(
                 "FROM annual_simulation_run r "
                 "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
                 "WHERE r.id = :id"
-            ),
+                # 타입을 붙이지 않으면 문자열이 와서 아래 순회가 글자 하나씩 돈다 (`#1058`).
+            ).columns(voyages_json=JSONText()),
             {"id": simulation_id},
         )
     ).one_or_none()
@@ -1740,7 +1750,9 @@ async def _load_snapshot_vessel(session: AsyncSession, snapshot_id) -> dict:
 
     payload = (
         await session.execute(
-            text("SELECT vessel_json FROM simulation_snapshot WHERE id = :id"),
+            text("SELECT vessel_json FROM simulation_snapshot WHERE id = :id").columns(
+                vessel_json=JSONText()  # 붙이지 않으면 문자열이 온다 (`#1058`)
+            ),
             {"id": snapshot_id},
         )
     ).scalar_one()
@@ -1758,7 +1770,9 @@ async def _load_snapshot_voyages(session: AsyncSession, snapshot_id) -> list[dic
 
     return (
         await session.execute(
-            text("SELECT voyages_json FROM simulation_snapshot WHERE id = :id"),
+            text("SELECT voyages_json FROM simulation_snapshot WHERE id = :id").columns(
+                voyages_json=JSONText()  # 붙이지 않으면 문자열이 온다 (`#1058`)
+            ),
             {"id": snapshot_id},
         )
     ).scalar_one() or []
