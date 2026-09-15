@@ -55,6 +55,7 @@ _CUBRID_SKIP_FILES = {
 # collect_ignore로 아예 수집하지 않는다.
 _CUBRID_COLLECT_IGNORE = {
     "test_suite_lock_db.py",  # asyncpg advisory lock
+    "test_weather_seed.py",   # 기존 마이그레이션 019_seed 파일 import (#1058)
 }
 
 collect_ignore: list[str] = []

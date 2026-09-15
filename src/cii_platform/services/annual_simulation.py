@@ -1389,7 +1389,7 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 "       c.result_json, c.parameters_used, c.input_hash, c.parameter_hash, "
                 "       c.model_version, c.duration_ms, "
                 "       s.created_at AS snapshot_created_at, "
-                "       jsonb_array_length(s.voyages_json) AS voyage_count "
+                "       s.voyages_json AS _voyages_json_raw "
                 "FROM annual_simulation_run r "
                 "JOIN calculation_run c ON c.id = r.calculation_run_id "
                 "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
@@ -1428,10 +1428,15 @@ def _stored_payload(row) -> dict:
 
 
 def _snapshot_block(row) -> dict[str, object]:
+    import json as _json_mod
+
+    # CUBRID는 jsonb_array_length가 없으므로 Python에서 파싱 (#1152).
+    raw = row._voyages_json_raw
+    voyage_count = len(_json_mod.loads(raw)) if isinstance(raw, str) else len(raw)
     return {
         "snapshot_id": str(row.snapshot_id),
         "created_at": row.snapshot_created_at.isoformat(),
-        "voyage_count": row.voyage_count,
+        "voyage_count": voyage_count,
     }
 
 
