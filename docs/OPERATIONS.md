@@ -334,14 +334,40 @@ echo "<PAT>" | docker login ghcr.io -u <사용자명> --password-stdin
 
 ### 4.5 APP_ENV 전환
 
-| APP_ENV | 용도 | MAIL_BACKEND | 가입 게이트 |
-|---------|------|-------------|------------|
-| `development` | 로컬 개발 | `console` 허용 | 비활성 |
-| `staging` | SMTP 없이 배포 검증 | `console` 허용 | 비활성 |
-| `production` | 운영 | `smtp` 필수 (console이면 기동 실패) | 필수 |
+| APP_ENV | 용도 | MAIL_BACKEND | 가입 게이트 | dev-login · `/docs` · 시연 계정 |
+|---------|------|-------------|------------|------------------------------|
+| `development` | 로컬 개발 | `console` 허용 | 비활성 | **열림** |
+| `test` | 자동 검사 | `console` 허용 | 비활성 | **열림** |
+| `staging` | SMTP 없이 배포 검증 | `console` 허용 | 비활성 | **닫힘** (#1058) |
+| `production` | 운영 | `smtp` 필수 (console이면 기동 실패) | 필수 | **닫힘** |
 
 현재 상태: **`staging`** (SMTP 미설정).
 SMTP 설정 후 `APP_ENV=production`으로 전환한다.
+
+> ⚠️ **`staging`의 마지막 열은 2026-09-15에 바뀌었다 (`#1058`).** 종전 판정은
+> `not is_production()`이라 `staging`에서 **`POST /auth/dev-login`(미인증 세션 발급) ·
+> `/docs`·`/redoc`·`/openapi.json` · 시연 계정 시드**가 함께 열렸다. 이 배포(app-01:8001,
+> OCI Security List `0.0.0.0/0`)에서 앞의 둘이 실제로 200을 냈다 — **누구나 인증 없이
+> 세션을 받을 수 있었고**, 시연 계정의 비밀번호는 `README.md`에 공개돼 있다.
+>
+> 지금은 `config._DEV_SURFACE_ENVS`(= `development`·`test`)가 **여는 목록**으로 판정한다.
+> 부정형(`!= production`)은 새 환경이 늘 때 **여는 쪽으로** 틀리고, 여는 목록은 **닫는
+> 쪽으로** 틀린다. `staging`이 계속 필요한 이유는 그대로다 — 메일 백엔드(`#524`) ·
+> `APP_PUBLIC_URL`(`#809`) · 가입 게이트(`#808`) 가드가 프로덕션 전용이라 SMTP 없이
+> 배포를 검증할 자리가 있어야 한다. 이 변경은 **그 자리를 닫힌 채로** 만든다.
+>
+> **배포 확인 명령** — 세 줄이 모두 이래야 한다.
+>
+> ```bash
+> curl -s -o /dev/null -w '%{http_code}\n' -X POST http://<호스트>:8001/api/v1/auth/dev-login   # 401
+> curl -s -o /dev/null -w '%{http_code}\n'      http://<호스트>:8001/docs                        # 401
+> docker compose -f docker-compose.prod.app.yml run --rm backend \
+>   python -c "from cii_platform.config import _ENV, exposes_dev_surfaces; print(_ENV, exposes_dev_surfaces(_ENV))"
+> ```
+>
+> `README.md` 배포 확인 표가 **`APP_ENV` 확인을 맨 위에 둔 이유**가 이것이다 — 나머지
+> 확인 항목(헬스 · 화면 · CORS · 인증 필요 API 401)은 이 가드가 열려 있어도 **전부
+> 통과한다.**
 
 ### 4.6 CORS 미들웨어
 
@@ -668,6 +694,7 @@ ssh ubuntu@131.186.22.10 "cd ~/bluelog && docker compose -f docker-compose.prod.
 
 ### 10.2 남은 작업
 
+- [ ] **재배포 필요** — `#1058`의 개발 편의 표면 차단이 이미지에 반영되려면 백엔드를 다시 올려야 한다. 현재 배포본은 `dev-login`·`/docs`가 열린 상태다(2026-09-15 20:0x 실측: 둘 다 **200**)
 - [ ] **SMTP 설정** → `APP_ENV=production` 전환 (#787)
 - [ ] **GitHub Secrets 등록** → deploy 워크플로 자동화
 - [ ] **커스텀 도메인** → Cloudflare Pages + 백엔드 CORS 업데이트 (#785)
