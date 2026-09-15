@@ -1257,81 +1257,93 @@ async def _persist(
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
+    # CUBRID는 RETURNING을 지원하지 않으므로 Python에서 id를 생성하고
+    # INSERT 후 SELECT로 created_at을 가져온다 (#1152).
+    import uuid as _uuid
+
+    snapshot_id = _uuid.uuid4().hex
+    await session.execute(
+        text(
+            "INSERT INTO simulation_snapshot "
+            "(id, vessel_id, regulation_year, voyages_json, vessel_json, "
+            " input_hash, parameter_hash) "
+            "VALUES (:id, :vessel_id, :year, :voyages, "
+            " :vessel, :input_hash, :parameter_hash) "
+        ),
+        {
+            "id": snapshot_id,
+            "vessel_id": vessel_id,
+            "year": regulation_year,
+            "voyages": _json(voyages_json),
+            "vessel": _json(vessel_json),
+            "input_hash": input_hash,
+            "parameter_hash": parameter_hash,
+        },
+    )
     snapshot_row = (
         await session.execute(
-            text(
-                "INSERT INTO simulation_snapshot "
-                "(vessel_id, regulation_year, voyages_json, vessel_json, "
-                " input_hash, parameter_hash) "
-                "VALUES (:vessel_id, :year, CAST(:voyages AS jsonb), "
-                " CAST(:vessel AS jsonb), :input_hash, :parameter_hash) "
-                "RETURNING id, created_at"
-            ),
-            {
-                "vessel_id": vessel_id,
-                "year": regulation_year,
-                "voyages": _json(voyages_json),
-                "vessel": _json(vessel_json),
-                "input_hash": input_hash,
-                "parameter_hash": parameter_hash,
-            },
+            text("SELECT id, created_at FROM simulation_snapshot WHERE id = :id"),
+            {"id": snapshot_id},
         )
     ).one()
 
+    # chk_calculation_type의 4값 중 하나여야 한다(마이그레이션 006).
+    # 이 실행은 결정론과 Monte Carlo를 **함께** 내지만, 사용자가 고른 것은
+    # 확률 분석이므로 MONTE_CARLO로 기록한다 — 결정론 값은 그 결과에
+    # 포함돼 있고, 별도 행으로 나누면 같은 실행이 이력에서 둘로 보인다.
+    run_id = _uuid.uuid4().hex
+    await session.execute(
+        text(
+            "INSERT INTO calculation_run "
+            "(id, calculation_type, vessel_id, input_hash, parameter_hash, model_version, "
+            " result_json, parameters_used, warnings_json, duration_ms) "
+            "VALUES (:id, 'ANNUAL_MONTE_CARLO', :vessel_id, :input_hash, :parameter_hash, "
+            " :model_version, :result, "
+            " :parameters, :warnings, :duration_ms) "
+        ),
+        {
+            "id": run_id,
+            "vessel_id": vessel_id,
+            "input_hash": input_hash,
+            "parameter_hash": parameter_hash,
+            # `TECH_SPEC:1236-1243`이 규정한 6필드를 그대로 싣는다 (#816).
+            "model_version": _json(_model_version()),
+            "result": _json(result_json),
+            "parameters": _json(parameters_used),
+            "warnings": _json(warnings),
+            "duration_ms": duration_ms,
+        },
+    )
     run_row = (
         await session.execute(
-            text(
-                # chk_calculation_type의 4값 중 하나여야 한다(마이그레이션 006).
-                # 이 실행은 결정론과 Monte Carlo를 **함께** 내지만, 사용자가 고른 것은
-                # 확률 분석이므로 MONTE_CARLO로 기록한다 — 결정론 값은 그 결과에
-                # 포함돼 있고, 별도 행으로 나누면 같은 실행이 이력에서 둘로 보인다.
-                "INSERT INTO calculation_run "
-                "(calculation_type, vessel_id, input_hash, parameter_hash, model_version, "
-                " result_json, parameters_used, warnings_json, duration_ms) "
-                "VALUES ('ANNUAL_MONTE_CARLO', :vessel_id, :input_hash, :parameter_hash, "
-                " CAST(:model_version AS jsonb), CAST(:result AS jsonb), "
-                " CAST(:parameters AS jsonb), CAST(:warnings AS jsonb), :duration_ms) "
-                "RETURNING id"
-            ),
-            {
-                "vessel_id": vessel_id,
-                "input_hash": input_hash,
-                "parameter_hash": parameter_hash,
-                # `TECH_SPEC:1236-1243`이 규정한 6필드를 그대로 싣는다 (#816).
-                # 종전에는 `{"engine", "issue"}` 둘뿐이라 **하필 Monte Carlo 경로에서**
-                # `rng_algorithm`·`numpy_version`이 빠져 있었다 — `§10.2`의 「NumPy
-                # 마이너 변경 → model_version에 명시」가 성립하지 않았다.
-                # 기능①·②와 같은 함수를 써서 셋이 갈릴 수 없게 한다.
-                "model_version": _json(_model_version()),
-                "result": _json(result_json),
-                "parameters": _json(parameters_used),
-                "warnings": _json(warnings),
-                # `#752` 이전에는 이 컬럼을 비워 두었다. `PRD §16.1`의 「Monte Carlo
-                # 5,000회 p95 < 3초」를 나중에 되짚으려면 실행마다 남아 있어야 한다 —
-                # 응답에만 실으면 그 순간 말고는 확인할 길이 없다.
-                "duration_ms": duration_ms,
-            },
+            text("SELECT id FROM calculation_run WHERE id = :id"),
+            {"id": run_id},
         )
     ).one()
 
+    simulation_id = _uuid.uuid4().hex
+    await session.execute(
+        text(
+            "INSERT INTO annual_simulation_run "
+            "(id, calculation_run_id, vessel_id, regulation_year, target_rating, "
+            " simulation_runs, snapshot_id, apply_feedback_factor) "
+            "VALUES (:id, :run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback) "
+        ),
+        {
+            "id": simulation_id,
+            "run_id": run_row.id,
+            "vessel_id": vessel_id,
+            "year": regulation_year,
+            "target": target_rating,
+            "runs": runs,
+            "snapshot_id": snapshot_row.id,
+            "feedback": apply_feedback_factor,
+        },
+    )
     simulation_row = (
         await session.execute(
-            text(
-                "INSERT INTO annual_simulation_run "
-                "(calculation_run_id, vessel_id, regulation_year, target_rating, "
-                " simulation_runs, snapshot_id, apply_feedback_factor) "
-                "VALUES (:run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback) "
-                "RETURNING id"
-            ),
-            {
-                "run_id": run_row.id,
-                "vessel_id": vessel_id,
-                "year": regulation_year,
-                "target": target_rating,
-                "runs": runs,
-                "snapshot_id": snapshot_row.id,
-                "feedback": apply_feedback_factor,
-            },
+            text("SELECT id FROM annual_simulation_run WHERE id = :id"),
+            {"id": simulation_id},
         )
     ).one()
 
