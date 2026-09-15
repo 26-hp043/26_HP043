@@ -41,6 +41,26 @@ export default defineConfig({
     environment: 'node',
     globals: false,
   },
+  /*
+   * maplibre-gl을 사전 번들링에서 뺀다 (#1144).
+   *
+   * maplibre는 타일 파싱을 **Web Worker**에서 한다. 워커 스크립트는 패키지 안의
+   * 별도 파일(`dist/maplibre-gl-worker.mjs`)이고, 런타임이 자기 모듈 위치를 기준으로
+   * 그 경로를 만든다. Vite의 의존성 사전 번들링은 `node_modules/.vite/deps/`에
+   * `maplibre-gl.js` **하나만** 만들어 두므로, 런타임이 조립한
+   * `/node_modules/.vite/deps/maplibre-gl-worker.mjs`가 **404**가 된다.
+   *
+   * **404가 조용하다는 것이 문제다.** 워커가 0개면 타일을 한 장도 요청하지 못하는데,
+   * maplibre는 `error` 이벤트도 내지 않는다. 지도는 스타일의 배경색(`#cccccc`)만
+   * 칠한 **회색 사각형**으로 남고, `load`가 오지 않아 선박 마커와 항로도 붙지 않는다.
+   * 2026-09-15에 이 상태를 실제로 겪었다 — 자산·서버·라이브러리는 전부 정상이었다.
+   *
+   * 제외하면 Vite가 패키지의 실제 파일을 그대로 서빙해 워커 경로가 맞는다.
+   * **프로덕션 빌드는 영향이 없다** — 빌드는 워커를 자산으로 함께 내보낸다.
+   */
+  optimizeDeps: {
+    exclude: ['maplibre-gl'],
+  },
   server: {
     ...(isRepoOnWindowsFilesystem
       ? {

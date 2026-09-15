@@ -1,4 +1,4 @@
-import { API_BASE_URL_ENV_KEY, API_KEY_ENV_KEY } from '../voyage-cii/providerSelection'
+import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 import { createApiVesselManagementProvider } from './apiProvider'
 import type { VesselManagementProvider } from './provider'
 
@@ -19,6 +19,5 @@ export function createVesselManagementProvider(
 ): VesselManagementProvider {
   return createApiVesselManagementProvider({
     baseUrl: (env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined,
-    apiKey: (env[API_KEY_ENV_KEY] as string | undefined) || undefined,
   })
 }

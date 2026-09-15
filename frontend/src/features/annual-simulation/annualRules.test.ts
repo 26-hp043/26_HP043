@@ -7,9 +7,13 @@ import {
   sensitivityRows,
   stackSegments,
   INLINE_LABEL_MIN_PERCENT,
+  RUNS_MAX,
+  RUNS_MIN,
   toPercent,
   toSignedPercent,
+  validateRuns,
 } from './annualRules'
+import { ANNUAL_COPY } from './copy'
 import type { MonteCarloBlock } from './types'
 
 const P = { A: '0.0200', B: '0.2800', C: '0.5500', D: '0.1300', E: '0.0200' }
@@ -340,5 +344,63 @@ describe('스택 바 — 표시된 숫자로 판정한다 (#846)', () => {
     const seg = segmentC('0.0795')
     expect(seg.percent).toBeCloseTo(7.95, 6)
     expect(seg.inline).toBe(true)
+  })
+})
+
+/*
+ * 0% 구간은 바에 그리지 않는다 (#1096 ⑵). 폭이 없어 보이지 않는 요소에 툴팁·`tabIndex`가
+ * 붙어 초점이 두 번 갔다(A 0% · E 0%). 목록에서는 빼지 않는다 — 범례가 다섯 등급을 같은
+ * 순서로 보여야 두 실행을 나란히 비교할 수 있다.
+ */
+describe('스택 바 0% 구간 (#1096 ⑵)', () => {
+  it('「0.0%」로 쓰이는 구간은 empty다 — 목록에서는 빠지지 않는다', () => {
+    const segs = stackSegments({ A: '0.0000', B: '0.3', C: '0.55', D: '0.15', E: '0' })
+    expect(segs.map((s) => s.rating)).toEqual(['A', 'B', 'C', 'D', 'E'])
+    expect(segs.map((s) => s.empty)).toEqual([true, false, false, false, true])
+  })
+
+  it('판정 근거는 화면에 쓰인 숫자다 — 0.04%는 「0.0%」라 empty, 0.05%는 아니다', () => {
+    expect(segmentC('0.0004').empty).toBe(true)
+    expect(segmentC('0.0004').label).toBe('0.0%')
+    expect(segmentC('0.0005').empty).toBe(false)
+  })
+
+  it('empty 구간은 inline도 아니다 — 문자를 넣을 폭이 없다', () => {
+    expect(segmentC('0').inline).toBe(false)
+  })
+})
+
+/*
+ * 반복 횟수 검증 (#1096 ⑴). 서버 규칙은 정수 · `ge=1000`(`api/schemas/annual_simulation.py`).
+ * 종전 `step={1000}`은 그 규칙에 없는 제약이라 2,500이 브라우저 툴팁으로만 막혔다.
+ */
+describe('validateRuns (#1096 ⑴)', () => {
+  it('경계는 정본·서버와 같다 — 1,000~10,000', () => {
+    expect(RUNS_MIN).toBe(1000)
+    expect(RUNS_MAX).toBe(10000)
+    expect(ANNUAL_COPY.runsHint).toContain('1,000~10,000')
+  })
+
+  it('1,000의 배수가 아니어도 범위 안이면 받는다 — 2,500', () => {
+    expect(validateRuns('2500')).toBeNull()
+    expect(validateRuns(' 1000 ')).toBeNull()
+    expect(validateRuns('10000')).toBeNull()
+  })
+
+  it('하한 미만은 서버가 422를 내는 값이다 — 화면이 먼저 막는다', () => {
+    expect(validateRuns('999')).toBe(ANNUAL_COPY.runsBelowMin)
+    expect(validateRuns('0')).toBe(ANNUAL_COPY.runsBelowMin)
+    expect(validateRuns('-5000')).toBe(ANNUAL_COPY.runsBelowMin)
+  })
+
+  it('상한 초과는 잘려서 실행되는 값이다 — 받아 주지 않는다', () => {
+    expect(validateRuns('10001')).toBe(ANNUAL_COPY.runsAboveMax)
+  })
+
+  it('정수가 아니면 막는다 — 빈 값·소수·문자', () => {
+    expect(validateRuns('')).toBe(ANNUAL_COPY.runsNotInteger)
+    expect(validateRuns('2500.5')).toBe(ANNUAL_COPY.runsNotInteger)
+    expect(validateRuns('abc')).toBe(ANNUAL_COPY.runsNotInteger)
+    expect(validateRuns('1e3')).toBe(ANNUAL_COPY.runsNotInteger)
   })
 })

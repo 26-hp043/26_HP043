@@ -74,8 +74,6 @@ export function toVesselRegistrationError(
 
 export interface ApiProviderOptions {
   baseUrl?: string
-  /** `#104` API Key가 적용된 경우에만 주입한다. 빈 값은 헤더를 붙이지 않는다. */
-  apiKey?: string
   /** 테스트에서 갈아 끼우기 위한 주입점. */
   fetchImpl?: typeof fetch
 }
@@ -89,7 +87,6 @@ export function createApiVesselRegistrationProvider(
   return {
     async register(request: VesselCreateRequest): Promise<Vessel> {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (options.apiKey) headers['X-API-Key'] = options.apiKey
       Object.assign(headers, csrfHeaders())
 
       let response: Response

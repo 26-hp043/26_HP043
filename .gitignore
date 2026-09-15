@@ -42,3 +42,9 @@ logs/
 
 # vitest 파일 완결성 가드의 산출물 (#828) — 실행마다 새로 만들고 지운다.
 frontend/.vitest-report.json
+
+# 지도 자산 (#763 · #1144) — 타일 80 MB + 글리프 12 MB.
+# `scripts/fetch_basemap.sh`가 내려받는다. git에 넣으면 clone마다 따라온다.
+# 없으면 화면이 개략도로 떨어지므로 저장소에 없어도 동작한다.
+frontend/public/basemap/
+/basemap/

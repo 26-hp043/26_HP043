@@ -18,12 +18,15 @@ import { SCREEN_BY_ID } from '../../screens'
  */
 const NO_REMAINING_VOYAGES = 'NO_REMAINING_VOYAGES'
 import {
+  RUNS_MAX,
+  RUNS_MIN,
   probabilityOfDorE,
   reproducibilityLine,
   riskFlag,
   sensitivityRows,
   stackSegments,
   toPercent,
+  validateRuns,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
@@ -58,6 +61,12 @@ import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 
 type RunState =
   | { status: 'idle' }
+  /*
+   * 실행 **전**에 막힌 상태 (#1096 ⑸). 선박 미선택·연도 목록 미도착·목록 실패는
+   * 실행한 적이 없으니 `error`가 아니다 — 종전에는 `error`로 넣어 「시뮬레이션에
+   * 실패했습니다」 제목 아래 「선박을 먼저 선택해 주세요」가 나왔다.
+   */
+  | { status: 'blocked'; message: string }
   | { status: 'running' }
   | { status: 'success'; result: AnnualSimulationResult }
   | { status: 'error'; message: string }
@@ -100,6 +109,8 @@ export function AnnualSimulation({
   const generationRef = useRef(0)
   const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>('B')
   const [runs, setRuns] = useState('5000')
+  /** 반복 횟수 위반 문구. 실행을 누를 때 판정하고, 값을 고치면 지운다 (#1096 ⑴). */
+  const [runsError, setRunsError] = useState<string | null>(null)
   const [seed, setSeed] = useState('')
   // `PRD §12.2.1` 실적 보정계수 — 기본은 끔(`#363`). 켜지 않은 실행은 종전과 같다.
   const [applyFeedback, setApplyFeedback] = useState(false)
@@ -108,11 +119,18 @@ export function AnnualSimulation({
   // 두 화면이 서로 다른 해를 보여 주고, 그 차이는 값이 아니라 목록에서 나타나 늦게 발견된다.
   /*
    * 첫 연도는 주소의 `?year=`에서 받는다 (#891 · `PRD §10.5` 「해당 선박·**연도**로 이동」).
-   * 기능①의 「연간 시뮬레이터에서 보기」가 싣는다. 목록에 없는 해면 아래 `pickDefaultYear`가
-   * 기본값으로 바꾼다 — 주소 값을 검증 없이 쓰지 않는다.
+   * 기능①의 「연간 시뮬레이터에서 보기」가 싣는다.
+   *
+   * ⚠️ **주소 값은 목록과 대조되기 전에는 `year`가 되지 않는다** (#1096 ⑷). 종전에는
+   * 주소 값을 곧바로 상태에 넣어, 목록을 못 받으면 `?year=2099`가 검증 없이 전송되고
+   * `?year=abc`는 `Number('abc')` = `NaN` → JSON `null` → 422가 됐다 — 「값을 지어내
+   * 계산하지 않는다」는 아래 `run`의 주석과 반대였다. 주소 값은 **후보**로만 두고,
+   * 목록이 오면 `pickDefaultYear`가 목록 안의 값일 때만 고른다. 목록이 없으면 `year`는
+   * 빈 채로 남고 `run`이 실행을 막는다.
    */
   const [searchParams] = useSearchParams()
-  const [year, setYear] = useState(() => searchParams.get('year') ?? '')
+  const requestedYear = searchParams.get('year') ?? ''
+  const [year, setYear] = useState('')
 
   /*
    * 연도 선택지는 **공용 훅**이 받는다 (`#632`가 만든 것 · `#824` ⑴로 이관).
@@ -158,8 +176,9 @@ export function AnnualSimulation({
   useEffect(() => {
     if (years.length === 0) return
     const thisYear = new Date().getFullYear()
-    setYear((prev) => pickDefaultYear(years, thisYear, prev))
-  }, [years])
+    // 아직 고른 해가 없으면 주소의 후보를 넘긴다 — 목록에 있을 때만 채택된다.
+    setYear((prev) => pickDefaultYear(years, thisYear, prev || requestedYear))
+  }, [years, requestedYear])
 
   /*
    * ⚠️ **대상이 바뀌면 앞의 결과를 지운다** (`#1094`).
@@ -190,19 +209,25 @@ export function AnnualSimulation({
   }, [shell.vesselId, year])
 
   const run = useCallback(async () => {
+    // 실행 전 차단은 `blocked`다 — 실패가 아니라 안내 (#1096 ⑸).
     if (shell.vesselId === null) {
-      setState({ status: 'error', message: '상단에서 선박을 먼저 선택해 주세요.' })
+      setState({ status: 'blocked', message: ANNUAL_COPY.needVessel })
       return
     }
     if (year === '') {
       // 목록을 못 받았거나 아직 오는 중이다. 값을 지어내 계산하지 않는다 — 종전
       // 고정값(2026)이 정확히 그런 형태였고, 사용자는 다른 해를 볼 수 없었다.
+      // 주소의 `?year=`도 여기서 막힌다 — 목록과 대조되지 않은 값은 `year`가 아니다.
       setState({
-        status: 'error',
-        message: yearsFailed
-          ? '규제연도 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
-          : '규제연도 목록을 불러오는 중입니다.',
+        status: 'blocked',
+        message: yearsFailed ? ANNUAL_COPY.yearsUnavailable : ANNUAL_COPY.yearsPending,
       })
+      return
+    }
+    // 반복 횟수는 서버와 같은 규칙으로 화면에서 먼저 막는다 (#1096 ⑴).
+    const runsProblem = validateRuns(runs)
+    if (runsProblem !== null) {
+      setRunsError(runsProblem)
       return
     }
     setState({ status: 'running' })
@@ -250,8 +275,14 @@ export function AnnualSimulation({
         </header>
       ) : null}
 
+      {/*
+        `noValidate` — 브라우저 기본 검증(툴팁)을 끄고 화면이 직접 검증한다 (#1096 ⑴).
+        종전에는 `step={1000}`이 2,500을 툴팁으로만 막아 **화면 오류 자리는 비어 있고
+        서버는 받는 값**이었다. 지금은 `validateRuns`가 판정하고 그 결과가 입력 아래 선다.
+      */}
       <form
         className="annual-sim__form"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault()
           void run()
@@ -302,15 +333,25 @@ export function AnnualSimulation({
 
         <label className="annual-sim__field">
           <span className="annual-sim__label">{ANNUAL_COPY.runsLabel}</span>
+          {/* `step`을 두지 않는다 — 서버 규칙(정수 · 1,000 이상)에 없는 제약이다. */}
           <input
             type="number"
-            min={1000}
-            max={10000}
-            step={1000}
+            min={RUNS_MIN}
+            max={RUNS_MAX}
             value={runs}
-            onChange={(event) => setRuns(event.target.value)}
+            aria-invalid={runsError !== null}
+            aria-describedby={runsError === null ? undefined : 'annual-sim-runs-error'}
+            onChange={(event) => {
+              setRuns(event.target.value)
+              setRunsError(null)
+            }}
           />
           <span className="annual-sim__hint">{ANNUAL_COPY.runsHint}</span>
+          {runsError === null ? null : (
+            <span id="annual-sim-runs-error" className="annual-sim__field-error" role="alert">
+              {runsError}
+            </span>
+          )}
         </label>
 
         <label className="annual-sim__field">
@@ -361,7 +402,19 @@ export function AnnualSimulation({
       */}
       <div className="annual-sim__results">
         {state.status === 'idle' ? (
-          <p className="annual-sim__placeholder">{ANNUAL_COPY.empty}</p>
+          <p className="annual-sim__placeholder">
+            {/* 선박이 없으면 「조건을 고르라」보다 먼저 할 일을 말한다 (#1096 ⑸). */}
+            {shell.vesselId === null ? ANNUAL_COPY.needVessel : ANNUAL_COPY.empty}
+          </p>
+        ) : null}
+        {/*
+          실행 전 차단은 안내다 — `role="status"`로 읽히고 「실패했습니다」 제목이 없다.
+          `alert`로 내면 실행한 적 없는 일이 실패한 것으로 읽힌다 (#1096 ⑸).
+        */}
+        {state.status === 'blocked' ? (
+          <p className="annual-sim__placeholder" role="status">
+            {state.message}
+          </p>
         ) : null}
         {state.status === 'running' ? (
           <p className="annual-sim__placeholder" aria-live="polite">
@@ -588,6 +641,9 @@ function Result({
           aria-label={`${ANNUAL_COPY.probabilityTitle} — ${stackAria(segments)}`}
         >
           {segments.map((seg) => {
+            // 「0.0%」 구간은 그리지 않는다 — 폭이 없어 보이지 않는 요소에 초점이 가던
+            // 자리다 (#1096 ⑵). 값은 아래 범례와 그룹의 대체 텍스트에 그대로 있다.
+            if (seg.empty) return null
             const pattern = gradePatternUrl(seg.rating)
             const inline = seg.inline
             const text = `${seg.rating} ${seg.label}`
@@ -653,7 +709,8 @@ function Result({
           </div>
         </div>
 
-        <h4 className="annual-sim__sub-title">{ANNUAL_COPY.spreadTitle}</h4>
+        {/* 섹션 제목이 `h2`라 다음 단계는 `h3`다 — 단계를 건너뛰지 않는다 (#1096 ⑶). */}
+        <h3 className="annual-sim__sub-title">{ANNUAL_COPY.spreadTitle}</h3>
         <div className="annual-sim__metrics">
           <Metric
             label={ANNUAL_COPY.p10Label}
