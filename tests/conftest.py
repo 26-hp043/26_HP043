@@ -342,6 +342,23 @@ def _install_cubrid_param_converter(engine):
     before_cursor_execute에서 자동 변환한다.
     """
     import uuid
+
+    # Uuid 타입의 바인드 프로세서 패치 — DB에서 읽은 hex string을
+    # 다시 바인딩할 때 .hex 호출이 실패하므로, string은 그대로 통과.
+    import sqlalchemy.sql.sqltypes as _sqltypes
+    _orig_uuid_bp = _sqltypes.Uuid.bind_processor
+
+    def _patched_uuid_bp(self, dialect):
+        orig = _orig_uuid_bp(self, dialect)
+        if orig is None:
+            return None
+        def _process(value):
+            if isinstance(value, str):
+                return value.replace("-", "")
+            return orig(value)
+        return _process
+
+    _sqltypes.Uuid.bind_processor = _patched_uuid_bp
     from decimal import Decimal
 
     from sqlalchemy import event
@@ -414,10 +431,10 @@ def _install_cubrid_param_converter(engine):
                 elif isinstance(parameters, list):
                     parameters = [new_id] + parameters
 
-        # 5. CUBRID: RETURNING 미지원 — INSERT RETURNING id를 INSERT로 변환
-        #    id는 auto-id 삽입에서 이미 생성됨
+        # 5. CUBRID: RETURNING 미지원 — INSERT RETURNING ... 전체 제거
+        #    복수 컬럼(RETURNING id, created_at)도 처리한다.
         if " RETURNING " in statement:
-            statement = re.sub(r"\s+RETURNING\s+\w+", "", statement)
+            statement = re.sub(r"\s+RETURNING\s+.+$", "", statement)
 
         return statement, parameters
 
