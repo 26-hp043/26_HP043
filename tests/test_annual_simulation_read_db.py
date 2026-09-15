@@ -28,6 +28,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.calc.hash import compute_parameter_hash
+from cii_platform.db.types import JSONText
 from cii_platform.errors import (
     ModelVersionMismatchError,
     NotFoundError,
@@ -674,7 +675,10 @@ async def test_snapshot_records_the_vessel_specs(session, executed):
             text(
                 "SELECT s.vessel_json FROM simulation_snapshot s "
                 "JOIN annual_simulation_run r ON r.snapshot_id = s.id WHERE r.id = :id"
-            ),
+                # 생 SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result processor가 돌지
+                # 않는다 — 붙이지 않으면 **문자열**이 와서 `set(stored)`가 필드 이름이
+                # 아니라 **글자**를 모은다 (`#1058`).
+            ).columns(vessel_json=JSONText()),
             {"id": UUID(executed["data"]["simulation_id"])},
         )
     ).scalar_one()

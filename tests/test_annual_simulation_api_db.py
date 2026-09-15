@@ -26,9 +26,10 @@ from uuid import uuid4
 import pytest
 import pytest_asyncio
 from conftest import ensure_regulation_year, insert_if_not_exists
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.types import JSONText, UuidText
 from cii_platform.errors import CalculationError, ValidationError
 from cii_platform.services.annual_simulation import (
     NO_BASIS_MESSAGE,
@@ -37,6 +38,19 @@ from cii_platform.services.annual_simulation import (
     run_annual_simulation,
 )
 from cii_platform.services.voyage_cii import DISCLAIMER
+
+
+def _by_id(sql: str, **cols):
+    """생 SQL의 ``:id``에 UUID 타입을, 읽는 JSON 열에 :class:`JSONText`를 붙인다 (`#1058`).
+
+    생 ``text()``에는 컬럼 타입이 붙지 않아 **bind processor가 돌지 않는다.** 서비스가
+    내주는 UUID는 대시 36자인데 CUBRID 컬럼은 ``CHAR(32)``라, 그대로 실으면 **오류 없이
+    0건**이 온다 — 이 파일의 실패 4건이 전부 그 모양(``assert None == 2``)이었다.
+    같은 이유로 JSON 열도 붙이지 않으면 **문자열**이 와서 ``[0]``이 글자를 집는다.
+    """
+    stmt = text(sql).bindparams(bindparam("id", type_=UuidText()))
+    return stmt.columns(**cols) if cols else stmt
+
 
 YEAR = 2026
 AS_OF = datetime(YEAR, 7, 1, tzinfo=UTC)
@@ -264,13 +278,14 @@ async def test_snapshot_records_the_voyages_used(session, vessel_id):
     result = await _run(session, vessel_id)
     assert result["data"]["snapshot"]["voyage_count"] == 2
 
-    stored = await session.scalar(
-        text(
-            "SELECT JSON_LENGTH(CAST(voyages_json AS JSON)) FROM simulation_snapshot WHERE id = :id"
+    voyages = await session.scalar(
+        _by_id(
+            "SELECT voyages_json FROM simulation_snapshot WHERE id = :id",
+            voyages_json=JSONText(),
         ),
         {"id": result["data"]["snapshot"]["snapshot_id"]},
     )
-    assert stored == 2
+    assert len(voyages) == 2
 
 
 @pytest.mark.asyncio
@@ -289,12 +304,14 @@ async def test_snapshot_survives_later_edits(session, vessel_id):
         {"id": voyage_id},
     )
 
-    stored = await session.scalar(
-        text(
-            "SELECT voyages_json->0->>'actual_distance_nm' FROM simulation_snapshot WHERE id = :id"
+    voyages = await session.scalar(
+        _by_id(
+            "SELECT voyages_json FROM simulation_snapshot WHERE id = :id",
+            voyages_json=JSONText(),
         ),
         {"id": result["data"]["snapshot"]["snapshot_id"]},
     )
+    stored = str(voyages[0]["actual_distance_nm"])
     assert stored is not None and "99999" not in stored
 
 
@@ -304,14 +321,14 @@ async def test_snapshot_keeps_the_cf_used(session, vessel_id):
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
     result = await _run(session, vessel_id)
 
-    stored = await session.scalar(
-        text(
-            "SELECT voyages_json->0->'fuel_uses'->0->>'cf_used' FROM simulation_snapshot "
-            "WHERE id = :id"
+    voyages = await session.scalar(
+        _by_id(
+            "SELECT voyages_json FROM simulation_snapshot WHERE id = :id",
+            voyages_json=JSONText(),
         ),
         {"id": result["data"]["snapshot"]["snapshot_id"]},
     )
-    assert stored == "3.114000"
+    assert voyages[0]["fuel_uses"][0]["cf_used"] == "3.114000"
 
 
 @pytest.mark.asyncio
@@ -328,18 +345,17 @@ async def test_plan_voyages_use_the_live_cf_at_run_time(session, vessel_id):
 
     result = await _run(session, vessel_id)
 
-    row = (
-        await session.execute(
-            text(
-                "SELECT voyages_json->0->'fuel_uses'->0->>'cf_used' AS actual_cf, "
-                "voyages_json->1->'fuel_uses'->0->>'cf_used' AS plan_cf "
-                "FROM simulation_snapshot WHERE id = :id"
-            ),
-            {"id": result["data"]["snapshot"]["snapshot_id"]},
-        )
-    ).one()
-    assert row.actual_cf == "3.114000"  # 확정 실적 — 기록 유지 (#863)
-    assert row.plan_cf == "4.114000"  # 계획 — 실행 시점 활성 CF (#832)
+    voyages = await session.scalar(
+        _by_id(
+            "SELECT voyages_json FROM simulation_snapshot WHERE id = :id",
+            voyages_json=JSONText(),
+        ),
+        {"id": result["data"]["snapshot"]["snapshot_id"]},
+    )
+    actual_cf = voyages[0]["fuel_uses"][0]["cf_used"]
+    plan_cf = voyages[1]["fuel_uses"][0]["cf_used"]
+    assert actual_cf == "3.114000"  # 확정 실적 — 기록 유지 (#863)
+    assert plan_cf == "4.114000"  # 계획 — 실행 시점 활성 CF (#832)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -353,10 +369,14 @@ async def test_parameters_used_carries_the_distribution_profile(session, vessel_
     await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
     result = await _run(session, vessel_id)
 
-    profile = await session.scalar(
-        text("SELECT parameters_used->'simulation_profile' FROM calculation_run WHERE id = :id"),
+    parameters_used = await session.scalar(
+        _by_id(
+            "SELECT parameters_used FROM calculation_run WHERE id = :id",
+            parameters_used=JSONText(),
+        ),
         {"id": result["calculation_run_id"]},
     )
+    profile = parameters_used["simulation_profile"]
     assert profile["profile"] == "DEFAULT"
     # 거리·연료·속도 3행이 그대로 실린다.
     assert len(profile["parameters"]) == 3
@@ -413,10 +433,14 @@ async def test_a_missing_variable_row_still_falls_back(session, vessel_id):
     result = await _run(session, vessel_id)
 
     assert result["data"]["deterministic"]["projected_attained_cii"]
-    profile = await session.scalar(
-        text("SELECT parameters_used->'simulation_profile' FROM calculation_run WHERE id = :id"),
+    parameters_used = await session.scalar(
+        _by_id(
+            "SELECT parameters_used FROM calculation_run WHERE id = :id",
+            parameters_used=JSONText(),
+        ),
         {"id": result["calculation_run_id"]},
     )
+    profile = parameters_used["simulation_profile"]
     # 남은 2행만 실린다 — 무엇이 기본값으로 채워졌는지가 여기서 드러난다.
     assert len(profile["parameters"]) == 2
 
@@ -455,7 +479,7 @@ async def test_calculation_run_is_recorded_with_the_right_type(session, vessel_i
     result = await _run(session, vessel_id)
 
     kind = await session.scalar(
-        text("SELECT calculation_type FROM calculation_run WHERE id = :id"),
+        _by_id("SELECT calculation_type FROM calculation_run WHERE id = :id"),
         {"id": result["calculation_run_id"]},
     )
     assert kind == "ANNUAL_MONTE_CARLO"

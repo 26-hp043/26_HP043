@@ -67,7 +67,7 @@ from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
-from cii_platform.db.types import JSONText
+from cii_platform.db.types import JSONText, UuidText
 from cii_platform.errors import (
     CalculationError,
     ModelVersionMismatchError,
@@ -1308,7 +1308,18 @@ async def _persist(
     # ⑵ `CAST(… AS jsonb)`를 뺀다. 컬럼이 `JSONText`(TEXT)이고 `_json()`이 이미
     #    직렬화한 문자열을 주므로 그대로 실으면 된다.
     snapshot_id = uuid.uuid4()
-    snapshot_created_at = datetime.now(UTC)
+    # ⑶ `created_at`을 **CUBRID가 실제로 보관하는 정밀도로 깎아서** 만든다 (`#1058`).
+    #    `DATETIMETZ`는 밀리초까지만 담는다 — 실측이다::
+    #
+    #        보낸 값 2026-09-16T07:55:12.123456+00:00
+    #        받은 값 2026-09-16T07:55:12.123000+00:00
+    #
+    #    ⑴대로 보낸 값을 그대로 응답에 쓰면 **저장되지 않은 정밀도를 주장**하게 된다.
+    #    실행(`POST §6.1`)은 마이크로초까지 내주는데 조회(`§6.2`)·재실행(`§6.4`)은
+    #    DB에서 읽어 밀리초를 내므로, 같은 스냅샷의 `created_at`이 경로에 따라 다르게
+    #    보인다. 깎아서 만들면 보내는 값과 담기는 값이 같아져 세 경로가 일치한다.
+    _now = datetime.now(UTC)
+    snapshot_created_at = _now.replace(microsecond=(_now.microsecond // 1000) * 1000)
     run_id = uuid.uuid4()
     simulation_id = uuid.uuid4()
 
@@ -1412,8 +1423,6 @@ def _uuid_binds(*names: str) -> list[Any]:
     """
     from sqlalchemy import bindparam
 
-    from cii_platform.db.types import UuidText
-
     return [bindparam(n, type_=UuidText()) for n in names]
 
 
@@ -1466,6 +1475,15 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 result_json=JSONText(),
                 parameters_used=JSONText(),
                 model_version=JSONText(),
+                # 식별자에도 타입을 붙인다 (`#1058`). 붙이지 않으면 저장 형식인 **hex 32자
+                # 문자열**이 그대로 올라와, 실행(`POST §6.1`)은 대시 36자를 내는데
+                # 조회(`§6.2`)·재실행(`§6.4`)은 하이픈 없는 값을 내는 **형식 불일치**가
+                # 응답에 남는다. 같은 실행을 두 경로로 부르면 `simulation_id`가 다르게
+                # 보인다 — `test_reproduce_keeps_the_original_identifiers`가 그것이다.
+                simulation_id=UuidText(),
+                calculation_run_id=UuidText(),
+                vessel_id=UuidText(),
+                snapshot_id=UuidText(),
             ),
             {"id": simulation_id},
         )
