@@ -347,6 +347,13 @@
   min-inline-size: 0;
 }
 
+/* 뒤 페이지가 남아 있을 때 정렬 범위를 밝히는 한 줄 (#1102 ⑶). 경고가 아니라 사실이다. */
+.vm__partial {
+  margin: 0 0 var(--space-8);
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+}
+
 .vm__imo {
   color: var(--text-secondary);
   font-family: var(--font-mono);
