@@ -64,16 +64,24 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 #: ``db_backup.py``와 같은 기본값.
 DEFAULT_COMPOSE = "docker compose -f docker-compose.prod.yml"
 
-_PSQL = 'psql -v ON_ERROR_STOP=1 -X -At -U "$POSTGRES_USER"'
+#: 조회용 — ``-t``(plain-output) ``-N``(skip-column-names)이 ``psql -At``과 같은
+#: 출력을 낸다. ``$POSTGRES_USER``·``$POSTGRES_DB``는 compose에서 이미 사라졌다.
+_CSQL_PLAIN = 'csql -u dba -e -t -N "$CUBRID_DB"'
+
+#: ``DELETE``용 — plain 모드는 **아무것도 출력하지 않아** 지운 행 수를 셀 수 없다.
+#: 장식된 기본 출력의 ``N row(s) affected.``를 읽는다.
+_CSQL = 'csql -u dba -e "$CUBRID_DB"'
 
 #: 만료 **뒤** 며칠을 더 두는가.
 #:
@@ -93,15 +101,15 @@ PURGE_ACTION = "EXPIRED_PURGE"
 _SQL = {
     "user_session": (
         "DELETE FROM user_session WHERE "
-        "expires_at < now() - make_interval(days => {grace}) "
-        "OR (revoked_at IS NOT NULL AND revoked_at < now() - make_interval(days => {grace}))"
+        "expires_at < DATE_SUB(NOW(), INTERVAL {grace} DAY) "
+        "OR (revoked_at IS NOT NULL AND revoked_at < DATE_SUB(NOW(), INTERVAL {grace} DAY))"
     ),
     "user_token": (
         "DELETE FROM user_token WHERE "
-        "expires_at < now() - make_interval(days => {grace}) "
-        "OR (used_at IS NOT NULL AND used_at < now() - make_interval(days => {grace}))"
+        "expires_at < DATE_SUB(NOW(), INTERVAL {grace} DAY) "
+        "OR (used_at IS NOT NULL AND used_at < DATE_SUB(NOW(), INTERVAL {grace} DAY))"
     ),
-    "chat_session": "DELETE FROM chat_session WHERE expires_at < now()",
+    "chat_session": "DELETE FROM chat_session WHERE expires_at < NOW()",
 }
 
 #: 세는 문장 — ``DELETE``를 ``SELECT count(*)``로 바꾼 것. 같은 조건을 두 번 적지
@@ -131,7 +139,9 @@ class Db:
     compose: list[str]
     run: object = field(default=run_process)
 
-    def query(self, sql: str) -> str:
+    def query(self, sql: str, *, plain: bool = True) -> str:
+        """``plain=False``는 장식된 출력을 그대로 돌려준다 — ``DELETE``의 행 수용."""
+        client = _CSQL_PLAIN if plain else _CSQL
         argv = [
             *self.compose,
             "exec",
@@ -139,7 +149,7 @@ class Db:
             "db",
             "sh",
             "-c",
-            f'{_PSQL} -d "$POSTGRES_DB" -c {shlex.quote(sql)}',
+            f"{client} -c {shlex.quote(sql)}",
         ]
         return self.run(argv).decode("utf-8").strip()  # type: ignore[operator]
 
@@ -153,6 +163,23 @@ def count_sql(table: str, grace_days: int) -> str:
 
 def delete_sql(table: str, grace_days: int) -> str:
     return _SQL[table].format(grace=grace_days)
+
+
+#: csql의 ``DELETE`` 응답. ``psql``의 ``DELETE <n>``과 자리가 반대다 —
+#: 수가 **앞에** 오고, 1건이면 ``row``, 아니면 ``rows``다.
+_AFFECTED = re.compile(r"(\d+)\s+rows?\s+affected", re.IGNORECASE)
+
+
+def _affected(raw: str) -> int:
+    """csql의 ``N row(s) affected.``에서 N을 꺼낸다.
+
+    못 찾으면 **0이 아니라 예외**다. 0으로 돌려 버리면 「지울 것이 없었다」와
+    「출력을 못 읽었다」가 같아 보이고, 감사 로그에 0이 남아 거짓말이 된다.
+    """
+    hit = _AFFECTED.search(raw or "")
+    if hit is None:
+        raise QueryError(f"삭제 행 수를 읽지 못했습니다: {raw!r}")
+    return int(hit.group(1))
 
 
 def purge(db: Db, *, grace_days: int, dry_run: bool) -> tuple[dict[str, int], dict[str, str]]:
@@ -171,15 +198,14 @@ def purge(db: Db, *, grace_days: int, dry_run: bool) -> tuple[dict[str, int], di
     for table in _SQL:
         sql = count_sql(table, grace_days) if dry_run else delete_sql(table, grace_days)
         try:
-            raw = db.query(sql)
+            raw = db.query(sql, plain=dry_run)
         except QueryError as exc:
             failures[table] = str(exc).splitlines()[0] if str(exc) else "알 수 없는 실패"
             continue
         if dry_run:
             counts[table] = int(raw or 0)
         else:
-            # `psql -At`의 DELETE 출력은 `DELETE <n>`이다.
-            counts[table] = int(raw.rsplit(" ", 1)[-1] or 0) if raw else 0
+            counts[table] = _affected(raw)
     return counts, failures
 
 
@@ -201,9 +227,15 @@ def record(db: Db, counts: dict[str, int], failures: dict[str, str], *, grace_da
         ensure_ascii=False,
         sort_keys=True,
     )
+    # `details_json`은 CUBRID에서 STRING이라 캐스트가 필요 없다. dollar-quote는
+    # CUBRID에 없으므로 작은따옴표를 SQL 표준대로 겹쳐 막는다 — JSON 본문에
+    # 한글 사유가 그대로 들어와 따옴표가 섞일 수 있다.
+    escaped = details.replace("'", "''")
+    # `audit_log.id`는 CHAR(32)이고 **기본값이 없다**(PostgreSQL의 `gen_random_uuid()`가
+    # 옮겨 오지 않았다). 넣지 않으면 NOT NULL 위반으로 감사 기록만 조용히 빠진다.
     db.query(
-        "INSERT INTO audit_log (action, details_json) "
-        f"VALUES ('{PURGE_ACTION}', $j${details}$j$::jsonb)"
+        "INSERT INTO audit_log (id, action, details_json) "
+        f"VALUES ('{uuid.uuid4().hex}', '{PURGE_ACTION}', '{escaped}')"
     )
 
 
