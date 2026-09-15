@@ -86,11 +86,20 @@ IRREVERSIBLE: dict[str, str] = {
 #: `041`(대화 기록)은 따로 내릴 수 없고 위 IRREVERSIBLE에 함께 들어간다.
 EPHEMERAL: dict[str, str] = {}
 
-#: 다시 upgrade하면 같은 값이 돌아오는 것 — 마이그레이션이 적재하던 규정·시드 값이다.
+#: 다시 upgrade하면 같은 값이 돌아오는 것 — 마이그레이션이 적재하는 규정·시드 값이다.
+#: 운영에서 값을 고치는 경로가 생기면(파라미터 import · `#444`) 이 분류를 다시 본다.
 #:
-#: 마이그레이션이 하나뿐인 지금은 **비어 있다.** 시드는 마이그레이션이 아니라
-#: `db/seed.py`의 `seed_all()`이 넣으므로(`#1058`) 애초에 downgrade의 대상이 아니다.
-REGENERABLE: dict[str, str] = {}
+#: **한때 비어 있었다(`49d010e`).** CUBRID 전환으로 `017`·`032`가 사라진 상태에 코드를
+#: 맞추면서 「시드는 `seed_all()`이 넣으므로 downgrade 대상이 아니다」라고 적었는데,
+#: `DB_SCHEMA §8.1.1`은 그렇게 정한 적이 없다 — 「계산에 필요한 seed는
+#: `alembic upgrade head` 경로에 들어 있다」가 정본이다. `6c7496c4d122`가 그 경로를
+#: 되살렸으므로 분류도 제자리로 돌린다.
+REGENERABLE: dict[str, str] = {
+    "6c7496c4d122": (
+        "규제 파라미터 50행(연료 CF 8 · Z-factor 8 · 기준선 20 · d-vector 14) — "
+        "자기가 넣은 키만 지우고, 다시 upgrade하면 같은 값이 돌아온다"
+    ),
+}
 
 
 def _allowed() -> set[str]:
