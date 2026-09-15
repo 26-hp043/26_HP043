@@ -90,18 +90,35 @@ SUITE_LOCK_MESSAGE = (
 )
 
 
-async def insert_if_not_exists(session, sql_with_values: str, params: dict | None = None) -> None:
-    """CUBRID 호환 idempotent INSERT.
+def _cubrid_params(params: dict | None) -> dict:
+    """CUBRID 호환 파라미터 변환 — UUID → hex string, Decimal → float (#1058)."""
+    if not params:
+        return {}
+    import uuid
+    from decimal import Decimal
 
-    PostgreSQL의 ``INSERT ... SELECT ... WHERE NOT EXISTS`` 패턴 대체.
-    CUBRID는 이 패턴을 지원하지 않으므로 INSERT + 예외 무시로 처리한다 (#1058).
+    result = {}
+    for k, v in params.items():
+        if isinstance(v, uuid.UUID):
+            result[k] = v.hex
+        elif isinstance(v, Decimal):
+            result[k] = float(v)
+        else:
+            result[k] = v
+    return result
 
-    ``sql_with_values``는 일반 INSERT 문이어야 한다 (WHERE NOT EXISTS 없이).
-    """
+
+async def execute_sql(session, sql: str, params: dict | None = None):
+    """CUBRID 호환 raw SQL 실행 — UUID/Decimal 자동 변환."""
     from sqlalchemy import text
 
+    return await session.execute(text(sql), _cubrid_params(params))
+
+
+async def insert_if_not_exists(session, sql_with_values: str, params: dict | None = None) -> None:
+    """CUBRID 호환 idempotent INSERT — 이미 있으면 무시."""
     try:
-        await session.execute(text(sql_with_values), params or {})
+        await execute_sql(session, sql_with_values, params)
     except Exception:
         pass  # 이미 존재 (UNIQUE/PK 위반)
 
@@ -278,12 +295,49 @@ def _upgrade_failure_message(result: subprocess.CompletedProcess) -> str:
     )
 
 
+def _install_cubrid_param_converter(engine):
+    """CUBRID 호환 파라미터 변환 이벤트 — UUID→hex, Decimal→float (#1058).
+
+    sa.text()에 UUID 객체를 바인딩하면 pycubrid가 거부하므로,
+    before_cursor_execute에서 자동 변환한다.
+    """
+    import uuid
+    from decimal import Decimal
+
+    from sqlalchemy import event
+
+    import re
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
+    def _convert_params(conn, cursor, statement, parameters, context, executemany):
+        # 1. UUID/Decimal → string 변환
+        if parameters and isinstance(parameters, (tuple, list)):
+            converted = []
+            for p in parameters:
+                if isinstance(p, uuid.UUID):
+                    converted.append(p.hex)
+                elif isinstance(p, Decimal):
+                    converted.append(str(p))
+                else:
+                    converted.append(p)
+            parameters = tuple(converted)
+
+        # 2. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
+        if statement.lstrip().upper().startswith("INSERT INTO") and "(id," not in statement and "(id)" not in statement:
+            m = re.match(r"(INSERT INTO \S+ )\((.+?)\)( VALUES )\((.+?)\)", statement, re.DOTALL)
+            if m:
+                prefix, cols, mid, vals = m.groups()
+                new_id = uuid.uuid4().hex
+                statement = f"{prefix}(id, {cols}){mid}('{new_id}', {vals})"
+
+        return statement, parameters
+
+
 @pytest_asyncio.fixture
 async def conn(migrated_db):
     """함수 단위 트랜잭션. 테스트 종료 시 롤백하여 DB를 오염시키지 않는다."""
-    # env.py와 동일하게 NullPool 사용: 함수마다 엔진을 새로 만들고 dispose하므로
-    # 커넥션을 풀에 남기지 않아 누수를 방지한다. (#86)
     engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    _install_cubrid_param_converter(engine)
     connection = await engine.connect()
     trans = await connection.begin()
     try:
