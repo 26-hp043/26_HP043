@@ -21,7 +21,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id, uuid_hex
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -95,7 +95,7 @@ async def _insert_vessel_with_history(session) -> str:
             "(vessel_id, status, annual_inclusion_policy, regulation_year, "
             " departure_port_name, arrival_port_name, planned_distance_nm, "
             " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
-            f"VALUES ('{vessel_id}'::uuid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
+            f"VALUES ('{uuid_hex(vessel_id)}', 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
             f"'BUSAN', 'SINGAPORE', {distance}, {distance}, 12.0, 11.5) RETURNING id",
             {},
         )
@@ -103,7 +103,7 @@ async def _insert_vessel_with_history(session) -> str:
             text(
                 "INSERT INTO voyage_fuel_use "
                 "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
-                f"VALUES ('{voyage_id}'::uuid, 'HFO', {fuel}, {fuel}, {HFO_CF}, 'SAMPLE')"
+                f"VALUES ('{uuid_hex(voyage_id)}', 'HFO', {fuel}, {fuel}, {HFO_CF}, 'SAMPLE')"
             )
         )
     return vessel_id

@@ -18,7 +18,7 @@
 import asyncio
 
 import pytest
-from conftest import insert_returning_id
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -53,12 +53,12 @@ async def _insert_period(
     ended_at="'2026-01-12T00:00:00+00'::timestamptz",
     voyage_id=None,
 ) -> str:
-    voyage_expr = f"'{voyage_id}'::uuid" if voyage_id is not None else "NULL"
+    voyage_expr = f"'{uuid_hex(voyage_id)}'" if voyage_id is not None else "NULL"
     return await insert_returning_id(
         conn,
         "INSERT INTO not_underway_period "
         "(vessel_id, regulation_year, period_type, started_at, ended_at, voyage_id) "
-        f"VALUES ('{vessel_id}'::uuid, 2026, :ptype, {started_at}, {ended_at}, "
+        f"VALUES ('{uuid_hex(vessel_id)}', 2026, :ptype, {started_at}, {ended_at}, "
         f"{voyage_expr}) "
         "RETURNING id",
         {"ptype": period_type},

@@ -18,7 +18,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id, uuid_hex
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -81,7 +81,7 @@ async def _insert_voyage(
         "(vessel_id, status, annual_inclusion_policy, regulation_year, "
         " departure_port_name, arrival_port_name, planned_distance_nm, "
         " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
-        f"VALUES ('{vessel_id}'::uuid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
+        f"VALUES ('{uuid_hex(vessel_id)}', 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
         f"'BUSAN', 'SINGAPORE', {distance}, {distance}, 12.0, 11.5) RETURNING id",
         {},
     )
@@ -90,7 +90,7 @@ async def _insert_voyage(
             text(
                 "INSERT INTO voyage_fuel_use "
                 "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
-                f"VALUES ('{voyage_id}'::uuid, '{fuel_type}', {ton}, {ton}, {cf}, 'SAMPLE')"
+                f"VALUES ('{uuid_hex(voyage_id)}', '{fuel_type}', {ton}, {ton}, {cf}, 'SAMPLE')"
             )
         )
 
@@ -108,7 +108,7 @@ async def _insert_not_underway(
         session,
         "INSERT INTO not_underway_period "
         "(vessel_id, regulation_year, period_type, started_at, ended_at, distance_nm) "
-        f"VALUES ('{vessel_id}'::uuid, {year}, 'IN_PORT', "
+        f"VALUES ('{uuid_hex(vessel_id)}', {year}, 'IN_PORT', "
         f"'{year}-03-01T00:00:00+00:00', '{year}-03-03T00:00:00+00:00', 0) RETURNING id",
         {},
     )
@@ -116,7 +116,7 @@ async def _insert_not_underway(
         text(
             "INSERT INTO not_underway_fuel_use "
             "(period_id, consumer_type, fuel_type, fuel_ton, cf_used) "
-            f"VALUES ('{period_id}'::uuid, 'AUX_ENGINE', '{fuel_type}', {ton}, {cf})"
+            f"VALUES ('{uuid_hex(period_id)}', 'AUX_ENGINE', '{fuel_type}', {ton}, {cf})"
         )
     )
 

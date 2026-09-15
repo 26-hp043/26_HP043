@@ -25,7 +25,7 @@ async def _fetch_events(session, action: str) -> list:
     rows = await session.execute(
         text(
             "SELECT user_id, details_json, ip_address FROM audit_log "
-            'WHERE action = :action ORDER BY "timestamp" DESC'
+            'WHERE "action" = :action ORDER BY "timestamp" DESC'
         ),
         {"action": action},
     )

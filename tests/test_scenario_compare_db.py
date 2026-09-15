@@ -164,7 +164,7 @@ async def test_compare_persists_three_scenarios_and_run(migrated_db, app_fresh_e
                 await s.execute(
                     text(
                         "SELECT details_json FROM audit_log "
-                        "WHERE action = 'CALCULATION_RUN' AND entity_id::text = :rid"
+                        "WHERE \"action\" = 'CALCULATION_RUN' AND entity_id = :rid"
                     ),
                     {"rid": body["calculation_run_id"]},
                 )

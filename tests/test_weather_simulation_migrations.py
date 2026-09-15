@@ -216,7 +216,7 @@ async def test_audit_log_insert_ok(conn):
     # action 외 전부 NULL 허용 (§2.14). id·timestamp는 DEFAULT로 채워진다.
     row = await conn.execute(
         text(
-            "INSERT INTO audit_log (action, entity_type, entity_id, details_json) "
+            'INSERT INTO audit_log ("action", entity_type, entity_id, details_json) '
             "VALUES ('CALCULATION_RUN', 'calculation_run', gen_random_uuid(), "
             " '{}'::jsonb) RETURNING id, \"timestamp\""
         )
@@ -227,7 +227,7 @@ async def test_audit_log_insert_ok(conn):
 
 
 async def test_audit_log_minimal_insert_ok(conn):
-    await conn.execute(text("INSERT INTO audit_log (action) VALUES ('IMPORT')"))
+    await conn.execute(text("INSERT INTO audit_log (\"action\") VALUES ('IMPORT')"))
 
 
 # --- 완료 기준 (#103) ---

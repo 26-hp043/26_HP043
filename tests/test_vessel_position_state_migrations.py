@@ -11,7 +11,7 @@
 """
 
 import pytest
-from conftest import insert_returning_id
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -26,7 +26,7 @@ async def _insert_vessel(conn, imo="1234567") -> str:
 
 
 async def _update_state(conn, vessel_id: str, set_clause: str) -> None:
-    await conn.execute(text(f"UPDATE vessel SET {set_clause} WHERE id = '{vessel_id}'::uuid"))
+    await conn.execute(text(f"UPDATE vessel SET {set_clause} WHERE id = '{uuid_hex(vessel_id)}'"))
 
 
 @pytest.mark.asyncio
@@ -78,7 +78,10 @@ async def test_valid_state_combinations_accepted(conn):
         )
         await _update_state(conn, vessel_id, set_clause)
         row = await conn.execute(
-            text(f"SELECT underway_state, detail_status FROM vessel WHERE id = '{vessel_id}'::uuid")
+            text(
+                "SELECT underway_state, detail_status FROM vessel "
+                f"WHERE id = '{uuid_hex(vessel_id)}'"
+            )
         )
         result = row.one()
         assert result.underway_state == underway
@@ -176,7 +179,7 @@ async def test_lat_lon_boundary_values_accepted(conn):
         conn, vessel_id, f"current_lat = 90, current_lon = -180, position_updated_at = {ts}"
     )
     row = await conn.execute(
-        text(f"SELECT current_lat, current_lon FROM vessel WHERE id = '{vessel_id}'::uuid")
+        text(f"SELECT current_lat, current_lon FROM vessel WHERE id = '{uuid_hex(vessel_id)}'")
     )
     assert row.one() == (90, -180)
 

@@ -142,6 +142,22 @@ SUITE_LOCK_MESSAGE = (
 )
 
 
+def uuid_hex(value) -> str:
+    """UUID를 CUBRID 저장 형식(하이픈 없는 32자 hex)으로 (#1058).
+
+    f-string으로 SQL 리터럴을 만드는 자리에서 쓴다. PostgreSQL 시절에는
+    ``'{uuid}'::uuid``로 캐스팅했는데 **CUBRID에는 `uuid` 타입이 없다.** 컬럼은
+    ``CHAR(32)``이고, 대시 형식을 그대로 넣으면 다음처럼 거부된다 — 실측이다::
+
+        Cannot coerce '00000000-0000-4000-8000-000000000001' to type char
+
+    파라미터를 쓸 수 있는 자리에서는 이 함수 대신 ``UuidText`` bindparam을 붙인다.
+    """
+    from uuid import UUID
+
+    return UUID(str(value)).hex
+
+
 def _cubrid_params(params: dict | None) -> dict:
     """CUBRID 호환 파라미터 변환 — UUID → hex string, Decimal → float (#1058)."""
     if not params:

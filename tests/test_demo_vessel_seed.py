@@ -16,7 +16,9 @@ tests/test_dashboard_seed.py가 담당한다.
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
+
+from cii_platform.db.types import UuidText
 
 # --- 기대값 독립 전사 -------------------------------------------------------------
 #
@@ -139,9 +141,9 @@ async def test_frontend_reference_vessel_exists(conn):
     """
     row = (
         await conn.execute(
-            text(
-                "SELECT ship_type, deadweight FROM vessel WHERE id = CAST(:vid AS uuid)"
-            ).bindparams(vid=VESSEL_ID_BULK)
+            text("SELECT ship_type, deadweight FROM vessel WHERE id = :vid")
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_ID_BULK)
         )
     ).one_or_none()
     assert row is not None
@@ -176,10 +178,9 @@ async def test_bulk_reference_specs_match_the_canonical_fixture(conn):
     """
     row = (
         await conn.execute(
-            text(
-                "SELECT reference_speed_kn, reference_daily_foc_ton FROM vessel "
-                "WHERE id = CAST(:vid AS uuid)"
-            ).bindparams(vid=VESSEL_ID_BULK)
+            text("SELECT reference_speed_kn, reference_daily_foc_ton FROM vessel WHERE id = :vid")
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_ID_BULK)
         )
     ).one()
     assert row.reference_speed_kn == Decimal("12.00")
@@ -291,7 +292,9 @@ async def test_seeded_ship_types_have_reference_lines(conn, vessel_id):
     다룬다). 적재 전이면 이 테스트는 건너뛴다 — seed 미실행은 이 이슈의 결함이 아니다.
     """
     ship_type = await conn.scalar(
-        text("SELECT ship_type FROM vessel WHERE id = CAST(:vid AS uuid)").bindparams(vid=vessel_id)
+        text("SELECT ship_type FROM vessel WHERE id = :vid")
+        .bindparams(bindparam("vid", type_=UuidText()))
+        .bindparams(vid=vessel_id)
     )
     total = await conn.scalar(text("SELECT count(*) FROM cii_reference_line"))
     if total == 0:
@@ -365,8 +368,10 @@ async def test_ro_ro_daily_foc_is_derived_from_its_own_voyage(conn):
                 "FROM vessel v "
                 "JOIN voyage y ON y.vessel_id = v.id AND y.voyage_no = '2026-01' "
                 "JOIN voyage_fuel_use f ON f.voyage_id = y.id "
-                "WHERE v.id = CAST(:vid AS uuid)"
-            ).bindparams(vid=VESSEL_ID_RO_RO)
+                "WHERE v.id = :vid"
+            )
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_ID_RO_RO)
         )
     ).one()
 
@@ -407,9 +412,9 @@ async def test_missing_spec_detector_actually_detects(conn):
     from cii_platform.db.demo_seed import VESSEL_ID_RO_RO, missing_seeded_specs
 
     await conn.execute(
-        text(
-            "UPDATE vessel SET reference_daily_foc_ton = NULL WHERE id = CAST(:vid AS uuid)"
-        ).bindparams(vid=VESSEL_ID_RO_RO)
+        text("UPDATE vessel SET reference_daily_foc_ton = NULL WHERE id = :vid")
+        .bindparams(bindparam("vid", type_=UuidText()))
+        .bindparams(vid=VESSEL_ID_RO_RO)
     )
 
     drifted = await missing_seeded_specs(conn)

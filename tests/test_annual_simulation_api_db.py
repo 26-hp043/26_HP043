@@ -406,7 +406,7 @@ async def test_a_missing_variable_row_still_falls_back(session, vessel_id):
     await session.execute(
         text(
             "UPDATE simulation_parameter SET is_active = false "
-            "WHERE profile = 'DEFAULT' AND variable = 'SPEED'"
+            "WHERE profile = 'DEFAULT' AND \"variable\" = 'SPEED'"
         )
     )
 

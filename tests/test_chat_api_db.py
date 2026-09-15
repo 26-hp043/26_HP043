@@ -398,8 +398,8 @@ async def test_every_turn_is_audited(migrated_db, app_fresh_engine):
                 (
                     await s.execute(
                         text(
-                            "SELECT action, details_json FROM audit_log "
-                            "WHERE action LIKE 'CHAT_%' ORDER BY \"timestamp\""
+                            'SELECT "action", details_json FROM audit_log '
+                            'WHERE "action" LIKE \'CHAT_%\' ORDER BY "timestamp"'
                         )
                     )
                 )

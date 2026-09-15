@@ -32,9 +32,10 @@ import json
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import app
+from cii_platform.db.types import UuidText
 
 _BASE = "https://testserver"
 
@@ -55,7 +56,7 @@ async def _fetch_events(session, action: str) -> list:
     rows = await session.execute(
         text(
             "SELECT user_id, entity_type, entity_id, details_json, ip_address "
-            'FROM audit_log WHERE action = :action ORDER BY "timestamp" DESC'
+            'FROM audit_log WHERE "action" = :action ORDER BY "timestamp" DESC'
         ),
         {"action": action},
     )
@@ -70,11 +71,16 @@ async def _cleanup(voyage_id: str | None = None) -> None:
         await s.execute(text("DELETE FROM audit_log"))
         if voyage_id is not None:
             await s.execute(
-                text("DELETE FROM voyage_fuel_use WHERE voyage_id = CAST(:id AS uuid)"),
+                text("DELETE FROM voyage_fuel_use WHERE voyage_id = :id").bindparams(
+                    bindparam("id", type_=UuidText())
+                ),
                 {"id": voyage_id},
             )
             await s.execute(
-                text("DELETE FROM voyage WHERE id = CAST(:id AS uuid)"), {"id": voyage_id}
+                text("DELETE FROM voyage WHERE id = :id").bindparams(
+                    bindparam("id", type_=UuidText())
+                ),
+                {"id": voyage_id},
             )
         await s.execute(
             text(
@@ -103,17 +109,17 @@ async def _seed_completed_voyage(voyage_id: str) -> None:
                 " annual_inclusion_policy, regulation_year, departure_port_name, "
                 " arrival_port_name, planned_distance_nm, actual_distance_nm, "
                 " planned_speed_kn, created_from) "
-                "VALUES (CAST(:id AS uuid), CAST(:vid AS uuid), 'V-AUDIT-1', 'COMPLETED', "
+                "VALUES (:id, :vid, 'V-AUDIT-1', 'COMPLETED', "
                 " 'INCLUDE_AS_ACTUAL', 2026, 'BUSAN', 'SINGAPORE', 1000, 1010, 12, 'MANUAL')"
-            ),
+            ).bindparams(bindparam("id", type_=UuidText()), bindparam("vid", type_=UuidText())),
             {"id": voyage_id, "vid": DEMO_VESSEL},
         )
         await s.execute(
             text(
                 "INSERT INTO voyage_fuel_use "
                 "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
-                "VALUES (CAST(:id AS uuid), 'HFO', 80, 82, 3.114, 'USER_INPUT')"
-            ),
+                "VALUES (:id, 'HFO', 80, 82, 3.114, 'USER_INPUT')"
+            ).bindparams(bindparam("id", type_=UuidText())),
             {"id": voyage_id},
         )
         await s.commit()
@@ -133,9 +139,9 @@ async def _seed_planned_voyage(voyage_id: str) -> None:
                 "INSERT INTO voyage (id, vessel_id, voyage_no, status, "
                 " annual_inclusion_policy, regulation_year, departure_port_name, "
                 " arrival_port_name, planned_distance_nm, planned_speed_kn, created_from) "
-                "VALUES (CAST(:id AS uuid), CAST(:vid AS uuid), 'V-AUDIT-2', 'PLANNED', "
+                "VALUES (:id, :vid, 'V-AUDIT-2', 'PLANNED', "
                 " 'INCLUDE_AS_PLAN', 2026, 'BUSAN', 'SINGAPORE', 1000, 12, 'MANUAL')"
-            ),
+            ).bindparams(bindparam("id", type_=UuidText()), bindparam("vid", type_=UuidText())),
             {"id": voyage_id, "vid": DEMO_VESSEL},
         )
         await s.commit()

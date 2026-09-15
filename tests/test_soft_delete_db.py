@@ -25,10 +25,11 @@ from uuid import UUID
 import pytest
 import pytest_asyncio
 from conftest import insert_returning_id
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.types import UuidText
 from cii_platform.errors import NotFoundError
 from cii_platform.services.vessel import create_vessel, delete_vessel, get_vessel, list_vessels
 from cii_platform.services.voyage import delete_voyage
@@ -124,7 +125,10 @@ async def test_soft_deleted_row_still_exists(session):
     await delete_vessel(session, UUID(vessel_id))
 
     row = await session.execute(
-        text("SELECT is_deleted FROM vessel WHERE id = CAST(:id AS uuid)"), {"id": vessel_id}
+        text("SELECT is_deleted FROM vessel WHERE id = :id").bindparams(
+            bindparam("id", type_=UuidText())
+        ),
+        {"id": vessel_id},
     )
     assert row.scalar_one() is True
 
@@ -215,7 +219,10 @@ async def test_completed_voyage_is_soft_deleted_not_removed(session):
     await delete_voyage(session, UUID(voyage_id))
 
     row = await session.execute(
-        text("SELECT is_deleted FROM voyage WHERE id = CAST(:id AS uuid)"), {"id": voyage_id}
+        text("SELECT is_deleted FROM voyage WHERE id = :id").bindparams(
+            bindparam("id", type_=UuidText())
+        ),
+        {"id": voyage_id},
     )
     assert row.scalar_one() is True
 

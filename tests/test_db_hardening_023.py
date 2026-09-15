@@ -76,7 +76,9 @@ async def test_regulation_year_zero_z_factor_passes(conn):
             "VALUES (1900, 0, '1900-01-01', 'TEST', '1.0')"
         )
     )
-    row = await conn.execute(text("SELECT z_factor_percent FROM regulation_year WHERE year = 1900"))
+    row = await conn.execute(
+        text('SELECT z_factor_percent FROM regulation_year WHERE "year" = 1900')
+    )
     assert float(row.scalar_one()) == 0.0
 
 

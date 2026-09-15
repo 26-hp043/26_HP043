@@ -19,7 +19,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from conftest import insert_returning_id
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -65,7 +65,7 @@ async def _insert_voyage(
         "planned_speed_kn",
     ]
     values = [
-        f"'{vessel_id}'::uuid",
+        f"'{uuid_hex(vessel_id)}'",
         f"'{status}'",
         "'INCLUDE_AS_PLAN'" if status == "IN_PROGRESS" else "'INCLUDE_AS_ACTUAL'",
         "2026",

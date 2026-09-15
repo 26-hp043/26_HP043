@@ -15,7 +15,7 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.calc.capacity import (
@@ -30,6 +30,7 @@ from cii_platform.db.seed import (
     SEED_REFERENCE_LINES,
     SEED_Z_FACTORS,
 )
+from cii_platform.db.types import UuidText
 from cii_platform.services.fleet_summary import get_fleet_summary
 
 VESSEL_IDS = {
@@ -379,10 +380,9 @@ async def test_canal_period_links_in_progress_voyage(conn):
 async def _vessel_row(conn, vessel_id: str):
     row = (
         await conn.execute(
-            text(
-                "SELECT ship_type, deadweight, gross_tonnage FROM vessel "
-                "WHERE id = CAST(:vid AS uuid)"
-            ).bindparams(vid=vessel_id)
+            text("SELECT ship_type, deadweight, gross_tonnage FROM vessel WHERE id = :vid")
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=vessel_id)
         )
     ).one()
     return SimpleNamespace(
@@ -409,9 +409,11 @@ async def _rating_for_2026_completed_voyage(conn, vessel_id: str) -> str:
             text(
                 "SELECT v.actual_distance_nm, f.fuel_type, f.actual_fuel_ton, f.cf_used "
                 "FROM voyage v JOIN voyage_fuel_use f ON f.voyage_id = v.id "
-                "WHERE v.vessel_id = CAST(:vid AS uuid) AND v.status = 'COMPLETED' "
+                "WHERE v.vessel_id = :vid AND v.status = 'COMPLETED' "
                 "AND v.regulation_year = 2026",
-            ).bindparams(vid=vessel_id)
+            )
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=vessel_id)
         )
     ).all()
     assert legs, f"{vessel_id}: 2026 COMPLETED 항차가 없다"
@@ -471,8 +473,10 @@ async def test_bulk_vessel_deteriorates_2025_to_2026(conn):
                 "SELECT v.regulation_year, v.actual_distance_nm, "
                 "f.actual_fuel_ton, f.cf_used "
                 "FROM voyage v JOIN voyage_fuel_use f ON f.voyage_id = v.id "
-                "WHERE v.vessel_id = CAST(:vid AS uuid) AND v.status = 'COMPLETED'"
-            ).bindparams(vid=VESSEL_IDS["bulk"])
+                "WHERE v.vessel_id = :vid AND v.status = 'COMPLETED'"
+            )
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_IDS["bulk"])
         )
     ).all()
     for year, distance, fuel_ton, cf in rows:
