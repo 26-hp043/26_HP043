@@ -24,7 +24,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from conftest import insert_returning_id
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -201,9 +201,11 @@ async def _new_voyage(session, vessel_id: str, *, status: str) -> str:
         session,
         "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
         " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-        "VALUES (CAST(:vid AS uuid), :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12) "
         "RETURNING id",
-        {"vid": vessel_id, "st": status, "pol": policy},
+        # `insert_returning_id`는 `execute_sql`을 타고, 그 변환은 `uuid.UUID` 객체만 본다 —
+        # 대시 문자열은 그대로 가서 `CHAR(32)`에 거부된다 (`#1058`).
+        {"vid": uuid_hex(vessel_id), "st": status, "pol": policy},
     )
 
 

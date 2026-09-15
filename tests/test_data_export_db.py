@@ -706,7 +706,9 @@ async def test_simulations_export_carries_run_and_result(session, vessel_id):
         text(
             "INSERT INTO simulation_snapshot "
             "  (id, vessel_id, regulation_year, voyages_json, input_hash, parameter_hash) "
-            "VALUES (:id, :vid, 2026, CAST('[]' AS jsonb), :ih, :ph)"
+            # `CAST(… AS jsonb)`는 CUBRID에 없다 (`#1058`). 컬럼이 TEXT라 문자열 그대로 넣는다.
+            # `conftest`의 셈은 `CAST(? AS …)`(파라미터)만 걷어 리터럴 형태는 남는다.
+            "VALUES (:id, :vid, 2026, '[]', :ih, :ph)"
         ),
         {"id": snapshot_id, "vid": vessel_id, "ih": _HASH_A, "ph": _HASH_B},
     )

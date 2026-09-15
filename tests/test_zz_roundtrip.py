@@ -271,7 +271,9 @@ async def test_demo_seed_downgrade_does_not_touch_data(session_free=None):
             vessels = await connection.scalar(
                 text(
                     "SELECT count(*) FROM vessel "
-                    "WHERE id = CAST('00000000-0000-4000-8000-000000000001' AS uuid)"
+                    # CUBRID에는 `uuid` 타입이 없고 컬럼은 `CHAR(32)`다 (`#1058`).
+                    # 대시 형식은 `Cannot coerce … to type char`로 거부된다.
+                    "WHERE id = '00000000000040008000000000000001'"
                 )
             )
         assert vessels == 1, "데모 선박이 없다 — conftest의 demo_seed가 돌지 않았다"

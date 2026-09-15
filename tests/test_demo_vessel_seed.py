@@ -28,7 +28,8 @@ from cii_platform.db.types import UuidText
 
 # ⚠️ ``id``는 ``uuid`` 컬럼이라 문자열 바인드를 그대로 비교할 수 없다.
 # ``operator does not exist: uuid = character varying``가 난다 — PostgreSQL은 두 타입을
-# 암묵 캐스팅하지 않는다. 아래 조회들은 ``CAST(:vid AS uuid)``로 명시한다.
+# 암묵 캐스팅하지 않는다. 아래 조회들은 ``bindparams(type_=UuidText())``로 타입을 붙인다
+# — CUBRID에는 `uuid` 타입이 없어 종전의 ``CAST(:vid AS uuid)``가 성립하지 않는다 (`#1058`).
 VESSEL_ID_BULK = "00000000-0000-4000-8000-000000000001"
 VESSEL_ID_CONTAINER = "00000000-0000-4000-8000-000000000002"
 VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
