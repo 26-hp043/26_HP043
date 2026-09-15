@@ -47,14 +47,18 @@ async def session(conn):
 
 async def _seed_parameters(session) -> None:
     await ensure_regulation_year(session, 2026)
-    await insert_if_not_exists(session,
+    await insert_if_not_exists(
+        session,
         "INSERT INTO cii_reference_line "
         "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')")
-    await insert_if_not_exists(session,
+        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')",
+    )
+    await insert_if_not_exists(
+        session,
         "INSERT INTO cii_rating_boundary "
         "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')",
+    )
 
 
 @pytest_asyncio.fixture
@@ -258,7 +262,9 @@ async def test_snapshot_records_the_voyages_used(session, vessel_id):
     assert result["data"]["snapshot"]["voyage_count"] == 2
 
     stored = await session.scalar(
-        text("SELECT jsonb_array_length(voyages_json) FROM simulation_snapshot WHERE id = :id"),
+        text(
+            "SELECT JSON_LENGTH(CAST(voyages_json AS JSON)) FROM simulation_snapshot WHERE id = :id"
+        ),
         {"id": result["data"]["snapshot"]["snapshot_id"]},
     )
     assert stored == 2

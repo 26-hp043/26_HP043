@@ -38,7 +38,9 @@ from __future__ import annotations
 import logging
 import secrets
 import time
+import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -1257,90 +1259,96 @@ async def _persist(
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
-    snapshot_row = (
-        await session.execute(
-            text(
-                "INSERT INTO simulation_snapshot "
-                "(vessel_id, regulation_year, voyages_json, vessel_json, "
-                " input_hash, parameter_hash) "
-                "VALUES (:vessel_id, :year, CAST(:voyages AS jsonb), "
-                " CAST(:vessel AS jsonb), :input_hash, :parameter_hash) "
-                "RETURNING id, created_at"
-            ),
-            {
-                "vessel_id": vessel_id,
-                "year": regulation_year,
-                "voyages": _json(voyages_json),
-                "vessel": _json(vessel_json),
-                "input_hash": input_hash,
-                "parameter_hash": parameter_hash,
-            },
-        )
-    ).one()
+    # CUBRID에는 `RETURNING`이 없고 `jsonb` 타입도 없다 (`#1058`).
+    #
+    # ⑴ `id`·`created_at`을 **파이썬에서 만들어 명시적으로 넣는다.** 돌려받을 수
+    #    없으니 보내는 값을 그대로 쓴다. 세 INSERT가 서로를 참조하는 순서가
+    #    강제돼 있어(위 docstring) 값을 미리 갖고 있는 편이 오히려 단순하다.
+    # ⑵ `CAST(… AS jsonb)`를 뺀다. 컬럼이 `JSONText`(TEXT)이고 `_json()`이 이미
+    #    직렬화한 문자열을 주므로 그대로 실으면 된다.
+    snapshot_id = uuid.uuid4()
+    snapshot_created_at = datetime.now(UTC)
+    run_id = uuid.uuid4()
+    simulation_id = uuid.uuid4()
 
-    run_row = (
-        await session.execute(
-            text(
-                # chk_calculation_type의 4값 중 하나여야 한다(마이그레이션 006).
-                # 이 실행은 결정론과 Monte Carlo를 **함께** 내지만, 사용자가 고른 것은
-                # 확률 분석이므로 MONTE_CARLO로 기록한다 — 결정론 값은 그 결과에
-                # 포함돼 있고, 별도 행으로 나누면 같은 실행이 이력에서 둘로 보인다.
-                "INSERT INTO calculation_run "
-                "(calculation_type, vessel_id, input_hash, parameter_hash, model_version, "
-                " result_json, parameters_used, warnings_json, duration_ms) "
-                "VALUES ('ANNUAL_MONTE_CARLO', :vessel_id, :input_hash, :parameter_hash, "
-                " CAST(:model_version AS jsonb), CAST(:result AS jsonb), "
-                " CAST(:parameters AS jsonb), CAST(:warnings AS jsonb), :duration_ms) "
-                "RETURNING id"
-            ),
-            {
-                "vessel_id": vessel_id,
-                "input_hash": input_hash,
-                "parameter_hash": parameter_hash,
-                # `TECH_SPEC:1236-1243`이 규정한 6필드를 그대로 싣는다 (#816).
-                # 종전에는 `{"engine", "issue"}` 둘뿐이라 **하필 Monte Carlo 경로에서**
-                # `rng_algorithm`·`numpy_version`이 빠져 있었다 — `§10.2`의 「NumPy
-                # 마이너 변경 → model_version에 명시」가 성립하지 않았다.
-                # 기능①·②와 같은 함수를 써서 셋이 갈릴 수 없게 한다.
-                "model_version": _json(_model_version()),
-                "result": _json(result_json),
-                "parameters": _json(parameters_used),
-                "warnings": _json(warnings),
-                # `#752` 이전에는 이 컬럼을 비워 두었다. `PRD §16.1`의 「Monte Carlo
-                # 5,000회 p95 < 3초」를 나중에 되짚으려면 실행마다 남아 있어야 한다 —
-                # 응답에만 실으면 그 순간 말고는 확인할 길이 없다.
-                "duration_ms": duration_ms,
-            },
-        )
-    ).one()
+    await session.execute(
+        text(
+            "INSERT INTO simulation_snapshot "
+            "(id, vessel_id, regulation_year, voyages_json, vessel_json, "
+            " input_hash, parameter_hash, created_at) "
+            "VALUES (:id, :vessel_id, :year, :voyages, "
+            " :vessel, :input_hash, :parameter_hash, :created_at)"
+        ),
+        {
+            "id": snapshot_id,
+            "created_at": snapshot_created_at,
+            "vessel_id": vessel_id,
+            "year": regulation_year,
+            "voyages": _json(voyages_json),
+            "vessel": _json(vessel_json),
+            "input_hash": input_hash,
+            "parameter_hash": parameter_hash,
+        },
+    )
 
-    simulation_row = (
-        await session.execute(
-            text(
-                "INSERT INTO annual_simulation_run "
-                "(calculation_run_id, vessel_id, regulation_year, target_rating, "
-                " simulation_runs, snapshot_id, apply_feedback_factor) "
-                "VALUES (:run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback) "
-                "RETURNING id"
-            ),
-            {
-                "run_id": run_row.id,
-                "vessel_id": vessel_id,
-                "year": regulation_year,
-                "target": target_rating,
-                "runs": runs,
-                "snapshot_id": snapshot_row.id,
-                "feedback": apply_feedback_factor,
-            },
-        )
-    ).one()
+    await session.execute(
+        text(
+            # chk_calculation_type의 4값 중 하나여야 한다(마이그레이션 006).
+            # 이 실행은 결정론과 Monte Carlo를 **함께** 내지만, 사용자가 고른 것은
+            # 확률 분석이므로 MONTE_CARLO로 기록한다 — 결정론 값은 그 결과에
+            # 포함돼 있고, 별도 행으로 나누면 같은 실행이 이력에서 둘로 보인다.
+            "INSERT INTO calculation_run "
+            "(id, calculation_type, vessel_id, input_hash, parameter_hash, model_version, "
+            " result_json, parameters_used, warnings_json, duration_ms) "
+            "VALUES (:id, 'ANNUAL_MONTE_CARLO', :vessel_id, :input_hash, :parameter_hash, "
+            " :model_version, :result, :parameters, :warnings, :duration_ms)"
+        ),
+        {
+            "id": run_id,
+            "vessel_id": vessel_id,
+            "input_hash": input_hash,
+            "parameter_hash": parameter_hash,
+            # `TECH_SPEC:1236-1243`이 규정한 6필드를 그대로 싣는다 (#816).
+            # 종전에는 `{"engine", "issue"}` 둘뿐이라 **하필 Monte Carlo 경로에서**
+            # `rng_algorithm`·`numpy_version`이 빠져 있었다 — `§10.2`의 「NumPy
+            # 마이너 변경 → model_version에 명시」가 성립하지 않았다.
+            # 기능①·②와 같은 함수를 써서 셋이 갈릴 수 없게 한다.
+            "model_version": _json(_model_version()),
+            "result": _json(result_json),
+            "parameters": _json(parameters_used),
+            "warnings": _json(warnings),
+            # `#752` 이전에는 이 컬럼을 비워 두었다. `PRD §16.1`의 「Monte Carlo
+            # 5,000회 p95 < 3초」를 나중에 되짚으려면 실행마다 남아 있어야 한다 —
+            # 응답에만 실으면 그 순간 말고는 확인할 길이 없다.
+            "duration_ms": duration_ms,
+        },
+    )
+
+    await session.execute(
+        text(
+            "INSERT INTO annual_simulation_run "
+            "(id, calculation_run_id, vessel_id, regulation_year, target_rating, "
+            " simulation_runs, snapshot_id, apply_feedback_factor) "
+            "VALUES (:id, :run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback)"
+        ),
+        {
+            "id": simulation_id,
+            "run_id": run_id,
+            "vessel_id": vessel_id,
+            "year": regulation_year,
+            "target": target_rating,
+            "runs": runs,
+            "snapshot_id": snapshot_id,
+            "feedback": apply_feedback_factor,
+        },
+    )
 
     await session.commit()
     return (
-        snapshot_row.id,
-        run_row.id,
-        simulation_row.id,
-        snapshot_row.created_at,
+        snapshot_id,
+        run_id,
+        simulation_id,
+        snapshot_created_at,
         input_hash,
         parameter_hash,
     )
@@ -1377,7 +1385,10 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 "       c.result_json, c.parameters_used, c.input_hash, c.parameter_hash, "
                 "       c.model_version, c.duration_ms, "
                 "       s.created_at AS snapshot_created_at, "
-                "       jsonb_array_length(s.voyages_json) AS voyage_count "
+                # `jsonb_array_length`는 PostgreSQL 전용이다. CUBRID는 `JSON_LENGTH`이고,
+                # 컬럼이 TEXT여도(`JSONText`) 그대로 받는다 — 로컬에서 확인했다 (`#1058`).
+                # **여기서도 본문은 읽지 않는다** — 개수만 센다(위 docstring).
+                "       JSON_LENGTH(CAST(s.voyages_json AS JSON)) AS voyage_count "
                 "FROM annual_simulation_run r "
                 "JOIN calculation_run c ON c.id = r.calculation_run_id "
                 "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
