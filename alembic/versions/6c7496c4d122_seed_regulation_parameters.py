@@ -1,4 +1,7 @@
-"""규제 파라미터·연료 CF 부트스트랩 — 종전 017 + 032 (#1058).
+"""규제 파라미터·연료 CF·기상 계수·시뮬레이션 파라미터 부트스트랩 (#1058).
+
+종전 `017`(연료 CF 8) + `019`(기상 계수 10) + `032`(규제 42) + `035`(시뮬레이션 3)
+= **63행**을 한 리비전으로 합쳐 되살린다.
 
 **CUBRID 전환(`9ddeb22`)에서 data migration 017·032가 통째로 사라졌다.** 스키마를
 `1c444a5c4819` 하나로 합치면서 값을 넣던 리비전이 함께 지워졌고, 그 결과
@@ -386,6 +389,123 @@ SEED_RATING_BOUNDARIES: tuple[dict[str, object], ...] = (
 )
 
 
+_TOWNSIN_KWON_ALPHA = "TOWNSIN_KWON_ALPHA"
+_TECH_SPEC_REF = "TECH_SPEC §3.3 (Kwon 2008 단순화)"
+_UNIT_DIMENSIONLESS = "dimensionless"
+
+#: ``op.bulk_insert``는 executemany라 모든 dict의 키 집합이 같아야 한다.
+SEED_WEATHER_PARAMS: list[dict[str, object]] = [
+    # Bulk carrier — TECH_SPEC §3.3: CU = 0.5 × BN + 0.5
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_a.BULK_CARRIER",
+        "value": "0.5",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_b.BULK_CARRIER",
+        "value": "0.5",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    # Tanker — TECH_SPEC §3.3: CU = 0.7 × BN
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_a.TANKER",
+        "value": "0.7",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_b.TANKER",
+        "value": "0",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    # Container ship — TECH_SPEC §3.3: CU = 0.6 × BN + 0.2
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_a.CONTAINER_SHIP",
+        "value": "0.6",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_b.CONTAINER_SHIP",
+        "value": "0.2",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    # General cargo — TECH_SPEC §3.3: CU = 0.5 × BN + 0.5
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_a.GENERAL_CARGO_SHIP",
+        "value": "0.5",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_b.GENERAL_CARGO_SHIP",
+        "value": "0.5",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    # LNG carrier — TECH_SPEC §3.3: CU = 0.7 × BN
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_a.LNG_CARRIER",
+        "value": "0.7",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+    {
+        "model_version": _TOWNSIN_KWON_ALPHA,
+        "key": "cu_b.LNG_CARRIER",
+        "value": "0",
+        "unit": _UNIT_DIMENSIONLESS,
+        "source_ref": _TECH_SPEC_REF,
+    },
+]
+
+
+# 시뮬레이션 파라미터 (종전 035 · `PRD §12.4.1` · `DB_SCHEMA §2.19`).
+#
+# (variable, bound_type, min, mode, max, floor)
+_SIM_DEFAULT_ROWS = (
+    # 거리 — 우회·대기 가능성. min=0.97×plan, mode=plan, max=1.05×plan
+    ("DISTANCE", "FACTOR", "0.9700", "1.0000", "1.0500", None),
+    # 연료 사용량 — 기상·운항 변동. min=0.90×plan, mode=plan, max=1.15×plan
+    ("FUEL", "FACTOR", "0.9000", "1.0000", "1.1500", None),
+    # 속도 — 감속·증속 변동. min=plan-1kn, mode=plan, max=plan+1kn
+    # floor 1.0kn: [ORACLE 삼각분포 가드] 계획 1.5kn이면 min이 0.5kn이 되므로.
+    ("SPEED", "DELTA", "-1.0000", "0.0000", "1.0000", "1.0000"),
+)
+
+_SIM_SOURCE_REF = "PRD §12.4.1"
+_SIM_VERSION = "2026.08"
+_SIM_DEFAULT_PROFILE = "DEFAULT"
+
+SEED_SIMULATION_PARAMETERS: list[dict[str, object]] = [
+    {
+        "profile": _SIM_DEFAULT_PROFILE,
+        "variable": variable,
+        "distribution": "TRIANGULAR",
+        "bound_type": bound_type,
+        "min_value": min_value,
+        "mode_value": mode_value,
+        "max_value": max_value,
+        "floor_value": floor_value,
+        "source_ref": _SIM_SOURCE_REF,
+        "version": _SIM_VERSION,
+    }
+    for variable, bound_type, min_value, mode_value, max_value, floor_value in _SIM_DEFAULT_ROWS
+]
+
 # bulk_insert/delete용 경량 테이블 선언. 실제 컬럼 정의는 `1c444a5c4819`가 소유한다.
 # `id`는 종전 017·032에 없던 열이다 — CUBRID에는 기본값이 없어 명시해야 한다.
 _fuel_type = sa.table(
@@ -437,6 +557,34 @@ _cii_rating_boundary = sa.table(
 )
 
 
+# `key`·`value`·`variable`은 **CUBRID 예약어**다 (#1058). raw SQL에서는 인용해야 하지만
+# 여기서는 SQLAlchemy Core가 식별자를 자동으로 인용한다.
+_weather_model_parameter = sa.table(
+    "weather_model_parameter",
+    sa.column("id", sa.String),
+    sa.column("model_version", sa.String),
+    sa.column("key", sa.String),
+    sa.column("value", sa.String),
+    sa.column("unit", sa.String),
+    sa.column("source_ref", sa.String),
+)
+
+_simulation_parameter = sa.table(
+    "simulation_parameter",
+    sa.column("id", sa.String),
+    sa.column("profile", sa.String),
+    sa.column("variable", sa.String),
+    sa.column("distribution", sa.String),
+    sa.column("bound_type", sa.String),
+    sa.column("min_value", sa.Numeric),
+    sa.column("mode_value", sa.Numeric),
+    sa.column("max_value", sa.Numeric),
+    sa.column("floor_value", sa.Numeric),
+    sa.column("source_ref", sa.String),
+    sa.column("version", sa.String),
+)
+
+
 def _with_id(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     """각 행에 `id`를 채운다.
 
@@ -447,9 +595,18 @@ def _with_id(rows: list[dict[str, object]]) -> list[dict[str, object]]:
 
 
 def upgrade() -> None:
-    """연료 CF 8행 + 규제 파라미터 42행 = 50행을 넣는다.
+    """부트스트랩 63행을 넣는다.
 
-    `ci.yml`의 「규제 파라미터 적재 확인 (50행)」이 세는 그 50행이다.
+    | 표 | 행 | 종전 |
+    |---|---|---|
+    | `fuel_type` | 8 | 017 |
+    | `regulation_year` · `cii_reference_line` · `cii_rating_boundary` | 8 · 20 · 14 | 032 |
+    | `weather_model_parameter` | 10 | 019 |
+    | `simulation_parameter` | 3 | 035 |
+
+    앞의 넷 50행이 `ci.yml`의 「규제 파라미터 적재 확인 (50행)」이 세는 그 50행이다.
+    뒤의 둘을 빼면 기상 보정이 전 선종에서 죽고(`weather.py`) 연간 시뮬레이션이
+    `알 수 없는 분포 프로파일입니다: DEFAULT`로 떨어진다 — 실측으로 확인했다.
     """
     op.bulk_insert(_fuel_type, _with_id(SEED_FUEL_TYPES))
     op.bulk_insert(
@@ -474,13 +631,16 @@ def upgrade() -> None:
         _cii_rating_boundary,
         _with_id([{**row, "source_ref": SOURCE_RATING_BOUNDARY} for row in SEED_RATING_BOUNDARIES]),
     )
+    op.bulk_insert(_weather_model_parameter, _with_id(SEED_WEATHER_PARAMS))
+    op.bulk_insert(_simulation_parameter, _with_id(SEED_SIMULATION_PARAMETERS))
 
 
 def downgrade() -> None:
-    """이 마이그레이션이 넣은 50행만 지운다 (`DB_SCHEMA §8.1.1` 🔒).
+    """이 마이그레이션이 넣은 63행만 지운다 (`DB_SCHEMA §8.1.1` 🔒).
 
-    `fuel_type`은 `code`가, `regulation_year`는 `year`가, 나머지 둘은
-    `(ship_type, condition_expr)`이 UNIQUE 키다. 그 키로 한정한다.
+    `fuel_type`은 `code`가, `regulation_year`는 `year`가, 기준선·d-vector는
+    `(ship_type, condition_expr)`, 기상 계수는 `(model_version, key)`, 시뮬레이션
+    파라미터는 `(profile, variable)`이 UNIQUE 키다. 그 키로 한정한다.
     참조 중인 행이 있으면 FK가 즉시 거부하며, 이는 정상 동작이다.
     """
     op.execute(
@@ -489,6 +649,20 @@ def downgrade() -> None:
     op.execute(
         _regulation_year.delete().where(
             _regulation_year.c.year.in_([row["year"] for row in SEED_Z_FACTORS])
+        )
+    )
+    op.execute(
+        _weather_model_parameter.delete().where(
+            _weather_model_parameter.c.model_version == _TOWNSIN_KWON_ALPHA,
+            _weather_model_parameter.c.key.in_([row["key"] for row in SEED_WEATHER_PARAMS]),
+        )
+    )
+    op.execute(
+        _simulation_parameter.delete().where(
+            _simulation_parameter.c.profile == _SIM_DEFAULT_PROFILE,
+            _simulation_parameter.c.variable.in_(
+                [row["variable"] for row in SEED_SIMULATION_PARAMETERS]
+            ),
         )
     )
     for table, rows in (

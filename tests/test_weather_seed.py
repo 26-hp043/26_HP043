@@ -11,11 +11,30 @@ from pathlib import Path
 
 import pytest
 
-#: 019 마이그레이션 파일 경로 — ``alembic.versions`` 패키지가 pytest path에 없으므로
-#: 파일에서 직접 로드한다.
-MIGRATION_PATH = (
-    Path(__file__).parent.parent / "alembic" / "versions" / "019_seed_weather_model_parameter.py"
-)
+
+def _migration_path() -> Path:
+    """기상 계수를 넣는 data migration 파일.
+
+    ``alembic.versions``는 패키지가 아니라 파일에서 직접 로드한다.
+
+    `#1058`(CUBRID 전환)에서 리비전 번호 체계가 `019` 같은 순번에서 hex로 바뀌었고,
+    기상 계수 10행은 규제 파라미터와 한 리비전으로 합쳐졌다. 파일명을 박아 두면
+    리비전이 갈릴 때마다 이 검사가 `FileNotFoundError`로 죽는다 — 실제로 그렇게
+    죽어 있었다.
+
+    **한 개도 못 찾으면 실패한다.** 빈 목록을 훑는 검사는 조용히 통과한다.
+    """
+    versions = Path(__file__).parent.parent / "alembic" / "versions"
+    hits = sorted(versions.glob("*_seed_regulation_parameters.py"))
+
+    assert hits, f"기상 계수 data migration을 찾지 못했습니다: {versions}"
+    assert len(hits) == 1, f"후보가 둘 이상입니다: {[h.name for h in hits]}"
+
+    return hits[0]
+
+
+#: 기상 계수 10행을 넣는 마이그레이션 (`#1058` 이전에는 `019`).
+MIGRATION_PATH = _migration_path()
 
 #: TECH_SPEC §3.3 — Kwon (2008) 단순화 기반 선종별 CU 계수.
 #: ``CU = a × BN + b`` 선형 형태로 일반화. (a, b) 튜플.
