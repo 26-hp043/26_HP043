@@ -1167,7 +1167,7 @@ async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
             await conn.execute(
                 text(
                     f"SELECT {', '.join(SPEC_COLUMNS)} FROM vessel "  # noqa: S608
-                    "WHERE id = CAST(:vid AS uuid)"
+                    "WHERE id = :vid"
                 ).bindparams(vid=vessel["id"])
             )
         ).one_or_none()
@@ -1292,9 +1292,9 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
         await conn.execute(
             sa.text(
                 "UPDATE vessel SET underway_state = :st, detail_status = :ds, "
-                "current_lat = CAST(:lat AS numeric), current_lon = CAST(:lon AS numeric), "
+                "current_lat = :lat, current_lon = :lon, "
                 "position_updated_at = :ts "
-                "WHERE id = CAST(:vid AS uuid) AND underway_state IS NULL"
+                "WHERE id = :vid AND underway_state IS NULL"
             ),
             {
                 "st": underway,
@@ -1382,16 +1382,17 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
 
 
 async def _delete_where(conn: AsyncConnection, table: str, column: str, ids: list) -> int:
-    """지운 행 수를 돌려준다. 세는 방법은 모듈 docstring의 규칙을 따른다 (#481)."""
+    """지운 행 수를 돌려준다. CUBRID 호환 — row-by-row DELETE (#1058)."""
     if not ids:
         return 0
-    result = await conn.execute(
-        sa.text(  # noqa: S608 - 테이블·컬럼명은 이 모듈의 리터럴, 값은 바인딩된다
-            f"DELETE FROM {table} WHERE {column} = ANY(CAST(:ids AS uuid[])) RETURNING id"
-        ),
-        {"ids": ids},
-    )
-    return len(result.fetchall())
+    deleted = 0
+    for uid in ids:
+        result = await conn.execute(
+            sa.text(f'DELETE FROM {table} WHERE "{column}" = :uid'),  # noqa: S608
+            {"uid": str(uid).replace("-", "")},
+        )
+        deleted += result.rowcount
+    return deleted
 
 
 async def _delete_unreferenced(
@@ -1400,25 +1401,22 @@ async def _delete_unreferenced(
     ids: list,
     calc_run_column: str,
 ) -> int:
-    """``calculation_run``이 참조하지 않는 행만 지운다.
-
-    ``RESTRICT``에 걸려 예외로 중단되는 대신 **미리 걸러낸다** — 한 척이 막혔다고 나머지를
-    못 지우게 되면, 부분 정리조차 불가능해진다.
-
-    돌려주는 값은 **실제로 지운** 행 수이며, 호출자는 이것으로 「남긴 수」를 계산한다
-    (``kept_voyage``·``kept_vessel``). 그래서 이 값이 틀리면 **남긴 수까지 함께 틀린다.**
-    """
+    """``calculation_run``이 참조하지 않는 행만 지운다. CUBRID 호환 (#1058)."""
     if not ids:
         return 0
-    result = await conn.execute(
-        sa.text(  # noqa: S608 - 테이블·컬럼명은 이 모듈의 리터럴, 값은 바인딩된다
-            f"DELETE FROM {table} WHERE id = ANY(CAST(:ids AS uuid[])) "
-            f"AND id NOT IN (SELECT {calc_run_column} FROM calculation_run "
-            f"WHERE {calc_run_column} IS NOT NULL) RETURNING id"
-        ),
-        {"ids": ids},
-    )
-    return len(result.fetchall())
+    deleted = 0
+    for uid in ids:
+        hex_id = str(uid).replace("-", "")
+        result = await conn.execute(
+            sa.text(  # noqa: S608
+                f"DELETE FROM {table} WHERE id = :uid "
+                f'AND id NOT IN (SELECT "{calc_run_column}" FROM calculation_run '
+                f'WHERE "{calc_run_column}" IS NOT NULL)'
+            ),
+            {"uid": hex_id},
+        )
+        deleted += result.rowcount
+    return deleted
 
 
 async def main() -> None:  # pragma: no cover - 프로세스 진입점
