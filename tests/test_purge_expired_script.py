@@ -138,6 +138,12 @@ def test_success_records_an_audit_row(monkeypatch: pytest.MonkeyPatch) -> None:
 
     inserts = [s for s in db.sql if s.startswith("INSERT INTO audit_log")]
     assert len(inserts) == 1
+
+    # `#1058` — `action`은 **CUBRID 예약어**다. 인용을 빠뜨리면 구문 오류가 나고
+    # 감사 기록만 조용히 사라진다. 실행해서 확인한 자리라 문자열로 잠근다.
+    assert '"action"' in inserts[0], inserts[0]
+    # `audit_log.id`는 기본값이 없다 — 빠지면 NOT NULL 위반이다.
+    assert "(id, " in inserts[0], inserts[0]
     assert purge_expired.PURGE_ACTION in inserts[0]
     assert '"grace_days"' in inserts[0]
 

@@ -233,8 +233,10 @@ def record(db: Db, counts: dict[str, int], failures: dict[str, str], *, grace_da
     escaped = details.replace("'", "''")
     # `audit_log.id`는 CHAR(32)이고 **기본값이 없다**(PostgreSQL의 `gen_random_uuid()`가
     # 옮겨 오지 않았다). 넣지 않으면 NOT NULL 위반으로 감사 기록만 조용히 빠진다.
+    # `action`은 **CUBRID 예약어**다 — 인용하지 않으면 구문 오류로 감사 기록이
+    # 통째로 빠진다(`weather.py`의 `key`·`value`와 같은 자리).
     db.query(
-        "INSERT INTO audit_log (id, action, details_json) "
+        'INSERT INTO audit_log (id, "action", details_json) '
         f"VALUES ('{uuid.uuid4().hex}', '{PURGE_ACTION}', '{escaped}')"
     )
 
