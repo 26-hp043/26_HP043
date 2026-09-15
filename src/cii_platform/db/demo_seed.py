@@ -67,6 +67,8 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
+from cii_platform.db.types import UuidText
+
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -988,7 +990,7 @@ SEED_PERIOD_FUELS: list[dict[str, object]] = [
 # --- 경량 테이블 (018 패턴 — 실제 컬럼 정의는 각 스키마 마이그레이션이 소유) ------
 vessel_tbl = sa.table(
     "vessel",
-    sa.column("id", sa.Uuid),
+    sa.column("id", UuidText),
     sa.column("imo_number", sa.String),
     sa.column("name", sa.String),
     sa.column("ship_type", sa.String),
@@ -1006,8 +1008,8 @@ vessel_tbl = sa.table(
 )
 voyage_tbl = sa.table(
     "voyage",
-    sa.column("id", sa.Uuid),
-    sa.column("vessel_id", sa.Uuid),
+    sa.column("id", UuidText),
+    sa.column("vessel_id", UuidText),
     sa.column("voyage_no", sa.String),
     sa.column("status", sa.String),
     sa.column("annual_inclusion_policy", sa.String),
@@ -1029,8 +1031,8 @@ voyage_tbl = sa.table(
 )
 voyage_fuel_tbl = sa.table(
     "voyage_fuel_use",
-    sa.column("id", sa.Uuid),
-    sa.column("voyage_id", sa.Uuid),
+    sa.column("id", UuidText),
+    sa.column("voyage_id", UuidText),
     sa.column("fuel_type", sa.String),
     sa.column("planned_fuel_ton", sa.Numeric),
     sa.column("actual_fuel_ton", sa.Numeric),
@@ -1039,8 +1041,8 @@ voyage_fuel_tbl = sa.table(
 )
 period_tbl = sa.table(
     "not_underway_period",
-    sa.column("id", sa.Uuid),
-    sa.column("vessel_id", sa.Uuid),
+    sa.column("id", UuidText),
+    sa.column("vessel_id", UuidText),
     sa.column("regulation_year", sa.Integer),
     sa.column("period_type", sa.String),
     sa.column("started_at", sa.DateTime(timezone=True)),
@@ -1048,13 +1050,13 @@ period_tbl = sa.table(
     sa.column("port_name", sa.String),
     sa.column("lat", sa.Numeric),
     sa.column("lon", sa.Numeric),
-    sa.column("voyage_id", sa.Uuid),
+    sa.column("voyage_id", UuidText),
 )
 #: 시연 계정 (`#692`). 컬럼 정의의 주인은 022 마이그레이션이다 — 여기서는 시드가
 #: 쓰는 컬럼만 적는다(018 패턴). ``created_at``·``updated_at``은 서버 기본값이 채운다.
 app_user_tbl = sa.table(
     "app_user",
-    sa.column("id", sa.Uuid),
+    sa.column("id", UuidText),
     sa.column("email", sa.String),
     sa.column("password_hash", sa.String),
     sa.column("email_verified_at", sa.DateTime(timezone=True)),
@@ -1062,8 +1064,8 @@ app_user_tbl = sa.table(
 )
 period_fuel_tbl = sa.table(
     "not_underway_fuel_use",
-    sa.column("id", sa.Uuid),
-    sa.column("period_id", sa.Uuid),
+    sa.column("id", UuidText),
+    sa.column("period_id", UuidText),
     sa.column("consumer_type", sa.String),
     sa.column("fuel_type", sa.String),
     sa.column("fuel_ton", sa.Numeric),
@@ -1108,7 +1110,7 @@ async def _cf_by_fuel(conn: AsyncConnection) -> dict[str, Decimal]:
 # 타입을 따라야** 한다.
 _vessel = sa.table(
     "vessel",
-    sa.column("id", sa.Uuid),
+    sa.column("id", UuidText),
     sa.column("imo_number", sa.String),
     sa.column("name", sa.String),
     sa.column("ship_type", sa.String),

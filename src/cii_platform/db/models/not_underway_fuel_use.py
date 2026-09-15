@@ -13,6 +13,7 @@ import uuid
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class NotUnderwayFuelUse(Base):
@@ -21,11 +22,11 @@ class NotUnderwayFuelUse(Base):
     __tablename__ = "not_underway_fuel_use"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    period_id = sa.Column(sa.Uuid, nullable=False)
+    period_id = sa.Column(UuidText, nullable=False)
     consumer_type = sa.Column(sa.String(length=20), nullable=False)
     fuel_type = sa.Column(sa.String(length=30), nullable=False)
     fuel_ton = sa.Column(sa.Numeric(precision=12, scale=2), nullable=False)

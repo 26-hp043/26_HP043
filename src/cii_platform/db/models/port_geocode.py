@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class PortGeocode(Base):
@@ -25,7 +26,7 @@ class PortGeocode(Base):
     __tablename__ = "port_geocode"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )

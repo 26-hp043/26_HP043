@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class Voyage(Base):
@@ -22,11 +23,11 @@ class Voyage(Base):
     __tablename__ = "voyage"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    vessel_id = sa.Column(sa.Uuid, nullable=False)
+    vessel_id = sa.Column(UuidText, nullable=False)
     voyage_no = sa.Column(sa.String(length=100), nullable=True)
     status = sa.Column(sa.String(length=20), nullable=False)
     # [C-1] annual_inclusion_policy ≠ EXCLUDE인 경우 NOT NULL 필수 (chk_year_policy).

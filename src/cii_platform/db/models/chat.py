@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 #: ``PRD §16.3`` 채팅 보존 정책 — ChatMessage 보존 기간 90일.
 RETENTION_DAYS = 90
@@ -38,11 +39,11 @@ class ChatSession(Base):
     __tablename__ = "chat_session"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    user_id = sa.Column(sa.Uuid, nullable=False)
+    user_id = sa.Column(UuidText, nullable=False)
     title = sa.Column(sa.String(length=200), nullable=True)
     created_at = sa.Column(
         sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
@@ -74,11 +75,11 @@ class ChatMessage(Base):
     __tablename__ = "chat_message"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    session_id = sa.Column(sa.Uuid, nullable=False)
+    session_id = sa.Column(UuidText, nullable=False)
     role = sa.Column(sa.String(length=10), nullable=False)
     content = sa.Column(sa.Text(), nullable=False)
     sent_at = sa.Column(sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False)

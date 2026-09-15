@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
-from cii_platform.db.types import JSONText
+from cii_platform.db.types import JSONText, UuidText
 
 
 class SimulationSnapshot(Base):
@@ -31,11 +31,11 @@ class SimulationSnapshot(Base):
     __tablename__ = "simulation_snapshot"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    vessel_id = sa.Column(sa.Uuid, nullable=False)
+    vessel_id = sa.Column(UuidText, nullable=False)
     regulation_year = sa.Column(sa.Integer(), nullable=False)
     voyages_json = sa.Column(JSONText(), nullable=False)
     # #493: 계산에 쓰는 선박 제원 사본. **nullable이다** — 이 테이블은 immutable이라

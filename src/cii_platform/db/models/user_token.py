@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 #: 가입 확인 메일의 링크.
 PURPOSE_EMAIL_VERIFY = "EMAIL_VERIFY"
@@ -29,11 +30,11 @@ class UserToken(Base):
     __tablename__ = "user_token"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    user_id = sa.Column(sa.Uuid, nullable=False)
+    user_id = sa.Column(UuidText, nullable=False)
     purpose = sa.Column(sa.String(length=20), nullable=False)
     #: 토큰의 SHA-256 hex. **원문을 저장하지 않는다** — DB가 유출돼도 토큰을
     #: 되돌릴 수 없어야 한다(`user_session.session_token_hash`와 같은 규칙).

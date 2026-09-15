@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class UserSession(Base):
@@ -18,11 +19,11 @@ class UserSession(Base):
     __tablename__ = "user_session"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    user_id = sa.Column(sa.Uuid, nullable=False)
+    user_id = sa.Column(UuidText, nullable=False)
     session_token_hash = sa.Column(sa.String(length=64), nullable=False)
     csrf_token_hash = sa.Column(sa.String(length=64), nullable=False)
     expires_at = sa.Column(sa.DateTime(timezone=True), nullable=False)

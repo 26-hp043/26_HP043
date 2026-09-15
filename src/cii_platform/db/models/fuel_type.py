@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class FuelType(Base):
@@ -19,7 +20,7 @@ class FuelType(Base):
     __tablename__ = "fuel_type"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )

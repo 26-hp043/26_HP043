@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
-from cii_platform.db.types import JSONText
+from cii_platform.db.types import JSONText, UuidText
 
 
 class CalculationRun(Base):
@@ -28,14 +28,14 @@ class CalculationRun(Base):
     __tablename__ = "calculation_run"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
     calculation_type = sa.Column(sa.String(length=30), nullable=False)
-    vessel_id = sa.Column(sa.Uuid, nullable=False)
-    voyage_id = sa.Column(sa.Uuid, nullable=True)
-    weather_snapshot_id = sa.Column(sa.Uuid, nullable=True)
+    vessel_id = sa.Column(UuidText, nullable=False)
+    voyage_id = sa.Column(UuidText, nullable=True)
+    weather_snapshot_id = sa.Column(UuidText, nullable=True)
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
     model_version = sa.Column(JSONText(), nullable=False)

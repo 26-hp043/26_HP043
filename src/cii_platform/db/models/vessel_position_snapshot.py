@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class VesselPositionSnapshot(Base):
@@ -29,11 +30,11 @@ class VesselPositionSnapshot(Base):
     __tablename__ = "vessel_position_snapshot"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    vessel_id = sa.Column(sa.Uuid, nullable=False)
+    vessel_id = sa.Column(UuidText, nullable=False)
     source = sa.Column(sa.String(length=20), nullable=False)
     lat = sa.Column(sa.Numeric(precision=9, scale=6), nullable=False)
     lon = sa.Column(sa.Numeric(precision=9, scale=6), nullable=False)

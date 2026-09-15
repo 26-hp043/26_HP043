@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
-from cii_platform.db.types import JSONText
+from cii_platform.db.types import JSONText, UuidText
 
 
 class AuditLog(Base):
@@ -20,7 +20,7 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
@@ -36,7 +36,7 @@ class AuditLog(Base):
     # (§2.14 설명 — CHECK는 정본에 없음).
     action = sa.Column(sa.String(length=50), nullable=False)
     entity_type = sa.Column(sa.String(length=30), nullable=True)
-    entity_id = sa.Column(sa.Uuid, nullable=True)
+    entity_id = sa.Column(UuidText, nullable=True)
     details_json = sa.Column(JSONText(), nullable=True)
     # IPv6 최대 45자 (§2.14).
     ip_address = sa.Column(sa.String(length=45), nullable=True)

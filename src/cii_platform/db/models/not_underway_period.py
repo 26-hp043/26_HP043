@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class NotUnderwayPeriod(Base):
@@ -23,11 +24,11 @@ class NotUnderwayPeriod(Base):
     __tablename__ = "not_underway_period"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    vessel_id = sa.Column(sa.Uuid, nullable=False)
+    vessel_id = sa.Column(UuidText, nullable=False)
     regulation_year = sa.Column(sa.Integer(), nullable=False)
     period_type = sa.Column(sa.String(length=20), nullable=False)
     started_at = sa.Column(sa.DateTime(timezone=True), nullable=False)
@@ -35,7 +36,7 @@ class NotUnderwayPeriod(Base):
     port_name = sa.Column(sa.String(length=200), nullable=True)
     lat = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
     lon = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
-    voyage_id = sa.Column(sa.Uuid, nullable=True)
+    voyage_id = sa.Column(UuidText, nullable=True)
     # 마이그레이션 028 (#353) — CII 분모 Dt는 not under way 이동 거리도 포함한다
     # (MEPC.412(84) §4.2 "both under way and not under way"). 접안·묘박은 0이 정상값이라
     # NULL을 허용하지 않는다 — 「모름」과 「0」이 섞이면 합계가 조용히 달라진다.

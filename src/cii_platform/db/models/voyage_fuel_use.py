@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class VoyageFuelUse(Base):
@@ -22,11 +23,11 @@ class VoyageFuelUse(Base):
     __tablename__ = "voyage_fuel_use"
 
     id = sa.Column(
-        sa.Uuid,
+        UuidText,
         primary_key=True,
         default=uuid.uuid4,
     )
-    voyage_id = sa.Column(sa.Uuid, nullable=False)
+    voyage_id = sa.Column(UuidText, nullable=False)
     fuel_type = sa.Column(sa.String(length=30), nullable=False)
     planned_fuel_ton = sa.Column(sa.Numeric(precision=12, scale=4), nullable=True)
     actual_fuel_ton = sa.Column(sa.Numeric(precision=12, scale=4), nullable=True)
