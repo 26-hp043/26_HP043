@@ -343,6 +343,38 @@ echo "<PAT>" | docker login ghcr.io -u <사용자명> --password-stdin
 현재 상태: **`staging`** (SMTP 미설정).
 SMTP 설정 후 `APP_ENV=production`으로 전환한다.
 
+### 4.6 CORS 미들웨어
+
+`src/cii_platform/api/main.py`에서 `CORS_ALLOW_ORIGINS` 환경변수를 읽어
+`CORSMiddleware`를 조건부 등록한다.
+
+| 설정 | 동작 |
+|------|------|
+| `CORS_ALLOW_ORIGINS=https://bluelog-bx7.pages.dev` | 해당 오리진만 cross-origin 허용 |
+| `CORS_ALLOW_ORIGINS=https://a.com,https://b.com` | 쉼표 구분 복수 오리진 |
+| 미설정 / 빈 문자열 | CORS 미들웨어 미등록 (같은 출처 배포 시) |
+
+미들웨어 스택 순서 (바깥 → 안쪽):
+```
+CORSMiddleware → RequestContext → rate_limit → auth → 라우트
+```
+
+CORS가 가장 바깥이어야 preflight(OPTIONS)가 auth/rate_limit에 막히지 않는다.
+
+검증 방법:
+```bash
+# preflight (OPTIONS) — 200이어야 한다
+curl -sS -X OPTIONS \
+  -H "Origin: https://bluelog-bx7.pages.dev" \
+  -H "Access-Control-Request-Method: GET" \
+  -D - -o /dev/null http://131.186.22.10:8001/api/v1/health
+
+# 응답에 포함되어야 하는 헤더:
+#   access-control-allow-origin: https://bluelog-bx7.pages.dev
+#   access-control-allow-credentials: true
+#   access-control-allow-methods: DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT
+```
+
 ---
 
 ## 5. GitHub Actions 시크릿
@@ -615,11 +647,24 @@ ssh ubuntu@131.186.22.10 "cd ~/bluelog && docker compose -f docker-compose.prod.
 - [x] CUBRID 기동 (db-01, DB명 cii, 포트 33100)
 - [x] 백엔드 배포 (app-01, 포트 8001, APP_ENV=staging)
 - [x] Alembic 마이그레이션 완료
-- [x] 규제 파라미터 seed 완료 (63행)
-- [x] OCI Security List 규칙 추가 (8001, 33100)
-- [x] Cloudflare Pages 프론트엔드 배포
-- [x] CORS 설정 (bluelog-bx7.pages.dev)
+- [x] 규제 파라미터 seed 완료 (63행: fuel_type 8, regulation_year 8, cii_reference_line 20, cii_rating_boundary 14, simulation_parameter 3, weather_model_parameter 10)
+- [x] OCI Security List 규칙 추가 (8001/tcp 0.0.0.0/0, 33100/tcp 10.0.0.0/16)
+- [x] Cloudflare Pages 프론트엔드 배포 (https://bluelog-bx7.pages.dev)
+- [x] CORS 미들웨어 추가 (`CORSMiddleware`, `CORS_ALLOW_ORIGINS` 환경변수)
+- [x] CORS 설정 적용 (bluelog-bx7.pages.dev → app-01:8001)
 - [x] 헬스 체크 정상 확인
+
+### 10.2 배포 검증 결과 (2026-09-15 11:03 UTC)
+
+| 테스트 | 결과 | 비고 |
+|--------|------|------|
+| 백엔드 헬스 | `{"status":"ok","version":"0.1.0"}` | numpy, rng, pdf_font 모두 ok |
+| Cloudflare Pages | HTTP 200, 2628 bytes | SPA index.html 정상 |
+| CORS preflight | HTTP 200, allow-origin 헤더 포함 | OPTIONS 요청 통과 |
+| 인증 필요 API | HTTP 401 UNAUTHORIZED | 정상 (로그인 필요) |
+| CUBRID fuel_type | 8행 | seed 정상 적용 |
+| cii-backend 컨테이너 | Up, healthy | 포트 8001 |
+| cii-cubrid 컨테이너 | Up, healthy | 포트 33100 |
 
 ### 10.2 남은 작업
 
