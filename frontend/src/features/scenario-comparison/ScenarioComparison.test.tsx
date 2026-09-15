@@ -875,7 +875,10 @@ describe('보이는 대상 = 계산 대상 (#1097)', () => {
       }),
     )
     renderScreen()
-    fireEvent.click(await screen.findByRole('button', { name: /비교하기/ }))
+    // 연료 목록이 로드되기 전에 클릭하면 isKnownFuel('HFO', [])=false → 로컬 검증 실패 → API 미호출.
+    // 연료 셀렉트에 옵션이 뜰 때까지 기다린다.
+    await screen.findByRole('option', { name: '고유황유' })
+    fireEvent.click(screen.getByRole('button', { name: /비교하기/ }))
     const alerts = await screen.findAllByText('직항 거리가 너무 큽니다.')
     // 폼 위 오류와 **입력칸 아래** 오류 — 둘 다 있다
     expect(alerts.length).toBeGreaterThanOrEqual(2)
