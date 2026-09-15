@@ -618,7 +618,7 @@ async def _bulk_insert_calculation_runs(
 
 @pytest.mark.asyncio
 async def test_calculations_export_is_not_truncated_by_a_row_limit(session, vessel_id):
-    """#1078 — `API_SPEC §8.1`「행 수 상한을 두지 않는다」가 계산 이력에도 걸린다.
+    """IT-EXPORT-009 — `API_SPEC §8.1`「행 수 상한을 두지 않는다」가 계산 이력에도 걸린다 (#1078).
 
     종전에는 이 조회만 페이지네이션 함수(`list_runs`)를 빌려 써서 ``limit + 1`` =
     **10,001행에서 조용히 잘렸다.** 잘린 파일을 연간 자료로 쓰는 것이 바로 그 규정이
@@ -641,7 +641,7 @@ async def test_calculations_export_is_not_truncated_by_a_row_limit(session, vess
 
 @pytest.mark.asyncio
 async def test_calculations_year_filter_reaches_past_the_former_row_limit(session, vessel_id):
-    """#1078 — 연도 필터가 **쿼리에서** 걸린다.
+    """IT-EXPORT-009 — 연도 필터가 **쿼리에서** 걸린다 (#1078).
 
     종전에는 상한으로 최신 10,001건을 자른 **뒤** 파이썬에서 연도를 걸렀다. 그래서
     최신 10,001건이 전부 2026년이면 `year=2025`는 **0건**이 나왔다 — 2025년 자료가
@@ -664,7 +664,7 @@ async def test_calculations_year_filter_reaches_past_the_former_row_limit(sessio
 
 @pytest.mark.asyncio
 async def test_calculations_year_boundary_is_half_open_in_kst(session, vessel_id):
-    """#1078 — 연도 경계는 **반열림**이다 — 시작은 포함, 다음 해 첫 순간은 제외.
+    """IT-EXPORT-009 — 연도 경계는 **반열림**이다 — 시작은 포함, 다음 해 첫 순간은 제외 (#1078).
 
     닫힌 구간으로 두면 2027-01-01 00:00:00 KST의 계산이 **2026년 파일과 2027년 파일
     양쪽에** 들어가, 두 파일을 합친 사용자의 건수가 실제보다 하나 많아진다.
