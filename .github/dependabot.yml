@@ -9,6 +9,20 @@
 # - major 버전(typescript, actions/setup-*)은 그룹화하지 않고 개별 PR로 — breaking
 #   change 리뷰를 한 PR에 몰아넣지 않기 위해.
 # - jsdom major는 Node 런타임과 묶여 있다 — 아래 npm 항목 주석 참조.
+#
+# **라벨 운영 기준** (#1068):
+# - `dependencies`는 **세 생태계 공통**이다 — 「이 PR은 사람이 아니라 봇이 연 의존성
+#   갱신」이라는 표지다. 저장소에 이 라벨이 없던 동안 Dependabot이 PR마다
+#   `The following labels could not be found: ``dependencies``.` 를 코멘트로 남겼고,
+#   `uv` 항목은 `labels`가 그 하나뿐이라 **파이썬 갱신 PR에 라벨이 0개**로 머지됐다
+#   (#1113 · #1115 · #1117). 봇 PR을 라벨로 걸러 볼 수단이 없던 상태다.
+# - 설정에서 `dependencies`를 빼는 대신 **라벨을 만들었다.** 빼면 `uv` PR이 라벨 0개인
+#   지금 상태로 고착되고, Dependabot 자신이 경고에서 「create it」을 요구한다.
+# - 두 번째 라벨은 **영역**이다 — `npm` → `frontend`, `github-actions` → `infra`.
+#   `uv`는 백엔드 전반이라 대응하는 영역 라벨이 없어 붙이지 않는다(`AGENTS §6`의
+#   영역 라벨은 이슈용이고, 여기서는 이미 있는 것만 쓴다).
+# - **라벨을 새로 적으면 저장소에 먼저 만든다.** 없는 이름은 조용히 무시되는 것이
+#   아니라 PR마다 경고 코멘트로 쌓인다.
 version: 2
 updates:
   # Python (pyproject.toml + uv.lock)
