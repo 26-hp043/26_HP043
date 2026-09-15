@@ -65,72 +65,32 @@ BACKUP_ACTION = "DB_BACKUP"
 BACKUP_MAX_AGE = timedelta(hours=24)
 
 #: 되돌리면 운영 데이터가 복구 불가능하게 사라지는 리비전 → 무엇이 사라지는가.
+#:
+#: ⚠️ **CUBRID 전환(`#1058`)으로 마이그레이션 42개가 initial 하나로 합쳐졌다.**
+#: 종전에는 리비전마다 무엇을 잃는지 적어 세 분류로 나눴는데, 이제 되돌린다는 것은
+#: **스키마 전체를 드롭한다**는 뜻이라 나눌 것이 남지 않는다. 분류가 하나로 준 것은
+#: 위험이 줄어서가 아니라 **되돌림의 단위가 커졌기** 때문이다 — 종전에는 `#037` 하나만
+#: 내릴 수 있었지만 지금은 전부이거나 아무것도 아니다.
 IRREVERSIBLE: dict[str, str] = {
-    "003": "vessel 테이블 — 등록된 선박 전부",
-    "005": "voyage 테이블 — 항차 이력 전부",
-    "006": "voyage_fuel_use 테이블 — 항차별 연료 사용량·CF 스냅샷 전부",
-    "007": "voyage_scenario 테이블 — 저장된 시나리오 비교 전부",
-    "008": "calculation_run 테이블 — 보존 대상 계산 이력 전부",
-    "009": "simulation_snapshot 테이블 — 보존 대상 스냅샷 전부",
-    "013": "weather_snapshot 테이블 — 계산에 쓴 기상 데이터 기록 전부",
-    "014": "annual_simulation_run 테이블 — 연간 시뮬레이션 실행 이력 전부",
-    "015": "audit_log 테이블 — 감사 로그 전부",
-    "016": (
-        "calculation_run.weather_snapshot_id — 보존 대상 테이블이라 다시 upgrade해도 "
-        "기존 행을 채울 수 없다"
-    ),
-    "020": "app_user 테이블 — 계정 전부",
-    "024": (
-        "calculation_run.needs_recalc — 어느 계산이 재계산 대상이었는지가 사라진다"
-        "(보존 대상 테이블이라 다시 표시할 근거도 없다)"
-    ),
-    "025": "not_underway_period·not_underway_fuel_use 테이블 — 정박·묘박 기록 전부",
-    "026": "vessel의 위치·운항 상태 5개 열 — 선박별 현재 위치·상태",
-    "028": "not_underway_period.distance_nm — 정박 구간 이동 거리",
-    "030": "not_underway_fuel_use.cf_used — 기록 시점의 CF 스냅샷",
-    "033": "app_user 행 전부(DELETE)와 비밀번호 해시 — 계정을 다시 만들 근거가 없다",
-    "037": (
-        "simulation_snapshot.vessel_json — 보존 대상 테이블이라 다시 upgrade해도 기존 "
-        "행을 채울 수 없고, 과거 연간 시뮬레이션이 전부 재현 불가가 된다"
-    ),
-    # 지나간 시각의 좌표는 되살릴 방법이 없다. AIS는 재조회로 과거를 주지 않고
-    # (aisstream.io는 끊긴 구간 복구가 없다), 사람이 넣은 위치는 애초에 재현 불가다.
-    "040": "vessel_position_snapshot 테이블 — 수집한 위치 이력 전부",
-    "042": (
-        "annual_simulation_run.apply_feedback_factor — 어느 실행이 실적 보정계수를 켜고 "
-        "돌았는지가 사라져 그 실행들이 재현 불가가 된다(보존 대상이라 다시 채울 근거가 없다)"
+    "1c444a5c4819": (
+        "스키마 전체 — 선박·항차·연료 사용량·시나리오·계산 이력·스냅샷·연간 시뮬레이션·"
+        "정박 구간·위치 이력·계정·감사 로그까지 24개 테이블을 전부 드롭한다. 다시 "
+        "upgrade하면 빈 테이블이 생길 뿐이고, `calculation_run`·`simulation_snapshot`은 "
+        "보존 대상이라 되살릴 근거 자체가 없다"
     ),
 }
 
 #: 지워도 되는 일시 데이터 — 사라지면 다시 로그인하거나 메일을 다시 요청하면 된다.
-EPHEMERAL: dict[str, str] = {
-    "021": "user_session — 로그인 세션. 사라지면 전원 다시 로그인한다",
-    "034": "user_token — 인증·재설정 링크. 사라지면 메일을 다시 요청한다",
-    # 90일 뒤 어차피 지워지는 대화 기록이다(`PRD §16.3` 채팅 보존 정책). 계산
-    # 원본은 `calculation_run`에 따로 있고 챗봇 로그는 가리키기만 한다 (`#120`).
-    "041": "chat_session·chat_message — 90일 보존 대화 기록. 계산 원본은 남는다",
-}
+#:
+#: 마이그레이션이 하나뿐인 지금은 **비어 있다.** 종전의 `021`(세션)·`034`(토큰)·
+#: `041`(대화 기록)은 따로 내릴 수 없고 위 IRREVERSIBLE에 함께 들어간다.
+EPHEMERAL: dict[str, str] = {}
 
-#: 다시 upgrade하면 같은 값이 돌아오는 것 — 마이그레이션이 적재하는 규정·시드 값이다.
-#: 운영에서 값을 고치는 경로가 생기면(파라미터 import · `#444`) 이 분류를 다시 본다.
-REGENERABLE: dict[str, str] = {
-    "001": "pg_trgm 확장·공용 트리거 함수 — 데이터가 없다",
-    "002": "fuel_type — 017이 다시 적재한다",
-    "004": "regulation_year — 032가 다시 적재한다",
-    "010": "cii_reference_line — 032가 다시 적재한다",
-    "011": "cii_rating_boundary — 032가 다시 적재한다",
-    "012": "weather_model_parameter — 019가 다시 적재한다",
-    "017": "fuel_type 시드 — 자기가 넣은 키만 지운다",
-    "019": "weather_model_parameter 시드 — 자기가 넣은 키만 지운다",
-    "022": "app_user updated_at 트리거 — 데이터가 없다",
-    "023": "CHECK 제약·인덱스 — 데이터가 없다",
-    "031": "fuel_type.content_hash — 다시 upgrade하면 같은 규약으로 다시 계산한다",
-    "032": "규제 파라미터 시드 — 자기가 넣은 키만 지운다",
-    "035": "simulation_parameter — 035가 다시 적재한다",
-    # 캐시라 잃는 것이 없다 — 다시 물으면 다시 채워진다. 항차에는 좌표 **값이 복사돼**
-    # 들어가므로(FK 없음) 이 표를 비워도 항차는 온전하다 (`#768` · `DB_SCHEMA §2.20`).
-    "039": "port_geocode — 항만명 좌표 조회 캐시. 다시 조회하면 채워진다",
-}
+#: 다시 upgrade하면 같은 값이 돌아오는 것 — 마이그레이션이 적재하던 규정·시드 값이다.
+#:
+#: 마이그레이션이 하나뿐인 지금은 **비어 있다.** 시드는 마이그레이션이 아니라
+#: `db/seed.py`의 `seed_all()`이 넣으므로(`#1058`) 애초에 downgrade의 대상이 아니다.
+REGENERABLE: dict[str, str] = {}
 
 
 def _allowed() -> set[str]:

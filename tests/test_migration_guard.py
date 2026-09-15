@@ -37,9 +37,39 @@ from cii_platform.db.migration_guard import (
 _VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 
 
+#: 저장소의 유일한 리비전 (`#1058` — 42개가 initial 하나로 합쳐졌다).
+#: 번호를 검사 곳곳에 박지 않는다 — 다음에 바뀌면 여기만 고친다.
+_REV = "1c444a5c4819"
+
+
 def _files() -> dict[str, Path]:
-    """리비전 → 파일. 파일명 앞 세 자리가 리비전이다(`DB_SCHEMA §8.1` 명명 규칙)."""
-    return {p.name[:3]: p for p in sorted(_VERSIONS.glob("[0-9][0-9][0-9]_*.py"))}
+    """리비전 → 파일.
+
+    **파일명에서 리비전을 잘라내지 않는다** (`#1058`). 종전에는 앞 세 자리가 리비전이라
+    `NNN_*.py`를 훑었는데, CUBRID 전환이 alembic 자동 생성 이름
+    (`1c444a5c4819_initial_cubrid_schema.py`)을 들여오면서 그 패턴이 **한 파일도 잡지
+    못하게** 됐다. 그러면 완전성 검사가 빈 목록을 훑고 **조용히 통과한다.**
+
+    파일 안의 `revision: str = "..."`를 읽는다 — alembic 자신이 리비전을 찾는 자리다.
+    """
+    files: dict[str, Path] = {}
+    for path in sorted(_VERSIONS.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            target = None
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                target = node.target.id
+            elif (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+            ):
+                target = node.targets[0].id
+            if target == "revision" and isinstance(node.value, ast.Constant):
+                files[str(node.value.value)] = path
+                break
+    assert files, "마이그레이션을 한 개도 찾지 못했다 — 이 검사가 헛돌고 있다"
+    return files
 
 
 @pytest.fixture
@@ -70,46 +100,51 @@ def fresh_backup(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_blocks_in_production(production):
-    with pytest.raises(RuntimeError, match="037"):
-        guard_irreversible_downgrade("037")
+    with pytest.raises(RuntimeError, match=_REV):
+        guard_irreversible_downgrade(_REV)
 
 
 def test_message_says_what_is_lost_and_how_to_unlock(production):
     """막기만 하고 이유를 말하지 않으면 운영자는 가드를 지우는 쪽으로 간다."""
     with pytest.raises(RuntimeError) as exc:
-        guard_irreversible_downgrade("037")
-    assert IRREVERSIBLE["037"] in str(exc.value)
-    assert f"{ALLOW_ENV}=037" in str(exc.value)
+        guard_irreversible_downgrade(_REV)
+    assert IRREVERSIBLE[_REV] in str(exc.value)
+    assert f"{ALLOW_ENV}={_REV}" in str(exc.value)
 
 
 def test_does_not_block_outside_production(monkeypatch: pytest.MonkeyPatch):
     """개발·테스트는 막지 않는다 — `test_zz_roundtrip.py`의 downgrade 검증이 여기에 기댄다."""
     monkeypatch.setattr(migration_guard, "is_production", lambda: False)
     monkeypatch.delenv(ALLOW_ENV, raising=False)
-    guard_irreversible_downgrade("037")
+    guard_irreversible_downgrade(_REV)
 
 
 def test_named_revision_unlocks_and_leaves_a_warning(production, fresh_backup, monkeypatch, caplog):
-    monkeypatch.setenv(ALLOW_ENV, "016, 037")
+    monkeypatch.setenv(ALLOW_ENV, f"other, {_REV}")
     caplog.set_level("WARNING", logger=migration_guard.__name__)
 
-    guard_irreversible_downgrade("037")
+    guard_irreversible_downgrade(_REV)
 
-    assert any("037" in r.getMessage() for r in caplog.records)
+    assert any(_REV in r.getMessage() for r in caplog.records)
 
 
 def test_unlocking_one_revision_does_not_unlock_another(production, monkeypatch):
-    """「전부 허용」이 없다 — 켜진 채 남은 스위치가 다음 롤백에서 같은 손실을 낸다."""
-    monkeypatch.setenv(ALLOW_ENV, "037")
-    with pytest.raises(RuntimeError, match="016"):
-        guard_irreversible_downgrade("016")
+    """「전부 허용」이 없다 — 켜진 채 남은 스위치가 다음 롤백에서 같은 손실을 낸다.
+
+    마이그레이션이 하나뿐이라(`#1058`) 두 번째 리비전을 **여기서 합성한다.** 이 성질은
+    마이그레이션 수와 무관하게 지켜야 하고, 다음에 리비전이 늘면 그때 실물로 걸린다.
+    """
+    monkeypatch.setitem(IRREVERSIBLE, "other", "합성 리비전 — 이 검사 전용")
+    monkeypatch.setenv(ALLOW_ENV, _REV)
+    with pytest.raises(RuntimeError, match="other"):
+        guard_irreversible_downgrade("other")
 
 
 @pytest.mark.parametrize("value", ["*", "all", "true", "1"])
 def test_there_is_no_wildcard(production, monkeypatch, value):
     monkeypatch.setenv(ALLOW_ENV, value)
     with pytest.raises(RuntimeError):
-        guard_irreversible_downgrade("037")
+        guard_irreversible_downgrade(_REV)
 
 
 # ── 백업 연계 (#827 · 2026-09-11 결정 2-⑤) ────────────────────────────────────
@@ -120,37 +155,37 @@ def test_naming_the_revision_is_not_enough_without_a_backup(production, monkeypa
 
     「백업을 뜬 뒤」가 오류 문구에만 있었다.
     """
-    monkeypatch.setenv(ALLOW_ENV, "037")
+    monkeypatch.setenv(ALLOW_ENV, _REV)
     _backup_age(monkeypatch, None)
 
     with pytest.raises(RuntimeError) as exc:
-        guard_irreversible_downgrade("037")
+        guard_irreversible_downgrade(_REV)
 
     assert "백업 기록이 없습니다" in str(exc.value)
     assert "scripts/db_backup.py backup" in str(exc.value), "무엇을 하면 풀리는지 말한다"
 
 
 def test_a_backup_older_than_the_window_does_not_count(production, monkeypatch):
-    monkeypatch.setenv(ALLOW_ENV, "037")
+    monkeypatch.setenv(ALLOW_ENV, _REV)
     _backup_age(monkeypatch, BACKUP_MAX_AGE + timedelta(minutes=1))
 
     with pytest.raises(RuntimeError, match="마지막 백업이"):
-        guard_irreversible_downgrade("037")
+        guard_irreversible_downgrade(_REV)
 
 
 def test_a_backup_inside_the_window_counts(production, monkeypatch):
-    monkeypatch.setenv(ALLOW_ENV, "037")
+    monkeypatch.setenv(ALLOW_ENV, _REV)
     _backup_age(monkeypatch, BACKUP_MAX_AGE - timedelta(minutes=1))
 
-    guard_irreversible_downgrade("037")
+    guard_irreversible_downgrade(_REV)
 
 
 def test_the_backup_is_not_consulted_before_the_revision_is_named(production, monkeypatch):
     """명시되지 않은 리비전은 백업이 있어도 막힌다 — 백업은 해제 조건의 **추가**다."""
     _backup_age(monkeypatch, timedelta(minutes=5))
 
-    with pytest.raises(RuntimeError, match=f"{ALLOW_ENV}=037"):
-        guard_irreversible_downgrade("037")
+    with pytest.raises(RuntimeError, match=f"{ALLOW_ENV}={_REV}"):
+        guard_irreversible_downgrade(_REV)
 
 
 def test_the_backup_is_not_consulted_outside_production(monkeypatch: pytest.MonkeyPatch):
@@ -161,7 +196,7 @@ def test_the_backup_is_not_consulted_outside_production(monkeypatch: pytest.Monk
         raise AssertionError("프로덕션이 아니면 백업을 찾지 않는다")
 
     monkeypatch.setattr(migration_guard, "_migration_bind", _no_bind)
-    guard_irreversible_downgrade("037")
+    guard_irreversible_downgrade(_REV)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -290,14 +325,24 @@ def test_every_listed_revision_exists():
     assert not sorted(listed - files.keys())
 
 
-def test_the_classifier_sees_the_known_cases():
+def test_the_classifier_sees_the_known_cases(tmp_path: Path):
     """판별기 자신을 먼저 잠근다 — 틀리면 위 완전성 검사가 조용히 통과한다.
 
-    `037`(열 드롭) · `033`(DELETE 문자열) · `017`(Core `delete()`)은 파괴적이고,
-    `036`(무동작)은 아니다.
+    종전에는 저장소의 `037`(열 드롭)·`033`(DELETE 문자열)·`017`(Core `delete()`)·
+    `036`(무동작)을 표본으로 썼다. CUBRID 전환으로 그 파일들이 사라져(`#1058`)
+    **네 갈래를 여기서 직접 세운다** — 표본을 저장소 파일에 기대면 마이그레이션이
+    바뀔 때마다 이 검사가 같이 무너진다.
     """
-    files = _files()
-    assert _is_destructive(files["037"])
-    assert _is_destructive(files["033"])
-    assert _is_destructive(files["017"])
-    assert not _is_destructive(files["036"])
+
+    def _write(name: str, body: str) -> Path:
+        path = tmp_path / name
+        path.write_text(f"def downgrade() -> None:\n{body}\n", encoding="utf-8")
+        return path
+
+    assert _is_destructive(_write("drop_table.py", "    op.drop_table('vessel')"))
+    assert _is_destructive(_write("drop_column.py", "    op.drop_column('vessel', 'name')"))
+    assert _is_destructive(_write("delete_sql.py", "    op.execute('DELETE FROM vessel')"))
+    assert not _is_destructive(_write("noop.py", "    pass"))
+
+    # 저장소의 실제 initial도 파괴적이어야 한다 — 24개 테이블을 드롭한다.
+    assert _is_destructive(_files()["1c444a5c4819"])
