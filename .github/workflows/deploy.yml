@@ -1,0 +1,340 @@
+# OCI 배포 (분리 토폴로지: db-01 + app-01)
+#
+# our-tax deploy.yml 패턴을 따른다:
+#   1. backend 이미지를 GHCR에 빌드·푸시 (linux/amd64).
+#   2. SSH db-01: git pull, CUBRID 스택 기동 (멱등).
+#   3. SSH app-01: git pull, .env 렌더, GHCR pull, Alembic 마이그레이션,
+#      backend 재시작 (IP-only 모드, 포트 8001).
+#   4. /api/v1/health 헬스 체크.
+#
+# 필요한 시크릿 (Settings -> Secrets and variables -> Actions):
+#
+#   OCI_SSH_PRIVATE_KEY   PEM 형식 개인키 (패스프레이즈 없음).
+#   OCI_SSH_USER          SSH 사용자 (보통 ubuntu).
+#   OCI_DB_HOST           db-01 SSH 접근 주소 (공용 IP).
+#   OCI_APP_HOST          app-01 SSH 접근 주소 (공용 IP).
+#   OCI_DB_PRIVATE_IP     db-01 VCN 사설 IP (app-01이 CUBRID에 접속).
+#   OCI_APP_PRIVATE_IP    app-01 VCN 사설 IP (CUBRID broker ACL에 치환).
+#   CUBRID_PASSWORD       dba 비밀번호. 양쪽 호스트 동일.
+#   CORS_ALLOW_ORIGINS    프론트엔드 오리진 (쉼표 구분).
+#   APP_PUBLIC_URL        메일 링크 기준 주소 (프론트엔드 공개 URL).
+#
+# 선택 시크릿:
+#   SIGNUP_ALLOWED_DOMAINS  가입 허용 메일 도메인.
+#   SIGNUP_INVITE_CODE      초대 코드.
+#   MAIL_FROM / SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD
+#   LLM_API_KEY             챗봇 LLM API 키.
+
+name: Deploy to OCI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'alembic/**'
+      - 'alembic.ini'
+      - 'pyproject.toml'
+      - 'Dockerfile'
+      - 'docker-compose.prod.*.yml'
+      - 'ops/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+    inputs:
+      force_db_init:
+        description: "DESTRUCTIVE: cubrid-data 볼륨을 삭제하고 재초기화. 데이터 손실 비가역적."
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/bluelog-backend
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 이미지 빌드 & GHCR 푸시
+  # ---------------------------------------------------------------------------
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      sha: ${{ steps.meta.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: |
+          sha="${GITHUB_SHA::12}"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "[build] image: ${BACKEND_IMAGE}:${sha}"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          target: prod
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Summary
+        run: |
+          echo "::notice title=Build complete::backend image pushed at sha=${{ steps.meta.outputs.sha }}"
+
+  # ---------------------------------------------------------------------------
+  # db-01: CUBRID 스택 기동 (멱등)
+  # ---------------------------------------------------------------------------
+  deploy-db:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: CUBRID_PASSWORD 길이 검증 (CUBRID 11.4 <= 31바이트)
+        env:
+          CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
+        run: |
+          if [ -z "${CUBRID_PASSWORD}" ]; then
+            echo "::error::CUBRID_PASSWORD 시크릿이 비어 있다"
+            exit 1
+          fi
+          len=$(printf '%s' "${CUBRID_PASSWORD}" | wc -c)
+          if [ "${len}" -gt 31 ]; then
+            echo "::error::CUBRID_PASSWORD가 ${len}바이트다. CUBRID 11.4 한도는 31바이트."
+            exit 1
+          fi
+
+      - name: SSH 설정
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.OCI_SSH_PRIVATE_KEY }}" > ~/.ssh/id_oci
+          chmod 600 ~/.ssh/id_oci
+          ssh-keyscan -H ${{ secrets.OCI_DB_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: db-01 스택 적용
+        env:
+          CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
+          OCI_APP_PRIVATE_IP: ${{ secrets.OCI_APP_PRIVATE_IP }}
+          FORCE_DB_INIT: ${{ inputs.force_db_init }}
+        run: |
+          echo "[deploy-db] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_DB_HOST }} ==="
+          ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_DB_HOST }} \
+            "CUBRID_PASSWORD='${CUBRID_PASSWORD}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' bash -s" <<'ENDSSH'
+          set -euo pipefail
+          echo "[db-01] connected at $(date -u +%FT%TZ); host=$(hostname)"
+
+          # 레포 클론 또는 업데이트
+          if [ ! -d ~/bluelog ]; then
+            git clone "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" ~/bluelog
+          fi
+          cd ~/bluelog
+          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" main
+          git reset --hard FETCH_HEAD
+
+          # ACL 템플릿 치환
+          sed -i "s/REPLACE_ME_APP_PRIVATE_IP/${OCI_APP_PRIVATE_IP}/g" \
+            ops/cubrid/conf/broker_access.conf \
+            ops/cubrid/conf/server_access.conf
+
+          # .env 렌더링
+          umask 077
+          cat > .env <<EOF
+          CUBRID_PASSWORD=${CUBRID_PASSWORD}
+          EOF
+
+          # force_db_init: 볼륨 파괴 후 재초기화
+          if [ "${FORCE_DB_INIT}" = "true" ]; then
+            echo "::warning::force_db_init=true -- cubrid-data 볼륨 파괴"
+            docker compose -f docker-compose.prod.db.yml down -v </dev/null || true
+          fi
+
+          docker compose -f docker-compose.prod.db.yml pull </dev/null
+          docker compose -f docker-compose.prod.db.yml up -d </dev/null
+
+          # CUBRID 브로커 대기
+          ready=""
+          echo "[db-01] CUBRID 브로커 대기 (최대 60회 x 2초 = 120초)"
+          for i in $(seq 1 60); do
+            if docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+                 csql -u dba -p "${CUBRID_PASSWORD}" cii -c 'SELECT 1 FROM db_root' </dev/null >/dev/null 2>&1; then
+              ready="with-password"
+              echo "[db-01] 브로커 준비 완료 (비밀번호 인증, ${i}회차)"
+              break
+            fi
+            if docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+                 csql -u dba cii -c 'SELECT 1 FROM db_root' </dev/null >/dev/null 2>&1; then
+              ready="no-password"
+              echo "[db-01] 브로커 준비 완료 (비밀번호 없음, ${i}회차)"
+              break
+            fi
+            [ $((i % 10)) -eq 0 ] && echo "[db-01] 대기 중 (${i}/60)"
+            sleep 2
+          done
+
+          if [ -z "${ready}" ]; then
+            echo "CUBRID 준비 실패" >&2
+            docker compose -f docker-compose.prod.db.yml logs --tail=80 cubrid </dev/null >&2
+            exit 1
+          fi
+
+          # 첫 부트: dba 비밀번호 설정
+          if [ "${ready}" = "no-password" ]; then
+            echo "[db-01] dba 비밀번호 설정 중..."
+            docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+              csql -u dba cii -c "ALTER USER dba PASSWORD '${CUBRID_PASSWORD}';" </dev/null >/dev/null
+            # CAS 워커 캐시 갱신을 위해 컨테이너 재시작
+            docker compose -f docker-compose.prod.db.yml restart cubrid </dev/null >/dev/null
+            # 재시작 후 대기
+            for i in $(seq 1 60); do
+              if docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+                   csql -u dba -p "${CUBRID_PASSWORD}" cii -c 'SELECT 1 FROM db_root' </dev/null >/dev/null 2>&1; then
+                break
+              fi
+              sleep 2
+            done
+            # 검증
+            if ! docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+                 csql -u dba -p "${CUBRID_PASSWORD}" cii -c 'SELECT 1 FROM db_root' </dev/null >/dev/null 2>&1; then
+              echo "dba 비밀번호 적용 실패" >&2
+              exit 1
+            fi
+            echo "[db-01] dba 비밀번호 적용 완료"
+          fi
+          echo "[db-01] === END $(date -u +%FT%TZ) ==="
+          ENDSSH
+
+  # ---------------------------------------------------------------------------
+  # app-01: 이미지 풀, 마이그레이션, backend 재시작
+  # ---------------------------------------------------------------------------
+  deploy-app:
+    runs-on: ubuntu-latest
+    needs: [build, deploy-db]
+    steps:
+      - name: SSH 설정
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.OCI_SSH_PRIVATE_KEY }}" > ~/.ssh/id_oci
+          chmod 600 ~/.ssh/id_oci
+          ssh-keyscan -H ${{ secrets.OCI_APP_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: app-01 스택 배포
+        env:
+          BACKEND_TAG: ${{ needs.build.outputs.sha }}
+          CUBRID_HOST: ${{ secrets.OCI_DB_PRIVATE_IP }}
+          CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
+          CORS_ALLOW_ORIGINS: ${{ secrets.CORS_ALLOW_ORIGINS }}
+          APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL }}
+          SIGNUP_ALLOWED_DOMAINS: ${{ secrets.SIGNUP_ALLOWED_DOMAINS }}
+          SIGNUP_INVITE_CODE: ${{ secrets.SIGNUP_INVITE_CODE }}
+          MAIL_BACKEND: ${{ secrets.MAIL_BACKEND }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          echo "[deploy-app] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_APP_HOST }} sha=${BACKEND_TAG} ==="
+          ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_APP_HOST }} \
+            "BACKEND_TAG='${BACKEND_TAG}' \
+             CUBRID_HOST='${CUBRID_HOST}' CUBRID_PASSWORD='${CUBRID_PASSWORD}' \
+             CORS_ALLOW_ORIGINS='${CORS_ALLOW_ORIGINS:-}' \
+             APP_PUBLIC_URL='${APP_PUBLIC_URL:-}' \
+             SIGNUP_ALLOWED_DOMAINS='${SIGNUP_ALLOWED_DOMAINS:-}' \
+             SIGNUP_INVITE_CODE='${SIGNUP_INVITE_CODE:-}' \
+             MAIL_BACKEND='${MAIL_BACKEND:-smtp}' \
+             MAIL_FROM='${MAIL_FROM:-}' \
+             SMTP_HOST='${SMTP_HOST:-}' SMTP_PORT='${SMTP_PORT:-587}' \
+             SMTP_USER='${SMTP_USER:-}' SMTP_PASSWORD='${SMTP_PASSWORD:-}' \
+             LLM_API_KEY='${LLM_API_KEY:-}' \
+             GHCR_USER='${{ github.actor }}' GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
+             GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
+             bash -s" <<'ENDSSH'
+          set -euo pipefail
+          echo "[app-01] connected at $(date -u +%FT%TZ); deploying sha=${BACKEND_TAG}"
+
+          # 레포 클론 또는 업데이트
+          if [ ! -d ~/bluelog ]; then
+            git clone "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" ~/bluelog
+          fi
+          cd ~/bluelog
+          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" main
+          git reset --hard FETCH_HEAD
+
+          # CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
+          CUBRID_PASSWORD_ENC=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "${CUBRID_PASSWORD}")
+
+          # .env 렌더링
+          umask 077
+          cat > .env <<EOF
+          CUBRID_HOST=${CUBRID_HOST}
+          CUBRID_PASSWORD=${CUBRID_PASSWORD}
+          DATABASE_URL=cubrid+aiopycubrid://dba:${CUBRID_PASSWORD_ENC}@${CUBRID_HOST}:33000/cii
+          CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS}
+          APP_PUBLIC_URL=${APP_PUBLIC_URL}
+          SIGNUP_ALLOWED_DOMAINS=${SIGNUP_ALLOWED_DOMAINS}
+          SIGNUP_INVITE_CODE=${SIGNUP_INVITE_CODE}
+          MAIL_BACKEND=${MAIL_BACKEND}
+          MAIL_FROM=${MAIL_FROM}
+          SMTP_HOST=${SMTP_HOST}
+          SMTP_PORT=${SMTP_PORT}
+          SMTP_USER=${SMTP_USER}
+          SMTP_PASSWORD=${SMTP_PASSWORD}
+          LLM_API_KEY=${LLM_API_KEY}
+          BACKEND_IMAGE=ghcr.io/${{ github.repository_owner }}/bluelog-backend:${BACKEND_TAG}
+          EOF
+
+          # GHCR 로그인
+          echo "[app-01] GHCR 로그인 (${GHCR_USER})"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GHCR_USER}" --password-stdin
+          echo "[app-01] backend 이미지 풀 (${BACKEND_TAG})"
+          docker compose -f docker-compose.prod.app.yml pull backend </dev/null
+
+          # Alembic 마이그레이션
+          echo "[app-01] alembic upgrade head"
+          docker compose -f docker-compose.prod.app.yml --profile migrate run --rm -T migrate </dev/null
+
+          # 규제 파라미터 seed
+          echo "[app-01] 규제 파라미터 seed"
+          docker compose -f docker-compose.prod.app.yml --profile migrate \
+            run --rm -T migrate python -m cii_platform.db.seed </dev/null
+
+          # Backend 시작
+          echo "[app-01] backend 컨테이너 시작"
+          docker compose -f docker-compose.prod.app.yml up -d backend </dev/null
+          docker compose -f docker-compose.prod.app.yml ps backend </dev/null || true
+          echo "[app-01] === END $(date -u +%FT%TZ) ==="
+          ENDSSH
+
+      - name: 헬스 체크
+        run: |
+          url="http://${{ secrets.OCI_APP_HOST }}:8001/api/v1/health"
+          echo "[health] ${url} 확인 (최대 30회 x 5초 = 150초)"
+          for i in $(seq 1 30); do
+            body=$(curl -fsS --max-time 5 "${url}" 2>&1) && {
+              echo "[health] OK (${i}회차) body=${body}"
+              echo "::notice title=Deploy complete::backend healthy at sha=${{ needs.build.outputs.sha }}"
+              exit 0
+            }
+            echo "[health] ${i}/30 실패; 5초 후 재시도"
+            sleep 5
+          done
+          echo "::error title=Deploy failed::backend가 30회 시도 후에도 healthy하지 않다" >&2
+          exit 1
