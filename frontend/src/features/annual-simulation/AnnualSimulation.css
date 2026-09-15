@@ -67,7 +67,7 @@
 
 /* §8 칩/배지 — pill · 시맨틱 색 */
 .annual-sim__badge {
-  background: var(--color-warning);
+  background: var(--color-warning-text); /* §0.2 제약 1 — 면 위 글자는 4.5:1. --color-warning(#d97b14)은 3.09, 확정값(#b7791f)도 3.64로 미달. --color-warning-text(#a8590c)는 5.12 (#771 확정 N) */
   color: var(--color-surface);
   border-radius: var(--radius-pill);
   padding: var(--space-4) var(--space-12);
