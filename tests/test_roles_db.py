@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.api.routes.auth import LAST_OFFICE_MESSAGE
@@ -32,6 +32,7 @@ from cii_platform.auth.dependencies import (
     RoleForbiddenError,
     require_office,
 )
+from cii_platform.db.types import JSONText, UuidText
 from cii_platform.errors import ERROR_HTTP_STATUS
 
 _BASE = "https://testserver"
@@ -102,7 +103,13 @@ async def _role_changes_for(user_id: str) -> list[dict]:
                 "SELECT user_id, details_json FROM audit_log "
                 "WHERE \"action\" = 'ROLE_CHANGE' AND entity_id = :id "
                 'ORDER BY "timestamp"'
-            ),
+                # `entity_id`는 `CHAR(32)`다. API가 주는 대시 형식을 생 SQL에 그대로
+                # 실으면 **오류 없이 0건**이 온다 — 타입을 붙여야 맞는다 (`#1058`).
+            )
+            .bindparams(bindparam("id", type_=UuidText()))
+            # raw SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result processor가 돌지
+            # 않는다 — 붙이지 않으면 **문자열**이 와서 dict 비교가 어긋난다 (`#1058`).
+            .columns(details_json=JSONText()),
             {"id": user_id},
         )
         return [dict(r._mapping) for r in rows]

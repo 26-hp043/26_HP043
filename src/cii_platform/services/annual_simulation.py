@@ -42,7 +42,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from cii_platform.calc.annual_simulation import (
@@ -1307,7 +1307,7 @@ async def _persist(
             " input_hash, parameter_hash, created_at) "
             "VALUES (:id, :vessel_id, :year, :voyages, "
             " :vessel, :input_hash, :parameter_hash, :created_at)"
-        ),
+        ).bindparams(*_uuid_binds("id", "vessel_id")),
         {
             "id": snapshot_id,
             "created_at": snapshot_created_at,
@@ -1331,7 +1331,7 @@ async def _persist(
             " result_json, parameters_used, warnings_json, duration_ms) "
             "VALUES (:id, 'ANNUAL_MONTE_CARLO', :vessel_id, :input_hash, :parameter_hash, "
             " :model_version, :result, :parameters, :warnings, :duration_ms)"
-        ),
+        ).bindparams(*_uuid_binds("id", "vessel_id")),
         {
             "id": run_id,
             "vessel_id": vessel_id,
@@ -1359,7 +1359,7 @@ async def _persist(
             "(id, calculation_run_id, vessel_id, regulation_year, target_rating, "
             " simulation_runs, snapshot_id, apply_feedback_factor) "
             "VALUES (:id, :run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback)"
-        ),
+        ).bindparams(*_uuid_binds("id", "run_id", "vessel_id", "snapshot_id")),
         {
             "id": simulation_id,
             "run_id": run_id,
@@ -1381,6 +1381,28 @@ async def _persist(
         input_hash,
         parameter_hash,
     )
+
+
+def _uuid_binds(*names: str) -> list[Any]:
+    """생 SQL의 UUID 파라미터에 :class:`UuidText`를 붙인다 (#1058).
+
+    ``text()``에는 컬럼 타입이 붙지 않아 **bind processor가 돌지 않는다.** CUBRID에
+    UUID를 그대로 실으면 세 갈래로 갈린다 — 로컬 실측이다::
+
+        UUID 객체       → ProgrammingError: unsupported parameter type
+        '…-…-…' 대시 형식 → 오류 없이 **0건**            ← 가장 위험하다
+        32자 hex        → 맞는다
+
+    저장 형식이 ``CHAR(32)``이므로 대시 형식은 **조용히 빗나간다.** 예외가 아니라
+    빈 결과라 호출부가 「데이터가 없다」로 읽고, `#1058` 전수 검사에서 감사 로그
+    조회 2건이 정확히 이 모양으로 비어 돌아왔다. 타입을 붙여 ORM 경로와 같은
+    계약으로 되돌린다.
+    """
+    from sqlalchemy import bindparam
+
+    from cii_platform.db.types import UuidText
+
+    return [bindparam(n, type_=UuidText()) for n in names]
 
 
 def _json(value: object) -> str:
@@ -1426,7 +1448,9 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 # 않는다 (`#1058`). PostgreSQL 시절에는 `JSONB`라 psycopg가 알아서 파싱했지만
                 # CUBRID는 TEXT라 **문자열이 그대로 온다** — 그대로 쓰면 `.get`에서 선다.
                 # `.columns()`로 그 컬럼에만 타입을 붙인다(나머지 컬럼은 그대로 나온다).
-            ).columns(
+            )
+            .bindparams(*_uuid_binds("id"))
+            .columns(
                 result_json=JSONText(),
                 parameters_used=JSONText(),
                 model_version=JSONText(),
@@ -1527,7 +1551,9 @@ async def list_snapshot_voyages(
                 "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
                 "WHERE r.id = :id"
                 # 타입을 붙이지 않으면 문자열이 와서 아래 순회가 글자 하나씩 돈다 (`#1058`).
-            ).columns(voyages_json=JSONText()),
+            )
+            .bindparams(*_uuid_binds("id"))
+            .columns(voyages_json=JSONText()),
             {"id": simulation_id},
         )
     ).one_or_none()
@@ -1782,7 +1808,9 @@ async def _load_snapshot_vessel(session: AsyncSession, snapshot_id) -> dict:
 
     payload = (
         await session.execute(
-            text("SELECT vessel_json FROM simulation_snapshot WHERE id = :id").columns(
+            text("SELECT vessel_json FROM simulation_snapshot WHERE id = :id")
+            .bindparams(*_uuid_binds("id"))
+            .columns(
                 vessel_json=JSONText()  # 붙이지 않으면 문자열이 온다 (`#1058`)
             ),
             {"id": snapshot_id},
@@ -1802,7 +1830,9 @@ async def _load_snapshot_voyages(session: AsyncSession, snapshot_id) -> list[dic
 
     return (
         await session.execute(
-            text("SELECT voyages_json FROM simulation_snapshot WHERE id = :id").columns(
+            text("SELECT voyages_json FROM simulation_snapshot WHERE id = :id")
+            .bindparams(*_uuid_binds("id"))
+            .columns(
                 voyages_json=JSONText()  # 붙이지 않으면 문자열이 온다 (`#1058`)
             ),
             {"id": snapshot_id},

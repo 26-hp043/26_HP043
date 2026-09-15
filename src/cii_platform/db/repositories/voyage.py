@@ -156,12 +156,17 @@ async def has_calculation_run_refs(session: AsyncSession, voyage_id: UUID) -> bo
     물리 DELETE가 ``IntegrityError``(→500)로 실패한다 — 서비스가 미리 409로
     가리기 위한 조회다.
     """
-    from sqlalchemy import exists
-
     from cii_platform.db.models.calculation_run import CalculationRun
 
-    stmt = select(exists().where(CalculationRun.voyage_id == voyage_id))
-    return bool(await session.scalar(stmt))
+    # `select(exists()…)`를 쓰지 않는다 — CUBRID는 `EXISTS`를 **select 항목 자리에서
+    # 받지 못한다**(WHERE 절 전용). 실측 (`#1058`)::
+    #
+    #     SELECT EXISTS (SELECT * FROM calculation_run WHERE …)
+    #     → Syntax error: unexpected 'EXISTS'  (errno=-493)
+    #
+    # `LIMIT 1` 한 건 조회로 바꾼다 — 판정이 같고 어느 DB에서나 성립한다.
+    stmt = select(CalculationRun.id).where(CalculationRun.voyage_id == voyage_id).limit(1)
+    return (await session.scalar(stmt)) is not None
 
 
 async def list_active(
