@@ -415,8 +415,9 @@
 }
 
 .action--critical {
-  background: var(--cii-e-bg);
-  color: var(--cii-e-text);
+  /* §0.2 제약 2 — 등급 색은 A~E 문자와만 (#748). 선대 경고는 시맨틱 Danger 색을 쓴다. */
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+  color: var(--color-danger-text);
 }
 
 .action--warning {
@@ -451,9 +452,10 @@
   align-items: center;
   padding: var(--spacing-md) var(--spacing-lg);
   border-radius: var(--radius-card);
-  background: var(--cii-e-bg);
-  border: var(--borderWidth-default) solid var(--cii-e-border);
-  color: var(--cii-e-text);
+  /* §0.2 제약 2 — 등급 색은 A~E 문자와만 (#748). 선대 경고는 시맨틱 Danger 색을 쓴다. */
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
+  border: var(--borderWidth-default) solid var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .warn .action__icon {
@@ -617,7 +619,7 @@
 .dist__group-label--b b { color: var(--cii-b-text); }
 .dist__group-label--c b { color: var(--cii-c-text); }
 .dist__group-label--d b { color: var(--cii-d-text); }
-.dist__group-label--e b { color: var(--cii-e-text); }
+.dist__group-label--e b { color: var(--color-danger-text); }
 
 /* 0척인 등급은 바에 조각이 없다. 감추지 않고 형태를 바꿔 적는다. */
 .dist__zero,
@@ -684,7 +686,7 @@
 .vessel__mark-grade--b { color: var(--cii-b-text); }
 .vessel__mark-grade--c { color: var(--cii-c-text); }
 .vessel__mark-grade--d { color: var(--cii-d-text); }
-.vessel__mark-grade--e { color: var(--cii-e-text); }
+.vessel__mark-grade--e { color: var(--color-danger-text); }
 
 /* 등급이 없는 선박 — 배를 그리지 않는다. 중립색 배는 「옅은 등급」으로 읽힌다. */
 .vessel__mark--none {
