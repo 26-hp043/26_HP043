@@ -85,20 +85,14 @@ describe('요청 전송', () => {
     expect(url).toBe('https://example.test/api/v1/vessels')
   })
 
-  it('API Key가 없으면 헤더를 붙이지 않는다 — 빈 값은 「틀린 키」로 읽힐 수 있다', async () => {
+  it('요청 헤더는 Content-Type뿐이다 — API Key 인증은 폐기됐다 (#104 · #1075)', async () => {
+    // 인증은 세션 쿠키다(API_SPEC §1.2). 서버가 읽지 않는 인증 헤더를 싣지 않는다.
+    // CSRF 헤더는 쿠키가 있을 때만 붙고, 이 환경에는 쿠키가 없다.
     const fetchImpl = vi.fn(async () => jsonResponse({ data: CREATED }))
     await createApiVesselRegistrationProvider({ fetchImpl }).register(REQUEST)
 
     const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-    expect((init.headers as Record<string, string>)['X-API-Key']).toBeUndefined()
-  })
-
-  it('API Key가 있으면 싣는다', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ data: CREATED }))
-    await createApiVesselRegistrationProvider({ fetchImpl, apiKey: 'k' }).register(REQUEST)
-
-    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-    expect((init.headers as Record<string, string>)['X-API-Key']).toBe('k')
+    expect(Object.keys(init.headers as Record<string, string>)).toEqual(['Content-Type'])
   })
 })
 

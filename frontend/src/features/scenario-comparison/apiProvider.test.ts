@@ -330,8 +330,37 @@ describe('시나리오 채택 — POST /scenarios/{id}/adopt (#580)', () => {
       voyage_id: 'v-1',
       adopted_scenario_type: 'SLOW_STEAMING',
       updated_fields: ['planned_distance_nm', 'planned_speed_kn', 'planned_arrival_at'],
+      // 재계산 건수를 **옮긴다** — `#817`이 2026-09-11에 닫혀 참값이 됐다 (`#1077`).
+      // `0`을 버리면 화면이 「알 수 없다」를 그려, 「이미 전부 표시돼 있다」와 구분이 사라진다.
+      invalidated_calculation_runs: 0,
     })
-    // 재계산 건수는 옮기지 않는다 — `#817`이 닫히기 전에는 참값이 아니다.
+  })
+
+  it('재계산 건수가 수가 아니면 옮기지 않는다 — 0건이라고 단정하지 않는다', async () => {
+    // `Number(null) === 0`이라 변환하면 **「알 수 없다」가 「0건」으로 둔갑**한다 (`#1077`).
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: {
+          voyage_id: 'v-1',
+          adopted_scenario_type: 'SLOW_STEAMING',
+          updated_fields: [],
+          invalidated_calculation_runs: null,
+        },
+      }),
+    )
+    const result = await createApiScenarioProvider(fetchImpl).adopt('sc-1', 'v-1')
+
+    expect(result).not.toHaveProperty('invalidated_calculation_runs')
+  })
+
+  it('서버가 재계산 건수를 아예 싣지 않으면 없는 채로 둔다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: { voyage_id: 'v-1', adopted_scenario_type: 'SLOW_STEAMING', updated_fields: [] },
+      }),
+    )
+    const result = await createApiScenarioProvider(fetchImpl).adopt('sc-1', 'v-1')
+
     expect(result).not.toHaveProperty('invalidated_calculation_runs')
   })
 

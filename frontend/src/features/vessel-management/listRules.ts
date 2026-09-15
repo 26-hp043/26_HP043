@@ -193,6 +193,53 @@ export function blockedReasons(vessel: Vessel): string[] {
 export const EMPTY_MESSAGE =
   '등록된 선박이 없습니다. 선박을 등록하면 대시보드·CII 예측에서 선택할 수 있습니다.'
 
+/*
+ * ── 불러온 수와 전체 수를 가르지 않았다 (#1102 ⑶) ─────────────────────────
+ *
+ * `GET /vessels`는 커서 페이지네이션이고 `meta`에 전체 수가 없다(`API_SPEC §2.1`).
+ * 화면은 **불러온 만큼**만 안다. 그런데 제목이 「선박 20척」이라 35척 선대에서 전체
+ * 수처럼 읽혔고, 「제원 미비 먼저」 정렬도 20척 안에서만 성립한다는 사실이 어디에도
+ * 없었다. 불러온 20척을 모두 지우면 「등록된 선박이 없습니다」와 「더 보기」가 함께
+ * 떠 서로 반대 말을 했다.
+ *
+ * 전체 수를 지어내지 않는다 — 서버가 주지 않는 값이다. 대신 **「불러온 수」임을
+ * 제목이 말하고**, 더 있으면 정렬이 그 안에서만 적용된다고 적는다.
+ */
+
+/** 목록 제목. 뒤에 더 있으면 「불러옴」을 붙여 전체 수가 아님을 밝힌다. */
+export function listTitle(loadedCount: number, hasMore: boolean): string {
+  return hasMore ? `선박 ${loadedCount}척 불러옴` : `선박 ${loadedCount}척`
+}
+
+/** 뒤 페이지가 남아 있을 때 정렬의 범위를 밝히는 안내. */
+export const LOADED_PARTIAL_HINT =
+  '아직 불러오지 않은 선박이 있습니다. 정렬은 불러온 선박 안에서만 적용됩니다.'
+
+/**
+ * 불러온 선박을 모두 지웠지만 뒤 페이지가 남아 있을 때의 안내.
+ *
+ * 이때 `EMPTY_MESSAGE`를 띄우면 거짓이다 — 등록된 선박은 있다. 「더 보기」가 다음
+ * 페이지를 부른다는 사실을 문장이 말한다.
+ */
+export const LOADED_EMPTY_MESSAGE =
+  '불러온 선박을 모두 제거했습니다. 「더 보기」를 누르면 다음 선박을 불러옵니다.'
+
+/** 빈 목록의 안내 — 뒤 페이지가 남아 있는지에 따라 다른 말을 한다. */
+export function emptyMessage(hasMore: boolean): string {
+  return hasMore ? LOADED_EMPTY_MESSAGE : EMPTY_MESSAGE
+}
+
+/**
+ * 폼을 이미 떠난 선박의 저장 실패 안내 (#1102 ⑴).
+ *
+ * A를 저장하는 동안 B의 「수정」을 누르면 A의 폼은 사라진다. 그 뒤 A가 실패하면
+ * 붙일 폼이 없다 — 종전에는 **B의 폼 같은 칸에 붙었다.** 폼 밖에 선박 이름을 달아
+ * 알린다. 조용히 버리면 사용자는 A가 저장된 줄 안다.
+ */
+export function saveFailureNotice(vesselName: string, message: string): string {
+  return `${vesselName}의 정보를 저장하지 못했습니다 — ${message}`
+}
+
 /**
  * 삭제 확인 문구.
  *
