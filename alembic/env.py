@@ -1,20 +1,18 @@
 import asyncio
+import contextlib
 import sys
 from logging.config import fileConfig
 from pathlib import Path
 
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.engine import engine_from_config
+from sqlalchemy.engine import Connection, engine_from_config
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
 # Register CUBRID Alembic DDL implementation (#1058).
-try:
+with contextlib.suppress(ImportError):
     from sqlalchemy_cubrid.alembic_impl import CubridImpl as _CubridImpl  # noqa: F401
-except ImportError:
-    pass
 
 # src 레이아웃을 sys.path에 추가하여 editable 설치 없이도 cii_platform을 import할 수 있게 한다.
 _SRC = Path(__file__).resolve().parents[1] / "src"

@@ -23,10 +23,9 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_if_not_exists
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from conftest import ensure_regulation_year, insert_if_not_exists
 
 from cii_platform.calc.hash import compute_parameter_hash
 from cii_platform.errors import (
@@ -61,14 +60,18 @@ async def session(conn):
 async def _seed_parameters(session) -> None:
     """이 선종·연도의 규정 파라미터. 이미 있으면 넣지 않는다(세션 seed와 공존)."""
     await ensure_regulation_year(session, 2026)
-    await insert_if_not_exists(session,
+    await insert_if_not_exists(
+        session,
         "INSERT INTO cii_reference_line "
         "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')")
-    await insert_if_not_exists(session,
+        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')",
+    )
+    await insert_if_not_exists(
+        session,
         "INSERT INTO cii_rating_boundary "
         "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')",
+    )
 
 
 @pytest_asyncio.fixture

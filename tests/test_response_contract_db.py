@@ -52,10 +52,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import API_V1_PREFIX, app
-from conftest import insert_returning_id
 
 #: 데모 시드의 고정 선박 (`db/demo_seed.py`).
 DEMO_VESSEL = "00000000-0000-4000-8000-000000000003"
@@ -1508,8 +1508,6 @@ async def test_import_and_adopt_responses_match_the_contract(client):
     저장까지 거치면 이 검사가 기능② 계산 전체에 묶인다.
     """
     from uuid import UUID
-
-    from sqlalchemy import text
 
     from cii_platform.db.session import get_sessionmaker
 

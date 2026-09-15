@@ -10,8 +10,7 @@
 from __future__ import annotations
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -43,7 +42,10 @@ class UserToken(Base):
     #: 사용 시각. NOT NULL이면 재사용 불가.
     used_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

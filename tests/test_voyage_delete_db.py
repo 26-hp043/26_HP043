@@ -11,11 +11,11 @@
 
 from __future__ import annotations
 
+from conftest import insert_returning_id
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from conftest import insert_returning_id
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.auth.dependencies import require_csrf

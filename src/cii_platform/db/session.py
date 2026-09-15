@@ -51,9 +51,7 @@ def get_engine() -> AsyncEngine:
     def _cubrid_param_convert(conn, cursor, statement, parameters, context, executemany):
         if parameters and isinstance(parameters, (tuple, list)):
             parameters = tuple(
-                p.hex if isinstance(p, uuid.UUID)
-                else str(p) if isinstance(p, _Decimal)
-                else p
+                p.hex if isinstance(p, uuid.UUID) else str(p) if isinstance(p, _Decimal) else p
                 for p in parameters
             )
         # CAST(? AS type) → ?

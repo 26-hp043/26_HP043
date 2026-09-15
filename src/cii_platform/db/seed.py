@@ -44,9 +44,7 @@ import dataclasses
 from datetime import date
 from decimal import Decimal
 
-import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection
-
 from sqlalchemy_cubrid.dml import replace as cubrid_replace
 
 from cii_platform.calc.imo_parser import parse_imo_scientific

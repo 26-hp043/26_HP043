@@ -4,8 +4,7 @@ DB_SCHEMA.md §2.16 (user_session) 참조. 세션 토큰 원문을 저장하지 
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -31,7 +30,10 @@ class UserSession(Base):
     user_agent = sa.Column(sa.String(length=255), nullable=True)
     ip_address = sa.Column(sa.String(length=45), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

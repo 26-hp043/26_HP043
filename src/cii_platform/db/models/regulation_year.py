@@ -6,8 +6,7 @@ DB_SCHEMA.md §2.8 (regulation_year — 규정 연도 Z-factor) 참조. 컬럼·
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -32,7 +31,10 @@ class RegulationYear(Base):
     version = sa.Column(sa.String(length=50), nullable=False)
     is_active = sa.Column(sa.Boolean(), default=True, server_default=sa.text("1"), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

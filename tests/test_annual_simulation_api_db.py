@@ -25,10 +25,9 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_if_not_exists
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from conftest import ensure_regulation_year, insert_if_not_exists
 
 from cii_platform.errors import CalculationError, ValidationError
 from cii_platform.services.annual_simulation import (

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -152,9 +153,7 @@ app.add_middleware(RequestContextMiddleware)
 # CORS — Cloudflare Pages에서 cross-origin 접근을 허용한다.
 # CORS_ALLOW_ORIGINS 환경변수에 쉼표로 구분된 오리진을 설정한다.
 # 미설정이면 CORS 미들웨어가 추가되지 않는다 (같은 출처 배포 시 불필요).
-import os as _os
-
-_cors_origins_raw = _os.environ.get("CORS_ALLOW_ORIGINS", "")
+_cors_origins_raw = os.environ.get("CORS_ALLOW_ORIGINS", "")
 _cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
 if _cors_origins:
     app.add_middleware(

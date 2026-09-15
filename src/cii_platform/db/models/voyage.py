@@ -8,8 +8,7 @@ DB_SCHEMA.md §2.2 (voyage) 참조. 컬럼·제약·인덱스 정의는 마이�
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -59,11 +58,17 @@ class Voyage(Base):
     notes = sa.Column(sa.Text(), nullable=True)
     is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     # updated_at 자동 갱신은 DB 트리거(trg_voyage_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

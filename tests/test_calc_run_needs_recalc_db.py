@@ -14,10 +14,9 @@ calculation_run INSERT 시 needs_recalc는 기본 false — 024의 server_defaul
 from __future__ import annotations
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-
-from conftest import insert_returning_id
 
 VALID_HASH = "sha256:" + "d" * 64
 

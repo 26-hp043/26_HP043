@@ -11,8 +11,7 @@ side"*로 요구하고, 같은 질의를 반복하면 차단 대상이 된다.
 from __future__ import annotations
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -44,7 +43,10 @@ class PortGeocode(Base):
     source = sa.Column(sa.String(length=50), nullable=False)
     fetched_at = sa.Column(sa.DateTime(timezone=True), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

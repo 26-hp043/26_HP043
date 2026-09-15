@@ -21,11 +21,10 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
 
 from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.services.cii_history import (
@@ -66,14 +65,18 @@ async def _ensure_params(session, *years: int) -> None:
     """
     for year in years:
         await ensure_regulation_year(session, year)
-    await insert_if_not_exists(session,
+    await insert_if_not_exists(
+        session,
         "INSERT INTO cii_reference_line "
         "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')")
-    await insert_if_not_exists(session,
+        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')",
+    )
+    await insert_if_not_exists(
+        session,
         "INSERT INTO cii_rating_boundary "
         "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')",
+    )
 
 
 async def _insert_vessel_with_history(session) -> str:

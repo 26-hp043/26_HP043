@@ -18,10 +18,10 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import insert_returning_id
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.voyage import set_actuals
 

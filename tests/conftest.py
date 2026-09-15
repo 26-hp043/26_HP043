@@ -6,9 +6,11 @@
 DATABASE_URL 환경변수로 대상 DB를 바꿀 수 있으며, 미설정 시 config 기본값을 사용한다.
 """
 
+import contextlib
 import os
 import subprocess
 import sys
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -19,6 +21,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 _ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(_ROOT / "src"))
+
 from db_target import is_disposable, refusal_reason  # noqa: E402
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
@@ -166,10 +169,9 @@ async def execute_sql(session, sql: str, params: dict | None = None):
 
 async def insert_if_not_exists(session, sql_with_values: str, params: dict | None = None) -> None:
     """CUBRID 호환 idempotent INSERT — 이미 있으면 무시."""
-    try:
+    # 이미 존재 (UNIQUE/PK 위반)
+    with contextlib.suppress(Exception):
         await execute_sql(session, sql_with_values, params)
-    except Exception:
-        pass  # 이미 존재 (UNIQUE/PK 위반)
 
 
 async def ensure_regulation_year(session, year: int, z_factor: float = 11.0) -> None:
@@ -352,6 +354,7 @@ def _install_cubrid_param_converter(engine):
     sa.text()에 UUID 객체를 바인딩하면 pycubrid가 거부하므로,
     before_cursor_execute에서 자동 변환한다.
     """
+    import re
     import uuid
 
     # ``sa.Uuid``의 bind processor를 여기서 패치하지 않는다 (`#1058`).
@@ -368,12 +371,10 @@ def _install_cubrid_param_converter(engine):
 
     from sqlalchemy import event
 
-    import re
-
     @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
     def _convert_params(conn, cursor, statement, parameters, context, executemany):
         # 1. UUID/Decimal/datetime → CUBRID 호환 변환
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
 
         def _convert_value(p):
             if isinstance(p, uuid.UUID):
@@ -383,7 +384,7 @@ def _install_cubrid_param_converter(engine):
             if isinstance(p, _dt):
                 # CUBRID는 ISO 8601 'Z' 접미사와 'T' 구분자를 인식하지 못한다.
                 if p.tzinfo is not None:
-                    p = p.astimezone(_tz.utc).replace(tzinfo=None)
+                    p = p.astimezone(UTC).replace(tzinfo=None)
                 return p.strftime("%Y-%m-%d %H:%M:%S")
             if isinstance(p, str):
                 # ISO 8601 문자열 datetime → CUBRID 호환

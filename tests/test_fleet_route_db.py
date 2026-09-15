@@ -19,10 +19,9 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from conftest import insert_returning_id
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import insert_returning_id
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.services.fleet_summary import _route_of
 
@@ -37,12 +36,14 @@ async def session(conn):
 
 
 async def _insert_vessel(session, imo: str) -> UUID:
-    return UUID(await insert_returning_id(
-        session,
-        f"INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-        f"VALUES ('{imo}', 'MAP TEST {imo}', 'BULK_CARRIER', 30000, 50000) RETURNING id",
-        {},
-    ))
+    return UUID(
+        await insert_returning_id(
+            session,
+            f"INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+            f"VALUES ('{imo}', 'MAP TEST {imo}', 'BULK_CARRIER', 30000, 50000) RETURNING id",
+            {},
+        )
+    )
 
 
 async def _insert_voyage(

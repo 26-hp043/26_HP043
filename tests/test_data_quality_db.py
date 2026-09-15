@@ -15,10 +15,9 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from conftest import ensure_regulation_year, insert_returning_id
 
 from cii_platform.services.data_quality import (
     IMPACT_ONLY_VOYAGE,

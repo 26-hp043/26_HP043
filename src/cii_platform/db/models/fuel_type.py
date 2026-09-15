@@ -5,8 +5,7 @@ DB_SCHEMA.md §2.9 (fuel_type) 참조. 컬럼·제약 정의는 마이그레이�
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -43,11 +42,17 @@ class FuelType(Base):
     is_active = sa.Column(sa.Boolean(), default=True, server_default=sa.text("1"), nullable=False)
     effective_from = sa.Column(sa.Date(), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     # updated_at 자동 갱신은 DB 트리거(trg_fuel_type_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

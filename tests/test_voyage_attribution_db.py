@@ -22,10 +22,10 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import insert_returning_id
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
 from cii_platform.services.scenario_adopt import adopt_scenario
 from cii_platform.services.voyage import delete_voyage, update_voyage
@@ -54,15 +54,17 @@ async def _vessel(session) -> UUID:
 
 async def _voyage(session, vessel_id: UUID, *, status: str = "PLANNED") -> UUID:
     policy = "INCLUDE_AS_PLAN" if status == "PLANNED" else "EXCLUDE"
-    return UUID(await insert_returning_id(
-        session,
-        "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
-        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
-        " planned_departure_at, created_from) "
-        "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12, :dep, 'MANUAL') "
-        "RETURNING id",
-        {"vid": vessel_id, "st": status, "pol": policy, "dep": DEPARTURE},
-    ))
+    return UUID(
+        await insert_returning_id(
+            session,
+            "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
+            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
+            " planned_departure_at, created_from) "
+            "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12, :dep, 'MANUAL') "
+            "RETURNING id",
+            {"vid": vessel_id, "st": status, "pol": policy, "dep": DEPARTURE},
+        )
+    )
 
 
 def _payload(vessel_id: UUID, voyage_id: UUID | None = None) -> VoyageCiiInput:

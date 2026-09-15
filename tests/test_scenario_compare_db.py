@@ -23,10 +23,10 @@ from typing import Any
 from uuid import UUID
 
 import pytest_asyncio
+from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-from conftest import insert_returning_id
 from cii_platform.api.main import app
 
 _BASE = "https://testserver"

@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -27,7 +28,6 @@ from cii_platform.db.models.user_token import (
     PURPOSE_EMAIL_VERIFY,
     PURPOSE_PASSWORD_RESET,
 )
-from conftest import insert_returning_id
 from cii_platform.mail import MailDeliveryError
 from cii_platform.services.auth_token import (
     TokenError,

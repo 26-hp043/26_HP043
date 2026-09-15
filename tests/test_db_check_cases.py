@@ -16,10 +16,9 @@ DB-CHK-016 · DB-CHK-017 · DB-CHK-018 · DB-CHK-021 (`TEST_PLAN §14.5`)
 from __future__ import annotations
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-
-from conftest import insert_returning_id
 
 
 async def _vessel(conn, **over) -> str:

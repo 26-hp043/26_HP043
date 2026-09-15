@@ -17,10 +17,9 @@
 """
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
-
-from conftest import insert_returning_id
 
 # sha256: + 64 hex — CHECK를 통과하는 유효 해시.
 VALID_HASH = "sha256:" + "a" * 64

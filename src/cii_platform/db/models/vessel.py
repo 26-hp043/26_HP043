@@ -5,8 +5,7 @@ DB_SCHEMA.md §2.1 (vessel) 참조. 컬럼·제약·인덱스 정의는 마이�
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -47,17 +46,33 @@ class Vessel(Base):
     # 위치가 있으면 필수 — 화면이 「위치 갱신 시각」을 표시한다(UIFLOW §2-8).
     position_updated_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     # updated_at 자동 갱신은 DB 트리거(trg_vessel_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_vessel"),
         # [S-1] / §7.1: default_fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
-        # §2.1 검증 제약 (원문 그대로).        sa.CheckConstraint("gross_tonnage IS NULL OR gross_tonnage > 0", name="chk_gt_positive"),
+        # §2.1 검증 제약 (원문 그대로).
+        #
+        # `chk_imo_format`은 여기 없다 — PostgreSQL 전용 `~` 정규식이라 CUBRID가 받지
+        # 않아 전환(`9ddeb22`)에서 뺐다. 그때 **이 주석 줄과 다음 줄이 붙어**
+        # `chk_gt_positive`가 주석 안으로 들어가 함께 죽었다 — 의도한 삭제는 하나인데
+        # 둘이 사라졌다. 형제 제약(`chk_dwt_positive`·`chk_speed_positive`)은 살아
+        # 있으므로 되살려 나란히 둔다 (`#1058`).
+        #
+        # CUBRID가 CHECK를 **강제하지 않는다**는 사실은 `DB_SCHEMA §7.4`에 있다.
+        # 여기 적힌 것은 다른 엔진에서의 계약이자 문서이지 배포의 방어가 아니다.
+        sa.CheckConstraint("gross_tonnage IS NULL OR gross_tonnage > 0", name="chk_gt_positive"),
         sa.CheckConstraint("deadweight IS NULL OR deadweight > 0", name="chk_dwt_positive"),
         sa.CheckConstraint(
             "reference_speed_kn IS NULL OR reference_speed_kn > 0", name="chk_speed_positive"

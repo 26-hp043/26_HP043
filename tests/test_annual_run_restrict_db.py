@@ -12,10 +12,9 @@
 from __future__ import annotations
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-
-from conftest import insert_returning_id
 
 VALID_HASH = "sha256:" + "c" * 64
 

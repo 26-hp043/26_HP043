@@ -5,8 +5,7 @@ DB_SCHEMA.md §2.12 (weather_model_parameter) 참조. 컬럼·인덱스 정의�
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -31,7 +30,10 @@ class WeatherModelParameter(Base):
     unit = sa.Column(sa.String(length=30), nullable=True)
     source_ref = sa.Column(sa.String(length=200), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

@@ -5,8 +5,7 @@ DB_SCHEMA.md §2.13 (weather_snapshot) 참조. 컬럼·인덱스 정의는
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -38,7 +37,10 @@ class WeatherSnapshot(Base):
     # open_meteo_marine, open_meteo_forecast, sample (§2.13 설명 — CHECK는 정본에 없음).
     source = sa.Column(sa.String(length=50), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

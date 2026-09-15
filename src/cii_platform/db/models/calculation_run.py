@@ -13,8 +13,7 @@ ORM으로 UPDATE/DELETE를 시도하면 DB 예외로 트랜잭션이 롤백된�
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -45,9 +44,14 @@ class CalculationRun(Base):
     duration_ms = sa.Column(sa.Integer(), nullable=True)
     # #283 · #944: 선박 제원(DWT/GT · 선종) 변경 시 서비스가 false→true로만 플립한다.
     # 되돌림은 가드 트리거(024)가 막는다.
-    needs_recalc = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
+    needs_recalc = sa.Column(
+        sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False
+    )
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
@@ -74,7 +78,10 @@ class CalculationRun(Base):
             name="fk_calculation_run_weather_snapshot",
             ondelete="RESTRICT",
         ),
-        # §2.5 검증 제약 [S-7] (원문 그대로): sha256: + 64 hex.        # §2.5 calculation_type enum 검증 (#84). 4개 허용값 외 임의 문자열 차단.
+        # §2.5 [S-7] 해시 형식(`sha256:` + 64 hex) 제약은 여기 없다 — PostgreSQL 전용
+        # `~` 정규식이라 전환에서 뺐고, 마이그레이션 `a7d3e9b14f26`이 **트리거**로
+        # 되살렸다(`DB_SCHEMA §7.4`). 전환 때 이 주석이 아래 주석과 한 줄로 눌려 있었다.
+        # §2.5 calculation_type enum 검증 (#84). 4개 허용값 외 임의 문자열 차단.
         sa.CheckConstraint(
             "calculation_type IN "
             "('VOYAGE_ESTIMATE','SCENARIO','ANNUAL_DETERMINISTIC','ANNUAL_MONTE_CARLO')",

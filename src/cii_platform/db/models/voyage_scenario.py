@@ -8,8 +8,7 @@ DB_SCHEMA.md §2.4 (voyage_scenario) 참조. 컬럼·제약 정의는 마이그�
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -47,11 +46,17 @@ class VoyageScenario(Base):
     # weather_snapshot(§2.13) 참조. FK는 013에서 추가됐다 — 아래 __table_args__ 참조.
     weather_snapshot_id = sa.Column(UuidText, nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     # updated_at 자동 갱신은 DB 트리거(trg_voyage_scenario_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

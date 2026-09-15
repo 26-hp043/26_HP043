@@ -16,8 +16,7 @@ ORM으로 UPDATE/DELETE를 시도하면 DB 예외로 트랜잭션이 롤백된�
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -44,7 +43,10 @@ class SimulationSnapshot(Base):
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
@@ -56,6 +58,9 @@ class SimulationSnapshot(Base):
             name="fk_simulation_snapshot_vessel",
             ondelete="RESTRICT",
         ),
-        # §2.7 검증 제약 [S-7] (원문 그대로): sha256: + 64 hex.        # #97 (Oracle F4): vessel 삭제 시 RESTRICT 체크가 full scan하지 않게.
+        # §2.7 [S-7] 해시 형식(`sha256:` + 64 hex) 제약은 여기 없다 — PostgreSQL 전용
+        # `~` 정규식이라 전환에서 뺐고, 마이그레이션 `a7d3e9b14f26`이 **트리거**로
+        # 되살렸다(`DB_SCHEMA §7.4`). 전환 때 이 주석이 아래 주석과 한 줄로 눌려 있었다.
+        # #97 (Oracle F4): vessel 삭제 시 RESTRICT 체크가 full scan하지 않게.
         sa.Index("idx_snapshot_vessel", vessel_id, created_at.desc()),
     )

@@ -17,10 +17,10 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import insert_returning_id
 from cii_platform.db.models.chat import RETENTION_DAYS, ROLE_ASSISTANT, ROLE_USER
 from cii_platform.db.repositories import chat as chat_repo
 from cii_platform.services.audit import content_digest

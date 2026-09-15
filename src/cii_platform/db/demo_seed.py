@@ -1096,8 +1096,10 @@ async def _cf_by_fuel(conn: AsyncConnection) -> dict[str, Decimal]:
     from cii_platform.db.models.fuel_type import FuelType
 
     rows = (
-        await conn.execute(sa.select(FuelType.__table__.c.code, FuelType.__table__.c.cf))
-    ).mappings().all()
+        (await conn.execute(sa.select(FuelType.__table__.c.code, FuelType.__table__.c.cf)))
+        .mappings()
+        .all()
+    )
     table = {row["code"]: Decimal(str(row["cf"])) for row in rows}
     if not table:  # pragma: no cover - 마이그레이션이 끝난 DB에서는 비지 않는다
         raise RuntimeError("fuel_type 표가 비어 있습니다 — 마이그레이션을 먼저 적용하세요")
@@ -1180,11 +1182,7 @@ async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
         wanted = {c: vessel[c] for c in SPEC_COLUMNS if vessel[c] is not None}
         if not wanted:
             continue
-        row = (
-            await conn.execute(
-                sa.select(*cols).where(tbl.c.id == vessel["id"])
-            )
-        ).one_or_none()
+        row = (await conn.execute(sa.select(*cols).where(tbl.c.id == vessel["id"]))).one_or_none()
         if row is None:
             continue
         for column in wanted:
@@ -1291,7 +1289,9 @@ async def demo_user_missing(conn) -> bool:
     from cii_platform.db.models.app_user import AppUser
 
     row = await conn.execute(
-        sa.select(sa.literal(1)).select_from(AppUser.__table__).where(
+        sa.select(sa.literal(1))
+        .select_from(AppUser.__table__)
+        .where(
             AppUser.__table__.c.email == DEMO_USER_EMAIL,
             AppUser.__table__.c.is_deleted == 0,
         )
@@ -1427,9 +1427,7 @@ async def _delete_unreferenced(
     subq = sa.select(calc.c[calc_run_column]).where(calc.c[calc_run_column] != None)  # noqa: E711
     deleted = 0
     for uid in ids:
-        result = await conn.execute(
-            sa.delete(tbl).where(tbl.c.id == uid, tbl.c.id.not_in(subq))
-        )
+        result = await conn.execute(sa.delete(tbl).where(tbl.c.id == uid, tbl.c.id.not_in(subq)))
         deleted += result.rowcount
     return deleted
 

@@ -5,8 +5,7 @@ DB_SCHEMA.md §2.11 (cii_rating_boundary) 참조. 컬럼·제약·인덱스 정�
 """
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -33,7 +32,10 @@ class CiiRatingBoundary(Base):
     d4 = sa.Column(sa.Numeric(precision=6, scale=4), nullable=False)
     source_ref = sa.Column(sa.String(length=200), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

@@ -17,8 +17,7 @@
 from __future__ import annotations
 
 import uuid
-
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
@@ -46,7 +45,10 @@ class ChatSession(Base):
     user_id = sa.Column(UuidText, nullable=False)
     title = sa.Column(sa.String(length=200), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     #: 생성 + 90일. **컬럼으로 두는 이유**는 보존 기간이 바뀌어도 이미 만든 세션의
     #: 만료일이 따라 움직이지 않게 하기 위해서다 — 계산으로 유도하면 정책을 고치는
@@ -82,7 +84,12 @@ class ChatMessage(Base):
     session_id = sa.Column(UuidText, nullable=False)
     role = sa.Column(sa.String(length=10), nullable=False)
     content = sa.Column(sa.Text(), nullable=False)
-    sent_at = sa.Column(sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False)
+    sent_at = sa.Column(
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
+    )
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_chat_message"),

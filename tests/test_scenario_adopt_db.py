@@ -24,10 +24,10 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import insert_returning_id
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.scenario_adopt import (
     MODE_CREATE,
@@ -59,15 +59,17 @@ async def vessel_id(session) -> UUID:
 
 async def _new_voyage(session, vessel_id: UUID, *, status: str = "PLANNED") -> UUID:
     policy = "INCLUDE_AS_PLAN" if status in {"PLANNED", "IN_PROGRESS"} else "EXCLUDE"
-    voyage_id = UUID(await insert_returning_id(
-        session,
-        "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
-        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
-        " planned_departure_at, created_from) "
-        "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12, :dep, 'MANUAL') "
-        "RETURNING id",
-        {"vid": vessel_id, "st": status, "pol": policy, "dep": DEPARTURE},
-    ))
+    voyage_id = UUID(
+        await insert_returning_id(
+            session,
+            "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
+            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
+            " planned_departure_at, created_from) "
+            "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12, :dep, 'MANUAL') "
+            "RETURNING id",
+            {"vid": vessel_id, "st": status, "pol": policy, "dep": DEPARTURE},
+        )
+    )
     await session.execute(
         text(
             "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, cf_used, source) "
@@ -81,14 +83,16 @@ async def _new_voyage(session, vessel_id: UUID, *, status: str = "PLANNED") -> U
 async def _new_scenario(
     session, vessel_id: UUID, *, scenario_type: str = "SLOW_STEAMING", distance: str = "2000"
 ) -> UUID:
-    return UUID(await insert_returning_id(
-        session,
-        "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, distance_nm, "
-        " speed_kn, duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
-        "VALUES (:vid, :st, '감속 운항', :dist, 10.5, 190.5, 120.25, 5.1, 'C', 'MEDIUM') "
-        "RETURNING id",
-        {"vid": vessel_id, "st": scenario_type, "dist": Decimal(distance)},
-    ))
+    return UUID(
+        await insert_returning_id(
+            session,
+            "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, distance_nm, "
+            " speed_kn, duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
+            "VALUES (:vid, :st, '감속 운항', :dist, 10.5, 190.5, 120.25, 5.1, 'C', 'MEDIUM') "
+            "RETURNING id",
+            {"vid": vessel_id, "st": scenario_type, "dist": Decimal(distance)},
+        )
+    )
 
 
 async def _voyage_row(session, voyage_id: UUID):

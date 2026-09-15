@@ -13,11 +13,11 @@ id desc)`` 정렬, 커서 페이지네이션.
 
 from __future__ import annotations
 
+from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from cii_platform.api.main import app
-from conftest import insert_returning_id
 
 _BASE = "https://testserver"
 

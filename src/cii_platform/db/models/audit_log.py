@@ -6,8 +6,6 @@ DB_SCHEMA.md §2.14 (audit_log) 참조. 컬럼·인덱스 정의는
 
 import uuid
 
-from datetime import datetime, timezone
-
 import sqlalchemy as sa
 
 from cii_platform.db.models.base import Base

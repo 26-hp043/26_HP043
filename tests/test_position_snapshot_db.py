@@ -21,10 +21,10 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conftest import insert_returning_id
 from cii_platform.ais.provider import (
     NOT_UNDER_WAY,
     SOURCE_AIS,

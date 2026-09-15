@@ -24,11 +24,10 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from conftest import insert_returning_id
 
 from cii_platform.errors import NotFoundError
 from cii_platform.services.vessel import create_vessel, delete_vessel, get_vessel, list_vessels

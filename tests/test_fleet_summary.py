@@ -20,10 +20,9 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
 
 from cii_platform.calc.rating_engine import DVector, determine_rating
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -349,14 +348,18 @@ async def session(conn):
 async def _seed_parameters(session) -> None:
     """규정 파라미터를 멱등하게 심는다 (test_ytd_cii_service_db.py와 같은 방식)."""
     await ensure_regulation_year(session, 2026)
-    await insert_if_not_exists(session,
+    await insert_if_not_exists(
+        session,
         "INSERT INTO cii_reference_line "
         "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')")
-    await insert_if_not_exists(session,
+        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')",
+    )
+    await insert_if_not_exists(
+        session,
         "INSERT INTO cii_rating_boundary "
         "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')")
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')",
+    )
 
 
 async def _hide_seeded_vessels(session) -> None:
