@@ -10,8 +10,11 @@ side"*로 요구하고, 같은 질의를 반복하면 차단 대상이 된다.
 
 from __future__ import annotations
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
 
@@ -22,9 +25,9 @@ class PortGeocode(Base):
     __tablename__ = "port_geocode"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     #: 정규화한 질의(공백 정리 + 대문자). 같은 이름을 두 번 묻지 않게 하는 키다.
     query = sa.Column(sa.String(length=200), nullable=False)
@@ -40,7 +43,7 @@ class PortGeocode(Base):
     source = sa.Column(sa.String(length=50), nullable=False)
     fetched_at = sa.Column(sa.DateTime(timezone=True), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (

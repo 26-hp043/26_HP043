@@ -44,8 +44,10 @@ import dataclasses
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection
+
+from sqlalchemy_cubrid.dml import replace as cubrid_replace
 
 from cii_platform.calc.imo_parser import parse_imo_scientific
 from cii_platform.db.models import CiiRatingBoundary, CiiReferenceLine, RegulationYear
@@ -386,19 +388,8 @@ async def _upsert_z_factors(conn: AsyncConnection) -> int:
         }
         for row in SEED_Z_FACTORS
     ]
-    stmt = pg_insert(RegulationYear.__table__).values(values)
-    # created_at은 갱신하지 않는다 — 최초 적재 시점을 보존한다.
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["year"],
-        set_={
-            "z_factor_percent": stmt.excluded.z_factor_percent,
-            "effective_from": stmt.excluded.effective_from,
-            "source_ref": stmt.excluded.source_ref,
-            "version": stmt.excluded.version,
-            "is_active": stmt.excluded.is_active,
-        },
-    )
-    await conn.execute(stmt)
+    for row in values:
+        await conn.execute(cubrid_replace(RegulationYear.__table__).values(row))
     return len(values)
 
 
@@ -416,18 +407,8 @@ async def _upsert_reference_lines(conn: AsyncConnection) -> int:
         }
         for row in SEED_REFERENCE_LINES
     ]
-    stmt = pg_insert(CiiReferenceLine.__table__).values(values)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["ship_type", "condition_expr"],
-        set_={
-            "capacity_rule": stmt.excluded.capacity_rule,
-            "a_raw": stmt.excluded.a_raw,
-            "a_decimal": stmt.excluded.a_decimal,
-            "c": stmt.excluded.c,
-            "source_ref": stmt.excluded.source_ref,
-        },
-    )
-    await conn.execute(stmt)
+    for row in values:
+        await conn.execute(cubrid_replace(CiiReferenceLine.__table__).values(row))
     return len(values)
 
 
@@ -446,19 +427,8 @@ async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
         }
         for row in SEED_RATING_BOUNDARIES
     ]
-    stmt = pg_insert(CiiRatingBoundary.__table__).values(values)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["ship_type", "condition_expr"],
-        set_={
-            "capacity_basis": stmt.excluded.capacity_basis,
-            "d1": stmt.excluded.d1,
-            "d2": stmt.excluded.d2,
-            "d3": stmt.excluded.d3,
-            "d4": stmt.excluded.d4,
-            "source_ref": stmt.excluded.source_ref,
-        },
-    )
-    await conn.execute(stmt)
+    for row in values:
+        await conn.execute(cubrid_replace(CiiRatingBoundary.__table__).values(row))
     return len(values)
 
 
@@ -490,11 +460,11 @@ async def main() -> None:  # pragma: no cover - 프로세스 진입점
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from cii_platform.config import DATABASE_URL
-    from cii_platform.db.url import normalize_to_asyncpg
+    from cii_platform.db.url import normalize_to_async
 
     # URL 정규화는 alembic/env.py·tests/conftest.py·db/session.py와 같은 함수를
     # 공유한다 (#234). 사본을 두면 앱만 분기가 빠지는 일이 다시 생긴다.
-    engine = create_async_engine(normalize_to_asyncpg(DATABASE_URL), poolclass=pool.NullPool)
+    engine = create_async_engine(normalize_to_async(DATABASE_URL), poolclass=pool.NullPool)
     try:
         async with engine.begin() as conn:
             counts = await seed_all(conn)

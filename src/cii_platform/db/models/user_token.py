@@ -9,8 +9,11 @@
 
 from __future__ import annotations
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
 
@@ -26,11 +29,11 @@ class UserToken(Base):
     __tablename__ = "user_token"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    user_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    user_id = sa.Column(sa.Uuid, nullable=False)
     purpose = sa.Column(sa.String(length=20), nullable=False)
     #: 토큰의 SHA-256 hex. **원문을 저장하지 않는다** — DB가 유출돼도 토큰을
     #: 되돌릴 수 없어야 한다(`user_session.session_token_hash`와 같은 규칙).
@@ -39,7 +42,7 @@ class UserToken(Base):
     #: 사용 시각. NOT NULL이면 재사용 불가.
     used_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (

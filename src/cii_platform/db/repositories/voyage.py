@@ -98,7 +98,7 @@ def decode_cursor(token: str) -> VoyageCursor | None:
 
 async def get_by_id(session: AsyncSession, voyage_id: UUID) -> Voyage | None:
     """활성 항차 1건을 조회한다 (soft delete 제외)."""
-    stmt = select(Voyage).where(Voyage.id == voyage_id, Voyage.is_deleted.is_(False))
+    stmt = select(Voyage).where(Voyage.id == voyage_id, Voyage.is_deleted == 0)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
@@ -177,7 +177,7 @@ async def list_active(
 
     ``limit + 1``건을 가져온다 — ``has_more`` 판단용.
     """
-    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted.is_(False))
+    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted == 0)
 
     if status is not None:
         stmt = stmt.where(Voyage.status == status)
@@ -213,7 +213,7 @@ async def list_for_export(
     정렬은 ``(created_at, id)`` 오름차순 — ``list_active``와 같아 화면 순서와 파일
     순서가 갈리지 않는다.
     """
-    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted.is_(False))
+    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted == 0)
     if regulation_year is not None:
         stmt = stmt.where(Voyage.regulation_year == regulation_year)
     stmt = stmt.order_by(Voyage.created_at, Voyage.id)
@@ -248,7 +248,7 @@ async def list_annual_inclusions(
         Voyage.vessel_id == vessel_id,
         Voyage.regulation_year == regulation_year,
         Voyage.annual_inclusion_policy == policy,
-        Voyage.is_deleted.is_(False),
+        Voyage.is_deleted == 0,
     )
 
     if as_of is not None:
@@ -293,7 +293,7 @@ async def find_in_progress(session: AsyncSession, vessel_id: UUID) -> Voyage | N
         .where(
             Voyage.vessel_id == vessel_id,
             Voyage.status == "IN_PROGRESS",
-            Voyage.is_deleted.is_(False),
+            Voyage.is_deleted == 0,
         )
         .order_by(Voyage.actual_departure_at.desc().nullslast(), Voyage.id)
         .limit(1)
@@ -321,7 +321,7 @@ async def find_in_progress_for_vessels(
         .where(
             Voyage.vessel_id.in_(list(vessel_ids)),
             Voyage.status == "IN_PROGRESS",
-            Voyage.is_deleted.is_(False),
+            Voyage.is_deleted == 0,
         )
         .order_by(Voyage.actual_departure_at.desc().nullslast(), Voyage.id)
     )
@@ -351,7 +351,7 @@ async def mark_calculations_needing_recalc(session: AsyncSession, voyage_id: UUI
         update(CalculationRun)
         .where(
             CalculationRun.voyage_id == voyage_id,
-            CalculationRun.needs_recalc.is_(False),
+            CalculationRun.needs_recalc == 0,
         )
         .values(needs_recalc=True)
     )

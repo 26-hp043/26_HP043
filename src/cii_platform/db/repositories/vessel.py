@@ -89,7 +89,7 @@ async def get_by_id(session: AsyncSession, vessel_id: UUID) -> Vessel | None:
     ``WHERE is_deleted = false`` partial이므로(DB_SCHEMA §2.1) 조회도 같은 조건을
     써야 인덱스를 타고, 무엇보다 삭제된 선박으로 계산이 되면 안 된다.
     """
-    stmt = select(Vessel).where(Vessel.id == vessel_id, Vessel.is_deleted.is_(False))
+    stmt = select(Vessel).where(Vessel.id == vessel_id, Vessel.is_deleted == 0)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
@@ -102,7 +102,7 @@ async def find_active_by_imo(session: AsyncSession, imo_number: str) -> Vessel |
     """
     stmt = select(Vessel).where(
         Vessel.imo_number == imo_number,
-        Vessel.is_deleted.is_(False),
+        Vessel.is_deleted == 0,
     )
     return (await session.execute(stmt)).scalar_one_or_none()
 
@@ -128,7 +128,7 @@ async def list_all_active(session: AsyncSession) -> list[Vessel]:
     (`API_SPEC §2.8`). 종전에는 ``list_active(limit=200)``을 잘라 써서 201번째 선박부터
     집계에서 **조용히** 빠졌다. 페이지는 서비스가 계산 뒤에 자른다.
     """
-    stmt = select(Vessel).where(Vessel.is_deleted.is_(False)).order_by(Vessel.name, Vessel.id)
+    stmt = select(Vessel).where(Vessel.is_deleted == 0).order_by(Vessel.name, Vessel.id)
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -153,7 +153,7 @@ async def list_active(
     ``search``는 선박명 부분일치 또는 IMO 번호 부분일치다. 선박명 쪽은 003이 만든
     ``idx_vessel_name``(pg_trgm GIN)이 받는다.
     """
-    stmt = select(Vessel).where(Vessel.is_deleted.is_(False))
+    stmt = select(Vessel).where(Vessel.is_deleted == 0)
 
     if ship_type is not None:
         stmt = stmt.where(Vessel.ship_type == ship_type)

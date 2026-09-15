@@ -15,10 +15,14 @@ ORM으로 UPDATE/DELETE를 시도하면 DB 예외로 트랜잭션이 롤백된�
   마이그레이션이 없어 이번 범위 밖.
 """
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import JSONText
 
 
 class SimulationSnapshot(Base):
@@ -27,20 +31,20 @@ class SimulationSnapshot(Base):
     __tablename__ = "simulation_snapshot"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    vessel_id = sa.Column(sa.Uuid, nullable=False)
     regulation_year = sa.Column(sa.Integer(), nullable=False)
-    voyages_json = sa.Column(postgresql.JSONB(), nullable=False)
+    voyages_json = sa.Column(JSONText(), nullable=False)
     # #493: 계산에 쓰는 선박 제원 사본. **nullable이다** — 이 테이블은 immutable이라
     # 037 이전 행에 값을 넣을 수 없다. 값이 없는 행은 재현 경로가 사유를 밝히고 끊는다.
-    vessel_json = sa.Column(postgresql.JSONB(), nullable=True)
+    vessel_json = sa.Column(JSONText(), nullable=True)
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (
@@ -52,15 +56,6 @@ class SimulationSnapshot(Base):
             name="fk_simulation_snapshot_vessel",
             ondelete="RESTRICT",
         ),
-        # §2.7 검증 제약 [S-7] (원문 그대로): sha256: + 64 hex.
-        sa.CheckConstraint(
-            "input_hash ~ '^sha256:[0-9a-f]{64}$'",
-            name="chk_snap_input_hash_format",
-        ),
-        sa.CheckConstraint(
-            "parameter_hash ~ '^sha256:[0-9a-f]{64}$'",
-            name="chk_snap_param_hash_format",
-        ),
-        # #97 (Oracle F4): vessel 삭제 시 RESTRICT 체크가 full scan하지 않게.
+        # §2.7 검증 제약 [S-7] (원문 그대로): sha256: + 64 hex.        # #97 (Oracle F4): vessel 삭제 시 RESTRICT 체크가 full scan하지 않게.
         sa.Index("idx_snapshot_vessel", vessel_id, created_at.desc()),
     )

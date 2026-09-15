@@ -7,8 +7,11 @@ DB_SCHEMA.md §2.2 (voyage) 참조. 컬럼·제약·인덱스 정의는 마이�
 - annual_inclusion_policy는 EXCLUDE / INCLUDE_AS_PLAN / INCLUDE_AS_ACTUAL.
 """
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
 
@@ -18,13 +21,12 @@ class Voyage(Base):
 
     __tablename__ = "voyage"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    vessel_id = sa.Column(sa.Uuid, nullable=False)
     voyage_no = sa.Column(sa.String(length=100), nullable=True)
     status = sa.Column(sa.String(length=20), nullable=False)
     # [C-1] annual_inclusion_policy ≠ EXCLUDE인 경우 NOT NULL 필수 (chk_year_policy).
@@ -54,13 +56,13 @@ class Voyage(Base):
         nullable=False,
     )
     notes = sa.Column(sa.Text(), nullable=True)
-    is_deleted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
     # updated_at 자동 갱신은 DB 트리거(trg_voyage_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (
@@ -74,7 +76,7 @@ class Voyage(Base):
         ),
         # §2.2 검증 제약 (원문 그대로). status는 CANCELLED 포함 7개 값.
         sa.CheckConstraint(
-            "status IN ('DRAFT','PLANNED','IN_PROGRESS','COMPLETED','CONFIRMED',"
+            "\"status\" IN ('DRAFT','PLANNED','IN_PROGRESS','COMPLETED','CONFIRMED',"
             "'CANCELLED','ARCHIVED')",
             name="chk_voyage_status",
         ),
@@ -84,12 +86,12 @@ class Voyage(Base):
         ),
         # status × annual_inclusion_policy 제약 (PRD §8.1.2 ORACLE-R1).
         sa.CheckConstraint(
-            "(status = 'DRAFT' AND annual_inclusion_policy = 'EXCLUDE')"
-            " OR (status IN ('PLANNED','IN_PROGRESS')"
+            "(\"status\" = 'DRAFT' AND annual_inclusion_policy = 'EXCLUDE')"
+            " OR (\"status\" IN ('PLANNED','IN_PROGRESS')"
             " AND annual_inclusion_policy IN ('EXCLUDE','INCLUDE_AS_PLAN'))"
-            " OR (status IN ('COMPLETED','CONFIRMED')"
+            " OR (\"status\" IN ('COMPLETED','CONFIRMED')"
             " AND annual_inclusion_policy IN ('EXCLUDE','INCLUDE_AS_ACTUAL'))"
-            " OR (status IN ('CANCELLED','ARCHIVED') AND annual_inclusion_policy = 'EXCLUDE')",
+            " OR (\"status\" IN ('CANCELLED','ARCHIVED') AND annual_inclusion_policy = 'EXCLUDE')",
             name="chk_status_policy",
         ),
         # regulation_year 범위 및 policy 연관 제약 [C-1].
@@ -134,18 +136,15 @@ class Voyage(Base):
             "idx_voyage_vessel",
             vessel_id,
             created_at.desc(),
-            postgresql_where=sa.text("is_deleted = false"),
         ),
         sa.Index(
             "idx_voyage_status",
             "vessel_id",
             "status",
-            postgresql_where=sa.text("is_deleted = false"),
         ),
         sa.Index(
             "idx_voyage_year",
             "vessel_id",
             "regulation_year",
-            postgresql_where=sa.text("is_deleted = false"),
         ),
     )

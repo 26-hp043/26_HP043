@@ -4,8 +4,11 @@ DB_SCHEMA.md §2.13 (weather_snapshot) 참조. 컬럼·인덱스 정의는
 마이그레이션 013과 1:1로 일치해야 한다 (zero drift — tests/test_orm_schema_sync.py에서 검증).
 """
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
 
@@ -15,11 +18,10 @@ class WeatherSnapshot(Base):
 
     __tablename__ = "weather_snapshot"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     lat = sa.Column(sa.Numeric(precision=9, scale=6), nullable=False)
     lon = sa.Column(sa.Numeric(precision=9, scale=6), nullable=False)
@@ -35,7 +37,7 @@ class WeatherSnapshot(Base):
     # open_meteo_marine, open_meteo_forecast, sample (§2.13 설명 — CHECK는 정본에 없음).
     source = sa.Column(sa.String(length=50), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (

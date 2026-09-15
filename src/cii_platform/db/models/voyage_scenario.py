@@ -7,8 +7,11 @@ DB_SCHEMA.md §2.4 (voyage_scenario) 참조. 컬럼·제약 정의는 마이그�
 - weather_snapshot_id FK는 013에서 상환 (007은 weather_snapshot 테이블 부재로 컬럼만 생성).
 """
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
 
@@ -19,13 +22,13 @@ class VoyageScenario(Base):
     __tablename__ = "voyage_scenario"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     # [S-8] vessel_id는 NOT NULL (독립 시나리오도 선박 단위 조회·권한 검사 필요).
-    vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
-    voyage_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    vessel_id = sa.Column(sa.Uuid, nullable=False)
+    voyage_id = sa.Column(sa.Uuid, nullable=True)
     scenario_type = sa.Column(sa.String(length=20), nullable=False)
     scenario_name = sa.Column(sa.String(length=100), nullable=False)
     distance_nm = sa.Column(sa.Numeric(precision=12, scale=2), nullable=False)
@@ -37,17 +40,17 @@ class VoyageScenario(Base):
     cii_value = sa.Column(sa.Numeric(precision=15, scale=8), nullable=False)
     estimated_rating = sa.Column(sa.String(length=1), nullable=False)
     risk_level = sa.Column(sa.String(length=10), nullable=False)
-    is_adopted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    is_adopted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     # [M-1] 다른 비즈니스 테이블과 삭제 정책 통일.
-    is_deleted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     # weather_snapshot(§2.13) 참조. FK는 013에서 추가됐다 — 아래 __table_args__ 참조.
-    weather_snapshot_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    weather_snapshot_id = sa.Column(sa.Uuid, nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
     # updated_at 자동 갱신은 DB 트리거(trg_voyage_scenario_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (

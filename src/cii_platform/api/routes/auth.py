@@ -209,7 +209,7 @@ async def signup(
     existing = await session.execute(
         select(AppUser).where(
             func.lower(AppUser.email) == email,
-            AppUser.is_deleted.is_(False),
+            AppUser.is_deleted == 0,
         )
     )
     if existing.scalar_one_or_none() is not None:
@@ -282,7 +282,7 @@ async def login(
     result = await session.execute(
         select(AppUser).where(
             func.lower(AppUser.email) == email,
-            AppUser.is_deleted.is_(False),
+            AppUser.is_deleted == 0,
         )
     )
     user = result.scalar_one_or_none()
@@ -364,7 +364,7 @@ async def _reload_user(session: AsyncSession, request: Request) -> AppUser | Non
     if cached is None:
         return None
     result = await session.execute(
-        select(AppUser).where(AppUser.id == cached.id, AppUser.is_deleted.is_(False))
+        select(AppUser).where(AppUser.id == cached.id, AppUser.is_deleted == 0)
     )
     return result.scalar_one_or_none()
 

@@ -4,10 +4,14 @@ DB_SCHEMA.md §2.14 (audit_log) 참조. 컬럼·인덱스 정의는
 마이그레이션 015와 1:1로 일치해야 한다 (zero drift — tests/test_orm_schema_sync.py에서 검증).
 """
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import JSONText
 
 
 class AuditLog(Base):
@@ -15,16 +19,15 @@ class AuditLog(Base):
 
     __tablename__ = "audit_log"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     # §2.14: 이벤트 시각. created_at을 겸한다(정본에 별도 created_at 없음).
     timestamp = sa.Column(
         sa.DateTime(timezone=True),
-        server_default=sa.text("now()"),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
         nullable=False,
     )
     user_id = sa.Column(sa.String(length=100), nullable=True)
@@ -33,8 +36,8 @@ class AuditLog(Base):
     # (§2.14 설명 — CHECK는 정본에 없음).
     action = sa.Column(sa.String(length=50), nullable=False)
     entity_type = sa.Column(sa.String(length=30), nullable=True)
-    entity_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
-    details_json = sa.Column(postgresql.JSONB(), nullable=True)
+    entity_id = sa.Column(sa.Uuid, nullable=True)
+    details_json = sa.Column(JSONText(), nullable=True)
     # IPv6 최대 45자 (§2.14).
     ip_address = sa.Column(sa.String(length=45), nullable=True)
 

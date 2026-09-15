@@ -22,13 +22,13 @@ sys.path.insert(0, str(_ROOT / "src"))
 from db_target import is_disposable, refusal_reason  # noqa: E402
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
-from cii_platform.db.url import normalize_to_asyncpg  # noqa: E402
+from cii_platform.db.url import normalize_to_async  # noqa: E402
 
 # config/환경변수의 원본 URL. run_alembic은 이 raw 값을 그대로 넘긴다(아래 참조).
 _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
 # async 엔진(conn fixture)용: asyncpg 드라이버로 정규화한 URL.
-# 4곳(alembic/seed/pytest/앱) 공유 정책 — db.url.normalize_to_asyncpg (#234).
-TEST_DATABASE_URL = normalize_to_asyncpg(_RAW_DATABASE_URL)
+# 4곳(alembic/seed/pytest/앱) 공유 정책 — db.url.normalize_to_async (#234).
+TEST_DATABASE_URL = normalize_to_async(_RAW_DATABASE_URL)
 
 
 def require_disposable_target() -> None:

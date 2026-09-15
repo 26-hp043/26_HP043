@@ -4,8 +4,11 @@ DB_SCHEMA.md §2.9 (fuel_type) 참조. 컬럼·제약 정의는 마이그레이�
 일치해야 한다 (zero drift — tests/test_orm_schema_sync.py에서 검증).
 """
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
 
@@ -15,11 +18,10 @@ class FuelType(Base):
 
     __tablename__ = "fuel_type"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     code = sa.Column(sa.String(length=30), nullable=False)
     display_name = sa.Column(sa.String(length=100), nullable=False)
@@ -37,14 +39,14 @@ class FuelType(Base):
         nullable=False,
     )
     content_hash = sa.Column(sa.String(length=71), nullable=True)
-    is_active = sa.Column(sa.Boolean(), server_default=sa.text("true"), nullable=False)
+    is_active = sa.Column(sa.Boolean(), default=True, server_default=sa.text("1"), nullable=False)
     effective_from = sa.Column(sa.Date(), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
     # updated_at 자동 갱신은 DB 트리거(trg_fuel_type_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (

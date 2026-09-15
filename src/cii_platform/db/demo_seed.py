@@ -60,13 +60,13 @@ asyncpg는 ``-1``을 돌려주며, 종전 코드의 ``result.rowcount or 0``은 
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy_cubrid.dml import insert as cubrid_insert
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
@@ -74,9 +74,9 @@ if TYPE_CHECKING:
 
 # 데모 선박의 고정 UUID (#132 계약 · #135 입력 폼). 프론트엔드 고정표가 이 값을
 # 복사해 두었으나 #542가 그 표를 없앴다 — 지금 참조하는 곳은 테스트·픽스처다.
-VESSEL_ID_BULK = "00000000-0000-4000-8000-000000000001"
-VESSEL_ID_CONTAINER = "00000000-0000-4000-8000-000000000002"
-VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
+VESSEL_ID_BULK = uuid.UUID("00000000-0000-4000-8000-000000000001")
+VESSEL_ID_CONTAINER = uuid.UUID("00000000-0000-4000-8000-000000000002")
+VESSEL_ID_GENERAL_CARGO = uuid.UUID("00000000-0000-4000-8000-000000000003")
 
 #: 1번 선박의 합성 IMO 번호.
 #:
@@ -224,7 +224,7 @@ def _rel(days: float, hour: int = 0, minute: int = 0) -> datetime:
 
 
 # --- UUID 블록 (018 계약값 재사용 + 027 신규) ---------------------------------
-VESSEL_ID_RO_RO = "00000000-0000-4000-8000-000000000004"
+VESSEL_ID_RO_RO = uuid.UUID("00000000-0000-4000-8000-000000000004")
 
 #: 「D등급까지 n일」이 **숫자로 보이는 배** (#889).
 #:
@@ -235,36 +235,36 @@ VESSEL_ID_RO_RO = "00000000-0000-4000-8000-000000000004"
 #:
 #: 기존 서사는 그대로 둔다 — E 2척·`at_risk` 2·로로 여객선 D등급이 전부 유지되고
 #: 등급 분포만 `B:1 C:0 D:1 E:2` → `B:1 C:1 D:1 E:2`가 되어 스택 바도 다양해진다.
-VESSEL_ID_WATCH = "00000000-0000-4000-8000-000000000005"
+VESSEL_ID_WATCH = uuid.UUID("00000000-0000-4000-8000-000000000005")
 
 # voyage: …0101~0109
-V1_2025 = "00000000-0000-4000-8000-000000000101"
-V1_2026 = "00000000-0000-4000-8000-000000000102"
-V2_2025 = "00000000-0000-4000-8000-000000000103"
-V2_2026 = "00000000-0000-4000-8000-000000000104"
-V2_IN_PROGRESS = "00000000-0000-4000-8000-000000000105"
-V3_2025 = "00000000-0000-4000-8000-000000000106"
-V3_2026 = "00000000-0000-4000-8000-000000000107"
-V4_2025 = "00000000-0000-4000-8000-000000000108"
-V4_2026 = "00000000-0000-4000-8000-000000000109"
+V1_2025 = uuid.UUID("00000000-0000-4000-8000-000000000101")
+V1_2026 = uuid.UUID("00000000-0000-4000-8000-000000000102")
+V2_2025 = uuid.UUID("00000000-0000-4000-8000-000000000103")
+V2_2026 = uuid.UUID("00000000-0000-4000-8000-000000000104")
+V2_IN_PROGRESS = uuid.UUID("00000000-0000-4000-8000-000000000105")
+V3_2025 = uuid.UUID("00000000-0000-4000-8000-000000000106")
+V3_2026 = uuid.UUID("00000000-0000-4000-8000-000000000107")
+V4_2025 = uuid.UUID("00000000-0000-4000-8000-000000000108")
+V4_2026 = uuid.UUID("00000000-0000-4000-8000-000000000109")
 # 벌크선(발표 동선의 위험 선박)에 진행 중·계획 항차를 준다 (#587).
-V1_IN_PROGRESS = "00000000-0000-4000-8000-000000000110"
-V1_PLANNED = "00000000-0000-4000-8000-000000000111"
+V1_IN_PROGRESS = uuid.UUID("00000000-0000-4000-8000-000000000110")
+V1_PLANNED = uuid.UUID("00000000-0000-4000-8000-000000000111")
 # 관찰 대상 선박의 두 구간 (#889). **두 구간으로 나누는 것이 요점**이다 — 최근 30일이
 # 그 이전보다 나빠야 소비율이 양수가 되고, 강도가 같으면 `NOT_WORSENING`이 나온다.
-V5_EARLY = "00000000-0000-4000-8000-000000000112"
-V5_RECENT = "00000000-0000-4000-8000-000000000113"
+V5_EARLY = uuid.UUID("00000000-0000-4000-8000-000000000112")
+V5_RECENT = uuid.UUID("00000000-0000-4000-8000-000000000113")
 # 2025 이력과 진행 중 항차 — 다른 4척과 같은 규율이다. `test_dashboard_seed.py`가
 # 「모든 선박에 2년 이력」과 「운항 중이면 진행 중 항차」를 잠근다.
-V5_2025 = "00000000-0000-4000-8000-000000000114"
-V5_IN_PROGRESS = "00000000-0000-4000-8000-000000000115"
+V5_2025 = uuid.UUID("00000000-0000-4000-8000-000000000114")
+V5_IN_PROGRESS = uuid.UUID("00000000-0000-4000-8000-000000000115")
 
 # not_underway_period: …0201~0203
-P_CANAL = "00000000-0000-4000-8000-000000000201"
-P_ANCHOR = "00000000-0000-4000-8000-000000000202"
-P_DRYDOCK = "00000000-0000-4000-8000-000000000203"
+P_CANAL = uuid.UUID("00000000-0000-4000-8000-000000000201")
+P_ANCHOR = uuid.UUID("00000000-0000-4000-8000-000000000202")
+P_DRYDOCK = uuid.UUID("00000000-0000-4000-8000-000000000203")
 # 로로 여객선의 진행 중 접안 구간 (#650). `detail_status = IN_PORT`와 짝을 이룬다.
-P_IN_PORT = "00000000-0000-4000-8000-000000000204"
+P_IN_PORT = uuid.UUID("00000000-0000-4000-8000-000000000204")
 
 SEED_VOYAGE_IDS = (
     V1_2025,
@@ -293,7 +293,7 @@ SEED_PERIOD_IDS = (P_CANAL, P_ANCHOR, P_DRYDOCK, P_IN_PORT)
 #: UUID를 고정 상수로 둔다 — ``uuid4()``를 쓰면 시드를 다시 돌릴 때마다 PK가 달라져
 #: ``ON CONFLICT DO NOTHING``이 이메일 UNIQUE에서만 걸린다. 값 대역은 이 파일의
 #: 관례를 따른다(선박 ``…0001``~, 구간 ``…0201``~, 계정 ``…0301``~).
-DEMO_USER_ID = "00000000-0000-4000-8000-000000000301"
+DEMO_USER_ID = uuid.UUID("00000000-0000-4000-8000-000000000301")
 
 #: 로그인 ID. **`.local`을 쓴다** — 실존 도메인이면 시연 중 실제 주소로 메일이 나간다.
 DEMO_USER_EMAIL = "demo@bluelog.local"
@@ -989,7 +989,7 @@ SEED_PERIOD_FUELS: list[dict[str, object]] = [
 # --- 경량 테이블 (018 패턴 — 실제 컬럼 정의는 각 스키마 마이그레이션이 소유) ------
 vessel_tbl = sa.table(
     "vessel",
-    sa.column("id", postgresql.UUID),
+    sa.column("id", sa.Uuid),
     sa.column("imo_number", sa.String),
     sa.column("name", sa.String),
     sa.column("ship_type", sa.String),
@@ -1007,8 +1007,8 @@ vessel_tbl = sa.table(
 )
 voyage_tbl = sa.table(
     "voyage",
-    sa.column("id", postgresql.UUID),
-    sa.column("vessel_id", postgresql.UUID),
+    sa.column("id", sa.Uuid),
+    sa.column("vessel_id", sa.Uuid),
     sa.column("voyage_no", sa.String),
     sa.column("status", sa.String),
     sa.column("annual_inclusion_policy", sa.String),
@@ -1026,8 +1026,8 @@ voyage_tbl = sa.table(
 )
 voyage_fuel_tbl = sa.table(
     "voyage_fuel_use",
-    sa.column("id", postgresql.UUID),
-    sa.column("voyage_id", postgresql.UUID),
+    sa.column("id", sa.Uuid),
+    sa.column("voyage_id", sa.Uuid),
     sa.column("fuel_type", sa.String),
     sa.column("planned_fuel_ton", sa.Numeric),
     sa.column("actual_fuel_ton", sa.Numeric),
@@ -1036,8 +1036,8 @@ voyage_fuel_tbl = sa.table(
 )
 period_tbl = sa.table(
     "not_underway_period",
-    sa.column("id", postgresql.UUID),
-    sa.column("vessel_id", postgresql.UUID),
+    sa.column("id", sa.Uuid),
+    sa.column("vessel_id", sa.Uuid),
     sa.column("regulation_year", sa.Integer),
     sa.column("period_type", sa.String),
     sa.column("started_at", sa.DateTime(timezone=True)),
@@ -1045,13 +1045,13 @@ period_tbl = sa.table(
     sa.column("port_name", sa.String),
     sa.column("lat", sa.Numeric),
     sa.column("lon", sa.Numeric),
-    sa.column("voyage_id", postgresql.UUID),
+    sa.column("voyage_id", sa.Uuid),
 )
 #: 시연 계정 (`#692`). 컬럼 정의의 주인은 022 마이그레이션이다 — 여기서는 시드가
 #: 쓰는 컬럼만 적는다(018 패턴). ``created_at``·``updated_at``은 서버 기본값이 채운다.
 app_user_tbl = sa.table(
     "app_user",
-    sa.column("id", postgresql.UUID),
+    sa.column("id", sa.Uuid),
     sa.column("email", sa.String),
     sa.column("password_hash", sa.String),
     sa.column("email_verified_at", sa.DateTime(timezone=True)),
@@ -1059,8 +1059,8 @@ app_user_tbl = sa.table(
 )
 period_fuel_tbl = sa.table(
     "not_underway_fuel_use",
-    sa.column("id", postgresql.UUID),
-    sa.column("period_id", postgresql.UUID),
+    sa.column("id", sa.Uuid),
+    sa.column("period_id", sa.Uuid),
     sa.column("consumer_type", sa.String),
     sa.column("fuel_type", sa.String),
     sa.column("fuel_ton", sa.Numeric),
@@ -1101,7 +1101,7 @@ async def _cf_by_fuel(conn: AsyncConnection) -> dict[str, Decimal]:
 # 타입을 따라야** 한다.
 _vessel = sa.table(
     "vessel",
-    sa.column("id", postgresql.UUID(as_uuid=False)),
+    sa.column("id", sa.Uuid),
     sa.column("imo_number", sa.String),
     sa.column("name", sa.String),
     sa.column("ship_type", sa.String),
@@ -1126,9 +1126,9 @@ async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dic
     if not rows:
         return 0
     result = await conn.execute(
-        pg_insert(table).on_conflict_do_nothing().returning(table.c.id), rows
+        cubrid_insert(table).on_duplicate_key_update(id=table.c.id), rows
     )
-    return len(result.fetchall())
+    return result.rowcount
 
 
 #: 시드가 값을 갖는 선박 제원 컬럼. :func:`missing_seeded_specs`가 이 목록만 본다.
@@ -1432,9 +1432,9 @@ async def main() -> None:  # pragma: no cover - 프로세스 진입점
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from cii_platform.config import DATABASE_URL
-    from cii_platform.db.url import normalize_to_asyncpg
+    from cii_platform.db.url import normalize_to_async
 
-    engine = create_async_engine(normalize_to_asyncpg(DATABASE_URL), poolclass=pool.NullPool)
+    engine = create_async_engine(normalize_to_async(DATABASE_URL), poolclass=pool.NullPool)
     try:
         async with engine.begin() as conn:
             counts = await seed_demo(conn)

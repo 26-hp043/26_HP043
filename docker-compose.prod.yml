@@ -1,4 +1,4 @@
-# 프로덕션용 compose (#85) — dev(docker-compose.yml)와 분리
+# 프로덕션용 compose (#85 → #1058 CUBRID 전환)
 #  - Dockerfile의 prod stage 사용: non-editable install, --reload 없음
 #  - credential은 반드시 환경에서 주입한다 (.env 파일 또는 셸 환경)
 #  - db 포트를 호스트에 노출하지 않는다 (내부 네트워크 전용)
@@ -6,91 +6,46 @@
 
 services:
   db:
-    image: postgres:16-alpine
+    image: cubrid/cubrid:11.4
+    platform: linux/amd64
+    container_name: cii-cubrid
+    hostname: cii-cubrid
+    restart: unless-stopped
     environment:
-      # :? 는 미설정 시 즉시 실패 — 프로덕션에서 기본값(cii)을 허용하지 않는다
-      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER 미설정}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 미설정}
-      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB 미설정}
-      # DB_SCHEMA §0.1 [X-6]: 모든 TIMESTAMPTZ는 UTC 기준, 서버 timezone=UTC 설정 필수
-      TZ: UTC
-      PGTZ: UTC
-    volumes: [pgdata:/var/lib/postgresql/data]
+      CUBRID_DB: ${CUBRID_DB:-cii}
+    volumes: [cubrid-data:/var/lib/cubrid]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
-      interval: 5s
-      retries: 5
+      test: ["CMD", "csql", "-u", "dba", "cii", "-c", "SELECT 1 FROM db_root"]
+      interval: 30s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
   app:
     build:
       context: .
       target: prod
-    # 이미지 이름을 명시한다 (#477) — 지정하지 않으면 개발용 compose와 같은 태그
-    # (`26_hp043-app`)를 써서 서로를 덮어쓴다. 덮인 쪽은 오류 없이 다르게 동작한다.
     image: bluelog-app
-    # crash 시 자동 재기동 — 단 명시적 stop에는 재기동 안 함 (#232).
-    # `always`가 아닌 이유: deploy가 의도한 중지(by `docker compose down`)에도 뜨면 안 된다.
     restart: unless-stopped
-    #
-    # 호스트 포트를 열지 않는다 (#811). 종전에는 `ports: ["8000:8000"]`이었고,
-    # 그러면 **nginx가 제공하는 보호가 전부 우회된다** — `X-Forwarded-For` 덮어쓰기
-    # (`frontend/nginx.conf:24`) · `client_max_body_size` · TLS 종단 · `Host` 검사.
-    #
-    # ⚠️ 이것이 `#786` ⑵의 선행 조건이다. `USE_FORWARDED_FOR=true`로 바꾸면서 이
-    # 포트가 열려 있으면, 공격자가 `:8000`에 직접 붙어 `X-Forwarded-For`를 위조해
-    # **요청 한도를 완전히 우회**한다 — 수정이 상황을 악화시킨다.
-    #
-    # `expose`는 compose 네트워크 안에서만 유효하며 호스트에 바인딩하지 않는다.
-    # nginx(`frontend`)가 같은 네트워크에서 `http://app:8000`으로 프록시한다.
-    # 백엔드에 직접 붙어야 하면 `docker compose ... exec app` 또는 임시로
-    # `--publish 8000:8000`을 쓴다 — 상시 노출로 두지 않는다.
-    #
     expose: ["8000"]
-    #
-    # `.env`를 컨테이너에 주입한다 (#508). dev와 같은 이유이며, 운영에서 더 중요하다 —
-    # `MAIL_BACKEND`가 비면 `mail/config.py`가 `console`로 떨어지고, 그 상태에서
-    # 비밀번호 재설정 메일은 **로그로만 나간다.**
-    #
-    # `required: false` — CI의 docker 잡은 `.env` 없이 셸 환경변수만으로 이 스택을
-    # 띄운다(`.github/workflows/ci.yml`). 파일을 필수로 두면 그 잡이 깨진다.
-    #
     env_file:
       - path: .env
         required: false
     environment:
-      # `environment:`가 `env_file:`보다 우선한다. `.env`의 `DATABASE_URL`은 호스트용
-      # `localhost:5432`이므로 컨테이너 네트워크 주소로 덮어써야 한다.
-      #
-      # config.py 가드(#118) 발동용. Dockerfile prod stage의 ENV APP_ENV=production이
-      # 이미지에 굳어 있어 compose에서 빼도 동작은 같지만, 가시성을 위해 명시한다 (#231).
-      # APP_ENV 미설정 시 development로 떨어져 폴백이 일어날 수 있다는 경고 신호.
-      #
-      # 여기서 `:?`로 미설정을 막지 않는 이유 — 기본값이 production이라 셸에 값이 없어도
-      # 안전하고, 셸에 `APP_ENV=development`를 넣어 개발 모드로 같은 스택을 띄우는 것이
-      # README에 적힌 절차다. **틀린 값을 막는 것은 앱 쪽 가드다** (#810): 허용값은
-      # development·test·staging·production 넷이고, `prod` 같은 값이면 기동이 선다.
-      # 대소문자·앞뒤 공백은 정규화한다 — 종전에는 `Production` 하나로 프로덕션 가드
-      # 다섯이 조용히 열렸다.
       APP_ENV: ${APP_ENV:-production}
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      # :? 로 미설정을 즉시 실패시킨다 — POSTGRES_* 와 같은 이유다 (#809).
-      #
-      # 미설정 시 메일 링크가 요청의 Host 헤더를 따라간다. 앱도 기동을 거부하지만
-      # (config.validate_public_base_url), compose에서 먼저 끊으면 **컨테이너가 뜨기도
-      # 전에** 무엇이 빠졌는지 드러난다.
-      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL 미설정 — 메일 링크가 Host 헤더를 따라갑니다}
+      DATABASE_URL: cubrid+aiopycubrid://dba:${CUBRID_PASSWORD:-}@db:33000/${CUBRID_DB:-cii}
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:?APP_PUBLIC_URL 미설정}
     depends_on:
       db:
         condition: service_healthy
-  # 프론트엔드 (#240) — nginx가 정적 자산을 서빙하고 /api를 app으로 리버스 프록시한다.
-  # 같은 오리진이 되므로 apiProvider의 상대 경로 `/api/v1`이 그대로 성립하고
-  # 백엔드에 CORS가 필요 없다 (vite.config.ts 주석의 판단을 유지).
   frontend:
     build:
       context: ./frontend
       target: prod
       args:
-        # ⚠️ Vite는 VITE_* 를 빌드 시점에 인라인한다 — 런타임 주입이 되지 않는다.
-        # 값을 바꾸려면 이미지를 다시 구워야 한다 (frontend/Dockerfile 주석 참조).
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
     restart: unless-stopped
     ports: ["80:80"]
@@ -98,4 +53,4 @@ services:
       app:
         condition: service_started
 volumes:
-  pgdata:
+  cubrid-data:

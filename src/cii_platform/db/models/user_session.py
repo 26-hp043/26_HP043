@@ -3,8 +3,11 @@
 DB_SCHEMA.md §2.16 (user_session) 참조. 세션 토큰 원문을 저장하지 않는다.
 """
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
 
@@ -15,11 +18,11 @@ class UserSession(Base):
     __tablename__ = "user_session"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    user_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    user_id = sa.Column(sa.Uuid, nullable=False)
     session_token_hash = sa.Column(sa.String(length=64), nullable=False)
     csrf_token_hash = sa.Column(sa.String(length=64), nullable=False)
     expires_at = sa.Column(sa.DateTime(timezone=True), nullable=False)
@@ -27,7 +30,7 @@ class UserSession(Base):
     user_agent = sa.Column(sa.String(length=255), nullable=True)
     ip_address = sa.Column(sa.String(length=45), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (
@@ -47,6 +50,5 @@ class UserSession(Base):
         sa.Index(
             "idx_session_expiry",
             "expires_at",
-            postgresql_where=sa.text("revoked_at IS NULL"),
         ),
     )

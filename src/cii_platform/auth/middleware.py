@@ -65,7 +65,7 @@ async def auth_middleware(
 
         user_stmt = select(AppUser).where(
             AppUser.id == user_session.user_id,
-            AppUser.is_deleted.is_(False),
+            AppUser.is_deleted == 0,
         )
         user_result = await db_session.execute(user_stmt)
         user = user_result.scalar_one_or_none()

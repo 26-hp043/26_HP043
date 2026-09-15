@@ -33,7 +33,7 @@ async def get_regulation_year(session: AsyncSession, year: int) -> RegulationYea
     안 된다.
     """
     stmt = select(RegulationYear).where(
-        RegulationYear.year == year, RegulationYear.is_active.is_(True)
+        RegulationYear.year == year, RegulationYear.is_active == 1
     )
     return (await session.execute(stmt)).scalar_one_or_none()
 
@@ -48,7 +48,7 @@ async def list_regulation_years(
     """
     stmt = select(RegulationYear).order_by(RegulationYear.year)
     if active_only:
-        stmt = stmt.where(RegulationYear.is_active.is_(True))
+        stmt = stmt.where(RegulationYear.is_active == 1)
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -100,7 +100,7 @@ async def get_fuel_types_by_codes(
     """
     if not codes:
         return {}
-    stmt = select(FuelType).where(FuelType.code.in_(list(codes)), FuelType.is_active.is_(True))
+    stmt = select(FuelType).where(FuelType.code.in_(list(codes)), FuelType.is_active == 1)
     rows = (await session.execute(stmt)).scalars().all()
     return {row.code: row for row in rows}
 
@@ -150,7 +150,7 @@ async def load_distribution_profile(
         select(SimulationParameter)
         .where(
             SimulationParameter.profile == profile,
-            SimulationParameter.is_active.is_(True),
+            SimulationParameter.is_active == 1,
         )
         .order_by(SimulationParameter.variable)
     )

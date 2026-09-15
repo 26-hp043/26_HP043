@@ -7,8 +7,11 @@ DB_SCHEMA.md §2.3 (voyage_fuel_use) 참조. 컬럼·제약·인덱스 정의는
 DB가 아닌 애플리케이션 서비스 계층에서 검증한다(§2.3). 이 모델 범위 밖.
 """
 
+import uuid
+
+from datetime import datetime, timezone
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
 
@@ -19,22 +22,22 @@ class VoyageFuelUse(Base):
     __tablename__ = "voyage_fuel_use"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        sa.Uuid,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    voyage_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    voyage_id = sa.Column(sa.Uuid, nullable=False)
     fuel_type = sa.Column(sa.String(length=30), nullable=False)
     planned_fuel_ton = sa.Column(sa.Numeric(precision=12, scale=4), nullable=True)
     actual_fuel_ton = sa.Column(sa.Numeric(precision=12, scale=4), nullable=True)
     cf_used = sa.Column(sa.Numeric(precision=10, scale=6), nullable=False)
     source = sa.Column(sa.String(length=30), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
     # updated_at 자동 갱신은 DB 트리거(trg_voyage_fuel_use_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (
@@ -47,16 +50,9 @@ class VoyageFuelUse(Base):
             ondelete="CASCADE",
         ),
         # [S-1] / §7.1: fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
-        sa.ForeignKeyConstraint(
-            ["fuel_type"],
-            ["fuel_type.code"],
-            name="fk_voyage_fuel_use_fuel_type",
-            onupdate="CASCADE",
-            ondelete="NO ACTION",
-        ),
         # §2.3 검증 제약 (원문 그대로).
         sa.CheckConstraint(
-            "source IN ('USER_INPUT','MODEL_ESTIMATE','IMPORT','SAMPLE')",
+            "\"source\" IN ('USER_INPUT','MODEL_ESTIMATE','IMPORT','SAMPLE')",
             name="chk_fuel_source",
         ),
         sa.CheckConstraint(

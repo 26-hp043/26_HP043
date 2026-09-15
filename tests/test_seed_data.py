@@ -301,9 +301,9 @@ def test_seed_script_normalizes_database_url(given, expected):
 
     이 스크립트는 배포 시 ``alembic upgrade head`` 이후 규제 파라미터를 넣는 유일한
     경로다. 정규화가 조용히 틀리면 첫 배포 실행에서야 드러나므로 여기서 잠근다.
-    구현은 ``db.url.normalize_to_asyncpg``(#234) — alembic · conftest · 앱 세션과
+    구현은 ``db.url.normalize_to_async``(#1058) — alembic · conftest · 앱 세션과
     같은 함수를 공유한다.
     """
-    from cii_platform.db.url import normalize_to_asyncpg
+    from cii_platform.db.url import normalize_to_async
 
-    assert normalize_to_asyncpg(given) == expected
+    assert normalize_to_async(given) == expected

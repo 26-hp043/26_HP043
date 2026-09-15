@@ -95,7 +95,7 @@ async def mark_needs_recalc(session: AsyncSession, vessel_id: UUID) -> int:
         update(CalculationRun)
         .where(
             CalculationRun.vessel_id == vessel_id,
-            CalculationRun.needs_recalc.is_(False),
+            CalculationRun.needs_recalc == 0,
         )
         .values(needs_recalc=True)
     )
