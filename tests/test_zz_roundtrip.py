@@ -113,14 +113,19 @@ def test_downgrade_upgrade_roundtrip():
 
 
 async def test_partial_downgrade_preserves_immutability():
-    """부분 다운그레이드(009만 롤백) 후에도 calculation_run immutable이 유지된다.
+    """부분 다운그레이드 뒤에도 calculation_run immutable이 유지된다.
 
-    공유 함수 prevent_mutation()을 009가 아닌 008이 소유하도록 한 결정의 근거.
-    ``downgrade 008``로 009만 롤백해도 트리거 trg_calcrun_immutable이 살아 있어야 하며,
-    실제 UPDATE 시도가 거부되는지 확인한다. 검증 후 head로 복원한다.
+    ``downgrade 008``로 009만 내리던 검사였다. CUBRID 전환이 001~042를
+    ``1c444a5c4819`` 하나로 합치면서 **그 두 리비전이 사라졌다** (`#1058`).
+
+    검사의 뜻은 「**한 단계만 내려도** 불변성 보호가 함께 내려가지 않는다」이므로
+    지금 그래프에서 같은 뜻을 갖는 자리로 옮긴다 — ``downgrade 043``은 `044`만
+    되돌리고, 불변성 트리거를 소유한 ``a7d3e9b14f26``은 그대로 남는다.
+
+        base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → 044
     """
     await _clear_demo_data()
-    step = run_alembic("downgrade", "008")
+    step = run_alembic("downgrade", "043")
     assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
         await _assert_calculation_run_immutable()
@@ -152,7 +157,10 @@ async def _assert_calculation_run_immutable() -> None:
             "(calculation_type, vessel_id, input_hash, parameter_hash, "
             " model_version, result_json, parameters_used) "
             "VALUES ('VOYAGE_ESTIMATE', :vid, :ih, :ph, "
-            " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb) RETURNING id",
+            # `::jsonb`는 CUBRID에 없다. 컬럼이 TEXT(`JSONText`)라 문자열 그대로 넣는다.
+            # 이 헬퍼는 `conftest`의 `before_cursor_execute` 셈이 걸리지 않은 **직접
+            # 엔진**을 쓰므로 구문이 자동으로 걷히지 않는다 (`#1058`).
+            " '{}', '{}', '{}') RETURNING id",
             {"vid": vessel_id, "ih": VALID_HASH, "ph": VALID_HASH},
         )
 
@@ -180,7 +188,9 @@ async def test_seed_downgrade_removes_fuel_type_rows():
     (PR 본문 실측 결과 참조).
     """
     await _clear_demo_data()
-    step = run_alembic("downgrade", "016")
+    # `017`은 `1c444a5c4819`에 합쳐졌고 seed는 `6c7496c4d122`가 넣는다 (`#1058`).
+    # 그 앞으로 내리는 자리가 종전의 `downgrade 016`에 해당한다.
+    step = run_alembic("downgrade", "1c444a5c4819")
     assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
         engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
@@ -206,7 +216,8 @@ async def test_032_downgrade_removes_regulation_parameters():
     ⚠️ 참조 중인 행이 있으면 FK에 걸려 실패한다(``calculation_run`` →
     ``regulation_year``). 여기서는 커밋된 계산 이력이 없으므로 걸리지 않는다.
     """
-    step = run_alembic("downgrade", "031")
+    # 종전 `031`의 자리 — 규제 파라미터를 넣는 `6c7496c4d122` 앞이다 (`#1058`).
+    step = run_alembic("downgrade", "1c444a5c4819")
     assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
         engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
@@ -281,7 +292,8 @@ async def test_demo_seed_downgrade_does_not_touch_data(session_free=None):
         await engine.dispose()
 
     await _clear_demo_data()
-    step = run_alembic("downgrade", "017")
+    # 종전 `017`의 자리 (`#1058` 통합으로 `6c7496c4d122` 앞이 되었다).
+    step = run_alembic("downgrade", "1c444a5c4819")
     assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
     try:
         engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)

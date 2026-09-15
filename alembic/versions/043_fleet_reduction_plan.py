@@ -89,5 +89,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     guard_irreversible_downgrade("043")
-    op.drop_index("idx_fleet_reduction_plan_created", table_name="fleet_reduction_plan")
+    # 인덱스를 따로 지우지 않는다. CUBRID는 `DROP INDEX <이름>`을 받지 않고
+    # `... ON <테이블>`을 요구하는데, alembic의 `drop_index()`가 내는 구문은 앞쪽이라
+    # `Syntax error: unexpected END OF STATEMENT`로 선다 (`#1058`).
+    #
+    # **테이블을 드롭하면 그 인덱스도 함께 사라지므로 결과가 같다.**
+    # `1c444a5c4819`의 downgrade가 이미 같은 판단을 적어 두었다 — `043`이 `main`에서
+    # 옮겨 오면서 이 줄만 PostgreSQL 판본 그대로 남았다.
     op.drop_table("fleet_reduction_plan")

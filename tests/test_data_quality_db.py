@@ -15,7 +15,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from conftest import ensure_regulation_year, insert_returning_id
+from conftest import ensure_regulation_year, insert_returning_id, same_uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -98,8 +98,8 @@ async def _voyage(
 
 async def _mine(session, vessel_id: str) -> tuple[dict, list[dict], dict]:
     result = await get_fleet_data_quality(session, regulation_year=YEAR)
-    vessel = next(row for row in result["vessels"] if row["vessel_id"] == vessel_id)
-    issues = [item for item in result["issues"] if item["vessel_id"] == vessel_id]
+    vessel = next(row for row in result["vessels"] if same_uuid(row["vessel_id"], vessel_id))
+    issues = [item for item in result["issues"] if same_uuid(item["vessel_id"], vessel_id)]
     return vessel, issues, result["summary"]
 
 
@@ -305,7 +305,7 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "anomaly_unjudged_count",
         "completeness_ratio",
     }
-    mine = next(row for row in result["vessels"] if row["vessel_id"] == vessel_id)
+    mine = next(row for row in result["vessels"] if same_uuid(row["vessel_id"], vessel_id))
     assert set(mine) == {
         "vessel_id",
         "vessel_name",
@@ -316,7 +316,7 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "voyage_count",
         "completeness_ratio",
     }
-    issues = [item for item in result["issues"] if item["vessel_id"] == vessel_id]
+    issues = [item for item in result["issues"] if same_uuid(item["vessel_id"], vessel_id)]
     for item in issues:
         assert set(item) == {
             "severity",

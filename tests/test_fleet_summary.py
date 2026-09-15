@@ -20,7 +20,12 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
+from conftest import (
+    ensure_regulation_year,
+    insert_if_not_exists,
+    insert_returning_id,
+    same_uuid,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -945,7 +950,7 @@ async def test_days_to_d_is_a_number_for_a_worsening_vessel(session):
     result = await get_fleet_summary(
         session, regulation_year=YEAR, as_of=datetime(YEAR, 6, 25, tzinfo=UTC)
     )
-    vessel = next(v for v in result["vessels"] if v["vessel_id"] == vessel_id)
+    vessel = next(v for v in result["vessels"] if same_uuid(v["vessel_id"], vessel_id))
 
     assert vessel["days_to_d_reason"] != REASON_NO_DATA, (
         f"사유가 NO_DATA다 — 경계값을 못 읽고 있다(#814의 결함이 되살아났다). 응답: {vessel}"
@@ -1057,7 +1062,7 @@ async def test_days_to_d_baseline_counts_the_in_progress_contribution(session):
     )
 
     fleet = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of)
-    vessel = next(v for v in fleet["vessels"] if v["vessel_id"] == vessel_id)
+    vessel = next(v for v in fleet["vessels"] if same_uuid(v["vessel_id"], vessel_id))
     assert vessel["days_to_d"] == days_fixed.days, (
         f"서비스 days_to_d({vessel['days_to_d']!r})가 올바른 기준선 값({days_fixed.days!r})과 "
         f"다르다 — 결함 기준선 결과는 {days_buggy!r} (#864)"

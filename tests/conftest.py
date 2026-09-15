@@ -158,6 +158,24 @@ def uuid_hex(value) -> str:
     return UUID(str(value)).hex
 
 
+def same_uuid(a, b) -> bool:
+    """UUID 두 값을 **형식에 상관없이** 비교한다 (`#1058`).
+
+    서비스·API는 `str(vessel.id)`로 **대시 36자**를 낸다(ORM이 `CHAR(32)`를 `UUID`로
+    되돌린다). 반면 :func:`insert_returning_id`는 저장 형식인 **hex 32자**를 돌려준다.
+    그대로 ``==``로 비교하면 **영원히 거짓**이다 — 예외가 아니라 조용한 불일치라
+    ``next(...)``가 ``StopIteration``을 내고, 그것이 ``RuntimeError: coroutine raised
+    StopIteration``으로 둔갑해 원인이 전혀 보이지 않았다.
+
+    :func:`insert_returning_id`가 대시 형식을 돌려주게 바꿔 봤으나 그 값을 생 SQL에
+    그대로 싣는 검사 **40건**이 깨져 되돌렸다(고쳐진 것은 0건이었다). 형식을 한쪽으로
+    통일하는 일은 따로 잡고, 여기서는 **비교하는 자리에서** 맞춘다.
+    """
+    from uuid import UUID
+
+    return UUID(str(a)) == UUID(str(b))
+
+
 def _cubrid_params(params: dict | None) -> dict:
     """CUBRID 호환 파라미터 변환 — UUID → hex string, Decimal → float (#1058)."""
     if not params:
