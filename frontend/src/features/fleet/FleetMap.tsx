@@ -157,6 +157,15 @@ export function FleetMap({ vessels }: FleetMapProps) {
     })
     instance.touchZoomRotate.disableRotation()
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    // 지도 오류를 **반드시 드러낸다** (`#1146`).
+    //
+    // maplibre는 오류를 `error` 이벤트로만 알린다. 듣는 곳이 없으면 타일이 한 장도
+    // 뜨지 않아도 화면에는 스타일 배경색만 칠해진 회색 사각형이 남고, 콘솔에도
+    // 아무것도 찍히지 않는다 — 고장인지 로딩 중인지 구분할 수 없는 상태다.
+    // 2026-09-15에 워커 404로 그 상태를 겪었고, 원인을 좁히는 데 오래 걸렸다.
+    instance.on('error', (event) => {
+      console.error('[FleetMap] 지도 오류:', event.error?.message ?? String(event))
+    })
     instance.on('load', () => setReady(true))
     map.current = instance
 
