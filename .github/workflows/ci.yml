@@ -260,16 +260,32 @@ jobs:
       - name: 이미지 빌드 (app · frontend)
         run: $COMPOSE build
 
+      # CUBRID로 바뀌었다 (#1058). 종전에는 `pg_isready -U "$POSTGRES_USER"`로 물었는데,
+      # 잡에서 `POSTGRES_*`를 지운 뒤로 **빈 사용자로 물어 영원히 실패**했다 — 60초를
+      # 태우고 「healthcheck 타임아웃」으로 떨어졌고, 원인이 DB가 아니라 **남은 명령**이라
+      # 로그만 보면 기동 실패로 읽힌다.
+      #
+      # 직접 묻는 대신 **compose 자신의 healthcheck 판정**을 기다린다. 판정 기준이 두 곳에
+      # 생기지 않고, `docker-compose.prod.yml`이 이미 `csql … SELECT 1 FROM db_root`로
+      # 정의해 두었다.
+      #
+      # 대기는 최대 180초다 — 그 파일의 `start_period`가 60초이고 CUBRID 기동이
+      # PostgreSQL보다 느리다(로컬 실측 20~30초, 러너는 더 걸린다). 짧게 잡으면 잡이
+      # 「타임아웃」으로 떨어지는데 원인은 **기다리지 않은 것**이라 추적이 어렵다.
       - name: DB 기동 + healthcheck 대기
         run: |
           $COMPOSE up -d db
-          for i in $(seq 1 30); do
-            if $COMPOSE exec -T db pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; then
-              echo "db ready"; exit 0
+          for i in $(seq 1 60); do
+            status=$($COMPOSE ps --format '{{.Health}}' db 2>/dev/null | tr -d '[:space:]')
+            if [ "$status" = "healthy" ]; then
+              echo "db ready ($((i * 3))초)"; exit 0
             fi
-            sleep 2
+            sleep 3
           done
-          echo "::error::db healthcheck 타임아웃"; exit 1
+          echo "::error::db healthcheck 타임아웃"
+          $COMPOSE ps db
+          $COMPOSE logs --tail 60 db
+          exit 1
 
       # 스키마 + 규제 파라미터가 이 한 명령으로 들어가는 것이 #127의 완료 기준이다.
       - name: 마이그레이션 (스키마 + seed)
@@ -282,7 +298,9 @@ jobs:
         run: |
           set -e
           check() {
-            actual=$($COMPOSE exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM $1")
+            # `psql -tAc`의 CUBRID 대응은 `csql … -t -N`이다 (#1058) — `-t`가 표 장식을,
+            # `-N`이 머리글을 끈다. 출력 끝에 빈 줄이 붙으므로 공백을 털어 비교한다.
+            actual=$($COMPOSE exec -T db csql -u dba -c "SELECT count(*) FROM $1" "$CUBRID_DB" -t -N)
             actual=$(echo "$actual" | tr -d '[:space:]')
             if [ "$actual" != "$2" ]; then
               echo "::error::$1 = $actual (기대 $2)"; exit 1
