@@ -38,8 +38,24 @@ _VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
 
 
 def _files() -> dict[str, Path]:
-    """리비전 → 파일. 파일명 앞 세 자리가 리비전이다(`DB_SCHEMA §8.1` 명명 규칙)."""
-    return {p.name[:3]: p for p in sorted(_VERSIONS.glob("[0-9][0-9][0-9]_*.py"))}
+    """리비전 → 파일.
+
+    PostgreSQL 시대: 파일명 앞 세 자리가 리비전 (``001_*.py`` ~ ``042_*.py``).
+    CUBRID 전환 후: 단일 initial 마이그레이션 (``1c444a5c4819_*.py``).
+    두 구조 모두 지원한다.
+    """
+    # PostgreSQL 42개 마이그레이션
+    files = {p.name[:3]: p for p in sorted(_VERSIONS.glob("[0-9][0-9][0-9]_*.py"))}
+    if not files:
+        # CUBRID 단일 마이그레이션 — Alembic revision hash를 키로 쓴다
+        files = {p.stem.split("_")[0]: p for p in sorted(_VERSIONS.glob("*.py"))
+                 if not p.name.startswith("__")}
+    return files
+
+
+_HAS_LEGACY_MIGRATIONS = bool(
+    list((_VERSIONS).glob("[0-9][0-9][0-9]_*.py"))
+)
 
 
 @pytest.fixture
@@ -290,6 +306,10 @@ def test_every_listed_revision_exists():
     assert not sorted(listed - files.keys())
 
 
+@pytest.mark.skipif(
+    not _HAS_LEGACY_MIGRATIONS,
+    reason="CUBRID 단일 마이그레이션 구조 — 42개 개별 파일 없음 (#1058)",
+)
 def test_the_classifier_sees_the_known_cases():
     """판별기 자신을 먼저 잠근다 — 틀리면 위 완전성 검사가 조용히 통과한다.
 

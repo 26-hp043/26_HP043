@@ -1168,19 +1168,18 @@ async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
 
     :returns: ``[(선박명, 컬럼명), …]``. 어긋난 것이 없으면 빈 목록이다.
     """
-    from sqlalchemy import text
+    from cii_platform.db.models.vessel import Vessel
 
     drifted: list[tuple[str, str]] = []
+    tbl = Vessel.__table__
+    cols = [tbl.c[c] for c in SPEC_COLUMNS]
     for vessel in (*SEED_VESSELS, *SEED_VESSEL_GT_AXIS, *SEED_VESSEL_WATCH):
         wanted = {c: vessel[c] for c in SPEC_COLUMNS if vessel[c] is not None}
         if not wanted:
             continue
         row = (
             await conn.execute(
-                text(
-                    f"SELECT {', '.join(SPEC_COLUMNS)} FROM vessel "  # noqa: S608
-                    "WHERE id = :vid"
-                ).bindparams(vid=vessel["id"])
+                sa.select(*cols).where(tbl.c.id == vessel["id"])
             )
         ).one_or_none()
         if row is None:

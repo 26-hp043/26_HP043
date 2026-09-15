@@ -35,7 +35,7 @@ _IS_CUBRID = "cubrid" in TEST_DATABASE_URL
 # - db_check_cases: CHECK constraint 강제를 기대 → CUBRID는 CHECK 미강제
 # - *_migrations: 개별 migration upgrade/downgrade 테스트
 _CUBRID_SKIP_FILES = {
-    "test_migration_guard.py",
+    # test_migration_guard.py — 자체 skipif로 처리 (#1143)
     "test_db_check_cases.py",
     "test_not_underway_migrations.py",
     "test_vessel_position_state_migrations.py",
