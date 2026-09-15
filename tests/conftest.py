@@ -158,6 +158,21 @@ def uuid_hex(value) -> str:
     return UUID(str(value)).hex
 
 
+def uuid_canon(value) -> str:
+    """UUID를 **표준 대시 36자**로 (`#1058`).
+
+    :func:`uuid_hex`의 짝이다. 생 SQL이 읽은 값은 저장 형식(hex 32자)이고 계약값·
+    API 응답은 대시 형식이다. 목록·집합·딕셔너리 키를 통째로 비교하는 자리에서는
+    :func:`same_uuid` 로 짝지어 볼 수 없으므로, **DB에서 온 쪽을 이 함수로 정규화**한다.
+
+    계약값을 hex로 바꾸지 않는 이유 — ``#132``가 정한 것은 대시 형식이고,
+    ``test_uuids_are_the_contracted_values`` 같은 검사는 **그 형식 자체가 단언 대상**이다.
+    """
+    from uuid import UUID
+
+    return str(UUID(str(value)))
+
+
 def same_uuid(a, b) -> bool:
     """UUID 두 값을 **형식에 상관없이** 비교한다 (`#1058`).
 

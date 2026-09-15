@@ -24,7 +24,8 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
-from conftest import insert_returning_id
+import sqlalchemy as sa
+from conftest import insert_returning_id, same_uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -155,12 +156,17 @@ async def test_scenario_is_linked_to_the_voyage(session, vessel_id):
     await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
 
     row = await session.execute(
-        text("SELECT is_adopted, voyage_id FROM voyage_scenario WHERE id = :id"),
+        # CUBRID는 BOOLEAN을 **정수로** 돌려주고 raw SQL에는 컬럼 타입이 붙지 않아
+        # `1`이 온다 — `is True`가 거짓이 된다 (`#1058`). 타입을 붙여 되돌린다.
+        text("SELECT is_adopted, voyage_id FROM voyage_scenario WHERE id = :id").columns(
+            is_adopted=sa.Boolean()
+        ),
         {"id": scenario_id},
     )
     adopted = row.one()
     assert adopted.is_adopted is True
-    assert adopted.voyage_id == voyage_id
+    # 생 SQL이 읽은 `voyage_id`는 hex 32자, 픽스처는 `UUID`다 (`#1058`).
+    assert same_uuid(adopted.voyage_id, voyage_id)
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from conftest import same_uuid, uuid_hex
+
 from cii_platform.api.routes.auth_dev import should_register_dev_auth
 
 
@@ -132,12 +134,17 @@ async def test_dev_login_first_boot_creates_user_and_issues_cookie(migrated_db, 
             text("SELECT id FROM app_user WHERE email = :email"),
             {"email": _STUB_EMAIL},
         )
-        assert row.scalar_one() == _STUB_USER_ID
+        # 생 SQL이 읽은 `id`는 hex 32자, 상수는 `UUID`다 — `==`로는 영원히 거짓이다
+        # (`#1058`). 그리고 `CHAR(32)`에 대시 36자를 넣으면
+        # `Cannot coerce … to type char`로 거부된다 — 아래 `uuid_hex()`가 그것이다.
+        assert same_uuid(row.scalar_one(), _STUB_USER_ID)
         await s.execute(
             text("DELETE FROM user_session WHERE user_id = :id"),
-            {"id": str(_STUB_USER_ID)},
+            {"id": uuid_hex(_STUB_USER_ID)},
         )
-        await s.execute(text("DELETE FROM app_user WHERE id = :id"), {"id": str(_STUB_USER_ID)})
+        await s.execute(
+            text("DELETE FROM app_user WHERE id = :id"), {"id": uuid_hex(_STUB_USER_ID)}
+        )
         await s.commit()
 
 
@@ -166,7 +173,7 @@ async def test_dev_login_restart_finds_existing_user(migrated_db, app_fresh_engi
             text(
                 "INSERT INTO app_user (id, email, password_hash) VALUES (:id, 'dev@localhost', 'x')"
             ),
-            {"id": str(_STUB_USER_ID)},
+            {"id": uuid_hex(_STUB_USER_ID)},
         )
         await s.commit()
 
@@ -180,12 +187,14 @@ async def test_dev_login_restart_finds_existing_user(migrated_db, app_fresh_engi
     async with sessionmaker() as s:
         row = await s.execute(
             text("SELECT last_login_at FROM app_user WHERE id = :id"),
-            {"id": str(_STUB_USER_ID)},
+            {"id": uuid_hex(_STUB_USER_ID)},
         )
         assert row.scalar_one() is not None
         await s.execute(
             text("DELETE FROM user_session WHERE user_id = :id"),
-            {"id": str(_STUB_USER_ID)},
+            {"id": uuid_hex(_STUB_USER_ID)},
         )
-        await s.execute(text("DELETE FROM app_user WHERE id = :id"), {"id": str(_STUB_USER_ID)})
+        await s.execute(
+            text("DELETE FROM app_user WHERE id = :id"), {"id": uuid_hex(_STUB_USER_ID)}
+        )
         await s.commit()

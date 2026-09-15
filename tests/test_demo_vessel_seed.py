@@ -16,6 +16,8 @@ tests/test_dashboard_seed.py가 담당한다.
 from decimal import Decimal
 
 import pytest
+import sqlalchemy as sa
+from conftest import uuid_canon
 from sqlalchemy import bindparam, text
 
 from cii_platform.db.types import UuidText
@@ -110,7 +112,9 @@ async def test_seed_values_match_expected(conn):
             )
         )
     ).all()
-    actual = [tuple(row) for row in rows]
+    # `id::text`는 셈이 걷어 내고 저장 형식(hex 32자)이 그대로 온다. 계약값은 대시
+    # 36자이므로 **DB에서 온 쪽**을 표준형으로 맞춘다 (`#1058`).
+    actual = [(uuid_canon(row[0]), *tuple(row)[1:]) for row in rows]
     expected = sorted(EXPECTED_VESSELS, key=lambda row: row[0])
     assert actual == expected
 
@@ -218,7 +222,12 @@ async def test_cii_applicable_hint_follows_gross_tonnage(conn):
     GT 회신이 와서 컬럼을 채울 때 이 단언이 함께 갱신을 강제한다.
     """
     rows = (
-        await conn.execute(text("SELECT name, gross_tonnage, is_cii_applicable_hint FROM vessel"))
+        await conn.execute(
+            # CUBRID는 BOOLEAN을 정수로 돌려준다 — raw SQL에 타입을 붙인다 (`#1058`).
+            text("SELECT name, gross_tonnage, is_cii_applicable_hint FROM vessel").columns(
+                is_cii_applicable_hint=sa.Boolean()
+            )
+        )
     ).all()
     for row in rows:
         if row.gross_tonnage is None:
