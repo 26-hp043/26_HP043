@@ -26,7 +26,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
-from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id, same_uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -475,7 +475,8 @@ async def test_substitution_says_which_voyage_and_what(session, vessel_id):
 
     assert len(result.substitutions) == 1
     item = result.substitutions[0]
-    assert str(item.voyage_id) == voyage_id
+    # ORM이 돌려주는 `voyage_id`는 `UUID`(대시), 픽스처는 hex 32자다 (`#1058`).
+    assert same_uuid(item.voyage_id, voyage_id)
     assert item.axis == SUBSTITUTION_AXIS_FUEL
     assert item.fuel_type == "HFO"
 

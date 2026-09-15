@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from conftest import insert_returning_id
+from conftest import insert_returning_id, same_uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -127,7 +127,9 @@ class TestTokenService:
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
 
-            assert await consume_token(s, raw=raw, purpose=PURPOSE_EMAIL_VERIFY) == user_id
+            # `consume_token`은 `UUID` 객체를 돌려주고 `insert_returning_id`는 hex 32자를
+            # 돌려준다 — `==`로는 영원히 거짓이다 (`#1058`).
+            assert same_uuid(await consume_token(s, raw=raw, purpose=PURPOSE_EMAIL_VERIFY), user_id)
             await s.flush()
 
             with pytest.raises(TokenError):
@@ -187,7 +189,7 @@ class TestTokenService:
 
             with pytest.raises(TokenError):
                 await consume_token(s, raw=old, purpose=PURPOSE_EMAIL_VERIFY)
-            assert await consume_token(s, raw=new, purpose=PURPOSE_EMAIL_VERIFY) == user_id
+            assert same_uuid(await consume_token(s, raw=new, purpose=PURPOSE_EMAIL_VERIFY), user_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

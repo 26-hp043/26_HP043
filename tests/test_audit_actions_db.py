@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
+from conftest import same_uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
 
@@ -180,7 +181,8 @@ async def test_voyage_confirm_records_an_audit_event(migrated_db, app_fresh_engi
             event = events[0]
             assert event["user_id"], "주체가 비어 있다"
             assert event["entity_type"] == "voyage"
-            assert str(event["entity_id"]) == voyage_id
+            # 생 SQL이 읽은 `entity_id`는 hex 32자, 픽스처는 대시 형식이다 (`#1058`).
+            assert same_uuid(event["entity_id"], voyage_id)
             assert event["ip_address"]
     finally:
         await _cleanup(voyage_id)
