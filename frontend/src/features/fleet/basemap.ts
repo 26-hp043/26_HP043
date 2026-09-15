@@ -49,50 +49,66 @@ export const MAX_ZOOM = 10
 /** 처음 그릴 때의 줌. 선대가 흩어져 있으면 아래 `fitBounds`가 다시 잡는다. */
 export const INITIAL_ZOOM = 2
 
+/** PMTiles 아카이브의 첫 7바이트 — `PMTiles` (spec v3). */
+const PMTILES_MAGIC = [0x50, 0x4d, 0x54, 0x69, 0x6c, 0x65, 0x73]
+
 /**
  * 자산이 실제로 있는지 묻는다.
  *
- * **`HEAD` 한 번**으로 끝낸다 — PMTiles는 Range 요청으로 읽으므로 본문을 받을
- * 필요가 없고, 83 MB를 확인용으로 당길 수는 더더욱 없다.
+ * **첫 7바이트만 받아 매직 넘버를 본다.** 80 MB를 확인용으로 당길 수는 없고,
+ * 있는지 없는지는 그 7바이트로 끝난다.
  *
- * 실패(404 · 네트워크 오류 · Range 미지원 서버)는 **전부 「없음」으로 접는다.**
- * 사용자에게는 어느 쪽이든 결과가 같고(개략도로 떨어진다), 원인을 화면에서 가르면
- * 문구만 늘어난다.
+ * 실패(404 · Range 미지원 · 네트워크 오류 · 매직 불일치)는 **전부 「없음」으로
+ * 접는다.** 사용자에게는 어느 쪽이든 결과가 같고(개략도로 떨어진다), 원인을
+ * 화면에서 가르면 문구만 늘어난다.
  *
- * ## 상태 코드만으로는 모자란다 (`#1144`)
+ * ## 왜 `HEAD`가 아닌가 (`#1144`)
  *
- * SPA fallback을 쓰는 정적 서버는 **없는 경로에 `index.html`을 200으로 돌려준다**
- * — 개발 Vite도, 운영 nginx의 `try_files $uri $uri/ /index.html`도 그랬다. 그래서
- * `response.ok`만 보면 자산이 없는데 **「있다」로 판정**하고, 개략도로 떨어지지
- * 않는다. 그 다음은 maplibre가 HTML을 PMTiles로 읽다 실패하는데, 이때 지도의
- * `load` 이벤트가 끝내 오지 않아 **마커와 항로까지 그려지지 않는다**(`FleetMap`).
- * 화면에는 회색 사각형만 남고 안내 문구도 없다 — 고장인지 아닌지 알 수 없는 상태다.
+ * 종전에는 `HEAD` 한 번으로 상태 코드만 봤다. 두 가지가 깨졌다.
  *
- * 그래서 **HTML이면 자산이 아니다**로 본다. 정적 서버가 무엇이든(Vite · nginx ·
- * 미리보기) 같게 동작한다. 서버 쪽에서도 `/basemap/`을 fallback에서 빼 두었지만
- * (`frontend/nginx.conf`), 그 설정이 닿지 않는 자리가 있으므로 이 판정을 남긴다.
+ * ⑴ **상태 코드는 거짓말을 한다.** SPA fallback을 쓰는 정적 서버는 없는 경로에
+ *    `index.html`을 **200**으로 돌려준다 — 개발 Vite도, nginx의
+ *    `try_files $uri $uri/ /index.html`도 그랬다. 그래서 자산이 없는데 「있다」로
+ *    판정했고, 개략도로 떨어지지 않은 채 maplibre가 HTML을 PMTiles로 읽다
+ *    실패했다. 그때 지도의 `load`가 오지 않아 **마커와 항로까지 그려지지 않았고**,
+ *    화면에는 회색 사각형만 남았다.
+ *
+ * ⑵ **대용량 파일의 `HEAD`에 응답하지 않는 서버가 있다.** Vite 개발 서버가 이
+ *    80 MB 파일의 `HEAD`에서 35초 동안 한 바이트도 돌려주지 않았다(같은 서버가
+ *    `favicon.svg`·글리프 `.pbf`의 `HEAD`는 정상 응답했다). 그러면 자산이
+ *    **있는데도** 판정이 끝나지 않아 지도가 영영 뜨지 않는다.
+ *
+ * 매직 넘버를 보면 둘 다 사라진다. HTML은 매직이 다르고, 잘린 파일도 걸러지며,
+ * 받는 양은 7바이트다.
+ *
+ * ## `206`이 아니면 없는 것으로 본다
+ *
+ * PMTiles는 **Range 요청으로 파일 일부만 읽는다** — Range를 지원하지 않는 서버에서는
+ * 어차피 지도가 뜨지 않는다. 그래서 `206`이 아니면 자산이 있든 없든 「없음」이다.
+ * 본문을 읽지 않고 끊으므로 80 MB를 받아 버리는 일도 없다.
  */
 export async function hasBasemap(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
   url: string = BASEMAP_URL,
 ): Promise<boolean> {
   try {
-    const response = await fetchImpl(url, { method: 'HEAD' })
-    if (!response.ok) return false
-    return !isHtml(response.headers.get('content-type'))
+    const response = await fetchImpl(url, {
+      headers: { Range: `bytes=0-${PMTILES_MAGIC.length - 1}` },
+    })
+    if (response.status !== 206) {
+      // 본문을 끌어오지 않고 끊는다 — 200이면 80 MB가 딸려 온다.
+      await response.body?.cancel()
+      return false
+    }
+    const head = new Uint8Array(await response.arrayBuffer())
+    return isPmtiles(head)
   } catch {
     return false
   }
 }
 
-/**
- * 응답이 HTML인가 — 즉 자산이 아니라 SPA fallback인가 (`#1144`).
- *
- * `content-type`이 없는 응답은 **HTML로 보지 않는다.** 헤더를 주지 않는 정적 서버가
- * 있고, 그 경우까지 「없음」으로 접으면 자산이 실제로 있는 환경에서 지도가 사라진다 —
- * 놓치는 쪽이 잘못 끄는 쪽보다 낫다.
- */
-function isHtml(contentType: string | null): boolean {
-  if (contentType === null) return false
-  return contentType.split(';', 1)[0].trim().toLowerCase() === 'text/html'
+/** 받은 앞머리가 PMTiles 아카이브인가 (`#1144`). */
+function isPmtiles(head: Uint8Array): boolean {
+  if (head.length < PMTILES_MAGIC.length) return false
+  return PMTILES_MAGIC.every((byte, index) => head[index] === byte)
 }

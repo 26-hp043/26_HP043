@@ -25,11 +25,20 @@
 #
 #   scripts/fetch_basemap.sh [출력 디렉터리]
 #
-# 기본 출력은 `./basemap`이다. nginx가 `/basemap/`으로 서빙하고 **Range 요청을
-# 지원**해야 한다(PMTiles가 파일 일부만 읽는다).
+# 기본 출력은 `frontend/public/basemap`이다 — **개발과 배포가 같은 자리를 쓴다**.
+#
+#   개발  Vite가 `public/`을 오리진 루트로 서빙한다 → `/basemap/...`
+#   배포  `npm run build`가 `public/`을 `dist/`로 옮기고, 프론트 이미지가 그
+#         `dist`를 nginx 문서 루트로 COPY 한다 → 같은 `/basemap/...`
+#
+# 자산이 없으면 이미지에도 들어가지 않고 화면은 개략도로 떨어진다 — 받아 둔
+# 환경에서만 이미지가 커진다.
+#
+# 서버는 **Range 요청을 지원**해야 한다(PMTiles가 파일 일부만 읽는다). Vite와
+# nginx 모두 지원한다. `.gitignore`가 이 경로를 막아 두었다 — 92 MB다.
 set -euo pipefail
 
-OUT="${1:-./basemap}"
+OUT="${1:-frontend/public/basemap}"
 BUILD_DATE="${BASEMAP_BUILD_DATE:-20260912}"
 PLANET="https://build.protomaps.com/${BUILD_DATE}.pmtiles"
 FONT_CDN="https://cdn.protomaps.com/fonts/pbf"
