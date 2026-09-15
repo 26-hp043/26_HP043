@@ -35,5 +35,11 @@ services:
       - ./pyproject.toml:/app/pyproject.toml:ro
       - ./tests:/app/tests:ro
       - ./scripts:/app/scripts:ro
+      - ./API_SPEC.md:/app/API_SPEC.md:ro
+      - ./PRD.md:/app/PRD.md:ro
+      - ./DB_SCHEMA.md:/app/DB_SCHEMA.md:ro
+      - ./TECH_SPEC.md:/app/TECH_SPEC.md:ro
+      - ./DESIGN_SYSTEM.md:/app/DESIGN_SYSTEM.md:ro
+      - ./AGENTS.md:/app/AGENTS.md:ro
 volumes:
   cubrid-data:
