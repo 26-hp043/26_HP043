@@ -29,6 +29,17 @@
 칸**이다. 그래서 열 자체를 두지 않는다 (`#449` — 계산할 수 없을 때 그럴듯한 값을
 만들지 않는다).
 
+## 행 수 상한을 두지 않는다
+
+`API_SPEC §8.1`이 세 종류(항차·계산·시뮬레이션) 전부에 대해 정한다 — 조회가 **선박
+하나 + (선택) 연도 하나**로 이미 한정돼 있고, 자르면 사용자는 **파일 끝이 잘린 것을
+모른 채** 연간 자료로 쓴다.
+
+⚠️ 계산 이력만 종전에 `list_runs`(페이지네이션 함수)를 빌려 써서 10,000행에서 조용히
+잘렸다 — 상한을 두기로 한 결정이 아니라 **함수 재사용의 부산물**이었고, 같은 자리의
+주석이 약속한 「잘린 사실을 열로 알린다」는 구현된 적이 없다. `#1078`에서 항차·
+시뮬레이션과 같은 전용 조회(`list_for_export`)로 바꿔 규정에 맞췄다.
+
 ## 시각은 KST 오프셋을 붙인 ISO 8601이다
 
 ``2026-02-10T16:00:00+09:00``. 오프셋이 있어 기계가 정확히 읽고, 한국 사용자가
@@ -67,10 +78,6 @@ EXPORT_FORMATS: tuple[str, ...] = ("csv", "json")
 #: 시각 표기 기준. `#646`과 같은 이유로 KST다.
 _EXPORT_TIMEZONE = ZoneInfo("Asia/Seoul")
 
-#: 계산 이력을 한 번에 가져올 상한. ``list_runs``가 커서 기반이라 상한이 필요하다.
-#: 선박 하나의 이력이 이 수를 넘으면 **잘린 사실을 열로 알린다**(``_CALC_LIMIT`` 각주).
-_CALC_LIMIT = 10_000
-
 #: 항차 표 — 앞 일곱 열이 ``§8.2`` 필수 컬럼과 **이름이 같다**(왕복).
 VOYAGE_COLUMNS: tuple[str, ...] = (
     "voyage_id",
@@ -98,7 +105,7 @@ VOYAGE_COLUMNS: tuple[str, ...] = (
 )
 
 #: ``§8.2`` 필수 컬럼 7종이 항차 표 **앞쪽에** 그대로 있다는 약속.
-#: :mod:`cii_platform.services.voyage_import`\ 의 ``REQUIRED_COLUMNS``와 대조된다.
+#: :mod:`cii_platform.services.voyage_import`의 ``REQUIRED_COLUMNS``와 대조된다.
 ROUNDTRIP_COLUMNS: tuple[str, ...] = VOYAGE_COLUMNS[1:8]
 
 CALCULATION_COLUMNS: tuple[str, ...] = (
@@ -203,6 +210,25 @@ def _row(values: list[object]) -> list[str]:
     return [_cell(value) for value in values]
 
 
+def _kst_year_bounds(year: int | None) -> tuple[datetime | None, datetime | None]:
+    """KST 연도 → ``created_at`` 경계 두 값. 연도가 없으면 ``(None, None)``.
+
+    **반열림 구간**이다 — 시작은 포함, 끝(다음 해 1월 1일 00:00:00 KST)은 제외한다.
+    닫힌 구간으로 두면 그 정각에 만들어진 계산이 **두 해 모두에** 들어간다.
+
+    경계를 KST로 잡는 이유는 `API_SPEC §8.1` 그대로다: ``calculation_run``에 규제연도
+    열이 없어(`DB_SCHEMA §2.5`) ``created_at``의 연도로 거르며, 그 연도는 한국
+    사용자가 달력에서 보는 연도여야 한다. UTC로 잡으면 1월 1일 오전 9시 이전에 만든
+    계산이 전년도 파일에 들어간다.
+    """
+    if year is None:
+        return None, None
+    return (
+        datetime(year, 1, 1, tzinfo=_EXPORT_TIMEZONE),
+        datetime(year + 1, 1, 1, tzinfo=_EXPORT_TIMEZONE),
+    )
+
+
 async def _require_vessel(session: AsyncSession, vessel_id: UUID) -> None:
     """선박이 없으면 404다.
 
@@ -287,20 +313,31 @@ async def _calculation_rows(
     식별자·해시만 싣고 값 칸은 비운다 — ``calculation_type`` 열이 그 이유를 말한다.
     """
     if calculation_run_id is not None:
-        # 한 건 (#891 · 기능① 「CSV 다운로드」). 목록에서 거르지 않고 **id로 직접** 읽는다 —
-        # 목록은 ``_CALC_LIMIT``에서 잘리므로 오래된 계산이 「없다」로 보일 수 있다.
+        # 한 건 (#891 · 기능① 「CSV 다운로드」). 목록을 거르지 않고 **id로 직접** 읽는다 —
+        # 무엇을 받을지를 사용자가 id로 이미 지목했으므로 목록 조건을 다시 태울 이유가 없다.
         run = await session.get(CalculationRun, calculation_run_id)
         if run is None or run.vessel_id != vessel_id:
             raise NotFoundError("이 선박의 계산 이력에서 해당 계산을 찾을 수 없습니다.")
-        runs = [run]
+        # ``year``를 함께 받으면 그 해가 아닌 계산은 빈 표가 된다(종전 동작 유지).
+        runs = (
+            [run]
+            if year is None or run.created_at.astimezone(_EXPORT_TIMEZONE).year == year
+            else []
+        )
     else:
-        runs = await calc_run_repo.list_runs(session, limit=_CALC_LIMIT, vessel_id=vessel_id)
-    if year is not None:
-        runs = [run for run in runs if run.created_at.astimezone(_EXPORT_TIMEZONE).year == year]
+        # ⚠️ 연도를 **쿼리에서** 거른다. 종전에는 상한으로 자른 뒤 파이썬에서 걸러,
+        # 최신 10,000건 밖의 오래된 연도는 필터를 걸어도 **0건**이 나왔다 (#1078).
+        created_from, created_until = _kst_year_bounds(year)
+        runs = await calc_run_repo.list_for_export(
+            session,
+            vessel_id=vessel_id,
+            created_from=created_from,
+            created_until=created_until,
+        )
 
     rows: list[list[str]] = []
-    # 저장소가 최신순으로 주지만 **파일은 실행 순서**여야 한다.
-    for run in sorted(runs, key=lambda r: (r.created_at, r.id)):
+    # 저장소가 이미 실행 순서로 준다 (``list_for_export``).
+    for run in runs:
         result = run.result_json if isinstance(run.result_json, dict) else {}
         rows.append(
             _row(

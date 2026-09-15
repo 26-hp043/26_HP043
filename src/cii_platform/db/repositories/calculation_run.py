@@ -232,3 +232,41 @@ async def list_runs(
         limit + 1
     )
     return list((await session.execute(stmt)).scalars().all())
+
+
+async def list_for_export(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    created_from: datetime | None = None,
+    created_until: datetime | None = None,
+) -> list[CalculationRun]:
+    """내보내기용 — 선박의 계산 이력을 **전부** 조회한다 (``API_SPEC §8.1``, #1078).
+
+    :func:`list_runs`와 나누는 이유는 ``voyage.list_for_export``가
+    :func:`~cii_platform.db.repositories.voyage.list_active`와 나뉘는 이유와 같다:
+    **커서도 상한도 없다.** 목록 화면은 페이지를 넘기며 읽지만 내보내기는 파일 하나를
+    만든다.
+
+    **상한을 두지 않는다** — ``API_SPEC §8.1``의 「행 수 상한을 두지 않는다」가 세
+    종류(항차·계산·시뮬레이션) 전부에 걸린다. 종전에는 이 조회만 :func:`list_runs`
+    (페이지네이션 함수)를 빌려 써서 10,000행에서 **조용히 잘렸고**, 잘린 파일을 연간
+    자료로 쓰는 것이 바로 그 규정이 막으려던 일이다 (#1078).
+
+    ``created_from``은 포함, ``created_until``은 **제외**다(반열림 구간). 연도
+    필터가 ``created_at``의 KST 연도라는 뜻은 서비스가 가지며(``§8.1`` — 계산에는
+    규제연도 열이 없다, `DB_SCHEMA §2.5`), 저장소는 경계 두 값만 받는다. 닫힌 구간으로
+    두면 다음 해 1월 1일 00:00:00 정각의 계산이 **두 해 모두에** 들어간다.
+
+    정렬은 ``(created_at, id)`` 오름차순 — **내보낸 파일의 행 순서가 실행 순서**다
+    (``voyage``·``annual_simulation``의 같은 함수와 맞춘다). :func:`list_runs`의
+    최신순과 반대인데, 화면은 방금 만든 것부터 보고 파일은 시간순으로 읽는다.
+    """
+    stmt = select(CalculationRun).where(CalculationRun.vessel_id == vessel_id)
+    if created_from is not None:
+        stmt = stmt.where(CalculationRun.created_at >= created_from)
+    if created_until is not None:
+        stmt = stmt.where(CalculationRun.created_at < created_until)
+
+    stmt = stmt.order_by(CalculationRun.created_at, CalculationRun.id)
+    return list((await session.execute(stmt)).scalars().all())
