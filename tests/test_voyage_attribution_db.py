@@ -26,6 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
+from cii_platform.services.scenario_adopt import adopt_scenario
 from cii_platform.services.voyage import delete_voyage, update_voyage
 from cii_platform.services.voyage_cii import FuelUseInput, VoyageCiiInput, estimate_voyage_cii
 
@@ -118,6 +119,81 @@ async def test_plan_change_marks_the_attributed_calculation_for_recalculation(se
     assert (await _run_row(session, bound["calculation_run_id"])).needs_recalc is True
     # 범위는 그 항차까지다 — 다른 항차의 계산은 그대로
     assert (await _run_row(session, other["calculation_run_id"])).needs_recalc is False
+
+
+async def _scenario(session, vessel_id: UUID) -> UUID:
+    row = await session.execute(
+        text(
+            "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, distance_nm, "
+            " speed_kn, duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
+            "VALUES (:vid, 'SLOW_STEAMING', '감속 운항', 2000, 10.5, 190.5, 120.25, 5.1, 'C', "
+            " 'MEDIUM') RETURNING id"
+        ),
+        {"vid": vessel_id},
+    )
+    return row.scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_adopt_reports_a_real_invalidated_count(session):
+    """채택 응답의 ``invalidated_calculation_runs``가 **참값**이다 (`#1077` · `API_SPEC §5.2`).
+
+    ⚠️ `test_scenario_adopt_db.py`의 무효화 검사는 ``voyage_id``를 **raw SQL로 직접
+    넣어** 계산 이력을 만든다 — 그래서 `#817` 이전에도 통과했고, 「실제 서비스가 만든
+    계산이 채택으로 무효화되는가」는 **아무도 보지 않았다.** 화면이 이 수를 숨겨 온
+    근거가 바로 「늘 0이라 참값이 아니다」였으므로, 표시를 여는 `#1077`은 그 전제가
+    사라졌음을 **실제 경로로** 확인해야 한다.
+
+    여기서는 계산을 ``estimate_voyage_cii``(실제 기능① 서비스)로 만든다.
+    """
+    vessel_id = await _vessel(session)
+    voyage_id = await _voyage(session, vessel_id)
+    other_id = await _voyage(session, vessel_id)
+    scenario_id = await _scenario(session, vessel_id)
+
+    bound = await estimate_voyage_cii(session, _payload(vessel_id, voyage_id))
+    # 같은 항차의 계산이 둘이면 둘 다 세어야 한다.
+    bound2 = await estimate_voyage_cii(session, _payload(vessel_id, voyage_id))
+    # 다른 항차·귀속 없는 계산은 세지 않는다 — 넓게 잡으면 표시가 무의미해진다.
+    other = await estimate_voyage_cii(session, _payload(vessel_id, other_id))
+    loose = await estimate_voyage_cii(session, _payload(vessel_id))
+
+    result = await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
+
+    assert result["invalidated_calculation_runs"] == 2
+    assert (await _run_row(session, bound["calculation_run_id"])).needs_recalc is True
+    assert (await _run_row(session, bound2["calculation_run_id"])).needs_recalc is True
+    assert (await _run_row(session, other["calculation_run_id"])).needs_recalc is False
+    assert (await _run_row(session, loose["calculation_run_id"])).needs_recalc is False
+
+
+@pytest.mark.asyncio
+async def test_adopt_reports_zero_when_everything_is_already_marked(session):
+    """이미 전부 표시된 뒤의 재채택은 `0`이다 — **「계산 이력이 없다」와 같은 값**이다.
+
+    `API_SPEC §5.2`가 그 두 뜻을 모두 규정한다(「이미 표시된 결과는 세지 않는다」).
+    화면이 `0`을 「무효화된 계산이 없습니다」로 적으면 **옛 계산이 아직 유효하다**로
+    읽히므로, 이 검사가 그 모호함이 서버 값의 성질임을 고정한다 (`#1077`).
+    """
+    vessel_id = await _vessel(session)
+    voyage_id = await _voyage(session, vessel_id)
+    empty_id = await _voyage(session, vessel_id)
+
+    await estimate_voyage_cii(session, _payload(vessel_id, voyage_id))
+    first = await adopt_scenario(
+        session, await _scenario(session, vessel_id), target_voyage_id=voyage_id
+    )
+    again = await adopt_scenario(
+        session, await _scenario(session, vessel_id), target_voyage_id=voyage_id
+    )
+    # 계산 이력이 한 건도 없는 항차 — 같은 0이다
+    never = await adopt_scenario(
+        session, await _scenario(session, vessel_id), target_voyage_id=empty_id
+    )
+
+    assert first["invalidated_calculation_runs"] == 1
+    assert again["invalidated_calculation_runs"] == 0
+    assert never["invalidated_calculation_runs"] == 0
 
 
 @pytest.mark.asyncio
