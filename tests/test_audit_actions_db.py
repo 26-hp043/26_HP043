@@ -36,7 +36,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import app
-from cii_platform.db.types import UuidText
+from cii_platform.db.types import JSONText, UuidText
 
 _BASE = "https://testserver"
 
@@ -58,7 +58,10 @@ async def _fetch_events(session, action: str) -> list:
         text(
             "SELECT user_id, entity_type, entity_id, details_json, ip_address "
             'FROM audit_log WHERE "action" = :action ORDER BY "timestamp" DESC'
-        ),
+            # raw SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result processor가 돌지
+            # 않는다 — 붙이지 않으면 **문자열**이 와서 `details["x"]`가
+            # `TypeError: string indices must be integers`로 선다 (`#1058`).
+        ).columns(details_json=JSONText()),
         {"action": action},
     )
     return rows.mappings().all()

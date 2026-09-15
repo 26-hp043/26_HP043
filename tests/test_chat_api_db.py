@@ -22,6 +22,7 @@ from sqlalchemy import text
 
 from cii_platform.api.main import app
 from cii_platform.api.routes.chat import get_provider
+from cii_platform.db.types import JSONText
 from cii_platform.llm.provider import FakeProvider, LLMResponse, ToolCall
 from cii_platform.services.chat import (
     DISCARDED_MESSAGE,
@@ -400,7 +401,9 @@ async def test_every_turn_is_audited(migrated_db, app_fresh_engine):
                         text(
                             'SELECT "action", details_json FROM audit_log '
                             'WHERE "action" LIKE \'CHAT_%\' ORDER BY "timestamp"'
-                        )
+                            # raw SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result
+                            # processor가 돌지 않는다 — 문자열이 온다 (`#1058`).
+                        ).columns(details_json=JSONText())
                     )
                 )
                 .mappings()

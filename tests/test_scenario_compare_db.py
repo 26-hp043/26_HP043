@@ -25,9 +25,10 @@ from uuid import UUID
 import pytest_asyncio
 from conftest import insert_returning_id
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import app
+from cii_platform.db.types import JSONText, UuidText
 
 _BASE = "https://testserver"
 
@@ -165,7 +166,12 @@ async def test_compare_persists_three_scenarios_and_run(migrated_db, app_fresh_e
                     text(
                         "SELECT details_json FROM audit_log "
                         "WHERE \"action\" = 'CALCULATION_RUN' AND entity_id = :rid"
-                    ),
+                        # `entity_id`는 `CHAR(32)`인데 API는 대시 36자를 준다. 타입을
+                        # 붙이지 않으면 **오류 없이 0건**이 온다 (`#1058`).
+                        # `details_json`도 붙이지 않으면 문자열로 온다.
+                    )
+                    .bindparams(bindparam("rid", type_=UuidText()))
+                    .columns(details_json=JSONText()),
                     {"rid": body["calculation_run_id"]},
                 )
             ).fetchone()
