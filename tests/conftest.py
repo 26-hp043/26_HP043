@@ -29,6 +29,7 @@ _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
 TEST_DATABASE_URL = normalize_to_async(_RAW_DATABASE_URL)
 
 _IS_CUBRID = "cubrid" in TEST_DATABASE_URL
+_cubrid_engine_kw: dict = {"implicit_returning": False} if _IS_CUBRID else {}
 
 # CUBRID 환경에서 skip할 테스트 파일들 (#1058):
 # - migration guard: 42개 개별 migration 파일 기대 → 1개 initial로 합침
@@ -305,7 +306,7 @@ def migrated_db() -> None:
     from cii_platform.db.demo_seed import seed_demo
 
     async def _seed() -> None:
-        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw)
         try:
             async with engine.begin() as conn:
                 await seed_demo(conn)
@@ -418,7 +419,13 @@ def _install_cubrid_param_converter(engine):
         statement = re.sub(r'\bIS 0\b', '= 0', statement)
         statement = re.sub(r'\bIS 1\b', '= 1', statement)
 
-        # 3. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
+        # 3. CUBRID: RETURNING 미지원 — INSERT RETURNING ... 전체 제거
+        #    복수 컬럼(RETURNING id, created_at)도 처리한다.
+        #    auto-id 삽입보다 먼저 실행해야 regex의 $가 매칭된다.
+        if " RETURNING " in statement:
+            statement = re.sub(r"\s+RETURNING\s+.+$", "", statement)
+
+        # 4. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
         if statement.lstrip().upper().startswith("INSERT INTO") and "(id," not in statement and "(id)" not in statement:
             # VALUES 안의 괄호까지 포함하여 마지막 )를 찾기
             m = re.match(r"(INSERT INTO \S+ )\(([^)]+)\)( VALUES )\((.+)\)\s*$", statement)
@@ -430,11 +437,6 @@ def _install_cubrid_param_converter(engine):
                     parameters = (new_id, *parameters)
                 elif isinstance(parameters, list):
                     parameters = [new_id] + parameters
-
-        # 5. CUBRID: RETURNING 미지원 — INSERT RETURNING ... 전체 제거
-        #    복수 컬럼(RETURNING id, created_at)도 처리한다.
-        if " RETURNING " in statement:
-            statement = re.sub(r"\s+RETURNING\s+.+$", "", statement)
 
         return statement, parameters
 
@@ -469,7 +471,7 @@ async def insert_returning_id(session, sql: str, params: dict) -> str:
 @pytest_asyncio.fixture
 async def conn(migrated_db):
     """함수 단위 트랜잭션. 테스트 종료 시 롤백하여 DB를 오염시키지 않는다."""
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw)
     _install_cubrid_param_converter(engine)
     connection = await engine.connect()
     trans = await connection.begin()
@@ -501,7 +503,7 @@ def app_fresh_engine(monkeypatch: pytest.MonkeyPatch):
 
     from cii_platform.db import session as db_session_mod
 
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw)
     _install_cubrid_param_converter(engine)
     patched_maker = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(db_session_mod, "get_engine", lambda: engine)

@@ -38,7 +38,13 @@ def get_engine() -> AsyncEngine:
     ``lru_cache``로 단일 인스턴스를 보장한다. 엔진마다 커넥션 풀이 따로 생기므로
     요청마다 만들면 연결 수가 요청 수만큼 늘어난다.
     """
-    engine = create_async_engine(normalize_to_async(DATABASE_URL), pool_pre_ping=True)
+    url = normalize_to_async(DATABASE_URL)
+    # CUBRID는 RETURNING을 지원하지 않는다. implicit_returning=False로
+    # ORM이 INSERT RETURNING을 생성하지 않게 한다 (#1058).
+    extra = {}
+    if "cubrid" in url:
+        extra["implicit_returning"] = False
+    engine = create_async_engine(url, pool_pre_ping=True, **extra)
 
     # CUBRID 호환: UUID/Decimal 파라미터 자동 변환 (#1058)
     import re
