@@ -30,8 +30,8 @@ import type { VoyageCiiProvider } from './provider'
 /** base URL을 덮어쓰는 환경변수. 미설정 시 `apiProvider`의 기본값(상대 경로)을 쓴다. */
 export const API_BASE_URL_ENV_KEY = 'VITE_API_BASE_URL'
 
-/** `#104` API Key. 적용 전에는 비어 있다. */
-export const API_KEY_ENV_KEY = 'VITE_API_KEY'
+// API Key 환경변수는 없다 — `#104`가 API Key 인증을 세션 인증으로 대체(슈퍼시드)해
+// 서버가 그 헤더를 읽지 않는다. 잔존물은 `#1075`가 걷었다.
 
 /** 환경에 맞는 provider를 만든다. */
 export function createVoyageCiiProvider(
@@ -39,6 +39,5 @@ export function createVoyageCiiProvider(
 ): VoyageCiiProvider {
   return createApiProvider({
     baseUrl: (env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined,
-    apiKey: (env[API_KEY_ENV_KEY] as string | undefined) || undefined,
   })
 }
