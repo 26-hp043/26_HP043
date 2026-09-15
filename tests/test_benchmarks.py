@@ -258,14 +258,10 @@ async def test_scenario_compare_p95(migrated_db, app_fresh_engine, capsys):
                 text("DELETE FROM voyage_scenario WHERE id = ANY(CAST(:ids AS uuid[]))"),
                 {"ids": scenario_ids},
             )
-            await session.execute(
-                text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable")
-            )
+            await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS INACTIVE"))
             await session.execute(
                 text("DELETE FROM calculation_run WHERE id = ANY(CAST(:ids AS uuid[]))"),
                 {"ids": run_ids},
             )
-            await session.execute(
-                text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable")
-            )
+            await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS ACTIVE"))
             await session.commit()

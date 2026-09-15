@@ -61,11 +61,11 @@ async def _cleanup(session, vessel_id: str) -> None:
     # calculation_run은 immutable 트리거가 DELETE를 막는다 — 잠시 끄고 즉시 복구
     # (test_voyage_delete_db.py와 같은 패턴). audit_log는 _delete_stub_user가
     # 전량 삭제하므로 여기서 건드리지 않는다.
-    await session.execute(text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS INACTIVE"))
     await session.execute(
         text("DELETE FROM calculation_run WHERE vessel_id = :vid"), {"vid": vessel_id}
     )
-    await session.execute(text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS ACTIVE"))
     await session.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
     await session.execute(text("DELETE FROM cii_rating_boundary WHERE source_ref = 'TEST'"))
     await session.execute(text("DELETE FROM cii_reference_line WHERE source_ref = 'TEST'"))

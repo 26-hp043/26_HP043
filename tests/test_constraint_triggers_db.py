@@ -67,11 +67,7 @@ EXPECTED_TRIGGERS = (
     {name for name, _t, _c in HASH_TRIGGERS}
     | {name for name, _t in IMMUTABLE_DELETE_TRIGGERS}
     | {f"{name}_{event}" for name, _t, _c in FUEL_TYPE_REFS for event in ("ins", "upd")}
-    | {
-        "trg_calcrun_immutable_update",
-        "trg_snapshot_immutable_update",
-        "trg_fuel_type_referenced",
-    }
+    | {"trg_calcrun_immutable_update", "trg_snapshot_immutable_update"}
 )
 
 
@@ -245,13 +241,27 @@ async def test_unknown_fuel_code_is_rejected(conn: AsyncConnection, table: str, 
 
 
 @pytest.mark.asyncio
-async def test_referenced_fuel_type_cannot_be_deleted(conn: AsyncConnection):
-    """참조 중인 연료는 지워지지 않는다 — 원래 FK의 ``ON DELETE NO ACTION``."""
+async def test_parent_side_delete_is_deliberately_not_guarded(conn: AsyncConnection):
+    """참조 중인 연료를 지우는 것은 **막지 않는다** — 일부러 그렇게 두었다.
+
+    원래 FK는 ``ON DELETE NO ACTION``이라 막았고, 한 번은 트리거로 되살렸다. 그런데
+    `db/seed.py`의 재적재가 ``sqlalchemy_cubrid.dml.replace``를 쓰고 **CUBRID의
+    ``REPLACE``는 DELETE + INSERT로 구현되어** 그 트리거를 깨운다. 같은 ``code``가 곧바로
+    다시 들어가 고아가 생기지 않는데도 재적재 전체가 막혔다(`test_seed_data.py` 7건이
+    fixture에서 죽었다). 트리거는 REPLACE의 DELETE와 사람이 친 DELETE를 구분하지 못한다.
+
+    **이 검사는 그 구멍이 열려 있다는 사실을 고정한다.** 나중에 부모 쪽을 막게 되면 이
+    검사가 실패하고, 그때 `test_seed_data.py`와 `DB_SCHEMA §7.4`를 함께 봐야 한다.
+    """
     code = await conn.scalar(text("SELECT fuel_type FROM voyage_fuel_use"))
     if code is None:
         pytest.skip("참조 중인 연료가 없다")
-    with pytest.raises(DatabaseError):
-        await conn.execute(text("DELETE FROM fuel_type WHERE code = :code"), {"code": str(code)})
+
+    await conn.execute(text("DELETE FROM fuel_type WHERE code = :code"), {"code": str(code)})
+    remaining = await conn.scalar(
+        text("SELECT count(*) FROM fuel_type WHERE code = :code"), {"code": str(code)}
+    )
+    assert remaining == 0, "부모 쪽이 막혔다 — 막게 되었다면 §7.4와 seed 재적재를 함께 볼 것"
 
 
 # ---------------------------------------------------------------------------

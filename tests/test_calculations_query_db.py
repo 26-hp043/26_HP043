@@ -65,11 +65,11 @@ async def _insert_run(
 async def _cleanup(session, vessel_id: str) -> None:
     # calculation_run은 immutable 트리거가 DELETE를 막는다 — 정리를 위해 잠시 끄고
     # 즉시 복구한다.
-    await session.execute(text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS INACTIVE"))
     await session.execute(
         text("DELETE FROM calculation_run WHERE vessel_id = :vid"), {"vid": vessel_id}
     )
-    await session.execute(text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS ACTIVE"))
     await session.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
     await session.commit()
 

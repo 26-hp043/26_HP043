@@ -30,8 +30,9 @@
   영영 재현 대조를 할 수 없다** — 저장 뒤에는 immutable이라 고칠 수도 없다.
 * **참조 정합 3** — `vessel`·`voyage_fuel_use`·`not_underway_fuel_use`의
   `fuel_type → fuel_type.code`. 없는 연료 코드가 들어가면 CF를 못 찾아 계산이 조용히
-  틀린다. **FK로 걸 수 없어**(위 참조) 자식 쪽 INSERT·UPDATE와 부모 쪽 DELETE를
-  트리거로 막는다.
+  틀린다. **FK로 걸 수 없어**(위 참조) 자식 쪽 INSERT·UPDATE를 트리거로 막는다.
+  **부모 쪽 DELETE는 막지 못한다** — `REPLACE INTO`가 DELETE로 구현돼 재적재가 걸린다
+  (`upgrade()` 주석 참조).
 * **불변성 2** — `calculation_run`·`simulation_snapshot`의 UPDATE·DELETE 차단.
   **이것이 지금 하나도 없다** — 전환 뒤 이 DB의 트리거는 **0개**였다.
 
@@ -141,17 +142,17 @@ def upgrade() -> None:
                 f"IF NOT (new.{column} IS NULL OR {exists}) EXECUTE REJECT"
             )
 
-    # 부모 쪽 — 참조 중인 연료 코드는 지우지 못한다(원래 FK의 `ON DELETE NO ACTION`).
-    # `6c7496c4d122`의 downgrade 주석이 「참조 중인 행이 있으면 FK가 즉시 거부한다」고
-    # 적고 있는데, FK가 사라진 지금은 그 문장이 거짓이다. 그 동작을 되돌린다.
-    referenced = " OR ".join(
-        f"EXISTS (SELECT 1 FROM {table} WHERE {column} = obj.code)"
-        for _name, table, column in FUEL_TYPE_REFS
-    )
-    op.execute(
-        f"CREATE TRIGGER trg_fuel_type_referenced BEFORE DELETE ON fuel_type "
-        f"IF {referenced} EXECUTE REJECT"
-    )
+    # 부모 쪽(참조 중인 연료 코드 삭제 금지)은 **두지 않는다.** 한 번 넣었다가 뺐다.
+    #
+    # `db/seed.py`의 재적재가 `sqlalchemy_cubrid.dml.replace`(= `REPLACE INTO`)를 쓰는데,
+    # **CUBRID의 `REPLACE`는 DELETE + INSERT로 구현되어** `BEFORE DELETE` 트리거를 깨운다.
+    # 같은 `code`가 곧바로 다시 들어가므로 고아가 생기지 않는데도 재적재 전체가 막혔다 —
+    # `tests/test_seed_data.py` 7건이 fixture 단계에서 죽었다. 트리거는 REPLACE가 부른
+    # DELETE와 사람이 친 DELETE를 구분하지 못한다.
+    #
+    # 자식 쪽(위)이 **계산이 조용히 틀리는 경로**(없는 연료 코드 → CF 조회 실패)를 막으므로
+    # 그쪽을 남기고 부모 쪽을 포기한다. 남는 구멍은 `DELETE FROM fuel_type`을 직접 쳐서
+    # 참조 중인 코드를 지우는 경우이며, `DB_SCHEMA §7.4`에 그대로 적었다.
 
     for name, table, column in HASH_TRIGGERS:
         op.execute(
@@ -186,7 +187,6 @@ def downgrade() -> None:
     op.execute("DROP TRIGGER trg_calcrun_immutable_update")
     for name, _table, _column in HASH_TRIGGERS:
         op.execute(f"DROP TRIGGER {name}")
-    op.execute("DROP TRIGGER trg_fuel_type_referenced")
     for name, _table, _column in FUEL_TYPE_REFS:
         for event in ("INSERT", "UPDATE"):
             op.execute(f"DROP TRIGGER {name}_{event.lower()[:3]}")
