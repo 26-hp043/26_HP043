@@ -32,9 +32,7 @@ async def get_regulation_year(session: AsyncSession, year: int) -> RegulationYea
     ``is_active``가 false인 행은 제외한다 — 규정 개정으로 대체된 행을 계산에 쓰면
     안 된다.
     """
-    stmt = select(RegulationYear).where(
-        RegulationYear.year == year, RegulationYear.is_active == 1
-    )
+    stmt = select(RegulationYear).where(RegulationYear.year == year, RegulationYear.is_active == 1)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
@@ -130,7 +128,10 @@ async def list_fuel_types(
     """
     stmt = select(FuelType).order_by(FuelType.code)
     if active is not None:
-        stmt = stmt.where(FuelType.is_active.is_(active))
+        # `.is_(True)`는 **`IS 1`**을 내는데 CUBRID가 거부한다(`IS`는 NULL 비교 전용).
+        # 같은 파일의 다른 자리는 이미 `== 1`을 쓰고 있었고 여기만 남아 있었다.
+        # 그 결과 `GET /parameters/fuel-types`와 `/vessels/samples`가 500이었다 (`#1058`).
+        stmt = stmt.where(FuelType.is_active == (1 if active else 0))
     return (await session.execute(stmt)).scalars().all()
 
 
