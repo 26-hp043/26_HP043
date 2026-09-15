@@ -29,13 +29,16 @@ _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
 TEST_DATABASE_URL = normalize_to_async(_RAW_DATABASE_URL)
 
 _IS_CUBRID = "cubrid" in TEST_DATABASE_URL
+# sqlalchemy-cubrid dialect는 이미 insert_returning=False를 설정한다.
+# implicit_returning은 deprecated이므로 사용하지 않는다.
+_cubrid_engine_kw: dict = {}
 
 # CUBRID 환경에서 skip할 테스트 파일들 (#1058):
 # - migration guard: 42개 개별 migration 파일 기대 → 1개 initial로 합침
 # - db_check_cases: CHECK constraint 강제를 기대 → CUBRID는 CHECK 미강제
 # - *_migrations: 개별 migration upgrade/downgrade 테스트
 _CUBRID_SKIP_FILES = {
-    # test_migration_guard.py — 자체 skipif로 처리 (#1143)
+    "test_migration_guard.py",  # 42개 개별 migration 파일 의존 (#1143)
     "test_db_check_cases.py",
     "test_not_underway_migrations.py",
     "test_vessel_position_state_migrations.py",
@@ -45,6 +48,18 @@ _CUBRID_SKIP_FILES = {
     "test_voyage_migrations.py",
     "test_db_hardening_023.py",
 }
+
+
+# import 시점에 asyncpg 등 PostgreSQL 전용 모듈을 쓰는 파일은
+# pytest_collection_modifyitems보다 먼저 collection error가 난다.
+# collect_ignore로 아예 수집하지 않는다.
+_CUBRID_COLLECT_IGNORE = {
+    "test_suite_lock_db.py",  # asyncpg advisory lock
+}
+
+collect_ignore: list[str] = []
+if _IS_CUBRID:
+    collect_ignore.extend(str(Path(__file__).parent / f) for f in _CUBRID_COLLECT_IGNORE)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -291,7 +306,9 @@ def migrated_db() -> None:
     from cii_platform.db.demo_seed import seed_demo
 
     async def _seed() -> None:
-        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        engine = create_async_engine(
+            TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw
+        )
         try:
             async with engine.begin() as conn:
                 await seed_demo(conn)
@@ -328,6 +345,17 @@ def _install_cubrid_param_converter(engine):
     before_cursor_execute에서 자동 변환한다.
     """
     import uuid
+
+    # ``sa.Uuid``의 bind processor를 여기서 패치하지 않는다 (`#1058`).
+    #
+    # 한때 `_sqltypes.Uuid.bind_processor`를 갈아 문자열을 통과시켰는데, 그 패치는
+    # **검사에만 걸린다** — 배포 코드는 같은 자리에서 그대로 선다. 검사는 초록인데
+    # 운영이 깨지는 모양이라, 결함을 고치는 대신 **가리는** 쪽이었다.
+    #
+    # 지금은 `db/types.py`의 `UuidText`가 타입 자체에서 받으므로 검사와 운영이 같은
+    # 경로를 탄다. 패치를 빼고 같은 묶음을 돌려 **18 failed / 64 passed로 동일**함을
+    # 확인했다(있으나 없으나 같다). 서드파티 클래스를 되돌리지 않고 전역 변조하는
+    # 것이기도 해서 남겨 둘 이유가 없다.
     from decimal import Decimal
 
     from sqlalchemy import event
@@ -336,27 +364,73 @@ def _install_cubrid_param_converter(engine):
 
     @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
     def _convert_params(conn, cursor, statement, parameters, context, executemany):
-        # 1. UUID/Decimal → string 변환
+        # 1. UUID/Decimal/datetime → CUBRID 호환 변환
+        from datetime import datetime as _dt, timezone as _tz
+
+        def _convert_value(p):
+            if isinstance(p, uuid.UUID):
+                return p.hex
+            if isinstance(p, Decimal):
+                return str(p)
+            if isinstance(p, _dt):
+                # CUBRID는 ISO 8601 'Z' 접미사와 'T' 구분자를 인식하지 못한다.
+                if p.tzinfo is not None:
+                    p = p.astimezone(_tz.utc).replace(tzinfo=None)
+                return p.strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(p, str):
+                # ISO 8601 문자열 datetime → CUBRID 호환
+                if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", p):
+                    p = p.replace("T", " ").rstrip("Z")
+                    if p.endswith("+00:00"):
+                        p = p[:-6]
+                return p
+            return p
+
         if parameters and isinstance(parameters, (tuple, list)):
-            converted = []
-            for p in parameters:
-                if isinstance(p, uuid.UUID):
-                    converted.append(p.hex)
-                elif isinstance(p, Decimal):
-                    converted.append(str(p))
-                else:
-                    converted.append(p)
-            parameters = tuple(converted)
+            parameters = tuple(_convert_value(p) for p in parameters)
 
         # 2. CUBRID: PostgreSQL 구문 변환 (auto-id 전에 실행해야 regex가 깨지지 않음)
-        statement = statement.replace("interval '1 hour'", "1/24.0")
-        statement = re.sub(r'CAST\(\? AS \w+\)', '?', statement)
-        statement = re.sub(r'::(uuid|timestamptz|timestamp|text|jsonb)', '', statement)
-        statement = re.sub(r'\bIS 0\b', '= 0', statement)
-        statement = re.sub(r'\bIS 1\b', '= 1', statement)
+        # CUBRID datetime 호환:
+        # 1) 'Z' 타임존 제거 + T→공백  2) +00:00 제거 + T→공백
+        # CUBRID는 ISO 8601 'T' 구분자와 'Z' 접미사를 모두 거부한다.
+        def _fix_dt_literal(m):
+            s = m.group(1).replace("T", " ")
+            return f"'{s}'"
 
-        # 3. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
-        if statement.lstrip().upper().startswith("INSERT INTO") and "(id," not in statement and "(id)" not in statement:
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})Z'",
+            _fix_dt_literal,
+            statement,
+        )
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})\+00:00'",
+            _fix_dt_literal,
+            statement,
+        )
+        # 나머지 T 구분자 (타임존 없는 경우)
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})'",
+            r"'\1 \2'",
+            statement,
+        )
+        statement = statement.replace("interval '1 hour'", "1/24.0")
+        statement = re.sub(r"CAST\(\? AS \w+\)", "?", statement)
+        statement = re.sub(r"::(uuid|timestamptz|timestamp|text|jsonb)", "", statement)
+        statement = re.sub(r"\bIS 0\b", "= 0", statement)
+        statement = re.sub(r"\bIS 1\b", "= 1", statement)
+
+        # 3. CUBRID: RETURNING 미지원 — INSERT RETURNING ... 전체 제거
+        #    복수 컬럼(RETURNING id, created_at)도 처리한다.
+        #    auto-id 삽입보다 먼저 실행해야 regex의 $가 매칭된다.
+        if " RETURNING " in statement:
+            statement = re.sub(r"\s+RETURNING\s+.+$", "", statement)
+
+        # 4. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
+        if (
+            statement.lstrip().upper().startswith("INSERT INTO")
+            and "(id," not in statement
+            and "(id)" not in statement
+        ):
             # VALUES 안의 괄호까지 포함하여 마지막 )를 찾기
             m = re.match(r"(INSERT INTO \S+ )\(([^)]+)\)( VALUES )\((.+)\)\s*$", statement)
             if m:
@@ -367,11 +441,6 @@ def _install_cubrid_param_converter(engine):
                     parameters = (new_id, *parameters)
                 elif isinstance(parameters, list):
                     parameters = [new_id] + parameters
-
-        # 5. CUBRID: RETURNING 미지원 — INSERT RETURNING id를 INSERT로 변환
-        #    id는 auto-id 삽입에서 이미 생성됨
-        if " RETURNING " in statement:
-            statement = re.sub(r"\s+RETURNING\s+\w+", "", statement)
 
         return statement, parameters
 
@@ -388,13 +457,9 @@ async def insert_returning_id(session, sql: str, params: dict) -> str:
     generated_id = _uuid.uuid4().hex
     sql_no_returning = _re.sub(r"\s+RETURNING\s+\w+", "", sql)
     if "(id," not in sql_no_returning:
-        sql_no_returning = sql_no_returning.replace(
-            "VALUES (", f"VALUES ('{generated_id}', ", 1
-        )
+        sql_no_returning = sql_no_returning.replace("VALUES (", f"VALUES ('{generated_id}', ", 1)
         # 컬럼 리스트에 id 추가
-        sql_no_returning = _re.sub(
-            r"\((\w)", r"(id, \1", sql_no_returning, count=1
-        )
+        sql_no_returning = _re.sub(r"\((\w)", r"(id, \1", sql_no_returning, count=1)
     else:
         # id가 이미 있으면 params에서 가져온다
         generated_id = str(params.get("id", generated_id)).replace("-", "")
@@ -406,7 +471,7 @@ async def insert_returning_id(session, sql: str, params: dict) -> str:
 @pytest_asyncio.fixture
 async def conn(migrated_db):
     """함수 단위 트랜잭션. 테스트 종료 시 롤백하여 DB를 오염시키지 않는다."""
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw)
     _install_cubrid_param_converter(engine)
     connection = await engine.connect()
     trans = await connection.begin()
@@ -438,7 +503,7 @@ def app_fresh_engine(monkeypatch: pytest.MonkeyPatch):
 
     from cii_platform.db import session as db_session_mod
 
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw)
     _install_cubrid_param_converter(engine)
     patched_maker = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(db_session_mod, "get_engine", lambda: engine)

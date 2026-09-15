@@ -1436,6 +1436,10 @@ def _stored_payload(row) -> dict:
 
 
 def _snapshot_block(row) -> dict[str, object]:
+    # `voyage_count`는 **DB가 센다**(`_load_run`의 `JSON_LENGTH(CAST(… AS JSON))`).
+    # 본문을 가져와 파이썬에서 세는 안도 있으나(`#1152`), 이 함수가 필요로 하는 것은
+    # **개수뿐**인데 항차가 많으면 `voyages_json`이 큰 값이라 통째로 실어 오게 된다 —
+    # 무료 VM 1GB에서 배포하는 것이 `#1058`의 출발점이었다.
     return {
         "snapshot_id": str(row.snapshot_id),
         "created_at": row.snapshot_created_at.isoformat(),
