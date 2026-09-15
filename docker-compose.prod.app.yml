@@ -36,7 +36,7 @@ services:
     container_name: cii-backend
     restart: unless-stopped
     environment:
-      APP_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: *cubrid-url
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
@@ -89,7 +89,7 @@ services:
     profiles:
       - migrate
     environment:
-      APP_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       DATABASE_URL: *cubrid-url
     command: ["alembic", "upgrade", "head"]
 
