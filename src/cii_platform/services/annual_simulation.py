@@ -1233,7 +1233,19 @@ def _input_hash(
     않는다**; 그 행들은 ``vessel_json``이 NULL이라 재현 경로가 앞에서 끊는다.
     """
     material: dict[str, object] = {
-        "vessel_id": str(vessel_id),
+        # **표준 대시 형식으로 고정한다** (`#1058`). 저장할 때는 `_persist`가 `UUID`
+        # 객체를 받아 `str()`이 대시 36자를 냈는데, 재현할 때는 `row.vessel_id`가
+        # **생 SQL로 읽은 `CHAR(32)` hex**라 같은 선박인데 재료가 달라졌다. 해시가
+        # 갈리고 `reproduce`가 「재현 입력의 해시가 원본과 다릅니다」(500)를 냈다 —
+        # 전체 검사에서 **14건**이 이 한 줄이었다.
+        #
+        # 저장된 해시가 대시 형식으로 계산돼 있으므로 **대시가 정본**이다. hex로
+        # 맞추면 기존 실행 전부의 해시가 바뀌고, 저장된 해시는 UPDATE 트리거가 막아
+        # 고칠 수도 없다(`TECH_SPEC §5.4`).
+        #
+        # `UUID()`를 한 번 거치므로 `UUID` 객체·대시 문자열·hex 문자열이 모두 같은
+        # 값으로 모인다 — 부르는 쪽이 어느 형식을 주든 재료는 하나다.
+        "vessel_id": str(UUID(str(vessel_id))),
         "regulation_year": regulation_year,
         "target_rating": target_rating,
         "simulation_runs": runs,

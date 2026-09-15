@@ -212,7 +212,19 @@ jobs:
       # 이 스택은 잡이 끝나면 사라진다.
       # compose가 CUBRID로 바뀌었다 (#1058) — 종전 POSTGRES_* 는 쓰이지 않는다.
       CUBRID_DB: cii
-      CUBRID_PASSWORD: ci-docker-job
+      # **빈 값이다.** `cubrid/cubrid:11.4` 이미지는 첫 부트에 `CUBRID_PASSWORD`를
+      # 적용하지 않고 `dba`를 빈 비밀번호로 만든다(`docker-compose.prod.db.yml`의 NOTE ·
+      # 로컬 컨테이너도 `dba:@…`로 붙는다). 값을 넣으면 앱의 `DATABASE_URL`만 그 값을
+      # 싣고 DB는 모르는 상태가 되어 이렇게 떨어진다.
+      #
+      #     DatabaseError: Incorrect or missing password. (errno=-171)
+      #
+      # `deploy.yml`은 브로커가 뜬 뒤 `ALTER USER dba PASSWORD`로 설정하지만, 이 스택은
+      # **그 단계를 밟지 않는다** — `docker-compose.prod.yml`의 healthcheck가
+      # `csql -u dba …`로 비밀번호 없이 묻기 때문에, 여기서 비밀번호를 걸면 healthcheck가
+      # 깨지고 `depends_on: service_healthy`에 걸린 앱이 영영 기다린다.
+      # 그 모순 자체는 배포 쪽에서 정해야 한다 (#1058 인계 문서에 남겼다).
+      CUBRID_PASSWORD: ""
       # 프로덕션 스택은 이 값이 없으면 뜨지 않는다 (#809) — 미설정 시 메일 링크가
       # 요청의 Host 헤더를 따라가기 때문이다. POSTGRES_* 와 같은 CI 전용 값이다.
       APP_PUBLIC_URL: https://ci.example
