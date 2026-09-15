@@ -350,19 +350,51 @@ def _install_cubrid_param_converter(engine):
 
     @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
     def _convert_params(conn, cursor, statement, parameters, context, executemany):
-        # 1. UUID/Decimal → string 변환
+        # 1. UUID/Decimal/datetime → CUBRID 호환 변환
+        from datetime import datetime as _dt, timezone as _tz
+
+        def _convert_value(p):
+            if isinstance(p, uuid.UUID):
+                return p.hex
+            if isinstance(p, Decimal):
+                return str(p)
+            if isinstance(p, _dt):
+                # CUBRID는 ISO 8601 'Z' 접미사와 'T' 구분자를 인식하지 못한다.
+                if p.tzinfo is not None:
+                    p = p.astimezone(_tz.utc).replace(tzinfo=None)
+                return p.strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(p, str):
+                # ISO 8601 문자열 datetime → CUBRID 호환
+                if re.match(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}', p):
+                    p = p.replace("T", " ").rstrip("Z")
+                    if p.endswith("+00:00"):
+                        p = p[:-6]
+                return p
+            return p
+
         if parameters and isinstance(parameters, (tuple, list)):
-            converted = []
-            for p in parameters:
-                if isinstance(p, uuid.UUID):
-                    converted.append(p.hex)
-                elif isinstance(p, Decimal):
-                    converted.append(str(p))
-                else:
-                    converted.append(p)
-            parameters = tuple(converted)
+            parameters = tuple(_convert_value(p) for p in parameters)
 
         # 2. CUBRID: PostgreSQL 구문 변환 (auto-id 전에 실행해야 regex가 깨지지 않음)
+        # CUBRID datetime 호환:
+        # 1) 'Z' 타임존 제거 + T→공백  2) +00:00 제거 + T→공백
+        # CUBRID는 ISO 8601 'T' 구분자와 'Z' 접미사를 모두 거부한다.
+        def _fix_dt_literal(m):
+            s = m.group(1).replace("T", " ")
+            return f"'{s}'"
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})Z'",
+            _fix_dt_literal, statement,
+        )
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})\+00:00'",
+            _fix_dt_literal, statement,
+        )
+        # 나머지 T 구분자 (타임존 없는 경우)
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})'",
+            r"'\1 \2'", statement,
+        )
         statement = statement.replace("interval '1 hour'", "1/24.0")
         statement = re.sub(r'CAST\(\? AS \w+\)', '?', statement)
         statement = re.sub(r'::(uuid|timestamptz|timestamp|text|jsonb)', '', statement)
