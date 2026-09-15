@@ -114,8 +114,10 @@ async def load_coefficients(session: AsyncSession, ship_type: str) -> tuple[Deci
     rows = (
         await session.execute(
             text(
-                "SELECT key, value FROM weather_model_parameter "
-                "WHERE model_version = :version AND key IN (:a, :b)"
+                # `key`·`value`는 **CUBRID 예약어**라 인용하지 않으면 구문 오류다
+                # (`#1142`). 모델은 `quote=True`로 인용하는데 이 raw SQL만 빠져 있었다.
+                'SELECT "key", "value" FROM weather_model_parameter '
+                'WHERE model_version = :version AND "key" IN (:a, :b)'
             ),
             {
                 "version": COEFFICIENT_MODEL_VERSION,
