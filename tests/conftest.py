@@ -37,8 +37,16 @@ _cubrid_engine_kw: dict = {}
 # - migration guard: 42개 개별 migration 파일 기대 → 1개 initial로 합침
 # - db_check_cases: CHECK constraint 강제를 기대 → CUBRID는 CHECK 미강제
 # - *_migrations: 개별 migration upgrade/downgrade 테스트
+#: 001~042 개별 마이그레이션 파일을 파일명으로 참조하는 검사들. 합쳐진
+#: `1c444a5c4819` 아래서는 대상이 없어 성립하지 않는다.
+#:
+#: ⚠️ **`test_migration_guard.py`는 여기 두지 않는다** (`#1058`). 한때 들어 있었으나
+#: `49d010e`가 그 파일을 **파일명이 아니라 `revision: str = "..."`을 AST로 읽도록**
+#: 고쳐 두었다 — 건너뛰기를 끄고 돌리면 **21건 전부 통과**한다. 넣어 두면 프로덕션
+#: 다운그레이드를 막는 가드(`#819`)가 **아무도 확인하지 않는 상태**가 된다.
+#:
+#: 건너뛰는 것은 고친 것이 아니다 — 아래 8개도 언젠가 같은 방식으로 되살려야 한다.
 _CUBRID_SKIP_FILES = {
-    "test_migration_guard.py",  # 42개 개별 migration 파일 의존 (#1143)
     "test_db_check_cases.py",
     "test_not_underway_migrations.py",
     "test_vessel_position_state_migrations.py",
