@@ -435,8 +435,7 @@ async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
 
 # IMO 2018 Guidelines — PRD §3.4 연료 종류별 CO₂ 배출 계수 (tCO₂/tFuel).
 _CF_ROWS = (
-    ("MDO", "Marine Diesel Oil", "3.206000"),
-    ("MGO", "Marine Gas Oil", "3.206000"),
+    ("DIESEL_GAS_OIL", "Diesel/Gas Oil", "3.206000"),
     ("LFO", "Light Fuel Oil", "3.151000"),
     ("HFO", "Heavy Fuel Oil", "3.114000"),
     ("LPG_PROPANE", "LPG Propane", "3.000000"),
