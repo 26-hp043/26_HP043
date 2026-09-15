@@ -103,8 +103,12 @@ def last_backup_at(bind: Any) -> datetime | None:
 
     ``bind``는 동기 연결이다 — 마이그레이션 안에서는 ``op.get_bind()``가 준다.
     """
+    # `timestamp`와 `action`은 **둘 다 CUBRID 예약어**다 (#1058). 인용하지 않으면
+    # `invalid use of timestamp` 구문 오류가 나고, 그 예외가 그대로 올라가
+    # **백업이 실제로 있어도** downgrade가 영원히 막힌다 — 막히는 것은 같아 보이지만
+    # 이유가 다르고, 정상 경로가 죽는다.
     return bind.execute(
-        sa.text("SELECT max(timestamp) FROM audit_log WHERE action = :action"),
+        sa.text('SELECT max("timestamp") FROM audit_log WHERE "action" = :action'),
         {"action": BACKUP_ACTION},
     ).scalar()
 
