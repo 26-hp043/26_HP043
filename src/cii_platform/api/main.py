@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from cii_platform.api.error_handlers import register_exception_handlers
 from cii_platform.api.middleware import RequestContextMiddleware
@@ -141,6 +142,22 @@ app.middleware("http")(auth_middleware)
 app.state.rate_limiter = RateLimiter(RateLimits.from_env())
 app.middleware("http")(rate_limit_middleware)
 app.add_middleware(RequestContextMiddleware)
+
+# CORS — Cloudflare Pages에서 cross-origin 접근을 허용한다.
+# CORS_ALLOW_ORIGINS 환경변수에 쉼표로 구분된 오리진을 설정한다.
+# 미설정이면 CORS 미들웨어가 추가되지 않는다 (같은 출처 배포 시 불필요).
+import os as _os
+
+_cors_origins_raw = _os.environ.get("CORS_ALLOW_ORIGINS", "")
+_cors_origins = [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # AppError(및 하위 클래스) → API_SPEC §1.3.2 표준 오류 응답.
 # #116이 RequestValidationError(Pydantic 검증 실패)와 catch-all을 함께 등록한다.

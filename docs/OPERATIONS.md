@@ -1,0 +1,678 @@
+# OPERATIONS.md -- OCI 배포 운영 가이드
+
+> 최종 갱신: 2026-09-15. 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+
+---
+
+## 1. 아키텍처
+
+```
+                    ┌──────────────────────────────────┐
+                    │  Cloudflare Pages                 │
+                    │  https://bluelog-bx7.pages.dev    │
+                    │  (React SPA, Vite 빌드)           │
+                    └───────────────┬──────────────────┘
+                                    │
+            VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1
+            (빌드 시점에 주입, CORS로 cross-origin 허용)
+                                    │
+  ┌─────────────────────────────────┼─────────────────────────────────┐
+  │  OCI ap-seoul-1                 │                                  │
+  │                                 ▼                                  │
+  │  app-01 (131.186.22.10)         │    db-01 (132.226.170.195)       │
+  │  사설 IP: 10.0.1.216            │    사설 IP: 10.0.1.132           │
+  │  ┌────────────────────────┐     │    ┌────────────────────────┐   │
+  │  │ cii-backend :8001      │  VCN│    │ cii-cubrid :33100      │   │
+  │  │ (FastAPI, Python 3.12) │─────┼───>│ (cubrid/cubrid:11.4)   │   │
+  │  │ 메모리 제한: 512MB      │    │    │ DB명: cii              │   │
+  │  └────────────────────────┘     │    │ 메모리 제한: 512MB      │   │
+  │  ┌────────────────────────┐     │    └────────────────────────┘   │
+  │  │ ourtax-backend :8000   │     │    ┌────────────────────────┐   │
+  │  │ (our-tax, 기존)        │     │    │ ourtax-cubrid :33000   │   │
+  │  └────────────────────────┘     │    │ (our-tax, 기존)        │   │
+  │                                 │    └────────────────────────┘   │
+  │  VM.Standard.E2.1.Micro (1GB)   │    VM.Standard.E2.1.Micro (1GB) │
+  └─────────────────────────────────┴─────────────────────────────────┘
+```
+
+### 1.1 구성 요소 요약
+
+| 구성 요소 | 기술 | 위치 | URL |
+|-----------|------|------|-----|
+| 프론트엔드 | React 19 + Vite (SPA) | Cloudflare Pages | https://bluelog-bx7.pages.dev |
+| 백엔드 API | FastAPI + Python 3.12 | OCI app-01 | http://131.186.22.10:8001 |
+| 데이터베이스 | CUBRID 11.4 | OCI db-01 | 10.0.1.132:33100 (VCN 내부) |
+| 이미지 레지스트리 | GitHub Container Registry | GHCR | ghcr.io/26-hp043/bluelog-backend |
+| CI/CD | GitHub Actions | GitHub | `.github/workflows/deploy.yml` |
+| DNS/CDN | Cloudflare | Cloudflare | (커스텀 도메인 미설정) |
+
+### 1.2 프론트엔드-백엔드 연결 방식
+
+프론트엔드는 **빌드 시점**에 `VITE_API_BASE_URL` 환경변수로 백엔드 절대 URL을 주입받는다.
+개발 환경에서는 Vite 프록시(`/api` → `localhost:8000`)를 사용하므로 환경변수가 불필요하다.
+
+```bash
+# Cloudflare Pages 배포용 빌드
+VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1 npm run build
+
+# 로컬 개발 (Vite 프록시)
+npm run dev   # VITE_API_BASE_URL 불필요
+```
+
+영향받는 소스 파일:
+- `frontend/src/features/voyage-cii/apiProvider.ts` — `DEFAULT_API_BASE_URL`
+- `frontend/src/features/annual-simulation/apiProvider.ts` — `DEFAULT_API_BASE_URL`
+- `frontend/src/auth/session.ts` — `AUTH_API_BASE`
+
+백엔드의 `CORS_ALLOW_ORIGINS`에 Cloudflare Pages 도메인을 등록해야 한다:
+```
+CORS_ALLOW_ORIGINS=https://bluelog-bx7.pages.dev
+```
+
+---
+
+## 2. VM 공존 구조
+
+같은 OCI Always-Free Micro 인스턴스에 our-tax와 BlueLog가 공존한다.
+
+| VM | our-tax | BlueLog |
+|----|---------|---------|
+| app-01 | ourtax-backend (:8000) | cii-backend (:8001) |
+| db-01 | ourtax-cubrid (DB: ourtax, :33000) | cii-cubrid (DB: cii, :33100) |
+
+### 2.1 충돌 방지 매핑
+
+| 자원 | our-tax | BlueLog | 비고 |
+|------|---------|---------|------|
+| 호스트 포트 (API) | 8000 | **8001** | 컨테이너 내부는 둘 다 8000 |
+| 호스트 포트 (DB) | 33000 | **33100** | 컨테이너 내부는 둘 다 33000 |
+| 컨테이너 접두사 | `ourtax-` | `cii-` | |
+| DB명 | `ourtax` | `cii` | |
+| compose 프로젝트 | `our-tax` | `bluelog` | 볼륨명 접두사로 분리 |
+| Docker 네트워크 | `ourtax-app-net` | `cii-app-net` | |
+| 홈 디렉토리 | `~/our-tax` | `~/bluelog` | VM 내 레포 경로 |
+| CUBRID 호스트명 | `ourtax-cubrid` | `cii-cubrid` | databases.txt 충돌 방지 |
+
+### 2.2 메모리 예산 (1GB VM)
+
+```
+app-01 (956MB 전체):
+  ourtax-backend:  ~82MB  (512MB 제한)
+  cii-backend:     ~80MB  (512MB 제한)
+  OS + Docker:     ~250MB
+  여유:            ~540MB
+
+db-01 (956MB 전체 + 4GB 스왑):
+  ourtax-cubrid:   ~33MB  (2GB 제한, 실사용 적음)
+  cii-cubrid:      ~30MB  (512MB 제한)
+  OS + Docker:     ~200MB
+  여유:            ~690MB + 스왑
+```
+
+---
+
+## 3. 배포 흐름
+
+### 3.1 자동 배포 (GitHub Actions)
+
+main 브랜치에 다음 경로가 변경되면 자동 실행:
+
+```
+src/  alembic/  alembic.ini  pyproject.toml  Dockerfile
+docker-compose.prod.*.yml  ops/  .github/workflows/deploy.yml
+```
+
+워크플로 파일: `.github/workflows/deploy.yml`
+
+```
+GitHub Actions (deploy.yml)
+  │
+  ├─ build (ubuntu-latest)
+  │   └─ Dockerfile (prod target) → GHCR 푸시
+  │      - ghcr.io/26-hp043/bluelog-backend:latest
+  │      - ghcr.io/26-hp043/bluelog-backend:<sha12>
+  │
+  ├─ deploy-db (SSH → db-01)
+  │   ├─ git pull (~/bluelog)
+  │   ├─ ACL 템플릿 치환 (REPLACE_ME_APP_PRIVATE_IP)
+  │   ├─ .env 렌더링 (CUBRID_PASSWORD)
+  │   ├─ docker compose up -d (CUBRID)
+  │   ├─ 브로커 대기 (최대 120초)
+  │   └─ 첫 부트 시 ALTER USER dba PASSWORD + 재시작
+  │
+  ├─ deploy-app (SSH → app-01)
+  │   ├─ git pull (~/bluelog)
+  │   ├─ CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
+  │   ├─ .env 렌더링 (DATABASE_URL, CORS, SMTP 등)
+  │   ├─ GHCR 로그인 + 이미지 풀
+  │   ├─ Alembic 마이그레이션 (one-shot)
+  │   ├─ 규제 파라미터 seed
+  │   └─ docker compose up -d backend
+  │
+  └─ health check
+      └─ curl http://app-01:8001/api/v1/health (최대 150초)
+```
+
+수동 트리거(`workflow_dispatch`) 옵션:
+- `force_db_init` (boolean): cubrid-data 볼륨 삭제 후 재초기화. **데이터 손실 비가역적.**
+
+### 3.2 프론트엔드 배포 (Cloudflare Pages)
+
+프론트엔드는 GitHub Actions와 별도로 wrangler CLI로 배포한다.
+
+```bash
+# 로컬에서 빌드 + 배포
+cd frontend
+npm ci
+VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1 npm run build
+wrangler pages deploy dist --project-name bluelog --branch main
+```
+
+Cloudflare 인증:
+```bash
+export CLOUDFLARE_API_TOKEN=<토큰>
+export CLOUDFLARE_ACCOUNT_ID=22abb4f21a4c7886292a2a0ecadf331b
+```
+
+Pages 프로젝트 정보:
+| 항목 | 값 |
+|------|-----|
+| 프로젝트명 | `bluelog` |
+| 프로덕션 URL | https://bluelog-bx7.pages.dev |
+| 빌드 명령 | `VITE_API_BASE_URL=... npm run build` |
+| 출력 디렉토리 | `frontend/dist` |
+
+### 3.3 수동 백엔드 배포 (SSH)
+
+```bash
+# === db-01 ===
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195
+cd ~/bluelog
+
+# 코드 업데이트
+git fetch origin main && git reset --hard origin/main
+
+# ACL 치환 (최초 1회, 또는 git reset 후)
+sed -i "s/REPLACE_ME_APP_PRIVATE_IP/10.0.1.216/g" \
+  ops/cubrid/conf/broker_access.conf \
+  ops/cubrid/conf/server_access.conf
+
+# .env (최초 1회)
+cp .env.db.example .env
+# vi .env  →  CUBRID_PASSWORD=<비밀번호>
+
+# 기동
+docker compose -f docker-compose.prod.db.yml up -d
+
+# 첫 부트 후 dba 비밀번호 설정
+docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+  csql -u dba cii -c "ALTER USER dba PASSWORD '<비밀번호>';"
+docker compose -f docker-compose.prod.db.yml restart cubrid
+
+# 검증
+docker compose -f docker-compose.prod.db.yml exec -T cubrid \
+  csql -u dba -p '<비밀번호>' cii -c 'SELECT 1 FROM db_root'
+```
+
+```bash
+# === app-01 ===
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
+cd ~/bluelog
+
+# 코드 업데이트
+git fetch origin main && git reset --hard origin/main
+
+# .env (최초 1회)
+cp .env.app.example .env
+# vi .env  →  아래 값 설정
+
+# .env 필수 값:
+#   CUBRID_HOST=10.0.1.132
+#   CUBRID_PASSWORD=<비밀번호>
+#   DATABASE_URL=cubrid+aiopycubrid://dba:<URL인코딩된비밀번호>@10.0.1.132:33100/cii
+#   CORS_ALLOW_ORIGINS=https://bluelog-bx7.pages.dev
+#   APP_PUBLIC_URL=https://bluelog-bx7.pages.dev
+#   APP_ENV=staging  (SMTP 미설정 시)  또는  production (SMTP 설정 완료 시)
+
+# GHCR 로그인 (private repo, 또는 로컬 빌드 시 불필요)
+echo "ghp_..." | docker login ghcr.io -u USERNAME --password-stdin
+docker compose -f docker-compose.prod.app.yml pull backend
+
+# 또는 로컬 빌드
+docker build --target prod -t bluelog-backend:local .
+# .env에 BACKEND_IMAGE=bluelog-backend:local 설정
+
+# 마이그레이션 + seed
+docker compose -f docker-compose.prod.app.yml --profile migrate run --rm migrate
+docker compose -f docker-compose.prod.app.yml --profile migrate \
+  run --rm migrate python -m cii_platform.db.seed
+
+# 기동
+docker compose -f docker-compose.prod.app.yml up -d backend
+
+# 검증
+curl http://localhost:8001/api/v1/health
+```
+
+### 3.4 롤백
+
+```bash
+# 이전 SHA 태그로 이미지 되돌리기
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
+cd ~/bluelog
+
+# .env에서 이미지 태그 변경
+sed -i 's|BACKEND_IMAGE=.*|BACKEND_IMAGE=ghcr.io/26-hp043/bluelog-backend:<이전sha>|' .env
+
+# 재기동 (마이그레이션 다운그레이드가 필요하면 별도 처리)
+docker compose -f docker-compose.prod.app.yml up -d backend
+```
+
+주의: 마이그레이션이 포함된 배포는 단순 이미지 교체로 되돌릴 수 없다.
+`alembic downgrade -1`을 먼저 실행해야 하며, FK 제약 등으로 실패할 수 있다.
+
+---
+
+## 4. 보안
+
+### 4.1 DB 접근 4층 방어
+
+```
+외부 → OCI Security List(1층) → Host ufw(2층) → CUBRID broker ACL(3층) → CUBRID server ACL(4층)
+```
+
+| 층 | 위치 | 설정 파일/도구 | 허용 대상 |
+|----|------|---------------|-----------|
+| 1 | OCI Security List | OCI 콘솔 | 10.0.0.0/16 → :33100 |
+| 2 | db-01 ufw | `ops/host/ufw-db-01.sh` | 10.0.1.216/32 → :33100 |
+| 3 | CUBRID broker ACL | `ops/cubrid/conf/broker_access.conf` | cii:dba:10.0.1.216 |
+| 4 | CUBRID server ACL | `ops/cubrid/conf/server_access.conf` | 127.0.0.1, 172.* |
+
+ACL 재로드 (재시작 불필요):
+```bash
+# 브로커 ACL
+docker exec cii-cubrid broker_changer BROKER1 access_control reload
+
+# 서버 ACL
+docker exec cii-cubrid cubrid server acl reload cii
+```
+
+### 4.2 OCI Security List 현재 규칙
+
+`Default Security List for ourtax-vcn` (서울 리전):
+
+| 프로토콜 | 소스 | 포트 | 용도 |
+|----------|------|------|------|
+| TCP | 0.0.0.0/0 | 22 | SSH |
+| TCP | 0.0.0.0/0 | 80 | HTTP |
+| TCP | 0.0.0.0/0 | 443 | HTTPS |
+| TCP | 0.0.0.0/0 | 8000 | our-tax API |
+| TCP | 0.0.0.0/0 | **8001** | **BlueLog API** |
+| TCP | 10.0.0.0/16 | 33000 | our-tax CUBRID (VCN 내부) |
+| TCP | 10.0.0.0/16 | **33100** | **BlueLog CUBRID (VCN 내부)** |
+| ICMP | 10.0.0.0/16 | - | VCN 내부 ping |
+
+### 4.3 CUBRID 비밀번호 제약
+
+- ASCII 문자열, **최대 31바이트** (CUBRID 11.4 ALTER USER 제약)
+- 싱글쿼트(`'`) 포함 금지 (ALTER USER SQL 구문 파괴)
+- app-01의 DATABASE_URL에서는 **URL 인코딩** 필요:
+  ```bash
+  python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' 'p@ss'
+  # → p%40ss
+  ```
+
+### 4.4 GHCR 인증
+
+레포가 private이므로 OCI VM에서 이미지 pull 시 GHCR 로그인 필요.
+deploy 워크플로는 `GITHUB_TOKEN`으로 자동 인증한다.
+
+수동 로그인:
+```bash
+echo "<PAT>" | docker login ghcr.io -u <사용자명> --password-stdin
+```
+
+### 4.5 APP_ENV 전환
+
+| APP_ENV | 용도 | MAIL_BACKEND | 가입 게이트 |
+|---------|------|-------------|------------|
+| `development` | 로컬 개발 | `console` 허용 | 비활성 |
+| `staging` | SMTP 없이 배포 검증 | `console` 허용 | 비활성 |
+| `production` | 운영 | `smtp` 필수 (console이면 기동 실패) | 필수 |
+
+현재 상태: **`staging`** (SMTP 미설정).
+SMTP 설정 후 `APP_ENV=production`으로 전환한다.
+
+### 4.6 CORS 미들웨어
+
+`src/cii_platform/api/main.py`에서 `CORS_ALLOW_ORIGINS` 환경변수를 읽어
+`CORSMiddleware`를 조건부 등록한다.
+
+| 설정 | 동작 |
+|------|------|
+| `CORS_ALLOW_ORIGINS=https://bluelog-bx7.pages.dev` | 해당 오리진만 cross-origin 허용 |
+| `CORS_ALLOW_ORIGINS=https://a.com,https://b.com` | 쉼표 구분 복수 오리진 |
+| 미설정 / 빈 문자열 | CORS 미들웨어 미등록 (같은 출처 배포 시) |
+
+미들웨어 스택 순서 (바깥 → 안쪽):
+```
+CORSMiddleware → RequestContext → rate_limit → auth → 라우트
+```
+
+CORS가 가장 바깥이어야 preflight(OPTIONS)가 auth/rate_limit에 막히지 않는다.
+
+검증 방법:
+```bash
+# preflight (OPTIONS) — 200이어야 한다
+curl -sS -X OPTIONS \
+  -H "Origin: https://bluelog-bx7.pages.dev" \
+  -H "Access-Control-Request-Method: GET" \
+  -D - -o /dev/null http://131.186.22.10:8001/api/v1/health
+
+# 응답에 포함되어야 하는 헤더:
+#   access-control-allow-origin: https://bluelog-bx7.pages.dev
+#   access-control-allow-credentials: true
+#   access-control-allow-methods: DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT
+```
+
+---
+
+## 5. GitHub Actions 시크릿
+
+deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variables → Actions에서 등록.
+
+### 5.1 필수 시크릿
+
+| 시크릿 | 설명 | 예시 값 |
+|--------|------|---------|
+| `OCI_SSH_PRIVATE_KEY` | PEM 개인키 (패스프레이즈 없음) | `~/.ssh/oci_ourtax_vm` 내용 |
+| `OCI_SSH_USER` | SSH 사용자 | `ubuntu` |
+| `OCI_DB_HOST` | db-01 공용 IP (SSH 접근용) | `132.226.170.195` |
+| `OCI_APP_HOST` | app-01 공용 IP (SSH 접근용) | `131.186.22.10` |
+| `OCI_DB_PRIVATE_IP` | db-01 VCN 사설 IP (DATABASE_URL) | `10.0.1.132` |
+| `OCI_APP_PRIVATE_IP` | app-01 VCN 사설 IP (ACL 치환) | `10.0.1.216` |
+| `CUBRID_PASSWORD` | dba 비밀번호 (<=31바이트, ASCII) | |
+| `CORS_ALLOW_ORIGINS` | 프론트엔드 오리진 | `https://bluelog-bx7.pages.dev` |
+| `APP_PUBLIC_URL` | 메일 링크 기준 주소 | `https://bluelog-bx7.pages.dev` |
+
+### 5.2 권장 시크릿
+
+| 시크릿 | 설명 |
+|--------|------|
+| `SIGNUP_ALLOWED_DOMAINS` | 가입 허용 메일 도메인 (쉼표 구분) |
+| `SIGNUP_INVITE_CODE` | 초대 코드 (16자 이상 권장) |
+| `MAIL_BACKEND` | `smtp` (프로덕션) |
+| `MAIL_FROM` | 발신 주소 (예: `BlueLog <no-reply@example.com>`) |
+| `SMTP_HOST` | SMTP 서버 (예: `smtp.gmail.com`) |
+| `SMTP_PORT` | SMTP 포트 (예: `587`) |
+| `SMTP_USER` | SMTP 사용자 |
+| `SMTP_PASSWORD` | SMTP 비밀번호 |
+
+### 5.3 선택 시크릿
+
+| 시크릿 | 설명 |
+|--------|------|
+| `LLM_API_KEY` | Anthropic Claude API 키 (챗봇 기능. 비어있으면 챗봇만 비활성) |
+
+---
+
+## 6. Cloudflare Pages 설정
+
+### 6.1 프로젝트 정보
+
+| 항목 | 값 |
+|------|-----|
+| Cloudflare 계정 ID | `22abb4f21a4c7886292a2a0ecadf331b` |
+| 프로젝트명 | `bluelog` |
+| 프로덕션 URL | https://bluelog-bx7.pages.dev |
+| 프로덕션 브랜치 | `main` |
+| 배포 방식 | wrangler CLI 직접 업로드 (Git 연동 아님) |
+
+### 6.2 배포 명령
+
+```bash
+# 환경변수 설정
+export CLOUDFLARE_API_TOKEN=<토큰>
+export CLOUDFLARE_ACCOUNT_ID=22abb4f21a4c7886292a2a0ecadf331b
+
+# 빌드
+cd frontend
+npm ci
+VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1 npm run build
+
+# 배포
+wrangler pages deploy dist --project-name bluelog --branch main
+```
+
+### 6.3 커스텀 도메인 추가 (향후)
+
+```bash
+wrangler pages project add-domain bluelog <도메인>
+```
+
+도메인 추가 시 변경 필요:
+1. 백엔드 `CORS_ALLOW_ORIGINS`에 새 도메인 추가
+2. 프론트엔드 빌드 시 `VITE_API_BASE_URL` 유지 (백엔드 IP는 동일)
+3. `APP_PUBLIC_URL`을 새 도메인으로 변경
+
+---
+
+## 7. 파일 구조
+
+```
+26_HP043/
+  ├── docker-compose.prod.app.yml    # app-01: backend + migrate
+  ├── docker-compose.prod.db.yml     # db-01: CUBRID
+  ├── .env.app.example               # app-01 환경변수 템플릿
+  ├── .env.db.example                # db-01 환경변수 템플릿
+  ├── .github/workflows/
+  │   ├── ci.yml                     # CI (lint, test, docker smoke)
+  │   └── deploy.yml                 # OCI 배포 자동화
+  ├── ops/
+  │   ├── cubrid/conf/
+  │   │   ├── cubrid.conf            # CUBRID 서버 설정 (메모리, ACL)
+  │   │   ├── cubrid_broker.conf     # 브로커 설정 (query_editor OFF, ACL ON)
+  │   │   ├── broker_access.conf     # 브로커 ACL (app-01 IP 템플릿)
+  │   │   ├── server_access.conf     # 서버 ACL (loopback + docker bridge)
+  │   │   └── README.md              # ACL 설정 가이드
+  │   └── host/
+  │       ├── ufw-db-01.sh           # db-01 방화벽 스크립트
+  │       └── setup-zram-swap.sh     # 1GB VM 메모리 최적화
+  └── docs/
+      └── OPERATIONS.md              # 이 문서
+```
+
+---
+
+## 8. 모니터링
+
+### 8.1 헬스 체크
+
+```bash
+# 외부에서 (브라우저 / curl)
+curl http://131.186.22.10:8001/api/v1/health
+# → {"data":{"status":"ok","version":"0.1.0",...}}
+
+# app-01 내부에서
+curl http://localhost:8001/api/v1/health
+
+# Cloudflare Pages 프론트엔드
+curl -o /dev/null -w "%{http_code}" https://bluelog-bx7.pages.dev/
+# → 200
+```
+
+### 8.2 로그
+
+```bash
+# 백엔드 로그 (app-01)
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
+docker logs cii-backend --tail=100 -f
+
+# CUBRID 로그 (db-01)
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195
+docker logs cii-cubrid --tail=100 -f
+```
+
+### 8.3 리소스 모니터링
+
+```bash
+# 메모리 사용량
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 "free -m"
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "free -m"
+
+# 컨테이너별 리소스
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 \
+  "docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}'"
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
+  "docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}\t{{.CPUPerc}}'"
+```
+
+### 8.4 디스크 사용량
+
+```bash
+# Docker 이미지/볼륨
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 "docker system df"
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "docker system df"
+```
+
+---
+
+## 9. 문제 해결
+
+### 9.1 CUBRID "Incorrect or missing password"
+
+원인: healthcheck의 csql에 비밀번호가 빠졌거나, ALTER USER 후 브로커를 재시작하지 않았다.
+
+```bash
+# 비밀번호 재설정
+docker exec cii-cubrid csql -u dba -p OLD_PASSWORD cii \
+  -c "ALTER USER dba PASSWORD 'NEW_PASSWORD';"
+
+# 브로커 재시작 (CAS 워커 캐시 갱신)
+docker restart cii-cubrid
+
+# 검증
+docker exec cii-cubrid csql -u dba -p NEW_PASSWORD cii \
+  -c 'SELECT 1 FROM db_root'
+```
+
+### 9.2 "Failed to connect to database server, 'cii', on &lt;hostname&gt;"
+
+원인: CUBRID가 databases.txt에 기록한 호스트명과 현재 컨테이너 호스트명 불일치.
+
+확인:
+```bash
+docker exec cii-cubrid cat /var/lib/cubrid/databases/databases.txt
+```
+
+`hostname: cii-cubrid`이 docker-compose.prod.db.yml에 고정되어 있는지 확인.
+볼륨이 다른 호스트명으로 초기화됐다면 `force_db_init`으로 재생성 (데이터 손실).
+
+### 9.3 app-01에서 db-01 연결 실패
+
+```bash
+# 1. 네트워크 연결 확인
+ssh ubuntu@131.186.22.10 "nc -vz 10.0.1.132 33100 -w 3"
+
+# 2. 실패 시: OCI Security List에 33100이 있는지 확인
+# OCI 콘솔 → Networking → Virtual Cloud Networks → ourtax-vcn → Security Lists
+
+# 3. db-01 ufw 확인
+ssh ubuntu@132.226.170.195 "sudo ufw status"
+
+# 4. CUBRID 브로커 상태 확인
+ssh ubuntu@132.226.170.195 "docker exec cii-cubrid cubrid broker status"
+```
+
+### 9.4 백엔드 기동 실패: MAIL_BACKEND=console 프로덕션 오류
+
+```
+RuntimeError: MAIL_BACKEND=console은 프로덕션에서 사용할 수 없습니다
+```
+
+해결:
+- SMTP 설정 완료 전: `.env`에서 `APP_ENV=staging` 설정
+- SMTP 설정 후: `APP_ENV=production` + `MAIL_BACKEND=smtp` + SMTP 자격증명
+
+### 9.5 메모리 부족 (OOM)
+
+1GB VM에 두 프로젝트가 공존하므로 OOM 가능.
+
+```bash
+# 메모리 확인
+free -m
+docker stats --no-stream
+
+# zram 스왑 설정 (최초 1회)
+sudo ~/bluelog/ops/host/setup-zram-swap.sh
+
+# 불필요한 이미지 정리
+docker image prune -a
+```
+
+### 9.6 포트 충돌
+
+```bash
+# BlueLog: 8001(API), 33100(DB)
+# our-tax: 8000(API), 33000(DB)
+docker ps --format 'table {{.Names}}\t{{.Ports}}'
+
+# 특정 포트 점유 확인
+ss -tlnp | grep -E '8000|8001|33000|33100'
+```
+
+### 9.7 Cloudflare Pages CORS 오류
+
+브라우저 콘솔에 `CORS policy` 오류가 나면:
+
+1. 백엔드 `CORS_ALLOW_ORIGINS`에 Cloudflare Pages 도메인이 있는지 확인
+2. 프로토콜 일치 확인 (`https://` vs `http://`)
+3. 후행 슬래시 없이 정확한 오리진 (예: `https://bluelog-bx7.pages.dev`)
+
+```bash
+# app-01에서 확인
+ssh ubuntu@131.186.22.10 "grep CORS ~/bluelog/.env"
+
+# 변경 후 재시작
+ssh ubuntu@131.186.22.10 "cd ~/bluelog && docker compose -f docker-compose.prod.app.yml up -d backend"
+```
+
+---
+
+## 10. 운영 체크리스트
+
+### 10.1 현재 상태 (2026-09-15)
+
+- [x] OCI VM 2대 확보 (app-01, db-01)
+- [x] CUBRID 기동 (db-01, DB명 cii, 포트 33100)
+- [x] 백엔드 배포 (app-01, 포트 8001, APP_ENV=staging)
+- [x] Alembic 마이그레이션 완료
+- [x] 규제 파라미터 seed 완료 (63행: fuel_type 8, regulation_year 8, cii_reference_line 20, cii_rating_boundary 14, simulation_parameter 3, weather_model_parameter 10)
+- [x] OCI Security List 규칙 추가 (8001/tcp 0.0.0.0/0, 33100/tcp 10.0.0.0/16)
+- [x] Cloudflare Pages 프론트엔드 배포 (https://bluelog-bx7.pages.dev)
+- [x] CORS 미들웨어 추가 (`CORSMiddleware`, `CORS_ALLOW_ORIGINS` 환경변수)
+- [x] CORS 설정 적용 (bluelog-bx7.pages.dev → app-01:8001)
+- [x] 헬스 체크 정상 확인
+
+### 10.2 배포 검증 결과 (2026-09-15 11:03 UTC)
+
+| 테스트 | 결과 | 비고 |
+|--------|------|------|
+| 백엔드 헬스 | `{"status":"ok","version":"0.1.0"}` | numpy, rng, pdf_font 모두 ok |
+| Cloudflare Pages | HTTP 200, 2628 bytes | SPA index.html 정상 |
+| CORS preflight | HTTP 200, allow-origin 헤더 포함 | OPTIONS 요청 통과 |
+| 인증 필요 API | HTTP 401 UNAUTHORIZED | 정상 (로그인 필요) |
+| CUBRID fuel_type | 8행 | seed 정상 적용 |
+| cii-backend 컨테이너 | Up, healthy | 포트 8001 |
+| cii-cubrid 컨테이너 | Up, healthy | 포트 33100 |
+
+### 10.2 남은 작업
+
+- [ ] **SMTP 설정** → `APP_ENV=production` 전환 (#787)
+- [ ] **GitHub Secrets 등록** → deploy 워크플로 자동화
+- [ ] **커스텀 도메인** → Cloudflare Pages + 백엔드 CORS 업데이트 (#785)
+- [ ] **CUBRID 비밀번호 설정** → 현재 dba는 빈 비밀번호
+- [ ] **ufw 활성화** → `ops/host/ufw-db-01.sh` 실행
+- [ ] **zram 스왑** → `ops/host/setup-zram-swap.sh` 실행 (이미 our-tax에서 적용됐을 수 있음)
+- [ ] **백업 절차** → 정기 백업 스크립트 (#788)
+- [ ] **모니터링** → 헬스 체크 주기적 확인 (#790)

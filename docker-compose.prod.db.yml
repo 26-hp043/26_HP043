@@ -1,0 +1,61 @@
+# docker-compose.prod.db.yml -- DB 호스트 (db-01) OCI 분리 토폴로지.
+#
+# our-tax ADR-0005 패턴을 따른다. 프로덕션 스택은 두 VM에 걸쳐 운영된다:
+#   - db-01: 이 파일 (CUBRID, DB명 cii)
+#   - app-01: docker-compose.prod.app.yml (backend + migrate)
+#
+# 사용법 (db-01):
+#   cp .env.db.example .env
+#   # .env 편집 (CUBRID_PASSWORD 설정)
+#   docker compose -f docker-compose.prod.db.yml up -d
+#
+# 크로스 VM 접근은 4층 방어로 제한한다 (our-tax #86 패턴):
+#   1. OCI Security List   -- app-01 사설 IP /32만 :33100 허용
+#   2. Host ufw            -- 동일 /32 allow, 나머지 거부
+#   3. CUBRID broker ACL   -- broker_access.conf
+#   4. CUBRID server ACL   -- server_access.conf
+#
+# 층 3-4는 ops/cubrid/conf/에 정의되며 아래에서 bind-mount한다.
+# 배포 전 ops/cubrid/conf/README.md의 치환 단계를 수행해
+# REPLACE_ME_APP_PRIVATE_IP를 실제 app-01 사설 IP로 바꿔야 한다.
+
+services:
+  cubrid:
+    image: cubrid/cubrid:11.4
+    platform: linux/amd64
+    container_name: cii-cubrid
+    # CUBRID는 컨테이너 호스트명을 databases.txt에 기록한다. 고정하지 않으면
+    # docker compose down && up 시 새 호스트명이 생기고, 브로커가
+    # "Failed to connect to database server, 'cii', on <old-hostname>"으로 실패한다.
+    hostname: cii-cubrid
+    restart: unless-stopped
+    environment:
+      CUBRID_DB: cii
+      # NOTE: cubrid/cubrid:11.4 이미지는 첫 부트 시 CUBRID_PASSWORD를 적용하지 않는다.
+      # dba 사용자는 빈 비밀번호로 생성된다. 브로커가 뜬 후
+      # ALTER USER dba PASSWORD '...'로 설정해야 한다 (deploy 워크플로가 자동 처리).
+    ports:
+      # 모든 인터페이스에 바인딩 -- OCI Security List + ufw가 인그레스를 제한해야 한다.
+      # ourtax-cubrid가 33000을 사용하므로 호스트 33100으로 매핑한다.
+      - "33100:33000"
+    volumes:
+      - cubrid-data:/var/lib/cubrid
+      # CUBRID 설정 -- 개별 파일을 read-only bind-mount한다.
+      # 디렉토리 전체를 마운트하면 이미지가 기본 제공하는 SSL 인증서 등을 덮어쓴다.
+      - ./ops/cubrid/conf/cubrid.conf:/home/cubrid/CUBRID/conf/cubrid.conf:ro
+      - ./ops/cubrid/conf/cubrid_broker.conf:/home/cubrid/CUBRID/conf/cubrid_broker.conf:ro
+      - ./ops/cubrid/conf/server_access.conf:/home/cubrid/CUBRID/conf/server_access.conf:ro
+      - ./ops/cubrid/conf/broker_access.conf:/home/cubrid/CUBRID/conf/broker_access.conf:ro
+    healthcheck:
+      test: ["CMD", "csql", "-u", "dba", "cii", "-c", "SELECT 1 FROM db_root"]
+      interval: 30s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  cubrid-data:
