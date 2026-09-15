@@ -22,7 +22,8 @@ DOCKER="docker"
 command -v docker >/dev/null 2>&1 || DOCKER="/mnt/c/Program Files/Docker/Docker/resources/bin/docker.exe"
 
 VENV="$ROOT/.venv/bin"
-DB_URL="postgresql+asyncpg://cii:cii@localhost:5432/cii"
+CUBRID_DB="${CUBRID_DB:-cii}"
+DB_URL="cubrid+aiopycubrid://dba:@localhost:33100/$CUBRID_DB"
 CHECK_ONLY="${1:-}"
 
 # --- .venv 확인 -----------------------------------------------------------------------
@@ -75,9 +76,9 @@ if ! "$DOCKER" info >/dev/null 2>&1; then
 fi
 ok "Docker 응답함"
 
-# --- 2. PostgreSQL -----------------------------------------------------------------
+# --- 2. CUBRID -----------------------------------------------------------------
 
-step "2. PostgreSQL"
+step "2. CUBRID"
 if [ "$CHECK_ONLY" != "--check" ]; then
   "$DOCKER" compose up -d db >/dev/null 2>&1 || {
     bad "docker compose up 실패"; exit 1;
@@ -86,7 +87,8 @@ fi
 
 # healthcheck가 통과할 때까지 기다린다. 컨테이너가 '떴다'와 '접속 가능하다'는 다르다.
 for i in $(seq 1 60); do
-  if "$DOCKER" compose exec -T db pg_isready -U cii >/dev/null 2>&1; then
+  if "$DOCKER" compose exec -T db csql -u dba "$CUBRID_DB" \
+       -c "SELECT 1 FROM db_root" >/dev/null 2>&1; then
     ok "접속 가능 (${i}초)"
     break
   fi
@@ -149,7 +151,7 @@ fi
 # `docker compose exec`는 **떠 있는 컨테이너에 붙는 것**이라 아무것도 기동하지 않는다
 # — `--check`의 계약을 깨지 않는다(2단계가 이미 db가 떠 있음을 확인한 뒤다).
 if [ "$HAVE_VENV" = "0" ]; then
-  COUNTS=$("$DOCKER" compose exec -T db psql -U cii -d cii -tAc \
+  COUNTS=$("$DOCKER" compose exec -T db csql -u dba -t -N "$CUBRID_DB" -c \
     "SELECT 'vessel=' || (SELECT count(*) FROM vessel)
          || ' · fuel_type=' || (SELECT count(*) FROM fuel_type)
          || ' · regulation_year=' || (SELECT count(*) FROM regulation_year)
@@ -219,14 +221,14 @@ fi
 # **그 상태는 오류가 아니라 로그인 실패로만 드러난다** — 시연 도중에 처음 알면 늦다.
 # `#587`이 선박 제원에 대해 같은 자리에서 하는 검사와 성격이 같다.
 #
-# 판정은 **psql로 직접 묻는다 (#637)** — `.venv` 없는 환경에서도 확인된다.
+# 판정은 **csql로 직접 묻는다 (#637)** — `.venv` 없는 환경에서도 확인된다.
 # 아래 이메일이 `demo_seed.DEMO_USER_EMAIL`과 어긋나면 점검이 거짓말을 하므로,
 # `tests/test_demo_up_script.py`가 두 값을 대조한다.
 
 step "4d. 시연 계정"
 
 DEMO_EMAIL="demo@bluelog.local"
-HAS_DEMO_USER=$("$DOCKER" compose exec -T db psql -U cii -d cii -tAc \
+HAS_DEMO_USER=$("$DOCKER" compose exec -T db csql -u dba -t -N "$CUBRID_DB" -c \
   "SELECT count(*) FROM app_user WHERE email = '$DEMO_EMAIL' AND is_deleted = false" \
   2>/dev/null | tr -d '\r' | tr -d ' ')
 
