@@ -48,7 +48,8 @@ describe('위험도 표기 — DESIGN_SYSTEM §2.5 (a)', () => {
   it('20% 미만은 경고 기호를 붙이지 않는다', () => {
     const flag = riskFlag('0.1500')
     expect(flag.tone).toBe('muted')
-    expect(flag.text).not.toContain('⚠')
+    // 글리프는 문자열이 아니라 `withIcon`이 정한다 (#935 — §2.5 임시 글리프 교체).
+    expect(flag.withIcon).toBe(false)
   })
 
   it('20% 이상 40% 미만은 Warning이다', () => {
@@ -83,7 +84,7 @@ describe('위험도 표기 — DESIGN_SYSTEM §2.5 (a)', () => {
     expect(flag.tone).toBe(tone)
     // `DESIGN_SYSTEM §14` — 색맹 사용자가 의존하는 **색 외 보조 채널**이다.
     // 같은 값에서 나타났다 사라지면 색과 아이콘 두 채널이 함께 무너진다.
-    expect(flag.text).toContain('⚠')
+    expect(flag.withIcon).toBe(true)
   })
 
   it('표기 반올림이 toPercent와 같다 — ROUND_HALF_UP', () => {

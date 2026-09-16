@@ -1,3 +1,4 @@
+import { AlertTriangle } from 'lucide-react'
 import { useRef, useEffect, useMemo, useState } from 'react'
 import './ScenarioComparison.css'
 import { useShellContext } from '../../layout/shellContext'
@@ -49,6 +50,7 @@ import {
 import { ScenarioRouteGlyph } from './ScenarioRouteGlyph'
 import type { ScenarioComparisonResponse, ScenarioResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
+import { Icon } from '../../components/Icon'
 
 /**
  * 기능② 시나리오 비교 (#156).
@@ -813,7 +815,7 @@ export function ScenarioComparison({
           <ul className="scenario-comparison__warnings">
             {response.warnings.map((code) => (
               <li key={code} className="scenario-comparison__warning">
-                <span aria-hidden="true">⚠</span> {warningMessage(code)}
+                <span><Icon glyph={AlertTriangle} size={16} /></span> {warningMessage(code)}
               </li>
             ))}
           </ul>
@@ -885,8 +887,8 @@ function ScenarioCard({
         <span className="scenario-card__risk-label">위험도</span>
         {risk.withIcon ? (
           // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden
-          <span className="scenario-card__risk-icon" aria-hidden="true">
-            ⚠
+          <span className="scenario-card__risk-icon">
+            <Icon glyph={AlertTriangle} size={16} />
           </span>
         ) : null}
         <span

@@ -1,3 +1,4 @@
+import { AlertTriangle } from 'lucide-react'
 import './VoyageCiiResult.css'
 import {
   DISPLAY_DIGITS,
@@ -21,6 +22,7 @@ import { gradeTargets } from './targetRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import type { VoyageCiiResponse } from './types'
 import { ErrorState } from '../../components/ErrorState'
+import { Icon } from '../../components/Icon'
 
 /**
  * 기능① 결과 화면 (#136).
@@ -149,8 +151,8 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
             {risk.withIcon ? (
               // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden. 아이콘에도
               // aria-label을 붙이면 「높음 HIGH 주의 필요」로 중복해 읽힌다.
-              <span className="voyage-cii-result__risk-icon" aria-hidden="true">
-                ⚠
+              <span className="voyage-cii-result__risk-icon">
+                <Icon glyph={AlertTriangle} size={16} />
               </span>
             ) : null}
             <span className={`voyage-cii-result__risk-value voyage-cii-result__risk-value--${data.risk_level.toLowerCase()}`}>
@@ -229,8 +231,8 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
         <ul className="voyage-cii-result__warnings">
           {warnings.map((code) => (
             <li key={code} className="voyage-cii-result__warning">
-              <span className="voyage-cii-result__warning-icon" aria-hidden="true">
-                ⚠
+              <span className="voyage-cii-result__warning-icon">
+                <Icon glyph={AlertTriangle} size={16} />
               </span>
               {warningMessage(code)}
             </li>

@@ -79,7 +79,9 @@ const WARNING_THRESHOLD = '0.2'
  * > 재조정한다(`DESIGN_SYSTEM §16`). **지금 따를 규칙은 위 표**이므로 그대로 옮긴다 —
  * > 임계를 화면이 임의로 정하면 재조정 때 어디를 고쳐야 하는지 알 수 없다.
  */
-export function riskFlag(pDorE: string): { tone: RiskFlagTone; text: string } {
+export function riskFlag(
+  pDorE: string,
+): { tone: RiskFlagTone; withIcon: boolean; text: string } {
   /*
    * 임계 비교와 표기를 **둘 다** 십진으로 한다 (`#820`).
    *
@@ -88,18 +90,23 @@ export function riskFlag(pDorE: string): { tone: RiskFlagTone; text: string } {
    * * 비교 — `0.3500 + 0.0500`이 `0.39999999999999997`이 되어 **표시된 40.0%가
    *   주황으로** 칠해졌다. `DESIGN_SYSTEM §14`가 요구한 「색 외 보조 채널」인 ⚠
    *   아이콘도 같은 값에서 나타났다 사라졌다 — 색맹 사용자가 의존하는 채널이다.
+   *
+   *   ⚠ 글리프는 **문자열에서 뺐다** (`#935`). `§2.5`가 그것을 「임시 글리프」로
+   *   두고 아이콘 세트 확정 시 교체하라 했고, 세트는 Lucide로 확정됐다. 이 함수는
+   *   **아이콘을 붙일지 말지(`withIcon`)만 정하고** 형태는 화면이 그린다 —
+   *   `voyage-cii/resultRules.ts`의 `riskLabel`이 쓰는 것과 같은 형태다.
    * * 표기 — `toFixed`는 정본의 `ROUND_HALF_UP`과 경계에서 갈린다. `'0.1235'`가
    *   여기서는 `12.3%`, `formatPercent`에서는 `12.4%`였다. **바로 아래 `toPercent`가
    *   이 결함을 이미 고쳤는데 이 함수만 옛 경로에 남아 있었다.**
    */
   const pct = formatPercent(pDorE)
   if (compareFixed(pDorE, DANGER_THRESHOLD, PROBABILITY_DIGITS) >= 0) {
-    return { tone: 'danger', text: `⚠ P(D/E) ${pct}%` }
+    return { tone: 'danger', withIcon: true, text: `P(D/E) ${pct}%` }
   }
   if (compareFixed(pDorE, WARNING_THRESHOLD, PROBABILITY_DIGITS) >= 0) {
-    return { tone: 'warning', text: `⚠ P(D/E) ${pct}%` }
+    return { tone: 'warning', withIcon: true, text: `P(D/E) ${pct}%` }
   }
-  return { tone: 'muted', text: `P(D/E) ${pct}%` }
+  return { tone: 'muted', withIcon: false, text: `P(D/E) ${pct}%` }
 }
 
 /** 확률 문자열 → 백분율 표시. `DESIGN_SYSTEM §4.2` — 확률은 백분율 1자리. */
