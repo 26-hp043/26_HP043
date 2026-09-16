@@ -397,7 +397,23 @@ jobs:
           # 덤프는 `unloaddb`가 낸 네 파일을 묶은 tar다 — 확장자는 `.dump` 그대로다.
           dump=$(ls -1 backups/*.dump | tail -1)
           tar -tf "$dump"
+          # 🔬 임시 진단 (`#1058` · 인계 v8 §7-2). 리허설은 통과하는데 그 **직후** 교체의
+          # 첫 질의가 `Failed to connect to database server, 'cii'`로 죽는다. 그때도 컨테이너는
+          # `Up (healthy)`다 — PID 1이 entrypoint라 살아남고, healthcheck는 30초마다라 앞선
+          # 성공이 남아 있기 때문이다. **cgroup OOM은 컨테이너가 아니라 그 안의 가장 큰
+          # 프로세스를 죽이므로** `docker inspect .State.OOMKilled`도 false로 남는다.
+          # 증거가 있는 자리는 cgroup의 `memory.events`(oom_kill 누적)와 `memory.peak`뿐이다.
+          # 원인을 확인하면 이 블록은 지운다.
+          probe() {
+            echo "::group::🔬 $1"
+            $COMPOSE exec -T db sh -c 'cubrid server status 2>&1; echo "--- cgroup ---"; for f in memory.max memory.peak memory.current memory.events; do printf "%s = " "$f"; tr "\n" " " < /sys/fs/cgroup/$f 2>/dev/null; echo; done' || true
+            docker inspect cii-cubrid --format 'inspect: OOMKilled={{.State.OOMKilled}} Restarts={{.RestartCount}} Status={{.State.Status}}' || true
+            sudo dmesg 2>/dev/null | grep -iE "oom|killed process" | tail -10 || true
+            echo "::endgroup::"
+          }
+          probe "리허설 직전"
           python3 scripts/db_backup.py rehearse "$dump"
+          probe "리허설 직후"
           python3 scripts/db_backup.py restore "$dump" --confirm "$CUBRID_DB"
           # 교체 뒤에도 앱이 같은 DB 이름으로 붙어 응답하는가
           for i in $(seq 1 30); do
@@ -424,6 +440,11 @@ jobs:
         run: |
           $COMPOSE ps
           $COMPOSE logs --tail=120
+          # 컨테이너가 `Up`이어도 그 **안의** 프로세스는 cgroup OOM으로 죽을 수 있다.
+          # 그때 `$COMPOSE ps`는 아무것도 말해 주지 않는다 — cgroup을 함께 찍는다 (`#1058`).
+          $COMPOSE exec -T db sh -c 'cubrid server status 2>&1; echo "--- cgroup ---"; for f in memory.max memory.peak memory.current memory.events; do printf "%s = " "$f"; tr "\n" " " < /sys/fs/cgroup/$f 2>/dev/null; echo; done' || true
+          docker inspect cii-cubrid --format 'inspect: OOMKilled={{.State.OOMKilled}} Restarts={{.RestartCount}}' || true
+          sudo dmesg 2>/dev/null | grep -iE "oom|killed process" | tail -20 || true
 
       - name: 정리
         if: always()
