@@ -4,10 +4,13 @@ DB_SCHEMA.md §2.1 (vessel) 참조. 컬럼·제약·인덱스 정의는 마이�
 일치해야 한다 (zero drift — tests/test_orm_schema_sync.py에서 검증).
 """
 
+import uuid
+from datetime import UTC, datetime
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class Vessel(Base):
@@ -15,11 +18,10 @@ class Vessel(Base):
 
     __tablename__ = "vessel"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     imo_number = sa.Column(sa.String(length=7), nullable=False)
     name = sa.Column(sa.String(length=100), nullable=False)
@@ -30,9 +32,9 @@ class Vessel(Base):
     reference_speed_kn = sa.Column(sa.Numeric(precision=6, scale=2), nullable=True)
     reference_daily_foc_ton = sa.Column(sa.Numeric(precision=8, scale=2), nullable=True)
     is_cii_applicable_hint = sa.Column(
-        sa.Boolean(), server_default=sa.text("false"), nullable=False
+        sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False
     )
-    is_deleted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     # 현재 위치·운항 상태 (마이그레이션 026 · #346). 전부 NULL 허용 — 위치를 모르는
     # 미갱신 선박(기존 3척 포함)도 정상 조회돼야 한다.
     # 계산 축(2값) — CII 집계는 「항해 중이냐」 이진 판단만 한다.
@@ -44,25 +46,32 @@ class Vessel(Base):
     # 위치가 있으면 필수 — 화면이 「위치 갱신 시각」을 표시한다(UIFLOW §2-8).
     position_updated_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     # updated_at 자동 갱신은 DB 트리거(trg_vessel_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_vessel"),
         # [S-1] / §7.1: default_fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
-        sa.ForeignKeyConstraint(
-            ["default_fuel_type"],
-            ["fuel_type.code"],
-            name="fk_vessel_default_fuel_type",
-            onupdate="CASCADE",
-            ondelete="NO ACTION",
-        ),
         # §2.1 검증 제약 (원문 그대로).
-        sa.CheckConstraint(r"imo_number ~ '^\d{7}$'", name="chk_imo_format"),
+        #
+        # `chk_imo_format`은 여기 없다 — PostgreSQL 전용 `~` 정규식이라 CUBRID가 받지
+        # 않아 전환(`9ddeb22`)에서 뺐다. 그때 **이 주석 줄과 다음 줄이 붙어**
+        # `chk_gt_positive`가 주석 안으로 들어가 함께 죽었다 — 의도한 삭제는 하나인데
+        # 둘이 사라졌다. 형제 제약(`chk_dwt_positive`·`chk_speed_positive`)은 살아
+        # 있으므로 되살려 나란히 둔다 (`#1058`).
+        #
+        # CUBRID가 CHECK를 **강제하지 않는다**는 사실은 `DB_SCHEMA §7.4`에 있다.
+        # 여기 적힌 것은 다른 엔진에서의 계약이자 문서이지 배포의 방어가 아니다.
         sa.CheckConstraint("gross_tonnage IS NULL OR gross_tonnage > 0", name="chk_gt_positive"),
         sa.CheckConstraint("deadweight IS NULL OR deadweight > 0", name="chk_dwt_positive"),
         sa.CheckConstraint(
@@ -103,24 +112,23 @@ class Vessel(Base):
             "AND position_updated_at IS NOT NULL)",
             name="chk_vessel_position_pair",
         ),
-        # §2.1 인덱스 (모두 partial: WHERE is_deleted = false). soft delete 호환.
+        # §2.1 인덱스. soft delete 호환 — **활성 행 안에서만 유일**이다.
+        #
+        # PostgreSQL 시절에는 `WHERE is_deleted = false`인 부분 유니크 인덱스였는데
+        # **CUBRID에는 조건이 붙는 인덱스가 없다** (`#1058`). 유일성은 `047`이 트리거
+        # (`trg_uq_vessel_imo_active_ins`·`_upd`)로 강제하고, 여기서는 **조회용 인덱스**
+        # 로만 선언한다 — `unique=True`로 두면 ORM이 DB가 하지 않는 일을 선언하게 되고,
+        # `test_orm_schema_sync`가 그것을 드리프트로 잡는다.
         sa.Index(
             "idx_vessel_imo",
             "imo_number",
-            unique=True,
-            postgresql_where=sa.text("is_deleted = false"),
         ),
         sa.Index(
             "idx_vessel_ship_type",
             "ship_type",
-            postgresql_where=sa.text("is_deleted = false"),
         ),
-        # pg_trgm GIN 인덱스 (001에서 extension 생성됨).
         sa.Index(
             "idx_vessel_name",
             "name",
-            postgresql_using="gin",
-            postgresql_ops={"name": "gin_trgm_ops"},
-            postgresql_where=sa.text("is_deleted = false"),
         ),
     )

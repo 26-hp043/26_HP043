@@ -142,8 +142,9 @@ async def test_regulation_year_2026(seeded):
     row = (
         await seeded.execute(
             text(
+                # `year`는 CUBRID 예약어라 인용해야 한다 (#1058).
                 "SELECT z_factor_percent, effective_from, source_ref, version, is_active "
-                "FROM regulation_year WHERE year = 2026"
+                'FROM regulation_year WHERE "year" = 2026'
             )
         )
     ).one()
@@ -151,7 +152,8 @@ async def test_regulation_year_2026(seeded):
     assert row.effective_from.isoformat() == "2026-01-01"
     assert row.source_ref == "MEPC.400(83)"
     assert row.version == "1.0"
-    assert row.is_active is True
+    # CUBRID는 BOOLEAN을 SMALLINT로 저장한다 (#1058) — PostgreSQL의 `True`가 `1`로 온다.
+    assert row.is_active in (True, 1), row.is_active
 
 
 async def test_bulk_carrier_c_is_positive(seeded):
@@ -280,30 +282,33 @@ def _load_seed_script():
 @pytest.mark.parametrize(
     ("given", "expected"),
     [
-        # 이미 asyncpg — 그대로 둔다.
+        # 이미 aiopycubrid — 그대로 둔다.
         (
-            "postgresql+asyncpg://cii:cii@localhost:5432/cii",
-            "postgresql+asyncpg://cii:cii@localhost:5432/cii",
+            "cubrid+aiopycubrid://dba:@localhost:33000/cii",
+            "cubrid+aiopycubrid://dba:@localhost:33000/cii",
         ),
-        # 드라이버 생략(CI가 주입하는 형식) — asyncpg를 붙인다.
+        # 드라이버 생략(CI가 주입하는 형식) — aiopycubrid를 붙인다.
         (
-            "postgresql://cii:cii@localhost:5432/cii_test",
-            "postgresql+asyncpg://cii:cii@localhost:5432/cii_test",
+            "cubrid://dba:@localhost:33000/cii_test",
+            "cubrid+aiopycubrid://dba:@localhost:33000/cii_test",
         ),
-        # 다른 postgresql 드라이버 — asyncpg로 바꾼다(설치된 드라이버가 asyncpg뿐).
-        ("postgresql+psycopg://cii@db/cii", "postgresql+asyncpg://cii@db/cii"),
-        # postgresql이 아니면 손대지 않는다.
+        # 다른 cubrid 드라이버 — aiopycubrid로 바꾼다(async 방언이 그것뿐).
+        ("cubrid+pycubrid://dba@db/cii", "cubrid+aiopycubrid://dba@db/cii"),
+        # cubrid가 아니면 손대지 않는다.
         ("sqlite+aiosqlite:///./x.db", "sqlite+aiosqlite:///./x.db"),
     ],
 )
 def test_seed_script_normalizes_database_url(given, expected):
     """프로덕션 seed 진입점의 URL 정규화 분기를 고정한다.
 
-    이 스크립트는 배포 시 ``alembic upgrade head`` 이후 규제 파라미터를 넣는 유일한
-    경로다. 정규화가 조용히 틀리면 첫 배포 실행에서야 드러나므로 여기서 잠근다.
-    구현은 ``db.url.normalize_to_asyncpg``(#234) — alembic · conftest · 앱 세션과
+    이 스크립트는 **규제 개정 시 재적재** 경로다(`DB_SCHEMA §8.1.1`). 신규 환경
+    부트스트랩은 `alembic upgrade head`가 맡는다 — 종전에 이 docstring이 「유일한
+    경로」라고 적은 것은 `#1058` 도중 부트스트랩 마이그레이션이 사라져 있던 동안의
+    서술이고, `6c7496c4d122`가 그 경로를 되살렸다.
+    정규화가 조용히 틀리면 첫 실행에서야 드러나므로 여기서 잠근다.
+    구현은 ``db.url.normalize_to_async``(#1058) — alembic · conftest · 앱 세션과
     같은 함수를 공유한다.
     """
-    from cii_platform.db.url import normalize_to_asyncpg
+    from cii_platform.db.url import normalize_to_async
 
-    assert normalize_to_asyncpg(given) == expected
+    assert normalize_to_async(given) == expected

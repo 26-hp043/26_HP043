@@ -23,8 +23,8 @@ pytestmark = pytest.mark.asyncio
 async def _insert(conn, action: str, at: datetime) -> None:
     await conn.execute(
         sa.text(
-            "INSERT INTO audit_log (action, timestamp, details_json) "
-            "VALUES (:action, :at, CAST(:details AS jsonb))"
+            'INSERT INTO audit_log ("action", "timestamp", details_json) '
+            "VALUES (:action, :at, :details)"
         ),
         {"action": action, "at": at, "details": '{"file": "x.dump"}'},
     )

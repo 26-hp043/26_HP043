@@ -45,20 +45,29 @@ jobs:
     # **한 번에 5시간 59분**을 태웠다(#533). 기본 상한이 6시간이라 자동으로
     # 실패하지도 않아 알림조차 오지 않았다.
     timeout-minutes: 15
+    # CUBRID로 전환한다 (#1058). PostgreSQL을 띄운 채로 두면 앱은 CUBRID를 보는데
+    # CI만 다른 DB를 검사하게 되고, 그 어긋남은 **초록으로 가려진다**.
+    #
+    # 기동이 PostgreSQL보다 오래 걸린다 — 로컬 실측으로 서버가 뜨기까지 20~30초다.
+    # 그래서 `--health-start-period`를 두고 재시도를 늘린다. 짧게 잡으면 잡이
+    # 「연결 거부」로 떨어지는데, 원인이 DB가 아니라 **기다리지 않은 것**이라
+    # 추적이 어렵다.
+    #
+    # 헬스체크는 브로커가 아니라 **DB에 실제로 질의**한다 — 브로커만 떠 있고 DB가
+    # 아직 안 열린 구간이 있다. 로컬에서 이 명령으로 확인했다.
     services:
-      postgres:
-        image: postgres:16
+      cubrid:
+        image: cubrid/cubrid:11.4
         env:
-          POSTGRES_USER: cii
-          POSTGRES_PASSWORD: cii
-          POSTGRES_DB: cii_test
+          CUBRID_DB: cii_test
         ports:
-          - 5432:5432
+          - 33000:33000
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "csql -u dba cii_test -c 'SELECT 1 FROM db_root'"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 30
+          --health-start-period 30s
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -135,7 +144,7 @@ jobs:
       # 2pp 버퍼를 둔 90%. 작은 무커버 추가에 흔들리지 않으면서 큰 하락은 잡는다.
       - run: pytest --cov=cii_platform --cov-report=xml --cov-report=term-missing --cov-fail-under=90
         env:
-          DATABASE_URL: postgresql://cii:cii@localhost:5432/cii_test
+          DATABASE_URL: cubrid+aiopycubrid://dba:@localhost:33000/cii_test
       # 파일별 하한 (#955): 위 게이트는 **전체 합계만** 본다. 합계가 96%여도 파일
       # 하나가 60%대로 남을 수 있고, 이 저장소에서 실제로 두 번 오래 남았다
       # (#871 auth 41~58% · #911 reports 61% · exports 65%).
@@ -201,9 +210,21 @@ jobs:
     env:
       # compose가 `${VAR:?}`로 미설정 시 즉시 실패시킨다(#85). CI 전용 값이며
       # 이 스택은 잡이 끝나면 사라진다.
-      POSTGRES_USER: cii
-      POSTGRES_PASSWORD: ci-docker-job
-      POSTGRES_DB: cii
+      # compose가 CUBRID로 바뀌었다 (#1058) — 종전 POSTGRES_* 는 쓰이지 않는다.
+      CUBRID_DB: cii
+      # **빈 값이다.** `cubrid/cubrid:11.4` 이미지는 첫 부트에 `CUBRID_PASSWORD`를
+      # 적용하지 않고 `dba`를 빈 비밀번호로 만든다(`docker-compose.prod.db.yml`의 NOTE ·
+      # 로컬 컨테이너도 `dba:@…`로 붙는다). 값을 넣으면 앱의 `DATABASE_URL`만 그 값을
+      # 싣고 DB는 모르는 상태가 되어 이렇게 떨어진다.
+      #
+      #     DatabaseError: Incorrect or missing password. (errno=-171)
+      #
+      # `deploy.yml`은 브로커가 뜬 뒤 `ALTER USER dba PASSWORD`로 설정하지만, 이 스택은
+      # **그 단계를 밟지 않는다** — `docker-compose.prod.yml`의 healthcheck가
+      # `csql -u dba …`로 비밀번호 없이 묻기 때문에, 여기서 비밀번호를 걸면 healthcheck가
+      # 깨지고 `depends_on: service_healthy`에 걸린 앱이 영영 기다린다.
+      # 그 모순 자체는 배포 쪽에서 정해야 한다 (#1058 인계 문서에 남겼다).
+      CUBRID_PASSWORD: ""
       # 프로덕션 스택은 이 값이 없으면 뜨지 않는다 (#809) — 미설정 시 메일 링크가
       # 요청의 Host 헤더를 따라가기 때문이다. POSTGRES_* 와 같은 CI 전용 값이다.
       APP_PUBLIC_URL: https://ci.example
@@ -251,16 +272,32 @@ jobs:
       - name: 이미지 빌드 (app · frontend)
         run: $COMPOSE build
 
+      # CUBRID로 바뀌었다 (#1058). 종전에는 `pg_isready -U "$POSTGRES_USER"`로 물었는데,
+      # 잡에서 `POSTGRES_*`를 지운 뒤로 **빈 사용자로 물어 영원히 실패**했다 — 60초를
+      # 태우고 「healthcheck 타임아웃」으로 떨어졌고, 원인이 DB가 아니라 **남은 명령**이라
+      # 로그만 보면 기동 실패로 읽힌다.
+      #
+      # 직접 묻는 대신 **compose 자신의 healthcheck 판정**을 기다린다. 판정 기준이 두 곳에
+      # 생기지 않고, `docker-compose.prod.yml`이 이미 `csql … SELECT 1 FROM db_root`로
+      # 정의해 두었다.
+      #
+      # 대기는 최대 180초다 — 그 파일의 `start_period`가 60초이고 CUBRID 기동이
+      # PostgreSQL보다 느리다(로컬 실측 20~30초, 러너는 더 걸린다). 짧게 잡으면 잡이
+      # 「타임아웃」으로 떨어지는데 원인은 **기다리지 않은 것**이라 추적이 어렵다.
       - name: DB 기동 + healthcheck 대기
         run: |
           $COMPOSE up -d db
-          for i in $(seq 1 30); do
-            if $COMPOSE exec -T db pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; then
-              echo "db ready"; exit 0
+          for i in $(seq 1 60); do
+            status=$($COMPOSE ps --format '{{.Health}}' db 2>/dev/null | tr -d '[:space:]')
+            if [ "$status" = "healthy" ]; then
+              echo "db ready ($((i * 3))초)"; exit 0
             fi
-            sleep 2
+            sleep 3
           done
-          echo "::error::db healthcheck 타임아웃"; exit 1
+          echo "::error::db healthcheck 타임아웃"
+          $COMPOSE ps db
+          $COMPOSE logs --tail 60 db
+          exit 1
 
       # 스키마 + 규제 파라미터가 이 한 명령으로 들어가는 것이 #127의 완료 기준이다.
       - name: 마이그레이션 (스키마 + seed)
@@ -273,7 +310,9 @@ jobs:
         run: |
           set -e
           check() {
-            actual=$($COMPOSE exec -T db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT count(*) FROM $1")
+            # `psql -tAc`의 CUBRID 대응은 `csql … -t -N`이다 (#1058) — `-t`가 표 장식을,
+            # `-N`이 머리글을 끈다. 출력 끝에 빈 줄이 붙으므로 공백을 털어 비교한다.
+            actual=$($COMPOSE exec -T db csql -u dba -c "SELECT count(*) FROM $1" "$CUBRID_DB" -t -N)
             actual=$(echo "$actual" | tr -d '[:space:]')
             if [ "$actual" != "$2" ]; then
               echo "::error::$1 = $actual (기대 $2)"; exit 1

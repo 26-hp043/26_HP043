@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from cii_platform.config import DATABASE_URL
-from cii_platform.db.url import normalize_to_asyncpg
+from cii_platform.db.url import normalize_to_async
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -27,8 +27,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 
-# db.url.normalize_to_asyncpg으로 통일 (#234). alembic/seed/pytest/앱이 같은 정책을
-# 공유한다 — 사본을 두면 앱만 분기가 빠져 기동 실패하는 조합이 생긴다.
+# db.url.normalize_to_async으로 통일 (#234 → #1058). alembic/seed/pytest/앱이 같은
+# 정책을 공유한다.
 
 
 @lru_cache(maxsize=1)
@@ -38,7 +38,30 @@ def get_engine() -> AsyncEngine:
     ``lru_cache``로 단일 인스턴스를 보장한다. 엔진마다 커넥션 풀이 따로 생기므로
     요청마다 만들면 연결 수가 요청 수만큼 늘어난다.
     """
-    return create_async_engine(normalize_to_asyncpg(DATABASE_URL), pool_pre_ping=True)
+    engine = create_async_engine(normalize_to_async(DATABASE_URL), pool_pre_ping=True)
+
+    # CUBRID 호환: UUID/Decimal 파라미터 자동 변환 (#1058)
+    import re
+    import uuid
+    from decimal import Decimal as _Decimal
+
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
+    def _cubrid_param_convert(conn, cursor, statement, parameters, context, executemany):
+        if parameters and isinstance(parameters, (tuple, list)):
+            parameters = tuple(
+                p.hex if isinstance(p, uuid.UUID) else str(p) if isinstance(p, _Decimal) else p
+                for p in parameters
+            )
+        # CAST(? AS type) → ?
+        statement = re.sub(r"CAST\(\? AS \w+\)", "?", statement)
+        # IS 0/1 → = 0/1
+        statement = re.sub(r"\bIS 0\b", "= 0", statement)
+        statement = re.sub(r"\bIS 1\b", "= 1", statement)
+        return statement, parameters
+
+    return engine
 
 
 @lru_cache(maxsize=1)

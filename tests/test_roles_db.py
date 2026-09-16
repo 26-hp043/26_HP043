@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.api.routes.auth import LAST_OFFICE_MESSAGE
@@ -32,6 +32,7 @@ from cii_platform.auth.dependencies import (
     RoleForbiddenError,
     require_office,
 )
+from cii_platform.db.types import JSONText, UuidText
 from cii_platform.errors import ERROR_HTTP_STATUS
 
 _BASE = "https://testserver"
@@ -61,6 +62,16 @@ async def _cleanup(emails: list[str]) -> None:
                 ),
                 {"e": email},
             )
+            # 가입하면 확인 토큰이 함께 생긴다. `fk_user_token_user`가 살아 있어
+            # 토큰을 남겨 두면 계정 삭제가 막히고, **정리가 조용히 실패해 다음 실행이
+            # `409 이미 가입된 이메일`로 떨어진다** (`#1058` — CUBRID에서 드러났다).
+            await s.execute(
+                text(
+                    "DELETE FROM user_token WHERE user_id IN "
+                    "(SELECT id FROM app_user WHERE email = :e)"
+                ),
+                {"e": email},
+            )
             await s.execute(
                 text(
                     "DELETE FROM audit_log WHERE entity_type = 'app_user' AND entity_id IN "
@@ -78,7 +89,7 @@ async def _role_in_db(email: str) -> str | None:
 
     async with get_sessionmaker()() as s:
         return (
-            await s.execute(text("SELECT role FROM app_user WHERE email = :e"), {"e": email})
+            await s.execute(text('SELECT "role" FROM app_user WHERE email = :e'), {"e": email})
         ).scalar_one_or_none()
 
 
@@ -88,9 +99,17 @@ async def _role_changes_for(user_id: str) -> list[dict]:
     async with get_sessionmaker()() as s:
         rows = await s.execute(
             text(
+                # `action`·`timestamp`는 둘 다 CUBRID 예약어다 (`#1058`).
                 "SELECT user_id, details_json FROM audit_log "
-                "WHERE action = 'ROLE_CHANGE' AND entity_id = :id ORDER BY timestamp"
-            ),
+                "WHERE \"action\" = 'ROLE_CHANGE' AND entity_id = :id "
+                'ORDER BY "timestamp"'
+                # `entity_id`는 `CHAR(32)`다. API가 주는 대시 형식을 생 SQL에 그대로
+                # 실으면 **오류 없이 0건**이 온다 — 타입을 붙여야 맞는다 (`#1058`).
+            )
+            .bindparams(bindparam("id", type_=UuidText()))
+            # raw SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result processor가 돌지
+            # 않는다 — 붙이지 않으면 **문자열**이 와서 dict 비교가 어긋난다 (`#1058`).
+            .columns(details_json=JSONText()),
             {"id": user_id},
         )
         return [dict(r._mapping) for r in rows]
@@ -105,17 +124,23 @@ async def _demote_other_office_users(keep: list[str]) -> list[UUID]:
     from cii_platform.db.session import get_sessionmaker
 
     async with get_sessionmaker()() as s:
+        # CUBRID 세 가지 (`#1058`) — ⑴ `role`은 예약어라 인용한다 ⑵ `<> ALL(:x)`·
+        # `= ANY(:x)`는 PostgreSQL 배열 문법이고 pycubrid는 목록을 한 파라미터로 묶어
+        # 보내지 못한다 — 자리표시자를 직접 펼친다 ⑶ `is_deleted`는 SMALLINT다.
+        keep_ph = ", ".join(f":keep{i}" for i in range(len(keep))) or "NULL"
         rows = await s.execute(
             text(
-                "SELECT id FROM app_user WHERE role = 'OFFICE' AND is_deleted = false "
-                "AND email <> ALL(:keep)"
+                f"""SELECT id FROM app_user WHERE "role" = 'OFFICE' AND is_deleted = 0 """
+                f"AND email NOT IN ({keep_ph})"
             ),
-            {"keep": keep},
+            {f"keep{i}": v for i, v in enumerate(keep)},
         )
         ids = [r[0] for r in rows]
         if ids:
+            id_ph = ", ".join(f":id{i}" for i in range(len(ids)))
             await s.execute(
-                text("UPDATE app_user SET role = 'FIELD' WHERE id = ANY(:ids)"), {"ids": ids}
+                text(f"""UPDATE app_user SET "role" = 'FIELD' WHERE id IN ({id_ph})"""),
+                {f"id{i}": v for i, v in enumerate(ids)},
             )
         await s.commit()
     return ids
@@ -127,8 +152,13 @@ async def _restore_office(ids: list[UUID]) -> None:
     if not ids:
         return
     async with get_sessionmaker()() as s:
+        # `role` 예약어 인용 + `= ANY(:ids)` 배열 문법 제거 (`#1058`).
+        # ⚠️ 이 함수는 `finally`에서 돈다 — 여기서 터지면 **뒤따르는 계정 정리가
+        # 통째로 건너뛰어져**, 다음 실행이 `409 이미 가입된 이메일`로 떨어진다.
+        id_ph = ", ".join(f":id{i}" for i in range(len(ids)))
         await s.execute(
-            text("UPDATE app_user SET role = 'OFFICE' WHERE id = ANY(:ids)"), {"ids": ids}
+            text(f"""UPDATE app_user SET "role" = 'OFFICE' WHERE id IN ({id_ph})"""),
+            {f"id{i}": v for i, v in enumerate(ids)},
         )
         await s.commit()
 
@@ -501,7 +531,7 @@ async def test_migration_044_marks_existing_accounts_office(migrated_db):
         assert up.returncode == 0, up.stderr
         async with sessionmaker() as s:
             role = (
-                await s.execute(text("SELECT role FROM app_user WHERE email = :e"), {"e": email})
+                await s.execute(text('SELECT "role" FROM app_user WHERE email = :e'), {"e": email})
             ).scalar_one()
         assert role == "OFFICE"
     finally:

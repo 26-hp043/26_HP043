@@ -15,6 +15,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_returning_id, same_uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,22 +42,14 @@ async def session(conn):
 @pytest_asyncio.fixture
 async def vessel_id(session) -> str:
     """기준 속력 12kn · 기준 일일 연료 24t — 2,880nm를 12kn로 가면 기대 연료 240t."""
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "SELECT 2026, 11.0, '2026-01-01', 'TEST', '1.0' "
-            "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = 2026)"
-        )
+    await ensure_regulation_year(session, 2026)
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
+        " reference_speed_kn, reference_daily_foc_ton) "
+        "VALUES ('9513001', 'DQ TEST', 'BULK_CARRIER', 30000, 50000, 12, 24) RETURNING id",
+        {},
     )
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
-            " reference_speed_kn, reference_daily_foc_ton) "
-            "VALUES ('9513001', 'DQ TEST', 'BULK_CARRIER', 30000, 50000, 12, 24) RETURNING id"
-        )
-    )
-    return str(row.scalar_one())
 
 
 async def _voyage(
@@ -73,15 +66,14 @@ async def _voyage(
 ) -> str:
     departure = datetime.fromisoformat("2026-03-01T00:00:00+00:00")
     arrival = None if hours is None else departure + timedelta(hours=hours)
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, voyage_no, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, actual_distance_nm, "
-            " planned_speed_kn, actual_avg_speed_kn, actual_departure_at, actual_arrival_at) "
-            "VALUES (:vid, :no, :st, 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', 2880, "
-            " :dist, 12, :spd, :dep, :arr) RETURNING id"
-        ),
+    voyage_id = await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, voyage_no, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, actual_distance_nm, "
+        " planned_speed_kn, actual_avg_speed_kn, actual_departure_at, actual_arrival_at) "
+        "VALUES (:vid, :no, :st, 'INCLUDE_AS_ACTUAL', :yr, 'BUSAN', 'SINGAPORE', 2880, "
+        " :dist, 12, :spd, :dep, :arr) RETURNING id",
         {
             "vid": vessel_id,
             "no": no,
@@ -93,7 +85,6 @@ async def _voyage(
             "arr": arrival,
         },
     )
-    voyage_id = str(row.scalar_one())
     await session.execute(
         text(
             "INSERT INTO voyage_fuel_use "
@@ -107,8 +98,8 @@ async def _voyage(
 
 async def _mine(session, vessel_id: str) -> tuple[dict, list[dict], dict]:
     result = await get_fleet_data_quality(session, regulation_year=YEAR)
-    vessel = next(row for row in result["vessels"] if row["vessel_id"] == vessel_id)
-    issues = [item for item in result["issues"] if item["vessel_id"] == vessel_id]
+    vessel = next(row for row in result["vessels"] if same_uuid(row["vessel_id"], vessel_id))
+    issues = [item for item in result["issues"] if same_uuid(item["vessel_id"], vessel_id)]
     return vessel, issues, result["summary"]
 
 
@@ -314,7 +305,7 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "anomaly_unjudged_count",
         "completeness_ratio",
     }
-    mine = next(row for row in result["vessels"] if row["vessel_id"] == vessel_id)
+    mine = next(row for row in result["vessels"] if same_uuid(row["vessel_id"], vessel_id))
     assert set(mine) == {
         "vessel_id",
         "vessel_name",
@@ -325,7 +316,7 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "voyage_count",
         "completeness_ratio",
     }
-    issues = [item for item in result["issues"] if item["vessel_id"] == vessel_id]
+    issues = [item for item in result["issues"] if same_uuid(item["vessel_id"], vessel_id)]
     for item in issues:
         assert set(item) == {
             "severity",

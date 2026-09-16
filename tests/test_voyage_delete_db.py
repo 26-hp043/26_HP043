@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from conftest import insert_returning_id
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -23,28 +24,24 @@ VALID_HASH = "sha256:" + "b" * 64
 
 
 async def _insert_vessel(session, imo: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'DELETE TEST', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'DELETE TEST', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_draft_voyage(session, vessel_id: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, 'DRAFT', 'EXCLUDE', 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, 'DRAFT', 'EXCLUDE', 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
         {"vid": vessel_id},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_calculation_run(session, vessel_id: str, voyage_id: str) -> None:
@@ -80,11 +77,11 @@ def _app() -> FastAPI:
 async def _cleanup(session, vessel_id: str) -> None:
     # calculation_run은 immutable 트리거가 DELETE를 막는다 — 검증을 마친 테스트
     # 데이터 정리를 위해 잠시 비활성화하고 즉시 복구한다.
-    await session.execute(text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS INACTIVE"))
     await session.execute(
         text("DELETE FROM calculation_run WHERE vessel_id = :vid"), {"vid": vessel_id}
     )
-    await session.execute(text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS ACTIVE"))
     await session.execute(text("DELETE FROM voyage WHERE vessel_id = :vid"), {"vid": vessel_id})
     await session.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
     await session.commit()

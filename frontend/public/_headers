@@ -1,0 +1,7 @@
+# Cloudflare Pages 응답 헤더.
+# SPA fallback을 위해 index.html은 캐시하지 않는다.
+/index.html
+  Cache-Control: no-cache
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

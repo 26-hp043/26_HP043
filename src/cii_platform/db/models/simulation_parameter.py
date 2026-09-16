@@ -8,10 +8,13 @@ DB_SCHEMA.md §2.19 참조. 컬럼·제약·인덱스 정의는 마이그레이�
 규제값이 아니라 **모델 가정**이고, 운항 데이터가 쌓이면 조정될 값이라 코드 밖에 둔다.
 """
 
+import uuid
+from datetime import UTC, datetime
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class SimulationParameter(Base):
@@ -19,11 +22,10 @@ class SimulationParameter(Base):
 
     __tablename__ = "simulation_parameter"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     #: ``PRD §12.2``의 ``distribution_profile`` 입력값과 같은 어휘.
     profile = sa.Column(sa.String(length=30), nullable=False)
@@ -43,15 +45,18 @@ class SimulationParameter(Base):
     floor_value = sa.Column(sa.Numeric(precision=10, scale=4), nullable=True)
     source_ref = sa.Column(sa.String(length=200), nullable=False)
     version = sa.Column(sa.String(length=50), nullable=False)
-    is_active = sa.Column(sa.Boolean(), server_default=sa.text("true"), nullable=False)
+    is_active = sa.Column(sa.Boolean(), default=True, server_default=sa.text("1"), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_simulation_parameter"),
         sa.CheckConstraint(
-            "variable IN ('DISTANCE','FUEL','SPEED')", name="chk_sim_param_variable"
+            "\"variable\" IN ('DISTANCE','FUEL','SPEED')", name="chk_sim_param_variable"
         ),
         # MVP는 삼각분포 하나다. 늘어나면 이 제약과 계산 엔진을 함께 고쳐야 한다.
         sa.CheckConstraint("distribution IN ('TRIANGULAR')", name="chk_sim_param_distribution"),

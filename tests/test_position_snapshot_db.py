@@ -21,6 +21,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,13 +52,12 @@ async def session(conn):
 
 
 async def _insert_vessel(session, imo: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            f"VALUES ('{imo}', 'AIS TEST {imo}', 'BULK_CARRIER', 30000, 50000) RETURNING id"
-        )
+    return await insert_returning_id(
+        session,
+        f"INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+        f"VALUES ('{imo}', 'AIS TEST {imo}', 'BULK_CARRIER', 30000, 50000) RETURNING id",
+        {},
     )
-    return str(row.scalar_one())
 
 
 class _FakeProvider:
@@ -166,7 +166,7 @@ async def test_ais_positions_are_recorded_and_applied(session):
     row = await session.execute(
         text(
             "SELECT current_lat, underway_state, detail_status, position_updated_at "
-            f"FROM vessel WHERE id = '{vessel_id}'::uuid"
+            f"FROM vessel WHERE id = '{uuid_hex(vessel_id)}'"
         )
     )
     current_lat, underway_state, detail_status, updated_at = row.one()
@@ -201,7 +201,10 @@ async def test_a_late_older_observation_does_not_move_the_ship_back(session):
     )
 
     row = await session.execute(
-        text(f"SELECT current_lat, position_updated_at FROM vessel WHERE id = '{vessel_id}'::uuid")
+        text(
+            "SELECT current_lat, position_updated_at FROM vessel "
+            f"WHERE id = '{uuid_hex(vessel_id)}'"
+        )
     )
     current_lat, updated_at = row.one()
     assert current_lat == Decimal("35.500000")
@@ -228,7 +231,7 @@ async def test_a_vessel_without_a_position_keeps_its_last_one(session):
     await session.execute(
         text(
             "UPDATE vessel SET current_lat = 20.0, current_lon = 20.0, "
-            f"position_updated_at = '{OBSERVED.isoformat()}' WHERE id = '{vessel_id}'::uuid"
+            f"position_updated_at = '{OBSERVED.isoformat()}' WHERE id = '{uuid_hex(vessel_id)}'"
         )
     )
 
@@ -236,7 +239,7 @@ async def test_a_vessel_without_a_position_keeps_its_last_one(session):
 
     assert result["received"] == 0
     row = await session.execute(
-        text(f"SELECT current_lat FROM vessel WHERE id = '{vessel_id}'::uuid")
+        text(f"SELECT current_lat FROM vessel WHERE id = '{uuid_hex(vessel_id)}'")
     )
     assert row.scalar_one() == Decimal("20.000000")
 

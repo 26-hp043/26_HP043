@@ -82,5 +82,7 @@ async def test_seed_column_defaults(conn):
     for row in rows:
         assert row.unit == "tCO₂/tFuel"
         assert row.version == "1.0"
-        assert row.is_active is True
+        # CUBRID는 BOOLEAN을 SMALLINT로 저장한다 (#1058) — PostgreSQL의 `True`가 `1`로
+        # 온다. 서버 기본값이 켜져 있다는 사실은 그대로 잠근다.
+        assert row.is_active in (True, 1), row.is_active
         assert row.effective_from is None

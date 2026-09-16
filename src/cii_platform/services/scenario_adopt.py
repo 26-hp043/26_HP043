@@ -63,7 +63,7 @@ UPDATED_FIELDS: tuple[str, ...] = (
 
 async def _load_scenario(session: AsyncSession, scenario_id: UUID) -> VoyageScenario:
     stmt = select(VoyageScenario).where(
-        VoyageScenario.id == scenario_id, VoyageScenario.is_deleted.is_(False)
+        VoyageScenario.id == scenario_id, VoyageScenario.is_deleted == 0
     )
     scenario = (await session.execute(stmt)).scalars().first()
     if scenario is None:
@@ -88,7 +88,7 @@ async def _clear_previous_adoption(session: AsyncSession, voyage_id: UUID) -> No
     """그 항차의 이전 채택을 내린다 (모듈 docstring 참조)."""
     await session.execute(
         update(VoyageScenario)
-        .where(VoyageScenario.voyage_id == voyage_id, VoyageScenario.is_adopted.is_(True))
+        .where(VoyageScenario.voyage_id == voyage_id, VoyageScenario.is_adopted == 1)
         .values(is_adopted=False)
     )
 

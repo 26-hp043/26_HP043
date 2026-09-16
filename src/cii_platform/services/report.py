@@ -183,7 +183,7 @@ async def _scenario_section(session: AsyncSession, voyage) -> TableSection | Non
                 select(VoyageScenario)
                 .where(
                     VoyageScenario.voyage_id == voyage.id,
-                    VoyageScenario.is_deleted.is_(False),
+                    VoyageScenario.is_deleted == 0,
                 )
                 .order_by(VoyageScenario.created_at, VoyageScenario.id)
             )

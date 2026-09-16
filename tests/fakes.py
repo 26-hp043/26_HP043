@@ -112,6 +112,15 @@ class FakeVoyageScenario:
 class _FakeResult:
     """``session.execute`` 결과 대역 — 아무 행도 없다."""
 
+    #: DML 결과의 영향 행 수. **0이다** — 이 대역은 아무것도 넣지 않는다.
+    #:
+    #: CUBRID 전환이 `position_snapshot.insert_snapshot()`을 `RETURNING` 대신
+    #: `rowcount`로 판정하게 바꾸면서 이 속성이 필요해졌다 (`#1058`).
+    #: 없으면 `AttributeError: '_FakeResult' object has no attribute 'rowcount'`로
+    #: 죽는다. 종전에는 `scalar_one_or_none()`이 `None`을 줘서 같은 자리가
+    #: 「넣지 않았다」로 읽혔다 — 0은 그 동작을 그대로 옮긴 값이다.
+    rowcount = 0
+
     def scalar_one_or_none(self) -> None:
         return None
 

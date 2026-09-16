@@ -45,17 +45,27 @@ def upgrade() -> None:
         "app_user",
         sa.Column("role", sa.String(length=10), server_default="FIELD", nullable=False),
     )
-    op.create_check_constraint(
-        "chk_app_user_role",
-        "app_user",
-        "role IN ('OFFICE','FIELD')",
-    )
+    # CHECK를 걸지 않는다 (`#1058` · `DB_SCHEMA §7.4`). CUBRID는 `ALTER TABLE …
+    # ADD CONSTRAINT … CHECK`를 **구문으로 받기만 하고 검사하지 않는다** — 걸어 두면
+    # 「적혀 있으니 막힌다」고 읽히는데 실제로는 아무 값이나 들어간다.
+    #
+    # 대신 트리거로 막는다. `role`은 값 범위가 아니라 **권한**이라 `§7.4`가 애플리케이션
+    # 계층에 맡긴 값 범위 CHECK와 성질이 다르다 — 틀린 값이 들어가면 `role == "OFFICE"`가
+    # 거짓이 되어 닫히는 쪽으로 틀리지만, 그때는 **사무직이 조용히 현장직이 된다.**
+    for event in ("INSERT", "UPDATE"):
+        op.execute(
+            f"CREATE TRIGGER trg_app_user_role_{event.lower()[:3]} BEFORE {event} ON app_user "
+            # `role`은 CUBRID 예약어다 — 인용하지 않으면 `unexpected 'role'`로 선다 (#1058).
+            "IF NOT (new.\"role\" IN ('OFFICE', 'FIELD')) EXECUTE REJECT"
+        )
     # 지금까지 전원이 전 기능을 쓰고 있었다 — 기존 계정은 전부 사무직으로 둔다(#672).
-    op.execute("UPDATE app_user SET role = 'OFFICE'")
+    # `role`은 CUBRID 예약어라 인용한다 (#1058) — `action`·`timestamp`와 같은 목록이다.
+    op.execute("""UPDATE app_user SET "role" = 'OFFICE'""")
 
 
 def downgrade() -> None:
     # 누가 현장직이었는지가 사라진다 — 프로덕션에서는 막는다 (#819).
     guard_irreversible_downgrade("044")
-    op.drop_constraint("chk_app_user_role", "app_user", type_="check")
+    for event in ("INSERT", "UPDATE"):
+        op.execute(f"DROP TRIGGER trg_app_user_role_{event.lower()[:3]}")
     op.drop_column("app_user", "role")

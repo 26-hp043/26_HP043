@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import API_V1_PREFIX, app
@@ -1508,8 +1509,6 @@ async def test_import_and_adopt_responses_match_the_contract(client):
     """
     from uuid import UUID
 
-    from sqlalchemy import text
-
     from cii_platform.db.session import get_sessionmaker
 
     vessel_id = _new_vessel(client).json()["data"]["id"]
@@ -1536,18 +1535,15 @@ async def test_import_and_adopt_responses_match_the_contract(client):
         assert planned.status_code == 200, planned.text
 
         async with get_sessionmaker()() as s:
-            scenario_id = (
-                await s.execute(
-                    text(
-                        "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, "
-                        " distance_nm, speed_kn, duration_hours, fuel_ton, cii_value, "
-                        " estimated_rating, risk_level) "
-                        "VALUES (:vid, 'SLOW_STEAMING', '감속 운항', 1000, 10.5, 95.2, 60.5, "
-                        " 5.1, 'C', 'MEDIUM') RETURNING id"
-                    ),
-                    {"vid": UUID(vessel_id)},
-                )
-            ).scalar_one()
+            scenario_id = await insert_returning_id(
+                s,
+                "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, "
+                " distance_nm, speed_kn, duration_hours, fuel_ton, cii_value, "
+                " estimated_rating, risk_level) "
+                "VALUES (:vid, 'SLOW_STEAMING', '감속 운항', 1000, 10.5, 95.2, 60.5, "
+                " 5.1, 'C', 'MEDIUM') RETURNING id",
+                {"vid": UUID(vessel_id)},
+            )
             await s.commit()
 
         adopted = client.post(

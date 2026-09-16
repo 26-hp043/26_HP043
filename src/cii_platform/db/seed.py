@@ -44,11 +44,12 @@ import dataclasses
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
+from sqlalchemy_cubrid.dml import replace as cubrid_replace
 
 from cii_platform.calc.imo_parser import parse_imo_scientific
 from cii_platform.db.models import CiiRatingBoundary, CiiReferenceLine, RegulationYear
+from cii_platform.db.models.fuel_type import FuelType
 
 # 출처(source_ref). 권위 소스는 AGENTS.md §2.2 표를 따른다.
 SOURCE_Z_FACTOR = "MEPC.400(83)"
@@ -386,19 +387,8 @@ async def _upsert_z_factors(conn: AsyncConnection) -> int:
         }
         for row in SEED_Z_FACTORS
     ]
-    stmt = pg_insert(RegulationYear.__table__).values(values)
-    # created_at은 갱신하지 않는다 — 최초 적재 시점을 보존한다.
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["year"],
-        set_={
-            "z_factor_percent": stmt.excluded.z_factor_percent,
-            "effective_from": stmt.excluded.effective_from,
-            "source_ref": stmt.excluded.source_ref,
-            "version": stmt.excluded.version,
-            "is_active": stmt.excluded.is_active,
-        },
-    )
-    await conn.execute(stmt)
+    for row in values:
+        await conn.execute(cubrid_replace(RegulationYear.__table__).values(row))
     return len(values)
 
 
@@ -416,18 +406,8 @@ async def _upsert_reference_lines(conn: AsyncConnection) -> int:
         }
         for row in SEED_REFERENCE_LINES
     ]
-    stmt = pg_insert(CiiReferenceLine.__table__).values(values)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["ship_type", "condition_expr"],
-        set_={
-            "capacity_rule": stmt.excluded.capacity_rule,
-            "a_raw": stmt.excluded.a_raw,
-            "a_decimal": stmt.excluded.a_decimal,
-            "c": stmt.excluded.c,
-            "source_ref": stmt.excluded.source_ref,
-        },
-    )
-    await conn.execute(stmt)
+    for row in values:
+        await conn.execute(cubrid_replace(CiiReferenceLine.__table__).values(row))
     return len(values)
 
 
@@ -446,33 +426,130 @@ async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
         }
         for row in SEED_RATING_BOUNDARIES
     ]
-    stmt = pg_insert(CiiRatingBoundary.__table__).values(values)
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["ship_type", "condition_expr"],
-        set_={
-            "capacity_basis": stmt.excluded.capacity_basis,
-            "d1": stmt.excluded.d1,
-            "d2": stmt.excluded.d2,
-            "d3": stmt.excluded.d3,
-            "d4": stmt.excluded.d4,
-            "source_ref": stmt.excluded.source_ref,
-        },
-    )
-    await conn.execute(stmt)
+    for row in values:
+        await conn.execute(cubrid_replace(CiiRatingBoundary.__table__).values(row))
     return len(values)
 
 
-async def seed_all(conn: AsyncConnection) -> dict[str, int]:
-    """규제 파라미터 3종을 upsert하고 테이블별 적재 행 수를 돌려준다.
+# IMO 2018 Guidelines — PRD §3.4 연료 종류별 CO₂ 배출 계수 (tCO₂/tFuel).
+_CF_ROWS = (
+    ("DIESEL_GAS_OIL", "Diesel/Gas Oil", "3.206000"),
+    ("LFO", "Light Fuel Oil", "3.151000"),
+    ("HFO", "Heavy Fuel Oil", "3.114000"),
+    ("LPG_PROPANE", "LPG Propane", "3.000000"),
+    ("LPG_BUTANE", "LPG Butane", "3.030000"),
+    ("LNG", "Liquefied Natural Gas", "2.750000"),
+    ("METHANOL", "Methanol", "1.375000"),
+    ("ETHANOL", "Ethanol", "1.913000"),
+)
+SOURCE_FUEL_TYPE = "IMO 2018 Guidelines"
 
-    재실행해도 같은 결과가 되도록 모두 ``ON CONFLICT DO UPDATE``를 쓴다(이슈 #33).
+
+async def _upsert_fuel_types(conn: AsyncConnection) -> int:
+    """fuel_type 8행을 upsert한다."""
+    import uuid as _uuid
+
+    count = 0
+    for code, display_name, cf in _CF_ROWS:
+        row = {
+            "id": _uuid.uuid4(),
+            "code": code,
+            "display_name": display_name,
+            "cf": Decimal(cf),
+            "source_ref": SOURCE_FUEL_TYPE,
+            "version": PARAMETER_SET_VERSION,
+        }
+        await conn.execute(cubrid_replace(FuelType.__table__).values(row))
+        count += 1
+    return count
+
+
+# 시뮬레이션 파라미터 (035_simulation_parameter.py에서 이전)
+_SIM_PARAM_ROWS = (
+    # (variable, bound_type, min, mode, max, floor)
+    ("DISTANCE", "FACTOR", "0.9700", "1.0000", "1.0500", None),
+    ("FUEL", "FACTOR", "0.9000", "1.0000", "1.1500", None),
+    ("SPEED", "DELTA", "-1.0000", "0.0000", "1.0000", "1.0000"),
+)
+_SIM_PARAM_PROFILE = "DEFAULT"
+
+
+async def _upsert_simulation_parameters(conn: AsyncConnection) -> int:
+    """simulation_parameter 3행을 upsert한다."""
+    import uuid as _uuid
+
+    from cii_platform.db.models.simulation_parameter import SimulationParameter
+
+    count = 0
+    for variable, bound_type, min_v, mode_v, max_v, floor_v in _SIM_PARAM_ROWS:
+        row = {
+            "id": _uuid.uuid4(),
+            "profile": _SIM_PARAM_PROFILE,
+            "variable": variable,
+            "distribution": "TRIANGULAR",
+            "bound_type": bound_type,
+            "min_value": Decimal(min_v),
+            "mode_value": Decimal(mode_v),
+            "max_value": Decimal(max_v),
+            "floor_value": Decimal(floor_v) if floor_v else None,
+            "source_ref": "PRD §12.4.1",
+            "version": PARAMETER_SET_VERSION,
+        }
+        await conn.execute(cubrid_replace(SimulationParameter.__table__).values(row))
+        count += 1
+    return count
+
+
+# 기상 모델 파라미터 (019_seed_weather_model_parameter.py에서 이전)
+_WEATHER_PARAMS = [
+    ("TOWNSIN_KWON_ALPHA", "cu_a.BULK_CARRIER", "0.5", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.BULK_CARRIER", "0.5", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_a.TANKER", "0.7", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.TANKER", "0", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_a.CONTAINER_SHIP", "0.6", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.CONTAINER_SHIP", "0.2", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_a.GENERAL_CARGO_SHIP", "0.5", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.GENERAL_CARGO_SHIP", "0.5", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_a.LNG_CARRIER", "0.7", "dimensionless"),
+    ("TOWNSIN_KWON_ALPHA", "cu_b.LNG_CARRIER", "0", "dimensionless"),
+]
+
+
+async def _upsert_weather_params(conn: AsyncConnection) -> int:
+    """weather_model_parameter 10행을 upsert한다."""
+    import uuid as _uuid
+
+    from cii_platform.db.models.weather_model_parameter import WeatherModelParameter
+
+    count = 0
+    for model_ver, key, value, unit in _WEATHER_PARAMS:
+        row = {
+            "id": _uuid.uuid4(),
+            "model_version": model_ver,
+            "key": key,
+            "value": value,
+            "unit": unit,
+            "source_ref": "TECH_SPEC §3.3 (Kwon 2008 단순화)",
+        }
+        await conn.execute(cubrid_replace(WeatherModelParameter.__table__).values(row))
+        count += 1
+    return count
+
+
+async def seed_all(conn: AsyncConnection) -> dict[str, int]:
+    """규제 파라미터 + 연료 종류 + 시뮬레이션 파라미터를 upsert한다.
+
+    재실행해도 같은 결과가 되도록 모두 upsert를 쓴다.
     호출자가 트랜잭션을 관리한다 — 이 함수는 commit하지 않는다.
     """
     validate_reference_lines()
     return {
+        "fuel_type": await _upsert_fuel_types(conn),
         "regulation_year": await _upsert_z_factors(conn),
         "cii_reference_line": await _upsert_reference_lines(conn),
         "cii_rating_boundary": await _upsert_rating_boundaries(conn),
+        "simulation_parameter": await _upsert_simulation_parameters(conn),
+        "weather_model_parameter": await _upsert_weather_params(conn),
     }
 
 
@@ -490,11 +567,11 @@ async def main() -> None:  # pragma: no cover - 프로세스 진입점
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from cii_platform.config import DATABASE_URL
-    from cii_platform.db.url import normalize_to_asyncpg
+    from cii_platform.db.url import normalize_to_async
 
     # URL 정규화는 alembic/env.py·tests/conftest.py·db/session.py와 같은 함수를
     # 공유한다 (#234). 사본을 두면 앱만 분기가 빠지는 일이 다시 생긴다.
-    engine = create_async_engine(normalize_to_asyncpg(DATABASE_URL), poolclass=pool.NullPool)
+    engine = create_async_engine(normalize_to_async(DATABASE_URL), poolclass=pool.NullPool)
     try:
         async with engine.begin() as conn:
             counts = await seed_all(conn)

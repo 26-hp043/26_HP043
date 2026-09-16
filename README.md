@@ -37,9 +37,9 @@
 |---|---|---|
 | [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.13**, 자체 ID/PW 인증 전환 #413 + **역할 2종(사무직·현장직) #672** + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358 + **§12.3.1 필요 감축량(목표 역산) #433** + **§8.4 선종 변경 재계산 #944** + **§3.3.8 진행분 유종별 배분 #885** + **§6.4 상태 문구 #931** + **§12.2.1 실적 보정계수 #363**) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.9**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 #434 + 메일·리포트 절 신설 #446 + **§10.3 NumPy 업그레이드·재현성 한계 #833·#106**) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16), 메일 발송(§18), 리포트 렌더링(§19) | ✅ 완료 |
-| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.32**, 인증 재작성 #414 + **역할 2종·사무직 전용 경로 #672** + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440 + CII 적용 대상 표시 #653 + CSV 내보내기 컬럼 확정 #59 + 샘플 선박 목록 #982 + 챗봇 API #121) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.25**, not under way 스키마 #345 + **app_user.role #672** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451) — **20개 테이블**, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
-| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.24**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398 + 배포 배선 고정 #508 + 테스트 격리 #507 + 계정 관리 #506) — 파일·함수·수집 수는 `TEST_PLAN §14.2` 합계 문장이 정본(CI가 실측과 대조), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
+| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.33**, 인증 재작성 #414 + **역할 2종·사무직 전용 경로 #672** + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440 + CII 적용 대상 표시 #653 + CSV 내보내기 컬럼 확정 #59 + 샘플 선박 목록 #982 + 챗봇 API #121) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.26**, not under way 스키마 #345 + **app_user.role #672** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451) — **20개 테이블**, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
+| [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.25**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398 + 배포 배선 고정 #508 + 테스트 격리 #507 + 계정 관리 #506) — 파일·함수·수집 수는 `TEST_PLAN §14.2` 합계 문장이 정본(CI가 실측과 대조), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 (**v1.10**) — 문서 우선순위(§3.1)·소관 한정 정본(§3.2), Oracle 교차 검증, 규제값 권위 소스, 이슈 유예 처리(§6.1), 1 PR = 1 이슈·PR 제목 형식(§7), 「상위 문서」 의미(§4.4), 제품명(§4.5), 화면 문구 소관(§4.6), 절·화면 참조 표기(§4.7) | ✅ 완료 |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (**v2.9**, 등급 3색 체계 · 다크 모드 · 토큰 접두어 `--cii-*` #463 + `UIFLOW` 참조 정리·신뢰도 배지 표시 임계 #583 + §4.2 일수·속력 자릿수 #592 + §8.2 CII 적용 대상 배지 #653 + §4.2 용량 자릿수 #633 + **rlatnals4114 확정 12건 반영** — §16 미확정 6항목 종결·§0.2 제약 6·§5 〔확정〕/〔제안〕 표기·§12 아이콘 세트·§15 `--brand-*` #747 · #694 + **§8 BrandLogo·§7.2 브랜드 판 반응형 #934** + **rlatnals4114 2026-09-11 확정 반영** — §5 확정/제안 정의·오버레이 규정·§8 슬라이더·§8.3 등급 전이 #930 · #932 · #933) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성 | ✅ 완료 |
 | [`UIFLOW.md`](./UIFLOW.md) | UI Flow 명세서 (**v2.12**, 선대 계층에 함대 감축 계획·데이터 점검 신설 #505 + 하위 절 번호 부여 #583 + 두 화면을 1차 심사 범위 밖으로 판정 #513 + §2.2.1 사이드바 순서 신설 #712 + 2-7 AI 어시스턴트 주요 UI #121 + **§2.2 역할 열 #672**) — 화면 목록·계층·흐름·진입 조건 | 🟡 초안 |
@@ -280,15 +280,17 @@ VITE_API_BASE_URL=/api/v1 docker compose -f docker-compose.prod.yml build fronte
 | SPA fallback | `curl -I http://localhost/vessels/x` → `200` (404가 아님) |
 | 기능① | 브라우저에서 계산 실행 → 네트워크 탭에 `/api/v1/calculations/voyage-cii` |
 
-> **`APP_ENV` 확인을 맨 위에 둔 이유 (`#810`).** 아래 네 줄은 전부 「프로덕션 가드가 닫힌 상태」를 전제하는데, `APP_ENV`가 `development`로 떨어져도 **네 줄이 모두 통과한다.** 앱은 정상 기동하고 `/health`도 200이기 때문이다. 그 상태에서 함께 열리는 것은 다섯이다 — `POST /auth/dev-login`(미인증 세션 발급) · `/docs`·`/redoc`·`/openapi.json` · **데모 계정 시드**(비밀번호가 이 문서 아래에 공개돼 있다) · DB URL 개발 기본값 폴백 · `console` 메일 백엔드(재설정 메일이 로그로만 나간다).
+> **`APP_ENV` 확인을 맨 위에 둔 이유 (`#810` · `#1058`).** 아래 네 줄은 전부 「프로덕션 가드가 닫힌 상태」를 전제하는데, `APP_ENV`가 `development`·`test`로 떨어져도 **네 줄이 모두 통과한다.** 앱은 정상 기동하고 `/health`도 200이기 때문이다. 그 상태에서 함께 열리는 것은 다섯이다 — `POST /auth/dev-login`(미인증 세션 발급) · `/docs`·`/redoc`·`/openapi.json` · **데모 계정 시드**(비밀번호가 이 문서 아래에 공개돼 있다) · DB URL 개발 기본값 폴백 · `console` 메일 백엔드(재설정 메일이 로그로만 나간다).
+>
+> **앞의 셋은 `staging`에서도 닫힌다 (`#1058`).** 종전에는 판정이 `not is_production()`이라 `staging`도 여는 쪽이었다. `#524`가 `APP_ENV=production` + `MAIL_BACKEND=console`을 기동 실패로 막아 **SMTP가 준비되기 전 배포는 `staging`을 고르는 것이 정상 경로**이므로(`docs/OPERATIONS.md §4.5`), 그 조합은 예외가 아니라 자주 오는 상태다 — 2026-09-15 OCI 배포에서 실제로 `dev-login`과 `/docs`가 200을 냈다. 지금은 **여는 목록**(`config._DEV_SURFACE_ENVS` = `development`·`test`)으로 판정한다. 뒤의 둘(DB URL 폴백 · `console` 메일)은 그대로 프로덕션 전용 가드다 — `staging`이 존재하는 이유가 그 둘이기 때문이다.
 >
 > 허용값은 `development`·`test`·`staging`·`production` 넷뿐이고, **그 밖의 값이면 앱이 뜨지 않는다.** 대소문자와 앞뒤 공백은 정규화한다(`Production`·`"production "` → `production`, 경고 로그를 남긴다). 이 확인은 CI의 `docker` 잡에도 같은 형태로 들어 있다.
 
 > **`app`은 호스트 포트를 열지 않는다 (`#811`).** 프로덕션 스택에서 외부로 열리는 포트는 nginx의 `:80` 하나뿐이며, 백엔드는 compose 네트워크 안에서 `http://app:8000`으로만 닿는다. 종전에는 `app`이 `8000:8000`을 열어 두어 **nginx가 제공하는 보호가 전부 우회 가능**했다 — `X-Forwarded-For` 덮어쓰기(`frontend/nginx.conf:24`) · `client_max_body_size` · TLS 종단 · `Host` 검사. 디버깅으로 백엔드에 직접 붙어야 하면 `docker compose -f docker-compose.prod.yml exec app …`을 쓰거나 그때만 `--publish 8000:8000`을 붙인다.
 
-### ⚠️ 프로덕션에서는 스텁 인증이 등록되지 않는다
+### ⚠️ 배포 환경에서는 스텁 인증이 등록되지 않는다
 
-`APP_ENV=production`이면 **스텁 인증(`/api/v1/auth/dev-login`) 라우트가 등록되지 않는다** — 런타임 분기가 아니라 기동 시점에 갈린다(`main.py`의 `should_register_dev_auth()`, #276). 따라서 위 절차만 밟으면 화면은 뜨지만 **계산 API는 401을 낸다.** 실제 사용에는 회원가입(`POST /auth/signup`)으로 계정을 만들어야 하며, 가입 확인 메일 발송을 위해 **SMTP 설정(#407)** 이 함께 필요하다.
+`APP_ENV`가 `production`·`staging`이면 **스텁 인증(`/api/v1/auth/dev-login`) 라우트가 등록되지 않는다** — 런타임 분기가 아니라 기동 시점에 갈린다(`main.py`의 `should_register_dev_auth()`, #276). 따라서 위 절차만 밟으면 화면은 뜨지만 **계산 API는 401을 낸다.** 실제 사용에는 회원가입(`POST /auth/signup`)으로 계정을 만들어야 하며, 가입 확인 메일 발송을 위해 **SMTP 설정(#407)** 이 함께 필요하다.
 
 > ### 시연 경로도 `.env`를 읽는다 (`#693`)
 >
@@ -307,7 +309,7 @@ VITE_API_BASE_URL=/api/v1 docker compose -f docker-compose.prod.yml build fronte
 
 배포 배선 자체(정적 자산 · `/api` 프록시 · DB · 계산 엔진)만 확인하려면 인증 스텁이 열리는 개발 모드로 같은 스택을 띄운다.
 
-**OpenAPI 문서도 함께 닫힌다 (`#593`).** `APP_ENV=production`이면 `/docs`·`/redoc`·`/openapi.json`이 **401**을 낸다 — 라우트를 등록하지 않고 공개 경로 목록에서도 빼기 때문이다. 404가 아니라 401인 것은 의도한 것이다: 다른 미등록 경로와 응답이 같아야 「여기에 무언가 있다」는 신호가 남지 않는다. **스펙의 정본은 저장소의 [`API_SPEC.md`](./API_SPEC.md)**이므로 운영 중 조회가 필요하지 않다.
+**OpenAPI 문서도 함께 닫힌다 (`#593` · `#1058`).** `APP_ENV`가 `production`·`staging`이면 `/docs`·`/redoc`·`/openapi.json`이 **401**을 낸다 — 라우트를 등록하지 않고 공개 경로 목록에서도 빼기 때문이다. 404가 아니라 401인 것은 의도한 것이다: 다른 미등록 경로와 응답이 같아야 「여기에 무언가 있다」는 신호가 남지 않는다. **스펙의 정본은 저장소의 [`API_SPEC.md`](./API_SPEC.md)**이므로 운영 중 조회가 필요하지 않다.
 
 
 ```bash
@@ -596,3 +598,4 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-13 | `#513` | 문서 구조 표의 `PRD.md` 행을 **v4.11**, `API_SPEC.md` 행을 **v1.31**, `DB_SCHEMA.md` 행을 **v1.24**로 갱신 — `PRD §12.3.2` 함대 감축 계획 계산 · `API_SPEC §2.17` · `fleet_reduction_plan` 테이블 (#513) |
 | 2026-09-13 | `#513` | 문서 구조 표의 `PRD.md` 행을 **v4.12**, `UIFLOW.md` 행을 **v2.11**로 갱신 — `2-10 함대 감축 계획` 범위 안 · `PRD §6.3` 결정론 안내 문구 (#513) |
 | 2026-09-15 | `#672` | 문서 구조 표의 `PRD.md` 행을 **v4.13**, `API_SPEC.md` 행을 **v1.32**, `DB_SCHEMA.md` 행을 **v1.25**, `UIFLOW.md` 행을 **v2.12**로 갱신 — 역할 2종(사무직·현장직) 도입. 「배포」 절 1단계에 **최초 사무직 설정**(`INITIAL_OFFICE_EMAILS`) 안내와 배포 점검에 역할 확인 행 추가 — 프로덕션에서 비어 있으면 앱이 기동하지 않는다(`API_SPEC §1.2` 「최초 사무직」). ⚠️ `.env.example`은 이 PR에서 고치지 못했다(도구 권한) — `INITIAL_OFFICE_EMAILS` 행을 손으로 추가할 것 (#672) |
+| 2026-09-15 | `#1058` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.33**, `TEST_PLAN.md` 행을 **v1.25**, `DB_SCHEMA.md` 행을 **v1.26**로 갱신 · 배포 확인 절 3곳 정정 — **개발 편의 표면 셋(`dev-login` · OpenAPI 문서 · 시연 계정 시드)이 `staging`에서도 닫히게** 판정을 좁혔다. 종전 판정 `not is_production()`은 허용값 넷 중 셋에서 열렸고, `#524` 때문에 **SMTP 준비 전 배포는 `staging`이 정상 경로**라 그 조합이 실제로 자주 온다. 2026-09-15 OCI 배포에서 `dev-login`·`/docs`가 200을 냈다 (#1058) |

@@ -71,8 +71,8 @@ export const SIGNUP_PATH = SCREEN_BY_ID.SIGNUP.path
 export const PASSWORD_RESET_PATH = SCREEN_BY_ID.PASSWORD_RESET.path
 export const VERIFY_EMAIL_PATH = SCREEN_BY_ID.VERIFY_EMAIL.path
 
-/** 상대 경로 — 개발은 vite 프록시, 프로덕션은 같은 출처(vite.config 참조). */
-const AUTH_API_BASE = '/api/v1'
+/** API base URL — 개발은 vite 프록시, Cloudflare Pages는 VITE_API_BASE_URL로 주입. */
+const AUTH_API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const ME_URL = `${AUTH_API_BASE}/auth/me`
 const LOGIN_API_URL = `${AUTH_API_BASE}/auth/login`
 const LOGOUT_API_URL = `${AUTH_API_BASE}/auth/logout`

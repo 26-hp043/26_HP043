@@ -14,6 +14,7 @@ calculation_run INSERT 시 needs_recalc는 기본 false — 024의 server_defaul
 from __future__ import annotations
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
@@ -21,28 +22,24 @@ VALID_HASH = "sha256:" + "d" * 64
 
 
 async def _insert_vessel(conn, imo: str) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'RECALC TEST', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'RECALC TEST', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_calculation_run(conn, vessel_id: str) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO calculation_run "
-            "(calculation_type, vessel_id, input_hash, parameter_hash, "
-            " model_version, result_json, parameters_used) "
-            "VALUES ('VOYAGE_ESTIMATE', :vid, :ih, :ih, "
-            "'{}'::jsonb, '{}'::jsonb, '{}'::jsonb) RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO calculation_run "
+        "(calculation_type, vessel_id, input_hash, parameter_hash, "
+        " model_version, result_json, parameters_used) "
+        "VALUES ('VOYAGE_ESTIMATE', :vid, :ih, :ih, "
+        "'{}'::jsonb, '{}'::jsonb, '{}'::jsonb) RETURNING id",
         {"vid": vessel_id, "ih": VALID_HASH},
     )
-    return str(row.scalar_one())
 
 
 async def test_needs_recalc_flip_allowed(conn):

@@ -3,12 +3,12 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.25 |
+| 버전 | v1.26 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
 | 최종 수정일 | 2026-09-15 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
-| DB 엔진 | PostgreSQL 16 (권장) |
+| DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
 
 ---
 
@@ -1398,8 +1398,8 @@ CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_a
 | `simulation_snapshot(id)` | `annual_simulation_run.snapshot_id` | **RESTRICT** | immutable 테이블 참조 |
 | `weather_snapshot(id)` | `voyage_scenario.weather_snapshot_id` | **SET NULL** | 기상 스냅샷 만료 시 시나리오 보존 |
 | `weather_snapshot(id)` | `calculation_run.weather_snapshot_id` | **RESTRICT** [#102] | immutable 테이블 참조(§7.3). SET NULL은 자식 UPDATE라 트리거에 차단됨 → RESTRICT (§2.5 [#102] 참조) |
-| `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE CASCADE** (코드 변경 시), ON DELETE NO ACTION (활성 연료 삭제 방지) |
-| `fuel_type(code)` | `voyage_fuel_use.fuel_type` | **ON UPDATE CASCADE**, ON DELETE NO ACTION |
+| `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE CASCADE** (코드 변경 시), ON DELETE NO ACTION (활성 연료 삭제 방지). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — `§7.4` |
+| `fuel_type(code)` | `voyage_fuel_use.fuel_type` | **ON UPDATE CASCADE**, ON DELETE NO ACTION. ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — `§7.4` |
 
 ### 7.2 `updated_at` 자동 갱신 트리거 [M-2]
 
@@ -1478,6 +1478,78 @@ CREATE TRIGGER trg_snapshot_immutable
 > **[#283] `calc_run_guard` (마이그레이션 024).** calculation_run만 예외를 둔다 — PRD §8.4가 선박 DWT/GT 변경 시 재계산 필요 표시(`needs_recalc` false→true)를 요구하는데, 이는 UPDATE여야만 한다. 가드는 **플립 외 모든 변경을 여전히 거부**한다: 다른 컬럼 동시 변경, true→false 되돌림, DELETE 전부 차단. 컬럼을 열거하지 않고 `to_jsonb` 차집합으로 비교하므로 이후 컬럼 추가도 자동으로 보호된다. 공유 함수 `prevent_mutation()`은 simulation_snapshot이 계속 사용한다.
 
 ---
+
+### 7.4 🔴 CUBRID에서는 CHECK가 강제되지 않는다 (`#1058`)
+
+**CUBRID 11.4.6은 `CHECK` 제약을 구문으로 받기만 하고 검사하지 않는다.** 빈 테이블로
+재현한 결과다.
+
+```
+CREATE TABLE _t2 (n INT, CONSTRAINT chk_n CHECK (n > 0))   → Committed
+INSERT INTO _t2 VALUES (-5)                                 → row affected
+SELECT n FROM _t2                                           → -5
+```
+
+그래서 **이 문서와 ORM 모델에 적힌 `CHECK`는 CUBRID 배포에서 아무것도 막지 않는다.**
+적혀 있으니 막힐 것이라고 읽으면 안 된다. 모델에 제약이 있는지를 보는 검사도 같은
+이유로 무의미하다 — 적혀 있어도 막지 않는다.
+
+**트리거와 FK는 강제된다**(확인함). 그래서 지킬 것은 트리거로 옮긴다.
+
+#### 무엇이 사라졌고 무엇을 되살렸나
+
+전환 분기점(`0f4b062`)의 ORM 모델과 대조하면 **CHECK 6 · FK 3**이 사라졌고, 전환 직후
+이 DB의 트리거는 **0개**였다 — `§7.3`의 immutable 보호가 **하나도 남아 있지 않았다.**
+
+마이그레이션 `a7d3e9b14f26`이 그중 **재현성 계약(`TECH_SPEC §5.4`)과 참조 정합에
+직결되는 9가지**를 트리거 15개로 되살린다.
+
+| 되살린 것 | 원래 형태 | CUBRID에서 |
+|---|---|---|
+| 해시 형식 4 | `chk_input_hash_format`·`chk_param_hash_format`(두 표) | `BEFORE INSERT` + `REGEXP` |
+| 연료 코드 참조 3 | `fk_vessel_default_fuel_type` 등 FK | 자식 `BEFORE INSERT`·`BEFORE UPDATE` (부모 쪽은 아래) |
+| 불변성 2 | `trg_calcrun_immutable`·`trg_snapshot_immutable` | `BEFORE UPDATE`·`BEFORE DELETE` |
+
+되살리지 않은 것은 둘이다.
+
+- **값 범위 CHECK**(`chk_gt_positive`·`chk_imo_format` 등) — 지금은 애플리케이션 계층만 막는다.
+- 🔴 **부모 쪽 연료 코드 삭제 금지** — 원래 FK의 `ON DELETE NO ACTION`에 해당한다.
+  한 번 트리거로 넣었다가 **뺐다.** `db/seed.py`의 재적재가
+  `sqlalchemy_cubrid.dml.replace`(= `REPLACE INTO`)를 쓰는데 **CUBRID의 `REPLACE`는
+  DELETE + INSERT로 구현되어** `BEFORE DELETE` 트리거를 깨운다. 같은 `code`가 곧바로
+  다시 들어가 고아가 생기지 않는데도 재적재 전체가 막혔다(`tests/test_seed_data.py` 7건이
+  fixture 단계에서 죽었다). 트리거는 REPLACE가 부른 DELETE와 사람이 친 DELETE를
+  구분하지 못한다.
+
+  **남는 구멍** — `DELETE FROM fuel_type`을 직접 쳐서 참조 중인 코드를 지우면 자식이
+  고아가 된다. 자식 쪽 트리거는 **넣는 쪽만** 보므로 이미 들어간 행을 지켜 주지 않는다.
+  `tests/test_constraint_triggers_db.py::test_parent_side_delete_is_deliberately_not_guarded`가
+  이 구멍이 열려 있다는 사실을 고정한다 — 나중에 막게 되면 그 검사가 실패하고, 그때
+  seed 재적재를 함께 봐야 한다.
+
+#### CUBRID에서 달라지는 것 넷
+
+1. **FK는 PK만 가리킬 수 있다.** `fuel_type`은 PK가 `id`이고 `code`는 별도 UNIQUE라
+   `§7.1` 마지막 두 행(그리고 `not_underway_fuel_use`)은 **FK로 걸 수 없다.**
+
+   ```
+   ALTER TABLE vessel ADD CONSTRAINT fk_vessel_default_fuel_type
+     FOREIGN KEY (default_fuel_type) REFERENCES fuel_type(code)
+   → ERROR: does not include the primary key member 'id'.  (errno=-920)
+   ```
+
+2. **`ON UPDATE CASCADE`를 지원하지 않는다.** `§7.1`이 연료 코드 변경 시 전파를
+   규정하지만 CUBRID에서는 **전파 대신 막는다.** 여는 쪽이 아니라 닫는 쪽으로 다르다.
+3. **트리거 상관명이 `OLD`가 아니라 `obj`다.** `old`를 쓰면
+   「Attribute "old" was not found」로 생성 자체가 선다.
+4. **`to_jsonb(NEW) - 'needs_recalc'`가 없다.** `§7.3`의 `calc_run_guard()`는 그 연산으로
+   「`needs_recalc` 말고는 하나도 안 바뀌었는가」를 한 줄로 적었는데, CUBRID에서는 **열을
+   열거**한다. 🔒 **`calculation_run`에 열을 더하면 그 열거도 함께 늘려야 한다** —
+   빠뜨리면 **그 열만 조용히 수정 가능해진다.** `tests/test_constraint_triggers_db.py`가
+   열거를 스키마와 대조해 잡는다.
+
+`calculation_run`이 **전면 불변이 아니라는 것**은 `§7.3`·`024` 그대로다 — DELETE는 언제나
+거부, UPDATE는 `needs_recalc` 0 → 1 플립이면서 다른 열이 그대로일 때만 통과한다.
 
 ## 8. 마이그레이션 전략 [X-1]
 
@@ -1770,3 +1842,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-13 | `#363` | **v1.23 — §2.6 `annual_simulation_run.apply_feedback_factor` 컬럼 추가**(마이그레이션 042) + 각주. 실적 보정계수(`PRD §12.2.1`)를 **켰는지만** 저장하고 계수 값은 저장하지 않는다 — 같은 스냅샷에서 다시 계산하면 같은 값이라 두 곳에 두면 갈릴 수 있다. 기존 행은 `false`(사실과 같음). downgrade는 `IRREVERSIBLE`. 컬럼 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#363) |
 | 2026-09-13 | `#513` | **v1.24 — §2.22 `fleet_reduction_plan` 신설**(마이그레이션 043). `UIFLOW 2-10` 함대 감축 계획의 저장본. ⚠️ **단가를 계획에 저장**한다(2026-09-13 결정 C) — 선박 제원에 두면 단가를 고친 순간 과거 계획의 손익이 조용히 바뀐다. `result`는 저장 시점 결과를 그대로 두고 다시 계산하지 않는다. `created_by`는 SET NULL(계정이 지워져도 계획은 남는다). downgrade는 `IRREVERSIBLE`. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#513) |
 | 2026-09-15 | `#672` | **v1.25 — §2.15 `app_user.role` 컬럼 추가**(마이그레이션 044 · CHECK `chk_app_user_role`). 사무직(`OFFICE`)·현장직(`FIELD`) 2종, 기본값 현장직, **기존 행은 전부 사무직**으로 채웠다 — 그전까지 전원이 전 기능을 썼으므로 그래야 아무도 잃지 않는다. §2.14 `action` 열거에 `ROLE_CHANGE` 추가(행위자·대상·전후 값). §9.2 실측 행 갱신(역할 구분이 생겼고 회사 소속은 여전히 없다). downgrade는 열을 지워 지정 기록이 사라지므로 `IRREVERSIBLE`(`migration_guard.py`). 컬럼 추가라 버전을 올린다(`#363`이 042 컬럼 추가에서 올린 선례) (#672) |
+
+| 2026-09-15 | `#1058` | **v1.26 — `§7.4` 신설**: CUBRID는 `CHECK`를 강제하지 않는다. 빈 테이블로 재현했다(`CHECK (n > 0)`에 `-5`가 들어가 조회된다). 이 문서와 ORM에 적힌 CHECK가 **배포에서 아무것도 막지 않는다**는 사실을 적어 두지 않으면 다음 사람이 「적혀 있으니 막힌다」로 읽는다 — 그것이 이 절을 만든 이유다. 전환 분기점(`0f4b062`) 대조로 **CHECK 6 · FK 3**이 사라졌고 **트리거는 0개**였음을 실측했다(`§7.3` immutable 보호가 통째로 없었다). 마이그레이션 `a7d3e9b14f26`이 재현성·참조 정합 9가지를 트리거 15개로 되살린다. `§7.1` 연료 코드 FK 세 행과 `DB 엔진` 줄에 CUBRID 단서를 달았다 — FK가 **PK만** 가리킬 수 있어(`errno=-920`) 그 세 행은 FK로 성립하지 않고, `ON UPDATE CASCADE`도 지원되지 않아 전파 대신 막힌다. 값 범위 CHECK(`chk_gt_positive` 등)와 **부모 쪽 연료 삭제 금지**는 되살리지 않았다 — 뒤엣것은 한 번 넣었다가 뺐다. `REPLACE INTO`가 DELETE + INSERT로 구현돼 seed 재적재가 통째로 막혔고(`test_seed_data.py` 7건이 fixture에서 죽었다), 트리거는 REPLACE의 DELETE와 사람이 친 DELETE를 구분하지 못한다. 남는 구멍을 §7.4에 적고 `test_parent_side_delete_is_deliberately_not_guarded`로 고정했다 (#1058) |

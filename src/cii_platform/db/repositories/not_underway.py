@@ -78,7 +78,7 @@ async def sum_fuel_by_type(
         .where(
             NotUnderwayPeriod.vessel_id == vessel_id,
             NotUnderwayPeriod.regulation_year == regulation_year,
-            NotUnderwayPeriod.is_deleted.is_(False),
+            NotUnderwayPeriod.is_deleted == 0,
         )
         .group_by(NotUnderwayFuelUse.fuel_type, NotUnderwayFuelUse.cf_used)
         .order_by(NotUnderwayFuelUse.fuel_type, NotUnderwayFuelUse.cf_used)
@@ -115,7 +115,7 @@ async def sum_distance(
     stmt = select(func.coalesce(func.sum(NotUnderwayPeriod.distance_nm), 0)).where(
         NotUnderwayPeriod.vessel_id == vessel_id,
         NotUnderwayPeriod.regulation_year == regulation_year,
-        NotUnderwayPeriod.is_deleted.is_(False),
+        NotUnderwayPeriod.is_deleted == 0,
     )
     if as_of is not None:
         stmt = stmt.where(NotUnderwayPeriod.started_at <= as_of)
@@ -140,7 +140,7 @@ async def list_periods_for_year(
     stmt = select(NotUnderwayPeriod).where(
         NotUnderwayPeriod.vessel_id == vessel_id,
         NotUnderwayPeriod.regulation_year == regulation_year,
-        NotUnderwayPeriod.is_deleted.is_(False),
+        NotUnderwayPeriod.is_deleted == 0,
     )
     if as_of is not None:
         stmt = stmt.where(NotUnderwayPeriod.started_at <= as_of)
@@ -182,7 +182,7 @@ async def list_periods(
     """
     stmt = select(NotUnderwayPeriod).where(
         NotUnderwayPeriod.vessel_id == vessel_id,
-        NotUnderwayPeriod.is_deleted.is_(False),
+        NotUnderwayPeriod.is_deleted == 0,
     )
     if regulation_year is not None:
         stmt = stmt.where(NotUnderwayPeriod.regulation_year == regulation_year)
@@ -233,7 +233,7 @@ async def find_overlapping(
         select(NotUnderwayPeriod)
         .where(
             NotUnderwayPeriod.vessel_id == vessel_id,
-            NotUnderwayPeriod.is_deleted.is_(False),
+            NotUnderwayPeriod.is_deleted == 0,
             ends_after_new_start,
             starts_before_new_end,
         )

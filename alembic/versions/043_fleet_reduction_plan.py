@@ -29,13 +29,13 @@ draft는 저장하지 않는다 — 슬라이더를 움직이는 동안은 화�
 from __future__ import annotations
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from alembic import op
 from cii_platform.db.migration_guard import guard_irreversible_downgrade
+from cii_platform.db.types import JSONText, UuidText
 
 revision = "043"
-down_revision = "042"
+down_revision = "a7d3e9b14f26"
 branch_labels = None
 depends_on = None
 
@@ -43,24 +43,22 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "fleet_reduction_plan",
-        sa.Column(
-            "id",
-            postgresql.UUID(as_uuid=True),
-            server_default=sa.text("gen_random_uuid()"),
-            nullable=False,
-        ),
+        # CUBRID에는 `gen_random_uuid()`가 없고 `id`에 기본값을 둘 수단도 없다
+        # (`#1058`) — **넣는 쪽이 `uuid4().hex`로 만든다.** `services/fleet_reduction.py`가
+        # 그렇게 한다.
+        sa.Column("id", UuidText(), nullable=False),
         sa.Column("name", sa.String(length=100), nullable=False),
         sa.Column("regulation_year", sa.Integer(), nullable=False),
         sa.Column("target", sa.String(length=20), nullable=False),
-        sa.Column("adjustments", postgresql.JSONB(), nullable=False),
-        sa.Column("prices", postgresql.JSONB(), nullable=False),
-        sa.Column("result", postgresql.JSONB(), nullable=False),
+        sa.Column("adjustments", JSONText(), nullable=False),
+        sa.Column("prices", JSONText(), nullable=False),
+        sa.Column("result", JSONText(), nullable=False),
         # 계정이 지워져도 계획은 남긴다 — 보고한 산출물이다.
-        sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("created_by", UuidText(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name="pk_fleet_reduction_plan"),
@@ -70,19 +68,32 @@ def upgrade() -> None:
             name="fk_fleet_reduction_plan_user",
             ondelete="SET NULL",
         ),
-        sa.CheckConstraint(
-            "target IN ('NO_AT_RISK','ALL_C_OR_BETTER')", name="chk_fleet_reduction_plan_target"
-        ),
-        sa.CheckConstraint("length(trim(name)) > 0", name="chk_fleet_reduction_plan_name"),
+        # CHECK를 걸지 않는다 (`#1058` · `DB_SCHEMA §7.4`) — CUBRID는 받기만 하고
+        # **검사하지 않는다.** `target`은 아래 트리거로 막고, `name` 공백 검사는
+        # 입력 스키마(`api/schemas/fleet_reduction.py`)가 이미 한다.
     )
     op.create_index(
         "idx_fleet_reduction_plan_created",
         "fleet_reduction_plan",
         [sa.text("created_at DESC")],
     )
+    # `target`은 계획의 성격을 가르는 값이라 트리거로 막는다 — 틀린 값이 들어가면
+    # 어느 목표로 세운 계획인지 알 수 없게 되고, 이 표는 **보고한 산출물**이다.
+    for event in ("INSERT", "UPDATE"):
+        op.execute(
+            f"CREATE TRIGGER trg_fleet_plan_target_{event.lower()[:3]} "
+            f"BEFORE {event} ON fleet_reduction_plan "
+            "IF NOT (new.target IN ('NO_AT_RISK', 'ALL_C_OR_BETTER')) EXECUTE REJECT"
+        )
 
 
 def downgrade() -> None:
     guard_irreversible_downgrade("043")
-    op.drop_index("idx_fleet_reduction_plan_created", table_name="fleet_reduction_plan")
+    # 인덱스를 따로 지우지 않는다. CUBRID는 `DROP INDEX <이름>`을 받지 않고
+    # `... ON <테이블>`을 요구하는데, alembic의 `drop_index()`가 내는 구문은 앞쪽이라
+    # `Syntax error: unexpected END OF STATEMENT`로 선다 (`#1058`).
+    #
+    # **테이블을 드롭하면 그 인덱스도 함께 사라지므로 결과가 같다.**
+    # `1c444a5c4819`의 downgrade가 이미 같은 판단을 적어 두었다 — `043`이 `main`에서
+    # 옮겨 오면서 이 줄만 PostgreSQL 판본 그대로 남았다.
     op.drop_table("fleet_reduction_plan")

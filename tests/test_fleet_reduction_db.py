@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,14 +40,9 @@ async def session(conn):
 @pytest_asyncio.fixture
 async def vessel_id(session) -> UUID:
     """확정 1건 + 계획 2건(각 2,880nm · 12kn · HFO 100t). 기준 속력 12kn · 일일 24t."""
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "SELECT 2026, 11.0, '2026-01-01', 'TEST', '1.0' "
-            "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = 2026)"
-        )
-    )
+    # `year`는 CUBRID 예약어라 raw SQL에서는 인용해야 하고, `id`에 기본값도 없다
+    # (`#1058`). 두 가지를 다 아는 conftest 헬퍼를 쓴다.
+    await ensure_regulation_year(session, 2026, 11.0)
     new_id = uuid4()
     await session.execute(
         text(

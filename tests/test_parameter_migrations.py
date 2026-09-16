@@ -69,7 +69,7 @@ async def _insert_boundary(
 async def _insert_weather_param(conn, model_version="TOWNSIN_KWON_ALPHA", key="alpha"):
     await conn.execute(
         text(
-            "INSERT INTO weather_model_parameter (model_version, key, value) "
+            'INSERT INTO weather_model_parameter (model_version, "key", "value") '
             "VALUES (:mv, :k, '1.0')"
         ),
         {"mv": model_version, "k": key},

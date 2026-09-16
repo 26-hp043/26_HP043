@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TEST_PLAN.md |
-| 버전 | v1.24 |
+| 버전 | v1.25 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) + §4.7 인증 API 케이스 (#279) + **v1.6에서 방향 전환 반영 — 신규 서브시스템 5절 · §14 파일 인벤토리 · §11 실측 정정 (#394)** |
 | 최종 수정일 | 2026-09-15 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21, `DB_SCHEMA.md` v1.16 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1110,10 +1110,10 @@ def test_no_implicit_float_in_layer1():
 | AT-AUTH-009 | CSRF 토큰 누락·불일치 (POST·PATCH·DELETE) | 403 `CSRF_ERROR`, GET은 통과 (`test_auth_session.py`·`test_auth_wiring.py`) |
 | AT-AUTH-010 | `session_row` 없는 상태 변경 (배선 어김) | 401 — fail-closed (`test_auth_session.py`) |
 | AT-AUTH-011 | 공개 경로 | 열거 경로(health·signup·login·dev-login)만 무인증 통과 (`test_auth_failure_paths.py`) |
-| AT-AUTH-012 | `APP_ENV=production` dev-login | 라우트 미등록 (`test_auth_failure_paths.py`) |
+| AT-AUTH-012 | **배포 환경**(`APP_ENV`가 `production`·`staging`) dev-login | 라우트 미등록 (`test_auth_failure_paths.py`·`test_dev_auth.py`). `staging`을 함께 보는 이유는 `#1058` — 종전 판정 `not is_production()`이 허용값 넷 중 셋에서 열었고, 이 표가 `production`만 적어 **`staging`이 어느 쪽으로 떨어지는지 아무도 보지 않았다** |
 | AT-AUTH-013 | dev-login 재기동 (고정 UUID) | 2회 모두 200 (`test_dev_auth.py`) |
-| AT-AUTH-014 | `APP_ENV=production` OpenAPI 문서 (`/docs`·`/redoc`·`/openapi.json`) | **401** — 라우트 미등록 + 공개 경로 제외. 404가 아니라 **다른 미등록 경로와 같은 응답**이어야 한다 (`test_docs_exposure.py`) |
-| AT-AUTH-015 | 공개 경로 목록의 모든 경로에 라우트가 실재하는가 | **전부 실재.** 없으면 그 경로만 404가 되어 신호가 남는다 — `APP_ENV=production` dev-login이 그랬다 (`test_docs_exposure.py`) |
+| AT-AUTH-014 | **배포 환경**(`production`·`staging`) OpenAPI 문서 (`/docs`·`/redoc`·`/openapi.json`) | **401** — 라우트 미등록 + 공개 경로 제외. 404가 아니라 **다른 미등록 경로와 같은 응답**이어야 한다 (`test_docs_exposure.py`) |
+| AT-AUTH-015 | 공개 경로 목록의 모든 경로에 라우트가 실재하는가 | **전부 실재.** 없으면 그 경로만 404가 되어 신호가 남는다 — 배포 환경(`production`·`staging`) dev-login이 그랬다 (`test_docs_exposure.py`) |
 | AT-AUTH-016 | **가입 게이트** — 허용 도메인 밖 · 초대 코드 없음 / 틀림 (`#808`) | **422 · 조건을 가르지 않는 한 문구**(`PRD §6.3`) · 계정·세션 미발급. 도메인 **또는** 코드 하나만 맞으면 201. 도메인은 정확히 일치만(`evil`·하위 도메인 불가). **프로덕션에서 둘 다 미설정이면 기동 거부** (`test_signup_gate.py`·`test_auth_api.py`) |
 | AT-AUTH-017 | **역할 2종** (`#672`) — 현장직이 사무직 전용 경로(`API_SPEC §1.2` 표 14종)를 부름 · 마지막 사무직의 탈퇴·강등 · 새 계정·최초 사무직 이메일 | **403 `FORBIDDEN_ROLE` · 정본 문구**(CSRF 403과 코드가 다르다) · 마지막 사무직은 **409 `CONFLICT`**, 계정·세션 그대로 · 새 계정은 `FIELD`, `INITIAL_OFFICE_EMAILS`에 든 이메일은 가입·로그인에서 `OFFICE`(한 번만 감사 기록) · **정본 표 ↔ 소스의 `require_office` 목록 일치** · 프로덕션에서 목록 미설정이면 기동 거부(실제 lifespan) · 044가 기존 계정을 전부 사무직으로 (`test_roles_db.py`) |
 | AT-AUTH-018 | **세션 검증 한 벌** (`#1050`) — 쿠키 없음 · 세션 없음 · 만료 · 폐기 · 삭제된 계정을 **실제 쿠키로** `resolve_session`에 통과시킴 · 같은 상황을 HTTP로 | 다섯 분기 각각의 문구(`UNAUTHORIZED`) · **미들웨어의 401 문구 = 의존성의 문구**(한 벌) · `auth/` 아래 세션 토큰 조회 코드가 **한 곳** · 미들웨어에 자기 검증(`hash_token`) 없음 (`test_session_resolution_db.py`) |
@@ -1680,6 +1680,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_auth_tokens.py` | 23 | **§4.7 인증 API** — 토큰 일회성·만료·용도 분리 · 재설정 시 세션 전량 무효화 |
 | `test_password.py` | 24 | **§4.7 인증 API** — 해싱·정책·타이밍 방어 · **해싱이 이벤트 루프를 막지 않는다**(`#827`) · 길이 규칙·세션 유효기간이 **`API_SPEC §1.2`에 같은 값으로** 적혀 있다(`#830`) |
 | `test_mail.py` | 21 | **§5 인프라 · 메일 발송** — 프로덕션 console 가드 · 백엔드 선택 · 발송 실패 래핑 · 템플릿 · **`SMTP_USE_TLS` 모르는 값 거부**(`#868`). `#810`부터 **`APP_ENV=Production`에서도 console 가드가 발동하는지**를 함께 본다 — `load_mail_settings()`가 `APP_ENV`를 독립적으로 읽어 `== "production"`으로 비교했으므로, `config.py`만 고쳐서는 닫히지 않는 **다섯 번째 가드**였다 |
+| `test_constraint_triggers_db.py` | 13 | **§5 인프라 · DB 제약 대체** — CUBRID가 CHECK를 **검사하지 않아**(구문만 받고 위반 행을 넣는다) 트리거로 되살린 제약의 계약 (`#1058` · 마이그레이션 `a7d3e9b14f26`). 모델에 `CheckConstraint`가 적혀 있는지를 보지 않는다 — **적혀 있어도 막지 않으므로** 전부 실제로 위반을 넣어 보고 거부되는지만 본다. 넷을 고정한다 — ⑴ **해시 형식**(`sha256:` + 64 hex): 깨진 해시가 저장되면 그 실행은 영영 재현 대조를 못 하고 immutable이라 고칠 수도 없다 ⑵ **불변성**: `calculation_run`·`simulation_snapshot`의 UPDATE·DELETE 차단, 단 `needs_recalc` 0 → 1 플립만 통과(`024` 계약) — **플립에 다른 열을 실어 보내는 것**을 따로 본다 ⑶ **연료 코드 참조**: CUBRID의 FK는 **PK만** 가리킬 수 있어 `fuel_type.code`(별도 UNIQUE)에는 걸 수 없다(`errno=-920`), 그래서 FK가 아니라 트리거다 ⑷ **열 목록이 스키마를 따라가는가**: PostgreSQL은 `to_jsonb(NEW) - 'needs_recalc'`로 전 열을 자동 비교했는데 CUBRID에는 그 연산이 없어 열거로 옮겼고, **열거는 따라오지 않는다** — 빠뜨리면 그 열만 조용히 수정 가능해진다. 돌연변이(`upgrade()`가 아무 트리거도 만들지 않게)로 검출된다. ⚠️ **부모 쪽 연료 삭제 금지는 넣었다가 뺐다** — `REPLACE INTO`가 DELETE + INSERT로 구현돼 seed 재적재가 막혔고(`test_seed_data.py` 7건), 지금은 그 구멍이 열려 있다는 **사실을 고정하는 검사**가 그 자리에 있다(`test_parent_side_delete_is_deliberately_not_guarded`) |
 | `test_config.py` | 12 | **§5 인프라 · 기동 검증** — `APP_ENV` 해석의 계약. `DATABASE_URL` 프로덕션 가드(`#118`)에 더해 **`APP_ENV` 정규화·허용값 검증**을 고정한다(`#810`): `Production`·`"production "`이 **프로덕션으로 닫히는지**(종전에는 이 셋이 전부 development로 떨어져 dev-login·`/docs`·데모 계정 시드·DB URL 폴백·console 메일 백엔드가 **함께, 조용히** 열렸다 — 앱은 정상 기동하고 `/health`도 200이다) · `prod`·`prd`·`live` 같은 **모르는 값이면 기동이 서는지** · 허용값 넷(`development`·`test`·`staging`·`production`)이 전부 뜨는지 · 정규화가 값을 바꾸면 **경고 로그가 남는지**(엄격 일치 안이 주는 「틀렸다는 신호」를 이 로그가 대신한다) |
 | `test_csv_fixture.py` | 3 | §3 통합 · CSV |
 | `test_voyage_import_db.py` | 30 | **§3.4 통합 · CSV 가져오기 · 커서 페이지네이션** — **출항·도착 예정 시각 선택 컬럼**(`IT-CSV-008` · `#906`: UTC 저장 · 옛 양식도 통과 · 시간대 없는 값은 행 오류 · 빈 출항 시각 수를 `dry_run`에서도 셈 · **가져온 진행 중 항차가 시뮬레이션 시계에서 실제로 누적에 기여**) · 수식 주입 4종 escape · 숫자 열은 거부 · 부분 성공(행 번호 보고) · 1000행 상한은 자르되 알린다 · dry-run (`#60`) · **커서 페이지네이션 3종** — 페이지 크기를 넘는 항차에 도달 · **발급한 커서를 서버가 읽는다** · 깨진 커서는 422 (`#627`) |
@@ -1689,11 +1690,12 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_doc_cross_refs.py` | 7 | **§5 인프라 · 문서 정합** — `UIFLOW`·`DESIGN_SYSTEM`을 가리키는 절·화면 참조가 **실재하는지**, 그리고 `AGENTS §4.7` 표기 규칙(화면에 `§`를 붙이지 않는다)을 지키는지. `.md`와 `frontend/src` 주석을 함께 훑는다 (`#583`·`#602`). **규모 착수 조건**(`DB_SCHEMA §4.2` 1,000만 행 · `§9.2` 두 번째 회사 + `#672` 선행)이 지워지지 않았는지도 본다 (`#775`) |
 | `test_doc_version_sync.py` | 3 | **§5 인프라 · 문서 정합** — `README` ↔ 정본 헤더 버전 일치 (`AGENTS §4`) |
 | `test_db_hardening_023.py` | 6 | §5 DB · 제약·마이그레이션 |
-| `test_demo_up_script.py` | 22 | **§5 DB · 운영 스크립트** — 시연 기동 스크립트의 계약. `bash -n` 문법 · **JSON 값 추출**(파이썬 없이) · `--check`가 `.venv` 없이 도는 것 · 기동은 여전히 막히는 것. **CI가 이 스크립트를 실행하지 않아** `#616`의 `mktemp` 오류가 저장소에 들어와 있었다 (`#637`) |
+| `test_demo_up_script.py` | 24 | **§5 DB · 운영 스크립트** — 시연 기동 스크립트의 계약. `bash -n` 문법 · **JSON 값 추출**(파이썬 없이) · `--check`가 `.venv` 없이 도는 것 · 기동은 여전히 막히는 것. **CI가 이 스크립트를 실행하지 않아** `#616`의 `mktemp` 오류가 저장소에 들어와 있었다 (`#637`) |
 | `test_demo_vessel_seed.py` | 17 | **§5.7 DB · seed 적재** — 합성 IMO의 체크섬 유효성 포함 (`#525`) · **제원 역산과 시드↔DB 어긋남 감지**(`#587` — 시드는 `ON CONFLICT DO NOTHING`이라 **기존 행을 갱신하지 않는다**. 시드에 값을 채워도 볼륨을 유지한 환경에는 들어가지 않고, 그 상태는 오류가 아니라 화면의 `—`로만 드러난다) |
 | `test_demo_seed_counts.py` | 5 | **§5.7 DB · seed 적재** — 적재·삭제 **행 수 보고**가 사실인지 (재실행 0 · 비운 뒤 실제 건수 · 음수 없음, `#481`) |
 | `test_demo_user_seed.py` | 11 | **§5.7 DB · seed 적재** — **시연 계정**의 계약 (`#692`). 시드가 계정을 만들지 않아 DB를 다시 만들 때마다 사람이 가입해야 했고, `#691` 이전의 테스트가 계정을 지우면 로그인 화면으로 들어갈 길이 없었다. 넷을 고정한다 — ⑴ 저장된 해시가 **그 비밀번호로 실제 검증**되는지(행 수만 보면 평문이 들어가도 통과한다) ⑵ 다시 돌려도 늘지 않고 **사람이 고친 값을 덮지 않는지** ⑶ **`APP_ENV=production`에서는 만들지 않는지**(고정 비밀번호가 프로덕션에 있으면 알려진 순간 누구나 들어온다) ⑷ 없으면 없다고 말하는지 — `is_deleted` 행을 「있다」로 세면 점검이 거짓말을 한다 |
-| `test_dev_auth.py` | 6 | **§4.7 API · 인증** — 스텁 인증 라우트 등록 판정(`AT-AUTH-013`). `#810`부터 **`auth_dev`가 `APP_ENV` 사본을 갖지 않는 것**까지 본다 — 종전에는 `from cii_platform.config import _ENV`로 import 시점에 값을 복사해 `!= "production"`으로 다시 비교했고, 부정형이라 **모르는 값에서 여는 쪽으로** 틀렸다 |
+| `test_db_types.py` | 10 | **§5 인프라 · CUBRID 호환 타입** — `db/types.py`의 입출력 계약 (`#1058`). ⚠️ **이 모듈에는 검사가 하나도 없었다.** PostgreSQL 전용 타입 둘(`JSONB`·`UUID`)을 파이썬 쪽으로 옮기면서 **입력 관용도가 조용히 좁아진 것**을 아무도 보지 못했고, 전체 pytest에서 **59건**이 `'str' object has no attribute 'hex'` 한 줄로 떨어지고 나서야 드러났다. 셋을 고정한다 — ⑴ `UuidText`가 **`str`을 받는다**(전환 전 `postgresql.UUID(as_uuid=True)`는 psycopg가 문자열을 받아 줬다 — 되돌린 것이지 넓힌 것이 아니다) ⑵ 그러면서 **아무 문자열이나 통과시키지 않는다**(파싱 실패는 `ValueError` — 종전 `AttributeError`는 무엇이 틀렸는지 말하지 않는다) ⑶ **저장 모양이 바뀌지 않는다**(`impl`이 `sa.Uuid` 그대로라 DDL이 `CHAR(32)`로 같고 **마이그레이션이 필요 없다**) — 이것이 깨지면 스키마가 갈리므로 이 검사가 먼저 실패한다. `JSONText`는 왕복·한글 보존·NULL과 함께 **이중 인코딩의 모양**을 기록한다(미리 `json.dumps`한 값을 넣으면 읽을 때 `dict`가 아니라 `str`이 나와 호출부가 `.get`에서 선다). DB가 필요 없다 — bind processor를 직접 부른다. 돌연변이(`str` 강제 변환 제거)로 19건 중 **7건 검출** |
+| `test_dev_auth.py` | 7 | **§4.7 API · 인증** — 스텁 인증 라우트 등록 판정(`AT-AUTH-013`). `#810`부터 **`auth_dev`가 `APP_ENV` 사본을 갖지 않는 것**까지 본다 — 종전에는 `from cii_platform.config import _ENV`로 import 시점에 값을 복사해 `!= "production"`으로 다시 비교했고, 부정형이라 **모르는 값에서 여는 쪽으로** 틀렸다 |
 | `test_docs_exposure.py` | 15 | **§4.7 API · 인증** — 프로덕션 OpenAPI 문서 노출 범위 (`AT-AUTH-014`) · **공개 경로 불변식**(`AT-AUTH-015`). 판정이 import 시점에 확정되므로 **하위 프로세스로 진짜 앱을 기동**해 응답 코드를 본다 (`#593` · `#648`) |
 | `test_error_handlers.py` | 19 | §4 API · 공통·운영 |
 | `test_error_handlers_116.py` | 18 | §4 API · 공통·운영 |
@@ -1728,7 +1730,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_simulation_clock.py` | 30 | **§2.11 단위 · 시뮬레이션 시계** |
 | `test_testplan_sync.py` | 10 | **§14 인벤토리 동기화** · 파일·함수·수집 수가 **§14.2 합계 한 곳에만** 있다 — `§11.1`·`README`가 사본을 다시 품으면 실패(`#830`) |
 | `test_tracked_files_are_text.py` | 2 | **§14 인벤토리 동기화** — 추적 소스에 NUL이 섞이면 git이 바이너리로 보아 **PR diff와 `grep`이 막힌다.** `.gitattributes`는 보이게 할 뿐 유입을 막지 못해 들어오는 자리에 신호를 둔다 (`#572` 발견 · `#575`) |
-| `test_url_normalize.py` | 3 | §4 API · 공통·운영 |
+| `test_url_normalize.py` | 4 | §4 API · 공통·운영 |
 | `test_vessel_position_state_migrations.py` | 12 | **§5.9 DB · 운항 상태·위치** |
 | `test_vessels_api.py` | 62 | §4 API · 선박·항차·계산 |
 | `test_voyage_cii_api.py` | 32 | §4 API · 선박·항차·계산 |
@@ -1755,7 +1757,7 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_db_backup_script.py` | 20 | **§5 DB · 백업 · 복구 리허설 · 교체** (`scripts/db_backup.py`) — 컨테이너 호출을 대역으로 바꿔 판단을 본다: `pg_restore`로 읽히지 않는 덤프는 **확정도 기록도 하지 않는다** · 가드가 찾는 `DB_BACKUP` 행을 남긴다 · 보존 개수는 같은 DB의 덤프만 센다 · 손상된 덤프(sha256)는 **서버에 닿기 전에** 거절 · 리허설이 행 수가 다른 테이블을 **이름으로** 말한다 · 교체는 운영 DB 이름을 그대로 적어야 하고, 대조에 실패하면 **앱을 멈추기 전에** 끝나며, 성공하면 이전 DB를 지우지 않고 남긴다 · 스크립트가 **표준 라이브러리만** 쓴다(배포 호스트에 가상환경이 없다). 실제 `pg_dump`·`pg_restore`는 CI docker 잡이 프로덕션 스택에서 매 실행 돌린다 (`#827`) |
 | `test_zz_roundtrip.py` | 6 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 157개 파일 · 2026 함수 · 2543 수집.** (2026-09-15 실측)
+**합계 159개 파일 · 2053 함수 · 2529 수집.** (2026-09-15 실측)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 

@@ -12,30 +12,28 @@
 """
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 
 async def _insert_vessel(conn, imo="1234567") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(conn, vessel_id, status="DRAFT", policy="EXCLUDE") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, :status, :policy, :ry, 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, :status, :policy, :ry, 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
         {
             "vid": vessel_id,
             "status": status,
@@ -44,7 +42,6 @@ async def _insert_voyage(conn, vessel_id, status="DRAFT", policy="EXCLUDE") -> s
             "ry": None if policy == "EXCLUDE" else 2026,
         },
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage_scenario(
@@ -56,15 +53,14 @@ async def _insert_voyage_scenario(
     duration_hours=80,
     fuel_ton=50,
 ) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage_scenario "
-            "(vessel_id, scenario_type, scenario_name, distance_nm, speed_kn, "
-            " duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
-            "VALUES (:vid, 'DIRECT', 'TEST SCENARIO', :dist, :spd, "
-            " :dur, :fuel, 5.0, 'C', 'MEDIUM') "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO voyage_scenario "
+        "(vessel_id, scenario_type, scenario_name, distance_nm, speed_kn, "
+        " duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
+        "VALUES (:vid, 'DIRECT', 'TEST SCENARIO', :dist, :spd, "
+        " :dur, :fuel, 5.0, 'C', 'MEDIUM') "
+        "RETURNING id",
         {
             "vid": vessel_id,
             "dist": distance_nm,
@@ -73,7 +69,6 @@ async def _insert_voyage_scenario(
             "fuel": fuel_ton,
         },
     )
-    return str(row.scalar_one())
 
 
 @pytest.mark.asyncio

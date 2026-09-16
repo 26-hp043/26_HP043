@@ -16,20 +16,19 @@ DB-CHK-016 · DB-CHK-017 · DB-CHK-018 · DB-CHK-021 (`TEST_PLAN §14.5`)
 from __future__ import annotations
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 
 async def _vessel(conn, **over) -> str:
     values = {"imo": "7654321", "gt": None, "dwt": None, **over}
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            "VALUES (:imo, 'CHECK CASE', 'BULK_CARRIER', :gt, :dwt) RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+        "VALUES (:imo, 'CHECK CASE', 'BULK_CARRIER', :gt, :dwt) RETURNING id",
         values,
     )
-    return str(row.scalar_one())
 
 
 async def _voyage(conn, vessel_id: str, **over) -> None:
@@ -132,15 +131,13 @@ async def test_deadweight_must_be_positive(conn):
 async def test_fuel_source_is_an_enum(conn):
     """DB-CHK-015 — 연료 출처는 정해진 네 값 중 하나다."""
     vessel_id = await _vessel(conn)
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, 'DRAFT', 'EXCLUDE', 'BUSAN', 'SINGAPORE', 1000, 12) RETURNING id"
-        ),
+    voyage_id = await insert_returning_id(
+        conn,
+        "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, 'DRAFT', 'EXCLUDE', 'BUSAN', 'SINGAPORE', 1000, 12) RETURNING id",
         {"vid": vessel_id},
     )
-    voyage_id = row.scalar_one()
     await _expect(
         "chk_fuel_source",
         conn.execute(

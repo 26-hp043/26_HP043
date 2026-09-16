@@ -101,7 +101,7 @@ async def _find_active_user(session: AsyncSession, email: str) -> AppUser | None
     result = await session.execute(
         select(AppUser).where(
             func.lower(AppUser.email) == email.strip().lower(),
-            AppUser.is_deleted.is_(False),
+            AppUser.is_deleted == 0,
         )
     )
     return result.scalar_one_or_none()

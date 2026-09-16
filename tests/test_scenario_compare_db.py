@@ -23,10 +23,12 @@ from typing import Any
 from uuid import UUID
 
 import pytest_asyncio
+from conftest import insert_returning_id
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import app
+from cii_platform.db.types import JSONText, UuidText
 
 _BASE = "https://testserver"
 
@@ -42,16 +44,14 @@ PAYLOAD: dict[str, Any] = {
 
 
 async def _insert_vessel(session) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
-            "reference_speed_kn) "
-            "VALUES (:imo, 'SCENARIO DB TEST', 'BULK_CARRIER', 30000, 50000, 14.0) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
+        "reference_speed_kn) "
+        "VALUES (:imo, 'SCENARIO DB TEST', 'BULK_CARRIER', 30000, 50000, 14.0) "
+        "RETURNING id",
         {"imo": IMO},
     )
-    return str(row.scalar_one())
 
 
 async def _cleanup(session, vessel_id: str) -> None:
@@ -62,11 +62,11 @@ async def _cleanup(session, vessel_id: str) -> None:
     # calculation_run은 immutable 트리거가 DELETE를 막는다 — 잠시 끄고 즉시 복구
     # (test_voyage_delete_db.py와 같은 패턴). audit_log는 _delete_stub_user가
     # 전량 삭제하므로 여기서 건드리지 않는다.
-    await session.execute(text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS INACTIVE"))
     await session.execute(
         text("DELETE FROM calculation_run WHERE vessel_id = :vid"), {"vid": vessel_id}
     )
-    await session.execute(text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS ACTIVE"))
     await session.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
     await session.execute(text("DELETE FROM cii_rating_boundary WHERE source_ref = 'TEST'"))
     await session.execute(text("DELETE FROM cii_reference_line WHERE source_ref = 'TEST'"))
@@ -165,8 +165,13 @@ async def test_compare_persists_three_scenarios_and_run(migrated_db, app_fresh_e
                 await s.execute(
                     text(
                         "SELECT details_json FROM audit_log "
-                        "WHERE action = 'CALCULATION_RUN' AND entity_id::text = :rid"
-                    ),
+                        "WHERE \"action\" = 'CALCULATION_RUN' AND entity_id = :rid"
+                        # `entity_id`는 `CHAR(32)`인데 API는 대시 36자를 준다. 타입을
+                        # 붙이지 않으면 **오류 없이 0건**이 온다 (`#1058`).
+                        # `details_json`도 붙이지 않으면 문자열로 온다.
+                    )
+                    .bindparams(bindparam("rid", type_=UuidText()))
+                    .columns(details_json=JSONText()),
                     {"rid": body["calculation_run_id"]},
                 )
             ).fetchone()

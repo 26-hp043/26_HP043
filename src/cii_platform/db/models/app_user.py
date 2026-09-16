@@ -3,10 +3,13 @@
 DB_SCHEMA.md §2.15 (app_user) 참조. **`email`이 로그인 ID이자 식별 기준**이다 (#413).
 """
 
+import uuid
+from datetime import UTC, datetime
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 #: 역할 2종 (#672 · `PRD §20 O-14` · `API_SPEC §1.2`). **직군 이름**이다 — 이 제품의 실제
 #: 사용자 구분(선사 사무실 ↔ 선박 승무원)과 맞고, 「관리자/일반」보다 무엇을 하는 사람인지가
@@ -29,9 +32,9 @@ class AppUser(Base):
     __tablename__ = "app_user"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     email = sa.Column(sa.String(length=320), nullable=False)
     #: Argon2id 해시. **평문 비밀번호는 저장하지 않는다** (`DB_SCHEMA §2.15`).
@@ -44,29 +47,33 @@ class AppUser(Base):
     #: 사무직이 넓혀 준다. 마이그레이션 044가 **기존 행은 전부 사무직**으로 채웠다.
     role = sa.Column(sa.String(length=10), server_default=ROLE_FIELD, nullable=False)
     last_login_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
-    is_deleted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_app_user"),
-        sa.CheckConstraint(
-            r"email ~ '^[^@[:space:]]+@[^@[:space:]]+$'",
-            name="chk_app_user_email_format",
-        ),
-        sa.CheckConstraint("role IN ('OFFICE','FIELD')", name="chk_app_user_role"),
+        # 이메일 형식 검증은 Pydantic 스키마에서 수행한다. CUBRID는 regex CHECK를
+        # 지원하지 않으므로 DB 레벨 제약은 제거한다 (#1058).
         # `email`이 로그인 ID이자 유일 키다 (#413 · `DB_SCHEMA §2.15`).
         # 종전에는 `google_sub`이 유일 키였고 email에는 unique를 걸지 않았는데,
         # 그 근거(「구글 계정의 이메일은 변경될 수 있다」)는 구글 위임을
         # 그만두면서 전제 자체가 사라졌다.
+        # 유일성은 **활성 행 안에서만** 성립한다. PostgreSQL의 부분 유니크 인덱스를
+        # CUBRID가 지원하지 않아 `047`이 트리거(`trg_uq_app_user_email_active_ins`·`_upd`)
+        # 로 옮겼다 — 여기서는 조회용 인덱스로만 선언한다 (`#1058`).
         sa.Index(
             "idx_app_user_email",
             "email",
-            unique=True,
-            postgresql_where=sa.text("is_deleted = false"),
         ),
     )

@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import insert_returning_id, same_uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -93,13 +94,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('tok@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('tok@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
 
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
@@ -118,17 +118,18 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('twice@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('twice@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
 
-            assert await consume_token(s, raw=raw, purpose=PURPOSE_EMAIL_VERIFY) == user_id
+            # `consume_token`은 `UUID` 객체를 돌려주고 `insert_returning_id`는 hex 32자를
+            # 돌려준다 — `==`로는 영원히 거짓이다 (`#1058`).
+            assert same_uuid(await consume_token(s, raw=raw, purpose=PURPOSE_EMAIL_VERIFY), user_id)
             await s.flush()
 
             with pytest.raises(TokenError):
@@ -138,13 +139,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('exp@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('exp@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_PASSWORD_RESET)
             await s.flush()
 
@@ -158,13 +158,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('mix@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('mix@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
 
@@ -176,13 +175,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('re@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('re@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
 
             old = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
@@ -191,7 +189,7 @@ class TestTokenService:
 
             with pytest.raises(TokenError):
                 await consume_token(s, raw=old, purpose=PURPOSE_EMAIL_VERIFY)
-            assert await consume_token(s, raw=new, purpose=PURPOSE_EMAIL_VERIFY) == user_id
+            assert same_uuid(await consume_token(s, raw=new, purpose=PURPOSE_EMAIL_VERIFY), user_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

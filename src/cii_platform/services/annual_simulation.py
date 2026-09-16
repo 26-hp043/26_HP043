@@ -38,9 +38,11 @@ from __future__ import annotations
 import logging
 import secrets
 import time
+import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from cii_platform.calc.annual_simulation import (
@@ -65,6 +67,7 @@ from cii_platform.calc.precision import LAYER1_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
+from cii_platform.db.types import JSONText, UuidText
 from cii_platform.errors import (
     CalculationError,
     ModelVersionMismatchError,
@@ -1230,7 +1233,19 @@ def _input_hash(
     않는다**; 그 행들은 ``vessel_json``이 NULL이라 재현 경로가 앞에서 끊는다.
     """
     material: dict[str, object] = {
-        "vessel_id": str(vessel_id),
+        # **표준 대시 형식으로 고정한다** (`#1058`). 저장할 때는 `_persist`가 `UUID`
+        # 객체를 받아 `str()`이 대시 36자를 냈는데, 재현할 때는 `row.vessel_id`가
+        # **생 SQL로 읽은 `CHAR(32)` hex**라 같은 선박인데 재료가 달라졌다. 해시가
+        # 갈리고 `reproduce`가 「재현 입력의 해시가 원본과 다릅니다」(500)를 냈다 —
+        # 전체 검사에서 **14건**이 이 한 줄이었다.
+        #
+        # 저장된 해시가 대시 형식으로 계산돼 있으므로 **대시가 정본**이다. hex로
+        # 맞추면 기존 실행 전부의 해시가 바뀌고, 저장된 해시는 UPDATE 트리거가 막아
+        # 고칠 수도 없다(`TECH_SPEC §5.4`).
+        #
+        # `UUID()`를 한 번 거치므로 `UUID` 객체·대시 문자열·hex 문자열이 모두 같은
+        # 값으로 모인다 — 부르는 쪽이 어느 형식을 주든 재료는 하나다.
+        "vessel_id": str(UUID(str(vessel_id))),
         "regulation_year": regulation_year,
         "target_rating": target_rating,
         "simulation_runs": runs,
@@ -1285,93 +1300,130 @@ async def _persist(
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
-    snapshot_row = (
-        await session.execute(
-            text(
-                "INSERT INTO simulation_snapshot "
-                "(vessel_id, regulation_year, voyages_json, vessel_json, "
-                " input_hash, parameter_hash) "
-                "VALUES (:vessel_id, :year, CAST(:voyages AS jsonb), "
-                " CAST(:vessel AS jsonb), :input_hash, :parameter_hash) "
-                "RETURNING id, created_at"
-            ),
-            {
-                "vessel_id": vessel_id,
-                "year": regulation_year,
-                "voyages": _json(voyages_json),
-                "vessel": _json(vessel_json),
-                "input_hash": input_hash,
-                "parameter_hash": parameter_hash,
-            },
-        )
-    ).one()
+    # CUBRID에는 `RETURNING`이 없고 `jsonb` 타입도 없다 (`#1058`).
+    #
+    # ⑴ `id`·`created_at`을 **파이썬에서 만들어 명시적으로 넣는다.** 돌려받을 수
+    #    없으니 보내는 값을 그대로 쓴다. 세 INSERT가 서로를 참조하는 순서가
+    #    강제돼 있어(위 docstring) 값을 미리 갖고 있는 편이 오히려 단순하다.
+    # ⑵ `CAST(… AS jsonb)`를 뺀다. 컬럼이 `JSONText`(TEXT)이고 `_json()`이 이미
+    #    직렬화한 문자열을 주므로 그대로 실으면 된다.
+    snapshot_id = uuid.uuid4()
+    # ⑶ `created_at`을 **CUBRID가 실제로 보관하는 정밀도로 깎아서** 만든다 (`#1058`).
+    #    `DATETIMETZ`는 밀리초까지만 담는다 — 실측이다::
+    #
+    #        보낸 값 2026-09-16T07:55:12.123456+00:00
+    #        받은 값 2026-09-16T07:55:12.123000+00:00
+    #
+    #    ⑴대로 보낸 값을 그대로 응답에 쓰면 **저장되지 않은 정밀도를 주장**하게 된다.
+    #    실행(`POST §6.1`)은 마이크로초까지 내주는데 조회(`§6.2`)·재실행(`§6.4`)은
+    #    DB에서 읽어 밀리초를 내므로, 같은 스냅샷의 `created_at`이 경로에 따라 다르게
+    #    보인다. 깎아서 만들면 보내는 값과 담기는 값이 같아져 세 경로가 일치한다.
+    _now = datetime.now(UTC)
+    snapshot_created_at = _now.replace(microsecond=(_now.microsecond // 1000) * 1000)
+    run_id = uuid.uuid4()
+    simulation_id = uuid.uuid4()
 
-    run_row = (
-        await session.execute(
-            text(
-                # chk_calculation_type의 4값 중 하나여야 한다(마이그레이션 006).
-                # 이 실행은 결정론과 Monte Carlo를 **함께** 내지만, 사용자가 고른 것은
-                # 확률 분석이므로 MONTE_CARLO로 기록한다 — 결정론 값은 그 결과에
-                # 포함돼 있고, 별도 행으로 나누면 같은 실행이 이력에서 둘로 보인다.
-                "INSERT INTO calculation_run "
-                "(calculation_type, vessel_id, input_hash, parameter_hash, model_version, "
-                " result_json, parameters_used, warnings_json, duration_ms) "
-                "VALUES ('ANNUAL_MONTE_CARLO', :vessel_id, :input_hash, :parameter_hash, "
-                " CAST(:model_version AS jsonb), CAST(:result AS jsonb), "
-                " CAST(:parameters AS jsonb), CAST(:warnings AS jsonb), :duration_ms) "
-                "RETURNING id"
-            ),
-            {
-                "vessel_id": vessel_id,
-                "input_hash": input_hash,
-                "parameter_hash": parameter_hash,
-                # `TECH_SPEC:1236-1243`이 규정한 6필드를 그대로 싣는다 (#816).
-                # 종전에는 `{"engine", "issue"}` 둘뿐이라 **하필 Monte Carlo 경로에서**
-                # `rng_algorithm`·`numpy_version`이 빠져 있었다 — `§10.2`의 「NumPy
-                # 마이너 변경 → model_version에 명시」가 성립하지 않았다.
-                # 기능①·②와 같은 함수를 써서 셋이 갈릴 수 없게 한다.
-                "model_version": _json(_model_version()),
-                "result": _json(result_json),
-                "parameters": _json(parameters_used),
-                "warnings": _json(warnings),
-                # `#752` 이전에는 이 컬럼을 비워 두었다. `PRD §16.1`의 「Monte Carlo
-                # 5,000회 p95 < 3초」를 나중에 되짚으려면 실행마다 남아 있어야 한다 —
-                # 응답에만 실으면 그 순간 말고는 확인할 길이 없다.
-                "duration_ms": duration_ms,
-            },
-        )
-    ).one()
+    await session.execute(
+        text(
+            "INSERT INTO simulation_snapshot "
+            "(id, vessel_id, regulation_year, voyages_json, vessel_json, "
+            " input_hash, parameter_hash, created_at) "
+            "VALUES (:id, :vessel_id, :year, :voyages, "
+            " :vessel, :input_hash, :parameter_hash, :created_at)"
+        ).bindparams(*_uuid_binds("id", "vessel_id")),
+        {
+            "id": snapshot_id,
+            "created_at": snapshot_created_at,
+            "vessel_id": vessel_id,
+            "year": regulation_year,
+            "voyages": _json(voyages_json),
+            "vessel": _json(vessel_json),
+            "input_hash": input_hash,
+            "parameter_hash": parameter_hash,
+        },
+    )
 
-    simulation_row = (
-        await session.execute(
-            text(
-                "INSERT INTO annual_simulation_run "
-                "(calculation_run_id, vessel_id, regulation_year, target_rating, "
-                " simulation_runs, snapshot_id, apply_feedback_factor) "
-                "VALUES (:run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback) "
-                "RETURNING id"
-            ),
-            {
-                "run_id": run_row.id,
-                "vessel_id": vessel_id,
-                "year": regulation_year,
-                "target": target_rating,
-                "runs": runs,
-                "snapshot_id": snapshot_row.id,
-                "feedback": apply_feedback_factor,
-            },
-        )
-    ).one()
+    await session.execute(
+        text(
+            # chk_calculation_type의 4값 중 하나여야 한다(마이그레이션 006).
+            # 이 실행은 결정론과 Monte Carlo를 **함께** 내지만, 사용자가 고른 것은
+            # 확률 분석이므로 MONTE_CARLO로 기록한다 — 결정론 값은 그 결과에
+            # 포함돼 있고, 별도 행으로 나누면 같은 실행이 이력에서 둘로 보인다.
+            "INSERT INTO calculation_run "
+            "(id, calculation_type, vessel_id, input_hash, parameter_hash, model_version, "
+            " result_json, parameters_used, warnings_json, duration_ms) "
+            "VALUES (:id, 'ANNUAL_MONTE_CARLO', :vessel_id, :input_hash, :parameter_hash, "
+            " :model_version, :result, :parameters, :warnings, :duration_ms)"
+        ).bindparams(*_uuid_binds("id", "vessel_id")),
+        {
+            "id": run_id,
+            "vessel_id": vessel_id,
+            "input_hash": input_hash,
+            "parameter_hash": parameter_hash,
+            # `TECH_SPEC:1236-1243`이 규정한 6필드를 그대로 싣는다 (#816).
+            # 종전에는 `{"engine", "issue"}` 둘뿐이라 **하필 Monte Carlo 경로에서**
+            # `rng_algorithm`·`numpy_version`이 빠져 있었다 — `§10.2`의 「NumPy
+            # 마이너 변경 → model_version에 명시」가 성립하지 않았다.
+            # 기능①·②와 같은 함수를 써서 셋이 갈릴 수 없게 한다.
+            "model_version": _json(_model_version()),
+            "result": _json(result_json),
+            "parameters": _json(parameters_used),
+            "warnings": _json(warnings),
+            # `#752` 이전에는 이 컬럼을 비워 두었다. `PRD §16.1`의 「Monte Carlo
+            # 5,000회 p95 < 3초」를 나중에 되짚으려면 실행마다 남아 있어야 한다 —
+            # 응답에만 실으면 그 순간 말고는 확인할 길이 없다.
+            "duration_ms": duration_ms,
+        },
+    )
+
+    await session.execute(
+        text(
+            "INSERT INTO annual_simulation_run "
+            "(id, calculation_run_id, vessel_id, regulation_year, target_rating, "
+            " simulation_runs, snapshot_id, apply_feedback_factor) "
+            "VALUES (:id, :run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback)"
+        ).bindparams(*_uuid_binds("id", "run_id", "vessel_id", "snapshot_id")),
+        {
+            "id": simulation_id,
+            "run_id": run_id,
+            "vessel_id": vessel_id,
+            "year": regulation_year,
+            "target": target_rating,
+            "runs": runs,
+            "snapshot_id": snapshot_id,
+            "feedback": apply_feedback_factor,
+        },
+    )
 
     await session.commit()
     return (
-        snapshot_row.id,
-        run_row.id,
-        simulation_row.id,
-        snapshot_row.created_at,
+        snapshot_id,
+        run_id,
+        simulation_id,
+        snapshot_created_at,
         input_hash,
         parameter_hash,
     )
+
+
+def _uuid_binds(*names: str) -> list[Any]:
+    """생 SQL의 UUID 파라미터에 :class:`UuidText`를 붙인다 (#1058).
+
+    ``text()``에는 컬럼 타입이 붙지 않아 **bind processor가 돌지 않는다.** CUBRID에
+    UUID를 그대로 실으면 세 갈래로 갈린다 — 로컬 실측이다::
+
+        UUID 객체       → ProgrammingError: unsupported parameter type
+        '…-…-…' 대시 형식 → 오류 없이 **0건**            ← 가장 위험하다
+        32자 hex        → 맞는다
+
+    저장 형식이 ``CHAR(32)``이므로 대시 형식은 **조용히 빗나간다.** 예외가 아니라
+    빈 결과라 호출부가 「데이터가 없다」로 읽고, `#1058` 전수 검사에서 감사 로그
+    조회 2건이 정확히 이 모양으로 비어 돌아왔다. 타입을 붙여 ORM 경로와 같은
+    계약으로 되돌린다.
+    """
+    from sqlalchemy import bindparam
+
+    return [bindparam(n, type_=UuidText()) for n in names]
 
 
 def _json(value: object) -> str:
@@ -1405,11 +1457,33 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 "       c.result_json, c.parameters_used, c.input_hash, c.parameter_hash, "
                 "       c.model_version, c.duration_ms, "
                 "       s.created_at AS snapshot_created_at, "
-                "       jsonb_array_length(s.voyages_json) AS voyage_count "
+                # `jsonb_array_length`는 PostgreSQL 전용이다. CUBRID는 `JSON_LENGTH`이고,
+                # 컬럼이 TEXT여도(`JSONText`) 그대로 받는다 — 로컬에서 확인했다 (`#1058`).
+                # **여기서도 본문은 읽지 않는다** — 개수만 센다(위 docstring).
+                "       JSON_LENGTH(CAST(s.voyages_json AS JSON)) AS voyage_count "
                 "FROM annual_simulation_run r "
                 "JOIN calculation_run c ON c.id = r.calculation_run_id "
                 "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
                 "WHERE r.id = :id"
+                # raw SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result processor가 돌지
+                # 않는다 (`#1058`). PostgreSQL 시절에는 `JSONB`라 psycopg가 알아서 파싱했지만
+                # CUBRID는 TEXT라 **문자열이 그대로 온다** — 그대로 쓰면 `.get`에서 선다.
+                # `.columns()`로 그 컬럼에만 타입을 붙인다(나머지 컬럼은 그대로 나온다).
+            )
+            .bindparams(*_uuid_binds("id"))
+            .columns(
+                result_json=JSONText(),
+                parameters_used=JSONText(),
+                model_version=JSONText(),
+                # 식별자에도 타입을 붙인다 (`#1058`). 붙이지 않으면 저장 형식인 **hex 32자
+                # 문자열**이 그대로 올라와, 실행(`POST §6.1`)은 대시 36자를 내는데
+                # 조회(`§6.2`)·재실행(`§6.4`)은 하이픈 없는 값을 내는 **형식 불일치**가
+                # 응답에 남는다. 같은 실행을 두 경로로 부르면 `simulation_id`가 다르게
+                # 보인다 — `test_reproduce_keeps_the_original_identifiers`가 그것이다.
+                simulation_id=UuidText(),
+                calculation_run_id=UuidText(),
+                vessel_id=UuidText(),
+                snapshot_id=UuidText(),
             ),
             {"id": simulation_id},
         )
@@ -1444,6 +1518,10 @@ def _stored_payload(row) -> dict:
 
 
 def _snapshot_block(row) -> dict[str, object]:
+    # `voyage_count`는 **DB가 센다**(`_load_run`의 `JSON_LENGTH(CAST(… AS JSON))`).
+    # 본문을 가져와 파이썬에서 세는 안도 있으나(`#1152`), 이 함수가 필요로 하는 것은
+    # **개수뿐**인데 항차가 많으면 `voyages_json`이 큰 값이라 통째로 실어 오게 된다 —
+    # 무료 VM 1GB에서 배포하는 것이 `#1058`의 출발점이었다.
     return {
         "snapshot_id": str(row.snapshot_id),
         "created_at": row.snapshot_created_at.isoformat(),
@@ -1502,7 +1580,10 @@ async def list_snapshot_voyages(
                 "FROM annual_simulation_run r "
                 "JOIN simulation_snapshot s ON s.id = r.snapshot_id "
                 "WHERE r.id = :id"
-            ),
+                # 타입을 붙이지 않으면 문자열이 와서 아래 순회가 글자 하나씩 돈다 (`#1058`).
+            )
+            .bindparams(*_uuid_binds("id"))
+            .columns(voyages_json=JSONText()),
             {"id": simulation_id},
         )
     ).one_or_none()
@@ -1757,7 +1838,11 @@ async def _load_snapshot_vessel(session: AsyncSession, snapshot_id) -> dict:
 
     payload = (
         await session.execute(
-            text("SELECT vessel_json FROM simulation_snapshot WHERE id = :id"),
+            text("SELECT vessel_json FROM simulation_snapshot WHERE id = :id")
+            .bindparams(*_uuid_binds("id"))
+            .columns(
+                vessel_json=JSONText()  # 붙이지 않으면 문자열이 온다 (`#1058`)
+            ),
             {"id": snapshot_id},
         )
     ).scalar_one()
@@ -1775,7 +1860,11 @@ async def _load_snapshot_voyages(session: AsyncSession, snapshot_id) -> list[dic
 
     return (
         await session.execute(
-            text("SELECT voyages_json FROM simulation_snapshot WHERE id = :id"),
+            text("SELECT voyages_json FROM simulation_snapshot WHERE id = :id")
+            .bindparams(*_uuid_binds("id"))
+            .columns(
+                voyages_json=JSONText()  # 붙이지 않으면 문자열이 온다 (`#1058`)
+            ),
             {"id": snapshot_id},
         )
     ).scalar_one() or []

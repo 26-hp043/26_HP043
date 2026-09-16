@@ -17,6 +17,7 @@
 """
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
@@ -25,40 +26,35 @@ VALID_HASH = "sha256:" + "a" * 64
 
 
 async def _insert_vessel(conn, imo="7654321") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(conn, vessel_id) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, 'DRAFT', 'EXCLUDE', 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, 'DRAFT', 'EXCLUDE', 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
         {"vid": vessel_id},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_calculation_run(conn, vessel_id, voyage_id=None, weather_snapshot_id=None) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO calculation_run "
-            "(calculation_type, vessel_id, voyage_id, weather_snapshot_id, "
-            " input_hash, parameter_hash, model_version, result_json, parameters_used) "
-            "VALUES ('VOYAGE_ESTIMATE', :vid, :voy, :wid, :ih, :ph, "
-            " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO calculation_run "
+        "(calculation_type, vessel_id, voyage_id, weather_snapshot_id, "
+        " input_hash, parameter_hash, model_version, result_json, parameters_used) "
+        "VALUES ('VOYAGE_ESTIMATE', :vid, :voy, :wid, :ih, :ph, "
+        " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb) "
+        "RETURNING id",
         {
             "vid": vessel_id,
             "voy": voyage_id,
@@ -67,31 +63,27 @@ async def _insert_calculation_run(conn, vessel_id, voyage_id=None, weather_snaps
             "ph": VALID_HASH,
         },
     )
-    return str(row.scalar_one())
 
 
 async def _insert_weather_snapshot(conn) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO weather_snapshot "
-            "(lat, lon, lat_rounded, lon_rounded, fetched_at, source) "
-            "VALUES (35.1, 129.0, 35.0, 129.0, now(), 'sample') RETURNING id"
-        )
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO weather_snapshot "
+        "(lat, lon, lat_rounded, lon_rounded, fetched_at, source) "
+        "VALUES (35.1, 129.0, 35.0, 129.0, now(), 'sample') RETURNING id",
+        {},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_simulation_snapshot(conn, vessel_id) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO simulation_snapshot "
-            "(vessel_id, regulation_year, voyages_json, input_hash, parameter_hash) "
-            "VALUES (:vid, 2026, '[]'::jsonb, :ih, :ph) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO simulation_snapshot "
+        "(vessel_id, regulation_year, voyages_json, input_hash, parameter_hash) "
+        "VALUES (:vid, 2026, '[]'::jsonb, :ih, :ph) "
+        "RETURNING id",
         {"vid": vessel_id, "ih": VALID_HASH, "ph": VALID_HASH},
     )
-    return str(row.scalar_one())
 
 
 # ---------------------------------------------------------------------------

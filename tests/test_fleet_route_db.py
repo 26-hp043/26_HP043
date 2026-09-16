@@ -19,7 +19,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -36,13 +36,14 @@ async def session(conn):
 
 
 async def _insert_vessel(session, imo: str) -> UUID:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            f"VALUES ('{imo}', 'MAP TEST {imo}', 'BULK_CARRIER', 30000, 50000) RETURNING id"
+    return UUID(
+        await insert_returning_id(
+            session,
+            f"INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+            f"VALUES ('{imo}', 'MAP TEST {imo}', 'BULK_CARRIER', 30000, 50000) RETURNING id",
+            {},
         )
     )
-    return row.scalar_one()
 
 
 async def _insert_voyage(
@@ -64,7 +65,7 @@ async def _insert_voyage(
         "planned_speed_kn",
     ]
     values = [
-        f"'{vessel_id}'::uuid",
+        f"'{uuid_hex(vessel_id)}'",
         f"'{status}'",
         "'INCLUDE_AS_PLAN'" if status == "IN_PROGRESS" else "'INCLUDE_AS_ACTUAL'",
         "2026",
@@ -79,10 +80,11 @@ async def _insert_voyage(
     if coords is not None:
         columns += ["departure_lat", "departure_lon", "arrival_lat", "arrival_lon"]
         values += list(coords)
-    row = await session.execute(
-        text(f"INSERT INTO voyage ({', '.join(columns)}) VALUES ({', '.join(values)}) RETURNING id")
+    return await insert_returning_id(
+        session,
+        f"INSERT INTO voyage ({', '.join(columns)}) VALUES ({', '.join(values)}) RETURNING id",
+        {},
     )
-    return str(row.scalar_one())
 
 
 @pytest.mark.asyncio

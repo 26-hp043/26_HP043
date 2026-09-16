@@ -12,10 +12,13 @@ ORM으로 UPDATE/DELETE를 시도하면 DB 예외로 트랜잭션이 롤백된�
   실효 동작 기준, 이슈 #28 검토 결정. 008 파일 상단 주의 참조).
 """
 
+import uuid
+from datetime import UTC, datetime
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import JSONText, UuidText
 
 
 class CalculationRun(Base):
@@ -24,26 +27,31 @@ class CalculationRun(Base):
     __tablename__ = "calculation_run"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     calculation_type = sa.Column(sa.String(length=30), nullable=False)
-    vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
-    voyage_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
-    weather_snapshot_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    vessel_id = sa.Column(UuidText, nullable=False)
+    voyage_id = sa.Column(UuidText, nullable=True)
+    weather_snapshot_id = sa.Column(UuidText, nullable=True)
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
-    model_version = sa.Column(postgresql.JSONB(), nullable=False)
-    result_json = sa.Column(postgresql.JSONB(), nullable=False)
-    parameters_used = sa.Column(postgresql.JSONB(), nullable=False)
-    warnings_json = sa.Column(postgresql.JSONB(), nullable=True)
+    model_version = sa.Column(JSONText(), nullable=False)
+    result_json = sa.Column(JSONText(), nullable=False)
+    parameters_used = sa.Column(JSONText(), nullable=False)
+    warnings_json = sa.Column(JSONText(), nullable=True)
     duration_ms = sa.Column(sa.Integer(), nullable=True)
     # #283 · #944: 선박 제원(DWT/GT · 선종) 변경 시 서비스가 false→true로만 플립한다.
     # 되돌림은 가드 트리거(024)가 막는다.
-    needs_recalc = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    needs_recalc = sa.Column(
+        sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False
+    )
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
@@ -70,15 +78,9 @@ class CalculationRun(Base):
             name="fk_calculation_run_weather_snapshot",
             ondelete="RESTRICT",
         ),
-        # §2.5 검증 제약 [S-7] (원문 그대로): sha256: + 64 hex.
-        sa.CheckConstraint(
-            "input_hash ~ '^sha256:[0-9a-f]{64}$'",
-            name="chk_input_hash_format",
-        ),
-        sa.CheckConstraint(
-            "parameter_hash ~ '^sha256:[0-9a-f]{64}$'",
-            name="chk_param_hash_format",
-        ),
+        # §2.5 [S-7] 해시 형식(`sha256:` + 64 hex) 제약은 여기 없다 — PostgreSQL 전용
+        # `~` 정규식이라 전환에서 뺐고, 마이그레이션 `a7d3e9b14f26`이 **트리거**로
+        # 되살렸다(`DB_SCHEMA §7.4`). 전환 때 이 주석이 아래 주석과 한 줄로 눌려 있었다.
         # §2.5 calculation_type enum 검증 (#84). 4개 허용값 외 임의 문자열 차단.
         sa.CheckConstraint(
             "calculation_type IN "

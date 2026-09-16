@@ -13,6 +13,7 @@ id desc)`` 정렬, 커서 페이지네이션.
 
 from __future__ import annotations
 
+from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -25,14 +26,12 @@ OTHER_HASH = "sha256:" + "b" * 64
 
 
 async def _insert_vessel(session, imo: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'CALC QUERY TEST', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'CALC QUERY TEST', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_run(
@@ -45,14 +44,13 @@ async def _insert_run(
 ) -> str:
     # JSONB 값은 CAST(:param AS jsonb)로 바인딩한다 — 리터럴 안에 ':1' 같은 열쇠가
     # 있으면 text()가 bind parameter로 오해해 파싱이 깨진다.
-    row = await session.execute(
-        text(
-            "INSERT INTO calculation_run "
-            "(calculation_type, vessel_id, voyage_id, "
-            " input_hash, parameter_hash, model_version, result_json, parameters_used) "
-            "VALUES (:ctype, :vid, NULL, :ih, :ph, "
-            " CAST(:mv AS jsonb), CAST(:rj AS jsonb), '{}'::jsonb) RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO calculation_run "
+        "(calculation_type, vessel_id, voyage_id, "
+        " input_hash, parameter_hash, model_version, result_json, parameters_used) "
+        "VALUES (:ctype, :vid, NULL, :ih, :ph, "
+        " CAST(:mv AS jsonb), CAST(:rj AS jsonb), '{}'::jsonb) RETURNING id",
         {
             "ctype": calculation_type,
             "vid": vessel_id,
@@ -62,17 +60,16 @@ async def _insert_run(
             "rj": '{"attained_cii": "4.9824", "estimated_rating": "C"}',
         },
     )
-    return str(row.scalar_one())
 
 
 async def _cleanup(session, vessel_id: str) -> None:
     # calculation_run은 immutable 트리거가 DELETE를 막는다 — 정리를 위해 잠시 끄고
     # 즉시 복구한다.
-    await session.execute(text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS INACTIVE"))
     await session.execute(
         text("DELETE FROM calculation_run WHERE vessel_id = :vid"), {"vid": vessel_id}
     )
-    await session.execute(text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS ACTIVE"))
     await session.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
     await session.commit()
 

@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import pytest
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -67,7 +68,9 @@ async def _fetch_user(email: str) -> dict | None:
             await s.execute(
                 text(
                     "SELECT password_hash, display_name, is_deleted FROM app_user WHERE email = :e"
-                ),
+                    # 생 SQL에는 컬럼 타입이 붙지 않아 **CUBRID가 BOOLEAN을 정수로** 준다 —
+                    # `is True`가 `assert 1 is True`로 떨어진다 (`#1058`).
+                ).columns(is_deleted=sa.Boolean()),
                 {"e": email},
             )
         ).first()
