@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.26 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) |
-| 최종 수정일 | 2026-09-15 |
+| 버전 | v1.27 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** |
+| 최종 수정일 | 2026-09-16 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -504,6 +504,23 @@ ALTER TABLE annual_simulation_run ADD CONSTRAINT chk_sim_runs_positive
 CREATE UNIQUE INDEX idx_sim_snapshot_unique ON annual_simulation_run (snapshot_id);
 ```
 
+> 🔴 **CUBRID에서는 이 인덱스를 세우려면 `snapshot_id`의 FK를 빼야 한다 (`#1058` · `050`).**
+> CUBRID는 FK가 만든 인덱스가 있는 열에 인덱스를 **또** 두는 것을 거부한다 — 실측이다.
+>
+> ```
+> CREATE UNIQUE INDEX idx_sim_snapshot_unique ON annual_simulation_run (snapshot_id)
+>   → ERROR: Index "fk_annual_simulation_run_snapshot" already defined for class …
+> ALTER TABLE annual_simulation_run DROP FOREIGN KEY fk_annual_simulation_run_snapshot
+>   → Execute OK
+> CREATE UNIQUE INDEX idx_sim_snapshot_unique ON annual_simulation_run (snapshot_id)
+>   → Execute OK
+> ```
+>
+> **FK를 빼도 계약은 그대로다.** 부모 쪽(`ON DELETE RESTRICT`)은 `trg_snapshot_no_delete`가
+> 이미 **전면** 차단하므로(`§7.3`) 참조가 없어도 못 지운다 — FK보다 강하다. 자식 쪽(없는
+> 스냅샷 참조 금지)은 `trg_annual_sim_snapshot_ref_ins`·`_upd`가 대신한다. `§7.1`의 해당
+> 행도 함께 고쳤다.
+
 ---
 
 ### 2.7 `simulation_snapshot` — 시뮬레이션 스냅샷
@@ -683,6 +700,12 @@ CREATE INDEX idx_refline_ship_type ON cii_reference_line (ship_type);
 -- [M-7] 'fixed' 뒤에 숫자만 허용하도록 강화
 ALTER TABLE cii_reference_line ADD CONSTRAINT chk_capacity_rule
     CHECK (capacity_rule IN ('DWT','GT') OR capacity_rule ~ '^fixed \d+$');
+-- 🔴 CUBRID에서 이 계약을 집행하는 것 (`#1058` · `050`). `~`에 대응하는 것은
+--    `REGEXP BINARY`다 — `BINARY`가 없으면 대소문자를 가리지 않아 'FIXED 12'도
+--    통과한다(실측). 종전 `LIKE 'fixed %'`는 'fixed abc'까지 통과시켰다.
+CREATE TRIGGER trg_chk_capacity_rule_ins BEFORE INSERT ON cii_reference_line
+  IF NOT (new.capacity_rule IN ('DWT','GT')
+          OR new.capacity_rule REGEXP BINARY '^fixed [0-9]+$') EXECUTE REJECT;
 
 ALTER TABLE cii_reference_line ADD CONSTRAINT chk_a_decimal_positive CHECK (a_decimal > 0);
 ALTER TABLE cii_reference_line ADD CONSTRAINT chk_c_positive CHECK (c >= 0);
@@ -804,7 +827,7 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 >
 > **[#277] 인증 이벤트 (LOGIN_SUCCESS · LOGIN_FAILURE · LOGOUT).** `user_id`는 `app_user.id`(§2.15)다. 실패 시 주체를 알 수 없어 `NULL`이며, `details_json`은 사유 코드(`reason`)만 담는다 — **`id_token`·`code`·state·세션 토큰 등 자격 증명 값은 절대 기록하지 않는다.** 스텁 dev-login도 같은 스트림에 남기며 `details_json.dev_login` 플래그로 구분한다. `LOGOUT`은 실제 세션 무효화가 일어난 경우만 기록한다(멱등 재호출 제외).
 >
-> **[#827] 백업 기록 (DB_BACKUP).** 백업 스크립트(`scripts/db_backup.py backup`)가 덤프를 **`pg_restore`로 읽히는지 확인한 뒤** 남긴다. `user_id`는 `NULL`(운영자 작업)이고, `details_json`은 덤프 파일 이름 · sha256 · 덤프 시점의 alembic 리비전만 담는다 — **경로·자격 증명은 넣지 않는다.** 되돌릴 수 없는 downgrade의 해제 조건(`§8.1.2`)이 이 행을 읽는다.
+> **[#827] 백업 기록 (DB_BACKUP).** 백업 스크립트(`scripts/db_backup.py backup`)가 덤프를 **읽히는지 확인한 뒤** 남긴다 — CUBRID 전환 뒤에는 `cubrid unloaddb`가 낸 네 파일을 묶은 tar를 열어 표마다 `%class` 머리가 있는지 본다(`#1058`). `user_id`는 `NULL`(운영자 작업)이고, `details_json`은 덤프 파일 이름 · sha256 · 덤프 시점의 alembic 리비전만 담는다 — **경로·자격 증명은 넣지 않는다.** 되돌릴 수 없는 downgrade의 해제 조건(`§8.1.2`)이 이 행을 읽는다.
 
 ---
 
@@ -917,6 +940,9 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 CREATE INDEX idx_not_underway_period_vessel_year
     ON not_underway_period (vessel_id, regulation_year)
     WHERE is_deleted = false;
+-- 🔴 CUBRID에서는 **필터 열이 키에 있어야** filtered index가 선다. 그리고 UNIQUE와
+--    함께 쓸 수 없다 — `047`이 네 조합을 실측해 확인했다 (`#1058` · `050`).
+--    CREATE INDEX … (vessel_id, regulation_year, is_deleted) WHERE is_deleted = 0
 
 -- 029 (#376) — #368 시뮬레이션 시계의 구간 겹침 조회 경로.
 -- vessel_year는 regulation_year가 선행열이 아니라 started_at 범위 조건이
@@ -1384,6 +1410,19 @@ CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_a
 
 > 모든 FK에 명시적 `ON DELETE` 동작을 지정한다.
 
+> 🔴 **CUBRID의 FK는 `ON UPDATE`를 항상 가지며 기본이 `RESTRICT`다 (`#1058`).** 카탈로그를
+> 반영하면 모든 FK가 그렇게 나온다 — 실측이다.
+>
+> ```
+> inspect(engine).get_foreign_keys("annual_simulation_run")
+>   → {'ondelete': 'RESTRICT', 'onupdate': 'RESTRICT'}   (세 FK 모두)
+> ```
+>
+> ORM은 `ondelete`만 적고 있어 `compare_metadata`가 FK마다 차이를 냈고(불일치 61건의
+> 대부분), **모델이 사실을 적는 쪽**으로 맞췄다 — `db/models/base.py`의 `FK_ON_UPDATE`.
+> DDL로 내보내도 CUBRID가 받는다(`ON UPDATE RESTRICT` → OK · `ON UPDATE CASCADE` →
+> `Syntax error: unexpected 'CASCADE', expecting NO or RESTRICT or SET`).
+
 | 부모 테이블 | 자식 테이블.컬럼 | ON DELETE | 근거 |
 |---|---|---|---|
 | `vessel(id)` | `voyage.vessel_id` | **RESTRICT** | 선박은 soft-delete만 허용. 물리 삭제 시 항차가 orphan됨 |
@@ -1395,7 +1434,7 @@ CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_a
 | `voyage(id)` | `voyage_scenario.voyage_id` | **SET NULL** | 시나리오는 항차 삭제 후에도 선박 단위로 보존 (`vessel_id` 유지) |
 | `voyage(id)` | `calculation_run.voyage_id` | **RESTRICT** [#28 정정] | 계산 이력 보존. calculation_run은 immutable(§7.3)이라 SET NULL(자식 UPDATE)이 트리거로 차단됨 → RESTRICT |
 | `calculation_run(id)` | `annual_simulation_run.calculation_run_id` | **RESTRICT** | immutable 테이블 참조 |
-| `simulation_snapshot(id)` | `annual_simulation_run.snapshot_id` | **RESTRICT** | immutable 테이블 참조 |
+| `simulation_snapshot(id)` | `annual_simulation_run.snapshot_id` | **RESTRICT** | immutable 테이블 참조. ⚠️ **CUBRID에서는 FK가 아니라 트리거다** — `§2.6 [S-6]`·`§7.4` (`050`) |
 | `weather_snapshot(id)` | `voyage_scenario.weather_snapshot_id` | **SET NULL** | 기상 스냅샷 만료 시 시나리오 보존 |
 | `weather_snapshot(id)` | `calculation_run.weather_snapshot_id` | **RESTRICT** [#102] | immutable 테이블 참조(§7.3). SET NULL은 자식 UPDATE라 트리거에 차단됨 → RESTRICT (§2.5 [#102] 참조) |
 | `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE CASCADE** (코드 변경 시), ON DELETE NO ACTION (활성 연료 삭제 방지). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — `§7.4` |
@@ -1475,6 +1514,17 @@ CREATE TRIGGER trg_snapshot_immutable
 
 > 애플리케이션 버그로 인한 historical data 변조를 DB 계층에서 차단한다.
 >
+> 🔴 **[#1058 · `051`] CUBRID로 옮긴 가드에 NULL 구멍이 있었다.** `to_jsonb` 차집합이 없어
+> 열을 열거하는데(`§7.4` 넷째), nullable 열 비교를 `new.c = obj.c OR (둘 다 NULL)`로 적었다.
+> **한쪽만 NULL이면 이 식은 참도 거짓도 아니라 NULL이고, `IF NOT (NULL) EXECUTE REJECT`는
+> 거부하지 않는다.** 그래서 `duration_ms`·`warnings_json`이 NULL인 실행(= 갓 저장된 실행의
+> 흔한 모양)은 **플립과 함께 값을 채워 넣을 수 있었다.** 여덟 경우를 재 세 경우가 뚫려
+> 있음을 확인하고 NULL 갈래를 명시해 막았다.
+>
+> ⚠️ **`<=>`(NULL-safe 등호)로는 안 된다** — `SELECT`에서는 평가되지만 **트리거 조건에서는
+> 못 한다**(`Cannot evaluate 'new.id<=>obj.id'`, errno=-527). 조건 평가가 실패하면 트리거가
+> **전부 거부**하므로 `#283`이 쓰는 정상 플립까지 막힌다. 구멍보다 나쁜 상태다.
+>
 > **[#283] `calc_run_guard` (마이그레이션 024).** calculation_run만 예외를 둔다 — PRD §8.4가 선박 DWT/GT 변경 시 재계산 필요 표시(`needs_recalc` false→true)를 요구하는데, 이는 UPDATE여야만 한다. 가드는 **플립 외 모든 변경을 여전히 거부**한다: 다른 컬럼 동시 변경, true→false 되돌림, DELETE 전부 차단. 컬럼을 열거하지 않고 `to_jsonb` 차집합으로 비교하므로 이후 컬럼 추가도 자동으로 보호된다. 공유 함수 `prevent_mutation()`은 simulation_snapshot이 계속 사용한다.
 
 ---
@@ -1489,6 +1539,18 @@ CREATE TABLE _t2 (n INT, CONSTRAINT chk_n CHECK (n > 0))   → Committed
 INSERT INTO _t2 VALUES (-5)                                 → row affected
 SELECT n FROM _t2                                           → -5
 ```
+
+🔴 **더 정확히는 — 선언을 보관조차 하지 않는다 (`#1058` · 2026-09-16 실측).**
+
+```
+CREATE TABLE _ck (n INT, CONSTRAINT _chk_n CHECK (n > 0))   → Committed
+ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constraint
+                                                               "_chk_n" not found.
+```
+
+「받아서 검사하지 않는다」가 아니라 **받고 버린다.** 그래서 마이그레이션·ORM·이 문서에
+적힌 `CHECK`는 **문서로만** 존재하며, DB에서 그것을 고치거나 지울 대상도 없다 —
+선언을 바꿀 때는 ORM·이 문서·집행 트리거 **셋을** 함께 고쳐야 한다.
 
 그래서 **이 문서와 ORM 모델에 적힌 `CHECK`는 CUBRID 배포에서 아무것도 막지 않는다.**
 적혀 있으니 막힐 것이라고 읽으면 안 된다. 모델에 제약이 있는지를 보는 검사도 같은
@@ -1510,9 +1572,34 @@ SELECT n FROM _t2                                           → -5
 | 연료 코드 참조 3 | `fk_vessel_default_fuel_type` 등 FK | 자식 `BEFORE INSERT`·`BEFORE UPDATE` (부모 쪽은 아래) |
 | 불변성 2 | `trg_calcrun_immutable`·`trg_snapshot_immutable` | `BEFORE UPDATE`·`BEFORE DELETE` |
 
-되살리지 않은 것은 둘이다.
+#### 🔴 그 뒤로 **CHECK 60개 전부**를 트리거로 옮겼다 (`046`·`048`·`050`)
 
-- **값 범위 CHECK**(`chk_gt_positive`·`chk_imo_format` 등) — 지금은 애플리케이션 계층만 막는다.
+위 표는 `a7d3e9b14f26` 시점이다. 통합 마이그레이션 `1c444a5c4819`가 적어 둔 CHECK는
+**60개**였고 그 전부가 장식이었다 — 그대로 들어가고 있던 값들이다.
+
+| 값 | 무엇이 어긋나는가 |
+|---|---|
+| `fuel_type.cf = -1` | **CII 배출량이 음수**가 된다 |
+| `regulation_year.z_factor_percent = -2` | 요구 CII가 **기준선보다 커진다** |
+| `vessel.current_lat = 999` | 지도·거리 계산이 어긋난다 |
+| `voyage.planned_distance_nm = -1` | CII 분모가 뒤집힌다 |
+| `voyage.status = '아무 문자열'` | 연간 집계가 그 항차를 **어느 갈래로도 세지 못한다** |
+
+| 리비전 | 무엇 |
+|---|---|
+| `046` | 값 범위 37 + `chk_gt_positive` 1 (ORM은 선언하는데 마이그레이션이 빠뜨렸다 — GT 기준 CII의 분모다) |
+| `048` | 열거형·정합 23 |
+| `050` | `chk_capacity_rule`을 정본 `[M-7]`에 맞게 좁혔다(`LIKE 'fixed %'` → `REGEXP BINARY`) |
+
+조건은 **기계로 뽑아** 열 참조에만 `new.`를 붙였고, **60건 전부 원문과 일치함을 대조**했다
+(불일치 0). 손으로 옮기면 선언과 집행이 갈린다 — `chk_status_policy`처럼 분기가 넷인
+조건은 한 갈래를 빠뜨려도 아무도 모른다.
+
+되살렸을 때 **가려져 있던 결함이 그 자리에서 드러났다** — `test_constraint_triggers_db`가
+허용값에 없는 `calculation_type = 'VOYAGE_CII'`를 넣고 있었다(코드 어디에도 없는 값이다).
+
+그래서 **지금 되살리지 않은 것은 하나뿐이다.**
+
 - 🔴 **부모 쪽 연료 코드 삭제 금지** — 원래 FK의 `ON DELETE NO ACTION`에 해당한다.
   한 번 트리거로 넣었다가 **뺐다.** `db/seed.py`의 재적재가
   `sqlalchemy_cubrid.dml.replace`(= `REPLACE INTO`)를 쓰는데 **CUBRID의 `REPLACE`는
@@ -1526,6 +1613,12 @@ SELECT n FROM _t2                                           → -5
   `tests/test_constraint_triggers_db.py::test_parent_side_delete_is_deliberately_not_guarded`가
   이 구멍이 열려 있다는 사실을 고정한다 — 나중에 막게 되면 그 검사가 실패하고, 그때
   seed 재적재를 함께 봐야 한다.
+
+  ⚠️ `tests/test_voyage_migrations.py`의 검사는 **자식 쪽으로 방향을 바꿨다**
+  (`test_voyage_fuel_use_rejects_an_unknown_fuel_code` · `#1058`). 종전 이름
+  `test_fuel_type_no_action_delete`는 부모 쪽 삭제가 막히는 것을 보고 있었는데 그 전제가
+  사라졌다. **검사를 지우지 않고** §7.1이 지키려던 것(「없는 연료 코드를 참조하는 행이
+  생기지 않는다」)을 자식 쪽에서 보게 했다.
 
 #### CUBRID에서 달라지는 것 넷
 
@@ -1548,8 +1641,29 @@ SELECT n FROM _t2                                           → -5
    빠뜨리면 **그 열만 조용히 수정 가능해진다.** `tests/test_constraint_triggers_db.py`가
    열거를 스키마와 대조해 잡는다.
 
+5. **`IF NOT (NULL)`은 거부하지 않는다.** CHECK와 같은 의미다. 그래서 조건이 NULL을 낼 수
+   있으면 그 자리가 **조용히 뚫린다** — `§7.3`의 NULL 구멍이 정확히 이것이었고, `051`이
+   NULL 갈래를 명시해 막았다. 🔒 **새 트리거 조건을 쓸 때는 NULL이 섞이는 경우를 먼저
+   따져 본다.**
+6. **FK 컬럼에 인덱스를 또 둘 수 없다.** `§2.6 [S-6]`의 유니크 인덱스가 여기 걸려 FK를
+   빼고 트리거로 옮겼다(`050`). **filtered index**는 있으나 **UNIQUE와 함께 쓸 수 없고**
+   필터 열이 키에 있어야 한다(`047`·`050`).
+
 `calculation_run`이 **전면 불변이 아니라는 것**은 `§7.3`·`024` 그대로다 — DELETE는 언제나
 거부, UPDATE는 `needs_recalc` 0 → 1 플립이면서 다른 열이 그대로일 때만 통과한다.
+
+#### 지금 DB에 있는 트리거
+
+| 앞머리 | 수 | 무엇 |
+|---|---|---|
+| `trg_chk_` | 124 | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) |
+| `trg_uq_` | 4 | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`) |
+| 그 밖 | 20 | 해시 형식 4 · 연료 코드 참조 6 · 불변성 4 · 스냅샷 참조 2 · 기타 |
+| **합계** | **148** | 전환 직후에는 **0개**였다 |
+
+`trg_chk_`·`trg_uq_` 앞머리는 `db/cubrid_errors.py`가 그 거부를 `IntegrityError`로 옮기는
+표식이다 — PostgreSQL에서 같은 위반이 그 갈래였다. **불변성 트리거만 빼며**
+(`_no_delete`·`_immutable_`) 「값이 틀렸다」가 아니라 「금지된 연산」이기 때문이다.
 
 ## 8. 마이그레이션 전략 [X-1]
 
@@ -1561,6 +1675,33 @@ SELECT n FROM _t2                                           → -5
 | 명명 규칙 | `{revision}_{description}.py` (예: `001_initial_schema.py`) | Alembic 기본 규칙 준수 |
 | rollback 정책 | 모든 마이그레이션에 `downgrade()` 구현 필수 · **되돌릴 수 없는 downgrade는 프로덕션에서 막는다** | 프로덕션 안전성 · 아래 §8.1.2 |
 | seed 데이터 | **값·로직은 `src/cii_platform/db/seed.py`가 관리. 적재는 Alembic data migration** | 아래 §8.1.1 |
+
+#### 🔴 8.1.0 CUBRID 전환이 리비전 단위의 롤백 검증을 없앴다 (`#1058`)
+
+**전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
+
+```
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 051
+```
+
+그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
+않는다. `db/migration_guard.py`도 같은 이유로 분류를 셋에서 하나로 줄이며 그 사실을 적었다
+— 「되돌린다는 것은 스키마 전체를 드롭한다는 뜻이라 나눌 것이 남지 않는다」.
+
+**잃은 커버리지를 여기 명시한다.** 전제가 사라진 검사 둘을 지웠다(건너뛰지 않고 지운
+이유는 `tests/test_zz_roundtrip.py`의 주석에 있다).
+
+| 지운 검사 | 무엇을 보던 것 |
+|---|---|
+| `test_031_downgrade_restores_null_content_hash` | `030`까지 내리면 `fuel_type` 행 8개는 남고 `content_hash`만 NULL이 된다 |
+| `test_demo_seed_downgrade_does_not_touch_data` | `018`만 내리면 `017`이 적재한 CF 8행은 남는다 |
+
+**남아 있는 것** — `test_zz_roundtrip.py::test_downgrade_upgrade_roundtrip`이 전체 왕복
+(`downgrade base` → `upgrade head`)을 매 실행 그대로 본다. 그래서 **롤백 안전성 자체는
+덮여 있고**, 잃은 것은 **리비전 단위의 경계 검증**이다. 그리고 `043` 이후에 새로 붙는
+리비전은 각자 구분되므로 같은 검증이 다시 가능하다 — `test_032_downgrade_removes_regulation_parameters`
+·`test_seed_downgrade_removes_fuel_type_rows`·`test_partial_downgrade_preserves_immutability`
+셋이 그 형태로 남아 있다.
 
 #### 8.1.1 seed의 위치와 적재 경로 [#127]
 
@@ -1835,6 +1976,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-11 | `#758` | §2.5 `weather_snapshot_id` 각주의 **저장소에 없는 문서 인용**(`ROADMAP §4.1`)을 걷고 실제 결과(`016`이 수행)로 바꿨다 — `ROADMAP.md`는 로컬 전용 파일이라 클론한 사람이 그 근거에 닿을 수 없다. `AGENTS §4.3` 「오기 정정」이라 버전은 올리지 않는다 (#758) |
 | 2026-09-11 | `#830` | §2.7 `simulation_snapshot` `[X-2]` 각주 정정 — 「유일한 예외는 `needs_recalc` 플립」은 §2.5 `calculation_run` 각주의 **통째 복사**였다. 이 테이블엔 그 컬럼이 없고 트리거는 예외 없는 `prevent_mutation()`이다(§7.3 · 마이그레이션 009). `AGENTS §4.3`상 각주 정정이라 버전은 올리지 않는다 (#830) |
 | 2026-09-12 | `#827` | **§8.1.2 해제 조건에 「24시간 안의 백업 기록」 추가** + §2.14 `action`에 `DB_BACKUP` · 각주. 2026-09-11 결정 2-⑤ 「프로덕션에서 특정 리비전 이하 downgrade 차단 + `#827` 백업과 연계」의 뒷부분이다 — `#819`가 차단을 넣었으나 백업은 오류 문구에만 있었고, 백업 수단 자체가 저장소에 없었다(`scripts/`에 `pg_dump` 0건). `scripts/db_backup.py`(백업 · 복구 리허설 · 교체)가 덤프를 검증한 뒤 감사 로그에 남기고, 가드가 마이그레이션 연결로 그 행을 읽는다. 행·각주·항목 추가라 버전은 올리지 않는다 (#827) |
+| 2026-09-16 | `#1058` | **v1.27: CUBRID에서 제약을 어떻게 세우는가 전면 갱신.** §7.4를 다시 씀 — CUBRID는 CHECK를 **보관조차 하지 않는다**(실측), 그리고 그 뒤로 **CHECK 60개 전부**를 트리거로 옮겼다(`046`·`048`·`050` · 트리거 148개). §7.1에 「CUBRID FK는 `ON UPDATE RESTRICT`를 항상 갖는다」(ORM 불일치 61건의 원인) 추가 · §2.6 `[S-6]`은 FK를 빼고 UNIQUE + 트리거(`050`) · §2.10 `[M-7]`에 `REGEXP BINARY` 집행 · §7.3에 **불변성 가드의 NULL 구멍**(`051` — nullable 열이 NULL↔값으로 바뀌는 것이 통과하고 있었다) · §8.1.0 신설(리비전 통합으로 잃은 롤백 검증 커버리지 명시) · §2.14 백업 각주를 `unloaddb` 기준으로 정정 (#1058) |
 | 2026-09-12 | `#904` | §2.5 `weather_snapshot_id` 컬럼 설명 · `[#102]` 각주 · `VOYAGE_ESTIMATE` 필드 표 `weather_snapshot_id`·`weather_factor` 행 정정. **`weather_factor`는 「어디에도 기록되지 않는다」가 아니었다** — 기상 보정을 적용하는 유일한 계산인 기능②가 `result_json.scenarios[].weather_factor`에 이미 적고 있었고(개발 DB 252건 전부), 보고는 기능① 행을 본 것이었다(기능①은 연료량이 입력이라 인자가 정의상 `1.0`). 정작 빈 곳은 **컬럼**이었다: 삽입 경로가 `None` 고정이라 보정한 계산도 스냅샷을 가리키지 않았다 — 기능②가 쓴 스냅샷을 적도록 고쳤다. 새 `weather_factor` 컬럼은 같은 값을 두 곳에 두게 되어 두지 않았다. 스키마·마이그레이션 변경 없음. `AGENTS §4.3` 「각주 보강·오기 정정」이라 버전은 올리지 않는다 (#904) |
 | 2026-09-12 | `#768` | **v1.20 — §2.20 `port_geocode` 신설**(마이그레이션 039). 항만명을 좌표로 바꾸는 경로가 없어 사용자가 개발자도구로 좌표를 찾아야 했다(`PRD §1 COR-5`). 공개 Nominatim 사용 정책이 **결과 캐시를 요구**하므로 이 표는 성능이 아니라 **정책 준수의 실체**다. 샘플 항만 43곳(코드 상수 · NGA WPI)과 **섞지 않는다** — 출처가 다르고, 한 표에 담으면 어느 좌표가 어디서 왔는지 말할 수 없게 된다. FK를 두지 않는다: 항차에는 좌표 값이 복사돼 들어가므로 캐시를 비워도 항차가 온전하다 (#768) |
 | 2026-09-12 | `#764` | **v1.21 — §2.21 `vessel_position_snapshot` 신설**(마이그레이션 040). 위치에 **이력이 없었다** — `vessel.current_lat/lon`은 덮어쓰는 한 칸이라 새 값이 들어오면 직전 값이 사라진다. 자동 수집(AIS)은 값을 자주 밀어 넣으므로 **수집할수록 잃는 것이 늘어나는** 구조였다. `observed_at`(배가 그 자리에 있던 시각)과 `received_at`(우리가 받은 시각)을 나눈 이유는 AIS에 지연·재전송이 있어서다 — 수신 시각으로 신선도를 재면 「30분 전 위치를 방금 받았다」가 최신으로 읽힌다. `(vessel_id, source, observed_at)` UNIQUE는 **같은 관측의 재전송**을 한 행으로 접는다(AIS에서는 정상 동작이다). `nav_status`는 **원본 코드**를 적는다 — 운항 상태로 옮기는 규칙이 바뀌어도 과거 행을 다시 읽을 수 있어야 한다. 지나간 시각의 좌표는 되살릴 수 없어 040을 `IRREVERSIBLE`로 분류했다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올리고 README 문서 구조 표를 함께 갱신했다 (#764) |

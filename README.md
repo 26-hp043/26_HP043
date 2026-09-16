@@ -38,7 +38,7 @@
 | [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.13**, 자체 ID/PW 인증 전환 #413 + **역할 2종(사무직·현장직) #672** + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358 + **§12.3.1 필요 감축량(목표 역산) #433** + **§8.4 선종 변경 재계산 #944** + **§3.3.8 진행분 유종별 배분 #885** + **§6.4 상태 문구 #931** + **§12.2.1 실적 보정계수 #363**) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.9**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 #434 + 메일·리포트 절 신설 #446 + **§10.3 NumPy 업그레이드·재현성 한계 #833·#106**) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16), 메일 발송(§18), 리포트 렌더링(§19) | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.33**, 인증 재작성 #414 + **역할 2종·사무직 전용 경로 #672** + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440 + CII 적용 대상 표시 #653 + CSV 내보내기 컬럼 확정 #59 + 샘플 선박 목록 #982 + 챗봇 API #121) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.26**, not under way 스키마 #345 + **app_user.role #672** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451) — **20개 테이블**, PostgreSQL 16, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.27**, not under way 스키마 #345 + **app_user.role #672** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451 + **CUBRID 제약 전면 갱신 #1058**) — **20개 테이블**, **CUBRID 11.4.6**, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
 | [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.25**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398 + 배포 배선 고정 #508 + 테스트 격리 #507 + 계정 관리 #506) — 파일·함수·수집 수는 `TEST_PLAN §14.2` 합계 문장이 정본(CI가 실측과 대조), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 (**v1.10**) — 문서 우선순위(§3.1)·소관 한정 정본(§3.2), Oracle 교차 검증, 규제값 권위 소스, 이슈 유예 처리(§6.1), 1 PR = 1 이슈·PR 제목 형식(§7), 「상위 문서」 의미(§4.4), 제품명(§4.5), 화면 문구 소관(§4.6), 절·화면 참조 표기(§4.7) | ✅ 완료 |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (**v2.9**, 등급 3색 체계 · 다크 모드 · 토큰 접두어 `--cii-*` #463 + `UIFLOW` 참조 정리·신뢰도 배지 표시 임계 #583 + §4.2 일수·속력 자릿수 #592 + §8.2 CII 적용 대상 배지 #653 + §4.2 용량 자릿수 #633 + **rlatnals4114 확정 12건 반영** — §16 미확정 6항목 종결·§0.2 제약 6·§5 〔확정〕/〔제안〕 표기·§12 아이콘 세트·§15 `--brand-*` #747 · #694 + **§8 BrandLogo·§7.2 브랜드 판 반응형 #934** + **rlatnals4114 2026-09-11 확정 반영** — §5 확정/제안 정의·오버레이 규정·§8 슬라이더·§8.3 등급 전이 #930 · #932 · #933) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성 | ✅ 완료 |
@@ -141,8 +141,9 @@
 DB → 마이그레이션 → 앱·화면 순서다. **앱을 마지막에 올리는 것이 요점**이다 — 스키마가 없는 상태로 앱이 먼저 뜨면 그동안 API가 500을 낸다.
 
 ```bash
-# 1) credential 주입 — 미설정이면 compose가 즉시 실패한다 (기본값을 허용하지 않는다)
-export POSTGRES_USER=... POSTGRES_PASSWORD=... POSTGRES_DB=...
+# 1) credential 주입 — CUBRID로 바뀌었다 (#1058). 종전 POSTGRES_* 는 쓰이지 않는다.
+#    CUBRID_PASSWORD는 healthcheck도 읽는다 — 비워 두면 비밀번호 없는 dba로 붙는다.
+export CUBRID_DB=cii CUBRID_PASSWORD=...
 #    가입 게이트는 .env에 둔다 — SIGNUP_ALLOWED_DOMAINS 또는 SIGNUP_INVITE_CODE.
 #    둘 다 없으면 앱이 기동하지 않는다 (사내 도구 · #808 · .env.example 참조)
 #    최초 사무직도 .env에 둔다 — INITIAL_OFFICE_EMAILS=팀장@회사.kr,운항관리자@회사.kr
@@ -181,8 +182,8 @@ docker compose -f docker-compose.prod.yml up -d
 
 ```bash
 docker compose -f docker-compose.prod.yml exec -T db \
-  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -c "SELECT email, created_at, email_verified_at FROM app_user ORDER BY created_at;"
+  csql -t -N -u dba -p "$CUBRID_PASSWORD" "$CUBRID_DB" \
+  -c "SELECT email, created_at, email_verified_at FROM app_user ORDER BY created_at"
 ```
 
 - **팀 계정과 시연용 계정만 있어야 한다.** 데모 시드를 넣었다면 `demo@bluelog.local`이 함께 보인다(`#692`).
@@ -192,24 +193,29 @@ docker compose -f docker-compose.prod.yml exec -T db \
 
 ### 백업·복구 (`#827`)
 
-**만들기만 하고 복구해 보지 않은 백업은 백업이 아니다.** 스크립트 하나가 셋을 한다 — 호스트에 `python3`만 있으면 되고(표준 라이브러리만 쓴다), `pg_dump`·`pg_restore`는 **db 컨테이너 안의 것**을 부른다.
+**만들기만 하고 복구해 보지 않은 백업은 백업이 아니다.** 스크립트 하나가 셋을 한다 — 호스트에 `python3`만 있으면 되고(표준 라이브러리만 쓴다), `cubrid`·`csql`은 **db 컨테이너 안의 것**을 부른다.
 
 ```bash
-# 백업 — 덤프 → pg_restore로 읽히는지 확인 → 매니페스트(.json) → 감사 기록(DB_BACKUP) → 최근 14개만 남긴다
+# 백업 — cubrid unloaddb → tar로 읽히는지 확인 → 매니페스트(.json) → 감사 기록(DB_BACKUP) → 최근 14개만 남긴다
 python3 scripts/db_backup.py backup
 
-# 복구 리허설 — 새 DB(<DB>_restore_check)에 복구해 리비전·테이블·행 수·트리거를 대조하고 지운다
+# 복구 리허설 — 새 DB(<DB앞4자>_chk)에 복구해 리비전·테이블·행 수·트리거를 대조하고 지운다
 python3 scripts/db_backup.py rehearse backups/<파일>.dump
 
 # 복구 — 운영 DB를 덤프로 교체한다. 대조에 실패하면 앱을 멈추기 전에 끝나고,
-#        성공하면 이전 DB는 지우지 않고 <DB>_before_restore_<시각>으로 남긴다
-python3 scripts/db_backup.py restore backups/<파일>.dump --confirm "$POSTGRES_DB"
+#        성공하면 이전 DB는 지우지 않고 <DB앞4자>_b<MMDDHHMMSS>로 남긴다
+python3 scripts/db_backup.py restore backups/<파일>.dump --confirm "$CUBRID_DB"
 ```
+
+- 🔴 **덤프는 `pg_dump` 아카이브가 아니다** (`#1058`). CUBRID에는 단일 아카이브가 없어 `cubrid unloaddb`가 내는 **네 파일**(`db_schema`·`db_indexes`·`db_objects`·`db_trigger`)을 `tar` 하나로 묶는다. 확장자는 `.dump` 그대로이고 매니페스트의 `format`이 `cubrid-unloaddb-tar-v1`로 그 사실을 밝힌다. 안을 보려면 `tar -tf backups/<파일>.dump`. PostgreSQL 시절 덤프는 **복구를 거부한다** — `loaddb`에 넘겨도 읽히지 않으므로 거절하는 쪽이 맞다
+- 🔴 **CUBRID의 DB 이름은 17자를 넘을 수 없다**(실측: 17자 OK · 18자부터 `createdb`가 FATAL로 죽는다). 그래서 파생 DB 이름이 `cii_b0916041522`처럼 짧다 — 종전 `<DB>_before_restore_<시각>`(35자)은 CUBRID에서 서지 않는다
+- **트리거 수가 매니페스트에 실리고 리허설이 대조한다.** 이 배포에서 트리거는 **제약 그 자체**다(`DB_SCHEMA §7.4` — CHECK 60개가 트리거로 강제된다). 트리거가 빠진 복구는 제약이 없는 DB다
+- **교체는 `cubrid renamedb`이고, 그 전에 `cubrid server stop`이 필요하다.** 순서 — 앱 중지 → 서버 중지 → 이름 변경 2회 → 서버 기동 → 앱 기동. 새 DB는 `databases.txt`가 가리키는 **운영 DB와 같은 디렉터리**에 만든다(`renamedb`는 볼륨을 제자리에서 이름만 바꾸므로, 다른 곳에 만들면 교체 뒤 운영 DB의 볼륨을 찾을 수 없다)
 
 - **주기는 하루 한 번이다** — 호스트 crontab 한 줄: `17 3 * * * cd <저장소> && python3 scripts/db_backup.py backup && python3 scripts/db_backup.py rehearse "$(ls -1 backups/*.dump | tail -1)"`. 보존 개수는 `BACKUP_KEEP`, 위치는 `BACKUP_DIR`(기본 `backups/` · `.gitignore`·`.dockerignore`)로 바꾼다
 - **덤프는 같은 호스트에 쌓인다.** 호스트 자체를 잃는 사고에는 쓸 수 없다 — 호스트 밖으로 옮기는 것은 DB를 어디에 둘지(`#788`)와 함께 정한다
 - **되돌릴 수 없는 downgrade 전에는 반드시 한 번 더 뜬다.** 프로덕션 가드가 24시간 안의 `DB_BACKUP` 기록을 요구하며, 없으면 `ALLOW_IRREVERSIBLE_DOWNGRADE`로 명시해도 막힌다(`DB_SCHEMA §8.1.2`)
-- CI의 docker 잡이 프로덕션 스택에서 **백업 → 리허설 → 교체**를 매 실행 돌린다 — 절차가 낡으면 거기서 드러난다
+- CI의 docker 잡이 프로덕션 스택에서 **백업 → 리허설 → 교체**를 매 실행 돌린다 — 절차가 낡으면 거기서 드러난다(실제로 CUBRID 전환 뒤 이 단계가 `sh: psql: command not found`로 그 잡을 혼자 빨갛게 만들고 있었다)
 - 개발 스택에 쓰려면 `COMPOSE="docker compose" python3 scripts/db_backup.py …`
 
 ### 만료 행 정리 (`#827` ⑶)
@@ -599,3 +605,4 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-13 | `#513` | 문서 구조 표의 `PRD.md` 행을 **v4.12**, `UIFLOW.md` 행을 **v2.11**로 갱신 — `2-10 함대 감축 계획` 범위 안 · `PRD §6.3` 결정론 안내 문구 (#513) |
 | 2026-09-15 | `#672` | 문서 구조 표의 `PRD.md` 행을 **v4.13**, `API_SPEC.md` 행을 **v1.32**, `DB_SCHEMA.md` 행을 **v1.25**, `UIFLOW.md` 행을 **v2.12**로 갱신 — 역할 2종(사무직·현장직) 도입. 「배포」 절 1단계에 **최초 사무직 설정**(`INITIAL_OFFICE_EMAILS`) 안내와 배포 점검에 역할 확인 행 추가 — 프로덕션에서 비어 있으면 앱이 기동하지 않는다(`API_SPEC §1.2` 「최초 사무직」). ⚠️ `.env.example`은 이 PR에서 고치지 못했다(도구 권한) — `INITIAL_OFFICE_EMAILS` 행을 손으로 추가할 것 (#672) |
 | 2026-09-15 | `#1058` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.33**, `TEST_PLAN.md` 행을 **v1.25**, `DB_SCHEMA.md` 행을 **v1.26**로 갱신 · 배포 확인 절 3곳 정정 — **개발 편의 표면 셋(`dev-login` · OpenAPI 문서 · 시연 계정 시드)이 `staging`에서도 닫히게** 판정을 좁혔다. 종전 판정 `not is_production()`은 허용값 넷 중 셋에서 열렸고, `#524` 때문에 **SMTP 준비 전 배포는 `staging`이 정상 경로**라 그 조합이 실제로 자주 온다. 2026-09-15 OCI 배포에서 `dev-login`·`/docs`가 200을 냈다 (#1058) |
+| 2026-09-16 | `#1058` | 문서 구조 표의 `DB_SCHEMA.md` 행을 **v1.27**로 갱신하고 엔진 표기를 **CUBRID 11.4.6**으로 정정 — 종전 표는 아직 `PostgreSQL 16`이었다. 「백업·복구」 절을 `cubrid unloaddb`/`loaddb` 기준으로 다시 씀(덤프는 네 파일을 묶은 tar이고 확장자만 `.dump`다 · **CUBRID의 DB 이름은 17자를 넘을 수 없다** · 교체는 `renamedb`이고 그 전에 `server stop`이 필요하다) · 기동 순서·계정 점검의 `POSTGRES_*`·`psql`을 `CUBRID_*`·`csql`로 정정 (#1058) |
