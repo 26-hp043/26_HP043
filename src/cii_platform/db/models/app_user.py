@@ -69,9 +69,11 @@ class AppUser(Base):
         # 종전에는 `google_sub`이 유일 키였고 email에는 unique를 걸지 않았는데,
         # 그 근거(「구글 계정의 이메일은 변경될 수 있다」)는 구글 위임을
         # 그만두면서 전제 자체가 사라졌다.
+        # 유일성은 **활성 행 안에서만** 성립한다. PostgreSQL의 부분 유니크 인덱스를
+        # CUBRID가 지원하지 않아 `047`이 트리거(`trg_uq_app_user_email_active_ins`·`_upd`)
+        # 로 옮겼다 — 여기서는 조회용 인덱스로만 선언한다 (`#1058`).
         sa.Index(
             "idx_app_user_email",
             "email",
-            unique=True,
         ),
     )

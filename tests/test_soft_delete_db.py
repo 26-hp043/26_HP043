@@ -24,6 +24,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from conftest import insert_returning_id, uuid_hex
 from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
@@ -125,9 +126,12 @@ async def test_soft_deleted_row_still_exists(session):
     await delete_vessel(session, UUID(vessel_id))
 
     row = await session.execute(
-        text("SELECT is_deleted FROM vessel WHERE id = :id").bindparams(
-            bindparam("id", type_=UuidText())
-        ),
+        text("SELECT is_deleted FROM vessel WHERE id = :id")
+        .bindparams(bindparam("id", type_=UuidText()))
+        # 생 SQL에는 컬럼 타입이 붙지 않아 **CUBRID가 BOOLEAN을 정수로** 준다 —
+        # `is True`가 `assert 1 is True`로 떨어진다. 타입을 붙여 ORM 경로와 같은
+        # 값을 받는다 (`#1058`).
+        .columns(is_deleted=sa.Boolean()),
         {"id": vessel_id},
     )
     assert row.scalar_one() is True
@@ -221,9 +225,12 @@ async def test_completed_voyage_is_soft_deleted_not_removed(session):
     await delete_voyage(session, UUID(voyage_id))
 
     row = await session.execute(
-        text("SELECT is_deleted FROM voyage WHERE id = :id").bindparams(
-            bindparam("id", type_=UuidText())
-        ),
+        text("SELECT is_deleted FROM voyage WHERE id = :id")
+        .bindparams(bindparam("id", type_=UuidText()))
+        # 생 SQL에는 컬럼 타입이 붙지 않아 **CUBRID가 BOOLEAN을 정수로** 준다 —
+        # `is True`가 `assert 1 is True`로 떨어진다. 타입을 붙여 ORM 경로와 같은
+        # 값을 받는다 (`#1058`).
+        .columns(is_deleted=sa.Boolean()),
         {"id": voyage_id},
     )
     assert row.scalar_one() is True

@@ -112,11 +112,16 @@ class Vessel(Base):
             "AND position_updated_at IS NOT NULL)",
             name="chk_vessel_position_pair",
         ),
-        # §2.1 인덱스 (모두 partial: WHERE is_deleted = false). soft delete 호환.
+        # §2.1 인덱스. soft delete 호환 — **활성 행 안에서만 유일**이다.
+        #
+        # PostgreSQL 시절에는 `WHERE is_deleted = false`인 부분 유니크 인덱스였는데
+        # **CUBRID에는 조건이 붙는 인덱스가 없다** (`#1058`). 유일성은 `047`이 트리거
+        # (`trg_uq_vessel_imo_active_ins`·`_upd`)로 강제하고, 여기서는 **조회용 인덱스**
+        # 로만 선언한다 — `unique=True`로 두면 ORM이 DB가 하지 않는 일을 선언하게 되고,
+        # `test_orm_schema_sync`가 그것을 드리프트로 잡는다.
         sa.Index(
             "idx_vessel_imo",
             "imo_number",
-            unique=True,
         ),
         sa.Index(
             "idx_vessel_ship_type",
