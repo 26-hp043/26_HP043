@@ -332,7 +332,7 @@ export function ScenarioComparison({
            * 보고서 화면(`ReportsView`)이 이미 `vesselId &&`로 같은 구분을 하고 있다 —
            * 그 형태에 맞춘다.
            */
-          <span className="scenario-comparison__field-note">선박을 먼저 골라 주세요</span>
+          <span className="scenario-comparison__field-note">선박을 먼저 선택해 주세요</span>
         ) : (
           <span className="scenario-comparison__field-note">등록된 규제연도가 없습니다</span>
         )}

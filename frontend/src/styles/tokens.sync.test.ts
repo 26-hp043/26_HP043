@@ -638,6 +638,65 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     expect(value).not.toMatch(/transparent|color-mix|rgba?\(|\/\s*\d/)
   })
 
+  /*
+   * #829 ⑶ — **폼 컨트롤 테두리**가 양면에서 3:1을 넘는다.
+   *
+   * 입력칸은 **면으로 식별되지 않는다.** 컨트롤 면(`surface-inset`)과 패널
+   * 면(`surface-card`)의 대비가 라이트 `1.12` · 다크 `1.09`라 테두리가 유일한
+   * 경계이고, `1.4.11`의 비텍스트 `3:1`이 그대로 걸린다.
+   *
+   * **양면을 모두 잰다.** 테두리는 안쪽 면과 바깥 면 사이에 놓이므로 한쪽만 보면
+   * 통과 판정이 틀린다 — 종전 `--color-border-strong`은 라이트에서 안쪽 `1.42` ·
+   * 바깥 `1.60`으로 **둘 다** 미달이었다.
+   *
+   * ⚠️ 라이트 여유가 `0.08`뿐이다(`3.08`). `--text-muted`를 가리키는 **임시**이며
+   * 정본 값은 Figma 소관이다(`tokens.css`의 선언부 주석 참조). 이 검사는 그 교체
+   * 뒤에도 유효하다 — **무엇을 가리키든 3:1을 지켜야 한다**를 잠근다.
+   */
+  /*
+   * #829 ⑷ — **「등급 없음」 배지의 문자**가 배지 면 위에서 4.5:1을 넘는다.
+   *
+   * 그 배지는 등급 문자를 그리지 않는다 — `—` 하나다. 그래서 등급 채널이 아니고
+   * (`§0.2` 제약 2), 종전 `--cii-none-text`는 **다크에서 3.79**로 미달이었다.
+   *
+   * **토큰 이름이 아니라 실제 대비를 잰다.** `#748`이 `.warn`에서 이름 기반 가드를
+   * 쓰다 등급 문자가 **있는** 자리까지 시맨틱으로 바꿔 놓은 선례가 있다 — 이름은
+   * 맥락을 모른다. 여기서는 CSS가 실제로 무엇을 가리키든 **읽히는가**만 본다.
+   */
+  const noneBadgeCss = readFileSync(
+    join(fileURLToPath(new URL('.', import.meta.url)), '../features/fleet/FleetDashboard.css'),
+    'utf-8',
+  )
+
+  it.each(THEMES)('$name — 등급 없음 배지의 문자가 4.5:1 이상이다', ({ generated, alias }) => {
+    const rule = /\.vessel__mark--none\s*\{([\s\S]*?)\}/.exec(noneBadgeCss)
+    expect(rule, '.vessel__mark--none 규칙을 찾지 못했습니다').not.toBeNull()
+
+    const decl = /(?:^|;|\*\/)\s*color\s*:\s*([^;]+);/.exec((rule as RegExpExecArray)[1])
+    expect(decl, '배지의 color 선언을 찾지 못했습니다').not.toBeNull()
+
+    const text = evaluate((decl as RegExpExecArray)[1].trim(), generated, alias)
+    const bg = evaluate(generated['--cii-none-bg'], generated, alias)
+    expect(
+      contrast(text, bg),
+      '등급 없음 배지 문자 — 1.4.3 4.5:1 (#829 ⑷)',
+    ).toBeGreaterThanOrEqual(4.5)
+  })
+
+  const CONTROL_FACES = ['--surface-inset', '--surface-card']
+
+  it.each(THEMES)('$name — 폼 컨트롤 테두리가 양면에서 3:1 이상이다', ({ generated, alias }) => {
+    const value = alias['--color-border-control']
+    expect(value, '--color-border-control을 찾지 못했습니다').toBeDefined()
+    const border = evaluate(value, generated, alias)
+    for (const face of CONTROL_FACES) {
+      expect(
+        contrast(border, generated[face]),
+        `${face} 위 컨트롤 테두리 — 1.4.11 비텍스트 3:1 (#829 ⑶)`,
+      ).toBeGreaterThanOrEqual(3)
+    }
+  })
+
   it.each(THEMES)('$name — 포커스 링이 네 면 위에서 3:1 이상이다', ({ generated, alias }) => {
     // `0 0 0 3px <색>`에서 색만 꺼낸다.
     const ring = /3px\s+(.+)$/.exec(alias['--focus-ring'])
