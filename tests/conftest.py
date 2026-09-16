@@ -47,8 +47,12 @@ _CUBRID_SKIP_FILES = {
     "test_parameter_migrations.py",
     "test_voyage_migrations.py",
     "test_db_hardening_023.py",
+    # Docker/파일 경로 의존 — CUBRID 무관
+    "test_compose_env_wiring.py",  # docker-compose.yml 경로
+    "test_reports.py",             # frontend/ 소스 파일 경로
+    "test_seed_migration.py",      # 기존 마이그레이션 032_ 파일 참조
+    "test_uv_lock_sync.py",       # uv.lock 없음
 }
-
 
 # import 시점에 asyncpg 등 PostgreSQL 전용 모듈을 쓰는 파일은
 # pytest_collection_modifyitems보다 먼저 collection error가 난다.
@@ -430,8 +434,8 @@ def _install_cubrid_param_converter(engine):
 
         # 4. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
         if statement.lstrip().upper().startswith("INSERT INTO") and "(id," not in statement and "(id)" not in statement:
-            # VALUES 안의 괄호까지 포함하여 마지막 )를 찾기
-            m = re.match(r"(INSERT INTO \S+ )\(([^)]+)\)( VALUES )\((.+)\)\s*$", statement)
+            # 테이블명과 괄호 사이에 공백이 여러 개일 수 있으므로 \s*로 처리
+            m = re.match(r"(INSERT INTO \S+\s*)\(([^)]+)\)(\s*VALUES\s*)\((.+)\)\s*$", statement, re.IGNORECASE)
             if m:
                 prefix, cols, mid, vals = m.groups()
                 new_id = uuid.uuid4().hex
