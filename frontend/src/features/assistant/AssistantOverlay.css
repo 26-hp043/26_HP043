@@ -73,6 +73,11 @@
 }
 
 .assistant__close {
+  /* 아이콘만 있는 버튼이라 중앙에 놓는다 (`#935`). */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: none;

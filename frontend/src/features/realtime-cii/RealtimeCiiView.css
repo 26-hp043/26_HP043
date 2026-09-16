@@ -13,6 +13,17 @@
 
 .rt__back {
   align-self: flex-start;
+
+  /*
+   * 아이콘 + 라벨이라 `inline-flex`로 중앙을 맞춘다 (`#935`). 인라인 흐름에
+   * 두면 SVG가 베이스라인에 앉아 글자보다 위로 뜬다 — `Icon.css`의
+   * `vertical-align`이 일반 문장 안에서는 그것을 잡지만, 이 자리는 아이콘과
+   * 라벨 **둘뿐**이라 중앙 정렬이 더 정확하다.
+   */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+
   font-size: var(--font-size-label);
   color: var(--text-secondary);
   text-decoration: none;
