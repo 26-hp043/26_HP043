@@ -114,7 +114,18 @@ async def test_calculation_run_update_rejected(conn):
 
 @pytest.mark.asyncio
 async def test_calculation_run_delete_rejected(conn):
-    """immutable 트리거: calculation_run DELETE는 거부된다."""
+    """immutable 트리거: calculation_run DELETE는 거부된다.
+
+    🔴 문구가 아니라 **트리거 이름**을 본다 (`#1058`). 종전 PostgreSQL 트리거는 이름에
+    ``immutable``이 들어 있어 ``"immutable" in 메시지``로 확인했는데, CUBRID에서
+    ``a7d3e9b14f26``이 되살린 이름은 **``trg_calcrun_no_delete``**다 — UPDATE(허용 갈래가
+    있다)와 DELETE(언제나 금지)를 이름으로 가른 것이고, 그래서 DELETE 쪽에는
+    ``immutable``이 들어가지 않는다.
+
+    ``DBAPIError``로 받는 이유 — 불변성 트리거의 거부는 ``cubrid_errors``가
+    ``IntegrityError``로 **옮기지 않는다**(`IMMUTABILITY_TRIGGER_MARKS`). 「값이 틀렸다」가
+    아니라 「금지된 연산」이고, PostgreSQL에서도 ``IntegrityError``가 아니었다.
+    """
     vessel_id = await _insert_vessel(conn)
     calc_id = await _insert_calculation_run(conn, vessel_id)
     with pytest.raises(DBAPIError) as exc:
@@ -122,7 +133,10 @@ async def test_calculation_run_delete_rejected(conn):
             text("DELETE FROM calculation_run WHERE id = :id"),
             {"id": calc_id},
         )
-    assert "immutable" in str(exc.value).lower()
+    assert "trg_calcrun_no_delete" in str(exc.value)
+    # 갈래가 바뀌면 여기서 걸린다 — `IntegrityError`로 옮겨지면 「금지된 연산」이
+    # 「값이 틀렸다」와 같은 자리로 들어간다.
+    assert not isinstance(exc.value, IntegrityError)
 
 
 @pytest.mark.asyncio
@@ -282,7 +296,11 @@ async def test_simulation_snapshot_update_rejected(conn):
 
 @pytest.mark.asyncio
 async def test_simulation_snapshot_delete_rejected(conn):
-    """immutable 트리거: simulation_snapshot DELETE는 거부된다."""
+    """immutable 트리거: simulation_snapshot DELETE는 거부된다.
+
+    문구가 아니라 **트리거 이름**을 본다 — 형제
+    ``test_calculation_run_delete_rejected``와 같은 이유다 (`#1058`).
+    """
     vessel_id = await _insert_vessel(conn)
     snap_id = await _insert_simulation_snapshot(conn, vessel_id)
     with pytest.raises(DBAPIError) as exc:
@@ -290,7 +308,8 @@ async def test_simulation_snapshot_delete_rejected(conn):
             text("DELETE FROM simulation_snapshot WHERE id = :id"),
             {"id": snap_id},
         )
-    assert "immutable" in str(exc.value).lower()
+    assert "trg_snapshot_no_delete" in str(exc.value)
+    assert not isinstance(exc.value, IntegrityError)
 
 
 @pytest.mark.asyncio

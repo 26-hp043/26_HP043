@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 
@@ -65,6 +65,7 @@ class NotUnderwayPeriod(Base):
             ["vessel.id"],
             name="fk_not_underway_period_vessel",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         # 맥락 참조 — 항차 삭제 시 링크만 끊는다(정박 기록 자체는 선박에 귀속).
         sa.ForeignKeyConstraint(
@@ -72,6 +73,7 @@ class NotUnderwayPeriod(Base):
             ["voyage.id"],
             name="fk_not_underway_period_voyage",
             ondelete="SET NULL",
+            onupdate=FK_ON_UPDATE,
         ),
         # MEPC.401(83) EOSP→FAOP 구간의 실체 6값.
         sa.CheckConstraint(
@@ -89,6 +91,16 @@ class NotUnderwayPeriod(Base):
             "idx_not_underway_period_vessel_year",
             "vessel_id",
             "regulation_year",
+            # 🔴 `is_deleted`가 **키에 있다** (`#1058` · `050`). 이 인덱스는 025(`#345`)
+            # 이래 「활성 행만」이고, 종전 PostgreSQL에서는 `WHERE is_deleted = false`로
+            # 적었다. CUBRID의 filtered index는 **필터 열이 키에 있어야** 서므로
+            # (`047`이 네 조합을 실측) 열을 키 끝에 넣고 조건을 붙인다.
+            #
+            # ⚠️ 조건(`WHERE is_deleted = 0`)은 **여기 적을 수 없다** — SQLAlchemy에
+            # CUBRID용 `*_where` 방언 인자가 없다. 조건은 `050`이 생 SQL로 걸고,
+            # `test_not_underway_migrations::test_expected_indexes_present`가
+            # `db_index.filter_expression`을 카탈로그에서 대조한다.
+            "is_deleted",
         ),
         # 029 (#376) — #368 시뮬레이션 시계의 구간 겹침 조회 경로.
         # vessel_year 인덱스는 regulation_year가 선행열이 아니라 started_at 범위
@@ -97,6 +109,8 @@ class NotUnderwayPeriod(Base):
             "idx_not_underway_period_vessel_started",
             "vessel_id",
             "started_at",
+            # 위 인덱스와 같은 이유로 `is_deleted`가 키에 있다 (`050`).
+            "is_deleted",
         ),
         # 029 (#376) — voyage 삭제 시 ON DELETE SET NULL 확인이 full scan 하지
         # 않도록(023 idx_scenario_voyage 패턴). FK 확인은 삭제된 행도 봐야 하므로

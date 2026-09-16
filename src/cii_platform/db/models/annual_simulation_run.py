@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 
@@ -49,6 +49,7 @@ class AnnualSimulationRun(Base):
             ["calculation_run.id"],
             name="fk_annual_simulation_run_calculation_run",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         # §7.1 [DB-C-3]: 시뮬레이션 이력 보존 → 선박 물리 삭제 시 RESTRICT.
         sa.ForeignKeyConstraint(
@@ -56,14 +57,19 @@ class AnnualSimulationRun(Base):
             ["vessel.id"],
             name="fk_annual_simulation_run_vessel",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
-        # §7.1 [DB-C-3]: immutable 테이블(simulation_snapshot) 참조 → RESTRICT.
-        sa.ForeignKeyConstraint(
-            ["snapshot_id"],
-            ["simulation_snapshot.id"],
-            name="fk_annual_simulation_run_snapshot",
-            ondelete="RESTRICT",
-        ),
+        # 🔴 `fk_annual_simulation_run_snapshot`은 **없다** (`#1058` · `050`).
+        #
+        # CUBRID는 FK가 만든 인덱스가 있는 열에 인덱스를 또 두는 것을 거부하므로
+        # (`Index "fk_…" already defined for class` · 실측), 이 FK가 있으면 아래
+        # `idx_sim_snapshot_unique`(= `§2.6 [S-6]`의 1스냅샷 = 1시뮬레이션)를 세울 수
+        # 없다. 사용자가 「FK를 빼고 UNIQUE + 트리거」를 골랐다(결정요청 §0-3⑵).
+        #
+        # 빠진 것을 무엇이 대신하는가 —
+        #   · 부모 쪽(`ON DELETE RESTRICT`) → `trg_snapshot_no_delete`가 이미 전면 차단.
+        #     참조가 없어도 못 지우므로 **FK보다 강하다**.
+        #   · 자식 쪽(없는 스냅샷 참조 금지) → `trg_annual_sim_snapshot_ref_ins/upd`.
         # §2.6 [M-4] (원문 그대로): E 불가.
         sa.CheckConstraint(
             "target_rating IN ('A','B','C','D')",

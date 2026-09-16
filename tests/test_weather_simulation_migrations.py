@@ -15,7 +15,7 @@ import uuid
 import pytest
 from conftest import insert_returning_id
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 
 VALID_HASH = "sha256:" + "a" * 64
 
@@ -204,12 +204,18 @@ async def test_annual_sim_snapshot_unique_one_to_one(conn):
 
 
 async def test_new_fk_delete_rules_match_schema(conn):
-    # §7.1 [DB-C-3]: 010~015에서 생긴 FK의 ON DELETE 정책이 정본과 일치하는지 카탈로그로 검증.
+    """§7.1 [DB-C-3]: 010~015에서 생긴 FK의 ON DELETE 정책이 정본과 일치하는지 카탈로그로 검증.
+
+    🔴 ``fk_annual_simulation_run_snapshot``은 **이 목록에 없다** (`#1058` · `050`).
+    CUBRID가 FK 컬럼에 인덱스를 또 두는 것을 거부해 `[S-6]`의 1:1(유니크 인덱스)을 세울 수
+    없었고, 사용자가 「FK를 빼고 UNIQUE + 트리거」를 골랐다(결정요청 §0-3⑵).
+
+    **커버리지를 줄인 것이 아니다** — 아래 형제 검사가 그 FK가 하던 일을 양쪽에서 본다.
+    """
     expected = {
         "fk_voyage_scenario_weather": "SET NULL",
         "fk_annual_simulation_run_calculation_run": "RESTRICT",
         "fk_annual_simulation_run_vessel": "RESTRICT",
-        "fk_annual_simulation_run_snapshot": "RESTRICT",
     }
     rules: dict[str, str] = {}
     for table in ("voyage_scenario", "annual_simulation_run"):
@@ -217,6 +223,35 @@ async def test_new_fk_delete_rules_match_schema(conn):
         for m in _FK_ON_DELETE.finditer(ddl):
             rules[m.group("name")] = m.group("rule")
     assert {name: rules.get(name) for name in expected} == expected
+    # 뺀 FK가 정말 없는지도 고정한다 — 누군가 되살리면 `CREATE UNIQUE INDEX`가 다음
+    # 마이그레이션에서 `errno=-272`로 서고, 그 이유를 여기서 읽을 수 있어야 한다.
+    assert "fk_annual_simulation_run_snapshot" not in rules
+
+
+async def test_the_dropped_snapshot_fk_still_blocks_a_missing_snapshot(conn):
+    """FK의 **자식 쪽**(없는 스냅샷을 가리키지 못함)을 트리거가 대신한다 (`050`)."""
+    vessel_id = await _insert_vessel(conn)
+    calc_id = await _insert_calculation_run(conn, vessel_id)
+    # 저장 형식은 CHAR(32) hex다 — 대시 형식을 보내면 트리거에 닿기 전에
+    # `Cannot coerce … to type char`로 선다(`#1058`).
+    with pytest.raises(IntegrityError, match="trg_annual_sim_snapshot_ref"):
+        await _insert_annual_run(conn, calc_id, vessel_id, uuid.uuid4().hex)
+
+
+async def test_the_dropped_snapshot_fk_parent_side_is_already_stronger(conn):
+    """FK의 **부모 쪽**(``ON DELETE RESTRICT``)은 이미 더 강하게 막혀 있다 (`a7d3e9b14f26`).
+
+    ``trg_snapshot_no_delete``가 ``simulation_snapshot``의 DELETE를 **전면** 거부하므로,
+    참조하는 행이 없어도 못 지운다 — FK의 RESTRICT가 하던 일을 포함한다. 그래서 FK를
+    빼도 부모 쪽에서 잃는 것이 없다.
+    """
+    vessel_id = await _insert_vessel(conn)
+    snap_id = await _insert_sim_snapshot(conn, vessel_id)
+    # 아무도 참조하지 않는 스냅샷인데도 지워지지 않는다.
+    with pytest.raises(DBAPIError, match="trg_snapshot_no_delete"):
+        await conn.execute(
+            text("DELETE FROM simulation_snapshot WHERE id = :sid"), {"sid": snap_id}
+        )
 
 
 # --- audit_log (015) ---

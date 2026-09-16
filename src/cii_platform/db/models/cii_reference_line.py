@@ -40,9 +40,20 @@ class CiiReferenceLine(Base):
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_cii_reference_line"),
-        # capacity_rule 형식 검증은 앱 레벨에서 수행 — CUBRID는 regex CHECK 미지원 (#1058).
+        # 🔴 정본 `§2.10 [M-7]`은 「`fixed` 뒤에 **숫자만**」이다 — 종전 `LIKE 'fixed %'`는
+        # `fixed abc`도 통과시켰다(`#1058` · 인계 v7 §6). `050`이 집행 트리거를
+        # `REGEXP BINARY '^fixed [0-9]+$'`로 좁혔고, **선언도 함께 고친다** — 선언과 집행이
+        # 갈리면 다음 사람이 어느 쪽을 믿을지 알 수 없다.
+        #
+        # `BINARY`가 붙는 이유 — CUBRID의 `REGEXP`는 기본이 대소문자 무시라 `FIXED 12`도
+        # 통과한다. 정본의 `~`는 대소문자를 구분한다(실측).
+        #
+        # ⚠️ 이 CHECK는 **DB에 존재하지 않는다.** CUBRID는 CHECK 선언을 보관조차 하지
+        # 않는다 — `ALTER TABLE … DROP CONSTRAINT chk_capacity_rule`이
+        # `Constraint "…" not found.`를 낸다(실측 · `DB_SCHEMA §7.4`). 여기 적는 것은
+        # **정본이 규정한 규칙의 기록**이고, 집행은 `050`의 트리거가 한다.
         sa.CheckConstraint(
-            "capacity_rule IN ('DWT','GT') OR capacity_rule LIKE 'fixed %'",
+            "capacity_rule IN ('DWT','GT') OR capacity_rule REGEXP BINARY '^fixed [0-9]+$'",
             name="chk_capacity_rule",
         ),
         sa.CheckConstraint("a_decimal > 0", name="chk_a_decimal_positive"),
