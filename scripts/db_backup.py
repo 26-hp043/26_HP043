@@ -184,6 +184,22 @@ _VOLUME_DIR_SH = (
 RESTORE_DB_VOLUME_SIZE = "64M"
 RESTORE_LOG_VOLUME_SIZE = "64M"
 
+#: 🔴 **리허설 DB는 운영 DB의 디렉터리에 만들지 않는다** (`#1058`).
+#:
+#: ``createdb``는 LOB 기준 경로를 ``<file-path>/lob``으로 잡는다. 리허설 DB를 운영 DB와
+#: 같은 폴더에 만들면 **둘이 같은 ``lob`` 디렉터리를 가리키고**, 끝나고 ``deletedb``를
+#: 부르면 그것이 운영 DB가 쓰는 디렉터리를 건드린다. CI에서 리허설 **직후** 운영 서버
+#: 연결이 끊겼다::
+#:
+#:     복구 리허설 통과 — 리비전 051 · 테이블 26개 · 행 111개 · 트리거 148개가 일치합니다.
+#:     ERROR: Failed to connect to database server, 'cii', on the following host(s):
+#:            cii-cubrid
+#:
+#: 리허설 DB는 **언제나 지워지므로** 어디에 두든 상관없다 — 전용 폴더에 두고 폴더째 지운다.
+#: 반면 **교체용(staged) DB는 운영 DB의 자리에 두어야 한다** — ``renamedb``가 볼륨을
+#: 제자리에서 이름만 바꾸므로, 다른 곳에 만들면 교체 뒤 운영 DB의 볼륨을 찾을 수 없다.
+REHEARSAL_DIR = "/var/tmp/bluelog-rehearsal"
+
 #: 조회용 — ``-t``(plain-output) ``-N``(skip-column-names)이 ``psql -At``과 같은 출력을 낸다.
 #: ``-p``를 **빠뜨리면 안 된다** — 배포 호스트는 ``ALTER USER dba PASSWORD``로 비밀번호를
 #: 걸고(`deploy.yml`), 그러면 비밀번호 없는 ``csql``은 ``errno=-171``로 선다.
@@ -572,10 +588,12 @@ def rehearse(db: Db, dump: Path, keep_db: bool = False) -> str:
     """새 DB에 복구해 대조한다. 통과하면 그 DB를 지우고 요약을 돌려준다."""
     manifest = load_manifest(dump)
     target = derived_name(manifest["database"], TAG_REHEARSAL)
-    _restore_into(db, dump, target, db.query(_LOCALE_SQL), db.volume_dir())
+    # 운영 DB의 자리가 아니라 **전용 폴더**를 쓴다(위 `REHEARSAL_DIR` 주석 참조).
+    _restore_into(db, dump, target, db.query(_LOCALE_SQL), REHEARSAL_DIR)
     problems = verify_restored(db, target, manifest)
     if not keep_db:
         _drop_database(db, target)
+        db.sh(f"rm -rf {REHEARSAL_DIR}")
     if problems:
         raise BackupError(
             "복구 리허설 실패 — " + " · ".join(problems) + ". 덤프 직전·직후에 쓰기가 있었다면 "

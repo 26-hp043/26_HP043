@@ -308,7 +308,7 @@ def test_rehearsal_restores_into_a_separate_database_and_drops_it(tmp_path: Path
     scripts = fake.scripts()
     assert any("cubrid createdb" in s and "cii_chk" in s for s in scripts)
     assert any("cubrid loaddb" in s and "cii_chk" in s for s in scripts)
-    assert "cubrid deletedb cii_chk" in scripts[-1]
+    assert any("cubrid deletedb cii_chk" in x for x in scripts)
     assert not any("cii_chk" not in s and "deletedb" in s for s in scripts), (
         "운영 DB는 지우지 않는다"
     )
@@ -324,11 +324,33 @@ def test_the_staged_database_lands_beside_the_live_one(tmp_path: Path):
     dump = _backup(tmp_path)
     fake = FakeContainer()
 
-    bk.rehearse(_db(fake), dump)
+    bk.restore(_db(fake), dump, confirm="cii", now=lambda: _NOW)
 
     assert any("databases.txt" in s for s in fake.scripts()), "vol-path를 읽어야 한다"
     createdb = next(s for s in fake.scripts() if "cubrid createdb" in s)
     assert "-F /home/cubrid/CUBRID/databases/cii " in createdb, createdb
+
+
+def test_the_rehearsal_database_is_not_built_beside_the_live_one(tmp_path: Path):
+    """🔴 리허설 DB는 **운영 DB의 폴더에 만들지 않는다** (`#1058`).
+
+    ``createdb``는 LOB 기준 경로를 ``<file-path>/lob``으로 잡는다. 같은 폴더에 만들면 둘이
+    같은 ``lob``을 가리키고, 끝나고 ``deletedb``를 부르면 **운영 DB가 쓰는 디렉터리**를
+    건드린다. CI에서 리허설 직후 운영 서버 연결이 끊겼다.
+
+    리허설 DB는 언제나 지워지므로 어디에 두든 상관없다 — 전용 폴더에 두고 폴더째 지운다.
+    """
+    dump = _backup(tmp_path)
+    fake = FakeContainer()
+
+    bk.rehearse(_db(fake), dump)
+
+    createdb = next(s for s in fake.scripts() if "cubrid createdb" in s)
+    assert f"-F {bk.REHEARSAL_DIR} " in createdb, createdb
+    assert "/home/cubrid/CUBRID/databases/cii" not in createdb, (
+        "리허설 DB가 운영 DB 폴더에 만들어진다 — deletedb가 운영 lob을 건드린다"
+    )
+    assert f"rm -rf {bk.REHEARSAL_DIR}" in fake.scripts()[-1], "폴더째 지워야 한다"
 
 
 def test_the_restored_database_gets_modest_volumes_and_shows_its_error(tmp_path: Path):
@@ -366,15 +388,19 @@ def test_the_fallback_path_is_expanded_by_the_shell_not_quoted_by_python(tmp_pat
 
 
 def test_an_unreadable_volume_dir_stops_instead_of_guessing(tmp_path: Path):
-    """빈 답을 기본값으로 때우면 ``createdb -F ''``가 된다 — 멈추는 것이 맞다."""
+    """빈 답을 기본값으로 때우면 ``createdb -F ''``가 된다 — 멈추는 것이 맞다.
+
+    **교체(restore)로 본다** — 리허설은 전용 폴더를 쓰므로 vol-path를 읽지 않는다.
+    """
     dump = _backup(tmp_path)
     fake = FakeContainer()
     fake.volume_dir = ""
 
     with pytest.raises(bk.BackupError, match="databases.txt"):
-        bk.rehearse(_db(fake), dump)
+        bk.restore(_db(fake), dump, confirm="cii", now=lambda: _NOW)
 
     assert not any("cubrid createdb" in s for s in fake.scripts())
+    assert fake.compose_calls() == [], "앱을 멈추기 전에 끝난다"
 
 
 def test_rehearsal_creates_the_database_with_the_live_locale(tmp_path: Path):
@@ -434,7 +460,7 @@ def test_rehearsal_names_the_table_whose_rows_differ(tmp_path: Path):
     with pytest.raises(bk.BackupError, match="vessel 행 수 3 ≠ 4"):
         bk.rehearse(_db(fake), dump)
 
-    assert "cubrid deletedb cii_chk" in fake.scripts()[-1]
+    assert any("cubrid deletedb cii_chk" in x for x in fake.scripts())
 
 
 def test_rehearsal_catches_a_missing_table_and_revision(tmp_path: Path):
