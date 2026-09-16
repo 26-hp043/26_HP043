@@ -56,7 +56,7 @@ async def test_regulation_year_negative_z_factor_rejected(conn):
         await conn.execute(
             text(
                 "INSERT INTO regulation_year "
-                "(year, z_factor_percent, effective_from, source_ref, version) "
+                '("year", z_factor_percent, effective_from, source_ref, version) '
                 "VALUES (1999, -2.0, '1999-01-01', 'TEST', '1.0')"
             )
         )
@@ -72,7 +72,7 @@ async def test_regulation_year_zero_z_factor_passes(conn):
     await conn.execute(
         text(
             "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
+            '("year", z_factor_percent, effective_from, source_ref, version) '
             "VALUES (1900, 0, '1900-01-01', 'TEST', '1.0')"
         )
     )
@@ -89,10 +89,11 @@ async def test_fk_child_indexes_exist(conn):
         ("voyage_scenario", "idx_scenario_voyage"),
         ("simulation_snapshot", "idx_snapshot_vessel"),
     }
+    # CUBRID 카탈로그 `db_index`(class_name, index_name)로 읽는다 (#1058).
     rows = await conn.execute(
         text(
-            "SELECT tablename, indexname FROM pg_indexes "
-            "WHERE indexname IN ('idx_scenario_vessel', 'idx_scenario_voyage', "
+            "SELECT class_name, index_name FROM db_index "
+            "WHERE index_name IN ('idx_scenario_vessel', 'idx_scenario_voyage', "
             "'idx_snapshot_vessel')"
         )
     )

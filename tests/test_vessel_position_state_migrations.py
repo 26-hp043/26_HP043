@@ -145,7 +145,7 @@ async def test_lat_above_90_rejected(conn):
     실패 문장은 테스트당 하나씩만 둔다 (#96 선례).
     """
     vessel_id = await _insert_vessel(conn)
-    ts = "'2026-08-15T00:00:00+00'::timestamptz"
+    ts = "DATETIMETZ'2026-08-15 00:00:00 +00:00'"
 
     with pytest.raises(IntegrityError):
         await _update_state(
@@ -159,7 +159,7 @@ async def test_lat_above_90_rejected(conn):
 async def test_lon_below_minus_180_rejected(conn):
     """경도가 −180 미만이면 거부된다 (chk_vessel_lon_range)."""
     vessel_id = await _insert_vessel(conn)
-    ts = "'2026-08-15T00:00:00+00'::timestamptz"
+    ts = "DATETIMETZ'2026-08-15 00:00:00 +00:00'"
 
     with pytest.raises(IntegrityError):
         await _update_state(
@@ -173,7 +173,7 @@ async def test_lon_below_minus_180_rejected(conn):
 async def test_lat_lon_boundary_values_accepted(conn):
     """경계값(±90·±180) 자체는 저장된다."""
     vessel_id = await _insert_vessel(conn)
-    ts = "'2026-08-15T00:00:00+00'::timestamptz"
+    ts = "DATETIMETZ'2026-08-15 00:00:00 +00:00'"
 
     await _update_state(
         conn, vessel_id, f"current_lat = 90, current_lon = -180, position_updated_at = {ts}"
@@ -197,7 +197,7 @@ async def test_position_requires_timestamp(conn):
 async def test_half_position_rejected(conn):
     """위도만·경도만 있는 반쪽 위치는 거부된다."""
     vessel_id = await _insert_vessel(conn)
-    ts = "'2026-08-15T00:00:00+00'::timestamptz"
+    ts = "DATETIMETZ'2026-08-15 00:00:00 +00:00'"
 
     with pytest.raises(IntegrityError):
         await _update_state(conn, vessel_id, f"current_lat = 35.1, position_updated_at = {ts}")
