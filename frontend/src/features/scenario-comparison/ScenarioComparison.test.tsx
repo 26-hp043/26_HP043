@@ -125,7 +125,7 @@ describe('규제연도 — 자유 입력이 아니라 서버 목록이다 (#632)
 
     renderScreen({ vesselId: null })
 
-    expect(await screen.findByText(/선박을 먼저 골라 주세요/)).toBeTruthy()
+    expect(await screen.findByText(/선박을 먼저 선택해 주세요/)).toBeTruthy()
     expect(screen.queryByText(/등록된 규제연도가 없습니다/)).toBeNull()
   })
 
