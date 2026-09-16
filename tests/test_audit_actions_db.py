@@ -370,7 +370,9 @@ async def test_annual_simulation_records_a_calculation_run(migrated_db, app_fres
             assert details["status"] == "SUCCESS"
             assert isinstance(details["duration_ms"], int)
             assert details["warnings_count"] == len(body["warnings"])
-            assert str(events[0]["entity_id"]) == body["calculation_run_id"]
+            # 생 SQL이 읽은 `entity_id`는 저장 형식(hex 32자)이고 API 응답은 대시
+            # 형식이다 — 위 `VOYAGE_CONFIRM` 검사와 같은 자리다 (`#1058`).
+            assert same_uuid(events[0]["entity_id"], body["calculation_run_id"])
             assert events[0]["user_id"]
             # 원본 실행에는 재현 표식이 없다 — 아래 검사의 대조군이다.
             assert "reproduced" not in details

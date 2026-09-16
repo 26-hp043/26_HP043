@@ -593,24 +593,50 @@ async def _bulk_insert_calculation_runs(
 ) -> None:
     """계산 이력 ``count``건을 1초 간격으로 한 문장에 넣는다.
 
-    파이썬 루프로 넣으면 10,000건에 왕복이 10,000번이라 검사가 분 단위가 된다.
-    ``generate_series``로 DB 안에서 만들면 한 문장이다. 값은 전부 같아도 되는데,
-    **여기서 잠그는 것은 행 수**이지 내용이 아니다.
+    파이썬 루프로 넣으면 10,000건에 왕복이 10,000번이라 검사가 분 단위가 된다. DB 안에서
+    수열을 만들면 한 문장이다. 값은 전부 같아도 되는데, **여기서 잠그는 것은 행 수**이지
+    내용이 아니다.
+
+    ## CUBRID에는 ``generate_series``가 없다 (`#1058`)
+
+    대신 재귀 CTE를 쓰는데 **재귀 깊이에 한도가 있다** — ``cte_max_recursions``의 기본값이
+    ``2000``이라 10,002를 한 줄로 셀 수 없다(실측: ``Maximum recursions 2000 reached``).
+    그래서 **얕게 세고 교차 조인으로 넓힌다** — 0~100을 세는 CTE 하나를 자기 자신과
+    조인하면 101 × 101 = 10,201가지가 나오고, 거기서 필요한 만큼만 자른다.
+    파라미터를 늘리는 대신 한도를 올리지 않는 이유 — ``cte_max_recursions``는 서버 설정이라
+    검사가 건드릴 자리가 아니고, 올려 두면 **다음 사람이 그 설정에 기대는 질의를 쓴다.**
+
+    시각 산술도 다르다 — PostgreSQL의 ``+ make_interval(secs => g)``에 대응하는 것은
+    ``DATE_ADD(…, INTERVAL g SECOND)``다(``ts + INTERVAL 5 SECOND``는 CUBRID에서 구문
+    오류다 · 실측).
+
+    ``id``도 **직접 적는다.** 정본의 ``DEFAULT gen_random_uuid()``는 PostgreSQL 시절의
+    것이고 CUBRID 쪽 ``db_attribute.default_value``는 ``NULL``이다(실측) — 행을 만드는
+    쪽은 ORM의 ``default=uuid.uuid4``라 애플리케이션 경로는 무사하지만, **생 SQL로 넣는
+    이 검사에는 채워 줄 것이 없다.** 수열을 그대로 32자리로 채워 쓴다 — 십진 숫자는 전부
+    hex 자릿수라 ``uuid.UUID``가 그대로 읽고, 몇 번째 행인지가 값에 남는다.
     """
+    side = 101
+    assert side * side >= count, f"{side}×{side}로는 {count}건을 만들 수 없다"
     await session.execute(
         text(
-            "INSERT INTO calculation_run (vessel_id, calculation_type, input_hash, "
+            "INSERT INTO calculation_run (id, vessel_id, calculation_type, input_hash, "
             "  parameter_hash, model_version, result_json, parameters_used, created_at) "
-            "SELECT :vessel_id, 'VOYAGE_ESTIMATE', :input_hash, :parameter_hash, "
-            "  '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, "
-            "  CAST(:first_created_at AS timestamptz) + make_interval(secs => g) "
-            "FROM generate_series(0, :last) AS g"
+            "WITH RECURSIVE t(n) AS ("
+            "  SELECT 0 FROM db_root UNION ALL SELECT n + 1 FROM t WHERE n < :edge) "
+            "SELECT LPAD(CAST(a.n * :side + b.n AS VARCHAR), 32, '0'), "
+            "  :vessel_id, 'VOYAGE_ESTIMATE', :input_hash, :parameter_hash, "
+            "  '{}', '{}', '{}', "
+            "  DATE_ADD(:first_created_at, INTERVAL (a.n * :side + b.n) SECOND) "
+            "FROM t a, t b WHERE a.n * :side + b.n <= :last"
         ),
         {
             "vessel_id": vessel_id,
             "input_hash": _HASH_A,
             "parameter_hash": _HASH_B,
             "first_created_at": first_created_at,
+            "edge": side - 1,
+            "side": side,
             "last": count - 1,
         },
     )

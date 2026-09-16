@@ -22,10 +22,11 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
-from conftest import insert_returning_id
-from sqlalchemy import text
+from conftest import insert_returning_id, same_uuid
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.types import UuidText
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
 from cii_platform.services.scenario_adopt import adopt_scenario
 from cii_platform.services.voyage import delete_voyage, update_voyage
@@ -79,9 +80,17 @@ def _payload(vessel_id: UUID, voyage_id: UUID | None = None) -> VoyageCiiInput:
 
 
 async def _run_row(session, run_id: str):
+    """계산 이력 한 행. ``run_id``는 서비스 응답의 **대시 36자**다.
+
+    타입을 붙이지 않으면 그 문자열이 그대로 실려 저장 형식(hex 32자)과 맞지 않고,
+    **오류가 아니라 0행**이 온다 — ``NoResultFound``가 나면 「행이 없다」가 아니라
+    「형식이 다르다」를 먼저 의심할 것 (`#1058`).
+    """
     return (
         await session.execute(
-            text("SELECT voyage_id, needs_recalc FROM calculation_run WHERE id = :id"),
+            text("SELECT voyage_id, needs_recalc FROM calculation_run WHERE id = :id").bindparams(
+                bindparam("id", type_=UuidText())
+            ),
             {"id": run_id},
         )
     ).one()
@@ -96,7 +105,8 @@ async def test_only_requests_that_name_a_voyage_are_attributed(session):
     bound = await estimate_voyage_cii(session, _payload(vessel_id, voyage_id))
 
     assert (await _run_row(session, loose["calculation_run_id"])).voyage_id is None
-    assert (await _run_row(session, bound["calculation_run_id"])).voyage_id == voyage_id
+    # 생 SQL이 읽은 `voyage_id`는 저장 형식(hex 32자)이고 픽스처는 `UUID`다 (`#1058`).
+    assert same_uuid((await _run_row(session, bound["calculation_run_id"])).voyage_id, voyage_id)
     # 주소일 뿐 — 결과도 재현성 단위도 같다
     assert bound["input_hash"] == loose["input_hash"]
     assert bound["data"]["attained_cii"] == loose["data"]["attained_cii"]
@@ -117,22 +127,27 @@ async def test_plan_change_marks_the_attributed_calculation_for_recalculation(se
 
     await update_voyage(session, voyage_id, planned_distance_nm=Decimal("1200"))
 
-    assert (await _run_row(session, bound["calculation_run_id"])).needs_recalc is True
+    # CUBRID에 BOOLEAN이 없다 — `sa.Boolean()`이 SMALLINT로 내려가 **1/0**이 온다
+    # (`test_calc_run_needs_recalc_db`와 같은 자리 · `#1058`). `is True`로 보면 선다.
+    assert (await _run_row(session, bound["calculation_run_id"])).needs_recalc == 1
     # 범위는 그 항차까지다 — 다른 항차의 계산은 그대로
-    assert (await _run_row(session, other["calculation_run_id"])).needs_recalc is False
+    assert (await _run_row(session, other["calculation_run_id"])).needs_recalc == 0
 
 
-async def _scenario(session, vessel_id: UUID) -> UUID:
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, distance_nm, "
-            " speed_kn, duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
-            "VALUES (:vid, 'SLOW_STEAMING', '감속 운항', 2000, 10.5, 190.5, 120.25, 5.1, 'C', "
-            " 'MEDIUM') RETURNING id"
-        ),
+async def _scenario(session, vessel_id: UUID) -> str:
+    """CUBRID에 ``RETURNING``이 없다 — 위 ``_voyage``와 같이 :func:`insert_returning_id`로
+    넣는다 (`#1058`). 그대로 두면 ``ResourceClosedError``로 선다(돌려줄 행이 없다).
+
+    돌려주는 것은 **저장 형식(hex 32자) 문자열**이다 — 견줄 때 :func:`conftest.same_uuid`.
+    """
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, distance_nm, "
+        " speed_kn, duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
+        "VALUES (:vid, 'SLOW_STEAMING', '감속 운항', 2000, 10.5, 190.5, 120.25, 5.1, 'C', "
+        " 'MEDIUM') RETURNING id",
         {"vid": vessel_id},
     )
-    return row.scalar_one()
 
 
 @pytest.mark.asyncio
@@ -162,10 +177,11 @@ async def test_adopt_reports_a_real_invalidated_count(session):
     result = await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
 
     assert result["invalidated_calculation_runs"] == 2
-    assert (await _run_row(session, bound["calculation_run_id"])).needs_recalc is True
-    assert (await _run_row(session, bound2["calculation_run_id"])).needs_recalc is True
-    assert (await _run_row(session, other["calculation_run_id"])).needs_recalc is False
-    assert (await _run_row(session, loose["calculation_run_id"])).needs_recalc is False
+    # BOOLEAN이 SMALLINT로 내려간다 — 1/0으로 본다 (위와 같은 자리 · `#1058`).
+    assert (await _run_row(session, bound["calculation_run_id"])).needs_recalc == 1
+    assert (await _run_row(session, bound2["calculation_run_id"])).needs_recalc == 1
+    assert (await _run_row(session, other["calculation_run_id"])).needs_recalc == 0
+    assert (await _run_row(session, loose["calculation_run_id"])).needs_recalc == 0
 
 
 @pytest.mark.asyncio

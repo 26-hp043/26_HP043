@@ -109,14 +109,15 @@ async def test_resolve_session_walks_all_five_branches_with_real_cookies(client)
         assert await _resolve_message("no-such-token") == SESSION_NOT_FOUND_MESSAGE
         # ③ 만료
         await _sql(
-            "UPDATE user_session SET expires_at = now() - interval '1 hour' "
+            "UPDATE user_session SET expires_at = DATE_SUB(now(), INTERVAL 1 HOUR) "
             "WHERE user_id IN (SELECT id FROM app_user WHERE email = :e)",
             email,
         )
         assert await _resolve_message(token) == SESSION_EXPIRED_MESSAGE
         # ④ 폐기 — 조회 조건(`revoked_at IS NULL`)에서 걸러져 「없음」과 같은 답이다
         await _sql(
-            "UPDATE user_session SET expires_at = now() + interval '1 day', revoked_at = now() "
+            "UPDATE user_session SET expires_at = DATE_ADD(now(), INTERVAL 1 DAY), "
+            "revoked_at = now() "
             "WHERE user_id IN (SELECT id FROM app_user WHERE email = :e)",
             email,
         )
@@ -151,7 +152,7 @@ async def test_middleware_answers_with_the_same_messages(client):
         assert unknown == SESSION_NOT_FOUND_MESSAGE
 
         await _sql(
-            "UPDATE user_session SET expires_at = now() - interval '1 hour' "
+            "UPDATE user_session SET expires_at = DATE_SUB(now(), INTERVAL 1 HOUR) "
             "WHERE user_id IN (SELECT id FROM app_user WHERE email = :e)",
             email,
         )

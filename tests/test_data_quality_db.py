@@ -15,7 +15,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from conftest import ensure_regulation_year, insert_returning_id, same_uuid
+from conftest import ensure_regulation_year, insert_returning_id, same_uuid, uuid_canon
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -103,6 +103,16 @@ async def _mine(session, vessel_id: str) -> tuple[dict, list[dict], dict]:
     return vessel, issues, result["summary"]
 
 
+def _voyage_ids(items) -> list[str]:
+    """이슈 목록의 ``voyage_id``를 **대시 36자**로 (`#1058`).
+
+    서비스가 내는 것은 대시 형식이고, :func:`insert_returning_id`가 돌려주는 픽스처 값은
+    저장 형식(hex 32자)이다. 목록을 통째로 ``==``로 견주는 자리라
+    :func:`conftest.same_uuid` 로 짝지어 볼 수 없어 **양쪽을 정규화**한다.
+    """
+    return [uuid_canon(item["voyage_id"]) for item in items]
+
+
 def _by(issues: list[dict], severity: str) -> list[dict]:
     return [item for item in issues if item["severity"] == severity]
 
@@ -131,7 +141,7 @@ async def test_missing_actual_fuel_is_a_substitution_with_its_cii_impact(session
     _, issues, _ = await _mine(session, vessel_id)
     substituted = _by(issues, SEVERITY_SUBSTITUTED)
 
-    assert [item["voyage_id"] for item in substituted] == [target]
+    assert _voyage_ids(substituted) == [uuid_canon(target)]
     assert substituted[0]["codes"] == ["FUEL:HFO"]
 
     base = await compute_ytd_cii(session, vessel_id=UUID(vessel_id), regulation_year=YEAR)
@@ -160,7 +170,7 @@ async def test_a_fuel_row_with_nothing_in_it_is_unavailable_not_substituted(sess
 
     assert _by(issues, SEVERITY_SUBSTITUTED) == []
     unavailable = _by(issues, SEVERITY_UNAVAILABLE)
-    assert [item["voyage_id"] for item in unavailable] == [target]
+    assert _voyage_ids(unavailable) == [uuid_canon(target)]
     assert unavailable[0]["codes"] == [f"{UNAVAILABLE_FUEL_UNFILLED}:HFO"]
 
 
@@ -173,7 +183,7 @@ async def test_fuel_far_from_the_model_is_an_anomaly(session, vessel_id):
     _, issues, _ = await _mine(session, vessel_id)
     anomaly = _by(issues, SEVERITY_ANOMALY)
 
-    assert [item["voyage_id"] for item in anomaly] == [target]
+    assert _voyage_ids(anomaly) == [uuid_canon(target)]
     assert anomaly[0]["codes"] == ["FUEL_VS_MODEL"]
 
     ytd = await compute_ytd_cii(session, vessel_id=UUID(vessel_id), regulation_year=YEAR)
@@ -187,7 +197,7 @@ async def test_completed_but_not_confirmed_is_unconfirmed(session, vessel_id):
 
     vessel, issues, _ = await _mine(session, vessel_id)
 
-    assert [item["voyage_id"] for item in _by(issues, SEVERITY_UNCONFIRMED)] == [target]
+    assert _voyage_ids(_by(issues, SEVERITY_UNCONFIRMED)) == [uuid_canon(target)]
     # 값 자체는 실측이다 — 완결성에서 빼지 않는다.
     assert vessel["completeness_ratio"] == "1.0000"
 

@@ -397,23 +397,18 @@ jobs:
           # 덤프는 `unloaddb`가 낸 네 파일을 묶은 tar다 — 확장자는 `.dump` 그대로다.
           dump=$(ls -1 backups/*.dump | tail -1)
           tar -tf "$dump"
-          # 🔬 임시 진단 (`#1058` · 인계 v8 §7-2). 리허설은 통과하는데 그 **직후** 교체의
-          # 첫 질의가 `Failed to connect to database server, 'cii'`로 죽는다. 그때도 컨테이너는
-          # `Up (healthy)`다 — PID 1이 entrypoint라 살아남고, healthcheck는 30초마다라 앞선
-          # 성공이 남아 있기 때문이다. **cgroup OOM은 컨테이너가 아니라 그 안의 가장 큰
-          # 프로세스를 죽이므로** `docker inspect .State.OOMKilled`도 false로 남는다.
-          # 증거가 있는 자리는 cgroup의 `memory.events`(oom_kill 누적)와 `memory.peak`뿐이다.
-          # 원인을 확인하면 이 블록은 지운다.
-          probe() {
-            echo "::group::🔬 $1"
-            $COMPOSE exec -T db sh -c 'cubrid server status 2>&1; echo "--- cgroup ---"; for f in memory.max memory.peak memory.current memory.events; do printf "%s = " "$f"; tr "\n" " " < /sys/fs/cgroup/$f 2>/dev/null; echo; done' || true
-            docker inspect cii-cubrid --format 'inspect: OOMKilled={{.State.OOMKilled}} Restarts={{.RestartCount}} Status={{.State.Status}}' || true
-            sudo dmesg 2>/dev/null | grep -iE "oom|killed process" | tail -10 || true
-            echo "::endgroup::"
-          }
-          probe "리허설 직전"
+          # 🔴 이 자리는 한때 리허설 **직후** 운영 서버가 사라져 죽었다 (`#1058`).
+          # 임시로 cgroup을 찍어 사유를 확정했다 — standalone `loaddb`가 자기 버퍼 풀을
+          # 따로 잡아 `memory: 512M`을 넘겼고, 커널이 가장 큰 프로세스인 `cub_server cii`를
+          # 죽이고 있었다. 컨테이너는 `Up (healthy)`로 남아 아무 단서도 없었다.
+          # 버퍼를 제 몫만큼만 잡게 고쳤다(`scripts/db_backup.py`의 `_SMALL_BUFFERS`).
+          #
+          #     고치기 전  리허설 직후  서버 없음     oom_kill 3  current 505.7 MiB
+          #     고친 뒤    리허설 직후  Server cii    oom_kill 0  current 219.6 MiB
+          #
+          # 진단 자체는 **실패 시 로그 단계로 옮겨 남겼다** — 같은 모양이 다시 나면
+          # 거기서 바로 보인다. 늘 찍을 이유는 없다.
           python3 scripts/db_backup.py rehearse "$dump"
-          probe "리허설 직후"
           python3 scripts/db_backup.py restore "$dump" --confirm "$CUBRID_DB"
           # 교체 뒤에도 앱이 같은 DB 이름으로 붙어 응답하는가
           for i in $(seq 1 30); do

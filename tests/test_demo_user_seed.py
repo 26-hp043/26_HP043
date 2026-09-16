@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import pytest
+from conftest import uuid_canon
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -231,7 +232,9 @@ async def test_uuid_is_fixed(conn: AsyncConnection):
     stored = await conn.scalar(
         text("SELECT id FROM app_user WHERE email = :email"), {"email": DEMO_USER_EMAIL}
     )
-    assert str(stored) == DEMO_USER_ID
+    # 저장 형식은 hex 32자이고 계약값(`DEMO_USER_ID`)은 대시 36자다 — 그 형식이
+    # 곧 계약이므로 **DB에서 온 쪽을 계약 형식으로 올려** 견준다 (`#1058`).
+    assert uuid_canon(stored) == DEMO_USER_ID
 
 
 async def _count(conn: AsyncConnection) -> int:

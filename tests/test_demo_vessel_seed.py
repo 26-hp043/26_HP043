@@ -126,8 +126,10 @@ async def test_uuids_are_the_contracted_values(conn):
     ``gen_random_uuid()``라 명시 삽입하지 않으면 환경마다 값이 달라지고,
     프론트엔드 고정표(#134)와 입력 폼(#135)이 참조할 수 없게 된다.
     """
+    # 저장 형식은 hex 32자이고 #132의 계약값은 **대시 36자**다 — 계약 형식 자체가
+    # 단언 대상이므로 계약값을 hex로 낮추지 않고 **DB에서 온 쪽을 올린다** (`#1058`).
     ids = [
-        row[0]
+        uuid_canon(row[0])
         for row in (await conn.execute(text("SELECT id::text FROM vessel ORDER BY id"))).all()
     ]
     assert ids == [
@@ -272,7 +274,8 @@ async def test_vessel_axes_are_dwt_and_gt(conn):
     from cii_platform.calc.capacity import capacity_axis
 
     rows = (await conn.execute(text("SELECT id::text, ship_type FROM vessel ORDER BY id"))).all()
-    axes = {row[0]: capacity_axis(row.ship_type) for row in rows}
+    # 딕셔너리 키가 UUID다 — 키를 계약 형식으로 정규화한다 (위와 같은 자리).
+    axes = {uuid_canon(row[0]): capacity_axis(row.ship_type) for row in rows}
     assert axes == {
         VESSEL_ID_BULK: "DWT",
         VESSEL_ID_CONTAINER: "DWT",
