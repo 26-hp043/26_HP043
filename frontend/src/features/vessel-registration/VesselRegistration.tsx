@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import './VesselRegistration.css'
-import { DISPLAY_UNITS } from '../../display/format'
+import { DISPLAY_UNITS, DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { SCREEN_BY_ID } from '../../screens'
@@ -333,7 +333,7 @@ export function VesselRegistration() {
               id="reference-foc"
               label="기준 일일 연료소모량"
               labelEn="Daily Fuel Consumption"
-              unit={`${DISPLAY_UNITS.fuel}/${DISPLAY_UNITS.day}`}
+              unit={DISPLAY_UNIT_DAILY_FUEL}
               error={errors[FIELD.referenceDailyFocTon]}
             >
               <input

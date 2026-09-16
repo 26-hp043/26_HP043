@@ -12,6 +12,7 @@ import { PositionChart } from '../fleet/PositionChart'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
+  DISPLAY_UNIT_DAILY_FUEL,
   formatCapacity,
   formatDecimalString,
   formatGrouped,
@@ -349,7 +350,7 @@ export function VesselDetail({
                     ? null
                     : formatGrouped(vessel.referenceDailyFocTon, DISPLAY_DIGITS.fuelTon)
                 }
-                suffix={` ${DISPLAY_UNITS.fuel}`}
+                suffix={` ${DISPLAY_UNIT_DAILY_FUEL}`}
               />
               <Spec label="기본 연료" value={vessel.defaultFuelType} />
             </dl>

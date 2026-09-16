@@ -1,6 +1,7 @@
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
+  DISPLAY_UNIT_DAILY_FUEL,
   formatCapacity,
   formatDecimalString,
   formatGrouped,
@@ -277,7 +278,7 @@ export function referenceSpeedCell(vessel: Vessel): string | null {
 export function dailyFuelCell(vessel: Vessel): string | null {
   if (vessel.reference_daily_foc_ton === null) return null
   const value = formatGrouped(toDecimalInput(vessel.reference_daily_foc_ton), DISPLAY_DIGITS.fuelTon)
-  return `${value} ${DISPLAY_UNITS.fuel}`
+  return `${value} ${DISPLAY_UNIT_DAILY_FUEL}`
 }
 
 /*
