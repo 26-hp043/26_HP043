@@ -306,7 +306,7 @@ def test_rehearsal_restores_into_a_separate_database_and_drops_it(tmp_path: Path
 
     assert "통과" in summary and "테이블 3개" in summary and "행 17개" in summary
     scripts = fake.scripts()
-    assert any("cubrid createdb -F" in s and "cii_chk" in s for s in scripts)
+    assert any("cubrid createdb" in s and "cii_chk" in s for s in scripts)
     assert any("cubrid loaddb" in s and "cii_chk" in s for s in scripts)
     assert "cubrid deletedb cii_chk" in scripts[-1]
     assert not any("cii_chk" not in s and "deletedb" in s for s in scripts), (
@@ -329,6 +329,30 @@ def test_the_staged_database_lands_beside_the_live_one(tmp_path: Path):
     assert any("databases.txt" in s for s in fake.scripts()), "vol-path를 읽어야 한다"
     createdb = next(s for s in fake.scripts() if "cubrid createdb" in s)
     assert "-F /home/cubrid/CUBRID/databases/cii " in createdb, createdb
+
+
+def test_the_restored_database_gets_modest_volumes_and_shows_its_error(tmp_path: Path):
+    """🔴 볼륨 크기를 기본값에 맡기지 않고, 실패하면 사유를 싣는다 (`#1058`).
+
+    프로덕션 compose는 db 컨테이너에 ``memory: 512M``을 걸어 두었다. 기본
+    ``db_volume_size``로 두 번째 DB를 만들면 CI에서 ``createdb``가 **exit 254**로 죽었고,
+    출력을 ``>/dev/null``로 덮어 두었기 때문에 **이유가 어디에도 없었다.**
+    """
+    dump = _backup(tmp_path)
+    fake = FakeContainer()
+
+    bk.rehearse(_db(fake), dump)
+
+    createdb = next(s for s in fake.scripts() if "cubrid createdb" in s)
+    assert f"--db-volume-size={bk.RESTORE_DB_VOLUME_SIZE}" in createdb
+    assert f"--log-volume-size={bk.RESTORE_LOG_VOLUME_SIZE}" in createdb
+    # 실패 사유가 표준 오류로 나와야 한다 — 삼키면 다음 사람이 exit 코드만 본다.
+    assert "_createdb.err" in createdb, createdb
+    assert ">&2" in createdb, createdb
+    # 두 명령의 출력이 파일로 가고, 실패할 때 그 파일을 표준 오류로 낸다.
+    # (`2>/dev/null`은 오류 로그가 **없을 때**를 삼키는 것이라 여기서 세지 않는다.)
+    for marker in ("/tmp/_createdb.out", "/tmp/_loaddb.out"):
+        assert marker in createdb, f"{marker}가 없다 — 출력을 버리면 사유가 사라진다"
 
 
 def test_the_fallback_path_is_expanded_by_the_shell_not_quoted_by_python(tmp_path: Path):

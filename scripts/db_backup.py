@@ -172,6 +172,18 @@ _VOLUME_DIR_SH = (
     'printf %s "${d:-$CUBRID/databases}"'
 )
 
+#: 복구본을 만들 때 쓰는 볼륨 크기.
+#:
+#: ⚠️ **기본값에 맡기지 않는다.** 프로덕션 compose는 db 컨테이너에 ``memory: 512M``을
+#: 걸어 두었고, ``cubrid.conf``의 기본 ``db_volume_size``로 두 번째 DB를 만들면 CI에서
+#: ``createdb``가 **exit 254**로 죽었다 — 출력을 ``>/dev/null``로 덮어 두었기 때문에
+#: **사유가 어디에도 없었다.** 그래서 아래 :func:`_restore_into`가 CUBRID의 오류 로그를
+#: 직접 싣는다.
+#:
+#: 복구본은 원본만큼 클 필요가 없다 — CUBRID는 공간이 모자라면 볼륨을 **자동 확장**한다.
+RESTORE_DB_VOLUME_SIZE = "64M"
+RESTORE_LOG_VOLUME_SIZE = "64M"
+
 #: 조회용 — ``-t``(plain-output) ``-N``(skip-column-names)이 ``psql -At``과 같은 출력을 낸다.
 #: ``-p``를 **빠뜨리면 안 된다** — 배포 호스트는 ``ALTER USER dba PASSWORD``로 비밀번호를
 #: 걸고(`deploy.yml`), 그러면 비밀번호 없는 ``csql``은 ``errno=-171``로 선다.
@@ -518,11 +530,20 @@ def _restore_into(db: Db, dump: Path, target: str, locale: str, volume_dir: str)
         stdin_path=dump,
     )
     where = shlex.quote(volume_dir)
+    sizes = f"--db-volume-size={RESTORE_DB_VOLUME_SIZE} --log-volume-size={RESTORE_LOG_VOLUME_SIZE}"
+    # 출력을 버리지 않는다 — **실패하면 사유를 싣는다.** `>/dev/null`로 덮었을 때 CI에서
+    # `exit 254`만 남고 이유가 어디에도 없었다. `createdb`는 제 오류를
+    # `$CUBRID/log/<db>_createdb.err`에도 적으므로 그것까지 함께 낸다.
+    err_log = f"$CUBRID/log/{quoted}_createdb.err"
     db.sh(
         f"set -e; mkdir -p {where}; cd {WORK_DIR}; "
-        f"cubrid createdb -F {where} {quoted} {shlex.quote(locale)} >/dev/null; "
+        f"cubrid createdb {sizes} -F {where} {quoted} {shlex.quote(locale)} "
+        f'>/tmp/_createdb.out 2>&1 || {{ echo "--- createdb ---" >&2; '
+        f"cat /tmp/_createdb.out >&2; cat {err_log} >&2 2>/dev/null; exit 1; }}; "
         f"cubrid loaddb {_CRED} -s {SCHEMA_MEMBER} -i {INDEX_MEMBER} "
-        f"--trigger-file {TRIGGER_MEMBER} -d {OBJECT_MEMBER} {quoted} >/dev/null; "
+        f"--trigger-file {TRIGGER_MEMBER} -d {OBJECT_MEMBER} {quoted} "
+        f'>/tmp/_loaddb.out 2>&1 || {{ echo "--- loaddb ---" >&2; '
+        f"cat /tmp/_loaddb.out >&2; exit 1; }}; "
         f"rm -rf {WORK_DIR}"
     )
 
