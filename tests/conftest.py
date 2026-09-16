@@ -10,7 +10,6 @@ import contextlib
 import os
 import subprocess
 import sys
-from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -443,10 +442,33 @@ def _install_cubrid_param_converter(engine):
             if isinstance(p, Decimal):
                 return str(p)
             if isinstance(p, _dt):
-                # CUBRID는 ISO 8601 'Z' 접미사와 'T' 구분자를 인식하지 못한다.
-                if p.tzinfo is not None:
-                    p = p.astimezone(UTC).replace(tzinfo=None)
-                return p.strftime("%Y-%m-%d %H:%M:%S")
+                # 🔴 **`datetime`은 손대지 않는다** (`#1058` · 인계 v6 §4의 그 원인).
+                #
+                # 종전에는 여기서 `strftime("%Y-%m-%d %H:%M:%S")`로 **초 단위 문자열**을
+                # 만들고 타임존을 떼었다. 그래서 `simulation_snapshot.created_at`이
+                # 밀리초를 잃고 `+00:00`도 잃었다 — 실측이다::
+                #
+                #     보낸 값     2026-09-16T05:07:21.697000+00:00
+                #     DB 문자열   '05:07:21.000 AM 09/16/2026 UTC UTC'   ← .000 · 존 이름
+                #
+                # 그 결과 실행 응답(파이썬 값)은 `.697000`을 내고 조회 응답(DB에서 읽음)은
+                # 소수부 없이 내, `test_annual_simulation_read_db` 5건이 **경로에 따라
+                # 다른 `created_at`**으로 떨어졌다.
+                #
+                # ⚠️ **이것은 검사에만 있던 변환이다.** 배포 엔진에는 이 이벤트가 붙지
+                # 않으므로 운영에서는 밀리초가 보존된다 — 즉 검사가 **없는 결함을
+                # 만들어 내고** 있었다. 위 `sa.Uuid` 패치를 뺄 때 적은 것과 같은 자리다:
+                # 「그 패치는 검사에만 걸린다」.
+                #
+                # pycubrid가 aware `datetime`을 그대로 받고 밀리초까지 보관하는 것을
+                # 빈 표로 확인했다::
+                #
+                #     보낸 값 datetime(2026, 9, 16, 5, 3, 26, 548000, tzinfo=utc)
+                #     DB 문자열 '05:03:26.548 AM 09/16/2026 +00:00'
+                #
+                # 아래 `str` 갈래는 그대로 둔다 — **문자열 리터럴**의 `T`·`Z`는 CUBRID가
+                # 정말로 거부한다(`Invalid or missing timezone`).
+                return p
             if isinstance(p, str):
                 # ISO 8601 문자열 datetime → CUBRID 호환
                 if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", p):
