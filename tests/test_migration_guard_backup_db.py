@@ -51,13 +51,22 @@ async def test_other_actions_are_not_backups(conn):
 
 
 async def test_the_guard_unlocks_on_a_real_record(conn, monkeypatch: pytest.MonkeyPatch):
-    """조회와 판단을 이어서 — 방금 뜬 백업의 기록 하나로 해제된다."""
+    """조회와 판단을 이어서 — 방금 뜬 백업의 기록 하나로 해제된다.
+
+    ⚠️ **리비전을 이름으로 적지 않는다.** 종전에는 ``"037"``이 박혀 있었는데, CUBRID 전환이
+    마이그레이션 001~042를 하나로 합치면서 그 리비전이 사라져 ``KeyError: '037'``로 죽었다
+    (`#1058`). 이 검사가 보는 것은 **리비전이 무엇인가**가 아니라 **백업 기록 하나로 가드가
+    풀리는가**이므로, 표본은 ``IRREVERSIBLE``에서 꺼내 쓴다 — 목록이 다시 바뀌어도 낡지
+    않고, 목록이 비면 그 자리에서 멈춘다(비면 이 계약을 확인할 방법이 없다는 뜻이다).
+    """
+    revision = next(iter(migration_guard.IRREVERSIBLE), None)
+    assert revision is not None, "IRREVERSIBLE이 비어 있어 해제 경로를 확인할 수 없다"
     await _insert(conn, migration_guard.BACKUP_ACTION, datetime.now(UTC))
     monkeypatch.setattr(migration_guard, "is_production", lambda: True)
-    monkeypatch.setenv(migration_guard.ALLOW_ENV, "037")
+    monkeypatch.setenv(migration_guard.ALLOW_ENV, revision)
 
     def _check(sync_conn) -> None:
         monkeypatch.setattr(migration_guard, "_migration_bind", lambda: sync_conn)
-        migration_guard.guard_irreversible_downgrade("037")
+        migration_guard.guard_irreversible_downgrade(revision)
 
     await conn.run_sync(_check)

@@ -440,6 +440,11 @@ def test_queries_against_a_restored_database_are_standalone(tmp_path: Path):
 
     빈 답을 그대로 믿으면 리비전·행 수가 전부 어긋난 것으로 보이거나, 더 나쁘게는
     빈 표를 「없는 표」로 읽는다.
+
+    ⚠️ ``-S``는 **``csql``의 옵션**이다. 셸 스크립트의 맨 앞에 두면
+    ``sh -c "-S csql …"``가 되어 ``sh: -S: invalid option``으로 선다(한 번 그렇게 냈다) —
+    그래서 「``csql`` 바로 뒤에 붙는가」와 「스크립트가 ``-S``로 시작하지 않는가」를
+    따로 본다. 앞에 붙는 ``CUBRID_…=`` 환경변수는 셸이 명령의 환경으로 읽으므로 괜찮다.
     """
     dump = _backup(tmp_path)
     fake = FakeContainer()
@@ -448,9 +453,42 @@ def test_queries_against_a_restored_database_are_standalone(tmp_path: Path):
 
     for script in fake.scripts():
         if "csql" in script and "cii_chk" in script:
-            assert script.startswith("csql -S"), script
+            assert "csql -S " in script, script
+            assert not script.startswith("-S"), f"-S가 셸 앞에 왔다: {script}"
         elif "csql" in script and '"$CUBRID_DB"' in script:
             assert "-S" not in script, f"운영 DB에는 -S를 쓸 수 없다: {script}"
+
+
+def test_standalone_utilities_cap_their_own_buffers(tmp_path: Path):
+    """🔴 DB를 직접 여는 프로세스는 **자기 버퍼 풀을 따로 잡는다** (`#1058`).
+
+    이미지의 ``cubrid.conf``가 ``data_buffer_size=512M``인데 프로덕션 compose의 db
+    컨테이너 한도가 ``memory: 512M``(``#85``)이다. ``createdb``·``loaddb``·``csql -S``는
+    서버를 거치지 않으므로 그 값을 제 몫으로 다시 잡고, 살아 있는 ``cub_server``와 합쳐
+    한도를 넘는다. 넘으면 커널이 **가장 큰 프로세스**(= 운영 서버)를 죽이고, 컨테이너는
+    ``Up (healthy)``로 남아 아무 단서도 남지 않는다 — CI에서 그렇게 한 번 데었다.
+
+    운영 DB에 client-server로 붙는 ``csql``에는 걸지 않는다. 그쪽은 서버가 이미 버퍼를
+    물고 있어 클라이언트가 따로 잡지 않는다 — 거기까지 걸면 **효과 없이 운영 경로의 명령만**
+    달라진다.
+    """
+    dump = _backup(tmp_path)
+    fake = FakeContainer()
+
+    bk.rehearse(_db(fake), dump)
+
+    opened_directly = [
+        s
+        for s in fake.scripts()
+        if "cubrid createdb" in s or "cubrid loaddb" in s or "csql -S " in s
+    ]
+    assert opened_directly, "직접 여는 명령이 하나도 없다 — 검사가 대상을 잃었다"
+    for script in opened_directly:
+        assert "CUBRID_DATA_BUFFER_SIZE=" in script, script
+        assert "CUBRID_LOG_BUFFER_SIZE=" in script, script
+    for script in fake.scripts():
+        if "csql" in script and '"$CUBRID_DB"' in script and "csql -S " not in script:
+            assert "CUBRID_DATA_BUFFER_SIZE=" not in script, f"운영 경로에 걸렸다: {script}"
 
 
 def test_rehearsal_names_the_table_whose_rows_differ(tmp_path: Path):

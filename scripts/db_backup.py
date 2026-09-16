@@ -184,6 +184,31 @@ _VOLUME_DIR_SH = (
 RESTORE_DB_VOLUME_SIZE = "64M"
 RESTORE_LOG_VOLUME_SIZE = "64M"
 
+#: 🔴 **standalone으로 도는 CUBRID 유틸리티는 자기 버퍼 풀을 따로 잡는다** (`#1058`).
+#:
+#: 이미지의 ``cubrid.conf``가 ``data_buffer_size=512M`` · ``log_buffer_size=256M``이고,
+#: 프로덕션 compose는 db 컨테이너에 ``memory: 512M``을 건다(``#85``가 정한 값이다).
+#: ``createdb``·``loaddb``·``csql -S``는 **서버를 거치지 않고 DB를 직접 열므로** 그 값을
+#: 제 몫으로 다시 잡는다 — 살아 있는 ``cub_server``와 합쳐 한도를 넘는다.
+#:
+#: 넘으면 커널의 cgroup OOM 킬러가 **가장 큰 프로세스**를 고르고, 그것이 운영 서버다.
+#: 컨테이너는 죽지 않는다(PID 1은 entrypoint다) — 그래서 ``$COMPOSE ps``는 ``Up (healthy)``를
+#: 내고 ``docker inspect .State.OOMKilled``만 ``true``가 된다. CI 실측::
+#:
+#:     리허설 직전  Server cii (rel 11.4.6, pid 71)   oom_kill 0   current 505.7 MiB / 512 MiB
+#:     리허설 직후  (서버 없음)                        oom 4 · oom_kill 3
+#:     dmesg       Memory cgroup out of memory: Killed process 6401 (cub_server)
+#:                 total-vm:1727812kB anon-rss:394240kB  task=cub_server
+#:
+#: 복구본은 26개 표 · 111행이라 32M이면 남는다. 값은 ``CUBRID_<파라미터>`` 환경변수로
+#: **그 프로세스에만** 건다(실측 — ``cubrid paramdump -S``가 바뀐 값을 낸다).
+#: ``CUBRID_CONF_FILE``로 파일을 통째로 갈아 끼우지 않는 이유 — 그러면 ``cubrid_port_id``
+#: 같은 나머지 설정까지 함께 사라진다.
+#:
+#: ⚠️ 운영 서버(``cub_server``)의 설정은 **건드리지 않는다.** 여기서 거는 것은 백업·복구가
+#: 띄우는 일회성 프로세스뿐이다 — DB 성능 설정은 이 스크립트가 정할 자리가 아니다.
+_SMALL_BUFFERS = "CUBRID_DATA_BUFFER_SIZE=32M CUBRID_LOG_BUFFER_SIZE=4M"
+
 #: 🔴 **리허설 DB는 운영 DB의 디렉터리에 만들지 않는다** (`#1058`).
 #:
 #: ``createdb``는 LOB 기준 경로를 ``<file-path>/lob``으로 잡는다. 리허설 DB를 운영 DB와
@@ -194,6 +219,10 @@ RESTORE_LOG_VOLUME_SIZE = "64M"
 #:     복구 리허설 통과 — 리비전 051 · 테이블 26개 · 행 111개 · 트리거 148개가 일치합니다.
 #:     ERROR: Failed to connect to database server, 'cii', on the following host(s):
 #:            cii-cubrid
+#:
+#: ⚠️ **정정** — 위 증상은 원인이 둘이었다. ``lob``을 갈라 고친 뒤에도 같은 문구가 그대로
+#: 났고, cgroup을 찍어 보니 **운영 서버가 OOM으로 죽어 있었다**(`_SMALL_BUFFERS` 참조).
+#: 같은 증상이 두 원인에서 나온 자리다 — 하나를 고쳤다고 증상이 사라지리라 여기지 않는다.
 #:
 #: 리허설 DB는 **언제나 지워지므로** 어디에 두든 상관없다 — 전용 폴더에 두고 폴더째 지운다.
 #: 반면 **교체용(staged) DB는 운영 DB의 자리에 두어야 한다** — ``renamedb``가 볼륨을
@@ -299,7 +328,11 @@ class Db:
         else:
             # `-S`는 **`csql`의 옵션**이다 — 스크립트 앞에 두면 `sh -c "-S csql …"`가
             # 되어 셸이 `sh: -S: invalid option`으로 선다(한 번 그렇게 냈다).
-            client, target = _CSQL.replace("csql ", "csql -S ", 1), shlex.quote(database)
+            # ``-S``는 DB를 직접 여는 쪽이라 버퍼도 제 몫으로 잡는다
+            # (`_SMALL_BUFFERS` 주석 참조). 운영 DB에 붙는 client-server 쪽은 서버가
+            # 이미 물고 있으므로 걸지 않는다.
+            client = f"{_SMALL_BUFFERS} " + _CSQL.replace("csql ", "csql -S ", 1)
+            target = shlex.quote(database)
         out = self.sh(f"{client} {target} -c {shlex.quote(sql)}")
         return out.decode("utf-8").strip()
 
@@ -553,10 +586,10 @@ def _restore_into(db: Db, dump: Path, target: str, locale: str, volume_dir: str)
     err_log = f"$CUBRID/log/{quoted}_createdb.err"
     db.sh(
         f"set -e; mkdir -p {where}; cd {WORK_DIR}; "
-        f"cubrid createdb {sizes} -F {where} {quoted} {shlex.quote(locale)} "
+        f"{_SMALL_BUFFERS} cubrid createdb {sizes} -F {where} {quoted} {shlex.quote(locale)} "
         f'>/tmp/_createdb.out 2>&1 || {{ echo "--- createdb ---" >&2; '
         f"cat /tmp/_createdb.out >&2; cat {err_log} >&2 2>/dev/null; exit 1; }}; "
-        f"cubrid loaddb {_CRED} -s {SCHEMA_MEMBER} -i {INDEX_MEMBER} "
+        f"{_SMALL_BUFFERS} cubrid loaddb {_CRED} -s {SCHEMA_MEMBER} -i {INDEX_MEMBER} "
         f"--trigger-file {TRIGGER_MEMBER} -d {OBJECT_MEMBER} {quoted} "
         f'>/tmp/_loaddb.out 2>&1 || {{ echo "--- loaddb ---" >&2; '
         f"cat /tmp/_loaddb.out >&2; exit 1; }}; "
