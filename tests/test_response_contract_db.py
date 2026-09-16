@@ -622,6 +622,9 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data[].voyage_id",
             "meta",
             "meta.has_more",
+            # `#1076` — **페이지가 아니라 필터 전체**의 낡은 계산 수. 화면 머리의
+            # 「재계산 필요 N건」이 받은 페이지만 세던 자리다.
+            "meta.needs_recalc_total",
             "meta.next_cursor",
             "meta.request_id",
             "meta.timestamp",

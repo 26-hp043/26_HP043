@@ -41,6 +41,7 @@ async def _insert_run(
     input_hash: str,
     parameter_hash: str,
     calculation_type: str = "VOYAGE_ESTIMATE",
+    needs_recalc: bool = False,
 ) -> str:
     # JSONB 값은 CAST(:param AS jsonb)로 바인딩한다 — 리터럴 안에 ':1' 같은 열쇠가
     # 있으면 text()가 bind parameter로 오해해 파싱이 깨진다.
@@ -48,9 +49,10 @@ async def _insert_run(
         session,
         "INSERT INTO calculation_run "
         "(calculation_type, vessel_id, voyage_id, "
-        " input_hash, parameter_hash, model_version, result_json, parameters_used) "
+        " input_hash, parameter_hash, model_version, result_json, parameters_used, "
+        " needs_recalc) "
         "VALUES (:ctype, :vid, NULL, :ih, :ph, "
-        " CAST(:mv AS jsonb), CAST(:rj AS jsonb), '{}'::jsonb) RETURNING id",
+        " CAST(:mv AS jsonb), CAST(:rj AS jsonb), '{}'::jsonb, :nr) RETURNING id",
         {
             "ctype": calculation_type,
             "vid": vessel_id,
@@ -58,6 +60,8 @@ async def _insert_run(
             "ph": parameter_hash,
             "mv": '{"major": 1}',
             "rj": '{"attained_cii": "4.9824", "estimated_rating": "C"}',
+            # 가드 트리거(024)가 true→false 되돌림을 막으므로 INSERT에서 세운다.
+            "nr": 1 if needs_recalc else 0,
         },
     )
 
@@ -188,6 +192,71 @@ async def test_type_and_vessel_filters_and_pagination(migrated_db, app_fresh_eng
             ids2 = {d["calculation_run_id"] for d in page2["data"]}
             assert ids1 & ids2 == set()
             assert len(ids1 | ids2) == 3
+    finally:
+        await _delete_stub_user()
+        if vessel_id:
+            async with sessionmaker() as s:
+                await _cleanup(s, vessel_id)
+
+
+async def test_needs_recalc_total_counts_the_filter_not_the_page(migrated_db, app_fresh_engine):
+    """``meta.needs_recalc_total``은 **받은 페이지가 아니라 필터 전체**를 센다 (#1076).
+
+    선박 상세의 「계산 이력」이 머리에 「재계산 필요 N건」을 적는데, 종전에는 화면이
+    **받은 20건만** 세었다. 21번째 행부터 낡아 있으면 머리에 **「0건」**이 찍혀
+    「낡은 계산이 없다」와 「아직 다 세어 보지 않았다」가 같은 모양이 됐다.
+
+    그래서 여기서 박는 것은 세 가지다 — ⑴ 페이지 크기보다 큰 수가 나오는가
+    ⑵ 페이지를 넘겨도 값이 변하지 않는가 ⑶ ``type`` 필터를 따라가는가.
+    """
+    from cii_platform.db.session import get_sessionmaker
+
+    sessionmaker = get_sessionmaker()
+    vessel_id = None
+    try:
+        async with sessionmaker() as s:
+            vessel_id = await _insert_vessel(s, "7100203")
+            # VOYAGE_ESTIMATE 3건 중 2건이 낡았다.
+            for i in range(3):
+                await _insert_run(
+                    s,
+                    vessel_id,
+                    input_hash=f"sha256:{i:064d}",
+                    parameter_hash=VALID_HASH,
+                    needs_recalc=i < 2,
+                )
+            # 다른 종류의 낡은 계산 1건 — `type` 필터가 이것을 빼야 한다.
+            await _insert_run(
+                s,
+                vessel_id,
+                input_hash=OTHER_HASH,
+                parameter_hash=OTHER_HASH,
+                calculation_type="SCENARIO",
+                needs_recalc=True,
+            )
+            await s.commit()
+
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+
+            base = {"type": "VOYAGE_ESTIMATE", "vessel_id": vessel_id, "limit": 1}
+            page1 = client.get("/api/v1/calculations", params=base).json()
+
+            # ⑴ 한 건만 받았는데 2가 나온다 — 받은 페이지를 셌다면 1이었다.
+            assert len(page1["data"]) == 1
+            assert page1["meta"]["needs_recalc_total"] == 2
+
+            # ⑵ 다음 페이지에서도 같다. 페이지마다 달라지면 화면이 그 수를
+            #    「이 선박의 낡은 계산 수」로 말할 수 없다.
+            page2 = client.get(
+                "/api/v1/calculations",
+                params={**base, "cursor": page1["meta"]["next_cursor"]},
+            ).json()
+            assert page2["meta"]["needs_recalc_total"] == 2
+
+            # ⑶ 종류를 풀면 SCENARIO 1건이 더해진다 — 필터를 따라간다.
+            all_types = client.get("/api/v1/calculations", params={"vessel_id": vessel_id}).json()
+            assert all_types["meta"]["needs_recalc_total"] == 3
     finally:
         await _delete_stub_user()
         if vessel_id:

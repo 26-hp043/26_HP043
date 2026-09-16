@@ -41,6 +41,15 @@ interface CalculationPage {
   rows: CalculationRow[]
   nextCursor: string | null
   hasMore: boolean
+  /**
+   * 같은 필터에서 「재계산 필요」가 켜진 계산 수 — **이 페이지가 아니라 전체**다
+   * (`API_SPEC §1.9` `meta.needs_recalc_total` · `#1076`).
+   *
+   * 서버가 싣지 않으면 `null`이다. **그때 받은 행으로 대신 세지 않는다** — 그것이
+   * 바로 `#1076`이 고친 결함이다(21번째 행부터 낡아 있어도 머리에 「0건」이 찍혔다).
+   * 모르면 모른다고 두고, 화면이 건수를 아예 적지 않는다.
+   */
+  needsRecalcTotal: number | null
 }
 
 interface ServerRun {
@@ -90,12 +99,20 @@ export async function fetchCalculationPage(
   if (!response.ok) throw new Error(`계산 이력을 불러오지 못했습니다 (HTTP ${response.status}).`)
   const body = (await response.json()) as {
     data?: unknown
-    meta?: { next_cursor?: string | null; has_more?: boolean }
+    meta?: {
+      next_cursor?: string | null
+      has_more?: boolean
+      needs_recalc_total?: unknown
+    }
   }
   if (!Array.isArray(body.data)) throw new Error('계산 이력 응답 형식이 올바르지 않습니다.')
+  const total = body.meta?.needs_recalc_total
   return {
     rows: (body.data as ServerRun[]).map(toCalculationRow),
     nextCursor: body.meta?.next_cursor ?? null,
     hasMore: body.meta?.has_more === true,
+    // 수가 아닌 값(누락·`null`·문자열)은 **0으로 접지 않는다.** 0은 「낡은 계산이
+    // 없다」는 주장인데, 여기서 아는 것은 「서버가 말해 주지 않았다」뿐이다.
+    needsRecalcTotal: typeof total === 'number' && Number.isFinite(total) ? total : null,
   }
 }

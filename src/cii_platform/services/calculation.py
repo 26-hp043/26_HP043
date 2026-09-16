@@ -74,6 +74,11 @@ async def list_calculation_runs(
     저장소가 ``limit + 1``건을 주므로 초과분의 존재 여부가 곧 ``has_more``다.
     ``next_cursor``는 다음 페이지가 있을 때만 채운다 — 커서를 반복해서 쓰면
     클라이언트가 무한 루프에 빠질 수 있다(§1.9).
+
+    ``needs_recalc_total``은 **이 페이지가 아니라 필터 전체**의 값이다 (#1076).
+    선박 상세의 「계산 이력」이 머리에 적는 「재계산 필요 N건」이 종전에는 받은
+    페이지만 세어, 21번째 행부터 낡아 있어도 **「0건」으로 보였다** — 「낡은 것이
+    없다」와 「아직 다 세어 보지 않았다」를 같은 모양으로 그린 자리다(`API_SPEC §1.9`).
     """
     page_size = normalize_limit(limit)
 
@@ -110,7 +115,16 @@ async def list_calculation_runs(
         else None
     )
 
+    needs_recalc_total = await calc_run_repo.count_needs_recalc_runs(
+        session,
+        input_hash=input_hash,
+        parameter_hash=parameter_hash,
+        calculation_type=calculation_type,
+        vessel_id=vessel_id,
+    )
+
     return [_to_dict(row) for row in page], {
         "next_cursor": next_cursor,
         "has_more": has_more,
+        "needs_recalc_total": needs_recalc_total,
     }
