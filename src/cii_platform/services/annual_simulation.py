@@ -1404,6 +1404,15 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
     return row
 
 
+def _parse_json(val):
+    """CUBRID TEXT 컬럼은 str로 반환된다 — dict/list로 파싱 (#1153)."""
+    import json as _json_mod
+
+    if isinstance(val, str):
+        return _json_mod.loads(val)
+    return val
+
+
 def _stored_payload(row) -> dict:
     """저장된 응답 본문. 옛 형식이면 **조용히 반쪽을 돌려주지 않는다.**
 
@@ -1415,7 +1424,7 @@ def _stored_payload(row) -> dict:
     그래서 404로 끊는다. 요청한 **표현**이 존재하지 않는다는 뜻이며, 메시지에 그
     사실과 조치를 함께 적는다.
     """
-    payload = row.result_json or {}
+    payload = _parse_json(row.result_json) or {}
     # ⚠️ `reduction_plan`(`PRD §12.3.1` · `#433`)이 없는 실행은 **404로 끊지 않는다.**
     # 그 블록이 생기기 전의 실행도 나머지는 온전하고, 없는 값을 지금 계산하면 위와
     # 같은 이유로 조회가 아니라 재실행이 된다. 화면이 블록의 부재를 다룬다.
@@ -1455,8 +1464,8 @@ async def get_annual_simulation(session: AsyncSession, simulation_id: UUID) -> d
         snapshot=_snapshot_block(row),
         # **저장된 값을 그대로 낸다.** 지금 값을 읽으면 조회했을 뿐인데 파라미터가
         # 달라 보인다 — 이 함수가 다시 계산하지 않는 것과 같은 이유다 (#752).
-        parameters_used=row.parameters_used or {},
-        model_version=row.model_version or {},
+        parameters_used=_parse_json(row.parameters_used) or {},
+        model_version=_parse_json(row.model_version) or {},
         input_hash=row.input_hash,
         parameter_hash=row.parameter_hash,
         # **원본 실행에 걸린 시간**이다. 조회에 걸린 몇 ms를 「계산 시간」 자리에
@@ -1499,7 +1508,7 @@ async def list_snapshot_voyages(
     if row is None:
         raise NotFoundError(f"연간 시뮬레이션 실행을 찾을 수 없습니다: {simulation_id}")
 
-    return [_snapshot_voyage_view(row.snapshot_id, item) for item in (row.voyages_json or [])]
+    return [_snapshot_voyage_view(row.snapshot_id, item) for item in (_parse_json(row.voyages_json) or [])]
 
 
 def _snapshot_voyage_view(snapshot_id, item: dict) -> dict[str, object]:
@@ -1591,7 +1600,7 @@ async def reproduce_annual_simulation(
     rating_boundary = await _select_rating_boundary(session, vessel)
 
     profile_name = (
-        (row.parameters_used or {}).get("simulation_profile", {}).get("profile", "DEFAULT")
+        (_parse_json(row.parameters_used) or {}).get("simulation_profile", {}).get("profile", "DEFAULT")
     )
     profile_rows = await param_repo.load_distribution_profile(session, profile_name)
 
@@ -1599,7 +1608,7 @@ async def reproduce_annual_simulation(
     # 빌더가 바뀐 순간 과거 실행이 전부 `ParameterError`(409)를 받는다 — 규정이
     # 아니라 우리 코드가 바뀐 것인데 「규정 파라미터가 변경되었다」로 나간다.
     parameters_used = build_parameters_used(
-        parameters_schema_version(row.parameters_used),
+        parameters_schema_version(_parse_json(row.parameters_used)),
         regulation=regulation,
         reference_line=reference_line,
         rating_boundary=rating_boundary,
@@ -1673,7 +1682,7 @@ async def reproduce_annual_simulation(
     # 달랐을 때의 뜻**이다: 같은 환경이면 계산이 깨진 것(500), 다른 환경이면 약속 밖의
     # 변화(409 · `§10.3`). 종전에는 둘 다 500이라 **NumPy 업그레이드가 계산 결함으로
     # 보고**됐다.
-    version_diff = _model_version_diff(row.model_version or {}, _model_version())
+    version_diff = _model_version_diff(_parse_json(row.model_version) or {}, _model_version())
     try:
         _assert_same_outcome(stored, payload)
     except ReproducibilityError as exc:
@@ -1704,7 +1713,7 @@ async def reproduce_annual_simulation(
         parameters_used=parameters_used,
         # 반대로 ``model_version``은 **저장된 것**이다. 지금 값을 실으면 원본이 어느
         # 환경에서 돌았는지가 응답에서 사라진다 — 재현 판정의 근거가 그쪽이다.
-        model_version=row.model_version or {},
+        model_version=_parse_json(row.model_version) or {},
         input_hash=row.input_hash,
         parameter_hash=row.parameter_hash,
         # **이번 재계산에 걸린 시간**이다. 실제로 다시 돌렸으므로 그 값이 정직하다

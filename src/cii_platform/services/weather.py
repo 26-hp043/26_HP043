@@ -114,8 +114,8 @@ async def load_coefficients(session: AsyncSession, ship_type: str) -> tuple[Deci
     rows = (
         await session.execute(
             text(
-                "SELECT key, value FROM weather_model_parameter "
-                "WHERE model_version = :version AND key IN (:a, :b)"
+                'SELECT "key", "value" FROM weather_model_parameter '
+                'WHERE model_version = :version AND "key" IN (:a, :b)'
             ),
             {
                 "version": COEFFICIENT_MODEL_VERSION,
