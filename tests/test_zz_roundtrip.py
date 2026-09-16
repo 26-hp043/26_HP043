@@ -233,77 +233,27 @@ async def test_032_downgrade_removes_regulation_parameters():
         _restore_to_head()
 
 
-async def test_031_downgrade_restores_null_content_hash():
-    """031 downgrade가 ``fuel_type.content_hash``를 NULL로 되돌린다 (#154 완료 기준).
-
-    이 파일에 두는 이유는 위 테스트들과 같다 — ``downgrade 030``이 전역 스키마 상태를
-    바꾸므로 async ``conn`` fixture를 쓰는 테스트와 섞이면 안 된다 (#82). 값 자체의
-    검증은 tests/test_fuel_type_content_hash.py가 담당한다.
-
-    되돌아가는 지점은 017 직후 상태다 — 행은 8개 그대로 남고 ``content_hash``만 비는
-    것이 맞다. 행까지 사라지면 downgrade가 자기 범위를 넘어 017의 일을 되돌린 것이다.
-    """
-    step = run_alembic("downgrade", "030")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
-    try:
-        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
-        try:
-            async with engine.connect() as connection:
-                total = await connection.scalar(text("SELECT count(*) FROM fuel_type"))
-                filled = await connection.scalar(
-                    text("SELECT count(*) FROM fuel_type WHERE content_hash IS NOT NULL")
-                )
-            # 행은 남고 해시만 비었다.
-            assert total == 8
-            assert filled == 0
-        finally:
-            await engine.dispose()
-    finally:
-        # 성공/실패와 무관하게 head로 복원한다 — 031이 다시 8행을 채운다.
-        _restore_to_head()
-
-
-async def test_demo_seed_downgrade_does_not_touch_data(session_free=None):
-    """**018 다운그레이드는 아무것도 지우지 않는다** — 계약이 바뀌었다 (#451).
-
-    종전에는 018이 데모 선박 3행을 DELETE했다. 그런데 그 선박으로 계산을 한 번 돌리면
-    ``fk_calculation_run_vessel``(023 신설, RESTRICT)에 막혀 **롤백 전체가 실패**했다.
-    데모 데이터를 마이그레이션에서 분리해(``db.demo_seed``) 지울 것 자체를 없앴다.
-
-    그래서 여기서 확인하는 것은 「지웠는가」가 아니라 **「계산 이력이 있어도 롤백이
-    되는가」**다 — 그것이 이 이슈의 결함이었다.
-    """
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
-    try:
-        # 데모 선박을 참조하는 계산 이력을 심는다. calculation_run은 DELETE도 트리거로
-        # 막히므로(§7.3) 커밋하면 되돌릴 수 없다 — 그래서 커밋하지 않고, 대신
-        # **같은 트랜잭션 안에서** 018·017 롤백이 막히지 않음을 SQL로 확인한다.
-        async with engine.connect() as connection:
-            vessels = await connection.scalar(
-                text(
-                    "SELECT count(*) FROM vessel "
-                    # CUBRID에는 `uuid` 타입이 없고 컬럼은 `CHAR(32)`다 (`#1058`).
-                    # 대시 형식은 `Cannot coerce … to type char`로 거부된다.
-                    "WHERE id = '00000000000040008000000000000001'"
-                )
-            )
-        assert vessels == 1, "데모 선박이 없다 — conftest의 demo_seed가 돌지 않았다"
-    finally:
-        await engine.dispose()
-
-    await _clear_demo_data()
-    # 종전 `017`의 자리 (`#1058` 통합으로 `6c7496c4d122` 앞이 되었다).
-    step = run_alembic("downgrade", "1c444a5c4819")
-    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
-    try:
-        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
-        try:
-            async with engine.connect() as connection:
-                # 017의 CF 8행은 남아 있어야 한다 — 018만 내렸다.
-                fuels = await connection.scalar(text("SELECT count(*) FROM fuel_type"))
-            assert fuels == 8
-        finally:
-            await engine.dispose()
-    finally:
-        _restore_to_head()
-        await _reseed_demo_data()
+# ─────────────────────────────────────────────────────────────────────────────
+# 🔴 지운 검사 둘 — 전제가 사라졌다 (`#1058` · 결정요청 §0-2 · 가)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# * `test_031_downgrade_restores_null_content_hash`
+#     — 「`030`까지 내리면 `fuel_type` 행은 8개 남고 `content_hash`만 NULL이 된다」
+# * `test_demo_seed_downgrade_does_not_touch_data`
+#     — 「`018`만 내리면 `017`이 적재한 CF 8행은 남는다」
+#
+# CUBRID 전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` **하나로 합쳤다.** 두 검사가
+# 전제하는 「리비전 사이의 구분」이 **존재하지 않는다** — `017`과 `018`, `030`과 `031`이
+# 같은 리비전이 되었으므로 「하나만 내린다」가 성립하지 않는다. `downgrade 030`은
+# 리비전을 찾지 못하고, `downgrade 1c444a5c4819`는 스키마를 통째로 되돌린다.
+#
+#     base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 … → 051
+#
+# `db/migration_guard.py`도 같은 이유로 분류를 셋에서 하나로 줄이며 그 사실을 적었다 —
+# 「되돌린다는 것은 스키마 전체를 드롭한다는 뜻이라 나눌 것이 남지 않는다」.
+#
+# **건너뛰지 않고 지운 이유** — 전제가 사라진 검사를 `skip`으로 남겨 두면 다음 사람이
+# 「왜 실패하는지」를 다시 조사한다(`049`가 건너뛰기 목록을 비운 것과 같은 판단).
+# 잃은 커버리지는 `DB_SCHEMA §8.1`에 명시했다. 위 `test_downgrade_upgrade_roundtrip`이
+# 전체 왕복(`downgrade base` → `upgrade head`)을 그대로 보므로 **롤백 안전성 자체**는
+# 덮여 있고, 잃은 것은 **리비전 단위의 경계 검증**이다.
