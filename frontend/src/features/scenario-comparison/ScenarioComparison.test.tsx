@@ -877,7 +877,11 @@ describe('보이는 대상 = 계산 대상 (#1097)', () => {
     renderScreen()
     // 연료 목록이 로드되기 전에 클릭하면 isKnownFuel('HFO', [])=false → 로컬 검증 실패 → API 미호출.
     // 연료 셀렉트에 옵션이 뜰 때까지 기다린다.
-    await screen.findByRole('option', { name: '고유황유' })
+    //
+    // ⚠️ 이름은 서버의 `display_name`(「고유황유」)이 아니라 `fuelTypeOptionText()`가
+    // 만드는 「중유 (HFO)」다 — 화면은 `FUEL_TYPE_LABELS`를 원본으로 쓰고 서버 문구를
+    // 그대로 내보내지 않는다(`fuelTypes.ts` · `VoyageCiiForm.test.tsx:131`).
+    await screen.findByRole('option', { name: '중유 (HFO)' })
     fireEvent.click(screen.getByRole('button', { name: /비교하기/ }))
     const alerts = await screen.findAllByText('직항 거리가 너무 큽니다.')
     // 폼 위 오류와 **입력칸 아래** 오류 — 둘 다 있다
