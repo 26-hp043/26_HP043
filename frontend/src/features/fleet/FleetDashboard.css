@@ -415,9 +415,14 @@
 }
 
 .action--critical {
-  /* §0.2 제약 2 — 등급 색은 A~E 문자와만 (#748). 선대 경고는 시맨틱 Danger 색을 쓴다. */
-  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface));
-  color: var(--color-danger-text);
+  /*
+   * §0.2 제약 2 — 등급 색은 A~E 문자와 **함께** 둔다. 이 자리는 문구가
+   * 「E등급 1년차 — SEEMP Part III 시정조치계획 대상」이라(`fleet_summary._ACTION_TEXT`)
+   * 등급 문자가 항상 옆에 있다. 제약이 금지하는 것은 **문자 없는 등급 색**이지
+   * 등급 색 자체가 아니다 (#748 되돌림).
+   */
+  background: var(--cii-e-bg);
+  color: var(--cii-e-text);
 }
 
 .action--warning {
@@ -619,7 +624,7 @@
 .dist__group-label--b b { color: var(--cii-b-text); }
 .dist__group-label--c b { color: var(--cii-c-text); }
 .dist__group-label--d b { color: var(--cii-d-text); }
-.dist__group-label--e b { color: var(--color-danger-text); }
+.dist__group-label--e b { color: var(--cii-e-text); }
 
 /* 0척인 등급은 바에 조각이 없다. 감추지 않고 형태를 바꿔 적는다. */
 .dist__zero,
@@ -686,7 +691,7 @@
 .vessel__mark-grade--b { color: var(--cii-b-text); }
 .vessel__mark-grade--c { color: var(--cii-c-text); }
 .vessel__mark-grade--d { color: var(--cii-d-text); }
-.vessel__mark-grade--e { color: var(--color-danger-text); }
+.vessel__mark-grade--e { color: var(--cii-e-text); }
 
 /* 등급이 없는 선박 — 배를 그리지 않는다. 중립색 배는 「옅은 등급」으로 읽힌다. */
 .vessel__mark--none {

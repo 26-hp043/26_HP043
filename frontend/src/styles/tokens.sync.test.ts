@@ -949,6 +949,39 @@ describe('등급 색을 비-등급 맥락에서 쓰지 않는다 — §0.2 제�
     'utf-8',
   )
 
+  /*
+   * **반대 방향도 막는다** (`#748` 되돌림).
+   *
+   * 위 가드가 「등급 색을 비-등급 맥락에 쓰지 않는다」를 잠그자, `#748`이 그 방향으로
+   * 가다 **등급 문자가 있는 자리까지** 시맨틱으로 바꿔 놓았다 — `.vessel__mark-grade--e`
+   * (바로 그 클래스 안에 `<b>E</b>`가 있다) · `.dist__group-label--e b` · `.action--critical`
+   * (문구가 「E등급 1년차 —」다). 형제 `--a`~`--d`는 등급 토큰인데 `--e`만 빠져
+   * `§15` 접두어 규약도 함께 어겼다.
+   *
+   * **이름이 아니라 계열의 일관성을 본다.** 「이 클래스는 등급 채널인가」는 이름으로
+   * 알 수 없지만, **다섯 등급이 같은 채널을 쓰는가**는 알 수 있다. 하나만 다르면
+   * 그것이 사고다 — 다섯을 한꺼번에 바꾸는 것은 의도된 개정이라 이 검사가 막지 않는다.
+   */
+  const GRADE_SERIES = ['.dist__group-label--', '.vessel__mark-grade--']
+
+  it.each(GRADE_SERIES)('%s 계열 다섯 등급이 같은 채널을 쓴다', (prefix) => {
+    const used = new Map<string, string>()
+    for (const grade of ['a', 'b', 'c', 'd', 'e']) {
+      const rule = new RegExp(`\\${prefix}${grade}\\b[^{]*\\{([^}]*)\\}`).exec(fleetCss)
+      expect(rule, `${prefix}${grade} 규칙을 찾지 못했다`).not.toBeNull()
+      const token = /var\((--[\w-]+)\)/.exec((rule as RegExpExecArray)[1])
+      expect(token, `${prefix}${grade}에 토큰 참조가 없다`).not.toBeNull()
+      used.set(grade, (token as RegExpExecArray)[1])
+    }
+
+    // `--cii-{등급}-text`처럼 등급만 다른 한 계열이어야 한다.
+    const shapes = new Set([...used.values()].map((t) => t.replace(/-[a-e]-/, '-{grade}-')))
+    expect(
+      [...shapes],
+      `등급별로 다른 채널을 쓴다: ${[...used].map(([g, t]) => `${g}=${t}`).join(' · ')}`,
+    ).toHaveLength(1)
+  })
+
   it('.warn 배너에 --cii-* 등급 토큰이 없다', () => {
     // .warn { … } 블록만 추출한다 (중괄호 중첩 없음).
     const warnBlock = fleetCss.match(/\.warn\s*\{([^}]+)\}/)
