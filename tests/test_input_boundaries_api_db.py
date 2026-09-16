@@ -168,7 +168,11 @@ async def test_선종_변경이_재계산_표시를_남긴다(conn):
 
         before = (
             await db.execute(
-                text("SELECT count(*) FROM calculation_run WHERE vessel_id = :v AND needs_recalc"),
+                # `needs_recalc`는 CUBRID에서 `SHORT`다 — 정수 열은 그 자체로 논리식이
+                # 아니라 `operand must be logical expression`으로 선다 (`#1058`).
+                text(
+                    "SELECT count(*) FROM calculation_run WHERE vessel_id = :v AND needs_recalc = 1"
+                ),
                 {"v": vessel_id},
             )
         ).scalar_one()
@@ -178,7 +182,11 @@ async def test_선종_변경이_재계산_표시를_남긴다(conn):
 
         after = (
             await db.execute(
-                text("SELECT count(*) FROM calculation_run WHERE vessel_id = :v AND needs_recalc"),
+                # `needs_recalc`는 CUBRID에서 `SHORT`다 — 정수 열은 그 자체로 논리식이
+                # 아니라 `operand must be logical expression`으로 선다 (`#1058`).
+                text(
+                    "SELECT count(*) FROM calculation_run WHERE vessel_id = :v AND needs_recalc = 1"
+                ),
                 {"v": vessel_id},
             )
         ).scalar_one()

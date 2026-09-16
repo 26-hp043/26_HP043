@@ -33,7 +33,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fixture_loader import assert_layer1_equal
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.calc.annual_simulation import (
     CompletedTotals,
@@ -44,6 +44,7 @@ from cii_platform.calc.annual_simulation import (
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii, calculate_required_cii
 from cii_platform.calc.rating_engine import DVector
 from cii_platform.db.demo_seed import VESSEL_ID_BULK
+from cii_platform.db.types import UuidText
 from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
 
 # ── `TEST_PLAN §6` `[ORACLE-M-3]` 측정 조건 ──────────────────────────────────
@@ -55,6 +56,28 @@ P95_CII_CALCULATION = 1.0
 P95_SCENARIO_COMPARE = 5.0
 P95_DETERMINISTIC = 1.0
 P95_MONTE_CARLO_5000 = 3.0
+
+#: `PERF-002`가 만든 행을 되돌리는 문장 (`#1058`).
+#:
+#: 종전에는 `id = ANY(CAST(:ids AS uuid[]))`였다 — **PostgreSQL 배열**이다. CUBRID에는
+#: `uuid[]`도 `ANY(배열)`도 없고, pycubrid는 목록을 한 파라미터로 보내지 못한다.
+#:
+#:     ProgrammingError: cannot bind a collection (list/tuple/set/frozenset/dict) as a
+#:     single parameter; pycubrid does not auto-expand IN (?, ?, ...)
+#:
+#: `expanding=True`가 실행 시점에 `IN (?, ?, …)`로 펼치고, `UuidText`가 원소마다 저장
+#: 형식(`CHAR(32)`)으로 바꾼다 — 대시 형식을 그대로 보내면 **오류 없이 0건**이 지워져
+#: 정리가 안 된 채 통과한다(`test_seed_cf_matches_fuel_table`과 같은 자리).
+#:
+#: 이 자리는 **측정이 끝난 뒤의 `finally`**라 p95 판정에는 들어가지 않는다. 그래서
+#: 실패 사유가 「성능 미달」로 보이지 않았다 — 실측 출력은 목표의 27분의 1이었다
+#: (`PERF-002 p95=182.82 ms (목표 5000 ms)`).
+_DELETE_SCENARIOS = text("DELETE FROM voyage_scenario WHERE id IN :ids").bindparams(
+    bindparam("ids", expanding=True, type_=UuidText())
+)
+_DELETE_RUNS = text("DELETE FROM calculation_run WHERE id IN :ids").bindparams(
+    bindparam("ids", expanding=True, type_=UuidText())
+)
 
 #: `PRD §13.1` Fixture 1 — 정본값 생성기의 산출물(`TEST_PLAN §1.7`).
 _FIXTURE_1 = Path(__file__).parent / "fixtures" / "cii" / "bulk_50000_hfo_2026.json"
@@ -233,6 +256,7 @@ async def test_scenario_compare_p95(migrated_db, app_fresh_engine, capsys):
     )
     scenario_ids: list[str] = []
     run_ids: list[str] = []
+    deleted: dict[str, int] = {}
 
     async def workload():
         async with sessionmaker() as session:
@@ -254,18 +278,23 @@ async def test_scenario_compare_p95(migrated_db, app_fresh_engine, capsys):
         assert p95 < P95_SCENARIO_COMPARE
     finally:
         async with sessionmaker() as session:
-            await session.execute(
-                text("DELETE FROM voyage_scenario WHERE id = ANY(CAST(:ids AS uuid[]))"),
-                {"ids": scenario_ids},
-            )
-            await session.execute(
-                text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable")
-            )
-            await session.execute(
-                text("DELETE FROM calculation_run WHERE id = ANY(CAST(:ids AS uuid[]))"),
-                {"ids": run_ids},
-            )
-            await session.execute(
-                text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable")
-            )
+            scenarios = await session.execute(_DELETE_SCENARIOS, {"ids": scenario_ids})
+            await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS INACTIVE"))
+            runs = await session.execute(_DELETE_RUNS, {"ids": run_ids})
+            await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS ACTIVE"))
             await session.commit()
+            deleted["scenarios"] = scenarios.rowcount
+            deleted["runs"] = runs.rowcount
+
+    # 정리가 **실제로 지웠는지** 본다. `finally` 밖이라 위에서 이미 실패했으면 여기까지
+    # 오지 않는다 — 측정 실패를 정리 실패로 덮지 않는다.
+    #
+    # 왜 세는가 — 지우지 못해도 `DELETE`는 오류를 내지 않는다. `UuidText`를 빼면 대시
+    # 형식이 그대로 나가 **0건이 지워진 채 통과**하고, 이 표에 행이 쌓여 뒤따르는 검사의
+    # 수치를 흔든다. 그 구멍을 이 두 줄이 막는다(`#1058`).
+    assert deleted["scenarios"] == len(scenario_ids), (
+        f"시나리오 {len(scenario_ids)}건 중 {deleted['scenarios']}건만 지워졌다"
+    )
+    assert deleted["runs"] == len(run_ids), (
+        f"계산 실행 {len(run_ids)}건 중 {deleted['runs']}건만 지워졌다"
+    )

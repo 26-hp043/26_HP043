@@ -44,18 +44,22 @@ class _FakeDb:
 
     def __init__(self, answers: dict[str, str] | None = None, fail: set[str] | None = None):
         self.sql: list[str] = []
+        self.plain: list[bool] = []
         self._answers = answers or {}
         self._fail = fail or set()
 
-    def query(self, sql: str) -> str:
+    def query(self, sql: str, *, plain: bool = True) -> str:
         self.sql.append(sql)
+        self.plain.append(plain)
         for marker in self._fail:
             if marker in sql:
                 raise purge_expired.QueryError(f'relation "{marker}" does not exist')
         for marker, answer in self._answers.items():
             if marker in sql:
-                return answer
-        return "0"
+                # `--dry-run`은 세는 문장이라 숫자만 오고, 실제 삭제는 csql의 장식
+                # 출력이 온다. 답을 숫자로만 적어 두면 **DELETE 경로가 검사되지 않는다.**
+                return answer if plain else f"{answer} rows affected. (0.001 sec)"
+        return "0" if plain else "0 row affected. (0.001 sec)"
 
 
 def test_every_statement_filters_by_expiry() -> None:
@@ -89,9 +93,11 @@ def test_grace_days_applies_to_sessions_and_tokens_only() -> None:
     채팅의 `expires_at`은 이미 `PRD §16.3`의 90일이다. 거기에 유예를 더하면
     「90일 보존」이 사실과 달라진다 — 97일이 된다.
     """
-    assert "make_interval" in purge_expired.delete_sql("user_session", 7)
-    assert "make_interval" in purge_expired.delete_sql("user_token", 7)
-    assert "make_interval" not in purge_expired.delete_sql("chat_session", 7)
+    # `#1058` — CUBRID에 `make_interval`이 없어 `DATE_SUB(NOW(), INTERVAL n DAY)`로
+    # 옮겼다. 검사가 보는 것은 **유예가 붙는 자리**이지 함수 이름이 아니다.
+    assert "INTERVAL 7 DAY" in purge_expired.delete_sql("user_session", 7)
+    assert "INTERVAL 7 DAY" in purge_expired.delete_sql("user_token", 7)
+    assert "INTERVAL" not in purge_expired.delete_sql("chat_session", 7)
 
 
 def test_a_failing_table_does_not_stop_the_others() -> None:
@@ -132,6 +138,12 @@ def test_success_records_an_audit_row(monkeypatch: pytest.MonkeyPatch) -> None:
 
     inserts = [s for s in db.sql if s.startswith("INSERT INTO audit_log")]
     assert len(inserts) == 1
+
+    # `#1058` — `action`은 **CUBRID 예약어**다. 인용을 빠뜨리면 구문 오류가 나고
+    # 감사 기록만 조용히 사라진다. 실행해서 확인한 자리라 문자열로 잠근다.
+    assert '"action"' in inserts[0], inserts[0]
+    # `audit_log.id`는 기본값이 없다 — 빠지면 NOT NULL 위반이다.
+    assert "(id, " in inserts[0], inserts[0]
     assert purge_expired.PURGE_ACTION in inserts[0]
     assert '"grace_days"' in inserts[0]
 

@@ -368,3 +368,49 @@ def test_env_stays_out_of_git():
     entries = {line.strip() for line in ignore.splitlines()}
 
     assert ".env" in entries, ".gitignore에 .env가 없다 — SMTP 자격증명이 커밋될 수 있다"
+
+
+def _code_lines() -> list[str]:
+    """주석과 빈 줄을 뺀 실행 줄만 돌려준다.
+
+    주석에는 「종전에는 PostgreSQL이었다」 같은 **내력**이 남는다. 그것까지 금지하면
+    설명을 지우게 되므로, 잠그는 대상은 **실제로 실행되는 줄**로 한정한다.
+    """
+    out = []
+    for line in _SCRIPT.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        out.append(line)
+    return out
+
+
+@pytest.mark.parametrize(
+    "banned",
+    ["psql", "pg_isready", "pg_dump", "pg_restore", "postgresql+asyncpg", "postgresql://", "5432"],
+)
+def test_no_postgresql_tooling_remains(banned: str):
+    """`#1058` — 시연 기동 스크립트에 PostgreSQL 전용 도구가 남아 있지 않다.
+
+    `#1058`이 DB를 CUBRID로 옮겼는데 이 스크립트만 PostgreSQL 전제로 남아 있었다.
+    **CI가 이 스크립트를 실행하지 않아** 되돌아가도 아무 검사가 울지 않는다 — 그래서
+    문자열로 잠근다. `pg_isready`는 CUBRID에 아예 없고, `psql`로는 붙지 못한다.
+    """
+    code = _code_lines()
+    assert code, "스크립트에서 실행 줄을 한 줄도 찾지 못했습니다 — 경로를 확인하십시오."
+
+    hits = [line for line in code if banned in line]
+
+    assert not hits, f"PostgreSQL 전용 `{banned}`가 남아 있습니다: {hits}"
+
+
+def test_cubrid_tooling_is_present():
+    """CUBRID 쪽 도구가 **실제로 들어가 있다**.
+
+    금지어 검사만 두면 세 줄을 통째로 지워도 통과한다 — 있어야 할 것을 함께 잠근다.
+    """
+    code = "\n".join(_code_lines())
+
+    assert "cubrid+aiopycubrid://" in code, "CUBRID 접속 URL이 없습니다."
+    assert "csql" in code, "csql 호출이 없습니다 — DB에 직접 묻는 경로가 사라졌습니다."
+    assert "db_root" in code, "CUBRID 준비 대기(SELECT 1 FROM db_root)가 없습니다."

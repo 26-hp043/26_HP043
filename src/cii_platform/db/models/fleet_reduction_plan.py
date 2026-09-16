@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+import uuid
 
-from cii_platform.db.models.base import Base
+import sqlalchemy as sa
+
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
+from cii_platform.db.types import JSONText, UuidText
 
 
 class FleetReductionPlan(Base):
@@ -17,20 +19,19 @@ class FleetReductionPlan(Base):
 
     __tablename__ = "fleet_reduction_plan"
 
-    id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
-    )
+    # CUBRID에는 `gen_random_uuid()`가 없고 `id`에 기본값을 둘 수단도 없다 (`#1058`).
+    # `default=uuid.uuid4`로 **ORM이 넣을 때 만든다** — 다른 모델(`calculation_run` 등)과
+    # 같은 형태다. 빼 두면 flush가 `NULL identity key`로 선다.
+    id = sa.Column(UuidText(), primary_key=True, default=uuid.uuid4)
     name = sa.Column(sa.String(length=100), nullable=False)
     regulation_year = sa.Column(sa.Integer(), nullable=False)
     target = sa.Column(sa.String(length=20), nullable=False)
-    adjustments = sa.Column(postgresql.JSONB(), nullable=False)
-    prices = sa.Column(postgresql.JSONB(), nullable=False)
-    result = sa.Column(postgresql.JSONB(), nullable=False)
-    created_by = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    adjustments = sa.Column(JSONText(), nullable=False)
+    prices = sa.Column(JSONText(), nullable=False)
+    result = sa.Column(JSONText(), nullable=False)
+    created_by = sa.Column(UuidText(), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False
     )
 
     __table_args__ = (
@@ -40,10 +41,10 @@ class FleetReductionPlan(Base):
             ["app_user.id"],
             name="fk_fleet_reduction_plan_user",
             ondelete="SET NULL",
+            onupdate=FK_ON_UPDATE,
         ),
-        sa.CheckConstraint(
-            "target IN ('NO_AT_RISK','ALL_C_OR_BETTER')", name="chk_fleet_reduction_plan_target"
-        ),
-        sa.CheckConstraint("length(trim(name)) > 0", name="chk_fleet_reduction_plan_name"),
+        # CHECK를 적지 않는다 (`#1058` · `DB_SCHEMA §7.4`) — CUBRID는 받기만 하고
+        # **검사하지 않아**, 적어 두면 「막힌다」고 오해된다. `target`은 마이그레이션
+        # `043`의 트리거가 막고, `name` 공백 검사는 입력 스키마가 한다.
         sa.Index("idx_fleet_reduction_plan_created", sa.text("created_at DESC")),
     )

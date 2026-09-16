@@ -55,6 +55,66 @@ def _env_file_entries(service: dict) -> list[dict]:
     return [{"path": e} if isinstance(e, str) else e for e in raw]
 
 
+_PROD_DB = _ROOT / "docker-compose.prod.db.yml"
+
+#: db 서비스가 어느 키로 불리는가 — 분리 토폴로지 파일에서는 ``cubrid``다.
+_DB_SERVICES = ((_DEV, "db"), (_PROD, "db"), (_PROD_DB, "cubrid"))
+
+
+def _db_service(path: Path, name: str) -> dict:
+    return _compose(path)["services"][name]
+
+
+def test_every_db_healthcheck_passes_the_password():
+    """🔴 healthcheck가 ``CUBRID_PASSWORD``를 넘긴다 (`#1058` 결정요청 §0-4).
+
+    이미지는 첫 부트에 비밀번호를 걸지 않고, 배포가 브로커 기동 뒤
+    ``ALTER USER dba PASSWORD``로 건다(``deploy.yml``). **그 순간부터 비밀번호 없는
+    healthcheck는 실패한다** — 실측이다::
+
+        csql -u dba pwtest -c "SELECT 1 FROM db_root"        → ERROR: Incorrect or
+                                                               missing password. (exit 1)
+        csql -u dba -p "s3cret" pwtest -c "SELECT 1 …"       → 1 row selected. (exit 0)
+
+    ``csql``은 실패에 **종료 코드 1**을 내므로(실측) healthcheck가 그대로 unhealthy가
+    되고, ``depends_on: service_healthy``에 걸린 앱은 영영 기다린다. 빈 값도 ``-p ""``로
+    통과하므로 비밀번호를 걸기 전과 뒤가 같은 명령으로 돈다.
+    """
+    for path, name in _DB_SERVICES:
+        service = _db_service(path, name)
+        test = service["healthcheck"]["test"]
+        joined = " ".join(test)
+        assert "csql" in joined, f"{path.name}: healthcheck가 csql이 아니다 — {test}"
+        assert "CUBRID_PASSWORD" in joined, (
+            f"{path.name}: healthcheck에 CUBRID_PASSWORD가 없다 — 비밀번호를 건 뒤 "
+            f"컨테이너가 영영 unhealthy가 된다: {test}"
+        )
+        # 컨테이너에 그 값이 들어가야 셸이 펼칠 수 있다. compose의 `environment:`와
+        # `env_file:`만 컨테이너로 들어간다(이 파일 머리말의 `#508`과 같은 함정).
+        assert "CUBRID_PASSWORD" in service.get("environment", {}), (
+            f"{path.name}: db 서비스의 environment에 CUBRID_PASSWORD가 없다 — "
+            f"healthcheck가 빈 값을 넘긴다."
+        )
+
+
+def test_db_healthchecks_go_through_a_shell():
+    """``CMD``(exec 형식)는 셸을 거치지 않아 ``$CUBRID_PASSWORD``가 펼쳐지지 않는다.
+
+    펼쳐지지 않으면 비밀번호 자리에 **여섯 글자 문자열 ``$CUBRID_PASSWORD``** 가
+    들어가 언제나 실패한다 — 변수를 쓰기로 했으면 셸을 거쳐야 한다.
+    """
+    for path, name in _DB_SERVICES:
+        test = _db_service(path, name)["healthcheck"]["test"]
+        assert test[:3] == ["CMD", "sh", "-c"], f"{path.name}: 셸을 거치지 않는다 — {test}"
+
+
+def test_db_healthchecks_do_not_hardcode_the_database_name():
+    """DB 이름도 ``CUBRID_DB``를 쓴다 — 박아 두면 그 값을 바꿀 때 healthcheck만 없는 DB를 묻는다."""
+    for path, name in _DB_SERVICES:
+        joined = " ".join(_db_service(path, name)["healthcheck"]["test"])
+        assert "CUBRID_DB" in joined, f"{path.name}: DB 이름이 박혀 있다 — {joined}"
+
+
 def test_dev_app_loads_env_file():
     """개발 compose의 ``app``이 ``.env``를 컨테이너에 주입한다."""
     entries = _env_file_entries(_app_service(_DEV))
@@ -99,7 +159,9 @@ def test_database_url_overrides_env_file():
     for path in (_DEV, _PROD):
         env = _app_service(path).get("environment", {})
         assert "DATABASE_URL" in env, f"{path.name}의 environment에 DATABASE_URL이 없다."
-        assert "@db:5432/" in env["DATABASE_URL"], (
+        # CUBRID 브로커 포트다 (`#1058`). 종전 `@db:5432/`는 PostgreSQL 포트였다 —
+        # 전환 뒤에도 그대로 남아 이 검사만 빨갛게 떠 있었다.
+        assert "@db:33000/" in env["DATABASE_URL"], (
             f"{path.name}의 DATABASE_URL이 컨테이너 네트워크 주소를 가리키지 않는다: "
             f"{env['DATABASE_URL']}"
         )

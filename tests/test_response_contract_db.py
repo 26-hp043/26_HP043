@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from conftest import insert_returning_id
 from fastapi.testclient import TestClient
 
 from cii_platform.api.main import API_V1_PREFIX, app
@@ -500,10 +501,21 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.vessels[].position_updated_at",
             "data.vessels[].risk_level",
             "data.vessels[].risk_reasons",
-            # `#763` 항로선. **하위 키는 여기 적지 않는다** — 진행 중 항차가 없거나
-            # 좌표가 비면 `null`이라 키 자체가 나오지 않는다. 하위 구조는
-            # `test_fleet_route_db.py`가 좌표를 심어 두고 본다.
+            # `#763` 항로선. **하위 키를 여기 적는다** (`#1058`에서 정정).
+            #
+            # 종전에는 적지 않았다 — 「진행 중 항차가 없거나 좌표가 비면 `null`이라 키
+            # 자체가 나오지 않는다」는 이유였다. 그 전제가 **데모 시드에서 더는 참이
+            # 아니다**: 시드가 좌표를 가진 진행 중 항차를 만들고, :func:`flatten` 은 배열
+            # 원소를 **합집합**하므로 한 척만 항로를 가져도 넷이 모두 나온다.
+            #
+            # `API_SPEC §2.8`이 네 키를 모두 규정하므로 **응답 쪽이 맞고 이 표가
+            # 뒤처져 있었다.** 적어 두면 「항로선이 응답에 실린다」까지 이 표가 잠근다 —
+            # 하위 구조의 값은 그대로 `test_fleet_route_db.py`가 본다.
             "data.vessels[].route",
+            "data.vessels[].route.arrival_lat",
+            "data.vessels[].route.arrival_lon",
+            "data.vessels[].route.departure_lat",
+            "data.vessels[].route.departure_lon",
             "data.vessels[].ship_type",
             "data.vessels[].unavailable_reason",
             "data.vessels[].underway_state",
@@ -1508,8 +1520,6 @@ async def test_import_and_adopt_responses_match_the_contract(client):
     """
     from uuid import UUID
 
-    from sqlalchemy import text
-
     from cii_platform.db.session import get_sessionmaker
 
     vessel_id = _new_vessel(client).json()["data"]["id"]
@@ -1536,18 +1546,15 @@ async def test_import_and_adopt_responses_match_the_contract(client):
         assert planned.status_code == 200, planned.text
 
         async with get_sessionmaker()() as s:
-            scenario_id = (
-                await s.execute(
-                    text(
-                        "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, "
-                        " distance_nm, speed_kn, duration_hours, fuel_ton, cii_value, "
-                        " estimated_rating, risk_level) "
-                        "VALUES (:vid, 'SLOW_STEAMING', '감속 운항', 1000, 10.5, 95.2, 60.5, "
-                        " 5.1, 'C', 'MEDIUM') RETURNING id"
-                    ),
-                    {"vid": UUID(vessel_id)},
-                )
-            ).scalar_one()
+            scenario_id = await insert_returning_id(
+                s,
+                "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, "
+                " distance_nm, speed_kn, duration_hours, fuel_ton, cii_value, "
+                " estimated_rating, risk_level) "
+                "VALUES (:vid, 'SLOW_STEAMING', '감속 운항', 1000, 10.5, 95.2, 60.5, "
+                " 5.1, 'C', 'MEDIUM') RETURNING id",
+                {"vid": UUID(vessel_id)},
+            )
             await s.commit()
 
         adopted = client.post(

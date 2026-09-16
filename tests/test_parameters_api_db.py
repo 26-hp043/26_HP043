@@ -76,7 +76,7 @@ async def test_regulation_year_value_matches_the_database(session):
     문자열이라는 것만 보면 `"0"`을 돌려주는 구현도 통과한다.
     """
     stored = await _scalar(
-        session, "SELECT z_factor_percent FROM regulation_year WHERE year = 2026"
+        session, 'SELECT z_factor_percent FROM regulation_year WHERE "year" = 2026'
     )
 
     rows = await list_regulation_years(session)
@@ -98,7 +98,7 @@ async def test_superseded_regulation_year_is_not_listed(session):
     계산이 쓰는 것도 활성 행이다(`get_regulation_year`) — 조회만 다르게 두면 화면이
     계산과 다른 Z계수를 보여 준다.
     """
-    await session.execute(text("UPDATE regulation_year SET is_active = false WHERE year = 2026"))
+    await session.execute(text('UPDATE regulation_year SET is_active = false WHERE "year" = 2026'))
 
     years = [row["year"] for row in await list_regulation_years(session)]
 

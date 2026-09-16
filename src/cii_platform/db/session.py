@@ -13,13 +13,17 @@ import하지 않는다.
 
 from __future__ import annotations
 
+import re
+import uuid
+from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from cii_platform.config import DATABASE_URL
-from cii_platform.db.url import normalize_to_asyncpg
+from cii_platform.db.url import normalize_to_async
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -27,8 +31,50 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 
-# db.url.normalize_to_asyncpg으로 통일 (#234). alembic/seed/pytest/앱이 같은 정책을
-# 공유한다 — 사본을 두면 앱만 분기가 빠져 기동 실패하는 조합이 생긴다.
+# db.url.normalize_to_async으로 통일 (#234 → #1058). alembic/seed/pytest/앱이 같은
+# 정책을 공유한다.
+
+
+#: ``CAST(? AS <타입>)``을 맨 물음표로 되돌린다. SQLAlchemy가 붙이는 캐스트를 CUBRID가
+#: 받지 못하는 자리가 있어 떼어 낸다.
+_CAST_PLACEHOLDER = re.compile(r"CAST\(\? AS \w+\)")
+
+#: ``IS 0`` / ``IS 1``. CUBRID에서 ``IS``의 오른쪽은 ``NULL``·``TRUE``·``FALSE``만 온다.
+_IS_BOOL_LITERAL = re.compile(r"\bIS ([01])\b")
+
+
+def cubrid_param_convert(
+    conn: object,
+    cursor: object,
+    statement: str,
+    parameters: object,
+    context: object,
+    executemany: bool,
+) -> tuple[str, object]:
+    """``before_cursor_execute`` 훅 — CUBRID가 받는 모양으로 문장과 파라미터를 고친다.
+
+    ⚠️ **모듈 수준에 두는 이유** (`#1058` · `#955` 커버리지 하한).
+
+    이 함수는 ``get_engine()`` 안의 클로저였다. 검사는 ``tests/conftest.py``가 **제
+    변환기**를 붙인 엔진을 쓰므로 **이 함수는 전 검사에서 한 번도 돌지 않았고**,
+    커버리지가 그것을 `db/session.py 78.6% (52-62 미커버)`로 가리키고 있었다.
+
+    🔴 **그 갈라짐은 이미 한 번 결함을 냈다.** `conftest` 쪽 변환기가 모든 ``datetime``을
+    초로 깎고 타임존을 떼고 있었는데, 운영에는 그 이벤트가 붙지 않아 **검사만 없는
+    결함을 만들어 내고** 있었다(`2538271`). 두 변환기가 갈리면 **검사는 초록인데 운영이
+    깨지거나, 그 반대**가 된다.
+
+    모듈 수준으로 꺼내면 훅 자체를 **엔진 없이 직접 부를 수 있어** 규칙을 검사로 못
+    박을 수 있다(`tests/test_db_session_param_convert.py`). 동작은 그대로다.
+    """
+    if parameters and isinstance(parameters, (tuple, list)):
+        parameters = tuple(
+            p.hex if isinstance(p, uuid.UUID) else str(p) if isinstance(p, Decimal) else p
+            for p in parameters
+        )
+    statement = _CAST_PLACEHOLDER.sub("?", statement)
+    statement = _IS_BOOL_LITERAL.sub(r"= \1", statement)
+    return statement, parameters
 
 
 @lru_cache(maxsize=1)
@@ -38,7 +84,10 @@ def get_engine() -> AsyncEngine:
     ``lru_cache``로 단일 인스턴스를 보장한다. 엔진마다 커넥션 풀이 따로 생기므로
     요청마다 만들면 연결 수가 요청 수만큼 늘어난다.
     """
-    return create_async_engine(normalize_to_asyncpg(DATABASE_URL), pool_pre_ping=True)
+    engine = create_async_engine(normalize_to_async(DATABASE_URL), pool_pre_ping=True)
+    # CUBRID 호환: UUID/Decimal 파라미터 자동 변환 (#1058)
+    event.listen(engine.sync_engine, "before_cursor_execute", cubrid_param_convert, retval=True)
+    return engine
 
 
 @lru_cache(maxsize=1)

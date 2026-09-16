@@ -4,10 +4,13 @@ DB_SCHEMA.md §2.11 (cii_rating_boundary) 참조. 컬럼·제약·인덱스 정�
 마이그레이션 011과 1:1로 일치해야 한다 (zero drift — tests/test_orm_schema_sync.py에서 검증).
 """
 
+import uuid
+from datetime import UTC, datetime
+
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 from cii_platform.db.models.base import Base
+from cii_platform.db.types import UuidText
 
 
 class CiiRatingBoundary(Base):
@@ -15,11 +18,10 @@ class CiiRatingBoundary(Base):
 
     __tablename__ = "cii_rating_boundary"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     ship_type = sa.Column(sa.String(length=50), nullable=False)
     condition_expr = sa.Column(sa.String(length=200), nullable=False)
@@ -30,7 +32,10 @@ class CiiRatingBoundary(Base):
     d4 = sa.Column(sa.Numeric(precision=6, scale=4), nullable=False)
     source_ref = sa.Column(sa.String(length=200), nullable=False)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (

@@ -19,6 +19,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_if_not_exists
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,31 +46,18 @@ async def session(conn):
 
 async def _seed_parameters(session) -> None:
     """규정 파라미터를 멱등하게 심는다 (``test_fleet_summary.py``와 같은 방식)."""
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "SELECT 2026, 11.0, '2026-01-01', 'TEST', '1.0' "
-            "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = 2026)"
-        )
+    await ensure_regulation_year(session, 2026)
+    await insert_if_not_exists(
+        session,
+        "INSERT INTO cii_reference_line "
+        "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')",
     )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
-        )
+    await insert_if_not_exists(
+        session,
+        "INSERT INTO cii_rating_boundary "
+        "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')",
     )
 
 

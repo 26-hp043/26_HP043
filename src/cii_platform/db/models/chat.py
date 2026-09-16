@@ -16,10 +16,13 @@
 
 from __future__ import annotations
 
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+import uuid
+from datetime import UTC, datetime
 
-from cii_platform.db.models.base import Base
+import sqlalchemy as sa
+
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
+from cii_platform.db.types import UuidText
 
 #: ``PRD §16.3`` 채팅 보존 정책 — ChatMessage 보존 기간 90일.
 RETENTION_DAYS = 90
@@ -34,16 +37,18 @@ class ChatSession(Base):
 
     __tablename__ = "chat_session"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성.
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    user_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    user_id = sa.Column(UuidText, nullable=False)
     title = sa.Column(sa.String(length=200), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     #: 생성 + 90일. **컬럼으로 두는 이유**는 보존 기간이 바뀌어도 이미 만든 세션의
     #: 만료일이 따라 움직이지 않게 하기 위해서다 — 계산으로 유도하면 정책을 고치는
@@ -53,7 +58,11 @@ class ChatSession(Base):
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_chat_session"),
         sa.ForeignKeyConstraint(
-            ["user_id"], ["app_user.id"], name="fk_chat_session_user", ondelete="CASCADE"
+            ["user_id"],
+            ["app_user.id"],
+            name="fk_chat_session_user",
+            ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         sa.CheckConstraint("expires_at > created_at", name="chk_chat_session_expires"),
         sa.Index("idx_chat_session_expires", "expires_at"),
@@ -72,14 +81,19 @@ class ChatMessage(Base):
     __tablename__ = "chat_message"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    session_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    session_id = sa.Column(UuidText, nullable=False)
     role = sa.Column(sa.String(length=10), nullable=False)
     content = sa.Column(sa.Text(), nullable=False)
-    sent_at = sa.Column(sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False)
+    sent_at = sa.Column(
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
+    )
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_chat_message"),
@@ -88,7 +102,8 @@ class ChatMessage(Base):
             ["chat_session.id"],
             name="fk_chat_message_session",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
-        sa.CheckConstraint("role IN ('USER','ASSISTANT')", name="chk_chat_message_role"),
+        sa.CheckConstraint("\"role\" IN ('USER','ASSISTANT')", name="chk_chat_message_role"),
         sa.Index("idx_chat_message_session", "session_id", "sent_at"),
     )

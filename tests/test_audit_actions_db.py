@@ -31,10 +31,12 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
+from conftest import same_uuid
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import app
+from cii_platform.db.types import JSONText, UuidText
 
 _BASE = "https://testserver"
 
@@ -55,8 +57,11 @@ async def _fetch_events(session, action: str) -> list:
     rows = await session.execute(
         text(
             "SELECT user_id, entity_type, entity_id, details_json, ip_address "
-            'FROM audit_log WHERE action = :action ORDER BY "timestamp" DESC'
-        ),
+            'FROM audit_log WHERE "action" = :action ORDER BY "timestamp" DESC'
+            # raw SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result processor가 돌지
+            # 않는다 — 붙이지 않으면 **문자열**이 와서 `details["x"]`가
+            # `TypeError: string indices must be integers`로 선다 (`#1058`).
+        ).columns(details_json=JSONText()),
         {"action": action},
     )
     return rows.mappings().all()
@@ -70,11 +75,16 @@ async def _cleanup(voyage_id: str | None = None) -> None:
         await s.execute(text("DELETE FROM audit_log"))
         if voyage_id is not None:
             await s.execute(
-                text("DELETE FROM voyage_fuel_use WHERE voyage_id = CAST(:id AS uuid)"),
+                text("DELETE FROM voyage_fuel_use WHERE voyage_id = :id").bindparams(
+                    bindparam("id", type_=UuidText())
+                ),
                 {"id": voyage_id},
             )
             await s.execute(
-                text("DELETE FROM voyage WHERE id = CAST(:id AS uuid)"), {"id": voyage_id}
+                text("DELETE FROM voyage WHERE id = :id").bindparams(
+                    bindparam("id", type_=UuidText())
+                ),
+                {"id": voyage_id},
             )
         await s.execute(
             text(
@@ -103,17 +113,17 @@ async def _seed_completed_voyage(voyage_id: str) -> None:
                 " annual_inclusion_policy, regulation_year, departure_port_name, "
                 " arrival_port_name, planned_distance_nm, actual_distance_nm, "
                 " planned_speed_kn, created_from) "
-                "VALUES (CAST(:id AS uuid), CAST(:vid AS uuid), 'V-AUDIT-1', 'COMPLETED', "
+                "VALUES (:id, :vid, 'V-AUDIT-1', 'COMPLETED', "
                 " 'INCLUDE_AS_ACTUAL', 2026, 'BUSAN', 'SINGAPORE', 1000, 1010, 12, 'MANUAL')"
-            ),
+            ).bindparams(bindparam("id", type_=UuidText()), bindparam("vid", type_=UuidText())),
             {"id": voyage_id, "vid": DEMO_VESSEL},
         )
         await s.execute(
             text(
                 "INSERT INTO voyage_fuel_use "
                 "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
-                "VALUES (CAST(:id AS uuid), 'HFO', 80, 82, 3.114, 'USER_INPUT')"
-            ),
+                "VALUES (:id, 'HFO', 80, 82, 3.114, 'USER_INPUT')"
+            ).bindparams(bindparam("id", type_=UuidText())),
             {"id": voyage_id},
         )
         await s.commit()
@@ -133,9 +143,9 @@ async def _seed_planned_voyage(voyage_id: str) -> None:
                 "INSERT INTO voyage (id, vessel_id, voyage_no, status, "
                 " annual_inclusion_policy, regulation_year, departure_port_name, "
                 " arrival_port_name, planned_distance_nm, planned_speed_kn, created_from) "
-                "VALUES (CAST(:id AS uuid), CAST(:vid AS uuid), 'V-AUDIT-2', 'PLANNED', "
+                "VALUES (:id, :vid, 'V-AUDIT-2', 'PLANNED', "
                 " 'INCLUDE_AS_PLAN', 2026, 'BUSAN', 'SINGAPORE', 1000, 12, 'MANUAL')"
-            ),
+            ).bindparams(bindparam("id", type_=UuidText()), bindparam("vid", type_=UuidText())),
             {"id": voyage_id, "vid": DEMO_VESSEL},
         )
         await s.commit()
@@ -174,7 +184,8 @@ async def test_voyage_confirm_records_an_audit_event(migrated_db, app_fresh_engi
             event = events[0]
             assert event["user_id"], "주체가 비어 있다"
             assert event["entity_type"] == "voyage"
-            assert str(event["entity_id"]) == voyage_id
+            # 생 SQL이 읽은 `entity_id`는 hex 32자, 픽스처는 대시 형식이다 (`#1058`).
+            assert same_uuid(event["entity_id"], voyage_id)
             assert event["ip_address"]
     finally:
         await _cleanup(voyage_id)
@@ -359,7 +370,9 @@ async def test_annual_simulation_records_a_calculation_run(migrated_db, app_fres
             assert details["status"] == "SUCCESS"
             assert isinstance(details["duration_ms"], int)
             assert details["warnings_count"] == len(body["warnings"])
-            assert str(events[0]["entity_id"]) == body["calculation_run_id"]
+            # 생 SQL이 읽은 `entity_id`는 저장 형식(hex 32자)이고 API 응답은 대시
+            # 형식이다 — 위 `VOYAGE_CONFIRM` 검사와 같은 자리다 (`#1058`).
+            assert same_uuid(events[0]["entity_id"], body["calculation_run_id"])
             assert events[0]["user_id"]
             # 원본 실행에는 재현 표식이 없다 — 아래 검사의 대조군이다.
             assert "reproduced" not in details

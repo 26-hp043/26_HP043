@@ -33,12 +33,26 @@ from cii_platform.db.seed import (
     SEED_Z_FACTORS,
 )
 
-_MIGRATION_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "alembic"
-    / "versions"
-    / "032_seed_regulation_parameters.py"
-)
+
+def _migration_path() -> Path:
+    """규제 파라미터를 넣는 data migration 파일.
+
+    `#1058`(CUBRID 전환)에서 리비전 번호 체계가 `032` 같은 순번에서 hex로 바뀌었다.
+    파일명을 박아 두면 리비전이 갈릴 때마다 이 검사가 `FileNotFoundError`로 죽는다 —
+    실제로 그렇게 죽어 있었고, 실패 349건 더미에 묻혀 아무도 보지 못했다.
+
+    **한 개도 못 찾으면 실패한다.** 빈 목록을 훑는 검사는 조용히 통과한다.
+    """
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    hits = sorted(versions.glob("*_seed_regulation_parameters.py"))
+
+    assert hits, f"규제 파라미터 data migration을 찾지 못했습니다: {versions}"
+    assert len(hits) == 1, f"후보가 둘 이상입니다: {[h.name for h in hits]}"
+
+    return hits[0]
+
+
+_MIGRATION_PATH = _migration_path()
 
 
 def _load_migration():
@@ -139,18 +153,22 @@ async def test_migration_loaded_regulation_year(conn):
     rows = (
         await conn.execute(
             text(
-                "SELECT year, z_factor_percent, source_ref, version, is_active FROM regulation_year"
+                # `year`는 CUBRID 예약어다 (#1058) — 컬럼도 별칭도 인용해야 한다.
+                # `AS year`조차 예약어로 걸리므로 별칭 이름 자체를 바꾼다.
+                'SELECT "year" AS reg_year, z_factor_percent, source_ref,'
+                " version, is_active FROM regulation_year"
             )
         )
     ).all()
     assert len(rows) == 8
-    by_year = {r.year: r for r in rows}
+    by_year = {r.reg_year: r for r in rows}
     for expected in SEED_Z_FACTORS:
         row = by_year[expected.year]
         assert row.z_factor_percent == expected.z_factor_percent
         assert row.source_ref == "MEPC.400(83)"
         assert row.version == "1.0"
-        assert row.is_active is True
+        # CUBRID는 BOOLEAN을 SMALLINT로 저장한다 — PostgreSQL의 `True`가 `1`로 온다.
+        assert row.is_active in (True, 1), row.is_active
 
 
 async def test_migration_loaded_reference_lines(conn):

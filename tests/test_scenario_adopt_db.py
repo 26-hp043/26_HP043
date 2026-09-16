@@ -24,9 +24,12 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+import sqlalchemy as sa
+from conftest import insert_returning_id, same_uuid, uuid_canon
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.types import UuidText
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.scenario_adopt import (
     MODE_CREATE,
@@ -58,17 +61,17 @@ async def vessel_id(session) -> UUID:
 
 async def _new_voyage(session, vessel_id: UUID, *, status: str = "PLANNED") -> UUID:
     policy = "INCLUDE_AS_PLAN" if status in {"PLANNED", "IN_PROGRESS"} else "EXCLUDE"
-    row = await session.execute(
-        text(
+    voyage_id = UUID(
+        await insert_returning_id(
+            session,
             "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
             " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
             " planned_departure_at, created_from) "
             "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12, :dep, 'MANUAL') "
-            "RETURNING id"
-        ),
-        {"vid": vessel_id, "st": status, "pol": policy, "dep": DEPARTURE},
+            "RETURNING id",
+            {"vid": vessel_id, "st": status, "pol": policy, "dep": DEPARTURE},
+        )
     )
-    voyage_id = row.scalar_one()
     await session.execute(
         text(
             "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, cf_used, source) "
@@ -82,16 +85,16 @@ async def _new_voyage(session, vessel_id: UUID, *, status: str = "PLANNED") -> U
 async def _new_scenario(
     session, vessel_id: UUID, *, scenario_type: str = "SLOW_STEAMING", distance: str = "2000"
 ) -> UUID:
-    row = await session.execute(
-        text(
+    return UUID(
+        await insert_returning_id(
+            session,
             "INSERT INTO voyage_scenario (vessel_id, scenario_type, scenario_name, distance_nm, "
             " speed_kn, duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
             "VALUES (:vid, :st, '감속 운항', :dist, 10.5, 190.5, 120.25, 5.1, 'C', 'MEDIUM') "
-            "RETURNING id"
-        ),
-        {"vid": vessel_id, "st": scenario_type, "dist": Decimal(distance)},
+            "RETURNING id",
+            {"vid": vessel_id, "st": scenario_type, "dist": Decimal(distance)},
+        )
     )
-    return row.scalar_one()
 
 
 async def _voyage_row(session, voyage_id: UUID):
@@ -154,12 +157,17 @@ async def test_scenario_is_linked_to_the_voyage(session, vessel_id):
     await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
 
     row = await session.execute(
-        text("SELECT is_adopted, voyage_id FROM voyage_scenario WHERE id = :id"),
+        # CUBRID는 BOOLEAN을 **정수로** 돌려주고 raw SQL에는 컬럼 타입이 붙지 않아
+        # `1`이 온다 — `is True`가 거짓이 된다 (`#1058`). 타입을 붙여 되돌린다.
+        text("SELECT is_adopted, voyage_id FROM voyage_scenario WHERE id = :id").columns(
+            is_adopted=sa.Boolean()
+        ),
         {"id": scenario_id},
     )
     adopted = row.one()
     assert adopted.is_adopted is True
-    assert adopted.voyage_id == voyage_id
+    # 생 SQL이 읽은 `voyage_id`는 hex 32자, 픽스처는 `UUID`다 (`#1058`).
+    assert same_uuid(adopted.voyage_id, voyage_id)
 
 
 @pytest.mark.asyncio
@@ -176,8 +184,10 @@ async def test_only_one_scenario_stays_adopted(session, vessel_id):
         text("SELECT id FROM voyage_scenario WHERE voyage_id = :vid AND is_adopted = true"),
         {"vid": voyage_id},
     )
-    adopted = [r.id for r in rows]
-    assert adopted == [second]
+    # 생 SQL이 읽은 id는 저장 형식(hex 32자)이다 — 목록을 통째로 견주므로
+    # `same_uuid`로 짝지을 수 없어 양쪽을 정규화한다 (`#1058`).
+    adopted = [uuid_canon(r.id) for r in rows]
+    assert adopted == [uuid_canon(second)]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -215,7 +225,8 @@ async def test_existing_calculations_are_marked_for_recalculation(session, vesse
         text("SELECT needs_recalc FROM calculation_run WHERE voyage_id = :vid"),
         {"vid": voyage_id},
     )
-    assert row.scalar_one() is True
+    # BOOLEAN이 CUBRID에서 SMALLINT로 내려간다 — 1/0으로 본다 (`#1058`).
+    assert row.scalar_one() == 1
 
 
 @pytest.mark.asyncio
@@ -249,7 +260,7 @@ async def test_other_voyages_are_not_invalidated(session, vessel_id):
         text("SELECT needs_recalc FROM calculation_run WHERE voyage_id = :vid"),
         {"vid": other_id},
     )
-    assert row.scalar_one() is False
+    assert row.scalar_one() == 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -366,7 +377,12 @@ async def test_create_mode_records_where_it_came_from(session, vessel_id):
     )
 
     row = await session.execute(
-        text("SELECT created_from FROM voyage WHERE id = :id"), {"id": data["voyage_id"]}
+        text("SELECT created_from FROM voyage WHERE id = :id").bindparams(
+            # 응답의 `voyage_id`는 대시 36자다 — 타입을 붙이지 않으면 저장 형식과
+            # 맞지 않아 **오류가 아니라 0행**이 온다 (`#1058`).
+            bindparam("id", type_=UuidText())
+        ),
+        {"id": data["voyage_id"]},
     )
     assert row.scalar_one() == "FEATURE_2_ADOPTED"
 

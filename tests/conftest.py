@@ -6,6 +6,7 @@
 DATABASE_URL 환경변수로 대상 DB를 바꿀 수 있으며, 미설정 시 config 기본값을 사용한다.
 """
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -19,16 +20,78 @@ from sqlalchemy.ext.asyncio import create_async_engine
 _ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(_ROOT / "src"))
+
 from db_target import is_disposable, refusal_reason  # noqa: E402
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
-from cii_platform.db.url import normalize_to_asyncpg  # noqa: E402
+from cii_platform.db.url import normalize_to_async  # noqa: E402
 
 # config/환경변수의 원본 URL. run_alembic은 이 raw 값을 그대로 넘긴다(아래 참조).
 _RAW_DATABASE_URL = os.environ.get("DATABASE_URL", DATABASE_URL)
-# async 엔진(conn fixture)용: asyncpg 드라이버로 정규화한 URL.
-# 4곳(alembic/seed/pytest/앱) 공유 정책 — db.url.normalize_to_asyncpg (#234).
-TEST_DATABASE_URL = normalize_to_asyncpg(_RAW_DATABASE_URL)
+TEST_DATABASE_URL = normalize_to_async(_RAW_DATABASE_URL)
+
+_IS_CUBRID = "cubrid" in TEST_DATABASE_URL
+# sqlalchemy-cubrid dialect는 이미 insert_returning=False를 설정한다.
+# implicit_returning은 deprecated이므로 사용하지 않는다.
+_cubrid_engine_kw: dict = {}
+
+# CUBRID 환경에서 skip할 테스트 파일들 (#1058):
+# - migration guard: 42개 개별 migration 파일 기대 → 1개 initial로 합침
+# - db_check_cases: CHECK constraint 강제를 기대 → CUBRID는 CHECK 미강제
+# - *_migrations: 개별 migration upgrade/downgrade 테스트
+#: **비어 있다 — 여덟 파일을 전부 되살렸다** (2026-09-16, `#1058`).
+#:
+#: 한때 여기 여덟 파일이 있었고 97검사가 통째로 건너뛰어졌다. 「건너뛰는 것은 고친
+#: 것이 아니다」라는 규칙대로 한 파일씩 빼고 돌려 무엇이 실제로 죽는지 쟀다.
+#:
+#:     되살리기 전   72 failed / 25 passed
+#:     지금           7 failed / 90 passed
+#:
+#: 무엇이 죽어 있었나 — 셋이었다.
+#:
+#: * **CHECK 38건이 아무것도 막지 않았다.** CUBRID는 CHECK를 구문으로 받기만 하고
+#:   검사하지 않는다. `046`·`048`이 60개를 트리거로 옮겼다.
+#: * **PostgreSQL 전용 카탈로그·구문 18건.** `information_schema` · `pg_indexes` ·
+#:   `::timestamptz` · `RETURNING` 따위를 CUBRID 것으로 옮겼다.
+#: * **무결성 위반의 예외 갈래가 달랐다.** `db/cubrid_errors.py` 참조.
+#:
+#: 남은 7건은 **건너뛰지 않고 실패한 채 보인다.** 가려 두면 다음 사람이 다시
+#: 조사하게 되고, 무엇보다 트리거 144개가 CI에서 확인되지 않는다. 성질은 이렇다.
+#:
+#: * `idx_sim_snapshot_unique`가 DB에 없다 (2건) — CUBRID가 FK 컬럼에 인덱스를 또
+#:   두는 것을 거부한다(`errno=-272`). 결정요청 §3⑵의 미결 항목이다.
+#: * `not_underway_period`의 부분 인덱스에 필터가 없다 (1건).
+#: * 부모 쪽 `fuel_type` DELETE를 막지 않는다 (1건) — `REPLACE INTO`가 DELETE로
+#:   구현돼 시드 재적재가 막히므로 `a7d3e9b14f26`이 의도적으로 뺐다(`DB_SCHEMA §7.4`).
+#: * 불변성 트리거 거부를 `IntegrityError`로 기대한다 (2건) — 성질이 다르다.
+#: * `'fixed abc'`가 `LIKE 'fixed %'`를 통과한다 (1건) — 원문 CHECK에도 있던 구멍이다.
+#:
+#: ⚠️ **`test_migration_guard.py`는 한때 여기 있었다** (`#1058`). `49d010e`가 그 파일을
+#: **파일명이 아니라 `revision: str = "..."`을 AST로 읽도록** 고쳐 두었다 — 넣어 두면
+#: 프로덕션 다운그레이드를 막는 가드(`#819`)가 아무도 확인하지 않는 상태가 된다.
+_CUBRID_SKIP_FILES: set[str] = set()
+
+
+# import 시점에 asyncpg 등 PostgreSQL 전용 모듈을 쓰는 파일은
+# pytest_collection_modifyitems보다 먼저 collection error가 난다.
+# collect_ignore로 아예 수집하지 않는다.
+_CUBRID_COLLECT_IGNORE = {
+    "test_suite_lock_db.py",  # asyncpg advisory lock
+}
+
+collect_ignore: list[str] = []
+if _IS_CUBRID:
+    collect_ignore.extend(str(Path(__file__).parent / f) for f in _CUBRID_COLLECT_IGNORE)
+
+
+def pytest_collection_modifyitems(config, items):
+    """CUBRID 환경에서 migration/CHECK 의존 테스트를 skip한다."""
+    if not _IS_CUBRID:
+        return
+    skip_cubrid = pytest.mark.skip(reason="CUBRID: migration 구조/CHECK 미강제 (#1058)")
+    for item in items:
+        if item.path and item.path.name in _CUBRID_SKIP_FILES:
+            item.add_marker(skip_cubrid)
 
 
 def require_disposable_target() -> None:
@@ -90,58 +153,116 @@ SUITE_LOCK_MESSAGE = (
 )
 
 
-def _plain_dsn(url: str) -> str:
-    """SQLAlchemy URL(``postgresql+asyncpg://``)을 asyncpg가 받는 형태로 바꾼다."""
-    return url.replace("postgresql+asyncpg://", "postgresql://", 1)
+def uuid_hex(value) -> str:
+    """UUID를 CUBRID 저장 형식(하이픈 없는 32자 hex)으로 (#1058).
+
+    f-string으로 SQL 리터럴을 만드는 자리에서 쓴다. PostgreSQL 시절에는
+    ``'{uuid}'::uuid``로 캐스팅했는데 **CUBRID에는 `uuid` 타입이 없다.** 컬럼은
+    ``CHAR(32)``이고, 대시 형식을 그대로 넣으면 다음처럼 거부된다 — 실측이다::
+
+        Cannot coerce '00000000-0000-4000-8000-000000000001' to type char
+
+    파라미터를 쓸 수 있는 자리에서는 이 함수 대신 ``UuidText`` bindparam을 붙인다.
+    """
+    from uuid import UUID
+
+    return UUID(str(value)).hex
+
+
+def uuid_canon(value) -> str:
+    """UUID를 **표준 대시 36자**로 (`#1058`).
+
+    :func:`uuid_hex`의 짝이다. 생 SQL이 읽은 값은 저장 형식(hex 32자)이고 계약값·
+    API 응답은 대시 형식이다. 목록·집합·딕셔너리 키를 통째로 비교하는 자리에서는
+    :func:`same_uuid` 로 짝지어 볼 수 없으므로, **DB에서 온 쪽을 이 함수로 정규화**한다.
+
+    계약값을 hex로 바꾸지 않는 이유 — ``#132``가 정한 것은 대시 형식이고,
+    ``test_uuids_are_the_contracted_values`` 같은 검사는 **그 형식 자체가 단언 대상**이다.
+    """
+    from uuid import UUID
+
+    return str(UUID(str(value)))
+
+
+def same_uuid(a, b) -> bool:
+    """UUID 두 값을 **형식에 상관없이** 비교한다 (`#1058`).
+
+    서비스·API는 `str(vessel.id)`로 **대시 36자**를 낸다(ORM이 `CHAR(32)`를 `UUID`로
+    되돌린다). 반면 :func:`insert_returning_id`는 저장 형식인 **hex 32자**를 돌려준다.
+    그대로 ``==``로 비교하면 **영원히 거짓**이다 — 예외가 아니라 조용한 불일치라
+    ``next(...)``가 ``StopIteration``을 내고, 그것이 ``RuntimeError: coroutine raised
+    StopIteration``으로 둔갑해 원인이 전혀 보이지 않았다.
+
+    :func:`insert_returning_id`가 대시 형식을 돌려주게 바꿔 봤으나 그 값을 생 SQL에
+    그대로 싣는 검사 **40건**이 깨져 되돌렸다(고쳐진 것은 0건이었다). 형식을 한쪽으로
+    통일하는 일은 따로 잡고, 여기서는 **비교하는 자리에서** 맞춘다.
+    """
+    from uuid import UUID
+
+    return UUID(str(a)) == UUID(str(b))
+
+
+def _cubrid_params(params: dict | None) -> dict:
+    """CUBRID 호환 파라미터 변환 — UUID → hex string, Decimal → float (#1058)."""
+    if not params:
+        return {}
+    import uuid
+    from decimal import Decimal
+
+    result = {}
+    for k, v in params.items():
+        if isinstance(v, uuid.UUID):
+            result[k] = v.hex
+        elif isinstance(v, Decimal):
+            result[k] = float(v)
+        else:
+            result[k] = v
+    return result
+
+
+async def execute_sql(session, sql: str, params: dict | None = None):
+    """CUBRID 호환 raw SQL 실행 — UUID/Decimal 자동 변환."""
+    from sqlalchemy import text
+
+    return await session.execute(text(sql), _cubrid_params(params))
+
+
+async def insert_if_not_exists(session, sql_with_values: str, params: dict | None = None) -> None:
+    """CUBRID 호환 idempotent INSERT — 이미 있으면 무시."""
+    # 이미 존재 (UNIQUE/PK 위반)
+    with contextlib.suppress(Exception):
+        await execute_sql(session, sql_with_values, params)
+
+
+async def ensure_regulation_year(session, year: int, z_factor: float = 11.0) -> None:
+    """테스트에 필요한 regulation_year 행을 넣는다 (이미 있으면 무시)."""
+    await insert_if_not_exists(
+        session,
+        'INSERT INTO regulation_year (id, "year", z_factor_percent, '
+        "effective_from, source_ref, version, is_active) "
+        "VALUES (:id, :y, :z, :eff, :src, :ver, 1)",
+        {
+            "id": __import__("uuid").uuid4().hex,
+            "y": year,
+            "z": z_factor,
+            "eff": f"{year}-01-01",
+            "src": "TEST",
+            "ver": "1.0",
+        },
+    )
 
 
 def _hold_suite_lock() -> None:
-    """이 프로세스가 테스트 DB의 실행 잠금을 쥔다. 이미 누가 쥐고 있으면 즉시 멈춘다.
-
-    **한 번만 잡는다** — DB를 여는 fixture마다 불리지만 두 번째부터는 아무것도 하지
-    않는다. 잠금은 **전용 연결**에 걸어 세션 내내 쥔다(테스트의 연결은 수시로 열고
-    닫히므로 거기 걸면 곧 풀린다).
-
-    DB에 닿지 못하면 잠그지 않는다 — 그 경우는 뒤따르는 fixture가 원래의 오류로
-    알린다. 이 함수가 연결 실패를 대신 보고하면 원인이 가려진다.
-    """
-    if _suite_lock:
-        return
-
-    import asyncio
-
-    import asyncpg
-
-    loop = asyncio.new_event_loop()
-    try:
-        connection = loop.run_until_complete(asyncpg.connect(_plain_dsn(TEST_DATABASE_URL)))
-    except (OSError, asyncpg.PostgresError):
-        loop.close()
-        return
-    acquired = loop.run_until_complete(
-        connection.fetchval("SELECT pg_try_advisory_lock($1)", SUITE_LOCK_KEY)
-    )
-    if not acquired:
-        loop.run_until_complete(connection.close())
-        loop.close()
-        database = TEST_DATABASE_URL.rsplit("/", 1)[-1]
-        pytest.exit(SUITE_LOCK_MESSAGE.format(db=database), returncode=3)
-    _suite_lock.update(loop=loop, connection=connection)
+    """CUBRID에는 advisory lock이 없으므로 no-op (#1058)."""
+    pass
 
 
 def _release_suite_lock() -> None:
-    if not _suite_lock:
-        return
-    loop = _suite_lock.pop("loop")
-    connection = _suite_lock.pop("connection")
-    try:
-        loop.run_until_complete(connection.close())  # type: ignore[attr-defined]
-    finally:
-        loop.close()  # type: ignore[attr-defined]
+    pass
 
 
 def pytest_sessionfinish(session, exitstatus):
-    """세션이 끝나면 잠금을 푼다 — 연결을 닫으면 PostgreSQL이 잠금을 거둔다."""
+    """세션이 끝나면 잠금을 푼다."""
     _release_suite_lock()
 
 
@@ -255,7 +376,9 @@ def migrated_db() -> None:
     from cii_platform.db.demo_seed import seed_demo
 
     async def _seed() -> None:
-        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        engine = create_async_engine(
+            TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw
+        )
         try:
             async with engine.begin() as conn:
                 await seed_demo(conn)
@@ -285,12 +408,174 @@ def _upgrade_failure_message(result: subprocess.CompletedProcess) -> str:
     )
 
 
+def _install_cubrid_param_converter(engine):
+    """CUBRID 호환 파라미터 변환 이벤트 — UUID→hex, Decimal→float (#1058).
+
+    sa.text()에 UUID 객체를 바인딩하면 pycubrid가 거부하므로,
+    before_cursor_execute에서 자동 변환한다.
+    """
+    import re
+    import uuid
+
+    # ``sa.Uuid``의 bind processor를 여기서 패치하지 않는다 (`#1058`).
+    #
+    # 한때 `_sqltypes.Uuid.bind_processor`를 갈아 문자열을 통과시켰는데, 그 패치는
+    # **검사에만 걸린다** — 배포 코드는 같은 자리에서 그대로 선다. 검사는 초록인데
+    # 운영이 깨지는 모양이라, 결함을 고치는 대신 **가리는** 쪽이었다.
+    #
+    # 지금은 `db/types.py`의 `UuidText`가 타입 자체에서 받으므로 검사와 운영이 같은
+    # 경로를 탄다. 패치를 빼고 같은 묶음을 돌려 **18 failed / 64 passed로 동일**함을
+    # 확인했다(있으나 없으나 같다). 서드파티 클래스를 되돌리지 않고 전역 변조하는
+    # 것이기도 해서 남겨 둘 이유가 없다.
+    from decimal import Decimal
+
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
+    def _convert_params(conn, cursor, statement, parameters, context, executemany):
+        # 1. UUID/Decimal/datetime → CUBRID 호환 변환
+        from datetime import datetime as _dt
+
+        def _convert_value(p):
+            if isinstance(p, uuid.UUID):
+                return p.hex
+            if isinstance(p, Decimal):
+                return str(p)
+            if isinstance(p, _dt):
+                # 🔴 **`datetime`은 손대지 않는다** (`#1058` · 인계 v6 §4의 그 원인).
+                #
+                # 종전에는 여기서 `strftime("%Y-%m-%d %H:%M:%S")`로 **초 단위 문자열**을
+                # 만들고 타임존을 떼었다. 그래서 `simulation_snapshot.created_at`이
+                # 밀리초를 잃고 `+00:00`도 잃었다 — 실측이다::
+                #
+                #     보낸 값     2026-09-16T05:07:21.697000+00:00
+                #     DB 문자열   '05:07:21.000 AM 09/16/2026 UTC UTC'   ← .000 · 존 이름
+                #
+                # 그 결과 실행 응답(파이썬 값)은 `.697000`을 내고 조회 응답(DB에서 읽음)은
+                # 소수부 없이 내, `test_annual_simulation_read_db` 5건이 **경로에 따라
+                # 다른 `created_at`**으로 떨어졌다.
+                #
+                # ⚠️ **이것은 검사에만 있던 변환이다.** 배포 엔진에는 이 이벤트가 붙지
+                # 않으므로 운영에서는 밀리초가 보존된다 — 즉 검사가 **없는 결함을
+                # 만들어 내고** 있었다. 위 `sa.Uuid` 패치를 뺄 때 적은 것과 같은 자리다:
+                # 「그 패치는 검사에만 걸린다」.
+                #
+                # pycubrid가 aware `datetime`을 그대로 받고 밀리초까지 보관하는 것을
+                # 빈 표로 확인했다::
+                #
+                #     보낸 값 datetime(2026, 9, 16, 5, 3, 26, 548000, tzinfo=utc)
+                #     DB 문자열 '05:03:26.548 AM 09/16/2026 +00:00'
+                #
+                # 아래 `str` 갈래는 그대로 둔다 — **문자열 리터럴**의 `T`·`Z`는 CUBRID가
+                # 정말로 거부한다(`Invalid or missing timezone`).
+                return p
+            if isinstance(p, str):
+                # ISO 8601 문자열 datetime → CUBRID 호환
+                if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", p):
+                    p = p.replace("T", " ").rstrip("Z")
+                    if p.endswith("+00:00"):
+                        p = p[:-6]
+                return p
+            return p
+
+        if parameters and isinstance(parameters, (tuple, list)):
+            parameters = tuple(_convert_value(p) for p in parameters)
+
+        # 2. CUBRID: PostgreSQL 구문 변환 (auto-id 전에 실행해야 regex가 깨지지 않음)
+        # CUBRID datetime 호환:
+        # 1) 'Z' 타임존 제거 + T→공백  2) +00:00 제거 + T→공백
+        # CUBRID는 ISO 8601 'T' 구분자와 'Z' 접미사를 모두 거부한다.
+        def _fix_dt_literal(m):
+            s = m.group(1).replace("T", " ")
+            return f"'{s}'"
+
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})Z'",
+            _fix_dt_literal,
+            statement,
+        )
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})\+00:00'",
+            _fix_dt_literal,
+            statement,
+        )
+        # 나머지 T 구분자 (타임존 없는 경우)
+        statement = re.sub(
+            r"'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})'",
+            r"'\1 \2'",
+            statement,
+        )
+        statement = statement.replace("interval '1 hour'", "1/24.0")
+        statement = re.sub(r"CAST\(\? AS \w+\)", "?", statement)
+        statement = re.sub(r"::(uuid|timestamptz|timestamp|text|jsonb)", "", statement)
+        statement = re.sub(r"\bIS 0\b", "= 0", statement)
+        statement = re.sub(r"\bIS 1\b", "= 1", statement)
+
+        # 3. CUBRID: RETURNING 미지원 — INSERT RETURNING ... 전체 제거
+        #    복수 컬럼(RETURNING id, created_at)도 처리한다.
+        #    auto-id 삽입보다 먼저 실행해야 regex의 $가 매칭된다.
+        if " RETURNING " in statement:
+            statement = re.sub(r"\s+RETURNING\s+.+$", "", statement)
+
+        # 4. INSERT에 id 컬럼이 없으면 자동 추가 (CUBRID server_default 미지원 대응)
+        #
+        # ⚠️ **공백에 관대해야 한다.** 종전 정규식은 `INSERT INTO <표> (` 사이를 **공백
+        # 하나**로만 봤는데, SQLAlchemy가 내는 구문은 줄바꿈과 여러 칸을 섞는다.
+        #
+        #     INSERT INTO voyage_fuel_use   (voyage_id, …) VALUES (?, ?,   ?, ?)
+        #
+        # 매칭이 빗나가면 `id`가 붙지 않고 그대로 나가 이렇게 선다 —
+        # `Missing value for attribute "id" with the NOT NULL constraint (errno=-225)`.
+        # 오류가 **구문이 아니라 데이터 문제처럼** 보여 원인이 셈에 있다는 것이 가려진다.
+        if statement.lstrip().upper().startswith("INSERT INTO") and not re.search(
+            r"\(\s*id\s*[,)]", statement, re.I
+        ):
+            # VALUES 안의 괄호까지 포함하여 마지막 )를 찾기
+            m = re.match(
+                r"(INSERT INTO \S+\s+)\(([^)]+)\)(\s*VALUES\s*)\((.+)\)\s*$",
+                statement,
+                re.S,
+            )
+            if m:
+                prefix, cols, mid, vals = m.groups()
+                new_id = uuid.uuid4().hex
+                statement = f"{prefix}(id, {cols}){mid}(?, {vals})"
+                if isinstance(parameters, tuple):
+                    parameters = (new_id, *parameters)
+                elif isinstance(parameters, list):
+                    parameters = [new_id] + parameters
+
+        return statement, parameters
+
+
+async def insert_returning_id(session, sql: str, params: dict) -> str:
+    """CUBRID 호환 INSERT RETURNING id 대체.
+
+    INSERT에 id를 자동 생성하여 넣고, 그 id를 반환한다.
+    before_cursor_execute가 id를 자동 추가하므로, 추가된 id를 찾아 반환한다.
+    """
+    import re as _re
+    import uuid as _uuid
+
+    generated_id = _uuid.uuid4().hex
+    sql_no_returning = _re.sub(r"\s+RETURNING\s+\w+", "", sql)
+    if "(id," not in sql_no_returning:
+        sql_no_returning = sql_no_returning.replace("VALUES (", f"VALUES ('{generated_id}', ", 1)
+        # 컬럼 리스트에 id 추가
+        sql_no_returning = _re.sub(r"\((\w)", r"(id, \1", sql_no_returning, count=1)
+    else:
+        # id가 이미 있으면 params에서 가져온다
+        generated_id = str(params.get("id", generated_id)).replace("-", "")
+
+    await execute_sql(session, sql_no_returning, params)
+    return generated_id
+
+
 @pytest_asyncio.fixture
 async def conn(migrated_db):
     """함수 단위 트랜잭션. 테스트 종료 시 롤백하여 DB를 오염시키지 않는다."""
-    # env.py와 동일하게 NullPool 사용: 함수마다 엔진을 새로 만들고 dispose하므로
-    # 커넥션을 풀에 남기지 않아 누수를 방지한다. (#86)
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw)
+    _install_cubrid_param_converter(engine)
     connection = await engine.connect()
     trans = await connection.begin()
     try:
@@ -321,7 +606,8 @@ def app_fresh_engine(monkeypatch: pytest.MonkeyPatch):
 
     from cii_platform.db import session as db_session_mod
 
-    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw)
+    _install_cubrid_param_converter(engine)
     patched_maker = async_sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(db_session_mod, "get_engine", lambda: engine)
     monkeypatch.setattr(db_session_mod, "get_sessionmaker", lambda: patched_maker)

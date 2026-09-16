@@ -136,7 +136,7 @@ async def test_lookup_is_cached_and_asked_only_once(session):
 
     rows = (
         await session.execute(
-            text("SELECT query, source, kind FROM port_geocode WHERE query = :q"),
+            text('SELECT "query", source, kind FROM port_geocode WHERE "query" = :q'),
             {"q": normalize_query(UNLISTED)},
         )
     ).all()
@@ -155,7 +155,7 @@ async def test_a_city_is_not_a_port(session):
     assert reason == REASON_NOT_A_PORT
     count = (
         await session.execute(
-            text("SELECT count(*) FROM port_geocode WHERE query = :q"),
+            text('SELECT count(*) FROM port_geocode WHERE "query" = :q'),
             {"q": normalize_query(UNLISTED)},
         )
     ).scalar_one()

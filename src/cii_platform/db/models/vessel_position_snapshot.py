@@ -14,10 +14,13 @@
 
 from __future__ import annotations
 
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+import uuid
+from datetime import UTC, datetime
 
-from cii_platform.db.models.base import Base
+import sqlalchemy as sa
+
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
+from cii_platform.db.types import UuidText
 
 
 class VesselPositionSnapshot(Base):
@@ -25,13 +28,12 @@ class VesselPositionSnapshot(Base):
 
     __tablename__ = "vessel_position_snapshot"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    vessel_id = sa.Column(UuidText, nullable=False)
     source = sa.Column(sa.String(length=20), nullable=False)
     lat = sa.Column(sa.Numeric(precision=9, scale=6), nullable=False)
     lon = sa.Column(sa.Numeric(precision=9, scale=6), nullable=False)
@@ -42,10 +44,16 @@ class VesselPositionSnapshot(Base):
     nav_status = sa.Column(sa.SmallInteger(), nullable=True)
     observed_at = sa.Column(sa.DateTime(timezone=True), nullable=False)
     received_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
@@ -56,9 +64,10 @@ class VesselPositionSnapshot(Base):
             ["vessel.id"],
             name="fk_vessel_position_snapshot_vessel",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         sa.CheckConstraint(
-            "source IN ('MANUAL','AIS','SIMULATED')",
+            "\"source\" IN ('MANUAL','AIS','SIMULATED')",
             name="chk_vessel_position_snapshot_source",
         ),
         sa.CheckConstraint("lat BETWEEN -90 AND 90", name="chk_vessel_position_snapshot_lat"),

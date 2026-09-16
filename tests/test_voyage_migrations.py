@@ -12,30 +12,28 @@
 """
 
 import pytest
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 
 async def _insert_vessel(conn, imo="1234567") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(conn, vessel_id, status="DRAFT", policy="EXCLUDE") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, :status, :policy, :ry, 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, :status, :policy, :ry, 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
         {
             "vid": vessel_id,
             "status": status,
@@ -44,7 +42,6 @@ async def _insert_voyage(conn, vessel_id, status="DRAFT", policy="EXCLUDE") -> s
             "ry": None if policy == "EXCLUDE" else 2026,
         },
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage_scenario(
@@ -56,15 +53,14 @@ async def _insert_voyage_scenario(
     duration_hours=80,
     fuel_ton=50,
 ) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage_scenario "
-            "(vessel_id, scenario_type, scenario_name, distance_nm, speed_kn, "
-            " duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
-            "VALUES (:vid, 'DIRECT', 'TEST SCENARIO', :dist, :spd, "
-            " :dur, :fuel, 5.0, 'C', 'MEDIUM') "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO voyage_scenario "
+        "(vessel_id, scenario_type, scenario_name, distance_nm, speed_kn, "
+        " duration_hours, fuel_ton, cii_value, estimated_rating, risk_level) "
+        "VALUES (:vid, 'DIRECT', 'TEST SCENARIO', :dist, :spd, "
+        " :dur, :fuel, 5.0, 'C', 'MEDIUM') "
+        "RETURNING id",
         {
             "vid": vessel_id,
             "dist": distance_nm,
@@ -73,7 +69,6 @@ async def _insert_voyage_scenario(
             "fuel": fuel_ton,
         },
     )
-    return str(row.scalar_one())
 
 
 @pytest.mark.asyncio
@@ -154,18 +149,41 @@ async def test_voyage_vessel_restrict_delete(conn):
 
 
 @pytest.mark.asyncio
-async def test_fuel_type_no_action_delete(conn):
-    """참조 중인 seed fuel_type의 물리 삭제는 거부된다 (DB_SCHEMA §7.1 ON DELETE NO ACTION).
+async def test_voyage_fuel_use_rejects_an_unknown_fuel_code(conn):
+    """🔴 연료 코드 정합은 **자식 쪽**에서 막는다 (`DB_SCHEMA §7.4` · `#1058`).
 
-    전제(#80 검토 보고서): ON DELETE NO ACTION은 PostgreSQL FK의 기본 동작이라
-    이 테스트는 006에 ondelete를 명시하기 전/후와 무관하게 통과한다. #80 diff 자체를
-    증명하는 것이 아니라, §7.1의 삭제 정책을 행위로 못박아 향후 누군가 CASCADE 등으로
-    바꾸는 회귀를 막는 것이 목적이다 (형제 test_voyage_vessel_restrict_delete와 대칭).
+    종전 이름은 ``test_fuel_type_no_action_delete``였고, 참조 중인 ``fuel_type`` 행의
+    **삭제**가 거부되는 것을 보았다(``#80``·``#83``). CUBRID에서는 그 자리가 비어 있다 —
+    `a7d3e9b14f26`이 부모 쪽 트리거를 한 번 걸었다가 **뺐다**: `db/seed.py`의 재적재가
+    ``sqlalchemy_cubrid.dml.replace``를 쓰고 **CUBRID의 ``REPLACE``는 DELETE + INSERT로
+    구현되어** 그 트리거를 깨운다. 같은 ``code``가 곧바로 다시 들어가 고아가 생기지
+    않는데도 재적재 전체가 막혔다(`test_seed_data.py` 7건이 fixture에서 죽었다).
 
-    #83 이후 의미가 강해졌다 — 예전에는 "테스트가 방금 만든 행이 막힌다"였으나 이제는
-    **"017이 적재한 seed 행이 참조 중일 때 보호된다"**를 검증한다. 삭제 시도는 conn
-    fixture의 트랜잭션 롤백으로 되돌아가므로 seed 8행은 실제로 사라지지 않는다.
+    **검사를 지우지 않고 방향을 바꾼다.** §7.1이 지키려던 것은 「없는 연료 코드를 참조하는
+    행이 생기지 않는다」이고, 그것을 막는 쪽이 자식 트리거
+    (``trg_voyage_fuel_use_fuel_type_ref_ins``)다. 계산이 **조용히 틀리는 경로**(없는
+    코드 → CF 조회 실패)가 여기서 닫힌다.
+
+    부모 쪽 구멍이 열려 있다는 사실은
+    ``test_constraint_triggers_db::test_parent_side_delete_is_deliberately_not_guarded``가
+    따로 고정한다 — 나중에 막게 되면 그 검사가 실패한다.
     """
+    vessel_id = await _insert_vessel(conn)
+    voyage_id = await _insert_voyage(conn, vessel_id)
+    with pytest.raises(IntegrityError, match="trg_voyage_fuel_use_fuel_type_ref"):
+        await conn.execute(
+            text(
+                "INSERT INTO voyage_fuel_use "
+                "(voyage_id, fuel_type, actual_fuel_ton, cf_used, source) "
+                "VALUES (:vid, 'NO_SUCH_FUEL', 50, 3.114, 'USER_INPUT')"
+            ),
+            {"vid": voyage_id},
+        )
+
+
+@pytest.mark.asyncio
+async def test_voyage_fuel_use_accepts_a_seeded_fuel_code(conn):
+    """대칭 — 시드에 있는 코드는 통과한다. 위 검사가 **아무 INSERT나 막는 것이 아님**을 본다."""
     vessel_id = await _insert_vessel(conn)
     voyage_id = await _insert_voyage(conn, vessel_id)
     await conn.execute(
@@ -176,8 +194,9 @@ async def test_fuel_type_no_action_delete(conn):
         ),
         {"vid": voyage_id},
     )
-    with pytest.raises(IntegrityError):
-        await conn.execute(text("DELETE FROM fuel_type WHERE code = 'HFO'"))
+    assert await conn.scalar(
+        text("SELECT count(*) FROM voyage_fuel_use WHERE voyage_id = :vid"), {"vid": voyage_id}
+    )
 
 
 # ---------------------------------------------------------------------------

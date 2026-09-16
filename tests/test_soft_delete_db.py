@@ -24,10 +24,13 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+import sqlalchemy as sa
+from conftest import insert_returning_id, uuid_hex
+from sqlalchemy import bindparam, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.types import UuidText
 from cii_platform.errors import NotFoundError
 from cii_platform.services.vessel import create_vessel, delete_vessel, get_vessel, list_vessels
 from cii_platform.services.voyage import delete_voyage
@@ -123,7 +126,13 @@ async def test_soft_deleted_row_still_exists(session):
     await delete_vessel(session, UUID(vessel_id))
 
     row = await session.execute(
-        text("SELECT is_deleted FROM vessel WHERE id = CAST(:id AS uuid)"), {"id": vessel_id}
+        text("SELECT is_deleted FROM vessel WHERE id = :id")
+        .bindparams(bindparam("id", type_=UuidText()))
+        # 생 SQL에는 컬럼 타입이 붙지 않아 **CUBRID가 BOOLEAN을 정수로** 준다 —
+        # `is True`가 `assert 1 is True`로 떨어진다. 타입을 붙여 ORM 경로와 같은
+        # 값을 받는다 (`#1058`).
+        .columns(is_deleted=sa.Boolean()),
+        {"id": vessel_id},
     )
     assert row.scalar_one() is True
 
@@ -192,16 +201,16 @@ async def test_service_still_refuses_duplicate_active_imo(session):
 
 async def _new_voyage(session, vessel_id: str, *, status: str) -> str:
     policy = {"COMPLETED": "INCLUDE_AS_ACTUAL", "PLANNED": "INCLUDE_AS_PLAN"}.get(status, "EXCLUDE")
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (CAST(:vid AS uuid), :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
-        {"vid": vessel_id, "st": status, "pol": policy},
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, :st, :pol, 2026, 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
+        # `insert_returning_id`는 `execute_sql`을 타고, 그 변환은 `uuid.UUID` 객체만 본다 —
+        # 대시 문자열은 그대로 가서 `CHAR(32)`에 거부된다 (`#1058`).
+        {"vid": uuid_hex(vessel_id), "st": status, "pol": policy},
     )
-    return str(row.scalar_one())
 
 
 @pytest.mark.asyncio
@@ -216,7 +225,13 @@ async def test_completed_voyage_is_soft_deleted_not_removed(session):
     await delete_voyage(session, UUID(voyage_id))
 
     row = await session.execute(
-        text("SELECT is_deleted FROM voyage WHERE id = CAST(:id AS uuid)"), {"id": voyage_id}
+        text("SELECT is_deleted FROM voyage WHERE id = :id")
+        .bindparams(bindparam("id", type_=UuidText()))
+        # 생 SQL에는 컬럼 타입이 붙지 않아 **CUBRID가 BOOLEAN을 정수로** 준다 —
+        # `is True`가 `assert 1 is True`로 떨어진다. 타입을 붙여 ORM 경로와 같은
+        # 값을 받는다 (`#1058`).
+        .columns(is_deleted=sa.Boolean()),
+        {"id": voyage_id},
     )
     assert row.scalar_one() is True
 

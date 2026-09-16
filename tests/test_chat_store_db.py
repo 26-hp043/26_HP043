@@ -17,6 +17,7 @@ from uuid import UUID
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,10 +36,13 @@ async def session(conn):
 
 
 async def _insert_user(session, email: str) -> UUID:
-    row = await session.execute(
-        text(f"INSERT INTO app_user (email, password_hash) VALUES ('{email}', 'x') RETURNING id")
+    return UUID(
+        await insert_returning_id(
+            session,
+            f"INSERT INTO app_user (email, password_hash) VALUES ('{email}', 'x') RETURNING id",
+            {},
+        )
     )
-    return row.scalar_one()
 
 
 @pytest.mark.asyncio
@@ -73,7 +77,7 @@ async def test_expired_sessions_are_purged_with_their_messages(session):
 
     assert purged == 1
     left = await session.execute(
-        text(f"SELECT count(*) FROM chat_message WHERE session_id = '{old.id}'::uuid")
+        text(f"SELECT count(*) FROM chat_message WHERE session_id = '{uuid_hex(old.id)}'")
     )
     assert left.scalar_one() == 0
     assert len(await chat_repo.list_messages(session, session_id=fresh.id)) == 1

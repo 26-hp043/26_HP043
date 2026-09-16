@@ -26,6 +26,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id, same_uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,43 +63,28 @@ async def _seed_parameters(session) -> None:
     INSERT하면 ``uq_regulation_year_year``에 걸리므로, 없을 때만 넣는다. 값은 어느
     쪽이든 ``PRD §13.1`` Fixture 1과 같은 정본값이라 기대값이 갈리지 않는다.
     """
-    await session.execute(
-        text(
-            "INSERT INTO regulation_year "
-            "(year, z_factor_percent, effective_from, source_ref, version) "
-            "SELECT 2026, 11.0, '2026-01-01', 'TEST', '1.0' "
-            "WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = 2026)"
-        )
+    await ensure_regulation_year(session, 2026)
+    await insert_if_not_exists(
+        session,
+        "INSERT INTO cii_reference_line "
+        "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')",
     )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
-        )
-    )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
-        )
+    await insert_if_not_exists(
+        session,
+        "INSERT INTO cii_rating_boundary "
+        "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')",
     )
 
 
 async def _insert_vessel(session, imo: str = "9100001") -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            "VALUES (:imo, 'YTD TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+        "VALUES (:imo, 'YTD TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(
@@ -113,15 +99,14 @@ async def _insert_voyage(
     actual_distance: float | None | str = "same",
     arrival_at: str | None = "2026-03-01T00:00:00+00",
 ) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, "
-            " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
-            "VALUES (:vid, :st, :pol, :yr, 'BUSAN', 'SINGAPORE', :dist, :actual, 12, :arr) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, "
+        " actual_distance_nm, planned_speed_kn, actual_arrival_at) "
+        "VALUES (:vid, :st, :pol, :yr, 'BUSAN', 'SINGAPORE', :dist, :actual, 12, :arr) "
+        "RETURNING id",
         {
             "vid": vessel_id,
             "st": status,
@@ -132,7 +117,6 @@ async def _insert_voyage(
             "arr": None if arrival_at is None else datetime.fromisoformat(arrival_at),
         },
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage_fuel(
@@ -171,13 +155,12 @@ async def _insert_stay(
     distance_nm: float = 0,
     cf_used: float | None = None,
 ) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO not_underway_period "
-            "(vessel_id, regulation_year, period_type, started_at, ended_at, is_deleted, "
-            " distance_nm) "
-            "VALUES (:vid, :yr, 'AT_ANCHOR', :start, NULL, :del, :dist) RETURNING id"
-        ),
+    period_id = await insert_returning_id(
+        session,
+        "INSERT INTO not_underway_period "
+        "(vessel_id, regulation_year, period_type, started_at, ended_at, is_deleted, "
+        " distance_nm) "
+        "VALUES (:vid, :yr, 'AT_ANCHOR', :start, NULL, :del, :dist) RETURNING id",
         {
             "vid": vessel_id,
             "yr": YEAR,
@@ -186,7 +169,6 @@ async def _insert_stay(
             "dist": distance_nm,
         },
     )
-    period_id = str(row.scalar_one())
     # 030 (#378) — cf_used는 NOT NULL. 기록 시점의 CF snapshot을 함께 넣는다.
     await session.execute(
         text(
@@ -493,7 +475,8 @@ async def test_substitution_says_which_voyage_and_what(session, vessel_id):
 
     assert len(result.substitutions) == 1
     item = result.substitutions[0]
-    assert str(item.voyage_id) == voyage_id
+    # ORM이 돌려주는 `voyage_id`는 `UUID`(대시), 픽스처는 hex 32자다 (`#1058`).
+    assert same_uuid(item.voyage_id, voyage_id)
     assert item.axis == SUBSTITUTION_AXIS_FUEL
     assert item.fuel_type == "HFO"
 

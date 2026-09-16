@@ -15,7 +15,8 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from sqlalchemy import text
+from conftest import uuid_canon
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.calc.capacity import (
@@ -30,6 +31,7 @@ from cii_platform.db.seed import (
     SEED_REFERENCE_LINES,
     SEED_Z_FACTORS,
 )
+from cii_platform.db.types import UuidText
 from cii_platform.services.fleet_summary import get_fleet_summary
 
 VESSEL_IDS = {
@@ -83,7 +85,9 @@ async def test_every_vessel_has_two_year_history(conn):
             )
         )
     ).all()
-    by_vessel = dict(rows)
+    # 생 SQL이 읽은 `vessel_id`는 저장 형식(hex 32자)이고 `VESSEL_IDS`는 계약값
+    # (대시 36자)이다 — 키를 표준형으로 맞춘다 (`#1058`).
+    by_vessel = {uuid_canon(k): v for k, v in rows}
     assert set(by_vessel) == set(VESSEL_IDS.values())
     assert all(years >= 2 for years in by_vessel.values()), by_vessel
 
@@ -113,7 +117,9 @@ async def test_in_progress_voyage_is_at_most_one_per_vessel(conn):
 
     by_vessel: dict[str, int] = {}
     for row in rows:
-        by_vessel[row[0]] = by_vessel.get(row[0], 0) + 1
+        # 키를 표준형(대시)으로 — `VESSEL_IDS`와 같은 형식이어야 한다 (`#1058`).
+        key = uuid_canon(row[0])
+        by_vessel[key] = by_vessel.get(key, 0) + 1
     assert all(count == 1 for count in by_vessel.values()), by_vessel
 
     # 발표 동선이 쓰는 두 배는 반드시 진행 중 항차를 갖는다.
@@ -379,10 +385,9 @@ async def test_canal_period_links_in_progress_voyage(conn):
 async def _vessel_row(conn, vessel_id: str):
     row = (
         await conn.execute(
-            text(
-                "SELECT ship_type, deadweight, gross_tonnage FROM vessel "
-                "WHERE id = CAST(:vid AS uuid)"
-            ).bindparams(vid=vessel_id)
+            text("SELECT ship_type, deadweight, gross_tonnage FROM vessel WHERE id = :vid")
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=vessel_id)
         )
     ).one()
     return SimpleNamespace(
@@ -409,9 +414,11 @@ async def _rating_for_2026_completed_voyage(conn, vessel_id: str) -> str:
             text(
                 "SELECT v.actual_distance_nm, f.fuel_type, f.actual_fuel_ton, f.cf_used "
                 "FROM voyage v JOIN voyage_fuel_use f ON f.voyage_id = v.id "
-                "WHERE v.vessel_id = CAST(:vid AS uuid) AND v.status = 'COMPLETED' "
+                "WHERE v.vessel_id = :vid AND v.status = 'COMPLETED' "
                 "AND v.regulation_year = 2026",
-            ).bindparams(vid=vessel_id)
+            )
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=vessel_id)
         )
     ).all()
     assert legs, f"{vessel_id}: 2026 COMPLETED 항차가 없다"
@@ -471,8 +478,10 @@ async def test_bulk_vessel_deteriorates_2025_to_2026(conn):
                 "SELECT v.regulation_year, v.actual_distance_nm, "
                 "f.actual_fuel_ton, f.cf_used "
                 "FROM voyage v JOIN voyage_fuel_use f ON f.voyage_id = v.id "
-                "WHERE v.vessel_id = CAST(:vid AS uuid) AND v.status = 'COMPLETED'"
-            ).bindparams(vid=VESSEL_IDS["bulk"])
+                "WHERE v.vessel_id = :vid AND v.status = 'COMPLETED'"
+            )
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_IDS["bulk"])
         )
     ).all()
     for year, distance, fuel_ton, cf in rows:

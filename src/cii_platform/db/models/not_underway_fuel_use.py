@@ -8,10 +8,12 @@ MEPC.385(81)이 MARPOL Annex VI Appendix IX에 추가한 DCS 보고 항목 그�
 (적용 시작 데이터연도 2026 — 본 프로젝트 기준연도와 일치).
 """
 
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+import uuid
 
-from cii_platform.db.models.base import Base
+import sqlalchemy as sa
+
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
+from cii_platform.db.types import UuidText
 
 
 class NotUnderwayFuelUse(Base):
@@ -19,13 +21,12 @@ class NotUnderwayFuelUse(Base):
 
     __tablename__ = "not_underway_fuel_use"
 
-    # id: UUID v4 PK (DB_SCHEMA §0.1). 서버측 gen_random_uuid()로 v4 생성 (PG13+ 내장).
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    period_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    period_id = sa.Column(UuidText, nullable=False)
     consumer_type = sa.Column(sa.String(length=20), nullable=False)
     fuel_type = sa.Column(sa.String(length=30), nullable=False)
     fuel_ton = sa.Column(sa.Numeric(precision=12, scale=2), nullable=False)
@@ -43,15 +44,9 @@ class NotUnderwayFuelUse(Base):
             ["not_underway_period.id"],
             name="fk_not_underway_fuel_use_period",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         # [S-1] / §7.1: fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
-        sa.ForeignKeyConstraint(
-            ["fuel_type"],
-            ["fuel_type.code"],
-            name="fk_not_underway_fuel_use_fuel_type",
-            onupdate="CASCADE",
-            ondelete="NO ACTION",
-        ),
         # MEPC.385(81) Appendix IX DCS 보고 항목 4값 (데이터연도 2026~).
         sa.CheckConstraint(
             "consumer_type IN ('MAIN_ENGINE','AUX_ENGINE','OIL_FIRED_BOILER','OTHER')",

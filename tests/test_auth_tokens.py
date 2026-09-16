@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import insert_returning_id, same_uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
@@ -67,19 +68,44 @@ async def _cleanup(email: str) -> None:
         await s.commit()
 
 
-async def _latest_token_hash(email: str, purpose: str) -> str | None:
-    """DB에 남은 최신 토큰 해시. **원문은 조회할 수 없다** — 그것이 설계다."""
+async def _token_hashes(email: str, purpose: str, *, unused_only: bool) -> set[str]:
+    """DB에 남은 토큰 해시 집합. **원문은 조회할 수 없다** — 그것이 설계다.
+
+    🔴 **정렬로 「가장 최근」을 고르지 않는다** (`#1058` · 결정요청 §0-6 · 나).
+
+    종전 헬퍼는 ``ORDER BY t.created_at DESC LIMIT 1``이었다. CUBRID ``DATETIMETZ``는
+    **밀리초 정밀도**라 재발급 전후 두 토큰이 같은 밀리초에 만들어지면 **어느 행이
+    오는지 정해지지 않는다.** ``user_token``에는 ``id``(무작위 UUID) 말고 단조 증가하는
+    열이 없어 동점을 깰 수단도 없다. PostgreSQL 시절에는 마이크로초라 사실상 동점이
+    나지 않아 가려져 있었다.
+
+    그래서 정렬을 버리고 **``used_at``을 직접 묻는다.** 검사가 확인하려는 것은
+    「최신 행이 무엇인가」가 아니라 **「이전 토큰이 무효가 되었는가」**이고,
+    ``issue_token``이 같은 용도의 미사용 토큰을 ``used_at``으로 소진 처리하므로
+    (`services/auth_token.py`) 미사용 집합이 곧 「지금 살아 있는 링크」다.
+    """
     from cii_platform.db.session import get_sessionmaker
 
+    sql = (
+        "SELECT t.token_hash FROM user_token t JOIN app_user u ON u.id = t.user_id "
+        "WHERE u.email = :e AND t.purpose = :p"
+    )
+    if unused_only:
+        sql += " AND t.used_at IS NULL"
     async with get_sessionmaker()() as s:
-        row = await s.execute(
-            text(
-                "SELECT token_hash FROM user_token t JOIN app_user u ON u.id = t.user_id "
-                "WHERE u.email = :e AND t.purpose = :p ORDER BY t.created_at DESC LIMIT 1"
-            ),
-            {"e": email, "p": purpose},
-        )
-        return row.scalar_one_or_none()
+        rows = await s.execute(text(sql), {"e": email, "p": purpose})
+        return {row[0] for row in rows}
+
+
+async def _live_token_hash(email: str, purpose: str) -> str | None:
+    """지금 **유효한** 토큰 해시. 없으면 ``None``.
+
+    둘 이상이면 그 자체가 결함이다 — ``issue_token``이 재발급 때 이전 것을 소진 처리하는
+    계약(「재발송을 누를 때마다 유효한 링크가 늘어나면 안 된다」)이 깨진 것이다.
+    """
+    live = await _token_hashes(email, purpose, unused_only=True)
+    assert len(live) <= 1, f"유효한 토큰이 {len(live)}개다 — 재발급이 이전 것을 무효화하지 않았다"
+    return next(iter(live), None)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -93,13 +119,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('tok@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('tok@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
 
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
@@ -118,17 +143,18 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('twice@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('twice@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
 
-            assert await consume_token(s, raw=raw, purpose=PURPOSE_EMAIL_VERIFY) == user_id
+            # `consume_token`은 `UUID` 객체를 돌려주고 `insert_returning_id`는 hex 32자를
+            # 돌려준다 — `==`로는 영원히 거짓이다 (`#1058`).
+            assert same_uuid(await consume_token(s, raw=raw, purpose=PURPOSE_EMAIL_VERIFY), user_id)
             await s.flush()
 
             with pytest.raises(TokenError):
@@ -138,13 +164,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('exp@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('exp@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_PASSWORD_RESET)
             await s.flush()
 
@@ -158,13 +183,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('mix@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('mix@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
             raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
 
@@ -176,13 +200,12 @@ class TestTokenService:
         from sqlalchemy.ext.asyncio import AsyncSession
 
         async with AsyncSession(bind=conn, expire_on_commit=False) as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO app_user (email, password_hash) "
-                    "VALUES ('re@example.com', 'x') RETURNING id"
-                )
+            user_id = await insert_returning_id(
+                s,
+                "INSERT INTO app_user (email, password_hash) "
+                "VALUES ('re@example.com', 'x') RETURNING id",
+                {},
             )
-            user_id = row.scalar_one()
 
             old = await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
             await s.flush()
@@ -191,7 +214,7 @@ class TestTokenService:
 
             with pytest.raises(TokenError):
                 await consume_token(s, raw=old, purpose=PURPOSE_EMAIL_VERIFY)
-            assert await consume_token(s, raw=new, purpose=PURPOSE_EMAIL_VERIFY) == user_id
+            assert same_uuid(await consume_token(s, raw=new, purpose=PURPOSE_EMAIL_VERIFY), user_id)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -208,7 +231,7 @@ class TestEmailVerification:
             )
             assert resp.status_code == 201
             # 가입 즉시 인증 메일용 토큰이 발급된다.
-            assert await _latest_token_hash("verify@example.com", PURPOSE_EMAIL_VERIFY)
+            assert await _live_token_hash("verify@example.com", PURPOSE_EMAIL_VERIFY)
         finally:
             await _cleanup("verify@example.com")
 
@@ -393,15 +416,23 @@ class TestEmailVerificationSucceeds:
                 ).status_code
                 == 201
             )
-            first = await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY)
+            first = await _live_token_hash(email, PURPOSE_EMAIL_VERIFY)
             assert first is not None
 
             resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
             assert resp.status_code == 200, resp.text
             assert resp.json()["data"]["message"] == RESET_REQUESTED_MESSAGE
 
-            # 재발송이면 **다른 토큰**이어야 한다 — 같으면 이전 것이 그대로 살아 있다.
-            assert await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY) != first
+            # 🔴 정렬로 「최신」을 고르지 않는다 (`#1058` · 결정요청 §0-6 · 나).
+            # 물어야 하는 것은 **이전 토큰이 무효가 되었는가**다. 둘을 나눠 본다.
+            live = await _live_token_hash(email, PURPOSE_EMAIL_VERIFY)
+            assert live is not None, "재발송이 새 토큰을 내지 않았다"
+            assert live != first, "재발송이 같은 토큰을 다시 냈다"
+            assert first not in await _token_hashes(
+                email, PURPOSE_EMAIL_VERIFY, unused_only=True
+            ), "이전 토큰이 아직 유효하다 — 유출된 옛 메일의 링크가 계속 살아 있다"
+            # 행 자체는 남아 있어야 한다 — 소진 처리이지 삭제가 아니다.
+            assert first in await _token_hashes(email, PURPOSE_EMAIL_VERIFY, unused_only=False)
         finally:
             await _cleanup(email)
 
@@ -444,12 +475,16 @@ class TestEmailVerificationSucceeds:
                 raw = await issue(s, user_id=await _user_id(email), purpose=PURPOSE_EMAIL_VERIFY)
                 await s.commit()
             client.post("/api/v1/auth/verify-email/confirm", json={"token": raw})
-            settled = await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY)
+            # 확인을 마치면 유효한 토큰이 남지 않는다(소진됨).
+            settled = await _token_hashes(email, PURPOSE_EMAIL_VERIFY, unused_only=False)
 
             resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
             assert resp.status_code == 200
             assert resp.json()["data"]["message"] == RESET_REQUESTED_MESSAGE
-            assert await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY) == settled
+            # 이미 인증된 계정에는 **새 토큰을 내지 않는다.** 정렬 대신 집합을 비교한다 —
+            # 「최신 행이 무엇인가」가 아니라 「행이 늘지 않았는가」가 물어야 할 것이다.
+            assert await _token_hashes(email, PURPOSE_EMAIL_VERIFY, unused_only=False) == settled
+            assert await _live_token_hash(email, PURPOSE_EMAIL_VERIFY) is None
         finally:
             await _cleanup(email)
 
@@ -472,7 +507,7 @@ class TestEmailVerificationSucceeds:
             assert resp.status_code == 502, resp.text
             assert resp.json()["error"]["code"] == "INTERNAL_ERROR"
             # 커밋된 토큰이 남아 있다.
-            assert await _latest_token_hash(email, PURPOSE_EMAIL_VERIFY) is not None
+            assert await _live_token_hash(email, PURPOSE_EMAIL_VERIFY) is not None
         finally:
             await _cleanup(email)
 

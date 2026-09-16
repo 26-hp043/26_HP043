@@ -23,10 +23,12 @@ from typing import Any
 from uuid import UUID
 
 import pytest_asyncio
+from conftest import insert_returning_id, same_uuid, uuid_canon
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import app
+from cii_platform.db.types import JSONText, UuidText
 
 _BASE = "https://testserver"
 
@@ -42,16 +44,14 @@ PAYLOAD: dict[str, Any] = {
 
 
 async def _insert_vessel(session) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
-            "reference_speed_kn) "
-            "VALUES (:imo, 'SCENARIO DB TEST', 'BULK_CARRIER', 30000, 50000, 14.0) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight, "
+        "reference_speed_kn) "
+        "VALUES (:imo, 'SCENARIO DB TEST', 'BULK_CARRIER', 30000, 50000, 14.0) "
+        "RETURNING id",
         {"imo": IMO},
     )
-    return str(row.scalar_one())
 
 
 async def _cleanup(session, vessel_id: str) -> None:
@@ -62,11 +62,11 @@ async def _cleanup(session, vessel_id: str) -> None:
     # calculation_run은 immutable 트리거가 DELETE를 막는다 — 잠시 끄고 즉시 복구
     # (test_voyage_delete_db.py와 같은 패턴). audit_log는 _delete_stub_user가
     # 전량 삭제하므로 여기서 건드리지 않는다.
-    await session.execute(text("ALTER TABLE calculation_run DISABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS INACTIVE"))
     await session.execute(
         text("DELETE FROM calculation_run WHERE vessel_id = :vid"), {"vid": vessel_id}
     )
-    await session.execute(text("ALTER TABLE calculation_run ENABLE TRIGGER trg_calcrun_immutable"))
+    await session.execute(text("ALTER TRIGGER trg_calcrun_no_delete STATUS ACTIVE"))
     await session.execute(text("DELETE FROM vessel WHERE id = :vid"), {"vid": vessel_id})
     await session.execute(text("DELETE FROM cii_rating_boundary WHERE source_ref = 'TEST'"))
     await session.execute(text("DELETE FROM cii_reference_line WHERE source_ref = 'TEST'"))
@@ -136,7 +136,9 @@ async def test_compare_persists_three_scenarios_and_run(migrated_db, app_fresh_e
                 .all()
             )
             assert len(rows) == 3
-            assert {str(r["id"]) for r in rows} == scenario_ids
+            # 응답의 `scenario_id`는 대시 36자, 생 SQL이 읽은 PK는 저장 형식(hex 32자)
+            # 이다. 집합을 통째로 견주므로 DB 쪽을 계약 형식으로 올린다 (`#1058`).
+            assert {uuid_canon(r["id"]) for r in rows} == scenario_ids
             # created_at의 server_default now()는 트랜잭션 시각이라 3행이 같다 —
             # 순서 보장이 없으므로 type을 키로 잡아 비교한다.
             rows_by_type = {r["scenario_type"]: r for r in rows}
@@ -153,7 +155,9 @@ async def test_compare_persists_three_scenarios_and_run(migrated_db, app_fresh_e
                     text(
                         "SELECT calculation_type, result_json FROM calculation_run "
                         "WHERE vessel_id = :vid"
-                    ),
+                        # 생 SQL에는 컬럼 타입이 붙지 않아 `JSONText`가 돌지 않는다 —
+                        # 문자열이 와서 `result_json["scenarios"]`가 선다 (`#1058`).
+                    ).columns(result_json=JSONText()),
                     {"vid": vessel_id},
                 )
             ).fetchone()
@@ -165,8 +169,13 @@ async def test_compare_persists_three_scenarios_and_run(migrated_db, app_fresh_e
                 await s.execute(
                     text(
                         "SELECT details_json FROM audit_log "
-                        "WHERE action = 'CALCULATION_RUN' AND entity_id::text = :rid"
-                    ),
+                        "WHERE \"action\" = 'CALCULATION_RUN' AND entity_id = :rid"
+                        # `entity_id`는 `CHAR(32)`인데 API는 대시 36자를 준다. 타입을
+                        # 붙이지 않으면 **오류 없이 0건**이 온다 (`#1058`).
+                        # `details_json`도 붙이지 않으면 문자열로 온다.
+                    )
+                    .bindparams(bindparam("rid", type_=UuidText()))
+                    .columns(details_json=JSONText()),
                     {"rid": body["calculation_run_id"]},
                 )
             ).fetchone()
@@ -288,7 +297,16 @@ async def _compare(session, *, weather_model: str | None, with_coordinates: bool
 async def _recorded(session, run_id: str):
     run = (
         await session.execute(
-            text("SELECT weather_snapshot_id, result_json FROM calculation_run WHERE id = :id"),
+            text("SELECT weather_snapshot_id, result_json FROM calculation_run WHERE id = :id")
+            .bindparams(
+                # 응답의 `calculation_run_id`는 대시 36자, 저장 형식은 hex 32자다. 타입을
+                # 붙이지 않으면 **오류가 아니라 0행**이 와서 `NoResultFound`가 난다 (`#1058`).
+                bindparam("id", type_=UuidText()),
+            )
+            # 생 SQL에는 컬럼 타입이 붙지 않아 `JSONText`의 result processor가 돌지 않는다 —
+            # 붙이지 않으면 **문자열**이 와서 `run.result_json["scenarios"]`가
+            # `TypeError: string indices must be integers`로 선다 (`#1058`).
+            .columns(result_json=JSONText()),
             {"id": run_id},
         )
     ).one()
@@ -296,7 +314,13 @@ async def _recorded(session, run_id: str):
     scenario_snapshots = (
         (
             await session.execute(
-                text("SELECT weather_snapshot_id FROM voyage_scenario WHERE id = ANY(:ids)"),
+                # `= ANY(:ids)`는 **PostgreSQL 배열**이다 — CUBRID에 없고 pycubrid도 목록을
+                # 한 파라미터로 묶어 보낸다. `expanding=True`가 실행 시점에 `IN (?, ?, …)`로
+                # 펼치고 `UuidText`가 원소마다 저장 형식을 맞춘다
+                # (`test_benchmarks`·`test_roles_db`와 같은 방식 · `#1058`).
+                text("SELECT weather_snapshot_id FROM voyage_scenario WHERE id IN :ids").bindparams(
+                    bindparam("ids", expanding=True, type_=UuidText()),
+                ),
                 {"ids": [UUID(i) for i in scenario_ids]},
             )
         )
@@ -324,9 +348,11 @@ async def test_corrected_comparison_records_the_snapshot_it_used(wx_session):
     run_snapshot, scenario_snapshots, factors = await _recorded(
         wx_session, result["calculation_run_id"]
     )
-    assert run_snapshot == snapshot_id
+    # `weather_snapshot_id`는 생 SQL이 읽은 저장 형식이고 픽스처는 `UUID`다 (`#1058`).
+    assert same_uuid(run_snapshot, snapshot_id)
     # 시나리오 3행과 계산 이력이 **같은 스냅샷**을 가리킨다 — 한 요청이 한 번 조회한다.
-    assert scenario_snapshots == {snapshot_id}
+    # 집합 비교라 짝지을 수 없어 양쪽을 정규화한다.
+    assert {uuid_canon(v) for v in scenario_snapshots} == {uuid_canon(snapshot_id)}
     # 보정 인자는 결과에 남는다. 세 계획이 같은 기상을 쓰므로 값은 하나다.
     assert len(factors) == 1
     (factor,) = factors

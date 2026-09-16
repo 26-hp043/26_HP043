@@ -32,9 +32,7 @@ async def get_regulation_year(session: AsyncSession, year: int) -> RegulationYea
     ``is_active``가 false인 행은 제외한다 — 규정 개정으로 대체된 행을 계산에 쓰면
     안 된다.
     """
-    stmt = select(RegulationYear).where(
-        RegulationYear.year == year, RegulationYear.is_active.is_(True)
-    )
+    stmt = select(RegulationYear).where(RegulationYear.year == year, RegulationYear.is_active == 1)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
@@ -48,7 +46,7 @@ async def list_regulation_years(
     """
     stmt = select(RegulationYear).order_by(RegulationYear.year)
     if active_only:
-        stmt = stmt.where(RegulationYear.is_active.is_(True))
+        stmt = stmt.where(RegulationYear.is_active == 1)
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -100,7 +98,7 @@ async def get_fuel_types_by_codes(
     """
     if not codes:
         return {}
-    stmt = select(FuelType).where(FuelType.code.in_(list(codes)), FuelType.is_active.is_(True))
+    stmt = select(FuelType).where(FuelType.code.in_(list(codes)), FuelType.is_active == 1)
     rows = (await session.execute(stmt)).scalars().all()
     return {row.code: row for row in rows}
 
@@ -130,7 +128,10 @@ async def list_fuel_types(
     """
     stmt = select(FuelType).order_by(FuelType.code)
     if active is not None:
-        stmt = stmt.where(FuelType.is_active.is_(active))
+        # `.is_(True)`는 **`IS 1`**을 내는데 CUBRID가 거부한다(`IS`는 NULL 비교 전용).
+        # 같은 파일의 다른 자리는 이미 `== 1`을 쓰고 있었고 여기만 남아 있었다.
+        # 그 결과 `GET /parameters/fuel-types`와 `/vessels/samples`가 500이었다 (`#1058`).
+        stmt = stmt.where(FuelType.is_active == (1 if active else 0))
     return (await session.execute(stmt)).scalars().all()
 
 
@@ -150,7 +151,7 @@ async def load_distribution_profile(
         select(SimulationParameter)
         .where(
             SimulationParameter.profile == profile,
-            SimulationParameter.is_active.is_(True),
+            SimulationParameter.is_active == 1,
         )
         .order_by(SimulationParameter.variable)
     )

@@ -11,23 +11,22 @@
 """
 
 import pytest
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 
 async def _insert_vessel(conn, imo="1234567") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _update_state(conn, vessel_id: str, set_clause: str) -> None:
-    await conn.execute(text(f"UPDATE vessel SET {set_clause} WHERE id = '{vessel_id}'::uuid"))
+    await conn.execute(text(f"UPDATE vessel SET {set_clause} WHERE id = '{uuid_hex(vessel_id)}'"))
 
 
 @pytest.mark.asyncio
@@ -79,7 +78,10 @@ async def test_valid_state_combinations_accepted(conn):
         )
         await _update_state(conn, vessel_id, set_clause)
         row = await conn.execute(
-            text(f"SELECT underway_state, detail_status FROM vessel WHERE id = '{vessel_id}'::uuid")
+            text(
+                "SELECT underway_state, detail_status FROM vessel "
+                f"WHERE id = '{uuid_hex(vessel_id)}'"
+            )
         )
         result = row.one()
         assert result.underway_state == underway
@@ -143,7 +145,7 @@ async def test_lat_above_90_rejected(conn):
     실패 문장은 테스트당 하나씩만 둔다 (#96 선례).
     """
     vessel_id = await _insert_vessel(conn)
-    ts = "'2026-08-15T00:00:00+00'::timestamptz"
+    ts = "DATETIMETZ'2026-08-15 00:00:00 +00:00'"
 
     with pytest.raises(IntegrityError):
         await _update_state(
@@ -157,7 +159,7 @@ async def test_lat_above_90_rejected(conn):
 async def test_lon_below_minus_180_rejected(conn):
     """경도가 −180 미만이면 거부된다 (chk_vessel_lon_range)."""
     vessel_id = await _insert_vessel(conn)
-    ts = "'2026-08-15T00:00:00+00'::timestamptz"
+    ts = "DATETIMETZ'2026-08-15 00:00:00 +00:00'"
 
     with pytest.raises(IntegrityError):
         await _update_state(
@@ -171,13 +173,13 @@ async def test_lon_below_minus_180_rejected(conn):
 async def test_lat_lon_boundary_values_accepted(conn):
     """경계값(±90·±180) 자체는 저장된다."""
     vessel_id = await _insert_vessel(conn)
-    ts = "'2026-08-15T00:00:00+00'::timestamptz"
+    ts = "DATETIMETZ'2026-08-15 00:00:00 +00:00'"
 
     await _update_state(
         conn, vessel_id, f"current_lat = 90, current_lon = -180, position_updated_at = {ts}"
     )
     row = await conn.execute(
-        text(f"SELECT current_lat, current_lon FROM vessel WHERE id = '{vessel_id}'::uuid")
+        text(f"SELECT current_lat, current_lon FROM vessel WHERE id = '{uuid_hex(vessel_id)}'")
     )
     assert row.one() == (90, -180)
 
@@ -195,7 +197,7 @@ async def test_position_requires_timestamp(conn):
 async def test_half_position_rejected(conn):
     """위도만·경도만 있는 반쪽 위치는 거부된다."""
     vessel_id = await _insert_vessel(conn)
-    ts = "'2026-08-15T00:00:00+00'::timestamptz"
+    ts = "DATETIMETZ'2026-08-15 00:00:00 +00:00'"
 
     with pytest.raises(IntegrityError):
         await _update_state(conn, vessel_id, f"current_lat = 35.1, position_updated_at = {ts}")

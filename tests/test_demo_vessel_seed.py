@@ -16,7 +16,11 @@ tests/test_dashboard_seed.py가 담당한다.
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import text
+import sqlalchemy as sa
+from conftest import uuid_canon
+from sqlalchemy import bindparam, text
+
+from cii_platform.db.types import UuidText
 
 # --- 기대값 독립 전사 -------------------------------------------------------------
 #
@@ -26,7 +30,8 @@ from sqlalchemy import text
 
 # ⚠️ ``id``는 ``uuid`` 컬럼이라 문자열 바인드를 그대로 비교할 수 없다.
 # ``operator does not exist: uuid = character varying``가 난다 — PostgreSQL은 두 타입을
-# 암묵 캐스팅하지 않는다. 아래 조회들은 ``CAST(:vid AS uuid)``로 명시한다.
+# 암묵 캐스팅하지 않는다. 아래 조회들은 ``bindparams(type_=UuidText())``로 타입을 붙인다
+# — CUBRID에는 `uuid` 타입이 없어 종전의 ``CAST(:vid AS uuid)``가 성립하지 않는다 (`#1058`).
 VESSEL_ID_BULK = "00000000-0000-4000-8000-000000000001"
 VESSEL_ID_CONTAINER = "00000000-0000-4000-8000-000000000002"
 VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
@@ -107,7 +112,9 @@ async def test_seed_values_match_expected(conn):
             )
         )
     ).all()
-    actual = [tuple(row) for row in rows]
+    # `id::text`는 셈이 걷어 내고 저장 형식(hex 32자)이 그대로 온다. 계약값은 대시
+    # 36자이므로 **DB에서 온 쪽**을 표준형으로 맞춘다 (`#1058`).
+    actual = [(uuid_canon(row[0]), *tuple(row)[1:]) for row in rows]
     expected = sorted(EXPECTED_VESSELS, key=lambda row: row[0])
     assert actual == expected
 
@@ -119,8 +126,10 @@ async def test_uuids_are_the_contracted_values(conn):
     ``gen_random_uuid()``라 명시 삽입하지 않으면 환경마다 값이 달라지고,
     프론트엔드 고정표(#134)와 입력 폼(#135)이 참조할 수 없게 된다.
     """
+    # 저장 형식은 hex 32자이고 #132의 계약값은 **대시 36자**다 — 계약 형식 자체가
+    # 단언 대상이므로 계약값을 hex로 낮추지 않고 **DB에서 온 쪽을 올린다** (`#1058`).
     ids = [
-        row[0]
+        uuid_canon(row[0])
         for row in (await conn.execute(text("SELECT id::text FROM vessel ORDER BY id"))).all()
     ]
     assert ids == [
@@ -139,9 +148,9 @@ async def test_frontend_reference_vessel_exists(conn):
     """
     row = (
         await conn.execute(
-            text(
-                "SELECT ship_type, deadweight FROM vessel WHERE id = CAST(:vid AS uuid)"
-            ).bindparams(vid=VESSEL_ID_BULK)
+            text("SELECT ship_type, deadweight FROM vessel WHERE id = :vid")
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_ID_BULK)
         )
     ).one_or_none()
     assert row is not None
@@ -176,10 +185,9 @@ async def test_bulk_reference_specs_match_the_canonical_fixture(conn):
     """
     row = (
         await conn.execute(
-            text(
-                "SELECT reference_speed_kn, reference_daily_foc_ton FROM vessel "
-                "WHERE id = CAST(:vid AS uuid)"
-            ).bindparams(vid=VESSEL_ID_BULK)
+            text("SELECT reference_speed_kn, reference_daily_foc_ton FROM vessel WHERE id = :vid")
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_ID_BULK)
         )
     ).one()
     assert row.reference_speed_kn == Decimal("12.00")
@@ -216,7 +224,12 @@ async def test_cii_applicable_hint_follows_gross_tonnage(conn):
     GT 회신이 와서 컬럼을 채울 때 이 단언이 함께 갱신을 강제한다.
     """
     rows = (
-        await conn.execute(text("SELECT name, gross_tonnage, is_cii_applicable_hint FROM vessel"))
+        await conn.execute(
+            # CUBRID는 BOOLEAN을 정수로 돌려준다 — raw SQL에 타입을 붙인다 (`#1058`).
+            text("SELECT name, gross_tonnage, is_cii_applicable_hint FROM vessel").columns(
+                is_cii_applicable_hint=sa.Boolean()
+            )
+        )
     ).all()
     for row in rows:
         if row.gross_tonnage is None:
@@ -261,7 +274,8 @@ async def test_vessel_axes_are_dwt_and_gt(conn):
     from cii_platform.calc.capacity import capacity_axis
 
     rows = (await conn.execute(text("SELECT id::text, ship_type FROM vessel ORDER BY id"))).all()
-    axes = {row[0]: capacity_axis(row.ship_type) for row in rows}
+    # 딕셔너리 키가 UUID다 — 키를 계약 형식으로 정규화한다 (위와 같은 자리).
+    axes = {uuid_canon(row[0]): capacity_axis(row.ship_type) for row in rows}
     assert axes == {
         VESSEL_ID_BULK: "DWT",
         VESSEL_ID_CONTAINER: "DWT",
@@ -291,7 +305,9 @@ async def test_seeded_ship_types_have_reference_lines(conn, vessel_id):
     다룬다). 적재 전이면 이 테스트는 건너뛴다 — seed 미실행은 이 이슈의 결함이 아니다.
     """
     ship_type = await conn.scalar(
-        text("SELECT ship_type FROM vessel WHERE id = CAST(:vid AS uuid)").bindparams(vid=vessel_id)
+        text("SELECT ship_type FROM vessel WHERE id = :vid")
+        .bindparams(bindparam("vid", type_=UuidText()))
+        .bindparams(vid=vessel_id)
     )
     total = await conn.scalar(text("SELECT count(*) FROM cii_reference_line"))
     if total == 0:
@@ -365,8 +381,10 @@ async def test_ro_ro_daily_foc_is_derived_from_its_own_voyage(conn):
                 "FROM vessel v "
                 "JOIN voyage y ON y.vessel_id = v.id AND y.voyage_no = '2026-01' "
                 "JOIN voyage_fuel_use f ON f.voyage_id = y.id "
-                "WHERE v.id = CAST(:vid AS uuid)"
-            ).bindparams(vid=VESSEL_ID_RO_RO)
+                "WHERE v.id = :vid"
+            )
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_ID_RO_RO)
         )
     ).one()
 
@@ -407,9 +425,9 @@ async def test_missing_spec_detector_actually_detects(conn):
     from cii_platform.db.demo_seed import VESSEL_ID_RO_RO, missing_seeded_specs
 
     await conn.execute(
-        text(
-            "UPDATE vessel SET reference_daily_foc_ton = NULL WHERE id = CAST(:vid AS uuid)"
-        ).bindparams(vid=VESSEL_ID_RO_RO)
+        text("UPDATE vessel SET reference_daily_foc_ton = NULL WHERE id = :vid")
+        .bindparams(bindparam("vid", type_=UuidText()))
+        .bindparams(vid=VESSEL_ID_RO_RO)
     )
 
     drifted = await missing_seeded_specs(conn)

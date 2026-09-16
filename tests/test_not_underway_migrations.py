@@ -16,35 +16,33 @@
 """
 
 import asyncio
+import uuid
 
 import pytest
+from conftest import insert_returning_id, uuid_hex
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 
 async def _insert_vessel(conn, imo="1234567") -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type) "
-            "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO vessel (imo_number, name, ship_type) "
+        "VALUES (:imo, 'TEST VESSEL', 'BULK_CARRIER') RETURNING id",
         {"imo": imo},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(conn, vessel_id) -> str:
-    row = await conn.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
-            "VALUES (:vid, 'DRAFT', 'EXCLUDE', NULL, 'BUSAN', 'SINGAPORE', 1000, 12) "
-            "RETURNING id"
-        ),
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn) "
+        "VALUES (:vid, 'DRAFT', 'EXCLUDE', NULL, 'BUSAN', 'SINGAPORE', 1000, 12) "
+        "RETURNING id",
         {"vid": vessel_id},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_period(
@@ -52,21 +50,22 @@ async def _insert_period(
     vessel_id,
     *,
     period_type="AT_ANCHOR",
-    started_at="'2026-01-10T00:00:00+00'::timestamptz",
-    ended_at="'2026-01-12T00:00:00+00'::timestamptz",
+    started_at="DATETIMETZ'2026-01-10 00:00:00 +00:00'",
+    ended_at="DATETIMETZ'2026-01-12 00:00:00 +00:00'",
     voyage_id=None,
 ) -> str:
-    voyage_expr = f"'{voyage_id}'::uuid" if voyage_id is not None else "NULL"
-    row = await conn.execute(
-        text(
-            "INSERT INTO not_underway_period "
-            "(vessel_id, regulation_year, period_type, started_at, ended_at, voyage_id) "
-            f"VALUES ('{vessel_id}'::uuid, 2026, :ptype, {started_at}, {ended_at}, "
-            f"{voyage_expr}) "
-            "RETURNING id"
-        ).bindparams(ptype=period_type),
+    # 시각은 CUBRID DATETIMETZ 리터럴이다 — PostgreSQL의 `'…T…+00'::timestamptz`는
+    # CUBRID가 `Invalid or missing timezone`으로 거부한다 (#1058, 실측).
+    voyage_expr = f"'{uuid_hex(voyage_id)}'" if voyage_id is not None else "NULL"
+    return await insert_returning_id(
+        conn,
+        "INSERT INTO not_underway_period "
+        "(vessel_id, regulation_year, period_type, started_at, ended_at, voyage_id) "
+        f"VALUES ('{uuid_hex(vessel_id)}', 2026, :ptype, {started_at}, {ended_at}, "
+        f"{voyage_expr}) "
+        "RETURNING id",
+        {"ptype": period_type},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_fuel(
@@ -147,8 +146,8 @@ async def test_period_time_order_rejects_ended_before_started(conn):
         await _insert_period(
             conn,
             vessel_id,
-            started_at="'2026-01-12T00:00:00+00'::timestamptz",
-            ended_at="'2026-01-10T00:00:00+00'::timestamptz",
+            started_at="DATETIMETZ'2026-01-12 00:00:00 +00:00'",
+            ended_at="DATETIMETZ'2026-01-10 00:00:00 +00:00'",
         )
 
 
@@ -225,28 +224,42 @@ async def test_expected_indexes_present(conn):
     029는 UNIQUE의 선행열이 ``period_id``로 같아 완전히 중복되는
     ``idx_not_underway_fuel_use_period``를 제거했다(``voyage_fuel_use`` 선례).
     """
+    # CUBRID 카탈로그 — `db_index`(이름·UNIQUE·filter_expression) ⋈ `db_index_key`(키 열).
+    # PostgreSQL `pg_indexes.indexdef` 한 줄이 여기서는 세 조각으로 갈라진다 (#1058).
     rows = await conn.execute(
         text(
-            "SELECT indexname, indexdef FROM pg_indexes "
-            "WHERE tablename IN ('not_underway_period', 'not_underway_fuel_use')"
+            "SELECT i.index_name, i.is_unique, i.filter_expression, k.key_attr_name "
+            "FROM db_index i JOIN db_index_key k "
+            "  ON k.class_name = i.class_name AND k.index_name = i.index_name "
+            "WHERE i.class_name IN ('not_underway_period', 'not_underway_fuel_use') "
+            "ORDER BY i.index_name, k.key_order"
         )
     )
-    defs = {r.indexname: r.indexdef for r in rows}
+    defs: dict[str, dict] = {}
+    for r in rows:
+        entry = defs.setdefault(
+            r.index_name,
+            {"unique": r.is_unique == "YES", "filter": r.filter_expression, "cols": []},
+        )
+        entry["cols"].append(r.key_attr_name)
 
     vessel_year = defs.get("idx_not_underway_period_vessel_year")
     assert vessel_year is not None, f"partial 인덱스 없음: {defs}"
-    assert "vessel_id" in vessel_year
-    assert "regulation_year" in vessel_year
+    assert "vessel_id" in vessel_year["cols"]
+    assert "regulation_year" in vessel_year["cols"]
     # soft delete 호환 — 활성 행만 인덱싱 (vessel의 idx_vessel_imo 패턴).
-    assert "is_deleted = false" in vessel_year
+    # PostgreSQL의 `WHERE is_deleted = false`는 CUBRID filtered index의 filter_expression이다.
+    assert vessel_year["filter"] is not None and "is_deleted" in vessel_year["filter"], (
+        f"활성 행만 거르는 filter가 없음: {vessel_year}"
+    )
 
     # --- 029 (#376) ---------------------------------------------------------
     # (1) 정합성 — 구간+소비원+연료 UNIQUE.
     fuel_unique = defs.get("idx_not_underway_fuel_use_unique")
     assert fuel_unique is not None, f"UNIQUE 인덱스 없음: {defs}"
-    assert "UNIQUE" in fuel_unique.upper()
+    assert fuel_unique["unique"], f"UNIQUE가 아님: {fuel_unique}"
     for col in ("period_id", "consumer_type", "fuel_type"):
-        assert col in fuel_unique, f"{col}이 UNIQUE 키에 없음: {fuel_unique}"
+        assert col in fuel_unique["cols"], f"{col}이 UNIQUE 키에 없음: {fuel_unique}"
 
     # 중복 인덱스는 029가 제거했다 — 되살아나면 쓰기마다 두 번 갱신된다.
     assert "idx_not_underway_fuel_use_period" not in defs, (
@@ -256,15 +269,17 @@ async def test_expected_indexes_present(conn):
     # (2) #368 구간 겹침 조회 — started_at이 인덱스에 들어간다.
     vessel_started = defs.get("idx_not_underway_period_vessel_started")
     assert vessel_started is not None, f"(vessel_id, started_at) 인덱스 없음: {defs}"
-    assert "vessel_id" in vessel_started
-    assert "started_at" in vessel_started
-    assert "is_deleted = false" in vessel_started
+    assert "vessel_id" in vessel_started["cols"]
+    assert "started_at" in vessel_started["cols"]
+    assert vessel_started["filter"] is not None and "is_deleted" in vessel_started["filter"], (
+        f"활성 행만 거르는 filter가 없음: {vessel_started}"
+    )
 
     # (3) voyage FK 자식 인덱스 — SET NULL 확인 경로. partial이면 안 된다.
     voyage_child = defs.get("idx_not_underway_period_voyage")
     assert voyage_child is not None, f"voyage_id 자식 인덱스 없음: {defs}"
-    assert "voyage_id" in voyage_child
-    assert "WHERE" not in voyage_child.upper(), (
+    assert "voyage_id" in voyage_child["cols"]
+    assert voyage_child["filter"] is None, (
         f"FK 확인은 삭제된 행도 봐야 하므로 partial이면 안 된다: {voyage_child}"
     )
 
@@ -317,24 +332,29 @@ async def test_period_update_touches_updated_at(migrated_db):
     period_id = None
     try:
         async with sessionmaker() as s:
-            row = await s.execute(
-                text(
-                    "INSERT INTO vessel (imo_number, name, ship_type) "
-                    "VALUES ('7654321', 'TRG VESSEL', 'BULK_CARRIER') RETURNING id"
-                )
+            vessel_id = await insert_returning_id(
+                s,
+                "INSERT INTO vessel (imo_number, name, ship_type) "
+                "VALUES ('7654321', 'TRG VESSEL', 'BULK_CARRIER') RETURNING id",
+                {},
             )
-            vessel_id = row.scalar_one()
-            row = await s.execute(
+            # CUBRID에는 RETURNING이 없고 앱 엔진은 id를 자동으로 붙이지 않는다 —
+            # id를 여기서 만들어 넣고 updated_at은 되읽는다 (#1058).
+            period_id = uuid.uuid4().hex
+            await s.execute(
                 text(
                     "INSERT INTO not_underway_period "
-                    "(vessel_id, regulation_year, period_type, started_at, port_name) "
-                    "VALUES (:vid, 2026, 'AT_ANCHOR', "
-                    "'2026-01-10T00:00:00+00'::timestamptz, 'BUSAN') "
-                    "RETURNING id, updated_at"
+                    "(id, vessel_id, regulation_year, period_type, started_at, port_name) "
+                    "VALUES (:pid, :vid, 2026, 'AT_ANCHOR', "
+                    "DATETIMETZ'2026-01-10 00:00:00 +00:00', 'BUSAN')"
                 ),
-                {"vid": vessel_id},
+                {"pid": period_id, "vid": vessel_id},
             )
-            period_id, updated_before = row.one()
+            before = await s.execute(
+                text("SELECT updated_at FROM not_underway_period WHERE id = :pid"),
+                {"pid": period_id},
+            )
+            updated_before = before.scalar_one()
             await s.commit()
 
         # 트리거는 now()를 새로 찍는다 — 트랜잭션이 달라져야 시차가 생긴다.

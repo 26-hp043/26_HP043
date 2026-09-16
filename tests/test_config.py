@@ -17,7 +17,10 @@ _CONFIG_ENV_KEYS = ("APP_ENV", "DATABASE_URL")
 
 # 개발용 기본 접속 URL. config._DEFAULT_DATABASE_URL을 참조하면 검증이
 # 자기참조가 되므로, docker-compose.yml · .env.example과 같은 리터럴로 대조한다.
-_DEV_DEFAULT_URL = "postgresql+asyncpg://cii:cii@localhost:5432/cii"
+#: 개발용 기본 접속 URL. `config._DEFAULT_DATABASE_URL`과 **글자까지 같아야 한다** —
+#: 여기만 낡으면 「기본값이 바뀌었다」를 잡는 것이 아니라 이 검사가 틀린 것이 된다.
+#: CUBRID 전환으로 바뀌었다 (`#1058`).
+_DEV_DEFAULT_URL = "cubrid+aiopycubrid://dba:@localhost:33000/cii"
 
 
 @pytest.fixture
@@ -47,14 +50,17 @@ def reload_config(monkeypatch):
 
 
 def test_config_module_loads_database_url():
-    """config 모듈이 로드되고 DATABASE_URL이 유효한 PostgreSQL 접속 문자열로 채워진다."""
+    """config 모듈이 로드되고 DATABASE_URL이 유효한 CUBRID 접속 문자열로 채워진다."""
     # 설정이 제대로 로드되면 문자열 타입의 비어있지 않은 값이어야 한다.
     assert isinstance(config.DATABASE_URL, str)
     assert config.DATABASE_URL, "DATABASE_URL이 비어 있으면 안 된다"
 
-    # 기본값이든 환경변수 override든 PostgreSQL 접속 URL이어야 한다.
-    # (CI에서는 env DATABASE_URL=postgresql://cii:cii@localhost:5432/cii_test 로 주입됨)
-    assert config.DATABASE_URL.startswith("postgresql")
+    # 기본값이든 환경변수 override든 CUBRID 접속 URL이어야 한다 (`#1058`).
+    # CI는 `DATABASE_URL=cubrid+aiopycubrid://dba:@localhost:33000/cii_test`를 주입한다.
+    #
+    # **드라이버까지 본다.** 종전에는 `startswith("postgresql")`이라 동기 드라이버로
+    # 떨어져도 통과했다. 이 앱은 async 드라이버가 아니면 뜨지 않는다.
+    assert config.DATABASE_URL.startswith("cubrid+aiopycubrid://"), config.DATABASE_URL
 
 
 def test_package_version_is_defined():

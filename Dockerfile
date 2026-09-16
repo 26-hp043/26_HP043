@@ -11,11 +11,10 @@
 # ---------- dev stage ----------
 FROM python:3.12-slim AS dev
 
-# PostgreSQL 드라이버(asyncpg) 빌드에 필요한 시스템 패키지
-#  - libpq-dev: PostgreSQL client 라이브러리 헤더
-#  - gcc: C 확장 컴파일러
+# CUBRID Python 드라이버(pycubrid/aiopycubrid)는 순수 Python이라 C 빌드 도구가
+# 불필요하지만, 다른 의존성(cffi 등)이 gcc를 쓸 수 있어 남겨 둔다.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq-dev gcc \
+    && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
 
 # 리포트 PDF 렌더링 (#361) — WeasyPrint 런타임.
@@ -63,7 +62,7 @@ CMD ["sh", "-c", "python -m cii_platform.depcheck && exec uvicorn cii_platform.a
 FROM python:3.12-slim AS builder
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq-dev gcc \
+    && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -84,13 +83,11 @@ FROM python:3.12-slim AS prod
 # ENV는 빌드 시점에 굳어 compose 환경보다 우선한다.
 ENV APP_ENV=production
 
-# 런타임에 필요한 최소 패키지 — asyncpg가 libpq를 동적으로 링크한다.
-# libpq-dev(헤더)가 아니라 libpq5(공유 라이브러리)만 — 빌드가 끝났으므로.
-# libpango·fonts-nanum은 리포트 PDF 렌더링용이다 (#361) — dev stage 주석 참조.
-# 빌드 도구가 아니라 **런타임** 라이브러리이므로 #232의 「prod에서 뺀다」 대상이 아니다.
+# CUBRID Python 드라이버는 순수 Python이라 libpq가 불필요하다.
+# libpango·fonts-nanum은 리포트 PDF 렌더링용이다 (#361).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libpq5 libpango-1.0-0 libpangoft2-1.0-0 fonts-nanum \
+        libpango-1.0-0 libpangoft2-1.0-0 fonts-nanum \
     && rm -rf /var/lib/apt/lists/*
 
 # 비루트 사용자 — uvicorn이 root로 돌지 않게 (#232).

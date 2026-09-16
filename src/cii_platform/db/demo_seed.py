@@ -60,13 +60,14 @@ asyncpg는 ``-1``을 돌려주며, 종전 코드의 ``result.rowcount or 0``은 
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from cii_platform.db.types import UuidText
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
@@ -74,6 +75,15 @@ if TYPE_CHECKING:
 
 # 데모 선박의 고정 UUID (#132 계약 · #135 입력 폼). 프론트엔드 고정표가 이 값을
 # 복사해 두었으나 #542가 그 표를 없앴다 — 지금 참조하는 곳은 테스트·픽스처다.
+#
+# **문자열이다.** CUBRID 전환이 이 묶음 10개를 `uuid.UUID(...)`로 바꿨는데, 그럴 이유가
+# 없어졌다 — `UuidText`가 타입 한 곳에서 `str`을 받는다(`db/types.py`). 바꾼 탓에
+# 부르는 쪽이 둘로 깨졌다 (`#1058`).
+#
+#   UUID(VESSEL_ID_BULK)  → AttributeError: 'UUID' object has no attribute 'replace'
+#   json={"vessel_id": …} → TypeError: Object of type UUID is not JSON serializable
+#
+# `main`·전환 분기점도 문자열이다 — 되돌려 계약을 맞춘다.
 VESSEL_ID_BULK = "00000000-0000-4000-8000-000000000001"
 VESSEL_ID_CONTAINER = "00000000-0000-4000-8000-000000000002"
 VESSEL_ID_GENERAL_CARGO = "00000000-0000-4000-8000-000000000003"
@@ -238,26 +248,26 @@ VESSEL_ID_RO_RO = "00000000-0000-4000-8000-000000000004"
 VESSEL_ID_WATCH = "00000000-0000-4000-8000-000000000005"
 
 # voyage: …0101~0109
-V1_2025 = "00000000-0000-4000-8000-000000000101"
-V1_2026 = "00000000-0000-4000-8000-000000000102"
-V2_2025 = "00000000-0000-4000-8000-000000000103"
-V2_2026 = "00000000-0000-4000-8000-000000000104"
-V2_IN_PROGRESS = "00000000-0000-4000-8000-000000000105"
-V3_2025 = "00000000-0000-4000-8000-000000000106"
-V3_2026 = "00000000-0000-4000-8000-000000000107"
-V4_2025 = "00000000-0000-4000-8000-000000000108"
-V4_2026 = "00000000-0000-4000-8000-000000000109"
+V1_2025 = uuid.UUID("00000000-0000-4000-8000-000000000101")
+V1_2026 = uuid.UUID("00000000-0000-4000-8000-000000000102")
+V2_2025 = uuid.UUID("00000000-0000-4000-8000-000000000103")
+V2_2026 = uuid.UUID("00000000-0000-4000-8000-000000000104")
+V2_IN_PROGRESS = uuid.UUID("00000000-0000-4000-8000-000000000105")
+V3_2025 = uuid.UUID("00000000-0000-4000-8000-000000000106")
+V3_2026 = uuid.UUID("00000000-0000-4000-8000-000000000107")
+V4_2025 = uuid.UUID("00000000-0000-4000-8000-000000000108")
+V4_2026 = uuid.UUID("00000000-0000-4000-8000-000000000109")
 # 벌크선(발표 동선의 위험 선박)에 진행 중·계획 항차를 준다 (#587).
-V1_IN_PROGRESS = "00000000-0000-4000-8000-000000000110"
-V1_PLANNED = "00000000-0000-4000-8000-000000000111"
+V1_IN_PROGRESS = uuid.UUID("00000000-0000-4000-8000-000000000110")
+V1_PLANNED = uuid.UUID("00000000-0000-4000-8000-000000000111")
 # 관찰 대상 선박의 두 구간 (#889). **두 구간으로 나누는 것이 요점**이다 — 최근 30일이
 # 그 이전보다 나빠야 소비율이 양수가 되고, 강도가 같으면 `NOT_WORSENING`이 나온다.
-V5_EARLY = "00000000-0000-4000-8000-000000000112"
-V5_RECENT = "00000000-0000-4000-8000-000000000113"
+V5_EARLY = uuid.UUID("00000000-0000-4000-8000-000000000112")
+V5_RECENT = uuid.UUID("00000000-0000-4000-8000-000000000113")
 # 2025 이력과 진행 중 항차 — 다른 4척과 같은 규율이다. `test_dashboard_seed.py`가
 # 「모든 선박에 2년 이력」과 「운항 중이면 진행 중 항차」를 잠근다.
-V5_2025 = "00000000-0000-4000-8000-000000000114"
-V5_IN_PROGRESS = "00000000-0000-4000-8000-000000000115"
+V5_2025 = uuid.UUID("00000000-0000-4000-8000-000000000114")
+V5_IN_PROGRESS = uuid.UUID("00000000-0000-4000-8000-000000000115")
 
 # not_underway_period: …0201~0203
 P_CANAL = "00000000-0000-4000-8000-000000000201"
@@ -321,9 +331,9 @@ DEMO_USER_VERIFIED_AT = _utc(2026, 8, 23)
 
 # 018이 만든 3척(상태·위치 갱신 대상). id는 018 계약값.
 VESSEL_IDS_018 = (
-    "00000000-0000-4000-8000-000000000001",
-    "00000000-0000-4000-8000-000000000002",
-    "00000000-0000-4000-8000-000000000003",
+    uuid.UUID("00000000-0000-4000-8000-000000000001"),
+    uuid.UUID("00000000-0000-4000-8000-000000000002"),
+    uuid.UUID("00000000-0000-4000-8000-000000000003"),
 )
 
 # --- 데이터 --------------------------------------------------------------------
@@ -393,7 +403,7 @@ SEED_VESSEL_GT_AXIS: list[dict[str, object]] = [
 
 #: 018의 3척에 부여하는 운항 상태·위치. 대시보드가 4가지 상태를 다르게 보이게
 #: 하는 배분이다 — 항해 중(대한해협)·운하 통과(수에즈)·묘박(부산).
-SEED_STATE_UPDATES: list[tuple[str, str, str, str, str, str]] = [
+SEED_STATE_UPDATES: list[tuple] = [
     # (vessel_id, underway_state, detail_status, lat, lon, position_updated_at)
     (BULK, "UNDER_WAY", "SAILING", "34.512345", "128.501234", _rel(-10, 6).isoformat()),
     (
@@ -762,95 +772,95 @@ SEED_VOYAGES_WATCH: list[dict[str, object]] = [
 SEED_VOYAGE_FUELS: list[dict[str, object]] = [
     {
         # `#889` 2025 이력.
-        "id": "00000000-0000-4000-8000-000000000414",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000414"),
         "voyage_id": V5_2025,
         "planned_fuel_ton": Decimal("245.00"),
         "actual_fuel_ton": Decimal("240.00"),
     },
     {
         # `#889` 진행 중 항차 — 실적은 아직 없다.
-        "id": "00000000-0000-4000-8000-000000000415",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000415"),
         "voyage_id": V5_IN_PROGRESS,
         "planned_fuel_ton": Decimal("34.00"),
         "actual_fuel_ton": None,
     },
     {
         # `#889` 초기 구간 — 계획대로 나온 항차다.
-        "id": "00000000-0000-4000-8000-000000000412",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000412"),
         "voyage_id": V5_EARLY,
         "planned_fuel_ton": Decimal("263.00"),
         "actual_fuel_ton": Decimal("263.00"),
     },
     {
         # `#889` 최근 구간 — 계획 82t 대비 **95t 초과**. 이 초과가 곧 「악화 중」이다.
-        "id": "00000000-0000-4000-8000-000000000413",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000413"),
         "voyage_id": V5_RECENT,
         "planned_fuel_ton": Decimal("82.00"),
         "actual_fuel_ton": Decimal("95.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000401",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000401"),
         "voyage_id": V1_2025,
         "planned_fuel_ton": Decimal("420.00"),
         "actual_fuel_ton": Decimal("400.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000402",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000402"),
         "voyage_id": V1_2026,
         "planned_fuel_ton": Decimal("530.00"),
         "actual_fuel_ton": Decimal("620.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000403",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000403"),
         "voyage_id": V2_2025,
         "planned_fuel_ton": Decimal("580.00"),
         "actual_fuel_ton": Decimal("585.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000404",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000404"),
         "voyage_id": V2_2026,
         "planned_fuel_ton": Decimal("590.00"),
         "actual_fuel_ton": Decimal("600.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000405",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000405"),
         "voyage_id": V2_IN_PROGRESS,
         "planned_fuel_ton": Decimal("590.00"),
         "actual_fuel_ton": None,
     },
     {
-        "id": "00000000-0000-4000-8000-000000000406",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000406"),
         "voyage_id": V3_2025,
         "planned_fuel_ton": Decimal("36.00"),
         "actual_fuel_ton": Decimal("34.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000407",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000407"),
         "voyage_id": V3_2026,
         "planned_fuel_ton": Decimal("45.00"),
         "actual_fuel_ton": Decimal("46.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000408",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000408"),
         "voyage_id": V4_2025,
         "planned_fuel_ton": Decimal("53.00"),
         "actual_fuel_ton": Decimal("55.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000409",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000409"),
         "voyage_id": V4_2026,
         "planned_fuel_ton": Decimal("62.00"),
         "actual_fuel_ton": Decimal("70.00"),
     },
     {
         # 진행 중 항차 — 계획값만. 실적은 항해가 끝나야 들어온다.
-        "id": "00000000-0000-4000-8000-000000000410",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000410"),
         "voyage_id": V1_IN_PROGRESS,
         "planned_fuel_ton": Decimal("331.00"),
         "actual_fuel_ton": None,
     },
     {
-        "id": "00000000-0000-4000-8000-000000000411",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000411"),
         "voyage_id": V1_PLANNED,
         "planned_fuel_ton": Decimal("331.00"),
         "actual_fuel_ton": None,
@@ -926,42 +936,42 @@ SEED_PERIODS: list[dict[str, object]] = [
 #: not under way 연료. consumer_type 4값 전부 포함(메인엔진은 운하 저속 통항만).
 SEED_PERIOD_FUELS: list[dict[str, object]] = [
     {
-        "id": "00000000-0000-4000-8000-000000000301",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000301"),
         "period_id": P_CANAL,
         "consumer_type": "MAIN_ENGINE",
         "fuel_type": "HFO",
         "fuel_ton": Decimal("1.80"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000302",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000302"),
         "period_id": P_CANAL,
         "consumer_type": "AUX_ENGINE",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("3.20"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000303",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000303"),
         "period_id": P_ANCHOR,
         "consumer_type": "AUX_ENGINE",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("4.50"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000304",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000304"),
         "period_id": P_DRYDOCK,
         "consumer_type": "AUX_ENGINE",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("28.00"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000305",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000305"),
         "period_id": P_DRYDOCK,
         "consumer_type": "OIL_FIRED_BOILER",
         "fuel_type": "HFO",
         "fuel_ton": Decimal("6.50"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000306",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000306"),
         "period_id": P_DRYDOCK,
         "consumer_type": "OTHER",
         "fuel_type": "DIESEL_GAS_OIL",
@@ -971,14 +981,14 @@ SEED_PERIOD_FUELS: list[dict[str, object]] = [
     # 계산되지 않았다.** 여객선은 접안 중에도 승객 설비 때문에 보조기관과 보일러가
     # 계속 돈다 — 화물선의 묘박(`P_ANCHOR`, 보조기관만)과 구성이 다른 이유다.
     {
-        "id": "00000000-0000-4000-8000-000000000307",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000307"),
         "period_id": P_IN_PORT,
         "consumer_type": "AUX_ENGINE",
         "fuel_type": "DIESEL_GAS_OIL",
         "fuel_ton": Decimal("5.60"),
     },
     {
-        "id": "00000000-0000-4000-8000-000000000308",
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000308"),
         "period_id": P_IN_PORT,
         "consumer_type": "OIL_FIRED_BOILER",
         "fuel_type": "DIESEL_GAS_OIL",
@@ -989,7 +999,7 @@ SEED_PERIOD_FUELS: list[dict[str, object]] = [
 # --- 경량 테이블 (018 패턴 — 실제 컬럼 정의는 각 스키마 마이그레이션이 소유) ------
 vessel_tbl = sa.table(
     "vessel",
-    sa.column("id", postgresql.UUID),
+    sa.column("id", UuidText),
     sa.column("imo_number", sa.String),
     sa.column("name", sa.String),
     sa.column("ship_type", sa.String),
@@ -1007,8 +1017,8 @@ vessel_tbl = sa.table(
 )
 voyage_tbl = sa.table(
     "voyage",
-    sa.column("id", postgresql.UUID),
-    sa.column("vessel_id", postgresql.UUID),
+    sa.column("id", UuidText),
+    sa.column("vessel_id", UuidText),
     sa.column("voyage_no", sa.String),
     sa.column("status", sa.String),
     sa.column("annual_inclusion_policy", sa.String),
@@ -1023,11 +1033,15 @@ voyage_tbl = sa.table(
     sa.column("planned_arrival_at", sa.DateTime(timezone=True)),
     sa.column("actual_departure_at", sa.DateTime(timezone=True)),
     sa.column("actual_arrival_at", sa.DateTime(timezone=True)),
+    sa.column("departure_lat", sa.Numeric),
+    sa.column("departure_lon", sa.Numeric),
+    sa.column("arrival_lat", sa.Numeric),
+    sa.column("arrival_lon", sa.Numeric),
 )
 voyage_fuel_tbl = sa.table(
     "voyage_fuel_use",
-    sa.column("id", postgresql.UUID),
-    sa.column("voyage_id", postgresql.UUID),
+    sa.column("id", UuidText),
+    sa.column("voyage_id", UuidText),
     sa.column("fuel_type", sa.String),
     sa.column("planned_fuel_ton", sa.Numeric),
     sa.column("actual_fuel_ton", sa.Numeric),
@@ -1036,8 +1050,8 @@ voyage_fuel_tbl = sa.table(
 )
 period_tbl = sa.table(
     "not_underway_period",
-    sa.column("id", postgresql.UUID),
-    sa.column("vessel_id", postgresql.UUID),
+    sa.column("id", UuidText),
+    sa.column("vessel_id", UuidText),
     sa.column("regulation_year", sa.Integer),
     sa.column("period_type", sa.String),
     sa.column("started_at", sa.DateTime(timezone=True)),
@@ -1045,13 +1059,13 @@ period_tbl = sa.table(
     sa.column("port_name", sa.String),
     sa.column("lat", sa.Numeric),
     sa.column("lon", sa.Numeric),
-    sa.column("voyage_id", postgresql.UUID),
+    sa.column("voyage_id", UuidText),
 )
 #: 시연 계정 (`#692`). 컬럼 정의의 주인은 022 마이그레이션이다 — 여기서는 시드가
 #: 쓰는 컬럼만 적는다(018 패턴). ``created_at``·``updated_at``은 서버 기본값이 채운다.
 app_user_tbl = sa.table(
     "app_user",
-    sa.column("id", postgresql.UUID),
+    sa.column("id", UuidText),
     sa.column("email", sa.String),
     sa.column("role", sa.String),
     sa.column("password_hash", sa.String),
@@ -1060,8 +1074,8 @@ app_user_tbl = sa.table(
 )
 period_fuel_tbl = sa.table(
     "not_underway_fuel_use",
-    sa.column("id", postgresql.UUID),
-    sa.column("period_id", postgresql.UUID),
+    sa.column("id", UuidText),
+    sa.column("period_id", UuidText),
     sa.column("consumer_type", sa.String),
     sa.column("fuel_type", sa.String),
     sa.column("fuel_ton", sa.Numeric),
@@ -1088,7 +1102,13 @@ async def _cf_by_fuel(conn: AsyncConnection) -> dict[str, Decimal]:
     CF 스냅샷을 얼리는 설계 자체는 옳다 — `PRD §8.4`가 요구한다. **문제는 얼린 값이
     처음부터 틀렸다는 것이었다.**
     """
-    rows = (await conn.execute(sa.text("SELECT code, cf FROM fuel_type"))).mappings().all()
+    from cii_platform.db.models.fuel_type import FuelType
+
+    rows = (
+        (await conn.execute(sa.select(FuelType.__table__.c.code, FuelType.__table__.c.cf)))
+        .mappings()
+        .all()
+    )
     table = {row["code"]: Decimal(str(row["cf"])) for row in rows}
     if not table:  # pragma: no cover - 마이그레이션이 끝난 DB에서는 비지 않는다
         raise RuntimeError("fuel_type 표가 비어 있습니다 — 마이그레이션을 먼저 적용하세요")
@@ -1102,7 +1122,7 @@ async def _cf_by_fuel(conn: AsyncConnection) -> dict[str, Decimal]:
 # 타입을 따라야** 한다.
 _vessel = sa.table(
     "vessel",
-    sa.column("id", postgresql.UUID(as_uuid=False)),
+    sa.column("id", UuidText),
     sa.column("imo_number", sa.String),
     sa.column("name", sa.String),
     sa.column("ship_type", sa.String),
@@ -1126,10 +1146,15 @@ async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dic
     """
     if not rows:
         return 0
-    result = await conn.execute(
-        pg_insert(table).on_conflict_do_nothing().returning(table.c.id), rows
-    )
-    return len(result.fetchall())
+    # Row-by-row INSERT to avoid #371 (multi-row ODKU bind mismatch).
+    inserted = 0
+    for row in rows:
+        try:
+            await conn.execute(sa.insert(table).values(row))
+            inserted += 1
+        except sa.exc.IntegrityError:
+            pass  # 이미 존재 — 무시
+    return inserted
 
 
 #: 시드가 값을 갖는 선박 제원 컬럼. :func:`missing_seeded_specs`가 이 목록만 본다.
@@ -1157,21 +1182,16 @@ async def missing_seeded_specs(conn) -> list[tuple[str, str]]:
 
     :returns: ``[(선박명, 컬럼명), …]``. 어긋난 것이 없으면 빈 목록이다.
     """
-    from sqlalchemy import text
+    from cii_platform.db.models.vessel import Vessel
 
     drifted: list[tuple[str, str]] = []
+    tbl = Vessel.__table__
+    cols = [tbl.c[c] for c in SPEC_COLUMNS]
     for vessel in (*SEED_VESSELS, *SEED_VESSEL_GT_AXIS, *SEED_VESSEL_WATCH):
         wanted = {c: vessel[c] for c in SPEC_COLUMNS if vessel[c] is not None}
         if not wanted:
             continue
-        row = (
-            await conn.execute(
-                text(
-                    f"SELECT {', '.join(SPEC_COLUMNS)} FROM vessel "  # noqa: S608
-                    "WHERE id = CAST(:vid AS uuid)"
-                ).bindparams(vid=vessel["id"])
-            )
-        ).one_or_none()
+        row = (await conn.execute(sa.select(*cols).where(tbl.c.id == vessel["id"]))).one_or_none()
         if row is None:
             continue
         for column in wanted:
@@ -1217,13 +1237,18 @@ _fill_port_coords(SEED_VOYAGES_WATCH)
 async def seed_demo_user(conn: AsyncConnection) -> int:
     """시연용 계정을 적재하고 **신규 적재 행 수**를 돌려준다 (`#692`).
 
-    ## 프로덕션에서는 만들지 않는다
+    ## ``development``·``test``에서만 만든다
 
-    ``APP_ENV=production``이면 **아무것도 하지 않고 0을 돌려준다.** 고정 비밀번호를
-    가진 계정이 프로덕션에 존재하면 그 값이 알려진 순간 누구나 들어온다.
+    그 밖의 환경(``staging``·``production``)에서는 **아무것도 하지 않고 0을 돌려준다.**
+    고정 비밀번호를 가진 계정이 공개 주소에 존재하면 그 값이 알려진 순간 누구나
+    들어온다 — 이 계정의 비밀번호는 ``README.md``에 적혀 있다.
 
-    판정은 :func:`cii_platform.config.is_production`을 쓴다 — 환경 분기의 단일
-    출처다(`#648`). 여기서 ``os.environ``을 다시 읽으면 판정이 두 곳이 된다.
+    **종전에는 ``production``만 뺐다** (#692). 2026-09-15 OCI 배포가 SMTP 미설정
+    때문에 ``APP_ENV=staging``으로 떴고(`docs/OPERATIONS.md §4.5`), 그 상태에서
+    이 시드가 도는 배선이었다 (#1058).
+
+    판정은 :func:`cii_platform.config.should_seed_demo_user`를 쓴다 — 환경 분기의
+    단일 출처다(`#648`). 여기서 ``os.environ``을 다시 읽으면 판정이 두 곳이 된다.
 
     ## 해시를 미리 계산해 상수로 두지 않는다
 
@@ -1237,9 +1262,9 @@ async def seed_demo_user(conn: AsyncConnection) -> int:
     계정의 비밀번호를 바꿨다면 그 변경이 살아남는다.
     """
     from cii_platform.auth.password import hash_password
-    from cii_platform.config import is_production
+    from cii_platform.config import should_seed_demo_user
 
-    if is_production():
+    if not should_seed_demo_user():
         return 0
 
     return await _insert_ignoring_existing(
@@ -1270,9 +1295,15 @@ async def demo_user_missing(conn) -> bool:
     :func:`missing_seeded_specs`가 선박 제원에 대해 하는 것과 같은 자리의 검사다
     (`#587`).
     """
+    from cii_platform.db.models.app_user import AppUser
+
     row = await conn.execute(
-        sa.text("SELECT 1 FROM app_user WHERE email = :email AND is_deleted = false"),
-        {"email": DEMO_USER_EMAIL},
+        sa.select(sa.literal(1))
+        .select_from(AppUser.__table__)
+        .where(
+            AppUser.__table__.c.email == DEMO_USER_EMAIL,
+            AppUser.__table__.c.is_deleted == 0,
+        )
     )
     return row.first() is None
 
@@ -1292,25 +1323,19 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
     # 운항 상태·위치는 018의 3척에 **덧씌우는** 값이라 INSERT가 아니라 UPDATE다.
     # 이미 상태가 있는 선박은 건드리지 않는다 — 사용자가 위치를 갱신했을 수 있다.
     #
+    from cii_platform.db.models.vessel import Vessel
+
     for vid, underway, detail, lat, lon, updated in SEED_STATE_UPDATES:
         await conn.execute(
-            sa.text(
-                "UPDATE vessel SET underway_state = :st, detail_status = :ds, "
-                "current_lat = CAST(:lat AS numeric), current_lon = CAST(:lon AS numeric), "
-                "position_updated_at = :ts "
-                "WHERE id = CAST(:vid AS uuid) AND underway_state IS NULL"
-            ),
-            {
-                "st": underway,
-                "ds": detail,
-                "lat": lat,
-                "lon": lon,
-                # 문자열을 그대로 바인딩하면 asyncpg가 거부한다 — 서버 타입이
-                # timestamptz인데 파라미터가 str이면 캐스팅하지 않는다. 이 데이터는
-                # 027에서 raw SQL 리터럴로 쓰였던 것이라 문자열로 남아 있다.
-                "ts": datetime.fromisoformat(updated),
-                "vid": vid,
-            },
+            sa.update(Vessel.__table__)
+            .where(Vessel.__table__.c.id == vid, Vessel.__table__.c.underway_state == None)  # noqa: E711
+            .values(
+                underway_state=underway,
+                detail_status=detail,
+                current_lat=lat,
+                current_lon=lon,
+                position_updated_at=datetime.fromisoformat(updated),
+            )
         )
 
     counts["voyage"] = await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES)
@@ -1385,44 +1410,52 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
     return counts
 
 
-async def _delete_where(conn: AsyncConnection, table: str, column: str, ids: list) -> int:
-    """지운 행 수를 돌려준다. 세는 방법은 모듈 docstring의 규칙을 따른다 (#481)."""
+async def _delete_where(conn: AsyncConnection, table_name: str, column: str, ids: list) -> int:
+    """지운 행 수를 돌려준다. SQLAlchemy Core 사용 (#1141).
+
+    🔴 **비교 열에 ``UuidText``를 붙인다** (`#1058`). 이 함수가 받는 ``ids``는 위 시드
+    정의의 **대시 36자 문자열**이고 저장 형식은 ``CHAR(32)`` hex다. 타입 없는
+    ``sa.column(column)``으로 견주면 그 문자열이 그대로 실려 **어느 행과도 맞지 않는다.**
+
+    오류가 아니라 **조용한 0행**이라 ``rowcount``가 0으로 누적되고, 이 함수를 쓰는
+    :func:`clear_demo` 가 「지웠다」면서 **아무것도 지우지 않은 채 0을 보고**했다.
+    실측(``cii_test`` · ``not_underway_period`` 4행)::
+
+        타입 없이 일치 행 : 0
+        UuidText 붙여    : 1
+
+    위 ``vessel_tbl``·``voyage_tbl`` 등 삽입용 테이블은 처음부터 ``UuidText``를 달고
+    있었다 — **삭제 경로만** 빠져 있었다.
+    """
     if not ids:
         return 0
-    result = await conn.execute(
-        sa.text(  # noqa: S608 - 테이블·컬럼명은 이 모듈의 리터럴, 값은 바인딩된다
-            f"DELETE FROM {table} WHERE {column} = ANY(CAST(:ids AS uuid[])) RETURNING id"
-        ),
-        {"ids": ids},
-    )
-    return len(result.fetchall())
+    tbl = sa.table(table_name, sa.column(column, UuidText))
+    deleted = 0
+    for uid in ids:
+        result = await conn.execute(sa.delete(tbl).where(tbl.c[column] == uid))
+        deleted += result.rowcount
+    return deleted
 
 
 async def _delete_unreferenced(
     conn: AsyncConnection,
-    table: str,
+    table_name: str,
     ids: list,
     calc_run_column: str,
 ) -> int:
-    """``calculation_run``이 참조하지 않는 행만 지운다.
-
-    ``RESTRICT``에 걸려 예외로 중단되는 대신 **미리 걸러낸다** — 한 척이 막혔다고 나머지를
-    못 지우게 되면, 부분 정리조차 불가능해진다.
-
-    돌려주는 값은 **실제로 지운** 행 수이며, 호출자는 이것으로 「남긴 수」를 계산한다
-    (``kept_voyage``·``kept_vessel``). 그래서 이 값이 틀리면 **남긴 수까지 함께 틀린다.**
-    """
+    """calculation_run이 참조하지 않는 행만 지운다. SQLAlchemy Core (#1141)."""
     if not ids:
         return 0
-    result = await conn.execute(
-        sa.text(  # noqa: S608 - 테이블·컬럼명은 이 모듈의 리터럴, 값은 바인딩된다
-            f"DELETE FROM {table} WHERE id = ANY(CAST(:ids AS uuid[])) "
-            f"AND id NOT IN (SELECT {calc_run_column} FROM calculation_run "
-            f"WHERE {calc_run_column} IS NOT NULL) RETURNING id"
-        ),
-        {"ids": ids},
-    )
-    return len(result.fetchall())
+    # 비교 열에 타입을 붙이는 이유는 `_delete_where`와 같다 (`#1058`) — 빠뜨리면
+    # 조용히 0행이 되고, 「계산 이력이 걸려 남았다」와 구분되지 않는다.
+    tbl = sa.table(table_name, sa.column("id", UuidText))
+    calc = sa.table("calculation_run", sa.column(calc_run_column, UuidText))
+    subq = sa.select(calc.c[calc_run_column]).where(calc.c[calc_run_column] != None)  # noqa: E711
+    deleted = 0
+    for uid in ids:
+        result = await conn.execute(sa.delete(tbl).where(tbl.c.id == uid, tbl.c.id.not_in(subq)))
+        deleted += result.rowcount
+    return deleted
 
 
 async def main() -> None:  # pragma: no cover - 프로세스 진입점
@@ -1436,9 +1469,9 @@ async def main() -> None:  # pragma: no cover - 프로세스 진입점
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from cii_platform.config import DATABASE_URL
-    from cii_platform.db.url import normalize_to_asyncpg
+    from cii_platform.db.url import normalize_to_async
 
-    engine = create_async_engine(normalize_to_asyncpg(DATABASE_URL), poolclass=pool.NullPool)
+    engine = create_async_engine(normalize_to_async(DATABASE_URL), poolclass=pool.NullPool)
     try:
         async with engine.begin() as conn:
             counts = await seed_demo(conn)

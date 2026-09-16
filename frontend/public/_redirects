@@ -1,0 +1,4 @@
+# Cloudflare Pages 프록시 — 프론트엔드의 /api/* 요청을 OCI 백엔드로 전달.
+# 프론트엔드가 상대 경로(/api/v1)를 사용하므로 같은 출처 프록시가 필요하다.
+# https://developers.cloudflare.com/pages/configuration/redirects/
+/api/* http://131.186.22.10:8001/api/:splat 200

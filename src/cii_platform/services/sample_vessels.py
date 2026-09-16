@@ -19,6 +19,7 @@ IMO는 배마다 유일하고(`chk_imo_format` · 유일 인덱스), 샘플의 �
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
 
 from cii_platform.db.demo_seed import (
@@ -34,7 +35,7 @@ from cii_platform.db.demo_seed import (
 #:
 #: ``sample_id``를 시드 UUID로 두지 않는 이유 — 그 UUID는 **실제 DB에 있는 데모 선박의 id**다.
 #: 응답에 실으면 화면이 그것을 선박 id로 오인해 상세 화면으로 보낼 수 있다.
-_SAMPLE_SOURCES: tuple[tuple[str, str], ...] = (
+_SAMPLE_SOURCES: tuple[tuple[str, uuid.UUID], ...] = (
     ("bulk-50000-dwt", VESSEL_ID_BULK),
     ("bulk-30000-dwt", VESSEL_ID_WATCH),
     ("ro-ro-passenger-25000-gt", VESSEL_ID_RO_RO),
@@ -67,7 +68,11 @@ def list_sample_vessels() -> list[dict[str, object]]:
     }
     samples: list[dict[str, object]] = []
     for sample_id, seed_id in _SAMPLE_SOURCES:
-        row = by_id[seed_id]
+        # `str()`로 맞춘다 (`#1058`). 시드의 `VESSEL_ID_*`가 CUBRID 전환에서
+        # `str` → `uuid.UUID`로 바뀌었는데, 위 `by_id`는 `str(row["id"])`로 키를
+        # 만든다. 그대로 두면 `KeyError: UUID(...)`로 이 엔드포인트가 500이 된다 —
+        # 이 함수는 DB를 쓰지 않는 순수 함수라 방언과 무관하게 깨져 있었다.
+        row = by_id[str(seed_id)]
         samples.append(
             {
                 "sample_id": sample_id,

@@ -18,6 +18,7 @@ from decimal import Decimal
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id, uuid_hex
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,42 +42,28 @@ async def session(conn):
 async def _ensure_params(session, *years: int) -> None:
     """규정 파라미터를 멱등하게 심는다 (``test_cii_history``와 같은 방식)."""
     for year in years:
-        await session.execute(
-            text(
-                "INSERT INTO regulation_year "
-                "(year, z_factor_percent, effective_from, source_ref, version) "
-                f"SELECT {year}, 11.0, '{year}-01-01', 'TEST', '1.0' "
-                f"WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = {year})"
-            )
-        )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
-        )
+        await ensure_regulation_year(session, year)
+    await insert_if_not_exists(
+        session,
+        "INSERT INTO cii_reference_line "
+        "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')",
     )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
-        )
+    await insert_if_not_exists(
+        session,
+        "INSERT INTO cii_rating_boundary "
+        "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')",
     )
 
 
 async def _insert_vessel(session, imo: str) -> str:
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            f"VALUES ('{imo}', 'FUEL AXIS TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id"
-        )
+    return await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+        f"VALUES ('{imo}', 'FUEL AXIS TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id",
+        {},
     )
-    return str(row.scalar_one())
 
 
 async def _insert_voyage(
@@ -88,23 +75,22 @@ async def _insert_voyage(
     fuels: list[tuple[str, str, Decimal]],
 ) -> None:
     """``fuels``는 ``(유종, 톤, CF snapshot)`` 목록 — 한 항차에 여러 유종을 넣는다."""
-    voyage = await session.execute(
-        text(
-            "INSERT INTO voyage "
-            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-            " departure_port_name, arrival_port_name, planned_distance_nm, "
-            " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
-            f"VALUES ('{vessel_id}'::uuid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
-            f"'BUSAN', 'SINGAPORE', {distance}, {distance}, 12.0, 11.5) RETURNING id"
-        )
+    voyage_id = await insert_returning_id(
+        session,
+        "INSERT INTO voyage "
+        "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+        " departure_port_name, arrival_port_name, planned_distance_nm, "
+        " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
+        f"VALUES ('{uuid_hex(vessel_id)}', 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
+        f"'BUSAN', 'SINGAPORE', {distance}, {distance}, 12.0, 11.5) RETURNING id",
+        {},
     )
-    voyage_id = voyage.scalar_one()
     for fuel_type, ton, cf in fuels:
         await session.execute(
             text(
                 "INSERT INTO voyage_fuel_use "
                 "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
-                f"VALUES ('{voyage_id}'::uuid, '{fuel_type}', {ton}, {ton}, {cf}, 'SAMPLE')"
+                f"VALUES ('{uuid_hex(voyage_id)}', '{fuel_type}', {ton}, {ton}, {cf}, 'SAMPLE')"
             )
         )
 
@@ -118,20 +104,19 @@ async def _insert_not_underway(
     ton: str,
     cf: Decimal,
 ) -> None:
-    period = await session.execute(
-        text(
-            "INSERT INTO not_underway_period "
-            "(vessel_id, regulation_year, period_type, started_at, ended_at, distance_nm) "
-            f"VALUES ('{vessel_id}'::uuid, {year}, 'IN_PORT', "
-            f"'{year}-03-01T00:00:00+00:00', '{year}-03-03T00:00:00+00:00', 0) RETURNING id"
-        )
+    period_id = await insert_returning_id(
+        session,
+        "INSERT INTO not_underway_period "
+        "(vessel_id, regulation_year, period_type, started_at, ended_at, distance_nm) "
+        f"VALUES ('{uuid_hex(vessel_id)}', {year}, 'IN_PORT', "
+        f"'{year}-03-01T00:00:00+00:00', '{year}-03-03T00:00:00+00:00', 0) RETURNING id",
+        {},
     )
-    period_id = period.scalar_one()
     await session.execute(
         text(
             "INSERT INTO not_underway_fuel_use "
             "(period_id, consumer_type, fuel_type, fuel_ton, cf_used) "
-            f"VALUES ('{period_id}'::uuid, 'AUX_ENGINE', '{fuel_type}', {ton}, {cf})"
+            f"VALUES ('{uuid_hex(period_id)}', 'AUX_ENGINE', '{fuel_type}', {ton}, {cf})"
         )
     )
 

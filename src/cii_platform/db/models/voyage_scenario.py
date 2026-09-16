@@ -7,10 +7,13 @@ DB_SCHEMA.md §2.4 (voyage_scenario) 참조. 컬럼·제약 정의는 마이그�
 - weather_snapshot_id FK는 013에서 상환 (007은 weather_snapshot 테이블 부재로 컬럼만 생성).
 """
 
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+import uuid
+from datetime import UTC, datetime
 
-from cii_platform.db.models.base import Base
+import sqlalchemy as sa
+
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
+from cii_platform.db.types import UuidText
 
 
 class VoyageScenario(Base):
@@ -19,13 +22,13 @@ class VoyageScenario(Base):
     __tablename__ = "voyage_scenario"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
     # [S-8] vessel_id는 NOT NULL (독립 시나리오도 선박 단위 조회·권한 검사 필요).
-    vessel_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
-    voyage_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    vessel_id = sa.Column(UuidText, nullable=False)
+    voyage_id = sa.Column(UuidText, nullable=True)
     scenario_type = sa.Column(sa.String(length=20), nullable=False)
     scenario_name = sa.Column(sa.String(length=100), nullable=False)
     distance_nm = sa.Column(sa.Numeric(precision=12, scale=2), nullable=False)
@@ -37,17 +40,23 @@ class VoyageScenario(Base):
     cii_value = sa.Column(sa.Numeric(precision=15, scale=8), nullable=False)
     estimated_rating = sa.Column(sa.String(length=1), nullable=False)
     risk_level = sa.Column(sa.String(length=10), nullable=False)
-    is_adopted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    is_adopted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     # [M-1] 다른 비즈니스 테이블과 삭제 정책 통일.
-    is_deleted = sa.Column(sa.Boolean(), server_default=sa.text("false"), nullable=False)
+    is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
     # weather_snapshot(§2.13) 참조. FK는 013에서 추가됐다 — 아래 __table_args__ 참조.
-    weather_snapshot_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=True)
+    weather_snapshot_id = sa.Column(UuidText, nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
     # updated_at 자동 갱신은 DB 트리거(trg_voyage_scenario_updated, §7.2)가 담당한다.
     updated_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
@@ -58,6 +67,7 @@ class VoyageScenario(Base):
             ["vessel.id"],
             name="fk_voyage_scenario_vessel",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         # §7.1 [C-3]: 항차 삭제 시 시나리오는 보존하되 연결만 해제 → SET NULL.
         sa.ForeignKeyConstraint(
@@ -65,6 +75,7 @@ class VoyageScenario(Base):
             ["voyage.id"],
             name="fk_voyage_scenario_voyage",
             ondelete="SET NULL",
+            onupdate=FK_ON_UPDATE,
         ),
         # 013 상환: weather_snapshot(§2.13) FK (§7.1 SET NULL — 기상 스냅샷 만료 시 시나리오 보존).
         sa.ForeignKeyConstraint(
@@ -72,6 +83,7 @@ class VoyageScenario(Base):
             ["weather_snapshot.id"],
             name="fk_voyage_scenario_weather",
             ondelete="SET NULL",
+            onupdate=FK_ON_UPDATE,
         ),
         # §2.4 검증 제약 [S-4] (원문 그대로).
         sa.CheckConstraint(

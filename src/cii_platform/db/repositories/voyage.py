@@ -98,7 +98,7 @@ def decode_cursor(token: str) -> VoyageCursor | None:
 
 async def get_by_id(session: AsyncSession, voyage_id: UUID) -> Voyage | None:
     """활성 항차 1건을 조회한다 (soft delete 제외)."""
-    stmt = select(Voyage).where(Voyage.id == voyage_id, Voyage.is_deleted.is_(False))
+    stmt = select(Voyage).where(Voyage.id == voyage_id, Voyage.is_deleted == 0)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
@@ -156,12 +156,17 @@ async def has_calculation_run_refs(session: AsyncSession, voyage_id: UUID) -> bo
     물리 DELETE가 ``IntegrityError``(→500)로 실패한다 — 서비스가 미리 409로
     가리기 위한 조회다.
     """
-    from sqlalchemy import exists
-
     from cii_platform.db.models.calculation_run import CalculationRun
 
-    stmt = select(exists().where(CalculationRun.voyage_id == voyage_id))
-    return bool(await session.scalar(stmt))
+    # `select(exists()…)`를 쓰지 않는다 — CUBRID는 `EXISTS`를 **select 항목 자리에서
+    # 받지 못한다**(WHERE 절 전용). 실측 (`#1058`)::
+    #
+    #     SELECT EXISTS (SELECT * FROM calculation_run WHERE …)
+    #     → Syntax error: unexpected 'EXISTS'  (errno=-493)
+    #
+    # `LIMIT 1` 한 건 조회로 바꾼다 — 판정이 같고 어느 DB에서나 성립한다.
+    stmt = select(CalculationRun.id).where(CalculationRun.voyage_id == voyage_id).limit(1)
+    return (await session.scalar(stmt)) is not None
 
 
 async def list_active(
@@ -177,7 +182,7 @@ async def list_active(
 
     ``limit + 1``건을 가져온다 — ``has_more`` 판단용.
     """
-    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted.is_(False))
+    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted == 0)
 
     if status is not None:
         stmt = stmt.where(Voyage.status == status)
@@ -213,7 +218,7 @@ async def list_for_export(
     정렬은 ``(created_at, id)`` 오름차순 — ``list_active``와 같아 화면 순서와 파일
     순서가 갈리지 않는다.
     """
-    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted.is_(False))
+    stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted == 0)
     if regulation_year is not None:
         stmt = stmt.where(Voyage.regulation_year == regulation_year)
     stmt = stmt.order_by(Voyage.created_at, Voyage.id)
@@ -248,7 +253,7 @@ async def list_annual_inclusions(
         Voyage.vessel_id == vessel_id,
         Voyage.regulation_year == regulation_year,
         Voyage.annual_inclusion_policy == policy,
-        Voyage.is_deleted.is_(False),
+        Voyage.is_deleted == 0,
     )
 
     if as_of is not None:
@@ -293,7 +298,7 @@ async def find_in_progress(session: AsyncSession, vessel_id: UUID) -> Voyage | N
         .where(
             Voyage.vessel_id == vessel_id,
             Voyage.status == "IN_PROGRESS",
-            Voyage.is_deleted.is_(False),
+            Voyage.is_deleted == 0,
         )
         .order_by(Voyage.actual_departure_at.desc().nullslast(), Voyage.id)
         .limit(1)
@@ -321,7 +326,7 @@ async def find_in_progress_for_vessels(
         .where(
             Voyage.vessel_id.in_(list(vessel_ids)),
             Voyage.status == "IN_PROGRESS",
-            Voyage.is_deleted.is_(False),
+            Voyage.is_deleted == 0,
         )
         .order_by(Voyage.actual_departure_at.desc().nullslast(), Voyage.id)
     )
@@ -351,7 +356,7 @@ async def mark_calculations_needing_recalc(session: AsyncSession, voyage_id: UUI
         update(CalculationRun)
         .where(
             CalculationRun.voyage_id == voyage_id,
-            CalculationRun.needs_recalc.is_(False),
+            CalculationRun.needs_recalc == 0,
         )
         .values(needs_recalc=True)
     )

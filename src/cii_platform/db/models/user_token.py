@@ -9,10 +9,13 @@
 
 from __future__ import annotations
 
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
+import uuid
+from datetime import UTC, datetime
 
-from cii_platform.db.models.base import Base
+import sqlalchemy as sa
+
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
+from cii_platform.db.types import UuidText
 
 #: 가입 확인 메일의 링크.
 PURPOSE_EMAIL_VERIFY = "EMAIL_VERIFY"
@@ -26,11 +29,11 @@ class UserToken(Base):
     __tablename__ = "user_token"
 
     id = sa.Column(
-        postgresql.UUID(as_uuid=True),
-        server_default=sa.text("gen_random_uuid()"),
-        nullable=False,
+        UuidText,
+        primary_key=True,
+        default=uuid.uuid4,
     )
-    user_id = sa.Column(postgresql.UUID(as_uuid=True), nullable=False)
+    user_id = sa.Column(UuidText, nullable=False)
     purpose = sa.Column(sa.String(length=20), nullable=False)
     #: 토큰의 SHA-256 hex. **원문을 저장하지 않는다** — DB가 유출돼도 토큰을
     #: 되돌릴 수 없어야 한다(`user_session.session_token_hash`와 같은 규칙).
@@ -39,7 +42,10 @@ class UserToken(Base):
     #: 사용 시각. NOT NULL이면 재사용 불가.
     used_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     created_at = sa.Column(
-        sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=sa.text("CURRENT_TIMESTAMP"),
+        nullable=False,
     )
 
     __table_args__ = (
@@ -49,6 +55,7 @@ class UserToken(Base):
             ["app_user.id"],
             name="fk_user_token_user",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         sa.CheckConstraint(
             "purpose IN ('EMAIL_VERIFY', 'PASSWORD_RESET')",

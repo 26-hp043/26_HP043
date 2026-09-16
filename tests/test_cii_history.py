@@ -21,6 +21,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import ensure_regulation_year, insert_if_not_exists, insert_returning_id, uuid_hex
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,61 +64,46 @@ async def _ensure_params(session, *years: int) -> None:
     대부분 no-op다. ``scripts/seed.py``를 돌린 로컬 DB에서도 성립해야 한다 — 없을 때만 넣는다.
     """
     for year in years:
-        await session.execute(
-            text(
-                "INSERT INTO regulation_year "
-                "(year, z_factor_percent, effective_from, source_ref, version) "
-                f"SELECT {year}, 11.0, '{year}-01-01', 'TEST', '1.0' "
-                f"WHERE NOT EXISTS (SELECT 1 FROM regulation_year WHERE year = {year})"
-            )
-        )
-    await session.execute(
-        text(
-            "INSERT INTO cii_reference_line "
-            "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', '4745', 4745, 0.622, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_reference_line WHERE ship_type = 'BULK_CARRIER')"
-        )
+        await ensure_regulation_year(session, year)
+    await insert_if_not_exists(
+        session,
+        "INSERT INTO cii_reference_line "
+        "(ship_type, condition_expr, capacity_rule, a_raw, a_decimal, c, source_ref) "
+        "VALUES ('BULK_CARRIER', 'DWT < 279000', 'DWT', '4745', 4745, 0.622, 'TEST')",
     )
-    await session.execute(
-        text(
-            "INSERT INTO cii_rating_boundary "
-            "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
-            "SELECT 'BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST' "
-            "WHERE NOT EXISTS "
-            "(SELECT 1 FROM cii_rating_boundary WHERE ship_type = 'BULK_CARRIER')"
-        )
+    await insert_if_not_exists(
+        session,
+        "INSERT INTO cii_rating_boundary "
+        "(ship_type, condition_expr, capacity_basis, d1, d2, d3, d4, source_ref) "
+        "VALUES ('BULK_CARRIER', 'all', 'DWT', 0.86, 0.94, 1.06, 1.18, 'TEST')",
     )
 
 
 async def _insert_vessel_with_history(session) -> str:
     """2025·2026 두 해에 COMPLETED 항차를 가진 선박을 넣고 id를 반환한다."""
-    row = await session.execute(
-        text(
-            "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
-            "VALUES ('7200301', 'HISTORY TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id"
-        )
+    vessel_id = await insert_returning_id(
+        session,
+        "INSERT INTO vessel (imo_number, name, ship_type, gross_tonnage, deadweight) "
+        "VALUES ('7200301', 'HISTORY TEST', 'BULK_CARRIER', 30000, 50000) RETURNING id",
+        {},
     )
-    vessel_id = str(row.scalar_one())
 
     for year, fuel, distance in [(2025, "400.00", "4265.00"), (2026, "620.00", "4300.00")]:
-        voyage = await session.execute(
-            text(
-                "INSERT INTO voyage "
-                "(vessel_id, status, annual_inclusion_policy, regulation_year, "
-                " departure_port_name, arrival_port_name, planned_distance_nm, "
-                " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
-                f"VALUES ('{vessel_id}'::uuid, 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
-                f"'BUSAN', 'SINGAPORE', {distance}, {distance}, 12.0, 11.5) RETURNING id"
-            )
+        voyage_id = await insert_returning_id(
+            session,
+            "INSERT INTO voyage "
+            "(vessel_id, status, annual_inclusion_policy, regulation_year, "
+            " departure_port_name, arrival_port_name, planned_distance_nm, "
+            " actual_distance_nm, planned_speed_kn, actual_avg_speed_kn) "
+            f"VALUES ('{uuid_hex(vessel_id)}', 'COMPLETED', 'INCLUDE_AS_ACTUAL', {year}, "
+            f"'BUSAN', 'SINGAPORE', {distance}, {distance}, 12.0, 11.5) RETURNING id",
+            {},
         )
-        voyage_id = voyage.scalar_one()
         await session.execute(
             text(
                 "INSERT INTO voyage_fuel_use "
                 "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
-                f"VALUES ('{voyage_id}'::uuid, 'HFO', {fuel}, {fuel}, {HFO_CF}, 'SAMPLE')"
+                f"VALUES ('{uuid_hex(voyage_id)}', 'HFO', {fuel}, {fuel}, {HFO_CF}, 'SAMPLE')"
             )
         )
     return vessel_id
@@ -186,7 +172,7 @@ async def test_year_without_regulation_params_is_a_row(session):
     """파라미터가 없는 해 — 요청 전체가 409로 죽지 않고 그 해만 NO_REGULATION_PARAMS."""
     await _ensure_params(session, 2026)
     # 로컬 DB에 이미 심어져 있을 수 있으므로 '확보 후 삭제'로 결정적으로 만든다.
-    await session.execute(text("DELETE FROM regulation_year WHERE year = 2025"))
+    await session.execute(text('DELETE FROM regulation_year WHERE "year" = 2025'))
     vessel_id = await _insert_vessel_with_history(session)
 
     result = await list_cii_history(
