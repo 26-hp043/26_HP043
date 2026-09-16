@@ -55,6 +55,12 @@ async def _cleanup() -> None:
 
 async def test_dev_login_records_login_success(migrated_db, app_fresh_engine):
     """LOGIN_SUCCESS — user_id 채워짐 + dev_login 플래그 (#277)."""
+    # ⚠️ **전제를 스스로 세운다.** 이 검사는 「dev-login이 `LOGIN_SUCCESS`를 **한 건**
+    # 남긴다」를 단언하는데, `audit_log`는 커밋으로 쌓이고 이 파일 밖의 여러 검사가
+    # dev-login을 부른다(`grep -rl dev-login tests/` → 20여 파일). 정리를 `finally`에만
+    # 두면 **먼저 돌아간 검사가 남긴 행**이 그대로 세어져 단독 실행은 통과하고 전체
+    # 실행만 `assert 3 == 1`로 죽는다 — 원인이 이 파일에 없어 보이는 실패다 (`#1058`).
+    await _cleanup()
     try:
         with TestClient(app, base_url=_BASE) as client:
             assert client.post("/api/v1/auth/dev-login").status_code == 200

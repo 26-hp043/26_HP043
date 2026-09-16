@@ -25,10 +25,11 @@ from uuid import UUID, uuid4
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
-from conftest import insert_returning_id, same_uuid
-from sqlalchemy import text
+from conftest import insert_returning_id, same_uuid, uuid_canon
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.types import UuidText
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.scenario_adopt import (
     MODE_CREATE,
@@ -183,8 +184,10 @@ async def test_only_one_scenario_stays_adopted(session, vessel_id):
         text("SELECT id FROM voyage_scenario WHERE voyage_id = :vid AND is_adopted = true"),
         {"vid": voyage_id},
     )
-    adopted = [r.id for r in rows]
-    assert adopted == [second]
+    # 생 SQL이 읽은 id는 저장 형식(hex 32자)이다 — 목록을 통째로 견주므로
+    # `same_uuid`로 짝지을 수 없어 양쪽을 정규화한다 (`#1058`).
+    adopted = [uuid_canon(r.id) for r in rows]
+    assert adopted == [uuid_canon(second)]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,7 +225,8 @@ async def test_existing_calculations_are_marked_for_recalculation(session, vesse
         text("SELECT needs_recalc FROM calculation_run WHERE voyage_id = :vid"),
         {"vid": voyage_id},
     )
-    assert row.scalar_one() is True
+    # BOOLEAN이 CUBRID에서 SMALLINT로 내려간다 — 1/0으로 본다 (`#1058`).
+    assert row.scalar_one() == 1
 
 
 @pytest.mark.asyncio
@@ -256,7 +260,7 @@ async def test_other_voyages_are_not_invalidated(session, vessel_id):
         text("SELECT needs_recalc FROM calculation_run WHERE voyage_id = :vid"),
         {"vid": other_id},
     )
-    assert row.scalar_one() is False
+    assert row.scalar_one() == 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -373,7 +377,12 @@ async def test_create_mode_records_where_it_came_from(session, vessel_id):
     )
 
     row = await session.execute(
-        text("SELECT created_from FROM voyage WHERE id = :id"), {"id": data["voyage_id"]}
+        text("SELECT created_from FROM voyage WHERE id = :id").bindparams(
+            # 응답의 `voyage_id`는 대시 36자다 — 타입을 붙이지 않으면 저장 형식과
+            # 맞지 않아 **오류가 아니라 0행**이 온다 (`#1058`).
+            bindparam("id", type_=UuidText())
+        ),
+        {"id": data["voyage_id"]},
     )
     assert row.scalar_one() == "FEATURE_2_ADOPTED"
 

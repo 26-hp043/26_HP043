@@ -1411,10 +1411,25 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
 
 
 async def _delete_where(conn: AsyncConnection, table_name: str, column: str, ids: list) -> int:
-    """지운 행 수를 돌려준다. SQLAlchemy Core 사용 (#1141)."""
+    """지운 행 수를 돌려준다. SQLAlchemy Core 사용 (#1141).
+
+    🔴 **비교 열에 ``UuidText``를 붙인다** (`#1058`). 이 함수가 받는 ``ids``는 위 시드
+    정의의 **대시 36자 문자열**이고 저장 형식은 ``CHAR(32)`` hex다. 타입 없는
+    ``sa.column(column)``으로 견주면 그 문자열이 그대로 실려 **어느 행과도 맞지 않는다.**
+
+    오류가 아니라 **조용한 0행**이라 ``rowcount``가 0으로 누적되고, 이 함수를 쓰는
+    :func:`clear_demo` 가 「지웠다」면서 **아무것도 지우지 않은 채 0을 보고**했다.
+    실측(``cii_test`` · ``not_underway_period`` 4행)::
+
+        타입 없이 일치 행 : 0
+        UuidText 붙여    : 1
+
+    위 ``vessel_tbl``·``voyage_tbl`` 등 삽입용 테이블은 처음부터 ``UuidText``를 달고
+    있었다 — **삭제 경로만** 빠져 있었다.
+    """
     if not ids:
         return 0
-    tbl = sa.table(table_name, sa.column(column))
+    tbl = sa.table(table_name, sa.column(column, UuidText))
     deleted = 0
     for uid in ids:
         result = await conn.execute(sa.delete(tbl).where(tbl.c[column] == uid))
@@ -1431,8 +1446,10 @@ async def _delete_unreferenced(
     """calculation_run이 참조하지 않는 행만 지운다. SQLAlchemy Core (#1141)."""
     if not ids:
         return 0
-    tbl = sa.table(table_name, sa.column("id"))
-    calc = sa.table("calculation_run", sa.column(calc_run_column))
+    # 비교 열에 타입을 붙이는 이유는 `_delete_where`와 같다 (`#1058`) — 빠뜨리면
+    # 조용히 0행이 되고, 「계산 이력이 걸려 남았다」와 구분되지 않는다.
+    tbl = sa.table(table_name, sa.column("id", UuidText))
+    calc = sa.table("calculation_run", sa.column(calc_run_column, UuidText))
     subq = sa.select(calc.c[calc_run_column]).where(calc.c[calc_run_column] != None)  # noqa: E711
     deleted = 0
     for uid in ids:

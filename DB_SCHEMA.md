@@ -1620,7 +1620,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
   사라졌다. **검사를 지우지 않고** §7.1이 지키려던 것(「없는 연료 코드를 참조하는 행이
   생기지 않는다」)을 자식 쪽에서 보게 했다.
 
-#### CUBRID에서 달라지는 것 넷
+#### CUBRID에서 달라지는 것 일곱
 
 1. **FK는 PK만 가리킬 수 있다.** `fuel_type`은 PK가 `id`이고 `code`는 별도 UNIQUE라
    `§7.1` 마지막 두 행(그리고 `not_underway_fuel_use`)은 **FK로 걸 수 없다.**
@@ -1648,6 +1648,27 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 6. **FK 컬럼에 인덱스를 또 둘 수 없다.** `§2.6 [S-6]`의 유니크 인덱스가 여기 걸려 FK를
    빼고 트리거로 옮겼다(`050`). **filtered index**는 있으나 **UNIQUE와 함께 쓸 수 없고**
    필터 열이 키에 있어야 한다(`047`·`050`).
+7. 🔴 **`gen_random_uuid()`가 없다 — `id`의 기본값은 DB가 아니라 ORM이 채운다.**
+   이 문서의 표는 `id`를 아홉 곳에서 `DEFAULT gen_random_uuid()`로 적지만, CUBRID 배포에
+   그 기본값은 **하나도 없다.**
+
+   ```
+   SELECT count(*) FROM db_attribute
+    WHERE attr_name = 'id' AND default_value IS NOT NULL   → 0
+   ```
+
+   채우는 쪽은 ORM의 `default=uuid.uuid4`(`db/models/*.py`)다. 그래서 **애플리케이션
+   경로는 무사하지만**, `id`를 빼고 쓰는 **생 SQL INSERT는 그 자리에서 선다.**
+
+   ```
+   INSERT INTO calculation_run (vessel_id, …) SELECT …
+   → Missing value for attribute "id" with the NOT NULL constraint.  (errno=-225)
+   ```
+
+   🔒 **생 SQL로 행을 넣을 때는 `id`를 직접 적는다.** 표의 `DEFAULT gen_random_uuid()`를
+   보고 「DB가 채워 줄 것」이라 읽으면 안 된다 — `§7.4` 머리의 「문법이 아니라 계약을
+   읽을 것」이 여기에도 걸린다. 계약은 「`id`는 UUID이고 비어 있을 수 없다」까지이고,
+   **누가 채우는가는 CUBRID에서 달라졌다.**
 
 `calculation_run`이 **전면 불변이 아니라는 것**은 `§7.3`·`024` 그대로다 — DELETE는 언제나
 거부, UPDATE는 `needs_recalc` 0 → 1 플립이면서 다른 열이 그대로일 때만 통과한다.
@@ -1977,6 +1998,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-11 | `#830` | §2.7 `simulation_snapshot` `[X-2]` 각주 정정 — 「유일한 예외는 `needs_recalc` 플립」은 §2.5 `calculation_run` 각주의 **통째 복사**였다. 이 테이블엔 그 컬럼이 없고 트리거는 예외 없는 `prevent_mutation()`이다(§7.3 · 마이그레이션 009). `AGENTS §4.3`상 각주 정정이라 버전은 올리지 않는다 (#830) |
 | 2026-09-12 | `#827` | **§8.1.2 해제 조건에 「24시간 안의 백업 기록」 추가** + §2.14 `action`에 `DB_BACKUP` · 각주. 2026-09-11 결정 2-⑤ 「프로덕션에서 특정 리비전 이하 downgrade 차단 + `#827` 백업과 연계」의 뒷부분이다 — `#819`가 차단을 넣었으나 백업은 오류 문구에만 있었고, 백업 수단 자체가 저장소에 없었다(`scripts/`에 `pg_dump` 0건). `scripts/db_backup.py`(백업 · 복구 리허설 · 교체)가 덤프를 검증한 뒤 감사 로그에 남기고, 가드가 마이그레이션 연결로 그 행을 읽는다. 행·각주·항목 추가라 버전은 올리지 않는다 (#827) |
 | 2026-09-16 | `#1058` | **v1.27: CUBRID에서 제약을 어떻게 세우는가 전면 갱신.** §7.4를 다시 씀 — CUBRID는 CHECK를 **보관조차 하지 않는다**(실측), 그리고 그 뒤로 **CHECK 60개 전부**를 트리거로 옮겼다(`046`·`048`·`050` · 트리거 148개). §7.1에 「CUBRID FK는 `ON UPDATE RESTRICT`를 항상 갖는다」(ORM 불일치 61건의 원인) 추가 · §2.6 `[S-6]`은 FK를 빼고 UNIQUE + 트리거(`050`) · §2.10 `[M-7]`에 `REGEXP BINARY` 집행 · §7.3에 **불변성 가드의 NULL 구멍**(`051` — nullable 열이 NULL↔값으로 바뀌는 것이 통과하고 있었다) · §8.1.0 신설(리비전 통합으로 잃은 롤백 검증 커버리지 명시) · §2.14 백업 각주를 `unloaddb` 기준으로 정정 (#1058) |
+| 2026-09-16 | `#1058` | §7.4 「달라지는 것」에 **일곱째** 추가 — 🔴 **`gen_random_uuid()`가 없다. `id`의 기본값은 DB가 아니라 ORM이 채운다.** 이 문서의 표는 아홉 곳에서 `DEFAULT gen_random_uuid()`로 적는데 CUBRID 배포에는 그 기본값이 하나도 없다(`db_attribute.default_value IS NOT NULL` → **0**). 행을 만드는 쪽이 `default=uuid.uuid4`라 애플리케이션 경로는 무사하지만 **`id`를 빼고 쓰는 생 SQL INSERT는 `Missing value for attribute "id"`(errno=-225)로 선다** — 실제로 검사 2건이 거기서 죽었다. 표의 서술은 그대로 두고 §7.4가 한 자리에서 덮는다(CHECK를 다루는 방식과 같다). 제목의 「넷」이 항목 수와 어긋나 있던 것도 함께 정정했다(넷 → 일곱). `AGENTS §4.3`상 항목 추가·오기 정정이라 버전은 올리지 않는다 (#1058) |
 | 2026-09-12 | `#904` | §2.5 `weather_snapshot_id` 컬럼 설명 · `[#102]` 각주 · `VOYAGE_ESTIMATE` 필드 표 `weather_snapshot_id`·`weather_factor` 행 정정. **`weather_factor`는 「어디에도 기록되지 않는다」가 아니었다** — 기상 보정을 적용하는 유일한 계산인 기능②가 `result_json.scenarios[].weather_factor`에 이미 적고 있었고(개발 DB 252건 전부), 보고는 기능① 행을 본 것이었다(기능①은 연료량이 입력이라 인자가 정의상 `1.0`). 정작 빈 곳은 **컬럼**이었다: 삽입 경로가 `None` 고정이라 보정한 계산도 스냅샷을 가리키지 않았다 — 기능②가 쓴 스냅샷을 적도록 고쳤다. 새 `weather_factor` 컬럼은 같은 값을 두 곳에 두게 되어 두지 않았다. 스키마·마이그레이션 변경 없음. `AGENTS §4.3` 「각주 보강·오기 정정」이라 버전은 올리지 않는다 (#904) |
 | 2026-09-12 | `#768` | **v1.20 — §2.20 `port_geocode` 신설**(마이그레이션 039). 항만명을 좌표로 바꾸는 경로가 없어 사용자가 개발자도구로 좌표를 찾아야 했다(`PRD §1 COR-5`). 공개 Nominatim 사용 정책이 **결과 캐시를 요구**하므로 이 표는 성능이 아니라 **정책 준수의 실체**다. 샘플 항만 43곳(코드 상수 · NGA WPI)과 **섞지 않는다** — 출처가 다르고, 한 표에 담으면 어느 좌표가 어디서 왔는지 말할 수 없게 된다. FK를 두지 않는다: 항차에는 좌표 값이 복사돼 들어가므로 캐시를 비워도 항차가 온전하다 (#768) |
 | 2026-09-12 | `#764` | **v1.21 — §2.21 `vessel_position_snapshot` 신설**(마이그레이션 040). 위치에 **이력이 없었다** — `vessel.current_lat/lon`은 덮어쓰는 한 칸이라 새 값이 들어오면 직전 값이 사라진다. 자동 수집(AIS)은 값을 자주 밀어 넣으므로 **수집할수록 잃는 것이 늘어나는** 구조였다. `observed_at`(배가 그 자리에 있던 시각)과 `received_at`(우리가 받은 시각)을 나눈 이유는 AIS에 지연·재전송이 있어서다 — 수신 시각으로 신선도를 재면 「30분 전 위치를 방금 받았다」가 최신으로 읽힌다. `(vessel_id, source, observed_at)` UNIQUE는 **같은 관측의 재전송**을 한 행으로 접는다(AIS에서는 정상 동작이다). `nav_status`는 **원본 코드**를 적는다 — 운항 상태로 옮기는 규칙이 바뀌어도 과거 행을 다시 읽을 수 있어야 한다. 지나간 시각의 좌표는 되살릴 수 없어 040을 `IRREVERSIBLE`로 분류했다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올리고 README 문서 구조 표를 함께 갱신했다 (#764) |

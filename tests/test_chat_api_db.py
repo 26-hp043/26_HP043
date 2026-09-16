@@ -18,11 +18,11 @@ from __future__ import annotations
 import json
 
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from cii_platform.api.main import app
 from cii_platform.api.routes.chat import get_provider
-from cii_platform.db.types import JSONText
+from cii_platform.db.types import JSONText, UuidText
 from cii_platform.llm.provider import FakeProvider, LLMResponse, ToolCall
 from cii_platform.services.chat import (
     DISCARDED_MESSAGE,
@@ -501,7 +501,11 @@ async def test_history_is_kept_across_turns(migrated_db, app_fresh_engine):
         async with get_sessionmaker()() as s:
             count = (
                 await s.execute(
-                    text("SELECT count(*) FROM chat_message WHERE session_id = :sid"),
+                    text(
+                        "SELECT count(*) FROM chat_message WHERE session_id = :sid"
+                        # 응답의 `session_id`는 대시 36자, 저장 형식은 hex 32자다. 타입을
+                        # 붙이지 않으면 **오류가 아니라 0건**이 온다 (`#1058`).
+                    ).bindparams(bindparam("sid", type_=UuidText())),
                     {"sid": session_id},
                 )
             ).scalar_one()
