@@ -1,5 +1,4 @@
 import type { LucideIcon, LucideProps } from 'lucide-react'
-
 import './Icon.css'
 
 /**

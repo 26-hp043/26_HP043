@@ -79,7 +79,9 @@ const WARNING_THRESHOLD = '0.2'
  * > 재조정한다(`DESIGN_SYSTEM §16`). **지금 따를 규칙은 위 표**이므로 그대로 옮긴다 —
  * > 임계를 화면이 임의로 정하면 재조정 때 어디를 고쳐야 하는지 알 수 없다.
  */
-export function riskFlag(pDorE: string): { tone: RiskFlagTone; text: string } {
+export function riskFlag(
+  pDorE: string,
+): { tone: RiskFlagTone; withIcon: boolean; text: string } {
   /*
    * 임계 비교와 표기를 **둘 다** 십진으로 한다 (`#820`).
    *
