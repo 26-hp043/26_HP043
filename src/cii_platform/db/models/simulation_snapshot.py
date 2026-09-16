@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import JSONText, UuidText
 
 
@@ -57,6 +57,7 @@ class SimulationSnapshot(Base):
             ["vessel.id"],
             name="fk_simulation_snapshot_vessel",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         # §2.7 [S-7] 해시 형식(`sha256:` + 64 hex) 제약은 여기 없다 — PostgreSQL 전용
         # `~` 정규식이라 전환에서 뺐고, 마이그레이션 `a7d3e9b14f26`이 **트리거**로

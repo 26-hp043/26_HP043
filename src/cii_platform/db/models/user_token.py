@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 #: 가입 확인 메일의 링크.
@@ -55,6 +55,7 @@ class UserToken(Base):
             ["app_user.id"],
             name="fk_user_token_user",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         sa.CheckConstraint(
             "purpose IN ('EMAIL_VERIFY', 'PASSWORD_RESET')",

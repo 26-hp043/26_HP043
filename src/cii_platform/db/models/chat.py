@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 #: ``PRD §16.3`` 채팅 보존 정책 — ChatMessage 보존 기간 90일.
@@ -58,7 +58,11 @@ class ChatSession(Base):
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_chat_session"),
         sa.ForeignKeyConstraint(
-            ["user_id"], ["app_user.id"], name="fk_chat_session_user", ondelete="CASCADE"
+            ["user_id"],
+            ["app_user.id"],
+            name="fk_chat_session_user",
+            ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         sa.CheckConstraint("expires_at > created_at", name="chk_chat_session_expires"),
         sa.Index("idx_chat_session_expires", "expires_at"),
@@ -98,6 +102,7 @@ class ChatMessage(Base):
             ["chat_session.id"],
             name="fk_chat_message_session",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         sa.CheckConstraint("\"role\" IN ('USER','ASSISTANT')", name="chk_chat_message_role"),
         sa.Index("idx_chat_message_session", "session_id", "sent_at"),

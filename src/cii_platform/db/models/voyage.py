@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 
@@ -79,6 +79,7 @@ class Voyage(Base):
             ["vessel.id"],
             name="fk_voyage_vessel",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         # §2.2 검증 제약 (원문 그대로). status는 CANCELLED 포함 7개 값.
         sa.CheckConstraint(

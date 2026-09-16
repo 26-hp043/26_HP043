@@ -10,7 +10,7 @@ import uuid
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import JSONText, UuidText
 
 
@@ -41,6 +41,7 @@ class FleetReductionPlan(Base):
             ["app_user.id"],
             name="fk_fleet_reduction_plan_user",
             ondelete="SET NULL",
+            onupdate=FK_ON_UPDATE,
         ),
         # CHECK를 적지 않는다 (`#1058` · `DB_SCHEMA §7.4`) — CUBRID는 받기만 하고
         # **검사하지 않아**, 적어 두면 「막힌다」고 오해된다. `target`은 마이그레이션

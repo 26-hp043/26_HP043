@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import JSONText, UuidText
 
 
@@ -62,6 +62,7 @@ class CalculationRun(Base):
             ["vessel.id"],
             name="fk_calculation_run_vessel",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         # 정본은 SET NULL이나 immutable 트리거와 모순되어 RESTRICT로 구현(008 주의 참조).
         sa.ForeignKeyConstraint(
@@ -69,6 +70,7 @@ class CalculationRun(Base):
             ["voyage.id"],
             name="fk_calculation_run_voyage",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         # §7.1 (833행) [#102]: immutable 테이블 참조 → RESTRICT. 참조된 스냅샷은
         # TTL과 무관하게 보존되어야 재현성 추적성이 성립한다 (016, #115).
@@ -77,6 +79,7 @@ class CalculationRun(Base):
             ["weather_snapshot.id"],
             name="fk_calculation_run_weather_snapshot",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         # §2.5 [S-7] 해시 형식(`sha256:` + 64 hex) 제약은 여기 없다 — PostgreSQL 전용
         # `~` 정규식이라 전환에서 뺐고, 마이그레이션 `a7d3e9b14f26`이 **트리거**로

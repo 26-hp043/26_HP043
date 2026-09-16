@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 
@@ -43,6 +43,7 @@ class UserSession(Base):
             ["app_user.id"],
             name="fk_user_session_user",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         sa.Index("idx_session_token", "session_token_hash", unique=True),
         sa.Index(

@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 
@@ -64,6 +64,7 @@ class VesselPositionSnapshot(Base):
             ["vessel.id"],
             name="fk_vessel_position_snapshot_vessel",
             ondelete="RESTRICT",
+            onupdate=FK_ON_UPDATE,
         ),
         sa.CheckConstraint(
             "\"source\" IN ('MANUAL','AIS','SIMULATED')",

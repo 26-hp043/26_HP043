@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 
@@ -54,6 +54,7 @@ class VoyageFuelUse(Base):
             ["voyage.id"],
             name="fk_voyage_fuel_use_voyage",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         # [S-1] / §7.1: fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
         # §2.3 검증 제약 (원문 그대로).

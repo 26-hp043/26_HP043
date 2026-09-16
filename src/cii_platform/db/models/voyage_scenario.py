@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 
@@ -67,6 +67,7 @@ class VoyageScenario(Base):
             ["vessel.id"],
             name="fk_voyage_scenario_vessel",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         # §7.1 [C-3]: 항차 삭제 시 시나리오는 보존하되 연결만 해제 → SET NULL.
         sa.ForeignKeyConstraint(
@@ -74,6 +75,7 @@ class VoyageScenario(Base):
             ["voyage.id"],
             name="fk_voyage_scenario_voyage",
             ondelete="SET NULL",
+            onupdate=FK_ON_UPDATE,
         ),
         # 013 상환: weather_snapshot(§2.13) FK (§7.1 SET NULL — 기상 스냅샷 만료 시 시나리오 보존).
         sa.ForeignKeyConstraint(
@@ -81,6 +83,7 @@ class VoyageScenario(Base):
             ["weather_snapshot.id"],
             name="fk_voyage_scenario_weather",
             ondelete="SET NULL",
+            onupdate=FK_ON_UPDATE,
         ),
         # §2.4 검증 제약 [S-4] (원문 그대로).
         sa.CheckConstraint(

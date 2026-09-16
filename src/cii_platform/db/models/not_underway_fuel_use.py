@@ -12,7 +12,7 @@ import uuid
 
 import sqlalchemy as sa
 
-from cii_platform.db.models.base import Base
+from cii_platform.db.models.base import FK_ON_UPDATE, Base
 from cii_platform.db.types import UuidText
 
 
@@ -44,6 +44,7 @@ class NotUnderwayFuelUse(Base):
             ["not_underway_period.id"],
             name="fk_not_underway_fuel_use_period",
             ondelete="CASCADE",
+            onupdate=FK_ON_UPDATE,
         ),
         # [S-1] / §7.1: fuel_type → fuel_type(code), ON UPDATE CASCADE, ON DELETE NO ACTION.
         # MEPC.385(81) Appendix IX DCS 보고 항목 4값 (데이터연도 2026~).
