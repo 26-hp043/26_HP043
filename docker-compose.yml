@@ -6,10 +6,13 @@ services:
     hostname: cii-cubrid
     environment:
       CUBRID_DB: ${CUBRID_DB:-cii}
+      # prod와 같은 모양으로 둔다 — 개발 스택은 비밀번호가 없지만, 두 파일이 다르면
+      # 「prod에서만 깨지는 healthcheck」가 다시 생긴다 (`#1058` 결정요청 §0-4).
+      CUBRID_PASSWORD: ${CUBRID_PASSWORD:-}
     ports: ["33100:33000"]
     volumes: [cubrid-data:/var/lib/cubrid]
     healthcheck:
-      test: ["CMD", "sh", "-c", "csql -u dba ${CUBRID_DB:-cii} -c 'SELECT 1 FROM db_root'"]
+      test: ["CMD", "sh", "-c", 'csql -u dba -p "$$CUBRID_PASSWORD" "$$CUBRID_DB" -c "SELECT 1 FROM db_root"']
       interval: 10s
       timeout: 5s
       retries: 30

@@ -34,6 +34,12 @@ services:
       # NOTE: cubrid/cubrid:11.4 이미지는 첫 부트 시 CUBRID_PASSWORD를 적용하지 않는다.
       # dba 사용자는 빈 비밀번호로 생성된다. 브로커가 뜬 후
       # ALTER USER dba PASSWORD '...'로 설정해야 한다 (deploy 워크플로가 자동 처리).
+      #
+      # 🔴 그래도 이 값을 컨테이너에 넣는다 — **healthcheck가 읽는다**
+      # (`#1058` 결정요청 §0-4). 비밀번호를 건 뒤에는 비밀번호 없는 healthcheck가
+      # errno=-171로 실패하고, 컨테이너가 unhealthy가 되면 app-01이 붙을 DB를
+      # 「준비되지 않음」으로 보게 된다.
+      CUBRID_PASSWORD: ${CUBRID_PASSWORD:-}
     ports:
       # 모든 인터페이스에 바인딩 -- OCI Security List + ufw가 인그레스를 제한해야 한다.
       # ourtax-cubrid가 33000을 사용하므로 호스트 33100으로 매핑한다.
@@ -47,7 +53,9 @@ services:
       - ./ops/cubrid/conf/server_access.conf:/home/cubrid/CUBRID/conf/server_access.conf:ro
       - ./ops/cubrid/conf/broker_access.conf:/home/cubrid/CUBRID/conf/broker_access.conf:ro
     healthcheck:
-      test: ["CMD", "csql", "-u", "dba", "cii", "-c", "SELECT 1 FROM db_root"]
+      # `CMD`(exec 형식)는 셸을 거치지 않아 환경변수가 펼쳐지지 않는다 — `sh -c`로 감싼다.
+      # 빈 값도 `-p ""`로 통과하므로(실측) 비밀번호를 걸기 전과 뒤가 같은 명령으로 돈다.
+      test: ["CMD", "sh", "-c", 'csql -u dba -p "$$CUBRID_PASSWORD" "$$CUBRID_DB" -c "SELECT 1 FROM db_root"']
       interval: 30s
       timeout: 5s
       retries: 30

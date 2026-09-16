@@ -13,9 +13,21 @@ services:
     restart: unless-stopped
     environment:
       CUBRID_DB: ${CUBRID_DB:-cii}
+      # 🔴 healthcheck가 이 값을 읽는다 (`#1058` 결정요청 §0-4).
+      #
+      # 이미지는 첫 부트에 이 값을 적용하지 않고 `dba`를 빈 비밀번호로 만든다. 배포는
+      # 브로커가 뜬 뒤 `ALTER USER dba PASSWORD`로 거는데(`deploy.yml`), 그때부터
+      # 비밀번호 없는 healthcheck는 `errno=-171`로 실패한다 — 컨테이너가 unhealthy가 되고
+      # `depends_on: service_healthy`에 걸린 앱이 **영영 기다린다.**
+      #
+      # 빈 값도 `-p ""`로 통과하므로(실측) 비밀번호를 걸기 전과 뒤가 같은 명령으로 돈다.
+      CUBRID_PASSWORD: ${CUBRID_PASSWORD:-}
     volumes: [cubrid-data:/var/lib/cubrid]
     healthcheck:
-      test: ["CMD", "csql", "-u", "dba", "cii", "-c", "SELECT 1 FROM db_root"]
+      # `CMD`(exec 형식)는 셸을 거치지 않아 `$CUBRID_PASSWORD`가 펼쳐지지 않는다 —
+      # `sh -c`로 감싼다. DB 이름도 `cii`로 박혀 있던 것을 `$CUBRID_DB`로 바꾼다
+      # (`CUBRID_DB`를 다른 값으로 주면 healthcheck만 없는 DB를 물었다).
+      test: ["CMD", "sh", "-c", 'csql -u dba -p "$$CUBRID_PASSWORD" "$$CUBRID_DB" -c "SELECT 1 FROM db_root"']
       interval: 30s
       timeout: 5s
       retries: 30
