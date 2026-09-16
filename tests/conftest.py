@@ -40,25 +40,37 @@ _cubrid_engine_kw: dict = {}
 # - migration guard: 42개 개별 migration 파일 기대 → 1개 initial로 합침
 # - db_check_cases: CHECK constraint 강제를 기대 → CUBRID는 CHECK 미강제
 # - *_migrations: 개별 migration upgrade/downgrade 테스트
-#: 001~042 개별 마이그레이션 파일을 파일명으로 참조하는 검사들. 합쳐진
-#: `1c444a5c4819` 아래서는 대상이 없어 성립하지 않는다.
+#: **비어 있다 — 여덟 파일을 전부 되살렸다** (2026-09-16, `#1058`).
 #:
-#: ⚠️ **`test_migration_guard.py`는 여기 두지 않는다** (`#1058`). 한때 들어 있었으나
-#: `49d010e`가 그 파일을 **파일명이 아니라 `revision: str = "..."`을 AST로 읽도록**
-#: 고쳐 두었다 — 건너뛰기를 끄고 돌리면 **21건 전부 통과**한다. 넣어 두면 프로덕션
-#: 다운그레이드를 막는 가드(`#819`)가 **아무도 확인하지 않는 상태**가 된다.
+#: 한때 여기 여덟 파일이 있었고 97검사가 통째로 건너뛰어졌다. 「건너뛰는 것은 고친
+#: 것이 아니다」라는 규칙대로 한 파일씩 빼고 돌려 무엇이 실제로 죽는지 쟀다.
 #:
-#: 건너뛰는 것은 고친 것이 아니다 — 아래 8개도 언젠가 같은 방식으로 되살려야 한다.
-_CUBRID_SKIP_FILES = {
-    "test_db_check_cases.py",
-    "test_not_underway_migrations.py",
-    "test_vessel_position_state_migrations.py",
-    "test_weather_simulation_migrations.py",
-    "test_calculation_migrations.py",
-    "test_parameter_migrations.py",
-    "test_voyage_migrations.py",
-    "test_db_hardening_023.py",
-}
+#:     되살리기 전   72 failed / 25 passed
+#:     지금           7 failed / 90 passed
+#:
+#: 무엇이 죽어 있었나 — 셋이었다.
+#:
+#: * **CHECK 38건이 아무것도 막지 않았다.** CUBRID는 CHECK를 구문으로 받기만 하고
+#:   검사하지 않는다. `046`·`048`이 60개를 트리거로 옮겼다.
+#: * **PostgreSQL 전용 카탈로그·구문 18건.** `information_schema` · `pg_indexes` ·
+#:   `::timestamptz` · `RETURNING` 따위를 CUBRID 것으로 옮겼다.
+#: * **무결성 위반의 예외 갈래가 달랐다.** `db/cubrid_errors.py` 참조.
+#:
+#: 남은 7건은 **건너뛰지 않고 실패한 채 보인다.** 가려 두면 다음 사람이 다시
+#: 조사하게 되고, 무엇보다 트리거 144개가 CI에서 확인되지 않는다. 성질은 이렇다.
+#:
+#: * `idx_sim_snapshot_unique`가 DB에 없다 (2건) — CUBRID가 FK 컬럼에 인덱스를 또
+#:   두는 것을 거부한다(`errno=-272`). 결정요청 §3⑵의 미결 항목이다.
+#: * `not_underway_period`의 부분 인덱스에 필터가 없다 (1건).
+#: * 부모 쪽 `fuel_type` DELETE를 막지 않는다 (1건) — `REPLACE INTO`가 DELETE로
+#:   구현돼 시드 재적재가 막히므로 `a7d3e9b14f26`이 의도적으로 뺐다(`DB_SCHEMA §7.4`).
+#: * 불변성 트리거 거부를 `IntegrityError`로 기대한다 (2건) — 성질이 다르다.
+#: * `'fixed abc'`가 `LIKE 'fixed %'`를 통과한다 (1건) — 원문 CHECK에도 있던 구멍이다.
+#:
+#: ⚠️ **`test_migration_guard.py`는 한때 여기 있었다** (`#1058`). `49d010e`가 그 파일을
+#: **파일명이 아니라 `revision: str = "..."`을 AST로 읽도록** 고쳐 두었다 — 넣어 두면
+#: 프로덕션 다운그레이드를 막는 가드(`#819`)가 아무도 확인하지 않는 상태가 된다.
+_CUBRID_SKIP_FILES: set[str] = set()
 
 
 # import 시점에 asyncpg 등 PostgreSQL 전용 모듈을 쓰는 파일은
