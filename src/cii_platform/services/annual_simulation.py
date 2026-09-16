@@ -1765,7 +1765,7 @@ async def _load_snapshot_vessel(session: AsyncSession, snapshot_id) -> dict:
             "이 실행은 선박 제원을 스냅샷하기 전(#493)에 만들어져 재현할 수 없습니다. "
             "다시 실행하면 지금 제원 기준의 결과를 얻을 수 있습니다."
         )
-    return payload
+    return _parse_json(payload)
 
 
 async def _load_snapshot_voyages(session: AsyncSession, snapshot_id) -> list[dict]:
