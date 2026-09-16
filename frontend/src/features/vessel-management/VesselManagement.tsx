@@ -22,6 +22,7 @@ import {
   type EditErrors,
   type VesselEditState,
 } from './editRules'
+import { DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import {
   LOADED_PARTIAL_HINT,
   MISSING,
@@ -649,7 +650,7 @@ function EditForm({
       </label>
 
       <label className="vessel-management__field">
-        <span>기준 일일 연료소모량 (t)</span>
+        <span>기준 일일 연료소모량 ({DISPLAY_UNIT_DAILY_FUEL})</span>
         <input
           inputMode="decimal"
           value={state.referenceDailyFocTon}

@@ -4,6 +4,7 @@ import '../../test/renderSetup'
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
+import { DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import { VesselDetail } from './VesselDetail'
 import type { CiiYear, VesselDetail as Detail, VesselDetailProvider } from './types'
 
@@ -178,7 +179,8 @@ describe('제원 표시 자릿수·단위 (#822)', () => {
     )
 
     // 종전에는 `1234.5 t`였다 — 구분자가 없어 자리 수를 세야 읽혔다.
-    expect(await screen.findByText('1,234.5 t')).toBeTruthy()
+    // 단위는 `§4.2`가 소유한다 — 리터럴로 적지 않는다 (#164 · #858).
+    expect(await screen.findByText(`1,234.5 ${DISPLAY_UNIT_DAILY_FUEL}`)).toBeTruthy()
   })
 
   it('값이 없으면 「—」다 — 포매터가 빈 문자열을 만들지 않는다', async () => {

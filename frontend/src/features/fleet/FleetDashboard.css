@@ -697,7 +697,17 @@
   block-size: 44px;
   border-radius: var(--radius-control);
   background: var(--cii-none-bg);
-  color: var(--cii-none-text);
+  /*
+   * 이 배지는 **등급 문자를 그리지 않는다** — `—` 하나다(`VesselMark.tsx`).
+   * `§0.2` 제약 2가 등급 색을 A~E 문자와 함께 두라고 하므로 문자가 없는 이 자리는
+   * 등급 채널이 아니다. 그리고 `--cii-none-text`는 **다크에서 3.79**로 `1.4.3`의
+   * 4.5:1에 미달한다(라이트는 4.82로 통과) — `#829` ⑷.
+   *
+   * 중립 문자 토큰으로 옮긴다. 라이트 5.77 · 다크 7.01이다. `§2.4` 확정이
+   * `--cii-none-bg`를 `--surface-inset`과 **같은 값**으로 두었으므로, 이 조합은
+   * `tokens.sync.test.ts`의 문자 토큰 검사(모든 표면 4.5:1)가 이미 덮는다.
+   */
+  color: var(--color-text-muted);
   border: var(--borderWidth-default) solid var(--cii-none-border);
 }
 
