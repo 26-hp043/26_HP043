@@ -99,7 +99,11 @@ async def _insert_run(
         ),
         {
             "id": run_id,
-            "ctype": "VOYAGE_CII",
+            # `chk_calculation_type`의 허용값 넷 중 하나여야 한다. 종전의
+            # `"VOYAGE_CII"`는 **그 넷에 없는 값**이었고, CUBRID가 CHECK를 강제하지
+            # 않아 들어가고 있었다 — `048`이 그 제약을 트리거로 되살리자 드러났다.
+            # `calculation_type`으로서의 `VOYAGE_CII`는 코드 어디에도 없다 (`#1058`).
+            "ctype": "VOYAGE_ESTIMATE",
             "vid": await _a_vessel_id(conn),
             "ih": input_hash,
             "ph": parameter_hash,
