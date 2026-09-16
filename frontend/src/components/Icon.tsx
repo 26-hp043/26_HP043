@@ -1,5 +1,7 @@
 import type { LucideIcon, LucideProps } from 'lucide-react'
 
+import './Icon.css'
+
 /**
  * 아이콘 한 개 — **`DESIGN_SYSTEM §12` 규격을 여기서 강제한다** (`#747` 2-4).
  *
@@ -37,6 +39,18 @@ export function Icon({
     ? { role: 'img', 'aria-label': label }
     : { 'aria-hidden': true, focusable: false }
 
-  // `§12` — 라인 아이콘 · stroke 1.5~1.6 · 24px 그리드 · 단색.
-  return <Glyph className={className} size={size} strokeWidth={1.5} {...a11y} />
+  /*
+   * `§12` — 라인 아이콘 · stroke 1.5~1.6 · 24px 그리드 · 단색.
+   *
+   * `icon` 클래스는 **항상** 붙는다 — 정렬 규격이 거기 있다(`Icon.css`). 호출부가
+   * 주는 `className`은 색·여백처럼 자리마다 다른 것만 얹는다.
+   */
+  return (
+    <Glyph
+      className={className ? `icon ${className}` : 'icon'}
+      size={size}
+      strokeWidth={1.5}
+      {...a11y}
+    />
+  )
 }

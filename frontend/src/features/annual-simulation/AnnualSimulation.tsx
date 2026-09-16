@@ -1,3 +1,4 @@
+import { AlertTriangle } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
@@ -34,6 +35,7 @@ import { ErrorState } from '../../components/ErrorState'
 import { SnapshotVoyages } from './SnapshotVoyages'
 import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
+import { Icon } from '../../components/Icon'
 
 /**
  * 기능③ 연간 CII 시뮬레이션 화면 (#157 · **#442에서 실 API 연결**).
@@ -704,7 +706,8 @@ function Result({
             <span className="annual-sim__risk">{risk.text}</span>
             {/* DESIGN_SYSTEM §2.5 (a) — 확률 파생 표기. 위험도와 별개 채널이다. */}
             <span className={`annual-sim__flag annual-sim__flag--${flag.tone}`}>
-              {flag.text}
+              {/* §2.5 (b) — 라벨이 바로 옆에 있으므로 장식이다. `Icon`이 aria-hidden을 붙인다. */}
+              {flag.withIcon ? <Icon glyph={AlertTriangle} size={16} /> : null} {flag.text}
             </span>
           </div>
         </div>

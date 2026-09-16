@@ -1,3 +1,4 @@
+import { ArrowLeft } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
@@ -32,6 +33,7 @@ import { ErrorState } from '../../components/ErrorState'
 import { SCREEN_BY_ID } from '../../screens'
 import { voyageCountText } from './voyageCount'
 import { CalculationHistory } from './CalculationHistory'
+import { Icon } from '../../components/Icon'
 
 /**
  * 상세 화면 지도의 최소 표시 범위(도) — 약 1,500km (#723).
@@ -532,7 +534,8 @@ export function VesselDetail({
 function BackLink() {
   return (
     <Link className="vd__back" to="/dashboard">
-      ← 대시보드
+      <Icon glyph={ArrowLeft} size={16} />
+      대시보드
     </Link>
   )
 }

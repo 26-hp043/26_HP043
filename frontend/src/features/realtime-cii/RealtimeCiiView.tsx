@@ -1,3 +1,4 @@
+import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
@@ -42,6 +43,7 @@ import type {
 import './RealtimeCiiView.css'
 import { ErrorState } from '../../components/ErrorState'
 import { SCREEN_BY_ID } from '../../screens'
+import { Icon } from '../../components/Icon'
 
 /**
  * 실시간 CII — `UIFLOW 2-9` · `#357`.
@@ -439,7 +441,8 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 function BackLink({ vesselId }: { vesselId?: string }) {
   return (
     <Link className="rt__back" to={vesselId ? `/vessels/${vesselId}` : '/dashboard'}>
-      ← 선박 상세
+      <Icon glyph={ArrowLeft} size={16} />
+      선박 상세
     </Link>
   )
 }
@@ -535,8 +538,8 @@ function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
               <>
                 {riskText.withIcon ? (
                   // §2.5 (b) — 라벨이 바로 옆에 있으므로 aria-hidden.
-                  <span className="rt__risk-icon" aria-hidden="true">
-                    ⚠{' '}
+                  <span className="rt__risk-icon">
+                    <Icon glyph={AlertTriangle} size={16} />
                   </span>
                 ) : null}
                 {riskText.text}
@@ -789,8 +792,8 @@ function ProjectionAxis({ projection }: { projection: YearEndProjection }) {
             <>
               {riskText.withIcon ? (
                 // §2.5 (b) — 라벨이 바로 옆에 있으므로 aria-hidden.
-                <span className="rt__risk-icon" aria-hidden="true">
-                  ⚠{' '}
+                <span className="rt__risk-icon">
+                  <Icon glyph={AlertTriangle} size={16} />
                 </span>
               ) : null}
               {riskText.text}
@@ -872,7 +875,7 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
         <ul className="rt__projection-warnings">
           {projection.warnings.map((code) => (
             <li key={code}>
-              <span aria-hidden="true">⚠</span> {warningMessage(code)}
+              <span><Icon glyph={AlertTriangle} size={16} /></span> {warningMessage(code)}
             </li>
           ))}
         </ul>

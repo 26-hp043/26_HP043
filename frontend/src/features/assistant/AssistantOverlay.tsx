@@ -1,7 +1,9 @@
+import { X } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
 import type { AssistantProvider, ChatTurn } from './types'
+import { Icon } from '../../components/Icon'
 
 /**
  * AI 어시스턴트 오버레이 (`UIFLOW 2-7` · `#121`).
@@ -193,7 +195,7 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
           aria-label="AI 어시스턴트 닫기"
           onClick={() => setOpen(false)}
         >
-          ✕
+          <Icon glyph={X} size={16} />
         </button>
       </header>
 
