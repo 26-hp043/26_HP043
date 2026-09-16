@@ -52,6 +52,7 @@ _CUBRID_SKIP_FILES = {
     "test_reports.py",             # frontend/ 소스 파일 경로
     "test_seed_migration.py",      # 기존 마이그레이션 032_ 파일 참조
     "test_uv_lock_sync.py",       # uv.lock 없음
+    "test_fuel_type_content_hash.py",  # UIFLOW.md 경로
 }
 
 # import 시점에 asyncpg 등 PostgreSQL 전용 모듈을 쓰는 파일은
@@ -367,6 +368,25 @@ def _install_cubrid_param_converter(engine):
         return _process
 
     _sqltypes.Uuid.bind_processor = _patched_uuid_bp
+
+    # Uuid result_processor 패치 — DB에서 UUID 객체가 반환되면
+    # hex string으로 변환. 테스트 코드가 UUID(row.id)로 감쌀 때 이중 래핑 방지.
+    _orig_uuid_rp = _sqltypes.Uuid.result_processor
+
+    def _patched_uuid_rp(self, dialect, coltype):
+        orig = _orig_uuid_rp(self, dialect, coltype)
+        def _process(value):
+            if value is None:
+                return None
+            if isinstance(value, uuid.UUID):
+                return value
+            if orig is not None:
+                return orig(value)
+            return value
+        return _process
+
+    _sqltypes.Uuid.result_processor = _patched_uuid_rp
+
     from decimal import Decimal
 
     from sqlalchemy import event
