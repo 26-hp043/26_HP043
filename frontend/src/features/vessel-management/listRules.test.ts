@@ -18,7 +18,7 @@ import {
   specChecklist,
   specProgress,
 } from './listRules'
-import { formatCapacity } from '../../display/format'
+import { DISPLAY_UNIT_DAILY_FUEL, formatCapacity } from '../../display/format'
 
 /**
  * #510 — 선박 목록 표시 규칙.
@@ -285,8 +285,11 @@ describe('제원 값 셀 — 없으면 null, 있으면 §4.2 표기', () => {
   })
 
   it('일일 연료는 천 단위를 끊는다 — `GROUPED_FIELDS`', () => {
-    expect(dailyFuelCell(vessel({ reference_daily_foc_ton: 20 }))).toBe('20.0 t')
-    expect(dailyFuelCell(vessel({ reference_daily_foc_ton: 1234.5 }))).toBe('1,234.5 t')
+    // 단위는 `§4.2`와 `display/format`이 소유한다 — 여기서 리터럴로 적지 않는다 (#164).
+    expect(dailyFuelCell(vessel({ reference_daily_foc_ton: 20 }))).toBe(`20.0 ${DISPLAY_UNIT_DAILY_FUEL}`)
+    expect(dailyFuelCell(vessel({ reference_daily_foc_ton: 1234.5 }))).toBe(
+      `1,234.5 ${DISPLAY_UNIT_DAILY_FUEL}`,
+    )
   })
 
   it('없으면 문자열을 지어내지 않고 null을 낸다 — 표기는 화면의 몫', () => {

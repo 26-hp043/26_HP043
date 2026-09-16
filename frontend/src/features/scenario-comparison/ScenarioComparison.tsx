@@ -26,6 +26,7 @@ import { ScenarioComparisonError } from './provider'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
+  DISPLAY_UNIT_DAILY_FUEL,
   formatDecimalString,
   formatGrouped,
   formatPercent,
@@ -380,11 +381,10 @@ export function ScenarioComparison({
       </label>
 
       <label className="scenario-comparison__field">
-        {/* 선박 등록 화면과 **같은 필드인데 단위가 갈려 있었다** — 이쪽은 `(t)`,
-            저쪽은 `t/일`. `§4.2`에 「일수」가 없어 각자 정한 결과다 (#592). */}
-        <span>
-          기준 일일 연료소모량 ({DISPLAY_UNITS.fuel}/{DISPLAY_UNITS.day})
-        </span>
+        {/* 단위는 `§4.2` 「일일 연료소모량」 행이 소유한다 — 질량이 아니라
+            질량유량이다(`DB_SCHEMA`의 `ton/day`). 종전에 화면마다 `(t)`와
+            `t/일`로 갈려 있던 것은 그 행이 없어서였다 (#592 → 이번 이슈). */}
+        <span>기준 일일 연료소모량 ({DISPLAY_UNIT_DAILY_FUEL})</span>
         <input
           inputMode="decimal"
           value={form.baseDailyFocTon}

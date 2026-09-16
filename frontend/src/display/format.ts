@@ -129,6 +129,19 @@ export const DISPLAY_UNITS = {
 } as const
 
 /**
+ * 일일 연료소모량 — `t/일` (`DESIGN_SYSTEM §4.2` · `#164`).
+ *
+ * **질량이 아니라 질량유량이다.** `DB_SCHEMA`가 `reference_daily_foc_ton`을
+ * `기준 일일 연료소모량 (ton/day)`으로 정의한다 — `t`로 적으면 차원을 잃어
+ * 「총량인지 일당인지」가 라벨에만 남는다. `§4.2`가 `CO₂ 배출량`에 `tCO₂`를
+ * 따로 둔 것과 같은 이유다(*「둘 다 `t`면 무엇의 질량인지 알 수 없다」*).
+ *
+ * **위 두 단위에서 파생시킨다 — 문자열을 새로 박지 않는다.** `t`나 `일`이
+ * 바뀌면 여기도 함께 따라간다. `§4.2` 「화면에 리터럴로 박지 않는다 🔒」.
+ */
+export const DISPLAY_UNIT_DAILY_FUEL = `${DISPLAY_UNITS.fuel}/${DISPLAY_UNITS.day}` as const
+
+/**
  * 십진 문자열을 지정한 소수 자릿수로 표시한다.
  *
  * - 자릿수가 모자라면 `0`으로 채운다.
