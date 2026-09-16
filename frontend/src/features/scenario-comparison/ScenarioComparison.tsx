@@ -137,6 +137,14 @@ export function ScenarioComparison({
   const vessels = vesselsState === 'loading' ? null : shell.vessels
   const catalogError = vesselsState === 'failed' ? '선박 목록을 불러오지 못했습니다.' : null
 
+  /*
+   * ⚠️ **입력 핸들러는 전부 함수형 갱신(`setForm((prev) => …)`)이다** (`#1093` ⑷).
+   *
+   * 종전에는 `setForm({ ...form, X })`로 **렌더 시점의 스냅샷**을 펼쳤다. 규제연도
+   * 기본값은 목록이 도착한 뒤 effect가 채우는데, 그 사이에 다른 칸을 건드리면
+   * 스냅샷이 방금 채워진 연도를 **빈 값으로 되덮었다.** 종전에는 초기값에 `'2026'`이
+   * 박혀 있어 이 손실이 드러나지 않았다 — 되덮어도 여전히 2026이었기 때문이다.
+   */
   const [form, setForm] = useState<ComparisonFormState>(initialFormState)
   /** 지금 입력칸의 목적지 이름 — 늦게 온 좌표 조회 응답이 대조한다 (#1097 ⑴). */
   const destinationNameRef = useRef('')
@@ -214,7 +222,39 @@ export function ScenarioComparison({
     setLookup({ status: 'idle', message: '' })
   }, [destinationName])
 
+  /*
+   * 연도를 고를 수 없으면 비교하지 않는다 (`#1093` ⑷).
+   *
+   * 목록이 실패·빈 목록이면 아래 규제연도 칸은 셀렉트가 아니라 주석 한 줄이 된다 —
+   * 사용자가 연도를 **고를 수 없다.** 그런데 `initialFormState()`가 `'2026'`을
+   * 들고 있어 검증을 통과했고, **고른 적 없는 2026년 기준 결과**가 나왔다. 같은
+   * 파일이 선박 축에는 「기본값을 넣지 않는다」를 이미 적어 두었다(`requestRules.ts`).
+   *
+   * **불러오는 중에도 막는다** — 그때도 고를 연도가 없다. 막지 않으면 목록이 오기
+   * 전에 누른 비교가 빈 연도로 검증에 걸려, 사용자는 화면에 보이지도 않는 칸에 대한
+   * 오류를 본다.
+   *
+   * 선박을 고르지 않은 경우는 **막지 않는다** — 그때 버튼을 잠그면 「선박을 선택해
+   * 주세요」를 띄울 길이 없어져 화면이 아무 반응도 하지 않는다.
+   *
+   * ⚠️ **`form.regulationYear === ''`도 막는다.** 목록이 도착한 커밋과 기본값을
+   * 채우는 effect 사이에 한 칸이 열려 있다. 그 칸에서 `<select>`는 **상태가 비어
+   * 있어도 첫 옵션(2026)을 보여 준다** — 브라우저가 목록에 없는 값을 첫 항목으로
+   * 떨어뜨리기 때문이다. 화면은 「2026이 골라졌다」로 보이는데 요청에 실릴 값은
+   * 없는, 이 이슈가 고치려는 바로 그 어긋남이다.
+   */
+  const yearUnavailable =
+    form.vesselId !== '' &&
+    (yearsLoading || yearsFailed || years.length === 0 || form.regulationYear === '')
+
   const runComparison = () => {
+    /*
+     * 연도를 고를 수 없으면 여기서 멈춘다 (`#1093` ⑷). 버튼도 비활성이지만
+     * 폼은 Enter로도 제출되므로 두 겹으로 막는다. **검증 오류를 세우지 않는다** —
+     * 규제연도 칸이 이미 원인(목록 실패 · 등재 없음)을 말하고 있고, 그 위에
+     * 「4자리 숫자로 입력해 주세요」를 얹으면 고칠 수 없는 것을 고치라고 말한다.
+     */
+    if (yearUnavailable) return
     const found = validateForm(form, fuels)
     if (Object.keys(found).length > 0) {
       setErrors(found)
@@ -255,7 +295,18 @@ export function ScenarioComparison({
     )
   }
 
-  const noVessel = vessels !== null && vessels.length === 0
+  /*
+   * 「등록된 배가 없다」는 **조회에 성공했을 때만** 할 수 있는 말이다 (`#1093` ⑵).
+   *
+   * 종전 조건(`vessels !== null && length === 0`)은 `vesselsState === 'failed'`에서도
+   * 참이었다 — 실패하면 셸이 `vessels`를 `[]`로 두기 때문이다. 그 결과 위의
+   * `catalogError`(「선박 목록을 불러오지 못했습니다」)와 `NO_VESSEL_MESSAGE`(「등록된
+   * 선박이 없어 비교할 대상이 없습니다. 선박을 먼저 등록해 주세요」)가 **동시에**
+   * 떴고, 뒤쪽이 행동을 지시하므로 사용자는 **등록할 필요가 없는데 등록 화면으로
+   * 갔다.**
+   */
+  const noVessel = vesselsState === 'ready' && vessels !== null && vessels.length === 0
+
 
   const conditionForm = (
     <form
@@ -285,10 +336,17 @@ export function ScenarioComparison({
         <select
           value={form.vesselId}
           onChange={(e) => selectVesselId(e.target.value || null)}
-          disabled={vessels === null || noVessel}
+          disabled={vesselsState !== 'ready' || noVessel}
           aria-invalid={FIELD.vesselId in errors}
         >
-          <option value="">{vessels === null ? '불러오는 중…' : '선택'}</option>
+          {/* 실패를 「선택」으로 말하지 않는다 — 고를 것이 없다 (`#1093` ⑵). */}
+          <option value="">
+            {vesselsState === 'loading'
+              ? '선박 목록을 불러오는 중…'
+              : vesselsState === 'failed'
+                ? '선박 목록을 불러오지 못했습니다'
+                : '선택'}
+          </option>
           {(vessels ?? []).map((option) => (
             <option key={option.id} value={option.id}>
               {option.displayName}
@@ -314,7 +372,7 @@ export function ScenarioComparison({
         ) : years.length > 0 ? (
           <select
             value={form.regulationYear}
-            onChange={(e) => setForm({ ...form, regulationYear: e.target.value })}
+            onChange={(e) => setForm((prev) => ({ ...prev, regulationYear: e.target.value }))}
             aria-invalid={FIELD.regulationYear in errors}
           >
             {years.map((year) => (
@@ -351,7 +409,7 @@ export function ScenarioComparison({
         <input
           inputMode="decimal"
           value={form.baseDistanceNm}
-          onChange={(e) => setForm({ ...form, baseDistanceNm: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, baseDistanceNm: e.target.value }))}
           aria-invalid={FIELD.baseDistanceNm in errors}
         />
         {errors[FIELD.baseDistanceNm] !== undefined && (
@@ -372,7 +430,7 @@ export function ScenarioComparison({
         <input
           inputMode="decimal"
           value={form.baseSpeedKn}
-          onChange={(e) => setForm({ ...form, baseSpeedKn: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, baseSpeedKn: e.target.value }))}
           aria-invalid={FIELD.baseSpeedKn in errors}
         />
         {errors[FIELD.baseSpeedKn] !== undefined && (
@@ -390,7 +448,7 @@ export function ScenarioComparison({
         <input
           inputMode="decimal"
           value={form.baseDailyFocTon}
-          onChange={(e) => setForm({ ...form, baseDailyFocTon: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, baseDailyFocTon: e.target.value }))}
           aria-invalid={FIELD.baseDailyFocTon in errors}
         />
         {errors[FIELD.baseDailyFocTon] !== undefined && (
@@ -411,7 +469,7 @@ export function ScenarioComparison({
         <span>연료 종류</span>
         <select
           value={form.fuelType}
-          onChange={(e) => setForm({ ...form, fuelType: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, fuelType: e.target.value }))}
           aria-invalid={FIELD.fuelType in errors}
           disabled={fuelsLoading || fuelsFailed}
         >
@@ -454,7 +512,7 @@ export function ScenarioComparison({
         <input
           inputMode="decimal"
           value={form.detourDistanceNm}
-          onChange={(e) => setForm({ ...form, detourDistanceNm: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, detourDistanceNm: e.target.value }))}
           aria-invalid={FIELD.detourDistanceNm in errors}
           placeholder="직항 × 1.05"
         />
@@ -470,7 +528,7 @@ export function ScenarioComparison({
         <input
           inputMode="decimal"
           value={form.slowSpeedKn}
-          onChange={(e) => setForm({ ...form, slowSpeedKn: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, slowSpeedKn: e.target.value }))}
           aria-invalid={FIELD.slowSpeedKn in errors}
           placeholder={`현재 속력 − 1 (최소 ${MIN_SPEED_KN})`}
         />
@@ -490,7 +548,7 @@ export function ScenarioComparison({
         <span>기상 보정 모델</span>
         <select
           value={form.weatherModel}
-          onChange={(e) => setForm({ ...form, weatherModel: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, weatherModel: e.target.value }))}
           aria-invalid={FIELD.weatherModel in errors}
         >
           {WEATHER_MODELS.map((model) => (
@@ -532,7 +590,7 @@ export function ScenarioComparison({
             setCurrentPortText(e.target.value)
             const match = matchSamplePort(ports, e.target.value)
             if (match) {
-              setForm({ ...form, currentLat: String(match.lat), currentLon: String(match.lon) })
+              setForm((prev) => ({ ...prev, currentLat: String(match.lat), currentLon: String(match.lon) }))
             }
           }}
           placeholder="예: BUSAN — 비워 두고 아래에 좌표를 넣어도 됩니다"
@@ -544,7 +602,7 @@ export function ScenarioComparison({
         <input
           inputMode="decimal"
           value={form.currentLat}
-          onChange={(e) => setForm({ ...form, currentLat: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, currentLat: e.target.value }))}
           aria-invalid={FIELD.currentLat in errors}
           placeholder="-90 ~ 90"
         />
@@ -558,7 +616,7 @@ export function ScenarioComparison({
         <input
           inputMode="decimal"
           value={form.currentLon}
-          onChange={(e) => setForm({ ...form, currentLon: e.target.value })}
+          onChange={(e) => setForm((prev) => ({ ...prev, currentLon: e.target.value }))}
           aria-invalid={FIELD.currentLon in errors}
           placeholder="-180 ~ 180"
         />
@@ -638,7 +696,7 @@ export function ScenarioComparison({
         <button
           type="submit"
           className="scenario-comparison__submit"
-          disabled={state.status === 'loading' || noVessel}
+          disabled={state.status === 'loading' || noVessel || yearUnavailable}
         >
           {state.status === 'loading' ? '계산 중…' : '비교하기'}
         </button>
