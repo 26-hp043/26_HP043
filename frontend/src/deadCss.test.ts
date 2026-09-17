@@ -101,6 +101,127 @@ function deadClasses(options: { applyKept?: boolean } = {}): string[] {
  */
 const SCAN_TIMEOUT_MS = 20_000
 
+/**
+ * 반대 방향 — **쓰는데 정의가 없는 클래스** (`#1052`).
+ *
+ * 위 검사는 「정의됐는데 아무도 안 쓴다」만 본다. 그 짝이 비어 있어 **정의를 지워도
+ * 아무 검사도 실패하지 않았다.**
+ *
+ * 실제로 두 번 났다.
+ *
+ * * `.annual-sim__label` — `#1182`가 폼 라벨 넷을 공용 `Field`로 옮기며 규칙을
+ *   지웠는데 **폼 밖의 네 곳**(`Metric`·예상 등급·감축 목표·위험도)이 남아 있었다
+ * * `.fleet__note` — 처음부터 규칙 없이 이름만 붙었다 (`#1052` ⑴ ⒜)
+ *
+ * 둘 다 **화면이 깨지지 않는다.** 브라우저 기본 문단으로 그려질 뿐이라 눈으로 찾지
+ * 않으면 남는다 — 죽은 CSS와 정확히 같은 성질이고, 그래서 같은 파일에 둔다.
+ */
+
+/** 규칙이 없어도 되는 것. 넣으려면 **왜 없어도 되는지**를 함께 적는다. */
+const NO_STYLE: Readonly<Record<string, string>> = {
+  // `card`·`fr__table`이 모양을 준다 — 이쪽은 BEM 블록 이름표다.
+  dq__summary: 'card가 모양을 준다 — 블록 이름표',
+  dq__vessels: 'card가 모양을 준다 — 블록 이름표',
+  rp__preview: 'card가 모양을 준다 — 블록 이름표',
+  vd__ytd: 'card가 모양을 준다 — 블록 이름표',
+  vm: 'card가 모양을 준다 — 블록 이름표',
+  fr__dist: 'fr__table이 모양을 준다 — 블록 이름표',
+  // 자식이 각자 모양을 갖는 껍데기.
+  'vessel-registration__header': '자식(title·lead)이 각자 모양을 갖는다',
+  // 보이지 않는 자리 표시 — `aria-busy`만 들고 있다.
+  'require-auth__pending': '보이지 않는 자리 표시(aria-busy 전용)',
+  // 등급 색을 `fill` 속성으로 직접 받는다 — CSS로 줄 것이 없다.
+  history__bar: 'fill을 인라인으로 받는다(등급 색)',
+}
+
+/**
+ * ⚠️ **규칙이 없어도 되는지 아직 모르는 것.** 위 목록과 달리 **근거가 아니라 미제**다.
+ *
+ * 둘 다 고치면 화면의 크기·모양이 눈에 띄게 바뀌므로, 값을 임의로 고르지 않고
+ * 자리를 만들어 둔다. 비면 이 목록도 지운다.
+ */
+const UNSTYLED_TODO: Readonly<Record<string, string>> = {
+  // `.auth-submit`(44px · Primary 채움)에 걸린 수식자인데 규칙이 없다. 인라인 `<a>`라
+  // `block-size`가 먹지 않아 버튼 모양이 어긋난다. `#1052` 범위 밖이라 별건으로 다룬다.
+  'auth-submit--link': 'LoginPage 「돌아가기」 링크 — 수식자에 규칙이 없다',
+  // `__title-en`(형제 span)에는 규칙이 있는데 `__title` 자신에는 없다. `<h2>`가
+  // 브라우저 기본 크기(2em)로 그려진다 — 다른 화면은 `card__title`을 쓴다.
+  'scenario-comparison__title': '항로 비교 결과 제목 — h2가 브라우저 기본 크기다',
+}
+
+/** `className`에 **완성형으로** 적힌 이름만 모은다. 동적 조립 조각은 세지 않는다. */
+function classesUsedInMarkup(): Map<string, Set<string>> {
+  const used = new Map<string, Set<string>>()
+  for (const file of walk(SRC)) {
+    if (!file.endsWith('.tsx') || file.includes('.test.')) continue
+    const source = stripComments(readFileSync(file, 'utf8'))
+    for (const match of source.matchAll(/className=(?:"([^"]*)"|\{\s*[`'"]([^`'"]*)[`'"])/g)) {
+      /*
+       * **`${` 앞까지만 본다.** 정규식이 템플릿을 따옴표에서 끊으므로 그 뒤 조각은
+       * 클래스가 아니라 **식의 일부**다 — `vm__cell--num${value === null ? …`에서
+       * `null`이 클래스로 잡혔다.
+       */
+      const literal = (match[1] ?? match[2] ?? '').split('${')[0]
+      for (const cls of literal.split(/\s+/)) {
+        // `seg--`처럼 `${`를 앞둔 조각과 빈 토큰을 버린다.
+        if (cls === '' || cls.endsWith('--') || cls.endsWith('__')) continue
+        if (!/^-?[A-Za-z_][\w-]*$/.test(cls)) continue
+        const at = used.get(cls) ?? new Set<string>()
+        at.add(file.slice(SRC.length))
+        used.set(cls, at)
+      }
+    }
+  }
+  return used
+}
+
+function definedClasses(): Set<string> {
+  const defined = new Set<string>()
+  for (const file of walk(SRC)) {
+    if (!file.endsWith('.css')) continue
+    const css = readFileSync(file, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/@import[^;]*;/g, '')
+      .replace(/url\([^)]*\)/g, 'url()')
+    for (const match of css.matchAll(/\.(-?[A-Za-z_][\w-]*)/g)) defined.add(match[1])
+  }
+  return defined
+}
+
+describe('규칙 없는 CSS 클래스 (#1052)', () => {
+  it('마크업이 쓰는 클래스에 규칙이 있다', { timeout: SCAN_TIMEOUT_MS }, () => {
+    const defined = definedClasses()
+    const orphans: string[] = []
+    for (const [cls, files] of classesUsedInMarkup()) {
+      if (defined.has(cls)) continue
+      if (cls in NO_STYLE || cls in UNSTYLED_TODO) continue
+      orphans.push(`.${cls} :: ${[...files].sort().join(', ')}`)
+    }
+    expect(
+      orphans.sort(),
+      '규칙이 없으면 브라우저 기본 모양으로 그려진다. 일부러 비워 둔 것이라면 ' +
+        'NO_STYLE에 이유와 함께 적어 두세요.',
+    ).toEqual([])
+  })
+
+  it('두 목록이 낡지 않았다 — 규칙이 생긴 것은 뺀다', { timeout: SCAN_TIMEOUT_MS }, () => {
+    const defined = definedClasses()
+    const stale = [...Object.keys(NO_STYLE), ...Object.keys(UNSTYLED_TODO)].filter((cls) =>
+      defined.has(cls),
+    )
+    expect(stale, `규칙이 생겼으니 목록에서 빼세요: ${stale.join(', ')}`).toEqual([])
+  })
+
+  it('마크업에서 사라진 이름을 목록이 들고 있지 않다', { timeout: SCAN_TIMEOUT_MS }, () => {
+    /* 클래스가 지워졌는데 목록에 남으면, 다음 사람이 없는 것을 근거로 삼는다. */
+    const used = new Set(classesUsedInMarkup().keys())
+    const gone = [...Object.keys(NO_STYLE), ...Object.keys(UNSTYLED_TODO)].filter(
+      (cls) => !used.has(cls),
+    )
+    expect(gone, `마크업에 없는 이름이다: ${gone.join(', ')}`).toEqual([])
+  })
+})
+
 describe('죽은 CSS 클래스 (#831)', () => {
   it('참조되지 않는 클래스가 없다', { timeout: SCAN_TIMEOUT_MS }, () => {
     expect(deadClasses()).toEqual([])
