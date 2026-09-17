@@ -27,6 +27,7 @@ import {
 } from '../ports/samplePorts'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageFuelDraft } from './types'
 import './VoyagePanel.css'
+import { Field } from '../../components/Field'
 import { ErrorState } from '../../components/ErrorState'
 
 /**
@@ -489,16 +490,16 @@ function VoyageForm({
         <ErrorState level="region" size="compact" message={failure} />
       ) : null}
 
-      <Field id="vy-no" label="항차 번호" value={draft.voyageNo} onChange={set('voyageNo')} error={errors.voyageNo} />
+      <VoyageField id="vy-no" label="항차 번호" value={draft.voyageNo} onChange={set('voyageNo')} error={errors.voyageNo} />
       {/* 샘플 항만 선택지 (#760) — 자유 입력과 함께 쓴다(`PRD §20 O-11`). */}
       <datalist id="vy-ports">
         {ports.map((port) => (
           <option key={port.locode} value={port.name} label={portOptionLabel(port)} />
         ))}
       </datalist>
-      <Field id="vy-from" label="출발항" value={draft.departurePortName} onChange={setPort('departure')} error={errors.departurePortName} list="vy-ports" hint={draft.departureCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined} />
-      <Field id="vy-to" label="도착항" value={draft.arrivalPortName} onChange={setPort('arrival')} error={errors.arrivalPortName} list="vy-ports" hint={draft.arrivalCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined} />
-      <Field
+      <VoyageField id="vy-from" label="출발항" value={draft.departurePortName} onChange={setPort('departure')} error={errors.departurePortName} list="vy-ports" hint={draft.departureCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined} />
+      <VoyageField id="vy-to" label="도착항" value={draft.arrivalPortName} onChange={setPort('arrival')} error={errors.arrivalPortName} list="vy-ports" hint={draft.arrivalCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined} />
+      <VoyageField
         id="vy-dist"
         label={`계획 거리 (${DISPLAY_UNITS.distance})`}
         value={draft.plannedDistanceNm}
@@ -515,7 +516,7 @@ function VoyageForm({
           {estimating ? '추정 거리를 계산하는 중…' : '좌표 기반 추정 거리로 채우기'}
         </button>
       ) : null}
-      <Field id="vy-speed" label={`계획 속력 (${DISPLAY_UNITS.speed})`} value={draft.plannedSpeedKn} onChange={set('plannedSpeedKn')} error={errors.plannedSpeedKn} inputMode="decimal" />
+      <VoyageField id="vy-speed" label={`계획 속력 (${DISPLAY_UNITS.speed})`} value={draft.plannedSpeedKn} onChange={set('plannedSpeedKn')} error={errors.plannedSpeedKn} inputMode="decimal" />
       {/*
         계획 출항·도착 시각 (`#873`).
 
@@ -527,7 +528,7 @@ function VoyageForm({
 
         `§3.3`이 optional이라 여기서도 필수로 만들지 않는다. 대신 결과를 말한다.
       */}
-      <Field
+      <VoyageField
         id="vy-dep-at"
         label="계획 출항 시각"
         type="datetime-local"
@@ -536,7 +537,7 @@ function VoyageForm({
         error={errors.plannedDepartureAt}
         hint="비워 두면 진행 중 누적에 0으로 기여합니다. 나중에 실적 입력에서 채울 수 있습니다."
       />
-      <Field
+      <VoyageField
         id="vy-arr-at"
         label="계획 도착 시각"
         type="datetime-local"
@@ -658,7 +659,7 @@ function VoyageForm({
         {errors.fuelUses ? <em className="vy__field-error" role="alert">{errors.fuelUses}</em> : null}
       </fieldset>
 
-      <Field
+      <VoyageField
         id="vy-year"
         label="기준연도 (선택)"
         value={draft.regulationYear}
@@ -724,7 +725,7 @@ function ActualsForm({
         모든 칸이 선택입니다.
       </p>
 
-      <Field
+      <VoyageField
         id={`ac-dist-${voyage.id}`}
         label={`실제 거리 (${DISPLAY_UNITS.distance})`}
         value={draft.actualDistanceNm}
@@ -734,7 +735,7 @@ function ActualsForm({
         hint={`계획 ${quantity(voyage.plannedDistanceNm, DISPLAY_DIGITS.distanceNm)} ${DISPLAY_UNITS.distance}`}
       />
 
-      <Field
+      <VoyageField
         id={`ac-speed-${voyage.id}`}
         label={`실제 평균 속력 (${DISPLAY_UNITS.speed})`}
         value={draft.actualAvgSpeedKn}
@@ -751,7 +752,7 @@ function ActualsForm({
         입력하는 순간 누적이 그 시각에서 멈춘다 — 결과 화면의 「도착 실적을 입력하면
         확정됩니다」가 가리키던 칸이 **제품에 없던** 상태를 이번에 메운다.
       */}
-      <Field
+      <VoyageField
         id={`ac-dep-at-${voyage.id}`}
         label="실제 출항 시각"
         type="datetime-local"
@@ -764,7 +765,7 @@ function ActualsForm({
             : `계획 ${toLocalInput(voyage.plannedDepartureAt)}`
         }
       />
-      <Field
+      <VoyageField
         id={`ac-arr-at-${voyage.id}`}
         label="실제 도착 시각"
         type="datetime-local"
@@ -779,7 +780,7 @@ function ActualsForm({
       />
 
       {voyage.fuelUses.map((use) => (
-        <Field
+        <VoyageField
           key={use.fuelType}
           id={`ac-fuel-${voyage.id}-${use.fuelType}`}
           label={`실제 ${use.fuelType} (${DISPLAY_UNITS.fuel})`}
@@ -809,13 +810,12 @@ function ActualsForm({
 }
 
 /**
- * 입력 한 칸.
+ * 항차 폼의 입력 한 칸 — 공용 `Field` 위의 얇은 층이다 (`#936`).
  *
- * 오류를 `aria-describedby`로 잇고 `aria-invalid`를 세운다 — 색만으로 표시하면
- * 스크린 리더 사용자가 무엇이 잘못됐는지 알 수 없다(`DESIGN_SYSTEM §14`).
- * `AuthField`와 같은 규율이다.
+ * 배선은 `Field`가 준다. 여기 남는 것은 이 폼의 입력칸 모양과
+ * `type`·`inputMode`·`list` 기본값뿐이다. `AuthField`와 같은 형태다.
  */
-function Field({
+function VoyageField({
   id,
   label,
   value,
@@ -844,37 +844,27 @@ function Field({
    */
   type?: 'text' | 'datetime-local'
 }) {
-  const errorId = `${id}-error`
-  const hintId = `${id}-hint`
-  const describedBy = [error ? errorId : null, hint ? hintId : null].filter(Boolean).join(' ')
-
+  /*
+   * 배선은 공용 `Field`가 준다 (`#936` · `§8.4`). 여기 남는 것은 이 폼의 입력칸
+   * 모양과 `list`·`inputMode`·`type` 기본값뿐이다 — 호출부 열세 곳은 그대로 둔다.
+   *
+   * 이름을 `VoyageField`로 바꾼 것은 공용 `Field`와 **한 파일에서 이름이 겹치기**
+   * 때문이다. 겹친 채로 두면 어느 쪽을 쓰는지 읽어서 알 수 없다.
+   */
   return (
-    <div className="vy__field">
-      <label className="vy__label" htmlFor={id}>
-        {label}
-      </label>
-      <input
-        id={id}
-        className={error ? 'vy__input vy__input--error' : 'vy__input'}
-        type={type}
-        value={value}
-        inputMode={inputMode}
-        list={list}
-        onChange={(event) => onChange(event.target.value)}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy || undefined}
-      />
-      {hint ? (
-        <p className="vy__hint" id={hintId}>
-          {hint}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="vy__field-error" id={errorId} role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
+    <Field id={id} label={label} hint={hint} error={error}>
+      {(control) => (
+        <input
+          {...control}
+          className="vy__input"
+          type={type}
+          value={value}
+          inputMode={inputMode}
+          list={list}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+    </Field>
   )
 }
 

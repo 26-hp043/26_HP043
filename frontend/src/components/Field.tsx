@@ -50,6 +50,7 @@ interface FieldControlProps {
 export function Field({
   id,
   label,
+  labelHidden,
   labelEn,
   unit,
   hint,
@@ -58,6 +59,17 @@ export function Field({
 }: {
   id: string
   label: string
+  /**
+   * 라벨을 **화면에서만** 감춘다 — 낭독에는 남는다 (전역 `.sr-only`, `#831 ⑸`).
+   *
+   * `§8.4`는 라벨의 **자리**를 정할 뿐 「반드시 보여야 한다」고 적지 않았다. 칸이
+   * 하나뿐이고 placeholder가 같은 말을 하는 자리(어시스턴트 질문칸)에서는 라벨
+   * 한 줄이 정보를 더하지 않는다. 그렇다고 라벨을 **지우면** 낭독에서 이름이
+   * 사라지므로, 지우는 대신 감춘다.
+   *
+   * 감추면 `labelEn`·`unit`도 함께 감춰진다 — 보여야 할 것이 있으면 쓰지 않는다.
+   */
+  labelHidden?: boolean
   /** 요청 본문의 필드명. `§14` 「한국어 라벨 + 영문 병기」. */
   labelEn?: string
   unit?: string
@@ -82,7 +94,7 @@ export function Field({
   /* `§8.4` — 라벨 → 입력칸 → 힌트 → 오류 순이다. */
   return (
     <div className="field">
-      <label className="field__label" htmlFor={id}>
+      <label className={labelHidden ? 'sr-only' : 'field__label'} htmlFor={id}>
         {label}
         {labelEn ? <span className="field__label-en"> {labelEn}</span> : null}
         {unit ? <span className="field__unit">{unit}</span> : null}

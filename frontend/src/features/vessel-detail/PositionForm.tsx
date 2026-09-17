@@ -13,6 +13,7 @@ import {
   type PositionErrors,
 } from './positionRules'
 import type { VesselDetailProvider, VesselSpec } from './types'
+import { Field } from '../../components/Field'
 
 /**
  * 위치·운항 상태 입력 — `2-8 선박 상세`의 「현재 상태」 카드 안 (`API_SPEC §2.6`).
@@ -120,45 +121,41 @@ export function PositionForm({
   return (
     <div className="vd__pos">
       <div className="vd__pos-row">
-        <label className="vd__pos-field">
-          <span>운항 상태</span>
-          <select
-            value={draft.underwayState}
-            onChange={(e) => setState(e.target.value)}
-            aria-invalid={errors.underwayState !== undefined}
-          >
-            <option value="">선택 안 함</option>
-            <option value="UNDER_WAY">운항 중</option>
-            <option value="NOT_UNDER_WAY">정박 중</option>
-          </select>
-          {errors.underwayState ? (
-            <span className="vd__pos-error">{errors.underwayState}</span>
-          ) : null}
-        </label>
+        <Field id="vd-underway-state" label="운항 상태" error={errors.underwayState}>
+          {(control) => (
+            <select
+              {...control}
+              value={draft.underwayState}
+              onChange={(e) => setState(e.target.value)}
+            >
+              <option value="">선택 안 함</option>
+              <option value="UNDER_WAY">운항 중</option>
+              <option value="NOT_UNDER_WAY">정박 중</option>
+            </select>
+          )}
+        </Field>
 
-        <label className="vd__pos-field">
-          <span>세부 상태</span>
-          <select
-            value={draft.detailStatus}
-            disabled={detailOptions.length === 0}
-            onChange={(e) => setDraft({ ...draft, detailStatus: e.target.value })}
-            aria-invalid={errors.detailStatus !== undefined}
-          >
-            {/*
-             * `UNDER_WAY`는 허용값이 하나뿐이라 빈 항목을 두지 않는다 — 고를 것이
-             * 없는 자리에 「선택 안 함」을 내밀면 그것이 유효한 선택으로 읽힌다.
-             */}
-            {draft.underwayState === 'UNDER_WAY' ? null : <option value="">선택</option>}
-            {detailOptions.map((code) => (
-              <option key={code} value={code}>
-                {detailStatusText(code)}
-              </option>
-            ))}
-          </select>
-          {errors.detailStatus ? (
-            <span className="vd__pos-error">{errors.detailStatus}</span>
-          ) : null}
-        </label>
+        <Field id="vd-detail-status" label="세부 상태" error={errors.detailStatus}>
+          {(control) => (
+            <select
+              {...control}
+              value={draft.detailStatus}
+              disabled={detailOptions.length === 0}
+              onChange={(e) => setDraft({ ...draft, detailStatus: e.target.value })}
+            >
+              {/*
+               * `UNDER_WAY`는 허용값이 하나뿐이라 빈 항목을 두지 않는다 — 고를 것이
+               * 없는 자리에 「선택 안 함」을 내밀면 그것이 유효한 선택으로 읽힌다.
+               */}
+              {draft.underwayState === 'UNDER_WAY' ? null : <option value="">선택</option>}
+              {detailOptions.map((code) => (
+                <option key={code} value={code}>
+                  {detailStatusText(code)}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
       </div>
 
       <div className="vd__pos-row">
@@ -218,21 +215,25 @@ function Coordinate({
   error?: string
   onChange: (value: string) => void
 }) {
+  /*
+   * 범위 안내는 `Field`의 `hint`로 넘긴다 (`#936`).
+   *
+   * 종전에는 라벨 안의 `<em>`이라 **접근성 이름에 섞여** 「위도 −90 ~ 90」으로
+   * 읽혔다. `§8.4`는 라벨 → 입력칸 → 힌트 순을 정하고 힌트를 `aria-describedby`로
+   * 잇게 한다 — 같은 문장이 이름이 아니라 설명으로 간다.
+   */
   return (
-    <label className="vd__pos-field" htmlFor={id}>
-      <span>
-        {label} <em>{hint}</em>
-      </span>
-      <input
-        id={id}
-        type="text"
-        inputMode="decimal"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        aria-invalid={error !== undefined}
-      />
-      {error ? <span className="vd__pos-error">{error}</span> : null}
-    </label>
+    <Field id={id} label={label} hint={hint} error={error}>
+      {(control) => (
+        <input
+          {...control}
+          type="text"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      )}
+    </Field>
   )
 }
 

@@ -223,12 +223,6 @@
   grid-column: 1 / -1;
 }
 
-.vy__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
 .vy__label {
   font-size: var(--font-size-label);
   color: var(--text-secondary);
@@ -244,7 +238,8 @@
   font-family: inherit;
 }
 
-.vy__input--error {
+/* 오류 상태는 `Field`가 붙이는 `aria-invalid`에서 읽는다 (`#936`). */
+.vy__input[aria-invalid='true'] {
   border-color: var(--semantic-danger);
 }
 
@@ -523,20 +518,14 @@
   gap: var(--spacing-sm);
 }
 
-.vy-export__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  min-inline-size: 0;
-}
-
-.vy-export__label {
-  font-size: var(--font-size-micro);
-  color: var(--text-secondary);
-}
-
-/* `DESIGN_SYSTEM §8` — 입력·셀렉트는 카드 면이 아니라 **surface-2**다. */
-.vy-export__field select {
+/*
+ * `DESIGN_SYSTEM §8` — 입력·셀렉트는 카드 면이 아니라 **surface-2**다.
+ *
+ * 래퍼·라벨은 공용 `.field`가 준다 (`#936` · `§8.4`). 자손 선택자
+ * (`.vy-export__field select`)는 래퍼가 바뀌는 순간 조용히 안 걸리므로
+ * 셀렉트에 이름을 준다.
+ */
+.vy-export__control {
   font: inherit;
   font-size: var(--font-size-label);
   padding: var(--spacing-sm);
@@ -567,7 +556,7 @@
   cursor: not-allowed;
 }
 
-.vy-export__field select:focus-visible,
+.vy-export__control:focus-visible,
 .vy-export__submit:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -583,8 +572,7 @@
  * 오류 문구는 `--color-danger-text`다 — `--semantic-danger`는 라이트에서 문자 대비가
  * 4.13:1이라 `DESIGN_SYSTEM §0.2` 제약 1(≥4.5:1)을 못 넘는다 (가져오기와 같은 근거).
  */
-.vy-export__failure,
-.vy-export__error {
+.vy-export__failure {
   margin: 0;
   font-size: var(--font-size-micro);
   color: var(--color-danger-text);

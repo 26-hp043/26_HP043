@@ -167,16 +167,6 @@
   gap: var(--space-8);
 }
 
-/* 라벨은 스크린리더에만 — 자리 대비 정보량이 적고, placeholder가 같은 말을 한다. */
-.assistant__label {
-  position: absolute;
-  overflow: hidden;
-  clip-path: inset(50%);
-  width: 1px;
-  height: 1px;
-  white-space: nowrap;
-}
-
 .assistant__input {
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import './AuthShell.css'
 import { BrandLogo } from '../../components/BrandLogo'
+import { Field } from '../../components/Field'
 
 /**
  * 인증 화면 공통 껍데기 — 로그인·회원가입·비밀번호 찾기·이메일 인증이 공유한다.
@@ -122,10 +123,10 @@ export function AuthShell({
 }
 
 /**
- * 입력 한 칸.
+ * 로그인 폼의 입력 한 칸 — 공용 `Field` 위의 얇은 층이다 (`#936`).
  *
- * 오류를 `aria-describedby`로 연결하고 `aria-invalid`를 세운다 — 색만으로 오류를
- * 표시하면 스크린 리더 사용자가 무엇이 잘못됐는지 알 수 없다(`DESIGN_SYSTEM §14`).
+ * 배선(`aria-invalid`·`aria-describedby`·`role="alert"`)은 `Field`가 준다.
+ * 여기 남는 것은 이 화면의 입력칸 모양과 `type`·`autoComplete`뿐이다.
  */
 export function AuthField({
   id,
@@ -146,38 +147,23 @@ export function AuthField({
   autoComplete?: string
   hint?: string
 }) {
-  const errorId = `${id}-error`
-  const hintId = `${id}-hint`
-  const describedBy = [error ? errorId : null, hint ? hintId : null]
-    .filter(Boolean)
-    .join(' ')
-
+  /*
+   * 배선은 공용 `Field`가 준다 (`#936` · `§8.4`). 여기 남는 것은 **로그인 폼의
+   * 입력칸 모양**뿐이다 — 호출부 열 곳은 그대로 둔다.
+   */
   return (
-    <div className="auth-field">
-      <label className="auth-label" htmlFor={id}>
-        {label}
-      </label>
-      <input
-        id={id}
-        className={error ? 'auth-input auth-input--error' : 'auth-input'}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete={autoComplete}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy || undefined}
-      />
-      {hint ? (
-        <p className="auth-hint" id={hintId}>
-          {hint}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="auth-error" id={errorId} role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
+    <Field id={id} label={label} hint={hint} error={error}>
+      {(control) => (
+        <input
+          {...control}
+          className="auth-input"
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete={autoComplete}
+        />
+      )}
+    </Field>
   )
 }
 

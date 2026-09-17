@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
 import type { AssistantProvider, ChatTurn } from './types'
+import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
 
 /**
@@ -238,36 +239,37 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
           void send()
         }}
       >
-        <label className="assistant__label" htmlFor={`${panelId}-input`}>
-          질문
-        </label>
-        <textarea
-          id={`${panelId}-input`}
-          ref={inputRef}
-          className="assistant__input"
-          rows={2}
-          maxLength={2000}
-          placeholder={PLACEHOLDER}
-          value={draft}
-          disabled={stopped}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            /*
-             * 한글 IME는 **조합 중에도 Enter를 보낸다**. 그 Enter는 조합을
-             * 확정하는 키이지 전송이 아니다 — 여기서 보내면 마지막 음절이
-             * 깨진 채 나간다(`#1101`).
-             *
-             * `keyCode === 229`도 함께 본다. `isComposing`을 채우지 않는 조합
-             * 경로가 남아 있고, 그 값은 이 한 자리에서만 읽는다.
-             */
-            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
-            // Enter로 보내고 Shift+Enter로 줄을 바꾼다 — 채팅의 관례다.
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault()
-              void send()
-            }
-          }}
-        />
+        <Field id={`${panelId}-input`} label="질문" labelHidden>
+          {(control) => (
+            <textarea
+              {...control}
+              ref={inputRef}
+              className="assistant__input"
+              rows={2}
+              maxLength={2000}
+              placeholder={PLACEHOLDER}
+              value={draft}
+              disabled={stopped}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                /*
+                 * 한글 IME는 **조합 중에도 Enter를 보낸다**. 그 Enter는 조합을
+                 * 확정하는 키이지 전송이 아니다 — 여기서 보내면 마지막 음절이
+                 * 깨진 채 나간다(`#1101`).
+                 *
+                 * `keyCode === 229`도 함께 본다. `isComposing`을 채우지 않는 조합
+                 * 경로가 남아 있고, 그 값은 이 한 자리에서만 읽는다.
+                 */
+                if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
+                // Enter로 보내고 Shift+Enter로 줄을 바꾼다 — 채팅의 관례다.
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  void send()
+                }
+              }}
+            />
+          )}
+        </Field>
         <button
           type="submit"
           className="assistant__send"
