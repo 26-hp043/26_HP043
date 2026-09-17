@@ -33,6 +33,7 @@ from cii_platform.calc.annual_simulation import (
     WARNING_SENSITIVITY_OAT,
     WARNING_SENSITIVITY_SPEED_SKIPPED,
     WARNING_TARGET_RATING_D,
+    GRAMS_PER_TON,
     CompletedPair,
     CompletedTotals,
     DistributionProfile,
@@ -43,6 +44,7 @@ from cii_platform.calc.annual_simulation import (
     apply_feedback,
     backsolve_required_cut,
     feedback_factor,
+    fuel_cf_alternative_projection,
     project_deterministic,
     rng_metadata,
     simulate_annual,
@@ -1145,3 +1147,32 @@ def test_feedback_raises_the_projection_when_the_ship_burns_more():
     plain = _project()
     corrected = _project(remaining=apply_feedback(REMAINING, Decimal("1.1")))
     assert corrected.attained_cii > plain.attained_cii
+
+
+def test_fuel_cf_alternative_scales_with_cf():
+    """#756 ⑴ — 질량 유지: 연료량은 그대로, CF에 비례해 CO₂·CII가 움직인다.
+
+    확정분은 바뀌지 않으므로 변화폭은 잔여 비중에 비례해 작아진다 — 「연말 총량이
+    얼마나 주나」가 이 지렛대가 답하는 질문이다.
+    """
+    completed = CompletedTotals(co2_g=100_000 * GRAMS_PER_TON, distance_nm=1_000)
+    remaining = [
+        RemainingVoyage(distance_nm=1_000, fuel_ton=100.0, cf=3.114),
+    ]
+
+    base = fuel_cf_alternative_projection(
+        completed=completed,
+        remaining=remaining,
+        transport_capacity=Decimal("10000"),
+        required_cii=Decimal("5"),
+        d_vector=DVector(Decimal("0.86"), Decimal("0.94"), Decimal("1.06"), Decimal("1.18")),
+        alternative_fuel="LNG",
+        alternative_cf=Decimal("2.750"),
+    )
+    assert base.co2_change_ratio < 0, "더 낮은 CF인데 총 CO₂가 늘었다"
+    # 잔여 연료 100t × (2.750 − 3.114) × 10⁶ g — 확정분에 대한 비율로 나뉜다.
+    planned_delta_g = Decimal("100") * (Decimal("2.750") - Decimal("3.114")) * GRAMS_PER_TON
+    total_before_g = Decimal("100") * Decimal("3.114") * GRAMS_PER_TON + Decimal(
+        str(completed.co2_g)
+    )
+    assert abs(base.co2_change_ratio - planned_delta_g / total_before_g) < Decimal("1e-12")

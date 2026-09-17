@@ -261,6 +261,29 @@ class SensitivityEntry:
 
 
 @dataclass(frozen=True)
+class FuelCfAlternative:
+    """대체 연료 지렛대의 결과 (``PRD §12.6`` · #756 ⑴ · 2026-09-17 결정 「나」).
+
+    **질량 유지** — 잔여 계획의 연료량은 그대로 두고 배출계수(CF)만 교체한다.
+    발열량 차이에 따른 연료량 변화는 반영하지 않는다(LCV가 정본·저장소에 없어
+    `AGENTS §2.1` 원문 대조가 선행한다 — 대조 뒤 같은 자리에 에너지 기준을 더한다).
+
+    확정 실적의 CF는 바꾸지 않는다 — 이미 그 계수로 배출했으므로 계산의 대상이
+    아니고, 민감도의 다른 지렛대도 잔여만 움직인다(``§12.4.1``).
+    """
+
+    #: 대체 연료 코드 (사용자가 요청에서 고른다).
+    fuel_code: str
+    #: 적용한 CF. ``MEPC.364(79)`` 표(``DB_SCHEMA §3.2``)의 활성 값.
+    cf: Decimal
+    #: 대체 후 연말 CII (결정론).
+    attained_cii: Decimal
+    rating: str
+    #: 연말 총 CO₂의 변화율(비율, 감소는 음수) — ``co2_change`` 표시의 원본.
+    co2_change_ratio: Decimal
+
+
+@dataclass(frozen=True)
 class SimulationOutcome:
     """Monte Carlo 집계 (``PRD §12.4.2`` · ``§12.7``)."""
 
@@ -743,6 +766,65 @@ def _shift_fuel(remaining: Sequence[RemainingVoyage], factor: float):
         )
         for v in remaining
     ]
+
+
+def fuel_cf_alternative_projection(
+    *,
+    completed: CompletedTotals,
+    remaining: Sequence[RemainingVoyage],
+    transport_capacity: Decimal,
+    required_cii: Decimal,
+    d_vector: DVector,
+    alternative_fuel: str,
+    alternative_cf: Decimal,
+) -> FuelCfAlternative:
+    """잔여 계획 전체의 CF를 대체 연료로 교체해 연말 값을 다시 낸다 (#756 ⑴).
+
+    **질량 유지**(``replace``가 아니라 새 항차를 만드는 이유는 다른 지렛대와 같다) —
+    ``fuel_ton``은 그대로, ``cf``만 교체. 거리·속력 등 나머지 계획은 손대지 않는다.
+
+    ``co2_change``는 **연말 총 CO₂** 기준이다 — 확정분은 그대로이므로 잔여만 바뀐
+    만큼 전체 대비 변화율은 잔여 비중에 따라 작아진다. 「CO₂가 얼마나 주나」를
+    연말 규모로 답하는 것이 이 지렛대의 목적이다.
+    """
+    shifted = [
+        RemainingVoyage(
+            distance_nm=v.distance_nm,
+            fuel_ton=v.fuel_ton,
+            cf=float(alternative_cf),
+            speed_kn=v.speed_kn,
+            reference_speed_kn=v.reference_speed_kn,
+            base_daily_foc_ton=v.base_daily_foc_ton,
+        )
+        for v in remaining
+    ]
+    projection = project_deterministic(
+        completed=completed,
+        remaining=shifted,
+        transport_capacity=transport_capacity,
+        required_cii=required_cii,
+        d_vector=d_vector,
+    )
+    base = project_deterministic(
+        completed=completed,
+        remaining=remaining,
+        transport_capacity=transport_capacity,
+        required_cii=required_cii,
+        d_vector=d_vector,
+    )
+    total_after = projection.completed_co2_g + projection.planned_co2_g
+    total_before = base.completed_co2_g + base.planned_co2_g
+    if total_before <= 0:
+        # `project_deterministic`이 잔여 연료 0을 거르므로 여기까지 오지 않는다 —
+        # 안내 문구 없이 같은 식을 두 벌로 두지 않기 위해 가드만 남긴다.
+        raise ValueError("completed_W + planned_W = 0 — CO₂ 변화율을 낼 수 없습니다.")
+    return FuelCfAlternative(
+        fuel_code=alternative_fuel,
+        cf=alternative_cf,
+        attained_cii=projection.attained_cii,
+        rating=projection.rating,
+        co2_change_ratio=(total_after - total_before) / total_before,
+    )
 
 
 def _shift_distance(remaining: Sequence[RemainingVoyage], factor: float):

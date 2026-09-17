@@ -57,6 +57,7 @@ from cii_platform.calc.annual_simulation import (
     apply_feedback,
     backsolve_required_cut,
     feedback_factor,
+    fuel_cf_alternative_projection,
     profile_from_rows,
     project_deterministic,
     simulate_annual,
@@ -103,6 +104,12 @@ WARNING_PLAN_NO_FUEL = "SIMULATION_PLAN_NO_FUEL"
 #: 같은 결과라도 그 사실을 감추면, 환경이 바뀐 뒤 처음으로 값이 갈리는 순간이
 #: 「갑자기 깨졌다」로 보인다.
 WARNING_MODEL_VERSION_DIFFERS = "MODEL_VERSION_DIFFERS"
+#: 대체 연료 지렛대가 **질량 기준**임을 알린다 (#756 ⑴ · 결정요청 v9 회신 「나」).
+#: 문구 원문은 `PRD §6.3`이 확정했다 — 「연료량을 그대로 두고 배출계수만 바꿔
+#: 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다.」
+#: ``SENSITIVITY_ONE_AT_A_TIME``·``SENSITIVITY_SPEED_SKIPPED``와 같은 규율 —
+#: 근사라는 것을 화면이 말하지 않으면 사용자는 정밀값으로 읽는다.
+WARNING_FUEL_CF_MASS_BASIS = "FUEL_CF_MASS_BASIS"
 
 logger = logging.getLogger(__name__)
 
@@ -685,6 +692,7 @@ async def run_annual_simulation(
     distribution_profile: str = "DEFAULT",
     as_of: datetime | None = None,
     apply_feedback_factor: bool = False,
+    alternative_fuel: str | None = None,
 ) -> dict[str, object]:
     """연간 시뮬레이션을 실행하고 결과를 저장한다 (``API_SPEC §6.1``).
 
@@ -843,6 +851,30 @@ async def run_annual_simulation(
         fuel_type_sources=inputs.fuel_type_sources,
     )
 
+    # 대체 연료 지렛대 (#756 ⑴ · 결정요청 v9 「나」 — 질량 유지). 사용자가 고른
+    # 연료의 CF로 잔여 계획을 다시 계산한다. **고르지 않으면 블록 자체가 없다** —
+    # 「효과 없음」이 아니라 「계산하지 않았다」는 상태를 빈 블록으로 표현하지 않는다.
+    fuel_cf_alternative = None
+    extra_warnings: list[str] = []
+    if alternative_fuel is not None:
+        fuel_rows = await param_repo.get_fuel_types_by_codes(session, [alternative_fuel])
+        if alternative_fuel not in fuel_rows:
+            raise ValidationError(
+                f"알 수 없는 연료 종류입니다: {alternative_fuel}",
+                field="alternative_fuel",
+                field_label="대체 연료",
+            )
+        fuel_cf_alternative = fuel_cf_alternative_projection(
+            completed=completed,
+            remaining=remaining,
+            transport_capacity=transport_capacity,
+            required_cii=required_cii,
+            d_vector=d_vector,
+            alternative_fuel=alternative_fuel,
+            alternative_cf=Decimal(str(fuel_rows[alternative_fuel].cf)),
+        )
+        extra_warnings.append(WARNING_FUEL_CF_MASS_BASIS)
+
     payload = _payload(
         deterministic=deterministic,
         feedback=feedback,
@@ -855,7 +887,8 @@ async def run_annual_simulation(
         completed_voyage_count=sum(1 for row in voyages_json if row.get("kind") == "ACTUAL"),
         remaining_voyage_count=inputs.plan_voyage_count,
         target_rating=target_rating,
-        warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings],
+        warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings, *extra_warnings],
+        fuel_cf_alternative=fuel_cf_alternative,
     )
 
     # **저장 전에 잰다.** DB 왕복은 계산 시간이 아니다 — 기능①도 계산이 끝난 지점에서
@@ -883,6 +916,7 @@ async def run_annual_simulation(
         seed=seed,
         duration_ms=duration_ms,
         apply_feedback_factor=apply_feedback_factor,
+        alternative_fuel=alternative_fuel,
         # **원본 요청이 준 값**만 넘긴다 (#816 ⑴). 서버가 확정한 `resolved_as_of`를
         # 넘기면 미명시 실행에도 값이 남아, 해시에 키가 없는데 저장에는 있는 어긋남이
         # 생긴다 — 어느 쪽이 정본인지 재현 시점에 가릴 수 없다.
@@ -1184,6 +1218,7 @@ def _payload(
     remaining_voyage_count: int,
     target_rating: str,
     warnings: list[str],
+    fuel_cf_alternative=None,
 ) -> dict[str, object]:
     """``API_SPEC §6.1`` 응답의 본문 — **식별자와 스냅샷 블록을 뺀 나머지**다.
 
@@ -1201,7 +1236,7 @@ def _payload(
     **행에 이미 있는 것을 JSON에 복사해 두면 두 값이 갈릴 수 있다** — 스냅샷 정보의
     정본은 ``simulation_snapshot`` 테이블이다.
     """
-    return {
+    payload: dict[str, object] = {
         "deterministic": {
             "projected_attained_cii": _publish(deterministic.attained_cii),
             "projected_rating": deterministic.rating,
@@ -1253,6 +1288,24 @@ def _payload(
         "sensitivity_analysis": sensitivity,
         "warnings": sorted(set(warnings)),
     }
+    # 대체 연료 지렛대 (#756 ⑴) — 고른 실행에만 블록이 있다. `PRD §12.6`의 다섯
+    # 변수 중 하나이므로 **`sensitivity_analysis` 안에** 둔다(다른 지렛대와 같은 자리).
+    # 표시 자릿수는 `deterministic.projected_attained_cii`(6자리)·
+    # `parameters_used.fuel_types[].cf`(`str`)와 같은 규칙을 쓴다 — 같은 응답 안의
+    # 같은 종류 값이 표기까지 다르면 문자열 비교에서 다른 값으로 읽힌다.
+    if fuel_cf_alternative is not None:
+        payload["sensitivity_analysis"]["fuel_cf_alternative"] = {
+            "alternative_fuel": fuel_cf_alternative.fuel_code,
+            "alternative_cf": str(fuel_cf_alternative.cf),
+            "projected_cii": _publish(fuel_cf_alternative.attained_cii),
+            "co2_change": "{}%".format(
+                (fuel_cf_alternative.co2_change_ratio * 100).quantize(
+                    Decimal("0.1"), rounding=LAYER1_ROUNDING
+                )
+            ),
+            "rating_change": f"{deterministic.rating}→{fuel_cf_alternative.rating}",
+        }
+    return payload
 
 
 def _envelope(
@@ -1316,6 +1369,8 @@ def _envelope(
     # `PRD §12.2.1` 실적 보정계수(`#363`) — 같은 이유로 옮겨 싣고, 블록 이전 실행에는 없다.
     if "feedback" in payload:
         data["feedback"] = payload["feedback"]
+    # 대체 연료 지렛대 (#756 ⑴) — 본문에 있을 때만. ⚠️ `#433`의 교훈: 여기를
+    # 잊으면 저장은 됐는데 **응답에 한 번도 나가지 않는다.**
     return {
         "data": data,
         "parameters_used": parameters_used,
@@ -1353,6 +1408,7 @@ def _input_hash(
     vessel_json: dict,
     apply_feedback_factor: bool = False,
     as_of: datetime | None = None,
+    alternative_fuel: str | None = None,
 ) -> str:
     """``input_hash``의 재료를 한 곳에 둔다 (``TECH_SPEC §5.3``).
 
@@ -1398,6 +1454,9 @@ def _input_hash(
     # 온 값으로 같은 표기를 만들어야 한다).
     if as_of is not None:
         material["as_of"] = _millis(as_of).isoformat()
+    # 대체 연료 선택 (#756 ⑴) — 골랐을 때만. 네 번째 선택 키다(`as_of`와 같은 규칙).
+    if alternative_fuel is not None:
+        material["alternative_fuel"] = alternative_fuel
     return compute_annual_input_hash(material)
 
 
@@ -1417,6 +1476,7 @@ async def _persist(
     duration_ms: int,
     apply_feedback_factor: bool = False,
     as_of: datetime | None = None,
+    alternative_fuel: str | None = None,
 ):
     """스냅샷 → 계산 이력 → 시뮬레이션 실행 순으로 저장한다.
 
@@ -1441,6 +1501,7 @@ async def _persist(
         vessel_json=vessel_json,
         apply_feedback_factor=apply_feedback_factor,
         as_of=as_of,
+        alternative_fuel=alternative_fuel,
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
@@ -1524,9 +1585,9 @@ async def _persist(
         text(
             "INSERT INTO annual_simulation_run "
             "(id, calculation_run_id, vessel_id, regulation_year, target_rating, "
-            " simulation_runs, snapshot_id, apply_feedback_factor, as_of) "
+            " simulation_runs, snapshot_id, apply_feedback_factor, as_of, alternative_fuel) "
             "VALUES (:id, :run_id, :vessel_id, :year, :target, :runs, :snapshot_id, "
-            " :feedback, :as_of)"
+            " :feedback, :as_of, :alt_fuel)"
         ).bindparams(*_uuid_binds("id", "run_id", "vessel_id", "snapshot_id")),
         {
             "id": simulation_id,
@@ -1540,6 +1601,8 @@ async def _persist(
             # 명시 실행만 값이 있다. 밀리초로 깎아 저장한다(위 `_millis`) — DB 정밀도와
             # 해시 재료가 같아야 재현의 대조가 성립한다.
             "as_of": None if as_of is None else _millis(as_of),
+            # 대체 연료 선택 (#756 ⑴) — 골랐을 때만. 재현이 이 값으로 선택 키를 재생한다.
+            "alt_fuel": alternative_fuel,
         },
     )
 
@@ -1601,7 +1664,7 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
             text(
                 "SELECT r.id AS simulation_id, r.calculation_run_id, r.vessel_id, "
                 "       r.regulation_year, r.target_rating, r.simulation_runs, r.snapshot_id, "
-                "       r.apply_feedback_factor, r.as_of, "
+                "       r.apply_feedback_factor, r.as_of, r.alternative_fuel, "
                 "       c.result_json, c.parameters_used, c.input_hash, c.parameter_hash, "
                 "       c.model_version, c.duration_ms, "
                 "       s.created_at AS snapshot_created_at, "
@@ -1886,6 +1949,8 @@ async def reproduce_annual_simulation(
             # 키가 안 들어가 종전 해시와 같은 식이 된다 — 명시 여부는 컬럼의 NULL 여부가
             # 곧 판정이다.
             as_of=row.as_of,
+            # 대체 연료 선택도 재생한다 (#756 ⑴) — 골랐던 실행의 해시에 키가 있다.
+            alternative_fuel=row.alternative_fuel,
         )
         != row.input_hash
     )
@@ -1909,6 +1974,20 @@ async def reproduce_annual_simulation(
             "새로 실행하면 현재 파라미터 기준의 결과를 얻을 수 있습니다."
         )
 
+    # 원본이 고른 대체 연료가 있으면 **지금 활성 CF**로 지렛대를 다시 낸다 (#756 ⑴).
+    # CF가 개정됐다면 재계산 결과가 원본과 어긋나 `ReproducibilityError`(500)가 아니라
+    # `parameter_hash` 검사(409)가 먼저 잡는다 — `fuel_types` 블록(v2)이 CF를 담고
+    # 있으므로 개정은 파라미터 변경으로 드러난다.
+    alternative_cf: Decimal | None = None
+    if row.alternative_fuel is not None:
+        alt_rows = await param_repo.get_fuel_types_by_codes(session, [row.alternative_fuel])
+        if row.alternative_fuel not in alt_rows:
+            raise ParameterError(
+                f"원본 실행이 고른 대체 연료({row.alternative_fuel})가 활성 목록에 없어 "
+                "재현할 수 없습니다. 새로 실행해 주세요."
+            )
+        alternative_cf = Decimal(str(alt_rows[row.alternative_fuel].cf))
+
     payload = _recompute(
         vessel=vessel,
         regulation=regulation,
@@ -1920,6 +1999,8 @@ async def reproduce_annual_simulation(
         seed=seed,
         profile_rows=profile_rows,
         apply_feedback_factor=row.apply_feedback_factor,
+        alternative_fuel=row.alternative_fuel,
+        alternative_cf=alternative_cf,
     )
 
     # `TECH_SPEC §5.4` 1항 — 같은 결과를 약속하는 조건은 **input_hash · parameter_hash ·
@@ -2081,6 +2162,8 @@ def _recompute(
     seed: int,
     profile_rows,
     apply_feedback_factor: bool = False,
+    alternative_fuel: str | None = None,
+    alternative_cf: Decimal | None = None,
 ) -> dict[str, object]:
     """스냅샷으로 계산만 다시 한다. 저장하지 않는다.
 
@@ -2159,6 +2242,24 @@ def _recompute(
         profile=profile,
     )
 
+    # 대체 연료 지렛대 재계산 (#756 ⑴) — 원본이 골랐을 때만. CF는 **지금 활성 값**을
+    # 쓴다(인자로 받는다 — reproduce가 현재 표에서 읽어 넘긴다). 개정됐다면 결과가
+    # 어긋나 `ModelVersionMismatch`가 아니라 결과 대조에서 드러난다 — 파라미터 변경은
+    # `parameter_hash` 검사(409)가 이미 잡는 층위다.
+    fuel_cf_alternative = None
+    extra_warnings: list[str] = []
+    if alternative_fuel is not None and alternative_cf is not None:
+        fuel_cf_alternative = fuel_cf_alternative_projection(
+            completed=completed,
+            remaining=remaining,
+            transport_capacity=transport_capacity,
+            required_cii=required_cii,
+            d_vector=d_vector,
+            alternative_fuel=alternative_fuel,
+            alternative_cf=alternative_cf,
+        )
+        extra_warnings.append(WARNING_FUEL_CF_MASS_BASIS)
+
     return _payload(
         deterministic=deterministic,
         feedback=feedback,
@@ -2166,10 +2267,11 @@ def _recompute(
         outcome=outcome,
         sensitivity=sensitivity,
         transport_capacity=transport_capacity,
+        fuel_cf_alternative=fuel_cf_alternative,
         completed_voyage_count=len(voyages_json) - _plan_voyage_count(voyages_json),
         remaining_voyage_count=_plan_voyage_count(voyages_json),
         target_rating=target_rating,
-        warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings],
+        warnings=[*outcome.warnings, *sensitivity_warnings, *input_warnings, *extra_warnings],
     )
 
 
