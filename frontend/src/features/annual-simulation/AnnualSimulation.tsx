@@ -32,6 +32,7 @@ import {
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
+import { Field } from '../../components/Field'
 import { SnapshotVoyages } from './SnapshotVoyages'
 import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
@@ -296,76 +297,93 @@ export function AnnualSimulation({
           {ANNUAL_COPY.fleetLink}
         </Link>
 
-        <label className="annual-sim__field">
-          <span className="annual-sim__label">기준연도</span>
-          {yearsLoading ? (
-            <span className="annual-sim__hint">규제연도 목록을 불러오는 중…</span>
-          ) : yearsFailed ? (
-            <span className="annual-sim__hint">규제연도 목록을 불러오지 못했습니다</span>
-          ) : (
-            <select value={year} onChange={(event) => setYear(event.target.value)}>
-              {years.map((y) => (
-                <option key={y} value={String(y)}>
-                  {y}
+        {/* 컨트롤이 없는 가지가 있다(로딩·실패) — `control`은 `<select>`를 실제로
+            그리는 가지에서만 펼친다 (`#936`). */}
+        <Field
+          id="annual-sim-year"
+          label="기준연도"
+          hint="규제연도에 따라 required CII와 등급 경계가 달라집니다."
+        >
+          {(control) =>
+            yearsLoading ? (
+              <span className="annual-sim__hint">규제연도 목록을 불러오는 중…</span>
+            ) : yearsFailed ? (
+              <span className="annual-sim__hint">규제연도 목록을 불러오지 못했습니다</span>
+            ) : (
+              <select
+                {...control}
+                className="annual-sim__control"
+                value={year}
+                onChange={(event) => setYear(event.target.value)}
+              >
+                {years.map((y) => (
+                  <option key={y} value={String(y)}>
+                    {y}
+                  </option>
+                ))}
+              </select>
+            )
+          }
+        </Field>
+
+        <Field
+          id="annual-sim-target"
+          label={ANNUAL_COPY.targetRatingLabel}
+          hint={ANNUAL_COPY.targetRatingHint}
+        >
+          {(control) => (
+            <select
+              {...control}
+              className="annual-sim__control"
+              value={target}
+              onChange={(event) =>
+                setTarget(event.target.value as (typeof TARGET_RATINGS)[number])
+              }
+            >
+              {TARGET_RATINGS.map((rating) => (
+                <option key={rating} value={rating}>
+                  {rating}
                 </option>
               ))}
             </select>
           )}
-          <span className="annual-sim__hint">
-            규제연도에 따라 required CII와 등급 경계가 달라집니다.
-          </span>
-        </label>
+        </Field>
 
-        <label className="annual-sim__field">
-          <span className="annual-sim__label">{ANNUAL_COPY.targetRatingLabel}</span>
-          <select
-            value={target}
-            onChange={(event) =>
-              setTarget(event.target.value as (typeof TARGET_RATINGS)[number])
-            }
-          >
-            {TARGET_RATINGS.map((rating) => (
-              <option key={rating} value={rating}>
-                {rating}
-              </option>
-            ))}
-          </select>
-          <span className="annual-sim__hint">{ANNUAL_COPY.targetRatingHint}</span>
-        </label>
-
-        <label className="annual-sim__field">
-          <span className="annual-sim__label">{ANNUAL_COPY.runsLabel}</span>
+        <Field
+          id="annual-sim-runs"
+          label={ANNUAL_COPY.runsLabel}
+          hint={ANNUAL_COPY.runsHint}
+          error={runsError ?? undefined}
+        >
           {/* `step`을 두지 않는다 — 서버 규칙(정수 · 1,000 이상)에 없는 제약이다. */}
-          <input
-            type="number"
-            min={RUNS_MIN}
-            max={RUNS_MAX}
-            value={runs}
-            aria-invalid={runsError !== null}
-            aria-describedby={runsError === null ? undefined : 'annual-sim-runs-error'}
-            onChange={(event) => {
-              setRuns(event.target.value)
-              setRunsError(null)
-            }}
-          />
-          <span className="annual-sim__hint">{ANNUAL_COPY.runsHint}</span>
-          {runsError === null ? null : (
-            <span id="annual-sim-runs-error" className="annual-sim__field-error" role="alert">
-              {runsError}
-            </span>
+          {(control) => (
+            <input
+              {...control}
+              className="annual-sim__control"
+              type="number"
+              min={RUNS_MIN}
+              max={RUNS_MAX}
+              value={runs}
+              onChange={(event) => {
+                setRuns(event.target.value)
+                setRunsError(null)
+              }}
+            />
           )}
-        </label>
+        </Field>
 
-        <label className="annual-sim__field">
-          <span className="annual-sim__label">{ANNUAL_COPY.seedLabel}</span>
-          <input
-            type="text"
-            inputMode="numeric"
-            value={seed}
-            onChange={(event) => setSeed(event.target.value)}
-          />
-          <span className="annual-sim__hint">{ANNUAL_COPY.seedHint}</span>
-        </label>
+        <Field id="annual-sim-seed" label={ANNUAL_COPY.seedLabel} hint={ANNUAL_COPY.seedHint}>
+          {(control) => (
+            <input
+              {...control}
+              className="annual-sim__control"
+              type="text"
+              inputMode="numeric"
+              value={seed}
+              onChange={(event) => setSeed(event.target.value)}
+            />
+          )}
+        </Field>
 
         <div className="annual-sim__field">
           <label className="annual-sim__check" htmlFor="annual-sim-feedback">

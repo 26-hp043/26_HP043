@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import './VesselRegistration.css'
 import { DISPLAY_UNITS, DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
@@ -26,6 +26,7 @@ import {
 } from './sampleVessels'
 import { SHIP_TYPES, shipTypeLabel } from './shipTypes'
 import type { Vessel } from './types'
+import { Field } from '../../components/Field'
 
 /**
  * 선박 등록 화면 (`UIFLOW 1-2` · `PRD §6.2 SCR-002` · #441).
@@ -159,27 +160,28 @@ export function VesselRegistration() {
               labelEn="Sample Vessel"
               hint="선종과 제원을 채웁니다. IMO 번호와 선명은 직접 입력해 주세요."
             >
-              <select
-                id="sample-vessel"
-                className="vessel-registration__control"
-                value={sampleId}
-                aria-describedby="sample-vessel-hint"
-                onChange={(e) => chooseSample(e.target.value)}
-              >
-                <option value="">
-                  {samplesLoading
-                    ? '샘플 목록을 불러오는 중…'
-                    : samplesFailed
-                      ? '샘플 목록을 불러오지 못했습니다'
-                      : '선택하지 않음'}
-                </option>
-                {samples.map((sample) => (
-                  <option key={sample.sample_id} value={sample.sample_id}>
-                    {sample.label}
+              {(control) => (
+                <select
+                  {...control}
+                  className="vessel-registration__control"
+                  value={sampleId}
+                  onChange={(e) => chooseSample(e.target.value)}
+                >
+                  <option value="">
+                    {samplesLoading
+                      ? '샘플 목록을 불러오는 중…'
+                      : samplesFailed
+                        ? '샘플 목록을 불러오지 못했습니다'
+                        : '선택하지 않음'}
                   </option>
-                ))}
-              </select>
-            </Field>
+                  {samples.map((sample) => (
+                    <option key={sample.sample_id} value={sample.sample_id}>
+                      {sample.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+                        </Field>
           </div>
           {samplesFailed ? (
             <p className="vessel-registration__notice" role="status">
@@ -198,33 +200,33 @@ export function VesselRegistration() {
               error={errors[FIELD.imoNumber]}
               hint="숫자 7자리"
             >
-              <input
-                id="imo-number"
-                className="vessel-registration__control"
-                type="text"
-                inputMode="numeric"
-                autoComplete="off"
-                maxLength={7}
-                value={state.imoNumber}
-                aria-invalid={FIELD.imoNumber in errors}
-                aria-describedby={describedBy('imo-number', FIELD.imoNumber in errors, true)}
-                onChange={(e) => update('imoNumber', e.target.value, FIELD.imoNumber)}
-              />
-            </Field>
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  maxLength={7}
+                  value={state.imoNumber}
+                  onChange={(e) => update('imoNumber', e.target.value, FIELD.imoNumber)}
+                />
+              )}
+                        </Field>
 
             <Field id="name" label="선명" labelEn="Vessel Name" error={errors[FIELD.name]}>
-              <input
-                id="name"
-                className="vessel-registration__control"
-                type="text"
-                autoComplete="off"
-                maxLength={NAME_MAX_LENGTH}
-                value={state.name}
-                aria-invalid={FIELD.name in errors}
-                aria-describedby={describedBy('name', FIELD.name in errors, false)}
-                onChange={(e) => update('name', e.target.value, FIELD.name)}
-              />
-            </Field>
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  autoComplete="off"
+                  maxLength={NAME_MAX_LENGTH}
+                  value={state.name}
+                  onChange={(e) => update('name', e.target.value, FIELD.name)}
+                />
+              )}
+                        </Field>
 
             <Field
               id="ship-type"
@@ -232,23 +234,23 @@ export function VesselRegistration() {
               labelEn="Ship Type"
               error={errors[FIELD.shipType]}
             >
-              <select
-                id="ship-type"
-                className="vessel-registration__control"
-                value={state.shipType}
-                aria-invalid={FIELD.shipType in errors}
-                aria-describedby={describedBy('ship-type', FIELD.shipType in errors, false)}
-                onChange={(e) => update('shipType', e.target.value, FIELD.shipType)}
-              >
-                <option value="">선택해 주세요</option>
-                {/* 목록은 `shipTypes.ts`가 갖고, `capacity.py`와의 일치는 CI가 지킨다 */}
-                {SHIP_TYPES.map((type) => (
-                  <option key={type.code} value={type.code}>
-                    {type.label} ({type.code})
-                  </option>
-                ))}
-              </select>
-            </Field>
+              {(control) => (
+                <select
+                  {...control}
+                  className="vessel-registration__control"
+                  value={state.shipType}
+                  onChange={(e) => update('shipType', e.target.value, FIELD.shipType)}
+                >
+                  <option value="">선택해 주세요</option>
+                  {/* 목록은 `shipTypes.ts`가 갖고, `capacity.py`와의 일치는 CI가 지킨다 */}
+                  {SHIP_TYPES.map((type) => (
+                    <option key={type.code} value={type.code}>
+                      {type.label} ({type.code})
+                    </option>
+                  ))}
+                </select>
+              )}
+                        </Field>
           </div>
         </fieldset>
 
@@ -269,17 +271,17 @@ export function VesselRegistration() {
               unit="DWT"
               error={errors[FIELD.deadweight]}
             >
-              <input
-                id="deadweight"
-                className="vessel-registration__control"
-                type="text"
-                inputMode="decimal"
-                value={state.deadweight}
-                aria-invalid={FIELD.deadweight in errors}
-                aria-describedby={describedBy('deadweight', FIELD.deadweight in errors, false)}
-                onChange={(e) => update('deadweight', e.target.value, FIELD.deadweight)}
-              />
-            </Field>
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  inputMode="decimal"
+                  value={state.deadweight}
+                  onChange={(e) => update('deadweight', e.target.value, FIELD.deadweight)}
+                />
+              )}
+                        </Field>
 
             <Field
               id="gross-tonnage"
@@ -288,21 +290,17 @@ export function VesselRegistration() {
               unit="GT"
               error={errors[FIELD.grossTonnage]}
             >
-              <input
-                id="gross-tonnage"
-                className="vessel-registration__control"
-                type="text"
-                inputMode="decimal"
-                value={state.grossTonnage}
-                aria-invalid={FIELD.grossTonnage in errors}
-                aria-describedby={describedBy(
-                  'gross-tonnage',
-                  FIELD.grossTonnage in errors,
-                  false,
-                )}
-                onChange={(e) => update('grossTonnage', e.target.value, FIELD.grossTonnage)}
-              />
-            </Field>
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  inputMode="decimal"
+                  value={state.grossTonnage}
+                  onChange={(e) => update('grossTonnage', e.target.value, FIELD.grossTonnage)}
+                />
+              )}
+                        </Field>
 
             <Field
               id="reference-speed"
@@ -311,23 +309,19 @@ export function VesselRegistration() {
               unit={DISPLAY_UNITS.speed}
               error={errors[FIELD.referenceSpeedKn]}
             >
-              <input
-                id="reference-speed"
-                className="vessel-registration__control"
-                type="text"
-                inputMode="decimal"
-                value={state.referenceSpeedKn}
-                aria-invalid={FIELD.referenceSpeedKn in errors}
-                aria-describedby={describedBy(
-                  'reference-speed',
-                  FIELD.referenceSpeedKn in errors,
-                  false,
-                )}
-                onChange={(e) =>
-                  update('referenceSpeedKn', e.target.value, FIELD.referenceSpeedKn)
-                }
-              />
-            </Field>
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  inputMode="decimal"
+                  value={state.referenceSpeedKn}
+                  onChange={(e) =>
+                    update('referenceSpeedKn', e.target.value, FIELD.referenceSpeedKn)
+                  }
+                />
+              )}
+                        </Field>
 
             <Field
               id="reference-foc"
@@ -336,23 +330,19 @@ export function VesselRegistration() {
               unit={DISPLAY_UNIT_DAILY_FUEL}
               error={errors[FIELD.referenceDailyFocTon]}
             >
-              <input
-                id="reference-foc"
-                className="vessel-registration__control"
-                type="text"
-                inputMode="decimal"
-                value={state.referenceDailyFocTon}
-                aria-invalid={FIELD.referenceDailyFocTon in errors}
-                aria-describedby={describedBy(
-                  'reference-foc',
-                  FIELD.referenceDailyFocTon in errors,
-                  false,
-                )}
-                onChange={(e) =>
-                  update('referenceDailyFocTon', e.target.value, FIELD.referenceDailyFocTon)
-                }
-              />
-            </Field>
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  inputMode="decimal"
+                  value={state.referenceDailyFocTon}
+                  onChange={(e) =>
+                    update('referenceDailyFocTon', e.target.value, FIELD.referenceDailyFocTon)
+                  }
+                />
+              )}
+                        </Field>
 
             <Field
               id="default-fuel"
@@ -360,32 +350,28 @@ export function VesselRegistration() {
               labelEn="Default Fuel"
               error={errors[FIELD.defaultFuelType]}
             >
-              <select
-                id="default-fuel"
-                className="vessel-registration__control"
-                value={state.defaultFuelType}
-                aria-invalid={FIELD.defaultFuelType in errors}
-                aria-describedby={describedBy(
-                  'default-fuel',
-                  FIELD.defaultFuelType in errors,
-                  false,
-                )}
-                onChange={(e) => update('defaultFuelType', e.target.value, FIELD.defaultFuelType)}
-              >
-                <option value="">
-                  {fuelsLoading
-                    ? '연료 목록을 불러오는 중…'
-                    : fuelsFailed
-                      ? '연료 목록을 불러오지 못했습니다'
-                      : '선택하지 않음'}
-                </option>
-                {fuels.map((fuel) => (
-                  <option key={fuel.code} value={fuel.code}>
-                    {fuelTypeOptionText(fuel.code)}
+              {(control) => (
+                <select
+                  {...control}
+                  className="vessel-registration__control"
+                  value={state.defaultFuelType}
+                  onChange={(e) => update('defaultFuelType', e.target.value, FIELD.defaultFuelType)}
+                >
+                  <option value="">
+                    {fuelsLoading
+                      ? '연료 목록을 불러오는 중…'
+                      : fuelsFailed
+                        ? '연료 목록을 불러오지 못했습니다'
+                        : '선택하지 않음'}
                   </option>
-                ))}
-              </select>
-            </Field>
+                  {fuels.map((fuel) => (
+                    <option key={fuel.code} value={fuel.code}>
+                      {fuelTypeOptionText(fuel.code)}
+                    </option>
+                  ))}
+                </select>
+              )}
+                        </Field>
           </div>
         </fieldset>
 
@@ -461,46 +447,3 @@ function Spec({ label, value }: { label: string; value: string }) {
   )
 }
 
-/** `aria-describedby` 조합. 오류·힌트가 있는 것만 잇는다. */
-function describedBy(id: string, hasError: boolean, hasHint: boolean): string | undefined {
-  return (
-    [hasError ? `${id}-error` : null, hasHint ? `${id}-hint` : null]
-      .filter(Boolean)
-      .join(' ') || undefined
-  )
-}
-
-interface FieldProps {
-  id: string
-  label: string
-  /** 요청 본문의 필드명. `DESIGN_SYSTEM §14` 「한국어 라벨 + 영문 병기」. */
-  labelEn: string
-  unit?: string
-  hint?: string
-  error?: string
-  children: ReactNode
-}
-
-/** 라벨 + 컨트롤 + 보조 문구 + 오류 한 벌. 오류는 컨트롤 **아래**에 둔다. */
-function Field({ id, label, labelEn, unit, hint, error, children }: FieldProps) {
-  return (
-    <div className="vessel-registration__field">
-      <label className="vessel-registration__label" htmlFor={id}>
-        {label}
-        <span className="vessel-registration__label-en"> {labelEn}</span>
-        {unit ? <span className="vessel-registration__unit">{unit}</span> : null}
-      </label>
-      {children}
-      {hint ? (
-        <p className="vessel-registration__hint" id={`${id}-hint`}>
-          {hint}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="vessel-registration__error" id={`${id}-error`} role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  )
-}

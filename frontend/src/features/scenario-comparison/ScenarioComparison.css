@@ -129,19 +129,13 @@
   border-top: 1px solid var(--color-border);
 }
 
-.scenario-comparison__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.scenario-comparison__field > span:first-child {
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
-}
-
-.scenario-comparison__field input,
-.scenario-comparison__field select {
+/*
+ * 입력칸만 남긴다 — 래퍼·라벨·오류문은 공용 `.field`가 준다 (`#936` · `§8.4`).
+ *
+ * ⚠️ 종전에는 `.scenario-comparison__field input`처럼 **자손 선택자**였다. 래퍼가
+ * 공용 클래스로 바뀌면 조용히 안 걸리므로 입력칸 자체에 이름을 준다.
+ */
+.scenario-comparison__control {
   height: 40px;
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
@@ -150,13 +144,11 @@
   color: var(--color-text);
 }
 
-.scenario-comparison__field input:focus-visible,
-.scenario-comparison__field select:focus-visible {
+.scenario-comparison__control:focus-visible {
   outline: var(--focus-ring);
 }
 
-.scenario-comparison__field input[aria-invalid='true'],
-.scenario-comparison__field select[aria-invalid='true'] {
+.scenario-comparison__control[aria-invalid='true'] {
   border-color: var(--color-danger);
 }
 
@@ -169,11 +161,6 @@
   border: 1px dashed var(--border-default);
   border-radius: var(--radius-control);
   background: var(--surface-card);
-}
-
-.scenario-comparison__field-error {
-  color: var(--color-danger-text);
-  font-size: var(--font-size-micro);
 }
 
 .scenario-comparison__field-hint {

@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import func, select, tuple_
 
 from cii_platform.db.models.calculation_run import CalculationRun
 
@@ -232,6 +232,40 @@ async def list_runs(
         limit + 1
     )
     return list((await session.execute(stmt)).scalars().all())
+
+
+async def count_needs_recalc_runs(
+    session: AsyncSession,
+    *,
+    input_hash: str | None = None,
+    parameter_hash: str | None = None,
+    calculation_type: str | None = None,
+    vessel_id: UUID | None = None,
+) -> int:
+    """같은 필터에서 ``needs_recalc``가 켜진 계산 수를 센다 (API_SPEC §1.9, #1076).
+
+    ``list_runs``와 **필터를 똑같이 걸되 커서는 보지 않는다** — 이 수는 페이지가 아니라
+    필터 전체에 대한 값이고, 페이지를 넘겨도 변하지 않아야 화면이 그것을 「이 선박의
+    낡은 계산 수」로 말할 수 있다.
+
+    화면이 받은 페이지만 세면 **21번째 행부터 낡아 있어도 머리에 「0건」이 찍힌다** —
+    「낡은 계산이 없다」와 「아직 다 세어 보지 않았다」가 같은 모양이 되는 자리였다(#1076).
+
+    ``needs_recalc == 1``로 비교하는 이유는 CUBRID가 ``IS 1``(``.is_(True)``의 출력)을
+    거부하기 때문이다 — ``repositories/parameters.py:131``에 같은 주석이 있다.
+    """
+    stmt = select(func.count()).select_from(CalculationRun).where(CalculationRun.needs_recalc == 1)
+
+    if input_hash is not None:
+        stmt = stmt.where(CalculationRun.input_hash == input_hash)
+    if parameter_hash is not None:
+        stmt = stmt.where(CalculationRun.parameter_hash == parameter_hash)
+    if calculation_type is not None:
+        stmt = stmt.where(CalculationRun.calculation_type == calculation_type)
+    if vessel_id is not None:
+        stmt = stmt.where(CalculationRun.vessel_id == vessel_id)
+
+    return int((await session.execute(stmt)).scalar_one())
 
 
 async def list_for_export(

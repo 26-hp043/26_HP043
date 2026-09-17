@@ -90,36 +90,6 @@
   }
 }
 
-.vessel-registration__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  min-width: 0;
-}
-
-.vessel-registration__label {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-4);
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
-  line-height: var(--line-height-label);
-  color: var(--color-text);
-}
-
-.vessel-registration__label-en {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-body);
-}
-
-.vessel-registration__unit {
-  margin-left: auto;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-body);
-}
-
 .vessel-registration__control {
   width: 100%;
   height: 40px;
@@ -142,18 +112,6 @@
 /* 색만으로 오류를 알리지 않는다 — 아래쪽 메시지가 항상 붙는다(§14). */
 .vessel-registration__control[aria-invalid='true'] {
   border-color: var(--color-danger);
-}
-
-.vessel-registration__hint {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
-}
-
-.vessel-registration__error {
-  color: var(--color-danger-text);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
 }
 
 .vessel-registration__submit {

@@ -172,3 +172,47 @@ describe('선박을 바꾸면 항차 목록이 어긋나지 않는다 (#824 ⑵)
     expect(screen.queryByText(/항차 목록을 불러오는 중/)).toBeNull()
   })
 })
+
+/**
+ * 선박 목록의 **실패와 없음** (`#1076` ⑴).
+ *
+ * 항차 칸이 `#824` ⑵에서 고쳐진 뒤에도 **선박 칸만 `[]`로 떨어지고 있었다.** 게다가
+ * 실패 문구를 리포트 생성 오류 칸(`failure`)에 담아, `run()`의 `setFailure(null)`이
+ * 그것을 지웠다 — 「미리보기」를 한 번 누르면 **오류는 사라지고 「등록된 선박이
+ * 없습니다」만 남아** 원인이 정반대로 읽혔다.
+ */
+describe('선박 목록 조회 실패를 「선박 없음」으로 말하지 않는다 (#1076 ⑴)', () => {
+  const failing = () =>
+    stub({
+      listVessels: vi.fn(async () => {
+        throw new Error('서버 오류')
+      }),
+    })
+
+  it('실패했을 때 「등록된 선박이 없습니다」가 나오지 않는다', async () => {
+    render(<ReportsView provider={failing()} />)
+
+    expect(await screen.findByText(/선박 목록을 불러오지 못했습니다/)).toBeTruthy()
+    expect(screen.queryByText(/등록된 선박이 없습니다/)).toBeNull()
+  })
+
+  it('미리보기를 눌러도 실패 표시가 지워지지 않는다', async () => {
+    render(<ReportsView provider={failing()} />)
+    await screen.findByText(/선박 목록을 불러오지 못했습니다/)
+
+    // 이 버튼이 `setFailure(null)`을 부른다 — 종전에는 여기서 원인이 뒤바뀌었다.
+    fireEvent.click(screen.getByTestId('preview-button'))
+
+    await waitFor(() =>
+      expect(screen.queryByText(/등록된 선박이 없습니다/)).toBeNull(),
+    )
+    expect(screen.getByText(/선박 목록을 불러오지 못했습니다/)).toBeTruthy()
+  })
+
+  it('진짜로 선박이 없으면 종전대로 「없음」이다', async () => {
+    render(<ReportsView provider={stub({ listVessels: vi.fn(async () => []) })} />)
+
+    expect(await screen.findByText(/등록된 선박이 없습니다/)).toBeTruthy()
+    expect(screen.queryByText(/선박 목록을 불러오지 못했습니다/)).toBeNull()
+  })
+})
