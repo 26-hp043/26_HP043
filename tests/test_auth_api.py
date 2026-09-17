@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from pathlib import Path
 
 import pytest
@@ -397,5 +398,77 @@ class TestResponseContract:
             gone = client.delete("/api/v1/auth/me", headers=csrf)
             assert gone.status_code == 204, gone.text
             assert gone.content == b""
+        finally:
+            await _cleanup([email])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 마지막 로그인 시각 (#1089)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestLastLoginAt:
+    """``last_login_at``이 **실제 로그인 경로**에서 채워진다.
+
+    종전에는 이 대입이 개발용 스텁(``auth_dev.py``)에만 있어, 운영에서 로그인을
+    아무리 해도 ``GET /auth/me``의 ``last_login_at``이 늘 ``null``이었다. 그 값은
+    ``API_SPEC §1.2`` 응답 계약이고 `DB_SCHEMA §2.14`·`PRD §7.10`이 「마지막 로그인
+    시각」으로 정의한다.
+    """
+
+    async def test_login_fills_last_login_at_in_response_and_db(self, client):
+        """응답과 DB **둘 다** 본다 — 응답만 보면 커밋되지 않은 값도 통과한다."""
+        from cii_platform.db.session import get_sessionmaker
+
+        email = "lastlogin@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            client.cookies.clear()
+
+            before = dt.datetime.now(dt.UTC)
+            resp = client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+            after = dt.datetime.now(dt.UTC)
+            assert resp.status_code == 200, resp.text
+
+            stamped = resp.json()["data"]["last_login_at"]
+            assert stamped is not None, "로그인했는데 응답의 last_login_at이 비어 있다"
+            parsed = dt.datetime.fromisoformat(stamped)
+            assert before <= parsed <= after, f"{before} <= {parsed} <= {after}가 아니다"
+
+            # DB에도 남았는가 — 커밋 전 값만 실어 보내면 다음 조회에서 사라진다.
+            async with get_sessionmaker()() as s:
+                row = await s.execute(
+                    text("SELECT last_login_at FROM app_user WHERE email = :e"), {"e": email}
+                )
+                assert row.scalar_one() is not None
+        finally:
+            await _cleanup([email])
+
+    async def test_signup_fills_it_too_because_signup_logs_you_in(self, client):
+        """가입은 **즉시 로그인 상태**가 된다 — 그런데 「로그인한 적 없음」으로 보이면 안 된다.
+
+        `null`은 「한 번도 로그인한 적 없다」는 뜻으로 읽힌다. 지금 로그인해 있는
+        사용자에게 그 값을 주면 「값이 없다」와 「한 번도 없었다」가 같은 모양이 된다.
+        """
+        email = "signuplogin@example.com"
+        try:
+            resp = client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            assert resp.status_code == 201, resp.text
+            assert resp.json()["data"]["last_login_at"] is not None
+        finally:
+            await _cleanup([email])
+
+    async def test_a_second_login_moves_the_stamp_forward(self, client):
+        """「마지막」이니 갱신돼야 한다 — 처음 한 번만 찍고 마는 것이 아니다."""
+        email = "relogin@example.com"
+        try:
+            first = client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            first_stamp = dt.datetime.fromisoformat(first.json()["data"]["last_login_at"])
+            client.cookies.clear()
+
+            second = client.post("/api/v1/auth/login", json={"email": email, "password": PASSWORD})
+            second_stamp = dt.datetime.fromisoformat(second.json()["data"]["last_login_at"])
+
+            assert second_stamp >= first_stamp, "두 번째 로그인이 시각을 뒤로 돌렸다"
         finally:
             await _cleanup([email])

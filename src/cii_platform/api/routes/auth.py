@@ -203,7 +203,23 @@ async def _issue_session(
     request: Request,
     user: AppUser,
 ) -> tuple[str, str]:
-    """세션 행을 만들고 ``(session_token, csrf_token)``을 돌려준다."""
+    """세션 행을 만들고 ``(session_token, csrf_token)``을 돌려준다.
+
+    ## 로그인 시각을 여기서 찍는다 (#1089)
+
+    ``last_login_at``(`DB_SCHEMA §2.14` · `PRD §7.10` — 「마지막 로그인 시각」) 대입이
+    **개발용 스텁(`auth_dev.py`)에만** 있어, 운영에서는 로그인을 아무리 해도 늘
+    ``null``이었다. 그 값은 ``GET /auth/me`` 응답에 실린다(`API_SPEC §1.2`).
+
+    라우트마다 대입을 흩어 두지 않고 **세션을 발급하는 이 한 곳**에 둔다 — 세션이
+    생기는 순간이 곧 로그인한 순간이고, 다음 사람이 새 로그인 경로를 더해도 여기를
+    지나므로 빠뜨릴 수 없다.
+
+    **가입도 포함한다.** 가입은 즉시 로그인 상태가 되므로(위 :func:`signup`), 여기서
+    찍지 않으면 **로그인해 있는 사용자가 「로그인한 적 없음」으로 보인다** — 「값이
+    없다」와 「한 번도 없었다」를 같은 모양으로 그리는 자리가 된다.
+    """
+    user.last_login_at = dt.datetime.now(dt.UTC)
     fields, session_token, csrf_token = create_session_fields(
         user.id,
         user_agent=request.headers.get("user-agent"),
