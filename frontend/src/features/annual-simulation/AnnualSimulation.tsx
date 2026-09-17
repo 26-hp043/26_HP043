@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
@@ -863,9 +863,24 @@ function Result({
           </button>
           {reproduce.status === 'success' ? (
             <>
-              <p className="annual-sim__hint" role="status">
-                {ANNUAL_COPY.reproduceSuccess}
-              </p>
+              {/*
+                재현 성공은 **실패와 같은 무게**로 보인다 (2026-09-17 확정 ⓑ · `#1053` 40번).
+
+                종전에는 성공이 `--text-muted` 작은 한 줄이고 실패만 아이콘 달린 블록이라
+                **무게가 반대**였다 — 재현 확인은 「같은 결과가 나왔다」가 곧 결론인
+                검증 행위인데, 그 결론이 더 약하게 보였다.
+
+                모양은 `ErrorState`의 영역 실패를 따른다(중립 면 + 테두리 + 아이콘).
+
+                ⚠️ **색을 쓰지 않는다.** 같은 구조라면 아이콘·문구에 Success를 입히는
+                것이 `§0.2` 제약 2·3의 짝이지만, 라이트 `--color-success`(`#38a169`)가
+                이 면(`--color-surface-2`) 위에서 **2.89**라 비텍스트 `3:1`조차 넘지
+                못한다. Success 값이 정해지면(별건 이슈) 아이콘과 문구에 색만 입히면 된다.
+              */}
+              <div className="annual-sim__reproduce-ok" role="status">
+                <Icon glyph={CheckCircle2} className="annual-sim__reproduce-ok-icon" size={16} />
+                <p className="annual-sim__reproduce-ok-text">{ANNUAL_COPY.reproduceSuccess}</p>
+              </div>
               {/*
                 재현 응답의 경고 (`#1095` ⑶). 문구는 `WARNING_MESSAGE`가 갖는다 —
                 `API_SPEC §1.6`과 `warningMessage.sync.test.ts`가 잠그는 사슬이다.
