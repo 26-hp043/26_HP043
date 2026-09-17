@@ -201,7 +201,7 @@ async def test_response_follows_the_calculation_envelope(session, vessel_id):
 
     result = await _run(session, vessel_id)
 
-    # `_duration_ms`는 라우트가 `meta.duration_ms`로 옮기고 응답에서 빼는 내부 키다.
+    # `_duration_ms`·`_as_of`는 라우트가 `meta`로 옮기고 응답에서 빼는 내부 키다.
     assert set(result) == {
         "data",
         "parameters_used",
@@ -212,6 +212,7 @@ async def test_response_follows_the_calculation_envelope(session, vessel_id):
         "warnings",
         "disclaimer",
         "_duration_ms",
+        "_as_of",
     }
 
     # **`data` 밖으로 옮긴 두 개가 안에 남아 있지 않다** — 같은 값이 두 곳에 있으면

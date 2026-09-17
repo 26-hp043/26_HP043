@@ -264,6 +264,40 @@ async def list_annual_inclusions(
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def list_remaining_plans(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    regulation_year: int,
+    as_of: datetime | None = None,
+) -> list[Voyage]:
+    """``as_of`` 시점의 **잔여 계획** — 도착 예정이 그 시점보다 늦은 것 (#816 ⑴).
+
+    :func:`list_annual_inclusions`의 절단(도착 ≤ ``as_of``)을 계획에 그대로 쓰면
+    잔여가 전멸한다 — 계획은 미래 도착이 본질이라 전부 잘리기 때문이다. 기능③
+    (연말 예상)의 「시점 전망」은 **확정 = 이미 도착 · 잔여 = 아직 도착 전**의 상보
+    집합으로 성립하므로(``PRD §12``), 이쪽만 방향을 반대로 잡는다.
+
+    도착 예정(``planned_arrival_at``)이 없는 계획은 포함한다 — 시각을 모르는 행을
+    「아직 아니다」로 단정할 근거가 없다는 것은 :func:`list_annual_inclusions`와
+    같은 규칙이다.
+    """
+    stmt = select(Voyage).where(
+        Voyage.vessel_id == vessel_id,
+        Voyage.regulation_year == regulation_year,
+        Voyage.annual_inclusion_policy == "INCLUDE_AS_PLAN",
+        Voyage.is_deleted == 0,
+    )
+
+    if as_of is not None:
+        stmt = stmt.where(
+            or_(Voyage.planned_arrival_at.is_(None), Voyage.planned_arrival_at > as_of)
+        )
+
+    stmt = stmt.order_by(Voyage.created_at, Voyage.id)
+    return list((await session.execute(stmt)).scalars().all())
+
+
 async def insert(session: AsyncSession, **fields: object) -> Voyage:
     """새 항차를 INSERT 한다. ``commit``은 호출부가 담당한다."""
     voyage = Voyage(**fields)
