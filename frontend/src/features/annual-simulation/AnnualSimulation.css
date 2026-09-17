@@ -223,6 +223,18 @@
   gap: var(--space-4);
 }
 
+/*
+ * 값 라벨 — `Metric`(921행)과 예상 등급·감축 목표·위험도 칸이 쓴다.
+ *
+ * ⚠️ `#1182`가 이 규칙을 지웠다. 폼 라벨 넷이 공용 `Field`로 옮겨 가면서 「이제 아무도
+ * 안 쓴다」고 본 것인데, **폼 밖의 네 곳이 남아 있었다.** `deadCss.test.ts`는 반대
+ * 방향(정의됐는데 안 쓰임)만 보고 있어 잡히지 않았다 — 이 PR에서 그 짝을 채운다.
+ */
+.annual-sim__label {
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+}
+
 /* 체크박스 한 줄 — `VoyageCiiActions.css`의 `__check`와 같은 값을 쓴다. */
 .annual-sim__check {
   display: flex;
