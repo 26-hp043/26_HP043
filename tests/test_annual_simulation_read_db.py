@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -38,6 +39,7 @@ from cii_platform.errors import (
 from cii_platform.services import annual_simulation as annual_simulation_service
 from cii_platform.services.annual_simulation import (
     PARAMETERS_SCHEMA_V1,
+    PARAMETERS_SCHEMA_V2,
     WARNING_MODEL_VERSION_DIFFERS,
     _assert_same_outcome,
     _model_version_diff,
@@ -90,15 +92,18 @@ async def vessel_id(session):
     return new_id
 
 
-async def _add_voyage(session, vessel_id, *, policy: str, status: str, no: str) -> UUID:
+async def _add_voyage(
+    session, vessel_id, *, policy: str, status: str, no: str, arrival_at=None
+) -> UUID:
     voyage_id = uuid4()
     await session.execute(
         text(
             "INSERT INTO voyage (id, vessel_id, voyage_no, status, departure_port_name, "
             "arrival_port_name, planned_distance_nm, planned_speed_kn, "
-            "actual_distance_nm, annual_inclusion_policy, regulation_year, created_from) "
+            "actual_distance_nm, annual_inclusion_policy, regulation_year, created_from, "
+            "planned_arrival_at) "
             "VALUES (:id, :vid, :no, :status, 'Busan', 'Singapore', 3000, 14, "
-            ":actual, :policy, 2026, 'MANUAL')"
+            ":actual, :policy, 2026, 'MANUAL', :arrival)"
         ),
         {
             "id": voyage_id,
@@ -107,6 +112,7 @@ async def _add_voyage(session, vessel_id, *, policy: str, status: str, no: str) 
             "status": status,
             "policy": policy,
             "actual": Decimal("3100") if policy == "INCLUDE_AS_ACTUAL" else None,
+            "arrival": arrival_at,
         },
     )
     await session.execute(
@@ -398,14 +404,24 @@ async def test_reproduce_rebuilds_with_the_stored_schema_version(session, execut
                 "FROM annual_simulation_run r "
                 "JOIN calculation_run c ON c.id = r.calculation_run_id "
                 "WHERE r.id = :id"
-            ),
+            ).columns(parameters_used=JSONText()),
             {"id": simulation_id},
         )
     ).one()
 
-    # ⑴ 버전 필드가 없다 = v1. 이것이 기존 162건이 놓인 상태다.
-    assert "parameter_schema_version" not in row.parameters_used
-    assert parameters_schema_version(row.parameters_used) == PARAMETERS_SCHEMA_V1
+    # ⑴ 새 실행은 **v2**로 저장된다 (#816 ⑶ · 2026-09-18 결정 — fuel_types ·
+    #    parameter_sources · 버전 필드). 기존 162건(v1)의 재현은 아래 별도 검사가 본다.
+    assert parameters_schema_version(row.parameters_used) == PARAMETERS_SCHEMA_V2
+    assert "fuel_types" in row.parameters_used, (
+        "v2에 연료 CF 블록이 없다 — CF 개정이 해시에 드러나지 않는다"
+    )
+    assert "parameter_sources" in row.parameters_used, "v2에 출처 4키가 없다"
+    assert set(row.parameters_used["parameter_sources"]) == {
+        "regulation_year",
+        "reference_line",
+        "rating_boundary",
+        "fuel_types",
+    }
 
     seen: list[int] = []
     captured: dict = {}
@@ -421,17 +437,17 @@ async def test_reproduce_rebuilds_with_the_stored_schema_version(session, execut
     again = await reproduce_annual_simulation(session, simulation_id)
 
     # ⑵ 저장된 버전으로 **한 번** 호출됐다.
-    assert seen == [PARAMETERS_SCHEMA_V1], seen
+    assert seen == [PARAMETERS_SCHEMA_V2], seen
 
-    # ⑶ 판별력 — 최신이 v2가 되면 해시가 달라진다. 이 단언이 없으면 위 ⑵는
-    #    「어차피 v1뿐이라 통과」와 구분되지 않는다.
-    v1_used = build_parameters_used(PARAMETERS_SCHEMA_V1, **captured)
-    marker = "__hypothetical_v2_field__"
-    assert marker not in v1_used, "표지가 v1과 충돌한다 — 이 단언의 판별력이 사라진다"
-    assert compute_parameter_hash({**v1_used, marker: "v2"}) != row.parameter_hash
+    # ⑶ 판별력 — 다른 버전으로 만들면 해시가 달라진다. 이 단언이 없으면 위 ⑵는
+    #    「어차피 한 버전뿐이라 통과」와 구분되지 않는다.
+    v2_used = build_parameters_used(PARAMETERS_SCHEMA_V2, **captured)
+    marker = "__hypothetical_v3_field__"
+    assert marker not in v2_used, "표지가 v2와 충돌한다 — 이 단언의 판별력이 사라진다"
+    assert compute_parameter_hash({**v2_used, marker: "v3"}) != row.parameter_hash
 
     # ⑷ 결과와 해시가 원본과 같다 — 「409가 안 났다」가 아니라 **같은 값**이다.
-    assert compute_parameter_hash(v1_used) == row.parameter_hash
+    assert compute_parameter_hash(v2_used) == row.parameter_hash
     assert again["data"]["deterministic"] == executed["data"]["deterministic"]
     assert again["data"]["sensitivity_analysis"] == executed["data"]["sensitivity_analysis"]
     assert (
@@ -441,20 +457,76 @@ async def test_reproduce_rebuilds_with_the_stored_schema_version(session, execut
 
 
 @pytest.mark.asyncio
+async def test_reproduce_rebuilds_v1_rows_with_the_frozen_v1_builder(
+    session, executed, vessel_id, monkeypatch
+):
+    """#816 — **v1 행(기존 162건)은 동결된 v1 빌더로 재현된다.**
+
+    새 실행이 v2로 저장되므로 v1 행은 자연히 만들어지지 않는다 — 그래서 빌더를 v1으로
+    바꿔 실행해 v1 행을 만들고(빌더만 바꾸면 해시도 v1 기준으로 저장된다), 그 행을
+    지금 코드로 재현한다. v2 빌더로 재구성했다면 해시가 달라 409가 나야 한다 — 이
+    검사가 「동결이 지켜지고 있다」의 증명이다.
+    """
+
+    def _v1_spy(version: int, **kwargs):
+        # 실행 경로는 v2 인자까지 넘긴다 — v1 빌더가 아는 키만 골라 준다(동결된
+        # 시그니처를 고치지 않는다).
+        v1_keys = (
+            "regulation",
+            "reference_line",
+            "rating_boundary",
+            "profile_name",
+            "profile_rows",
+        )
+        return build_parameters_used(
+            PARAMETERS_SCHEMA_V1, **{k: v for k, v in kwargs.items() if k in v1_keys}
+        )
+
+    monkeypatch.setattr(annual_simulation_service, "build_parameters_used", _v1_spy)
+    v1_run = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=50,
+        random_seed=777,
+    )
+    monkeypatch.undo()
+
+    v1_id = UUID(v1_run["data"]["simulation_id"])
+    row = (
+        await session.execute(
+            text(
+                "SELECT c.parameters_used FROM annual_simulation_run r "
+                "JOIN calculation_run c ON c.id = r.calculation_run_id "
+                "WHERE r.id = :id"
+            ).columns(parameters_used=JSONText()),
+            {"id": v1_id},
+        )
+    ).one()
+    assert parameters_schema_version(row.parameters_used) == PARAMETERS_SCHEMA_V1
+
+    # v1 행의 재현은 409 없이 같은 값을 낸다 — 동결된 빌더가 저장 해시를 그대로 재생.
+    again = await reproduce_annual_simulation(session, v1_id)
+    assert again["data"]["deterministic"] == v1_run["data"]["deterministic"]
+    assert again["parameter_hash"] == v1_run["parameter_hash"]
+
+
+@pytest.mark.asyncio
 async def test_reproduce_takes_the_version_from_the_row_not_a_constant(
     session, executed, monkeypatch
 ):
     """#816 — 빌더에 넘기는 버전은 **행을 판정한 값**이지 상수가 아니다.
 
-    위 테스트는 「v1 행이 v1으로 재현된다」까지만 본다. 지금은 v1이 최신이라, 코드가
-    행을 보지 않고 ``PARAMETERS_SCHEMA_V1``을 그대로 넘겨도 똑같이 통과한다.
+    위 테스트는 「v2 행이 v2로 재현된다」까지만 본다. 코드가 행을 보지 않고 최신
+    상수(`PARAMETERS_SCHEMA_V2`)를 그대로 넘겨도 지금은 똑같이 통과한다.
 
-    그래서 여기서는 **판정 함수만** 가상의 v2를 돌려주게 바꾸고, 빌더가 그 값을
-    받는지 본다. 상수를 넘기고 있었다면 ``seen``은 ``[1]``이 된다.
+    그래서 여기서는 **판정 함수만** 가상의 v3를 돌려주게 바꾸고, 빌더가 그 값을
+    받는지 본다. 상수를 넘기고 있었다면 ``seen``은 ``[2]``가 된다.
 
-    v2 빌더는 아직 없으므로 :class:`ValueError`가 아니라 `#816`의 미등록 버전 처리를
-    그대로 타야 한다 — 조용히 v1으로 떨어뜨리면 해시 불일치의 이유가 「버전이
-    다르다」인지 「값이 다르다」인지 가려진다.
+    v3 빌더는 아직 없으므로 :class:`ValueError`로 끝나야 한다 — `#816`의 미등록 버전
+    처리를 그대로 타는 것이고, 조용히 낮은 버전으로 떨어뜨리면 해시 불일치의 이유가
+    「버전이 다르다」인지 「값이 다르다」인지 가려진다.
 
     DB는 ``conn`` fixture 롤백으로 정리된다.
     """
@@ -465,12 +537,12 @@ async def test_reproduce_takes_the_version_from_the_row_not_a_constant(
         return build_parameters_used(version, **kwargs)
 
     monkeypatch.setattr(annual_simulation_service, "build_parameters_used", _spy)
-    monkeypatch.setattr(annual_simulation_service, "parameters_schema_version", lambda _: 2)
+    monkeypatch.setattr(annual_simulation_service, "parameters_schema_version", lambda _: 3)
 
-    with pytest.raises(ValueError, match="알 수 없는 parameters_used 스키마 버전: 2"):
+    with pytest.raises(ValueError, match="알 수 없는 parameters_used 스키마 버전: 3"):
         await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
-    assert seen == [2], "행이 판정한 버전이 아니라 상수를 넘기고 있다 (#816)"
+    assert seen == [3], "행이 판정한 버전이 아니라 상수를 넘기고 있다 (#816)"
 
 
 @pytest.mark.asyncio
@@ -940,3 +1012,113 @@ async def test_too_few_voyages_does_not_apply_and_says_so(session, vessel_id):
     assert result["data"]["feedback"]["factor"] is None
     assert result["data"]["feedback"]["applied"] is False
     assert "FEEDBACK_FACTOR_UNAVAILABLE" in result["warnings"]
+
+
+# ── #816 ⑴ — `as_of` 절단이 실제로 작동한다 (결정요청 v9 회신 「가」=A안) ──────
+
+
+@pytest.mark.asyncio
+async def test_as_of_cuts_voyages_that_arrive_later(session, vessel_id):
+    """명시한 `as_of`보다 **늦게 도착한 확정 실적은 집계에 들어오지 않는다.**
+
+    종전에는 `as_of`가 배선만 있고 `_collect_voyages`가 저장소에 넘기지 않아,
+    과거 시점을 요청해도 그 이후 도착한 실적까지 들어왔다 — 다른 `as_of`가 같은
+    결과를 내는 「된 것처럼 보이는데 안 되는 것」이었다.
+
+    잔여 계획은 **반대로** `as_of` 이후 도착 예정인 것이 시점 전망에 남는다
+    (`list_remaining_plans` — 확정·잔여가 상보 집합을 이뤄야 ``PRD §12``의 연말
+    예상이 성립한다). 그래서 이 검사는 절단을 **확정분**에서 본다.
+    """
+    await _add_voyage(
+        session,
+        vessel_id,
+        policy="INCLUDE_AS_ACTUAL",
+        status="CONFIRMED",
+        no="V-CUT-001",
+        arrival_at=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    late_actual = await _add_voyage(
+        session,
+        vessel_id,
+        policy="INCLUDE_AS_ACTUAL",
+        status="CONFIRMED",
+        no="V-CUT-003",
+        arrival_at=datetime(2026, 9, 10, tzinfo=UTC),  # 절단 시점(8/1) 이후 도착 실적
+    )
+    late_plan = await _add_voyage(
+        session,
+        vessel_id,
+        policy="INCLUDE_AS_PLAN",
+        status="PLANNED",
+        no="V-CUT-002",
+        arrival_at=datetime(2026, 12, 20, tzinfo=UTC),  # 잔여 — 어느 시점 전망에도 남는다
+    )
+
+    cut = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=200,
+        random_seed=99,
+        as_of=datetime(2026, 8, 1, tzinfo=UTC),
+    )
+    full = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=200,
+        random_seed=99,
+        # 미명시 — 지금(9월) 시점: 9/10 실적도 들어온다
+    )
+
+    async def _ids(result):
+        rows = await list_snapshot_voyages(session, UUID(result["data"]["simulation_id"]))
+        return {item["original_voyage_id"] for item in rows}
+
+    cut_ids, full_ids = await _ids(cut), await _ids(full)
+
+    # 절단 실행에는 8/1 이후 도착한 **확정** 실적이 없다.
+    assert str(late_actual) not in cut_ids, "as_of 이후 도착 실적이 절단 실행에 들어왔다"
+    # 미명시(지금) 실행에는 들어온다 — 「잘리는 것」이 이 검사의 전제다.
+    assert str(late_actual) in full_ids
+    # 잔여 계획은 두 시점 전망 모두에 남는다 — 절단이 잔여를 지우면 기능③이 무너진다.
+    assert str(late_plan) in cut_ids and str(late_plan) in full_ids
+
+    # 같은 요청에 as_of만 다르면 **다른 input_hash** — 절단이 해시에 드러난다.
+    assert cut["input_hash"] != full["input_hash"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_as_of_run_reproduces_with_the_stored_moment(session, vessel_id):
+    """명시 `as_of` 실행의 재현은 **저장된 원본 시각**으로 해시를 다시 낸다 (#816 ⑴).
+
+    재현이 현재 시각 등 다른 값으로 키를 만들면 원본 해시와 어긋나 전부 500이 된다 —
+    `as_of`를 어디에도 저장하지 않던 종전 구조에서는 불가능한 검사다.
+    """
+    await _add_voyage(
+        session,
+        vessel_id,
+        policy="INCLUDE_AS_ACTUAL",
+        status="CONFIRMED",
+        no="V-REP-001",
+        arrival_at=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    moment = datetime(2026, 8, 1, 12, 34, 56, 789_000, tzinfo=UTC)  # 밀리초 경계값
+    first = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=200,
+        random_seed=7,
+        as_of=moment,
+    )
+
+    again = await reproduce_annual_simulation(session, UUID(first["data"]["simulation_id"]))
+
+    assert again["input_hash"] == first["input_hash"]
+    assert again["data"]["deterministic"] == first["data"]["deterministic"]
+    # 응답 봉투 — 집계에 실제로 쓴 시각이 meta로 흐른다(라우트가 옮긴 내부 키).
+    assert first["_as_of"] == datetime(2026, 8, 1, 12, 34, 56, 789_000, tzinfo=UTC).isoformat()

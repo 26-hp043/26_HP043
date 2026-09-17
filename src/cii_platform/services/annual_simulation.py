@@ -39,7 +39,7 @@ import logging
 import secrets
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -162,12 +162,29 @@ async def _collect_voyages(session: AsyncSession, *, vessel_id: UUID, year: int,
     """확정분과 잔여분을 ``annual_inclusion_policy``로 갈라 온다.
 
     **``status``를 다시 해석하지 않는다** — 모듈 docstring 참조.
+
+    ``as_of``를 저장소까지 넘긴다 (#816 ⑴). 종전에는 인자로 받기만 하고 버려서,
+    ``as_of=2026-03-01``로 요청해도 그 이후 도착한 확정 실적까지 집계됐다 — **다른
+    ``as_of``가 같은 결과**를 내는, 「된 것처럼 보이는데 안 되는 것」이었다.
+
+    두 갈래의 절단 방향이 **반대**다 — 시점을 기준으로 상보 집합을 이뤄야 「3월 시점의
+    연말 전망」이 성립한다(``PRD §12` — 잔여 계획으로 연말을 예상한다):
+
+    * 확정(``INCLUDE_AS_ACTUAL``) — **도착 ≤ ``as_of``** 만. 미래 실적이 과거 조회에
+      섞이는 것을 막는다(``list_annual_inclusions``의 종전 절단과 같은 규칙).
+    * 잔여(``INCLUDE_AS_PLAN``) — **도착 > ``as_of``** (도착 예정이 없으면 포함).
+      같은 절단을 그대로 쓰면 잔여 계획이 전멸해 연말 예상이 확정 누계로만 수렴한다
+      — 기능③ 자체가 무너진다(2026-09-18 착수 중 실측).
     """
     actual = await voyage_repo.list_annual_inclusions(
-        session, vessel_id=vessel_id, regulation_year=year, policy=POLICY_INCLUDE_AS_ACTUAL
+        session,
+        vessel_id=vessel_id,
+        regulation_year=year,
+        policy=POLICY_INCLUDE_AS_ACTUAL,
+        as_of=as_of,
     )
-    planned = await voyage_repo.list_annual_inclusions(
-        session, vessel_id=vessel_id, regulation_year=year, policy=POLICY_INCLUDE_AS_PLAN
+    planned = await voyage_repo.list_remaining_plans(
+        session, vessel_id=vessel_id, regulation_year=year, as_of=as_of
     )
     return actual, planned
 
@@ -275,9 +292,9 @@ def _vessel_snapshot_payload(vessel) -> dict[str, str | None]:
     보관하게 된다 (`API_SPEC §1.7`이 응답에 문자열을 쓰는 것과 같은 이유).
     """
     payload: dict[str, str | None] = {}
-    for field in VESSEL_SNAPSHOT_FIELDS:
-        value = getattr(vessel, field)
-        payload[field] = None if value is None else str(value)
+    for name in VESSEL_SNAPSHOT_FIELDS:
+        value = getattr(vessel, name)
+        payload[name] = None if value is None else str(value)
     return payload
 
 
@@ -551,6 +568,12 @@ class AnnualInputs:
     #: 스냅샷의 PLAN 행 수. **제외된 항차도 센다** — 「4건 중 3건만 계산했다」를
     #: 경고와 함께 읽을 수 있어야 한다.
     plan_voyage_count: int
+    #: 계획 항차에 적용한 **활성 CF** (#832). ``parameters_used`` v2의 ``fuel_types``
+    #: 블록이 이 값을 그대로 싣는다 — CF 개정이 ``parameter_hash``에 드러나지 않으면
+    #: 재현성 계약이 성립하지 않는다(#816 ⑶).
+    live_cf: dict[str, Decimal] = field(default_factory=dict)
+    #: ``live_cf`` 각 유종의 ``source_ref``. ``parameter_sources.fuel_types``가 싣는다.
+    fuel_type_sources: dict[str, str] = field(default_factory=dict)
 
 
 async def collect_annual_inputs(
@@ -577,6 +600,7 @@ async def collect_annual_inputs(
     # 실적은 그때 실제로 그 계수로 배출했으므로 행의 cf_used(#863)를 유지한다.
     # 스냅샷은 실행 시점에 쓴 값을 기록하므로(#378) 재현성은 그대로다.
     live_cf: dict[str, Decimal] = {}
+    fuel_type_sources: dict[str, str] = {}
     if planned:
         codes = sorted({fu.fuel_type for v in planned for fu in fuel_by_voyage.get(v.id, [])})
         fuel_rows = await param_repo.get_fuel_types_by_codes(session, codes)
@@ -588,6 +612,7 @@ async def collect_annual_inputs(
                     field_label="연료 종류",
                 )
             live_cf[code] = Decimal(str(fuel_rows[code].cf))
+            fuel_type_sources[code] = fuel_rows[code].source_ref
     voyages_json = _snapshot_payload(actual, planned, fuel_by_voyage, live_cf)
     completed, remaining, warnings = _inputs_from_snapshot(voyages_json, vessel)
 
@@ -597,6 +622,8 @@ async def collect_annual_inputs(
         remaining=remaining,
         warnings=warnings,
         plan_voyage_count=_plan_voyage_count(voyages_json),
+        live_cf=live_cf,
+        fuel_type_sources=fuel_type_sources,
     )
 
 
@@ -704,6 +731,10 @@ async def run_annual_simulation(
     # 결과는 같았지만 **조립 경로가 둘**이었고, 그러면 `reproduce`(§6.4)가 스냅샷에서
     # 조립한 값과 어긋날 때 원인을 가릴 수 없다. 지금은 두 경로가 같은 함수를 쓴다.
     #
+    # **`as_of` 절단이 여기서 실제로 작동한다** (#816 ⑴) — 종전에는 `resolve_as_of`가
+    # 확정한 값을 집계에 넘기지 않아, 과거 시점을 요청해도 연말 도착 예정 항차까지
+    # 들어왔다.
+    #
     inputs = await collect_annual_inputs(
         session, vessel=vessel, vessel_id=vessel_id, year=regulation_year, as_of=resolved_as_of
     )
@@ -799,14 +830,17 @@ async def run_annual_simulation(
         profile=profile,
     )
 
-    # 새 실행은 최신 스키마로 만든다. 지금은 v1뿐이다 (#816).
+    # 새 실행은 최신 스키마로 만든다 — 지금은 v2다 (#816 ⑶ · 2026-09-18 결정).
+    # 재현은 **저장된 행의 버전으로** 다시 만드므로 v1 실행의 해시는 그대로 재현된다.
     parameters_used = build_parameters_used(
-        PARAMETERS_SCHEMA_V1,
+        PARAMETERS_SCHEMA_V2,
         regulation=regulation,
         reference_line=reference_line,
         rating_boundary=rating_boundary,
         profile_name=distribution_profile,
         profile_rows=profile_rows,
+        live_cf=inputs.live_cf,
+        fuel_type_sources=inputs.fuel_type_sources,
     )
 
     payload = _payload(
@@ -849,6 +883,10 @@ async def run_annual_simulation(
         seed=seed,
         duration_ms=duration_ms,
         apply_feedback_factor=apply_feedback_factor,
+        # **원본 요청이 준 값**만 넘긴다 (#816 ⑴). 서버가 확정한 `resolved_as_of`를
+        # 넘기면 미명시 실행에도 값이 남아, 해시에 키가 없는데 저장에는 있는 어긋남이
+        # 생긴다 — 어느 쪽이 정본인지 재현 시점에 가릴 수 없다.
+        as_of=as_of,
     )
 
     return _envelope(
@@ -865,6 +903,11 @@ async def run_annual_simulation(
         input_hash=input_hash,
         parameter_hash=parameter_hash,
         duration_ms=duration_ms,
+        # 명시 실행은 그 값, 미명시 실행은 **스냅숏 생성 시각** (#816 ⑴). 미명시 실행의
+        # 집계 기준은 `resolve_as_of(None)` = 실행 순간이므로 스냅숏 시각과 같은 뜻이고,
+        # 조회(§6.2)·재현(§6.4)이 `row.as_of or snapshot_created_at`으로 같은 값을 낼 수
+        # 있어 경로마다 표기가 갈리지 않는다.
+        effective_as_of=as_of if as_of is not None else snapshot_created_at,
     )
 
 
@@ -955,6 +998,18 @@ def _build_sensitivity(
 #: **저장된 해시를 소급해 고칠 수도 없다.** 그래서 옛 형식을 빌더로 동결해 둔다.
 PARAMETERS_SCHEMA_V1 = 1
 
+#: v2 (2026-09-18 결정 — #816 ⑶ 재개). v1에서 미결로 남았던 두 블록이 들어간다:
+#:
+#: * ``fuel_types`` — ``#832``가 계획 항차의 CF를 **활성 CF**로 확정했다. 이제 CF는
+#:   이 계산의 실제 파라미터 의존이고, 개정이 ``parameter_hash``에 드러나야
+#:   재현성 계약(``TECH_SPEC §5.4``)이 성립한다.
+#: * ``parameter_sources`` — 종전 ``parameter_source_version``이 **기준선 하나의
+#:   출처만** 담았다. 출처는 셋(+연료)인데 하나만 싣다 보니 CF 개정이 해시에
+#:   드러나지 않았다. 4키 객체로 바꾼다.
+#:
+#: ⚠️ **v1 빌더는 동결 그대로 둔다** — v1 행의 ``parameter_hash`` 재현이 걸려 있다.
+PARAMETERS_SCHEMA_V2 = 2
+
 
 def parameters_schema_version(stored: dict | None) -> int:
     """저장된 ``parameters_used``가 어느 스키마 버전인지 판정한다 (#816).
@@ -998,6 +1053,8 @@ def build_parameters_used(version: int, **kwargs) -> dict[str, object]:
     """
     if version == PARAMETERS_SCHEMA_V1:
         return _parameters_used_v1(**kwargs)
+    if version == PARAMETERS_SCHEMA_V2:
+        return _parameters_used_v2(**kwargs)
     raise ValueError(f"알 수 없는 parameters_used 스키마 버전: {version}")
 
 
@@ -1056,6 +1113,56 @@ def _parameters_used_v1(
                 for row in profile_rows
             ],
         },
+    }
+
+
+def _parameters_used_v2(
+    *,
+    regulation,
+    reference_line,
+    rating_boundary,
+    profile_name: str,
+    profile_rows,
+    live_cf: dict[str, Decimal],
+    fuel_type_sources: dict[str, str],
+) -> dict[str, object]:
+    """``TECH_SPEC §5.2.1`` — **v2** (2026-09-18 결정 · #816 ⑶).
+
+    v1 블록은 **글자 하나 고치지 않고** 그대로 둔다 — 두 빌더가 어긋나면 「버전이
+    다른 행」과 「값이 다른 행」을 해시만으로 가릴 수 없다. v2가 v1에 더하는 것:
+
+    * ``fuel_types`` — 계획 항차에 곱한 **활성 CF**(#832). 기능① 블록과 같은
+      ``[{code, cf}]`` 모양이다. **이 실행이 실제로 쓴 유종만** 싣는다(기능①이
+      「요청에 등장한 연료만」 싣는 것과 같은 규칙 — 8종 전부를 실으면 요청과
+      무관한 행이 해시에 들어간다).
+    * ``parameter_sources`` — 출처 셋(+연료)을 각자 싣는다. 종전
+      ``parameter_source_version``은 기준선 ``source_ref`` 하나만 담아 이름이 실제
+      의미보다 넓었다 — **CF 개정이 ``parameter_hash``에 드러나지 않는** 구멍이 그것
+      에서 왔다.
+    * ``parameter_schema_version`` — :func:`parameters_schema_version`이 읽는 키.
+
+    ``rating_boundary.ship_type``은 v1이 이미 싣는다(``#834``). 「제거하면 과거
+    해시가 깨진다」는 이유로 유지하며 정본 등재는 별도 사안이다.
+    """
+    return {
+        **_parameters_used_v1(
+            regulation=regulation,
+            reference_line=reference_line,
+            rating_boundary=rating_boundary,
+            profile_name=profile_name,
+            profile_rows=profile_rows,
+        ),
+        # 코드순으로 싣는다 — ``live_cf``의 키 순서는 집계 경로에 따라 갈릴 수 있는데,
+        # canonical_json이 dict를 정렬하긴 하지만 **재료 목록 자체**를 정해야
+        # ``parameter_hash``가 조립 순서와 무관하다는 것이 코드에서 보인다.
+        "fuel_types": [{"code": code, "cf": str(live_cf[code])} for code in sorted(live_cf)],
+        "parameter_sources": {
+            "regulation_year": regulation.source_ref,
+            "reference_line": reference_line.source_ref,
+            "rating_boundary": rating_boundary.source_ref,
+            "fuel_types": {code: fuel_type_sources[code] for code in sorted(fuel_type_sources)},
+        },
+        "parameter_schema_version": PARAMETERS_SCHEMA_V2,
     }
 
 
@@ -1153,6 +1260,7 @@ def _envelope(
     input_hash: str,
     parameter_hash: str,
     duration_ms: int,
+    effective_as_of: datetime | None = None,
 ) -> dict:
     """``API_SPEC §1.3.1`` 계산 결과 응답 봉투를 만든다 (#752).
 
@@ -1172,6 +1280,11 @@ def _envelope(
     ``duration_ms``는 ``_duration_ms``라는 내부 키로 넘긴다. ``meta``를 만드는 것은
     라우트의 일이므로(``TECH_SPEC §16.1`` 계층 분리) 서비스는 값만 실어 보내고,
     라우트가 꺼내 ``meta.duration_ms``에 넣는다 — 기능①과 같은 방식이다.
+
+    ``as_of``도 ``_as_of``로 같은 길을 지난다 (#816 ⑴ — ``cii_current.py`` 선례).
+    **집계에 실제로 쓴 시각**을 싣는다(명시 여부와 무관하게 ``resolve_as_of``가 확정한
+    값) — 「이 결과가 어느 시점 데이터인가」가 응답이 말해야 하는 것이고, 미명시
+    실행이 서버 시각으로 돌았다는 사실도 값으로 드러난다(`TECH_SPEC §5.4.1` 계약 ⑵).
     """
     data: dict[str, object] = {
         "simulation_id": str(simulation_id),
@@ -1207,7 +1320,20 @@ def _envelope(
         "warnings": payload["warnings"],
         "disclaimer": DISCLAIMER,
         "_duration_ms": duration_ms,
+        # 밀리초로 깎아 실는다 — 명시값이 마이크로초를 가지면 저장값(DB 정밀도)과
+        # 응답이 어긋나, 같은 실행의 `as_of`가 경로마다 다르게 보인다 (`#1058` 규칙).
+        "_as_of": None if effective_as_of is None else _millis(effective_as_of).isoformat(),
     }
+
+
+def _millis(moment: datetime) -> datetime:
+    """``DATETIMETZ``가 실제로 보관하는 정밀도(밀리초)로 깎는다 (`#1058` 실측).
+
+    ``as_of``를 저장·해시에 쓰기 전에 반드시 거친다 — 서버 확정 시각은 마이크로초를
+    가질 수 있는데 DB에는 밀리초까지만 담긴다. 저장할 때의 재료와 재현이 DB에서 읽어
+    만드는 재료가 한 글자라도 갈리면 ``input_hash`` 대조가 실패한다.
+    """
+    return moment.replace(microsecond=(moment.microsecond // 1000) * 1000)
 
 
 def _input_hash(
@@ -1220,6 +1346,7 @@ def _input_hash(
     voyages_json: list[dict],
     vessel_json: dict,
     apply_feedback_factor: bool = False,
+    as_of: datetime | None = None,
 ) -> str:
     """``input_hash``의 재료를 한 곳에 둔다 (``TECH_SPEC §5.3``).
 
@@ -1228,7 +1355,7 @@ def _input_hash(
     계산식이다 — 가장 찾기 어려운 종류의 오보다.
 
     ``vessel``이 재료에 있다 (`#493`). 제원이 계산 입력이므로 해시가 덮어야 한다 —
-    덮지 않으면 「스냅샷은 immutable인데 해시가 다르다」 검사가 **제원 변화를 보지
+    덮지 않으면 「스냅숏은 immutable인데 해시가 다르다」 검사가 **제원 변화를 보지
     못한다.** 이 재료가 바뀌었으므로 `037` **이전 실행의 해시는 이 식으로 재현되지
     않는다**; 그 행들은 ``vessel_json``이 NULL이라 재현 경로가 앞에서 끊는다.
     """
@@ -1259,6 +1386,12 @@ def _input_hash(
     # 끈 실행은 종전과 같은 해시를 갖는다.
     if apply_feedback_factor:
         material["apply_feedback_factor"] = True
+    # ⚠️ **명시했을 때만 넣는다** (#816 ⑴ · 결정요청 v9 회신 「가」). 같은 규칙의 두
+    # 번째 적용례다 — 미명시 실행에 서버 확정 시각을 넣으면 기존 실행 전부의 해시가
+    # 바뀐다. 값은 밀리초로 깎은 isoformat 문자열로 고정한다(재현은 DB에서 응어
+    # 온 값으로 같은 표기를 만들어야 한다).
+    if as_of is not None:
+        material["as_of"] = _millis(as_of).isoformat()
     return compute_annual_input_hash(material)
 
 
@@ -1277,6 +1410,7 @@ async def _persist(
     seed: int,
     duration_ms: int,
     apply_feedback_factor: bool = False,
+    as_of: datetime | None = None,
 ):
     """스냅샷 → 계산 이력 → 시뮬레이션 실행 순으로 저장한다.
 
@@ -1285,6 +1419,9 @@ async def _persist(
 
     ``simulation_snapshot``은 immutable이라(``trg_snapshot_immutable``) 한 번 넣으면
     고칠 수 없다 — 계산에 쓴 값이 확정된 뒤에 넣는 이유다.
+
+    :param as_of: **명시적으로** 요청이 준 기준 시각만 (#816 ⑴). ``None``은 미명시
+        실행 — 이때는 컬럼도 비워, 재현이 해시에 키를 넣지 않는 것과 짝을 이룬다.
     """
     from sqlalchemy import text
 
@@ -1297,6 +1434,7 @@ async def _persist(
         voyages_json=voyages_json,
         vessel_json=vessel_json,
         apply_feedback_factor=apply_feedback_factor,
+        as_of=as_of,
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
@@ -1380,8 +1518,9 @@ async def _persist(
         text(
             "INSERT INTO annual_simulation_run "
             "(id, calculation_run_id, vessel_id, regulation_year, target_rating, "
-            " simulation_runs, snapshot_id, apply_feedback_factor) "
-            "VALUES (:id, :run_id, :vessel_id, :year, :target, :runs, :snapshot_id, :feedback)"
+            " simulation_runs, snapshot_id, apply_feedback_factor, as_of) "
+            "VALUES (:id, :run_id, :vessel_id, :year, :target, :runs, :snapshot_id, "
+            " :feedback, :as_of)"
         ).bindparams(*_uuid_binds("id", "run_id", "vessel_id", "snapshot_id")),
         {
             "id": simulation_id,
@@ -1392,6 +1531,9 @@ async def _persist(
             "runs": runs,
             "snapshot_id": snapshot_id,
             "feedback": apply_feedback_factor,
+            # 명시 실행만 값이 있다. 밀리초로 깎아 저장한다(위 `_millis`) — DB 정밀도와
+            # 해시 재료가 같아야 재현의 대조가 성립한다.
+            "as_of": None if as_of is None else _millis(as_of),
         },
     )
 
@@ -1453,7 +1595,7 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
             text(
                 "SELECT r.id AS simulation_id, r.calculation_run_id, r.vessel_id, "
                 "       r.regulation_year, r.target_rating, r.simulation_runs, r.snapshot_id, "
-                "       r.apply_feedback_factor, "
+                "       r.apply_feedback_factor, r.as_of, "
                 "       c.result_json, c.parameters_used, c.input_hash, c.parameter_hash, "
                 "       c.model_version, c.duration_ms, "
                 "       s.created_at AS snapshot_created_at, "
@@ -1552,6 +1694,9 @@ async def get_annual_simulation(session: AsyncSession, simulation_id: UUID) -> d
         # 넣으면 `PRD §16.1` 성능 판단이 오도된다. `#752` 이전 행은 이 컬럼이
         # 비어 있으므로 0으로 낸다 — 「측정되지 않았다」는 뜻이다.
         duration_ms=row.duration_ms or 0,
+        # 명시 실행은 그 값, 미명시 실행은 스냅샷 생성 시각 (#816 ⑴) — 실행 응답과
+        # 같은 규칙이라 같은 실행의 기준 시각이 경로마다 갈라 보이지 않는다.
+        effective_as_of=row.as_of or row.snapshot_created_at,
     )
 
 
@@ -1690,13 +1835,24 @@ async def reproduce_annual_simulation(
     # **저장된 행의 스키마 버전으로** 다시 만든다 (#816). 최신 버전으로 만들면
     # 빌더가 바뀐 순간 과거 실행이 전부 `ParameterError`(409)를 받는다 — 규정이
     # 아니라 우리 코드가 바뀐 것인데 「규정 파라미터가 변경되었다」로 나간다.
+    schema_version = parameters_schema_version(row.parameters_used)
+
+    voyages_json = await _load_snapshot_voyages(session, row.snapshot_id)
+    # v2 행의 ``fuel_types``는 **이 재현이 실제로 대조할 현재 활성 CF**로 채운다 —
+    # CF가 개정됐다면 해시가 어긋나야 하고(409), 그것이 그 블록의 존재 이유다(#816 ⑶).
+    v2_inputs: dict[str, object] = {}
+    if schema_version == PARAMETERS_SCHEMA_V2:
+        live_cf, fuel_sources = await _live_fuel_types_from_snapshot(session, voyages_json)
+        v2_inputs = {"live_cf": live_cf, "fuel_type_sources": fuel_sources}
+
     parameters_used = build_parameters_used(
-        parameters_schema_version(row.parameters_used),
+        schema_version,
         regulation=regulation,
         reference_line=reference_line,
         rating_boundary=rating_boundary,
         profile_name=profile_name,
         profile_rows=profile_rows,
+        **v2_inputs,
     )
     # ⚠️ **두 해시를 모두 검사한 뒤 판정한다** (`#837`). 종전에는 파라미터 해시가
     # 어긋나면 곧바로 409를 던져 **입력 해시 검사가 실행조차 되지 않았다.** 두 조건이
@@ -1710,7 +1866,6 @@ async def reproduce_annual_simulation(
     # 앞당겨진다.
     parameters_changed = compute_parameter_hash(parameters_used) != row.parameter_hash
 
-    voyages_json = await _load_snapshot_voyages(session, row.snapshot_id)
     input_mismatch = (
         _input_hash(
             vessel_id=row.vessel_id,
@@ -1721,6 +1876,10 @@ async def reproduce_annual_simulation(
             voyages_json=voyages_json,
             vessel_json=await _load_snapshot_vessel(session, row.snapshot_id),
             apply_feedback_factor=row.apply_feedback_factor,
+            # **저장된 원본 `as_of`를 재생한다** (#816 ⑴). 컬럼이 NULL(미명시 실행)이면
+            # 키가 안 들어가 종전 해시와 같은 식이 된다 — 명시 여부는 컬럼의 NULL 여부가
+            # 곧 판정이다.
+            as_of=row.as_of,
         )
         != row.input_hash
     )
@@ -1802,6 +1961,8 @@ async def reproduce_annual_simulation(
         # **이번 재계산에 걸린 시간**이다. 실제로 다시 돌렸으므로 그 값이 정직하다
         # (조회 §6.2가 저장분을 내는 것과 갈리는 지점).
         duration_ms=max(1, round((time.perf_counter() - started) * 1000)),
+        # 조회와 같은 규칙 — 저장된 `as_of`, 없으면 스냅샷 생성 시각 (#816 ⑴).
+        effective_as_of=row.as_of or row.snapshot_created_at,
     )
 
 
@@ -1868,6 +2029,38 @@ async def _load_snapshot_voyages(session: AsyncSession, snapshot_id) -> list[dic
             {"id": snapshot_id},
         )
     ).scalar_one() or []
+
+
+async def _live_fuel_types_from_snapshot(
+    session: AsyncSession, voyages_json: list[dict]
+) -> tuple[dict[str, Decimal], dict[str, str]]:
+    """스냅샷의 계획(PLAN) 항차가 쓴 유종의 **현재 활성 CF** (#816 ⑶ v2 재현).
+
+    재현 경로 전용이다 — 실행 경로는 :func:`collect_annual_inputs`가 같은 값을 이미
+    만든다. CF가 개정됐으면 여기서 읽은 값이 원본 실행 때와 달라 ``parameter_hash``
+    가 어긋나고, 409 「규정 파라미터가 변경되어」가 나간다 — **그것이 올바른 동작**이
+    다. 조용히 스냅샷의 옛 CF로 비교하면 개정이 재현에 드러나지 않는다.
+    """
+    codes = sorted(
+        {
+            fuel_use["fuel_type"]
+            for row in voyages_json
+            if row.get("kind") == "PLAN"
+            for fuel_use in (row.get("fuel_uses") or [])
+        }
+    )
+    live_cf: dict[str, Decimal] = {}
+    sources: dict[str, str] = {}
+    if codes:
+        rows = await param_repo.get_fuel_types_by_codes(session, list(codes))
+        for code in codes:
+            if code not in rows:
+                # 유종이 비활성화됐다 — 파라미터가 사라졌으므로 재현이 어긋나야 한다.
+                # 키를 채우지 않고 두면 v2 빌더가 빈 값으로 해시를 내 어긋나게 한다.
+                continue
+            live_cf[code] = Decimal(str(rows[code].cf))
+            sources[code] = rows[code].source_ref
+    return live_cf, sources
 
 
 def _recompute(
