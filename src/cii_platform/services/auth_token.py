@@ -122,23 +122,45 @@ async def consume_token(
     """토큰을 검증하고 **사용 처리**한 뒤 소유자 ID를 돌려준다.
 
     :raises TokenError: 없음·만료·이미 사용됨. **세 경우를 구분하지 않는다.**
+
+    ## 검사와 사용 표시는 한 문장이어야 한다 (#1079)
+
+    종전에는 `SELECT` → 파이썬에서 `used_at is None` 확인 → `token.used_at = …`
+    순서였다. 같은 토큰으로 동시에 온 요청 둘이 **둘 다 `used_at IS NULL`을 읽고**
+    통과해, 비밀번호가 나중 요청의 값으로 바뀔 수 있었다. 토큰이 한 번 쓰고 버리는
+    증명이라는 전제 자체가 깨지는 자리다.
+
+    그래서 검사 조건을 **`UPDATE`의 `WHERE`에 넣는다.** 조건을 만족하는 행이 정확히
+    하나 갱신됐을 때만 성공이고, 판정은 DB의 행 잠금이 한다 — 두 요청이 동시에
+    들어와도 뒤엣것의 `WHERE`는 이미 채워진 `used_at` 때문에 0행을 만난다.
+
+    ⚠️ **`RETURNING`을 쓰지 않는다.** CUBRID에 없다(`#1058` 전환). 갱신한 행의
+    소유자는 `rowcount`로 성공을 확인한 뒤 따로 읽는다 — 같은 트랜잭션이라 방금 쓴
+    값을 그대로 본다. `token_hash`에는 유니크 인덱스가 있어(`idx_user_token_hash`)
+    이 조회가 두 행을 만날 수 없다.
     """
     resolved = now or datetime.now(UTC)
+    digest = hash_token(raw)
 
     result = await session.execute(
-        select(UserToken).where(
-            UserToken.token_hash == hash_token(raw),
+        update(UserToken)
+        .where(
+            UserToken.token_hash == digest,
             UserToken.purpose == purpose,
+            # 아래 두 줄이 종전의 파이썬 검사를 대신한다 — 여기 있어야 원자적이다.
+            UserToken.used_at.is_(None),
+            UserToken.expires_at > resolved,
         )
+        .values(used_at=resolved)
+        .execution_options(synchronize_session=False)
     )
-    token = result.scalar_one_or_none()
 
-    if token is None or token.used_at is not None or token.expires_at <= resolved:
+    if (result.rowcount or 0) != 1:
+        # 없음·만료·이미 사용됨이 전부 여기로 모인다. **구분하지 않는다**(위 `TokenError`).
         raise TokenError("링크가 만료되었거나 이미 사용되었습니다.")
 
-    # 사용 표시 — 재사용을 막는다.
-    token.used_at = resolved
-    return token.user_id
+    owner = await session.execute(select(UserToken.user_id).where(UserToken.token_hash == digest))
+    return owner.scalar_one()
 
 
 async def revoke_all_sessions(

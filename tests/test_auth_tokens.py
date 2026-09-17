@@ -218,6 +218,80 @@ class TestTokenService:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 동시 소비 (#1079)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestConcurrentConsumption:
+    """같은 토큰으로 동시에 온 요청 둘 중 **정확히 하나만** 성공해야 한다.
+
+    ⚠️ **이 검사는 `conn` fixture를 쓰지 않는다.** `conn`은 트랜잭션 하나를 열어
+    끝에 롤백하는 구조라 **두 요청이 한 트랜잭션 안에 들어가** 경쟁 자체가 일어나지
+    않는다. 여기서는 세션 둘이 각자 커밋해야 DB의 행 잠금이 실제로 판정한다.
+    """
+
+    async def test_only_one_of_two_simultaneous_requests_succeeds(
+        self, migrated_db, app_fresh_engine
+    ):
+        """종전 구현(`SELECT` → 파이썬 검사 → 대입)에서는 **둘 다 성공**했다.
+
+        둘 다 `used_at IS NULL`을 읽고 통과하기 때문이다. 재설정 토큰은 계정을
+        통째로 넘기는 힘을 가지므로, 두 번 먹히면 비밀번호가 **나중 요청의 값**으로
+        바뀐다 — 먼저 성공한 쪽은 자기 비밀번호가 아닌 것을 갖게 된다.
+        """
+        import asyncio
+
+        from cii_platform.db.session import get_sessionmaker
+
+        email = "race@example.com"
+        maker = get_sessionmaker()
+        try:
+            async with maker() as s:
+                user_id = await insert_returning_id(
+                    s,
+                    "INSERT INTO app_user (email, password_hash) VALUES (:e, 'x') RETURNING id",
+                    {"e": email},
+                )
+                raw = await issue_token(s, user_id=user_id, purpose=PURPOSE_PASSWORD_RESET)
+                await s.commit()
+
+            async def attempt() -> object | None:
+                """성공하면 소유자 ID, 거부되면 ``None``."""
+                async with maker() as s:
+                    try:
+                        owner = await consume_token(s, raw=raw, purpose=PURPOSE_PASSWORD_RESET)
+                    except TokenError:
+                        await s.rollback()
+                        return None
+                    await s.commit()
+                    return owner
+
+            first, second = await asyncio.gather(attempt(), attempt())
+
+            winners = [item for item in (first, second) if item is not None]
+            assert len(winners) == 1, (
+                f"동시 요청 2건 중 {len(winners)}건이 성공했다 — 토큰이 한 번 쓰고 "
+                "버리는 증명이라는 전제가 깨진다"
+            )
+            assert same_uuid(winners[0], user_id)
+
+            # 진 쪽이 「거부」로 끝났을 뿐 아니라, DB에도 사용 표시가 정확히 한 번 남는다.
+            async with maker() as s:
+                rows = await s.execute(
+                    text(
+                        "SELECT used_at FROM user_token t JOIN app_user u ON u.id = t.user_id "
+                        "WHERE u.email = :e"
+                    ),
+                    {"e": email},
+                )
+                used = [row[0] for row in rows]
+            assert len(used) == 1
+            assert used[0] is not None
+        finally:
+            await _cleanup(email)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # API — 이메일 인증
 # ─────────────────────────────────────────────────────────────────────────────
 
