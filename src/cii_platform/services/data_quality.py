@@ -83,6 +83,13 @@ SEVERITY_ORDER: tuple[str, ...] = (
 #: 계산 불가 — 연료 행에 실적도 계획값도 없다 (선박 단위 사유와 구분).
 UNAVAILABLE_FUEL_UNFILLED = "FUEL_UNFILLED"
 
+#: 계산 불가 — 이 항차에 연료 기록이 **한 행도 없다** (`#1095` ⑵ · 결정요청 v7 §6.2).
+#:
+#: :data:`UNAVAILABLE_FUEL_UNFILLED`와 **가른다.** 합치면 「행은 있는데 값이 빔」과 「행이
+#: 아예 없음」이 같은 문구로 떠, 사용자가 할 행동(「값을 채운다」 / 「행을 추가한다」)이
+#: 구분되지 않는다. 유종 접미사가 없다 — 붙일 유종이 없기 때문이다.
+UNAVAILABLE_FUEL_NO_RECORD = "FUEL_NO_RECORD"
+
 #: ``cii_impact_reason`` — 영향을 낼 수 없는 이유 (``PRD §17.4.2``).
 #: 이 항차 하나뿐이라 빼면 누적 CII 자체가 없다.
 IMPACT_ONLY_VOYAGE = "ONLY_VOYAGE"
@@ -299,7 +306,10 @@ async def get_fleet_data_quality(
                 voyage_issues.append((SEVERITY_SUBSTITUTED, substituted))
 
             unfilled = [
-                f"{UNAVAILABLE_FUEL_UNFILLED}:{fuel_type}"
+                # ``fuel_type``이 ``None``이면 **행이 아예 없는** 항차다 (`#1095` ⑵).
+                UNAVAILABLE_FUEL_NO_RECORD
+                if fuel_type is None
+                else f"{UNAVAILABLE_FUEL_UNFILLED}:{fuel_type}"
                 for (voyage_id, fuel_type) in sorted(unfilled_keys, key=lambda k: str(k[1]))
                 if voyage_id == voyage.id
             ]
