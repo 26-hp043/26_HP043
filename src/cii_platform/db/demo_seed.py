@@ -67,6 +67,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 
+from cii_platform.db.models import Base
 from cii_platform.db.types import UuidText
 
 if TYPE_CHECKING:
@@ -1377,10 +1378,15 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
 
     ## 스키마 롤백 전에 부른다
 
-    데모 데이터가 남아 있으면 ``downgrade 016``(fuel_type CF seed 회수)이
-    ``fk_voyage_fuel_use_fuel_type``에 막힌다. 데모 연료 실적이 HFO를 참조하기
-    때문이다. **데모 데이터는 스키마가 아니므로 스키마 롤백이 그것을 치우게 만들지
-    않는다** — 지우는 것은 이 함수의 몫이다.
+    데모 연료 실적이 ``fuel_type``을 참조하므로, 데모 데이터가 남아 있으면 그 행을
+    회수하는 롤백이 ``fk_voyage_fuel_use_fuel_type``에 막힌다. **데모 데이터는
+    스키마가 아니므로 스키마 롤백이 그것을 치우게 만들지 않는다** — 지우는 것은 이
+    함수의 몫이다. 이 경로는 ``tests/test_zz_roundtrip.py``가 지킨다.
+
+    ⚠️ **종전 이 문단은 ``downgrade 016``·「017 롤백」을 근거로 들었는데 그 리비전들은
+    이제 없다** — ``#1058`` CUBRID 전환이 이력을 ``1c444a5c4819_initial_cubrid_schema``로
+    합쳤다(`ls alembic/versions/` 실측: 043~051 + 통합 리비전 셋). 번호를 지우고 성질만
+    남긴다.
     """
     voyage_ids = [row["id"] for row in (*SEED_VOYAGES, *SEED_VOYAGES_WATCH)]
     period_ids = [row["id"] for row in SEED_PERIODS]
@@ -1389,8 +1395,8 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
     counts: dict[str, int] = {}
 
     #
-    # 참조가 없는 자식부터. 이 둘이 ``fuel_type``을 참조하므로 **여기까지만 지워도
-    # 017 롤백이 풀린다.**
+    # 참조가 없는 자식부터. 이 둘이 ``fuel_type``을 참조하므로 여기까지만 지워도
+    # 연료 seed 회수가 풀린다.
     #
     counts["not_underway_fuel_use"] = await _delete_where(
         conn, "not_underway_fuel_use", "period_id", period_ids
@@ -1398,13 +1404,27 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
     counts["not_underway_period"] = await _delete_where(
         conn, "not_underway_period", "id", period_ids
     )
-    counts["voyage_fuel_use"] = await _delete_where(
-        conn, "voyage_fuel_use", "voyage_id", voyage_ids
-    )
 
-    # 항차·선박은 계산 이력이 걸려 있으면 남는다.
-    counts["voyage"] = await _delete_unreferenced(conn, "voyage", voyage_ids, "voyage_id")
-    counts["vessel"] = await _delete_unreferenced(conn, "vessel", vessel_ids, "vessel_id")
+    #
+    # 🔴 **지울 항차를 먼저 가려낸 뒤 그 항차의 연료만 지운다** (`#1088`).
+    #
+    # 종전에는 ``voyage_ids`` 전량으로 연료를 지운 뒤 항차를 걸러 지웠다. 계산 이력
+    # 때문에 남긴 항차는 **연료가 사라진 채로 남았고**, 그 항차로 다시 계산하면 분자가
+    # 비어 값이 달라진다. 계산 이력을 남기는 이유가 「그때 무슨 데이터로 계산했나」에
+    # 답하기 위해서인데, 그 답의 재료를 지우고 있었다.
+    #
+    deletable_voyages = await _unreferenced_ids(conn, "voyage", voyage_ids)
+    counts["voyage_fuel_use"] = await _delete_where(
+        conn, "voyage_fuel_use", "voyage_id", deletable_voyages
+    )
+    # ``voyage_fuel_use``는 ``CASCADE``라 항차를 지우면 따라 지워진다. 그래도 먼저
+    # 지우는 것은 **몇 행을 지웠는지 세어 돌려주기 위해서**다.
+    counts["voyage"] = await _delete_where(conn, "voyage", "id", deletable_voyages)
+
+    # 선박은 항차·정박 구간이 사라진 **뒤에** 판정한다 — 그 둘도 RESTRICT 참조다.
+    deletable_vessels = await _unreferenced_ids(conn, "vessel", vessel_ids)
+    counts["vessel"] = await _delete_where(conn, "vessel", "id", deletable_vessels)
+
     counts["kept_voyage"] = len(voyage_ids) - counts["voyage"]
     counts["kept_vessel"] = len(vessel_ids) - counts["vessel"]
     return counts
@@ -1437,25 +1457,57 @@ async def _delete_where(conn: AsyncConnection, table_name: str, column: str, ids
     return deleted
 
 
-async def _delete_unreferenced(
-    conn: AsyncConnection,
-    table_name: str,
-    ids: list,
-    calc_run_column: str,
-) -> int:
-    """calculation_run이 참조하지 않는 행만 지운다. SQLAlchemy Core (#1141)."""
+def _restrict_referrers(target_table: str) -> tuple[tuple[str, str], ...]:
+    """``target_table.id``를 ``RESTRICT``로 참조하는 ``(테이블, 열)`` 전부 (`#1088`).
+
+    **손으로 적지 않고 모델에서 끌어낸다.** 이 이슈가 바로 손으로 적은 목록이 실제와
+    갈린 상태였다 — 종전에는 ``calculation_run`` 하나만 보았는데 ``vessel``을
+    ``RESTRICT``로 참조하는 테이블은 **여섯**이다(``voyage`` · ``not_underway_period``
+    · ``vessel_position_snapshot`` · ``annual_simulation_run`` ·
+    ``simulation_snapshot`` · ``calculation_run``). FK가 늘 때마다 이 목록을 따라
+    고쳐야 한다면 언젠가 또 갈린다.
+
+    ``Base.metadata``는 ``alembic/env.py``가 쓰는 것과 같은 것이고, 모델과 실제 DB의
+    일치는 ``tests/test_orm_schema_sync.py``가 상시 검증한다 — 그래서 이 유도가
+    DB의 진짜 제약과 어긋날 수 없다.
+    """
+    found = {
+        (table.name, fk.parent.name)
+        for table in Base.metadata.tables.values()
+        for fk in table.foreign_keys
+        if fk.column.table.name == target_table and (fk.ondelete or "").upper() == "RESTRICT"
+    }
+    return tuple(sorted(found))
+
+
+async def _unreferenced_ids(conn: AsyncConnection, table_name: str, ids: list) -> list:
+    """``RESTRICT`` 참조가 하나도 없어 **실제로 지울 수 있는** id만 고른다 (`#1088`).
+
+    종전 ``_delete_unreferenced``는 ``calculation_run``만 걸러 내고 ``DELETE``를 바로
+    쐈다. 다른 ``RESTRICT`` 참조(사용자가 추가한 항차·정박 구간, 쌓인 위치 스냅샷)가
+    있으면 FK 위반이 나고, 호출자가 트랜잭션을 쥐고 있으므로 **한 척 때문에 전체가
+    롤백**됐다. docstring이 약속한 「막히는 것은 억지로 지우지 않고 남긴 수를
+    돌려준다」와 정반대였다.
+
+    지우기 전에 **물어본다.** 지울 수 없는 것은 조용히 남고 ``kept_*``로 세어진다.
+
+    비교 열에 타입을 붙이는 이유는 :func:`_delete_where`와 같다 (`#1058`).
+    """
     if not ids:
-        return 0
-    # 비교 열에 타입을 붙이는 이유는 `_delete_where`와 같다 (`#1058`) — 빠뜨리면
-    # 조용히 0행이 되고, 「계산 이력이 걸려 남았다」와 구분되지 않는다.
+        return []
     tbl = sa.table(table_name, sa.column("id", UuidText))
-    calc = sa.table("calculation_run", sa.column(calc_run_column, UuidText))
-    subq = sa.select(calc.c[calc_run_column]).where(calc.c[calc_run_column] != None)  # noqa: E711
-    deleted = 0
+    blocked = []
+    for ref_table, ref_column in _restrict_referrers(table_name):
+        ref = sa.table(ref_table, sa.column(ref_column, UuidText))
+        subq = sa.select(ref.c[ref_column]).where(ref.c[ref_column] != None)  # noqa: E711
+        blocked.append(tbl.c.id.not_in(subq))
+
+    free = []
     for uid in ids:
-        result = await conn.execute(sa.delete(tbl).where(tbl.c.id == uid, tbl.c.id.not_in(subq)))
-        deleted += result.rowcount
-    return deleted
+        result = await conn.execute(sa.select(tbl.c.id).where(tbl.c.id == uid, *blocked))
+        if result.first() is not None:
+            free.append(uid)
+    return free
 
 
 async def main() -> None:  # pragma: no cover - 프로세스 진입점

@@ -25,6 +25,9 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
@@ -131,9 +134,17 @@ async def test_clear_reports_the_actual_deleted_count(conn: AsyncConnection):
 
     assert counts["vessel"] + counts["kept_vessel"] == EXPECTED_ROWS["vessel"]
     assert counts["voyage"] + counts["kept_voyage"] == EXPECTED_ROWS["voyage"]
-    # 자식 테이블은 참조 제약이 없어 언제나 전량이다.
-    for name in ("voyage_fuel_use", "not_underway_period", "not_underway_fuel_use"):
+    # 정박 구간 쪽은 참조 제약이 없어 언제나 전량이다.
+    for name in ("not_underway_period", "not_underway_fuel_use"):
         assert counts[name] == EXPECTED_ROWS[name], f"{name} 삭제 건수가 seed 정의와 다르다"
+
+    # 🔴 **항차 연료는 「언제나 전량」이 아니다** (`#1088`). 계산 이력으로 남긴 항차의
+    # 연료는 **남는다** — 종전에는 전량을 지워 그 항차가 연료 0 항차가 됐다. 남긴
+    # 항차가 없을 때만 전량과 같다.
+    if counts["kept_voyage"] == 0:
+        assert counts["voyage_fuel_use"] == EXPECTED_ROWS["voyage_fuel_use"]
+    else:
+        assert counts["voyage_fuel_use"] <= EXPECTED_ROWS["voyage_fuel_use"]
 
 
 @pytest.mark.asyncio
@@ -155,3 +166,114 @@ async def test_reported_count_matches_the_table(conn: AsyncConnection):
 async def _count(conn: AsyncConnection, table: str) -> int:
     result = await conn.execute(text(f"SELECT count(*) FROM {table}"))  # noqa: S608
     return int(result.scalar_one())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 지울 수 없는 것을 지우려 들지 않는다 (#1088)
+# ─────────────────────────────────────────────────────────────────────────────
+
+VALID_HASH = "sha256:" + "a" * 64
+
+
+def _hex(seed_id: object) -> str:
+    """시드 정의의 **대시 36자**를 저장 형식인 ``CHAR(32)`` hex로.
+
+    시드 상수는 사람이 읽는 대시 형식(또는 ``UUID`` 객체)이고 DB는 hex 32자로
+    담는다(``UuidText``).
+    raw SQL에는 그 변환이 걸리지 않으므로 여기서 직접 맞춘다 — 어긋나면
+    ``Cannot coerce … to type char``로 즉시 드러난다 (`#1058`).
+    """
+    return str(seed_id).replace("-", "")
+
+
+@pytest.mark.asyncio
+async def test_user_data_on_a_demo_vessel_does_not_sink_the_whole_clear(conn: AsyncConnection):
+    """데모 선박에 **위치 스냅샷**이 하나 쌓여 있어도 전체가 실패하지 않는다.
+
+    ``vessel_position_snapshot.vessel_id``는 ``RESTRICT``다. 종전 구현은
+    ``calculation_run``만 걸러 내고 ``DELETE FROM vessel``을 바로 쐈으므로 FK 위반이
+    났고, 호출자가 트랜잭션을 쥐고 있어 **한 척 때문에 전체가 롤백**됐다 — 그러면
+    이미 지운 항차·연료까지 되살아나고, 운영자는 「지웠다」는 보고를 받지 못한다.
+
+    `clear_demo` docstring이 약속한 것은 **「막히는 것은 억지로 지우지 않고 남긴 수를
+    돌려준다」**이다. 그 약속을 여기서 잠근다.
+    """
+    demo_vessel_id = SEED_VESSELS[0]["id"]
+
+    await conn.execute(
+        text(
+            "INSERT INTO vessel_position_snapshot "
+            "(id, vessel_id, source, lat, lon, observed_at) "
+            "VALUES (:sid, :vid, 'MANUAL', 35.1, 129.0, :obs)"
+        ),
+        {
+            "sid": uuid.uuid4().hex,
+            "vid": _hex(demo_vessel_id),
+            "obs": datetime(2026, 5, 1, tzinfo=UTC),
+        },
+    )
+
+    # 종전에는 여기서 FK 위반이 터졌다.
+    counts = await clear_demo(conn)
+
+    assert counts["kept_vessel"] >= 1, "참조가 남은 선박은 남긴 수로 세어져야 한다"
+    assert counts["vessel"] + counts["kept_vessel"] == EXPECTED_ROWS["vessel"]
+
+    rows = await conn.execute(
+        text("SELECT COUNT(*) FROM vessel WHERE id = :vid"), {"vid": _hex(demo_vessel_id)}
+    )
+    assert rows.scalar_one() == 1, "참조가 남은 선박은 지워지지 않고 남아야 한다"
+
+
+@pytest.mark.asyncio
+async def test_fuel_of_a_voyage_kept_for_calculation_history_survives(conn: AsyncConnection):
+    """계산 이력 때문에 남긴 항차의 **연료 기록은 지우지 않는다.**
+
+    계산 이력을 남기는 이유는 「그때 무슨 데이터로 계산했나」에 답하기 위해서다.
+    그런데 종전 구현은 항차를 남기면서 **그 답의 재료인 연료를 지웠다** — 남은
+    항차는 연료 0 항차가 되고, 그 항차로 다시 계산하면 분자가 비어 값이 달라진다.
+    """
+    demo_voyage = SEED_VOYAGES[0]
+    voyage_id = demo_voyage["id"]
+    vessel_id = demo_voyage["vessel_id"]
+
+    before = await conn.execute(
+        text("SELECT COUNT(*) FROM voyage_fuel_use WHERE voyage_id = :vid"),
+        {"vid": _hex(voyage_id)},
+    )
+    fuel_before = before.scalar_one()
+    assert fuel_before > 0, "전제가 깨졌다 — 이 항차에 연료 seed가 있어야 한다"
+
+    # 이 항차를 가리키는 계산 이력을 만든다 — 그래서 항차가 남는다.
+    await conn.execute(
+        text(
+            "INSERT INTO calculation_run "
+            "(id, calculation_type, vessel_id, voyage_id, input_hash, parameter_hash, "
+            " model_version, result_json, parameters_used) "
+            "VALUES (:cid, 'VOYAGE_ESTIMATE', :vsl, :vid, :ih, :ih, "
+            " '{}'::jsonb, '{}'::jsonb, '{}'::jsonb)"
+        ),
+        {
+            "cid": uuid.uuid4().hex,
+            "vsl": _hex(vessel_id),
+            "vid": _hex(voyage_id),
+            "ih": VALID_HASH,
+        },
+    )
+
+    counts = await clear_demo(conn)
+
+    assert counts["kept_voyage"] >= 1
+
+    still_there = await conn.execute(
+        text("SELECT COUNT(*) FROM voyage WHERE id = :vid"), {"vid": _hex(voyage_id)}
+    )
+    assert still_there.scalar_one() == 1, "계산 이력이 가리키는 항차는 남아야 한다"
+
+    fuel = await conn.execute(
+        text("SELECT COUNT(*) FROM voyage_fuel_use WHERE voyage_id = :vid"),
+        {"vid": _hex(voyage_id)},
+    )
+    assert fuel.scalar_one() == fuel_before, (
+        "남긴 항차의 연료가 지워졌다 — 그 항차로 다시 계산하면 분자가 비어 값이 달라진다"
+    )
