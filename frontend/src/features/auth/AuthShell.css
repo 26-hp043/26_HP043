@@ -197,18 +197,6 @@
   gap: var(--spacing-lg);
 }
 
-.auth-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-.auth-label {
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
-  color: var(--text-secondary);
-}
-
 .auth-input {
   block-size: var(--target-row);
   padding: 0 var(--spacing-md);
@@ -226,21 +214,10 @@
   box-shadow: var(--focus-ring);
 }
 
-/* 오류를 색만으로 표시하지 않는다 — 문구가 함께 붙는다 (§14). */
-.auth-input--error {
+/* 오류를 색만으로 표시하지 않는다 — 문구가 함께 붙는다 (§14).
+   상태는 `Field`가 붙이는 `aria-invalid`에서 읽는다 (`#936`). */
+.auth-input[aria-invalid='true'] {
   border-color: var(--semantic-danger);
-}
-
-.auth-hint {
-  margin: 0;
-  font-size: var(--font-size-micro);
-  color: var(--text-secondary);
-}
-
-.auth-error {
-  margin: 0;
-  font-size: var(--font-size-micro);
-  color: var(--color-danger-text);
 }
 
 .auth-submit {

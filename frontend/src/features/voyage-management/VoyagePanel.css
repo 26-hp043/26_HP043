@@ -223,12 +223,6 @@
   grid-column: 1 / -1;
 }
 
-.vy__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
 .vy__label {
   font-size: var(--font-size-label);
   color: var(--text-secondary);
@@ -244,7 +238,8 @@
   font-family: inherit;
 }
 
-.vy__input--error {
+/* 오류 상태는 `Field`가 붙이는 `aria-invalid`에서 읽는다 (`#936`). */
+.vy__input[aria-invalid='true'] {
   border-color: var(--semantic-danger);
 }
 
