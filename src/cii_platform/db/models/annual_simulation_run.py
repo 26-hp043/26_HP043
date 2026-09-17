@@ -34,6 +34,12 @@ class AnnualSimulationRun(Base):
     apply_feedback_factor = sa.Column(
         sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False
     )
+    #: **명시적으로** 요청이 준 기준 시각만 (#816 ⑴ · 마이그레이션 ``052``).
+    #:
+    #: ``NULL``은 미명시 실행 — ``input_hash``에 ``as_of`` 키가 없고, 재현도 키 없이
+    #: 계산한다(종전 해시와 같은 식). **명시 여부를 컬럼의 NULL 여부로 판정한다** —
+    #: 재현(``reproduce_annual_simulation``)이 이 값을 재생해 해시 키로 넣는다.
+    as_of = sa.Column(sa.DateTime(timezone=True), nullable=True)
     created_at = sa.Column(
         sa.DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

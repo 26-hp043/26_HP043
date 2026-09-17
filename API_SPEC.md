@@ -2729,7 +2729,7 @@ POST /api/v1/annual-simulations
 > | 필드 | 뜻 |
 > |---|---|
 > | `fuel_types` | 계획 항차에 곱한 **활성 CF** (`#832`). `[{code, cf}]` — 이 실행이 실제로 쓴 유종만. CF 개정이 `parameter_hash`에 드러나지 않으면 재현성 계약이 성립하지 않는다 |
-> | `parameter_sources` | 출처 4키 — `regulation_year`·`reference_line`·`rating_boundary`는 각자의 `source_ref`, `fuel_types`는 유종별 `source_ref`. 종전 `parameter_source_version`은 기준선 하나만 담었다 |
+> | `parameter_sources` | 출처 4키 — `regulation_year`·`reference_line`·`rating_boundary`는 각자의 `source_ref`, `fuel_types`는 `[{code, source_ref}]` (유종별 출처). 종전 `parameter_source_version`은 기준선 하나만 담었다 |
 > | `parameter_schema_version` | `2`. **필드가 없는 저장 행은 v1** — 재현은 저장된 버전의 빌더로 다시 만들어 v1 실행의 해시를 그대로 재생한다 |
 
 > **[#756] 거리 두 행이 기준값(`5.02`)과 같은 것은 오기가 아니다.** 거리 ±5%는 연료를 같은 비율로 함께 움직이므로, **잔여 계획의 배출 강도가 확정 실적과 같으면 CII가 정확히 변하지 않는다**(`PRD §12.6` 각주 — 혼합비와 무관하다). 예시는 그 경우다. ⚠️ **항상 같은 값이 나오는 것은 아니다** — 실적이 계획에서 벌어져 두 구간의 강도가 달라지면 이 행도 움직인다. 종전 예시는 `4.96`·`5.08`로 **구현이 낼 수 없는 변화**를 싣고 있었다.

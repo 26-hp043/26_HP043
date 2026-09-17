@@ -1160,7 +1160,13 @@ def _parameters_used_v2(
             "regulation_year": regulation.source_ref,
             "reference_line": reference_line.source_ref,
             "rating_boundary": rating_boundary.source_ref,
-            "fuel_types": {code: fuel_type_sources[code] for code in sorted(fuel_type_sources)},
+            # 배열이다 — `{유종: 출처}` dict의 키는 유종 코드라 계약이 유동이 되는데,
+            # `fuel_types` 블록(위)과 같은 ``[{code, …}]`` 모양이면 응답 계약 검사가
+            # 키를 고정할 수 있다 (#816 ⑶).
+            "fuel_types": [
+                {"code": code, "source_ref": fuel_type_sources[code]}
+                for code in sorted(fuel_type_sources)
+            ],
         },
         "parameter_schema_version": PARAMETERS_SCHEMA_V2,
     }
