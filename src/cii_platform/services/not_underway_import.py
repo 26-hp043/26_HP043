@@ -37,7 +37,7 @@ from uuid import UUID
 
 from cii_platform.api.schemas.bounds import NOT_UNDERWAY_FUEL
 from cii_platform.db.repositories import parameters as param_repo
-from cii_platform.errors import AppError, ValidationError
+from cii_platform.errors import AppError, ConflictError, ValidationError
 from cii_platform.services.not_underway import (
     CONSUMER_TYPES,
     PERIOD_TYPES,
@@ -205,6 +205,36 @@ def read_rows(content: bytes, *, content_type: str | None = None) -> tuple[list[
     return rows, truncated
 
 
+def _error_field(error: AppError) -> str | None:
+    """저장 단계 오류가 **어느 칸**의 문제인지 고른다 (#1087).
+
+    종전에는 종류와 무관하게 ``"started_at"`` 하나로 고정이었다. 화면은 이 값을 보고
+    해당 입력 칸 아래에 메시지를 붙이므로(``API_SPEC §1.3.2``), 연료 문제를 시작
+    시각 칸에 붙이면 **사용자가 엉뚱한 칸을 고치려 든다.**
+
+    ``ValidationError``는 이미 ``details[].field``에 자기 칸을 싣고 있으니 그것을
+    그대로 쓴다 — 여기서 종류별 표를 다시 만들면 원본과 갈린다. 겹침
+    (``ConflictError``)만 표에 없는데, 그것은 구간의 **시간대** 문제이므로 시작
+    시각을 가리킨다. 그 밖(선박 없음 등)은 **CSV에 대응하는 칸이 없으므로**
+    ``None``이다 — 없는 칸을 지어내면 화면이 붙일 데가 없다.
+
+    ⚠️ **``details`` 갈래는 지금 CSV 경로로 닿지 않는다.** :func:`parse_row`가
+    ``period_type``·``consumer_type``·``fuel_type``을 ``create_period``와 **같은
+    기준으로 먼저** 보기 때문에, 그 셋은 저장 단계에 도달하기 전에 걸린다. 그래도
+    이 갈래를 첫자리에 두는 것은 **두 곳의 검사가 갈리는 날**이 규칙이 필요한 날이기
+    때문이다 — 그때 ``started_at``으로 뭉뚱그리면 결함이 조용해진다. 닿지 않는 갈래를
+    검사 없이 두지 않으려고 순수 함수 단위로 고정해 두었다
+    (``test_not_underway_import_db.py::test_error_field_prefers_the_error_s_own_column``).
+    """
+    for detail in error.details or []:
+        field = detail.get("field")
+        if isinstance(field, str):
+            return field
+    if isinstance(error, ConflictError):
+        return "started_at"
+    return None
+
+
 async def import_not_underway_periods(
     session: AsyncSession,
     vessel_id: UUID,
@@ -227,7 +257,10 @@ async def import_not_underway_periods(
     known_fuels = {row.code for row in await param_repo.list_active_fuel_types(session)}
 
     errors: list[dict[str, object]] = []
-    parsed: list[dict[str, object]] = []
+    # **원본 행 번호를 함께 들고 간다** (#1087). 종전에는 파싱 성공분만 담아
+    # ``enumerate(parsed)``로 번호를 다시 세었는데, 앞에서 한 행이라도 파싱에
+    # 실패하면 그 뒤 저장 오류가 전부 **위쪽 행 번호**로 보고됐다.
+    parsed: list[tuple[int, dict[str, object]]] = []
 
     if truncated:
         errors.append(
@@ -239,10 +272,12 @@ async def import_not_underway_periods(
         )
 
     for index, row in enumerate(rows):
+        # 행 번호는 **파일에서 보이는 번호**다 — 헤더가 1행이므로 +2.
+        row_number = index + 2
         try:
-            parsed.append(parse_row(row, known_fuels))
+            parsed.append((row_number, parse_row(row, known_fuels)))
         except RowError as error:
-            errors.append({"row": index + 2, "field": error.field, "message": error.message})
+            errors.append({"row": row_number, "field": error.field, "message": error.message})
 
     if dry_run:
         # **겹침은 여기서 보지 않는다.** 저장하지 않으므로 서로 겹치는 두 행이 파일 안에
@@ -256,7 +291,7 @@ async def import_not_underway_periods(
         }
 
     imported = 0
-    for index, item in enumerate(parsed):
+    for row_number, item in parsed:
         try:
             await create_period(
                 session,
@@ -279,8 +314,9 @@ async def import_not_underway_periods(
                 ],
             )
         except AppError as error:
-            # 겹침·제원 문제 등은 **그 행만** 떨어뜨린다. 행 번호는 파일에서 보이는 번호다.
-            errors.append({"row": index + 2, "field": "started_at", "message": str(error)})
+            # 겹침·제원 문제 등은 **그 행만** 떨어뜨린다. 행 번호는 ``parsed``의 위치가
+            # 아니라 **원본 파일의 행 번호**다 (#1087).
+            errors.append({"row": row_number, "field": _error_field(error), "message": str(error)})
             continue
         imported += 1
 

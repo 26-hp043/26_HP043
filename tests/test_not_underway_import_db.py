@@ -163,3 +163,73 @@ async def test_fuel_zero_row_is_a_row_error_not_a_500(session, vessel_id):
     result = await import_not_underway_periods(session, vessel_id, content=content)
     assert result["imported_count"] == 0
     assert [e["field"] for e in result["errors"]] == ["fuel_ton", "fuel_ton"]
+
+
+async def test_save_stage_errors_report_the_original_file_row(session, vessel_id):
+    """파싱 실패 행과 저장 실패 행이 **섞인** 파일 (#1087).
+
+    종전에는 저장 단계가 ``enumerate(parsed)``로 번호를 다시 셌다. ``parsed``에는
+    **파싱에 성공한 행만** 들어 있으므로, 앞에서 한 행이라도 떨어지면 그 뒤의 저장
+    오류가 전부 **위쪽 행 번호**로 나갔다 — 사용자는 멀쩡한 줄을 들여다보게 된다.
+
+    여기서 4행(겹침)이 3행으로 보고되면 실패한다.
+    """
+    content = _csv(
+        # 2행 — 정상. 들어간다.
+        "IN_PORT,2026-08-01T00:00:00+09:00,2026-08-03T00:00:00+09:00,0,HFO,10,,",
+        # 3행 — **파싱** 실패(구간 유형). ``parsed``에 들어가지 않는다.
+        "NOSUCHTYPE,2026-08-10T00:00:00+09:00,2026-08-11T00:00:00+09:00,0,HFO,1,,",
+        # 4행 — 파싱은 되지만 2행과 겹쳐 **저장**에서 떨어진다.
+        "IN_PORT,2026-08-02T00:00:00+09:00,2026-08-04T00:00:00+09:00,0,HFO,10,,",
+    )
+
+    result = await import_not_underway_periods(session, vessel_id, content=content)
+
+    assert result["imported_count"] == 1
+    assert [e["row"] for e in result["errors"]] == [3, 4]
+
+    # 종류에 맞는 칸을 가리킨다 — 종전에는 저장 오류가 무조건 ``started_at``이었다.
+    assert result["errors"][0]["field"] == "period_type"
+    assert result["errors"][1]["field"] == "started_at"
+    assert "겹치는 구간" in result["errors"][1]["message"]
+
+
+async def test_an_error_with_no_matching_column_reports_a_null_field(session):
+    """CSV에 **대응하는 칸이 없는** 오류는 ``field``를 지어내지 않는다 (#1087).
+
+    선박이 없으면 ``create_period``가 404를 내는데, 그것은 파일의 어느 칸 문제도
+    아니다. 화면은 ``field``를 보고 해당 입력 칸 아래에 메시지를 붙이므로
+    (``API_SPEC §1.3.2``), 없는 칸을 적으면 붙일 데가 없거나 엉뚱한 칸에 붙는다.
+    """
+    import uuid
+
+    content = _csv("IN_PORT,2026-09-01T00:00:00+09:00,2026-09-02T00:00:00+09:00,0,HFO,10,,")
+
+    result = await import_not_underway_periods(session, uuid.uuid4(), content=content)
+
+    assert result["imported_count"] == 0
+    assert len(result["errors"]) == 1
+    assert result["errors"][0]["row"] == 2
+    assert result["errors"][0]["field"] is None
+    assert "선박을 찾을 수 없습니다" in result["errors"][0]["message"]
+
+
+def test_error_field_prefers_the_error_s_own_column():
+    """``_error_field``는 오류가 **스스로 밝힌 칸**을 먼저 쓴다 (#1087).
+
+    이 갈래는 지금 CSV 경로로 닿지 않는다 — `parse_row`가 같은 값들을
+    `create_period`보다 **먼저** 보기 때문이다. 그래도 규칙을 여기 고정해 두는 것은,
+    두 곳의 검사가 갈리는 날 저장 단계 오류가 조용히 ``started_at``으로 뭉뚱그려지면
+    **화면이 엉뚱한 칸을 짚기** 때문이다. 순수 함수라 DB 없이 고정할 수 있다.
+    """
+    from cii_platform.errors import ConflictError, NotFoundError, ValidationError
+    from cii_platform.services.not_underway_import import _error_field
+
+    # ⑴ 자기 칸을 밝힌 오류 — 그 칸을 쓴다.
+    assert _error_field(ValidationError("연료가 틀렸다", field="fuel_type")) == "fuel_type"
+
+    # ⑵ 겹침은 칸을 밝히지 않는다 — 구간의 시간대 문제이므로 시작 시각을 짚는다.
+    assert _error_field(ConflictError("겹치는 구간이 있습니다")) == "started_at"
+
+    # ⑶ CSV에 대응하는 칸이 없는 오류 — 지어내지 않는다.
+    assert _error_field(NotFoundError("선박을 찾을 수 없습니다")) is None
