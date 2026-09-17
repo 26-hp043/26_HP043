@@ -141,9 +141,6 @@ const NO_STYLE: Readonly<Record<string, string>> = {
  * 자리를 만들어 둔다. 비면 이 목록도 지운다.
  */
 const UNSTYLED_TODO: Readonly<Record<string, string>> = {
-  // `.auth-submit`(44px · Primary 채움)에 걸린 수식자인데 규칙이 없다. 인라인 `<a>`라
-  // `block-size`가 먹지 않아 버튼 모양이 어긋난다. `#1052` 범위 밖이라 별건으로 다룬다.
-  'auth-submit--link': 'LoginPage 「돌아가기」 링크 — 수식자에 규칙이 없다',
   // `__title-en`(형제 span)에는 규칙이 있는데 `__title` 자신에는 없다. `<h2>`가
   // 브라우저 기본 크기(2em)로 그려진다 — 다른 화면은 `card__title`을 쓴다.
   'scenario-comparison__title': '항로 비교 결과 제목 — h2가 브라우저 기본 크기다',

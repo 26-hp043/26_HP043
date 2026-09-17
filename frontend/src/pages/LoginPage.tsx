@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
-import { Link, Navigate, useSearchParams } from 'react-router'
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
-import { PAGE_FAILURE_MESSAGE } from '../components/errorCopy'
+import { ErrorState } from '../components/ErrorState'
+import { PAGE_FAILURE_MESSAGE, actionFailureTitle } from '../components/errorCopy'
 import { hasErrors, safeNext, splitSubmitFailure, validateLogin } from '../features/auth/authRules'
 import type { FieldErrors } from '../features/auth/authRules'
 import {
@@ -127,18 +128,37 @@ export function LoginPage() {
  *
  * 자체 인증에서는 실패가 로그인 화면 안에서 표시되므로 이 화면으로 오는 경로는
  * 드물다. 세션 발급 자체가 실패한 경우를 위해 남긴다.
+ *
+ * ## 층위는 A(페이지)가 아니라 영역이다 (`#1053` · 2026-09-17 확정)
+ *
+ * 2026-09-11 확정 C ⑶은 이 화면을 **A층위 이관 대상**으로 두었는데, A층위 제목은
+ * **고정** 「화면을 불러오지 못했습니다」다(확정 B — 제목은 호출부가 쓰지 않는다).
+ * 그런데 이 화면은 **화면이 안 뜬 것이 아니라 로그인이 실패한 것**이고,
+ * `ErrorState`가 스스로 적어 둔 층위 정의도 *「`page` — 화면 전체가 뜨지 않았다」*다.
+ *
+ * 그래서 **영역 실패의 「처리」 갈래**를 쓴다 — `actionFailureTitle('로그인')`이
+ * 「로그인에 실패했습니다」를 만든다. A층위에 제목 예외를 만들지 않아도 되고,
+ * 제목이 **호출부의 문자열이 아니라 확정된 기계에서** 나온다.
+ *
+ * 제목은 `AuthShell`의 `<h1>`이 이미 그 자리를 갖고 있으므로 `size="compact"`를
+ * 쓴다 — 블록으로 두면 한 화면에 제목이 둘이 된다.
  */
 export function LoginFailurePage() {
+  const navigate = useNavigate()
+
   /*
    * 본문은 페이지 실패 기본 본문과 같은 문장이다(`PRD §6.4`) — 이 화면의 문장이
    * 기본값의 출처였고, 한 문장 안에 「주세요」와 「주십시오」가 섞여 있어 통일했다.
-   * 버튼 문구도 재시도 단일 문구 「다시 시도」다(종전 「다시 시도하기」).
+   * 재시도 버튼 문구 「다시 시도」는 `ErrorState`가 준다(모든 층위 단일 문구).
    */
   return (
-    <AuthShell title="로그인하지 못했습니다" description={PAGE_FAILURE_MESSAGE}>
-      <Link className="auth-submit auth-submit--link" to={LOGIN_PATH}>
-        다시 시도
-      </Link>
+    <AuthShell title={actionFailureTitle('로그인')}>
+      <ErrorState
+        level="region"
+        size="compact"
+        message={PAGE_FAILURE_MESSAGE}
+        onRetry={() => void navigate(LOGIN_PATH)}
+      />
     </AuthShell>
   )
 }
