@@ -60,7 +60,7 @@ from cii_platform.services.cii_history import (
     list_cii_history,
 )
 from cii_platform.services.simulation_clock import resolve_as_of
-from cii_platform.services.ytd_cii import compute_ytd_cii
+from cii_platform.services.ytd_cii import POLICY_INCLUDE_AS_ACTUAL, compute_ytd_cii
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -275,9 +275,42 @@ async def build_voyage_report(
     )
     voyage_co2_t = voyage_co2_g / Decimal(1_000_000)
 
-    share = "—"
-    if ytd.total_co2_t and ytd.total_co2_t > 0:
+    #
+    # **집계에 실제로 들어간 항차일 때만 비중을 낸다** (`#1090`).
+    #
+    # 분모 ``ytd.total_co2_t``는 ``INCLUDE_AS_ACTUAL``이고 ``regulation_year``가 이 해인
+    # 항차만 더한 값이다(`services/ytd_cii.py` ``_aggregate``). 분자를 그 집합 **밖의**
+    # 항차로 두면 나오는 수는 「차지한 비중」이 아니다 — 같은 문서의 「연간 집계 반영:
+    # 연간 반영 안 함」과 정면으로 어긋나고, 분모에 없는 값을 나누므로 **100%를 넘을 수도
+    # 있다.**
+    #
+    # 종전에는 분모가 0인지만 보고 찍었다.
+    #
+    # ⚠️ **연도는 따로 보지 않는다.** 이슈 `#1090`은 「``regulation_year``가 다른 항차」도
+    # 같은 결함이라고 적었으나, 실측상 그 경우는 없다 — 위에서 ``year``를
+    # ``voyage.regulation_year``로 잡고(없으면 ``resolved.year``), DB 트리거
+    # ``trg_voyage_enum_*``(``048``)이 ``annual_inclusion_policy = 'EXCLUDE' OR
+    # regulation_year IS NOT NULL``을 강제한다. 즉 ``INCLUDE_AS_ACTUAL``이면 연도가
+    # 반드시 있고 ``year``가 그 연도이므로 **어긋날 수 없다.** 조건을 더 걸면 닿지 않는
+    # 갈래가 남는다.
+    counted_in_ytd = voyage.annual_inclusion_policy == POLICY_INCLUDE_AS_ACTUAL
+
+    #
+    # 「—」만 두지 않고 **사유를 같은 칸에** 붙인다 (`#1090` · 2026-09-17 결정).
+    #
+    # 바로 위 「연간 집계 반영」 행이 같은 말을 하지만, 리포트는 잘라서 인용되기도 하는
+    # 산출물이라 그 행과 떨어져 읽히면 「—」가 **값이 아직 안 나온 것**으로 보인다.
+    #
+    # 🔒 **문구를 새로 짓지 않는다.** `reports/labels.py` 머리가 「어느 쪽이든 표기를
+    # 여기서 새로 정하지 않는다」고 못박고 있어, 이미 있는 정책 라벨을 그대로 가져다
+    # 괄호에 넣는다 — 그래서 `test_reports.py`의 문구 동기화 검사가 계속 유효하다.
+    #
+    share = f"— ({inclusion_policy_label(voyage.annual_inclusion_policy)})"
+    if counted_in_ytd and ytd.total_co2_t and ytd.total_co2_t > 0:
         share = f"{(voyage_co2_t / ytd.total_co2_t * 100).quantize(Decimal('0.1'))}%"
+    elif counted_in_ytd:
+        # 집계에는 들었는데 분모가 0이다 — 정책 탓이 아니므로 사유를 붙이지 않는다.
+        share = "—"
 
     document = ReportDocument(
         title=f"항차 완료 리포트 — {vessel.name} {voyage.voyage_no or ''}".strip(),
@@ -371,7 +404,7 @@ _PERIOD_LABELS = {
 
 
 async def _not_underway_section(
-    session: AsyncSession, *, vessel_id: UUID, year: int
+    session: AsyncSession, *, vessel_id: UUID, year: int, as_of: datetime
 ) -> TableSection:
     """not under way 기여 — 유형별 연료(분자)와 거리(분모) (``PRD §25.3``).
 
@@ -379,8 +412,16 @@ async def _not_underway_section(
     정박 구간의 이동 거리도 분모에 들어간다. 접안·묘박은 0이고 운하 통과·표류·STS만
     값이 있어, 유형별로 나눠야 그 차이가 보인다.
     """
+    #
+    # **누적과 같은 시점으로 자른다** (`#1090`).
+    #
+    # 같은 문서의 연간 누적(YTD)은 ``started_at <= as_of``로 자르는데 이 표만 연도
+    # 전체를 세고 있었다. 과거 ``as_of``로 뽑거나 미래 구간이 등록돼 있으면 **한 문서
+    # 안에서 정박 건수·연료와 누적 CO₂가 서로 맞지 않는다** — 리포트는 받는 사람이
+    # 되물을 수단이 없는 산출물이라, 두 수가 어긋나면 어느 쪽이 맞는지 알 길이 없다.
+    #
     periods = await not_underway_repo.list_periods_for_year(
-        session, vessel_id=vessel_id, regulation_year=year
+        session, vessel_id=vessel_id, regulation_year=year, as_of=as_of
     )
 
     # 연료는 **한 번에** 읽는다 (#827). 구간마다 조회하면 N+1이 되고, 정박은 항차마다
@@ -415,7 +456,19 @@ async def _not_underway_section(
         title="not under way 기여",
         headers=["구간 유형", "건수", "이동 거리 (nm)", "연료 (t)"],
         # 기록이 없는 것은 오류가 아니다 — 「0건」이 아니라 그 사실을 적는다.
-        rows=rows or [["기록 없음", "0", "0.00", "0.00"]],
+        #
+        # 자릿수는 손으로 적지 않고 ``_display``를 지난다 (`#1090`). ``DESIGN_SYSTEM §4.2``는
+        # 거리를 **0자리**, 연료를 1자리로 정했는데 종전 이 행만 둘 다 ``"0.00"``이라
+        # **같은 표의 다른 행과 자릿수가 달랐다.**
+        rows=rows
+        or [
+            [
+                "기록 없음",
+                "0",
+                _display(Decimal(0), "distance_nm"),
+                _display(Decimal(0), "fuel_ton"),
+            ]
+        ],
         note=(
             "정박 구간의 연료는 CII 분자에, 이동 거리는 분모에 포함됩니다"
             " (MEPC.412(84) §4.2). 접안·묘박의 이동 거리 0은 정상값입니다."
@@ -622,7 +675,7 @@ async def build_annual_report(
                 for row in history["years"]
             ],
         ),
-        await _not_underway_section(session, vessel_id=vessel_id, year=target_year),
+        await _not_underway_section(session, vessel_id=vessel_id, year=target_year, as_of=resolved),
         # `PRD §21` 「공식 보고서 보조」 — 제출 **전에** 우리 데이터의 상태를 훑는 절이다
         # (`#770`). 별도 리포트로 만들지 않는다: 「제출 전 검토용」이라는 제목의 문서가
         # 따로 있으면 `§25.1`의 「대관 제출용은 하지 않는다」와 경계가 흐려진다.
