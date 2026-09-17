@@ -85,6 +85,8 @@ interface ServerBody {
       message: string
     }>
   }
+  /** 오류 응답의 본문 (`API_SPEC §1.3.2`). 성공 응답에는 없다. */
+  error?: { code?: string; message?: string }
 }
 
 /**
@@ -181,13 +183,49 @@ export function createApiFleetProvider(
         throw new FleetUnavailableError(SESSION_EXPIRED_MESSAGE)
       }
 
+      /*
+       * 응답 본문은 **한 번만** 읽을 수 있고 JSON이 아닐 수 있다 (#1103).
+       *
+       * 종전에는 `await response.json()`에 try가 없어, 프록시가 200과 함께 HTML
+       * 오류 페이지를 주면 `SyntaxError: Unexpected token '<'`가 **그대로 사용자에게**
+       * 보였다. 파싱 실패는 사용자가 고칠 수 있는 것이 아니므로 일반 실패 문구로 받는다
+       * (이 파일이 이미 쓰는 문구다 — 새로 짓지 않는다).
+       */
+      let body: ServerBody | null = null
+      try {
+        body = (await response.json()) as ServerBody
+      } catch {
+        body = null
+      }
+
       if (!response.ok) {
+        /*
+         * **서버가 말한 사유를 버리지 않는다** (#1103).
+         *
+         * 종전에는 `HTTP ${status}`만 내보내, 규제연도 seed가 없어 나는
+         * 409 `PARAMETER_ERROR`의 사유가 통째로 사라졌다 — 사용자는 숫자만 보고
+         * 무엇을 해야 하는지 알 수 없었다. 서버 문구는 `API_SPEC §1.6`이 확정한
+         * 것이므로 화면이 다시 짓지 않고 **그대로 쓴다**(`assistant/apiProvider.ts`와
+         * 같은 방식).
+         *
+         * ⚠️ **사유가 없을 때의 상태 코드 폴백은 그대로 둔다.** 종전 동작이고
+         * `apiProvider.test.ts`의 「5xx는 상태 코드를 남긴다」가 이미 고정하고 있다.
+         * 서버가 아무 말도 하지 않는 5xx에서는 그 숫자가 **남은 유일한 단서**라,
+         * 빼면 사용자가 문의할 때 넘길 것이 사라진다. 이 이슈가 고치려는 것은
+         * 「사유가 있는데 숫자가 그것을 덮는 것」이다.
+         */
+        const serverMessage = body?.error?.message
         throw new FleetUnavailableError(
-          `선대 현황을 불러오지 못했습니다 (HTTP ${response.status}).`,
+          typeof serverMessage === 'string' && serverMessage !== ''
+            ? serverMessage
+            : `선대 현황을 불러오지 못했습니다 (HTTP ${response.status}).`,
         )
       }
 
-      const body = (await response.json()) as ServerBody
+      if (body === null) {
+        throw new FleetUnavailableError('선대 현황 응답 형식이 올바르지 않습니다.')
+      }
+
       const data = body.data
       /*
        * `as_of`가 없으면 형식 오류다. 이 값은 「어느 시점 데이터인가」를 특정하는

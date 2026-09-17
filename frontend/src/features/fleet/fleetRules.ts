@@ -363,3 +363,45 @@ export function missingGrossTonnageCount(vessels: FleetVessel[]): number {
     (vessel) => vessel.grossTonnage === null || vessel.grossTonnage === '',
   ).length
 }
+
+/*
+ * 좌표가 없어 그림에서 빠진 선박 (#705 · #1103)
+ *
+ * 개략도(`PositionChart`)와 실제 지도(`FleetMap`)가 **같은 사실**을 말한다. 종전에는
+ * 개략도만 적고 지도는 아무 말도 하지 않아, 4척 중 1척이 미입력이면 지도에 3척만
+ * 그려지고 **그 3척이 선대 전부로** 읽혔다. 두 화면이 각자 문구를 들고 있으면 한쪽만
+ * 고쳐질 것이므로 여기 한 곳에 둔다.
+ */
+
+/**
+ * 「n척이 빠졌다」 한 줄. 빠진 것이 없으면 ``null``이다.
+ *
+ * **빠진 선박의 이름은 적지 않는다.** 선박 목록에 다 있고(`#701` — 같은 사실이 한
+ * 화면에 네 번 나오는 것을 걷어낸 직후다), 여기서 필요한 것은 「이 그림이 전부가
+ * 아니다」이지 「어느 배가 빠졌나」가 아니다 — 뒷문장은 목록이 답한다.
+ *
+ * 뒷줄은 빈 상태(:data:`NO_POSITION_RECORDED_TEXT`)와 **같은 말**을 쓴다. 0척일 때와
+ * 일부일 때가 다른 말을 하면 같은 상황이 두 얼굴로 보인다.
+ */
+export function missingPositionText(total: number, shown: number): string | null {
+  const missing = total - shown
+  if (missing <= 0) return null
+  return (
+    `위치 미기록 ${missing}척은 표시되지 않았습니다 — ${total}척 중 ${shown}척. ` +
+    '선박 상세에서 현재 위치를 입력하면 여기에 표시됩니다.'
+  )
+}
+
+/**
+ * 결측을 **접근성 트리에도** 넣는다. 눈으로 보는 쪽에만 있으면 화면 낭독으로는
+ * 여전히 「선박 3척의 …」으로 들려 빠진 것이 없는 것처럼 된다. 앞에 공백을 두어
+ * 부르는 쪽 문장에 그대로 이어 붙인다.
+ */
+export function missingPositionAria(total: number, shown: number): string {
+  const missing = total - shown
+  return missing > 0 ? ` 좌표가 없는 ${missing}척은 빠져 있습니다.` : ''
+}
+
+/** 좌표가 **하나도** 없을 때. 위 일부 결측 문구의 뒷줄과 같은 말이다. */
+export const NO_POSITION_RECORDED_TEXT =
+  '위치가 기록된 선박이 없습니다. 선박 상세에서 현재 위치를 입력하면 여기에 표시됩니다.'
