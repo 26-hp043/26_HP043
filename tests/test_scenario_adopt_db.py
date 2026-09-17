@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.db.types import UuidText
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.scenario_adopt import (
+    FIELD_PLANNED_FUEL,
     MODE_CREATE,
     SOURCE_MODEL_ESTIMATE,
     UPDATED_FIELDS,
@@ -615,3 +616,46 @@ async def test_a_voyage_with_no_fuel_row_gets_one(session, vessel_id):
     assert [(row.fuel_type, row.planned_fuel_ton, row.source) for row in rows] == [
         ("HFO", SCENARIO_FUEL, SOURCE_MODEL_ESTIMATE)
     ]
+
+
+@pytest.mark.asyncio
+async def test_adopting_is_not_blocked_when_the_fuel_type_is_unknown(session):
+    """🔴 **연료 종류를 몰라도 채택은 된다 — 연료만 건너뛴다.**
+
+    원본 항차에 연료 행이 없고 선박에 기본 연료도 없으면 넣을 종류가 없다. 그 때문에
+    거리·속력·도착시각 갱신까지 거부하면 **사용자가 하려던 일 전체가 막힌다** — 채택의
+    본체는 계획값 갱신이다.
+
+    ⚠️ **이것을 처음에 오류로 만들어 `#1077`의 무효화 건수 검사 2건을 깨뜨렸다**
+    (`test_voyage_attribution_db.py`). 그 검사들은 연료와 무관한데, 픽스처가 연료 행 없는
+    항차 + 기본 연료 없는 선박이라 채택 자체가 `ValidationError`로 죽었다. 전체 시험에서
+    잡혔다.
+
+    `CREATE_NEW_VOYAGE`는 다르다 — 연료 종류 없이 **새 항차를 만들 수 없어** 거기서는
+    오류가 맞다(`test_create_mode_requires_a_known_fuel_type`이 그쪽을 잠근다면 그대로).
+    """
+    bare_vessel = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, 'NO DEFAULT FUEL', 'BULK_CARRIER', 50000)"
+        ),
+        {"id": bare_vessel, "imo": f"9{bare_vessel.int % 1000000:06d}"},
+    )
+    voyage_id = await _new_voyage(session, bare_vessel)
+    await session.execute(
+        text("DELETE FROM voyage_fuel_use WHERE voyage_id = :id"), {"id": voyage_id}
+    )
+    scenario_id = await _new_scenario(session, bare_vessel)
+
+    data = await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
+
+    # 계획값은 바뀐다 — 채택이 막히지 않는다.
+    row = await _voyage_row(session, voyage_id)
+    assert row.planned_distance_nm == Decimal("2000.00")
+    assert row.planned_speed_kn == Decimal("10.50")
+    # 연료는 그대로 없다.
+    assert await _fuel_rows(session, voyage_id) == []
+    # **바꾸지 않은 것을 바꿨다고 적지 않는다.**
+    assert FIELD_PLANNED_FUEL not in data["updated_fields"]
+    assert data["updated_fields"] == [f for f in UPDATED_FIELDS if f != FIELD_PLANNED_FUEL]

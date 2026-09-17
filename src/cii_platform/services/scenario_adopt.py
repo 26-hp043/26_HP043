@@ -71,11 +71,13 @@ ADOPT_MODES: tuple[str, ...] = (MODE_UPDATE, MODE_CREATE)
 #:
 #: ``planned_fuel_ton``은 항차 행이 아니라 ``voyage_fuel_use``의 열이지만 **사용자가
 #: 「무엇이 바뀌었나」로 읽는 단위**라 같은 목록에 둔다 (#1072).
+FIELD_PLANNED_FUEL = "planned_fuel_ton"
+
 UPDATED_FIELDS: tuple[str, ...] = (
     "planned_distance_nm",
     "planned_speed_kn",
     "planned_arrival_at",
-    "planned_fuel_ton",
+    FIELD_PLANNED_FUEL,
 )
 
 #: 시나리오가 준 연료의 출처. ``CREATE_NEW_VOYAGE``가 쓰는 값과 **같다** — 두 경로가
@@ -157,6 +159,7 @@ async def adopt_scenario(
             field_label="대상 항차",
         )
 
+    updated_fields = list(UPDATED_FIELDS)
     if adopt_mode == MODE_CREATE:
         voyage = await _create_from_scenario(
             session,
@@ -177,7 +180,9 @@ async def adopt_scenario(
         target.planned_speed_kn = scenario.speed_kn
         target.planned_arrival_at = _arrival_at(target, scenario)
         # 연료도 바꾼다 (#1072) — 종전에는 이 줄이 없어 「새 거리 + 옛 연료」가 남았다.
-        await _apply_scenario_fuel(session, target, scenario)
+        if not await _apply_scenario_fuel(session, target, scenario):
+            # 넣을 연료 종류를 몰라 건너뛴 경우다. **바꾸지 않은 것을 바꿨다고 적지 않는다.**
+            updated_fields.remove(FIELD_PLANNED_FUEL)
         voyage_id = target.id
 
     await _clear_previous_adoption(session, voyage_id)
@@ -191,13 +196,16 @@ async def adopt_scenario(
     return {
         "voyage_id": str(voyage_id),
         "adopted_scenario_type": scenario.scenario_type,
-        "updated_fields": list(UPDATED_FIELDS),
+        "updated_fields": updated_fields,
         "invalidated_calculation_runs": marked,
     }
 
 
-async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> None:
+async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> bool:
     """채택한 시나리오의 연료량을 항차의 **계획 연료**로 옮긴다 (#1072).
+
+    돌려주는 값은 **실제로 바꿨는가**다. 응답 ``updated_fields``가 그 값을 따라간다 —
+    바꾸지 않았는데 바꿨다고 적으면 사용자가 확인할 수 없는 거짓이 된다.
 
     ## 유종이 여럿이면 기존 비중대로 안분한다
 
@@ -231,14 +239,19 @@ async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> None:
         # 연료 행이 아예 없는 항차다 — CSV로 항차만 먼저 올린 경우에 실제로 나온다
         # (`#1095` ⑵). `CREATE_NEW_VOYAGE`와 **같은 규칙**으로 종류를 정해 한 행을 만든다:
         # 그러지 않으면 이 경로만 「연료가 안 바뀌는」 종전 상태로 남는다.
-        fuel_type = await _source_fuel_type(session, target)
+        #
+        # 🔴 **종류를 모르면 채택을 막지 않는다.** 원본 항차에도 연료가 없고 선박에 기본
+        # 연료도 없으면 넣을 종류가 없는데, 그 때문에 거리·속력·도착시각 갱신까지 거부하면
+        # **사용자가 하려던 일 전체가 막힌다** — 채택의 본체는 계획값 갱신이다. 연료만
+        # 건너뛰고 그 사실을 `updated_fields`로 알린다. (`CREATE_NEW_VOYAGE`는 다르다 —
+        # 연료 종류 없이 **새 항차를 만들 수 없어** 거기서는 오류가 맞다.)
+        fuel_type = await _source_fuel_type(session, target, required=False)
+        if fuel_type is None:
+            return False
         fuel_rows = await param_repo.get_fuel_types_by_codes(session, (fuel_type,))
         if fuel_type not in fuel_rows:
-            raise ValidationError(
-                f"알 수 없는 연료 종류입니다: {fuel_type}",
-                field="target_voyage_id",
-                field_label="대상 항차",
-            )
+            # 비활성으로 내려간 연료다 — 새 계획값에 죽은 코드를 심지 않는다.
+            return False
         await voyage_repo.insert_fuel_use(
             session,
             voyage_id=target.id,
@@ -248,7 +261,7 @@ async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> None:
             cf_used=Decimal(str(fuel_rows[fuel_type].cf)),
             source=SOURCE_MODEL_ESTIMATE,
         )
-        return
+        return True
 
     weights = [Decimal(row.planned_fuel_ton or 0) for row in rows]
     if sum(weights) <= 0:
@@ -271,6 +284,7 @@ async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> None:
     for index, share in shares.items():
         rows[index].planned_fuel_ton = share
         rows[index].source = SOURCE_MODEL_ESTIMATE
+    return True
 
 
 async def _create_from_scenario(
@@ -336,8 +350,11 @@ async def _create_from_scenario(
     )
 
 
-async def _source_fuel_type(session: AsyncSession, source) -> str:
+async def _source_fuel_type(session: AsyncSession, source, *, required: bool = True) -> str | None:
     """원본 항차의 연료 코드. 없으면 선박 기본 연료.
+
+    ``required=False``면 알 수 없을 때 오류 대신 ``None``을 돌려준다 (#1072) —
+    호출부가 「연료만 건너뛴다」를 고를 수 있어야 하는 자리가 있다.
 
     시나리오 행에는 연료 **종류**가 없다(`DB_SCHEMA §2.4`는 양만 갖는다). 종류를
     지어내면 CF가 달라져 **채택 전후의 CO₂가 어긋난다.**
@@ -350,6 +367,8 @@ async def _source_fuel_type(session: AsyncSession, source) -> str:
 
     vessel = await vessel_repo.get_by_id(session, source.vessel_id)
     if vessel is None or not vessel.default_fuel_type:
+        if not required:
+            return None
         raise ValidationError(
             "새 항차에 쓸 연료 종류를 알 수 없습니다. 원본 항차나 선박에 기본 연료가 필요합니다.",
             field="target_voyage_id",
