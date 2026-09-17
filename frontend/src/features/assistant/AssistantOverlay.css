@@ -167,10 +167,18 @@
   gap: var(--space-8);
 }
 
+/*
+ * `§8` — 입력·셀렉트는 **surface-2** 배경이다. 이 칸만 `--color-surface`(카드 면)를
+ * 써서 패널 배경과 같은 색이었다 — 테두리 하나로만 칸임을 말하고 있었고, 다른
+ * 열한 화면과도 어긋났다 (`#1051`).
+ *
+ * ⚠️ 규격이 없어 임시로 세운 값이 아니라 **있는 규격을 못 지킨 것**이라 확정을
+ * 기다리지 않고 고친다. 나머지 치수(폭·높이·말풍선 폭 등)는 규격이 없어 그대로 둔다.
+ */
 .assistant__input {
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
-  background: var(--color-surface);
+  background: var(--color-surface-2);
   padding: var(--space-8);
   color: var(--color-text);
   font-family: var(--font-sans);
@@ -178,9 +186,14 @@
   resize: vertical;
 }
 
+/*
+ * 비활성은 **배경이 아니라 글자색과 커서**로 말한다 — 이제 평상시가 surface-2라
+ * 배경을 바꾸면 구분이 사라진다. `AppShell`·`VesselDetail`·`ReportsView`가 쓰는
+ * 방식과 같다.
+ */
 .assistant__input:disabled {
-  background: var(--color-surface-2);
   color: var(--color-text-disabled);
+  cursor: not-allowed;
 }
 
 .assistant__send {
