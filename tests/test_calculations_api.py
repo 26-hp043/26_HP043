@@ -91,6 +91,21 @@ def wired(monkeypatch: pytest.MonkeyPatch, session: FakeSession) -> Iterator[Tes
 
     monkeypatch.setattr(svc.calc_run_repo, "list_runs", fake_list_runs)
 
+    # `#1076` — `meta.needs_recalc_total`을 만드는 COUNT 질의도 대역으로 바꾼다.
+    # 바꾸지 않으면 `FakeSession`이 그 질의를 받아 `scalar_one`이 없다고 터진다
+    # (이 파일은 DB를 쓰지 않는 계약 검사다).
+    async def fake_count_needs_recalc_runs(
+        _session,
+        *,
+        input_hash=None,
+        parameter_hash=None,
+        calculation_type=None,
+        vessel_id=None,
+    ):
+        return 0
+
+    monkeypatch.setattr(svc.calc_run_repo, "count_needs_recalc_runs", fake_count_needs_recalc_runs)
+
     # 인증 배선(#307) 후 main.app은 세션 없이 401 — 대역 세션으로 통과시킨다.
     # GET 조회이므로 CSRF 헤더는 필요 없다.
     install_fake_auth(monkeypatch)
@@ -152,8 +167,16 @@ class TestListCalculations:
         assert body["data"] == []
         assert body["meta"]["next_cursor"] is None
         assert body["meta"]["has_more"] is False
+        # `#1076` — 건수는 페이지가 아니라 필터 전체의 값이다(`API_SPEC §1.9`).
+        assert body["meta"]["needs_recalc_total"] == 0
         # §1.3.1 — request_id·timestamp는 meta에서 빠지지 않는다.
-        assert set(body["meta"]) == {"next_cursor", "has_more", "request_id", "timestamp"}
+        assert set(body["meta"]) == {
+            "next_cursor",
+            "has_more",
+            "needs_recalc_total",
+            "request_id",
+            "timestamp",
+        }
 
     def test_data_fields(self, wired: TestClient, monkeypatch: pytest.MonkeyPatch):
         """§1.9 ``data[]`` 항목 — 필드명과 result_summary 추출."""

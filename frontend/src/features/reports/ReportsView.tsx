@@ -49,7 +49,19 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   const api = providerRef.current
 
   const [kind, setKind] = useState<ReportKind>('ANNUAL')
-  const [vessels, setVessels] = useState<VesselOption[] | null>(null)
+  /*
+   * 선박 목록 (`#1076` ⑴).
+   *
+   * 아래 항차 칸과 **같은 3상태**다 — `null`은 「아직 모른다」, `'failed'`는 「못
+   * 읽었다」, 배열은 「이만큼이 전부다」. 종전에는 실패도 `[]`여서 **선박이 10척
+   * 등록된 계정에서도 「등록된 선박이 없습니다」**가 나갔다.
+   *
+   * 실패를 `failure`(아래 리포트 생성 오류 칸)에 담지 않는 것이 핵심이다 —
+   * `run()`이 실행할 때마다 `setFailure(null)`로 그 칸을 비우므로, 사용자가
+   * 「미리보기」를 한 번 누르면 **오류 문구만 사라지고 「등록된 선박이 없습니다」가
+   * 남아** 원인이 정반대로 읽혔다.
+   */
+  const [vessels, setVessels] = useState<VesselOption[] | 'failed' | null>(null)
   /*
    * 항차 목록 (`#824` ⑵).
    *
@@ -100,11 +112,10 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
     api
       .listVessels()
       .then(setVessels)
-      .catch((error: unknown) => {
-        setVessels([])
-        setFailure(
-          error instanceof Error ? error.message : '선박 목록을 불러오지 못했습니다.',
-        )
+      .catch(() => {
+        // 실패를 `[]`로 두면 「등록된 선박이 없습니다」가 되어 **원인이 뒤바뀐다**
+        // (항차 칸이 `#824` ⑵에서 같은 이유로 고쳐진 자리다).
+        setVessels('failed')
       })
   }, [api])
 
@@ -236,7 +247,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
               data-testid="vessel-select"
             >
               <option value="">선택하세요</option>
-              {(vessels ?? []).map((vessel) => (
+              {(Array.isArray(vessels) ? vessels : []).map((vessel) => (
                 <option key={vessel.id} value={vessel.id}>
                   {vessel.name} (IMO {vessel.imoNumber})
                 </option>
@@ -251,7 +262,16 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                 선박 목록을 불러오는 중입니다…
               </em>
             ) : null}
-            {vessels !== null && vessels.length === 0 ? (
+            {/*
+              실패는 「없음」과 다르다 (`#1076` ⑴ · `#824` ⑵). 이 안내는 `failure`
+              칸이 아니라 셀렉트에 붙어 있으므로 **리포트를 만들어도 지워지지 않는다.**
+            */}
+            {vessels === 'failed' ? (
+              <em className="rp__hint" role="alert">
+                선박 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+              </em>
+            ) : null}
+            {Array.isArray(vessels) && vessels.length === 0 ? (
               <em className="rp__hint">등록된 선박이 없습니다.</em>
             ) : null}
           </label>
