@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.services.ytd_cii import (
     SUBSTITUTION_AXIS_DISTANCE,
     SUBSTITUTION_AXIS_FUEL,
+    WARNING_COMPLETED_FUEL_UNFILLED,
     WARNING_COMPLETED_NO_DISTANCE,
     WARNING_COMPLETED_NO_FUEL,
     InProgressContribution,
@@ -594,3 +595,96 @@ async def test_voyage_fuel_keeps_each_snapshot_cf(session, vessel_id):
     # 유종별 합산(160t)에 대표 CF 하나를 골랐을 때의 두 후보와는 다르다 — 공허한 통과 방지.
     assert expected_underway_g != Decimal("160") * HFO_CF * Decimal("1000000")
     assert expected_underway_g != Decimal("160") * (HFO_CF + 1) * Decimal("1000000")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 연료 기록이 **한 행도 없는** 실적 확정 항차 (#1095 ⑵)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_voyage_with_no_fuel_row_at_all_is_warned(session, vessel_id):
+    """항차는 있고 연료 행이 0개면 **경고가 난다** (#1095 ⑵).
+
+    종전에는 아무 경고도 없었다. 집계 루프의 대체·미기재 기록은 **행이 있는데 값이
+    빌 때만** 쌓이므로(`ytd_cii.py`) 행이 0개인 경우에 닿지 않았다. 그 결과 거리는
+    2880nm가 들어갔는데 `warnings = []`라, 화면이 「올해 등록된 실적이 없습니다.
+    항차 실적을 입력하면…」으로 떨어졌다 — **항차는 이미 등록돼 있고** 사용자가 할
+    일은 그 항차에 **연료**를 넣는 것이었다.
+    """
+    await _insert_voyage(session, vessel_id)  # 연료 행을 넣지 않는다
+
+    result = await _compute(session, vessel_id)
+
+    assert WARNING_COMPLETED_FUEL_UNFILLED in result.warnings
+    # 거리는 들어갔다 — 「실적이 없다」가 아니라 「연료가 없다」인 것이 이 결함의 핵심이다.
+    assert result.voyage_count == 1
+    assert result.total_distance_nm == Decimal("1000.00")
+    assert result.total_fuel_ton == Decimal("0")
+    assert result.data_available is False
+
+
+@pytest.mark.asyncio
+async def test_no_fuel_row_is_recorded_per_voyage(session, vessel_id):
+    """항차 단위 기록이 남는다 — 경고만으로는 **어느 항차인지**가 나오지 않는다.
+
+    ``fuel_type``이 ``None``인 것이 「행이 아예 없음」의 표시다(붙일 유종이 없다).
+    데이터 점검이 그것을 보고 `FUEL_NO_RECORD`로 가른다.
+    """
+    voyage_id = await _insert_voyage(session, vessel_id)
+
+    result = await _compute(session, vessel_id)
+
+    assert [(item.axis, item.fuel_type) for item in result.unfilled] == [
+        (SUBSTITUTION_AXIS_FUEL, None)
+    ]
+    assert same_uuid(result.unfilled[0].voyage_id, voyage_id)
+    # 대체(계획값을 넣었다)가 아니다 — `substitutions`에는 연료 축이 들어가지 않는다.
+    assert SUBSTITUTION_AXIS_FUEL not in {item.axis for item in result.substitutions}
+    assert WARNING_COMPLETED_NO_FUEL not in result.warnings
+
+
+@pytest.mark.asyncio
+async def test_a_fuelless_voyage_mixed_in_still_warns(session, vessel_id):
+    """★ **등급이 조용히 좋아지는 경로를 잠근다** (#1095 ⑵ · 결정요청 v7 §1.3).
+
+    연료가 있는 항차와 섞이면 `data_available`이 **참**이고 등급도 나온다. 그런데
+    연료 0행 항차의 **거리는 분모에 들어가고 연료는 0**이므로 분자가 그만큼 모자라
+    **CII가 실제보다 좋게** 나온다. 종전에는 그 사실을 말하는 신호가 아무것도 없었다
+    — 경고도, 항차 기록도, 데이터 점검 행도 없었다.
+
+    여기서 보는 것은 「등급을 고쳐라」가 아니라 **「그 상태가 드러나는가」**다. 값을
+    바꾸는 것은 이 결정(`가′`)의 범위가 아니다 — 서버가 경고와 항차별 목록을 낸다.
+    """
+    with_fuel = await _insert_voyage(session, vessel_id)
+    await _insert_voyage_fuel(session, with_fuel)
+    without_fuel = await _insert_voyage(session, vessel_id)
+
+    result = await _compute(session, vessel_id)
+
+    # 등급은 나온다 — 그래서 조용했던 것이다.
+    assert result.data_available is True
+    assert result.rating is not None
+    assert result.voyage_count == 2
+    # 분모에는 두 항차가 다 들어갔다.
+    assert result.total_distance_nm == Decimal("2000.00")
+    # 그런데 경고와 항차 기록이 그 사실을 말한다.
+    assert WARNING_COMPLETED_FUEL_UNFILLED in result.warnings
+    assert [item.fuel_type for item in result.unfilled] == [None]
+    assert same_uuid(result.unfilled[0].voyage_id, without_fuel)
+
+
+@pytest.mark.asyncio
+async def test_excluded_voyage_with_no_fuel_row_is_not_warned(session, vessel_id):
+    """집계에 들지 않는 항차는 경고 대상이 아니다.
+
+    `EXCLUDE`는 「연간에 반영하지 않기로 한」 항차다(`PRD §8.1.2`). 그 항차에 연료가
+    없다고 경고하면 **반영하지 않기로 한 것에 대해 할 일을 지시하는** 거짓 안내가 된다
+    (`#1085`가 같은 이유로 세 경고를 비웠다).
+    """
+    await _insert_voyage(session, vessel_id, policy="EXCLUDE")
+
+    result = await _compute(session, vessel_id)
+
+    assert WARNING_COMPLETED_FUEL_UNFILLED not in result.warnings
+    assert result.unfilled == []

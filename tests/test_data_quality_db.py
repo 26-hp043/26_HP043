@@ -25,6 +25,7 @@ from cii_platform.services.data_quality import (
     SEVERITY_SUBSTITUTED,
     SEVERITY_UNAVAILABLE,
     SEVERITY_UNCONFIRMED,
+    UNAVAILABLE_FUEL_NO_RECORD,
     UNAVAILABLE_FUEL_UNFILLED,
     get_fleet_data_quality,
 )
@@ -63,6 +64,8 @@ async def _voyage(
     hours: int | None = 240,
     planned_fuel: float | None = 240,
     actual_fuel: float | None = 240,
+    #: ``False``면 ``voyage_fuel_use`` 행을 **아예 넣지 않는다** (`#1095` ⑵).
+    with_fuel_row: bool = True,
 ) -> str:
     departure = datetime.fromisoformat("2026-03-01T00:00:00+00:00")
     arrival = None if hours is None else departure + timedelta(hours=hours)
@@ -85,14 +88,15 @@ async def _voyage(
             "arr": arrival,
         },
     )
-    await session.execute(
-        text(
-            "INSERT INTO voyage_fuel_use "
-            "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
-            "VALUES (:vid, 'HFO', :pt, :at, 3.114, 'USER_INPUT')"
-        ),
-        {"vid": voyage_id, "pt": planned_fuel, "at": actual_fuel},
-    )
+    if with_fuel_row:
+        await session.execute(
+            text(
+                "INSERT INTO voyage_fuel_use "
+                "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
+                "VALUES (:vid, 'HFO', :pt, :at, 3.114, 'USER_INPUT')"
+            ),
+            {"vid": voyage_id, "pt": planned_fuel, "at": actual_fuel},
+        )
     return voyage_id
 
 
@@ -372,3 +376,63 @@ def test_the_route_answers_over_http(migrated_db, app_fresh_engine):
 
         out_of_range = client.get(f"{API_V1_PREFIX}/fleet/data-quality?regulation_year=1999")
         assert out_of_range.status_code == 422
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 연료 기록이 **한 행도 없는** 항차를 가리킨다 (#1095 ⑵)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_voyage_with_no_fuel_row_is_pointed_at(session, vessel_id):
+    """행이 **아예 없는** 항차도 항차 행으로 나온다 (#1095 ⑵).
+
+    종전에는 이 항차뿐일 때 선박 단위 `NO_DATA` 한 줄만 나오고 **항차 행이 0건**이었다
+    — 「이 선박은 계산 불가」까지만 말하고 **어느 항차 때문인지**는 가리키지 못했다.
+    데이터 점검은 「실측이 아닌 값이 어디에 들어갔는가」를 항차별로 보는 화면인데,
+    가장 나쁜 경우에 아무것도 가리키지 않았다.
+    """
+    target = await _voyage(session, vessel_id, no="NF-ONLY", with_fuel_row=False)
+
+    _, issues, _ = await _mine(session, vessel_id)
+
+    # 선박 단위 행(`voyage_id: null` · `NO_DATA`)은 그대로 남는다 — 이 선박은 실제로
+    # 계산 불가다. 새로 생긴 것은 **어느 항차 때문인지**를 말하는 항차 행이다.
+    unavailable = _by(issues, SEVERITY_UNAVAILABLE)
+    per_voyage = [item for item in unavailable if item["voyage_id"] is not None]
+    assert _voyage_ids(per_voyage) == [uuid_canon(target)]
+    # 유종 접미사가 없다 — 붙일 유종이 없다. `FUEL_UNFILLED`와 **가른다**:
+    # 「행은 있는데 값이 빔」과 「행이 아예 없음」은 사용자가 할 일이 다르다.
+    assert per_voyage[0]["codes"] == [UNAVAILABLE_FUEL_NO_RECORD]
+    assert UNAVAILABLE_FUEL_UNFILLED not in per_voyage[0]["codes"]
+
+
+@pytest.mark.asyncio
+async def test_a_fuelless_voyage_is_pointed_at_even_when_mixed(session, vessel_id):
+    """★ 연료가 있는 항차와 섞여도 가리킨다 (#1095 ⑵ · 결정요청 v7 §1.2 ⒝).
+
+    종전에는 **아무것도 나오지 않았다** — 선박 행은 `data_available: true` ·
+    `ytd_rating: "A"` · `completeness_ratio: "1.0000"`이고 항차 행도 0건이라, 화면
+    어디에도 그 항차가 없었다. 완결성 비율이 **1.0000**인 것이 특히 나쁘다: 「전부
+    실측」이라는 뜻인데 한 항차는 연료가 통째로 빠져 있었다.
+    """
+    await _voyage(session, vessel_id, no="OK")
+    target = await _voyage(session, vessel_id, no="NF", with_fuel_row=False)
+
+    vessel_row, issues, _ = await _mine(session, vessel_id)
+
+    unavailable = _by(issues, SEVERITY_UNAVAILABLE)
+    assert _voyage_ids(unavailable) == [uuid_canon(target)]
+    assert unavailable[0]["codes"] == [UNAVAILABLE_FUEL_NO_RECORD]
+    # 등급은 여전히 나온다 — 그래서 조용했다. 드러나는가를 보는 검사다.
+    assert vessel_row["data_available"] is True
+    # 🔴 **완결성 비율은 여전히 1.0000이다** — 잔여 결함으로 남긴다 (#1095 ⑵ 범위 밖).
+    #
+    # `completeness_ratio`는 **CO₂로 가중**한다(`data_quality.py`의 `measured`/`total`이
+    # 둘 다 CO₂ 합이다). 연료 행이 없는 항차는 CO₂가 0이라 분자·분모 어디에도 보이지
+    # 않아, 「계산 불가 항차는 실측에서 빼면 비율이 떨어진다」는 규칙이 이 경우에만
+    # 작동하지 않는다. 고치려면 가중치를 항차 수로 바꾸거나 별도 분모를 두어야 하고
+    # 그것은 `PRD §17.4.3` 개정이다 — 이번 결정(`가′` = 경고 + 항차별 목록)의 범위가
+    # 아니므로 **현행을 그대로 잠그고 사실을 적어 둔다.** 이 비율이 눈감는 자리를
+    # 위의 항차 행이 대신 가리키는 것이 이번 변경의 값이다.
+    assert Decimal(vessel_row["completeness_ratio"]) == Decimal("1.0000")

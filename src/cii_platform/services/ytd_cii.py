@@ -111,6 +111,21 @@ WARNING_COMPLETED_NO_FUEL = "COMPLETED_NO_FUEL"
 #: 거리는 침묵했다 — 거리는 CII의 **분모**라 영향이 연료 못지않다.
 WARNING_COMPLETED_NO_DISTANCE = "COMPLETED_NO_DISTANCE"
 
+#: API_SPEC §1.6 — 집계에 드는 실적 확정 항차에 ``voyage_fuel_use`` 행이 **한 행도
+#: 없다** (`#1095` ⑵ · 결정요청 v7 §6.4).
+#:
+#: ``COMPLETED_NO_FUEL``과 **뜻이 반대**다 — 그쪽은 「실적이 비어 계획값을 넣었다」(값이
+#: 들어갔다)이고 이쪽은 「넣을 값이 아예 없다」다. 그래서 이름을 `COMPLETED_NO_FUEL_RECORD`로
+#: 두지 않았다: 뜻이 반대인데 이름이 거의 같으면 다음 사람이 반드시 헷갈린다. ``UNFILLED``는
+#: 데이터 점검 화면이 이미 쓰는 어휘라(`FUEL_UNFILLED`) 같은 사실을 두 화면이 같은 말로
+#: 부른다 (`#513`의 방향).
+#:
+#: **왜 경고가 필요한가.** 집계 루프는 거리를 조건 없이 더하고 연료는 행을 돌며 더하므로,
+#: 행이 0개면 **거리만 들어가고 연료는 0**이 된다 — 분모는 커지고 분자는 그대로다. 그 결과
+#: 기준 미달 선박이 조용히 좋은 등급으로 표시됐다(결정요청 v7 §1.3 실측). 대체·미기재 기록은
+#: **행이 있는데 값이 빌 때만** 쌓여(`:555-590`) 이 경우를 보지 못했다.
+WARNING_COMPLETED_FUEL_UNFILLED = "COMPLETED_FUEL_UNFILLED"
+
 #: API_SPEC §1.6 — 모든 계산 결과에 붙는다.
 WARNING_REFERENCE_ONLY = "REFERENCE_ONLY"
 
@@ -544,7 +559,20 @@ async def _aggregate(
             actual_distance if actual_distance is not None else voyage.planned_distance_nm
         )
 
-        for row in fuel_by_voyage.get(voyage.id, []):
+        fuel_rows = fuel_by_voyage.get(voyage.id, [])
+        if not fuel_rows:
+            # 연료 기록이 **한 행도 없다** (`#1095` ⑵). 위의 거리는 이미 더해졌고 연료는
+            # 아래 루프가 돌지 않아 0이다 — 분모만 커진다. 항차 단위 기록으로 남겨
+            # 데이터 점검이 **어느 항차인지** 가리킬 수 있게 한다(경고만으로는 사용자가
+            # 필요로 하는 것이 나오지 않는다 · 결정요청 v7 §6.1 「가′」).
+            #
+            # ``fuel_type``이 ``None``인 것이 「행이 아예 없음」의 표시다 — 붙일 유종이
+            # 없다. 읽는 쪽이 그것을 보고 `FUEL_NO_RECORD`로 가른다.
+            unfilled.append(
+                Substitution(voyage_id=voyage.id, axis=SUBSTITUTION_AXIS_FUEL, fuel_type=None)
+            )
+
+        for row in fuel_rows:
             ton = row.actual_fuel_ton
             if ton is None:
                 # [ORACLE-C-4B] COMPLETED인데 실적이 비었으면 계획값을 임시 대입하고
@@ -585,6 +613,10 @@ async def _aggregate(
         warnings.append(WARNING_COMPLETED_NO_FUEL)
     if SUBSTITUTION_AXIS_DISTANCE in axes:
         warnings.append(WARNING_COMPLETED_NO_DISTANCE)
+    # 연료 행이 0개인 항차가 하나라도 있으면 경고를 낸다. ``axes``로 파생하지 않는 것은
+    # 그쪽이 **대체**(계획값을 넣었다)의 축 집합이고 이것은 대체가 아니기 때문이다.
+    if any(item.axis == SUBSTITUTION_AXIS_FUEL and item.fuel_type is None for item in unfilled):
+        warnings.append(WARNING_COMPLETED_FUEL_UNFILLED)
 
     # #368 주입분(진행 중 항차)은 voyage_fuel_use 행이 없어 cf_used snapshot이 없다.
     # 진행 중 항차는 **현재 계산**이므로 현재 활성 CF를 붙인다(PRD §8.4 — 변경 이후

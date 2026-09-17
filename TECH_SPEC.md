@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.9 |
+| 버전 | v1.10 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
 | 최종 수정일 | 2026-09-11 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1424,6 +1424,7 @@ class SimulationSnapshot:
 | `CII_APPLICABILITY_UNKNOWN` | `gross_tonnage`가 NULL이라 적용 대상 여부를 **판정할 수 없음** (`#653`) | `총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.` |
 | `COMPLETED_NO_FUEL` | COMPLETED 항차 actual_fuel_ton NULL | `실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중.` |
 | `COMPLETED_NO_DISTANCE` | COMPLETED 항차 actual_distance_nm NULL | `실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중.` |
+| `COMPLETED_FUEL_UNFILLED` | 집계에 드는 실적 확정 항차에 `voyage_fuel_use` 행이 **한 행도 없음**. `COMPLETED_NO_FUEL`과 뜻이 반대다 — 그쪽은 「계획값을 넣었다」이고 이쪽은 「넣을 값이 아예 없다」다 (`#1095` ⑵) | `연료 기록이 없는 실적 확정 항차가 있어 그 항차의 연료가 누적에 반영되지 않았습니다. 해당 항차에 연료를 입력해 주세요.` |
 | `SLOW_SPEED_FLOOR` | 기능② 감속 시나리오 속도가 최소 속도(1.0kn)에 도달 (`PRD §11.2`) | `감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다.` |
 | `SIMULATION_NO_FUEL_RATE` | 선박에 `reference_daily_foc_ton`이 없어 시뮬레이션 시계가 진행 중 항차분을 만들지 못함 (`§5` 시계) | `선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요.` |
 | `SIMULATION_NO_FUEL_TYPE` | 진행 중 항차의 유종을 알 수 없어 CF를 붙일 수 없음 | `진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요.` |
@@ -1442,7 +1443,7 @@ class SimulationSnapshot:
 | `FEEDBACK_FACTOR_UNAVAILABLE` | 기능③에서 실적 보정계수(`PRD §12.2.1`)를 **켰는데** 계획·실적이 모두 있는 확정 항차가 최소 표본(3건)보다 적어 **곱하지 않았다** (`#363`). 켜지 않았으면 싣지 않는다 | `실적 보정계수를 켰지만 확정 항차가 모자라 적용하지 않았습니다. 이번 결과는 계획 연료 그대로 계산했습니다.` |
 | `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` | 함대 감축 계획(`PRD §12.3.2`)에서 기준 속력·기준 일일 연료가 없는 잔여 항차에 **감속을 적용하지 못했다** — 조용히 0%로 두면 「줄였는데 그대로」로 읽힌다 (`#513`) | `기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 그 항차에는 감속을 적용하지 못했습니다. 선박 제원을 입력해 주세요.` |
 
-> **이 표가 경고 코드의 정본이다 (`AGENTS §3.1`).** `API_SPEC §1.6`은 이 표를 전사한 것이며, 화면의 `WARNING_MESSAGE`는 다시 `§1.6`을 전사한다. 사슬은 `TECH_SPEC §12.3` → `API_SPEC §1.6` → {화면 `frontend/src/features/voyage-cii/resultRules.ts` · 리포트 `src/cii_platform/reports/labels.py`}이다. 뒤의 둘은 **`§1.6`에서 각자 옮겨 적는다**(서로를 베끼지 않는다). 각 고리의 대조는 `tests/test_warning_codes_sync.py`(`§12.3`↔`§1.6`↔화면)와 `tests/test_reports.py`(`§1.6`↔리포트)가 본다 — #830 정정: 종전 이 문장은 리포트 사본을 빼고 세 단계만 적었다.
+> **이 표는 참조 표다 — 정본은 `API_SPEC §1.6`이다 (`#1095` · 결정요청 v9 F-3).** 경고 코드는 **API 응답 필드**이고 `AGENTS §3`상 「필드·타입은 `API_SPEC` 소관」이다. 여기는 **계산 계층에서 어떤 코드가 나오는지** 보는 용도로 남긴다 — 두 표는 같은 코드 집합을 담아야 한다. 사슬은 코드 상수 → `API_SPEC §1.6`(정본) → {이 표 · 화면 `frontend/src/features/voyage-cii/resultRules.ts` · 리포트 `src/cii_platform/reports/labels.py`}이며, 뒤의 것들은 **`§1.6`에서 각자 옮겨 적는다**(서로를 베끼지 않는다). 각 고리의 대조는 `tests/test_warning_codes_sync.py`(`§12.3`↔`§1.6`↔화면)와 `tests/test_reports.py`(`§1.6`↔리포트)가 본다 — #830 정정: 종전 이 문장은 리포트 사본을 빼고 세 단계만 적었다.
 >
 > ⚠️ **2026-08-22에 11종을 등재했다 (`#641`).** 기능③(연간 시뮬레이션)이 들어온 뒤 이 표가 갱신되지 않아 **코드가 내는 17종 중 11종이 빠져 있었다.** 그 사이 `API_SPEC §1.6`이 `COMPLETED_NO_DISTANCE`·`SLOW_SPEED_FLOOR`를 먼저 받아 **하위 문서가 상위 문서보다 앞서 있는 상태**가 됐고, 「§12.3 정의」라는 인용이 성립하지 않았다. 사슬 전체를 `tests/test_warning_codes_sync.py`가 검사한다.
 

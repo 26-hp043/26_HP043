@@ -69,6 +69,7 @@ const REASON_TEXT: Record<string, string> = {
   DISTANCE: '실적 거리 없음 — 계획 거리로 계산',
   FUEL: '실적 연료 없음 — 계획 연료로 계산',
   FUEL_UNFILLED: '연료 실적·계획 모두 없음',
+  FUEL_NO_RECORD: '연료 기록이 없음 — 행 자체가 없다',
   FUEL_VS_MODEL: '연료가 속력 모델 기대값의 0.6~1.4배 밖',
   SPEED_ABOVE_REFERENCE: '운항 시각으로 낸 속력이 기준 속력의 1.5배 초과',
   SPEED_MISMATCH: '기록 속력과 운항 시각으로 낸 속력이 30% 이상 차이',

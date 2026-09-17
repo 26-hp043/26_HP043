@@ -71,8 +71,9 @@ import { Icon } from '../../components/Icon'
 /**
  * 누적 CII를 **계산하지 못한 사유**로 읽을 수 있는 경고 (`#1095` ⑵ · `API_SPEC §1.6`).
  *
- * 둘 다 「진행 중 항차의 연료를 알 수 없어 그 항차분이 누적에 들어가지 않았다」는
- * 뜻이고, 각 문구가 **사용자가 할 일**(선박 제원의 기준 일일 연료소모량 입력 · 항차
+ * 앞의 둘은 「진행 중 항차의 연료를 알 수 없어 그 항차분이 누적에 들어가지 않았다」는
+ * 뜻이고, 셋째(`COMPLETED_FUEL_UNFILLED`)는 **확정 항차에 연료 기록이 한 행도 없다**는
+ * 뜻이다. 셋 다 문구가 **사용자가 할 일**(선박 제원의 기준 일일 연료소모량 입력 · 항차
  * 연료 입력)을 담고 있다.
  *
  * ⚠️ **`COMPLETED_NO_FUEL`·`COMPLETED_NO_DISTANCE`는 넣지 않았다.** 두 문구는
@@ -84,6 +85,9 @@ import { Icon } from '../../components/Icon'
 const YTD_BLOCKER_WARNINGS: ReadonlySet<string> = new Set([
   'SIMULATION_NO_FUEL_RATE',
   'SIMULATION_NO_FUEL_TYPE',
+  // 확정 항차에 연료 기록이 **한 행도 없다** (#1095 ⑵) — 거리만 더해지고 연료는 0이
+  // 된다. 문구가 「해당 항차에 연료를 입력해 주세요」로 끝나 위 기준을 충족한다.
+  'COMPLETED_FUEL_UNFILLED',
 ])
 
 export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }) {
