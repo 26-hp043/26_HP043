@@ -9,10 +9,8 @@ import {
   PICTOGRAM_MAX_VESSELS,
   zeroRatings,
   isAtRisk,
-  missingGrossTonnageCount,
   relativeTime,
   riskReasonText,
-  soonestDaysToD,
   unavailableHint,
   unavailableText,
   underwayStateText,
@@ -187,29 +185,10 @@ describe('운항 상태 문구', () => {
 /*
  * 「정렬」 검사는 서버로 옮겼다(`tests/test_fleet_summary.py` `sort_fleet_rows` · #772) —
  * 목록을 페이지로 자르면 화면이 전체를 정렬할 수 없어 규칙 자체가 서버로 갔다.
+ * 「가장 임박한 D등급 진입」·「GT 미기록 척수」도 같은 이유로 #989(2026-09-17 결정 「가」)로
+ * 서버 `summary` 필드가 됐다 — 검사는 `tests/test_fleet_summary.py`가 선대 전체
+ * 기준임을 단언한다. 화면이 페이지에서 세면 100척 넘는 선대에서 값이 틀리다.
  */
-
-describe('가장 임박한 D등급 진입', () => {
-  it('여러 척이면 가장 짧은 것을 고른다', () => {
-    const result = soonestDaysToD([
-      vessel({ id: '1', name: 'A', daysToD: 30, daysToDReason: null }),
-      vessel({ id: '2', name: 'B', daysToD: 7, daysToDReason: null }),
-    ])
-    expect(result).toEqual({ name: 'B', days: 7 })
-  })
-
-  it('숫자가 없는 선박은 건너뛴다', () => {
-    const result = soonestDaysToD([
-      vessel({ daysToD: null, daysToDReason: 'NOT_UNDER_WAY' }),
-      vessel({ id: '2', name: 'B', daysToD: 5, daysToDReason: null }),
-    ])
-    expect(result).toEqual({ name: 'B', days: 5 })
-  })
-
-  it('아무도 없으면 null', () => {
-    expect(soonestDaysToD([vessel({ daysToD: null, daysToDReason: 'NO_DATA' })])).toBeNull()
-  })
-})
 
 describe('기준 시각 표시', () => {
   const base = new Date('2026-08-16T12:00:00Z')
@@ -346,27 +325,6 @@ describe('픽토그램 ↔ 막대 전환', () => {
     ]
     expect(spread.reduce((s, x) => s + x.count, 0)).toBe(25)
     expect(usesPictogram(spread)).toBe(false)
-  })
-})
-
-describe('GT 미입력 척수', () => {
-  const ship = (grossTonnage: FleetVessel['grossTonnage']) =>
-    ({ grossTonnage }) as FleetVessel
-
-  it('`null`과 빈 문자열을 세지 않은 것으로 본다', () => {
-    expect(missingGrossTonnageCount([ship(null), ship(''), ship(25000)])).toBe(2)
-  })
-
-  /*
-   * 숫자로 바꿔 판정하면 `Number('')`이 `0`이라 **GT 0인 배와 구분이 사라진다.**
-   * 0은 「없다」가 아니라 「0으로 적혀 있다」이고, 둘은 다른 상태다.
-   */
-  it('GT 0은 미입력이 아니다', () => {
-    expect(missingGrossTonnageCount([ship(0), ship('0')])).toBe(0)
-  })
-
-  it('문자열로 온 값도 입력된 것으로 본다 — 서버가 소수를 문자열로 내린다', () => {
-    expect(missingGrossTonnageCount([ship('25000.5')])).toBe(0)
   })
 })
 

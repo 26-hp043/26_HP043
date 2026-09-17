@@ -129,6 +129,13 @@ export interface FleetVessel {
   daysToDReason: DaysReason | null
 }
 
+/** 「D등급 진입이 가장 임박한 선박」 — 서버 summary가 선대 전체에서 고른다 (#989). */
+export interface FleetSoonestDEntry {
+  vesselId: string
+  name: string
+  days: number
+}
+
 /** 서버가 확정한 KPI. **화면이 다시 세지 않는다** — 각자 세면 어긋난다. */
 export interface FleetCounts {
   total: number
@@ -139,6 +146,16 @@ export interface FleetCounts {
   ratingDistribution: Record<Rating, number>
   atRisk: number
   noData: number
+  /**
+   * GT 미기록 척수 (#989). 선대 전체 기준 — 페이지를 받아 세지 않는다.
+   * 화면이 페이지에서 세면 100척 넘는 선대에서 101번째 배가 빠진다.
+   */
+  missingGrossTonnage: number
+  /**
+   * 가장 임박한 D등급 진입 (#989). 값이 있는 선박이 없으면 `null`이다.
+   * 「어느 배가 가장 급한가」는 경고 배너의 보조 문구가 말하는 자리다.
+   */
+  soonestDEntry: FleetSoonestDEntry | null
 }
 
 /** 조치 필요 — `PRD §3.3.7` 의무. 서버가 `riskReasons`에서 파생시킨다. */

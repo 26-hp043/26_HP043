@@ -23,9 +23,7 @@ import { createApiFleetProvider } from './apiProvider'
 import {
   daysToDText,
   isAtRisk,
-  missingGrossTonnageCount,
   relativeTime,
-  soonestDaysToD,
   unavailableHint,
   unavailableText,
   ytdCiiText,
@@ -201,9 +199,13 @@ export function FleetDashboard() {
 
   const { counts } = snapshot
   const banner = warningBannerText(counts.atRisk)
-  const soonest = soonestDaysToD(vessels)
+  /*
+   * 파생 표시 2종은 서버 `summary`에서 받는다 (#989). 종전에는 받은 페이지에서 직접
+   * 세다가 100척을 넘는 선대에서 101번째의 급한 배가 「가장 임박」에서 빠졌다.
+   */
+  const soonest = counts.soonestDEntry
   const hasActions = snapshot.actions.length > 0
-  const missingGt = missingGrossTonnageCount(vessels)
+  const missingGt = counts.missingGrossTonnage
   const visible = expanded ? sorted : sorted.slice(0, INITIAL_VISIBLE)
   const remaining = sorted.length - visible.length
 
