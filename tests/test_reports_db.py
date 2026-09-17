@@ -70,7 +70,16 @@ async def vessel_id(session):
     return new_id
 
 
-async def _make_voyage(session, vessel_id, *, status="CONFIRMED", with_fuel=True):
+async def _make_voyage(
+    session,
+    vessel_id,
+    *,
+    status="CONFIRMED",
+    with_fuel=True,
+    policy=None,
+    regulation_year=2026,
+):
+    """기본값은 종전과 같다 — ``policy``·``regulation_year``만 골라 쓸 수 있게 열었다 (`#1090`)."""
     voyage_id = uuid4()
     await session.execute(
         text(
@@ -79,14 +88,15 @@ async def _make_voyage(session, vessel_id, *, status="CONFIRMED", with_fuel=True
             "actual_distance_nm, actual_departure_at, actual_arrival_at, "
             "annual_inclusion_policy, regulation_year, created_from, voyage_no) "
             "VALUES (:id, :vid, :status, 'Busan', 'Singapore', 3000, 14, 3100, "
-            "'2026-03-01T00:00:00Z', '2026-03-10T00:00:00Z', :policy, 2026, "
+            "'2026-03-01T00:00:00Z', '2026-03-10T00:00:00Z', :policy, :ryear, "
             "'MANUAL', 'V-2026-001')"
-        ),
+        ).bindparams(),
         {
             "id": voyage_id,
             "vid": vessel_id,
             "status": status,
-            "policy": "INCLUDE_AS_ACTUAL" if status == "CONFIRMED" else "EXCLUDE",
+            "policy": policy or ("INCLUDE_AS_ACTUAL" if status == "CONFIRMED" else "EXCLUDE"),
+            "ryear": regulation_year,
         },
     )
     if with_fuel:
@@ -678,3 +688,105 @@ async def test_missing_capacity_stops_the_report_itself(session, vessel_id):
         await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
 
     assert "재화중량톤수" in str(error.value) or "총톤수" in str(error.value)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 집계 범위와 맞지 않는 값을 한 문서에 함께 적지 않는다 (#1090)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_share_is_not_printed_for_a_voyage_outside_the_aggregate(session, vessel_id):
+    """집계에서 빠진 항차에 「연간 누적에서 차지한 비중」을 찍지 않는다.
+
+    분모 ``ytd.total_co2_t``는 ``INCLUDE_AS_ACTUAL``·같은 규제연도 항차만 더한 값이다.
+    분자를 그 집합 **밖의** 항차로 두면 나오는 수는 비중이 아니고, 같은 문서의
+    「연간 집계 반영: 연간 반영 안 함」과 **정면으로 어긋난다.**
+    """
+    # 🔴 **집계에 들어가는 항차를 먼저 하나 만든다.**
+    #
+    # 이것이 없으면 ``ytd.total_co2_t``가 0이라 종전 코드도 분모 0 가드에 걸려 「—」를
+    # 낸다 — 결함을 못 잡는 가짜 검사가 된다(실제로 처음 이렇게 썼다가 돌연변이 검사에서
+    # 드러났다).
+    await _make_voyage(session, vessel_id)
+    voyage_id = await _make_voyage(session, vessel_id, status="COMPLETED")
+
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    rows = dict(_section(document, "CII 기여도").rows)
+    summary = dict(_section(document, "항차 요약").rows)
+
+    assert summary["연간 집계 반영"] == "연간 반영 안 함", "전제가 깨졌다 — EXCLUDE 항차여야 한다"
+
+    # 사유를 **같은 칸에** 붙인다 (2026-09-17 결정). 리포트는 잘라서 인용되기도 하므로,
+    # 위 행과 떨어져 읽히면 「—」가 「값이 아직 안 나왔다」로 보인다.
+    #
+    # 문구는 새로 짓지 않고 `INCLUSION_POLICY_LABELS`를 그대로 가져다 쓴다.
+    assert rows["연간 누적에서 차지한 비중"] == "— (연간 반영 안 함)", (
+        "집계에 들어가지 않은 항차에 비중이 찍혔거나 사유가 빠졌다"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_different_regulation_year_is_not_a_mismatch(session, vessel_id):
+    """⚠️ **이슈 `#1090`의 전제 하나를 반증하는 검사다.**
+
+    이슈는 「``regulation_year``가 다른 항차에도 비중을 찍는다」고 적었다. 그런데
+    리포트는 ``year``를 **그 항차의 규제연도**로 잡아 그 해의 누적을 구한다 — 2025년
+    항차는 2025년 누적과 견주므로 어긋날 자리가 없다.
+
+    그래서 여기서는 **비중이 정상적으로 찍히는 것**을 확인한다. 이 검사가 「—」를
+    기대하도록 뒤집히면, 누군가 닿지 않는 조건을 다시 넣었다는 뜻이다.
+    """
+    voyage_id = await _make_voyage(session, vessel_id, regulation_year=2025)
+
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    rows = dict(_section(document, "CII 기여도").rows)
+
+    assert rows["연간 누적에서 차지한 비중"].endswith("%")
+
+
+@pytest.mark.asyncio
+async def test_not_underway_table_is_cut_at_the_same_as_of_as_the_ytd(session, vessel_id):
+    """정박 표와 연간 누적이 **같은 시점**으로 잘린다.
+
+    누적(YTD)은 ``started_at <= as_of``로 자르는데 이 표만 연도 전체를 세고 있었다.
+    ``as_of``(7/1) 뒤에 시작하는 구간이 표에만 잡히면, 한 문서 안에서 정박 건수·연료와
+    누적 CO₂가 서로 맞지 않는다 — 리포트는 받는 사람이 되물을 수단이 없다.
+    """
+    future_period = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_period (id, vessel_id, regulation_year, "
+            "period_type, started_at, ended_at, distance_nm) VALUES "
+            "(:id, :vid, 2026, 'CANAL_TRANSIT', '2026-09-01T00:00:00Z', "
+            "'2026-09-02T00:00:00Z', 80)"
+        ),
+        {"id": future_period, "vid": vessel_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_fuel_use (period_id, consumer_type, fuel_type, "
+            "fuel_ton, cf_used) VALUES (:id, 'MAIN_ENGINE', 'HFO', 15, 3.114)"
+        ),
+        {"id": future_period},
+    )
+
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+    section = _section(document, "not under way 기여")
+
+    assert section.rows[0][0] == "기록 없음", (
+        f"as_of(7/1) 뒤에 시작하는 구간이 표에 잡혔다: {section.rows}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_empty_not_underway_row_follows_the_digit_rules(session, vessel_id):
+    """빈 행도 ``DESIGN_SYSTEM §4.2`` 자릿수를 따른다 — 거리 0자리 · 연료 1자리.
+
+    종전 이 행만 손으로 적은 ``"0.00"``이라 **같은 표의 다른 행과 자릿수가 달랐다**
+    (같은 표의 실제 행은 `["운하 통과", "1", "80", "15.0"]`).
+    """
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+    section = _section(document, "not under way 기여")
+
+    assert section.rows[0] == ["기록 없음", "0", "0", "0.0"]
