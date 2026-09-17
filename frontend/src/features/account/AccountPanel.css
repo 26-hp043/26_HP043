@@ -48,12 +48,6 @@
   max-inline-size: 24rem;
 }
 
-.acc__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
 .acc__label {
   font-size: var(--font-size-label);
   color: var(--text-secondary);
@@ -69,7 +63,9 @@
   font-family: inherit;
 }
 
-.acc__input--error {
+/* 오류 표시는 `Field`가 붙이는 `aria-invalid`를 읽는다 — 클래스를 따로 두면
+   배선과 어긋날 수 있다 (`#936` · `§8.4`). */
+.acc__input[aria-invalid='true'] {
   border-color: var(--semantic-danger);
 }
 
@@ -77,13 +73,6 @@
 .acc__submit:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 2px;
-}
-
-.acc__error {
-  margin: 0;
-  font-size: var(--font-size-micro);
-  color: var(--color-danger-text);
-  word-break: keep-all;
 }
 
 .acc__ok {

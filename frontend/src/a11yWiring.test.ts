@@ -59,7 +59,6 @@ describe('접근성 배선 (#829 ⑸)', () => {
     'features/annual-simulation/AnnualSimulation.tsx',
     'features/voyage-management/ExportCsv.tsx',
     'features/voyage-management/VoyagePanel.tsx',
-    'features/account/AccountPanel.tsx',
     'features/vessel-detail/PositionForm.tsx',
     'features/auth/AuthShell.tsx',
     'features/assistant/AssistantOverlay.tsx',
