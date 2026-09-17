@@ -306,7 +306,15 @@ describe('⑴ A 저장 중 B 「수정」 — 응답은 요청 당시 선박에�
     // B의 폼(선명 칸)에는 오류가 없다.
     const bRow = rowOf('브라보호')
     expect(within(bRow).queryByRole('alert')).toBeNull()
-    expect(within(bRow).getByLabelText('선명').getAttribute('aria-invalid')).toBe('false')
+    /*
+     * **「invalid가 아니다」를 단언한다 — 표현을 단언하지 않는다** (`#936`).
+     *
+     * 종전 코드는 `aria-invalid={key in errors}`라 오류가 없어도 `"false"`를 내보냈다.
+     * 공용 `Field`는 오류일 때만 붙인다(`AuthField`가 쓰던 방식) — ARIA상 **속성 부재가
+     * 곧 `false`**이므로 의미는 같다. 검사의 의도는 「B 칸에 A의 오류가 붙지 않았다」이지
+     * 어느 표현을 쓰느냐가 아니다.
+     */
+    expect(within(bRow).getByLabelText('선명').getAttribute('aria-invalid')).not.toBe('true')
   })
 
   it('폼이 아직 그 선박이면 오류는 종전대로 폼 안 그 칸에 붙는다', async () => {
