@@ -51,7 +51,7 @@
 
 .error-state__title {
   margin: 0;
-  font-size: var(--font-size-heading);
+  font-size: var(--font-size-h3);
   font-weight: var(--font-weight-label);
   color: var(--color-danger-text);
 }
