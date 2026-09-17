@@ -1150,7 +1150,9 @@ async def test_fuel_cf_alternative_block_is_opt_in(session, vessel_id):
     }
 
     without = await run_annual_simulation(session, **common)
-    assert "fuel_cf_alternative" not in without["data"]["sensitivity_analysis"], "고르지 않았는데 블록이 나왔다"
+    assert "fuel_cf_alternative" not in without["data"]["sensitivity_analysis"], (
+        "고르지 않았는데 블록이 나왔다"
+    )
     assert WARNING_FUEL_CF_MASS_BASIS not in without["warnings"]
 
     with_alt = await run_annual_simulation(session, **common, alternative_fuel="LNG")

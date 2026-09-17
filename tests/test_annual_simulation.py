@@ -24,6 +24,7 @@ import pytest
 
 from cii_platform.calc.annual_simulation import (
     DEFAULT_PROFILE,
+    GRAMS_PER_TON,
     MIN_FEEDBACK_SAMPLE,
     RATINGS,
     WARNING_MANY_VOYAGES,
@@ -33,7 +34,6 @@ from cii_platform.calc.annual_simulation import (
     WARNING_SENSITIVITY_OAT,
     WARNING_SENSITIVITY_SPEED_SKIPPED,
     WARNING_TARGET_RATING_D,
-    GRAMS_PER_TON,
     CompletedPair,
     CompletedTotals,
     DistributionProfile,

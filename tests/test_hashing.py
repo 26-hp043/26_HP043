@@ -362,6 +362,9 @@ def test_annual_input_fields_locked():
         # #816 ⑴ (결정요청 v9 회신 「가」) — `as_of` 절단이 실제로 작동하게 되며
         # 추가됐다. **명시한 실행만** 키가 들어간다(아래 `test_as_of_absent_keeps_the_old_hash`).
         "as_of",
+        # #756 ⑴ (결정요청 v9 회신 「나」) — 대체 연료를 고른 실행만 키가 들어간다
+        # (선택 키 규약의 네 번째 적용례).
+        "alternative_fuel",
     )
 
 

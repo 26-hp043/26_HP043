@@ -141,6 +141,7 @@ _FIELD_LABELS: dict[str, str] = {
     "random_seed": "난수 시드(seed)",
     "target_rating": "목표 등급",
     "apply_feedback_factor": "실적 보정계수 적용",
+    "alternative_fuel": "대체 연료",
     "distribution_profile": "분포 프로파일",
     # 조회·내보내기·가져오기 (§1.9 · §8)
     "type": "종류",
