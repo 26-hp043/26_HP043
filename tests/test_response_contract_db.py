@@ -476,6 +476,14 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.regulation_year",
             "data.summary",
             "data.summary.at_risk",
+            # `#989` 파생 표시 2종 — 화면이 페이지에서 세지 않고 summary가 낸다.
+            # `soonest_d_entry`의 하위 키까지 잠근다(진입 예측이 있는 선박이 데모
+            # 시드에 한 척 이상 있을 때 나온다).
+            "data.summary.missing_gross_tonnage",
+            "data.summary.soonest_d_entry",
+            "data.summary.soonest_d_entry.days",
+            "data.summary.soonest_d_entry.name",
+            "data.summary.soonest_d_entry.vessel_id",
             "data.summary.no_data",
             "data.summary.not_under_way",
             "data.summary.rating_distribution",
