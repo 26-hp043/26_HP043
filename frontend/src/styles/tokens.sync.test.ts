@@ -100,6 +100,57 @@ const REGENERATE = '`npm run build:tokens`를 실행하십시오.'
  * 값이 맞는지를 보는 가드는 여럿 있었지만, **이름이 실재하는지**를 보는 것이 없었다.
  * 잠갔다는 것이 지켜지고 있다는 뜻은 아니다.
  */
+/**
+ * **CSS가 가리키는 커스텀 프로퍼티가 실재한다** (`#1052`).
+ *
+ * 위 검사는 **정본이 이름을 적은 것**만 본다. 그 그물에 걸리지 않는 자리가 있었다 —
+ * `FleetMap.css` 하나에서만 **일곱 개**가 아무 데도 닿지 않았고(`--space-2` ·
+ * `--radius-md` · `--radius-sm` · `--font-size-sm` · `--font-size-xs` ·
+ * `--font-weight-bold` · `--surface-default`), 파일 머리말은 *「값은 전부 토큰에서
+ * 온다」*고 적고 있었다. 저장소 전체로는 **네 파일 열 군데**였다.
+ *
+ * `var(--없는-것)`은 **오류가 아니라 선언 무효**다. 화면이 깨지지 않고 브라우저
+ * 기본값으로 조용히 그려진다 — 죽은 CSS·규칙 없는 클래스와 같은 성질이다.
+ *
+ * **대체값이 있으면 넘긴다** — `var(--x, 12px)`은 없을 때 무엇을 쓸지 적어 둔 것이다.
+ */
+describe('CSS가 가리키는 커스텀 프로퍼티가 실재한다 (#1052)', () => {
+  function cssFiles(dir: URL, out: URL[] = []): URL[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir)
+      if (entry.isDirectory()) cssFiles(child, out)
+      else if (entry.name.endsWith('.css')) out.push(child)
+    }
+    return out
+  }
+
+  it('정의되지 않은 토큰을 참조하지 않는다', () => {
+    const files = cssFiles(new URL('../', import.meta.url))
+    const declared = new Set<string>()
+    const referenced = new Map<string, Set<string>>()
+
+    for (const file of files) {
+      const body = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const [, name] of body.matchAll(/(--[\w-]+)\s*:/g)) declared.add(name)
+      // 닫는 괄호가 바로 오는 것만 센다 — 쉼표가 오면 대체값이 있다.
+      for (const [, name] of body.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)) {
+        const at = referenced.get(name) ?? new Set<string>()
+        at.add(file.pathname.split('/src/')[1] ?? file.pathname)
+        referenced.set(name, at)
+      }
+    }
+
+    const orphans = [...referenced]
+      .filter(([name]) => !declared.has(name))
+      .map(([name, where]) => `${name} :: ${[...where].sort().join(', ')}`)
+
+    expect(
+      orphans.sort(),
+      '없는 토큰을 가리키면 그 선언이 통째로 무효가 된다 — 브라우저 기본값으로 조용히 그려진다.',
+    ).toEqual([])
+  })
+})
+
 describe('정본이 적은 토큰 이름이 실재한다 (#1022)', () => {
   const designSystem = readFileSync(new URL('../../../DESIGN_SYSTEM.md', import.meta.url), 'utf8')
 
@@ -131,22 +182,18 @@ describe('정본이 적은 토큰 이름이 실재한다 (#1022)', () => {
     '--text-faint': '#747이 폐기 — 부재를 다른 가드가 잠근다',
     '--color-text-faint': '#747이 폐기 — 부재를 다른 가드가 잠근다',
     '--border-faint': '#747이 폐기 — 생성하지 않기로 한 것(PR #928)',
+    // `§9.5`가 **존재한 적 없는 이름을 가리키고 있었다**는 사실을 적기 위해 쓴다
+    // (`#1052` 정정). 실재하면 오히려 틀린 것이다.
+    '--surface-default': '§9.5 정정 기록 — 존재한 적 없던 이름',
   }
 
   /**
-   * ⚠️ **실재해야 하는데 없는 것.** 근거가 아니라 **미제**다.
+   * ⚠️ 실재해야 하는데 없는 것. 근거가 아니라 **미제**다.
    *
-   * `§9.5` 🔒가 「마커에 그림자를 한 겹 둔다(`drop-shadow` 1px `--surface-default`)」로
-   * 정했는데 그 토큰이 없다. `FleetMap.css`가 규격대로 두 곳에서 쓰지만 **둘 다 값이
-   * 없어 아무것도 그려지지 않는다** — 밝은 바다 위에서 A·B 마커가 묻히는 것을 막으려던
-   * 그림자가 실제로는 없다.
-   *
-   * `--semantic-info`는 Figma에서 들여와 풀렸지만 이쪽은 **어느 토큰을 가리키는지가
-   * 판단 사항**이라(가장 가까운 것은 `--surface-card`) 정본 정정과 함께 정해야 한다.
+   * `#1052`에서 `--surface-default`가 여기 있었다 — `§9.5`가 정한 마커 그림자가
+   * 그려지지 않던 자리다. 해소돼 목록이 비었다. **비어 있는 것이 정상이다.**
    */
-  const UNRESOLVED: Readonly<Record<string, string>> = {
-    '--surface-default': '§9.5 마커 그림자 — FleetMap.css가 쓰지만 정의가 없다',
-  }
+  const UNRESOLVED: Readonly<Record<string, string>> = {}
 
   it('본문이 적은 토큰 이름이 CSS에 정의돼 있다', () => {
     const defined = definedEverywhere()

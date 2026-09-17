@@ -9,7 +9,7 @@
 .fleetmap {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-4);
 }
 
 .fleetmap__canvas {
@@ -18,13 +18,13 @@
      바뀌면 같은 화면의 다른 카드와 줄이 어긋난다. */
   aspect-ratio: 8 / 5;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-control);
   overflow: hidden;
 }
 
 .fleetmap__hint {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-label);
   color: var(--text-secondary);
 }
 
@@ -55,8 +55,17 @@
 .fleetmap__marker svg {
   width: 22px;
   height: 22px;
-  /* 배경이 지도라 밝은 바다 위에서 마커가 묻힌다 — 얇은 테두리로 띄운다. */
-  filter: drop-shadow(0 0 1px var(--surface-default));
+  /*
+   * 배경이 지도라 밝은 바다 위에서 마커가 묻힌다 — 얇은 테두리로 띄운다.
+   *
+   * ⚠️ **밝은 색으로는 이 목적을 이룰 수 없다** (`#1052` 실측). 지도 타일은 테마를
+   * 따르지 않고 원래 밝다 — 흰 후광은 바다 위 `1.60` · 육지 위 `1.15`로 아무것도
+   * 하지 못한다. 어두운 쪽이라야 떨어진다(`--color-text` 라이트 기준 10.87 · 15.19).
+   *
+   * 후광 없이 잰 마커 채움은 **E를 빼고 전부 `3:1` 미달**이다
+   * (A 2.89 · B 1.59 · C 1.93 · D 2.30 · none 1.76, 바다 기준).
+   */
+  filter: drop-shadow(0 0 1px var(--color-text));
 }
 
 .fleetmap__marker svg path {
@@ -85,11 +94,11 @@
  */
 .fleetmap__badge {
   padding: 0 3px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-default);
+  border-radius: var(--radius-badge);
+  background: var(--color-surface);
   color: var(--text-primary);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-label);
   line-height: 1.4;
   border: 1px solid var(--border-default);
 }
