@@ -211,6 +211,46 @@
   margin: 0;
 }
 
+/*
+ * 값 뒤에 이어 붙는 힌트는 줄을 내린다.
+ *
+ * `.annual-sim__hint`는 인라인 span이고 이 자리에서만 **값 바로 뒤**에 온다 —
+ * JSX가 줄바꿈 들여쓰기를 공백으로 남기지 않아 스냅샷 UUID와 설명이 붙어 나왔다
+ * (`…6de71b31c666실행 시점의 항차 데이터를…`). 나머지 다섯 자리는 단독 span이라
+ * 그대로 둔다.
+ */
+.annual-sim__repro dd .annual-sim__hint {
+  display: block;
+}
+
+/*
+ * 재현 성공 — 실패와 **같은 무게** (2026-09-17 확정 ⓑ · `#1053` 40번).
+ *
+ * `ErrorState`의 영역 실패와 같은 모양이다: 중립 면 + 테두리 + 아이콘.
+ * 색은 쓰지 않는다 — 이유는 `AnnualSimulation.tsx`의 이 자리 주석 참조.
+ */
+.annual-sim__reproduce-ok {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+  border: var(--borderWidth-default) solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-2);
+  padding: var(--space-12);
+}
+
+.annual-sim__reproduce-ok .annual-sim__reproduce-ok-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.annual-sim__reproduce-ok .annual-sim__reproduce-ok-text {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--color-text);
+}
+
 .annual-sim__notice {
   font-size: var(--font-size-label);
   color: var(--color-text-muted);
