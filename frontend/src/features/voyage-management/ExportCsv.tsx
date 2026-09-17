@@ -15,6 +15,7 @@ import {
   type ExportType,
 } from './exportRules'
 import { useYearOptions } from '../parameters/yearCatalog'
+import { Field } from '../../components/Field'
 
 /**
  * 운항 기록 내보내기 — 항차 기록 패널 안 (`API_SPEC §8.1` · `PRD §5.1` MUST · `#890`).
@@ -93,53 +94,68 @@ export function ExportCsv({
       <p className="vy-export__hint">{EXPORT_TYPE_HINTS[form.type as ExportType]}</p>
 
       <div className="vy-export__row">
-        <label className="vy-export__field">
-          <span className="vy-export__label">종류</span>
-          <select value={form.type} onChange={(e) => set('type')(e.target.value)}>
-            {EXPORT_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {EXPORT_TYPE_LABELS[type]}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Field id="vy-export-type" label="종류">
+          {(control) => (
+            <select
+              {...control}
+              className="vy-export__control"
+              value={form.type}
+              onChange={(e) => set('type')(e.target.value)}
+            >
+              {EXPORT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {EXPORT_TYPE_LABELS[type]}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
 
         {/*
           로딩·실패를 **빈 선택지와 구분해** 보인다 — 셋을 한 문구로 뭉치면 「목록이
           아직 안 왔다」와 「등록된 해가 없다」를 사용자가 가를 수 없다(`#542`·`#632`).
         */}
-        <label className="vy-export__field">
-          <span className="vy-export__label">연도</span>
-          {yearsLoading ? (
-            <span className="vy-export__note">연도 목록을 불러오는 중…</span>
-          ) : yearsFailed ? (
-            <span className="vy-export__note">연도 목록을 불러오지 못했습니다</span>
-          ) : (
-            <select value={form.year} onChange={(e) => set('year')(e.target.value)}>
-              {/* 전체가 기본이다 — `§8.1`의 `year`는 optional이고 선박 전체를 받는 것이 정상 사용이다. */}
-              <option value="">전체</option>
-              {years.map((year) => (
-                <option key={year} value={String(year)}>
-                  {year}
+        <Field id="vy-export-year" label="연도" error={errors.year}>
+          {(control) =>
+            yearsLoading ? (
+              <span className="vy-export__note">연도 목록을 불러오는 중…</span>
+            ) : yearsFailed ? (
+              <span className="vy-export__note">연도 목록을 불러오지 못했습니다</span>
+            ) : (
+              <select
+                {...control}
+                className="vy-export__control"
+                value={form.year}
+                onChange={(e) => set('year')(e.target.value)}
+              >
+                {/* 전체가 기본이다 — `§8.1`의 `year`는 optional이고 선박 전체를 받는 것이 정상 사용이다. */}
+                <option value="">전체</option>
+                {years.map((year) => (
+                  <option key={year} value={String(year)}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            )
+          }
+        </Field>
+
+        <Field id="vy-export-format" label="형식">
+          {(control) => (
+            <select
+              {...control}
+              className="vy-export__control"
+              value={form.format}
+              onChange={(e) => set('format')(e.target.value)}
+            >
+              {EXPORT_FORMATS.map((format: ExportFormat) => (
+                <option key={format} value={format}>
+                  {format.toUpperCase()}
                 </option>
               ))}
             </select>
           )}
-          {errors.year !== undefined && (
-            <span className="vy-export__error">{errors.year}</span>
-          )}
-        </label>
-
-        <label className="vy-export__field">
-          <span className="vy-export__label">형식</span>
-          <select value={form.format} onChange={(e) => set('format')(e.target.value)}>
-            {EXPORT_FORMATS.map((format: ExportFormat) => (
-              <option key={format} value={format}>
-                {format.toUpperCase()}
-              </option>
-            ))}
-          </select>
-        </label>
+        </Field>
 
         <button type="button" className="vy-export__submit" onClick={() => void run()} disabled={busy}>
           {busy ? '내보내는 중…' : '내보내기'}

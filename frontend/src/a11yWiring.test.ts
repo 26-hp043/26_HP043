@@ -54,9 +54,7 @@ describe('접근성 배선 (#829 ⑸)', () => {
    * 이관이 끝나면 목록이 비고, 이 검사는 **회귀 가드**로 남는다.
    */
   const NOT_YET_MIGRATED = [
-    'features/voyage-management/ExportCsv.tsx',
     'features/voyage-management/VoyagePanel.tsx',
-    'features/vessel-detail/PositionForm.tsx',
     'features/auth/AuthShell.tsx',
     'features/assistant/AssistantOverlay.tsx',
   ]
