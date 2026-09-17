@@ -129,8 +129,11 @@ export interface FleetVessel {
   daysToDReason: DaysReason | null
 }
 
-/** 「D등급 진입이 가장 임박한 선박」 — 서버 summary가 선대 전체에서 고른다 (#989). */
-export interface FleetSoonestDEntry {
+/** 「D등급 진입이 가장 임박한 선박」 — 서버 summary가 선대 전체에서 고른다 (#989).
+ *
+ * 내보내지 않는다 — `FleetCounts` 안에서만 쓰인다(`FleetRoute`와 같은 `#594` 규율).
+ */
+interface FleetSoonestDEntry {
   vesselId: string
   name: string
   days: number
