@@ -19,6 +19,17 @@
 같은 항차에 두 시나리오가 채택돼 있으면 「무엇이 반영됐나」에 답할 수 없다. 새로
 채택하면 그 항차의 이전 채택을 내린다.
 
+## 계획 연료도 함께 바꾼다 (#1072)
+
+종전에는 `UPDATE_EXISTING_PLAN`이 거리·속력·도착시각만 바꾸고 **계획 연료를 그대로
+두었다.** 같은 시나리오인데 `CREATE_NEW_VOYAGE`는 시나리오 연료를 쓰므로 **채택 방식에
+따라 연간 결과가 갈렸다** — 우회(거리↑) 시나리오는 「새 거리 + 옛 연료」가 되어 CII가
+실제보다 좋게, 감속(연료↓) 시나리오는 나쁘게 나왔다.
+
+화면이 도달하는 경로는 `UPDATE_EXISTING_PLAN` 하나뿐인데(`UIFLOW 2-2` · `#580`) 그쪽이
+틀린 쪽이었다. 화면이 보여 준 개선이 사용자 데이터에서 재현되지 않는 자리 —
+`PRD §2.3` 「계산 가능성」이 깨진다.
+
 ## 계산 결과를 무효화한다
 
 `API_SPEC §5.2`가 「채택 시 해당 Voyage의 계산 결과는 무효화되고 재계산 필요 표시가
@@ -28,12 +39,15 @@ false→true 플립만 허용된다(마이그레이션 024 가드).
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import select, update
 
+from cii_platform.api.schemas.bounds import VOYAGE_FUEL
 from cii_platform.db.models.voyage_scenario import VoyageScenario
+from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.voyage import PLANNING_STATUSES, create_voyage
@@ -54,11 +68,24 @@ ADOPT_MODES: tuple[str, ...] = (MODE_UPDATE, MODE_CREATE)
 # 같은 상수를 쓰며, 두 경로의 기준이 갈리면 한쪽만 막힌다.
 
 #: 채택이 바꾸는 항차 필드 (``API_SPEC §5.2`` 응답 ``updated_fields``).
+#:
+#: ``planned_fuel_ton``은 항차 행이 아니라 ``voyage_fuel_use``의 열이지만 **사용자가
+#: 「무엇이 바뀌었나」로 읽는 단위**라 같은 목록에 둔다 (#1072).
+FIELD_PLANNED_FUEL = "planned_fuel_ton"
+
 UPDATED_FIELDS: tuple[str, ...] = (
     "planned_distance_nm",
     "planned_speed_kn",
     "planned_arrival_at",
+    FIELD_PLANNED_FUEL,
 )
+
+#: 시나리오가 준 연료의 출처. ``CREATE_NEW_VOYAGE``가 쓰는 값과 **같다** — 두 경로가
+#: 같은 값을 남겨야 「채택 방식에 따라 결과가 갈리지 않는다」가 성립한다 (#1072).
+SOURCE_MODEL_ESTIMATE = "MODEL_ESTIMATE"
+
+#: ``voyage_fuel_use.planned_fuel_ton``은 ``NUMERIC(12,4)``다 (`schemas/bounds.py`).
+_FUEL_STEP = VOYAGE_FUEL["ge"]
 
 
 async def _load_scenario(session: AsyncSession, scenario_id: UUID) -> VoyageScenario:
@@ -132,6 +159,7 @@ async def adopt_scenario(
             field_label="대상 항차",
         )
 
+    updated_fields = list(UPDATED_FIELDS)
     if adopt_mode == MODE_CREATE:
         voyage = await _create_from_scenario(
             session,
@@ -151,6 +179,10 @@ async def adopt_scenario(
         target.planned_distance_nm = scenario.distance_nm
         target.planned_speed_kn = scenario.speed_kn
         target.planned_arrival_at = _arrival_at(target, scenario)
+        # 연료도 바꾼다 (#1072) — 종전에는 이 줄이 없어 「새 거리 + 옛 연료」가 남았다.
+        if not await _apply_scenario_fuel(session, target, scenario):
+            # 넣을 연료 종류를 몰라 건너뛴 경우다. **바꾸지 않은 것을 바꿨다고 적지 않는다.**
+            updated_fields.remove(FIELD_PLANNED_FUEL)
         voyage_id = target.id
 
     await _clear_previous_adoption(session, voyage_id)
@@ -164,9 +196,95 @@ async def adopt_scenario(
     return {
         "voyage_id": str(voyage_id),
         "adopted_scenario_type": scenario.scenario_type,
-        "updated_fields": list(UPDATED_FIELDS),
+        "updated_fields": updated_fields,
         "invalidated_calculation_runs": marked,
     }
+
+
+async def _apply_scenario_fuel(session: AsyncSession, target, scenario) -> bool:
+    """채택한 시나리오의 연료량을 항차의 **계획 연료**로 옮긴다 (#1072).
+
+    돌려주는 값은 **실제로 바꿨는가**다. 응답 ``updated_fields``가 그 값을 따라간다 —
+    바꾸지 않았는데 바꿨다고 적으면 사용자가 확인할 수 없는 거짓이 된다.
+
+    ## 유종이 여럿이면 기존 비중대로 안분한다
+
+    시나리오 행에는 연료 **종류**가 없다(`DB_SCHEMA §2.4`는 양만 갖는다). 그래서 종류는
+    항차가 이미 가진 것을 그대로 두고 **양만** 시나리오 값으로 바꾼다. 비중을 유지하면
+    채택 전후로 **CF 혼합이 바뀌지 않아** CO₂ 차이가 오직 연료량에서만 나온다 — 종류를
+    지어내거나 한 유종에 몰아넣으면 그 차이에 CF 변화가 섞여 시나리오가 말한 개선과
+    다른 수가 남는다.
+
+    ## 0을 넣지 않는다
+
+    ``chk_fuel_positive``(마이그레이션 046)가 ``planned_fuel_ton IS NULL OR > 0``을
+    강제한다. 그래서:
+
+    - **비중이 0이거나 비어 있는 행은 건드리지 않는다.** 원래 값(``NULL`` 또는 옛 값)을
+      그대로 두고, 시나리오 총량은 **양수 비중을 가진 행들에만** 나눈다. 0으로 덮으면
+      트리거가 거부해 채택 자체가 500이 된다
+    - 반올림으로 0.0000이 되는 몫은 최소 저장 단위(``0.0001``)로 올린다
+
+    ## 총량을 정확히 보존한다
+
+    4자리로 반올림한 몫을 그대로 더하면 합이 시나리오 총량과 어긋난다. **가장 비중이 큰
+    행에 잔차를 얹어** 합을 총량과 같게 맞춘다 — 그 행이 가장 크므로 잔차를 흡수해도
+    부호가 뒤집히지 않는다. 순서는 ``list_fuel_uses``(유종순 · `#867`)를 따르므로 같은
+    입력이면 같은 결과가 나온다.
+    """
+    rows = await voyage_repo.list_fuel_uses(session, target.id)
+    total = Decimal(scenario.fuel_ton)
+
+    if not rows:
+        # 연료 행이 아예 없는 항차다 — CSV로 항차만 먼저 올린 경우에 실제로 나온다
+        # (`#1095` ⑵). `CREATE_NEW_VOYAGE`와 **같은 규칙**으로 종류를 정해 한 행을 만든다:
+        # 그러지 않으면 이 경로만 「연료가 안 바뀌는」 종전 상태로 남는다.
+        #
+        # 🔴 **종류를 모르면 채택을 막지 않는다.** 원본 항차에도 연료가 없고 선박에 기본
+        # 연료도 없으면 넣을 종류가 없는데, 그 때문에 거리·속력·도착시각 갱신까지 거부하면
+        # **사용자가 하려던 일 전체가 막힌다** — 채택의 본체는 계획값 갱신이다. 연료만
+        # 건너뛰고 그 사실을 `updated_fields`로 알린다. (`CREATE_NEW_VOYAGE`는 다르다 —
+        # 연료 종류 없이 **새 항차를 만들 수 없어** 거기서는 오류가 맞다.)
+        fuel_type = await _source_fuel_type(session, target, required=False)
+        if fuel_type is None:
+            return False
+        fuel_rows = await param_repo.get_fuel_types_by_codes(session, (fuel_type,))
+        if fuel_type not in fuel_rows:
+            # 비활성으로 내려간 연료다 — 새 계획값에 죽은 코드를 심지 않는다.
+            return False
+        await voyage_repo.insert_fuel_use(
+            session,
+            voyage_id=target.id,
+            fuel_type=fuel_type,
+            planned_fuel_ton=total,
+            actual_fuel_ton=None,
+            cf_used=Decimal(str(fuel_rows[fuel_type].cf)),
+            source=SOURCE_MODEL_ESTIMATE,
+        )
+        return True
+
+    weights = [Decimal(row.planned_fuel_ton or 0) for row in rows]
+    if sum(weights) <= 0:
+        # 비중이 될 값이 하나도 없다 — 기존 혼합이 **없으므로** 균등이 중립적인 선택이다.
+        weights = [Decimal(1)] * len(rows)
+
+    weight_sum = sum(weights)
+    positive = [index for index, weight in enumerate(weights) if weight > 0]
+    shares: dict[int, Decimal] = {}
+    for index in positive:
+        share = (total * weights[index] / weight_sum).quantize(_FUEL_STEP, rounding=ROUND_HALF_UP)
+        shares[index] = max(share, _FUEL_STEP)
+
+    # 잔차는 비중이 가장 큰 행이 흡수한다.
+    anchor = max(positive, key=lambda index: (weights[index], -index))
+    shares[anchor] += total - sum(shares.values())
+    if shares[anchor] < _FUEL_STEP:  # pragma: no cover - 행이 극단적으로 많을 때만
+        shares[anchor] = _FUEL_STEP
+
+    for index, share in shares.items():
+        rows[index].planned_fuel_ton = share
+        rows[index].source = SOURCE_MODEL_ESTIMATE
+    return True
 
 
 async def _create_from_scenario(
@@ -232,8 +350,11 @@ async def _create_from_scenario(
     )
 
 
-async def _source_fuel_type(session: AsyncSession, source) -> str:
+async def _source_fuel_type(session: AsyncSession, source, *, required: bool = True) -> str | None:
     """원본 항차의 연료 코드. 없으면 선박 기본 연료.
+
+    ``required=False``면 알 수 없을 때 오류 대신 ``None``을 돌려준다 (#1072) —
+    호출부가 「연료만 건너뛴다」를 고를 수 있어야 하는 자리가 있다.
 
     시나리오 행에는 연료 **종류**가 없다(`DB_SCHEMA §2.4`는 양만 갖는다). 종류를
     지어내면 CF가 달라져 **채택 전후의 CO₂가 어긋난다.**
@@ -246,6 +367,8 @@ async def _source_fuel_type(session: AsyncSession, source) -> str:
 
     vessel = await vessel_repo.get_by_id(session, source.vessel_id)
     if vessel is None or not vessel.default_fuel_type:
+        if not required:
+            return None
         raise ValidationError(
             "새 항차에 쓸 연료 종류를 알 수 없습니다. 원본 항차나 선박에 기본 연료가 필요합니다.",
             field="target_voyage_id",

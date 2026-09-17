@@ -6,17 +6,32 @@
 /** 계획을 바꿀 수 있는 상태 — 서버 `PLANNING_STATUSES`와 같다. */
 const PLANNING_STATUSES: ReadonlySet<string> = new Set(['DRAFT', 'PLANNED'])
 
-/** 서버가 덮어쓴 필드 → 화면 이름. */
+/**
+ * 서버가 덮어쓴 필드 → 화면 이름. 서버 `UPDATED_FIELDS`와 **같은 집합**이다
+ * (`services/scenario_adopt.py`).
+ *
+ * `planned_fuel_ton`은 항차 행이 아니라 `voyage_fuel_use`의 열이지만, 사용자가
+ * 「무엇이 바뀌었나」로 읽는 단위라 서버가 같은 목록에 싣는다 (`#1072`).
+ */
 const FIELD_LABELS: Readonly<Record<string, string>> = {
   planned_distance_nm: '항해거리',
   planned_speed_kn: '평균 속력',
   planned_arrival_at: '도착 예정 시각',
+  planned_fuel_ton: '계획 연료',
 }
 
-/** 채택 전 확인 문구 — 디자인 판정 ③. */
+/**
+ * 채택 전 확인 문구 — 디자인 판정 ③.
+ *
+ * 열거하는 항목을 **`FIELD_LABELS`에서 끌어낸다** (`#1072`). 손으로 적어 두었더니 서버가
+ * `planned_fuel_ton`을 더한 뒤 **문장이 거짓이 됐다** — 셋만 바꾼다고 알리고 넷을
+ * 덮어썼고, 그 조작은 「되돌릴 수 없습니다」다. 목록이 두 곳에 있으면 한쪽만 고쳐지는
+ * 날이 온다.
+ */
 export function adoptConfirmMessage(voyageName: string, scenarioName: string): string {
+  const fields = Object.values(FIELD_LABELS).join(' · ')
   return (
-    `「${voyageName}」 항차의 계획값(항해거리 · 평균 속력 · 도착 예정 시각)을 ` +
+    `「${voyageName}」 항차의 계획값(${fields})을 ` +
     `「${scenarioName}」 시나리오 값으로 덮어씁니다. 되돌릴 수 없습니다.\n\n` +
     '다른 시나리오를 다시 반영하면 그 값으로 바뀝니다.'
   )

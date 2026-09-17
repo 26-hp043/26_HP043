@@ -26,6 +26,26 @@ describe('확인 문구 — 되돌릴 수 없음을 채택 전에 알린다', ()
     // 서버 `_clear_previous_adoption()`이 이전 채택을 내리고 새 값으로 덮는다.
     expect(text).toContain('다른 시나리오를 다시 반영하면')
   })
+
+  it('계획 연료도 덮어쓴다는 것을 말한다 (#1072)', () => {
+    // 종전 문구는 「항해거리 · 평균 속력 · 도착 예정 시각」 셋만 열거했는데 서버가
+    // `planned_fuel_ton`을 더해 **문장이 거짓이 됐다** — 넷을 덮어쓰면서 셋만 알렸고,
+    // 그 조작은 「되돌릴 수 없습니다」다.
+    expect(text).toContain('계획 연료')
+  })
+
+  it('열거한 항목이 fieldLabel이 아는 항목과 같다 — 한쪽만 고쳐지지 않게', () => {
+    // 문구가 `FIELD_LABELS`에서 끌어내므로 서버가 필드를 늘려 라벨을 더하면 문구도
+    // 따라온다. 손으로 적으면 이 이슈의 결함이 그대로 재발한다.
+    for (const field of [
+      'planned_distance_nm',
+      'planned_speed_kn',
+      'planned_arrival_at',
+      'planned_fuel_ton',
+    ]) {
+      expect(text).toContain(fieldLabel(field))
+    }
+  })
 })
 
 describe('바뀐 필드의 이름', () => {
@@ -38,7 +58,14 @@ describe('바뀐 필드의 이름', () => {
   })
 
   it('모르는 필드는 원문을 보인다 — 서버가 필드를 늘려도 조용히 감추지 않는다', () => {
-    expect(fieldLabel('planned_fuel_ton')).toBe('planned_fuel_ton')
+    // ⚠️ 종전 예시는 `planned_fuel_ton`이었다 — **서버가 실제로 그 필드를 늘렸고**
+    // (`#1072`) 이제 라벨이 있다. 이 검사가 지키려는 것은 특정 필드가 아니라
+    // **모르는 이름을 감추지 않는다**는 규칙이므로 예시만 바꾼다.
+    expect(fieldLabel('planned_departure_at')).toBe('planned_departure_at')
+  })
+
+  it('#1072가 늘린 필드는 사람 말로 나간다', () => {
+    expect(fieldLabel('planned_fuel_ton')).toBe('계획 연료')
   })
 })
 
