@@ -343,13 +343,28 @@ export function AppShell() {
               id="global-vessel"
               className="app-shell__util-select"
               value={context.vesselId ?? ''}
-              disabled={vessels.length === 0}
+              disabled={vesselsState !== 'ready' || vessels.length === 0}
               onChange={(event) =>
                 applyContext(selectVessel(context, event.target.value || null))
               }
             >
+              {/*
+                네 상태를 구분해 말한다 (`#1093` ⑴). `vesselsState`는 `#484`가
+                **이 셀렉트를 위해** 만든 값인데 정작 여기서 쓰지 않아, 조회가
+                실패해도 「선박 없음」이었다 — **10척 선대에서도** 그렇다. 첫 로드
+                중에도 잠깐 「선박 없음」이 스쳤다.
+
+                바로 아래 항차 셀렉트가 `#824` ⑶에서 이미 이 형태다. 문구는
+                `PRD §6.4` 패턴(폼 컨트롤 안 · 마침표 없음)을 따른다.
+              */}
               <option value="">
-                {vessels.length === 0 ? '선박 없음' : '선박 선택 안 함'}
+                {vesselsState === 'loading'
+                  ? '선박 목록을 불러오는 중…'
+                  : vesselsState === 'failed'
+                    ? '선박 목록을 불러오지 못했습니다'
+                    : vessels.length === 0
+                      ? '선박 없음'
+                      : '선박 선택 안 함'}
               </option>
               {vessels.map((option) => (
                 <option key={option.id} value={option.id}>

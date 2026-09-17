@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { VoyageCiiForm } from './VoyageCiiForm'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
@@ -225,3 +225,61 @@ describe('상단바 선박이 목록에 없을 때 (#1097 ⑵)', () => {
   })
 })
 
+
+/**
+ * 「선박을 아직 안 골랐다」와 「그 선박에 연도가 없다」를 가른다 (`#1093` ⑶).
+ *
+ * `useYearOptions`는 선박이 비면 **조회하지 않고** 빈 목록을 돌려준다. 그래서 연도 칸이
+ * 마지막 갈래로 떨어져 「등록된 규제연도가 없습니다」를 말했는데 **사실이 아니다** —
+ * 연도는 등재돼 있고 선박을 고르지 않았을 뿐이다. 항로 비교 화면이 `#829`에서 이미
+ * 같은 구분을 하고 있다.
+ */
+describe('연도 칸이 「선박 미선택」을 「연도 없음」으로 말하지 않는다 (#1093 ⑶)', () => {
+  it('선박을 고르기 전에는 「등록된 규제연도가 없습니다」가 아니다', async () => {
+    stubServer()
+
+    renderForm({ vesselId: null })
+
+    expect(await screen.findByText('선박을 먼저 선택해 주세요')).toBeTruthy()
+    expect(screen.queryByText('등록된 규제연도가 없습니다')).toBeNull()
+  })
+
+  it('선박을 골랐는데 연도가 정말 없으면 그렇다고 말한다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [] })
+        if (url.includes('/parameters/fuel-types')) {
+          return jsonResponse({
+            data: [
+              { code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true },
+            ],
+          })
+        }
+        return jsonResponse({ data: {} })
+      }),
+    )
+
+    renderForm()
+
+    expect(await screen.findByText('등록된 규제연도가 없습니다')).toBeTruthy()
+    expect(screen.queryByText('선박을 먼저 선택해 주세요')).toBeNull()
+  })
+
+  it('선박 미선택으로 제출하면 선박 오류가 사라지지 않는다', async () => {
+    stubServer()
+
+    renderForm({ vesselId: null })
+
+    fireEvent.click(await screen.findByRole('button', { name: /계산/ }))
+
+    /*
+     * ⚠️ 종전에는 두 오류가 **같은 키(`__form__`)**를 써서 뒤에 쓴 연도 오류가
+     * 선박 오류를 덮었다. 화면에는 「규제연도를 선택해 주세요」만 남는데 **고를 연도
+     * 칸이 화면에 없어** 사용자가 할 수 있는 일이 없었다.
+     */
+    expect(await screen.findByText('선박을 선택해 주세요.')).toBeTruthy()
+    expect(screen.queryByText('규제연도를 선택해 주세요.')).toBeNull()
+  })
+})

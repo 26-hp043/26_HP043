@@ -81,8 +81,15 @@ describe('initialFormState', () => {
     })
   })
 
-  it('그 상태로는 제출되지 않는다 — 선박·연도 안내가 붙는다', () => {
-    expect(validateForm(initialFormState())[FIELD.form]).toBeDefined()
+  it('그 상태로는 제출되지 않는다 — 선박 안내가 붙는다 (#1093 ⑶)', () => {
+    const errors = validateForm(initialFormState())
+    expect(errors[FIELD.vesselId]).toBe('선박을 선택해 주세요.')
+    /*
+     * ⚠️ 종전에는 둘 다 `FIELD.form` 한 칸을 써서 **연도 오류가 선박 오류를 덮었다.**
+     * 이제 키가 갈렸고, **선박을 고르기 전에는 연도 오류를 내지 않는다** — 선박이
+     * 비면 연도 목록을 조회조차 하지 않으므로 고를 칸이 화면에 없다.
+     */
+    expect(errors[FIELD.regulationYear]).toBeUndefined()
   })
 })
 
