@@ -5,6 +5,7 @@ import './styles/tokens.css'
 import './styles/global.css'
 import './styles/card.css'
 import { ErrorBoundary, ErrorScreen } from './components/ErrorBoundary'
+import { LanguageProvider } from './i18n/Provider'
 import App from './App.tsx'
 
 /**
@@ -60,7 +61,14 @@ createRoot(document.getElementById('root')!).render(
         />
       )}
     >
-      <App />
+      {/*
+       * 언어 provider는 App 안쪽에 둔다(#1215) — 이 경계의 폴백 문구(「다시
+       * 시도」·「처음 화면으로」)는 `PRD §6.4` 정본 문구라 어느 언어에서도 한국어로
+       * 둔다. provider가 바깥에 있어도 쓸 수 있는 곳이 없다.
+       */}
+      <LanguageProvider>
+        <App />
+      </LanguageProvider>
     </ErrorBoundary>
   </StrictMode>,
 )

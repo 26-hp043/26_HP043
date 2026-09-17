@@ -6,6 +6,7 @@ import type { CurrentUser } from '../auth/session'
 import './AccountMenu.css'
 import { ChevronDown } from 'lucide-react'
 import { Icon } from '../components/Icon'
+import { useI18n } from '../i18n/core'
 
 /**
  * 상단바 계정 영역 (#717).
@@ -37,6 +38,7 @@ function initialOf(name: string): string {
 }
 
 export function AccountMenu({ user }: { user: CurrentUser }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const panelId = useId()
   const root = useRef<HTMLDivElement>(null)
@@ -112,7 +114,7 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         data-testid="account-panel"
       >
         <p className="account-menu__panel-name">
-          {user.displayName ?? '표시 이름 없음'}
+          {user.displayName ?? t('account.noDisplayName')}
         </p>
         <p className="account-menu__panel-email">{user.email}</p>
         {/*
@@ -121,12 +123,12 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
           어긴다. 미인증은 셸 상단 배너가 이미 상시로 알린다.
         */}
         <p className="account-menu__verify">
-          {verified ? '이메일 인증 완료' : '이메일 인증 대기'}
+          {verified ? t('account.verified') : t('account.unverified')}
         </p>
 
         <Link className="account-menu__link" to={SCREEN_BY_ID.SETTINGS.path}>
-          <span>설정</span>
-          <span className="account-menu__link-sub">계정 정보 · 비밀번호</span>
+          <span>{t('account.settings')}</span>
+          <span className="account-menu__link-sub">{t('account.settingsSub')}</span>
         </Link>
       </div>
     </div>
