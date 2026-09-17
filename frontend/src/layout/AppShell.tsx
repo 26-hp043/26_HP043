@@ -21,6 +21,8 @@ import { ErrorBoundary, ErrorScreen } from '../components/ErrorBoundary'
 import { AccountMenu } from './AccountMenu'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { isOffice, logout, useAuthUser } from '../auth/session'
+import { useI18n } from '../i18n/core'
+import { LanguageToggle } from '../i18n/LanguageToggle'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
@@ -70,6 +72,7 @@ export function AppShell() {
   const screen = findScreenByPath(pathname)
   const width = screen?.width ?? 'form'
   const user = useAuthUser()
+  const { language, t } = useI18n()
 
   const vesselCatalog = useMemo(() => createVesselCatalog(), [])
   const voyageCatalog = useMemo(() => createVoyageCatalog(), [])
@@ -139,13 +142,16 @@ export function AppShell() {
    */
   const firstRender = useRef(true)
   useEffect(() => {
-    document.title = screen ? `${screen.label} · ${APP_TITLE}` : APP_TITLE
+    // 제목의 화면 이름은 현재 언어를 따른다(#1215) — 사이드바 라벨과 같은 값이다.
+    document.title = screen
+      ? `${language === 'en' ? screen.labelEn : screen.label} · ${APP_TITLE}`
+      : APP_TITLE
     if (firstRender.current) {
       firstRender.current = false
       return
     }
     document.getElementById(MAIN_ID)?.focus()
-  }, [pathname, screen])
+  }, [pathname, screen, language])
 
   // URL을 통해 들어온 선택도 기억한다 — 대시보드로 나가도 유지되어야 한다.
   useEffect(() => {
@@ -276,9 +282,9 @@ export function AppShell() {
              * `null`을 현장직과 같게 막는다 — 그쪽이 fail-closed의 자리다.
              */
             const lockedTag = !item.implemented
-              ? '준비 중'
+              ? t('shell.navTag')
               : item.officeOnly && user !== null && !isOffice(user)
-                ? '사무직 전용'
+                ? t('shell.navTagOffice')
                 : null
             return lockedTag === null ? (
               <li key={item.id}>
@@ -292,8 +298,12 @@ export function AppShell() {
                 >
                   <NavIcon id={item.id} />
                   <span className="app-shell__nav-text">
-                    <span className="app-shell__nav-label">{item.label}</span>
-                    <span className="app-shell__nav-label-en">{item.labelEn}</span>
+                    <span className="app-shell__nav-label">
+                      {language === 'en' ? item.labelEn : item.label}
+                    </span>
+                    <span className="app-shell__nav-label-en">
+                      {language === 'en' ? item.label : item.labelEn}
+                    </span>
                   </span>
                 </NavLink>
               </li>
@@ -310,8 +320,12 @@ export function AppShell() {
                 >
                   <NavIcon id={item.id} />
                   <span className="app-shell__nav-text">
-                    <span className="app-shell__nav-label">{item.label}</span>
-                    <span className="app-shell__nav-label-en">{item.labelEn}</span>
+                    <span className="app-shell__nav-label">
+                      {language === 'en' ? item.labelEn : item.label}
+                    </span>
+                    <span className="app-shell__nav-label-en">
+                      {language === 'en' ? item.label : item.labelEn}
+                    </span>
                   </span>
                   <span className="app-shell__nav-tag">{lockedTag}</span>
                 </span>
@@ -337,7 +351,7 @@ export function AppShell() {
           <span className="app-shell__util-item">
             <ShipGlyph />
             <label className="app-shell__util-label" htmlFor="global-vessel">
-              선박
+              {t('shell.vessel')}
             </label>
             <select
               id="global-vessel"
@@ -359,12 +373,12 @@ export function AppShell() {
               */}
               <option value="">
                 {vesselsState === 'loading'
-                  ? '선박 목록을 불러오는 중…'
+                  ? t('shell.vessel.loading')
                   : vesselsState === 'failed'
-                    ? '선박 목록을 불러오지 못했습니다'
+                    ? t('shell.vessel.failed')
                     : vessels.length === 0
-                      ? '선박 없음'
-                      : '선박 선택 안 함'}
+                      ? t('shell.vessel.none')
+                      : t('shell.vessel.unselected')}
               </option>
               {vessels.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -376,7 +390,7 @@ export function AppShell() {
           <span className="app-shell__util-item">
             <VoyageGlyph />
             <label className="app-shell__util-label" htmlFor="global-voyage">
-              항차
+              {t('shell.voyage')}
             </label>
             {/*
               선박을 고르기 전에는 항차를 고를 수 없다 — 항차는 선박에 매달려 있다
@@ -398,14 +412,14 @@ export function AppShell() {
               */}
               <option value="">
                 {context.vesselId === null
-                  ? '선박 먼저 선택'
+                  ? t('shell.voyage.selectVesselFirst')
                   : voyagesState === 'loading'
-                    ? '불러오는 중…'
+                    ? t('shell.voyage.loading')
                     : voyagesState === 'failed'
-                      ? '항차를 불러오지 못했습니다'
+                      ? t('shell.voyage.failed')
                       : voyages.length === 0
-                        ? '항차 없음'
-                        : '항차 선택 안 함'}
+                        ? t('shell.voyage.none')
+                        : t('shell.voyage.unselected')}
               </option>
               {voyages.map((option) => (
                 <option key={option.id} value={option.id}>
@@ -426,14 +440,16 @@ export function AppShell() {
           <button
             type="button"
             className="app-shell__iconbtn"
-            aria-label="알림 (준비 중)"
-            title="알림 — 준비 중"
+            aria-label={t('shell.notification.aria')}
+            title={t('shell.notification.title')}
             disabled
           >
             <BellGlyph />
           </button>
           {/* 테마 선택(해·달). */}
           <ThemeToggle />
+          {/* 언어 선택(한/EN) — #1215. 테마와 같은 자리·같은 모양이다. */}
+          <LanguageToggle />
 
           {/*
             계정 — `#278` 현재 사용자 표시 + 로그아웃, `#717` 요약 팝오버.
@@ -454,7 +470,7 @@ export function AppShell() {
                 onClick={() => void runLogout()}
                 data-testid="logout-button"
               >
-                로그아웃
+                {t('shell.logout')}
               </button>
               {/*
                 로그아웃이 **서버에서** 실패했음을 알린다 (`#825` ⑵).
