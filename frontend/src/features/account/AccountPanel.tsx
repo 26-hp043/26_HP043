@@ -29,6 +29,7 @@ import {
 import type { AccountFieldErrors, PasswordChangeDraft } from './accountRules'
 import './AccountPanel.css'
 import { ErrorState } from '../../components/ErrorState'
+import { Field } from '../../components/Field'
 
 /**
  * 계정 관리 — `설정` 화면의 계정 절 (`#506`) + 계정 목록·역할 지정 (`#672`).
@@ -212,31 +213,25 @@ function DisplayNameForm({ initial }: { initial: string }) {
 
   return (
     <form className="acc__form" onSubmit={submit} noValidate>
-      <div className="acc__field">
-        <label className="acc__label" htmlFor="acc-name">
-          표시 이름
-        </label>
-        <input
-          id="acc-name"
-          className={error ? 'acc__input acc__input--error' : 'acc__input'}
-          value={name}
-          maxLength={MAX_DISPLAY_NAME_LENGTH}
-          onChange={(event) => {
-            setName(event.target.value)
-            setDone(false)
-          }}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? 'acc-name-error' : 'acc-name-hint'}
-        />
-        <p className="acc__hint" id="acc-name-hint">
-          비워 두면 이름 없이 표시됩니다.
-        </p>
-        {error ? (
-          <p className="acc__error" id="acc-name-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-      </div>
+      <Field
+        id="acc-name"
+        label="표시 이름"
+        hint="비워 두면 이름 없이 표시됩니다."
+        error={error}
+      >
+        {(control) => (
+          <input
+            {...control}
+            className="acc__input"
+            value={name}
+            maxLength={MAX_DISPLAY_NAME_LENGTH}
+            onChange={(event) => {
+              setName(event.target.value)
+              setDone(false)
+            }}
+          />
+        )}
+      </Field>
 
       {failure ? (
         <ErrorState level="region" size="compact" message={failure} />
@@ -375,28 +370,19 @@ function PasswordField({
   error?: string
   autoComplete: string
 }) {
-  const errorId = `${id}-error`
   return (
-    <div className="acc__field">
-      <label className="acc__label" htmlFor={id}>
-        {label}
-      </label>
-      <input
-        id={id}
-        type="password"
-        className={error ? 'acc__input acc__input--error' : 'acc__input'}
-        value={value}
-        autoComplete={autoComplete}
-        onChange={(event) => onChange(event.target.value)}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
-      />
-      {error ? (
-        <p className="acc__error" id={errorId} role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
+    <Field id={id} label={label} error={error}>
+      {(control) => (
+        <input
+          {...control}
+          type="password"
+          className="acc__input"
+          value={value}
+          autoComplete={autoComplete}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+    </Field>
   )
 }
 

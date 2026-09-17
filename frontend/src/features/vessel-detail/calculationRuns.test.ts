@@ -53,7 +53,39 @@ describe('fetchCalculationPage', () => {
     expect(url.searchParams.get('vessel_id')).toBe('v 1')
     expect(url.searchParams.get('limit')).toBe('20')
     expect(url.searchParams.get('cursor')).toBe('c1')
-    expect(page).toEqual({ rows: [], nextCursor: 'c2', hasMore: true })
+    // `meta`에 `needs_recalc_total`이 없으면 `null`이다 — **받은 행으로 대신 세지
+    // 않는다**(`#1076`). 0으로 접으면 「낡은 계산이 없다」는 주장이 된다.
+    expect(page).toEqual({ rows: [], nextCursor: 'c2', hasMore: true, needsRecalcTotal: null })
+  })
+
+  it('meta.needs_recalc_total을 그대로 읽는다 — 화면이 세지 않는다 (#1076)', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [],
+            meta: { next_cursor: null, has_more: false, needs_recalc_total: 7 },
+          }),
+        }) as Response,
+    )
+    const page = await fetchCalculationPage('v', null, fetchImpl as unknown as typeof fetch, '/api/v1')
+    // 행은 0건인데 7이다 — 세는 주체가 서버이기 때문이다.
+    expect(page.needsRecalcTotal).toBe(7)
+  })
+
+  it('숫자가 아닌 건수는 0으로 접지 않고 null로 둔다 (#1076)', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        ({
+          ok: true,
+          status: 200,
+          json: async () => ({ data: [], meta: { needs_recalc_total: '3' } }),
+        }) as Response,
+    )
+    const page = await fetchCalculationPage('v', null, fetchImpl as unknown as typeof fetch, '/api/v1')
+    expect(page.needsRecalcTotal).toBeNull()
   })
 
   it('data가 배열이 아니면 던진다 — 「계산이 없다」로 삼키지 않는다', async () => {

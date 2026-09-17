@@ -945,10 +945,14 @@ describe('선박 목록 실패를 「선박 없음」으로 말하지 않는다 
 
     renderScreen({ vesselId: null, vessels: [], vesselsState: 'failed' })
 
-    const select = (await screen.findByText('선박')).closest('label')!.querySelector('select')!
+    /*
+     * 라벨 배선으로 찾는다 — `#936`의 공용 `Field`가 `<label for>` + 컨트롤을
+     * **형제로** 그리므로 `.closest('label')`로는 닿지 않는다.
+     */
+    const select = (await screen.findByLabelText('선박')) as HTMLSelectElement
     expect(select.textContent).toContain('선박 목록을 불러오지 못했습니다')
     expect(select.textContent).not.toContain('선택')
-    expect((select as HTMLSelectElement).disabled).toBe(true)
+    expect(select.disabled).toBe(true)
   })
 
   it('진짜로 0척이면 종전대로 「등록된 선박이 없어…」다', async () => {

@@ -39,6 +39,75 @@ describe('접근성 배선 (#829 ⑸)', () => {
     expect(offenders).toEqual([])
   })
 
+  /*
+   * `#936` — **이관 진척을 세는 검사다.** 실패 목록이 곧 남은 작업이다.
+   *
+   * `§8.4`가 배선을 `Field`로 모으기 전, 폼 컨트롤 87곳 중 `aria-invalid`가 붙은 것은
+   * **18곳**이었다. 나머지는 오류를 색으로만 말하고 있었고(`§14` 위반), 라벨·힌트가
+   * 컨트롤에 프로그램적으로 닿지 않았다.
+   *
+   * **허용 목록으로 센다.** 「전부 `Field`를 써야 한다」로 잠그면 이관이 끝날 때까지
+   * 빨간불이라 아무도 보지 않게 된다. 대신 **아직 옮기지 않은 파일을 적어 두고**,
+   * 그 목록이 줄어드는 것으로 진척을 본다 — 목록에 없는 파일이 배선 없는 컨트롤을
+   * 새로 들이면 그때 실패한다.
+   *
+   * 이관이 끝나면 목록이 비고, 이 검사는 **회귀 가드**로 남는다.
+   */
+  const NOT_YET_MIGRATED = [
+    'features/voyage-management/ExportCsv.tsx',
+    'features/voyage-management/VoyagePanel.tsx',
+    'features/vessel-detail/PositionForm.tsx',
+    'features/auth/AuthShell.tsx',
+    'features/assistant/AssistantOverlay.tsx',
+  ]
+
+  /*
+   * **`Field`를 씌울 수 없는 컨트롤이 실제로 있다.**
+   *
+   * 표 안의 입력칸이 그렇다 — 보이는 `<label>`이 없고 이름은 열 제목과 `aria-label`이
+   * 준다. `Field`를 씌우면 셀마다 라벨 줄이 하나씩 생겨 표가 무너진다.
+   *
+   * 파일을 통째로 `NOT_YET_MIGRATED`에 남기면 **같은 파일의 나머지 칸이 가드 밖으로
+   * 빠진다.** 그래서 예외는 파일이 아니라 **줄 단위**로 두고, 이유를 함께 적게 한다.
+   * 표식이 없는 `aria-invalid`는 그대로 실패한다.
+   */
+  const FIELD_EXEMPTION = 'Field 예외(#936)'
+
+  it('이관한 파일은 폼 컨트롤 배선을 Field에 맡긴다 (#936)', () => {
+    const offenders: string[] = []
+    for (const { path, text } of FILES) {
+      if (NOT_YET_MIGRATED.includes(path)) continue
+      // 직접 적은 `aria-invalid`는 `Field`가 줄 배선을 호출부가 다시 쓴 것이다.
+      for (const match of text.matchAll(/\saria-invalid=/g)) {
+        // 바로 앞 다섯 줄 안에 이유를 적은 표식이 있으면 넘긴다.
+        const before = text.slice(0, match.index).split('\n').slice(-6).join('\n')
+        if (before.includes(FIELD_EXEMPTION)) continue
+        offenders.push(`${path} :: ${text.slice(match.index, (match.index ?? 0) + 40).trim()}`)
+      }
+    }
+    expect(
+      offenders,
+      'Field가 배선을 주므로 호출부가 aria-invalid를 적을 필요가 없다. ' +
+        `아직 이관 전이라면 NOT_YET_MIGRATED에, 씌울 수 없는 칸이라면 «${FIELD_EXEMPTION}» ` +
+        '주석에 이유를 적어 두세요.',
+    ).toEqual([])
+  })
+
+  it('예외 표식이 실제로 무언가를 넘기고 있다', () => {
+    /* 표식이 아무 데도 안 걸리면 위 검사가 조용히 헐거워진 것이다 — 오타든 삭제든. */
+    const marked = FILES.filter(
+      (f) => !NOT_YET_MIGRATED.includes(f.path) && f.text.includes(FIELD_EXEMPTION),
+    )
+    expect(marked.length, '예외 표식이 한 곳도 쓰이지 않는다').toBeGreaterThan(0)
+  })
+
+  it('이관 목록이 실재하는 파일만 담는다', () => {
+    /* 파일이 사라지거나 이름이 바뀌면 목록이 조용히 낡는다 — 그때 검사가 헐거워진다. */
+    const known = new Set(FILES.map((f) => f.path))
+    const stale = NOT_YET_MIGRATED.filter((path) => !known.has(path))
+    expect(stale, `이관 목록에 없는 파일이 적혀 있다: ${stale.join(', ')}`).toEqual([])
+  })
+
   it('role 없는 요소에 aria-label을 걸지 않는다', () => {
     /*
      * `role`이 없는 `<span>`·`<div>`의 `aria-label`은 **무시된다.** 라벨을 적어 둔
@@ -62,6 +131,32 @@ describe('접근성 배선 (#829 ⑸)', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+
+  /*
+   * `#936` — **JSX 문자열 속성 안에 평가되지 않은 `{표현식}`이 없다.**
+   *
+   * 이관 중 실제로 났다. `<span>기준 일일 연료소모량 ({DISPLAY_UNIT_DAILY_FUEL})</span>`을
+   * `label="..."`로 옮기면서 중괄호가 **문자 그대로 굳어** 화면에 `{DISPLAY_UNIT_DAILY_FUEL}`이
+   * 찍히는 상태가 됐다. `tsc`는 그 상수가 안 쓰인다고만 알렸고(다른 참조가 있었으면 그마저
+   * 없다) **테스트 90개가 전부 통과했다** — 라벨 문구를 단언하는 검사가 없었기 때문이다.
+   *
+   * 눈으로도 잘 안 보인다. 단위가 붙는 자리라 「(t/일)」이 「({DISPLAY_UNIT_DAILY_FUEL})」로
+   * 바뀐 것을 스쳐 지나가기 쉽다.
+   */
+  it('문자열 속성에 평가되지 않은 중괄호가 없다 (#936)', () => {
+    const offenders: string[] = []
+    for (const { path, text } of FILES) {
+      text.split('\n').forEach((line, index) => {
+        for (const match of line.matchAll(/\s([a-zA-Z-]+)="([^"]*\{[^"]*\}[^"]*)"/g)) {
+          offenders.push(`${path}:${index + 1} :: ${match[1]}="${match[2]}"`)
+        }
+      })
+    }
+    expect(
+      offenders,
+      '중괄호를 쓰려면 `attr={`…${expr}…`}` 형태여야 합니다 — 따옴표 안에서는 문자로 굳습니다.',
+    ).toEqual([])
   })
 
   it('본문 바로가기 링크가 있고 main이 초점을 받는다', () => {

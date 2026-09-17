@@ -192,19 +192,14 @@
   font-size: var(--font-size-micro);
 }
 
-.vessel-management__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.vessel-management__field > span {
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
-}
-
-.vessel-management__field input,
-.vessel-management__field select {
+/*
+ * 입력칸만 남긴다 — 래퍼·라벨·오류는 공용 `.field`·`.field__label`·`.field__error`가
+ * 준다 (`#936`).
+ *
+ * ⚠️ 종전에는 `.vessel-management__field input` **자손 선택자**였다. 래퍼가 공용
+ * 클래스로 바뀌면 조용히 안 걸리므로 입력칸에 이름을 준다.
+ */
+.vessel-management__control {
   height: 40px;
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
@@ -213,20 +208,12 @@
   color: var(--color-text);
 }
 
-.vessel-management__field input:focus-visible,
-.vessel-management__field select:focus-visible {
+.vessel-management__control:focus-visible {
   outline: var(--focus-ring);
 }
 
-.vessel-management__field input[aria-invalid='true'],
-.vessel-management__field select[aria-invalid='true'] {
+.vessel-management__control[aria-invalid='true'] {
   border-color: var(--color-danger);
-}
-
-/* 오류는 컨트롤 **아래**에 둔다 (§14). */
-.vessel-management__field-error {
-  color: var(--color-danger-text);
-  font-size: var(--font-size-micro);
 }
 
 /* ── 목록 (#719) ──────────────────────────────────────────────────── */
