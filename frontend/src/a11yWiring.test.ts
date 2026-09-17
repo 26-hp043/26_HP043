@@ -39,6 +39,59 @@ describe('접근성 배선 (#829 ⑸)', () => {
     expect(offenders).toEqual([])
   })
 
+  /*
+   * `#936` — **이관 진척을 세는 검사다.** 실패 목록이 곧 남은 작업이다.
+   *
+   * `§8.4`가 배선을 `Field`로 모으기 전, 폼 컨트롤 87곳 중 `aria-invalid`가 붙은 것은
+   * **18곳**이었다. 나머지는 오류를 색으로만 말하고 있었고(`§14` 위반), 라벨·힌트가
+   * 컨트롤에 프로그램적으로 닿지 않았다.
+   *
+   * **허용 목록으로 센다.** 「전부 `Field`를 써야 한다」로 잠그면 이관이 끝날 때까지
+   * 빨간불이라 아무도 보지 않게 된다. 대신 **아직 옮기지 않은 파일을 적어 두고**,
+   * 그 목록이 줄어드는 것으로 진척을 본다 — 목록에 없는 파일이 배선 없는 컨트롤을
+   * 새로 들이면 그때 실패한다.
+   *
+   * 이관이 끝나면 목록이 비고, 이 검사는 **회귀 가드**로 남는다.
+   */
+  const NOT_YET_MIGRATED = [
+    'features/scenario-comparison/ScenarioComparison.tsx',
+    'features/not-underway/NotUnderwayPanel.tsx',
+    'features/vessel-registration/VesselRegistration.tsx',
+    'features/vessel-management/VesselManagement.tsx',
+    'features/fleet-reduction/FleetReduction.tsx',
+    'features/annual-simulation/AnnualSimulation.tsx',
+    'features/voyage-cii/VoyageCiiActions.tsx',
+    'features/voyage-management/ExportCsv.tsx',
+    'features/voyage-management/VoyagePanel.tsx',
+    'features/account/AccountPanel.tsx',
+    'features/vessel-detail/PositionForm.tsx',
+    'features/auth/AuthShell.tsx',
+    'features/assistant/AssistantOverlay.tsx',
+  ]
+
+  it('이관한 파일은 폼 컨트롤 배선을 Field에 맡긴다 (#936)', () => {
+    const offenders: string[] = []
+    for (const { path, text } of FILES) {
+      if (NOT_YET_MIGRATED.includes(path)) continue
+      // 직접 적은 `aria-invalid`는 `Field`가 줄 배선을 호출부가 다시 쓴 것이다.
+      for (const match of text.matchAll(/\saria-invalid=/g)) {
+        offenders.push(`${path} :: ${text.slice(match.index, (match.index ?? 0) + 40).trim()}`)
+      }
+    }
+    expect(
+      offenders,
+      'Field가 배선을 주므로 호출부가 aria-invalid를 적을 필요가 없다. ' +
+        '아직 이관 전이라면 NOT_YET_MIGRATED에 남겨 두세요.',
+    ).toEqual([])
+  })
+
+  it('이관 목록이 실재하는 파일만 담는다', () => {
+    /* 파일이 사라지거나 이름이 바뀌면 목록이 조용히 낡는다 — 그때 검사가 헐거워진다. */
+    const known = new Set(FILES.map((f) => f.path))
+    const stale = NOT_YET_MIGRATED.filter((path) => !known.has(path))
+    expect(stale, `이관 목록에 없는 파일이 적혀 있다: ${stale.join(', ')}`).toEqual([])
+  })
+
   it('role 없는 요소에 aria-label을 걸지 않는다', () => {
     /*
      * `role`이 없는 `<span>`·`<div>`의 `aria-label`은 **무시된다.** 라벨을 적어 둔

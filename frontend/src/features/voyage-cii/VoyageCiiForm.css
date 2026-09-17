@@ -79,13 +79,6 @@
   font-weight: var(--font-weight-body);
 }
 
-.voyage-cii-form__unit {
-  margin-left: auto;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-body);
-}
-
 .voyage-cii-form__control {
   width: 100%;
   height: 40px;
@@ -115,12 +108,6 @@
 
 .voyage-cii-form__hint {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
-}
-
-.voyage-cii-form__error {
-  color: var(--color-danger-text);
   font-size: var(--font-size-micro);
   line-height: var(--line-height-micro);
 }
