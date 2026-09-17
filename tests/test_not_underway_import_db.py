@@ -16,12 +16,17 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest_asyncio
 from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
+from cii_platform.services import not_underway_import
 from cii_platform.services.not_underway_import import import_not_underway_periods
+from cii_platform.services.voyage_import import SAVE_STAGE_MESSAGE, column_length
 
 HEADER = "period_type,started_at,ended_at,distance_nm,fuel_type,fuel_ton,consumer_type,port_name\n"
 IMO = "9999123"
@@ -233,3 +238,88 @@ def test_error_field_prefers_the_error_s_own_column():
 
     # ⑶ CSV에 대응하는 칸이 없는 오류 — 지어내지 않는다.
     assert _error_field(NotFoundError("선박을 찾을 수 없습니다")) is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 저장 단계 실패가 500이 되지 않는다 — 항차 경로와 **같은 규약** (#1190)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_COORD_HEADER = "period_type,started_at,ended_at,distance_nm,fuel_type,fuel_ton,lat,lon\n"
+
+
+def _coord_csv(*rows: str) -> bytes:
+    return (_COORD_HEADER + "".join(row + "\n" for row in rows)).encode("utf-8")
+
+
+async def test_port_name_over_its_column_length_is_a_row_error(session, vessel_id):
+    """``port_name``은 ``String(200)``이다 — 넘는 값은 CUBRID가 잘라 넣지 않고 거부한다.
+
+    ⚠️ `#1190` 본문은 이 컬럼을 **300자**로 적었으나 모델은 ``String(200)``이다.
+    `column_length`가 모델을 읽으므로 본문의 수치를 옮겨 적지 않는다 — 한도가 두 곳에
+    생기면 스키마가 바뀐 날 갈린다.
+    """
+    limit = column_length("port_name", model=NotUnderwayPeriod)
+    assert limit == 200, "본문의 300이 아니라 모델의 200이 정본이다"
+
+    result = await import_not_underway_periods(
+        session,
+        vessel_id,
+        content=_csv("IN_PORT,2026-03-01T00:00:00+09:00,,0,HFO,1,AUX_ENGINE," + "B" * (limit + 1)),
+    )
+
+    assert result["imported_count"] == 0
+    assert result["errors"] == [
+        {
+            "row": 2,
+            "field": "port_name",
+            "message": f"{limit}자까지 입력할 수 있습니다(지금 {limit + 1}자).",
+        }
+    ]
+
+
+async def test_coordinate_outside_its_range_is_a_row_error(session, vessel_id):
+    """좌표는 **수기 API와 같은 한도**를 쓴다 (`Field(ge=-90, le=90)`).
+
+    종전에는 CSV 경로의 ``_optional_decimal``에 한도가 **아예 없어** 위도 `1e9`가
+    파서를 통과하고 ``NUMERIC(9,6)``에서 죽었다 — `#1190`이 속력에서 짚은 것과 같은
+    종류(경로마다 한도가 갈린다)다.
+    """
+    result = await import_not_underway_periods(
+        session,
+        vessel_id,
+        content=_coord_csv(
+            "IN_PORT,2026-03-01T00:00:00+09:00,,0,HFO,1,35.1,129.0",
+            "IN_PORT,2026-03-05T00:00:00+09:00,,0,HFO,1,91,129.0",
+        ),
+    )
+
+    assert result["imported_count"] == 1
+    assert result["errors"] == [
+        {"row": 3, "field": "lat", "message": "위도은(는) -90 이상 90 이하여야 합니다: 91"}
+    ]
+
+
+async def test_save_stage_failure_is_a_row_error_not_a_500(session, vessel_id, monkeypatch):
+    """``except AppError``가 못 잡던 갈래를 잡는다 (#1190).
+
+    좌표 한도를 지워 위도 `1e9`가 저장 단계까지 가게 만든다 — ``NUMERIC(9,6)``이
+    거부해 ``ProgrammingError(-494)``가 나고, 그것은 ``AppError``가 **아니다**.
+    `db/cubrid_errors.py`가 ``IntegrityError``로 옮기는 목록(``-517``·``-922``·``-924``·
+    ``-225``)에도 ``-494``는 없다(PostgreSQL에서도 ``DataError``였다). 그래서 종전에는
+    그대로 올라가 **500 + 앞 행 잔존**이 됐다.
+
+    ⚠️ 뒤 행의 성공은 여기서 단언하지 않는다 — 사유는 항차 쪽 같은 이름의 검사에 있다.
+    """
+    monkeypatch.setitem(
+        not_underway_import._COORDINATE_BOUNDS, "lat", (Decimal(-(10**9)), Decimal(10**9))
+    )
+
+    result = await import_not_underway_periods(
+        session,
+        vessel_id,
+        content=_coord_csv("IN_PORT,2026-03-01T00:00:00+09:00,,0,HFO,1,1000000000,129.0"),
+    )
+
+    assert result["imported_count"] == 0
+    assert result["errors"] == [{"row": 2, "field": None, "message": SAVE_STAGE_MESSAGE}]
+    assert "errno" not in str(result["errors"])
