@@ -389,3 +389,72 @@ describe('사이드바 — 현장직에게 사무직 전용 화면은 비활성 
     }
   })
 })
+
+/**
+ * 상단바 선박 셀렉트의 **네 상태** (`#1093` ⑴).
+ *
+ * `vesselsState`는 `#484`가 이 셀렉트를 위해 만든 값인데 정작 표시에 쓰지 않아,
+ * 조회가 실패해도 · 첫 로드 중에도 「선박 없음」이었다. 항차 셀렉트는 `#824` ⑶에서
+ * 이미 네 상태를 가른다.
+ */
+describe('상단바 선박 셀렉트가 실패와 없음을 가른다 (#1093 ⑴)', () => {
+  /** 선박 목록만 실패시킨다 — 나머지는 정상이라 셸은 계속 돈다. */
+  function stubVesselListFailure() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/auth/me')) {
+          return jsonResponse({
+            data: { id: 'u1', email: 'a@b.c', display_name: '테스터', role: 'OFFICE' },
+          })
+        }
+        if (url.includes('/vessels') && url.includes('/voyages')) return jsonResponse({ data: [] })
+        if (url.includes('/vessels')) return jsonResponse({ error: { message: '서버 오류' } }, 500)
+        return jsonResponse({ data: [] })
+      }),
+    )
+  }
+
+  function vesselSelect(): HTMLSelectElement {
+    return screen.getByLabelText('선박') as HTMLSelectElement
+  }
+
+  it('조회 실패를 「선박 없음」으로 말하지 않는다', async () => {
+    stubVesselListFailure()
+    renderShell()
+
+    await waitFor(() => expect(screen.getByTestId('vessels-state').textContent).toBe('failed'))
+    expect(vesselSelect().textContent).toContain('선박 목록을 불러오지 못했습니다')
+    expect(vesselSelect().textContent).not.toContain('선박 없음')
+  })
+
+  it('진짜로 0척이면 「선박 없음」이다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/auth/me')) {
+          return jsonResponse({
+            data: { id: 'u1', email: 'a@b.c', display_name: '테스터', role: 'OFFICE' },
+          })
+        }
+        return jsonResponse({ data: [] })
+      }),
+    )
+    renderShell()
+
+    await waitFor(() => expect(screen.getByTestId('vessels-state').textContent).toBe('ready'))
+    expect(vesselSelect().textContent).toContain('선박 없음')
+    expect(vesselSelect().textContent).not.toContain('불러오지 못했습니다')
+  })
+
+  it('목록이 오면 「선박 선택 안 함」이고 셀렉트가 열린다', async () => {
+    stubServer()
+    renderShell()
+
+    await waitFor(() => expect(screen.getByTestId('vessel-count').textContent).toBe('2'))
+    expect(vesselSelect().textContent).toContain('선박 선택 안 함')
+    expect(vesselSelect().disabled).toBe(false)
+  })
+})

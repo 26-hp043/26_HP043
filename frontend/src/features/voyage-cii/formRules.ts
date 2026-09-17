@@ -49,6 +49,19 @@ export const FIELD = {
   speedKn: 'speed_kn',
   fuelType: 'fuel_uses[0].fuel_type',
   fuelTon: 'fuel_uses[0].fuel_ton',
+  /*
+   * 선박과 규제연도 (`#1093` ⑶).
+   *
+   * 종전에는 둘 다 `form`을 썼다 — **같은 한 칸이라 뒤에 쓴 연도 오류가 선박 오류를
+   * 덮었다.** 선박을 고르지 않으면 두 위반이 함께 나는데 화면에는 「규제연도를
+   * 선택해 주세요」만 남았고, 정작 고를 연도 칸은 화면에 없었다(선박을 고르기 전에는
+   * 연도를 조회하지 않으므로 목록이 비어 셀렉트가 그려지지 않는다).
+   *
+   * 경로는 요청 본문 기준이라 서버 422의 `details[].field`와도 그대로 맞는다
+   * (`toRequest`의 `vessel_id`·`regulation_year`).
+   */
+  vesselId: 'vessel_id',
+  regulationYear: 'regulation_year',
   /** 어느 입력창에도 붙지 않는 오류. 폼 상단에 표시한다. */
   form: '__form__',
 } as const
@@ -223,10 +236,20 @@ export function validateForm(
   }
 
   if (state.vesselId === '') {
-    errors[FIELD.form] = '선박을 선택해 주세요.'
+    errors[FIELD.vesselId] = '선박을 선택해 주세요.'
   }
   if (toNumber(state.regulationYear) === null) {
-    errors[FIELD.form] = '규제연도를 선택해 주세요.'
+    /*
+     * **선박을 고르지 않은 것을 연도 탓으로 돌리지 않는다** (`#1093` ⑶).
+     *
+     * 선박이 비면 `useYearOptions`가 조회를 하지 않아 목록이 빈다 — 연도가 없는
+     * 것이 아니라 **물어본 적이 없는 것**이다. 그때 「규제연도를 선택해 주세요」를
+     * 내면 사용자는 화면에 없는 칸을 찾는다. 고칠 것은 선박 하나뿐이고 그 오류는
+     * 위에서 이미 세웠다.
+     */
+    if (state.vesselId !== '') {
+      errors[FIELD.regulationYear] = '규제연도를 선택해 주세요.'
+    }
   }
 
   return errors

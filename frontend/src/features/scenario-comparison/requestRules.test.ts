@@ -49,19 +49,41 @@ const toRequest = (state: ComparisonFormState) => toRequestWith(state, FUELS)
 
 
 
+/**
+ * **다 채운 폼**을 만든다.
+ *
+ * 선박과 연도는 `initialFormState()`가 비워 두므로(`#1093` ⑷ — 고르지 않은 값으로
+ * 계산되는 것을 막는다) 여기서 명시한다. 검증 규칙을 보는 검사들은 「사용자가 골랐다」
+ * 를 전제로 하며, 비었을 때의 거동은 아래 전용 검사가 따로 본다.
+ */
 function state(overrides: Partial<ComparisonFormState> = {}): ComparisonFormState {
-  return { ...initialFormState(), vesselId: SEEDED_VESSEL_ID, ...overrides }
+  return {
+    ...initialFormState(),
+    vesselId: SEEDED_VESSEL_ID,
+    regulationYear: '2026',
+    ...overrides,
+  }
 }
 
-describe('initialFormState — 선박에 기본값을 넣지 않는다', () => {
+describe('initialFormState — 선박·연도에 기본값을 넣지 않는다', () => {
   it('선박은 비어 있다', () => {
     // 목록을 읽기 전에 아무 배나 골라 두면 종전 버그(고정표에 없는 UUID)가 재발한다.
     expect(initialFormState().vesselId).toBe('')
   })
 
+  it('규제연도도 비어 있다 (#1093 ⑷)', () => {
+    /*
+     * 종전에는 `'2026'`이 박혀 있었다. 연도 목록이 실패·빈 목록이면 화면은 셀렉트
+     * 대신 주석 한 줄을 그려 **사용자가 연도를 고를 수 없는데**, 이 값이 검증을
+     * 통과해 **고른 적 없는 2026년 기준 결과**가 나왔다. 선박 축에 이미 적용한
+     * 원칙을 연도 축에도 적용한다 — 목록이 오면 `pickDefaultYear`가 채운다.
+     */
+    expect(initialFormState().regulationYear).toBe('')
+    expect(validateForm(initialFormState())).toHaveProperty(FIELD.regulationYear)
+  })
+
   it('나머지 조건은 종전 DEMO_REQUEST 값을 그대로 물려받는다', () => {
     const initial = initialFormState()
-    expect(initial.regulationYear).toBe('2026')
     expect(initial.baseDistanceNm).toBe('1000')
     expect(initial.baseSpeedKn).toBe('12.8')
     expect(initial.baseDailyFocTon).toBe('26.88')
@@ -298,6 +320,8 @@ describe('좌표 기반 직항 거리 (#1005)', () => {
   const withCoords = {
     ...initialFormState(),
     vesselId: 'v-1',
+    // 연도는 `initialFormState()`가 비워 둔다 (`#1093` ⑷) — 여기서는 고른 상태를 본다.
+    regulationYear: '2026',
     baseDistanceNm: '',
     currentLat: '35.1',
     currentLon: '129.0333',

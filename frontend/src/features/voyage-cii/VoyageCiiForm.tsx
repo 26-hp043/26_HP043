@@ -255,11 +255,19 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
         <span className="voyage-cii-form__title-en"> Voyage Input</span>
       </h2>
 
-      {errors[FIELD.form] ? (
-        <p className="voyage-cii-form__form-error" role="alert">
-          {errors[FIELD.form]}
-        </p>
-      ) : null}
+      {/*
+        입력창에 붙지 않는 오류는 폼 상단에 둔다 (`DESIGN_SYSTEM §8.4` 예외 조항).
+        선박·규제연도가 여기 오는 이유는 **그 칸이 셀렉트가 아닐 수 있기** 때문이다 —
+        1척이거나 목록을 못 읽으면 고정 표시가 되어 오류를 붙일 입력창이 없다.
+        세 줄을 각자 내는 것은 `#1093` ⑶ — 한 칸을 돌려 쓰다 선박 오류가 사라졌다.
+      */}
+      {[FIELD.form, FIELD.vesselId, FIELD.regulationYear].map((key) =>
+        errors[key] ? (
+          <p key={key} className="voyage-cii-form__form-error" role="alert">
+            {errors[key]}
+          </p>
+        ) : null,
+      )}
 
       <div className="voyage-cii-form__grid">
         {/* 선박 — 1척이면 고정 표시, 2척 이상이면 셀렉트 */}
@@ -308,7 +316,21 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
         )}
 
         {/* 규제연도 — 선박과 같은 규칙. 로딩·실패를 빈 선택지와 구분해 보인다 */}
-        {yearsLoading ? (
+        {state.vesselId === '' ? (
+          /*
+           * ⚠️ **「선박을 아직 안 골랐다」와 「그 선박에 연도가 없다」는 다르다**
+           * (`#1093` ⑶ · `#829` 계열).
+           *
+           * `useYearOptions`는 선박이 없으면 **조회하지 않고** 빈 목록을 돌려준다
+           * (`yearCatalog.ts`의 「빈 `vesselId`에서는 부르지 않는다」). 그래서 이
+           * 칸은 마지막 갈래로 떨어져 「등록된 규제연도가 없습니다」를 말했는데
+           * **사실이 아니다** — 연도는 등재돼 있고 선박을 고르지 않았을 뿐이다.
+           *
+           * 항로 비교 화면(`ScenarioComparison.tsx`)과 보고서 화면(`ReportsView`)이
+           * 이미 같은 구분을 하고 있다. 문구도 그쪽 것을 그대로 쓴다.
+           */
+          <StaticField label="규제연도" labelEn="Year" value="선박을 먼저 선택해 주세요" />
+        ) : yearsLoading ? (
           <StaticField label="규제연도" labelEn="Year" value="규제연도 목록을 불러오는 중…" />
         ) : yearsFailed ? (
           <StaticField label="규제연도" labelEn="Year" value="규제연도 목록을 불러오지 못했습니다" />

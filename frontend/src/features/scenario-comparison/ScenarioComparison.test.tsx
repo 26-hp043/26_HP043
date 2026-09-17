@@ -223,9 +223,37 @@ function stubServerWithComparison(body: unknown = COMPARE_BODY, years: number[] 
   return fetchImpl
 }
 
-async function compareAndWaitForResult() {
-  const button = await screen.findByRole('button', { name: /비교하기/ })
+/**
+ * 「비교하기」를 누른다 — **열릴 때까지 기다린 뒤에** 누른다 (`#1093` ⑷).
+ *
+ * 연도 목록이 도착해야 버튼이 열린다. 종전에는 `initialFormState()`에 보이지 않는
+ * `'2026'`이 박혀 있어 목록이 오기 전에도 눌렸고, 그것이 고친 결함이다 — 사용자가
+ * 고른 적 없는 해로 계산이 돌았다.
+ */
+async function clickCompare() {
+  const button = (await screen.findByRole('button', {
+    name: /비교하기/,
+  })) as HTMLButtonElement
+  /*
+   * ⚠️ **연도 셀렉트가 그려질 때까지 기다린다.** 버튼의 `disabled`만 보면 안 된다 —
+   * 첫 렌더에서는 셸의 선박이 아직 폼에 동기화되지 않아 `form.vesselId`가 비어 있고,
+   * 그때는 차단 조건이 걸리지 않아 버튼이 열려 있다. 셀렉트가 그려졌다는 것이 곧
+   * **목록이 왔고 연도가 골라졌다**는 뜻이다.
+   */
+  /*
+   * 대기를 기본 1초보다 넉넉히 준다. 이 파일은 부하가 걸린 기계(WSL · `/mnt/c`)에서
+   * 단독 3초 → 전체 실행 10초로 늘어난다 — 기본값이면 목록이 오기 전에 대기가
+   * 끊겨 **검사가 무엇을 보는지와 무관한 이유로** 빨개진다.
+   */
+  const WAIT = { timeout: 5000 }
+  await screen.findByLabelText('규제연도', {}, WAIT)
+  await waitFor(() => expect(button.disabled).toBe(false), WAIT)
   fireEvent.click(button)
+  return button
+}
+
+async function compareAndWaitForResult() {
+  await clickCompare()
   await screen.findByText(/시나리오 비교/)
 }
 
@@ -456,7 +484,7 @@ describe('결과 제목은 계산 시점에 고정된다 (#875)', () => {
     })
     expect(await screen.findByText(/입력이 바뀌었습니다/)).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: /비교하기/ }))
+    await clickCompare()
 
     await waitFor(() =>
       expect(screen.getByText(/2026년 기준/).textContent).toContain('두 번째 배'),
@@ -487,7 +515,7 @@ describe('선택 입력이 요청까지 도달한다 (#892)', () => {
     for (const [label, value] of values) {
       fireEvent.change(screen.getByLabelText(label), { target: { value } })
     }
-    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+    await clickCompare()
 
     await waitFor(() => {
       expect(
@@ -538,7 +566,7 @@ describe('선택 입력이 요청까지 도달한다 (#892)', () => {
     await screen.findByDisplayValue('2026')
 
     fireEvent.change(screen.getByLabelText(/감속 속력/), { target: { value: '0.5' } })
-    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+    await clickCompare()
 
     expect(await screen.findByText(/감속 속력은\(는\) 1 이상이어야 합니다\./)).toBeTruthy()
     expect(
@@ -552,7 +580,7 @@ describe('선택 입력이 요청까지 도달한다 (#892)', () => {
     await screen.findByDisplayValue('2026')
 
     fireEvent.change(screen.getByLabelText(/현재 위도/), { target: { value: '35.1' } })
-    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+    await clickCompare()
 
     expect(await screen.findByText(/현재 경도도 함께 입력해 주세요/)).toBeTruthy()
     expect(
@@ -776,7 +804,7 @@ describe('샘플 항만 — 현재 위치·목적항 (#1005)', () => {
     fireEvent.change(screen.getByLabelText(/직항 거리/), { target: { value: '' } })
     expect(screen.getByText(/비워 두면 현재 위치와 목적항 좌표로 계산합니다/)).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+    await clickCompare()
 
     await waitFor(() =>
       expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare'))).toBe(true),
@@ -801,7 +829,7 @@ describe('샘플 항만 — 현재 위치·목적항 (#1005)', () => {
     await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(2))
 
     fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'Busan New Port' } })
-    fireEvent.click(screen.getByRole('button', { name: '비교하기' }))
+    await clickCompare()
 
     await waitFor(() =>
       expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare'))).toBe(true),
@@ -882,10 +910,112 @@ describe('보이는 대상 = 계산 대상 (#1097)', () => {
     // 만드는 「중유 (HFO)」다 — 화면은 `FUEL_TYPE_LABELS`를 원본으로 쓰고 서버 문구를
     // 그대로 내보내지 않는다(`fuelTypes.ts` · `VoyageCiiForm.test.tsx:131`).
     await screen.findByRole('option', { name: '중유 (HFO)' })
-    fireEvent.click(screen.getByRole('button', { name: /비교하기/ }))
+    await clickCompare()
     const alerts = await screen.findAllByText('직항 거리가 너무 큽니다.')
     // 폼 위 오류와 **입력칸 아래** 오류 — 둘 다 있다
     expect(alerts.length).toBeGreaterThanOrEqual(2)
   })
 })
 
+
+/**
+ * 선박 목록 조회 **실패**를 「등록된 선박이 없다」로 말하지 않는다 (`#1093` ⑵·⑷).
+ *
+ * 셸은 조회가 실패하면 `vessels`를 `[]`로 두고 `vesselsState`만 `'failed'`로 세운다.
+ * 종전 `noVessel`은 배열 길이만 봐서 실패에서도 참이었고, 「불러오지 못했습니다」와
+ * 「등록된 선박이 없어 비교할 대상이 없습니다. 선박을 먼저 등록해 주세요」가 **동시에**
+ * 떴다 — 뒤쪽이 행동을 지시하므로 사용자는 등록할 필요가 없는데 등록 화면으로 갔다.
+ */
+describe('선박 목록 실패를 「선박 없음」으로 말하지 않는다 (#1093 ⑵)', () => {
+  it('실패했을 때 「등록된 선박이 없어…」가 나오지 않는다', async () => {
+    stubServer()
+
+    renderScreen({ vesselId: null, vessels: [], vesselsState: 'failed' })
+
+    /*
+     * ⚠️ 이 문구는 **두 곳**에 나온다 — 폼 상단 안내와 셀렉트의 빈 선택지.
+     * `findByText`는 둘을 다 잡아 실패하므로 개수로 받는다.
+     */
+    expect(await screen.findAllByText(/선박 목록을 불러오지 못했습니다/)).toHaveLength(2)
+    expect(screen.queryByText(/등록된 선박이 없어/)).toBeNull()
+  })
+
+  it('실패했을 때 선박 셀렉트가 「선택」이라 말하지 않고 비활성이다', async () => {
+    stubServer()
+
+    renderScreen({ vesselId: null, vessels: [], vesselsState: 'failed' })
+
+    /*
+     * 라벨 배선으로 찾는다 — `#936`의 공용 `Field`가 `<label for>` + 컨트롤을
+     * **형제로** 그리므로 `.closest('label')`로는 닿지 않는다.
+     */
+    const select = (await screen.findByLabelText('선박')) as HTMLSelectElement
+    expect(select.textContent).toContain('선박 목록을 불러오지 못했습니다')
+    expect(select.textContent).not.toContain('선택')
+    expect(select.disabled).toBe(true)
+  })
+
+  it('진짜로 0척이면 종전대로 「등록된 선박이 없어…」다', async () => {
+    stubServer()
+
+    renderScreen({ vesselId: null, vessels: [], vesselsState: 'ready' })
+
+    expect(await screen.findByText(/등록된 선박이 없어/)).toBeTruthy()
+    expect(screen.queryByText(/선박 목록을 불러오지 못했습니다/)).toBeNull()
+  })
+})
+
+/**
+ * 연도를 고를 수 없으면 비교하지 않는다 (`#1093` ⑷).
+ *
+ * 연도 목록이 실패·빈 목록이면 화면은 셀렉트 대신 주석 한 줄을 그린다 — 사용자가
+ * 연도를 고를 수 없다. 그런데 `initialFormState()`가 `'2026'`을 들고 있어 검증을
+ * 통과했고, **고른 적 없는 2026년 기준 결과**가 나왔다.
+ */
+describe('연도 목록이 없으면 비교를 차단한다 (#1093 ⑷)', () => {
+  function submitButton(): HTMLButtonElement {
+    return screen.getByRole('button', { name: '비교하기' }) as HTMLButtonElement
+  }
+
+  it('연도 목록이 비면 비교하기가 눌리지 않는다', async () => {
+    stubServer([])
+
+    renderScreen()
+
+    await screen.findByText('등록된 규제연도가 없습니다')
+    expect(submitButton().disabled).toBe(true)
+  })
+
+  it('연도 조회가 실패하면 비교하기가 눌리지 않는다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ error: { message: '서버 오류' } }, 500)
+        }
+        if (url.includes('/parameters/fuel-types')) {
+          return jsonResponse({
+            data: [
+              { code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true },
+            ],
+          })
+        }
+        return jsonResponse({ data: {} })
+      }),
+    )
+
+    renderScreen()
+
+    await screen.findByText('규제연도 목록을 불러오지 못했습니다')
+    expect(submitButton().disabled).toBe(true)
+  })
+
+  it('연도 목록이 오면 비교하기가 열린다', async () => {
+    stubServer()
+
+    renderScreen()
+
+    await waitFor(() => expect(submitButton().disabled).toBe(false))
+  })
+})
