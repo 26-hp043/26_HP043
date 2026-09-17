@@ -29,11 +29,15 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.schemas.bounds import DISTANCE
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import ValidationError
+from cii_platform.services import voyage_import
 from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.voyage_import import (
     MAX_ROWS,
+    SAVE_STAGE_MESSAGE,
+    column_length,
     import_voyages,
     read_rows,
 )
@@ -670,3 +674,117 @@ async def test_unstorable_distance_is_a_row_error_not_a_500(session, vessel_id):
     assert result["imported_count"] == 0
     assert len(result["errors"]) == 2
     assert all("planned_distance_nm" in str(e) or "distance" in str(e) for e in result["errors"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 저장 단계 실패가 500이 되지 않는다 (#1190)
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: `#1190` 본문의 재현 파일 — 3행 중 **2행(파일의 3행)** 속력이 `10000`이다.
+REPRO_ROWS = (
+    "V-1,Busan,Tokyo,1000,13.5,HFO,80",
+    "V-2,Busan,Tokyo,1000,10000,HFO,80",
+    "V-3,Busan,Tokyo,1000,13.5,HFO,80",
+)
+
+
+@pytest.mark.asyncio
+async def test_speed_beyond_its_column_is_a_row_error(session, vessel_id):
+    """`#1190` 재현 — 속력 `10000`이 **500이 아니라 행 오류**다.
+
+    종전에는 파서가 세 숫자 열 모두 `DISTANCE`(최대 `9999999999.99`) 하나로 봐서
+    `planned_speed_kn`의 `NUMERIC(6,2)`를 넘는 값이 통과했고, 저장 단계에서
+    `ProgrammingError(-494)`가 되어 **500 + 앞 행 잔존**이 됐다.
+    """
+    result = await import_voyages(session, vessel_id, content=csv_bytes(*REPRO_ROWS))
+
+    assert result["imported_count"] == 2
+    assert result["errors"] == [
+        {"row": 3, "field": "planned_speed_kn", "message": "너무 큽니다(최대 9999.99)."}
+    ]
+    # **앞 행이 남고 뒤 행도 들어간다** — 종전에는 V-1만 남고 V-3은 시도조차 되지 않았다.
+    assert [row.voyage_no for row in await _stored(session, vessel_id)] == ["V-1", "V-3"]
+
+
+@pytest.mark.asyncio
+async def test_dry_run_gives_the_same_verdict_as_the_real_import(session, vessel_id):
+    """`#1190` 완료 기준 — ``dry_run``이 통과시킨 파일은 실제로도 같은 판정을 받는다.
+
+    종전 ``dry_run``은 같은 파일에 ``imported_count 3 · errors []``로 답했다 —
+    **저장 단계 오류를 못 보기 때문**이다. 신중한 사용자일수록 먼저 검증하고 안심한
+    뒤 당했다. 파서가 컬럼 한도를 전부 보게 되어 두 경로의 판정이 같아진다.
+    """
+    content = csv_bytes(*REPRO_ROWS)
+    dry = await import_voyages(session, vessel_id, content=content, dry_run=True)
+    real = await import_voyages(session, vessel_id, content=content)
+
+    assert dry["errors"] == real["errors"]
+    assert dry["imported_count"] == real["imported_count"] == 2
+    assert dry["dry_run"] is True
+    assert real["dry_run"] is False
+
+
+@pytest.mark.asyncio
+async def test_text_over_its_column_length_is_a_row_error(session, vessel_id):
+    """`voyage_no`는 ``String(100)``이다 — 101자는 CUBRID가 거부한다(잘라 넣지 않는다)."""
+    limit = column_length("voyage_no")
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(f"{'V' * (limit + 1)},Busan,Tokyo,1000,13.5,HFO,80"),
+    )
+
+    assert result["imported_count"] == 0
+    assert result["errors"] == [
+        {
+            "row": 2,
+            "field": "voyage_no",
+            "message": f"{limit}자까지 입력할 수 있습니다(지금 {limit + 1}자).",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_escape_prefix_counts_toward_the_column_length(session, vessel_id):
+    """**길이는 escape한 뒤에 본다.**
+
+    `sanitize`가 수식 문자로 시작하는 값 앞에 ``'``를 붙이므로, 컬럼 길이에 **딱 맞는**
+    값이 그 한 글자 때문에 넘친다. escape 전에 재면 이 행이 통과해 저장 단계에서 죽는다.
+    """
+    limit = column_length("voyage_no")
+    exactly_at_limit = "=" + "V" * (limit - 1)
+    result = await import_voyages(
+        session,
+        vessel_id,
+        content=csv_bytes(f"{exactly_at_limit},Busan,Tokyo,1000,13.5,HFO,80"),
+    )
+
+    assert result["imported_count"] == 0
+    assert result["errors"][0]["field"] == "voyage_no"
+    assert result["errors"][0]["message"].endswith(f"(지금 {limit + 1}자).")
+
+
+@pytest.mark.asyncio
+async def test_save_stage_failure_is_a_row_error_not_a_500(session, vessel_id, monkeypatch):
+    """파서에 구멍이 생긴 날에도 **500이 나가지 않는다** (#1190).
+
+    파서의 속력 한도를 종전처럼 `DISTANCE`로 되돌려 `10000`이 저장 단계까지 가게
+    만든다 — 실제 ``ProgrammingError(-494)``가 나는 상태다. 그때도 ⑴ 예외가 밖으로
+    새지 않고 ⑵ 그 행이 번호와 함께 보고되며 ⑶ 드라이버 메시지가 사용자에게 가지
+    않고 ⑷ ``missing_departure_count``가 **떨어진 행을 세지 않는** 것을 잠근다.
+
+    ⚠️ **여기서 「뒤 행이 들어간다」는 단언하지 않는다.** CUBRID는 ``-494``에서
+    트랜잭션을 통째로 되돌리고, 이 fixture의 선박 행은 아직 커밋되지 않았으므로 함께
+    사라져 뒤 행이 FK로 실패한다 — **fixture의 성질이고 운영의 동작이 아니다**(운영에서는
+    앞 행이 이미 커밋돼 있다). 이 fix 이후 실제 경로인 파서 단계의 부분 성공은
+    :func:`test_speed_beyond_its_column_is_a_row_error`가 잠근다.
+    """
+    monkeypatch.setitem(voyage_import._NUMERIC_BOUNDS, "planned_speed_kn", DISTANCE)
+
+    result = await import_voyages(session, vessel_id, content=csv_bytes(*REPRO_ROWS[:2]))
+
+    assert result["imported_count"] == 1
+    assert result["errors"] == [{"row": 3, "field": None, "message": SAVE_STAGE_MESSAGE}]
+    assert "errno" not in str(result["errors"])
+    # 들어간 행 가운데의 수다 — 떨어진 V-2를 세면 「들어갔지만 시각이 없다」가 무너진다.
+    assert result["missing_departure_count"] == 1

@@ -32,7 +32,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.db.types import UuidText
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.scenario_adopt import (
+    FIELD_PLANNED_FUEL,
     MODE_CREATE,
+    SOURCE_MODEL_ESTIMATE,
     UPDATED_FIELDS,
     adopt_scenario,
 )
@@ -441,3 +443,219 @@ def test_compare_response_carries_scenario_ids():
     from cii_platform.services.scenario_compare import _serialize_scenarios
 
     assert "scenario_ids" in _serialize_scenarios.__code__.co_varnames
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 계획 연료도 함께 바뀐다 (#1072)
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: `_new_scenario`가 넣는 시나리오 연료량.
+SCENARIO_FUEL = Decimal("120.2500")
+
+
+async def _fuel_rows(session, voyage_id: UUID):
+    result = await session.execute(
+        text(
+            "SELECT fuel_type, planned_fuel_ton, source FROM voyage_fuel_use "
+            "WHERE voyage_id = :id ORDER BY fuel_type"
+        ),
+        {"id": voyage_id},
+    )
+    return list(result)
+
+
+async def _add_fuel(session, voyage_id: UUID, fuel_type: str, planned, cf: str) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, cf_used, source) "
+            "VALUES (:vid, :ft, :pt, :cf, 'USER_INPUT')"
+        ),
+        {"vid": voyage_id, "ft": fuel_type, "pt": planned, "cf": Decimal(cf)},
+    )
+
+
+@pytest.mark.asyncio
+async def test_adopting_updates_the_planned_fuel(session, vessel_id):
+    """**이 이슈의 결함이다** (#1072).
+
+    종전에는 거리·속력·도착시각만 바뀌고 연료는 80t 그대로였다 — 감속 시나리오를
+    채택하면 「새 속력 + 옛 연료」가 남아 화면이 보여 준 개선이 데이터에서 재현되지
+    않았다.
+    """
+    voyage_id = await _new_voyage(session, vessel_id)
+    scenario_id = await _new_scenario(session, vessel_id)
+
+    data = await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
+
+    rows = await _fuel_rows(session, voyage_id)
+    assert [(row.fuel_type, row.planned_fuel_ton) for row in rows] == [("HFO", SCENARIO_FUEL)]
+    # 출처를 남긴다 — 사용자가 적은 값이 아니라 모델 추정값이다.
+    assert rows[0].source == SOURCE_MODEL_ESTIMATE
+    assert "planned_fuel_ton" in data["updated_fields"]
+
+
+@pytest.mark.asyncio
+async def test_both_adopt_modes_leave_the_same_planned_fuel(session, vessel_id):
+    """★ **이슈의 완료 기준이다** — 두 채택 모드가 같은 계획 연료를 남긴다.
+
+    종전에는 `CREATE_NEW_VOYAGE`만 시나리오 연료를 썼다. **같은 시나리오인데 채택
+    방식에 따라 연간 예상 결과가 갈렸다.**
+    """
+    updated_voyage = await _new_voyage(session, vessel_id)
+    create_source = await _new_voyage(session, vessel_id)
+    scenario_a = await _new_scenario(session, vessel_id)
+    scenario_b = await _new_scenario(session, vessel_id)
+
+    await adopt_scenario(session, scenario_a, target_voyage_id=updated_voyage)
+    created = await adopt_scenario(
+        session,
+        scenario_b,
+        target_voyage_id=create_source,
+        adopt_mode=MODE_CREATE,
+        departure_port_name="BUSAN",
+        arrival_port_name="SINGAPORE",
+        planned_departure_at=DEPARTURE,
+    )
+
+    updated_rows = await _fuel_rows(session, updated_voyage)
+    created_rows = await _fuel_rows(session, UUID(str(created["voyage_id"])))
+    assert [(r.fuel_type, r.planned_fuel_ton, r.source) for r in updated_rows] == [
+        (r.fuel_type, r.planned_fuel_ton, r.source) for r in created_rows
+    ]
+
+
+@pytest.mark.asyncio
+async def test_multiple_fuel_types_keep_their_share(session, vessel_id):
+    """유종이 여럿이면 **기존 비중대로 안분**한다.
+
+    비중을 유지하면 채택 전후로 **CF 혼합이 바뀌지 않아** CO₂ 차이가 오직 연료량에서만
+    나온다. 한 유종에 몰아넣으면 그 차이에 CF 변화가 섞여 시나리오가 말한 개선과 다른
+    수가 남는다.
+    """
+    voyage_id = await _new_voyage(session, vessel_id)  # HFO 80
+    await _add_fuel(session, voyage_id, "DIESEL_GAS_OIL", Decimal("20"), "3.206")
+
+    await adopt_scenario(
+        session, scenario_id := await _new_scenario(session, vessel_id), target_voyage_id=voyage_id
+    )
+    assert scenario_id is not None
+
+    rows = await _fuel_rows(session, voyage_id)
+    by_type = {row.fuel_type: row.planned_fuel_ton for row in rows}
+    # 80 : 20 → 120.25 * 0.8 = 96.2000 · 120.25 * 0.2 = 24.0500
+    assert by_type == {"HFO": Decimal("96.2000"), "DIESEL_GAS_OIL": Decimal("24.0500")}
+    # **합이 시나리오 총량과 정확히 같다** — 어긋나면 안분의 의미가 없다.
+    assert sum(by_type.values()) == SCENARIO_FUEL
+    assert {row.source for row in rows} == {SOURCE_MODEL_ESTIMATE}
+
+
+@pytest.mark.asyncio
+async def test_apportioned_shares_still_sum_to_the_total_when_rounding(session, vessel_id):
+    """나누어떨어지지 않아도 합은 총량과 같다 — **잔차를 가장 큰 행이 흡수한다.**
+
+    세 유종을 같은 비중으로 두면 `120.25 / 3 = 40.08333…`이라 4자리 반올림 몫 셋을
+    그냥 더하면 총량과 어긋난다.
+    """
+    voyage_id = await _new_voyage(session, vessel_id)  # HFO 80
+    await _add_fuel(session, voyage_id, "DIESEL_GAS_OIL", Decimal("80"), "3.206")
+    await _add_fuel(session, voyage_id, "LNG", Decimal("80"), "2.750")
+
+    await adopt_scenario(
+        session, await _new_scenario(session, vessel_id), target_voyage_id=voyage_id
+    )
+
+    rows = await _fuel_rows(session, voyage_id)
+    assert len(rows) == 3
+    assert sum(row.planned_fuel_ton for row in rows) == SCENARIO_FUEL
+    # 어느 행도 0이 아니다 — `chk_fuel_positive`(046)가 0을 거부한다.
+    assert all(row.planned_fuel_ton > 0 for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_a_row_without_a_planned_amount_is_left_alone(session, vessel_id):
+    """비중이 없는 행은 **건드리지 않는다.**
+
+    `chk_fuel_positive`(마이그레이션 046)가 `planned_fuel_ton IS NULL OR > 0`을 강제한다
+    — 0으로 덮으면 트리거가 거부해 **채택 자체가 500이 된다.** 시나리오 총량은 양수
+    비중을 가진 행에만 나눈다.
+    """
+    voyage_id = await _new_voyage(session, vessel_id)  # HFO 80
+    await _add_fuel(session, voyage_id, "LNG", None, "2.750")
+
+    await adopt_scenario(
+        session, await _new_scenario(session, vessel_id), target_voyage_id=voyage_id
+    )
+
+    rows = await _fuel_rows(session, voyage_id)
+    by_type = {row.fuel_type: row.planned_fuel_ton for row in rows}
+    assert by_type["HFO"] == SCENARIO_FUEL
+    assert by_type["LNG"] is None
+    # 손대지 않은 행의 출처도 그대로다.
+    assert {row.fuel_type: row.source for row in rows}["LNG"] == "USER_INPUT"
+
+
+@pytest.mark.asyncio
+async def test_a_voyage_with_no_fuel_row_gets_one(session, vessel_id):
+    """연료 행이 **아예 없는** 항차에도 계획 연료가 들어간다.
+
+    CSV로 항차만 먼저 올린 경우에 실제로 나오는 상태다(`#1095` ⑵). 이 경로를 비워 두면
+    그 항차만 「연료가 안 바뀌는」 종전 상태로 남는다. 종류는 `CREATE_NEW_VOYAGE`와
+    **같은 규칙**(원본 항차 유종 → 선박 기본 연료)으로 정한다.
+    """
+    voyage_id = await _new_voyage(session, vessel_id)
+    await session.execute(
+        text("DELETE FROM voyage_fuel_use WHERE voyage_id = :id"), {"id": voyage_id}
+    )
+
+    await adopt_scenario(
+        session, await _new_scenario(session, vessel_id), target_voyage_id=voyage_id
+    )
+
+    rows = await _fuel_rows(session, voyage_id)
+    # 선박 기본 연료가 `HFO`다 (`vessel_id` 픽스처).
+    assert [(row.fuel_type, row.planned_fuel_ton, row.source) for row in rows] == [
+        ("HFO", SCENARIO_FUEL, SOURCE_MODEL_ESTIMATE)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_adopting_is_not_blocked_when_the_fuel_type_is_unknown(session):
+    """🔴 **연료 종류를 몰라도 채택은 된다 — 연료만 건너뛴다.**
+
+    원본 항차에 연료 행이 없고 선박에 기본 연료도 없으면 넣을 종류가 없다. 그 때문에
+    거리·속력·도착시각 갱신까지 거부하면 **사용자가 하려던 일 전체가 막힌다** — 채택의
+    본체는 계획값 갱신이다.
+
+    ⚠️ **이것을 처음에 오류로 만들어 `#1077`의 무효화 건수 검사 2건을 깨뜨렸다**
+    (`test_voyage_attribution_db.py`). 그 검사들은 연료와 무관한데, 픽스처가 연료 행 없는
+    항차 + 기본 연료 없는 선박이라 채택 자체가 `ValidationError`로 죽었다. 전체 시험에서
+    잡혔다.
+
+    `CREATE_NEW_VOYAGE`는 다르다 — 연료 종류 없이 **새 항차를 만들 수 없어** 거기서는
+    오류가 맞다(`test_create_mode_requires_a_known_fuel_type`이 그쪽을 잠근다면 그대로).
+    """
+    bare_vessel = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, 'NO DEFAULT FUEL', 'BULK_CARRIER', 50000)"
+        ),
+        {"id": bare_vessel, "imo": f"9{bare_vessel.int % 1000000:06d}"},
+    )
+    voyage_id = await _new_voyage(session, bare_vessel)
+    await session.execute(
+        text("DELETE FROM voyage_fuel_use WHERE voyage_id = :id"), {"id": voyage_id}
+    )
+    scenario_id = await _new_scenario(session, bare_vessel)
+
+    data = await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
+
+    # 계획값은 바뀐다 — 채택이 막히지 않는다.
+    row = await _voyage_row(session, voyage_id)
+    assert row.planned_distance_nm == Decimal("2000.00")
+    assert row.planned_speed_kn == Decimal("10.50")
+    # 연료는 그대로 없다.
+    assert await _fuel_rows(session, voyage_id) == []
+    # **바꾸지 않은 것을 바꿨다고 적지 않는다.**
+    assert FIELD_PLANNED_FUEL not in data["updated_fields"]
+    assert data["updated_fields"] == [f for f in UPDATED_FIELDS if f != FIELD_PLANNED_FUEL]

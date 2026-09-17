@@ -161,7 +161,21 @@ describe('이 seed로 다시 실행 (#776)', () => {
 
     fireEvent.click(await runOnce())
 
-    expect(await screen.findByText(ANNUAL_COPY.reproduceSuccess)).toBeTruthy()
+    const ok = await screen.findByText(ANNUAL_COPY.reproduceSuccess)
+    /*
+     * 성공은 **실패와 같은 무게**로 보인다 (2026-09-17 확정 ⓑ · `#1053` 40번).
+     *
+     * 종전에는 `--text-muted` 작은 한 줄이라 실패(아이콘 달린 블록)보다 약했다.
+     * 재현 확인은 **성공이 곧 결론**인 검증 행위라 그 반대가 맞다. 문구만 보면
+     * 한 줄로 되돌아가도 통과하므로 **블록 안에 있는지**를 함께 잠근다.
+     *
+     * 색은 잠그지 않는다 — 라이트 Success가 이 면 위에서 `1.4.11`에 미달해
+     * 지금은 쓰지 않으며, 값이 정해지면 입히게 된다(별건).
+     */
+    expect(ok.closest('.annual-sim__reproduce-ok')).toBeTruthy()
+    // 낭독이 결과를 알린다 — 아이콘은 `aria-hidden`이라 문구만 읽힌다.
+    expect(ok.closest('[role="status"]')).toBeTruthy()
+
     const urls = fetchImpl.mock.calls.map(([input]) => String(input))
     // 폼 값이 아니라 **결과의 식별자**로 부른다 — 그래야 원본 실행이 재현된다.
     expect(urls).toContain('/api/v1/annual-simulations/sim-1/reproduce')

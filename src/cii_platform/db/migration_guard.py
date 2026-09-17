@@ -114,6 +114,12 @@ REGENERABLE: dict[str, str] = {
         "규제 파라미터 50행(연료 CF 8 · Z-factor 8 · 기준선 20 · d-vector 14) — "
         "자기가 넣은 키만 지우고, 다시 upgrade하면 같은 값이 돌아온다"
     ),
+    # `annual_simulation_run.as_of` 컬럼 — 명시 실행의 기준 시각 기록 (#816 · `052`).
+    # 열을 지우는 downgrade는 그 값을 잃지만, 컬럼 자체는 다시 upgrade하면 돌아온다.
+    # **값이 재생되지 않는다는 점**은 재현이 그 실행의 `input_hash` 키를 잃는다는
+    # 뜻이므로(미명시 실행과 같은 식이 된다) 되돌리기 전에 백업이 필요하다는
+    # 가드의 안내를 그대로 받는다.
+    "052": "annual_simulation_run.as_of — 컬럼은 재생되지만 저장된 시각 값은 아니므로 백업 뒤에",
 }
 
 

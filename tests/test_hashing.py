@@ -359,6 +359,9 @@ def test_annual_input_fields_locked():
         "voyages",
         "vessel",
         "apply_feedback_factor",
+        # #816 ⑴ (결정요청 v9 회신 「가」) — `as_of` 절단이 실제로 작동하게 되며
+        # 추가됐다. **명시한 실행만** 키가 들어간다(아래 `test_as_of_absent_keeps_the_old_hash`).
+        "as_of",
     )
 
 
@@ -396,6 +399,68 @@ def test_feedback_off_keeps_the_old_hash():
     )
     assert _input_hash(**common, apply_feedback_factor=True) != before_363, (
         "켠 실행이 끈 실행과 같은 해시다 — 재현이 구분하지 못한다"
+    )
+
+
+def test_as_of_absent_keeps_the_old_hash():
+    """⚠️ **`as_of`를 명시하지 않은 실행은 종전과 같은 해시다** (#816 ⑴ · 결정 v9 「가」).
+
+    미명시 실행에 서버 확정 시각을 넣으면 **기존 162건의 해시가 바뀌고** 재현이 전부
+    500으로 깨진다 — `apply_feedback_factor`와 같은 벽, 같은 규칙이다(두 번째 적용례).
+    """
+    from datetime import UTC, datetime
+    from uuid import UUID
+
+    from cii_platform.calc.hash import compute_annual_input_hash
+    from cii_platform.services.annual_simulation import _input_hash
+
+    before_816 = compute_annual_input_hash(dict(ANNUAL_INPUT))
+    assert (
+        _input_hash(
+            vessel_id=UUID(ANNUAL_INPUT["vessel_id"]),
+            regulation_year=ANNUAL_INPUT["regulation_year"],
+            target_rating=ANNUAL_INPUT["target_rating"],
+            runs=ANNUAL_INPUT["simulation_runs"],
+            seed=int(ANNUAL_INPUT["random_seed"]),
+            voyages_json=ANNUAL_INPUT["voyages"],
+            vessel_json=ANNUAL_INPUT["vessel"],
+            # 미명시 — 서버 확정 시각이 아니라 None이 넘어와야 한다.
+            as_of=None,
+        )
+        == before_816
+    ), "미명시 실행의 해시가 종전과 다르다 — 저장된 실행이 재현 불가가 된다"
+
+    explicit = datetime(2026, 6, 30, 12, 0, tzinfo=UTC)
+    with_as_of = _input_hash(
+        vessel_id=UUID(ANNUAL_INPUT["vessel_id"]),
+        regulation_year=ANNUAL_INPUT["regulation_year"],
+        target_rating=ANNUAL_INPUT["target_rating"],
+        runs=ANNUAL_INPUT["simulation_runs"],
+        seed=int(ANNUAL_INPUT["random_seed"]),
+        voyages_json=ANNUAL_INPUT["voyages"],
+        vessel_json=ANNUAL_INPUT["vessel"],
+        as_of=explicit,
+    )
+    assert with_as_of != before_816, (
+        "명시 실행이 미명시와 같은 해시다 — 절단이 해시에 드러나지 않는다"
+    )
+
+    # 정밀도 정규화 — DB(DATETIMETZ)는 밀리초까지만 담는다(#1058 실측). 123,456µs와
+    # 그것을 버린 123,000µs가 같은 해시여야 재현(DB에서 읽은 값)과 어긋나지 않는다.
+    micro = explicit.replace(microsecond=123_456)
+    truncated = explicit.replace(microsecond=123_000)
+    hash_of = lambda dt: _input_hash(  # noqa: E731 — 검사 안에서만 쓰는 지역 헬퍼
+        vessel_id=UUID(ANNUAL_INPUT["vessel_id"]),
+        regulation_year=ANNUAL_INPUT["regulation_year"],
+        target_rating=ANNUAL_INPUT["target_rating"],
+        runs=ANNUAL_INPUT["simulation_runs"],
+        seed=int(ANNUAL_INPUT["random_seed"]),
+        voyages_json=ANNUAL_INPUT["voyages"],
+        vessel_json=ANNUAL_INPUT["vessel"],
+        as_of=dt,
+    )
+    assert hash_of(micro) == hash_of(truncated), (
+        "밀리초 범위 밖 정밀도가 해시를 바꾼다 — 저장값과 재현 재료가 어긋난다"
     )
 
 

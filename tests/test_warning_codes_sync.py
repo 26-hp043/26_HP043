@@ -5,8 +5,8 @@
 경고 코드는 세 곳에 적혀 있고, 각각이 앞의 것을 전사한다.
 
 ```
-TECH_SPEC §12.3  ──전사──▶  API_SPEC §1.6  ──전사──▶  frontend WARNING_MESSAGE
-   (정본)                      (인용)                      (인용)
+코드 상수  ──▶  API_SPEC §1.6  ──전사──▶  {TECH_SPEC §12.3 · frontend WARNING_MESSAGE}
+                  (정본)                        (참조 표)        (인용)
 ```
 
 그런데 기능③(연간 시뮬레이션)이 들어오면서 **아무도 위쪽을 갱신하지 않았다.**
@@ -20,10 +20,17 @@ TECH_SPEC §12.3  ──전사──▶  API_SPEC §1.6  ──전사──▶  
 
 ## 무엇을 검사하나
 
-`AGENTS §3.1`상 `TECH_SPEC`(3위)이 `API_SPEC`(4위)보다 상위이므로 **`§12.3`이 정본**이다.
+**`API_SPEC §1.6`이 정본이다** (`#1095` · 결정요청 v9 F-3). 경고 코드는 **API 응답
+필드**이고 `AGENTS §3`상 「필드·타입은 `API_SPEC` 소관」이다. `TECH_SPEC §12.3`은
+참조 표로 내렸다 — 계산 계층에서 어떤 코드가 나오는지 보는 용도다.
 
-1. 코드가 내는 모든 `WARNING_*` 상수가 `§12.3`에 있다
-2. `§1.6`이 `§12.3`과 같은 코드 집합을 담는다 (전사 관계)
+종전에는 `AGENTS §3.1`의 문서 서열(`TECH_SPEC` 3위 > `API_SPEC` 4위)만 보고 `§12.3`을
+정본으로 적었는데, 그 서열은 **문서 사이의 우선순위**이고 어느 문서가 무엇의 소관인지는
+`§3`이 따로 정한다. 판정이 없던 탓에 `§1.6` 머리의 인용이 성립하지 않는 상태로 오래
+남아 있었다.
+
+1. 코드가 내는 모든 `WARNING_*` 상수가 **`§1.6`**에 있다
+2. `§12.3`이 `§1.6`과 같은 코드 집합을 담는다 (참조 표가 낡지 않는다)
 
 **문구까지는 대조하지 않는다.** 두 표의 메시지 열에 마크다운·괄호 주석이 섞여
 있어 정확히 떼어내려면 파서가 필요하고, 그 파서가 깨지면 대조가 조용히
@@ -81,23 +88,23 @@ def test_sections_are_parsed_at_all():
     assert len(_codes_in_source()) >= 10
 
 
-def test_every_emitted_code_is_in_tech_spec():
-    """코드가 내는 경고가 정본 표(`TECH_SPEC §12.3`)에 전부 있다.
+def test_every_emitted_code_is_in_api_spec():
+    """코드가 내는 경고가 정본 표(`API_SPEC §1.6`)에 전부 있다.
 
     없으면 화면이 문구를 붙일 수 없어 **원문 코드가 그대로 사용자에게 나간다.**
     """
-    missing = sorted(_codes_in_source() - _tech_spec_codes())
-    assert not missing, f"TECH_SPEC §12.3에 없는 경고 코드: {missing}"
+    missing = sorted(_codes_in_source() - _api_spec_codes())
+    assert not missing, f"API_SPEC §1.6에 없는 경고 코드: {missing}"
 
 
-def test_api_spec_transcribes_tech_spec():
-    """`API_SPEC §1.6`이 정본과 같은 집합을 담는다.
+def test_tech_spec_reference_table_matches_the_canonical_one():
+    """`TECH_SPEC §12.3`(참조 표)이 정본과 같은 집합을 담는다.
 
-    `§1.6` 머리가 「`TECH_SPEC §12.3` 정의」라고 인용하므로, 어느 한쪽에만 있는
-    코드가 있으면 그 인용이 거짓이 된다. 실제로 `§1.6`에만 있는 코드가 2종 생겨
-    **하위 문서가 상위 문서보다 앞선 상태**가 됐던 것이 `#641`이다.
+    참조 표가 낡으면 계산 계층을 읽는 사람이 **없는 코드를 찾거나 있는 코드를
+    못 본다.** 실제로 `§1.6`에만 있는 코드가 2종 생겨 `§1.6` 머리의 인용이 거짓이
+    됐던 것이 `#641`이고, 어느 쪽이 정본인지는 `#1095`에서 판정했다.
     """
     tech = _tech_spec_codes()
     api = _api_spec_codes()
-    assert not sorted(tech - api), f"§12.3에만 있다: {sorted(tech - api)}"
-    assert not sorted(api - tech), f"§1.6에만 있다: {sorted(api - tech)}"
+    assert not sorted(api - tech), f"정본에만 있다(참조 표가 낡았다): {sorted(api - tech)}"
+    assert not sorted(tech - api), f"참조 표에만 있다: {sorted(tech - api)}"

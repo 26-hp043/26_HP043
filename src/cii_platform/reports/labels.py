@@ -137,6 +137,10 @@ WARNING_LABELS: dict[str, str] = {
     ),
     "COMPLETED_NO_FUEL": "실적이 입력되지 않은 완료 항차입니다. 계획값을 임시 사용 중.",
     "COMPLETED_NO_DISTANCE": "실거리가 입력되지 않은 완료 항차입니다. 계획거리를 임시 사용 중.",
+    "COMPLETED_FUEL_UNFILLED": (
+        "연료 기록이 없는 실적 확정 항차가 있어 그 항차의 연료가 누적에 "
+        "반영되지 않았습니다. 해당 항차에 연료를 입력해 주세요."
+    ),
     "SLOW_SPEED_FLOOR": (
         "감속 시나리오가 최소 속도(1.0kn)로 운항합니다. 속도 기반 연료 추정의 신뢰도가 낮습니다."
     ),
