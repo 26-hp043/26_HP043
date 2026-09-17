@@ -36,10 +36,21 @@ function policyText(policy: string): string {
   return POLICY_LABELS[policy as InclusionPolicy] ?? policy
 }
 
+/**
+ * 유종별 연료량. **값이 없으면 단위를 붙이지 않는다** (`#1095` ⑷).
+ *
+ * `number()`는 값이 없을 때 `'—'`를 돌려주는데 그 뒤에 단위를 그대로 이어 붙여
+ * **`LNG —t`**가 나갔다. 「모른다」에 단위를 붙이면 **0에 가까운 어떤 수**로 읽힌다 —
+ * 「없음의 종류」를 같은 모양으로 그리지 않는다는 규율(`#824` 계열)이 단위 표기에도
+ * 그대로 걸리는 자리다.
+ */
 function fuelText(row: SnapshotVoyage): string {
   if (row.fuel_uses.length === 0) return '—'
   return row.fuel_uses
-    .map((fu) => `${fu.fuel_type} ${number(fu.fuel_ton, DISPLAY_DIGITS.fuelTon)}${DISPLAY_UNITS.fuel}`)
+    .map((fu) => {
+      const ton = number(fu.fuel_ton, DISPLAY_DIGITS.fuelTon)
+      return ton === '—' ? `${fu.fuel_type} —` : `${fu.fuel_type} ${ton}${DISPLAY_UNITS.fuel}`
+    })
     .join(' · ')
 }
 

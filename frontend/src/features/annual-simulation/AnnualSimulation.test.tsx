@@ -900,3 +900,79 @@ describe('⑸ 선박 미선택은 실패가 아니라 안내다 (#1096)', () => 
     expect(screen.getByText(ANNUAL_COPY.needVessel)).toBeTruthy()
   })
 })
+
+/**
+ * 재현 응답의 경고가 화면에 남는다 (`#1095` ⑶ · `#833`).
+ *
+ * 서버는 원본과 **다른 `model_version`**에서 돌아 결과가 같았을 때
+ * `MODEL_VERSION_DIFFERS`를 붙인다. 화면이 응답을 통째로 버리고 있어
+ * 「같은 환경에서 같은 결과」와 「다른 환경에서 같은 결과」가 한 문장으로 뭉개졌다 —
+ * `#833`이 만든 구분이 화면에서 사라진 상태였다.
+ */
+describe('재현 경고가 결과와 함께 보인다 (#1095 ⑶)', () => {
+  it('MODEL_VERSION_DIFFERS가 재현 성공 문구 옆에 뜬다', async () => {
+    const reproduced = { ...body('sim-1'), warnings: ['MODEL_VERSION_DIFFERS'] }
+    stubServer(() => jsonResponse(reproduced))
+    renderScreen()
+    // `runOnce()`가 실행을 마치고 **재현 버튼**을 돌려준다.
+    fireEvent.click(await runOnce())
+
+    expect(await screen.findByText(ANNUAL_COPY.reproduceSuccess)).toBeTruthy()
+    // 문구는 `API_SPEC §1.6`이 소유한다 — 화면이 다시 적지 않는다.
+    expect(screen.getByText(/원본 실행과 다른 환경/)).toBeTruthy()
+  })
+
+  it('경고가 없으면 성공 문구만 뜬다 — 없는 경고를 지어내지 않는다', async () => {
+    stubServer(() => jsonResponse({ ...body('sim-1'), warnings: [] }))
+    renderScreen()
+    fireEvent.click(await runOnce())
+
+    expect(await screen.findByText(ANNUAL_COPY.reproduceSuccess)).toBeTruthy()
+    expect(screen.queryByText(/원본 실행과 다른 환경/)).toBeNull()
+  })
+})
+
+/**
+ * 값이 없으면 단위를 붙이지 않는다 (`#1095` ⑷).
+ *
+ * `number()`가 값이 없을 때 `'—'`를 돌려주는데 그 뒤에 단위를 그대로 이어 붙여
+ * **`LNG —t`**가 나갔다. 「모른다」에 단위를 붙이면 0에 가까운 어떤 수로 읽힌다.
+ */
+describe('스냅샷 항차의 연료량이 없으면 「—」다 (#1095 ⑷)', () => {
+  it('연료량이 null이면 「LNG —t」가 아니라 「LNG —」다', async () => {
+    const fetchImpl = stubServer()
+    fetchImpl.mockImplementation(async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.endsWith('/snapshot-voyages')) {
+        return jsonResponse({
+          data: [
+            {
+              snapshot_voyage_id: 'sv-2',
+              original_voyage_id: 'v-2',
+              voyage_no: 'V-2026-002',
+              status_at_snapshot: 'PLANNED',
+              distance_nm: 900,
+              speed_kn: 12,
+              fuel_uses: [{ fuel_type: 'LNG', fuel_ton: null, cf_used: 2.75 }],
+              annual_inclusion_policy: 'INCLUDE_AS_PLAN',
+            },
+          ],
+        })
+      }
+      if (url.endsWith('/annual-simulations')) return jsonResponse(body('sim-1'))
+      return jsonResponse({ data: {} })
+    })
+    renderScreen()
+    await runOnce()
+
+    const summary = screen.getByText(/이 실행에 쓴 항차 보기/)
+    const details = summary.closest('details') as HTMLDetailsElement
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+
+    expect(await screen.findByText('V-2026-002')).toBeTruthy()
+    expect(screen.getByText('LNG —')).toBeTruthy()
+    expect(screen.queryByText('LNG —t')).toBeNull()
+  })
+})
