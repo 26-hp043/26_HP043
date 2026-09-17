@@ -123,10 +123,10 @@ export function AuthShell({
 }
 
 /**
- * 입력 한 칸.
+ * 로그인 폼의 입력 한 칸 — 공용 `Field` 위의 얇은 층이다 (`#936`).
  *
- * 오류를 `aria-describedby`로 연결하고 `aria-invalid`를 세운다 — 색만으로 오류를
- * 표시하면 스크린 리더 사용자가 무엇이 잘못됐는지 알 수 없다(`DESIGN_SYSTEM §14`).
+ * 배선(`aria-invalid`·`aria-describedby`·`role="alert"`)은 `Field`가 준다.
+ * 여기 남는 것은 이 화면의 입력칸 모양과 `type`·`autoComplete`뿐이다.
  */
 export function AuthField({
   id,

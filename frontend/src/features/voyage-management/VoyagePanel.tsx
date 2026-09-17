@@ -810,11 +810,10 @@ function ActualsForm({
 }
 
 /**
- * 입력 한 칸.
+ * 항차 폼의 입력 한 칸 — 공용 `Field` 위의 얇은 층이다 (`#936`).
  *
- * 오류를 `aria-describedby`로 잇고 `aria-invalid`를 세운다 — 색만으로 표시하면
- * 스크린 리더 사용자가 무엇이 잘못됐는지 알 수 없다(`DESIGN_SYSTEM §14`).
- * `AuthField`와 같은 규율이다.
+ * 배선은 `Field`가 준다. 여기 남는 것은 이 폼의 입력칸 모양과
+ * `type`·`inputMode`·`list` 기본값뿐이다. `AuthField`와 같은 형태다.
  */
 function VoyageField({
   id,
