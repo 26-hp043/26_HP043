@@ -35,7 +35,10 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from cii_platform.api.schemas.bounds import NOT_UNDERWAY_FUEL
+from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import AppError, ConflictError, ValidationError
 from cii_platform.services.not_underway import (
@@ -49,6 +52,8 @@ from cii_platform.services.voyage_import import (
     RowError,
     _check_limits,
     _decode,
+    column_length,
+    save_stage_row_error,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - 타입 전용
@@ -163,7 +168,7 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
         "period_type": period_type,
         "started_at": started_at,
         "ended_at": ended_at,
-        "port_name": _text(row, "port_name") or None,
+        "port_name": _port_name(row),
         "lat": _optional_decimal(row, "lat", label="위도"),
         "lon": _optional_decimal(row, "lon", label="경도"),
         "distance_nm": _decimal(row, "distance_nm", label="이동 거리"),
@@ -173,13 +178,46 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     }
 
 
+#: 좌표의 도메인 한도 — **수기 API와 같은 값**이다(``api/schemas/not_underway.py``의
+#: ``Field(ge=-90, le=90)`` · ``Field(ge=-180, le=180)``). 종전에는 CSV 경로만 한도가
+#: 없어 ``lat=1e9``가 파서를 통과하고 ``NUMERIC(9,6)``에서 죽었다 — `#1190`이 속력에서
+#: 짚은 것과 **같은 종류**(경로마다 한도가 갈린다)라 함께 맞춘다.
+_COORDINATE_BOUNDS: dict[str, tuple[Decimal, Decimal]] = {
+    "lat": (Decimal(-90), Decimal(90)),
+    "lon": (Decimal(-180), Decimal(180)),
+}
+
+
 def _optional_decimal(row: dict[str, str], column: str, *, label: str) -> Decimal | None:
-    if not _text(row, column):
+    raw = _text(row, column)
+    if not raw:
         return None
     try:
-        return Decimal(_text(row, column))
+        value = Decimal(raw)
     except (InvalidOperation, ValueError) as exc:
         raise RowError(column, f"{label}은(는) 숫자여야 합니다.") from exc
+    if not value.is_finite():
+        raise RowError(column, f"{label}은(는) 숫자여야 합니다: {raw}")
+    low, high = _COORDINATE_BOUNDS[column]
+    if not low <= value <= high:
+        raise RowError(column, f"{label}은(는) {low} 이상 {high} 이하여야 합니다: {raw}")
+    return value
+
+
+def _port_name(row: dict[str, str]) -> str | None:
+    """정박 항만명. 길이는 **모델에서** 온다 (#1190).
+
+    ⚠️ `#1190` 본문이 이 컬럼을 ``300``자로 적었는데 실제는 ``String(200)``이다 —
+    :func:`~cii_platform.services.voyage_import.column_length`가 모델을 읽으므로 본문의
+    수치를 옮겨 적지 않는다. 200자를 넘는 값은 CUBRID가 잘라 넣지 않고 거부한다.
+    """
+    raw = _text(row, "port_name")
+    if not raw:
+        return None
+    limit = column_length("port_name", model=NotUnderwayPeriod)
+    if len(raw) > limit:
+        raise RowError("port_name", f"{limit}자까지 입력할 수 있습니다(지금 {len(raw)}자).")
+    return raw
 
 
 def read_rows(content: bytes, *, content_type: str | None = None) -> tuple[list[dict], int]:
@@ -313,10 +351,17 @@ async def import_not_underway_periods(
                     }
                 ],
             )
-        except AppError as error:
+        except (AppError, SQLAlchemyError) as error:
             # 겹침·제원 문제 등은 **그 행만** 떨어뜨린다. 행 번호는 ``parsed``의 위치가
             # 아니라 **원본 파일의 행 번호**다 (#1087).
-            errors.append({"row": row_number, "field": _error_field(error), "message": str(error)})
+            #
+            # ``SQLAlchemyError``까지 받는 것은 `#1190`이다 — ``except AppError``는
+            # ``ProgrammingError(-494)``를 **못 잡았다**. `db/cubrid_errors.py`가
+            # ``IntegrityError``로 옮기는 것은 ``-517``·``-922``·``-924``·``-225``뿐이고
+            # ``-494``는 성질이 달라(PostgreSQL에서도 ``DataError``였다) 그 목록에 넣지
+            # 않는다. 대신 **여기서 행 오류로 받는다** — 항차 경로와 같은 함수다.
+            field = _error_field(error) if isinstance(error, AppError) else None
+            errors.append(await save_stage_row_error(session, row_number, error, field=field))
             continue
         imported += 1
 
