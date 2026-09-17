@@ -55,7 +55,6 @@ describe('접근성 배선 (#829 ⑸)', () => {
    */
   const NOT_YET_MIGRATED = [
     'features/not-underway/NotUnderwayPanel.tsx',
-    'features/annual-simulation/AnnualSimulation.tsx',
     'features/voyage-management/ExportCsv.tsx',
     'features/voyage-management/VoyagePanel.tsx',
     'features/vessel-detail/PositionForm.tsx',
