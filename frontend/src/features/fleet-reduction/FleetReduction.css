@@ -63,8 +63,9 @@
   font-size: var(--font-size-micro);
 }
 
-.fr__field select,
-.fr__field input,
+/* 입력칸은 이름으로 건다 — 래퍼가 공용 `.field`로 바뀌면 자손 선택자는
+   조용히 안 걸린다 (`#936` · `§8.4`). */
+.fr__control,
 .fr__charter {
   height: 40px;
   padding: 0 var(--space-12);
@@ -80,8 +81,7 @@
   width: 6.5rem;
 }
 
-.fr__field select:focus-visible,
-.fr__field input:focus-visible,
+.fr__control:focus-visible,
 .fr__charter:focus-visible,
 .fr__slider input:focus-visible,
 .fr__button:focus-visible {

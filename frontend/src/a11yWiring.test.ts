@@ -55,7 +55,6 @@ describe('접근성 배선 (#829 ⑸)', () => {
    */
   const NOT_YET_MIGRATED = [
     'features/not-underway/NotUnderwayPanel.tsx',
-    'features/fleet-reduction/FleetReduction.tsx',
     'features/annual-simulation/AnnualSimulation.tsx',
     'features/voyage-management/ExportCsv.tsx',
     'features/voyage-management/VoyagePanel.tsx',
@@ -64,20 +63,44 @@ describe('접근성 배선 (#829 ⑸)', () => {
     'features/assistant/AssistantOverlay.tsx',
   ]
 
+  /*
+   * **`Field`를 씌울 수 없는 컨트롤이 실제로 있다.**
+   *
+   * 표 안의 입력칸이 그렇다 — 보이는 `<label>`이 없고 이름은 열 제목과 `aria-label`이
+   * 준다. `Field`를 씌우면 셀마다 라벨 줄이 하나씩 생겨 표가 무너진다.
+   *
+   * 파일을 통째로 `NOT_YET_MIGRATED`에 남기면 **같은 파일의 나머지 칸이 가드 밖으로
+   * 빠진다.** 그래서 예외는 파일이 아니라 **줄 단위**로 두고, 이유를 함께 적게 한다.
+   * 표식이 없는 `aria-invalid`는 그대로 실패한다.
+   */
+  const FIELD_EXEMPTION = 'Field 예외(#936)'
+
   it('이관한 파일은 폼 컨트롤 배선을 Field에 맡긴다 (#936)', () => {
     const offenders: string[] = []
     for (const { path, text } of FILES) {
       if (NOT_YET_MIGRATED.includes(path)) continue
       // 직접 적은 `aria-invalid`는 `Field`가 줄 배선을 호출부가 다시 쓴 것이다.
       for (const match of text.matchAll(/\saria-invalid=/g)) {
+        // 바로 앞 다섯 줄 안에 이유를 적은 표식이 있으면 넘긴다.
+        const before = text.slice(0, match.index).split('\n').slice(-6).join('\n')
+        if (before.includes(FIELD_EXEMPTION)) continue
         offenders.push(`${path} :: ${text.slice(match.index, (match.index ?? 0) + 40).trim()}`)
       }
     }
     expect(
       offenders,
       'Field가 배선을 주므로 호출부가 aria-invalid를 적을 필요가 없다. ' +
-        '아직 이관 전이라면 NOT_YET_MIGRATED에 남겨 두세요.',
+        `아직 이관 전이라면 NOT_YET_MIGRATED에, 씌울 수 없는 칸이라면 «${FIELD_EXEMPTION}» ` +
+        '주석에 이유를 적어 두세요.',
     ).toEqual([])
+  })
+
+  it('예외 표식이 실제로 무언가를 넘기고 있다', () => {
+    /* 표식이 아무 데도 안 걸리면 위 검사가 조용히 헐거워진 것이다 — 오타든 삭제든. */
+    const marked = FILES.filter(
+      (f) => !NOT_YET_MIGRATED.includes(f.path) && f.text.includes(FIELD_EXEMPTION),
+    )
+    expect(marked.length, '예외 표식이 한 곳도 쓰이지 않는다').toBeGreaterThan(0)
   })
 
   it('이관 목록이 실재하는 파일만 담는다', () => {
