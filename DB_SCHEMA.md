@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.27 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** |
-| 최종 수정일 | 2026-09-16 |
+| 버전 | v1.28 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** |
+| 최종 수정일 | 2026-09-17 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -909,7 +909,7 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 
 > **세션 토큰 원문을 저장하지 않는다** — DB 유출 시 저장된 값으로 로그인 위조를 막기 위함. 비밀번호를 해시하는 것과 같은 이유.
 
-> **[#287] `chat_session`·`chat_message`은 이 스키마에 정의돼 있지 않다.** 챗봇(O-12)은 실험 기능(PRD §5.1 MAY)이며 구현 이슈(#120~#123) 시점에 별도 마이그레이션으로 추가한다. 귀속 주체만 확정해 둔다 — `PRD §7.8`의 `ChatSession.user_id`는 **`app_user.id`(§2.15)** 를 참조한다(인증 주체 모델 #273 · #275 확정에 따른 결정). 보존 정책(90일)은 §4.3에 반영한다.
+> **[#287 → #1080] `chat_session`·`chat_message`은 §2.23·§2.24에 정의돼 있다.** 마이그레이션 041로 추가된 뒤 `#1058` CUBRID 전환에서 초기 스키마 `1c444a5c4819`에 흡수됐다. 귀속(`ChatSession.user_id` → **`app_user.id`(§2.15)**)과 보존 정책(90일)은 그 두 절이 소유한다.
 
 ---
 
@@ -1193,6 +1193,65 @@ CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_a
 
 ---
 
+### 2.23 `chat_session` — 챗봇 대화 세션 (#120 · #1080)
+
+`PRD §7.8`·`UIFLOW 2-7` AI 어시스턴트의 **대화 세션 한 건**이다. 챗봇(O-12)은 실험 기능(`PRD §5.1` MAY)이며 이 표는 사람이 아니라 앱이 만든다 — 세션을 시작한 계정에 귀속된다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `user_id` | UUID | NOT NULL, FK → `app_user(id)` ON DELETE **CASCADE** | 계정이 지워지면 대화도 지운다 — 감사 로그에는 해시만 남으므로 삭제 요청을 만족시키려면 본문이 여기만 있어야 한다 |
+| `title` | VARCHAR(200) | NULL | 목록에 보일 제목. 없으면 앱이 첫 질문으로 만든다 |
+| `created_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
+| `expires_at` | TIMESTAMPTZ | NOT NULL, CHECK `expires_at > created_at` | **생성 + 90일**(`PRD §16.3`). 컬럼으로 두는 이유 — 보존 기간이 바뀌어도 이미 만든 세션의 만료일이 따라 움직이지 않게 한다 |
+
+```sql
+CREATE TABLE chat_session (
+    id          UUID PRIMARY KEY,
+    user_id     UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    title       VARCHAR(200),
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at  TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_chat_session_expires CHECK (expires_at > created_at)
+);
+CREATE INDEX idx_chat_session_expires ON chat_session (expires_at);
+CREATE INDEX idx_chat_session_user    ON chat_session (user_id, created_at DESC);
+```
+
+> **계산 경로와 격리된다.** `PRD §7.8`이 *"계산·보고 경로와 완전히 격리된 별도 저장소"*를 요구하므로 이 두 표는 `calculation_run`·`voyage`를 **참조하지 않는다.** 챗봇이 인용한 계산은 감사 로그(`CHAT_TOOL_CALL`, §2.14)가 `calculation_run.id`로 가리킨다 — 재현의 원본은 그쪽이고 챗봇 로그는 가리키기만 한다.
+
+> **지우는 표다.** ⚠️ 지우지 않는 `audit_log`와 성격이 정반대라 같은 내용을 두 곳에 넣으면 삭제 요청을 만족시킬 수 없다. 본문(인용값 포함)은 여기에만 있고 감사 로그에는 해시만 남는다. 만료 행은 `scripts/purge_expired.py`가 지운다 — 유예 없이 `expires_at` 그대로(`TEST_PLAN §3.21`). downgrade 분류는 스키마 전체 `IRREVERSIBLE`(`1c444a5c4819`, §8.1.2)에 포함돼 있으나 데이터 성격은 EPHEMERAL이다.
+
+---
+
+### 2.24 `chat_message` — 챗봇 메시지 (#120 · #1080)
+
+세션 안의 **메시지 한 건**(`PRD §7.9`). `role`은 `USER`·`ASSISTANT` 둘뿐이다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK | |
+| `session_id` | UUID | NOT NULL, FK → `chat_session(id)` ON DELETE **CASCADE** | 세션이 지워지면 메시지도 지워진다(90일 보존의 실체) |
+| `role` | VARCHAR(10) | NOT NULL, CHECK `IN ('USER','ASSISTANT')` | |
+| `content` | TEXT | NOT NULL | **본문을 담는다** — 정본이 *"메시지 본문(인용값 포함)"*으로 정했다. 해시만 남기는 것은 도구 호출의 인자이고 그쪽은 감사 로그 소관이다 |
+| `sent_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
+
+```sql
+CREATE TABLE chat_message (
+    id          UUID PRIMARY KEY,
+    session_id  UUID NOT NULL REFERENCES chat_session(id) ON DELETE CASCADE,
+    role        VARCHAR(10) NOT NULL,
+    content     TEXT NOT NULL,
+    sent_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT chk_chat_message_role CHECK (role IN ('USER','ASSISTANT'))
+);
+CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
+```
+
+> ORM 모델 `src/cii_platform/db/models/chat.py`·레포지터리 `src/cii_platform/db/repositories/chat.py`가 이 계약을 구현한다(`RETENTION_DAYS = 90`). 원래 마이그레이션 041로 추가됐고 `#1058` CUBRID 전환에서 `1c444a5c4819`에 흡수됐다.
+
+---
+
 ## 3. 시드 데이터
 
 ### 3.1 규정 연도 Z-factor
@@ -1353,7 +1412,7 @@ CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_a
 | `simulation_snapshot` | 무기한 |
 | `audit_log` | 최소 5년 |
 | `weather_snapshot` | 30일 (TTL 만료 후 삭제) |
-| `chat_session` · `chat_message` | 90일 (만료 후 삭제, PRD §16.3 채팅 보존 정책) — 테이블 미정의 각주는 §2.16 [#287] |
+| `chat_session` · `chat_message` | 90일 (만료 후 삭제, PRD §16.3 채팅 보존 정책) — §2.23·§2.24 · `scripts/purge_expired.py`가 만료 행을 지운다(유예 없음 · `TEST_PLAN §3.21`) [#287 → #1080] |
 
 ---
 
@@ -2008,3 +2067,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-15 | `#672` | **v1.25 — §2.15 `app_user.role` 컬럼 추가**(마이그레이션 044 · CHECK `chk_app_user_role`). 사무직(`OFFICE`)·현장직(`FIELD`) 2종, 기본값 현장직, **기존 행은 전부 사무직**으로 채웠다 — 그전까지 전원이 전 기능을 썼으므로 그래야 아무도 잃지 않는다. §2.14 `action` 열거에 `ROLE_CHANGE` 추가(행위자·대상·전후 값). §9.2 실측 행 갱신(역할 구분이 생겼고 회사 소속은 여전히 없다). downgrade는 열을 지워 지정 기록이 사라지므로 `IRREVERSIBLE`(`migration_guard.py`). 컬럼 추가라 버전을 올린다(`#363`이 042 컬럼 추가에서 올린 선례) (#672) |
 
 | 2026-09-15 | `#1058` | **v1.26 — `§7.4` 신설**: CUBRID는 `CHECK`를 강제하지 않는다. 빈 테이블로 재현했다(`CHECK (n > 0)`에 `-5`가 들어가 조회된다). 이 문서와 ORM에 적힌 CHECK가 **배포에서 아무것도 막지 않는다**는 사실을 적어 두지 않으면 다음 사람이 「적혀 있으니 막힌다」로 읽는다 — 그것이 이 절을 만든 이유다. 전환 분기점(`0f4b062`) 대조로 **CHECK 6 · FK 3**이 사라졌고 **트리거는 0개**였음을 실측했다(`§7.3` immutable 보호가 통째로 없었다). 마이그레이션 `a7d3e9b14f26`이 재현성·참조 정합 9가지를 트리거 15개로 되살린다. `§7.1` 연료 코드 FK 세 행과 `DB 엔진` 줄에 CUBRID 단서를 달았다 — FK가 **PK만** 가리킬 수 있어(`errno=-920`) 그 세 행은 FK로 성립하지 않고, `ON UPDATE CASCADE`도 지원되지 않아 전파 대신 막힌다. 값 범위 CHECK(`chk_gt_positive` 등)와 **부모 쪽 연료 삭제 금지**는 되살리지 않았다 — 뒤엣것은 한 번 넣었다가 뺐다. `REPLACE INTO`가 DELETE + INSERT로 구현돼 seed 재적재가 통째로 막혔고(`test_seed_data.py` 7건이 fixture에서 죽었다), 트리거는 REPLACE의 DELETE와 사람이 친 DELETE를 구분하지 못한다. 남는 구멍을 §7.4에 적고 `test_parent_side_delete_is_deliberately_not_guarded`로 고정했다 (#1058) |
+| 2026-09-17 | `#1080` | **v1.28 — §2.23 `chat_session` · §2.24 `chat_message` 신설.** ORM(`models/chat.py`)·마이그레이션에 이미 존재하는데 문서만 「정의돼 있지 않다」고 적어 두고 있었다(#287 각주). 원래 마이그레이션 041로 추가됐고 `#1058` CUBRID 전환에서 `1c444a5c4819` 초기 스키마에 흡수됐다. §2.16 각주를 「§2.23·§2.24에 정의돼 있다」로 정정하고 §4.3 보존 행에서 「테이블 미정의 각주」 참조를 걷었다 — 만료 행은 `scripts/purge_expired.py`가 90일 `expires_at` 그대로 지운다(유예 없음). 계산 경로 격리(`calculation_run`·`voyage` 비참조 · 감사 로그 `CHAT_TOOL_CALL`이 가리킨다)와 「지우는 표」 성격(본문은 여기만, 감사 로그에는 해시)을 각주로 못 박았다. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1080) |
