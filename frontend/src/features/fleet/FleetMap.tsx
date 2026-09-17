@@ -8,7 +8,12 @@ import type { FleetVessel } from './types'
 import { BASEMAP_FONTS_URL, BASEMAP_URL, INITIAL_ZOOM, MAX_ZOOM } from './basemap'
 import { greatCirclePath } from './greatCircle'
 import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
-import { isAtRisk } from './fleetRules'
+import {
+  isAtRisk,
+  missingPositionAria,
+  missingPositionText,
+  NO_POSITION_RECORDED_TEXT,
+} from './fleetRules'
 
 /**
  * 선대 지도 (`#763`).
@@ -111,6 +116,16 @@ function routeCollection(points: Placed[]): maplibregl.GeoJSONSourceSpecificatio
 }
 
 export function FleetMap({ vessels }: FleetMapProps) {
+  /*
+   * 좌표가 없는 선박은 `placed()`에서 **조용히 빠진다** (#1103).
+   *
+   * 개략도(`PositionChart`)는 몇 척이 빠졌는지 적는데 이 지도만 아무 말도 하지
+   * 않았다 — 4척 중 1척이 미입력이면 지도에 3척만 그려지고 **그 3척이 선대 전부로**
+   * 읽힌다. 문구는 개략도와 **같은 원천**(`fleetRules`)을 쓴다.
+   */
+  const shown = placed(vessels).length
+  const missingText = missingPositionText(vessels.length, shown)
+
   const container = useRef<HTMLDivElement | null>(null)
   const map = useRef<maplibregl.Map | null>(null)
   const markers = useRef<maplibregl.Marker[]>([])
@@ -223,9 +238,31 @@ export function FleetMap({ vessels }: FleetMapProps) {
     }
   }, [vessels, ready])
 
+  if (vessels.length > 0 && shown === 0) {
+    // 전부 빠진 경우는 빈 지도를 띄우지 않는다 — 빈 바다는 「선박이 없다」로 읽힌다.
+    return (
+      <div className="fleetmap">
+        <p className="fleetmap__missing">{NO_POSITION_RECORDED_TEXT}</p>
+      </div>
+    )
+  }
+
   return (
     <div className="fleetmap">
-      <div className="fleetmap__canvas" ref={container} />
+      {/*
+        그림 요약을 접근성 트리에 싣는다 — 지도는 캔버스라 화면 낭독이 읽을 것이
+        없다. 결측도 여기 넣는다(`missingPositionAria`): 눈으로 보는 쪽에만 있으면
+        낭독으로는 빠진 것이 없는 것처럼 들린다.
+      */}
+      <div
+        className="fleetmap__canvas"
+        ref={container}
+        role="img"
+        aria-label={`선박 ${shown}척의 현재 위치 지도.${missingPositionAria(vessels.length, shown)}`}
+      />
+      {missingText === null ? null : (
+        <p className="fleetmap__missing">{missingText}</p>
+      )}
       <p className="fleetmap__hint">
         <b>확대·축소로 위치를 확인할 수 있습니다.</b> 점선은 진행 중 항차의 최단 경로이며,
         실제 항해는 해협·수심·기상을 피해 갑니다.

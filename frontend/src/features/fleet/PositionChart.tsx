@@ -1,7 +1,12 @@
 import './PositionChart.css'
 import type { RiskReason } from './types'
 import type { Rating } from '../voyage-cii/types'
-import { isAtRisk } from './fleetRules'
+import {
+  isAtRisk,
+  missingPositionAria,
+  missingPositionText,
+  NO_POSITION_RECORDED_TEXT,
+} from './fleetRules'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
 import { LAND_RINGS } from './landOutline'
@@ -385,10 +390,7 @@ export function PositionChart({ vessels, minSpan = MIN_SPAN }: PositionChartProp
 
   if (points.length === 0) {
     return (
-      <p className="position-chart__empty">
-        위치가 기록된 선박이 없습니다. 선박 상세에서 현재 위치를 입력하면 여기에
-        표시됩니다.
-      </p>
+      <p className="position-chart__empty">{NO_POSITION_RECORDED_TEXT}</p>
     )
   }
 
@@ -457,7 +459,7 @@ export function PositionChart({ vessels, minSpan = MIN_SPAN }: PositionChartProp
    * 결측을 **접근성 트리에도** 넣는다. 눈으로 보는 쪽에만 있으면 화면 낭독으로는
    * 여전히 「선박 3척의 현재 위치 개략도」로 들려 빠진 것이 없는 것처럼 된다.
    */
-  const missingAria = missing > 0 ? ` 좌표가 없는 ${missing}척은 빠져 있습니다.` : ''
+  const missingAria = missingPositionAria(vessels.length, points.length)
 
   return (
     <>
@@ -606,8 +608,7 @@ export function PositionChart({ vessels, minSpan = MIN_SPAN }: PositionChartProp
     */}
     {missing > 0 ? (
       <p className="position-chart__missing">
-        위치 미기록 {missing}척은 표시되지 않았습니다 — {vessels.length}척 중 {points.length}척.
-        선박 상세에서 현재 위치를 입력하면 여기에 표시됩니다.
+        {missingPositionText(vessels.length, points.length)}
       </p>
     ) : null}
     {/*
