@@ -268,3 +268,60 @@ describe('실패 경로', () => {
     )
   })
 })
+
+/*
+ * 오류가 사용자에게 어떻게 도착하는가 (#1103)
+ *
+ * 종전에는 두 가지가 샜다 — ⑴ 서버가 말한 사유를 `HTTP 409` 숫자로 덮었고
+ * ⑵ `await response.json()`에 try가 없어 파서의 원문이 그대로 노출됐다.
+ */
+describe('오류 문구 (#1103)', () => {
+  it('서버가 말한 사유를 숫자로 덮지 않는다', async () => {
+    /*
+     * 규제연도 seed가 없으면 서버가 409 `PARAMETER_ERROR`와 함께 **무엇을 해야 하는지**를
+     * 적어 보낸다. 종전에는 그 문장이 통째로 사라지고 「(HTTP 409)」만 남아, 사용자는
+     * 고칠 수 있는 문제를 고장으로 읽었다. 문구는 `API_SPEC §1.6`이 확정한 것이라
+     * 화면이 다시 짓지 않고 그대로 쓴다.
+     */
+    const reason = '해당 선종·연도의 규정 기준값이 없습니다. 운영자에게 문의해 주세요.'
+    // ⚠️ 호출마다 **새 `Response`**를 만든다. 본문은 한 번만 읽을 수 있어
+    // `mockResolvedValue`로 같은 객체를 돌려주면 두 번째 호출이 빈 본문을 받는다
+    // (실제로 이렇게 썼다가 두 번째 단언에서 폴백 문구가 나왔다).
+    const fetchImpl = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(
+          jsonResponse({ error: { code: 'PARAMETER_ERROR', message: reason } }, 409),
+        ),
+      )
+
+    const failure = createApiFleetProvider(fetchImpl).load()
+    await expect(failure).rejects.toThrow(reason)
+    await expect(failure).rejects.not.toThrow(/HTTP/)
+  })
+
+  it('JSON이 아닌 응답에 파서의 원문을 사용자에게 보이지 않는다', async () => {
+    /*
+     * 프록시·SPA fallback이 **200과 함께 HTML**을 주는 것은 이 저장소가 실제로 겪은
+     * 모양이다(`basemap.test.ts`의 `#1144`). 그때 `response.json()`이
+     * `SyntaxError: Unexpected token '<'`를 던졌고, 그 문장이 그대로 화면에 올라갔다 —
+     * 사용자가 할 수 있는 일이 없고, 무슨 일인지도 알 수 없는 문구다.
+     */
+    const html = new Response('<!doctype html><html lang="ko">', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html' },
+    })
+    const fetchImpl = vi.fn().mockResolvedValue(html)
+
+    const failure = createApiFleetProvider(fetchImpl).load()
+    await expect(failure).rejects.toThrow(/응답 형식이 올바르지 않습니다/)
+    await expect(failure).rejects.not.toThrow(/Unexpected token|SyntaxError|JSON/)
+  })
+
+  it('사유가 없는 5xx는 상태 코드를 남긴다 — 그 숫자가 남은 유일한 단서다', async () => {
+    // 이 이슈가 고치려는 것은 「사유가 있는데 숫자가 그것을 덮는 것」이지, 사유가 없을
+    // 때까지 숫자를 지우는 것이 아니다. 지우면 문의할 때 넘길 것이 사라진다.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503))
+    await expect(createApiFleetProvider(fetchImpl).load()).rejects.toThrow(/503/)
+  })
+})
