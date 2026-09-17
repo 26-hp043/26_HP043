@@ -68,6 +68,24 @@ import { Icon } from '../../components/Icon'
  * `PRD R-5`가 시뮬레이션 데이터 표기를 요구한다. 판정은 서버(`meta.simulated`)가
  * 하고, 화면은 조건을 덧붙이지 않는다.
  */
+/**
+ * 누적 CII를 **계산하지 못한 사유**로 읽을 수 있는 경고 (`#1095` ⑵ · `API_SPEC §1.6`).
+ *
+ * 둘 다 「진행 중 항차의 연료를 알 수 없어 그 항차분이 누적에 들어가지 않았다」는
+ * 뜻이고, 각 문구가 **사용자가 할 일**(선박 제원의 기준 일일 연료소모량 입력 · 항차
+ * 연료 입력)을 담고 있다.
+ *
+ * ⚠️ **`COMPLETED_NO_FUEL`·`COMPLETED_NO_DISTANCE`는 넣지 않았다.** 두 문구는
+ * 「계획값을 임시 사용 중」으로 끝나는데, 그것은 **값이 들어갔다**는 뜻이라
+ * 「계산하지 못했다」와 모순된다. 이 목록에 코드를 더할 때는 그 문구가 「무엇을
+ * 채우면 값이 생기는가」에 답하는지 먼저 본다 — 답하지 않는 경고를 넣으면 카드가
+ * 다시 「고칠 수 없는 안내」나 서로 어긋나는 안내를 하게 된다.
+ */
+const YTD_BLOCKER_WARNINGS: ReadonlySet<string> = new Set([
+  'SIMULATION_NO_FUEL_RATE',
+  'SIMULATION_NO_FUEL_TYPE',
+])
+
 export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }) {
   const { vesselId } = useParams()
   const [data, setData] = useState<RealtimeCii | null>(null)
@@ -250,6 +268,15 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 
   const unit = ciiUnit(data.capacityBasis)
   const degrading = isDegradingAtBerth(data)
+  /*
+   * 누적을 계산하지 못한 **사유**로 서버가 내려보낸 경고 (`#1095` ⑵).
+   *
+   * 화면이 사유를 새로 짓지 않는다 — 이 네 코드는 「값이 없다」가 아니라 「**무엇을
+   * 채우면 값이 생긴다**」를 말하고, 그 문구는 `API_SPEC §1.6`이 소유한다. 여기서
+   * 하는 일은 **그 가운데 지금 화면에 해당하는 것만 골라** 카드 안으로 옮기는 것뿐이다
+   * (전체 경고 목록은 화면 아래에 그대로 남는다).
+   */
+  const ytdBlockers = data.warnings.filter((code) => YTD_BLOCKER_WARNINGS.has(code))
 
   return (
     <div className="rt">
@@ -382,9 +409,30 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
             </dl>
           </div>
         ) : (
-          <p className="rt__nodata">
-            올해 등록된 실적이 없습니다. 항차 실적을 입력하면 누적값이 계산됩니다.
-          </p>
+          /*
+           * ⚠️ **「실적이 없다」와 「있는데 계산하지 못했다」는 다르다** (`#1095` ⑵).
+           *
+           * 서버는 `total_distance_nm <= 0` **또는** `total_fuel_ton <= 0`이면
+           * `data_available=false`를 준다(`services/ytd_cii.py:390`). 뒤쪽은 항차도
+           * 거리도 있는데 **연료를 모르는** 상태다 — 기여도 카드에는 거리 수백 nm이
+           * 찍히는데 여기서만 「실적을 입력하라」고 말하고 있었고, 실제로 해야 할 일은
+           * 선박 제원(기준 일일 연료소모량) 입력이다.
+           *
+           * 사유는 **서버가 이미 경고로 말하고 있다** — `SIMULATION_NO_FUEL_RATE` ·
+           * `SIMULATION_NO_FUEL_TYPE` 등이 같은 응답의 `warnings`에 실린다
+           * (`API_SPEC §1.6`). 화면이 새로 문구를 짓지 않고 그 문구를 그대로 쓴다.
+           */
+          <div className="rt__nodata">
+            {ytdBlockers.length > 0 ? (
+              <ul className="rt__nodata-reasons">
+                {ytdBlockers.map((code) => (
+                  <li key={code}>{warningText(code)}</li>
+                ))}
+              </ul>
+            ) : (
+              <p>올해 등록된 실적이 없습니다. 항차 실적을 입력하면 누적값이 계산됩니다.</p>
+            )}
+          </div>
         )}
 
         {data.ytd.dataAvailable && data.ytd.rating ? (
@@ -910,10 +958,17 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
                   formatGrouped(v, DISPLAY_DIGITS.distanceNm),
                 ) ?? '—'}{' '}
                 {DISPLAY_UNITS.distance} /{' '}
+                {/*
+                  ⚠️ **CO₂에는 CO₂ 단위·자릿수를 쓴다** (`#1095` ⑴ · `DESIGN_SYSTEM §4.2`).
+                  종전에는 연료 쪽(`fuel`·`fuelTon`)을 쓰고 있어 **CO₂ 값에 `t`가
+                  붙었다.** 같은 화면의 「누적 CO₂」는 `tCO₂`라 한 화면 안에서 규율이
+                  갈렸고, `format.ts`의 주석이 그 구분의 이유를 이미 적고 있다 —
+                  「둘 다 `t`면 무엇의 질량인지 구분되지 않는다」.
+                */}
                 {formatOrNull(projection.assumptions.plannedCo2Ton, (v) =>
-                  formatGrouped(v, DISPLAY_DIGITS.fuelTon),
+                  formatGrouped(v, DISPLAY_DIGITS.co2Ton),
                 ) ?? '—'}{' '}
-                {DISPLAY_UNITS.fuel}
+                {DISPLAY_UNITS.co2}
               </dd>
             </div>
             <div>
@@ -923,10 +978,11 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
                   formatGrouped(v, DISPLAY_DIGITS.distanceNm),
                 ) ?? '—'}{' '}
                 {DISPLAY_UNITS.distance} /{' '}
+                {/* 위 「잔여 계획 거리 / CO₂」와 같은 자리 (`#1095` ⑴). */}
                 {formatOrNull(projection.assumptions.completedCo2Ton, (v) =>
-                  formatGrouped(v, DISPLAY_DIGITS.fuelTon),
+                  formatGrouped(v, DISPLAY_DIGITS.co2Ton),
                 ) ?? '—'}{' '}
-                {DISPLAY_UNITS.fuel}
+                {DISPLAY_UNITS.co2}
               </dd>
             </div>
           </dl>

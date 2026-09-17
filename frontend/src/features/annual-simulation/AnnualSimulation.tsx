@@ -479,7 +479,16 @@ export function AnnualSimulation({
 type ReproduceState =
   | { status: 'idle' }
   | { status: 'running' }
-  | { status: 'success' }
+  /**
+   * 재현 성공 — **응답의 경고를 함께 든다** (`#1095` ⑶).
+   *
+   * 종전에는 응답을 통째로 버리고 `{ status: 'success' }`만 세웠다. 서버는 원본과
+   * 다른 `model_version`에서 돌아 결과가 같았을 때 `MODEL_VERSION_DIFFERS`를 붙이는데
+   * (`services/annual_simulation.py` · `#833`), 화면이 그것을 읽지 않아 **「같은
+   * 환경에서 같은 결과」와 「다른 환경에서 같은 결과」가 한 문장으로 뭉개졌다.**
+   * `#833`이 만든 구분이 화면에서 사라진 것이다.
+   */
+  | { status: 'success'; warnings: readonly string[] }
   | { status: 'error'; message: string }
 
 function Result({
@@ -495,8 +504,8 @@ function Result({
   const runReproduce = useCallback(async () => {
     setReproduce({ status: 'running' })
     try {
-      await provider.reproduce(result.simulation_id)
-      setReproduce({ status: 'success' })
+      const reproduced = await provider.reproduce(result.simulation_id)
+      setReproduce({ status: 'success', warnings: reproduced.warnings })
     } catch (error: unknown) {
       // 서버 문구를 그대로 낸다 — 409(파라미터 변경 → 새로 실행)와 500(무결성 실패
       // → 관리자 문의)은 **사용자가 할 일이 다르고** 그 안내가 문구에 들어 있다(#837).
@@ -853,9 +862,24 @@ function Result({
               : ANNUAL_COPY.reproduceButton}
           </button>
           {reproduce.status === 'success' ? (
-            <p className="annual-sim__hint" role="status">
-              {ANNUAL_COPY.reproduceSuccess}
-            </p>
+            <>
+              <p className="annual-sim__hint" role="status">
+                {ANNUAL_COPY.reproduceSuccess}
+              </p>
+              {/*
+                재현 응답의 경고 (`#1095` ⑶). 문구는 `WARNING_MESSAGE`가 갖는다 —
+                `API_SPEC §1.6`과 `warningMessage.sync.test.ts`가 잠그는 사슬이다.
+                위 결과 경고 목록과 **다른 범위**라 여기 따로 둔다: 저쪽은 원본
+                실행의 경고이고 이쪽은 **재현 실행**의 경고다.
+              */}
+              {reproduce.warnings.length > 0 ? (
+                <ul className="annual-sim__warnings">
+                  {reproduce.warnings.map((code) => (
+                    <li key={code}>{warningMessage(code)}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </>
           ) : null}
         </div>
         {reproduce.status === 'error' ? (

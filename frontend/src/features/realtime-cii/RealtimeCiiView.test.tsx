@@ -481,3 +481,110 @@ describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
   })
 })
 
+
+/**
+ * 「실적이 없다」와 「있는데 계산하지 못했다」를 가른다 (`#1095` ⑵).
+ *
+ * 서버는 `total_distance_nm <= 0` **또는** `total_fuel_ton <= 0`이면 `dataAvailable=false`를
+ * 준다. 뒤쪽은 항차도 거리도 있는데 **연료를 모르는** 상태다 — 기여도 카드에는 거리
+ * 수백 nm이 찍히는데 누적 카드만 「실적을 입력하라」고 말하고 있었고, 실제로 해야 할 일은
+ * 선박 제원 입력이다. 사유는 서버가 이미 경고로 말한다(`API_SPEC §1.6`).
+ */
+describe('누적 카드가 「계산 불가」를 「실적 없음」으로 말하지 않는다 (#1095 ⑵)', () => {
+  /** 누적은 못 냈지만 항차·거리는 있는 응답. 연료만 0이다. */
+  function noFuel(warnings: string[]): RealtimeCii {
+    return {
+      ...BASE,
+      ytd: {
+        ...BASE.ytd,
+        dataAvailable: false,
+        attainedCii: null,
+        requiredCii: null,
+        rating: null,
+        riskLevel: null,
+        marginRatio: null,
+        ratioToRequired: null,
+        boundaries: null,
+        totalCo2Ton: null,
+        totalFuelTon: '0.00',
+        voyageCount: 2,
+      },
+      warnings,
+    }
+  }
+
+  function once(data: RealtimeCii): RealtimeCiiProvider {
+    return { load: vi.fn(async () => data) }
+  }
+
+  it('서버가 사유를 주면 「실적을 입력하라」가 아니라 그 사유를 말한다', async () => {
+    renderView(once(noFuel(['REFERENCE_ONLY', 'SIMULATION_NO_FUEL_RATE'])))
+
+    /*
+     * 문구는 `API_SPEC §1.6`이 소유하고 `WARNING_MESSAGE`가 전사한다 —
+     * 화면이 새로 짓지 않는다. 사용자가 할 일(선박 제원 입력)이 그 문구에 있다.
+     */
+    expect(
+      await screen.findAllByText(/기준 일일 연료소모량이 등록되지 않아/),
+    ).not.toHaveLength(0)
+    expect(screen.queryByText(/올해 등록된 실적이 없습니다/)).toBeNull()
+  })
+
+  it('진행 중 항차의 유종을 모르는 경우도 사유로 말한다', async () => {
+    renderView(once(noFuel(['SIMULATION_NO_FUEL_TYPE'])))
+
+    expect(await screen.findAllByText(/연료 종류를 알 수 없어/)).not.toHaveLength(0)
+    expect(screen.queryByText(/올해 등록된 실적이 없습니다/)).toBeNull()
+  })
+
+  it('⚠️ 「계획값을 임시 사용 중」 경고는 사유로 쓰지 않는다 — 값이 들어갔다는 뜻이다', async () => {
+    /*
+     * `COMPLETED_NO_FUEL`은 「실적이 입력되지 않은 완료 항차입니다. 계획값을 임시
+     * 사용 중.」이다. 그것을 「계산하지 못한 이유」로 쓰면 **값을 썼다는 문장과 못
+     * 냈다는 상태가 서로 어긋난다.** 이 경고는 화면 아래 경고 목록에만 남는다.
+     */
+    renderView(once(noFuel(['COMPLETED_NO_FUEL'])))
+
+    expect(await screen.findByText(/올해 등록된 실적이 없습니다/)).toBeTruthy()
+  })
+
+  it('진짜로 항차가 없으면 종전대로 「실적이 없습니다」다', async () => {
+    const empty: RealtimeCii = {
+      ...BASE,
+      ytd: {
+        ...BASE.ytd,
+        dataAvailable: false,
+        attainedCii: null,
+        rating: null,
+        totalDistanceNm: '0.00',
+        totalFuelTon: '0.00',
+        voyageCount: 0,
+      },
+      warnings: ['REFERENCE_ONLY'],
+    }
+    renderView(once(empty))
+
+    expect(await screen.findByText(/올해 등록된 실적이 없습니다/)).toBeTruthy()
+  })
+})
+
+/**
+ * CO₂ 값에 연료 단위를 붙이지 않는다 (`#1095` ⑴ · `DESIGN_SYSTEM §4.2`).
+ *
+ * 같은 화면의 「누적 CO₂」는 `tCO₂`인데 연말 예상 가정 블록만 `t`였다 — 한 화면 안에서
+ * 규율이 갈렸다. `format.ts`가 그 구분의 이유를 적고 있다: 「둘 다 `t`면 무엇의 질량인지
+ * 구분되지 않는다」.
+ */
+describe('연말 예상 가정의 CO₂에 tCO₂를 쓴다 (#1095 ⑴)', () => {
+  it('잔여 계획·확정 실적의 CO₂가 tCO₂로 표시된다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+
+    const planned = await screen.findByText(/잔여 계획 거리 \/ CO₂/)
+    const plannedValue = planned.closest('div')!.querySelector('dd')!.textContent!
+    expect(plannedValue).toContain('tCO₂')
+
+    const completed = screen.getByText(/확정 실적 거리 \/ CO₂/)
+    const completedValue = completed.closest('div')!.querySelector('dd')!.textContent!
+    expect(completedValue).toContain('tCO₂')
+  })
+})
