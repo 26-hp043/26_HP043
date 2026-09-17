@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TEST_PLAN.md |
-| 버전 | v1.25 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) + §4.7 인증 API 케이스 (#279) + **v1.6에서 방향 전환 반영 — 신규 서브시스템 5절 · §14 파일 인벤토리 · §11 실측 정정 (#394)** |
+| 버전 | v1.26 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + Layer 1 픽스처 정본값 규칙 반영 (#166) + v1.4에서 §1.3 케이스 스키마 기호 표기 전환 (#46) + §4.7 인증 API 케이스 (#279) + **v1.6에서 방향 전환 반영 — 신규 서브시스템 5절 · §14 파일 인벤토리 · §11 실측 정정 (#394)** + **§3.25~3.27 신설 · §10 실CI 재작성 · §14.3~14.5 갱신 (#1104 · #1081)** |
 | 최종 수정일 | 2026-09-18 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21, `DB_SCHEMA.md` v1.16 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 테스트 프레임워크 | pytest (Python), httpx (API 통합 테스트) |
@@ -1019,6 +1019,45 @@ def test_no_implicit_float_in_layer1():
 | IT-CHATDB-005 | ⚠️ **순위로 정렬하지 않는다** | 시나리오 비교 | 서비스 순서 그대로 |
 | IT-CHATDB-006 | 사유 코드를 그대로 | 실적 없는 선박 | 서버가 문장을 만들지 않는다 |
 | IT-CHATDB-007 | ⚠️ **성공 경로도 필터를 지난다** | 실적 있는 선박 | `vessel_name`이 안 나간다 |
+
+### 3.25 데이터 점검 판정 (`test_data_quality.py` · `test_data_quality_db.py`) [#513]
+
+> `PRD §17.4`가 2026-09-13 사용자 결정으로 정한 판정 셋의 검사다. **판정하지 못한 것(UNKNOWN)이 0건·완결성 100%와 섞이지 않는 것**이 이 절의 뼈대다 — 섞이면 「데이터가 깨끗하다」와 「살펴보지 않았다」가 같은 화면을 쓴다.
+
+| 검사 | 파일 | 무엇을 잠그는가 |
+|---|---|---|
+| 이상치 경계의 배타성 | `test_data_quality.py` | 정확히 0.6배·1.4배는 정상 — 경계값이 이상치 쪽으로 붙지 않는다 |
+| 톤↔kg 입력 실수 | 〃 | 자릿수가 어긋난 연료 입력을 이상치로 잡는다 |
+| cubic law | 〃 | 기대 연료가 속력의 제곱에 비례 — 선형이면 감속 항차가 이상치로 몰린다 |
+| 완결성 = 실측 CO₂ 비율 | `test_data_quality_db.py` | 항차 수 비율이 아니라 배출량 비율 · 배출 없음이 100%가 아니다 |
+| 이상치 항차의 완결성 제외 | 〃 | 이상치는 「실측」에서 빼고 「판정 불가」로 갈라 센다 |
+| 대체 연료로 판정하지 않는다 | 〃 | `ytd.substitutions`(`#449`)로 대체된 연료는 이상치 판정의 분모에 들어가지 않는다 |
+| HTTP 경로 | 〃 | 인증 401 · 봉투 · 연도 범위 422 — 서비스가 아니라 실제 엔드포인트(`API_SPEC §2.16`) |
+
+### 3.26 실적 보정계수 (`test_annual_simulation.py` · `test_annual_simulation_read_db.py` · `test_hashing.py`) [#363]
+
+> `PRD §12.2.1`의 보정계수(최근 실적이 계획보다 나쁘면 잔여 계획의 연료에 비를 곱한다)는 **켰다는 사실만** 저장한다(`annual_simulation_run.apply_feedback_factor` · `DB_SCHEMA §2.6`).
+
+| 검사 | 파일 | 무엇을 잠그는가 |
+|---|---|---|
+| 강도는 비(총량이 아니다) | `test_annual_simulation.py` | 연료만 곱하고 거리는 그대로 |
+| 최소 표본 미만은 `null` | 〃 · `test_annual_simulation_read_db.py` | 표본이 모자라면 적용하지 않고 `FEEDBACK_FACTOR_UNAVAILABLE` 경고(`TECH_SPEC §12.3`) |
+| 켠 실행의 재현 | `test_annual_simulation_read_db.py` | 켜고 돌린 실행이 파라미터 재현으로 같은 값 |
+| `input_hash` 분리 | `test_hashing.py` | 켠 실행과 끈 실행의 해시가 갈라진다 — 바뀌면 저장된 실행 전부가 재현 불가 |
+| 끄지 않아도 계수를 싣는가 | `test_annual_simulation_read_db.py` | 응답 메타가 켬/끔을 그대로 말한다 |
+
+### 3.27 필요 감축량 역산 (`test_annual_simulation.py`) [#433]
+
+> `PRD §12.3.1`(목표 역산) — 「줄이라는 만큼 줄이면 목표 경계에 정확히 정착하는가」를 검사한다.
+
+| 검사 | 파일 | 무엇을 잠그는가 |
+|---|---|---|
+| 역산의 정착 | `test_annual_simulation.py` | 줄이라는 만큼 줄이면 목표 등급 경계에 정확히 닿는다 |
+| 목표 경계의 출처 | 〃 | 등급 판정과 같은 표(`cii_rating_boundary`)에서 온다 — 별도 기준이 아니다 |
+| 연료 환산 | 〃 | 구성비 비례 — 한 유종에 몰아 넣지 않는다 |
+| 잔여 계획 없음 ≠ 줄일 것 없음 | 〃 | 둘을 갈라 말한다 |
+| 닿을 수 없는 목표 | 〃 | 전부 없애도 못 닿으면 그렇게 말한다 — 조용히 0%를 내지 않는다 |
+
 | IT-CHATDB-008 | ⚠️ **없는 선박 id가 안 샌다** | 임의 UUID | 문구에 UUID 없음 |
 | IT-CHATDB-009 | 연도 기본값이 상수가 아니다 | 연도 생략 | 문구가 고정 |
 
@@ -1439,31 +1478,35 @@ def assert_monte_carlo_equal(actual: dict, expected: dict, sig_digits: int = 4):
 
 ## 10. CI 파이프라인 통합
 
-### 10.1 단계별 실행
+> 이 절은 2026-09-17에 실제 워크플로와 대조해 재작성했다(#1104) — 종전 §10은 `test.yml`의 5단계 파이프라인을 적고 있었으나 **그 파일도 단계도 존재한 적이 없었다.**
 
-```yaml
-# .github/workflows/test.yml (참고용)
-stages:
-  - lint:           # ruff (flake8-bugbear ban-api: numpy.random.default_rng 포함) [ORACLE-M-1]
-  - unit:           # pytest tests/unit/
-  - integration:    # pytest tests/integration/
-  - api:            # pytest tests/api/ (test DB + test server)
-  - db:             # pytest tests/db/ (PostgreSQL test container)
-  - performance:    # pytest tests/performance/ (벤치마크)
-```
+### 10.1 워크플로와 잡
+
+CI는 `.github/workflows/ci.yml` 한 파일에 잡 4개, 제목 검사가 `pr-title.yml`로 분리돼 있다. **다섯 모두 required check다**(`AGENTS §7` 머지 조건 표).
+
+| 잡 | 워크플로 | 무엇을 보는가 |
+|---|---|---|
+| `lint` | `ci.yml` | `ruff check` + `ruff format --check`(`src/`·`alembic/`·`tests/`·`scripts/`). ruff 버전 핀은 `pyproject.toml`에서 읽는다 — 못 찾으면 즉시 실패(#478) |
+| `test` | `ci.yml` | **CUBRID 11.4 서비스 컨테이너**(`cii_test`) 위에서 pytest 전체. `--cov-fail-under=90`(전체 #235) + `scripts/check_coverage_floor.py`(파일별 하한 #955). PDF 렌더링 런타임(`libpango`·`fonts-nanum`)을 깔아 한글 tofu 회귀를 잡는다(#361) |
+| `frontend` | `ci.yml` | Node 고정 버전에서 `npm ci` → oxlint → `tsc -b` + `vite build` → `vitest run`(#177) |
+| `docker` | `ci.yml` | 프로덕션 스택(`docker-compose.prod.yml`) 빌드·마이그레이션·시드 행 수(50행)·`APP_ENV` 스모크·HTTP 검증(화면·`/api` 프록시·SPA fallback)·백업 리허설·교체까지 실제로 돈다(#393 · #827) |
+| `pr-title` | `pr-title.yml` | PR 제목 형식 `종류(#이슈번호): 설명`(#600). 제목만 고쳤을 때도 다시 돈다(`edited` 이벤트) |
+
+`audit.yml`은 CI와 별도의 **주간 스케줄** `npm audit`이다(#160) — 외부 advisory DB 갱신으로 코드 변경 없는 날에 실패하므로 머지 게이트에 두지 않는다.
 
 ### 10.2 환경 고정
 
 | 항목 | 방법 |
 |---|---|
-| Python | 3.12.x (Docker 이미지 고정) |
-| NumPy | `numpy==2.1.0` (requirements.txt) |
-| PostgreSQL | 16.x (test container) |
-| OS | Linux x86_64 (CI runner) |
+| Python | 3.12 (`actions/setup-python`) |
+| Python 의존성 | `pyproject.toml` + `uv.lock` (`pip install -e ".[dev]"` · `tests/test_uv_lock_sync.py`가 잠금 파일 일치를 본다). **`requirements.txt`는 없다** — `numpy==2.1.0` 핀도 `pyproject.toml`에 있다 |
+| DB | **CUBRID 11.4** 서비스 컨테이너(`cubrid/cubrid:11.4` · `cii_test`) — 헬스체크는 브로커가 아니라 DB에 `SELECT 1`로 물는다(#1058) |
+| Node | 22.22.0 — `frontend/package.json`의 `engines`와 `ci.yml`·`audit.yml` 세 곳에 같은 값이 손으로 들어 있다(자동 동기화 없음) |
+| OS | `ubuntu-latest` |
 
-### 10.3 RNG canonical vector 검증
+### 10.3 RNG 재현성 검증
 
-CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기준을 충족하는지 검증한다. 실패 시 즉시 빌드 중단.
+별도의 선행 스크립트는 없다 — `tests/test_rng_reproducibility.py`(`UT-RNG-001`, `TECH_SPEC §2.5.1` canonical vector 일치)가 pytest 안에서 핀 환경을 매 실행 검증한다. 비트 정확 일치가 깨지면 그 파일이 실패한다.
 
 ---
 
@@ -1762,17 +1805,12 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
-아래는 `§2`~`§7`이 규정하나 **구현이 아직 없는** 테스트다. 대응 이슈가 열려 있다. **이 목록을 「틀린 참조」로 지우지 않는다** — 계획 문서가 계획을 담는 것은 정상이다.
+**현재 계획분은 없다.** 2026-09-17 재검증에서 종전 7행의 대응 이슈(#58~#66·#105)가 **전부 CLOSED**여서 「대응 이슈가 열려 있다」는 전제가 무너졌고, 구현도 대부분 **다른 파일 이름**으로 이뤄져 §14.4로 옮겼다(#1081 ⑷).
 
-| 파일 | 대응 이슈 |
-|---|---|
-| `test_annual_simulation_api.py` · `test_annual_simulation_snapshot.py` · `test_sensitivity_analysis_api.py` | #63 · #64 (기능③) |
-| `test_weather_factor.py` · `test_weather_fallback.py` | #61 · #62 (기상 연동) |
-| `test_scenario_adopt.py` | #58 (시나리오 채택) |
-| `test_csv_security.py` | #59 · #60 (CSV) |
-| `test_simulation_policy_filter.py` | #105 (스냅샷 정책) |
-| `test_soft_delete.py` | #66 (소프트 삭제 통합) |
-| `test_audit_log.py` | #65 (감사 로그) |
+- 스냅샷 표현·정책은 `test_annual_simulation_read_db.py`가, 민감도는 `test_annual_simulation.py`(`§3.26`·`§3.27`)이 덮는다 — 별도 파일 없이 같은 파일의 절로 들어갔다.
+- 잔여 부채는 이 절이 아니라 **§14.5 미대응 표와 열린 이슈**(#673 파라미터 import · #756 민감도 2건 · #816 재현성 3종)가 추적한다.
+
+> **이 원칙은 유지한다** — 계획분이 생기면 「틀린 참조」로 지우지 않고 이 절에 등재한다. 계획 문서가 계획을 담는 것은 정상이다.
 
 ### 14.4 이름이 바뀐 것 — 참조 정정
 
@@ -1786,6 +1824,12 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | `test_calculation_query_api.py` | `test_calculations_query_db.py` |
 | `test_parameter_import.py` | `test_parameter_migrations.py` |
 | `test_voyage_state_transition.py` | `test_voyage_state_machine.py` |
+| `test_scenario_adopt.py` | `test_scenario_adopt_db.py` (#58) |
+| `test_soft_delete.py` | `test_soft_delete_db.py` (#66) |
+| `test_audit_log.py` | `test_audit_events_db.py` · `test_audit_actions_db.py` (#65) |
+| `test_annual_simulation_api.py` | `test_annual_simulation_api_db.py` (#63) |
+| `test_weather_factor.py` · `test_weather_fallback.py` | `test_weather_model.py` · `test_weather_fallback_db.py` · `test_weather_client_db.py` (#61 · #62) |
+| `test_csv_security.py` | `test_voyage_import_db.py` · `test_data_export_db.py` (#59 · #60) |
 
 ### 14.5 케이스 ID의 소재 [#447]
 
@@ -1819,11 +1863,13 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 
 #### 계획분 — 기능이 아직 없다
 
+> 대응 이슈 번호를 2026-09-17에 실제 잔여로 정정했다(#1081 ⑸) — 종전 표가 가리키던 #443·#444는 **CLOSED**다. 기능은 살았고 잔여 이슈가 다른 번호로 이어받았다.
+
 | ID | 대응 이슈 |
 |---|---|
-| `IT-IMPORT-001`~`005` | `#444` (파라미터 import) |
-| `IT-AUDIT-002` | `#444` (파라미터 import — **변경 경로가 생겨야 기록할 것이 생긴다**) |
-| `AT-SA-001`~`002` | `#443` (민감도 분석 API — 엔진은 `#63`이 넣었다) |
+| `IT-IMPORT-001`~`005` | `#673` (POST /parameters/import 미구현 — `#444` 잔여) |
+| `IT-AUDIT-002` | `#673` (파라미터 import — **변경 경로가 생겨야 기록할 것이 생긴다**) |
+| `AT-SA-001`~`002` | `#756` (민감도 지렛대 2건 — `#443` 잔여 · 엔진은 `#63`이 넣었다) |
 
 ### 14.6 프론트엔드 테스트의 관할
 
@@ -2087,3 +2133,4 @@ CI 시작 시 `canonical_rng_vector.py`를 실행하여 환경이 재현성 기�
 | 2026-09-17 | `#1087` | §14.2 `test_not_underway_import_db.py` 7 → **10** · 합계 실측 갱신(160파일·2098함수·2577수집 → **160파일·2101함수·2580수집**). 정박 구간 CSV의 **저장 단계 오류가 원본 행 번호로** 나가는지 박는다. 종전에는 `enumerate(parsed)`로 번호를 다시 셌는데 `parsed`에는 **파싱에 성공한 행만** 들어 있어, 앞에서 한 행이라도 떨어지면 뒤의 저장 오류가 전부 위쪽 행 번호로 보고됐다 — 사용자는 멀쩡한 줄을 들여다본다. 3행 파싱 실패 + 4행 겹침으로 종전 `[3, 3]` · 지금 `[3, 4]`(실측). `field`도 함께 본다: 종전에는 저장 오류가 종류와 무관하게 `started_at` 고정이라 **연료 문제를 시작 시각 칸에** 붙였다. ⚠️ **`_error_field`의 `details` 갈래는 CSV 경로로 닿지 않는다** — `parse_row`가 `period_type`·`consumer_type`·`fuel_type`을 `create_period`와 같은 기준으로 먼저 보기 때문이다. 닿지 않는 갈래를 검사 없이 두지 않으려고 **순수 함수 단위로** 고정했다(DB 없이 돈다). 체크리스트 4항으로 본 `voyage_import.py`에는 이 결함이 없다 — 저장 루프가 `try/except`를 하지 않아 번호를 다시 셀 일이 없다. 다만 그 때문에 한 행이 실패하면 파일 전체가 실패하며, 별건이라 후속 이슈로 뗀다. `AGENTS §4.3`상 인벤토리 행 갱신이라 버전은 올리지 않는다 (#1087) |
 | 2026-09-17 | `#1079` | §14.2 `test_auth_tokens.py` 23 → **24** · 합계 실측 갱신(160파일·2097함수·2576수집 → **160파일·2098함수·2577수집**). **같은 재설정 토큰으로 동시에 온 요청 둘 중 하나만 성공하는지**를 박는다. 종전 `consume_token`은 `SELECT` → 파이썬에서 `used_at is None` 확인 → 대입이라, 두 요청이 **둘 다 `used_at IS NULL`을 읽고** 통과했다 — 비밀번호가 나중 요청의 값으로 바뀐다. ⚠️ **이 검사는 `conn` fixture를 쓰지 않는다** — `conn`은 트랜잭션 하나를 열어 끝에 롤백하므로 두 요청이 **한 트랜잭션에 들어가** 경쟁 자체가 일어나지 않는다. 세션 둘이 각자 커밋해야 DB의 행 잠금이 실제로 판정한다. 돌연변이 검사: 종전 구현으로 되돌리면 **동시 요청 2건이 둘 다 성공**해 1건 실패한다(실측). CUBRID에 `RETURNING`이 없으므로(`#1058`) 조건부 `UPDATE`의 `rowcount`로 성공을 판정하고 소유자는 따로 읽는다 — `token_hash`에 유니크 인덱스가 있어 두 행을 만나지 않는다. `AGENTS §4.3`상 인벤토리 행 갱신이라 버전은 올리지 않는다 (#1079) |
 | 2026-09-17 | `#1076` | §14.2 `test_calculations_query_db.py` 3 → **4** · 합계 실측 갱신(160파일·2096함수·2575수집 → **160파일·2097함수·2576수집**). `GET /calculations`의 `meta.needs_recalc_total`(`API_SPEC §1.9`)이 **받은 페이지가 아니라 필터 전체**를 세는지 박는다 — 세 가지다: ⑴ `limit=1`로 한 건만 받아도 2가 나오는가(페이지를 셌다면 1이다) ⑵ 커서로 다음 페이지를 받아도 값이 같은가(페이지마다 달라지면 화면이 그 수를 「이 선박의 낡은 계산 수」로 말할 수 없다) ⑶ `type` 필터를 풀면 다른 종류의 낡은 계산이 더해지는가. 종전에는 화면이 받은 20건만 세어 **21번째 행부터 낡아 있어도 머리에 「0건」**이 나갔다. 프론트엔드는 `CalculationHistory.test.tsx`(+4)·`ReportsView.test.tsx`(+3)에 「더 보기」 실패 시 행 유지·재시도·선박 목록 실패와 「없음」 구분을 고정했다 — §14 인벤토리는 **백엔드 pytest만** 세므로 합계에는 들어가지 않는다 (#1076) |
+| 2026-09-18 | `#1104` · `#1081` ⑷⑤⑥ | **v1.26 — §10을 실제 CI로 재작성 · §3.25~3.27 신설 · §14.3~14.5 갱신.** ⑴ §10이 `test.yml` 5단계·`requirements.txt`·`canonical_rng_vector.py`를 적고 있었으나 **셋 다 존재한 적이 없었다** — 실제 `ci.yml` 4잡(CUBRID 서비스 컨테이너·커버리지 게이트·PDF 폰트) + `pr-title.yml` + 주간 `audit.yml`·uv.lock·`test_rng_reproducibility.py` 기준으로 다시 썼다(#1104). ⑵ #513(데이터 점검)·#363(실적 보정계수)·#433(목표 역산)의 절이 없어 §3.25~3.27을 신설했다 — 같은 시기 #768·#989는 절이 있었다(#1081 ⑹). ⑶ §14.3 계획분 7행의 대응 이슈(#58~#66·#105)가 전부 CLOSED라 계획분이 비었다고 박히게 고치고, 이름이 바뀐 6쌍은 §14.4로 옮겼다(#1081 ⑷). ⑷ §14.5 계획분의 #443·#444(CLOSED)를 실제 잔여 #673·#756으로 재표기했다(#1081 ⑸). 절 신설·재작성이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1104 · #1081) |

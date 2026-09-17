@@ -43,17 +43,18 @@
 화면은 이제 ``GET /vessels``로 받는다. 값 자체는 테스트·픽스처가 참조하므로
 **바꾸려면 그쪽을 함께 고친다.**
 
-## 행 수는 ``rowcount``로 묻지 않는다 (#481)
+## 행 수는 세는 자리에서 직접 센다 (#481 · #1176)
 
-이 모듈의 모든 헬퍼는 ``RETURNING id``로 **돌려받은 행을 센다.**
-
-``rowcount``는 드라이버·실행 경로에 따라 뜻이 달라진다. 실제로 executemany 경로의
-asyncpg는 ``-1``을 돌려주며, 종전 코드의 ``result.rowcount or 0``은 ``-1``이 truthy라
-그대로 새어 나갔다 — 출력이 ``vessel: -1행 신규 적재``였다. 그 값은 **「이미 다 들어
+PostgreSQL 시절에는 ``RETURNING id``로 **돌려받은 행을 세었다** — executemany 경로의
+``rowcount``가 ``-1``이고 종전 코드의 ``result.rowcount or 0``은 ``-1``이 truthy라
+그대로 새어 나갔으며, 출력이 ``vessel: -1행 신규 적재``였다. 그 값은 **「이미 다 들어
 있다(0)」와 「방금 넣었다(N)」를 구분하지 못한다.** 이 출력의 목적이 정확히 그 구분이다.
 
-단일 DELETE의 ``rowcount``는 정상 값을 주지만 거기도 같은 방식을 쓴다. **두 규칙이
-공존하면 다음 사람이 어느 쪽이 맞는지 매번 확인해야 한다.**
+CUBRID 전환(`#1058`) 뒤로는 ``RETURNING``을 쓸 수 없어 세는 자리를 바꿨다 —
+**삽입은 행별 INSERT의 성공 수**(:func:`_insert_ignoring_existing`), **삭제는 단일
+DELETE의 ``rowcount`` 누적**(:func:`_delete_where`). executemany ``rowcount``를 다시
+믿는 것이 아니라, 그 경로가 아예 생기지 않게 행별로 돌린다(#371 · #1079와 같은
+제약).
 
 실행: ``python -m cii_platform.db.demo_seed``
 """
@@ -1139,11 +1140,11 @@ _vessel = sa.table(
 async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dict]) -> int:
     """이미 있는 행은 건너뛴다. 돌려주는 값은 **실제로 넣은** 행 수다.
 
-    ``ON CONFLICT DO NOTHING``은 충돌한 행에 대해 아무것도 반환하지 않으므로,
-    ``RETURNING``으로 돌아온 행의 수가 곧 신규 적재 수다.
-
-    ``rowcount``를 쓰지 않는 이유는 모듈 docstring 참조 (#481) — executemany 경로에서
-    ``-1``이 나온다.
+    행별 ``INSERT``를 돌려 성공할 때마다 직접 세고, 이미 있는 행은
+    ``IntegrityError``로 넘긴다 — 그 예외는 실패가 아니라 「이미 있다」는 뜻이다.
+    CUBRID에는 ``ON CONFLICT``·``RETURNING``이 없어(``#1058``) 이보다 나은 표현이
+    없다(#371의 행별 실행 원칙을 따른다). 종전 ``RETURNING`` 서술은 PostgreSQL
+    시절의 것이었다(``#1176``).
     """
     if not rows:
         return 0
