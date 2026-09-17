@@ -50,6 +50,21 @@ const INTRO =
 /** 보내는 중 표시 (`Q10` ⓑ — 스트리밍 대신 로딩 표시). */
 const PENDING_TEXT = '답변을 준비하고 있습니다…'
 
+/**
+ * 버린 답의 접두 문구 — 2026-09-17 확정 ⓐ (`#1051` 3절).
+ *
+ * `§14`가 **색 단독 구분을 금지**하는데, 종전에는 줄무늬 하나로 나누려 했고
+ * 그마저 면책과 겹쳤다 — **배경·줄무늬·글자색 셋이 모두 같았다.** 문구를 앞에
+ * 붙이면 낭독에 그대로 실리고 색각 이상·저시력에서도 작동한다.
+ *
+ * ⚠️ **서버가 준 사유를 대체하지 않는다.** 폐기 사유의 원문은 서버 소관이며
+ * (`API_SPEC §15.2`) 이 접두는 그 **앞에** 붙는다.
+ *
+ * 문구를 이 파일이 들고 있는 것은 `#1051` 5절(문구 소유)이 미정이기 때문이다 —
+ * 위 네 상수와 같은 자리이며, 5절이 정해지면 **함께** 옮긴다.
+ */
+const DISCARDED_PREFIX = '답을 드리지 못했습니다 — '
+
 let turnSeq = 0
 function nextId(): string {
   turnSeq += 1
@@ -142,7 +157,7 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
           id: nextId(),
           role: 'assistant',
           text: error instanceof Error ? error.message : '답변을 받지 못했습니다.',
-          discarded: true,
+          failed: true,
         },
       ])
       // 설정이 없는 상태면 다시 눌러도 소용없다 — 입력을 닫는다.
@@ -213,11 +228,12 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
             className={[
               'assistant__turn',
               `assistant__turn--${turn.role}`,
-              turn.discarded ? 'assistant__turn--discarded' : '',
+              turn.discarded || turn.failed ? 'assistant__turn--discarded' : '',
             ]
               .filter(Boolean)
               .join(' ')}
           >
+            {turn.discarded ? DISCARDED_PREFIX : null}
             {turn.text}
           </p>
         ))}
