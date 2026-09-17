@@ -54,14 +54,6 @@
 
 .voyage-cii-actions__note,
 .voyage-cii-actions__lead,
-.voyage-cii-actions__hint {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-label);
-  line-height: var(--line-height-label);
-  word-break: keep-all;
-}
-
 /* 저장 결과 — `§8` 상태색 좌측 스트라이프(Info). 기능② 반영 결과와 같은 모양. */
 .voyage-cii-actions__done {
   margin: 0;
@@ -98,18 +90,15 @@
   grid-column: 1 / -1;
 }
 
-.voyage-cii-actions__field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.voyage-cii-actions__field label {
-  font-size: var(--font-size-label);
-  font-weight: var(--font-weight-label);
-}
-
-.voyage-cii-actions__field input {
+/*
+ * 입력칸만 남긴다 — 래퍼(`flex column gap`)와 라벨(`font-size`·`weight`)은 공용
+ * `.field`·`.field__label`이 준다 (`#936`).
+ *
+ * ⚠️ 종전에는 `.voyage-cii-actions__field input` **자손 선택자**였다. 래퍼가 공용
+ * 클래스로 바뀌면 조용히 안 걸리므로 입력칸에 이름을 준다 — 다른 화면이 쓰는
+ * `__control`과 같은 규칙이다.
+ */
+.voyage-cii-actions__control {
   height: 40px;
   padding: 0 var(--space-12);
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */

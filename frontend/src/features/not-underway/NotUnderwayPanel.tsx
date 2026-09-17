@@ -19,6 +19,7 @@ import {
 import type { FuelUseDraft, NotUnderwayProvider, Period, PeriodDraft } from './types'
 import './NotUnderwayPanel.css'
 import { ErrorState } from '../../components/ErrorState'
+import { Field } from '../../components/Field'
 
 /**
  * not under way 구간 입력 — 선박 상세(`#356`) 하위 (`UIFLOW 2-8` · `#370`).
@@ -492,76 +493,84 @@ function PeriodForm({
       ) : null}
 
       <div className="nu__grid">
-        <label>
-          <span>구간 유형</span>
-          <select
-            value={periodType || choices.periodTypes[0]}
-            onChange={(event) => setPeriodType(event.target.value)}
-            data-testid="nu-period-type"
-          >
-            {choices.periodTypes.map((code) => (
-              <option key={code} value={code}>
-                {labelOf(code, PERIOD_TYPE_LABELS)}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Field id="nu-period-type" label="구간 유형">
+          {(control) => (
+            <select
+              {...control}
+              value={periodType || choices.periodTypes[0]}
+              onChange={(event) => setPeriodType(event.target.value)}
+              data-testid="nu-period-type"
+            >
+              {choices.periodTypes.map((code) => (
+                <option key={code} value={code}>
+                  {labelOf(code, PERIOD_TYPE_LABELS)}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
 
-        <label>
-          <span>시작 시각</span>
-          <input
-            type="datetime-local"
-            value={startedAt}
-            onChange={(event) => setStartedAt(event.target.value)}
-            data-testid="nu-started-at"
-            aria-invalid={errors.startedAt !== undefined}
-          />
-          {errors.startedAt ? <em className="nu__field-error" role="alert">{errors.startedAt}</em> : null}
-        </label>
+        <Field id="nu-started-at" label="시작 시각" error={errors.startedAt}>
+          {(control) => (
+            <input
+              {...control}
+              type="datetime-local"
+              value={startedAt}
+              onChange={(event) => setStartedAt(event.target.value)}
+              data-testid="nu-started-at"
+            />
+          )}
+        </Field>
 
-        <label>
-          <span>종료 시각</span>
-          <input
-            type="datetime-local"
-            value={endedAt}
-            onChange={(event) => setEndedAt(event.target.value)}
-            data-testid="nu-ended-at"
-            aria-invalid={errors.endedAt !== undefined}
-          />
-          {/* 비워 두는 것이 정상 경로다 — 정박이 시작될 때는 끝을 모른다. */}
-          <em className="nu__hint">비워 두면 「진행 중」으로 기록됩니다.</em>
-          {errors.endedAt ? <em className="nu__field-error" role="alert">{errors.endedAt}</em> : null}
-        </label>
+        {/* 비워 두는 것이 정상 경로다 — 정박이 시작될 때는 끝을 모른다. */}
+        <Field
+          id="nu-ended-at"
+          label="종료 시각"
+          hint="비워 두면 「진행 중」으로 기록됩니다."
+          error={errors.endedAt}
+        >
+          {(control) => (
+            <input
+              {...control}
+              type="datetime-local"
+              value={endedAt}
+              onChange={(event) => setEndedAt(event.target.value)}
+              data-testid="nu-ended-at"
+            />
+          )}
+        </Field>
 
-        <label>
-          <span>항구 (선택)</span>
-          <input
-            type="text"
-            value={portName}
-            onChange={(event) => setPortName(event.target.value)}
-            maxLength={200}
-          />
-        </label>
+        <Field id="nu-port-name" label="항구 (선택)">
+          {(control) => (
+            <input
+              {...control}
+              type="text"
+              value={portName}
+              onChange={(event) => setPortName(event.target.value)}
+              maxLength={200}
+            />
+          )}
+        </Field>
 
-        <label>
-          <span>이동 거리 (nm)</span>
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            value={distanceNm}
-            onChange={(event) => setDistanceNm(event.target.value)}
-            data-testid="nu-distance"
-            aria-invalid={errors.distanceNm !== undefined}
-          />
-          {/* 왜 0이 기본인지 말해 준다 — 안 그러면 사용자가 빈칸으로 두거나 지어 낸다. */}
-          <em className="nu__hint">
-            접안·묘박은 0입니다. 운하 통과·표류·STS만 값이 있습니다.
-          </em>
-          {errors.distanceNm ? (
-            <em className="nu__field-error" role="alert">{errors.distanceNm}</em>
-          ) : null}
-        </label>
+        {/* 왜 0이 기본인지 말해 준다 — 안 그러면 사용자가 빈칸으로 두거나 지어 낸다. */}
+        <Field
+          id="nu-distance"
+          label={`이동 거리 (${DISPLAY_UNITS.distance})`}
+          hint="접안·묘박은 0입니다. 운하 통과·표류·STS만 값이 있습니다."
+          error={errors.distanceNm}
+        >
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              min={0}
+              step="0.01"
+              value={distanceNm}
+              onChange={(event) => setDistanceNm(event.target.value)}
+              data-testid="nu-distance"
+            />
+          )}
+        </Field>
       </div>
 
       <div className="nu__fuel-head">

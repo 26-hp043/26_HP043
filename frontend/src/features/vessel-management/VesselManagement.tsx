@@ -46,6 +46,7 @@ import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import './VesselManagement.css'
 import { ErrorState } from '../../components/ErrorState'
+import { Field } from '../../components/Field'
 
 /**
  * 선박 관리 화면 — 목록 · 수정 · 삭제 (#510).
@@ -571,125 +572,106 @@ function EditForm({
         IMO 번호 <strong>{vessel.imo_number}</strong> — 등록 후에는 변경할 수 없습니다.
       </p>
 
-      <label className="vessel-management__field">
-        <span>선명</span>
-        <input
-          value={state.name}
-          onChange={(e) => set({ name: e.target.value })}
-          aria-invalid={EDIT_FIELD.name in errors}
-        />
-        {errors[EDIT_FIELD.name] !== undefined && (
-          <span className="vessel-management__field-error" role="alert">{errors[EDIT_FIELD.name]}</span>
+      <Field id="vm-name" label="선명" error={errors[EDIT_FIELD.name]}>
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            value={state.name}
+            onChange={(e) => set({ name: e.target.value })}
+          />
         )}
-      </label>
+      </Field>
 
-      <label className="vessel-management__field">
-        <span>선종</span>
-        <select
-          value={state.shipType}
-          onChange={(e) => set({ shipType: e.target.value })}
-          aria-invalid={EDIT_FIELD.shipType in errors}
-        >
-          <option value="">선택</option>
-          {SHIP_TYPES.map((option) => (
-            <option key={option.code} value={option.code}>
-              {option.label} ({option.code})
+      <Field id="vm-shipType" label="선종" error={errors[EDIT_FIELD.shipType]}>
+        {(control) => (
+          <select
+            {...control}
+            className="vessel-management__control"
+            value={state.shipType}
+            onChange={(e) => set({ shipType: e.target.value })}
+          >
+            <option value="">선택</option>
+            {SHIP_TYPES.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.label} ({option.code})
+              </option>
+            ))}
+          </select>
+        )}
+      </Field>
+
+      <Field id="vm-grossTonnage" label="총톤수(GT)" error={errors[EDIT_FIELD.grossTonnage]}>
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            inputMode="decimal"
+            value={state.grossTonnage}
+            onChange={(e) => set({ grossTonnage: e.target.value })}
+          />
+        )}
+      </Field>
+
+      <Field id="vm-deadweight" label="재화중량톤수(DWT)" error={errors[EDIT_FIELD.deadweight]}>
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            inputMode="decimal"
+            value={state.deadweight}
+            onChange={(e) => set({ deadweight: e.target.value })}
+          />
+        )}
+      </Field>
+
+      <Field id="vm-referenceSpeedKn" label="기준속도 (kn)" error={errors[EDIT_FIELD.referenceSpeedKn]}>
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            inputMode="decimal"
+            value={state.referenceSpeedKn}
+            onChange={(e) => set({ referenceSpeedKn: e.target.value })}
+          />
+        )}
+      </Field>
+
+      <Field id="vm-referenceDailyFocTon" label={`기준 일일 연료소모량 (${DISPLAY_UNIT_DAILY_FUEL})`} error={errors[EDIT_FIELD.referenceDailyFocTon]}>
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            inputMode="decimal"
+            value={state.referenceDailyFocTon}
+            onChange={(e) => set({ referenceDailyFocTon: e.target.value })}
+          />
+        )}
+      </Field>
+
+      <Field id="vm-defaultFuelType" label="기본 연료" error={errors[EDIT_FIELD.defaultFuelType]}>
+        {(control) => (
+          <select
+            {...control}
+            className="vessel-management__control"
+            value={state.defaultFuelType}
+            onChange={(e) => set({ defaultFuelType: e.target.value })}
+          >
+            <option value="">
+              {fuelsLoading
+                ? '연료 목록을 불러오는 중…'
+                : fuelsFailed
+                  ? '연료 목록을 불러오지 못했습니다'
+                  : '선택 안 함'}
             </option>
-          ))}
-        </select>
-        {errors[EDIT_FIELD.shipType] !== undefined && (
-          <span className="vessel-management__field-error" role="alert">
-            {errors[EDIT_FIELD.shipType]}
-          </span>
+            {fuels.map((fuel) => (
+              <option key={fuel.code} value={fuel.code}>
+                {fuelTypeOptionText(fuel.code)}
+              </option>
+            ))}
+          </select>
         )}
-      </label>
-
-      <label className="vessel-management__field">
-        <span>총톤수(GT)</span>
-        <input
-          inputMode="decimal"
-          value={state.grossTonnage}
-          onChange={(e) => set({ grossTonnage: e.target.value })}
-          aria-invalid={EDIT_FIELD.grossTonnage in errors}
-        />
-        {errors[EDIT_FIELD.grossTonnage] !== undefined && (
-          <span className="vessel-management__field-error" role="alert">
-            {errors[EDIT_FIELD.grossTonnage]}
-          </span>
-        )}
-      </label>
-
-      <label className="vessel-management__field">
-        <span>재화중량톤수(DWT)</span>
-        <input
-          inputMode="decimal"
-          value={state.deadweight}
-          onChange={(e) => set({ deadweight: e.target.value })}
-          aria-invalid={EDIT_FIELD.deadweight in errors}
-        />
-        {errors[EDIT_FIELD.deadweight] !== undefined && (
-          <span className="vessel-management__field-error" role="alert">
-            {errors[EDIT_FIELD.deadweight]}
-          </span>
-        )}
-      </label>
-
-      <label className="vessel-management__field">
-        <span>기준속도 (kn)</span>
-        <input
-          inputMode="decimal"
-          value={state.referenceSpeedKn}
-          onChange={(e) => set({ referenceSpeedKn: e.target.value })}
-          aria-invalid={EDIT_FIELD.referenceSpeedKn in errors}
-        />
-        {errors[EDIT_FIELD.referenceSpeedKn] !== undefined && (
-          <span className="vessel-management__field-error" role="alert">
-            {errors[EDIT_FIELD.referenceSpeedKn]}
-          </span>
-        )}
-      </label>
-
-      <label className="vessel-management__field">
-        <span>기준 일일 연료소모량 ({DISPLAY_UNIT_DAILY_FUEL})</span>
-        <input
-          inputMode="decimal"
-          value={state.referenceDailyFocTon}
-          onChange={(e) => set({ referenceDailyFocTon: e.target.value })}
-          aria-invalid={EDIT_FIELD.referenceDailyFocTon in errors}
-        />
-        {errors[EDIT_FIELD.referenceDailyFocTon] !== undefined && (
-          <span className="vessel-management__field-error" role="alert">
-            {errors[EDIT_FIELD.referenceDailyFocTon]}
-          </span>
-        )}
-      </label>
-
-      <label className="vessel-management__field">
-        <span>기본 연료</span>
-        <select
-          value={state.defaultFuelType}
-          onChange={(e) => set({ defaultFuelType: e.target.value })}
-          aria-invalid={EDIT_FIELD.defaultFuelType in errors}
-        >
-          <option value="">
-            {fuelsLoading
-              ? '연료 목록을 불러오는 중…'
-              : fuelsFailed
-                ? '연료 목록을 불러오지 못했습니다'
-                : '선택 안 함'}
-          </option>
-          {fuels.map((fuel) => (
-            <option key={fuel.code} value={fuel.code}>
-              {fuelTypeOptionText(fuel.code)}
-            </option>
-          ))}
-        </select>
-        {errors[EDIT_FIELD.defaultFuelType] !== undefined && (
-          <span className="vessel-management__field-error" role="alert">
-            {errors[EDIT_FIELD.defaultFuelType]}
-          </span>
-        )}
-      </label>
+      </Field>
 
       {clearNotice !== null && (
         <p className="vessel-management__warn" role="status">

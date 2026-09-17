@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { ErrorState } from '../../components/ErrorState'
+import { Field } from '../../components/Field'
 import { GradeBadge } from '../../components/GradeBadge'
 import { formatGrouped } from '../../display/format'
 import { warningMessage } from '../voyage-cii/resultRules'
@@ -173,31 +174,39 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       <p className="fr__notice">{COPY.deterministicNotice}</p>
 
       <div className="fr__controls">
-        <label className="fr__field" htmlFor="fr-year">
-          <span className="fr__label">{COPY.yearLabel}</span>
-          <select
-            id="fr-year"
-            value={year}
-            disabled={years.length === 0}
-            onChange={(e) => setYear(e.target.value)}
-          >
-            {years.map((y) => (
-              <option key={y} value={String(y)}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="fr__field" htmlFor="fr-target">
-          <span className="fr__label">{COPY.targetLabel}</span>
-          <select id="fr-target" value={target} onChange={(e) => setTarget(e.target.value as Target)}>
-            {TARGETS.map((t) => (
-              <option key={t} value={t}>
-                {TARGET_TEXT[t]}
-              </option>
-            ))}
-          </select>
-        </label>
+        <Field id="fr-year" label={COPY.yearLabel}>
+          {(control) => (
+            <select
+              {...control}
+              className="fr__control"
+              value={year}
+              disabled={years.length === 0}
+              onChange={(e) => setYear(e.target.value)}
+            >
+              {years.map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field id="fr-target" label={COPY.targetLabel}>
+          {(control) => (
+            <select
+              {...control}
+              className="fr__control"
+              value={target}
+              onChange={(e) => setTarget(e.target.value as Target)}
+            >
+              {TARGETS.map((t) => (
+                <option key={t} value={t}>
+                  {TARGET_TEXT[t]}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
       </div>
 
       {shown === null && evaluation.error === null ? (
@@ -275,28 +284,29 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                 {fuelCodes.map((code) => {
                   const invalid = isInvalidPrice(prices.fuelUsdPerTon[code] ?? '')
                   return (
-                    <label key={code} className="fr__field" htmlFor={`fr-fuel-${code}`}>
-                      <span className="fr__label">{code}</span>
-                      <input
-                        id={`fr-fuel-${code}`}
-                        type="number"
-                        min={0}
-                        inputMode="decimal"
-                        value={prices.fuelUsdPerTon[code] ?? ''}
-                        aria-invalid={invalid ? true : undefined}
-                        onChange={(e) =>
-                          setPrices((prev) => ({
-                            ...prev,
-                            fuelUsdPerTon: { ...prev.fuelUsdPerTon, [code]: e.target.value },
-                          }))
-                        }
-                      />
-                      {invalid ? (
-                        <em className="fr__field-error" role="alert">
-                          {COPY.priceInvalid}
-                        </em>
-                      ) : null}
-                    </label>
+                    <Field
+                      key={code}
+                      id={`fr-fuel-${code}`}
+                      label={code}
+                      error={invalid ? COPY.priceInvalid : undefined}
+                    >
+                      {(control) => (
+                        <input
+                          {...control}
+                          className="fr__control"
+                          type="number"
+                          min={0}
+                          inputMode="decimal"
+                          value={prices.fuelUsdPerTon[code] ?? ''}
+                          onChange={(e) =>
+                            setPrices((prev) => ({
+                              ...prev,
+                              fuelUsdPerTon: { ...prev.fuelUsdPerTon, [code]: e.target.value },
+                            }))
+                          }
+                        />
+                      )}
+                    </Field>
                   )
                 })}
               </div>
@@ -307,16 +317,18 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                 {COPY.saveTitle}
               </h2>
               <div className="fr__save">
-                <label className="fr__field" htmlFor="fr-plan-name">
-                  <span className="fr__label">{COPY.planNameLabel}</span>
-                  <input
-                    id="fr-plan-name"
-                    type="text"
-                    maxLength={100}
-                    value={planName}
-                    onChange={(e) => setPlanName(e.target.value)}
-                  />
-                </label>
+                <Field id="fr-plan-name" label={COPY.planNameLabel}>
+                  {(control) => (
+                    <input
+                      {...control}
+                      className="fr__control"
+                      type="text"
+                      maxLength={100}
+                      value={planName}
+                      onChange={(e) => setPlanName(e.target.value)}
+                    />
+                  )}
+                </Field>
                 <button
                   type="button"
                   className="fr__button"
@@ -346,17 +358,23 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   )}
                 </div>
               ) : (
-                <label className="fr__field" htmlFor="fr-load">
-                  <span className="fr__label">{COPY.loadLabel}</span>
-                  <select id="fr-load" value="" onChange={(e) => loadPlan(e.target.value)}>
-                    <option value="">{COPY.loadPlaceholder}</option>
-                    {plans.map((p) => (
-                      <option key={p.planId} value={p.planId}>
-                        {p.planName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                <Field id="fr-load" label={COPY.loadLabel}>
+                  {(control) => (
+                    <select
+                      {...control}
+                      className="fr__control"
+                      value=""
+                      onChange={(e) => loadPlan(e.target.value)}
+                    >
+                      <option value="">{COPY.loadPlaceholder}</option>
+                      {plans.map((p) => (
+                        <option key={p.planId} value={p.planId}>
+                          {p.planName}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
               )}
             </section>
           </aside>
@@ -440,6 +458,8 @@ function VesselRow({
           aria-label={`${vessel.vesselName} ${COPY.colCharter}`}
           value={charter}
           disabled={unavailable}
+          /* Field 예외(#936): 표 칸이라 보이는 `<label>`이 없다 — 이름은 열 제목과
+             `aria-label`이 준다. `Field`를 씌우면 셀마다 라벨이 한 줄씩 생긴다. */
           aria-invalid={charterInvalid ? true : undefined}
           onChange={(e) => onCharter(e.target.value)}
         />

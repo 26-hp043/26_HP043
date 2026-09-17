@@ -18,6 +18,7 @@ import { useYearOptions } from '../parameters/yearCatalog'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import type { ResultState } from './resultRules'
+import { Field } from '../../components/Field'
 
 /**
  * 기능① 항차 조건 입력 폼 (#135).
@@ -268,26 +269,35 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
           <StaticField label="선박" labelEn="Vessel" value="선박 목록을 불러오지 못했습니다" />
         ) : vessels.length > 1 ? (
           <Field id="vessel" label="선박" labelEn="Vessel">
-            <select
-              id="vessel"
-              className="voyage-cii-form__control"
-              value={state.vesselId}
-              onChange={(e) => {
-                setVesselNotice(null)
-                changeVessel(e.target.value)
-              }}
-            >
-              {vessels.map((vessel) => (
-                <option key={vessel.id} value={vessel.id}>
-                  {vessel.displayName}
-                </option>
-              ))}
-            </select>
-            {vesselNotice !== null ? (
-              <p className="voyage-cii-form__hint" role="alert">
-                {vesselNotice}
-              </p>
-            ) : null}
+            {/*
+              안내(`SHELL_VESSEL_MISSING`)를 컨트롤과 함께 돌려준다. 검증 오류도
+              정적 힌트도 아닌 **상태 변경 알림**이라 `Field`의 `error`·`hint` 어느
+              자리도 아니다 — 원래 위치(셀렉트 바로 아래)와 `role="alert"`를 지킨다.
+            */}
+            {(control) => (
+              <>
+              <select
+                {...control}
+                className="voyage-cii-form__control"
+                value={state.vesselId}
+                onChange={(e) => {
+                  setVesselNotice(null)
+                  changeVessel(e.target.value)
+                }}
+              >
+                {vessels.map((vessel) => (
+                  <option key={vessel.id} value={vessel.id}>
+                    {vessel.displayName}
+                  </option>
+                ))}
+              </select>
+              {vesselNotice !== null ? (
+                <p className="voyage-cii-form__hint" role="alert">
+                  {vesselNotice}
+                </p>
+              ) : null}
+              </>
+            )}
           </Field>
         ) : (
           <StaticField
@@ -304,18 +314,20 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
           <StaticField label="규제연도" labelEn="Year" value="규제연도 목록을 불러오지 못했습니다" />
         ) : years.length > 1 ? (
           <Field id="year" label="규제연도" labelEn="Year">
-            <select
-              id="year"
-              className="voyage-cii-form__control"
-              value={state.regulationYear}
-              onChange={(e) => update('regulationYear', e.target.value)}
-            >
-              {years.map((year) => (
-                <option key={year} value={String(year)}>
-                  {year}
-                </option>
-              ))}
-            </select>
+            {(control) => (
+              <select
+                {...control}
+                className="voyage-cii-form__control"
+                value={state.regulationYear}
+                onChange={(e) => update('regulationYear', e.target.value)}
+              >
+                {years.map((year) => (
+                  <option key={year} value={String(year)}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            )}
           </Field>
         ) : (
           /*
@@ -346,18 +358,18 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
           unit={DISPLAY_UNITS.distance}
           error={errors[FIELD.distanceNm]}
         >
-          <input
-            id="distance"
-            className="voyage-cii-form__control"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="any"
-            value={state.distanceNm}
-            aria-invalid={FIELD.distanceNm in errors}
-            aria-describedby={FIELD.distanceNm in errors ? 'distance-error' : undefined}
-            onChange={(e) => update('distanceNm', e.target.value, FIELD.distanceNm)}
-          />
+          {(control) => (
+            <input
+              {...control}
+              className="voyage-cii-form__control"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={state.distanceNm}
+              onChange={(e) => update('distanceNm', e.target.value, FIELD.distanceNm)}
+            />
+          )}
         </Field>
 
         <Field
@@ -368,25 +380,18 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
           error={errors[FIELD.speedKn]}
           hint="요청에는 포함되지만 이 구성에서는 결과를 바꾸지 않습니다. 연료량과 거리가 같으면 속력만 바꿔도 값이 같습니다."
         >
-          <input
-            id="speed"
-            className="voyage-cii-form__control"
-            type="number"
-            inputMode="decimal"
-            min="1"
-            step="any"
-            value={state.speedKn}
-            aria-invalid={FIELD.speedKn in errors}
-            aria-describedby={
-              [
-                FIELD.speedKn in errors ? 'speed-error' : null,
-                'speed-hint',
-              ]
-                .filter(Boolean)
-                .join(' ') || undefined
-            }
-            onChange={(e) => update('speedKn', e.target.value, FIELD.speedKn)}
-          />
+          {(control) => (
+            <input
+              {...control}
+              className="voyage-cii-form__control"
+              type="number"
+              inputMode="decimal"
+              min="1"
+              step="any"
+              value={state.speedKn}
+              onChange={(e) => update('speedKn', e.target.value, FIELD.speedKn)}
+            />
+          )}
         </Field>
 
         {/* 연료 종류 — 규제연도와 같은 규칙. 로딩·실패를 빈 선택지와 구분해 보인다 (#542) */}
@@ -401,21 +406,21 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
             labelEn="Fuel Type"
             error={errors[FIELD.fuelType]}
           >
-            <select
-              id="fuel-type"
-              className="voyage-cii-form__control"
-              value={state.fuelType}
-              aria-invalid={FIELD.fuelType in errors}
-              aria-describedby={FIELD.fuelType in errors ? 'fuel-type-error' : undefined}
-              onChange={(e) => update('fuelType', e.target.value, FIELD.fuelType)}
-            >
-              <option value="">선택해 주세요</option>
-              {fuels.map((fuel) => (
-                <option key={fuel.code} value={fuel.code}>
-                  {fuelTypeOptionText(fuel.code)}
-                </option>
-              ))}
-            </select>
+            {(control) => (
+              <select
+                {...control}
+                className="voyage-cii-form__control"
+                value={state.fuelType}
+                onChange={(e) => update('fuelType', e.target.value, FIELD.fuelType)}
+              >
+                <option value="">선택해 주세요</option>
+                {fuels.map((fuel) => (
+                  <option key={fuel.code} value={fuel.code}>
+                    {fuelTypeOptionText(fuel.code)}
+                  </option>
+                ))}
+              </select>
+            )}
           </Field>
         )}
 
@@ -426,18 +431,18 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
           unit={DISPLAY_UNITS.fuel}
           error={errors[FIELD.fuelTon]}
         >
-          <input
-            id="fuel-ton"
-            className="voyage-cii-form__control"
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="any"
-            value={state.fuelTon}
-            aria-invalid={FIELD.fuelTon in errors}
-            aria-describedby={FIELD.fuelTon in errors ? 'fuel-ton-error' : undefined}
-            onChange={(e) => update('fuelTon', e.target.value, FIELD.fuelTon)}
-          />
+          {(control) => (
+            <input
+              {...control}
+              className="voyage-cii-form__control"
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={state.fuelTon}
+              onChange={(e) => update('fuelTon', e.target.value, FIELD.fuelTon)}
+            />
+          )}
         </Field>
       </div>
 
@@ -449,46 +454,6 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
 }
 
 /* ------------------------------------------------------------------ */
-
-interface FieldProps {
-  id: string
-  label: string
-  /** 요청 본문의 필드명. `DESIGN_SYSTEM §14` 「한국어 라벨 + 영문 병기」. */
-  labelEn: string
-  unit?: string
-  hint?: string
-  error?: string
-  children: React.ReactNode
-}
-
-/**
- * 라벨 + 컨트롤 + 보조 문구 + 오류 한 벌.
- *
- * 오류를 컨트롤 **아래**에 두는 것은 `#135` 완료 기준이다.
- * `role="alert"`을 붙여 스크린 리더가 갱신을 읽도록 한다(`DESIGN_SYSTEM §14`).
- */
-function Field({ id, label, labelEn, unit, hint, error, children }: FieldProps) {
-  return (
-    <div className="voyage-cii-form__field">
-      <label className="voyage-cii-form__label" htmlFor={id}>
-        {label}
-        <span className="voyage-cii-form__label-en"> {labelEn}</span>
-        {unit ? <span className="voyage-cii-form__unit">{unit}</span> : null}
-      </label>
-      {children}
-      {hint ? (
-        <p className="voyage-cii-form__hint" id={`${id}-hint`}>
-          {hint}
-        </p>
-      ) : null}
-      {error ? (
-        <p className="voyage-cii-form__error" id={`${id}-error`} role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  )
-}
 
 interface StaticFieldProps {
   label: string

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router'
 import './VoyageCiiActions.css'
 import { vesselPath } from '../../layout/globalContext'
@@ -22,6 +22,7 @@ import type { ResultState } from './resultRules'
 import { matchSamplePort, portOptionLabel, type SamplePort } from '../ports/samplePorts'
 import type { VoyageCiiProvider } from './provider'
 import { createVoyageCiiProvider } from './providerSelection'
+import { Field } from '../../components/Field'
 
 /**
  * 기능① 결과 화면의 사용자 액션 3종 (`PRD §10.5` · #891).
@@ -240,68 +241,77 @@ export function VoyageCiiActions({
           <p className="voyage-cii-actions__lead">
             이 계산의 거리·속력·연료로 계획 항차를 만듭니다. 출발·도착과 출항 시각을 넣어 주세요.
           </p>
-          <PlanField id="plan-voyage-no" label="항차 번호 (선택)" error={errors.voyageNo}>
-            <input
-              id="plan-voyage-no"
-              value={form.voyageNo}
-              onChange={(e) => update('voyageNo', e.target.value)}
-            />
-          </PlanField>
+          <Field id="plan-voyage-no" label="항차 번호 (선택)" error={errors.voyageNo}>
+            {(control) => (
+              <input
+                  {...control}
+                className="voyage-cii-actions__control"
+                value={form.voyageNo}
+                onChange={(e) => update('voyageNo', e.target.value)}
+              />
+            )}
+                    </Field>
           <datalist id="plan-ports">
             {ports.map((port) => (
               <option key={port.locode} value={port.name} label={portOptionLabel(port)} />
             ))}
           </datalist>
-          <PlanField
+          <Field
             id="plan-departure"
             label="출발항"
             error={errors.departurePortName}
             hint={form.departureCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined}
           >
-            <input
-              id="plan-departure"
-              list="plan-ports"
-              value={form.departurePortName}
-              aria-invalid={Boolean(errors.departurePortName)}
-              onChange={(e) => {
-                const match = matchSamplePort(ports, e.target.value)
-                update('departurePortName', match ? match.name : e.target.value)
-                update('departureCoord', match ? { lat: match.lat, lon: match.lon } : null)
-              }}
-            />
-          </PlanField>
-          <PlanField
+            {(control) => (
+              <input
+                  {...control}
+                className="voyage-cii-actions__control"
+                list="plan-ports"
+                value={form.departurePortName}
+                onChange={(e) => {
+                  const match = matchSamplePort(ports, e.target.value)
+                  update('departurePortName', match ? match.name : e.target.value)
+                  update('departureCoord', match ? { lat: match.lat, lon: match.lon } : null)
+                }}
+              />
+            )}
+                    </Field>
+          <Field
             id="plan-arrival"
             label="도착항"
             error={errors.arrivalPortName}
             hint={form.arrivalCoord ? '샘플 항만 — 좌표가 함께 저장됩니다.' : undefined}
           >
-            <input
-              id="plan-arrival"
-              list="plan-ports"
-              value={form.arrivalPortName}
-              aria-invalid={Boolean(errors.arrivalPortName)}
-              onChange={(e) => {
-                const match = matchSamplePort(ports, e.target.value)
-                update('arrivalPortName', match ? match.name : e.target.value)
-                update('arrivalCoord', match ? { lat: match.lat, lon: match.lon } : null)
-              }}
-            />
-          </PlanField>
-          <PlanField
+            {(control) => (
+              <input
+                  {...control}
+                className="voyage-cii-actions__control"
+                list="plan-ports"
+                value={form.arrivalPortName}
+                onChange={(e) => {
+                  const match = matchSamplePort(ports, e.target.value)
+                  update('arrivalPortName', match ? match.name : e.target.value)
+                  update('arrivalCoord', match ? { lat: match.lat, lon: match.lon } : null)
+                }}
+              />
+            )}
+                    </Field>
+          <Field
             id="plan-departure-at"
             label="출항 예정 시각"
             error={errors.plannedDepartureAt}
             hint="도착 예정 시각은 거리 ÷ 속력으로 채웁니다."
           >
-            <input
-              id="plan-departure-at"
-              type="datetime-local"
-              value={form.plannedDepartureAt}
-              aria-invalid={Boolean(errors.plannedDepartureAt)}
-              onChange={(e) => update('plannedDepartureAt', e.target.value)}
-            />
-          </PlanField>
+            {(control) => (
+              <input
+                  {...control}
+                className="voyage-cii-actions__control"
+                type="datetime-local"
+                value={form.plannedDepartureAt}
+                onChange={(e) => update('plannedDepartureAt', e.target.value)}
+              />
+            )}
+                    </Field>
           <label className="voyage-cii-actions__check" htmlFor="plan-include">
             <input
               id="plan-include"
@@ -329,29 +339,3 @@ export function VoyageCiiActions({
   )
 }
 
-function PlanField({
-  id,
-  label,
-  error,
-  hint,
-  children,
-}: {
-  id: string
-  label: string
-  error?: string
-  hint?: string
-  children: ReactNode
-}) {
-  return (
-    <div className="voyage-cii-actions__field">
-      <label htmlFor={id}>{label}</label>
-      {children}
-      {hint ? <p className="voyage-cii-actions__hint">{hint}</p> : null}
-      {error ? (
-        <p className="voyage-cii-actions__error" role="alert">
-          {error}
-        </p>
-      ) : null}
-    </div>
-  )
-}
