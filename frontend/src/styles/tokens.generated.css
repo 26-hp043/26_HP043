@@ -96,8 +96,10 @@
   --cii-none-border: #c9c7be;
   --semantic-primary: #1a365d;
   --semantic-success: #38a169;
+  --semantic-warning: #b7791f;
   --semantic-danger: #e53e3e;
   --semantic-focus: #1a365d;
+  --semantic-info: #2b6cb0;
   --surface-page: #f4f6f9;
   --surface-inset: #eef2f6;
   --surface-card: #ffffff;
@@ -141,8 +143,10 @@
     --cii-none-border: #39424f;
     --semantic-primary: #4a7cc0;
     --semantic-success: #4ecb84;
+    --semantic-warning: #e0a845;
     --semantic-danger: #f26b6b;
     --semantic-focus: #5b8fd4;
+    --semantic-info: #63a0e0;
     --surface-page: #0e1116;
     --surface-inset: #161a21;
     --surface-card: #1c222b;
@@ -183,8 +187,10 @@
   --cii-none-border: #39424f;
   --semantic-primary: #4a7cc0;
   --semantic-success: #4ecb84;
+  --semantic-warning: #e0a845;
   --semantic-danger: #f26b6b;
   --semantic-focus: #5b8fd4;
+  --semantic-info: #63a0e0;
   --surface-page: #0e1116;
   --surface-inset: #161a21;
   --surface-card: #1c222b;

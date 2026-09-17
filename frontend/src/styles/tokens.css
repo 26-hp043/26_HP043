@@ -225,10 +225,19 @@
   --color-border-control: var(--text-muted);
 
   /* ── 호환 별칭 · 시맨틱 ───────────────────────────────────────────── */
-  --color-info: var(--semantic-primary);
+  /*
+   * Info·Warning이 생성 세트로 내려왔다 (`#1022` · 2026-09-12 확정 N).
+   *
+   * 종전에는 **출처가 없어** Info가 `--semantic-primary`, Warning이 `--cii-c-fill`의
+   * 별칭이었다. Warning 쪽은 `§0.2` 제약 2(등급 색은 A~E 문자와만)에 걸리는 모양이라
+   * `#748`이 `.warn` 배너에서 같은 문제를 이미 한 번 걷어냈다.
+   *
+   * 곁따라 고쳐지는 것 — 라이트 Warning이 **페이지 면 위에서 `1.4.11`을 넘게 된다**
+   * (`#d97b14` 2.86 → `#b7791f` 3.36). 줄무늬·테두리가 그 면 위에 놓인다.
+   */
+  --color-info: var(--semantic-info);
   --color-success: var(--semantic-success);
-  /* 디자이너 세트에 warning이 없다. C등급(주의) 색을 그대로 쓴다 — 의미가 같다. */
-  --color-warning: var(--cii-c-fill);
+  --color-warning: var(--semantic-warning);
   --color-danger: var(--semantic-danger);
 
   /*
@@ -239,19 +248,18 @@
    * | 토큰 | 값 | `--surface-card`(#ffffff) 위 |
    * |---|---|---|
    * | `--color-danger` | `#e53e3e` | **4.13:1** |
-   * | `--color-warning` | `#d97b14` | **3.09:1** |
+   * | `--color-warning` | `#b7791f` | **3.64:1** |
    *
-   * `§0.2` 제약 1은 4.5:1을 요구한다. `--color-warning`은 `--cii-c-fill`의 별칭인데
-   * **fill은 배경으로 쓰라고 만든 값**이라 애초에 문자용이 아니고, `--semantic-danger`는
-   * 디자이너 세트의 유일한 Danger다. **다크 모드는 둘 다 통과한다**(5.4 · 5.89) —
-   * 그래서 다크 검수에서 드러나지 않았다.
+   * `§0.2` 제약 1은 4.5:1을 요구한다. 값의 소유는 Figma이므로(§0.3 문서 목적) 여기서
+   * 생성 토큰을 덮지 않고 **문자 전용 별칭을 따로 둔다.**
    *
-   * 값의 소유는 Figma이므로(§0.3 문서 목적) 여기서 생성 토큰을 덮지 않고 **문자 전용
-   * 별칭을 따로 둔다.** 다크에서는 생성 토큰이 이미 통과하므로 그쪽을 그대로 가리킨다.
+   * ⚠️ **Warning이 시맨틱으로 바뀌어도 이 분리는 그대로 필요하다** — 2026-09-12
+   * 확정 N이 명시했다. `#b7791f`는 흰 바탕에서 **3.64**라 여전히 문자 기준에 미달한다.
+   * *「이제 시맨틱이 생겼으니 `-text`는 지워도 되겠네」로 되돌리지 않는다.*
+   * 라이트 `#a8590c`는 5.12로 통과한다.
    *
-   * **이것은 임시다.** 정본 해법은 Figma가 Danger/Warning의 문자 안전값을 정하는 것이며
-   * `DESIGN_SYSTEM §16 항목 3`(중립색 팔레트 미세 조정)에 함께 올린다. 그때 이 두 줄을
-   * `var(--semantic-*)`로 되돌리면 된다.
+   * 다크는 생성 토큰이 이미 통과하므로 그쪽을 그대로 가리킨다 — Warning은
+   * `#e0a845`로 카드 7.51 · 페이지 8.88이다(종전 `--cii-c-fill` 5.89 · 6.97).
    */
   --color-danger-text: #c92a2a;
   --color-warning-text: #a8590c;
@@ -399,7 +407,7 @@
 
     /* 다크에서는 생성 토큰이 이미 4.5:1을 넘는다 — 덮지 않는다. */
     --color-danger-text: var(--semantic-danger);
-    --color-warning-text: var(--cii-c-fill);
+    --color-warning-text: var(--semantic-warning);
 
     /* 「Primary 채움면」 주석 참조 — 면을 내려 4.5:1을 회복한다. */
     --color-primary-solid: color-mix(in srgb, var(--semantic-primary) 70%, var(--surface-page));
@@ -434,7 +442,7 @@
   --shadow-overlay: 0 8px 24px rgb(0 0 0 / 32%), 0 24px 64px rgb(0 0 0 / 24%);
 
   --color-danger-text: var(--semantic-danger);
-  --color-warning-text: var(--cii-c-fill);
+  --color-warning-text: var(--semantic-warning);
 
   /* 「Primary 채움면」 주석 참조 — 면을 내려 4.5:1을 회복한다. */
   --color-primary-solid: color-mix(in srgb, var(--semantic-primary) 70%, var(--surface-page));
