@@ -2507,7 +2507,8 @@ POST /api/v1/scenarios/{scenario_id}/adopt
     "updated_fields": [
       "planned_distance_nm",
       "planned_speed_kn",
-      "planned_arrival_at"
+      "planned_arrival_at",
+      "planned_fuel_ton"
     ],
     "invalidated_calculation_runs": 2
   },
@@ -2519,7 +2520,28 @@ POST /api/v1/scenarios/{scenario_id}/adopt
 |---|---|---|
 | `voyage_id` | UUID | 반영된 항차. `CREATE_NEW_VOYAGE`면 **새로 만든** 항차 |
 | `invalidated_calculation_runs` | int | 이번 채택으로 **새로 재계산 필요 표시가 붙은** 그 항차의 계산 결과 수. 이미 표시된 결과는 세지 않으므로 `0`은 「계산 이력이 없다」와 「이미 전부 표시돼 있다」 둘 다일 수 있다 (#830 정정 — 종전 예시에 없었다) |
+| `updated_fields` | string[] | 채택이 바꾼 값. **두 모드가 같다** (아래) |
 
+##### `updated_fields` — 계획 연료도 포함한다 [#1072]
+
+| 필드 | 무엇이 들어가나 |
+|---|---|
+| `planned_distance_nm` | 시나리오 거리 |
+| `planned_speed_kn` | 시나리오 속력 |
+| `planned_arrival_at` | 출발 예정 시각 + 시나리오 소요 시간. **출발 시각을 모르면 `null`이다** — 지금 시각으로 채우면 계획이 「지금 출발한다」로 바뀐다 |
+| **`planned_fuel_ton`** | **시나리오 연료량.** `voyage_fuel_use`의 열이지만 사용자가 「무엇이 바뀌었나」로 읽는 단위라 같은 목록에 둔다 |
+
+> **두 모드가 같은 계획 연료를 남긴다.** 종전에는 `CREATE_NEW_VOYAGE`만 시나리오 연료를 쓰고 `UPDATE_EXISTING_PLAN`은 **연료를 그대로 두었다** — 같은 시나리오인데 채택 방식에 따라 연간 예상 결과가 갈렸다. 우회(거리↑) 시나리오는 「새 거리 + 옛 연료」가 되어 CII가 실제보다 **좋게**, 감속(연료↓) 시나리오는 **나쁘게** 나왔다. 화면이 도달하는 경로는 `UPDATE_EXISTING_PLAN` 하나뿐이라(`UIFLOW 2-2`) 그쪽이 틀린 쪽이었다.
+>
+> **출처는 `MODEL_ESTIMATE`다.** 사용자가 적은 값이 아니라 모델 추정값이므로 `voyage_fuel_use.source`에 그것을 남긴다 — `CREATE_NEW_VOYAGE`가 쓰는 값과 같다.
+>
+> **유종이 여럿이면 기존 비중대로 안분한다.** 시나리오 행에는 연료 **종류**가 없으므로(`DB_SCHEMA §2.4`는 양만 갖는다) 종류는 항차가 이미 가진 것을 두고 **양만** 바꾼다. 비중을 유지하면 채택 전후로 **CF 혼합이 바뀌지 않아** CO₂ 차이가 오직 연료량에서만 나온다. 4자리로 반올림한 몫의 **잔차는 비중이 가장 큰 행이 흡수**해 합이 시나리오 총량과 정확히 같다.
+>
+> **비중이 없는 행(`planned_fuel_ton`이 `null`이거나 0)은 건드리지 않는다.** `chk_fuel_positive`(마이그레이션 046)가 `null` 아니면 `> 0`을 요구하므로 0으로 덮으면 채택이 거부된다. 총량은 양수 비중을 가진 행에만 나눈다.
+>
+> **연료 행이 아예 없는 항차**는 `CREATE_NEW_VOYAGE`와 같은 규칙(원본 항차 유종 → 선박 기본 연료)으로 한 행을 만든다. CSV로 항차만 먼저 올린 경우에 실제로 나오는 상태다(`#1095` ⑵).
+>
+> **과거 채택분은 소급 수정하지 않는다.** 저장된 계산을 건드리지 않는 것이 이 제품의 규율이고(`TECH_SPEC §5.4` immutable), 재계산 필요 표시는 이미 붙는다.
 
 > 시나리오 채택 시 해당 Voyage의 계산 결과는 무효화되고 재계산 필요 표시가 설정된다 (PRD §8.4).
 
