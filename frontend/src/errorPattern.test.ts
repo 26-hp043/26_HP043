@@ -54,9 +54,30 @@ describe('에러 표현 규격 가드 (#694)', () => {
   }
 
   it('토큰 그래프를 실제로 읽었다 — 별칭이 등급 토큰에 닿는 것을 알아본다', () => {
-    // 수집이 깨지면 아래 검사가 전부 통과한다. 알려진 별칭 하나로 먼저 확인한다.
-    expect(reachesGrade('var(--color-warning)')).toContain('--cii-c-fill')
+    /*
+     * 수집이 깨지면 아래 검사가 전부 통과한다. 그래서 먼저 확인한다.
+     *
+     * ⚠️ 종전 카나리아는 `--color-warning`이 `--cii-c-fill`에 닿는 것을 근거로 삼았다.
+     * `#1022`가 Figma에서 Warning을 들여오며 **그 별칭이 사라졌고**, 지금 저장소에는
+     * `--cii-*`에 닿는 커스텀 프로퍼티가 **하나도 없다.** 카나리아가 하필
+     * **없어지기를 바라는 냄새**에 기대고 있었던 셈이라, 실재하는 선언에 기대지 않는
+     * 형태로 바꾼다.
+     */
+    // ⑴ 그래프가 실제로 채워졌다 — 이름 하나가 들어와 있는지 본다.
+    expect(graph.has('--color-warning')).toBe(true)
+
+    // ⑵ 직접 참조를 알아본다.
+    expect(reachesGrade('var(--cii-c-fill)')).toBe('--cii-c-fill')
+
+    // ⑶ **별칭 한 겹을 따라간다** — 임시 사슬을 넣어 재귀가 도는 것을 본다.
+    graph.set('--test-only-alias', ['var(--cii-c-fill)'])
+    expect(reachesGrade('var(--test-only-alias)')).toBe('--test-only-alias → --cii-c-fill')
+    graph.delete('--test-only-alias')
+
+    // ⑷ 닿지 않는 것은 닿지 않는다고 말한다.
     expect(reachesGrade('var(--surface-card)')).toBeNull()
+    // Warning은 이제 시맨틱이다 — 등급에 닿지 않는다 (`#1022`).
+    expect(reachesGrade('var(--color-warning)')).toBeNull()
   })
 
   it('실패 표시에 등급 토큰(`--cii-*`)을 쓰지 않는다 — 별칭을 거쳐도', () => {

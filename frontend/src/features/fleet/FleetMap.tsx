@@ -221,11 +221,22 @@ export function FleetMap({ vessels }: FleetMapProps) {
           'line-opacity': 0.9,
         },
       })
-      // CSS 변수는 지도 페인트가 읽지 못한다 — 계산된 값을 꺼내 넣는다.
+      /*
+       * CSS 변수는 지도 페인트가 읽지 못한다 — 계산된 값을 꺼내 넣는다.
+       *
+       * ⚠️ 종전에는 못 읽었을 때 리터럴 `#1f6feb`로 떨어지게 두었는데,
+       * **`--semantic-info`가 존재한 적이 없어 그 리터럴이 언제나 실제 색이었다**
+       * (`#1052` 조사). `§9.5` 🔒가 정한 토큰이 지켜지지 않았고, 저장소에서 토큰 밖
+       * 색을 쓰는 유일한 지점이었으며, 라이트·다크가 같은 파랑이었다.
+       *
+       * `#1022`가 Figma 세트에 Info를 들여 그 토큰이 실재하게 됐다. **리터럴을
+       * 남기지 않는다** — 남기면 다음에 토큰이 사라져도 또 조용히 그 값으로 간다.
+       * 빈 값이면 페인트를 건드리지 않고 두어, 어긋남이 눈에 띄게 한다.
+       */
       const accent = getComputedStyle(document.documentElement)
         .getPropertyValue('--semantic-info')
         .trim()
-      instance.setPaintProperty('routes', 'line-color', accent === '' ? '#1f6feb' : accent)
+      if (accent !== '') instance.setPaintProperty('routes', 'line-color', accent)
     } else {
       source.setData(collection)
     }

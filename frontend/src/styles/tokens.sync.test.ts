@@ -90,6 +90,92 @@ const darkBlock = blockAfter(":root[data-theme='dark'] {")
 
 const REGENERATE = '`npm run build:tokens`를 실행하십시오.'
 
+/**
+ * **정본이 이름을 적은 토큰은 실재해야 한다** (`#1022` · `#1052` 조사).
+ *
+ * `§9.5` 🔒가 지도 항로선을 `--semantic-info`로 정해 두었는데 **그 토큰이 존재한 적이
+ * 없었다.** 코드는 규격대로 그 이름을 읽고 언제나 빈 문자열을 받아 리터럴로 떨어졌다 —
+ * **잠긴 규격이 지켜지지 않는데 아무것도 실패하지 않았다.**
+ *
+ * 값이 맞는지를 보는 가드는 여럿 있었지만, **이름이 실재하는지**를 보는 것이 없었다.
+ * 잠갔다는 것이 지켜지고 있다는 뜻은 아니다.
+ */
+describe('정본이 적은 토큰 이름이 실재한다 (#1022)', () => {
+  const designSystem = readFileSync(new URL('../../../DESIGN_SYSTEM.md', import.meta.url), 'utf8')
+
+  /** 저장소 전체의 커스텀 프로퍼티 **정의**. 기능 CSS의 국지 정의까지 센다. */
+  function definedEverywhere(): Set<string> {
+    const found = new Set<string>()
+    const walk = (dir: URL): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir)
+        if (entry.isDirectory()) walk(child)
+        else if (entry.name.endsWith('.css')) {
+          for (const [, name] of readFileSync(child, 'utf8').matchAll(/(--[\w-]+)\s*:/g)) {
+            found.add(name)
+          }
+        }
+      }
+    }
+    walk(new URL('../', import.meta.url))
+    return found
+  }
+
+  /**
+   * 정본이 **일부러** 이름만 남긴 것. 넣으려면 왜 없어도 되는지 함께 적는다.
+   *
+   * 앞의 셋은 `#747`이 폐기한 이름이고, 정본은 「폐기했다」는 사실을 적기 위해
+   * 이름을 쓴다 — 실재하면 오히려 틀린 것이라 별도 가드가 부재를 잠그고 있다.
+   */
+  const RETIRED: Readonly<Record<string, string>> = {
+    '--text-faint': '#747이 폐기 — 부재를 다른 가드가 잠근다',
+    '--color-text-faint': '#747이 폐기 — 부재를 다른 가드가 잠근다',
+    '--border-faint': '#747이 폐기 — 생성하지 않기로 한 것(PR #928)',
+  }
+
+  /**
+   * ⚠️ **실재해야 하는데 없는 것.** 근거가 아니라 **미제**다.
+   *
+   * `§9.5` 🔒가 「마커에 그림자를 한 겹 둔다(`drop-shadow` 1px `--surface-default`)」로
+   * 정했는데 그 토큰이 없다. `FleetMap.css`가 규격대로 두 곳에서 쓰지만 **둘 다 값이
+   * 없어 아무것도 그려지지 않는다** — 밝은 바다 위에서 A·B 마커가 묻히는 것을 막으려던
+   * 그림자가 실제로는 없다.
+   *
+   * `--semantic-info`는 Figma에서 들여와 풀렸지만 이쪽은 **어느 토큰을 가리키는지가
+   * 판단 사항**이라(가장 가까운 것은 `--surface-card`) 정본 정정과 함께 정해야 한다.
+   */
+  const UNRESOLVED: Readonly<Record<string, string>> = {
+    '--surface-default': '§9.5 마커 그림자 — FleetMap.css가 쓰지만 정의가 없다',
+  }
+
+  it('본문이 적은 토큰 이름이 CSS에 정의돼 있다', () => {
+    const defined = definedEverywhere()
+    const named = new Set([...designSystem.matchAll(/`(--[\w-]+)`/g)].map((m) => m[1]))
+    const missing = [...named].filter(
+      (name) => !defined.has(name) && !(name in RETIRED) && !(name in UNRESOLVED),
+    )
+    expect(
+      missing.sort(),
+      '정본이 이름을 적었는데 정의가 없다. 잠긴 규격이 조용히 안 지켜지는 자리다.',
+    ).toEqual([])
+  })
+
+  it('두 목록이 낡지 않았다 — 생겼으면 뺀다', () => {
+    const defined = definedEverywhere()
+    const stale = [...Object.keys(RETIRED), ...Object.keys(UNRESOLVED)].filter((n) =>
+      defined.has(n),
+    )
+    expect(stale, `정의가 생겼으니 목록에서 빼세요: ${stale.join(', ')}`).toEqual([])
+  })
+
+  it('§9.5가 정한 항로선 토큰이 실재한다 (#1022)', () => {
+    /* 이 한 줄이 없어서 리터럴 `#1f6feb`가 1년 가까이 실제 색이었다. */
+    expect(designSystem).toContain('--semantic-info')
+    expect(rootBlock).toContain('--semantic-info:')
+    expect(darkBlock).toContain('--semantic-info:')
+  })
+})
+
 describe('디자인 토큰 — JSON과 생성 CSS가 일치한다', () => {
   it('라이트 색 토큰이 :root에 모두 있다', () => {
     const mismatched = Object.entries(light)

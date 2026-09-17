@@ -510,6 +510,25 @@
         ]
       }
     },
+    "warning": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.8784313797950745,
+          0.658823549747467,
+          0.2705882489681244
+        ],
+        "alpha": 1,
+        "hex": "#E0A845"
+      },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:27:2",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
     "danger": {
       "$type": "color",
       "$value": {
@@ -543,6 +562,25 @@
       },
       "$extensions": {
         "com.figma.variableId": "VariableID:1:324",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
+    },
+    "info": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.38823530077934265,
+          0.6274510025978088,
+          0.8784313797950745
+        ],
+        "alpha": 1,
+        "hex": "#63A0E0"
+      },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:27:3",
         "com.figma.scopes": [
           "ALL_SCOPES"
         ]
