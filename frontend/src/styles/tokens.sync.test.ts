@@ -934,7 +934,81 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     }
   })
 
+  /*
+   * `#1202` — **경계가 테두리뿐인 컨트롤은 네 면에서 3:1이다.**
+   *
+   * `#829` ⑶이 폼 컨트롤에서, `#1170` ⑴이 배지에서 같은 판단을 내렸는데 **범위가
+   * 그 둘이라 나머지가 남았다.** 세 번 연 자리다. 그래서 이번에는 **토큰 이름이
+   * 아니라 역할로** 잠근다 — 이슈 본문이 `--color-border-strong`으로 범위를 잡았다가
+   * 더 나쁜 `--border-default`(라이트 최소 `1.15`) 아홉 곳을 놓쳤던 것이 그 증거다.
+   *
+   * 역할의 표식은 둘이다 — `cursor: pointer`이고, **테두리 색이 배경색과 다르다**.
+   * 뒤엣것이 「아웃라인」의 정의다. 테두리와 배경이 같은 색이면 채움 버튼이고, 그쪽은
+   * 식별을 **면**이 지므로 재는 대상이 다르다(면 대 주변). 여기서 함께 재면 규칙이
+   * 둘 섞인다.
+   *
+   * 토큰은 네 면 어디에 놓여도 `3:1`을 넘어야 한다 — 실제 면을 소스에서 알 수 없으므로
+   * **가장 빠듯한 쪽으로 판정한다**(`§0.2` 제약 6의 규율).
+   *
+   * 예외 목록을 두지 않는다 — 아웃라인 컨트롤이 쓰는 색 토큰이 전부 통과한다. 목록이
+   * 생기는 순간 「예외로 넣으면 된다」가 되고, 그것이 `#748`이 밟은 길이다.
+   */
+  const POINTER_RULE = /([^{}]*)\{([^}]*cursor:\s*pointer[^}]*)\}/g
+
+  function controlBorders(): { where: string; token: string }[] {
+    const found: { where: string; token: string }[] = []
+    for (const file of cssFilesUnder(CSS_ROOT)) {
+      const body = readFileSync(file, 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const [, selector, rule] of body.matchAll(POINTER_RULE)) {
+        const decl = /border(?:-color)?:\s*[^;]*var\(\s*(--[\w-]+)\s*\)/.exec(rule)
+        if (decl === null) continue
+        // 채움 버튼(테두리색 = 배경색)은 면이 식별을 지므로 이 검사의 역할이 아니다.
+        const fill = /background(?:-color)?:\s*var\(\s*(--[\w-]+)\s*\)/.exec(rule)
+        if (fill !== null && fill[1] === decl[1]) continue
+        found.push({
+          where: `${file.slice(CSS_ROOT.length)} :: ${selector.trim().split('\n')[0].trim()}`,
+          token: decl[1],
+        })
+      }
+    }
+    return found
+  }
+
+  it('컨트롤 테두리를 토큰으로 그리는 자리가 실제로 있다', () => {
+    // 정규식이 헛돌면 아래가 공집합 통과가 된다 — 먼저 잠근다.
+    expect(controlBorders().length).toBeGreaterThan(10)
+  })
+
+  it.each(THEMES)('$name — 컨트롤 테두리가 네 면에서 3:1 이상이다 (#1202)', ({
+    generated,
+    alias,
+  }) => {
+    const offenders: string[] = []
+    for (const { where, token } of controlBorders()) {
+      const color = evaluate(`var(${token})`, generated, alias)
+      for (const surface of TEXT_SURFACES) {
+        const ratio = contrast(color, generated[surface])
+        if (ratio < 3) offenders.push(`${where} — ${token} on ${surface} = ${ratio.toFixed(2)}`)
+      }
+    }
+    expect(offenders, '경계가 테두리뿐인 컨트롤 — 1.4.11 비텍스트 3:1 (#1202)').toEqual([])
+  })
+
   const CONTROL_FACES = ['--surface-inset', '--surface-card']
+
+  /** `#1202` 가드가 쓰는 CSS 목록. */
+  const CSS_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+  function cssFilesUnder(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') cssFilesUnder(join(dir, entry.name), out)
+      } else if (entry.name.endsWith('.css')) {
+        out.push(join(dir, entry.name))
+      }
+    }
+    return out
+  }
 
   it.each(THEMES)('$name — 폼 컨트롤 테두리가 양면에서 3:1 이상이다', ({ generated, alias }) => {
     const value = alias['--color-border-control']

@@ -22,7 +22,7 @@
 .nu__row-actions button,
 .nu__fuel-head button,
 .nu__fuel-row button {
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--color-border-control);
   background: var(--surface-card);
   color: var(--text-primary);
   border-radius: var(--radius-control);
@@ -273,7 +273,7 @@
   align-self: flex-start;
   margin-top: 4px;
   padding: 4px 10px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: 6px;
   background: var(--color-surface-2);
   color: var(--color-text);
@@ -283,7 +283,13 @@
 }
 
 .nu__fuel-add:hover {
-  border-color: var(--color-border-strong);
+  /*
+   * 기준 테두리가 `--color-border-control`이 된 뒤로 `--color-border-strong`은
+   * **기준보다 약하다** — hover가 흐려지는 방향이었다 (`#1202`). 이 화면의 다른
+   * 아웃라인 버튼과 같은 표현으로 맞춘다.
+   */
+  border-color: var(--semantic-primary);
+  color: var(--color-link);
 }
 
 /*
