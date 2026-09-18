@@ -5,3 +5,8 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# 지도 자산 (#985) — 내용이 바뀌면 스크립트를 다시 돌려 커밋하므로 길게 캐시한다.
+# PMTiles는 Range 요청으로 조각을 읽으므로 조각마다 다시 받지 않게 하는 것이 중요하다.
+/basemap/*
+  Cache-Control: public, max-age=604800
