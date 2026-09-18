@@ -72,7 +72,7 @@
   flex: none;
   height: 40px;
   padding: 0 var(--space-16);
-  border: var(--borderWidth-default) solid var(--color-border-strong);
+  border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);

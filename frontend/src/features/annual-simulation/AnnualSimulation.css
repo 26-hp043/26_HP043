@@ -523,7 +523,7 @@
 .annual-sim__reproduce button {
   height: 40px;
   padding: 0 var(--space-16);
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);

@@ -44,7 +44,7 @@
   align-items: flex-start;
   gap: var(--spacing-sm);
   padding: var(--spacing-md);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-card);
   cursor: pointer;
 }
@@ -126,7 +126,7 @@
 }
 
 .rp__actions button {
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--color-border-control);
   background: var(--surface-card);
   color: var(--text-primary);
   border-radius: var(--radius-control);
