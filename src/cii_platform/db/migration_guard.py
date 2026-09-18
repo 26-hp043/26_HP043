@@ -120,6 +120,9 @@ REGENERABLE: dict[str, str] = {
     # 뜻이므로(미명시 실행과 같은 식이 된다) 되돌리기 전에 백업이 필요하다는
     # 가드의 안내를 그대로 받는다.
     "052": "annual_simulation_run.as_of — 컬럼은 재생되지만 저장된 시각 값은 아니므로 백업 뒤에",
+    # 대체 연료 선택(#756 ⑴) — 052와 같은 성격. 선택 값이 사라지면 그 실행의
+    # `input_hash` 키가 복원되지 않는다.
+    "053": "annual_simulation_run.alternative_fuel — 선택 값은 백업 뒤에",
 }
 
 

@@ -35,6 +35,10 @@ class AnnualSimulationRequest(BaseModel):
     #: 실적 보정계수를 잔여 계획 연료에 곱한다 (``PRD §12.2.1`` · `#363`). **기본은 끔** —
     #: 켜지 않은 실행은 종전과 같은 결과·같은 ``input_hash``를 갖는다.
     apply_feedback_factor: bool = False
+    #: 대체 연료 지렛대(민감도)에서 쓸 연료 코드 (#756 ⑴ · 결정요청 v9 「나」).
+    #: **질량 유지** — 연료량은 그대로 두고 CF만 교체한다. 존재·활성 여부는 서비스가
+    #: 파라미터 표로 검증한다(422). 고르지 않으면 블록도 ``input_hash`` 키도 없다.
+    alternative_fuel: Annotated[str | None, Field(max_length=30)] = None
 
     @field_validator("random_seed")
     @classmethod

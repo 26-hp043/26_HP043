@@ -40,6 +40,7 @@ from cii_platform.services import annual_simulation as annual_simulation_service
 from cii_platform.services.annual_simulation import (
     PARAMETERS_SCHEMA_V1,
     PARAMETERS_SCHEMA_V2,
+    WARNING_FUEL_CF_MASS_BASIS,
     WARNING_MODEL_VERSION_DIFFERS,
     _assert_same_outcome,
     _model_version_diff,
@@ -1122,3 +1123,93 @@ async def test_explicit_as_of_run_reproduces_with_the_stored_moment(session, ves
     assert again["data"]["deterministic"] == first["data"]["deterministic"]
     # 응답 봉투 — 집계에 실제로 쓴 시각이 meta로 흐른다(라우트가 옮긴 내부 키).
     assert first["_as_of"] == datetime(2026, 8, 1, 12, 34, 56, 789_000, tzinfo=UTC).isoformat()
+
+
+# ── #756 ⑴ — 대체 연료 지렛대 (결정요청 v9 회신 「나」: 질량 유지 · 사용자 선택) ──
+
+
+@pytest.mark.asyncio
+async def test_fuel_cf_alternative_block_is_opt_in(session, vessel_id):
+    """고른 실행에만 블록·경고·해시 키가 있다 — 미지정 실행은 종전 그대로다.
+
+    미지정에 빈 블록을 내면 「효과 없음」과 「계산하지 않았다」가 같은 모양이 된다
+    (`SENSITIVITY_SPEED_SKIPPED`가 가르려던 것과 같은 오해).
+    """
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED", no="V-ALT-001"
+    )
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED", no="V-ALT-002"
+    )
+    common = {
+        "vessel_id": vessel_id,
+        "regulation_year": YEAR,
+        "target_rating": "C",
+        "simulation_runs": 200,
+        "random_seed": 5,
+    }
+
+    without = await run_annual_simulation(session, **common)
+    assert "fuel_cf_alternative" not in without["data"]["sensitivity_analysis"], (
+        "고르지 않았는데 블록이 나왔다"
+    )
+    assert WARNING_FUEL_CF_MASS_BASIS not in without["warnings"]
+
+    with_alt = await run_annual_simulation(session, **common, alternative_fuel="LNG")
+    block = with_alt["data"]["sensitivity_analysis"]["fuel_cf_alternative"]
+    # 질량 유지 — CF만 교체. HFO 3.114 → LNG 2.750이므로 연말 CO₂는 줄어야 한다.
+    assert block["alternative_fuel"] == "LNG"
+    assert block["alternative_cf"] == "2.750000"
+    assert block["co2_change"].startswith("-"), "더 낮은 CF인데 CO₂가 늘었다"
+    assert "→" in block["rating_change"]
+    assert WARNING_FUEL_CF_MASS_BASIS in with_alt["warnings"], "질량 기준 안내가 없다"
+
+    # 선택 키 — 골랐을 때만 해시가 달라진다(미지정은 종전 식 그대로).
+    assert with_alt["input_hash"] != without["input_hash"]
+
+
+@pytest.mark.asyncio
+async def test_fuel_cf_alternative_run_reproduces(session, vessel_id):
+    """고른 실행의 재현이 저장된 선택·해시를 그대로 재생한다 (#756 ⑴)."""
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED", no="V-ALT2-001"
+    )
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED", no="V-ALT2-002"
+    )
+    first = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=200,
+        random_seed=11,
+        alternative_fuel="LNG",
+    )
+    again = await reproduce_annual_simulation(session, UUID(first["data"]["simulation_id"]))
+
+    assert again["input_hash"] == first["input_hash"]
+    assert (
+        again["data"]["sensitivity_analysis"]["fuel_cf_alternative"]
+        == first["data"]["sensitivity_analysis"]["fuel_cf_alternative"]
+    ), "재현이 지렛대 블록을 재생하지 못했다"
+
+
+@pytest.mark.asyncio
+async def test_unknown_alternative_fuel_is_rejected(session, vessel_id):
+    """활성 목록에 없는 연료는 422다 — 조용히 무시하면 「고른 것처럼」거짓이 된다."""
+    from cii_platform.errors import ValidationError
+
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED", no="V-ALT3-001"
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        await run_annual_simulation(
+            session,
+            vessel_id=vessel_id,
+            regulation_year=YEAR,
+            target_rating="C",
+            simulation_runs=200,
+            alternative_fuel="UNOBTAINIUM",
+        )
+    assert exc_info.value.field == "alternative_fuel"

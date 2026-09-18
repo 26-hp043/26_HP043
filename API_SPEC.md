@@ -318,6 +318,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `SENSITIVITY_ONE_AT_A_TIME` | 기능③ 민감도는 one-at-a-time이라 변수 간 상호작용 미포함 (PRD §12.8) | 각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다. |
 | `SENSITIVITY_SPEED_SKIPPED` | 기능③ 잔여 항차에 `reference_speed_kn`·`reference_daily_foc_ton`이 없어 **속도 지렛대를 산출하지 못함** (#630) | 선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다. |
 | `SIMULATION_PLAN_NO_FUEL` | 기능③ 계획 항차에 **연료 정보가 없어** 그 항차를 연말 예상에서 제외 (#812) | 연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요. |
+| `FUEL_CF_MASS_BASIS` | 기능③ 대체 연료 지렛대가 **질량 기준**으로 계산됨 (#756 ⑴ · `PRD §6.3`) | 연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다. |
 | `SIMULATION_NO_REFERENCE_SPEED` | 진행 중 항차의 누적 연료에 **속도 보정을 적용하지 못함** — 선박에 `reference_speed_kn`이 없음 (#796) | 기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요. |
 | `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상에 더할 **잔여 계획 항차가 0건** (#798) | 잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다. |
 | `MODEL_VERSION_DIFFERS` | 재현(§6.4)을 **원본과 다른 `model_version`**에서 돌렸는데 결과는 같았다 (#833) | 원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다. |
@@ -2568,7 +2569,8 @@ POST /api/v1/annual-simulations
   "random_seed": 12345,
   "distribution_profile": "DEFAULT",
   "apply_feedback_factor": false,
-  "as_of": "2026-08-01T00:00:00Z"
+  "as_of": "2026-08-01T00:00:00Z",
+  "alternative_fuel": "LNG"
 }
 ```
 
@@ -2581,6 +2583,7 @@ POST /api/v1/annual-simulations
 | `random_seed` | int/string | N | 0 ~ 2^128-1. 큰 값은 문자열로 전송 권장 | 미지정 시 서버가 128-bit entropy 자동 생성. 응답의 `rng_metadata.seed_entropy`에서 hex 형태로 반환 |
 | `distribution_profile` | string | N | enum: DEFAULT | 기본: DEFAULT |
 | `apply_feedback_factor` | bool | N | — | 실적 보정계수(`PRD §12.2.1`)를 잔여 계획 연료에 곱한다. **기본 `false`** — 켜지 않은 실행은 종전과 같은 결과·같은 `input_hash`다(`§6.1.2` · #363) |
+| `alternative_fuel` | string | N | 활성 연료 코드(422) | 대체 연료 지렛대(민감도)에서 쓸 연료. **질량 유지**로 계산한다 — 연료량은 그대로, CF만 교체(`PRD §12.6` 각주 · #756 ⑴). 고르지 않으면 블록도 `input_hash` 키도 없다 |
 | `as_of` | string (ISO 8601) | N | — | **기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵ · #816 ⑴). 확정 실적은 **도착 시각 ≤ `as_of`** 인 것만, 잔여 계획은 **도착 예정 > `as_of`** 인 것이 시점 전망에 남는다(상보 집합). 미지정 시 서버가 현재 시각으로 확정하고 응답 `meta.as_of`에 실어 반환한다. ⚠️ **명시한 실행에만 `as_of`가 `input_hash` 키로 들어간다**(`§1.10` 계약 ⑶ — `apply_feedback_factor`와 같은 선택 키 방식). 미지정 실행의 해시는 종전과 같다 |
 
 > **[ORACLE-S-3 정정]** `random_seed` 타입과 크기를 명확히 했다. JSON int는 2^53까지만 안전하게 표현 가능하므로, 큰 seed 값(2^53 초과)은 문자열로 전송해야 한다. 서버는 응답에서 항상 `rng_metadata.seed_entropy`에 128-bit hex 표기를 포함한다.
@@ -2684,10 +2687,10 @@ POST /api/v1/annual-simulations
       },
       "fuel_cf_alternative": {
         "alternative_fuel": "LNG",
-        "alternative_cf": "2.750",
-        "projected_cii": "4.42",
-        "co2_change": "-21.1%",
-        "rating_change": "C→B"
+        "alternative_cf": "2.750000",
+        "projected_cii": "4.730269",
+        "co2_change": "-6.3%",
+        "rating_change": "C→C"
       },
       "voyage_minus_1": {
         "projected_cii": "5.12",
@@ -2734,7 +2737,17 @@ POST /api/v1/annual-simulations
 
 > **[#756] 거리 두 행이 기준값(`5.02`)과 같은 것은 오기가 아니다.** 거리 ±5%는 연료를 같은 비율로 함께 움직이므로, **잔여 계획의 배출 강도가 확정 실적과 같으면 CII가 정확히 변하지 않는다**(`PRD §12.6` 각주 — 혼합비와 무관하다). 예시는 그 경우다. ⚠️ **항상 같은 값이 나오는 것은 아니다** — 실적이 계획에서 벌어져 두 구간의 강도가 달라지면 이 행도 움직인다. 종전 예시는 `4.96`·`5.08`로 **구현이 낼 수 없는 변화**를 싣고 있었다.
 >
-> ⚠️ **`fuel_cf_alternative`는 아직 구현되지 않았다**(`#756` ⑴ 판정 대기). 서버는 이 블록을 내지 않는다 — 대체 연료를 어떻게 고르는지(요청 입력이 없다)와 연료를 바꿀 때 **질량을 유지할지 에너지를 유지할지**가 정해지지 않았다.
+> **[#756 ⑴ · 2026-09-17 결정 「나」] `fuel_cf_alternative` — 질량 유지 대체 연료.** 요청이 `alternative_fuel`을 고른 실행에만 이 블록이 나간다(미지정이면 키 자체가 없다 — 「효과 없음」이 아니라 「계산하지 않았다」다). 잔여 계획 전체의 CF를 그 연료의 활성 값으로 교체해 연말 값을 다시 내며, **연료량은 그대로** 둔다. 확정 실적의 CF는 바꾸지 않는다(이미 그 계수로 배출했다).
+>
+> | 필드 | 뜻 |
+> |---|---|
+> | `alternative_fuel` | 요청이 고른 연료 코드 |
+> | `alternative_cf` | 적용한 CF (`MEPC.364(79)` 표의 활성 값) |
+> | `projected_cii` | 대체 후 연말 CII (결정론) |
+> | `co2_change` | **연말 총 CO₂**의 변화율 — 확정분은 그대로이므로 잔여 비중에 따라 폭이 작아진다 |
+> | `rating_change` | `기준→대체` 등급 변화 |
+>
+> ⚠️ **질량 기준임을 경고로 알린다** — `FUEL_CF_MASS_BASIS`(`§1.6`). 문구는 `PRD §6.3`이 확정했다: 「연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다.」 발열량 기준은 LCV의 IMO 원문 대조 뒤 같은 자리에 더해진다(#773 연계).
 
 > **스냅샷 격리** (TECH_SPEC §11): 시뮬레이션 시작 시점의 모든 항차 데이터를 스냅샷으로 복사한다. 시뮬레이션 실행 중 발생하는 상태 변경은 진행 중인 시뮬레이션에 영향을 주지 않는다.
 

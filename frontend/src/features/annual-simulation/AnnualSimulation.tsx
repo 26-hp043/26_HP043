@@ -6,6 +6,8 @@ import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
+import { useFuelOptions } from '../parameters/fuelCatalog'
+import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { GradeBadge } from '../../components/GradeBadge'
 import { gradePatternUrl } from '../../components/gradePattern'
@@ -117,6 +119,13 @@ export function AnnualSimulation({
   const [seed, setSeed] = useState('')
   // `PRD §12.2.1` 실적 보정계수 — 기본은 끔(`#363`). 켜지 않은 실행은 종전과 같다.
   const [applyFeedback, setApplyFeedback] = useState(false)
+  /*
+   * 대체 연료 지렛대 (#756 ⑴) — 빈 문자열은 「고르지 않음」이다. 서버에 빈 값을
+   * 보내지 않는다(미지정 요청 모양이 종전과 같게 남는다 — `apply_feedback_factor`와
+   * 같은 규약).
+   */
+  const [alternativeFuel, setAlternativeFuel] = useState('')
+  const fuelOptions = useFuelOptions()
 
   // 연도 선택지도 CII 예측과 **같은 경계** 뒤에 둔다 (`#534` · `#558`). 기준이 갈리면
   // 두 화면이 서로 다른 해를 보여 주고, 그 차이는 값이 아니라 목록에서 나타나 늦게 발견된다.
@@ -245,6 +254,8 @@ export function AnnualSimulation({
         ...(seed.trim() ? { random_seed: seed.trim() } : {}),
         // 끈 상태는 보내지 않는다 — 서버 기본이 끔이고, 요청 모양이 종전과 같게 남는다.
         ...(applyFeedback ? { apply_feedback_factor: true } : {}),
+        // 대체 연료 지렛대 (#756 ⑴) — 골랐을 때만 보낸다.
+        ...(alternativeFuel ? { alternative_fuel: alternativeFuel } : {}),
       })
       // 기다리는 동안 대상이 바뀌었으면 **버린다** — 새 선박 화면에 앞 배의 성공
       // 결과를 붙이지 않는다 (`#1094`).
@@ -260,7 +271,7 @@ export function AnnualSimulation({
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorFallback,
       })
     }
-  }, [provider, shell.vesselId, year, yearsFailed, target, runs, seed, applyFeedback, onDisclaimer])
+  }, [provider, shell.vesselId, year, yearsFailed, target, runs, seed, applyFeedback, alternativeFuel, onDisclaimer])
 
   return (
     <section className="annual-sim">
@@ -400,6 +411,36 @@ export function AnnualSimulation({
             {ANNUAL_COPY.feedbackToggleHint}
           </span>
         </div>
+
+        {/*
+          대체 연료 지렛대 (#756 ⑴ · 결정 「나」 — 질량 유지). 목록은 파라미터
+          카탈로그(`useFuelOptions`)에서 온다 — 고정표를 두면 연료가 추가·비활성화될 때
+          화면만 따라간다(#558과 같은 이유). 불러오기에 실패하면 선택지를 아예
+          둘지 않는다: 지금 고를 수 없는 연료를 보여 주면 고르고 나서 실패하게 된다.
+        */}
+        {!fuelOptions.failed && fuelOptions.fuels.length > 0 ? (
+          <div className="annual-sim__field">
+            <label className="annual-sim__label" htmlFor="annual-sim-alt-fuel">
+              {ANNUAL_COPY.alternativeFuelLabel}
+            </label>
+            <select
+              id="annual-sim-alt-fuel"
+              value={alternativeFuel}
+              aria-describedby="annual-sim-alt-fuel-hint"
+              onChange={(event) => setAlternativeFuel(event.target.value)}
+            >
+              <option value="">{ANNUAL_COPY.alternativeFuelNone}</option>
+              {fuelOptions.fuels.map((fuel) => (
+                <option key={fuel.code} value={fuel.code}>
+                  {fuelTypeOptionText(fuel.code)}
+                </option>
+              ))}
+            </select>
+            <span id="annual-sim-alt-fuel-hint" className="annual-sim__hint">
+              {ANNUAL_COPY.alternativeFuelHint}
+            </span>
+          </div>
+        ) : null}
 
         <button
           type="submit"

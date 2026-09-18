@@ -234,6 +234,10 @@ ANNUAL_INPUT_FIELDS: tuple[str, ...] = (
     # **DB 정밀도(밀리초)로 깎은 isoformat 문자열**로 통일한다 — 저장할 때와 재현할
     # 때(DB에서 읽은 값)의 재료가 한 글자라도 갈리면 안 된다.
     "as_of",
+    # 대체 연료 선택 (#756 ⑴ · 결정요청 v9 회신 「나」). 같은 선택 키 규칙의 세 번째
+    # 적용례 — 골랐을 때만 넣는다. CF 자체는 `parameters_used` v2의 `fuel_types`
+    # 블록이 덮으므로 여기는 **무엇을 골랐는가**(연료 코드)만 담는다.
+    "alternative_fuel",
 )
 
 

@@ -223,6 +223,9 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
     '기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 그 항차에는 감속을 적용하지 못했습니다. 선박 제원을 입력해 주세요.',
   MODEL_VERSION_DIFFERS:
     '원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다.',
+  // #756 ⑴ — 대체 연료 지렛대가 질량 기준임을 알린다. 문구는 `PRD §6.3` 확정본.
+  FUEL_CF_MASS_BASIS:
+    '연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다.',
 }
 
 export function warningMessage(code: string): string {
