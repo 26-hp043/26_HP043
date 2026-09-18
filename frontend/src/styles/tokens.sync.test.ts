@@ -904,6 +904,35 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     }
   })
 
+  /*
+   * `#1169` — **임시 별칭이 갈 곳을 잃는 것**을 막는다.
+   *
+   * 위 `3:1`은 지켜지지만 라이트 여유가 `0.08`뿐이라 `--color-border-control`은
+   * **임시**다. 임시의 근거는 「`§16`의 어떤 항목이 정본 값을 준다」인데, 종전에는
+   * 그 자리가 **닫힌 `#68`**이었다 — 유예가 가리키는 곳이 사라져도 **아무것도
+   * 실패하지 않았다.** 이 저장소가 반복해 맞는 결함의 꼴이다(화면이 안 깨진다).
+   *
+   * 그래서 이름이 아니라 **관계**를 잠근다: 선언 주석이 `§16` 항목 번호를 가리키고,
+   * 그 항목이 `§16` 표에 **열린 채로** 있어야 한다. 항목이 닫히면 여기서 실패하고,
+   * 그때 이 별칭을 Figma 값으로 갈아끼우게 된다.
+   */
+  it('폼 컨트롤 경계의 유예가 살아 있는 §16 항목을 가리킨다 (#1169)', () => {
+    const block = /\/\*((?:(?!\*\/)[\s\S])*)\*\/\s*--color-border-control\s*:/.exec(aliasCss)
+    expect(block, '--color-border-control 선언 주석을 찾지 못했습니다').not.toBeNull()
+
+    const ref = /`§16`\s*\*\*항목 (\d+)\*\*/.exec((block as RegExpExecArray)[1])
+    expect(ref, '유예가 가리키는 `§16` 항목 번호를 주석에서 읽지 못했습니다').not.toBeNull()
+    const item = (ref as RegExpExecArray)[1]
+
+    const spec = readFileSync(new URL('../../../DESIGN_SYSTEM.md', import.meta.url), 'utf8')
+    const row = new RegExp(`^\\|\\s*(~~)?${item}(~~)?\\s*\\|`, 'm').exec(spec)
+    expect(row, `§16 항목 ${item} 행을 DESIGN_SYSTEM에서 찾지 못했습니다`).not.toBeNull()
+    expect(
+      (row as RegExpExecArray)[1],
+      `§16 항목 ${item}이 닫혔다 — --color-border-control의 임시 별칭이 갈 곳을 잃었다 (#1169)`,
+    ).toBeUndefined()
+  })
+
   it.each(THEMES)('$name — 포커스 링이 네 면 위에서 3:1 이상이다', ({ generated, alias }) => {
     // `3px solid <색>`에서 색만 꺼낸다 — `#1167`로 `outline` 단축이 됐다.
     const ring = /3px\s+solid\s+(.+)$/.exec(alias['--focus-outline'])
