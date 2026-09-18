@@ -529,15 +529,34 @@
   font-family: inherit;
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
-  color: var(--color-on-primary);
-  background: var(--color-primary-solid);
+  /*
+   * 채움이 아니라 **텍스트 버튼**이다 (`#1266`).
+   *
+   * 종전에는 `--color-primary-solid` 채움이라 **구현된 9개 화면 전부에서 대비가
+   * 가장 높은 요소**였다. 그래서 각 화면의 주 동작(`계산하기`·`비교하기`·
+   * `시뮬레이션 실행`)이 로그아웃과 같은 무게로 경쟁했다 — `§8`이 Primary를
+   * 「navy 채움 / 흰 글자」로 규정한 자리는 주 동작의 것이다.
+   *
+   * **자리는 그대로 둔다** — `#717`의 「시연에서 한 번에 닿는다」는 유효하다.
+   * 낮추는 것은 무게뿐이고, 결과적으로 바로 옆 `.account-menu__trigger`와
+   * 같은 모양이 된다(투명 배경 · `--text-primary` · hover `--surface-inset`).
+   *
+   * 아웃라인으로 내리지 않은 이유 — `--color-border-strong`이 라이트 1.60 ·
+   * 다크 1.57로 `1.4.11`에 미달이라 별건 이슈의 경계색 교체가 선행돼야 한다.
+   * 텍스트 버튼은 그 의존이 없다.
+   *
+   * 대비 실측 — 라이트 17.43 · 다크 13.14(카드면 기준), hover 면에서도
+   * 라이트 15.49 · 다크 14.33으로 `§0.2` 제약 1(4.5)을 넘는다.
+   */
+  color: var(--text-primary);
+  background: transparent;
   border: 0;
   border-radius: var(--radius-control);
   cursor: pointer;
 }
 
 .app-shell__logout:hover {
-  background: var(--color-primary-solid-hover);
+  background: var(--surface-inset);
 }
 
 /*
