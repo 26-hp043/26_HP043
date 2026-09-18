@@ -351,6 +351,7 @@ _PROBE = [
     ("GET", f"/fleet/reduction-plans/{uuid4()}", None),
     ("GET", "/auth/users", None),
     ("PATCH", f"/auth/users/{uuid4()}/role", {"role": "OFFICE"}),
+    ("POST", "/parameters/import", {}),
 ]
 
 

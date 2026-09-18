@@ -61,9 +61,16 @@ async def list_reference_lines(
 
     선종을 지정하지 않는 경로는 조회 API(``API_SPEC §7.3``)를 위한 것이다 — 계산은
     언제나 한 선종만 본다.
+
+    **활성 행만 돌려준다** (#673 · `054`). 개정으로 대체된 이행 행이 섞이면 같은
+    선종·조건의 기준선이 둘 나오는데, 어느 것이 현행인지 호출자가 알 수 없다 —
+    계산이 쓰는 것도 활성 행이다. :func:`get_active_reference_line`의 조회 갈래와
+    같은 규약이다.
     """
-    stmt = select(CiiReferenceLine).order_by(
-        CiiReferenceLine.ship_type, CiiReferenceLine.condition_expr
+    stmt = (
+        select(CiiReferenceLine)
+        .where(CiiReferenceLine.is_active == 1)
+        .order_by(CiiReferenceLine.ship_type, CiiReferenceLine.condition_expr)
     )
     if ship_type is not None:
         stmt = stmt.where(CiiReferenceLine.ship_type == ship_type)
@@ -76,14 +83,55 @@ async def list_rating_boundaries(
     """등급 경계 후보 행을 조회한다. ``ship_type``이 없으면 전 선종 (#444).
 
     행 선택은 ``calc.rating_engine.select_rating_boundary()``가 한다
-    (:func:`list_reference_lines`와 같은 이유).
+    (:func:`list_reference_lines`와 같은 이유). **활성 행만 돌려준다** (#673 · `054`) —
+    같은 이유로 같은 규약이다.
     """
-    stmt = select(CiiRatingBoundary).order_by(
-        CiiRatingBoundary.ship_type, CiiRatingBoundary.condition_expr
+    stmt = (
+        select(CiiRatingBoundary)
+        .where(CiiRatingBoundary.is_active == 1)
+        .order_by(CiiRatingBoundary.ship_type, CiiRatingBoundary.condition_expr)
     )
     if ship_type is not None:
         stmt = stmt.where(CiiRatingBoundary.ship_type == ship_type)
     return list((await session.execute(stmt)).scalars().all())
+
+
+async def get_active_reference_line(
+    session: AsyncSession, ship_type: str, condition_expr: str
+) -> CiiReferenceLine | None:
+    """키(선종·조건)의 **활성** 기준선 행을 조회한다 (#673 · 개정 적재 경로).
+
+    ``is_active``가 0인 이행 행은 개정 이력이지 현행이 아니다 — 적재가 「기존 활성
+    행을 끄고 새 행을 넣는지」 판단하는 데만 쓴다.
+    """
+    stmt = select(CiiReferenceLine).where(
+        CiiReferenceLine.ship_type == ship_type,
+        CiiReferenceLine.condition_expr == condition_expr,
+        CiiReferenceLine.is_active == 1,
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def get_active_rating_boundary(
+    session: AsyncSession, ship_type: str, condition_expr: str
+) -> CiiRatingBoundary | None:
+    """키(선종·조건)의 **활성** 등급 경계 행을 조회한다 (#673). 위와 같은 규약."""
+    stmt = select(CiiRatingBoundary).where(
+        CiiRatingBoundary.ship_type == ship_type,
+        CiiRatingBoundary.condition_expr == condition_expr,
+        CiiRatingBoundary.is_active == 1,
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def get_fuel_type_by_code(session: AsyncSession, code: str) -> FuelType | None:
+    """연료 코드의 행을 **활성 여부와 무관하게** 조회한다 (#673).
+
+    ``fuel_type``은 개정을 제자리 갱신으로 다스린다(``DB_SCHEMA §7.2`` 예외) —
+    비활성 행이 같은 코드로 쌓이지 않으므로 ``UNIQUE(code)`` 전체에서 찾는다.
+    """
+    stmt = select(FuelType).where(FuelType.code == code)
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 async def get_fuel_types_by_codes(

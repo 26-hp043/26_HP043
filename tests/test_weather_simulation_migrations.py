@@ -48,10 +48,11 @@ EXPECTED_TABLES = {
 }
 
 # 010~015가 생성하는 인덱스 (DB_SCHEMA §2.6, §2.10~§2.14 원문 그대로).
+#
+# 🔴 `idx_refline_unique`·`idx_boundary_unique`는 054(#673)가 뺐다 — 개정 이행 행이
+# 같은 키로 쌓여야 하므로. 유일성은 활성 행끼리만 트리거가 집행한다.
 EXPECTED_NEW_INDEXES = {
-    "idx_refline_unique",
     "idx_refline_ship_type",
-    "idx_boundary_unique",
     "idx_weather_param_unique",
     "idx_weather_cache",
     "idx_sim_snapshot_unique",

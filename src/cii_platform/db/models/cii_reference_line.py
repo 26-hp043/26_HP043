@@ -31,6 +31,15 @@ class CiiReferenceLine(Base):
     a_decimal = sa.Column(sa.Numeric(precision=30, scale=6), nullable=False)
     c = sa.Column(sa.Numeric(precision=10, scale=6), nullable=False)
     source_ref = sa.Column(sa.String(length=200), nullable=False)
+    # 개정 적재 경로(#673 · 054) — `DB_SCHEMA §7.2`의 파라미터 개정 정책이 요구하는
+    # 두 컬럼. 종전에는 없어서 「새 version 행 + is_active 전환」이 이 테이블에서
+    # 물리적으로 불가능했다. 기존 행은 현행이므로 기본값 1이 곧 초깃값이다.
+    version = sa.Column(
+        sa.String(length=50),
+        server_default=sa.text("'1.0'"),
+        nullable=False,
+    )
+    is_active = sa.Column(sa.Boolean(), default=True, server_default=sa.text("1"), nullable=False)
     created_at = sa.Column(
         sa.DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -59,12 +68,9 @@ class CiiReferenceLine(Base):
         sa.CheckConstraint("a_decimal > 0", name="chk_a_decimal_positive"),
         # c >= 0: LNG_CARRIER DWT >= 100000은 c = 0.000000이 정상([Oracle 관찰]).
         sa.CheckConstraint("c >= 0", name="chk_c_positive"),
-        # §2.10 인덱스 (원문 그대로).
-        sa.Index(
-            "idx_refline_unique",
-            "ship_type",
-            "condition_expr",
-            unique=True,
-        ),
+        # 🔴 `idx_refline_unique`(전역 유니크)는 `054`가 뺐다 — 개정 이행 행이 같은
+        # 키로 쌓여야 하므로(`DB_SCHEMA §7.2`). 유일성은 **활성 행끼리만**
+        # `trg_cii_reference_line_active_unique_*`가 집행한다. `regulation_year`의
+        # UNIQUE(year) 제거와 같은 판단이다.
         sa.Index("idx_refline_ship_type", "ship_type"),
     )

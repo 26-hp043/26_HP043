@@ -44,6 +44,7 @@ import dataclasses
 from datetime import date
 from decimal import Decimal
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncConnection
 from sqlalchemy_cubrid.dml import replace as cubrid_replace
 
@@ -374,8 +375,31 @@ def validate_reference_lines() -> None:
         raise ValueError("a_raw/a_decimal mismatch:\n  " + "\n  ".join(mismatches))
 
 
+async def _upsert_active(
+    conn: AsyncConnection,
+    table: sa.Table,
+    key_columns: tuple[str, ...],
+    row: dict[str, object],
+) -> None:
+    """활성 행을 갱신하고, 없으면 삽입한다 — 전역 유니크가 없어진 키의 upsert.
+
+    🔴 종전 충돌 판정은 전역 유니크 인덱스(``uq_regulation_year_year``·
+    ``idx_refline_unique``·``idx_boundary_unique``)가 했는데 ``054``(#673)가 셋 다
+    뺐다 — 개정 이행 행이 같은 키로 쌓여야 하므로. ``REPLACE``는 유니크 인덱스로
+    충돌을 찾으므로 인덱스가 없으면 **항상 INSERT**가 되어 활성-유니크 트리거에
+    걸린다. 대상을 **활성 행**으로 못 박아 같은 의미(README의 「upsert라 값을
+    덮어쓴다」)를 유지한다 — 개정 이행 행은 건드리지 않는다(``DB_SCHEMA §7.2``).
+    """
+    conditions = [table.c.is_active == 1] + [
+        table.c[column] == row[column] for column in key_columns
+    ]
+    result = await conn.execute(sa.update(table).where(*conditions).values(**row))
+    if result.rowcount == 0:
+        await conn.execute(sa.insert(table).values(row))
+
+
 async def _upsert_z_factors(conn: AsyncConnection) -> int:
-    """``regulation_year``를 upsert한다. 충돌 키는 UNIQUE 제약 ``year``."""
+    """``regulation_year``를 upsert한다 — 활성 행 갱신 · 없으면 삽입 (054 이후)."""
     values = [
         {
             "year": row.year,
@@ -388,12 +412,12 @@ async def _upsert_z_factors(conn: AsyncConnection) -> int:
         for row in SEED_Z_FACTORS
     ]
     for row in values:
-        await conn.execute(cubrid_replace(RegulationYear.__table__).values(row))
+        await _upsert_active(conn, RegulationYear.__table__, ("year",), row)
     return len(values)
 
 
 async def _upsert_reference_lines(conn: AsyncConnection) -> int:
-    """``cii_reference_line``을 upsert한다. 충돌 키는 ``idx_refline_unique``."""
+    """``cii_reference_line``을 upsert한다 — 활성 행 갱신 · 없으면 삽입 (054 이후)."""
     values = [
         {
             "ship_type": row.ship_type,
@@ -407,12 +431,12 @@ async def _upsert_reference_lines(conn: AsyncConnection) -> int:
         for row in SEED_REFERENCE_LINES
     ]
     for row in values:
-        await conn.execute(cubrid_replace(CiiReferenceLine.__table__).values(row))
+        await _upsert_active(conn, CiiReferenceLine.__table__, ("ship_type", "condition_expr"), row)
     return len(values)
 
 
 async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
-    """``cii_rating_boundary``를 upsert한다. 충돌 키는 ``idx_boundary_unique``."""
+    """``cii_rating_boundary``을 upsert한다 — 활성 행 갱신 · 없으면 삽입 (054 이후)."""
     values = [
         {
             "ship_type": row.ship_type,
@@ -427,7 +451,9 @@ async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
         for row in SEED_RATING_BOUNDARIES
     ]
     for row in values:
-        await conn.execute(cubrid_replace(CiiRatingBoundary.__table__).values(row))
+        await _upsert_active(
+            conn, CiiRatingBoundary.__table__, ("ship_type", "condition_expr"), row
+        )
     return len(values)
 
 

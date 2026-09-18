@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.28 |
+| 버전 | v1.29 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** |
 | 최종 수정일 | 2026-09-18 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -632,7 +632,7 @@ CREATE INDEX idx_snapshot_vessel ON simulation_snapshot (vessel_id, created_at D
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `id` | UUID | PK | ID |
-| `year` | INTEGER | NOT NULL, UNIQUE | 연도 |
+| `year` | INTEGER | NOT NULL | 연도. 🔴 **전역 UNIQUE는 054가 뺐다** — 활성 행끼리만 유일하다(§2.10의 활성-유니크 트리거와 같은 형태 · `trg_regulation_year_active_unique_*`) |
 | `z_factor_percent` | NUMERIC(8,4) | NOT NULL, CHECK (>= 0) [#96] | Z factor (%) |
 | `effective_from` | DATE | NOT NULL | 적용 시작일 |
 | `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주). 예: `MEPC.400(83)` |
@@ -685,13 +685,23 @@ CREATE INDEX idx_snapshot_vessel ON simulation_snapshot (vessel_id, created_at D
 | `a_decimal` | NUMERIC(30,6) | NOT NULL | Decimal 변환값 |
 | `c` | NUMERIC(10,6) | NOT NULL | 지수 (예: 0.622). LNG_CARRIER DWT ≥ 100000의 경우 0.000000 (고정 CII_ref) |
 | `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주) |
+| `version` | VARCHAR(50) | NOT NULL DEFAULT '1.0' | 파라미터 세트 버전 **[#673 · 054 추가]** — 이 테이블에는 없어서 §7.2의 개정 정책이 물리적으로 불가능했다 |
+| `is_active` | BOOLEAN | NOT NULL DEFAULT true | 활성 여부 **[#673 · 054 추가]** — 개정으로 대체된 행은 이행 행으로 남는다 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
 
 ```sql
-CREATE UNIQUE INDEX idx_refline_unique ON cii_reference_line (ship_type, condition_expr);
+-- 🔴 054(#673) — 전역 유니크를 뺐다. 유일성은 활성 행끼리만 트리거가 집행한다
+--    (아래). 이행 행이 같은 키로 쌓이는 것이 §7.2 개정 정책의 정상 상태다.
 CREATE INDEX idx_refline_ship_type ON cii_reference_line (ship_type);
+
+-- 활성-유니크(집행은 이것이 한다 — CUBRID는 부분 유니크 인덱스가 없다):
+CREATE TRIGGER trg_cii_reference_line_active_unique_ins BEFORE INSERT ON cii_reference_line
+  IF EXISTS (SELECT 1 FROM cii_reference_line
+             WHERE ship_type = new.ship_type AND condition_expr = new.condition_expr
+               AND is_active = 1 AND id <> new.id) EXECUTE REJECT;
+-- UPDATE에도 같은 조건의 트리거가 하나 더 선다(trg_..._upd).
 ```
 
 **검증 제약:**
@@ -730,12 +740,15 @@ ALTER TABLE cii_reference_line ADD CONSTRAINT chk_c_positive CHECK (c >= 0);
 | `d3` | NUMERIC(6,4) | NOT NULL | upper boundary 계수 |
 | `d4` | NUMERIC(6,4) | NOT NULL | inferior boundary 계수 |
 | `source_ref` | VARCHAR(200) | NOT NULL | 출처 — **값이 인쇄된 문서**를 적는다. 참조 지정만 하는 문서가 아니다(의미 정의는 §3.2 각주) |
+| `version` | VARCHAR(50) | NOT NULL DEFAULT '1.0' | 파라미터 세트 버전 **[#673 · 054 추가]** |
+| `is_active` | BOOLEAN | NOT NULL DEFAULT true | 활성 여부 **[#673 · 054 추가]** — §2.10과 같은 이유 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
 
 ```sql
-CREATE UNIQUE INDEX idx_boundary_unique ON cii_rating_boundary (ship_type, condition_expr);
+-- 🔴 054(#673) — 전역 유니크를 뺐다. §2.10과 같은 형태의 활성-유니크 트리거가
+--    유일성을 집행한다(trg_cii_rating_boundary_active_unique_ins/_upd).
 ```
 
 **검증 제약 [M-3]:**
@@ -1530,6 +1543,8 @@ CREATE TRIGGER trg_fuel_type_updated BEFORE UPDATE ON fuel_type       FOR EACH R
 >
 > 이 정책이 성립하려면 **파라미터 값 개정 시 새 `version` 행 + `is_active` 전환으로 운용**해야 한다. 기존 행을 UPDATE로 덮어쓰면 개정 이력이 사라진다. `regulation_year`·`fuel_type`이 `version`·`is_active`를 가진 이유가 이것이다.
 >
+> 🔴 **2026-09-18까지 이 정책은 문서로만 존재했다 (#673 실측).** `cii_reference_line`·`cii_rating_boundary`에는 `version`·`is_active` **컬럼 자체가 없었고**, 세 테이블의 키에는 **전역 UNIQUE 인덱스**가 걸려 같은 키의 이행 행을 만들 수 없었다 — 쓰는 경로가 없으니 아무도 부딪히지 않았다. `054`가 컬럼을 추가하고 전역 유니크를 **활성-유니크 트리거**로 교체해 이 정책을 집행 가능하게 만들었다. 적재 경로는 `API_SPEC §7.5`다.
+>
 > ⚠️ `weather_model_parameter`(§2.12)는 `version`·`is_active`가 없어 이 운용을 적용할 수 없다. 외부 규제값이 아니라 모델 파라미터라 성격이 다르며, 필요해지면 별도로 정한다.
 
 ### 7.3 Immutable 테이블 보호 트리거 [X-2]
@@ -2068,3 +2083,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 
 | 2026-09-15 | `#1058` | **v1.26 — `§7.4` 신설**: CUBRID는 `CHECK`를 강제하지 않는다. 빈 테이블로 재현했다(`CHECK (n > 0)`에 `-5`가 들어가 조회된다). 이 문서와 ORM에 적힌 CHECK가 **배포에서 아무것도 막지 않는다**는 사실을 적어 두지 않으면 다음 사람이 「적혀 있으니 막힌다」로 읽는다 — 그것이 이 절을 만든 이유다. 전환 분기점(`0f4b062`) 대조로 **CHECK 6 · FK 3**이 사라졌고 **트리거는 0개**였음을 실측했다(`§7.3` immutable 보호가 통째로 없었다). 마이그레이션 `a7d3e9b14f26`이 재현성·참조 정합 9가지를 트리거 15개로 되살린다. `§7.1` 연료 코드 FK 세 행과 `DB 엔진` 줄에 CUBRID 단서를 달았다 — FK가 **PK만** 가리킬 수 있어(`errno=-920`) 그 세 행은 FK로 성립하지 않고, `ON UPDATE CASCADE`도 지원되지 않아 전파 대신 막힌다. 값 범위 CHECK(`chk_gt_positive` 등)와 **부모 쪽 연료 삭제 금지**는 되살리지 않았다 — 뒤엣것은 한 번 넣었다가 뺐다. `REPLACE INTO`가 DELETE + INSERT로 구현돼 seed 재적재가 통째로 막혔고(`test_seed_data.py` 7건이 fixture에서 죽었다), 트리거는 REPLACE의 DELETE와 사람이 친 DELETE를 구분하지 못한다. 남는 구멍을 §7.4에 적고 `test_parent_side_delete_is_deliberately_not_guarded`로 고정했다 (#1058) |
 | 2026-09-18 | `#1080` | **v1.28 — §2.23 `chat_session` · §2.24 `chat_message` 신설.** ORM(`models/chat.py`)·마이그레이션에 이미 존재하는데 문서만 「정의돼 있지 않다」고 적어 두고 있었다(#287 각주). 원래 마이그레이션 041로 추가됐고 `#1058` CUBRID 전환에서 `1c444a5c4819` 초기 스키마에 흡수됐다. §2.16 각주를 「§2.23·§2.24에 정의돼 있다」로 정정하고 §4.3 보존 행에서 「테이블 미정의 각주」 참조를 걷었다 — 만료 행은 `scripts/purge_expired.py`가 90일 `expires_at` 그대로 지운다(유예 없음). 계산 경로 격리(`calculation_run`·`voyage` 비참조 · 감사 로그 `CHAT_TOOL_CALL`이 가리킨다)와 「지우는 표」 성격(본문은 여기만, 감사 로그에는 해시)을 각주로 못 박았다. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1080) |
+| 2026-09-18 | `#673` | **v1.29 — §2.8 `UNIQUE(year)`·§2.10 `idx_refline_unique`·§2.11 `idx_boundary_unique`를 활성-유니크 트리거로 교체 · §2.10·§2.11에 `version`·`is_active` 컬럼 추가 · §7.2 각주에 「정책이 문서로만 존재했다」는 실측 등재.** §7.2가 정한 개정 운용(새 행 + 전환)이 물리적으로 불가능했던 이유가 둘였다 — ⑴ 두 테이블에 컬럼이 없었다 ⑵ 세 키가 전역 유니크라 이행 행을 못 만들었다. `054`가 둘 다 고친다(컬럼 추가 · 트리거 교체 — `050` ⑴ 패턴). 기존 행은 현행이므로 `is_active = 1`이 초깃값이다. 구조 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#673) |

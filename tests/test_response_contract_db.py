@@ -1633,6 +1633,12 @@ _FILES = "tests/test_report_export_routes_api_db.py"
 
 #: 두 계약 표 밖의 라우트 → 필드 집합을 보는 테스트(``파일::함수``) 또는 ``면제: 사유``.
 ROUTE_COVERAGE: dict[str, str] = {
+    # `API_SPEC §7.5` (#673) — 응답이 **올린 파일의 행 검증 결과**라 데모 시드로는 볼 수
+    # 없다. 그 파일이 사무직·현장직 클라이언트로 적재·`dry_run`·오류 봉투·감사 로그를
+    # 전부 확인한다(IT-IMPORT-001~005).
+    "POST /parameters/import": (
+        "tests/test_parameter_import_db.py::test_new_year_is_imported_and_audited"
+    ),
     # `API_SPEC §2.17` (#513) — 계산 결과가 **DB의 모든 선박·항차에 따라** 갈리고 저장은
     # 행을 만든다. 그 파일이 자기 선박으로 값을 보고, HTTP 경로(봉투·422·201·404)를 본다.
     "POST /fleet/reduction-plans/evaluate": (
