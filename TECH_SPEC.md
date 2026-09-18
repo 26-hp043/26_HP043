@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.10 |
+| 버전 | v1.11 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
 | 최종 수정일 | 2026-09-18 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1626,6 +1626,7 @@ class SimulationSnapshot:
 src/cii_platform/
 ├── errors.py            ← 공통 예외 base (AppError). 레이어 중립.
 ├── config.py            ← 설정 (DATABASE_URL 등)
+├── depcheck.py          ← dev 이미지 의존성 드리프트 검사 (#523)
 ├── api/
 │   ├── main.py          ← FastAPI app
 │   ├── routes/          ← HTTP 요청/응답만
@@ -1633,9 +1634,18 @@ src/cii_platform/
 │   └── error_handlers.py ← 예외 → API_SPEC §1.3.2 응답 변환, 핸들러 등록
 ├── services/            ← 비즈니스 로직
 ├── calc/                ← CII 계산 엔진 (Layer 1 Decimal / Layer 2 Monte Carlo)
+├── auth/                ← 비밀번호·세션·토큰 (자체 인증 #413)
+├── mail/                ← 가입 확인·재설정 메일 발송 (#407)
+├── reports/             ← PDF·CSV 리포트 렌더링 (#361)
+├── weather/             ← 기상 조회·보정 모델 (#102)
+├── geocode/             ← 항만명 좌표 조회 캐시 (#768)
+├── ais/                 ← 위치 스냅샷 수집 경로 (#764)
+├── llm/                 ← 챗봇 LLM 공급자 어댑터 (#121)
 └── db/
     ├── models/          ← SQLAlchemy ORM 모델 (DB 표현)
-    └── repositories/    ← DB 접근(쿼리)만
+    ├── repositories/    ← DB 접근(쿼리)만
+    ├── seed.py          ← 규정 파라미터 시드 (마이그레이션 체인에 편입)
+    └── demo_seed.py     ← 데모 데이터 (별도 명령 · #451)
 ```
 
 **프론트엔드** (#133)
@@ -1654,11 +1664,21 @@ frontend/
     ├── layout/          ← 공통 셸 (좌측 사이드바 + 상단바, DESIGN_SYSTEM §7.2)
     ├── components/      ← 화면 간 공용 컴포넌트
     ├── display/         ← DESIGN_SYSTEM §4 구현. 자릿수·구분자·단위의 단일 출처 (#392)
-    ├── features/        ← 기능 단위 (voyage-cii · scenario-comparison · annual-simulation)
+    ├── design/          ← 디자인 산출물 파생 자산 관리
+    ├── download/        ← 내보내기·다운로드 경로
+    ├── theme/           ← 테마(라이트·다크) 전환
+    ├── features/        ← 기능 단위 18종 — account · annual-simulation · assistant ·
+    │                     auth · data-quality · fleet · fleet-reduction · not-underway ·
+    │                     parameters · ports · realtime-cii · reports · scenario-comparison ·
+    │                     vessel-detail · vessel-management · vessel-registration ·
+    │                     voyage-cii · voyage-management
     ├── pages/           ← 화면별 컴포넌트 (screens.ts의 화면 1개당 1개)
+    ├── test/            ← 테스트 유틸리티
     └── styles/
-        ├── tokens.css   ← DESIGN_SYSTEM §15 토큰. 색·간격·반경의 단일 출처
-        └── global.css   ← reset · 타이포그래피 기본
+        ├── tokens.css          ← DESIGN_SYSTEM §15 토큰. 색·간격·반경의 단일 출처
+        ├── tokens.generated.css ← 생성 토큰 (수동 편집 금지)
+        ├── fonts.css           ← 지정 서체 self-host @font-face (#925)
+        └── global.css          ← reset · 타이포그래피 기본
 ```
 
 **기준 문서** — 프론트엔드는 영역별로 소유 문서가 다르다.
@@ -1696,8 +1716,9 @@ frontend/
 
 - **토큰 단일화**: 컴포넌트는 `styles/tokens.css`의 CSS 커스텀 프로퍼티만 참조하고
   hex를 하드코딩하지 않는다(DESIGN_SYSTEM §15).
-- **API 호출 경계**: 화면은 데이터 출처를 알지 않는다. provider 인터페이스를 두고
-  demo 구현과 실제 API 구현을 교체한다(#134 · #138).
+- **API 호출 경계**: 화면은 데이터 출처를 알지 않는다. **API 클라이언트가 유일한 출처다** —
+  종전의 demo 구현 교체 경로(`#134`·`#138`)는 `#542`가 폐기했다. 백엔드 없이 화면만
+  보는 경로는 없다(`README` 「화면은 항상 실 API로 돈다」).
 
 ### 16.3 계층 간 규칙
 
@@ -1960,4 +1981,5 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-12 | `#766` ⑴ | **§3.3.1 β 산출 규칙 신설 · §3.6 「적용 범위」 행 정정.** 종전 문장은 「사용자가 wave heading을 입력하지 않으면 `Cβ = 1.0`」이었는데 **그 입력 칸이 화면·API 어디에도 없어** 실사용에서 β는 늘 0이었다 — 계수 표(`§3.3.1`)와 보간 구현(`interpolate_cbeta`)이 다 있는데 **입력 경로만 없어 죽어 있던** 것이다. 사용자가 모르는 값을 묻는 대신 **가진 값에서 유도**한다: 침로는 현재 위치 → 목적항의 초기 방위각(`initial_bearing_deg` 신설), β는 파향과의 상대각을 ±180°로 접은 값(`relative_wave_heading` 신설). **파향이 「오는 방향」이라는 것**(Open-Meteo 원문 확인)이 부호를 정한다 — 반대로 두면 정면 파랑이 following sea가 되어 속도 손실이 가장 큰 상황이 가장 작은 것으로 뒤집힌다. 좌표·파향이 없으면 종전대로 β=0이다. `AGENTS §4.3` 「각주·행 보강」이라 버전은 올리지 않는다 (#766) |
 | 2026-09-13 | `#363` | §12.3 경고 코드 표에 `FEEDBACK_FACTOR_UNAVAILABLE` 행 추가 — 기능③에서 실적 보정계수(`PRD §12.2.1`)를 켰는데 표본이 모자라 곱하지 않은 경우. 조용히 넘기면 사용자는 켠 대로 계산된 줄 안다. `AGENTS §4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#363) |
 | 2026-09-13 | `#513` | §12.3 경고 코드 표에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` 행 추가 — 함대 감축 계획에서 제원이 없어 감속을 적용하지 못한 항차가 있을 때. `AGENTS §4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#513) |
+| 2026-09-18 | `#1081` ⑦ | **v1.11 — §16.2 디렉터리 트리를 실측으로 갱신.** 백엔드 7개 하위 패키지(`auth`·`mail`·`reports`·`weather`·`geocode`·`ais`·`llm`)와 `depcheck.py`·`db/seed.py`·`db/demo_seed.py`가 트리에 없었고, features는 3종으로 적혀 있었으나 실제 **18종**이다. `design/`·`download/`·`theme/`·`test/`·`tokens.generated.css`·`fonts.css`도 보강했다. 끝의 「provider 인터페이스로 demo 구현과 실제 API 구현을 교체한다」는 `#542`가 demo 모드를 폐기해 `README`와 모순이던 문장 — 「API 클라이언트가 유일한 출처」로 정정했다. 구조 개정이라 `AGENTS §4.3`에 따라 버전을 올린다. `main`이 이미 v1.10을 쓰고 있어(09-18 시점 · 이력 행 없는 승격) 판번호는 v1.11로 올린다 (#1081) |
 | 2026-09-18 | `#756` | §12.3 참조표에 `FUEL_CF_MASS_BASIS` 추가 — 대체 연료 지렛대(결정요청 v9 「나」)가 질량 기준임을 알리는 경고. 문구는 `PRD §6.3` 확정본. 경고 코드의 정본 목록과의 동기화는 `test_warning_codes_sync.py`가 지킨다 (#756) |

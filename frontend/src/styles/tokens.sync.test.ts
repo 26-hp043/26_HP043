@@ -114,6 +114,76 @@ const REGENERATE = '`npm run build:tokens`를 실행하십시오.'
  *
  * **대체값이 있으면 넘긴다** — `var(--x, 12px)`은 없을 때 무엇을 쓸지 적어 둔 것이다.
  */
+/*
+ * 포커스 링은 `outline`으로 그린다 — 2026-09-18 확정 ⓐ (`#1167`).
+ *
+ * 종전 토큰 `--focus-ring`은 **`box-shadow` 값**(`0 0 0 3px …`)이었는데 11개
+ * 규칙이 그것을 `outline: var(--focus-ring)`으로 쓰고 있었다. `outline` 단축은
+ * `width | style | color`만 받으므로 값이 넷이면 **파싱에 실패해 선언이 통째로
+ * 버려진다** — 20개 선택자에 **포커스 링이 아예 없었다**(`§14` 위반).
+ *
+ * **이것도 「화면이 안 깨지는 결함」이다.** 링이 없어도 화면은 정상으로 보이고,
+ * 키보드로 다니는 사람에게만 드러난다. 그래서 가드가 없으면 또 남는다.
+ *
+ * 세 가지를 잠근다.
+ *
+ * ⑴ `--focus-ring`을 되살리지 않는다 — 이름을 바꾼 이유가 **잘못 쓰면 즉시
+ *    드러나게** 하려는 것이라, 옛 이름이 돌아오면 그 장치가 무너진다
+ * ⑵ `--focus-outline`을 `box-shadow`에 넣지 않는다 — 방향만 반대인 같은 실수다
+ * ⑶ 링을 그리는 규칙은 `outline-offset`을 함께 갖는다 — 라이트에서 링 색과
+ *    Primary 채움색이 **둘 다 `#1a365d`**라 틈이 없으면 「버튼이 커졌다」로 읽힌다
+ */
+describe('포커스 링은 outline이다 (#1167)', () => {
+  function allCss(dir: URL, out: URL[] = []): URL[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const child = new URL(`${entry.name}${entry.isDirectory() ? '/' : ''}`, dir)
+      if (entry.isDirectory()) allCss(child, out)
+      else if (entry.name.endsWith('.css')) out.push(child)
+    }
+    return out
+  }
+
+  /** 주석을 걷어낸다 — 이력을 적어 둔 문장이 선언으로 읽히면 헛되이 실패한다. */
+  const bodies = () =>
+    allCss(new URL('../', import.meta.url)).map((f) => ({
+      name: f.pathname.split('/').slice(-2).join('/'),
+      css: readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, ''),
+    }))
+
+  it('옛 이름 `--focus-ring`이 되살아나지 않는다', () => {
+    const back = bodies().filter(({ css }) => css.includes('--focus-ring'))
+    expect(back.map((b) => b.name)).toEqual([])
+  })
+
+  it('`--focus-outline`을 `box-shadow`에 넣지 않는다', () => {
+    const wrong = bodies().filter(({ css }) => /box-shadow:[^;]*--focus-outline/.test(css))
+    expect(wrong.map((b) => b.name)).toEqual([])
+  })
+
+  it('링을 그리는 규칙은 `outline-offset`을 함께 갖는다', () => {
+    /*
+     * 선언 두 줄이 **붙어 있는지**를 본다. 규칙 단위로 파싱하지 않는 것은 CSS
+     * 파서를 만드는 것이 목적이 아니기 때문이다 — 저장소의 관례가 두 줄을
+     * 나란히 적는 것이고, 떨어뜨려 적으면 이 검사가 알려 준다.
+     */
+    const missing: string[] = []
+    for (const { name, css } of bodies()) {
+      for (const m of css.matchAll(/( *)outline: var\(--focus-outline\);\n(.*)/g)) {
+        if (!m[2].includes('outline-offset')) missing.push(name)
+      }
+    }
+    expect([...new Set(missing)]).toEqual([])
+  })
+
+  it('토큰이 `outline` 단축으로 파싱되는 모양이다', () => {
+    const tokens = readFileSync(new URL('./tokens.css', import.meta.url), 'utf8')
+    const m = /--focus-outline:\s*([^;]+);/.exec(tokens.replace(/\/\*[\s\S]*?\*\//g, ''))
+    expect(m, '--focus-outline 선언을 찾지 못했습니다').toBeTruthy()
+    // `width | style | color` 셋이다 — 넷이면 `outline`이 통째로 버려진다.
+    expect(m![1].trim()).toMatch(/^\S+\s+(solid|dashed|dotted|double)\s+\S+$/)
+  })
+})
+
 describe('CSS가 가리키는 커스텀 프로퍼티가 실재한다 (#1052)', () => {
   function cssFiles(dir: URL, out: URL[] = []): URL[] {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -185,6 +255,10 @@ describe('정본이 적은 토큰 이름이 실재한다 (#1022)', () => {
     // `§9.5`가 **존재한 적 없는 이름을 가리키고 있었다**는 사실을 적기 위해 쓴다
     // (`#1052` 정정). 실재하면 오히려 틀린 것이다.
     '--surface-default': '§9.5 정정 기록 — 존재한 적 없던 이름',
+    // `#1167` 개명 기록 — `box-shadow` 값이던 옛 포커스 링 토큰이다. 11개 규칙이
+    // 그것을 `outline:`에 넣어 **20개 선택자에 링이 없었고**, 잘못 쓰면 즉시
+    // 드러나도록 `--focus-outline`으로 바꿨다. 정본이 그 이력을 적고 있다.
+    '--focus-ring': '#1167 개명 기록 — `--focus-outline`으로 바뀌었다',
   }
 
   /**
@@ -766,8 +840,8 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
    * 실효 대비가 떨어진 것이라, **투명도가 다시 들어오는 것**을 막는다.
    */
   it('포커스 링이 반투명이 아니다', () => {
-    const value = lightAlias['--focus-ring']
-    expect(value, '--focus-ring을 찾지 못했습니다').toBeDefined()
+    const value = lightAlias['--focus-outline']
+    expect(value, '--focus-outline을 찾지 못했습니다').toBeDefined()
     expect(value).not.toMatch(/transparent|color-mix|rgba?\(|\/\s*\d/)
   })
 
@@ -831,8 +905,8 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
   })
 
   it.each(THEMES)('$name — 포커스 링이 네 면 위에서 3:1 이상이다', ({ generated, alias }) => {
-    // `0 0 0 3px <색>`에서 색만 꺼낸다.
-    const ring = /3px\s+(.+)$/.exec(alias['--focus-ring'])
+    // `3px solid <색>`에서 색만 꺼낸다 — `#1167`로 `outline` 단축이 됐다.
+    const ring = /3px\s+solid\s+(.+)$/.exec(alias['--focus-outline'])
     expect(ring, '포커스 링 색을 읽지 못했습니다').not.toBeNull()
     const color = evaluate((ring as RegExpExecArray)[1], generated, alias)
     for (const surface of TEXT_SURFACES) {
@@ -1122,6 +1196,31 @@ describe('등급 색을 비-등급 맥락에서 쓰지 않는다 — §0.2 제�
     expect(
       warnBlock![1],
       '.warn 배너에 --cii-* 토큰이 있습니다. §0.2 제약 2 위반 — 시맨틱 Danger 토큰(--color-danger 등)으로 바꾸세요',
+    ).not.toMatch(/--cii-/)
+  })
+
+  /*
+   * 위험 테두리는 **위험 축**이다 — 2026-09-18 확정 ⓐ (`#1168`).
+   *
+   * `.vessel--risk`가 붙는 조건은 등급이 아니라 `isAtRisk()`이고, 그 사유는 둘이다
+   * (`E_THIS_YEAR` · `D_THREE_YEARS`). 종전에는 `--cii-e-border`를 써서 **마크에
+   * `D`가 찍힌 행에 등급 E 색 테두리**가 붙었다 — `§0.2` 제약 2가 「등급 색은 A~E
+   * 문자와 **함께**」라고 한 그 어긋남이다.
+   *
+   * **사유 둘이 같은 테두리를 공유한다는 것 자체가 등급 축이 아니라는 증거다.**
+   * 위 `.warn` 검사와 같은 규율이며, 다른 점은 이쪽이 「문자가 없어서」가 아니라
+   * **「문자가 있는데 다른 등급이어서」** 걸린다는 것이다.
+   *
+   * 종전 값은 대비도 모자랐다 — `--cii-e-border`는 카드 위에서 라이트 `2.67` ·
+   * 다크 `2.17`로 `1.4.11` 비텍스트 `3:1` 미달이었다. 보조 채널로 세운 선이 정작
+   * 보이지 않았다.
+   */
+  it('.vessel--risk 테두리에 --cii-* 등급 토큰이 없다 (#1168)', () => {
+    const risk = fleetCss.match(/\.vessel--risk\s*\{([^}]+)\}/)
+    expect(risk, '.vessel--risk 규칙을 찾지 못했다 — 선택자가 바뀌었다면 이 검사도 갱신하세요').not.toBeNull()
+    expect(
+      risk![1],
+      '.vessel--risk에 --cii-* 토큰이 있습니다. 이 선은 등급이 아니라 위험(E_THIS_YEAR · D_THREE_YEARS)을 뜻합니다 — 시맨틱을 쓰세요',
     ).not.toMatch(/--cii-/)
   })
 })

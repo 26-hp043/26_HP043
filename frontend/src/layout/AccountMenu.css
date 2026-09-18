@@ -37,8 +37,8 @@
 }
 
 .account-menu__trigger:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .account-menu__avatar {
@@ -166,8 +166,8 @@
 }
 
 .account-menu__link:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .account-menu__link-sub {

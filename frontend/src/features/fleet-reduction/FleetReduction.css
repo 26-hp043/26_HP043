@@ -85,7 +85,8 @@
 .fr__charter:focus-visible,
 .fr__slider input:focus-visible,
 .fr__button:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .fr__grid {
@@ -147,6 +148,23 @@
   gap: var(--space-8);
 }
 
+/*
+ * 슬라이더 — **네이티브 위젯을 버리지 않는다** (`DESIGN_SYSTEM §8` 확정 ⓑ · `#1052`).
+ *
+ * 치수를 지정하지 않는 것이 확정이다. `accent-color` 한 줄이 확정 K의 「채움은
+ * Primary 단색(`--color-primary-solid`)」을 지키고, 트랙 두께와 썸 크기는 브라우저
+ * 기본을 쓴다.
+ *
+ * ⚠️ **`-webkit-appearance: none`을 넣지 않는다.** 트랙·썸을 직접 그리려면 그것이
+ * 필요한데, 넣는 순간 `accent-color`가 칠하지 않아 **채움 규격이 깨진다.** WebKit에는
+ * `::-moz-range-progress`에 해당하는 의사요소가 없어, 채움을 값 기반 그라데이션으로
+ * 직접 계산해 넣어야 한다 — 치수 둘을 얻고 채움 구현의 단순함과 브라우저별 동작의
+ * 일관성을 잃는다.
+ *
+ * 확정 K의 나머지는 이미 지켜지고 있다 — 값은 `<output className="fr__num">`로 행
+ * 우측 고정, 썸 포커스는 위 `:focus-visible`의 `--focus-outline`, 키보드 단위는
+ * `step={0.1}`(`§4.2` 자릿수).
+ */
 .fr__slider input[type='range'] {
   width: 6.5rem;
   accent-color: var(--color-primary-solid);

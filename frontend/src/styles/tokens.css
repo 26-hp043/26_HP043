@@ -398,8 +398,34 @@
    *
    * WCAG 1.4.11 Non-text Contrast 위반이며, 바로 이 값을 쓰는 `:focus-visible`이
    * **전역**이라 앱의 모든 버튼·링크·입력에 걸렸다.
+   *
+   * ## `box-shadow`가 아니라 `outline`이다 — 2026-09-18 확정 ⓐ (`#1167`)
+   *
+   * 종전 값은 `0 0 0 3px …`(box-shadow)였는데 **11개 규칙이 그것을
+   * `outline: var(--focus-ring)`으로 쓰고 있었다.** `outline` 단축은
+   * `width | style | color`만 받으므로 값이 넷이면 **파싱에 실패해 선언이
+   * 통째로 버려진다** — 20개 선택자에 **포커스 링이 아예 없었다**(`§14`
+   * 「키보드 포커스 가시화」 위반). Chromium 실측: `outline: 0px / none`.
+   *
+   * 값을 `outline` 형태로 바꾸고 전 저장소를 `outline`으로 통일한다. 이름도
+   * 함께 바꾼 것은 **같은 실수가 다시 나지 않게** 하기 위해서다 — 새 이름은
+   * `box-shadow`에 넣으면 그쪽이 깨지므로 잘못 쓰면 즉시 드러난다.
+   *
+   * `outline`이 `box-shadow`보다 나은 이유가 둘 더 있다. ⑴ 요소가 이미 가진
+   * 고도 그림자를 **덮지 않는다** — `box-shadow`로 링을 그리면 포커스 순간
+   * `--shadow-lv1`이 사라진다 ⑵ 시스템 고대비 모드가 쓰는 축과 같다
+   * (`global.css`의 `outline: 3px solid Highlight`).
+   *
+   * ## `outline-offset: 2px`를 함께 준다 (`#1167`)
+   *
+   * 라이트에서 `--semantic-focus`와 `--semantic-primary`가 **둘 다 `#1a365d`**라,
+   * Primary 채움 버튼에 링을 붙이면 둘 사이 경계가 `1.00`이 되어 **「버튼이 3px
+   * 커졌다」로 읽힌다.** 링 바깥은 카드 대비 `12.14`로 보이므로 규격 위반은
+   * 아니지만(`§14` 목표는 WCAG 2.1 AA이고 `2.4.11`은 2.2 항목이다) 뚜렷한 링은
+   * 아니다. `2px` 틈이 그 사이에 면색을 넣어 **링을 링으로 만든다** — 색을
+   * 건드리지 않고 해소되므로 Figma 세트를 거치지 않는다.
    */
-  --focus-ring: 0 0 0 3px var(--semantic-focus);
+  --focus-outline: 3px solid var(--semantic-focus);
 }
 
 /* 시스템 다크 + 라이트를 명시하지 않은 경우 — 생성물의 색 위에 그림자만 덮는다. */

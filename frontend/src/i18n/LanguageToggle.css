@@ -1,8 +1,10 @@
 /*
- * 테마 선택 — 해/달 세그먼트. 토큰만 참조한다(DESIGN_SYSTEM §15).
+ * 언어 선택 — 한/EN 세그먼트. `ThemeToggle.css`와 같은 구조·같은 토큰만 쓴다
+ * (DESIGN_SYSTEM §15 — hex 하드코딩 금지). 아이콘 대신 글자 한 두 자가 들어가므로
+ * 글리프에 타이포그래피 토큰만 추가로 참조한다.
  */
 
-.theme-toggle {
+.language-toggle {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -12,7 +14,7 @@
   background: var(--surface-inset);
 }
 
-.theme-toggle__option {
+.language-toggle__option {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -30,40 +32,31 @@
     color 120ms ease;
 }
 
-.theme-toggle__option:hover {
+.language-toggle__option:hover {
   color: var(--text-secondary);
 }
 
-.theme-toggle__option:focus-visible {
+.language-toggle__option:focus-visible {
   outline: var(--focus-outline);
   outline-offset: 2px;
 }
 
-/* 선택된 칸 — 카드 색으로 떠 보이게 한다. */
-.theme-toggle__option--on {
+/* 선택된 칸 — 카드 색으로 떠 보이게 한다(테마와 같은 판정). */
+.language-toggle__option--on {
   background: var(--surface-card);
   color: var(--color-link);
   box-shadow: var(--shadow-lv1);
 }
 
-.theme-toggle__option svg {
-  inline-size: var(--icon-default);
-  block-size: var(--icon-default);
-  fill: none;
-  stroke: currentcolor;
-  stroke-width: var(--icon-stroke);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-/* 달은 채워진 형태가 더 읽힌다 — 획만 두면 초승달이 얇은 실선으로 보인다. */
-.theme-toggle__option svg .moon-fill {
-  fill: currentcolor;
-  stroke: none;
+.language-toggle__glyph {
+  font-size: var(--font-size-label);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .theme-toggle__option {
+  .language-toggle__option {
     transition: none;
   }
 }

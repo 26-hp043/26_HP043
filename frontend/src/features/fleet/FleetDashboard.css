@@ -109,8 +109,8 @@
 }
 
 .empty__cta:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /* ── KPI ────────────────────────────────────────────────────────── */
@@ -316,9 +316,32 @@
   border-color: var(--border-strong);
 }
 
-/* 위험 선박은 테두리로도 드러낸다 — 등급 칩 색만으로 구분하지 않는다(§14). */
+/*
+ * 위험 선박은 테두리로도 드러낸다 — 등급 칩 색만으로 구분하지 않는다(`§14`).
+ *
+ * ## 등급 축이 아니라 **위험 축**이다 — 2026-09-18 확정 ⓐ (`#1168`)
+ *
+ * 종전에는 `--cii-e-border`였는데 **이 클래스가 붙는 조건은 등급이 아니다.**
+ *
+ *     riskReasons: 'E_THIS_YEAR' | 'D_THREE_YEARS'   (`fleetRules.isAtRisk`)
+ *
+ * `D등급 3년 연속` 선박도 참이므로 **마크에 `D`가 찍힌 행에 등급 E 색 테두리**가
+ * 붙었다 — `§0.2` 제약 2가 「등급 색은 A~E 문자와 **함께**」라고 한 그 어긋남이다.
+ * `.action--critical`이 등급 색을 지킨 근거(문구에 등급 문자가 늘 함께 있다)가
+ * 여기서는 성립하지 않는다.
+ *
+ * **사유 둘이 같은 테두리를 공유한다는 것 자체가 등급 축이 아니라는 증거다.**
+ * 이 선이 말하는 것은 「이 배는 E등급이다」가 아니라 「조치가 필요하다」이고,
+ * 그것은 `§2.3`이 「UI 피드백 전용」으로 둔 시맨틱의 자리다.
+ *
+ * ## 대비도 함께 고쳐졌다
+ *
+ * 종전 `--cii-e-border`는 카드(`--surface-card`) 위에서 **라이트 2.67 · 다크
+ * 2.17**으로 `1.4.11` 비텍스트 `3:1`에 **미달**이었다. 보조 채널로 세운 선이
+ * 정작 보이지 않았던 것이다. `--color-danger`는 **4.13 / 5.40**으로 넘는다.
+ */
 .vessel--risk {
-  border-color: var(--cii-e-border);
+  border-color: var(--color-danger);
 }
 
 /*
@@ -328,8 +351,8 @@
  * 지운다. 포커스 링은 배치와 무관하므로 여기 남긴다.
  */
 .vessel__link:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .vessel__name {
@@ -378,8 +401,8 @@
 }
 
 .more:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /* ── 조치 필요 ──────────────────────────────────────────────────── */

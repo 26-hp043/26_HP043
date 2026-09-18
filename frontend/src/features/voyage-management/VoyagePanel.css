@@ -62,7 +62,7 @@
 .vy__transition:focus-visible,
 .vy__more:focus-visible,
 .vy__input:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
   outline-offset: 2px;
 }
 
@@ -318,8 +318,8 @@
 
 .vy-import__row button:focus-visible,
 .vy-import__row input:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .vy-import__note {
@@ -558,8 +558,8 @@
 
 .vy-export__control:focus-visible,
 .vy-export__submit:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .vy-export__saved {

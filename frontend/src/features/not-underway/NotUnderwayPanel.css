@@ -46,8 +46,8 @@
 .nu__fuel-row button:focus-visible,
 .nu input:focus-visible,
 .nu select:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .nu__danger:hover {

@@ -106,7 +106,8 @@
 .vessel-registration__control:focus-visible {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /* 색만으로 오류를 알리지 않는다 — 아래쪽 메시지가 항상 붙는다(§14). */

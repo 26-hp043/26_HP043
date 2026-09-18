@@ -142,8 +142,8 @@ a {
 
 /* DESIGN_SYSTEM §5 · §14 — 키보드 포커스 가시화 */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   border-radius: var(--radius-control);
 }
 

@@ -43,17 +43,18 @@
 화면은 이제 ``GET /vessels``로 받는다. 값 자체는 테스트·픽스처가 참조하므로
 **바꾸려면 그쪽을 함께 고친다.**
 
-## 행 수는 ``rowcount``로 묻지 않는다 (#481)
+## 행 수는 세는 자리에서 직접 센다 (#481 · #1176)
 
-이 모듈의 모든 헬퍼는 ``RETURNING id``로 **돌려받은 행을 센다.**
-
-``rowcount``는 드라이버·실행 경로에 따라 뜻이 달라진다. 실제로 executemany 경로의
-asyncpg는 ``-1``을 돌려주며, 종전 코드의 ``result.rowcount or 0``은 ``-1``이 truthy라
-그대로 새어 나갔다 — 출력이 ``vessel: -1행 신규 적재``였다. 그 값은 **「이미 다 들어
+PostgreSQL 시절에는 ``RETURNING id``로 **돌려받은 행을 세었다** — executemany 경로의
+``rowcount``가 ``-1``이고 종전 코드의 ``result.rowcount or 0``은 ``-1``이 truthy라
+그대로 새어 나갔으며, 출력이 ``vessel: -1행 신규 적재``였다. 그 값은 **「이미 다 들어
 있다(0)」와 「방금 넣었다(N)」를 구분하지 못한다.** 이 출력의 목적이 정확히 그 구분이다.
 
-단일 DELETE의 ``rowcount``는 정상 값을 주지만 거기도 같은 방식을 쓴다. **두 규칙이
-공존하면 다음 사람이 어느 쪽이 맞는지 매번 확인해야 한다.**
+CUBRID 전환(`#1058`) 뒤로는 ``RETURNING``을 쓸 수 없어 세는 자리를 바꿨다 —
+**삽입은 행별 INSERT의 성공 수**(:func:`_insert_ignoring_existing`), **삭제는 단일
+DELETE의 ``rowcount`` 누적**(:func:`_delete_where`). executemany ``rowcount``를 다시
+믿는 것이 아니라, 그 경로가 아예 생기지 않게 행별로 돌린다(#371 · #1079와 같은
+제약).
 
 실행: ``python -m cii_platform.db.demo_seed``
 """
@@ -668,6 +669,350 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "actual_departure_at": None,
         "actual_arrival_at": None,
     },
+    # ── 2026 계획 항차 18건 (#1052 · 시연 데이터) ──────────────────────────
+    #
+    # **연간 시뮬레이션이 분포를 만들지 못하고 있었다.** 계획 항차가 저장소 전체에
+    # 한 건(`V1_PLANNED`)뿐이라, 벌크선 외의 배를 고르면 「남은 계획 항차 0건」이 되어
+    # 등급 확률 분포가 한 점(`C 100.0%`)에 몰리고 민감도 표의 여섯 변수가 전부 `+0.0%`로
+    # 나왔다. 화면은 사실을 말하고 있었지만(「예정된 잔여 항차가 없어 …」) **제품의 핵심
+    # 기능이 죽은 것처럼 보였다.**
+    #
+    # `INCLUDE_AS_PLAN`이라 **YTD 집계에 들어가지 않는다**(`services/ytd_cii.py`) —
+    # 대시보드의 등급 분포·위험 선박 경고·Fixture 1의 4.982/5.045/C는 **그대로다.**
+    # 위 `V1_PLANNED` 주석이 같은 근거를 이미 적어 두었고, 이 블록은 그것을 나머지
+    # 네 척으로 넓힌 것이다.
+    #
+    # 연료는 **각 배의 2026 계획 강도(t/nm)에서 뽑았다** — 지어낸 값이 아니다.
+    # 벌크 `0.1439` · 컨테이너 `0.0562` · 일반화물 `0.0409` · 로로 `0.1378` ·
+    # 관찰선 `0.0670`. 거리를 배마다 흔들어 둔 것은 분포에 폭을 주기 위해서다.
+    #
+    # 출항 예정은 전부 **미래**다 (#792) — 진행 중 항차의 도착 예정(`+8d`)과
+    # `V1_PLANNED`(`+11d`) 뒤인 `+20d`부터 `+76d` 사이에 둔다. 연말을 넘지 않아
+    # `regulation_year = 2026`과 어긋나지 않는다.
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000141"),
+        "vessel_id": VESSEL_ID_BULK,
+        "voyage_no": "2026-04",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "SINGAPORE",
+        "planned_distance_nm": Decimal("1800.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("14.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(22),
+        "planned_arrival_at": _rel(28),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000142"),
+        "vessel_id": VESSEL_ID_BULK,
+        "voyage_no": "2026-05",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "SINGAPORE",
+        "arrival_port_name": "KAOHSIUNG",
+        "planned_distance_nm": Decimal("2600.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("14.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(34),
+        "planned_arrival_at": _rel(42),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000143"),
+        "vessel_id": VESSEL_ID_BULK,
+        "voyage_no": "2026-06",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "KAOHSIUNG",
+        "arrival_port_name": "BUSAN",
+        "planned_distance_nm": Decimal("2100.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("14.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(48),
+        "planned_arrival_at": _rel(55),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000144"),
+        "vessel_id": VESSEL_ID_CONTAINER,
+        "voyage_no": "2026-03",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "ROTTERDAM",
+        "planned_distance_nm": Decimal("9200.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("16.50"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(20),
+        "planned_arrival_at": _rel(44),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000145"),
+        "vessel_id": VESSEL_ID_CONTAINER,
+        "voyage_no": "2026-04",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "ROTTERDAM",
+        "arrival_port_name": "BUSAN",
+        "planned_distance_nm": Decimal("10100.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("16.50"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(50),
+        "planned_arrival_at": _rel(76),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000146"),
+        "vessel_id": VESSEL_ID_GENERAL_CARGO,
+        "voyage_no": "2026-02",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "ULSAN",
+        "arrival_port_name": "SHANGHAI",
+        "planned_distance_nm": Decimal("950.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("12.80"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(20),
+        "planned_arrival_at": _rel(24),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000147"),
+        "vessel_id": VESSEL_ID_GENERAL_CARGO,
+        "voyage_no": "2026-03",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "SHANGHAI",
+        "arrival_port_name": "OSAKA",
+        "planned_distance_nm": Decimal("1250.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("12.80"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(30),
+        "planned_arrival_at": _rel(35),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000148"),
+        "vessel_id": VESSEL_ID_GENERAL_CARGO,
+        "voyage_no": "2026-04",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "OSAKA",
+        "arrival_port_name": "ULSAN",
+        "planned_distance_nm": Decimal("1050.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("12.80"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(42),
+        "planned_arrival_at": _rel(46),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000149"),
+        "vessel_id": VESSEL_ID_GENERAL_CARGO,
+        "voyage_no": "2026-05",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "ULSAN",
+        "arrival_port_name": "QINGDAO",
+        "planned_distance_nm": Decimal("1400.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("12.80"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(55),
+        "planned_arrival_at": _rel(60),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000150"),
+        "vessel_id": VESSEL_ID_RO_RO,
+        "voyage_no": "2026-02",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "KOBE",
+        "planned_distance_nm": Decimal("430.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("18.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(20),
+        "planned_arrival_at": _rel(21),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000151"),
+        "vessel_id": VESSEL_ID_RO_RO,
+        "voyage_no": "2026-03",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "KOBE",
+        "arrival_port_name": "BUSAN",
+        "planned_distance_nm": Decimal("480.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("18.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(28),
+        "planned_arrival_at": _rel(29),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000152"),
+        "vessel_id": VESSEL_ID_RO_RO,
+        "voyage_no": "2026-04",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "OSAKA",
+        "planned_distance_nm": Decimal("450.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("18.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(36),
+        "planned_arrival_at": _rel(37),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000153"),
+        "vessel_id": VESSEL_ID_RO_RO,
+        "voyage_no": "2026-05",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "OSAKA",
+        "arrival_port_name": "BUSAN",
+        "planned_distance_nm": Decimal("510.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("18.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(45),
+        "planned_arrival_at": _rel(46),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000154"),
+        "vessel_id": VESSEL_ID_RO_RO,
+        "voyage_no": "2026-06",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "KOBE",
+        "planned_distance_nm": Decimal("440.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("18.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(55),
+        "planned_arrival_at": _rel(56),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000155"),
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2026-W4",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "ULSAN",
+        "arrival_port_name": "KAOHSIUNG",
+        "planned_distance_nm": Decimal("1400.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(20),
+        "planned_arrival_at": _rel(25),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000156"),
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2026-W5",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "KAOHSIUNG",
+        "arrival_port_name": "SINGAPORE",
+        "planned_distance_nm": Decimal("3600.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(32),
+        "planned_arrival_at": _rel(44),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000157"),
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2026-W6",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "SINGAPORE",
+        "arrival_port_name": "PORT KLANG",
+        "planned_distance_nm": Decimal("900.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(50),
+        "planned_arrival_at": _rel(53),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000158"),
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2026-W7",
+        "status": "PLANNED",
+        "annual_inclusion_policy": "INCLUDE_AS_PLAN",
+        "regulation_year": 2026,
+        "departure_port_name": "PORT KLANG",
+        "arrival_port_name": "ULSAN",
+        "planned_distance_nm": Decimal("2200.00"),
+        "actual_distance_nm": None,
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": None,
+        "planned_departure_at": _rel(58),
+        "planned_arrival_at": _rel(65),
+        "actual_departure_at": None,
+        "actual_arrival_at": None,
+    },
 ]
 
 #: 항차 연료. 전부 HFO(017 seed 코드). 진행 중 항차는 계획값만.
@@ -864,6 +1209,115 @@ SEED_VOYAGE_FUELS: list[dict[str, object]] = [
         "id": uuid.UUID("00000000-0000-4000-8000-000000000411"),
         "voyage_id": V1_PLANNED,
         "planned_fuel_ton": Decimal("331.00"),
+        "actual_fuel_ton": None,
+    },
+    # ── 위 계획 항차 18건의 연료 (#1052) — 계획값만. 실적은 항해가 끝나야 들어온다.
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000441"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000141"),
+        "planned_fuel_ton": Decimal("259.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000442"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000142"),
+        "planned_fuel_ton": Decimal("374.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000443"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000143"),
+        "planned_fuel_ton": Decimal("302.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000444"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000144"),
+        "planned_fuel_ton": Decimal("517.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000445"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000145"),
+        "planned_fuel_ton": Decimal("568.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000446"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000146"),
+        "planned_fuel_ton": Decimal("39.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000447"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000147"),
+        "planned_fuel_ton": Decimal("51.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000448"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000148"),
+        "planned_fuel_ton": Decimal("43.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000449"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000149"),
+        "planned_fuel_ton": Decimal("57.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000450"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000150"),
+        "planned_fuel_ton": Decimal("59.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000451"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000151"),
+        "planned_fuel_ton": Decimal("66.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000452"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000152"),
+        "planned_fuel_ton": Decimal("62.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000453"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000153"),
+        "planned_fuel_ton": Decimal("70.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000454"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000154"),
+        "planned_fuel_ton": Decimal("61.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000455"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000155"),
+        "planned_fuel_ton": Decimal("94.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000456"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000156"),
+        "planned_fuel_ton": Decimal("241.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000457"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000157"),
+        "planned_fuel_ton": Decimal("60.00"),
+        "actual_fuel_ton": None,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000458"),
+        "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000158"),
+        "planned_fuel_ton": Decimal("147.00"),
         "actual_fuel_ton": None,
     },
 ]
@@ -1139,11 +1593,11 @@ _vessel = sa.table(
 async def _insert_ignoring_existing(conn: AsyncConnection, table, rows: list[dict]) -> int:
     """이미 있는 행은 건너뛴다. 돌려주는 값은 **실제로 넣은** 행 수다.
 
-    ``ON CONFLICT DO NOTHING``은 충돌한 행에 대해 아무것도 반환하지 않으므로,
-    ``RETURNING``으로 돌아온 행의 수가 곧 신규 적재 수다.
-
-    ``rowcount``를 쓰지 않는 이유는 모듈 docstring 참조 (#481) — executemany 경로에서
-    ``-1``이 나온다.
+    행별 ``INSERT``를 돌려 성공할 때마다 직접 세고, 이미 있는 행은
+    ``IntegrityError``로 넘긴다 — 그 예외는 실패가 아니라 「이미 있다」는 뜻이다.
+    CUBRID에는 ``ON CONFLICT``·``RETURNING``이 없어(``#1058``) 이보다 나은 표현이
+    없다(#371의 행별 실행 원칙을 따른다). 종전 ``RETURNING`` 서술은 PostgreSQL
+    시절의 것이었다(``#1176``).
     """
     if not rows:
         return 0
