@@ -180,7 +180,7 @@ export function VoyageCiiActions({
       </h3>
 
       {stale ? (
-        <p className="voyage-cii-actions__note" role="status">
+        <p id="voyage-cii-actions-stale" className="voyage-cii-actions__note" role="status">
           입력이 바뀌었습니다. 다시 계산한 뒤 저장하거나 내보내 주세요.
         </p>
       ) : null}
@@ -192,6 +192,8 @@ export function VoyageCiiActions({
           aria-expanded={panelOpen}
           aria-controls="voyage-cii-plan-save"
           disabled={stale}
+          /* 왜 못 누르는지 낭독에도 닿게 한다 (`§14` 「비활성의 사유」 · `#1170` ⑵). */
+          aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
           onClick={() => {
             setSaved(null)
             setPanelOpen((open) => !open)
@@ -203,6 +205,7 @@ export function VoyageCiiActions({
           type="button"
           className="voyage-cii-actions__button"
           disabled={stale}
+          aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
           onClick={() => navigate(annualSimulatorPath(request))}
         >
           연간 시뮬레이터에서 보기
@@ -211,6 +214,7 @@ export function VoyageCiiActions({
           type="button"
           className="voyage-cii-actions__button"
           disabled={stale || exporting}
+          aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
           onClick={downloadCsv}
         >
           {exporting ? 'CSV 준비 중…' : 'CSV 다운로드'}

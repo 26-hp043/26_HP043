@@ -167,3 +167,135 @@ describe('접근성 배선 (#829 ⑸)', () => {
     expect(offenders).toEqual([])
   })
 })
+
+/**
+ * **비활성의 사유** — `DESIGN_SYSTEM §14` 「비활성 컨트롤은 「왜」를 함께 낸다」
+ * (2026-09-18 확정 · `#1170` ⑵).
+ *
+ * ## 무엇이 안 보였나
+ *
+ * `disabled`는 요소를 **초점 순서에서 뺀다.** 그래서 잠긴 버튼은 「왜 잠겼는지」가
+ * 아니라 **있다는 사실 자체**가 낭독에서 사라진다. 화면은 멀쩡하다 — 이 저장소가
+ * 반복해 맞는 꼴이다.
+ *
+ * 확정은 속성을 바꾸지 않는다. `aria-disabled`로 옮기면 초점은 얻지만 저장소의
+ * `:disabled` CSS 규칙 **51개**가 그대로 빠져(`[aria-disabled]`는 **0개**) 비활성임이
+ * 보이지 않게 된다. 대신 **사유를 화면과 낭독 양쪽에** 둔다. 초점에 남길지는
+ * `§16` 항목 20이 따로 받는다.
+ *
+ * ## 이 가드가 보는 것
+ *
+ * **등재**다. 비활성 조건이 `busy`·`saving` 같은 **일시적 진행 중**이면 버튼 글자가
+ * 스스로 바뀌므로 대상이 아니고, **선행 조건 미충족**이면 여기 적혀 있어야 한다.
+ * 새 버튼이 사유 없이 들어오면 실패한다 — 「선언과 사용이 함께 간다」와 같은 규율이다.
+ *
+ * 적힌 `describedBy`는 **문자열 두 개가 같은 파일에 함께 있는지**로 확인한다
+ * (`id`와 `aria-describedby`). 렌더까지 보지 않는 이유는 이 성질이 조건부 분기라
+ * 화면 검사로는 **사유가 뜨는 경우만** 덮이기 때문이다 — 빠진 배선은 소스에서 본다.
+ */
+describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
+  /**
+   * 일시적 진행 중 — 대상이 아니다. 버튼 글자가 「저장 중…」으로 바뀌고 몇 초 뒤 돌아온다.
+   */
+  const TRANSIENT = new Set([
+    'busy',
+    'busy !== null',
+    'busyId !== null',
+    'saving',
+    'submitting',
+    'loading',
+    'loadingMore',
+    'sortLoading',
+    'estimating',
+    'isDeleting',
+    'exporting',
+    'pending',
+    'stopped',
+    "lookup.status === 'loading'",
+    "reproduce.status === 'running'",
+    "state.status === 'running'",
+    "state.status === 'loading'",
+    "adopt.status === 'running'",
+    'fuelsLoading',
+  ])
+
+  /** `사유가 닿는 방법`. 문자열이면 잇는 `id`, `null`이면 곁의 칸이 스스로 말한다. */
+  const REGISTERED: Readonly<Record<string, string | null>> = {
+    "features/annual-simulation/AnnualSimulation.tsx :: state.status === 'running' || !office":
+      'annual-sim-office-only',
+    // 빈 질문칸이 바로 위에 있다 — 「무엇을 쓰지 않았는지」를 따로 적지 않는다.
+    'features/assistant/AssistantOverlay.tsx :: pending || stopped || draft.trim().length === 0':
+      null,
+    "features/fleet-reduction/FleetReduction.tsx :: saving || planName.trim() === '' || pricesInvalid":
+      'fr-save-blocked',
+    "features/scenario-comparison/ScenarioAdoptPanel.tsx :: !ready || adopt.status === 'running'":
+      'scenario-adopt-stale',
+    "features/scenario-comparison/ScenarioComparison.tsx :: state.status === 'loading' || noVessel || yearUnavailable":
+      'sc-no-vessel',
+    'features/vessel-detail/PositionForm.tsx :: busy || nothingToSave': 'vd-pos-nothing',
+    'features/voyage-cii/VoyageCiiActions.tsx :: stale': 'voyage-cii-actions-stale',
+    'features/voyage-cii/VoyageCiiActions.tsx :: stale || exporting': 'voyage-cii-actions-stale',
+    // 파일 선택칸이 같은 줄에 있다 — 고르지 않았다는 것이 그 칸으로 보인다.
+    'features/voyage-management/ImportCsv.tsx :: file === null || busy !== null': null,
+    'features/voyage-management/ImportCsv.tsx :: !canCommit(result) || busy !== null':
+      'vy-import-commit-note',
+    // 행마다 다른 사유라 `id`가 행별로 만들어진다.
+    'features/voyage-management/VoyagePanel.tsx :: busy || blocker !== null': 'vy-blocker-',
+  }
+
+  /** `disabled=` 앞으로 거슬러 올라가 가장 가까운 여는 태그를 찾는다. */
+  function enclosingTag(lines: string[], at: number): string | null {
+    for (let i = at; i >= 0 && i > at - 25; i -= 1) {
+      const found = /<(button|select|input|textarea|a)\b/.exec(lines[i])
+      if (found !== null) return found[1]
+    }
+    return null
+  }
+
+  function preconditionButtons(): string[] {
+    const keys: string[] = []
+    for (const { path, text } of FILES) {
+      const lines = text.split('\n')
+      lines.forEach((line, index) => {
+        const found = /disabled=\{(.+?)\}\s*>?\s*$/.exec(line)
+        if (found === null) return
+        const expression = found[1].trim()
+        if (expression.split('||').every((term) => TRANSIENT.has(term.trim()))) return
+        if (enclosingTag(lines, index) !== 'button') return
+        keys.push(`${path} :: ${expression}`)
+      })
+    }
+    return [...new Set(keys)].sort()
+  }
+
+  it('선행 조건으로 잠기는 버튼은 전부 등재돼 있다', () => {
+    const unregistered = preconditionButtons().filter((key) => !(key in REGISTERED))
+    expect(
+      unregistered,
+      '사유 없이 잠기는 버튼이다 — §14대로 사유를 적고 여기 등재하십시오',
+    ).toEqual([])
+  })
+
+  it('등재부에 사라진 버튼이 남아 있지 않다', () => {
+    /*
+     * 목록은 **지워질 수 있어야** 한다. 버튼이 없어졌는데 줄이 남으면 다음 사람이
+     * 그 자리를 찾다가 시간을 쓴다 — `RETIRED` 목록이 밟은 함정이다.
+     */
+    const present = new Set(preconditionButtons())
+    expect(Object.keys(REGISTERED).filter((key) => !present.has(key))).toEqual([])
+  })
+
+  it('사유를 잇는다고 적은 버튼은 실제로 그 id가 배선돼 있다', () => {
+    const offenders: string[] = []
+    for (const [key, describedBy] of Object.entries(REGISTERED)) {
+      if (describedBy === null) continue
+      const path = key.split(' :: ')[0]
+      const file = FILES.find((f) => f.path === path)
+      expect(file, `${path}을 찾지 못했습니다`).toBeDefined()
+      const text = (file as { text: string }).text
+      if (!text.includes(`aria-describedby=`)) offenders.push(`${key} — aria-describedby 없음`)
+      if (!text.includes(describedBy)) offenders.push(`${key} — id ${describedBy} 없음`)
+    }
+    expect(offenders).toEqual([])
+  })
+})

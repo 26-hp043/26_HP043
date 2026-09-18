@@ -22,6 +22,7 @@ export const FLEET_REDUCTION_COPY = {
   evaluateFailed: '계산 결과를 받지 못했습니다.',
   staleResult: '아래 표는 마지막으로 계산에 성공한 조건의 결과입니다.',
   priceInvalid: '0 이상의 숫자를 입력하세요.',
+  saveBlockedByPrice: '연료 단가에 잘못된 값이 있습니다. 위에서 고친 뒤 저장할 수 있습니다.',
 
   vesselsTitle: '선박별 감속',
   colVessel: '선박',

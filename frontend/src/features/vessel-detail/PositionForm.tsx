@@ -184,7 +184,13 @@ export function PositionForm({
       ) : null}
 
       <div className="vd__pos-actions">
-        <button type="button" onClick={save} disabled={busy || nothingToSave}>
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy || nothingToSave}
+          /* 사유가 화면에만 있었다 — 낭독에도 닿게 한다 (`§14` · `#1170` ⑵). */
+          aria-describedby={nothingToSave ? 'vd-pos-nothing' : undefined}
+        >
           {busy ? '저장 중…' : '저장'}
         </button>
         <button type="button" className="vd__pos-cancel" onClick={close} disabled={busy}>
@@ -194,7 +200,11 @@ export function PositionForm({
          * 왜 못 누르는지 적는다. 빈 본문은 200이지만 서버가 갱신 시각을 건드리지
          * 않아, 누르면 「저장했는데 아무 일도 없다」가 된다 (`§2.6`).
          */}
-        {nothingToSave ? <span className="vd__pos-note">바뀐 값이 없습니다.</span> : null}
+        {nothingToSave ? (
+          <span id="vd-pos-nothing" className="vd__pos-note">
+            바뀐 값이 없습니다.
+          </span>
+        ) : null}
       </div>
     </div>
   )

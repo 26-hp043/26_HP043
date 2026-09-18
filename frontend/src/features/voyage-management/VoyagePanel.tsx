@@ -307,18 +307,25 @@ function VoyageRow({
       <div className="vy__row-actions">
         {nextStatuses(voyage.status).map((to) => {
           const blocker = transitionBlocker(voyage, to)
+          const blockerId = `vy-blocker-${voyage.id}-${to}`
           return (
             <span className="vy__action" key={to}>
               <button
                 type="button"
                 className="vy__transition"
                 disabled={busy || blocker !== null}
+                /* 사유가 눈에만 있었다 — 낭독에도 닿게 한다 (`§14` · `#1170` ⑵). */
+                aria-describedby={blocker ? blockerId : undefined}
                 onClick={() => void run(() => api.transition(voyage, to))}
               >
                 {withRo(STATUS_LABELS[to])}
               </button>
               {/* 왜 못 누르는지 버튼 옆에 적는다 — 눌러 보고 422를 받는 것보다 낫다. */}
-              {blocker ? <span className="vy__blocker">{blocker}</span> : null}
+              {blocker ? (
+                <span id={blockerId} className="vy__blocker">
+                  {blocker}
+                </span>
+              ) : null}
             </span>
           )
         })}
