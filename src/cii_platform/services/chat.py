@@ -90,7 +90,8 @@ DISCLAIMER = (
 #: 권고를 만들지 않으면 폐기가 줄어든다. **가드를 프롬프트로 대신하지는 않는다.**
 _RULES = (
     "당신은 선박 탄소집약도지수(CII) 도구의 설명 도우미입니다.\n"
-    "- 수치는 **도구가 돌려준 값만** 인용하십시오. 직접 계산하거나 어림하지 마십시오.\n"
+    "- 수치는 **도구가 돌려준 값** 또는 **이전 답변에 이미 쓴 값**만 인용하십시오. "
+    "직접 계산하거나 어림하지 마십시오.\n"
     "- 더하기·빼기도 계산입니다. 도구가 주지 않은 수는 쓰지 마십시오.\n"
     "- 시나리오에 순위를 매기거나 「더 낫다·최적」 같은 비교 표현을 쓰지 마십시오.\n"
     "- 행동을 제안하지 마십시오. 사용자가 직접 요청한 계산만 도구로 실행하십시오.\n"
@@ -275,7 +276,10 @@ async def answer(
         return _result(TOOL_BUDGET_MESSAGE, tool_outputs, used_tools, discarded=True)
 
     try:
-        verify_numbers(reply, tool_outputs)
+        prior_answers = [
+            row.content for row in _from_a_question(history) if row.role == ROLE_ASSISTANT
+        ]
+        verify_numbers(reply, tool_outputs, prior_answers=prior_answers)
     except NumberFabricationError:
         # ⚠️ **폐기한다.** 저장도 하지 않는다 — 틀린 답을 이력에 남기면 다음 턴이
         # 그것을 근거로 삼는다.

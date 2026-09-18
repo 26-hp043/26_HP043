@@ -139,6 +139,8 @@ def test_system_prompt_actually_carries_the_glossary() -> None:
     for term, _text in GLOSSARY:
         assert term in SYSTEM_PROMPT, term
     # 규칙도 남아 있다 — 풀이를 붙이면서 지우지 않았는지.
-    assert "도구가 돌려준 값만" in SYSTEM_PROMPT
+    # #1244 — 이력 인용 허용으로 문구가 「도구가 돌려준 값 또는 이전 답변에 이미 쓴 값」으로
+    # 바뀌었다. 출처 원칙(도구 이외의 수는 금지)은 그대로다.
+    assert "도구가 돌려준 값" in SYSTEM_PROMPT
     # 프롬프트 전체에도 두 자리 수가 없다(위 규칙과 같은 이유).
     assert not re.search(r"\d\d", SYSTEM_PROMPT), SYSTEM_PROMPT

@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 #: 외부 LLM으로 내보내도 되는 키 (``PRD §16.3.1`` · `Q7` ⓐ).
@@ -96,6 +97,17 @@ def filter_outbound(payload: dict[str, object]) -> dict[str, object]:
 #: 부분만 비교 대상이고, 단위는 도구 응답에 문자열로 없을 수 있다.
 _NUMBER = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
+#: 날짜·시간 표기 — 수치로 세지 않는다 (#1244).
+#:
+#: ``2026-09-18``을 그대로 두면 ``2026``·``-9``·``-18``로 쪼개져 오탐 폐기가
+#: 된다(실측). **숫자가 아니라 시점을 말하는 표기**이므로 뽑기 전에 지운다.
+#: 연도 단독 표기(``2026년``)는 :data:`_IGNORED_LITERALS`가 이미 다룬다.
+_NOT_NUMBERS = re.compile(
+    r"\d{4}-\d{1,2}-\d{1,2}"  # 2026-09-18
+    r"|\d{1,2}:\d{2}"  # 16:30
+    r"|\d{4}-\d{1,2}"  # 2026-09 (연-월)
+)
+
 #: 대조에서 빼는 값.
 #:
 #: 연도(2024~2030)와 한 자리 수는 **문장에 자연스럽게 섞인다** — 「3가지」·「2026년」
@@ -112,6 +124,7 @@ def extract_numbers(text: str) -> list[str]:
     천 단위 쉼표를 떼고, 소수점 뒤 의미 없는 0을 떼어 비교 가능한 형태로 만든다 —
     도구가 ``"4.98"``을 주고 모델이 ``"4.980"``이라 쓰면 **같은 값**이다.
     """
+    text = _NOT_NUMBERS.sub(" ", text)
     found: list[str] = []
     for raw in _NUMBER.findall(text):
         token = raw.replace(",", "")
@@ -177,7 +190,11 @@ def _tool_output_numbers(tool_outputs: list[str]) -> set[str]:
     return numbers
 
 
-def verify_numbers(answer: str, tool_outputs: list[str]) -> None:
+def verify_numbers(
+    answer: str,
+    tool_outputs: list[str],
+    prior_answers: Sequence[str] = (),
+) -> None:
     """응답의 모든 수치가 도구 응답에 **문자열로** 있었는지 대조한다 (No-Compute).
 
     :raises NumberFabricationError: 하나라도 없으면.
@@ -200,6 +217,14 @@ def verify_numbers(answer: str, tool_outputs: list[str]) -> None:
     격리와 같은 방향이다 — **챗봇이 틀린 말을 하느니 말을 하지 않는 쪽**이 안전하다.
     """
     available = _tool_output_numbers(tool_outputs)
+    # #1244 — 이력 창의 이전 답 수치도 허용한다. 저장된 assistant 메시지는 전부
+    # 저장 시점에 이 검증을 통과했다(폐기분은 저장되지 않는다) — 되묻는 후속
+    # 질문이 그 수를 다시 쓰는 것은 인용이지 창작이 아니다. **user 메시지는 넣지
+    # 않는다** — 사용자가 친 수를 모델이 되풀이하면 사용자가 지어낸 수가
+    # 「검증된 답」이 된다.
+    for prior in prior_answers:
+        for token in extract_numbers(prior):
+            available.update(_rounded_forms(token))
     fabricated = [n for n in extract_numbers(answer) if n not in available]
     if fabricated:
         raise NumberFabricationError(

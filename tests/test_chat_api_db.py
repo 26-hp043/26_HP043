@@ -718,3 +718,70 @@ async def test_found_vessel_survives_to_the_next_turn(migrated_db, app_fresh_eng
             assert data["vessel_resolved"] is True
     finally:
         await _cleanup()
+
+
+async def test_follow_up_question_can_cite_the_previous_answer(migrated_db, app_fresh_engine):
+    """IT-CHAT-064 (#1244) — 2턴 답이 1턴 수치를 인용해도 폐기되지 않는다."""
+    provider = FakeProvider(
+        [
+            # 1턴 — 검색으로 선박을 정하고(#1243) 계산한다(로로 여객선 실측: 12.456).
+            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="calc_voyage_cii",
+                        arguments={
+                            "distance_nm": 1000,
+                            "speed_kn": 12,
+                            "fuel_ton": 100,
+                            "fuel_type": "HFO",
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="attained CII는 12.456이고 등급은 A입니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post(
+                "/api/v1/chat", json={"message": "계산 결과 알려줘"}, headers=headers
+            )
+            # 1턴이 폐기됐으면 이 검사의 전제가 무너진다 — 먼저 잠근다.
+            assert first.json()["data"]["discarded"] is False, first.text
+            session_id = first.json()["data"]["session_id"]
+
+            # 2턴 — 도구 없이 **이전 답의 수치를 그대로** 인용한다(#1244).
+            _use(FakeProvider([LLMResponse(text="네, attained CII는 12.456이 맞습니다.")]))
+            second = client.post(
+                "/api/v1/chat",
+                json={"message": "그 수치가 맞나요?", "session_id": session_id},
+                headers=headers,
+            )
+            data = second.json()["data"]
+            assert data["discarded"] is False, f"이전 답의 수치 인용이 폐기됐다: {data['answer']}"
+    finally:
+        await _cleanup()
+
+
+async def test_user_numbers_do_not_become_verified(migrated_db, app_fresh_engine):
+    """#1244 — user 메시지의 수는 허용 집합에 들어가지 않는다.
+
+    사용자가 지어낸 수를 모델이 되풀이하면 그것이 「검증된 답」이 되므로 폐기다.
+    프롬프트 규칙과 이력 인용 허용(#1244)이 만나 가장 흔해질 경로다.
+    """
+    _use(FakeProvider([LLMResponse(text="네, 7.3이 맞습니다.")]))
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            resp = client.post(
+                "/api/v1/chat",
+                json={"message": "내 CII가 7.3인데 맞나요?"},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["data"]["discarded"] is True, "사용자가 친 수가 검증을 통과했다"
+    finally:
+        await _cleanup()
