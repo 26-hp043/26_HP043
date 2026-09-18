@@ -1,25 +1,27 @@
-"""규제 파라미터 조회 라우트 (API_SPEC §7.1~§7.4, #444).
+"""규제 파라미터 라우트 (API_SPEC §7.1~§7.5, #444 · import는 #673).
 
 **HTTP 요청/응답만 다룬다** (TECH_SPEC §16.1). 조회·직렬화는
-``services.parameters``가 맡는다.
+``services.parameters``가, CSV 적재는 ``services.parameter_import``가 맡는다.
 
-## 읽기만 있다
+## §7.5 import는 사무직 전용이다 (#672 · 결정요청 v9 「가」)
 
-``§7.5`` 파라미터 import는 여기 없다. 규정 개정 적재는 ``is_active`` 전환과 이력
-보존 규칙(``DB_SCHEMA §3``)을 함께 정해야 하고, **누가 할 수 있는가**가 `#359`
-(어드민 계정·권한 범위)에 걸려 있다. 조회부터 열어 두면 화면이 우회 없이 선택지를
-받을 수 있고, 그것이 이 이슈가 고치려는 상태다.
+규정 개정 적재는 **등급 판정 기준 자체를 바꾸는 조작**이다. ``require_office``가
+걸려 있고 ``require_csrf``와 함께 선다 — 적재는 감사 로그(``PARAMETER_IMPORT``)에
+누가·언제·무엇을·몇 행으로 남는다.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.auth.dependencies import require_csrf, require_office
 from cii_platform.db.session import get_session
+from cii_platform.errors import ValidationError
+from cii_platform.services.parameter_import import KINDS, import_parameters
 from cii_platform.services.parameters import (
     list_fuel_types,
     list_rating_boundaries,
@@ -121,3 +123,50 @@ async def list_rating_boundaries_route(
     """
     data = await list_rating_boundaries(session, ship_type=ship_type)
     return {"data": data, "meta": _meta(request, total=len(data))}
+
+
+@router.post("/parameters/import")
+async def import_parameters_route(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+    _office: Annotated[None, Depends(require_office)],
+    file: Annotated[UploadFile, File(description="CSV 파일 (UTF-8, BOM 허용)")],
+    type: Annotated[
+        str,
+        Form(
+            description=(
+                "적재할 파라미터 종류 — regulation_years · reference_lines · "
+                "rating_boundaries · fuel_types"
+            )
+        ),
+    ],
+    dry_run: Annotated[bool, Query(description="검증만 하고 저장하지 않는다")] = False,
+) -> dict[str, object]:
+    """규정 파라미터 CSV를 적재한다 (API_SPEC §7.5, #673).
+
+    **사무직 전용**이다 — ``#672``의 역할 2종이 정한 배정이고, 적재는 감사 로그에
+    남는다. 계약은 항차 CSV(``§8.2``)와 **정반대**다: 규정 파라미터는 일부만 들어가면
+    계산 근거가 반쪽이 되므로 **전부 아니면 전무**. ``dry_run``·``errors[]``의 모양만
+    ``§8.2`` 규약을 따른다.
+    """
+    if type not in KINDS:
+        # 조용히 무시하면 사용자는 개정을 올렸다고 믿는데 아무것도 안 들어간다.
+        raise ValidationError(
+            f"지원하지 않는 적재 종류입니다: {type}",
+            field="type",
+            field_label="적재 종류",
+        )
+
+    user = getattr(request.state, "session_user", None)
+    client = request.client
+    data = await import_parameters(
+        session,
+        kind=type,
+        content=await file.read(),
+        content_type=file.content_type,
+        dry_run=dry_run,
+        user_id=str(user.id) if user is not None else None,
+        ip_address=client.host if client is not None else None,
+    )
+    return {"data": data, "meta": _meta(request)}

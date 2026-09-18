@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.35 |
+| 버전 | v1.36 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-18 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -97,6 +97,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `GET /voyages/{voyage_id}/report` | 2-5 보고서 | 대외 산출물 |
 | `GET /vessels/{vessel_id}/annual-report` | 2-5 보고서 | 〃 |
 | `POST /fleet/reduction-plans/evaluate` | 2-10 함대 감축 계획 | 선대 단위 경영 판단 — 화면 전체가 사무직 |
+| `POST /parameters/import` | SCR-006 파라미터 관리 | **등급 판정 기준 자체를 바꾼다** (`§7.5` · #673). 조회(`GET §7.1~§7.4`)는 두 역할 모두 |
 | `POST /fleet/reduction-plans` | 2-10 함대 감축 계획 | 〃 |
 | `GET /fleet/reduction-plans` | 2-10 함대 감축 계획 | 〃 |
 | `GET /fleet/reduction-plans/{plan_id}` | 2-10 함대 감축 계획 | 〃 |
@@ -2963,49 +2964,80 @@ GET /api/v1/parameters/rating-boundaries?ship_type=BULK_CARRIER
 
 ### 7.5 파라미터 Import
 
-> ## ⏸ 이 엔드포인트는 **아직 구현하지 않았다** (`#673` 추적)
->
-> 규정 개정 적재는 **누가 부를 수 있는가**가 먼저 정해져야 한다 — **2026-09-15 `#672`로 정해졌다: 사무직 전용**(`§1.2` 역할 표 · `require_office`). 구현은 `#673`이 한다. 아래 요청·응답은 도입 시의 계약으로 남긴다. `§12` 요약표도 같은 표시를 달고 있고, 누군가 구현하면 요약표↔라우트 대조 가드(`tests/test_api_spec_endpoints_sync.py`)가 깨져 이 표시를 지우게 한다 (#830 — `§9`와 같은 표기로 맞췄다).
+> **구현됐다 (#673 · 결정요청 v9 회신 「가」 · 2026-09-18).** CSV 형식·사무직 전용·적재 감사
+> 로그·`OTHER` 연료 생성 경로 포함. 종전 명세(JSON 요청 본문)는 그 형식을 버리고 항차·정박
+> CSV와 **같은 조작**으로 통일했다 — 사용자가 두 번 배우지 않게.
 
 ```http
 POST /api/v1/parameters/import
 ```
 
-#### 요청 Body
+**사무직 전용**이다(`§1.2` 역할 표 · `require_office`). 규정 개정 적재는 등급 판정 기준
+자체를 바꾸는 조작이므로 **적재가 감사 로그(`PARAMETER_IMPORT`)에 남는다** — 누가·언제·
+무엇을·몇 행. 과거 계산은 각자 스냅숏을 가지므로 보존되고(`PRD §8.4`), 재현은 활성 CF를
+다시 읽어 `parameter_hash`가 갈리면 409로 끊는다(#816 ⑶ — 개정이 드러나는 것이 계약대로다).
 
-```json
-{
-  "format": "JSON",
-  "source_ref": "MEPC.400(83) 2024 update",
-  "data": {
-    "regulation_years": [
-      { "year": 2027, "z_factor_percent": 13.625 }
-    ],
-    "fuel_types": [],
-    "reference_lines": [],
-    "rating_boundaries": []
-  }
-}
-```
+#### 요청 (multipart/form-data)
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `file` | file | Y | CSV 파일 (UTF-8, BOM 허용 · 최대 5MB · 1,000행 — `§8.2` 보안 표와 같은 값) |
+| `type` | string | Y | `regulation_years` · `reference_lines` · `rating_boundaries` · `fuel_types`. 모르는 값은 422 |
+
+**쿼리 파라미터**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `dry_run` | bool | N | 기본 `false`. `true`면 **검증만 하고 저장하지 않는다** — `imported_count`는 「들어갈 수 있는 행 수」다 |
+
+#### 🔴 전부 아니면 전무 — `§8.2`와 정반대 계약
+
+항차·정박 CSV(`§8.2`)는 **부분 성공**이지만, 규정 파라미터는 **한 행이라도 걸리면 아무것도
+들어가지 않는다** — 일부만 들어가면 계산 근거가 반쪽이 되기 때문이다(`TEST_PLAN §3.5`
+`IT-IMPORT-005`). `errors[]`의 모양(원본 행 번호·필드·사유)과 `dry_run`이 실제 적재와 같은
+판정을 내는 규약(#1190)만 `§8.2`에서 온다.
+
+#### `type`별 필수 컬럼
+
+| type | 컬럼 | 비고 |
+|---|---|---|
+| `regulation_years` | `year` · `z_factor_percent` · `effective_from` · `source_ref` | 연도는 2019~2050. Z-factor ≥ 0 |
+| `reference_lines` | `ship_type` · `condition_expr` · `capacity_rule` · `a_raw` · `c` · `source_ref` | `a_decimal`은 서버가 `parse_imo_scientific`으로 계산한다(`TECH_SPEC §9.2` — 올리지 않는다). `capacity_rule`은 `DWT`·`GT`·`fixed <숫자>` |
+| `rating_boundaries` | `ship_type` · `condition_expr` · `capacity_basis` · `d1`~`d4` · `source_ref` | `d1 < d2 < d3 < d4` |
+| `fuel_types` | `code` · `display_name` · `cf` · `source_ref` | 선택 `effective_from` — **`OTHER` 생성에만 필수**(`PRD §3.4.2`) |
+
+행 검증은 저장 컬럼의 한도(길이·`NUMERIC(p,s)` 자릿수)까지 본다(#1190와 같은 계약 — 값
+때문에 저장 단계에서 죽는 행이 `dry_run`을 통과하지 않는다). 수식 주입 방어도 `§8.2`와
+같다. 모르는 선종·파일 안 키 중복·자릿수 초과는 모두 `{row, field, message}` 행 오류다.
+
+#### 개정의 반영 방식 (`DB_SCHEMA §7.2`)
+
+- 세 테이블(연도·기준선·경계) — 기존 **활성 행을 끄고**(`is_active = 0`, 이행 행으로
+  보존) 새 행을 넣는다. 조회 API와 계산은 활성 행만 본다
+- `fuel_type` — §7.2의 명시적 예외. CF를 **제자리에서 갱신**하고 `content_hash`를 다시
+  계산한다. `OTHER`를 비롯한 새 코드는 새 행으로 만든다 — 이 경로가 연료를 만드는 유일한
+  쓰기 경로다
 
 #### 응답 (200 OK)
 
 ```json
 {
   "data": {
-    "imported": {
-      "regulation_years": 1,
-      "fuel_types": 0,
-      "reference_lines": 0,
-      "rating_boundaries": 0
-    },
-    "validation_passed": true
+    "table": "regulation_years",
+    "imported_count": 1,
+    "replaced_count": 1,
+    "errors": [],
+    "dry_run": false
   },
   "meta": { ... }
 }
 ```
 
-> Import 시 `parse_imo_scientific` 검증(TECH_SPEC §9.2)과 `a_raw/a_decimal` 일치 검증(TECH_SPEC §9.3)을 수행한다. 검증 실패 시 409 Conflict.
+| 필드 | 뜻 |
+|---|---|
+| `imported_count` | **적용된 행 수** (연료 갱신도 포함 — 신규만 세면 「안 들어갔다」로 읽힌다) |
+| `replaced_count` | 그중 기존 활성 행(연료는 기존 행)을 대체·갱신한 수 |
+| `errors[]` | `{row, field, message}` — 원본 파일의 행 번호다. **하나라도 있으면 아무것도 들어가지 않았다** |
 
 ---
 
@@ -3589,7 +3621,7 @@ GET /api/v1/health
 | GET | `/api/v1/parameters/fuel-types` | 연료 조회 | §6.2 SCR-006 |
 | GET | `/api/v1/parameters/reference-lines` | Reference line 조회 | §6.2 SCR-006 |
 | GET | `/api/v1/parameters/rating-boundaries` | 등급 경계 조회 | §6.2 SCR-006 |
-| POST | `/api/v1/parameters/import` | 파라미터 Import (**미구현 — `#673`**) | §6.2 SCR-006 |
+| POST | `/api/v1/parameters/import` | 파라미터 Import (사무직 전용 · #673) | §6.2 SCR-006 |
 | GET | `/api/v1/voyages/{id}/report` | 항차 완료 리포트 (PDF·CSV·HTML) | §25.2 |
 | GET | `/api/v1/vessels/{id}/annual-report` | 연간 실적 리포트 (PDF·CSV·HTML) | §25.3 |
 | GET | `/api/v1/vessels/{id}/export` | CSV 내보내기 | §6.2 SCR-007 |
@@ -3922,3 +3954,4 @@ POST /api/v1/chat
 | 2026-09-18 | `#816` | **§6.1 `as_of` 요청 행·예시 등재 · `meta.as_of` · `parameters_used` v2 각주.** `as_of`가 배선만 있고 집계에 쓰이지 않아 **다른 `as_of`가 같은 결과**를 냈다. 결정(결정요청 v9 회신 「가」=A안): ⑴ `_collect_voyages`가 절단을 저장소까지 넘기되 **확정은 도착 ≤ `as_of` · 잔여는 도착 예정 > `as_of`** 의 상보 집합으로 방향을 가른다 — 같은 절단을 잔여에 그대로 쓰면 잔여 계획이 전멸해 `PRD §12`의 연말 예상이 무너진다(착수 중 실측). **명시 실행에만** 해시 키를 넣어 기존 실행의 `input_hash`는 무변경(`apply_feedback_factor`의 두 번째 적용례). `annual_simulation_run.as_of`(마이그레이션 052)이 재현의 원본 시각을 재생한다. ⑶ `fuel_types`·`parameter_sources`(4키)를 담은 **v2 빌더** 신설 — v1은 동결해 옛 해시를 그대로 재생한다. `AGENTS §4.3`상 행·각주 추가라 버전은 올리지 않는다 (#816) |
 | 2026-09-17 | `#1190` | **v1.34 — §8.2 「부분 성공의 범위」 소절 신설.** 같은 엔드포인트의 두 갈래가 다르게 동작했다 — 정박 구간은 행 단위로 떨어뜨려 **부분 성공**을 냈는데 항차는 저장 단계 실패가 **500**이 됐고, `create_voyage`가 행마다 커밋하므로 **앞 행은 저장된 채 남았다.** 사용자는 500을 「아무것도 안 들어갔다」로 읽고 다시 올려 같은 항차를 두 벌 만들었다(`voyage_no`에 유니크 인덱스가 없다). 원인은 두 겹이었다 — ⑴ 파서가 숫자 세 열 모두 `DISTANCE` 한도 하나를 써서 `planned_speed_kn`의 `NUMERIC(6,2)`를 넘는 `10000`이 통과했고(수기 API는 `Field(**SPEED)`로 막는다 — **경로마다 한도가 갈려 있었다**), ⑵ 항차 저장 루프에 행 단위 `try/except`가 없었다. `except AppError`만으로는 부족한 것도 함께 정리했다 — `ProgrammingError(-494)`는 `AppError`가 아니고 `db/cubrid_errors.py`가 `IntegrityError`로 옮기는 목록(`-517`·`-922`·`-924`·`-225`)에도 없다(PostgreSQL에서도 `DataError`였다). **결정은 「가 — 행 단위 부분 성공」**이며 사용자 회신(결정요청 v9 군 B 권장안 · 2026-09-17)이다 — 「나」(전체 롤백)를 고르면 이미 「가」를 하고 있는 정박 경로를 반대로 바꿔야 하고 이 절의 규약 자체가 바뀐다. `dry_run`이 같은 파일에 `imported_count 3 · errors []`로 **거짓 통과**를 주던 것은 파서가 열마다 그 컬럼의 저장 범위·길이를 보게 되어 해소됐다 — 값 때문에 저장 단계에서 죽는 행이 `dry_run`을 통과하지 않는 것이 파서의 계약이다. ⚠️ **이슈 본문이 정박 `port_name`을 300자로 적었으나 모델은 `String(200)`이다** — 한도를 옮겨 적지 않고 `Voyage.__table__`·`NotUnderwayPeriod.__table__`에서 끌어낸다. 좌표(`lat`·`lon`)는 CSV 경로에만 한도가 아예 없어 수기 API와 같은 `±90`·`±180`으로 맞췄다. 소절 신설이라 `AGENTS §4.3`에 따라 판본을 올린다 (#1190) |
 | 2026-09-17 | `#1076` | **§1.9 응답 `meta`에 `needs_recalc_total` 추가** · `meta` 필드 표 신설 · `needs_recalc` 각주에 건수 규정 추가. 선박 상세의 「계산 이력」이 머리에 적는 「재계산 필요 N건」을 **화면이 받은 페이지에서 세고 있었다** — 화면은 최신 20건씩 받으므로 **21번째 행부터 낡아 있어도 「0건」이 나갔다.** 「낡은 계산이 없다」와 「아직 다 세어 보지 않았다」가 같은 모양이 되는 자리이고, 이 카드를 여는 이유(「이 배에 다시 돌려야 할 계산이 있나」)에 답하지 못했다. **필터를 따라간다** — `type`·`vessel_id`·해시 필터를 `data[]`와 똑같이 걸고 **커서만 보지 않는다**(페이지마다 값이 달라지면 화면이 그 수를 「이 선박의 낡은 계산 수」로 말할 수 없다). 화면은 이 값이 없으면 **건수를 아예 적지 않는다** — 받은 행으로 대신 세는 것이 고친 결함 그 자체다. 선택지 「부분 집계임을 화면에 명시」와 「건수 표시를 뺀다」를 두고 사용자 결정을 받았고, 기준은 **서비스 적합성**이었다(`AGENTS §4.3`상 응답 행 추가라 버전은 올리지 않는다 — 엔드포인트가 늘지 않았다) (#1076) |
+| 2026-09-18 | `#673` | **v1.36 — §7.5를 CSV 계약으로 전면 재작성하고 구현 표기를 지웠다** (결정요청 v9 회신 「가」 · #444 잔여). 종전 명세는 JSON 요청 본문이었으나 항차·정박 CSV와 **같은 조작**으로 통일했다(사용자가 두 번 배우지 않게). 계약의 뼈대 — ⑴ **사무직 전용**(`§1.2` 표에 등재 · `require_office`) ⑵ **`type` 폼 필드 4종**(연도·기준선·경계·연료) ⑶ 🔴 **전부 아니면 전무** — `§8.2` 부분 성공과 정반대(`IT-IMPORT-005`). `errors[]` 모양(원본 행 번호·필드·사유)과 `dry_run` 실제와 같은 판정(#1190)만 재사용한다 ⑷ `a_decimal`은 서버가 `parse_imo_scientific`으로 계산 ⑸ `OTHER` 연료 생성 경로 포함(`effective_from` 필수 · `PRD §3.4.2`) ⑹ 응답 `imported_count`는 **적용된 행 수**(연료 갱신 포함 — 신규만 세면 「안 들어갔다」로 읽힌다). `§12` 요약표의 미구현 표기 제거는 이 문서와 라우트 대조 가드가 함께 본다 (#673) |

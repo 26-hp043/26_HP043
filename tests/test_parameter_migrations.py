@@ -113,9 +113,22 @@ async def test_refline_capacity_rule_rejects_invalid(conn):
 
 
 async def test_refline_unique_rejects_duplicate(conn):
+    # 🔴 054(#673) — 전역 UNIQUE(idx_refline_unique)는 **활성-유니크 트리거**로
+    # 바뀌었다. 같은 키의 활성 행 둘은 여전히 거부되나(계산이 읽는 것은 활성 행),
+    # 이행 행(is_active=0)은 쌓일 수 있다(DB_SCHEMA §7.2 개정 정책).
     await _insert_refline(conn)
-    with pytest.raises(IntegrityError, match="idx_refline_unique"):
+    with pytest.raises(IntegrityError, match="trg_cii_reference_line_active_unique"):
         await _insert_refline(conn)
+
+
+async def test_refline_history_row_same_key_is_allowed(conn):
+    # #673 — 개정은 기존 활성 행을 끄고 새 행을 넣는다. 그 결과 같은 키의
+    # 이행 행이 존재하는 것이 **정상 상태**다.
+    await _insert_refline(conn)
+    await conn.execute(
+        text("UPDATE cii_reference_line SET is_active = 0 WHERE condition_expr = '__test__'")
+    )
+    await _insert_refline(conn)  # 같은 키 · 활성 행은 이제 하나뿐이라 통과
 
 
 # --- cii_rating_boundary (011) ---
@@ -133,8 +146,9 @@ async def test_boundary_d_order_rejects_disorder(conn):
 
 
 async def test_boundary_unique_rejects_duplicate(conn):
+    # 🔴 054(#673) — 위 기준선과 같은 변경. 활성 행끼리만 유일하다.
     await _insert_boundary(conn)
-    with pytest.raises(IntegrityError, match="idx_boundary_unique"):
+    with pytest.raises(IntegrityError, match="trg_cii_rating_boundary_active_unique"):
         await _insert_boundary(conn)
 
 
