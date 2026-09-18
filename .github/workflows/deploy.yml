@@ -56,9 +56,49 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # 필수 시크릿 프리플라이트 (#1234)
+  # ---------------------------------------------------------------------------
+  # deploy-db가 CUBRID_PASSWORD 하나만 보다가 비어 있으면 죽었다 — 하나 고칠 때마다
+  # 다음 것이 또 비는지 확인하는 루프였다(실측: 시크릿 0건 상태로 5연속 실패).
+  # 여기서 9종을 한 번에 보고 **이름만** 출력한다. 값은 절대 출력하지 않는다.
+  # ---------------------------------------------------------------------------
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: 필수 시크릿 점검 (이름만 출력)
+        env:
+          OCI_SSH_PRIVATE_KEY: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
+          OCI_SSH_USER: ${{ secrets.OCI_SSH_USER }}
+          OCI_DB_HOST: ${{ secrets.OCI_DB_HOST }}
+          OCI_APP_HOST: ${{ secrets.OCI_APP_HOST }}
+          OCI_DB_PRIVATE_IP: ${{ secrets.OCI_DB_PRIVATE_IP }}
+          OCI_APP_PRIVATE_IP: ${{ secrets.OCI_APP_PRIVATE_IP }}
+          CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
+          CORS_ALLOW_ORIGINS: ${{ secrets.CORS_ALLOW_ORIGINS }}
+          APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL }}
+        run: |
+          missing=0
+          for name in \
+            OCI_SSH_PRIVATE_KEY OCI_SSH_USER OCI_DB_HOST OCI_APP_HOST \
+            OCI_DB_PRIVATE_IP OCI_APP_PRIVATE_IP CUBRID_PASSWORD \
+            CORS_ALLOW_ORIGINS APP_PUBLIC_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::시크릿 ${name} 가 비어 있다"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error::위 시크릿을 Settings → Secrets and variables → Actions 에서 등록한다 (docs/OPERATIONS.md §3.1 · #1234)"
+            exit 1
+          fi
+          echo "[preflight] 필수 시크릿 9종 확인"
+
+  # ---------------------------------------------------------------------------
   # 이미지 빌드 & GHCR 푸시
   # ---------------------------------------------------------------------------
   build:
+    needs: preflight
     runs-on: ubuntu-latest
     # 멈춤이 6시간이 되지 않게 한다 (#533 — 한 잡이 5시간 59분을 태웠고, 기본 상한이
     # 6시간이라 자동으로 실패하지도 않아 알림조차 오지 않았다).
