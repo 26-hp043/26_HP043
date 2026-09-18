@@ -905,32 +905,42 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
   })
 
   /*
-   * `#1169` — **임시 별칭이 갈 곳을 잃는 것**을 막는다.
+   * `#1169` — **면적 채널이 문자 계조를 다시 빌려 쓰는 것**을 막는다.
    *
-   * 위 `3:1`은 지켜지지만 라이트 여유가 `0.08`뿐이라 `--color-border-control`은
-   * **임시**다. 임시의 근거는 「`§16`의 어떤 항목이 정본 값을 준다」인데, 종전에는
-   * 그 자리가 **닫힌 `#68`**이었다 — 유예가 가리키는 곳이 사라져도 **아무것도
-   * 실패하지 않았다.** 이 저장소가 반복해 맞는 결함의 꼴이다(화면이 안 깨진다).
+   * 위 `3:1`은 값이 무엇이든 지켜지는지만 본다. 그런데 `#829` ⑶이 여기에 놓았던
+   * 임시 별칭은 `3:1`을 **넘기면서도** 문제였다 — `--text-muted`를 빌려 쓴 탓에
+   * 라이트 여유가 `0.08`뿐이었고 웜/쿨도 어긋났다. 대비 검사만으로는 안 잡힌다.
    *
-   * 그래서 이름이 아니라 **관계**를 잠근다: 선언 주석이 `§16` 항목 번호를 가리키고,
-   * 그 항목이 `§16` 표에 **열린 채로** 있어야 한다. 항목이 닫히면 여기서 실패하고,
-   * 그때 이 별칭을 Figma 값으로 갈아끼우게 된다.
+   * 2026-09-18 확정 O가 Figma `border/control`(`#6f7c8f`)을 줘서 끊었다. 되돌아가는
+   * 것을 막기 위해 **참조 사슬에 문자 토큰이 끼는지**를 본다 — 값이 아니라 출처를
+   * 잠근다. `--color-surface-muted`는 대상이 아니다(그 토큰은 `#829` ⑴이 문자에서
+   * 쪼개 낸 면적 별칭이고, 같은 값을 쓰는 것이 그 결정의 내용이다).
    */
-  it('폼 컨트롤 경계의 유예가 살아 있는 §16 항목을 가리킨다 (#1169)', () => {
-    const block = /\/\*((?:(?!\*\/)[\s\S])*)\*\/\s*--color-border-control\s*:/.exec(aliasCss)
-    expect(block, '--color-border-control 선언 주석을 찾지 못했습니다').not.toBeNull()
+  it.each(THEMES)('$name — 폼 컨트롤 경계가 문자 토큰을 참조하지 않는다 (#1169)', ({
+    generated,
+    alias,
+  }) => {
+    const seen = new Set<string>(['--color-border-control'])
+    let name = '--color-border-control'
 
-    const ref = /`§16`\s*\*\*항목 (\d+)\*\*/.exec((block as RegExpExecArray)[1])
-    expect(ref, '유예가 가리키는 `§16` 항목 번호를 주석에서 읽지 못했습니다').not.toBeNull()
-    const item = (ref as RegExpExecArray)[1]
+    for (;;) {
+      const raw = alias[name] ?? generated[name]
+      expect(raw, `${name}을 찾지 못했습니다`).toBeDefined()
 
-    const spec = readFileSync(new URL('../../../DESIGN_SYSTEM.md', import.meta.url), 'utf8')
-    const row = new RegExp(`^\\|\\s*(~~)?${item}(~~)?\\s*\\|`, 'm').exec(spec)
-    expect(row, `§16 항목 ${item} 행을 DESIGN_SYSTEM에서 찾지 못했습니다`).not.toBeNull()
-    expect(
-      (row as RegExpExecArray)[1],
-      `§16 항목 ${item}이 닫혔다 — --color-border-control의 임시 별칭이 갈 곳을 잃었다 (#1169)`,
-    ).toBeUndefined()
+      const ref = /^var\(\s*(--[\w-]+)\s*\)$/.exec(raw.trim())
+      if (ref === null) break
+
+      name = ref[1]
+      expect(seen.has(name), `${name}에서 참조가 순환한다`).toBe(false)
+      seen.add(name)
+
+      expect(
+        /^--(?:color-)?text-/.test(name),
+        `폼 컨트롤 경계가 문자 토큰(${name})을 참조한다 — 면적·경계 채널은 자기 값을 갖는다 (#1169)`,
+      ).toBe(false)
+    }
+
+    expect(name, '참조 사슬이 생성 토큰에 닿지 않았다').toBe('--border-control')
   })
 
   it.each(THEMES)('$name — 포커스 링이 네 면 위에서 3:1 이상이다', ({ generated, alias }) => {
