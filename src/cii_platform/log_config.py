@@ -86,12 +86,23 @@ def setup_logging() -> None:
 
     log_file = os.environ.get("LOG_FILE")
     if log_file:
-        Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8"
-        )
-        file_handler.setFormatter(JsonFormatter())
-        handlers.append(file_handler)
+        try:
+            Path(log_file).parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.handlers.RotatingFileHandler(
+                log_file, maxBytes=_MAX_BYTES, backupCount=_BACKUP_COUNT, encoding="utf-8"
+            )
+            file_handler.setFormatter(JsonFormatter())
+            handlers.append(file_handler)
+        except OSError as error:
+            # 🔴 관측이 서비스를 죽이면 본말이 전도된다 — 파일을 못 열면 콘솔만 쓰고
+            # 기동을 이어간다(실측: 볼륨이 root 소유로 마운트돼 앱이 재시작 루프에
+            # 빠졌다 — CI docker 잡). 원인은 콘솔 경고로 남는다.
+            logging.basicConfig(level=level, handlers=handlers, force=True)
+            logging.getLogger(__name__).warning(
+                "LOG_FILE(%s)을 열지 못해 콘솔 로그만 사용합니다: %s", log_file, error
+            )
+            logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+            return
 
     logging.basicConfig(level=level, handlers=handlers, force=True)
 

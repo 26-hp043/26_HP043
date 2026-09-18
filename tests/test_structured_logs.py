@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import logging.handlers
 
 import pytest
 from fastapi.testclient import TestClient
@@ -162,3 +163,22 @@ def test_exception_records_carry_the_stack():
 def test_uvicorn_access_logger_is_demoted():
     """uvicorn 접근 로그는 우리 것과 중복 — WARNING으로 내려져 있다(setup_logging)."""
     assert logging.getLogger("uvicorn.access").level >= logging.WARNING
+
+
+def test_unwritable_log_file_does_not_kill_the_app(monkeypatch):
+    """🔴 관측이 서비스를 죽이면 본말이 전도된다 — 파일을 못 열면 콘솔만 쓰고 산다.
+
+    실측 배경: 볼륨이 root 소유로 마운트돼 앱이 PermissionError 재시작 루프에 빠졌다
+    (CI docker 잡). 이미지 chown이 1차 방어, 이 경로가 2차 방어다.
+    """
+    from cii_platform.log_config import setup_logging
+
+    monkeypatch.setenv("LOG_FILE", "/proc/cannot/exist/api.jsonl")
+    try:
+        setup_logging()  # 예외 없이 콘솔만으로 돌아간다
+    finally:
+        root = logging.getLogger()
+        assert not any(
+            isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers
+        ), "열 수 없는 파일의 핸들러가 붙어 있다"
+        logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
