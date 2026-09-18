@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import TYPE_CHECKING
@@ -35,6 +36,7 @@ from cii_platform.llm.provider import (
     MAX_TOOL_CALLS_PER_TURN,
     STOP_REFUSAL,
     STOP_TRUNCATED,
+    TURN_TIMEOUT_SECONDS,
     LLMError,
 )
 from cii_platform.services import audit
@@ -147,6 +149,10 @@ def _from_a_question(history: Sequence[ChatMessage]) -> list[ChatMessage]:
     return list(history[start:])
 
 
+#: #1245 — 턴 시간 초과 문구. 무엇이 일어났는지만 말한다(다른 폐기 문구의 원칙).
+TURN_TIMEOUT_MESSAGE = "응답 시간이 초과되어 답변을 보내지 않았습니다. 다시 물어봐 주세요."
+
+
 async def answer(
     session: AsyncSession,
     *,
@@ -156,8 +162,42 @@ async def answer(
     question: str,
     vessel_id: UUID | None = None,
     ip_address: str | None = None,
+    turn_timeout: float | None = None,
 ) -> dict[str, object]:
-    """한 턴을 처리한다.
+    """한 턴을 처리한다 — **시간 상한으로 감싸서**(#1245).
+
+    최악 경로(LLM 30초 × 도구 왕복 4회 ≈ 2분)가 DB 세션·커넥션을 쥐던 것을
+    :data:`TURN_TIMEOUT_SECONDS`에서 끊는다. 초과 시 사용자 메시지는 이미 저장돼
+    있고 답만 없는 것은 ``#121`` 폐기 정책과 같은 모양이다(라우트의 ``commit()``
+    경로가 그대로 탄다). ``turn_timeout``은 검사가 짧은 예산을 넣는 주입점이다.
+    """
+    budget = TURN_TIMEOUT_SECONDS if turn_timeout is None else turn_timeout
+    try:
+        async with asyncio.timeout(budget):
+            return await _answer_turn(
+                session,
+                provider=provider,
+                chat_session_id=chat_session_id,
+                user_id=user_id,
+                question=question,
+                vessel_id=vessel_id,
+                ip_address=ip_address,
+            )
+    except TimeoutError:
+        return _result(TURN_TIMEOUT_MESSAGE, [], [], discarded=True, vessel_resolved=False)
+
+
+async def _answer_turn(
+    session: AsyncSession,
+    *,
+    provider: LLMProvider,
+    chat_session_id: UUID,
+    user_id: str | None,
+    question: str,
+    vessel_id: UUID | None = None,
+    ip_address: str | None = None,
+) -> dict[str, object]:
+    """한 턴의 본문 — :func:`answer`의 시간 상한 안에서 돈다.
 
     :returns: ``{"answer": ..., "disclaimer": ..., "tool_calls": [...], "discarded": bool}``
 

@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from cii_platform.api.main import app
 from cii_platform.api.routes.chat import get_provider
 from cii_platform.db.types import JSONText, UuidText
 from cii_platform.llm.provider import FakeProvider, LLMResponse, ToolCall
+from cii_platform.services import chat as chat_service
 from cii_platform.services.chat import (
     DISCARDED_MESSAGE,
     DISCLAIMER,
@@ -785,3 +787,50 @@ async def test_user_numbers_do_not_become_verified(migrated_db, app_fresh_engine
             assert resp.json()["data"]["discarded"] is True, "사용자가 친 수가 검증을 통과했다"
     finally:
         await _cleanup()
+
+
+async def test_slow_provider_is_discarded_within_the_turn_budget(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """IT-CHAT-065 (#1245) — 상한을 넘는 턴은 discarded로 끝난다.
+
+    운영 상한(45초)을 그대로 쓰면 검사가 45초를 기다린다 — 주입 예산(0.05초)으로
+    줄인다. 느린 공급자는 실제로 자는 것으로 재현한다.
+    """
+
+    class SlowProvider:
+        async def complete(self, *, messages, **_k):  # noqa: ANN001, ANN003
+            await asyncio.sleep(0.3)
+            raise AssertionError("예산 안에 끊기지 못했다")
+
+    _use(SlowProvider())  # type: ignore[arg-type]
+    # 운영 상한(45초)을 그대로 두면 검사가 45초를 기다린다 — 기본값만 짧게.
+    monkeypatch.setattr(chat_service, "TURN_TIMEOUT_SECONDS", 0.05)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            resp = client.post(
+                "/api/v1/chat",
+                json={"message": "느리게 답해줘"},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            data = resp.json()["data"]
+            assert data["discarded"] is True
+            assert "초과" in data["answer"], "무엇이 일어났는지 말하지 않는다"
+            assert data["disclaimer"], "폐기에도 면책은 붙는다(#121 완료 기준)"
+    finally:
+        await _cleanup()
+
+
+async def test_turn_budget_default_comes_from_the_provider_constant():
+    """#1245 — 운영 기본 예산은 provider의 상수 그대로다(주입이 새 경로를 못 만든다).
+
+    느린 경로 검사는 예산을 0.05초로 패치해서 본다 — 그 탓에 「기본값이 실제로
+    45초」는別도 잠가야 한다. 상한의 성질만 본다(45초를 기다리지 않는다):
+    공급자 상수와 같고, 최악 경로(2분)보다 작다.
+    """
+    from cii_platform.llm.provider import TURN_TIMEOUT_SECONDS
+
+    assert chat_service.TURN_TIMEOUT_SECONDS == TURN_TIMEOUT_SECONDS
+    assert 0 < TURN_TIMEOUT_SECONDS < 30.0 * 4, "최악 경로보다 커지면 가드가 아니다"
