@@ -467,6 +467,39 @@ def test_as_of_absent_keeps_the_old_hash():
     )
 
 
+def test_alternative_fuel_absent_keeps_the_old_hash():
+    """⚠️ **대체 연료를 고르지 않은 실행은 종전과 같은 해시다** (#756 ⑴ · 결정 v9 「나」).
+
+    미선택 실행에라도 키를 넣으면(빈 문자열·선박 기본 연료 등) **저장된 실행 전부의
+    해시가 바뀌어** 재현이 500으로 깨진다 — `apply_feedback_factor`(#363)·`as_of`(#816)와
+    같은 벽, 같은 규칙이다(선택 키의 네 번째 적용례). 서비스 검사가 보는 것은 「고른
+    해시 ≠ 미고른 해시」뿐이라 **양쪽이 함께 바뀌면 통과한다** — 이 결함 유형은
+    여기서만 잡힌다(#363 첫 판 검사가 실제로 그랬다, 돌연변이 확인).
+    """
+    from uuid import UUID
+
+    from cii_platform.calc.hash import compute_annual_input_hash
+    from cii_platform.services.annual_simulation import _input_hash
+
+    before_756 = compute_annual_input_hash(dict(ANNUAL_INPUT))
+    common = {
+        "vessel_id": UUID(ANNUAL_INPUT["vessel_id"]),
+        "regulation_year": ANNUAL_INPUT["regulation_year"],
+        "target_rating": ANNUAL_INPUT["target_rating"],
+        "runs": ANNUAL_INPUT["simulation_runs"],
+        "seed": int(ANNUAL_INPUT["random_seed"]),
+        "voyages_json": ANNUAL_INPUT["voyages"],
+        "vessel_json": ANNUAL_INPUT["vessel"],
+    }
+    # 미선택 — None이어야 한다(빈 문자열도 아니다).
+    assert _input_hash(**common, alternative_fuel=None) == before_756, (
+        "미선택 실행의 해시가 종전과 다르다 — 저장된 실행이 재현 불가가 된다"
+    )
+    assert _input_hash(**common, alternative_fuel="LNG") != before_756, (
+        "선택 실행이 미선택과 같은 해시다 — 지렛대 선택이 해시에 드러나지 않는다"
+    )
+
+
 ANNUAL_INPUT = {
     "vessel_id": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
     "regulation_year": 2026,
