@@ -764,6 +764,25 @@
           "ALL_SCOPES"
         ]
       }
+    },
+    "control": {
+      "$type": "color",
+      "$value": {
+        "colorSpace": "srgb",
+        "components": [
+          0.43529412150382996,
+          0.48627451062202454,
+          0.5607843399047852
+        ],
+        "alpha": 1,
+        "hex": "#6F7C8F"
+      },
+      "$extensions": {
+        "com.figma.variableId": "VariableID:31:2",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
     }
   },
   "brand": {
