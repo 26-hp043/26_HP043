@@ -285,7 +285,8 @@
 }
 
 .annual-sim__check input:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /*
@@ -317,7 +318,8 @@
 }
 
 .annual-sim__control:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .annual-sim__form button[type='submit'] {
@@ -437,7 +439,7 @@
 }
 
 .annual-sim__seg:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
   outline-offset: 2px;
 }
 
@@ -535,7 +537,8 @@
 }
 
 .annual-sim__reproduce button:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .annual-sim__reproduce button:disabled {

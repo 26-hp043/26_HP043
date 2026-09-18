@@ -273,7 +273,8 @@
 .app-shell__util-select:focus-visible {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /* 고를 것이 없는 상태 — 숨기지 않고 비활성으로 남긴다 (§7.2와 같은 원칙). */
@@ -320,8 +321,8 @@
 }
 
 .app-shell__iconbtn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .app-shell__iconbtn .app-shell__util-icon {
@@ -372,8 +373,8 @@
 }
 
 .app-shell__nav-link:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .app-shell__nav-text {
@@ -545,8 +546,8 @@
  * 지금은 테두리와 면이 같은 색이 된다.
  */
 .app-shell__logout:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /*

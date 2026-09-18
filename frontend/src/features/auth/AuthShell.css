@@ -216,7 +216,8 @@
 .auth-input:focus-visible {
   outline: none;
   border-color: var(--semantic-focus);
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /* 오류를 색만으로 표시하지 않는다 — 문구가 함께 붙는다 (§14).
@@ -242,8 +243,8 @@
 }
 
 .auth-submit:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .auth-submit:disabled {
@@ -305,8 +306,8 @@
 
 .auth-links a:focus-visible,
 .auth-footer a:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   border-radius: var(--radius-badge);
 }
 
@@ -416,8 +417,8 @@
 }
 
 .verify-banner__action:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   border-radius: var(--radius-badge);
 }
 
