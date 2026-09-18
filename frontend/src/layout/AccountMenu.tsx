@@ -104,7 +104,7 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         </span>
         <span className="account-menu__name">{label}</span>
         {/* 여닫힘 표시. 장식이므로 라벨을 주지 않는다 — 이름은 버튼이 이미 맡는다 (§14). */}
-        <Icon glyph={ChevronDown} className="account-menu__chevron" />
+        <Icon glyph={ChevronDown} className="account-menu__chevron" size="inline" />
       </button>
 
       <div

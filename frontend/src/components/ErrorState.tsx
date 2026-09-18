@@ -102,7 +102,7 @@ export function ErrorState(props: Props) {
       className={`error-state error-state--${level}${compact ? ' error-state--compact' : ''}`}
       role="alert"
     >
-      <Icon glyph={AlertTriangle} className="error-state__icon" size={compact ? 16 : 20} />
+      <Icon glyph={AlertTriangle} className="error-state__icon" size={compact ? 'inline' : 'default'} />
       <div className="error-state__body">
         {/* compact는 제목을 두지 않는다 — 한 줄이 곧 제목이자 본문이다. */}
         {heading === null ? null : <p className="error-state__title">{heading}</p>}

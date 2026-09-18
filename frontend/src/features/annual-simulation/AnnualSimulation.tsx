@@ -775,7 +775,7 @@ function Result({
             {/* DESIGN_SYSTEM §2.5 (a) — 확률 파생 표기. 위험도와 별개 채널이다. */}
             <span className={`annual-sim__flag annual-sim__flag--${flag.tone}`}>
               {/* §2.5 (b) — 라벨이 바로 옆에 있으므로 장식이다. `Icon`이 aria-hidden을 붙인다. */}
-              {flag.withIcon ? <Icon glyph={AlertTriangle} size={16} /> : null} {flag.text}
+              {flag.withIcon ? <Icon glyph={AlertTriangle} size="inline" /> : null} {flag.text}
             </span>
           </div>
         </div>
@@ -919,7 +919,7 @@ function Result({
                 못한다. Success 값이 정해지면(별건 이슈) 아이콘과 문구에 색만 입히면 된다.
               */}
               <div className="annual-sim__reproduce-ok" role="status">
-                <Icon glyph={CheckCircle2} className="annual-sim__reproduce-ok-icon" size={16} />
+                <Icon glyph={CheckCircle2} className="annual-sim__reproduce-ok-icon" size="inline" />
                 <p className="annual-sim__reproduce-ok-text">{ANNUAL_COPY.reproduceSuccess}</p>
               </div>
               {/*
