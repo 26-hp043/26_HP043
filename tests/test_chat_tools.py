@@ -113,9 +113,8 @@ async def test_unknown_tool_returns_an_error_envelope() -> None:
     예외로 올리면 한 턴이 통째로 죽는다. 모델이 이름을 틀리는 것은 흔한 일이고,
     봉투로 돌려주면 모델이 읽고 고쳐 부를 수 있다.
     """
-    body = json.loads(
-        await chat_tools.run_tool(None, name="drop_table", arguments={}, vessel_id=None)  # type: ignore[arg-type]
-    )
+    outcome = await chat_tools.run_tool(None, name="drop_table", arguments={}, vessel_id=None)  # type: ignore[arg-type]
+    body = json.loads(outcome.envelope)
     assert body["ok"] is False
     assert "error" in body
 
@@ -154,14 +153,13 @@ async def test_unknown_vessel_does_not_leak_its_id(monkeypatch: pytest.MonkeyPat
         raise NotFoundError(f"선박을 찾을 수 없습니다: {ghost}")
 
     monkeypatch.setattr(chat_tools, "_calc_voyage_cii", _boom)
-    body = json.loads(
-        await chat_tools.run_tool(
-            None,  # type: ignore[arg-type]
-            name=chat_tools.TOOL_CALC_VOYAGE_CII,
-            arguments={},
-            vessel_id=ghost,
-        )
+    outcome = await chat_tools.run_tool(
+        None,  # type: ignore[arg-type]
+        name=chat_tools.TOOL_CALC_VOYAGE_CII,
+        arguments={},
+        vessel_id=ghost,
     )
+    body = json.loads(outcome.envelope)
     assert body["ok"] is False
     assert str(ghost) not in json.dumps(body, ensure_ascii=False)
 
@@ -177,7 +175,6 @@ async def test_calculation_tools_need_a_vessel_first() -> None:
         chat_tools.TOOL_COMPARE_SCENARIOS,
         chat_tools.TOOL_RUN_ANNUAL_SIMULATION,
     ):
-        body = json.loads(
-            await chat_tools.run_tool(None, name=name, arguments={}, vessel_id=None)  # type: ignore[arg-type]
-        )
+        outcome = await chat_tools.run_tool(None, name=name, arguments={}, vessel_id=None)  # type: ignore[arg-type]
+        body = json.loads(outcome.envelope)
         assert body["ok"] is False, name

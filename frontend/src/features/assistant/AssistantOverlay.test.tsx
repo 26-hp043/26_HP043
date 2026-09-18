@@ -258,3 +258,41 @@ describe('버린 답과 실패 (`PRD §16.2` 격리)', () => {
     expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(true)
   })
 })
+
+describe('#1243 — 선박이 정해지지 않은 턴', () => {
+  it('vessel_resolved=false 답은 「선박을 먼저 골라」 안내가 붙는다 (성질 단언)', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({
+      ...ANSWER,
+      answer: '어느 선박인지 먼저 정해야 합니다.',
+      vesselResolved: false,
+    }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('CII 계산해줘')
+
+    const bubble = await screen.findByText(/어느 선박인지/, { selector: '.assistant__turn--assistant' })
+    /*
+     * 문구 전문을 단언하지 않는다 (`AGENTS §4.6` — 표시 문구는 디자인이 바꿀 수
+     * 있다). 잠그는 성질은 둘: ⑴ **선박을 고르라는 안내가 같은 말풍선에 있다**
+     * ⑵ 폐기 접두(「답을 드리지 못했습니다」)는 아니다 — 답은 버리지 않았다.
+     */
+    expect(bubble.textContent).toContain('선박')
+    expect(bubble.textContent).toContain('먼저')
+    expect(bubble.textContent).not.toContain('답을 드리지 못했습니다')
+  })
+
+  it('vessel_resolved=true 답에는 그 안내가 없다 — 참고 답과 구분된다', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({
+      ...ANSWER,
+      vesselResolved: true,
+    }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('등급 설명해줘')
+
+    const bubble = await screen.findByText(ANSWER.answer, {
+      selector: '.assistant__turn--assistant',
+    })
+    expect(bubble.textContent).not.toContain('먼저 골라')
+  })
+})

@@ -44,10 +44,16 @@ from cii_platform.auth.middleware import auth_middleware
 from cii_platform.auth.role_bootstrap import validate_initial_office
 from cii_platform.auth.signup_gate import validate_signup_gate
 from cii_platform.config import should_expose_api_docs, validate_public_base_url
+from cii_platform.log_config import setup_logging
 from cii_platform.mail.config import load_mail_settings
 
 # API_SPEC §1.1: 모든 API는 /api/v1 prefix 아래에 둔다.
 API_V1_PREFIX = "/api/v1"
+
+# 구조화 로그 (#827 ⑵) — 모듈 나머지보다 먼저. 다른 모듈이 import 시점에 남기는
+# 기록(경고 등)도 같은 배관으로 흘러야 하고, uvicorn이 임포트 뒤 자기 로거를
+# 구성해도 이 호출이 앞선다(log_config 모듈 docstring 참조).
+setup_logging()
 
 _log = logging.getLogger(__name__)
 

@@ -54,9 +54,20 @@ class ChatSession(Base):
     #: 만료일이 따라 움직이지 않게 하기 위해서다 — 계산으로 유도하면 정책을 고치는
     #: 순간 과거 대화의 만료일이 전부 바뀐다.
     expires_at = sa.Column(sa.DateTime(timezone=True), nullable=False)
+    #: 대화에 귀속된 선박 (#1242 · 056). ``search_vessel``이 정하거나 화면이 준다.
+    #: 우선순위는 요청 ``vessel_id`` > 이 값(``API_SPEC §15.1``). 선박이 지워지면
+    #: 대화는 남고 귀속만 풀린다(SET NULL — ``fleet_reduction_plan`` 선례).
+    vessel_id = sa.Column(UuidText, nullable=True)
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_chat_session"),
+        sa.ForeignKeyConstraint(
+            ["vessel_id"],
+            ["vessel.id"],
+            name="fk_chat_session_vessel",
+            ondelete="SET NULL",
+            onupdate=FK_ON_UPDATE,
+        ),
         sa.ForeignKeyConstraint(
             ["user_id"],
             ["app_user.id"],

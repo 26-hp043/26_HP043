@@ -28,9 +28,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from cii_platform.errors import CalculationError, NotFoundError, ParameterError, ValidationError
 from cii_platform.services.llm_guard import filter_outbound
@@ -64,7 +66,8 @@ def tool_schemas() -> list[dict[str, object]]:
             "description": (
                 "선박을 이름으로 찾아 이 대화에서 쓸 수 있게 한다. "
                 "⚠️ 선박명·IMO·식별자는 돌려주지 않는다 — 몇 척을 찾았는지만 알려 준다. "
-                "계산 도구는 찾은 선박을 서버가 알아서 쓴다."
+                "찾은 선박이 1척이면 이 대화에서 계속 쓴다. "
+                "여러 척이면 화면에서 골라야 한다."
             ),
             "input_schema": {
                 "type": "object",
@@ -240,17 +243,35 @@ def _error_text(exc: Exception) -> str:
     return "요청을 처리할 수 없습니다."
 
 
+@dataclass(frozen=True)
+class ToolOutcome:
+    """도구 하나의 결과 (#1243).
+
+    ``envelope``은 모델에게 가는 봉투 그대로, ``resolved_vessel_id``는 검색의 고유
+    일치가 정한 선박 — **호출부(턴 루프)만** 알고 모델에게는 나가지 않는다.
+    """
+
+    envelope: str
+    resolved_vessel_id: UUID | None = None
+
+
 async def run_tool(
     session: AsyncSession,
     *,
     name: str,
     arguments: dict[str, object],
     vessel_id: object | None,
-) -> str:
+    chat_session_id: UUID | None = None,
+    vessel_locked: bool = False,
+) -> ToolOutcome:
     """도구 하나를 실행하고 **봉투에 담은 문자열**을 돌려준다.
 
     :param vessel_id: 이 대화가 고른 선박. ``search_vessel``이 정하거나 화면이 준다.
         **모델에게는 넘기지 않는다** — 식별자는 화이트리스트 밖이다.
+    :param chat_session_id: 검색의 고유 일치를 **세션 귀속으로 저장**하는 경로
+        (#1242). 없으면(단위 검사 등) 저장 없이 결과만 낸다.
+    :param vessel_locked: 이 턴에 **화면이 ``vessel_id``를 넘겼다**는 표시 — 세션
+        귀속이 화면값을 덮어쓰지 않는다(``API_SPEC §15.1`` 우선순위).
 
     ## 실패를 자연어로 돌려주지 않는다
 
@@ -259,37 +280,65 @@ async def run_tool(
     실패 시 자연어로 안내」).
     """
     if name not in TOOL_NAMES:
-        return envelope(name, error="알 수 없는 도구입니다.")
+        return ToolOutcome(envelope(name, error="알 수 없는 도구입니다."))
 
     try:
         if name == TOOL_SEARCH_VESSEL:
-            return await _search_vessel(session, arguments)
+            return await _search_vessel(
+                session,
+                arguments,
+                chat_session_id=chat_session_id,
+                vessel_locked=vessel_locked,
+            )
         if vessel_id is None:
-            return envelope(name, error="어느 선박인지 먼저 정해야 합니다.")
+            return ToolOutcome(envelope(name, error="어느 선박인지 먼저 정해야 합니다."))
         if name == TOOL_CALC_VOYAGE_CII:
-            return await _calc_voyage_cii(session, arguments, vessel_id)
+            return ToolOutcome(await _calc_voyage_cii(session, arguments, vessel_id))
         if name == TOOL_COMPARE_SCENARIOS:
-            return await _compare_scenarios(session, arguments, vessel_id)
-        return await _run_annual_simulation(session, arguments, vessel_id)
+            return ToolOutcome(await _compare_scenarios(session, arguments, vessel_id))
+        return ToolOutcome(await _run_annual_simulation(session, arguments, vessel_id))
     except (ValidationError, NotFoundError, ParameterError, CalculationError) as exc:
         # ⚠️ **원문을 넘기지 않는다.** 아래 `_ERROR_TEXT` 주석 참조.
-        return envelope(name, error=_error_text(exc))
+        return ToolOutcome(envelope(name, error=_error_text(exc)))
 
 
-async def _search_vessel(session: AsyncSession, arguments: dict[str, object]) -> str:
+async def _search_vessel(
+    session: AsyncSession,
+    arguments: dict[str, object],
+    *,
+    chat_session_id: UUID | None = None,
+    vessel_locked: bool = False,
+) -> ToolOutcome:
     """⚠️ **이름·식별자를 돌려주지 않는다.** 몇 척인지만 말한다.
 
     ``PRD §16.3.1``이 선박명·IMO·선박 ID를 전송 금지로 둔다. 검색 결과를 그대로
     돌려주면 **그 금지가 도구 하나로 뚫린다.** 선박을 고르는 것은 서버가 하고, 모델은
     「찾았다」만 안다.
+
+    결과의 귀속은 **호출부(턴 루프)**가 정한다(#1243) — 여기는 ``resolved_vessel_id``로
+    알려 주기만 한다. 고유 일치만 정한다. 둘 이상이 걸리면 **화면에서 고르라는 오류
+    봉투**를 낸다(#1242의 「모델이 키워드를 좁힌다」에서 변경 — 애매한 것을 몰래
+    고르지 않는다는 규율은 그대로). 화면이 ``vessel_id``를 넘긴 턴(``vessel_locked``)은
+    귀속을 내지 않는다 — 화면값이 항상 더 최신이다.
     """
     from cii_platform.services import vessel as vessel_service
 
     keyword = str(arguments.get("name") or "").strip()
     if not keyword:
-        return envelope(TOOL_SEARCH_VESSEL, error="찾을 이름을 알려 주세요.")
+        return ToolOutcome(envelope(TOOL_SEARCH_VESSEL, error="찾을 이름을 알려 주세요."))
     rows, _ = await vessel_service.list_vessels(session, search=keyword, limit=5)
-    return envelope(TOOL_SEARCH_VESSEL, result={"matched": len(rows)})
+    if len(rows) >= 2:
+        return ToolOutcome(
+            envelope(
+                TOOL_SEARCH_VESSEL,
+                error=f"{len(rows)}척이 일치합니다. 화면에서 선박을 고른 뒤 다시 물어봐 주세요.",
+            )
+        )
+    resolved = UUID(str(rows[0]["id"])) if len(rows) == 1 and not vessel_locked else None
+    return ToolOutcome(
+        envelope(TOOL_SEARCH_VESSEL, result={"matched": len(rows)}),
+        resolved_vessel_id=resolved,
+    )
 
 
 async def _calc_voyage_cii(

@@ -42,6 +42,7 @@ from cii_platform.api.schemas.auth import (
     SignupRequest,
 )
 from cii_platform.api.timefmt import iso_utc_now
+from cii_platform.auth.backoff import backoff
 from cii_platform.auth.dependencies import AuthenticationError, require_csrf, require_office
 from cii_platform.auth.password import (
     PasswordPolicyError,
@@ -330,6 +331,10 @@ async def login(
     """
     email = _normalize_email(payload.email)
 
+    # #1203 — 이메일별 실패 백오프. 지연은 계정 존재와 무관하게 이메일 문자열로만
+    # 걸린다(존재 비노출). 지연 뒤에도 응답은 종전과 같은 401·같은 문구다.
+    await backoff.wait(email)
+
     result = await session.execute(
         select(AppUser).where(
             func.lower(AppUser.email) == email,
@@ -342,6 +347,7 @@ async def login(
         # 즉시 거부하면 응답 시간 차이로 가입 여부를 알아낼 수 있다.
         # 결과를 쓰지 않는다 — 목적이 시간을 쓰는 것이다.
         await verify_dummy_async(payload.password)
+        backoff.record_failure(email)
         await audit_svc.record_login_failure(
             session,
             reason="unknown_email",
@@ -351,6 +357,7 @@ async def login(
         return _error_response(request, 401, INVALID_CREDENTIALS, LOGIN_FAILED_MESSAGE)
 
     if not await verify_password_async(payload.password, user.password_hash):
+        backoff.record_failure(email)
         await audit_svc.record_login_failure(
             session,
             reason="bad_password",
@@ -358,6 +365,9 @@ async def login(
         )
         await session.commit()
         return _error_response(request, 401, INVALID_CREDENTIALS, LOGIN_FAILED_MESSAGE)
+
+    # 성공은 백오프를 즉시 초기화한다 (#1203) — 다음 실패는 다시 5회 여유부터.
+    backoff.record_success(email)
 
     # 최초 사무직 목록에 든 계정은 로그인할 때마다 사무직으로 맞춘다 (#672 ·
     # `auth/role_bootstrap.py`). 044 이전에 가입했든 화면에서 강등됐든 — 목록이 「항상

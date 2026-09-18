@@ -264,6 +264,23 @@ curl http://localhost:8001/api/v1/health
 
 ### 3.4 롤백
 
+#### 3.4.1 지금 떠 있는 것이 어느 커밋인지 답하기 (#789 완료 기준)
+
+```bash
+# app-01 — 백엔드 컨테이너가 달린 이미지 태그(=배포 커밋 SHA)
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 \
+  "docker inspect cii-backend --format '{{.Config.Image}}'"
+# → ghcr.io/26-hp043/bluelog-backend:<sha>   ← 이 SHA가 배포 커밋이다
+
+# 프론트는 Cloudflare Pages — 대시보드 Deployment History(또는
+# https://bluelog-bx7.pages.dev 에서 응답 헤더 x-pages-deployment-id)
+```
+
+배포 워크플로 로그(GitHub Actions `Deploy to OCI`)에도 어느 커밋이 나갔는지
+남는다. **화면과 서버가 어긋난 것 같으면 이 명령부터** — 어느 쪽이 낡았는지가 정해진다.
+
+#### 3.4.2 이미지 되돌리기 — 마이그레이션이 없던 배포
+
 ```bash
 # 이전 SHA 태그로 이미지 되돌리기
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
@@ -276,8 +293,27 @@ sed -i 's|BACKEND_IMAGE=.*|BACKEND_IMAGE=ghcr.io/26-hp043/bluelog-backend:<이�
 docker compose -f docker-compose.prod.app.yml up -d backend
 ```
 
+#### 3.4.3 마이그레이션이 섞인 배포의 롤백 — 순서가 있다
+
 주의: 마이그레이션이 포함된 배포는 단순 이미지 교체로 되돌릴 수 없다.
-`alembic downgrade -1`을 먼저 실행해야 하며, FK 제약 등으로 실패할 수 있다.
+순서는 **백업 먼저, 판정 다음, 교체 마지막**이다.
+
+```bash
+# 1) 되돌리기 전에 반드시 현재 상태를 덤프한다 (#827 ⑴ · scripts/db_backup.py)
+python3 scripts/db_backup.py backup
+
+# 2) 어느 리비전까지 내려가는지 판정한다 — 되돌릴 수 없는 리비전이 걸려 있으면
+#    이미지 교체만으로 끝낸다(스키마를 내리지 않는다).
+#    IRREVERSIBLE 목록과 24시간 가드: src/cii_platform/db/migration_guard.py
+#    ALLOW_IRREVERSIBLE_DOWNGRADE=<rev> 로만 풀린다.
+
+# 3) 되돌릴 수 있으면: alembic downgrade -1 → 이전 sha 이미지로 교체(위 3.4.2)
+#    FK(RESTRICT)로 실패하면 1)의 덤프로 되돌린다(db_backup.py restore).
+```
+
+⚠️ `#451`의 사례 — 마이그레이션 다운그레이드가 계산 이력이 있으면 FK(`RESTRICT`)로
+막혔다. **되돌릴 수 있다는 가정을 실제로 확인해야 한다.** `db_backup.py`의
+복구 리허설(unloaddb → loaddb → 교체)은 CI `docker` 잡이 모든 PR에서 실제로 돌린다.
 
 ---
 
@@ -546,6 +582,38 @@ docker logs cii-backend --tail=100 -f
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195
 docker logs cii-cubrid --tail=100 -f
 ```
+
+### 8.2.1 구조화 로그 — 장애 때 어느 파일을 어떻게 보나 (#827 ⑵)
+
+프로덕션 compose가 `LOG_FILE=/app/logs/api.jsonl`을 설정한다. 접근 요약(쿼리스트링·본문
+**없이** — 토큰·비밀번호가 로그로 새지 않는다)과 예외 스택이 **JSON 한 줄**로 쌓이고,
+10MB × 5개로 회전한다. 볼륨(`app-logs`)에 남으므로 컨테이너를 다시 만들어도 유지된다.
+
+```bash
+# app-01 — 파일이 어디에 있나
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
+docker exec cii-backend sh -c 'ls -lh /app/logs/'
+
+# 5xx만 골라 보기 — 장애 되짚기의 첫 동작
+docker exec cii-backend sh -c \
+  'grep "\"level\": \"ERROR\"" /app/logs/api.jsonl | tail -20'
+
+# 한 요청의 전 과정 되짚기 — 응답 meta의 request_id로 잇는다
+docker exec cii-backend sh -c \
+  'grep "<request_id>" /app/logs/api.jsonl'
+
+# jq가 있으면 필드로 본다
+docker exec cii-backend sh -c \
+  'cat /app/logs/api.jsonl | tail -100 | jq -c "{ts,level,path,status,duration_ms}"'
+```
+
+줄의 모양 — 키는 `ts`·`level`·`logger`·`message`, 접근 로그(`cii_platform.access`)는
+`request_id`·`method`·`path`·`status`·`duration_ms`·`client`를 더 싣는다. 예외 기록은
+`exc` 키에 스택 텍스트가 들어간다.
+
+> **콘솔(`docker logs`)과의 관계** — 콘솔은 사람이 읽는 짧은 형식, 파일이 JSON이다.
+> uvicorn 기본 접근 로그는 꺼져 있다(쿼리스트링을 남겨 토큰이 새는 결함이 있어서,
+> #827 ⑵). 접근 기록은 이 파일 하나에서 본다.
 
 ### 8.3 리소스 모니터링
 
