@@ -409,13 +409,23 @@ def _upgrade_failure_message(result: subprocess.CompletedProcess) -> str:
 
 
 def _install_cubrid_param_converter(engine):
-    """CUBRID 호환 파라미터 변환 이벤트 — UUID→hex, Decimal→float (#1058).
+    """CUBRID 호환 변환 — **프로덕션 훅 + 테스트 전용 변환** 두 층 (#1058 · #1246).
 
-    sa.text()에 UUID 객체를 바인딩하면 pycubrid가 거부하므로,
-    before_cursor_execute에서 자동 변환한다.
-    """
-    import re
-    import uuid
+    프로덕션 변환(``db.session.cubrid_param_convert``)을 **먼저 붙인다.** 테스트 엔진이
+    운영과 같은 경로를 타므로, 두 변환기가 따로 놀아 「검사는 초록인데 운영이 깨지는」
+    사고(``2538271``)의 구조적 원인이 사라진다. UUID→hex · Decimal→str · ``CAST(? AS …)``
+    제거 · ``IS 0/1``→``= 0/1`` 은 프로덕션 훅이 이미 하므로 아래 층에서 다시 하지
+    않는다(문서의 종전 서술 「Decimal→float」는 코드와 갈려 있었다 — 실제는 ``str``).
+
+    아래 층은 **테스트에만 필요한 변환**이다. ``sa.text()`` 실험 SQL이 운영 ORM 경로와
+    다르게 내는 문장·파라미터를 받는다:
+
+    - ISO 8601 **문자열** 파라미터 정규화(``T``→공백 · ``Z``/``+00:00`` 제거) — CUBRID가
+      리터럴의 ``T``·``Z``를 거부한다. **``datetime`` 객체 파라미터는 손대지 않는다** —
+      종전 테스트 변환기가 초 단위로 깎아 밀리초·타임존을 잃게 한 사고(``#1058`` 인계
+      v6)와 같은 길로 되돌아가지 않는다.
+    - 문장 안 datetime 리터럴 치환 · ``interval '1 hour'`` → ``1/24.0`` · ``::type``
+      캐스트 제거 · ``RETURNING`` 제거 · INSERT id 자동 추가(server_default 미지원).
 
     # ``sa.Uuid``의 bind processor를 여기서 패치하지 않는다 (`#1058`).
     #
@@ -427,61 +437,33 @@ def _install_cubrid_param_converter(engine):
     # 경로를 탄다. 패치를 빼고 같은 묶음을 돌려 **18 failed / 64 passed로 동일**함을
     # 확인했다(있으나 없으나 같다). 서드파티 클래스를 되돌리지 않고 전역 변조하는
     # 것이기도 해서 남겨 둘 이유가 없다.
-    from decimal import Decimal
+    """
+    import re
+    import uuid
 
     from sqlalchemy import event
 
+    from cii_platform.db.session import cubrid_param_convert
+
+    # 1층 — 프로덕션 훅. 운영과 같은 변환이 실제 쿼리로 매 테스트 실행된다 (#1246).
+    event.listen(engine.sync_engine, "before_cursor_execute", cubrid_param_convert, retval=True)
+
+    # 2층 — 테스트 전용 변환. 1층이 끝낸 문장·파라미터를 받는다.
     @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
     def _convert_params(conn, cursor, statement, parameters, context, executemany):
-        # 1. UUID/Decimal/datetime → CUBRID 호환 변환
-        from datetime import datetime as _dt
-
-        def _convert_value(p):
-            if isinstance(p, uuid.UUID):
-                return p.hex
-            if isinstance(p, Decimal):
-                return str(p)
-            if isinstance(p, _dt):
-                # 🔴 **`datetime`은 손대지 않는다** (`#1058` · 인계 v6 §4의 그 원인).
-                #
-                # 종전에는 여기서 `strftime("%Y-%m-%d %H:%M:%S")`로 **초 단위 문자열**을
-                # 만들고 타임존을 떼었다. 그래서 `simulation_snapshot.created_at`이
-                # 밀리초를 잃고 `+00:00`도 잃었다 — 실측이다::
-                #
-                #     보낸 값     2026-09-16T05:07:21.697000+00:00
-                #     DB 문자열   '05:07:21.000 AM 09/16/2026 UTC UTC'   ← .000 · 존 이름
-                #
-                # 그 결과 실행 응답(파이썬 값)은 `.697000`을 내고 조회 응답(DB에서 읽음)은
-                # 소수부 없이 내, `test_annual_simulation_read_db` 5건이 **경로에 따라
-                # 다른 `created_at`**으로 떨어졌다.
-                #
-                # ⚠️ **이것은 검사에만 있던 변환이다.** 배포 엔진에는 이 이벤트가 붙지
-                # 않으므로 운영에서는 밀리초가 보존된다 — 즉 검사가 **없는 결함을
-                # 만들어 내고** 있었다. 위 `sa.Uuid` 패치를 뺄 때 적은 것과 같은 자리다:
-                # 「그 패치는 검사에만 걸린다」.
-                #
-                # pycubrid가 aware `datetime`을 그대로 받고 밀리초까지 보관하는 것을
-                # 빈 표로 확인했다::
-                #
-                #     보낸 값 datetime(2026, 9, 16, 5, 3, 26, 548000, tzinfo=utc)
-                #     DB 문자열 '05:03:26.548 AM 09/16/2026 +00:00'
-                #
-                # 아래 `str` 갈래는 그대로 둔다 — **문자열 리터럴**의 `T`·`Z`는 CUBRID가
-                # 정말로 거부한다(`Invalid or missing timezone`).
-                return p
-            if isinstance(p, str):
-                # ISO 8601 문자열 datetime → CUBRID 호환
-                if re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", p):
-                    p = p.replace("T", " ").rstrip("Z")
-                    if p.endswith("+00:00"):
-                        p = p[:-6]
-                return p
+        # ISO 8601 **문자열** 파라미터 정규화 — CUBRID가 리터럴의 `T`·`Z`를 거부한다.
+        # (UUID·Decimal은 1층 프로덕션 훅이 변환했다. datetime **객체**는 어느 층에서도
+        # 손대지 않는다 — 초 단위로 깎으면 밀리초·타임존을 잃는다. `#1058` 인계 v6.)
+        def _normalize_str_param(p):
+            if isinstance(p, str) and re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", p):
+                p = p.replace("T", " ").rstrip("Z")
+                if p.endswith("+00:00"):
+                    p = p[:-6]
             return p
 
         if parameters and isinstance(parameters, (tuple, list)):
-            parameters = tuple(_convert_value(p) for p in parameters)
+            parameters = tuple(_normalize_str_param(p) for p in parameters)
 
-        # 2. CUBRID: PostgreSQL 구문 변환 (auto-id 전에 실행해야 regex가 깨지지 않음)
         # CUBRID datetime 호환:
         # 1) 'Z' 타임존 제거 + T→공백  2) +00:00 제거 + T→공백
         # CUBRID는 ISO 8601 'T' 구분자와 'Z' 접미사를 모두 거부한다.
@@ -506,10 +488,9 @@ def _install_cubrid_param_converter(engine):
             statement,
         )
         statement = statement.replace("interval '1 hour'", "1/24.0")
-        statement = re.sub(r"CAST\(\? AS \w+\)", "?", statement)
         statement = re.sub(r"::(uuid|timestamptz|timestamp|text|jsonb)", "", statement)
-        statement = re.sub(r"\bIS 0\b", "= 0", statement)
-        statement = re.sub(r"\bIS 1\b", "= 1", statement)
+        # (`CAST(? AS …)`·`IS 0/1` 치환은 1층 프로덕션 훅이 했다 — 여기서 다시 하지
+        # 않는다. 정규식이 두 벌이면 어긋나는 날 아무도 못 잡는다. #1246)
 
         # 3. CUBRID: RETURNING 미지원 — INSERT RETURNING ... 전체 제거
         #    복수 컬럼(RETURNING id, created_at)도 처리한다.
