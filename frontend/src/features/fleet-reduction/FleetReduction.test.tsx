@@ -266,3 +266,56 @@ describe('함대 감축 계획 화면 — 실패해도 빠져나올 수 있다 (
   })
 })
 
+
+/**
+ * 연료 단가 칸의 범위 (#1273).
+ *
+ * 종전에는 **서버 연료 목록 8종 전체**에 `missingFuelPrices`를 더해 물었다 — 보유 선박이
+ * 쓰지도 않는 연료까지 칸이 떴다. 서버가 이미 「이 계획에 필요한데 없는 연료」를 지목하므로
+ * 그것으로 좁힌다.
+ */
+describe('연료 단가는 이 계획에 필요한 연료만 묻는다 (#1273)', () => {
+  function withMissingFuels(codes: string[]): EvaluateResult {
+    const base = result()
+    return { ...base, costs: { ...base.costs, missingFuelPrices: codes } }
+  }
+
+  it('⚠️ 서버가 지목한 연료만 뜬다 — 8종 전체가 아니다', async () => {
+    renderWith(withMissingFuels(['HFO']))
+
+    // 표시 문구는 `fuelTypes.ts`가 갖는다 — 서버 `displayName`(원문 표기)이 아니다(`#598`).
+    expect(await screen.findByLabelText('중유 (HFO)')).toBeTruthy()
+    expect(screen.queryByLabelText('메탄올 (METHANOL)')).toBeNull()
+    expect(screen.queryByLabelText('액화천연가스 (LNG)')).toBeNull()
+  })
+
+  it('필요한 단가가 없으면 칸 대신 그 사실을 적는다 — 빈 카드로 두지 않는다', async () => {
+    renderWith(withMissingFuels([]))
+
+    expect(await screen.findByText(FLEET_REDUCTION_COPY.fuelPricesNone)).toBeTruthy()
+  })
+
+  it('⚠️ 값을 넣어도 칸이 사라지지 않는다 — 채우는 순간 missingFuelPrices에서 빠진다', async () => {
+    let missing = ['HFO']
+    const evaluate = vi.fn(async (_req: EvaluateRequest) => withMissingFuels(missing))
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+    render(
+      <MemoryRouter>
+        <FleetReduction provider={{ evaluate, save: vi.fn(), list: vi.fn(async () => []) }} />
+      </MemoryRouter>,
+    )
+
+    const field = await screen.findByLabelText('중유 (HFO)')
+    missing = []
+    await act(async () => {
+      fireEvent.change(field, { target: { value: '620' } })
+    })
+
+    await waitFor(() => {
+      const last = evaluate.mock.calls.at(-1)?.[0]
+      expect(last?.prices.fuelUsdPerTon).toEqual({ HFO: '620' })
+    })
+    expect(screen.getByLabelText('중유 (HFO)')).toBeTruthy()
+    expect(screen.queryByText(FLEET_REDUCTION_COPY.fuelPricesNone)).toBeNull()
+  })
+})
