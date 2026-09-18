@@ -890,6 +890,50 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     ).toBeGreaterThanOrEqual(4.5)
   })
 
+  /*
+   * `#1170` ⑴ — **같은 배지의 테두리도 등급 축이 아니다.**
+   *
+   * `#829` ⑷가 문자를 중립으로 옮기면서 **두 줄 아래 `border`는 그대로 두었다.**
+   * `--cii-none-border`는 배지면 위 라이트 `1.51` · 다크 `1.72`로 `1.4.11`의 `3:1`에
+   * 미달이었고, 그보다 먼저 `§0.2` 제약 2에 걸린다 — 이 배지는 등급 문자를 그리지
+   * 않으므로(`VesselMark.tsx`가 `—` 하나만 낸다) 등급 채널이 아니다. `#1168`이
+   * `.vessel--risk`에서 걷어낸 것과 같은 결함이다.
+   *
+   * 두 가지를 함께 본다: **등급 토큰이 아닐 것**과 **양면에서 3:1일 것**. 앞엣것만
+   * 보면 중립이되 안 보이는 값으로 갈 수 있고, 뒤엣것만 보면 대비를 넘기는 등급
+   * 색으로 되돌아갈 수 있다 — `#748`이 이름 기반 가드로 밟은 함정이다.
+   */
+  const NONE_FACES = ['--cii-none-bg', '--surface-card']
+
+  it.each(THEMES)('$name — 등급 없음 배지 테두리가 등급 축 밖이고 3:1 이상이다 (#1170)', ({
+    generated,
+    alias,
+  }) => {
+    const rule = /\.vessel__mark--none\s*\{([\s\S]*?)\n\}/.exec(noneBadgeCss)
+    expect(rule, '.vessel__mark--none 규칙을 찾지 못했습니다').not.toBeNull()
+
+    const decl = /(?:^|;|\*\/)\s*border\s*:\s*([^;]+);/.exec((rule as RegExpExecArray)[1])
+    expect(decl, '배지의 border 선언을 찾지 못했습니다').not.toBeNull()
+
+    const shorthand = (decl as RegExpExecArray)[1]
+    const color = /var\(\s*(--[\w-]+)\s*\)\s*$/.exec(shorthand.trim())
+    expect(color, `테두리 색을 토큰으로 읽지 못했습니다: ${shorthand}`).not.toBeNull()
+
+    const name = (color as RegExpExecArray)[1]
+    expect(
+      /^--cii-/.test(name),
+      `등급 없음 배지 테두리가 등급 토큰(${name})이다 — 이 배지는 등급 문자를 그리지 않는다 (§0.2 제약 2 · #1170)`,
+    ).toBe(false)
+
+    const value = evaluate(`var(${name})`, generated, alias)
+    for (const face of NONE_FACES) {
+      expect(
+        contrast(value, evaluate(generated[face] ?? `var(${face})`, generated, alias)),
+        `${face} 위 배지 테두리 — 1.4.11 비텍스트 3:1 (#1170 ⑴)`,
+      ).toBeGreaterThanOrEqual(3)
+    }
+  })
+
   const CONTROL_FACES = ['--surface-inset', '--surface-card']
 
   it.each(THEMES)('$name — 폼 컨트롤 테두리가 양면에서 3:1 이상이다', ({ generated, alias }) => {
