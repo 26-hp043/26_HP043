@@ -13,6 +13,7 @@ import하지 않는다.
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from decimal import Decimal
@@ -41,6 +42,12 @@ _CAST_PLACEHOLDER = re.compile(r"CAST\(\? AS \w+\)")
 
 #: ``IS 0`` / ``IS 1``. CUBRID에서 ``IS``의 오른쪽은 ``NULL``·``TRUE``·``FALSE``만 온다.
 _IS_BOOL_LITERAL = re.compile(r"\bIS ([01])\b")
+
+#: 치환 관측용 (#1246). 정규식 리라이팅은 dialect가 못 내는 문장을 앱이 대신
+#: 고쳐 쓰는 것이므로 — **무엇이 얼마나 치환되는지 보이지 않으면**, ORM이 문장 형태를
+#: 바꾸는 순간(버전 업·새 쿼리 패턴) 조용히 깨지는지 아무도 모른다. DEBUG 레벨이라
+#: 운영 로그가 문장으로 시끄러워지지 않는다.
+_LOG = logging.getLogger(__name__)
 
 
 def cubrid_param_convert(
@@ -72,8 +79,16 @@ def cubrid_param_convert(
             p.hex if isinstance(p, uuid.UUID) else str(p) if isinstance(p, Decimal) else p
             for p in parameters
         )
-    statement = _CAST_PLACEHOLDER.sub("?", statement)
-    statement = _IS_BOOL_LITERAL.sub(r"= \1", statement)
+    statement, n_cast = _CAST_PLACEHOLDER.subn("?", statement)
+    statement, n_bool = _IS_BOOL_LITERAL.subn(r"= \1", statement)
+    if n_cast or n_bool:
+        # 치환이 일어난 문장을 남긴다(#1246) — 예상 밖 문장에 닿는 순간을 잡는 수단.
+        _LOG.debug(
+            "cubrid_param_convert 치환: cast=%d bool=%d — %s",
+            n_cast,
+            n_bool,
+            statement[:120],
+        )
     return statement, parameters
 
 
