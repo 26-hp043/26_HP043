@@ -211,7 +211,7 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
           aria-label="AI 어시스턴트 닫기"
           onClick={() => setOpen(false)}
         >
-          <Icon glyph={X} size={16} />
+          <Icon glyph={X} size="inline" />
         </button>
       </header>
 

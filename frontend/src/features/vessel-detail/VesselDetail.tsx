@@ -534,7 +534,7 @@ export function VesselDetail({
 function BackLink() {
   return (
     <Link className="vd__back" to="/dashboard">
-      <Icon glyph={ArrowLeft} size={16} />
+      <Icon glyph={ArrowLeft} size="inline" />
       대시보드
     </Link>
   )

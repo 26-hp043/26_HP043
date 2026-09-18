@@ -16,8 +16,42 @@
   vertical-align: -0.125em;
 
   /*
+   * **두께의 출처는 Figma다** (`#1174` · `§15`). 종전에는 `Icon.tsx`가
+   * `strokeWidth={1.5}`를 적었고 같은 값이 `--icon-stroke`로도 내려와 **규격 하나가
+   * 두 곳에** 있었다 — Figma에서 `1.6`으로 바꾸면 토큰을 읽는 커스텀 아이콘만
+   * 굵어지고 세트 아이콘은 그대로였다. 화면이 안 깨져 오래 남을 자리다.
+   *
+   * Lucide가 붙이는 `stroke-width="2"` 속성을 이 선언이 덮는다 — CSS 선언은 SVG
+   * 표현 속성을 이긴다(Chromium 실측: 속성 `2` + 이 선언 → 계산값 `1.5px`). `px`는
+   * `viewBox="0 0 24 24"`의 사용자 좌표계 단위로 읽히므로 종전 속성 `1.5`와 같다.
+   */
+  stroke-width: var(--icon-stroke);
+
+  /*
    * flex 컨테이너 안에서 찌그러지지 않게 한다. 아이콘은 크기가 규격(`size`)이고
    * 남는 공간을 나눠 갖는 요소가 아니다.
    */
   flex: none;
+}
+
+/*
+ * 크기 — 이름으로 고르고 값은 토큰이 준다 (`#1174`).
+ *
+ * `Icon.tsx`가 `size` 속성을 넘기지 않으므로 Lucide의 기본 `width`/`height`(24)가
+ * 붙는데, 이 선언들이 그것을 덮는다(실측: 속성 `20` + `inline-size: 16px` → `16px`).
+ * 이름 셋은 생성 토큰 `--icon-*`와 짝이며 `icon.sync.test.ts`가 어긋남을 잡는다.
+ */
+.icon--inline {
+  inline-size: var(--icon-inline);
+  block-size: var(--icon-inline);
+}
+
+.icon--default {
+  inline-size: var(--icon-default);
+  block-size: var(--icon-default);
+}
+
+.icon--large {
+  inline-size: var(--icon-large);
+  block-size: var(--icon-large);
 }

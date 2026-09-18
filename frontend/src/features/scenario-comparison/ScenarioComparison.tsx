@@ -890,7 +890,7 @@ export function ScenarioComparison({
           <ul className="scenario-comparison__warnings">
             {response.warnings.map((code) => (
               <li key={code} className="scenario-comparison__warning">
-                <span><Icon glyph={AlertTriangle} size={16} /></span> {warningMessage(code)}
+                <span><Icon glyph={AlertTriangle} size="inline" /></span> {warningMessage(code)}
               </li>
             ))}
           </ul>
@@ -963,7 +963,7 @@ function ScenarioCard({
         {risk.withIcon ? (
           // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden
           <span className="scenario-card__risk-icon">
-            <Icon glyph={AlertTriangle} size={16} />
+            <Icon glyph={AlertTriangle} size="inline" />
           </span>
         ) : null}
         <span
