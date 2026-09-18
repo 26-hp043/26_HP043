@@ -994,6 +994,47 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     expect(offenders, '경계가 테두리뿐인 컨트롤 — 1.4.11 비텍스트 3:1 (#1202)').toEqual([])
   })
 
+  /*
+   * `#985` — **개략도의 해안선은 장식이 아니다.**
+   *
+   * 베이스맵 자산이 없는 환경에서는 `PositionChart`가 대신 뜬다. 거기서 육지·바다는
+   * 배경처럼 보이지만 **배 위치를 읽는 좌표계 자체**라, `§14` 갈래 표의 「위치를 읽는
+   * 기준틀」로 `3:1`이 걸린다.
+   *
+   * 종전에는 셋이 전부 1.1~1.3이었다 — 육지면 대 바다 `1.15` · 윤곽 대 육지면 `1.23`.
+   * **셋 다 토큰이라 값이 맞는지 보는 가드는 있었어도, 서로 갈리는지 보는 것은
+   * 없었다.** 한 토큰만 재면 이 상태가 통과한다.
+   *
+   * 그래서 **두 대비를 함께** 본다: 윤곽 대 바다(카드 안의 면)와 윤곽 대 육지 채움.
+   * 앞엣것만 보면 육지 안쪽에서 선이 사라지고, 뒤엣것만 보면 바다 위에서 사라진다.
+   */
+  const CHART_CSS = readFileSync(
+    fileURLToPath(new URL('../features/fleet/PositionChart.css', import.meta.url)),
+    'utf-8',
+  )
+
+  it.each(THEMES)('$name — 개략도 해안선이 바다·육지 양쪽에서 3:1 이상이다 (#985)', ({
+    generated,
+    alias,
+  }) => {
+    const rule = /\.position-chart__land\s*\{([\s\S]*?)\n\}/.exec(CHART_CSS)
+    expect(rule, '.position-chart__land 규칙을 찾지 못했습니다').not.toBeNull()
+    const body = (rule as RegExpExecArray)[1]
+
+    const fill = /(?:^|;|\*\/)\s*fill:\s*var\(\s*(--[\w-]+)\s*\)/.exec(body)
+    const stroke = /(?:^|;|\*\/)\s*stroke:\s*var\(\s*(--[\w-]+)\s*\)/.exec(body)
+    expect(fill, '육지 채움 토큰을 읽지 못했습니다').not.toBeNull()
+    expect(stroke, '해안선 토큰을 읽지 못했습니다').not.toBeNull()
+
+    const line = evaluate(`var(${(stroke as RegExpExecArray)[1]})`, generated, alias)
+    const land = evaluate(`var(${(fill as RegExpExecArray)[1]})`, generated, alias)
+    // 그림은 카드 안에 놓인다 — 바다는 `--surface-inset`이다.
+    const sea = generated['--surface-inset']
+
+    expect(contrast(line, sea), '해안선 대 바다 — §14 「위치를 읽는 기준틀」').toBeGreaterThanOrEqual(3)
+    expect(contrast(line, land), '해안선 대 육지 채움').toBeGreaterThanOrEqual(3)
+  })
+
   const CONTROL_FACES = ['--surface-inset', '--surface-card']
 
   /** `#1202` 가드가 쓰는 CSS 목록. */
