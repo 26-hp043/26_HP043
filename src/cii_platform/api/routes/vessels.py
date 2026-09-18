@@ -166,6 +166,7 @@ async def create_vessel_route(
         default_fuel_type=payload.default_fuel_type,
         reference_speed_kn=payload.reference_speed_kn,
         reference_daily_foc_ton=payload.reference_daily_foc_ton,
+        block_coefficient=payload.block_coefficient,
     )
     return {"data": data, "meta": _meta(request)}
 
@@ -190,6 +191,7 @@ async def update_vessel_route(
         default_fuel_type=payload.default_fuel_type,
         reference_speed_kn=payload.reference_speed_kn,
         reference_daily_foc_ton=payload.reference_daily_foc_ton,
+        block_coefficient=payload.block_coefficient,
     )
     return {"data": data, "meta": _meta(request)}
 

@@ -585,7 +585,7 @@ BN = round(3.5 × √Hs)    where Hs in meters
 | 유의파고 | Hs | m | Open-Meteo Marine API / 샘플 | Y |
 | 파향 | β | degree | 사용자 입력 (기본 0°) | N |
 | Beaufort Number | BN | — | Hs에서 변환 또는 풍속에서 산정 | 자동 |
-| Block coefficient | CB | — | 선박 제원 (선택) | N |
+| Block coefficient | CB | — | **`vessel.block_coefficient`** (선택 · #966) — 넣으면 실측값, 없으면 선종 기본값 + `CB_ESTIMATED` | N |
 | Ship type | — | — | Vessel.ship_type | Y |
 
 ### 3.5 계산 알고리즘
@@ -622,6 +622,8 @@ def townsin_kwon_weather_factor(
     cb_default = _default_cb(ship_type)
     cb = block_coefficient or cb_default
     cform = _cform(ship_type, cb)
+    # [#966] — 실측 cb가 §3.3.3 범위 밖이면 cform_applies()가 거짓이 되고
+    # 호출부가 CB_OUT_OF_RANGE 경고를 낸다. 계산은 그대로 한다(대체값 규정이 없다).
 
     # 6. 속도 손실률
     delta_v_pct = cbeta * cu * cform
@@ -644,6 +646,7 @@ def townsin_kwon_weather_factor(
 | 적용 범위 | 임의 입사각을 Kwon (2008) 단순화 표의 Cβ로 다룬다. **β는 파향과 침로에서 유도**하며(`§3.3.1` · `#766`), 좌표나 파향이 없으면 head sea(β=0)로 떨어진다 |
 | BN > 8 | 계산 불가. 경고 표시 후 NONE 모델 fallback |
 | CB 미입력 | 선종별 기본값 사용, `선형 계수가 추정값입니다` 경고 |
+| **CB 범위 밖 [#966]** | 실측 CB가 `§3.3.3`의 Cform 성립 범위 밖이면 **계산은 하되 `CB_OUT_OF_RANGE` 경고** — 대체값을 정본이 정하지 않았으므로 거부하지 않고 참고값임을 알린다 |
 | 정확도 | 경험식이므로 ±20% 오차 가능성. `실험 모델` 배지 필수 |
 | shallow water | 본 모델은 심해 기준. 수심 효과는 미포함 |
 | 해류 | MVP 제외 |
@@ -1419,6 +1422,7 @@ class SimulationSnapshot:
 | `WEATHER_STALE` | 기상 캐시 6~24시간 | `오래된 기상 데이터를 사용 중입니다.` |
 | `WEATHER_NONE_FALLBACK` | 기상 API 실패, NONE 모델 사용 | `기상 보정 없이 계산했습니다.` |
 | `CB_ESTIMATED` | block coefficient 추정값 사용 | `선형 계수가 추정값입니다.` |
+| `CB_OUT_OF_RANGE` | 실측 block coefficient가 Cform 적용 범위 밖 (`#966`) | `이 선박의 방형계수가 기상 보정 계수의 적용 범위 밖입니다. 보정 결과는 참고값입니다.` |
 | `EXPERIMENTAL_MODEL` | TOWNSIN_KWON_ALPHA 사용 | `실험 모델 기반 결과입니다.` |
 | `NON_CII_VESSEL` | GT를 **알고** 그것이 5,000 미만 | `공식 CII 적용 대상이 아닐 수 있습니다.` |
 | `CII_APPLICABILITY_UNKNOWN` | `gross_tonnage`가 NULL이라 적용 대상 여부를 **판정할 수 없음** (`#653`) | `총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.` |

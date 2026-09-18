@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from cii_platform.calc.weather import (
     NEUTRAL_FACTOR,
+    cform_applies,
     relative_wave_heading,
     simple_rule_factor,
     townsin_kwon_weather_factor,
@@ -201,6 +202,9 @@ WARNING_WEATHER_STALE = "WEATHER_STALE"
 WARNING_WEATHER_NONE_FALLBACK = "WEATHER_NONE_FALLBACK"
 WARNING_EXPERIMENTAL_MODEL = "EXPERIMENTAL_MODEL"
 WARNING_CB_ESTIMATED = "CB_ESTIMATED"
+#: #966 — CB가 Cform 적용 범위(``TECH_SPEC §3.3.3``) 밖. 계산은 하되 **참고값**임을
+#: 알린다. 문구는 결정요청 v9 회신 D-3에서 확정했다(`PRD §6.3`).
+WARNING_CB_OUT_OF_RANGE = "CB_OUT_OF_RANGE"
 
 #: ``PRD §11.6`` — 이 시각을 넘긴 캐시는 「오래됐다」로 표시하고 계산은 허용한다.
 STALE_AFTER_HOURS = 6
@@ -328,6 +332,11 @@ async def resolve_with_fallback(
         if block_coefficient is None:
             # 선형 계수가 선박 제원이 아니라 선종 기본값에서 왔다 (`API_SPEC §1.6`).
             warnings.append(WARNING_CB_ESTIMATED)
+        elif not cform_applies(ship_type, block_coefficient):
+            # #966 — 실측 CB가 Cform 성립 범위 밖. 계산은 되지만 표의 조건 밖이므로
+            # 참고값임을 알린다(추정값과 달리 사용자가 넣은 값이라 조용히 넘기면
+            # 「검증됐다」로 읽힌다).
+            warnings.append(WARNING_CB_OUT_OF_RANGE)
 
     return WeatherResolution(
         factor=factor,

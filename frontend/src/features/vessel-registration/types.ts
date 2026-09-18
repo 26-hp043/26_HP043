@@ -29,6 +29,8 @@ export interface VesselCreateRequest {
   default_fuel_type?: string
   reference_speed_kn?: number
   reference_daily_foc_ton?: number
+  /** #966 — 방형계수(선택). 기상 보정(Townsin–Kwon)의 선형 계수. */
+  block_coefficient?: number
 }
 
 /**
@@ -48,6 +50,8 @@ export interface Vessel {
   default_fuel_type: string | null
   reference_speed_kn: number | null
   reference_daily_foc_ton: number | null
+  /** #966 — 방형계수. `null`이면 선종 기본값 + `CB_ESTIMATED` 경고가 계약이다. */
+  block_coefficient: number | null
   /**
    * CII 적용 대상 추정 — **서버가 정한다**(`API_SPEC §2.3`: GT ≥ 5,000).
    *

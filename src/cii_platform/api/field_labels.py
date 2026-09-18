@@ -65,6 +65,8 @@ _FIELD_LABELS: dict[str, str] = {
     "default_fuel_type": "기본 연료",
     "reference_speed_kn": "기준속도",
     "reference_daily_foc_ton": "기준 일일 연료소모량",
+    # #966 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택 입력.
+    "block_coefficient": "방형계수(CB)",
     "current_lat": "현재 위도",
     "current_lon": "현재 경도",
     "detail_status": "세부 상태",
