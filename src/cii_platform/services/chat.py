@@ -177,13 +177,12 @@ async def answer(
         ip_address=ip_address,
     )
 
-    # #1242 — 선박 결정 규칙: 요청 vessel_id(화면) > 세션 귀속(검색으로 정한 것).
-    # 화면이 넘긴 값은 세션에도 싣는다(화면이 항상 더 최신) — 다음 턴부터 화면
-    # 없이 물어도 그 선박으로 답한다. 검색은 locked 상태에서 세션을 못 바꾼다.
+    # #1243 — 선박 결정 규칙: 요청 vessel_id(화면) > 세션 귀속(검색이 정한 것).
+    # 🔴 요청값은 세션에 싣지 않는다(#1242에서 정정) — 세션 귀속은 **검색의 고유
+    # 일치만** 쓴다. 화면은 그 턴에서만 이기고, 세션의 「검색이 정한 배」를 화면이
+    # 조용히 덮어쓰지 않게 한다(요청이 오지 않은 다음 턴의 대답이 달라지면 안 된다).
     session_row = await chat_repo.get_session_row(session, session_id=chat_session_id)
     effective_vessel: UUID | None = vessel_id or getattr(session_row, "vessel_id", None)
-    if vessel_id is not None and session_row is not None:
-        await chat_repo.set_vessel(session, session_id=chat_session_id, vessel_id=vessel_id)
 
     history = await chat_repo.list_messages(
         session, session_id=chat_session_id, limit=MAX_HISTORY_TURNS
@@ -244,12 +243,9 @@ async def answer(
 
         results: list[dict[str, object]] = []
         for call in response.tool_calls:
-            # 같은 턴의 search_vessel이 고유 일치로 귀속을 저장했으면 다음 도구가
-            # 즉시 그 선박을 쓴다(set_vessel이 flush하므로 재조회에 보인다).
-            if vessel_id is None:
-                session_row = await chat_repo.get_session_row(session, session_id=chat_session_id)
-                effective_vessel = getattr(session_row, "vessel_id", None)
-            output = await run_tool(
+            # 같은 턴의 search_vessel이 고유 일치를 정했으면 **이 자리에서** 귀속을
+            # 저장하고 다음 도구가 즉시 그 선박을 쓴다(#1243 — ToolOutcome).
+            outcome = await run_tool(
                 session,
                 name=call.name,
                 arguments=call.arguments,
@@ -257,6 +253,12 @@ async def answer(
                 chat_session_id=chat_session_id,
                 vessel_locked=vessel_id is not None,
             )
+            if outcome.resolved_vessel_id is not None and vessel_id is None:
+                await chat_repo.set_vessel(
+                    session, session_id=chat_session_id, vessel_id=outcome.resolved_vessel_id
+                )
+                effective_vessel = outcome.resolved_vessel_id
+            output = outcome.envelope
             tool_outputs.append(output)
             used_tools.append(call.name)
             results.append({"type": "tool_result", "tool_use_id": call.id, "content": output})

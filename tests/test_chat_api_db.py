@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
@@ -590,5 +591,130 @@ async def test_no_vessel_anywhere_reports_unresolved(migrated_db, app_fresh_engi
             assert response.status_code == 200
             data = response.json()["data"]
             assert data["vessel_resolved"] is False
+    finally:
+        await _cleanup()
+
+
+async def test_screen_vessel_wins_over_session_vessel(migrated_db, app_fresh_engine):
+    """IT-CHAT-062 (#1243) — 세션에 A가 있어도 요청이 B면 B로 계산하고 세션은 A 그대로."""
+    from cii_platform.db.repositories import chat as chat_repo
+    from cii_platform.db.session import get_sessionmaker
+
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="calc_voyage_cii",
+                        arguments={
+                            "distance_nm": 1000,
+                            "speed_kn": 12,
+                            "fuel_ton": 100,
+                            "fuel_type": "HFO",
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="계산했습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post("/api/v1/chat", json={"message": "대화 시작"}, headers=headers)
+            assert first.status_code == 200
+            session_id = first.json()["data"]["session_id"]
+
+            async with get_sessionmaker()() as db:
+                # A(로로 여객선)를 세션 귀속으로, B(벌크선 30,000)를 요청값으로 쓴다.
+                ids = dict(
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT name, CAST(id AS CHAR(32)) FROM vessel "
+                                "WHERE name LIKE '%로로%' OR name LIKE '%30,000 DWT)%'"
+                            )
+                        )
+                    ).all()
+                )
+                roro_name = next(n for n in ids if "로로" in n)
+                bulk_name = next(n for n in ids if "30,000" in n)
+                await chat_repo.set_vessel(
+                    db, session_id=UUID(session_id), vessel_id=UUID(ids[roro_name])
+                )
+                await db.commit()
+                bulk_id = ids[bulk_name]
+
+            resp = client.post(
+                "/api/v1/chat",
+                json={
+                    "message": "이 선박 CII 계산해줘",
+                    "session_id": session_id,
+                    "vessel_id": bulk_id,
+                },
+                headers=headers,
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["data"]["vessel_resolved"] is True
+
+            # 세션 귀속은 A 그대로 — 요청값이 세션을 덮어쓰지 않는다(#1243 정정).
+            async with get_sessionmaker()() as db:
+                row = await chat_repo.get_session_row(db, session_id=UUID(session_id))
+                assert str(row.vessel_id).replace("-", "") == ids[roro_name], (
+                    "요청값이 세션 귀속을 덮어썼다"  # hex 32 vs 대시 36 표기 차이만 제외
+                )
+    finally:
+        await _cleanup()
+
+
+async def test_found_vessel_survives_to_the_next_turn(migrated_db, app_fresh_engine):
+    """IT-CHAT-063 (#1243) — 1턴에서 찾은 선박이 2턴에서 vessel_id 없이도 계산된다."""
+    provider = FakeProvider(
+        [
+            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(text="찾았습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post(
+                "/api/v1/chat", json={"message": "로로 여객선 찾아줘"}, headers=headers
+            )
+            session_id = first.json()["data"]["session_id"]
+            assert first.json()["data"]["vessel_resolved"] is True
+
+            _use(
+                FakeProvider(
+                    [
+                        LLMResponse(
+                            tool_calls=(
+                                ToolCall(
+                                    name="calc_voyage_cii",
+                                    arguments={
+                                        "distance_nm": 1000,
+                                        "speed_kn": 12,
+                                        "fuel_ton": 100,
+                                        "fuel_type": "HFO",
+                                    },
+                                ),
+                            )
+                        ),
+                        LLMResponse(text="계산했습니다."),
+                    ]
+                )
+            )
+            second = client.post(
+                "/api/v1/chat",
+                json={"message": "그 선박 CII 계산해줘", "session_id": session_id},
+                headers=headers,
+            )
+            assert second.status_code == 200
+            data = second.json()["data"]
+            assert data["tool_calls"] == ["calc_voyage_cii"]
+            assert "어느 선박인지" not in json.dumps(data, ensure_ascii=False)
+            assert data["vessel_resolved"] is True
     finally:
         await _cleanup()
