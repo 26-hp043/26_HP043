@@ -31,6 +31,10 @@ class Vessel(Base):
     default_fuel_type = sa.Column(sa.String(length=30), nullable=True)
     reference_speed_kn = sa.Column(sa.Numeric(precision=6, scale=2), nullable=True)
     reference_daily_foc_ton = sa.Column(sa.Numeric(precision=8, scale=2), nullable=True)
+    # 방형계수(CB) — 기상 보정(Townsin–Kwon)의 선형 계수 (#966 · 055). 선택 입력:
+    # 넣으면 실측값, 안 넣으면 선종 기본값 + CB_ESTIMATED 경고. 범위는 물리 범위다
+    # (체적 비율 — 양수, 1 이하). 선언의 집행은 055의 트리거가 한다.
+    block_coefficient = sa.Column(sa.Numeric(precision=4, scale=3), nullable=True)
     is_cii_applicable_hint = sa.Column(
         sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False
     )
@@ -76,6 +80,11 @@ class Vessel(Base):
         sa.CheckConstraint("deadweight IS NULL OR deadweight > 0", name="chk_dwt_positive"),
         sa.CheckConstraint(
             "reference_speed_kn IS NULL OR reference_speed_kn > 0", name="chk_speed_positive"
+        ),
+        # #966 — 방형계수의 물리 범위. 선언은 문서이고 집행은 055 트리거가 한다(§7.4).
+        sa.CheckConstraint(
+            "block_coefficient IS NULL OR (block_coefficient > 0 AND block_coefficient <= 1)",
+            name="chk_block_coefficient_range",
         ),
         # 026 (#346) — 운항 상태 2축·위치 제약. 마이그레이션과 1:1.
         sa.CheckConstraint(

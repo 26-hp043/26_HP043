@@ -38,6 +38,7 @@ export interface VesselFormState {
   defaultFuelType: string
   referenceSpeedKn: string
   referenceDailyFocTon: string
+  blockCoefficient: string
 }
 
 /**
@@ -58,6 +59,7 @@ export const FIELD = {
   defaultFuelType: 'default_fuel_type',
   referenceSpeedKn: 'reference_speed_kn',
   referenceDailyFocTon: 'reference_daily_foc_ton',
+  blockCoefficient: 'block_coefficient',
   /** 어느 입력창에도 붙지 않는 오류. 폼 상단에 표시한다. */
   form: '__form__',
 } as const
@@ -84,6 +86,7 @@ export function initialFormState(): VesselFormState {
     defaultFuelType: '',
     referenceSpeedKn: '',
     referenceDailyFocTon: '',
+    blockCoefficient: '',
   }
 }
 
@@ -119,7 +122,13 @@ export const STORABLE = {
   tonnage: storableRange(12, 2),
   speed: storableRange(6, 2),
   dailyFoc: storableRange(8, 2),
+  // #966 — 방형계수는 저장 범위 위에 물리 범위(1 이하)가 더 좁힌다. `cbRange`가 그 상한을
+  // 담는다 — 서버 스키마(_CB)와 같은 값이다.
+  cb: storableRange(4, 3),
 } as const
+
+/** 방형계수의 물리 상한 — 체적 비율은 1을 넘지 않는다 (#966). */
+export const CB_MAX = 1
 
 /**
  * 선택 입력 한 칸의 검증. 비어 있으면 오류가 아니고, 값이 있으면 저장 범위 안이어야 한다.
@@ -219,6 +228,20 @@ export function validateForm(
     errors,
     STORABLE.dailyFoc,
   )
+  checkOptionalPositive(
+    state.blockCoefficient,
+    FIELD.blockCoefficient,
+    '방형계수(CB)',
+    errors,
+    STORABLE.cb,
+  )
+  // #966 — 물리 상한(1)은 저장 범위 밖 검사와 별개 문구로 알린다.
+  {
+    const cb = toNumber(state.blockCoefficient.trim())
+    if (cb !== null && cb > CB_MAX) {
+      errors[FIELD.blockCoefficient] = '방형계수(CB)은(는) 1 이하로 입력해 주세요.'
+    }
+  }
 
   // 목록을 못 받은 상태(로딩·실패)에서는 연료 검사를 보류한다 (`#1100` ⑴) — 서버가 최종 판정한다.
   if (state.defaultFuelType !== '' && fuels.length > 0 && !isKnownFuel(state.defaultFuelType, fuels)) {
@@ -289,6 +312,10 @@ export function toRequest(state: VesselFormState): VesselCreateRequest {
 
   const referenceSpeedKn = toNumber(state.referenceSpeedKn)
   if (referenceSpeedKn !== null) request.reference_speed_kn = referenceSpeedKn
+
+  // #966 — 방형계수(선택). 빈 칸은 키를 넣지 않는다(위 규칙과 같다).
+  const blockCoefficient = toNumber(state.blockCoefficient)
+  if (blockCoefficient !== null) request.block_coefficient = blockCoefficient
 
   const referenceDailyFocTon = toNumber(state.referenceDailyFocTon)
   if (referenceDailyFocTon !== null) request.reference_daily_foc_ton = referenceDailyFocTon

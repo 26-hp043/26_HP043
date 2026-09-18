@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.36 |
+| 버전 | v1.37 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-18 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -301,6 +301,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `WEATHER_STALE` | 기상 캐시 6~24시간 | 오래된 기상 데이터를 사용 중입니다. |
 | `WEATHER_NONE_FALLBACK` | 기상 API 실패, NONE 모델 사용 | 기상 보정 없이 계산했습니다. |
 | `CB_ESTIMATED` | block coefficient 추정값 사용 | 선형 계수가 추정값입니다. |
+| `CB_OUT_OF_RANGE` | 실측 block coefficient가 Cform 적용 범위 밖 (#966) | 이 선박의 방형계수가 기상 보정 계수의 적용 범위 밖입니다. 보정 결과는 참고값입니다. |
 | `EXPERIMENTAL_MODEL` | TOWNSIN_KWON_ALPHA 사용 | 실험 모델 기반 결과입니다. |
 | `NON_CII_VESSEL` | GT를 **알고** 그것이 5,000 미만 | 공식 CII 적용 대상이 아닐 수 있습니다. |
 | `CII_APPLICABILITY_UNKNOWN` | `gross_tonnage`가 NULL이라 적용 대상 여부를 **판정할 수 없음** (#653) | 총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요. |
@@ -497,6 +498,7 @@ GET /api/v1/vessels?limit=20&cursor={cursor}
       "default_fuel_type": "HFO",
       "reference_speed_kn": 14.0,
       "reference_daily_foc_ton": 35.0,
+      "block_coefficient": 0.82,
       "is_cii_applicable_hint": true,
       "underway_state": "UNDER_WAY",
       "detail_status": "SAILING",
@@ -549,7 +551,8 @@ POST /api/v1/vessels
   "deadweight": 50000.0,
   "default_fuel_type": "HFO",
   "reference_speed_kn": 14.0,
-  "reference_daily_foc_ton": 35.0
+  "reference_daily_foc_ton": 35.0,
+  "block_coefficient": 0.82
 }
 ```
 
@@ -564,6 +567,12 @@ POST /api/v1/vessels
 | `deadweight` | > 0 (VAL-002) · **0.01 ~ 9,999,999,999.99** | VAL-002 |
 | `reference_speed_kn` | > 0 (VAL-002), 지정 시 · **0.01 ~ 9,999.99** | VAL-002 |
 | `reference_daily_foc_ton` | > 0 (VAL-002), 지정 시 · **0.01 ~ 999,999.99** | VAL-002 |
+| `block_coefficient` | 선택 · **0.001 ~ 1** (#966 — 체적 비율은 1을 넘지 않는다) | VAL-002 |
+
+> **[#966] `block_coefficient`는 기상 보정(Townsin–Kwon)의 선형 계수다.** 넣으면 실측값으로
+> 계산하고, 생략하면 선종 기본값 + `CB_ESTIMATED` 경고가 계약이다. 실측값이 Cform 적용
+> 범위(`TECH_SPEC §3.3.3`) 밖이면 `CB_OUT_OF_RANGE`가 나지만 **거부가 아니다** — 참고값임을
+> 알리는 경고다.
 
 > `is_cii_applicable_hint`는 서버가 GT ≥ 5,000 및 선종 기준으로 자동 계산한다.
 
@@ -3955,3 +3964,4 @@ POST /api/v1/chat
 | 2026-09-17 | `#1190` | **v1.34 — §8.2 「부분 성공의 범위」 소절 신설.** 같은 엔드포인트의 두 갈래가 다르게 동작했다 — 정박 구간은 행 단위로 떨어뜨려 **부분 성공**을 냈는데 항차는 저장 단계 실패가 **500**이 됐고, `create_voyage`가 행마다 커밋하므로 **앞 행은 저장된 채 남았다.** 사용자는 500을 「아무것도 안 들어갔다」로 읽고 다시 올려 같은 항차를 두 벌 만들었다(`voyage_no`에 유니크 인덱스가 없다). 원인은 두 겹이었다 — ⑴ 파서가 숫자 세 열 모두 `DISTANCE` 한도 하나를 써서 `planned_speed_kn`의 `NUMERIC(6,2)`를 넘는 `10000`이 통과했고(수기 API는 `Field(**SPEED)`로 막는다 — **경로마다 한도가 갈려 있었다**), ⑵ 항차 저장 루프에 행 단위 `try/except`가 없었다. `except AppError`만으로는 부족한 것도 함께 정리했다 — `ProgrammingError(-494)`는 `AppError`가 아니고 `db/cubrid_errors.py`가 `IntegrityError`로 옮기는 목록(`-517`·`-922`·`-924`·`-225`)에도 없다(PostgreSQL에서도 `DataError`였다). **결정은 「가 — 행 단위 부분 성공」**이며 사용자 회신(결정요청 v9 군 B 권장안 · 2026-09-17)이다 — 「나」(전체 롤백)를 고르면 이미 「가」를 하고 있는 정박 경로를 반대로 바꿔야 하고 이 절의 규약 자체가 바뀐다. `dry_run`이 같은 파일에 `imported_count 3 · errors []`로 **거짓 통과**를 주던 것은 파서가 열마다 그 컬럼의 저장 범위·길이를 보게 되어 해소됐다 — 값 때문에 저장 단계에서 죽는 행이 `dry_run`을 통과하지 않는 것이 파서의 계약이다. ⚠️ **이슈 본문이 정박 `port_name`을 300자로 적었으나 모델은 `String(200)`이다** — 한도를 옮겨 적지 않고 `Voyage.__table__`·`NotUnderwayPeriod.__table__`에서 끌어낸다. 좌표(`lat`·`lon`)는 CSV 경로에만 한도가 아예 없어 수기 API와 같은 `±90`·`±180`으로 맞췄다. 소절 신설이라 `AGENTS §4.3`에 따라 판본을 올린다 (#1190) |
 | 2026-09-17 | `#1076` | **§1.9 응답 `meta`에 `needs_recalc_total` 추가** · `meta` 필드 표 신설 · `needs_recalc` 각주에 건수 규정 추가. 선박 상세의 「계산 이력」이 머리에 적는 「재계산 필요 N건」을 **화면이 받은 페이지에서 세고 있었다** — 화면은 최신 20건씩 받으므로 **21번째 행부터 낡아 있어도 「0건」이 나갔다.** 「낡은 계산이 없다」와 「아직 다 세어 보지 않았다」가 같은 모양이 되는 자리이고, 이 카드를 여는 이유(「이 배에 다시 돌려야 할 계산이 있나」)에 답하지 못했다. **필터를 따라간다** — `type`·`vessel_id`·해시 필터를 `data[]`와 똑같이 걸고 **커서만 보지 않는다**(페이지마다 값이 달라지면 화면이 그 수를 「이 선박의 낡은 계산 수」로 말할 수 없다). 화면은 이 값이 없으면 **건수를 아예 적지 않는다** — 받은 행으로 대신 세는 것이 고친 결함 그 자체다. 선택지 「부분 집계임을 화면에 명시」와 「건수 표시를 뺀다」를 두고 사용자 결정을 받았고, 기준은 **서비스 적합성**이었다(`AGENTS §4.3`상 응답 행 추가라 버전은 올리지 않는다 — 엔드포인트가 늘지 않았다) (#1076) |
 | 2026-09-18 | `#673` | **v1.36 — §7.5를 CSV 계약으로 전면 재작성하고 구현 표기를 지웠다** (결정요청 v9 회신 「가」 · #444 잔여). 종전 명세는 JSON 요청 본문이었으나 항차·정박 CSV와 **같은 조작**으로 통일했다(사용자가 두 번 배우지 않게). 계약의 뼈대 — ⑴ **사무직 전용**(`§1.2` 표에 등재 · `require_office`) ⑵ **`type` 폼 필드 4종**(연도·기준선·경계·연료) ⑶ 🔴 **전부 아니면 전무** — `§8.2` 부분 성공과 정반대(`IT-IMPORT-005`). `errors[]` 모양(원본 행 번호·필드·사유)과 `dry_run` 실제와 같은 판정(#1190)만 재사용한다 ⑷ `a_decimal`은 서버가 `parse_imo_scientific`으로 계산 ⑸ `OTHER` 연료 생성 경로 포함(`effective_from` 필수 · `PRD §3.4.2`) ⑹ 응답 `imported_count`는 **적용된 행 수**(연료 갱신 포함 — 신규만 세면 「안 들어갔다」로 읽힌다). `§12` 요약표의 미구현 표기 제거는 이 문서와 라우트 대조 가드가 함께 본다 (#673) |
+| 2026-09-18 | `#966` | **v1.37 — §2.3 `block_coefficient` 요청 필드·검증 규칙·예시 등재 · §2.1 선박 객체에 `block_coefficient` 키 추가 · §1.6 `CB_OUT_OF_RANGE` 등재.** CB의 출처를 「선박 제원(선택)」으로 확정(결정요청 v9 D-3 「가」) — `vessel.block_coefficient`(055)가 그 칸이며, 없으면 선종 기본값 + `CB_ESTIMATED`가 종전 계약 그대로다. 실측값이 Cform 적용 범위(`TECH_SPEC §3.3.3`) 밖이면 **거부가 아니라 경고**(`CB_OUT_OF_RANGE` — 문구는 `PRD §6.3` 확정본). 필드·경고 코드 추가라 `AGENTS §4.3`에 따라 판본을 올린다 (#966) |

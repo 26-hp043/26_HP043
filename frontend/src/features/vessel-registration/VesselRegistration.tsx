@@ -345,6 +345,26 @@ export function VesselRegistration() {
                         </Field>
 
             <Field
+              id="block-coefficient"
+              label="방형계수"
+              labelEn="Block Coefficient"
+              error={errors[FIELD.blockCoefficient]}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  inputMode="decimal"
+                  value={state.blockCoefficient}
+                  onChange={(e) =>
+                    update('blockCoefficient', e.target.value, FIELD.blockCoefficient)
+                  }
+                />
+              )}
+            </Field>
+
+            <Field
               id="default-fuel"
               label="기본 연료"
               labelEn="Default Fuel"

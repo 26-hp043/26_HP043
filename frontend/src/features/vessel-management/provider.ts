@@ -27,6 +27,8 @@ export interface VesselUpdateRequest {
   default_fuel_type?: string | null
   reference_speed_kn?: number | null
   reference_daily_foc_ton?: number | null
+  /** #966 — 방형계수(선택). 기상 보정의 선형 계수. */
+  block_coefficient?: number | null
 }
 
 /**

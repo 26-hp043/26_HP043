@@ -196,6 +196,23 @@ describe('specGapNotice — 계산할 수 없다는 사실을 알린다', () => 
   })
 })
 
+describe('#966 방형계수(CB)', () => {
+  it('1 이하는 통과한다', () => {
+    expect(validateForm(state({ blockCoefficient: '0.82' }))[FIELD.blockCoefficient]).toBeUndefined()
+    expect(validateForm(state({ blockCoefficient: '1' }))[FIELD.blockCoefficient]).toBeUndefined()
+  })
+
+  it('1 초과는 물리 범위 밖 문구로 막는다 — 체적 비율은 1을 넘지 않는다', () => {
+    expect(validateForm(state({ blockCoefficient: '1.2' }))[FIELD.blockCoefficient]).toBe(
+      '방형계수(CB)은(는) 1 이하로 입력해 주세요.',
+    )
+  })
+
+  it('숫자가 아니면 그 칸의 오류다', () => {
+    expect(validateForm(state({ blockCoefficient: '높음' }))[FIELD.blockCoefficient]).toBeDefined()
+  })
+})
+
 describe('toRequest', () => {
   it('빈 선택 입력은 키를 넣지 않는다', () => {
     const request = toRequest(state())
@@ -229,6 +246,16 @@ describe('toRequest', () => {
     const request = toRequest(state({ imoNumber: ' 9440001 ', name: '  PACIFIC STAR  ' }))
     expect(request.imo_number).toBe('9440001')
     expect(request.name).toBe('PACIFIC STAR')
+  })
+
+  it('#966 — 빈 방형계수는 키를 넣지 않는다(선택 입력)', () => {
+    const request = toRequest(state())
+    expect('block_coefficient' in request).toBe(false)
+  })
+
+  it('#966 — 방형계수 값은 그대로 실린다', () => {
+    const request = toRequest(state({ blockCoefficient: '0.82' }))
+    expect(request.block_coefficient).toBe(0.82)
   })
 
   it('검증하지 않은 상태로 부르면 던진다', () => {

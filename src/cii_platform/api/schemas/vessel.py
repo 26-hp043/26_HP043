@@ -15,7 +15,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from cii_platform.api.schemas.bounds import storable
+from cii_platform.api.schemas.bounds import storable, storable_from
 
 
 def _storable(precision: int, scale: int) -> dict[str, Decimal]:
@@ -56,6 +56,11 @@ _TONNAGE = _storable(12, 2)
 _SPEED = _storable(6, 2)
 #: ``NUMERIC(8,2)`` — 기준 일일 연료(t).
 _DAILY_FOC = _storable(8, 2)
+#: ``NUMERIC(4,3)`` — 방형계수(CB). 저장 범위 위에 **물리 범위**를 더 좁힌다(#966):
+#: 체적 비율은 양수이고 1을 넘지 않는다. `DB chk_block_coefficient_range`(055)와 같은 값.
+#: 하한 ``0.001``은 ``scale=3``의 최소 양수 — 그보다 작은 값은 저장에서 ``0.000``으로
+#: 반올림돼 범위 검사를 통과하고 DB 제약에 걸린다(``#1086`` ⑥와 같은 결함).
+_CB = dict(storable_from(Decimal("0.001"), 4, 3), le=Decimal("1"))
 
 
 class VesselCreateRequest(BaseModel):
@@ -79,6 +84,9 @@ class VesselCreateRequest(BaseModel):
     default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
     reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED)] = None
     reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC)] = None
+    # #966 — 방형계수(선택). 기상 보정(Townsin–Kwon)의 선형 계수. 모르면 보내지
+    # 않는다 — 그때는 선종 기본값 + CB_ESTIMATED 경고가 계약이다.
+    block_coefficient: Annotated[Decimal | None, Field(**_CB)] = None
 
 
 class VesselUpdateRequest(BaseModel):
@@ -99,6 +107,7 @@ class VesselUpdateRequest(BaseModel):
     default_fuel_type: Annotated[str | None, Field(max_length=30)] = None
     reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED)] = None
     reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC)] = None
+    block_coefficient: Annotated[Decimal | None, Field(**_CB)] = None
 
 
 class VesselPositionUpdateRequest(BaseModel):

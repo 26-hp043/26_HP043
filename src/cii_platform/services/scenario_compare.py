@@ -540,6 +540,8 @@ async def _resolve_weather(
         lat=payload.current_lat,
         lon=payload.current_lon,
         ship_type=vessel.ship_type,
+        # #966 — CB는 선박 제원이다. 없으면 선종 기본값 + CB_ESTIMATED가 계약.
+        block_coefficient=vessel.block_coefficient,
         provider=provider,
         course_deg=_course_deg(payload),
     )
