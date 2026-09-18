@@ -6,6 +6,8 @@
 #   3. SSH app-01: git pull, .env 렌더, GHCR pull, Alembic 마이그레이션,
 #      backend 재시작 (IP-only 모드, 포트 8001).
 #   4. /api/v1/health 헬스 체크.
+#   5. 프론트엔드: npm build → wrangler pages deploy (Cloudflare Pages · #1236).
+#      백엔드 잡과 독립이다 — OCI 자격증명이 비어 있어도 화면 배포는 시도한다.
 #
 # 필요한 시크릿 (Settings -> Secrets and variables -> Actions):
 #
@@ -18,6 +20,10 @@
 #   CUBRID_PASSWORD       dba 비밀번호. 양쪽 호스트 동일.
 #   CORS_ALLOW_ORIGINS    프론트엔드 오리진 (쉼표 구분).
 #   APP_PUBLIC_URL        메일 링크 기준 주소 (프론트엔드 공개 URL).
+#
+# 프론트엔드 배포 시크릿 (#1236):
+#   CLOUDFLARE_API_TOKEN    Cloudflare API 토큰 (Pages:Edit 권한).
+#   CLOUDFLARE_ACCOUNT_ID   Cloudflare 계정 ID.
 #
 # 선택 시크릿:
 #   SIGNUP_ALLOWED_DOMAINS  가입 허용 메일 도메인.
@@ -38,6 +44,7 @@ on:
       - 'Dockerfile'
       - 'docker-compose.prod.*.yml'
       - 'ops/**'
+      - 'frontend/**'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
     inputs:
@@ -387,3 +394,60 @@ jobs:
           done
           echo "::error title=Deploy failed::backend가 30회 시도 후에도 healthy하지 않다" >&2
           exit 1
+
+  # ---------------------------------------------------------------------------
+  # 프론트엔드: Cloudflare Pages 배포 (#1236)
+  # ---------------------------------------------------------------------------
+  # 백엔드 잡과 **독립**이다 — needs를 붙이지 않는다. OCI 시크릿이 비어 있어도
+  # 화면 배포는 시도해야 한다(두 시스템의 자격증명은 서로 별개다).
+  # Node 버전은 package.json engines과 같은 값 — 동기 대상 4곳 문서 참조.
+  # ---------------------------------------------------------------------------
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    # 빌드+업로드 정상 소요 1~2분 (#533 — 멈춤 상한).
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cloudflare 자격증명 점검 (이름만 출력)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=0
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::시크릿 ${name} 가 비어 있다"
+              missing=1
+            fi
+          done
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error::위 시크릿을 Settings → Secrets and variables → Actions 에서 등록한다 (docs/OPERATIONS.md §3.2 · #1236)"
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.0"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      # VITE_API_BASE_URL은 빌드 시점에 코드에 굳는다 — OPERATIONS.md §3.2 값 그대로.
+      - run: npm run build
+        env:
+          VITE_API_BASE_URL: http://131.186.22.10:8001/api/v1
+
+      - name: wrangler pages deploy (프로덕션)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4 pages deploy dist --project-name bluelog --branch main
+
+      - name: Summary
+        run: |
+          echo "::notice title=Frontend deployed::https://bluelog-bx7.pages.dev (sha=${GITHUB_SHA::12})"

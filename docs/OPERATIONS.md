@@ -119,13 +119,15 @@ main 브랜치에 다음 경로가 변경되면 자동 실행:
 
 ```
 src/  alembic/  alembic.ini  pyproject.toml  Dockerfile
-docker-compose.prod.*.yml  ops/  .github/workflows/deploy.yml
+docker-compose.prod.*.yml  ops/  frontend/  .github/workflows/deploy.yml
 ```
 
 워크플로 파일: `.github/workflows/deploy.yml`
 
 ```
 GitHub Actions (deploy.yml)
+  │
+  ├─ preflight (#1234) — 필수 시크릿 9종 점검 (누락 시 이름만 출력)
   │
   ├─ build (ubuntu-latest)
   │   └─ Dockerfile (prod target) → GHCR 푸시
@@ -158,7 +160,13 @@ GitHub Actions (deploy.yml)
 
 ### 3.2 프론트엔드 배포 (Cloudflare Pages)
 
-프론트엔드는 GitHub Actions와 별도로 wrangler CLI로 배포한다.
+**자동 (#1236)** — `deploy.yml`의 `deploy-frontend` 잡이 백엔드와 같은 push에서
+빌드해 `wrangler pages deploy`로 프로덕션(`--branch main`)에 올린다. 백엔드 잡과
+**독립**이다 — OCI 자격증명이 비어 있어도 화면 배포는 시도한다. 필요한 GitHub
+시크릿은 `CLOUDFLARE_API_TOKEN`·`CLOUDFLARE_ACCOUNT_ID` 둘뿐이고, 비어 있으면
+잡 첫 단계에서 이름만 보고 실패한다.
+
+수동 배포(폴백 — 자동 배포가 깨졌거나 급할 때):
 
 ```bash
 # 로컬에서 빌드 + 배포
