@@ -264,6 +264,23 @@ curl http://localhost:8001/api/v1/health
 
 ### 3.4 롤백
 
+#### 3.4.1 지금 떠 있는 것이 어느 커밋인지 답하기 (#789 완료 기준)
+
+```bash
+# app-01 — 백엔드 컨테이너가 달린 이미지 태그(=배포 커밋 SHA)
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 \
+  "docker inspect cii-backend --format '{{.Config.Image}}'"
+# → ghcr.io/26-hp043/bluelog-backend:<sha>   ← 이 SHA가 배포 커밋이다
+
+# 프론트는 Cloudflare Pages — 대시보드 Deployment History(또는
+# https://bluelog-bx7.pages.dev 에서 응답 헤더 x-pages-deployment-id)
+```
+
+배포 워크플로 로그(GitHub Actions `Deploy to OCI`)에도 어느 커밋이 나갔는지
+남는다. **화면과 서버가 어긋난 것 같으면 이 명령부터** — 어느 쪽이 낡았는지가 정해진다.
+
+#### 3.4.2 이미지 되돌리기 — 마이그레이션이 없던 배포
+
 ```bash
 # 이전 SHA 태그로 이미지 되돌리기
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
@@ -276,8 +293,27 @@ sed -i 's|BACKEND_IMAGE=.*|BACKEND_IMAGE=ghcr.io/26-hp043/bluelog-backend:<이�
 docker compose -f docker-compose.prod.app.yml up -d backend
 ```
 
+#### 3.4.3 마이그레이션이 섞인 배포의 롤백 — 순서가 있다
+
 주의: 마이그레이션이 포함된 배포는 단순 이미지 교체로 되돌릴 수 없다.
-`alembic downgrade -1`을 먼저 실행해야 하며, FK 제약 등으로 실패할 수 있다.
+순서는 **백업 먼저, 판정 다음, 교체 마지막**이다.
+
+```bash
+# 1) 되돌리기 전에 반드시 현재 상태를 덤프한다 (#827 ⑴ · scripts/db_backup.py)
+python3 scripts/db_backup.py backup
+
+# 2) 어느 리비전까지 내려가는지 판정한다 — 되돌릴 수 없는 리비전이 걸려 있으면
+#    이미지 교체만으로 끝낸다(스키마를 내리지 않는다).
+#    IRREVERSIBLE 목록과 24시간 가드: src/cii_platform/db/migration_guard.py
+#    ALLOW_IRREVERSIBLE_DOWNGRADE=<rev> 로만 풀린다.
+
+# 3) 되돌릴 수 있으면: alembic downgrade -1 → 이전 sha 이미지로 교체(위 3.4.2)
+#    FK(RESTRICT)로 실패하면 1)의 덤프로 되돌린다(db_backup.py restore).
+```
+
+⚠️ `#451`의 사례 — 마이그레이션 다운그레이드가 계산 이력이 있으면 FK(`RESTRICT`)로
+막혔다. **되돌릴 수 있다는 가정을 실제로 확인해야 한다.** `db_backup.py`의
+복구 리허설(unloaddb → loaddb → 교체)은 CI `docker` 잡이 모든 PR에서 실제로 돌린다.
 
 ---
 
