@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import { layers, namedFlavor } from '@protomaps/basemaps'
@@ -38,8 +38,42 @@ import {
  * `route`가 있는 선박만 그린다. 없는 배는 점만 남는다 — **없는 항로를 지어내지 않는다.**
  */
 
+/**
+ * 선박과 무관하게 그리는 항로 하나 (`#1265`).
+ *
+ * 항로 비교(`UIFLOW 2-2`)가 쓴다 — 그 화면의 세 시나리오는 **같은 두 점을 공유**하고
+ * 거리·속력만 다르므로(`PRD §11.3` 우회 = 직항 × 1.05) **그릴 경로는 하나뿐이다.**
+ * 서버도 직항 거리를 이 두 점의 대권거리로 낸다(`PRD §11.2`) — 이 선은 표의
+ * 「직항 거리」를 그대로 그린 것이지 장식이 아니다.
+ */
+export interface RouteLine {
+  name: string
+  departureLat: number
+  departureLon: number
+  arrivalLat: number
+  arrivalLon: number
+}
+
+/**
+ * 빈 기본값을 **모듈 상수로** 둔다.
+ *
+ * `routes = []`로 쓰면 렌더마다 새 배열이 만들어져 아래 마커 effect의 의존 배열이
+ * 매번 달라진다 — **무한 재실행**이 된다. 호출부가 프롭을 생략해도 같은 참조다.
+ */
+const NO_ROUTES: readonly RouteLine[] = []
+
 interface FleetMapProps {
   vessels: FleetVessel[]
+  /** 선박에서 파생하지 않는 항로. 생략하면 종전과 같다. */
+  routes?: readonly RouteLine[]
+  /**
+   * 낭독 라벨·읽는 법 문구 (`#1265`).
+   *
+   * 기본 문안은 **선대 화면 기준**이라(「선박 N척」·「테두리가 굵은 표는 주의 대상」)
+   * 선박을 그리지 않는 화면에서는 그대로 두면 **틀린 말이 된다.** 생략하면 종전과 같다.
+   */
+  ariaLabel?: string
+  caption?: ReactNode
 }
 
 /** 좌표가 있는 선박만. 숫자로 되돌리는 곳은 여기뿐이다(지도가 숫자를 요구한다). */
@@ -91,7 +125,27 @@ function markerElement(vessel: FleetVessel): HTMLElement {
 }
 
 /** 항로선 GeoJSON. 진행 중 항차가 있는 선박만 한 줄씩. */
-function routeCollection(points: Placed[]): maplibregl.GeoJSONSourceSpecification['data'] {
+function routeCollection(
+  points: Placed[],
+  extra: readonly RouteLine[],
+): maplibregl.GeoJSONSourceSpecification['data'] {
+  const fromProps = extra.flatMap((route) => {
+    const coords = greatCirclePath(
+      route.departureLat,
+      route.departureLon,
+      route.arrivalLat,
+      route.arrivalLon,
+    )
+    if (coords.length < 2) return []
+    return [
+      {
+        type: 'Feature' as const,
+        properties: { name: route.name },
+        geometry: { type: 'LineString' as const, coordinates: coords },
+      },
+    ]
+  })
+
   return {
     type: 'FeatureCollection',
     features: points.flatMap(({ vessel }) => {
@@ -111,11 +165,11 @@ function routeCollection(points: Placed[]): maplibregl.GeoJSONSourceSpecificatio
           geometry: { type: 'LineString' as const, coordinates: coords },
         },
       ]
-    }),
+    }).concat(fromProps),
   }
 }
 
-export function FleetMap({ vessels }: FleetMapProps) {
+export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: FleetMapProps) {
   /*
    * 좌표가 없는 선박은 `placed()`에서 **조용히 빠진다** (#1103).
    *
@@ -204,9 +258,31 @@ export function FleetMap({ vessels }: FleetMapProps) {
         .addTo(instance),
     )
 
-    const collection = routeCollection(points)
+    const collection = routeCollection(points, routes)
     const source = instance.getSource('routes') as maplibregl.GeoJSONSource | undefined
     if (source === undefined) {
+      /*
+       * **색을 먼저 읽고, 유효한 값일 때만 넣는다** (`#1265`).
+       *
+       * 종전에는 `line-color`에 `'var-replaced-at-runtime'`를 넣고 그 뒤에
+       * `setPaintProperty`로 덮었다. 그런데 그 문자열은 **유효한 색이 아니다** —
+       * MapLibre는 스타일 검증에 실패하면 에러를 내고 **레이어를 추가하지 않은 채
+       * 반환**한다. 레이어가 없으니 뒤따르는 `setPaintProperty`도 대상이 없고,
+       * 결국 **항로선이 한 번도 그려지지 않는다.** 지도는 멀쩡히 뜨므로 눈으로는
+       * 「선이 없는 항차」로만 보인다.
+       *
+       * CSS 변수는 지도 페인트가 읽지 못하므로 계산된 값을 꺼내 쓰는 것은 그대로다.
+       *
+       * ⚠️ **리터럴 대체색을 두지 않는다**(`#1052`의 판단). 종전에 `#1f6feb`를
+       * 남겨 두었더니 `--semantic-info`가 존재하지 않는 동안 **그 리터럴이 언제나
+       * 실제 색**이었고, `§9.5` 🔒가 정한 토큰이 지켜지지 않는 것을 아무도 몰랐다.
+       * 값이 비면 `line-color`를 **아예 넣지 않아** MapLibre 기본색(검정)으로
+       * 그려지게 둔다 — 규격과 어긋난 상태가 화면에서 바로 보인다.
+       */
+      const accent = getComputedStyle(document.documentElement)
+        .getPropertyValue('--semantic-info')
+        .trim()
+
       instance.addSource('routes', { type: 'geojson', data: collection })
       instance.addLayer({
         id: 'routes',
@@ -214,40 +290,35 @@ export function FleetMap({ vessels }: FleetMapProps) {
         source: 'routes',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': 'var-replaced-at-runtime',
+          ...(accent === '' ? {} : { 'line-color': accent }),
           'line-width': 2,
           // 파선이라 색을 못 봐도 배경의 도로·경계선과 구분된다 (`§14`).
           'line-dasharray': [2, 1.5],
           'line-opacity': 0.9,
         },
       })
-      /*
-       * CSS 변수는 지도 페인트가 읽지 못한다 — 계산된 값을 꺼내 넣는다.
-       *
-       * ⚠️ 종전에는 못 읽었을 때 리터럴 `#1f6feb`로 떨어지게 두었는데,
-       * **`--semantic-info`가 존재한 적이 없어 그 리터럴이 언제나 실제 색이었다**
-       * (`#1052` 조사). `§9.5` 🔒가 정한 토큰이 지켜지지 않았고, 저장소에서 토큰 밖
-       * 색을 쓰는 유일한 지점이었으며, 라이트·다크가 같은 파랑이었다.
-       *
-       * `#1022`가 Figma 세트에 Info를 들여 그 토큰이 실재하게 됐다. **리터럴을
-       * 남기지 않는다** — 남기면 다음에 토큰이 사라져도 또 조용히 그 값으로 간다.
-       * 빈 값이면 페인트를 건드리지 않고 두어, 어긋남이 눈에 띄게 한다.
-       */
-      const accent = getComputedStyle(document.documentElement)
-        .getPropertyValue('--semantic-info')
-        .trim()
-      if (accent !== '') instance.setPaintProperty('routes', 'line-color', accent)
     } else {
       source.setData(collection)
     }
 
-    // 처음 한 번만 선대에 맞춘다 — 갱신마다 맞추면 사용자가 확대해 둔 자리가 튄다.
-    if (points.length > 0 && instance.getZoom() === INITIAL_ZOOM) {
+    // 처음 한 번만 그려진 것에 맞춘다 — 갱신마다 맞추면 사용자가 확대해 둔 자리가 튄다.
+    if ((points.length > 0 || routes.length > 0) && instance.getZoom() === INITIAL_ZOOM) {
       const bounds = new maplibregl.LngLatBounds()
       for (const { lat, lon } of points) bounds.extend([lon, lat])
+      /*
+       * 명시 경로의 **양 끝도** 넣는다 (`#1265`).
+       *
+       * 종전 조건은 `points.length > 0`이라 **선박이 없는 화면에서는 아예 돌지 않았다.**
+       * 항로 비교는 선박을 그리지 않으므로 지도가 기본 뷰(`INITIAL_ZOOM`)에 머물고,
+       * 그린 선이 **화면 밖에 있을 수 있다** — 지도는 떴는데 항로만 안 보이는 상태가 된다.
+       */
+      for (const route of routes) {
+        bounds.extend([route.departureLon, route.departureLat])
+        bounds.extend([route.arrivalLon, route.arrivalLat])
+      }
       instance.fitBounds(bounds, { padding: 48, maxZoom: 6, animate: false })
     }
-  }, [vessels, ready])
+  }, [vessels, routes, ready])
 
   if (vessels.length > 0 && shown === 0) {
     // 전부 빠진 경우는 빈 지도를 띄우지 않는다 — 빈 바다는 「선박이 없다」로 읽힌다.
@@ -269,7 +340,10 @@ export function FleetMap({ vessels }: FleetMapProps) {
         className="fleetmap__canvas"
         ref={container}
         role="img"
-        aria-label={`선박 ${shown}척의 현재 위치 지도.${missingPositionAria(vessels.length, shown)}`}
+        aria-label={
+          ariaLabel ??
+          `선박 ${shown}척의 현재 위치 지도.${missingPositionAria(vessels.length, shown)}`
+        }
       />
       {missingText === null ? null : (
         <p className="fleetmap__missing">{missingText}</p>
@@ -284,8 +358,12 @@ export function FleetMap({ vessels }: FleetMapProps) {
         스스로 설명되지 않는 표식은 **굵은 테두리 하나**뿐이라 이 문장이 받는다.
       */}
       <p className="fleetmap__hint">
-        <b>확대·축소로 위치를 확인할 수 있습니다.</b> 점선은 진행 중 항차의 최단 경로이며,
-        실제 항해는 해협·수심·기상을 피해 갑니다. 테두리가 굵은 표는 주의 대상입니다.
+        {caption ?? (
+          <>
+            <b>확대·축소로 위치를 확인할 수 있습니다.</b> 점선은 진행 중 항차의 최단 경로이며,
+            실제 항해는 해협·수심·기상을 피해 갑니다. 테두리가 굵은 표는 주의 대상입니다.
+          </>
+        )}
       </p>
     </div>
   )
