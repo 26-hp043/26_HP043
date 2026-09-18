@@ -1413,12 +1413,52 @@ describe('등급 색을 비-등급 맥락에서 쓰지 않는다 — §0.2 제�
    * 다크 `2.17`로 `1.4.11` 비텍스트 `3:1` 미달이었다. 보조 채널로 세운 선이 정작
    * 보이지 않았다.
    */
-  it('.vessel--risk 테두리에 --cii-* 등급 토큰이 없다 (#1168)', () => {
-    const risk = fleetCss.match(/\.vessel--risk\s*\{([^}]+)\}/)
-    expect(risk, '.vessel--risk 규칙을 찾지 못했다 — 선택자가 바뀌었다면 이 검사도 갱신하세요').not.toBeNull()
+  /*
+   * `#1052` ⓥ — **선택자 하나가 아니라 「위험을 뜻하는 선택자 전부」를 본다.**
+   *
+   * `#1168`이 `.vessel--risk`만 잠갔더니 같은 결함이 **개략도에 그대로 남아 있었다**
+   * (`.position-chart__dot--risk`가 `--cii-e-fill`). 이름으로 한 곳을 찍는 가드는
+   * 그 한 곳만 지킨다 — `#1202`가 토큰 이름으로 범위를 잡았다가 더 나쁜 자리를
+   * 놓친 것과 같은 꼴이다.
+   *
+   * 그래서 저장소 전체에서 `--risk`로 끝나는 선택자를 걷어 한꺼번에 본다. 새 화면이
+   * 같은 이름 규칙으로 위험 표시를 넣으면 **등재 없이도** 이 검사에 들어온다.
+   */
+  /** `#1052` ⓥ 가드가 훑을 CSS 목록. 이 describe 안에는 walker가 없어 새로 둔다. */
+  const RISK_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+  function riskCssFiles(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') riskCssFiles(join(dir, entry.name), out)
+      } else if (entry.name.endsWith('.css')) {
+        out.push(join(dir, entry.name))
+      }
+    }
+    return out
+  }
+
+  it('위험을 뜻하는 선택자에 --cii-* 등급 토큰이 없다 (#1168 · #1052 ⓥ)', () => {
+    const offenders: string[] = []
+    for (const file of riskCssFiles(RISK_ROOT)) {
+      const body = readFileSync(file, 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const [, selector, rule] of body.matchAll(/([^{}]*--risk[^{}]*)\{([^}]*)\}/g)) {
+        if (/--cii-/.test(rule)) {
+          offenders.push(`${file.slice(RISK_ROOT.length)} :: ${selector.trim()}`)
+        }
+      }
+    }
     expect(
-      risk![1],
-      '.vessel--risk에 --cii-* 토큰이 있습니다. 이 선은 등급이 아니라 위험(E_THIS_YEAR · D_THREE_YEARS)을 뜻합니다 — 시맨틱을 쓰세요',
-    ).not.toMatch(/--cii-/)
+      offenders,
+      '위험 표시에 --cii-* 토큰이 있습니다. 이 선은 등급이 아니라 위험(E_THIS_YEAR · D_THREE_YEARS)을 뜻합니다 — 시맨틱을 쓰세요',
+    ).toEqual([])
+  })
+
+  it('그 검사가 실제로 무언가를 보고 있다', () => {
+    // 선택자 이름 규칙이 바뀌면 위 검사가 **공집합 통과**가 된다.
+    const found = riskCssFiles(RISK_ROOT).flatMap((file) => [
+      ...readFileSync(file, 'utf-8').matchAll(/[^{}]*--risk[^{}]*\{/g),
+    ])
+    expect(found.length).toBeGreaterThanOrEqual(2)
   })
 })
