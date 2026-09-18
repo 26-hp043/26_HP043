@@ -547,6 +547,38 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195
 docker logs cii-cubrid --tail=100 -f
 ```
 
+### 8.2.1 구조화 로그 — 장애 때 어느 파일을 어떻게 보나 (#827 ⑵)
+
+프로덕션 compose가 `LOG_FILE=/app/logs/api.jsonl`을 설정한다. 접근 요약(쿼리스트링·본문
+**없이** — 토큰·비밀번호가 로그로 새지 않는다)과 예외 스택이 **JSON 한 줄**로 쌓이고,
+10MB × 5개로 회전한다. 볼륨(`app-logs`)에 남으므로 컨테이너를 다시 만들어도 유지된다.
+
+```bash
+# app-01 — 파일이 어디에 있나
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
+docker exec cii-backend sh -c 'ls -lh /app/logs/'
+
+# 5xx만 골라 보기 — 장애 되짚기의 첫 동작
+docker exec cii-backend sh -c \
+  'grep "\"level\": \"ERROR\"" /app/logs/api.jsonl | tail -20'
+
+# 한 요청의 전 과정 되짚기 — 응답 meta의 request_id로 잇는다
+docker exec cii-backend sh -c \
+  'grep "<request_id>" /app/logs/api.jsonl'
+
+# jq가 있으면 필드로 본다
+docker exec cii-backend sh -c \
+  'cat /app/logs/api.jsonl | tail -100 | jq -c "{ts,level,path,status,duration_ms}"'
+```
+
+줄의 모양 — 키는 `ts`·`level`·`logger`·`message`, 접근 로그(`cii_platform.access`)는
+`request_id`·`method`·`path`·`status`·`duration_ms`·`client`를 더 싣는다. 예외 기록은
+`exc` 키에 스택 텍스트가 들어간다.
+
+> **콘솔(`docker logs`)과의 관계** — 콘솔은 사람이 읽는 짧은 형식, 파일이 JSON이다.
+> uvicorn 기본 접근 로그는 꺼져 있다(쿼리스트링을 남겨 토큰이 새는 결함이 있어서,
+> #827 ⑵). 접근 기록은 이 파일 하나에서 본다.
+
 ### 8.3 리소스 모니터링
 
 ```bash
