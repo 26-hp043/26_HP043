@@ -251,7 +251,24 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
  */
 function FuelTable({ years }: { years: CiiYear[] }) {
   const rows = years.flatMap((year) => year.fuels.map((fuel) => ({ year, fuel })))
-  if (rows.length === 0) return null
+
+  /*
+   * 비어 있으면 **숨기지 않고 비었다고 말한다** (`#1052` ⓵ · 2026-09-18 확정).
+   *
+   * 종전에는 `return null`이라 **표가 통째로 사라졌다.** 바로 위 연도별 표는 남으므로
+   * 사용자는 「이 화면에는 원래 연료 내역이 없다」로 읽는다 — `§16` 항목 8이 빈 상태를
+   * 패턴으로 세운 이유다.
+   *
+   * 같은 함수가 **칸 하나가 비면 `—`로 남기는** 판단을 이미 하고 있었다(아래 주석).
+   * 한 파일 안에서 기준이 갈리면 둘 중 하나는 실수로 읽힌다.
+   */
+  if (rows.length === 0) {
+    return (
+      <p className="history__empty">
+        연료 기록이 아직 없습니다. 항차에 연료를 입력하면 여기에 쌓입니다.
+      </p>
+    )
+  }
 
   return (
     <div className="history__tablebox">
