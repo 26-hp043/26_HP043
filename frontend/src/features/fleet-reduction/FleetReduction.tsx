@@ -333,11 +333,22 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   type="button"
                   className="fr__button"
                   disabled={saving || planName.trim() === '' || pricesInvalid}
+                  /*
+                   * 단가 오류는 **다른 절(연료 단가)에 있다** — 이 버튼 옆에서는
+                   * 왜 잠겼는지 알 길이 없었다. 이름이 비어 있는 쪽은 바로 위 칸이
+                   * 말하므로 적지 않는다 (`§14` 「비활성의 사유」 · `#1170` ⑵).
+                   */
+                  aria-describedby={pricesInvalid ? 'fr-save-blocked' : undefined}
                   onClick={() => void save()}
                 >
                   {saving ? COPY.saving : COPY.saveButton}
                 </button>
               </div>
+              {pricesInvalid ? (
+                <p id="fr-save-blocked" className="fr__caption" role="status">
+                  {COPY.saveBlockedByPrice}
+                </p>
+              ) : null}
               {saveMessage ? (
                 <p className="fr__caption" role="status">
                   {saveMessage}

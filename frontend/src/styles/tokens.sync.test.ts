@@ -890,7 +890,125 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
     ).toBeGreaterThanOrEqual(4.5)
   })
 
+  /*
+   * `#1170` ⑴ — **같은 배지의 테두리도 등급 축이 아니다.**
+   *
+   * `#829` ⑷가 문자를 중립으로 옮기면서 **두 줄 아래 `border`는 그대로 두었다.**
+   * `--cii-none-border`는 배지면 위 라이트 `1.51` · 다크 `1.72`로 `1.4.11`의 `3:1`에
+   * 미달이었고, 그보다 먼저 `§0.2` 제약 2에 걸린다 — 이 배지는 등급 문자를 그리지
+   * 않으므로(`VesselMark.tsx`가 `—` 하나만 낸다) 등급 채널이 아니다. `#1168`이
+   * `.vessel--risk`에서 걷어낸 것과 같은 결함이다.
+   *
+   * 두 가지를 함께 본다: **등급 토큰이 아닐 것**과 **양면에서 3:1일 것**. 앞엣것만
+   * 보면 중립이되 안 보이는 값으로 갈 수 있고, 뒤엣것만 보면 대비를 넘기는 등급
+   * 색으로 되돌아갈 수 있다 — `#748`이 이름 기반 가드로 밟은 함정이다.
+   */
+  const NONE_FACES = ['--cii-none-bg', '--surface-card']
+
+  it.each(THEMES)('$name — 등급 없음 배지 테두리가 등급 축 밖이고 3:1 이상이다 (#1170)', ({
+    generated,
+    alias,
+  }) => {
+    const rule = /\.vessel__mark--none\s*\{([\s\S]*?)\n\}/.exec(noneBadgeCss)
+    expect(rule, '.vessel__mark--none 규칙을 찾지 못했습니다').not.toBeNull()
+
+    const decl = /(?:^|;|\*\/)\s*border\s*:\s*([^;]+);/.exec((rule as RegExpExecArray)[1])
+    expect(decl, '배지의 border 선언을 찾지 못했습니다').not.toBeNull()
+
+    const shorthand = (decl as RegExpExecArray)[1]
+    const color = /var\(\s*(--[\w-]+)\s*\)\s*$/.exec(shorthand.trim())
+    expect(color, `테두리 색을 토큰으로 읽지 못했습니다: ${shorthand}`).not.toBeNull()
+
+    const name = (color as RegExpExecArray)[1]
+    expect(
+      /^--cii-/.test(name),
+      `등급 없음 배지 테두리가 등급 토큰(${name})이다 — 이 배지는 등급 문자를 그리지 않는다 (§0.2 제약 2 · #1170)`,
+    ).toBe(false)
+
+    const value = evaluate(`var(${name})`, generated, alias)
+    for (const face of NONE_FACES) {
+      expect(
+        contrast(value, evaluate(generated[face] ?? `var(${face})`, generated, alias)),
+        `${face} 위 배지 테두리 — 1.4.11 비텍스트 3:1 (#1170 ⑴)`,
+      ).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  /*
+   * `#1202` — **경계가 테두리뿐인 컨트롤은 네 면에서 3:1이다.**
+   *
+   * `#829` ⑶이 폼 컨트롤에서, `#1170` ⑴이 배지에서 같은 판단을 내렸는데 **범위가
+   * 그 둘이라 나머지가 남았다.** 세 번 연 자리다. 그래서 이번에는 **토큰 이름이
+   * 아니라 역할로** 잠근다 — 이슈 본문이 `--color-border-strong`으로 범위를 잡았다가
+   * 더 나쁜 `--border-default`(라이트 최소 `1.15`) 아홉 곳을 놓쳤던 것이 그 증거다.
+   *
+   * 역할의 표식은 둘이다 — `cursor: pointer`이고, **테두리 색이 배경색과 다르다**.
+   * 뒤엣것이 「아웃라인」의 정의다. 테두리와 배경이 같은 색이면 채움 버튼이고, 그쪽은
+   * 식별을 **면**이 지므로 재는 대상이 다르다(면 대 주변). 여기서 함께 재면 규칙이
+   * 둘 섞인다.
+   *
+   * 토큰은 네 면 어디에 놓여도 `3:1`을 넘어야 한다 — 실제 면을 소스에서 알 수 없으므로
+   * **가장 빠듯한 쪽으로 판정한다**(`§0.2` 제약 6의 규율).
+   *
+   * 예외 목록을 두지 않는다 — 아웃라인 컨트롤이 쓰는 색 토큰이 전부 통과한다. 목록이
+   * 생기는 순간 「예외로 넣으면 된다」가 되고, 그것이 `#748`이 밟은 길이다.
+   */
+  const POINTER_RULE = /([^{}]*)\{([^}]*cursor:\s*pointer[^}]*)\}/g
+
+  function controlBorders(): { where: string; token: string }[] {
+    const found: { where: string; token: string }[] = []
+    for (const file of cssFilesUnder(CSS_ROOT)) {
+      const body = readFileSync(file, 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const [, selector, rule] of body.matchAll(POINTER_RULE)) {
+        const decl = /border(?:-color)?:\s*[^;]*var\(\s*(--[\w-]+)\s*\)/.exec(rule)
+        if (decl === null) continue
+        // 채움 버튼(테두리색 = 배경색)은 면이 식별을 지므로 이 검사의 역할이 아니다.
+        const fill = /background(?:-color)?:\s*var\(\s*(--[\w-]+)\s*\)/.exec(rule)
+        if (fill !== null && fill[1] === decl[1]) continue
+        found.push({
+          where: `${file.slice(CSS_ROOT.length)} :: ${selector.trim().split('\n')[0].trim()}`,
+          token: decl[1],
+        })
+      }
+    }
+    return found
+  }
+
+  it('컨트롤 테두리를 토큰으로 그리는 자리가 실제로 있다', () => {
+    // 정규식이 헛돌면 아래가 공집합 통과가 된다 — 먼저 잠근다.
+    expect(controlBorders().length).toBeGreaterThan(10)
+  })
+
+  it.each(THEMES)('$name — 컨트롤 테두리가 네 면에서 3:1 이상이다 (#1202)', ({
+    generated,
+    alias,
+  }) => {
+    const offenders: string[] = []
+    for (const { where, token } of controlBorders()) {
+      const color = evaluate(`var(${token})`, generated, alias)
+      for (const surface of TEXT_SURFACES) {
+        const ratio = contrast(color, generated[surface])
+        if (ratio < 3) offenders.push(`${where} — ${token} on ${surface} = ${ratio.toFixed(2)}`)
+      }
+    }
+    expect(offenders, '경계가 테두리뿐인 컨트롤 — 1.4.11 비텍스트 3:1 (#1202)').toEqual([])
+  })
+
   const CONTROL_FACES = ['--surface-inset', '--surface-card']
+
+  /** `#1202` 가드가 쓰는 CSS 목록. */
+  const CSS_ROOT = fileURLToPath(new URL('..', import.meta.url))
+
+  function cssFilesUnder(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') cssFilesUnder(join(dir, entry.name), out)
+      } else if (entry.name.endsWith('.css')) {
+        out.push(join(dir, entry.name))
+      }
+    }
+    return out
+  }
 
   it.each(THEMES)('$name — 폼 컨트롤 테두리가 양면에서 3:1 이상이다', ({ generated, alias }) => {
     const value = alias['--color-border-control']
@@ -902,6 +1020,45 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
         `${face} 위 컨트롤 테두리 — 1.4.11 비텍스트 3:1 (#829 ⑶)`,
       ).toBeGreaterThanOrEqual(3)
     }
+  })
+
+  /*
+   * `#1169` — **면적 채널이 문자 계조를 다시 빌려 쓰는 것**을 막는다.
+   *
+   * 위 `3:1`은 값이 무엇이든 지켜지는지만 본다. 그런데 `#829` ⑶이 여기에 놓았던
+   * 임시 별칭은 `3:1`을 **넘기면서도** 문제였다 — `--text-muted`를 빌려 쓴 탓에
+   * 라이트 여유가 `0.08`뿐이었고 웜/쿨도 어긋났다. 대비 검사만으로는 안 잡힌다.
+   *
+   * 2026-09-18 확정 O가 Figma `border/control`(`#6f7c8f`)을 줘서 끊었다. 되돌아가는
+   * 것을 막기 위해 **참조 사슬에 문자 토큰이 끼는지**를 본다 — 값이 아니라 출처를
+   * 잠근다. `--color-surface-muted`는 대상이 아니다(그 토큰은 `#829` ⑴이 문자에서
+   * 쪼개 낸 면적 별칭이고, 같은 값을 쓰는 것이 그 결정의 내용이다).
+   */
+  it.each(THEMES)('$name — 폼 컨트롤 경계가 문자 토큰을 참조하지 않는다 (#1169)', ({
+    generated,
+    alias,
+  }) => {
+    const seen = new Set<string>(['--color-border-control'])
+    let name = '--color-border-control'
+
+    for (;;) {
+      const raw = alias[name] ?? generated[name]
+      expect(raw, `${name}을 찾지 못했습니다`).toBeDefined()
+
+      const ref = /^var\(\s*(--[\w-]+)\s*\)$/.exec(raw.trim())
+      if (ref === null) break
+
+      name = ref[1]
+      expect(seen.has(name), `${name}에서 참조가 순환한다`).toBe(false)
+      seen.add(name)
+
+      expect(
+        /^--(?:color-)?text-/.test(name),
+        `폼 컨트롤 경계가 문자 토큰(${name})을 참조한다 — 면적·경계 채널은 자기 값을 갖는다 (#1169)`,
+      ).toBe(false)
+    }
+
+    expect(name, '참조 사슬이 생성 토큰에 닿지 않았다').toBe('--border-control')
   })
 
   it.each(THEMES)('$name — 포커스 링이 네 면 위에서 3:1 이상이다', ({ generated, alias }) => {

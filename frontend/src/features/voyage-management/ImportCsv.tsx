@@ -85,6 +85,9 @@ export function ImportCsv({
     }
   }
 
+  /* 확정 버튼이 잠긴 사유가 화면에 떠 있는 조건 (`§14` · `#1170` ⑵). */
+  const commitBlocked = file !== null && result === null && failure === null
+
   return (
     <section className="vy-import" aria-label="CSV 가져오기">
       <h3 className="vy-import__title">CSV 가져오기</h3>
@@ -117,6 +120,7 @@ export function ImportCsv({
           className="vy-import__commit"
           onClick={() => run(false)}
           disabled={!canCommit(result) || busy !== null}
+          aria-describedby={commitBlocked ? 'vy-import-commit-note' : undefined}
         >
           {busy === 'commit' ? '가져오는 중…' : '가져오기'}
         </button>
@@ -126,8 +130,10 @@ export function ImportCsv({
        * 확정 버튼이 왜 잠겨 있는지 적는다. 검증을 먼저 밟게 하는 것이 의도이므로
        * 그 의도를 말하지 않으면 고장으로 읽힌다.
        */}
-      {file !== null && result === null && failure === null ? (
-        <p className="vy-import__note">먼저 검증하면 무엇이 들어가는지 보고 확정할 수 있습니다.</p>
+      {commitBlocked ? (
+        <p id="vy-import-commit-note" className="vy-import__note">
+          먼저 검증하면 무엇이 들어가는지 보고 확정할 수 있습니다.
+        </p>
       ) : null}
 
       {failure ? (

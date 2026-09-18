@@ -327,7 +327,7 @@ export function ScenarioComparison({
         </p>
       )}
       {noVessel && (
-        <p className="scenario-comparison__error-message" role="status">
+        <p id="sc-no-vessel" className="scenario-comparison__error-message" role="status">
           {NO_VESSEL_MESSAGE}
         </p>
       )}
@@ -708,6 +708,12 @@ export function ScenarioComparison({
           type="submit"
           className="scenario-comparison__submit"
           disabled={state.status === 'loading' || noVessel || yearUnavailable}
+          /*
+           * 비활성의 사유를 낭독에도 닿게 한다 (`§14` · `#1170` ⑵). `yearUnavailable`은
+           * **규제연도 칸 자신이 원인을 말하고** `Field`가 그 문구를 그 칸에 배선해
+           * 두었으므로 여기서 다시 잇지 않는다 — 두 번 읽히게 된다.
+           */
+          aria-describedby={noVessel ? 'sc-no-vessel' : undefined}
         >
           {state.status === 'loading' ? '계산 중…' : '비교하기'}
         </button>
@@ -884,7 +890,7 @@ export function ScenarioComparison({
           <ul className="scenario-comparison__warnings">
             {response.warnings.map((code) => (
               <li key={code} className="scenario-comparison__warning">
-                <span><Icon glyph={AlertTriangle} size={16} /></span> {warningMessage(code)}
+                <span><Icon glyph={AlertTriangle} size="inline" /></span> {warningMessage(code)}
               </li>
             ))}
           </ul>
@@ -957,7 +963,7 @@ function ScenarioCard({
         {risk.withIcon ? (
           // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden
           <span className="scenario-card__risk-icon">
-            <Icon glyph={AlertTriangle} size={16} />
+            <Icon glyph={AlertTriangle} size="inline" />
           </span>
         ) : null}
         <span
