@@ -190,6 +190,26 @@
   border-left: 4px solid var(--color-border-strong);
 }
 
+/*
+ * 네 상태가 **눈으로 갈린다** (`#1052` ⓸). 종전에는 `idle` 규칙이 없어
+ * 「선박 없음」과 「아직 조정 안 함」이 같은 띠로 그려졌다.
+ *
+ * 「선박 없음」은 **빈 상태**다 — 조작해도 바뀔 것이 없으므로 면과 띠을 함께
+ * 죽여 「여기서 할 일이 없다」로 읽히게 한다(`§16` 항목 8의 빈 상태 2종과 같은 결).
+ * 「아직」은 조작을 기다리는 중립 상태라 기본 띠을 명시적으로 적는다.
+ *
+ * 위험색을 쓰지 않는다 — 둘 다 실패가 아니다(`§0.2` 제약 2·3).
+ */
+.fr__status--empty {
+  border-left-color: var(--color-border);
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+}
+
+.fr__status--idle {
+  border-left-color: var(--color-border-strong);
+}
+
 .fr__status--met {
   border-left-color: var(--color-success);
 }

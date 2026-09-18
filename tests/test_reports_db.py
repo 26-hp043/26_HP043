@@ -641,7 +641,7 @@ async def test_self_check_section_is_part_of_the_annual_report(session, vessel_i
 
 @pytest.mark.asyncio
 async def test_self_check_says_it_is_not_for_submission(session, vessel_id):
-    """IT-REPORT-002 — **용도 고지**가 절에 실린다. 「이상 없음」은 적합 판정이 아니다."""
+    """IT-REPORT-002 — **용도 고지**가 절에 실린다. 판정은 적합 판정이 아니다."""
     await _make_voyage(session, vessel_id)
     document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
 
@@ -659,10 +659,10 @@ async def test_self_check_counts_substitutions_by_axis(session, vessel_id):
     rows = {row[0]: row for row in _section(document, "제출 전 자체 점검").rows}
     assert "연료 대체 계산" in rows
     assert "거리 대체 계산" in rows
-    # 판정 칸은 건수에서 나온다 — 0건이면 「이상 없음」이다.
+    # 판정 칸은 건수에서 나온다 — 0건이면 「해당 없음」이다.
     for label in ("연료 대체 계산", "거리 대체 계산"):
         count = int(rows[label][1].removesuffix("건"))
-        assert rows[label][2] == ("확인 필요" if count else "이상 없음"), label
+        assert rows[label][2] == ("확인 필요" if count else "해당 없음"), label
 
 
 @pytest.mark.asyncio

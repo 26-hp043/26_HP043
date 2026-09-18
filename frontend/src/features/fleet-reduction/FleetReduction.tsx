@@ -518,13 +518,25 @@ function Transition({ before, after }: { before: Rating; after: Rating }) {
   )
 }
 
-/** 상태 분기 3종 — 초기 · 목표 미달 · 목표 달성 (`UIFLOW 2-10`). */
+/**
+ * 상태 분기 **4종** — 선박 없음 · 초기 · 목표 달성 · 목표 미달
+ * (`UIFLOW 2-10` · 2026-09-18 확정 · `#1052` ⓸).
+ *
+ * ## 넷째가 셋째와 같은 톤을 쓰고 있었다
+ *
+ * 주석은 「3종」이라 적혀 있었는데 분기는 넷이었고, **「선박이 없다」와
+ * 「아직 조정하지 않았다」가 같은 `idle`** 로 떨어졌다. 게다가 `.fr__status--idle`
+ * 규칙이 CSS에 없어 둘 다 기본 띠로 그려졌다 — 화면에서 가를 수 없었다.
+ *
+ * 둘은 성질이 다르다. **「아직」은 조작 이전이라 움직이면 풀리고, 「선박 없음」은
+ * **조작할 대상이 없는 것**이라 슬라이더를 움직여도 아무 일도 안 난다.
+ */
 function Status({ result, adjusted }: { result: EvaluateResult; adjusted: boolean }) {
   let text: string
-  let tone: 'idle' | 'met' | 'missed'
+  let tone: 'empty' | 'idle' | 'met' | 'missed'
   if (result.targetMet === null) {
     text = COPY.statusNoVessel
-    tone = 'idle'
+    tone = 'empty'
   } else if (result.targetMet) {
     text = COPY.statusMet
     tone = 'met'
