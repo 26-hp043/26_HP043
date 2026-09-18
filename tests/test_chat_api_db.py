@@ -512,3 +512,83 @@ async def test_history_is_kept_across_turns(migrated_db, app_fresh_engine):
             assert count == 4
     finally:
         await _cleanup()
+
+
+async def test_search_resolution_carries_into_the_next_tool_and_response(
+    migrated_db, app_fresh_engine
+):
+    """#1242 — 고유 일치 검색 → 같은 턴의 계산 도구가 그 선박으로 돈다 + 응답 표시.
+
+    데모 선박 이름은 전부 「샘플」을 포함한다 — 고유 키워드로 쓴다. 계산 도구는
+    귀속이 없으면 「어느 선박인지 먼저 정해야 합니다」 error를 내므로, 결과가 나왔다는
+    것 자체가 귀속이 흘렀다는 증거다.
+    """
+    provider = FakeProvider(
+        [
+            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="calc_voyage_cii",
+                        arguments={
+                            "distance_nm": 1000,
+                            "speed_kn": 12,
+                            "fuel_ton": 100,
+                            "fuel_type": "HFO",
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="계산했습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post(
+                "/api/v1/chat", json={"message": "로로 여객선 CII 계산해줘"}, headers=headers
+            )
+            assert response.status_code == 200, response.text
+            data = response.json()["data"]
+            assert data["tool_calls"] == ["search_vessel", "calc_voyage_cii"]
+            # 두 번째 도구의 오류 봉투가 아니라 실제 계산이 돌았다 — 대화 귀속이 흘렀다.
+            assert "어느 선박인지" not in json.dumps(data, ensure_ascii=False)
+            assert data["vessel_resolved"] is True
+            assert "vessel_id" not in data, "식별자가 응답에 실렸다 — 16.3.1 위반"
+    finally:
+        await _cleanup()
+
+
+async def test_no_vessel_anywhere_reports_unresolved(migrated_db, app_fresh_engine):
+    """#1242 — 어디에도 선박이 없으면 `vessel_resolved: false` — 계산 도구는 안내 error."""
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="calc_voyage_cii",
+                        arguments={
+                            "distance_nm": 1000,
+                            "speed_kn": 12,
+                            "fuel_ton": 100,
+                            "fuel_type": "HFO",
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="선박을 먼저 정해야 한다고 안내했습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post(
+                "/api/v1/chat", json={"message": "CII 계산해줘"}, headers=headers
+            )
+            assert response.status_code == 200
+            data = response.json()["data"]
+            assert data["vessel_resolved"] is False
+    finally:
+        await _cleanup()

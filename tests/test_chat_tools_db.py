@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -298,3 +298,89 @@ async def test_the_regulation_year_defaults_to_this_year(session, vessel_id, mon
 
 
 pytestmark = pytest.mark.asyncio
+
+
+# ── #1242 — 검색의 고유 일치를 세션 귀속으로 저장한다 ──────────────────────────
+
+
+async def _new_chat_session(db) -> UUID:
+    from cii_platform.db.repositories import chat as chat_repo
+
+    user_id = uuid4()
+    await db.execute(
+        text("INSERT INTO app_user (id, email, password_hash) VALUES (:id, :email, 'x')"),
+        {"id": user_id, "email": f"chat-{uuid4().hex[:10]}@example.com"},
+    )
+    row = await chat_repo.create_session(db, user_id=user_id)
+    return row.id
+
+
+async def test_unique_match_is_stored_as_the_session_vessel(session, vessel_id):
+    """고유 일치 → `chat_session.vessel_id` 저장 — 같은 턴의 다음 도구가 즉시 쓴다."""
+    from cii_platform.db.repositories import chat as chat_repo
+
+    session_id = await _new_chat_session(session)
+    raw = await chat_tools.run_tool(
+        session,
+        name="search_vessel",
+        arguments={"name": VESSEL_NAME},
+        vessel_id=None,
+        chat_session_id=session_id,
+    )
+    assert json.loads(raw)["result"] == {"matched": 1}
+    row = await chat_repo.get_session_row(session, session_id=session_id)
+    assert row.vessel_id == vessel_id
+
+
+async def test_ambiguous_match_is_not_stored(session, vessel_id):
+    """둘 이상이 걸리면 저장하지 않는다 — 몰래 고르면 사용자가 고른 배가 아니다."""
+    from cii_platform.db.repositories import chat as chat_repo
+
+    session_id = await _new_chat_session(session)
+    # 같은 키워드에 걸리는 두 번째 선박(고유 IMO).
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, :name, 'BULK_CARRIER', 30000)"
+        ),
+        {
+            "id": uuid4(),
+            "imo": f"9{uuid4().int % 1000000:06d}",
+            "name": VESSEL_NAME + " II",
+        },
+    )
+    raw = await chat_tools.run_tool(
+        session,
+        name="search_vessel",
+        arguments={"name": VESSEL_NAME},
+        vessel_id=None,
+        chat_session_id=session_id,
+    )
+    assert json.loads(raw)["result"]["matched"] >= 2
+    row = await chat_repo.get_session_row(session, session_id=session_id)
+    assert row.vessel_id is None
+
+
+async def test_locked_vessel_is_not_overridden_by_search(session, vessel_id):
+    """화면이 넘긴 턴은 검색이 세션을 못 바꾼다 — 화면값이 항상 더 최신(#1242 규칙)."""
+    from cii_platform.db.repositories import chat as chat_repo
+
+    session_id = await _new_chat_session(session)
+    other = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, 'OTHER CARRIER', 'TANKER', 20000)"
+        ),
+        {"id": other, "imo": f"8{uuid4().int % 1000000:06d}"},
+    )
+    await chat_tools.run_tool(
+        session,
+        name="search_vessel",
+        arguments={"name": VESSEL_NAME},
+        vessel_id=other,  # 화면이 준 선박
+        chat_session_id=session_id,
+        vessel_locked=True,
+    )
+    row = await chat_repo.get_session_row(session, session_id=session_id)
+    assert row.vessel_id is None, "locked 턴에 검색이 귀속을 바꿨다"

@@ -31,6 +31,7 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from cii_platform.errors import CalculationError, NotFoundError, ParameterError, ValidationError
 from cii_platform.services.llm_guard import filter_outbound
@@ -246,11 +247,17 @@ async def run_tool(
     name: str,
     arguments: dict[str, object],
     vessel_id: object | None,
+    chat_session_id: UUID | None = None,
+    vessel_locked: bool = False,
 ) -> str:
     """도구 하나를 실행하고 **봉투에 담은 문자열**을 돌려준다.
 
     :param vessel_id: 이 대화가 고른 선박. ``search_vessel``이 정하거나 화면이 준다.
         **모델에게는 넘기지 않는다** — 식별자는 화이트리스트 밖이다.
+    :param chat_session_id: 검색의 고유 일치를 **세션 귀속으로 저장**하는 경로
+        (#1242). 없으면(단위 검사 등) 저장 없이 결과만 낸다.
+    :param vessel_locked: 이 턴에 **화면이 ``vessel_id``를 넘겼다**는 표시 — 세션
+        귀속이 화면값을 덮어쓰지 않는다(``API_SPEC §15.1`` 우선순위).
 
     ## 실패를 자연어로 돌려주지 않는다
 
@@ -263,7 +270,12 @@ async def run_tool(
 
     try:
         if name == TOOL_SEARCH_VESSEL:
-            return await _search_vessel(session, arguments)
+            return await _search_vessel(
+                session,
+                arguments,
+                chat_session_id=chat_session_id,
+                vessel_locked=vessel_locked,
+            )
         if vessel_id is None:
             return envelope(name, error="어느 선박인지 먼저 정해야 합니다.")
         if name == TOOL_CALC_VOYAGE_CII:
@@ -276,19 +288,37 @@ async def run_tool(
         return envelope(name, error=_error_text(exc))
 
 
-async def _search_vessel(session: AsyncSession, arguments: dict[str, object]) -> str:
+async def _search_vessel(
+    session: AsyncSession,
+    arguments: dict[str, object],
+    *,
+    chat_session_id: UUID | None = None,
+    vessel_locked: bool = False,
+) -> str:
     """⚠️ **이름·식별자를 돌려주지 않는다.** 몇 척인지만 말한다.
 
     ``PRD §16.3.1``이 선박명·IMO·선박 ID를 전송 금지로 둔다. 검색 결과를 그대로
     돌려주면 **그 금지가 도구 하나로 뚫린다.** 선박을 고르는 것은 서버가 하고, 모델은
     「찾았다」만 안다.
+
+    **고유 일치는 세션 귀속으로 저장한다** (#1242) — 같은 턴의 이후 도구와 다음
+    턴이 그 선박으로 돈다. 둘 이상이 걸리면 모델이 키워드를 좁히게 두고 저장하지
+    않는다(애매한 것을 몰래 고르면 사용자가 고른 것이 아닌 배로 답한다).
+    화면이 ``vessel_id``를 넘긴 턴(``vessel_locked``)은 저장하지 않는다 — 화면값이
+    항상 더 최신이다.
     """
+    from cii_platform.db.repositories import chat as chat_repo
     from cii_platform.services import vessel as vessel_service
 
     keyword = str(arguments.get("name") or "").strip()
     if not keyword:
         return envelope(TOOL_SEARCH_VESSEL, error="찾을 이름을 알려 주세요.")
     rows, _ = await vessel_service.list_vessels(session, search=keyword, limit=5)
+    if chat_session_id is not None and not vessel_locked and len(rows) == 1:
+        # ``list_vessels``는 서비스 직렬화값(dict)을 돌려준다 — id는 문자열로 들어 있다.
+        await chat_repo.set_vessel(
+            session, session_id=chat_session_id, vessel_id=UUID(str(rows[0]["id"]))
+        )
     return envelope(TOOL_SEARCH_VESSEL, result={"matched": len(rows)})
 
 

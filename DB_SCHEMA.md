@@ -1216,6 +1216,7 @@ CREATE INDEX idx_fleet_reduction_plan_created ON fleet_reduction_plan (created_a
 | `id` | UUID | PK | |
 | `user_id` | UUID | NOT NULL, FK → `app_user(id)` ON DELETE **CASCADE** | 계정이 지워지면 대화도 지운다 — 감사 로그에는 해시만 남으므로 삭제 요청을 만족시키려면 본문이 여기만 있어야 한다 |
 | `title` | VARCHAR(200) | NULL | 목록에 보일 제목. 없으면 앱이 첫 질문으로 만든다 |
+| `vessel_id` | UUID | NULL, FK → `vessel(id)` ON DELETE **SET NULL** [#1242 · 056] | 대화에 귀속된 선박 — `search_vessel`의 고유 일치가 정하거나 화면이 준다. 우선순위는 요청 `vessel_id` > 이 값(`API_SPEC §15.1`). 선박이 지워지면 **대화는 남고 귀속만 푼다**(운영은 soft delete라 이 경로는 향후 대비) |
 | `created_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
 | `expires_at` | TIMESTAMPTZ | NOT NULL, CHECK `expires_at > created_at` | **생성 + 90일**(`PRD §16.3`). 컬럼으로 두는 이유 — 보존 기간이 바뀌어도 이미 만든 세션의 만료일이 따라 움직이지 않게 한다 |
 
