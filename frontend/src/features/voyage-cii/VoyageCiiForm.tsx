@@ -394,13 +394,25 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
           )}
         </Field>
 
+        {/*
+          속력은 이 화면의 CII를 바꾸지 않는다 — `attained = CO₂ / (capacity × distance)`이고
+          CO₂는 연료량에서 온다. **그러나 「결과를 바꾸지 않는다」로만 적으면 틀린 안내다**
+          (`#1263`). `actionRules.ts`의 「계획 저장」이 이 값을 `plannedSpeedKn`으로 옮기고
+          **도착 예정 시각까지 이 값으로 정한다.** 그 계획 속력은 연간 시뮬레이션의 속도
+          민감도와 감속 시나리오가 다시 쓴다 — 임의값을 넣어도 된다고 읽히면 그 값이
+          거기까지 흘러간다.
+
+          ⚠️ **상한 검증은 여기 없다.** `PRD §9.1` VAL-009가 하한(`≥ 1.0`)만 규정하고
+          프론트·서버 모두 그대로 구현했다. 상한은 정본에 값이 생긴 뒤에야 내려온다
+          (`AGENTS §6` — 수치를 임의로 재작성하지 않는다). 후속 이슈에서 다룬다.
+        */}
         <Field
           id="speed"
           label="평균 속력"
           labelEn="Speed"
           unit={DISPLAY_UNITS.speed}
           error={errors[FIELD.speedKn]}
-          hint="요청에는 포함되지만 이 구성에서는 결과를 바꾸지 않습니다. 연료량과 거리가 같으면 속력만 바꿔도 값이 같습니다."
+          hint="이 화면의 CII 값은 연료량과 거리가 정하므로 속력만 바꿔도 같습니다. 다만 「계획 저장」을 하면 이 값이 계획 속력이 되고 도착 예정 시각을 정합니다 — 실제 운항 속력을 넣어 주세요."
         >
           {(control) => (
             <input
