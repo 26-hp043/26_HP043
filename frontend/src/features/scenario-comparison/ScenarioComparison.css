@@ -145,7 +145,8 @@
 }
 
 .scenario-comparison__control:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .scenario-comparison__control[aria-invalid='true'] {

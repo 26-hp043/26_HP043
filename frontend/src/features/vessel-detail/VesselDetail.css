@@ -34,8 +34,8 @@
 }
 
 .vd__back:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   border-radius: var(--radius-control);
 }
 
@@ -337,13 +337,13 @@
 }
 
 .vd__drill:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .vd__drill:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   border-radius: var(--radius-control);
 }
 
@@ -566,8 +566,8 @@
 .vd__pos button:focus-visible,
 .vd__pos select:focus-visible,
 .vd__pos input:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .vd__pos {

@@ -85,7 +85,8 @@
 .fr__charter:focus-visible,
 .fr__slider input:focus-visible,
 .fr__button:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .fr__grid {
@@ -161,7 +162,7 @@
  * 일관성을 잃는다.
  *
  * 확정 K의 나머지는 이미 지켜지고 있다 — 값은 `<output className="fr__num">`로 행
- * 우측 고정, 썸 포커스는 위 `:focus-visible`의 `--focus-ring`, 키보드 단위는
+ * 우측 고정, 썸 포커스는 위 `:focus-visible`의 `--focus-outline`, 키보드 단위는
  * `step={0.1}`(`§4.2` 자릿수).
  */
 .fr__slider input[type='range'] {

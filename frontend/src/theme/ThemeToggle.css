@@ -35,8 +35,8 @@
 }
 
 .theme-toggle__option:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /* 선택된 칸 — 카드 색으로 떠 보이게 한다. */

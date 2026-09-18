@@ -34,8 +34,8 @@
 }
 
 .rt__back:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   border-radius: var(--radius-control);
 }
 
@@ -487,8 +487,8 @@
 }
 
 .rt__assumptions summary:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   border-radius: var(--radius-control);
 }
 

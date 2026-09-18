@@ -56,7 +56,8 @@
 }
 
 .rp__kinds label:has(input:focus-visible) {
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .rp__kinds b {
@@ -106,8 +107,8 @@
 }
 
 .rp select:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .rp__hint {
@@ -140,8 +141,8 @@
 }
 
 .rp__actions button:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .rp__actions button:disabled {
