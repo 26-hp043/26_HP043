@@ -177,6 +177,14 @@ async def answer(
         ip_address=ip_address,
     )
 
+    # #1242 — 선박 결정 규칙: 요청 vessel_id(화면) > 세션 귀속(검색으로 정한 것).
+    # 화면이 넘긴 값은 세션에도 싣는다(화면이 항상 더 최신) — 다음 턴부터 화면
+    # 없이 물어도 그 선박으로 답한다. 검색은 locked 상태에서 세션을 못 바꾼다.
+    session_row = await chat_repo.get_session_row(session, session_id=chat_session_id)
+    effective_vessel: UUID | None = vessel_id or getattr(session_row, "vessel_id", None)
+    if vessel_id is not None and session_row is not None:
+        await chat_repo.set_vessel(session, session_id=chat_session_id, vessel_id=vessel_id)
+
     history = await chat_repo.list_messages(
         session, session_id=chat_session_id, limit=MAX_HISTORY_TURNS
     )
@@ -211,7 +219,13 @@ async def answer(
             break
 
         if len(used_tools) + len(response.tool_calls) > MAX_TOOL_CALLS_PER_TURN:
-            return _result(TOOL_BUDGET_MESSAGE, tool_outputs, used_tools, discarded=True)
+            return _result(
+                TOOL_BUDGET_MESSAGE,
+                tool_outputs,
+                used_tools,
+                discarded=True,
+                vessel_resolved=effective_vessel is not None,
+            )
 
         # ⚠️ **도구 왕복은 짝으로 보낸다** (`Anthropic Messages API` 규격).
         #
@@ -230,8 +244,18 @@ async def answer(
 
         results: list[dict[str, object]] = []
         for call in response.tool_calls:
+            # 같은 턴의 search_vessel이 고유 일치로 귀속을 저장했으면 다음 도구가
+            # 즉시 그 선박을 쓴다(set_vessel이 flush하므로 재조회에 보인다).
+            if vessel_id is None:
+                session_row = await chat_repo.get_session_row(session, session_id=chat_session_id)
+                effective_vessel = getattr(session_row, "vessel_id", None)
             output = await run_tool(
-                session, name=call.name, arguments=call.arguments, vessel_id=vessel_id
+                session,
+                name=call.name,
+                arguments=call.arguments,
+                vessel_id=effective_vessel,
+                chat_session_id=chat_session_id,
+                vessel_locked=vessel_id is not None,
             )
             tool_outputs.append(output)
             used_tools.append(call.name)
@@ -253,7 +277,13 @@ async def answer(
     except NumberFabricationError:
         # ⚠️ **폐기한다.** 저장도 하지 않는다 — 틀린 답을 이력에 남기면 다음 턴이
         # 그것을 근거로 삼는다.
-        return _result(DISCARDED_MESSAGE, tool_outputs, used_tools, discarded=True)
+        return _result(
+            DISCARDED_MESSAGE,
+            tool_outputs,
+            used_tools,
+            discarded=True,
+            vessel_resolved=effective_vessel is not None,
+        )
 
     await chat_repo.add_message(
         session, session_id=chat_session_id, role=ROLE_ASSISTANT, content=reply
@@ -266,11 +296,22 @@ async def answer(
         content=reply,
         ip_address=ip_address,
     )
-    return _result(reply, tool_outputs, used_tools, discarded=False)
+    return _result(
+        reply,
+        tool_outputs,
+        used_tools,
+        discarded=False,
+        vessel_resolved=effective_vessel is not None,
+    )
 
 
 def _result(
-    text: str, tool_outputs: list[str], used_tools: list[str], *, discarded: bool
+    text: str,
+    tool_outputs: list[str],
+    used_tools: list[str],
+    *,
+    discarded: bool,
+    vessel_resolved: bool = False,
 ) -> dict[str, object]:
     return {
         "answer": text,
@@ -279,4 +320,7 @@ def _result(
         "tool_calls": list(used_tools),
         "tool_output_count": len(tool_outputs),
         "discarded": discarded,
+        # #1242 — 서버가 이 대화의 선박을 알고 있는가. **식별자 자체는 안 싣는다**
+        # (`PRD §16.3.1` — 모델에게 가는 값이 아니라 화면에게 가는 값이다).
+        "vessel_resolved": vessel_resolved,
     }

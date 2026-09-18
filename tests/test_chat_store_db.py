@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -146,3 +146,40 @@ def test_audit_keeps_a_digest_not_the_text():
     # 같은 내용인지 대조는 된다 — 그것이 해시를 남기는 이유다.
     assert digest == content_digest(text_in)
     assert digest != content_digest(text_in + " ")
+
+
+@pytest.mark.asyncio
+async def test_set_vessel_binds_and_a_vessel_delete_clears_it(session):
+    """#1242 — 귀속 저장·해제. 선박이 지워지면 대화는 남고 귀속만 푼다(SET NULL)."""
+    from cii_platform.db.repositories import chat as chat_repo
+
+    user_id = await _insert_user(session, f"vessel-bind-{uuid4().hex[:8]}@example.com")
+    created = await chat_repo.create_session(session, user_id=user_id)
+    vessel_uuid = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type) "
+            "VALUES (:id, :imo, 'BIND TEST', 'BULK_CARRIER')"
+        ).bindparams(),
+        {"id": vessel_uuid, "imo": f"7{uuid4().int % 1000000:06d}"},
+    )
+
+    await chat_repo.set_vessel(session, session_id=created.id, vessel_id=vessel_uuid)
+    row = await chat_repo.get_session_row(session, session_id=created.id)
+    assert row.vessel_id == vessel_uuid
+
+    # 같은 값 재설정은 무해해야 한다(플러시 없이 지나간다).
+    await chat_repo.set_vessel(session, session_id=created.id, vessel_id=vessel_uuid)
+
+    # SQL 삭제(soft delete 아님) — FK가 SET NULL으로 귀속만 끊는다. 판정은 **생 SQL**로
+    # 한다 — ORM 객체는 identity map에 남아 옛 속성을 들고 있을 수 있다(설계가 아니라
+    # 세션 캐시의 성질).
+    await session.execute(text("DELETE FROM vessel WHERE id = :id"), {"id": vessel_uuid})
+    stored = (
+        await session.execute(
+            text("SELECT vessel_id FROM chat_session WHERE id = :id"), {"id": created.id}
+        )
+    ).scalar()
+    assert stored is None, f"선박이 지워졌는데 귀속이 남았다: {stored}"
+    row = await chat_repo.get_session_row(session, session_id=created.id)
+    assert row is not None, "선박이 지워졌다고 대화까지 사라졌다"
