@@ -184,6 +184,8 @@ class TestListVessels:
             "default_fuel_type",
             "reference_speed_kn",
             "reference_daily_foc_ton",
+            # #966 — 기상 보정 선형 계수(선택). None이면 추정 경고가 계약이다.
+            "block_coefficient",
             "is_cii_applicable_hint",
             "underway_state",
             "detail_status",

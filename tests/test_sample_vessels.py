@@ -50,9 +50,17 @@ def test_only_synthetic_vessels_are_samples():
 
 
 def test_sample_fields_are_the_create_fields_without_identity():
-    """등록 요청 필드 − {IMO, 선명}. 등록 스키마가 필드를 늘리면 여기서 드러난다."""
+    """등록 요청 필드 − {IMO, 선명}. 등록 스키마가 필드를 늘리면 여기서 드러난다.
+
+    예외 — ``block_coefficient``(#966). 샘플은 IMO 조회의 대역인데 실제 조회가 방형계수를
+    주지 않는다(사무직이 수기로 넣는 제원). 값을 지어 싣는 것이 거짓이므로 뺀다.
+    """
     create_fields = set(VesselCreateRequest.model_fields)
-    assert set(SAMPLE_SPEC_FIELDS) == create_fields - {"imo_number", "name"}
+    assert set(SAMPLE_SPEC_FIELDS) == create_fields - {
+        "imo_number",
+        "name",
+        "block_coefficient",
+    }
     for sample in list_sample_vessels():
         assert "imo_number" not in sample and "name" not in sample
 

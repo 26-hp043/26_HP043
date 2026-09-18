@@ -186,6 +186,7 @@ function rawVessel(id: string, name: string) {
     is_cii_applicable_hint: true,
     reference_speed_kn: null,
     reference_daily_foc_ton: null,
+    block_coefficient: null,
     default_fuel_type: null,
     underway_state: 'NOT_UNDER_WAY',
     detail_status: null,

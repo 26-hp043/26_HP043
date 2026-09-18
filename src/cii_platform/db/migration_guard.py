@@ -127,6 +127,9 @@ REGENERABLE: dict[str, str] = {
     # **데이터는 한 행도 바뀌지 않는다.** downgrade는 개정 이행 행이 쌓인 상태에서는
     # UNIQUE 재생성이 실패한다(054 본문의 경고).
     "054": "활성-유니크 트리거 — 구조만 바꾸고 데이터는 무변",
+    # vessel.block_coefficient(#966) — 컬럼·트리거 모두 재생 가능. NULL 허용이라
+    # 되돌려도 잃는 값은 실측 CB뿐이고, 그것은 선박 제원 화면에서 다시 넣는다.
+    "055": "vessel.block_coefficient — 선택 제원이라 값 재입력으로 복구",
 }
 
 

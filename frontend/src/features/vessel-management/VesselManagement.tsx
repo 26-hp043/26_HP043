@@ -649,6 +649,18 @@ function EditForm({
         )}
       </Field>
 
+      <Field id="vm-blockCoefficient" label="방형계수 (CB)" error={errors[EDIT_FIELD.blockCoefficient]}>
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            inputMode="decimal"
+            value={state.blockCoefficient}
+            onChange={(e) => set({ blockCoefficient: e.target.value })}
+          />
+        )}
+      </Field>
+
       <Field id="vm-defaultFuelType" label="기본 연료" error={errors[EDIT_FIELD.defaultFuelType]}>
         {(control) => (
           <select

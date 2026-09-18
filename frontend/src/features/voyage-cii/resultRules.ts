@@ -171,6 +171,9 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
   WEATHER_STALE: '오래된 기상 데이터를 사용 중입니다.',
   WEATHER_NONE_FALLBACK: '기상 보정 없이 계산했습니다.',
   CB_ESTIMATED: '선형 계수가 추정값입니다.',
+  // #966 — 결정요청 v9 회신 D-3 확정 문구(PRD §6.3 정본).
+  CB_OUT_OF_RANGE:
+    '이 선박의 방형계수가 기상 보정 계수의 적용 범위 밖입니다. 보정 결과는 참고값입니다.',
   EXPERIMENTAL_MODEL: '실험 모델 기반 결과입니다.',
   NON_CII_VESSEL: '공식 CII 적용 대상이 아닐 수 있습니다.',
   // `#653` — GT가 NULL이면 「대상 아님」이 아니라 **판정 자체가 불가**다.

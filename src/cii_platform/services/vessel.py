@@ -81,6 +81,8 @@ def to_dict(vessel) -> dict[str, object]:
         "default_fuel_type": vessel.default_fuel_type,
         "reference_speed_kn": _number(vessel.reference_speed_kn),
         "reference_daily_foc_ton": _number(vessel.reference_daily_foc_ton),
+        # #966 — 기상 보정 선형 계수. None이면 선종 기본값 + CB_ESTIMATED가 계약이다.
+        "block_coefficient": _number(vessel.block_coefficient),
         "is_cii_applicable_hint": vessel.is_cii_applicable_hint,
         # 026 (#346) 위치·상태. #369가 갱신 경로를 열기 전까지는 시드 값 그대로였다.
         "underway_state": vessel.underway_state,
@@ -165,6 +167,7 @@ async def create_vessel(
     default_fuel_type: str | None = None,
     reference_speed_kn: Decimal | None = None,
     reference_daily_foc_ton: Decimal | None = None,
+    block_coefficient: Decimal | None = None,
 ) -> dict[str, object]:
     """선박을 등록한다 (API_SPEC §2.3, #50). 성공 시 201.
 
@@ -206,6 +209,7 @@ async def create_vessel(
         default_fuel_type=default_fuel_type,
         reference_speed_kn=reference_speed_kn,
         reference_daily_foc_ton=reference_daily_foc_ton,
+        block_coefficient=block_coefficient,
         is_cii_applicable_hint=is_cii_applicable_hint,
     )
     await session.commit()
@@ -223,6 +227,7 @@ async def update_vessel(
     default_fuel_type: str | None = None,
     reference_speed_kn: Decimal | None = None,
     reference_daily_foc_ton: Decimal | None = None,
+    block_coefficient: Decimal | None = None,
 ) -> dict[str, object]:
     """선박을 수정한다 (API_SPEC §2.4, #52). 없으면 404.
 
@@ -278,6 +283,11 @@ async def update_vessel(
         vessel.reference_speed_kn = reference_speed_kn
     if reference_daily_foc_ton is not None:
         vessel.reference_daily_foc_ton = reference_daily_foc_ton
+    # #966 — CB는 기상 보정 계수지 CII 직접 제원이 아니므로 specs_changed(재계산
+    # 표시)에 넣지 않는다. `PRD §8.4`의 재계산 행은 DWT/GT·선종만 적는다 — 기상
+    # 계수를 바꿔도 과거 계산은 각자 스냅숏을 쓴다(#832와 같은 규율).
+    if block_coefficient is not None:
+        vessel.block_coefficient = block_coefficient
 
     # GT가 바뀌면(또는 None으로 해제되면) hint를 다시 산정한다.
     if gross_tonnage is not None:

@@ -1,5 +1,5 @@
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
-import { STORABLE, checkOptionalPositive } from '../vessel-registration/formRules'
+import { CB_MAX, STORABLE, checkOptionalPositive } from '../vessel-registration/formRules'
 import { findShipType } from '../vessel-registration/shipTypes'
 import type { Vessel } from '../vessel-registration/types'
 import type { VesselUpdateRequest } from './provider'
@@ -35,6 +35,7 @@ export interface VesselEditState {
   defaultFuelType: string
   referenceSpeedKn: string
   referenceDailyFocTon: string
+  blockCoefficient: string
 }
 
 /** 오류 맵의 키. 서버 `details[0].field`와 같은 이름을 쓴다. */
@@ -46,6 +47,7 @@ export const EDIT_FIELD = {
   defaultFuelType: 'default_fuel_type',
   referenceSpeedKn: 'reference_speed_kn',
   referenceDailyFocTon: 'reference_daily_foc_ton',
+  blockCoefficient: 'block_coefficient',
   form: '__form__',
 } as const
 
@@ -75,6 +77,7 @@ export function toEditState(vessel: Vessel): VesselEditState {
     defaultFuelType: vessel.default_fuel_type ?? '',
     referenceSpeedKn: numberToInput(vessel.reference_speed_kn),
     referenceDailyFocTon: numberToInput(vessel.reference_daily_foc_ton),
+    blockCoefficient: numberToInput(vessel.block_coefficient),
   }
 }
 
@@ -136,6 +139,19 @@ export function validateEdit(
     STORABLE.speed,
   )
   checkOptionalPositive(
+    state.blockCoefficient,
+    EDIT_FIELD.blockCoefficient,
+    '방형계수(CB)',
+    errors,
+    STORABLE.cb,
+  )
+  {
+    const cb = toNumber(state.blockCoefficient)
+    if (cb !== null && cb > CB_MAX) {
+      errors[EDIT_FIELD.blockCoefficient] = '방형계수(CB)은(는) 1 이하로 입력해 주세요.'
+    }
+  }
+  checkOptionalPositive(
     state.referenceDailyFocTon,
     EDIT_FIELD.referenceDailyFocTon,
     '기준 일일 연료소모량',
@@ -183,6 +199,8 @@ function hadValue(vessel: Vessel, key: keyof VesselEditState): boolean {
       return vessel.reference_speed_kn !== null
     case 'referenceDailyFocTon':
       return vessel.reference_daily_foc_ton !== null
+    case 'blockCoefficient':
+      return vessel.block_coefficient !== null
     default:
       return false
   }
@@ -271,6 +289,10 @@ export function toUpdateRequest(vessel: Vessel, state: VesselEditState): VesselU
   if (foc !== null && foc !== vessel.reference_daily_foc_ton) {
     patch.reference_daily_foc_ton = foc
   }
+
+  // #966 — 방형계수. 바뀐 것만 실는 규칙을 따른다.
+  const cb = toNumber(state.blockCoefficient)
+  if (cb !== null && cb !== vessel.block_coefficient) patch.block_coefficient = cb
 
   return patch
 }
