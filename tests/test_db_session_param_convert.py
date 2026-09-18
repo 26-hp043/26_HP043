@@ -132,3 +132,32 @@ def test_the_hook_is_registered_on_the_engine():
     engine = get_engine()
 
     assert event.contains(engine.sync_engine, "before_cursor_execute", cubrid_param_convert)
+
+
+def test_rewrites_leave_an_observability_trace(caplog):
+    """치환은 흔적을 남긴다 (#1246) — 예상 밖 문장에 닿는 순간을 잡는 수단.
+
+    정규식 리라이팅은 dialect가 못 내는 문장을 앱이 고쳐 쓰는 것이다. 몇 번 일어나는지
+    보이지 않으면 ORM이 문장 형태를 바꾸는 순간 조용히 깨진다.
+    """
+    import logging
+
+    with caplog.at_level(logging.DEBUG, logger="cii_platform.db.session"):
+        statement, _ = _convert("SELECT 1 FROM t WHERE a = CAST(? AS VARCHAR) AND b IS 1", ())
+
+    assert statement == "SELECT 1 FROM t WHERE a = ? AND b = 1"
+    message = next(
+        r.getMessage() for r in caplog.records if "cubrid_param_convert" in r.getMessage()
+    )
+    assert "cast=1" in message
+    assert "bool=1" in message
+
+
+def test_clean_statements_are_not_logged(caplog):
+    """치환이 없으면 로그도 없다 — 운영 로그가 문장으로 시끄러워지지 않는다."""
+    import logging
+
+    with caplog.at_level(logging.DEBUG, logger="cii_platform.db.session"):
+        _convert("SELECT 1 FROM t WHERE a = ?", ())
+
+    assert not [r for r in caplog.records if "cubrid_param_convert" in r.getMessage()]
