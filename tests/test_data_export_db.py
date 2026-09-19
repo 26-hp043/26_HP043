@@ -35,9 +35,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.reports.csv_export import BOM, iter_table_csv
 from cii_platform.services.data_export import (
+    COLUMNS_BY_TYPE,
     EXPORT_TYPES,
+    NUMERIC_COLUMNS,
     ROUNDTRIP_COLUMNS,
     VOYAGE_COLUMNS,
+    ExportTable,
     build_export,
 )
 from cii_platform.services.voyage_import import REQUIRED_COLUMNS, import_voyages
@@ -122,7 +125,8 @@ async def _insert_fuel(session, voyage_id: UUID, **overrides) -> None:
 
 
 def _render(table) -> str:
-    return "".join(iter_table_csv(list(table.columns), table.rows))
+    # 라우트(`api/routes/exports.py`)와 같은 호출 — 열 종류 선언을 함께 넘긴다 (#1247).
+    return "".join(iter_table_csv(list(table.columns), table.rows, kinds=table.kinds))
 
 
 def _parse(rendered: str) -> list[dict[str, str]]:
@@ -815,3 +819,91 @@ def test_disposition_names_the_file_after_type_and_year() -> None:
 
     assert disposition.startswith('attachment; filename="voyages_2026.csv"')
     assert "filename*=UTF-8''voyages_2026.csv" in disposition
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IT-EXPORT-010 — 수치 열 선언 (#1247)
+#
+# 종전에는 모든 셀이 문자열 규칙을 받아 음수 열이 통째로 `'-12.5`가 됐다. 지금 열
+# 셋(거리·연료·속력)은 CHECK 제약상 음수가 없어 잠재형이지만, 증감 열이 생기는 순간
+# 터진다. 선언으로만 가르고 값 모양은 보지 않는다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: 사용자 입력이 들어가는 열 — 값이 숫자처럼 보여도 **절대** 수치 열이 아니다.
+_USER_INPUT_COLUMNS = frozenset(
+    {
+        "voyage_no",
+        "departure_port_name",
+        "arrival_port_name",
+        "notes",
+        "fuel_type",
+        "status",
+        "annual_inclusion_policy",
+        "created_from",
+        "target_rating",
+        "projected_rating",
+        "estimated_rating",
+        "risk_level",
+        "warnings",
+        "model_version",
+    }
+)
+
+
+def test_numeric_columns_are_a_subset_of_real_columns_and_never_user_input() -> None:
+    """IT-EXPORT-010 — 선언 목록이 실제 열 이름만 담고, 사용자 입력 열은 하나도 없다.
+
+    이름이 바뀐 열이 목록에 남으면 선언이 조용히 빠져 그 열만 다시 `'`를 받는다.
+    반대로 사용자 입력 열이 들어오면 선언 한 줄이 곧 취약점이다.
+    """
+    every_column = set().union(*COLUMNS_BY_TYPE.values())
+
+    assert every_column >= NUMERIC_COLUMNS, NUMERIC_COLUMNS - every_column
+    assert not (NUMERIC_COLUMNS & _USER_INPUT_COLUMNS)
+    # 세 종류 전부에 수치 열이 선언돼 있다 — 한 종류만 고치고 끝내지 않았다.
+    for type_, columns in COLUMNS_BY_TYPE.items():
+        assert NUMERIC_COLUMNS & set(columns), type_
+
+
+def test_export_table_kinds_follow_the_column_order() -> None:
+    """IT-EXPORT-010 — `kinds`는 열 순서 그대로다. 밀리면 다른 열의 종류가 적용된다."""
+    table = ExportTable(type="voyages", year=None, columns=VOYAGE_COLUMNS, rows=[])
+
+    assert len(table.kinds) == len(VOYAGE_COLUMNS)
+    assert table.kinds[VOYAGE_COLUMNS.index("co2_ton")] == "numeric"
+    assert table.kinds[VOYAGE_COLUMNS.index("notes")] == "string"
+    # `§8.2` 왕복 구간의 숫자 셋은 수치 열이고 문자 넷은 문자열 열이다.
+    assert table.kinds[VOYAGE_COLUMNS.index("planned_distance_nm")] == "numeric"
+    assert table.kinds[VOYAGE_COLUMNS.index("voyage_no")] == "string"
+
+
+def test_numeric_export_column_keeps_a_negative_number_while_notes_stay_escaped() -> None:
+    """IT-EXPORT-010 — 수치 열의 `-12.5`는 `'` 없이, `notes`의 `-1+1+cmd|…`는 `'`를 받는다.
+
+    DB 없이 표를 손으로 만든다 — 실제 열은 CHECK 제약상 음수가 없어 DB로는 이 경로를
+    밟을 수 없다. 렌더링은 라우트와 같은 `_render`다.
+    """
+    payload = "-1+1+cmd|' /C calc'!A0"
+    row = [""] * len(VOYAGE_COLUMNS)
+    row[VOYAGE_COLUMNS.index("co2_ton")] = "-12.5"
+    row[VOYAGE_COLUMNS.index("planned_distance_nm")] = "-4300.00"
+    row[VOYAGE_COLUMNS.index("notes")] = payload
+    row[VOYAGE_COLUMNS.index("voyage_no")] = "-12.5"
+    table = ExportTable(type="voyages", year=None, columns=VOYAGE_COLUMNS, rows=[row])
+
+    parsed = _parse(_render(table))[0]
+
+    assert parsed["co2_ton"] == "-12.5"
+    assert parsed["planned_distance_nm"] == "-4300.00"
+    assert parsed["notes"] == f"'{payload}"
+    # 사용자 입력 열은 값이 숫자여도 문자열 규칙이다 — 판정은 선언으로만 한다.
+    assert parsed["voyage_no"] == "'-12.5"
+
+
+def test_numeric_export_column_falls_back_when_the_value_is_not_a_number() -> None:
+    """IT-EXPORT-010 — 수치 열에 숫자 아닌 값이 들어오면 원문이 아니라 접두를 받는다."""
+    row = [""] * len(VOYAGE_COLUMNS)
+    row[VOYAGE_COLUMNS.index("co2_ton")] = "=SUM(A1)"
+    table = ExportTable(type="voyages", year=None, columns=VOYAGE_COLUMNS, rows=[row])
+
+    assert _parse(_render(table))[0]["co2_ton"] == "'=SUM(A1)"

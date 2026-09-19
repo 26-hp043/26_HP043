@@ -13,13 +13,21 @@ DB 없이 돈다 — 문서 모델을 손으로 만들어 **렌더러만** 본�
 
 from __future__ import annotations
 
+import csv
 import re
 from datetime import UTC
 from pathlib import Path
 
 import pytest
 
-from cii_platform.reports.csv_export import BOM, render_csv, sanitize
+from cii_platform.reports.csv_export import (
+    BOM,
+    NUMERIC_CELL,
+    iter_table_csv,
+    render_csv,
+    sanitize,
+    serialize_cell,
+)
 from cii_platform.reports.document import (
     DISCLAIMER,
     KeyValueSection,
@@ -70,10 +78,13 @@ def test_hyperlink_exfiltration_is_neutralized():
 
 
 def test_negative_numbers_also_get_the_prefix():
-    """음수도 예외로 두지 않는다.
+    """문자열 규칙(`sanitize`)은 음수에도 예외를 두지 않는다.
 
-    `-12.5`는 정상 값이지만, 여기서 예외를 만들면 `-1+1+cmd|...` 같은 값이 그 예외로
-    빠져나간다. 「값이 수식인가」로 판정하면 판정기 자체가 취약점이 된다.
+    `-12.5`는 정상 값이지만, **이 함수 안에서** 예외를 만들면 `-1+1+cmd|...` 같은 값이
+    그 예외로 빠져나간다. 「값이 수식인가」로 판정하면 판정기 자체가 취약점이 된다.
+
+    음수를 접두 없이 내보내는 길은 **열 선언**뿐이다(`API_SPEC §8.5` · #1247) — 아래
+    「수치 열 선언」 절이 그 경로를 고정한다. 이 단언은 선언 없는 셀의 종전 동작을 지킨다.
     """
     assert sanitize("-12.5") == "'-12.5"
 
@@ -98,6 +109,179 @@ def test_injection_defense_applies_to_every_cell():
     csv_text = render_csv(document)
     for token in ["'=TITLE", "'=HEAD", "'=CELL", "'=NOTE"]:
         assert token in csv_text
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 수치 열 선언 — API_SPEC §8.1·§8.5 (#1247)
+#
+# 서버가 Decimal에서 만든 음수는 주입 벡터가 아닌데 문자열 규칙이 `'-12.5`로 만들어
+# Excel이 문자열로 읽었다. 열 선언으로만 예외를 두고, 값 모양으로는 판정하지 않는다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: 실제 공격 형태 — `-`로 시작해 숫자처럼 보이지만 수식이다.
+_MINUS_PAYLOAD = "-1+1+cmd|' /C calc'!A0"
+
+
+def _table_csv(headers, rows, kinds=None) -> str:
+    """표 하나짜리 문서를 CSV로. 값 행만 보기 좋게 제목·면책은 그대로 둔다."""
+    document = _document(
+        sections=[TableSection(title="표", headers=headers, rows=rows, kinds=kinds)]
+    )
+    return render_csv(document)
+
+
+def _data_rows(csv_text: str) -> list[list[str]]:
+    """「표」 제목 다음 줄부터 빈 줄 전까지 — 머리글 + 값 행."""
+    lines = csv_text.split("\r\n")
+    start = lines.index("표") + 1
+    rows = []
+    for line in lines[start:]:
+        if line == "":
+            break
+        rows.append(next(csv.reader([line])))
+    return rows
+
+
+def test_numeric_column_exports_negative_without_prefix():
+    """**이 이슈의 완료 기준** — 수치 열의 `-12.5`가 `'` 없이 나가 Excel이 숫자로 읽는다."""
+    rows = _data_rows(
+        _table_csv(["연도", "증감"], [["2026", "-12.5"]], kinds=["string", "numeric"])
+    )
+    assert rows[1] == ["2026", "-12.5"]
+
+
+def test_numeric_column_keeps_thousands_grouping():
+    """`DESIGN_SYSTEM §4.2`가 거리·연료에 천단위 구분자를 넣는다 — 음수 거리도 숫자다."""
+    rows = _data_rows(_table_csv(["거리 (nm)"], [["-4,300"]], kinds=["numeric"]))
+    assert rows[1] == ["-4,300"]
+
+
+def test_undeclared_columns_keep_the_old_behaviour():
+    """선언하지 않으면 전부 문자열이다 — 기존 문서는 아무것도 달라지지 않는다."""
+    rows = _data_rows(_table_csv(["증감"], [["-12.5"]]))
+    assert rows[1] == ["'-12.5"]
+
+
+def test_string_column_keeps_the_prefix_on_a_formula_that_looks_negative():
+    """`-1+1+cmd|...`는 문자열 열에서 종전대로 막힌다 — 선언이 없는 곳에 예외는 없다."""
+    rows = _data_rows(_table_csv(["비고"], [[_MINUS_PAYLOAD]]))
+    assert rows[1] == [f"'{_MINUS_PAYLOAD}"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        _MINUS_PAYLOAD,
+        "=SUM(A1)",
+        "+1",
+        "@cmd",
+        "\tcmd",
+        "-1E+4",
+        "- 12.5",
+    ],
+)
+def test_numeric_column_falls_back_to_sanitize_when_the_value_is_not_a_number(value):
+    """수치로 **선언된** 열이라도 값이 숫자 문법에 안 맞으면 문자열 규칙으로 되돌아간다.
+
+    선언은 「이 열엔 서버 수치만 있다」는 약속이고, 약속이 깨진 셀을 **원문 그대로**
+    내보내면 선언 한 줄이 곧 취약점이 된다. 되돌아가면 잘못 붙인 선언은 접두를 받을 뿐
+    (종전 동작) 문서는 나간다 — `ValueError`로 세우면 `—`·「기록 없음」 같은 정상
+    문자열이 섞인 리포트가 500이 된다.
+    """
+    rows = _data_rows(_table_csv(["값"], [[value]], kinds=["numeric"]))
+    assert rows[1] == [f"'{value}"]
+
+
+@pytest.mark.parametrize("value", ["—", "기록 없음", ""])
+def test_numeric_column_passes_absent_markers_through_unchanged(value):
+    """`_display`가 없는 값을 `—`로 적는다 — 수치 열의 정상 문자열이며 접두 대상도 아니다."""
+    rows = _data_rows(_table_csv(["값"], [[value]], kinds=["numeric"]))
+    assert rows[1] == [value]
+
+
+def test_headers_title_and_note_are_sanitized_even_for_numeric_columns():
+    """선언은 값 행에만 닿는다 — 라벨은 사용자 입력일 수 있어 종전대로 막는다."""
+    document = _document(
+        sections=[
+            TableSection(
+                title="=TITLE", headers=["=HEAD"], rows=[["-1"]], note="=NOTE", kinds=["numeric"]
+            )
+        ]
+    )
+    csv_text = render_csv(document)
+    for token in ["'=TITLE", "'=HEAD", "'=NOTE"]:
+        assert token in csv_text
+    assert "'-1" not in csv_text
+
+
+@pytest.mark.parametrize(
+    ("value", "is_number"),
+    [
+        ("0", True),
+        ("-0.5", True),
+        ("12.346", True),
+        ("4,300.0", True),
+        ("-4,300", True),
+        ("1e5", False),
+        ("-", False),
+        ("--1", False),
+        ("1.2.3", False),
+        (" 1", False),
+        ("1,23", False),
+        ("12%", False),
+        ("1+1", False),
+        # ASCII 숫자만 — 파이썬 `\d`는 아랍-인도 숫자·전각 숫자도 받는다(독립 리뷰 LOW).
+        ("\u0661\u0662\u0663", False),
+        ("\uff11\uff12\uff13", False),
+    ],
+)
+def test_numeric_grammar_admits_only_plain_numbers(value, is_number):
+    """부호 하나 · 정수부(천단위 구분자 허용) · 소수부. 연산자·함수·참조가 낄 자리가 없다."""
+    assert bool(NUMERIC_CELL.fullmatch(value)) is is_number
+
+
+def test_serialize_cell_never_exempts_a_string_column():
+    """판정은 선언으로만 — 문자열 열은 값이 숫자여도 `sanitize`와 같다."""
+    assert serialize_cell("-12.5", "string") == sanitize("-12.5")
+    assert serialize_cell("-12.5", "numeric") == "-12.5"
+
+
+def test_kinds_must_match_the_header_count():
+    """선언이 밀리면 **다른 열의 종류**가 적용된다 — 열 수 검사와 같은 이유로 잡는다."""
+    document = _document(
+        sections=[
+            TableSection(title="표", headers=["a", "b"], rows=[["1", "2"]], kinds=["numeric"])
+        ]
+    )
+    with pytest.raises(ValueError, match="열 종류"):
+        render_csv(document)
+
+
+def test_unknown_kind_is_rejected():
+    """오타(`number`)가 조용히 문자열로 읽히면 선언한 사람은 수치 열이라고 믿는다."""
+    document = _document(
+        sections=[TableSection(title="표", headers=["a"], rows=[["1"]], kinds=["number"])]
+    )
+    with pytest.raises(ValueError, match="알 수 없는 열 종류"):
+        render_csv(document)
+
+
+def test_table_csv_honours_kinds_the_same_way():
+    """`§8.1` 자료 내보내기(`iter_table_csv`)도 같은 선언·같은 규칙이다."""
+    csv_text = "".join(
+        iter_table_csv(
+            ["notes", "co2_ton"],
+            [[_MINUS_PAYLOAD, "-12.5"]],
+            kinds=["string", "numeric"],
+        )
+    )
+    row = next(csv.reader([csv_text.split("\r\n")[1]]))
+    assert row == [f"'{_MINUS_PAYLOAD}", "-12.5"]
+
+
+def test_table_csv_without_kinds_prefixes_every_cell():
+    csv_text = "".join(iter_table_csv(["co2_ton"], [["-12.5"]]))
+    assert "'-12.5" in csv_text
 
 
 # ─────────────────────────────────────────────────────────────────────────────

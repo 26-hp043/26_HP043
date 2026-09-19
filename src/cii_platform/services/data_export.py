@@ -68,6 +68,8 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from cii_platform.reports.document import ColumnKind
+
 #: ``API_SPEC §8.1`` ``type`` 파라미터가 허용하는 값. **필수다** — 기본값을 두면
 #: 사용자가 `calculations`를 받으려다 항차 파일을 받고도 알아채지 못한다.
 EXPORT_TYPES: tuple[str, ...] = ("voyages", "calculations", "simulations")
@@ -154,6 +156,44 @@ COLUMNS_BY_TYPE: dict[str, tuple[str, ...]] = {
     "simulations": SIMULATION_COLUMNS,
 }
 
+#: 수치 열 — **서버가 Decimal·int에서 만든 값만** 들어가는 열 (``API_SPEC §8.1`` · #1247).
+#:
+#: CSV 렌더러가 이 열은 ``'`` 접두 없이 숫자로 내보낸다. 사용자 입력이 섞이는 열
+#: (``voyage_no``·항만명·``notes``·``fuel_type``·상태 코드)은 **넣지 않는다** — 그 열은
+#: 값이 숫자처럼 보여도 문자열 규칙을 받아야 한다. 판정은 이 선언으로만 하며 값 모양을
+#: 보지 않는다(`reports/csv_export.py` 머리).
+NUMERIC_COLUMNS: frozenset[str] = frozenset(
+    {
+        # voyages
+        "planned_distance_nm",
+        "planned_speed_kn",
+        "planned_fuel_ton",
+        "regulation_year",
+        "actual_distance_nm",
+        "actual_avg_speed_kn",
+        "actual_fuel_ton",
+        "cf_used",
+        "co2_ton",
+        # calculations
+        "duration_ms",
+        "attained_cii",
+        "required_cii",
+        "ratio_to_required",
+        "co2_emission_ton",
+        "fuel_consumption_ton",
+        "distance_nm",
+        # simulations
+        "simulation_runs",
+        "projected_attained_cii",
+        "target_success_probability",
+        "p10",
+        "p50",
+        "p90",
+        "completed_voyage_count",
+        "remaining_voyage_count",
+    }
+)
+
 
 @dataclass(frozen=True)
 class ExportTable:
@@ -180,6 +220,11 @@ class ExportTable:
     def as_dicts(self) -> list[dict[str, str]]:
         """``format=json`` 응답용. 열 이름을 행마다 붙인다."""
         return [dict(zip(self.columns, row, strict=True)) for row in self.rows]
+
+    @property
+    def kinds(self) -> list[ColumnKind]:
+        """열마다의 종류 선언 (#1247). CSV 렌더러가 수치 열을 접두 없이 내보낸다."""
+        return ["numeric" if column in NUMERIC_COLUMNS else "string" for column in self.columns]
 
 
 def _cell(value: object) -> str:

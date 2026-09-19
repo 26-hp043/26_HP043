@@ -197,6 +197,8 @@ async def _scenario_section(session: AsyncSession, voyage) -> TableSection | Non
     table = TableSection(
         title="시나리오 사후 비교",
         headers=["시나리오", "거리 (nm)", "속력 (kn)", "소요 (h)", "연료 (t)", "CII", "예상 등급"],
+        # 수치 열 선언 (#1247) — 시나리오 이름은 사용자 입력이고 등급은 글자다.
+        kinds=["string", "numeric", "numeric", "numeric", "numeric", "numeric", "string"],
         rows=[
             [
                 f"{row.scenario_name}{' (채택)' if row.is_adopted else ''}",
@@ -358,6 +360,9 @@ async def build_voyage_report(
             TableSection(
                 title="연료 내역",
                 headers=["유종", "계획 (t)", "실적 (t)", "CF snapshot", "배출량 (tCO₂)", "출처"],
+                # 수치 열 선언 (#1247) — 유종·출처는 라벨이다. 「기록 없음」 행의 ``—``는
+                # 숫자 문법에 안 맞아 문자열 규칙으로 되돌아간다(접두 대상 문자가 아니다).
+                kinds=["string", "numeric", "numeric", "numeric", "numeric", "string"],
                 rows=[
                     [
                         fuel_type_label(fu.fuel_type),
@@ -455,6 +460,8 @@ async def _not_underway_section(
     return TableSection(
         title="not under way 기여",
         headers=["구간 유형", "건수", "이동 거리 (nm)", "연료 (t)"],
+        # 수치 열 선언 (#1247) — 건수·거리·연료는 서버 집계값이다.
+        kinds=["string", "numeric", "numeric", "numeric"],
         # 기록이 없는 것은 오류가 아니다 — 「0건」이 아니라 그 사실을 적는다.
         #
         # 자릿수는 손으로 적지 않고 ``_display``를 지난다 (`#1090`). ``DESIGN_SYSTEM §4.2``는
@@ -669,6 +676,18 @@ async def build_annual_report(
                 "완료 항차",
                 "거리 (nm)",
                 "연료 (t)",
+            ],
+            # 수치 열 선언 (#1247). 「완료 항차」는 ``3 (+진행 중 1)`` 꼴이 섞이므로
+            # 문자열이고, 연도·상태·등급은 라벨이다.
+            kinds=[
+                "string",
+                "string",
+                "numeric",
+                "numeric",
+                "string",
+                "string",
+                "numeric",
+                "numeric",
             ],
             rows=[
                 [
