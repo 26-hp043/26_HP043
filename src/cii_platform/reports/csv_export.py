@@ -86,7 +86,7 @@ def sanitize(value: str) -> str:
 #:
 #: ⚠️ 이 정규식은 **선언 없는 열에는 절대 적용되지 않는다.** 그 순간 「값 모양으로
 #: 판정」이 되어 모듈 머리가 경고한 취약점이 된다.
-NUMERIC_CELL = re.compile(r"-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
+NUMERIC_CELL = re.compile(r"-?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?")
 
 
 def serialize_cell(value: str, kind: ColumnKind) -> str:

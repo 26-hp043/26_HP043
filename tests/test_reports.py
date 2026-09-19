@@ -230,6 +230,9 @@ def test_headers_title_and_note_are_sanitized_even_for_numeric_columns():
         ("1,23", False),
         ("12%", False),
         ("1+1", False),
+        # ASCII 숫자만 — 파이썬 `\d`는 아랍-인도 숫자·전각 숫자도 받는다(독립 리뷰 LOW).
+        ("\u0661\u0662\u0663", False),
+        ("\uff11\uff12\uff13", False),
     ],
 )
 def test_numeric_grammar_admits_only_plain_numbers(value, is_number):
