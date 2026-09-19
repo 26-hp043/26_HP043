@@ -1266,58 +1266,82 @@ SEED_VOYAGE_FUELS: list[dict[str, object]] = [
         "planned_fuel_ton": Decimal("57.00"),
         "actual_fuel_ton": None,
     },
+    # ── 목표를 노린 개선 계획 — 로로 여객선 (#1299) ─────────────────────────
+    #
+    # `#1220`은 이 배의 2026 계획 강도(t/nm)를 그대로 써서 연간 시뮬레이션의 평균이
+    # **C 밴드 한가운데**(17.48 · B 경계 15.71)에 앉았고, 등급 확률이 `C 100%` ·
+    # 민감도 여섯 변수가 전부 `C→C`였다. 계획이 「목표를 노리지 않은」 것이다.
+    #
+    # 이 다섯 행은 **한 등급 위(B)를 노린 개선 계획**이다. 줄인 양은 지어낸 값이 아니라
+    # **엔진이 낸 값**이다 — 목표 등급 `B`로 돌린 연간 시뮬레이션의
+    # `reduction_plan.required_cut_fuel_ton` = **39.311 t** (2026-09-19 · seed 12345 ·
+    # `API_SPEC §6.1`). 그 양을 다섯 행의 종전 계획 연료(59·66·62·70·61 = 318 t)에
+    # **비례로** 나눴다(×0.876379, 0.01 t 반올림 — 실제 감축 39.30 t). 결정론 예측이
+    # B/C 경계에 걸리므로 몬테카를로가 두 등급에 나뉜다.
+    #
+    # ⚠️ 경계를 **넘도록** 줄이지 않았다 — 넘기면 다시 한 등급(B)에 몰린다.
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000450"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000150"),
-        "planned_fuel_ton": Decimal("59.00"),
+        "planned_fuel_ton": Decimal("51.71"),
         "actual_fuel_ton": None,
     },
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000451"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000151"),
-        "planned_fuel_ton": Decimal("66.00"),
+        "planned_fuel_ton": Decimal("57.84"),
         "actual_fuel_ton": None,
     },
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000452"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000152"),
-        "planned_fuel_ton": Decimal("62.00"),
+        "planned_fuel_ton": Decimal("54.34"),
         "actual_fuel_ton": None,
     },
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000453"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000153"),
-        "planned_fuel_ton": Decimal("70.00"),
+        "planned_fuel_ton": Decimal("61.35"),
         "actual_fuel_ton": None,
     },
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000454"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000154"),
-        "planned_fuel_ton": Decimal("61.00"),
+        "planned_fuel_ton": Decimal("53.46"),
         "actual_fuel_ton": None,
     },
+    # ── 목표를 노린 개선 계획 — 벌크선 30,000 DWT (관찰선 · #1299) ──────────
+    #
+    # 위 로로 여객선과 같은 방식이다. 평균이 C 밴드(7.03 · B 경계 6.52)에 앉아
+    # `C 98.7%`였다. 목표 `B`의 `reduction_plan.required_cut_fuel_ton` = **67.704 t**
+    # (2026-09-19 · seed 12345)을 **계획 단계 네 행**(94·241·60·147 = 542 t)에만
+    # 비례로 나눴다(×0.875085 — 실제 감축 67.69 t).
+    #
+    # 진행 중 항차(`V5_IN_PROGRESS`)는 **건드리지 않는다** — 대시보드·실시간 CII가 보는
+    # 「지금 항해 중인 배」의 서사이고, 이미 출항한 항차의 계획을 고치는 것은 개선
+    # 계획이 아니다.
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000455"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000155"),
-        "planned_fuel_ton": Decimal("94.00"),
+        "planned_fuel_ton": Decimal("82.26"),
         "actual_fuel_ton": None,
     },
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000456"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000156"),
-        "planned_fuel_ton": Decimal("241.00"),
+        "planned_fuel_ton": Decimal("210.90"),
         "actual_fuel_ton": None,
     },
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000457"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000157"),
-        "planned_fuel_ton": Decimal("60.00"),
+        "planned_fuel_ton": Decimal("52.51"),
         "actual_fuel_ton": None,
     },
     {
         "id": uuid.UUID("00000000-0000-4000-8000-000000000458"),
         "voyage_id": uuid.UUID("00000000-0000-4000-8000-000000000158"),
-        "planned_fuel_ton": Decimal("147.00"),
+        "planned_fuel_ton": Decimal("128.64"),
         "actual_fuel_ton": None,
     },
 ]

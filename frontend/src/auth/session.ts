@@ -33,18 +33,24 @@ import { SCREEN_BY_ID } from '../screens'
  */
 
 /**
- * 역할 2종 (`API_SPEC §1.2` · `#672`). 사무직(`OFFICE`)은 「정하고 낸다」, 현장직(`FIELD`)은
+ * 역할 3종 (`API_SPEC §1.2` · `#672` · `#1301`). 사무직(`OFFICE`)은 「정하고 낸다」, 현장직(`FIELD`)은
  * 「넣고 본다」. 서버가 `403 FORBIDDEN_ROLE`로 막는 것과 별개로, 화면은 이 값으로 사무직
  * 전용 화면·조작을 **안 되는 것으로 보이게** 한다.
+ *
+ * **관리자(`ADMIN`)는 사무직의 상위집합이다** (`#1301`). 업무 13경로(제원·연간
+ * 시뮬레이션·리포트·함대 감축 계획 등)는 사무직과 똑같이 쓸 수 있고, 거기에
+ * **계정 목록·역할 지정**(`GET /auth/users`·`PATCH /auth/users/{id}/role`)이 더해진다.
+ * 그 권한은 이제 사무직에게는 없다 — 계정 관리를 업무 권한에서 떼어낸 것이 `#1301`의
+ * 목적이다. `isOffice()`가 ADMIN도 참으로 보는 이유이자, `isAdmin()`을 따로 둔 이유다.
  */
-export type UserRole = 'OFFICE' | 'FIELD'
+export type UserRole = 'OFFICE' | 'FIELD' | 'ADMIN'
 
 /** 인증된 사용자 — `GET /auth/me` 응답의 `data` 블록. */
 export interface CurrentUser {
   id: string
   email: string
   displayName: string | null
-  /** 사무직·현장직. 응답에 없으면 **현장직으로 본다** — 넓게 틀리는 쪽보다 낫다. */
+  /** 사무직·현장직·관리자. 응답에 없거나 알 수 없는 값이면 **현장직으로 본다** — 넓게 틀리는 쪽보다 낫다. */
   role: UserRole
   /**
    * 이메일 인증 완료 시각. `null`이면 미인증.
@@ -218,15 +224,34 @@ function toCurrentUser(body: unknown): CurrentUser | null {
     email: data.email,
     displayName:
       typeof data.display_name === 'string' && data.display_name ? data.display_name : null,
-    role: data.role === 'OFFICE' ? 'OFFICE' : 'FIELD',
+    // ADMIN을 FIELD로 뭉개면 관리자가 계정 절을 못 보는 것으로 끝나지 않는다 —
+    // 업무 13경로(사무직 몫)까지 막혀 계정 하나로 시연·운영이 안 된다 (#1301).
+    role: data.role === 'OFFICE' || data.role === 'ADMIN' ? data.role : 'FIELD',
     emailVerifiedAt:
       typeof data.email_verified_at === 'string' ? data.email_verified_at : null,
   }
 }
 
-/** 사무직인가. `null`(비인증)은 아니다 — 모르면 좁은 쪽이다. */
+/**
+ * 사무직 업무를 쓸 수 있는가. `null`(비인증)은 아니다 — 모르면 좁은 쪽이다.
+ *
+ * **관리자도 참이다** (`#1301`) — ADMIN은 OFFICE의 상위집합이라, 업무 13경로
+ * (제원·연간 시뮬레이션·리포트·함대 감축 계획 등)를 사무직과 똑같이 쓴다. 계정
+ * 관리처럼 관리자 **전용**인 권한은 이 함수가 아니라 `isAdmin()`으로 가른다.
+ */
 export function isOffice(user: CurrentUser | null): boolean {
-  return user?.role === 'OFFICE'
+  return user?.role === 'OFFICE' || user?.role === 'ADMIN'
+}
+
+/**
+ * 관리자인가 (`#1301`). `null`(비인증)은 아니다.
+ *
+ * 계정 목록·역할 지정(`GET /auth/users`·`PATCH /auth/users/{id}/role`)처럼
+ * **사무직에게도 없는** 권한을 가르는 자리에서만 쓴다 — 업무 화면 판정에는
+ * `isOffice()`를 쓴다(관리자도 그쪽으로 참이 된다).
+ */
+export function isAdmin(user: CurrentUser | null): boolean {
+  return user?.role === 'ADMIN'
 }
 
 /**
@@ -663,7 +688,8 @@ export async function changePassword(
 }
 
 /**
- * 계정 목록 — `GET /auth/users` (`API_SPEC §1.2` · `#672`). **사무직 전용.**
+ * 계정 목록 — `GET /auth/users` (`API_SPEC §1.2` · `#672` · `#1301`). **관리자 전용** —
+ * 계정 관리가 업무 권한에서 떨어져 나오며 사무직은 이 경로를 더는 못 부른다.
  *
  * 응답은 `/auth/me`와 같은 사용자 객체의 배열이라 `toCurrentUser`를 그대로 쓴다 — 모양이
  * 어긋난 원소는 버리지 않고 실패로 던진다(`requireUser`와 같은 판단: 성공한 척하지 않는다).
@@ -694,11 +720,12 @@ export async function listUsers(
 }
 
 /**
- * 역할 지정 — `PATCH /auth/users/{id}/role` (`API_SPEC §1.2` · `#672`). **사무직 전용.**
+ * 역할 지정 — `PATCH /auth/users/{id}/role` (`API_SPEC §1.2` · `#672` · `#1301`).
+ * **관리자 전용.**
  *
- * 마지막 사무직 강등은 서버가 `409`로 거절하고 문구(`PRD §6.3` 「마지막 사무직」)를 준다 —
- * 화면은 그 문구를 그대로 보인다. **자기 자신을 바꿨으면 캐시도 갱신한다** — 상단바와
- * 사이드바가 같은 사용자를 보고 있다.
+ * 마지막 관리자 강등은 서버가 `409`로 거절하고 문구를 준다 — 화면은 그 문구를 그대로
+ * 보인다(옛 「마지막 사무직」 규칙의 대상이 ADMIN으로 바뀌었을 뿐 판정 방식은 같다).
+ * **자기 자신을 바꿨으면 캐시도 갱신한다** — 상단바와 사이드바가 같은 사용자를 보고 있다.
  */
 export async function updateUserRole(
   userId: string,
