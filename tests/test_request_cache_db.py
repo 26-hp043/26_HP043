@@ -148,3 +148,56 @@ async def test_ytd_cii_alone_does_not_cache(session, monkeypatch):
 
     assert not request_cache.is_enabled(session)
     assert len(counters["vessel"].calls) == 2
+
+
+async def test_fleet_summary_batches_per_vessel_reads(session, monkeypatch):
+    """IT-CACHE-005 — 선박마다 나가던 집계 조회가 조합별 배치 한 번으로 끝난다 (#989 ⑵).
+
+    `list_annual_inclusions`·not under way 3종은 선박 수만큼 나가는 것이 병목의
+    대부분이었다(200척 실측 4,624쿼리). 프리페치가 `(연도, 시점)` 조합별 배치
+    함수로 캐시를 채우므로 **단건 함수는 선대 요청에서 아예 불리지 않는다.**
+
+    단건 카운터가 0이라는 것은 "배치가 같은 키로 캐시를 채웠다"의 직접 증거다 —
+    하나라도 불리면 키가 어긋나 원래의 N+1로 되돌아간 것이다(IT-CACHE-002가 값의
+    동일성을 본다).
+    """
+    from cii_platform.db.repositories import not_underway as not_underway_repo
+    from cii_platform.db.repositories import voyage as voyage_repo
+
+    singles = {
+        "annual_inclusions": _Counter(voyage_repo, "list_annual_inclusions"),
+        "not_underway_fuel": _Counter(not_underway_repo, "sum_fuel_by_type"),
+        "not_underway_distance": _Counter(not_underway_repo, "sum_distance"),
+        "not_underway_periods": _Counter(not_underway_repo, "list_periods_for_year"),
+        "find_in_progress": _Counter(voyage_repo, "find_in_progress"),
+        # 진행 중 항차의 유종 몫(#885) — 프리페치가 배치 연료로 캐시를 채운다.
+        "fuel_uses": _Counter(voyage_repo, "list_fuel_uses"),
+    }
+    monkeypatch.setattr(voyage_repo, "list_annual_inclusions", singles["annual_inclusions"])
+    monkeypatch.setattr(not_underway_repo, "sum_fuel_by_type", singles["not_underway_fuel"])
+    monkeypatch.setattr(not_underway_repo, "sum_distance", singles["not_underway_distance"])
+    monkeypatch.setattr(not_underway_repo, "list_periods_for_year", singles["not_underway_periods"])
+    monkeypatch.setattr(voyage_repo, "find_in_progress", singles["find_in_progress"])
+    monkeypatch.setattr(voyage_repo, "list_fuel_uses", singles["fuel_uses"])
+
+    batches = {
+        "annual_inclusions": _Counter(voyage_repo, "list_annual_inclusions_for_vessels"),
+        "fuel_by_voyages": _Counter(voyage_repo, "list_fuel_uses_by_voyage_ids"),
+    }
+    monkeypatch.setattr(
+        voyage_repo, "list_annual_inclusions_for_vessels", batches["annual_inclusions"]
+    )
+    monkeypatch.setattr(voyage_repo, "list_fuel_uses_by_voyage_ids", batches["fuel_by_voyages"])
+
+    at = datetime(2026, 9, 12, 3, 0, tzinfo=UTC)  # 30일 창이 같은 해 안에 있다
+    await fleet_summary.get_fleet_summary(session, regulation_year=YEAR, as_of=at)
+
+    for name, counter in singles.items():
+        assert counter.calls == [], (
+            f"단건 {name}이(가) {len(counter.calls)}번 나갔다 — 배치를 빗나갔다"
+        )
+
+    # 조합은 넷 — 올해 현재 · 올해 창 시작 · 직전 2개 연도. 각각 배치 한 번이다.
+    assert len(batches["annual_inclusions"].calls) == 4
+    # 항차 연료는 조합 4회 + 진행 중 항차 몫 1회 — 선박 수와 무관하다.
+    assert len(batches["fuel_by_voyages"].calls) == 5

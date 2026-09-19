@@ -69,3 +69,14 @@ def put(session: AsyncSession, key: object, value: object) -> None:
     store = session.info.get(_KEY)
     if store is not None:
         store[key] = value
+
+
+def as_of_key(as_of: object) -> str | None:
+    """캐시 키에 쓰는 시각 표기 (#989 ⑵).
+
+    ``as_of``는 같은 요청 안에서도 네 갈래(올해 현재 · 30일 전 창 · 직전 2개 연도)로
+    갈리므로 키에 정확히 들어가야 한다. :class:`datetime`은 해시 가능해 그대로 키에
+    쓸 수도 있지만, 배치 조회를 채우는 쪽과 읽는 쪽이 **같은 표기**로 만들어야 히트하므로
+    하나의 함수로 고정한다. ``None``은 「절단 없음(연도 전체)」으로 그대로 둔다.
+    """
+    return None if as_of is None else as_of.isoformat()

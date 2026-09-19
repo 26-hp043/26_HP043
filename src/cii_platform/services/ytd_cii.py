@@ -89,7 +89,7 @@ from cii_platform.errors import (
 )
 from cii_platform.services import applicability
 from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
-from cii_platform.services.request_cache import cached
+from cii_platform.services.request_cache import as_of_key, cached
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -388,9 +388,15 @@ async def compute_ytd_cii(
         in_progress=in_progress,
         exclude_voyage_ids=exclude_voyage_ids,
     )
+    # 구간 수도 (선박, 연도, 시점) 단위로 캐시한다 (#989 ⑵) — 선대 요약의 배치 조회가
+    # 목록 전체를 이미 읽어 뒀으므로, 여기서 다시 세면 척당 한 쿼리가 되살아난다.
     period_count = len(
-        await not_underway_repo.list_periods_for_year(
-            session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
+        await cached(
+            session,
+            ("not_underway_periods", vessel_id, regulation_year, as_of_key(as_of)),
+            lambda: not_underway_repo.list_periods_for_year(
+                session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
+            ),
         )
     )
 
@@ -527,20 +533,34 @@ async def _aggregate(
     regulation_year: int,
     as_of: datetime | None,
     in_progress: InProgressContribution | None,
+    policy: str = POLICY_INCLUDE_AS_ACTUAL,
     exclude_voyage_ids: frozenset[UUID] = frozenset(),
 ) -> _Aggregated:
-    """실적 확정 항차 + not under way 기록 + ``#368`` 주입분을 하나로 모은다."""
-    voyages = await voyage_repo.list_annual_inclusions(
+    """실적 확정 항차 + not under way 기록 + ``#368`` 주입분을 하나로 모은다.
+
+    아래 네 조회는 모두 ``(선박, 연도, 시점)``으로 결정되므로 요청 캐시로 묶는다
+    (#989 ⑵). 캐시는 선대 요약이 **배치 조회로 미리 채워** 두며, 그렇지 않은
+    요청(선박 상세 · 데이터 점검)은 종전대로 직접 읽는다 — ``exclude_voyage_ids``는
+    이 조회 **뒤에** 로컬 필터로 걸리므로 캐시한 값에 영향을 주지 않는다.
+    """
+    voyages = await cached(
         session,
-        vessel_id=vessel_id,
-        regulation_year=regulation_year,
-        policy=POLICY_INCLUDE_AS_ACTUAL,
-        as_of=as_of,
+        ("annual_inclusions", vessel_id, regulation_year, as_of_key(as_of), policy),
+        lambda: voyage_repo.list_annual_inclusions(
+            session,
+            vessel_id=vessel_id,
+            regulation_year=regulation_year,
+            policy=policy,
+            as_of=as_of,
+        ),
     )
     if exclude_voyage_ids:
         voyages = [voyage for voyage in voyages if voyage.id not in exclude_voyage_ids]
-    fuel_by_voyage = await voyage_repo.list_fuel_uses_by_voyage_ids(
-        session, [voyage.id for voyage in voyages]
+    voyage_ids = [voyage.id for voyage in voyages]
+    fuel_by_voyage = await cached(
+        session,
+        ("fuel_uses_by_voyages", tuple(sorted(voyage_ids))),
+        lambda: voyage_repo.list_fuel_uses_by_voyage_ids(session, voyage_ids),
     )
 
     underway_fuel: dict[tuple[str, Decimal], Decimal] = {}
@@ -643,12 +663,20 @@ async def _aggregate(
                 key = (code, Decimal(rows[code].cf))
                 underway_fuel[key] = underway_fuel.get(key, Decimal(0)) + Decimal(ton)
 
-    not_underway_totals = await not_underway_repo.sum_fuel_by_type(
-        session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
+    not_underway_totals = await cached(
+        session,
+        ("not_underway_fuel", vessel_id, regulation_year, as_of_key(as_of)),
+        lambda: not_underway_repo.sum_fuel_by_type(
+            session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
+        ),
     )
     # 028 — 분모에 더할 not under way 이동 거리 (MEPC.412(84) §4.2).
-    not_underway_distance = await not_underway_repo.sum_distance(
-        session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
+    not_underway_distance = await cached(
+        session,
+        ("not_underway_distance", vessel_id, regulation_year, as_of_key(as_of)),
+        lambda: not_underway_repo.sum_distance(
+            session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=as_of
+        ),
     )
 
     return _Aggregated(

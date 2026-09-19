@@ -38,6 +38,7 @@ from uuid import UUID
 
 from cii_platform.calc.capacity import resolve_transport_capacity
 from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
+from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -45,11 +46,15 @@ from cii_platform.errors import AppError, ParameterError, ValidationError
 from cii_platform.services.cii_current import resolve_in_progress_state
 from cii_platform.services.cii_history import list_cii_history
 from cii_platform.services.pagination import normalize_limit
-from cii_platform.services.request_cache import cached
+from cii_platform.services.request_cache import as_of_key, cached
 from cii_platform.services.request_cache import enable as enable_request_cache
 from cii_platform.services.request_cache import put as cache_put
 from cii_platform.services.simulation_clock import resolve_as_of
-from cii_platform.services.ytd_cii import YtdCiiOutput, compute_ytd_cii
+from cii_platform.services.ytd_cii import (
+    POLICY_INCLUDE_AS_ACTUAL,
+    YtdCiiOutput,
+    compute_ytd_cii,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - 타입 전용
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -528,6 +533,104 @@ async def _derive_vessel(
     )
 
 
+async def _prefetch_ytd_inputs(
+    session: AsyncSession,
+    vessels: list[Vessel],
+    *,
+    year: int,
+    resolved: datetime,
+) -> dict[UUID, object]:
+    """선대 전체의 YTD 입력을 **(연도, 시점) 조합별 배치 쿼리**로 미리 읽어 요청 캐시에
+    채운다 (#989 ⑵ B안 — 2026-09-17 결정).
+
+    ``_derive_vessel``이 선박마다 ``compute_ytd_cii``를 네 번 부르는 구조는 그대로
+    두고, 그 네 번이 각자 내는 **같은 (선박, 연도, 시점) 조회**를 조합별로 한 번씩만
+    낸다. 200척 실측 4,624쿼리(16.4s)의 대부분이 이 몫이었다.
+
+    조합은 정확히 넷 — 올해 현재 · 올해 30일 전 창(``compute_days_to_target``의 기준
+    선) · 직전 2개 규제연도(``prior_confirmed_ratings``). 창 시작이 연초 이전이면
+    ``_derive_vessel``이 창 쪽 계산을 아예 안 하므로 그 조합은 만들지 않는다.
+
+    캐시 키는 :mod:`cii_platform.services.ytd_cii`·``cii_current``가 읽는 키와
+    글자로 같다 — 한쪽만 바뀌면 프리페치가 조용히 빗나가 원래의 N+1로 되돌아간다.
+
+    :returns: 선박별 진행 중 항차. 지도(``route``)가 쓰던 그 조회를 그대로 돌려준다.
+    """
+    ids = [vessel.id for vessel in vessels]
+    if not ids:
+        return {}
+
+    window_start = resolved - timedelta(days=RECENT_WINDOW_DAYS)
+    combos: list[tuple[int, datetime]] = [
+        (year, resolved),
+        (year - 1, resolved),
+        (year - 2, resolved),
+    ]
+    if window_start.year >= year:
+        combos.append((year, window_start))
+
+    for combo_year, as_of in combos:
+        key_year, key_as_of = combo_year, as_of_key(as_of)
+        voyages = await voyage_repo.list_annual_inclusions_for_vessels(
+            session,
+            vessel_ids=ids,
+            regulation_year=combo_year,
+            policy=POLICY_INCLUDE_AS_ACTUAL,
+            as_of=as_of,
+        )
+        voyage_ids = [voyage.id for rows in voyages.values() for voyage in rows]
+        fuel = await voyage_repo.list_fuel_uses_by_voyage_ids(session, voyage_ids)
+        nu_fuel = await not_underway_repo.sum_fuel_by_type_for_vessels(
+            session, vessel_ids=ids, regulation_year=combo_year, as_of=as_of
+        )
+        nu_distance = await not_underway_repo.sum_distance_for_vessels(
+            session, vessel_ids=ids, regulation_year=combo_year, as_of=as_of
+        )
+        periods = await not_underway_repo.list_periods_for_year_for_vessels(
+            session, vessel_ids=ids, regulation_year=combo_year, as_of=as_of
+        )
+        for vessel_id in ids:
+            rows = voyages.get(vessel_id, [])
+            row_ids = [voyage.id for voyage in rows]
+            cache_put(
+                session,
+                ("annual_inclusions", vessel_id, key_year, key_as_of, POLICY_INCLUDE_AS_ACTUAL),
+                rows,
+            )
+            cache_put(
+                session,
+                ("fuel_uses_by_voyages", tuple(sorted(row_ids))),
+                {vid: fuel.get(vid, []) for vid in row_ids},
+            )
+            cache_put(
+                session,
+                ("not_underway_fuel", vessel_id, key_year, key_as_of),
+                nu_fuel.get(vessel_id, []),
+            )
+            cache_put(
+                session,
+                ("not_underway_distance", vessel_id, key_year, key_as_of),
+                nu_distance.get(vessel_id, Decimal(0)),
+            )
+            cache_put(
+                session,
+                ("not_underway_periods", vessel_id, key_year, key_as_of),
+                periods.get(vessel_id, []),
+            )
+
+    # 진행 중 항차 — 지도(``route``)용으로 이미 읽는 그 쿼리를 그대로 캐시에 올린다.
+    # ``resolve_in_progress_state``가 시점마다 다시 읽는 것을 막는다.
+    in_progress = await voyage_repo.find_in_progress_for_vessels(session, ids)
+    for vessel_id in ids:
+        cache_put(session, ("find_in_progress", vessel_id), in_progress.get(vessel_id))
+    progress_fuel = await voyage_repo.list_fuel_uses_by_voyage_ids(
+        session, [voyage.id for voyage in in_progress.values()]
+    )
+    for voyage in in_progress.values():
+        cache_put(session, ("fuel_uses", voyage.id), progress_fuel.get(voyage.id, []))
+    return in_progress
+
+
 async def get_fleet_summary(
     session: AsyncSession,
     *,
@@ -612,10 +715,9 @@ async def get_fleet_summary(
 
     # 진행 중 항차의 출발·도착 좌표 — 지도가 항로선을 그리는 근거다 (`#763`).
     # **쿼리 한 번**으로 선대 전체를 모은다. 척마다 물으면 200척에 200쿼리가 붙는데,
-    # 이 엔드포인트는 방금 쿼리 수를 줄여 놓은 자리다(`#989`).
-    in_progress = await voyage_repo.find_in_progress_for_vessels(
-        session, [vessel.id for vessel in vessels]
-    )
+    # 이 엔드포인트는 방금 쿼리 수를 줄여 놓은 자리다(`#989`). 프리페치가 같은 쿼리를
+    # 이미 날렸고 그 결과를 돌려받는다.
+    in_progress = await _prefetch_ytd_inputs(session, vessels, year=year, resolved=resolved)
 
     rows: list[dict[str, object]] = []
     actions: list[dict[str, object]] = []
@@ -769,6 +871,13 @@ def _aggregate_counts(rows: list[dict[str, object]]) -> dict[str, object]:
 
     **화면이 다시 세지 않게 여기서 확정한다.** 화면과 서버가 각자 세면 필터·정렬이
     붙었을 때 서로 달라지고, 그 차이는 눈으로 발견되지 않는다.
+
+    ## 파생 표시 2종도 여기서 낸다 (#989 — 2026-09-17 결정 「가」)
+
+    종전에는 「가장 임박한 D등급 진입」과 「GT 미기록 척수」를 **화면이 받은 페이지에서**
+    셌다. 첫 페이지를 최대치(100)로 받으므로 100척 이하에서는 우연히 맞았지만,
+    그보다 크면 101번째 선박이 아무리 급해도 「가장 임박」에서 빠진다 — 서버가
+    ``summary``를 선대 전체로 둔 원칙(`#772` 결정 3-⑤)을 화면만 깨고 있었다.
     """
     under_way = sum(1 for r in rows if r["underway_state"] == "UNDER_WAY")
     not_under_way = sum(1 for r in rows if r["underway_state"] == "NOT_UNDER_WAY")
@@ -789,4 +898,33 @@ def _aggregate_counts(rows: list[dict[str, object]]) -> dict[str, object]:
         "rating_distribution": distribution,
         "at_risk": sum(1 for r in rows if r["risk_reasons"]),
         "no_data": sum(1 for r in rows if not r["data_available"]),
+        # GT 미기록 척수 (#989 「가」). 「미기록」의 뜻은 §2.1 어휘 그대로 NULL이다 —
+        # 0과 NULL은 다른 사실이므로 0은 세지 않는다.
+        "missing_gross_tonnage": sum(1 for r in rows if r["gross_tonnage"] is None),
+        # 가장 임박한 D등급 진입 (#989 「가」). 값이 있는 선박 중 **남은 일수가 가장
+        # 짧은 것** — 배너가 「가장 먼저 대응해야 하는 값」을 말하는 자리다.
+        # 동점은 (이름, vessel_id)로 가른다 — ``sort_fleet_rows``와 같은 2차 키라
+        # 요청을 다시 해도 같은 배를 가리킨다.
+        "soonest_d_entry": _soonest_d_entry(rows),
+    }
+
+
+def _soonest_d_entry(rows: list[dict[str, object]]) -> dict[str, object] | None:
+    """``days_to_d``가 있는 선박 중 남은 일수가 가장 짧은 것 하나.
+
+    ``vessel_id``를 함께 싣는다 — 이름만으로는 화면이 배를 특정할 수 없고(동명
+    선박), 링크로 이어 줄 근거는 ID다. 종전 화면 계산에 없던 값이지만 「가」의
+    이전 대상이 배너 보조 문구인 만큼 특정에 필요한 최소한만 더한다.
+    """
+    candidates = [row for row in rows if row["days_to_d"] is not None]
+    if not candidates:
+        return None
+    best = min(
+        candidates,
+        key=lambda r: (r["days_to_d"], str(r["name"]), str(r["vessel_id"])),  # type: ignore[arg-type, return-value]
+    )
+    return {
+        "vessel_id": best["vessel_id"],
+        "name": best["name"],
+        "days": best["days_to_d"],
     }

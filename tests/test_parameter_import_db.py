@@ -49,9 +49,8 @@ async def _cleanup_imports(app_fresh_engine):
     from cii_platform.db.seed import _CF_ROWS
     from cii_platform.db.session import get_sessionmaker
 
-    # live DB의 출처 표기 — `seed.py`의 SOURCE_FUEL_TYPE("IMO 2018 Guidelines")과
-    # 갈라져 있다(마이그레이션 6c7496c4d122가 MEPC.364(79)로 적재 · #87/#140 정정).
-    # 되돌리는 값은 **살아 있는 DB**를 기준으로 한다(test_fuel_type_seed가 잠근 값).
+    # live DB와 재적재 seed가 같은 출처를 쓴다(마이그레이션 6c7496c4d122,
+    # MEPC.364(79) · #87/#140/#1240 정정). test_fuel_type_seed가 이 값을 잠근다.
     _live_source_ref = "MEPC.364(79)"
 
     async with get_sessionmaker()() as s:

@@ -27,6 +27,8 @@ const OK_BODY = {
       rating_distribution: { A: 0, B: 0, C: 1, D: 0, E: 1 },
       at_risk: 1,
       no_data: 0,
+      missing_gross_tonnage: 1,
+      soonest_d_entry: { vessel_id: 'v2', name: 'MV Plain', days: 42 },
     },
     vessels: [
       {
@@ -129,6 +131,30 @@ describe('정상 응답', () => {
       unknownState: 1,
       atRisk: 1,
     })
+  })
+
+  it('파생 표시 2종은 summary에서 온다 — 화면이 페이지로 세지 않는다 (#989)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const snapshot = await createApiFleetProvider(fetchImpl).load()
+
+    expect(snapshot.counts.missingGrossTonnage).toBe(1)
+    expect(snapshot.counts.soonestDEntry).toEqual({
+      vesselId: 'v2',
+      name: 'MV Plain',
+      days: 42,
+    })
+  })
+
+  it('구버전 서버(파생 표시 필드 없음)에서는 값을 지어내지 않는다 (#989)', async () => {
+    const legacy = JSON.parse(JSON.stringify(OK_BODY))
+    delete legacy.data.summary.missing_gross_tonnage
+    delete legacy.data.summary.soonest_d_entry
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(legacy))
+    const snapshot = await createApiFleetProvider(fetchImpl).load()
+
+    // 없는 필드를 받은 선박으로 세는 것은 이 결함을 되살린다 — 0과 null로 둔다.
+    expect(snapshot.counts.missingGrossTonnage).toBe(0)
+    expect(snapshot.counts.soonestDEntry).toBeNull()
   })
 
   it('수치를 문자열 그대로 둔다 — 되돌리면 API_SPEC §1.7의 정밀도가 사라진다', async () => {
