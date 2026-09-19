@@ -262,6 +262,21 @@ async def test_seed_updates_changed_values(seeded):
     assert row.c == Decimal("2.673000")
 
 
+async def test_seed_restores_fuel_type_source_ref(seeded):
+    """재적재가 CF 출처를 MEPC.364(79)로 복구한다 (#1240).
+
+    부트스트랩 마이그레이션 검사가 아니라 규제 개정 재적재 경로를 직접 검증한다.
+    G1에는 CF 표가 없으므로 값이 인쇄된 현행 EEDI 지침을 출처로 유지해야 한다
+    (DB_SCHEMA §3.2 각주 [#87 정정]).
+    """
+    await seeded.execute(text("UPDATE fuel_type SET source_ref = 'IMO 2018 Guidelines'"))
+
+    await seed_all(seeded)
+
+    refs = (await seeded.execute(text("SELECT DISTINCT source_ref FROM fuel_type"))).scalars().all()
+    assert refs == ["MEPC.364(79)"]
+
+
 # --- 3. CLI 진입점 (DB 불필요) --------------------------------------------------
 
 
