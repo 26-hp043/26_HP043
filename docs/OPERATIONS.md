@@ -237,7 +237,7 @@ cp .env.app.example .env
 # .env 필수 값:
 #   CUBRID_HOST=10.0.1.132
 #   CUBRID_PASSWORD=<비밀번호>
-#   DATABASE_URL=cubrid+aiopycubrid://dba:<URL인코딩된비밀번호>@10.0.1.132:33100/cii
+#   DATABASE_URL=cubrid+pycubrid://dba:<URL인코딩된비밀번호>@10.0.1.132:33100/cii
 #   CORS_ALLOW_ORIGINS=https://bluelog-bx7.pages.dev
 #   APP_PUBLIC_URL=https://bluelog-bx7.pages.dev
 #   APP_ENV=staging  (SMTP 미설정 시)  또는  production (SMTP 설정 완료 시)

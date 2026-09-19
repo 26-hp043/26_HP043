@@ -11,6 +11,7 @@ import importlib
 import pytest
 
 from cii_platform import __version__, config
+from cii_platform.db.url import normalize_to_async
 
 # config가 읽는 환경변수. 재로드 전에 전부 비워 테스트 간 잔류를 막는다.
 _CONFIG_ENV_KEYS = ("APP_ENV", "DATABASE_URL")
@@ -19,8 +20,10 @@ _CONFIG_ENV_KEYS = ("APP_ENV", "DATABASE_URL")
 # 자기참조가 되므로, docker-compose.yml · .env.example과 같은 리터럴로 대조한다.
 #: 개발용 기본 접속 URL. `config._DEFAULT_DATABASE_URL`과 **글자까지 같아야 한다** —
 #: 여기만 낡으면 「기본값이 바뀌었다」를 잡는 것이 아니라 이 검사가 틀린 것이 된다.
-#: CUBRID 전환으로 바뀌었다 (`#1058`).
-_DEV_DEFAULT_URL = "cubrid+aiopycubrid://dba:@localhost:33000/cii"
+#: CUBRID 전환으로 바뀌었다 (`#1058`). 표기는 **드라이버 이름을 그대로 쓰는 쪽**으로
+#: 통일했다 (`#1305`) — DBAPI는 `pycubrid` 하나이고, `aiopycubrid`는 배포본이 아니라
+#: `sqlalchemy-cubrid`가 싣는 async **방언** 이름이다.
+_DEV_DEFAULT_URL = "cubrid+pycubrid://dba:@localhost:33000/cii"
 
 
 @pytest.fixture
@@ -56,11 +59,21 @@ def test_config_module_loads_database_url():
     assert config.DATABASE_URL, "DATABASE_URL이 비어 있으면 안 된다"
 
     # 기본값이든 환경변수 override든 CUBRID 접속 URL이어야 한다 (`#1058`).
-    # CI는 `DATABASE_URL=cubrid+aiopycubrid://dba:@localhost:33000/cii_test`를 주입한다.
-    #
+    # CI는 `DATABASE_URL=cubrid+pycubrid://dba:@localhost:33000/cii_test`를 주입한다.
+    assert config.DATABASE_URL.startswith("cubrid+"), config.DATABASE_URL
+
     # **드라이버까지 본다.** 종전에는 `startswith("postgresql")`이라 동기 드라이버로
-    # 떨어져도 통과했다. 이 앱은 async 드라이버가 아니면 뜨지 않는다.
-    assert config.DATABASE_URL.startswith("cubrid+aiopycubrid://"), config.DATABASE_URL
+    # 떨어져도 통과했다. 이 앱은 async 방언이 아니면 뜨지 않는다.
+    #
+    # 다만 그 단언을 **원문에 걸지 않는다** (`#1305`). 표기를 `cubrid+pycubrid://`로 통일한 뒤
+    # (DBAPI가 `pycubrid` 하나이므로) 원문은 동기 방언 이름을 쓰고, async 방언으로
+    # 바꾸는 것은 `normalize_to_async`다 — `db/session.py`·`db/seed.py`·`alembic/env.py`가
+    # 전부 그 함수를 통과시킨다. 그래서 **`create_async_engine`이 실제로 받는 값**을 본다.
+    # 원문 단언을 그냥 지우면 지키려던 것까지 함께 사라지고, 그대로 두면 표기를 바꾼
+    # 순간 빨갛게 뜬다. 이쪽이 종전보다 **엔진의 실제 동작에 가깝다.**
+    assert normalize_to_async(config.DATABASE_URL).startswith("cubrid+aiopycubrid://"), (
+        config.DATABASE_URL
+    )
 
 
 def test_package_version_is_defined():
@@ -108,7 +121,7 @@ def test_unset_app_env_falls_back_to_development(reload_config, caplog):
 
 def test_production_with_database_url_uses_provided_value(reload_config):
     """프로덕션이라도 DATABASE_URL이 있으면 가드가 발동하지 않고 그 값을 쓴다."""
-    url = "postgresql+asyncpg://appuser:secret@db.internal:5432/cii"
+    url = "cubrid+pycubrid://appuser:secret@db.internal:33000/cii"
     reloaded = reload_config(APP_ENV="production", DATABASE_URL=url)
 
     assert url == reloaded.DATABASE_URL
@@ -124,7 +137,7 @@ def test_production_with_database_url_uses_provided_value(reload_config):
 # 앱은 정상 기동하고 /health도 200이라 틀렸다는 신호가 어디에도 없었다.
 # ---------------------------------------------------------------------------
 
-_PROD_URL = "postgresql+asyncpg://appuser:secret@db.internal:5432/cii"
+_PROD_URL = "cubrid+pycubrid://appuser:secret@db.internal:33000/cii"
 
 
 @pytest.mark.parametrize("raw", ["Production", "PRODUCTION", "production ", " production"])

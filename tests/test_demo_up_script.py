@@ -404,6 +404,25 @@ def test_no_postgresql_tooling_remains(banned: str):
     assert not hits, f"PostgreSQL 전용 `{banned}`가 남아 있습니다: {hits}"
 
 
+def test_async_engines_normalize_the_database_url():
+    """`create_async_engine`에 `DATABASE_URL`을 **그대로** 넘기지 않는다 (#1305).
+
+    스크립트가 정한 `DB_URL`은 **동기 방언 표기**(`cubrid+pycubrid://`)다 — DBAPI가
+    `pycubrid` 하나이므로 설정·문서는 그 이름으로 통일한다. async 엔진은 그 방언을
+    받지 못하므로(`is_async`가 없다), 행 수 집계와 시드 drift 두 경로가 원문을 그대로
+    넘기면 **시연 기동이 그 자리에서 선다.**
+
+    ⚠️ **호출부를 하나씩 세지 않는다.** `#1305`가 정확히 그렇게 놓쳤다 — `src/`의 세
+    호출부만 확인하고 이 스크립트의 인라인 파이썬 두 곳을 지나쳤다. 스크립트의
+    **모든** `create_async_engine` 줄을 훑어야 다음에 늘어나는 호출도 걸린다.
+    """
+    calls = [line for line in _code_lines() if "create_async_engine(" in line]
+
+    assert calls, "create_async_engine 호출을 찾지 못했습니다 — 스크립트가 바뀌었는지 확인할 것"
+    for line in calls:
+        assert "normalize_to_async(" in line, f"정규화 없이 async 엔진을 만듭니다: {line}"
+
+
 def test_cubrid_tooling_is_present():
     """CUBRID 쪽 도구가 **실제로 들어가 있다**.
 
@@ -411,7 +430,7 @@ def test_cubrid_tooling_is_present():
     """
     code = "\n".join(_code_lines())
 
-    assert "cubrid+aiopycubrid://" in code, "CUBRID 접속 URL이 없습니다."
+    assert "cubrid+pycubrid://" in code, "CUBRID 접속 URL이 없습니다."
     assert "csql" in code, "csql 호출이 없습니다 — DB에 직접 묻는 경로가 사라졌습니다."
     assert "db_root" in code, "CUBRID 준비 대기(SELECT 1 FROM db_root)가 없습니다."
 

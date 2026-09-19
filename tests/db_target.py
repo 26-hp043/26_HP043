@@ -23,15 +23,19 @@
 호스트나 포트로는 가를 수 없다. 개발 DB와 테스트 DB가 같은 서버에 있는 것이
 정상이기 때문이다. 가를 수 있는 것은 이름뿐이다.
 
-CI는 이미 ``cii_test``를 쓴다(``.github/workflows/ci.yml``의 postgres 서비스
-``POSTGRES_DB``). 그래서 이 규칙은 **CI를 그대로 통과시키고 로컬 개발 DB만 막는다.**
+CI는 이미 ``cii_test``를 쓴다(``.github/workflows/ci.yml``의 cubrid 서비스
+``CUBRID_DB``). 그래서 이 규칙은 **CI를 그대로 통과시키고 로컬 개발 DB만 막는다.**
 
-로컬에서 롤백 테스트를 돌리려면 대상만 바꾸면 된다.
+로컬에서 롤백 테스트를 돌리려면 대상만 바꾸면 된다. 명령은 `#1058`에서 CUBRID로
+바뀌었다 — ``createdb``·``psql``은 CUBRID에 없다(`#1207`). 전문은 ``README``
+「로컬에서 테스트를 돌리는 법」에 있다.
 
 .. code-block:: bash
 
-    createdb -h localhost -U cii cii_test
-    DATABASE_URL=postgresql://cii:cii@localhost:5432/cii_test uv run pytest
+    docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+        --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+      cubrid server start cii_test'
+    DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 
 ## 범위 — 파괴적 테스트만이 아니다 (`#691`)
 
@@ -56,7 +60,7 @@ TEST_DB_SUFFIX = "_test"
 def database_name(url: str) -> str:
     """접속 URL에서 데이터베이스 이름을 꺼낸다.
 
-    드라이버 표기(``postgresql+asyncpg://``)와 쿼리스트링(``?sslmode=…``)이 섞여도
+    드라이버 표기(``cubrid+pycubrid://``)와 쿼리스트링(``?charset=…``)이 섞여도
     같은 값을 돌려줘야 한다 — 판정이 표기 방식에 따라 갈리면 가드가 아니다.
     """
     path = urlsplit(url).path
@@ -80,7 +84,8 @@ def skip_reason(url: str) -> str:
         f"대상 DB '{name}'은(는) 파괴적 테스트 대상이 아닙니다 (#507). "
         f"이 테스트는 `alembic downgrade base`로 스키마를 드롭하므로 "
         f"이름이 '{TEST_DB_SUFFIX}'로 끝나는 DB에서만 실행합니다. "
-        f"예: DATABASE_URL=postgresql://cii:cii@localhost:5432/cii_test uv run pytest"
+        f"예: DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test "
+        f"uv run --extra dev pytest"
     )
 
 
@@ -103,8 +108,11 @@ def refusal_reason(url: str) -> str:
         "\n"
         f"이름이 '{TEST_DB_SUFFIX}'로 끝나는 DB에서만 실행합니다. 한 번만 만들면 됩니다.\n"
         "\n"
-        "    docker compose exec -T db createdb -U cii cii_test\n"
-        "    DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test pytest\n"
+        "    docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \\\n"
+        '      --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&\n'
+        "      cubrid server start cii_test'\n"
+        "    DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test "
+        "uv run --extra dev pytest\n"
         "\n"
         "CI는 이미 cii_test를 씁니다 (.github/workflows/ci.yml)."
     )

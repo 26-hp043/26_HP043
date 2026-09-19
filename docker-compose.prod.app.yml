@@ -22,7 +22,7 @@
 # DATABASE_URL / DATABASE_SYNC_URL은 .env에서 주입한다. 비밀번호에 URL 예약 문자가
 # 있을 수 있으므로 compose 인라인 조합 대신 완성된 URL을 넣는다 (#152 패턴).
 x-cubrid-url: &cubrid-url
-  "${DATABASE_URL:-cubrid+aiopycubrid://dba:${CUBRID_PASSWORD:-}@${CUBRID_HOST:-cubrid}:33100/cii}"
+  "${DATABASE_URL:-cubrid+pycubrid://dba:${CUBRID_PASSWORD:-}@${CUBRID_HOST:-cubrid}:33100/cii}"
 
 services:
   backend:

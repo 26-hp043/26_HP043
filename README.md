@@ -434,27 +434,53 @@ await fetch('/api/v1/auth/dev-login', { method: 'POST' }); location.href = '/'
 **`cii_test`를 한 번 만들면 끝난다.** 그 뒤로는 신경 쓸 것이 없다.
 
 ```bash
-# 1) 한 번만 — 테스트 전용 DB를 만든다
-docker compose exec -T db createdb -U cii cii_test
+# 1) 한 번만 — 테스트 전용 DB를 만들고 서버를 올린다
+docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+    --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+  cubrid server start cii_test'
 
 # 2) 이후로는 이렇게 돌린다
-DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest
+DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 ```
 
-대상을 주지 않고 `uv run pytest`를 치면 **DB를 쓰는 테스트가 전부 실패한다.** skip이 아니라 실패다 — skip은 조용해서 **돌지 않은 것을 돌았다고 착각할 여지**를 남기고, 이 사고의 본체가 바로 「아무 신호 없이 지나갔다」였다.
+세 가지가 PostgreSQL 시절과 다르다 (`#1058` · `#1207`).
+
+| | 왜 |
+|---|---|
+| `createdb`가 아니라 **`cubrid createdb`** | CUBRID에 `createdb`·`dropdb`·`psql`은 없다. 로케일 인자(`en_US.iso88591`)는 **필수**이며 운영 DB `cii`와 같아야 한다 |
+| 포트가 5432가 아니라 **33100** | `docker-compose.yml`이 브로커를 `33100:33000`으로 낸다. 컨테이너 **안**에서는 `db:33000`이다 |
+| **`--extra dev`** | `pytest`는 `pyproject.toml`의 `[dev]` extra에 있고 **`uv`는 extra를 기본으로 설치하지 않는다.** 빼면 `pytest`를 찾지 못한다 — 전환과 무관하게 원래 틀렸던 줄이다 |
+
+> 🔴 **`docker compose down` 뒤에는 서버를 다시 올려야 한다.** 컨테이너 진입점이 기동하는 것은 `$CUBRID_DB`(`cii`) 하나뿐이라 `cii_test`의 서버는 내려간 채로 남는다. 그 상태로 pytest를 돌리면 「Failed to connect to database server, 'cii_test'」가 난다.
+>
+> ```bash
+> docker compose exec -T db cubrid server start cii_test
+> ```
+
+> 볼륨을 64M로 잡는 것은 **DB를 두 개 만들기 때문**이다. CUBRID는 공간이 모자라면 볼륨을 자동 확장하므로 작게 시작해도 된다 — `scripts/db_backup.py`의 복구본이 같은 값을 쓴다.
+
+대상을 주지 않고 `uv run --extra dev pytest`를 치면 **DB를 쓰는 테스트가 전부 실패한다.** skip이 아니라 실패다 — skip은 조용해서 **돌지 않은 것을 돌았다고 착각할 여지**를 남기고, 이 사고의 본체가 바로 「아무 신호 없이 지나갔다」였다.
 
 ```
 대상 DB 'cii'은(는) 테스트 대상이 아닙니다 (#691).
 …
-    docker compose exec -T db createdb -U cii cii_test
-    DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test pytest
+    docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+      --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+      cubrid server start cii_test'
+    DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 ```
 
-**DB를 쓰지 않는 테스트는 그대로 돈다.** 막는 것은 「DB에 쓰는 것」이지 「테스트를 돌리는 것」이 아니다.
+> 이 문구는 `tests/db_target.py`가 만든다. **README와 갈라지지 않게** `tests/test_db_target_guard.py`가 양쪽에서 PostgreSQL 명령·URL을 찾아 막는다 (`#1207`).
 
-`cii_test`로 돌리면 종전에 skip되던 **롤백 왕복 테스트 6건이 로컬에서도 실행된다.** 지금까지 그 6건은 CI에서만 검증됐다.
+**DB를 쓰지 않는 테스트는 그대로 돈다.** 막는 것은 「DB에 쓰는 것」이지 「테스트를 돌리는 것」이 아니다. 문서 가드처럼 DB를 보지 않는 검사는 대상 지정 없이 바로 돈다.
 
-CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
+```bash
+uv run --extra dev pytest tests/test_doc_cross_refs.py
+```
+
+`cii_test`로 돌리면 종전에 skip되던 **롤백 왕복 테스트가 로컬에서도 실행된다.** 그 전까지 그 검사는 CI에서만 돌았다.
+
+CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`의 `cubrid` 서비스). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
 
 ### 스위트를 겹쳐 돌리지 못한다 (`#894`)
 
@@ -471,10 +497,11 @@ CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.git
 `test_zz_roundtrip.py`가 `downgrade base`와 `upgrade head` 사이에서 끊기면 DB가 **중간 리비전에 남는다.** 다음 실행은 「`alembic upgrade head` 실패 — 테스트 DB가 리비전 ○○○에 남아 있습니다」로 알린다. 테스트 DB는 버려도 되는 곳이므로 **다시 만든다.**
 
 ```bash
-docker compose exec -T db dropdb -U cii cii_test
-docker compose exec -T db createdb -U cii cii_test
-DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest   # 첫 fixture가 upgrade head를 한다
+# 지운다 — `deletedb`는 서버가 떠 있으면 거부하므로 먼저 멈춘다
+docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb cii_test'
 ```
+
+그런 뒤 위 1)을 그대로 다시 실행하고 테스트를 돌린다. 첫 fixture가 `upgrade head`를 한다.
 
 ---
 
@@ -621,3 +648,4 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-20 | `#1318` | 문서 구조 표의 `API_SPEC.md` 행을 v1.40 · `TECH_SPEC.md` 행을 v1.13으로 갱신 — §8.1·§8.5 CSV 수식 주입 방어의 범위를 「사용자 입력을 반출하는 셀과 라벨」로 좁히고 수치 열은 숫자로 직렬화 (#1247) |
 | 2026-09-20 | `#1320` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.14로 갱신 — §7.1·§7.3 기상 조회 계층을 구현에 맞춤(외부 조회 먼저·실패 시에만 `weather_snapshot` 캐시 · `WeatherProvider(Protocol)` `fetch` 하나 · `source` 값 `open_meteo_marine+forecast` 추가). `DB_SCHEMA §2.13` 값 목록 행도 함께 맞췄다(버전 유지) (#968) |
 | 2026-09-20 | `#1360` | **「지도 자산」 절 정정 — 사실 정정이며 배포 방침 변경이 아니다.** `#985`(2026-09-18)가 항만 43곳의 깊은 층(z7–z10)을 걷어내고 전 세계 z0–z5(약 26 MB)로 좁혀 **저장소에 커밋했는데**, 이 절이 여전히 「`.gitignore`가 막아 두었다 · 약 92 MB · z0–z6+z7–z10」이라는 종전 구성을 안내하고 있었다. `git ls-files`로 커밋 여부를 다시 확인하고, 절을 「받는다」에서 「평소엔 손댈 일 없다」로 고쳤다 — 정확한 수치는 `scripts/fetch_basemap.sh` 머리말을, 확대 상한은 `basemap.ts`의 `MAX_ZOOM`을 가리키게 해 값이 다시 벌어지지 않게 했다. `AGENTS §4.3` 「오기·값 정정」이라 버전은 올리지 않는다 (#1340) |
+| 2026-09-20 | `#1304` | **`#1058` CUBRID 전환이 남긴 자국을 지운다** (`#1207` · `#1305`) — 「로컬에서 테스트를 돌리는 법」이 `createdb -U cii`·`postgresql+asyncpg://…:5432`를 그대로 내밀어 **적힌 대로 하면 실패**했다. `cubrid createdb … en_US.iso88591` + `cubrid server start`·브로커 포트 33100으로 옮기고, `docker compose down` 뒤 서버를 다시 올려야 한다는 것(진입점이 기동하는 것은 `$CUBRID_DB` 하나뿐)을 함께 적었다. 세 번째 줄은 **전환과 무관하게 원래 틀려 있었다** — `pytest`는 `[dev]` extra인데 `uv`는 extra를 기본으로 설치하지 않으므로 `uv run --extra dev pytest`여야 한다. 같은 문구를 만드는 `tests/db_target.py`도 함께 옮겼고(README가 그것을 그대로 인용한다), 재발은 `test_the_way_out_does_not_tell_people_to_run_postgresql_commands`가 **양쪽에서** 막는다. 함께 `DATABASE_URL` 표기를 **`cubrid+pycubrid://`로 통일**했다 — `aiopycubrid`는 배포본이 아니라 `sqlalchemy-cubrid`가 싣는 async 방언 이름이고 DBAPI는 `pycubrid` 하나다(`entry_points` 직접 확인). ⚠️ **엔진이 받는 값은 그대로 async 방언이다** — `normalize_to_async()`가 `cubrid+` 접두를 전부 async로 바꾸며, 동기 엔진으로 바꾸는 작업이 아니다 (#1305) |
