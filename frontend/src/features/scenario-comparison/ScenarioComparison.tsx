@@ -3,6 +3,7 @@ import { useRef, useEffect, useMemo, useState } from 'react'
 import './ScenarioComparison.css'
 import { useShellContext } from '../../layout/shellContext'
 import { ScenarioAdoptPanel } from './ScenarioAdoptPanel'
+import { VoyageRouteMap } from './VoyageRouteMap'
 import {
   FIELD,
   MIN_SPEED_KN,
@@ -855,6 +856,22 @@ export function ScenarioComparison({
         {usesCoordinateDistance(snapshot.inputs) ? (
           <p className="scenario-comparison__notice">{COORDINATE_DISTANCE_NOTICE}</p>
         ) : null}
+
+        {/*
+          위치 맥락 지도 (`#1265`). **좌표가 들어왔을 때만** 그려지며 그 판단은
+          컴포넌트가 스스로 한다 — 좌표는 선택 입력이라 비어 있는 것이 기본 경로이고,
+          그때 빈 지도를 두면 정상 상태가 고장으로 읽힌다.
+
+          세 시나리오를 겹쳐 그리지 않는다. 좌표가 한 쌍뿐이고 우회는 거리 배수라
+          (`PRD §11.3`) **공간적으로 다른 경로가 없다.**
+        */}
+        <VoyageRouteMap
+          currentLat={snapshot.inputs.currentLat}
+          currentLon={snapshot.inputs.currentLon}
+          destinationLat={snapshot.inputs.destinationLat}
+          destinationLon={snapshot.inputs.destinationLon}
+          destinationName={snapshot.inputs.destinationPortName}
+        />
 
         <div className="scenario-comparison__cards">
           {/*

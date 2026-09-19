@@ -450,3 +450,75 @@ describe('⑶ 불러온 수는 전체 수가 아니다 (#1102)', () => {
     expect(screen.getByRole('button', { name: '더 보기' })).toBeTruthy()
   })
 })
+
+/**
+ * 제원 경고가 행 리듬을 깨지 않는다 (#1277).
+ *
+ * `#719`가 완성도 막대를 값 두 칸으로 바꾼 뒤로 **무엇이 비었는지는 열이 말한다** —
+ * `용량` · `기준속도` · `일일 연료`에 `—`가 선다. 경고가 그 이름을 다시 적으면서
+ * 이유마다 줄을 쌓아, 제원이 빈 행만 두 배 높이가 됐다.
+ *
+ * 이름은 보조 기술에만 남긴다. `—`가 스크린 리더에서 「비었다」로 읽힌다는 보장이
+ * 없어, 그 사용자에게는 `#511` 이후의 문장이 그대로 필요하다.
+ */
+describe('제원 경고 — 열이 말한 것을 반복하지 않는다 (#1277)', () => {
+  function stubBareVessel() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        if (String(input).includes('/parameters/fuel-types')) return jsonResponse({ data: [] })
+        return jsonResponse({
+          data: [
+            {
+              id: '00000000-0000-4000-8000-000000000009',
+              imo_number: '9000009',
+              name: '제원 없는 배',
+              ship_type: 'BULK_CARRIER',
+              deadweight: null,
+              gross_tonnage: null,
+              is_cii_applicable_hint: true,
+              reference_speed_kn: null,
+              reference_daily_foc_ton: null,
+              default_fuel_type: null,
+              underway_state: 'NOT_UNDER_WAY',
+              detail_status: null,
+            },
+          ],
+          meta: {},
+        })
+      }),
+    )
+  }
+
+  it('⚠️ 이유 둘이 한 요소에 들어간다 — 줄이 쌓이면 행 높이가 갈린다', async () => {
+    stubBareVessel()
+    render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+
+    const line = (await screen.findByText(/CII 등급을 산출할 수 없습니다/)).closest('p')
+    expect(line).toBeTruthy()
+    // 같은 요소가 두 결과를 모두 갖는다 = 한 줄이다.
+    expect(line?.textContent).toContain('감속 민감도가 산출되지 않습니다')
+    // 리스트로 되돌아가면 이 단언이 깨진다.
+    expect(line?.querySelector('li')).toBeNull()
+  })
+
+  it('보이는 것은 결과뿐 — 빠진 항목 이름은 보조 기술 몫이다', async () => {
+    stubBareVessel()
+    const { container } = render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText(/CII 등급을 산출할 수 없습니다/)
+
+    // 이름은 sr-only로 남아 있다 (`#511` 이후의 문장을 잃지 않는다).
+    const hidden = [...container.querySelectorAll('.vm__blocked .sr-only')].map((n) => n.textContent)
+    expect(hidden.join('')).toContain('재화중량톤수(DWT) 없음')
+    expect(hidden.join('')).toContain('기준속도 · 기준 일일 연료소모량 없음')
+  })
+})
