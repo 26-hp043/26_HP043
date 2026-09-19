@@ -31,6 +31,7 @@ function vessel(overrides: Partial<Vessel> = {}): Vessel {
     reference_speed_kn: null,
     reference_daily_foc_ton: null,
     block_coefficient: null,
+    call_sign: null,
     is_cii_applicable_hint: true,
     underway_state: null,
     detail_status: null,
@@ -247,5 +248,34 @@ describe('validateEdit — 주입된 목록이 판정을 정한다 (#542)', () =
         { code: 'AMMONIA', displayName: '암모니아' },
       ]),
     ).not.toHaveProperty(EDIT_FIELD.defaultFuelType)
+  })
+})
+
+describe('#1197 호출부호(call sign) — 수정 폼', () => {
+  it('등록 폼과 같은 규칙으로 검증한다', () => {
+    expect(validateEdit(state({ callSign: 'hlxq7' }))[EDIT_FIELD.callSign]).toBeUndefined()
+    expect(validateEdit(state({ callSign: '12AB' }))[EDIT_FIELD.callSign]).toBeDefined()
+    expect(validateEdit(state({ callSign: 'ABC' }))[EDIT_FIELD.callSign]).toBeDefined()
+  })
+
+  it('서버 값이 폼으로 옮겨지고 null은 빈 칸이 된다', () => {
+    expect(toEditState(vessel({ call_sign: 'HLXQ' })).callSign).toBe('HLXQ')
+    expect(toEditState(vessel()).callSign).toBe('')
+  })
+
+  it('접은 값이 원본과 같으면 싣지 않는다 — 소문자로 다시 쳐도 바뀐 것이 없다', () => {
+    const original = vessel({ call_sign: 'HLXQ' })
+    expect(toUpdateRequest(original, state({ callSign: ' hlxq ' }))).toEqual({})
+    expect(toUpdateRequest(original, state({ callSign: 'D5AB' }))).toEqual({ call_sign: 'D5AB' })
+  })
+
+  it('값이 있던 호출부호를 비우면 지울 수 없다고 알린다 — 서버에 지우는 경로가 없다', () => {
+    const original = vessel({ call_sign: 'HLXQ' })
+    expect(clearAttemptNotice(original, state({ callSign: '' }))).toContain('호출부호')
+    expect(clearAttemptNotice(vessel(), state({ callSign: '' }))).toBeNull()
+  })
+
+  it('호출부호 변경은 재계산 안내를 내지 않는다 — 계산 입력이 아니다', () => {
+    expect(recalcNotice(vessel(), state({ callSign: 'HLXQ' }))).toBeNull()
   })
 })

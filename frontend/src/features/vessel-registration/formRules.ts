@@ -39,6 +39,7 @@ export interface VesselFormState {
   referenceSpeedKn: string
   referenceDailyFocTon: string
   blockCoefficient: string
+  callSign: string
 }
 
 /**
@@ -60,6 +61,7 @@ export const FIELD = {
   referenceSpeedKn: 'reference_speed_kn',
   referenceDailyFocTon: 'reference_daily_foc_ton',
   blockCoefficient: 'block_coefficient',
+  callSign: 'call_sign',
   /** 어느 입력창에도 붙지 않는 오류. 폼 상단에 표시한다. */
   form: '__form__',
 } as const
@@ -87,6 +89,7 @@ export function initialFormState(): VesselFormState {
     referenceSpeedKn: '',
     referenceDailyFocTon: '',
     blockCoefficient: '',
+    callSign: '',
   }
 }
 
@@ -129,6 +132,47 @@ export const STORABLE = {
 
 /** 방형계수의 물리 상한 — 체적 비율은 1을 넘지 않는다 (#966). */
 export const CB_MAX = 1
+
+/**
+ * 호출부호(call sign)의 모양 (#1197) — ITU 전파규칙 `RR No. 19.55`의 선박국 네 형식은 전부
+ * **영문 대문자·숫자 4~7자**에 든다. 서버 스키마(`api/schemas/vessel.py` `_CALL_SIGN`)·DB
+ * 트리거(마이그레이션 058)와 **같은 식**이다 — 한쪽만 다르면 화면이 통과시킨 값을 서버가
+ * 422로 돌려보내거나 그 반대가 된다.
+ */
+export const CALL_SIGN_PATTERN = /^[A-Z0-9]{4,7}$/
+
+/**
+ * 호출부호를 서버와 **같은 모양**으로 접는다 — 앞뒤 공백을 지우고 대문자로. 비면 `null`.
+ *
+ * 서버도 같은 정규화를 하므로 화면이 안 해도 저장 결과는 같다. 그래도 여기서 하는 이유는
+ * 검증 문구가 **접은 값** 기준이어야 하기 때문이다 — `hlxq`를 「대문자여야 한다」로 막으면
+ * 서버가 받아 주는 입력을 화면이 거부한다.
+ */
+export function normalizeCallSign(raw: string): string | null {
+  const value = raw.trim().toUpperCase()
+  return value === '' ? null : value
+}
+
+/**
+ * 호출부호 한 칸의 검증. 비어 있으면 오류가 아니다(선택 입력).
+ *
+ * 문구는 서버 검증기(`_normalize_call_sign`)와 **글자 그대로 같다** — 서버 422가 같은 칸에
+ * 붙을 때 화면 검증과 다른 말을 하지 않게. 「앞 두 글자가 모두 숫자가 아니다」(`RR No. 19.50`)
+ * 까지만 보고 그 이상의 세부(문자 뒤 0·1 금지)는 보지 않는다 — 서버와 같은 느슨함이다.
+ *
+ * **등록·수정 두 폼이 함께 쓴다** (`checkOptionalPositive`와 같은 이유).
+ */
+export function checkCallSign(raw: string, field: string, errors: Record<string, string>): void {
+  const value = normalizeCallSign(raw)
+  if (value === null) return
+  if (!CALL_SIGN_PATTERN.test(value)) {
+    errors[field] = '호출부호는 영문 대문자와 숫자 4~7자여야 합니다.'
+    return
+  }
+  if (/^\d{2}/.test(value)) {
+    errors[field] = '호출부호의 앞 두 글자는 모두 숫자일 수 없습니다.'
+  }
+}
 
 /**
  * 선택 입력 한 칸의 검증. 비어 있으면 오류가 아니고, 값이 있으면 저장 범위 안이어야 한다.
@@ -242,6 +286,8 @@ export function validateForm(
       errors[FIELD.blockCoefficient] = '방형계수(CB)은(는) 1 이하로 입력해 주세요.'
     }
   }
+  // #1197 — 호출부호(선택). 공공데이터 교차 대조의 키.
+  checkCallSign(state.callSign, FIELD.callSign, errors)
 
   // 목록을 못 받은 상태(로딩·실패)에서는 연료 검사를 보류한다 (`#1100` ⑴) — 서버가 최종 판정한다.
   if (state.defaultFuelType !== '' && fuels.length > 0 && !isKnownFuel(state.defaultFuelType, fuels)) {
@@ -320,6 +366,10 @@ export function toRequest(state: VesselFormState): VesselCreateRequest {
   const referenceDailyFocTon = toNumber(state.referenceDailyFocTon)
   if (referenceDailyFocTon !== null) request.reference_daily_foc_ton = referenceDailyFocTon
 
+  // #1197 — 호출부호(선택). 접은 값을 싣고, 빈 칸은 키를 넣지 않는다(위 규칙과 같다).
+  const callSign = normalizeCallSign(state.callSign)
+  if (callSign !== null) request.call_sign = callSign
+
   if (state.defaultFuelType !== '') {
     request.default_fuel_type = state.defaultFuelType
   }
@@ -337,6 +387,8 @@ const FIELD_PATHS: ReadonlySet<string> = new Set([
   FIELD.defaultFuelType,
   FIELD.referenceSpeedKn,
   FIELD.referenceDailyFocTon,
+  FIELD.blockCoefficient,
+  FIELD.callSign,
 ])
 
 /**

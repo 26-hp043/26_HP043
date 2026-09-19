@@ -31,6 +31,11 @@ export interface VesselCreateRequest {
   reference_daily_foc_ton?: number
   /** #966 — 방형계수(선택). 기상 보정(Townsin–Kwon)의 선형 계수. */
   block_coefficient?: number
+  /**
+   * #1197 — 호출부호(선택). 공공데이터(해양수산부_선박운항정보)가 IMO가 아니라 이 값으로
+   * 질의하므로 교차 대조의 키다. 서버가 strip · upper로 접어 저장한다(`API_SPEC §2.3`).
+   */
+  call_sign?: string
 }
 
 /**
@@ -52,6 +57,8 @@ export interface Vessel {
   reference_daily_foc_ton: number | null
   /** #966 — 방형계수. `null`이면 선종 기본값 + `CB_ESTIMATED` 경고가 계약이다. */
   block_coefficient: number | null
+  /** #1197 — 호출부호. `null`이면 「모른다」— 그 배는 공공데이터 교차 대조 대상이 아니다. */
+  call_sign: string | null
   /**
    * CII 적용 대상 추정 — **서버가 정한다**(`API_SPEC §2.3`: GT ≥ 5,000).
    *

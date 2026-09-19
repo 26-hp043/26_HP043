@@ -656,6 +656,21 @@ function EditForm({
         )}
       </Field>
 
+      {/* #1197 — 호출부호(선택). 공공데이터 교차 대조의 키. 서버가 대문자로 접어 저장한다. */}
+      <Field id="vm-callSign" label="호출부호" error={errors[EDIT_FIELD.callSign]}>
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            type="text"
+            autoCapitalize="characters"
+            spellCheck={false}
+            value={state.callSign}
+            onChange={(e) => set({ callSign: e.target.value })}
+          />
+        )}
+      </Field>
+
       <Field id="vm-defaultFuelType" label="기본 연료" error={errors[EDIT_FIELD.defaultFuelType]}>
         {(control) => (
           <select
