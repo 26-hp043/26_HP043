@@ -121,7 +121,7 @@ def test_unset_app_env_falls_back_to_development(reload_config, caplog):
 
 def test_production_with_database_url_uses_provided_value(reload_config):
     """프로덕션이라도 DATABASE_URL이 있으면 가드가 발동하지 않고 그 값을 쓴다."""
-    url = "postgresql+asyncpg://appuser:secret@db.internal:5432/cii"
+    url = "cubrid+pycubrid://appuser:secret@db.internal:33000/cii"
     reloaded = reload_config(APP_ENV="production", DATABASE_URL=url)
 
     assert url == reloaded.DATABASE_URL
@@ -137,7 +137,7 @@ def test_production_with_database_url_uses_provided_value(reload_config):
 # 앱은 정상 기동하고 /health도 200이라 틀렸다는 신호가 어디에도 없었다.
 # ---------------------------------------------------------------------------
 
-_PROD_URL = "postgresql+asyncpg://appuser:secret@db.internal:5432/cii"
+_PROD_URL = "cubrid+pycubrid://appuser:secret@db.internal:33000/cii"
 
 
 @pytest.mark.parametrize("raw", ["Production", "PRODUCTION", "production ", " production"])
