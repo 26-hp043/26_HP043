@@ -324,3 +324,43 @@ describe('숫자 칸의 잘못된 입력이 조용히 빠지지 않는다 (#1100
   })
 })
 
+
+describe('#1197 호출부호(call sign)', () => {
+  it('RR No.19.55의 네 형식(4~7자)은 통과한다', () => {
+    for (const raw of ['HLXQ', 'HLXQ7', '3F1234', 'KRA1234']) {
+      expect(validateForm(state({ callSign: raw }))[FIELD.callSign]).toBeUndefined()
+    }
+  })
+
+  it('소문자·앞뒤 공백은 접어서 본다 — 서버가 받아 주는 입력을 화면이 거부하지 않는다', () => {
+    expect(validateForm(state({ callSign: ' hlxq7 ' }))[FIELD.callSign]).toBeUndefined()
+  })
+
+  it('빈 칸은 오류가 아니다 — 선택 입력이다', () => {
+    expect(validateForm(state({ callSign: '   ' }))[FIELD.callSign]).toBeUndefined()
+  })
+
+  it('3자·8자·기호는 형식 문구로 막는다 — 서버 검증기와 같은 문구다', () => {
+    for (const raw of ['ABC', 'ABCDEFGH', 'HL-XQ', 'HL XQ']) {
+      expect(validateForm(state({ callSign: raw }))[FIELD.callSign]).toBe(
+        '호출부호는 영문 대문자와 숫자 4~7자여야 합니다.',
+      )
+    }
+  })
+
+  it('앞 두 글자가 모두 숫자면 막는다 (RR No.19.50)', () => {
+    expect(validateForm(state({ callSign: '12AB' }))[FIELD.callSign]).toBe(
+      '호출부호의 앞 두 글자는 모두 숫자일 수 없습니다.',
+    )
+  })
+
+  it('toRequest — 접은 값을 싣고 빈 칸은 키를 넣지 않는다', () => {
+    expect(toRequest(state({ callSign: ' hlxq ' })).call_sign).toBe('HLXQ')
+    expect('call_sign' in toRequest(state({ callSign: '' }))).toBe(false)
+  })
+
+  it('서버 422가 호출부호 입력창에 붙는다 — 폼 상단으로 가지 않는다', () => {
+    const error = new VesselRegistrationError('VALIDATION_ERROR', '호출부호는 영문 대문자와 숫자 4~7자여야 합니다.', 'call_sign')
+    expect(toFormErrors(error)).toEqual({ [FIELD.callSign]: error.message })
+  })
+})

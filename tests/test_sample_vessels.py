@@ -54,12 +54,14 @@ def test_sample_fields_are_the_create_fields_without_identity():
 
     예외 — ``block_coefficient``(#966). 샘플은 IMO 조회의 대역인데 실제 조회가 방형계수를
     주지 않는다(사무직이 수기로 넣는 제원). 값을 지어 싣는 것이 거짓이므로 뺀다.
+    ``call_sign``(#1197)도 같다 — 호출부호는 IMO·선명과 같은 **신원**이라 샘플에 없다.
     """
     create_fields = set(VesselCreateRequest.model_fields)
     assert set(SAMPLE_SPEC_FIELDS) == create_fields - {
         "imo_number",
         "name",
         "block_coefficient",
+        "call_sign",
     }
     for sample in list_sample_vessels():
         assert "imo_number" not in sample and "name" not in sample

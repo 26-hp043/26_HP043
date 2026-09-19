@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.31 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** |
-| 최종 수정일 | 2026-09-19 |
+| 버전 | v1.32 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** |
+| 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -91,6 +91,7 @@ erDiagram
 | `reference_speed_kn` | NUMERIC(6,2) | NULL | 기준 속도 (kn) |
 | `reference_daily_foc_ton` | NUMERIC(8,2) | NULL | 기준 일일 연료소모량 (ton/day) |
 | `block_coefficient` | NUMERIC(4,3) | NULL, CHECK (0 < CB <= 1) [#966] | 방형계수 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택: 넣으면 실측값, `NULL`이면 선종 기본값 + `CB_ESTIMATED` |
+| `call_sign` | VARCHAR(7) | NULL, **트리거 `trg_chk_call_sign_ins`·`_upd`** (`^[A-Z0-9]{4,7}$` · `REGEXP BINARY`) [#1197] | 호출부호(call sign) — **공공데이터 교차 대조의 키**(`PRD §15.1` `[#1197]` 각주). `해양수산부_선박운항정보`가 IMO가 아니라 이 값으로 질의한다. ITU RR No.19.55상 영문 대문자·숫자 4~7자이며 API가 strip · upper로 접어 넣는다(`API_SPEC §2.3`). 선택: `NULL`이면 그 배는 대조 대상이 아닐 뿐 계산은 그대로. **UNIQUE 없음** — 재배정되는 값이다(마이그레이션 058) |
 
 > **[#860] 제원 4컬럼의 정밀도가 곧 API 입력 경계다.** `NUMERIC(12,2)`는 `0.01 ~ 9,999,999,999.99`,
 > `(6,2)`는 `0.01 ~ 9,999.99`, `(8,2)`는 `0.01 ~ 999,999.99`만 담는다. 그보다 작은 양수는 `0.00`으로
@@ -124,6 +125,10 @@ ALTER TABLE vessel ADD CONSTRAINT chk_imo_format CHECK (imo_number ~ '^\d{7}$');
 ALTER TABLE vessel ADD CONSTRAINT chk_gt_positive CHECK (gross_tonnage IS NULL OR gross_tonnage > 0);
 ALTER TABLE vessel ADD CONSTRAINT chk_dwt_positive CHECK (deadweight IS NULL OR deadweight > 0);
 ALTER TABLE vessel ADD CONSTRAINT chk_speed_positive CHECK (reference_speed_kn IS NULL OR reference_speed_kn > 0);
+-- 058 (#1197): 호출부호 형식. CUBRID에서는 트리거 trg_chk_call_sign_ins/_upd가 REGEXP BINARY로 집행한다 (§7.4).
+--   「앞 두 글자가 모두 숫자가 아니다」(RR No.19.50)는 DB가 아니라 API 스키마만 본다 — 배정 관행이 나라마다 달라
+--   세부 규칙을 DB에 박으면 실재하는 부호를 거부할 수 있다. 이 칸은 인증서가 아니라 대조 키다.
+ALTER TABLE vessel ADD CONSTRAINT chk_call_sign_format CHECK (call_sign IS NULL OR call_sign ~ '^[A-Z0-9]{4,7}$');
 -- 026 (#346): 운항 상태 2축 + 위치. 전부 NULL 허용 — 미갱신 선박도 정상 조회.
 ALTER TABLE vessel ADD CONSTRAINT chk_underway_state_allowed CHECK (underway_state IS NULL OR underway_state IN ('UNDER_WAY','NOT_UNDER_WAY'));
 ALTER TABLE vessel ADD CONSTRAINT chk_detail_status_allowed CHECK (detail_status IS NULL OR detail_status IN ('SAILING','IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'));
@@ -2090,3 +2095,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-18 | `#673` | **v1.29 — §2.8 `UNIQUE(year)`·§2.10 `idx_refline_unique`·§2.11 `idx_boundary_unique`를 활성-유니크 트리거로 교체 · §2.10·§2.11에 `version`·`is_active` 컬럼 추가 · §7.2 각주에 「정책이 문서로만 존재했다」는 실측 등재.** §7.2가 정한 개정 운용(새 행 + 전환)이 물리적으로 불가능했던 이유가 둘였다 — ⑴ 두 테이블에 컬럼이 없었다 ⑵ 세 키가 전역 유니크라 이행 행을 못 만들었다. `054`가 둘 다 고친다(컬럼 추가 · 트리거 교체 — `050` ⑴ 패턴). 기존 행은 현행이므로 `is_active = 1`이 초깃값이다. 구조 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#673) |
 | 2026-09-18 | `#966` | **v1.30 — §2.1 `vessel.block_coefficient NUMERIC(4,3)` 추가** (마이그레이션 055 · 결정요청 v9 D-3 「가」). 선택 입력이며 `CHECK(0 < CB <= 1)` — 체적 비율의 물리 범위다. 집행은 046 패턴의 트리거(`trg_chk_block_coefficient_ins/upd`)가 한다. 넣으면 기상 보정이 실측값을 쓰고, `NULL`이면 선종 기본값 + `CB_ESTIMATED`. 실측값이 Cform 범위 밖이면 `CB_OUT_OF_RANGE` 경고. 행 추가라 `AGENTS §4.3`상 버전은 올리지 않는다 (#966) |
 | 2026-09-19 | `#1308` | **v1.31 — §2.15 `app_user.role` 값에 관리자(`ADMIN`) 추가**(마이그레이션 057). 044의 `role` 표기를 「CHECK `chk_app_user_role`」에서 **실제 집행 주체인 트리거 `trg_app_user_role_ins`·`_upd`**로 정정했다 — CUBRID가 CHECK를 구문으로만 받고 검사하지 않아 애초에 존재한 적 없는 제약이었다(`#1058` · `§7.4`). 057이 그 두 트리거를 `('OFFICE', 'FIELD')`에서 **`('OFFICE', 'FIELD', 'ADMIN')`**으로 재생성한다(`CREATE OR REPLACE`가 없어 DROP 후 CREATE). 057 이전에는 `role = 'ADMIN'` INSERT·UPDATE가 REJECT된다. **downgrade는 관리자를 사무직으로 내린 뒤 트리거를 좁힌다**(현장직이 아니다 — `ADMIN`이 `OFFICE`의 상위집합이라 사무직으로 내리는 것이 최소 변경이다) — 누가 관리자였는지가 사라져 `IRREVERSIBLE`. 표기 정정 + 값 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#1301) |
+| 2026-09-20 | `#1317` | **v1.32 — §2.1 `vessel.call_sign VARCHAR(7)` 추가**(마이그레이션 058 · #1197 A단계). 공공데이터포털의 해양수산부 계열 선박 데이터는 IMO가 아니라 **호출부호**로 배를 가리키고, `해양수산부_선박운항정보`는 호출부호가 입력 파라미터라 없으면 질의 자체가 안 된다 — 전수 IMO↔호출부호 레지스트리는 공공데이터에 없어(2026-09-17 실측) 사용자가 넣는 칸을 둔다. 형식은 ITU RR No.19.55(영문 대문자·숫자 4~7자)이며 집행은 055 패턴의 트리거 `trg_chk_call_sign_ins/upd`(`REGEXP BINARY` · 050 선례)가 한다. 「앞 두 글자가 모두 숫자가 아니다」(No.19.50)는 API만 본다 — 대조 키이지 인증서가 아니다. **UNIQUE를 걸지 않는다**(재배정되는 값). 컬럼 추가라 #966(v1.30)과 같은 기준으로 버전을 올린다 (#1197) |

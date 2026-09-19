@@ -10,10 +10,11 @@ DB를 봐야 아는 것(VAL-004 ``ship_type`` 존재, 중복 IMO)은 서비스�
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from cii_platform.api.schemas.bounds import storable, storable_from
 
@@ -62,6 +63,42 @@ _DAILY_FOC = _storable(8, 2)
 #: 반올림돼 범위 검사를 통과하고 DB 제약에 걸린다(``#1086`` ⑥와 같은 결함).
 _CB = dict(storable_from(Decimal("0.001"), 4, 3), le=Decimal("1"))
 
+#: 호출부호(call sign)의 모양 — ITU 전파규칙 ``RR No. 19.55``의 선박국 네 형식은 전부
+#: **영문 대문자·숫자 4~7자**에 든다(마이그레이션 ``058`` 본문). DB 트리거
+#: ``trg_chk_call_sign_ins/upd``와 같은 식이다.
+_CALL_SIGN = re.compile(r"^[A-Z0-9]{4,7}$")
+#: 최대 길이는 DB 컬럼 ``VARCHAR(7)``에서 온다.
+_CALL_SIGN_MAX_LENGTH = 7
+
+
+def _normalize_call_sign(value: object) -> str | None:
+    """호출부호를 **대조 키로 쓸 수 있는 모양**으로 접는다 (#1197 A단계).
+
+    - 앞뒤 공백을 지우고 **대문자로** 올린다. 무선국허가증은 대문자로 적지만 사용자는
+      소문자로 치기도 한다 — 같은 부호가 ``hlxq``·``HLXQ`` 두 키로 갈리면 공공데이터
+      대조가 조용히 빈다.
+    - 접은 뒤 비어 있으면 ``None`` — 「모른다」다. 등록에서는 미기록이고 수정(PATCH)에서는
+      「안 바꾼다」다(``services.vessel.update_vessel`` 규약).
+    - ``RR No. 19.50`` — 앞 두 글자는 국가 배정 계열이라 **둘 다 숫자일 수 없다.** 「문자
+      바로 뒤에 0·1이 오지 않는다」 같은 세부는 보지 않는다 — 배정 관행이 나라마다 달라
+      실재하는 부호를 거부할 수 있고, 이 칸은 인증서가 아니라 대조 키다.
+
+    문구는 한국어로 곧바로 낸다 — ``validation_messages``가 ``ValueError`` 원문을 그대로
+    쓴다(``API_SPEC §1.3.2``).
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("호출부호는 문자열이어야 합니다.")
+    text = value.strip().upper()
+    if text == "":
+        return None
+    if not _CALL_SIGN.fullmatch(text):
+        raise ValueError(f"호출부호는 영문 대문자와 숫자 4~{_CALL_SIGN_MAX_LENGTH}자여야 합니다.")
+    if text[0].isdigit() and text[1].isdigit():
+        raise ValueError("호출부호의 앞 두 글자는 모두 숫자일 수 없습니다.")
+    return text
+
 
 class VesselCreateRequest(BaseModel):
     """``POST /api/v1/vessels`` 요청 본문 (API_SPEC §2.3).
@@ -87,6 +124,17 @@ class VesselCreateRequest(BaseModel):
     # #966 — 방형계수(선택). 기상 보정(Townsin–Kwon)의 선형 계수. 모르면 보내지
     # 않는다 — 그때는 선종 기본값 + CB_ESTIMATED 경고가 계약이다.
     block_coefficient: Annotated[Decimal | None, Field(**_CB)] = None
+    # #1197 — 호출부호(선택). 공공데이터(해양수산부_선박운항정보)가 IMO가 아니라 이 값으로
+    # 질의하므로 교차 대조의 키다. 모르면 보내지 않는다 — 그 배는 대조 대상이 아닐 뿐이다.
+    # ``max_length``는 접은 **뒤**의 값에 걸린다(검증기가 ``mode="before"``) — 그래서
+    # 「 hlxq 」는 422가 아니라 HLXQ로 들어간다. 실질 판정은 검증기의 정규식이고, 이
+    # 상한은 OpenAPI에 컬럼 길이(7)를 드러내는 몫이다.
+    call_sign: Annotated[str | None, Field(max_length=_CALL_SIGN_MAX_LENGTH)] = None
+
+    @field_validator("call_sign", mode="before")
+    @classmethod
+    def _call_sign(cls, value: object) -> str | None:
+        return _normalize_call_sign(value)
 
 
 class VesselUpdateRequest(BaseModel):
@@ -108,6 +156,14 @@ class VesselUpdateRequest(BaseModel):
     reference_speed_kn: Annotated[Decimal | None, Field(**_SPEED)] = None
     reference_daily_foc_ton: Annotated[Decimal | None, Field(**_DAILY_FOC)] = None
     block_coefficient: Annotated[Decimal | None, Field(**_CB)] = None
+    # #1197 — 빈 문자열은 None으로 접히므로 「안 바꾼다」가 된다. 지우는 경로는 GT와
+    # 마찬가지로 PATCH에 없다.
+    call_sign: Annotated[str | None, Field(max_length=_CALL_SIGN_MAX_LENGTH)] = None
+
+    @field_validator("call_sign", mode="before")
+    @classmethod
+    def _call_sign(cls, value: object) -> str | None:
+        return _normalize_call_sign(value)
 
 
 class VesselPositionUpdateRequest(BaseModel):

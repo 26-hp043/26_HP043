@@ -29,6 +29,8 @@ export interface VesselUpdateRequest {
   reference_daily_foc_ton?: number | null
   /** #966 — 방형계수(선택). 기상 보정의 선형 계수. */
   block_coefficient?: number | null
+  /** #1197 — 호출부호(선택). 공공데이터 교차 대조의 키. 빈 문자열은 서버가 「안 바꾼다」로 접는다. */
+  call_sign?: string | null
 }
 
 /**

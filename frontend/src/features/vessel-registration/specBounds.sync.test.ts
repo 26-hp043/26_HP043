@@ -67,6 +67,7 @@ describe('선박 제원 경계 — #860', () => {
       referenceSpeedKn: '100000',
       referenceDailyFocTon: '',
       blockCoefficient: '',
+      callSign: '',
     }
     const errors = validateEdit(state, [])
     expect(errors.deadweight).toBeDefined()
