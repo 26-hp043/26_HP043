@@ -34,7 +34,8 @@ class WeatherSnapshot(Base):
     wave_period_s = sa.Column(sa.Numeric(precision=6, scale=2), nullable=True)
     wind_speed_ms = sa.Column(sa.Numeric(precision=6, scale=2), nullable=True)
     wind_direction_deg = sa.Column(sa.Numeric(precision=6, scale=2), nullable=True)
-    # open_meteo_marine, open_meteo_forecast, sample (§2.13 설명 — CHECK는 정본에 없음).
+    # open_meteo_marine+forecast(기본) · open_meteo_marine · open_meteo_forecast · sample
+    # (§2.13 값 목록 · 정본은 TECH_SPEC §7.1 — 집행 CHECK·트리거는 없다, #968).
     source = sa.Column(sa.String(length=50), nullable=False)
     created_at = sa.Column(
         sa.DateTime(timezone=True),

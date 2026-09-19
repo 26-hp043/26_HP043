@@ -809,7 +809,7 @@ CREATE UNIQUE INDEX idx_weather_param_unique ON weather_model_parameter (model_v
 | `wave_period_s` | NUMERIC(6,2) | NULL | 파 주기 |
 | `wind_speed_ms` | NUMERIC(6,2) | NULL | 풍속 |
 | `wind_direction_deg` | NUMERIC(6,2) | NULL | 풍향 |
-| `source` | VARCHAR(50) | NOT NULL | open_meteo_marine, open_meteo_forecast, sample |
+| `source` | VARCHAR(50) | NOT NULL | 출처. `open_meteo_marine+forecast`(정상 경로 기본값 — 두 엔드포인트를 한 행에 합침) · `open_meteo_marine` · `open_meteo_forecast`(한쪽만 응답) · `sample`(테스트·수동 적재). 값 표의 정본은 `TECH_SPEC §7.1`. **집행 제약 없음** — 아래 `[#968]` |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
@@ -818,7 +818,9 @@ CREATE UNIQUE INDEX idx_weather_param_unique ON weather_model_parameter (model_v
 CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fetched_at DESC);
 ```
 
-> 캐시 TTL 24시간. 24시간 초과 스냅샷은 PRD §11.6 기상 API 장애 정책에 따라 fallback 처리된다.
+> 캐시 TTL 24시간. 24시간 초과 스냅샷은 PRD §11.6 기상 API 장애 정책에 따라 fallback 처리된다. **캐시는 외부 조회가 실패했을 때만 본다** — 순서·key·신선도 판정은 `TECH_SPEC §7.3`.
+>
+> **[#968] `source` 값 목록에 `open_meteo_marine+forecast`를 추가했다.** 어댑터(`weather/open_meteo.py` `SOURCE_MERGED`)가 정상 경로에서 처음부터 이 값을 저장해 왔는데 종전 목록 3값에는 없었다. 이 컬럼에는 **집행 제약이 없다** — `1c444a5c4819`의 CHECK 60개, `046`·`048`·`050`의 트리거 어디에도 `weather_snapshot.source`는 없고 ORM(`models/weather_snapshot.py`)에도 `CheckConstraint`가 없다(자유 `VARCHAR(50)`). 그래서 이 값이 REJECT된 적은 없고 마이그레이션도 필요 없다. 값을 정하는 곳이 어댑터 한 곳이라 코드 상수 ⊆ 이 목록은 `tests/test_weather_source_sync.py`가 지킨다.
 >
 > **[#102] TTL과 보존의 구분:** TTL 24시간은 **재사용 판단 기준(신선도 창)이지 삭제 스케줄이 아니다.** `calculation_run.weather_snapshot_id`(§2.5 [#102], FK **RESTRICT**)가 참조하는 스냅샷은 TTL 경과와 무관하게 보존되어야 재현성 계약(TECH_SPEC §5.4)의 추적성이 성립한다. 캐시 정리(eviction) 작업은 **참조되지 않는 행만** 삭제해야 하며, 참조 행을 포함한 일괄 DELETE는 RESTRICT에 막혀 트랜잭션 전체가 롤백된다.
 
@@ -2102,3 +2104,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-19 | `#1308` | **v1.31 — §2.15 `app_user.role` 값에 관리자(`ADMIN`) 추가**(마이그레이션 057). 044의 `role` 표기를 「CHECK `chk_app_user_role`」에서 **실제 집행 주체인 트리거 `trg_app_user_role_ins`·`_upd`**로 정정했다 — CUBRID가 CHECK를 구문으로만 받고 검사하지 않아 애초에 존재한 적 없는 제약이었다(`#1058` · `§7.4`). 057이 그 두 트리거를 `('OFFICE', 'FIELD')`에서 **`('OFFICE', 'FIELD', 'ADMIN')`**으로 재생성한다(`CREATE OR REPLACE`가 없어 DROP 후 CREATE). 057 이전에는 `role = 'ADMIN'` INSERT·UPDATE가 REJECT된다. **downgrade는 관리자를 사무직으로 내린 뒤 트리거를 좁힌다**(현장직이 아니다 — `ADMIN`이 `OFFICE`의 상위집합이라 사무직으로 내리는 것이 최소 변경이다) — 누가 관리자였는지가 사라져 `IRREVERSIBLE`. 표기 정정 + 값 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#1301) |
 | 2026-09-20 | `#1317` | **v1.32 — §2.1 `vessel.call_sign VARCHAR(7)` 추가**(마이그레이션 058 · #1197 A단계). 공공데이터포털의 해양수산부 계열 선박 데이터는 IMO가 아니라 **호출부호**로 배를 가리키고, `해양수산부_선박운항정보`는 호출부호가 입력 파라미터라 없으면 질의 자체가 안 된다 — 전수 IMO↔호출부호 레지스트리는 공공데이터에 없어(2026-09-17 실측) 사용자가 넣는 칸을 둔다. 형식은 ITU RR No.19.55(영문 대문자·숫자 4~7자)이며 집행은 055 패턴의 트리거 `trg_chk_call_sign_ins/upd`(`REGEXP BINARY` · 050 선례)가 한다. 「앞 두 글자가 모두 숫자가 아니다」(No.19.50)는 API만 본다 — 대조 키이지 인증서가 아니다. **UNIQUE를 걸지 않는다**(재배정되는 값). 컬럼 추가라 #966(v1.30)과 같은 기준으로 버전을 올린다 (#1197) |
 | 2026-09-20 | `#1319` | **v1.33 — §2.2 `voyage.planned_distance_source VARCHAR(30)` 추가**(마이그레이션 059 · #1052 ⓷ 후속). `PRD §15.2`는 대권거리를 「좌표 기반 추정 거리」라고 표시하라고 정하는데 저장된 항차에는 그 사실이 남지 않았다 — 화면의 `estimated`는 폼의 임시 상태라 저장하면 사라졌다. 값은 `USER_INPUT`(직접 입력 · CSV 가져오기)·`COORDINATE_ESTIMATE`(두 좌표의 대권거리) 둘이고 **`NULL`은 「모른다」**다. 기존 행은 backfill하지 않는다 — 저장된 거리가 대권거리와 비슷하다고 추정으로 되채우면 같은 값을 직접 입력한 사람에게도 「추정값입니다」가 붙는다(`PRD §0.3`). 거리가 바뀌면 옛 출처를 새 값에 남기지 않는다(`API_SPEC §3.4` · 시나리오 채택도 같다). 집행은 055 패턴의 트리거 `trg_chk_planned_distance_source_ins/upd`가 한다. downgrade는 컬럼·트리거만 지우며 그 결과는 059 이전과 같은 「모른다」라 `REGENERABLE`(계산·등급에 들어가지 않는 표시 값). 컬럼 추가라 #966(v1.30)·#1197(v1.32)과 같은 기준으로 버전을 올린다 (#1256) |
+| 2026-09-20 | `#1320` | §2.13 `weather_snapshot.source` 값 목록에 **`open_meteo_marine+forecast`**(정상 경로 기본값 — Marine·Forecast 두 엔드포인트를 한 행에 합침) 추가 · 값 표의 정본을 `TECH_SPEC §7.1`로 가리키고, 이 컬럼에 **집행 제약이 없다**는 실측(`1c444a5c4819` CHECK·`046`·`048`·`050` 트리거·ORM 어디에도 없음 — 자유 `VARCHAR(50)`)을 각주로 적었다. 어댑터 `SOURCE_MERGED`가 처음부터 이 값을 저장해 왔으므로 REJECT된 적 없고 마이그레이션 없음. 캐시 각주에 「외부 조회 실패 시에만 본다」 한 줄(`TECH_SPEC §7.3` v1.14). 값 목록 행 갱신이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#968) |
