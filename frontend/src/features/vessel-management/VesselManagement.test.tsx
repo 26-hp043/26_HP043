@@ -95,10 +95,12 @@ describe('역할 — 현장직은 제원 수정·삭제를 보지 않는다 (#67
         <VesselManagement />
       </MemoryRouter>,
     )
-    await screen.findByText('샘플 벌크선')
-    expect(screen.queryByRole('button', { name: '수정' })).toBeNull()
-    expect(screen.queryByRole('button', { name: '삭제' })).toBeNull()
-    expect(screen.getByText(OFFICE_ONLY_ACTION_HINT)).toBeTruthy()
+    const name = await screen.findByText('샘플 벌크선')
+    const row = name.closest('.vm__item') as HTMLElement
+    expect(within(row).queryByRole('button', { name: '수정' })).toBeNull()
+    expect(within(row).queryByRole('button', { name: '삭제' })).toBeNull()
+    // 등록 버튼 가드(#1353)도 같은 문구를 쓰므로 이 화면에는 두 번 나타난다 — 행 안으로 좁혀 확인한다.
+    expect(within(row).getByText(OFFICE_ONLY_ACTION_HINT)).toBeTruthy()
   })
 
   it('사무직: 두 버튼이 그대로 있다', async () => {
@@ -111,6 +113,64 @@ describe('역할 — 현장직은 제원 수정·삭제를 보지 않는다 (#67
     await screen.findByText('샘플 벌크선')
     expect(screen.getByRole('button', { name: '수정' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '삭제' })).toBeTruthy()
+    expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
+  })
+})
+
+/**
+ * 「선박 등록」도 같은 가드를 쓴다 (`API_SPEC §1.2` · #1353). 종전에는 같은 줄의 수정·삭제만
+ * `office`로 막히고 등록 링크만 열려 있어, 현장직이 눌러 사무직 전용 화면
+ * (`/vessel-registration`)으로 넘어갔다가 「이 화면은 사무직 계정만 쓸 수 있습니다」를
+ * 보고서야 되돌아와야 했다.
+ */
+describe('역할 — 「선박 등록」 버튼도 같은 가드를 쓴다 (#1353)', () => {
+  function stubEmptyList() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/fuel-types')) {
+          return jsonResponse({
+            data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+          })
+        }
+        return jsonResponse({ data: [], meta: {} })
+      }),
+    )
+  }
+
+  it('현장직: 「선박 등록」 대신 안내 문구, 링크는 없다', async () => {
+    stubRole('FIELD')
+    stubEmptyList()
+    render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+    await screen.findByText(OFFICE_ONLY_ACTION_HINT)
+    expect(screen.queryByRole('link', { name: '선박 등록' })).toBeNull()
+  })
+
+  it('사무직: 「선박 등록」 링크가 그대로 있다', async () => {
+    stubEmptyList()
+    render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('link', { name: '선박 등록' })
+    expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
+  })
+
+  it('관리자: 「선박 등록」 링크가 그대로 있다 — ADMIN은 OFFICE의 상위집합 (#1301)', async () => {
+    stubRole('ADMIN')
+    stubEmptyList()
+    render(
+      <MemoryRouter>
+        <VesselManagement />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('link', { name: '선박 등록' })
     expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
   })
 })

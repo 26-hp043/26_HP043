@@ -249,8 +249,10 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
       null,
     "features/fleet-reduction/FleetReduction.tsx :: saving || planName.trim() === '' || pricesInvalid":
       'fr-save-blocked',
-    "features/scenario-comparison/ScenarioAdoptPanel.tsx :: !ready || adopt.status === 'running'":
-      'scenario-adopt-stale',
+    // #1325 — 현장직 잠금(`!office`)이 더해졌다. 낭독은 더 근본적인 사유(사무직 전용)를 앞세우고,
+    // 사무직이면 종전대로 `scenario-adopt-stale`로 잇는다.
+    "features/scenario-comparison/ScenarioAdoptPanel.tsx :: !ready || adopt.status === 'running' || !office":
+      'scenario-adopt-office-only',
     "features/scenario-comparison/ScenarioComparison.tsx :: state.status === 'loading' || noVessel || yearUnavailable":
       'sc-no-vessel',
     'features/vessel-detail/PositionForm.tsx :: busy || nothingToSave': 'vd-pos-nothing',
