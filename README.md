@@ -7,7 +7,7 @@
 | 문서명 | README.md |
 | 버전 | v1.0 |
 | 상태 | 운영 중 — 저장소 진입점 |
-| 최종 수정일 | 2026-09-18 |
+| 최종 수정일 | 2026-09-20 |
 | 하위 문서 | `PRD.md`, `TECH_SPEC.md`, `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md`, `AGENTS.md`, `DESIGN_SYSTEM.md`, `UIFLOW.md` |
 | 문서 목적 | 프로젝트 개요·문서 구조·MVP 범위를 안내한다. 규범적 내용은 각 정본이 소유하며 본 문서는 요약만 담는다 |
 
@@ -43,7 +43,7 @@
 | [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.16**, 자체 ID/PW 인증 전환 #413 + **역할 2종(사무직·현장직) #672** + **관리자 분리 — 역할 3종 #1301** + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358 + **§12.3.1 필요 감축량(목표 역산) #433** + **§8.4 선종 변경 재계산 #944** + **§3.3.8 진행분 유종별 배분 #885** + **§6.4 상태 문구 #931** + **§12.2.1 실적 보정계수 #363** + **§6.4 「선행 선택 필요」 패턴 #1171** + **§5.1 화면 언어 전환(실험) #1215**) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.14**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 #434 + 메일·리포트 절 신설 #446 + **§10.3 NumPy 업그레이드·재현성 한계 #833·#106** + **§16.2 디렉터리 트리 실측 갱신 #1081** + **§5.2.1.2 기능③ parameters_used v1·v2 #1306** + **§19.2 CSV 수치 열 선언 #1247** + **§7.1·§7.3 기상 조회 계층 실측 정합 #968**) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16), 메일 발송(§18), 리포트 렌더링(§19) | ✅ 완료 |
 | [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.41**, 인증 재작성 #414 + **역할 2종·사무직 전용 경로 #672** + **관리자 전용 경로 #1301** + **호출부호 call_sign #1197** + **CSV 수치 열 선언 #1247** + **계획 거리 출처 planned_distance_source #1256** + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440 + CII 적용 대상 표시 #653 + CSV 내보내기 컬럼 확정 #59 + 샘플 선박 목록 #982 + 챗봇 API #121 + **파라미터 Import CSV #673** + **vessel.block_coefficient #966**) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.33**, not under way 스키마 #345 + **app_user.role #672** + **role 3종·값 트리거 057 #1301** + **vessel.call_sign 058 #1197** + **voyage.planned_distance_source 059 #1256** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451 + **CUBRID 제약 전면 갱신 #1058** + **chat_session·chat_message 등재 #1080** + **활성-유니크 트리거 #673** + **block_coefficient #966**) — **25개 테이블**, **CUBRID 11.4.6**, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.34**, not under way 스키마 #345 + **app_user.role #672** + **role 3종·값 트리거 057 #1301** + **vessel.call_sign 058 #1197** + **voyage.planned_distance_source 059 #1256** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451 + **CUBRID 제약 전면 갱신 #1058** + **chat_session·chat_message 등재 #1080** + **활성-유니크 트리거 #673** + **block_coefficient #966** + **head 059 대조 #1342**) — **25개 테이블**, **CUBRID 11.4.6**, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
 | [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.27**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398 + 배포 배선 고정 #508 + 테스트 격리 #507 + 계정 관리 #506 + **§3.25~3.27 신설 · §10 실CI 재작성 · §14.3~14.5 갱신 #1104·#1081** + **IT-IMPORT CSV 계약 #673**) — 파일·함수·수집 수는 `TEST_PLAN §14.2` 합계 문장이 정본(CI가 실측과 대조), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 (**v1.10**) — 문서 우선순위(§3.1)·소관 한정 정본(§3.2), Oracle 교차 검증, 규제값 권위 소스, 이슈 유예 처리(§6.1), 1 PR = 1 이슈·PR 제목 형식(§7), 「상위 문서」 의미(§4.4), 제품명(§4.5), 화면 문구 소관(§4.6), 절·화면 참조 표기(§4.7) | ✅ 완료 |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (**v2.14**, 등급 3색 체계 · 다크 모드 · 토큰 접두어 `--cii-*` #463 + `UIFLOW` 참조 정리·신뢰도 배지 표시 임계 #583 + §4.2 일수·속력 자릿수 #592 + §8.2 CII 적용 대상 배지 #653 + §4.2 용량 자릿수 #633 + **rlatnals4114 확정 12건 반영** — §16 미확정 6항목 종결·§0.2 제약 6·§5 〔확정〕/〔제안〕 표기·§12 아이콘 세트·§15 `--brand-*` #747 · #694 + **§8 BrandLogo·§7.2 브랜드 판 반응형 #934** + **rlatnals4114 2026-09-11 확정 반영** — §5 확정/제안 정의·오버레이 규정·§8 슬라이더·§8.3 등급 전이 #930 · #932 · #933 + **§8.4 폼 필드·필드 오류 #936** + **§8.5 어시스턴트 오버레이 「답이 아닌 것」의 표시 #1051** + **§16 항목 4 self-host 마감 #1171** + **§14 비활성 컨트롤의 사유 표기 확정·§16 항목 20 #1170** + **§12 아이콘 규격값의 출처를 Figma로 일원화·§15 `--icon-*` #1174** + **§14 경계와 장식을 가르는 1.4.11 적용 기준 #1202**) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성 | ✅ 완료 |
@@ -244,27 +244,24 @@ python3 scripts/purge_expired.py
 - ⚠️ **한 표가 실패해도 나머지는 돈다.** 배포 순서상 코드가 먼저 가고 마이그레이션이 뒤따르는 순간이 있어, 그 틈에서도 세션 정리는 돌아야 한다. 실패가 있으면 **종료 코드가 1**이다
 - 개발 스택에 쓰려면 `COMPOSE="docker compose" python3 scripts/purge_expired.py …`
 
-### 지도 자산 (`#763`) — 선택
+### 지도 자산 (`#763` · `#985`) — 평소엔 손댈 일 없음
 
 선대 대시보드의 지도는 **우리 오리진의 파일 하나**(PMTiles)를 읽는다. 키도 런타임 외부 요청도 없고 오프라인에서 그대로 뜬다.
 
+**산출물은 저장소에 커밋돼 있다**(`frontend/public/basemap/`) — clone하면 바로 뜨고 따로 받을 것이 없다. 저장소 루트의 `.gitignore` `/basemap/` 패턴은 경로가 달라 이 폴더를 막지 않는다(`.gitignore` 자체 주석 참고). 아래 스크립트는 타일을 갱신하거나 담는 범위를 바꿀 때만 돌린다.
+
 ```bash
 # pmtiles CLI가 필요하다 — https://github.com/protomaps/go-pmtiles/releases
-scripts/fetch_basemap.sh                # 약 92 MB · 5~10분
+scripts/fetch_basemap.sh                # 정확한 범위·용량·소요 시간은 스크립트 머리말이 정본이다
 ```
 
 기본 출력은 `frontend/public/basemap`이고, **개발과 배포가 같은 자리를 쓴다** — Vite가
 `public/`을 오리진 루트로 서빙하고, `npm run build`가 그대로 `dist/`로 옮기며, 프론트
-이미지가 그 `dist`를 nginx 문서 루트로 COPY 한다. 받아 둔 환경에서만 이미지가 커진다.
-`.gitignore`가 이 경로를 막아 두었다.
+이미지가 그 `dist`를 nginx 문서 루트로 COPY 한다.
 
-| 층 | 용량(2026-09-12 실측) |
-|---|---|
-| 전 세계 z0–z6 | 44.9 MB |
-| 항만 43곳 z7–z10 | 38.0 MB |
-| 글리프 2종 × 256 range | 12.0 MB |
+확대 상한은 `frontend/src/features/fleet/basemap.ts`의 `MAX_ZOOM`이 정본이다 — 스크립트의 줌 범위와 짝을 이루므로 한쪽만 바꾸면 overzoom으로 화면이 뭉툭해진다.
 
-**받지 않아도 된다.** 자산이 없으면 화면이 **개략도로 떨어지고**, 지도 라이브러리(gzip 약 294 KB)도 내려받지 않는다. 저장소에 넣지 않는 이유는 이미지가 이미 699 MB이기 때문이다.
+**자산이 없어도 화면은 뜬다.** 없으면 화면이 **개략도로 떨어지고**, 지도 라이브러리(gzip 약 294 KB)도 내려받지 않는다.
 
 > 정적 서버가 `/basemap/`을 서빙하고 **HTTP Range 요청을 지원**해야 한다(PMTiles가 파일 일부만 읽는다). Vite와 nginx 모두 지원한다.
 
@@ -437,27 +434,53 @@ await fetch('/api/v1/auth/dev-login', { method: 'POST' }); location.href = '/'
 **`cii_test`를 한 번 만들면 끝난다.** 그 뒤로는 신경 쓸 것이 없다.
 
 ```bash
-# 1) 한 번만 — 테스트 전용 DB를 만든다
-docker compose exec -T db createdb -U cii cii_test
+# 1) 한 번만 — 테스트 전용 DB를 만들고 서버를 올린다
+docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+    --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+  cubrid server start cii_test'
 
 # 2) 이후로는 이렇게 돌린다
-DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest
+DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 ```
 
-대상을 주지 않고 `uv run pytest`를 치면 **DB를 쓰는 테스트가 전부 실패한다.** skip이 아니라 실패다 — skip은 조용해서 **돌지 않은 것을 돌았다고 착각할 여지**를 남기고, 이 사고의 본체가 바로 「아무 신호 없이 지나갔다」였다.
+세 가지가 PostgreSQL 시절과 다르다 (`#1058` · `#1207`).
+
+| | 왜 |
+|---|---|
+| `createdb`가 아니라 **`cubrid createdb`** | CUBRID에 `createdb`·`dropdb`·`psql`은 없다. 로케일 인자(`en_US.iso88591`)는 **필수**이며 운영 DB `cii`와 같아야 한다 |
+| 포트가 5432가 아니라 **33100** | `docker-compose.yml`이 브로커를 `33100:33000`으로 낸다. 컨테이너 **안**에서는 `db:33000`이다 |
+| **`--extra dev`** | `pytest`는 `pyproject.toml`의 `[dev]` extra에 있고 **`uv`는 extra를 기본으로 설치하지 않는다.** 빼면 `pytest`를 찾지 못한다 — 전환과 무관하게 원래 틀렸던 줄이다 |
+
+> 🔴 **`docker compose down` 뒤에는 서버를 다시 올려야 한다.** 컨테이너 진입점이 기동하는 것은 `$CUBRID_DB`(`cii`) 하나뿐이라 `cii_test`의 서버는 내려간 채로 남는다. 그 상태로 pytest를 돌리면 「Failed to connect to database server, 'cii_test'」가 난다.
+>
+> ```bash
+> docker compose exec -T db cubrid server start cii_test
+> ```
+
+> 볼륨을 64M로 잡는 것은 **DB를 두 개 만들기 때문**이다. CUBRID는 공간이 모자라면 볼륨을 자동 확장하므로 작게 시작해도 된다 — `scripts/db_backup.py`의 복구본이 같은 값을 쓴다.
+
+대상을 주지 않고 `uv run --extra dev pytest`를 치면 **DB를 쓰는 테스트가 전부 실패한다.** skip이 아니라 실패다 — skip은 조용해서 **돌지 않은 것을 돌았다고 착각할 여지**를 남기고, 이 사고의 본체가 바로 「아무 신호 없이 지나갔다」였다.
 
 ```
 대상 DB 'cii'은(는) 테스트 대상이 아닙니다 (#691).
 …
-    docker compose exec -T db createdb -U cii cii_test
-    DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test pytest
+    docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+      --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+      cubrid server start cii_test'
+    DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 ```
 
-**DB를 쓰지 않는 테스트는 그대로 돈다.** 막는 것은 「DB에 쓰는 것」이지 「테스트를 돌리는 것」이 아니다.
+> 이 문구는 `tests/db_target.py`가 만든다. **README와 갈라지지 않게** `tests/test_db_target_guard.py`가 양쪽에서 PostgreSQL 명령·URL을 찾아 막는다 (`#1207`).
 
-`cii_test`로 돌리면 종전에 skip되던 **롤백 왕복 테스트 6건이 로컬에서도 실행된다.** 지금까지 그 6건은 CI에서만 검증됐다.
+**DB를 쓰지 않는 테스트는 그대로 돈다.** 막는 것은 「DB에 쓰는 것」이지 「테스트를 돌리는 것」이 아니다. 문서 가드처럼 DB를 보지 않는 검사는 대상 지정 없이 바로 돈다.
 
-CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
+```bash
+uv run --extra dev pytest tests/test_doc_cross_refs.py
+```
+
+`cii_test`로 돌리면 종전에 skip되던 **롤백 왕복 테스트가 로컬에서도 실행된다.** 그 전까지 그 검사는 CI에서만 돌았다.
+
+CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`의 `cubrid` 서비스). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
 
 ### 스위트를 겹쳐 돌리지 못한다 (`#894`)
 
@@ -474,10 +497,11 @@ CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.git
 `test_zz_roundtrip.py`가 `downgrade base`와 `upgrade head` 사이에서 끊기면 DB가 **중간 리비전에 남는다.** 다음 실행은 「`alembic upgrade head` 실패 — 테스트 DB가 리비전 ○○○에 남아 있습니다」로 알린다. 테스트 DB는 버려도 되는 곳이므로 **다시 만든다.**
 
 ```bash
-docker compose exec -T db dropdb -U cii cii_test
-docker compose exec -T db createdb -U cii cii_test
-DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest   # 첫 fixture가 upgrade head를 한다
+# 지운다 — `deletedb`는 서버가 떠 있으면 거부하므로 먼저 멈춘다
+docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb cii_test'
 ```
+
+그런 뒤 위 1)을 그대로 다시 실행하고 테스트를 돌린다. 첫 fixture가 `upgrade head`를 한다.
 
 ---
 
@@ -623,3 +647,5 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-20 | `#1311` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.12로 갱신 — §5.2.1.2 기능③ `parameters_used` 스키마 v1·v2 신설 (#1306) |
 | 2026-09-20 | `#1318` | 문서 구조 표의 `API_SPEC.md` 행을 v1.40 · `TECH_SPEC.md` 행을 v1.13으로 갱신 — §8.1·§8.5 CSV 수식 주입 방어의 범위를 「사용자 입력을 반출하는 셀과 라벨」로 좁히고 수치 열은 숫자로 직렬화 (#1247) |
 | 2026-09-20 | `#1320` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.14로 갱신 — §7.1·§7.3 기상 조회 계층을 구현에 맞춤(외부 조회 먼저·실패 시에만 `weather_snapshot` 캐시 · `WeatherProvider(Protocol)` `fetch` 하나 · `source` 값 `open_meteo_marine+forecast` 추가). `DB_SCHEMA §2.13` 값 목록 행도 함께 맞췄다(버전 유지) (#968) |
+| 2026-09-20 | `#1360` | **「지도 자산」 절 정정 — 사실 정정이며 배포 방침 변경이 아니다.** `#985`(2026-09-18)가 항만 43곳의 깊은 층(z7–z10)을 걷어내고 전 세계 z0–z5(약 26 MB)로 좁혀 **저장소에 커밋했는데**, 이 절이 여전히 「`.gitignore`가 막아 두었다 · 약 92 MB · z0–z6+z7–z10」이라는 종전 구성을 안내하고 있었다. `git ls-files`로 커밋 여부를 다시 확인하고, 절을 「받는다」에서 「평소엔 손댈 일 없다」로 고쳤다 — 정확한 수치는 `scripts/fetch_basemap.sh` 머리말을, 확대 상한은 `basemap.ts`의 `MAX_ZOOM`을 가리키게 해 값이 다시 벌어지지 않게 했다. `AGENTS §4.3` 「오기·값 정정」이라 버전은 올리지 않는다 (#1340) |
+| 2026-09-20 | `#1304` | **`#1058` CUBRID 전환이 남긴 자국을 지운다** (`#1207` · `#1305`) — 「로컬에서 테스트를 돌리는 법」이 `createdb -U cii`·`postgresql+asyncpg://…:5432`를 그대로 내밀어 **적힌 대로 하면 실패**했다. `cubrid createdb … en_US.iso88591` + `cubrid server start`·브로커 포트 33100으로 옮기고, `docker compose down` 뒤 서버를 다시 올려야 한다는 것(진입점이 기동하는 것은 `$CUBRID_DB` 하나뿐)을 함께 적었다. 세 번째 줄은 **전환과 무관하게 원래 틀려 있었다** — `pytest`는 `[dev]` extra인데 `uv`는 extra를 기본으로 설치하지 않으므로 `uv run --extra dev pytest`여야 한다. 같은 문구를 만드는 `tests/db_target.py`도 함께 옮겼고(README가 그것을 그대로 인용한다), 재발은 `test_the_way_out_does_not_tell_people_to_run_postgresql_commands`가 **양쪽에서** 막는다. 함께 `DATABASE_URL` 표기를 **`cubrid+pycubrid://`로 통일**했다 — `aiopycubrid`는 배포본이 아니라 `sqlalchemy-cubrid`가 싣는 async 방언 이름이고 DBAPI는 `pycubrid` 하나다(`entry_points` 직접 확인). ⚠️ **엔진이 받는 값은 그대로 async 방언이다** — `normalize_to_async()`가 `cubrid+` 접두를 전부 async로 바꾸며, 동기 엔진으로 바꾸는 작업이 아니다 (#1305) |

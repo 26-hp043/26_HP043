@@ -179,7 +179,7 @@ def downgrade() -> None:
     **데이터를 한 행도 지우지 않는다.** 제약과 트리거만 떼므로
     `migration_guard`의 세 분류(IRREVERSIBLE·EPHEMERAL·REGENERABLE) 어디에도 넣지 않고
     `guard_irreversible_downgrade`도 부르지 않는다 — 그 셋은 **데이터 손실**을 가르는
-    분류다. 왕복을 실측했다: 트리거 15 → 0 → 15.
+    분류다. 왕복을 실측했다: 트리거 14 → 0 → 14 (연료 참조 3×2 + 해시 4 + 불변 2×2).
     """
     for name, _ in IMMUTABLE_DELETE_TRIGGERS:
         op.execute(f"DROP TRIGGER {name}")

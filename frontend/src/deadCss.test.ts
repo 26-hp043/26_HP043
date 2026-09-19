@@ -123,7 +123,6 @@ const NO_STYLE: Readonly<Record<string, string>> = {
   dq__summary: 'card가 모양을 준다 — 블록 이름표',
   dq__vessels: 'card가 모양을 준다 — 블록 이름표',
   rp__preview: 'card가 모양을 준다 — 블록 이름표',
-  vd__ytd: 'card가 모양을 준다 — 블록 이름표',
   vm: 'card가 모양을 준다 — 블록 이름표',
   fr__dist: 'fr__table이 모양을 준다 — 블록 이름표',
   // 자식이 각자 모양을 갖는 껍데기.

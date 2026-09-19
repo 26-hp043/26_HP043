@@ -267,12 +267,22 @@ export function VesselManagement() {
       </PageHeader>
 
       <div className="vessel-management__actions">
-        <Link
-          className="vessel-management__primary-link"
-          to={SCREEN_BY_ID.VESSEL_REGISTRATION.path}
-        >
-          선박 등록
-        </Link>
+        {/*
+          등록도 사무직 전용이다(`API_SPEC §1.2` · #1353). 이 버튼만 가드가 빠져 있으면
+          현장직이 눌러 `/vessel-registration`(사무직 전용 화면)으로 넘어갔다가
+          「이 화면은 사무직 계정만 쓸 수 있습니다」를 보고 되돌아와야 했다 — 같은 줄의
+          수정·삭제는 이미 `office`로 막는데 등록만 빠졌던 불일치다.
+        */}
+        {office ? (
+          <Link
+            className="vessel-management__primary-link"
+            to={SCREEN_BY_ID.VESSEL_REGISTRATION.path}
+          >
+            선박 등록
+          </Link>
+        ) : (
+          <span className="vm__office-only">{OFFICE_ONLY_ACTION_HINT}</span>
+        )}
         <Link className="vessel-management__link" to={SCREEN_BY_ID.MAINBOARD.path}>
           대시보드로 이동
         </Link>
