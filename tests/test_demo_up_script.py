@@ -423,8 +423,7 @@ def test_async_engines_normalize_the_database_url():
     그 방언을 받지 못하므로, 행 수 집계와 시드 drift 두 경로가 원문을 그대로 넘기면
     **시연 기동이 그 자리에서 실패한다.** `normalize_to_async()`를 거치게 잠근다.
     """
-    code = "\n".join(_code_lines())
-    calls = [line for line in code.splitlines() if "create_async_engine(" in line]
+    calls = [line for line in _code_lines() if "create_async_engine(" in line]
 
     assert calls, "create_async_engine 호출을 찾지 못했습니다 — 스크립트가 바뀌었는지 확인할 것"
     for line in calls:
