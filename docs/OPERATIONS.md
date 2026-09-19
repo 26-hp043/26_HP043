@@ -241,6 +241,8 @@ cp .env.app.example .env
 #   CORS_ALLOW_ORIGINS=https://bluelog-bx7.pages.dev
 #   APP_PUBLIC_URL=https://bluelog-bx7.pages.dev
 #   APP_ENV=staging  (SMTP 미설정 시)  또는  production (SMTP 설정 완료 시)
+#   INITIAL_OFFICE_EMAILS=<쉼표로 구분한 이메일>  (가입·로그인마다 이 목록을 사무직으로 맞춘다 —
+#     비면 새 DB는 사무직 0명. §4.5 참고, #672)
 
 # GHCR 로그인 (private repo, 또는 로컬 빌드 시 불필요)
 echo "ghp_..." | docker login ghcr.io -u USERNAME --password-stdin
@@ -412,6 +414,22 @@ SMTP 설정 후 `APP_ENV=production`으로 전환한다.
 > `README.md` 배포 확인 표가 **`APP_ENV` 확인을 맨 위에 둔 이유**가 이것이다 — 나머지
 > 확인 항목(헬스 · 화면 · CORS · 인증 필요 API 401)은 이 가드가 열려 있어도 **전부
 > 통과한다.**
+
+> ⚠️ **`INITIAL_OFFICE_EMAILS`가 비면 위 표의 어느 행도 이를 걸러내지 못한다.**
+> `validate_initial_office()`(`role_bootstrap.py`)는 `APP_ENV=production`에서만 기동을
+> 거부한다 — **`staging` 행에는 이 가드가 없다.** `#524`가 `production` + `MAIL_BACKEND=console`
+> 조합을 기동 실패로 막기 때문에 SMTP 준비 전 배포는 `staging`을 고를 수밖에 없고(`§9.4`),
+> 바로 그 `staging`에서 값이 비면 새 DB는 **사무직 0명**으로 조용히 뜬다. 승격 API
+> (`PATCH /auth/users/{id}/role`)도 사무직 전용이라 화면으로는 아무도 승격시킬 수 없다
+> (`#672`, `#1290`). `§3.3`의 `.env` 필수 값에 `INITIAL_OFFICE_EMAILS`를 반드시 채운다 — 이
+> 목록은 「처음 한 번」이 아니라 「항상 사무직인 사람」이라 가입·로그인마다 다시 맞춰진다.
+>
+> ⚠️ **`.env`에 적는 것과 컨테이너에 닿는 것은 다른 일이다.** 이 스택의 `backend`에는
+> `env_file:`이 없어 `environment:`에 적힌 키만 들어간다. `#1290`이 그 목록에
+> `INITIAL_OFFICE_EMAILS`를 추가했으므로, **compose 파일이 그 판 이후인지 먼저 확인한다** —
+> 옛 판으로 띄우면 `.env`를 아무리 채워도 앱은 빈 값을 본다(`#508`과 같은 함정).
+> `tests/test_compose_env_wiring.py::test_oci_app_compose_uses_every_variable_its_env_example_declares`
+> 가 그 어긋남을 막는다.
 
 ### 4.6 CORS 미들웨어
 
@@ -770,7 +788,9 @@ ssh ubuntu@131.186.22.10 "cd ~/bluelog && docker compose -f docker-compose.prod.
 
 ### 10.2 남은 작업
 
-- [ ] **재배포 필요** — `#1058`의 개발 편의 표면 차단이 이미지에 반영되려면 백엔드를 다시 올려야 한다. 현재 배포본은 `dev-login`·`/docs`가 열린 상태다(2026-09-15 20:0x 실측: 둘 다 **200**)
+- [ ] **재배포 필요** — `#1058`의 개발 편의 표면 차단이 이미지에 반영되려면 백엔드를 다시 올려야 한다(추적: `#1177`). 현재 배포본은 `dev-login`·`/docs`가 열린 상태다(2026-09-15 20:0x 실측: 둘 다 **200**). ⚠️ **순서 주의** — 이 재배포(`#1160` 반영분)가 `INITIAL_OFFICE_EMAILS` 설정보다 먼저 들어가면 `dev-login`이 닫히는데, 그 값이 비어 있으면 **사무직으로 들어갈 길이 완전히 사라진다**(`#1290`, `§4.5`). 재배포 전에 `.env`부터 채운다
+- [ ] **`INITIAL_OFFICE_EMAILS` 설정** — ⚠️ **`.env`에 적는 것만으로는 닿지 않는다.** `docker-compose.prod.app.yml`의 `backend`에는 `env_file:`이 없고 `environment:` 목록만 주입되는데, `#1290` 이전 판에는 이 키가 그 목록에 **없었다** — compose가 `.env`를 읽는 것은 `${VAR}` 치환용이지 컨테이너 주입이 아니다(`#508`과 같은 함정). 그러므로 **`#1290`의 compose 변경을 함께 내려받은 뒤** `.env`를 채운다. 값을 채우고 해당 계정으로 다시 로그인하면 해소된다(`§3.3`, `§4.5`, `#672`, `#1290`)
+  - 지금 사무직이 몇 명인지는 DB가 답한다 — `SELECT email, [role] FROM app_user WHERE is_deleted = false` (CUBRID에서 `role`은 예약어라 대괄호가 필요하다)
 - [ ] **SMTP 설정** → `APP_ENV=production` 전환 (#787)
 - [ ] **GitHub Secrets 등록** → deploy 워크플로 자동화
 - [ ] **커스텀 도메인** → Cloudflare Pages + 백엔드 CORS 업데이트 (#785)
