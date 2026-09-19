@@ -64,9 +64,9 @@ def upgrade() -> None:
 def downgrade() -> None:
     # 관리자를 사무직으로 내리기 전에 끊는다 — 무엇이든 바꾸기 전이어야 한다 (#819).
     guard_irreversible_downgrade("057")
-    # 순서가 중요하다. 트리거를 먼저 좁히면 이 UPDATE 자신이 REJECT된다 —
-    # `new."role"`이 'OFFICE'라 통과할 것 같지만, 트리거는 **행마다** 돌고 CUBRID는
-    # BEFORE UPDATE에서 옛 값을 보지 않으므로 통과한다. 그럼에도 순서를 이렇게 두는 것은
-    # 「좁히는 일」과 「맞추는 일」이 섞이면 실패 지점이 어디인지 읽을 수 없기 때문이다.
+    # 순서 — **값을 먼저 맞추고(ADMIN → OFFICE) 그 다음 트리거를 좁힌다.** 이 UPDATE는
+    # 새 값이 'OFFICE'라 어느 순서로 해도 트리거를 통과하지만(트리거는 새 값만 본다),
+    # 좁힌 뒤에 남은 'ADMIN' 행이 있으면 그 행을 건드리는 이후의 모든 UPDATE가 거부된다.
+    # 「맞추는 일」을 먼저 끝내 두면 좁힌 순간 표 안에 규칙 밖 값이 없다.
     op.execute("""UPDATE app_user SET "role" = 'OFFICE' WHERE "role" = 'ADMIN'""")
     _recreate("'OFFICE', 'FIELD'")
