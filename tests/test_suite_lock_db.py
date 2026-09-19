@@ -12,20 +12,9 @@
 
 CI는 잡마다 새 DB에서 한 번만 돌리므로 잠금이 늘 잡힌다 — 동작이 달라지지 않는다.
 
-⚠️ **CUBRID 전환으로 이 잠금이 no-op이 되었다** (`#1058`).
-
-`tests/conftest.py`의 `_hold_suite_lock()`이 「CUBRID에는 advisory lock이 없으므로
-no-op」으로 바뀌었다. 안내 문구(`SUITE_LOCK_MESSAGE`)는 파일에 남았는데 **잠그는 코드만
-사라졌다** — 위 1·2를 검사할 대상이 없다.
-
-이 파일은 종전에 `asyncpg`를 직접 import했는데 그 의존성도 빠져
-(`ModuleNotFoundError: No module named 'asyncpg'`), **pytest 수집이 통째로 중단되어
-2,399건이 한 건도 실행되지 않고 있었다.** 그래서 import를 걷어내고 1·2는 **사유를 적어
-skip**한다 — 조용히 지우면 잠금이 사라진 사실까지 함께 사라진다.
-
-**대체 수단을 정해야 한다**(`#1058` 후속): CUBRID에는 advisory lock이 없으므로
-⑴ 잠금 테이블 한 행으로 대신할지 ⑵ 파일 잠금으로 갈지 ⑶ 겹쳐 쓰기를 감수할지.
-겹쳐 돌리면 2026-09-09처럼 **220 failed**가 나고 원인이 가려진다.
+**CUBRID에서는 파일 잠금이다** (`#1250`). CUBRID 전환(`#1058`)으로 advisory lock이 없어
+한동안 no-op이었고 1·2는 사유를 적어 skip돼 있었다. 잠금 테이블 대신 ``fcntl.flock``을
+고른 이유는 `tests/conftest.py` `_hold_suite_lock`에 있다 — 실행이 죽으면 OS가 푼다.
 """
 
 from __future__ import annotations
@@ -40,20 +29,21 @@ from conftest import TEST_DATABASE_URL, _upgrade_failure_message
 
 _ROOT = Path(__file__).resolve().parents[1]
 
-#: 잠금이 되살아나면 이 표시를 걷어낸다 — 걷어내는 순간 아래 두 검사가 다시 돈다.
-_LOCK_IS_A_NOOP = pytest.mark.skip(
-    reason="#1058 — CUBRID에는 advisory lock이 없어 `_hold_suite_lock()`이 no-op이다. "
-    "대체 수단을 정한 뒤 이 표시를 걷어낸다."
-)
 
-
-@_LOCK_IS_A_NOOP
 async def test_the_running_suite_holds_the_lock(migrated_db):
-    """다른 연결은 잠금을 잡지 못한다 — 이 스위트가 쥐고 있다."""
-    raise AssertionError("잠금 대체 수단이 정해지면 그 수단으로 다시 쓴다")
+    """다른 잠금 시도는 실패한다 — 이 스위트가 쥐고 있다.
+
+    ``flock``은 **열린 파일 단위**라 같은 프로세스라도 새로 연 파일로는 잡지 못한다 —
+    그래서 자식 프로세스 없이도 「쥐고 있다」를 볼 수 있다.
+    """
+    import fcntl
+
+    from conftest import suite_lock_path
+
+    with open(suite_lock_path()) as other, pytest.raises(BlockingIOError):
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
-@_LOCK_IS_A_NOOP
 def test_a_second_run_stops_and_says_why(migrated_db):
     """두 번째 `pytest`는 **잠금 메시지로 즉시 멈춘다** — 220건 실패가 아니라.
 

@@ -126,9 +126,10 @@ class VesselCreateRequest(BaseModel):
     block_coefficient: Annotated[Decimal | None, Field(**_CB)] = None
     # #1197 — 호출부호(선택). 공공데이터(해양수산부_선박운항정보)가 IMO가 아니라 이 값으로
     # 질의하므로 교차 대조의 키다. 모르면 보내지 않는다 — 그 배는 대조 대상이 아닐 뿐이다.
-    # 길이 상한은 정규화 전 입력 기준이 아니라 접은 뒤의 검사가 정한다(공백을 허용해야
-    # 「 hlxq 」가 422가 아니라 HLXQ로 들어간다).
-    call_sign: Annotated[str | None, Field(max_length=64)] = None
+    # ``max_length``는 접은 **뒤**의 값에 걸린다(검증기가 ``mode="before"``) — 그래서
+    # 「 hlxq 」는 422가 아니라 HLXQ로 들어간다. 실질 판정은 검증기의 정규식이고, 이
+    # 상한은 OpenAPI에 컬럼 길이(7)를 드러내는 몫이다.
+    call_sign: Annotated[str | None, Field(max_length=_CALL_SIGN_MAX_LENGTH)] = None
 
     @field_validator("call_sign", mode="before")
     @classmethod
@@ -157,7 +158,7 @@ class VesselUpdateRequest(BaseModel):
     block_coefficient: Annotated[Decimal | None, Field(**_CB)] = None
     # #1197 — 빈 문자열은 None으로 접히므로 「안 바꾼다」가 된다. 지우는 경로는 GT와
     # 마찬가지로 PATCH에 없다.
-    call_sign: Annotated[str | None, Field(max_length=64)] = None
+    call_sign: Annotated[str | None, Field(max_length=_CALL_SIGN_MAX_LENGTH)] = None
 
     @field_validator("call_sign", mode="before")
     @classmethod
