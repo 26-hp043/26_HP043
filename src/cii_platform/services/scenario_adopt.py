@@ -177,6 +177,11 @@ async def adopt_scenario(
                 f"허용 상태: {' · '.join(sorted(PLANNING_STATUSES))}"
             )
         target.planned_distance_nm = scenario.distance_nm
+        # 거리 출처는 「모른다」로 돌린다 (#1256). `voyage_scenario` 행은 직항 거리가 좌표
+        # 대권거리였는지 입력값이었는지를 갖고 있지 않고(`scenario_compare._resolve_direct_distance`
+        # 의 분기는 저장되지 않는다), 옛 출처를 새 숫자에 남기면 거짓말이다(`update_voyage`와
+        # 같은 규칙).
+        target.planned_distance_source = None
         target.planned_speed_kn = scenario.speed_kn
         target.planned_arrival_at = _arrival_at(target, scenario)
         # 연료도 바꾼다 (#1072) — 종전에는 이 줄이 없어 「새 거리 + 옛 연료」가 남았다.
@@ -332,6 +337,8 @@ async def _create_from_scenario(
         arrival_lat=None,
         arrival_lon=None,
         planned_distance_nm=scenario.distance_nm,
+        # 「모른다」(#1256) — 시나리오 행에는 직항 거리가 좌표 추정이었는지가 남아 있지 않다.
+        planned_distance_source=None,
         planned_speed_kn=scenario.speed_kn,
         planned_departure_at=planned_departure_at,
         planned_arrival_at=planned_departure_at + timedelta(hours=float(scenario.duration_hours)),

@@ -8,6 +8,7 @@ import { isSamplePort, type PortCoord, type SamplePort } from '../ports/samplePo
 import { actualsPayload, policyForTransition, toIsoInstant } from './voyageRules'
 import type {
   ActualsDraft,
+  DistanceSource,
   InclusionPolicy,
   ManagedVoyage,
   VoyageDraft,
@@ -82,6 +83,7 @@ interface ServerVoyage {
   departure_port_name?: unknown
   arrival_port_name?: unknown
   planned_distance_nm?: unknown
+  planned_distance_source?: unknown
   planned_speed_kn?: unknown
   actual_distance_nm?: unknown
   actual_avg_speed_kn?: unknown
@@ -113,6 +115,15 @@ function text(raw: unknown): string | null {
   return typeof raw === 'string' && raw !== '' ? raw : null
 }
 
+/**
+ * 거리 출처는 두 값만 읽는다 (#1256). 모르는 값은 `null`(「모른다」)로 접는다 — 서버의
+ * 트리거가 같은 두 값만 통과시키므로 실제로는 오지 않지만, 여기서 넓히면 화면이
+ * 자기가 모르는 출처에 추정 표시를 붙이거나 빼는 판단을 하게 된다.
+ */
+function distanceSource(raw: unknown): DistanceSource | null {
+  return raw === 'USER_INPUT' || raw === 'COORDINATE_ESTIMATE' ? raw : null
+}
+
 function toFuelUse(raw: ServerFuelUse): VoyageFuelUse {
   return {
     fuelType: String(raw.fuel_type ?? ''),
@@ -131,6 +142,7 @@ function toVoyage(raw: ServerVoyage): ManagedVoyage {
     departurePortName: text(raw.departure_port_name),
     arrivalPortName: text(raw.arrival_port_name),
     plannedDistanceNm: num(raw.planned_distance_nm),
+    plannedDistanceSource: distanceSource(raw.planned_distance_source),
     plannedSpeedKn: num(raw.planned_speed_kn),
     actualDistanceNm: num(raw.actual_distance_nm),
     actualAvgSpeedKn: num(raw.actual_avg_speed_kn),
@@ -331,6 +343,14 @@ export function createApiVoyageManagementProvider(
           departure_port_name: draft.departurePortName.trim(),
           arrival_port_name: draft.arrivalPortName.trim(),
           planned_distance_nm: Number(draft.plannedDistanceNm),
+          /*
+           * 거리의 출처 (#1256 · `§3.3`). 폼이 넣어 준 값을 그대로 싣는다 — 좌표로 채운
+           * 거리는 저장 뒤에도 「좌표 기반 추정 거리」여야 한다(`PRD §15.2`). 없으면 키를
+           * 넣지 않고 서버가 「모른다」로 둔다.
+           */
+          ...(draft.plannedDistanceSource === undefined
+            ? {}
+            : { planned_distance_source: draft.plannedDistanceSource }),
           planned_speed_kn: Number(draft.plannedSpeedKn),
           // optional — `INCLUDE_AS_PLAN` 전환 시점에만 필수(`§3.3` [#150]).
           ...(year === '' ? {} : { regulation_year: Number(year) }),

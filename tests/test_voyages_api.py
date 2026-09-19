@@ -44,6 +44,8 @@ class _FakeVoyage:
         self.arrival_lat = kw.get("arrival_lat")
         self.arrival_lon = kw.get("arrival_lon")
         self.planned_distance_nm = kw.get("planned_distance_nm", Decimal("11000"))
+        # #1256 — None이 「모른다」. 서비스가 거리 변경 때 되돌리는 자리다.
+        self.planned_distance_source = kw.get("planned_distance_source")
         self.actual_distance_nm = kw.get("actual_distance_nm")
         self.planned_speed_kn = kw.get("planned_speed_kn", Decimal("14"))
         self.actual_avg_speed_kn = kw.get("actual_avg_speed_kn")
@@ -252,6 +254,37 @@ def test_create_with_negative_distance_is_422(voyage_app):
     assert resp.status_code == 422
 
 
+# --- 계획 거리 출처 (#1256) ---------------------------------------------------------
+
+
+@pytest.mark.parametrize("source", ["USER_INPUT", "COORDINATE_ESTIMATE"])
+def test_create_round_trips_the_distance_source(voyage_app, source):
+    """보낸 출처가 응답에 그대로 돌아온다 — 좌표로 채운 거리는 저장 뒤에도 추정이다 (`PRD §15.2`).
+
+    (#1256)
+    """
+    resp = voyage_app.post(CREATE_URL, json={**PAYLOAD, "planned_distance_source": source})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["data"]["planned_distance_source"] == source
+
+
+def test_create_without_source_is_unknown_not_user_input(voyage_app):
+    """출처를 생략한 클라이언트의 거리는 「모른다」다 — 직접 입력으로도 적지 않는다."""
+    resp = voyage_app.post(CREATE_URL, json=PAYLOAD)
+    assert resp.status_code == 201
+    assert "planned_distance_source" in resp.json()["data"]
+    assert resp.json()["data"]["planned_distance_source"] is None
+
+
+def test_create_with_unknown_source_is_422(voyage_app):
+    """두 값 밖은 스키마가 거부한다 — DB 트리거까지 가서 500이 되지 않는다."""
+    resp = voyage_app.post(
+        CREATE_URL, json={**PAYLOAD, "planned_distance_source": "MODEL_ESTIMATE"}
+    )
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["field_label"] == "계획 거리 출처"
+
+
 # --- 상태 전환 policy (#310) · PATCH null 의미론 (#312) ------------------------------
 
 
@@ -435,6 +468,59 @@ class TestUpdateNullSemantics:
         assert resp.status_code == 422, resp.text
         assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
         assert store[voyage_id].regulation_year == 2026
+
+    def test_distance_source_change_rejected_on_confirmed_voyage(self, update_app):
+        """CONFIRMED 항차의 거리 출처만 바꾸는 PATCH → 거부 (#1256).
+
+        출처는 재계산 대상은 아니지만 **계획 거리에 붙은 표시**다 — 확정된 항차의 거리에
+        사후로 「추정」을 붙이거나 떼는 길이 열려 있으면 이 칸을 둔 취지가 무너진다.
+        """
+        client, store = update_app
+        voyage_id = next(iter(store))
+        store[voyage_id].status = "CONFIRMED"
+        before = store[voyage_id].planned_distance_source
+        resp = client.patch(
+            f"/api/v1/voyages/{voyage_id}",
+            json={"planned_distance_source": "COORDINATE_ESTIMATE"},
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
+        assert store[voyage_id].planned_distance_source == before
+
+    def test_distance_change_without_source_resets_it_to_unknown(self, update_app):
+        """거리만 고친 PATCH는 출처를 「모른다」로 돌린다 (#1256).
+
+        좌표로 채운 항차(`COORDINATE_ESTIMATE`)의 거리를 사람이 고쳤는데 「추정값입니다」가
+        남아 있으면 `PRD §0.3`이 금하는 거짓말이다. 서버는 새 숫자를 어떻게 얻었는지
+        모르므로 직접 입력이라고도 적지 않는다.
+        """
+        client, store = update_app
+        voyage_id = next(iter(store))
+        store[voyage_id].planned_distance_source = "COORDINATE_ESTIMATE"
+        resp = client.patch(f"/api/v1/voyages/{voyage_id}", json={"planned_distance_nm": 12000})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["planned_distance_source"] is None
+        assert store[voyage_id].planned_distance_source is None
+
+    def test_distance_change_with_source_keeps_the_sent_source(self, update_app):
+        """거리와 출처를 함께 보내면 그 출처가 붙는다 — 화면이 좌표로 다시 채운 경우다."""
+        client, store = update_app
+        voyage_id = next(iter(store))
+        resp = client.patch(
+            f"/api/v1/voyages/{voyage_id}",
+            json={"planned_distance_nm": 12000, "planned_distance_source": "COORDINATE_ESTIMATE"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["planned_distance_source"] == "COORDINATE_ESTIMATE"
+
+    def test_other_field_change_leaves_the_source(self, update_app):
+        """거리를 건드리지 않는 PATCH는 출처를 그대로 둔다 — 되돌림은 숫자가 바뀔 때만이다."""
+        client, store = update_app
+        voyage_id = next(iter(store))
+        store[voyage_id].planned_distance_source = "COORDINATE_ESTIMATE"
+        resp = client.patch(f"/api/v1/voyages/{voyage_id}", json={"notes": "메모만 변경"})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["planned_distance_source"] == "COORDINATE_ESTIMATE"
 
     def test_notes_remain_editable_on_confirmed_voyage(self, update_app):
         """계산 입력이 아닌 notes는 확정 항차에서도 바꿀 수 있다 (#865).

@@ -62,6 +62,7 @@ const VOYAGE: ManagedVoyage = {
   departurePortName: 'Busan',
   arrivalPortName: 'Rotterdam',
   plannedDistanceNm: 11000,
+  plannedDistanceSource: null,
   plannedSpeedKn: 14,
   actualDistanceNm: null,
   actualAvgSpeedKn: null,
@@ -497,3 +498,44 @@ describe('샘플 항만 (#760)', () => {
   })
 })
 
+
+/**
+ * 계획 거리의 출처 (#1256 · `API_SPEC §3.3` `planned_distance_source`).
+ *
+ * 폼이 넣어 준 출처를 그대로 싣고, 없으면 키를 넣지 않는다(서버가 「모른다」로 둔다).
+ * 응답의 출처는 두 값만 읽고 그 밖은 `null`이다 — 화면이 모르는 출처를 판단하지 않는다.
+ */
+describe('planned_distance_source — #1256', () => {
+  it('폼이 준 출처를 그대로 싣는다', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', {
+      ...DRAFT,
+      plannedDistanceSource: 'COORDINATE_ESTIMATE',
+    })
+
+    expect(bodyOf(fetchMock).planned_distance_source).toBe('COORDINATE_ESTIMATE')
+  })
+
+  it('출처가 없으면 키 자체를 넣지 않는다 — 서버가 「모른다」로 둔다', async () => {
+    const fetchMock = fakeFetch({ '/voyages': ok(VOYAGE_BODY) })
+    await createApiVoyageManagementProvider(fetchMock, '').create('v-1', DRAFT)
+
+    expect(bodyOf(fetchMock)).not.toHaveProperty('planned_distance_source')
+  })
+
+  it.each([
+    ['COORDINATE_ESTIMATE', 'COORDINATE_ESTIMATE'],
+    ['USER_INPUT', 'USER_INPUT'],
+    [null, null],
+    ['GUESS', null],
+  ])('응답의 %s를 %s로 읽는다', async (raw, expected) => {
+    const fetchMock = fakeFetch({
+      '/parameters/fuel-types': ok(FUEL_TYPES_BODY),
+      '/voyages': ok({ data: [{ ...VOYAGE_BODY.data, planned_distance_source: raw }] }),
+    })
+
+    const result = await createApiVoyageManagementProvider(fetchMock, '').list('v-1')
+
+    expect(result.voyages[0].plannedDistanceSource).toBe(expected)
+  })
+})

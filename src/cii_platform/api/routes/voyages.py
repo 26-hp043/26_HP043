@@ -101,6 +101,7 @@ async def create_voyage_route(
         arrival_lat=payload.arrival_lat,
         arrival_lon=payload.arrival_lon,
         planned_distance_nm=payload.planned_distance_nm,
+        planned_distance_source=payload.planned_distance_source,
         planned_speed_kn=payload.planned_speed_kn,
         planned_departure_at=payload.planned_departure_at,
         planned_arrival_at=payload.planned_arrival_at,
