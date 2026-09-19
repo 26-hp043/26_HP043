@@ -414,3 +414,93 @@ def test_cubrid_tooling_is_present():
     assert "cubrid+aiopycubrid://" in code, "CUBRID 접속 URL이 없습니다."
     assert "csql" in code, "csql 호출이 없습니다 — DB에 직접 묻는 경로가 사라졌습니다."
     assert "db_root" in code, "CUBRID 준비 대기(SELECT 1 FROM db_root)가 없습니다."
+
+
+# --- #1294 — 2단계가 실패 원인을 말한다 ------------------------------------------------
+
+
+def _script_line(prefix: str) -> str:
+    for line in _SCRIPT.read_text(encoding="utf-8").splitlines():
+        if line.startswith(prefix):
+            return line
+    raise AssertionError(f"{prefix} 정의를 찾지 못했다 — 스크립트가 바뀌었는지 확인할 것")
+
+
+def _holders(ps_output: str) -> str:
+    """스크립트의 ``_other_port_holders`` 정의를 그대로 꺼내 **가짜 docker**로 돌린다."""
+    # 출력은 printf의 **형식 문자열**로 넘긴다 — `%s`로 넘기면 `\n`이 줄바꿈으로 풀리지
+    # 않아 실제 `docker ps` 출력과 모양이 달라진다.
+    fake = f"fake_docker() {{ printf {ps_output!r}; }}"
+    body = "\n".join(
+        [
+            fake,
+            'DOCKER="fake_docker"',
+            _script_line("DB_CONTAINER="),
+            _script_line("DB_HOST_PORT="),
+            _script_line("_other_port_holders()"),
+            "_other_port_holders",
+        ]
+    )
+    done = subprocess.run(["bash", "-c", body], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+@pytest.mark.parametrize(
+    ("ps_output", "expected"),
+    [
+        # 2026-09-19 실측 그대로 — 수동으로 만든 테스트 컨테이너가 포트를 쥐었다.
+        ("cii-cubrid-test\n", "cii-cubrid-test"),
+        # 우리 컨테이너만 쥐고 있으면 짚을 것이 없다 — 정상 상태다.
+        ("cii-cubrid\n", ""),
+        # 아무도 안 쥐었다.
+        ("", ""),
+    ],
+)
+def test_port_holder_names_only_other_containers(ps_output: str, expected: str):
+    """2단계 실패 때 **누가 포트를 쥐었는지**를 짚는다 (#1294).
+
+    종전에는 원인이 무엇이든 「docker compose up 실패」 한 줄이었고, 그 한 줄 때문에
+    원인을 찾는 데 20분 가까이 썼다. 우리 컨테이너(`cii-cubrid`)를 범인으로 짚으면
+    안내가 거꾸로 되므로 그것은 빼야 한다.
+    """
+    assert _holders(ps_output) == expected
+
+
+def test_db_container_matches_compose():
+    """스크립트의 컨테이너 이름·포트가 `docker-compose.yml`의 `db`와 같다.
+
+    이름이 갈리면 `_other_port_holders`가 **우리 컨테이너를 남의 것으로** 짚는다.
+    """
+    compose = (_SCRIPT.parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
+    name = _script_line("DB_CONTAINER=").split("=", 1)[1].strip('"')
+    port = _script_line("DB_HOST_PORT=").split("=", 1)[1]
+
+    assert f"container_name: {name}" in compose
+    assert f'"{port}:33000"' in compose
+
+
+def test_compose_up_failure_is_not_discarded():
+    """`docker compose up`의 실패 메시지를 버리지 않고 로그로 남겨 보여 준다 (#1294).
+
+    「port is already allocated」가 `>/dev/null 2>&1`로 사라지던 자리다.
+    """
+    text = _SCRIPT.read_text(encoding="utf-8")
+
+    assert "compose up -d db >/dev/null" not in text
+    assert "compose up -d db >/tmp/demo_compose.log 2>&1" in text
+    assert "tail -5 /tmp/demo_compose.log" in text
+
+
+def test_healthy_but_unpublished_db_stops_the_script():
+    """healthy인데 호스트 포트가 빈 상태를 잡아 멈추고 재생성을 안내한다 (#1294).
+
+    그대로 두면 다음 단계들이 `localhost:33100`으로 **다른 DB에 붙을 수 있다.**
+    `--check`도 기동 전에 같은 진단을 한다.
+    """
+    text = _SCRIPT.read_text(encoding="utf-8")
+
+    assert '"$DOCKER" port "$DB_CONTAINER" 33000' in text
+    assert "docker compose up -d --force-recreate db" in text
+    check_branch = text.split('if [ "$CHECK_ONLY" = "--check" ]; then', 1)[1].split("else", 1)[0]
+    assert "_explain_port_holder" in check_branch
