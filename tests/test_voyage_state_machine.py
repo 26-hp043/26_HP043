@@ -69,6 +69,7 @@ class _StubVoyage:
         self.arrival_lat = None
         self.arrival_lon = None
         self.planned_distance_nm = None
+        self.planned_distance_source = None  # #1256
         self.actual_distance_nm = None
         self.planned_speed_kn = None
         self.actual_avg_speed_kn = None
