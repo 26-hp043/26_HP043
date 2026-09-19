@@ -1778,8 +1778,14 @@ async def list_snapshot_voyages(
 
     ``voyages_json``은 계산 입력을 만들기 위한 내부 형태이고(``kind``·계획/실적 두 벌),
     §6.3이 규정한 응답은 **읽는 사람을 위한 형태**다(``status_at_snapshot`` ·
-    실제 쓰인 ``distance_nm``·``fuel_ton`` 한 벌). 옮기는 규칙은 계산과 같다 —
-    **실적이 있으면 실적, 없으면 계획**(``PRD §8.3``).
+    실제 쓰인 ``distance_nm``·``fuel_ton`` 한 벌). 옮기는 규칙은 계산
+    (:func:`_inputs_from_snapshot`)과 **행 종류별로 같다** —
+
+    * ``ACTUAL`` 행: **실적이 있으면 실적, 없으면 계획**(``PRD §8.3``).
+    * ``PLAN`` 행: **계획값만.** 진행 중(``IN_PROGRESS``) 항차는 실적 일부를 이미
+      갖고 있을 수 있는데(``API_SPEC §3.6``), 계산은 그 값을 쓰지 않는다. 종전에는
+      모든 행에 첫 규칙을 적용해 **계산에 쓰지 않은 실적**이 「이 실행에 쓴 항차」로
+      나갔다(#1337) — 재현성의 근거 화면이 거짓 근거였다.
 
     ``snapshot_voyage_id``는 항차 사본에 별도 ID가 없으므로 ``{snapshot_id}:{voyage_id}``로
     만든다. **없는 UUID를 지어내지 않는다** — 지어내면 그 값으로 조회할 수 있는 것처럼
@@ -1809,8 +1815,20 @@ async def list_snapshot_voyages(
 
 
 def _snapshot_voyage_view(snapshot_id, item: dict) -> dict[str, object]:
-    """스냅샷 항차 1건을 ``API_SPEC §6.3`` 형태로 옮긴다."""
-    distance = _decimal_or(item.get("actual_distance_nm"), item.get("planned_distance_nm"))
+    """스냅샷 항차 1건을 ``API_SPEC §6.3`` 형태로 옮긴다.
+
+    값 선택은 :func:`_inputs_from_snapshot`의 분기와 같다 — ``PLAN`` 행은 계획값만,
+    ``ACTUAL`` 행은 실적 우선(#1337).
+    """
+    # 계산과 같은 분기 — `_inputs_from_snapshot`은 ``kind == "ACTUAL"`` 만 실적으로 읽는다.
+    is_plan = item.get("kind") != "ACTUAL"
+
+    def _used(actual: str | None, planned: str | None) -> Decimal:
+        if is_plan:
+            return Decimal(planned or "0")
+        return _decimal_or(actual, planned)
+
+    distance = _used(item.get("actual_distance_nm"), item.get("planned_distance_nm"))
     speed = item.get("planned_speed_kn")
     return {
         "snapshot_voyage_id": f"{snapshot_id}:{item.get('voyage_id')}",
@@ -1824,7 +1842,7 @@ def _snapshot_voyage_view(snapshot_id, item: dict) -> dict[str, object]:
             {
                 "fuel_type": fuel_use.get("fuel_type"),
                 "fuel_ton": float(
-                    _decimal_or(fuel_use.get("actual_fuel_ton"), fuel_use.get("planned_fuel_ton"))
+                    _used(fuel_use.get("actual_fuel_ton"), fuel_use.get("planned_fuel_ton"))
                 ),
                 # CF는 그때 쓴 값이다. 지금의 `fuel_type.cf`가 아니다 (#378).
                 "cf_used": float(Decimal(fuel_use["cf_used"])),
