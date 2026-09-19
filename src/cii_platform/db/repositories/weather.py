@@ -58,7 +58,7 @@ async def insert_snapshot(
 async def find_last_snapshot(
     session: AsyncSession, *, lat_rounded: Decimal, lon_rounded: Decimal
 ) -> WeatherSnapshot | None:
-    """그 격자의 **가장 최근** 스냅샷 (``TECH_SPEC §7.1`` ``get_last_snapshot``).
+    """그 격자의 **가장 최근** 스냅샷 (``TECH_SPEC §7.1`` — 마지막 스냅샷 조회는 저장소 몫).
 
     **신선도를 여기서 판정하지 않는다.** 24시간이 넘었는지, 6시간이 넘었는지는
     fallback 정책(``§7.3``)이고 그 판단은 서비스 계층의 몫이다 — 저장소가 오래된

@@ -215,7 +215,7 @@ async def test_fetched_weather_is_stored(session):
 
 @pytest.mark.asyncio
 async def test_last_snapshot_is_the_most_recent_one(session):
-    """`§7.1` `get_last_snapshot` — 같은 격자의 최신 행."""
+    """`§7.1` 저장소 `find_last_snapshot` — 같은 격자의 최신 행."""
     older = await weather_repo.insert_snapshot(
         session,
         lat=Decimal("35.1"),
