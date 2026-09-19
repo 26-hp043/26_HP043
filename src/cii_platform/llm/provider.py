@@ -67,6 +67,16 @@ API_KEY_ENV = "LLM_API_KEY"
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 
+#: 한 턴(질문→도구 왕복→답)의 시간 상한 (#1245).
+#:
+#: 근거 — ``PRD §16.1`` 챗봇 SLO는 p95 ≤ 2초지만 그것은 **정상 경로의 목표**이고
+#: 이 값은 **최악 경로의 컷오프**다. LLM 단일 호출 상한이 30초
+#: (``anthropic.py TIMEOUT_SECONDS``)이므로 「1회 호출 + 도구 1회」의 여유로 45초를
+#: 둔다 — 최악 2분(30초 × 4회 왕복)이 DB 세션·커넥션을 쥐던 것을 절반 이하로 자른다.
+#: 임의 값이 아니라 두 정본 값(30초·4회)에서 나온다.
+TURN_TIMEOUT_SECONDS = 45.0
+
+
 class LLMError(RuntimeError):
     """LLM 호출 실패. **숨기지 않고 그대로 올린다** — ``weather``·``ais``와 같은 규약."""
 
