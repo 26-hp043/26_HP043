@@ -163,8 +163,11 @@ import asyncio, os
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from cii_platform.db.url import normalize_to_async
+
 async def main():
-    engine = create_async_engine(os.environ["DATABASE_URL"])
+    # `DATABASE_URL`은 동기 방언(`cubrid+pycubrid`) 표기라 async 엔진이 받지 못한다.
+    engine = create_async_engine(normalize_to_async(os.environ["DATABASE_URL"]))
     async with engine.connect() as conn:
         out = []
         for table in ("vessel", "fuel_type", "regulation_year", "cii_reference_line", "cii_rating_boundary"):
@@ -192,9 +195,11 @@ if [ "$HAVE_VENV" = "1" ]; then
 import asyncio, os
 from sqlalchemy.ext.asyncio import create_async_engine
 from cii_platform.db.demo_seed import missing_seeded_specs
+from cii_platform.db.url import normalize_to_async
 
 async def main():
-    engine = create_async_engine(os.environ["DATABASE_URL"])
+    # `DATABASE_URL`은 동기 방언(`cubrid+pycubrid`) 표기라 async 엔진이 받지 못한다.
+    engine = create_async_engine(normalize_to_async(os.environ["DATABASE_URL"]))
     async with engine.connect() as conn:
         rows = await missing_seeded_specs(conn)
     await engine.dispose()

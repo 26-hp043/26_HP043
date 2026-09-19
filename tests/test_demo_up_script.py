@@ -414,3 +414,18 @@ def test_cubrid_tooling_is_present():
     assert "cubrid+pycubrid://" in code, "CUBRID 접속 URL이 없습니다."
     assert "csql" in code, "csql 호출이 없습니다 — DB에 직접 묻는 경로가 사라졌습니다."
     assert "db_root" in code, "CUBRID 준비 대기(SELECT 1 FROM db_root)가 없습니다."
+
+
+def test_async_engines_normalize_the_database_url():
+    """`create_async_engine`에 `DATABASE_URL`을 **그대로** 넘기지 않는다.
+
+    스크립트가 정한 `DB_URL`은 동기 방언 표기(`cubrid+pycubrid://`)다. async 엔진은
+    그 방언을 받지 못하므로, 행 수 집계와 시드 drift 두 경로가 원문을 그대로 넘기면
+    **시연 기동이 그 자리에서 실패한다.** `normalize_to_async()`를 거치게 잠근다.
+    """
+    code = "\n".join(_code_lines())
+    calls = [line for line in code.splitlines() if "create_async_engine(" in line]
+
+    assert calls, "create_async_engine 호출을 찾지 못했습니다 — 스크립트가 바뀌었는지 확인할 것"
+    for line in calls:
+        assert "normalize_to_async(" in line, f"정규화 없이 async 엔진을 만듭니다: {line}"
