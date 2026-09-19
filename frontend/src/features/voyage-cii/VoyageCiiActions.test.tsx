@@ -41,6 +41,7 @@ const DRAFT: ManagedVoyage = {
   departurePortName: 'Busan',
   arrivalPortName: 'Singapore',
   plannedDistanceNm: 2300,
+  plannedDistanceSource: null,
   plannedSpeedKn: 14,
   actualDistanceNm: null,
   actualAvgSpeedKn: null,

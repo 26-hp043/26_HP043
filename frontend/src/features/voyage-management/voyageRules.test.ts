@@ -22,6 +22,7 @@ const voyage = (over: Partial<ManagedVoyage> = {}): ManagedVoyage => ({
   departurePortName: 'Busan',
   arrivalPortName: 'Rotterdam',
   plannedDistanceNm: 11000,
+  plannedDistanceSource: null,
   plannedSpeedKn: 14,
   actualDistanceNm: null,
   actualAvgSpeedKn: null,

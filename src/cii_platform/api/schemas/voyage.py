@@ -9,11 +9,22 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from cii_platform.api.schemas.bounds import DISTANCE, REGULATION_YEAR, SPEED, VOYAGE_FUEL
+
+#: 계획 거리의 출처 (#1256 · `DB_SCHEMA §2.2` `planned_distance_source`).
+#:
+#: `USER_INPUT`은 사용자가 직접 넣은 값(화면 입력 · CSV 가져오기), `COORDINATE_ESTIMATE`는
+#: 두 좌표의 대권거리로 채운 값(`§3.9` · `PRD §15.2` 「좌표 기반 추정 거리」)이다. 생략하면
+#: **`null` = 「모른다」**로 저장한다 — 서버는 클라이언트가 그 숫자를 어떻게 얻었는지 알 수
+#: 없고, 모르는 것을 직접 입력으로도 추정으로도 적지 않는다(`PRD §0.3`).
+DistanceSource = Literal["USER_INPUT", "COORDINATE_ESTIMATE"]
+
+#: 059의 트리거가 허용하는 값과 같은 집합 — 마이그레이션 쪽이 정본이고 여기서 갈리면 500이다.
+DISTANCE_SOURCES: tuple[str, ...] = get_args(DistanceSource)
 
 
 class VoyageFuelUseCreateRequest(BaseModel):
@@ -42,6 +53,9 @@ class VoyageCreateRequest(BaseModel):
     # VAL-002 / VAL-009. 상·하한은 DB 저장 범위에서 온다 (#1086 · `schemas/bounds.py`) —
     # `0.001`은 0.00으로 반올림돼 `chk_distance_positive` 위반, `10000` kn은 `NUMERIC(6,2)` 초과.
     planned_distance_nm: Annotated[Decimal, Field(**DISTANCE)]
+    # #1256 — 위 거리가 어디서 왔는가. 화면은 항상 보낸다(좌표로 채웠으면
+    # `COORDINATE_ESTIMATE`, 사용자가 고쳤으면 `USER_INPUT`). 생략 = `null` = 「모른다」.
+    planned_distance_source: DistanceSource | None = None
     planned_speed_kn: Annotated[Decimal, Field(**SPEED)]
     planned_departure_at: datetime | None = None
     planned_arrival_at: datetime | None = None
@@ -68,6 +82,10 @@ class VoyageUpdateRequest(BaseModel):
     arrival_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     arrival_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
     planned_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
+    # #1256 — `planned_distance_nm`을 바꾸면서 이 키를 생략하면 출처는 **`null`로 돌아간다**
+    # (옛 「추정」 표시가 새 숫자에 붙어 있으면 거짓말이다 · `services/voyage.py`). 함께 보내면
+    # 그 값으로, 명시적 `null`은 지움이다(#312 규약과 같다).
+    planned_distance_source: DistanceSource | None = None
     planned_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
     planned_departure_at: datetime | None = None
     planned_arrival_at: datetime | None = None
