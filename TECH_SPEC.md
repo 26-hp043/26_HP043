@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.11 |
+| 버전 | v1.12 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-09-18 |
+| 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -844,6 +844,8 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 
 #### 5.2.1 `parameters_used` 스키마
 
+**기능①·②는 아래 형태 그대로 싣는다.** 기능③(`SIMULATION`)은 형태가 다르고 버전이 둘이다 — `§5.2.1.2`.
+
 ```json
 {
   "regulation_year": {
@@ -895,6 +897,54 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 **다른 계산 타입의 `parameter_hash`는 바뀌지 않는다.** `parameters_used`는 실행마다 따로 기록되므로, 이 항목은 `SIMULATION` 실행에만 들어간다 — 기능①·②의 기존 해시는 영향을 받지 않는다.
 
 > `voyage_fuel_use.cf_used`가 CF 개정에 대해 하는 일과 같은 처리다(`#378`). 다만 CF는 **행에** 박고 분포는 **해시에** 담는데, 분포가 계산 전체에 걸리는 값이라 특정 행에 붙일 자리가 없기 때문이다.
+
+##### 5.2.1.2 기능③ `parameters_used` — 스키마 v1 · v2 (#816 · #1306)
+
+**기능③은 위 `§5.2.1` 형태를 그대로 쓰지 않는다.** 저장 형식이 두 번 있었고, 두 형식이 **지금도 함께 유효하다.**
+
+| 블록 | v1 (`#816` 이전 저장 행) | v2 (`#816` 이후 신규 실행) |
+|---|---|---|
+| `regulation_year` | ✅ | ✅ |
+| `reference_line` | ✅ | ✅ |
+| `rating_boundary` | ✅ **`ship_type` 포함** | ✅ **`ship_type` 포함** |
+| `simulation_profile` (`§5.2.1.1`) | ✅ | ✅ |
+| `fuel_types` | ❌ 없음 | ✅ 계획 항차에 곱한 **활성 CF**(`#832`) — **이 실행이 실제로 쓴 유종만** · 코드순 |
+| `parameter_source_version` | ❌ 없음 | ❌ 없음 — 아래 `parameter_sources`가 대신한다 |
+| `parameter_sources` | ❌ 없음 | ✅ 출처 4키 |
+| `parameter_schema_version` | ❌ **없음 — 없으면 v1이다** | ✅ `2` |
+
+v2 예시 (v1 블록에 더해지는 것만):
+
+```json
+{
+  "rating_boundary": {
+    "ship_type": "BULK_CARRIER",
+    "d1": "0.86", "d2": "0.94", "d3": "1.06", "d4": "1.18"
+  },
+  "fuel_types": [
+    { "code": "HFO", "cf": "3.114" }
+  ],
+  "parameter_sources": {
+    "regulation_year": "MEPC.400(83)",
+    "reference_line": "MEPC.353(78)",
+    "rating_boundary": "MEPC.354(78)",
+    "fuel_types": [
+      { "code": "HFO", "source_ref": "MEPC.364(79)" }
+    ]
+  },
+  "parameter_schema_version": 2
+}
+```
+
+**판정 규칙.** `parameter_schema_version`이 **없으면 v1**, 있으면 **정수여야 한다** — 정수가 아니면(`null`·문자열·실수·불리언) **손상된 행**으로 보고 거부한다(v1으로 흡수하면 손상이 옛 형식으로 오인된다). 정수이지만 **알려진 버전(1·2)이 아니면** 빌더 선택(`build_parameters_used`)에서 거부한다 — 모르는 버전을 v1로 떨어뜨리면 해시 불일치가 「버전 차이」인지 「값 차이」인지 가려지지 않는다.
+
+**재현은 저장된 버전의 빌더로 한다.** `reproduce`는 저장된 해시를 그대로 두고 `parameters_used`를 **지금 코드로 다시 만들어** 비교한다(`§5.4`). 그래서 v1 빌더는 **글자 하나 바꾸지 않고 동결**하고, v2는 v1 블록에 더하는 방식으로만 만든다. 빌더 출력이 한 글자만 바뀌어도 과거 실행 전부가 「규정 파라미터가 변경되어 재현할 수 없습니다」(409)를 받는데, `calc_run_guard()`(마이그레이션 024)가 UPDATE를 막아 저장된 해시를 고칠 수도 없다.
+
+**`rating_boundary.ship_type`을 싣는 이유.** 선택된 등급 경계 **행의 식별 근거**다 — 선종마다 경계 행이 따로 있고(`#834`), 값 넷만으로는 어느 행을 골랐는지 알 수 없다. v1 저장 행이 이미 이 키를 담고 있어 **빼면 과거 실행의 해시가 깨진다.** 기능①·②(`§5.2.1`)는 이 키를 싣지 않는다 — 그쪽은 기존 해시 보존을 위해 형식을 바꾸지 않는다.
+
+**`parameter_source_version`을 쓰지 않은 이유.** 그 필드는 **기준선 하나의 `source_ref`만** 담는데(예시의 `imo-mepc-2024-q1`은 규정 묶음 버전처럼 읽히지만 실제 값은 `MEPC.353(78)`), 출처는 기준선·등급 경계·Z-factor·연료 넷이다. 하나만 실으면 **CF 개정이 `parameter_hash`에 드러나지 않는다** — 재현성 계약의 구멍이라 v2에서 `parameter_sources`로 바꿨다.
+
+> 구현: `services/annual_simulation.py` `_parameters_used_v1` · `_parameters_used_v2` · `parameters_schema_version`. 응답 계약은 `API_SPEC §6.1` 각주가 이 절을 가리킨다.
 
 ### 5.3 Input Hash
 
@@ -1987,3 +2037,4 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-13 | `#513` | §12.3 경고 코드 표에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` 행 추가 — 함대 감축 계획에서 제원이 없어 감속을 적용하지 못한 항차가 있을 때. `AGENTS §4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#513) |
 | 2026-09-18 | `#1081` ⑦ | **v1.11 — §16.2 디렉터리 트리를 실측으로 갱신.** 백엔드 7개 하위 패키지(`auth`·`mail`·`reports`·`weather`·`geocode`·`ais`·`llm`)와 `depcheck.py`·`db/seed.py`·`db/demo_seed.py`가 트리에 없었고, features는 3종으로 적혀 있었으나 실제 **18종**이다. `design/`·`download/`·`theme/`·`test/`·`tokens.generated.css`·`fonts.css`도 보강했다. 끝의 「provider 인터페이스로 demo 구현과 실제 API 구현을 교체한다」는 `#542`가 demo 모드를 폐기해 `README`와 모순이던 문장 — 「API 클라이언트가 유일한 출처」로 정정했다. 구조 개정이라 `AGENTS §4.3`에 따라 버전을 올린다. `main`이 이미 v1.10을 쓰고 있어(09-18 시점 · 이력 행 없는 승격) 판번호는 v1.11로 올린다 (#1081) |
 | 2026-09-18 | `#756` | §12.3 참조표에 `FUEL_CF_MASS_BASIS` 추가 — 대체 연료 지렛대(결정요청 v9 「나」)가 질량 기준임을 알리는 경고. 문구는 `PRD §6.3` 확정본. 경고 코드의 정본 목록과의 동기화는 `test_warning_codes_sync.py`가 지킨다 (#756) |
+| 2026-09-20 | `#1311` | **v1.12 — §5.2.1.2 신설: 기능③ `parameters_used` 스키마 v1 · v2.** `#816`이 기능③에 v2(`fuel_types` · `parameter_sources` 4키 · `parameter_schema_version`)를 도입했는데 이 문서는 §5.2.1의 기능①·② 형태만 적고 있어, v2는 하위 정본 `API_SPEC §6.1` 각주에만 있었다(우선순위 역전 · `AGENTS §3.1`). 기능③은 v1부터 이미 §5.2.1과 달랐다 — `fuel_types`·`parameter_source_version`이 없고 `rating_boundary`에 `ship_type`이 있다. 두 형식이 **함께 유효**하다는 것, 판정 규칙(필드 없음 = v1 · 정수 아니면 손상), 재현이 저장된 버전의 빌더로 이뤄져 v1 빌더를 동결한다는 것, `ship_type`·`parameter_sources`를 싣는 이유를 적었다. §5.2.1 머리에 「기능①·②는 이 형태 그대로」 한 줄. 코드 변경 없음 — 문서를 구현에 맞춘 것이다. 절 신설이라 `AGENTS §4.3`상 버전을 올린다 (#1306) |

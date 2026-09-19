@@ -53,6 +53,17 @@ describe('RequireOffice (#672)', () => {
     expect(screen.getByText(OFFICE_ONLY_SCREEN_NOTICE)).toBeTruthy()
   })
 
+  it('관리자도 자식을 그대로 그린다 — ADMIN은 OFFICE의 상위집합 (#1301)', () => {
+    stub({ ...OFFICE, role: 'ADMIN' })
+    render(
+      <RequireOffice>
+        <p>보고서 화면</p>
+      </RequireOffice>,
+    )
+    expect(screen.getByText('보고서 화면')).toBeTruthy()
+    expect(screen.queryByText(OFFICE_ONLY_SCREEN_NOTICE)).toBeNull()
+  })
+
   it('사용자를 모르면 현장직과 같다 — 넓게 틀리지 않는다', () => {
     stub(null)
     render(
