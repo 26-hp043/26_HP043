@@ -9,6 +9,8 @@ import type { VoyageStatus } from '../voyage-management/types'
 import type { ScenarioComparisonProvider } from './provider'
 import type { ScenarioAdoptResult, ScenarioResult } from './types'
 import { adoptConfirmMessage, fieldLabel, invalidatedMessage, isPlanning } from './adoptRules'
+import { isOffice, useAuthUser } from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 
 /**
  * 비교한 시나리오를 **항차 계획에 반영**한다 (`#580` · `API_SPEC §5.2`).
@@ -43,6 +45,14 @@ import { adoptConfirmMessage, fieldLabel, invalidatedMessage, isPlanning } from 
  * 이 패널은 근거를 다시 보여 주지 않는다 — 위 카드가 CO₂·연료·소요 시간을 직항 대비로
  * 이미 보여 준다(`#799` · `#739`). 같은 속력의 우회는 CII가 같아 CII로는 고를 수 없다.
  * 어느 안이 낫다고 말하지 않는다(`PRD §11.2` 추천 금지).
+ *
+ * ## 채택은 사무직 전용이다 (`API_SPEC §1.2` · `#1325`)
+ *
+ * 비교(`POST /scenarios/compare`)는 두 역할 모두 쓰지만, 계획을 확정하는 반영
+ * (`POST /scenarios/{id}/adopt`)은 사무직(`ADMIN` 포함)만 부른다. 현장직이 폼을 다
+ * 채우고 확인 대화상자까지 지난 뒤에야 `403`을 받는 것은 「되는 것처럼 보이는」
+ * 경험이라(`VesselManagement`·`AnnualSimulation`과 같은 이유), 버튼을 미리 잠그고
+ * 이유를 `OFFICE_ONLY_ACTION_HINT`로 옆에 남긴다.
  */
 
 type VoyagesState = VoyageOption[] | 'loading' | 'failed'
@@ -70,6 +80,8 @@ export function ScenarioAdoptPanel({
   preferredVoyageId: string | null
 }) {
   const catalog = useMemo(() => createApiVoyageCatalog(), [])
+  // 채택은 사무직 전용이다 (`API_SPEC §1.2` · #1325). 현장직은 폼을 읽되 반영 버튼이 잠긴다.
+  const office = isOffice(useAuthUser())
   const [voyages, setVoyages] = useState<VoyagesState>('loading')
   const [scenarioId, setScenarioId] = useState('')
   const [voyageId, setVoyageId] = useState('')
@@ -195,17 +207,26 @@ export function ScenarioAdoptPanel({
       <button
         type="button"
         className="scenario-adopt__submit"
-        disabled={!ready || adopt.status === 'running'}
+        disabled={!ready || adopt.status === 'running' || !office}
         /*
          * `ready`가 거짓인 세 이유 중 **화면에 사유가 뜨는 것은 `stale`뿐**이고,
          * 나머지 둘(시나리오·항차 미선택)은 바로 위 선택칸이 비어 있는 것으로
-         * 드러난다 (`§14` 「비활성의 사유」 · `#1170` ⑵).
+         * 드러난다 (`§14` 「비활성의 사유」 · `#1170` ⑵). 사무직 가드는 `stale`과
+         * 겹치면 더 근본적인 사유(`office`)를 앞세운다 (`#1325`).
          */
-        aria-describedby={stale ? 'scenario-adopt-stale' : undefined}
+        aria-describedby={
+          !office ? 'scenario-adopt-office-only' : stale ? 'scenario-adopt-stale' : undefined
+        }
         onClick={submit}
       >
         {adopt.status === 'running' ? '반영하는 중…' : '계획에 반영'}
       </button>
+
+      {office ? null : (
+        <span id="scenario-adopt-office-only" className="scenario-adopt__note">
+          {OFFICE_ONLY_ACTION_HINT}
+        </span>
+      )}
 
       {adopt.status === 'error' ? (
         <ErrorState level="region" size="compact" message={adopt.message} />

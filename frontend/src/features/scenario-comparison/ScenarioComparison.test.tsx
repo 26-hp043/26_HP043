@@ -2,11 +2,13 @@
 import '../../test/renderSetup'
 
 import { useState } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { ScenarioComparison } from './ScenarioComparison'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
+import * as session from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 
 /**
  * 항로 비교 화면의 **선택지 배선** (#632).
@@ -46,6 +48,17 @@ function stubServer(years: number[] = [2026, 2027, 2030]) {
   return fetchImpl
 }
 
+/** 기존 검사는 전부 **사무직** 전제다 — 시나리오 채택(#1325)이 사무직 전용이 됐다. */
+function stubRole(role: session.UserRole) {
+  vi.spyOn(session, 'useAuthUser').mockReturnValue({
+    id: 'u-1',
+    email: 'tester@bluelog.local',
+    displayName: null,
+    role,
+    emailVerifiedAt: null,
+  })
+}
+
 function renderScreen(context: Partial<ShellContext> = {}) {
   const value: ShellContext = {
     ...EMPTY_SHELL_CONTEXT,
@@ -67,6 +80,10 @@ function renderScreen(context: Partial<ShellContext> = {}) {
     </MemoryRouter>,
   )
 }
+
+beforeEach(() => {
+  stubRole('OFFICE')
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -768,6 +785,65 @@ describe('계획에 반영 (#580)', () => {
     const button = (await screen.findByRole('button', { name: '계획에 반영' })) as HTMLButtonElement
     await waitFor(() => expect(button.disabled).toBe(true))
     expect(screen.getByText(/다시 비교한 뒤 반영할 수 있습니다/)).toBeTruthy()
+  })
+
+  /**
+   * 채택(`adopt`)은 사무직 전용이다(`API_SPEC §1.2` · `#1325`). 현장직이 폼을 다 채우고
+   * 확인 대화상자까지 지나서야 서버 `403`을 받던 것을 버튼 단계에서 막는다 —
+   * `VesselManagement`·`AnnualSimulation`과 같은 패턴(`isOffice` + `OFFICE_ONLY_ACTION_HINT`).
+   */
+  describe('역할 — 채택은 사무직 전용이다 (#1325)', () => {
+    it('현장직: 반영 버튼이 잠기고 안내가 뜬다', async () => {
+      stubRole('FIELD')
+      stubAdoptServer()
+      renderScreen()
+      await openPanel()
+
+      fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+      fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+
+      const button = screen.getByRole('button', { name: '계획에 반영' }) as HTMLButtonElement
+      expect(button.disabled).toBe(true)
+      expect(screen.getByText(OFFICE_ONLY_ACTION_HINT)).toBeTruthy()
+    })
+
+    it('사무직: 반영 버튼이 그대로 동작한다', async () => {
+      stubRole('OFFICE')
+      const fetchImpl = stubAdoptServer()
+      vi.stubGlobal('confirm', vi.fn(() => true))
+      renderScreen()
+      await openPanel()
+
+      fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+      fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+
+      const button = screen.getByRole('button', { name: '계획에 반영' }) as HTMLButtonElement
+      expect(button.disabled).toBe(false)
+      expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
+
+      fireEvent.click(button)
+      expect(await screen.findByText(/시나리오를 반영했습니다/)).toBeTruthy()
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/adopt'))).toBe(true)
+    })
+
+    it('관리자: 반영 버튼이 그대로 동작한다 — ADMIN은 OFFICE의 상위집합 (#1301)', async () => {
+      stubRole('ADMIN')
+      const fetchImpl = stubAdoptServer()
+      vi.stubGlobal('confirm', vi.fn(() => true))
+      renderScreen()
+      await openPanel()
+
+      fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+      fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+
+      const button = screen.getByRole('button', { name: '계획에 반영' }) as HTMLButtonElement
+      expect(button.disabled).toBe(false)
+      expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
+
+      fireEvent.click(button)
+      expect(await screen.findByText(/시나리오를 반영했습니다/)).toBeTruthy()
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/adopt'))).toBe(true)
+    })
   })
 })
 
