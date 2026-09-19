@@ -346,6 +346,50 @@ def test_prod_app_does_not_publish_a_host_port():
     )
 
 
+def test_dev_app_mounts_every_document_the_cross_ref_guard_reads():
+    """`tests/test_doc_cross_refs.py`가 읽는 정본이 전부 dev 컨테이너에 마운트돼 있다 (#1207).
+
+    ## 무엇을 막는가
+
+    문서 여덟 중 **`UIFLOW.md`만 빠져 있었다.** 그런데 그 가드의 `TARGETS` **첫 항목이
+    `UIFLOW`**다 — 가드가 태어난 이유 자체가 *「`DESIGN_SYSTEM`이 존재한 적도 없는
+    `UIFLOW` 절을 6종 참조하고 있었다」*(`#583`)이다. **컨테이너 안에서는 그 검사가
+    성립하지 않았다.**
+
+    ## 왜 조용한가
+
+    빠진 파일은 `FileNotFoundError`로 죽지만, 그것은 **컨테이너에서 pytest를 돌릴 때만**
+    난다. 호스트에서 돌리면 파일이 제자리에 있어 초록으로 통과하므로, 어긋났다는 사실이
+    드러나는 경로가 사실상 없다 — 컨테이너에서 한 번 돌려 본 사람이 있어야 한다.
+
+    ## 왜 `TARGETS`를 읽어 오는가
+
+    목록을 여기 베껴 두면 **두 곳이 갈리는 것을 막으려다 갈릴 자리를 하나 더 만든다.**
+    정본을 늘리는 사람은 `TARGETS`에 행을 넣지 이 파일을 열지 않는다.
+
+    `README.md`도 마운트돼 있지만 `TARGETS`에는 없다 — 그쪽은 참조 **대상**이 아니라
+    참조를 **하는** 쪽이다. 그래서 「`TARGETS` ⊆ 마운트」로만 본다.
+    """
+    from test_doc_cross_refs import TARGETS
+
+    documents = set(TARGETS.values())
+    mounts = _app_service(_DEV).get("volumes", [])
+    mounted = {entry.split(":", 1)[0].removeprefix("./"): entry for entry in mounts}
+
+    missing = sorted(documents - set(mounted))
+    assert not missing, (
+        f"docker-compose.yml의 app이 마운트하지 않는 정본 {len(missing)}개: "
+        f"{', '.join(missing)}. tests/test_doc_cross_refs.py가 이 파일들을 읽으므로 "
+        "컨테이너 안에서는 「파일 없음」으로 죽는다 (#1207)."
+    )
+
+    # 읽기 전용인지도 함께 본다 — 컨테이너가 정본을 고쳐 쓸 이유가 없다.
+    writable = sorted(
+        mounted[name] for name in documents if not mounted[name].endswith(":ro")
+    )
+    assert not writable, f"정본이 쓰기 가능하게 마운트돼 있다: {writable}"
+
+
 def test_dev_app_still_publishes_8000():
     """개발 compose는 ``8000:8000``을 유지한다 (#811).
 

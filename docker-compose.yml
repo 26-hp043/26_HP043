@@ -43,6 +43,10 @@ services:
       - ./DB_SCHEMA.md:/app/DB_SCHEMA.md:ro
       - ./TECH_SPEC.md:/app/TECH_SPEC.md:ro
       - ./DESIGN_SYSTEM.md:/app/DESIGN_SYSTEM.md:ro
+      # UIFLOW는 `tests/test_doc_cross_refs.py`의 `TARGETS` 첫 항목이다 (`#1207`).
+      # 빠뜨리면 컨테이너 안에서 그 가드가 「파일 없음」으로 죽는다 — 가드가 태어난
+      # 이유 자체가 「DESIGN_SYSTEM이 존재한 적 없는 UIFLOW 절을 6종 참조한다」였다.
+      - ./UIFLOW.md:/app/UIFLOW.md:ro
       - ./AGENTS.md:/app/AGENTS.md:ro
       - ./TEST_PLAN.md:/app/TEST_PLAN.md:ro
       - ./README.md:/app/README.md:ro

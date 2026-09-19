@@ -1,7 +1,7 @@
 """마이그레이션 테스트용 pytest fixture.
 
-실행 중인 PostgreSQL(docker-compose의 db 서비스, 기본 localhost:5432)에 대해
-`alembic upgrade head`로 스키마를 구성한 뒤, async 엔진으로 제약을 검증한다.
+실행 중인 CUBRID(docker-compose의 db 서비스, 브로커 기본 localhost:33100)에 대해
+`alembic upgrade head`로 스키마를 구성한 뒤, async 엔진으로 제약을 검증한다 (`#1058`).
 
 DATABASE_URL 환경변수로 대상 DB를 바꿀 수 있으며, 미설정 시 config 기본값을 사용한다.
 """

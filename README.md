@@ -436,47 +436,72 @@ await fetch('/api/v1/auth/dev-login', { method: 'POST' }); location.href = '/'
 **`cii_test`를 한 번 만들면 끝난다.** 그 뒤로는 신경 쓸 것이 없다.
 
 ```bash
-# 1) 한 번만 — 테스트 전용 DB를 만든다
-docker compose exec -T db createdb -U cii cii_test
+# 1) 한 번만 — 테스트 전용 DB를 만들고 서버를 올린다
+docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+    --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+  cubrid server start cii_test'
 
 # 2) 이후로는 이렇게 돌린다
-DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest
+DATABASE_URL=cubrid+aiopycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 ```
 
-대상을 주지 않고 `uv run pytest`를 치면 **DB를 쓰는 테스트가 전부 실패한다.** skip이 아니라 실패다 — skip은 조용해서 **돌지 않은 것을 돌았다고 착각할 여지**를 남기고, 이 사고의 본체가 바로 「아무 신호 없이 지나갔다」였다.
+세 가지가 PostgreSQL 시절과 다르다 (`#1058` · `#1207`).
+
+| | 왜 |
+|---|---|
+| `createdb`가 아니라 **`cubrid createdb`** | CUBRID에 `createdb`·`dropdb`·`psql`은 없다. 로케일 인자(`en_US.iso88591`)는 **필수**이며 운영 DB `cii`와 같아야 한다 |
+| 포트가 5432가 아니라 **33100** | `docker-compose.yml`이 브로커를 `33100:33000`으로 낸다. 컨테이너 **안**에서는 `db:33000`이다 |
+| **`--extra dev`** | `pytest`는 `pyproject.toml`의 `[dev]` extra에 있고 **`uv`는 extra를 기본으로 설치하지 않는다.** 빼면 `pytest`를 찾지 못한다 — 전환과 무관하게 원래 틀렸던 줄이다 |
+
+> 🔴 **`docker compose down` 뒤에는 서버를 다시 올려야 한다.** 컨테이너 진입점이 기동하는 것은 `$CUBRID_DB`(`cii`) 하나뿐이라 `cii_test`의 서버는 내려간 채로 남는다. 그 상태로 pytest를 돌리면 「Failed to connect to database server, 'cii_test'」가 난다.
+>
+> ```bash
+> docker compose exec -T db cubrid server start cii_test
+> ```
+
+> 볼륨을 64M로 잡는 것은 **DB를 두 개 만들기 때문**이다. CUBRID는 공간이 모자라면 볼륨을 자동 확장하므로 작게 시작해도 된다 — `scripts/db_backup.py`의 복구본이 같은 값을 쓴다.
+
+대상을 주지 않고 `uv run --extra dev pytest`를 치면 **DB를 쓰는 테스트가 전부 실패한다.** skip이 아니라 실패다 — skip은 조용해서 **돌지 않은 것을 돌았다고 착각할 여지**를 남기고, 이 사고의 본체가 바로 「아무 신호 없이 지나갔다」였다.
 
 ```
 대상 DB 'cii'은(는) 테스트 대상이 아닙니다 (#691).
 …
-    docker compose exec -T db createdb -U cii cii_test
-    DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test pytest
+    docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+      --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+      cubrid server start cii_test'
+    DATABASE_URL=cubrid+aiopycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 ```
 
-**DB를 쓰지 않는 테스트는 그대로 돈다.** 막는 것은 「DB에 쓰는 것」이지 「테스트를 돌리는 것」이 아니다.
+> 이 문구는 `tests/db_target.py`가 만든다. **README와 갈라지지 않게** `tests/test_db_target_guard.py`가 양쪽에서 PostgreSQL 명령·URL을 찾아 막는다 (`#1207`).
 
-`cii_test`로 돌리면 종전에 skip되던 **롤백 왕복 테스트 6건이 로컬에서도 실행된다.** 지금까지 그 6건은 CI에서만 검증됐다.
+**DB를 쓰지 않는 테스트는 그대로 돈다.** 막는 것은 「DB에 쓰는 것」이지 「테스트를 돌리는 것」이 아니다. 문서 가드처럼 DB를 보지 않는 검사는 대상 지정 없이 바로 돈다.
 
-CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
-
-### 스위트를 겹쳐 돌리지 못한다 (`#894`)
-
-두 실행이 같은 `cii_test`를 동시에 쓰면 서로의 행을 지우고 스키마까지 내린다. 그래서 **DB를 여는 첫 순간 실행 잠금을 잡고**, 이미 다른 실행이 쥐고 있으면 곧바로 멈춘다.
-
-```
-다른 pytest 실행이 이 테스트 DB를 쓰고 있습니다 (cii_test). 두 실행이 겹치면 …
+```bash
+uv run --extra dev pytest tests/test_doc_cross_refs.py
 ```
 
-**앞 실행이 끝난 뒤 다시 돌리면 된다.** 잠금은 연결에 걸려 있어 실행이 강제 종료돼도 남지 않는다. DB를 쓰지 않는 검사는 겹쳐 돌려도 된다.
+`cii_test`로 돌리면 종전에 skip되던 **롤백 왕복 테스트가 로컬에서도 실행된다.** 그 전까지 그 검사는 CI에서만 돌았다.
+
+CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`의 `cubrid` 서비스). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
+
+### 🔴 스위트를 겹쳐 돌리면 서로를 망가뜨린다 (`#894` → `#1058`)
+
+두 실행이 같은 `cii_test`를 동시에 쓰면 서로의 행을 지우고 스키마까지 내린다. `#894`는 **DB를 여는 첫 순간 실행 잠금을 잡아** 겹친 쪽을 그 자리에서 멈추게 했다.
+
+**CUBRID로 옮기면서 그 잠금이 사라졌다.** PostgreSQL의 어드바이저리 잠금에 대응하는 것이 CUBRID에 없어 `conftest.py`의 `_hold_suite_lock()`이 **no-op**이다. 즉 **지금은 겹쳐도 아무도 말려 주지 않는다** — 증상은 「220 failed」로 나타나고, 그러면 원인이 아니라 **자기 수정을 의심하게 된다.**
+
+**한 번에 하나만 돌린다.** IDE의 병렬 실행·`pytest -n`도 마찬가지다. 근본 해결(테스트마다 SAVEPOINT 롤백)은 `#1250`이 다룬다.
 
 ### 테스트 DB 복구
 
 `test_zz_roundtrip.py`가 `downgrade base`와 `upgrade head` 사이에서 끊기면 DB가 **중간 리비전에 남는다.** 다음 실행은 「`alembic upgrade head` 실패 — 테스트 DB가 리비전 ○○○에 남아 있습니다」로 알린다. 테스트 DB는 버려도 되는 곳이므로 **다시 만든다.**
 
 ```bash
-docker compose exec -T db dropdb -U cii cii_test
-docker compose exec -T db createdb -U cii cii_test
-DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest   # 첫 fixture가 upgrade head를 한다
+# 지운다 — `deletedb`는 서버가 떠 있으면 거부하므로 먼저 멈춘다
+docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb cii_test'
 ```
+
+그런 뒤 위 1)을 그대로 다시 실행하고 테스트를 돌린다. 첫 fixture가 `upgrade head`를 한다.
 
 ---
 
