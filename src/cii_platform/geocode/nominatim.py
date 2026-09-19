@@ -46,6 +46,13 @@ USER_AGENT = "BlueLog-CII/1.0 (+https://github.com/26-hp043/26_HP043)"
 #: 정책 상한(초당 1회)을 **코드로 강제**한다. 문서에만 적으면 지켜지지 않는다.
 MIN_INTERVAL_SECONDS = 1.0
 
+#: 차례를 기다리는 상한 (`#1364`). 제공자가 프로세스에 하나이므로(`#1335`) 조회는
+#: 줄을 서고, 줄이 길면 앞사람 수만큼 초가 쌓인다. 상한이 없으면 **사용자는 실패인지
+#: 진행 중인지 구분하지 못한 채** 기다리고, 그동안 요청 하나가 서버에 매여 있다.
+#: 5초는 「앞에 다섯 명까지는 받아 준다」이고 그 뒤는 사실대로 「잠시 뒤 다시」다.
+#: 조회 자체의 HTTP 타임아웃이 10초라 최악 지연은 15초로 유계다.
+MAX_WAIT_SECONDS = 5.0
+
 #: 항만으로 받아들이는 분류. `class:type` 조합이다.
 #: - ``harbour``·``port``: 항만 그 자체
 #: - ``ferry_terminal``: 여객 부두
@@ -92,10 +99,18 @@ class NominatimProvider:
     않고도 간격이 강제되는지 본다.
     """
 
-    def __init__(self, client_factory=None, *, clock=None, sleep=None) -> None:
+    def __init__(
+        self,
+        client_factory=None,
+        *,
+        clock=None,
+        sleep=None,
+        max_wait: float = MAX_WAIT_SECONDS,
+    ) -> None:
         self._client_factory = client_factory or (lambda: httpx.AsyncClient(timeout=10.0))
         self._clock = clock or time.monotonic
         self._sleep = sleep or asyncio.sleep
+        self._max_wait = max_wait
         self._lock = asyncio.Lock()
         self._last_call = 0.0
 
@@ -114,6 +129,8 @@ class NominatimProvider:
         """이름 하나를 조회한다. 항만이 아니거나 결과가 없으면 ``None``.
 
         조회 자체가 실패하면 :class:`GeocodeError` — 「없다」와 「못 물었다」는 다르다.
+        **차례를 기다리다 상한(:data:`MAX_WAIT_SECONDS`)을 넘겨도 같은 예외다** (`#1364`) —
+        둘 다 사용자에게는 「지금은 못 찾았다」이고, 좌표 없이 진행할 수 있다.
         """
         params = {
             "q": name,
@@ -123,7 +140,15 @@ class NominatimProvider:
         }
         headers = {"User-Agent": USER_AGENT, "Accept-Language": "ko,en"}
 
-        async with self._lock:
+        # 차례를 **상한을 두고** 기다린다 (`#1364`). 락은 프로세스에 하나뿐인 제공자를
+        # 직렬화하므로, 줄이 길면 대기가 앞사람 수만큼 쌓인다. 넘으면 기다리게 두지 않고
+        # 「못 물었다」로 돌려준다 — 서비스가 `LOOKUP_FAILED`로 바꿔 화면이 사실대로 말한다.
+        try:
+            await asyncio.wait_for(self._lock.acquire(), timeout=self._max_wait)
+        except TimeoutError as exc:
+            raise GeocodeError(f"geocoding request queued longer than {self._max_wait}s") from exc
+
+        try:
             await self._wait_for_slot()
             try:
                 async with self._client_factory() as client:
@@ -132,6 +157,8 @@ class NominatimProvider:
                     rows = response.json()
             except (httpx.HTTPError, ValueError) as exc:
                 raise GeocodeError(f"geocoding request failed: {exc}") from exc
+        finally:
+            self._lock.release()
 
         return _first_port(rows)
 
