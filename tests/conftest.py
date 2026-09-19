@@ -75,9 +75,12 @@ _CUBRID_SKIP_FILES: set[str] = set()
 # import 시점에 asyncpg 등 PostgreSQL 전용 모듈을 쓰는 파일은
 # pytest_collection_modifyitems보다 먼저 collection error가 난다.
 # collect_ignore로 아예 수집하지 않는다.
-_CUBRID_COLLECT_IGNORE = {
-    "test_suite_lock_db.py",  # asyncpg advisory lock
-}
+#
+# ⚠️ **비어 있어야 정상이다** (#1250). `test_suite_lock_db.py`가 한때 여기 있었다 —
+# asyncpg를 import해서였는데 그 import를 걷고 잠금을 파일 잠금으로 되살린 뒤에도 남아
+# 있으면, 파일을 직접 지정하지 않는 한(CI 포함) **검사가 한 건도 돌지 않는다.**
+# 파일 경로를 주고 돌리면 통과해 보여서 알아채기 어렵다 — 실제로 그렇게 한 번 놓쳤다.
+_CUBRID_COLLECT_IGNORE: set[str] = set()
 
 collect_ignore: list[str] = []
 if _IS_CUBRID:
@@ -252,13 +255,79 @@ async def ensure_regulation_year(session, year: int, z_factor: float = 11.0) -> 
     )
 
 
+#: 이 프로세스가 쥔 잠금 파일. 세션 동안 열어 둔다 — 닫는 순간 잠금이 풀린다.
+_SUITE_LOCK_HANDLE = None
+
+
+def suite_lock_path(url: str = TEST_DATABASE_URL) -> Path:
+    """대상 DB마다 하나인 잠금 파일 경로 (#1250).
+
+    DB URL을 이름에 담는다 — `cii_test`와 다른 테스트 DB는 서로 막지 않는다. 비밀번호가
+    URL에 들어갈 수 있으므로 원문 대신 해시를 쓴다.
+    """
+    import hashlib
+    import tempfile
+
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    # ``TMPDIR``을 따르지 않는다 — 샌드박스 셸과 일반 셸처럼 ``TMPDIR``이 다른 두 실행이
+    # 같은 DB를 쓰면 서로 다른 파일을 잠가 **막지 못한다.** 저장소 안(`.pytest_cache`)도
+    # 안 된다 — 워크트리마다 경로가 달라 같은 문제가 난다. 그래서 고정 경로를 쓴다.
+    base = Path("/tmp") if Path("/tmp").is_dir() else Path(tempfile.gettempdir())
+    return base / f"cii-pytest-suite-{digest}.lock"
+
+
 def _hold_suite_lock() -> None:
-    """CUBRID에는 advisory lock이 없으므로 no-op (#1058)."""
-    pass
+    """스위트가 도는 동안 **대상 DB 단위 파일 잠금**을 쥔다 (#894 · #1250).
+
+    ## 왜 되살렸나
+
+    PostgreSQL advisory lock으로 하던 것이 CUBRID 전환(`#1058`)에서 advisory lock이 없어
+    no-op이 됐다. 그 뒤로 두 스위트가 같은 `cii_test`를 겹쳐 쓰면 **막는 것이 없었다** —
+    2026-09-09의 「220 failed」가 다시 날 수 있는 상태였다(`tests/test_suite_lock_db.py`가
+    그 사실을 skip 사유로 적고 기다리고 있었다).
+
+    ## 왜 파일 잠금인가 (잠금 테이블이 아니라)
+
+    ``fcntl.flock``은 **프로세스가 죽으면 OS가 푼다.** 잠금 테이블 한 행으로 하면 실행이
+    중간에 죽었을 때 행이 남아 **다음 실행이 영원히 막히고**, 사람이 DB에서 행을 지워야
+    풀린다. 테스트 DB 연결도 필요 없다.
+
+    ⚠️ **한계 — 같은 파일 시스템의 실행끼리만 막는다.** 호스트의 pytest와 컨테이너 안의
+    pytest가 같은 DB를 쓰는 겹침은 잡지 못한다. 이 저장소의 로컬 실행은 호스트(WSL)에서
+    돌리고 CI는 잡마다 새 DB에서 한 번 돌므로, 겪은 사고(#894)는 이 범위 안이다.
+
+    잠금은 한 번만 잡는다 — DB를 여는 fixture가 여럿이어서 여러 번 불린다.
+    """
+    global _SUITE_LOCK_HANDLE
+    if _SUITE_LOCK_HANDLE is not None:
+        return
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows에서 직접 돌리는 경우
+        return
+
+    # "a"로 연다 — "w"면 잠금을 못 얻는 쪽도 파일을 비운다(잠금엔 영향 없지만 불필요한 쓰기).
+    handle = open(suite_lock_path(), "a")  # noqa: SIM115 - 세션 내내 열어 둔다
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        # skip·fail이 아니라 **세션을 끝낸다** — 계속 돌면 검사들이 줄줄이 실패해 원인을
+        # 가린다(#894의 증상). 종료 코드 3은 종전 advisory lock 구현과 같다.
+        db = TEST_DATABASE_URL.rsplit("/", 1)[-1]
+        pytest.exit(SUITE_LOCK_MESSAGE.format(db=db), returncode=3)
+    _SUITE_LOCK_HANDLE = handle
 
 
 def _release_suite_lock() -> None:
-    pass
+    global _SUITE_LOCK_HANDLE
+    if _SUITE_LOCK_HANDLE is None:
+        return
+    import fcntl
+
+    fcntl.flock(_SUITE_LOCK_HANDLE, fcntl.LOCK_UN)
+    _SUITE_LOCK_HANDLE.close()
+    _SUITE_LOCK_HANDLE = None
 
 
 def pytest_sessionfinish(session, exitstatus):

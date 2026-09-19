@@ -158,6 +158,22 @@ def test_it_cov_007_every_exemption_carries_a_reason(monkeypatch):
     assert gate.validate_exemptions(), "이슈 번호 없는 사유가 통과했다"
 
 
+def test_it_cov_010_the_exemption_list_cannot_grow_silently(monkeypatch):
+    """IT-COV-010 — 면제 목록 **항목 수에 상한**이 있다 (#1250).
+
+    사유·이슈 번호가 제대로 붙은 항목이라도, 상한을 넘기면 실패한다 — 면제가 늘어나는
+    순간이 상수 변경으로 리뷰에 드러나야 한다. 상한을 올리면 같은 목록이 통과한다.
+    """
+    valid = {"src/a.py": gate.Exemption(60.0, "라우트 본문 미도달 잔여 — #828")}
+    monkeypatch.setattr(gate, "KNOWN_BELOW_FLOOR", valid)
+
+    monkeypatch.setattr(gate, "MAX_KNOWN_BELOW_FLOOR", 0)
+    assert any("상한" in p for p in gate.validate_exemptions()), "상한 0에 1건이 통과했다"
+
+    monkeypatch.setattr(gate, "MAX_KNOWN_BELOW_FLOOR", 1)
+    assert gate.validate_exemptions() == [], "상한을 올렸는데도 실패했다"
+
+
 @pytest.mark.parametrize(
     "filename",
     [
