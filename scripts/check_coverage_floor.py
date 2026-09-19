@@ -99,6 +99,14 @@ class Exemption:
 #: `resolve_session` 한 벌로 합쳐 미들웨어가 그것을 부르므로 본문이 매 요청 실행된다.
 KNOWN_BELOW_FLOOR: dict[str, Exemption] = {}
 
+#: 면제 목록 항목 수의 **상한** (#1250). 지금은 0이다.
+#:
+#: 목록이 한 방향(늘어나는 쪽)으로만 움직이면 하한 게이트가 조용히 무뎌진다 — 항목마다
+#: 사유와 이슈 번호를 요구해도(:func:`validate_exemptions`) **넣는 행위 자체**는 막지
+#: 않았다. 늘리려면 이 상수를 **이슈 번호와 함께** 올리게 해서, 면제가 늘어나는 순간이
+#: 코드 리뷰에 보이게 한다. 항목을 빼면 이 상수도 함께 내린다.
+MAX_KNOWN_BELOW_FLOOR = 0
+
 
 def _rate(elem: ET.Element) -> tuple[int, int]:
     """``<class>`` 하나의 (전체 문장, 미커버 문장)."""
@@ -202,6 +210,11 @@ def evaluate(files: dict[str, tuple[int, int]]) -> list[str]:
 def validate_exemptions() -> list[str]:
     """예외 목록 자체를 본다 — 사유가 비어 있으면 목록이 통과용이 된다."""
     problems: list[str] = []
+    if len(KNOWN_BELOW_FLOOR) > MAX_KNOWN_BELOW_FLOOR:
+        problems.append(
+            f"면제 목록이 상한을 넘었다 ({len(KNOWN_BELOW_FLOOR)} > {MAX_KNOWN_BELOW_FLOOR}) — "
+            "검사를 채우거나, 늘려야 한다면 MAX_KNOWN_BELOW_FLOOR를 이슈 번호와 함께 올려라 (#1250)"
+        )
     for name, exemption in sorted(KNOWN_BELOW_FLOOR.items()):
         if len(exemption.reason) < 20:
             problems.append(f"{name}: 사유가 너무 짧다 — 무엇이 왜 안 덮이는지 적어라")
