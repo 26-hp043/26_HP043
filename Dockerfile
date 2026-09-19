@@ -135,5 +135,7 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=5 \
 #    워커마다 독립적으로 초기화돼야 한다 (TECH_SPEC §5.4 7항 · precision.py 모듈
 #    docstring). --workers > 1로 확장 시 각 워커의 import 시점에 calc 패키지가
 #    apply_default_rounding()을 호출하는지 확인해야 한다.
+#  - 요청 한도 카운터도 워커별 프로세스 메모리다. --workers > 1이면 실효 한도가
+#    워커 수만큼 곱해지므로, 확장 전 공유 저장소로 전환해야 한다 (#853).
 #  - --reload 없음: 파일 폴링 오버헤드와 볼륨 마운트 결합 시 코드 주입 공격 표면 제거 (#85)
 CMD ["uvicorn", "cii_platform.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
