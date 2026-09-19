@@ -388,6 +388,18 @@ describe('사이드바 — 현장직에게 사무직 전용 화면은 비활성 
       expect(item.querySelector('a')).not.toBeNull()
     }
   })
+
+  it('관리자: 사무직 전용 화면도 그대로 링크다 — ADMIN은 OFFICE의 상위집합 (#1301)', async () => {
+    stubRole('ADMIN')
+    stubServer()
+    renderShell()
+    const nav = await screen.findByRole('navigation', { name: '주요 화면' })
+    expect(nav.textContent).not.toContain('사무직 전용')
+    for (const id of ['REPORTS', 'FLEET_REDUCTION'] as const) {
+      const item = screen.getByText(SCREEN_BY_ID[id].label).closest('li')!
+      expect(item.querySelector('a')).not.toBeNull()
+    }
+  })
 })
 
 /**

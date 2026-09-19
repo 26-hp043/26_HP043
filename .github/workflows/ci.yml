@@ -256,8 +256,10 @@ jobs:
       # 가입 게이트도 같은 이유로 준다 (#808) — 프로덕션에서 허용 도메인·초대 코드가
       # 둘 다 비면 앱이 뜨지 않는다. CI 전용 도메인이며 이 잡은 가입을 검증하지 않는다.
       #
-      # 최초 사무직도 같은 자리다 (#672) — 프로덕션에서 `INITIAL_OFFICE_EMAILS`가 비면
-      # 앱이 뜨지 않는다(새 DB에서 사무직 0명이 되지 않게). 이 잡은 역할을 검증하지 않는다.
+      # 최초 관리자도 같은 자리다 (#672 · #1301) — 프로덕션에서 `INITIAL_ADMIN_EMAILS`가
+      # 비면 앱이 뜨지 않는다(새 DB에서 관리자 0명이 되지 않게). 이 잡은 역할을 검증하지 않는다.
+      # ⚠️ 옛 이름(`INITIAL_OFFICE_EMAILS`)을 남기면 환경과 무관하게 기동이 거부된다 —
+      # #1301 PR의 첫 CI가 바로 그것으로 502를 냈다(헬스 체크 실패).
       #
       - name: 메일 설정 주입 (.env)
         run: |
@@ -266,7 +268,7 @@ jobs:
           SMTP_HOST=localhost.invalid
           MAIL_FROM=ci@localhost.invalid
           SIGNUP_ALLOWED_DOMAINS=ci.example
-          INITIAL_OFFICE_EMAILS=office@ci.example
+          INITIAL_ADMIN_EMAILS=admin@ci.example
           ENVEOF
 
       - name: 이미지 빌드 (app · frontend)

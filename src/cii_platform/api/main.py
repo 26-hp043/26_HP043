@@ -41,7 +41,7 @@ from cii_platform.api.routes.vessels import router as vessels_router
 from cii_platform.api.routes.voyages import router as voyages_router
 from cii_platform.api.routes.weather import router as weather_router
 from cii_platform.auth.middleware import auth_middleware
-from cii_platform.auth.role_bootstrap import validate_initial_office
+from cii_platform.auth.role_bootstrap import validate_initial_admin
 from cii_platform.auth.signup_gate import validate_signup_gate
 from cii_platform.config import should_expose_api_docs, validate_public_base_url
 from cii_platform.log_config import setup_logging
@@ -101,10 +101,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 막으면 이미 누군가 들어온 뒤에야 드러난다.
     validate_signup_gate()
 
-    # 최초 사무직도 같은 자리에서 본다 (#672). 새 DB에서 목록이 비면 **아무도 사무직이
-    # 아니라** 리포트·연간 시뮬레이션·계정 관리를 아무도 못 쓴다 — 첫 사용자가 리포트를
-    # 열 때에야 드러난다.
-    validate_initial_office()
+    # 최초 관리자도 같은 자리에서 본다 (#672 · #1301). 새 DB에서 목록이 비면 **아무도
+    # 관리자가 아니라** 계정 관리를 아무도 못 쓰고, 역할을 올려 줄 사람이 없어 잠긴다 —
+    # 첫 사용자가 계정 관리를 열 때에야 드러난다. 옛 이름(`INITIAL_OFFICE_EMAILS`)이
+    # 설정돼 있으면 환경과 무관하게 여기서 끊는다 — 읽히지 않는 값을 적어 둔 상태다.
+    validate_initial_admin()
 
     yield
 

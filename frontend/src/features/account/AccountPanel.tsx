@@ -9,7 +9,7 @@ import {
 import {
   changePassword,
   deleteAccount,
-  isOffice,
+  isAdmin,
   leaveAfterPasswordChange,
   listUsers,
   updateDisplayName,
@@ -32,13 +32,15 @@ import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 
 /**
- * 계정 관리 — `설정` 화면의 계정 절 (`#506`) + 계정 목록·역할 지정 (`#672`).
+ * 계정 관리 — `설정` 화면의 계정 절 (`#506`) + 계정 목록·역할 지정 (`#672` · `#1301`).
  *
- * ## 역할 2종
+ * ## 역할 3종 — 계정 관리는 관리자 전용
  *
- * `#359`가 미뤄 둔 어드민 범위가 `#672`로 정해졌다 — 사무직·현장직(`PRD §20 O-14` ·
- * `UIFLOW 2-6`). 계정 정보에 자기 역할을 보이고, **사무직에게만** 「계정 · 역할」 절을
- * 보인다(`RoleSection`). 조직·세부 권한 설정은 여전히 없다(`PRD §5.2`).
+ * `#359`가 미뤄 둔 어드민 범위가 `#672`로 열렸고 `#1301`이 관리자(`ADMIN`)를 더해
+ * 계정 관리를 업무 권한에서 떼어냈다(`PRD §20 O-14` · `UIFLOW 2-6`). 계정 정보에
+ * 자기 역할을 보이고, **관리자에게만** 「계정 · 역할」 절을 보인다(`RoleSection`) —
+ * 사무직은 더는 다른 계정의 역할을 바꿀 수 없다. 조직·세부 권한 설정은 여전히
+ * 없다(`PRD §5.2`).
  *
  * ## 이메일은 읽기 전용이다
  *
@@ -71,7 +73,7 @@ export function AccountPanel() {
         <DisplayNameForm initial={user.displayName ?? ''} />
       </section>
 
-      {isOffice(user) ? <RoleSection me={user} /> : null}
+      {isAdmin(user) ? <RoleSection me={user} /> : null}
       <PasswordSection />
       <WithdrawalSection />
     </div>
@@ -79,17 +81,20 @@ export function AccountPanel() {
 }
 
 /**
- * 계정 목록 · 역할 지정 — 사무직 전용 (`UIFLOW 2-6` · `API_SPEC §1.2` · `#672`).
+ * 계정 목록 · 역할 지정 — 관리자 전용 (`UIFLOW 2-6` · `API_SPEC §1.2` · `#672` · `#1301`).
  *
- * ## 마지막 사무직은 서버가 막는다
+ * 종전에는 사무직 전용이었다 — 사무직끼리 서로를 강등할 수 있는 것이 `#1301`의 발단이라,
+ * 계정 관리는 이제 업무 권한(사무직)과 갈라진 관리자 전용 권한이다.
  *
- * 사무직이 하나뿐이면 강등 요청은 `409`로 돌아오고 문구(`PRD §6.3` 「마지막 사무직」)가
- * 온다 — 화면은 그 문구를 그대로 보인다. 여기서 미리 세어 막지 않는다: 목록은 조회 시점의
- * 스냅샷이라 그 사이 다른 사무직이 바뀌었을 수 있고, **판정은 행을 잠근 서버 한 곳**이 한다.
+ * ## 마지막 관리자는 서버가 막는다
+ *
+ * 관리자가 하나뿐이면 강등 요청은 `409`로 돌아오고 문구가 온다 — 화면은 그 문구를 그대로
+ * 보인다. 여기서 미리 세어 막지 않는다: 목록은 조회 시점의 스냅샷이라 그 사이 다른
+ * 관리자가 바뀌었을 수 있고, **판정은 행을 잠근 서버 한 곳**이 한다.
  *
  * ## 셀렉트로 바꾼다
  *
- * 값이 둘뿐이고 「바꾼다」가 곧 저장이다. 별도 저장 버튼을 두면 바꿨는지 저장했는지가
+ * 값이 3종이고 「바꾼다」가 곧 저장이다. 별도 저장 버튼을 두면 바꿨는지 저장했는지가
  * 갈린다. 실패하면 셀렉트를 **원래 값으로 되돌린다** — 화면이 서버와 다르게 남지 않게.
  */
 function RoleSection({ me }: { me: CurrentUser }) {
@@ -133,7 +138,7 @@ function RoleSection({ me }: { me: CurrentUser }) {
     <section className="card acc__section" aria-label="계정 · 역할">
       <h2 className="card__title">계정 · 역할</h2>
       <p className="acc__notice">
-        사무직만 다른 계정의 역할을 바꿀 수 있습니다. 마지막 남은 사무직은 현장직으로 바꿀 수
+        관리자만 다른 계정의 역할을 바꿀 수 있습니다. 마지막 남은 관리자는 다른 역할로 바꿀 수
         없습니다.
       </p>
 
@@ -164,6 +169,7 @@ function RoleSection({ me }: { me: CurrentUser }) {
                 >
                   <option value="OFFICE">{ROLE_LABEL.OFFICE}</option>
                   <option value="FIELD">{ROLE_LABEL.FIELD}</option>
+                  <option value="ADMIN">{ROLE_LABEL.ADMIN}</option>
                 </select>
               </li>
             )

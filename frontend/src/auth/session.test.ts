@@ -5,6 +5,8 @@ import {
   leaveAfterPasswordChange,
   deleteAccount,
   getCachedUser,
+  isAdmin,
+  isOffice,
   login,
   logout,
   probeCurrentUser,
@@ -15,6 +17,7 @@ import {
   SESSION_EXPIRED_MESSAGE,
   signup,
   updateDisplayName,
+  type CurrentUser,
 } from './session'
 import { safeNext } from '../features/auth/authRules'
 import { STORAGE_KEY } from '../layout/globalContext'
@@ -112,6 +115,22 @@ describe('probeCurrentUser', () => {
       emailVerifiedAt: null,
     })
     expect(getCachedUser()).not.toBeNull()
+  })
+
+  it('role이 ADMIN이면 그대로 ADMIN이다 — FIELD로 뭉개지지 않는다 (#1301)', async () => {
+    const admin = jsonResponse({
+      data: { id: 'u2', email: 'admin@example.com', display_name: null, role: 'ADMIN' },
+    })
+    const user = await probeCurrentUser(async () => admin)
+    expect(user?.role).toBe('ADMIN')
+  })
+
+  it('알 수 없는 role 값은 FIELD로 본다 — 넓게 틀리는 쪽보다 낫다', async () => {
+    const weird = jsonResponse({
+      data: { id: 'u3', email: 'x@y.z', display_name: null, role: 'SUPERUSER' },
+    })
+    const user = await probeCurrentUser(async () => weird)
+    expect(user?.role).toBe('FIELD')
   })
 
   it('401이면 비인증 — 캐시도 비운다(fail-closed)', async () => {
@@ -661,5 +680,37 @@ describe('비밀번호 변경 뒤 안내가 보인다 (#1099)', () => {
     } finally {
       delete (globalThis as { window?: unknown }).window
     }
+  })
+})
+
+describe('isOffice · isAdmin — 역할 3종 (#1301)', () => {
+  function userOf(role: CurrentUser['role']): CurrentUser {
+    return {
+      id: 'u',
+      email: 'u@example.com',
+      displayName: null,
+      role,
+      emailVerifiedAt: null,
+    }
+  }
+
+  it('null(비인증)은 사무직도 관리자도 아니다', () => {
+    expect(isOffice(null)).toBe(false)
+    expect(isAdmin(null)).toBe(false)
+  })
+
+  it('FIELD는 사무직도 관리자도 아니다', () => {
+    expect(isOffice(userOf('FIELD'))).toBe(false)
+    expect(isAdmin(userOf('FIELD'))).toBe(false)
+  })
+
+  it('OFFICE는 사무직이지만 관리자는 아니다', () => {
+    expect(isOffice(userOf('OFFICE'))).toBe(true)
+    expect(isAdmin(userOf('OFFICE'))).toBe(false)
+  })
+
+  it('ADMIN은 사무직 판정도 통과한다 — OFFICE의 상위집합', () => {
+    expect(isOffice(userOf('ADMIN'))).toBe(true)
+    expect(isAdmin(userOf('ADMIN'))).toBe(true)
   })
 })
