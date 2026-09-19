@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.33 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** |
+| 버전 | v1.34 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** |
 | 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
@@ -106,7 +106,7 @@ erDiagram
 | `current_lon` | NUMERIC(9,6) | NULL, CHECK −180~180 | 현재 위치 경도 |
 | `position_updated_at` | TIMESTAMPTZ | NULL | 위치 갱신 시각. **위치가 있으면 필수** (UIFLOW 2-8) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
-| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
 
 **인덱스:**
 
@@ -116,6 +116,9 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE UNIQUE INDEX idx_vessel_imo ON vessel (imo_number) WHERE is_deleted = false;
 CREATE INDEX idx_vessel_ship_type ON vessel (ship_type) WHERE is_deleted = false;
 CREATE INDEX idx_vessel_name ON vessel USING gin (name gin_trgm_ops) WHERE is_deleted = false;
+-- 🔴 CUBRID: 세 인덱스 모두 **조건 없이** 선다(`1c444a5c4819` · `§7.4` 6항). `idx_vessel_imo`는
+--    `047`이 비유일 인덱스로 바꾸고 활성 행 안의 유일성은 트리거 `trg_uq_vessel_imo_active`가
+--    맡는다 — filtered index는 UNIQUE와 함께 쓸 수 없다. `idx_vessel_name`은 pg_trgm 없이 B-tree다.
 ```
 
 **검증 제약:**
@@ -182,7 +185,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 | `notes` | TEXT | NULL | 메모 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
-| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
 
 **인덱스:**
 
@@ -190,6 +193,8 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 CREATE INDEX idx_voyage_vessel ON voyage (vessel_id, created_at DESC) WHERE is_deleted = false;
 CREATE INDEX idx_voyage_status ON voyage (vessel_id, status) WHERE is_deleted = false;
 CREATE INDEX idx_voyage_year ON voyage (vessel_id, regulation_year) WHERE is_deleted = false;
+-- 🔴 CUBRID: 세 인덱스 모두 **조건 없이** 선다(`1c444a5c4819` · `§7.4` 6항). 조건이 붙은
+--    인덱스는 `not_underway_period`의 둘뿐이다(`050` · `§2.17`).
 ```
 
 **검증 제약:**
@@ -251,7 +256,7 @@ ALTER TABLE voyage ADD CONSTRAINT chk_arr_lon_range
 | `cf_used` | NUMERIC(10,6) | NOT NULL | **입력 시점의 CF 기록** — 확정 실적의 계산 근거. 계획 항차 예측은 실행 시점 활성 CF(`fuel_type.cf`)를 쓴다 (`#832`) |
 | `source` | VARCHAR(30) | NOT NULL | USER_INPUT, MODEL_ESTIMATE, IMPORT, SAMPLE |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
-| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
 
 **인덱스:**
 
@@ -305,7 +310,7 @@ ALTER TABLE voyage_fuel_use ADD CONSTRAINT chk_actual_fuel_positive
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete **[M-1 추가]** |
 | `weather_snapshot_id` | UUID | NULL, FK → weather_snapshot(id) **ON DELETE SET NULL** [DB-C-3] | 사용된 기상 스냅샷 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
-| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
 
 **검증 제약 [S-4]:**
 
@@ -499,7 +504,11 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 | `simulation_runs` | INTEGER | NOT NULL | Monte Carlo 반복 횟수 |
 | `snapshot_id` | UUID | NOT NULL, FK → simulation_snapshot(id) **ON DELETE RESTRICT** [DB-C-3] | 스냅샷 참조. UNIQUE (1:1) |
 | `apply_feedback_factor` | BOOLEAN | NOT NULL DEFAULT false | 실적 보정계수(`PRD §12.2.1`)를 켜고 돌렸는가 [#363 · 마이그레이션 042] |
+| `as_of` | TIMESTAMPTZ | NULL | **명시적으로** 요청이 준 기준 시각 [#816 · 마이그레이션 052]. **NULL = 미명시 실행** — `input_hash`에 `as_of` 키가 없고 재현도 키 없이 계산한다. 정밀도는 `DATETIMETZ`(밀리초 · `created_at`과 같은 규칙) |
+| `alternative_fuel` | VARCHAR(30) | NULL | 대체 연료 지렛대에서 사용자가 고른 연료 코드(`fuel_type.code`) [#756 · 마이그레이션 053]. **NULL = 고르지 않은 실행** — 블록도 해시 키도 없다. **CF는 저장하지 않는다** — 재현이 지금 활성 CF로 다시 계산하며 개정이 있으면 해시가 어긋나야 한다 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
+
+> **[#816 · #756] `as_of`·`alternative_fuel`은 선택 키다 — NULL이면 해시에 키가 없다.** 재현(`reproduce_annual_simulation` · `API_SPEC §6.4`)이 저장된 행에서 `input_hash`를 다시 계산해 대조하므로, 명시적으로 준 값은 **저장돼 있어야** 같은 해시가 나온다. NULL 여부가 곧 명시 여부이며(`calc/hash.py` `_filter_fields`가 NULL 키를 건너뛴다), 052·053 이전 행은 전부 미명시라 기존 `input_hash`는 그대로다. downgrade는 컬럼만 지우므로 `REGENERABLE`로 분류되지만 **저장된 값은 재생되지 않는다** — 되돌리기 전에 백업이다(`migration_guard.py`).
 
 > **[#363] 계수 값은 저장하지 않는다 — 켰는지만 저장한다.** 계수는 같은 행의 `snapshot_id`가 가리키는 스냅샷의 확정 항차에서 **다시 계산해도 같은 값**이라, 따로 적으면 같은 사실이 두 곳에 생긴다. 켜짐 여부는 스냅샷 어디에도 없는 사용자 선택이라 재현(`API_SPEC §6.4`)이 원본 설정을 알려면 저장해야 한다. 기존 행은 `false`로 채웠고 전부 보정 없이 계산됐으므로 사실과 같다. **downgrade는 되돌릴 수 없다**(`IRREVERSIBLE`) — 어느 실행이 켜고 돌았는지가 사라져 그 실행들은 재현할 수 없게 된다.
 
@@ -672,7 +681,7 @@ CREATE INDEX idx_snapshot_vessel ON simulation_snapshot (vessel_id, created_at D
 | `is_active` | BOOLEAN | NOT NULL DEFAULT true | 활성 여부 |
 | `effective_from` | DATE | NULL | 적용 시작일 (OTHER 연료용) |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
-| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
 
 > **[X-3]** `version` 및 `content_hash` 컬럼 추가. TECH_SPEC §5.2의 `parameter_hash = SHA256(canonical_json(all_parameters))` 요구사항을 충족하기 위해, CF 값 변경 시 버전 및 content_hash를 갱신하여 파라미터 세트 변경을 추적 가능하게 한다.
 >
@@ -872,12 +881,14 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 | `last_login_at` | TIMESTAMPTZ | NULL | 마지막 로그인 시각 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
-| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
 
 **인덱스:**
 
 ```sql
 CREATE UNIQUE INDEX idx_app_user_email ON app_user (email) WHERE is_deleted = false;
+-- 🔴 CUBRID: 조건 없는 **비유일** 인덱스이고(`047`), 활성 행 안의 유일성은 트리거
+--    `trg_uq_app_user_email_active`가 맡는다 (`§7.4` 6항).
 ```
 
 > **[#413] `email`이 로그인 ID이자 유일 키다.** 종전에는 *"구글 계정의 이메일은 변경될 수 있으므로 unique를 걸지 않는다"* 로 두고 유일성을 `google_sub`에 두었으나, **구글 위임을 그만두면서 그 전제가 사라졌다**(`PRD O-14`). 자체 인증에서 이메일은 사용자가 스스로 정하는 로그인 ID이므로 유일해야 한다.
@@ -933,6 +944,7 @@ CREATE INDEX idx_user_token_user_purpose ON user_token (user_id, purpose);
 CREATE UNIQUE INDEX idx_session_token ON user_session (session_token_hash);
 CREATE INDEX idx_session_user ON user_session (user_id, created_at DESC);
 CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS NULL;
+-- 🔴 CUBRID: 조건 없이 선다(`1c444a5c4819` · `§7.4` 6항).
 ```
 
 > **세션 토큰 원문을 저장하지 않는다** — DB 유출 시 저장된 값으로 로그인 위조를 막기 위함. 비밀번호를 해시하는 것과 같은 이유.
@@ -960,7 +972,7 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 | `distance_nm` | NUMERIC(12,2) | NOT NULL DEFAULT 0, **CHECK: `distance_nm >= 0`** | 구간 이동 거리 (nm). **CII 분모 `Dt`에 더해진다** — 마이그레이션 028 (#353) |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | soft delete |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
-| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 trigger로 자동 갱신) |
+| `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |
 
 **인덱스:**
 
@@ -1178,7 +1190,7 @@ CREATE UNIQUE INDEX uq_vessel_position_snapshot_observation
 
 > **`nav_status`는 파생 결과가 아니라 원본이다.** `underway_state`·`detail_status`로 옮기는 규칙(`ais/provider.py` `NAV_STATUS_TO_STATE`)이 바뀌어도 **과거 행을 다시 읽을 수 있어야** 한다. 옮길 수 있는 코드는 넷뿐이다(0·8 → `UNDER_WAY`/`SAILING` · 1 → `AT_ANCHOR` · 5 → `IN_PORT`); 나머지는 판정하지 않는다.
 
-> **보존 분류**: 보존 대상이다(`§8`). 지나간 시각의 좌표는 되살릴 방법이 없어 마이그레이션 040을 `IRREVERSIBLE`로 분류했다(`§8.1.2`).
+> **보존 분류**: 보존 대상이다(`§8`). 지나간 시각의 좌표는 되살릴 방법이 없어 `IRREVERSIBLE`이다(`§8.1.2`) — 원래 마이그레이션 040이 그렇게 분류됐고, CUBRID 전환 뒤에는 스키마 전체를 드롭하는 `1c444a5c4819`에 포함된다(`migration_guard.py`에 040은 없다).
 
 ### 2.22 `fleet_reduction_plan` — 함대 감축 계획 (#513)
 
@@ -1239,6 +1251,7 @@ CREATE TABLE chat_session (
     id          UUID PRIMARY KEY,
     user_id     UUID NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
     title       VARCHAR(200),
+    vessel_id   UUID REFERENCES vessel(id) ON DELETE SET NULL,   -- 056 (#1242) · CUBRID는 CHAR(32)
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at  TIMESTAMPTZ NOT NULL,
     CONSTRAINT chk_chat_session_expires CHECK (expires_at > created_at)
@@ -1527,8 +1540,21 @@ CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
 | `weather_snapshot(id)` | `calculation_run.weather_snapshot_id` | **RESTRICT** [#102] | immutable 테이블 참조(§7.3). SET NULL은 자식 UPDATE라 트리거에 차단됨 → RESTRICT (§2.5 [#102] 참조) |
 | `fuel_type(code)` | `vessel.default_fuel_type` | **ON UPDATE CASCADE** (코드 변경 시), ON DELETE NO ACTION (활성 연료 삭제 방지). ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — `§7.4` |
 | `fuel_type(code)` | `voyage_fuel_use.fuel_type` | **ON UPDATE CASCADE**, ON DELETE NO ACTION. ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — `§7.4` |
+| `fuel_type(code)` | `not_underway_fuel_use.fuel_type` | **ON UPDATE CASCADE**, ON DELETE NO ACTION. ⚠️ **CUBRID에서는 FK로 성립하지 않는다** — 트리거 `trg_nu_fuel_use_fuel_type_ref_ins/upd`(`a7d3e9b14f26`) · `§2.18` |
+| `vessel(id)` | `vessel_position_snapshot.vessel_id` | **RESTRICT** | 위치 이력 보존(`§2.21`) — 선박은 soft-delete만 |
+| `vessel(id)` | `not_underway_period.vessel_id` | **RESTRICT** | 정박 구간 보존(`§2.17`) |
+| `vessel(id)` | `chat_session.vessel_id` | **SET NULL** [#1242 · 056] | 선박이 지워져도 대화는 남고 귀속만 푼다(`§2.23`) |
+| `voyage(id)` | `not_underway_period.voyage_id` | **SET NULL** | 항차 삭제 후에도 구간은 선박 단위로 보존(`§2.17`). 이 열의 인덱스에 조건을 붙이지 않는 이유가 이것이다(`050`) |
+| `not_underway_period(id)` | `not_underway_fuel_use.period_id` | **CASCADE** | 연료 기록은 구간 종속(`§2.18`) |
+| `app_user(id)` | `user_session.user_id` | **CASCADE** | 세션은 계정 종속 일시 데이터(`§2.16`) — 계정이 지워지면 로그인 상태도 없다 |
+| `app_user(id)` | `user_token.user_id` | **CASCADE** | 인증 토큰은 계정 종속 일시 데이터(`§2.15.1`) |
+| `app_user(id)` | `chat_session.user_id` | **CASCADE** | 계정이 지워지면 대화도 지운다(`§2.23`) — 본문이 여기만 있어야 삭제 요청을 만족시킨다 |
+| `app_user(id)` | `fleet_reduction_plan.created_by` | **SET NULL** [043] | 계획은 경영진 보고 산출물이라 남기고 작성자만 푼다(`§2.22`) |
+| `chat_session(id)` | `chat_message.session_id` | **CASCADE** | 메시지는 세션 종속(`§2.24`) — 세션 만료 삭제가 메시지를 함께 지운다 |
 
-### 7.2 `updated_at` 자동 갱신 트리거 [M-2]
+> **[#1342] 이 표가 총람이다 — head 059 기준 FK 21건 + 트리거 대체 4건 = 25행.** `1c444a5c4819`가 FK 20건을 만들고(`050`이 그중 `annual_simulation_run.snapshot_id`를 트리거로 바꿔 19), `043`(`fleet_reduction_plan.created_by`)·`056`(`chat_session.vessel_id`)이 하나씩 더한다. 연료 코드 참조 3건과 `snapshot_id`는 FK가 아니라 트리거다(`§7.4` 1항·6항). 종전 표는 14행이라 `app_user`를 부모로 하는 4건이 통째로 없었고, 계정 물리 삭제 시 세션·토큰·대화·계획이 어떻게 되는지를 이 절로는 알 수 없었다.
+
+### 7.2 `updated_at` 자동 갱신 [M-2]
 
 ```sql
 CREATE OR REPLACE FUNCTION update_timestamp()
@@ -1546,6 +1572,21 @@ CREATE TRIGGER trg_voyage_fuel_use_updated BEFORE UPDATE ON voyage_fuel_use  FOR
 CREATE TRIGGER trg_voyage_scenario_updated BEFORE UPDATE ON voyage_scenario  FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 CREATE TRIGGER trg_fuel_type_updated BEFORE UPDATE ON fuel_type       FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 ```
+
+> 🔴 **CUBRID 배포에는 위 트리거가 없다 — 열 속성이 갱신한다 (`049` · `#1058`).** 트리거로
+> 하면 자기 테이블을 다시 UPDATE해야 해서 재귀에 걸리고(`Maximum … depth`), `BEFORE`에서
+> `UPDATE new SET`은 컴파일 단계에서 거부된다. 그래서 `049`가 MySQL 호환 열 속성으로
+> 옮겼다 — `updated_at`을 가진 **7개 테이블 전부**다(위 목록의 다섯에 `app_user`·
+> `not_underway_period`가 더 있다).
+>
+> ```sql
+> ALTER TABLE vessel MODIFY updated_at DATETIMETZ DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_DATETIME;
+> -- app_user · fuel_type · not_underway_period · vessel · voyage · voyage_fuel_use · voyage_scenario
+> ```
+>
+> 계약(「UPDATE하면 `updated_at`이 그 시각이 된다」)은 같다. **다른 것은 찾는 자리다** —
+> `db_trigger`에서 `%updated%`를 찾으면 0행이고, `db_attribute`의 열 속성에 있다. `049`
+> docstring이 실제로 그 0행을 보고 「갱신이 안 된다」로 한 번 오판했다. `§7.4` 8항.
 
 **[#98] `updated_at`을 두는 기준**
 
@@ -1654,13 +1695,15 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 이 DB의 트리거는 **0개**였다 — `§7.3`의 immutable 보호가 **하나도 남아 있지 않았다.**
 
 마이그레이션 `a7d3e9b14f26`이 그중 **재현성 계약(`TECH_SPEC §5.4`)과 참조 정합에
-직결되는 9가지**를 트리거 15개로 되살린다.
+직결되는 9가지**를 트리거 14개로 되살린다.
 
 | 되살린 것 | 원래 형태 | CUBRID에서 |
 |---|---|---|
-| 해시 형식 4 | `chk_input_hash_format`·`chk_param_hash_format`(두 표) | `BEFORE INSERT` + `REGEXP` |
-| 연료 코드 참조 3 | `fk_vessel_default_fuel_type` 등 FK | 자식 `BEFORE INSERT`·`BEFORE UPDATE` (부모 쪽은 아래) |
-| 불변성 2 | `trg_calcrun_immutable`·`trg_snapshot_immutable` | `BEFORE UPDATE`·`BEFORE DELETE` |
+| 해시 형식 4 | `chk_input_hash_format`·`chk_param_hash_format`(두 표) | `BEFORE INSERT` + `REGEXP` — 트리거 4 |
+| 연료 코드 참조 3 | `fk_vessel_default_fuel_type` 등 FK | 자식 `BEFORE INSERT`·`BEFORE UPDATE` (부모 쪽은 아래) — 트리거 6 |
+| 불변성 2 | `trg_calcrun_immutable`·`trg_snapshot_immutable` | `BEFORE UPDATE`·`BEFORE DELETE` — 트리거 4 |
+
+> 합계 **14**(4 + 6 + 4). 종전에 「15개」로 적은 것은 세는 실수였다(`#1342` 실측 — `a7d3e9b14f26`의 `CREATE TRIGGER`는 14건).
 
 #### 🔴 그 뒤로 **CHECK 60개 전부**를 트리거로 옮겼다 (`046`·`048`·`050`)
 
@@ -1710,7 +1753,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
   사라졌다. **검사를 지우지 않고** §7.1이 지키려던 것(「없는 연료 코드를 참조하는 행이
   생기지 않는다」)을 자식 쪽에서 보게 했다.
 
-#### CUBRID에서 달라지는 것 일곱
+#### CUBRID에서 달라지는 것 여덟
 
 1. **FK는 PK만 가리킬 수 있다.** `fuel_type`은 PK가 `id`이고 `code`는 별도 UNIQUE라
    `§7.1` 마지막 두 행(그리고 `not_underway_fuel_use`)은 **FK로 걸 수 없다.**
@@ -1737,7 +1780,12 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
    따져 본다.**
 6. **FK 컬럼에 인덱스를 또 둘 수 없다.** `§2.6 [S-6]`의 유니크 인덱스가 여기 걸려 FK를
    빼고 트리거로 옮겼다(`050`). **filtered index**는 있으나 **UNIQUE와 함께 쓸 수 없고**
-   필터 열이 키에 있어야 한다(`047`·`050`).
+   필터 열이 키에 있어야 한다(`047`·`050`). 그래서 **이 문서가 `WHERE is_deleted = false` ·
+   `WHERE revoked_at IS NULL`로 적은 `vessel`(3)·`voyage`(3)·`app_user`(1)·`user_session`(1)
+   인덱스는 전부 조건 없이 선다**(`1c444a5c4819`) — 조건이 붙은 것은 `050`이 세운
+   `not_underway_period` 2개뿐이고, `idx_vessel_imo`·`idx_app_user_email`의 UNIQUE는
+   `047`이 비유일 인덱스 + `trg_uq_*_active` 트리거로 바꿨다. `db_index.filter_expression`을
+   문서대로 기대하면 그 여덟에서 「필터가 없다」로 나오는 것이 정상이다.
 7. 🔴 **`gen_random_uuid()`가 없다 — `id`의 기본값은 DB가 아니라 ORM이 채운다.**
    이 문서의 표는 `id`를 아홉 곳에서 `DEFAULT gen_random_uuid()`로 적지만, CUBRID 배포에
    그 기본값은 **하나도 없다.**
@@ -1759,18 +1807,32 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
    보고 「DB가 채워 줄 것」이라 읽으면 안 된다 — `§7.4` 머리의 「문법이 아니라 계약을
    읽을 것」이 여기에도 걸린다. 계약은 「`id`는 UUID이고 비어 있을 수 없다」까지이고,
    **누가 채우는가는 CUBRID에서 달라졌다.**
+8. **`updated_at`을 갱신하는 것은 트리거가 아니라 열 속성이다 (`049`).** `§7.2`의
+   `update_timestamp()` 트리거 5개는 CUBRID 배포에 없다 — 트리거로 하면 자기 테이블을 다시
+   UPDATE해야 해서 재귀에 걸리고(`Maximum … depth`), `BEFORE`에서 `UPDATE new SET`은 컴파일
+   단계에서 거부된다. `049`가 `updated_at`을 가진 **7개 테이블**(`app_user`·`fuel_type`·
+   `not_underway_period`·`vessel`·`voyage`·`voyage_fuel_use`·`voyage_scenario`)에
+   `MODIFY updated_at DATETIMETZ DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_DATETIME`을
+   걸었다. 계약은 같고 **찾는 자리가 다르다** — `db_trigger`에서 `%updated%`는 0행이고
+   `db_attribute`의 열 속성에 있다. 위 트리거 표에 `updated_at` 행이 없는 이유다.
 
 `calculation_run`이 **전면 불변이 아니라는 것**은 `§7.3`·`024` 그대로다 — DELETE는 언제나
 거부, UPDATE는 `needs_recalc` 0 → 1 플립이면서 다른 열이 그대로일 때만 통과한다.
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | 수 | 무엇 |
-|---|---|---|
-| `trg_chk_` | 124 | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) |
-| `trg_uq_` | 4 | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`) |
-| 그 밖 | 20 | 해시 형식 4 · 연료 코드 참조 6 · 불변성 4 · 스냅샷 참조 2 · 기타 |
-| **합계** | **148** | 전환 직후에는 **0개**였다 |
+| 앞머리 | `051` 시점 | **head `059`** | 무엇 |
+|---|---|---|---|
+| `trg_chk_` | 124 | **130** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 |
+| `trg_uq_` | 4 | **4** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`) |
+| 그 밖 | 20 | **26** | 해시 형식 4 · 연료 코드 참조 6 · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** |
+| **합계** | **148** | **160** | 전환 직후에는 **0개**였다 |
+
+> 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
+> 뺀 수다(`050`이 스냅샷 참조 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
+> 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 **160**. `SELECT count(*)
+> FROM db_trigger`로 배포를 대조할 때 기대값은 head 열이다 — `tests/test_dbschema_head_sync.py`가
+> 이 합계를 마이그레이션과 대조한다.
 
 `trg_chk_`·`trg_uq_` 앞머리는 `db/cubrid_errors.py`가 그 거부를 `IntegrityError`로 옮기는
 표식이다 — PostgreSQL에서 같은 위반이 그 갈래였다. **불변성 트리거만 빼며**
@@ -1792,7 +1854,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 051
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 059
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -1820,8 +1882,8 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 051
 
 | 대상 | 적재 경로 | 성격 |
 |---|---|---|
-| `fuel_type` CF 8행 | 017 (`#83`) · `content_hash`는 031 (`#154`) | 필수 |
-| `regulation_year` Z-factor 8행 · `cii_reference_line` 20행 · `cii_rating_boundary` d-vector 14행 | **032 (`#127`)** | 필수 |
+| `fuel_type` CF 8행 | **`6c7496c4d122`** (`#1058` — 종전 017 `#83`) · `content_hash`는 **`045`** (종전 031 `#154`) | 필수 |
+| `regulation_year` Z-factor 8행 · `cii_reference_line` 20행 · `cii_rating_boundary` d-vector 14행 · `weather_model_parameter` 10행 · `simulation_parameter` 3행 | **`6c7496c4d122`** (`#1058` — 종전 032 `#127`). 합계 63행 | 필수 |
 | 데모용 선박·항차·정박 기록 | **`python -m cii_platform.db.demo_seed`** (`#451`) | 시연·개발 전용 |
 
 > **데모 데이터는 2026-08-17에 마이그레이션에서 분리됐다 (`#451`).** 018·027은 리비전만 남고 무동작이다.
@@ -1844,7 +1906,7 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 051
 
 | 주체 | 담는 것 | 성격 |
 |---|---|---|
-| data migration (017 · 032) | 그날 넣은 값 | **불변** — 신규 환경 부트스트랩 |
+| data migration (`6c7496c4d122` · `045` — 종전 017 · 032) | 그날 넣은 값 | **불변** — 신규 환경 부트스트랩 |
 | `seed_all()` (upsert) | 지금 옳다고 보는 값 | **가변** — 규제 개정 시 재적재 |
 
 **규제 개정 시 둘이 갈라지는 것이 정상이다.** 다만 그 순간을 모르고 지나가면 안 되므로 `tests/test_seed_migration.py`가 양쪽을 매 실행 대조한다.
@@ -1859,18 +1921,18 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 051
 
 | 분류 | 예 | 처리 |
 |---|---|---|
-| **되돌릴 수 없음** | 사용자가 쌓은 테이블의 드롭(선박·항차·계산 이력·계정 …) · **보존 대상 테이블의 열 드롭**(`016`·`024`·`037`) · 행 삭제(`033`) | **막는다** |
+| **되돌릴 수 없음** | 사용자가 쌓은 테이블의 드롭(선박·항차·계산 이력·계정 …) · **보존 대상 테이블의 열 드롭** · 행 삭제 — 현행 키는 `1c444a5c4819`(스키마 전체 · 종전 `016`·`024`·`033`·`037` …을 흡수) · `043` · `044` · `057` | **막는다** |
 | 일시 데이터 | `user_session` · `user_token` | 막지 않는다 — 다시 로그인하거나 메일을 다시 요청하면 된다 |
 | 재생성됨 | 규정·시드 테이블(`fuel_type`·`regulation_year` …) · 제약·인덱스 | 막지 않는다 — 다시 `upgrade`하면 같은 값이 돌아온다 |
 
-**보존 대상 테이블의 열 드롭이 가장 조용하다.** `simulation_snapshot`·`calculation_run`은 UPDATE가 트리거로 막혀 있어(§7.3 `[X-2]`) `037`을 되돌렸다 다시 올리면 **열은 생기지만 기존 행은 영원히 NULL**이고, 과거 연간 시뮬레이션이 전부 재현 불가로 끊긴다. 오류도 나지 않는다.
+**보존 대상 테이블의 열 드롭이 가장 조용하다.** `simulation_snapshot`·`calculation_run`은 UPDATE가 트리거로 막혀 있어(§7.3 `[X-2]`) `037`(지금은 `1c444a5c4819`에 흡수)을 되돌렸다 다시 올리면 **열은 생기지만 기존 행은 영원히 NULL**이고, 과거 연간 시뮬레이션이 전부 재현 불가로 끊긴다. 오류도 나지 않는다.
 
 - **목록과 사유는 `src/cii_platform/db/migration_guard.py` 한 곳에 둔다.** 해당 리비전의 `downgrade()`는 **맨 앞에서** `guard_irreversible_downgrade("<리비전>")`을 부른다 — 무엇이든 지우기 전에 끊는다. 가드는 값이 아니라 **지금의 운영 정책**이라 위 「`src/` 상수를 import하지 않는다」의 대상이 아니다(과거 시점으로 고정할 이유가 없다)
 - **새 마이그레이션은 분류를 빠뜨릴 수 없다.** `tests/test_migration_guard.py`가 파괴적 연산(`drop_table`·`drop_column`·`DELETE`·Core `delete()`/`update()`)을 가진 모든 `downgrade()`가 세 분류 중 하나에 **사유와 함께** 들어 있는지 검사한다
-- **해제는 리비전을 하나씩 명시한다** — `ALLOW_IRREVERSIBLE_DOWNGRADE=037,016 alembic downgrade 035`. 「전부 허용」 값은 없다. **`.env`에 넣지 않고 그 명령 한 번에만 준다** — 남아 있으면 다음 롤백에서 같은 손실이 조용히 재현된다
+- **해제는 리비전을 하나씩 명시한다** — `ALLOW_IRREVERSIBLE_DOWNGRADE=057 alembic downgrade 056`(키는 `migration_guard.IRREVERSIBLE`의 `1c444a5c4819`·`043`·`044`·`057` — 종전 예시 `037,016`은 통합돼 없다). 「전부 허용」 값은 없다. **`.env`에 넣지 않고 그 명령 한 번에만 준다** — 남아 있으면 다음 롤백에서 같은 손실이 조용히 재현된다
 - **명시만으로는 풀리지 않는다 — 24시간 안의 백업 기록(`audit_log.action = 'DB_BACKUP'` · `§2.14`)이 함께 있어야 한다** (`#827` · 2026-09-11 결정 2-⑤ 「`#827` 백업과 연계」). 백업은 `scripts/db_backup.py backup`이 뜨고 기록한다(`README` 「백업·복구」). 가드는 **마이그레이션이 쓰는 그 연결로** 기록을 찾는다 — 마이그레이션은 앱 컨테이너에서 돌고 덤프는 호스트에 떨어져, 파일 경로로는 서로를 볼 수 없다. 24시간은 하루 한 번 정기 백업의 간격이며, 그래도 **롤백 직전에 한 번 더 뜨는 것**이 절차다 — 정기 백업 이후에 쌓인 데이터는 그 덤프에 없다. 종전(`#819`)에는 「백업을 뜬 뒤」가 오류 문구에만 있어 명시 한 번으로 백업 없이 지울 수 있었다
 - **개발·테스트에서는 막지 않는다.** `tests/test_zz_roundtrip.py`가 `downgrade base`로 모든 `downgrade()`가 실행 가능한지 검증하므로, 막으면 그 검증이 사라진다
-- PostgreSQL은 DDL도 트랜잭션이라 여러 리비전을 한 번에 내릴 때 가드에서 끊기면 **앞서 실행된 downgrade도 함께 되돌려진다**(`038`→`037`에서 끊긴 뒤 `038` 유지를 실측으로 확인했다)
+- PostgreSQL은 DDL도 트랜잭션이라 여러 리비전을 한 번에 내릴 때 가드에서 끊기면 **앞서 실행된 downgrade도 함께 되돌려진다**(PostgreSQL 시절 `038`→`037`에서 끊긴 뒤 `038` 유지를 실측으로 확인했다 — CUBRID에서는 같은 성질을 다시 실측하지 않았다)
 
 ### 8.2 마이그레이션 워크플로우
 
@@ -1888,10 +1950,10 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 051
 
 | 데이터 | 버전 관리 방식 | 갱신 시기 |
 |---|---|---|
-| `regulation_year` Z-factor | `version` 컬럼 + Alembic data migration (032) | IMO 새 결의안 채택 시 |
+| `regulation_year` Z-factor | `version` 컬럼 + Alembic data migration (`6c7496c4d122`) | IMO 새 결의안 채택 시 |
 | `fuel_type` CF 값 | `version` + `content_hash` 컬럼 | MEPC 새 지침 발행 시 |
-| `cii_reference_line` | `source_ref` 컬럼으로 추적. 적재는 data migration (032) | MEPC 새 지침 발행 시 |
-| `cii_rating_boundary` | `source_ref` 컬럼으로 추적. 적재는 data migration (032) | MEPC 새 지침 발행 시 |
+| `cii_reference_line` | `source_ref` 컬럼으로 추적. 적재는 data migration (`6c7496c4d122`) | MEPC 새 지침 발행 시 |
+| `cii_rating_boundary` | `source_ref` 컬럼으로 추적. 적재는 data migration (`6c7496c4d122`) | MEPC 새 지침 발행 시 |
 
 > Seed 데이터 변경 시 기존 `calculation_run`의 `parameter_hash`와 새 파라미터의 hash가 달라지므로, 과거 계산 결과는 재현성이 보장된다 (다른 hash = 다른 결과 세트).
 
@@ -1918,7 +1980,7 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 051
 
 제외 필드와 사유 — `display_name`·`unit`(표시·고정 기본값이지 규제값이 아님) · `id`·`created_at`·`updated_at`(운영 메타) · `is_active`(운영 상태) · `version`(내용이 아니라 내용 **세트의 라벨**. 위 표가 둘을 나란히 두므로 서로를 포함하면 순환이다).
 
-> **`version`과의 관계** — CF 값이 **바뀔 때** 둘을 함께 갱신한다. 값 변경 없이 비어 있던 추적 컬럼만 채우는 경우(마이그레이션 031)에는 `version`을 올리지 않는다.
+> **`version`과의 관계** — CF 값이 **바뀔 때** 둘을 함께 갱신한다. 값 변경 없이 비어 있던 추적 컬럼만 채우는 경우(마이그레이션 031 · CUBRID에서는 `045`)에는 `version`을 올리지 않는다.
 
 > **마이그레이션은 이 값을 리터럴로 담는다.** 마이그레이션이 `src/`의 해시 함수를 import하면 규약이 바뀔 때 과거 마이그레이션의 동작이 소급 변경된다(PR #147 구현 결정 2). 대신 테스트가 `src/`의 살아 있는 규약으로 재계산해 DB 값과 대조하므로, 규약이 바뀌면 테스트가 깨져 드리프트가 드러난다.
 
@@ -2105,3 +2167,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-20 | `#1317` | **v1.32 — §2.1 `vessel.call_sign VARCHAR(7)` 추가**(마이그레이션 058 · #1197 A단계). 공공데이터포털의 해양수산부 계열 선박 데이터는 IMO가 아니라 **호출부호**로 배를 가리키고, `해양수산부_선박운항정보`는 호출부호가 입력 파라미터라 없으면 질의 자체가 안 된다 — 전수 IMO↔호출부호 레지스트리는 공공데이터에 없어(2026-09-17 실측) 사용자가 넣는 칸을 둔다. 형식은 ITU RR No.19.55(영문 대문자·숫자 4~7자)이며 집행은 055 패턴의 트리거 `trg_chk_call_sign_ins/upd`(`REGEXP BINARY` · 050 선례)가 한다. 「앞 두 글자가 모두 숫자가 아니다」(No.19.50)는 API만 본다 — 대조 키이지 인증서가 아니다. **UNIQUE를 걸지 않는다**(재배정되는 값). 컬럼 추가라 #966(v1.30)과 같은 기준으로 버전을 올린다 (#1197) |
 | 2026-09-20 | `#1319` | **v1.33 — §2.2 `voyage.planned_distance_source VARCHAR(30)` 추가**(마이그레이션 059 · #1052 ⓷ 후속). `PRD §15.2`는 대권거리를 「좌표 기반 추정 거리」라고 표시하라고 정하는데 저장된 항차에는 그 사실이 남지 않았다 — 화면의 `estimated`는 폼의 임시 상태라 저장하면 사라졌다. 값은 `USER_INPUT`(직접 입력 · CSV 가져오기)·`COORDINATE_ESTIMATE`(두 좌표의 대권거리) 둘이고 **`NULL`은 「모른다」**다. 기존 행은 backfill하지 않는다 — 저장된 거리가 대권거리와 비슷하다고 추정으로 되채우면 같은 값을 직접 입력한 사람에게도 「추정값입니다」가 붙는다(`PRD §0.3`). 거리가 바뀌면 옛 출처를 새 값에 남기지 않는다(`API_SPEC §3.4` · 시나리오 채택도 같다). 집행은 055 패턴의 트리거 `trg_chk_planned_distance_source_ins/upd`가 한다. downgrade는 컬럼·트리거만 지우며 그 결과는 059 이전과 같은 「모른다」라 `REGENERABLE`(계산·등급에 들어가지 않는 표시 값). 컬럼 추가라 #966(v1.30)·#1197(v1.32)과 같은 기준으로 버전을 올린다 (#1256) |
 | 2026-09-20 | `#1320` | §2.13 `weather_snapshot.source` 값 목록에 **`open_meteo_marine+forecast`**(정상 경로 기본값 — Marine·Forecast 두 엔드포인트를 한 행에 합침) 추가 · 값 표의 정본을 `TECH_SPEC §7.1`로 가리키고, 이 컬럼에 **집행 제약이 없다**는 실측(`1c444a5c4819` CHECK·`046`·`048`·`050` 트리거·ORM 어디에도 없음 — 자유 `VARCHAR(50)`)을 각주로 적었다. 어댑터 `SOURCE_MERGED`가 처음부터 이 값을 저장해 왔으므로 REJECT된 적 없고 마이그레이션 없음. 캐시 각주에 「외부 조회 실패 시에만 본다」 한 줄(`TECH_SPEC §7.3` v1.14). 값 목록 행 갱신이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#968) |
+| 2026-09-20 | `#1342` | **v1.34 — head `059` 대조.** 헤더는 v1.33까지 올라가 있었는데 절 일곱이 `051`~그 이전에 멈춰 있었다 — ⑴ §2.6에 `052` `as_of`·`053` `alternative_fuel` 두 열이 없었다(재현이 해시 키로 되살리는 값의 저장 위치가 정본에 없었다) → 두 행 + 「NULL이면 해시 키가 없다」 각주 ⑵ §8.1.0 그래프가 `051`에서 끝났다 → `059` ⑶ §7.1 FK 표 14행에 현행 FK 11건이 없었다(`app_user`를 부모로 하는 4건 전부 — 계정 물리 삭제 시 세션·토큰·대화·계획이 어떻게 되는지 총람으로는 볼 수 없었다) → 25행 + 「FK 21 + 트리거 대체 4」 각주 ⑷ 병합 전 리비전(`017`·`031`·`032`·`037`·`016`·`040`)이 §8.1.1·§8.1.2·§8.3·§2.21에 현행처럼 남아 있었다 → `6c7496c4d122`·`045`·`1c444a5c4819`와 `migration_guard.IRREVERSIBLE`의 현행 키로. `6c7496c4d122`가 넣는 행은 50이 아니라 **63**(기상 계수 10 · 시뮬 3 포함 — `migration_guard` 문자열도 정정) ⑸ §7.4 트리거 표 148은 `051` 시점이다 → `051`/`059` 두 열(**160** = 148 + `054` 6 + `055`·`058`·`059` 각 2). `a7d3e9b14f26` 「15개」는 세는 실수(4 + 6 + 4 = **14**) ⑹ §7.2가 PostgreSQL 트리거 5개만 적고 있었는데 CUBRID 배포는 `049`의 열 속성 `ON UPDATE CURRENT_DATETIME` **7테이블**이다(`app_user`·`not_underway_period` 포함) → 문단 추가 · 열 행 7곳 · §7.4 여덟째 항목 · ORM 주석 6곳 ⑺ §2.23 DDL 블록에 `056` `vessel_id`가 없었고, §2.1·§2.2·§2.15·§2.16 인덱스의 `WHERE …`는 CUBRID에 없다(`1c444a5c4819`는 전부 조건 없음 · `047`이 UNIQUE 둘을 비유일 + `trg_uq_`로) → DDL 한 줄 · 인덱스 블록 4곳 CUBRID 주석. 새 검사 `tests/test_dbschema_head_sync.py`가 그래프 끝·트리거 합계·§2.6 열 집합을 마이그레이션·ORM과 대조한다. 절 신설은 없으나 §7.1·§7.2·§7.4의 구조를 바꿨으므로 `AGENTS §4.3`에 따라 버전을 올린다 (#1342) |
