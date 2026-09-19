@@ -151,9 +151,10 @@ DB → 마이그레이션 → 앱·화면 순서다. **앱을 마지막에 올�
 export CUBRID_DB=cii CUBRID_PASSWORD=...
 #    가입 게이트는 .env에 둔다 — SIGNUP_ALLOWED_DOMAINS 또는 SIGNUP_INVITE_CODE.
 #    둘 다 없으면 앱이 기동하지 않는다 (사내 도구 · #808 · .env.example 참조)
-#    최초 사무직도 .env에 둔다 — INITIAL_OFFICE_EMAILS=팀장@회사.kr,운항관리자@회사.kr
-#    비어 있으면 앱이 기동하지 않는다 (역할 2종 · #672 · API_SPEC §1.2 「최초 사무직」)
+#    최초 관리자도 .env에 둔다 — INITIAL_ADMIN_EMAILS=팀장@회사.kr,운항관리자@회사.kr
+#    비어 있으면 앱이 기동하지 않는다 (역할 3종 · #1301 · API_SPEC §1.2 「최초 관리자」)
 #    ⚠️ staging에는 이 가드가 없다 — 비어 있어도 조용히 뜬다, 값을 직접 채운다 (#1290)
+#    ⚠️ 옛 이름 INITIAL_OFFICE_EMAILS는 읽히지 않는다 — 남아 있으면 기동 실패 (#1301)
 
 # 2) 이미지를 먼저 굽는다 ⚠️ 건너뛰지 말 것 (아래 주의 참조)
 docker compose -f docker-compose.prod.yml build
@@ -195,7 +196,7 @@ docker compose -f docker-compose.prod.yml exec -T db \
 - **팀 계정과 시연용 계정만 있어야 한다.** 데모 시드를 넣었다면 `demo@bluelog.local`이 함께 보인다(`#692`).
 - 모르는 주소가 있으면 **배포를 멈춘다.** 지우는 것은 사람의 데이터를 지우는 일이라 담당이 판단한다 — 그 계정이 만든 항차·계산 이력이 함께 걸려 있을 수 있고, 계산 이력은 `DB_SCHEMA §7.3` immutable 가드가 삭제를 막는다.
 - 게이트 자체가 켜져 있는지는 기동이 말해 준다 — 프로덕션에서 `SIGNUP_ALLOWED_DOMAINS`·`SIGNUP_INVITE_CODE`가 둘 다 없으면 앱이 뜨지 않는다(`#808`).
-- **사무직이 누구인지도 확인한다** — `SELECT email, role FROM app_user WHERE is_deleted = false`. 마이그레이션 044 이전부터 있던 계정은 전부 `OFFICE`이고, 새 가입은 `FIELD`로 시작한다. `INITIAL_OFFICE_EMAILS`에 든 이메일은 로그인할 때 `OFFICE`로 맞춰진다(`#672` · `API_SPEC §1.2`). **`staging`에는 이 값이 비어 있어도 기동을 막는 가드가 없다** — `production`과 달리 조용히 통과하므로, `staging` 배포에서는 사무직 0명이 이 조회로만 드러난다(`#1290`).
+- **관리자가 누구인지도 확인한다** — `SELECT email, [role] FROM app_user WHERE is_deleted = false` (CUBRID에서 `role`은 예약어라 대괄호가 필요하다). 마이그레이션 044 이전부터 있던 계정은 전부 `OFFICE`이고, 새 가입은 `FIELD`로 시작한다. `INITIAL_ADMIN_EMAILS`에 든 이메일은 로그인할 때 `ADMIN`으로 맞춰진다(`#672` · `#1301` · `API_SPEC §1.2`). **`staging`에는 이 값이 비어 있어도 기동을 막는 가드가 없다** — `production`과 달리 조용히 통과하므로, `staging` 배포에서는 관리자 0명이 이 조회로만 드러난다(`#1290`). 관리자가 0명이면 **역할을 올려 줄 사람이 없어 화면으로는 풀 수 없다**(`#1301`).
 
 ### 백업·복구 (`#827`)
 
