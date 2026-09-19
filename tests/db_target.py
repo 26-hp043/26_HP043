@@ -109,7 +109,7 @@ def refusal_reason(url: str) -> str:
         f"이름이 '{TEST_DB_SUFFIX}'로 끝나는 DB에서만 실행합니다. 한 번만 만들면 됩니다.\n"
         "\n"
         "    docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \\\n"
-        "      --log-volume-size=64M -F \"$CUBRID/databases\" cii_test en_US.iso88591 &&\n"
+        '      --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&\n'
         "      cubrid server start cii_test'\n"
         "    DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test "
         "uv run --extra dev pytest\n"

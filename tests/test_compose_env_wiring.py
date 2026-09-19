@@ -384,9 +384,7 @@ def test_dev_app_mounts_every_document_the_cross_ref_guard_reads():
     )
 
     # 읽기 전용인지도 함께 본다 — 컨테이너가 정본을 고쳐 쓸 이유가 없다.
-    writable = sorted(
-        mounted[name] for name in documents if not mounted[name].endswith(":ro")
-    )
+    writable = sorted(mounted[name] for name in documents if not mounted[name].endswith(":ro"))
     assert not writable, f"정본이 쓰기 가능하게 마운트돼 있다: {writable}"
 
 
