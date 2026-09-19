@@ -22,7 +22,7 @@ from cii_platform.auth.session import (
     create_session_fields,
 )
 from cii_platform.config import should_expose_dev_auth
-from cii_platform.db.models.app_user import ROLE_OFFICE, AppUser
+from cii_platform.db.models.app_user import OFFICE_OR_ABOVE, ROLE_OFFICE, AppUser
 from cii_platform.db.session import get_session
 from cii_platform.services import audit as audit_svc
 
@@ -78,9 +78,12 @@ async def dev_login(
         )
         session.add(user)
         await session.flush()
-    elif user.role != ROLE_OFFICE:
-        # 044 이전에 만들어진 스텁 행은 044가 사무직으로 채웠지만, 이후 화면에서 강등됐을 수
-        # 있다. 개발 계정은 늘 사무직으로 되돌린다 — dev-login은 프로덕션에 없다.
+    elif user.role not in OFFICE_OR_ABOVE:
+        # 044 이전에 만들어진 스텁 행은 044가 사무직으로 채웠지만, 이후 화면에서 현장직으로
+        # 강등됐을 수 있다. 개발 계정은 **사무직 이상**으로 되돌린다 — dev-login은 프로덕션에 없다.
+        # ⚠️ 관리자는 건드리지 않는다(#1301) — `!= OFFICE`로 비교하면 관리자로 올린 스텁을
+        # 매 로그인마다 사무직으로 **강등**하고, 그것이 유일한 관리자였다면 개발 DB가 관리자
+        # 0명이 된다(마지막 관리자 보호·감사를 모두 건너뛴다). 독립 검토 지적.
         user.role = ROLE_OFFICE
     if user.email_verified_at is None:
         # 새 행과 **#1293 이전에 만들어진 기존 행**을 이 한 자리에서 채운다. 생성 경로에만

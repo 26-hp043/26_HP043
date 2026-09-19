@@ -112,9 +112,9 @@ def test_real_app_lifespan_runs_the_gate_check(monkeypatch: pytest.MonkeyPatch):
         pass  # pragma: no cover - 진입 자체가 실패한다
 
     monkeypatch.setenv("SIGNUP_ALLOWED_DOMAINS", "bluelog.kr")
-    # 최초 사무직도 같은 자리에서 검사한다 (#672 · `auth/role_bootstrap.py`) — 이 검사는
+    # 최초 관리자도 같은 자리에서 검사한다 (#672 · #1301 · `auth/role_bootstrap.py`) — 이 검사는
     # 가입 게이트만 보므로 그쪽은 채워 둔다.
-    monkeypatch.setenv("INITIAL_OFFICE_EMAILS", "office@bluelog.kr")
+    monkeypatch.setenv("INITIAL_ADMIN_EMAILS", "office@bluelog.kr")
     with TestClient(app) as client:
         assert client is not None
 

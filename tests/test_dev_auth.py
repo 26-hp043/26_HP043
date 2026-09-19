@@ -210,3 +210,47 @@ async def test_dev_login_restart_finds_existing_user(migrated_db, app_fresh_engi
             text("DELETE FROM app_user WHERE id = :id"), {"id": uuid_hex(_STUB_USER_ID)}
         )
         await s.commit()
+
+
+async def test_dev_login_does_not_demote_an_admin_stub(migrated_db, app_fresh_engine):
+    """관리자로 올린 스텁은 dev-login 뒤에도 관리자다 (#1301).
+
+    종전 조건 ``role != OFFICE``는 관리자도 사무직으로 되돌렸다 — 그 스텁이 유일한 관리자면
+    개발 DB가 관리자 0명이 되고, 마지막 관리자 보호·감사를 모두 건너뛴다.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy import text
+
+    from cii_platform.api.routes.auth_dev import _STUB_USER_ID
+    from cii_platform.api.routes.auth_dev import router as auth_dev_router
+    from cii_platform.db.session import get_sessionmaker
+
+    sessionmaker = get_sessionmaker()
+    async with sessionmaker() as s:
+        await s.execute(
+            text(
+                'INSERT INTO app_user (id, email, password_hash, "role") '
+                "VALUES (:id, 'dev@localhost', 'x', 'ADMIN')"
+            ),
+            {"id": uuid_hex(_STUB_USER_ID)},
+        )
+        await s.commit()
+
+    app = FastAPI()
+    app.include_router(auth_dev_router, prefix="/api/v1")
+    with TestClient(app) as client:
+        assert client.post("/api/v1/auth/dev-login").status_code == 200
+
+    async with sessionmaker() as s:
+        role = await s.execute(
+            text('SELECT "role" FROM app_user WHERE id = :id'), {"id": uuid_hex(_STUB_USER_ID)}
+        )
+        assert role.scalar_one() == "ADMIN"
+        await s.execute(
+            text("DELETE FROM user_session WHERE user_id = :id"), {"id": uuid_hex(_STUB_USER_ID)}
+        )
+        await s.execute(
+            text("DELETE FROM app_user WHERE id = :id"), {"id": uuid_hex(_STUB_USER_ID)}
+        )
+        await s.commit()

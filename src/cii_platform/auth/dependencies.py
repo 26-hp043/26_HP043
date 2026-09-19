@@ -16,7 +16,7 @@ from cii_platform.auth.session import (
     verify_csrf,
 )
 from cii_platform.config import should_expose_api_docs, should_expose_dev_auth
-from cii_platform.db.models.app_user import ROLE_OFFICE, AppUser
+from cii_platform.db.models.app_user import OFFICE_OR_ABOVE, ROLE_ADMIN, AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.session import get_sessionmaker
 from cii_platform.errors import AppError
@@ -36,8 +36,20 @@ class CsrfError(AppError):
         super().__init__("CSRF_ERROR", message)
 
 
-#: 역할 거부 문구 (`API_SPEC §1.4` · `PRD §6.3`).
-OFFICE_ONLY_MESSAGE = "이 작업은 사무직 계정만 할 수 있습니다."
+#: 역할 거부 문구 — 사무직 권한이 필요한 경로 (`API_SPEC §1.4` · `PRD §6.3` 확정 원문).
+#:
+#: `#1301`이 「사무직 계정만」을 **「사무직 권한이 있는 계정만」**으로 고쳤다. 관리자도
+#: 이 경로를 지나므로(상위집합) 종전 문구는 **사실과 달랐다** — 관리자가 막힌 줄 알고
+#: 읽을 문구가 아니라, 권한이 모자란 현장직이 읽을 문구다.
+OFFICE_ONLY_MESSAGE = "이 작업은 사무직 권한이 있는 계정만 할 수 있습니다."
+
+#: 관리자 전용 거부 문구 (#1301 · `PRD §6.3` 확정 원문).
+#:
+#: **같은 `FORBIDDEN_ROLE` 코드에 문구만 다르다.** 코드를 또 가르지 않는 이유는 화면이
+#: 할 일이 같기 때문이다 — 안내하고 끝낸다. 반면 문구가 같으면 사무직이 계정 관리에서
+#: 막혔을 때 「사무직 계정만 할 수 있습니다」를 읽게 되어, **자기가 사무직인데** 그 말을
+#: 듣는 상태가 된다.
+ADMIN_ONLY_MESSAGE = "이 작업은 관리자 권한이 있는 계정만 할 수 있습니다."
 
 
 class RoleForbiddenError(AppError):
@@ -232,10 +244,16 @@ def require_csrf(
 
 
 def require_office(request: Request) -> None:
-    """사무직만 지나가는 라우트에 건다 (#672 · `API_SPEC §1.2` 역할 표).
+    """사무직 **이상**만 지나가는 라우트에 건다 (#672 · #1301 · `API_SPEC §1.2` 역할 표).
 
     ``Depends(require_office)``로 ``require_csrf`` 옆에 둔다. 미들웨어가 채운
     ``request.state.session_user``의 ``role``만 본다 — DB를 다시 읽지 않는다.
+
+    **관리자도 통과한다** (#1301). ``ADMIN``은 ``OFFICE``의 상위집합이라 업무 경로를 함께
+    쓴다 — 판정을 :data:`~cii_platform.db.models.app_user.OFFICE_OR_ABOVE` 하나로 두는 것은
+    ``role == ROLE_OFFICE`` 비교가 흩어지면 **한 곳을 빠뜨려도 조용히** 통과하거나 막히기
+    때문이다. 이름을 ``require_office``로 두는 것은 정본의 표 이름(「사무직 전용 경로」)과
+    ``tests/test_roles_db.py``의 소스 대조가 이 이름을 쓰기 때문이다.
 
     **fail-closed** — 사용자가 없으면(배선 어김) 통과시키지 않고 ``AuthenticationError``다.
     ``require_csrf``가 ``session_row``에 대해 같은 판단을 한다(#311).
@@ -246,5 +264,28 @@ def require_office(request: Request) -> None:
     user = getattr(request.state, "session_user", None)
     if user is None:
         raise AuthenticationError()
-    if getattr(user, "role", None) != ROLE_OFFICE:
+    if getattr(user, "role", None) not in OFFICE_OR_ABOVE:
         raise RoleForbiddenError()
+
+
+def require_admin(request: Request) -> None:
+    """관리자만 지나가는 라우트에 건다 (#1301 · `API_SPEC §1.2` 「관리자 전용 경로」).
+
+    지금 걸리는 곳은 **계정 관리 둘**이다 — ``GET /auth/users`` · ``PATCH
+    /auth/users/{id}/role``.
+
+    ## 왜 사무직에서 떼어냈나
+
+    종전에는 사무직이 전 계정의 역할을 바꿀 수 있었고, 그래서 **사무직끼리 서로를 강등할 수
+    있었다**(마지막 한 명만 `409`로 보호됐다). 계정을 건드리는 권한을 한 곳으로 모으면 그
+    경로가 사라진다. 업무 권한(제원·시뮬레이션·리포트·감축 계획)은 사무직에 그대로 남는다.
+
+    :func:`require_office`와 **같은 fail-closed** 규율이고 같은 ``FORBIDDEN_ROLE`` 코드를
+    쓴다. 문구만 다르다(:data:`ADMIN_ONLY_MESSAGE`) — 사무직이 여기서 막혔을 때 「사무직
+    계정만 할 수 있습니다」를 읽으면 **자기가 사무직인데** 그 말을 듣는 상태가 된다.
+    """
+    user = getattr(request.state, "session_user", None)
+    if user is None:
+        raise AuthenticationError()
+    if getattr(user, "role", None) != ROLE_ADMIN:
+        raise RoleForbiddenError(ADMIN_ONLY_MESSAGE)
