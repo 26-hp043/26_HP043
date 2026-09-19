@@ -114,6 +114,11 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels cii_platform \
 COPY alembic.ini ./
 COPY alembic ./alembic
 
+# 구조화 로그(#827 ⑵) — prod compose가 /app/logs 볼륨을 마운트한다. 익명 볼륨은
+# 첫 마운트에서 **이미지 디렉터리의 소유자를 그대로 복제**하므로, cii가 쓸 수 있게
+# 이미지에서 만들어 둔다. 없으면 USER cii로 뜬 앱이 PermissionError로 죽는다(실측).
+RUN mkdir -p /app/logs && chown cii:cii /app/logs
+
 USER cii
 
 EXPOSE 8000

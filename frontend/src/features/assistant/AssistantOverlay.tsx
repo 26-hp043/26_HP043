@@ -64,6 +64,11 @@ const PENDING_TEXT = '답변을 준비하고 있습니다…'
  * 위 네 상수와 같은 자리이며, 5절이 정해지면 **함께** 옮긴다.
  */
 const DISCARDED_PREFIX = '답을 드리지 못했습니다 — '
+/*
+ * #1243 — 선박이 정해지지 않은 턴의 안내. 계산은 선박 없이 못 돌았다는 사실을
+ * 말풍선 스스로 알린다(도구 오류 봉투가 모델의 말로만 전해지면 흩어진다).
+ */
+const VESSEL_UNRESOLVED_NOTE = '선박을 먼저 골라 주세요 — 계산은 선택한 선박으로 돕니다. '
 
 let turnSeq = 0
 function nextId(): string {
@@ -143,6 +148,7 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
           role: 'assistant',
           text: answer.answer,
           discarded: answer.discarded,
+          vesselUnresolved: answer.vesselResolved === false && !answer.discarded,
         },
       ])
     } catch (error) {
@@ -211,7 +217,7 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
           aria-label="AI 어시스턴트 닫기"
           onClick={() => setOpen(false)}
         >
-          <Icon glyph={X} size={16} />
+          <Icon glyph={X} size="inline" />
         </button>
       </header>
 
@@ -234,6 +240,7 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
               .join(' ')}
           >
             {turn.discarded ? DISCARDED_PREFIX : null}
+            {turn.vesselUnresolved ? VESSEL_UNRESOLVED_NOTE : null}
             {turn.text}
           </p>
         ))}

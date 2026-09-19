@@ -30,6 +30,7 @@ function vessel(overrides: Partial<Vessel> = {}): Vessel {
     default_fuel_type: null,
     reference_speed_kn: null,
     reference_daily_foc_ton: null,
+    block_coefficient: null,
     is_cii_applicable_hint: true,
     underway_state: null,
     detail_status: null,

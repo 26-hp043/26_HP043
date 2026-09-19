@@ -31,6 +31,13 @@ class CiiRatingBoundary(Base):
     d3 = sa.Column(sa.Numeric(precision=6, scale=4), nullable=False)
     d4 = sa.Column(sa.Numeric(precision=6, scale=4), nullable=False)
     source_ref = sa.Column(sa.String(length=200), nullable=False)
+    # 개정 적재 경로(#673 · 054) — `cii_reference_line`과 같은 이유로 추가됐다.
+    version = sa.Column(
+        sa.String(length=50),
+        server_default=sa.text("'1.0'"),
+        nullable=False,
+    )
+    is_active = sa.Column(sa.Boolean(), default=True, server_default=sa.text("1"), nullable=False)
     created_at = sa.Column(
         sa.DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -45,11 +52,7 @@ class CiiRatingBoundary(Base):
             "d1 < d2 AND d2 < d3 AND d3 < d4",
             name="chk_d_order",
         ),
-        # §2.11 인덱스 (원문 그대로).
-        sa.Index(
-            "idx_boundary_unique",
-            "ship_type",
-            "condition_expr",
-            unique=True,
-        ),
+        # 🔴 `idx_boundary_unique`(전역 유니크)는 `054`가 뺐다 — 개정 이행 행이 같은
+        # 키로 쌓여야 하므로(`DB_SCHEMA §7.2`). 유일성은 **활성 행끼리만**
+        # `trg_cii_rating_boundary_active_unique_*`가 집행한다.
     )

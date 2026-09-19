@@ -129,6 +129,10 @@ WARNING_LABELS: dict[str, str] = {
     "WEATHER_STALE": "오래된 기상 데이터를 사용 중입니다.",
     "WEATHER_NONE_FALLBACK": "기상 보정 없이 계산했습니다.",
     "CB_ESTIMATED": "선형 계수가 추정값입니다.",
+    # #966 — 결정요청 v9 회신 D-3 확정 문구. `PRD §6.3`이 정본이다.
+    "CB_OUT_OF_RANGE": (
+        "이 선박의 방형계수가 기상 보정 계수의 적용 범위 밖입니다. 보정 결과는 참고값입니다."
+    ),
     "EXPERIMENTAL_MODEL": "실험 모델 기반 결과입니다.",
     "NON_CII_VESSEL": "공식 CII 적용 대상이 아닐 수 있습니다.",
     "CII_APPLICABILITY_UNKNOWN": (
@@ -169,6 +173,10 @@ WARNING_LABELS: dict[str, str] = {
     "SENSITIVITY_SPEED_SKIPPED": (
         "선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 "
         "「효과 없음」이 아니라 「계산되지 않음」입니다."
+    ),
+    "FUEL_CF_MASS_BASIS": (
+        "연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. "
+        "발열량 차이에 따른 연료량 변화는 반영되지 않았습니다."
     ),
     "SIMULATION_PLAN_NO_FUEL": (
         "연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. "

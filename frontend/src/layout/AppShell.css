@@ -21,18 +21,16 @@
  *
  * | 근거 | 값 |
  * |---|---|
- * | `§6` 패널 간 gap | **16–24** |
+ * | `§6` 패널 간 gap | **24** (`#746` 확정) |
  * | `§6` 페이지 좌우 여백 | **24 이상** |
  * | `§7.1` 🔒 그리드 거터 | **24** |
  *
- * 32는 `§6`의 패널 간 gap 상한을 넘고, 16은 페이지 좌우 여백 하한에 못 미친다.
+ * 32는 `§6`의 패널 간 gap(24)을 넘고, 16은 페이지 좌우 여백 하한에 못 미친다.
  * 24는 12컬럼 거터와도 같은 값이라 **셸의 리듬이 그리드의 리듬과 맞는다.**
  *
- * > **리뷰 대상입니다.** `§7.1` 폭 정책 표는 wide 화면에 좌우 패딩 **32**를 적고
- * > 있습니다. 그 32는 콘텐츠가 페이지 위에 바로 얹히던 배치의 값이고, 지금은
- * > 그 자리를 **패널 간 여백**(`§6` 16–24)이 대신합니다. 두 조항이 같은 틈을
- * > 다른 범위로 규정하는 셈이라, `§7.1`에 한 줄이 필요할 수 있습니다.
- * > **최대 폭(1920 / 1440)은 그대로 살아 있습니다** — 폭 정책의 실질은 그쪽입니다.
+ * > 종전 이 자리에는 「`§7.1` 폭 정책 표의 좌우 패딩 32와 충돌한다」는 리뷰 메모가
+ * > 있었다. `#746`(PR #1147)이 `§7.1`의 해당 칸을 「패널 간 gap → `§6` (24)」
+ * > 참조로 바꿔 해소했다 — 폭 정책의 실질은 최대 폭(1920 / 1440)에 남아 있다.
  */
 .app-shell {
   display: flex;
@@ -275,7 +273,8 @@
 .app-shell__util-select:focus-visible {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /* 고를 것이 없는 상태 — 숨기지 않고 비활성으로 남긴다 (§7.2와 같은 원칙). */
@@ -322,8 +321,8 @@
 }
 
 .app-shell__iconbtn:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .app-shell__iconbtn .app-shell__util-icon {
@@ -374,8 +373,8 @@
 }
 
 .app-shell__nav-link:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .app-shell__nav-text {
@@ -530,15 +529,34 @@
   font-family: inherit;
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
-  color: var(--color-on-primary);
-  background: var(--color-primary-solid);
+  /*
+   * 채움이 아니라 **텍스트 버튼**이다 (`#1266`).
+   *
+   * 종전에는 `--color-primary-solid` 채움이라 **구현된 9개 화면 전부에서 대비가
+   * 가장 높은 요소**였다. 그래서 각 화면의 주 동작(`계산하기`·`비교하기`·
+   * `시뮬레이션 실행`)이 로그아웃과 같은 무게로 경쟁했다 — `§8`이 Primary를
+   * 「navy 채움 / 흰 글자」로 규정한 자리는 주 동작의 것이다.
+   *
+   * **자리는 그대로 둔다** — `#717`의 「시연에서 한 번에 닿는다」는 유효하다.
+   * 낮추는 것은 무게뿐이고, 결과적으로 바로 옆 `.account-menu__trigger`와
+   * 같은 모양이 된다(투명 배경 · `--text-primary` · hover `--surface-inset`).
+   *
+   * 아웃라인으로 내리지 않은 이유 — `--color-border-strong`이 라이트 1.60 ·
+   * 다크 1.57로 `1.4.11`에 미달이라 별건 이슈의 경계색 교체가 선행돼야 한다.
+   * 텍스트 버튼은 그 의존이 없다.
+   *
+   * 대비 실측 — 라이트 17.43 · 다크 13.14(카드면 기준), hover 면에서도
+   * 라이트 15.49 · 다크 14.33으로 `§0.2` 제약 1(4.5)을 넘는다.
+   */
+  color: var(--text-primary);
+  background: transparent;
   border: 0;
   border-radius: var(--radius-control);
   cursor: pointer;
 }
 
 .app-shell__logout:hover {
-  background: var(--color-primary-solid-hover);
+  background: var(--surface-inset);
 }
 
 /*
@@ -547,8 +565,8 @@
  * 지금은 테두리와 면이 같은 색이 된다.
  */
 .app-shell__logout:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 /*

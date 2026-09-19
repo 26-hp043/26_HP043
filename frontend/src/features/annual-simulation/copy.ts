@@ -192,6 +192,11 @@ export const ANNUAL_COPY = {
    */
   feedbackToggleHint:
     '확정 항차에서 계획 대비 실제로 쓴 연료의 비율을 구해 남은 계획의 연료에 곱합니다. 거리는 그대로입니다.',
+  /* ── 대체 연료 지렛대 (PRD §12.6 · #756 ⑴ — 질량 유지) ─────────── */
+  alternativeFuelLabel: '대체 연료 민감도',
+  alternativeFuelHint:
+    '남은 계획 전체의 배출계수를 이 연료로 바꿔 연말 값을 다시 냅니다. 연료량은 그대로입니다.',
+  alternativeFuelNone: '사용 안 함',
   feedbackTitle: '실적 보정계수',
   feedbackCaption: '확정 항차의 연료 강도(연료 ÷ 거리)를 계획과 실적으로 나눈 비율입니다.',
   feedbackFactorLabel: '계획 대비 실적',

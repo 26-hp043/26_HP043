@@ -266,6 +266,49 @@ async def test_given_block_coefficient_is_not_reported_as_estimated(session):
 
 
 @pytest.mark.asyncio
+async def test_out_of_range_block_coefficient_is_a_reference_value(session):
+    """#966 — 실측 CB가 Cform 범위 밖이면 참고값임을 알린다 (`CB_OUT_OF_RANGE`).
+
+    벌크선의 하한은 0.75다(``TECH_SPEC §3.3.3``). 0.70은 **사용자가 넣은 실측값**이므로
+    추정 경고가 아니라 범위 밖 경고가 나야 한다 — 조용히 넘기면 「검증됐다」로 읽힌다.
+    """
+    result = await _resolve(
+        session, weather_model=MODEL_TOWNSIN_KWON, block_coefficient=Decimal("0.70")
+    )
+
+    from cii_platform.services.weather import WARNING_CB_OUT_OF_RANGE
+
+    assert WARNING_CB_OUT_OF_RANGE in result.warnings
+    assert WARNING_CB_ESTIMATED not in result.warnings
+
+
+@pytest.mark.asyncio
+async def test_in_range_block_coefficient_carries_no_cb_warning(session):
+    """#966 — 범위 안 실측 CB는 아무 CB 경고도 내지 않는다(추정도 범위 밖도 아니다)."""
+    from cii_platform.services.weather import WARNING_CB_OUT_OF_RANGE
+
+    result = await _resolve(
+        session, weather_model=MODEL_TOWNSIN_KWON, block_coefficient=Decimal("0.82")
+    )
+    assert WARNING_CB_ESTIMATED not in result.warnings
+    assert WARNING_CB_OUT_OF_RANGE not in result.warnings
+
+
+@pytest.mark.asyncio
+async def test_out_of_range_upper_bound_uses_half_open_range(session):
+    """#966 — 상한은 반개구간이다. 컨테이너선 [0.55, 0.75)의 0.75는 범위 밖이다."""
+    from cii_platform.services.weather import WARNING_CB_OUT_OF_RANGE
+
+    result = await _resolve(
+        session,
+        weather_model=MODEL_TOWNSIN_KWON,
+        ship_type="CONTAINER_SHIP",
+        block_coefficient=Decimal("0.75"),
+    )
+    assert WARNING_CB_OUT_OF_RANGE in result.warnings
+
+
+@pytest.mark.asyncio
 async def test_simple_rule_is_not_marked_experimental(session):
     """배지는 경험식(`TOWNSIN_KWON_ALPHA`)에만 붙는다 (`API_SPEC §1.6` 조건)."""
     result = await _resolve(session, weather_model=MODEL_SIMPLE_RULE)

@@ -22,6 +22,7 @@ export const FLEET_REDUCTION_COPY = {
   evaluateFailed: '계산 결과를 받지 못했습니다.',
   staleResult: '아래 표는 마지막으로 계산에 성공한 조건의 결과입니다.',
   priceInvalid: '0 이상의 숫자를 입력하세요.',
+  saveBlockedByPrice: '연료 단가에 잘못된 값이 있습니다. 위에서 고친 뒤 저장할 수 있습니다.',
 
   vesselsTitle: '선박별 감속',
   colVessel: '선박',
@@ -48,6 +49,10 @@ export const FLEET_REDUCTION_COPY = {
   net: '순손익',
   /* ⚠️ 단가가 비면 0이 아니라 이 문장이다 — 0이면 「손익 영향 없음」으로 읽힌다(`PRD §12.3.2`). */
   needsPrice: '단가 입력 필요',
+  /** 계산 전 — 어느 연료가 필요한지 서버가 아직 말하지 않았다 (`#1273`). */
+  fuelPricesBeforeRun: '계산이 끝나면 이 계획에 필요한 연료의 단가 칸이 열립니다.',
+  /** 계산은 됐는데 필요한 단가가 없다. */
+  fuelPricesNone: '이 계획에는 연료 단가가 필요하지 않습니다.',
   fuelPricesTitle: '연료 단가 (USD/t)',
   pricesNote: '단가는 이 계획의 가정값이며 계획과 함께 저장됩니다.',
 

@@ -55,7 +55,8 @@
 }
 
 .dq__field select:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .dq__placeholder {

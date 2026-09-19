@@ -28,6 +28,7 @@ import {
   MISSING,
   SORT_KEYS,
   SORT_LABEL,
+  type BlockedReason,
   blockedReasons,
   capacityCell,
   dailyFuelCell,
@@ -455,13 +456,7 @@ export function VesselManagement() {
                     </div>
                   </div>
 
-                  {blocked.length > 0 && (
-                    <ul className="vm__blocked">
-                      {blocked.map((reason) => (
-                        <li key={reason}>{reason}</li>
-                      ))}
-                    </ul>
-                  )}
+                  {blocked.length > 0 && <BlockedSpecLine reasons={blocked} />}
 
                   {isEditing && (
                     <EditForm
@@ -649,6 +644,18 @@ function EditForm({
         )}
       </Field>
 
+      <Field id="vm-blockCoefficient" label="방형계수 (CB)" error={errors[EDIT_FIELD.blockCoefficient]}>
+        {(control) => (
+          <input
+            {...control}
+            className="vessel-management__control"
+            inputMode="decimal"
+            value={state.blockCoefficient}
+            onChange={(e) => set({ blockCoefficient: e.target.value })}
+          />
+        )}
+      </Field>
+
       <Field id="vm-defaultFuelType" label="기본 연료" error={errors[EDIT_FIELD.defaultFuelType]}>
         {(control) => (
           <select
@@ -734,6 +741,36 @@ function VesselSilhouette() {
  *
  * 색만으로 구분하지 않는다 — `—`라는 문자 자체가 보조 채널이다 (`§14`).
  */
+/**
+ * 제원이 비어 막힌 것들 — **한 줄** (#1277).
+ *
+ * 종전에는 이유마다 `li`로 쌓였다. 제원이 빈 행만 두 배 높이가 되고, 이 화면의
+ * 용건이 「제원을 채우는 것」이라(`PRD §6.1 SCR-002`) 그런 행이 흔하다. 표를
+ * 세로로 훑을 수 없었다.
+ *
+ * ## 빠진 항목 이름을 눈으로 보이지 않는다
+ *
+ * 같은 행의 `용량` · `기준속도` · `일일 연료` 열이 `—`로 이미 말한다 — `#719`가
+ * 완성도 막대를 값 두 칸으로 바꾸면서 그렇게 됐다. 문장으로 다시 적으면 같은 말이
+ * 두 번이다.
+ *
+ * **그래도 지우지는 않는다.** `—`가 스크린 리더에서 「비었다」로 읽힌다는 보장이
+ * 없어, 그 사용자에게는 `#511` 이후의 문장이 그대로 필요하다. `sr-only`로 남긴다.
+ */
+function BlockedSpecLine({ reasons }: { reasons: BlockedReason[] }) {
+  return (
+    <p className="vm__blocked">
+      {reasons.map((reason, index) => (
+        <span key={reason.consequence}>
+          {index > 0 && ' · '}
+          <span className="sr-only">{reason.fields} — </span>
+          {reason.consequence}
+        </span>
+      ))}
+    </p>
+  )
+}
+
 function ValueCell({ label, value }: { label: string; value: string | null }) {
   return (
     <div className={`vm__cell vm__cell--num${value === null ? ' vm__cell--empty' : ''}`}>

@@ -59,6 +59,8 @@ from cii_platform.api.main import API_V1_PREFIX, app
 
 #: 데모 시드의 고정 선박 (`db/demo_seed.py`).
 DEMO_VESSEL = "00000000-0000-4000-8000-000000000003"
+#: 벌크선 — 잔여 계획 항차 2건(`#816` v2의 `fuel_types`가 비지 않으려면 계획이 있어야 한다)
+DEMO_VESSEL_WITH_PLANS = "00000000-0000-4000-8000-000000000001"
 
 _BASE = "https://testserver"
 _ROOT = Path(__file__).resolve().parents[1]
@@ -217,6 +219,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data[].detail_status",
             "data[].gross_tonnage",
             "data[].id",
+            "data[].block_coefficient",
             "data[].imo_number",
             "data[].is_cii_applicable_hint",
             "data[].name",
@@ -237,6 +240,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
     "/vessels/{vessel_id}": frozenset(
         {
             "data",
+            "data.block_coefficient",
             "data.created_at",
             "data.current_lat",
             "data.current_lon",
@@ -797,6 +801,14 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.sensitivity_analysis.distance_plus_5pct",
             "data.sensitivity_analysis.distance_plus_5pct.projected_cii",
             "data.sensitivity_analysis.distance_plus_5pct.rating_change",
+            # 항차 ±1 지렛대(`#756`) — 잔여 계획이 있는 선박에서만 나온다. 계약 검사
+            # fixture를 벌크선(계획 2건)으로 바꾸며 같이 등재한다 (#816).
+            "data.sensitivity_analysis.voyage_minus_1",
+            "data.sensitivity_analysis.voyage_minus_1.projected_cii",
+            "data.sensitivity_analysis.voyage_minus_1.rating_change",
+            "data.sensitivity_analysis.voyage_plus_1",
+            "data.sensitivity_analysis.voyage_plus_1.projected_cii",
+            "data.sensitivity_analysis.voyage_plus_1.rating_change",
             "data.sensitivity_analysis.fuel_minus_10pct",
             "data.sensitivity_analysis.fuel_minus_10pct.projected_cii",
             "data.sensitivity_analysis.fuel_minus_10pct.rating_change",
@@ -822,6 +834,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "disclaimer",
             "input_hash",
             "meta",
+            "meta.as_of",  # 집계에 실제로 쓴 기준 시각 (#816 ⑴)
             "meta.duration_ms",
             "meta.request_id",
             "meta.timestamp",
@@ -845,6 +858,19 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "parameters_used.reference_line.c",
             "parameters_used.reference_line.reference_capacity_rule",
             "parameters_used.reference_line.ship_type",
+            "parameters_used.fuel_types",
+            "parameters_used.fuel_types[].cf",
+            "parameters_used.fuel_types[].code",
+            # `#816` ⑶ v2 — 활성 CF가 계획 항차에 곱해지므로(#832) CF 개정이
+            # `parameter_hash`에 드러나야 하고, 출처도 넷 각자 싣는다.
+            "parameters_used.parameter_schema_version",
+            "parameters_used.parameter_sources",
+            "parameters_used.parameter_sources.fuel_types",
+            "parameters_used.parameter_sources.fuel_types[].code",
+            "parameters_used.parameter_sources.fuel_types[].source_ref",
+            "parameters_used.parameter_sources.rating_boundary",
+            "parameters_used.parameter_sources.reference_line",
+            "parameters_used.parameter_sources.regulation_year",
             "parameters_used.regulation_year",
             "parameters_used.regulation_year.year",
             "parameters_used.regulation_year.z_factor_percent",
@@ -980,6 +1006,14 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.sensitivity_analysis.distance_plus_5pct",
             "data.sensitivity_analysis.distance_plus_5pct.projected_cii",
             "data.sensitivity_analysis.distance_plus_5pct.rating_change",
+            # 항차 ±1 지렛대(`#756`) — 잔여 계획이 있는 선박에서만 나온다. 계약 검사
+            # fixture를 벌크선(계획 2건)으로 바꾸며 같이 등재한다 (#816).
+            "data.sensitivity_analysis.voyage_minus_1",
+            "data.sensitivity_analysis.voyage_minus_1.projected_cii",
+            "data.sensitivity_analysis.voyage_minus_1.rating_change",
+            "data.sensitivity_analysis.voyage_plus_1",
+            "data.sensitivity_analysis.voyage_plus_1.projected_cii",
+            "data.sensitivity_analysis.voyage_plus_1.rating_change",
             "data.sensitivity_analysis.fuel_minus_10pct",
             "data.sensitivity_analysis.fuel_minus_10pct.projected_cii",
             "data.sensitivity_analysis.fuel_minus_10pct.rating_change",
@@ -1005,6 +1039,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "disclaimer",
             "input_hash",
             "meta",
+            "meta.as_of",  # 집계에 실제로 쓴 기준 시각 (#816 ⑴)
             "meta.duration_ms",
             "meta.request_id",
             "meta.timestamp",
@@ -1028,6 +1063,19 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "parameters_used.reference_line.c",
             "parameters_used.reference_line.reference_capacity_rule",
             "parameters_used.reference_line.ship_type",
+            "parameters_used.fuel_types",
+            "parameters_used.fuel_types[].cf",
+            "parameters_used.fuel_types[].code",
+            # `#816` ⑶ v2 — 활성 CF가 계획 항차에 곱해지므로(#832) CF 개정이
+            # `parameter_hash`에 드러나야 하고, 출처도 넷 각자 싣는다.
+            "parameters_used.parameter_schema_version",
+            "parameters_used.parameter_sources",
+            "parameters_used.parameter_sources.fuel_types",
+            "parameters_used.parameter_sources.fuel_types[].code",
+            "parameters_used.parameter_sources.fuel_types[].source_ref",
+            "parameters_used.parameter_sources.rating_boundary",
+            "parameters_used.parameter_sources.reference_line",
+            "parameters_used.parameter_sources.regulation_year",
             "parameters_used.regulation_year",
             "parameters_used.regulation_year.year",
             "parameters_used.regulation_year.z_factor_percent",
@@ -1140,7 +1188,7 @@ def test_snapshot_voyages_and_reproduce_match_the_contract(client):
         f"{API_V1_PREFIX}/annual-simulations",
         headers={"X-CSRF-Token": client.cookies.get("csrf")},
         json={
-            "vessel_id": DEMO_VESSEL,
+            "vessel_id": DEMO_VESSEL_WITH_PLANS,
             "regulation_year": 2026,
             "target_rating": "C",
             "simulation_runs": 1000,
@@ -1176,7 +1224,7 @@ def test_annual_simulation_response_fields_match_the_contract(client):
         f"{API_V1_PREFIX}/annual-simulations",
         headers={"X-CSRF-Token": client.cookies.get("csrf")},
         json={
-            "vessel_id": DEMO_VESSEL,
+            "vessel_id": DEMO_VESSEL_WITH_PLANS,
             "regulation_year": 2026,
             "target_rating": "C",
             "simulation_runs": 1000,
@@ -1595,6 +1643,12 @@ _FILES = "tests/test_report_export_routes_api_db.py"
 
 #: 두 계약 표 밖의 라우트 → 필드 집합을 보는 테스트(``파일::함수``) 또는 ``면제: 사유``.
 ROUTE_COVERAGE: dict[str, str] = {
+    # `API_SPEC §7.5` (#673) — 응답이 **올린 파일의 행 검증 결과**라 데모 시드로는 볼 수
+    # 없다. 그 파일이 사무직·현장직 클라이언트로 적재·`dry_run`·오류 봉투·감사 로그를
+    # 전부 확인한다(IT-IMPORT-001~005).
+    "POST /parameters/import": (
+        "tests/test_parameter_import_db.py::test_new_year_is_imported_and_audited"
+    ),
     # `API_SPEC §2.17` (#513) — 계산 결과가 **DB의 모든 선박·항차에 따라** 갈리고 저장은
     # 행을 만든다. 그 파일이 자기 선박으로 값을 보고, HTTP 경로(봉투·422·201·404)를 본다.
     "POST /fleet/reduction-plans/evaluate": (

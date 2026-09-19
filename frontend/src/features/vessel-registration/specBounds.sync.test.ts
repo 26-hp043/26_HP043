@@ -37,6 +37,7 @@ describe('선박 제원 경계 — #860', () => {
     ['gross_tonnage', STORABLE.tonnage],
     ['reference_speed_kn', STORABLE.speed],
     ['reference_daily_foc_ton', STORABLE.dailyFoc],
+    ['block_coefficient', STORABLE.cb],
   ] as const)('%s — 화면 경계가 DB 컬럼 정밀도에서 나온 값과 같다', (column, range) => {
     const { precision, scale } = numericOf(column)
     expect(range).toEqual(storableRange(precision, scale))
@@ -65,6 +66,7 @@ describe('선박 제원 경계 — #860', () => {
       defaultFuelType: '',
       referenceSpeedKn: '100000',
       referenceDailyFocTon: '',
+      blockCoefficient: '',
     }
     const errors = validateEdit(state, [])
     expect(errors.deadweight).toBeDefined()

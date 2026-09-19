@@ -14,6 +14,12 @@ export interface ChatTurn {
    */
   readonly discarded?: boolean
   /**
+   * #1243 — 이 턴에서 **선박이 정해지지 않았다**(`vessel_resolved=false`). 답은
+   * 왔지만 계산 도구는 선박 없이 못 돌았다는 뜻이다. `discarded`와는 다르다 —
+   * 답 자체는 버리지 않았다.
+   */
+  readonly vesselUnresolved?: boolean
+  /**
    * ⚠️ **호출 자체가 실패했다** — 위 `discarded`와 다르다 (`#1051` 3절에서 갈랐다).
    *
    * `discarded`는 **서버가 답을 만들고 폐기한 것**이고, 이것은 **답을 받지 못한
@@ -34,6 +40,12 @@ export interface ChatAnswer {
   readonly disclaimer: string
   readonly toolCalls: readonly string[]
   readonly discarded: boolean
+  /**
+   * 서버가 이 대화의 선박을 알고 있는가 (#1242 · #1243). false이고 폐기도 아니면
+   * 「선박을 먼저 골라 주세요」 안내를 함께 보여 준다 — 답은 왔지만 계산은
+   * 선박 없이는 못 돌았다는 뜻이다.
+   */
+  readonly vesselResolved?: boolean
 }
 
 export interface AssistantProvider {

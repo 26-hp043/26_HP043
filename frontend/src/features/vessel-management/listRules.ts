@@ -142,6 +142,28 @@ export function specProgress(vessel: Vessel): { filled: number; total: number } 
 }
 
 /**
+ * 막힌 이유 한 건 — **이름**과 **결과**를 나눠 담는다 (`#1277`).
+ *
+ * 종전에는 한 문장(`총톤수(GT) 없음 — CII 등급을 산출할 수 없습니다`)이었다. 나눈
+ * 이유는 **둘의 수명이 다르기 때문**이다.
+ *
+ * - `fields` — **무엇이 비었나.** `#719` 이후 같은 행의 `용량`·`기준속도`·`일일 연료`
+ *   열이 `—`로 이미 말한다. 화면에서 다시 적으면 같은 말이 두 번이다
+ * - `consequence` — **그래서 무엇이 막히나.** 이 화면 어디에도 없는 정보다
+ *
+ * **둘 다 버리지 않는다.** 화면은 `consequence`를 보이고 `fields`는 보조 기술에만
+ * 준다 — 열의 `—`가 스크린 리더에서 「비었다」로 읽힌다는 보장이 없어서다.
+ */
+export interface BlockedReason {
+  /** 「총톤수(GT) 없음」 · 「기준속도 · 기준 일일 연료소모량 없음」 */
+  fields: string
+  /**
+   * ⚠️ **이 문장은 고치지 않는다 (`#630`).** 사실관계를 실측으로 확인하고 고친 것이다.
+   */
+  consequence: string
+}
+
+/**
  * 이 선박에 대해 지금 할 수 없는 것.
  *
  * 서버가 판정하는 `is_cii_applicable_hint`는 **GT 기준 규제 적용 여부**이고, 여기서
@@ -150,6 +172,12 @@ export function specProgress(vessel: Vessel): { filled: number; total: number } 
  *
  * **판정은 위 `specChecklist`가 한다.** 여기서는 그 결과를 문장으로 옮기기만 한다.
  *
+ * ## 이름과 결과를 나눠 돌려준다 (#1277)
+ *
+ * 화면이 둘을 다른 자리에 두기 때문이다 — `BlockedReason` 주석을 보라. **이름을 여기서
+ * 없애지 않는다**: `#511`(항로 비교가 데모 선박에서 실패한다)을 목록에서 바로 보게
+ * 하려고 넣은 것이고, 지금도 보조 기술이 그 문장을 읽는다.
+ *
  * ## 문구가 사실과 달랐다 (#630)
  *
  * 종전에는 「항로 비교·연간 시뮬레이션이 **실패합니다**」로 적었다. 실측하면
@@ -157,13 +185,16 @@ export function specProgress(vessel: Vessel): { filled: number; total: number } 
  * (`_shift_speed`가 제원 없는 항차를 건너뛴다). 멀쩡한 기능을 고장났다고 예고하면서
  * 진짜 문제는 말하지 않고 있었다.
  */
-export function blockedReasons(vessel: Vessel): string[] {
+export function blockedReasons(vessel: Vessel): BlockedReason[] {
   const items = specChecklist(vessel)
-  const reasons: string[] = []
+  const reasons: BlockedReason[] = []
 
   const capacity = items[0]
   if (capacity.unknownAxis !== true && !capacity.filled) {
-    reasons.push(`${capacity.label} 없음 — CII 등급을 산출할 수 없습니다`)
+    reasons.push({
+      fields: `${capacity.label} 없음`,
+      consequence: 'CII 등급을 산출할 수 없습니다',
+    })
   }
 
   /*
@@ -175,9 +206,10 @@ export function blockedReasons(vessel: Vessel): string[] {
     .filter((item) => item.key !== 'capacity' && !item.filled)
     .map((item) => item.label)
   if (missingFuelModel.length > 0) {
-    reasons.push(
-      `${missingFuelModel.join(' · ')} 없음 — 항로 비교가 실패하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다`,
-    )
+    reasons.push({
+      fields: `${missingFuelModel.join(' · ')} 없음`,
+      consequence: '항로 비교가 실패하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다',
+    })
   }
 
   return reasons

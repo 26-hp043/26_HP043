@@ -63,7 +63,7 @@
  * 전역인데 소유자만 한 화면이었다.
  */
 .sort select {
-  border: var(--borderWidth-default) solid var(--border-default);
+  border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--surface-inset);
   color: var(--text-secondary);
@@ -74,6 +74,6 @@
 }
 
 .sort select:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }

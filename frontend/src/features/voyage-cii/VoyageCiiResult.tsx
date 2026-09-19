@@ -152,7 +152,7 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
               // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden. 아이콘에도
               // aria-label을 붙이면 「높음 HIGH 주의 필요」로 중복해 읽힌다.
               <span className="voyage-cii-result__risk-icon">
-                <Icon glyph={AlertTriangle} size={16} />
+                <Icon glyph={AlertTriangle} size="inline" />
               </span>
             ) : null}
             <span className={`voyage-cii-result__risk-value voyage-cii-result__risk-value--${data.risk_level.toLowerCase()}`}>
@@ -232,7 +232,7 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
           {warnings.map((code) => (
             <li key={code} className="voyage-cii-result__warning">
               <span className="voyage-cii-result__warning-icon">
-                <Icon glyph={AlertTriangle} size={16} />
+                <Icon glyph={AlertTriangle} size="inline" />
               </span>
               {warningMessage(code)}
             </li>

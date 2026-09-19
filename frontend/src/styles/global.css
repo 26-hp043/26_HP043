@@ -142,9 +142,30 @@ a {
 
 /* DESIGN_SYSTEM §5 · §14 — 키보드 포커스 가시화 */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
   border-radius: var(--radius-control);
+}
+
+/*
+ * 프로그램적 초점 대상은 제외한다 — `DESIGN_SYSTEM §14` (`#1283`).
+ *
+ * `tabindex="-1"`은 **Tab 순서 밖**이라 스크립트만 초점을 준다. 저장소에 둘 있다 —
+ * 화면 전환마다 초점을 받는 `<main>`(`AppShell.tsx`)과 열릴 때 초점을 받는
+ * 어시스턴트 패널.
+ *
+ * 위 전역 규칙이 그 요소들에도 링을 그려, **화면을 옮길 때마다 본문 전체가
+ * 테두리에 감싸였다.** `2.4.7`은 키보드로 도달하는 요소에 걸리므로 이들은 대상이
+ * 아니고, 본문만 한 링은 오히려 진짜 초점 위치를 가린다.
+ *
+ * ⚠️ **초점 이동을 없애는 것이 아니다.** `2.4.3`이 요구하고 `#829` ⑸c가 넣었다 —
+ * 지우는 것은 표시뿐이다. `tabindex`를 떼는 것으로 「고치지」 않는다.
+ *
+ * 한 요소를 지목하지 않는다. 이름으로 한 곳을 찍는 규칙은 그 한 곳만 지킨다는 것을
+ * `#1052` ⓥ가 위험 선택자에서 겪었다.
+ */
+[tabindex='-1']:focus-visible {
+  outline: none;
 }
 
 /*

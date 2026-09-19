@@ -39,7 +39,12 @@ class RegulationYear(Base):
 
     __table_args__ = (
         sa.PrimaryKeyConstraint("id", name="pk_regulation_year"),
-        sa.UniqueConstraint("year", name="uq_regulation_year_year"),
+        # 🔴 UNIQUE(year)는 `054`가 뺐다 — 개정은 새 version 행 + is_active 전환으로
+        # 일어나므로(`DB_SCHEMA §7.2` · #98) 같은 해의 이행 행이 존재해야 한다.
+        # 유일성은 **활성 행끼리만** 트리거(trg_regulation_year_active_unique_*)가
+        # 집행한다. 선언을 남겨 두면 집행과 갈라져 어느 쪽을 믿을지 알 수 없다
+        # (`050` ⑶의 판단 — cii_reference_line·cii_rating_boundary는 애초에 ORM이
+        # 선언하지 않았다).
         # #96 (Oracle F5): Z-factor reduction은 음수일 수 없다 (MEPC.400(83) 0%~).
         sa.CheckConstraint("z_factor_percent >= 0", name="chk_z_factor_nonneg"),
     )

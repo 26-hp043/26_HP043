@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import TYPE_CHECKING
@@ -35,6 +36,7 @@ from cii_platform.llm.provider import (
     MAX_TOOL_CALLS_PER_TURN,
     STOP_REFUSAL,
     STOP_TRUNCATED,
+    TURN_TIMEOUT_SECONDS,
     LLMError,
 )
 from cii_platform.services import audit
@@ -90,7 +92,8 @@ DISCLAIMER = (
 #: 권고를 만들지 않으면 폐기가 줄어든다. **가드를 프롬프트로 대신하지는 않는다.**
 _RULES = (
     "당신은 선박 탄소집약도지수(CII) 도구의 설명 도우미입니다.\n"
-    "- 수치는 **도구가 돌려준 값만** 인용하십시오. 직접 계산하거나 어림하지 마십시오.\n"
+    "- 수치는 **도구가 돌려준 값** 또는 **이전 답변에 이미 쓴 값**만 인용하십시오. "
+    "직접 계산하거나 어림하지 마십시오.\n"
     "- 더하기·빼기도 계산입니다. 도구가 주지 않은 수는 쓰지 마십시오.\n"
     "- 시나리오에 순위를 매기거나 「더 낫다·최적」 같은 비교 표현을 쓰지 마십시오.\n"
     "- 행동을 제안하지 마십시오. 사용자가 직접 요청한 계산만 도구로 실행하십시오.\n"
@@ -146,6 +149,10 @@ def _from_a_question(history: Sequence[ChatMessage]) -> list[ChatMessage]:
     return list(history[start:])
 
 
+#: #1245 — 턴 시간 초과 문구. 무엇이 일어났는지만 말한다(다른 폐기 문구의 원칙).
+TURN_TIMEOUT_MESSAGE = "응답 시간이 초과되어 답변을 보내지 않았습니다. 다시 물어봐 주세요."
+
+
 async def answer(
     session: AsyncSession,
     *,
@@ -155,8 +162,42 @@ async def answer(
     question: str,
     vessel_id: UUID | None = None,
     ip_address: str | None = None,
+    turn_timeout: float | None = None,
 ) -> dict[str, object]:
-    """한 턴을 처리한다.
+    """한 턴을 처리한다 — **시간 상한으로 감싸서**(#1245).
+
+    최악 경로(LLM 30초 × 도구 왕복 4회 ≈ 2분)가 DB 세션·커넥션을 쥐던 것을
+    :data:`TURN_TIMEOUT_SECONDS`에서 끊는다. 초과 시 사용자 메시지는 이미 저장돼
+    있고 답만 없는 것은 ``#121`` 폐기 정책과 같은 모양이다(라우트의 ``commit()``
+    경로가 그대로 탄다). ``turn_timeout``은 검사가 짧은 예산을 넣는 주입점이다.
+    """
+    budget = TURN_TIMEOUT_SECONDS if turn_timeout is None else turn_timeout
+    try:
+        async with asyncio.timeout(budget):
+            return await _answer_turn(
+                session,
+                provider=provider,
+                chat_session_id=chat_session_id,
+                user_id=user_id,
+                question=question,
+                vessel_id=vessel_id,
+                ip_address=ip_address,
+            )
+    except TimeoutError:
+        return _result(TURN_TIMEOUT_MESSAGE, [], [], discarded=True, vessel_resolved=False)
+
+
+async def _answer_turn(
+    session: AsyncSession,
+    *,
+    provider: LLMProvider,
+    chat_session_id: UUID,
+    user_id: str | None,
+    question: str,
+    vessel_id: UUID | None = None,
+    ip_address: str | None = None,
+) -> dict[str, object]:
+    """한 턴의 본문 — :func:`answer`의 시간 상한 안에서 돈다.
 
     :returns: ``{"answer": ..., "disclaimer": ..., "tool_calls": [...], "discarded": bool}``
 
@@ -176,6 +217,13 @@ async def answer(
         content=question,
         ip_address=ip_address,
     )
+
+    # #1243 — 선박 결정 규칙: 요청 vessel_id(화면) > 세션 귀속(검색이 정한 것).
+    # 🔴 요청값은 세션에 싣지 않는다(#1242에서 정정) — 세션 귀속은 **검색의 고유
+    # 일치만** 쓴다. 화면은 그 턴에서만 이기고, 세션의 「검색이 정한 배」를 화면이
+    # 조용히 덮어쓰지 않게 한다(요청이 오지 않은 다음 턴의 대답이 달라지면 안 된다).
+    session_row = await chat_repo.get_session_row(session, session_id=chat_session_id)
+    effective_vessel: UUID | None = vessel_id or getattr(session_row, "vessel_id", None)
 
     history = await chat_repo.list_messages(
         session, session_id=chat_session_id, limit=MAX_HISTORY_TURNS
@@ -211,7 +259,13 @@ async def answer(
             break
 
         if len(used_tools) + len(response.tool_calls) > MAX_TOOL_CALLS_PER_TURN:
-            return _result(TOOL_BUDGET_MESSAGE, tool_outputs, used_tools, discarded=True)
+            return _result(
+                TOOL_BUDGET_MESSAGE,
+                tool_outputs,
+                used_tools,
+                discarded=True,
+                vessel_resolved=effective_vessel is not None,
+            )
 
         # ⚠️ **도구 왕복은 짝으로 보낸다** (`Anthropic Messages API` 규격).
         #
@@ -230,9 +284,22 @@ async def answer(
 
         results: list[dict[str, object]] = []
         for call in response.tool_calls:
-            output = await run_tool(
-                session, name=call.name, arguments=call.arguments, vessel_id=vessel_id
+            # 같은 턴의 search_vessel이 고유 일치를 정했으면 **이 자리에서** 귀속을
+            # 저장하고 다음 도구가 즉시 그 선박을 쓴다(#1243 — ToolOutcome).
+            outcome = await run_tool(
+                session,
+                name=call.name,
+                arguments=call.arguments,
+                vessel_id=effective_vessel,
+                chat_session_id=chat_session_id,
+                vessel_locked=vessel_id is not None,
             )
+            if outcome.resolved_vessel_id is not None and vessel_id is None:
+                await chat_repo.set_vessel(
+                    session, session_id=chat_session_id, vessel_id=outcome.resolved_vessel_id
+                )
+                effective_vessel = outcome.resolved_vessel_id
+            output = outcome.envelope
             tool_outputs.append(output)
             used_tools.append(call.name)
             results.append({"type": "tool_result", "tool_use_id": call.id, "content": output})
@@ -249,11 +316,20 @@ async def answer(
         return _result(TOOL_BUDGET_MESSAGE, tool_outputs, used_tools, discarded=True)
 
     try:
-        verify_numbers(reply, tool_outputs)
+        prior_answers = [
+            row.content for row in _from_a_question(history) if row.role == ROLE_ASSISTANT
+        ]
+        verify_numbers(reply, tool_outputs, prior_answers=prior_answers)
     except NumberFabricationError:
         # ⚠️ **폐기한다.** 저장도 하지 않는다 — 틀린 답을 이력에 남기면 다음 턴이
         # 그것을 근거로 삼는다.
-        return _result(DISCARDED_MESSAGE, tool_outputs, used_tools, discarded=True)
+        return _result(
+            DISCARDED_MESSAGE,
+            tool_outputs,
+            used_tools,
+            discarded=True,
+            vessel_resolved=effective_vessel is not None,
+        )
 
     await chat_repo.add_message(
         session, session_id=chat_session_id, role=ROLE_ASSISTANT, content=reply
@@ -266,11 +342,22 @@ async def answer(
         content=reply,
         ip_address=ip_address,
     )
-    return _result(reply, tool_outputs, used_tools, discarded=False)
+    return _result(
+        reply,
+        tool_outputs,
+        used_tools,
+        discarded=False,
+        vessel_resolved=effective_vessel is not None,
+    )
 
 
 def _result(
-    text: str, tool_outputs: list[str], used_tools: list[str], *, discarded: bool
+    text: str,
+    tool_outputs: list[str],
+    used_tools: list[str],
+    *,
+    discarded: bool,
+    vessel_resolved: bool = False,
 ) -> dict[str, object]:
     return {
         "answer": text,
@@ -279,4 +366,7 @@ def _result(
         "tool_calls": list(used_tools),
         "tool_output_count": len(tool_outputs),
         "discarded": discarded,
+        # #1242 — 서버가 이 대화의 선박을 알고 있는가. **식별자 자체는 안 싣는다**
+        # (`PRD §16.3.1` — 모델에게 가는 값이 아니라 화면에게 가는 값이다).
+        "vessel_resolved": vessel_resolved,
     }

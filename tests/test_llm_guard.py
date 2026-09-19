@@ -228,3 +228,41 @@ def test_api_key_env_constant_matches_the_literal_that_is_read():
     )
 
     assert f'os.environ.get("{API_KEY_ENV}"' in source
+
+
+# ── #1244 — 이력 창의 이전 답 수치를 허용 집합에 넣는다 ──────────────────────
+
+
+def test_prior_answer_numbers_are_allowed():
+    """「그럼 4.98이 기준보다 낮다는 거지?」 — 이전 답의 수를 다시 쓰는 것은 인용이다."""
+    verify_numbers(
+        "네, attained CII는 4.98입니다.",
+        ["다른 수치가 있는 봉투"],
+        prior_answers=["attained CII는 4.98, required CII는 5.05입니다."],
+    )
+
+
+def test_derived_number_is_still_rejected():
+    """이전 답에 4.98·5.05가 있어도 0.07(차)은 폐기 — 빼기도 계산이다."""
+    with pytest.raises(NumberFabricationError):
+        verify_numbers(
+            "차이는 0.07입니다.",
+            [],
+            prior_answers=["4.98과 5.05"],
+        )
+
+
+def test_user_numbers_are_not_allowed():
+    """user 메시지의 수는 허용 집합에 들어가지 않는다 — 사용자가 지어낸 수가
+    「검증된 답」이 되는 것을 막는다. 호출부는 assistant 본문만 넘기므로 여기서는
+    prior에 섞어 넣었을 때의 성질이 아니라, **아예 넣지 않는 계약**을 본다."""
+    with pytest.raises(NumberFabricationError):
+        verify_numbers("7.3입니다.", [], prior_answers=[])
+
+
+def test_dates_are_not_numbers():
+    """2026-09-18이 2026·-9·-18로 쪼개져 폐기되지 않는다(오탐 — 실측 결함)."""
+    verify_numbers(
+        "2026-09-18 기준으로 계산했습니다. attained CII는 4.98입니다.",
+        ['{"attained_cii": "4.982400"}'],
+    )

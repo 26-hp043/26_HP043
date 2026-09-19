@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -90,8 +90,8 @@ async def _add_actual_voyage(session, vessel_id) -> None:
     )
 
 
-def _parsed(raw: str) -> dict:
-    return json.loads(raw)
+def _parsed(raw) -> dict:
+    return json.loads(getattr(raw, "envelope", raw))
 
 
 def _flat(payload: object) -> str:
@@ -298,3 +298,141 @@ async def test_the_regulation_year_defaults_to_this_year(session, vessel_id, mon
 
 
 pytestmark = pytest.mark.asyncio
+
+
+# ── #1242 — 검색의 고유 일치를 세션 귀속으로 저장한다 ──────────────────────────
+
+
+async def _new_chat_session(db) -> UUID:
+    from cii_platform.db.repositories import chat as chat_repo
+
+    user_id = uuid4()
+    await db.execute(
+        text("INSERT INTO app_user (id, email, password_hash) VALUES (:id, :email, 'x')"),
+        {"id": user_id, "email": f"chat-{uuid4().hex[:10]}@example.com"},
+    )
+    row = await chat_repo.create_session(db, user_id=user_id)
+    return row.id
+
+
+async def test_unique_match_is_stored_as_the_session_vessel(session, vessel_id):
+    """고유 일치 → `chat_session.vessel_id` 저장 — 같은 턴의 다음 도구가 즉시 쓴다."""
+    from cii_platform.db.repositories import chat as chat_repo
+
+    session_id = await _new_chat_session(session)
+    outcome = await chat_tools.run_tool(
+        session,
+        name="search_vessel",
+        arguments={"name": VESSEL_NAME},
+        vessel_id=None,
+        chat_session_id=session_id,
+    )
+    assert json.loads(outcome.envelope)["result"] == {"matched": 1}
+    # 저장은 턴 루프가 한다(#1243) — 도구는 resolved_vessel_id로만 알린다.
+    assert outcome.resolved_vessel_id == vessel_id
+    row = await chat_repo.get_session_row(session, session_id=session_id)
+    assert row.vessel_id is None, "도구 단계에서 저장됐다 — 책임이 두 곳에 생긴다"
+
+
+async def test_ambiguous_match_is_not_stored(session, vessel_id):
+    """둘 이상이 걸리면 저장하지 않는다 — 몰래 고르면 사용자가 고른 배가 아니다."""
+    from cii_platform.db.repositories import chat as chat_repo
+
+    session_id = await _new_chat_session(session)
+    # 같은 키워드에 걸리는 두 번째 선박(고유 IMO).
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, :name, 'BULK_CARRIER', 30000)"
+        ),
+        {
+            "id": uuid4(),
+            "imo": f"9{uuid4().int % 1000000:06d}",
+            "name": VESSEL_NAME + " II",
+        },
+    )
+    outcome = await chat_tools.run_tool(
+        session,
+        name="search_vessel",
+        arguments={"name": VESSEL_NAME},
+        vessel_id=None,
+        chat_session_id=session_id,
+    )
+    body = json.loads(outcome.envelope)
+    assert "error" in body, "둘 이상이면 결과 봉투가 아니라 오류 봉투다(#1243)"
+    assert "화면에서 선박을 고른 뒤" in body["error"]
+    assert outcome.resolved_vessel_id is None
+    row = await chat_repo.get_session_row(session, session_id=session_id)
+    assert row.vessel_id is None
+
+
+async def test_locked_vessel_is_not_overridden_by_search(session, vessel_id):
+    """화면이 넘긴 턴은 검색이 세션을 못 바꾼다 — 화면값이 항상 더 최신(#1242 규칙)."""
+    from cii_platform.db.repositories import chat as chat_repo
+
+    session_id = await _new_chat_session(session)
+    other = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, 'OTHER CARRIER', 'TANKER', 20000)"
+        ),
+        {"id": other, "imo": f"8{uuid4().int % 1000000:06d}"},
+    )
+    outcome = await chat_tools.run_tool(
+        session,
+        name="search_vessel",
+        arguments={"name": VESSEL_NAME},
+        vessel_id=other,  # 화면이 준 선박
+        chat_session_id=session_id,
+        vessel_locked=True,
+    )
+    assert json.loads(outcome.envelope)["result"] == {"matched": 1}
+    assert outcome.resolved_vessel_id is None, "locked 턴에 귀속을 내보냈다"
+    row = await chat_repo.get_session_row(session, session_id=session_id)
+    assert row.vessel_id is None, "locked 턴에 검색이 귀속을 바꿨다"
+
+
+async def test_search_then_calculate_uses_the_found_vessel(session, vessel_id):
+    """IT-CHATDB-010 (#1243) — 요청 vessel_id 없이 검색→계산이 이어지고, 어디에도
+    선박명·IMO·hex id가 나가지 않는다."""
+    outcome = await chat_tools.run_tool(
+        session,
+        name="search_vessel",
+        arguments={"name": VESSEL_NAME},
+        vessel_id=None,
+    )
+    assert outcome.resolved_vessel_id == vessel_id
+
+    calc = await chat_tools.run_tool(
+        session,
+        name="calc_voyage_cii",
+        arguments={"distance_nm": 1000, "speed_kn": 12, "fuel_ton": 100, "fuel_type": "HFO"},
+        vessel_id=outcome.resolved_vessel_id,
+    )
+    blob = calc.envelope + outcome.envelope
+    assert str(vessel_id) not in blob
+    assert VESSEL_NAME not in blob
+    assert json.loads(calc.envelope)["ok"] is True
+
+
+async def test_search_with_two_matches_asks_the_screen(session, vessel_id):
+    """IT-CHATDB-011 (#1243) — 2척이면 오류 봉투, 귀속은 저장되지 않는다."""
+    await session.execute(
+        text(
+            "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight) "
+            "VALUES (:id, :imo, :name, 'BULK_CARRIER', 30000)"
+        ),
+        {
+            "id": uuid4(),
+            "imo": f"9{uuid4().int % 1000000:06d}",
+            "name": VESSEL_NAME + " II",
+        },
+    )
+    outcome = await chat_tools.run_tool(
+        session, name="search_vessel", arguments={"name": VESSEL_NAME}, vessel_id=None
+    )
+    body = json.loads(outcome.envelope)
+    assert body["ok"] is False
+    assert "2척이 일치합니다" in body["error"]
+    assert outcome.resolved_vessel_id is None

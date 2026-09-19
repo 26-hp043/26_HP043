@@ -339,6 +339,30 @@ async def wx_session(conn):
         yield db
 
 
+async def test_stored_block_coefficient_out_of_range_warns_in_scenarios(wx_session):
+    """#966 — 선박에 저장된 CB가 범위 밖이면 시나리오 비교가 `CB_OUT_OF_RANGE`를 낸다.
+
+    이 경로가 유일한 생산 경로다 — ``_resolve_weather``가 ``vessel.block_coefficient``를
+    넘기는지를 잠근다. 컬럼이 생기기 전에는 CB가 **항상** None이라 이 경고가 나올 수
+    없었다(범위 밖 실측값 자체가 없었다).
+    """
+    from cii_platform.db.demo_seed import VESSEL_ID_BULK
+
+    await _seed_fresh_snapshot(wx_session)
+    # 데모 벌크선의 CB를 하한(0.75) 밖으로 — 컬럼이 있으니 실측값이 계산에 들어간다.
+    await wx_session.execute(
+        text("UPDATE vessel SET block_coefficient = 0.700 WHERE id = :id").bindparams(
+            bindparam("id", type_=UuidText())
+        ),
+        {"id": UUID(VESSEL_ID_BULK)},
+    )
+
+    result = await _compare(wx_session, weather_model="TOWNSIN_KWON_ALPHA")
+    assert "CB_OUT_OF_RANGE" in result["warnings"], result["warnings"]
+    assert "CB_ESTIMATED" not in result["warnings"], "실측값인데 추정 경고가 나왔다"
+    # 원복은 rollback(conn fixture)이 한다 — 데모 선박은 다음 검사에 영향 없다.
+
+
 async def test_corrected_comparison_records_the_snapshot_it_used(wx_session):
     """IT-WX-004 — 보정한 계산은 계산 이력이 **그 스냅샷**을 가리키고, 인자가 결과에 남는다."""
     snapshot_id = await _seed_fresh_snapshot(wx_session)

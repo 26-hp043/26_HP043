@@ -194,7 +194,18 @@ describe('위치 개략도 — 겹침 분산', () => {
 
   it('그림 설명을 차트가 낸다 — 대시보드가 따로 적지 않는다', () => {
     render(<PositionChart vessels={[vessel({ id: 'a' })]} />)
-    expect(screen.getByText(/배 색과 무늬는 올해 누적\(YTD\) 등급입니다/)).toBeTruthy()
+
+    /*
+     * **문장을 통째로 잠그지 않는다.** 설명은 다듬어질 수 있고, 그때마다 검사가
+     * 깨지면 검사가 문구의 소유자처럼 굴게 된다. 잠그는 것은 **그림이 쓰는 채널을
+     * 빠짐없이 말하는가**다 — 등급(색·무늬)과 주의 대상(굵은 테두리) 둘이다.
+     *
+     * 지도(`FleetMap`)의 캡션도 같은 둘을 말한다 (`#1052` ⓥ 확정). 자산 유무로
+     * 두 그림이 갈리는데 읽는 법이 다르면 사용자는 다른 그림으로 읽는다.
+     */
+    const note = screen.getByText(/올해 누적\(YTD\) 등급/)
+    expect(note.textContent).toMatch(/색과 무늬/)
+    expect(note.textContent, '주의 대상 표시를 설명하지 않는다 (#1052 ⓥ)').toMatch(/주의 대상/)
   })
 })
 

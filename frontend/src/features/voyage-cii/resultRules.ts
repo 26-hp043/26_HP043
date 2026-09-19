@@ -171,6 +171,9 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
   WEATHER_STALE: '오래된 기상 데이터를 사용 중입니다.',
   WEATHER_NONE_FALLBACK: '기상 보정 없이 계산했습니다.',
   CB_ESTIMATED: '선형 계수가 추정값입니다.',
+  // #966 — 결정요청 v9 회신 D-3 확정 문구(PRD §6.3 정본).
+  CB_OUT_OF_RANGE:
+    '이 선박의 방형계수가 기상 보정 계수의 적용 범위 밖입니다. 보정 결과는 참고값입니다.',
   EXPERIMENTAL_MODEL: '실험 모델 기반 결과입니다.',
   NON_CII_VESSEL: '공식 CII 적용 대상이 아닐 수 있습니다.',
   // `#653` — GT가 NULL이면 「대상 아님」이 아니라 **판정 자체가 불가**다.
@@ -223,6 +226,9 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
     '기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 그 항차에는 감속을 적용하지 못했습니다. 선박 제원을 입력해 주세요.',
   MODEL_VERSION_DIFFERS:
     '원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다.',
+  // #756 ⑴ — 대체 연료 지렛대가 질량 기준임을 알린다. 문구는 `PRD §6.3` 확정본.
+  FUEL_CF_MASS_BASIS:
+    '연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다.',
 }
 
 export function warningMessage(code: string): string {

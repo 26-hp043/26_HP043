@@ -83,12 +83,21 @@ def _with_meta(request: Request, result: dict[str, object]) -> dict[str, object]
     """서비스가 만든 ``API_SPEC §1.3.1`` 봉투에 ``meta``를 붙인다 (#752).
 
     서비스가 잰 계산 시간을 ``meta.duration_ms``로 옮기고 내부 키(``_duration_ms``)는
-    응답에서 뺀다 — 기능①(``routes/calculations.py:116-123``)과 같은 방식이다.
+    응답에서 뺀다 — 기능①(``routes/calculations.py:116-123`)과 같은 방식이다.
     **시간을 여기서 재지 않는 이유**는 라우트에서 재면 요청 파싱·직렬화가 섞여
     ``PRD §16.1``의 「Monte Carlo 5,000회 p95 < 3초」와 다른 것을 재기 때문이다.
+
+    ``as_of``도 같은 길로 옮긴다 (#816 ⑴ — ``TECH_SPEC §5.4.1`` 계약 ⑵). 집계에 실제로
+    쓴 시각을 ``meta.as_of``로 내놓는다 — 클라이언트가 같은 값을 되물어 같은 결과를
+    얻을 수 있어야 하고, ``None``인 경우는 아직 없지만 키를 조용히 만들지 않고 비운 채
+    둔다.
     """
     duration_ms = result.pop("_duration_ms")
-    result["meta"] = _meta(request, duration_ms=duration_ms)
+    as_of = result.pop("_as_of", None)
+    meta: dict[str, object] = {"duration_ms": duration_ms}
+    if as_of is not None:
+        meta["as_of"] = as_of
+    result["meta"] = _meta(request, **meta)
     return result
 
 
@@ -116,6 +125,7 @@ async def run_annual_simulation_route(
         distribution_profile=payload.distribution_profile,
         as_of=payload.as_of,
         apply_feedback_factor=payload.apply_feedback_factor,
+        alternative_fuel=payload.alternative_fuel,
     )
     result = _with_meta(request, data)
     await _record_run(request, session, result)

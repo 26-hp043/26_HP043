@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.10 |
+| 버전 | v1.11 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-09-11 |
+| 최종 수정일 | 2026-09-18 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -585,7 +585,7 @@ BN = round(3.5 × √Hs)    where Hs in meters
 | 유의파고 | Hs | m | Open-Meteo Marine API / 샘플 | Y |
 | 파향 | β | degree | 사용자 입력 (기본 0°) | N |
 | Beaufort Number | BN | — | Hs에서 변환 또는 풍속에서 산정 | 자동 |
-| Block coefficient | CB | — | 선박 제원 (선택) | N |
+| Block coefficient | CB | — | **`vessel.block_coefficient`** (선택 · #966) — 넣으면 실측값, 없으면 선종 기본값 + `CB_ESTIMATED` | N |
 | Ship type | — | — | Vessel.ship_type | Y |
 
 ### 3.5 계산 알고리즘
@@ -622,6 +622,8 @@ def townsin_kwon_weather_factor(
     cb_default = _default_cb(ship_type)
     cb = block_coefficient or cb_default
     cform = _cform(ship_type, cb)
+    # [#966] — 실측 cb가 §3.3.3 범위 밖이면 cform_applies()가 거짓이 되고
+    # 호출부가 CB_OUT_OF_RANGE 경고를 낸다. 계산은 그대로 한다(대체값 규정이 없다).
 
     # 6. 속도 손실률
     delta_v_pct = cbeta * cu * cform
@@ -644,6 +646,7 @@ def townsin_kwon_weather_factor(
 | 적용 범위 | 임의 입사각을 Kwon (2008) 단순화 표의 Cβ로 다룬다. **β는 파향과 침로에서 유도**하며(`§3.3.1` · `#766`), 좌표나 파향이 없으면 head sea(β=0)로 떨어진다 |
 | BN > 8 | 계산 불가. 경고 표시 후 NONE 모델 fallback |
 | CB 미입력 | 선종별 기본값 사용, `선형 계수가 추정값입니다` 경고 |
+| **CB 범위 밖 [#966]** | 실측 CB가 `§3.3.3`의 Cform 성립 범위 밖이면 **계산은 하되 `CB_OUT_OF_RANGE` 경고** — 대체값을 정본이 정하지 않았으므로 거부하지 않고 참고값임을 알린다 |
 | 정확도 | 경험식이므로 ±20% 오차 가능성. `실험 모델` 배지 필수 |
 | shallow water | 본 모델은 심해 기준. 수심 효과는 미포함 |
 | 해류 | MVP 제외 |
@@ -1419,6 +1422,7 @@ class SimulationSnapshot:
 | `WEATHER_STALE` | 기상 캐시 6~24시간 | `오래된 기상 데이터를 사용 중입니다.` |
 | `WEATHER_NONE_FALLBACK` | 기상 API 실패, NONE 모델 사용 | `기상 보정 없이 계산했습니다.` |
 | `CB_ESTIMATED` | block coefficient 추정값 사용 | `선형 계수가 추정값입니다.` |
+| `CB_OUT_OF_RANGE` | 실측 block coefficient가 Cform 적용 범위 밖 (`#966`) | `이 선박의 방형계수가 기상 보정 계수의 적용 범위 밖입니다. 보정 결과는 참고값입니다.` |
 | `EXPERIMENTAL_MODEL` | TOWNSIN_KWON_ALPHA 사용 | `실험 모델 기반 결과입니다.` |
 | `NON_CII_VESSEL` | GT를 **알고** 그것이 5,000 미만 | `공식 CII 적용 대상이 아닐 수 있습니다.` |
 | `CII_APPLICABILITY_UNKNOWN` | `gross_tonnage`가 NULL이라 적용 대상 여부를 **판정할 수 없음** (`#653`) | `총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.` |
@@ -1437,6 +1441,7 @@ class SimulationSnapshot:
 | `SENSITIVITY_ONE_AT_A_TIME` | 기능③ 민감도는 one-at-a-time이라 변수 간 상호작용 미포함 (`PRD §12.8`) | `각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다.` |
 | `SENSITIVITY_SPEED_SKIPPED` | 기능③ 잔여 항차에 `reference_speed_kn`·`reference_daily_foc_ton`이 없어 속도 지렛대를 산출하지 못함 (`#630`) | `선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다.` |
 | `SIMULATION_PLAN_NO_FUEL` | 기능③ 계획 항차에 연료 행이 없거나 계획 연료량 합이 0이라 CO₂를 낼 수 없어 그 항차를 제외 (`#812`) | `연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요.` |
+| `FUEL_CF_MASS_BASIS` | 기능③ 대체 연료 지렛대가 **질량 기준**으로 계산됨 — 연료량 고정·CF만 교체 (`#756` ⑴ · `PRD §6.3`) | `연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다.` |
 | `SIMULATION_NO_REFERENCE_SPEED` | 진행 중 항차의 누적 연료에 cubic speed model(`§4.1`) 보정을 못 함 — `vessel.reference_speed_kn`이 없어 `speed_factor`를 만들 수 없다 (`#796`) | `기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요.` |
 | `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상의 근거가 될 **잔여 계획 항차가 0건** — 값은 내되(연말 = 지금) 그것이 「예측이 없다」가 아니라 「더할 계획이 없다」임을 밝힌다 (`#798`) | `잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다.` |
 | `MODEL_VERSION_DIFFERS` | 재현(§6.4)을 **원본과 다른 `model_version`**(NumPy·엔진·정밀도 등 §10.1 필드)에서 돌렸는데 결과는 같았다 (`#833` · §10.3). 결과가 달랐다면 경고가 아니라 409 `MODEL_VERSION_MISMATCH`다 | `원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다.` |
@@ -1625,6 +1630,7 @@ class SimulationSnapshot:
 src/cii_platform/
 ├── errors.py            ← 공통 예외 base (AppError). 레이어 중립.
 ├── config.py            ← 설정 (DATABASE_URL 등)
+├── depcheck.py          ← dev 이미지 의존성 드리프트 검사 (#523)
 ├── api/
 │   ├── main.py          ← FastAPI app
 │   ├── routes/          ← HTTP 요청/응답만
@@ -1632,9 +1638,18 @@ src/cii_platform/
 │   └── error_handlers.py ← 예외 → API_SPEC §1.3.2 응답 변환, 핸들러 등록
 ├── services/            ← 비즈니스 로직
 ├── calc/                ← CII 계산 엔진 (Layer 1 Decimal / Layer 2 Monte Carlo)
+├── auth/                ← 비밀번호·세션·토큰 (자체 인증 #413)
+├── mail/                ← 가입 확인·재설정 메일 발송 (#407)
+├── reports/             ← PDF·CSV 리포트 렌더링 (#361)
+├── weather/             ← 기상 조회·보정 모델 (#102)
+├── geocode/             ← 항만명 좌표 조회 캐시 (#768)
+├── ais/                 ← 위치 스냅샷 수집 경로 (#764)
+├── llm/                 ← 챗봇 LLM 공급자 어댑터 (#121)
 └── db/
     ├── models/          ← SQLAlchemy ORM 모델 (DB 표현)
-    └── repositories/    ← DB 접근(쿼리)만
+    ├── repositories/    ← DB 접근(쿼리)만
+    ├── seed.py          ← 규정 파라미터 시드 (마이그레이션 체인에 편입)
+    └── demo_seed.py     ← 데모 데이터 (별도 명령 · #451)
 ```
 
 **프론트엔드** (#133)
@@ -1653,11 +1668,21 @@ frontend/
     ├── layout/          ← 공통 셸 (좌측 사이드바 + 상단바, DESIGN_SYSTEM §7.2)
     ├── components/      ← 화면 간 공용 컴포넌트
     ├── display/         ← DESIGN_SYSTEM §4 구현. 자릿수·구분자·단위의 단일 출처 (#392)
-    ├── features/        ← 기능 단위 (voyage-cii · scenario-comparison · annual-simulation)
+    ├── design/          ← 디자인 산출물 파생 자산 관리
+    ├── download/        ← 내보내기·다운로드 경로
+    ├── theme/           ← 테마(라이트·다크) 전환
+    ├── features/        ← 기능 단위 18종 — account · annual-simulation · assistant ·
+    │                     auth · data-quality · fleet · fleet-reduction · not-underway ·
+    │                     parameters · ports · realtime-cii · reports · scenario-comparison ·
+    │                     vessel-detail · vessel-management · vessel-registration ·
+    │                     voyage-cii · voyage-management
     ├── pages/           ← 화면별 컴포넌트 (screens.ts의 화면 1개당 1개)
+    ├── test/            ← 테스트 유틸리티
     └── styles/
-        ├── tokens.css   ← DESIGN_SYSTEM §15 토큰. 색·간격·반경의 단일 출처
-        └── global.css   ← reset · 타이포그래피 기본
+        ├── tokens.css          ← DESIGN_SYSTEM §15 토큰. 색·간격·반경의 단일 출처
+        ├── tokens.generated.css ← 생성 토큰 (수동 편집 금지)
+        ├── fonts.css           ← 지정 서체 self-host @font-face (#925)
+        └── global.css          ← reset · 타이포그래피 기본
 ```
 
 **기준 문서** — 프론트엔드는 영역별로 소유 문서가 다르다.
@@ -1695,8 +1720,9 @@ frontend/
 
 - **토큰 단일화**: 컴포넌트는 `styles/tokens.css`의 CSS 커스텀 프로퍼티만 참조하고
   hex를 하드코딩하지 않는다(DESIGN_SYSTEM §15).
-- **API 호출 경계**: 화면은 데이터 출처를 알지 않는다. provider 인터페이스를 두고
-  demo 구현과 실제 API 구현을 교체한다(#134 · #138).
+- **API 호출 경계**: 화면은 데이터 출처를 알지 않는다. **API 클라이언트가 유일한 출처다** —
+  종전의 demo 구현 교체 경로(`#134`·`#138`)는 `#542`가 폐기했다. 백엔드 없이 화면만
+  보는 경로는 없다(`README` 「화면은 항상 실 API로 돈다」).
 
 ### 16.3 계층 간 규칙
 
@@ -1959,3 +1985,5 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-12 | `#766` ⑴ | **§3.3.1 β 산출 규칙 신설 · §3.6 「적용 범위」 행 정정.** 종전 문장은 「사용자가 wave heading을 입력하지 않으면 `Cβ = 1.0`」이었는데 **그 입력 칸이 화면·API 어디에도 없어** 실사용에서 β는 늘 0이었다 — 계수 표(`§3.3.1`)와 보간 구현(`interpolate_cbeta`)이 다 있는데 **입력 경로만 없어 죽어 있던** 것이다. 사용자가 모르는 값을 묻는 대신 **가진 값에서 유도**한다: 침로는 현재 위치 → 목적항의 초기 방위각(`initial_bearing_deg` 신설), β는 파향과의 상대각을 ±180°로 접은 값(`relative_wave_heading` 신설). **파향이 「오는 방향」이라는 것**(Open-Meteo 원문 확인)이 부호를 정한다 — 반대로 두면 정면 파랑이 following sea가 되어 속도 손실이 가장 큰 상황이 가장 작은 것으로 뒤집힌다. 좌표·파향이 없으면 종전대로 β=0이다. `AGENTS §4.3` 「각주·행 보강」이라 버전은 올리지 않는다 (#766) |
 | 2026-09-13 | `#363` | §12.3 경고 코드 표에 `FEEDBACK_FACTOR_UNAVAILABLE` 행 추가 — 기능③에서 실적 보정계수(`PRD §12.2.1`)를 켰는데 표본이 모자라 곱하지 않은 경우. 조용히 넘기면 사용자는 켠 대로 계산된 줄 안다. `AGENTS §4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#363) |
 | 2026-09-13 | `#513` | §12.3 경고 코드 표에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` 행 추가 — 함대 감축 계획에서 제원이 없어 감속을 적용하지 못한 항차가 있을 때. `AGENTS §4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#513) |
+| 2026-09-18 | `#1081` ⑦ | **v1.11 — §16.2 디렉터리 트리를 실측으로 갱신.** 백엔드 7개 하위 패키지(`auth`·`mail`·`reports`·`weather`·`geocode`·`ais`·`llm`)와 `depcheck.py`·`db/seed.py`·`db/demo_seed.py`가 트리에 없었고, features는 3종으로 적혀 있었으나 실제 **18종**이다. `design/`·`download/`·`theme/`·`test/`·`tokens.generated.css`·`fonts.css`도 보강했다. 끝의 「provider 인터페이스로 demo 구현과 실제 API 구현을 교체한다」는 `#542`가 demo 모드를 폐기해 `README`와 모순이던 문장 — 「API 클라이언트가 유일한 출처」로 정정했다. 구조 개정이라 `AGENTS §4.3`에 따라 버전을 올린다. `main`이 이미 v1.10을 쓰고 있어(09-18 시점 · 이력 행 없는 승격) 판번호는 v1.11로 올린다 (#1081) |
+| 2026-09-18 | `#756` | §12.3 참조표에 `FUEL_CF_MASS_BASIS` 추가 — 대체 연료 지렛대(결정요청 v9 「나」)가 질량 기준임을 알리는 경고. 문구는 `PRD §6.3` 확정본. 경고 코드의 정본 목록과의 동기화는 `test_warning_codes_sync.py`가 지킨다 (#756) |

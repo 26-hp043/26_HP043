@@ -15,7 +15,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from uuid import UUID
 
 from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
@@ -24,6 +26,7 @@ from cii_platform.api.main import app
 from cii_platform.api.routes.chat import get_provider
 from cii_platform.db.types import JSONText, UuidText
 from cii_platform.llm.provider import FakeProvider, LLMResponse, ToolCall
+from cii_platform.services import chat as chat_service
 from cii_platform.services.chat import (
     DISCARDED_MESSAGE,
     DISCLAIMER,
@@ -512,3 +515,322 @@ async def test_history_is_kept_across_turns(migrated_db, app_fresh_engine):
             assert count == 4
     finally:
         await _cleanup()
+
+
+async def test_search_resolution_carries_into_the_next_tool_and_response(
+    migrated_db, app_fresh_engine
+):
+    """#1242 — 고유 일치 검색 → 같은 턴의 계산 도구가 그 선박으로 돈다 + 응답 표시.
+
+    데모 선박 이름은 전부 「샘플」을 포함한다 — 고유 키워드로 쓴다. 계산 도구는
+    귀속이 없으면 「어느 선박인지 먼저 정해야 합니다」 error를 내므로, 결과가 나왔다는
+    것 자체가 귀속이 흘렀다는 증거다.
+    """
+    provider = FakeProvider(
+        [
+            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="calc_voyage_cii",
+                        arguments={
+                            "distance_nm": 1000,
+                            "speed_kn": 12,
+                            "fuel_ton": 100,
+                            "fuel_type": "HFO",
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="계산했습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post(
+                "/api/v1/chat", json={"message": "로로 여객선 CII 계산해줘"}, headers=headers
+            )
+            assert response.status_code == 200, response.text
+            data = response.json()["data"]
+            assert data["tool_calls"] == ["search_vessel", "calc_voyage_cii"]
+            # 두 번째 도구의 오류 봉투가 아니라 실제 계산이 돌았다 — 대화 귀속이 흘렀다.
+            assert "어느 선박인지" not in json.dumps(data, ensure_ascii=False)
+            assert data["vessel_resolved"] is True
+            assert "vessel_id" not in data, "식별자가 응답에 실렸다 — 16.3.1 위반"
+    finally:
+        await _cleanup()
+
+
+async def test_no_vessel_anywhere_reports_unresolved(migrated_db, app_fresh_engine):
+    """#1242 — 어디에도 선박이 없으면 `vessel_resolved: false` — 계산 도구는 안내 error."""
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="calc_voyage_cii",
+                        arguments={
+                            "distance_nm": 1000,
+                            "speed_kn": 12,
+                            "fuel_ton": 100,
+                            "fuel_type": "HFO",
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="선박을 먼저 정해야 한다고 안내했습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post(
+                "/api/v1/chat", json={"message": "CII 계산해줘"}, headers=headers
+            )
+            assert response.status_code == 200
+            data = response.json()["data"]
+            assert data["vessel_resolved"] is False
+    finally:
+        await _cleanup()
+
+
+async def test_screen_vessel_wins_over_session_vessel(migrated_db, app_fresh_engine):
+    """IT-CHAT-062 (#1243) — 세션에 A가 있어도 요청이 B면 B로 계산하고 세션은 A 그대로."""
+    from cii_platform.db.repositories import chat as chat_repo
+    from cii_platform.db.session import get_sessionmaker
+
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="calc_voyage_cii",
+                        arguments={
+                            "distance_nm": 1000,
+                            "speed_kn": 12,
+                            "fuel_ton": 100,
+                            "fuel_type": "HFO",
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="계산했습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post("/api/v1/chat", json={"message": "대화 시작"}, headers=headers)
+            assert first.status_code == 200
+            session_id = first.json()["data"]["session_id"]
+
+            async with get_sessionmaker()() as db:
+                # A(로로 여객선)를 세션 귀속으로, B(벌크선 30,000)를 요청값으로 쓴다.
+                ids = dict(
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT name, CAST(id AS CHAR(32)) FROM vessel "
+                                "WHERE name LIKE '%로로%' OR name LIKE '%30,000 DWT)%'"
+                            )
+                        )
+                    ).all()
+                )
+                roro_name = next(n for n in ids if "로로" in n)
+                bulk_name = next(n for n in ids if "30,000" in n)
+                await chat_repo.set_vessel(
+                    db, session_id=UUID(session_id), vessel_id=UUID(ids[roro_name])
+                )
+                await db.commit()
+                bulk_id = ids[bulk_name]
+
+            resp = client.post(
+                "/api/v1/chat",
+                json={
+                    "message": "이 선박 CII 계산해줘",
+                    "session_id": session_id,
+                    "vessel_id": bulk_id,
+                },
+                headers=headers,
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["data"]["vessel_resolved"] is True
+
+            # 세션 귀속은 A 그대로 — 요청값이 세션을 덮어쓰지 않는다(#1243 정정).
+            async with get_sessionmaker()() as db:
+                row = await chat_repo.get_session_row(db, session_id=UUID(session_id))
+                assert str(row.vessel_id).replace("-", "") == ids[roro_name], (
+                    "요청값이 세션 귀속을 덮어썼다"  # hex 32 vs 대시 36 표기 차이만 제외
+                )
+    finally:
+        await _cleanup()
+
+
+async def test_found_vessel_survives_to_the_next_turn(migrated_db, app_fresh_engine):
+    """IT-CHAT-063 (#1243) — 1턴에서 찾은 선박이 2턴에서 vessel_id 없이도 계산된다."""
+    provider = FakeProvider(
+        [
+            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(text="찾았습니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post(
+                "/api/v1/chat", json={"message": "로로 여객선 찾아줘"}, headers=headers
+            )
+            session_id = first.json()["data"]["session_id"]
+            assert first.json()["data"]["vessel_resolved"] is True
+
+            _use(
+                FakeProvider(
+                    [
+                        LLMResponse(
+                            tool_calls=(
+                                ToolCall(
+                                    name="calc_voyage_cii",
+                                    arguments={
+                                        "distance_nm": 1000,
+                                        "speed_kn": 12,
+                                        "fuel_ton": 100,
+                                        "fuel_type": "HFO",
+                                    },
+                                ),
+                            )
+                        ),
+                        LLMResponse(text="계산했습니다."),
+                    ]
+                )
+            )
+            second = client.post(
+                "/api/v1/chat",
+                json={"message": "그 선박 CII 계산해줘", "session_id": session_id},
+                headers=headers,
+            )
+            assert second.status_code == 200
+            data = second.json()["data"]
+            assert data["tool_calls"] == ["calc_voyage_cii"]
+            assert "어느 선박인지" not in json.dumps(data, ensure_ascii=False)
+            assert data["vessel_resolved"] is True
+    finally:
+        await _cleanup()
+
+
+async def test_follow_up_question_can_cite_the_previous_answer(migrated_db, app_fresh_engine):
+    """IT-CHAT-064 (#1244) — 2턴 답이 1턴 수치를 인용해도 폐기되지 않는다."""
+    provider = FakeProvider(
+        [
+            # 1턴 — 검색으로 선박을 정하고(#1243) 계산한다(로로 여객선 실측: 12.456).
+            LLMResponse(tool_calls=(ToolCall(name="search_vessel", arguments={"name": "로로"}),)),
+            LLMResponse(
+                tool_calls=(
+                    ToolCall(
+                        name="calc_voyage_cii",
+                        arguments={
+                            "distance_nm": 1000,
+                            "speed_kn": 12,
+                            "fuel_ton": 100,
+                            "fuel_type": "HFO",
+                        },
+                    ),
+                )
+            ),
+            LLMResponse(text="attained CII는 12.456이고 등급은 A입니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            first = client.post(
+                "/api/v1/chat", json={"message": "계산 결과 알려줘"}, headers=headers
+            )
+            # 1턴이 폐기됐으면 이 검사의 전제가 무너진다 — 먼저 잠근다.
+            assert first.json()["data"]["discarded"] is False, first.text
+            session_id = first.json()["data"]["session_id"]
+
+            # 2턴 — 도구 없이 **이전 답의 수치를 그대로** 인용한다(#1244).
+            _use(FakeProvider([LLMResponse(text="네, attained CII는 12.456이 맞습니다.")]))
+            second = client.post(
+                "/api/v1/chat",
+                json={"message": "그 수치가 맞나요?", "session_id": session_id},
+                headers=headers,
+            )
+            data = second.json()["data"]
+            assert data["discarded"] is False, f"이전 답의 수치 인용이 폐기됐다: {data['answer']}"
+    finally:
+        await _cleanup()
+
+
+async def test_user_numbers_do_not_become_verified(migrated_db, app_fresh_engine):
+    """#1244 — user 메시지의 수는 허용 집합에 들어가지 않는다.
+
+    사용자가 지어낸 수를 모델이 되풀이하면 그것이 「검증된 답」이 되므로 폐기다.
+    프롬프트 규칙과 이력 인용 허용(#1244)이 만나 가장 흔해질 경로다.
+    """
+    _use(FakeProvider([LLMResponse(text="네, 7.3이 맞습니다.")]))
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            resp = client.post(
+                "/api/v1/chat",
+                json={"message": "내 CII가 7.3인데 맞나요?"},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            assert resp.json()["data"]["discarded"] is True, "사용자가 친 수가 검증을 통과했다"
+    finally:
+        await _cleanup()
+
+
+async def test_slow_provider_is_discarded_within_the_turn_budget(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """IT-CHAT-065 (#1245) — 상한을 넘는 턴은 discarded로 끝난다.
+
+    운영 상한(45초)을 그대로 쓰면 검사가 45초를 기다린다 — 주입 예산(0.05초)으로
+    줄인다. 느린 공급자는 실제로 자는 것으로 재현한다.
+    """
+
+    class SlowProvider:
+        async def complete(self, *, messages, **_k):  # noqa: ANN001, ANN003
+            await asyncio.sleep(0.3)
+            raise AssertionError("예산 안에 끊기지 못했다")
+
+    _use(SlowProvider())  # type: ignore[arg-type]
+    # 운영 상한(45초)을 그대로 두면 검사가 45초를 기다린다 — 기본값만 짧게.
+    monkeypatch.setattr(chat_service, "TURN_TIMEOUT_SECONDS", 0.05)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            resp = client.post(
+                "/api/v1/chat",
+                json={"message": "느리게 답해줘"},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            data = resp.json()["data"]
+            assert data["discarded"] is True
+            assert "초과" in data["answer"], "무엇이 일어났는지 말하지 않는다"
+            assert data["disclaimer"], "폐기에도 면책은 붙는다(#121 완료 기준)"
+    finally:
+        await _cleanup()
+
+
+async def test_turn_budget_default_comes_from_the_provider_constant():
+    """#1245 — 운영 기본 예산은 provider의 상수 그대로다(주입이 새 경로를 못 만든다).
+
+    느린 경로 검사는 예산을 0.05초로 패치해서 본다 — 그 탓에 「기본값이 실제로
+    45초」는別도 잠가야 한다. 상한의 성질만 본다(45초를 기다리지 않는다):
+    공급자 상수와 같고, 최악 경로(2분)보다 작다.
+    """
+    from cii_platform.llm.provider import TURN_TIMEOUT_SECONDS
+
+    assert chat_service.TURN_TIMEOUT_SECONDS == TURN_TIMEOUT_SECONDS
+    assert 0 < TURN_TIMEOUT_SECONDS < 30.0 * 4, "최악 경로보다 커지면 가드가 아니다"

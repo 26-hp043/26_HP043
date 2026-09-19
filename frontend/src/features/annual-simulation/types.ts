@@ -39,6 +39,11 @@ export interface AnnualSimulationRequest {
    * 켜지 않은 실행은 종전과 같은 결과를 낸다.
    */
   apply_feedback_factor?: boolean
+  /**
+   * 대체 연료 지렛대(민감도)에서 쓸 연료 코드 (#756 ⑴ · `PRD §12.6`). **질량 유지**로
+   * 계산한다 — 연료량은 그대로, CF만 교체. 고르지 않으면 블록도 나오지 않는다.
+   */
+  alternative_fuel?: string
 }
 
 /** 결정론 예측 — `PRD §12.3`. Monte Carlo와 달리 **같은 입력이면 항상 같은 값**이다. */

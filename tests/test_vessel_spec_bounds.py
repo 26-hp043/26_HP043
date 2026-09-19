@@ -63,6 +63,13 @@ def test_스키마_경계가_DB_컬럼_정밀도와_같다(model, name):
         ("gross_tonnage", "0.004"),
         ("reference_speed_kn", "10000"),  # NUMERIC(6,2) 초과
         ("reference_daily_foc_ton", "1000000"),  # NUMERIC(8,2) 초과
+        # #966 — 방형계수는 저장 범위 위에 물리 범위(0 < CB <= 1)가 더 좁힌다.
+        # 경계 대조 집합(_FIELDS)에 넣지 않는 이유: 의도적인 도메인 좁힘이라
+        # 컬럼 정밀도와 같아질 수 없다(REGULATION_YEAR의 2019~2050과 같은 성격).
+        ("block_coefficient", "0"),  # 양수가 아니다
+        ("block_coefficient", "0.0005"),  # 0.000으로 반올림돼 범위 밖이 된다
+        ("block_coefficient", "1.001"),  # 체적 비율은 1을 넘지 않는다
+        ("block_coefficient", "9.999"),  # NUMERIC(4,3) 상한 안이지만 물리 범위 밖
     ],
 )
 def test_저장할_수_없는_값은_스키마가_거부한다(name, value):
@@ -78,6 +85,10 @@ def test_저장할_수_없는_값은_스키마가_거부한다(name, value):
         ("deadweight", "9999999999.99"),  # 저장 가능한 가장 큰 값
         ("deadweight", "50000.125"),  # 소수 셋째 자리 — 막지 않는다. DB가 반올림한다
         ("reference_speed_kn", "12.5"),
+        # #966 — 범위의 양 끝(0.001·1)과 실무값.
+        ("block_coefficient", "0.001"),
+        ("block_coefficient", "0.80"),
+        ("block_coefficient", "1"),
     ],
 )
 def test_저장할_수_있는_값은_그대로_받는다(name, value):

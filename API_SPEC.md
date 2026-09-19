@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.35 |
+| 버전 | v1.37 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-18 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -97,6 +97,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `GET /voyages/{voyage_id}/report` | 2-5 보고서 | 대외 산출물 |
 | `GET /vessels/{vessel_id}/annual-report` | 2-5 보고서 | 〃 |
 | `POST /fleet/reduction-plans/evaluate` | 2-10 함대 감축 계획 | 선대 단위 경영 판단 — 화면 전체가 사무직 |
+| `POST /parameters/import` | SCR-006 파라미터 관리 | **등급 판정 기준 자체를 바꾼다** (`§7.5` · #673). 조회(`GET §7.1~§7.4`)는 두 역할 모두 |
 | `POST /fleet/reduction-plans` | 2-10 함대 감축 계획 | 〃 |
 | `GET /fleet/reduction-plans` | 2-10 함대 감축 계획 | 〃 |
 | `GET /fleet/reduction-plans/{plan_id}` | 2-10 함대 감축 계획 | 〃 |
@@ -300,6 +301,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `WEATHER_STALE` | 기상 캐시 6~24시간 | 오래된 기상 데이터를 사용 중입니다. |
 | `WEATHER_NONE_FALLBACK` | 기상 API 실패, NONE 모델 사용 | 기상 보정 없이 계산했습니다. |
 | `CB_ESTIMATED` | block coefficient 추정값 사용 | 선형 계수가 추정값입니다. |
+| `CB_OUT_OF_RANGE` | 실측 block coefficient가 Cform 적용 범위 밖 (#966) | 이 선박의 방형계수가 기상 보정 계수의 적용 범위 밖입니다. 보정 결과는 참고값입니다. |
 | `EXPERIMENTAL_MODEL` | TOWNSIN_KWON_ALPHA 사용 | 실험 모델 기반 결과입니다. |
 | `NON_CII_VESSEL` | GT를 **알고** 그것이 5,000 미만 | 공식 CII 적용 대상이 아닐 수 있습니다. |
 | `CII_APPLICABILITY_UNKNOWN` | `gross_tonnage`가 NULL이라 적용 대상 여부를 **판정할 수 없음** (#653) | 총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요. |
@@ -318,6 +320,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | `SENSITIVITY_ONE_AT_A_TIME` | 기능③ 민감도는 one-at-a-time이라 변수 간 상호작용 미포함 (PRD §12.8) | 각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다. |
 | `SENSITIVITY_SPEED_SKIPPED` | 기능③ 잔여 항차에 `reference_speed_kn`·`reference_daily_foc_ton`이 없어 **속도 지렛대를 산출하지 못함** (#630) | 선박 제원이 없어 속도 민감도를 산출하지 못했습니다. 표의 속도 항목은 「효과 없음」이 아니라 「계산되지 않음」입니다. |
 | `SIMULATION_PLAN_NO_FUEL` | 기능③ 계획 항차에 **연료 정보가 없어** 그 항차를 연말 예상에서 제외 (#812) | 연료가 입력되지 않은 계획 항차가 있어 연말 예상에서 제외했습니다. 항차에 연료를 입력해 주세요. |
+| `FUEL_CF_MASS_BASIS` | 기능③ 대체 연료 지렛대가 **질량 기준**으로 계산됨 (#756 ⑴ · `PRD §6.3`) | 연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다. |
 | `SIMULATION_NO_REFERENCE_SPEED` | 진행 중 항차의 누적 연료에 **속도 보정을 적용하지 못함** — 선박에 `reference_speed_kn`이 없음 (#796) | 기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요. |
 | `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상에 더할 **잔여 계획 항차가 0건** (#798) | 잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다. |
 | `MODEL_VERSION_DIFFERS` | 재현(§6.4)을 **원본과 다른 `model_version`**에서 돌렸는데 결과는 같았다 (#833) | 원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다. |
@@ -495,6 +498,7 @@ GET /api/v1/vessels?limit=20&cursor={cursor}
       "default_fuel_type": "HFO",
       "reference_speed_kn": 14.0,
       "reference_daily_foc_ton": 35.0,
+      "block_coefficient": 0.82,
       "is_cii_applicable_hint": true,
       "underway_state": "UNDER_WAY",
       "detail_status": "SAILING",
@@ -547,7 +551,8 @@ POST /api/v1/vessels
   "deadweight": 50000.0,
   "default_fuel_type": "HFO",
   "reference_speed_kn": 14.0,
-  "reference_daily_foc_ton": 35.0
+  "reference_daily_foc_ton": 35.0,
+  "block_coefficient": 0.82
 }
 ```
 
@@ -562,6 +567,12 @@ POST /api/v1/vessels
 | `deadweight` | > 0 (VAL-002) · **0.01 ~ 9,999,999,999.99** | VAL-002 |
 | `reference_speed_kn` | > 0 (VAL-002), 지정 시 · **0.01 ~ 9,999.99** | VAL-002 |
 | `reference_daily_foc_ton` | > 0 (VAL-002), 지정 시 · **0.01 ~ 999,999.99** | VAL-002 |
+| `block_coefficient` | 선택 · **0.001 ~ 1** (#966 — 체적 비율은 1을 넘지 않는다) | VAL-002 |
+
+> **[#966] `block_coefficient`는 기상 보정(Townsin–Kwon)의 선형 계수다.** 넣으면 실측값으로
+> 계산하고, 생략하면 선종 기본값 + `CB_ESTIMATED` 경고가 계약이다. 실측값이 Cform 적용
+> 범위(`TECH_SPEC §3.3.3`) 밖이면 `CB_OUT_OF_RANGE`가 나지만 **거부가 아니다** — 참고값임을
+> 알리는 경고다.
 
 > `is_cii_applicable_hint`는 서버가 GT ≥ 5,000 및 선종 기준으로 자동 계산한다.
 
@@ -2578,7 +2589,9 @@ POST /api/v1/annual-simulations
   "simulation_runs": 5000,
   "random_seed": 12345,
   "distribution_profile": "DEFAULT",
-  "apply_feedback_factor": false
+  "apply_feedback_factor": false,
+  "as_of": "2026-08-01T00:00:00Z",
+  "alternative_fuel": "LNG"
 }
 ```
 
@@ -2591,6 +2604,8 @@ POST /api/v1/annual-simulations
 | `random_seed` | int/string | N | 0 ~ 2^128-1. 큰 값은 문자열로 전송 권장 | 미지정 시 서버가 128-bit entropy 자동 생성. 응답의 `rng_metadata.seed_entropy`에서 hex 형태로 반환 |
 | `distribution_profile` | string | N | enum: DEFAULT | 기본: DEFAULT |
 | `apply_feedback_factor` | bool | N | — | 실적 보정계수(`PRD §12.2.1`)를 잔여 계획 연료에 곱한다. **기본 `false`** — 켜지 않은 실행은 종전과 같은 결과·같은 `input_hash`다(`§6.1.2` · #363) |
+| `alternative_fuel` | string | N | 활성 연료 코드(422) | 대체 연료 지렛대(민감도)에서 쓸 연료. **질량 유지**로 계산한다 — 연료량은 그대로, CF만 교체(`PRD §12.6` 각주 · #756 ⑴). 고르지 않으면 블록도 `input_hash` 키도 없다 |
+| `as_of` | string (ISO 8601) | N | — | **기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵ · #816 ⑴). 확정 실적은 **도착 시각 ≤ `as_of`** 인 것만, 잔여 계획은 **도착 예정 > `as_of`** 인 것이 시점 전망에 남는다(상보 집합). 미지정 시 서버가 현재 시각으로 확정하고 응답 `meta.as_of`에 실어 반환한다. ⚠️ **명시한 실행에만 `as_of`가 `input_hash` 키로 들어간다**(`§1.10` 계약 ⑶ — `apply_feedback_factor`와 같은 선택 키 방식). 미지정 실행의 해시는 종전과 같다 |
 
 > **[ORACLE-S-3 정정]** `random_seed` 타입과 크기를 명확히 했다. JSON int는 2^53까지만 안전하게 표현 가능하므로, 큰 seed 값(2^53 초과)은 문자열로 전송해야 한다. 서버는 응답에서 항상 `rng_metadata.seed_entropy`에 128-bit hex 표기를 포함한다.
 
@@ -2693,10 +2708,10 @@ POST /api/v1/annual-simulations
       },
       "fuel_cf_alternative": {
         "alternative_fuel": "LNG",
-        "alternative_cf": "2.750",
-        "projected_cii": "4.42",
-        "co2_change": "-21.1%",
-        "rating_change": "C→B"
+        "alternative_cf": "2.750000",
+        "projected_cii": "4.730269",
+        "co2_change": "-6.3%",
+        "rating_change": "C→C"
       },
       "voyage_minus_1": {
         "projected_cii": "5.12",
@@ -2725,14 +2740,35 @@ POST /api/v1/annual-simulations
   "meta": {
     "request_id": "uuid",
     "timestamp": "2026-07-03T12:00:00Z",
-    "duration_ms": 2840
+    "duration_ms": 2840,
+    "as_of": "2026-08-01T00:00:00+00:00"
   }
 }
 ```
 
+> **[#816] `meta.as_of` — 집계에 실제로 쓴 기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵). 명시 실행은 그 값, 미명시 실행은 서버가 확정한 시각(스냅숏 생성 시각과 같은 뜻)이 실린다. `§6.2` 조회·`§6.4` 재현도 같은 규칙으로 같은 값을 낸다 — 같은 실행의 기준 시각이 경로마다 갈라 보이지 않는다.
+
+> **[#816 ⑶] `parameters_used`는 v2다** (2026-09-18 결정). v1 블록(`regulation_year`·`reference_line`·`rating_boundary`·`simulation_profile`)에 세 가지가 더해진다:
+>
+> | 필드 | 뜻 |
+> |---|---|
+> | `fuel_types` | 계획 항차에 곱한 **활성 CF** (`#832`). `[{code, cf}]` — 이 실행이 실제로 쓴 유종만. CF 개정이 `parameter_hash`에 드러나지 않으면 재현성 계약이 성립하지 않는다 |
+> | `parameter_sources` | 출처 4키 — `regulation_year`·`reference_line`·`rating_boundary`는 각자의 `source_ref`, `fuel_types`는 `[{code, source_ref}]` (유종별 출처). 종전 `parameter_source_version`은 기준선 하나만 담었다 |
+> | `parameter_schema_version` | `2`. **필드가 없는 저장 행은 v1** — 재현은 저장된 버전의 빌더로 다시 만들어 v1 실행의 해시를 그대로 재생한다 |
+
 > **[#756] 거리 두 행이 기준값(`5.02`)과 같은 것은 오기가 아니다.** 거리 ±5%는 연료를 같은 비율로 함께 움직이므로, **잔여 계획의 배출 강도가 확정 실적과 같으면 CII가 정확히 변하지 않는다**(`PRD §12.6` 각주 — 혼합비와 무관하다). 예시는 그 경우다. ⚠️ **항상 같은 값이 나오는 것은 아니다** — 실적이 계획에서 벌어져 두 구간의 강도가 달라지면 이 행도 움직인다. 종전 예시는 `4.96`·`5.08`로 **구현이 낼 수 없는 변화**를 싣고 있었다.
 >
-> ⚠️ **`fuel_cf_alternative`는 아직 구현되지 않았다**(`#756` ⑴ 판정 대기). 서버는 이 블록을 내지 않는다 — 대체 연료를 어떻게 고르는지(요청 입력이 없다)와 연료를 바꿀 때 **질량을 유지할지 에너지를 유지할지**가 정해지지 않았다.
+> **[#756 ⑴ · 2026-09-17 결정 「나」] `fuel_cf_alternative` — 질량 유지 대체 연료.** 요청이 `alternative_fuel`을 고른 실행에만 이 블록이 나간다(미지정이면 키 자체가 없다 — 「효과 없음」이 아니라 「계산하지 않았다」다). 잔여 계획 전체의 CF를 그 연료의 활성 값으로 교체해 연말 값을 다시 내며, **연료량은 그대로** 둔다. 확정 실적의 CF는 바꾸지 않는다(이미 그 계수로 배출했다).
+>
+> | 필드 | 뜻 |
+> |---|---|
+> | `alternative_fuel` | 요청이 고른 연료 코드 |
+> | `alternative_cf` | 적용한 CF (`MEPC.364(79)` 표의 활성 값) |
+> | `projected_cii` | 대체 후 연말 CII (결정론) |
+> | `co2_change` | **연말 총 CO₂**의 변화율 — 확정분은 그대로이므로 잔여 비중에 따라 폭이 작아진다 |
+> | `rating_change` | `기준→대체` 등급 변화 |
+>
+> ⚠️ **질량 기준임을 경고로 알린다** — `FUEL_CF_MASS_BASIS`(`§1.6`). 문구는 `PRD §6.3`이 확정했다: 「연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다.」 발열량 기준은 LCV의 IMO 원문 대조 뒤 같은 자리에 더해진다(#773 연계).
 
 > **스냅샷 격리** (TECH_SPEC §11): 시뮬레이션 시작 시점의 모든 항차 데이터를 스냅샷으로 복사한다. 시뮬레이션 실행 중 발생하는 상태 변경은 진행 중인 시뮬레이션에 영향을 주지 않는다.
 
@@ -2948,49 +2984,80 @@ GET /api/v1/parameters/rating-boundaries?ship_type=BULK_CARRIER
 
 ### 7.5 파라미터 Import
 
-> ## ⏸ 이 엔드포인트는 **아직 구현하지 않았다** (`#673` 추적)
->
-> 규정 개정 적재는 **누가 부를 수 있는가**가 먼저 정해져야 한다 — **2026-09-15 `#672`로 정해졌다: 사무직 전용**(`§1.2` 역할 표 · `require_office`). 구현은 `#673`이 한다. 아래 요청·응답은 도입 시의 계약으로 남긴다. `§12` 요약표도 같은 표시를 달고 있고, 누군가 구현하면 요약표↔라우트 대조 가드(`tests/test_api_spec_endpoints_sync.py`)가 깨져 이 표시를 지우게 한다 (#830 — `§9`와 같은 표기로 맞췄다).
+> **구현됐다 (#673 · 결정요청 v9 회신 「가」 · 2026-09-18).** CSV 형식·사무직 전용·적재 감사
+> 로그·`OTHER` 연료 생성 경로 포함. 종전 명세(JSON 요청 본문)는 그 형식을 버리고 항차·정박
+> CSV와 **같은 조작**으로 통일했다 — 사용자가 두 번 배우지 않게.
 
 ```http
 POST /api/v1/parameters/import
 ```
 
-#### 요청 Body
+**사무직 전용**이다(`§1.2` 역할 표 · `require_office`). 규정 개정 적재는 등급 판정 기준
+자체를 바꾸는 조작이므로 **적재가 감사 로그(`PARAMETER_IMPORT`)에 남는다** — 누가·언제·
+무엇을·몇 행. 과거 계산은 각자 스냅숏을 가지므로 보존되고(`PRD §8.4`), 재현은 활성 CF를
+다시 읽어 `parameter_hash`가 갈리면 409로 끊는다(#816 ⑶ — 개정이 드러나는 것이 계약대로다).
 
-```json
-{
-  "format": "JSON",
-  "source_ref": "MEPC.400(83) 2024 update",
-  "data": {
-    "regulation_years": [
-      { "year": 2027, "z_factor_percent": 13.625 }
-    ],
-    "fuel_types": [],
-    "reference_lines": [],
-    "rating_boundaries": []
-  }
-}
-```
+#### 요청 (multipart/form-data)
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `file` | file | Y | CSV 파일 (UTF-8, BOM 허용 · 최대 5MB · 1,000행 — `§8.2` 보안 표와 같은 값) |
+| `type` | string | Y | `regulation_years` · `reference_lines` · `rating_boundaries` · `fuel_types`. 모르는 값은 422 |
+
+**쿼리 파라미터**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `dry_run` | bool | N | 기본 `false`. `true`면 **검증만 하고 저장하지 않는다** — `imported_count`는 「들어갈 수 있는 행 수」다 |
+
+#### 🔴 전부 아니면 전무 — `§8.2`와 정반대 계약
+
+항차·정박 CSV(`§8.2`)는 **부분 성공**이지만, 규정 파라미터는 **한 행이라도 걸리면 아무것도
+들어가지 않는다** — 일부만 들어가면 계산 근거가 반쪽이 되기 때문이다(`TEST_PLAN §3.5`
+`IT-IMPORT-005`). `errors[]`의 모양(원본 행 번호·필드·사유)과 `dry_run`이 실제 적재와 같은
+판정을 내는 규약(#1190)만 `§8.2`에서 온다.
+
+#### `type`별 필수 컬럼
+
+| type | 컬럼 | 비고 |
+|---|---|---|
+| `regulation_years` | `year` · `z_factor_percent` · `effective_from` · `source_ref` | 연도는 2019~2050. Z-factor ≥ 0 |
+| `reference_lines` | `ship_type` · `condition_expr` · `capacity_rule` · `a_raw` · `c` · `source_ref` | `a_decimal`은 서버가 `parse_imo_scientific`으로 계산한다(`TECH_SPEC §9.2` — 올리지 않는다). `capacity_rule`은 `DWT`·`GT`·`fixed <숫자>` |
+| `rating_boundaries` | `ship_type` · `condition_expr` · `capacity_basis` · `d1`~`d4` · `source_ref` | `d1 < d2 < d3 < d4` |
+| `fuel_types` | `code` · `display_name` · `cf` · `source_ref` | 선택 `effective_from` — **`OTHER` 생성에만 필수**(`PRD §3.4.2`) |
+
+행 검증은 저장 컬럼의 한도(길이·`NUMERIC(p,s)` 자릿수)까지 본다(#1190와 같은 계약 — 값
+때문에 저장 단계에서 죽는 행이 `dry_run`을 통과하지 않는다). 수식 주입 방어도 `§8.2`와
+같다. 모르는 선종·파일 안 키 중복·자릿수 초과는 모두 `{row, field, message}` 행 오류다.
+
+#### 개정의 반영 방식 (`DB_SCHEMA §7.2`)
+
+- 세 테이블(연도·기준선·경계) — 기존 **활성 행을 끄고**(`is_active = 0`, 이행 행으로
+  보존) 새 행을 넣는다. 조회 API와 계산은 활성 행만 본다
+- `fuel_type` — §7.2의 명시적 예외. CF를 **제자리에서 갱신**하고 `content_hash`를 다시
+  계산한다. `OTHER`를 비롯한 새 코드는 새 행으로 만든다 — 이 경로가 연료를 만드는 유일한
+  쓰기 경로다
 
 #### 응답 (200 OK)
 
 ```json
 {
   "data": {
-    "imported": {
-      "regulation_years": 1,
-      "fuel_types": 0,
-      "reference_lines": 0,
-      "rating_boundaries": 0
-    },
-    "validation_passed": true
+    "table": "regulation_years",
+    "imported_count": 1,
+    "replaced_count": 1,
+    "errors": [],
+    "dry_run": false
   },
   "meta": { ... }
 }
 ```
 
-> Import 시 `parse_imo_scientific` 검증(TECH_SPEC §9.2)과 `a_raw/a_decimal` 일치 검증(TECH_SPEC §9.3)을 수행한다. 검증 실패 시 409 Conflict.
+| 필드 | 뜻 |
+|---|---|
+| `imported_count` | **적용된 행 수** (연료 갱신도 포함 — 신규만 세면 「안 들어갔다」로 읽힌다) |
+| `replaced_count` | 그중 기존 활성 행(연료는 기존 행)을 대체·갱신한 수 |
+| `errors[]` | `{row, field, message}` — 원본 파일의 행 번호다. **하나라도 있으면 아무것도 들어가지 않았다** |
 
 ---
 
@@ -3574,7 +3641,7 @@ GET /api/v1/health
 | GET | `/api/v1/parameters/fuel-types` | 연료 조회 | §6.2 SCR-006 |
 | GET | `/api/v1/parameters/reference-lines` | Reference line 조회 | §6.2 SCR-006 |
 | GET | `/api/v1/parameters/rating-boundaries` | 등급 경계 조회 | §6.2 SCR-006 |
-| POST | `/api/v1/parameters/import` | 파라미터 Import (**미구현 — `#673`**) | §6.2 SCR-006 |
+| POST | `/api/v1/parameters/import` | 파라미터 Import (사무직 전용 · #673) | §6.2 SCR-006 |
 | GET | `/api/v1/voyages/{id}/report` | 항차 완료 리포트 (PDF·CSV·HTML) | §25.2 |
 | GET | `/api/v1/vessels/{id}/annual-report` | 연간 실적 리포트 (PDF·CSV·HTML) | §25.3 |
 | GET | `/api/v1/vessels/{id}/export` | CSV 내보내기 | §6.2 SCR-007 |
@@ -3731,6 +3798,19 @@ POST /api/v1/chat
 | `session_id` | UUID | — | 이어 갈 대화. 없으면 새로 만든다 |
 | `vessel_id` | UUID | — | 화면이 보고 있는 선박. 계산 도구가 이 선박으로 돈다 |
 
+#### 선박 결정 규칙 (#1242)
+
+계산 도구가 어느 선박으로 도는가는 **우선순위** 하나로 정해진다.
+
+| 우선순위 | 출처 | 비고 |
+|---|---|---|
+| 1 | **요청 `vessel_id`** | 화면이 「지금 보고 있는 선박」 — 그 턴에서만 이긴다. **세션 귀속은 바꾸지 않는다**(#1243 정정) — 요청이 오지 않은 다음 턴의 대답이 조용히 달라지면 안 된다 |
+| 2 | **`chat_session.vessel_id`(세션 귀속)** | `search_vessel`의 **고유 일치**(1척)만 저장한다. 둘 이상 걸리면 **오류 봉투**「N척이 일치합니다. 화면에서 선박을 고른 뒤 다시 물어봐 주세요.」 — 애매한 것을 몰래 고르면 사용자가 고른 것이 아닌 배로 답한다 |
+| — | 없음 | 계산 도구는 「어느 선박인지 먼저 정해야 합니다」 오류 봉투를 낸다 |
+
+- 검색의 고유 일치는 **같은 턴의 이후 도구**에서 즉시 쓰이고 다음 턴까지 이어진다
+- 모델에게는 종전대로 `matched` 수만 간다 — **선박명·IMO·식별자는 전송 금지 그대로**(`PRD §16.3.1`)
+
 ```json
 {
   "message": "지금 등급이 어느 정도인가요?",
@@ -3748,6 +3828,7 @@ POST /api/v1/chat
 | `data.disclaimer` | string | **모든 응답에 붙는다.** `PRD §6.3` 챗봇 행의 문구와 **글자 그대로 같다** |
 | `data.tool_calls` | string[] | 이 턴에서 실제로 실행한 도구 이름. 실행 순서대로 |
 | `data.discarded` | boolean | `true`면 **모델의 답을 버렸다** — 아래 참조 |
+| `data.vessel_resolved` | boolean | 서버가 이 대화의 선박을 알고 있는가 (#1242). **식별자 자체는 싣지 않는다** — 이 값은 화면을 위한 것이지 모델 전송이 아니다 |
 
 ```json
 {
@@ -3756,7 +3837,8 @@ POST /api/v1/chat
     "answer": "현재 attained CII는 4.98, required CII는 5.04이며 등급은 C입니다.",
     "disclaimer": "이 답변은 화면의 계산 결과를 풀어 쓴 것입니다. 규제 판단의 근거가 아니며, 최종 확인은 IMO 규제 원문을 따릅니다.",
     "tool_calls": ["calc_voyage_cii"],
-    "discarded": false
+    "discarded": false,
+    "vessel_resolved": true
   },
   "meta": { "request_id": "...", "timestamp": "2026-09-13T02:40:00Z" }
 }
@@ -3768,8 +3850,9 @@ POST /api/v1/chat
 
 | 버리는 조건 | 근거 |
 |---|---|
-| 답변의 수치가 도구 응답에 없다 | `PRD §16.3` — 모델이 수학을 하면 안 된다. 계산은 계산 엔진만 한다 |
+| 답변의 수치가 도구 응답에 없다 | `PRD §16.3` — 모델이 수학을 하면 안 된다. 계산은 계산 엔진만 한다. **허용 집합 = 이번 턴 도구 출력 + 이력 창의 이전 답변**(#1244 — 되묻는 후속 질문의 재인용은 폐기하지 않는다. 단, user 메시지의 수는 어디에도 들어가지 않는다) |
 | 도구 호출이 한 턴 상한(3회)을 넘었다 | `PRD §16.1` 비용 가드 2 |
+| **턴이 시간 상한(45초)을 넘었다** | `PRD §16.1` 가드 — 최악 경로(LLM 30초 × 왕복)가 DB 세션을 쥐던 것을 자른다 (#1245). 사용자 메시지는 저장돼 있고 답만 폐기된다(`#121`과 같은 모양) |
 | 외부 모델 호출이 실패했다 | `PRD §16.2` 장애 격리 — 챗봇 안에서 끝낸다 |
 
 > **왜 4xx가 아니라 200인가** — 버리는 것은 **사용자 잘못이 아니다.** 요청은 정상이었고 모델의 답이 규율을 어겼을 뿐이다. 4xx를 내면 화면이 「입력을 고치라」고 안내하게 되는데 고칠 입력이 없다.
@@ -3904,6 +3987,9 @@ POST /api/v1/chat
 | 2026-09-15 | `#1075` | **§13.3 CORS 허용 Header에서 `X-API-Key`를 뺐다** — `#104`가 API Key 인증을 세션 쿠키 인증으로 대체(슈퍼시드)해 `§1.2`에 API Key가 정의돼 있지 않고 서버가 그 헤더를 읽지 않는데, 허용 목록에만 남아 있었다. `#104` 닫는 코멘트가 잔존물로 기록한 두 자리(이 행 · `voyage-cii/apiProvider.ts`) 가운데 프론트 쪽은 provider 4개의 `apiKey` 옵션과 `providerSelection` 4개의 `VITE_API_KEY` 읽기를 함께 걷었다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1075) |
 | 2026-09-15 | `#1058` | **v1.33 — §1.2 스텁 인증 등록 조건을 「`APP_ENV != production`」에서 「`development`·`test`에서만」으로 좁혔다.** 종전 조건은 허용값 넷 중 셋에서 `POST /auth/dev-login`을 열었고, `#524`가 `APP_ENV=production` + `MAIL_BACKEND=console`을 기동 실패로 막기 때문에 **SMTP가 준비되기 전 배포는 `staging`을 고르는 것이 정상 경로**다(`docs/OPERATIONS.md §4.5`). 2026-09-15 OCI 배포(app-01:8001, Security List `0.0.0.0/0`)에서 그 경로가 실제로 200을 냈다 — **누구나 미인증 세션을 받을 수 있었다.** 판정을 부정형에서 **여는 목록**(`_DEV_SURFACE_ENVS`)으로 뒤집어, 모르는 값·새 환경이 늘 때 **닫는 쪽으로** 틀리게 했다(`#810`이 `should_register_dev_auth()`의 부정형을 없앤 것과 같은 판단). `/docs`·`/redoc`·`/openapi.json`과 시연 계정 시드도 같은 판정을 쓴다. `staging`이 허용값에 남는 이유는 그대로다 — 메일 백엔드(`#524`)·`APP_PUBLIC_URL`(`#809`)·가입 게이트(`#808`) 가드가 프로덕션 전용이라 SMTP 없이 배포를 검증하는 자리가 필요하고, 이 변경은 그 자리를 **닫힌 채로** 만든다. 규칙 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#1058) |
 | 2026-09-18 | `#1072` | **§5.2 응답 `updated_fields`에 `planned_fuel_ton` 추가** · `updated_fields` 필드 설명표와 「계획 연료도 포함한다」 절 신설. `UPDATE_EXISTING_PLAN`이 거리·속력·도착시각만 바꾸고 **계획 연료를 그대로 두었다** — `CREATE_NEW_VOYAGE`는 `scenario.fuel_ton`을 쓰고 `source: MODEL_ESTIMATE`까지 남기므로 **같은 시나리오인데 채택 방식에 따라 연간 예상 결과가 갈렸다.** 우회(거리↑) 시나리오는 「새 거리 + 옛 연료」가 되어 CII가 실제보다 **좋게**, 감속(연료↓)은 **나쁘게** 나왔다. 화면이 도달하는 채택 경로는 `UPDATE_EXISTING_PLAN` 하나뿐이라(`UIFLOW 2-2` · `#580`) 그쪽이 틀린 쪽이었고, 화면이 보여 준 개선이 사용자 데이터에서 재현되지 않는 자리다(`PRD §2.3` 「계산 가능성」). **결정은 「가 — 연료도 갱신」**이며 사용자 회신(결정요청 v9 군 B 권장안 · 2026-09-17)이다 — 제품이 이미 한쪽에서 옳게 하고 있어 **두 경로를 같게 맞추는 것이지 새 규칙이 아니다.** 유종이 여럿이면 **기존 비중대로 안분**한다(시나리오 행에 연료 종류가 없다 — `DB_SCHEMA §2.4`는 양만 갖는다). 비중을 유지하면 채택 전후로 CF 혼합이 바뀌지 않아 CO₂ 차이가 **오직 연료량에서만** 나온다. 4자리 반올림 잔차는 비중이 가장 큰 행이 흡수해 합이 총량과 정확히 같다. ⚠️ **비중이 없는 행은 건드리지 않는다** — `chk_fuel_positive`(046)가 `NULL 아니면 > 0`을 요구하므로 0으로 덮으면 채택이 500이 된다. 연료 행이 아예 없는 항차는 `CREATE_NEW_VOYAGE`와 같은 규칙(원본 항차 유종 → 선박 기본 연료)으로 한 행을 만든다(`#1095` ⑵가 그 상태를 실제로 확인했다). **과거 채택분은 소급 수정하지 않는다** — 저장된 계산을 건드리지 않는 것이 이 제품의 규율이고(`TECH_SPEC §5.4` immutable) 재계산 필요 표시는 이미 붙는다. ⚠️ **연료 종류를 알 수 없으면**(원본 항차에 연료 행이 없고 선박 기본 연료도 없다) 연료만 건너뛰고 `updated_fields`에서 그 필드를 뺀다 — 그 때문에 계획값 갱신 전체를 거부하면 사용자가 하려던 일이 막히고, 바꾸지 않은 것을 바꿨다고 적으면 거짓이 된다. 처음에는 오류로 두었다가 **`#1077`의 무효화 건수 검사 2건이 전체 시험에서 깨져** 고쳤다(그 검사들은 연료와 무관한데 픽스처가 바로 그 상태였다). `AGENTS §4.3`상 **응답 배열에 값 하나 추가**라 버전은 올리지 않는다 — 엔드포인트가 늘지 않았다(`#1076` 선례) (#1072) |
+| 2026-09-18 | `#816` | **§6.1 `as_of` 요청 행·예시 등재 · `meta.as_of` · `parameters_used` v2 각주.** `as_of`가 배선만 있고 집계에 쓰이지 않아 **다른 `as_of`가 같은 결과**를 냈다. 결정(결정요청 v9 회신 「가」=A안): ⑴ `_collect_voyages`가 절단을 저장소까지 넘기되 **확정은 도착 ≤ `as_of` · 잔여는 도착 예정 > `as_of`** 의 상보 집합으로 방향을 가른다 — 같은 절단을 잔여에 그대로 쓰면 잔여 계획이 전멸해 `PRD §12`의 연말 예상이 무너진다(착수 중 실측). **명시 실행에만** 해시 키를 넣어 기존 실행의 `input_hash`는 무변경(`apply_feedback_factor`의 두 번째 적용례). `annual_simulation_run.as_of`(마이그레이션 052)이 재현의 원본 시각을 재생한다. ⑶ `fuel_types`·`parameter_sources`(4키)를 담은 **v2 빌더** 신설 — v1은 동결해 옛 해시를 그대로 재생한다. `AGENTS §4.3`상 행·각주 추가라 버전은 올리지 않는다 (#816) |
 | 2026-09-17 | `#1190` | **v1.34 — §8.2 「부분 성공의 범위」 소절 신설.** 같은 엔드포인트의 두 갈래가 다르게 동작했다 — 정박 구간은 행 단위로 떨어뜨려 **부분 성공**을 냈는데 항차는 저장 단계 실패가 **500**이 됐고, `create_voyage`가 행마다 커밋하므로 **앞 행은 저장된 채 남았다.** 사용자는 500을 「아무것도 안 들어갔다」로 읽고 다시 올려 같은 항차를 두 벌 만들었다(`voyage_no`에 유니크 인덱스가 없다). 원인은 두 겹이었다 — ⑴ 파서가 숫자 세 열 모두 `DISTANCE` 한도 하나를 써서 `planned_speed_kn`의 `NUMERIC(6,2)`를 넘는 `10000`이 통과했고(수기 API는 `Field(**SPEED)`로 막는다 — **경로마다 한도가 갈려 있었다**), ⑵ 항차 저장 루프에 행 단위 `try/except`가 없었다. `except AppError`만으로는 부족한 것도 함께 정리했다 — `ProgrammingError(-494)`는 `AppError`가 아니고 `db/cubrid_errors.py`가 `IntegrityError`로 옮기는 목록(`-517`·`-922`·`-924`·`-225`)에도 없다(PostgreSQL에서도 `DataError`였다). **결정은 「가 — 행 단위 부분 성공」**이며 사용자 회신(결정요청 v9 군 B 권장안 · 2026-09-17)이다 — 「나」(전체 롤백)를 고르면 이미 「가」를 하고 있는 정박 경로를 반대로 바꿔야 하고 이 절의 규약 자체가 바뀐다. `dry_run`이 같은 파일에 `imported_count 3 · errors []`로 **거짓 통과**를 주던 것은 파서가 열마다 그 컬럼의 저장 범위·길이를 보게 되어 해소됐다 — 값 때문에 저장 단계에서 죽는 행이 `dry_run`을 통과하지 않는 것이 파서의 계약이다. ⚠️ **이슈 본문이 정박 `port_name`을 300자로 적었으나 모델은 `String(200)`이다** — 한도를 옮겨 적지 않고 `Voyage.__table__`·`NotUnderwayPeriod.__table__`에서 끌어낸다. 좌표(`lat`·`lon`)는 CSV 경로에만 한도가 아예 없어 수기 API와 같은 `±90`·`±180`으로 맞췄다. 소절 신설이라 `AGENTS §4.3`에 따라 판본을 올린다 (#1190) |
 | 2026-09-17 | `#1076` | **§1.9 응답 `meta`에 `needs_recalc_total` 추가** · `meta` 필드 표 신설 · `needs_recalc` 각주에 건수 규정 추가. 선박 상세의 「계산 이력」이 머리에 적는 「재계산 필요 N건」을 **화면이 받은 페이지에서 세고 있었다** — 화면은 최신 20건씩 받으므로 **21번째 행부터 낡아 있어도 「0건」이 나갔다.** 「낡은 계산이 없다」와 「아직 다 세어 보지 않았다」가 같은 모양이 되는 자리이고, 이 카드를 여는 이유(「이 배에 다시 돌려야 할 계산이 있나」)에 답하지 못했다. **필터를 따라간다** — `type`·`vessel_id`·해시 필터를 `data[]`와 똑같이 걸고 **커서만 보지 않는다**(페이지마다 값이 달라지면 화면이 그 수를 「이 선박의 낡은 계산 수」로 말할 수 없다). 화면은 이 값이 없으면 **건수를 아예 적지 않는다** — 받은 행으로 대신 세는 것이 고친 결함 그 자체다. 선택지 「부분 집계임을 화면에 명시」와 「건수 표시를 뺀다」를 두고 사용자 결정을 받았고, 기준은 **서비스 적합성**이었다(`AGENTS §4.3`상 응답 행 추가라 버전은 올리지 않는다 — 엔드포인트가 늘지 않았다) (#1076) |
+| 2026-09-18 | `#673` | **v1.36 — §7.5를 CSV 계약으로 전면 재작성하고 구현 표기를 지웠다** (결정요청 v9 회신 「가」 · #444 잔여). 종전 명세는 JSON 요청 본문이었으나 항차·정박 CSV와 **같은 조작**으로 통일했다(사용자가 두 번 배우지 않게). 계약의 뼈대 — ⑴ **사무직 전용**(`§1.2` 표에 등재 · `require_office`) ⑵ **`type` 폼 필드 4종**(연도·기준선·경계·연료) ⑶ 🔴 **전부 아니면 전무** — `§8.2` 부분 성공과 정반대(`IT-IMPORT-005`). `errors[]` 모양(원본 행 번호·필드·사유)과 `dry_run` 실제와 같은 판정(#1190)만 재사용한다 ⑷ `a_decimal`은 서버가 `parse_imo_scientific`으로 계산 ⑸ `OTHER` 연료 생성 경로 포함(`effective_from` 필수 · `PRD §3.4.2`) ⑹ 응답 `imported_count`는 **적용된 행 수**(연료 갱신 포함 — 신규만 세면 「안 들어갔다」로 읽힌다). `§12` 요약표의 미구현 표기 제거는 이 문서와 라우트 대조 가드가 함께 본다 (#673) |
+| 2026-09-18 | `#966` | **v1.37 — §2.3 `block_coefficient` 요청 필드·검증 규칙·예시 등재 · §2.1 선박 객체에 `block_coefficient` 키 추가 · §1.6 `CB_OUT_OF_RANGE` 등재.** CB의 출처를 「선박 제원(선택)」으로 확정(결정요청 v9 D-3 「가」) — `vessel.block_coefficient`(055)가 그 칸이며, 없으면 선종 기본값 + `CB_ESTIMATED`가 종전 계약 그대로다. 실측값이 Cform 적용 범위(`TECH_SPEC §3.3.3`) 밖이면 **거부가 아니라 경고**(`CB_OUT_OF_RANGE` — 문구는 `PRD §6.3` 확정본). 필드·경고 코드 추가라 `AGENTS §4.3`에 따라 판본을 올린다 (#966) |
 | 2026-09-18 | `#989` | **§2.8 `summary`에 파생 표시 2종 신설 — `missing_gross_tonnage` · `soonest_d_entry`.** 「가장 임박한 D등급 진입」과 「GT 미기록 척수」를 **화면이 받은 페이지에서** 세다가, 첫 페이지 최대치(100)를 넘는 선대에서 101번째의 급한 배가 「가장 임박」에서 빠졌다 — `summary`를 선대 전체로 둔 `#772` 결정 3-⑤을 화면만 깨고 있었다. 값의 확정 자리를 서버로 옮기고 화면은 그리기만 한다(`#419`·`#772`와 같은 방향). 동점은 (이름, `vessel_id`)로 가른다 — `sort`와 같은 2차 키. 함께 **성능을 B안(배치 조회)으로 개편**했다 — `compute_ytd_cii`의 집계 조회 4종·진행분 3종을 `(연도, 시점)` 조합별 **배치 쿼리**로 미리 읽어 요청 캐시에 채운다(200척 실측 4,624쿼리·16.4s → 32쿼리·0.57s, 값은 동일 — `PRD §16.1` 초기 페이지 로드 p95 < 3초 충족). 단건 경로(선박 상세·데이터 점검)는 종전대로 직접 읽는다. `AGENTS §4.3`상 응답 필드 추가·각주라 버전은 올리지 않는다 (#989) |

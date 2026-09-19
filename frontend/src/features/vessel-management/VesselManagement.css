@@ -95,7 +95,7 @@
 .vessel-management__button {
   height: 40px;
   padding: 0 var(--space-16);
-  border: 1px solid var(--color-border-strong);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);
@@ -150,7 +150,6 @@
  * 등급이 `—`인 이유를 사용자가 다른 화면에서 찾게 두지 않는다.
  */
 .vm__blocked {
-  list-style: none;
   /*
    * 이름 열부터 시작한다 — 마크 열(32) + 거터(12)만큼 들여쓴다. 종전에는 행 전체
    * 폭을 차지해 **1576px을 가로지르는데 실제 글자는 550px**이었고, 목록에서 가장
@@ -165,9 +164,10 @@
   background: var(--color-surface-2);
   color: var(--color-text);
   font-size: var(--font-size-micro);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+  /*
+   * 이유가 둘이어도 한 줄이다 (`#1277`). 종전에는 세로로 쌓여 제원이 빈 행만
+   * 두 배 높이가 됐다 — 목록의 용건이 「제원을 채우는 것」이라 그런 행이 많다.
+   */
 }
 
 .vessel-management__form {
@@ -209,7 +209,8 @@
 }
 
 .vessel-management__control:focus-visible {
-  outline: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .vessel-management__control[aria-invalid='true'] {

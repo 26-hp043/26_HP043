@@ -39,6 +39,7 @@ function vessel(overrides: Partial<Vessel> = {}): Vessel {
     default_fuel_type: null,
     reference_speed_kn: 14,
     reference_daily_foc_ton: 20,
+    block_coefficient: null,
     is_cii_applicable_hint: true,
     underway_state: null,
     detail_status: null,
@@ -105,19 +106,19 @@ describe('blockedReasons — 이 배로 지금 할 수 없는 것', () => {
 
   it('DWT 기반 선종에 DWT가 없으면 등급 산출 불가를 적는다', () => {
     const reasons = blockedReasons(vessel({ deadweight: null }))
-    expect(reasons.some((r) => r.includes('재화중량톤수(DWT) 없음'))).toBe(true)
+    expect(reasons.some((r) => r.fields.includes('재화중량톤수(DWT) 없음'))).toBe(true)
   })
 
   it('GT 기반 선종에 GT가 없으면 등급 산출 불가를 적는다', () => {
     const reasons = blockedReasons(
       vessel({ ship_type: 'RO_RO_PASSENGER', gross_tonnage: null }),
     )
-    expect(reasons.some((r) => r.includes('총톤수(GT) 없음'))).toBe(true)
+    expect(reasons.some((r) => r.fields.includes('총톤수(GT) 없음'))).toBe(true)
   })
 
   it('DWT 기반 선종은 GT가 비어도 등급 산출을 막지 않는다 (PRD §3.3.3)', () => {
     const reasons = blockedReasons(vessel({ gross_tonnage: null }))
-    expect(reasons.some((r) => r.includes('총톤수(GT) 없음'))).toBe(false)
+    expect(reasons.some((r) => r.fields.includes('총톤수(GT) 없음'))).toBe(false)
   })
 
   it('연료 모델이 비면 무엇이 빠졌는지 이름을 적는다 (#511의 원인)', () => {
@@ -126,22 +127,37 @@ describe('blockedReasons — 이 배로 지금 할 수 없는 것', () => {
     const reasons = blockedReasons(
       vessel({ reference_speed_kn: null, reference_daily_foc_ton: null }),
     )
-    const fuel = reasons.find((r) => r.includes('항로 비교'))
-    expect(fuel).toContain('기준속도')
-    expect(fuel).toContain('기준 일일 연료소모량')
+    const fuel = reasons.find((r) => r.consequence.includes('항로 비교'))
+    expect(fuel?.fields).toContain('기준속도')
+    expect(fuel?.fields).toContain('기준 일일 연료소모량')
   })
 
   it('하나만 있어도 나머지 하나를 짚는다 — 「있으니 되겠지」로 읽히면 안 된다', () => {
     const reasons = blockedReasons(vessel({ reference_daily_foc_ton: null }))
-    const fuel = reasons.find((r) => r.includes('항로 비교'))
-    expect(fuel).toContain('기준 일일 연료소모량')
-    expect(fuel).not.toContain('기준속도 ·')
+    const fuel = reasons.find((r) => r.consequence.includes('항로 비교'))
+    expect(fuel?.fields).toContain('기준 일일 연료소모량')
+    expect(fuel?.fields).not.toContain('기준속도 ·')
+  })
+
+  /*
+   * `#1277` — 화면이 둘을 다른 자리에 둔다. 이름은 열이 이미 말하므로 눈에 보이는
+   * 것은 결과뿐이고, 이름은 `sr-only`로만 남는다. 그래서 **둘이 한 문자열로 붙어
+   * 있으면 안 된다.**
+   */
+  it('이름과 결과가 갈라져 나온다 — 화면이 둘을 다른 자리에 둔다 (#1277)', () => {
+    const [reason] = blockedReasons(vessel({ reference_daily_foc_ton: null }))
+    expect(reason.fields).toBe('기준 일일 연료소모량 없음')
+    expect(reason.consequence).toBe(
+      '항로 비교가 실패하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다',
+    )
+    // ⚠️ 결과절에 항목 이름이 섞이면 화면에서 같은 말이 두 번 나온다.
+    expect(reason.consequence).not.toContain('없음')
   })
 
   it('데모 선박의 실제 상태를 그대로 재현한다 — 4척 모두 일일 연료가 비어 있다', () => {
     // `src/cii_platform/db/demo_seed.py`의 `reference_daily_foc_ton`이 전부 None이다.
     const demo = vessel({ reference_speed_kn: 16.5, reference_daily_foc_ton: null })
-    expect(blockedReasons(demo).some((r) => r.includes('항로 비교'))).toBe(true)
+    expect(blockedReasons(demo).some((r) => r.consequence.includes('항로 비교'))).toBe(true)
   })
 })
 
@@ -198,7 +214,7 @@ describe('specChecklist — 채워야 할 것 세 가지', () => {
     // 분모에서 빠진다. 「2개 중 2개」이지 「3개 중 2개」가 아니다.
     expect(specProgress(unknown)).toEqual({ filled: 2, total: 2 })
     // 그리고 용량 미비를 이유로 적지도 않는다 — 종전 동작과 같다.
-    expect(blockedReasons(unknown).some((r) => r.includes('없음 — CII'))).toBe(false)
+    expect(blockedReasons(unknown).some((r) => r.consequence.includes('CII 등급'))).toBe(false)
   })
 
   it('데모 선박의 실제 상태 — 일일 연료만 비어 2/3다', () => {
@@ -239,6 +255,7 @@ describe('sortVessels — 원본을 바꾸지 않고 순서만 만든다', () =>
     name: '다나호',
     reference_speed_kn: null,
     reference_daily_foc_ton: null,
+    block_coefficient: null,
   })
 
   it('기본 정렬은 덜 채워진 배를 위로 올린다', () => {

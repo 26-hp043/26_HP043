@@ -473,6 +473,15 @@ export function VesselDetail({
               대시보드와 **같은 컴포넌트**를 쓴다. 베끼면 두 화면의 투영·등급색·결측
               표기가 갈리고, 갈린 쪽이 어디인지 화면을 봐서는 알 수 없다.
 
+              **자산이 있어도 개략도다** (`#1264`). 대시보드는 `basemap`을 보고
+              타일 지도(`FleetMap`)로 올라가지만 이 카드는 그 분기에 참여하지 않는다 —
+              폭이 480이고 그리는 대상이 **한 척**이라, 그 크기의 타일 지도는 배 하나와
+              둘레 바다만 비춘다. 배경이 주는 맥락이 거의 없는데 지도 인스턴스 비용만 든다.
+
+              ⚠️ 같은 기기에서 대시보드는 지도, 여기는 개략도로 보인다. **고장이 아니다** —
+              갈리는 축은 자산이 아니라 **대상 수(선대 ↔ 한 척)**다. 규격은
+              `DESIGN_SYSTEM §9.5`에 있다.
+
               좌표를 따로 적지 않는다 — 개략도가 자기 밑에 「위치 30.6°N, 32.3°E」로
               이미 적는다. 여기서 또 적으면 같은 값이 두 군데가 된다.
 
@@ -534,7 +543,7 @@ export function VesselDetail({
 function BackLink() {
   return (
     <Link className="vd__back" to="/dashboard">
-      <Icon glyph={ArrowLeft} size={16} />
+      <Icon glyph={ArrowLeft} size="inline" />
       대시보드
     </Link>
   )

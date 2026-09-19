@@ -51,11 +51,25 @@ async def get_session_row(session: AsyncSession, *, session_id: UUID) -> ChatSes
 
     **주인 확인은 호출부가 한다** — 저장소는 「누가 볼 수 있는가」를 모른다. 여기서
     ``user_id``까지 받으면 라우트가 404와 403을 구분할 근거를 잃는다
-    (``API_SPEC §15.4``는 남의 대화를 **404**로 규정한다).
+    (``API_SPEC §15.4``는 남의 대화를 **404**로 규정한다). 귀속 선박(``vessel_id``)을
+    읽는 경로도 이 함수 하나다 (#1242).
     """
-    return (
-        await session.execute(select(ChatSession).where(ChatSession.id == session_id))
-    ).scalar_one_or_none()
+    stmt = select(ChatSession).where(ChatSession.id == session_id)
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def set_vessel(session: AsyncSession, *, session_id: UUID, vessel_id: UUID | None) -> None:
+    """대화의 선박 귀속을 정한다 (#1242).
+
+    화면이 ``vessel_id``를 넘긴 턴은 그 값을 **세션에도 싣는다**(화면이 항상 더
+    최신) — 다음 턴부터 화면 없이 물어도 그 선박으로 답한다. ``search_vessel``의
+    고유 일치도 같은 경로로 싣는다. **commit은 호출부가 한다**(다른 함수와 같은 규약).
+    """
+    row = await get_session_row(session, session_id=session_id)
+    if row is None or row.vessel_id == vessel_id:
+        return
+    row.vessel_id = vessel_id
+    await session.flush()
 
 
 async def add_message(

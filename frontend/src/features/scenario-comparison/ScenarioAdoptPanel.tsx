@@ -187,7 +187,7 @@ export function ScenarioAdoptPanel({
       </div>
 
       {stale ? (
-        <p className="scenario-adopt__note" role="status">
+        <p id="scenario-adopt-stale" className="scenario-adopt__note" role="status">
           입력이 바뀌어 위 결과는 이전 조건의 값입니다. 다시 비교한 뒤 반영할 수 있습니다.
         </p>
       ) : null}
@@ -196,6 +196,12 @@ export function ScenarioAdoptPanel({
         type="button"
         className="scenario-adopt__submit"
         disabled={!ready || adopt.status === 'running'}
+        /*
+         * `ready`가 거짓인 세 이유 중 **화면에 사유가 뜨는 것은 `stale`뿐**이고,
+         * 나머지 둘(시나리오·항차 미선택)은 바로 위 선택칸이 비어 있는 것으로
+         * 드러난다 (`§14` 「비활성의 사유」 · `#1170` ⑵).
+         */
+        aria-describedby={stale ? 'scenario-adopt-stale' : undefined}
         onClick={submit}
       >
         {adopt.status === 'running' ? '반영하는 중…' : '계획에 반영'}

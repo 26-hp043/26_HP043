@@ -34,6 +34,7 @@ interface ServerData {
   disclaimer?: string
   tool_calls?: string[]
   discarded?: boolean
+  vessel_resolved?: boolean
 }
 
 export function createApiAssistantProvider(
@@ -100,6 +101,7 @@ export function createApiAssistantProvider(
         disclaimer: data.disclaimer,
         toolCalls: data.tool_calls ?? [],
         discarded: data.discarded === true,
+        vesselResolved: data.vessel_resolved === true,
       }
     },
   }

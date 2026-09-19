@@ -6,7 +6,7 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { formatGrouped } from '../../display/format'
 import { warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
-import { useFuelOptions } from '../parameters/fuelCatalog'
+import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { createApiFleetReductionProvider } from './apiProvider'
 import { hasInvalidPrice, isInvalidPrice } from './priceRules'
@@ -55,7 +55,6 @@ const EMPTY_PRICES: Prices = { charterUsdPerDay: {}, fuelUsdPerTon: {} }
 export function FleetReduction({ provider }: { provider?: FleetReductionProvider }) {
   const api = useMemo(() => provider ?? createApiFleetReductionProvider(), [provider])
   const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY)
-  const { fuels } = useFuelOptions()
   const [year, setYear] = useState('')
   const [target, setTarget] = useState<Target>('NO_AT_RISK')
   const [percents, setPercents] = useState<Record<string, number>>({})
@@ -137,11 +136,29 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
 
   const shown = evaluation.result
 
+  /**
+   * 단가를 물을 연료 (`#1273`).
+   *
+   * 종전에는 **서버 연료 목록 전체에 `missingFuelPrices`를 더했다** — 방향이 반대라
+   * 보유 선박이 쓰지도 않는 연료까지 8종이 전부 떴고, 그동안 우측 비용 요약은
+   * 통째로 `단가 입력 필요`로 남았다.
+   *
+   * 서버가 `costs.missing_fuel_prices`로 **이 계획에 단가가 필요한데 없는 연료**를
+   * 이미 알려준다(`calc/fleet_reduction.py`). 그것을 기준으로 좁힌다.
+   *
+   * ⚠️ **이미 입력한 코드를 합쳐야 한다.** `missingFuelPrices`는 「없는 것」만 담으므로
+   * 값을 넣는 순간 그 코드가 목록에서 빠져 **방금 채운 칸이 사라진다.** 저장한 계획에서
+   * 이어받은 단가(`plans[0].prices`)도 이 합집합으로 남는다 — 요청에 실려 나가는 값이라
+   * 화면에서 감추면 고칠 수단이 없어진다.
+   */
   const fuelCodes = useMemo(() => {
-    const codes = new Set(fuels.map((f) => f.code))
-    shown?.costs.missingFuelPrices.forEach((c) => codes.add(c))
+    if (!shown) return []
+    const codes = new Set(shown.costs.missingFuelPrices)
+    for (const [code, value] of Object.entries(prices.fuelUsdPerTon)) {
+      if (value.trim() !== '') codes.add(code)
+    }
     return [...codes].sort()
-  }, [fuels, shown])
+  }, [shown, prices.fuelUsdPerTon])
 
   const save = async () => {
     const name = planName.trim()
@@ -280,6 +297,11 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                 {COPY.fuelPricesTitle}
               </h2>
               <p className="fr__caption">{COPY.pricesNote}</p>
+              {fuelCodes.length === 0 ? (
+                <p className="fr__muted">
+                  {shown ? COPY.fuelPricesNone : COPY.fuelPricesBeforeRun}
+                </p>
+              ) : null}
               <div className="fr__prices">
                 {fuelCodes.map((code) => {
                   const invalid = isInvalidPrice(prices.fuelUsdPerTon[code] ?? '')
@@ -287,7 +309,9 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                     <Field
                       key={code}
                       id={`fr-fuel-${code}`}
-                      label={code}
+                      /* 서버 `displayName`은 MEPC.364(79) 원문 표기라 정본 문구다 —
+                         화면에 내는 이름은 `fuelTypes.ts`가 갖는다 (`#598` · `AGENTS §4.6`). */
+                      label={fuelTypeOptionText(code)}
                       error={invalid ? COPY.priceInvalid : undefined}
                     >
                       {(control) => (
@@ -333,11 +357,22 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                   type="button"
                   className="fr__button"
                   disabled={saving || planName.trim() === '' || pricesInvalid}
+                  /*
+                   * 단가 오류는 **다른 절(연료 단가)에 있다** — 이 버튼 옆에서는
+                   * 왜 잠겼는지 알 길이 없었다. 이름이 비어 있는 쪽은 바로 위 칸이
+                   * 말하므로 적지 않는다 (`§14` 「비활성의 사유」 · `#1170` ⑵).
+                   */
+                  aria-describedby={pricesInvalid ? 'fr-save-blocked' : undefined}
                   onClick={() => void save()}
                 >
                   {saving ? COPY.saving : COPY.saveButton}
                 </button>
               </div>
+              {pricesInvalid ? (
+                <p id="fr-save-blocked" className="fr__caption" role="status">
+                  {COPY.saveBlockedByPrice}
+                </p>
+              ) : null}
               {saveMessage ? (
                 <p className="fr__caption" role="status">
                   {saveMessage}
@@ -507,13 +542,25 @@ function Transition({ before, after }: { before: Rating; after: Rating }) {
   )
 }
 
-/** 상태 분기 3종 — 초기 · 목표 미달 · 목표 달성 (`UIFLOW 2-10`). */
+/**
+ * 상태 분기 **4종** — 선박 없음 · 초기 · 목표 달성 · 목표 미달
+ * (`UIFLOW 2-10` · 2026-09-18 확정 · `#1052` ⓸).
+ *
+ * ## 넷째가 셋째와 같은 톤을 쓰고 있었다
+ *
+ * 주석은 「3종」이라 적혀 있었는데 분기는 넷이었고, **「선박이 없다」와
+ * 「아직 조정하지 않았다」가 같은 `idle`** 로 떨어졌다. 게다가 `.fr__status--idle`
+ * 규칙이 CSS에 없어 둘 다 기본 띠로 그려졌다 — 화면에서 가를 수 없었다.
+ *
+ * 둘은 성질이 다르다. **「아직」은 조작 이전이라 움직이면 풀리고, 「선박 없음」은
+ * **조작할 대상이 없는 것**이라 슬라이더를 움직여도 아무 일도 안 난다.
+ */
 function Status({ result, adjusted }: { result: EvaluateResult; adjusted: boolean }) {
   let text: string
-  let tone: 'idle' | 'met' | 'missed'
+  let tone: 'empty' | 'idle' | 'met' | 'missed'
   if (result.targetMet === null) {
     text = COPY.statusNoVessel
-    tone = 'idle'
+    tone = 'empty'
   } else if (result.targetMet) {
     text = COPY.statusMet
     tone = 'met'

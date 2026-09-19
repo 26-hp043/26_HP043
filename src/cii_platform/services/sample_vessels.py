@@ -42,6 +42,10 @@ _SAMPLE_SOURCES: tuple[tuple[str, uuid.UUID], ...] = (
 )
 
 #: 샘플이 싣는 제원 필드 — `API_SPEC §2.3` 등록 요청 필드 중 **신원(IMO·선명)을 뺀 전부**.
+#:
+#: 예외 — ``block_coefficient``(#966). 샘플은 IMO 조회 결과의 대역인데 실제 조회가
+#: 방형계수를 주지 않는다. CB는 사무직이 제원 화면에서 수기로 넣는 값이므로 샘플이
+#: 「알 듯이」 값을 싣는 것은 거짓이다. 없으면 선종 기본값 + ``CB_ESTIMATED``가 계약.
 SAMPLE_SPEC_FIELDS: tuple[str, ...] = (
     "ship_type",
     "gross_tonnage",

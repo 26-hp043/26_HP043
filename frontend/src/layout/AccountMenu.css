@@ -37,8 +37,8 @@
 }
 
 .account-menu__trigger:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .account-menu__avatar {
@@ -70,12 +70,14 @@
 }
 
 .account-menu__chevron {
-  inline-size: var(--icon-inline);
-  block-size: var(--icon-inline);
+  /*
+   * 크기·두께는 `.icon`이 갖는다 (`#1174`) — 이 요소는 세트 아이콘이라 `Icon`이
+   * `icon--inline`을 붙인다. 여기 남기면 같은 규격이 두 곳에 있고, 한쪽만 고치는
+   * 날 조용히 갈린다.
+   */
   flex: none;
   fill: none;
   stroke: currentcolor;
-  stroke-width: var(--icon-stroke);
   stroke-linecap: round;
   stroke-linejoin: round;
   color: var(--text-secondary);
@@ -166,8 +168,8 @@
 }
 
 .account-menu__link:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus-outline);
+  outline-offset: 2px;
 }
 
 .account-menu__link-sub {
