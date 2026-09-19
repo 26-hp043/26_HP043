@@ -56,6 +56,7 @@ from cii_platform.db.models.fuel_type import FuelType
 SOURCE_Z_FACTOR = "MEPC.400(83)"
 SOURCE_REFERENCE_LINE = "MEPC.353(78)"
 SOURCE_RATING_BOUNDARY = "MEPC.354(78)"
+SOURCE_FUEL_TYPE = "MEPC.364(79)"
 
 # 파라미터 세트 버전 (DB_SCHEMA §8.3). fuel_type.version의 server_default '1.0'과 정렬한다.
 PARAMETER_SET_VERSION = "1.0"
@@ -457,7 +458,7 @@ async def _upsert_rating_boundaries(conn: AsyncConnection) -> int:
     return len(values)
 
 
-# IMO 2018 Guidelines — PRD §3.4 연료 종류별 CO₂ 배출 계수 (tCO₂/tFuel).
+# MEPC.364(79) §2.2.1 — PRD §3.4 연료 종류별 CO₂ 배출 계수 (tCO₂/tFuel).
 _CF_ROWS = (
     ("DIESEL_GAS_OIL", "Diesel/Gas Oil", "3.206000"),
     ("LFO", "Light Fuel Oil", "3.151000"),
@@ -468,7 +469,6 @@ _CF_ROWS = (
     ("METHANOL", "Methanol", "1.375000"),
     ("ETHANOL", "Ethanol", "1.913000"),
 )
-SOURCE_FUEL_TYPE = "IMO 2018 Guidelines"
 
 
 async def _upsert_fuel_types(conn: AsyncConnection) -> int:
