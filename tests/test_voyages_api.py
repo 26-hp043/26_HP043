@@ -469,6 +469,24 @@ class TestUpdateNullSemantics:
         assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
         assert store[voyage_id].regulation_year == 2026
 
+    def test_distance_source_change_rejected_on_confirmed_voyage(self, update_app):
+        """CONFIRMED 항차의 거리 출처만 바꾸는 PATCH → 거부 (#1256).
+
+        출처는 재계산 대상은 아니지만 **계획 거리에 붙은 표시**다 — 확정된 항차의 거리에
+        사후로 「추정」을 붙이거나 떼는 길이 열려 있으면 이 칸을 둔 취지가 무너진다.
+        """
+        client, store = update_app
+        voyage_id = next(iter(store))
+        store[voyage_id].status = "CONFIRMED"
+        before = store[voyage_id].planned_distance_source
+        resp = client.patch(
+            f"/api/v1/voyages/{voyage_id}",
+            json={"planned_distance_source": "COORDINATE_ESTIMATE"},
+        )
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["error"]["code"] == "STATE_TRANSITION_ERROR"
+        assert store[voyage_id].planned_distance_source == before
+
     def test_distance_change_without_source_resets_it_to_unknown(self, update_app):
         """거리만 고친 PATCH는 출처를 「모른다」로 돌린다 (#1256).
 

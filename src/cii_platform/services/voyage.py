@@ -324,10 +324,14 @@ async def update_voyage(
     # `scenario_adopt`가 같은 필드를 `PLANNING_STATUSES`로 막는 것과 같은 기준이며,
     # 일반 PATCH에만 가드가 없었다.
     changed_plan_fields = sorted(set(fields) & _PLAN_GUARD_FIELDS)
-    if changed_plan_fields and voyage.status not in PLANNING_STATUSES:
+    # #1256 — 거리 출처는 계산 입력이 아니라 재계산 대상(`changed_plan_fields`)에는 넣지
+    # 않지만, **계획 거리에 붙은 표시**라 거리와 같은 상태에서만 바뀐다. 확정된 항차의
+    # 거리에 사후로 「추정」을 붙이거나 떼는 길을 열어 두지 않는다.
+    guarded_fields = sorted(set(fields) & (_PLAN_GUARD_FIELDS | {"planned_distance_source"}))
+    if guarded_fields and voyage.status not in PLANNING_STATUSES:
         raise StateTransitionError(
             f"계획 단계 항차만 계획값을 바꿀 수 있습니다 (현재 상태: {voyage.status}). "
-            f"대상 필드: {', '.join(changed_plan_fields)} · "
+            f"대상 필드: {', '.join(guarded_fields)} · "
             f"허용 상태: {' · '.join(sorted(PLANNING_STATUSES))}"
         )
 

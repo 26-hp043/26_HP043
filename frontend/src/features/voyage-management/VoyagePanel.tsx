@@ -428,11 +428,17 @@ function VoyageForm({
   const setPort = (side: 'departure' | 'arrival') => (value: string) => {
     const match = matchSamplePort(ports, value)
     const coord = match ? { lat: match.lat, lon: match.lon } : null
-    setDraft((prev) =>
-      side === 'departure'
-        ? { ...prev, departurePortName: match ? match.name : value, departureCoord: coord }
-        : { ...prev, arrivalPortName: match ? match.name : value, arrivalCoord: coord },
-    )
+    setDraft((prev) => {
+      const next =
+        side === 'departure'
+          ? { ...prev, departurePortName: match ? match.name : value, departureCoord: coord }
+          : { ...prev, arrivalPortName: match ? match.name : value, arrivalCoord: coord }
+      // #1256 — 추정 거리는 **그때의 두 항**에서 나온 값이다. 항을 바꾸면 그 숫자는 새 항로의
+      // 추정도, 사용자가 넣은 값도 아니므로 비운다 — 남겨 두면 옛 항로의 거리가 「좌표 기반
+      // 추정」으로 저장된다(출처가 저장까지 가면서 생긴 결함).
+      return estimated ? { ...next, plannedDistanceNm: '' } : next
+    })
+    if (estimated) setEstimated(false)
   }
 
   const canEstimate = Boolean(draft.departureCoord && draft.arrivalCoord)

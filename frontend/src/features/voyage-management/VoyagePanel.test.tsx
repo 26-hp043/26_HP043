@@ -410,6 +410,30 @@ describe('샘플 항만 선택 (#760)', () => {
     expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
   })
 
+  it('추정 뒤 항을 바꾸면 추정 거리를 비운다 — 옛 항로의 거리가 추정값으로 저장되지 않게 (#1256)', async () => {
+    await openForm()
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'BUSAN' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'SINGAPORE' } })
+    fireEvent.click(await screen.findByRole('button', { name: '좌표 기반 추정 거리로 채우기' }))
+    await screen.findByText(/좌표 기반 추정 거리 — /)
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan New Port' } })
+
+    expect((screen.getByLabelText(/계획 거리/) as HTMLInputElement).value).toBe('')
+    expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
+  })
+
+  it('추정하지 않은 거리는 항을 바꿔도 그대로다 — 사용자가 넣은 값이다', async () => {
+    await openForm()
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2600' } })
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'BUSAN' } })
+
+    expect((screen.getByLabelText(/계획 거리/) as HTMLInputElement).value).toBe('2600')
+  })
+
   it('목록에 없는 항은 자유 입력이다 — 좌표가 없고 추정 버튼도 없다', async () => {
     await openForm()
     await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
