@@ -220,6 +220,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data[].gross_tonnage",
             "data[].id",
             "data[].block_coefficient",
+            "data[].call_sign",
             "data[].imo_number",
             "data[].is_cii_applicable_hint",
             "data[].name",
@@ -241,6 +242,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
         {
             "data",
             "data.block_coefficient",
+            "data.call_sign",
             "data.created_at",
             "data.current_lat",
             "data.current_lon",

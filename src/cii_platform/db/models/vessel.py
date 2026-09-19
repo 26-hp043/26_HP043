@@ -35,6 +35,11 @@ class Vessel(Base):
     # 넣으면 실측값, 안 넣으면 선종 기본값 + CB_ESTIMATED 경고. 범위는 물리 범위다
     # (체적 비율 — 양수, 1 이하). 선언의 집행은 055의 트리거가 한다.
     block_coefficient = sa.Column(sa.Numeric(precision=4, scale=3), nullable=True)
+    # 호출부호(call sign) — 공공데이터 교차 대조의 키 (#1197 A단계 · 058). 선택 입력:
+    # 해양수산부_선박운항정보 API가 IMO가 아니라 호출부호로 질의하므로 없으면 그 배는
+    # 대조 대상이 아닐 뿐 계산은 그대로다. ITU RR No.19.55상 4~7자·영대문자+숫자.
+    # 재배정되는 값이라 UNIQUE를 걸지 않는다. 형식 집행은 058의 트리거가 한다.
+    call_sign = sa.Column(sa.String(length=7), nullable=True)
     is_cii_applicable_hint = sa.Column(
         sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False
     )
@@ -86,6 +91,8 @@ class Vessel(Base):
             "block_coefficient IS NULL OR (block_coefficient > 0 AND block_coefficient <= 1)",
             name="chk_block_coefficient_range",
         ),
+        # #1197 — `call_sign` 형식 CHECK는 `chk_imo_format`과 같은 이유로 여기 없다(`~`
+        # 정규식은 CUBRID가 받지 않는다). 집행은 058의 트리거 `trg_chk_call_sign_ins/upd`.
         # 026 (#346) — 운항 상태 2축·위치 제약. 마이그레이션과 1:1.
         sa.CheckConstraint(
             "underway_state IS NULL OR underway_state IN ('UNDER_WAY','NOT_UNDER_WAY')",

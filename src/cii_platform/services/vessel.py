@@ -83,6 +83,8 @@ def to_dict(vessel) -> dict[str, object]:
         "reference_daily_foc_ton": _number(vessel.reference_daily_foc_ton),
         # #966 — 기상 보정 선형 계수. None이면 선종 기본값 + CB_ESTIMATED가 계약이다.
         "block_coefficient": _number(vessel.block_coefficient),
+        # #1197 — 호출부호. None은 「모른다」— 그 배는 공공데이터 교차 대조 대상이 아니다.
+        "call_sign": vessel.call_sign,
         "is_cii_applicable_hint": vessel.is_cii_applicable_hint,
         # 026 (#346) 위치·상태. #369가 갱신 경로를 열기 전까지는 시드 값 그대로였다.
         "underway_state": vessel.underway_state,
@@ -168,6 +170,7 @@ async def create_vessel(
     reference_speed_kn: Decimal | None = None,
     reference_daily_foc_ton: Decimal | None = None,
     block_coefficient: Decimal | None = None,
+    call_sign: str | None = None,
 ) -> dict[str, object]:
     """선박을 등록한다 (API_SPEC §2.3, #50). 성공 시 201.
 
@@ -210,6 +213,7 @@ async def create_vessel(
         reference_speed_kn=reference_speed_kn,
         reference_daily_foc_ton=reference_daily_foc_ton,
         block_coefficient=block_coefficient,
+        call_sign=call_sign,
         is_cii_applicable_hint=is_cii_applicable_hint,
     )
     await session.commit()
@@ -228,6 +232,7 @@ async def update_vessel(
     reference_speed_kn: Decimal | None = None,
     reference_daily_foc_ton: Decimal | None = None,
     block_coefficient: Decimal | None = None,
+    call_sign: str | None = None,
 ) -> dict[str, object]:
     """선박을 수정한다 (API_SPEC §2.4, #52). 없으면 404.
 
@@ -288,6 +293,11 @@ async def update_vessel(
     # 계수를 바꿔도 과거 계산은 각자 스냅숏을 쓴다(#832와 같은 규율).
     if block_coefficient is not None:
         vessel.block_coefficient = block_coefficient
+    # #1197 — 호출부호는 계산 입력이 아니라 대조 키다. specs_changed에 넣지 않는다.
+    # None은 「안 바꾼다」— 스키마가 빈 문자열을 None으로 접으므로 지우는 경로는 없다
+    # (GT와 같은 규율 · 위 docstring).
+    if call_sign is not None:
+        vessel.call_sign = call_sign
 
     # GT가 바뀌면(또는 None으로 해제되면) hint를 다시 산정한다.
     if gross_tonnage is not None:

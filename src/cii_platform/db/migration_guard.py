@@ -137,6 +137,9 @@ REGENERABLE: dict[str, str] = {
     # vessel.block_coefficient(#966) — 컬럼·트리거 모두 재생 가능. NULL 허용이라
     # 되돌려도 잃는 값은 실측 CB뿐이고, 그것은 선박 제원 화면에서 다시 넣는다.
     "055": "vessel.block_coefficient — 선택 제원이라 값 재입력으로 복구",
+    # vessel.call_sign(#1197) — 055와 같은 성격. 컬럼·트리거 모두 재생 가능하고 NULL
+    # 허용이라 되돌려도 잃는 값은 호출부호뿐이며, 선박국적증서에 있는 값이라 다시 넣는다.
+    "058": "vessel.call_sign — 선택 제원이라 값 재입력으로 복구",
 }
 
 
