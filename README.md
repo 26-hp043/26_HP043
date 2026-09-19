@@ -153,6 +153,7 @@ export CUBRID_DB=cii CUBRID_PASSWORD=...
 #    둘 다 없으면 앱이 기동하지 않는다 (사내 도구 · #808 · .env.example 참조)
 #    최초 사무직도 .env에 둔다 — INITIAL_OFFICE_EMAILS=팀장@회사.kr,운항관리자@회사.kr
 #    비어 있으면 앱이 기동하지 않는다 (역할 2종 · #672 · API_SPEC §1.2 「최초 사무직」)
+#    ⚠️ staging에는 이 가드가 없다 — 비어 있어도 조용히 뜬다, 값을 직접 채운다 (#1290)
 
 # 2) 이미지를 먼저 굽는다 ⚠️ 건너뛰지 말 것 (아래 주의 참조)
 docker compose -f docker-compose.prod.yml build
@@ -194,7 +195,7 @@ docker compose -f docker-compose.prod.yml exec -T db \
 - **팀 계정과 시연용 계정만 있어야 한다.** 데모 시드를 넣었다면 `demo@bluelog.local`이 함께 보인다(`#692`).
 - 모르는 주소가 있으면 **배포를 멈춘다.** 지우는 것은 사람의 데이터를 지우는 일이라 담당이 판단한다 — 그 계정이 만든 항차·계산 이력이 함께 걸려 있을 수 있고, 계산 이력은 `DB_SCHEMA §7.3` immutable 가드가 삭제를 막는다.
 - 게이트 자체가 켜져 있는지는 기동이 말해 준다 — 프로덕션에서 `SIGNUP_ALLOWED_DOMAINS`·`SIGNUP_INVITE_CODE`가 둘 다 없으면 앱이 뜨지 않는다(`#808`).
-- **사무직이 누구인지도 확인한다** — `SELECT email, role FROM app_user WHERE is_deleted = false`. 마이그레이션 044 이전부터 있던 계정은 전부 `OFFICE`이고, 새 가입은 `FIELD`로 시작한다. `INITIAL_OFFICE_EMAILS`에 든 이메일은 로그인할 때 `OFFICE`로 맞춰진다(`#672` · `API_SPEC §1.2`).
+- **사무직이 누구인지도 확인한다** — `SELECT email, role FROM app_user WHERE is_deleted = false`. 마이그레이션 044 이전부터 있던 계정은 전부 `OFFICE`이고, 새 가입은 `FIELD`로 시작한다. `INITIAL_OFFICE_EMAILS`에 든 이메일은 로그인할 때 `OFFICE`로 맞춰진다(`#672` · `API_SPEC §1.2`). **`staging`에는 이 값이 비어 있어도 기동을 막는 가드가 없다** — `production`과 달리 조용히 통과하므로, `staging` 배포에서는 사무직 0명이 이 조회로만 드러난다(`#1290`).
 
 ### 백업·복구 (`#827`)
 
@@ -616,3 +617,4 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-18 | `#1174` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 v2.13으로 갱신 — `§12`가 지시하던 `strokeWidth={1.5}` 하드코딩을 걷고 아이콘 규격값의 출처를 생성 토큰으로 일원화 · `§15` 네이밍 목록에 `--icon-*` 추가 (#1174) |
 | 2026-09-18 | `#1202` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 v2.14로 갱신 — `§14`에 `1.4.11`(비텍스트 3:1)의 적용 갈래 넷 확정 · 아웃라인 컨트롤 18곳을 `--color-border-control`로 이관 (#1202) |
 | 2026-09-18 | `#1248` | 소개 문단 아래에 **단일 조직 배포 전제** 한 줄 신설 — 다중 선사 공동 사용 불가(인스턴스 분리로 대응)를 처음 여는 사람이 30초 안에 알게 한다. 심사에서 반드시 나올 질문에 대한 포지셔닝 명시 (#1248) |
+| 2026-09-19 | `#1290` | **`#672`가 남긴 유예를 닫는다** (`AGENTS §6.1`) — 그 PR은 「`.env.example`은 도구 권한으로 고치지 못했다, `INITIAL_OFFICE_EMAILS` 행을 손으로 추가할 것」이라고 적어 두었으나 그 손작업은 일어나지 않았고, 이를 잡아야 할 `tests/test_compose_env_wiring.py::test_env_example_documents_every_variable_the_app_reads`도 정규식이 리터럴 인자만 봐서 침묵했다(`env.get(ENV_NAME)`처럼 상수를 경유한 읽기는 못 봤다) — 가드가 초록불인 채 비어 있었다. `.env.example`·`.env.app.example` 둘 다에 `INITIAL_OFFICE_EMAILS` 행을 추가하고, 그 가드가 상수 경유 읽기도 잡도록 넓혔다. 「배포」 절 1단계 안내와 「배포 전 점검 — 계정」에 **`staging`에는 이 값이 비어 있어도 기동을 막는 가드가 없다**는 사실을 덧붙였다 — `production`과 달리 조용히 통과해 첫 사용자가 리포트를 열 때에야 사무직 0명이 드러난다. ⚠️ **본보기만 고쳤다면 배포는 그대로 고장 난 채였다** — OCI 분리 토폴로지가 쓰는 `docker-compose.prod.app.yml`의 `backend`에는 `env_file:`이 없고 `environment:` 목록만 주입되는데 그 목록에 이 키가 **없어서**, `.env`에 채워도 앱은 빈 값을 봤다(`#508`이 `MAIL_BACKEND`에서 겪은 함정과 같다). 그 키를 넣고, **본보기가 적는 값이 compose에서 실제로 쓰이는지** 보는 검사(`test_oci_app_compose_uses_every_variable_its_env_example_declares`)를 새로 들였다 — 이 파일을 보는 검사가 그동안 하나도 없었다 (#1290) |

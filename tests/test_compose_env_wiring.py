@@ -31,9 +31,33 @@ _DEV = _ROOT / "docker-compose.yml"
 _PROD = _ROOT / "docker-compose.prod.yml"
 _ENV_EXAMPLE = _ROOT / ".env.example"
 
+#: OCI 분리 토폴로지의 app 호스트 스택과 그 본보기 (#1290).
+#:
+#: **`docs/OPERATIONS.md §4.3`이 지시하는 실제 배포 경로가 이 둘이다** (`cp
+#: .env.app.example .env` → `docker compose -f docker-compose.prod.app.yml up -d`).
+#: 그런데 이 파일을 보는 검사가 이 모듈에 하나도 없었다 — 위 `_DEV`·`_PROD`만 봤다.
+_PROD_APP = _ROOT / "docker-compose.prod.app.yml"
+_APP_ENV_EXAMPLE = _ROOT / ".env.app.example"
+
 #: 앱이 실제로 읽는 환경변수. ``os.environ``·``source.get(...)`` 양쪽을 모두 훑는다.
 _ENV_READ = re.compile(r'(?:environ|source|env)\.get\(\s*"([A-Z][A-Z0-9_]*)"')
 _ENV_INDEX = re.compile(r'environ\[\s*"([A-Z][A-Z0-9_]*)"\s*\]')
+
+#: **이름을 상수에 담아 읽는 경우** (#1290).
+#:
+#: 위 둘은 괄호 안이 리터럴일 때만 잡는다. ``auth/role_bootstrap.py``는
+#: ``ENV_NAME = "INITIAL_OFFICE_EMAILS"``를 두고 ``env.get(ENV_NAME)``으로 읽는데 —
+#: 오류 문구가 같은 이름을 쓰므로 상수로 두는 편이 옳다 — 그래서 **이 가드에 잡히지
+#: 않았고, 그 변수는 두 본보기 어디에도 없는 채로 통과했다.** 배포가 그 값을 비운 채
+#: 뜨면 새 DB는 사무직 0명이 되고, 승격 경로도 사무직 전용이라 화면으로는 아무도
+#: 풀 수 없다 (`#672` · `API_SPEC §1.2`).
+#:
+#: 가드가 「있는 척」만 하는 쪽이 없는 것보다 나쁘다 — 그래서 **정규식을 넓히는 쪽**을
+#: 골랐다. 반대 안(상수를 없애고 리터럴로 읽게 한다)은 같은 문자열을 두 곳에 두게 되고,
+#: 그것이야말로 이 가드가 막으려는 종류의 어긋남이다.
+_ENV_READ_VIA_NAME = re.compile(r"(?:environ|source|env)\.get\(\s*([A-Z][A-Z0-9_]*)\s*[,)]")
+#: 모듈 수준 ``NAME = "ENV_VAR"``. 위 정규식이 잡은 이름을 실제 변수명으로 푼다.
+_NAME_CONSTANT = re.compile(r'^([A-Z][A-Z0-9_]*)\s*=\s*"([A-Z][A-Z0-9_]*)"\s*$', re.M)
 
 
 def _compose(path: Path) -> dict:
@@ -175,6 +199,10 @@ def test_env_example_documents_every_variable_the_app_reads():
 
     주석 처리된 줄(``# SMTP_HOST=...``)도 적힌 것으로 본다 — 선택 입력임을 그 형태로
     표현하고 있다.
+
+    **이름을 상수에 담아 읽는 것도 센다 (#1290).** 종전에는 괄호 안이 리터럴일 때만
+    셌고, 그래서 ``INITIAL_OFFICE_EMAILS``(``env.get(ENV_NAME)``)가 본보기 두 곳
+    어디에도 없는 채로 이 검사를 통과했다 — 가드가 초록불인 채 비어 있었다.
     """
     src = _ROOT / "src"
     read: set[str] = set()
@@ -182,6 +210,11 @@ def test_env_example_documents_every_variable_the_app_reads():
         text = py.read_text(encoding="utf-8", errors="ignore")
         read |= set(_ENV_READ.findall(text))
         read |= set(_ENV_INDEX.findall(text))
+        # 같은 모듈 안의 ``NAME = "ENV_VAR"``만 푼다. 모듈을 넘나드는 상수까지 쫓으려면
+        # import를 해석해야 하고, 그 복잡도는 이 가드가 감당할 몫이 아니다 — 지금까지
+        # 나온 사례는 전부 같은 모듈 안에 있다.
+        names = dict(_NAME_CONSTANT.findall(text))
+        read |= {names[ref] for ref in _ENV_READ_VIA_NAME.findall(text) if ref in names}
 
     example = _ENV_EXAMPLE.read_text(encoding="utf-8")
     documented = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]*)=", example, re.M))
@@ -190,6 +223,53 @@ def test_env_example_documents_every_variable_the_app_reads():
     assert not missing, (
         f".env.example에 없는 환경변수를 앱이 읽는다: {', '.join(missing)}. "
         "본보기에 없으면 그 변수의 존재를 아는 방법이 없다."
+    )
+
+
+def test_oci_app_compose_uses_every_variable_its_env_example_declares():
+    """``.env.app.example``이 적는 값이 ``docker-compose.prod.app.yml``에서 실제로 쓰인다.
+
+    ## 무엇을 막는가 (#1290)
+
+    이 서비스에는 **``env_file:``이 없다.** 아래 ``environment:`` 목록에 적힌 키만
+    컨테이너로 들어간다 — compose가 ``.env``를 읽는 것은 ``${VAR}`` **치환용**이지
+    컨테이너 주입이 아니다. 그래서 본보기에만 있고 compose가 쓰지 않는 값은 **`.env`에
+    정성껏 채워도 앱에 닿지 않는다.**
+
+    ``INITIAL_OFFICE_EMAILS``가 정확히 그 상태였다. 본보기에 행을 넣는 것만으로는
+    배포가 고쳐지지 않는다 — 그 사실을 사람이 알아채는 경로가 없어서 검사로 만든다.
+
+    `#508`이 개발·단일호스트 compose에서 같은 함정을 겪었고(``MAIL_BACKEND``가 닿지
+    않아 **가입은 201인데 인증 메일이 오지 않았다**), 그때 만든 검사가
+    :func:`test_dev_app_loads_env_file`·:func:`test_prod_app_loads_env_file`이다.
+    **분리 토폴로지 파일만 그 검사 밖에 있었다.**
+
+    ## 왜 「``environment:``에 있는가」가 아니라 「쓰이는가」인가
+
+    본보기의 값 전부가 주입 대상인 것은 아니다 — ``CUBRID_HOST``·``CUBRID_PASSWORD``는
+    ``x-cubrid-url`` 앵커에서 URL을 조립하는 데 쓰이고, ``BACKEND_IMAGE``는 ``image:``에
+    쓰인다. 셋 다 컨테이너 환경변수로 들어가지 않는 것이 맞다. 공통 규칙은 **「compose
+    어딘가에서 이 이름이 쓰인다」**이고, 그것이 깨질 때가 곧 「적어도 아무 일이 일어나지
+    않는」 때다.
+    """
+    declared = set(
+        re.findall(
+            r"^#?\s*([A-Z][A-Z0-9_]*)=",
+            _APP_ENV_EXAMPLE.read_text(encoding="utf-8"),
+            re.M,
+        )
+    )
+    compose = _PROD_APP.read_text(encoding="utf-8")
+
+    unused = sorted(
+        name
+        for name in declared
+        if f"${{{name}" not in compose and not re.search(rf"^\s*{name}:", compose, re.M)
+    )
+    assert not unused, (
+        f".env.app.example이 적는데 docker-compose.prod.app.yml이 쓰지 않는 값: "
+        f"{', '.join(unused)}. 이 서비스에는 env_file이 없어 environment 목록에 없으면 "
+        "컨테이너에 닿지 않는다 — .env에 채워도 아무 일도 일어나지 않는다."
     )
 
 
