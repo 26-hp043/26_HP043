@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.32 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** |
+| 버전 | v1.33 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** |
 | 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
@@ -169,6 +169,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 | `arrival_lat` | NUMERIC(9,6) | NULL | 도착항 위도 |
 | `arrival_lon` | NUMERIC(9,6) | NULL | 도착항 경도 |
 | `planned_distance_nm` | NUMERIC(12,2) | NOT NULL | 계획 거리 |
+| `planned_distance_source` | VARCHAR(30) | NULL, **트리거 `trg_chk_planned_distance_source_ins`·`_upd`** (`USER_INPUT`·`COORDINATE_ESTIMATE`) [#1256] | 계획 거리의 출처 — `USER_INPUT`(직접 입력 · CSV 가져오기) 또는 `COORDINATE_ESTIMATE`(두 좌표의 대권거리 · `PRD §15.2` 「좌표 기반 추정 거리」). **`NULL`은 「모른다」** — 059 이전 행과 출처 없이 거리를 넣은 API 요청·시나리오 채택(`API_SPEC §5.2`)이 여기 든다. 기존 행은 backfill하지 않는다(대권거리와 비슷하다고 추정으로 되채우면 직접 입력한 값에도 「추정」이 붙는다 · `PRD §0.3`). `planned_distance_nm`이 바뀌면 옛 출처는 새 값에 붙지 않는다(`API_SPEC §3.4`). `created_from`이 「항차가 어느 경로로 왔나」라면 이것은 「그 숫자가 추정인가」다(마이그레이션 059) |
 | `actual_distance_nm` | NUMERIC(12,2) | NULL | 실제 거리 |
 | `planned_speed_kn` | NUMERIC(6,2) | NOT NULL | 예정 평균 속도 |
 | `actual_avg_speed_kn` | NUMERIC(6,2) | NULL | 실제 평균 속도 |
@@ -215,6 +216,10 @@ ALTER TABLE voyage ADD CONSTRAINT chk_year_policy
     CHECK (annual_inclusion_policy = 'EXCLUDE' OR regulation_year IS NOT NULL);
 
 ALTER TABLE voyage ADD CONSTRAINT chk_distance_positive CHECK (planned_distance_nm > 0);
+-- 059 (#1256): 계획 거리 출처. CUBRID에서는 트리거 trg_chk_planned_distance_source_ins/_upd가 집행한다 (§7.4).
+--   NULL은 「모른다」— 기존 행을 대권거리 대조로 되채우지 않는다(직접 입력한 값에도 「추정」이 붙는다).
+ALTER TABLE voyage ADD CONSTRAINT chk_distance_source
+    CHECK (planned_distance_source IS NULL OR planned_distance_source IN ('USER_INPUT','COORDINATE_ESTIMATE'));
 ALTER TABLE voyage ADD CONSTRAINT chk_speed_positive CHECK (planned_speed_kn >= 1.0);
 ALTER TABLE voyage ADD CONSTRAINT chk_actual_dist_positive
     CHECK (actual_distance_nm IS NULL OR actual_distance_nm > 0);  -- [M-6]
@@ -2098,4 +2103,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-18 | `#966` | **v1.30 — §2.1 `vessel.block_coefficient NUMERIC(4,3)` 추가** (마이그레이션 055 · 결정요청 v9 D-3 「가」). 선택 입력이며 `CHECK(0 < CB <= 1)` — 체적 비율의 물리 범위다. 집행은 046 패턴의 트리거(`trg_chk_block_coefficient_ins/upd`)가 한다. 넣으면 기상 보정이 실측값을 쓰고, `NULL`이면 선종 기본값 + `CB_ESTIMATED`. 실측값이 Cform 범위 밖이면 `CB_OUT_OF_RANGE` 경고. 행 추가라 `AGENTS §4.3`상 버전은 올리지 않는다 (#966) |
 | 2026-09-19 | `#1308` | **v1.31 — §2.15 `app_user.role` 값에 관리자(`ADMIN`) 추가**(마이그레이션 057). 044의 `role` 표기를 「CHECK `chk_app_user_role`」에서 **실제 집행 주체인 트리거 `trg_app_user_role_ins`·`_upd`**로 정정했다 — CUBRID가 CHECK를 구문으로만 받고 검사하지 않아 애초에 존재한 적 없는 제약이었다(`#1058` · `§7.4`). 057이 그 두 트리거를 `('OFFICE', 'FIELD')`에서 **`('OFFICE', 'FIELD', 'ADMIN')`**으로 재생성한다(`CREATE OR REPLACE`가 없어 DROP 후 CREATE). 057 이전에는 `role = 'ADMIN'` INSERT·UPDATE가 REJECT된다. **downgrade는 관리자를 사무직으로 내린 뒤 트리거를 좁힌다**(현장직이 아니다 — `ADMIN`이 `OFFICE`의 상위집합이라 사무직으로 내리는 것이 최소 변경이다) — 누가 관리자였는지가 사라져 `IRREVERSIBLE`. 표기 정정 + 값 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#1301) |
 | 2026-09-20 | `#1317` | **v1.32 — §2.1 `vessel.call_sign VARCHAR(7)` 추가**(마이그레이션 058 · #1197 A단계). 공공데이터포털의 해양수산부 계열 선박 데이터는 IMO가 아니라 **호출부호**로 배를 가리키고, `해양수산부_선박운항정보`는 호출부호가 입력 파라미터라 없으면 질의 자체가 안 된다 — 전수 IMO↔호출부호 레지스트리는 공공데이터에 없어(2026-09-17 실측) 사용자가 넣는 칸을 둔다. 형식은 ITU RR No.19.55(영문 대문자·숫자 4~7자)이며 집행은 055 패턴의 트리거 `trg_chk_call_sign_ins/upd`(`REGEXP BINARY` · 050 선례)가 한다. 「앞 두 글자가 모두 숫자가 아니다」(No.19.50)는 API만 본다 — 대조 키이지 인증서가 아니다. **UNIQUE를 걸지 않는다**(재배정되는 값). 컬럼 추가라 #966(v1.30)과 같은 기준으로 버전을 올린다 (#1197) |
+| 2026-09-20 | `#1319` | **v1.33 — §2.2 `voyage.planned_distance_source VARCHAR(30)` 추가**(마이그레이션 059 · #1052 ⓷ 후속). `PRD §15.2`는 대권거리를 「좌표 기반 추정 거리」라고 표시하라고 정하는데 저장된 항차에는 그 사실이 남지 않았다 — 화면의 `estimated`는 폼의 임시 상태라 저장하면 사라졌다. 값은 `USER_INPUT`(직접 입력 · CSV 가져오기)·`COORDINATE_ESTIMATE`(두 좌표의 대권거리) 둘이고 **`NULL`은 「모른다」**다. 기존 행은 backfill하지 않는다 — 저장된 거리가 대권거리와 비슷하다고 추정으로 되채우면 같은 값을 직접 입력한 사람에게도 「추정값입니다」가 붙는다(`PRD §0.3`). 거리가 바뀌면 옛 출처를 새 값에 남기지 않는다(`API_SPEC §3.4` · 시나리오 채택도 같다). 집행은 055 패턴의 트리거 `trg_chk_planned_distance_source_ins/upd`가 한다. downgrade는 컬럼·트리거만 지우며 그 결과는 059 이전과 같은 「모른다」라 `REGENERABLE`(계산·등급에 들어가지 않는 표시 값). 컬럼 추가라 #966(v1.30)·#1197(v1.32)과 같은 기준으로 버전을 올린다 (#1256) |
 | 2026-09-20 | `#968` | §2.13 `weather_snapshot.source` 값 목록에 **`open_meteo_marine+forecast`**(정상 경로 기본값 — Marine·Forecast 두 엔드포인트를 한 행에 합침) 추가 · 값 표의 정본을 `TECH_SPEC §7.1`로 가리키고, 이 컬럼에 **집행 제약이 없다**는 실측(`1c444a5c4819` CHECK·`046`·`048`·`050` 트리거·ORM 어디에도 없음 — 자유 `VARCHAR(50)`)을 각주로 적었다. 어댑터 `SOURCE_MERGED`가 처음부터 이 값을 저장해 왔으므로 REJECT된 적 없고 마이그레이션 없음. 캐시 각주에 「외부 조회 실패 시에만 본다」 한 줄(`TECH_SPEC §7.3` v1.14). 값 목록 행 갱신이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#968) |

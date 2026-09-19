@@ -115,6 +115,22 @@ async def test_imported_voyage_starts_as_draft_and_excluded(session, vessel_id):
 
 
 @pytest.mark.asyncio
+async def test_imported_distance_is_user_input_not_an_estimate(session, vessel_id):
+    """CSV의 거리는 사람이 적은 숫자다 (#1256 · `PRD §15.2`).
+
+    좌표 열이 없으니 좌표 추정일 수 없고, 「모른다」로 두면 화면이 아무 표시도 못 한다.
+    경로(`IMPORT`)는 `created_from`이 답하고, 이 열은 「그 숫자가 추정인가」만 답한다.
+    """
+    await import_voyages(session, vessel_id, content=csv_bytes("V-1,Busan,Tokyo,1000,13.5,HFO,80"))
+
+    source = await session.scalar(
+        text("SELECT planned_distance_source FROM voyage WHERE vessel_id = :vid"),
+        {"vid": vessel_id},
+    )
+    assert source == "USER_INPUT"
+
+
+@pytest.mark.asyncio
 async def test_numbers_keep_their_precision(session, vessel_id):
     """`float`을 거치면 `13.5`가 `13.499999…`로 들어간다 — `Decimal`로 옮긴다."""
     await import_voyages(

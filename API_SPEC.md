@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.40 |
+| 버전 | v1.41 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1762,6 +1762,7 @@ GET /api/v1/vessels/{vessel_id}/voyages?status=PLANNED&limit=20
       "arrival_lat": 51.9244,
       "arrival_lon": 4.4778,
       "planned_distance_nm": 11000.0,
+      "planned_distance_source": "USER_INPUT",
       "actual_distance_nm": null,
       "planned_speed_kn": 14.0,
       "actual_avg_speed_kn": null,
@@ -1818,6 +1819,7 @@ POST /api/v1/vessels/{vessel_id}/voyages
   "arrival_lat": 51.9244,
   "arrival_lon": 4.4778,
   "planned_distance_nm": 11000.0,
+  "planned_distance_source": "USER_INPUT",
   "planned_speed_kn": 14.0,
   "planned_departure_at": "2026-07-15T00:00:00Z",
   "planned_arrival_at": "2026-08-12T00:00:00Z",
@@ -1832,6 +1834,8 @@ POST /api/v1/vessels/{vessel_id}/voyages
   "notes": "정기 항차"
 }
 ```
+
+> **[#1256] `planned_distance_source`는 선택이며 「그 숫자가 어디서 왔나」다.** `USER_INPUT`(사용자가 직접 넣은 값)과 `COORDINATE_ESTIMATE`(`§3.9`의 대권거리로 채운 값 · `PRD §15.2` 「좌표 기반 추정 거리」) 둘만 받고, 그 밖은 422(`field_label` 「계획 거리 출처」)다. **생략하면 `null` = 「모른다」로 저장한다** — 서버는 호출자가 그 숫자를 어떻게 얻었는지 알 수 없으므로 직접 입력이라고도 추정이라고도 적지 않는다(`PRD §0.3`). 화면(`VoyagePanel`)은 항상 보낸다 — 좌표로 채운 뒤 손대지 않았으면 `COORDINATE_ESTIMATE`, 고쳤으면 `USER_INPUT`. CSV 가져오기(`§8.2`)는 `USER_INPUT`이다(좌표 열이 없으니 추정일 수 없다 · 경로는 `created_from = IMPORT`가 답한다). 시나리오 채택(`§5.2`)은 `null`이다 — 시나리오 행에는 직항 거리가 좌표 추정이었는지가 남아 있지 않다. 화면은 `COORDINATE_ESTIMATE`일 때만 추정 표시를 붙이고 `null`에는 아무것도 붙이지 않는다. `created_from`과 다른 축이다 — 그쪽은 「이 항차가 어느 경로로 들어왔나」다.
 
 > **[EXT-P0-4]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조).
 >
@@ -1852,6 +1856,8 @@ PATCH /api/v1/voyages/{voyage_id}
 모든 필드는 optional. `status` 변경은 §3.5 참조. **생략 = 변경 없음, 명시적 `null` = 클리어**다(#312).
 
 > **[#150]** 대상 필드는 §3.3 요청 본문과 같으므로 **`regulation_year`도 여기서 설정·변경한다.** 주어지면 `VAL-005`로 검증한다. `annual_inclusion_policy ≠ EXCLUDE`인 항차에서 `regulation_year`를 `null`로 지우는 요청은 `DB_SCHEMA`의 `chk_year_policy`를 깨뜨리므로 거부한다.
+
+> **[#1256] `planned_distance_nm`을 바꾸면서 `planned_distance_source`를 생략하면 출처는 `null`(「모른다」)로 돌아간다.** 출처는 항차가 아니라 **숫자에 붙은 표시**다 — 좌표로 채운 항차(`COORDINATE_ESTIMATE`)의 거리를 사람이 고쳤는데 「추정값입니다」가 남아 있으면 `PRD §0.3`이 금하는 거짓말이고, 서버는 새 숫자를 어떻게 얻었는지 모르므로 직접 입력이라고도 적지 않는다(§3.3 생성 기본값과 같은 규칙). 거리와 출처를 **함께** 보내면 그 출처가 붙고, 출처만 보내면(거리 생략) 표시만 바뀌며, 명시적 `null`은 지움이다(#312 규약). 거리를 건드리지 않는 요청은 출처를 그대로 둔다. 시나리오 채택(`§5.2` `UPDATE_EXISTING_PLAN`)도 거리를 갈아 끼우므로 같은 규칙으로 `null`이 된다. **출처 변경은 거리와 같은 상태(`DRAFT`·`PLANNED`)에서만 된다** — 재계산 대상은 아니지만 계획 거리에 붙은 표시라, 확정된 항차의 거리에 사후로 「추정」을 붙이거나 떼면 `422 STATE_TRANSITION_ERROR`다(`#865` 가드와 같은 문구).
 
 ### 3.5 항차 상태 전환
 
@@ -4031,3 +4037,4 @@ POST /api/v1/chat
 | 2026-09-20 | `#1311` | §6.1 `parameters_used` v2 각주 끝에 **스키마 정본이 `TECH_SPEC §5.2.1.2`**임을 적었다 — v2가 이 각주에만 있고 상위 정본 `TECH_SPEC §5.2.1`은 v1 예시뿐이라 우선순위(`AGENTS §3.1`)가 뒤집혀 있었다. 각주 보강이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#1306) |
 | 2026-09-20 | `#1317` | **v1.39 — §2.3 `call_sign` 요청 필드·검증 규칙·예시 등재 · §2.1 선박 객체에 `call_sign` 키 추가 · §2.4 「빈 문자열은 안 바꾼다」 각주 · §11 `VAL-011` 등재**(#1197 A단계). 공공데이터 교차 대조의 키다 — `해양수산부_선박운항정보`가 IMO가 아니라 호출부호로 질의한다(`PRD §15.1` `[#1197]` 각주). 서버가 strip · upper로 접어 저장하므로 `hlxq`·`HLXQ` 두 키로 갈리지 않는다. 형식(ITU RR No.19.55 · 4~7자)과 「앞 두 글자 모두 숫자 불가」(No.19.50)를 422로 돌려주고, 문구는 한국어 정본 문구다(`§1.3.2`). B단계(제공자 계약·응답 파싱)는 공공데이터포털 인증키가 온 뒤라 이 판에 없다. 요청 필드·객체 키 추가라 #966(v1.37)과 같은 기준으로 버전을 올린다 (#1197) |
 | 2026-09-20 | `#1318` | **v1.40 — §8.1·§8.5 CSV 수식 주입 방어를 「모든 셀」에서 「사용자 입력을 반출하는 셀과 라벨」로 좁히고, 수치 열은 렌더러가 숫자로 직렬화함을 규정.** 서버가 `Decimal`에서 만든 음수는 주입 벡터가 아닌데 종전 규정은 `-12.5`도 `'-12.5`로 만들어 스프레드시트가 **문자열로** 읽게 했다 — 지금 열들은 CHECK 제약상 음수가 없어 잠재형이지만 증감 열이 생기는 순간 열 전체가 문자열이 된다. 수치 열인지는 **열 선언으로만**(`TableSection.kinds` · `data_export.NUMERIC_COLUMNS`) 정하고 값 모양은 보지 않는다 — 종전 각주의 「판정기 자체가 취약점」은 그대로 유효하다. 선언된 열에 숫자 문법 밖의 값이 오면 문자열 규칙으로 되돌아간다(fail-closed — 수치 열에 `—`가 실제로 실리므로 `ValueError`로 세우지 않는다). §8.1 「값의 표기」 수치 행에 음수 표기를 보탰다. PDF·HTML과 `§8.2` 가져오기 방어는 무변경. 방어 규칙의 범위 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#1247) |
+| 2026-09-20 | `#1319` | **v1.41 — §3.3 `planned_distance_source` 요청 필드·각주 등재 · §3.1 항차 객체에 `planned_distance_source` 키 추가 · §3.4 「거리를 바꾸면서 출처를 생략하면 `null`로 돌아간다」 각주**(#1052 ⓷ 후속 · 마이그레이션 059). `PRD §15.2`의 「좌표 기반 추정 거리」 표시가 저장된 항차에서는 불가능했다 — 거리 출처가 값으로 없었다. 값은 `USER_INPUT`·`COORDINATE_ESTIMATE` 둘이고 **생략은 `null` = 「모른다」**다(서버는 호출자가 숫자를 어떻게 얻었는지 모르므로 직접 입력으로도 적지 않는다). 화면은 항상 보내고, CSV 가져오기(`§8.2`)는 `USER_INPUT`, 시나리오 채택(`§5.2`)은 `null`이다. 거리가 바뀌면 옛 출처를 새 숫자에 남기지 않는다 — 직접 고친 값에 「추정」이 남는 것이 `PRD §0.3`이 금하는 거짓말이다. 요청 필드·객체 키 추가라 #966(v1.37)·#1197(v1.39)과 같은 기준으로 버전을 올린다 (#1256) |

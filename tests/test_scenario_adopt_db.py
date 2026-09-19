@@ -134,6 +134,29 @@ async def test_adopting_updates_the_voyage_plan(session, vessel_id):
 
 
 @pytest.mark.asyncio
+async def test_adopting_resets_the_distance_source_to_unknown(session, vessel_id):
+    """반영은 거리를 갈아 끼우므로 옛 출처를 새 숫자에 남기지 않는다 (#1256).
+
+    `voyage_scenario` 행에는 직항 거리가 좌표 추정이었는지가 없다 — 그래서 「모른다」다.
+    좌표로 채운 항차(`COORDINATE_ESTIMATE`)에 시나리오 거리를 넣었는데 「추정값입니다」가
+    남으면 `PRD §0.3`이 금하는 거짓말이다(`update_voyage`의 PATCH 규칙과 같다).
+    """
+    voyage_id = await _new_voyage(session, vessel_id)
+    await session.execute(
+        text("UPDATE voyage SET planned_distance_source = 'COORDINATE_ESTIMATE' WHERE id = :id"),
+        {"id": voyage_id},
+    )
+    scenario_id = await _new_scenario(session, vessel_id)
+
+    await adopt_scenario(session, scenario_id, target_voyage_id=voyage_id)
+
+    source = await session.scalar(
+        text("SELECT planned_distance_source FROM voyage WHERE id = :id"), {"id": voyage_id}
+    )
+    assert source is None
+
+
+@pytest.mark.asyncio
 async def test_arrival_time_follows_the_scenario_duration(session, vessel_id):
     """도착 예정 = 출발 예정 + 시나리오 소요 시간.
 

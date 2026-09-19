@@ -31,6 +31,14 @@ export type VoyageStatus =
 export type InclusionPolicy = 'EXCLUDE' | 'INCLUDE_AS_PLAN' | 'INCLUDE_AS_ACTUAL'
 
 /**
+ * 계획 거리의 출처 — `API_SPEC §3.3` `planned_distance_source` (#1256).
+ *
+ * `COORDINATE_ESTIMATE`는 두 좌표의 대권거리로 채운 값이고(`PRD §15.2` 「좌표 기반 추정
+ * 거리」), `USER_INPUT`은 사용자가 직접 넣은 값이다. 서버의 트리거와 같은 두 값이다.
+ */
+export type DistanceSource = 'USER_INPUT' | 'COORDINATE_ESTIMATE'
+
+/**
  * 연료 한 줄.
  *
  * 계획과 실적을 **한 객체에 둘 다** 담는다 — `PRD §8.4`가 둘을 모두 보존하라고
@@ -51,6 +59,12 @@ export interface ManagedVoyage {
   departurePortName: string | null
   arrivalPortName: string | null
   plannedDistanceNm: number | null
+  /**
+   * 계획 거리의 출처 (#1256). **`null`은 「모른다」** — 059 이전 행과 출처 없이 만든
+   * 항차다. 화면은 `COORDINATE_ESTIMATE`일 때만 추정 표시를 붙이고 `null`에는 아무것도
+   * 붙이지 않는다 — 직접 입력한 값에 「추정」이 붙는 것이 `PRD §0.3`이 금하는 거짓말이다.
+   */
+  plannedDistanceSource: DistanceSource | null
   plannedSpeedKn: number | null
   actualDistanceNm: number | null
   actualAvgSpeedKn: number | null
@@ -111,6 +125,12 @@ export interface VoyageDraft {
    */
   departureCoord?: { lat: number; lon: number } | null
   arrivalCoord?: { lat: number; lon: number } | null
+  /**
+   * 계획 거리의 출처 (#1256). 폼은 저장 시점에 **항상** 넣는다 — 「좌표 기반 추정 거리로
+   * 채우기」로 채운 뒤 손대지 않았으면 `COORDINATE_ESTIMATE`, 아니면 `USER_INPUT`.
+   * 없으면 요청에 키를 넣지 않고, 서버는 그것을 「모른다」(`null`)로 저장한다.
+   */
+  plannedDistanceSource?: DistanceSource
 }
 
 /**
