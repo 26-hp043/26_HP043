@@ -22,6 +22,7 @@ import {
 } from './types'
 import './DataQuality.css'
 
+
 /**
  * `UIFLOW 2-11` 데이터 점검 — 선대 계층 (#513).
  *
@@ -126,7 +127,14 @@ function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
         </h2>
         <dl className="dq__tiles">
           {(['SUBSTITUTED', 'UNAVAILABLE', 'ANOMALY'] as const).map((severity) => (
-            <div key={severity} className={`dq__tile dq__tile--${severity.toLowerCase()}`}>
+            <div
+              key={severity}
+              className={`dq__tile${
+                showsSeverity(snapshot.counts[severity])
+                  ? ` dq__tile--${severity.toLowerCase()}`
+                  : ''
+              }`}
+            >
               <dt>{SEVERITY_TITLE[severity]}</dt>
               <dd>
                 {snapshot.counts[severity]}
@@ -205,10 +213,51 @@ function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
   )
 }
 
+/**
+ * 심각도 색을 붙일 조건 (#1288).
+ *
+ * ## 0건이면 붙이지 않는다
+ *
+ * 종전에는 건수를 보지 않고 심각도 변형을 늘 달아, **0건인 칸도 좌측에 위험색 띠**를
+ * 갖고 있었다. 요약 4칸 중 3칸이 경고색이라 실제로 볼 것이 있는 칸이 묻혔다.
+ *
+ * 색은 **심각도 신호**다 — 「색이 있다 = 볼 것이 있다」. 분류 키가 아니다. 근거:
+ * 클래스 이름이 그룹명이 아니라 심각도이고, `UNCONFIRMED`는 원래부터 중립색이며,
+ * `DESIGN_SYSTEM §16` 항목 8이 「색은 **면이 중립, 아이콘·문구만 위험색**」으로
+ * 정했다(`#694`).
+ *
+ * **대가는 같은 그룹의 색이 날마다 달라지는 것**이고, 의도한 것이다. 그룹이
+ * 무엇인지는 제목과 `SEVERITY_MEANING` 한 줄이 계속 말한다.
+ *
+ * ## 중립 클래스를 새로 만들지 않는다
+ *
+ * `.dq__tile`·`.dq__group` 기본 규칙이 이미 `--color-border`로 4px 띠를 그린다.
+ * 변형을 **빼기만** 하면 그 중립이 드러난다.
+ *
+ * ## ⚠️ 클래스 이름 조립을 이 함수로 가져오지 않는다
+ *
+ * 처음에 `severityClass(block, severity, count)`로 이름까지 만들었더니
+ * **`deadCss.test.ts`가 `.dq__tile--substituted` 넷을 죽은 클래스로 잡았다.**
+ * 그 가드는 ``` `x--${` ``` 처럼 **리터럴 접두가 템플릿에 보일 때만** 동적 조립으로
+ * 인정한다(`deadCss.test.ts`의 `dynamicPrefixes`). 접두가 변수(`${block}--`)가 되면
+ * 그 근거가 사라진다.
+ *
+ * 그래서 **판단만 여기에 두고 이름은 부르는 쪽에 리터럴로 남긴다.** 규칙이 한
+ * 곳이라는 목적은 그대로 지켜진다.
+ */
+function showsSeverity(count: number): boolean {
+  return count > 0
+}
+
 function IssueGroup({ severity, issues }: { severity: Severity; issues: DataQualityIssue[] }) {
   const titleId = `dq-group-${severity.toLowerCase()}`
   return (
-    <section className={`dq__group dq__group--${severity.toLowerCase()}`} aria-labelledby={titleId}>
+    <section
+      className={`dq__group${
+        showsSeverity(issues.length) ? ` dq__group--${severity.toLowerCase()}` : ''
+      }`}
+      aria-labelledby={titleId}
+    >
       <h3 id={titleId} className="dq__group-title">
         {SEVERITY_TITLE[severity]}
         <span className="dq__group-count">

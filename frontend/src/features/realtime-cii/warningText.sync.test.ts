@@ -11,7 +11,7 @@ import { WARNING_MESSAGE } from '../voyage-cii/resultRules'
  *
  * ## 무엇이 문제였나
  *
- * 이 화면은 자기 문구 맵(`WARNING_TEXT`, 7종)을 갖고 `?? code`로 폴백했다. 서버가
+ * 이 화면은 자기 문구 맵(`WARNING_TEXT`)을 갖고 `?? code`로 폴백했다. 서버가
  * 내는 코드는 그보다 많아서, 사용자가 실시간 CII 화면에서 **`COMPLETED_NO_DISTANCE`
  * 라는 영문 대문자를 그대로** 봤다 — 실거리가 비어 계획거리로 대체된 완료 항차가
  * 하나라도 있으면 발동한다(`services/ytd_cii.py`).
@@ -30,6 +30,13 @@ import { WARNING_MESSAGE } from '../voyage-cii/resultRules'
  * 로컬 맵을 지우지 않은 이유는 두 맵의 문구가 2종에서 다르고(`REFERENCE_ONLY`·
  * `COMPLETED_NO_FUEL`), 화면 문구가 `AGENTS §3.2.2`상 디자인 소관이기 때문이다.
  * 대신 로컬 맵이 **정본에 없는 코드를 발명하지 않았는지**를 함께 본다.
+ *
+ * ## 사본은 소스로 본다 (#1292)
+ *
+ * 종전에 로컬 맵이 7종이었는데 **5종이 폴백과 글자까지 같았다.** 그런 항목은
+ * `warningText()`로는 **보이지 않는다** — 로컬에서 나온 값과 폴백에서 나온 값이
+ * 같은 문자열이라 동작이 구분되지 않는다. 그래서 여기서만 **소스를 읽는다.**
+ * `deadCss.test.ts`·`a11yWiring.test.ts`가 같은 이유로 소스를 보는 것과 같다.
  */
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -90,5 +97,58 @@ describe('실시간 CII 화면이 경고 코드를 원문으로 노출하지 않
   it('정본에 없는 코드가 오면 코드 자체를 보인다 — 조용히 감추지 않는다', () => {
     // `#630`의 판단과 같다. 감추면 경고가 사라진 것과 구분되지 않는다.
     expect(warningText('BRAND_NEW_CODE')).toBe('BRAND_NEW_CODE')
+  })
+})
+
+/**
+ * 「화면 맞춤」이라는 이름값을 지킨다 (#1292).
+ *
+ * 폴백과 같은 문구를 로컬 맵에 두면 지워도 화면이 안 바뀌는 **사본**이 된다.
+ * `API_SPEC §1.6`이 개정되면 `WARNING_MESSAGE`만 따라가고 이쪽은 조용히 낡는다.
+ *
+ * 사본이 생긴 경위는 순서다 — `#649`·`#653`이 항목을 넣을 때는 폴백이 없어
+ * 여기 없으면 원문 코드가 화면에 나왔다. `#822`가 폴백을 만들며 그 이유가
+ * 사라졌는데 항목은 남았다.
+ */
+describe('로컬 문구 맵에 폴백과 같은 문구를 두지 않는다 (#1292)', () => {
+  /** 소스에서 `WARNING_TEXT` 리터럴을 떼어 낸다 — `export`하지 않는 맵이다(`#594`). */
+  function localEntries(): Record<string, string> {
+    const file = join(HERE, 'realtimeRules.ts')
+    const src = readFileSync(file, 'utf-8')
+    const at = src.indexOf('const WARNING_TEXT')
+    expect(at, '`WARNING_TEXT` 선언을 찾지 못했다').toBeGreaterThan(-1)
+
+    const open = src.indexOf('{', at)
+    let depth = 0
+    let end = open
+    for (; end < src.length; end++) {
+      if (src[end] === '{') depth++
+      else if (src[end] === '}') {
+        depth--
+        if (depth === 0) break
+      }
+    }
+    const body = src.slice(open, end)
+    const found: Record<string, string> = {}
+    for (const m of body.matchAll(/(?:^|\n)\s*([A-Z_0-9]+):\s*\n?\s*'((?:[^'\\]|\\.)*)'/g)) {
+      found[m[1]] = m[2]
+    }
+    return found
+  }
+
+  it('파싱 자체가 실패하지 않았다', () => {
+    // 이 단언이 없으면 정규식이 깨진 순간부터 아래 대조가 무의미해진다.
+    expect(Object.keys(localEntries()).length).toBeGreaterThan(0)
+  })
+
+  it('⚠️ 로컬 맵의 모든 항목이 폴백과 다르다 — 같으면 사본이다', () => {
+    const copies = Object.entries(localEntries())
+      .filter(([code, text]) => WARNING_MESSAGE[code] === text)
+      .map(([code]) => code)
+      .sort()
+    expect(
+      copies,
+      `폴백과 글자까지 같아 지워도 화면이 바뀌지 않습니다 — 지우세요: ${copies.join(', ')}`,
+    ).toEqual([])
   })
 })
