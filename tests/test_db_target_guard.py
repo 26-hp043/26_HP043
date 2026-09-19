@@ -50,8 +50,8 @@ class TestDatabaseName:
             ("postgresql://u:p@host/only_db", "only_db"),
             # 지금 실제로 쓰는 표기 (`#1058`). PostgreSQL 행을 남겨 두는 것은
             # **판정이 스킴에 흔들리지 않는다**는 것이 이 검사의 주장이기 때문이다.
-            ("cubrid+aiopycubrid://dba:@localhost:33100/cii", "cii"),
-            ("cubrid+aiopycubrid://dba:@localhost:33100/cii_test", "cii_test"),
+            ("cubrid+pycubrid://dba:@localhost:33100/cii", "cii"),
+            ("cubrid+pycubrid://dba:@localhost:33100/cii_test", "cii_test"),
             ("cubrid://dba:@db:33000/cii_test", "cii_test"),
         ],
     )
@@ -68,11 +68,11 @@ class TestIsDisposable:
     def test_test_suffix_is_allowed(self):
         assert is_disposable("postgresql://u:p@h:5432/cii_test")
         assert is_disposable("postgresql+asyncpg://u:p@h:5432/anything_test")
-        assert is_disposable("cubrid+aiopycubrid://dba:@localhost:33100/cii_test")
+        assert is_disposable("cubrid+pycubrid://dba:@localhost:33100/cii_test")
 
     def test_the_cubrid_development_database_is_not_allowed(self):
         # 전환 뒤 로컬 개발 DB가 실제로 이 모양이다 (`#1058`).
-        assert not is_disposable("cubrid+aiopycubrid://dba:@localhost:33100/cii")
+        assert not is_disposable("cubrid+pycubrid://dba:@localhost:33100/cii")
 
     def test_dev_database_is_not_allowed(self):
         # 이 이름이 실제로 데이터를 잃은 대상이다.

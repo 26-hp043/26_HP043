@@ -23,7 +23,7 @@ command -v docker >/dev/null 2>&1 || DOCKER="/mnt/c/Program Files/Docker/Docker/
 
 VENV="$ROOT/.venv/bin"
 CUBRID_DB="${CUBRID_DB:-cii}"
-DB_URL="cubrid+aiopycubrid://dba:@localhost:33100/$CUBRID_DB"
+DB_URL="cubrid+pycubrid://dba:@localhost:33100/$CUBRID_DB"
 CHECK_ONLY="${1:-}"
 
 # --- .venv 확인 -----------------------------------------------------------------------

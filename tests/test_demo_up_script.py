@@ -411,6 +411,6 @@ def test_cubrid_tooling_is_present():
     """
     code = "\n".join(_code_lines())
 
-    assert "cubrid+aiopycubrid://" in code, "CUBRID 접속 URL이 없습니다."
+    assert "cubrid+pycubrid://" in code, "CUBRID 접속 URL이 없습니다."
     assert "csql" in code, "csql 호출이 없습니다 — DB에 직접 묻는 경로가 사라졌습니다."
     assert "db_root" in code, "CUBRID 준비 대기(SELECT 1 FROM db_root)가 없습니다."

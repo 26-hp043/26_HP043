@@ -27,7 +27,7 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: cubrid+aiopycubrid://dba:@db:33000/${CUBRID_DB:-cii}
+      DATABASE_URL: cubrid+pycubrid://dba:@db:33000/${CUBRID_DB:-cii}
     depends_on:
       db:
         condition: service_healthy

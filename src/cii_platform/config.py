@@ -128,7 +128,7 @@ def exposes_dev_surfaces(app_env: str) -> bool:
 _ENV = normalize_app_env(os.environ.get("APP_ENV"))
 
 # 로컬 개발용 기본 접속 URL. docker-compose.yml · .env.example과 같은 값이다.
-_DEFAULT_DATABASE_URL = "cubrid+aiopycubrid://dba:@localhost:33000/cii"
+_DEFAULT_DATABASE_URL = "cubrid+pycubrid://dba:@localhost:33000/cii"
 
 _url = os.environ.get("DATABASE_URL")
 
