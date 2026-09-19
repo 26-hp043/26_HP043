@@ -44,6 +44,7 @@ from cii_platform.auth.middleware import auth_middleware
 from cii_platform.auth.role_bootstrap import validate_initial_admin
 from cii_platform.auth.signup_gate import validate_signup_gate
 from cii_platform.config import should_expose_api_docs, validate_public_base_url
+from cii_platform.geocode.nominatim import NominatimProvider
 from cii_platform.log_config import setup_logging
 from cii_platform.mail.config import load_mail_settings
 
@@ -155,6 +156,10 @@ app.middleware("http")(auth_middleware)
 # 계산 경로에는 정본이 규정한 60이 적용되지 않았다.
 app.state.rate_limiter = RateLimiter(RateLimits.from_env())
 app.middleware("http")(rate_limit_middleware)
+# 항만 좌표 조회 제공자 — **프로세스에 하나** (`#1335`). 공개 Nominatim의 「초당 1회」는
+# 어댑터 인스턴스 안의 락·직전 호출 시각으로 강제되므로, 라우트가 요청마다 새로 만들면
+# 상한이 한 번도 걸리지 않는다. 라우트는 `request.app.state`에서 이것을 꺼내 쓴다.
+app.state.geocode_provider = NominatimProvider()
 app.add_middleware(RequestContextMiddleware)
 
 # CORS — Cloudflare Pages에서 cross-origin 접근을 허용한다.

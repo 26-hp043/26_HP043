@@ -81,10 +81,21 @@ class GeocodeProvider(Protocol):
 
 
 class NominatimProvider:
-    """공개 Nominatim 어댑터. **초당 1회**를 프로세스 안에서 강제한다."""
+    """공개 Nominatim 어댑터. **초당 1회**를 프로세스 안에서 강제한다.
 
-    def __init__(self, client_factory=None) -> None:
+    간격을 재는 락과 직전 호출 시각은 **인스턴스 필드**다. 그래서 프로세스에 **한
+    인스턴스**만 두고 모든 요청이 그것을 써야 정책이 지켜진다 — 앱은 `api/main.py`가
+    `app.state.geocode_provider`에 하나를 만들어 두고 라우트가 꺼내 쓴다. 요청마다 새로
+    만들면 시각이 매번 0으로 돌아가 상한이 한 번도 걸리지 않는다 (`#1335`).
+
+    ``clock``·``sleep``은 테스트가 가짜 시계를 끼우는 자리다 — 실제로 1초를 기다리지
+    않고도 간격이 강제되는지 본다.
+    """
+
+    def __init__(self, client_factory=None, *, clock=None, sleep=None) -> None:
         self._client_factory = client_factory or (lambda: httpx.AsyncClient(timeout=10.0))
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or asyncio.sleep
         self._lock = asyncio.Lock()
         self._last_call = 0.0
 
@@ -94,10 +105,10 @@ class NominatimProvider:
         **락 안에서 잰다** — 동시에 들어온 두 요청이 각자 「1초 지났다」고 판단하면
         정책을 어긴다. 대기는 요청 하나를 늦출 뿐 계산을 막지 않는다.
         """
-        elapsed = time.monotonic() - self._last_call
+        elapsed = self._clock() - self._last_call
         if elapsed < MIN_INTERVAL_SECONDS:
-            await asyncio.sleep(MIN_INTERVAL_SECONDS - elapsed)
-        self._last_call = time.monotonic()
+            await self._sleep(MIN_INTERVAL_SECONDS - elapsed)
+        self._last_call = self._clock()
 
     async def lookup(self, name: str) -> GeocodeResult | None:
         """이름 하나를 조회한다. 항만이 아니거나 결과가 없으면 ``None``.

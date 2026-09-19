@@ -14,19 +14,26 @@
 3. **항만이 아닌 결과는 버린다** — 「부산」은 도시이기도 하다
 4. 조회가 실패해도 **계산을 막지 않는다** — 이유를 구분해 돌려준다
 
-케이스: IT-GEO-001 ~ IT-GEO-008 (`TEST_PLAN §3.12`)
+5. 제공자는 **프로세스에 하나**다 — 요청마다 새로 만들면 「초당 1회」 시각이 매번 0으로
+   돌아가 상한이 한 번도 걸리지 않는다(`#1335`). 라우트 두 번이 한 인스턴스를 쓰는지,
+   동시에 들어온 조회가 간격을 지키는지 **가짜 시계**로 본다(실제로 기다리지 않는다)
+
+케이스: IT-GEO-001 ~ IT-GEO-011 (`TEST_PLAN §3.12`)
 """
 
 from __future__ import annotations
 
+import asyncio
 from decimal import Decimal
 
 import httpx
 import pytest
 import pytest_asyncio
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.main import API_V1_PREFIX, app
 from cii_platform.geocode.nominatim import (
     MIN_INTERVAL_SECONDS,
     USER_AGENT,
@@ -205,3 +212,138 @@ async def test_calls_are_spaced_by_the_policy_interval():
     elapsed = time.monotonic() - started
 
     assert elapsed >= MIN_INTERVAL_SECONDS
+
+
+# ── 제공자는 프로세스에 하나다 (`#1335`) ──────────────────────────────────────────
+#
+# 「초당 1회」는 어댑터 **인스턴스 안의** 락·직전 호출 시각으로 강제된다. 라우트가 요청마다
+# 새 인스턴스를 만들면 시각이 매번 0으로 돌아가 상한이 한 번도 걸리지 않는다 — 감사에서
+# 요청별 5회가 0.001초 안에 나갔다. 아래는 실제로 1초를 기다리지 않고 **가짜 시계**로 본다.
+
+
+class _FakeClock:
+    """가짜 시계. ``sleep``이 시각을 앞당길 뿐 기다리지 않는다 — 검사가 1초씩 늘지 않는다."""
+
+    def __init__(self, start: float = 100.0) -> None:
+        self.now = start
+        self.sleeps: list[float] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+        # 다른 태스크에 차례를 넘긴다 — 동시 요청 검사가 실제 경합을 거치게 한다.
+        await asyncio.sleep(0)
+
+
+def _provider_with_clock(rows, clock: _FakeClock) -> tuple[NominatimProvider, list[float]]:
+    """가짜 시계 + 가짜 HTTP. **바깥으로 나간 시각**을 기록한다 — 간격은 그 차이로 본다."""
+    sent_at: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent_at.append(clock.now)
+        return httpx.Response(200, json=rows)
+
+    provider = NominatimProvider(
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    return provider, sent_at
+
+
+#: 라우트 검사가 쓰는 이름의 접두. 앱 엔진으로 커밋되므로 끝나고 이 접두로 지운다.
+_ROUTE_PREFIX = "TEST PORT ROUTE"
+
+
+@pytest_asyncio.fixture
+async def shared_provider(migrated_db, app_fresh_engine):
+    """앱의 **공유 제공자**를 가짜 시계·가짜 HTTP로 바꾼다.
+
+    `conftest._fresh_rate_limiter`와 같은 수법 — 라우트가 요청마다 ``app.state``를 다시
+    읽으므로 교체가 그대로 든다. 끝나면 되돌리고, 이 파일이 앱 엔진으로 심은 행만 지운다.
+    """
+    from cii_platform.db.session import get_sessionmaker
+
+    async def clear_rows() -> None:
+        async with get_sessionmaker()() as db:
+            await db.execute(
+                text('DELETE FROM port_geocode WHERE "query" LIKE :p'), {"p": f"{_ROUTE_PREFIX}%"}
+            )
+            await db.commit()
+
+    # 앞선 실행이 정리 전에 죽었으면 캐시가 먼저 답해 조회 경로가 검사되지 않는다.
+    await clear_rows()
+    clock = _FakeClock()
+    provider, sent_at = _provider_with_clock([_HARBOUR_ROW], clock)
+    previous = getattr(app.state, "geocode_provider", None)
+    app.state.geocode_provider = provider
+    try:
+        yield provider, clock, sent_at
+    finally:
+        app.state.geocode_provider = previous
+        await clear_rows()
+
+
+def _lookup(client: TestClient, name: str) -> httpx.Response:
+    return client.get(f"{API_V1_PREFIX}/ports/lookup", params={"name": name})
+
+
+async def test_the_route_shares_one_provider_across_requests(shared_provider):
+    """IT-GEO-009 — 라우트 두 번이 **한 제공자**를 쓴다. 두 번째 외부 호출이 1초 뒤에 나간다.
+
+    요청마다 새 인스턴스를 만들면 ``app.state``의 가짜 제공자는 쓰이지도 않고, 두 번째
+    호출은 기다리지 않는다 — 그 상태가 `#1335`다.
+    """
+    provider, clock, sent_at = shared_provider
+
+    with TestClient(app, base_url="https://testserver") as client:
+        client.post(f"{API_V1_PREFIX}/auth/dev-login", json={})
+        first = _lookup(client, f"{_ROUTE_PREFIX} A")
+        second = _lookup(client, f"{_ROUTE_PREFIX} B")
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["data"]["source"] == SOURCE_LOOKUP
+    assert second.json()["data"]["source"] == SOURCE_LOOKUP
+    assert app.state.geocode_provider is provider
+    assert len(sent_at) == 2
+    assert sent_at[1] - sent_at[0] >= MIN_INTERVAL_SECONDS
+    assert clock.sleeps == pytest.approx([MIN_INTERVAL_SECONDS])
+
+
+async def test_concurrent_lookups_are_spaced_by_the_interval():
+    """IT-GEO-010 — **동시에** 들어온 세 조회도 바깥으로는 1초 간격으로 나간다.
+
+    락 없이 각자 「1초 지났다」고 재면 셋이 같은 시각에 나간다. 가짜 시계라 실제로는
+    기다리지 않는다.
+    """
+    clock = _FakeClock()
+    provider, sent_at = _provider_with_clock([_HARBOUR_ROW], clock)
+
+    results = await asyncio.gather(provider.lookup("A"), provider.lookup("B"), provider.lookup("C"))
+
+    assert all(result is not None for result in results)
+    assert len(sent_at) == 3
+    gaps = [later - earlier for earlier, later in zip(sent_at, sent_at[1:], strict=False)]
+    assert all(gap >= MIN_INTERVAL_SECONDS for gap in gaps), gaps
+    assert clock.sleeps == pytest.approx([MIN_INTERVAL_SECONDS, MIN_INTERVAL_SECONDS])
+
+
+async def test_the_route_answers_from_cache_without_a_second_call(shared_provider):
+    """IT-GEO-011 — 같은 이름을 두 번 물으면 두 번째는 **캐시**다. 바깥으로 한 번만 나간다."""
+    _provider, clock, sent_at = shared_provider
+
+    with TestClient(app, base_url="https://testserver") as client:
+        client.post(f"{API_V1_PREFIX}/auth/dev-login", json={})
+        first = _lookup(client, f"{_ROUTE_PREFIX} CACHE")
+        second = _lookup(client, f"{_ROUTE_PREFIX} CACHE")
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["data"]["source"] == SOURCE_LOOKUP
+    assert second.json()["data"]["source"] == SOURCE_CACHE
+    assert len(sent_at) == 1
+    assert clock.sleeps == []
