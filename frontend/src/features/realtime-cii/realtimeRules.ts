@@ -43,31 +43,33 @@ export const PROJECTION_REASONS: Readonly<Record<string, string>> = {
 }
 
 /**
- * 경고 코드의 사람 말.
+ * 이 화면에서만 달리 적는 경고 문구.
  *
- * `SIMULATION_NO_FUEL_*`는 **행동을 안내해야 한다.** 「값이 안 변한다」로만 적으면
- * 사용자는 기다리고, 실제로는 제원을 채워야 한다.
+ * `REFERENCE_ONLY`는 이 화면이 **실시간 누적값**을 보여 주는 자리라 「본 화면의 값은」으로
+ * 시작해야 하고, `COMPLETED_NO_FUEL`은 여기서 **이미 일어난 대체**를 말한다(기능①은
+ * 「임시 사용 중」이라는 진행형이다).
+ *
+ * ## 폴백과 같은 문구를 두지 않는다 (#1292)
+ *
+ * 종전에는 7종이었는데 **5종이 `warningMessage()`와 글자까지 같았다.** 지워도 화면이
+ * 한 글자도 바뀌지 않는 사본이었고, `API_SPEC §1.6`이 개정되면 `WARNING_MESSAGE`만
+ * 따라가 **이쪽이 조용히 낡는** 자리였다.
+ *
+ * 사본이 생긴 경위는 순서다 — `#649`·`#653`이 항목을 넣을 당시에는 **폴백이 없어서**
+ * (`?? code`) 여기 없으면 원문 코드가 화면에 나왔다. `#822`가 폴백을 만들면서 그 이유가
+ * 사라졌는데 항목은 남았다.
+ *
+ * `warningTextIsTailored` 검사가 사본이 다시 생기는 것을 막는다.
+ *
+ * `SIMULATION_NO_FUEL_*`가 **행동을 안내해야 한다**는 판단은 그대로다 — 다만 그 문구는
+ * 이제 `WARNING_MESSAGE`에 같은 내용으로 있고, 여기서 다시 적을 이유가 없다.
  */
 // 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
+// 검사는 `realtimeRules.test.ts`가 `warningText()`를 통해 본다.
 const WARNING_TEXT: Readonly<Record<string, string>> = {
   REFERENCE_ONLY: '본 화면의 값은 참고용 예측값이며 규제 제출용 공식 결과가 아닙니다.',
-  SIMULATION_NO_FUEL_RATE:
-    '선박에 기준 일일 연료소모량이 등록되지 않아 진행 중 항차분이 누적에 반영되지 않았습니다. 선박 제원을 입력해 주세요.',
-  SIMULATION_NO_FUEL_TYPE:
-    '진행 중 항차의 연료 종류를 알 수 없어 진행분이 누적에 반영되지 않았습니다. 항차에 연료를 입력하거나 선박 기본 연료를 지정해 주세요.',
   COMPLETED_NO_FUEL:
     '완료된 항차 일부에 실적 연료가 없어 계획값으로 대신 계산했습니다.',
-  // `#649` — 이 화면이 진행 중 항차의 누적을 보여 주는 자리다. 예정일에서 잘렸는데
-  // 그 사실이 없으면 사용자는 값이 멈춘 것을 「항차가 끝났나」로 읽는다.
-  IN_PROGRESS_PAST_ETA:
-    '진행 중 항차가 도착 예정일을 지났습니다. 누적은 예정일까지만 반영했으며, 도착 실적을 입력하면 확정됩니다.',
-  // --- CII 적용 대상 (`#653`) ---
-  //
-  // 이 화면은 선박 하나의 값을 실시간으로 보여 주는 자리라, 그 값이 규제상
-  // 무의미할 수 있다는 사실이 **여기 없으면 어디에도 없다**.
-  NON_CII_VESSEL: '공식 CII 적용 대상이 아닐 수 있습니다.',
-  CII_APPLICABILITY_UNKNOWN:
-    '총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.',
 }
 
 /**
@@ -86,10 +88,11 @@ const WARNING_TEXT: Readonly<Record<string, string>> = {
  *
  * ## 왜 위 맵을 지우고 완전히 위임하지 않는가
  *
- * 두 맵의 문구가 2종에서 다르다(`REFERENCE_ONLY`·`COMPLETED_NO_FUEL`). 화면 문구는
- * `AGENTS §3.2.2`상 **디자인 소관**이고, 이 파일의 머리주석이 *「`SIMULATION_NO_FUEL_*`는
- * 행동을 안내해야 한다」*며 그 화면의 문구를 의도적으로 골랐다고 적고 있다. 구현이
- * 임의로 통일할 사안이 아니다.
+ * 두 맵의 문구가 **2종에서 다르다**(`REFERENCE_ONLY`·`COMPLETED_NO_FUEL`). 화면 문구는
+ * `AGENTS §3.2.2`상 **디자인 소관**이라 구현이 임의로 통일할 사안이 아니다.
+ *
+ * `#1292`에서 **같았던 5종은 지웠다** — 위 맵 주석. 지금 `WARNING_TEXT`에 남은 것은
+ * 「다른 문구」뿐이고, 그것이 이 맵이 존재하는 이유 전부다.
  */
 export function warningText(code: string): string {
   return WARNING_TEXT[code] ?? warningMessage(code)
