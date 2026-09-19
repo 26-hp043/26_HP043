@@ -23,7 +23,10 @@ command -v docker >/dev/null 2>&1 || DOCKER="/mnt/c/Program Files/Docker/Docker/
 
 VENV="$ROOT/.venv/bin"
 CUBRID_DB="${CUBRID_DB:-cii}"
-DB_URL="cubrid+pycubrid://dba:@localhost:33100/$CUBRID_DB"
+# 호스트 포트는 `docker-compose.yml`의 `33100:33000`을 따른다. 접속 URL과 아래
+# 포트 진단이 **같은 값**을 보도록 한 곳에 둔다 (`#1294`).
+DB_PORT="${DB_PORT:-33100}"
+DB_URL="cubrid+pycubrid://dba:@localhost:$DB_PORT/$CUBRID_DB"
 CHECK_ONLY="${1:-}"
 
 # --- .venv 확인 -----------------------------------------------------------------------
@@ -79,10 +82,60 @@ ok "Docker 응답함"
 # --- 2. CUBRID -----------------------------------------------------------------
 
 step "2. CUBRID"
+
+# 호스트 포트를 쥔 **다른** 컨테이너를 짚어 준다 (`#1294`).
+#
+# 2026-09-19에 수동 생성된 `cii-cubrid-test`가 33100을 물고 있어 `cii-cubrid`가
+# 뜨지 못했다. 그때 화면에 남은 것은 「docker compose up 실패」 한 줄뿐이라
+# **원인을 찾는 데 20분이 걸렸다** — 실제 사유(`Bind for 0.0.0.0:33100 failed:
+# port is already allocated`)는 이 스크립트가 `>/dev/null 2>&1`로 버리고 있었다.
+#
+# compose가 만든 `cii-cubrid`는 제외한다. 그것이 포트를 쥐고 있는 것은 **정상**이며,
+# 자기 자신을 범인으로 지목하면 안내가 오히려 사람을 헤매게 한다.
+port_holder() {
+  "$DOCKER" ps --filter "publish=$DB_PORT" --format '{{.Names}}\t{{.Image}}\t{{.Status}}' \
+    2>/dev/null | awk -F'\t' '$1 != "cii-cubrid"' || true
+}
+
+# 포트 바인딩에 실패한 채 healthy로 뜨는 중간 상태 (`#1294`).
+#
+# compose가 재생성 중 바인딩에 실패하면 `docker ps`의 `Ports` 열이 **빈 채로**
+# 컨테이너가 healthy하게 남는다. `HostConfig.PortBindings`에는 포트가 있는데
+# 호스트는 듣지 않는다 — 이 상태에서 3단계 이후가 `localhost:$DB_PORT`로
+# **다른 DB에 붙을 수 있다.** `--force-recreate`로만 풀린다.
+warn_unbound_container() {
+  ports=$("$DOCKER" ps --filter 'name=^cii-cubrid$' --format '{{.Ports}}' 2>/dev/null)
+  running=$("$DOCKER" ps --filter 'name=^cii-cubrid$' --format '{{.Names}}' 2>/dev/null)
+  if [ -n "$running" ] && [ -z "$ports" ]; then
+    bad "cii-cubrid가 떠 있는데 호스트 포트가 바인딩되지 않았습니다."
+    info "이 상태에서는 localhost:$DB_PORT가 **다른 DB**를 가리킬 수 있습니다."
+    info "다음으로 다시 만드십시오:"
+    info "  $DOCKER compose up -d --force-recreate db"
+    return 1
+  fi
+  return 0
+}
+
 if [ "$CHECK_ONLY" != "--check" ]; then
-  "$DOCKER" compose up -d db >/dev/null 2>&1 || {
-    bad "docker compose up 실패"; exit 1;
+  "$DOCKER" compose up -d db >/tmp/demo_db.log 2>&1 || {
+    bad "docker compose up 실패 — /tmp/demo_db.log 참조"
+    tail -5 /tmp/demo_db.log
+    holders=$(port_holder)
+    if [ -n "$holders" ]; then
+      info "호스트 포트 $DB_PORT을(를) 다른 컨테이너가 쥐고 있습니다:"
+      printf '%s\n' "$holders" | while IFS= read -r line; do info "  $line"; done
+      info "그 컨테이너를 멈추거나(docker stop <이름>) DB_PORT를 바꿔 다시 시도하십시오."
+    fi
+    exit 1
   }
+fi
+
+# 기동했든 이미 떠 있든 확인한다 — `--check`에서도 돈다. 기동 전에 알 수 있어야 한다.
+warn_unbound_container || exit 1
+holders=$(port_holder)
+if [ -n "$holders" ]; then
+  info "참고 — 포트 $DB_PORT을(를) 쥔 다른 컨테이너가 있습니다:"
+  printf '%s\n' "$holders" | while IFS= read -r line; do info "  $line"; done
 fi
 
 # healthcheck가 통과할 때까지 기다린다. 컨테이너가 '떴다'와 '접속 가능하다'는 다르다.

@@ -416,6 +416,90 @@ def test_cubrid_tooling_is_present():
     assert "db_root" in code, "CUBRID 준비 대기(SELECT 1 FROM db_root)가 없습니다."
 
 
+def _step_two() -> str:
+    """2단계(`step "2. CUBRID"`) 본문. 여러 검사가 공유하므로 한 곳에서 떼어낸다."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    return text.split('step "2. CUBRID"', 1)[1].split('step "3.', 1)[0]
+
+
+def test_step_two_keeps_the_real_failure_reason():
+    """2단계가 `docker compose up`의 **실제 사유를 버리지 않는다** (#1294).
+
+    종전에는 `>/dev/null 2>&1`로 흘려 보내고 「docker compose up 실패」 한 줄만
+    남겼다. 2026-09-19에 그 한 줄 때문에 원인을 찾는 데 20분이 걸렸다 — 실제 사유는
+    `Bind for 0.0.0.0:33100 failed: port is already allocated`였다.
+
+    다른 단계들이 `/tmp/demo_*.log`를 남기는 것과 **같은 방식**으로 맞춘다.
+    """
+    step = _step_two()
+
+    assert "/tmp/demo_db.log" in step, "실패 사유를 남길 로그 파일이 없습니다."
+    assert "compose up -d db >/dev/null 2>&1" not in step, (
+        "`docker compose up`의 사유를 여전히 버리고 있습니다 (#1294)."
+    )
+    assert "tail -5 /tmp/demo_db.log" in step, "실패 시 로그를 보여 주지 않습니다."
+
+
+def test_step_two_names_the_container_holding_the_port():
+    """포트를 **누가** 쥐고 있는지 짚어 준다 (#1294).
+
+    「포트가 물려 있다」까지만 말하면 다음 행동이 나오지 않는다. 범인은 대개
+    수동으로 만든 다른 CUBRID 컨테이너이고, 이름을 알아야 멈출 수 있다.
+
+    ⚠️ **자기 자신(`cii-cubrid`)은 빼야 한다.** compose가 만든 그 컨테이너가 포트를
+    쥐고 있는 것은 정상이며, 그것을 범인으로 지목하면 안내가 사람을 헤매게 한다.
+    """
+    step = _step_two()
+
+    assert "--filter" in step and "publish=" in step, (
+        "포트를 쥔 컨테이너를 찾는 조회가 없습니다 (docker ps --filter publish=…)."
+    )
+    assert '$1 != "cii-cubrid"' in step, "자기 자신을 범인으로 지목하지 않는지 확인하십시오."
+    assert "docker stop" in step, "멈추는 방법을 알려 주지 않습니다."
+
+
+def test_port_diagnosis_also_runs_in_check_mode():
+    """`--check`에서도 같은 진단이 돈다 — **기동 전에** 알 수 있어야 한다 (#1294).
+
+    진단이 실패 경로에만 있으면 「띄워 봐야 안다」가 된다. `--check`의 계약은
+    「기동하지 않고 상태만 본다」이고, 포트를 누가 쥐었는지는 띄우지 않고도 보인다.
+    """
+    step = _step_two()
+    # `CHECK_ONLY` 분기 **밖**에서 한 번 더 부른다.
+    after = step.split('if [ "$CHECK_ONLY" != "--check" ]; then', 1)[1]
+    tail = after.split("fi", 1)[1]
+
+    assert "port_holder" in tail, "--check 경로에서 포트 진단이 돌지 않습니다."
+    assert "warn_unbound_container" in tail, "--check 경로에서 바인딩 확인이 돌지 않습니다."
+
+
+def test_step_two_detects_the_bound_but_unpublished_state():
+    """`Ports`가 빈 채 healthy한 중간 상태를 잡는다 (#1294).
+
+    compose가 재생성 중 바인딩에 실패하면 컨테이너는 healthy한데 호스트는 포트를
+    듣지 않는다. **이 상태에서 3단계 이후가 `localhost:33100`으로 다른 DB에 붙을 수
+    있다** — 조용한 오염이라 그 자리에서 세우고 `--force-recreate`를 안내한다.
+    """
+    step = _step_two()
+
+    assert "{{.Ports}}" in step, "Ports 열을 보지 않습니다."
+    assert "--force-recreate" in step, "푸는 방법(--force-recreate)을 안내하지 않습니다."
+
+
+def test_the_host_port_has_a_single_source():
+    """접속 URL과 포트 진단이 **같은 값**을 본다 (#1294).
+
+    둘이 갈리면 진단이 엉뚱한 포트를 묻는다 — 그때 나오는 「포트를 쥔 컨테이너가
+    없습니다」는 **틀린 안심**이라 원인에서 더 멀어진다.
+    """
+    body = _SCRIPT.read_text(encoding="utf-8")
+
+    assert "DB_PORT=" in body, "호스트 포트가 변수로 있지 않습니다."
+    assert "localhost:$DB_PORT/" in body, "DB_URL이 DB_PORT를 쓰지 않습니다."
+    assert "publish=$DB_PORT" in body, "포트 진단이 DB_PORT를 쓰지 않습니다."
+    assert ":33100/" not in body, "DB_URL에 포트가 박혀 있습니다 — 변수를 쓰십시오."
+
+
 def test_async_engines_normalize_the_database_url():
     """`create_async_engine`에 `DATABASE_URL`을 **그대로** 넘기지 않는다.
 
