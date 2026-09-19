@@ -26,6 +26,13 @@ CUBRID_DB="${CUBRID_DB:-cii}"
 DB_URL="cubrid+aiopycubrid://dba:@localhost:33100/$CUBRID_DB"
 CHECK_ONLY="${1:-}"
 
+# 개발 DB 컨테이너와 호스트 포트 — `docker-compose.yml`의 `db` 서비스와 같아야 한다
+# (`tests/test_demo_up_script.py`가 대조한다). 한 서버에 `cii`·`cii_test` 두 DB를 두는
+# 것이 정상 구성이고(`tests/db_target.py` · #507), 같은 포트를 두 컨테이너가 원하면
+# 한쪽만 뜬다 (#1294).
+DB_CONTAINER="cii-cubrid"
+DB_HOST_PORT=33100
+
 # --- .venv 확인 -----------------------------------------------------------------------
 #
 # 이 스크립트는 alembic·seed·uvicorn을 전부 `$VENV`에서 부른다. 가상환경이 없으면
@@ -65,6 +72,22 @@ bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; }
 info() { printf '  · %s\n' "$1"; }
 step() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 
+# 호스트 포트를 쥔 **우리 것이 아닌** 컨테이너 이름 (#1294). 한 줄로 둔다 — 검사가 이
+# 정의를 그대로 꺼내 가짜 docker로 실행한다(`_field`와 같은 방식).
+_other_port_holders() { "$DOCKER" ps --filter "publish=$DB_HOST_PORT" --format '{{.Names}}' 2>/dev/null | grep -vx "$DB_CONTAINER" || true; }
+
+# 포트를 쥔 다른 컨테이너가 있으면 이름을 짚고 0, 없으면 1을 돌려준다.
+# 2026-09-19에 「docker compose up 실패」 한 줄 때문에 원인을 찾는 데 20분 가까이 썼다 —
+# 실제 원인은 수동으로 만든 테스트 컨테이너(`cii-cubrid-test`)가 33100을 쥔 것이었다.
+_explain_port_holder() {
+  holders="$(_other_port_holders)"
+  [ -z "$holders" ] && return 1
+  bad "호스트 포트 $DB_HOST_PORT을 다른 컨테이너가 쥐고 있습니다: $(echo $holders)"
+  info "그 컨테이너를 멈춘 뒤 다시 실행하세요:  docker stop $(echo $holders)"
+  info "한 서버에 cii·cii_test 두 DB를 두는 것이 정상 구성입니다 (tests/db_target.py · #507)."
+  return 0
+}
+
 # --- 1. Docker ---------------------------------------------------------------------
 
 step "1. Docker"
@@ -79,10 +102,18 @@ ok "Docker 응답함"
 # --- 2. CUBRID -----------------------------------------------------------------
 
 step "2. CUBRID"
-if [ "$CHECK_ONLY" != "--check" ]; then
-  "$DOCKER" compose up -d db >/dev/null 2>&1 || {
-    bad "docker compose up 실패"; exit 1;
-  }
+if [ "$CHECK_ONLY" = "--check" ]; then
+  # 기동 전에 알 수 있어야 한다 — 기동하면 이 자리에서 실패할 것을 미리 말한다.
+  _explain_port_holder && info "지금은 --check라 기동하지 않았습니다. 기동하면 이 단계에서 실패합니다."
+else
+  # 실패 메시지를 버리지 않는다 (#1294) — 종전에는 `>/dev/null 2>&1`로 「port is already
+  # allocated」를 버려 원인이 무엇이든 같은 한 줄만 남았다.
+  if ! "$DOCKER" compose up -d db >/tmp/demo_compose.log 2>&1; then
+    bad "docker compose up 실패 — /tmp/demo_compose.log 참조"
+    tail -5 /tmp/demo_compose.log
+    _explain_port_holder || true
+    exit 1
+  fi
 fi
 
 # healthcheck가 통과할 때까지 기다린다. 컨테이너가 '떴다'와 '접속 가능하다'는 다르다.
@@ -95,6 +126,18 @@ for i in $(seq 1 60); do
   [ "$i" = 60 ] && { bad "60초 안에 준비되지 않았습니다."; exit 1; }
   sleep 1
 done
+
+# **응답한다 ≠ 호스트에서 닿는다** (#1294). compose가 재생성 중 포트 바인딩에 실패하면
+# 컨테이너는 healthy로 뜨는데 호스트 포트가 비는 상태가 된다(`docker ps`의 Ports 열이
+# 빈다). 그대로 두면 다음 단계들이 `localhost:$DB_HOST_PORT`으로 **다른 DB에 붙을 수
+# 있다.** `--force-recreate`로만 풀렸다(2026-09-19 실측).
+if [ -z "$("$DOCKER" port "$DB_CONTAINER" 33000 2>/dev/null)" ]; then
+  bad "DB는 응답하지만 호스트 포트 $DB_HOST_PORT이 열려 있지 않습니다."
+  info "이대로 두면 다음 단계가 localhost:$DB_HOST_PORT의 다른 DB에 붙을 수 있습니다."
+  info "재생성하세요:  docker compose up -d --force-recreate db"
+  _explain_port_holder || true
+  exit 1
+fi
 
 # --- 3. 마이그레이션 ----------------------------------------------------------------
 
