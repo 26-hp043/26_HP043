@@ -51,13 +51,18 @@ services:
       # 가입 게이트
       SIGNUP_ALLOWED_DOMAINS: ${SIGNUP_ALLOWED_DOMAINS:-}
       SIGNUP_INVITE_CODE: ${SIGNUP_INVITE_CODE:-}
-      # 최초 사무직 (#672) — 여기 든 이메일은 가입·로그인할 때마다 사무직으로 맞춰진다.
+      # 최초 관리자 (#672 · #1301) — 여기 든 이메일은 가입·로그인할 때마다 관리자로 맞춰진다.
       #
       # **이 줄이 없으면 `.env`에 적어도 컨테이너에 닿지 않는다 (#1290).** 이 서비스에는
       # `env_file:`이 없고 아래 `environment:` 목록만 주입되기 때문이다 — compose가 `.env`를
       # 읽는 것은 `${VAR}` 치환용이지 컨테이너 주입이 아니다(`#508`이 `MAIL_BACKEND`에서
-      # 겪은 것과 같은 함정). 그 상태에서는 새 DB가 **사무직 0명**으로 뜨고, 승격 경로도
-      # 사무직 전용이라 화면으로는 아무도 풀 수 없다.
+      # 겪은 것과 같은 함정). 그 상태에서는 새 DB가 **관리자 0명**으로 뜨고, 승격 경로도
+      # 관리자 전용이라 화면으로는 아무도 풀 수 없다.
+      INITIAL_ADMIN_EMAILS: ${INITIAL_ADMIN_EMAILS:-}
+      # ⚠️ 옛 이름도 **넘긴다** — 넘기지 않으면 app-01 `.env`에 옛 이름만 남아 있을 때 앱이
+      # 그 사실을 볼 수 없어, 기동 거부(`role_bootstrap.LEGACY_ENV_NAME`) 대신 관리자 0명으로
+      # **조용히** 뜬다(`APP_ENV=staging`이면 필수 검사도 없다). 거부는 값이 있을 때만이라
+      # 비어 있으면 아무 일도 없다 (#1301 · 독립 검토 지적).
       INITIAL_OFFICE_EMAILS: ${INITIAL_OFFICE_EMAILS:-}
       # 요청 한도
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-300}

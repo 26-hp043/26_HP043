@@ -43,7 +43,7 @@ from cii_platform.api.schemas.auth import (
 )
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.backoff import backoff
-from cii_platform.auth.dependencies import AuthenticationError, require_csrf, require_office
+from cii_platform.auth.dependencies import AuthenticationError, require_admin, require_csrf
 from cii_platform.auth.password import (
     PasswordPolicyError,
     hash_password_async,
@@ -51,7 +51,7 @@ from cii_platform.auth.password import (
     verify_dummy_async,
     verify_password_async,
 )
-from cii_platform.auth.role_bootstrap import is_initial_office
+from cii_platform.auth.role_bootstrap import is_initial_admin
 from cii_platform.auth.session import (
     COOKIE_ATTRIBUTES,
     CSRF_COOKIE_NAME,
@@ -62,7 +62,7 @@ from cii_platform.auth.session import (
 from cii_platform.auth.signup_gate import REJECTED_MESSAGE as SIGNUP_REJECTED_MESSAGE
 from cii_platform.auth.signup_gate import load_signup_gate
 from cii_platform.config import public_base_url
-from cii_platform.db.models.app_user import ROLE_FIELD, ROLE_OFFICE, AppUser
+from cii_platform.db.models.app_user import ROLE_ADMIN, ROLE_FIELD, AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.models.user_token import PURPOSE_EMAIL_VERIFY
 from cii_platform.db.session import get_session
@@ -95,12 +95,15 @@ CURRENT_PASSWORD_WRONG_MESSAGE = "현재 비밀번호가 올바르지 않습니�
 #: 회원가입 이메일 중복 문구 — `PRD §6.3` 확정 원문.
 EMAIL_TAKEN_MESSAGE = "이미 가입된 이메일입니다. 로그인하거나 비밀번호를 찾아 주세요."
 
-#: 마지막 사무직을 없애려 할 때의 문구 — `PRD §6.3` 확정 원문 (#672).
+#: 마지막 관리자를 없애려 할 때의 문구 — `PRD §6.3` 확정 원문 (#672 · #1301).
 #: 탈퇴(`DELETE /auth/me`)와 강등(`PATCH /auth/users/{id}/role`)이 같은 문구를 쓴다 —
-#: 둘 다 「사무직 0명」으로 가는 길이고, 그 상태에서는 아무도 역할을 되돌릴 수 없다.
-LAST_OFFICE_MESSAGE = (
-    "마지막 사무직 계정은 탈퇴하거나 현장직으로 바꿀 수 없습니다. "
-    "다른 계정을 먼저 사무직으로 지정해 주세요."
+#: 둘 다 「관리자 0명」으로 가는 길이고, 그 상태에서는 아무도 역할을 되돌릴 수 없다.
+#:
+#: `#1301` 이전에는 이 자리가 「마지막 사무직」이었다. 역할을 바꾸는 권한이 관리자로
+#: 넘어가면서 **잠기는 조건도 함께 옮겨졌다** — 사무직이 0명이어도 관리자가 되돌릴 수 있다.
+LAST_ADMIN_MESSAGE = (
+    "마지막 관리자 계정은 탈퇴하거나 다른 역할로 바꿀 수 없습니다. "
+    "다른 계정을 먼저 관리자로 지정해 주세요."
 )
 
 #: 없는 계정의 역할을 바꾸려 할 때.
@@ -160,8 +163,8 @@ def _user_payload(user: AppUser) -> dict[str, object]:
         "id": str(user.id),
         "email": user.email,
         "display_name": user.display_name,
-        # 사무직·현장직 (#672). 화면이 사이드바·버튼을 이 값으로 가른다 — 서버가 403으로
-        # 막는 것과 별개로, 안 되는 것을 되는 것처럼 보이지 않게.
+        # 현장직·사무직·관리자 (#672 · #1301). 화면이 사이드바·버튼을 이 값으로 가른다 —
+        # 서버가 403으로 막는 것과 별개로, 안 되는 것을 되는 것처럼 보이지 않게.
         "role": user.role,
         "email_verified_at": (
             user.email_verified_at.isoformat() if user.email_verified_at else None
@@ -170,16 +173,16 @@ def _user_payload(user: AppUser) -> dict[str, object]:
     }
 
 
-async def _lock_office_users(session: AsyncSession) -> int:
-    """살아 있는 사무직 행을 **잠그고** 센다 (#672).
+async def _lock_admin_users(session: AsyncSession) -> int:
+    """살아 있는 관리자 행을 **잠그고** 센다 (#672 · #1301).
 
-    「마지막 사무직」 판정은 세는 것과 바꾸는 것 사이에 다른 요청이 끼면 틀린다 — 사무직 둘이
-    동시에 서로를 강등하면 둘 다 「하나 더 있다」를 보고 통과해 0명이 된다. 사무직 행 전부에
+    「마지막 관리자」 판정은 세는 것과 바꾸는 것 사이에 다른 요청이 끼면 틀린다 — 관리자 둘이
+    동시에 서로를 강등하면 둘 다 「하나 더 있다」를 보고 통과해 0명이 된다. 관리자 행 전부에
     ``FOR UPDATE``를 걸어 그 사이를 닫는다. 행은 몇 개 되지 않는다.
     """
     result = await session.execute(
         select(AppUser)
-        .where(AppUser.role == ROLE_OFFICE, AppUser.is_deleted.is_(False))
+        .where(AppUser.role == ROLE_ADMIN, AppUser.is_deleted.is_(False))
         .with_for_update()
     )
     return len(result.scalars().all())
@@ -271,9 +274,13 @@ async def signup(
         email=email,
         password_hash=password_hash,
         display_name=payload.display_name,
-        # 새 계정은 현장직이다. 최초 사무직 목록(`INITIAL_OFFICE_EMAILS`)에 든 이메일만
-        # 사무직으로 시작한다 — 새 DB에서 사무직 0명이 되지 않게 (#672).
-        role=ROLE_OFFICE if is_initial_office(email) else ROLE_FIELD,
+        # 새 계정은 현장직이다. 최초 관리자 목록(`INITIAL_ADMIN_EMAILS`)에 든 이메일만
+        # 관리자로 시작한다 — 새 DB에서 관리자 0명이 되지 않게 (#672 · #1301).
+        #
+        # **가입 화면에서 역할을 고르게 하지 않는다.** 고르게 하면 가입 게이트만 통과한
+        # 누구나 스스로 권한을 넓힐 수 있다(자기 신고) — 관리자가 올려 주는 지금 구조가
+        # 그것을 막는다. 가입 시 선택은 `production` 전환·가입 게이트와 함께 본다.
+        role=ROLE_ADMIN if is_initial_admin(email) else ROLE_FIELD,
     )
     session.add(user)
     await session.flush()
@@ -369,19 +376,19 @@ async def login(
     # 성공은 백오프를 즉시 초기화한다 (#1203) — 다음 실패는 다시 5회 여유부터.
     backoff.record_success(email)
 
-    # 최초 사무직 목록에 든 계정은 로그인할 때마다 사무직으로 맞춘다 (#672 ·
+    # 최초 관리자 목록에 든 계정은 로그인할 때마다 관리자로 맞춘다 (#672 · #1301 ·
     # `auth/role_bootstrap.py`). 044 이전에 가입했든 화면에서 강등됐든 — 목록이 「항상
-    # 사무직인 사람」이다. 실제로 바뀔 때만 감사 기록을 남긴다.
-    if user.role != ROLE_OFFICE and is_initial_office(email):
+    # 관리자인 사람」이다. 실제로 바뀔 때만 감사 기록을 남긴다.
+    if user.role != ROLE_ADMIN and is_initial_admin(email):
         await audit_svc.record_role_change(
             session,
             actor_user_id=str(user.id),
             target_user_id=user.id,
             role_before=user.role,
-            role_after=ROLE_OFFICE,
+            role_after=ROLE_ADMIN,
             ip_address=_client_ip(request),
         )
-        user.role = ROLE_OFFICE
+        user.role = ROLE_ADMIN
 
     session_token, csrf_token = await _issue_session(session, request, user)
     await audit_svc.record_login_success(
@@ -590,10 +597,10 @@ async def delete_me(
     if user is None:
         raise AuthenticationError()
 
-    # 마지막 사무직은 탈퇴할 수 없다 (#672 · `API_SPEC §1.2`). 사무직 0명이 되면 아무도
-    # 역할을 되돌릴 수 없다 — `#506`이 연 탈퇴 경로에 조건 하나를 더한다.
-    if user.role == ROLE_OFFICE and await _lock_office_users(session) <= 1:
-        return _error_response(request, 409, "CONFLICT", LAST_OFFICE_MESSAGE)
+    # 마지막 관리자는 탈퇴할 수 없다 (#672 · #1301 · `API_SPEC §1.2`). 관리자 0명이 되면
+    # 아무도 역할을 되돌릴 수 없다 — `#506`이 연 탈퇴 경로에 조건 하나를 더한다.
+    if user.role == ROLE_ADMIN and await _lock_admin_users(session) <= 1:
+        return _error_response(request, 409, "CONFLICT", LAST_ADMIN_MESSAGE)
 
     user.is_deleted = True
     revoked = await revoke_all_sessions(session, user_id=user.id)
@@ -613,11 +620,15 @@ async def delete_me(
 
 
 #
-# 계정 목록·역할 지정 (#672) — 사무직만.
+# 계정 목록·역할 지정 (#672 · #1301) — **관리자만.**
 #
 # `UIFLOW 2-6` 설정 화면의 「계정 · 역할」 절이 부른다. 목록은 이메일 순이고 탈퇴 계정은
 # 빼며, 비밀번호 해시는 `_user_payload`가 싣지 않는다. 역할 지정은 「누가 리포트·연간
 # 시뮬레이션·계정 관리를 쓸 수 있나」를 바꾸는 일이라 감사 로그(`ROLE_CHANGE`)에 남는다.
+#
+# `#1301`이 이 둘을 사무직에서 관리자로 옮겼다 — 종전에는 사무직끼리 서로를 강등할 수
+# 있었고 마지막 한 명만 보호됐다. 그래서 **이 파일에는 `require_office`가 걸린 라우트가
+# 하나도 남지 않았다**(업무 경로는 vessels·fleet·reports 등 다른 라우터에 있다).
 #
 
 
@@ -625,9 +636,9 @@ async def delete_me(
 async def list_users(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
-    _office: Annotated[None, Depends(require_office)],
+    _admin: Annotated[None, Depends(require_admin)],
 ) -> dict[str, object]:
-    """살아 있는 계정 전부 — 사무직 전용 (`API_SPEC §1.2`, #672)."""
+    """살아 있는 계정 전부 — **관리자 전용** (`API_SPEC §1.2`, #672 · #1301)."""
     result = await session.execute(
         select(AppUser).where(AppUser.is_deleted.is_(False)).order_by(AppUser.email)
     )
@@ -644,15 +655,15 @@ async def update_user_role(
     payload: RoleUpdateRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     _csrf: Annotated[None, Depends(require_csrf)],
-    _office: Annotated[None, Depends(require_office)],
+    _admin: Annotated[None, Depends(require_admin)],
 ) -> Response:
-    """계정의 역할을 바꾼다 — 사무직 전용 (`API_SPEC §1.2`, #672).
+    """계정의 역할을 바꾼다 — **관리자 전용** (`API_SPEC §1.2`, #672 · #1301).
 
-    ## 마지막 사무직은 강등할 수 없다
+    ## 마지막 관리자는 강등할 수 없다
 
-    자기 자신도 포함이다. 사무직이 둘이면 서로를 바꿀 수 있고, 하나면 그 하나는 현장직이 될
-    수 없다 — 0명이 되면 아무도 되돌릴 수 없다. 판정은 사무직 행을 잠근 채 한다
-    (``_lock_office_users``).
+    자기 자신도 포함이다. 관리자가 둘이면 서로를 바꿀 수 있고, 하나면 그 하나는 다른 역할이
+    될 수 없다 — 0명이 되면 아무도 되돌릴 수 없다. 판정은 관리자 행을 잠근 채 한다
+    (``_lock_admin_users``).
 
     ## 같은 값이면 아무것도 쓰지 않는다
 
@@ -674,8 +685,8 @@ async def update_user_role(
     if before == payload.role:
         return JSONResponse(content={"data": _user_payload(target), "meta": _meta(request)})
 
-    if before == ROLE_OFFICE and await _lock_office_users(session) <= 1:
-        return _error_response(request, 409, "CONFLICT", LAST_OFFICE_MESSAGE)
+    if before == ROLE_ADMIN and await _lock_admin_users(session) <= 1:
+        return _error_response(request, 409, "CONFLICT", LAST_ADMIN_MESSAGE)
 
     target.role = payload.role
     await audit_svc.record_role_change(

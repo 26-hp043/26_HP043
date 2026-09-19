@@ -94,12 +94,16 @@ class MeUpdateRequest(BaseModel):
 
 
 class RoleUpdateRequest(BaseModel):
-    """``PATCH /api/v1/auth/users/{user_id}/role`` (`API_SPEC §1.2`, #672).
+    """``PATCH /api/v1/auth/users/{user_id}/role`` (`API_SPEC §1.2`, #672 · #1301).
 
-    값은 둘뿐이다(`DB_SCHEMA §2.15` CHECK). 모르는 값은 여기서 422로 끝난다 — DB 제약에
-    닿아 500이 되지 않게.
+    값은 셋뿐이다(`DB_SCHEMA §2.15`). 모르는 값은 여기서 422로 끝난다 — **DB 제약에 닿아
+    500이 되지 않게.** 그 제약은 CHECK가 아니라 트리거(`trg_app_user_role_*`)이고, 걸리면
+    REJECT라 응답이 500이 된다(CUBRID가 CHECK를 검사하지 않아 `#1058`이 옮긴 자리).
+
+    ``ADMIN``은 `#1301`이 더했다 — 마이그레이션 057이 그 트리거를 다시 만들기 전에는 DB가
+    받지 않으므로, 스키마만 넓히면 422가 500으로 바뀔 뿐이다.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    role: Literal["OFFICE", "FIELD"]
+    role: Literal["OFFICE", "FIELD", "ADMIN"]
