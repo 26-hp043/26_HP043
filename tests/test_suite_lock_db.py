@@ -55,6 +55,7 @@ _PROBE = (
     "sys.exit(0)\n"
 )
 
+
 async def test_the_running_suite_holds_the_lock(migrated_db):
     """다른 프로세스는 잠금을 잡지 못한다 — 이 스위트가 쥐고 있다.
 
