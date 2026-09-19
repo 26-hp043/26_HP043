@@ -138,6 +138,12 @@ async def test_dev_login_first_boot_creates_user_and_issues_cookie(migrated_db, 
         # (`#1058`). 그리고 `CHAR(32)`에 대시 36자를 넣으면
         # `Cannot coerce … to type char`로 거부된다 — 아래 `uuid_hex()`가 그것이다.
         assert same_uuid(row.scalar_one(), _STUB_USER_ID)
+        # #1293 — 스텁 계정은 인증 완료 상태로 만든다(배너가 상시 뜨지 않게).
+        verified = await s.execute(
+            text("SELECT email_verified_at FROM app_user WHERE id = :id"),
+            {"id": uuid_hex(_STUB_USER_ID)},
+        )
+        assert verified.scalar_one() is not None
         await s.execute(
             text("DELETE FROM user_session WHERE user_id = :id"),
             {"id": uuid_hex(_STUB_USER_ID)},
@@ -190,6 +196,12 @@ async def test_dev_login_restart_finds_existing_user(migrated_db, app_fresh_engi
             {"id": uuid_hex(_STUB_USER_ID)},
         )
         assert row.scalar_one() is not None
+        # #1293 — 인증 시각 없이 심은 기존 행도 재사용 경로에서 채워진다.
+        verified = await s.execute(
+            text("SELECT email_verified_at FROM app_user WHERE id = :id"),
+            {"id": uuid_hex(_STUB_USER_ID)},
+        )
+        assert verified.scalar_one() is not None
         await s.execute(
             text("DELETE FROM user_session WHERE user_id = :id"),
             {"id": uuid_hex(_STUB_USER_ID)},

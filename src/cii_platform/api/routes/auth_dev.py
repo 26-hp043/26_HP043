@@ -44,6 +44,17 @@ _STUB_EMAIL = "dev@localhost"
 #: 들어올 수 있다. 이 계정은 ``dev-login`` 경로로만 접근된다.
 _STUB_PASSWORD_HASH = "!dev-stub-no-password-login"
 
+#: 스텁 계정의 이메일 인증 완료 시각 — **채운다** (#1293).
+#:
+#: 비워 두면 개발·시연 내내 상단에 「이메일 인증이 완료되지 않았습니다」 배너가 뜨고,
+#: 「인증 메일 다시 받기」를 눌러도 ``@localhost``라 닿을 곳이 없다. 시연 계정
+#: (``demo_seed.DEMO_USER_VERIFIED_AT`` · #692)과 **같은 판단**이다 — 이 계정은 인증
+#: 흐름을 보이려는 것이 아니라 **로그인 화면을 건너뛰기 위한 것**이다. 배너를 확인해야
+#: 할 때는 새로 가입한 계정이 곧 미인증 상태다.
+#:
+#: 고정 시각이다(dev-login 도입일 · #276) — 호출마다 ``now()``를 넣으면 행이 매번 바뀐다.
+_STUB_VERIFIED_AT = datetime(2026, 8, 13, tzinfo=UTC)
+
 
 @router.post("/dev-login")
 async def dev_login(
@@ -71,6 +82,11 @@ async def dev_login(
         # 044 이전에 만들어진 스텁 행은 044가 사무직으로 채웠지만, 이후 화면에서 강등됐을 수
         # 있다. 개발 계정은 늘 사무직으로 되돌린다 — dev-login은 프로덕션에 없다.
         user.role = ROLE_OFFICE
+    if user.email_verified_at is None:
+        # 새 행과 **#1293 이전에 만들어진 기존 행**을 이 한 자리에서 채운다. 생성 경로에만
+        # 넣으면 기존 개발 DB는 배너가 그대로이고, 두 곳에 넣으면 한쪽이 죽은 코드가 된다
+        # (돌연변이 검사가 생성 경로 한 줄을 못 잡은 것이 그 증거였다).
+        user.email_verified_at = _STUB_VERIFIED_AT
 
     # 로그인 시각 기록 — 신규 생성·재사용 두 경로 모두 갱신 (#317 연계).
     # app_user.updated_at은 022의 trg_app_user_updated가 자동 갱신한다.
