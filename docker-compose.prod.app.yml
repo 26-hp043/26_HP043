@@ -51,6 +51,14 @@ services:
       # 가입 게이트
       SIGNUP_ALLOWED_DOMAINS: ${SIGNUP_ALLOWED_DOMAINS:-}
       SIGNUP_INVITE_CODE: ${SIGNUP_INVITE_CODE:-}
+      # 최초 사무직 (#672) — 여기 든 이메일은 가입·로그인할 때마다 사무직으로 맞춰진다.
+      #
+      # **이 줄이 없으면 `.env`에 적어도 컨테이너에 닿지 않는다 (#1290).** 이 서비스에는
+      # `env_file:`이 없고 아래 `environment:` 목록만 주입되기 때문이다 — compose가 `.env`를
+      # 읽는 것은 `${VAR}` 치환용이지 컨테이너 주입이 아니다(`#508`이 `MAIL_BACKEND`에서
+      # 겪은 것과 같은 함정). 그 상태에서는 새 DB가 **사무직 0명**으로 뜨고, 승격 경로도
+      # 사무직 전용이라 화면으로는 아무도 풀 수 없다.
+      INITIAL_OFFICE_EMAILS: ${INITIAL_OFFICE_EMAILS:-}
       # 요청 한도
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-300}
       RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-10}
