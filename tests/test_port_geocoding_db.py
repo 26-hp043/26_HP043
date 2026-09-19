@@ -374,11 +374,11 @@ async def single_slot_engine(migrated_db):
     운영 훅(`db.session.cubrid_param_convert`)을 그대로 붙인다 — `conftest`의 테스트
     전용 변환은 `sa.text()` 실험 SQL용이고, 여기서 도는 것은 ORM 경로다.
     """
+    from conftest import TEST_DATABASE_URL  # noqa: PLC0415 — 저장소 관례(`tests.`를 붙이지 않는다)
     from sqlalchemy import event
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from cii_platform.db.session import cubrid_param_convert
-    from tests.conftest import TEST_DATABASE_URL  # noqa: PLC0415
 
     engine = create_async_engine(
         TEST_DATABASE_URL,
