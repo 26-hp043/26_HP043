@@ -7,7 +7,7 @@
 | 문서명 | README.md |
 | 버전 | v1.0 |
 | 상태 | 운영 중 — 저장소 진입점 |
-| 최종 수정일 | 2026-09-18 |
+| 최종 수정일 | 2026-09-20 |
 | 하위 문서 | `PRD.md`, `TECH_SPEC.md`, `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md`, `AGENTS.md`, `DESIGN_SYSTEM.md`, `UIFLOW.md` |
 | 문서 목적 | 프로젝트 개요·문서 구조·MVP 범위를 안내한다. 규범적 내용은 각 정본이 소유하며 본 문서는 요약만 담는다 |
 
@@ -244,27 +244,24 @@ python3 scripts/purge_expired.py
 - ⚠️ **한 표가 실패해도 나머지는 돈다.** 배포 순서상 코드가 먼저 가고 마이그레이션이 뒤따르는 순간이 있어, 그 틈에서도 세션 정리는 돌아야 한다. 실패가 있으면 **종료 코드가 1**이다
 - 개발 스택에 쓰려면 `COMPOSE="docker compose" python3 scripts/purge_expired.py …`
 
-### 지도 자산 (`#763`) — 선택
+### 지도 자산 (`#763` · `#985`) — 평소엔 손댈 일 없음
 
 선대 대시보드의 지도는 **우리 오리진의 파일 하나**(PMTiles)를 읽는다. 키도 런타임 외부 요청도 없고 오프라인에서 그대로 뜬다.
 
+**산출물은 저장소에 커밋돼 있다**(`frontend/public/basemap/`) — clone하면 바로 뜨고 따로 받을 것이 없다. 저장소 루트의 `.gitignore` `/basemap/` 패턴은 경로가 달라 이 폴더를 막지 않는다(`.gitignore` 자체 주석 참고). 아래 스크립트는 타일을 갱신하거나 담는 범위를 바꿀 때만 돌린다.
+
 ```bash
 # pmtiles CLI가 필요하다 — https://github.com/protomaps/go-pmtiles/releases
-scripts/fetch_basemap.sh                # 약 92 MB · 5~10분
+scripts/fetch_basemap.sh                # 정확한 범위·용량·소요 시간은 스크립트 머리말이 정본이다
 ```
 
 기본 출력은 `frontend/public/basemap`이고, **개발과 배포가 같은 자리를 쓴다** — Vite가
 `public/`을 오리진 루트로 서빙하고, `npm run build`가 그대로 `dist/`로 옮기며, 프론트
-이미지가 그 `dist`를 nginx 문서 루트로 COPY 한다. 받아 둔 환경에서만 이미지가 커진다.
-`.gitignore`가 이 경로를 막아 두었다.
+이미지가 그 `dist`를 nginx 문서 루트로 COPY 한다.
 
-| 층 | 용량(2026-09-12 실측) |
-|---|---|
-| 전 세계 z0–z6 | 44.9 MB |
-| 항만 43곳 z7–z10 | 38.0 MB |
-| 글리프 2종 × 256 range | 12.0 MB |
+확대 상한은 `frontend/src/features/fleet/basemap.ts`의 `MAX_ZOOM`이 정본이다 — 스크립트의 줌 범위와 짝을 이루므로 한쪽만 바꾸면 overzoom으로 화면이 뭉툭해진다.
 
-**받지 않아도 된다.** 자산이 없으면 화면이 **개략도로 떨어지고**, 지도 라이브러리(gzip 약 294 KB)도 내려받지 않는다. 저장소에 넣지 않는 이유는 이미지가 이미 699 MB이기 때문이다.
+**자산이 없어도 화면은 뜬다.** 없으면 화면이 **개략도로 떨어지고**, 지도 라이브러리(gzip 약 294 KB)도 내려받지 않는다.
 
 > 정적 서버가 `/basemap/`을 서빙하고 **HTTP Range 요청을 지원**해야 한다(PMTiles가 파일 일부만 읽는다). Vite와 nginx 모두 지원한다.
 
@@ -623,3 +620,4 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-20 | `#1311` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.12로 갱신 — §5.2.1.2 기능③ `parameters_used` 스키마 v1·v2 신설 (#1306) |
 | 2026-09-20 | `#1318` | 문서 구조 표의 `API_SPEC.md` 행을 v1.40 · `TECH_SPEC.md` 행을 v1.13으로 갱신 — §8.1·§8.5 CSV 수식 주입 방어의 범위를 「사용자 입력을 반출하는 셀과 라벨」로 좁히고 수치 열은 숫자로 직렬화 (#1247) |
 | 2026-09-20 | `#1320` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.14로 갱신 — §7.1·§7.3 기상 조회 계층을 구현에 맞춤(외부 조회 먼저·실패 시에만 `weather_snapshot` 캐시 · `WeatherProvider(Protocol)` `fetch` 하나 · `source` 값 `open_meteo_marine+forecast` 추가). `DB_SCHEMA §2.13` 값 목록 행도 함께 맞췄다(버전 유지) (#968) |
+| 2026-09-20 | `#1360` | **「지도 자산」 절 정정 — 사실 정정이며 배포 방침 변경이 아니다.** `#985`(2026-09-18)가 항만 43곳의 깊은 층(z7–z10)을 걷어내고 전 세계 z0–z5(약 26 MB)로 좁혀 **저장소에 커밋했는데**, 이 절이 여전히 「`.gitignore`가 막아 두었다 · 약 92 MB · z0–z6+z7–z10」이라는 종전 구성을 안내하고 있었다. `git ls-files`로 커밋 여부를 다시 확인하고, 절을 「받는다」에서 「평소엔 손댈 일 없다」로 고쳤다 — 정확한 수치는 `scripts/fetch_basemap.sh` 머리말을, 확대 상한은 `basemap.ts`의 `MAX_ZOOM`을 가리키게 해 값이 다시 벌어지지 않게 했다. `AGENTS §4.3` 「오기·값 정정」이라 버전은 올리지 않는다 (#1340) |
