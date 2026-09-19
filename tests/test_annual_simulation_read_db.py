@@ -238,6 +238,65 @@ async def test_snapshot_voyages_show_actuals_where_they_exist(session, executed)
 
 
 @pytest.mark.asyncio
+async def test_snapshot_voyages_show_planned_values_for_in_progress_plan_rows(session, vessel_id):
+    """⚠️ #1337 — 진행 중(PLAN) 항차는 실적이 일부 있어도 **계획값**을 보인다.
+
+    `API_SPEC §3.6`은 `IN_PROGRESS`에 실적 입력을 허용하므로 「계획 반영인데 실적이
+    있는 행」이 실제로 생긴다. 계산(`_inputs_from_snapshot`)은 PLAN 행에 계획값만
+    쓰는데, 종전 조회는 모든 행에 「실적이 있으면 실적」을 적용해 **계산에 쓰지 않은
+    값**(1200 nm · 40 t)을 「이 실행에 쓴 항차」로 내보냈다.
+
+    표의 값을 기대값에 맞추는 데서 그치지 않고 **응답의 잔여 계획 합계**
+    (`deterministic.planned_W_capacity_nm` · `planned_M_gco2`)와 대조한다 — 「표에
+    보이는 값이 계산에 쓴 값과 같다」가 이 이슈의 완료 기준이다.
+    """
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED", no="V-2026-001"
+    )
+    in_progress = await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_PLAN", status="IN_PROGRESS", no="V-2026-002"
+    )
+    # 항해 중 들어온 실적 일부 — 계획(3000 nm · 250 t)과 다른 값이어야 검사가 구분한다.
+    await session.execute(
+        text("UPDATE voyage SET actual_distance_nm = 1200 WHERE id = :id"), {"id": in_progress}
+    )
+    await session.execute(
+        text("UPDATE voyage_fuel_use SET actual_fuel_ton = 40 WHERE voyage_id = :id"),
+        {"id": in_progress},
+    )
+
+    result = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=200,
+        random_seed=12345,
+    )
+    rows = await list_snapshot_voyages(session, UUID(result["data"]["simulation_id"]))
+    plan_rows = [row for row in rows if row["annual_inclusion_policy"] == "INCLUDE_AS_PLAN"]
+
+    assert [row["status_at_snapshot"] for row in plan_rows] == ["IN_PROGRESS"]
+    (plan,) = plan_rows
+    assert plan["distance_nm"] == pytest.approx(3000.0), "PLAN 행에 실적 거리가 나갔다 (#1337)"
+    assert plan["fuel_uses"][0]["fuel_ton"] == pytest.approx(250.0), (
+        "PLAN 행에 실적 연료가 나갔다 (#1337)"
+    )
+
+    # 계산이 쓴 잔여 계획 합계와 같은 값이다 — capacity는 이 선박의 DWT 50000.
+    deterministic = result["data"]["deterministic"]
+    assert Decimal(deterministic["planned_W_capacity_nm"]) == pytest.approx(
+        Decimal(50000) * Decimal(str(plan["distance_nm"]))
+    )
+    assert Decimal(deterministic["planned_M_gco2"]) == pytest.approx(
+        sum(
+            Decimal(str(fu["fuel_ton"])) * Decimal(str(fu["cf_used"])) * Decimal(1_000_000)
+            for fu in plan["fuel_uses"]
+        )
+    )
+
+
+@pytest.mark.asyncio
 async def test_snapshot_voyages_do_not_follow_later_edits(session, executed, vessel_id):
     """원본을 고쳐도 스냅샷 조회 결과는 그대로다 (`TECH_SPEC §11.4`).
 
