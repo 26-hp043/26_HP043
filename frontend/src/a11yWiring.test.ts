@@ -147,6 +147,27 @@ describe('접근성 배선 (#829 ⑸)', () => {
     expect(shell!.text).toMatch(/<main[^>]*tabIndex=\{-1\}/)
   })
 
+  /**
+   * 프로그램적 초점 대상에는 링을 그리지 않는다 — `DESIGN_SYSTEM §14` (`#1283`).
+   *
+   * 화면 전환마다 `<main>`이 초점을 받는데(`2.4.3` · `#829` ⑸c) 전역
+   * `:focus-visible`에 제외가 없어 **본문 전체가 테두리에 감싸였다.**
+   *
+   * 되돌아가는 길이 둘이라 둘 다 막는다 — 제외 규칙을 지우는 것과, `tabIndex`를
+   * 떼어 「고치는」 것이다. 후자는 본문 바로가기를 같이 부순다.
+   */
+  it('`tabindex="-1"` 초점 대상은 링 제외 규칙을 갖는다 (#1283)', () => {
+    const css = readFileSync(join(SRC, 'styles/global.css'), 'utf8')
+    const rule = /\[tabindex=['"]-1['"]\]:focus-visible\s*\{[^}]*outline:\s*none/
+    expect(
+      rule.test(css),
+      '`[tabindex="-1"]:focus-visible { outline: none }`이 없습니다 — DESIGN_SYSTEM §14.',
+    ).toBe(true)
+
+    // 한 요소를 지목하는 형태로 좁히지 않는다 (`§14` · `#1052` ⓥ와 같은 이유).
+    expect(css).not.toMatch(/\.app-shell__main:focus-visible\s*\{[^}]*outline:\s*none/)
+  })
+
   it('라우트가 바뀌면 문서 제목을 갱신한다', () => {
     // SPA는 문서를 다시 읽지 않는다. 갱신하지 않으면 화면이 바뀐 것을 알 수단이 없다.
     const shell = FILES.find((f) => f.path.endsWith('layout/AppShell.tsx'))!

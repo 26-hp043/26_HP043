@@ -1,3 +1,5 @@
+import { WARNING_MESSAGE } from '../features/voyage-cii/resultRules'
+
 /**
  * CII 적용 대상 판정을 화면 언어로 옮기는 단일 규칙 (#653).
  *
@@ -63,12 +65,18 @@ export const APPLICABILITY_SHORT_LABEL: Readonly<Record<ApplicabilityState, stri
  * 전체 문구 — `title`·`aria-label`로 나간다.
  *
  * `NOT_APPLICABLE`은 **`PRD §6.3`「공식 적용 대상 아님」의 원문 그대로**다. 문구를
- * 새로 쓰지 않는다(`AGENTS §3`). `UNKNOWN`은 `API_SPEC §1.6`
- * `CII_APPLICABILITY_UNKNOWN` 행의 사용자 메시지를 옮긴 것이다.
+ * 새로 쓰지 않는다(`AGENTS §3`).
+ *
+ * `UNKNOWN`은 **전사하지 않고 가져온다** (`#1292`). 같은 문장이 `API_SPEC §1.6`
+ * `CII_APPLICABILITY_UNKNOWN` 행에서 온 것이고, 그 전사본은 `WARNING_MESSAGE`가
+ * 갖는다 — `#630`의 동기화 가드가 붙어 있는 쪽이다. 여기서 한 번 더 적으면 정본이
+ * 개정될 때 그쪽만 따라가고 이 배지는 조용히 낡는다.
+ *
+ * `components`가 `features`를 참조하는 것은 선례가 있다 — `RegulatoryFlag.tsx`가
+ * `features/fleet/fleetRules`의 `riskReasonText`를 쓴다.
  */
 export const APPLICABILITY_FULL_TEXT: Readonly<Record<ApplicabilityState, string>> = {
   APPLICABLE: '',
   NOT_APPLICABLE: '입력 선박은 공식 CII 적용 대상이 아닐 수 있습니다. 내부 분석용으로만 사용하세요.',
-  UNKNOWN:
-    '총톤수(GT)가 없어 공식 CII 적용 대상 여부를 판정할 수 없습니다. 선박 제원에 총톤수를 입력해 주세요.',
+  UNKNOWN: WARNING_MESSAGE.CII_APPLICABILITY_UNKNOWN,
 }
