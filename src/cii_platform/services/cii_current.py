@@ -61,6 +61,7 @@ from cii_platform.services.annual_simulation import (
     collect_annual_inputs,
     load_projection_context,
 )
+from cii_platform.services.request_cache import as_of_key, cached
 from cii_platform.services.simulation_clock import (
     NotUnderwayWindow,
     compute_progress,
@@ -420,11 +421,15 @@ async def _resolve_progress(session: AsyncSession, *, vessel, voyage, as_of: dat
     항차에 계획이 있는데 선박 기본값을 쓰면 그 항차의 계획이 무시되고, 두 값이
     다를 때 화면과 계획서가 어긋난다.
     """
-    periods = await not_underway_repo.list_periods_for_year(
+    periods = await cached(
         session,
-        vessel_id=vessel.id,
-        regulation_year=voyage.regulation_year or as_of.year,
-        as_of=as_of,
+        ("not_underway_periods", vessel.id, voyage.regulation_year or as_of.year, as_of_key(as_of)),
+        lambda: not_underway_repo.list_periods_for_year(
+            session,
+            vessel_id=vessel.id,
+            regulation_year=voyage.regulation_year or as_of.year,
+            as_of=as_of,
+        ),
     )
     return compute_progress(
         as_of=as_of,
@@ -471,7 +476,11 @@ async def _voyage_fuel_split(session: AsyncSession, *, voyage, vessel) -> FuelSp
       화면은 그 사실을 알 수 없다
     - 단일 유종이면 몫이 1이라 **값이 종전과 같다**(현재 대다수)
     """
-    fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
+    fuel_uses = await cached(
+        session,
+        ("fuel_uses", voyage.id),
+        lambda: voyage_repo.list_fuel_uses(session, voyage.id),
+    )
     planned = [(fu.fuel_type, Decimal(str(fu.planned_fuel_ton or 0))) for fu in fuel_uses]
     total = sum((ton for _, ton in planned), Decimal(0))
     if total > 0:
@@ -573,7 +582,13 @@ async def resolve_in_progress_state(
     넣지 않은 이유는 경고로 싣는다. 값이 안 변하는 것을 화면이 「아직 출항 전」으로
     오해하면 사용자는 없는 제원을 채울 생각을 하지 못한다.
     """
-    voyage = await voyage_repo.find_in_progress(session, vessel.id)
+    # 선대 요약이 배치로 이미 읽어 둔 진행 항차를 재활용한다 (#989 ⑵). 캐시가
+    # 꺼진 요청(실시간 CII 등)은 종전대로 직접 읽는다.
+    voyage = await cached(
+        session,
+        ("find_in_progress", vessel.id),
+        lambda: voyage_repo.find_in_progress(session, vessel.id),
+    )
     if voyage is None:
         return InProgressState(None, None, None, None, [], None)
 

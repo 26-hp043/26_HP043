@@ -7,7 +7,6 @@ import {
 import type { Rating } from '../voyage-cii/types'
 import type {
   DaysReason,
-  FleetVessel,
   RiskReason,
   UnavailableReason,
   UnderwayState,
@@ -237,24 +236,12 @@ export function warningBannerText(atRisk: number): string | null {
   return `시정조치계획 대상 위험 선박 ${atRisk}척`
 }
 
-/**
- * 배너 보조 문구 — 가장 임박한 D등급 진입 잔여일수.
- *
- * `#351` 체크리스트가 배너에 요구한 항목이다. 여러 척이면 **가장 짧은 것**을 쓴다 —
- * 가장 먼저 대응해야 하는 값이다.
+/*
+ * `soonestDaysToD`·`missingGrossTonnageCount`는 #989(2026-09-17 결정 「가」)로
+ * 서버 `summary` 필드(`soonest_d_entry`·`missing_gross_tonnage`)로 이전하며 이곳에서
+ * 걷어냈다. 화면이 페이지로 세면 100척을 넘는 선대에서 값이 틀리다 — 근거는
+ * `API_SPEC §2.8`의 `summary` 각주.
  */
-export function soonestDaysToD(
-  vessels: FleetVessel[],
-): { name: string; days: number } | null {
-  let best: { name: string; days: number } | null = null
-  for (const vessel of vessels) {
-    if (vessel.daysToD === null) continue
-    if (best === null || vessel.daysToD < best.days) {
-      best = { name: vessel.name, days: vessel.daysToD }
-    }
-  }
-  return best
-}
 
 /* ── 등급 분포 스택 바 ────────────────────────────────────────────── */
 
@@ -345,23 +332,6 @@ export const PICTOGRAM_MAX_VESSELS = 24
 
 export function usesPictogram(segments: readonly DistributionSegment[]): boolean {
   return segments.reduce((sum, seg) => sum + seg.count, 0) <= PICTOGRAM_MAX_VESSELS
-}
-
-/**
- * GT가 없는 선박 수.
- *
- * 선박 카드마다 붙는 「GT 미입력」 배지(`ApplicabilityBadge`)의 합이다. 종전에는
- * **배마다 따로 보일 뿐 선대 단위로는 어디에도 없었다** — 몇 척이 그 상태인지
- * 알려면 목록을 세어야 했다.
- *
- * `grossTonnage`는 `number | string | null`이다. 서버가 소수를 문자열로 내리는
- * 자리라 빈 문자열도 없는 것으로 본다 — `Number('')`이 `0`이라 숫자로 바꿔
- * 판정하면 **GT 0인 배와 구분이 사라진다.**
- */
-export function missingGrossTonnageCount(vessels: FleetVessel[]): number {
-  return vessels.filter(
-    (vessel) => vessel.grossTonnage === null || vessel.grossTonnage === '',
-  ).length
 }
 
 /*

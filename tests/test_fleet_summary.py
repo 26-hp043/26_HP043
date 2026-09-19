@@ -1243,3 +1243,118 @@ async def test_bad_sort_limit_and_cursor_are_422_not_silently_accepted(session):
     with pytest.raises(ValidationError) as bad_limit:
         await get_fleet_summary(session, regulation_year=YEAR, as_of=AS_OF, limit=0)
     assert bad_limit.value.field == "limit"
+
+
+# ── 파생 표시 2종 — 서버 summary가 선대 전체 기준 (#989 · 2026-09-17 결정 「가」) ──
+#
+# 종전에는 화면이 받은 페이지에서 직접 세다가, 첫 페이지 최대치(100)를 넘는 선대에서
+# 101번째의 급한 배가 「가장 임박」에서 빠졌다. `summary`·`actions`를 선대 전체로 둔
+# 원칙(#772 결정 3-⑤)을 화면만 깨고 있었다.
+
+
+@pytest.mark.asyncio
+async def test_soonest_d_entry_is_fleet_wide_not_page_wide(session):
+    """「가장 임박」은 페이지 밖 선박을 포함한 선대 전체에서 고른다.
+
+    limit=1로 첫 페이지를 한 척만 받아도 `summary.soonest_d_entry`는 전체 기준이어야
+    한다 — 페이지에 오지 않은 배가 더 급하면 그 배를 가리킨다.
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    as_of = datetime(YEAR, 6, 15, tzinfo=UTC)
+
+    # 두 척 모두 C등급 유지 + 최근 30일 창이 경계보다 나쁘게 — 「진입까지 n일」이
+    # 존재하는 상태를 만든다. 창 강도가 더 나쁜 WORSE가 더 짧은 날을 받는다.
+    worse = await _insert_vessel(
+        session, imo="9200101", name="WORSE", underway_state="UNDER_WAY", detail_status="SAILING"
+    )
+    milder = await _insert_vessel(
+        session, imo="9200102", name="MILDER", underway_state="UNDER_WAY", detail_status="SAILING"
+    )
+    for vessel_id, window_fuel in ((worse, 105), (milder, 95)):
+        for month in (2, 3, 4):  # 창(5/16~) 밖 — 과거 강도
+            await _insert_voyage(
+                session,
+                vessel_id,
+                arrived=datetime(YEAR, month, 10, tzinfo=UTC),
+                distance=1000,
+                fuel=78,
+            )
+        await _insert_voyage(  # 창 안 — 최근 강도
+            session,
+            vessel_id,
+            arrived=datetime(YEAR, 6, 10, tzinfo=UTC),
+            distance=1000,
+            fuel=window_fuel,
+        )
+    await session.commit()
+
+    full = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of)
+    # `_insert_vessel`이 돌려주는 id는 hex 32자, 응답의 `vessel_id`는 하이픈 형식 —
+    # UUID로 정규화해 맞춘다(위 `resolve_in_progress_state` 검사와 같은 처리).
+    worse_id, milder_id = str(UUID(worse)), str(UUID(milder))
+    by_id = {row["vessel_id"]: row for row in full["vessels"]}
+    assert by_id[worse_id]["days_to_d"] is not None, "전제: WORSE는 진입 예측이 있다"
+    assert by_id[milder_id]["days_to_d"] is not None, "전제: MILDER는 진입 예측이 있다"
+    assert by_id[worse_id]["days_to_d"] < by_id[milder_id]["days_to_d"]
+
+    soonest = full["summary"]["soonest_d_entry"]
+    assert soonest == {
+        "vessel_id": worse_id,
+        "name": "WORSE",
+        "days": by_id[worse_id]["days_to_d"],
+    }
+
+    # 페이지를 한 척으로 잘라도 같은 값 — summary는 페이지와 무관하다.
+    paged = await get_fleet_summary(session, regulation_year=YEAR, as_of=as_of, limit=1)
+    assert len(paged["vessels"]) == 1
+    assert paged["summary"]["soonest_d_entry"] == soonest
+
+
+@pytest.mark.asyncio
+async def test_missing_gross_tonnage_counts_null_not_zero(session):
+    """GT 미기록은 NULL만 센다 — `_aggregate_counts`는 행 목록을 직접 본다.
+
+    GT **0**은 DB에 존재할 수 없다(`trg_chk_gt_positive` — NULL 아니면 > 0이라
+    INSERT가 거부된다). 그래서 「0은 미기록이 아니다」 단언은 통합이 아니라 이
+    순수 함수 검사로 한다. 프론트가 페이지에서 세던 시절 `Number('')`이 0이라
+    0과 NULL의 구분이 사라지던 것을 서버가 유지한다(#989).
+    """
+    await _seed_parameters(session)
+    await _hide_seeded_vessels(session)
+    await _insert_vessel(session, imo="9200201", name="NULL GT", gross_tonnage=None)
+    await _insert_vessel(session, imo="9200203", name="OK GT", gross_tonnage=30000)
+
+    result = await get_fleet_summary(session, regulation_year=YEAR)
+    assert result["summary"]["missing_gross_tonnage"] == 1
+
+    def _row(gt):
+        return {
+            "underway_state": "UNDER_WAY",
+            "ytd_rating": "C",
+            "risk_reasons": [],
+            "data_available": True,
+            "days_to_d": None,
+            "gross_tonnage": gt,
+        }
+
+    # 0.0은 트리거가 막는 값이지만 집계 규칙은 명시적으로 둔다
+    rows = [_row(None), _row(0.0), _row(30000.0)]
+    assert fleet_summary._aggregate_counts(rows)["missing_gross_tonnage"] == 1
+
+
+def test_soonest_d_entry_breaks_ties_by_name_then_id():
+    """동점은 (이름, vessel_id)로 가른다 — `sort_fleet_rows`와 같은 2차 키.
+
+    요청을 다시 해도 같은 배를 가리켜야 배너가 안정적으로 읽힌다.
+    """
+    rows = [
+        {"vessel_id": "b", "name": "SAME", "days_to_d": 7},
+        {"vessel_id": "a", "name": "SAME", "days_to_d": 7},
+        {"vessel_id": "z", "name": "AAA", "days_to_d": 7},
+    ]
+    assert fleet_summary._soonest_d_entry(rows) == {"vessel_id": "z", "name": "AAA", "days": 7}
+    assert fleet_summary._soonest_d_entry([]) is None
+    assert (
+        fleet_summary._soonest_d_entry([{"vessel_id": "x", "name": "X", "days_to_d": None}]) is None
+    )

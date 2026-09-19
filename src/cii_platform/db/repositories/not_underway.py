@@ -20,6 +20,7 @@ from cii_platform.db.models.not_underway_fuel_use import NotUnderwayFuelUse
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
 
@@ -147,6 +148,124 @@ async def list_periods_for_year(
 
     stmt = stmt.order_by(NotUnderwayPeriod.started_at, NotUnderwayPeriod.id)
     return list((await session.execute(stmt)).scalars().all())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 선대 배치 조회 (#989 ⑵ B안) — 위 단건 함수들과 **같은 WHERE·같은 정렬**을
+# 선박 여러 척에 대해 IN/GROUP BY로 한 번에 낸다. 단건과 배치가 조건이 어긋나면
+# 대시보드 값이 선박 수에 따라 달라지는데, 그 차이는 눈으로 발견되지 않는다.
+#
+# 반환값은 요청 캐시(request_cache)에 ``(vessel_id, …)`` 키로 나눠 담긴다 —
+# 단건 함수가 ``cached()``로 같은 키를 보면 배치 결과를 되돌려 준다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def sum_fuel_by_type_for_vessels(
+    session: AsyncSession,
+    *,
+    vessel_ids: Sequence[UUID],
+    regulation_year: int,
+    as_of: datetime | None = None,
+) -> dict[UUID, list[NotUnderwayFuelTotal]]:
+    """여러 선박의 :func:`sum_fuel_by_type`을 **쿼리 한 번**으로 낸다 (#989).
+
+    ``vessel_id``를 GROUP BY에 넣는 것만 빼면 단건과 같은 문이다. 없는 선박은
+    키가 없다 — 단건이 빈 목록을 주는 것과 같은 뜻이며, 호출부가 ``.get(id, [])``로
+    그 규약을 지킨다.
+    """
+    if not vessel_ids:
+        return {}
+    stmt = (
+        select(
+            NotUnderwayPeriod.vessel_id,
+            NotUnderwayFuelUse.fuel_type,
+            func.sum(NotUnderwayFuelUse.fuel_ton).label("fuel_ton"),
+            NotUnderwayFuelUse.cf_used,
+        )
+        .join(NotUnderwayPeriod, NotUnderwayFuelUse.period_id == NotUnderwayPeriod.id)
+        .where(
+            NotUnderwayPeriod.vessel_id.in_(list(vessel_ids)),
+            NotUnderwayPeriod.regulation_year == regulation_year,
+            NotUnderwayPeriod.is_deleted == 0,
+        )
+        .group_by(
+            NotUnderwayPeriod.vessel_id,
+            NotUnderwayFuelUse.fuel_type,
+            NotUnderwayFuelUse.cf_used,
+        )
+        .order_by(
+            NotUnderwayPeriod.vessel_id, NotUnderwayFuelUse.fuel_type, NotUnderwayFuelUse.cf_used
+        )
+    )
+    if as_of is not None:
+        stmt = stmt.where(NotUnderwayPeriod.started_at <= as_of)
+
+    grouped: dict[UUID, list[NotUnderwayFuelTotal]] = {}
+    for row in (await session.execute(stmt)).all():
+        grouped.setdefault(row.vessel_id, []).append(
+            NotUnderwayFuelTotal(
+                fuel_type=row.fuel_type, fuel_ton=row.fuel_ton, cf_used=row.cf_used
+            )
+        )
+    return grouped
+
+
+async def sum_distance_for_vessels(
+    session: AsyncSession,
+    *,
+    vessel_ids: Sequence[UUID],
+    regulation_year: int,
+    as_of: datetime | None = None,
+) -> dict[UUID, Decimal]:
+    """여러 선박의 :func:`sum_distance`를 **쿼리 한 번**으로 낸다 (#989).
+
+    ``COALESCE(SUM(...), 0)``을 선박별로 유지한다 — 배치에서 NULL을 흘리면
+    「구간이 없는 선박」과 「조회 실패」를 호출부가 가리지 못한다.
+    """
+    if not vessel_ids:
+        return {}
+    stmt = select(
+        NotUnderwayPeriod.vessel_id,
+        func.coalesce(func.sum(NotUnderwayPeriod.distance_nm), 0),
+    ).where(
+        NotUnderwayPeriod.vessel_id.in_(list(vessel_ids)),
+        NotUnderwayPeriod.regulation_year == regulation_year,
+        NotUnderwayPeriod.is_deleted == 0,
+    )
+    if as_of is not None:
+        stmt = stmt.where(NotUnderwayPeriod.started_at <= as_of)
+    stmt = stmt.group_by(NotUnderwayPeriod.vessel_id)
+    return {row[0]: Decimal(row[1]) for row in (await session.execute(stmt)).all()}
+
+
+async def list_periods_for_year_for_vessels(
+    session: AsyncSession,
+    *,
+    vessel_ids: Sequence[UUID],
+    regulation_year: int,
+    as_of: datetime | None = None,
+) -> dict[UUID, list[NotUnderwayPeriod]]:
+    """여러 선박의 :func:`list_periods_for_year`를 **쿼리 한 번**으로 낸다 (#989).
+
+    ``_resolve_progress``가 창 계산에 구간 **전체 행**을 쓰므로 COUNT가 아니라
+    목록을 그대로 나른다 — 요청 캐시에 담긴 같은 행을 ``compute_ytd_cii``의
+    ``period_count``까지 재활용한다.
+    """
+    if not vessel_ids:
+        return {}
+    stmt = select(NotUnderwayPeriod).where(
+        NotUnderwayPeriod.vessel_id.in_(list(vessel_ids)),
+        NotUnderwayPeriod.regulation_year == regulation_year,
+        NotUnderwayPeriod.is_deleted == 0,
+    )
+    if as_of is not None:
+        stmt = stmt.where(NotUnderwayPeriod.started_at <= as_of)
+
+    stmt = stmt.order_by(NotUnderwayPeriod.started_at, NotUnderwayPeriod.id)
+    grouped: dict[UUID, list[NotUnderwayPeriod]] = {}
+    for period in (await session.execute(stmt)).scalars():
+        grouped.setdefault(period.vessel_id, []).append(period)
+    return grouped
 
 
 # ─────────────────────────────────────────────────────────────────────────────

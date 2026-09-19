@@ -68,6 +68,13 @@ interface ServerSummary {
   rating_distribution: Record<string, number>
   at_risk: number
   no_data: number
+  /** `#989` — 구버전 서버 응답에도 화면이 깨지지 않게 선택 필드로 둔다. */
+  missing_gross_tonnage?: number
+  soonest_d_entry?: {
+    vessel_id: string
+    name: string
+    days: number
+  } | null
 }
 
 interface ServerBody {
@@ -247,6 +254,16 @@ export function createApiFleetProvider(
           ratingDistribution: toDistribution(summary?.rating_distribution),
           atRisk: summary?.at_risk ?? 0,
           noData: summary?.no_data ?? 0,
+          // 파생 표시 2종 (#989) — 서버 summary가 선대 전체 기준으로 내린 값만 싣는다.
+          // 구버전 서버(필드 없음)에서는 각각 0/null로 두어 화면이 지어내지 않게 한다.
+          missingGrossTonnage: summary?.missing_gross_tonnage ?? 0,
+          soonestDEntry: summary?.soonest_d_entry
+            ? {
+                vesselId: summary.soonest_d_entry.vessel_id,
+                name: summary.soonest_d_entry.name,
+                days: summary.soonest_d_entry.days,
+              }
+            : null,
         },
         vessels: (data.vessels ?? []).map(toVessel),
         nextCursor: body.meta?.next_cursor ?? null,

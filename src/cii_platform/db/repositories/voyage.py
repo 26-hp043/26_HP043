@@ -264,6 +264,42 @@ async def list_annual_inclusions(
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def list_annual_inclusions_for_vessels(
+    session: AsyncSession,
+    *,
+    vessel_ids: Sequence[UUID],
+    regulation_year: int,
+    policy: str,
+    as_of: datetime | None = None,
+) -> dict[UUID, list[Voyage]]:
+    """여러 선박의 :func:`list_annual_inclusions`을 **쿼리 한 번**으로 낸다 (#989 ⑵).
+
+    선대 요약이 선박마다 ``compute_ytd_cii``를 네 번 부르는데, 그 매번 이 조회가
+    선박 수만큼 나가는 것이 병목의 대부분이었다(200척 실측 4,624쿼리). WHERE·정렬은
+    단건과 **글자로 같다** — 어느 한쪽만 고치면 대시보드 값이 선박 수에 따라 달라진다.
+
+    없는 선박은 키가 없다(``.get(id, [])`` 규약 — :func:`find_in_progress_for_vessels`와 같다).
+    """
+    if not vessel_ids:
+        return {}
+    stmt = select(Voyage).where(
+        Voyage.vessel_id.in_(list(vessel_ids)),
+        Voyage.regulation_year == regulation_year,
+        Voyage.annual_inclusion_policy == policy,
+        Voyage.is_deleted == 0,
+    )
+
+    if as_of is not None:
+        arrival_at = func.coalesce(Voyage.actual_arrival_at, Voyage.planned_arrival_at)
+        stmt = stmt.where(or_(arrival_at.is_(None), arrival_at <= as_of))
+
+    stmt = stmt.order_by(Voyage.created_at, Voyage.id)
+    grouped: dict[UUID, list[Voyage]] = {}
+    for voyage in (await session.execute(stmt)).scalars():
+        grouped.setdefault(voyage.vessel_id, []).append(voyage)
+    return grouped
+
+
 async def list_remaining_plans(
     session: AsyncSession,
     *,
