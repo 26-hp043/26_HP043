@@ -432,6 +432,102 @@ class TestPasswordReset:
         assert resp.status_code == 400
         assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
 
+    # ── 해싱은 토큰이 유효할 때만 한다 (#1327) ─────────────────────────────
+    #
+    # 종전 라우트는 토큰을 보기 **전에** Argon2 해싱을 했다. 이 경로는 미인증이고
+    # 인증 버킷 밖(300회/분)이라 아무 토큰이나 실어 보내면 전부 해싱을 태웠다.
+    # 응답(400·422·200)은 그대로 두고 **호출 횟수**만 센다 — 응답만 보면 순서를
+    # 되돌려도 통과한다.
+
+    @pytest.fixture
+    def hash_calls(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """라우트가 `hash_password_async`를 부른 횟수. 실제 해싱은 그대로 한다."""
+        from cii_platform.api.routes import auth_tokens as module
+
+        original = module.hash_password_async
+        calls: list[str] = []
+
+        async def _counting(password: str) -> str:
+            calls.append(password)
+            return await original(password)
+
+        monkeypatch.setattr(module, "hash_password_async", _counting)
+        return calls
+
+    def test_forged_token_is_rejected_without_hashing(self, client, hash_calls):
+        resp = client.post(
+            "/api/v1/auth/password-reset/confirm",
+            json={"token": "forged", "password": NEW_PASSWORD},
+        )
+        assert resp.status_code == 400
+        assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
+        assert hash_calls == []
+
+    async def test_expired_token_is_rejected_without_hashing(self, client, hash_calls):
+        from cii_platform.db.session import get_sessionmaker
+        from cii_platform.services.auth_token import issue_token as issue
+
+        email = "expired-hash@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            # 발급 시각을 TTL(1시간)보다 훨씬 전으로 두어 **진짜 행이 만료된** 토큰을 만든다.
+            async with get_sessionmaker()() as s:
+                raw = await issue(
+                    s,
+                    user_id=await _user_id(email),
+                    purpose=PURPOSE_PASSWORD_RESET,
+                    now=datetime.now(UTC) - timedelta(days=1),
+                )
+                await s.commit()
+
+            resp = client.post(
+                "/api/v1/auth/password-reset/confirm",
+                json={"token": raw, "password": NEW_PASSWORD},
+            )
+            assert resp.status_code == 400
+            assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
+            assert hash_calls == []
+        finally:
+            await _cleanup(email)
+
+    async def test_valid_token_hashes_once_and_a_reused_token_does_not(self, client, hash_calls):
+        """정상 경로는 그대로다 — 해싱 정확히 한 번, 새 비밀번호로 로그인된다.
+
+        같은 토큰을 다시 보내면(이미 사용됨) 400이고 해싱은 늘지 않는다.
+        """
+        from cii_platform.db.session import get_sessionmaker
+        from cii_platform.services.auth_token import issue_token as issue
+
+        email = "hash-once@example.com"
+        try:
+            client.post("/api/v1/auth/signup", json={"email": email, "password": PASSWORD})
+            async with get_sessionmaker()() as s:
+                raw = await issue(s, user_id=await _user_id(email), purpose=PURPOSE_PASSWORD_RESET)
+                await s.commit()
+
+            ok = client.post(
+                "/api/v1/auth/password-reset/confirm",
+                json={"token": raw, "password": NEW_PASSWORD},
+            )
+            assert ok.status_code == 200, ok.text
+            assert hash_calls == [NEW_PASSWORD]
+
+            reused = client.post(
+                "/api/v1/auth/password-reset/confirm",
+                json={"token": raw, "password": "another-long-passphrase"},
+            )
+            assert reused.status_code == 400
+            assert reused.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
+            assert hash_calls == [NEW_PASSWORD]
+
+            client.cookies.clear()
+            login = client.post(
+                "/api/v1/auth/login", json={"email": email, "password": NEW_PASSWORD}
+            )
+            assert login.status_code == 200
+        finally:
+            await _cleanup(email)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 성공 경로 — `#871`
