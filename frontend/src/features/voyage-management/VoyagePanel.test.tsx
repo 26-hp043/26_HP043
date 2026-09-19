@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { VoyagePanel } from './VoyagePanel'
 import type { VoyageManagementProvider } from './apiProvider'
-import type { ActualsDraft, ManagedVoyage, VoyageDraft } from './types'
+import type { ActualsDraft, DistanceSource, ManagedVoyage, VoyageDraft } from './types'
 
 /**
  * 항차 시각 4종의 **입력 칸이 실제로 화면에 있는가** (#873).
@@ -30,6 +30,7 @@ const IN_PROGRESS: ManagedVoyage = {
   departurePortName: 'Busan',
   arrivalPortName: 'Singapore',
   plannedDistanceNm: 2300,
+  plannedDistanceSource: null,
   plannedSpeedKn: 14,
   actualDistanceNm: null,
   actualAvgSpeedKn: null,
@@ -409,6 +410,30 @@ describe('샘플 항만 선택 (#760)', () => {
     expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
   })
 
+  it('추정 뒤 항을 바꾸면 추정 거리를 비운다 — 옛 항로의 거리가 추정값으로 저장되지 않게 (#1256)', async () => {
+    await openForm()
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'BUSAN' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'SINGAPORE' } })
+    fireEvent.click(await screen.findByRole('button', { name: '좌표 기반 추정 거리로 채우기' }))
+    await screen.findByText(/좌표 기반 추정 거리 — /)
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan New Port' } })
+
+    expect((screen.getByLabelText(/계획 거리/) as HTMLInputElement).value).toBe('')
+    expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
+  })
+
+  it('추정하지 않은 거리는 항을 바꿔도 그대로다 — 사용자가 넣은 값이다', async () => {
+    await openForm()
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2600' } })
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'BUSAN' } })
+
+    expect((screen.getByLabelText(/계획 거리/) as HTMLInputElement).value).toBe('2600')
+  })
+
   it('목록에 없는 항은 자유 입력이다 — 좌표가 없고 추정 버튼도 없다', async () => {
     await openForm()
     await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
@@ -430,3 +455,105 @@ describe('샘플 항만 선택 (#760)', () => {
   })
 })
 
+
+/**
+ * 계획 거리의 출처가 저장까지 간다 (#1256 · `PRD §15.2`).
+ *
+ * `estimated`는 폼의 임시 상태였고 저장하면 사라졌다 — 저장된 항차에는 「좌표 기반 추정 거리」
+ * 표시가 붙을 수 없었다(#1052 ⓷). 이제 폼이 출처를 싣고, 목록은 서버가 돌려준 출처가
+ * `COORDINATE_ESTIMATE`일 때만 같은 문구를 붙인다. **`null`(「모른다」)에는 붙이지 않는다** —
+ * 직접 입력한 값에 「추정」이 붙는 것이 `PRD §0.3`이 금하는 거짓말이다.
+ */
+describe('계획 거리의 출처 (#1256)', () => {
+  const withSource = (source: DistanceSource | null): ManagedVoyage => ({
+    ...IN_PROGRESS,
+    plannedDistanceSource: source,
+  })
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGKEP', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+  ]
+
+  async function openEstimatedForm() {
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          create,
+          greatCircle: vi.fn(async () => 2470.2),
+          samplePorts: vi.fn(async () => PORTS),
+        })}
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'BUSAN' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'SINGAPORE' } })
+    fireEvent.click(await screen.findByRole('button', { name: '좌표 기반 추정 거리로 채우기' }))
+    await screen.findByText(/좌표 기반 추정 거리 — /)
+    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-10' } })
+    fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
+    fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '331' } })
+    return create
+  }
+
+  it('좌표로 채운 거리를 그대로 저장하면 COORDINATE_ESTIMATE를 보낸다', async () => {
+    const create = await openEstimatedForm()
+
+    fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(create.mock.calls[0][1].plannedDistanceSource).toBe('COORDINATE_ESTIMATE')
+  })
+
+  it('채운 거리를 고쳐서 저장하면 USER_INPUT을 보낸다 — 사용자가 넣은 값은 추정이 아니다', async () => {
+    const create = await openEstimatedForm()
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2600' } })
+
+    fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    expect(create.mock.calls[0][1].plannedDistanceSource).toBe('USER_INPUT')
+  })
+
+  it('저장된 항차의 출처가 COORDINATE_ESTIMATE면 목록에 같은 문구가 붙는다', async () => {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({
+            voyages: [withSource('COORDINATE_ESTIMATE')],
+            fuelTypes: ['HFO'],
+            nextCursor: null,
+            hasMore: false,
+          })),
+        })}
+      />,
+    )
+
+    expect(await screen.findByText(/좌표 기반 추정 거리 — /)).toBeTruthy()
+  })
+
+  it.each([null, 'USER_INPUT'] as const)(
+    '출처가 %s이면 아무것도 붙이지 않는다 — 모르는 것과 직접 입력에 「추정」을 달지 않는다',
+    async (source) => {
+      render(
+        <VoyagePanel
+          vesselId="ves-1"
+          provider={stubProvider({
+            list: vi.fn(async () => ({
+              voyages: [withSource(source)],
+              fuelTypes: ['HFO'],
+              nextCursor: null,
+              hasMore: false,
+            })),
+          })}
+        />,
+      )
+
+      await screen.findByText('2026-01')
+      expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
+    },
+  )
+})

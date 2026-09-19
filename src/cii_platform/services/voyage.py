@@ -60,6 +60,9 @@ def to_dict(voyage, fuel_uses: list) -> dict[str, object]:
         "arrival_lat": _number(voyage.arrival_lat),
         "arrival_lon": _number(voyage.arrival_lon),
         "planned_distance_nm": _number(voyage.planned_distance_nm),
+        # #1256 — 계획 거리의 출처. None은 「모른다」— 화면은 `COORDINATE_ESTIMATE`일 때만
+        # 「좌표 기반 추정 거리」 표시를 붙이고, None에는 아무것도 붙이지 않는다.
+        "planned_distance_source": voyage.planned_distance_source,
         "actual_distance_nm": _number(voyage.actual_distance_nm),
         "planned_speed_kn": _number(voyage.planned_speed_kn),
         "actual_avg_speed_kn": _number(voyage.actual_avg_speed_kn),
@@ -95,6 +98,7 @@ async def create_voyage(
     fuel_uses: list[dict],
     notes: str | None,
     created_from: str = "MANUAL",
+    planned_distance_source: str | None = None,
 ) -> dict[str, object]:
     """항차를 생성한다 (API_SPEC §3.3, #53). 성공 시 201.
 
@@ -105,6 +109,11 @@ async def create_voyage(
     넘긴다 — 나중에 「이 항차는 어디서 왔나」를 물을 수 있어야 하기 때문이다.
     **초기 상태는 출처와 무관하게 같다**: 어느 경로로 들어왔든 연간 집계에 바로
     들어가지 않는다.
+
+    ``planned_distance_source``는 **항차가 아니라 거리 한 값의 출처**다(#1256 ·
+    ``PRD §15.2``). ``created_from``이 「이 항차가 어느 경로로 들어왔나」라면 이것은 「그
+    숫자가 좌표 추정인가 직접 입력인가」이고, 기본은 ``None`` = 「모른다」다 — 서버는
+    호출자가 그 숫자를 어떻게 얻었는지 알 수 없으므로 아는 척하지 않는다.
     """
     # 연료 CF 조회 — 모든 fuel_type이 active여야 한다.
     codes = [fu["fuel_type"] for fu in fuel_uses]
@@ -144,6 +153,7 @@ async def create_voyage(
         arrival_lat=arrival_lat,
         arrival_lon=arrival_lon,
         planned_distance_nm=planned_distance_nm,
+        planned_distance_source=planned_distance_source,
         planned_speed_kn=planned_speed_kn,
         planned_departure_at=planned_departure_at,
         planned_arrival_at=planned_arrival_at,
@@ -314,12 +324,23 @@ async def update_voyage(
     # `scenario_adopt`가 같은 필드를 `PLANNING_STATUSES`로 막는 것과 같은 기준이며,
     # 일반 PATCH에만 가드가 없었다.
     changed_plan_fields = sorted(set(fields) & _PLAN_GUARD_FIELDS)
-    if changed_plan_fields and voyage.status not in PLANNING_STATUSES:
+    # #1256 — 거리 출처는 계산 입력이 아니라 재계산 대상(`changed_plan_fields`)에는 넣지
+    # 않지만, **계획 거리에 붙은 표시**라 거리와 같은 상태에서만 바뀐다. 확정된 항차의
+    # 거리에 사후로 「추정」을 붙이거나 떼는 길을 열어 두지 않는다.
+    guarded_fields = sorted(set(fields) & (_PLAN_GUARD_FIELDS | {"planned_distance_source"}))
+    if guarded_fields and voyage.status not in PLANNING_STATUSES:
         raise StateTransitionError(
             f"계획 단계 항차만 계획값을 바꿀 수 있습니다 (현재 상태: {voyage.status}). "
-            f"대상 필드: {', '.join(changed_plan_fields)} · "
+            f"대상 필드: {', '.join(guarded_fields)} · "
             f"허용 상태: {' · '.join(sorted(PLANNING_STATUSES))}"
         )
+
+    # #1256 — 출처는 **숫자에 붙은 표시**다. 거리가 바뀌는데 출처를 말하지 않으면 옛 출처를
+    # 새 숫자에 그대로 두지 않고 「모른다」로 돌린다 — 좌표로 채운 항차의 거리를 사람이
+    # 고쳤는데 「추정값입니다」가 남아 있으면 `PRD §0.3`이 금하는 거짓말이다. 생성의 기본값
+    # (`None`)과 같은 규칙이라, 거리와 출처를 함께 보낸 요청만 출처를 갖는다.
+    if "planned_distance_nm" in fields and "planned_distance_source" not in fields:
+        fields["planned_distance_source"] = None
 
     for key, value in fields.items():
         setattr(voyage, key, value)

@@ -364,6 +364,27 @@ export function VesselRegistration() {
               )}
             </Field>
 
+            {/* #1197 — 호출부호(선택). 공공데이터(해양수산부_선박운항정보)가 IMO가 아니라
+                이 값으로 질의하므로 교차 대조의 키다. 서버가 대문자로 접어 저장한다. */}
+            <Field
+              id="call-sign"
+              label="호출부호"
+              labelEn="Call Sign"
+              error={errors[FIELD.callSign]}
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  className="vessel-registration__control"
+                  type="text"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  value={state.callSign}
+                  onChange={(e) => update('callSign', e.target.value, FIELD.callSign)}
+                />
+              )}
+            </Field>
+
             <Field
               id="default-fuel"
               label="기본 연료"

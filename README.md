@@ -7,7 +7,7 @@
 | 문서명 | README.md |
 | 버전 | v1.0 |
 | 상태 | 운영 중 — 저장소 진입점 |
-| 최종 수정일 | 2026-09-19 |
+| 최종 수정일 | 2026-09-18 |
 | 하위 문서 | `PRD.md`, `TECH_SPEC.md`, `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md`, `AGENTS.md`, `DESIGN_SYSTEM.md`, `UIFLOW.md` |
 | 문서 목적 | 프로젝트 개요·문서 구조·MVP 범위를 안내한다. 규범적 내용은 각 정본이 소유하며 본 문서는 요약만 담는다 |
 
@@ -40,14 +40,14 @@
 
 | 문서 | 내용 | 상태 |
 |---|---|---|
-| [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.15**, 자체 ID/PW 인증 전환 #413 + **역할 2종(사무직·현장직) #672** + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358 + **§12.3.1 필요 감축량(목표 역산) #433** + **§8.4 선종 변경 재계산 #944** + **§3.3.8 진행분 유종별 배분 #885** + **§6.4 상태 문구 #931** + **§12.2.1 실적 보정계수 #363** + **§6.4 「선행 선택 필요」 패턴 #1171** + **§5.1 화면 언어 전환(실험) #1215**) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
-| [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.11**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 #434 + 메일·리포트 절 신설 #446 + **§10.3 NumPy 업그레이드·재현성 한계 #833·#106** + **§16.2 디렉터리 트리 실측 갱신 #1081**) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16), 메일 발송(§18), 리포트 렌더링(§19) | ✅ 완료 |
-| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.37**, 인증 재작성 #414 + **역할 2종·사무직 전용 경로 #672** + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440 + CII 적용 대상 표시 #653 + CSV 내보내기 컬럼 확정 #59 + 샘플 선박 목록 #982 + 챗봇 API #121 + **파라미터 Import CSV #673** + **vessel.block_coefficient #966**) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
-| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.30**, not under way 스키마 #345 + **app_user.role #672** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451 + **CUBRID 제약 전면 갱신 #1058** + **chat_session·chat_message 등재 #1080** + **활성-유니크 트리거 #673** + **block_coefficient #966**) — **25개 테이블**, **CUBRID 11.4.6**, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
+| [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.16**, 자체 ID/PW 인증 전환 #413 + **역할 2종(사무직·현장직) #672** + **관리자 분리 — 역할 3종 #1301** + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358 + **§12.3.1 필요 감축량(목표 역산) #433** + **§8.4 선종 변경 재계산 #944** + **§3.3.8 진행분 유종별 배분 #885** + **§6.4 상태 문구 #931** + **§12.2.1 실적 보정계수 #363** + **§6.4 「선행 선택 필요」 패턴 #1171** + **§5.1 화면 언어 전환(실험) #1215**) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
+| [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.14**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 #434 + 메일·리포트 절 신설 #446 + **§10.3 NumPy 업그레이드·재현성 한계 #833·#106** + **§16.2 디렉터리 트리 실측 갱신 #1081** + **§5.2.1.2 기능③ parameters_used v1·v2 #1306** + **§19.2 CSV 수치 열 선언 #1247** + **§7.1·§7.3 기상 조회 계층 실측 정합 #968**) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16), 메일 발송(§18), 리포트 렌더링(§19) | ✅ 완료 |
+| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.41**, 인증 재작성 #414 + **역할 2종·사무직 전용 경로 #672** + **관리자 전용 경로 #1301** + **호출부호 call_sign #1197** + **CSV 수치 열 선언 #1247** + **계획 거리 출처 planned_distance_source #1256** + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440 + CII 적용 대상 표시 #653 + CSV 내보내기 컬럼 확정 #59 + 샘플 선박 목록 #982 + 챗봇 API #121 + **파라미터 Import CSV #673** + **vessel.block_coefficient #966**) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
+| [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.33**, not under way 스키마 #345 + **app_user.role #672** + **role 3종·값 트리거 057 #1301** + **vessel.call_sign 058 #1197** + **voyage.planned_distance_source 059 #1256** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451 + **CUBRID 제약 전면 갱신 #1058** + **chat_session·chat_message 등재 #1080** + **활성-유니크 트리거 #673** + **block_coefficient #966**) — **25개 테이블**, **CUBRID 11.4.6**, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
 | [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.27**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398 + 배포 배선 고정 #508 + 테스트 격리 #507 + 계정 관리 #506 + **§3.25~3.27 신설 · §10 실CI 재작성 · §14.3~14.5 갱신 #1104·#1081** + **IT-IMPORT CSV 계약 #673**) — 파일·함수·수집 수는 `TEST_PLAN §14.2` 합계 문장이 정본(CI가 실측과 대조), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 (**v1.10**) — 문서 우선순위(§3.1)·소관 한정 정본(§3.2), Oracle 교차 검증, 규제값 권위 소스, 이슈 유예 처리(§6.1), 1 PR = 1 이슈·PR 제목 형식(§7), 「상위 문서」 의미(§4.4), 제품명(§4.5), 화면 문구 소관(§4.6), 절·화면 참조 표기(§4.7) | ✅ 완료 |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | 디자인 토큰 계약서 (**v2.14**, 등급 3색 체계 · 다크 모드 · 토큰 접두어 `--cii-*` #463 + `UIFLOW` 참조 정리·신뢰도 배지 표시 임계 #583 + §4.2 일수·속력 자릿수 #592 + §8.2 CII 적용 대상 배지 #653 + §4.2 용량 자릿수 #633 + **rlatnals4114 확정 12건 반영** — §16 미확정 6항목 종결·§0.2 제약 6·§5 〔확정〕/〔제안〕 표기·§12 아이콘 세트·§15 `--brand-*` #747 · #694 + **§8 BrandLogo·§7.2 브랜드 판 반응형 #934** + **rlatnals4114 2026-09-11 확정 반영** — §5 확정/제안 정의·오버레이 규정·§8 슬라이더·§8.3 등급 전이 #930 · #932 · #933 + **§8.4 폼 필드·필드 오류 #936** + **§8.5 어시스턴트 오버레이 「답이 아닌 것」의 표시 #1051** + **§16 항목 4 self-host 마감 #1171** + **§14 비활성 컨트롤의 사유 표기 확정·§16 항목 20 #1170** + **§12 아이콘 규격값의 출처를 Figma로 일원화·§15 `--icon-*` #1174** + **§14 경계와 장식을 가르는 1.4.11 적용 기준 #1202**) — 컬러·타이포그래피·숫자 포맷·차트 규약·접근성 | ✅ 완료 |
-| [`UIFLOW.md`](./UIFLOW.md) | UI Flow 명세서 (**v2.13**, 선대 계층에 함대 감축 계획·데이터 점검 신설 #505 + 하위 절 번호 부여 #583 + 두 화면을 1차 심사 범위 밖으로 판정 #513 + §2.2.1 사이드바 순서 신설 #712 + 2-7 AI 어시스턴트 주요 UI #121 + **§2.2 역할 열 #672** + **임계값 문구 정정 #1081**) — 화면 목록·계층·흐름·진입 조건 | 🟡 초안 |
+| [`UIFLOW.md`](./UIFLOW.md) | UI Flow 명세서 (**v2.14**, 선대 계층에 함대 감축 계획·데이터 점검 신설 #505 + 하위 절 번호 부여 #583 + 두 화면을 1차 심사 범위 밖으로 판정 #513 + §2.2.1 사이드바 순서 신설 #712 + 2-7 AI 어시스턴트 주요 UI #121 + **§2.2 역할 열 #672** + **§2.2 관리자 열·2-6 계정 관리 관리자 전용 #1301** + **임계값 문구 정정 #1081**) — 화면 목록·계층·흐름·진입 조건 | 🟡 초안 |
 
 ---
 
@@ -151,9 +151,10 @@ DB → 마이그레이션 → 앱·화면 순서다. **앱을 마지막에 올�
 export CUBRID_DB=cii CUBRID_PASSWORD=...
 #    가입 게이트는 .env에 둔다 — SIGNUP_ALLOWED_DOMAINS 또는 SIGNUP_INVITE_CODE.
 #    둘 다 없으면 앱이 기동하지 않는다 (사내 도구 · #808 · .env.example 참조)
-#    최초 사무직도 .env에 둔다 — INITIAL_OFFICE_EMAILS=팀장@회사.kr,운항관리자@회사.kr
-#    비어 있으면 앱이 기동하지 않는다 (역할 2종 · #672 · API_SPEC §1.2 「최초 사무직」)
+#    최초 관리자도 .env에 둔다 — INITIAL_ADMIN_EMAILS=팀장@회사.kr,운항관리자@회사.kr
+#    비어 있으면 앱이 기동하지 않는다 (역할 3종 · #1301 · API_SPEC §1.2 「최초 관리자」)
 #    ⚠️ staging에는 이 가드가 없다 — 비어 있어도 조용히 뜬다, 값을 직접 채운다 (#1290)
+#    ⚠️ 옛 이름 INITIAL_OFFICE_EMAILS는 읽히지 않는다 — 남아 있으면 기동 실패 (#1301)
 
 # 2) 이미지를 먼저 굽는다 ⚠️ 건너뛰지 말 것 (아래 주의 참조)
 docker compose -f docker-compose.prod.yml build
@@ -195,7 +196,7 @@ docker compose -f docker-compose.prod.yml exec -T db \
 - **팀 계정과 시연용 계정만 있어야 한다.** 데모 시드를 넣었다면 `demo@bluelog.local`이 함께 보인다(`#692`).
 - 모르는 주소가 있으면 **배포를 멈춘다.** 지우는 것은 사람의 데이터를 지우는 일이라 담당이 판단한다 — 그 계정이 만든 항차·계산 이력이 함께 걸려 있을 수 있고, 계산 이력은 `DB_SCHEMA §7.3` immutable 가드가 삭제를 막는다.
 - 게이트 자체가 켜져 있는지는 기동이 말해 준다 — 프로덕션에서 `SIGNUP_ALLOWED_DOMAINS`·`SIGNUP_INVITE_CODE`가 둘 다 없으면 앱이 뜨지 않는다(`#808`).
-- **사무직이 누구인지도 확인한다** — `SELECT email, role FROM app_user WHERE is_deleted = false`. 마이그레이션 044 이전부터 있던 계정은 전부 `OFFICE`이고, 새 가입은 `FIELD`로 시작한다. `INITIAL_OFFICE_EMAILS`에 든 이메일은 로그인할 때 `OFFICE`로 맞춰진다(`#672` · `API_SPEC §1.2`). **`staging`에는 이 값이 비어 있어도 기동을 막는 가드가 없다** — `production`과 달리 조용히 통과하므로, `staging` 배포에서는 사무직 0명이 이 조회로만 드러난다(`#1290`).
+- **관리자가 누구인지도 확인한다** — `SELECT email, [role] FROM app_user WHERE is_deleted = false` (CUBRID에서 `role`은 예약어라 대괄호가 필요하다). 마이그레이션 044 이전부터 있던 계정은 전부 `OFFICE`이고, 새 가입은 `FIELD`로 시작한다. `INITIAL_ADMIN_EMAILS`에 든 이메일은 로그인할 때 `ADMIN`으로 맞춰진다(`#672` · `#1301` · `API_SPEC §1.2`). **`staging`에는 이 값이 비어 있어도 기동을 막는 가드가 없다** — `production`과 달리 조용히 통과하므로, `staging` 배포에서는 관리자 0명이 이 조회로만 드러난다(`#1290`). 관리자가 0명이면 **역할을 올려 줄 사람이 없어 화면으로는 풀 수 없다**(`#1301`).
 
 ### 백업·복구 (`#827`)
 
@@ -484,7 +485,7 @@ uv run --extra dev pytest tests/test_doc_cross_refs.py
 
 CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`의 `cubrid` 서비스). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
 
-### 스위트를 겹쳐 돌리지 못한다 (`#894` → `#1250`)
+### 스위트를 겹쳐 돌리지 못한다 (`#894`)
 
 두 실행이 같은 `cii_test`를 동시에 쓰면 서로의 행을 지우고 스키마까지 내린다. 그래서 **DB를 여는 첫 순간 실행 잠금을 잡고**, 이미 다른 실행이 쥐고 있으면 곧바로 멈춘다.
 
@@ -492,13 +493,7 @@ CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.git
 다른 pytest 실행이 이 테스트 DB를 쓰고 있습니다 (cii_test). 두 실행이 겹치면 …
 ```
 
-**앞 실행이 끝난 뒤 다시 돌리면 된다.** DB를 쓰지 않는 검사는 겹쳐 돌려도 된다.
-
-> **잠금은 `flock`이다** (`#1250`). CUBRID에는 PostgreSQL의 어드바이저리 잠금에 대응하는 것이 없어 이 보호가 한동안 **사라져 있었다** — `_hold_suite_lock()`이 no-op이었고, 그 사이 겹쳐 돌리면 「220 failed」가 나면서 원인이 아니라 **자기 수정을 의심하게** 됐다.
->
-> 필요한 성질은 「프로세스가 죽으면 저절로 풀린다」 하나였다(`#894`가 잠금을 연결에 건 이유). `flock`은 커널이 열린 파일 기술자에 걸므로 `kill -9`에도 남지 않는다. 잠금 파일은 대상 DB 이름으로 갈린다(`/tmp/bluelog-pytest-<DB>.lock`) — 다른 DB를 쓰는 실행끼리는 겹쳐도 된다.
->
-> **막는 범위는 같은 기계다.** 다른 기계에서 같은 원격 DB를 치는 경우는 막지 못한다. 그 경로까지 덮는 것(테스트마다 SAVEPOINT 롤백)은 `#1250`이 이어서 다룬다.
+**앞 실행이 끝난 뒤 다시 돌리면 된다.** 잠금은 연결에 걸려 있어 실행이 강제 종료돼도 남지 않는다. DB를 쓰지 않는 검사는 겹쳐 돌려도 된다.
 
 ### 테스트 DB 복구
 
@@ -651,6 +646,8 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-09-18 | `#1202` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 v2.14로 갱신 — `§14`에 `1.4.11`(비텍스트 3:1)의 적용 갈래 넷 확정 · 아웃라인 컨트롤 18곳을 `--color-border-control`로 이관 (#1202) |
 | 2026-09-18 | `#1248` | 소개 문단 아래에 **단일 조직 배포 전제** 한 줄 신설 — 다중 선사 공동 사용 불가(인스턴스 분리로 대응)를 처음 여는 사람이 30초 안에 알게 한다. 심사에서 반드시 나올 질문에 대한 포지셔닝 명시 (#1248) |
 | 2026-09-19 | `#1290` | **`#672`가 남긴 유예를 닫는다** (`AGENTS §6.1`) — 그 PR은 「`.env.example`은 도구 권한으로 고치지 못했다, `INITIAL_OFFICE_EMAILS` 행을 손으로 추가할 것」이라고 적어 두었으나 그 손작업은 일어나지 않았고, 이를 잡아야 할 `tests/test_compose_env_wiring.py::test_env_example_documents_every_variable_the_app_reads`도 정규식이 리터럴 인자만 봐서 침묵했다(`env.get(ENV_NAME)`처럼 상수를 경유한 읽기는 못 봤다) — 가드가 초록불인 채 비어 있었다. `.env.example`·`.env.app.example` 둘 다에 `INITIAL_OFFICE_EMAILS` 행을 추가하고, 그 가드가 상수 경유 읽기도 잡도록 넓혔다. 「배포」 절 1단계 안내와 「배포 전 점검 — 계정」에 **`staging`에는 이 값이 비어 있어도 기동을 막는 가드가 없다**는 사실을 덧붙였다 — `production`과 달리 조용히 통과해 첫 사용자가 리포트를 열 때에야 사무직 0명이 드러난다. ⚠️ **본보기만 고쳤다면 배포는 그대로 고장 난 채였다** — OCI 분리 토폴로지가 쓰는 `docker-compose.prod.app.yml`의 `backend`에는 `env_file:`이 없고 `environment:` 목록만 주입되는데 그 목록에 이 키가 **없어서**, `.env`에 채워도 앱은 빈 값을 봤다(`#508`이 `MAIL_BACKEND`에서 겪은 함정과 같다). 그 키를 넣고, **본보기가 적는 값이 compose에서 실제로 쓰이는지** 보는 검사(`test_oci_app_compose_uses_every_variable_its_env_example_declares`)를 새로 들였다 — 이 파일을 보는 검사가 그동안 하나도 없었다 (#1290) |
-| 2026-09-19 | `#1304` | **`#1058` CUBRID 전환이 남긴 자국 둘을 지운다** — 「로컬에서 테스트를 돌리는 법」이 `createdb -U cii`·`postgresql+asyncpg://…:5432`를 그대로 내밀어 **적힌 대로 하면 실패**했다. `cubrid createdb --db-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591` + `cubrid server start`·브로커 포트 33100으로 옮기고, `docker compose down` 뒤 서버를 다시 올려야 한다는 것(진입점이 기동하는 것은 `$CUBRID_DB` 하나뿐이다)을 함께 적었다. 세 번째 줄은 **전환과 무관하게 원래 틀려 있었다** — `pytest`는 `[dev]` extra인데 `uv`는 extra를 기본으로 설치하지 않으므로 `uv run --extra dev pytest`여야 한다. 같은 문구를 만드는 `tests/db_target.py`도 함께 옮겼다(README가 그것을 그대로 인용하므로 한쪽만 고치면 어느 쪽이 맞는지 판정할 근거가 없다). 🔴 **「스위트를 겹쳐 돌리지 못한다」가 사실이 아니었다** — CUBRID에 advisory lock이 없어 `conftest._hold_suite_lock()`이 no-op인데 README는 여전히 겹친 실행을 그 자리에서 멈춰 준다고 적고 있었다. 지금은 아무도 말려 주지 않으며 증상이 「220 failed」라 **원인이 아니라 자기 수정을 의심하게 된다**는 것과, 근본 해결이 `#1250`이라는 것을 적는다. 재발은 `tests/test_db_target_guard.py::test_the_way_out_does_not_tell_people_to_run_postgresql_commands`가 막는다 — `db_target.py`의 **실행 줄**과 이 절의 **코드펜스** 양쪽을 본다(산문은 옛 이름을 설명하려고 쓰므로 제외한다. `test_db_backup_script.py`가 같은 선을 긋는다). ⚠️ **이 문구는 가드가 걸릴 때만 사람에게 보인다** — 틀려도 CI는 영원히 초록이고, 막힌 사람은 「막혔다」까지만 보고하지 「안내받은 명령도 안 된다」까지 가지 않는다 (#1207) |
-| 2026-09-19 | `#1304` | **`DATABASE_URL` 표기를 `cubrid+pycubrid://`로 통일한다** — `aiopycubrid`는 **배포본이 아니다.** `sqlalchemy-cubrid`의 `entry_points`를 직접 읽어 확인했다: `cubrid.pycubrid`는 `import pycubrid`, `cubrid.aiopycubrid`는 `import pycubrid.aio`이며 후자는 전자를 **상속**한다 — 즉 DBAPI는 `pycubrid` **하나**이고 `aiopycubrid`는 async **방언 이름**이다. 그런데 `.env.example`·compose 3종·`ci.yml`·`deploy.yml`·`docs/OPERATIONS.md`·`config.py`가 전부 그 이름만 적어 **설치하지도 않은 패키지를 설정에 적는 것처럼** 읽혔다. ⚠️ **엔진이 받는 값은 그대로 async 방언이다** — `cubrid+pycubrid`는 동기 방언이라(`is_async` 없음) `create_async_engine`이 받지 못하고, 표기만 바꿔도 안전한 것은 `db/url.py`의 `normalize_to_async()`가 `cubrid+` 접두를 전부 async로 바꾸며 `db/session.py`·`db/seed.py`·`db/demo_seed.py`·`alembic/env.py`·`conftest.py`가 **전부 그 함수를 통과시키기** 때문이다. 동기 엔진으로 바꾸는 작업이 아니다. `tests/test_config.py`의 단언을 **원문이 아니라 `create_async_engine`이 실제로 받는 값**에 걸어 그 사실을 못 박았다 — 원문 단언을 지우면 「이 앱은 async 방언이 아니면 뜨지 않는다」는 보호까지 함께 사라진다. 🔴 함께 **`pycubrid` 하한이 async 방언 요구보다 낮은 것**도 고쳤다(`>=1.2.0` → **`>=1.3.2`**) — 업스트림이 `[pycubrid]` extra·README FAQ에서 요구하는 값이 `>=1.3.2`이고, 낮게 두면 새로 푸는 환경이 1.2.x를 집어 `import pycubrid.aio`에서 죽는다. **`uv.lock`이 1.7.1을 물고 있어 지금은 드러나지 않는다** (#1305) |
-| 2026-09-20 | `#1304` | **겹침 방지를 되살린다** (`#894` → `#1250`) — 「스위트를 겹쳐 돌리지 못한다」 절이 **없는 보호를 있다고 적고 있었다.** CUBRID에 어드바이저리 잠금이 없어 `conftest._hold_suite_lock()`이 no-op이었고, 그 사이 두 실행이 겹치면 서로의 행을 지우고 스키마까지 내렸다 — 증상이 「220 failed」라 원인이 아니라 **자기 수정을 의심하게** 된다. 잠금에 필요한 성질은 **「프로세스가 죽으면 저절로 풀린다」** 하나였고(`#894`가 잠금을 연결에 건 이유), `flock`은 커널이 **열린 파일 기술자**에 걸므로 `kill -9`에도 남지 않는다 — 실측으로 확인했다(겹친 두 번째 실행이 즉시 멈추고, `kill -9` 뒤 잠금이 남지 않는다). DB 기능에 기대지 않아 CUBRID·SQLite 어느 쪽으로 붙어도 같게 동작한다. 잠금 파일은 **대상 DB 이름**으로 갈려(`/tmp/bluelog-pytest-<DB>.lock`) 다른 DB를 쓰는 실행끼리는 겹칠 수 있다. ⚠️ **막는 범위는 같은 기계다** — `#894`가 실제로 겪은 것(IDE 실행과 터미널 실행이 겹침)이 전부 같은 기계이고 CI는 러너마다 스위트가 하나다. 다른 기계에서 같은 원격 DB를 치는 경우는 막지 못하며, **막지 못하는 것을 막는다고 적지 않는다** — 그 경로는 `#1250`의 SAVEPOINT 격리가 답이다 (#1250) |
+| 2026-09-19 | `#1308` | 문서 구조 표의 `PRD.md`(v4.16) · `API_SPEC.md`(v1.38) · `DB_SCHEMA.md`(v1.31) · `UIFLOW.md`(v2.14) 행을 갱신 — 관리자(`ADMIN`)를 더해 역할 3종으로, 계정 관리 2경로를 사무직에서 관리자로 뗐다. 배포 절의 최초 권한 변수를 `INITIAL_OFFICE_EMAILS` → **`INITIAL_ADMIN_EMAILS`**로 고쳤다(옛 이름이 남아 있으면 기동 거부) — 과거 변경 이력 행은 기록이라 그대로 둔다 (#1301) |
+| 2026-09-20 | `#1311` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.12로 갱신 — §5.2.1.2 기능③ `parameters_used` 스키마 v1·v2 신설 (#1306) |
+| 2026-09-20 | `#1318` | 문서 구조 표의 `API_SPEC.md` 행을 v1.40 · `TECH_SPEC.md` 행을 v1.13으로 갱신 — §8.1·§8.5 CSV 수식 주입 방어의 범위를 「사용자 입력을 반출하는 셀과 라벨」로 좁히고 수치 열은 숫자로 직렬화 (#1247) |
+| 2026-09-20 | `#1320` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.14로 갱신 — §7.1·§7.3 기상 조회 계층을 구현에 맞춤(외부 조회 먼저·실패 시에만 `weather_snapshot` 캐시 · `WeatherProvider(Protocol)` `fetch` 하나 · `source` 값 `open_meteo_marine+forecast` 추가). `DB_SCHEMA §2.13` 값 목록 행도 함께 맞췄다(버전 유지) (#968) |
+| 2026-09-20 | `#1304` | **`#1058` CUBRID 전환이 남긴 자국을 지운다** (`#1207` · `#1305`) — 「로컬에서 테스트를 돌리는 법」이 `createdb -U cii`·`postgresql+asyncpg://…:5432`를 그대로 내밀어 **적힌 대로 하면 실패**했다. `cubrid createdb … en_US.iso88591` + `cubrid server start`·브로커 포트 33100으로 옮기고, `docker compose down` 뒤 서버를 다시 올려야 한다는 것(진입점이 기동하는 것은 `$CUBRID_DB` 하나뿐)을 함께 적었다. 세 번째 줄은 **전환과 무관하게 원래 틀려 있었다** — `pytest`는 `[dev]` extra인데 `uv`는 extra를 기본으로 설치하지 않으므로 `uv run --extra dev pytest`여야 한다. 같은 문구를 만드는 `tests/db_target.py`도 함께 옮겼고(README가 그것을 그대로 인용한다), 재발은 `test_the_way_out_does_not_tell_people_to_run_postgresql_commands`가 **양쪽에서** 막는다. 함께 `DATABASE_URL` 표기를 **`cubrid+pycubrid://`로 통일**했다 — `aiopycubrid`는 배포본이 아니라 `sqlalchemy-cubrid`가 싣는 async 방언 이름이고 DBAPI는 `pycubrid` 하나다(`entry_points` 직접 확인). ⚠️ **엔진이 받는 값은 그대로 async 방언이다** — `normalize_to_async()`가 `cubrid+` 접두를 전부 async로 바꾸며, 동기 엔진으로 바꾸는 작업이 아니다 (#1305) |

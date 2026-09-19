@@ -38,6 +38,11 @@ class Voyage(Base):
     arrival_lat = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
     arrival_lon = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
     planned_distance_nm = sa.Column(sa.Numeric(precision=12, scale=2), nullable=False)
+    # 계획 거리의 출처 (#1256 · 059). `USER_INPUT`(직접 입력 · CSV) 또는
+    # `COORDINATE_ESTIMATE`(두 좌표의 대권거리 · `PRD §15.2`). **NULL은 「모른다」** —
+    # 059 이전 행과, 출처 없이 거리를 넣은 API 요청이 여기 든다. 거리가 바뀌면 옛 출처는
+    # 새 값에 붙지 않는다(`services/voyage.py` `update_voyage`). 값 집행은 059의 트리거.
+    planned_distance_source = sa.Column(sa.String(length=30), nullable=True)
     actual_distance_nm = sa.Column(sa.Numeric(precision=12, scale=2), nullable=True)
     planned_speed_kn = sa.Column(sa.Numeric(precision=6, scale=2), nullable=False)
     actual_avg_speed_kn = sa.Column(sa.Numeric(precision=6, scale=2), nullable=True)
@@ -111,6 +116,13 @@ class Voyage(Base):
             name="chk_year_policy",
         ),
         sa.CheckConstraint("planned_distance_nm > 0", name="chk_distance_positive"),
+        # #1256 — 선언은 `chk_fuel_source`와 같은 형태이고, 집행은 059의 트리거
+        # `trg_chk_planned_distance_source_ins/upd`가 한다(CUBRID는 CHECK를 보관하지 않는다 · §7.4).
+        sa.CheckConstraint(
+            "planned_distance_source IS NULL OR planned_distance_source IN "
+            "('USER_INPUT','COORDINATE_ESTIMATE')",
+            name="chk_distance_source",
+        ),
         sa.CheckConstraint("planned_speed_kn >= 1.0", name="chk_speed_positive"),
         # [M-6] actual 값은 nullable.
         sa.CheckConstraint(

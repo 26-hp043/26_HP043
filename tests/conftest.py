@@ -21,7 +21,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(_ROOT / "src"))
 
-from db_target import database_name, is_disposable, refusal_reason  # noqa: E402
+from db_target import is_disposable, refusal_reason  # noqa: E402
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
 from cii_platform.db.url import normalize_to_async  # noqa: E402
@@ -75,8 +75,11 @@ _CUBRID_SKIP_FILES: set[str] = set()
 # import 시점에 asyncpg 등 PostgreSQL 전용 모듈을 쓰는 파일은
 # pytest_collection_modifyitems보다 먼저 collection error가 난다.
 # collect_ignore로 아예 수집하지 않는다.
-#: 비어 있다 — ``test_suite_lock_db.py``는 `#1250`에서 **파일 잠금**으로 다시 쓰여
-#: `asyncpg`를 더 이상 import하지 않는다.
+#
+# ⚠️ **비어 있어야 정상이다** (#1250). `test_suite_lock_db.py`가 한때 여기 있었다 —
+# asyncpg를 import해서였는데 그 import를 걷고 잠금을 파일 잠금으로 되살린 뒤에도 남아
+# 있으면, 파일을 직접 지정하지 않는 한(CI 포함) **검사가 한 건도 돌지 않는다.**
+# 파일 경로를 주고 돌리면 통과해 보여서 알아채기 어렵다 — 실제로 그렇게 한 번 놓쳤다.
 _CUBRID_COLLECT_IGNORE: set[str] = set()
 
 collect_ignore: list[str] = []
@@ -138,6 +141,9 @@ def require_disposable_target() -> None:
 # `#691`의 판정(대상이 버려도 되는 DB인가)과 층이 다르다 — 이쪽은 **지금 누가 그 DB를
 # 쓰는가**다. 둘 다 「DB를 여는 자리」에서 확인하므로 같은 함수에 붙였다.
 # ─────────────────────────────────────────────────────────────────────────────
+
+#: 잠금 키. 어드바이저리 잠금은 **데이터베이스 단위**라 다른 DB(시연 `cii`)와 섞이지 않는다.
+SUITE_LOCK_KEY = 894_000_001
 
 #: 잠금을 쥔 연결과 그 이벤트 루프. 프로세스가 끝나면 연결이 끊겨 잠금도 풀린다 —
 #: 실행이 강제 종료돼도 잠금이 남지 않는다.
@@ -249,77 +255,79 @@ async def ensure_regulation_year(session, year: int, z_factor: float = 11.0) -> 
     )
 
 
-#: 잠금 파일. 대상 **데이터베이스 이름**으로 가른다 — 다른 DB를 쓰는 실행끼리는
-#: 겹쳐도 되고, 같은 DB를 쓰는 실행만 막아야 한다.
-#:
-#: 파일은 지우지 않는다. 지우면 A가 쥔 파일을 B가 지우고 새로 만들어 **둘 다 잠금을
-#: 얻는** 경로가 생긴다(전형적인 lockfile 경합). 빈 파일 하나가 남을 뿐이다.
-def _suite_lock_path() -> Path:
-    from tempfile import gettempdir
+#: 이 프로세스가 쥔 잠금 파일. 세션 동안 열어 둔다 — 닫는 순간 잠금이 풀린다.
+_SUITE_LOCK_HANDLE = None
 
-    name = database_name(TEST_DATABASE_URL) or "unknown"
-    return Path(gettempdir()) / f"bluelog-pytest-{name}.lock"
+
+def suite_lock_path(url: str = TEST_DATABASE_URL) -> Path:
+    """대상 DB마다 하나인 잠금 파일 경로 (#1250).
+
+    DB URL을 이름에 담는다 — `cii_test`와 다른 테스트 DB는 서로 막지 않는다. 비밀번호가
+    URL에 들어갈 수 있으므로 원문 대신 해시를 쓴다.
+    """
+    import hashlib
+    import tempfile
+
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    # ``TMPDIR``을 따르지 않는다 — 샌드박스 셸과 일반 셸처럼 ``TMPDIR``이 다른 두 실행이
+    # 같은 DB를 쓰면 서로 다른 파일을 잠가 **막지 못한다.** 저장소 안(`.pytest_cache`)도
+    # 안 된다 — 워크트리마다 경로가 달라 같은 문제가 난다. 그래서 고정 경로를 쓴다.
+    base = Path("/tmp") if Path("/tmp").is_dir() else Path(tempfile.gettempdir())
+    return base / f"cii-pytest-suite-{digest}.lock"
 
 
 def _hold_suite_lock() -> None:
-    """이 테스트 DB를 쓰는 pytest 실행이 **하나뿐임을** 보장한다 (`#894` → `#1250`).
+    """스위트가 도는 동안 **대상 DB 단위 파일 잠금**을 쥔다 (#894 · #1250).
 
-    ## 왜 다시 필요한가
+    ## 왜 되살렸나
 
-    `#894`가 PostgreSQL 어드바이저리 잠금으로 만든 보호가 **CUBRID 전환에서 사라졌다**
-    — 대응하는 기능이 없어 이 함수가 한동안 no-op이었다. 그동안 두 실행이 겹치면
-    서로의 행을 지우고(전역 DELETE로 정리하는 검사들) 스키마까지 내렸다
-    (``test_zz_roundtrip.py``). 증상은 「220 failed」라 **원인이 아니라 자기 수정을
-    의심하게 된다.**
+    PostgreSQL advisory lock으로 하던 것이 CUBRID 전환(`#1058`)에서 advisory lock이 없어
+    no-op이 됐다. 그 뒤로 두 스위트가 같은 `cii_test`를 겹쳐 쓰면 **막는 것이 없었다** —
+    2026-09-09의 「220 failed」가 다시 날 수 있는 상태였다(`tests/test_suite_lock_db.py`가
+    그 사실을 skip 사유로 적고 기다리고 있었다).
 
-    ## 왜 DB가 아니라 파일 잠금인가
+    ## 왜 파일 잠금인가 (잠금 테이블이 아니라)
 
-    잠금에 필요한 성질은 **「프로세스가 죽으면 저절로 풀린다」**였다 — `#894`가 잠금을
-    연결에 건 이유가 그것이다. 남는 잠금은 다음 사람을 영영 막는다.
+    ``fcntl.flock``은 **프로세스가 죽으면 OS가 푼다.** 잠금 테이블 한 행으로 하면 실행이
+    중간에 죽었을 때 행이 남아 **다음 실행이 영원히 막히고**, 사람이 DB에서 행을 지워야
+    풀린다. 테스트 DB 연결도 필요 없다.
 
-    ``flock``은 **커널이 열린 파일 기술자에 거는 잠금**이라 같은 성질을 갖는다.
-    프로세스가 ``kill -9``로 죽어도 fd가 닫히며 풀린다. DB 기능에 기대지 않으므로
-    CUBRID·SQLite 어느 쪽으로 붙어도 같게 동작한다.
+    ⚠️ **한계 — 같은 파일 시스템의 실행끼리만 막는다.** 호스트의 pytest와 컨테이너 안의
+    pytest가 같은 DB를 쓰는 겹침은 잡지 못한다. 이 저장소의 로컬 실행은 호스트(WSL)에서
+    돌리고 CI는 잡마다 새 DB에서 한 번 돌므로, 겪은 사고(#894)는 이 범위 안이다.
 
-    **막는 범위는 같은 기계다.** `#894`가 실제로 겪은 것(IDE 실행과 터미널 실행이
-    겹침)이 전부 같은 기계이고, CI는 러너마다 스위트가 하나다. 다른 기계에서 같은
-    원격 DB를 치는 경우는 이 잠금이 막지 못한다 — **막지 못하는 것을 막는다고 적지
-    않는다.** 그 경로까지 덮으려면 `#1250`의 SAVEPOINT 격리가 답이다.
-
-    ## 왜 대기하지 않고 즉시 멈추는가
-
-    병렬을 가능하게 하는 것이 목적이 아니라 **겹친 순간 원인을 말하며 멈추는 것**이
-    목적이다. 기다리면 사람은 「느리다」고만 느끼고 왜 그런지 모른다.
+    잠금은 한 번만 잡는다 — DB를 여는 fixture가 여럿이어서 여러 번 불린다.
     """
-    if _suite_lock:
+    global _SUITE_LOCK_HANDLE
+    if _SUITE_LOCK_HANDLE is not None:
+        return
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows에서 직접 돌리는 경우
         return
 
-    import fcntl
-
-    path = _suite_lock_path()
-    handle = path.open("w")
+    # "a"로 연다 — "w"면 잠금을 못 얻는 쪽도 파일을 비운다(잠금엔 영향 없지만 불필요한 쓰기).
+    handle = open(suite_lock_path(), "a")  # noqa: SIM115 - 세션 내내 열어 둔다
     try:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
         handle.close()
-        # **한 검사의 실패가 아니라 실행 전체를 멈춘다** (`#894`). 계속 가면 두 실행이
-        # 서로의 행을 지우므로, 멈추는 것이 곧 보호다. 종료 코드 3은 `pytest.exit`의
-        # 것이며 `tests/test_suite_lock_db.py`가 그 값을 단언한다.
-        pytest.exit(
-            SUITE_LOCK_MESSAGE.format(db=database_name(TEST_DATABASE_URL) or "(이름 없음)"),
-            returncode=3,
-        )
-    # 진단용 — 누가 쥐고 있는지 파일만 보고도 알 수 있게 한다.
-    handle.write(f"{os.getpid()}\n")
-    handle.flush()
-    _suite_lock["handle"] = handle
+        # skip·fail이 아니라 **세션을 끝낸다** — 계속 돌면 검사들이 줄줄이 실패해 원인을
+        # 가린다(#894의 증상). 종료 코드 3은 종전 advisory lock 구현과 같다.
+        db = TEST_DATABASE_URL.rsplit("/", 1)[-1]
+        pytest.exit(SUITE_LOCK_MESSAGE.format(db=db), returncode=3)
+    _SUITE_LOCK_HANDLE = handle
 
 
 def _release_suite_lock() -> None:
-    """잠금을 푼다. 프로세스가 죽어도 커널이 같은 일을 하므로 **보조 수단**이다."""
-    handle = _suite_lock.pop("handle", None)
-    if handle is not None:
-        handle.close()
+    global _SUITE_LOCK_HANDLE
+    if _SUITE_LOCK_HANDLE is None:
+        return
+    import fcntl
+
+    fcntl.flock(_SUITE_LOCK_HANDLE, fcntl.LOCK_UN)
+    _SUITE_LOCK_HANDLE.close()
+    _SUITE_LOCK_HANDLE = None
 
 
 def pytest_sessionfinish(session, exitstatus):

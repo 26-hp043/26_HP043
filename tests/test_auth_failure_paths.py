@@ -186,7 +186,7 @@ def test_dev_login_not_registered_in_production(tmp_path) -> None:
         # import 시점에 연결은 열지 않는다.
         env={
             "APP_ENV": "production",
-            "DATABASE_URL": "postgresql+asyncpg://cii:cii@localhost:5432/cii",
+            "DATABASE_URL": "cubrid+pycubrid://dba:@localhost:33000/cii",
             "PATH": "/usr/bin:/bin",
         },
         cwd=tmp_path,

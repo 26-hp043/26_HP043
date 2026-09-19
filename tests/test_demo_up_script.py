@@ -404,6 +404,25 @@ def test_no_postgresql_tooling_remains(banned: str):
     assert not hits, f"PostgreSQL 전용 `{banned}`가 남아 있습니다: {hits}"
 
 
+def test_async_engines_normalize_the_database_url():
+    """`create_async_engine`에 `DATABASE_URL`을 **그대로** 넘기지 않는다 (#1305).
+
+    스크립트가 정한 `DB_URL`은 **동기 방언 표기**(`cubrid+pycubrid://`)다 — DBAPI가
+    `pycubrid` 하나이므로 설정·문서는 그 이름으로 통일한다. async 엔진은 그 방언을
+    받지 못하므로(`is_async`가 없다), 행 수 집계와 시드 drift 두 경로가 원문을 그대로
+    넘기면 **시연 기동이 그 자리에서 선다.**
+
+    ⚠️ **호출부를 하나씩 세지 않는다.** `#1305`가 정확히 그렇게 놓쳤다 — `src/`의 세
+    호출부만 확인하고 이 스크립트의 인라인 파이썬 두 곳을 지나쳤다. 스크립트의
+    **모든** `create_async_engine` 줄을 훑어야 다음에 늘어나는 호출도 걸린다.
+    """
+    calls = [line for line in _code_lines() if "create_async_engine(" in line]
+
+    assert calls, "create_async_engine 호출을 찾지 못했습니다 — 스크립트가 바뀌었는지 확인할 것"
+    for line in calls:
+        assert "normalize_to_async(" in line, f"정규화 없이 async 엔진을 만듭니다: {line}"
+
+
 def test_cubrid_tooling_is_present():
     """CUBRID 쪽 도구가 **실제로 들어가 있다**.
 
@@ -416,99 +435,91 @@ def test_cubrid_tooling_is_present():
     assert "db_root" in code, "CUBRID 준비 대기(SELECT 1 FROM db_root)가 없습니다."
 
 
-def _step_two() -> str:
-    """2단계(`step "2. CUBRID"`) 본문. 여러 검사가 공유하므로 한 곳에서 떼어낸다."""
+# --- #1294 — 2단계가 실패 원인을 말한다 ------------------------------------------------
+
+
+def _script_line(prefix: str) -> str:
+    for line in _SCRIPT.read_text(encoding="utf-8").splitlines():
+        if line.startswith(prefix):
+            return line
+    raise AssertionError(f"{prefix} 정의를 찾지 못했다 — 스크립트가 바뀌었는지 확인할 것")
+
+
+def _holders(ps_output: str) -> str:
+    """스크립트의 ``_other_port_holders`` 정의를 그대로 꺼내 **가짜 docker**로 돌린다."""
+    # 출력은 printf의 **형식 문자열**로 넘긴다 — `%s`로 넘기면 `\n`이 줄바꿈으로 풀리지
+    # 않아 실제 `docker ps` 출력과 모양이 달라진다.
+    fake = f"fake_docker() {{ printf {ps_output!r}; }}"
+    body = "\n".join(
+        [
+            fake,
+            'DOCKER="fake_docker"',
+            _script_line("DB_CONTAINER="),
+            _script_line("DB_HOST_PORT="),
+            _script_line("_other_port_holders()"),
+            "_other_port_holders",
+        ]
+    )
+    done = subprocess.run(["bash", "-c", body], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+@pytest.mark.parametrize(
+    ("ps_output", "expected"),
+    [
+        # 2026-09-19 실측 그대로 — 수동으로 만든 테스트 컨테이너가 포트를 쥐었다.
+        ("cii-cubrid-test\n", "cii-cubrid-test"),
+        # 우리 컨테이너만 쥐고 있으면 짚을 것이 없다 — 정상 상태다.
+        ("cii-cubrid\n", ""),
+        # 아무도 안 쥐었다.
+        ("", ""),
+    ],
+)
+def test_port_holder_names_only_other_containers(ps_output: str, expected: str):
+    """2단계 실패 때 **누가 포트를 쥐었는지**를 짚는다 (#1294).
+
+    종전에는 원인이 무엇이든 「docker compose up 실패」 한 줄이었고, 그 한 줄 때문에
+    원인을 찾는 데 20분 가까이 썼다. 우리 컨테이너(`cii-cubrid`)를 범인으로 짚으면
+    안내가 거꾸로 되므로 그것은 빼야 한다.
+    """
+    assert _holders(ps_output) == expected
+
+
+def test_db_container_matches_compose():
+    """스크립트의 컨테이너 이름·포트가 `docker-compose.yml`의 `db`와 같다.
+
+    이름이 갈리면 `_other_port_holders`가 **우리 컨테이너를 남의 것으로** 짚는다.
+    """
+    compose = (_SCRIPT.parents[1] / "docker-compose.yml").read_text(encoding="utf-8")
+    name = _script_line("DB_CONTAINER=").split("=", 1)[1].strip('"')
+    port = _script_line("DB_HOST_PORT=").split("=", 1)[1]
+
+    assert f"container_name: {name}" in compose
+    assert f'"{port}:33000"' in compose
+
+
+def test_compose_up_failure_is_not_discarded():
+    """`docker compose up`의 실패 메시지를 버리지 않고 로그로 남겨 보여 준다 (#1294).
+
+    「port is already allocated」가 `>/dev/null 2>&1`로 사라지던 자리다.
+    """
     text = _SCRIPT.read_text(encoding="utf-8")
-    return text.split('step "2. CUBRID"', 1)[1].split('step "3.', 1)[0]
+
+    assert "compose up -d db >/dev/null" not in text
+    assert "compose up -d db >/tmp/demo_compose.log 2>&1" in text
+    assert "tail -5 /tmp/demo_compose.log" in text
 
 
-def test_step_two_keeps_the_real_failure_reason():
-    """2단계가 `docker compose up`의 **실제 사유를 버리지 않는다** (#1294).
+def test_healthy_but_unpublished_db_stops_the_script():
+    """healthy인데 호스트 포트가 빈 상태를 잡아 멈추고 재생성을 안내한다 (#1294).
 
-    종전에는 `>/dev/null 2>&1`로 흘려 보내고 「docker compose up 실패」 한 줄만
-    남겼다. 2026-09-19에 그 한 줄 때문에 원인을 찾는 데 20분이 걸렸다 — 실제 사유는
-    `Bind for 0.0.0.0:33100 failed: port is already allocated`였다.
-
-    다른 단계들이 `/tmp/demo_*.log`를 남기는 것과 **같은 방식**으로 맞춘다.
+    그대로 두면 다음 단계들이 `localhost:33100`으로 **다른 DB에 붙을 수 있다.**
+    `--check`도 기동 전에 같은 진단을 한다.
     """
-    step = _step_two()
+    text = _SCRIPT.read_text(encoding="utf-8")
 
-    assert "/tmp/demo_db.log" in step, "실패 사유를 남길 로그 파일이 없습니다."
-    assert "compose up -d db >/dev/null 2>&1" not in step, (
-        "`docker compose up`의 사유를 여전히 버리고 있습니다 (#1294)."
-    )
-    assert "tail -5 /tmp/demo_db.log" in step, "실패 시 로그를 보여 주지 않습니다."
-
-
-def test_step_two_names_the_container_holding_the_port():
-    """포트를 **누가** 쥐고 있는지 짚어 준다 (#1294).
-
-    「포트가 물려 있다」까지만 말하면 다음 행동이 나오지 않는다. 범인은 대개
-    수동으로 만든 다른 CUBRID 컨테이너이고, 이름을 알아야 멈출 수 있다.
-
-    ⚠️ **자기 자신(`cii-cubrid`)은 빼야 한다.** compose가 만든 그 컨테이너가 포트를
-    쥐고 있는 것은 정상이며, 그것을 범인으로 지목하면 안내가 사람을 헤매게 한다.
-    """
-    step = _step_two()
-
-    assert "--filter" in step and "publish=" in step, (
-        "포트를 쥔 컨테이너를 찾는 조회가 없습니다 (docker ps --filter publish=…)."
-    )
-    assert '$1 != "cii-cubrid"' in step, "자기 자신을 범인으로 지목하지 않는지 확인하십시오."
-    assert "docker stop" in step, "멈추는 방법을 알려 주지 않습니다."
-
-
-def test_port_diagnosis_also_runs_in_check_mode():
-    """`--check`에서도 같은 진단이 돈다 — **기동 전에** 알 수 있어야 한다 (#1294).
-
-    진단이 실패 경로에만 있으면 「띄워 봐야 안다」가 된다. `--check`의 계약은
-    「기동하지 않고 상태만 본다」이고, 포트를 누가 쥐었는지는 띄우지 않고도 보인다.
-    """
-    step = _step_two()
-    # `CHECK_ONLY` 분기 **밖**에서 한 번 더 부른다.
-    after = step.split('if [ "$CHECK_ONLY" != "--check" ]; then', 1)[1]
-    tail = after.split("fi", 1)[1]
-
-    assert "port_holder" in tail, "--check 경로에서 포트 진단이 돌지 않습니다."
-    assert "warn_unbound_container" in tail, "--check 경로에서 바인딩 확인이 돌지 않습니다."
-
-
-def test_step_two_detects_the_bound_but_unpublished_state():
-    """`Ports`가 빈 채 healthy한 중간 상태를 잡는다 (#1294).
-
-    compose가 재생성 중 바인딩에 실패하면 컨테이너는 healthy한데 호스트는 포트를
-    듣지 않는다. **이 상태에서 3단계 이후가 `localhost:33100`으로 다른 DB에 붙을 수
-    있다** — 조용한 오염이라 그 자리에서 세우고 `--force-recreate`를 안내한다.
-    """
-    step = _step_two()
-
-    assert "{{.Ports}}" in step, "Ports 열을 보지 않습니다."
-    assert "--force-recreate" in step, "푸는 방법(--force-recreate)을 안내하지 않습니다."
-
-
-def test_the_host_port_has_a_single_source():
-    """접속 URL과 포트 진단이 **같은 값**을 본다 (#1294).
-
-    둘이 갈리면 진단이 엉뚱한 포트를 묻는다 — 그때 나오는 「포트를 쥔 컨테이너가
-    없습니다」는 **틀린 안심**이라 원인에서 더 멀어진다.
-    """
-    body = _SCRIPT.read_text(encoding="utf-8")
-
-    assert "DB_PORT=" in body, "호스트 포트가 변수로 있지 않습니다."
-    assert "localhost:$DB_PORT/" in body, "DB_URL이 DB_PORT를 쓰지 않습니다."
-    assert "publish=$DB_PORT" in body, "포트 진단이 DB_PORT를 쓰지 않습니다."
-    assert ":33100/" not in body, "DB_URL에 포트가 박혀 있습니다 — 변수를 쓰십시오."
-
-
-def test_async_engines_normalize_the_database_url():
-    """`create_async_engine`에 `DATABASE_URL`을 **그대로** 넘기지 않는다.
-
-    스크립트가 정한 `DB_URL`은 동기 방언 표기(`cubrid+pycubrid://`)다. async 엔진은
-    그 방언을 받지 못하므로, 행 수 집계와 시드 drift 두 경로가 원문을 그대로 넘기면
-    **시연 기동이 그 자리에서 실패한다.** `normalize_to_async()`를 거치게 잠근다.
-    """
-    calls = [line for line in _code_lines() if "create_async_engine(" in line]
-
-    assert calls, "create_async_engine 호출을 찾지 못했습니다 — 스크립트가 바뀌었는지 확인할 것"
-    for line in calls:
-        assert "normalize_to_async(" in line, f"정규화 없이 async 엔진을 만듭니다: {line}"
+    assert '"$DOCKER" port "$DB_CONTAINER" 33000' in text
+    assert "docker compose up -d --force-recreate db" in text
+    check_branch = text.split('if [ "$CHECK_ONLY" = "--check" ]; then', 1)[1].split("else", 1)[0]
+    assert "_explain_port_holder" in check_branch

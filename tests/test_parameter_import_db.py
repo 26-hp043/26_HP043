@@ -85,7 +85,7 @@ def client(migrated_db, app_fresh_engine, monkeypatch: pytest.MonkeyPatch):
     # 이메일은 실행마다 고유하게 — migrated_db는 스키마만 맞추고 데이터를 지우지
     # 않으므로 재실행에서 같은 주소가 409가 된다(test_roles_db의 _cleanup와 같은 문제).
     office = f"param-office-{uuid4().hex[:8]}@example.com"
-    monkeypatch.setenv("INITIAL_OFFICE_EMAILS", office)
+    monkeypatch.setenv("INITIAL_ADMIN_EMAILS", office)
     with TestClient(app, base_url=_BASE) as c:
         resp = c.post(f"{API_V1_PREFIX}/auth/signup", json={"email": office, "password": PASSWORD})
         assert resp.status_code == 201, resp.text
@@ -94,7 +94,7 @@ def client(migrated_db, app_fresh_engine, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def field_client(migrated_db, app_fresh_engine, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delenv("INITIAL_OFFICE_EMAILS", raising=False)
+    monkeypatch.delenv("INITIAL_ADMIN_EMAILS", raising=False)
     with TestClient(app, base_url=_BASE) as c:
         resp = c.post(
             f"{API_V1_PREFIX}/auth/signup",

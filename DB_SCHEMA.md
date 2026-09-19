@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.30 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** |
-| 최종 수정일 | 2026-09-18 |
+| 버전 | v1.33 |
+| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** |
+| 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -91,6 +91,7 @@ erDiagram
 | `reference_speed_kn` | NUMERIC(6,2) | NULL | 기준 속도 (kn) |
 | `reference_daily_foc_ton` | NUMERIC(8,2) | NULL | 기준 일일 연료소모량 (ton/day) |
 | `block_coefficient` | NUMERIC(4,3) | NULL, CHECK (0 < CB <= 1) [#966] | 방형계수 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택: 넣으면 실측값, `NULL`이면 선종 기본값 + `CB_ESTIMATED` |
+| `call_sign` | VARCHAR(7) | NULL, **트리거 `trg_chk_call_sign_ins`·`_upd`** (`^[A-Z0-9]{4,7}$` · `REGEXP BINARY`) [#1197] | 호출부호(call sign) — **공공데이터 교차 대조의 키**(`PRD §15.1` `[#1197]` 각주). `해양수산부_선박운항정보`가 IMO가 아니라 이 값으로 질의한다. ITU RR No.19.55상 영문 대문자·숫자 4~7자이며 API가 strip · upper로 접어 넣는다(`API_SPEC §2.3`). 선택: `NULL`이면 그 배는 대조 대상이 아닐 뿐 계산은 그대로. **UNIQUE 없음** — 재배정되는 값이다(마이그레이션 058) |
 
 > **[#860] 제원 4컬럼의 정밀도가 곧 API 입력 경계다.** `NUMERIC(12,2)`는 `0.01 ~ 9,999,999,999.99`,
 > `(6,2)`는 `0.01 ~ 9,999.99`, `(8,2)`는 `0.01 ~ 999,999.99`만 담는다. 그보다 작은 양수는 `0.00`으로
@@ -124,6 +125,10 @@ ALTER TABLE vessel ADD CONSTRAINT chk_imo_format CHECK (imo_number ~ '^\d{7}$');
 ALTER TABLE vessel ADD CONSTRAINT chk_gt_positive CHECK (gross_tonnage IS NULL OR gross_tonnage > 0);
 ALTER TABLE vessel ADD CONSTRAINT chk_dwt_positive CHECK (deadweight IS NULL OR deadweight > 0);
 ALTER TABLE vessel ADD CONSTRAINT chk_speed_positive CHECK (reference_speed_kn IS NULL OR reference_speed_kn > 0);
+-- 058 (#1197): 호출부호 형식. CUBRID에서는 트리거 trg_chk_call_sign_ins/_upd가 REGEXP BINARY로 집행한다 (§7.4).
+--   「앞 두 글자가 모두 숫자가 아니다」(RR No.19.50)는 DB가 아니라 API 스키마만 본다 — 배정 관행이 나라마다 달라
+--   세부 규칙을 DB에 박으면 실재하는 부호를 거부할 수 있다. 이 칸은 인증서가 아니라 대조 키다.
+ALTER TABLE vessel ADD CONSTRAINT chk_call_sign_format CHECK (call_sign IS NULL OR call_sign ~ '^[A-Z0-9]{4,7}$');
 -- 026 (#346): 운항 상태 2축 + 위치. 전부 NULL 허용 — 미갱신 선박도 정상 조회.
 ALTER TABLE vessel ADD CONSTRAINT chk_underway_state_allowed CHECK (underway_state IS NULL OR underway_state IN ('UNDER_WAY','NOT_UNDER_WAY'));
 ALTER TABLE vessel ADD CONSTRAINT chk_detail_status_allowed CHECK (detail_status IS NULL OR detail_status IN ('SAILING','IN_PORT','AT_ANCHOR','DRIFTING','STS','CANAL_TRANSIT','DRYDOCK'));
@@ -164,6 +169,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 | `arrival_lat` | NUMERIC(9,6) | NULL | 도착항 위도 |
 | `arrival_lon` | NUMERIC(9,6) | NULL | 도착항 경도 |
 | `planned_distance_nm` | NUMERIC(12,2) | NOT NULL | 계획 거리 |
+| `planned_distance_source` | VARCHAR(30) | NULL, **트리거 `trg_chk_planned_distance_source_ins`·`_upd`** (`USER_INPUT`·`COORDINATE_ESTIMATE`) [#1256] | 계획 거리의 출처 — `USER_INPUT`(직접 입력 · CSV 가져오기) 또는 `COORDINATE_ESTIMATE`(두 좌표의 대권거리 · `PRD §15.2` 「좌표 기반 추정 거리」). **`NULL`은 「모른다」** — 059 이전 행과 출처 없이 거리를 넣은 API 요청·시나리오 채택(`API_SPEC §5.2`)이 여기 든다. 기존 행은 backfill하지 않는다(대권거리와 비슷하다고 추정으로 되채우면 직접 입력한 값에도 「추정」이 붙는다 · `PRD §0.3`). `planned_distance_nm`이 바뀌면 옛 출처는 새 값에 붙지 않는다(`API_SPEC §3.4`). `created_from`이 「항차가 어느 경로로 왔나」라면 이것은 「그 숫자가 추정인가」다(마이그레이션 059) |
 | `actual_distance_nm` | NUMERIC(12,2) | NULL | 실제 거리 |
 | `planned_speed_kn` | NUMERIC(6,2) | NOT NULL | 예정 평균 속도 |
 | `actual_avg_speed_kn` | NUMERIC(6,2) | NULL | 실제 평균 속도 |
@@ -210,6 +216,10 @@ ALTER TABLE voyage ADD CONSTRAINT chk_year_policy
     CHECK (annual_inclusion_policy = 'EXCLUDE' OR regulation_year IS NOT NULL);
 
 ALTER TABLE voyage ADD CONSTRAINT chk_distance_positive CHECK (planned_distance_nm > 0);
+-- 059 (#1256): 계획 거리 출처. CUBRID에서는 트리거 trg_chk_planned_distance_source_ins/_upd가 집행한다 (§7.4).
+--   NULL은 「모른다」— 기존 행을 대권거리 대조로 되채우지 않는다(직접 입력한 값에도 「추정」이 붙는다).
+ALTER TABLE voyage ADD CONSTRAINT chk_distance_source
+    CHECK (planned_distance_source IS NULL OR planned_distance_source IN ('USER_INPUT','COORDINATE_ESTIMATE'));
 ALTER TABLE voyage ADD CONSTRAINT chk_speed_positive CHECK (planned_speed_kn >= 1.0);
 ALTER TABLE voyage ADD CONSTRAINT chk_actual_dist_positive
     CHECK (actual_distance_nm IS NULL OR actual_distance_nm > 0);  -- [M-6]
@@ -799,7 +809,7 @@ CREATE UNIQUE INDEX idx_weather_param_unique ON weather_model_parameter (model_v
 | `wave_period_s` | NUMERIC(6,2) | NULL | 파 주기 |
 | `wind_speed_ms` | NUMERIC(6,2) | NULL | 풍속 |
 | `wind_direction_deg` | NUMERIC(6,2) | NULL | 풍향 |
-| `source` | VARCHAR(50) | NOT NULL | open_meteo_marine, open_meteo_forecast, sample |
+| `source` | VARCHAR(50) | NOT NULL | 출처. `open_meteo_marine+forecast`(정상 경로 기본값 — 두 엔드포인트를 한 행에 합침) · `open_meteo_marine` · `open_meteo_forecast`(한쪽만 응답) · `sample`(테스트·수동 적재). 값 표의 정본은 `TECH_SPEC §7.1`. **집행 제약 없음** — 아래 `[#968]` |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 
 **인덱스:**
@@ -808,7 +818,9 @@ CREATE UNIQUE INDEX idx_weather_param_unique ON weather_model_parameter (model_v
 CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fetched_at DESC);
 ```
 
-> 캐시 TTL 24시간. 24시간 초과 스냅샷은 PRD §11.6 기상 API 장애 정책에 따라 fallback 처리된다.
+> 캐시 TTL 24시간. 24시간 초과 스냅샷은 PRD §11.6 기상 API 장애 정책에 따라 fallback 처리된다. **캐시는 외부 조회가 실패했을 때만 본다** — 순서·key·신선도 판정은 `TECH_SPEC §7.3`.
+>
+> **[#968] `source` 값 목록에 `open_meteo_marine+forecast`를 추가했다.** 어댑터(`weather/open_meteo.py` `SOURCE_MERGED`)가 정상 경로에서 처음부터 이 값을 저장해 왔는데 종전 목록 3값에는 없었다. 이 컬럼에는 **집행 제약이 없다** — `1c444a5c4819`의 CHECK 60개, `046`·`048`·`050`의 트리거 어디에도 `weather_snapshot.source`는 없고 ORM(`models/weather_snapshot.py`)에도 `CheckConstraint`가 없다(자유 `VARCHAR(50)`). 그래서 이 값이 REJECT된 적은 없고 마이그레이션도 필요 없다. 값을 정하는 곳이 어댑터 한 곳이라 코드 상수 ⊆ 이 목록은 `tests/test_weather_source_sync.py`가 지킨다.
 >
 > **[#102] TTL과 보존의 구분:** TTL 24시간은 **재사용 판단 기준(신선도 창)이지 삭제 스케줄이 아니다.** `calculation_run.weather_snapshot_id`(§2.5 [#102], FK **RESTRICT**)가 참조하는 스냅샷은 TTL 경과와 무관하게 보존되어야 재현성 계약(TECH_SPEC §5.4)의 추적성이 성립한다. 캐시 정리(eviction) 작업은 **참조되지 않는 행만** 삭제해야 하며, 참조 행을 포함한 일괄 DELETE는 RESTRICT에 막혀 트랜잭션 전체가 롤백된다.
 
@@ -856,7 +868,7 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 | `email_verified_at` | TIMESTAMPTZ | NULL | 이메일 인증 완료 시각. `NULL`이면 미인증 |
 | `email` | VARCHAR(320) | NOT NULL | 표시·연락용. **식별자가 아니다** |
 | `display_name` | VARCHAR(100) | NULL | 표시 이름 |
-| `role` | VARCHAR(10) | NOT NULL DEFAULT 'FIELD', **CHECK `chk_app_user_role` (`OFFICE`·`FIELD`)** | 사무직·현장직 (`#672` · `PRD §7.10` · 마이그레이션 044). **기본값이 현장직**이다 — 새 계정은 좁게 시작하고 사무직이 넓혀 준다. 044가 **기존 행은 전부 `OFFICE`**로 채웠다(그전까지 전원이 전 기능을 썼다) |
+| `role` | VARCHAR(10) | NOT NULL DEFAULT 'FIELD', **트리거 `trg_app_user_role_ins`·`_upd` (`OFFICE`·`FIELD`·`ADMIN`)** | 사무직·현장직·관리자 (`#1301` · `PRD §7.10` · 마이그레이션 044 + 057). **기본값이 현장직**이다 — 새 계정은 좁게 시작하고 관리자가 넓혀 준다. 044가 **기존 행은 전부 `OFFICE`**로 채웠고(그전까지 전원이 전 기능을 썼다), 057은 그 값을 다시 채우지 않는다 — **`ADMIN`은 값에만 추가된 것**이라 기존 행은 여전히 `OFFICE`·`FIELD`뿐이다. 값 제약은 CHECK가 아니라 **트리거**다 — CUBRID가 `CHECK`를 구문으로만 받고 검사하지 않아 `#1058`이 옮긴 자리(`§7.4`) |
 | `last_login_at` | TIMESTAMPTZ | NULL | 마지막 로그인 시각 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
@@ -871,6 +883,8 @@ CREATE UNIQUE INDEX idx_app_user_email ON app_user (email) WHERE is_deleted = fa
 > **[#413] `email`이 로그인 ID이자 유일 키다.** 종전에는 *"구글 계정의 이메일은 변경될 수 있으므로 unique를 걸지 않는다"* 로 두고 유일성을 `google_sub`에 두었으나, **구글 위임을 그만두면서 그 전제가 사라졌다**(`PRD O-14`). 자체 인증에서 이메일은 사용자가 스스로 정하는 로그인 ID이므로 유일해야 한다.
 >
 > **`password_hash`는 해시만 담는다.** 평문 비밀번호는 저장·로그·감사 기록 어디에도 남기지 않는다 — `app_session`이 토큰 원문을 저장하지 않는 것(§2.16)과 같은 원칙이다.
+>
+> **[#1301] `role` 값 제약은 CHECK가 아니라 트리거다.** CUBRID 11.4.6은 `CHECK`를 구문으로 받기만 하고 검사하지 않으므로(`#1058` · `§7.4`), 044부터 `trg_app_user_role_ins`·`trg_app_user_role_upd`(`BEFORE INSERT`·`BEFORE UPDATE`)가 값을 막는다. **마이그레이션 057이 그 두 트리거를 `IN ('OFFICE', 'FIELD')`에서 `IN ('OFFICE', 'FIELD', 'ADMIN')`으로 다시 만든다** — `CREATE OR REPLACE`가 없어 지우고 다시 만드는 방식이다. 057 이전 DB에서 `role = 'ADMIN'`을 넣거나 바꾸면 트리거가 REJECT한다. **downgrade는 데이터를 바꾼다** — 트리거를 좁히기 전에 관리자를 **사무직으로** 내린다(현장직이 아니다: `ADMIN`은 `OFFICE`의 상위집합이라 사무직으로 내리는 것이 「계정 관리만 잃는」 최소 변경이다). 누가 관리자였는지는 그 순간 사라지므로 `IRREVERSIBLE`(`044`와 같은 성질)이지만, `INITIAL_ADMIN_EMAILS`에 든 계정은 다음 로그인에서 다시 관리자가 된다.
 
 ### 2.15.1 `user_token` — 일회용 인증 토큰 (#408)
 
@@ -2087,3 +2101,7 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-18 | `#1080` | **v1.28 — §2.23 `chat_session` · §2.24 `chat_message` 신설.** ORM(`models/chat.py`)·마이그레이션에 이미 존재하는데 문서만 「정의돼 있지 않다」고 적어 두고 있었다(#287 각주). 원래 마이그레이션 041로 추가됐고 `#1058` CUBRID 전환에서 `1c444a5c4819` 초기 스키마에 흡수됐다. §2.16 각주를 「§2.23·§2.24에 정의돼 있다」로 정정하고 §4.3 보존 행에서 「테이블 미정의 각주」 참조를 걷었다 — 만료 행은 `scripts/purge_expired.py`가 90일 `expires_at` 그대로 지운다(유예 없음). 계산 경로 격리(`calculation_run`·`voyage` 비참조 · 감사 로그 `CHAT_TOOL_CALL`이 가리킨다)와 「지우는 표」 성격(본문은 여기만, 감사 로그에는 해시)을 각주로 못 박았다. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1080) |
 | 2026-09-18 | `#673` | **v1.29 — §2.8 `UNIQUE(year)`·§2.10 `idx_refline_unique`·§2.11 `idx_boundary_unique`를 활성-유니크 트리거로 교체 · §2.10·§2.11에 `version`·`is_active` 컬럼 추가 · §7.2 각주에 「정책이 문서로만 존재했다」는 실측 등재.** §7.2가 정한 개정 운용(새 행 + 전환)이 물리적으로 불가능했던 이유가 둘였다 — ⑴ 두 테이블에 컬럼이 없었다 ⑵ 세 키가 전역 유니크라 이행 행을 못 만들었다. `054`가 둘 다 고친다(컬럼 추가 · 트리거 교체 — `050` ⑴ 패턴). 기존 행은 현행이므로 `is_active = 1`이 초깃값이다. 구조 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#673) |
 | 2026-09-18 | `#966` | **v1.30 — §2.1 `vessel.block_coefficient NUMERIC(4,3)` 추가** (마이그레이션 055 · 결정요청 v9 D-3 「가」). 선택 입력이며 `CHECK(0 < CB <= 1)` — 체적 비율의 물리 범위다. 집행은 046 패턴의 트리거(`trg_chk_block_coefficient_ins/upd`)가 한다. 넣으면 기상 보정이 실측값을 쓰고, `NULL`이면 선종 기본값 + `CB_ESTIMATED`. 실측값이 Cform 범위 밖이면 `CB_OUT_OF_RANGE` 경고. 행 추가라 `AGENTS §4.3`상 버전은 올리지 않는다 (#966) |
+| 2026-09-19 | `#1308` | **v1.31 — §2.15 `app_user.role` 값에 관리자(`ADMIN`) 추가**(마이그레이션 057). 044의 `role` 표기를 「CHECK `chk_app_user_role`」에서 **실제 집행 주체인 트리거 `trg_app_user_role_ins`·`_upd`**로 정정했다 — CUBRID가 CHECK를 구문으로만 받고 검사하지 않아 애초에 존재한 적 없는 제약이었다(`#1058` · `§7.4`). 057이 그 두 트리거를 `('OFFICE', 'FIELD')`에서 **`('OFFICE', 'FIELD', 'ADMIN')`**으로 재생성한다(`CREATE OR REPLACE`가 없어 DROP 후 CREATE). 057 이전에는 `role = 'ADMIN'` INSERT·UPDATE가 REJECT된다. **downgrade는 관리자를 사무직으로 내린 뒤 트리거를 좁힌다**(현장직이 아니다 — `ADMIN`이 `OFFICE`의 상위집합이라 사무직으로 내리는 것이 최소 변경이다) — 누가 관리자였는지가 사라져 `IRREVERSIBLE`. 표기 정정 + 값 추가라 `AGENTS §4.3`에 따라 버전을 올린다 (#1301) |
+| 2026-09-20 | `#1317` | **v1.32 — §2.1 `vessel.call_sign VARCHAR(7)` 추가**(마이그레이션 058 · #1197 A단계). 공공데이터포털의 해양수산부 계열 선박 데이터는 IMO가 아니라 **호출부호**로 배를 가리키고, `해양수산부_선박운항정보`는 호출부호가 입력 파라미터라 없으면 질의 자체가 안 된다 — 전수 IMO↔호출부호 레지스트리는 공공데이터에 없어(2026-09-17 실측) 사용자가 넣는 칸을 둔다. 형식은 ITU RR No.19.55(영문 대문자·숫자 4~7자)이며 집행은 055 패턴의 트리거 `trg_chk_call_sign_ins/upd`(`REGEXP BINARY` · 050 선례)가 한다. 「앞 두 글자가 모두 숫자가 아니다」(No.19.50)는 API만 본다 — 대조 키이지 인증서가 아니다. **UNIQUE를 걸지 않는다**(재배정되는 값). 컬럼 추가라 #966(v1.30)과 같은 기준으로 버전을 올린다 (#1197) |
+| 2026-09-20 | `#1319` | **v1.33 — §2.2 `voyage.planned_distance_source VARCHAR(30)` 추가**(마이그레이션 059 · #1052 ⓷ 후속). `PRD §15.2`는 대권거리를 「좌표 기반 추정 거리」라고 표시하라고 정하는데 저장된 항차에는 그 사실이 남지 않았다 — 화면의 `estimated`는 폼의 임시 상태라 저장하면 사라졌다. 값은 `USER_INPUT`(직접 입력 · CSV 가져오기)·`COORDINATE_ESTIMATE`(두 좌표의 대권거리) 둘이고 **`NULL`은 「모른다」**다. 기존 행은 backfill하지 않는다 — 저장된 거리가 대권거리와 비슷하다고 추정으로 되채우면 같은 값을 직접 입력한 사람에게도 「추정값입니다」가 붙는다(`PRD §0.3`). 거리가 바뀌면 옛 출처를 새 값에 남기지 않는다(`API_SPEC §3.4` · 시나리오 채택도 같다). 집행은 055 패턴의 트리거 `trg_chk_planned_distance_source_ins/upd`가 한다. downgrade는 컬럼·트리거만 지우며 그 결과는 059 이전과 같은 「모른다」라 `REGENERABLE`(계산·등급에 들어가지 않는 표시 값). 컬럼 추가라 #966(v1.30)·#1197(v1.32)과 같은 기준으로 버전을 올린다 (#1256) |
+| 2026-09-20 | `#1320` | §2.13 `weather_snapshot.source` 값 목록에 **`open_meteo_marine+forecast`**(정상 경로 기본값 — Marine·Forecast 두 엔드포인트를 한 행에 합침) 추가 · 값 표의 정본을 `TECH_SPEC §7.1`로 가리키고, 이 컬럼에 **집행 제약이 없다**는 실측(`1c444a5c4819` CHECK·`046`·`048`·`050` 트리거·ORM 어디에도 없음 — 자유 `VARCHAR(50)`)을 각주로 적었다. 어댑터 `SOURCE_MERGED`가 처음부터 이 값을 저장해 왔으므로 REJECT된 적 없고 마이그레이션 없음. 캐시 각주에 「외부 조회 실패 시에만 본다」 한 줄(`TECH_SPEC §7.3` v1.14). 값 목록 행 갱신이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#968) |

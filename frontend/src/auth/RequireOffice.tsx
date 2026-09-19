@@ -4,10 +4,13 @@ import { OFFICE_ONLY_SCREEN_NOTICE } from '../features/auth/authRules'
 import { isOffice, useAuthUser } from './session'
 
 /**
- * 사무직 전용 화면 가드 (`UIFLOW §2.2` 역할 열 · `API_SPEC §1.2` · `#672`).
+ * 사무직 전용 화면 가드 (`UIFLOW §2.2` 역할 열 · `API_SPEC §1.2` · `#672` · `#1301`).
  *
  * `RequireAuth` **안쪽**에서 쓴다 — 세션은 이미 확인된 상태고, 여기서 보는 것은 역할뿐이다.
+ * **관리자도 통과한다** — `isOffice()`가 ADMIN을 참으로 보므로(`#1301`, ADMIN은 OFFICE의
+ * 상위집합) 여기서 따로 갈라 주지 않아도 된다. 막히는 것은 현장직뿐이다.
  *
+
  * ## 로그인으로 보내지 않는다
  *
  * 비인증은 「다시 로그인하면 된다」이지만 현장직은 다시 로그인해도 같다. 이동시키면

@@ -46,7 +46,7 @@ _ENV_INDEX = re.compile(r'environ\[\s*"([A-Z][A-Z0-9_]*)"\s*\]')
 #: **이름을 상수에 담아 읽는 경우** (#1290).
 #:
 #: 위 둘은 괄호 안이 리터럴일 때만 잡는다. ``auth/role_bootstrap.py``는
-#: ``ENV_NAME = "INITIAL_OFFICE_EMAILS"``를 두고 ``env.get(ENV_NAME)``으로 읽는데 —
+#: ``ENV_NAME = "INITIAL_ADMIN_EMAILS"``를 두고 ``env.get(ENV_NAME)``으로 읽는데 —
 #: 오류 문구가 같은 이름을 쓰므로 상수로 두는 편이 옳다 — 그래서 **이 가드에 잡히지
 #: 않았고, 그 변수는 두 본보기 어디에도 없는 채로 통과했다.** 배포가 그 값을 비운 채
 #: 뜨면 새 DB는 사무직 0명이 되고, 승격 경로도 사무직 전용이라 화면으로는 아무도
@@ -201,7 +201,7 @@ def test_env_example_documents_every_variable_the_app_reads():
     표현하고 있다.
 
     **이름을 상수에 담아 읽는 것도 센다 (#1290).** 종전에는 괄호 안이 리터럴일 때만
-    셌고, 그래서 ``INITIAL_OFFICE_EMAILS``(``env.get(ENV_NAME)``)가 본보기 두 곳
+    셌고, 그래서 ``INITIAL_ADMIN_EMAILS``(``env.get(ENV_NAME)``)가 본보기 두 곳
     어디에도 없는 채로 이 검사를 통과했다 — 가드가 초록불인 채 비어 있었다.
     """
     src = _ROOT / "src"
@@ -236,7 +236,8 @@ def test_oci_app_compose_uses_every_variable_its_env_example_declares():
     컨테이너 주입이 아니다. 그래서 본보기에만 있고 compose가 쓰지 않는 값은 **`.env`에
     정성껏 채워도 앱에 닿지 않는다.**
 
-    ``INITIAL_OFFICE_EMAILS``가 정확히 그 상태였다. 본보기에 행을 넣는 것만으로는
+    ``INITIAL_ADMIN_EMAILS``(당시 이름 ``INITIAL_OFFICE_EMAILS``)가 정확히 그 상태였다.
+    본보기에 행을 넣는 것만으로는
     배포가 고쳐지지 않는다 — 그 사실을 사람이 알아채는 경로가 없어서 검사로 만든다.
 
     `#508`이 개발·단일호스트 compose에서 같은 함정을 겪었고(``MAIL_BACKEND``가 닿지

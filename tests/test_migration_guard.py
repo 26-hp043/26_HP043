@@ -325,6 +325,27 @@ def test_every_listed_revision_exists():
     assert not sorted(listed - files.keys())
 
 
+def test_call_sign_column_is_regenerable():
+    """#1197 — `058`(vessel.call_sign)은 055와 같은 성격이라 REGENERABLE이다.
+
+    열 드롭이라 파괴적이지만 NULL 허용 선택 제원이고 값은 선박국적증서에서 다시 넣는다 —
+    IRREVERSIBLE로 두면 되돌릴 때마다 24시간 백업 확인이 불필요하게 걸린다.
+    """
+    assert "058" in REGENERABLE
+    assert "058" not in IRREVERSIBLE and "058" not in EPHEMERAL
+
+
+def test_distance_source_column_is_regenerable():
+    """#1256 — `059`(voyage.planned_distance_source)는 055·058과 같은 성격이라 REGENERABLE이다.
+
+    열 드롭이라 저장된 출처 표시는 사라지지만, 그 결과는 059 이전과 같은 「모른다」(NULL)이고
+    계산·등급·집계 어디에도 들어가지 않는 표시 값이다 — IRREVERSIBLE로 두면 되돌릴 때마다
+    24시간 백업 확인이 불필요하게 걸린다.
+    """
+    assert "059" in REGENERABLE
+    assert "059" not in IRREVERSIBLE and "059" not in EPHEMERAL
+
+
 def test_the_classifier_sees_the_known_cases(tmp_path: Path):
     """판별기 자신을 먼저 잠근다 — 틀리면 위 완전성 검사가 조용히 통과한다.
 

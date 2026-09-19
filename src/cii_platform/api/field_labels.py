@@ -67,6 +67,8 @@ _FIELD_LABELS: dict[str, str] = {
     "reference_daily_foc_ton": "기준 일일 연료소모량",
     # #966 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택 입력.
     "block_coefficient": "방형계수(CB)",
+    # #1197 — 공공데이터 교차 대조의 키. 선택 입력.
+    "call_sign": "호출부호",
     "current_lat": "현재 위도",
     "current_lon": "현재 경도",
     "detail_status": "세부 상태",
@@ -96,6 +98,8 @@ _FIELD_LABELS: dict[str, str] = {
     "arrival_lat": "도착지 위도",
     "arrival_lon": "도착지 경도",
     "planned_distance_nm": "계획 거리",
+    # #1256 — 계획 거리가 좌표 추정인지 직접 입력인지. 선택 입력.
+    "planned_distance_source": "계획 거리 출처",
     "planned_speed_kn": "계획 속력",
     "planned_departure_at": "계획 출항 시각",
     "planned_arrival_at": "계획 도착 시각",

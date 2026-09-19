@@ -100,7 +100,7 @@ async def export_vessel_data_route(
         )
 
     return StreamingResponse(
-        iter_table_csv(list(table.columns), table.rows),
+        iter_table_csv(list(table.columns), table.rows, kinds=table.kinds),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": _disposition(table)},
     )

@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | TECH_SPEC.md |
-| 버전 | v1.11 |
+| 버전 | v1.14 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + 서비스 레이어 아키텍처 확정 (#100) + 재현성 계약 명문화 (#102) + 프론트엔드 디렉터리 구조 반영 (#133) + v1.4에서 Layer 1 계산 규칙 신설 (§1.2.1 · #166) |
-| 최종 수정일 | 2026-09-18 |
+| 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -844,6 +844,8 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 
 #### 5.2.1 `parameters_used` 스키마
 
+**기능①·②는 아래 형태 그대로 싣는다.** 기능③(`SIMULATION`)은 형태가 다르고 버전이 둘이다 — `§5.2.1.2`.
+
 ```json
 {
   "regulation_year": {
@@ -895,6 +897,54 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 **다른 계산 타입의 `parameter_hash`는 바뀌지 않는다.** `parameters_used`는 실행마다 따로 기록되므로, 이 항목은 `SIMULATION` 실행에만 들어간다 — 기능①·②의 기존 해시는 영향을 받지 않는다.
 
 > `voyage_fuel_use.cf_used`가 CF 개정에 대해 하는 일과 같은 처리다(`#378`). 다만 CF는 **행에** 박고 분포는 **해시에** 담는데, 분포가 계산 전체에 걸리는 값이라 특정 행에 붙일 자리가 없기 때문이다.
+
+##### 5.2.1.2 기능③ `parameters_used` — 스키마 v1 · v2 (#816 · #1306)
+
+**기능③은 위 `§5.2.1` 형태를 그대로 쓰지 않는다.** 저장 형식이 두 번 있었고, 두 형식이 **지금도 함께 유효하다.**
+
+| 블록 | v1 (`#816` 이전 저장 행) | v2 (`#816` 이후 신규 실행) |
+|---|---|---|
+| `regulation_year` | ✅ | ✅ |
+| `reference_line` | ✅ | ✅ |
+| `rating_boundary` | ✅ **`ship_type` 포함** | ✅ **`ship_type` 포함** |
+| `simulation_profile` (`§5.2.1.1`) | ✅ | ✅ |
+| `fuel_types` | ❌ 없음 | ✅ 계획 항차에 곱한 **활성 CF**(`#832`) — **이 실행이 실제로 쓴 유종만** · 코드순 |
+| `parameter_source_version` | ❌ 없음 | ❌ 없음 — 아래 `parameter_sources`가 대신한다 |
+| `parameter_sources` | ❌ 없음 | ✅ 출처 4키 |
+| `parameter_schema_version` | ❌ **없음 — 없으면 v1이다** | ✅ `2` |
+
+v2 예시 (v1 블록에 더해지는 것만):
+
+```json
+{
+  "rating_boundary": {
+    "ship_type": "BULK_CARRIER",
+    "d1": "0.86", "d2": "0.94", "d3": "1.06", "d4": "1.18"
+  },
+  "fuel_types": [
+    { "code": "HFO", "cf": "3.114" }
+  ],
+  "parameter_sources": {
+    "regulation_year": "MEPC.400(83)",
+    "reference_line": "MEPC.353(78)",
+    "rating_boundary": "MEPC.354(78)",
+    "fuel_types": [
+      { "code": "HFO", "source_ref": "MEPC.364(79)" }
+    ]
+  },
+  "parameter_schema_version": 2
+}
+```
+
+**판정 규칙.** `parameter_schema_version`이 **없으면 v1**, 있으면 **정수여야 한다** — 정수가 아니면(`null`·문자열·실수·불리언) **손상된 행**으로 보고 거부한다(v1으로 흡수하면 손상이 옛 형식으로 오인된다). 정수이지만 **알려진 버전(1·2)이 아니면** 빌더 선택(`build_parameters_used`)에서 거부한다 — 모르는 버전을 v1로 떨어뜨리면 해시 불일치가 「버전 차이」인지 「값 차이」인지 가려지지 않는다.
+
+**재현은 저장된 버전의 빌더로 한다.** `reproduce`는 저장된 해시를 그대로 두고 `parameters_used`를 **지금 코드로 다시 만들어** 비교한다(`§5.4`). 그래서 v1 빌더는 **글자 하나 바꾸지 않고 동결**하고, v2는 v1 블록에 더하는 방식으로만 만든다. 빌더 출력이 한 글자만 바뀌어도 과거 실행 전부가 「규정 파라미터가 변경되어 재현할 수 없습니다」(409)를 받는데, `calc_run_guard()`(마이그레이션 024)가 UPDATE를 막아 저장된 해시를 고칠 수도 없다.
+
+**`rating_boundary.ship_type`을 싣는 이유.** 선택된 등급 경계 **행의 식별 근거**다 — 선종마다 경계 행이 따로 있고(`#834`), 값 넷만으로는 어느 행을 골랐는지 알 수 없다. v1 저장 행이 이미 이 키를 담고 있어 **빼면 과거 실행의 해시가 깨진다.** 기능①·②(`§5.2.1`)는 이 키를 싣지 않는다 — 그쪽은 기존 해시 보존을 위해 형식을 바꾸지 않는다.
+
+**`parameter_source_version`을 쓰지 않은 이유.** 그 필드는 **기준선 하나의 `source_ref`만** 담는데(예시의 `imo-mepc-2024-q1`은 규정 묶음 버전처럼 읽히지만 실제 값은 `MEPC.353(78)`), 출처는 기준선·등급 경계·Z-factor·연료 넷이다. 하나만 실으면 **CF 개정이 `parameter_hash`에 드러나지 않는다** — 재현성 계약의 구멍이라 v2에서 `parameter_sources`로 바꿨다.
+
+> 구현: `services/annual_simulation.py` `_parameters_used_v1` · `_parameters_used_v2` · `parameters_schema_version`. 응답 계약은 `API_SPEC §6.1` 각주가 이 절을 가리킨다.
 
 ### 5.3 Input Hash
 
@@ -1064,40 +1114,55 @@ def great_circle_distance_nm(
 
 ### 7.1 인터페이스
 
-```python
-from abc import ABC, abstractmethod
-from datetime import datetime
-from dataclasses import dataclass
+조회(어댑터) · 저장·검색(저장소) · 정책(서비스)을 **세 모듈에 나눈다** — `§16.1`의 계층 그대로다. 어댑터는 나가는 HTTP만 다루고 DB를 모르며, 마지막 스냅샷을 찾는 것은 DB 쿼리라 저장소가 맡는다. 둘을 엮어 fallback을 정하는 것은 서비스(`§7.3`)다.
 
-@dataclass
-class WeatherSnapshot:
+```python
+# src/cii_platform/weather/open_meteo.py — 어댑터 (나가는 HTTP)
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Protocol
+
+@dataclass(frozen=True)
+class WeatherObservation:
+    """한 지점·한 시각의 관측값. 아직 저장되지 않은 값이라 ORM `WeatherSnapshot`과 이름을 나눈다."""
     lat: float
     lon: float
     fetched_at: datetime
-    wave_height_m: float | None
-    wave_direction_deg: float | None
-    wave_period_s: float | None
-    wind_speed_ms: float | None
-    wind_direction_deg: float | None
-    source: str  # "open_meteo_marine", "open_meteo_forecast", "sample"
+    wave_height_m: float | None = None
+    wave_direction_deg: float | None = None
+    wave_period_s: float | None = None
+    wind_speed_ms: float | None = None
+    wind_direction_deg: float | None = None
+    source: str = SOURCE_MERGED  # 아래 표
 
-class WeatherProvider(ABC):
-    @abstractmethod
-    def fetch_marine_weather(
-        self, lat: float, lon: float, time_range: tuple[datetime, datetime]
-    ) -> WeatherSnapshot | None:
-        ...
+class WeatherProvider(Protocol):
+    async def fetch(self, lat: float, lon: float, at: datetime) -> WeatherObservation: ...
+    # 두 엔드포인트(§7.2)를 함께 부르고 하나로 합친다. 둘 다 실패해야 WeatherFetchError.
 
-    @abstractmethod
-    def fetch_wind_weather(
-        self, lat: float, lon: float, time_range: tuple[datetime, datetime]
-    ) -> WeatherSnapshot | None:
-        ...
-
-    @abstractmethod
-    def get_last_snapshot(self, lat: float, lon: float) -> WeatherSnapshot | None:
-        ...
+# src/cii_platform/db/repositories/weather.py — 저장소 (DB 쿼리만)
+async def insert_snapshot(session, *, lat, lon, lat_rounded, lon_rounded, fetched_at,
+                          wave_height_m, wave_direction_deg, wave_period_s,
+                          wind_speed_ms, wind_direction_deg, source) -> WeatherSnapshot: ...
+async def find_last_snapshot(session, *, lat_rounded: Decimal, lon_rounded: Decimal) -> WeatherSnapshot | None: ...
+    # 같은 0.5° 격자의 행 중 fetched_at이 가장 최근인 한 행. 신선도는 판정하지 않는다(§7.3).
 ```
+
+**`source` 값** — `weather_snapshot.source`(`DB_SCHEMA §2.13`)에 그대로 저장된다. 이 표가 정본이며, 코드 상수(`SOURCE_*`)와 `DB_SCHEMA §2.13`이 이 집합 안에 있는지는 `tests/test_weather_source_sync.py`가 지킨다.
+
+| 값 | 뜻 |
+|---|---|
+| `open_meteo_marine+forecast` | **정상 경로 기본값.** Marine·Forecast 두 엔드포인트가 모두 응답해 파고·파향·주기와 풍속·풍향을 **한 행에 합쳤다** |
+| `open_meteo_marine` | Forecast가 실패해 파고·파향·주기만 있다 |
+| `open_meteo_forecast` | Marine이 실패해 풍속·풍향만 있다 |
+| `sample` | 테스트·수동 적재용 — 외부 조회가 아닌 값 |
+
+> **[#968] 종전 규정과 다른 세 가지 — 정본을 구현(`#61`)에 맞췄다 (`#968` 결정요청 v2 D-4 · 동작 변경 없음).** 종전 §7.1은 `WeatherProvider(ABC)`에 `fetch_marine_weather` · `fetch_wind_weather` · `get_last_snapshot` 3메서드를 두고 `source`를 3값(`open_meteo_marine` · `open_meteo_forecast` · `sample`)으로 적었다. 구현은 처음부터 위 모양이었고, 이유는 각각 다음과 같다.
+>
+> - **조회 메서드가 하나인 이유** — 두 엔드포인트는 언제나 함께 불리고, 한쪽 실패를 어댑터 안에서 흡수한다(`§7.2`). 호출자가 둘을 따로 부를 일이 없으므로 나누면 「한쪽만 부른 관측」이라는 정본에 없는 상태가 생긴다. `time_range`가 아니라 시각 하나(`at`)를 받는 것은 Open-Meteo가 시간별 배열을 주고 우리는 그중 **`at`에 가장 가까운 정시** 한 값을 고르기 때문이다.
+> - **마지막 스냅샷 조회가 어댑터에 없는 이유** — 그것은 DB 쿼리다. `§16.3`은 DB 쿼리를 `db/repositories`에만 두고 어댑터(`weather/`)는 나가는 HTTP만 다루게 한다. `get_last_snapshot`을 어댑터에 두면 `weather/`가 `db/`를 import하고, 테스트가 어댑터를 갈아 끼울 때 저장소까지 흉내 내야 한다.
+> - **합친 `source` 값이 있는 이유** — 정상 경로에서는 두 엔드포인트의 값을 **한 행**에 저장한다. 두 행으로 나누면 `calculation_run.weather_snapshot_id`·`voyage_scenario.weather_snapshot_id`가 한 행만 가리킬 수 있어 계산 근거(`§5.4`)가 반쪽이 된다. 한 행의 출처가 둘이므로 값도 둘을 잇는다. 한쪽만 응답한 행은 종전 값 그대로다.
+>
+> `PRD §15.3`의 스케치(`fetchMarineWeather` · `fetchWindWeather` · `getLastSnapshot`)가 요구하는 세 능력은 그대로 있다 — 앞의 둘은 `fetch` 하나가 함께 수행하고, 셋째는 저장소 `find_last_snapshot`이 맡는다. 「adapter는 교체 가능하도록」은 `Protocol`로 충족한다(테스트는 `httpx.MockTransport`를 실은 클라이언트를 넣는다 — CI는 네트워크를 쓰지 않는다).
 
 ### 7.2 Open-Meteo 구현
 
@@ -1116,45 +1181,53 @@ class WeatherProvider(ABC):
 
 ### 7.3 캐시 정책
 
+`services/weather.py` `resolve_with_fallback`이 `PRD §11.6` 표를 그대로 옮긴 것이다. **캐시는 외부 조회가 실패했을 때만 본다.**
+
 | 항목 | 사양 |
 |---|---|
-| 캐시 key | `(lat_rounded_0.5, lon_rounded_0.5, date, hour_bucket_6h)` |
-| 캐시 저장소 | 애플리케이션 메모리 또는 Redis |
-| TTL | 24시간 |
-| 신선도 평가 | 구간별 독립. 일부 구간이 24h 초과 시 해당 구간만 `weather_factor=1.0` fallback |
+| 조회 순서 | **외부 조회가 먼저다.** 성공하면 그 값을 저장하고 쓴다(`fetch_and_store`). 캐시는 `WeatherFetchError`가 났을 때만 본다 — `PRD §11.6` 첫 행 「최신 API 성공 → 최신 데이터 사용」 |
+| 캐시 저장소 | `weather_snapshot` 테이블(`DB_SCHEMA §2.13`). 별도의 메모리·Redis 캐시는 없다. 행은 덮어쓰지 않고 **쌓는다** — 계산 근거(`§5.4`)라 지우지 않는다 |
+| 캐시 key | `(lat_rounded, lon_rounded)` — 좌표를 **0.5° 격자**로 반올림(`ROUND_HALF_UP`, `NUMERIC(4,1)`·`(5,1)`)한 두 값. 같은 격자의 행 중 **`fetched_at`이 가장 최근인 한 행**을 고른다(`find_last_snapshot` · `idx_weather_cache`) |
+| 신선도 | 고른 행의 나이 = 조회 시각 − `fetched_at`. **≤ 6h** → 그대로 사용 · **6h 초과 ≤ 24h** → 사용 + `WEATHER_STALE` · **24h 초과** → 쓰지 않고 `weather_factor=1.0` + `WEATHER_NONE_FALLBACK`(`§12.3` · `API_SPEC §1.6`). 저장소는 신선도를 판정하지 않는다 — 오래된 행을 숨기면 「없다」와 「낡았다」가 구분되지 않는다 |
+| TTL | 24시간 — **재사용 판단 기준이지 삭제 스케줄이 아니다**(`DB_SCHEMA §2.13` `[#102]`) |
+| 조회 단위 | 기능②(`services/scenario_compare.py`)가 **요청당 한 번**, 요청의 `current_lat`·`current_lon`으로 조회하고 세 시나리오가 같은 인자를 쓴다. 좌표가 없으면 조회하지 않고 `WEATHER_NONE_FALLBACK`이다 — 어느 바다인지 모르는 채 기상을 묻지 않는다 |
 
 ```python
-def get_weather_factor_for_segment(
-    provider: WeatherProvider,
-    lat: float,
-    lon: float,
-    weather_model: str,
-    vessel,  # Vessel 객체 (ship_type 등)
-) -> float:
-    snapshot = provider.get_last_snapshot(lat, lon)
+# src/cii_platform/services/weather.py — 실제 흐름을 간추린 것
+async def resolve_with_fallback(session, *, weather_model, lat, lon, ship_type,
+                                at=None, provider=None, ...) -> WeatherResolution:
+    now = at or datetime.now(UTC)
+    if (weather_model or "NONE") == "NONE":
+        return WeatherResolution(Decimal("1.0"), "NONE", ())            # fallback이 아니다
+    if lat is None or lon is None:
+        return WeatherResolution(Decimal("1.0"), "NONE", ("WEATHER_NONE_FALLBACK",))
+
+    snapshot = None
+    if provider is not None:
+        try:
+            snapshot = await fetch_and_store(session, provider, lat=lat, lon=lon, at=now)  # ① 외부 조회 → 저장
+        except WeatherFetchError:
+            snapshot = None                                                              # ② 실패해야 캐시로
+
+    warnings: list[str] = []
     if snapshot is None:
-        return 1.0  # NONE fallback
+        snapshot = await find_last_snapshot(session, lat_rounded=round_to_grid(lat),
+                                            lon_rounded=round_to_grid(lon))
+        age_hours = None if snapshot is None else (now - snapshot.fetched_at).total_seconds() / 3600
+        if snapshot is None or age_hours > 24:
+            return WeatherResolution(Decimal("1.0"), "NONE", ("WEATHER_NONE_FALLBACK",))
+        if age_hours > 6:
+            warnings.append("WEATHER_STALE")
 
-    age_hours = (datetime.now(timezone.utc) - snapshot.fetched_at).total_seconds() / 3600
-
-    if age_hours > 24:
-        return 1.0  # 너무 오래됨 → fallback
-    elif age_hours > 6:
-        # 경고 표시하되 계산 허용
-        pass
-
-    if weather_model == "NONE":
-        return 1.0
-    elif weather_model == "SIMPLE_RULE":
-        return simple_rule_factor(snapshot)
-    elif weather_model == "TOWNSIN_KWON_ALPHA":
-        return townsin_kwon_weather_factor(
-            hs_m=snapshot.wave_height_m,
-            ship_type=vessel.ship_type,
-        )
-    else:
-        raise ValueError(f"Unknown weather model: {weather_model}")
+    factor = await resolve_weather_factor(session, weather_model=weather_model,
+                                          snapshot=snapshot, ship_type=ship_type, ...)   # §3 · §8 디스패치
+    return WeatherResolution(factor, weather_model, tuple(warnings),
+                             snapshot_id=snapshot.id, synced_at=snapshot.fetched_at)
 ```
+
+> **[#968] 왜 캐시보다 외부 조회를 먼저 하는가.** `PRD §11.6` 표의 첫 행이 「최신 API 성공 → 최신 데이터 사용」이고, `PRD`가 `TECH_SPEC`보다 앞선다(`AGENTS §3.1`). 신선한 값을 두고 6시간 전 캐시를 쓰면 그 행이 거짓이 된다. 외부 호출을 아끼는 이득도 작다 — 기본은 보정 없음(`NONE`)이고 조회는 요청이 `SIMPLE_RULE`(SHOULD)·`TOWNSIN_KWON_ALPHA`(MAY)를 명시할 때만 일어나며(`PRD §11.4.2` · `API_SPEC §5.1` 기본 `NONE`), 켜져도 요청당 엔드포인트 2회·타임아웃 5초(`§7.2`)이고 실패는 아래 캐시가 받는다.
+>
+> **종전 표는 코드와 맞은 적이 없다.** 「캐시 key `(…, date, hour_bucket_6h)` · 메모리 또는 Redis · 캐시 우선」은 `#61`·`#62` 구현 이전의 설계 스케치였고, 구현에는 6시간 버킷도 Redis도 없었다(`#968` 실측 · 결정요청 v2 D-4 「동작 유지, 정본을 구현에 맞춤」). `PRD §11.6` `[ORACLE-R-4]`의 `(date, hour_bucket_6h)` 두 요소는 **조회 key가 아니라 `fetched_at`의 나이 판정**(위 표의 6h·24h 경계)으로 실현되고, 「구간별 독립 평가」는 현 구현이 요청당 한 지점만 조회해 구간이 하나다.
 
 ---
 
@@ -1858,14 +1931,14 @@ MAIL_BACKEND=smtp   +  SMTP_HOST 미설정        →  RuntimeError (기동 실�
 
 | 규칙 | 내용 |
 |---|---|
-| 접두 방어 | `= + - @ \t \r`로 시작하면 `'`를 붙인다 |
-| **음수 예외 없음** | `-12.5`도 접두를 받는다 |
+| 접두 방어 | 라벨(제목·머리글·각주)과 **문자열 열**의 셀이 `= + - @ \t \r`로 시작하면 `'`를 붙인다 |
+| **수치 열 선언** [#1247] | 표를 만드는 쪽이 `TableSection.kinds`로 열마다 `string`·`numeric`을 **선언**한다. `numeric` 열의 값만 접두 없이 숫자로 나간다 — `-12.5`가 스프레드시트에서 숫자로 읽힌다. 선언하지 않은 열은 문자열이다 |
 | UTF-8 BOM | Excel(Windows)이 BOM 없는 UTF-8을 CP949로 읽어 한글이 깨진다 |
 | 줄바꿈 | `RFC 4180 §2` — **CRLF** |
 
 `\t`·`\r`을 더한 것은 OWASP 권고이며, 탭으로 시작하는 셀이 Excel에서 수식 판정을 우회한 사례가 있다.
 
-> **음수에 예외를 두지 않는 이유.** `-12.5`는 정상 값이지만, 예외를 만드는 순간 `-1+1+cmd|...` 같은 값이 그 예외로 빠져나간다. 판정을 「값이 수식인가」로 하면 **판정기 자체가 취약점**이 된다. 그래서 시작 문자만 본다. 수치 열에 접두가 붙는 것이 불편하면 문서를 만드는 쪽이 음수 표기를 바꿔야 하며, 그것은 표기 정책의 문제다.
+> **음수 예외는 열 선언으로만 둔다** (#1247). 종전 규정은 「음수도 예외가 아니다 — `-12.5`도 접두를 받는다」였다. 그 근거였던 *「판정을 「값이 수식인가」로 하면 판정기 자체가 취약점이 된다」*는 지금도 유효하다 — **값의 모양을 보고 접두를 빼는 판정기는 여전히 두지 않는다.** 바뀐 것은 예외의 근거가 **값**이 아니라 **열 선언**이라는 점이다: `-12.5`가 접두 없이 나가는 것은 그 열이 서버 산출 수치로 선언됐기 때문이며, 같은 값이 선박명 열에 있으면 종전대로 `'-12.5`다. 선언된 수치 열의 값이 숫자 문법(부호 하나 · 정수부(천단위 구분자 허용) · 소수부)에 맞지 않으면 **문자열 규칙으로 되돌아간다** — 수치 열에는 「값 없음」 `—`가 실제로 실리므로 `ValueError`로 세우지 않는다. 셀 값의 타입은 `§19.1`대로 여전히 `str`이며, 선언은 CSV 렌더러가 그 문자열을 어떻게 내보내는가만 정한다. 규정 원문은 `API_SPEC §8.5`·`§8.1`이다.
 
 ### 19.3 PDF — 렌더러 선정
 
@@ -1987,3 +2060,6 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-13 | `#513` | §12.3 경고 코드 표에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` 행 추가 — 함대 감축 계획에서 제원이 없어 감속을 적용하지 못한 항차가 있을 때. `AGENTS §4.3`상 소규모 행 추가라 버전은 올리지 않는다 (#513) |
 | 2026-09-18 | `#1081` ⑦ | **v1.11 — §16.2 디렉터리 트리를 실측으로 갱신.** 백엔드 7개 하위 패키지(`auth`·`mail`·`reports`·`weather`·`geocode`·`ais`·`llm`)와 `depcheck.py`·`db/seed.py`·`db/demo_seed.py`가 트리에 없었고, features는 3종으로 적혀 있었으나 실제 **18종**이다. `design/`·`download/`·`theme/`·`test/`·`tokens.generated.css`·`fonts.css`도 보강했다. 끝의 「provider 인터페이스로 demo 구현과 실제 API 구현을 교체한다」는 `#542`가 demo 모드를 폐기해 `README`와 모순이던 문장 — 「API 클라이언트가 유일한 출처」로 정정했다. 구조 개정이라 `AGENTS §4.3`에 따라 버전을 올린다. `main`이 이미 v1.10을 쓰고 있어(09-18 시점 · 이력 행 없는 승격) 판번호는 v1.11로 올린다 (#1081) |
 | 2026-09-18 | `#756` | §12.3 참조표에 `FUEL_CF_MASS_BASIS` 추가 — 대체 연료 지렛대(결정요청 v9 「나」)가 질량 기준임을 알리는 경고. 문구는 `PRD §6.3` 확정본. 경고 코드의 정본 목록과의 동기화는 `test_warning_codes_sync.py`가 지킨다 (#756) |
+| 2026-09-20 | `#1311` | **v1.12 — §5.2.1.2 신설: 기능③ `parameters_used` 스키마 v1 · v2.** `#816`이 기능③에 v2(`fuel_types` · `parameter_sources` 4키 · `parameter_schema_version`)를 도입했는데 이 문서는 §5.2.1의 기능①·② 형태만 적고 있어, v2는 하위 정본 `API_SPEC §6.1` 각주에만 있었다(우선순위 역전 · `AGENTS §3.1`). 기능③은 v1부터 이미 §5.2.1과 달랐다 — `fuel_types`·`parameter_source_version`이 없고 `rating_boundary`에 `ship_type`이 있다. 두 형식이 **함께 유효**하다는 것, 판정 규칙(필드 없음 = v1 · 정수 아니면 손상), 재현이 저장된 버전의 빌더로 이뤄져 v1 빌더를 동결한다는 것, `ship_type`·`parameter_sources`를 싣는 이유를 적었다. §5.2.1 머리에 「기능①·②는 이 형태 그대로」 한 줄. 코드 변경 없음 — 문서를 구현에 맞춘 것이다. 절 신설이라 `AGENTS §4.3`상 버전을 올린다 (#1306) |
+| 2026-09-20 | `#1318` | **v1.13 —** §19.2 표의 「음수 예외 없음」 행을 **「수치 열 선언」**으로 바꾸고 각주를 다시 썼다 — 음수 예외의 근거가 값이 아니라 **열 선언**(`TableSection.kinds`)이며, 값 모양으로 판정하는 판정기는 여전히 두지 않는다. 규정 원문은 `API_SPEC §8.5`·`§8.1`(v1.40). 정정이 아니라 **규칙 개정**(종전에 금지한 예외를 허용)이라 `AGENTS §4.3`상 버전을 올린다 (#1247) |
+| 2026-09-20 | `#1320` | **v1.14 — §7.1·§7.3을 구현(`#61`·`#62`)에 맞춰 다시 썼다** (`#968` 결정요청 v2 D-4 「동작 유지, 정본을 구현에 맞춤」 · 코드 동작 변경 없음). §7.1: `WeatherProvider(ABC)` 3메서드(`fetch_marine_weather`·`fetch_wind_weather`·`get_last_snapshot`) → **`WeatherProvider(Protocol)` `fetch(lat, lon, at)` 하나** + 마지막 스냅샷 조회는 저장소 `find_last_snapshot`(`§16.3` — DB 쿼리는 `db/repositories`만) · `source` 값 집합에 정상 경로 기본값 **`open_meteo_marine+forecast`** 추가(두 엔드포인트를 한 행에 합치므로 출처도 둘을 잇는다) · 값 표를 정본으로 두고 `tests/test_weather_source_sync.py`가 코드 상수·`DB_SCHEMA §2.13`과의 정합을 잠근다. §7.3: 「캐시 key `(…, date, hour_bucket_6h)` · 메모리 또는 Redis · 캐시 우선」은 **코드와 맞은 적이 없다** — 실제는 **외부 조회 먼저**, 실패 시에만 `weather_snapshot` 테이블에서 같은 0.5° 격자의 최신 행을 골라 `fetched_at` 나이로 6h·24h 판정(`PRD §11.6` 첫 행 「최신 API 성공 → 최신 데이터 사용」이 근거 · `PRD`가 `TECH_SPEC`보다 앞선다). `PRD §11.6` `[ORACLE-R-4]`의 6h 버킷 두 요소가 key가 아니라 나이 판정으로 실현된다는 것과 조회 단위(요청당 한 번·현재 위치)를 적었다. 절 전면 개정이라 `AGENTS §4.3`상 버전을 올린다 (#968) |

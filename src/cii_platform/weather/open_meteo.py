@@ -61,7 +61,7 @@ SOURCE_MERGED = "open_meteo_marine+forecast"
 
 @dataclass(frozen=True)
 class WeatherObservation:
-    """한 지점·한 시각의 기상 (``TECH_SPEC §7.1``의 ``WeatherSnapshot`` dataclass).
+    """한 지점·한 시각의 기상 (``TECH_SPEC §7.1`` ``WeatherObservation``).
 
     ORM 모델(`db.models.weather_snapshot.WeatherSnapshot`)과 이름을 나눈 이유는
     **저장 형태와 조회 결과를 구분하기 위해서**다. 이 값은 아직 저장되지 않았고,

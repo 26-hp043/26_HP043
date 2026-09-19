@@ -167,9 +167,10 @@ class TestListVessels:
         assert set(body["meta"]) == {"next_cursor", "has_more", "request_id", "timestamp"}
 
     def test_vessel_object_shape(self, wired):
-        """API_SPEC §2.1 선박 객체의 키 17개.
+        """API_SPEC §2.1 선박 객체의 키 19개.
 
-        #369가 026(#346)의 위치·상태 5키를 노출하면서 12 → 17이 됐다.
+        #369가 026(#346)의 위치·상태 5키를 노출하면서 12 → 17이 됐다. #966이
+        ``block_coefficient``, #1197이 ``call_sign``을 더해 19다.
         대시보드(#351)가 이 값을 읽는다.
         """
         client, _ = wired
@@ -186,6 +187,8 @@ class TestListVessels:
             "reference_daily_foc_ton",
             # #966 — 기상 보정 선형 계수(선택). None이면 추정 경고가 계약이다.
             "block_coefficient",
+            # #1197 — 호출부호(선택). None이면 공공데이터 교차 대조 대상이 아니다.
+            "call_sign",
             "is_cii_applicable_hint",
             "underway_state",
             "detail_status",
@@ -328,6 +331,19 @@ class TestGetVessel:
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
 
+    def test_call_sign_is_read_back_as_stored(self, wired, monkeypatch):
+        """#1197 — 저장된 호출부호가 상세 응답에 그대로 나간다(문자열, 가공 없음)."""
+        from cii_platform.services import vessel as svc
+
+        vid = UUID("00000000-0000-4000-8000-000000000001")
+
+        async def fake_get_by_id(_session, vessel_id):
+            return FakeVessel(id=vessel_id, call_sign="HLXQ7")
+
+        monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_by_id)
+        client, _ = wired
+        assert client.get(f"{LIST_URL}/{vid}").json()["data"]["call_sign"] == "HLXQ7"
+
 
 class TestDecimalToNumber:
     """``Decimal`` → JSON number 변환이 값을 바꾸지 않는다."""
@@ -460,6 +476,91 @@ class TestCreateVessel:
         resp = client.post(LIST_URL, json={**self.PAYLOAD, "unexpected": "value"})
         assert resp.status_code == 422
 
+    def test_call_sign_is_stored_normalized_and_echoed(self, create_wired):
+        """#1197 — 호출부호는 접힌 모양(strip · upper)으로 저장되고 응답에 그대로 나간다."""
+        client, recorded, _ = create_wired
+        resp = client.post(LIST_URL, json={**self.PAYLOAD, "call_sign": " hlxq7 "})
+        assert resp.status_code == 201
+        assert recorded["insert_kwargs"]["call_sign"] == "HLXQ7"
+        assert resp.json()["data"]["call_sign"] == "HLXQ7"
+
+    def test_call_sign_omitted_is_null(self, create_wired):
+        """#1197 — 안 보내면 ``null``. 「모른다」를 빈 문자열이나 0으로 바꾸지 않는다."""
+        client, recorded, _ = create_wired
+        resp = client.post(LIST_URL, json=self.PAYLOAD)
+        assert resp.status_code == 201
+        assert recorded["insert_kwargs"]["call_sign"] is None
+        assert resp.json()["data"]["call_sign"] is None
+
+    def test_bad_call_sign_is_422_with_korean_label(self, create_wired):
+        """#1197 — 형식 위반은 422이고 ``field_label``이 「호출부호」다 (`API_SPEC §1.3.2`)."""
+        client, _, _ = create_wired
+        resp = client.post(LIST_URL, json={**self.PAYLOAD, "call_sign": "12AB"})
+        assert resp.status_code == 422
+        detail = resp.json()["error"]["details"][0]
+        assert detail["field"] == "call_sign"
+        assert detail["field_label"] == "호출부호"
+        assert "호출부호" in detail["message"]
+
+
+class TestCallSignSchema:
+    """#1197 — 호출부호 정규화·형식 (``api/schemas/vessel.py`` `_normalize_call_sign`).
+
+    등록·수정 두 스키마가 같은 검증기를 쓴다 — 한쪽만 고치면 수정 화면이 다시 뚫린다.
+    """
+
+    _BASE = {"imo_number": "1234567", "name": "X", "ship_type": "BULK_CARRIER"}
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("HLXQ", "HLXQ"),  # RR No.19.55 — 2문자 + 2문자 (4자)
+            ("HLXQ7", "HLXQ7"),  # + 1숫자 (5자)
+            ("3F1234", "3F1234"),  # 2문자(둘째 문자) + 4숫자 (6자)
+            ("KRA1234", "KRA1234"),  # 2문자 + 1문자 + 4숫자 (7자)
+            (" hlxq ", "HLXQ"),  # 공백·소문자는 접는다 — 대조 키가 갈리면 안 된다
+            ("", None),  # 빈 칸은 「모른다」
+            ("   ", None),
+            (None, None),
+        ],
+    )
+    @pytest.mark.parametrize("model", ["create", "update"])
+    def test_accepted_shapes_are_normalized(self, model, raw, expected):
+        from cii_platform.api.schemas.vessel import VesselCreateRequest, VesselUpdateRequest
+
+        if model == "create":
+            parsed = VesselCreateRequest(**self._BASE, call_sign=raw)
+        else:
+            parsed = VesselUpdateRequest(call_sign=raw)
+        assert parsed.call_sign == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "ABC",  # 3자 — 4자 미만
+            "ABCDEFGH",  # 8자 — VARCHAR(7) 밖
+            "12AB",  # 앞 두 글자가 모두 숫자 — RR No.19.50
+            "HL-XQ",  # 기호
+            "HL XQ",  # 안쪽 공백
+            "한글AB",
+        ],
+    )
+    @pytest.mark.parametrize("model", ["create", "update"])
+    def test_rejected_shapes_carry_a_korean_message(self, model, raw):
+        from pydantic import ValidationError
+
+        from cii_platform.api.schemas.vessel import VesselCreateRequest, VesselUpdateRequest
+
+        with pytest.raises(ValidationError) as exc:
+            if model == "create":
+                VesselCreateRequest(**self._BASE, call_sign=raw)
+            else:
+                VesselUpdateRequest(call_sign=raw)
+        (error,) = exc.value.errors()
+        assert error["loc"] == ("call_sign",)
+        # 문구는 서버가 한국어로 낸다 — 화면이 조립하지 않는다(`API_SPEC §1.3.2`).
+        assert "호출부호" in error["msg"]
+
 
 # --- PATCH / DELETE (#52) -----------------------------------------------------------
 
@@ -581,6 +682,30 @@ class TestUpdateVessel:
         resp = client.patch(f"{LIST_URL}/{missing}", json={"name": "x"})
         assert resp.status_code == 404
         assert resp.json()["error"]["code"] == "NOT_FOUND"
+
+    def test_call_sign_change_is_stored_without_recalc(self, patch_wired):
+        """#1197 — 호출부호는 대조 키이지 계산 입력이 아니다. 저장되되 재계산 표시는 없다."""
+        client, store, recorded = patch_wired
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"call_sign": "d5ab"})
+        assert resp.status_code == 200
+        assert resp.json()["data"]["call_sign"] == "D5AB"
+        assert store[DEMO_VESSEL_ID].call_sign == "D5AB"
+        assert "recalc_marked" not in recorded
+
+    def test_empty_call_sign_leaves_value_unchanged(self, patch_wired):
+        """#1197 — 빈 문자열은 None으로 접혀 「안 바꾼다」다. 지우는 경로는 GT와 같이 없다."""
+        client, store, _ = patch_wired
+        store[DEMO_VESSEL_ID].call_sign = "HLXQ"
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"call_sign": "  "})
+        assert resp.status_code == 200
+        assert store[DEMO_VESSEL_ID].call_sign == "HLXQ"
+
+    def test_bad_call_sign_is_422(self, patch_wired):
+        client, store, _ = patch_wired
+        resp = client.patch(f"{LIST_URL}/{DEMO_VESSEL_ID}", json={"call_sign": "ABCDEFGH"})
+        assert resp.status_code == 422
+        assert resp.json()["error"]["details"][0]["field"] == "call_sign"
+        assert store[DEMO_VESSEL_ID].call_sign is None
 
 
 class TestDeleteVessel:

@@ -436,6 +436,9 @@ async def import_voyages(
                 arrival_lat=None,
                 arrival_lon=None,
                 planned_distance_nm=item["planned_distance_nm"],
+                # CSV의 거리는 사람이 적은 숫자다 (#1256). 좌표 열이 없으니 추정일 수 없고,
+                # 「어느 경로로 들어왔나」는 `created_from="IMPORT"`가 이미 답한다.
+                planned_distance_source="USER_INPUT",
                 planned_speed_kn=item["planned_speed_kn"],
                 planned_departure_at=item["planned_departure_at"],
                 planned_arrival_at=item["planned_arrival_at"],

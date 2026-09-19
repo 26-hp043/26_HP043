@@ -435,6 +435,108 @@ async def test_real_document_renders_to_csv_with_the_same_numbers(session, vesse
 
 
 # ---------------------------------------------------------------------------
+# 수치 열 선언 (#1247)
+#
+# 렌더러의 규칙은 `test_reports.py`가 본다. 여기서 보는 것은 **실제 문서의 선언이
+# 맞는가**다 — 수치로 선언한 열에 라벨·사용자 입력이 섞여 있으면 선언이 틀린 것이고,
+# 수치 열을 선언하지 않았으면 음수 열이 생기는 날 `'-12.5`가 다시 나간다.
+# ---------------------------------------------------------------------------
+
+
+def _numeric_declared_cells(document) -> list[tuple[str, str, str]]:
+    """(표 제목, 머리글, 셀) — 수치로 선언된 열의 값 전부."""
+    cells = []
+    for section in document.sections:
+        if not isinstance(section, TableSection) or section.kinds is None:
+            continue
+        for row in section.rows:
+            for header, kind, cell in zip(section.headers, section.kinds, row, strict=True):
+                if kind == "numeric":
+                    cells.append((section.title, header, cell))
+    return cells
+
+
+async def _scenario_and_periods(session, vessel_id, voyage_id) -> None:
+    await session.execute(
+        text(
+            "INSERT INTO voyage_scenario (vessel_id, voyage_id, scenario_type, "
+            "scenario_name, distance_nm, speed_kn, duration_hours, fuel_ton, "
+            "cii_value, estimated_rating, risk_level, is_adopted) VALUES "
+            "(:vid, :yid, 'SLOW_STEAMING', '=감속', 3000, 11.8, 254.24, 210.5, "
+            "12.34567890, 'B', 'MEDIUM', true)"
+        ),
+        {"vid": vessel_id, "yid": voyage_id},
+    )
+    period_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_period (id, vessel_id, regulation_year, "
+            "period_type, started_at, ended_at, distance_nm) VALUES "
+            "(:id, :vid, 2026, 'CANAL_TRANSIT', '2026-04-01T00:00:00Z', "
+            "'2026-04-02T00:00:00Z', 80)"
+        ),
+        {"id": period_id, "vid": vessel_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_fuel_use (period_id, consumer_type, fuel_type, "
+            "fuel_ton, cf_used) VALUES (:id, 'MAIN_ENGINE', 'HFO', 15, 3.114)"
+        ),
+        {"id": period_id},
+    )
+
+
+@pytest.mark.asyncio
+async def test_every_report_table_declares_its_numeric_columns(session, vessel_id):
+    """수치를 싣는 표는 전부 선언이 있고, 선언한 열의 값은 숫자(또는 `—`)뿐이다.
+
+    표마다 **적어도 한 열**이 수치여야 한다 — 「제출 전 자체 점검」만 예외다(`3건`처럼
+    단위가 붙어 문자열이 맞다). 수치 열에 `=감속` 같은 사용자 입력이 나오면 선언이
+    틀린 것이고, 그 열은 종전 규칙으로 되돌아가 접두를 받는다.
+    """
+    from cii_platform.reports.csv_export import NUMERIC_CELL
+
+    voyage_id = await _make_voyage(session, vessel_id)
+    await _scenario_and_periods(session, vessel_id, voyage_id)
+
+    voyage_doc = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+    annual_doc = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    tables = [
+        s for doc in (voyage_doc, annual_doc) for s in doc.sections if isinstance(s, TableSection)
+    ]
+    assert {t.title for t in tables} >= {
+        "연료 내역",
+        "시나리오 사후 비교",
+        "연도별 추이",
+        "not under way 기여",
+        "제출 전 자체 점검",
+    }
+    undeclared = [t.title for t in tables if t.kinds is None or "numeric" not in t.kinds]
+    assert undeclared == ["제출 전 자체 점검"]
+
+    cells = _numeric_declared_cells(voyage_doc) + _numeric_declared_cells(annual_doc)
+    assert cells, "수치로 선언된 셀이 하나도 없다"
+    not_numbers = [c for c in cells if c[2] != "—" and not NUMERIC_CELL.fullmatch(c[2])]
+    assert not_numbers == [], not_numbers
+
+
+@pytest.mark.asyncio
+async def test_real_document_csv_keeps_user_input_escaped_next_to_numbers(session, vessel_id):
+    """실제 문서에서 시나리오 이름(사용자 입력)은 접두를 받고 옆의 수치는 받지 않는다."""
+    voyage_id = await _make_voyage(session, vessel_id)
+    await _scenario_and_periods(session, vessel_id, voyage_id)
+    document = await build_voyage_report(session, voyage_id, as_of=AS_OF)
+
+    csv_text = render_csv(document)
+
+    assert "'=감속 (채택)" in csv_text
+    line = next(line for line in csv_text.split("\r\n") if line.startswith("'=감속"))
+    # 이름 다음 다섯 칸(거리·속력·소요·연료·CII)에는 접두가 없다.
+    assert "'" not in line.split(",", 1)[1]
+
+
+# ---------------------------------------------------------------------------
 # 시각 표기 (#646)
 #
 # `#584`가 `meta`의 「생성 시각」·「기준 시각」만 KST로 고치고 **본문 행 둘을 두고

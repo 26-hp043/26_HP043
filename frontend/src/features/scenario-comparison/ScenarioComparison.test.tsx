@@ -2,11 +2,13 @@
 import '../../test/renderSetup'
 
 import { useState } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { ScenarioComparison } from './ScenarioComparison'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
+import * as session from '../../auth/session'
+import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 
 /**
  * 항로 비교 화면의 **선택지 배선** (#632).
@@ -46,6 +48,17 @@ function stubServer(years: number[] = [2026, 2027, 2030]) {
   return fetchImpl
 }
 
+/** 기존 검사는 전부 **사무직** 전제다 — 시나리오 채택(#1325)이 사무직 전용이 됐다. */
+function stubRole(role: session.UserRole) {
+  vi.spyOn(session, 'useAuthUser').mockReturnValue({
+    id: 'u-1',
+    email: 'tester@bluelog.local',
+    displayName: null,
+    role,
+    emailVerifiedAt: null,
+  })
+}
+
 function renderScreen(context: Partial<ShellContext> = {}) {
   const value: ShellContext = {
     ...EMPTY_SHELL_CONTEXT,
@@ -67,6 +80,10 @@ function renderScreen(context: Partial<ShellContext> = {}) {
     </MemoryRouter>,
   )
 }
+
+beforeEach(() => {
+  stubRole('OFFICE')
+})
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -247,6 +264,18 @@ async function clickCompare() {
    */
   const WAIT = { timeout: 5000 }
   await screen.findByLabelText('규제연도', {}, WAIT)
+  /*
+   * ⚠️ **연료 목록도 기다린다** (#1159). 연도만 기다리면 연료 목록이 늦게 올 때
+   * `isKnownFuel('HFO', [])`가 거짓이라 **로컬 검증에서 멈추고 서버를 부르지 않는다** —
+   * 검사는 오지 않을 결과를 찾다 실패한다. `#1149`가 ⑶ 한 곳만 이렇게 고쳤는데 같은
+   * 모양이 이 도우미를 쓰는 검사 전부에 있었다(연료 응답을 400ms 늦추면 39건 중 10건
+   * 실패 — 2026-09-20 실측). 이 파일의 목은 전부 HFO를 준다.
+   *
+   * 옵션 이름은 서버의 `display_name`(「고유황유」)이 아니라 `fuelTypeOptionText()`가
+   * 만드는 「중유 (HFO)」다 — 화면은 `FUEL_TYPE_LABELS`를 원본으로 쓰고 서버 문구를
+   * 그대로 내보내지 않는다(`fuelTypes.ts` · `VoyageCiiForm.test.tsx:131`).
+   */
+  await screen.findByRole('option', { name: '중유 (HFO)' }, WAIT)
   await waitFor(() => expect(button.disabled).toBe(false), WAIT)
   fireEvent.click(button)
   return button
@@ -757,6 +786,65 @@ describe('계획에 반영 (#580)', () => {
     await waitFor(() => expect(button.disabled).toBe(true))
     expect(screen.getByText(/다시 비교한 뒤 반영할 수 있습니다/)).toBeTruthy()
   })
+
+  /**
+   * 채택(`adopt`)은 사무직 전용이다(`API_SPEC §1.2` · `#1325`). 현장직이 폼을 다 채우고
+   * 확인 대화상자까지 지나서야 서버 `403`을 받던 것을 버튼 단계에서 막는다 —
+   * `VesselManagement`·`AnnualSimulation`과 같은 패턴(`isOffice` + `OFFICE_ONLY_ACTION_HINT`).
+   */
+  describe('역할 — 채택은 사무직 전용이다 (#1325)', () => {
+    it('현장직: 반영 버튼이 잠기고 안내가 뜬다', async () => {
+      stubRole('FIELD')
+      stubAdoptServer()
+      renderScreen()
+      await openPanel()
+
+      fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+      fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+
+      const button = screen.getByRole('button', { name: '계획에 반영' }) as HTMLButtonElement
+      expect(button.disabled).toBe(true)
+      expect(screen.getByText(OFFICE_ONLY_ACTION_HINT)).toBeTruthy()
+    })
+
+    it('사무직: 반영 버튼이 그대로 동작한다', async () => {
+      stubRole('OFFICE')
+      const fetchImpl = stubAdoptServer()
+      vi.stubGlobal('confirm', vi.fn(() => true))
+      renderScreen()
+      await openPanel()
+
+      fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+      fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+
+      const button = screen.getByRole('button', { name: '계획에 반영' }) as HTMLButtonElement
+      expect(button.disabled).toBe(false)
+      expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
+
+      fireEvent.click(button)
+      expect(await screen.findByText(/시나리오를 반영했습니다/)).toBeTruthy()
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/adopt'))).toBe(true)
+    })
+
+    it('관리자: 반영 버튼이 그대로 동작한다 — ADMIN은 OFFICE의 상위집합 (#1301)', async () => {
+      stubRole('ADMIN')
+      const fetchImpl = stubAdoptServer()
+      vi.stubGlobal('confirm', vi.fn(() => true))
+      renderScreen()
+      await openPanel()
+
+      fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+      fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+
+      const button = screen.getByRole('button', { name: '계획에 반영' }) as HTMLButtonElement
+      expect(button.disabled).toBe(false)
+      expect(screen.queryByText(OFFICE_ONLY_ACTION_HINT)).toBeNull()
+
+      fireEvent.click(button)
+      expect(await screen.findByText(/시나리오를 반영했습니다/)).toBeTruthy()
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/adopt'))).toBe(true)
+    })
+  })
 })
 
 /**
@@ -904,12 +992,7 @@ describe('보이는 대상 = 계산 대상 (#1097)', () => {
     )
     renderScreen()
     // 연료 목록이 로드되기 전에 클릭하면 isKnownFuel('HFO', [])=false → 로컬 검증 실패 → API 미호출.
-    // 연료 셀렉트에 옵션이 뜰 때까지 기다린다.
-    //
-    // ⚠️ 이름은 서버의 `display_name`(「고유황유」)이 아니라 `fuelTypeOptionText()`가
-    // 만드는 「중유 (HFO)」다 — 화면은 `FUEL_TYPE_LABELS`를 원본으로 쓰고 서버 문구를
-    // 그대로 내보내지 않는다(`fuelTypes.ts` · `VoyageCiiForm.test.tsx:131`).
-    await screen.findByRole('option', { name: '중유 (HFO)' })
+    // 연료 목록 대기는 `clickCompare()`가 한다 — 이 검사가 처음 드러낸 경합이다(#1149 · #1159).
     await clickCompare()
     const alerts = await screen.findAllByText('직항 거리가 너무 큽니다.')
     // 폼 위 오류와 **입력칸 아래** 오류 — 둘 다 있다

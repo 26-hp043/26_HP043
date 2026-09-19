@@ -1,5 +1,11 @@
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
-import { CB_MAX, STORABLE, checkOptionalPositive } from '../vessel-registration/formRules'
+import {
+  CB_MAX,
+  STORABLE,
+  checkCallSign,
+  checkOptionalPositive,
+  normalizeCallSign,
+} from '../vessel-registration/formRules'
 import { findShipType } from '../vessel-registration/shipTypes'
 import type { Vessel } from '../vessel-registration/types'
 import type { VesselUpdateRequest } from './provider'
@@ -36,6 +42,7 @@ export interface VesselEditState {
   referenceSpeedKn: string
   referenceDailyFocTon: string
   blockCoefficient: string
+  callSign: string
 }
 
 /** 오류 맵의 키. 서버 `details[0].field`와 같은 이름을 쓴다. */
@@ -48,6 +55,7 @@ export const EDIT_FIELD = {
   referenceSpeedKn: 'reference_speed_kn',
   referenceDailyFocTon: 'reference_daily_foc_ton',
   blockCoefficient: 'block_coefficient',
+  callSign: 'call_sign',
   form: '__form__',
 } as const
 
@@ -78,6 +86,7 @@ export function toEditState(vessel: Vessel): VesselEditState {
     referenceSpeedKn: numberToInput(vessel.reference_speed_kn),
     referenceDailyFocTon: numberToInput(vessel.reference_daily_foc_ton),
     blockCoefficient: numberToInput(vessel.block_coefficient),
+    callSign: vessel.call_sign ?? '',
   }
 }
 
@@ -151,6 +160,8 @@ export function validateEdit(
       errors[EDIT_FIELD.blockCoefficient] = '방형계수(CB)은(는) 1 이하로 입력해 주세요.'
     }
   }
+  // #1197 — 호출부호. 등록 폼과 같은 함수·같은 문구다.
+  checkCallSign(state.callSign, EDIT_FIELD.callSign, errors)
   checkOptionalPositive(
     state.referenceDailyFocTon,
     EDIT_FIELD.referenceDailyFocTon,
@@ -184,6 +195,8 @@ const CLEARABLE: ReadonlyArray<{ key: keyof VesselEditState; label: string }> = 
   { key: 'defaultFuelType', label: '기본 연료' },
   { key: 'referenceSpeedKn', label: '기준속도' },
   { key: 'referenceDailyFocTon', label: '기준 일일 연료소모량' },
+  // #1197 — 호출부호도 지울 수 없다(서버가 빈 문자열을 「안 바꾼다」로 접는다).
+  { key: 'callSign', label: '호출부호' },
 ]
 
 /** 원본 선박에서 그 칸이 값을 갖고 있었는가. */
@@ -201,6 +214,8 @@ function hadValue(vessel: Vessel, key: keyof VesselEditState): boolean {
       return vessel.reference_daily_foc_ton !== null
     case 'blockCoefficient':
       return vessel.block_coefficient !== null
+    case 'callSign':
+      return vessel.call_sign !== null && vessel.call_sign !== ''
     default:
       return false
   }
@@ -293,6 +308,10 @@ export function toUpdateRequest(vessel: Vessel, state: VesselEditState): VesselU
   // #966 — 방형계수. 바뀐 것만 실는 규칙을 따른다.
   const cb = toNumber(state.blockCoefficient)
   if (cb !== null && cb !== vessel.block_coefficient) patch.block_coefficient = cb
+
+  // #1197 — 호출부호. 접은 값으로 비교한다 — `hlxq`를 `HLXQ`로 고쳐 저장해도 바뀐 것이 없다.
+  const callSign = normalizeCallSign(state.callSign)
+  if (callSign !== null && callSign !== vessel.call_sign) patch.call_sign = callSign
 
   return patch
 }

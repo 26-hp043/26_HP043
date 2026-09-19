@@ -11,19 +11,33 @@ import sqlalchemy as sa
 from cii_platform.db.models.base import Base
 from cii_platform.db.types import UuidText
 
-#: 역할 2종 (#672 · `PRD §20 O-14` · `API_SPEC §1.2`). **직군 이름**이다 — 이 제품의 실제
-#: 사용자 구분(선사 사무실 ↔ 선박 승무원)과 맞고, 「관리자/일반」보다 무엇을 하는 사람인지가
-#: 드러난다.
+#: 역할 3종 (#672 · #1301 · `PRD §20 O-14` · `API_SPEC §1.2`). 앞의 둘은 **직군 이름**이다 —
+#: 이 제품의 실제 사용자 구분(선사 사무실 ↔ 선박 승무원)과 맞고, 「관리자/일반」보다 무엇을
+#: 하는 사람인지가 드러난다.
 #:
-#: - ``OFFICE`` 사무직 — 기준값을 정하고 대외 산출물을 만든다(선박 제원 · 연간 시뮬레이션 ·
-#:   시나리오 채택 · 리포트 · 함대 감축 계획 · 타인 역할 지정)
 #: - ``FIELD`` 현장직 — 실적을 넣고 지금 상태를 본다(항차 · 정박 · 위치 · 계산 · 비교)
+#: - ``OFFICE`` 사무직 — 기준값을 정하고 대외 산출물을 만든다(선박 제원 · 연간 시뮬레이션 ·
+#:   시나리오 채택 · 리포트 · 함대 감축 계획 · 파라미터 적재)
+#: - ``ADMIN`` 관리자 — 사무직이 하는 일에 **계정 관리**가 더해진다(계정 목록 · 타인 역할 지정)
+#:
+#: **``ADMIN``은 ``OFFICE``의 상위집합이다** (#1301). 관리자가 업무를 못 하면 계정 하나로
+#: 시연·운영이 되지 않는다 — 판정은 ``auth/dependencies.require_office``가 한 곳에서 한다.
+#:
+#: 계정 관리를 직군에서 떼어낸 이유는 **사무직끼리 서로를 강등할 수 있었기 때문**이다
+#: (마지막 한 명만 보호됐다). 「누가 계정을 관리하는가」가 「누가 리포트를 내는가」와 같은
+#: 권한에 묶여 있을 이유가 없다.
 #:
 #: 역할은 **행위 권한**이지 소유권이 아니다. `User`는 여전히 어떤 운영 데이터의 소유자도
-#: 아니다(`PRD §7.10`) — 두 역할 모두 같은 선박·항차를 본다.
+#: 아니다(`PRD §7.10`) — 세 역할 모두 같은 선박·항차를 본다.
 ROLE_OFFICE = "OFFICE"
 ROLE_FIELD = "FIELD"
-ROLES: frozenset[str] = frozenset({ROLE_OFFICE, ROLE_FIELD})
+ROLE_ADMIN = "ADMIN"
+ROLES: frozenset[str] = frozenset({ROLE_OFFICE, ROLE_FIELD, ROLE_ADMIN})
+
+#: 사무직 전용 경로를 지나갈 수 있는 역할 (#1301). 「사무직 이상」을 이 이름 하나로 묶어,
+#: ``role == ROLE_OFFICE`` 비교가 코드 곳곳에 흩어지지 않게 한다 — 그 비교가 흩어지면
+#: ``ADMIN``을 더할 때 **한 곳을 빠뜨려도 조용히** 통과하거나 막힌다.
+OFFICE_OR_ABOVE: frozenset[str] = frozenset({ROLE_OFFICE, ROLE_ADMIN})
 
 
 class AppUser(Base):
@@ -43,8 +57,13 @@ class AppUser(Base):
     #: (`PRD §7.10`). 토큰 발급·검증은 #408 소관이다.
     email_verified_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     display_name = sa.Column(sa.String(length=100), nullable=True)
-    #: 사무직·현장직 (#672 · `DB_SCHEMA §2.15`). 기본값은 현장직 — 새 계정은 좁게 시작하고
-    #: 사무직이 넓혀 준다. 마이그레이션 044가 **기존 행은 전부 사무직**으로 채웠다.
+    #: 현장직·사무직·관리자 (#672 · #1301 · `DB_SCHEMA §2.15`). 기본값은 현장직 — 새 계정은
+    #: 좁게 시작하고 **관리자가** 넓혀 준다. 마이그레이션 044가 기존 행을 전부 사무직으로
+    #: 채웠고, 057이 값 트리거에 ``ADMIN``을 더했다.
+    #:
+    #: **값 제약은 CHECK가 아니라 트리거가 지킨다** (``trg_app_user_role_ins``·``_upd``) —
+    #: CUBRID가 CHECK를 구문으로 받기만 하고 검사하지 않기 때문이다(`#1058`). 새 역할 값을
+    #: 더하려면 마이그레이션이 그 트리거를 다시 만들어야 한다.
     role = sa.Column(sa.String(length=10), server_default=ROLE_FIELD, nullable=False)
     last_login_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
