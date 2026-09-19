@@ -247,6 +247,18 @@ async function clickCompare() {
    */
   const WAIT = { timeout: 5000 }
   await screen.findByLabelText('규제연도', {}, WAIT)
+  /*
+   * ⚠️ **연료 목록도 기다린다** (#1159). 연도만 기다리면 연료 목록이 늦게 올 때
+   * `isKnownFuel('HFO', [])`가 거짓이라 **로컬 검증에서 멈추고 서버를 부르지 않는다** —
+   * 검사는 오지 않을 결과를 찾다 실패한다. `#1149`가 ⑶ 한 곳만 이렇게 고쳤는데 같은
+   * 모양이 이 도우미를 쓰는 검사 전부에 있었다(연료 응답을 400ms 늦추면 39건 중 10건
+   * 실패 — 2026-09-20 실측). 이 파일의 목은 전부 HFO를 준다.
+   *
+   * 옵션 이름은 서버의 `display_name`(「고유황유」)이 아니라 `fuelTypeOptionText()`가
+   * 만드는 「중유 (HFO)」다 — 화면은 `FUEL_TYPE_LABELS`를 원본으로 쓰고 서버 문구를
+   * 그대로 내보내지 않는다(`fuelTypes.ts` · `VoyageCiiForm.test.tsx:131`).
+   */
+  await screen.findByRole('option', { name: '중유 (HFO)' }, WAIT)
   await waitFor(() => expect(button.disabled).toBe(false), WAIT)
   fireEvent.click(button)
   return button
@@ -904,12 +916,7 @@ describe('보이는 대상 = 계산 대상 (#1097)', () => {
     )
     renderScreen()
     // 연료 목록이 로드되기 전에 클릭하면 isKnownFuel('HFO', [])=false → 로컬 검증 실패 → API 미호출.
-    // 연료 셀렉트에 옵션이 뜰 때까지 기다린다.
-    //
-    // ⚠️ 이름은 서버의 `display_name`(「고유황유」)이 아니라 `fuelTypeOptionText()`가
-    // 만드는 「중유 (HFO)」다 — 화면은 `FUEL_TYPE_LABELS`를 원본으로 쓰고 서버 문구를
-    // 그대로 내보내지 않는다(`fuelTypes.ts` · `VoyageCiiForm.test.tsx:131`).
-    await screen.findByRole('option', { name: '중유 (HFO)' })
+    // 연료 목록 대기는 `clickCompare()`가 한다 — 이 검사가 처음 드러낸 경합이다(#1149 · #1159).
     await clickCompare()
     const alerts = await screen.findAllByText('직항 거리가 너무 큽니다.')
     // 폼 위 오류와 **입력칸 아래** 오류 — 둘 다 있다
