@@ -75,9 +75,12 @@ _CUBRID_SKIP_FILES: set[str] = set()
 # import 시점에 asyncpg 등 PostgreSQL 전용 모듈을 쓰는 파일은
 # pytest_collection_modifyitems보다 먼저 collection error가 난다.
 # collect_ignore로 아예 수집하지 않는다.
-_CUBRID_COLLECT_IGNORE = {
-    "test_suite_lock_db.py",  # asyncpg advisory lock
-}
+#
+# ⚠️ **비어 있어야 정상이다** (#1250). `test_suite_lock_db.py`가 한때 여기 있었다 —
+# asyncpg를 import해서였는데 그 import를 걷고 잠금을 파일 잠금으로 되살린 뒤에도 남아
+# 있으면, 파일을 직접 지정하지 않는 한(CI 포함) **검사가 한 건도 돌지 않는다.**
+# 파일 경로를 주고 돌리면 통과해 보여서 알아채기 어렵다 — 실제로 그렇게 한 번 놓쳤다.
+_CUBRID_COLLECT_IGNORE: set[str] = set()
 
 collect_ignore: list[str] = []
 if _IS_CUBRID:
@@ -266,7 +269,11 @@ def suite_lock_path(url: str = TEST_DATABASE_URL) -> Path:
     import tempfile
 
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
-    return Path(tempfile.gettempdir()) / f"cii-pytest-suite-{digest}.lock"
+    # ``TMPDIR``을 따르지 않는다 — 샌드박스 셸과 일반 셸처럼 ``TMPDIR``이 다른 두 실행이
+    # 같은 DB를 쓰면 서로 다른 파일을 잠가 **막지 못한다.** 저장소 안(`.pytest_cache`)도
+    # 안 된다 — 워크트리마다 경로가 달라 같은 문제가 난다. 그래서 고정 경로를 쓴다.
+    base = Path("/tmp") if Path("/tmp").is_dir() else Path(tempfile.gettempdir())
+    return base / f"cii-pytest-suite-{digest}.lock"
 
 
 def _hold_suite_lock() -> None:
