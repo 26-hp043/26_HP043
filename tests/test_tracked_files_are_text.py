@@ -108,3 +108,69 @@ def test_gitattributes_lists_the_text_suffixes():
 
     missing = TEXT_SUFFIXES - declared
     assert not missing, f".gitattributes에 없는 확장자: {sorted(missing)}"
+
+
+#: 풀리지 않은 병합 표시. ``git merge``·``rebase``가 충돌 자리에 넣는 줄 머리다
+#: (``|||||||``는 ``merge.conflictStyle=diff3``의 공통 조상 표시).
+#:
+#: ``=======``는 **줄 전체가 그것일 때만** 센다 — Markdown의 setext 제목 밑줄도 같은
+#: 모양이지만, 이 저장소의 추적 파일에는 그런 줄이 0건이다(2026-09-20 실측). 생기면
+#: 이 검사가 먼저 알려 주므로 그때 오탐 규칙을 정한다.
+MERGE_MARKER_PREFIXES = ("<<<<<<< ", ">>>>>>> ", "||||||| ")
+MERGE_MARKER_LINES = frozenset({"<<<<<<<", ">>>>>>>", "=======", "|||||||"})
+
+
+def test_tracked_text_files_have_no_merge_markers():
+    """병합 표시가 커밋되면 문서가 그 자리에서 조용히 깨진다 (#1309).
+
+    ``TEST_PLAN.md`` 변경 이력 표 한가운데에 ``>>>>>>> origin/`` 한 줄이 커밋돼
+    있었다(PR ``#1259``). 표가 그 줄에서 끊겨 뒤의 행들이 문단으로 렌더됐는데
+    **어떤 검사도 실패하지 않았다** — 표 행과 참조를 보는 가드는 표가 아닌 줄을
+    건너뛴다. ``#1286``(빈 PR 번호)과 같은 유형이다: 검사가 멀쩡한데 문서만 깨져 있다.
+    """
+    files = _tracked_text_files()
+    assert len(files) > 100, f"검사 대상이 너무 적다 ({len(files)}건) — 필터를 확인할 것"
+
+    offenders = []
+    for path in files:
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for number, line in enumerate(text.splitlines(), start=1):
+            if line.startswith(MERGE_MARKER_PREFIXES) or line.rstrip() in MERGE_MARKER_LINES:
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{number}: {line[:40]}")
+
+    assert not offenders, (
+        "풀리지 않은 병합 표시가 커밋돼 있습니다 (#1309). 충돌을 풀 때 표시 줄을 "
+        "지우지 않은 것입니다 — 그 줄을 지우고 앞뒤 내용이 맞는지 확인하십시오:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_markdown_tables_are_not_split_by_a_stray_line():
+    """Markdown 표 행 두 줄 사이에 **표가 아닌 한 줄**이 끼어 있지 않다 (#1309).
+
+    병합 표시(``>>>>>>> origin/``)만 지우면 충돌의 **다른 반쪽**(브랜치 이름 ``main``
+    한 줄)이 남을 수 있다 — `#1309`에서 실제로 그랬다. 그 줄은 병합 표시 모양이 아니라
+    위 검사가 잡지 못하는데, 표는 똑같이 그 자리에서 끊긴다.
+
+    제목 줄(``#``)은 뺀다 — 표 바로 뒤에 빈 줄 없이 붙은 제목은 표를 깨지 않는다
+    (`PRD.md` §8.1.1이 그 모양이다).
+    """
+    offenders = []
+    for path in _tracked_text_files():
+        if path.suffix != ".md":
+            continue
+        lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
+        for i in range(1, len(lines) - 1):
+            before, line, after = (lines[i - 1].strip(), lines[i].strip(), lines[i + 1].strip())
+            if (
+                before.startswith("|")
+                and after.startswith("|")
+                and line
+                and not line.startswith(("|", "#"))
+            ):
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{i + 1}: {line[:40]}")
+
+    assert not offenders, (
+        "표 행 사이에 표가 아닌 줄이 끼어 표가 끊겼습니다 (#1309) — 병합을 풀다 남은 조각인지 "
+        "확인하고 지우십시오:\n  " + "\n  ".join(offenders)
+    )
