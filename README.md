@@ -7,7 +7,7 @@
 | 문서명 | README.md |
 | 버전 | v1.0 |
 | 상태 | 운영 중 — 저장소 진입점 |
-| 최종 수정일 | 2026-09-18 |
+| 최종 수정일 | 2026-09-19 |
 | 하위 문서 | `PRD.md`, `TECH_SPEC.md`, `API_SPEC.md`, `DB_SCHEMA.md`, `TEST_PLAN.md`, `AGENTS.md`, `DESIGN_SYSTEM.md`, `UIFLOW.md` |
 | 문서 목적 | 프로젝트 개요·문서 구조·MVP 범위를 안내한다. 규범적 내용은 각 정본이 소유하며 본 문서는 요약만 담는다 |
 
@@ -436,29 +436,55 @@ await fetch('/api/v1/auth/dev-login', { method: 'POST' }); location.href = '/'
 **`cii_test`를 한 번 만들면 끝난다.** 그 뒤로는 신경 쓸 것이 없다.
 
 ```bash
-# 1) 한 번만 — 테스트 전용 DB를 만든다
-docker compose exec -T db createdb -U cii cii_test
+# 1) 한 번만 — 테스트 전용 DB를 만들고 서버를 올린다
+docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+    --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+  cubrid server start cii_test'
 
 # 2) 이후로는 이렇게 돌린다
-DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest
+DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 ```
 
-대상을 주지 않고 `uv run pytest`를 치면 **DB를 쓰는 테스트가 전부 실패한다.** skip이 아니라 실패다 — skip은 조용해서 **돌지 않은 것을 돌았다고 착각할 여지**를 남기고, 이 사고의 본체가 바로 「아무 신호 없이 지나갔다」였다.
+세 가지가 PostgreSQL 시절과 다르다 (`#1058` · `#1207`).
+
+| | 왜 |
+|---|---|
+| `createdb`가 아니라 **`cubrid createdb`** | CUBRID에 `createdb`·`dropdb`·`psql`은 없다. 로케일 인자(`en_US.iso88591`)는 **필수**이며 운영 DB `cii`와 같아야 한다 |
+| 포트가 5432가 아니라 **33100** | `docker-compose.yml`이 브로커를 `33100:33000`으로 낸다. 컨테이너 **안**에서는 `db:33000`이다 |
+| **`--extra dev`** | `pytest`는 `pyproject.toml`의 `[dev]` extra에 있고 **`uv`는 extra를 기본으로 설치하지 않는다.** 빼면 `pytest`를 찾지 못한다 — 전환과 무관하게 원래 틀렸던 줄이다 |
+
+> 🔴 **`docker compose down` 뒤에는 서버를 다시 올려야 한다.** 컨테이너 진입점이 기동하는 것은 `$CUBRID_DB`(`cii`) 하나뿐이라 `cii_test`의 서버는 내려간 채로 남는다. 그 상태로 pytest를 돌리면 「Failed to connect to database server, 'cii_test'」가 난다.
+>
+> ```bash
+> docker compose exec -T db cubrid server start cii_test
+> ```
+
+> 볼륨을 64M로 잡는 것은 **DB를 두 개 만들기 때문**이다. CUBRID는 공간이 모자라면 볼륨을 자동 확장하므로 작게 시작해도 된다 — `scripts/db_backup.py`의 복구본이 같은 값을 쓴다.
+
+대상을 주지 않고 `uv run --extra dev pytest`를 치면 **DB를 쓰는 테스트가 전부 실패한다.** skip이 아니라 실패다 — skip은 조용해서 **돌지 않은 것을 돌았다고 착각할 여지**를 남기고, 이 사고의 본체가 바로 「아무 신호 없이 지나갔다」였다.
 
 ```
 대상 DB 'cii'은(는) 테스트 대상이 아닙니다 (#691).
 …
-    docker compose exec -T db createdb -U cii cii_test
-    DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test pytest
+    docker compose exec -T db sh -c 'cubrid createdb --db-volume-size=64M \
+      --log-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591 &&
+      cubrid server start cii_test'
+    DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test uv run --extra dev pytest
 ```
 
-**DB를 쓰지 않는 테스트는 그대로 돈다.** 막는 것은 「DB에 쓰는 것」이지 「테스트를 돌리는 것」이 아니다.
+> 이 문구는 `tests/db_target.py`가 만든다. **README와 갈라지지 않게** `tests/test_db_target_guard.py`가 양쪽에서 PostgreSQL 명령·URL을 찾아 막는다 (`#1207`).
 
-`cii_test`로 돌리면 종전에 skip되던 **롤백 왕복 테스트 6건이 로컬에서도 실행된다.** 지금까지 그 6건은 CI에서만 검증됐다.
+**DB를 쓰지 않는 테스트는 그대로 돈다.** 막는 것은 「DB에 쓰는 것」이지 「테스트를 돌리는 것」이 아니다. 문서 가드처럼 DB를 보지 않는 검사는 대상 지정 없이 바로 돈다.
 
-CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
+```bash
+uv run --extra dev pytest tests/test_doc_cross_refs.py
+```
 
-### 스위트를 겹쳐 돌리지 못한다 (`#894`)
+`cii_test`로 돌리면 종전에 skip되던 **롤백 왕복 테스트가 로컬에서도 실행된다.** 그 전까지 그 검사는 CI에서만 돌았다.
+
+CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.github/workflows/ci.yml`의 `cubrid` 서비스). CI의 DB 이름이 바뀌어 롤백 검사가 조용히 사라지는 것은 `tests/test_db_target_guard.py`가 막는다.
+
+### 스위트를 겹쳐 돌리지 못한다 (`#894` → `#1250`)
 
 두 실행이 같은 `cii_test`를 동시에 쓰면 서로의 행을 지우고 스키마까지 내린다. 그래서 **DB를 여는 첫 순간 실행 잠금을 잡고**, 이미 다른 실행이 쥐고 있으면 곧바로 멈춘다.
 
@@ -466,17 +492,24 @@ CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.git
 다른 pytest 실행이 이 테스트 DB를 쓰고 있습니다 (cii_test). 두 실행이 겹치면 …
 ```
 
-**앞 실행이 끝난 뒤 다시 돌리면 된다.** 잠금은 연결에 걸려 있어 실행이 강제 종료돼도 남지 않는다. DB를 쓰지 않는 검사는 겹쳐 돌려도 된다.
+**앞 실행이 끝난 뒤 다시 돌리면 된다.** DB를 쓰지 않는 검사는 겹쳐 돌려도 된다.
+
+> **잠금은 `flock`이다** (`#1250`). CUBRID에는 PostgreSQL의 어드바이저리 잠금에 대응하는 것이 없어 이 보호가 한동안 **사라져 있었다** — `_hold_suite_lock()`이 no-op이었고, 그 사이 겹쳐 돌리면 「220 failed」가 나면서 원인이 아니라 **자기 수정을 의심하게** 됐다.
+>
+> 필요한 성질은 「프로세스가 죽으면 저절로 풀린다」 하나였다(`#894`가 잠금을 연결에 건 이유). `flock`은 커널이 열린 파일 기술자에 걸므로 `kill -9`에도 남지 않는다. 잠금 파일은 대상 DB 이름으로 갈린다(`/tmp/bluelog-pytest-<DB>.lock`) — 다른 DB를 쓰는 실행끼리는 겹쳐도 된다.
+>
+> **막는 범위는 같은 기계다.** 다른 기계에서 같은 원격 DB를 치는 경우는 막지 못한다. 그 경로까지 덮는 것(테스트마다 SAVEPOINT 롤백)은 `#1250`이 이어서 다룬다.
 
 ### 테스트 DB 복구
 
 `test_zz_roundtrip.py`가 `downgrade base`와 `upgrade head` 사이에서 끊기면 DB가 **중간 리비전에 남는다.** 다음 실행은 「`alembic upgrade head` 실패 — 테스트 DB가 리비전 ○○○에 남아 있습니다」로 알린다. 테스트 DB는 버려도 되는 곳이므로 **다시 만든다.**
 
 ```bash
-docker compose exec -T db dropdb -U cii cii_test
-docker compose exec -T db createdb -U cii cii_test
-DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest   # 첫 fixture가 upgrade head를 한다
+# 지운다 — `deletedb`는 서버가 떠 있으면 거부하므로 먼저 멈춘다
+docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb cii_test'
 ```
+
+그런 뒤 위 1)을 그대로 다시 실행하고 테스트를 돌린다. 첫 fixture가 `upgrade head`를 한다.
 
 ---
 
@@ -618,3 +651,6 @@ DATABASE_URL=postgresql+asyncpg://cii:cii@localhost:5432/cii_test uv run pytest 
 | 2026-09-18 | `#1202` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 v2.14로 갱신 — `§14`에 `1.4.11`(비텍스트 3:1)의 적용 갈래 넷 확정 · 아웃라인 컨트롤 18곳을 `--color-border-control`로 이관 (#1202) |
 | 2026-09-18 | `#1248` | 소개 문단 아래에 **단일 조직 배포 전제** 한 줄 신설 — 다중 선사 공동 사용 불가(인스턴스 분리로 대응)를 처음 여는 사람이 30초 안에 알게 한다. 심사에서 반드시 나올 질문에 대한 포지셔닝 명시 (#1248) |
 | 2026-09-19 | `#1290` | **`#672`가 남긴 유예를 닫는다** (`AGENTS §6.1`) — 그 PR은 「`.env.example`은 도구 권한으로 고치지 못했다, `INITIAL_OFFICE_EMAILS` 행을 손으로 추가할 것」이라고 적어 두었으나 그 손작업은 일어나지 않았고, 이를 잡아야 할 `tests/test_compose_env_wiring.py::test_env_example_documents_every_variable_the_app_reads`도 정규식이 리터럴 인자만 봐서 침묵했다(`env.get(ENV_NAME)`처럼 상수를 경유한 읽기는 못 봤다) — 가드가 초록불인 채 비어 있었다. `.env.example`·`.env.app.example` 둘 다에 `INITIAL_OFFICE_EMAILS` 행을 추가하고, 그 가드가 상수 경유 읽기도 잡도록 넓혔다. 「배포」 절 1단계 안내와 「배포 전 점검 — 계정」에 **`staging`에는 이 값이 비어 있어도 기동을 막는 가드가 없다**는 사실을 덧붙였다 — `production`과 달리 조용히 통과해 첫 사용자가 리포트를 열 때에야 사무직 0명이 드러난다. ⚠️ **본보기만 고쳤다면 배포는 그대로 고장 난 채였다** — OCI 분리 토폴로지가 쓰는 `docker-compose.prod.app.yml`의 `backend`에는 `env_file:`이 없고 `environment:` 목록만 주입되는데 그 목록에 이 키가 **없어서**, `.env`에 채워도 앱은 빈 값을 봤다(`#508`이 `MAIL_BACKEND`에서 겪은 함정과 같다). 그 키를 넣고, **본보기가 적는 값이 compose에서 실제로 쓰이는지** 보는 검사(`test_oci_app_compose_uses_every_variable_its_env_example_declares`)를 새로 들였다 — 이 파일을 보는 검사가 그동안 하나도 없었다 (#1290) |
+| 2026-09-19 | `#1304` | **`#1058` CUBRID 전환이 남긴 자국 둘을 지운다** — 「로컬에서 테스트를 돌리는 법」이 `createdb -U cii`·`postgresql+asyncpg://…:5432`를 그대로 내밀어 **적힌 대로 하면 실패**했다. `cubrid createdb --db-volume-size=64M -F "$CUBRID/databases" cii_test en_US.iso88591` + `cubrid server start`·브로커 포트 33100으로 옮기고, `docker compose down` 뒤 서버를 다시 올려야 한다는 것(진입점이 기동하는 것은 `$CUBRID_DB` 하나뿐이다)을 함께 적었다. 세 번째 줄은 **전환과 무관하게 원래 틀려 있었다** — `pytest`는 `[dev]` extra인데 `uv`는 extra를 기본으로 설치하지 않으므로 `uv run --extra dev pytest`여야 한다. 같은 문구를 만드는 `tests/db_target.py`도 함께 옮겼다(README가 그것을 그대로 인용하므로 한쪽만 고치면 어느 쪽이 맞는지 판정할 근거가 없다). 🔴 **「스위트를 겹쳐 돌리지 못한다」가 사실이 아니었다** — CUBRID에 advisory lock이 없어 `conftest._hold_suite_lock()`이 no-op인데 README는 여전히 겹친 실행을 그 자리에서 멈춰 준다고 적고 있었다. 지금은 아무도 말려 주지 않으며 증상이 「220 failed」라 **원인이 아니라 자기 수정을 의심하게 된다**는 것과, 근본 해결이 `#1250`이라는 것을 적는다. 재발은 `tests/test_db_target_guard.py::test_the_way_out_does_not_tell_people_to_run_postgresql_commands`가 막는다 — `db_target.py`의 **실행 줄**과 이 절의 **코드펜스** 양쪽을 본다(산문은 옛 이름을 설명하려고 쓰므로 제외한다. `test_db_backup_script.py`가 같은 선을 긋는다). ⚠️ **이 문구는 가드가 걸릴 때만 사람에게 보인다** — 틀려도 CI는 영원히 초록이고, 막힌 사람은 「막혔다」까지만 보고하지 「안내받은 명령도 안 된다」까지 가지 않는다 (#1207) |
+| 2026-09-19 | `#1304` | **`DATABASE_URL` 표기를 `cubrid+pycubrid://`로 통일한다** — `aiopycubrid`는 **배포본이 아니다.** `sqlalchemy-cubrid`의 `entry_points`를 직접 읽어 확인했다: `cubrid.pycubrid`는 `import pycubrid`, `cubrid.aiopycubrid`는 `import pycubrid.aio`이며 후자는 전자를 **상속**한다 — 즉 DBAPI는 `pycubrid` **하나**이고 `aiopycubrid`는 async **방언 이름**이다. 그런데 `.env.example`·compose 3종·`ci.yml`·`deploy.yml`·`docs/OPERATIONS.md`·`config.py`가 전부 그 이름만 적어 **설치하지도 않은 패키지를 설정에 적는 것처럼** 읽혔다. ⚠️ **엔진이 받는 값은 그대로 async 방언이다** — `cubrid+pycubrid`는 동기 방언이라(`is_async` 없음) `create_async_engine`이 받지 못하고, 표기만 바꿔도 안전한 것은 `db/url.py`의 `normalize_to_async()`가 `cubrid+` 접두를 전부 async로 바꾸며 `db/session.py`·`db/seed.py`·`db/demo_seed.py`·`alembic/env.py`·`conftest.py`가 **전부 그 함수를 통과시키기** 때문이다. 동기 엔진으로 바꾸는 작업이 아니다. `tests/test_config.py`의 단언을 **원문이 아니라 `create_async_engine`이 실제로 받는 값**에 걸어 그 사실을 못 박았다 — 원문 단언을 지우면 「이 앱은 async 방언이 아니면 뜨지 않는다」는 보호까지 함께 사라진다. 🔴 함께 **`pycubrid` 하한이 async 방언 요구보다 낮은 것**도 고쳤다(`>=1.2.0` → **`>=1.3.2`**) — 업스트림이 `[pycubrid]` extra·README FAQ에서 요구하는 값이 `>=1.3.2`이고, 낮게 두면 새로 푸는 환경이 1.2.x를 집어 `import pycubrid.aio`에서 죽는다. **`uv.lock`이 1.7.1을 물고 있어 지금은 드러나지 않는다** (#1305) |
+| 2026-09-20 | `#1304` | **겹침 방지를 되살린다** (`#894` → `#1250`) — 「스위트를 겹쳐 돌리지 못한다」 절이 **없는 보호를 있다고 적고 있었다.** CUBRID에 어드바이저리 잠금이 없어 `conftest._hold_suite_lock()`이 no-op이었고, 그 사이 두 실행이 겹치면 서로의 행을 지우고 스키마까지 내렸다 — 증상이 「220 failed」라 원인이 아니라 **자기 수정을 의심하게** 된다. 잠금에 필요한 성질은 **「프로세스가 죽으면 저절로 풀린다」** 하나였고(`#894`가 잠금을 연결에 건 이유), `flock`은 커널이 **열린 파일 기술자**에 걸므로 `kill -9`에도 남지 않는다 — 실측으로 확인했다(겹친 두 번째 실행이 즉시 멈추고, `kill -9` 뒤 잠금이 남지 않는다). DB 기능에 기대지 않아 CUBRID·SQLite 어느 쪽으로 붙어도 같게 동작한다. 잠금 파일은 **대상 DB 이름**으로 갈려(`/tmp/bluelog-pytest-<DB>.lock`) 다른 DB를 쓰는 실행끼리는 겹칠 수 있다. ⚠️ **막는 범위는 같은 기계다** — `#894`가 실제로 겪은 것(IDE 실행과 터미널 실행이 겹침)이 전부 같은 기계이고 CI는 러너마다 스위트가 하나다. 다른 기계에서 같은 원격 DB를 치는 경우는 막지 못하며, **막지 못하는 것을 막는다고 적지 않는다** — 그 경로는 `#1250`의 SAVEPOINT 격리가 답이다 (#1250) |

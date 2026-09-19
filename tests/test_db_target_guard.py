@@ -20,7 +20,9 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
+from pathlib import Path
 
 import pytest
 from conftest import TEST_DATABASE_URL
@@ -33,6 +35,8 @@ from db_target import (
     skip_reason,
 )
 
+_ROOT = Path(__file__).resolve().parents[1]
+
 
 class TestDatabaseName:
     """표기 방식이 달라도 같은 이름이 나와야 한다 — 판정이 표기에 흔들리면 가드가 아니다."""
@@ -44,6 +48,11 @@ class TestDatabaseName:
             ("postgresql+asyncpg://cii:cii@localhost:5432/cii_test", "cii_test"),
             ("postgresql+psycopg://u:p@db:5432/cii_test?sslmode=require", "cii_test"),
             ("postgresql://u:p@host/only_db", "only_db"),
+            # 지금 실제로 쓰는 표기 (`#1058`). PostgreSQL 행을 남겨 두는 것은
+            # **판정이 스킴에 흔들리지 않는다**는 것이 이 검사의 주장이기 때문이다.
+            ("cubrid+pycubrid://dba:@localhost:33100/cii", "cii"),
+            ("cubrid+pycubrid://dba:@localhost:33100/cii_test", "cii_test"),
+            ("cubrid://dba:@db:33000/cii_test", "cii_test"),
         ],
     )
     def test_extracts_name(self, url: str, expected: str):
@@ -59,6 +68,11 @@ class TestIsDisposable:
     def test_test_suffix_is_allowed(self):
         assert is_disposable("postgresql://u:p@h:5432/cii_test")
         assert is_disposable("postgresql+asyncpg://u:p@h:5432/anything_test")
+        assert is_disposable("cubrid+pycubrid://dba:@localhost:33100/cii_test")
+
+    def test_the_cubrid_development_database_is_not_allowed(self):
+        # 전환 뒤 로컬 개발 DB가 실제로 이 모양이다 (`#1058`).
+        assert not is_disposable("cubrid+pycubrid://dba:@localhost:33100/cii")
 
     def test_dev_database_is_not_allowed(self):
         # 이 이름이 실제로 데이터를 잃은 대상이다.
@@ -108,8 +122,8 @@ class TestRunningInCi:
 def test_ci_runs_against_a_disposable_database():
     """**CI에서 롤백 테스트가 조용히 skip되면 안 된다.**
 
-    가드는 안전을 얻는 대신 검사를 잃을 위험을 만든다. CI의 postgres 서비스가
-    `POSTGRES_DB: cii_test`를 쓰는 한 성립하고(`.github/workflows/ci.yml`), 그 이름이
+    가드는 안전을 얻는 대신 검사를 잃을 위험을 만든다. CI의 cubrid 서비스가
+    `CUBRID_DB: cii_test`를 쓰는 한 성립하고(`.github/workflows/ci.yml`), 그 이름이
     바뀌면 **여기서 실패한다** — 롤백 회귀 검사가 사라진 사실이 조용히 지나가지 않는다.
 
     로컬에서는 아무것도 요구하지 않는다. 개발 DB를 가리키는 것이 정상이다.
@@ -120,7 +134,7 @@ def test_ci_runs_against_a_disposable_database():
         f"CI가 파괴적 테스트를 돌릴 수 없는 DB를 가리키고 있다: "
         f"{database_name(TEST_DATABASE_URL)!r}. "
         "test_zz_roundtrip.py가 전부 skip되어 롤백 회귀 검사가 사라진다. "
-        ".github/workflows/ci.yml의 POSTGRES_DB를 확인하라 (#507)."
+        ".github/workflows/ci.yml의 CUBRID_DB를 확인하라 (#507 · #1058)."
     )
 
 
@@ -142,7 +156,7 @@ class TestRefusalReason:
         assert "'cii'" in reason, "어느 DB가 막혔는지 말해야 한다"
         assert "#691" in reason
         assert "app_user" in reason, "무엇을 잃는지 말해야 한다"
-        assert "createdb -U cii cii_test" in reason, "해결 명령이 있어야 한다"
+        assert "cubrid createdb" in reason and "cii_test" in reason, "해결 명령이 있어야 한다"
         assert "DATABASE_URL=" in reason
 
     def test_says_ci_is_unaffected(self):
@@ -242,3 +256,109 @@ class TestGuardIsActuallyWired:
             f"가드가 걸린 fixture를 쓰지 않는 파일이 있다: {unguarded}. "
             "이 파일들은 개발 DB에 직접 붙을 수 있다 (#691)."
         )
+
+
+# --- 전환이 남긴 자국 (#1207) ---------------------------------------------------
+
+#: CUBRID에 **없는** 것들. `scripts/db_backup.py`·`scripts/demo_up.sh`가 이미 같은
+#: 모양의 가드를 쓴다(`test_db_backup_script.py`·`test_demo_up_script.py`).
+_POSTGRES_ONLY = (
+    "createdb -U",
+    "dropdb -U",
+    "psql",
+    "pg_isready",
+    "postgresql+asyncpg://",
+    "postgresql://",
+    ":5432",
+)
+
+#: ``README`` 「로컬에서 테스트를 돌리는 법」 절의 이름.
+_README_SECTION = "## 로컬에서 테스트를 돌리는 법"
+
+
+def _executable_source(path: Path) -> str:
+    """독스트링과 주석을 걷어낸 소스.
+
+    머리말은 **무엇이 달라졌는지**를 적으려고 옛 명령을 일부러 인용한다 — 그것까지
+    금지하면 기록을 지우게 된다. `test_db_backup_script.py`가 같은 선을 긋는다.
+    """
+    text = path.read_text(encoding="utf-8")
+    holders = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    documented: set[int] = set()
+    for node in ast.walk(ast.parse(text)):
+        if not isinstance(node, holders) or not node.body:
+            continue
+        first = node.body[0]
+        if isinstance(first, ast.Expr) and isinstance(getattr(first.value, "value", None), str):
+            documented |= set(range(first.lineno, (first.end_lineno or first.lineno) + 1))
+
+    return "\n".join(
+        line
+        for number, line in enumerate(text.splitlines(), 1)
+        if number not in documented and not line.lstrip().startswith("#")
+    )
+
+
+def _readme_commands() -> str:
+    """``README``의 해당 절에서 **코드펜스 안**만 — 사람이 그대로 치는 줄이다.
+
+    산문은 *「`createdb`·`psql`은 CUBRID에 없다」*처럼 옛 이름을 **설명하려고** 쓴다.
+    `test_doc_cross_refs.py`가 코드펜스를 건너뛰는 것과 방향만 반대인 같은 판단이다 —
+    규칙을 적으려면 틀린 예를 보여줘야 하고, 실제로 실행되는 것은 펜스 안이다.
+    """
+    text = (_ROOT / "README.md").read_text(encoding="utf-8")
+    section = text[text.index(_README_SECTION) :]
+    end = section.find("\n---\n")
+    if end != -1:
+        section = section[:end]
+
+    fenced, inside = [], False
+    for line in section.splitlines():
+        if line.lstrip().startswith("```"):
+            inside = not inside
+            continue
+        if inside:
+            fenced.append(line)
+    assert fenced, f"{_README_SECTION} 절에서 코드펜스를 찾지 못했다 — 추출기가 깨졌다."
+    return "\n".join(fenced)
+
+
+def test_the_way_out_does_not_tell_people_to_run_postgresql_commands():
+    """막을 때 내미는 명령이 **이 스택에서 실제로 도는 것**이어야 한다 (#1207).
+
+    ## 무엇을 막는가
+
+    `#1058`이 DB를 CUBRID로 바꾼 뒤에도 :func:`refusal_reason`과 ``README`` 「로컬에서
+    테스트를 돌리는 법」은 ``createdb -U cii`` · ``postgresql+asyncpg://…:5432``를 그대로
+    내밀고 있었다. **셋 다 CUBRID에 없다** — 적힌 대로 따라 하면 실패한다.
+
+    ## 왜 조용한가
+
+    :func:`refusal_reason`은 **가드가 걸릴 때만** 사람에게 보인다. 즉 이 문장이 틀려도
+    CI는 영원히 초록이고, 개발 DB를 가리킨 사람만 그 자리에서 막힌다 — 그리고 그
+    사람은 *「막혔다」*까지만 보고하지 *「안내받은 명령도 안 된다」*까지 가지 않는다.
+    :func:`refusal_reason`의 독스트링이 적듯 **우회를 찾기 시작하는 지점**이 여기다.
+
+    ## 왜 README까지 함께 보는가
+
+    ``README``가 이 메시지를 **그대로 인용한다.** 한쪽만 고치면 다음 사람은 어느 쪽이
+    맞는지 판정할 근거가 없다.
+    """
+    sources = {
+        "tests/db_target.py": _executable_source(_ROOT / "tests" / "db_target.py"),
+        f"README.md {_README_SECTION}": _readme_commands(),
+    }
+
+    found = [
+        f"{label}: {token}"
+        for label, text in sources.items()
+        for token in _POSTGRES_ONLY
+        if token in text
+    ]
+
+    assert not found, (
+        f"CUBRID 스택에 없는 PostgreSQL 명령·URL {len(found)}건:\n  "
+        + "\n  ".join(found)
+        + "\n→ 적힌 대로 따라 하면 실패합니다 (#1207). CUBRID는 `cubrid createdb`·"
+        "`cubrid deletedb`·`csql`이고 브로커 포트는 33100입니다."
+    )

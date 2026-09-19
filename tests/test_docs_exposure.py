@@ -178,7 +178,7 @@ def _run_in_production() -> dict[str, int]:
         **os.environ,
         "APP_ENV": "production",
         # 프로덕션은 DATABASE_URL이 없으면 기동을 거부한다 (#118). 연결하지는 않는다.
-        "DATABASE_URL": "postgresql+asyncpg://cii:cii@localhost:5432/cii",
+        "DATABASE_URL": "cubrid+pycubrid://dba:@localhost:33000/cii",
         # 프로덕션 + console 메일 백엔드 조합은 기동이 실패한다 (`.env.example`).
         "MAIL_BACKEND": "smtp",
         "SMTP_HOST": "smtp.example.test",
@@ -218,7 +218,7 @@ def test_production_app_refuses_to_start_without_the_public_url():
     env = {
         **os.environ,
         "APP_ENV": "production",
-        "DATABASE_URL": "postgresql+asyncpg://cii:cii@localhost:5432/cii",
+        "DATABASE_URL": "cubrid+pycubrid://dba:@localhost:33000/cii",
         "MAIL_BACKEND": "smtp",
         "SMTP_HOST": "smtp.example.test",
         "PYTHONPATH": str(_REPO / "src"),
