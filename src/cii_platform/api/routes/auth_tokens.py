@@ -37,7 +37,11 @@ from cii_platform.api.schemas.auth_tokens import (
     VerifyEmailRequest,
 )
 from cii_platform.api.timefmt import iso_utc_now
-from cii_platform.auth.password import PasswordPolicyError, hash_password_async
+from cii_platform.auth.password import (
+    PasswordPolicyError,
+    hash_password_async,
+    validate_password,
+)
 from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_token import (
@@ -224,9 +228,19 @@ async def confirm_password_reset(
     payload: PasswordResetConfirmRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> Response:
-    """토큰을 검증하고 비밀번호를 교체한 뒤 **기존 세션을 전부 무효화**한다."""
+    """토큰을 검증하고 비밀번호를 교체한 뒤 **기존 세션을 전부 무효화**한다.
+
+    ## 해싱은 토큰이 유효할 때만 한다 (#1327)
+
+    종전에는 토큰을 보기 **전에** 새 비밀번호를 해싱했다. 이 경로는 미인증이고
+    인증 버킷 밖(기본 300회/분 · `rate_limit.py`)이라, 아무 토큰이나 실어 보내면 그
+    전부가 Argon2(약 60 ms · 64 MiB)를 태웠다 — 응답은 어차피 400이다. 그래서
+    **정책 검사(길이)만 먼저** 하고, 토큰이 소진된 뒤에야 해싱한다. 정책 검사를 앞에
+    두는 것은 응답을 종전과 같게 두기 위해서다 — 약한 비밀번호는 토큰과 무관하게
+    422였고, `#1326`이 상태 코드를 따로 다루므로 여기서는 순서만 바꾼다.
+    """
     try:
-        new_hash = await hash_password_async(payload.password)
+        validate_password(payload.password)
     except PasswordPolicyError as exc:
         return _error(request, 422, "VALIDATION_ERROR", str(exc))
 
@@ -241,7 +255,8 @@ async def confirm_password_reset(
         await session.rollback()
         return _error(request, 400, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
-    user.password_hash = new_hash
+    # 정책 검사는 위에서 끝났으므로 여기서 `PasswordPolicyError`는 나지 않는다.
+    user.password_hash = await hash_password_async(payload.password)
 
     #
     # 기존 세션 전량 무효화 — `API_SPEC §1.2`.
