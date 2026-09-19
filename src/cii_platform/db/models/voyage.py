@@ -68,7 +68,8 @@ class Voyage(Base):
         server_default=sa.text("CURRENT_TIMESTAMP"),
         nullable=False,
     )
-    # updated_at 자동 갱신은 DB 트리거(trg_voyage_updated, §7.2)가 담당한다.
+    # updated_at 자동 갱신은 열 속성 ON UPDATE CURRENT_DATETIME(마이그레이션 049 · DB_SCHEMA §7.2)이
+    # 담당한다 — CUBRID에는 갱신 트리거가 없다(재귀에 걸린다).
     updated_at = sa.Column(
         sa.DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
