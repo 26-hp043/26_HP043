@@ -143,3 +143,34 @@ def test_tracked_text_files_have_no_merge_markers():
         "지우지 않은 것입니다 — 그 줄을 지우고 앞뒤 내용이 맞는지 확인하십시오:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_markdown_tables_are_not_split_by_a_stray_line():
+    """Markdown 표 행 두 줄 사이에 **표가 아닌 한 줄**이 끼어 있지 않다 (#1309).
+
+    병합 표시(``>>>>>>> origin/``)만 지우면 충돌의 **다른 반쪽**(브랜치 이름 ``main``
+    한 줄)이 남을 수 있다 — `#1309`에서 실제로 그랬다. 그 줄은 병합 표시 모양이 아니라
+    위 검사가 잡지 못하는데, 표는 똑같이 그 자리에서 끊긴다.
+
+    제목 줄(``#``)은 뺀다 — 표 바로 뒤에 빈 줄 없이 붙은 제목은 표를 깨지 않는다
+    (`PRD.md` §8.1.1이 그 모양이다).
+    """
+    offenders = []
+    for path in _tracked_text_files():
+        if path.suffix != ".md":
+            continue
+        lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
+        for i in range(1, len(lines) - 1):
+            before, line, after = (lines[i - 1].strip(), lines[i].strip(), lines[i + 1].strip())
+            if (
+                before.startswith("|")
+                and after.startswith("|")
+                and line
+                and not line.startswith(("|", "#"))
+            ):
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{i + 1}: {line[:40]}")
+
+    assert not offenders, (
+        "표 행 사이에 표가 아닌 줄이 끼어 표가 끊겼습니다 (#1309) — 병합을 풀다 남은 조각인지 "
+        "확인하고 지우십시오:\n  " + "\n  ".join(offenders)
+    )
