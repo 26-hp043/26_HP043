@@ -218,7 +218,9 @@ def test_코드펜스가_파일_끝에서_열린_채로_남지_않는다() -> No
     offenders = [
         f"{path.name} (펜스 {count}개, 홀수)"
         for path in _MD
-        for count in [sum(1 for line in _text(path).splitlines() if line.lstrip().startswith("```"))]
+        for count in [
+            sum(1 for line in _text(path).splitlines() if line.lstrip().startswith("```"))
+        ]
         if count % 2 != 0
     ]
 
