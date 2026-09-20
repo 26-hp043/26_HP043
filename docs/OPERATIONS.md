@@ -11,10 +11,11 @@
                     │  Cloudflare Pages                 │
                     │  https://bluelog-bx7.pages.dev    │
                     │  (React SPA, Vite 빌드)           │
+                    │  + Pages Functions: /api/* 프록시  │
                     └───────────────┬──────────────────┘
                                     │
-            VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1
-            (빌드 시점에 주입, CORS로 cross-origin 허용)
+            화면은 자기 오리진만 부른다 — VITE_API_BASE_URL=/api/v1
+            Pages Function이 API_ORIGIN으로 넘긴다 (#1322 · 같은 오리진)
                                     │
   ┌─────────────────────────────────┼─────────────────────────────────┐
   │  OCI ap-seoul-1                 │                                  │
@@ -46,17 +47,24 @@
 | CI/CD | GitHub Actions | GitHub | `.github/workflows/deploy.yml` |
 | DNS/CDN | Cloudflare | Cloudflare | (커스텀 도메인 미설정) |
 
-### 1.2 프론트엔드-백엔드 연결 방식
+### 1.2 프론트엔드-백엔드 연결 방식 — **같은 오리진** (#1322)
 
-프론트엔드는 **빌드 시점**에 `VITE_API_BASE_URL` 환경변수로 백엔드 절대 URL을 주입받는다.
-개발 환경에서는 Vite 프록시(`/api` → `localhost:8000`)를 사용하므로 환경변수가 불필요하다.
+화면과 API는 **같은 오리진**에 있다. 브라우저는 `https://bluelog-bx7.pages.dev/api/v1/…`만
+부르고, Pages Function(`frontend/functions/api/[[path]].ts`)이 백엔드로 넘긴다.
 
 ```bash
-# Cloudflare Pages 배포용 빌드
-VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1 npm run build
+# Cloudflare Pages 배포용 빌드 — 상대 경로를 굳힌다
+VITE_API_BASE_URL=/api/v1 npm run build
 
 # 로컬 개발 (Vite 프록시)
 npm run dev   # VITE_API_BASE_URL 불필요
+```
+
+프록시 상류는 `frontend/wrangler.toml`의 `[vars] API_ORIGIN`이 정한다.
+
+```toml
+[vars]
+API_ORIGIN = "http://131.186.22.10:8001"
 ```
 
 영향받는 소스 파일:
@@ -64,10 +72,34 @@ npm run dev   # VITE_API_BASE_URL 불필요
 - `frontend/src/features/annual-simulation/apiProvider.ts` — `DEFAULT_API_BASE_URL`
 - `frontend/src/auth/session.ts` — `AUTH_API_BASE`
 
-백엔드의 `CORS_ALLOW_ORIGINS`에 Cloudflare Pages 도메인을 등록해야 한다:
-```
-CORS_ALLOW_ORIGINS=https://bluelog-bx7.pages.dev
-```
+셋 모두 `import.meta.env.VITE_API_BASE_URL ?? '/api/v1'`이라 **상대 경로가 원래 기본값**이다.
+
+#### 왜 절대 URL + CORS가 아닌가
+
+종전에는 `VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1`이었고, 그 구성에서는
+**로그인이 아예 성립하지 않았다.** 세 겹이다.
+
+1. `https` 페이지에서 `http`로 가는 fetch는 브라우저가 **혼합 콘텐츠로 차단**한다 —
+   요청 자체가 나가지 않는다.
+2. 설령 나가도 `Secure` 쿠키는 **`http` 응답의 `Set-Cookie`에서 거부**된다
+   (`auth/session.py`의 `COOKIE_ATTRIBUTES`). `localhost` 예외는 IP 주소에 없다.
+3. `SameSite=Lax` 쿠키는 `pages.dev` → `131.186.22.10` **교차 사이트 요청에 실리지
+   않는다.** 백엔드에 TLS를 붙여도(#786) `SameSite=None`으로 바꾸기 전에는 같다.
+
+**CORS는 ⑴·⑵·⑶ 중 어느 것도 풀지 않는다.** preflight가 통과해도 쿠키가 저장·전송되지
+않기 때문이다 — 그래서 종전 「배포 검증 결과」가 헬스·CORS preflight·미인증 401을 전부
+통과시키고도 **로그인만 안 되는** 상태였다.
+
+같은 오리진으로 되돌리면 셋이 함께 사라지고 **백엔드와 `API_SPEC §1.2`는 그대로**다.
+`CORS_ALLOW_ORIGINS`는 더 이상 필요하지 않다(`api/main.py`는 미설정이면 CORS 미들웨어를
+아예 붙이지 않는다). 남겨 두어도 무해하지만, 같은 오리진에서는 쓰이지 않는다.
+
+> ⚠️ **요청 한도가 전체 공유가 된다.** 백엔드는 `USE_FORWARDED_FOR=false`가 기본이라
+> `request.client.host`로 한도를 건다(`api/rate_limit.py`). 프록시 뒤에서는 모든 요청이
+> Cloudflare 주소에서 오므로 **여러 사람이 한 버킷을 나눠 쓴다**(`auth` 10/분 ·
+> `chat` 10/분). `USE_FORWARDED_FOR=true`로 바꾸려면 **`:8001`에 직접 붙어 헤더를
+> 위조할 수 없어야 한다**는 전제가 필요한데(#811 · #786), 지금 그 포트는 열려 있다.
+> 후속 이슈로 분리한다.
 
 ---
 

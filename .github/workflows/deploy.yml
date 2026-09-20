@@ -445,16 +445,31 @@ jobs:
 
       - run: npm ci
 
-      # VITE_API_BASE_URL은 빌드 시점에 코드에 굳는다 — OPERATIONS.md §3.2 값 그대로.
+      # VITE_API_BASE_URL은 빌드 시점에 코드에 굳는다 — 그래서 **상대 경로**를 굳힌다 (#1322).
+      #
+      # 종전에는 `http://131.186.22.10:8001/api/v1`이었고, 그 절대 주소가 세 겹을
+      # 만들었다 — https 페이지의 http 호출(혼합 콘텐츠 차단) · `Secure` 쿠키가 http
+      # 응답에서 거부됨 · `SameSite=Lax` 쿠키가 교차 사이트 fetch에 실리지 않음.
+      # **클라우드에서 로그인이 아예 성립하지 않았다.**
+      #
+      # 이제 화면은 자기 오리진(`https://bluelog-bx7.pages.dev/api/v1/…`)만 부르고,
+      # `functions/api/[[path]].ts`가 백엔드로 넘긴다. 세 겹이 함께 사라지고
+      # 백엔드·`API_SPEC §1.2`는 그대로다.
+      #
+      # ⚠️ **절대 주소로 되돌리지 않는다.** `tests/test_deploy_frontend_origin.py`가 막는다.
       - run: npm run build
         env:
-          VITE_API_BASE_URL: http://131.186.22.10:8001/api/v1
+          VITE_API_BASE_URL: /api/v1
 
       - name: wrangler pages deploy (프로덕션)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx --yes wrangler@4 pages deploy dist --project-name bluelog --branch main
+        # 출력 디렉터리(`dist`)와 프로젝트 이름은 `frontend/wrangler.toml`이 갖는다 (#1322).
+        # 그 파일이 `functions/`의 `API_ORIGIN`도 함께 들고 있어, 배포 대상과 프록시
+        # 상류가 **한 파일에** 적힌다. 위치 인자로 `dist`를 다시 주면 wrangler가
+        # `pages_build_output_dir`와 충돌한다고 거부한다.
+        run: npx --yes wrangler@4 pages deploy --branch main
 
       - name: Summary
         run: |
