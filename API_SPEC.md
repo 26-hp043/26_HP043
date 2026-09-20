@@ -3173,7 +3173,7 @@ UTF-8 **BOM**으로 시작하고 줄바꿈은 **CRLF**다(RFC 4180 §2). BOM이 
 >
 > 종전 규정은 「모든 셀」이었다. 지금 열들은 CHECK 제약상 음수가 없어(`DB_SCHEMA` `chk_distance_positive` 등) 드러나지 않았지만, 증감 열이 생기는 순간 그 열 전체가 `'-12.5` **문자열**이 됐을 것이다. 규칙은 `§8.5`(리포트 CSV)와 같다.
 
-#### `type=voyages` 컬럼 (22열)
+#### `type=voyages` 컬럼 (23열)
 
 **앞의 일곱 열이 `§8.2` 필수 컬럼 7종과 이름·순서가 같다** — 내보낸 파일을 그대로 다시 가져올 수 있다(왕복). 뒤에 붙는 열은 가져오기가 읽지 않으므로 무시된다.
 
@@ -3184,6 +3184,7 @@ UTF-8 **BOM**으로 시작하고 줄바꿈은 **CRLF**다(RFC 4180 §2). BOM이 
 | 9~12 | `status` · `regulation_year` · `annual_inclusion_policy` · `created_from` | 상태·집계 정책 |
 | 13~18 | `actual_distance_nm` · `actual_avg_speed_kn` · `planned_departure_at` · `planned_arrival_at` · `actual_departure_at` · `actual_arrival_at` | 실적·시각 |
 | 19~22 | `actual_fuel_ton` · `cf_used` · `co2_ton` · `notes` | 연료 실적·배출량·비고 |
+| 23 | `planned_distance_source` | 계획 거리가 **어디서 왔나** (`§3.3` · `#1256`). `USER_INPUT` · `COORDINATE_ESTIMATE` · 빈 값(`null` = 「모른다」) |
 
 ```
 voyage_id,voyage_no,departure_port_name,arrival_port_name,planned_distance_nm,planned_speed_kn,fuel_type,planned_fuel_ton,status,…
@@ -3191,6 +3192,8 @@ voyage_id,voyage_no,departure_port_name,arrival_port_name,planned_distance_nm,pl
 ```
 
 `co2_ton`은 **(실적 연료 ?? 계획 연료) × `cf_used`**다 — 항차 완료 리포트(`§8.3`)와 **같은 식**이며(`PRD §8.3` 실적 우선), 두 곳에 다른 식이 있으면 리포트와 파일의 CO₂가 갈린다.
+
+> **[#1354] `planned_distance_source`를 맨 뒤에 붙인 이유.** 앞 일곱 열은 `§8.2` 가져오기 필수 컬럼과 **이름·순서가 같아야** 하므로(왕복) 중간에 넣을 수 없다. 이 열이 없는 동안 **내보낸 파일에서는 추정 거리와 직접 입력이 구분되지 않았다** — 화면은 구분해 보이는데(`PRD §15.2` 「좌표 기반 추정 거리」) 파일은 못 보이는 상태였다. 가져오기는 뒤 열을 읽지 않으므로 왕복 동작은 바뀌지 않는다.
 
 > ⚠️ **한 행 = 항차 × 연료다.** 연료가 둘 이상인 항차는 행이 나뉘며 `voyage_id`가 같다. 그대로 다시 가져오면 가져오기가 1행을 1항차로 읽으므로 **같은 항차 번호로 여러 항차**가 만들어진다. 연료가 한 건도 없는 항차도 행을 남긴다(연료 칸이 빈다) — 빼면 파일의 항차 수가 화면과 달라진다.
 

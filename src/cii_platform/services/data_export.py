@@ -104,6 +104,14 @@ VOYAGE_COLUMNS: tuple[str, ...] = (
     "cf_used",
     "co2_ton",
     "notes",
+    # `#1354` ⑵ — 계획 거리가 **어디서 왔나**(`#1256`). 값이 `COORDINATE_ESTIMATE`면
+    # 대권거리로 채운 추정값이라 실제 항로보다 짧다(`PRD §15.2`). 이 열이 없으면
+    # 내보낸 파일에서는 **추정값과 직접 입력이 구분되지 않는다** — 화면은 구분해
+    # 보이는데 파일은 못 보이는 상태였다.
+    #
+    # **맨 뒤에 붙인다.** 앞 일곱 열은 `§8.2` 가져오기 필수 컬럼과 이름·순서가
+    # 같아야 하고(`ROUNDTRIP_COLUMNS`), 중간에 넣으면 그 약속이 깨진다.
+    "planned_distance_source",
 )
 
 #: ``§8.2`` 필수 컬럼 7종이 항차 표 **앞쪽에** 그대로 있다는 약속.
@@ -338,6 +346,7 @@ def _voyage_row(voyage, fuel_use) -> list[str]:
             cf_used,
             co2_ton,
             voyage.notes,
+            voyage.planned_distance_source,
         ]
     )
 

@@ -84,6 +84,9 @@ async def _insert_voyage(session, vessel_id: UUID, **overrides) -> UUID:
         "actual_arrival_at": None,
         "notes": None,
         "annual_inclusion_policy": "EXCLUDE",
+        # `#1354` ⑵ — 기본은 `None`(「모른다」)이다. `USER_INPUT`을 기본으로 두면
+        # 출처를 넣지 않은 항차가 **직접 입력으로 보인다**(`API_SPEC §3.3`).
+        "planned_distance_source": None,
     }
     fields.update(overrides)
     await session.execute(
@@ -91,12 +94,12 @@ async def _insert_voyage(session, vessel_id: UUID, **overrides) -> UUID:
             "INSERT INTO voyage (id, vessel_id, voyage_no, status, regulation_year, "
             "  departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
             "  actual_distance_nm, actual_avg_speed_kn, actual_departure_at, actual_arrival_at, "
-            "  notes, annual_inclusion_policy, created_from) "
+            "  notes, annual_inclusion_policy, planned_distance_source, created_from) "
             "VALUES (:id, :vessel_id, :voyage_no, :status, :regulation_year, "
             "  :departure_port_name, :arrival_port_name, :planned_distance_nm, :planned_speed_kn, "
             "  :actual_distance_nm, :actual_avg_speed_kn, :actual_departure_at, "
             "  :actual_arrival_at, "
-            "  :notes, :annual_inclusion_policy, 'MANUAL')"
+            "  :notes, :annual_inclusion_policy, :planned_distance_source, 'MANUAL')"
         ),
         fields,
     )
@@ -292,6 +295,43 @@ async def test_values_keep_precision_and_carry_kst_offset(session, vessel_id):
     assert row["actual_departure_at"] == "2026-02-10T16:00:00+09:00"
     # 비어 있는 값은 **빈 칸**이다 — `—`·`N/A`를 넣으면 숫자 열에 문자가 섞인다.
     assert row["actual_distance_nm"] == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [("COORDINATE_ESTIMATE", "COORDINATE_ESTIMATE"), ("USER_INPUT", "USER_INPUT"), (None, "")],
+)
+async def test_the_file_says_where_the_planned_distance_came_from(
+    session, vessel_id, stored, expected
+):
+    """`#1354` ⑵ — 내보낸 파일이 **추정 거리와 직접 입력을 구분한다**.
+
+    화면은 `COORDINATE_ESTIMATE`에만 「좌표 기반 추정 거리」를 붙이는데(`PRD §15.2`),
+    파일에는 그 축이 아예 없어 **두 값이 같은 모양**이었다. 대권거리는 운하·해협을
+    돌아가는 실제 항로보다 짧으므로, 구분되지 않는 파일을 받은 사람은 **추정값을
+    실측으로 읽는다**.
+
+    ⚠️ **`null`은 빈 칸이다** — 「모른다」이지 「직접 입력」이 아니다(`API_SPEC §3.3`).
+    빈 칸을 `USER_INPUT`으로 채우면 `PRD §0.3`이 금하는 거짓말이 된다.
+    """
+    voyage_id = await _insert_voyage(session, vessel_id, planned_distance_source=stored)
+    await _insert_fuel(session, voyage_id)
+
+    row = _parse(_render(await build_export(session, vessel_id, type="voyages")))[0]
+
+    assert row["planned_distance_source"] == expected
+
+
+@pytest.mark.asyncio
+async def test_the_source_column_sits_behind_the_roundtrip_block(session, vessel_id):
+    """새 열이 **왕복 구간을 밀어내지 않는다** (`API_SPEC §8.1`).
+
+    앞 일곱 열은 `§8.2` 가져오기 필수 컬럼과 이름·순서가 같아야 한다 — 중간에
+    넣으면 내보낸 파일을 다시 가져올 수 없다.
+    """
+    assert VOYAGE_COLUMNS[-1] == "planned_distance_source"
+    assert VOYAGE_COLUMNS[1:8] == REQUIRED_COLUMNS
 
 
 @pytest.mark.asyncio
