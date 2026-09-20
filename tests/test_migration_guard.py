@@ -268,7 +268,13 @@ def test_named_but_unbacked_downgrade_stops_before_touching_anything(
 #: 데이터를 지울 수 있는 ``op`` 호출.
 _DESTRUCTIVE_OPS = {"drop_table", "drop_column"}
 #: ``op.execute`` 문자열 안의 파괴적 SQL.
-_DESTRUCTIVE_SQL = re.compile(r"\b(DELETE|TRUNCATE|DROP\s+TABLE|DROP\s+COLUMN)\b", re.I)
+#:
+#: ⚠️ ``DELETE``는 **``DELETE FROM``으로 좁힌다** (`#1350`). 맨 낱말로 두면 FK 절의
+#: ``ON DELETE RESTRICT``가 걸린다 — `050`의 downgrade가 그 문장을 f-string과 이어 붙여
+#: 갖고 있어, f-string까지 보게 넓히는 순간 **지우지 않는 마이그레이션이 파괴적으로**
+#: 분류됐다. 되돌리는 쪽이 아니라 좁히는 쪽이 맞다: `ON DELETE`는 제약의 동작을 적는
+#: 말이지 행을 지우는 문장이 아니다.
+_DESTRUCTIVE_SQL = re.compile(r"\b(DELETE\s+FROM|TRUNCATE|DROP\s+TABLE|DROP\s+COLUMN)\b", re.I)
 
 
 def _is_destructive(path: Path) -> bool:
@@ -287,6 +293,20 @@ def _is_destructive(path: Path) -> bool:
                 arg = node.args[0]
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     if _DESTRUCTIVE_SQL.search(arg.value):
+                        return True
+                # f-string SQL (`#1350`). `ast.Constant`만 보면 **표 이름이 상수로
+                # 빠져 있는 마이그레이션이 통째로 빠져나간다** — `056`의
+                # `op.execute(f"ALTER TABLE {_TABLE} DROP COLUMN {_COLUMN}")`가 그랬고,
+                # 분류 없이 통과해 세 목록 어디에도 없었다. 조각(`JoinedStr.values`)의
+                # 리터럴 부분만 이어 붙여 같은 정규식으로 본다 — `{…}` 자리는 이름이라
+                # 파괴적 키워드가 들어갈 자리가 아니다.
+                elif isinstance(arg, ast.JoinedStr):
+                    literal = "".join(
+                        piece.value
+                        for piece in arg.values
+                        if isinstance(piece, ast.Constant) and isinstance(piece.value, str)
+                    )
+                    if _DESTRUCTIVE_SQL.search(literal):
                         return True
                 # SQLAlchemy Core 문(`table.delete()` · `table.update()`)을 넘기는 경우
                 elif isinstance(arg, ast.Call):

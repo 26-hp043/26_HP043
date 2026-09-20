@@ -327,6 +327,19 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     }
 
 
+def _skipped_count(errors: list[dict[str, object]], truncated: int) -> int:
+    """건너뛴 **행 수** (`API_SPEC §8.2` · `#1350`).
+
+    종전에는 ``len(errors)``였다. 상한(:data:`MAX_ROWS`)을 넘겨 잘라 낸 행은 **오류 1건**
+    으로만 담기므로, 1,500행을 올리면 ``imported 1000 · skipped 1``이 되어 **합이 1,001**
+    이었다 — 사용자는 **499행이 사라진 것을 수치로는 볼 수 없다.**
+
+    잘린 행은 「처리하지 않은 행」이지 「오류 한 건」이 아니므로 그 수만큼 더한다. 잘림을
+    알리는 오류 항목 자체는 이미 ``errors``에 있으므로 **한 번만** 센다.
+    """
+    return len(errors) - (1 if truncated else 0) + truncated
+
+
 def read_rows(
     content: bytes, *, content_type: str | None = None
 ) -> tuple[list[dict[str, str]], int]:
@@ -415,7 +428,7 @@ async def import_voyages(
     if dry_run:
         return {
             "imported_count": len(parsed),
-            "skipped_count": len(errors),
+            "skipped_count": _skipped_count(errors, truncated),
             "errors": errors,
             "missing_departure_count": missing_departure,
             "dry_run": True,
@@ -469,7 +482,7 @@ async def import_voyages(
         # **실제로 들어간 행 가운데의 수**다. 저장 단계에서 떨어진 행을 여기 세면
         # 「들어갔지만 시각이 없다」는 뜻이 무너진다 (#906 · #1090과 같은 종류).
         "missing_departure_count": stored_missing_departure,
-        "skipped_count": len(errors),
+        "skipped_count": _skipped_count(errors, truncated),
         "errors": errors,
         "dry_run": False,
     }

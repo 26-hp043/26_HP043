@@ -312,7 +312,19 @@ async def update_vessel(
         await calc_run_repo.mark_needs_recalc(session, vessel.id)
 
     await session.commit()
+    await _refresh_updated_at(session, vessel)
     return to_dict(vessel)
+
+
+async def _refresh_updated_at(session: AsyncSession, vessel) -> None:
+    """``updated_at``을 DB에서 다시 읽는다 (`#1350`).
+
+    `049`가 열 속성 ``ON UPDATE CURRENT_DATETIME``으로 **DB가** 이 값을 갱신하는데,
+    ORM 쪽에는 ``server_onupdate``가 없고 세션이 ``expire_on_commit=False``라 커밋 뒤에도
+    **메모리에 남은 갱신 전 값**이 그대로 응답에 실렸다. 화면이 지금 이 값을 그리지는
+    않지만, 응답 계약(`API_SPEC §3`)이 말하는 것은 **저장된 값**이다.
+    """
+    await session.refresh(vessel, attribute_names=["updated_at"])
 
 
 async def delete_vessel(
@@ -506,4 +518,5 @@ async def update_vessel_position(
         )
 
     await session.commit()
+    await _refresh_updated_at(session, vessel)
     return to_dict(vessel)

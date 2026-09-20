@@ -41,7 +41,7 @@ class ConsoleMailer:
     개발자가 SMTP 자격증명 없이도 **가입 → 인증 메일 → 링크 클릭** 전체 플로우를
     돌릴 수 있어야 한다. 인증 링크를 로그에서 복사해 붙이면 된다.
 
-    `should_register_dev_auth()`가 `APP_ENV != production`에서 개발 편의를 여는 것과
+    `should_register_dev_auth()`가 **`APP_ENV`가 `development`·`test`일 때만** 개발 편의를 여는 것과
     같은 패턴이며, **프로덕션에서는 `load_mail_settings()`가 기동을 막는다.**
     그 검증은 `api/main.py`의 `lifespan`이 기동 시점에 부른다 — 종전에는
     `get_mailer()`가 라우트 안에서 처음 불려 **첫 발송 시도에서야** 돌았다 (`#524`).

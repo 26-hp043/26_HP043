@@ -101,6 +101,15 @@ def build(src: Path, out_dir: Path, family: str, ranges: tuple[str, ...]) -> lis
         subsetter.subset(static)
 
         out = out_dir / f"{family}-{weight}.woff2"
+        # ⚠️ **`flavor`를 여기서도 세워야 실제 woff2가 나온다** (`#1350`).
+        # `subset.Options.flavor`는 서브셋터의 옵션일 뿐이라, 이것 없이 저장하면
+        # **비압축 TrueType이 `.woff2` 이름으로** 쓰였다(실측: 매직 바이트 `0001 0000`,
+        # 2.8MB × 4). `fonts.css`는 `format('woff2')`로 선언하므로 브라우저가 렌더는
+        # 하지만 첫 화면이 그만큼 무거워진다.
+        #
+        # `flavorData = None`은 그대로 둔다 — 원본의 woff 메타데이터를 옮기지 않는다는
+        # 뜻이지 압축 여부와는 다른 축이다.
+        static.flavor = "woff2"
         static.flavorData = None
         static.save(out)
         made.append(out)

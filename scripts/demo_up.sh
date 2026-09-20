@@ -286,7 +286,10 @@ elif [ -z "$HAS_DEMO_USER" ]; then
   bad "계정 조회에 실패했습니다 — app_user 테이블을 확인하십시오"
 else
   bad "시연 계정이 없습니다 — 로그인 화면으로 들어갈 수 없습니다 (#692)"
-  info "데모 시드가 만듭니다. APP_ENV=production이면 만들지 않습니다."
+  # ⚠️ 닫히는 기준은 `production`이 아니라 **`development`·`test`가 아닌 전부**다
+  # (`config._DEV_SURFACE_ENVS` · `#1058`). `staging`이 남은 노트북에서 dev-login이
+  # 막히는데 안내가 production만 말해, 원인을 엉뚱한 곳에서 찾게 했다 (`#1350`).
+  info "데모 시드가 만듭니다. APP_ENV가 development·test가 아니면 만들지 않습니다(staging 포함)."
   printf '    %s\n' "$VENV/python -m cii_platform.db.demo_seed"
 fi
 
@@ -560,7 +563,8 @@ cat <<'GUIDE'
      이메일    demo@bluelog.local
      비밀번호  bluelog-demo-2026
 
- 이 계정은 데모 시드가 넣습니다. APP_ENV=production에서는 만들어지지 않습니다.
+ 이 계정은 데모 시드가 넣습니다. APP_ENV가 development·test가 아니면 만들어지지 않습니다
+ (staging 포함 — #1058에서 기준이 「production만」에서 바뀌었습니다).
 
  로그인 화면을 건너뛰려면 브라우저 콘솔에서:
 

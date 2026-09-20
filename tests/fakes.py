@@ -148,6 +148,7 @@ class FakeSession:
         self.flushed = 0
         self.added: list[Any] = []
         self.executed: list[Any] = []
+        self.refreshed: list[Any] = []
 
     async def execute(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
         """실행하지 않고 **기록만** 한다 (`#764`).
@@ -166,6 +167,15 @@ class FakeSession:
 
     async def flush(self) -> None:
         self.flushed += 1
+
+    async def refresh(self, instance: Any, attribute_names: Any = None) -> None:
+        """DB에서 다시 읽지 않고 **불린 사실만** 기록한다 (`#1350`).
+
+        실제 세션은 ``ON UPDATE CURRENT_DATETIME``이 DB에서 갱신한 ``updated_at``을 이
+        호출로 되읽는다. 대역은 DB가 없으므로 값이 바뀌지 않지만, **이 메서드가 없으면
+        서비스가 `AttributeError`로 죽어** 대역이 실제 세션을 모사하지 못한다.
+        """
+        self.refreshed.append((instance, attribute_names))
 
     def add(self, obj: Any) -> None:
         self.added.append(obj)

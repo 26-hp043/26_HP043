@@ -127,8 +127,15 @@ def exposes_dev_surfaces(app_env: str) -> bool:
 # 환경 구분. 미설정 시 개발 환경으로 본다. 모르는 값이면 여기서 기동이 선다 (#810).
 _ENV = normalize_app_env(os.environ.get("APP_ENV"))
 
-# 로컬 개발용 기본 접속 URL. docker-compose.yml · .env.example과 같은 값이다.
-_DEFAULT_DATABASE_URL = "cubrid+pycubrid://dba:@localhost:33000/cii"
+# 로컬 개발용 기본 접속 URL.
+#
+# ⚠️ **호스트에서 보는 포트는 33100이다** (`#1350`). `docker-compose.yml:12`가
+# `33100:33000`으로 내보내므로, 컨테이너 **안**은 33000이고 호스트(WSL에서 돌리는
+# pytest·uvicorn)는 33100으로 붙어야 한다. 종전에는 33000이라 적혀 있었고 주석도
+# 「compose와 같은 값」이라 했는데, **같아야 하는 쪽은 compose의 안쪽 값이 아니라
+# 호스트에서 여는 포트**였다 — DB를 쓰는 기본값으로 붙으면 연결이 거부됐다.
+# 컨테이너 안에서 도는 앱은 `docker-compose.yml:30`이 `db:33000`을 따로 넣는다.
+_DEFAULT_DATABASE_URL = "cubrid+pycubrid://dba:@localhost:33100/cii"
 
 _url = os.environ.get("DATABASE_URL")
 

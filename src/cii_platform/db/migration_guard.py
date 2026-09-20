@@ -141,6 +141,14 @@ REGENERABLE: dict[str, str] = {
     "055": "vessel.block_coefficient — 선택 제원이라 값 재입력으로 복구",
     # vessel.call_sign(#1197) — 055와 같은 성격. 컬럼·트리거 모두 재생 가능하고 NULL
     # 허용이라 되돌려도 잃는 값은 호출부호뿐이며, 선박국적증서에 있는 값이라 다시 넣는다.
+    # chat_session.vessel_id(#1242) — 컬럼·FK 모두 재생 가능하고 NULL 허용이다. 되돌리면
+    # 「이 대화가 어느 선박 것인가」를 잃지만 **대화·메시지 본문은 한 행도 지워지지 않고**,
+    # 그 결과는 056 이전과 같은 「귀속 없음」이다. 055·058·059와 같은 성질이다.
+    #
+    # ⚠️ 종전에는 **분류 자체가 없었다** — downgrade가 f-string SQL(`ALTER TABLE {…} DROP
+    # COLUMN {…}`)을 쓰는데 `test_migration_guard._is_destructive`가 `ast.Constant`만 봐서
+    # 파괴적 downgrade로 세어지지 않았다. 검사를 f-string까지 넓히자 드러났다 (`#1350`).
+    "056": "chat_session.vessel_id — 귀속 표시라 사라져도 「귀속 없음」으로 돌아갈 뿐",
     "058": "vessel.call_sign — 선택 제원이라 값 재입력으로 복구",
     # voyage.planned_distance_source(#1256) — 컬럼·트리거 모두 재생 가능하고 NULL 허용.
     # 되돌리면 그 사이 저장된 「좌표 추정 · 직접 입력」 표시가 사라지지만, 그 결과는
