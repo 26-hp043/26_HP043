@@ -399,3 +399,77 @@ def test_dev_app_still_publishes_8000():
     ports = {str(port) for port in _app_service(_DEV).get("ports", [])}
 
     assert "8000:8000" in ports, f"개발 compose의 app이 8000을 열지 않는다: {ports}"
+
+
+# ── OCI 분리 토폴로지의 두 구멍 (#1331) ─────────────────────────────────────────
+#
+# `docker-compose.prod.app.yml`이 `SMTP_PORT`를 **빈 값으로** 넘겨 smtp로 바꾸는 순간
+# 기동이 실패했고, `LOG_FILE`이 없어 `docs/OPERATIONS.md §8.2.1`의 장애 대응 절차가
+# 「No such file」로 끝났다. 둘 다 **단일 호스트 compose에는 있었다** — 분리 토폴로지
+# 파일만 빠져 있어서, 읽는 사람이 「문서대로 했는데 안 된다」에 도달한다.
+
+
+def _prod_app_environment() -> dict[str, str]:
+    """`prod.app.yml` backend 서비스의 `environment:` 매핑."""
+    parsed = yaml.safe_load(_PROD_APP.read_text(encoding="utf-8"))
+    return parsed["services"]["backend"]["environment"]
+
+
+def test_prod_app_gives_smtp_port_a_default():
+    """빈 값이 아니라 **587**을 넘긴다 (#1331).
+
+    `${SMTP_PORT:-}`이면 `.env`에 값이 없을 때 compose가 **빈 문자열**을 넘기고, 앱은
+    키가 있는 것으로 보아 기본값을 쓰지 않는다 — `int("")`로 기동이 실패한다. 사용자는
+    「비워 두면 587」로 읽는데 실제로는 재시작 루프였다(`#787` 전환 때 밟는 길이다).
+    """
+    value = _prod_app_environment()["SMTP_PORT"]
+
+    assert value == "${SMTP_PORT:-587}", (
+        f"SMTP_PORT를 {value!r}로 넘긴다 — 빈 값이면 mail/config.py가 int('')로 터진다."
+    )
+
+
+def test_prod_app_writes_the_structured_log_file():
+    """`LOG_FILE`과 로그 볼륨이 있다 (#1331 · `#827` ⑵).
+
+    `docs/OPERATIONS.md §8.2.1`이 *「프로덕션 compose가 `LOG_FILE=/app/logs/api.jsonl`을
+    설정한다」*고 적고 app-01에서 `docker exec cii-backend … /app/logs/api.jsonl`을
+    지시하는데, **그 컨테이너를 만드는 것이 이 파일이다.** 없으면 장애 때 문서대로
+    grep해도 파일이 없고, 컨테이너를 다시 만들면 콘솔 로그마저 사라진다.
+    """
+    parsed = yaml.safe_load(_PROD_APP.read_text(encoding="utf-8"))
+    backend = parsed["services"]["backend"]
+
+    log_file = backend["environment"].get("LOG_FILE")
+    assert log_file, "prod.app.yml에 LOG_FILE이 없다 — OPERATIONS §8.2.1 절차를 쓸 수 없다."
+
+    mounts = backend.get("volumes") or []
+    log_dir = log_file.rsplit("/", 1)[0]
+    assert any(str(mount).endswith(f":{log_dir}") for mount in mounts), (
+        f"{log_dir}에 볼륨이 붙어 있지 않다 — 컨테이너를 다시 만들면 로그가 사라진다. "
+        f"현재 volumes={mounts}"
+    )
+
+    # 호스트 경로 바인드가 아니라 **이름 있는 볼륨**이어야 한다 — 호스트 경로는 app-01의
+    # 디렉터리 구조를 전제하고, 이름 있는 볼륨은 docker가 관리해 재생성에도 남는다.
+    named = {
+        str(mount).split(":", 1)[0]
+        for mount in mounts
+        if not str(mount).startswith(("/", ".", "~"))
+    }
+    declared = set(parsed.get("volumes") or {})
+    assert named & declared, (
+        f"로그 볼륨이 최상위 volumes에 선언돼 있지 않다. mounts={mounts} volumes={sorted(declared)}"
+    )
+
+
+def test_operations_log_path_matches_the_compose_file():
+    """문서가 적는 경로와 compose가 넘기는 경로가 **같다** (#1331).
+
+    둘이 갈리면 장애 대응 절차가 조용히 빗나간다 — 문서는 `api.jsonl`을 보라는데 파일은
+    다른 이름으로 쌓인다.
+    """
+    log_file = _prod_app_environment()["LOG_FILE"]
+    operations = (_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+
+    assert log_file in operations, f"OPERATIONS.md에 {log_file}이 없다 — 문서와 compose가 갈렸다."

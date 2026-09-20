@@ -125,6 +125,26 @@ def test_injection_defense_applies_to_every_cell():
 _MINUS_PAYLOAD = "-1+1+cmd|' /C calc'!A0"
 
 
+def test_csv_validation_happens_before_the_response_starts():
+    """검증은 :func:`iter_csv`를 **부르는 순간** 한다 (`#1368`).
+
+    종전에는 제너레이터 본문 안에 있어 **첫 조각을 요구받을 때** 돌았다. 그때는
+    ``StreamingResponse``가 이미 상태 코드와 헤더를 내보낸 뒤라, 예외가 나도 오류
+    응답이 될 수 없고 전송이 중간에 끊길 뿐이다 — 사용자는 **깨진 파일**을 받는다.
+
+    그래서 「반복하지 않아도 터지는가」를 본다. 검증을 제너레이터 안으로 되돌리면
+    ``iter_csv(...)`` 호출만으로는 아무 일도 일어나지 않아 이 검사가 실패한다.
+    """
+    from cii_platform.reports.csv_export import iter_csv
+
+    broken = _document(
+        sections=[TableSection(title="표", headers=["A", "B"], rows=[["하나"]])],
+    )
+
+    with pytest.raises(ValueError, match="열 수"):
+        iter_csv(broken)  # 반복하지 않는다 — 부르기만 한다
+
+
 def _table_csv(headers, rows, kinds=None) -> str:
     """표 하나짜리 문서를 CSV로. 값 행만 보기 좋게 제목·면책은 그대로 둔다."""
     document = _document(

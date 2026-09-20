@@ -23,6 +23,14 @@
 (`routes/auth.py`) 위에서 **시간으로도 구분되지 않는다**. 없는 계정만 즉시
 응답하면 그 자체가 존재 오라클이다.
 
+## 표는 스스로 비워진다 (`#1368`)
+
+만료 항목은 **그 이메일을 다시 조회할 때** 지워진다. 그런데 공격은 대개 **매번 다른
+이메일**로 오므로, 그 경로만으로는 다시 조회되는 일이 없어 항목이 재시작 전까지 쌓인다.
+그래서 표가 :data:`MAX_TRACKED_EMAILS`를 넘으면 **만료된 것을 먼저 쓸어내고**, 그래도
+넘으면 **가장 오래된 것부터 버린다** — 지연이 필요한 쪽은 지금 두드리고 있는 이메일이지
+한참 전에 한 번 틀린 이메일이 아니다.
+
 ## 저장 — 프로세스 메모리 (워커 1 전제)
 
 ``uvicorn --workers 1``(``Dockerfile``)이라 프로세스 안 dict로 충분하다. 재시작하면
@@ -46,6 +54,11 @@ MAX_DELAY_SECONDS = 6.4
 
 #: 마지막 실패 후 이 시간이 지나면 잊는다 — 유일한 구제 경로(시간 경과).
 WINDOW = timedelta(minutes=15)
+
+#: 표에 담아 두는 이메일 수의 상한 (`#1368`). 넘으면 만료분을 쓸어내고, 그래도 넘으면
+#: 가장 오래된 것부터 버린다. 10,000개는 한 항목이 수백 바이트라 **1 MB 남짓**이고,
+#: 동시에 백오프가 걸려 있을 수 있는 계정 수로는 넉넉하다.
+MAX_TRACKED_EMAILS = 10_000
 
 
 def _delay_for_failures(failures: int) -> float:
@@ -93,9 +106,31 @@ class LoginBackoff:
         if delay > 0:
             await _sleep(delay)
 
+    def _evict(self, now: float) -> None:
+        """표가 상한을 넘으면 줄인다 (`#1368`).
+
+        만료된 것부터 버린다 — 그것들은 어차피 다음 조회에서 0으로 읽힌다. 그래도 넘으면
+        **가장 오래된 것부터** 버린다: 지연이 필요한 쪽은 지금 두드리고 있는 이메일이다.
+        """
+        if len(self._failures) <= MAX_TRACKED_EMAILS:
+            return
+
+        window = WINDOW.total_seconds()
+        for email in [e for e, (_, last) in self._failures.items() if now - last > window]:
+            self._failures.pop(email, None)
+
+        excess = len(self._failures) - MAX_TRACKED_EMAILS
+        if excess <= 0:
+            return
+        oldest = sorted(self._failures.items(), key=lambda item: item[1][1])[:excess]
+        for email, _entry in oldest:
+            self._failures.pop(email, None)
+
     def record_failure(self, email: str) -> None:
         failures, _ = self._current(email)
-        self._failures[email] = (failures + 1, time.monotonic())
+        now = time.monotonic()
+        self._failures[email] = (failures + 1, now)
+        self._evict(now)
 
     def record_success(self, email: str) -> None:
         """성공은 즉시 초기화 — 정당한 사용자는 벌을 이어받지 않는다."""

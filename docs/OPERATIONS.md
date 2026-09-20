@@ -498,7 +498,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `MAIL_BACKEND` | `smtp` (프로덕션) |
 | `MAIL_FROM` | 발신 주소 (예: `BlueLog <no-reply@example.com>`) |
 | `SMTP_HOST` | SMTP 서버 (예: `smtp.gmail.com`) |
-| `SMTP_PORT` | SMTP 포트 (예: `587`) |
+| `SMTP_PORT` | SMTP 포트. **비워 두면 587**(submission)이다. **465를 넣으면 implicit TLS**로 붙는다 — 연결하는 순간부터 TLS이고 `SMTP_USE_TLS`와 무관하게 STARTTLS를 걸지 않는다(`RFC 8314 §3.3` · `#1331`) |
 | `SMTP_USER` | SMTP 사용자 |
 | `SMTP_PASSWORD` | SMTP 비밀번호 |
 
@@ -609,7 +609,7 @@ docker logs cii-cubrid --tail=100 -f
 
 ### 8.2.1 구조화 로그 — 장애 때 어느 파일을 어떻게 보나 (#827 ⑵)
 
-프로덕션 compose가 `LOG_FILE=/app/logs/api.jsonl`을 설정한다. 접근 요약(쿼리스트링·본문
+프로덕션 compose가 `LOG_FILE=/app/logs/api.jsonl`을 설정한다(단일 호스트 `docker-compose.prod.yml`과 분리 토폴로지 `docker-compose.prod.app.yml` **둘 다** — 종전에는 앞의 것만 설정해 app-01에서 이 절차가 「No such file」로 끝났다 · `#1331`). 접근 요약(쿼리스트링·본문
 **없이** — 토큰·비밀번호가 로그로 새지 않는다)과 예외 스택이 **JSON 한 줄**로 쌓이고,
 10MB × 5개로 회전한다. 볼륨(`app-logs`)에 남으므로 컨테이너를 다시 만들어도 유지된다.
 
