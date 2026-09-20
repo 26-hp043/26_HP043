@@ -145,7 +145,7 @@ GitHub Actions (deploy.yml)
   ├─ deploy-app (SSH → app-01)
   │   ├─ git pull (~/bluelog)
   │   ├─ CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
-  │   ├─ .env 렌더링 (DATABASE_URL, CORS, SMTP 등)
+  │   ├─ .env 렌더링 (APP_ENV, DATABASE_URL, CORS, SMTP 등)
   │   ├─ GHCR 로그인 + 이미지 풀
   │   ├─ Alembic 마이그레이션 (one-shot)
   │   ├─ 규제 파라미터 seed
@@ -506,6 +506,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 
 | 시크릿 | 설명 |
 |--------|------|
+| `APP_ENV` | 배포 환경. **비워 두면 `staging`** (`#524` — SMTP 미설정 배포의 정상 경로 · §4.5). `SMTP_*`를 등록한 뒤 `production`으로 바꾼다. 비워 둔 채로도 `deploy.yml`이 `.env`에 `APP_ENV=staging`을 렌더링하므로 compose 기본값(`production`)으로 떨어지지 않는다 (`#1201`). |
 | `LLM_API_KEY` | Anthropic Claude API 키 (챗봇 기능. 비어있으면 챗봇만 비활성) |
 
 ---
