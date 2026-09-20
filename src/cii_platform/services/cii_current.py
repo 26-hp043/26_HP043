@@ -578,8 +578,20 @@ class InProgressState:
         ``meta.simulated``도 같은 항차에서 나오므로, 하나만 지우면 화면이 「2024년을
         보는데 지금 뛰는 항차의 구간값이 함께 떠 있는」 상태가 된다. 경고도 마찬가지다 —
         범위 밖 항차에 대한 안내는 그 화면에서 뜻이 없다.
+
+        ⚠️ **연도를 선언하지 않은 항차는 예외다 (`#1336`).** ``regulation_year``가
+        ``NULL``인 항차는 `chk_year_policy`(`DB_SCHEMA §2.3`)상 **반드시
+        ``EXCLUDE``**이고, `#1085`의 갈래가 이미 그 항차의 ``contribution``과 경고를
+        비운 뒤 ``voyage``·``progress``만 남겨 보낸 상태다 — **⑴에 들어갈 것이 아무것도
+        없다.** 그런데 ``None != 2026``이 참이라 이 자리에서 **⑵까지 함께 지워졌다**:
+        연도를 비워 만든 항차를 진행으로 넘기면 선박은 ``UNDER_WAY``인데 「현재 항차」
+        카드가 사라지고 ``meta.simulated``도 내려간다.
+
+        위 문단의 판단(「2024년을 보는데 지금 뛰는 항차의 구간값이 함께 떠 있으면 안
+        된다」)은 **다른 해에 속한다고 선언한 항차**에 대한 것이다. 어느 해에도 속하지
+        않는 항차는 그 문장이 가리키는 대상이 아니다.
         """
-        if self.regulation_year == regulation_year:
+        if self.regulation_year is None or self.regulation_year == regulation_year:
             return self
         return InProgressState(None, None, None, None, [], None)
 
