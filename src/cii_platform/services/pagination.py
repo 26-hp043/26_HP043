@@ -46,6 +46,6 @@ def normalize_limit(limit: int | None, *, default: int, maximum: int) -> int:
         return default
     if limit < 1:
         raise ValidationError(
-            "limit은 1 이상이어야 합니다.", field="limit", field_label="페이지 크기"
+            "페이지 크기는 1 이상이어야 합니다.", field="limit", field_label="페이지 크기"
         )
     return min(limit, maximum)

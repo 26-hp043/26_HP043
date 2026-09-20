@@ -11,6 +11,13 @@
 
 로그 캡처는 로거에 핸들러를 직접 붙인다 — 파일로 남기는 건 프로덕션 배선
 (``LOG_FILE``)이고 검사는 형태를 보는 것이므로 파일이 필요 없다.
+
+
+⚠️ **파일 이름에 ``_db``가 붙어 있다** (`#1350`). 이 파일의 검사 하나
+(:func:`test_request_body_never_reaches_the_log`)가 ``/api/v1/auth/login``을 실제로
+불러 **DB를 쓴다.** 접미사가 없던 동안 「DB 없이 돌리는 묶음」에 섞여
+``ConnectionRefusedError``로 혼자 실패했다 — 그 실패는 **코드가 아니라 실행 방식**을
+가리키는데, 이름이 그 사실을 말하지 않았다.
 """
 
 from __future__ import annotations

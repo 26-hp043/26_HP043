@@ -583,7 +583,7 @@ BN = round(3.5 × √Hs)    where Hs in meters
 | 변수 | 기호 | 단위 | 소스 | 필수 |
 |---|---|---|---|---|
 | 유의파고 | Hs | m | Open-Meteo Marine API / 샘플 | Y |
-| 파향 | β | degree | 사용자 입력 (기본 0°) | N |
+| 파향 | β | degree | **파향과 침로에서 유도**(`§3.3.1` · `calc/weather.py`의 `relative_wave_heading`). 입력 칸이 화면·API 어디에도 없다 (`#766` · `#1347`) | N |
 | Beaufort Number | BN | — | Hs에서 변환 또는 풍속에서 산정 | 자동 |
 | Block coefficient | CB | — | **`vessel.block_coefficient`** (선택 · #966) — 넣으면 실측값, 없으면 선종 기본값 + `CB_ESTIMATED` | N |
 | Ship type | — | — | Vessel.ship_type | Y |
@@ -846,6 +846,10 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 
 **기능①·②는 아래 형태 그대로 싣는다.** 기능③(`SIMULATION`)은 형태가 다르고 버전이 둘이다 — `§5.2.1.2`.
 
+> ⚠️ **아래 예시의 숫자 표기는 실제 저장 표기가 아니다 (`#1347`).** 여기 적힌 `"11"`·`"4745"`는 **자리를 보이려는 것**이고, 실제로는 기능①이 `"11.0"`(`services/voyage_cii.py`), 기능③ v1이 `"11.0000"`·`"4745.000000"`(`services/annual_simulation.py` — `str(Decimal)` 그대로)으로 싣는다.
+>
+> **표기가 곧 값이다** — `parameters_used`는 `parameter_hash`의 재료이고 `§5.1`의 직렬화는 문자열을 그대로 해싱한다. 그러므로 **이 예시를 복사해 해시를 계산하면 저장된 값과 맞지 않는다.** 표기를 맞추는 것은 저장된 실행 전부의 해시를 바꾸는 일이라(`§5.4` 1항) 여기서는 **예시가 예시임을 적는 것**까지만 한다.
+
 ```json
 {
   "regulation_year": {
@@ -986,9 +990,11 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **[ORACLE-S-5 주의]** `weather_factor`는 hash 계산 시점에 이미 계산되어 있어야 한다. 기상 데이터 조회가 비동기인 경우, 조회 완료 후 hash를 계산한다. `weather_model = NONE`이면 `weather_factor = 1.0`으로 설정한다.
 
-> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(선박·연도·capacity 축 값·연료 추정의 결정 인자(`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`)·확정된 시나리오 계획 3건(`scenarios`)·`weather_model`·`weather_factor`)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
+> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`ship_type`·`transport_capacity`·`reference_capacity`·`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`·`scenarios`·`weather_model`·`weather_factor` — 선박·연도·capacity 축 값·연료 추정의 결정 인자 넷·확정된 시나리오 계획 3건·기상 둘)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
 
-> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
+> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`·`apply_feedback_factor`·`as_of`·`alternative_fuel`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. **뒤 셋은 선택 키**다 — `apply_feedback_factor`는 `#363`, `as_of`는 `#816`, `alternative_fuel`은 `#756` ⑴에서 늘었다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
+
+> **선택 키 규약 — 「골랐을 때만 넣는다」(#1344).** `apply_feedback_factor`·`as_of`·`alternative_fuel` 셋은 목록에 있어도 **그 선택을 실제로 한 실행에만** 담긴다. `_filter_fields`가 입력 dict에 **있는 키만** 담으므로, 끈 실행에 `False`를, 미명시 실행에 서버 확정 시각을 넣으면 **이미 저장된 실행 전부의 해시가 바뀐다.** `§5.4.1` 4항이 `INPUT_FIELDS`의 `as_of`에 대해 적은 것과 같은 규칙이며, 기능③에서는 세 번 적용됐다. `as_of`의 값은 **DB 정밀도(밀리초)로 깎은 isoformat 문자열**로 통일한다 — 저장할 때와 재현할 때(DB에서 읽은 값)의 재료가 한 글자라도 갈리면 안 된다. `alternative_fuel`은 **무엇을 골랐는가**(연료 코드)만 담는다 — CF 자체는 `parameters_used` v2의 `fuel_types` 블록이 덮는다.
 
 ### 5.4 재현성 계약 (Reproducibility Contract)
 
@@ -1037,8 +1043,25 @@ nuw_hours  = Σ(not_underway_period ∩ [t0, window_end])
 underway_hours = max(elapsed - nuw_hours, 0)
 
 distance_nm = planned_speed_kn × underway_hours
-fuel_ton    = reference_daily_foc_ton × underway_hours / 24
+
+speed_factor = (planned_speed_kn / reference_speed_kn)³        # §4.1 cubic speed model
+fuel_ton     = reference_daily_foc_ton × speed_factor × underway_hours / 24
 ```
+
+> **연료는 `§4.1` cubic speed model을 그대로 쓴다 (#796).** 종전에 이 절은
+> `fuel_ton = reference_daily_foc_ton × underway_hours / 24`로 적었는데, 그것은
+> **거리는 항차의 계획 속도로 늘리면서 연료는 선박 기준 속도의 소모율을 그대로**
+> 곱하는 식이다 — 계획 14 kn · 기준 12 kn이면 `(14/12)³ = 1.588`배 **과소** 산출된다.
+> 구현은 `calc/fuel_estimator.estimate_fuel_ton`에 위임한다: 그 함수는
+> `duration_days = distance_nm / speed_kn / 24`로 기간을 구하는데
+> `distance_nm = planned_speed_kn × underway_hours`이므로 **`underway_hours / 24`와 같은 값**이다.
+> 즉 not under way 시간을 뺀 계산이 그대로 보존되고 달라지는 것은 `speed_factor` 하나다.
+>
+> **`weather_factor`는 적용하지 않는다** — 시계는 기상 스냅샷을 모르고 경과 구간의
+> 기상 이력도 갖고 있지 않다. 없는 값을 지어내면 **사용자가 볼 수 없는 데이터에
+> 누적량이 의존**하게 되므로 `DEFAULT_WEATHER_FACTOR`(`§4.4` · `weather_model=NONE`)를 쓴다.
+>
+> `§12.3`과 이 절의 변경 이력은 `#796` 당시 갱신됐으나 **이 산식 블록만 남아 있었다**(`#1344`).
 
 **경계 처리**
 
@@ -1049,6 +1072,7 @@ fuel_ton    = reference_daily_foc_ton × underway_hours / 24
 | 도착 실적 있음 | `min(as_of, arrival)`까지만 | 도착한 항차의 누적량이 계속 늘면 안 된다. 이때는 **시뮬레이션 값이 아니다** |
 | **도착 실적 없음 + `as_of` > 도착 예정일** | `min(as_of, planned_arrival_at)`까지만 + `IN_PROGRESS_PAST_ETA` 경고 (`#649`) | 상한이 없으면 계획을 아무리 넘겨도 거리·연료가 계속 자란다 — 출항 90일 뒤면 계획의 7배다. 실사용에서 이 상태는 「운항이 계속되고 있다」가 아니라 **「도착 실적 입력을 잊었다」**이다 |
 | 속도·일일 소모율 없음 | 각각 0 | `reference_daily_foc_ton`은 nullable(`DB_SCHEMA §2.1`). 기본값을 넣으면 화면이 근거 없는 연료를 표시한다 |
+| **기준 속도(`reference_speed_kn`) 없음** | `speed_factor = 1`로 쌓고 `SIMULATION_NO_REFERENCE_SPEED` 경고 (`#796` · `§12.3`) | 소모율도 속도도 있고 **모르는 것이 보정 계수 하나뿐**이라 기여를 통째로 빼지 않는다. 배수 1은 「계획 속도가 곧 기준 속도」라는 가정이며 어느 방향으로도 치우치지 않는다. 다만 **조용히 넘어가지 않는다** — 값이 정확하지 않다는 사실을 화면이 말해야 사용자가 제원을 채운다 |
 
 시계가 만든 값에는 **「시뮬레이션 데이터」 표시**(`PRD R-5`)를 응답 플래그로 붙인다. 실적이 확정된 구간은 시계가 만든 값이 아니므로 플래그가 서지 않는다.
 
@@ -1319,19 +1343,25 @@ def parse_imo_scientific(raw: str) -> Decimal:
 
 ### 9.3 검증
 
-애플리케이션 시작 시 모든 `a_raw`와 `a_decimal`의 일치 여부를 검증한다:
+두 값이 어긋나지 않는 것은 **쓰는 경로에서** 보장한다 — 기동 시점의 전수 검사가 아니다 (`#1347`).
+
+| 쓰는 경로 | 무엇이 막나 |
+|---|---|
+| 시드 상수 | `db/seed.py`의 `validate_reference_lines()`가 **DB에 넣기 전에** 상수 20행을 전수 대조한다. `seed_all()`이 매번 부른다 |
+| `POST /parameters/import` (`§7`) | `services/parameter_import.py`가 `a_decimal`을 **`a_raw`에서 파싱해 넣는다**. 두 값이 독립적으로 들어올 길이 없다 |
 
 ```python
-def validate_a_values(session):
-    rows = session.query(CIIReferenceLine).all()
-    for row in rows:
+def validate_reference_lines() -> None:
+    for row in SEED_REFERENCE_LINES:
         parsed = parse_imo_scientific(row.a_raw)
         if parsed != row.a_decimal:
-            raise ValueError(
-                f"a_raw/a_decimal mismatch for {row.ship_type} "
-                f"({row.condition_expr}): {row.a_raw} → {parsed} != {row.a_decimal}"
-            )
+            raise ValueError(...)   # DB 접근 없이 상수만 본다
 ```
+
+> **왜 기동 시 전수 검사를 두지 않는가 (`#1347`).** 종전에 이 절은 *「애플리케이션 시작 시 모든 `a_raw`와 `a_decimal`의 일치 여부를 검증한다」*(`validate_a_values(session)`)고 적었으나 **그 함수는 존재한 적이 없다.** 넣지 않기로 한 이유는 둘이다.
+>
+> - **어긋날 경로가 이미 없다.** 위 표의 두 경로가 쓰기의 전부이고 둘 다 `a_raw`에서 `a_decimal`을 만든다. 남는 것은 **생 SQL UPDATE**뿐인데, 그것은 기동 검사가 아니라 DB 접근 통제의 몫이다
+> - **기동을 DB 가용성에 묶는다.** `api/main.py`의 `lifespan`은 **연결을 하나도 열지 않는다** — 설정만 본다. 전수 검사를 넣으면 DB가 늦게 뜨는 배포(OCI 분리 토폴로지 · `docs/OPERATIONS.md`)에서 앱이 **크래시 루프**가 된다. 같은 `lifespan`이 SMTP에 대해 *「연결을 열지 않는다 — 기동을 외부 서비스 가용성에 묶는 일이고 그건 배포가 멈춰야 할 이유가 아니다」*라고 적은 것과 같은 판단이다
 
 ### 9.4 정밀도 한계
 
@@ -1396,14 +1426,14 @@ dual-precision-v1_decimal30-pcg64dxsm_numpy2.1.0
 
 - 비교는 §10.1의 **여섯 필드 전부**다. 골라 비교하면 「어느 필드는 봐도 된다」는 판단이 코드에 숨는다. 엄격해도 비용은 없다 — 달라도 결과가 같으면 경고만 붙는다.
 - `model_version`이 기록되지 않은 실행(기록 도입 이전)은 **환경을 알 수 없으므로 다른 환경으로 본다.**
-- 과거 실행의 **결과 자체는 재계산 없이 읽을 수 있다** — `calculation_run.result_json`이 등급 확률·p10/p50/p90·결정론 값을 그대로 보존한다(§6.2 조회). 재현(§6.4)은 저장값을 다시 만드는 것이 아니라 **검증**이다. 그래서 「스냅샷에 난수 분포 전체를 저장한다」는 대안은 필요하지 않다 — 이미 저장돼 있다.
+- 과거 실행의 **결과 자체는 재계산 없이 읽을 수 있다** — `calculation_run.result_json`이 등급 확률·p10/p50/p90·결정론 값을 그대로 보존한다(`API_SPEC §6.2` 조회). 재현(`API_SPEC §6.4`)은 저장값을 다시 만드는 것이 아니라 **검증**이다. 그래서 「스냅샷에 난수 분포 전체를 저장한다」는 대안은 필요하지 않다 — 이미 저장돼 있다.
 
 **업그레이드 절차** (`pyproject.toml`의 `numpy` 핀과 dependabot ignore를 풀 때):
 
 1. NumPy release note에서 `Generator`·`PCG64DXSM`·`triangular` 변경 여부를 확인한다. 변경이 있으면 §10.2 「BitGenerator 변경」 행이며 major bump다.
 2. 새 버전에서 canonical vector(`UT-RNG-001` · `/health`의 `rng_canonical_test`)와 시뮬레이션 bit-exact 검사(`UT-CII-008` · `AC-F3-002`)를 **먼저** 돌린다. 여기서 갈리면 업그레이드를 멈추고 §10.2를 따른다.
 3. 통과하면 핀을 올린다. `model_version.numpy_version`은 코드가 런타임에 읽으므로(§10.1) **새 실행은 자동으로 새 버전을 기록**하고, 과거 실행은 그대로 남는다(§10.2 「기존 CalculationRun 보존」).
-4. 업그레이드 전 실행 중 대표 건(선종·연도별 1건 이상)을 §6.4로 재현해 **409의 비율을 기록**한다. 0이면 위 표의 셋째 행(200 + 경고)만 나오는 상태이고, 0이 아니면 그 실행들은 「현재 환경에서 재현되지 않는 과거 결과」로 남는다 — 지우지 않고, 필요하면 새로 실행한다.
+4. 업그레이드 전 실행 중 대표 건(선종·연도별 1건 이상)을 `API_SPEC §6.4`로 재현해 **409의 비율을 기록**한다. 0이면 위 표의 셋째 행(200 + 경고)만 나오는 상태이고, 0이 아니면 그 실행들은 「현재 환경에서 재현되지 않는 과거 결과」로 남는다 — 지우지 않고, 필요하면 새로 실행한다.
 5. 사용자에게 알리는 수단은 응답 자체다 — 경고 코드와 409 메시지가 위 표대로 나간다. 별도 공지 채널은 두지 않는다.
 
 ---
@@ -1434,7 +1464,7 @@ dual-precision-v1_decimal30-pcg64dxsm_numpy2.1.0
 >
 > `#378`(항차 연료에 CF 스냅샷)과 같은 문제·같은 해법이다 — **계산에 쓴 값을 나중에 물을 수 있어야 한다**(`§5.4`).
 >
-> ⚠️ `simulation_snapshot`은 immutable이라 **기존 행에는 값을 넣을 수 없다.** 컬럼은 nullable이며, 값이 없는 행은 재현 경로(`§6.4`)가 사유를 밝히고 끊는다.
+> ⚠️ `simulation_snapshot`은 immutable이라 **기존 행에는 값을 넣을 수 없다.** 컬럼은 nullable이며, 값이 없는 행은 재현 경로(`API_SPEC §6.4`)가 사유를 밝히고 끊는다.
 
 ### 11.3 구현 방식
 
@@ -1447,6 +1477,8 @@ class SimulationSnapshot:
     regulation_year: int
     created_at: datetime
     voyages: list[dict]  # 항차별 완전한 데이터 사본
+    vessel: dict | None  # 선박 제원 사본 (§11.2 · `#493` · DB 컬럼은 `vessel_json`).
+                         # 마이그레이션 037 이전 행은 None이다 — 위 ⚠️ 참조
     input_hash: str      # 스냅샷 시점의 input_hash
     parameter_hash: str  # 스냅샷 시점의 parameter_hash
 ```
@@ -1472,17 +1504,17 @@ class SimulationSnapshot:
 |---|---|---|---|
 | `ValidationError` | VAL-001~010 위반. 필수값 누락, 범위 초과, NaN/Infinity | 422 Unprocessable Entity | 필드별 구체적 오류 문구 |
 | `ParameterError` | 규정 파라미터 누락, fuel CF 없음, a_raw/a_decimal 불일치 | 409 Conflict | `해당 연도의 규정 파라미터가 없습니다.` |
-| `WeatherFetchError` | 기상 API 실패 + 캐시 없음 | 200 OK + warning (NONE fallback) 또는 422 (사용자 선택) | `최신 기상 데이터를 가져오지 못했습니다.` |
+| `WeatherFetchError` | 기상 API 실패 + 캐시 없음 | **200 OK + `WEATHER_NONE_FALLBACK`**(항상) — `services/weather.py`의 `resolve_with_fallback`이 예외를 안에서 잡아 NONE 모델로 이어 간다 (`#1347`) | `기상 보정 없이 계산했습니다.` |
 | `CalculationError` | 분모 0, overflow, 유효하지 않은 결과 | 422 Unprocessable Entity | `계산 오류: 입력값을 확인하세요.` |
 | `ModelBreakdownError` | BN > 8, ΔV/V ≥ 100% | 422 Unprocessable Entity | `기상 조건이 너무 가혹하여 모델을 적용할 수 없습니다.` |
 | `ReproducibilityError` | canonical test vector 불일치 | 500 Internal Server Error | `재현성 검증 실패. 관리자에게 문의하세요.` |
-| `ModelVersionMismatchError` | 재현(§6.4) 시 `model_version`이 원본과 다르고 **결과도 다름** — 약속(§5.4 1항) 밖의 변화. 환경이 달라도 결과가 같으면 `MODEL_VERSION_DIFFERS` 경고만 싣는다 (`#833` · §10.3) | 409 Conflict | `원본 실행과 다른 환경에서 돌려 같은 결과를 재현하지 못했습니다. 환경 차이로 인한 것이며 계산 결함이 아닙니다. 새로 실행하면 현재 환경 기준의 결과를 얻을 수 있습니다.` |
+| `ModelVersionMismatchError` | 재현(`API_SPEC §6.4`) 시 `model_version`이 원본과 다르고 **결과도 다름** — 약속(§5.4 1항) 밖의 변화. 환경이 달라도 결과가 같으면 `MODEL_VERSION_DIFFERS` 경고만 싣는다 (`#833` · §10.3) | 409 Conflict | `원본 실행과 다른 환경에서 돌려 같은 결과를 재현하지 못했습니다. 환경 차이로 인한 것이며 계산 결함이 아닙니다. 새로 실행하면 현재 환경 기준의 결과를 얻을 수 있습니다.` |
 
 ### 12.2 오류 전파 규칙
 
 1. **Layer 1 (Decimal)**: `ValueError` 발생 시 즉시 중단. 부분 결과를 반환하지 않는다.
-2. **Layer 2 (Monte Carlo)**: 개별 iteration 실패 시 해당 iteration을 스킵하고 경고 로그. 전체 실패율이 5% 초과 시 `CalculationError`.
-3. **Weather Adapter**: 실패 시 `WeatherFetchError`. 호출자가 fallback 정책 결정.
+2. **Layer 2 (Monte Carlo)**: **iteration 단위 실패가 없다** — `calc/annual_simulation.py`는 `(runs, voyages)` 배열을 numpy로 **한 번에** 뽑는다(파이썬 루프로 돌면 `PERF-004` p95 < 3초를 맞출 수 없다). 스킵·실패율 같은 것이 성립하지 않는다 (`#1347`).
+3. **Weather Adapter**: 실패 시 `WeatherFetchError`를 올리지만 **`resolve_with_fallback`이 그 자리에서 잡는다** — 호출자에게 정책 선택지가 가는 것이 아니다(`#1347`). 캐시가 있으면 `WEATHER_STALE`, 없으면 NONE 모델 + `WEATHER_NONE_FALLBACK`이다.
 4. **모든 오류**: `warnings_json`에 기록. 계산 성공 시에도 warning이 있을 수 있음.
 
 ### 12.3 경고(Warning) 체계
@@ -1517,7 +1549,7 @@ class SimulationSnapshot:
 | `FUEL_CF_MASS_BASIS` | 기능③ 대체 연료 지렛대가 **질량 기준**으로 계산됨 — 연료량 고정·CF만 교체 (`#756` ⑴ · `PRD §6.3`) | `연료량을 그대로 두고 배출계수만 바꿔 계산했습니다. 발열량 차이에 따른 연료량 변화는 반영되지 않았습니다.` |
 | `SIMULATION_NO_REFERENCE_SPEED` | 진행 중 항차의 누적 연료에 cubic speed model(`§4.1`) 보정을 못 함 — `vessel.reference_speed_kn`이 없어 `speed_factor`를 만들 수 없다 (`#796`) | `기준 속도가 없어 진행 중 항차의 연료를 속도 보정 없이 계산했습니다. 선박 제원에 기준 속력을 입력해 주세요.` |
 | `PROJECTION_NO_REMAINING_PLAN` | 실시간 CII ⑶ 연말 예상의 근거가 될 **잔여 계획 항차가 0건** — 값은 내되(연말 = 지금) 그것이 「예측이 없다」가 아니라 「더할 계획이 없다」임을 밝힌다 (`#798`) | `잔여 계획 항차가 없어 연말 예상이 현재 누적과 같습니다. 예정 항차를 등록하면 남은 거리를 반영해 다시 계산합니다.` |
-| `MODEL_VERSION_DIFFERS` | 재현(§6.4)을 **원본과 다른 `model_version`**(NumPy·엔진·정밀도 등 §10.1 필드)에서 돌렸는데 결과는 같았다 (`#833` · §10.3). 결과가 달랐다면 경고가 아니라 409 `MODEL_VERSION_MISMATCH`다 | `원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다.` |
+| `MODEL_VERSION_DIFFERS` | 재현(`API_SPEC §6.4`)을 **원본과 다른 `model_version`**(NumPy·엔진·정밀도 등 §10.1 필드)에서 돌렸는데 결과는 같았다 (`#833` · §10.3). 결과가 달랐다면 경고가 아니라 409 `MODEL_VERSION_MISMATCH`다 | `원본 실행과 다른 환경(라이브러리·엔진 버전)에서 재현했으나 결과는 같았습니다.` |
 | `FEEDBACK_FACTOR_UNAVAILABLE` | 기능③에서 실적 보정계수(`PRD §12.2.1`)를 **켰는데** 계획·실적이 모두 있는 확정 항차가 최소 표본(3건)보다 적어 **곱하지 않았다** (`#363`). 켜지 않았으면 싣지 않는다 | `실적 보정계수를 켰지만 확정 항차가 모자라 적용하지 않았습니다. 이번 결과는 계획 연료 그대로 계산했습니다.` |
 | `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` | 함대 감축 계획(`PRD §12.3.2`)에서 기준 속력·기준 일일 연료가 없는 잔여 항차에 **감속을 적용하지 못했다** — 조용히 0%로 두면 「줄였는데 그대로」로 읽힌다 (`#513`) | `기준 속력·기준 일일 연료가 없는 잔여 항차가 있어 그 항차에는 감속을 적용하지 못했습니다. 선박 제원을 입력해 주세요.` |
 
@@ -1547,7 +1579,11 @@ class SimulationSnapshot:
 | `status` | SUCCESS, FAILED, PARTIAL |
 | `warnings_count` | 발생한 warning 수 |
 
-파라미터 변경, 항차 확정(CONFIRMED 전환), 계산 실행은 별도 audit log 테이블에 기록한다. 상세 스키마는 `DB_SCHEMA.md`에서 정의한다.
+파라미터 변경, 항차 확정(`CONFIRMED` 전환), **확정 뒤의 정정·보관 전환**(`CONFIRMED → COMPLETED` · `CONFIRMED → ARCHIVED`), 계산 실행은 별도 audit log 테이블에 기록한다. 상세 스키마는 `DB_SCHEMA.md`에서 정의한다.
+
+> **[#1328] 뒤의 둘이 빠져 있었다.** `PRD §8.1.1`과 `API_SPEC §3.5`는 두 전환에 **「audit log 필수」**를 정하는데 이 문장은 확정만 들었고, 코드가 이 문장을 근거로 확정만 기록했다 — **확정된 실적을 되돌려 고친 뒤 다시 확정하면** 로그에는 「확정」 두 건만 남고 **누가 언제 되돌렸는지**가 사라졌다. `AGENTS §3.1`상 **`PRD` > `TECH_SPEC`**이므로 이 문장을 상위 정본에 맞췄다.
+>
+> ⚠️ **다른 전환은 여전히 기록하지 않는다** — 되돌릴 수 있고 정본이 지목하지도 않았다. 기록 대상을 넓히는 것은 **무엇이 중요한지를 흐리는 일**이다. 액션 값은 `VOYAGE_TRANSITION`(`DB_SCHEMA §2.14`)이다.
 
 > **[#277] 인증 주체·로그인 이벤트.** `user_id`는 인증 미들웨어가 `request.state`에 주입한 `app_user.id`다 — 라우트가 이 값을 뽑아 감사 서비스(`services/audit.py`)로 넘기며, 서비스는 `request` 객체를 알지 못한다(§16.1 계층). 로그인 이벤트 3종(`LOGIN_SUCCESS` · `LOGIN_FAILURE` · `LOGOUT`)도 기록한다: 실패는 사유 코드(`reason`)만 남기고 **자격 증명(`id_token` · `code` · state · 세션 토큰)은 `details_json`에 절대 기록하지 않는다.** 스텁 dev-login도 같은 스트림에 기록하며 `dev_login` 플래그로 구분한다. `LOGOUT`은 실제 세션 무효화 시만 기록한다(멱등 재호출 제외).
 
@@ -1663,7 +1699,7 @@ class SimulationSnapshot:
 | TECH_SPEC 섹션 | DB_SCHEMA 사용처 |
 |---|---|
 | §2.2.2 `rng_metadata` | `CalculationRun.result_json` 내 구조 |
-| §5.2 `parameter_hash` | `CalculationRun.parameter_version` 컬럼 (SHA-256 hex = `sha256:` prefix + 64 chars) |
+| §5.2 `parameter_hash` | `CalculationRun.parameter_hash` 컬럼 (SHA-256 hex = `sha256:` prefix + 64 chars) |
 | §5.3 `input_hash` | `CalculationRun.input_hash` 컬럼 |
 | §9.1 `a_raw` / `a_decimal` | `cii_reference_line` 테이블 (VARCHAR + NUMERIC(30,6)) |
 | §10.1 `model_version` | `CalculationRun.model_version` 컬럼 (JSON TEXT) |
@@ -2063,3 +2099,6 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-20 | `#1311` | **v1.12 — §5.2.1.2 신설: 기능③ `parameters_used` 스키마 v1 · v2.** `#816`이 기능③에 v2(`fuel_types` · `parameter_sources` 4키 · `parameter_schema_version`)를 도입했는데 이 문서는 §5.2.1의 기능①·② 형태만 적고 있어, v2는 하위 정본 `API_SPEC §6.1` 각주에만 있었다(우선순위 역전 · `AGENTS §3.1`). 기능③은 v1부터 이미 §5.2.1과 달랐다 — `fuel_types`·`parameter_source_version`이 없고 `rating_boundary`에 `ship_type`이 있다. 두 형식이 **함께 유효**하다는 것, 판정 규칙(필드 없음 = v1 · 정수 아니면 손상), 재현이 저장된 버전의 빌더로 이뤄져 v1 빌더를 동결한다는 것, `ship_type`·`parameter_sources`를 싣는 이유를 적었다. §5.2.1 머리에 「기능①·②는 이 형태 그대로」 한 줄. 코드 변경 없음 — 문서를 구현에 맞춘 것이다. 절 신설이라 `AGENTS §4.3`상 버전을 올린다 (#1306) |
 | 2026-09-20 | `#1318` | **v1.13 —** §19.2 표의 「음수 예외 없음」 행을 **「수치 열 선언」**으로 바꾸고 각주를 다시 썼다 — 음수 예외의 근거가 값이 아니라 **열 선언**(`TableSection.kinds`)이며, 값 모양으로 판정하는 판정기는 여전히 두지 않는다. 규정 원문은 `API_SPEC §8.5`·`§8.1`(v1.40). 정정이 아니라 **규칙 개정**(종전에 금지한 예외를 허용)이라 `AGENTS §4.3`상 버전을 올린다 (#1247) |
 | 2026-09-20 | `#1320` | **v1.14 — §7.1·§7.3을 구현(`#61`·`#62`)에 맞춰 다시 썼다** (`#968` 결정요청 v2 D-4 「동작 유지, 정본을 구현에 맞춤」 · 코드 동작 변경 없음). §7.1: `WeatherProvider(ABC)` 3메서드(`fetch_marine_weather`·`fetch_wind_weather`·`get_last_snapshot`) → **`WeatherProvider(Protocol)` `fetch(lat, lon, at)` 하나** + 마지막 스냅샷 조회는 저장소 `find_last_snapshot`(`§16.3` — DB 쿼리는 `db/repositories`만) · `source` 값 집합에 정상 경로 기본값 **`open_meteo_marine+forecast`** 추가(두 엔드포인트를 한 행에 합치므로 출처도 둘을 잇는다) · 값 표를 정본으로 두고 `tests/test_weather_source_sync.py`가 코드 상수·`DB_SCHEMA §2.13`과의 정합을 잠근다. §7.3: 「캐시 key `(…, date, hour_bucket_6h)` · 메모리 또는 Redis · 캐시 우선」은 **코드와 맞은 적이 없다** — 실제는 **외부 조회 먼저**, 실패 시에만 `weather_snapshot` 테이블에서 같은 0.5° 격자의 최신 행을 골라 `fetched_at` 나이로 6h·24h 판정(`PRD §11.6` 첫 행 「최신 API 성공 → 최신 데이터 사용」이 근거 · `PRD`가 `TECH_SPEC`보다 앞선다). `PRD §11.6` `[ORACLE-R-4]`의 6h 버킷 두 요소가 key가 아니라 나이 판정으로 실현된다는 것과 조회 단위(요청당 한 번·현재 위치)를 적었다. 절 전면 개정이라 `AGENTS §4.3`상 버전을 올린다 (#968) |
+| 2026-09-20 | `#1391` | **§5.4.1 진행량 연료 산식을 `#796` 결과로 교체 · §5.3 기능③ 입력 키 일곱 → 열.** `#796`이 `daily_foc_ton × underway_hours / 24`를 cubic speed model(`§4.1`)로 바꾸면서 `§12.3`과 변경 이력은 갱신했으나 **`§5.4.1`의 산식 블록만 남겼다** — 거리는 항차의 계획 속도로 늘리면서 연료는 기준 속도의 소모율을 곱하는 식이라 계획 14 kn · 기준 12 kn에서 `(14/12)³ = 1.588`배 과소다. 왜 `underway_hours / 24`가 보존되는지(`distance = speed × underway_hours`)와 `weather_factor`를 쓰지 않는 이유를 함께 적고, 경계 처리 표에 **기준 속도 없음**(배수 1 + `SIMULATION_NO_REFERENCE_SPEED`) 행을 넣었다 — `§12.3`에만 있던 규칙이다. `§5.3`은 `#363`·`#816`·`#756` ⑴이 키를 셋 늘리는 동안 **일곱으로 남아 있었다**: 열 개를 나열하고 **선택 키 규약**(골랐을 때만 넣는다)을 절로 남겼다 — 「목록에 있다」와 「늘 담긴다」는 다른 명제이고, 끈 실행에 `False`를 넣으면 저장된 실행 전부의 해시가 바뀐다. 기능②도 산문 서술 → 12키 전부 나열로 바꿔 세 집합을 같은 방식으로 읽게 했다. 가드는 `tests/test_hash_fields_doc_sync.py`가 갖는다. `AGENTS §4.3`상 값 정정·각주 보강이라 버전은 올리지 않는다 (#1344) |
+| 2026-09-20 | `#1398` | **구현에 없는 동작 넷을 정본에서 정리하고 참조 다섯 줄을 고쳤다** (`#1347`). ⑴ `§9.3` 「시작 시 `a_raw`/`a_decimal` 전수 검증」 → **쓰는 경로에서 맞춘다**(시드 상수 대조 · 적재 파생). `validate_a_values(session)`은 **존재한 적이 없다**. ⑵ `§12.1` `WeatherFetchError` → **항상 200 + `WEATHER_NONE_FALLBACK`** — 「422 사용자 선택」의 입구가 없다(`resolve_with_fallback`이 예외를 안에서 잡는다). ⑶ `§12.2` 2항 Layer 2 「iteration 스킵·실패율 5%」 → **iteration 단위 실패가 없다**(numpy 벡터 연산). 3항의 「호출자가 fallback 정책 결정」도 함께 고쳤다. ⑷ `§3.4` 파향 「사용자 입력」 → **파향·침로에서 유도**(`§3.3.1`이 이미 그렇게 적어 **문서가 자기와 어긋나 있었다**). ⑸ `§6.2`·`§6.4`를 문서 접두 없이 쓰던 **다섯 줄**을 `API_SPEC §6.2`·`§6.4`로 — `TECH_SPEC` 자신의 `§6`은 **대권거리 계산**이라 링크를 따라가면 엉뚱한 절에 닿았고, `§6.4`는 아예 없다. 같은 표기를 베낀 **코드 주석 두 곳**도 고쳤다. ⑹ `§11.3` `SimulationSnapshot`에 **`vessel` 누락**(`#493`) 보강 · `§5.2.1` 예시 표기가 실제 저장 표기와 다르다는 각주(**표기가 곧 해시 재료**라 값을 맞추면 저장된 실행 전부의 해시가 바뀐다) · `CalculationRun.parameter_version` → **`parameter_hash`**. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1347) |
+| 2026-09-20 | `#1403` | **§13.1 감사 로그 대상에 「확정 뒤의 정정·보관 전환」 추가** (`#1328`). 종전 문장이 「파라미터 변경, 항차 확정, 계산 실행」만 들었고 **코드가 이 문장을 근거로 확정만 기록**했다 — 그런데 `PRD §8.1.1`·`API_SPEC §3.5`는 `CONFIRMED → COMPLETED`(정정)·`CONFIRMED → ARCHIVED`(보관)에 **「audit log 필수」**를 정한다. **확정된 실적을 되돌려 고친 뒤 다시 확정하면** 로그에 「확정」 두 건만 남고 **누가 언제 되돌렸는지**가 사라졌다. `AGENTS §3.1`상 **`PRD` > `TECH_SPEC`**이므로 이 문장을 상위 정본에 맞췄다. ⚠️ **다른 전환은 여전히 기록하지 않는다** — 되돌릴 수 있고 정본이 지목하지도 않았다. 액션 값은 `VOYAGE_TRANSITION`(`DB_SCHEMA §2.14`). `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1328) |

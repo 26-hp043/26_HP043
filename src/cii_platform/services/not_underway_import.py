@@ -52,6 +52,7 @@ from cii_platform.services.voyage_import import (
     RowError,
     _check_limits,
     _decode,
+    _skipped_count,
     column_length,
     save_stage_row_error,
 )
@@ -322,7 +323,7 @@ async def import_not_underway_periods(
         # 있어도 알 수 없고, 있는 척하면 거짓말이 된다. 그 사실을 응답 필드로 말한다.
         return {
             "imported_count": len(parsed),
-            "skipped_count": len(errors),
+            "skipped_count": _skipped_count(errors, truncated),
             "errors": errors,
             "overlap_checked": False,
             "dry_run": True,
@@ -367,7 +368,7 @@ async def import_not_underway_periods(
 
     return {
         "imported_count": imported,
-        "skipped_count": len(errors),
+        "skipped_count": _skipped_count(errors, truncated),
         "errors": errors,
         "overlap_checked": True,
         "dry_run": False,

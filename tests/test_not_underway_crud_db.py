@@ -16,7 +16,7 @@ DB 없이 볼 수 있는 규칙(연도 귀속)은 순수 함수로 보고, 나�
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import uuid4
 
@@ -60,6 +60,28 @@ def test_year_may_be_the_end_year_when_period_spans_new_year():
     end = datetime(2027, 1, 2, tzinfo=UTC)
     assert _resolve_regulation_year(start, end, 2027) == 2027
     assert _resolve_regulation_year(start, end, 2026) == 2026
+
+
+def test_year_comes_from_utc_not_from_the_offset():
+    """⚠️ #1333 — 귀속 연도는 **UTC 기준**이다.
+
+    `API_SPEC §8.2` 예시 형식(``+09:00``)대로 KST 1/1 새벽 정박을 올리면 UTC로는
+    전년도다. 종전에는 ``started_at.year``를 그대로 읽어 **오프셋이 붙은 값의 현지
+    연도**가 나왔고 — 그 구간이 **다음 해 CII 분자·분모에 들어갔으며**, 올바른
+    연도를 명시하면 *「규제연도는 구간이 걸친 연도(2027)여야 합니다」*로 거부됐다.
+
+    항차 CSV는 처음부터 ``astimezone(UTC)``로 정규화한다 — **같은 저장소 안에서
+    두 경로가 갈려 있었다.**
+    """
+    kst = timezone(timedelta(hours=9))
+    # 2027-01-01 03:00+09:00 == 2026-12-31 18:00Z
+    start = datetime(2027, 1, 1, 3, 0, tzinfo=kst)
+    end = datetime(2027, 1, 1, 9, 0, tzinfo=kst)  # == 2027-01-01 00:00Z
+
+    assert _resolve_regulation_year(start, None, None) == 2026
+    # 걸친 두 해가 **UTC 기준**으로 잡힌다 — 명시한 2026이 거부되지 않는다.
+    assert _resolve_regulation_year(start, end, 2026) == 2026
+    assert _resolve_regulation_year(start, end, 2027) == 2027
 
 
 def test_year_unrelated_to_the_period_is_rejected():

@@ -27,6 +27,11 @@ DistanceSource = Literal["USER_INPUT", "COORDINATE_ESTIMATE"]
 DISTANCE_SOURCES: tuple[str, ...] = get_args(DistanceSource)
 
 
+#: 항차 메모의 길이 상한 (`PRD §10.2` ⑵ — 0~1000자). `AGENTS §3.1`상 PRD가 상위
+#: 정본이므로 그 값을 코드가 따른다 (`#1348`).
+NOTES_MAX_LENGTH = 1000
+
+
 class VoyageFuelUseCreateRequest(BaseModel):
     """``fuel_uses[]`` 한 건."""
 
@@ -62,7 +67,10 @@ class VoyageCreateRequest(BaseModel):
     # DB CHECK `BETWEEN 2019 AND 2050`과 같다 (#1086 ①). 실재 여부(VAL-005)는 서비스가 본다.
     regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
     fuel_uses: Annotated[list[VoyageFuelUseCreateRequest], Field(min_length=1)]
-    notes: str | None = None
+    # PRD §10.2 ⑵ — 메모 0~1000자. 정본이 값을 정해 뒀는데 코드에 상한이 없어
+    # 요청 본문 크기가 유일한 방어였다 (`#1348`). DB는 TEXT라 컬럼은 받지만,
+    # 받는 것과 **받아도 되는 것**은 다르다.
+    notes: Annotated[str | None, Field(max_length=NOTES_MAX_LENGTH)] = None
 
 
 class VoyageUpdateRequest(BaseModel):
@@ -90,7 +98,10 @@ class VoyageUpdateRequest(BaseModel):
     planned_departure_at: datetime | None = None
     planned_arrival_at: datetime | None = None
     regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
-    notes: str | None = None
+    # PRD §10.2 ⑵ — 메모 0~1000자. 정본이 값을 정해 뒀는데 코드에 상한이 없어
+    # 요청 본문 크기가 유일한 방어였다 (`#1348`). DB는 TEXT라 컬럼은 받지만,
+    # 받는 것과 **받아도 되는 것**은 다르다.
+    notes: Annotated[str | None, Field(max_length=NOTES_MAX_LENGTH)] = None
 
 
 class VoyageTransitionRequest(BaseModel):

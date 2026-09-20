@@ -21,8 +21,8 @@ from sqlalchemy import text
 
 from cii_platform.api.main import app
 from cii_platform.api.routes.auth_tokens import (
-    RESET_REQUESTED_MESSAGE,
     TOKEN_INVALID_MESSAGE,
+    VERIFY_REQUESTED_MESSAGE,
 )
 from cii_platform.db.models.user_token import (
     PURPOSE_EMAIL_VERIFY,
@@ -312,7 +312,7 @@ class TestEmailVerification:
     def test_forged_token_is_rejected_with_the_generic_message(self, client):
         """위조·만료·사용됨을 구분하지 않는다 — 구분하면 추측 결과를 좁힐 수 있다."""
         resp = client.post("/api/v1/auth/verify-email/confirm", json={"token": "forged-token"})
-        assert resp.status_code == 400
+        assert resp.status_code == 422
         assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
 
     async def test_request_for_unknown_email_looks_the_same(self, client):
@@ -321,7 +321,9 @@ class TestEmailVerification:
             "/api/v1/auth/verify-email/request", json={"email": "nobody@example.com"}
         )
         assert resp.status_code == 200
-        assert resp.json()["data"]["message"] == RESET_REQUESTED_MESSAGE
+        # `#1326` — 없는 계정에도 **재발송 문구**가 나간다. 있는 계정과 같은 문구여야
+        # 존재 확인 수단이 되지 않는다(문구가 갈리면 그 자체가 신호다).
+        assert resp.json()["data"]["message"] == VERIFY_REQUESTED_MESSAGE
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -429,7 +431,7 @@ class TestPasswordReset:
             "/api/v1/auth/password-reset/confirm",
             json={"token": "forged", "password": NEW_PASSWORD},
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
         assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
 
     # ── 해싱은 토큰이 유효할 때만 한다 (#1327) ─────────────────────────────
@@ -459,7 +461,7 @@ class TestPasswordReset:
             "/api/v1/auth/password-reset/confirm",
             json={"token": "forged", "password": NEW_PASSWORD},
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422
         assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
         assert hash_calls == []
 
@@ -484,7 +486,7 @@ class TestPasswordReset:
                 "/api/v1/auth/password-reset/confirm",
                 json={"token": raw, "password": NEW_PASSWORD},
             )
-            assert resp.status_code == 400
+            assert resp.status_code == 422
             assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
             assert hash_calls == []
         finally:
@@ -516,7 +518,7 @@ class TestPasswordReset:
                 "/api/v1/auth/password-reset/confirm",
                 json={"token": raw, "password": "another-long-passphrase"},
             )
-            assert reused.status_code == 400
+            assert reused.status_code == 422
             assert reused.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
             assert hash_calls == [NEW_PASSWORD]
 
@@ -591,7 +593,10 @@ class TestEmailVerificationSucceeds:
 
             resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
             assert resp.status_code == 200, resp.text
-            assert resp.json()["data"]["message"] == RESET_REQUESTED_MESSAGE
+            # `#1326` — 재발송은 **재설정 문구를 쓰지 않는다**. 화면이 서버 문구를
+            # 그대로 띄우므로(`VerifyBanner.tsx`) 돌려 쓰면 사용자는 비밀번호 재설정
+            # 메일이 온다고 믿는다.
+            assert resp.json()["data"]["message"] == VERIFY_REQUESTED_MESSAGE
 
             # 🔴 정렬로 「최신」을 고르지 않는다 (`#1058` · 결정요청 §0-6 · 나).
             # 물어야 하는 것은 **이전 토큰이 무효가 되었는가**다. 둘을 나눠 본다.
@@ -650,7 +655,7 @@ class TestEmailVerificationSucceeds:
 
             resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
             assert resp.status_code == 200
-            assert resp.json()["data"]["message"] == RESET_REQUESTED_MESSAGE
+            assert resp.json()["data"]["message"] == VERIFY_REQUESTED_MESSAGE
             # 이미 인증된 계정에는 **새 토큰을 내지 않는다.** 정렬 대신 집합을 비교한다 —
             # 「최신 행이 무엇인가」가 아니라 「행이 늘지 않았는가」가 물어야 할 것이다.
             assert await _token_hashes(email, PURPOSE_EMAIL_VERIFY, unused_only=False) == settled
@@ -674,7 +679,7 @@ class TestEmailVerificationSucceeds:
             monkeypatch.setattr(module, "get_mailer", _FailingMailer)
 
             resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
-            assert resp.status_code == 502, resp.text
+            assert resp.status_code == 500, resp.text
             assert resp.json()["error"]["code"] == "INTERNAL_ERROR"
             # 커밋된 토큰이 남아 있다.
             assert await _live_token_hash(email, PURPOSE_EMAIL_VERIFY) is not None
@@ -693,7 +698,7 @@ class TestPasswordResetEdges:
             monkeypatch.setattr(module, "get_mailer", _FailingMailer)
 
             resp = client.post("/api/v1/auth/password-reset/request", json={"email": email})
-            assert resp.status_code == 502, resp.text
+            assert resp.status_code == 500, resp.text
         finally:
             await _cleanup(email)
 
@@ -731,7 +736,7 @@ class TestPasswordResetEdges:
                 "/api/v1/auth/password-reset/confirm",
                 json={"token": raw, "password": NEW_PASSWORD},
             )
-            assert resp.status_code == 400, resp.text
+            assert resp.status_code == 422, resp.text
             assert resp.json()["error"]["message"] == TOKEN_INVALID_MESSAGE
         finally:
             await _cleanup(email)
@@ -791,7 +796,7 @@ class TestMailFailureCauseIsLogged:
 
             resp = client.post("/api/v1/auth/verify-email/request", json={"email": email})
 
-            assert resp.status_code == 502, resp.text
+            assert resp.status_code == 500, resp.text
             assert _cause_logged(caplog, module.__name__)
         finally:
             await _cleanup(email)
@@ -807,7 +812,7 @@ class TestMailFailureCauseIsLogged:
 
             resp = client.post("/api/v1/auth/password-reset/request", json={"email": email})
 
-            assert resp.status_code == 502, resp.text
+            assert resp.status_code == 500, resp.text
             assert _cause_logged(caplog, module.__name__)
         finally:
             await _cleanup(email)

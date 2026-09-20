@@ -195,6 +195,7 @@ def test_days_no_data_when_ytd_unavailable():
         past=None,
         underway_state="UNDER_WAY",
         as_of=AS_OF,
+        regulation_year=YEAR,
     )
     assert result.days is None
     assert result.reason == REASON_NO_DATA
@@ -202,14 +203,14 @@ def test_days_no_data_when_ytd_unavailable():
 
 def test_days_already_at_or_below_for_d():
     result = compute_days_to_target(
-        _ytd(rating="D"), past=None, underway_state="UNDER_WAY", as_of=AS_OF
+        _ytd(rating="D"), past=None, underway_state="UNDER_WAY", as_of=AS_OF, regulation_year=YEAR
     )
     assert result.reason == REASON_ALREADY_AT_OR_BELOW
 
 
 def test_days_already_at_or_below_for_e():
     result = compute_days_to_target(
-        _ytd(rating="E"), past=None, underway_state="UNDER_WAY", as_of=AS_OF
+        _ytd(rating="E"), past=None, underway_state="UNDER_WAY", as_of=AS_OF, regulation_year=YEAR
     )
     assert result.reason == REASON_ALREADY_AT_OR_BELOW
 
@@ -220,7 +221,9 @@ def test_days_not_computed_while_not_under_way():
     거리가 늘지 않고 연료만 늘어 CII가 단조 악화하므로, n일이 하루가 다르게
     짧아졌다가 **출항하는 순간 되돌아간다.** 요동치는 숫자 대신 사유를 준다.
     """
-    result = compute_days_to_target(_ytd(), past=None, underway_state="NOT_UNDER_WAY", as_of=AS_OF)
+    result = compute_days_to_target(
+        _ytd(), past=None, underway_state="NOT_UNDER_WAY", as_of=AS_OF, regulation_year=YEAR
+    )
     assert result.days is None
     assert result.reason == REASON_NOT_UNDER_WAY
 
@@ -238,6 +241,7 @@ def test_days_not_this_year_when_far_away():
         past=_past(recent_cii="99.5", now=far),
         underway_state="UNDER_WAY",
         as_of=datetime(YEAR, 12, 20, tzinfo=UTC),
+        regulation_year=YEAR,
     )
     assert result.days is None
     assert result.reason == REASON_NOT_THIS_YEAR
@@ -246,7 +250,11 @@ def test_days_not_this_year_when_far_away():
 def test_days_returns_a_number_in_the_normal_case():
     # 최근 30일을 경계보다 나쁘게 뛴 경우 — 그때만 「진입까지 n일」이 존재한다.
     result = compute_days_to_target(
-        _ytd(), past=_past(recent_cii="8.0"), underway_state="UNDER_WAY", as_of=AS_OF
+        _ytd(),
+        past=_past(recent_cii="8.0"),
+        underway_state="UNDER_WAY",
+        as_of=AS_OF,
+        regulation_year=YEAR,
     )
     assert result.reason is None
     assert isinstance(result.days, int)
@@ -267,12 +275,14 @@ def test_days_shrink_as_the_margin_shrinks():
         past=_past(recent_cii="8.0", now=wide),
         underway_state="UNDER_WAY",
         as_of=AS_OF,
+        regulation_year=YEAR,
     )
     near = compute_days_to_target(
         narrow,
         past=_past(recent_cii="8.0", now=narrow),
         underway_state="UNDER_WAY",
         as_of=AS_OF,
+        regulation_year=YEAR,
     )
 
     assert far.days is not None and near.days is not None
@@ -283,7 +293,11 @@ def test_days_is_not_just_the_elapsed_day_count():
     """회귀 방지 — 종전 값은 언제나 `as_of`의 연중 일수였다."""
     now = _ytd(attained_cii=Decimal("5.9"))
     result = compute_days_to_target(
-        now, past=_past(recent_cii="8.0", now=now), underway_state="UNDER_WAY", as_of=AS_OF
+        now,
+        past=_past(recent_cii="8.0", now=now),
+        underway_state="UNDER_WAY",
+        as_of=AS_OF,
+        regulation_year=YEAR,
     )
     assert result.days != AS_OF.timetuple().tm_yday
 
@@ -295,7 +309,11 @@ def test_steady_operation_never_reaches_the_boundary():
     않으며, 0일이 아니라 사유로 표기해야 한다 — 숫자를 만들면 「곧 진입한다」로 읽힌다.
     """
     result = compute_days_to_target(
-        _ytd(), past=_past(recent_cii="5.0"), underway_state="UNDER_WAY", as_of=AS_OF
+        _ytd(),
+        past=_past(recent_cii="5.0"),
+        underway_state="UNDER_WAY",
+        as_of=AS_OF,
+        regulation_year=YEAR,
     )
     assert result.days is None
     assert result.reason == REASON_NOT_WORSENING
@@ -304,7 +322,11 @@ def test_steady_operation_never_reaches_the_boundary():
 def test_improving_operation_does_not_produce_a_countdown():
     """최근 운항이 경계보다 효율적이면 진입하지 않는다."""
     result = compute_days_to_target(
-        _ytd(), past=_past(recent_cii="3.0"), underway_state="UNDER_WAY", as_of=AS_OF
+        _ytd(),
+        past=_past(recent_cii="3.0"),
+        underway_state="UNDER_WAY",
+        as_of=AS_OF,
+        regulation_year=YEAR,
     )
     assert result.reason == REASON_NOT_WORSENING
 
@@ -315,7 +337,9 @@ def test_ytd_average_alone_cannot_produce_a_number():
     그때 분모는 정의상 0이 되므로 값을 낼 수 없다 — 연초 몇 주 동안은
     「아직 판단할 수 없다」가 정직한 답이다.
     """
-    result = compute_days_to_target(_ytd(), past=None, underway_state="UNDER_WAY", as_of=AS_OF)
+    result = compute_days_to_target(
+        _ytd(), past=None, underway_state="UNDER_WAY", as_of=AS_OF, regulation_year=YEAR
+    )
     assert result.days is None
     assert result.reason == REASON_NOT_WORSENING
 
@@ -327,14 +351,57 @@ def test_no_sailing_in_the_window_is_reported():
         past=_ytd(),  # 누적이 그대로 — 그 사이 움직이지 않았다
         underway_state="UNDER_WAY",
         as_of=AS_OF,
+        regulation_year=YEAR,
     )
     assert result.days is None
     assert result.reason == REASON_NO_RECENT_DATA
 
 
+def test_a_finished_regulation_year_has_no_days_ahead():
+    """끝난 규제연도에는 **「앞으로 n일」이 없다** (`#1349`).
+
+    종전에는 남은 일수를 `as_of`의 연도로만 재서, 2026-01-10에 `regulation_year=2025`를
+    조회하면 **「D 진입까지 70일」**이 나왔다(실측) — 이미 끝난 해에 대한 예측이다.
+    화면은 연도를 보내지 않아 API 직접 호출에서만 닿지만, **답 자체가 성립하지 않는다.**
+    """
+    january = datetime(YEAR + 1, 1, 10, tzinfo=UTC)
+
+    result = compute_days_to_target(
+        _ytd(),
+        past=_past(recent_cii="99.5"),
+        underway_state="UNDER_WAY",
+        as_of=january,
+        regulation_year=YEAR,
+    )
+
+    assert result.days is None
+    assert result.reason == REASON_NOT_THIS_YEAR
+
+
+def test_days_left_is_measured_against_the_regulation_year():
+    """남은 일수는 **조회 대상 연도**의 잔여다 (`#1349`).
+
+    종전에는 `as_of`의 연도만 봤다. 산식 전체를 거치지 않고 **경계 함수를 직접** 보는
+    것은, 그 함수 하나가 이 결함의 소재이고 산식 쪽은 이미 다른 검사가 덮기 때문이다.
+    """
+    from cii_platform.services.fleet_summary import _days_left_in_year
+
+    december = datetime(YEAR, 12, 20, tzinfo=UTC)
+
+    assert _days_left_in_year(december, YEAR) == 11
+    # 다음 해를 조회하면 그 해 전체가 남는다 — 종전에는 둘이 같은 값이었다.
+    assert _days_left_in_year(december, YEAR + 1) == 11 + 365
+    # 끝난 해는 0이다(호출부가 그 전에 NOT_THIS_YEAR로 끊지만, 음수로 새지 않는다).
+    assert _days_left_in_year(december, YEAR - 1) == 0
+
+
 def test_days_no_data_without_boundary():
     result = compute_days_to_target(
-        _ytd(boundaries=None), past=None, underway_state="UNDER_WAY", as_of=AS_OF
+        _ytd(boundaries=None),
+        past=None,
+        underway_state="UNDER_WAY",
+        as_of=AS_OF,
+        regulation_year=YEAR,
     )
     assert result.reason == REASON_NO_DATA
 
@@ -1044,10 +1111,10 @@ async def test_days_to_d_baseline_counts_the_in_progress_contribution(session):
     )
 
     days_fixed = compute_days_to_target(
-        now, past=past_fixed, underway_state="UNDER_WAY", as_of=as_of
+        now, past=past_fixed, underway_state="UNDER_WAY", as_of=as_of, regulation_year=YEAR
     )
     days_buggy = compute_days_to_target(
-        now, past=past_buggy, underway_state="UNDER_WAY", as_of=as_of
+        now, past=past_buggy, underway_state="UNDER_WAY", as_of=as_of, regulation_year=YEAR
     )
 
     assert days_fixed.days is not None, (

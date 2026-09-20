@@ -92,6 +92,63 @@ async def test_plain_answer_carries_the_canonical_disclaimer(migrated_db, app_fr
         await _cleanup()
 
 
+async def test_the_response_keys_are_exactly_what_the_contract_lists(migrated_db, app_fresh_engine):
+    """`API_SPEC §15.1` 응답 표 ↔ **실제 `data` 키 집합** (`#1365`).
+
+    종전 계약 검사는 **값 몇 개만** 보았다 — 그래서 표에 없는 키가 늘어도 통과했고,
+    실제로 `tool_output_count`가 그렇게 실려 나가고 있었다. 「빠진 키」는 화면이
+    깨져서 드러나지만 **「늘어난 키」는 아무 데서도 드러나지 않는다.**
+
+    키 이름을 정본에서 읽지 않고 여기 적는 이유는, `§15.1` 표가 `data.` 접두를
+    쓰는 산문 표라 기계가 읽으면 설명 문장의 백틱까지 키로 잡기 때문이다. 대신
+    **표와 이 목록이 갈리면 리뷰에서 보이도록** 한자리에 모아 둔다.
+    """
+    contract = {
+        "session_id",
+        "answer",
+        "disclaimer",
+        "tool_calls",
+        "discarded",
+        "vessel_resolved",
+    }
+    _use(FakeProvider([LLMResponse(text="등급은 화면에서 확인하실 수 있습니다.")]))
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post("/api/v1/chat", json={"message": "안녕하세요"}, headers=headers)
+
+            assert response.status_code == 200
+            assert set(response.json()["data"]) == contract
+    finally:
+        await _cleanup()
+
+
+async def test_a_discarded_turn_carries_the_same_keys(migrated_db, app_fresh_engine):
+    """**폐기한 턴도 키가 같다** (`#1365`).
+
+    폐기 경로는 `_result(...)`를 여러 자리에서 따로 부른다 — 한 자리만 고치면
+    「어떤 답은 키가 다른」 상태가 된다. 화면은 그 차이를 모르고 읽는다.
+    """
+    _use(FakeProvider([LLMResponse(text="attained CII는 4.98입니다.")]))  # 도구 없이 수치
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post("/api/v1/chat", json={"message": "등급은?"}, headers=headers)
+
+            data = response.json()["data"]
+            assert data["discarded"] is True, data
+            assert set(data) == {
+                "session_id",
+                "answer",
+                "disclaimer",
+                "tool_calls",
+                "discarded",
+                "vessel_resolved",
+            }
+    finally:
+        await _cleanup()
+
+
 async def test_disclaimer_matches_the_prd_table(migrated_db, app_fresh_engine):
     """IT-CHAT-025 — 면책 문구가 ``PRD §6.3`` 표에서 온 것인지 **문서와 대조**한다.
 

@@ -210,9 +210,10 @@ async def test_a_saved_plan_keeps_the_result_of_the_moment(session, vessel_id):
     assert _mine(fetched["result"], vessel_id)["after"] == kept
     assert fetched["prices"] == {"fuel_usd_per_ton": {"HFO": "600"}}
 
-    listing = await list_reduction_plans(session)
+    listing, page = await list_reduction_plans(session)
     assert listing[0]["plan_id"] == saved["plan_id"]
     assert "result" not in listing[0]
+    assert page == {"next_cursor": None, "has_more": False}
 
 
 @pytest.mark.asyncio
@@ -263,6 +264,92 @@ def test_the_routes_answer_over_http(migrated_db, app_fresh_engine):
         assert any(p["plan_id"] == plan_id for p in client.get(base).json()["data"])
         assert client.get(f"{base}/{plan_id}").json()["data"]["plan_name"] == "HTTP 검사안"
         assert client.get(f"{base}/{uuid4()}").status_code == 404
+
+
+# ─── 목록 페이지네이션 (#1367) ───────────────────────────────────────────────
+
+
+async def _seed_plans(session: AsyncSession, count: int) -> list[str]:
+    """계획 ``count``건을 **시각을 벌려** 넣고 최신순 id를 돌려준다.
+
+    평가를 거치지 않는다 — 여기서 보는 것은 **페이지를 어떻게 자르는가**이고,
+    평가는 선대 전체를 도는 무거운 경로다.
+
+    ⚠️ **먼저 표를 비운다.** 페이지네이션은 **표 전체의 순서**를 보는 것이라, 남의
+    행이 섞이면 「몇 번째가 어느 것인가」를 단언할 수 없다. 같은 파일의 HTTP 검사가
+    실제 클라이언트로 도는 탓에 그 행은 트랜잭션 밖에 남는다(실측 2건). 이 DELETE는
+    바깥 트랜잭션 안이라 검사가 끝나면 함께 되돌아간다.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
+
+    await session.execute(text("DELETE FROM fleet_reduction_plan"))
+    base = datetime(2026, 1, 1, tzinfo=UTC)
+    rows = [
+        FleetReductionPlan(
+            name=f"페이지 검사 {i}",
+            regulation_year=YEAR,
+            target="ALL_C_OR_BETTER",
+            adjustments=[],
+            prices={},
+            result={},
+            created_at=base + timedelta(minutes=i),
+        )
+        for i in range(count)
+    ]
+    session.add_all(rows)
+    await session.flush()
+    return [str(r.id) for r in reversed(rows)]
+
+
+@pytest.mark.asyncio
+async def test_the_list_says_when_it_held_something_back(session):
+    """⚠️ **자르면서 말하지 않던 자리** (`#1367`).
+
+    종전에는 ``PLAN_LIST_LIMIT``(20)에서 잘랐는데 응답에 ``has_more``도
+    ``next_cursor``도 없었다 — **21번째 계획을 볼 방법이 없었고**, 화면에서는
+    「계획이 20개뿐」과 구분되지 않았다. `#1076`이 계산 이력에서 고친 것과 같은
+    형태다(「없다」와 「아직 다 주지 않았다」를 같은 모양으로 그린다).
+    """
+    newest_first = await _seed_plans(session, 3)
+
+    page, meta = await list_reduction_plans(session, limit=2)
+
+    assert [p["plan_id"] for p in page] == newest_first[:2]
+    assert meta["has_more"] is True
+    assert meta["next_cursor"]
+
+
+@pytest.mark.asyncio
+async def test_following_the_cursor_neither_skips_nor_repeats(session):
+    """두 페이지를 이으면 **원본과 같은 순서로 정확히 한 번씩** 나온다."""
+    newest_first = await _seed_plans(session, 3)
+
+    first, meta = await list_reduction_plans(session, limit=2)
+    second, meta2 = await list_reduction_plans(session, limit=2, cursor=str(meta["next_cursor"]))
+
+    seen = [p["plan_id"] for p in first + second]
+    assert seen == newest_first
+    assert meta2["has_more"] is False
+    assert meta2["next_cursor"] is None
+
+
+@pytest.mark.asyncio
+async def test_the_last_page_hands_back_no_cursor(session):
+    """``has_more``가 거짓인데 커서를 주면 **따라갈 곳 없는 「다음 페이지」**가 된다."""
+    await _seed_plans(session, 2)
+
+    _, meta = await list_reduction_plans(session, limit=50)
+
+    assert meta == {"next_cursor": None, "has_more": False}
+
+
+@pytest.mark.asyncio
+async def test_a_broken_cursor_is_a_validation_error(session):
+    """사용자가 URL을 손댄 경우다 — **500이 나가면 안 된다.**"""
+    with pytest.raises(ValidationError):
+        await list_reduction_plans(session, cursor="not-base64!!")
 
 
 # ─── 요청 검증 틈 (#1070) ─────────────────────────────────────────────────────

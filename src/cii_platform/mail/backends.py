@@ -13,6 +13,7 @@ from typing import Protocol
 
 from cii_platform.mail.config import (
     BACKEND_CONSOLE,
+    IMPLICIT_TLS_PORT,
     MailSettings,
     load_mail_settings,
 )
@@ -40,7 +41,7 @@ class ConsoleMailer:
     개발자가 SMTP 자격증명 없이도 **가입 → 인증 메일 → 링크 클릭** 전체 플로우를
     돌릴 수 있어야 한다. 인증 링크를 로그에서 복사해 붙이면 된다.
 
-    `should_register_dev_auth()`가 `APP_ENV != production`에서 개발 편의를 여는 것과
+    `should_register_dev_auth()`가 **`APP_ENV`가 `development`·`test`일 때만** 개발 편의를 여는 것과
     같은 패턴이며, **프로덕션에서는 `load_mail_settings()`가 기동을 막는다.**
     그 검증은 `api/main.py`의 `lifespan`이 기동 시점에 부른다 — 종전에는
     `get_mailer()`가 라우트 안에서 처음 불려 **첫 발송 시도에서야** 돌았다 (`#524`).
@@ -97,6 +98,11 @@ class SmtpMailer:
         payload["Subject"] = message.subject
         payload.set_content(message.body)
 
+        # 465는 **implicit TLS**다 — 연결하는 순간부터 TLS이고 STARTTLS 협상이 없다
+        # (RFC 8314 §3.3). 종전에는 `start_tls=`만 넘겨 465가 어떤 설정으로도 동작하지
+        # 않았다: `SMTP_USE_TLS=false`면 평문으로 붙어 서버가 끊고, `true`면 이미 TLS인
+        # 연결에 STARTTLS를 걸어 실패한다 (#1331).
+        implicit_tls = settings.smtp_port == IMPLICIT_TLS_PORT
         try:
             await aiosmtplib.send(
                 payload,
@@ -104,7 +110,9 @@ class SmtpMailer:
                 port=settings.smtp_port,
                 username=settings.smtp_user,
                 password=settings.smtp_password,
-                start_tls=settings.smtp_use_tls,
+                use_tls=implicit_tls,
+                # 이미 TLS인 연결에 STARTTLS를 겹치면 `aiosmtplib`이 거부한다.
+                start_tls=False if implicit_tls else settings.smtp_use_tls,
             )
         except Exception as exc:  # noqa: BLE001 — 라이브러리 예외 계층을 노출하지 않는다
             raise MailDeliveryError(

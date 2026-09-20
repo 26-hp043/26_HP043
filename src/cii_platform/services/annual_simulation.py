@@ -45,6 +45,8 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+import sqlalchemy as sa
+
 from cii_platform.calc.annual_simulation import (
     MAX_REMAINING_VOYAGES,
     MIN_FEEDBACK_SAMPLE,
@@ -1695,6 +1697,12 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 calculation_run_id=UuidText(),
                 vessel_id=UuidText(),
                 snapshot_id=UuidText(),
+                # 같은 이유로 **불리언에도 타입을 붙인다** (`#1349`). CUBRID dialect가
+                # `Boolean`을 `SMALLINT`로 내리므로, 타입 없이 읽으면 `0`/`1` 정수가 올라온다.
+                # 그 값이 `_resolve_feedback(requested=…)`을 거쳐 응답에 그대로 실려,
+                # 실행·조회는 `true`/`false`인데 **재현(`§6.4`)만 `0`/`1`**이 된다.
+                # 화면은 truthiness라 보이는 영향이 없어 더 오래 남는다.
+                apply_feedback_factor=sa.Boolean(),
             ),
             {"id": simulation_id},
         )
@@ -1903,7 +1911,9 @@ async def reproduce_annual_simulation(
 
     seed = _seed_from_metadata((stored.get("monte_carlo") or {}).get("rng_metadata") or {})
     if seed is None:
-        raise NotFoundError("이 실행은 seed가 기록되지 않아 재현할 수 없습니다(#443 이전 실행).")
+        raise NotFoundError(
+            "이 실행은 난수 시드(seed)가 기록되지 않아 재현할 수 없습니다(#443 이전 실행)."
+        )
 
     # **제원은 스냅샷에서 읽는다** (`#493`). 살아 있는 행을 읽으면 그 사이의 제원
     # 수정이 섞여 「재현 실패」가 되는데, 그것은 재현성 계약이 깨진 것이 아니라

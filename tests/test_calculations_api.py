@@ -295,6 +295,75 @@ class TestListCalculations:
         assert body["error"]["code"] == "VALIDATION_ERROR"
         assert body["error"]["details"][0]["field"] == "cursor"
 
+    def test_unknown_type_is_422(self, wired: TestClient, monkeypatch: pytest.MonkeyPatch):
+        """모르는 ``type``은 **빈 목록이 아니라 422**다 (`#1367`).
+
+        종전에는 검증이 없어 오타가 그대로 저장소로 내려갔고, 맞는 행이 없어
+        **빈 목록 + ``needs_recalc_total: 0``**이 돌아왔다 — 「그런 계산이 없다」와
+        「잘못 물었다」가 같은 화면이 된다. 대조군인 선대 요약 ``sort``는 처음부터
+        422를 냈다: **같은 저장소 안에서 두 경로가 갈려 있었다.**
+        """
+        from cii_platform.services import calculation as svc
+
+        async def fake_list_runs(_session, **_kwargs):
+            raise AssertionError("검증에서 막혀야 하므로 저장소에 닿으면 안 된다")
+
+        monkeypatch.setattr(svc.calc_run_repo, "list_runs", fake_list_runs)
+
+        resp = wired.get(ENDPOINT, params={"type": "VOYAGE_ESTIMATEE"})
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["error"]["details"][0]
+        assert detail["field"] == "type"
+        assert detail["field_label"] == "종류"
+
+    @pytest.mark.parametrize("field", ["input_hash", "parameter_hash"])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "sha256:" + "a" * 63,  # 한 자 짧다
+            "sha256:" + "A" * 64,  # 대문자 — `calc/hash.py`는 소문자로 낸다
+            "a" * 64,  # 접두사가 없다
+            "sha256:" + "g" * 64,  # 16진수가 아니다
+        ],
+    )
+    def test_malformed_hash_is_422(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch, field: str, bad: str
+    ):
+        """형식이 틀린 해시는 **어떤 행과도 맞을 수 없다** (`#1367`).
+
+        그대로 내려보내면 빈 목록이 돌아와 「없다」로 읽힌다. **존재 여부는 다른
+        축이다** — 형식이 맞는 해시로 아무것도 못 찾는 것은 정상이고 422가 아니다
+        (:meth:`test_wellformed_hash_that_matches_nothing_is_200`).
+        """
+        from cii_platform.services import calculation as svc
+
+        async def fake_list_runs(_session, **_kwargs):
+            raise AssertionError("검증에서 막혀야 하므로 저장소에 닿으면 안 된다")
+
+        monkeypatch.setattr(svc.calc_run_repo, "list_runs", fake_list_runs)
+
+        resp = wired.get(ENDPOINT, params={field: bad})
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["error"]["details"][0]["field"] == field
+
+    def test_wellformed_hash_that_matches_nothing_is_200(
+        self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """**형식 검증은 존재 검증이 아니다.**
+
+        이것이 없으면 위 검사를 「해시 필터는 늘 422」로 지나치게 좁혀도 통과한다.
+        """
+        from cii_platform.services import calculation as svc
+
+        async def fake_list_runs(_session, **_kwargs):
+            return []
+
+        monkeypatch.setattr(svc.calc_run_repo, "list_runs", fake_list_runs)
+
+        resp = wired.get(ENDPOINT, params={"input_hash": HASH_A})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"] == []
+
     def test_has_more_true_and_cursor_returned(
         self, wired: TestClient, monkeypatch: pytest.MonkeyPatch
     ):

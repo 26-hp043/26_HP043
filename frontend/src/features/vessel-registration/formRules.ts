@@ -1,3 +1,4 @@
+import { withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import { VesselRegistrationError } from './provider'
 import { capacityAxisOf, findShipType } from './shipTypes'
@@ -197,13 +198,13 @@ export function checkOptionalPositive(
   }
   // VAL-002 — 0 이하는 종전 문구를 그대로 쓴다(사용자에게 가장 흔한 실수다).
   if (!(value > 0)) {
-    errors[field] = `${label}은(는) 0보다 커야 합니다.`
+    errors[field] = `${withEunNeun(label)} 0보다 커야 합니다.`
     return
   }
   // `#860` — 0보다 크지만 DB가 담을 수 없는 값. 서버는 같은 경계로 422를 낸다.
   if (value < range.min || value > range.max) {
     errors[field] =
-      `${label}은(는) ${range.min.toLocaleString('ko-KR')} 이상 ` +
+      `${withEunNeun(label)} ${range.min.toLocaleString('ko-KR')} 이상 ` +
       `${range.max.toLocaleString('ko-KR', { maximumFractionDigits: 2 })} 이하로 입력해 주세요.`
   }
 }
@@ -283,7 +284,7 @@ export function validateForm(
   {
     const cb = toNumber(state.blockCoefficient.trim())
     if (cb !== null && cb > CB_MAX) {
-      errors[FIELD.blockCoefficient] = '방형계수(CB)은(는) 1 이하로 입력해 주세요.'
+      errors[FIELD.blockCoefficient] = `${withEunNeun('방형계수(CB)')} 1 이하로 입력해 주세요.`
     }
   }
   // #1197 — 호출부호(선택). 공공데이터 교차 대조의 키.

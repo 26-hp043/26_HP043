@@ -71,7 +71,11 @@ def test_every_statement_filters_by_expiry() -> None:
     for table in purge_expired._SQL:
         sql = purge_expired.delete_sql(table, 7)
         assert sql.startswith(f"DELETE FROM {table} WHERE "), sql
-        assert "expires_at" in sql, sql
+        # ⚠️ **열 이름이 아니라 「시각으로 자른다」는 성질**을 단언한다 (`#1347`).
+        # 종전에는 `expires_at`을 글자 그대로 찾았는데, `weather_snapshot`은
+        # 만료 열이 없어 `fetched_at`(그 기상이 언제 것인가)으로 자른다.
+        condition = sql.partition(" WHERE ")[2]
+        assert any(column in condition for column in ("expires_at", "fetched_at")), sql
 
 
 def test_dry_run_counts_exactly_what_delete_would_remove() -> None:
@@ -98,6 +102,27 @@ def test_grace_days_applies_to_sessions_and_tokens_only() -> None:
     assert "INTERVAL 7 DAY" in purge_expired.delete_sql("user_session", 7)
     assert "INTERVAL 7 DAY" in purge_expired.delete_sql("user_token", 7)
     assert "INTERVAL" not in purge_expired.delete_sql("chat_session", 7)
+    # `weather_snapshot`도 유예를 받지 않는다 (`#1347`) — 30일은 `DB_SCHEMA §4.3`이
+    # 정한 값이라 인자로 열면 정본과 다른 값으로 돌릴 수 있게 된다.
+    weather = purge_expired.delete_sql("weather_snapshot", 7)
+    assert "INTERVAL 7 DAY" not in weather
+    assert f"INTERVAL {purge_expired.WEATHER_RETENTION_DAYS} DAY" in weather
+
+
+def test_weather_snapshots_that_something_points_at_are_kept() -> None:
+    """⚠️ **참조 검사가 두 표다** (`DB_SCHEMA §2.13` · `#1347`).
+
+    `calculation_run`은 `ON DELETE RESTRICT`라 지우려 들면 DB가 막는다. 그런데
+    `voyage_scenario`는 **`ON DELETE SET NULL`**이라 막지 않고 **조용히 링크만
+    끊는다** — 「어느 기상으로 계산했나」가 사라진 것을 아무도 모른다. 그쪽이 더
+    나쁘므로 두 표 모두에서 미참조인 행만 지운다.
+    """
+    sql = purge_expired.delete_sql("weather_snapshot", 7)
+
+    for table in ("calculation_run", "voyage_scenario"):
+        assert f"SELECT weather_snapshot_id FROM {table}" in sql, table
+    # `NOT IN`에 NULL이 하나라도 섞이면 **전체가 거짓**이 되어 한 행도 지우지 못한다.
+    assert sql.count("weather_snapshot_id IS NOT NULL") == 2, sql
 
 
 def test_a_failing_table_does_not_stop_the_others() -> None:
@@ -110,7 +135,12 @@ def test_a_failing_table_does_not_stop_the_others() -> None:
     db = _FakeDb(answers={"user_session": "5", "user_token": "2"}, fail={"chat_session"})
     counts, failures = purge_expired.purge(db, grace_days=7, dry_run=True)
 
-    assert counts == {"user_session": 5, "user_token": 2}
+    # 표를 통째로 비교하지 않는다 (`#1347`) — 대상 표가 하나 늘 때마다 깨지는데,
+    # 이 검사가 지키려는 것은 **실패한 표가 나머지를 세우지 않는다**이지
+    # 「대상이 정확히 셋이다」가 아니다.
+    assert counts["user_session"] == 5
+    assert counts["user_token"] == 2
+    assert "chat_session" not in counts
     assert set(failures) == {"chat_session"}
 
 

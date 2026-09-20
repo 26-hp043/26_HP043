@@ -164,9 +164,16 @@ async def list_reduction_plans_route(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     _office: Annotated[None, Depends(require_office)],
+    limit: Annotated[int | None, Query(description="페이지 크기 (기본 20, 최대 100)")] = None,
+    cursor: Annotated[str | None, Query(description="페이지네이션 커서")] = None,
 ) -> dict[str, object]:
-    """저장한 계획안 — 최근순 20건 (`API_SPEC §2.17.3`). 결과 본문은 단건 조회에 있다."""
-    return {"data": await list_reduction_plans(session), "meta": _meta(request)}
+    """저장한 계획안 — 최근 저장순 (`API_SPEC §2.17.3`). 결과 본문은 단건 조회에 있다.
+
+    ``meta``에 ``next_cursor``·``has_more``가 함께 들어간다 (`#1367`) — 종전에는
+    **20건에서 자르면서 그 사실을 말하지 않아** 21번째 계획을 볼 방법이 없었다.
+    """
+    data, page_meta = await list_reduction_plans(session, limit=limit, cursor=cursor)
+    return {"data": data, "meta": _meta(request, **page_meta)}
 
 
 @router.get("/fleet/reduction-plans/{plan_id}")

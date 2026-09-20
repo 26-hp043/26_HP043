@@ -18,6 +18,10 @@
 
 - 문자열 부분에 ``snake_case`` 식별자가 있으면 실패 — 끼워 넣는 **값**(``{fuel_type}``의
   ``HFO`` 등)은 보지 않는다. 값은 코드·식별자일 수 있으나 문장의 말이 아니다
+- **소문자 영단어**가 있으면 실패 (`#1329`). ``snake_case``만 보던 동안 ``from``·``to``·
+  ``sort``·``got``·``cursor``·``limit``·``seed``가 **밑줄이 없다는 이유로** 전부 빠져나갔다 —
+  「``from``은 2019 이상이어야 합니다: got 2000」이 그렇게 살아 있었다. 대문자 약어
+  (``IMO``·``DWT``·``CII``)와 열거값(``EXCLUDE``)은 문장의 말이므로 걸리지 않는다
 - 끼워 넣는 값이 **예외 객체**(``exc``·``e``·``err``·``error``)면 실패
 
 계산 엔진(``calc/``)의 ``ValueError``는 대상이 아니다 — 그것은 서비스가 받아 **옮기는** 원문이고,
@@ -50,6 +54,28 @@ _APP_ERRORS = frozenset(
 _VALIDATOR_DIRS = ("api/schemas", "api/routes")
 #: 한글 조사가 바로 붙어도 잡는다 — 파이썬 ``\b``는 한글을 단어 문자로 본다.
 _SNAKE = re.compile(r"(?<![A-Za-z0-9_])[a-z]+_[a-z0-9_]+(?![A-Za-z0-9_])")
+#: 소문자 영단어 (`#1329`). 밑줄이 없어 :data:`_SNAKE`를 빠져나가던 필드명들이다.
+#: 대문자 약어·열거값은 문장의 말이라 잡지 않는다.
+_LOWER_WORD = re.compile(r"(?<![A-Za-z0-9_])[a-z]{2,}(?![A-Za-z0-9_])")
+
+
+def _label_words() -> frozenset[str]:
+    """정본 라벨이 이미 쓰는 소문자 영단어 (`#1329`).
+
+    **손으로 적은 예외 목록을 두지 않는다.** 라벨(``field_labels._FIELD_LABELS``)이
+    `난수 시드(seed)`처럼 영문을 **병기하기로 정한** 것은 그 자체가 정본의 결정이고,
+    그 결정을 여기 한 번 더 적으면 **두 곳이 갈린다.**
+
+    실측상 지금 해당하는 것은 ``seed`` 하나다 — 라벨이 늘면 자동으로 따라간다.
+    """
+    from cii_platform.api.field_labels import _FIELD_LABELS
+
+    words: set[str] = set()
+    for label in _FIELD_LABELS.values():
+        words.update(_LOWER_WORD.findall(label))
+    return frozenset(words)
+
+
 _EXCEPTION_NAMES = frozenset({"exc", "e", "err", "error"})
 
 
@@ -62,6 +88,7 @@ def _parts(node: ast.AST) -> list[ast.AST]:
 
 
 def _findings(root: Path = _ROOT) -> list[str]:
+    allowed = _label_words()
     found: list[str] = []
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root).as_posix()
@@ -87,6 +114,13 @@ def _findings(root: Path = _ROOT) -> list[str]:
             identifiers = _SNAKE.findall(text)
             if identifiers:
                 found.append(f"{rel}:{node.lineno} 필드명 원문 {identifiers} — {text[:60]}")
+            words = [
+                w for w in _LOWER_WORD.findall(text) if w not in allowed and not _SNAKE.search(w)
+            ]
+            # `_SNAKE`가 이미 보고한 자리는 두 번 세지 않는다.
+            words = [w for w in words if not any(w in i for i in identifiers)]
+            if words:
+                found.append(f"{rel}:{node.lineno} 소문자 영단어 {words} — {text[:60]}")
             if leaks_exception:
                 found.append(f"{rel}:{node.lineno} 예외 객체를 문구에 끼워 넣는다 — {text[:60]}")
     return found
@@ -114,13 +148,20 @@ def test_the_scanner_catches_both_shapes(tmp_path):
         "def g(exc):\n"
         "    raise ParameterError(f'기준선을 선택할 수 없습니다: {exc}')\n"
         "def h(fuel_type):\n"
-        "    raise ValidationError(f'알 수 없는 연료 종류입니다: {fuel_type}')\n",
+        "    raise ValidationError(f'알 수 없는 연료 종류입니다: {fuel_type}')\n"
+        "def i():\n"
+        "    raise ValidationError('from은 2019 이상이어야 합니다: got 2000')\n"
+        "def j():\n"
+        "    raise ValidationError('IMO 번호는 7자리여야 합니다. DWT는 EXCLUDE가 아닙니다.')\n",
         encoding="utf-8",
     )
     found = _findings(tmp_path)
-    assert len(found) == 2, found
+    assert len(found) == 3, found
     assert "direct_distance_nm" in found[0]
     assert "예외 객체" in found[1]
+    # `#1329` — 밑줄 없는 영단어. 대문자 약어·열거값만 있는 `j`는 걸리지 않는다.
+    assert "소문자 영단어" in found[2]
+    assert "from" in found[2] and "got" in found[2]
 
 
 def test_service_error_messages_are_plain_korean():

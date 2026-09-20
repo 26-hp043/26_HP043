@@ -21,6 +21,10 @@ BACKEND_SMTP = "smtp"
 
 _VALID_BACKENDS = frozenset({BACKEND_CONSOLE, BACKEND_SMTP})
 
+#: **implicit TLS** 포트 (`RFC 8314 §3.3`). 연결하는 순간부터 TLS이고 STARTTLS 협상이
+#: 없다 — 587(submission)과 다루는 방식이 다르므로 `mail/backends.py`가 이 값으로 가른다.
+IMPLICIT_TLS_PORT = 465
+
 #: 개발 기본 발신자. 실제로 나가지 않으므로 도달 가능한 주소일 필요가 없다.
 _DEFAULT_FROM = "BlueLog <no-reply@localhost>"
 
@@ -126,7 +130,11 @@ def load_mail_settings(env: dict[str, str] | None = None) -> MailSettings:
     if not host:
         raise RuntimeError("MAIL_BACKEND=smtp인데 SMTP_HOST가 설정되지 않았습니다.")
 
-    raw_port = source.get("SMTP_PORT", "587").strip()
+    # **빈 값은 「설정하지 않음」으로 접는다** (#1331). `source.get("SMTP_PORT", "587")`은
+    # 키가 있으면 기본값을 쓰지 않는데, compose가 `${SMTP_PORT:-}`로 **빈 문자열을 넘기면
+    # 키는 있다.** 그 상태로 `int("")`가 나 기동이 실패했다 — 사용자는 「비워 두면 587」로
+    # 읽는데 실제로는 재시작 루프였다.
+    raw_port = (source.get("SMTP_PORT") or "").strip() or "587"
     try:
         port = int(raw_port)
     except ValueError as exc:

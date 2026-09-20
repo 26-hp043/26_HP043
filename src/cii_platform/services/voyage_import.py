@@ -63,12 +63,14 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from cii_platform.api.field_labels import field_label
 from cii_platform.api.schemas.bounds import DISTANCE, SPEED, VOYAGE_FUEL
+from cii_platform.api.validation_messages import _MESSAGES
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import AppError, ValidationError
 from cii_platform.reports.csv_export import sanitize
-from cii_platform.services.voyage import create_voyage
+from cii_platform.services.voyage import create_voyage, require_vessel
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -208,12 +210,31 @@ _NUMERIC_BOUNDS: dict[str, dict[str, Decimal]] = {
     "planned_fuel_ton": VOYAGE_FUEL,
 }
 
-#: 하한이 **저장 형식이 아니라 도메인**에서 오는 열의 문구. 값 자체는 위 표가 들고 있고
-#: (``SPEED["ge"] == 1.0``), 여기서는 사용자에게 보일 말만 바꾼다 — 「1.0 이상이어야
-#: 합니다」로는 무엇의 1.0인지 알 수 없다. VAL-009 (`PRD §9.1`).
-_MIN_MESSAGES: dict[str, str] = {
-    "planned_speed_kn": "속도는 1.0노트 이상이어야 합니다.",
+#: CSV 열 이름 → 라벨 조회에 쓸 **요청 필드 경로** (`#1329`).
+#:
+#: 연료량은 요청 본문에서 배열 안에 있어(``fuel_uses[].planned_fuel_ton``) 열 이름
+#: 그대로는 라벨이 잡히지 않는다 — 잡히지 않으면 **필드명 원문**이 문구에 나간다.
+_LABEL_PATHS: dict[str, str] = {
+    "planned_fuel_ton": "fuel_uses[].planned_fuel_ton",
 }
+
+
+def _min_message(column: str, minimum: Decimal) -> str:
+    """하한 위반 문구 — **JSON 경로와 같은 틀**로 만든다 (`#1329`).
+
+    종전에는 이 파일이 문구를 따로 들고 있어 **같은 규칙이 경로마다 다른 말**을 했다.
+
+    .. code-block:: text
+
+        CSV  :  0보다 커야 합니다.            /  속도는 1.0노트 이상이어야 합니다.
+        JSON :  계획 거리는 0.01 이상이어야 합니다.  /  계획 속력은 1 이상이어야 합니다.
+
+    한 제품에 두 규칙이 있는 것처럼 읽힌다. `validation_messages`의
+    ``greater_than_equal`` 빌더를 그대로 불러 **한 문장으로 모은다** — 라벨이
+    필드마다 다르므로 「무엇의 하한인가」도 종전 CSV 문구보다 분명해진다.
+    """
+    label = field_label(_LABEL_PATHS.get(column, column))
+    return _MESSAGES["greater_than_equal"](label, {"ge": minimum})
 
 
 def _numeric(row: dict[str, str], column: str) -> Decimal:
@@ -238,10 +259,11 @@ def _numeric(row: dict[str, str], column: str) -> Decimal:
     bounds = _NUMERIC_BOUNDS[column]
     # VAL-002 — 거리·연료·속력은 0보다 커야 한다 (`PRD §9.1`). 그리고 **DB가 담을 수
     # 있어야** 한다 (#1086 ⑥) — `0.001`은 `NUMERIC(12,2)`에서 0.00으로 반올림돼 500이었다.
-    if value <= 0:
-        raise RowError(column, "0보다 커야 합니다.")
+    #
+    # `#1329` — 두 경우가 **한 문장**으로 합쳐졌다. 종전에는 `<= 0`과 `< ge`가 다른
+    # 말을 해, 같은 열에 `0`과 `0.001`을 넣으면 **다른 규칙처럼 읽혔다**.
     if value < bounds["ge"]:
-        raise RowError(column, _MIN_MESSAGES.get(column, f"{bounds['ge']} 이상이어야 합니다."))
+        raise RowError(column, _min_message(column, bounds["ge"]))
     if value > bounds["le"]:
         raise RowError(column, f"너무 큽니다(최대 {bounds['le']}).")
     return value
@@ -327,6 +349,19 @@ def parse_row(row: dict[str, str], known_fuels: set[str]) -> dict[str, object]:
     }
 
 
+def _skipped_count(errors: list[dict[str, object]], truncated: int) -> int:
+    """건너뛴 **행 수** (`API_SPEC §8.2` · `#1350`).
+
+    종전에는 ``len(errors)``였다. 상한(:data:`MAX_ROWS`)을 넘겨 잘라 낸 행은 **오류 1건**
+    으로만 담기므로, 1,500행을 올리면 ``imported 1000 · skipped 1``이 되어 **합이 1,001**
+    이었다 — 사용자는 **499행이 사라진 것을 수치로는 볼 수 없다.**
+
+    잘린 행은 「처리하지 않은 행」이지 「오류 한 건」이 아니므로 그 수만큼 더한다. 잘림을
+    알리는 오류 항목 자체는 이미 ``errors``에 있으므로 **한 번만** 센다.
+    """
+    return len(errors) - (1 if truncated else 0) + truncated
+
+
 def read_rows(
     content: bytes, *, content_type: str | None = None
 ) -> tuple[list[dict[str, str]], int]:
@@ -381,6 +416,11 @@ async def import_voyages(
     ``missing_departure_count``이며, ``dry_run``일 때 ``imported_count``는 **들어갈 수 있는
     행 수**다(``missing_departure_count``도 들어갈 행 가운데의 수다).
     """
+    # 선박을 **파일을 읽기 전에** 본다 (`#1332`). 종전에는 이 검사가 없어
+    # `dry_run`이 「전부 가능」이라 답한 뒤 실제 적재에서 **행마다 FK 실패**가 났고,
+    # 없는 선박이면 500이었다(`API_SPEC §1.4`는 404).
+    await require_vessel(session, vessel_id)
+
     rows, truncated = read_rows(content, content_type=content_type)
     known_fuels = {row.code for row in await param_repo.list_active_fuel_types(session)}
 
@@ -415,7 +455,7 @@ async def import_voyages(
     if dry_run:
         return {
             "imported_count": len(parsed),
-            "skipped_count": len(errors),
+            "skipped_count": _skipped_count(errors, truncated),
             "errors": errors,
             "missing_departure_count": missing_departure,
             "dry_run": True,
@@ -469,7 +509,7 @@ async def import_voyages(
         # **실제로 들어간 행 가운데의 수**다. 저장 단계에서 떨어진 행을 여기 세면
         # 「들어갔지만 시각이 없다」는 뜻이 무너진다 (#906 · #1090과 같은 종류).
         "missing_departure_count": stored_missing_departure,
-        "skipped_count": len(errors),
+        "skipped_count": _skipped_count(errors, truncated),
         "errors": errors,
         "dry_run": False,
     }

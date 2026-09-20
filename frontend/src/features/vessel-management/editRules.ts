@@ -1,3 +1,4 @@
+import { withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import {
   CB_MAX,
@@ -157,7 +158,7 @@ export function validateEdit(
   {
     const cb = toNumber(state.blockCoefficient)
     if (cb !== null && cb > CB_MAX) {
-      errors[EDIT_FIELD.blockCoefficient] = '방형계수(CB)은(는) 1 이하로 입력해 주세요.'
+      errors[EDIT_FIELD.blockCoefficient] = `${withEunNeun('방형계수(CB)')} 1 이하로 입력해 주세요.`
     }
   }
   // #1197 — 호출부호. 등록 폼과 같은 함수·같은 문구다.

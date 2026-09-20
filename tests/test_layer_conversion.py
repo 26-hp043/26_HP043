@@ -138,3 +138,16 @@ def test_estimate_precision_loss_reports_difference() -> None:
     # 30자리 정본값을 float64로 변환하면 1e-15 근처의 손실이 발생한다.
     diff = Decimal(loss.removeprefix("loss="))
     assert Decimal("1e-30") < diff < Decimal("1e-13")
+
+
+def test_loss_is_measured_against_the_binary_value_not_its_shortest_text():
+    """손실은 **float의 이진값**과 재야 한다 (`#1349`).
+
+    종전에는 `Decimal(str(converted))`로 재서, `str(float)`이 주는 **가장 짧은 십진
+    표기**와 비교했다 — 그 표기는 정의상 같은 float로 되돌아가므로 손실이 **0으로**
+    나온다. 「손실을 숨기지 않는다」는 이 모듈의 선언이 정확히 그 자리에서 깨져 있었다.
+    """
+    loss = estimate_precision_loss(Decimal("0.1"), to_float64(Decimal("0.1")))
+
+    assert loss != "loss=0", "짧은 표기와 비교하면 손실이 0으로 보인다"
+    assert loss.startswith("loss=5.5511151231257827")

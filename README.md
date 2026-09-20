@@ -42,7 +42,7 @@
 |---|---|---|
 | [`PRD.md`](./PRD.md) | 제품 요구사항 정의서 (**v4.16**, 자체 ID/PW 인증 전환 #413 + **역할 2종(사무직·현장직) #672** + **관리자 분리 — 역할 3종 #1301** + 관리 중심 전환 #343 + 보고서 절 #360 + 계산식 스코프·실시간 CII #358 + **§12.3.1 필요 감축량(목표 역산) #433** + **§8.4 선종 변경 재계산 #944** + **§3.3.8 진행분 유종별 배분 #885** + **§6.4 상태 문구 #931** + **§12.2.1 실적 보정계수 #363** + **§6.4 「선행 선택 필요」 패턴 #1171** + **§5.1 화면 언어 전환(실험) #1215**) — 이중 capacity 규칙(G1/G2 분리), 상태 모델, 값 우선순위(§8.3), 등급 하락 귀결(§3.3.7), 보고서 정의(§25) | ✅ 완료 |
 | [`TECH_SPEC.md`](./TECH_SPEC.md) | 기술 명세서 (**v1.14**, 서비스 레이어 아키텍처 #100 + 재현성 계약 #102 + Layer 1 계산 규칙 #166 + 시뮬레이션 분포 프로파일 #434 + 메일·리포트 절 신설 #446 + **§10.3 NumPy 업그레이드·재현성 한계 #833·#106** + **§16.2 디렉터리 트리 실측 갱신 #1081** + **§5.2.1.2 기능③ parameters_used v1·v2 #1306** + **§19.2 CSV 수치 열 선언 #1247** + **§7.1·§7.3 기상 조회 계층 실측 정합 #968**) — 이중 정밀도 엔진, PCG64DXSM RNG, capacity 분리(transport/reference), canonical hashing, 스냅샷 격리(§11), 서비스 레이어(§16), 메일 발송(§18), 리포트 렌더링(§19) | ✅ 완료 |
-| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.41**, 인증 재작성 #414 + **역할 2종·사무직 전용 경로 #672** + **관리자 전용 경로 #1301** + **호출부호 call_sign #1197** + **CSV 수치 열 선언 #1247** + **계획 거리 출처 planned_distance_source #1256** + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440 + CII 적용 대상 표시 #653 + CSV 내보내기 컬럼 확정 #59 + 샘플 선박 목록 #982 + 챗봇 API #121 + **파라미터 Import CSV #673** + **vessel.block_coefficient #966**) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
+| [`API_SPEC.md`](./API_SPEC.md) | REST API 명세서 (**v1.42**, 인증 재작성 #414 + **역할 2종·사무직 전용 경로 #672** + **관리자 전용 경로 #1301** + **호출부호 call_sign #1197** + **CSV 수치 열 선언 #1247** + **계획 거리 출처 planned_distance_source #1256** + **등급 경계 CII rating_boundary_cii #1371** + not under way CRUD #370 + 실시간 CII 3종 #354 + 리포트 #361 + 연간 시뮬레이션 #64 + 선대 요약 사유 구분 #419 + 대체 내역 기록 #449 + 항차 실적 입력 #440 + CII 적용 대상 표시 #653 + CSV 내보내기 컬럼 확정 #59 + 샘플 선박 목록 #982 + 챗봇 API #121 + **파라미터 Import CSV #673** + **vessel.block_coefficient #966**) — 수치 문자열 직렬화(§1.7), `as_of` 공통 계약, field_label 오류 체계, CSV escape 보안 | ✅ 완료 |
 | [`DB_SCHEMA.md`](./DB_SCHEMA.md) | 데이터베이스 스키마 (**v1.34**, not under way 스키마 #345 + **app_user.role #672** + **role 3종·값 트리거 057 #1301** + **vessel.call_sign 058 #1197** + **voyage.planned_distance_source 059 #1256** + 운항 상태 2축 #346 + CF 스냅샷 #378 + 인증 전환 #414 + simulation_parameter #434 + 데모 seed 분리 #451 + **CUBRID 제약 전면 갱신 #1058** + **chat_session·chat_message 등재 #1080** + **활성-유니크 트리거 #673** + **block_coefficient #966** + **head 059 대조 #1342**) — **25개 테이블**, **CUBRID 11.4.6**, FK ON DELETE 정책, immutable 트리거, 마이그레이션 전략 | ✅ 완료 |
 | [`TEST_PLAN.md`](./TEST_PLAN.md) | 테스트 계획서 (**v1.27**, Layer 1 픽스처 정본값 규칙 #166 + §14 파일 인벤토리 #394 + 방향 전환 반영 #398 + 배포 배선 고정 #508 + 테스트 격리 #507 + 계정 관리 #506 + **§3.25~3.27 신설 · §10 실CI 재작성 · §14.3~14.5 갱신 #1104·#1081** + **IT-IMPORT CSV 계약 #673**) — 파일·함수·수집 수는 `TEST_PLAN §14.2` 합계 문장이 정본(CI가 실측과 대조), Fixture 1~4, 정본값 생성기 계약(§1.7), 이중 capacity 검증 | ✅ 완료 |
 | [`AGENTS.md`](./AGENTS.md) | AI 에이전트 작업 규칙 (**v1.10**) — 문서 우선순위(§3.1)·소관 한정 정본(§3.2), Oracle 교차 검증, 규제값 권위 소스, 이슈 유예 처리(§6.1), 1 PR = 1 이슈·PR 제목 형식(§7), 「상위 문서」 의미(§4.4), 제품명(§4.5), 화면 문구 소관(§4.6), 절·화면 참조 표기(§4.7) | ✅ 완료 |
@@ -134,12 +134,30 @@
 
 ## 배포
 
-프로덕션은 `docker-compose.prod.yml` 하나로 뜬다. **nginx가 정적 자산을 서빙하고 `/api`를 백엔드로 리버스 프록시**하므로 화면과 API가 같은 오리진이 된다 — 그래서 백엔드에 CORS 설정이 없다.
+> 🔴 **실제 운영 배포의 정본은 [`docs/OPERATIONS.md`](./docs/OPERATIONS.md)다** (`#1339`).
+> 운영은 **OCI 2-VM 분리 토폴로지 + Cloudflare Pages**이고, 그 절차·시크릿·롤백은 전부
+> 그쪽에 있다. 아래는 **단일 호스트 compose 경로**이며 **로컬 검증용**이다.
+> **두 경로는 토폴로지가 다르다** — 아래 절차를 운영에 그대로 적용하지 않는다.
+>
+> **(정황)** 인터넷 없는 폴백 시연(`#791`)도 이 경로를 쓸 것으로 보이나, `#791`이
+> compose 파일을 지정하지는 않았다.
+
+| 경로 | 무엇으로 뜨나 | 오리진 | 쓰는 자리 |
+|---|---|---|---|
+| **운영** | `docker-compose.prod.app.yml`(app-01) + `docker-compose.prod.db.yml`(db-01) + Cloudflare Pages | **크로스 오리진** — `CORS_ALLOW_ORIGINS`가 **필수**다 | `docs/OPERATIONS.md` |
+| 단일 호스트 | `docker-compose.prod.yml` 하나 | 같은 오리진 (nginx 리버스 프록시) | 아래 절차 · 로컬 검증 |
+
+**단일 호스트 경로**는 nginx가 정적 자산을 서빙하고 `/api`를 백엔드로 리버스 프록시하므로 화면과 API가 같은 오리진이 된다 — 그 구성에서는 CORS가 필요 없다.
 
 ```
 브라우저 ──→ nginx(:80) ──┬──→ /            정적 자산 (SPA fallback)
                           └──→ /api/…       app(:8000)
 ```
+
+> ⚠️ **「백엔드에 CORS 설정이 없다」는 사실이 아니다** (`#1339`). 이 문장이 여기 적혀
+> 있었는데, `api/main.py:165-168`이 `CORS_ALLOW_ORIGINS`를 읽어 `CORSMiddleware`를
+> 붙인다 — **미설정일 때만** 붙이지 않는다. 화면을 Cloudflare Pages에 두는 운영
+> 토폴로지에서는 그 값이 **없으면 화면이 API를 부르지 못한다.**
 
 ### 기동 순서
 
@@ -490,7 +508,9 @@ CI는 이미 `cii_test`를 쓰므로 **모든 검사가 그대로 돈다**(`.git
 다른 pytest 실행이 이 테스트 DB를 쓰고 있습니다 (cii_test). 두 실행이 겹치면 …
 ```
 
-**앞 실행이 끝난 뒤 다시 돌리면 된다.** 잠금은 연결에 걸려 있어 실행이 강제 종료돼도 남지 않는다. DB를 쓰지 않는 검사는 겹쳐 돌려도 된다.
+**앞 실행이 끝난 뒤 다시 돌리면 된다.** 잠금은 **대상 DB마다 하나인 파일**에 `flock`으로 걸린다(`/tmp/cii-pytest-suite-<해시>.lock`) — **프로세스가 죽으면 OS가 푸므로** 강제 종료돼도 남지 않는다. DB를 쓰지 않는 검사는 겹쳐 돌려도 된다.
+
+> ⚠️ **같은 파일 시스템의 실행끼리만 막는다.** 호스트의 pytest와 컨테이너 안의 pytest가 같은 DB를 쓰는 겹침은 잡지 못한다. 이 저장소의 로컬 실행은 호스트(WSL)에서 돌리고 CI는 잡마다 새 DB에서 한 번 도므로, 겪은 사고(`#894`)는 이 범위 안이다.
 
 ### 테스트 DB 복구
 
@@ -649,3 +669,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-09-20 | `#1320` | 문서 구조 표의 `TECH_SPEC.md` 행을 v1.14로 갱신 — §7.1·§7.3 기상 조회 계층을 구현에 맞춤(외부 조회 먼저·실패 시에만 `weather_snapshot` 캐시 · `WeatherProvider(Protocol)` `fetch` 하나 · `source` 값 `open_meteo_marine+forecast` 추가). `DB_SCHEMA §2.13` 값 목록 행도 함께 맞췄다(버전 유지) (#968) |
 | 2026-09-20 | `#1360` | **「지도 자산」 절 정정 — 사실 정정이며 배포 방침 변경이 아니다.** `#985`(2026-09-18)가 항만 43곳의 깊은 층(z7–z10)을 걷어내고 전 세계 z0–z5(약 26 MB)로 좁혀 **저장소에 커밋했는데**, 이 절이 여전히 「`.gitignore`가 막아 두었다 · 약 92 MB · z0–z6+z7–z10」이라는 종전 구성을 안내하고 있었다. `git ls-files`로 커밋 여부를 다시 확인하고, 절을 「받는다」에서 「평소엔 손댈 일 없다」로 고쳤다 — 정확한 수치는 `scripts/fetch_basemap.sh` 머리말을, 확대 상한은 `basemap.ts`의 `MAX_ZOOM`을 가리키게 해 값이 다시 벌어지지 않게 했다. `AGENTS §4.3` 「오기·값 정정」이라 버전은 올리지 않는다 (#1340) |
 | 2026-09-20 | `#1304` | **`#1058` CUBRID 전환이 남긴 자국을 지운다** (`#1207` · `#1305`) — 「로컬에서 테스트를 돌리는 법」이 `createdb -U cii`·`postgresql+asyncpg://…:5432`를 그대로 내밀어 **적힌 대로 하면 실패**했다. `cubrid createdb … en_US.iso88591` + `cubrid server start`·브로커 포트 33100으로 옮기고, `docker compose down` 뒤 서버를 다시 올려야 한다는 것(진입점이 기동하는 것은 `$CUBRID_DB` 하나뿐)을 함께 적었다. 세 번째 줄은 **전환과 무관하게 원래 틀려 있었다** — `pytest`는 `[dev]` extra인데 `uv`는 extra를 기본으로 설치하지 않으므로 `uv run --extra dev pytest`여야 한다. 같은 문구를 만드는 `tests/db_target.py`도 함께 옮겼고(README가 그것을 그대로 인용한다), 재발은 `test_the_way_out_does_not_tell_people_to_run_postgresql_commands`가 **양쪽에서** 막는다. 함께 `DATABASE_URL` 표기를 **`cubrid+pycubrid://`로 통일**했다 — `aiopycubrid`는 배포본이 아니라 `sqlalchemy-cubrid`가 싣는 async 방언 이름이고 DBAPI는 `pycubrid` 하나다(`entry_points` 직접 확인). ⚠️ **엔진이 받는 값은 그대로 async 방언이다** — `normalize_to_async()`가 `cubrid+` 접두를 전부 async로 바꾸며, 동기 엔진으로 바꾸는 작업이 아니다 (#1305) |
+| 2026-09-20 | `#1377` | **「스위트를 겹쳐 돌리지 못한다」 절의 잠금 설명 정정.** 「잠금은 **연결에** 걸려 있어」로 적혀 있었으나 `#1250`(PR #1315)이 **호스트 파일 잠금**(`fcntl.flock` · `/tmp/cii-pytest-suite-<해시>.lock`)으로 바꿨다 — `#1058` CUBRID 전환에서 PostgreSQL advisory lock이 사라져 `_hold_suite_lock()`이 no-op이던 것을 되살린 것이다. **뒤 문장(「강제 종료돼도 남지 않는다」)은 지금도 참이므로 그대로 두었다** — `flock`은 프로세스가 죽으면 OS가 푼다. 틀린 것은 **어디에 걸리는가**뿐이었다. 함께 `tests/conftest.py:295-297`이 적어 둔 한계(**같은 파일 시스템의 실행끼리만 막는다** — 호스트 pytest ↔ 컨테이너 안 pytest는 잡지 못한다)를 인용블록으로 넣었다. `AGENTS §4.3`상 오기 정정이라 버전은 올리지 않는다 (#1374) |

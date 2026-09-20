@@ -177,10 +177,15 @@ async def list_active(
     cursor: VoyageCursor | None = None,
     status: str | None = None,
     regulation_year: int | None = None,
+    annual_inclusion_policy: str | None = None,
 ) -> list[Voyage]:
     """활성 항차 목록을 조회한다 (API_SPEC §3.1).
 
     ``limit + 1``건을 가져온다 — ``has_more`` 판단용.
+
+    ``annual_inclusion_policy``는 `#1332`에서 붙었다 — `§3.1` 표에는 처음부터 있었고
+    라우트가 선언하지 않아 **조용히 버려졌다.** 이 모듈은 이미 같은 컬럼으로 거르는
+    쿼리를 갖고 있었다(:func:`list_annual_inclusions`).
     """
     stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted == 0)
 
@@ -188,6 +193,8 @@ async def list_active(
         stmt = stmt.where(Voyage.status == status)
     if regulation_year is not None:
         stmt = stmt.where(Voyage.regulation_year == regulation_year)
+    if annual_inclusion_policy is not None:
+        stmt = stmt.where(Voyage.annual_inclusion_policy == annual_inclusion_policy)
 
     if cursor is not None:
         stmt = stmt.where(

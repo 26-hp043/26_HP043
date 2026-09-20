@@ -204,6 +204,24 @@ def test_inventory_rows_are_parsed_at_all():
     assert "test_testplan_sync.py" in documented
 
 
+def test_no_file_is_listed_twice():
+    """§14.2에 **같은 파일이 두 번** 나오지 않는다 (`#1380`).
+
+    ## 왜 잡지 못하고 있었나
+
+    :func:`_documented_counts`가 dict을 만들므로 **뒤 행이 앞 행을 덮는다.** 두 행이
+    같은 수를 적으면 아래 대조가 그대로 통과하고, 합계도 어긋나지 않는다 — 그래서
+    `test_doc_cross_refs.py` 행이 **둘**이고 한쪽만 갱신된 채(`#1324`가 신설한 홀수 펜스
+    가드 문장이 한쪽에만 있었다) 조용히 남았다.
+
+    읽는 사람은 **어느 쪽이 현재인지 알 수 없다.**
+    """
+    names = [name for name, _ in _INVENTORY_ROW.findall(_plan_text())]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+
+    assert not duplicates, f"§14.2에 두 번 나오는 파일: {duplicates}"
+
+
 def test_each_file_count_matches_reality():
     """파일별 함수 수가 실측과 같다.
 

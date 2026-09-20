@@ -248,6 +248,81 @@ async def test_smtp_sends_expected_payload(monkeypatch: pytest.MonkeyPatch):
     assert captured["port"] == 587
 
 
+@pytest.mark.parametrize("raw", ["", "   "])
+def test_blank_port_is_treated_as_unset(raw: str):
+    """빈 `SMTP_PORT`는 **설정하지 않음**으로 접는다 (#1331).
+
+    ``source.get("SMTP_PORT", "587")``은 **키가 있으면** 기본값을 쓰지 않는다. 그런데
+    `docker-compose.prod.app.yml`이 `${SMTP_PORT:-}`로 **빈 문자열을 넘기면 키는 있다** —
+    그 상태로 ``int("")``가 나 백엔드가 재시작 루프에 빠졌다. 사용자는 「비워 두면 587」로
+    읽는데 실제로는 기동 실패였다.
+    """
+    settings = load_mail_settings({"MAIL_BACKEND": "smtp", "SMTP_HOST": "h", "SMTP_PORT": raw})
+
+    assert settings.smtp_port == 587
+
+
+async def test_port_465_connects_with_implicit_tls(monkeypatch: pytest.MonkeyPatch):
+    """465는 **implicit TLS**다 — 연결하는 순간부터 TLS이고 STARTTLS를 걸지 않는다 (#1331).
+
+    종전에는 ``start_tls=``만 넘겨 465가 **어떤 설정으로도 동작하지 않았다**:
+    ``SMTP_USE_TLS=false``면 평문으로 붙어 서버가 끊고, ``true``면 이미 TLS인 연결에
+    STARTTLS를 걸어 실패한다(`RFC 8314 §3.3`).
+    """
+    import aiosmtplib
+
+    captured: dict[str, object] = {}
+
+    async def capture(_payload: object, **kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(aiosmtplib, "send", capture)
+
+    mailer = SmtpMailer(
+        MailSettings(
+            backend=BACKEND_SMTP,
+            mail_from="BlueLog <no-reply@x>",
+            smtp_host="smtp.x",
+            smtp_port=465,
+            smtp_use_tls=True,
+        )
+    )
+    await mailer.send(MailMessage(to="t@x", subject="제목", body="본문"))
+
+    assert captured["use_tls"] is True
+    # 이미 TLS인 연결에 STARTTLS를 겹치면 aiosmtplib이 거부한다.
+    assert captured["start_tls"] is False
+
+
+@pytest.mark.parametrize(("use_tls", "expected_start_tls"), [(True, True), (False, False)])
+async def test_submission_port_keeps_starttls(
+    monkeypatch: pytest.MonkeyPatch, use_tls: bool, expected_start_tls: bool
+):
+    """587(submission)은 종전 그대로 STARTTLS 축이다 (#1331) — 465 처리가 번지지 않는다."""
+    import aiosmtplib
+
+    captured: dict[str, object] = {}
+
+    async def capture(_payload: object, **kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(aiosmtplib, "send", capture)
+
+    mailer = SmtpMailer(
+        MailSettings(
+            backend=BACKEND_SMTP,
+            mail_from="BlueLog <no-reply@x>",
+            smtp_host="smtp.x",
+            smtp_port=587,
+            smtp_use_tls=use_tls,
+        )
+    )
+    await mailer.send(MailMessage(to="t@x", subject="제목", body="본문"))
+
+    assert captured["use_tls"] is False
+    assert captured["start_tls"] is expected_start_tls
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 템플릿
 # ─────────────────────────────────────────────────────────────────────────────

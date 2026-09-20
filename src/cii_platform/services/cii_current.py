@@ -46,7 +46,7 @@ from typing import TYPE_CHECKING
 from cii_platform.calc.annual_simulation import project_deterministic
 from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
-from cii_platform.calc.precision import LAYER1_ROUNDING
+from cii_platform.calc.precision import LAYER1_ROUNDING, layer1_context
 from cii_platform.calc.rating_engine import (
     calculate_deterministic_risk,
     calculate_margin_ratio,
@@ -278,6 +278,43 @@ def _remaining_days(*, as_of: datetime, regulation_year: int) -> Decimal:
     return Decimal(str((year_end - cursor).total_seconds())) / Decimal("86400")
 
 
+@layer1_context
+def _project_layer1(context, inputs) -> tuple[object, Decimal, str]:
+    """⑶의 Layer 1 전 구간을 **한 컨텍스트 안에서** 낸다 (`TECH_SPEC §1.2.1` · `#1372`).
+
+    종전에는 ``ratio``를 이 컨텍스트 **밖에서** 나눴다. 나눗셈은 컨텍스트 precision에서
+    잘리므로 기본값(``prec=28``)으로 계산되어 정본과 **27번째 자리부터 갈렸다** —
+    실측 ``…012600`` vs 정본 ``…012581``. 응답 자릿수(5자리)에서는 드러나지 않지만,
+    「자릿수가 맞다고 정밀도가 맞는 것은 아니다」가 `TECH_SPEC §1.2.1`의 경고다.
+
+    ``voyage_cii._compute_layer1`` · ``ytd_cii``와 같은 틀이다 — 함수를 나누어 각각
+    데코레이터를 달면 컨텍스트를 들락거리며 중간값이 기본 컨텍스트에서 다뤄진다.
+
+    :raises ValueError: 거리가 0일 때 :func:`project_deterministic`이 올린다.
+    """
+    deterministic = project_deterministic(
+        completed=inputs.completed,
+        remaining=inputs.remaining,
+        transport_capacity=context.transport_capacity,
+        required_cii=context.required_cii,
+        d_vector=context.d_vector,
+    )
+    ratio = deterministic.attained_cii / context.required_cii
+    # 위험도는 ⑴과 **같은 방식**(마진 기반)으로 낸다. 기능③의 `risk_level`은 목표
+    # 달성 확률 기반이라 여기 쓰면 같은 열 이름에 다른 척도가 섞인다.
+    next_worse = select_next_worse_boundary(deterministic.rating, deterministic.boundaries)
+    margin_ratio = (
+        None
+        if next_worse is None
+        else calculate_margin_ratio(
+            attained_cii=deterministic.attained_cii,
+            required_cii=context.required_cii,
+            next_worse_boundary=next_worse,
+        )
+    )
+    return deterministic, ratio, calculate_deterministic_risk(deterministic.rating, margin_ratio)
+
+
 async def _project_year_end(
     session: AsyncSession,
     *,
@@ -353,32 +390,11 @@ async def _project_year_end(
     )
 
     try:
-        deterministic = project_deterministic(
-            completed=inputs.completed,
-            remaining=inputs.remaining,
-            transport_capacity=context.transport_capacity,
-            required_cii=context.required_cii,
-            d_vector=context.d_vector,
-        )
+        deterministic, ratio, risk = _project_layer1(context, inputs)
     except ValueError:
         # 거리가 0이면 ``PRD §12.8``이 계산 중단을 규정한다. ⑶은 조회 응답의 한
         # 갈래이므로 500으로 올리지 않고 **못 낸 사유를 싣는다.**
         return {"data_available": False, "reason": REASON_NO_BASIS}
-
-    ratio = deterministic.attained_cii / context.required_cii
-    # 위험도는 ⑴과 **같은 방식**(마진 기반)으로 낸다. 기능③의 `risk_level`은 목표
-    # 달성 확률 기반이라 여기 쓰면 같은 열 이름에 다른 척도가 섞인다.
-    next_worse = select_next_worse_boundary(deterministic.rating, deterministic.boundaries)
-    margin_ratio = (
-        None
-        if next_worse is None
-        else calculate_margin_ratio(
-            attained_cii=deterministic.attained_cii,
-            required_cii=context.required_cii,
-            next_worse_boundary=next_worse,
-        )
-    )
-    risk = calculate_deterministic_risk(deterministic.rating, margin_ratio)
 
     warnings = list(inputs.warnings)
     if inputs.plan_voyage_count == 0:
@@ -562,8 +578,20 @@ class InProgressState:
         ``meta.simulated``도 같은 항차에서 나오므로, 하나만 지우면 화면이 「2024년을
         보는데 지금 뛰는 항차의 구간값이 함께 떠 있는」 상태가 된다. 경고도 마찬가지다 —
         범위 밖 항차에 대한 안내는 그 화면에서 뜻이 없다.
+
+        ⚠️ **연도를 선언하지 않은 항차는 예외다 (`#1336`).** ``regulation_year``가
+        ``NULL``인 항차는 `chk_year_policy`(`DB_SCHEMA §2.3`)상 **반드시
+        ``EXCLUDE``**이고, `#1085`의 갈래가 이미 그 항차의 ``contribution``과 경고를
+        비운 뒤 ``voyage``·``progress``만 남겨 보낸 상태다 — **⑴에 들어갈 것이 아무것도
+        없다.** 그런데 ``None != 2026``이 참이라 이 자리에서 **⑵까지 함께 지워졌다**:
+        연도를 비워 만든 항차를 진행으로 넘기면 선박은 ``UNDER_WAY``인데 「현재 항차」
+        카드가 사라지고 ``meta.simulated``도 내려간다.
+
+        위 문단의 판단(「2024년을 보는데 지금 뛰는 항차의 구간값이 함께 떠 있으면 안
+        된다」)은 **다른 해에 속한다고 선언한 항차**에 대한 것이다. 어느 해에도 속하지
+        않는 항차는 그 문장이 가리키는 대상이 아니다.
         """
-        if self.regulation_year == regulation_year:
+        if self.regulation_year is None or self.regulation_year == regulation_year:
             return self
         return InProgressState(None, None, None, None, [], None)
 

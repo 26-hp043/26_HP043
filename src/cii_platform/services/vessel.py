@@ -116,9 +116,7 @@ def _parse_cursor(cursor: str | None) -> Cursor | None:
         return None
     parsed = decode_cursor(cursor)
     if parsed is None:
-        raise ValidationError(
-            "cursor 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
-        )
+        raise ValidationError("커서 형식이 올바르지 않습니다.", field="cursor", field_label="커서")
     return parsed
 
 
@@ -158,6 +156,24 @@ async def get_vessel(session: AsyncSession, vessel_id: UUID) -> dict[str, object
     return to_dict(vessel)
 
 
+async def _require_fuel_type(session: AsyncSession, code: str | None) -> None:
+    """``default_fuel_type``이 **활성 연료 종류인지** 확인한다 (`#1332`).
+
+    종전에는 검사가 없어 ``fk_vessel_default_fuel`` 위반이 그대로 올라와 **500**이
+    됐다 — 사용자가 고칠 수 있는 입력인데 「서버 오류」로 보였다. 같은 파일의
+    ``ship_type``(VAL-004)은 처음부터 422였다.
+    """
+    if code is None:
+        return
+    rows = await param_repo.get_fuel_types_by_codes(session, [code])
+    if code not in rows:
+        raise ValidationError(
+            f"알 수 없는 연료 종류입니다: {code}",
+            field="default_fuel_type",
+            field_label="기본 연료",
+        )
+
+
 async def create_vessel(
     session: AsyncSession,
     *,
@@ -193,6 +209,8 @@ async def create_vessel(
             field="ship_type",
             field_label="선종",
         )
+
+    await _require_fuel_type(session, default_fuel_type)
 
     existing = await vessel_repo.find_active_by_imo(session, imo_number)
     if existing is not None:
@@ -283,6 +301,7 @@ async def update_vessel(
             specs_changed = True
         vessel.deadweight = deadweight
     if default_fuel_type is not None:
+        await _require_fuel_type(session, default_fuel_type)
         vessel.default_fuel_type = default_fuel_type
     if reference_speed_kn is not None:
         vessel.reference_speed_kn = reference_speed_kn
@@ -312,7 +331,19 @@ async def update_vessel(
         await calc_run_repo.mark_needs_recalc(session, vessel.id)
 
     await session.commit()
+    await _refresh_updated_at(session, vessel)
     return to_dict(vessel)
+
+
+async def _refresh_updated_at(session: AsyncSession, vessel) -> None:
+    """``updated_at``을 DB에서 다시 읽는다 (`#1350`).
+
+    `049`가 열 속성 ``ON UPDATE CURRENT_DATETIME``으로 **DB가** 이 값을 갱신하는데,
+    ORM 쪽에는 ``server_onupdate``가 없고 세션이 ``expire_on_commit=False``라 커밋 뒤에도
+    **메모리에 남은 갱신 전 값**이 그대로 응답에 실렸다. 화면이 지금 이 값을 그리지는
+    않지만, 응답 계약(`API_SPEC §3`)이 말하는 것은 **저장된 값**이다.
+    """
+    await session.refresh(vessel, attribute_names=["updated_at"])
 
 
 async def delete_vessel(
@@ -506,4 +537,5 @@ async def update_vessel_position(
         )
 
     await session.commit()
+    await _refresh_updated_at(session, vessel)
     return to_dict(vessel)

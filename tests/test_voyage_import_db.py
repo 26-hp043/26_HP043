@@ -239,9 +239,10 @@ async def test_error_points_at_the_row_the_user_sees(session, vessel_id):
         ),
     )
 
-    assert result["errors"] == [
-        {"row": 3, "field": "planned_distance_nm", "message": "0보다 커야 합니다."}
-    ]
+    # 이 검사가 지키는 것은 **행 번호**다 (`AGENTS §4.6` — 표시 문구가 아니라 성질을
+    # 단언한다). 문구 자체는 `#1329`에서 JSON 경로와 한 틀로 모았고
+    # `tests/test_validation_message_canon_sync.py`가 정본과 대조한다.
+    assert [(e["row"], e["field"]) for e in result["errors"]] == [(3, "planned_distance_nm")]
 
 
 @pytest.mark.asyncio

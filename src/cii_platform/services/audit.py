@@ -15,6 +15,44 @@ from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import audit_log as audit_repo
 
+#: 저장소가 실제로 남기는 ``audit_log.action`` 값 (`#1343`).
+#:
+#: **한 곳에 모아 두는 이유** — 종전에는 함수마다 문자열이 박혀 있어 `DB_SCHEMA §2.14`의
+#: 목록과 갈려도 아무것도 깨지지 않았다. 실제로 **5개가 문서에 없고 4개는 문서에만**
+#: 있었다(`PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT`). `#1241`(감사 로그
+#: 조회 화면)이 그 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.**
+#:
+#: 대부분은 이 모듈이 남기지만 ``PARAMETER_IMPORT``는 `services/parameter_import.py`가
+#: 직접 넣는다. 값의 **정의**는 여기 한 곳에 둔다 — 쓰는 자리가 갈려도 목록은 하나여야
+#: `DB_SCHEMA §2.14`와 대조할 수 있다.
+#:
+#: ⚠️ ``DB_BACKUP``은 여기 없다 — `db/migration_guard.py`가 남기며, 서비스 계층을 거치지
+#: 않는다(마이그레이션 실행 중이라 세션이 다르다). 문서 목록에는 함께 적는다.
+AUDIT_ACTIONS: frozenset[str] = frozenset(
+    {
+        "LOGIN_SUCCESS",
+        "LOGIN_FAILURE",
+        "LOGOUT",
+        "PASSWORD_CHANGE",
+        "ACCOUNT_DELETE",
+        "ROLE_CHANGE",
+        "CALCULATION_RUN",
+        "VOYAGE_CONFIRM",
+        # `#1328` — 확정 뒤 **정정·보관** 전환. `PRD §8.1.1`·`API_SPEC §3.5`가
+        # 「audit log 필수」로 정한 둘이며, `#1343`이 이 자리를 비워 두고 이 이슈를
+        # 가리켰다(계획값을 목록에 미리 적지 않는다).
+        "VOYAGE_TRANSITION",
+        "CHAT_MESSAGE",
+        "CHAT_TOOL_CALL",
+        "PARAMETER_IMPORT",
+    }
+)
+
+#: 저장소가 실제로 쓰는 ``audit_log.entity_type`` 값 (`#1343`).
+AUDIT_ENTITY_TYPES: frozenset[str] = frozenset(
+    {"app_user", "calculation_run", "chat_session", "voyage"}
+)
+
 if TYPE_CHECKING:
     from uuid import UUID
 
@@ -159,7 +197,7 @@ async def record_calculation_run(
     """계산 실행 — TECH_SPEC §13.1 필드 표를 그대로 ``details``에 옮긴다.
 
     ``details_extra``는 §13.1 표에 **덧붙이는** 구분 표식이다 (#869). 재현 검증
-    (``§6.4 reproduce``)은 새 ``calculation_run`` 행을 만들지 않고 원본의
+    (``API_SPEC §6.4`` reproduce)은 새 ``calculation_run`` 행을 만들지 않고 원본의
     ``run_id``를 그대로 쓰므로, 표식이 없으면 **원본 실행과 구분되지 않는다.**
     같은 스트림에 변형을 플래그로 구분하는 것은 §13.1 자신의 방식이다 — 스텁
     dev-login이 ``dev_login`` 플래그로 구분된다.
@@ -222,6 +260,54 @@ async def record_voyage_confirm(
         details={
             "from_status": from_status,
             "to_status": "CONFIRMED",
+            "annual_inclusion_policy": annual_inclusion_policy,
+        },
+        ip_address=ip_address,
+    )
+
+
+async def record_voyage_transition(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    voyage_id: UUID,
+    from_status: str,
+    to_status: str,
+    annual_inclusion_policy: str,
+    ip_address: str | None = None,
+) -> None:
+    """확정 뒤의 상태 전환 — `PRD §8.1.1`·`API_SPEC §3.5`가 「audit log 필수」로 정한 둘.
+
+    ## 왜 이 둘만인가
+
+    `CONFIRMED`는 **되돌릴 수 없는 선언**이고 그 시점의 실적이 연말 DCS 보고의
+    근거가 된다(:func:`record_voyage_confirm`). 그 선언을 **되돌리거나 닫는** 두
+    전환이 여기 해당한다.
+
+    * ``CONFIRMED → COMPLETED`` — 오류 정정 목적만 허용(`PRD §8.1.1`)
+    * ``CONFIRMED → ARCHIVED`` — 보관
+
+    기록이 없으면 **확정된 실적을 되돌려 고친 뒤 다시 확정**했을 때 로그에는
+    「확정」 두 건만 남고 **누가 언제 되돌렸는지**가 사라진다. 그 공백이 바로
+    감사 로그가 있어야 하는 이유다.
+
+    ⚠️ **다른 전환은 여전히 기록하지 않는다.** `PLANNED → IN_PROGRESS` 등은
+    되돌릴 수 있고 정본이 지목하지도 않았다 — 기록 대상을 넓히는 것은 감사 로그를
+    늘리는 일이 아니라 **무엇이 중요한지를 흐리는 일**이다(`record_voyage_confirm`의
+    판단 그대로).
+
+    종전에는 `TECH_SPEC §13.1`(「항차 확정」 하나)만 근거로 삼아 확정만 기록했다.
+    `AGENTS §3.1`상 **`PRD` > `TECH_SPEC`**이므로 상위 정본에 맞춘다 (`#1328`).
+    """
+    await audit_repo.insert_event(
+        session,
+        action="VOYAGE_TRANSITION",
+        user_id=user_id,
+        entity_type="voyage",
+        entity_id=voyage_id,
+        details={
+            "from_status": from_status,
+            "to_status": to_status,
             "annual_inclusion_policy": annual_inclusion_policy,
         },
         ip_address=ip_address,

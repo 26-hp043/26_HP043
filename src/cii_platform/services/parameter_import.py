@@ -236,7 +236,7 @@ def _parse_regulation_year(row: dict[str, str]) -> dict[str, object]:
     if not _YEAR_MIN <= year <= _YEAR_MAX:
         raise RowError("year", f"규정연도는 {_YEAR_MIN}~{_YEAR_MAX} 범위여야 합니다.")
     z = _numeric(row, "z_factor_percent", spec)
-    if z < 0:  # chk_z_factor_nonneg(046) — 2023년의 0은 유효값이다
+    if z < 0:  # chk_z_factor_nonneg(046) — 0도 형식상 유효하다(2019 대비 감축 없음 · #1347)
         raise RowError("z_factor_percent", "Z-factor는 음수일 수 없습니다.")
     return {
         "key": (year,),

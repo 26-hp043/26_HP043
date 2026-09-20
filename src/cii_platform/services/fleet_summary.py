@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import resolve_transport_capacity
+from cii_platform.calc.precision import layer1_context
 from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
@@ -197,6 +198,7 @@ def compute_days_to_target(
     window_days: int = RECENT_WINDOW_DAYS,
     underway_state: str | None,
     as_of: datetime,
+    regulation_year: int,
 ) -> DaysToTarget:
     """D등급 진입까지 남은 일수 (#350 · 산식 정정 #431).
 
@@ -234,6 +236,13 @@ def compute_days_to_target(
     :param past: ``as_of − window_days`` 시점의 누적. ``None``이면 그 시점이 연초
         이전이라는 뜻이므로 **연초(누적 0)** 로 본다.
     """
+    # **끝난 규제연도에는 「앞으로 n일」이 없다** (`#1349`). 종전에는 남은 일수를
+    # `as_of`의 연도로만 재서, 2026-01-10에 `regulation_year=2025`를 조회하면
+    # 「D 진입까지 70일」이 나왔다(실측) — **이미 끝난 해**에 대한 예측이다.
+    # 화면은 연도를 보내지 않아 API 직접 호출에서만 닿지만, 답 자체가 성립하지 않는다.
+    if regulation_year < as_of.year:
+        return DaysToTarget(None, REASON_NOT_THIS_YEAR)
+
     if not ytd.data_available or ytd.attained_cii is None or ytd.rating is None:
         return DaysToTarget(None, REASON_NO_DATA)
 
@@ -249,8 +258,44 @@ def compute_days_to_target(
     if boundary is None or distance_now is None or distance_now <= 0:
         return DaysToTarget(None, REASON_NO_DATA)
 
+    result = _days_to_target_arithmetic(
+        attained_now=ytd.attained_cii,
+        distance_now=distance_now,
+        past=past,
+        boundary=boundary,
+        window_days=window_days,
+    )
+    if result.days is None:
+        return result
+
+    if result.days > _days_left_in_year(as_of, regulation_year):
+        return DaysToTarget(None, REASON_NOT_THIS_YEAR)
+
+    return result
+
+
+@layer1_context
+def _days_to_target_arithmetic(
+    *,
+    attained_now: Decimal,
+    distance_now: Decimal,
+    past: YtdCiiOutput | None,
+    boundary: Decimal,
+    window_days: int,
+) -> DaysToTarget:
+    """산식의 **계산 부분만** — Layer 1 컨텍스트 안에서 한 번에 낸다 (`#1372`).
+
+    ``area_now``·``area_past``는 Layer 1 값(``attained_cii``)에서 **새로 만드는 값**이다.
+    컨텍스트 밖에서 곱하면 기본 정밀도(``prec=28``)로 잘려, 이어지는 뺄셈·나눗셈이 전부
+    그 값 위에서 돈다(`TECH_SPEC §1.2.1` — 「Layer 1 값에서 새 값을 만드는 코드는 반드시
+    진입점 안에 둔다」). 정수 일수로 내려오는 결과에서는 드러나지 않지만, **드러나지
+    않는다는 것이 맞다는 뜻은 아니다.**
+
+    연도 경계 판정(:func:`_days_left_in_year`)은 달력 계산이라 밖에 둔다 — 컨텍스트는
+    Layer 1 산출의 계약이지 모든 코드의 정책이 아니다.
+    """
     # A = attained × Dt (= M / W). 누적 배출을 수송능력으로 나눈 값이다.
-    area_now = ytd.attained_cii * distance_now
+    area_now = attained_now * distance_now
 
     if past is not None and past.data_available and past.attained_cii is not None:
         distance_past = past.total_distance_nm or Decimal(0)
@@ -278,17 +323,16 @@ def compute_days_to_target(
     if numerator <= 0:  # pragma: no cover - 등급 판정에서 이미 걸러진다
         return DaysToTarget(None, REASON_ALREADY_AT_OR_BELOW)
 
-    days = int(Decimal(window_days) * numerator / denominator)
-
-    if days > _days_left_in_year(as_of):
-        return DaysToTarget(None, REASON_NOT_THIS_YEAR)
-
-    return DaysToTarget(max(days, 0), None)
+    return DaysToTarget(max(int(Decimal(window_days) * numerator / denominator), 0), None)
 
 
-def _days_left_in_year(as_of: datetime) -> int:
-    """올해 남은 일수. 규제연도는 역년(calendar year)이다 (`PRD §3.2`)."""
-    year_end = datetime(as_of.year, 12, 31, 23, 59, 59, tzinfo=as_of.tzinfo)
+def _days_left_in_year(as_of: datetime, regulation_year: int) -> int:
+    """**그 규제연도의** 남은 일수. 규제연도는 역년(calendar year)이다 (`PRD §3.2`).
+
+    ``as_of``의 연도가 아니라 **조회 대상 연도**를 본다 (`#1349`). 앞선 해를 조회하면
+    호출부가 이미 `NOT_THIS_YEAR`로 끊고, 다음 해를 조회하면 그 해 전체가 남는다.
+    """
+    year_end = datetime(regulation_year, 12, 31, 23, 59, 59, tzinfo=as_of.tzinfo)
     return max((year_end - as_of).days, 0)
 
 
@@ -670,7 +714,8 @@ async def get_fleet_summary(
     year = regulation_year if regulation_year is not None else resolved.year
     if sort not in FLEET_SORT_KEYS:
         raise ValidationError(
-            f"sort는 {' · '.join(FLEET_SORT_KEYS)} 중 하나여야 합니다: {sort}",
+            # 필드명 원문(`sort`)이 아니라 라벨로 부른다 (`API_SPEC §1.3.2` · `#1329`).
+            f"정렬 기준은 {' · '.join(FLEET_SORT_KEYS)} 중 하나여야 합니다: {sort}",
             field="sort",
             field_label="정렬",
         )
@@ -732,6 +777,7 @@ async def get_fleet_summary(
             past=derived.past,
             underway_state=vessel.underway_state,
             as_of=resolved,
+            regulation_year=year,
         )
 
         rows.append(
@@ -855,11 +901,11 @@ def _decode_fleet_cursor(token: str, sort: str) -> int:
         offset, cursor_sort = int(payload["o"]), str(payload["s"])
     except (ValueError, KeyError, TypeError, UnicodeError):
         raise ValidationError(
-            "cursor 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
+            "커서 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
         ) from None
     if offset < 0 or cursor_sort != sort:
         raise ValidationError(
-            "cursor가 이 정렬의 것이 아닙니다. 첫 페이지부터 다시 불러오세요.",
+            "커서가 이 정렬의 것이 아닙니다. 첫 페이지부터 다시 불러오세요.",
             field="cursor",
             field_label="커서",
         )
