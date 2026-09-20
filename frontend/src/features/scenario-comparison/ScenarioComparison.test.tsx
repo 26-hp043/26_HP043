@@ -597,7 +597,8 @@ describe('선택 입력이 요청까지 도달한다 (#892)', () => {
     fireEvent.change(screen.getByLabelText(/감속 속력/), { target: { value: '0.5' } })
     await clickCompare()
 
-    expect(await screen.findByText(/감속 속력은\(는\) 1 이상이어야 합니다\./)).toBeTruthy()
+    // 조사는 받침으로 고른다 — 「속력」은 받침이 있어 「은」이다 (`#1369`).
+    expect(await screen.findByText(/감속 속력은 1 이상이어야 합니다\./)).toBeTruthy()
     expect(
       fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare')),
     ).toBe(false)
