@@ -45,6 +45,8 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+import sqlalchemy as sa
+
 from cii_platform.calc.annual_simulation import (
     MAX_REMAINING_VOYAGES,
     MIN_FEEDBACK_SAMPLE,
@@ -1695,6 +1697,12 @@ async def _load_run(session: AsyncSession, simulation_id: UUID):
                 calculation_run_id=UuidText(),
                 vessel_id=UuidText(),
                 snapshot_id=UuidText(),
+                # 같은 이유로 **불리언에도 타입을 붙인다** (`#1349`). CUBRID dialect가
+                # `Boolean`을 `SMALLINT`로 내리므로, 타입 없이 읽으면 `0`/`1` 정수가 올라온다.
+                # 그 값이 `_resolve_feedback(requested=…)`을 거쳐 응답에 그대로 실려,
+                # 실행·조회는 `true`/`false`인데 **재현(`§6.4`)만 `0`/`1`**이 된다.
+                # 화면은 truthiness라 보이는 영향이 없어 더 오래 남는다.
+                apply_feedback_factor=sa.Boolean(),
             ),
             {"id": simulation_id},
         )

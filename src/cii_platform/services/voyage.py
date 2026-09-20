@@ -99,6 +99,7 @@ async def create_voyage(
     notes: str | None,
     created_from: str = "MANUAL",
     planned_distance_source: str | None = None,
+    commit: bool = True,
 ) -> dict[str, object]:
     """항차를 생성한다 (API_SPEC §3.3, #53). 성공 시 201.
 
@@ -114,6 +115,10 @@ async def create_voyage(
     ``PRD §15.2``). ``created_from``이 「이 항차가 어느 경로로 들어왔나」라면 이것은 「그
     숫자가 좌표 추정인가 직접 입력인가」이고, 기본은 ``None`` = 「모른다」다 — 서버는
     호출자가 그 숫자를 어떻게 얻었는지 알 수 없으므로 아는 척하지 않는다.
+
+    :param commit: ``False``면 **커밋하지 않고 flush만** 한다 (`#1349`). 시나리오 채택의
+        ``CREATE_NEW_VOYAGE``가 새 항차를 만든 뒤 채택 표시·재계산 표시를 이어서 쓰는데,
+        여기서 커밋해 버리면 **뒤 단계가 실패했을 때 채택 기록 없는 DRAFT 항차가 남는다.**
     """
     # 연료 CF 조회 — 모든 fuel_type이 active여야 한다.
     codes = [fu["fuel_type"] for fu in fuel_uses]
@@ -174,7 +179,12 @@ async def create_voyage(
             source=fu["source"],
         )
 
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        # 호출부가 **같은 트랜잭션 안에서** 뒤 작업을 이어 간다 (`#1349`). 행은 보여야
+        # 하므로 flush만 한다 — 커밋은 그쪽이 마지막에 한다.
+        await session.flush()
 
     fuel_use_rows = await voyage_repo.list_fuel_uses(session, voyage.id)
     return to_dict(voyage, fuel_use_rows)

@@ -198,6 +198,7 @@ def compute_days_to_target(
     window_days: int = RECENT_WINDOW_DAYS,
     underway_state: str | None,
     as_of: datetime,
+    regulation_year: int,
 ) -> DaysToTarget:
     """D등급 진입까지 남은 일수 (#350 · 산식 정정 #431).
 
@@ -235,6 +236,13 @@ def compute_days_to_target(
     :param past: ``as_of − window_days`` 시점의 누적. ``None``이면 그 시점이 연초
         이전이라는 뜻이므로 **연초(누적 0)** 로 본다.
     """
+    # **끝난 규제연도에는 「앞으로 n일」이 없다** (`#1349`). 종전에는 남은 일수를
+    # `as_of`의 연도로만 재서, 2026-01-10에 `regulation_year=2025`를 조회하면
+    # 「D 진입까지 70일」이 나왔다(실측) — **이미 끝난 해**에 대한 예측이다.
+    # 화면은 연도를 보내지 않아 API 직접 호출에서만 닿지만, 답 자체가 성립하지 않는다.
+    if regulation_year < as_of.year:
+        return DaysToTarget(None, REASON_NOT_THIS_YEAR)
+
     if not ytd.data_available or ytd.attained_cii is None or ytd.rating is None:
         return DaysToTarget(None, REASON_NO_DATA)
 
@@ -260,7 +268,7 @@ def compute_days_to_target(
     if result.days is None:
         return result
 
-    if result.days > _days_left_in_year(as_of):
+    if result.days > _days_left_in_year(as_of, regulation_year):
         return DaysToTarget(None, REASON_NOT_THIS_YEAR)
 
     return result
@@ -318,9 +326,13 @@ def _days_to_target_arithmetic(
     return DaysToTarget(max(int(Decimal(window_days) * numerator / denominator), 0), None)
 
 
-def _days_left_in_year(as_of: datetime) -> int:
-    """올해 남은 일수. 규제연도는 역년(calendar year)이다 (`PRD §3.2`)."""
-    year_end = datetime(as_of.year, 12, 31, 23, 59, 59, tzinfo=as_of.tzinfo)
+def _days_left_in_year(as_of: datetime, regulation_year: int) -> int:
+    """**그 규제연도의** 남은 일수. 규제연도는 역년(calendar year)이다 (`PRD §3.2`).
+
+    ``as_of``의 연도가 아니라 **조회 대상 연도**를 본다 (`#1349`). 앞선 해를 조회하면
+    호출부가 이미 `NOT_THIS_YEAR`로 끊고, 다음 해를 조회하면 그 해 전체가 남는다.
+    """
+    year_end = datetime(regulation_year, 12, 31, 23, 59, 59, tzinfo=as_of.tzinfo)
     return max((year_end - as_of).days, 0)
 
 
@@ -764,6 +776,7 @@ async def get_fleet_summary(
             past=derived.past,
             underway_state=vessel.underway_state,
             as_of=resolved,
+            regulation_year=year,
         )
 
         rows.append(
