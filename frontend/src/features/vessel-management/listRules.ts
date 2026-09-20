@@ -223,6 +223,40 @@ export function blockedReasons(vessel: Vessel): BlockedReason[] {
  * 화면에서는 **이동시키지 않는다** — 사용자가 스스로 이 화면에 온 것이므로 목록이
  * 비었다는 사실 자체가 답이다.
  */
+/**
+ * 제원이 미비한 선박인가 (`#1424`).
+ *
+ * **정렬 `gaps`와 같은 판정을 쓴다** — 둘이 갈리면 「제원 미비 먼저」로 정렬해 위에
+ * 올라온 배가 「제원 미비」 필터에서는 빠지는 일이 생긴다. 같은 화면의 두 컨트롤이
+ * 같은 말을 다르게 세는 셈이다.
+ *
+ * 축을 모르는 항목은 `specProgress`가 분모에서 이미 뺀다 — 여기서 다시 판단하지
+ * 않는다.
+ */
+export function hasSpecGap(vessel: Vessel): boolean {
+  const { filled, total } = specProgress(vessel)
+  return filled < total
+}
+
+/** 칩에 적는 수. 불러온 선박 기준이다 — 서버는 전체 수를 주지 않는다(`#1102` ⑶). */
+export function specGapCount(vessels: readonly Vessel[]): number {
+  return vessels.filter(hasSpecGap).length
+}
+
+/**
+ * 걸러진 상태에서 **지금 보이는 것이 무엇인지** 밝힌다 (`#1424`).
+ *
+ * 제목은 계속 「불러온 n척」을 말하므로(그것이 불러오기의 사실이다), 걸러 놓은 채로
+ * 두면 제목과 행 수가 어긋나 보인다. 한 줄이 그 간극을 받는다.
+ *
+ * 0척일 때 빈 목록만 남기지 않는다 — **되돌아가는 방법**을 함께 적는다.
+ */
+export function specGapFilterNotice(shown: number): string {
+  return shown === 0
+    ? '제원이 미비한 선박이 없습니다. 칩을 다시 누르면 전체가 나옵니다.'
+    : `제원 미비 ${shown}척만 보입니다.`
+}
+
 export const EMPTY_MESSAGE =
   '등록된 선박이 없습니다. 선박을 등록하면 대시보드·CII 예측에서 선택할 수 있습니다.'
 

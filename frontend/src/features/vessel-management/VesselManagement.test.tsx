@@ -583,3 +583,70 @@ describe('제원 경고 — 열이 말한 것을 반복하지 않는다 (#1277)'
     expect(hidden.join('')).toContain('기준속도 · 기준 일일 연료소모량 없음')
   })
 })
+
+/**
+ * 제원 미비 필터 칩 (`#1424`).
+ *
+ * 종전에는 미비 선박만 보려면 정렬밖에 없었다. 칩을 더했으되, **누를 수 있다는 것만으로
+ * 끝나지 않는다** — 걸러 놓은 상태가 화면에 남고, 0척이어도 막다른 곳이 아니어야 한다.
+ */
+describe('제원 미비 필터 칩 (#1424)', () => {
+  /** A·B는 기준속도·일일 연료가 비어 있다. 여기에 제원이 다 찬 배를 하나 더한다. */
+  const FULL = {
+    ...rawVessel('03', '가득호'),
+    reference_speed_kn: 14,
+    reference_daily_foc_ton: 20,
+  }
+
+  const chip = () => screen.getByTestId('spec-gap-filter')
+  const names = () =>
+    Array.from(document.querySelectorAll('li.vm__item .vm__name')).map((el) => el.textContent)
+
+  it('누르면 미비 선박만 남고, 다시 누르면 전체가 나온다', async () => {
+    stubFetch({ 'GET /vessels': jsonResponse({ data: [A, B, FULL] }) })
+    renderScreen()
+    await screen.findByText('알파호')
+
+    expect(chip().textContent).toContain('2')
+    expect(chip().getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(chip())
+
+    expect(chip().getAttribute('aria-pressed')).toBe('true')
+    expect(names()).not.toContain('가득호')
+    expect(names()).toContain('알파호')
+
+    fireEvent.click(chip())
+
+    expect(chip().getAttribute('aria-pressed')).toBe('false')
+    expect(names()).toContain('가득호')
+  })
+
+  it('걸러 놓은 상태를 화면이 말한다 — 제목은 계속 불러온 수를 말하기 때문이다', async () => {
+    stubFetch({ 'GET /vessels': jsonResponse({ data: [A, B, FULL] }) })
+    renderScreen()
+    await screen.findByText('알파호')
+
+    fireEvent.click(chip())
+
+    // 제목은 불러오기의 사실이라 그대로다 — 그 간극을 한 줄이 받는다.
+    expect(screen.getByText(/선박 3척/)).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('2')
+  })
+
+  it('0척이어도 칩이 남아 있고, 눌러도 막다른 곳이 아니다', async () => {
+    stubFetch({ 'GET /vessels': jsonResponse({ data: [FULL] }) })
+    renderScreen()
+    await screen.findByText('가득호')
+
+    // 자리가 사라지면 「그런 기능이 없다」로 읽힌다. 비활성도 아니다 — §14.
+    expect(chip().textContent).toContain('0')
+    expect((chip() as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.click(chip())
+
+    expect(names()).toEqual([])
+    // 빈 목록만 남기지 않는다 — 되돌아가는 길을 문장이 말한다.
+    expect(screen.getByRole('status').textContent).toMatch(/다시 누르/)
+  })
+})

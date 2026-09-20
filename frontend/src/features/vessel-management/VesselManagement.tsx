@@ -34,13 +34,18 @@ import {
   dailyFuelCell,
   deleteConfirmMessage,
   emptyMessage,
+  hasSpecGap,
   listTitle,
   referenceSpeedCell,
   saveFailureNotice,
   shipTypeLabel,
   sortVessels,
+  specGapCount,
+  specGapFilterNotice,
   type VesselSortKey,
 } from './listRules'
+import { Check } from 'lucide-react'
+import { Icon } from '../../components/Icon'
 import { VesselManagementError } from './provider'
 import { createVesselManagementProvider } from './providerSelection'
 import { isOffice, useAuthUser } from '../../auth/session'
@@ -118,6 +123,20 @@ export function VesselManagement() {
    */
   const [sortKey, setSortKey] = useState<VesselSortKey>('gaps')
   const sorted = useMemo(() => sortVessels(vessels, sortKey), [vessels, sortKey])
+  /*
+   * 「제원 미비만」 필터 (#1424). 종전에는 미비 선박만 보려면 **정렬밖에** 없었다 —
+   * 「제원 미비 먼저」는 위로 올릴 뿐이라, 20척을 불러온 화면에서 어디까지가 미비인지
+   * 세어 가며 읽어야 했다.
+   *
+   * 정렬과 **같은 판정**(`hasSpecGap`)을 쓴다. 갈리면 정렬로 맨 위에 온 배가 필터에서
+   * 빠지는 일이 생긴다.
+   */
+  const [specGapOnly, setSpecGapOnly] = useState(false)
+  const gapCount = useMemo(() => specGapCount(vessels), [vessels])
+  const visible = useMemo(
+    () => (specGapOnly ? sorted.filter(hasSpecGap) : sorted),
+    [sorted, specGapOnly],
+  )
 
   /** 삭제 응답을 기다리는 선박들. 한 칸이면 먼저 끝난 삭제가 다른 배의 표시를 푼다 (#1102 ⑵). */
   const [deletingIds, setDeletingIds] = useState<ReadonlySet<string>>(() => new Set())
@@ -336,6 +355,40 @@ export function VesselManagement() {
               전체를 정렬한 것처럼 보이면 21척째부터 조용히 어긋난다.
             */}
             <h2 className="card__title">{listTitle(vessels.length, hasMore)}</h2>
+            {/*
+              칩과 정렬을 **한 묶음으로** 오른쪽에 둔다. `.card__head`가
+              `space-between`이라 자식이 셋이면 칩이 가운데로 밀려 제목과 정렬 사이에
+              혼자 떠 보인다.
+            */}
+            <div className="vm__list-tools">
+            {/*
+              제원 미비 필터 칩 (#1424).
+
+              **0척이어도 숨기지 않고, 비활성으로도 두지 않는다.** 자리가 사라지면
+              「그런 기능이 없다」로 읽히고(사이드바 비활성 항목·상단바 종 버튼이 같은
+              판단이다), `disabled`로 두면 초점 순서에서 빠져 **있다는 사실까지**
+              사라진다(`§14`). 0척에서 눌러도 막다른 곳이 아니다 — 아래 한 줄이
+              없다는 사실과 되돌아가는 방법을 말한다.
+
+              `#1288`(0건에 위험색을 달지 않는다)은 이 칩에서 **성립하지 않는다** —
+              색으로 말하는 것이 심각도가 아니라 **눌렸는가**뿐이기 때문이다. 근거는
+              `VesselManagement.css`에 적었다.
+
+              눌린 상태를 색으로만 말하지 않는다(`§0.2` 제약 2) — 체크 아이콘이
+              함께 붙고, 보조 기술에는 `aria-pressed`가 같은 것을 말한다.
+            */}
+            <button
+              type="button"
+              className={specGapOnly ? 'vm__gap-filter vm__gap-filter--on' : 'vm__gap-filter'}
+              aria-pressed={specGapOnly}
+              onClick={() => setSpecGapOnly((was) => !was)}
+              data-testid="spec-gap-filter"
+            >
+              {specGapOnly ? (
+                <Icon glyph={Check} className="vm__gap-filter-check" size="inline" />
+              ) : null}
+              제원 미비 {gapCount}
+            </button>
             <label className="sort">
               <span className="sr-only">정렬 기준</span>
               <select
@@ -350,9 +403,21 @@ export function VesselManagement() {
                 ))}
               </select>
             </label>
+            </div>
           </div>
 
           {hasMore && <p className="vm__partial">{LOADED_PARTIAL_HINT}</p>}
+
+          {/*
+            걸러 놓은 채로 두면 제목(「선박 20척」)과 행 수가 어긋나 보인다. 제목은
+            **불러오기의 사실**이라 그대로 두고, 이 줄이 그 간극을 받는다.
+            `role="status"`로 두어 눌렀다는 사실이 낭독에도 닿게 한다.
+          */}
+          {specGapOnly && (
+            <p className="vm__partial" role="status">
+              {specGapFilterNotice(visible.length)}
+            </p>
+          )}
 
           <ul className="vm__list">
             {/*
@@ -373,7 +438,7 @@ export function VesselManagement() {
               <span />
             </li>
 
-            {sorted.map((vessel) => {
+            {visible.map((vessel) => {
               const capacity = capacityCell(vessel)
               const blocked = blockedReasons(vessel)
               const isEditing = edit !== null && edit.id === vessel.id
