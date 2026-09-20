@@ -166,9 +166,51 @@ export function createApiFleetReductionProvider(
       })
       return toPlan(res.data as Json)
     },
+    /**
+     * 저장한 계획 목록 — **페이지를 끝까지 순회한다** (`#1395`).
+     *
+     * `#1367`이 서버에 커서 페이지네이션을 붙인 뒤(기본 20 · 최대 100) 이 화면은
+     * **첫 페이지만 받고 그 사실을 말하지 않았다** — 21번째 계획이 셀렉트에 뜨지
+     * 않았고, 화면은 그것이 전부인 것처럼 보였다.
+     *
+     * ## 왜 「더 보기」가 아니라 전부 부르는가
+     *
+     * 이 자리는 `<select>`다. `reports/apiProvider.listVoyages`(`#627`)가 **같은 모양의
+     * 셀렉트**에서 같은 판단을 했다 — 「더 보기」·검색을 넣으려면 컴포넌트를 다시
+     * 만들어야 하고, 그것은 이 이슈의 범위가 아니다. 셀렉트는 한 번 열린다.
+     *
+     * ## 무한 루프를 페이지 상한으로 막지 않는다
+     *
+     * 임의의 상한을 두면 그 너머를 **조용히 자른다** — 화면은 전부 보여 준다고
+     * 주장하면서 일부를 감춘다. 대신 **커서가 전진하지 않으면 중단**한다: 서버가
+     * 같은 커서를 다시 주는 것은 계약 위반이고, 그때만 루프가 무한해진다.
+     */
     async list() {
-      const res = await call('/fleet/reduction-plans', { method: 'GET' })
-      return ((res.data as Json[]) ?? []).map(toPlan)
+      const rows: Json[] = []
+      const seen = new Set<string>()
+      let cursor: string | null = null
+
+      for (;;) {
+        const query = cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`
+        const res = await call(`/fleet/reduction-plans${query}`, { method: 'GET' })
+        rows.push(...((res.data as Json[]) ?? []))
+
+        const meta = (res as { meta?: { next_cursor?: unknown; has_more?: unknown } }).meta
+        const next = meta?.next_cursor
+        // 커서가 없거나·빈 문자열이거나·이미 지나온 값이면 멈춘다.
+        if (
+          meta?.has_more !== true ||
+          typeof next !== 'string' ||
+          next === '' ||
+          seen.has(next)
+        ) {
+          break
+        }
+        seen.add(next)
+        cursor = next
+      }
+
+      return rows.map(toPlan)
     },
   }
 }
