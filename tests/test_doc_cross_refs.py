@@ -386,3 +386,25 @@ def test_변경_이력에_PR_번호가_비어_있지_않다() -> None:
         "`AGENTS §4.1`이 「PR 번호는 **사전에 확정**된다」고 적는다: "
         f"{offenders}"
     )
+
+
+def test_사이드바_순서의_소관_절이_정확하다() -> None:
+    """`DESIGN_SYSTEM §7.2`가 **사이드바 순서를 소유한 절**을 정확히 가리킨다 (`#1341`).
+
+    ## 왜 따로 보나
+
+    위 검사(`test_절_참조가_전부_실재한다`)는 **그 절이 있는가**만 본다. `§2.2`도
+    `§2.2.1`도 둘 다 실재하므로, **틀린 쪽을 가리켜도 통과한다** — 실제로 `§2.2`(화면 ↔
+    계층 매핑)를 가리킨 채 남아 있었고, 그 절에는 사이드바 순서가 없다.
+
+    읽는 사람은 위임받은 절로 갔다가 **찾는 표가 없는 자리**에 도착한다.
+    """
+    design = (_ROOT / "DESIGN_SYSTEM.md").read_text(encoding="utf-8")
+    uiflow = (_ROOT / "UIFLOW.md").read_text(encoding="utf-8")
+
+    owner_line = next(line for line in design.split("\n") if "사이드바 항목과 순서는" in line)
+
+    assert "UIFLOW §2.2.1" in owner_line, (
+        f"사이드바 순서의 소관 절을 잘못 가리킨다: {owner_line.strip()}"
+    )
+    assert "#### 2.2.1 사이드바 순서" in uiflow, "UIFLOW의 소관 절 제목이 바뀌었다"
