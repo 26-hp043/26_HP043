@@ -13,8 +13,11 @@ DB 없이 돈다 — 문서 모델을 손으로 만들어 **렌더러만** 본�
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import re
+import threading
+import time
 from datetime import UTC
 from pathlib import Path
 
@@ -1021,3 +1024,88 @@ def test_report_time_accepts_iso_string():
     from cii_platform.services.report import _local_time
 
     assert _local_time("2026-08-20T08:34:36.889061+00:00") == "2026-08-20 17:34:36 KST"
+
+
+# ── 렌더링은 스레드에서, 한 번에 하나만 (`#1363`) ────────────────────────────────
+#
+# ``write_pdf()``는 순수 CPU 작업이고 1초 안팎이 걸린다. ``async`` 라우트에서 그대로
+# 부르면 그 시간 동안 **이벤트 루프가 멈춰** 같은 워커의 다른 요청이 전부 밀린다
+# (감사 실측: 10 ms 틱이 최대 548 ms 정지). 아래는 실제 WeasyPrint를 부르지 않고
+# **같은 시간을 동기로 쓰는 가짜 렌더러**로 그 성질만 본다 — 렌더러·폰트가 없는
+# 환경에서도 돌아야 하고, 검사가 1초씩 늘어나서도 안 된다.
+
+
+async def _tick_gaps(stop: asyncio.Event, gaps: list[float]) -> None:
+    """10 ms마다 깨어나 **실제로 얼마 만에 깼는지**를 기록한다. 루프가 멈추면 그만큼 벌어진다."""
+    last = time.monotonic()
+    while not stop.is_set():
+        await asyncio.sleep(0.01)
+        now = time.monotonic()
+        gaps.append(now - last)
+        last = now
+
+
+async def test_rendering_does_not_block_the_event_loop(monkeypatch: pytest.MonkeyPatch):
+    """렌더링 중에도 이벤트 루프가 돈다 (`#1363`).
+
+    가짜 렌더러가 **동기로** 0.3초를 쓴다. 스레드로 내보내면 그동안 10 ms 틱이 계속
+    깨어나고, 루프에서 직접 부르면 한 번의 간격이 0.3초로 벌어진다.
+    """
+    from cii_platform.reports import pdf as pdf_module
+
+    def _slow_render(_html: str) -> bytes:
+        time.sleep(0.3)
+        return b"%PDF-fake"
+
+    monkeypatch.setattr(pdf_module, "render_pdf", _slow_render)
+
+    stop = asyncio.Event()
+    gaps: list[float] = []
+    ticker = asyncio.create_task(_tick_gaps(stop, gaps))
+    await asyncio.sleep(0.05)  # 틱이 자리를 잡을 때까지
+
+    rendered = await pdf_module.render_pdf_async("<html></html>")
+
+    stop.set()
+    await ticker
+
+    assert rendered == b"%PDF-fake"
+    # 루프에서 직접 부르면 여기서 한 번이 0.3초를 넘는다.
+    assert max(gaps) < 0.15, f"이벤트 루프가 {max(gaps):.3f}초 멈췄다 — 스레드로 나가지 않았다"
+    # 0.3초 동안 10 ms 틱이라면 최소 열 번은 깨어나야 한다(느린 CI를 감안해 넉넉히 잡았다).
+    assert len(gaps) >= 10, gaps
+
+
+async def test_renders_run_one_at_a_time(monkeypatch: pytest.MonkeyPatch):
+    """동시 상한은 **1**이다 (`#1363`).
+
+    스레드로 내보내는 목적은 루프를 풀어 주는 것이지 렌더링을 병렬로 돌리는 것이
+    아니다 — WeasyPrint는 거의 순수 파이썬이라 GIL을 놓지 않아, 동시에 돌리면 서로를
+    느리게 만들 뿐이다(실측: 4건 동시 8.12초 vs 줄 세우면 약 1.84초).
+    """
+    from cii_platform.reports import pdf as pdf_module
+
+    assert pdf_module.MAX_CONCURRENT_RENDERS == 1
+
+    running = 0
+    peak = 0
+    guard = threading.Lock()
+
+    def _counting_render(_html: str) -> bytes:
+        nonlocal running, peak
+        with guard:
+            running += 1
+            peak = max(peak, running)
+        time.sleep(0.05)
+        with guard:
+            running -= 1
+        return b"%PDF-fake"
+
+    monkeypatch.setattr(pdf_module, "render_pdf", _counting_render)
+
+    results = await asyncio.gather(
+        *(pdf_module.render_pdf_async("<html></html>") for _ in range(4))
+    )
+
+    assert all(r == b"%PDF-fake" for r in results)
+    assert peak == 1, f"동시에 {peak}건이 돌았다 — 상한이 걸리지 않았다"
