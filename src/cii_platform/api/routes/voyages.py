@@ -56,10 +56,18 @@ async def list_voyages_route(
     regulation_year: Annotated[
         int | None, Query(ge=2000, le=2100, description="기준연도 필터")
     ] = None,
+    annual_inclusion_policy: Annotated[
+        str | None, Query(description="연간 반영 정책 필터 (#1332)")
+    ] = None,
     limit: Annotated[int | None, Query(ge=1, description="페이지 크기")] = None,
     cursor: Annotated[str | None, Query(description="페이지네이션 커서")] = None,
 ) -> dict[str, object]:
-    """선박별 항차 목록을 조회한다 (API_SPEC §3.1)."""
+    """선박별 항차 목록을 조회한다 (API_SPEC §3.1).
+
+    ``annual_inclusion_policy``는 **`§3.1` 표에는 처음부터 있었는데 여기 선언이 없어
+    FastAPI가 조용히 버렸다** (`#1332`) — 문서대로 그 쿼리를 보낸 호출자는 필터가
+    걸린 줄 알고 전체 목록을 받았다.
+    """
     data, page_meta = await list_voyages(
         session,
         vessel_id,
@@ -67,6 +75,7 @@ async def list_voyages_route(
         cursor=cursor,
         status=status,
         regulation_year=regulation_year,
+        annual_inclusion_policy=annual_inclusion_policy,
     )
     return {"data": data, "meta": _meta(request, **page_meta)}
 

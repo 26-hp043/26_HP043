@@ -9,10 +9,12 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import parameters as param_repo
+from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import (
     ConflictError,
     NotFoundError,
+    ParameterError,
     StateTransitionError,
     ValidationError,
 )
@@ -79,6 +81,64 @@ def to_dict(voyage, fuel_uses: list) -> dict[str, object]:
     }
 
 
+def _require_enum(value: str | None, allowed: frozenset[str], *, field: str, label: str) -> None:
+    """목록 필터의 값을 열거 집합으로 본다 (`#1332`).
+
+    ⚠️ **빈 목록은 답이 아니다.** 값이 틀리면 맞는 행이 없어 200 + 빈 배열이 돌아오고,
+    화면에서는 「그런 항차가 없다」와 **같은 모양**이 된다. 선박 목록의 ``ship_type``은
+    처음부터 422였다 — 같은 저장소 안에서 두 경로가 갈려 있었다.
+    """
+    if value is None or value in allowed:
+        return
+    raise ValidationError(
+        f"{label}는 {' · '.join(sorted(allowed))} 중 하나여야 합니다: {value}",
+        field=field,
+        field_label=label,
+    )
+
+
+async def require_vessel(session: AsyncSession, vessel_id: UUID):
+    """선박이 **실재하고 살아 있는지** 확인한다 (`#1332`).
+
+    종전에는 이 검사가 없어 두 가지가 났다.
+
+    * 없는 UUID로 생성하면 ``fk_voyage_vessel`` 위반이 그대로 올라와 **500**이다 —
+      `API_SPEC §1.4`는 404다
+    * **삭제된 선박에 항차가 생겼다.** ``GET /vessels/{id}``는 404인데
+      ``GET /vessels/{id}/voyages``는 목록을 돌려주고 ``POST``는 201이었다
+
+    대조군은 정박 구간(``services/not_underway._require_vessel``)과 내보내기
+    (``services/data_export``)다 — 둘 다 처음부터 404를 냈다.
+
+    ⚠️ **``is_deleted``를 여기서 다시 보지 않는다.** ``vessel_repo.get_by_id``가 이미
+    ``is_deleted = 0``을 걸어(`DB_SCHEMA §2.1`의 partial 인덱스와 같은 조건) 삭제된
+    행은 ``None``으로 온다 — 한 번 더 쓰면 **도달할 수 없는 가지**가 되고, 읽는
+    사람에게 「여기서도 갈릴 수 있다」고 말하게 된다.
+    """
+    vessel = await vessel_repo.get_by_id(session, vessel_id)
+    if vessel is None:
+        raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
+    return vessel
+
+
+async def _require_regulation_year(session: AsyncSession, year: int | None) -> None:
+    """``regulation_year``가 규정 파라미터에 **실재하는지** 확인한다 — VAL-005 (`#1332`).
+
+    `API_SPEC §3.3`·`§3.4`가 *「주어지면 VAL-005로 검증한다」*고 적고
+    ``schemas/voyage.py``도 *「실재 여부(VAL-005)는 서비스가 본다」*고 적는데 **보는
+    자리가 없었다.** 스키마의 범위 검사(2019~2050)는 DB CHECK와 같은 폭이라
+    **seed에 없는 2031년 항차가 201로 저장**됐고, `INCLUDE_AS_PLAN` 전환까지 통과한
+    뒤 **CII 조회에서 409**가 나 사용자는 서버 문제로 읽었다.
+
+    상태 코드는 `API_SPEC §1.4`의 VAL-005 행 그대로 **409 `PARAMETER_ERROR`**다 —
+    사용자가 고칠 수 있는 입력이 아니라 **규정 파라미터가 없는 것**이기 때문이다.
+    """
+    if year is None:
+        return
+    if await param_repo.get_regulation_year(session, year) is None:
+        raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다: {year}")
+
+
 async def create_voyage(
     session: AsyncSession,
     vessel_id: UUID,
@@ -120,6 +180,9 @@ async def create_voyage(
         ``CREATE_NEW_VOYAGE``가 새 항차를 만든 뒤 채택 표시·재계산 표시를 이어서 쓰는데,
         여기서 커밋해 버리면 **뒤 단계가 실패했을 때 채택 기록 없는 DRAFT 항차가 남는다.**
     """
+    await require_vessel(session, vessel_id)
+    await _require_regulation_year(session, regulation_year)
+
     # 연료 CF 조회 — 모든 fuel_type이 active여야 한다.
     codes = [fu["fuel_type"] for fu in fuel_uses]
 
@@ -207,8 +270,25 @@ async def list_voyages(
     cursor: str | None = None,
     status: str | None = None,
     regulation_year: int | None = None,
+    annual_inclusion_policy: str | None = None,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
-    """항차 목록과 페이지네이션 메타를 반환한다 (API_SPEC §3.1)."""
+    """항차 목록과 페이지네이션 메타를 반환한다 (API_SPEC §3.1).
+
+    ``annual_inclusion_policy`` 필터는 `#1332`에서 붙었다 — **`§3.1` 표에는 처음부터
+    있었고 라우트가 선언하지 않아 FastAPI가 조용히 버렸다.** 「연간 반영 항차만 보기」를
+    문서대로 만든 호출자는 **필터가 걸린 줄 알고 전체 목록을 받았다.**
+
+    열거값 둘도 여기서 본다 — 종전에는 오타가 **빈 목록**으로 돌아와 「그런 항차가
+    없다」와 구분되지 않았다. 선박 목록의 ``ship_type``은 처음부터 422였다.
+    """
+    await require_vessel(session, vessel_id)
+    _require_enum(status, VOYAGE_STATUSES, field="status", label="상태")
+    _require_enum(
+        annual_inclusion_policy,
+        INCLUSION_POLICIES,
+        field="annual_inclusion_policy",
+        label="연간 반영 정책",
+    )
     # ⚠️ 종전에는 ``min(limit or DEFAULT, MAX)``였다 — **아무것도 막지 않았다** (`#818` ⑵).
     # ``limit=-2``는 ``.limit(-1)``이 되어 PostgreSQL이 500을 냈고, ``limit=-1``은 0행인데
     # ``has_more=true``·``next_cursor=null``이라 **따라갈 커서가 없는 「다음 페이지」**를
@@ -229,6 +309,7 @@ async def list_voyages(
 
     rows = await voyage_repo.list_active(
         session,
+        annual_inclusion_policy=annual_inclusion_policy,
         vessel_id=vessel_id,
         limit=page_size,
         cursor=parsed_cursor,
@@ -260,6 +341,17 @@ async def list_voyages(
 
     return data, {"next_cursor": next_cursor, "has_more": has_more}
 
+
+#: 항차 상태 7종 (`DB_SCHEMA §2.2` ``chk_voyage_status``).
+#:
+#: 목록 필터의 값을 이 집합으로 검증한다 (`#1332`) — 종전에는 검증이 없어 오타가
+#: **빈 목록**으로 돌아왔다. 선박 목록의 ``ship_type``은 처음부터 422였다.
+VOYAGE_STATUSES: frozenset[str] = frozenset(
+    {"DRAFT", "PLANNED", "IN_PROGRESS", "COMPLETED", "CONFIRMED", "CANCELLED", "ARCHIVED"}
+)
+
+#: 연간 반영 정책 3종 (`DB_SCHEMA §2.2` ``chk_voyage_policy``).
+INCLUSION_POLICIES: frozenset[str] = frozenset({"EXCLUDE", "INCLUDE_AS_PLAN", "INCLUDE_AS_ACTUAL"})
 
 #: API_SPEC §3.5 — 허용되는 상태 전환 매핑.
 _TRANSITIONS: dict[str, frozenset[str]] = {
@@ -329,6 +421,11 @@ async def update_voyage(
             field="regulation_year",
             field_label="기준연도",
         )
+
+    # VAL-005 — 새로 넣는 연도는 규정 파라미터에 실재해야 한다 (`#1332`). `null`로
+    # 지우는 요청은 위에서 이미 갈렸으므로 여기서는 값이 있는 경우만 본다.
+    if fields.get("regulation_year") is not None:
+        await _require_regulation_year(session, fields["regulation_year"])
 
     # #865 — 확정·진행 등 계획 단계를 벗어난 항차의 계획값·귀속 연도 변경을 거부한다.
     # `scenario_adopt`가 같은 필드를 `PLANNING_STATUSES`로 막는 것과 같은 기준이며,
