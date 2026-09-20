@@ -7,6 +7,7 @@ import {
   formatDecimalString,
   formatGrouped,
   formatPercent,
+  formatTimestamp,
   toDecimalInput,
 } from './format'
 
@@ -266,5 +267,35 @@ describe('toDecimalInput (#872)', () => {
     // `toFixed`도 그 위에서는 지수 표기를 낸다. `#860`이 서버에서 막는다.
     expect(toDecimalInput(1e21)).toBe('1e+21')
     expect(() => formatGrouped(toDecimalInput(1e21), 2)).toThrow(TypeError)
+  })
+})
+
+/**
+ * 기준 시각 표시 (#1420).
+ *
+ * 화면마다 `toLocaleString('ko-KR', { hour12: false })`을 직접 불러, 같은 성질의 값이
+ * 「…22시 37분 22초」와 「…22:37」로 갈렸다. 초를 내지 않는 판단(대시보드 주석)과
+ * 시간대 고정(`DESIGN_SYSTEM §11` 「수집 시각(KST)」)을 이 함수 하나가 갖는다.
+ */
+describe('기준 시각은 분까지, KST로 적는다 (#1420)', () => {
+  it('초를 내지 않는다', () => {
+    const text = formatTimestamp('2026-09-20T13:37:22+00:00')
+
+    expect(text).toContain('22:37')
+    expect(text).not.toMatch(/22:37:\d\d/)
+    expect(text).not.toContain('초')
+  })
+
+  it('브라우저 시간대와 무관하게 KST로 적는다', () => {
+    // 같은 순간을 UTC 표기로 줘도 한국 시각으로 나와야 한다.
+    expect(formatTimestamp('2026-09-20T13:37:00Z')).toContain('22:37')
+    // 날짜 경계도 KST 기준이다 — UTC로는 20일, KST로는 21일이다.
+    expect(formatTimestamp('2026-09-20T15:10:00Z')).toContain('21')
+  })
+
+  it('`Date`를 그대로 받는다 — 호출부가 문자열로 되돌리지 않는다', () => {
+    const at = new Date('2026-09-20T13:37:00Z')
+
+    expect(formatTimestamp(at)).toBe(formatTimestamp(at.toISOString()))
   })
 })

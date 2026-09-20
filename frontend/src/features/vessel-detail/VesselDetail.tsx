@@ -17,6 +17,7 @@ import {
   formatCapacity,
   formatDecimalString,
   formatGrouped,
+  formatTimestamp,
 } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
@@ -202,7 +203,7 @@ export function VesselDetail({
           */}
           {detail.asOf ? (
             <p className="vd__asof">
-              기준 {new Date(detail.asOf).toLocaleString('ko-KR', { hour12: false })}
+              기준 {formatTimestamp(detail.asOf)}
             </p>
           ) : null}
         </div>
@@ -475,10 +476,7 @@ export function VesselDetail({
               <h2 className="card__title">현재 위치</h2>
               {vessel.positionUpdatedAt ? (
                 <span className="card__meta">
-                  {new Date(vessel.positionUpdatedAt).toLocaleString('ko-KR', {
-                    hour12: false,
-                  })}{' '}
-                  기준
+                  {formatTimestamp(vessel.positionUpdatedAt)} 기준
                 </span>
               ) : null}
             </div>

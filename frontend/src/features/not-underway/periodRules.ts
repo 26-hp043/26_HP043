@@ -1,4 +1,4 @@
-import { formatGrouped, toDecimalInput } from '../../display/format'
+import { formatGrouped, formatTimestamp, toDecimalInput } from '../../display/format'
 import type { FuelUseDraft, Period, PeriodDraft } from './types'
 
 /**
@@ -59,10 +59,11 @@ export function toLocalInput(iso: string): string {
 }
 
 export function formatRange(period: Period): string {
-  const start = new Date(period.startedAt).toLocaleString('ko-KR', { hour12: false })
+  // 형식은 `formatTimestamp`가 갖는다 (#1420).
+  const start = formatTimestamp(period.startedAt)
   // 「진행 중」과 「모름」은 다르다. 빈칸이나 「—」로 두면 종료 시각을 잊은 것으로 읽힌다.
   if (period.endedAt === null) return `${start} ~ 진행 중`
-  return `${start} ~ ${new Date(period.endedAt).toLocaleString('ko-KR', { hour12: false })}`
+  return `${start} ~ ${formatTimestamp(period.endedAt)}`
 }
 
 /** 구간의 연료 합계 (표시용). 소수 둘째 자리는 `fuel_ton`의 DB 정밀도다. */
