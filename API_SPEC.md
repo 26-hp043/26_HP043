@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.41 |
+| 버전 | v1.42 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -2177,6 +2177,12 @@ POST /api/v1/calculations/voyage-cii
     "required_cii": "5.045066",
     "ratio_to_required": "0.98758",
     "estimated_rating": "C",
+    "rating_boundary_cii": {
+      "superior_boundary": "4.338757",
+      "lower_boundary": "4.742362",
+      "upper_boundary": "5.347770",
+      "inferior_boundary": "5.953178"
+    },
     "next_worse_boundary_margin": "0.365370",
     "next_worse_boundary_margin_ratio": "0.0724",
     "co2_emission_ton": "249.12",
@@ -2293,6 +2299,7 @@ Layer 1 결정론 수치는 **JSON 문자열**로 직렬화한다(§1.7). 입력
 | `required_cii` | **string** | Layer 1 |
 | `ratio_to_required` | **string** | Layer 1 |
 | `estimated_rating` | string | enum `A`~`E` |
+| `rating_boundary_cii` | **object** | Layer 1. 등급 경계 CII 4종(`superior`·`lower`·`upper`·`inferior`) — 값은 **string 6자리**. **화면이 `required_cii × d`로 다시 만들지 않게** 서버가 싣는다 (`#1371`) |
 | `next_worse_boundary_margin` | **string \| null** | Layer 1. **등급 E는 `null`** — 최하위 등급이라 악화 방향 경계가 없다 (#171) |
 | `next_worse_boundary_margin_ratio` | **string \| null** | Layer 1. 등급 E는 `null` (#171) |
 | `co2_emission_ton` | **string** | Layer 1 |

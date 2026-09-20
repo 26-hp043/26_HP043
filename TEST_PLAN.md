@@ -1812,7 +1812,7 @@ CI는 `.github/workflows/ci.yml` 한 파일에 잡 4개, 제목 검사가 `pr-ti
 | `test_voyage_distance_source_db.py` | 6 | **§5.1 DB · `DB-CHK-023` 계획 거리 출처 트리거 + §4 API · HTTP 왕복**(`#1256`) — API를 거치지 않은 INSERT·UPDATE도 `trg_chk_planned_distance_source_ins/upd`가 막는지 · 스키마의 `DISTANCE_SOURCES` 전부와 NULL은 들어가는지(두 목록이 갈리면 500) · 좌표 추정으로 만든 항차 → **거리만 고친 PATCH → 조회가 `null`을 실제 컬럼에서 돌려주는지** · 함께 보낸 출처가 목록에 붙는지 · 출처 없는 생성이 `null`인지(`#433`의 교훈 — 응답 필드는 HTTP에서 확인한다) |
 | `test_voyage_cii_api.py` | 32 | §4 API · 선박·항차·계산 |
 | `test_voyage_attribution_db.py` | 6 | **§3 통합 · 계산 이력의 항차 귀속**(`#817` · 결정 2-③) — 밝힌 요청만 귀속(결과·`input_hash` 무영향) · 계획 변경 시 그 항차 계산만 재계산 필요 · 다른 선박 항차 422 · 없는 항차 404 · 이력 있는 항차 삭제 409 · **채택 응답의 `invalidated_calculation_runs`가 참값인가**(`#1077` — 종전 무효화 검사는 `voyage_id`를 raw SQL로 넣어 `#817` 이전에도 통과했다. 여기서는 실제 기능① 서비스가 만든 계산으로 세고, **`0`이 「이력 없음」과 「이미 전부 표시됨」 둘 다**임을 고정한다) |
-| `test_voyage_cii_service.py` | 18 | §4 API · 선박·항차·계산 |
+| `test_voyage_cii_service.py` | 19 | §4 API · 선박·항차·계산 — Layer 1이 정본 픽스처와 **30자리까지** 같은가 · 응답 문자열이 `API_SPEC §4.1` 계약 예시와 같은가 · **등급 경계 CII 4종이 6자리로 실리는가**(`#1371` — 화면이 `required_cii × d`로 다시 만들지 않게 서버가 싣는 값이다. 자릿수는 `attained_cii`·`required_cii`와 같다) |
 | `test_voyage_delete_db.py` | 2 | §5 DB · 제약·마이그레이션 |
 | `test_db_check_cases.py` | 9 | §5.1 DB · CHECK 제약 — `DB-CHK-*` 중 **다른 파일이 덮지 않던 15개**(상태×정책 무효 조합 5 · 규제연도 범위 · 도착 위도 · 집계 항차의 규제연도 · IMO 형식 · GT·DWT 양수 · 연료 출처 · 시나리오 열거값 3). 어긴 **제약 이름**까지 확인한다 (`#758`) |
 | `test_voyage_migrations.py` | 12 | §5 DB · 제약·마이그레이션 |
@@ -1836,7 +1836,7 @@ CI는 `.github/workflows/ci.yml` 한 파일에 잡 4개, 제목 검사가 `pr-ti
 | `test_db_session_param_convert.py` | 13 | **§5 DB · 운영 엔진의 CUBRID 파라미터 변환 훅** (`db/session.py`) — 🔴 이 훅은 **배포 엔진에만** 붙고 검사는 `conftest`가 붙이는 제 변환기를 쓰는 엔진으로 돌아, 전 검사에서 **한 번도 실행되지 않고 있었다**(커버리지 하한 게이트가 `db/session.py 78.6%`로 잡았다 · `#955`). 그 갈라짐은 이미 한 번 결함을 냈다 — `conftest` 쪽이 모든 `datetime`을 초로 깎아 **검사만 없는 결함을 만들어 내고** 있었다. 운영 쪽 규칙을 못 박는다: `UUID`→hex 32자 · `Decimal`→`str` · **`datetime`은 건드리지 않는다** · 그 밖의 값·딕셔너리 파라미터 통과 · `CAST(? AS 타입)`→`?`(열 캐스트는 그대로) · `IS 0/1`→`= 0/1`(**`IS NULL`은 그대로** — 바꾸면 NULL 비교가 영원히 거짓) · 훅이 실제로 엔진에 **등록되는가**까지. 돌연변이 3종(UUID를 `str`로 · `IS` 정규식을 `\w+`로 넓힘 · 캐스트 치환 제거) **3/3 검출**. `#1246` — 테스트 엔진이 **프로덕션 훅을 우선 붙이고** 테스트 전용 변환(datetime 리터럴·`::cast`·`RETURNING`·INSERT id)을 그 위에 얹는 2층이 됐다(운영 경로를 실제 쿼리로 탄다). 치환 관측 2종도 여기 — `cast=`/`bool=` 카운트 로그가 남는가 · 깨끗한 문장은 로그가 없는가 |
 | `test_zz_roundtrip.py` | 4 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 167개 파일 · 2303 함수 · 2867 수집.** (2026-09-20 실측 — #1370 3함수 추가 반영)
+**합계 167개 파일 · 2304 함수 · 2871 수집.** (2026-09-20 실측 — #1371 1함수(파라미터 4)·계약 5행 추가 반영)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 

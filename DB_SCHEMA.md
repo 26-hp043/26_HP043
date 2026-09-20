@@ -413,6 +413,12 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
   "required_cii": "5.045066",
   "ratio_to_required": "0.98758",
   "estimated_rating": "C",
+  "rating_boundary_cii": {
+    "superior_boundary": "4.338757",
+    "lower_boundary": "4.742362",
+    "upper_boundary": "5.347770",
+    "inferior_boundary": "5.953178"
+  },
   "next_worse_boundary_margin": "0.365370",
   "next_worse_boundary_margin_ratio": "0.0724",
   "co2_emission_ton": "249.12",

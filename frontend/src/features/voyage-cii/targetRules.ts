@@ -37,7 +37,7 @@ import type { Rating } from './types'
 interface GradeTarget {
   /** 목표 등급 */
   rating: Rating
-  /** 그 등급의 상한 CII (`required_cii × d`) */
+  /** 그 등급의 상한 CII. **서버 값을 표시 자릿수로 줄인 것**이며, 없을 때만 `required_cii × d`다 (`#1371`). */
   boundaryCii: string
   /** 그 CII 이하가 되는 총 연료 상한. 내림. */
   allowedFuelTon: string
@@ -53,7 +53,29 @@ interface TargetInputs {
   required_cii: string
   attained_cii: string
   fuel_consumption_ton: string
+  /**
+   * 서버가 낸 등급 경계 CII 4종 (`#1371` · `API_SPEC §4.1`).
+   *
+   * **이것이 있으면 화면은 곱하지 않는다.** 종전에는 `required_cii`(표시용 6자리
+   * 문자열)를 float로 바꿔 d-vector를 곱했는데, 411,120건 중 **87건**에서 끝자리가
+   * 서버 값과 갈렸다 — `PRD §9.3`이 *「내부 계산값은 화면 표시 반올림값을 다시
+   * 사용하지 않는다」*로 막는 자리다.
+   */
+  rating_boundary_cii?: {
+    superior_boundary: string
+    lower_boundary: string
+    upper_boundary: string
+    inferior_boundary: string
+  } | null
 }
+
+/** `RATING_ORDER`와 같은 순서의 경계 키 — A·B·C·D 등급의 **상한**이다. */
+const BOUNDARY_KEYS = [
+  'superior_boundary',
+  'lower_boundary',
+  'upper_boundary',
+  'inferior_boundary',
+] as const
 
 /** `d1`~`d4`는 각각 A·B·C·D 등급의 **상한** 배율이다. E는 상한이 없다. */
 interface RatingBoundary {
@@ -93,7 +115,22 @@ export function gradeTargets(data: TargetInputs, boundary: RatingBoundary): Grad
     const d = Number(ratios[i])
     if (!Number.isFinite(d) || d <= 0) return []
 
-    const boundaryCii = required * d
+    /*
+     * 경계 CII는 **서버가 낸 값에서 온다** (`#1371`). 종전에는 `required_cii`(표시용
+     * 6자리 문자열)를 float로 바꿔 `d`를 곱했는데, 그 곱을 다시 3자리로 반올림하면
+     * **이중 반올림**이 되어 411,120건 중 87건에서 서버와 끝자리가 갈렸다
+     * (예: 서버 `1.645` vs 화면 `1.646`).
+     *
+     * 서버 값은 6자리이므로 **표시 자릿수로 한 번만** 줄인다 — 곱셈이 사라져 반올림이
+     * 한 번뿐이다. 서버가 싣지 않은 응답(옛 계산 이력)에서만 종전 경로로 되살린다.
+     * 값을 통째로 비우면 「방법이 없다」로 읽혀 더 나쁘다.
+     */
+    const fromServer = data.rating_boundary_cii?.[BOUNDARY_KEYS[i]]
+    const boundaryCii = fromServer === undefined || fromServer === null
+      ? required * d
+      : Number(fromServer)
+    if (!(boundaryCii > 0)) return []
+
     const allowed = floorTo(fuel * (boundaryCii / attained), DISPLAY_DIGITS.fuelTon)
 
     /*
