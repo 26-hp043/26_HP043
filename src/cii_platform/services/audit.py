@@ -193,7 +193,7 @@ async def record_calculation_run(
     """계산 실행 — TECH_SPEC §13.1 필드 표를 그대로 ``details``에 옮긴다.
 
     ``details_extra``는 §13.1 표에 **덧붙이는** 구분 표식이다 (#869). 재현 검증
-    (``§6.4 reproduce``)은 새 ``calculation_run`` 행을 만들지 않고 원본의
+    (``API_SPEC §6.4`` reproduce)은 새 ``calculation_run`` 행을 만들지 않고 원본의
     ``run_id``를 그대로 쓰므로, 표식이 없으면 **원본 실행과 구분되지 않는다.**
     같은 스트림에 변형을 플래그로 구분하는 것은 §13.1 자신의 방식이다 — 스텁
     dev-login이 ``dev_login`` 플래그로 구분된다.

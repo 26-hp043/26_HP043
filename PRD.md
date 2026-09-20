@@ -853,7 +853,7 @@ erDiagram
 | `cii_rating_boundary` | `ship_type`, `condition_expr`, `capacity_basis`, `d1`, `d2`, `d3`, `d4`, `source_ref` |
 | `weather_model_parameter` | `model_version`, `key`, `value`, `unit`, `source_ref` |
 > **[ORACLE-R-2]** 파라미터 버전은 개별 파라미터 단위가 아닌 **파라미터 세트 전체의 content hash**로 관리한다. `parameter_snapshot_hash = SHA256(canonical_json(해당 계산에 사용된 모든 파라미터))`이며, `CalculationRun.result_json` 내 `parameters_used` 필드에 사용된 파라미터 값을 전체 snapshot으로 저장한다. 개별 파라미터 변경 시 hash가 변경되어 자동으로 새 버전으로 인식된다.
-> **[ORACLE-R-7]** `cii_reference_line.a_raw`는 `VARCHAR`로 IMO 원문 표기 그대로 저장하고, `a_decimal`은 `NUMERIC(30,6)`으로 저장한다. 애플리케이션 시작 시 `parse(a_raw) == a_decimal` 검증을 수행한다. `14405E7` = 144,050,000,000은 64-bit float의 정밀도 한계(15~17 유효숫자)에 근접하므로, 계산 과정에서 float 변환을 피하고 Decimal을 사용한다.
+> **[ORACLE-R-7]** `cii_reference_line.a_raw`는 `VARCHAR`로 IMO 원문 표기 그대로 저장하고, `a_decimal`은 `NUMERIC(30,6)`으로 저장한다. **두 값은 쓰는 경로에서 맞춘다** — 시드는 넣기 전에 전수 대조하고, 파라미터 적재는 `a_decimal`을 `a_raw`에서 파싱해 만든다(`TECH_SPEC §9.3` · `#1347`). 종전 문장(「애플리케이션 시작 시 `parse(a_raw) == a_decimal` 검증을 수행한다」)이 가리킨 기동 검사는 **존재한 적이 없다.** `14405E7` = 144,050,000,000은 64-bit float의 정밀도 한계(15~17 유효숫자)에 근접하므로, 계산 과정에서 float 변환을 피하고 Decimal을 사용한다.
 
 ### 7.7 CalculationRun
 
