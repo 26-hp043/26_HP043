@@ -13,6 +13,7 @@ from typing import Protocol
 
 from cii_platform.mail.config import (
     BACKEND_CONSOLE,
+    IMPLICIT_TLS_PORT,
     MailSettings,
     load_mail_settings,
 )
@@ -97,6 +98,11 @@ class SmtpMailer:
         payload["Subject"] = message.subject
         payload.set_content(message.body)
 
+        # 465는 **implicit TLS**다 — 연결하는 순간부터 TLS이고 STARTTLS 협상이 없다
+        # (RFC 8314 §3.3). 종전에는 `start_tls=`만 넘겨 465가 어떤 설정으로도 동작하지
+        # 않았다: `SMTP_USE_TLS=false`면 평문으로 붙어 서버가 끊고, `true`면 이미 TLS인
+        # 연결에 STARTTLS를 걸어 실패한다 (#1331).
+        implicit_tls = settings.smtp_port == IMPLICIT_TLS_PORT
         try:
             await aiosmtplib.send(
                 payload,
@@ -104,7 +110,9 @@ class SmtpMailer:
                 port=settings.smtp_port,
                 username=settings.smtp_user,
                 password=settings.smtp_password,
-                start_tls=settings.smtp_use_tls,
+                use_tls=implicit_tls,
+                # 이미 TLS인 연결에 STARTTLS를 겹치면 `aiosmtplib`이 거부한다.
+                start_tls=False if implicit_tls else settings.smtp_use_tls,
             )
         except Exception as exc:  # noqa: BLE001 — 라이브러리 예외 계층을 노출하지 않는다
             raise MailDeliveryError(
