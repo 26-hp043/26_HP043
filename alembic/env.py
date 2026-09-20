@@ -21,7 +21,11 @@ if str(_SRC) not in sys.path:
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
 from cii_platform.db.models import Base  # noqa: E402
-from cii_platform.db.url import normalize_to_async, normalize_to_sync  # noqa: E402
+from cii_platform.db.url import (  # noqa: E402
+    escape_configparser_value,
+    normalize_to_async,
+    normalize_to_sync,
+)
 
 config = context.config
 
@@ -58,7 +62,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 def _run_migrations_sync() -> None:
     url = normalize_to_sync(DATABASE_URL)
-    config.set_main_option("sqlalchemy.url", url)
+    config.set_main_option("sqlalchemy.url", escape_configparser_value(url))
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -71,7 +75,7 @@ def _run_migrations_sync() -> None:
 
 async def _run_migrations_async() -> None:
     url = normalize_to_async(DATABASE_URL)
-    config.set_main_option("sqlalchemy.url", url)
+    config.set_main_option("sqlalchemy.url", escape_configparser_value(url))
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
