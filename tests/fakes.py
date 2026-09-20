@@ -149,6 +149,11 @@ class FakeSession:
         self.added: list[Any] = []
         self.executed: list[Any] = []
         self.refreshed: list[Any] = []
+        #: 실제 ``Session.info``는 **요청 단위 임의 저장소**다. ``request_cache``가
+        #: 여기에 캐시를 매단다 (`#1338` — 기능①이 연말 예상 조립을 함께 부르면서
+        #: 그 경로를 타게 됐다). 없으면 대역이 `AttributeError`로 죽어 **실제
+        #: 세션을 모사하지 못한다** — ``refresh``를 더한 것과 같은 이유다.
+        self.info: dict[Any, Any] = {}
 
     async def execute(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
         """실행하지 않고 **기록만** 한다 (`#764`).

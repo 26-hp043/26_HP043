@@ -2243,6 +2243,11 @@ POST /api/v1/calculations/voyage-cii
     "transport_capacity_basis": "DWT",
     "reference_capacity": "50000",
     "reference_capacity_rule": "DWT",
+    "annual_impact": {
+      "before": { "attained_cii": "8.965894", "rating": "E" },
+      "after": { "attained_cii": "8.350259", "rating": "E" },
+      "rating_changed": false
+    },
     "calculation_basis": {
       "ship_type": "BULK_CARRIER",
       "z_factor_percent": "11.0",
@@ -2360,7 +2365,18 @@ Layer 1 결정론 수치는 **JSON 문자열**로 직렬화한다(§1.7). 입력
 | `transport_capacity_basis` | string | enum `DWT` \| `GT` |
 | `reference_capacity` | **string** | |
 | `reference_capacity_rule` | string | **enum이 아니다** — 파라미터 테이블 값 그대로 (`DWT` · `GT` · `fixed 279000` 등) |
+| **`annual_impact`** | **object \| null** | **[#1338] 「연간 반영 시 변화」**(`PRD §10.3` ⑨ · `§10.4` 출력 행). `before`·`after` 각각 `{attained_cii, rating}` · `rating_changed` bool. **기초 자료가 없으면 `null`** — 확정 실적도 잔여 계획도 없으면 비교할 「기존 연말 예상」이 없다 · 아래 각주 |
 | `calculation_basis` | object | 아래 |
+
+> **[#1338] `annual_impact`는 기능①의 항차 CII와 다른 질문에 답한다.** 항차 CII는 **이 항차 하나**를, 이 블록은 **그 배의 한 해 전체**를 본다. **수준이 어긋나는 것이 정상**이다 — 데모 시드 실측(같은 항차 3,000 nm · HFO 250 t)에서 벌크 50,000은 **항차 등급 `C`에 연말 `E`**, 컨테이너는 **항차 등급 `E`에 연말 `B`**다. 화면이 둘을 같은 값으로 다루면 안 된다.
+>
+> **조립을 새로 만들지 않는다** — `§2.14` ⑶(실시간 CII의 연말 예상)과 기능③이 쓰는 `load_projection_context`·`collect_annual_inputs`·`project_deterministic`을 그대로 부른다. 조립이 둘이면 **같은 선박·같은 연도에서 두 화면이 다른 숫자**를 낸다(`#798` 실측: 7.654488 vs 8.971119).
+>
+> **`null`인 경우** — `PRD §10.3` ⑨가 *「연간 시뮬레이터에 **이미 동일 선박·연도 데이터가 있으면**」*으로 조건을 달았다. 확정 실적도 잔여 계획도 없으면 비교할 「기존 연말 예상」이 없으므로 **0과 비교한 숫자를 지어내지 않는다.** 규정 파라미터가 없거나 거리가 0이어도 `null`이다 — **이 블록의 실패가 항차 CII 계산을 막지 않는다**(`PRD §16.2` 오류 격리).
+>
+> **자릿수는 `attained_cii`와 같은 6자리**다. 한 응답 안에서 같은 양이 다른 자릿수로 실리면 화면이 둘을 다른 종류의 값으로 다루게 된다.
+>
+> ⚠️ **`input_hash`·`parameter_hash`는 바뀌지 않는다** — 이 블록은 **파생 출력**이지 입력이 아니다. 저장되는 `result_json`에는 함께 들어간다.
 
 **`data.calculation_basis.*`**
 
