@@ -910,6 +910,17 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.fuel_consumption_ton",
             "data.next_worse_boundary_margin",
             "data.next_worse_boundary_margin_ratio",
+            # `PRD §10.3` ⑨ · `§10.4` 「연간 반영 시 변화」 (`#1338`). 기초 자료가
+            # 없으면 `null`이라 **하위 경로가 사라진다** — 데모 시드에는 확정 실적과
+            # 잔여 계획이 있어 여기서는 채워진 모양을 본다.
+            "data.annual_impact",
+            "data.annual_impact.after",
+            "data.annual_impact.after.attained_cii",
+            "data.annual_impact.after.rating",
+            "data.annual_impact.before",
+            "data.annual_impact.before.attained_cii",
+            "data.annual_impact.before.rating",
+            "data.annual_impact.rating_changed",
             "data.rating_boundary_cii",
             "data.rating_boundary_cii.inferior_boundary",
             "data.rating_boundary_cii.lower_boundary",

@@ -39,6 +39,7 @@ from typing import TYPE_CHECKING
 
 import numpy
 
+from cii_platform.calc.annual_simulation import RemainingVoyage, project_deterministic
 from cii_platform.calc.capacity import (
     capacity_axis,
     resolve_reference_capacity,
@@ -78,6 +79,7 @@ from cii_platform.errors import (
 )
 from cii_platform.services import applicability
 from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
+from cii_platform.services.simulation_clock import resolve_as_of
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -425,6 +427,10 @@ async def estimate_voyage_cii(
     )
     warnings = _build_warnings(vessel)
 
+    # `PRD §10.3` ⑨ · `§10.4` — 「연간 반영 시 변화」 (`#1338`).
+    # 계산 **뒤에** 낸다 — 이 값이 없어도 항차 CII는 답이 나와야 한다.
+    data["annual_impact"] = await _annual_impact(session, payload=payload, fuel_uses=fuel_uses)
+
     input_hash = compute_input_hash(
         _build_hash_input(
             payload=payload,
@@ -465,6 +471,137 @@ async def estimate_voyage_cii(
         "warnings": warnings,
         "disclaimer": DISCLAIMER,
         "_duration_ms": duration_ms,
+    }
+
+
+# --- 연간 반영 시 변화 (`PRD §10.3` ⑨ · `#1338`) ------------------------------------
+
+
+@layer1_context
+def _impact_layer1(context, completed, remaining, extra):
+    """반영 **전/후** 연말 예상을 **한 컨텍스트 안에서** 낸다 (`TECH_SPEC §1.2.1`).
+
+    두 값을 각각 다른 컨텍스트에서 내면 **차이가 컨텍스트 차이인지 항차 때문인지**
+    구분되지 않는다 — 이 블록이 보여 주는 것이 바로 그 차이다.
+    """
+    before = project_deterministic(
+        completed=completed,
+        remaining=remaining,
+        transport_capacity=context.transport_capacity,
+        required_cii=context.required_cii,
+        d_vector=context.d_vector,
+    )
+    after = project_deterministic(
+        completed=completed,
+        remaining=[*remaining, extra],
+        transport_capacity=context.transport_capacity,
+        required_cii=context.required_cii,
+        d_vector=context.d_vector,
+    )
+    return before, after
+
+
+def _effective_cf(fuel_uses: list[FuelUse]) -> tuple[Decimal, Decimal] | None:
+    """여러 유종을 :class:`RemainingVoyage`의 ``(fuel_ton, cf)`` 한 쌍으로 모은다.
+
+    ``RemainingVoyage``는 항차당 CF **하나**를 갖는다(`PRD §12.4.1` — 연료 종류는
+    MVP에서 항차별 고정). 질량가중 평균을 쓰면 ``Σ(fuel_j × cf_j)``가 **정확히
+    보존**되므로 분자 ``M``이 기능①의 값과 같아진다 — 평균을 산술로 내면 유종별
+    사용량이 다를 때 갈린다.
+    """
+    total = sum((use.fuel_ton for use in fuel_uses), Decimal(0))
+    if total <= 0:
+        return None
+    weighted = sum((use.fuel_ton * use.cf_value for use in fuel_uses), Decimal(0))
+    return total, weighted / total
+
+
+async def _annual_impact(
+    session: AsyncSession, *, payload: VoyageCiiInput, fuel_uses: list[FuelUse]
+) -> dict[str, object] | None:
+    """「이 항차를 반영하면 연말 예상 등급이 어떻게 되나」 (`PRD §10.3` ⑨ · `§10.4`).
+
+    ⚠️ **기능①의 항차 CII와는 다른 질문이다.** 항차 CII는 *「이 항차 하나」*를, 이
+    블록은 *「그 배의 한 해 전체」*를 본다. 실측(데모 시드 · 같은 항차 3,000 nm ·
+    HFO 250 t)에서 **항차 등급이 좋은 배의 연말이 나쁘고 그 반대도 나온다** —
+    벌크 50,000은 항차 ``C``에 연말 ``E``, 컨테이너는 항차 ``E``에 연말 ``B``다.
+    **수준이 어긋나는 것이 정상**이므로 화면이 둘을 같은 값으로 다루면 안 된다.
+
+    ## 조립을 새로 만들지 않는다
+
+    `§2.14` ⑶(실시간 CII의 연말 예상)과 기능③이 쓰는
+    :func:`~cii_platform.services.annual_simulation.load_projection_context`·
+    :func:`~cii_platform.services.annual_simulation.collect_annual_inputs`를 그대로
+    부른다. 조립이 둘이면 **같은 선박·같은 연도에서 두 화면이 다른 숫자**를 낸다
+    (`#798` 실측: 7.654488 vs 8.971119).
+
+    ## 기초 자료가 없으면 ``None``이다
+
+    정본이 *「연간 시뮬레이터에 **이미 동일 선박·연도 데이터가 있으면**」*으로 조건을
+    달았다. 확정 실적도 잔여 계획도 없으면 비교할 「기존 연말 예상」이 없다 —
+    **0과 비교한 숫자를 지어내지 않는다.**
+
+    ⚠️ **그 판정을 여기서 다시 쓰지 않는다.** 확정도 잔여도 없다는 것은 곧 분모
+    거리가 0이라는 뜻이고, :func:`project_deterministic`이 그때 ``ValueError``를
+    올린다(`PRD §12.8`). 조건을 따로 적으면 **둘 중 하나만 고쳐질 자리**가 생기고,
+    실제로 앞선 초안의 `if`문은 아래 ``except``가 이미 덮는 **죽은 갈래**였다
+    (돌연변이 검사에서 드러났다 — 지워도 아무것도 실패하지 않았다).
+
+    ## 계산을 막지 않는다
+
+    여기서 실패해도 항차 CII는 답이 나와야 한다(`PRD §16.2` 오류 격리). 규정
+    파라미터·연료 조회 실패는 이미 위에서 걸렀고, 여기 남는 것은 **연말 예상에만
+    필요한 자료**다.
+    """
+    from cii_platform.services.annual_simulation import (
+        collect_annual_inputs,
+        load_projection_context,
+    )
+
+    pair = _effective_cf(fuel_uses)
+    if pair is None or payload.distance_nm <= 0:
+        return None
+    fuel_ton, cf = pair
+
+    try:
+        context = await load_projection_context(
+            session, vessel_id=payload.vessel_id, regulation_year=payload.regulation_year
+        )
+        inputs = await collect_annual_inputs(
+            session,
+            vessel=context.vessel,
+            vessel_id=payload.vessel_id,
+            year=payload.regulation_year,
+            as_of=resolve_as_of(None),
+        )
+    except (NotFoundError, ParameterError, ValidationError):
+        return None
+
+    extra = RemainingVoyage(
+        distance_nm=float(payload.distance_nm),
+        fuel_ton=float(fuel_ton),
+        cf=float(cf),
+    )
+    try:
+        before, after = _impact_layer1(context, inputs.completed, inputs.remaining, extra)
+    except ValueError:
+        # 거리가 0이면 `PRD §12.8`이 계산 중단을 규정한다. 이 블록은 부가 출력이므로
+        # 500으로 올리지 않고 **없는 것으로 둔다.**
+        return None
+
+    # 자릿수는 이 응답의 다른 CII 값과 **같게** 둔다 — 한 응답 안에서 같은 양이
+    # 다른 자릿수로 실리면 화면이 둘을 다른 종류의 값으로 다루게 된다.
+    digits = SERIALIZATION_DIGITS["attained_cii"]
+    return {
+        "before": {
+            "attained_cii": _publish(before.attained_cii, digits),
+            "rating": before.rating,
+        },
+        "after": {
+            "attained_cii": _publish(after.attained_cii, digits),
+            "rating": after.rating,
+        },
+        "rating_changed": before.rating != after.rating,
     }
 
 

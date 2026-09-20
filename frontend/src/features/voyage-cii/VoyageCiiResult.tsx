@@ -20,9 +20,19 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { GradeScaleBar } from '../../components/GradeScaleBar'
 import { gradeTargets } from './targetRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
-import type { VoyageCiiResponse } from './types'
+import type { AnnualImpact, VoyageCiiResponse } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Icon } from '../../components/Icon'
+
+/**
+ * 「연간 반영 시 변화」의 표시 값 — `PRD §10.4` 행 (`#1338`).
+ *
+ * 등급 **둘을 나란히** 보여 준다. 차이(Δ)를 숫자로 적지 않는 것은 그 값이
+ * `attained_cii`의 차이이고, 사용자가 판단에 쓰는 것은 **등급**이기 때문이다.
+ */
+function annualImpactValue(impact: AnnualImpact): string {
+  return `${impact.before.rating} → ${impact.after.rating}`
+}
 
 /**
  * 기능① 결과 화면 (#136).
@@ -194,6 +204,23 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
           value={formatGrouped(toDecimalInput(data.distance_nm), DISPLAY_DIGITS.distanceNm)}
           unit={DISPLAY_UNITS.distance}
         />
+        {/*
+          「연간 반영 시 변화」 — `PRD §10.4` 출력 표의 행 (`#1338`).
+
+          ⚠️ **위 칸들과 다른 질문에 답한다.** 위는 「이 항차 하나의 강도」이고
+          이 칸은 「선박의 연말 값이 이 항차 때문에 어디로 가나」다 — **두 값이
+          반대 방향을 가리키는 것이 정상**이므로 값 옆에 그 사실을 적는다.
+
+          기초 자료가 없으면 서버가 `null`을 주고 **칸 자체를 그리지 않는다** —
+          빈칸을 두면 「아직 안 온 값」으로 읽힌다(`#1097`과 같은 판단).
+        */}
+        {data.annual_impact !== null ? (
+          <Metric
+            label="연간 반영 시 변화"
+            value={annualImpactValue(data.annual_impact)}
+            unit={data.annual_impact.rating_changed ? '등급 변동' : '등급 유지'}
+          />
+        ) : null}
       </dl>
 
       {/*

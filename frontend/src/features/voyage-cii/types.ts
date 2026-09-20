@@ -121,7 +121,36 @@ export interface VoyageCiiData {
   reference_capacity: string
   /** **enum이 아니다** — 파라미터 테이블 값 그대로 (`DWT` · `GT` · `fixed 279000` 등) */
   reference_capacity_rule: string
+  /**
+   * 「연간 반영 시 변화」 — `PRD §10.3` ⑨ · `§10.4` 출력 행 (`#1338`).
+   *
+   * ⚠️ **항차 CII와 다른 질문에 답한다.** 항차 CII는 「이 항차 하나의 강도」이고
+   * 이 블록은 「선박의 연말 값이 이 항차 때문에 어디로 가나」다 —
+   * **두 값이 반대 방향을 가리키는 것이 정상**이다.
+   *
+   * 기초 자료(확정 실적·잔여 계획)가 없으면 `null`이다. 「0과 비교한 숫자」를
+   * 지어내지 않는다.
+   */
+  annual_impact: AnnualImpact | null
   calculation_basis: CalculationBasis
+}
+
+/** `data.annual_impact` (`API_SPEC §4.1` · `#1338`). */
+export interface AnnualImpact {
+  before: AnnualImpactSide
+  after: AnnualImpactSide
+  rating_changed: boolean
+}
+
+/**
+ * ⚠️ **`export`하지 않는다.** 이 이름을 밖에서 부르는 곳이 없고,
+ * `moduleBoundary.test.ts`가 **미참조 export를 죽은 코드로 잡는다**(`#1351`).
+ * `AnnualImpact`의 구조로만 쓰이므로 구조적 타이핑으로 충분하다.
+ */
+interface AnnualImpactSide {
+  /** Layer 1 — `attained_cii`와 같은 6자리 문자열 */
+  attained_cii: string
+  rating: Rating
 }
 
 /** 사용된 파라미터. 하위 수치는 전부 문자열. */
