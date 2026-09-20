@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import { VesselDetail } from './VesselDetail'
@@ -65,20 +65,64 @@ function renderAt(provider: VesselDetailProvider) {
   )
 }
 
-describe('실시간 CII 링크 (#588)', () => {
-  it('진행 중 항차가 없으면 누를 수 있는 링크를 그리지 않는다', async () => {
+describe('실시간 CII 입구 (#588 · #1415)', () => {
+  it('진행 중 항차가 없으면 링크를 그리지 않는다', async () => {
     renderAt(stub())
 
-    const label = await screen.findByText(/진행 중 항차의 실시간 CII 보기/)
-    // 운항 상태는 UNDER_WAY인데도 링크가 아니어야 한다 — 그것이 이 이슈다.
-    expect(label.closest('a')).toBeNull()
+    const button = await screen.findByRole('button', { name: /진행 중 항차의 실시간 CII 보기/ })
+    // 운항 상태는 UNDER_WAY인데도 링크가 아니어야 한다 — 그것이 #588이다.
+    expect(button.closest('a')).toBeNull()
   })
 
-  it('왜 없는지와 무엇을 하면 열리는지를 적는다', async () => {
+  /*
+   * 누르면 사유와 여는 방법이 나온다 (#1415). 종전에는 상자 안에 늘 적혀 있었다 — 누르기 전에는
+   * 없고, 누른 자리에서 나와야 한다. 표시 문구라 문장이 아니라 **두 사실**을 본다(`AGENTS §4.6`):
+   * 왜(없다)와 어디서(항차 기록).
+   */
+  it('누르면 말풍선으로 왜 못 여는지와 어디서 여는지를 낸다', async () => {
     renderAt(stub())
+    const button = await screen.findByRole('button', { name: /실시간 CII 보기/ })
+    expect(screen.queryByText(/진행 중 항차가 없습니다/)).toBeNull()
+    expect(button.getAttribute('aria-expanded')).toBe('false')
 
-    const why = await screen.findByText(/진행 중 항차가 없습니다/)
-    expect(why.textContent).toContain('항차 기록')
+    fireEvent.click(button)
+
+    const bubble = within(button.closest('.vd__drill-wrap') as HTMLElement).getByRole('status')
+    expect(bubble.textContent).toContain('진행 중 항차가 없습니다')
+    expect(bubble.textContent).toContain('항차 기록')
+    expect(button.getAttribute('aria-expanded')).toBe('true')
+    expect(button.getAttribute('aria-controls')).toBe(bubble.id)
+  })
+
+  it('다시 누르면 닫힌다', async () => {
+    renderAt(stub())
+    const button = await screen.findByRole('button', { name: /실시간 CII 보기/ })
+
+    fireEvent.click(button)
+    fireEvent.click(button)
+
+    expect(screen.queryByText(/진행 중 항차가 없습니다/)).toBeNull()
+  })
+
+  it('Escape로 닫히고 초점이 버튼으로 돌아온다', async () => {
+    renderAt(stub())
+    const button = await screen.findByRole('button', { name: /실시간 CII 보기/ })
+    fireEvent.click(button)
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(screen.queryByText(/진행 중 항차가 없습니다/)).toBeNull()
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('바깥을 누르면 닫힌다', async () => {
+    renderAt(stub())
+    const button = await screen.findByRole('button', { name: /실시간 CII 보기/ })
+    fireEvent.click(button)
+
+    fireEvent.mouseDown(document.body)
+
+    expect(screen.queryByText(/진행 중 항차가 없습니다/)).toBeNull()
   })
 
   it('진행 중 항차가 있으면 링크를 그린다', async () => {
@@ -91,7 +135,7 @@ describe('실시간 CII 링크 (#588)', () => {
   it('조회가 실패하면 링크를 그리지 않는다 — 실패를 「있다」로 읽지 않는다', async () => {
     renderAt(stub({ findInProgressVoyage: vi.fn().mockRejectedValue(new Error('boom')) }))
 
-    await screen.findByText(/진행 중 항차가 없습니다/)
+    await screen.findByRole('button', { name: /실시간 CII 보기/ })
     expect(screen.queryByRole('link', { name: /실시간 CII 보기/ })).toBeNull()
   })
 
@@ -103,10 +147,30 @@ describe('실시간 CII 링크 (#588)', () => {
     renderAt(stub({ findInProgressVoyage: vi.fn().mockReturnValue(pending) }))
 
     await screen.findByText(/진행 중 항차 확인 중/)
-    expect(screen.queryByText(/진행 중 항차가 없습니다/)).toBeNull()
+    // 확인 중에는 눌러서 「없다」를 볼 수 있는 버튼이 아직 없어야 한다.
+    expect(screen.queryByRole('button', { name: /실시간 CII 보기/ })).toBeNull()
 
     resolve(null)
-    await waitFor(() => expect(screen.getByText(/진행 중 항차가 없습니다/)).toBeDefined())
+    await screen.findByRole('button', { name: /실시간 CII 보기/ })
+  })
+
+  /*
+   * 입구가 페이지 머리에 있다 (#1415). `2-9`는 사이드바에 없고 여기서만 들어가는데, 종전에는
+   * 「현재 상태」 카드 안이라 첫 화면에 없었다. jsdom은 레이아웃을 계산하지 않으므로
+   * 「스크롤 없이 보인다」 대신 **머리 안에 있다**를 단언한다.
+   */
+  it('진행 중 항차가 있으면 링크가 페이지 머리에 있다 (#1415)', async () => {
+    renderAt(stub({ findInProgressVoyage: vi.fn().mockResolvedValue({ id: 'vy-1', voyageNo: 'V-1' }) }))
+
+    const link = await screen.findByRole('link', { name: /실시간 CII 보기/ })
+    expect(link.closest('header.vd__head')).not.toBeNull()
+  })
+
+  it('없을 때도 같은 자리에 있다 (#1415)', async () => {
+    renderAt(stub())
+
+    const button = await screen.findByRole('button', { name: /실시간 CII 보기/ })
+    expect(button.closest('header.vd__head')).not.toBeNull()
   })
 })
 

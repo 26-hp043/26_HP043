@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { GradeBadge } from '../../components/GradeBadge'
@@ -195,12 +195,59 @@ export function VesselDetail({
           <p className="vd__sub">
             IMO {vessel.imoNumber} · {shipTypeLabel(vessel.shipType)}
           </p>
+          {/*
+            기준 시각은 선명 쪽에 둔다 (#1415). 오른쪽에 실시간 CII 입구가 올라온 뒤 그 아래에
+            두었더니 입구 상태에 따라 위치가 오르내렸다. 「이 배의 값이 언제 기준인가」는 배를
+            설명하는 줄이므로 식별 정보 바로 아래가 제자리다.
+          */}
+          {detail.asOf ? (
+            <p className="vd__asof">
+              기준 {new Date(detail.asOf).toLocaleString('ko-KR', { hour12: false })}
+            </p>
+          ) : null}
         </div>
-        {detail.asOf ? (
-          <p className="vd__asof">
-            기준 {new Date(detail.asOf).toLocaleString('ko-KR', { hour12: false })}
-          </p>
-        ) : null}
+        {/*
+          진행 중 항차로 내려가는 경로 (#1415). `UIFLOW 2-9`(실시간 CII)는 사이드바에 없고
+          **이 화면에서만** 들어간다(`UIFLOW 2-9` 진입 조건). 종전에는 그 유일한 입구가 페이지
+          중간 「현재 상태」 카드 안에 있어, 현장직의 주 화면으로 가는 길이 첫 화면에 없었다.
+
+          머리에 두되 `PageHeader`는 쓰지 않는다 — 드릴다운 화면은 자체 머리를 쓴다
+          (`PageHeader.tsx` 「쓰지 않는 자리」). 항차 목록을 여기서 따로 부르지 않는 것은
+          종전과 같다 — 실시간 화면(#357)이 자기 데이터를 스스로 가져오는 편이 경계가 맞다.
+        */}
+        <div className="vd__head-side">
+          {/*
+            링크를 `underwayState`로 그리지 않는다 (`#588`).
+
+            그 값은 **표시 상태**이고 진행 중 항차의 존재와 별개다 — 운항 중으로
+            표시된 선박에 항차가 없는 상태가 실제로 있었고(`#587`), 그때
+            **사용자는 「있다」고 읽고 눌렀는데 없었다.**
+
+            없을 때 입구를 **감추지 않는다.** `#419`가 *「등급이 없는 이유를 읽어 주지
+            않으면 사용자는 무엇을 해야 하는지 알 수 없다」*로 같은 판단을 했다.
+
+            ## 없을 때는 누르면 말풍선으로 사유를 낸다 (#1415)
+
+            종전에는 비활성 상자 + 상자 안 사유였다. 머리로 올라온 뒤 그 모양이 셋 다 맞지
+            않았다 — 사유를 넣으면 상자가 세 줄로 커졌고, 흐린 채움으로 줄이면 사유가 버튼과
+            따로 놀았다. 버튼은 링크 상태와 같은 모양으로 두고, 누르면 **왜 못 여는지와 무엇을
+            하면 열리는지**를 말풍선으로 낸다. `#588`이 막은 「있다고 읽고 눌렀는데 **아무 일도
+            없었다**」는 누른 자리에서 답이 나오므로 되살아나지 않는다. `DESIGN_SYSTEM §14`
+            「비활성 컨트롤은 「왜」를 함께 낸다」의 예외다 — 이 자리는 비활성 컨트롤이 아니라
+            **누르면 사유를 내는 버튼**이다.
+          */}
+          {inProgress === 'loading' ? (
+            <span className="vd__drill vd__drill--off" aria-busy="true" role="status">
+              진행 중 항차 확인 중…
+            </span>
+          ) : inProgress === null ? (
+            <NoVoyageDrill />
+          ) : (
+            <Link className="vd__drill" to={`/vessels/${vessel.id}/voyages/current`}>
+              진행 중 항차의 실시간 CII 보기
+            </Link>
+          )}
+        </div>
       </header>
 
       {/* ── 올해 누적(YTD) — 주 표시 ─────────────────────────────── */}
@@ -376,10 +423,6 @@ export function VesselDetail({
             </dl>
 
             {/*
-             * 진행 중 항차로 내려가는 경로. 항차 목록을 여기서 따로 부르지 않는다 —
-             * 실시간 화면(#357)이 자기 데이터를 스스로 가져오는 편이 경계가 맞다.
-             */}
-            {/*
              * 위치·상태 입력 (`API_SPEC §2.6` · `#369`). 이 카드는 네 값을 보여
              * 주면서 **읽기만 가능했다** — 쓰는 경로가 없어 위치가 시드 이후
              * 고정됐고, 대시보드 `PositionChart`가 빈 채로 떴다.
@@ -397,35 +440,6 @@ export function VesselDetail({
               }
             />
 
-            {/*
-              링크를 `underwayState`로 그리지 않는다 (`#588`).
-
-              그 값은 **표시 상태**이고 진행 중 항차의 존재와 별개다 — 운항 중으로
-              표시된 선박에 항차가 없는 상태가 실제로 있었고(`#587`), 그때
-              **사용자는 「있다」고 읽고 눌렀는데 없었다.**
-
-              없을 때 링크를 감추지 않고 **사유와 함께 비활성으로 둔다.** `#419`가
-              *「등급이 없는 이유를 읽어 주지 않으면 사용자는 무엇을 해야 하는지 알 수
-              없다」*로 같은 판단을 했고, 선박 관리(`#510`)가 「이 배로 지금 할 수 없는
-              것」을 보이는 형태를 이미 쓴다.
-            */}
-            {inProgress === 'loading' ? (
-              <span className="vd__drill vd__drill--off" aria-busy="true" role="status">
-                진행 중 항차 확인 중…
-              </span>
-            ) : inProgress === null ? (
-              <span className="vd__drill vd__drill--off">
-                진행 중 항차의 실시간 CII 보기
-                <em className="vd__drill-why">
-                  진행 중 항차가 없습니다 — 아래 「항차 기록」에서 항차를 진행 중으로
-                  바꾸면 열립니다.
-                </em>
-              </span>
-            ) : (
-              <Link className="vd__drill" to={`/vessels/${vessel.id}/voyages/current`}>
-                진행 중 항차의 실시간 CII 보기
-              </Link>
-            )}
           </section>
         </div>
       </div>
@@ -581,4 +595,72 @@ function noDataText(year: CiiYear | null): string {
     return `${year.regulationYear}년 규정 파라미터가 등록되지 않아 산출할 수 없습니다.`
   }
   return '올해 등록된 항차 실적이 없습니다. 항차를 등록하면 누적값이 계산됩니다.'
+}
+
+/**
+ * 진행 중 항차가 없을 때의 입구 (#1415) — 누르면 말풍선으로 사유와 여는 방법을 낸다.
+ *
+ * 말풍선 안은 `role="status"`라 열릴 때 낭독된다. 버튼은 `aria-expanded`·`aria-controls`로
+ * 말풍선과 이어진다.
+ *
+ * 닫는 방식은 계정 메뉴(`AccountMenu.tsx`)를 따른다 — 다시 누르기 · Escape(초점을 버튼으로) ·
+ * 바깥 `mousedown`. 면은 오버레이 규격(`§5` 「그림자 + 테두리」)이고 겹침 순서는 드롭다운과 같은
+ * `1`이다(`§16` 항목 17 미확정).
+ */
+function NoVoyageDrill() {
+  const [open, setOpen] = useState(false)
+  const bubbleId = useId()
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      buttonRef.current?.focus()
+    }
+    function onDown(event: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [open])
+
+  return (
+    <div className="vd__drill-wrap" ref={wrapRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className="vd__drill"
+        aria-expanded={open}
+        aria-controls={bubbleId}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        진행 중 항차의 실시간 CII 보기
+      </button>
+      <div id={bubbleId} className="vd__bubble" role="status" hidden={!open}>
+        {open ? (
+          <>
+            {/*
+              줄을 직접 나눈다. 자동 줄바꿈에 맡기면 「「항해 중으로」」처럼 **낫표로 시작하는 줄**이
+              생기는데, 낫표는 전각이라 앞이 비어 보여 왼쪽 끝이 들쭉날쭉했다. 이름은 낫표 대신
+              글자색으로 짚는다.
+            */}
+            <b>진행 중 항차가 없습니다.</b>
+            <span>
+              아래 <em>항차 기록</em>에서 항차를
+            </span>
+            <span>
+              <em>항해 중으로</em> 바꾸면 열립니다.
+            </span>
+          </>
+        ) : null}
+      </div>
+    </div>
+  )
 }
