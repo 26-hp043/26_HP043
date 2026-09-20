@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import resolve_transport_capacity
+from cii_platform.calc.precision import layer1_context
 from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
@@ -249,8 +250,44 @@ def compute_days_to_target(
     if boundary is None or distance_now is None or distance_now <= 0:
         return DaysToTarget(None, REASON_NO_DATA)
 
+    result = _days_to_target_arithmetic(
+        attained_now=ytd.attained_cii,
+        distance_now=distance_now,
+        past=past,
+        boundary=boundary,
+        window_days=window_days,
+    )
+    if result.days is None:
+        return result
+
+    if result.days > _days_left_in_year(as_of):
+        return DaysToTarget(None, REASON_NOT_THIS_YEAR)
+
+    return result
+
+
+@layer1_context
+def _days_to_target_arithmetic(
+    *,
+    attained_now: Decimal,
+    distance_now: Decimal,
+    past: YtdCiiOutput | None,
+    boundary: Decimal,
+    window_days: int,
+) -> DaysToTarget:
+    """산식의 **계산 부분만** — Layer 1 컨텍스트 안에서 한 번에 낸다 (`#1372`).
+
+    ``area_now``·``area_past``는 Layer 1 값(``attained_cii``)에서 **새로 만드는 값**이다.
+    컨텍스트 밖에서 곱하면 기본 정밀도(``prec=28``)로 잘려, 이어지는 뺄셈·나눗셈이 전부
+    그 값 위에서 돈다(`TECH_SPEC §1.2.1` — 「Layer 1 값에서 새 값을 만드는 코드는 반드시
+    진입점 안에 둔다」). 정수 일수로 내려오는 결과에서는 드러나지 않지만, **드러나지
+    않는다는 것이 맞다는 뜻은 아니다.**
+
+    연도 경계 판정(:func:`_days_left_in_year`)은 달력 계산이라 밖에 둔다 — 컨텍스트는
+    Layer 1 산출의 계약이지 모든 코드의 정책이 아니다.
+    """
     # A = attained × Dt (= M / W). 누적 배출을 수송능력으로 나눈 값이다.
-    area_now = ytd.attained_cii * distance_now
+    area_now = attained_now * distance_now
 
     if past is not None and past.data_available and past.attained_cii is not None:
         distance_past = past.total_distance_nm or Decimal(0)
@@ -278,12 +315,7 @@ def compute_days_to_target(
     if numerator <= 0:  # pragma: no cover - 등급 판정에서 이미 걸러진다
         return DaysToTarget(None, REASON_ALREADY_AT_OR_BELOW)
 
-    days = int(Decimal(window_days) * numerator / denominator)
-
-    if days > _days_left_in_year(as_of):
-        return DaysToTarget(None, REASON_NOT_THIS_YEAR)
-
-    return DaysToTarget(max(days, 0), None)
+    return DaysToTarget(max(int(Decimal(window_days) * numerator / denominator), 0), None)
 
 
 def _days_left_in_year(as_of: datetime) -> int:

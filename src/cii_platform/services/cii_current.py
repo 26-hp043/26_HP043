@@ -46,7 +46,7 @@ from typing import TYPE_CHECKING
 from cii_platform.calc.annual_simulation import project_deterministic
 from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
-from cii_platform.calc.precision import LAYER1_ROUNDING
+from cii_platform.calc.precision import LAYER1_ROUNDING, layer1_context
 from cii_platform.calc.rating_engine import (
     calculate_deterministic_risk,
     calculate_margin_ratio,
@@ -278,6 +278,43 @@ def _remaining_days(*, as_of: datetime, regulation_year: int) -> Decimal:
     return Decimal(str((year_end - cursor).total_seconds())) / Decimal("86400")
 
 
+@layer1_context
+def _project_layer1(context, inputs) -> tuple[object, Decimal, str]:
+    """⑶의 Layer 1 전 구간을 **한 컨텍스트 안에서** 낸다 (`TECH_SPEC §1.2.1` · `#1372`).
+
+    종전에는 ``ratio``를 이 컨텍스트 **밖에서** 나눴다. 나눗셈은 컨텍스트 precision에서
+    잘리므로 기본값(``prec=28``)으로 계산되어 정본과 **27번째 자리부터 갈렸다** —
+    실측 ``…012600`` vs 정본 ``…012581``. 응답 자릿수(5자리)에서는 드러나지 않지만,
+    「자릿수가 맞다고 정밀도가 맞는 것은 아니다」가 `TECH_SPEC §1.2.1`의 경고다.
+
+    ``voyage_cii._compute_layer1`` · ``ytd_cii``와 같은 틀이다 — 함수를 나누어 각각
+    데코레이터를 달면 컨텍스트를 들락거리며 중간값이 기본 컨텍스트에서 다뤄진다.
+
+    :raises ValueError: 거리가 0일 때 :func:`project_deterministic`이 올린다.
+    """
+    deterministic = project_deterministic(
+        completed=inputs.completed,
+        remaining=inputs.remaining,
+        transport_capacity=context.transport_capacity,
+        required_cii=context.required_cii,
+        d_vector=context.d_vector,
+    )
+    ratio = deterministic.attained_cii / context.required_cii
+    # 위험도는 ⑴과 **같은 방식**(마진 기반)으로 낸다. 기능③의 `risk_level`은 목표
+    # 달성 확률 기반이라 여기 쓰면 같은 열 이름에 다른 척도가 섞인다.
+    next_worse = select_next_worse_boundary(deterministic.rating, deterministic.boundaries)
+    margin_ratio = (
+        None
+        if next_worse is None
+        else calculate_margin_ratio(
+            attained_cii=deterministic.attained_cii,
+            required_cii=context.required_cii,
+            next_worse_boundary=next_worse,
+        )
+    )
+    return deterministic, ratio, calculate_deterministic_risk(deterministic.rating, margin_ratio)
+
+
 async def _project_year_end(
     session: AsyncSession,
     *,
@@ -353,32 +390,11 @@ async def _project_year_end(
     )
 
     try:
-        deterministic = project_deterministic(
-            completed=inputs.completed,
-            remaining=inputs.remaining,
-            transport_capacity=context.transport_capacity,
-            required_cii=context.required_cii,
-            d_vector=context.d_vector,
-        )
+        deterministic, ratio, risk = _project_layer1(context, inputs)
     except ValueError:
         # 거리가 0이면 ``PRD §12.8``이 계산 중단을 규정한다. ⑶은 조회 응답의 한
         # 갈래이므로 500으로 올리지 않고 **못 낸 사유를 싣는다.**
         return {"data_available": False, "reason": REASON_NO_BASIS}
-
-    ratio = deterministic.attained_cii / context.required_cii
-    # 위험도는 ⑴과 **같은 방식**(마진 기반)으로 낸다. 기능③의 `risk_level`은 목표
-    # 달성 확률 기반이라 여기 쓰면 같은 열 이름에 다른 척도가 섞인다.
-    next_worse = select_next_worse_boundary(deterministic.rating, deterministic.boundaries)
-    margin_ratio = (
-        None
-        if next_worse is None
-        else calculate_margin_ratio(
-            attained_cii=deterministic.attained_cii,
-            required_cii=context.required_cii,
-            next_worse_boundary=next_worse,
-        )
-    )
-    risk = calculate_deterministic_risk(deterministic.rating, margin_ratio)
 
     warnings = list(inputs.warnings)
     if inputs.plan_voyage_count == 0:

@@ -20,6 +20,7 @@ from decimal import (
     InvalidOperation,
     Overflow,
     getcontext,
+    localcontext,
     setcontext,
 )
 
@@ -155,3 +156,81 @@ def test_division_by_zero_is_trapped():
         Decimal(1) / Decimal(0)
     with pytest.raises(InvalidOperation):
         Decimal(0) / Decimal(0)
+
+
+# ── 파생값도 적용 지점 안에서 낸다 (`#1372`) ────────────────────────────────────
+#
+# `TECH_SPEC §1.2.1`이 *「Layer 1 값에서 새 값을 만드는 코드는 반드시 진입점 안에 둔다」*로
+# 정한 자리다. 밖에서 나누면 기본 정밀도(prec=28)로 잘려 27번째 자리부터 갈린다 —
+# 실측 `…012600`(밖) vs `…012581`(정본). 응답 자릿수에서는 드러나지 않으므로 **값이
+# 아니라 계산 시점의 정밀도**를 본다.
+
+
+def test_year_end_projection_derives_inside_the_context(monkeypatch):
+    """⑶ 연말 예상의 `ratio_to_required`가 작업 정밀도 안에서 나온다 (`#1372`)."""
+    from cii_platform.services import cii_current
+
+    seen: dict[str, int] = {}
+
+    class _Deterministic:
+        attained_cii = Decimal("4.9824")
+        rating = "E"
+        boundaries: dict[str, Decimal] = {}
+
+    def _spy(**_kwargs):
+        seen["prec"] = getcontext().prec
+        return _Deterministic()
+
+    monkeypatch.setattr(cii_current, "project_deterministic", _spy)
+
+    class _Context:
+        transport_capacity = Decimal("50000")
+        required_cii = Decimal("5.04506633249618206053073653978")
+        d_vector = None
+
+    class _Inputs:
+        completed = ()
+        remaining = ()
+
+    _deterministic, ratio, _risk = cii_current._project_layer1(_Context(), _Inputs())
+
+    assert seen["prec"] == LAYER1_WORKING_PRECISION == 50
+    # 컨텍스트 안에서 나눈 값과 같아야 한다 — 밖에서 나누면 prec=28로 잘린다.
+    with localcontext() as ctx:
+        ctx.prec, ctx.rounding = LAYER1_WORKING_PRECISION, LAYER1_ROUNDING
+        expected = _Deterministic.attained_cii / _Context.required_cii
+    assert ratio == expected
+
+    with localcontext() as ctx:
+        ctx.prec, ctx.rounding = 28, LAYER1_ROUNDING
+        outside = _Deterministic.attained_cii / _Context.required_cii
+    assert ratio != outside, "prec=28로 계산해도 같은 값이면 이 검사는 아무것도 잠그지 않는다"
+
+
+def test_days_to_target_derives_inside_the_context():
+    """「D등급 진입까지 n일」의 누적면적(`attained × Dt`)이 작업 정밀도 안에서 나온다 (`#1372`)."""
+    from cii_platform.services.fleet_summary import _days_to_target_arithmetic
+
+    seen: dict[str, int] = {}
+
+    class _Past:
+        data_available = True
+        total_distance_nm = Decimal("1000")
+
+        @property
+        def attained_cii(self) -> Decimal:
+            # 이 속성은 곱셈 직전에 읽힌다 — 읽히는 순간의 정밀도가 곧 계산 정밀도다.
+            seen["prec"] = getcontext().prec
+            return Decimal("4.9")
+
+    result = _days_to_target_arithmetic(
+        attained_now=Decimal("5.0"),
+        distance_now=Decimal("2000"),
+        past=_Past(),
+        boundary=Decimal("5.34777031244595298416258073217"),
+        window_days=30,
+    )
+
+    assert seen["prec"] == LAYER1_WORKING_PRECISION == 50
+    # 값 자체는 이 검사의 관심이 아니다 — 산식은 `test_fleet_summary.py`가 본다.
+    assert result is not None
