@@ -110,12 +110,24 @@ _NOT_NUMBERS = re.compile(
 
 #: 대조에서 빼는 값.
 #:
-#: 연도(2024~2030)와 한 자리 수는 **문장에 자연스럽게 섞인다** — 「3가지」·「2026년」
+#: 연도(2019~2040)와 한 자리 수는 **문장에 자연스럽게 섞인다** — 「3가지」·「2026년」
 #: 같은 것까지 도구 응답에 있어야 한다고 요구하면 가드가 정상 응답을 막는다.
-#: ⚠️ 등급 경계·비율처럼 **판단에 쓰이는 수치는 전부 두 자리 이상**이라 빠지지 않는다.
+#:
+#: ⚠️ **종전 이 자리는 「판단에 쓰이는 수치는 전부 두 자리 이상이라 빠지지 않는다」로
+#: 적혀 있었다 (`#1334` ⑶ 정정). 백분율에서 성립하지 않는다** — 도구가
+#: ``0.012345``를 줬는데 「여유는 **7%**입니다」가 통과했다(실측). 한 자리라서
+#: 무시됐고, 그 답이 「검증된 답」으로 저장돼 ``prior_answers``로 **다음 턴에 다시
+#: 허용**됐다. 그래서 :data:`_UNIT_SUFFIX`가 붙은 수치는 한 자리여도 대조한다.
 _IGNORED_LITERALS: frozenset[str] = frozenset(
     {str(n) for n in range(10)} | {str(y) for y in range(2019, 2041)}
 )
+
+#: 무시 목록을 **적용하지 않는** 접미사 (`#1334` ⑶).
+#:
+#: 목록을 통째로 없애지 않는 이유는 「3가지」·「2026년」이 정상 응답에서 흔하기
+#: 때문이다 — 막으면 **맞는 답이 폐기된다.** 실증된 우회로만 닫는다: 수치 뒤에
+#: ``%``가 붙으면 그것은 **판단에 쓰이는 값**이다.
+_UNIT_SUFFIX = re.compile(r"\s*%")
 
 
 def extract_numbers(text: str) -> list[str]:
@@ -126,9 +138,11 @@ def extract_numbers(text: str) -> list[str]:
     """
     text = _NOT_NUMBERS.sub(" ", text)
     found: list[str] = []
-    for raw in _NUMBER.findall(text):
-        token = raw.replace(",", "")
-        if token in _IGNORED_LITERALS:
+    for match in _NUMBER.finditer(text):
+        token = match.group().replace(",", "")
+        # `#1334` ⑶ — 뒤에 `%`가 붙으면 무시 목록을 적용하지 않는다.
+        unit_bound = _UNIT_SUFFIX.match(text, match.end()) is not None
+        if not unit_bound and token in _IGNORED_LITERALS:
             continue
         if "." in token:
             token = token.rstrip("0").rstrip(".")

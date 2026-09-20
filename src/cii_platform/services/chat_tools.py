@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -130,7 +130,13 @@ def _regulation_year(arguments: dict[str, object]) -> int:
     드러나지 않는다. ``cii_current``가 ``as_of.year``로 같은 판단을 한다.
     """
     raw = arguments.get("regulation_year")
-    return datetime.now(UTC).year if raw is None else int(raw)
+    if raw is None:
+        return datetime.now(UTC).year
+    try:
+        return int(raw)  # type: ignore[arg-type]
+    except (ValueError, TypeError) as exc:
+        # `#1334` ⑴ — 「2026년」처럼 오면 `ValueError`다. 종전에는 500이 됐다.
+        raise ToolArgumentError("regulation_year") from exc
 
 
 def envelope(
@@ -183,6 +189,48 @@ _RESULT_KEYS: tuple[str, ...] = (
 )
 
 
+#: 비율로 내려가는 값 — 화면은 **백분율로 보여 준다**.
+_GAP_KEY = "next_boundary_gap"
+
+#: 화면의 백분율 자릿수 (`DESIGN_SYSTEM §4.1` · ``DISPLAY_DIGITS.percent`` = 1).
+_PERCENT_QUANTUM = Decimal("0.1")
+
+
+def _with_screen_percent(value: object) -> object:
+    """비율 값에 **화면 표기를 덧붙인다** (`#1334` ⑵).
+
+    ``"0.012345"`` → ``"0.012345 (1.2%)"``
+
+    ## 왜 필요한가
+
+    수치 가드(``verify_numbers``)는 도구 응답 **문자열**에서 수치를 찾는다. 화면은
+    ``formatPercent(marginRatio)``로 ``1.2%``를 쓰는데 도구는 ``0.012345``만
+    줬으므로, 모델이 **화면과 같은 표기로 답하면 폐기됐다**(실측).
+
+    ``_rounded_forms``가 같은 문제를 이미 한 번 겪었다 — *「화면과 같은 자릿수로
+    말할 수 없으면 면책이 거짓이 된다」*(``PRD §6.3``). **자릿수는 고쳤는데 단위는
+    고치지 않은 것**이라, 같은 해법을 쓴다.
+
+    ## 왜 새 키를 만들지 않는가
+
+    ``PRD §16.3.1`` 화이트리스트는 **키 이름**을 검사한다. 키를 늘리면 *같은 값이 두
+    이름으로* 허용 목록에 남는다 — :data:`_PUBLISH_MAP` 주석이 이름 문제에서 이미
+    기각한 형태다. 값 하나에 두 표기를 담으면 화이트리스트를 건드리지 않는다.
+
+    ## 왜 가드를 넓히지 않는가
+
+    가드가 ×100 표기를 **무조건** 허용하면 도구가 ``0.07``을 준 답에서 ``7%``도
+    통과한다 — **다른 뜻의 수**다. 가드의 원칙은 「막을 것은 표기가 아니라
+    **출처**」(``IT-CHAT-008``)이고, 여기서 바꾸는 것은 **출처 쪽**이다.
+    """
+    try:
+        ratio = Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):  # pragma: no cover - 문자열 수치만 온다
+        return value
+    percent = (ratio * 100).quantize(_PERCENT_QUANTUM, rounding=ROUND_HALF_UP)
+    return f"{value} ({percent}%)"
+
+
 def _publishable(payload: dict[str, object], keys: tuple[str, ...]) -> dict[str, object]:
     """응답에서 화이트리스트 대상 값만 뽑아 **이름을 맞춘 뒤** 필터를 태운다.
 
@@ -197,6 +245,9 @@ def _publishable(payload: dict[str, object], keys: tuple[str, ...]) -> dict[str,
         for key in keys
         if key in _PUBLISH_MAP and payload.get(key) is not None
     }
+    gap = picked.get(_GAP_KEY)
+    if gap is not None:
+        picked[_GAP_KEY] = _with_screen_percent(gap)
     return filter_outbound(picked)
 
 
@@ -222,11 +273,58 @@ def _publishable(payload: dict[str, object], keys: tuple[str, ...]) -> dict[str,
 #: 않습니다」가 된다. 감수하는 이유는 ⑴ 화면 폼은 여전히 구체적 문구를 그대로 받고
 #: (이 경로는 챗봇 전용이다) ⑵ 챗봇의 입력은 **모델이 만든 것**이라 사용자가 고칠
 #: 값이 아니며 ⑶ 좁게 시작해 넓히는 것이 반대보다 쉽다(`#120` 화이트리스트와 같은 판단).
+class ToolArgumentError(Exception):
+    """모델이 보낸 도구 인자를 읽을 수 없다 (`#1334` ⑴).
+
+    **밖으로 나가는 것은 고정 문구 하나**다(:data:`_ERROR_TEXT`) — 어느 인자가
+    잘못됐는지도 말하지 않는다. 인자 이름은 모델이 스스로 보낸 것이라 유출은
+    아니지만, 문구를 인자마다 만들면 **오류 문구가 값을 실어 나르는 경로**가 하나
+    더 생긴다(`#1310`이 화이트리스트가 오류 경로로 뚫린 것을 고쳤다).
+    """
+
+
+def _required_decimal(arguments: dict[str, object], key: str) -> Decimal:
+    """필수 숫자 인자. **없거나 숫자가 아니면 봉투로 되돌린다.**"""
+    if key not in arguments or arguments[key] is None:
+        raise ToolArgumentError(key)
+    try:
+        return Decimal(str(arguments[key]))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ToolArgumentError(key) from exc
+
+
+def _optional_decimal(arguments: dict[str, object], key: str) -> Decimal | None:
+    """선택 숫자 인자. 없으면 ``None``, **있는데 읽히지 않으면 오류**다.
+
+    읽히지 않는 값을 ``None``으로 삼키면 모델이 보낸 조건이 **조용히 사라진다** —
+    그 답은 사용자가 물은 것과 다른 계산의 결과가 된다.
+    """
+    if key not in arguments or arguments[key] is None:
+        return None
+    try:
+        return Decimal(str(arguments[key]))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ToolArgumentError(key) from exc
+
+
+def _required_text(arguments: dict[str, object], key: str) -> str:
+    if key not in arguments or arguments[key] is None:
+        raise ToolArgumentError(key)
+    return str(arguments[key])
+
+
 _ERROR_TEXT: tuple[tuple[type[Exception], str], ...] = (
     (NotFoundError, "요청하신 대상을 찾을 수 없습니다."),
     (ParameterError, "그 조건에 필요한 규정 파라미터가 없습니다."),
     (CalculationError, "이 조건으로는 계산할 수 없습니다."),
     (ValidationError, "입력값이 올바르지 않습니다. 숫자 범위를 확인해 주세요."),
+    # `#1334` ⑴ — 모델이 인자를 빼거나 「약 100」·「2026년」처럼 보내는 경우.
+    # 종전에는 `KeyError`·`InvalidOperation`·`ValueError`가 잡히지 않아 **턴 전체가
+    # 500으로 끊겼고**, 롤백으로 방금 저장한 질문까지 사라졌다.
+    (
+        ToolArgumentError,
+        "도구에 넘길 값이 빠졌거나 숫자로 읽히지 않습니다. 숫자만 넣어 다시 시도해 주세요.",
+    ),
 )
 
 
@@ -297,7 +395,13 @@ async def run_tool(
         if name == TOOL_COMPARE_SCENARIOS:
             return ToolOutcome(await _compare_scenarios(session, arguments, vessel_id))
         return ToolOutcome(await _run_annual_simulation(session, arguments, vessel_id))
-    except (ValidationError, NotFoundError, ParameterError, CalculationError) as exc:
+    except (
+        ValidationError,
+        NotFoundError,
+        ParameterError,
+        CalculationError,
+        ToolArgumentError,
+    ) as exc:
         # ⚠️ **원문을 넘기지 않는다.** 아래 `_ERROR_TEXT` 주석 참조.
         return ToolOutcome(envelope(name, error=_error_text(exc)))
 
@@ -353,16 +457,18 @@ async def _calc_voyage_cii(
     payload = VoyageCiiInput(
         vessel_id=vessel_id,  # type: ignore[arg-type]
         regulation_year=_regulation_year(arguments),
-        distance_nm=Decimal(str(arguments["distance_nm"])),
-        speed_kn=Decimal(str(arguments["speed_kn"])),
+        distance_nm=_required_decimal(arguments, "distance_nm"),
+        speed_kn=_required_decimal(arguments, "speed_kn"),
         fuel_uses=(
             FuelUseInput(
-                fuel_type=str(arguments["fuel_type"]),
-                fuel_ton=Decimal(str(arguments["fuel_ton"])),
+                fuel_type=_required_text(arguments, "fuel_type"),
+                fuel_ton=_required_decimal(arguments, "fuel_ton"),
             ),
         ),
     )
-    response = await estimate_voyage_cii(session, payload)
+    # `#1334` ⑷ — **저장하지 않는다.** 이 모듈 머리말의 「쓰기 도구를 넣지 않는다」를
+    # 읽기 도구가 어기고 있었다(`calculation_run`은 지울 수 없다).
+    response = await estimate_voyage_cii(session, payload, persist=False)
     data = response.get("data") or {}
     return envelope(
         TOOL_CALC_VOYAGE_CII,
@@ -378,19 +484,16 @@ async def _compare_scenarios(
 ) -> str:
     from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
 
-    def _decimal(key: str) -> Decimal | None:
-        raw = arguments.get(key)
-        return None if raw is None else Decimal(str(raw))
-
     payload = ScenarioCompareInput(
         vessel_id=vessel_id,  # type: ignore[arg-type]
         regulation_year=_regulation_year(arguments),
-        current_speed_kn=Decimal(str(arguments["current_speed_kn"])),
-        fuel_type=str(arguments["fuel_type"]),
-        direct_distance_nm=_decimal("direct_distance_nm"),
-        base_daily_foc_ton=_decimal("base_daily_foc_ton"),
+        current_speed_kn=_required_decimal(arguments, "current_speed_kn"),
+        fuel_type=_required_text(arguments, "fuel_type"),
+        direct_distance_nm=_optional_decimal(arguments, "direct_distance_nm"),
+        base_daily_foc_ton=_optional_decimal(arguments, "base_daily_foc_ton"),
     )
-    response = await compare_scenarios(session, payload)
+    # `#1334` ⑷ — 저장하지 않는다. 위와 같은 이유다.
+    response = await compare_scenarios(session, payload, persist=False)
     scenarios = (response.get("data") or {}).get("scenarios") or []  # type: ignore[union-attr]
     # ⚠️ 시나리오를 **순위로 정렬하지 않는다** — 순위화는 No-Advice 금지 항목이다.
     return envelope(
