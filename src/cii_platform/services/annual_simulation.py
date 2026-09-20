@@ -1911,7 +1911,9 @@ async def reproduce_annual_simulation(
 
     seed = _seed_from_metadata((stored.get("monte_carlo") or {}).get("rng_metadata") or {})
     if seed is None:
-        raise NotFoundError("이 실행은 seed가 기록되지 않아 재현할 수 없습니다(#443 이전 실행).")
+        raise NotFoundError(
+            "이 실행은 난수 시드(seed)가 기록되지 않아 재현할 수 없습니다(#443 이전 실행)."
+        )
 
     # **제원은 스냅샷에서 읽는다** (`#493`). 살아 있는 행을 읽으면 그 사이의 제원
     # 수정이 섞여 「재현 실패」가 되는데, 그것은 재현성 계약이 깨진 것이 아니라

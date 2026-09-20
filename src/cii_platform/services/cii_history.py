@@ -86,15 +86,18 @@ def _publish(value: Decimal, digits: int) -> str:
 
 
 def _validate_window(start: int, end: int) -> None:
+    # ⚠️ **필드명 원문도 영문 조각도 쓰지 않는다** (`API_SPEC §1.3.2` · `#999` · `#1329`).
+    # 종전 문구는 `"from은 2019 이상이어야 합니다: got 2000"`이었다 — 사용자는
+    # `from`이 무엇인지 모르고 `got`은 영문이다. 라벨로 부르고 값만 덧붙인다.
     if start < MIN_REGULATION_YEAR:
         raise ValidationError(
-            f"from은 {MIN_REGULATION_YEAR} 이상이어야 합니다: got {start}",
+            f"시작 연도는 {MIN_REGULATION_YEAR} 이상이어야 합니다: {start}",
             field="from",
             field_label="시작 연도",
         )
     if start > end:
         raise ValidationError(
-            f"from은 to보다 크면 안 됩니다: from={start}, to={end}",
+            f"시작 연도는 끝 연도보다 클 수 없습니다: {start} > {end}",
             field="from",
             field_label="시작 연도",
         )
