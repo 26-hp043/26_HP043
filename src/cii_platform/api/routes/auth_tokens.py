@@ -49,6 +49,7 @@ from cii_platform.db.models.user_token import (
     PURPOSE_PASSWORD_RESET,
 )
 from cii_platform.db.session import get_session
+from cii_platform.errors import ERROR_HTTP_STATUS
 from cii_platform.mail import MailDeliveryError, get_mailer
 from cii_platform.mail.templates import email_verification, password_reset
 from cii_platform.services import audit as audit_svc
@@ -69,6 +70,16 @@ RESET_REQUESTED_MESSAGE = (
     "입력하신 주소로 재설정 안내를 보냈습니다. 메일이 오지 않으면 스팸함을 확인해 주세요."
 )
 
+#: 인증 메일 재발송 결과 문구 — `PRD §6.3` 확정 원문 (`#1326`).
+#:
+#: ⚠️ **재설정 문구를 돌려 쓰지 않는다.** 종전에는 :data:`RESET_REQUESTED_MESSAGE`를
+#: 그대로 썼고 화면이 서버 문구를 그대로 띄우므로(`VerifyBanner.tsx`), 「인증 메일
+#: 다시 받기」를 누르면 **「재설정 안내를 보냈습니다」**가 떴다 — 사용자는 비밀번호
+#: 재설정 메일이 온다고 믿는다. 두 흐름은 **오는 메일이 다르다.**
+VERIFY_REQUESTED_MESSAGE = (
+    "입력하신 주소로 인증 안내를 보냈습니다. 메일이 오지 않으면 스팸함을 확인해 주세요."
+)
+
 #: 토큰 만료·사용됨 문구 — `PRD §6.3` 확정 원문.
 TOKEN_INVALID_MESSAGE = "링크가 만료되었거나 이미 사용되었습니다. 다시 요청해 주세요."
 
@@ -84,10 +95,19 @@ def _meta(request: Request) -> dict[str, object]:
     }
 
 
-def _error(request: Request, status: int, code: str, message: str) -> JSONResponse:
+def _error(request: Request, code: str, message: str) -> JSONResponse:
+    """오류 응답 — **상태 코드는 `errors.ERROR_HTTP_STATUS`가 정한다** (`#1326`).
+
+    종전에는 이 함수가 상태를 인자로 받아 호출부가 직접 적었고, 그 값이 정본과
+    갈려 있었다 — `VALIDATION_ERROR`에 **400**(`§1.4`는 422), 메일 실패에 **502**
+    (`§1.4`에 502 행이 없고 `INTERNAL_ERROR`는 500). 같은 코드에 다른 상태가 붙는
+    자리가 이 파일 하나뿐이었다.
+
+    **인자를 없애 갈릴 자리를 지운다.** 코드가 정해지면 상태도 정해진다.
+    """
     state = getattr(request, "state", None)
     return JSONResponse(
-        status_code=status,
+        status_code=ERROR_HTTP_STATUS[code],
         content=to_error_response(
             code,
             message,
@@ -138,7 +158,7 @@ async def request_email_verification(
 
     if user is None or user.email_verified_at is not None:
         # 이미 인증됐거나 없는 계정 — 아무것도 하지 않되 응답은 같다.
-        return _ok(request, RESET_REQUESTED_MESSAGE)
+        return _ok(request, VERIFY_REQUESTED_MESSAGE)
 
     raw = await issue_token(session, user_id=user.id, purpose=PURPOSE_EMAIL_VERIFY)
     await session.commit()
@@ -156,9 +176,9 @@ async def request_email_verification(
         # 주소는 남기지 않는다 — 식별은 user_id로 충분하다.
         _log.exception("인증 메일 재발송 실패: user_id=%s", user.id)
         # 토큰은 이미 커밋됐다 — 되돌리지 않는다(#407 경계).
-        return _error(request, 502, "INTERNAL_ERROR", MAIL_FAILED_MESSAGE)
+        return _error(request, "INTERNAL_ERROR", MAIL_FAILED_MESSAGE)
 
-    return _ok(request, RESET_REQUESTED_MESSAGE)
+    return _ok(request, VERIFY_REQUESTED_MESSAGE)
 
 
 @router.post("/verify-email/confirm")
@@ -172,12 +192,12 @@ async def confirm_email_verification(
         user_id = await consume_token(session, raw=payload.token, purpose=PURPOSE_EMAIL_VERIFY)
     except TokenError:
         await session.rollback()
-        return _error(request, 400, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
+        return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
     user = await session.get(AppUser, user_id)
     if user is None:
         await session.rollback()
-        return _error(request, 400, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
+        return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
     import datetime as dt
 
@@ -217,7 +237,7 @@ async def request_password_reset(
     except MailDeliveryError:
         # 위 재발송과 같다 — 원인 예외를 남긴다 (#819).
         _log.exception("비밀번호 재설정 메일 발송 실패: user_id=%s", user.id)
-        return _error(request, 502, "INTERNAL_ERROR", MAIL_FAILED_MESSAGE)
+        return _error(request, "INTERNAL_ERROR", MAIL_FAILED_MESSAGE)
 
     return _ok(request, RESET_REQUESTED_MESSAGE)
 
@@ -242,18 +262,18 @@ async def confirm_password_reset(
     try:
         validate_password(payload.password)
     except PasswordPolicyError as exc:
-        return _error(request, 422, "VALIDATION_ERROR", str(exc))
+        return _error(request, "VALIDATION_ERROR", str(exc))
 
     try:
         user_id = await consume_token(session, raw=payload.token, purpose=PURPOSE_PASSWORD_RESET)
     except TokenError:
         await session.rollback()
-        return _error(request, 400, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
+        return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
     user = await session.get(AppUser, user_id)
     if user is None:
         await session.rollback()
-        return _error(request, 400, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
+        return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
     # 정책 검사는 위에서 끝났으므로 여기서 `PasswordPolicyError`는 나지 않는다.
     user.password_hash = await hash_password_async(payload.password)
