@@ -232,18 +232,18 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 |---|---|---|
 | 200 OK | — | 성공 (warning 포함 가능). 기상 API 실패 시 NONE fallback으로 계산, `warnings`에 `WEATHER_NONE_FALLBACK` 포함 |
 | 201 Created | — | 리소스 생성 성공 |
-| 400 Bad Request | `BAD_REQUEST` | JSON 파싱 오류, 잘못된 Content-Type |
+| 400 Bad Request | `BAD_REQUEST` | **프레임워크가 낸 400**을 `§1.3.2` 포맷으로 변환한 것 (`#183`). **우리 코드가 직접 내는 자리는 없다** — JSON 파싱 오류·잘못된 Content-Type은 아래 **422**다 (`#1366` 실측) |
 | 401 Unauthorized | `UNAUTHORIZED` | 세션 없음, 세션 만료, 세션 무효 |
 | 401 Unauthorized | `INVALID_CREDENTIALS` | 자격 증명 오류 — 로그인 실패(없는 이메일·틀린 비밀번호가 **같은 코드·같은 문구**) · 비밀번호 변경의 현재 비밀번호 오입력(`details[].field` = `current_password`). **세션 문제가 아니다** (#902) |
 | 403 Forbidden | `CSRF_ERROR` | CSRF 토큰 누락 또는 불일치 |
-| 403 Forbidden | `FORBIDDEN_ROLE` | 역할이 허용하지 않는 작업 — 현장직이 사무직 전용 경로를, 또는 현장직·사무직이 관리자 전용 경로(`§1.2` 두 표)를 부름. 문구는 대상 경계에 따라 갈린다 — 사무직 전용은 `"이 작업은 사무직 권한이 있는 계정만 할 수 있습니다."`, 관리자 전용은 `"이 작업은 관리자 권한이 있는 계정만 할 수 있습니다."`(`PRD §6.3`). **CSRF와 같은 403이지만 코드가 다르다** — 화면은 `error.code`로 가른다: CSRF는 토큰을 다시 실어 재시도, 역할은 안내하고 끝낸다 (#672 · #1301) |
+| 403 Forbidden | `FORBIDDEN_ROLE` | 역할이 허용하지 않는 작업 — 현장직이 사무직 전용 경로를, 또는 현장직·사무직이 관리자 전용 경로(`§1.2` 두 표)를 부름. 문구는 대상 경계에 따라 갈린다 — 사무직 전용은 `"이 작업은 사무직 권한이 있는 계정만 할 수 있습니다."`, 관리자 전용은 `"이 작업은 관리자 권한이 있는 계정만 할 수 있습니다."`(`PRD §6.3`). **CSRF와 같은 403이지만 코드가 다르다** — 화면이 `error.code`로 가를 수 있게 둔 것이다. 둘 다 **재시도하지 않고 안내로 끝낸다** (`#1366`). CSRF 토큰은 로그인 시 내려주는 `csrf` 쿠키에서만 오고 **다시 받는 경로가 없으므로**, 그 쿠키가 없거나 어긋난 상태에서는 같은 요청을 다시 보내도 결과가 같다 — 그 세션으로는 더 진행할 수 없고 **다시 로그인**해야 한다 (#672 · #1301) |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 리소스 ID |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 **경로** (프레임워크 자동 발생 — `#183`에서 §1.3.2 포맷으로 변환). 리소스 ID 미존재와 동일한 코드를 쓴다 |
 | 405 Method Not Allowed | `METHOD_NOT_ALLOWED` | 경로는 존재하나 HTTP 메서드가 허용되지 않음 (프레임워크 자동 발생 — `#183`에서 변환) |
 | 409 Conflict | `PARAMETER_ERROR` | 규정 파라미터 누락 또는 불일치. 재현 시 파라미터 변경 |
 | 409 Conflict | `MODEL_VERSION_MISMATCH` | 재현(§6.4) 시 `model_version`이 원본과 다르고 결과도 다름 — 약속 밖의 변화(`TECH_SPEC §10.3` · #833) |
 | 409 Conflict | `CONFLICT` | 리소스 중복 (예: 동일 IMO 번호 선박 재등록) |
-| 422 Unprocessable Entity | `VALIDATION_ERROR` | VAL-001~010 위반 |
+| 422 Unprocessable Entity | `VALIDATION_ERROR` | VAL-001~010 위반. **JSON 파싱 오류**(「요청 본문이 올바른 JSON이 아닙니다.」)와 **잘못된 Content-Type**(「요청 본문 형식이 올바르지 않습니다.」)도 여기다 — `§1.3.2`가 이미 422로 서술하며, 실측도 같다 (`#1366`) |
 | 422 Unprocessable Entity | `CALCULATION_ERROR` | 분모 0, overflow, 음수 결과 |
 | 422 Unprocessable Entity | `MODEL_BREAKDOWN_ERROR` | BN > 8, ΔV/V ≥ 100% |
 | 422 Unprocessable Entity | `STATE_TRANSITION_ERROR` | 허용되지 않은 상태 전환 (PRD §8.1.1) |
