@@ -92,6 +92,11 @@ _BASE_PUBLIC_PATHS: frozenset[str] = frozenset(
         # 인증 플로우 자체 — 세션 없이 접근해야 한다 (`API_SPEC §1.2`).
         "/api/v1/auth/signup",
         "/api/v1/auth/login",
+        # 둘러보기 — 인터뷰·설문 대상자가 가입 없이 들어오는 문 (#1486). **환경과
+        # 무관하게 항상 등록되고 접근 코드로만 잠긴다.** 그래서 `build_public_paths()`의
+        # 인자를 늘리지 않고 여기(기본 목록)에 둔다 — 인자는 「환경에 따라 등록이 갈리는
+        # 경로」를 위한 것이고, 판정이 갈리면 그 경로만 404가 되어 존재가 드러난다.
+        "/api/v1/auth/tour-login",
         # 메일 링크로 진입하므로 세션이 없다 (#408 · `API_SPEC §1.2`).
         "/api/v1/auth/verify-email/request",
         "/api/v1/auth/verify-email/confirm",

@@ -40,6 +40,7 @@ from cii_platform.api.schemas.auth import (
     PasswordChangeRequest,
     RoleUpdateRequest,
     SignupRequest,
+    TourLoginRequest,
 )
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.backoff import backoff
@@ -61,6 +62,8 @@ from cii_platform.auth.session import (
 )
 from cii_platform.auth.signup_gate import REJECTED_MESSAGE as SIGNUP_REJECTED_MESSAGE
 from cii_platform.auth.signup_gate import load_signup_gate
+from cii_platform.auth.tour_gate import REJECTED_MESSAGE as TOUR_REJECTED_MESSAGE
+from cii_platform.auth.tour_gate import verify_tour_code
 from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import ROLE_ADMIN, ROLE_FIELD, AppUser
 from cii_platform.db.models.user_session import UserSession
@@ -95,6 +98,42 @@ CURRENT_PASSWORD_WRONG_MESSAGE = "현재 비밀번호가 올바르지 않습니�
 
 #: 회원가입 이메일 중복 문구 — `PRD §6.3` 확정 원문.
 EMAIL_TAKEN_MESSAGE = "이미 가입된 이메일입니다. 로그인하거나 비밀번호를 찾아 주세요."
+
+#
+# 둘러보기 계정 (#1486) — 인터뷰·설문 대상자가 가입 없이 서비스를 보는 자리.
+#
+# 설계는 ``routes/auth_dev.py``의 스텁 계정을 그대로 따른다. 다른 점은 둘이다 —
+# **환경과 무관하게 항상 등록**되고(그쪽은 ``development``·``test``에만 있다),
+# 역할이 **관리자**다(그쪽은 사무직).
+#
+
+#: 둘러보기 계정의 고정 UUID.
+#:
+#: **고정 상수여야 한다** (`#308`이 dev-login에서 겪은 것과 같다) — ``uuid4()``를 모듈
+#: 로드 시점에 평가하면 서버 재기동마다 PK가 달라져 기존 행을 못 찾고 INSERT를 시도하고,
+#: ``email``이 같아 UNIQUE 위반으로 500이 난다.
+_TOUR_USER_ID = UUID("00000000-0000-4000-8000-000000000700")
+
+_TOUR_EMAIL = "tour@bluelog.local"
+
+_TOUR_DISPLAY_NAME = "둘러보기"
+
+#: 둘러보기 계정의 비밀번호 해시 자리.
+#:
+#: **로그인에 쓸 수 없는 값을 넣는다.** Argon2 해시 형식이 아니므로 ``verify_password``가
+#: 어떤 입력에도 ``False``를 돌려준다 — 이 계정이 ``POST /auth/login``으로도 열리면
+#: **그 이메일이 알려진 순간 코드 없이 누구나 관리자가 된다.** 접근 코드를 두는 의미가
+#: 사라지는 자리다(`auth_dev._STUB_PASSWORD_HASH`와 같은 판단).
+_TOUR_PASSWORD_HASH = "!tour-no-password-login"
+
+#: 둘러보기 계정의 이메일 인증 완료 시각 — **채운다.**
+#:
+#: 비워 두면 상단에 「이메일 인증이 완료되지 않았습니다」 배너가 계속 뜨고, 「인증 메일
+#: 다시 받기」를 눌러도 ``@bluelog.local``이라 닿을 곳이 없다. 이 계정은 인증 흐름을
+#: 보이려는 것이 아니라 **로그인 화면을 건너뛰기 위한 것**이다 (`#1293`과 같은 판단).
+#:
+#: 고정 시각이다 — 호출마다 ``now()``를 넣으면 행이 매번 바뀐다.
+_TOUR_VERIFIED_AT = dt.datetime(2026, 9, 21, tzinfo=dt.UTC)
 
 #: 마지막 관리자를 없애려 할 때의 문구 — `PRD §6.3` 확정 원문 (#672 · #1301).
 #: 탈퇴(`DELETE /auth/me`)와 강등(`PATCH /auth/users/{id}/role`)이 같은 문구를 쓴다 —
@@ -175,15 +214,29 @@ def _user_payload(user: AppUser) -> dict[str, object]:
 
 
 async def _lock_admin_users(session: AsyncSession) -> int:
-    """살아 있는 관리자 행을 **잠그고** 센다 (#672 · #1301).
+    """살아 있는 **사람** 관리자 행을 **잠그고** 센다 (#672 · #1301 · #1486).
 
     「마지막 관리자」 판정은 세는 것과 바꾸는 것 사이에 다른 요청이 끼면 틀린다 — 관리자 둘이
     동시에 서로를 강등하면 둘 다 「하나 더 있다」를 보고 통과해 0명이 된다. 관리자 행 전부에
     ``FOR UPDATE``를 걸어 그 사이를 닫는다. 행은 몇 개 되지 않는다.
+
+    ## 둘러보기 스텁은 세지 않는다 (#1486)
+
+    그 계정도 ``ADMIN``이라 그냥 세면 **사람 관리자가 한 명뿐일 때도 「둘」로 읽혀** 강등·탈퇴가
+    통과한다. 그런데 둘러보기는 ``TOUR_ACCESS_CODE``가 설정돼 있을 때만 들어갈 수 있는
+    **런타임 설정**이다 — 인터뷰가 끝나 코드를 비우는 순간 그 관리자는 **닿을 수 없는 행**이
+    되고, 계정 관리를 할 사람이 아무도 남지 않는다.
+
+    이 가드가 막으려는 것은 「관리자 행이 0개인 상태」가 아니라 **「역할을 되돌릴 사람이
+    없는 상태」**다. 그래서 사람 계정만 센다.
     """
     result = await session.execute(
         select(AppUser)
-        .where(AppUser.role == ROLE_ADMIN, AppUser.is_deleted.is_(False))
+        .where(
+            AppUser.role == ROLE_ADMIN,
+            AppUser.is_deleted.is_(False),
+            AppUser.id != _TOUR_USER_ID,
+        )
         .with_for_update()
     )
     return len(result.scalars().all())
@@ -397,6 +450,87 @@ async def login(
         user_id=str(user.id),
         ip_address=_client_ip(request),
         details={},
+    )
+    await session.commit()
+
+    response = JSONResponse(content={"data": _user_payload(user), "meta": _meta(request)})
+    _attach_session_cookies(response, session_token, csrf_token)
+    return response
+
+
+@router.post("/tour-login")
+async def tour_login(
+    request: Request,
+    payload: TourLoginRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> Response:
+    """링크에 실린 접근 코드로 **둘러보기 관리자 세션**을 발급한다 (#1486).
+
+    인터뷰·설문 대상자가 가입 없이 서비스를 보는 자리다. 문은 코드 하나로만 잠기며,
+    **코드가 설정되지 않은 배포에서는 항상 거절한다**
+    (:func:`~cii_platform.auth.tour_gate.verify_tour_code` — fail-closed).
+
+    ## 왜 ``dev-login``이 아닌가
+
+    그쪽은 ``development``·``test``에서만 **라우트가 등록된다**. 배포는 ``staging``이라
+    교수님 링크에서는 401이 난다. 이 라우트는 환경 판정을 보지 않고 항상 등록된다 —
+    잠그는 것은 환경이 아니라 코드다.
+
+    ## 거절은 한 가지 모양이다
+
+    「코드가 틀렸다」와 「기능이 꺼져 있다」를 **구분하지 않는다**. 구분하면 기능의 존재가
+    새고, 맞히려는 사람에게 「거의 맞았다」는 신호를 준다
+    (:data:`~cii_platform.auth.tour_gate.REJECTED_MESSAGE`).
+    """
+    if not verify_tour_code(payload.code):
+        # 실패도 감사에 남긴다 — 공개 주소의 문이라 시도 자체가 신호다.
+        # ⚠️ **코드 원문을 남기지 않는다**(`DB_SCHEMA` — 자격 증명 값은 기록하지 않는다).
+        await audit_svc.record_login_failure(
+            session,
+            reason="tour_code_rejected",
+            ip_address=_client_ip(request),
+        )
+        await session.commit()
+        return _error_response(request, 422, "VALIDATION_ERROR", TOUR_REJECTED_MESSAGE)
+
+    user = await session.get(AppUser, _TOUR_USER_ID)
+    if user is None:
+        user = AppUser(
+            id=_TOUR_USER_ID,
+            email=_TOUR_EMAIL,
+            password_hash=_TOUR_PASSWORD_HASH,
+            display_name=_TOUR_DISPLAY_NAME,
+            # 관리자다 — 인터뷰에서 연간 시뮬레이션·리포트·감축 계획을 지나야 하는데
+            # 그 셋이 전부 사무직 이상 가드 뒤에 있다. 현장직으로 두면 **서비스의
+            # 절반이 잠긴 화면**을 보여 주게 된다.
+            role=ROLE_ADMIN,
+            email_verified_at=_TOUR_VERIFIED_AT,
+        )
+        session.add(user)
+        await session.flush()
+    else:
+        # 누군가 화면에서 이 계정을 강등했더라도 되돌린다 — 다음 인터뷰가 조용히
+        # 반쪽짜리가 되지 않게. `auth_dev`가 사무직을 되돌리는 것과 같은 자리다.
+        if user.role != ROLE_ADMIN:
+            user.role = ROLE_ADMIN
+        if user.email_verified_at is None:
+            user.email_verified_at = _TOUR_VERIFIED_AT
+        # **탈퇴 상태도 되돌린다.** 둘러보기 세션은 관리자라 `DELETE /auth/me`를 누를 수
+        # 있고, 그러면 이 행에 `is_deleted`가 선다. 그 상태를 그대로 두면 다음 사람이
+        # **탈퇴한 계정으로 세션을 받는다** — 로그인 조회는 `is_deleted == 0`으로 거르는데
+        # 여기는 PK로 직접 가져오므로 걸러지지 않는다. 지워진 계정이 살아 있는 세션을 갖는
+        # 상태가 되어, 화면은 정상인데 다른 경로에서는 없는 사람이 된다.
+        if user.is_deleted:
+            user.is_deleted = False
+
+    session_token, csrf_token = await _issue_session(session, request, user)
+    # 일반 로그인과 **같은 이벤트 스트림**에 남기고 플래그로 가른다 — 둘러보기로 한
+    # 조작을 추적할 수 있어야 한다 (`auth_dev`의 ``dev_login`` 플래그와 같은 판단).
+    await audit_svc.record_login_success(
+        session,
+        user_id=str(user.id),
+        ip_address=_client_ip(request),
+        details={"tour": True},
     )
     await session.commit()
 

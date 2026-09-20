@@ -55,6 +55,21 @@ class LoginRequest(BaseModel):
     password: Annotated[str, Field(min_length=1)]
 
 
+class TourLoginRequest(BaseModel):
+    """``POST /api/v1/auth/tour-login`` (`API_SPEC §1.2`, #1486).
+
+    **이메일도 비밀번호도 받지 않는다.** 링크에 실린 접근 코드 하나로만 판정한다 —
+    인터뷰·설문 대상자가 가입 없이 서비스를 보게 하는 것이 목적이다.
+
+    길이 상한은 ``SignupRequest.invite_code``와 같은 200자다. 상한이 없으면 거절될
+    요청에 긴 문자열을 실어 보내는 것만으로 비교 비용을 끌어올릴 수 있다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: Annotated[str, Field(min_length=1, max_length=200)]
+
+
 class PasswordChangeRequest(BaseModel):
     """``POST /api/v1/auth/password-change`` (`API_SPEC §1.2`, #506).
 
