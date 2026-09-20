@@ -1755,6 +1755,9 @@ ROUTE_COVERAGE: dict[str, str] = {
     "GET /vessels/{}/export": f"{_FILES}::test_내보내기_헤더_행이_정본의_열과_같다",
     "GET /vessels/{}/annual-report": f"{_FILES}::test_연간_리포트_csv는_첨부로_내려간다",
     "GET /voyages/{}/report": f"{_FILES}::test_항차_리포트_라우트도_같은_형식_분기를_탄다",
+    "POST /auth/tour-login": (
+        "tests/test_tour_login_db.py::test_tour_login_succeeds_and_issues_admin_session"
+    ),
     # 면제
     "POST /auth/dev-login": (
         "면제: 개발 전용 — 프로덕션에서 등록되지 않는다(`test_dev_auth.py`). "

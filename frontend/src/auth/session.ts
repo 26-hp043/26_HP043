@@ -81,6 +81,7 @@ export const VERIFY_EMAIL_PATH = SCREEN_BY_ID.VERIFY_EMAIL.path
 const AUTH_API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 const ME_URL = `${AUTH_API_BASE}/auth/me`
 const LOGIN_API_URL = `${AUTH_API_BASE}/auth/login`
+const TOUR_LOGIN_API_URL = `${AUTH_API_BASE}/auth/tour-login`
 const LOGOUT_API_URL = `${AUTH_API_BASE}/auth/logout`
 const SIGNUP_API_URL = `${AUTH_API_BASE}/auth/signup`
 const VERIFY_REQUEST_URL = `${AUTH_API_BASE}/auth/verify-email/request`
@@ -399,6 +400,23 @@ export async function login(
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<CurrentUser> {
   const { body, status } = await postJsonWithStatus(LOGIN_API_URL, { email, password }, fetchImpl)
+  currentUser = requireUser(body, status)
+  notify()
+  return currentUser
+}
+
+/**
+ * 둘러보기 링크 코드로 로그인한다 (`#1486`).
+ *
+ * `login()`과 **같은 계약**이다 — 성공하면 `ADMIN` 역할의 세션 쿠키가 발급되고,
+ * 실패 문구는 서버가 준다(둘러보기 링크는 「꺼져 있음」과 「코드 불일치」를 같은
+ * 문구로 낸다 — 계정 존재 여부를 숨기는 로그인 규칙과 같은 이유).
+ */
+export async function tourLogin(
+  code: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+): Promise<CurrentUser> {
+  const { body, status } = await postJsonWithStatus(TOUR_LOGIN_API_URL, { code }, fetchImpl)
   currentUser = requireUser(body, status)
   notify()
   return currentUser

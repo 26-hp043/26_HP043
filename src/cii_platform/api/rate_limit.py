@@ -83,6 +83,9 @@ AUTH_PATHS = frozenset(
         f"{_API_V1}/auth/password-change",
         f"{_API_V1}/auth/password-reset/request",
         f"{_API_V1}/auth/verify-email/request",
+        # 둘러보기 (#1486) — dev-login과 달리 **공개 주소에 등록된다.** 접근 코드가
+        # 짧으면 기본 버킷(분당 300)으로 추측된다.
+        f"{_API_V1}/auth/tour-login",
     }
 )
 

@@ -10,6 +10,7 @@ import {
   PASSWORD_RESET_PATH,
   SIGNUP_PATH,
   login,
+  tourLogin,
   useAuthUser,
 } from '../auth/session'
 
@@ -34,6 +35,12 @@ export function LoginPage() {
   const [searchParams] = useSearchParams()
   const user = useAuthUser()
   const next = safeNext(searchParams.get('next'))
+  /*
+   * 둘러보기 링크 (`#1486`). 코드는 링크에 실려 오며, **버튼의 존재 자체가
+   * 기능을 알리므로** 코드가 없으면 버튼을 렌더하지 않는다 — 아래 `submitTour`가
+   * 아니라 렌더 분기에서 막는다.
+   */
+  const tourCode = searchParams.get('tour')
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -62,6 +69,26 @@ export function LoginPage() {
         LOGIN_SERVER_FIELDS,
       )
       setErrors(next.errors)
+      setFailure(next.failure)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 둘러보기 링크 코드로 로그인한다. 실패 문구는 서버가 준 그대로 보인다 —
+   * 「꺼져 있음」과 「코드 불일치」를 같은 문구로 내는 것이 백엔드의 규칙이라,
+   * 화면이 따로 지어내면 그 규칙이 깨진다.
+   */
+  const submitTour = async () => {
+    if (!tourCode) return
+    setBusy(true)
+    setFailure(null)
+    try {
+      await tourLogin(tourCode)
+      // 성공하면 `useAuthUser`가 갱신되어 위 Navigate가 처리한다.
+    } catch (error) {
+      const next = splitSubmitFailure(error, '둘러보기 링크로 로그인하지 못했습니다.', {})
       setFailure(next.failure)
     } finally {
       setBusy(false)
@@ -115,6 +142,18 @@ export function LoginPage() {
           {busy ? '로그인 중…' : '로그인'}
         </button>
       </form>
+
+      {tourCode ? (
+        <button
+          className="auth-secondary"
+          type="button"
+          disabled={busy}
+          onClick={() => void submitTour()}
+          data-testid="tour-submit"
+        >
+          {busy ? '둘러보기 로그인 중…' : '둘러보기로 로그인'}
+        </button>
+      ) : null}
 
       <p className="auth-links">
         <Link to={PASSWORD_RESET_PATH}>비밀번호를 잊으셨나요?</Link>

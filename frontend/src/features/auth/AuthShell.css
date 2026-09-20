@@ -252,6 +252,39 @@
   cursor: default;
 }
 
+/*
+ * 보조 동작 버튼 — 둘러보기 로그인(`#1486`) 등 **주 동작이 아닌 제출**에 쓴다.
+ * `.auth-submit`과 크기·자리는 같되 **테두리형**으로 눈에 덜 띄게 둔다 — 채운
+ * 배경을 쓰면 「로그인」과 나란히 두 개의 주 동작처럼 보인다.
+ */
+.auth-secondary {
+  inline-size: 100%;
+  block-size: 44px;
+  margin: var(--spacing-lg) 0 0;
+  border: var(--borderWidth-default) solid var(--semantic-primary);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--semantic-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-label);
+  cursor: pointer;
+}
+
+.auth-secondary:hover:not(:disabled) {
+  background: var(--surface-inset);
+}
+
+.auth-secondary:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.auth-secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 /* ── 알림 ───────────────────────────────────────────────────────── */
 
 .auth-alert {
