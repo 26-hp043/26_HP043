@@ -41,6 +41,16 @@ export interface ShellContext {
   vesselsState: 'loading' | 'ready' | 'failed'
   /** 선박 선택을 바꾼다. `null`이면 선택 해제. 항차 선택은 함께 버려진다. */
   selectVesselId: (vesselId: string | null) => void
+  /**
+   * 항차 선택을 바꾼다. `null`이면 선택 해제. 선박이 없으면 아무것도 하지 않는다
+   * (`globalContext.selectVoyage`).
+   *
+   * **보고서가 처음 쓴다 (#1414).** 그 전에는 항차를 고르는 화면이 상단바 하나였고,
+   * 화면은 `voyageId`를 초깃값으로 **읽기만** 했다(`ScenarioAdoptPanel`의
+   * `preferredVoyageId`). 보고서에서 항차를 바꾼 뒤 상단바가 옛 항차를 들고 있으면
+   * `#535`가 선박에서 고친 갈림이 항차에서 다시 난다.
+   */
+  selectVoyageId: (voyageId: string | null) => void
 }
 
 /**
@@ -62,4 +72,5 @@ export const EMPTY_SHELL_CONTEXT: ShellContext = {
   vessels: [],
   vesselsState: 'loading',
   selectVesselId: () => {},
+  selectVoyageId: () => {},
 }

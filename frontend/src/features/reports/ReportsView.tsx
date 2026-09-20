@@ -20,6 +20,7 @@ import type {
 } from './types'
 import './ReportsView.css'
 import { ErrorState } from '../../components/ErrorState'
+import { useShellContext } from '../../layout/shellContext'
 
 /**
  * 보고서 — `UIFLOW 2-5` · `#362`.
@@ -40,6 +41,19 @@ import { ErrorState } from '../../components/ErrorState'
  *
  * 리포트 대상이 아니지만(`PRD §25.2`) 목록에서 지우지 않고 비활성으로 둔다.
  * 감추면 사용자가 「내 항차가 왜 없지」를 묻게 되고, 답이 화면 어디에도 없다.
+ *
+ * ## 상단바의 선박·항차 선택을 따른다 (#1414)
+ *
+ * `DESIGN_SYSTEM §7.2` 🔒 「패널 간 유기적 데이터 연동」. CII 예측·항로 비교·연간 등급은
+ * 이미 셸 선택을 따랐고(`#535`) 이 화면만 「선택하세요」로 시작했다. 대시보드에서 배를
+ * 고르고 들어온 사용자가 **같은 배를 한 번 더 골라야** 했다.
+ *
+ * - **선박** — 셸 선택이 초깃값이고, 여기서 바꾸면 셸도 바뀐다. 상태를 가진 곳은
+ *   셸 하나다(`shellContext.ts`). 다만 선택지는 **이 화면의 목록**을 쓴다 — IMO를
+ *   함께 보여야 하는데 셸 목록(`VesselOption`)에는 IMO가 없다.
+ * - **항차** — 셸 항차가 목록에 있고 **리포트를 만들 수 있을 때만** 채운다. 완료 전
+ *   항차는 비활성 선택지라(`PRD §25.2`) 채우면 고를 수 없는 값을 고른 셈이 된다.
+ * - **셸에 선택이 없을 때 임의로 고르지 않는다** — 항로 비교(`#511`)와 같은 규칙이다.
  */
 export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   const providerRef = useRef<ReportsProvider | null>(null)
@@ -47,6 +61,10 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
     providerRef.current = provider ?? createApiReportsProvider()
   }
   const api = providerRef.current
+  const shell = useShellContext()
+  const { selectVesselId, selectVoyageId } = shell
+  const shellVesselId = shell.vesselId
+  const shellVoyageId = shell.voyageId
 
   const [kind, setKind] = useState<ReportKind>('ANNUAL')
   /*
@@ -75,6 +93,12 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   const [voyages, setVoyages] = useState<VoyageOption[] | 'failed' | null>(null)
   const [vesselId, setVesselId] = useState('')
   const [voyageId, setVoyageId] = useState('')
+  /*
+   * 상단바가 기억한 선박이 목록에 없다 (#1414). 삭제된 배를 셸이 기억하고 있을 때다.
+   * 항로 비교가 `#1097` ⑵에서 같은 경우를 고쳤다 — 조용히 비워 두면 사용자는 상단바의
+   * 배가 선택된 줄 알고 리포트를 누른다.
+   */
+  const [shellVesselMissing, setShellVesselMissing] = useState(false)
   const [year, setYear] = useState(() => new Date().getFullYear())
   /*
    * 규제연도 선택지 (`#635`). 기능①·연간 시뮬레이션·항로 비교가 이미 쓰는 훅이며
@@ -120,6 +144,38 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   }, [api])
 
   /*
+   * 상단바에서 선택을 **지웠을 때**도 따른다. 「지금 셸이 비어 있다」가 아니라
+   * 「있다가 비었다」만 본다 — 처음부터 비어 있는 것은 이 화면에서 고르기 전의 상태이고,
+   * 셸 밖(테스트·단독 렌더)에서는 늘 비어 있으므로 그때마다 비우면 사용자가 고른 값이
+   * 사라진다.
+   */
+  const previousShellVesselId = useRef(shellVesselId)
+  useEffect(() => {
+    const previous = previousShellVesselId.current
+    previousShellVesselId.current = shellVesselId
+    if (previous !== null && shellVesselId === null) setVesselId('')
+  }, [shellVesselId])
+
+  /*
+   * 셸의 선박을 이 화면에 반영한다 (#1414).
+   *
+   * **목록이 온 뒤에만 판단한다.** 목록 전에는 그 id가 있는지 모르므로, 먼저 채우면
+   * 삭제된 배의 id로 항차를 조회하게 된다. 목록을 못 읽었으면(`'failed'`) 아무것도
+   * 하지 않는다 — 없다고 단정할 근거가 없다.
+   */
+  useEffect(() => {
+    if (shellVesselId === null || !Array.isArray(vessels)) return
+    if (!vessels.some((vessel) => vessel.id === shellVesselId)) {
+      setShellVesselMissing(true)
+      setVesselId('')
+      selectVesselId(null)
+      return
+    }
+    setShellVesselMissing(false)
+    setVesselId(shellVesselId)
+  }, [shellVesselId, vessels, selectVesselId])
+
+  /*
    * 선박이 바뀌면 항차를 다시 받는다 (`#824` ⑵).
    *
    * ## 취소 플래그가 없으면 경합이 난다
@@ -159,6 +215,35 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
       alive = false
     }
   }, [api, vesselId])
+
+  const previousShellVoyageId = useRef(shellVoyageId)
+  useEffect(() => {
+    const previous = previousShellVoyageId.current
+    previousShellVoyageId.current = shellVoyageId
+    // 상단바에서 항차를 지웠을 때 — 선박 효과와 같은 이유로 「있다가 비었다」만 본다.
+    if (previous !== null && shellVoyageId === null) {
+      setVoyageId((current) => (current === previous ? '' : current))
+    }
+  }, [shellVoyageId])
+
+  /*
+   * 셸의 항차를 이 화면에 반영한다 (#1414).
+   *
+   * 항차 목록은 선박이 바뀔 때마다 비우고 다시 받으므로(위 효과), 목록이 도착한 시점이
+   * 곧 **그 선박의 항차로 판단할 수 있는 첫 시점**이다. 리포트를 만들 수 없는 항차는
+   * 채우지 않는다 — 비활성 선택지를 고른 상태가 된다.
+   */
+  useEffect(() => {
+    if (shellVoyageId === null || !Array.isArray(voyages)) return
+    const voyage = voyages.find((item) => item.id === shellVoyageId)
+    if (voyage?.reportable) setVoyageId(shellVoyageId)
+  }, [shellVoyageId, voyages])
+
+  /* 셸이 고른 항차가 이 선박 목록에 있지만 아직 리포트를 만들 수 없다. */
+  const shellVoyageNotReportable =
+    shellVoyageId !== null &&
+    Array.isArray(voyages) &&
+    voyages.some((item) => item.id === shellVoyageId && !item.reportable)
 
   const resolve = useCallback((): ReportTarget | string => {
     return targetOf(kind, { vesselId, voyageId, year })
@@ -243,7 +328,11 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
             <span>선박</span>
             <select
               value={vesselId}
-              onChange={(event) => setVesselId(event.target.value)}
+              onChange={(event) => {
+                setShellVesselMissing(false)
+                setVesselId(event.target.value)
+                selectVesselId(event.target.value || null)
+              }}
               data-testid="vessel-select"
             >
               <option value="">선택하세요</option>
@@ -273,6 +362,11 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
             ) : null}
             {Array.isArray(vessels) && vessels.length === 0 ? (
               <em className="rp__hint">등록된 선박이 없습니다.</em>
+            ) : null}
+            {shellVesselMissing ? (
+              <em className="rp__hint" role="alert">
+                상단바에서 고른 선박이 목록에 없습니다. 다시 선택해 주세요.
+              </em>
             ) : null}
           </label>
 
@@ -316,7 +410,10 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
               <span>항차</span>
               <select
                 value={voyageId}
-                onChange={(event) => setVoyageId(event.target.value)}
+                onChange={(event) => {
+                  setVoyageId(event.target.value)
+                  selectVoyageId(event.target.value || null)
+                }}
                 disabled={!vesselId}
                 data-testid="voyage-select"
               >
@@ -350,6 +447,15 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
               ) : null}
               {vesselId && Array.isArray(voyages) && voyages.length === 0 ? (
                 <em className="rp__hint">이 선박에 등록된 항차가 없습니다.</em>
+              ) : null}
+              {/*
+                상단바 항차를 따르지 못한 이유를 말한다 (#1414). 말하지 않으면 「따른다」는
+                규칙이 이 화면에서만 깨진 것으로 읽힌다.
+              */}
+              {shellVoyageNotReportable && !voyageId ? (
+                <em className="rp__hint">
+                  상단바에서 고른 항차는 완료 전이라 리포트를 만들 수 없습니다.
+                </em>
               ) : null}
               {Array.isArray(voyages) &&
               voyages.length > 0 &&

@@ -242,8 +242,10 @@ export function AppShell() {
       vesselsState,
       selectVesselId: (vesselId: string | null) =>
         applyContextRef.current(selectVessel(contextRef.current, vesselId)),
+      selectVoyageId: (voyageId: string | null) =>
+        applyContextRef.current(selectVoyage(contextRef.current, voyageId)),
     }),
-    // `selectVesselId`는 ref를 거쳐 최신 값을 읽으므로 여기 넣지 않는다. 넣으면
+    // `selectVesselId`·`selectVoyageId`는 ref를 거쳐 최신 값을 읽으므로 여기 넣지 않는다. 넣으면
     // 매 렌더 새 객체가 되고, 이 값을 의존성에 둔 화면의 효과가 무한히 돈다.
     [context.vesselId, context.voyageId, vessels, vesselsState],
   )

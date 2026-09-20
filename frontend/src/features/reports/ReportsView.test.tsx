@@ -3,6 +3,9 @@ import '../../test/renderSetup'
 
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
+import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import { ReportsView } from './ReportsView'
 import type { ReportsProvider, VesselOption, VoyageOption } from './types'
 
@@ -214,5 +217,133 @@ describe('선박 목록 조회 실패를 「선박 없음」으로 말하지 않
 
     expect(await screen.findByText(/등록된 선박이 없습니다/)).toBeTruthy()
     expect(screen.queryByText(/선박 목록을 불러오지 못했습니다/)).toBeNull()
+  })
+})
+
+/**
+ * 상단바의 선박·항차 선택을 따른다 (#1414 · `DESIGN_SYSTEM §7.2` 🔒).
+ *
+ * 종전에는 셸에서 배를 고르고 들어와도 「선택하세요」로 시작했다. 셸 밖 렌더(위 검사들)는
+ * 선택이 없는 셸과 같아야 하므로 그 동작은 바꾸지 않는다 — 위 검사들이 그대로 지킨다.
+ */
+function renderInShell(
+  provider: ReportsProvider,
+  context: Partial<ShellContext> = {},
+) {
+  const value: ShellContext = { ...EMPTY_SHELL_CONTEXT, vesselsState: 'ready', ...context }
+  return render(
+    <MemoryRouter initialEntries={['/reports']}>
+      <Routes>
+        <Route element={<Outlet context={value} />}>
+          <Route path="/reports" element={<ReportsView provider={provider} />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+/**
+ * 셸 선택을 테스트 안에서 바꿀 수 있는 하네스. 상단바에서 선택을 지우는 동작을 버튼으로 흉내 낸다
+ * — 바꾸는 함수를 밖으로 꺼내면 렌더 중 외부 값을 고치게 된다(`react(immutability)`).
+ */
+function renderSwitchableShell(provider: ReportsProvider, initialVesselId: string | null) {
+  function Harness() {
+    const [vesselId, setVesselId] = useState<string | null>(initialVesselId)
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId,
+      vesselsState: 'ready',
+      selectVesselId: setVesselId,
+    }
+    return (
+      <MemoryRouter initialEntries={['/reports']}>
+        <button type="button" onClick={() => setVesselId(null)}>
+          상단바 선택 지우기
+        </button>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/reports" element={<ReportsView provider={provider} />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+  }
+  render(<Harness />)
+}
+
+function voyageSelect(): HTMLSelectElement {
+  return screen.getByTestId('voyage-select') as HTMLSelectElement
+}
+
+describe('상단바 선택을 따른다 (#1414)', () => {
+  it('셸에 고른 선박이 있으면 그 선박으로 시작한다', async () => {
+    const provider = stub()
+    renderInShell(provider, { vesselId: 'v-b' })
+
+    await waitFor(() => expect(vesselSelect().value).toBe('v-b'))
+    // 보이는 선택과 조회 대상이 같아야 한다 — 셀렉트만 바뀌고 항차는 다른 배 것이면 안 된다.
+    await waitFor(() => expect(provider.listVoyages).toHaveBeenCalledWith('v-b'))
+  })
+
+  it('여기서 선박을 바꾸면 상단바도 바뀐다', async () => {
+    const selectVesselId = vi.fn()
+    renderInShell(stub(), { vesselId: 'v-a', selectVesselId })
+    await waitFor(() => expect(vesselSelect().value).toBe('v-a'))
+
+    fireEvent.change(vesselSelect(), { target: { value: 'v-b' } })
+
+    expect(selectVesselId).toHaveBeenCalledWith('v-b')
+  })
+
+  it('셸이 기억한 선박이 목록에 없으면 비우고 말한다 — 그 id로 조회하지 않는다', async () => {
+    const provider = stub()
+    const selectVesselId = vi.fn()
+    renderInShell(provider, { vesselId: 'v-deleted', selectVesselId })
+
+    expect(await screen.findByText(/상단바에서 고른 선박이 목록에 없습니다/)).toBeTruthy()
+    expect(selectVesselId).toHaveBeenCalledWith(null)
+    expect(vesselSelect().value).toBe('')
+    expect(provider.listVoyages).not.toHaveBeenCalledWith('v-deleted')
+  })
+
+  it('상단바에서 선택을 지우면 이 화면도 비운다', async () => {
+    renderSwitchableShell(stub(), 'v-a')
+    await waitFor(() => expect(vesselSelect().value).toBe('v-a'))
+
+    fireEvent.click(screen.getByRole('button', { name: '상단바 선택 지우기' }))
+
+    await waitFor(() => expect(vesselSelect().value).toBe(''))
+  })
+
+  it('셸 항차가 리포트를 만들 수 있으면 그 항차로 시작한다', async () => {
+    const provider = stub({
+      listVoyages: vi.fn(async () => [voyage('a-1', 'A-2026-01'), voyage('a-2', 'A-2026-02')]),
+    })
+    renderInShell(provider, { vesselId: 'v-a', voyageId: 'a-2' })
+    await chooseVoyageKind()
+
+    await waitFor(() => expect(voyageSelect().value).toBe('a-2'))
+  })
+
+  it('셸 항차가 완료 전이면 고르지 않고 이유를 말한다', async () => {
+    const running: VoyageOption = { ...voyage('a-2', 'A-2026-02'), status: 'IN_PROGRESS', reportable: false }
+    const provider = stub({ listVoyages: vi.fn(async () => [voyage('a-1', 'A-2026-01'), running]) })
+    renderInShell(provider, { vesselId: 'v-a', voyageId: 'a-2' })
+    await chooseVoyageKind()
+
+    expect(await screen.findByText(/상단바에서 고른 항차는 완료 전이라/)).toBeTruthy()
+    // 비활성 선택지를 고른 상태로 두지 않는다.
+    expect(voyageSelect().value).toBe('')
+  })
+
+  it('여기서 항차를 바꾸면 상단바도 바뀐다', async () => {
+    const selectVoyageId = vi.fn()
+    renderInShell(stub(), { vesselId: 'v-a', selectVoyageId })
+    await chooseVoyageKind()
+    await screen.findByRole('option', { name: /A-2026-01/ })
+
+    fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
+
+    expect(selectVoyageId).toHaveBeenCalledWith('a-1')
   })
 })
