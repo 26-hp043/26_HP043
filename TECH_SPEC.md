@@ -986,9 +986,11 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **[ORACLE-S-5 주의]** `weather_factor`는 hash 계산 시점에 이미 계산되어 있어야 한다. 기상 데이터 조회가 비동기인 경우, 조회 완료 후 hash를 계산한다. `weather_model = NONE`이면 `weather_factor = 1.0`으로 설정한다.
 
-> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(선박·연도·capacity 축 값·연료 추정의 결정 인자(`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`)·확정된 시나리오 계획 3건(`scenarios`)·`weather_model`·`weather_factor`)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
+> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`ship_type`·`transport_capacity`·`reference_capacity`·`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`·`scenarios`·`weather_model`·`weather_factor` — 선박·연도·capacity 축 값·연료 추정의 결정 인자 넷·확정된 시나리오 계획 3건·기상 둘)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
 
-> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
+> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`·`apply_feedback_factor`·`as_of`·`alternative_fuel`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. **뒤 셋은 선택 키**다 — `apply_feedback_factor`는 `#363`, `as_of`는 `#816`, `alternative_fuel`은 `#756` ⑴에서 늘었다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
+
+> **선택 키 규약 — 「골랐을 때만 넣는다」(#1344).** `apply_feedback_factor`·`as_of`·`alternative_fuel` 셋은 목록에 있어도 **그 선택을 실제로 한 실행에만** 담긴다. `_filter_fields`가 입력 dict에 **있는 키만** 담으므로, 끈 실행에 `False`를, 미명시 실행에 서버 확정 시각을 넣으면 **이미 저장된 실행 전부의 해시가 바뀐다.** `§5.4.1` 4항이 `INPUT_FIELDS`의 `as_of`에 대해 적은 것과 같은 규칙이며, 기능③에서는 세 번 적용됐다. `as_of`의 값은 **DB 정밀도(밀리초)로 깎은 isoformat 문자열**로 통일한다 — 저장할 때와 재현할 때(DB에서 읽은 값)의 재료가 한 글자라도 갈리면 안 된다. `alternative_fuel`은 **무엇을 골랐는가**(연료 코드)만 담는다 — CF 자체는 `parameters_used` v2의 `fuel_types` 블록이 덮는다.
 
 ### 5.4 재현성 계약 (Reproducibility Contract)
 
@@ -1037,8 +1039,25 @@ nuw_hours  = Σ(not_underway_period ∩ [t0, window_end])
 underway_hours = max(elapsed - nuw_hours, 0)
 
 distance_nm = planned_speed_kn × underway_hours
-fuel_ton    = reference_daily_foc_ton × underway_hours / 24
+
+speed_factor = (planned_speed_kn / reference_speed_kn)³        # §4.1 cubic speed model
+fuel_ton     = reference_daily_foc_ton × speed_factor × underway_hours / 24
 ```
+
+> **연료는 `§4.1` cubic speed model을 그대로 쓴다 (#796).** 종전에 이 절은
+> `fuel_ton = reference_daily_foc_ton × underway_hours / 24`로 적었는데, 그것은
+> **거리는 항차의 계획 속도로 늘리면서 연료는 선박 기준 속도의 소모율을 그대로**
+> 곱하는 식이다 — 계획 14 kn · 기준 12 kn이면 `(14/12)³ = 1.588`배 **과소** 산출된다.
+> 구현은 `calc/fuel_estimator.estimate_fuel_ton`에 위임한다: 그 함수는
+> `duration_days = distance_nm / speed_kn / 24`로 기간을 구하는데
+> `distance_nm = planned_speed_kn × underway_hours`이므로 **`underway_hours / 24`와 같은 값**이다.
+> 즉 not under way 시간을 뺀 계산이 그대로 보존되고 달라지는 것은 `speed_factor` 하나다.
+>
+> **`weather_factor`는 적용하지 않는다** — 시계는 기상 스냅샷을 모르고 경과 구간의
+> 기상 이력도 갖고 있지 않다. 없는 값을 지어내면 **사용자가 볼 수 없는 데이터에
+> 누적량이 의존**하게 되므로 `DEFAULT_WEATHER_FACTOR`(`§4.4` · `weather_model=NONE`)를 쓴다.
+>
+> `§12.3`과 이 절의 변경 이력은 `#796` 당시 갱신됐으나 **이 산식 블록만 남아 있었다**(`#1344`).
 
 **경계 처리**
 
@@ -1049,6 +1068,7 @@ fuel_ton    = reference_daily_foc_ton × underway_hours / 24
 | 도착 실적 있음 | `min(as_of, arrival)`까지만 | 도착한 항차의 누적량이 계속 늘면 안 된다. 이때는 **시뮬레이션 값이 아니다** |
 | **도착 실적 없음 + `as_of` > 도착 예정일** | `min(as_of, planned_arrival_at)`까지만 + `IN_PROGRESS_PAST_ETA` 경고 (`#649`) | 상한이 없으면 계획을 아무리 넘겨도 거리·연료가 계속 자란다 — 출항 90일 뒤면 계획의 7배다. 실사용에서 이 상태는 「운항이 계속되고 있다」가 아니라 **「도착 실적 입력을 잊었다」**이다 |
 | 속도·일일 소모율 없음 | 각각 0 | `reference_daily_foc_ton`은 nullable(`DB_SCHEMA §2.1`). 기본값을 넣으면 화면이 근거 없는 연료를 표시한다 |
+| **기준 속도(`reference_speed_kn`) 없음** | `speed_factor = 1`로 쌓고 `SIMULATION_NO_REFERENCE_SPEED` 경고 (`#796` · `§12.3`) | 소모율도 속도도 있고 **모르는 것이 보정 계수 하나뿐**이라 기여를 통째로 빼지 않는다. 배수 1은 「계획 속도가 곧 기준 속도」라는 가정이며 어느 방향으로도 치우치지 않는다. 다만 **조용히 넘어가지 않는다** — 값이 정확하지 않다는 사실을 화면이 말해야 사용자가 제원을 채운다 |
 
 시계가 만든 값에는 **「시뮬레이션 데이터」 표시**(`PRD R-5`)를 응답 플래그로 붙인다. 실적이 확정된 구간은 시계가 만든 값이 아니므로 플래그가 서지 않는다.
 
@@ -2063,3 +2083,4 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-20 | `#1311` | **v1.12 — §5.2.1.2 신설: 기능③ `parameters_used` 스키마 v1 · v2.** `#816`이 기능③에 v2(`fuel_types` · `parameter_sources` 4키 · `parameter_schema_version`)를 도입했는데 이 문서는 §5.2.1의 기능①·② 형태만 적고 있어, v2는 하위 정본 `API_SPEC §6.1` 각주에만 있었다(우선순위 역전 · `AGENTS §3.1`). 기능③은 v1부터 이미 §5.2.1과 달랐다 — `fuel_types`·`parameter_source_version`이 없고 `rating_boundary`에 `ship_type`이 있다. 두 형식이 **함께 유효**하다는 것, 판정 규칙(필드 없음 = v1 · 정수 아니면 손상), 재현이 저장된 버전의 빌더로 이뤄져 v1 빌더를 동결한다는 것, `ship_type`·`parameter_sources`를 싣는 이유를 적었다. §5.2.1 머리에 「기능①·②는 이 형태 그대로」 한 줄. 코드 변경 없음 — 문서를 구현에 맞춘 것이다. 절 신설이라 `AGENTS §4.3`상 버전을 올린다 (#1306) |
 | 2026-09-20 | `#1318` | **v1.13 —** §19.2 표의 「음수 예외 없음」 행을 **「수치 열 선언」**으로 바꾸고 각주를 다시 썼다 — 음수 예외의 근거가 값이 아니라 **열 선언**(`TableSection.kinds`)이며, 값 모양으로 판정하는 판정기는 여전히 두지 않는다. 규정 원문은 `API_SPEC §8.5`·`§8.1`(v1.40). 정정이 아니라 **규칙 개정**(종전에 금지한 예외를 허용)이라 `AGENTS §4.3`상 버전을 올린다 (#1247) |
 | 2026-09-20 | `#1320` | **v1.14 — §7.1·§7.3을 구현(`#61`·`#62`)에 맞춰 다시 썼다** (`#968` 결정요청 v2 D-4 「동작 유지, 정본을 구현에 맞춤」 · 코드 동작 변경 없음). §7.1: `WeatherProvider(ABC)` 3메서드(`fetch_marine_weather`·`fetch_wind_weather`·`get_last_snapshot`) → **`WeatherProvider(Protocol)` `fetch(lat, lon, at)` 하나** + 마지막 스냅샷 조회는 저장소 `find_last_snapshot`(`§16.3` — DB 쿼리는 `db/repositories`만) · `source` 값 집합에 정상 경로 기본값 **`open_meteo_marine+forecast`** 추가(두 엔드포인트를 한 행에 합치므로 출처도 둘을 잇는다) · 값 표를 정본으로 두고 `tests/test_weather_source_sync.py`가 코드 상수·`DB_SCHEMA §2.13`과의 정합을 잠근다. §7.3: 「캐시 key `(…, date, hour_bucket_6h)` · 메모리 또는 Redis · 캐시 우선」은 **코드와 맞은 적이 없다** — 실제는 **외부 조회 먼저**, 실패 시에만 `weather_snapshot` 테이블에서 같은 0.5° 격자의 최신 행을 골라 `fetched_at` 나이로 6h·24h 판정(`PRD §11.6` 첫 행 「최신 API 성공 → 최신 데이터 사용」이 근거 · `PRD`가 `TECH_SPEC`보다 앞선다). `PRD §11.6` `[ORACLE-R-4]`의 6h 버킷 두 요소가 key가 아니라 나이 판정으로 실현된다는 것과 조회 단위(요청당 한 번·현재 위치)를 적었다. 절 전면 개정이라 `AGENTS §4.3`상 버전을 올린다 (#968) |
+| 2026-09-20 | `#1391` | **§5.4.1 진행량 연료 산식을 `#796` 결과로 교체 · §5.3 기능③ 입력 키 일곱 → 열.** `#796`이 `daily_foc_ton × underway_hours / 24`를 cubic speed model(`§4.1`)로 바꾸면서 `§12.3`과 변경 이력은 갱신했으나 **`§5.4.1`의 산식 블록만 남겼다** — 거리는 항차의 계획 속도로 늘리면서 연료는 기준 속도의 소모율을 곱하는 식이라 계획 14 kn · 기준 12 kn에서 `(14/12)³ = 1.588`배 과소다. 왜 `underway_hours / 24`가 보존되는지(`distance = speed × underway_hours`)와 `weather_factor`를 쓰지 않는 이유를 함께 적고, 경계 처리 표에 **기준 속도 없음**(배수 1 + `SIMULATION_NO_REFERENCE_SPEED`) 행을 넣었다 — `§12.3`에만 있던 규칙이다. `§5.3`은 `#363`·`#816`·`#756` ⑴이 키를 셋 늘리는 동안 **일곱으로 남아 있었다**: 열 개를 나열하고 **선택 키 규약**(골랐을 때만 넣는다)을 절로 남겼다 — 「목록에 있다」와 「늘 담긴다」는 다른 명제이고, 끈 실행에 `False`를 넣으면 저장된 실행 전부의 해시가 바뀐다. 기능②도 산문 서술 → 12키 전부 나열로 바꿔 세 집합을 같은 방식으로 읽게 했다. 가드는 `tests/test_hash_fields_doc_sync.py`가 갖는다. `AGENTS §4.3`상 값 정정·각주 보강이라 버전은 올리지 않는다 (#1344) |
