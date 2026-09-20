@@ -1692,6 +1692,10 @@ ROUTE_COVERAGE: dict[str, str] = {
     "DELETE /chat/sessions/{}": (
         "tests/test_erasure_paths_db.py::test_the_delete_endpoint_answers_204_and_404"
     ),
+    # `API_SPEC §16.1` (#1241) — 응답이 **그 순간까지 쌓인 감사 행**이라 데모 시드로는
+    # 모양을 고정할 수 없다(로그인 하나에도 늘어난다). 그 파일이 자기 행을 심고
+    # 필터·정렬·커서·역할을 HTTP로 본다.
+    "GET /audit-logs": ("tests/test_audit_log_read_db.py::test_the_route_answers_over_http"),
     # `API_SPEC §15.1` (#121) — 응답이 **외부 모델의 답**이라 데모 시드로는 볼 수 없다.
     # 그 파일이 `FakeProvider`를 끼워 봉투 다섯 칸(`session_id`·`answer`·
     # `disclaimer`·`tool_calls`·`discarded`)을 각각 단언한다.
