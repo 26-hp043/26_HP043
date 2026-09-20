@@ -152,45 +152,6 @@ export function VesselRegistration() {
         ) : null}
 
         <fieldset className="vessel-registration__fieldset">
-          <legend className="vessel-registration__legend">샘플 선박 · 선택 입력</legend>
-          <div className="vessel-registration__grid">
-            <Field
-              id="sample-vessel"
-              label="샘플 선박에서 채우기"
-              labelEn="Sample Vessel"
-              hint="선종과 제원을 채웁니다. IMO 번호와 선명은 직접 입력해 주세요."
-            >
-              {(control) => (
-                <select
-                  {...control}
-                  className="vessel-registration__control"
-                  value={sampleId}
-                  onChange={(e) => chooseSample(e.target.value)}
-                >
-                  <option value="">
-                    {samplesLoading
-                      ? '샘플 목록을 불러오는 중…'
-                      : samplesFailed
-                        ? '샘플 목록을 불러오지 못했습니다'
-                        : '선택하지 않음'}
-                  </option>
-                  {samples.map((sample) => (
-                    <option key={sample.sample_id} value={sample.sample_id}>
-                      {sample.label}
-                    </option>
-                  ))}
-                </select>
-              )}
-                        </Field>
-          </div>
-          {samplesFailed ? (
-            <p className="vessel-registration__notice" role="status">
-              {SAMPLE_LOAD_FAILED_MESSAGE}
-            </p>
-          ) : null}
-        </fieldset>
-
-        <fieldset className="vessel-registration__fieldset">
           <legend className="vessel-registration__legend">필수 정보</legend>
           <div className="vessel-registration__grid">
             <Field
@@ -252,6 +213,63 @@ export function VesselRegistration() {
               )}
                         </Field>
           </div>
+        </fieldset>
+
+        {/*
+          샘플 선박 (`#982`) — **식별 정보 뒤, 제원 앞이다** (`#1423`).
+
+          종전에는 폼의 **첫 섹션**이었다. 등록 화면을 열면 IMO·선명보다 먼저 「샘플
+          선박에서 채우기」가 보여, 자기 배를 등록하러 온 사람이 **샘플 목록부터**
+          만났다. `UIFLOW 1-2`는 샘플을 한 줄로 적을 뿐 순서를 정하지 않는다.
+
+          ## 왜 맨 아래가 아닌가
+
+          `applySample`은 선종·제원 여섯 칸을 **조건 없이 덮어쓰고, 샘플에 값이 없는
+          칸은 비운다**(두 샘플이 섞인 제원을 막으려고 그렇게 정했다). 첫 섹션일
+          때는 아무것도 입력하기 전에 고르므로 덮을 것이 없었다. 등록 버튼 위로
+          내리면 **제원을 다 입력한 뒤에 샘플을 만나고, 고르면 그 입력이 통째로
+          사라진다.**
+
+          여기라면 덮이는 것은 바로 위의 선종 한 칸뿐이고, 「제원을 모르면 샘플에서」가
+          자기가 채우는 섹션 바로 앞에서 읽힌다. **동작은 바꾸지 않았다.**
+        */}
+        <fieldset className="vessel-registration__fieldset">
+          <legend className="vessel-registration__legend">샘플 선박 · 선택 입력</legend>
+          <div className="vessel-registration__grid">
+            <Field
+              id="sample-vessel"
+              label="샘플 선박에서 채우기"
+              labelEn="Sample Vessel"
+              hint="선종·제원을 샘플 값으로 바꿉니다 — 직접 입력한 값도 덮습니다. IMO 번호·선명은 그대로 둡니다."
+            >
+              {(control) => (
+                <select
+                  {...control}
+                  className="vessel-registration__control"
+                  value={sampleId}
+                  onChange={(e) => chooseSample(e.target.value)}
+                >
+                  <option value="">
+                    {samplesLoading
+                      ? '샘플 목록을 불러오는 중…'
+                      : samplesFailed
+                        ? '샘플 목록을 불러오지 못했습니다'
+                        : '선택하지 않음'}
+                  </option>
+                  {samples.map((sample) => (
+                    <option key={sample.sample_id} value={sample.sample_id}>
+                      {sample.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+                        </Field>
+          </div>
+          {samplesFailed ? (
+            <p className="vessel-registration__notice" role="status">
+              {SAMPLE_LOAD_FAILED_MESSAGE}
+            </p>
+          ) : null}
         </fieldset>
 
         <fieldset className="vessel-registration__fieldset">
