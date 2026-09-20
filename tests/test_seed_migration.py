@@ -28,6 +28,11 @@ from pathlib import Path
 from sqlalchemy import text
 
 from cii_platform.db.seed import (
+    _CF_ROWS,
+    _SIM_PARAM_PROFILE,
+    _SIM_PARAM_ROWS,
+    _WEATHER_PARAMS,
+    PARAMETER_SET_VERSION,
     SEED_RATING_BOUNDARIES,
     SEED_REFERENCE_LINES,
     SEED_Z_FACTORS,
@@ -232,3 +237,57 @@ async def test_seed_all_is_idempotent_over_migration(conn):
     ):
         count = await conn.scalar(text(f"SELECT count(*) FROM {table}"))  # noqa: S608
         assert count == expected_count, f"{table}: seed_all 후 {count}행 (기대 {expected_count})"
+
+
+# ── 기상 10행 · 시뮬 3행도 대조한다 (`#1370`) ──────────────────────────────────
+#
+# 위 세 검사는 Z·기준선·d-vector만 봤다. `DB_SCHEMA §8.1.1`이 *「갈라지는 순간을
+# `test_seed_migration.py`가 잡는다」*고 적어 두었는데, **기상 10행과 시뮬 3행은 보지
+# 않고 있었다** — 그래서 `simulation_parameter.version`이 두 곳에서 `"2026.08"`과
+# `"1.0"`으로 갈린 채 남아 있었다.
+
+
+def test_migration_simulation_parameters_match_constants():
+    """시뮬레이션 3행이 ``seed.py`` 상수와 일치한다 (`PRD §12.4.1` · `#1370`).
+
+    **``version``을 함께 본다.** 이 값이
+    ``parameters_used.simulation_profile.version``으로 ``parameter_hash``에 들어가므로,
+    두 적재 경로가 다른 값을 넣으면 **적재 순서에 따라 재현(`TECH_SPEC §6.4`)이
+    실패한다.** 행의 수치가 같아도 그 사고는 일어난다 — 그래서 수치와 별개로 단언한다.
+    """
+    m = _load_migration()
+
+    assert m._SIM_VERSION == PARAMETER_SET_VERSION, (
+        "마이그레이션과 seed.py가 simulation_parameter.version에 다른 값을 넣는다 — "
+        "parameter_hash가 적재 순서에 따라 갈린다 (#1370)"
+    )
+    assert m._SIM_DEFAULT_PROFILE == _SIM_PARAM_PROFILE
+    assert len(m._SIM_DEFAULT_ROWS) == len(_SIM_PARAM_ROWS) == 3
+    assert set(m._SIM_DEFAULT_ROWS) == set(_SIM_PARAM_ROWS)
+
+
+def test_migration_weather_params_match_constants():
+    """기상 모델 파라미터 10행이 ``seed.py`` 상수와 일치한다 (`TECH_SPEC §3.3` · `#1370`)."""
+    m = _load_migration()
+
+    assert len(m.SEED_WEATHER_PARAMS) == len(_WEATHER_PARAMS) == 10
+
+    actual = {(r["model_version"], r["key"], r["value"], r["unit"]) for r in m.SEED_WEATHER_PARAMS}
+    expected = {
+        (model_version, key, value, unit) for model_version, key, value, unit in _WEATHER_PARAMS
+    }
+    assert actual == expected
+
+
+def test_migration_fuel_types_match_constants():
+    """연료 CF 8행이 ``seed.py`` 상수와 일치한다 (`MEPC.364(79)` · `#1370`).
+
+    `DB_SCHEMA §8.1.1`이 *「`tests/test_seed_migration.py`가 양쪽을 매 실행 대조한다」*고
+    적는데 **CF 행은 대조되지 않고 있었다.** 값 자체가 정본과 맞는지는
+    `test_seed_data.py`가, 행별 해시는 `test_fuel_type_content_hash.py`가 보지만,
+    **두 적재 경로가 갈라지는 순간**을 보는 것은 이 파일이다.
+    """
+    m = _load_migration()
+
+    assert len(m._CF_ROWS) == len(_CF_ROWS) == 8
+    assert set(m._CF_ROWS) == set(_CF_ROWS)
