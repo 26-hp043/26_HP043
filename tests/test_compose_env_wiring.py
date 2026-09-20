@@ -473,3 +473,27 @@ def test_operations_log_path_matches_the_compose_file():
     operations = (_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
 
     assert log_file in operations, f"OPERATIONS.md에 {log_file}이 없다 — 문서와 compose가 갈렸다."
+
+
+def test_deploy_renders_app_env_with_staging_default():
+    """자동 배포가 ``APP_ENV``를 ``.env``에 렌더링한다 (기본 ``staging`` · #1201).
+
+    2026-09-20 첫 자동 배포가 헬스 체크에서 죽었다 — ``deploy.yml``은 ``APP_ENV``를
+    렌더하지 않았고, compose의 ``${APP_ENV:-production}`` 기본값으로 앱이
+    ``production``으로 떴다. 수동 배포(§3.3)는 ``.env``에 ``APP_ENV=staging``을
+    적어 둔 상태라 이 문제가 없었다. SMTP 시크릿이 없는 동안 ``MAIL_BACKEND``의
+    기본값은 ``console``이어야 한다(``staging``·``production`` 어느 쪽이든
+    ``smtp``+``SMTP_HOST`` 없음은 기동이 선다 — `mail/config.py`).
+    """
+    workflow = (_ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+
+    assert "APP_ENV: ${{ secrets.APP_ENV || 'staging' }}" in workflow, (
+        "deploy.yml이 APP_ENV 시크릿을 staging 기본으로 읽지 않는다 — "
+        "비워 둔 채 production으로 떨어져 SMTP 없는 배포가 기동에서 죽는다 (#1201 · §4.5)."
+    )
+    assert "APP_ENV=${APP_ENV}" in workflow, "deploy.yml이 .env에 APP_ENV를 렌더링하지 않는다."
+    assert "MAIL_BACKEND:-console" in workflow, (
+        "MAIL_BACKEND 기본값이 console이 아니다 — SMTP_HOST 없이 smtp 기본이면 "
+        "staging에서도 기동이 선다(#524 가드의 역방향)."
+    )
+    assert "MAIL_BACKEND:-smtp" not in workflow

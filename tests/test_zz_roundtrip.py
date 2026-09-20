@@ -233,6 +233,60 @@ async def test_032_downgrade_removes_regulation_parameters():
         _restore_to_head()
 
 
+async def test_seed_migration_skips_existing_rows():
+    """seed migration이 이미 찬 표에서 UNIQUE 위반으로 죽지 않는다 (#1201).
+
+    운영 DB는 2026-09-15 수동 세팅에서 ``python -m cii_platform.db.seed``로 63행을
+    받고 ``1c444a5c4819``에 머물러 있었다 — seed를 alembic 경로에 되살린
+    ``6c7496c4d122``는 그 뒤에 합쳐졌다. 그래서 2026-09-20 첫 자동 배포의
+    ``upgrade head``가 이 리비전을 처음 돌며 ``uq_fuel_type_code``(``DIESEL_GAS_OIL``)에
+    걸려 ``deploy-app``이 실패했다.
+
+    이 검사는 그 상태를 재현한다 — **행은 들어와 있고 alembic_version만 직전을
+    가리키는** 상태를 만드는 데 ``stamp``를 쓴다(운영의 그 상태와 같은 모양). 그 위에서
+    ``upgrade head``가 **성공**하고, 행이 늘지도 줄지도 않는다. 함께 ``METHANOL`` 한 행을
+    지워 **없는 행만 다시 들어오는지**도 본다.
+    """
+    await _clear_demo_data()
+    step = run_alembic("downgrade", "1c444a5c4819")
+    assert step.returncode == 0, f"{step.stdout}\n{step.stderr}"
+    try:
+        # seed 63행을 넣은 뒤 alembic_version만 직전으로 되돌린다 — 운영 재현
+        seeded = run_alembic("upgrade", "6c7496c4d122")
+        assert seeded.returncode == 0, f"{seeded.stdout}\n{seeded.stderr}"
+        stamped = run_alembic("stamp", "1c444a5c4819")
+        assert stamped.returncode == 0, f"{stamped.stdout}\n{stamped.stderr}"
+
+        engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(text("DELETE FROM fuel_type WHERE code = 'METHANOL'"))
+
+            up = run_alembic("upgrade", "head")
+            assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+
+            async with engine.connect() as connection:
+                for table, expected in (
+                    ("fuel_type", 8),
+                    ("regulation_year", 8),
+                    ("cii_reference_line", 20),
+                    ("cii_rating_boundary", 14),
+                    ("weather_model_parameter", 10),
+                    ("simulation_parameter", 3),
+                ):
+                    count = await connection.scalar(text(f"SELECT count(*) FROM {table}"))  # noqa: S608
+                    assert count == expected, (
+                        f"{table}: upgrade 뒤 {count}행 (기대 {expected}) — "
+                        "있는 행을 넘기지 못했거나 지운 METHANOL이 돌아오지 않았다"
+                    )
+        finally:
+            await engine.dispose()
+    finally:
+        # 성공/실패와 무관하게 head로 복원한다.
+        _restore_to_head()
+        await _reseed_demo_data()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 🔴 지운 검사 둘 — 전제가 사라졌다 (`#1058` · 결정요청 §0-2 · 가)
 # ─────────────────────────────────────────────────────────────────────────────

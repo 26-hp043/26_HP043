@@ -26,9 +26,14 @@
 #   CLOUDFLARE_ACCOUNT_ID   Cloudflare 계정 ID.
 #
 # 선택 시크릿:
+#   APP_ENV                 배포 환경. 비워 두면 staging (SMTP 미설정 정상 경로 ·
+#                           docs/OPERATIONS.md §4.5). SMTP_* 를 등록한 뒤
+#                           production 으로 바꾼다.
 #   SIGNUP_ALLOWED_DOMAINS  가입 허용 메일 도메인.
 #   SIGNUP_INVITE_CODE      초대 코드.
 #   MAIL_FROM / SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD
+#                           MAIL_BACKEND 기본값은 console 이다 — SMTP_* 를
+#                           등록할 때 MAIL_BACKEND=smtp 도 함께 넣는다.
 #   LLM_API_KEY             챗봇 LLM API 키.
 
 name: Deploy to OCI
@@ -293,6 +298,7 @@ jobs:
       - name: app-01 스택 배포
         env:
           BACKEND_TAG: ${{ needs.build.outputs.sha }}
+          APP_ENV: ${{ secrets.APP_ENV || 'staging' }}
           CUBRID_HOST: ${{ secrets.OCI_DB_PRIVATE_IP }}
           CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
           CORS_ALLOW_ORIGINS: ${{ secrets.CORS_ALLOW_ORIGINS }}
@@ -310,12 +316,13 @@ jobs:
           echo "[deploy-app] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_APP_HOST }} sha=${BACKEND_TAG} ==="
           ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_APP_HOST }} \
             "BACKEND_TAG='${BACKEND_TAG}' \
+             APP_ENV='${APP_ENV}' \
              CUBRID_HOST='${CUBRID_HOST}' CUBRID_PASSWORD='${CUBRID_PASSWORD}' \
              CORS_ALLOW_ORIGINS='${CORS_ALLOW_ORIGINS:-}' \
              APP_PUBLIC_URL='${APP_PUBLIC_URL:-}' \
              SIGNUP_ALLOWED_DOMAINS='${SIGNUP_ALLOWED_DOMAINS:-}' \
              SIGNUP_INVITE_CODE='${SIGNUP_INVITE_CODE:-}' \
-             MAIL_BACKEND='${MAIL_BACKEND:-smtp}' \
+             MAIL_BACKEND='${MAIL_BACKEND:-console}' \
              MAIL_FROM='${MAIL_FROM:-}' \
              SMTP_HOST='${SMTP_HOST:-}' SMTP_PORT='${SMTP_PORT:-587}' \
              SMTP_USER='${SMTP_USER:-}' SMTP_PASSWORD='${SMTP_PASSWORD:-}' \
@@ -340,6 +347,7 @@ jobs:
           # .env 렌더링
           umask 077
           cat > .env <<EOF
+          APP_ENV=${APP_ENV}
           CUBRID_HOST=${CUBRID_HOST}
           CUBRID_PASSWORD=${CUBRID_PASSWORD}
           DATABASE_URL=cubrid+pycubrid://dba:${CUBRID_PASSWORD_ENC}@${CUBRID_HOST}:33100/cii
