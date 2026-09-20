@@ -248,8 +248,15 @@ def test_guide_tells_how_to_log_in():
     assert "로그인" in guide
     assert "이메일" in guide
     assert "비밀번호" in guide
-    # 프로덕션에서는 없는 계정이라는 것도 함께 말한다.
-    assert "APP_ENV=production" in guide
+    # 어떤 환경에서 없는 계정인지도 함께 말한다.
+    #
+    # ⚠️ **리터럴 `APP_ENV=production`으로 묶지 않는다** (`AGENTS §4.6` · `#1350`).
+    # 닫히는 기준은 `#1058`에서 「production만」이 아니라 **「development·test가 아닌
+    # 전부」**로 바뀌었는데, 이 단언이 옛 문구를 붙잡고 있어 안내가 `staging`을 말하지
+    # 못했다. 지키려던 것은 특정 낱말이 아니라 **환경에 따라 없을 수 있다는 사실을
+    # 말하는가**이다.
+    assert "APP_ENV" in guide
+    assert "development" in guide and "test" in guide
 
 
 # --- .env 적재 (#693) ---------------------------------------------------------

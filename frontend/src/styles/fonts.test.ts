@@ -43,6 +43,20 @@ describe('지정 서체 자체 호스팅 — #925', () => {
     expect(statSync(path).size).toBeGreaterThan(10_000)
   })
 
+  it.each(EXPECTED)('%s %d — 이름만 woff2가 아니라 **실제로** woff2다 (#1350)', (_f, _w, file) => {
+    /*
+     * `scripts/build_fonts.py`가 `flavor`를 서브셋터에만 넘기고 저장 시점에 세우지
+     * 않아, **비압축 TrueType이 `.woff2` 이름으로** 커밋돼 있었다(매직 `0001 0000`,
+     * 한글 2종이 각 2.8MB). `format('woff2')`로 선언돼 있어 렌더는 되므로
+     * **파일 크기 말고는 드러나는 자리가 없었다.**
+     *
+     * woff2의 매직은 `wOF2`다 (`W3C WOFF2 §3`).
+     */
+    const head = readFileSync(join(ROOT, 'public', 'fonts', file)).subarray(0, 4).toString('latin1')
+
+    expect(head, `${file}이 woff2가 아니다 (매직 ${JSON.stringify(head)})`).toBe('wOF2')
+  })
+
   it('네 선언 모두 굵기와 swap이 명시돼 있다', () => {
     for (const [, weight] of EXPECTED) {
       expect(rules).toContain(`font-weight: ${weight};`)

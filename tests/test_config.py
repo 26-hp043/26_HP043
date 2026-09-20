@@ -23,7 +23,7 @@ _CONFIG_ENV_KEYS = ("APP_ENV", "DATABASE_URL")
 #: CUBRID 전환으로 바뀌었다 (`#1058`). 표기는 **드라이버 이름을 그대로 쓰는 쪽**으로
 #: 통일했다 (`#1305`) — DBAPI는 `pycubrid` 하나이고, `aiopycubrid`는 배포본이 아니라
 #: `sqlalchemy-cubrid`가 싣는 async **방언** 이름이다.
-_DEV_DEFAULT_URL = "cubrid+pycubrid://dba:@localhost:33000/cii"
+_DEV_DEFAULT_URL = "cubrid+pycubrid://dba:@localhost:33100/cii"
 
 
 @pytest.fixture
