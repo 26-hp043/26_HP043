@@ -92,17 +92,26 @@ export function ImportCsv({
     <section className="vy-import" aria-label="CSV 가져오기">
       <h3 className="vy-import__title">CSV 가져오기</h3>
 
-      <p className="vy-import__hint">
-        필수 컬럼 {REQUIRED_COLUMNS.length}개 — <code>{REQUIRED_COLUMNS.join(', ')}</code>
-      </p>
-      {/* 선택 컬럼 (#906) — 비우면 진행 중 누적에 0으로 기여하므로 있다는 것을 알린다. */}
-      <p className="vy-import__hint">
-        선택 컬럼 — <code>{OPTIONAL_COLUMNS.join(', ')}</code> (시간대 포함, 예:{' '}
-        <code>{INSTANT_EXAMPLE}</code>)
-      </p>
-      <p className="vy-import__hint">
-        UTF-8 · 최대 5MB · {MAX_ROWS.toLocaleString('ko-KR')}행까지.
-      </p>
+      {/*
+        형식 안내는 접어 둔다 (#1415). 필수 7 · 선택 2 · 제한 조건이 본문에 늘 펼쳐져 있어
+        선박 상세에서 가장 긴 설명 덩어리였다. 팝오버가 아니라 `<details>`인 이유 —
+        팝오버 컴포넌트가 없고 겹침 순서가 `DESIGN_SYSTEM §16` 항목 17 〔대기〕다.
+        `<details>`는 키보드로 열고 닫히며 내용이 문서 흐름에 남는다.
+      */}
+      <details className="vy-import__format">
+        <summary>형식 보기</summary>
+        <p className="vy-import__hint">
+          필수 컬럼 {REQUIRED_COLUMNS.length}개 — <code>{REQUIRED_COLUMNS.join(', ')}</code>
+        </p>
+        {/* 선택 컬럼 (#906) — 비우면 진행 중 누적에 0으로 기여하므로 있다는 것을 알린다. */}
+        <p className="vy-import__hint">
+          선택 컬럼 — <code>{OPTIONAL_COLUMNS.join(', ')}</code> (시간대 포함, 예:{' '}
+          <code>{INSTANT_EXAMPLE}</code>)
+        </p>
+        <p className="vy-import__hint">
+          UTF-8 · 최대 5MB · {MAX_ROWS.toLocaleString('ko-KR')}행까지.
+        </p>
+      </details>
 
       <div className="vy-import__row">
         <input

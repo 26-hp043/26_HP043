@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { VoyagePanel } from './VoyagePanel'
 import type { VoyageManagementProvider } from './apiProvider'
 import type { ActualsDraft, DistanceSource, ManagedVoyage, VoyageDraft } from './types'
@@ -556,4 +556,26 @@ describe('계획 거리의 출처 (#1256)', () => {
       expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
     },
   )
+})
+
+/**
+ * CSV 형식 안내는 접혀 있고 열면 그대로 보인다 (#1415).
+ *
+ * 필수 7 · 선택 2 · 제한 조건이 본문에 늘 펼쳐져 있었다. `<details>`로 접되 **내용은 바꾸지
+ * 않는다** — 필수 컬럼은 `REQUIRED_COLUMNS`에서 그대로 읽고(`importRules.test.ts`가 값을
+ * 지킨다), 선택 컬럼 안내(#906)도 남는다.
+ */
+describe('CSV 형식 안내 (#1415)', () => {
+  it('형식 안내가 「형식 보기」 안에 접혀 있다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+    const section = await screen.findByRole('region', { name: 'CSV 가져오기' })
+
+    const summary = within(section).getByText('형식 보기')
+    const details = summary.closest('details') as HTMLDetailsElement
+    expect(details).not.toBeNull()
+    expect(details.open).toBe(false)
+    // 필수·선택 안내가 모두 그 안에 있다 — 하나라도 밖에 남으면 접은 의미가 없다.
+    expect(within(details).getByText(/필수 컬럼/)).toBeTruthy()
+    expect(within(details).getByText(/선택 컬럼/)).toBeTruthy()
+  })
 })

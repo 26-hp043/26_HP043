@@ -41,7 +41,11 @@
 
 .vd__head {
   display: flex;
-  align-items: flex-end;
+  /*
+   * 위 정렬이다 (#1415). 오른쪽에 실시간 CII 입구가 올라온 뒤로 그 높이가 상태마다 다르다
+   * — 링크는 한 줄, 닫힌 상태는 사유까지 세 줄. 아래 정렬이면 **선명이 상태에 따라 오르내린다.**
+   */
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-lg);
   flex-wrap: wrap;
@@ -76,8 +80,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+.vd__head-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--spacing-xs);
+}
+
 .vd__asof {
-  margin: 0;
+  margin: var(--spacing-xs) 0 0;
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
@@ -345,11 +356,15 @@
  *
  * 같은 카드에서 같은 급의 조작이므로 **모양도 같아야 한다**(`§8` Secondary).
  * `.vd__pos-open`과 선언을 맞춘다.
+ *
+ * ## 머리로 올렸다 (#1415)
+ *
+ * 카드 안에서는 채움이어도 페이지 중간이라 첫 화면에 없었다. 이 버튼이 `2-9`의
+ * 유일한 입구이므로 페이지 머리 오른쪽에 둔다. 카드 안에서 쓰던 바깥 여백은 뺐다 —
+ * 머리의 `gap`이 간격을 맡는다.
  */
 .vd__drill {
   display: inline-block;
-  margin-top: var(--spacing-lg);
-  margin-inline-start: var(--spacing-sm);
   padding: var(--spacing-sm) var(--spacing-md);
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
@@ -702,35 +717,15 @@
  * 말한다(`#419`·`#510`과 같은 규율).
  */
 /*
- * 못 누르는 상태. **감추지 않고 사유와 함께 둔다**(`#419`) — 같은 상자 안에 두어야
- * 「같은 버튼이 지금은 닫혀 있다」로 읽힌다. 테두리를 지우면 그냥 안내문이 된다.
+ * 진행 중 항차를 **확인하는 중**의 입구. 누를 수 없는 동안은 링크와 같은 채움을 흐리게 둔다
+ * — 이 저장소의 비활성 버튼이 쓰는 표현이다(`VoyagePanel.css` 「가져오기」 `opacity: 0.55`).
+ * 없음이 확인된 뒤에는 `NoVoyageDrill`이 누를 수 있는 버튼으로 바뀐다 (#1415).
  */
-/*
- * 못 누르는 상태. **감추지 않고 사유와 함께 둔다**(`#419`). 채우지 않는 이유는
- * 채움이 「누를 수 있다」는 신호이기 때문이다 — 점선 테두리로 같은 자리만 지킨다.
- */
-.vd__drill--off {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 4px;
-  max-inline-size: 22rem;
-  color: var(--color-text-muted);
-  background: transparent;
-  border: var(--borderWidth-default) dashed var(--border-default);
-  font-weight: var(--font-weight-body);
-  cursor: default;
-  text-decoration: none;
-}
-
+.vd__drill--off,
 .vd__drill--off:hover {
-  background: transparent;
-}
-
-.vd__drill-why {
-  font-size: 12.5px;
-  font-style: normal;
-  line-height: 1.55;
-  color: var(--color-text-muted);
+  background: var(--color-primary-solid);
+  opacity: 0.55;
+  cursor: progress;
 }
 
 /*
@@ -799,3 +794,82 @@
   cursor: not-allowed;
 }
 
+
+/*
+ * 진행 중 항차가 없을 때의 입구와 말풍선 (#1415).
+ *
+ * 면은 오버레이 규격이다(`§5` 「그림자 + 테두리」) — 다크에서 그림자만으로는 경계가 서지 않는다.
+ * 겹침 순서는 계정 메뉴와 같은 `1`(`§16` 항목 17 미확정).
+ */
+button.vd__drill {
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.vd__drill-wrap {
+  position: relative;
+}
+
+.vd__bubble {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-8));
+  inset-inline-end: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  /* 제목과 본문 사이만 띄우고 본문 두 줄은 붙인다 — 한 문장이 나뉜 것이다. */
+  gap: 0;
+  /* 가운데 정렬 (#1415 화면 확인) — 세 줄 길이가 달라 왼쪽 정렬이면 오른쪽이 들쭉날쭉했다. */
+  align-items: center;
+  text-align: center;
+  inline-size: max-content;
+  padding: var(--space-12) var(--space-16);
+  font-size: var(--font-size-label);
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: keep-all;
+  background: var(--surface-popover);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+}
+
+.vd__bubble[hidden] {
+  display: none;
+}
+
+.vd__bubble > span {
+  white-space: nowrap;
+}
+
+.vd__bubble em {
+  font-style: normal;
+  color: var(--text-primary);
+}
+
+.vd__bubble b {
+  margin-block-end: var(--space-4);
+  font-weight: var(--font-weight-label);
+  color: var(--text-primary);
+}
+
+/* 꼬리 — 버튼 가운데 아래를 가리킨다. 테두리 색 삼각형 위에 면 색 삼각형을 겹친다. */
+.vd__bubble::before,
+.vd__bubble::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: var(--space-24);
+  border: 8px solid transparent;
+  border-block-start: 0;
+}
+
+.vd__bubble::before {
+  inset-block-start: -8px;
+  border-block-end-color: var(--border-default);
+}
+
+.vd__bubble::after {
+  inset-block-start: -7px;
+  border-block-end-color: var(--surface-popover);
+}

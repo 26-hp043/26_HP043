@@ -266,6 +266,24 @@
   color: var(--text-primary);
 }
 
+/* 형식 안내 접기 (#1415). `<details>`에 flex를 걸지 않는다 — 브라우저마다 다르게 그린다. */
+.vy-import__format > .vy-import__hint {
+  margin-top: var(--spacing-xs);
+}
+
+.vy-import__format > summary {
+  cursor: pointer;
+  inline-size: fit-content;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+.vy-import__format > summary:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+
 .vy-import__hint {
   margin: 0;
   font-size: var(--font-size-micro);
