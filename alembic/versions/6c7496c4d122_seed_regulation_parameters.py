@@ -622,13 +622,9 @@ def _skip_existing(
     """
     existing = {
         tuple(row)
-        for row in conn.execute(sa.select(*(table.c[column] for column in key_columns)))
+        for row in conn.execute(sa.select(*(table.c[column] for column in key_columns))).fetchall()
     }
-    return [
-        row
-        for row in rows
-        if tuple(row[column] for column in key_columns) not in existing
-    ]
+    return [row for row in rows if tuple(row[column] for column in key_columns) not in existing]
 
 
 def upgrade() -> None:
