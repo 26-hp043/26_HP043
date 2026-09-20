@@ -142,7 +142,12 @@ export interface AnnualImpact {
   rating_changed: boolean
 }
 
-export interface AnnualImpactSide {
+/**
+ * ⚠️ **`export`하지 않는다.** 이 이름을 밖에서 부르는 곳이 없고,
+ * `moduleBoundary.test.ts`가 **미참조 export를 죽은 코드로 잡는다**(`#1351`).
+ * `AnnualImpact`의 구조로만 쓰이므로 구조적 타이핑으로 충분하다.
+ */
+interface AnnualImpactSide {
   /** Layer 1 — `attained_cii`와 같은 6자리 문자열 */
   attained_cii: string
   rating: Rating
