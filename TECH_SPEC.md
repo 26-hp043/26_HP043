@@ -1579,7 +1579,11 @@ class SimulationSnapshot:
 | `status` | SUCCESS, FAILED, PARTIAL |
 | `warnings_count` | 발생한 warning 수 |
 
-파라미터 변경, 항차 확정(CONFIRMED 전환), 계산 실행은 별도 audit log 테이블에 기록한다. 상세 스키마는 `DB_SCHEMA.md`에서 정의한다.
+파라미터 변경, 항차 확정(`CONFIRMED` 전환), **확정 뒤의 정정·보관 전환**(`CONFIRMED → COMPLETED` · `CONFIRMED → ARCHIVED`), 계산 실행은 별도 audit log 테이블에 기록한다. 상세 스키마는 `DB_SCHEMA.md`에서 정의한다.
+
+> **[#1328] 뒤의 둘이 빠져 있었다.** `PRD §8.1.1`과 `API_SPEC §3.5`는 두 전환에 **「audit log 필수」**를 정하는데 이 문장은 확정만 들었고, 코드가 이 문장을 근거로 확정만 기록했다 — **확정된 실적을 되돌려 고친 뒤 다시 확정하면** 로그에는 「확정」 두 건만 남고 **누가 언제 되돌렸는지**가 사라졌다. `AGENTS §3.1`상 **`PRD` > `TECH_SPEC`**이므로 이 문장을 상위 정본에 맞췄다.
+>
+> ⚠️ **다른 전환은 여전히 기록하지 않는다** — 되돌릴 수 있고 정본이 지목하지도 않았다. 기록 대상을 넓히는 것은 **무엇이 중요한지를 흐리는 일**이다. 액션 값은 `VOYAGE_TRANSITION`(`DB_SCHEMA §2.14`)이다.
 
 > **[#277] 인증 주체·로그인 이벤트.** `user_id`는 인증 미들웨어가 `request.state`에 주입한 `app_user.id`다 — 라우트가 이 값을 뽑아 감사 서비스(`services/audit.py`)로 넘기며, 서비스는 `request` 객체를 알지 못한다(§16.1 계층). 로그인 이벤트 3종(`LOGIN_SUCCESS` · `LOGIN_FAILURE` · `LOGOUT`)도 기록한다: 실패는 사유 코드(`reason`)만 남기고 **자격 증명(`id_token` · `code` · state · 세션 토큰)은 `details_json`에 절대 기록하지 않는다.** 스텁 dev-login도 같은 스트림에 기록하며 `dev_login` 플래그로 구분한다. `LOGOUT`은 실제 세션 무효화 시만 기록한다(멱등 재호출 제외).
 

@@ -185,16 +185,38 @@ async def transition_voyage_route(
     # 서비스가 실어 보낸 「변경 전」 값. 응답에서는 뺀다(`_duration_ms`와 같은 규약).
     from_status = data.pop("_from_status")
 
+    state = getattr(request, "state", None)
+    session_user = getattr(state, "session_user", None)
+    actor = str(session_user.id) if session_user is not None else None
+    client_ip = request.client.host if request.client else None
+
     if data["status"] == "CONFIRMED":
-        state = getattr(request, "state", None)
-        session_user = getattr(state, "session_user", None)
         await audit_svc.record_voyage_confirm(
             session,
-            user_id=str(session_user.id) if session_user is not None else None,
+            user_id=actor,
             voyage_id=voyage_id,
             from_status=from_status,
             annual_inclusion_policy=data["annual_inclusion_policy"],
-            ip_address=request.client.host if request.client else None,
+            ip_address=client_ip,
+        )
+        await session.commit()
+    elif from_status == "CONFIRMED":
+        # `#1328` — **확정을 되돌리거나 닫는** 두 전환도 기록한다.
+        # `PRD §8.1.1`·`API_SPEC §3.5`가 둘 다 「audit log 필수」로 정하는데 코드는
+        # 확정만 남겨, **확정된 실적을 되돌려 고친 뒤 다시 확정하면** 로그에 「확정」
+        # 두 건만 남고 **누가 언제 되돌렸는지**가 사라졌다.
+        #
+        # `from_status`로 가르는 이유는 `_TRANSITIONS`상 `CONFIRMED`에서 나가는 길이
+        # `COMPLETED`(정정)·`ARCHIVED`(보관) 둘뿐이기 때문이다 — 목적지를 열거하면
+        # 전환 표가 늘 때 여기가 조용히 뒤처진다.
+        await audit_svc.record_voyage_transition(
+            session,
+            user_id=actor,
+            voyage_id=voyage_id,
+            from_status=from_status,
+            to_status=data["status"],
+            annual_inclusion_policy=data["annual_inclusion_policy"],
+            ip_address=client_ip,
         )
         await session.commit()
 

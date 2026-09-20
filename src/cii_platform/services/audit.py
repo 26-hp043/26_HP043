@@ -38,6 +38,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "ROLE_CHANGE",
         "CALCULATION_RUN",
         "VOYAGE_CONFIRM",
+        # `#1328` — 확정 뒤 **정정·보관** 전환. `PRD §8.1.1`·`API_SPEC §3.5`가
+        # 「audit log 필수」로 정한 둘이며, `#1343`이 이 자리를 비워 두고 이 이슈를
+        # 가리켰다(계획값을 목록에 미리 적지 않는다).
+        "VOYAGE_TRANSITION",
         "CHAT_MESSAGE",
         "CHAT_TOOL_CALL",
         "PARAMETER_IMPORT",
@@ -256,6 +260,54 @@ async def record_voyage_confirm(
         details={
             "from_status": from_status,
             "to_status": "CONFIRMED",
+            "annual_inclusion_policy": annual_inclusion_policy,
+        },
+        ip_address=ip_address,
+    )
+
+
+async def record_voyage_transition(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    voyage_id: UUID,
+    from_status: str,
+    to_status: str,
+    annual_inclusion_policy: str,
+    ip_address: str | None = None,
+) -> None:
+    """확정 뒤의 상태 전환 — `PRD §8.1.1`·`API_SPEC §3.5`가 「audit log 필수」로 정한 둘.
+
+    ## 왜 이 둘만인가
+
+    `CONFIRMED`는 **되돌릴 수 없는 선언**이고 그 시점의 실적이 연말 DCS 보고의
+    근거가 된다(:func:`record_voyage_confirm`). 그 선언을 **되돌리거나 닫는** 두
+    전환이 여기 해당한다.
+
+    * ``CONFIRMED → COMPLETED`` — 오류 정정 목적만 허용(`PRD §8.1.1`)
+    * ``CONFIRMED → ARCHIVED`` — 보관
+
+    기록이 없으면 **확정된 실적을 되돌려 고친 뒤 다시 확정**했을 때 로그에는
+    「확정」 두 건만 남고 **누가 언제 되돌렸는지**가 사라진다. 그 공백이 바로
+    감사 로그가 있어야 하는 이유다.
+
+    ⚠️ **다른 전환은 여전히 기록하지 않는다.** `PLANNED → IN_PROGRESS` 등은
+    되돌릴 수 있고 정본이 지목하지도 않았다 — 기록 대상을 넓히는 것은 감사 로그를
+    늘리는 일이 아니라 **무엇이 중요한지를 흐리는 일**이다(`record_voyage_confirm`의
+    판단 그대로).
+
+    종전에는 `TECH_SPEC §13.1`(「항차 확정」 하나)만 근거로 삼아 확정만 기록했다.
+    `AGENTS §3.1`상 **`PRD` > `TECH_SPEC`**이므로 상위 정본에 맞춘다 (`#1328`).
+    """
+    await audit_repo.insert_event(
+        session,
+        action="VOYAGE_TRANSITION",
+        user_id=user_id,
+        entity_type="voyage",
+        entity_id=voyage_id,
+        details={
+            "from_status": from_status,
+            "to_status": to_status,
             "annual_inclusion_policy": annual_inclusion_policy,
         },
         ip_address=ip_address,

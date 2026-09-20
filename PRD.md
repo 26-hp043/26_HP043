@@ -932,6 +932,7 @@ LLM 챗봇 대화의 개별 메시지다. 외부 LLM 전송은 §16.3의 MUST �
 stateDiagram-v2
     [*] --> DRAFT
     DRAFT --> PLANNED: save_plan
+    DRAFT --> CANCELLED: cancel
     PLANNED --> IN_PROGRESS: start_voyage
     IN_PROGRESS --> COMPLETED: enter_actual_result
     COMPLETED --> CONFIRMED: confirm_actuals
@@ -940,6 +941,8 @@ stateDiagram-v2
     CONFIRMED --> ARCHIVED: archive
     CONFIRMED --> COMPLETED: correct_actuals (audit log required)
 ```
+
+> **[#1328] `DRAFT → CANCELLED`를 상태도에 넣었다.** 구현(`services/voyage._TRANSITIONS`)과 **화면**(`frontend/src/features/voyage-management/voyageRules.ts`)이 처음부터 이 전환을 열어 두었는데 상태도에만 없었다 — 문서를 보고 만든 클라이언트·검사는 422를 기대한다. **코드에서 닫는 쪽은 성립하지 않는다**: 화면이 이미 제공하는 동작을 없애는 일이다. `§8.2`상 취소된 DRAFT는 hard delete 가능이라 데이터가 남지도 않는다.
 
 | 상태 | 의미 | 연간 시뮬레이터 반영 |
 |---|---|---|

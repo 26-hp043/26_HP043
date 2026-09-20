@@ -1927,9 +1927,14 @@ POST /api/v1/voyages/{voyage_id}/transition
 | COMPLETED → CONFIRMED | 모든 `actual_fuel_ton > 0` 및 `actual_distance_nm > 0` | 422: 누락 실적 입력 요청 |
 | CONFIRMED → COMPLETED | audit log 필수 (오류 정정 목적만) | 재확인 다이얼로그 표시 |
 | CONFIRMED → ARCHIVED | audit log 필수. regulation_year < current_year 또는 수동 | — |
+| DRAFT → CANCELLED | — | — (`#1328` 등재 — 아래 각주) |
 | PLANNED → CANCELLED | — | — |
 | IN_PROGRESS → CANCELLED | — | — |
 | `annual_inclusion_policy`를 `INCLUDE_AS_PLAN` · `INCLUDE_AS_ACTUAL`로 지정하는 모든 전환 | `voyage.regulation_year != null` (#150) | 422 `STATE_TRANSITION_ERROR`: 기준연도 설정 요청 |
+
+> **[#1328] `DRAFT → CANCELLED`가 이 표에 없었다.** 구현(`services/voyage._TRANSITIONS`)과 **화면**(`frontend/src/features/voyage-management/voyageRules.ts`)이 처음부터 열어 두었으므로, 문서를 보고 만든 클라이언트·검사는 **422를 기대**했다. **코드에서 닫는 쪽은 성립하지 않는다** — 화면이 이미 제공하는 동작을 없애는 일이다. `§3.7`상 취소된 DRAFT는 hard delete 가능이라 데이터가 남지도 않는다.
+>
+> **[#1328] 위 두 「audit log 필수」가 실제로 기록된다.** 종전에는 코드가 `TECH_SPEC §13.1`(「항차 확정」 하나)만 근거로 삼아 **확정만** 남겼다 — **확정된 실적을 되돌려 고친 뒤 다시 확정하면** 로그에 「확정」 두 건만 남고 **누가 언제 되돌렸는지**가 사라졌다. 액션 값은 `VOYAGE_TRANSITION`(`DB_SCHEMA §2.14`)이며, `AGENTS §3.1`상 `PRD` > `TECH_SPEC`이라 코드와 `TECH_SPEC`을 상위 정본에 맞췄다.
 
 > **[ORACLE-C-4 추가]** `CONFIRMED → ARCHIVED` 전환을 추가했다. PRD §8.1 상태 다이어그램에 명시된 전환이다. 보관된 항차는 읽기 전용이며 `annual_inclusion_policy = EXCLUDE`로 자동 설정된다.
 >

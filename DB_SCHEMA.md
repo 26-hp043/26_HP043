@@ -867,7 +867,7 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_CONFIRM` **[#1343]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
+| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
 | `entity_type` | VARCHAR(30) | NULL | `app_user`, `calculation_run`, `chat_session`, `voyage` **[#1343]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |
@@ -877,7 +877,9 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 >
 > **종전 목록은 양쪽으로 어긋나 있었다** — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다. `entity_type`도 `app_user`·`chat_session`이 빠지고 `vessel`·`regulation_year`·`fuel_type`·`reference_line`이 쓰이지 않은 채 적혀 있었다. `#1241`(감사 로그 조회 화면)이 이 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.**
 >
-> ⚠️ **항차 상태 전환 감사(`VOYAGE_TRANSITION`)는 지금 없다** — `#1328`이 「확정 뒤 정정·보관에 감사 로그가 없다」로 다룬다. 그 이슈가 기록을 넣을 때 **값과 이 목록을 함께** 늘린다. 계획을 목록에 미리 적어 두지 않는 것은, 적어 두면 **있는 것과 없는 것을 구분할 수 없게** 되기 때문이다.
+> **[#1328] `VOYAGE_TRANSITION`이 들어왔다.** 위 각주가 「`#1328`이 기록을 넣을 때 값과 이 목록을 함께 늘린다」로 자리를 비워 뒀던 것이며, 그 이슈가 **확정 뒤의 두 전환**(`CONFIRMED → COMPLETED` 정정 · `CONFIRMED → ARCHIVED` 보관)을 기록하면서 같은 PR에서 채웠다 — `PRD §8.1.1`·`API_SPEC §3.5`가 둘 다 「audit log 필수」로 정한 것이다. `details_json`은 `VOYAGE_CONFIRM`과 같은 모양(`from_status`·`to_status`·`annual_inclusion_policy`)이다.
+>
+> ⚠️ **다른 전환은 여전히 기록하지 않는다** — `PLANNED → IN_PROGRESS` 등은 되돌릴 수 있고 정본이 지목하지도 않았다. 기록 대상을 넓히는 것은 감사 로그를 늘리는 일이 아니라 **무엇이 중요한지를 흐리는 일**이다.
 
 **인덱스:**
 
