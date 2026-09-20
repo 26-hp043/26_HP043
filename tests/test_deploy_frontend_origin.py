@@ -109,3 +109,44 @@ def test_deploy_does_not_pass_a_positional_output_dir():
         f"배포 명령이 출력 디렉터리를 위치 인자로 준다: {command}. "
         "wrangler.toml의 pages_build_output_dir과 충돌한다 (#1322)."
     )
+
+
+def test_api_origin_is_not_an_ip_literal():
+    """🔴 `API_ORIGIN`에 **IP 주소를 적지 않는다** (#1496).
+
+    ## 무엇을 막는가
+
+    Cloudflare 공식 문서 원문 — *"For Workers subrequests, requests can only be made to
+    URLs, **not to IP addresses directly**."* 실측에서도 배포된 프록시가
+    ``error code: 1003``(Direct IP access not allowed)으로 403을 냈다.
+
+    ## 왜 조용한가
+
+    **배포는 성공하고 화면도 뜬다.** 정적 자산은 Pages가 그대로 내주기 때문이다. 끊기는
+    것은 `/api/*`뿐이라, 증상이 `#1322` 이전(혼합 콘텐츠)과 **화면에서 구분되지 않는다** —
+    둘 다 「로그인이 안 된다」로 보인다. 그래서 한 번 겪고도 같은 자리로 되돌아가기 쉽다.
+    """
+    text = _WRANGLER.read_text(encoding="utf-8")
+    match = re.search(r'^\s*API_ORIGIN\s*=\s*"([^"]*)"', text, re.M)
+
+    assert match, "wrangler.toml에서 API_ORIGIN 값을 읽지 못했다."
+    host = re.sub(r"^\w+://", "", match.group(1)).split("/")[0].split(":")[0]
+    assert not re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host), (
+        f"API_ORIGIN이 IP 주소다: {host}. Workers는 IP로 fetch할 수 없다 — "
+        "터널이 준 호스트명을 쓴다 (#1496)."
+    )
+
+
+def test_deploy_renders_api_origin_from_a_secret():
+    """배포가 `API_ORIGIN`을 **시크릿에서 덮어쓴다** (#1496).
+
+    터널이 주는 호스트명은 터널을 만들 때 정해지므로 **커밋 시점에 알 수 없다.** 저장소에는
+    자리표시자만 두고 배포가 채운다. 그 단계가 사라지면 자리표시자가 그대로 올라가
+    프록시가 조용히 실패한다.
+    """
+    text = _deploy_text()
+
+    assert "secrets.API_ORIGIN" in text, (
+        "deploy.yml이 API_ORIGIN 시크릿을 읽지 않는다 — 자리표시자가 그대로 배포된다 (#1496)."
+    )
+    assert "wrangler.toml" in text, "deploy.yml이 wrangler.toml을 렌더하지 않는다 (#1496)."

@@ -311,7 +311,7 @@ class Db:
     #: compose 서비스 이름. **토폴로지마다 다르다** (`#1330`) —
     #: ``docker-compose.prod.yml``은 ``db``, OCI가 쓰는
     #: ``docker-compose.prod.db.yml``은 ``cubrid``다. 박아 두면 그쪽에서
-    #: **어느 명령도 돌지 않고** `OPERATIONS §3.4.3` 롤백 절차가 막힌다.
+    #: **어느 명령도 돌지 않고** `OPERATIONS §3.6.3` 롤백 절차가 막힌다.
     #:
     #: ⚠️ **``run`` 뒤에 둔다** — 검사들이 ``Db(compose, runner)``로 위치 인자를 쓴다.
     service: str = DEFAULT_DB_SERVICE
