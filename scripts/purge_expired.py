@@ -18,6 +18,9 @@
     python3 scripts/purge_expired.py --dry-run        # 셀 뿐, 지우지 않는다
     python3 scripts/purge_expired.py --grace-days 30  # 세션·토큰 유예를 늘린다
 
+``weather_snapshot``의 30일은 ``--grace-days``를 받지 않는다 — `DB_SCHEMA §4.3`이
+정한 값이라 인자로 열면 정본과 다른 값으로 돌릴 수 있게 된다 (`#1347`).
+
 환경변수
 
 - ``COMPOSE`` — 기본 ``docker compose -f docker-compose.prod.yml``. 개발 스택에는
@@ -28,11 +31,17 @@
 **만료가 이미 지난 행만** 지운다. 「오래된 것」이 아니라 **「기한이 끝난 것」**이
 기준이다 — 살아 있는 세션을 끊으면 사용자가 작업 중에 튕긴다.
 
-===================  ================================================
- ``user_session``     ``expires_at`` 경과 **또는** ``revoked_at`` 있음
- ``user_token``       ``expires_at`` 경과 **또는** ``used_at`` 있음
- ``chat_session``     ``expires_at`` 경과 (생성 + 90일 · `PRD §16.3`)
-===================  ================================================
+=====================  ================================================
+ ``user_session``       ``expires_at`` 경과 **또는** ``revoked_at`` 있음
+ ``user_token``         ``expires_at`` 경과 **또는** ``used_at`` 있음
+ ``chat_session``       ``expires_at`` 경과 (생성 + 90일 · `PRD §16.3`)
+ ``weather_snapshot``   ``fetched_at`` 30일 경과 **그리고 아무도 참조하지 않음**
+=====================  ================================================
+
+``weather_snapshot``은 조건이 하나 더 붙는다 (`#1347` · `DB_SCHEMA §2.13`). **참조된
+행은 지우지 않는다** — ``calculation_run``은 ``ON DELETE RESTRICT``라 DB가 막지만,
+``voyage_scenario``는 **``ON DELETE SET NULL``**이라 막지 않고 **조용히 링크만
+끊는다.** 그쪽이 더 나쁘다: 「어느 기상으로 계산했나」가 사라진 것을 아무도 모른다.
 
 **지우지 않는 것** — ``audit_log``·``calculation_run``. 전자는 보존 대상이고
 (`DB_SCHEMA §7.1`) 후자는 immutable이다(`§7.3`). 로그인 이력을 알고 싶으면
@@ -96,6 +105,13 @@ DEFAULT_GRACE_DAYS = 7
 #: **스크립트가 한 일도 기록에 남는다.**
 PURGE_ACTION = "EXPIRED_PURGE"
 
+#: ``weather_snapshot`` 보존 기간 (`DB_SCHEMA §4.3` — 30일).
+#:
+#: 세션·토큰과 달리 ``--grace-days``를 받지 않는다. 그쪽은 **정책이 정해지지 않아**
+#: 유예를 열어 둔 것이고(위 `§`), 이쪽은 **정본이 30일로 정해 둔 값**이다 — 인자로
+#: 열면 정본과 다른 값으로 돌릴 수 있게 된다.
+WEATHER_RETENTION_DAYS = 30
+
 #: 세션·토큰은 유예를 적용한다. 채팅은 ``expires_at``이 이미 정본의 90일이라
 #: 유예를 더하지 않는다 — 더하면 「90일 보존」이 사실과 달라진다.
 _SQL = {
@@ -110,6 +126,23 @@ _SQL = {
         "OR (used_at IS NOT NULL AND used_at < DATE_SUB(NOW(), INTERVAL {grace} DAY))"
     ),
     "chat_session": "DELETE FROM chat_session WHERE expires_at < NOW()",
+    # `DB_SCHEMA §4.3` 30일 보존 · `§2.13` 「참조되지 않는 행만」 (`#1347`).
+    #
+    # ⚠️ **참조 검사가 두 표다.** `calculation_run`은 `ON DELETE RESTRICT`라 지우려
+    # 들면 DB가 막지만, `voyage_scenario`는 **`ON DELETE SET NULL`**이라 막지 않고
+    # **조용히 링크만 끊는다** — 그쪽이 더 나쁘다. 「어느 기상으로 계산했나」가
+    # 사라진 것을 아무도 모른다. 그래서 두 표 모두에서 미참조인 행만 지운다.
+    #
+    # 기준 시각은 `fetched_at`이다 — 그 값이 곧 「이 기상이 언제 것인가」이고,
+    # 캐시 신선도 판정(`TECH_SPEC §7.3`)도 같은 열을 쓴다.
+    "weather_snapshot": (
+        "DELETE FROM weather_snapshot WHERE "
+        "fetched_at < DATE_SUB(NOW(), INTERVAL {weather_days} DAY) "
+        "AND id NOT IN (SELECT weather_snapshot_id FROM calculation_run "
+        "WHERE weather_snapshot_id IS NOT NULL) "
+        "AND id NOT IN (SELECT weather_snapshot_id FROM voyage_scenario "
+        "WHERE weather_snapshot_id IS NOT NULL)"
+    ),
 }
 
 #: 세는 문장 — ``DELETE``를 ``SELECT count(*)``로 바꾼 것. 같은 조건을 두 번 적지
@@ -118,6 +151,7 @@ _COUNT_PREFIX = {
     "user_session": "SELECT count(*) FROM user_session WHERE ",
     "user_token": "SELECT count(*) FROM user_token WHERE ",
     "chat_session": "SELECT count(*) FROM chat_session WHERE ",
+    "weather_snapshot": "SELECT count(*) FROM weather_snapshot WHERE ",
 }
 
 
@@ -156,13 +190,13 @@ class Db:
 
 def count_sql(table: str, grace_days: int) -> str:
     """``--dry-run``이 쓰는 세는 문장. ``DELETE``와 **같은 조건**이어야 한다."""
-    delete = _SQL[table].format(grace=grace_days)
+    delete = _SQL[table].format(grace=grace_days, weather_days=WEATHER_RETENTION_DAYS)
     _, _, condition = delete.partition(" WHERE ")
     return _COUNT_PREFIX[table] + condition
 
 
 def delete_sql(table: str, grace_days: int) -> str:
-    return _SQL[table].format(grace=grace_days)
+    return _SQL[table].format(grace=grace_days, weather_days=WEATHER_RETENTION_DAYS)
 
 
 #: csql의 ``DELETE`` 응답. ``psql``의 ``DELETE <n>``과 자리가 반대다 —

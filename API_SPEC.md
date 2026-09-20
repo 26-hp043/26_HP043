@@ -247,7 +247,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 422 Unprocessable Entity | `CALCULATION_ERROR` | 분모 0, overflow, 음수 결과 |
 | 422 Unprocessable Entity | `MODEL_BREAKDOWN_ERROR` | BN > 8, ΔV/V ≥ 100% |
 | 422 Unprocessable Entity | `STATE_TRANSITION_ERROR` | 허용되지 않은 상태 전환 (PRD §8.1.1) |
-| 422 Unprocessable Entity | `WEATHER_FETCH_ERROR` | 기상 API 실패 + 사용자가 NONE fallback을 명시적으로 거부 |
+| 422 Unprocessable Entity | `WEATHER_FETCH_ERROR` | ⚠️ **지금은 나가지 않는다** (`#1347`). fallback을 거부하는 요청 옵션이 없어 `services/weather.py`의 `resolve_with_fallback`이 항상 **200 + `WEATHER_NONE_FALLBACK`**으로 이어 간다. 코드는 남겨 둔다 — 그 옵션이 생기면 이 자리가 그대로 쓰인다 |
 | 429 Too Many Requests | `RATE_LIMIT_EXCEEDED` | 분당 요청 한도 초과 |
 | 500 Internal Server Error | `INTERNAL_ERROR` | 서버 내부 오류 |
 | 503 Service Unavailable | `CHAT_UNAVAILABLE` | 챗봇을 쓸 수 없다 — `LLM_API_KEY` 미설정 또는 외부 모델 호출 실패. **`/chat`에서만 난다** (`§15` · `PRD §16.2` 장애 격리: 챗봇이 죽어도 계산·보고 경로는 영향받지 않는다) |
@@ -268,6 +268,8 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 > ※ 404의 경우 리소스 ID 미존재(`NOT_FOUND`)와 경로 미존재가 같은 HTTP status를 쓰므로 같은 코드 `NOT_FOUND`를 공유한다. 다만 사용자 문구는 위 표처럼 구분한다.
 
 > **[ORACLE-C-2 정정]** 기상 API 실패 처리 경로를 두 가지로 명확히 분리했다: (1) 200 OK + `WEATHER_NONE_FALLBACK` warning (사용자가 fallback 허용), (2) 422 `WEATHER_FETCH_ERROR` (사용자가 NONE 모델 거부). 이전의 503 매핑은 제거했다.
+>
+> ⚠️ **⑵는 구현되지 않았다 (`#1347`).** 「사용자가 거부한다」는 **요청 옵션이 없다** — `allow_fallback`·`reject_fallback`·`strict_weather` 어느 이름으로도 코드·정본에 0건이다. 실제 동작은 늘 ⑴이며, `TECH_SPEC §12.1`도 같은 내용으로 고쳤다. 옵션을 두는 것은 **새 기능**이라 별도 판단이 필요하다.
 
 ### 1.5 페이지네이션
 
@@ -3776,10 +3778,14 @@ GET /api/v1/health
 | 항목 | 정책 |
 |---|---|
 | 허용 Origin | 동일 출처 또는 명시적 화이트리스트 |
-| 허용 Method | GET, POST, PATCH, PUT, DELETE, **OPTIONS** |
-| 허용 Header | Content-Type, Authorization, X-CSRF-Token |
+| 허용 Method | **`*`** — 구현이 `allow_methods=["*"]`다 (`api/main.py`). 실제로 쓰는 것은 GET · POST · PATCH · PUT · DELETE · OPTIONS |
+| 허용 Header | **`*`** — 구현이 `allow_headers=["*"]`다. 화면이 보내는 커스텀 헤더는 **`X-CSRF-Token` 하나**이고 나머지는 `Content-Type` 등 safelisted다 |
 
 > 쿠키 기반 세션을 사용하므로 CORS 설정은 `allow_credentials = true`가 필요하며, **`allow_origins`에 와일드카드(`*`)를 쓸 수 없다.** 허용 출처를 명시적으로 나열한다 (#272).
+
+> **[#1347] 표를 구현에 맞췄다 — 코드를 조이지 않았다.** 종전 표는 Method·Header를 **명시 목록**으로 적었으나 구현은 둘 다 `*`였다. ⑴ **보안 경계는 `allow_origins`다** — 그쪽은 이미 명시 목록이고, Method·Header의 `*`는 「브라우저가 보낼 수 있는 것」을 넓힐 뿐이다. ⑵ **`#1322`(클라우드 로그인 불성립)가 미해결**이고 그 진단 경로에 CORS가 걸려 있다 — 지금 동작을 바꾸면 살아 있는 문제의 원인 판별이 어려워진다. 조이는 것은 `#1322`과 **함께 판단할 사안**이다.
+>
+> ⚠️ 종전 표의 **`Authorization`은 이 제품이 쓰지 않는다** — 세션 쿠키 방식이라 그 헤더를 보내는 자리가 없다(`frontend/src` 실측 0건). 표에서 뺐다.
 
 ### 13.4 API 버전 관리
 
@@ -4086,3 +4092,4 @@ POST /api/v1/chat
 | 2026-09-20 | `#1394` | §3.3에 **문자열 길이 상한 각주** 추가 — 항만명 1~200자 · `voyage_no` ~100자 · **`notes` ~1000자**. 앞 둘은 DB 컬럼 폭(`§8.2`)에서 오고 `notes`는 **`PRD §10.2` ⑵가 정한 값**인데, **코드에 상한이 없어** 요청 본문 크기가 유일한 방어였다. DB는 `TEXT`라 컬럼은 더 받지만 **받는 것과 받아도 되는 것은 다르다**. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#1348) |
 | 2026-09-20 | `#1396` | **§1.5 문장을 좁히고 예외 표 신설 · §1.9 필터 검증 각주 · §2.17.3 커서 페이지네이션** (`#1367`). ⑴ `§1.5`의 *「목록 조회 API는 커서 기반」*이 **다섯 목록에서 지켜지지 않고 있었다.** 규모를 실측해 넷(샘플 항만 **43건 고정** · 샘플 선박 **3건 고정** · 계정 **전부 보는 화면** · 정박 구간 **선박 1척**)을 예외 표에 적었다 — **고칠 것은 목록이 아니라 문장이었다.** ⑵ ⚠️ **감축 계획은 예외에 넣지 않고 커서를 붙였다** — `PLAN_LIST_LIMIT`(20)에서 자르는데 `has_more`도 `next_cursor`도 없어 **21번째 계획을 볼 방법이 없었고** 화면에서는 「계획이 20개뿐」과 구분되지 않았다(`#1076`이 계산 이력에서 고친 것과 같은 형태). 「자르면서 말하지 않는 것」은 예외가 아니다. ⑶ `§1.9`의 `type`·해시 필터가 **값이 틀려도 빈 목록**을 돌려주던 것을 **422**로 적었다 — 대조군인 `§2.16`의 `sort`는 처음부터 422였다. **형식 검증은 존재 검증이 아니다**(형식이 맞는 해시로 못 찾는 것은 200)도 함께 명시했다. 화면 쪽 남은 몫은 `#1395`다. `AGENTS §4.3`상 각주·행 추가라 버전은 올리지 않는다 (#1367) |
 | 2026-09-20 | `#1397` | **§8.1 `type=voyages` 컬럼에 `planned_distance_source` 추가(22열 → 23열).** 화면은 `COORDINATE_ESTIMATE`에만 「좌표 기반 추정 거리」를 붙이는데(`PRD §15.2`) **내보낸 파일에는 그 축이 아예 없어 추정값과 직접 입력이 같은 모양**이었다 — 대권거리는 운하·해협을 돌아가는 실제 항로보다 짧으므로 구분되지 않는 파일을 받은 사람은 **추정값을 실측으로 읽는다**. **맨 뒤에 붙인다** — 앞 일곱 열은 `§8.2` 가져오기 필수 컬럼과 이름·순서가 같아야 하고(왕복) 가져오기는 뒤 열을 읽지 않으므로 왕복 동작은 바뀌지 않는다. `null`은 **빈 칸**이다(「모른다」이지 「직접 입력」이 아니다 · `PRD §0.3`). 가드는 `tests/test_data_export_db.py`와 `tests/test_report_export_routes_api_db.py`의 헤더 계약 검사가 갖는다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#1354) |
+| 2026-09-20 | `#1398` | **§1.4 `WEATHER_FETCH_ERROR` 행과 §13.3 CORS 표를 실제에 맞췄다** (`#1347`). ⑴ 422 `WEATHER_FETCH_ERROR`는 **지금 나가지 않는다** — fallback을 거부하는 요청 옵션이 없어(`allow_fallback`·`reject_fallback`·`strict_weather` 전부 0건) 늘 200 + `WEATHER_NONE_FALLBACK`이다. `[ORACLE-C-2]`가 적은 두 경로 중 ⑵가 구현되지 않았음을 각주로 남겼다. 코드는 남겨 둔다 — 옵션이 생기면 그 자리가 그대로 쓰인다. ⑵ `§13.3` 허용 Method·Header를 명시 목록 → **`*`**(구현이 그렇다). ⚠️ **코드를 조이지 않았다**: 보안 경계는 `allow_origins`이고 그쪽은 이미 명시 목록이며, **`#1322`(클라우드 로그인 불성립)가 미해결**이라 지금 CORS 동작을 바꾸면 살아 있는 문제의 진단이 어려워진다 — 조이는 것은 `#1322`과 함께 판단할 사안이다. 종전 표의 **`Authorization`은 뺐다**(세션 쿠키 방식이라 그 헤더를 보내는 자리가 `frontend/src`에 0건). `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1347) |

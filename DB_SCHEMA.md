@@ -67,7 +67,18 @@ erDiagram
     VOYAGE |o--o{ NOT_UNDERWAY_PERIOD : context
     NOT_UNDERWAY_PERIOD ||--o{ NOT_UNDERWAY_FUEL_USE : consumes
     FUEL_TYPE ||--o{ NOT_UNDERWAY_FUEL_USE : used_in
+    APP_USER ||--o{ USER_SESSION : authenticates
+    APP_USER ||--o{ USER_TOKEN : verifies
+    APP_USER ||--o{ CHAT_SESSION : opens
+    APP_USER |o--o{ FLEET_REDUCTION_PLAN : saved_by
+    VESSEL |o--o{ CHAT_SESSION : about
+    VESSEL ||--o{ VESSEL_POSITION_SNAPSHOT : tracked_by
+    CHAT_SESSION ||--o{ CHAT_MESSAGE : contains
 ```
+
+> **[#1347] 관계 없는 표 셋은 그리지 않는다.** `weather_model_parameter`(`§2.12`) · `simulation_parameter`(`§2.19`) · `port_geocode`(`§2.20`)는 **FK가 하나도 없는 독립 표**다 — 차례로 기상 모델 계수, Monte Carlo 분포 파라미터, 항만명 → 좌표 캐시다. 선으로 이을 상대가 없는 노드를 넣으면 다이어그램이 **관계도가 아니라 목록**이 된다. 표 전체 목록은 `§2`가 갖는다 — **`§2`의 25개 중 이 셋을 뺀 22개**가 위에 있다.
+>
+> 위 일곱 줄은 `#1347`에서 더했다 — **종전 다이어그램은 15개만** 담고 있었고, 인증(`app_user`·`user_session`·`user_token`)·챗봇(`chat_session`·`chat_message`)·위치 이력·감축 계획이 통째로 빠져 있었다. **카디널리티는 실제 FK에서 읽었다** — `fleet_reduction_plan.created_by`와 `chat_session.vessel_id`는 nullable(`ON DELETE SET NULL`)이라 `|o`, 나머지는 `NOT NULL`이다.
 
 > **[S-6 수정]** `SIMULATION_SNAPSHOT ||--o| ANNUAL_SIMULATION_RUN` (1:1 또는 1:0..1)으로 변경. 시뮬레이션 실행 1건당 스냅샷 1건이 생성되며, 스냅샷이 부모이다. `AUDIT_LOG`의 카디널리티도 `}o--o|`로 수정 (entity_id가 NULL 허용).
 
@@ -670,7 +681,9 @@ CREATE INDEX idx_snapshot_vessel ON simulation_snapshot (vessel_id, created_at D
 
 > **[#98] `updated_at`이 없는 것은 의도적이다.** 파라미터 테이블은 값이 개정되면 행을 고치지 않고 **새 `version` 행을 넣고 `is_active`를 전환**한다 — 기준과 예외(`fuel_type`)는 §7.2를 따른다.
 >
-> **[#96] `chk_z_factor_nonneg` (마이그레이션 023).** Z-factor reduction은 음수일 수 없다(MEPC.400(83) 0%~). 음수면 required_CII가 reference line보다 커지는 역산이 일어나 계산이 무의미해진다. 2023년의 `0`은 유효값이므로 `> 0`이 아니라 `>= 0`이다.
+> **[#96] `chk_z_factor_nonneg` (마이그레이션 `046` — `#1347` 정정. 종전에 023으로 적혀 있었다).** Z-factor reduction은 음수일 수 없다(MEPC.400(83) 0%~). 음수면 required_CII가 reference line보다 커지는 역산이 일어나 계산이 무의미해진다. **`0`도 형식상 유효하므로**(2019 대비 감축 없음) `> 0`이 아니라 `>= 0`이다.
+>
+> ⚠️ **종전 문장은 「2023년의 `0`」을 근거로 들었는데 2023년 Z는 `0`이 아니라 `5.0000`%다**(`§3.1` 표 · `PRD §3.4.1` · `db/seed.py`). 근거가 사실이 아니어도 **결론(`>= 0`)은 맞아** 그대로 통과해 왔다 — `AGENTS §2.1`이 적은 「결론은 맞는데 근거가 틀린 것」의 적용례다 (`#1347`).
 
 ---
 
@@ -749,7 +762,7 @@ ALTER TABLE cii_reference_line ADD CONSTRAINT chk_a_decimal_positive CHECK (a_de
 ALTER TABLE cii_reference_line ADD CONSTRAINT chk_c_positive CHECK (c >= 0);
 ```
 
-> 애플리케이션 시작 시 `parse_imo_scientific(a_raw) == a_decimal` 검증을 수행한다 (TECH_SPEC §9.3).
+> **두 값은 쓰는 경로에서 맞춘다** (`TECH_SPEC §9.3` · `#1347`). 시드는 `db/seed.py`의 `validate_reference_lines()`가 **DB에 넣기 전에** 상수를 전수 대조하고, `POST /parameters/import`는 `a_decimal`을 **`a_raw`에서 파싱해** 넣는다 — 두 값이 독립적으로 들어올 길이 없다. 종전 문장(「애플리케이션 시작 시 … 검증을 수행한다」)이 가리킨 기동 검사는 **존재한 적이 없고**, 넣지 않기로 했다(사유는 `TECH_SPEC §9.3`).
 >
 > **[Oracle 관찰]** `c = 0.000000` for LNG_CARRIER DWT ≥ 100000은 **정상**이다. MEPC.353(78) Table 1에 따라 대형 LNG 캐리어는 고정 CII_ref 값을 사용하며 `CII_ref = 9.827 × Capacity^0 = 9.827`이다.
 
@@ -840,6 +853,8 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 > **[#968] `source` 값 목록에 `open_meteo_marine+forecast`를 추가했다.** 어댑터(`weather/open_meteo.py` `SOURCE_MERGED`)가 정상 경로에서 처음부터 이 값을 저장해 왔는데 종전 목록 3값에는 없었다. 이 컬럼에는 **집행 제약이 없다** — `1c444a5c4819`의 CHECK 60개, `046`·`048`·`050`의 트리거 어디에도 `weather_snapshot.source`는 없고 ORM(`models/weather_snapshot.py`)에도 `CheckConstraint`가 없다(자유 `VARCHAR(50)`). 그래서 이 값이 REJECT된 적은 없고 마이그레이션도 필요 없다. 값을 정하는 곳이 어댑터 한 곳이라 코드 상수 ⊆ 이 목록은 `tests/test_weather_source_sync.py`가 지킨다.
 >
 > **[#102] TTL과 보존의 구분:** TTL 24시간은 **재사용 판단 기준(신선도 창)이지 삭제 스케줄이 아니다.** `calculation_run.weather_snapshot_id`(§2.5 [#102], FK **RESTRICT**)가 참조하는 스냅샷은 TTL 경과와 무관하게 보존되어야 재현성 계약(TECH_SPEC §5.4)의 추적성이 성립한다. 캐시 정리(eviction) 작업은 **참조되지 않는 행만** 삭제해야 하며, 참조 행을 포함한 일괄 DELETE는 RESTRICT에 막혀 트랜잭션 전체가 롤백된다.
+>
+> ⚠️ **참조 표가 둘이다 (`#1347`).** `voyage_scenario.weather_snapshot_id`(`§2.4`)는 **`ON DELETE SET NULL`**이라 삭제를 **막지 않고 조용히 링크만 끊는다** — RESTRICT보다 나쁘다: 「어느 기상으로 계산했나」가 사라진 것을 아무도 모른다. 정리 작업은 **두 표 모두에서 미참조**인 행만 지운다. 구현은 `scripts/purge_expired.py`이며 `tests/test_purge_expired_script.py`가 그 조건을 잠근다.
 
 ---
 
@@ -1044,7 +1059,7 @@ CREATE INDEX idx_not_underway_period_voyage
 >
 > 집계는 `(fuel_type, cf_used)`로 묶는다. CF 개정 후에는 같은 유종에 snapshot이 둘 이상 생기며, 하나로 합쳐 대표 CF를 고르면 그 차이가 사라진다. 계산 엔진은 같은 `fuel_code`가 여러 번 들어와도 배출량을 합산하므로 묶음을 그대로 넘기는 것이 정확하다.
 >
-> 백필은 무손실이다 — `fuel_type`은 `code`가 PK인 단일 행 테이블이라 CF 이력을 보관하지 않으며, 아직 CF 개정이 일어난 적이 없어 현재값이 곧 기록 시점값이다.
+> 백필은 무손실이다 — `fuel_type`은 연료 코드마다 **한 행뿐**이라(PK는 `id`, `code`는 별도 UNIQUE — `§2.9` DDL · `#1347`) CF 이력을 보관하지 않으며, 아직 CF 개정이 일어난 적이 없어 현재값이 곧 기록 시점값이다.
 
 **인덱스:**
 
@@ -1428,6 +1443,8 @@ CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
 
 ### 4.2 파티셔닝 (향후 확장)
 
+> ⚠️ **이 절 전체가 PostgreSQL 전제로 쓰였다 (`#1347`).** 선언 문법·「파티션 키가 UNIQUE 제약에 포함되어야 한다」 같은 제약이 모두 PostgreSQL 것이고, 이 저장소의 엔진은 **CUBRID 11.4.6**이다(`#1058` 전환 · 헤더). 실제로 파티셔닝을 도입할 때는 **여기 적힌 전략만 남기고 문법·제약은 CUBRID 기준으로 다시 쓴다** — 지금 고치지 않는 것은 향후 확장 절이라 **틀린 값이 어딘가로 흘러가지 않기** 때문이고, 그 사실을 적어 두지 않으면 다음 사람이 이 DDL을 그대로 실행한다.
+
 | 테이블 | 파티셔닝 전략 |
 |---|---|
 | `calculation_run` | 월별 RANGE 파티셔닝 (created_at 기준) |
@@ -1456,7 +1473,7 @@ CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
 | `annual_simulation_run` → `calculation_run` FK가 있다 | 참조 쪽도 **복합 FK**가 되거나, FK를 포기하고 애플리케이션이 무결성을 맡아야 한다 |
 | `calculation_run` → `weather_snapshot` FK가 있다 | `weather_snapshot`을 파티셔닝하면 **같은 문제가 한 번 더** 생긴다 |
 
-> **immutable 트리거는 그대로 돈다.** PostgreSQL 13부터 파티션 부모 테이블에 `BEFORE ... FOR EACH ROW` 트리거를 걸 수 있고 파티션마다 복제된다(이 저장소는 PG 16). 오히려 파티션 키(`created_at`)를 바꾸는 UPDATE는 내부적으로 **DELETE + INSERT**라 immutable 트리거가 막는데, 그 표들은 애초에 불변이므로 **막는 것이 맞다.**
+> **immutable 트리거는 그대로 돈다.** PostgreSQL 13부터 파티션 부모 테이블에 `BEFORE ... FOR EACH ROW` 트리거를 걸 수 있고 파티션마다 복제된다(**PostgreSQL 기준 서술이다** — 이 저장소의 엔진은 CUBRID 11.4.6이며 `§4.2`는 전환 전에 쓰였다 · `#1347`). 오히려 파티션 키(`created_at`)를 바꾸는 UPDATE는 내부적으로 **DELETE + INSERT**라 immutable 트리거가 막는데, 그 표들은 애초에 불변이므로 **막는 것이 맞다.**
 
 > **보존 정책(`§4.3`)과의 관계** — `weather_snapshot`만 유한 보존(30일)이라 파티션 단위 `DROP`의 이득이 있다. `calculation_run`·`audit_log`는 무기한·5년이라 **떨어뜨릴 파티션이 거의 없다** — 이 둘의 파티셔닝 이득은 삭제가 아니라 **조회 시 가지치기**뿐이다.
 
@@ -1467,7 +1484,7 @@ CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
 | `calculation_run` | 무기한 (재현성 보장) |
 | `simulation_snapshot` | 무기한 |
 | `audit_log` | 최소 5년 |
-| `weather_snapshot` | 30일 (TTL 만료 후 삭제) |
+| `weather_snapshot` | 30일 — **`fetched_at` 30일 경과 + 아무도 참조하지 않는 행**만 지운다(`§2.13` · `scripts/purge_expired.py`가 `chat_session`과 같은 자리에서 처리한다 · `#1347`) |
 | `chat_session` · `chat_message` | 90일 (만료 후 삭제, PRD §16.3 채팅 보존 정책) — §2.23·§2.24 · `scripts/purge_expired.py`가 만료 행을 지운다(유예 없음 · `TEST_PLAN §3.21`) [#287 → #1080] |
 
 ---
@@ -2186,3 +2203,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-20 | `#1385` | §2.5 `VOYAGE_ESTIMATE` 저장 예시에 `rating_boundary_cii` 4종 추가 (`#1371` · `API_SPEC §4.1` v1.42와 같은 변경). `tests/test_dbschema_json_example_sync.py`가 **예시 키와 실제 `result_json` 키를 대조**하므로 응답에 필드가 늘면 이 예시도 함께 늘어야 한다 — 실제로 그 검사가 이번 변경을 잡았다. `AGENTS §4.3`상 예시 행 추가라 버전은 올리지 않는다 (#1371) |
 | 2026-09-20 | `#1387` | §2.14 `audit_log`의 `action`·`entity_type` 열거를 **코드와 같게** 맞추고 각주로 사유를 남겼다 (`#1343`). 두 목록이 **양쪽으로** 어긋나 있었다 — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다(`entity_type`도 `app_user`·`chat_session`이 빠지고 쓰이지 않는 4개가 있었다). 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) **DB가 알려 주지 않으므로** 새 검사 `tests/test_audit_enum_sync.py`(6함수)가 `코드 리터럴 == services/audit.AUDIT_ACTIONS(+ migration_guard.BACKUP_ACTION) == 이 행`을 양방향으로 잠근다(`#968`의 `weather_snapshot.source`와 같은 틀). 계획값(`VOYAGE_TRANSITION` · `#1328`)은 **목록에 미리 적지 않는다** — 적으면 있는 것과 없는 것을 구분할 수 없게 된다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1343) |
 | 2026-09-20 | `#1394` | §2.4 `voyage.notes` 행에 **입력 상한 1000자** 명시 (`PRD §10.2` ⑵ · `API_SPEC §3.3`). 컬럼은 `TEXT`라 더 받지만 API가 거른다 — **컬럼 타입과 입력 계약은 다른 축**이고, 행에 적어 두지 않으면 스키마만 읽는 사람은 상한이 없다고 읽는다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#1348) |
+| 2026-09-20 | `#1398` | **ER 다이어그램 9표 누락 보강 · §4.3 `weather_snapshot` 삭제 경로 신설 · 오기 넷 정정** (`#1347`). ⑴ 다이어그램이 `§2`의 표 25개 중 **15개만** 담고 있었다 — 인증 3 · 챗봇 2 · 위치 이력 · 감축 계획을 더해 **22개**가 됐다(나머지 셋은 **FK가 하나도 없는 독립 표**라 그리지 않고 사유를 적었다). **카디널리티는 실제 FK에서 읽었다.** ⑵ `§4.3` 「`weather_snapshot` 30일(TTL 만료 후 삭제)」이 **지우는 경로 없이** 적혀 있었다 — `scripts/purge_expired.py`에 넣고, ⚠️ **참조 표가 둘**임을 `§2.13`에 명시했다: `voyage_scenario`(`§2.4`)는 **`ON DELETE SET NULL`**이라 막지 않고 **조용히 링크만 끊는다**(RESTRICT보다 나쁘다). ⑶ 「`fuel_type`은 `code`가 PK」 → **PK는 `id`, `code`는 별도 UNIQUE**. ⑷ 「이 저장소는 PG 16」 → **CUBRID 11.4.6**이며 `§4.2` 머리에 「이 절 전체가 PostgreSQL 전제」 경고. ⑸ **「2023년의 `0`은 유효값」이 사실이 아니다** — 2023 Z는 `5.0000`%다(`§3.1` · `PRD §3.4.1`). **결론(`>= 0`)은 맞는데 근거가 틀린** 형태라 그대로 통과해 왔다(`AGENTS §2.1` 적용례). 마이그레이션 번호도 `023` → **`046`**. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1347) |
