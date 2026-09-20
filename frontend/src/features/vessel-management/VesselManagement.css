@@ -335,6 +335,66 @@
   min-inline-size: 0;
 }
 
+/*
+ * 제원 미비 필터 칩 (#1424).
+ *
+ * 칩은 정본에 이미 있다 — `§5` radius 「칩/pill `999px`」 · `§8` 「칩/배지: pill ·
+ * 시맨틱 색」 · `§9.3` 「컨트롤은 시맨틱 Primary를 쓴다」. 크기는 Figma 토큰
+ * `--target-chip`(28px)을 그대로 받는다(`§15` — 값은 Figma가 소유한다).
+ *
+ * 테두리는 `--color-border-control`이다. `cursor: pointer`이고 테두리색이 배경색과
+ * 다른 컨트롤이라 `#1202`의 「네 면에서 `3:1`」이 그대로 걸린다 —
+ * `--border-default`(라이트 최소 `1.15`)를 쓰면 `tokens.sync.test.ts`가 잡는다.
+ */
+.vm__list-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.vm__gap-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-block-size: var(--target-chip);
+  padding: 0 var(--spacing-sm);
+  border: var(--borderWidth-default) solid var(--color-border-control);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.vm__gap-filter:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+/*
+ * 눌린 상태 — 시맨틱 Primary. **색 단독이 아니다**(`§0.2` 제약 2): 체크 아이콘이
+ * 함께 붙고 `aria-pressed`가 보조 기술에 같은 것을 말한다.
+ *
+ * ## 0척이라고 모양을 바꾸지 않는다 (#1288)
+ *
+ * `#1288`이 막은 것은 **0건인데 위험색이 붙은 칸**이다 — 색이 심각도 신호인데
+ * 셀 것이 없는 자리에 붙어, 정작 볼 것이 있는 칸이 묻혔다.
+ *
+ * 이 칩은 **애초에 심각도 색을 쓰지 않는다.** 색으로 말하는 것은 눌렸는가
+ * 하나뿐이고(`§9.3` — 컨트롤은 시맨틱 Primary), 셀 것이 있는지는 **숫자가**
+ * 말한다. 걷어낼 색이 없으므로 `#1288`이 막은 상태가 성립하지 않는다.
+ * 미비 건수를 색으로 경고하는 일은 행의 경고 문장(`#1277`)이 이미 한다.
+ */
+.vm__gap-filter--on {
+  background: var(--color-primary-subtle);
+  color: var(--color-link);
+}
+
+.vm__gap-filter-check {
+  flex: none;
+}
+
 /* 뒤 페이지가 남아 있을 때 정렬 범위를 밝히는 한 줄 (#1102 ⑶). 경고가 아니라 사실이다. */
 .vm__partial {
   margin: 0 0 var(--space-8);

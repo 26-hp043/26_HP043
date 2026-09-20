@@ -15,7 +15,10 @@ import {
   saveFailureNotice,
   shipTypeLabel,
   sortVessels,
+  hasSpecGap,
   specChecklist,
+  specGapCount,
+  specGapFilterNotice,
   specProgress,
 } from './listRules'
 import { DISPLAY_UNIT_DAILY_FUEL, formatCapacity } from '../../display/format'
@@ -373,5 +376,60 @@ describe('saveFailureNotice (#1102 ⑴)', () => {
 
   it('저장되지 않았다는 사실을 말한다 — 성공 안내와 헷갈리지 않는다', () => {
     expect(saveFailureNotice('알파호', 'x')).toContain('저장하지 못했습니다')
+  })
+})
+
+/**
+ * 제원 미비 필터 (`#1424`).
+ *
+ * 종전에는 미비 선박만 보려면 **정렬(「제원 미비 먼저」)밖에** 없었다 — 위로 올릴 뿐이라
+ * 20척을 불러온 화면에서 어디까지가 미비인지 세어 가며 읽어야 했다.
+ *
+ * ## 판정이 정렬과 같아야 한다
+ *
+ * 칩과 정렬이 다른 기준을 쓰면 **정렬로 맨 위에 온 배가 필터에서는 빠진다.** 같은
+ * 화면의 두 컨트롤이 같은 말을 다르게 세는 셈이고, 사용자는 어느 쪽이 맞는지 알 길이
+ * 없다. 둘이 같은 함수를 부르는지가 아니라 **결과가 같은지**를 본다.
+ */
+describe('제원 미비 필터 (#1424)', () => {
+  const full = vessel({ id: 'v-full', name: '가득호' })
+  const noSpeed = vessel({ id: 'v-1', name: '나호', reference_speed_kn: null })
+  const noneAtAll = vessel({
+    id: 'v-2',
+    name: '다호',
+    gross_tonnage: null,
+    deadweight: null,
+    reference_speed_kn: null,
+    reference_daily_foc_ton: null,
+  })
+
+  it('정렬 「제원 미비 먼저」가 올린 앞부분이 곧 필터 결과다', () => {
+    const vessels = [full, noSpeed, noneAtAll]
+    const flagged = vessels.filter(hasSpecGap)
+    const sorted = sortVessels(vessels, 'gaps')
+
+    expect(flagged).toHaveLength(2)
+    // 미비가 앞으로 온다 — 그 앞부분과 필터 결과가 **같은 집합**이다.
+    expect(new Set(sorted.slice(0, flagged.length))).toEqual(new Set(flagged))
+    expect(sorted[sorted.length - 1]).toBe(full)
+  })
+
+  it('세는 수가 판정과 어긋나지 않는다', () => {
+    expect(specGapCount([full, noSpeed, noneAtAll])).toBe(2)
+    expect(specGapCount([full])).toBe(0)
+    expect(specGapCount([])).toBe(0)
+  })
+
+  it('제원이 다 찬 배는 미비가 아니다 — 필터가 전부를 남기지 않는다', () => {
+    expect(hasSpecGap(full)).toBe(false)
+    expect(hasSpecGap(noSpeed)).toBe(true)
+  })
+
+  it('안내는 걸러진 수를 말하고, 0척이면 되돌아가는 방법을 함께 적는다', () => {
+    expect(specGapFilterNotice(3)).toContain('3')
+    const none = specGapFilterNotice(0)
+    expect(none).toContain('없습니다')
+    // 빈 목록만 남기지 않는다 — 되돌아가는 길이 문장 안에 있다.
+    expect(none).toMatch(/다시 누르/)
   })
 })
