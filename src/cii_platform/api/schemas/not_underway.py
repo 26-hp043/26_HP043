@@ -4,6 +4,12 @@
 응답은 서비스가 만든 dict를 그대로 내보낸다. 형식·범위만 여기서 보고, DB를 봐야 아는
 것(연료 active 여부, 구간 겹침)은 서비스가 확인한다.
 
+**시각은 ``AwareDatetime``이다 (`#1333`).** 시간대 없는 시각을 받으면 두 가지가 난다 —
+``PATCH``는 요청의 naive와 DB의 aware를 비교하다 ``TypeError``로 **500**이 되고,
+``POST``는 서버 세션 시간대로 해석해 **조용히 다른 순간**을 저장한다. 같은 모듈의 CSV
+경로(``not_underway_import``)는 처음부터 시간대를 요구했다 — **한 리소스의 두 입구가
+다른 규칙을 쓰고 있었다.**
+
 **열거값(``period_type``·``consumer_type``)을 여기서 보지 않는다.** DB CHECK 제약과
 같은 목록을 두 곳에 두면 갈라지므로, 서비스의 ``PERIOD_TYPES``·``CONSUMER_TYPES``
 하나만 둔다. 대신 ``max_length``로 컬럼 폭은 지킨다.
@@ -11,12 +17,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from cii_platform.api.schemas.bounds import (
     NOT_UNDERWAY_DISTANCE,
@@ -48,9 +53,9 @@ class NotUnderwayPeriodCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     period_type: Annotated[str, Field(min_length=1, max_length=20)]
-    started_at: datetime
+    started_at: AwareDatetime
     #: ``None``이면 **진행 중**이다. 「모름」이 아니다.
-    ended_at: datetime | None = None
+    ended_at: AwareDatetime | None = None
     port_name: Annotated[str | None, Field(max_length=200)] = None
     lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
@@ -94,8 +99,8 @@ class NotUnderwayPeriodUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     period_type: Annotated[str | None, Field(min_length=1, max_length=20)] = None
-    started_at: datetime | None = None
-    ended_at: datetime | None = None
+    started_at: AwareDatetime | None = None
+    ended_at: AwareDatetime | None = None
     port_name: Annotated[str | None, Field(max_length=200)] = None
     lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
