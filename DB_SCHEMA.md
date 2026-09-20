@@ -182,7 +182,7 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 | `actual_arrival_at` | TIMESTAMPTZ | NULL | 실제 도착 |
 | `annual_inclusion_policy` | VARCHAR(30) | NOT NULL DEFAULT 'EXCLUDE' | EXCLUDE, INCLUDE_AS_PLAN, INCLUDE_AS_ACTUAL |
 | `created_from` | VARCHAR(30) | NOT NULL DEFAULT 'MANUAL' | MANUAL, FEATURE_1, FEATURE_2_ADOPTED, IMPORT, SAMPLE |
-| `notes` | TEXT | NULL | 메모 |
+| `notes` | TEXT | NULL | 메모. **입력 상한은 1000자**다(`PRD §10.2` ⑵ · `API_SPEC §3.3`) — 컬럼은 더 받지만 API가 거른다 (`#1348`) |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 생성일 |
 | `updated_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 수정일 (§7.2 자동 갱신 — CUBRID는 트리거가 아니라 열 속성 `ON UPDATE CURRENT_DATETIME`, `049`) |

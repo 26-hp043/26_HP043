@@ -1837,6 +1837,8 @@ POST /api/v1/vessels/{vessel_id}/voyages
 
 > **[#1256] `planned_distance_source`는 선택이며 「그 숫자가 어디서 왔나」다.** `USER_INPUT`(사용자가 직접 넣은 값)과 `COORDINATE_ESTIMATE`(`§3.9`의 대권거리로 채운 값 · `PRD §15.2` 「좌표 기반 추정 거리」) 둘만 받고, 그 밖은 422(`field_label` 「계획 거리 출처」)다. **생략하면 `null` = 「모른다」로 저장한다** — 서버는 호출자가 그 숫자를 어떻게 얻었는지 알 수 없으므로 직접 입력이라고도 추정이라고도 적지 않는다(`PRD §0.3`). 화면(`VoyagePanel`)은 항상 보낸다 — 좌표로 채운 뒤 손대지 않았으면 `COORDINATE_ESTIMATE`, 고쳤으면 `USER_INPUT`. CSV 가져오기(`§8.2`)는 `USER_INPUT`이다(좌표 열이 없으니 추정일 수 없다 · 경로는 `created_from = IMPORT`가 답한다). 시나리오 채택(`§5.2`)은 `null`이다 — 시나리오 행에는 직항 거리가 좌표 추정이었는지가 남아 있지 않다. 화면은 `COORDINATE_ESTIMATE`일 때만 추정 표시를 붙이고 `null`에는 아무것도 붙이지 않는다. `created_from`과 다른 축이다 — 그쪽은 「이 항차가 어느 경로로 들어왔나」다.
 
+> **[#1348] 문자열 길이 상한.** 항만명(`departure_port_name`·`arrival_port_name`)은 **1~200자**, `voyage_no`는 **~100자**, `notes`는 **~1000자**다. 앞 둘은 DB 컬럼 폭(`DB_SCHEMA §8.2`)에서 오고, `notes`는 **`PRD §10.2` ⑵가 정한 값**이다 — DB는 `TEXT`라 컬럼은 더 받지만 **받는 것과 받아도 되는 것은 다르다.** 상한이 없는 동안에는 요청 본문 크기가 유일한 방어였다.
+
 > **[EXT-P0-4]** `annual_inclusion_policy`는 요청 본문에서 제외했다. 생성 시 `status = DRAFT`이며, DRAFT에서는 `annual_inclusion_policy = EXCLUDE`만 허용된다(§3.5 제약 매트릭스 참조).
 >
 > **[#150 정정] `PLANNED` 전환이 곧 연간 반영은 아니다.** 종전 문장은 *"`PLANNED` 전환 시 `annual_inclusion_policy`를 `INCLUDE_AS_PLAN`으로 설정한다"* 였으나, `§3.5` 제약 매트릭스와 `PRD §8.1.2`는 `PLANNED`에서 **`EXCLUDE`와 `INCLUDE_AS_PLAN`을 모두 허용**한다. **계획 저장 여부와 연간 반영 여부는 별개다** — 연간 반영을 선택할 때만 `INCLUDE_AS_PLAN`을 지정한다. 종전 문장은 대표 경로 서술이었고 그대로 두면 「계획 저장 = 무조건 연간 반영」으로 읽힌다.

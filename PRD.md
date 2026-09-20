@@ -1170,8 +1170,8 @@ margin_ratio = (next_worse_boundary - attained_cii) / required_cii
 | 연료 종류 | Y | `fuel_uses[].fuel_type` | ⑴과 동일 |
 | 예상 연료 사용량 | Y | `fuel_uses[].planned_fuel_ton` | ⑴과 같은 값 |
 | 연료 출처 | Y | `fuel_uses[].source` | `USER_INPUT` 등 |
-| 출발항 | Y | `departure_port_name` | 1~100자 |
-| 도착항 | Y | `arrival_port_name` | 1~100자 |
+| 출발항 | Y | `departure_port_name` | 1~200자 |
+| 도착항 | Y | `arrival_port_name` | 1~200자 |
 | 메모 | N | `notes` | 0~1000자 |
 
 > 생성 시 `status = DRAFT`, `annual_inclusion_policy = EXCLUDE`가 자동 설정된다. **`annual_inclusion_policy`는 생성 요청 본문에 넣지 않는다** (API_SPEC §3.3).
@@ -1313,8 +1313,8 @@ CII가 가장 낮은 시나리오: SLOW_STEAMING
 |---|---|---|---|---|
 | `vessel_id` | Y | UUID | 선택 선박 | 대상 선박 |
 | `regulation_year` | Y | int | 현재 연도 | 등급 기준 |
-| `current_lat` | Y | decimal | 없음 | 현재 위도 |
-| `current_lon` | Y | decimal | 없음 | 현재 경도 |
+| `current_lat` | 조건부 | decimal | 없음 | 현재 위도. `direct_distance_nm`이 없으면 목적항 좌표와 함께 필요하다 (`API_SPEC §5.1` · `#830`) |
+| `current_lon` | 조건부 | decimal | 없음 | 현재 경도. 위와 같다 |
 | `destination_port_name` | Y | string | 없음 | 목적항 |
 | `destination_lat` | 조건부 | decimal | 없음 | 목적항 위도 |
 | `destination_lon` | 조건부 | decimal | 없음 | 목적항 경도 |
@@ -1323,7 +1323,7 @@ CII가 가장 낮은 시나리오: SLOW_STEAMING
 | `base_daily_foc_ton` | 조건부 | decimal | 선박 기준값 | 기준속도 일일 연료소모량 |
 | `direct_distance_nm` | 조건부 | decimal | 자동 계산 | 직항 거리 |
 | `detour_distance_nm` | 조건부 | decimal | direct × 1.05 | 우회 거리 |
-| `slow_speed_kn` | Y | decimal | max(current - 1, 1.0) | 감속 시나리오 속도. VAL-009에 의해 최소 1.0kn |
+| `slow_speed_kn` | N | decimal | max(current - 1, 1.0) | 감속 시나리오 속도. **미지정이면 서버가 기본값을 계산한다** — 기본값이 있으므로 필수가 아니다. VAL-009에 의해 최소 1.0kn |
 
 ### 11.4 연료 예측 모델
 
@@ -1452,9 +1452,9 @@ MVP 권장 데이터 소스는 다음과 같다.
 | `target_rating` | Y | enum | C | 목표 등급. A~C 권장. D 허용(`TARGET_RATING_D` warning). E 거부(§12.8) |
 | `completed_voyages` | 자동 | list | CONFIRMED/COMPLETED | 누적 실적 |
 | `remaining_voyages` | 자동/수동 | list | PLANNED/IN_PROGRESS | 잔여 계획 |
-| `simulation_runs` | Y | int | 5000 | 1000~10000 |
-| `random_seed` | Y | int | 자동 생성 후 저장 | 재현성 |
-| `distribution_profile` | Y | enum | DEFAULT | 불확실성 분포 세트 |
+| `simulation_runs` | N | int | 5000 | 1000~10000. 기본값이 있으므로 필수가 아니다 |
+| `random_seed` | N | int | 자동 생성 후 저장 | 재현성. 미지정이면 서버가 생성해 저장한다 |
+| `distribution_profile` | N | enum | DEFAULT | 불확실성 분포 세트 |
 | `apply_feedback_factor` | N | bool | false | 실적 보정계수(`§12.2.1`)를 잔여 계획 연료에 곱한다 [#363] |
 
 #### 12.2.1 실적 보정계수 [#363]
@@ -1872,44 +1872,22 @@ GET /api/v1/annual-simulations/{simulation_run_id}
 }
 ```
 
-응답 예시:
+**응답 형태의 정본은 [`API_SPEC §6.1`](./API_SPEC.md)이다 — 여기서 되풀이하지 않는다** (`#1348`).
 
-```json
-{
-  "data": {
-    "simulation_run_id": "uuid",
-    "deterministic": {
-      "projected_attained_cii": "5.020000",
-      "projected_rating": "C"
-    },
-    "monte_carlo": {
-      "seed": 12345,
-      "runs": 5000,
-      "rating_probabilities": {
-        "A": 0.02,
-        "B": 0.28,
-        "C": 0.55,
-        "D": 0.13,
-        "E": 0.02
-      },
-      "target_success_probability": 0.30,
-      "p10": 4.71,
-      "p50": 5.04,
-      "p90": 5.42
-    },
-    "risk_level": "HIGH"
-  },
-  "parameters_used": { ... },
-  "model_version": { ... },
-  "input_hash": "sha256:...",
-  "parameter_hash": "sha256:...",
-  "warnings": ["REFERENCE_ONLY"],
-  "disclaimer": "참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.",
-  "meta": { ... }
-}
-```
+`§14`는 스스로 *「실제 상세 API는 `API_SPEC.md`에서 확정한다」*고 적는데, 종전에는 **응답 예시 전체를 여기에도 실어** 두 곳이 갈라졌다. 실제로 세 가지가 어긋나 있었다 — 키 이름(`simulation_run_id` → **`simulation_id`**) · seed의 자리(`monte_carlo.seed` → **`monte_carlo.rng_metadata.seed_entropy`**) · 확률의 타입(JSON 숫자 → **문자열**, `API_SPEC §1.7`).
+
+PRD가 이 절에서 **요구하는 것**은 다음 넷이며, 그것만 남긴다.
+
+| 요구 | 어디서 확정하나 |
+|---|---|
+| 결정론 예측(`projected_attained_cii` · `projected_rating`)을 낸다 | `API_SPEC §6.1` |
+| 몬테카를로 등급 확률 분포와 목표 달성 확률을 낸다 | 〃 |
+| 재현에 필요한 재료(seed · 입력 해시 · 파라미터 해시 · 모델 판본)를 함께 싣는다 | `TECH_SPEC §5.3` · `§5.4` |
+| `REFERENCE_ONLY` warning과 면책 문구(`§6.3`)를 반드시 싣는다 | `API_SPEC §1.6` · `PRD §6.3` |
 
 > **[EXT-3-1]** PRD §14.4 API 예시를 §14.2 및 API_SPEC v1.2 포맷(data/meta 구조, Layer 1 deterministic 문자열 직렬화, REFERENCE_ONLY warning 코드)과 일치시켰다.
+>
+> ⚠️ **그 예시는 `#1348`에서 지웠다.** 한 번 맞춘 예시가 **다시 갈라졌기 때문**이다 — 맞추는 것으로는 재발을 막지 못한다는 것이 이 각주와 `#1348` 두 번으로 확인됐다. 지금은 `API_SPEC §6.1`을 가리킨다.
 
 ### 14.5 Parameter API
 
