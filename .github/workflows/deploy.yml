@@ -57,6 +57,14 @@ on:
         description: "DESTRUCTIVE: cubrid-data 볼륨을 삭제하고 재초기화. 데이터 손실 비가역적."
         type: boolean
         default: false
+      seed_demo:
+        description: "데모 데이터(선박 5척·항차 33건)를 적재한다. 시연·인터뷰 직전에 켠다 (#1485)."
+        type: boolean
+        default: false
+      clear_demo:
+        description: "적재 전에 기존 데모 데이터를 지운다. seed_demo와 함께 켜면 「지우고 새로 넣기」 (#1485)."
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-production
@@ -312,11 +320,16 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          # 데모 데이터 적재·초기화 (#1485). push 트리거에는 `inputs`가 없어 빈 문자열이
+          # 되므로 **자동 배포에서는 켜지지 않는다** — 아래 셸이 `= "true"`로만 본다.
+          SEED_DEMO: ${{ inputs.seed_demo }}
+          CLEAR_DEMO: ${{ inputs.clear_demo }}
         run: |
           echo "[deploy-app] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_APP_HOST }} sha=${BACKEND_TAG} ==="
           ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_APP_HOST }} \
             "BACKEND_TAG='${BACKEND_TAG}' \
              APP_ENV='${APP_ENV}' \
+             SEED_DEMO='${SEED_DEMO:-false}' CLEAR_DEMO='${CLEAR_DEMO:-false}' \
              CUBRID_HOST='${CUBRID_HOST}' CUBRID_PASSWORD='${CUBRID_PASSWORD}' \
              CORS_ALLOW_ORIGINS='${CORS_ALLOW_ORIGINS:-}' \
              APP_PUBLIC_URL='${APP_PUBLIC_URL:-}' \
@@ -379,6 +392,27 @@ jobs:
           echo "[app-01] 규제 파라미터 seed"
           docker compose -f docker-compose.prod.app.yml --profile migrate \
             run --rm -T migrate python -m cii_platform.db.seed </dev/null
+
+          # 데모 데이터 (#1485) — **수동 트리거로만 돈다.**
+          #
+          # 매 배포마다 돌리지 않는 이유는 `db/demo_seed.py` 머리주석이 적는다 —
+          # 「이 모듈의 데이터는 시연·개발 편의이며 운영 데이터가 아니다. 그래서
+          # 마이그레이션 체인에 넣지 않고 필요할 때만 부른다」. 조건을 지우면
+          # `tests/test_deploy_demo_seed.py`가 빨개진다.
+          #
+          # 적재는 덮어쓰지 않으므로(IntegrityError를 삼킨다) 시각을 새로 잡으려면
+          # clear_demo를 함께 켠다. 시드 시각이 **적재일 기준 상대값**이라(`#792`)
+          # 오래된 적재는 진행 중 항차가 도착 예정을 넘긴 상태로 보인다.
+          if [ "${CLEAR_DEMO}" = "true" ]; then
+            echo "::warning::clear_demo=true -- 데모 데이터를 지운다 (계산 이력이 참조하는 행은 남는다)"
+            docker compose -f docker-compose.prod.app.yml --profile migrate \
+              run --rm -T migrate python -m cii_platform.db.demo_seed --clear </dev/null
+          fi
+          if [ "${SEED_DEMO}" = "true" ]; then
+            echo "[app-01] 데모 데이터 seed"
+            docker compose -f docker-compose.prod.app.yml --profile migrate \
+              run --rm -T migrate python -m cii_platform.db.demo_seed </dev/null
+          fi
 
           # Backend 시작
           echo "[app-01] backend 컨테이너 시작"

@@ -72,6 +72,8 @@ from cii_platform.db.models import Base
 from cii_platform.db.types import UuidText
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncConnection
 
 
@@ -2002,28 +2004,55 @@ async def _unreferenced_ids(conn: AsyncConnection, table_name: str, ids: list) -
     return free
 
 
-async def main() -> None:  # pragma: no cover - 프로세스 진입점
-    """엔진을 열고 단일 트랜잭션으로 데모 데이터를 적재한다.
+async def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover - 프로세스 진입점
+    """엔진을 열고 단일 트랜잭션으로 데모 데이터를 적재하거나 지운다.
 
-    ``python -m cii_platform.db.demo_seed``로 실행한다. 진입점을 패키지 안에 둔 이유는
-    ``db.seed``와 같다 — **프로덕션 이미지가 wheel만 설치**하므로 ``scripts/``를 배포
-    절차의 명령으로 쓸 수 없다.
+    ``python -m cii_platform.db.demo_seed``로 적재하고, ``--clear``를 주면 지운다.
+    진입점을 패키지 안에 둔 이유는 ``db.seed``와 같다 — **프로덕션 이미지가 wheel만
+    설치**하므로 ``scripts/``를 배포 절차의 명령으로 쓸 수 없다.
+
+    ## 왜 ``--clear``가 필요한가 (#1485)
+
+    적재는 **덮어쓰지 않는다** — :func:`_insert_ignoring_existing`이 ``IntegrityError``를
+    삼키므로 이미 있는 행은 그대로 남는다(모듈 독스트링 「덮어쓰지도 않는다」). 그런데
+    시드의 시각은 **적재일 기준 상대값**이라(`#792`), 오래된 적재는 진행 중 항차가 도착
+    예정을 넘기고 관찰선의 최근 구간이 30일 창을 벗어난다. 다시 넣어서는 그 상태를
+    되돌릴 수 없고 **지우고 넣어야** 한다.
+
+    ``clear_demo``는 함수로만 있었고 진입점이 없었다 — 배포본에서 초기화하려면
+    ``force_db_init``(볼륨 파괴, 비가역)밖에 없었다. 이 플래그가 그 사이를 메운다.
     """
+    import argparse
+
     from sqlalchemy import pool
     from sqlalchemy.ext.asyncio import create_async_engine
 
     from cii_platform.config import DATABASE_URL
     from cii_platform.db.url import normalize_to_async
 
+    parser = argparse.ArgumentParser(prog="python -m cii_platform.db.demo_seed")
+    parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="적재 대신 데모 데이터를 지운다. 계산 이력이 참조하는 행은 남는다 (#1088).",
+    )
+    args = parser.parse_args(argv)
+
     engine = create_async_engine(normalize_to_async(DATABASE_URL), poolclass=pool.NullPool)
     try:
         async with engine.begin() as conn:
-            counts = await seed_demo(conn)
+            counts = await (clear_demo(conn) if args.clear else seed_demo(conn))
     finally:
         await engine.dispose()
 
+    # ``clear_demo``는 지운 수와 함께 **남긴 수**(``kept_*``)도 돌려준다 — 계산 이력이
+    # 참조해 RESTRICT에 걸린 행이다(`#1088`). 둘을 같은 문구로 찍으면 「지웠다」고
+    # 읽히는데 사실은 반대다. 키 모양으로 갈라서 적는다.
     for table, count in counts.items():
-        print(f"{table}: {count}행 신규 적재")
+        if table.startswith("kept_"):
+            print(f"{table.removeprefix('kept_')}: {count}행 남김 (계산 이력이 참조)")
+        else:
+            print(f"{table}: {count}행 {'삭제' if args.clear else '신규 적재'}")
 
 
 if __name__ == "__main__":  # pragma: no cover - 프로세스 진입점
