@@ -487,7 +487,18 @@ _SIM_DEFAULT_ROWS = (
 )
 
 _SIM_SOURCE_REF = "PRD §12.4.1"
-_SIM_VERSION = "2026.08"
+
+#: ⚠️ **다른 파라미터 표와 같은 값이어야 한다** (`#1370`). 종전에는 이 표만 `"2026.08"`을
+#: 넣었는데, `db/seed.py`의 `seed_all()`은 다섯 표 전부에 `PARAMETER_SET_VERSION`(`"1.0"`)을
+#: 넣고 `REPLACE`로 덮는다. 즉 **적재 순서에 따라 값이 갈렸다** — 그 값이
+#: `parameters_used.simulation_profile.version`으로 `parameter_hash`에 들어가므로,
+#: 갈리는 순간 재현(`TECH_SPEC §5.4`)이 「규정 파라미터가 변경되어 재현할 수 없습니다」로
+#: 실패한다.
+#:
+#: `"1.0"`으로 맞춘 근거는 **실측**이다 — 운영·로컬 DB의 다섯 표가 전부 `"1.0"`이고,
+#: `fuel_type.version`의 `server_default`도 `DB_SCHEMA §2.9`가 `'1.0'`으로 박아 두었다.
+#: 반대로 맞추면 53행의 version이 바뀌어 저장된 `calculation_run`의 재현이 전부 깨진다.
+_SIM_VERSION = PARAMETER_SET_VERSION
 _SIM_DEFAULT_PROFILE = "DEFAULT"
 
 SEED_SIMULATION_PARAMETERS: list[dict[str, object]] = [
