@@ -518,10 +518,17 @@ async def _drop_account(email: str) -> None:
     async with get_sessionmaker()() as s:
         await s.execute(
             text(
-                # `audit_log.user_id`는 VARCHAR이고 `app_user.id`는 UUID다 —
-                # 캐스트가 없으면 `character varying = uuid`로 막힌다.
-                "DELETE FROM audit_log WHERE user_id IN "
-                "(SELECT id::text FROM app_user WHERE email = :e)"
+                # ⚠️ **종전 `SELECT id::text`는 CUBRID에서 한 행도 지우지 못했다**
+                # (`#1330`). 저장 형식이 다르다 — `app_user.id`는 **대시 없는 hex
+                # 32자**(`00000000000040008000000000000301`)이고 `audit_log.user_id`는
+                # `str(uuid)`라 **대시가 있다**. `::text`는 셈만 걷어 내므로 두 값이
+                # 영원히 같아지지 않는다.
+                #
+                # 안 지워져도 **그 실행은 통과했다** — 다음 실행에서 `len(events) == 1`이
+                # 깨진다. CI는 매번 새 DB라 드러나지 않고, **로컬에서 두 번째로
+                # 돌릴 때만** 나온다.
+                "DELETE FROM audit_log WHERE REPLACE(user_id, '-', '') IN "
+                "(SELECT id FROM app_user WHERE email = :e)"
             ),
             {"e": email},
         )

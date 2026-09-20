@@ -867,7 +867,7 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
+| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_DELETE`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
 | `entity_type` | VARCHAR(30) | NULL | `app_user`, `calculation_run`, `chat_session`, `voyage` **[#1343]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |

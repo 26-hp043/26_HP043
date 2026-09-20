@@ -14,8 +14,9 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 
 # TYPE_CHECKING 블록에 두면 안 된다 — FastAPI가 의존성 시그니처를 런타임에 해석한다
 # (``routes/calculations.py`` 같은 주석 참조).
@@ -30,6 +31,7 @@ from cii_platform.db.session import get_session
 from cii_platform.errors import ChatUnavailableError, NotFoundError
 from cii_platform.llm.anthropic import AnthropicProvider
 from cii_platform.llm.provider import LLMProvider, is_enabled
+from cii_platform.services import audit as audit_svc
 from cii_platform.services.chat import answer as answer_question
 
 router = APIRouter(tags=["chat"])
@@ -104,6 +106,46 @@ async def chat(
             "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
         },
     }
+
+
+@router.delete("/chat/sessions/{session_id}", status_code=204)
+async def delete_chat_session(
+    request: Request,
+    session_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: Annotated[AppUser, Depends(get_current_user)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> Response:
+    """대화 하나를 지운다 (``API_SPEC §15.6`` · `#1330`).
+
+    ``PRD §16.3``이 「GDPR 유사 삭제 요청 지원」을 적는데 **응할 경로가 없었다** —
+    지우는 것은 90일 만료 일괄 삭제뿐이었고, 사용자가 「이 대화를 지워 달라」고 하면
+    **기다리라는 말밖에 할 수 없었다.**
+
+    ## 남의 대화는 404다
+
+    ``POST /chat``이 조회에서 쓰는 규칙과 같다. 403은 「있지만 네 것이 아니다」를
+    알려 주어 id를 바꿔 가며 **남의 대화가 존재하는지** 알아낼 수 있게 한다.
+    주인 조건은 ``DELETE``문 자체에 들어가므로(``chat_repo.delete_one``) 먼저 조회해
+    확인하는 갈래가 없다 — 조건을 두 곳에 적지 않는다.
+
+    ## 메시지는 따라 지워진다
+
+    ``chat_message.session_id``가 ``ON DELETE CASCADE``다. 세션만 지우고 메시지가
+    남으면 **「지웠다」가 거짓**이 된다.
+    """
+    deleted = await chat_repo.delete_one(session, session_id=session_id, user_id=user.id)
+    if not deleted:
+        raise NotFoundError("대화를 찾을 수 없습니다.")
+
+    await audit_svc.record_chat_delete(
+        session,
+        user_id=str(user.id),
+        session_id=session_id,
+        ip_address=_client_ip(request),
+    )
+    await session.commit()
+    return Response(status_code=204)
 
 
 def _client_ip(request: Request) -> str | None:

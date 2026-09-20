@@ -144,6 +144,9 @@ TAG_KEPT = "_b"
 
 #: 덤프 안 파일 이름의 앞머리. ``--output-prefix``로 **DB 이름과 무관하게** 고정한다 —
 #: 교체 도중 DB 이름이 바뀌어도 ``restore``가 같은 이름을 찾는다.
+#: DB 컨테이너의 compose 서비스 이름 (`#1330`). ``DB_SERVICE``로 덮는다.
+DEFAULT_DB_SERVICE = "db"
+
 DUMP_PREFIX = "db"
 SCHEMA_MEMBER = f"{DUMP_PREFIX}_schema"
 INDEX_MEMBER = f"{DUMP_PREFIX}_indexes"
@@ -305,11 +308,18 @@ class Db:
 
     compose: list[str]
     run: Runner = run_process
+    #: compose 서비스 이름. **토폴로지마다 다르다** (`#1330`) —
+    #: ``docker-compose.prod.yml``은 ``db``, OCI가 쓰는
+    #: ``docker-compose.prod.db.yml``은 ``cubrid``다. 박아 두면 그쪽에서
+    #: **어느 명령도 돌지 않고** `OPERATIONS §3.4.3` 롤백 절차가 막힌다.
+    #:
+    #: ⚠️ **``run`` 뒤에 둔다** — 검사들이 ``Db(compose, runner)``로 위치 인자를 쓴다.
+    service: str = DEFAULT_DB_SERVICE
 
     def sh(
         self, script: str, stdin_path: Path | None = None, stdout_path: Path | None = None
     ) -> bytes:
-        argv = [*self.compose, "exec", "-T", "db", "sh", "-c", script]
+        argv = [*self.compose, "exec", "-T", self.service, "sh", "-c", script]
         return self.run(argv, stdin_path, stdout_path)
 
     def compose_cmd(self, *args: str) -> bytes:
@@ -709,7 +719,11 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_process) -> int
     p_res.add_argument("--confirm", required=True, help="운영 DB 이름을 그대로 적는다")
     args = parser.parse_args(argv)
 
-    db = Db(shlex.split(os.environ.get("COMPOSE", DEFAULT_COMPOSE)), runner)
+    db = Db(
+        shlex.split(os.environ.get("COMPOSE", DEFAULT_COMPOSE)),
+        runner,
+        service=os.environ.get("DB_SERVICE", DEFAULT_DB_SERVICE),
+    )
     try:
         if args.command == "backup":
             directory = Path(os.environ.get("BACKUP_DIR", DEFAULT_DIR))

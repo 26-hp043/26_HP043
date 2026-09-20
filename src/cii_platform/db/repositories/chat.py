@@ -121,3 +121,39 @@ async def purge_expired(session: AsyncSession, *, now: datetime | None = None) -
     cutoff = now or datetime.now(UTC)
     result = await session.execute(delete(ChatSession).where(ChatSession.expires_at <= cutoff))
     return result.rowcount or 0
+
+
+async def delete_for_user(session: AsyncSession, *, user_id: UUID) -> int:
+    """그 사용자의 대화를 **전부 지운다** (``PRD §16.3`` GDPR 유사 삭제 · `#1330`).
+
+    :returns: 지운 세션 수.
+
+    :func:`purge_expired`와 같은 이유로 세션만 지운다 — 메시지는 FK
+    ``ON DELETE CASCADE``로 함께 간다.
+
+    ## 왜 soft delete가 아닌가
+
+    탈퇴(``app_user.is_deleted``)가 soft delete인 것은 **계산·감사 기록의 주체를
+    되짚을 수 있어야** 하기 때문이다(``DB_SCHEMA §7.1``·``§7.3``). 대화 원문은 그
+    근거가 아니다 — 규제 대응에 쓰이지 않고, 남겨 둘 이유가 **보존 정책 90일뿐**인데
+    삭제 요청은 그 기간을 앞당기는 것이다. 플래그만 세우면 **원문이 그대로 남아
+    「지웠다」가 거짓**이 된다.
+    """
+    result = await session.execute(delete(ChatSession).where(ChatSession.user_id == user_id))
+    return result.rowcount or 0
+
+
+async def delete_one(session: AsyncSession, *, session_id: UUID, user_id: UUID) -> bool:
+    """대화 하나를 지운다 (`#1330`).
+
+    :returns: 지웠으면 ``True``.
+
+    **``user_id``를 조건에 함께 넣는다** — 먼저 조회해 주인을 확인하고 지우면 그
+    사이에 다른 요청이 끼어들 수 있고, 무엇보다 **조건을 두 곳에 적게 된다.**
+    남의 대화를 지우려는 요청은 0행이 지워지고 호출부가 404를 낸다(``§15.1``이
+    조회에서 쓰는 규칙과 같다 — 남의 것은 **없는 것**이다).
+    """
+    result = await session.execute(
+        delete(ChatSession).where(ChatSession.id == session_id, ChatSession.user_id == user_id)
+    )
+    return bool(result.rowcount)

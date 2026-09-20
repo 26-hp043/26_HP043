@@ -261,6 +261,12 @@ python3 scripts/purge_expired.py
 - **백업 뒤에 둔다** — 지운 것이 그날 덤프에 남아 있어 잘못 지웠을 때 되돌릴 수 있다. crontab 한 줄: `47 3 * * * cd <저장소> && python3 scripts/purge_expired.py`
 - ⚠️ **한 표가 실패해도 나머지는 돈다.** 배포 순서상 코드가 먼저 가고 마이그레이션이 뒤따르는 순간이 있어, 그 틈에서도 세션 정리는 돌아야 한다. 실패가 있으면 **종료 코드가 1**이다
 - 개발 스택에 쓰려면 `COMPOSE="docker compose" python3 scripts/purge_expired.py …`
+- ⚠️ **OCI 배포는 `DB_SERVICE=cubrid`를 함께 준다** (`#1330`). `docker-compose.prod.yml`은 서비스가 `db`지만 OCI가 쓰는 `docker-compose.prod.db.yml`은 **`cubrid`**다 — 이름이 박혀 있던 동안 그쪽에서 **어느 명령도 돌지 않았다**. `db_backup.py`도 같다
+  ```bash
+  COMPOSE="docker compose -f docker-compose.prod.db.yml" DB_SERVICE=cubrid \
+    python3 scripts/purge_expired.py --dry-run
+  ```
+- ⚠️ **이 스크립트는 `#1330` 이전에 배포 DB에서 한 번도 성공하지 못했다.** `csql`에 `-p "$CUBRID_PASSWORD"`를 넘기지 않아 **세 표 모두 인증에서 실패**했고(감사 INSERT까지), crontab이 매일 돌면서도 `PRD §16.3`의 90일 삭제가 **한 번도 일어나지 않았다.** 스크립트는 실패를 종료 코드 1로 알리므로 **cron 결과를 보는 경로가 있어야 한다**
 
 ### 지도 자산 (`#763` · `#985`) — 평소엔 손댈 일 없음
 
