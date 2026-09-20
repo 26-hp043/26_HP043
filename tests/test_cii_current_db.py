@@ -913,6 +913,64 @@ async def test_an_excluded_in_progress_voyage_is_not_accumulated(session):
 
 
 @pytest.mark.asyncio
+async def test_a_yearless_in_progress_voyage_still_shows_as_the_current_voyage(session):
+    """⚠️ #1336 — **연도를 선언하지 않은 진행 항차가 ⑵에서 사라졌다**.
+
+    `chk_year_policy`(`DB_SCHEMA §2.3`)상 `regulation_year IS NULL`은 **반드시
+    `EXCLUDE`**이고 `PRD §8.1.2`상 `IN_PROGRESS + EXCLUDE`는 합법이다. 그런데
+    :meth:`InProgressState.for_year`가 ``None != 2026``으로 **상태 전체를 비워**,
+    선박은 ``UNDER_WAY``인데 「현재 항차」 카드가 없고 ``meta.simulated``도 내려갔다.
+
+    `#1085`가 이미 **⑴만 비우고 ⑵는 남긴다**로 판단한 자리다 — `for_year`가 그 뒤에서
+    되돌리고 있었다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _make_voyage(
+        session,
+        vessel_id,
+        policy="EXCLUDE",
+        year=None,
+        departed_at=datetime(YEAR, 6, 25, tzinfo=UTC),
+    )
+
+    data, meta = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    assert data["current_voyage"] is not None, "연도 없는 진행 항차가 ⑵에서 사라졌다"
+    assert meta["simulated"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_yearless_voyage_adds_nothing_to_the_year_total(session):
+    """**⑵를 되살리면서 ⑴까지 되살리지 않는다** (`#1336` · `#1085`).
+
+    이것이 없으면 위 검사를 「`for_year`를 통째로 없앤다」로 만족시킬 수 있고, 그러면
+    `#1085`가 막은 것(연간 반영 안 함 항차가 누적에 드는 것)이 되돌아온다.
+
+    ⚠️ **반대쪽(다른 해에 속한다고 선언한 항차)은 여기서 보지 않는다** —
+    `tests/test_in_progress_year_scope_db.py`(`#815`)가 본다. `for_year`를 통째로
+    없애는 돌연변이는 **그 파일에서 3건**으로 잡힌다. 이 파일만 돌리면 그 과잉
+    수정이 통과하므로, 이 함수를 손댈 때는 두 파일을 함께 돌린다.
+    """
+    vessel_id = await _make_vessel(session)
+    confirmed = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, confirmed)
+    baseline, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    yearless = await _make_voyage(
+        session,
+        vessel_id,
+        policy="EXCLUDE",
+        year=None,
+        departed_at=datetime(YEAR, 6, 25, tzinfo=UTC),
+    )
+    await _add_planned_fuels(session, yearless, [("HFO", 60, "3.114")])
+    after, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    assert after["ytd"] == baseline["ytd"], "연도 없는 항차가 누적을 바꿨다"
+    assert after["current_voyage"] is not None
+
+
+@pytest.mark.asyncio
 async def test_an_excluded_voyage_does_not_ask_the_user_to_fix_specs(session):
     """⚠️ #1085 — `EXCLUDE` 항차에는 **누적 반영 경고를 띄우지 않는다**.
 
