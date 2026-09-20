@@ -134,12 +134,30 @@
 
 ## 배포
 
-프로덕션은 `docker-compose.prod.yml` 하나로 뜬다. **nginx가 정적 자산을 서빙하고 `/api`를 백엔드로 리버스 프록시**하므로 화면과 API가 같은 오리진이 된다 — 그래서 백엔드에 CORS 설정이 없다.
+> 🔴 **실제 운영 배포의 정본은 [`docs/OPERATIONS.md`](./docs/OPERATIONS.md)다** (`#1339`).
+> 운영은 **OCI 2-VM 분리 토폴로지 + Cloudflare Pages**이고, 그 절차·시크릿·롤백은 전부
+> 그쪽에 있다. 아래는 **단일 호스트 compose 경로**이며 **로컬 검증용**이다.
+> **두 경로는 토폴로지가 다르다** — 아래 절차를 운영에 그대로 적용하지 않는다.
+>
+> **(정황)** 인터넷 없는 폴백 시연(`#791`)도 이 경로를 쓸 것으로 보이나, `#791`이
+> compose 파일을 지정하지는 않았다.
+
+| 경로 | 무엇으로 뜨나 | 오리진 | 쓰는 자리 |
+|---|---|---|---|
+| **운영** | `docker-compose.prod.app.yml`(app-01) + `docker-compose.prod.db.yml`(db-01) + Cloudflare Pages | **크로스 오리진** — `CORS_ALLOW_ORIGINS`가 **필수**다 | `docs/OPERATIONS.md` |
+| 단일 호스트 | `docker-compose.prod.yml` 하나 | 같은 오리진 (nginx 리버스 프록시) | 아래 절차 · 로컬 검증 |
+
+**단일 호스트 경로**는 nginx가 정적 자산을 서빙하고 `/api`를 백엔드로 리버스 프록시하므로 화면과 API가 같은 오리진이 된다 — 그 구성에서는 CORS가 필요 없다.
 
 ```
 브라우저 ──→ nginx(:80) ──┬──→ /            정적 자산 (SPA fallback)
                           └──→ /api/…       app(:8000)
 ```
+
+> ⚠️ **「백엔드에 CORS 설정이 없다」는 사실이 아니다** (`#1339`). 이 문장이 여기 적혀
+> 있었는데, `api/main.py:165-168`이 `CORS_ALLOW_ORIGINS`를 읽어 `CORSMiddleware`를
+> 붙인다 — **미설정일 때만** 붙이지 않는다. 화면을 Cloudflare Pages에 두는 운영
+> 토폴로지에서는 그 값이 **없으면 화면이 API를 부르지 못한다.**
 
 ### 기동 순서
 
