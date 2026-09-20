@@ -7,6 +7,7 @@ HTTP 처리는 라우트가 한다. 이 모듈은 저장소가 준 ``Calculation
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import calculation_run as calc_run_repo
@@ -59,6 +60,27 @@ def _to_dict(run: CalculationRun) -> dict[str, object]:
     }
 
 
+#: ``sha256:`` + 64 hex (`TECH_SPEC §5.3` · `calc/hash.py`의 산출 형태).
+_HASH_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _require_hash(value: str | None, *, field: str, field_label: str) -> None:
+    """해시 필터의 **형식**을 본다 — 존재는 보지 않는다 (`#1367`).
+
+    형식이 틀린 값은 어떤 행과도 맞을 수 없으므로, 그대로 내려보내면 **빈 목록**이
+    돌아온다. 「그런 계산이 없다」와 「해시를 잘못 적었다」가 같은 화면이 된다.
+    존재 여부는 다른 축이다 — 형식이 맞는 해시로 아무것도 못 찾는 것은 정상이다.
+    """
+    if value is None:
+        return
+    if not _HASH_PATTERN.match(value):
+        raise ValidationError(
+            f"{field_label}는 `sha256:` + 64자리 16진수여야 합니다: {value}",
+            field=field,
+            field_label=field_label,
+        )
+
+
 async def list_calculation_runs(
     session: AsyncSession,
     *,
@@ -80,6 +102,18 @@ async def list_calculation_runs(
     페이지만 세어, 21번째 행부터 낡아 있어도 **「0건」으로 보였다** — 「낡은 것이
     없다」와 「아직 다 세어 보지 않았다」를 같은 모양으로 그린 자리다(`API_SPEC §1.9`).
     """
+    if calculation_type is not None and calculation_type not in calc_run_repo.CALCULATION_TYPES:
+        # `sort`(`services/fleet_summary.py`)와 같은 방식이다 — 저장소 안에서 두
+        # 경로가 갈리면 화면은 어느 쪽 동작을 기대해야 할지 알 수 없다.
+        raise ValidationError(
+            f"종류는 {' · '.join(calc_run_repo.CALCULATION_TYPES)} 중 하나여야 합니다: "
+            f"{calculation_type}",
+            field="type",
+            field_label="종류",
+        )
+    _require_hash(input_hash, field="input_hash", field_label="입력 해시")
+    _require_hash(parameter_hash, field="parameter_hash", field_label="파라미터 해시")
+
     page_size = normalize_limit(limit)
 
     parsed_cursor = None

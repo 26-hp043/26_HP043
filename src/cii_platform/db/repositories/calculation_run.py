@@ -29,6 +29,18 @@ CALCULATION_TYPE_VOYAGE = "VOYAGE_ESTIMATE"
 #: 같은 CHECK 제약의 허용값 중 기능②(#57)에 해당하는 것.
 CALCULATION_TYPE_SCENARIO = "SCENARIO"
 
+#: `DB_SCHEMA §2.5` ``chk_calculation_type``의 허용값 **전부** (`#1367`).
+#:
+#: 목록 조회의 ``type`` 필터를 이 집합으로 검증한다 — 종전에는 검증이 없어 오타가
+#: **빈 목록**으로 돌아왔다. 「값이 없다」와 「잘못 물었다」가 같은 화면이 된다.
+#: `tests/test_calculation_type_enum_sync.py`가 모델 CHECK 제약과 대조한다.
+CALCULATION_TYPES: tuple[str, ...] = (
+    "VOYAGE_ESTIMATE",
+    "SCENARIO",
+    "ANNUAL_DETERMINISTIC",
+    "ANNUAL_MONTE_CARLO",
+)
+
 #: API_SPEC §1.9 — 페이지 크기 기본 20, 최대 100 (vessel · voyage와 동일).
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
