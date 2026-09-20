@@ -892,3 +892,43 @@ async def test_the_empty_not_underway_row_follows_the_digit_rules(session, vesse
     section = _section(document, "not under way 기여")
 
     assert section.rows[0] == ["기록 없음", "0", "0", "0.0"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 렌더링은 DB 커넥션을 쥐고 기다리지 않는다 — #1363
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rendering_does_not_hold_the_db_connection(session, vessel_id, monkeypatch):
+    """문서를 다 읽었으면 **렌더링 전에 트랜잭션을 닫는다** (`#1363` · `#1364`).
+
+    수집은 읽기만 하지만 읽기도 트랜잭션을 열어(autobegin) 커넥션을 체크아웃한 채로 둔다.
+    그 상태로 렌더링(1초 안팎, 동시 상한이 1이라 줄을 서면 더)에 들어가면 커넥션이 그
+    시간만큼 묶이고, 기본 풀(5+10)이 마르면 **리포트와 무관한 요청까지** 30초 뒤 실패한다.
+
+    렌더링 시점의 세션 상태를 그대로 본다 — 「닫았다」를 코드로 확인하는 가장 좁은 방법이다.
+    """
+    from cii_platform.api.routes.reports import voyage_report_route
+    from cii_platform.reports import pdf as pdf_module
+
+    voyage_id = await _make_voyage(session, vessel_id)
+    seen: dict[str, bool] = {}
+
+    def _probe_render(_html: str) -> bytes:
+        seen["in_transaction"] = session.in_transaction()
+        return b"%PDF-fake"
+
+    monkeypatch.setattr(pdf_module, "render_pdf", _probe_render)
+
+    response = await voyage_report_route(
+        request=None,  # 라우트 본문이 쓰지 않는다 — 미들웨어용 인자다
+        voyage_id=voyage_id,
+        session=session,
+        _office=None,
+        format="pdf",
+        as_of=AS_OF,
+    )
+
+    assert response.body == b"%PDF-fake"
+    assert seen["in_transaction"] is False, "렌더링 동안 DB 커넥션을 쥐고 있었다"
