@@ -33,6 +33,8 @@ export const en: Record<MessageKey, string> = {
   'account.noDisplayName': 'No display name',
   'account.verified': 'Email verified',
   'account.unverified': 'Email verification pending',
+  'account.theme': 'Theme',
+  'account.language': 'Language',
   'account.settings': 'Settings',
   'account.settingsSub': 'Account · Password',
 

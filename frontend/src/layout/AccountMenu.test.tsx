@@ -95,6 +95,47 @@ describe('계정 팝오버 — 여닫힘 (#717)', () => {
   })
 })
 
+/**
+ * 테마·언어가 **패널 안에서 실제로 동작한다** (`#1422`).
+ *
+ * 옮기는 작업은 「보이는가」만 확인하고 끝내기 쉬운데, 이 둘은 **보이면서 죽어
+ * 있을 수 있다** — 패널이 `hidden`으로 감춰지는 구조라 열지 않은 채로도 DOM에
+ * 남아 있고, 라벨 배선(`aria-labelledby`)은 눈으로 보이지 않는다.
+ */
+describe('계정 팝오버 — 테마·언어 (#1422)', () => {
+  it('패널 안에 두 선택이 있고 보이는 라벨이 그룹 이름을 맡는다', () => {
+    renderMenu()
+    fireEvent.click(trigger())
+
+    for (const name of [/화면 테마/, /언어/]) {
+      const group = screen.getByRole('radiogroup', { name })
+      // 패널 **안**에 있다 — 상단바에 남아 있으면 §7.2를 다시 벗어난다.
+      expect(group.closest('[data-testid="account-panel"]')).not.toBeNull()
+      /*
+       * 이름을 `aria-label`이 아니라 **보이는 글자**가 준다. 둘 다 들고 있으면 같은
+       * 말이 두 벌이 되고, 한쪽만 고치는 날 화면과 낭독이 갈린다.
+       */
+      expect(group.getAttribute('aria-labelledby')).toBeTruthy()
+      expect(group.getAttribute('aria-label')).toBeNull()
+    }
+  })
+
+  it('패널 안에서 테마를 실제로 바꾼다 — 보이기만 하는 것이 아니다', () => {
+    renderMenu()
+    fireEvent.click(trigger())
+
+    const dark = screen.getByTestId('theme-dark')
+    expect(dark.getAttribute('aria-checked')).toBe('false')
+
+    fireEvent.click(dark)
+
+    expect(dark.getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByTestId('theme-light').getAttribute('aria-checked')).toBe('false')
+    // 패널은 열린 채로 남는다 — 바꾼 결과를 그 자리에서 봐야 한다.
+    expect(panel().hasAttribute('hidden')).toBe(false)
+  })
+})
+
 describe('계정 팝오버 — 인증 상태 (#717)', () => {
   it('미인증이면 대기로 읽힌다', () => {
     renderMenu()

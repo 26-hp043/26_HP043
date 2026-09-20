@@ -344,6 +344,64 @@ describe('상단바 알림 버튼 — 알림 체계가 없는 동안은 준비 �
  * 항목**이다 — 숨기지 않는다(`implemented: false`의 「준비 중」과 같은 판단). 사무직에게는
  * 그대로 링크다.
  */
+/**
+ * 상단바에 **규격 밖 컨트롤이 없다** (`#1422` · `DESIGN_SYSTEM §7.2` 🔒).
+ *
+ * `§7.2`는 상단바에 두는 것을 「전역 컨텍스트(선박·항차) · 알림 · 계정」으로 닫아
+ * 두었는데 테마·한/EN 토글 둘이 그 밖에 있었다. 계정 메뉴 안으로 옮겼다.
+ *
+ * **자리 하나를 지목하지 않는다.** 「테마 토글이 상단바에 없다」로만 적으면 다음에
+ * 새 컨트롤이 같은 자리에 붙을 때 아무것도 걸리지 않는다 — `§16` 항목 17이 겹침
+ * 순서에서 적은 구조다. 상단바에 **드러나 있는 선택 컨트롤이 하나도 없는지**를 본다.
+ */
+describe('상단바가 §7.2 배치를 벗어나지 않는다 (#1422)', () => {
+  /*
+   * 셸은 캐시된 사용자만 읽으므로(프로브는 `RequireAuth`가 한다) 계정 영역을 보려면
+   * `useAuthUser`를 직접 세운다 — 아래 `stubRole`과 같은 이유다.
+   */
+  function stubUser() {
+    vi.spyOn(session, 'useAuthUser').mockReturnValue({
+      id: 'u1',
+      email: 'a@b.c',
+      displayName: '테스터',
+      role: 'OFFICE',
+      emailVerifiedAt: null,
+    })
+  }
+
+  it('선택 컨트롤(radiogroup)이 상단바에 드러나 있지 않다', async () => {
+    stubUser()
+    stubServer()
+    const { container } = renderShell()
+    await waitFor(() => expect(screen.getByTestId('vessels-state').textContent).toBe('ready'))
+
+    const topbar = container.querySelector('.app-shell__topbar')
+    expect(topbar).not.toBeNull()
+
+    for (const group of topbar!.querySelectorAll('[role="radiogroup"]')) {
+      // 계정 패널 **안**이면 규격 안이다 — 밖이면 §7.2가 닫아 둔 자리를 넘은 것이다.
+      expect(
+        group.closest('[data-testid="account-panel"]'),
+        `상단바에 드러난 컨트롤이다: ${group.getAttribute('aria-label') ?? group.className}`,
+      ).not.toBeNull()
+    }
+  })
+
+  it('테마·언어는 계정 메뉴를 열어야 나온다 — 사라진 것이 아니다', async () => {
+    stubUser()
+    stubServer()
+    renderShell()
+    await waitFor(() => expect(screen.getByTestId('vessels-state').textContent).toBe('ready'))
+
+    expect(screen.queryByRole('radiogroup', { name: /화면 테마/ })).toBeNull()
+
+    fireEvent.click(screen.getByTestId('account-trigger'))
+
+    expect(screen.getByRole('radiogroup', { name: /화면 테마/ })).toBeTruthy()
+    expect(screen.getByRole('radiogroup', { name: /언어/ })).toBeTruthy()
+  })
+})
+
 describe('사이드바 — 현장직에게 사무직 전용 화면은 비활성 항목이다 (#672)', () => {
   /*
    * 셸은 캐시된 사용자만 읽는다(프로브는 `RequireAuth`가 한다). 그래서 역할은
