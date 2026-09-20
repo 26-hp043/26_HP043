@@ -114,6 +114,32 @@ def hash_password(password: str) -> str:
     return _hasher.hash(password)
 
 
+#: Argon2 해시의 접두. `argon2-cffi`가 내는 변종(`argon2id`·`argon2i`·`argon2d`)이
+#: 전부 이 값으로 시작한다.
+_ARGON2_PREFIX = "$argon2"
+
+
+def password_login_disabled(password_hash: str) -> bool:
+    """이 계정은 **비밀번호로 로그인할 수 없게 막혀 있는가** (#1495).
+
+    `routes/auth_dev.py`와 `routes/auth.py`는 사람이 쓰지 않는 스텁 계정에 **Argon2 형식이
+    아닌 자리표시자**를 넣어 둔다(`!dev-stub-no-password-login` · `!tour-no-password-login`).
+    :func:`verify_password`가 그 값에는 어떤 입력에도 ``False``를 돌려주므로
+    ``POST /auth/login``이 열리지 않는다.
+
+    ## 왜 이 판정이 따로 필요한가
+
+    **막아 둔 것을 비밀번호 재설정이 지웠다** (`#1495`). 재설정은 이메일로만 계정을 찾고
+    해시 형식을 보지 않아, 스텁 계정에도 토큰을 발급하고 확정되면 **Argon2 해시를 써 넣는다**
+    — 그 순간부터 `POST /auth/login`이 열리고, 둘러보기 접근 코드를 비워도 닫히지 않는다.
+
+    판정을 「자리표시자 접두(`!`)인가」가 아니라 **「Argon2가 아닌가」**로 두는 것은 **닫는
+    쪽으로 틀리기 위해서**다 — 새 자리표시자가 다른 글자로 시작해도 이 함수는 여전히
+    「막혀 있다」고 답한다(`#1058`·`#810`의 「긍정형은 닫는 쪽으로 틀린다」와 같은 방향).
+    """
+    return not password_hash.startswith(_ARGON2_PREFIX)
+
+
 def verify_password(password: str, password_hash: str) -> bool:
     """해시와 일치하는지 확인한다.
 

@@ -40,6 +40,7 @@ from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.password import (
     PasswordPolicyError,
     hash_password_async,
+    password_login_disabled,
     validate_password,
 )
 from cii_platform.config import public_base_url
@@ -220,8 +221,20 @@ async def request_password_reset(
     """
     user = await _find_active_user(session, payload.email)
 
-    if user is None:
+    if user is None or password_login_disabled(user.password_hash):
         # 메일을 보내지 않을 뿐 응답은 같다.
+        #
+        # ## 왜 「비밀번호 로그인이 막힌 계정」도 여기서 걸러 내는가 (#1495)
+        #
+        # 스텁 계정(`dev-login`·둘러보기)은 Argon2 형식이 아닌 자리표시자를 해시 자리에
+        # 넣어 ``POST /auth/login``을 막아 둔다. **그 방어를 재설정이 지웠다** — 이 경로는
+        # 이메일로만 계정을 찾으므로 스텁에도 토큰을 발급했고, 확정되면
+        # ``user.password_hash``가 Argon2가 되어 **그때부터 비밀번호로 로그인된다.**
+        # 둘러보기의 경우 ``TOUR_ACCESS_CODE``를 비워도 닫히지 않는 **영구 우회로**다.
+        #
+        # ⚠️ **응답은 계정이 없을 때와 똑같이 둔다.** 여기서 다른 답을 내면 「이 주소는
+        # 스텁 계정이다」가 드러나고, 그것은 이 라우트가 지키려는 계정 존재 비노출
+        # (`API_SPEC §1.2`)과 같은 성질의 누출이다.
         return _ok(request, RESET_REQUESTED_MESSAGE)
 
     raw = await issue_token(session, user_id=user.id, purpose=PURPOSE_PASSWORD_RESET)
@@ -271,7 +284,10 @@ async def confirm_password_reset(
         return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
     user = await session.get(AppUser, user_id)
-    if user is None:
+    if user is None or password_login_disabled(user.password_hash):
+        # **확정 쪽에도 같은 검사를 둔다** (#1495). 요청 경로를 막기 **전에** 이미 발급된
+        # 토큰이 남아 있을 수 있고, 그것 하나면 우회로가 그대로 열린다. 토큰은 위에서
+        # 소진됐으므로 롤백해 되돌린다 — 없는 계정일 때와 **같은 응답**이다.
         await session.rollback()
         return _error(request, "VALIDATION_ERROR", TOKEN_INVALID_MESSAGE)
 
