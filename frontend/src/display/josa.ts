@@ -29,6 +29,16 @@ const HANGUL_BASE = 0xac00
 const HANGUL_LAST = 0xd7a3
 const FINAL_COUNT = 28
 
+/**
+ * 끝의 괄호 설명 — 「총톤수(GT)」의 「(GT)」. 조사는 **그 앞 낱말**을 따른다 (`#1369`).
+ *
+ * 서버가 같은 규칙을 쓴다(`api/validation_messages.py`의 `_TRAILING_PAREN`). 이것이
+ * 없으면 라벨 여섯(`총톤수(GT)` · `재화중량톤수(DWT)` · `방형계수(CB)` ·
+ * `시작 시각(부터)` · `시작 시각(까지)` · `난수 시드(seed)`)에서 **화면과 서버가 다른
+ * 조사를 낸다** — 「시작 시각(부터)은」 vs 「시작 시각(부터)는」.
+ */
+const TRAILING_PAREN = /\s*\([^()]*\)\s*$/
+
 /** 종성 번호 중 `ㄹ`. `로`·`으로`가 갈리는 유일한 예외다. */
 const FINAL_RIEUL = 8
 
@@ -40,7 +50,7 @@ const FINAL_RIEUL = 8
  * 정한다 — 여기서 「받침 있음」으로 기울이면 그 판단이 숨는다.
  */
 export function finalConsonant(word: string): number | null {
-  const last = word.trim().slice(-1)
+  const last = word.replace(TRAILING_PAREN, '').trim().slice(-1)
   if (last === '') return null
 
   const code = last.charCodeAt(0)
@@ -84,4 +94,31 @@ export function eulReul(word: string): string {
 /** 「{말}을」 · 「{말}를」을 한 문자열로. */
 export function withEulReul(word: string): string {
   return `${word}${eulReul(word)}`
+}
+
+/**
+ * 주격 조사 — 「은」 또는 「는」 (`#1369`).
+ *
+ * 받침이 있으면 「은」(「선명**은**」), 없으면 「는」(「총톤수(GT)**는**」).
+ *
+ * ## 왜 함수인가 — 종전에는 화면이 「은(는)」을 **박아** 썼다
+ *
+ * 검증 문구 여덟 자리가 `${label}은(는) …`을 그대로 적었다. 같은 오류를 서버가 낼
+ * 때는 받침을 계산해 **하나만** 쓰므로(`api/validation_messages.py`), 사용자가 같은
+ * 실수에 **두 가지 문구**를 보게 된다 — 화면에서 막히면 「총톤수(GT)은(는) 0보다 커야
+ * 합니다」, 서버까지 가면 「총톤수(GT)는 0보다 커야 합니다」.
+ *
+ * 한글로 끝나지 않으면 **「는」을 쓴다** — `eulReul`과 같은 판단이다(2026-09-11 디자인
+ * 확정 B: 괄호를 화면에 내보내지 않는다). ⚠️ 서버는 그 경우 「은(는)」을 적으므로 이
+ * 한 갈래는 아직 갈린다. 다만 현재 서버 라벨 118개 중 **한글로 끝나지 않는 것은 0개**라
+ * 실제로 닿지 않는다(실측).
+ */
+export function eunNeun(word: string): string {
+  const final = finalConsonant(word)
+  return final === null || final === 0 ? '는' : '은'
+}
+
+/** 「{말}은」 · 「{말}는」을 한 문자열로. */
+export function withEunNeun(word: string): string {
+  return `${word}${eunNeun(word)}`
 }

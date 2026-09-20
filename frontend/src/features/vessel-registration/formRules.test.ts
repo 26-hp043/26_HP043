@@ -203,9 +203,12 @@ describe('#966 방형계수(CB)', () => {
   })
 
   it('1 초과는 물리 범위 밖 문구로 막는다 — 체적 비율은 1을 넘지 않는다', () => {
-    expect(validateForm(state({ blockCoefficient: '1.2' }))[FIELD.blockCoefficient]).toBe(
-      '방형계수(CB)은(는) 1 이하로 입력해 주세요.',
-    )
+    const message = validateForm(state({ blockCoefficient: '1.2' }))[FIELD.blockCoefficient]
+
+    // 표시 문구라 리터럴로 묶지 않는다 (`AGENTS §4.6`) — 지키려는 것은 **상한을 말한다**는 것이다.
+    expect(message).toContain('1 이하')
+    // 조사는 받침으로 고른다 — 서버가 같은 오류에 내는 문구와 같아야 한다 (`#1369`).
+    expect(message).not.toContain('은(는)')
   })
 
   it('숫자가 아니면 그 칸의 오류다', () => {

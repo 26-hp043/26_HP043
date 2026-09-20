@@ -1,3 +1,4 @@
+import { withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import type { WeatherModel } from '../voyage-cii/types'
 import type { ScenarioComparisonRequest } from './types'
@@ -169,7 +170,7 @@ function checkRequiredPositive(
     return
   }
   if (!(value > 0)) {
-    errors[field] = `${label}은(는) 0보다 커야 합니다.`
+    errors[field] = `${withEunNeun(label)} 0보다 커야 합니다.`
   }
 }
 
@@ -195,8 +196,8 @@ function checkOptionalBound(
   }
   if (inclusive ? value < min : !(value > min)) {
     errors[field] = inclusive
-      ? `${label}은(는) ${min} 이상이어야 합니다.`
-      : `${label}은(는) ${min}보다 커야 합니다.`
+      ? `${withEunNeun(label)} ${min} 이상이어야 합니다.`
+      : `${withEunNeun(label)} ${min}보다 커야 합니다.`
   }
 }
 
