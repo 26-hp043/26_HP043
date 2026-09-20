@@ -267,6 +267,33 @@ describe('연도 칸이 「선박 미선택」을 「연도 없음」으로 말�
     expect(screen.queryByText('선박을 먼저 선택해 주세요')).toBeNull()
   })
 
+  /**
+   * 속력 안내가 줄어도 **세 사실은 남는다** (`#1421`).
+   *
+   * 「속력을 바꿔도 CII는 같다」만 남기고 줄이면 **틀린 안내가 된다**(`#1263`).
+   * `actionRules.ts`의 「계획 저장」이 이 값을 계획 속력으로 옮기고 **도착 예정 시각까지
+   * 이 값으로 정하기** 때문이다 — 임의값을 넣어도 된다고 읽히면 그 값이 연간
+   * 시뮬레이션까지 흘러간다.
+   *
+   * 문구가 아니라 **사실**을 본다(`AGENTS §4.6`). 안내가 입력칸의 설명으로 **닿는지**도
+   * 같이 본다 — 화면에만 있고 낭독이 못 듣는 안내는 없는 것과 같다.
+   */
+  it('평균 속력 안내는 CII·계획 속력·도착 예정 시각 셋을 모두 말하고 입력칸 설명으로 닿는다 (#1421)', async () => {
+    stubServer()
+
+    renderForm()
+
+    const speed = await screen.findByLabelText(/평균 속력/)
+    const described = (speed.getAttribute('aria-describedby') ?? '')
+      .split(' ')
+      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .join(' ')
+
+    expect(described).toMatch(/CII/)
+    expect(described).toMatch(/계획 속력/)
+    expect(described).toMatch(/도착 예정/)
+  })
+
   it('선박 미선택으로 제출하면 선박 오류가 사라지지 않는다', async () => {
     stubServer()
 

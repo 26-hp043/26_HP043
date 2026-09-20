@@ -97,6 +97,27 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     expect(screen.queryByRole('img')).toBeNull()
   })
 
+  /**
+   * 캡션이 줄어도 **두 사실은 남는다** (`#1421`).
+   *
+   * 세 문장을 두 문장으로 줄이면서 첫 문장(「확대·축소로 위치를 확인할 수 있습니다」)을
+   * 뺐다 — 지도라면 누구나 하는 조작이다. 남은 둘은 뺄 수 없다: 점선이 육지를
+   * 가로지르는 이유(`#1275`)와 굵은 테두리의 뜻(`DESIGN_SYSTEM §9.5` 🔒)은 **그림이
+   * 스스로 말하지 못한다.** 다음에 또 줄일 때 둘 중 하나가 사라지면 여기서 걸린다.
+   *
+   * 문구가 아니라 **사실**을 본다 — 표현은 바뀌어도 된다(`AGENTS §4.6`).
+   */
+  it('기본 캡션은 점선이 육지를 가로지른다는 것과 굵은 테두리의 뜻을 둘 다 말한다 (#1421)', () => {
+    const { container } = render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
+
+    const hint = container.querySelector('.fleetmap__hint')?.textContent ?? ''
+    // 점선이 실제 항로가 아닌 **이유**
+    expect(hint).toMatch(/육지/)
+    // 스스로 설명되지 않는 유일한 표식 — 말의 순서는 바뀌어도 된다
+    expect(hint).toMatch(/테두리/)
+    expect(hint).toMatch(/굵/)
+  })
+
   it('전부 좌표가 있으면 아무 말도 하지 않는다 — 없는 문제를 만들지 않는다', () => {
     render(<FleetMap vessels={[vessel('1', '35.1', '129.0'), vessel('2', '34.0', '128.0')]} />)
 
