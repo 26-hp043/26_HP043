@@ -26,3 +26,8 @@ def normalize_to_sync(url: str) -> str:
     if url.startswith("cubrid+"):
         return "cubrid+pycubrid://" + url.split("://", 1)[1]
     return url
+
+
+def escape_configparser_value(value: str) -> str:
+    """ConfigParser에 넣을 값의 ``%``를 interpolation 문법으로 오해하지 않게 한다."""
+    return value.replace("%", "%%")

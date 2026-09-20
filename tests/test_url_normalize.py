@@ -6,7 +6,7 @@
 
 import pytest
 
-from cii_platform.db.url import normalize_to_async, normalize_to_sync
+from cii_platform.db.url import escape_configparser_value, normalize_to_async, normalize_to_sync
 
 
 @pytest.mark.parametrize(
@@ -66,3 +66,16 @@ def test_normalize_to_async_is_idempotent() -> None:
 def test_normalize_to_sync_cubrid_variants(url: str, expected: str) -> None:
     """동기 컨텍스트용 ``cubrid+pycubrid://``로 통일."""
     assert normalize_to_sync(url) == expected
+
+
+def test_escape_configparser_value_preserves_url_encoded_password() -> None:
+    """Alembic ConfigParser가 URL 인코딩의 ``%xx``를 interpolation으로 읽지 않는다."""
+    import configparser
+
+    url = "cubrid+pycubrid://dba:%25secret%40@db.example.com:33100/cii"
+    parser = configparser.ConfigParser()
+    parser.add_section("alembic")
+
+    parser.set("alembic", "sqlalchemy.url", escape_configparser_value(url))
+
+    assert parser.get("alembic", "sqlalchemy.url") == url
