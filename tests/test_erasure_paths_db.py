@@ -21,7 +21,9 @@
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import os
+import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -37,6 +39,23 @@ from cii_platform.services.audit import AUDIT_ACTIONS
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _load_script(name: str):
+    """``scripts/`` 모듈을 **파일 경로로** 읽는다.
+
+    ⚠️ 패키지 import(``scripts.purge_expired``)는 **로컬에서만** 된다 — 저장소 루트가
+    ``sys.path``에 있을 때뿐이다. CI는 설치된 패키지로 돌아
+    ``ModuleNotFoundError: No module named 'scripts'``가 난다(실측 — `#1330`의 첫 CI가
+    그렇게 붉어졌다). ``test_purge_expired_script.py``·``test_db_backup_script.py``가
+    처음부터 이 방식을 쓴다.
+    """
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / f"{name}.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 # --------------------------------------------------------------------------
 # 1. 운영 스크립트 — 인증과 서비스 이름
 # --------------------------------------------------------------------------
@@ -48,7 +67,7 @@ def test_purge_passes_the_password_to_csql() -> None:
     `db_backup.py`는 *「`-p`를 빠뜨리면 … `errno=-171`로 선다」* 고 적고 넘기는데,
     `purge_expired.py`만 빠져 있었다. **실패해도 cron은 조용하다.**
     """
-    from scripts import purge_expired
+    purge_expired = _load_script("purge_expired")
 
     assert '-p "$CUBRID_PASSWORD"' in purge_expired._CSQL_PLAIN
     assert '-p "$CUBRID_PASSWORD"' in purge_expired._CSQL
@@ -61,9 +80,7 @@ def test_the_db_service_name_is_not_hard_coded(module_name: str) -> None:
     `docker-compose.prod.yml`은 `db`지만 OCI가 쓰는 `docker-compose.prod.db.yml`은
     `cubrid`이고, `docs/OPERATIONS.md`도 `exec -T cubrid`로 적는다.
     """
-    import importlib
-
-    module = importlib.import_module(f"scripts.{module_name}")
+    module = _load_script(module_name)
     calls: list[list[str]] = []
 
     db = module.Db(["compose"], lambda argv, *a, **k: (calls.append(argv), b"")[1])
@@ -92,7 +109,7 @@ def test_the_compose_service_name_matches_the_oci_file() -> None:
 
 def test_the_environment_variable_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
     """이름을 바꿀 **수단**이 실제로 있는지 본다 — 기본값만 고치면 다른 쪽이 깨진다."""
-    from scripts import purge_expired
+    purge_expired = _load_script("purge_expired")
 
     monkeypatch.setenv("DB_SERVICE", "cubrid")
     assert os.environ.get("DB_SERVICE", purge_expired.DEFAULT_DB_SERVICE) == "cubrid"
