@@ -316,14 +316,24 @@ async def list_remaining_plans(
 ) -> list[Voyage]:
     """``as_of`` 시점의 **잔여 계획** — 도착 예정이 그 시점보다 늦은 것 (#816 ⑴).
 
-    :func:`list_annual_inclusions`의 절단(도착 ≤ ``as_of``)을 계획에 그대로 쓰면
-    잔여가 전멸한다 — 계획은 미래 도착이 본질이라 전부 잘리기 때문이다. 기능③
-    (연말 예상)의 「시점 전망」은 **확정 = 이미 도착 · 잔여 = 아직 도착 전**의 상보
-    집합으로 성립하므로(``PRD §12``), 이쪽만 방향을 반대로 잡는다.
+    ⚠️ **도착 예정으로 자르지 않는다** (`#1323`). 종전에는 ``planned_arrival_at >
+    as_of``를 걸어 **도착 예정이 지난 ``INCLUDE_AS_PLAN`` 항차가 어느 쪽에도 들지
+    않았다** — 확정분 조회는 정책이 ``INCLUDE_AS_ACTUAL``인 것만 보고, 잔여는 이
+    조건에서 잘렸다. 지연된 ``IN_PROGRESS``·기한이 지난 ``PLANNED``가 통째로
+    사라졌고, 실측에서 연말 예상 등급이 **D → C**로 바뀌었다.
 
-    도착 예정(``planned_arrival_at``)이 없는 계획은 포함한다 — 시각을 모르는 행을
-    「아직 아니다」로 단정할 근거가 없다는 것은 :func:`list_annual_inclusions`와
-    같은 규칙이다.
+    **정본이 이미 답을 갖고 있다.** ``PRD §12.2``의 ``remaining_voyages`` 행은
+    대상을 **상태(``PLANNED``/``IN_PROGRESS``)**로 적고 **날짜로 자르지 않는다** —
+    `AGENTS §3.1`상 ``PRD`` > ``API_SPEC``이므로 「도착 예정 > ``as_of``」라 적던
+    ``API_SPEC §6.1`` 쪽을 고쳤다.
+
+    그래서 두 집합을 가르는 것은 **정책**이다: 실적이 확정된 것(``INCLUDE_AS_ACTUAL``)과
+    아직 계획인 것(``INCLUDE_AS_PLAN``). **예정일이 지났다는 것은 도착했다는 뜻이
+    아니다** — 그 상태를 알리는 것은 ``IN_PROGRESS_PAST_ETA`` 경고의 몫이고(`#649`),
+    집계에서 빼는 근거가 아니다.
+
+    ``as_of``는 **받되 쓰지 않는다** — 호출부가 확정·잔여에 같은 인자를 넘기는
+    모양을 유지해, 어느 한쪽만 시점을 갖는 것처럼 읽히지 않게 한다.
     """
     stmt = select(Voyage).where(
         Voyage.vessel_id == vessel_id,
@@ -331,11 +341,6 @@ async def list_remaining_plans(
         Voyage.annual_inclusion_policy == "INCLUDE_AS_PLAN",
         Voyage.is_deleted == 0,
     )
-
-    if as_of is not None:
-        stmt = stmt.where(
-            or_(Voyage.planned_arrival_at.is_(None), Voyage.planned_arrival_at > as_of)
-        )
 
     stmt = stmt.order_by(Voyage.created_at, Voyage.id)
     return list((await session.execute(stmt)).scalars().all())

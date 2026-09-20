@@ -2687,7 +2687,7 @@ POST /api/v1/annual-simulations
 | `distribution_profile` | string | N | enum: DEFAULT | 기본: DEFAULT |
 | `apply_feedback_factor` | bool | N | — | 실적 보정계수(`PRD §12.2.1`)를 잔여 계획 연료에 곱한다. **기본 `false`** — 켜지 않은 실행은 종전과 같은 결과·같은 `input_hash`다(`§6.1.2` · #363) |
 | `alternative_fuel` | string | N | 활성 연료 코드(422) | 대체 연료 지렛대(민감도)에서 쓸 연료. **질량 유지**로 계산한다 — 연료량은 그대로, CF만 교체(`PRD §12.6` 각주 · #756 ⑴). 고르지 않으면 블록도 `input_hash` 키도 없다 |
-| `as_of` | string (ISO 8601) | N | — | **기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵ · #816 ⑴). 확정 실적은 **도착 시각 ≤ `as_of`** 인 것만, 잔여 계획은 **도착 예정 > `as_of`** 인 것이 시점 전망에 남는다(상보 집합). 미지정 시 서버가 현재 시각으로 확정하고 응답 `meta.as_of`에 실어 반환한다. ⚠️ **명시한 실행에만 `as_of`가 `input_hash` 키로 들어간다**(`§1.10` 계약 ⑶ — `apply_feedback_factor`와 같은 선택 키 방식). 미지정 실행의 해시는 종전과 같다 |
+| `as_of` | string (ISO 8601) | N | — | **기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵ · #816 ⑴). 확정 실적은 **도착 시각 ≤ `as_of`** 인 것만 담는다. **잔여 계획은 날짜로 자르지 않는다** (`#1323` 정정) — 두 집합을 가르는 것은 **연간 반영 정책**이다(`INCLUDE_AS_ACTUAL` ↔ `INCLUDE_AS_PLAN`). 미지정 시 서버가 현재 시각으로 확정하고 응답 `meta.as_of`에 실어 반환한다. ⚠️ **「잔여 = 도착 예정 > `as_of`」로 적던 종전 문장은 구멍을 만들었다** — 도착 예정이 지난 `INCLUDE_AS_PLAN` 항차(지연된 `IN_PROGRESS` · 기한이 지난 `PLANNED`)가 **확정분에도 잔여분에도 들지 않아** 연말 예상에서 통째로 사라졌다(실측 등급 **D → C**). `PRD §12.2`의 `remaining_voyages` 행은 대상을 **상태**로 적고 날짜로 자르지 않으며, `AGENTS §3.1`상 `PRD`가 앞선다. **예정일이 지났다는 것은 도착했다는 뜻이 아니다** — 그 상태를 알리는 것은 `IN_PROGRESS_PAST_ETA` 경고의 몫이고(`§1.6`) 집계에서 빼는 근거가 아니다. ⚠️ **명시한 실행에만 `as_of`가 `input_hash` 키로 들어간다**(`§1.10` 계약 ⑶ — `apply_feedback_factor`와 같은 선택 키 방식). 미지정 실행의 해시는 종전과 같다 |
 
 > **[ORACLE-S-3 정정]** `random_seed` 타입과 크기를 명확히 했다. JSON int는 2^53까지만 안전하게 표현 가능하므로, 큰 seed 값(2^53 초과)은 문자열로 전송해야 한다. 서버는 응답에서 항상 `rng_metadata.seed_entropy`에 128-bit hex 표기를 포함한다.
 

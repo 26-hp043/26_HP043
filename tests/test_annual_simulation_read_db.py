@@ -43,6 +43,7 @@ from cii_platform.services.annual_simulation import (
     WARNING_FUEL_CF_MASS_BASIS,
     WARNING_MODEL_VERSION_DIFFERS,
     _assert_same_outcome,
+    _collect_voyages,
     _model_version_diff,
     build_parameters_used,
     get_annual_simulation,
@@ -1082,6 +1083,56 @@ async def test_too_few_voyages_does_not_apply_and_says_so(session, vessel_id):
 
 
 # ── #816 ⑴ — `as_of` 절단이 실제로 작동한다 (결정요청 v9 회신 「가」=A안) ──────
+
+
+@pytest.mark.asyncio
+async def test_every_included_voyage_lands_in_exactly_one_set(session, vessel_id):
+    """⚠️ #1323 — **도착 예정이 지난 계획 항차가 어느 쪽에도 없었다.**
+
+    확정분 조회는 정책이 ``INCLUDE_AS_ACTUAL``인 것만 보고, 잔여는 종전에
+    ``planned_arrival_at > as_of``로 잘렸다 — 지연된 ``IN_PROGRESS``·기한이 지난
+    ``PLANNED``가 **통째로 사라졌고** 실측에서 연말 예상 등급이 **D → C**로 바뀌었다.
+
+    **집합이 아니라 개수를 세는 것이 요점**이다. 「잔여에 들어왔다」만 보면 확정분이
+    같은 항차를 함께 세는 이중 계상을 놓친다 — `PRD §12`의 연말 예상은 두 집합이
+    **상보**일 때만 성립한다.
+
+    ⚠️ 시드의 진행 항차 도착 예정이 `_rel(8)`이라(`demo_seed.py`) **시드를 시연 8일
+    이상 전에 적재하면 그대로 재현된다.**
+    """
+    as_of = datetime(2026, 8, 1, tzinfo=UTC)
+    await _add_voyage(
+        session,
+        vessel_id,
+        policy="INCLUDE_AS_ACTUAL",
+        status="CONFIRMED",
+        no="V-SET-001",
+        arrival_at=datetime(2026, 3, 1, tzinfo=UTC),
+    )
+    # 예정일이 지났는데 아직 확정되지 않은 계획 — 종전에 사라지던 자리.
+    late = await _add_voyage(
+        session,
+        vessel_id,
+        policy="INCLUDE_AS_PLAN",
+        status="IN_PROGRESS",
+        no="V-SET-002",
+        arrival_at=datetime(2026, 7, 20, tzinfo=UTC),
+    )
+    future = await _add_voyage(
+        session,
+        vessel_id,
+        policy="INCLUDE_AS_PLAN",
+        status="PLANNED",
+        no="V-SET-003",
+        arrival_at=datetime(2026, 12, 20, tzinfo=UTC),
+    )
+
+    actual, planned = await _collect_voyages(session, vessel_id=vessel_id, year=YEAR, as_of=as_of)
+
+    ids = [v.id for v in actual] + [v.id for v in planned]
+    assert len(ids) == len(set(ids)), "한 항차가 두 집합에 들어갔다"
+    assert late in {v.id for v in planned}, "예정일이 지난 계획이 잔여에서 빠졌다"
+    assert future in {v.id for v in planned}
 
 
 @pytest.mark.asyncio
