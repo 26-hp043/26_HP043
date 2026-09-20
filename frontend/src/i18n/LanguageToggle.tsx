@@ -14,12 +14,20 @@ import './LanguageToggle.css'
  *
  * `aria-label`은 현재 언어로 붙인다 — 안내 문구는 쓰는 사람의 언어로 읽혀야
  * 한다(`DESIGN_SYSTEM §14` 정신). 언어 이름 자체는 위 규칙을 따른다.
+ *
+ * `labelledBy`는 `ThemeToggle`과 같은 뜻이다 (`#1422`) — 보이는 라벨이 이미
+ * 있는 자리에서는 같은 말을 두 벌로 들고 있지 않는다.
  */
-export function LanguageToggle() {
+export function LanguageToggle({ labelledBy }: { labelledBy?: string } = {}) {
   const { language, setLanguage, t } = useI18n()
 
   return (
-    <div className="language-toggle" role="radiogroup" aria-label={t('i18n.groupLabel')}>
+    <div
+      className="language-toggle"
+      role="radiogroup"
+      aria-label={labelledBy ? undefined : t('i18n.groupLabel')}
+      aria-labelledby={labelledBy}
+    >
       {LANGUAGES.map((candidate) => (
         <Option
           key={candidate}

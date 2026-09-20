@@ -7,6 +7,8 @@ import './AccountMenu.css'
 import { ChevronDown } from 'lucide-react'
 import { Icon } from '../components/Icon'
 import { useI18n } from '../i18n/core'
+import { ThemeToggle } from '../theme/ThemeToggle'
+import { LanguageToggle } from '../i18n/LanguageToggle'
 
 /**
  * 상단바 계정 영역 (#717).
@@ -14,11 +16,16 @@ import { useI18n } from '../i18n/core'
  * ## 왜 disclosure이고 `role="menu"`가 아닌가
  *
  * `role="menu"`를 선언하면 **화살표 이동·Home·End·타입어헤드까지 구현해야 한다** —
- * 스크린 리더가 그 키보드 모델을 전제로 안내하기 때문이다. 여기 담기는 조작은
- * 「설정」 링크 **하나**뿐이라 그 계약을 질 이유가 없다.
+ * 스크린 리더가 그 키보드 모델을 전제로 안내하기 때문이다.
  *
  * 그래서 버튼 하나가 패널 하나를 여닫는 **disclosure**로 둔다 —
  * `aria-expanded` + `aria-controls`. Tab 이동만으로 충분히 닿는다.
+ *
+ * ⚠️ **`#1422`로 담기는 것이 링크 하나에서 셋으로 늘었지만 판단은 그대로다.**
+ * 종전 주석은 이유를 「조작이 하나뿐」이라 적었는데, 그 이유는 이제 사실이
+ * 아니다. 진짜 이유는 **여기 담긴 것이 메뉴 항목이 아니라는 것**이다 — 테마·언어는
+ * 누르면 닫히는 명령이 아니라 **그 자리에 머무르는 선택**(`radiogroup`)이고,
+ * `role="menu"` 안의 `radiogroup`은 화살표 키의 소유자가 둘이 된다.
  *
  * ## 패널을 항상 렌더하고 `hidden`으로 감춘다
  *
@@ -41,6 +48,8 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
   const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const panelId = useId()
+  const themeLabelId = useId()
+  const languageLabelId = useId()
   const root = useRef<HTMLDivElement>(null)
   /*
    * Escape로 닫을 때 **초점을 여는 버튼으로 되돌린다** (#829 ⑸d · WCAG 2.4.3).
@@ -125,6 +134,33 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         <p className="account-menu__verify">
           {verified ? t('account.verified') : t('account.unverified')}
         </p>
+
+        {/*
+          테마·언어 (`#1422`). 종전에는 상단바에 그대로 나와 있었는데,
+          `DESIGN_SYSTEM §7.2` 🔒이 상단바에 두는 것을 **「선박·항차 · 알림 · 계정」**으로
+          닫아 두었다 — 그 밖의 것이 둘 있었다.
+
+          **설정 화면이 아니라 여기다.** 테마와 언어는 「보는 방식」이라 어느 화면에서든
+          그 자리에서 바꾸게 된다 — 바꾸려고 화면을 옮겨야 하면 보던 것을 잃는다.
+          계정 메뉴는 이미 어느 화면에서나 같은 자리에 있다.
+
+          라벨을 글자로 적는다. 상단바에서는 자리가 없어 아이콘만 두고 `aria-label`로
+          이름을 줬는데, 해·달이 무엇을 뜻하는지는 **누르기 전에는 확인할 수 없었다.**
+        */}
+        <div className="account-menu__settings">
+          <div className="account-menu__setting">
+            <span className="account-menu__setting-label" id={themeLabelId}>
+              {t('account.theme')}
+            </span>
+            <ThemeToggle labelledBy={themeLabelId} />
+          </div>
+          <div className="account-menu__setting">
+            <span className="account-menu__setting-label" id={languageLabelId}>
+              {t('account.language')}
+            </span>
+            <LanguageToggle labelledBy={languageLabelId} />
+          </div>
+        </div>
 
         <Link className="account-menu__link" to={SCREEN_BY_ID.SETTINGS.path}>
           <span>{t('account.settings')}</span>

@@ -38,6 +38,8 @@ export const ko = {
   'account.noDisplayName': '표시 이름 없음',
   'account.verified': '이메일 인증 완료',
   'account.unverified': '이메일 인증 대기',
+  'account.theme': '화면 테마',
+  'account.language': '언어',
   'account.settings': '설정',
   'account.settingsSub': '계정 정보 · 비밀번호',
 

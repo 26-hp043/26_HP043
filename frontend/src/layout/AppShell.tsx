@@ -22,8 +22,6 @@ import { AccountMenu } from './AccountMenu'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { isOffice, logout, useAuthUser } from '../auth/session'
 import { useI18n } from '../i18n/core'
-import { LanguageToggle } from '../i18n/LanguageToggle'
-import { ThemeToggle } from '../theme/ThemeToggle'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
 import { AssistantOverlay } from '../features/assistant/AssistantOverlay'
@@ -451,11 +449,17 @@ export function AppShell() {
           >
             <BellGlyph />
           </button>
-          {/* 테마 선택(해·달). */}
-          <ThemeToggle />
-          {/* 언어 선택(한/EN) — #1215. 테마와 같은 자리·같은 모양이다. */}
-          <LanguageToggle />
+          {/*
+            테마·한/EN 토글은 **계정 메뉴 안으로 들어갔다** (`#1422`).
 
+            `DESIGN_SYSTEM §7.2` 🔒이 상단바를 「전역 컨텍스트(선박·항차) · 알림 ·
+            계정」으로 닫아 두었는데 둘은 그 밖이었다. 자리를 지키려고 규격을 늘리는
+            대신 **이미 있는 계정 메뉴**에 담는다 — 테마·언어는 어느 화면에서나
+            같은 자리에서 바꾸게 되는 것이고, 계정 메뉴가 바로 그 자리다.
+
+            로그아웃은 **여기 남는다** — 안으로 넣으면 시연에서 한 번 더 눌러야
+            한다(`#717`)는 판단이 그대로다.
+          */}
           {/*
             계정 — `#278` 현재 사용자 표시 + 로그아웃, `#717` 요약 팝오버.
 

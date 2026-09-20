@@ -20,8 +20,15 @@ import './ThemeToggle.css'
  *
  * `radiogroup`으로 노출한다 — 상호배타 선택이라 툴바 버튼보다 의미가 맞는다.
  * 아이콘만 있으므로 각 칸에 `aria-label`을 붙이고, SVG는 `aria-hidden`으로 감춘다.
+ *
+ * ## `labelledBy` — 보이는 라벨이 이미 있는 자리 (#1422)
+ *
+ * 계정 메뉴 안에서는 「화면 테마」가 **글자로 이미 옆에 적혀 있다.** 그때도
+ * `aria-label`을 들고 있으면 같은 말이 화면에 한 번·낭독에 한 번, 서로 다른
+ * 소유자에게 **두 벌**로 남는다 — 한쪽만 고치는 날 갈린다. 보이는 라벨의 id를
+ * 받으면 그쪽에 맡기고 자기 라벨은 내려놓는다.
  */
-export function ThemeToggle() {
+export function ThemeToggle({ labelledBy }: { labelledBy?: string } = {}) {
   // 서버 스냅샷(3번째 인자)은 `light` — SSR을 쓰지 않지만 vitest 환경에서
   // matchMedia가 없을 때의 초기값과 일치시켜 깜빡임 경고를 피한다.
   const theme = useSyncExternalStore<ThemeChoice>(
@@ -31,7 +38,12 @@ export function ThemeToggle() {
   )
 
   return (
-    <div className="theme-toggle" role="radiogroup" aria-label="화면 테마">
+    <div
+      className="theme-toggle"
+      role="radiogroup"
+      aria-label={labelledBy ? undefined : '화면 테마'}
+      aria-labelledby={labelledBy}
+    >
       <Option current={theme} value="light" label="밝은 화면" />
       <Option current={theme} value="dark" label="어두운 화면" />
     </div>
