@@ -93,6 +93,16 @@ class VoyageProgress:
         지났는가 (`#649`). 이때 누적은 예정일까지만 세지만, **그 사실이 응답에
         드러나지 않으면 사용자는 값이 왜 멈췄는지 알 수 없다.** 호출부가 이 플래그를
         보고 ``IN_PROGRESS_PAST_ETA`` 경고를 싣는다.
+    :param reached_planned_distance: 누적 거리가 **계획 거리에 닿아 잘렸는가**
+        (`#1321`). 계획 거리는 **항로 거리**이고 도착 예정일은 **항만 체류·대기
+        여유를 포함**하므로, ``속력 × 경과시간``을 그대로 두면 그 여유가 **거리로
+        바뀐다** — 시연 시드에서 계획의 **186%·359%**가 나왔다. 실제 배는 항로를
+        다 돌면 멈춰서 기다린다. 호출부가 이 플래그를 보고
+        ``IN_PROGRESS_PLANNED_DISTANCE_REACHED`` 경고를 싣는다.
+
+        ⚠️ ``past_planned_arrival``과 **다른 상태다.** 계획 거리는 예정일보다
+        **먼저** 찰 수 있다(감시선 시드는 3.6일 앞선다). 한 코드로 묶으면 화면이
+        「도착 예정일이 지났습니다」라고 **거짓말을 한다.**
     :param speed_uncorrected: ``reference_speed_kn``이 없어 cubic speed model의
         ``speed_factor``를 적용하지 못했는가 (`#796`). 이때 연료는 배수 1로 쌓인다 —
         「계획 속도가 곧 기준 속도」라는 가정이며, 어느 방향으로도 치우치지 않지만
@@ -106,6 +116,7 @@ class VoyageProgress:
     is_simulated: bool
     past_planned_arrival: bool = False
     speed_uncorrected: bool = False
+    reached_planned_distance: bool = False
 
 
 def _overlap_hours(
@@ -141,6 +152,7 @@ def compute_progress(
     daily_foc_ton: Decimal | None,
     reference_speed_kn: Decimal | None = None,
     planned_arrival_at: datetime | None = None,
+    planned_distance_nm: Decimal | None = None,
     not_underway_periods: Iterable[NotUnderwayWindow] = (),
 ) -> VoyageProgress:
     """진행 중 항차의 누적 거리·연료를 확정한다.
@@ -164,6 +176,20 @@ def compute_progress(
       ``is_simulated``는 ``True``로 남는다. 잘렸어도 **여전히 시계가 만든 값**이며,
       계획은 실적이 아니므로 「확정됐다」로 읽히게 하지 않는다. 대신
       ``past_planned_arrival``이 서고 호출부가 경고를 싣는다.
+    * **계획 거리를 다 채우면 거기서 멈춘다** (`#1321`). 자르는 것은 거리가 아니라
+      **시간**이다 — 연료도 ``underway_hours``에서 나오므로, 거리만 자르면 연료는
+      계속 자라 **같은 항차의 거리와 연료가 서로 다른 시각을 말하게 된다.**
+      ``planned_distance_nm / speed_kn``이 상한이며 거리·연료·시간 셋이 한 번에
+      멎는다.
+
+      종전에는 창의 상한이 **시각 하나**뿐이라, 도착 예정일 **안에서도** 계획을
+      넘었다. 계획 거리는 **항로 거리**이고 예정일은 **항만 체류·대기 여유를
+      포함**하기 때문이다 — 그 여유를 정박 구간으로 넣지 않으면 여유가 그대로
+      거리가 된다. 시연 시드에서 계획의 **186%**(벌크)·**359%**(감시선)가 나왔고
+      같은 값이 YTD·선대 요약·리포트로 흘렀다.
+
+      ``is_simulated``는 ``True``로 남는다 — `#649`와 같은 이유로, 도착 실적이
+      **확정된 것이 아니라 아직 입력되지 않은** 것이다.
     * **속도·일일 소모율이 없으면** 각각 0으로 둔다. ``reference_daily_foc_ton``은
       ``nullable``이며(``DB_SCHEMA §2.1``), 없는 선박에 임의 기본값을 넣으면
       화면이 근거 없는 연료를 표시한다.
@@ -217,6 +243,26 @@ def compute_progress(
     underway_hours = max(elapsed_hours - nuw_hours, zero)
 
     distance_nm = (speed_kn or zero) * underway_hours
+
+    # 계획 거리에서 자른다 (`#1321`). 거리를 **정확히** 계획값으로 두고
+    # ``underway_hours``를 거기서 되낸다.
+    #
+    # ``planned / speed``를 먼저 구해 **다시 곱하는** 형태를 쓰지 않는 이유는
+    # 그 형태가 ``Decimal`` 문맥의 정밀도에 기대기 때문이다. 이 저장소의 기본
+    # 28자리에서는 우연히 맞아떨어지지만(실측), ``prec=8``에서는
+    # ``(3000/14)×14 = 2999.9999``로 **계획에 닿지 못한다**. 값을 그대로 넣으면
+    # 그 의존이 없다.
+    #
+    # 시간도 함께 멎어야 한다. 거리만 자르면 ``underway_hours``가 계속 자라
+    # **같은 항차의 거리와 시간이 서로 다른 시각을 말한다.** 연료는
+    # :func:`_accrued_fuel`이 거리에서 내므로(``distance / speed / 24``) 거리를
+    # 자르는 것만으로 함께 멎는다.
+    reached_planned_distance = False
+    if planned_distance_nm is not None and distance_nm > planned_distance_nm:
+        distance_nm = Decimal(planned_distance_nm)
+        reached_planned_distance = True
+        if speed_kn and speed_kn > zero:
+            underway_hours = distance_nm / speed_kn
     fuel_ton, speed_uncorrected = _accrued_fuel(
         distance_nm=distance_nm,
         speed_kn=speed_kn,
@@ -233,6 +279,7 @@ def compute_progress(
         is_simulated=is_simulated and underway_hours > zero,
         past_planned_arrival=past_planned_arrival,
         speed_uncorrected=speed_uncorrected,
+        reached_planned_distance=reached_planned_distance,
     )
 
 

@@ -197,6 +197,10 @@ export const WARNING_MESSAGE: Readonly<Record<string, string>> = {
   // `#649` — 예정일에서 자른 이유. 값이 왜 더 늘지 않는지 화면이 말해야 한다.
   IN_PROGRESS_PAST_ETA:
     '진행 중 항차가 도착 예정일을 지났습니다. 누적은 예정일까지만 반영했으며, 도착 실적을 입력하면 확정됩니다.',
+  // `#1321` — 계획 거리에서 자른 이유. ⚠️ 위 코드와 **다른 상태다**: 계획 거리는
+  // 예정일보다 먼저 찰 수 있다. 한 문구로 묶으면 화면이 거짓말을 한다.
+  IN_PROGRESS_PLANNED_DISTANCE_REACHED:
+    '진행 중 항차가 계획 거리를 모두 채웠습니다. 누적은 계획 거리까지만 반영했으며, 도착 실적을 입력하면 확정됩니다.',
   NO_COMPLETED_VOYAGES:
     '누적 실적이 없어 현재 CII는 계산할 수 없습니다. 잔여 계획 기반 예측만 수행할 수 있습니다.',
   NO_REMAINING_VOYAGES:
