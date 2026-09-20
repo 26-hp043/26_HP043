@@ -492,7 +492,7 @@ _SIM_SOURCE_REF = "PRD §12.4.1"
 #: 넣었는데, `db/seed.py`의 `seed_all()`은 다섯 표 전부에 `PARAMETER_SET_VERSION`(`"1.0"`)을
 #: 넣고 `REPLACE`로 덮는다. 즉 **적재 순서에 따라 값이 갈렸다** — 그 값이
 #: `parameters_used.simulation_profile.version`으로 `parameter_hash`에 들어가므로,
-#: 갈리는 순간 재현(`TECH_SPEC §6.4`)이 「규정 파라미터가 변경되어 재현할 수 없습니다」로
+#: 갈리는 순간 재현(`TECH_SPEC §5.4`)이 「규정 파라미터가 변경되어 재현할 수 없습니다」로
 #: 실패한다.
 #:
 #: `"1.0"`으로 맞춘 근거는 **실측**이다 — 운영·로컬 DB의 다섯 표가 전부 `"1.0"`이고,

@@ -252,7 +252,7 @@ def test_migration_simulation_parameters_match_constants():
 
     **``version``을 함께 본다.** 이 값이
     ``parameters_used.simulation_profile.version``으로 ``parameter_hash``에 들어가므로,
-    두 적재 경로가 다른 값을 넣으면 **적재 순서에 따라 재현(`TECH_SPEC §6.4`)이
+    두 적재 경로가 다른 값을 넣으면 **적재 순서에 따라 재현(`TECH_SPEC §5.4`)이
     실패한다.** 행의 수치가 같아도 그 사고는 일어난다 — 그래서 수치와 별개로 단언한다.
     """
     m = _load_migration()
