@@ -587,7 +587,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | 시크릿 | 설명 |
 |--------|------|
 | `SIGNUP_ALLOWED_DOMAINS` | 가입 허용 메일 도메인 (쉼표 구분) |
-| `SIGNUP_INVITE_CODE` | 초대 코드 (16자 이상 권장) |
+| `SIGNUP_INVITE_CODE` | 초대 코드 (16자 이상 권장). 문자 집합 주의는 아래 `TOUR_ACCESS_CODE` 행과 같다 — 모든 시크릿에 해당한다 |
 | `MAIL_BACKEND` | `smtp` (프로덕션) |
 | `MAIL_FROM` | 발신 주소 (예: `BlueLog <no-reply@example.com>`) |
 | `SMTP_HOST` | SMTP 서버 (예: `smtp.gmail.com`) |
@@ -595,7 +595,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `SMTP_USER` | SMTP 사용자 |
 | `SMTP_PASSWORD` | SMTP 비밀번호 |
 | `SMTP_USE_TLS` | STARTTLS 사용 여부. 비워 두면 `true`. `SMTP_PORT=465`(implicit TLS)에서는 값과 무관하다 (`#1475`에서 배선) |
-| `TOUR_ACCESS_CODE` | **둘러보기 링크의 접근 코드** (`#1486`). `/login?tour=<코드>`로 들어온 사람에게 관리자 열람 세션을 준다. ⚠️ **비면 둘러보기가 닫힌다**(fail-closed) — 가입 게이트와 반대 방향이라 미설정이 안전한 기본값이다. 코드는 URL에 실려 브라우저 히스토리·접근 로그에 남으므로 **32자 이상**을 권하고, 인터뷰가 끝나면 비운다. 다만 **이미 발급된 세션은 7일간 살아 있다** |
+| `TOUR_ACCESS_CODE` | **둘러보기 링크의 접근 코드** (`#1486`). `/login?tour=<코드>`로 들어온 사람에게 관리자 열람 세션을 준다. ⚠️ **비면 둘러보기가 닫힌다**(fail-closed) — 가입 게이트와 반대 방향이라 미설정이 안전한 기본값이다. 코드는 URL에 실려 브라우저 히스토리·접근 로그에 남으므로 **32자 이상**을 권하고, 인터뷰가 끝나면 비운다. 다만 **이미 발급된 세션은 7일간 살아 있다**. ⚠️ **문자는 `[A-Za-z0-9_-]`로 한정한다**(`python -c "import secrets;print(secrets.token_urlsafe(32))"`) — `'`가 들어가면 배포 ssh 인용이 끊겨 **잡이 통째로 실패**하고, `$`가 들어가면 compose가 `.env`를 보간해 **값이 조용히 잘린다**(`#1495` 실측). 잘려도 fail-closed라 링크만 거절되지만 원인이 보이지 않는다 |
 
 ### 5.3 선택 시크릿
 

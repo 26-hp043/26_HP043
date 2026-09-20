@@ -30,6 +30,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
@@ -495,6 +496,10 @@ async def tour_login(
 
     user = await session.get(AppUser, _TOUR_USER_ID)
     if user is None:
+        # ⚠️ **동시 최초 로그인 경합** (#1495). 인터뷰는 여러 명이 같은 링크를 거의 동시에
+        # 누른다. 행이 아직 없을 때 둘이 함께 들어오면 한쪽이 PK·UNIQUE 충돌로 500을 낸다 —
+        # 한 번뿐이지만 **하필 처음 여는 순간**이라 눈에 띈다. 넣어 보고 걸리면 되돌려
+        # 다시 읽는다(`_insert_ignoring_existing`이 시드에서 쓰는 것과 같은 판단).
         user = AppUser(
             id=_TOUR_USER_ID,
             email=_TOUR_EMAIL,
@@ -507,21 +512,48 @@ async def tour_login(
             email_verified_at=_TOUR_VERIFIED_AT,
         )
         session.add(user)
-        await session.flush()
-    else:
-        # 누군가 화면에서 이 계정을 강등했더라도 되돌린다 — 다음 인터뷰가 조용히
-        # 반쪽짜리가 되지 않게. `auth_dev`가 사무직을 되돌리는 것과 같은 자리다.
-        if user.role != ROLE_ADMIN:
-            user.role = ROLE_ADMIN
-        if user.email_verified_at is None:
-            user.email_verified_at = _TOUR_VERIFIED_AT
-        # **탈퇴 상태도 되돌린다.** 둘러보기 세션은 관리자라 `DELETE /auth/me`를 누를 수
-        # 있고, 그러면 이 행에 `is_deleted`가 선다. 그 상태를 그대로 두면 다음 사람이
-        # **탈퇴한 계정으로 세션을 받는다** — 로그인 조회는 `is_deleted == 0`으로 거르는데
-        # 여기는 PK로 직접 가져오므로 걸러지지 않는다. 지워진 계정이 살아 있는 세션을 갖는
-        # 상태가 되어, 화면은 정상인데 다른 경로에서는 없는 사람이 된다.
-        if user.is_deleted:
-            user.is_deleted = False
+        try:
+            await session.flush()
+        except IntegrityError:
+            # ⚠️ **동시 최초 로그인 경합** (#1495). 인터뷰는 여러 명이 같은 링크를 거의
+            # 동시에 누른다. 행이 아직 없을 때 둘이 함께 들어오면 뒤쪽이 PK·UNIQUE 위반으로
+            # 500을 낸다 — 한 번뿐이지만 **하필 처음 여는 순간**이라 눈에 띈다.
+            #
+            # 되돌리고 다시 읽는다. 이 시점에는 아직 아무것도 쓰지 않았으므로(감사 기록은
+            # 아래에서 남긴다) 롤백으로 잃는 것이 없다.
+            await session.rollback()
+            user = await session.get(AppUser, _TOUR_USER_ID)
+            if user is None:  # pragma: no cover - 충돌했는데 행이 없을 수는 없다
+                raise
+
+    #
+    # 여기부터는 행이 **있다** — 방금 넣었든, 경합으로 남이 넣은 것을 읽었든.
+    #
+    # 복구를 `else`가 아니라 이 자리에 두는 이유 (#1495): 경합으로 남의 행을 읽은 경우에도
+    # 그 행이 강등·탈퇴·해시 변경 상태일 수 있다. `else`에 두면 그 갈래만 건너뛴다.
+    #
+
+    # 누군가 화면에서 이 계정을 강등했더라도 되돌린다 — 다음 인터뷰가 조용히
+    # 반쪽짜리가 되지 않게. `auth_dev`가 사무직을 되돌리는 것과 같은 자리다.
+    if user.role != ROLE_ADMIN:
+        user.role = ROLE_ADMIN
+    if user.email_verified_at is None:
+        user.email_verified_at = _TOUR_VERIFIED_AT
+    # **탈퇴 상태도 되돌린다.** 둘러보기 세션은 관리자라 `DELETE /auth/me`를 누를 수
+    # 있고, 그러면 이 행에 `is_deleted`가 선다. 그 상태를 그대로 두면 다음 사람이
+    # **탈퇴한 계정으로 세션을 받는다** — 로그인 조회는 `is_deleted == 0`으로 거르는데
+    # 여기는 PK로 직접 가져오므로 걸러지지 않는다. 지워진 계정이 살아 있는 세션을 갖는
+    # 상태가 되어, 화면은 정상인데 다른 경로에서는 없는 사람이 된다.
+    if user.is_deleted:
+        user.is_deleted = False
+    # **비밀번호 해시도 자리표시자로 되돌린다** (#1495).
+    #
+    # 이 계정은 Argon2 형식이 아닌 값을 넣어 `POST /auth/login`을 막아 둔다. 그런데
+    # 비밀번호 재설정이 그 방어를 지울 수 있었다 — 그 경로는 `#1495`에서 막았지만,
+    # **막기 전에 이미 바뀐 행**이 배포본에 남아 있을 수 있다. 여기서 되돌리면 그 행도
+    # 다음 둘러보기 로그인에 스스로 낫는다.
+    if user.password_hash != _TOUR_PASSWORD_HASH:
+        user.password_hash = _TOUR_PASSWORD_HASH
 
     session_token, csrf_token = await _issue_session(session, request, user)
     # 일반 로그인과 **같은 이벤트 스트림**에 남기고 플래그로 가른다 — 둘러보기로 한
@@ -739,7 +771,15 @@ async def delete_me(
 
     # 마지막 관리자는 탈퇴할 수 없다 (#672 · #1301 · `API_SPEC §1.2`). 관리자 0명이 되면
     # 아무도 역할을 되돌릴 수 없다 — `#506`이 연 탈퇴 경로에 조건 하나를 더한다.
-    if user.role == ROLE_ADMIN and await _lock_admin_users(session) <= 1:
+    # ⚠️ **둘러보기 스텁은 이 판정의 대상이 아니다** (#1495). 스텁은 계수에서 빠져 있으므로
+    # (`_lock_admin_users`), 스텁 자신이 탈퇴할 때 사람 관리자가 한 명뿐이면 계수가 1이 되어
+    # 「마지막 관리자라 탈퇴할 수 없다」로 막혔다 — **사실이 아니고**, 노출을 줄이려 스텁을
+    # 지우려는 운영자를 막는다. 스텁이 사라져도 사람 관리자는 그대로다.
+    if (
+        user.role == ROLE_ADMIN
+        and user.id != _TOUR_USER_ID
+        and await _lock_admin_users(session) <= 1
+    ):
         return _error_response(request, 409, "CONFLICT", LAST_ADMIN_MESSAGE)
 
     user.is_deleted = True
@@ -831,7 +871,12 @@ async def update_user_role(
     if before == payload.role:
         return JSONResponse(content={"data": _user_payload(target), "meta": _meta(request)})
 
-    if before == ROLE_ADMIN and await _lock_admin_users(session) <= 1:
+    # 위 탈퇴와 같은 이유로 둘러보기 스텁은 대상이 아니다 (#1495).
+    if (
+        before == ROLE_ADMIN
+        and target.id != _TOUR_USER_ID
+        and await _lock_admin_users(session) <= 1
+    ):
         return _error_response(request, 409, "CONFLICT", LAST_ADMIN_MESSAGE)
 
     target.role = payload.role

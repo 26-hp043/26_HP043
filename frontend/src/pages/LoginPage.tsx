@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router'
 import { AuthAlert, AuthField, AuthShell } from '../features/auth/AuthShell'
 import { ErrorState } from '../components/ErrorState'
@@ -39,8 +39,31 @@ export function LoginPage() {
    * 둘러보기 링크 (`#1486`). 코드는 링크에 실려 오며, **버튼의 존재 자체가
    * 기능을 알리므로** 코드가 없으면 버튼을 렌더하지 않는다 — 아래 `submitTour`가
    * 아니라 렌더 분기에서 막는다.
+   *
+   * **첫 렌더에 한 번만 읽고 state로 들고 있는다** (`#1495`). 바로 아래에서 주소창의
+   * `?tour=`를 지우기 때문에, 매 렌더 `searchParams`를 다시 읽으면 두 번째 렌더에서
+   * 코드가 사라져 버튼이 없어진다.
    */
-  const tourCode = searchParams.get('tour')
+  const [tourCode] = useState(() => searchParams.get('tour'))
+
+  /*
+   * 주소창에서 코드를 지운다 (`#1495`).
+   *
+   * 코드는 URL에 실려 오므로 **브라우저 히스토리·북마크·화면 공유·뒤로가기**에 그대로
+   * 남는다. 인터뷰 자리에서 화면을 함께 보는 일이 잦아, 지우지 않으면 **의도하지 않은
+   * 사람에게 관리자 세션을 여는 열쇠가 그대로 보인다.**
+   *
+   * `replaceState`라 히스토리 항목을 **늘리지 않고 덮는다** — 뒤로가기로 코드가 있는
+   * 주소로 돌아가지 않는다. 읽기는 위에서 이미 끝났으므로 기능에는 영향이 없다.
+   */
+  useEffect(() => {
+    if (!tourCode) return
+    try {
+      window.history.replaceState(null, '', LOGIN_PATH)
+    } catch {
+      // 히스토리 조작이 막힌 환경(일부 내장 브라우저)에서도 로그인은 그대로 된다.
+    }
+  }, [tourCode])
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
