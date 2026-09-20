@@ -97,6 +97,13 @@ export interface VoyageCiiData {
    * Layer 1. 다음 악화 등급 경계까지의 여유.
    * 등급 E는 더 나쁜 등급이 없어 `null`이다.
    */
+  /** 등급 경계 CII 4종 — 서버가 Layer 1 컨텍스트 안에서 낸 값 (#1371 · API_SPEC §4.1). */
+  rating_boundary_cii: {
+    superior_boundary: string
+    lower_boundary: string
+    upper_boundary: string
+    inferior_boundary: string
+  }
   next_worse_boundary_margin: string | null
   /** Layer 1. 위 값 ÷ `required_cii`. 등급 E는 `null`. */
   next_worse_boundary_margin_ratio: string | null

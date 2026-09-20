@@ -136,6 +136,13 @@ def _voyage_estimate_result() -> dict:
         required_cii=Decimal("5.045066"),
         ratio_to_required=Decimal("0.98758"),
         rating="C",
+        # `#1371` — 응답이 등급 경계 CII 4종을 싣는다. 값은 `TECH_SPEC §1.2.3` 정본이다.
+        boundaries={
+            "superior_boundary": Decimal("4.33875704594671657205643342421"),
+            "lower_boundary": Decimal("4.74236235254641113689889234739"),
+            "upper_boundary": Decimal("5.34777031244595298416258073217"),
+            "inferior_boundary": Decimal("5.95317827234549483142626911694"),
+        },
         margin=Decimal("0.365370"),
         margin_ratio=Decimal("0.0724"),
         total_co2_t=Decimal("249.12"),
