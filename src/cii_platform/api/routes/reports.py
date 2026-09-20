@@ -33,7 +33,7 @@ from cii_platform.errors import ValidationError
 from cii_platform.reports.csv_export import iter_csv
 from cii_platform.reports.document import ReportDocument
 from cii_platform.reports.html import render_html
-from cii_platform.reports.pdf import render_pdf
+from cii_platform.reports.pdf import render_pdf_async
 from cii_platform.services.report import build_annual_report, build_voyage_report
 
 router = APIRouter(tags=["reports"])
@@ -55,7 +55,20 @@ def _disposition(document: ReportDocument, extension: str) -> str:
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
 
 
-def _respond(document: ReportDocument, fmt: str) -> Response:
+async def _release_session(session: AsyncSession) -> None:
+    """문서를 다 읽었으면 **트랜잭션을 닫아 커넥션을 풀에 돌려준다** (`#1363` · `#1364`).
+
+    수집(``services.report``)은 읽기만 하므로 이 자리에 확정할 변경이 없다. 그런데 읽기도
+    트랜잭션을 열어(SQLAlchemy autobegin) **커넥션을 체크아웃한 채로 둔다** — 그 상태로
+    렌더링(1초 안팎, 상한 1이라 줄을 서면 더)에 들어가면 커넥션이 그 시간만큼 묶이고,
+    기본 풀(5+10)이 마르면 리포트와 무관한 요청까지 30초 뒤 실패한다.
+
+    CSV·HTML 경로에서도 닫는다 — 문서를 만든 뒤에는 어느 형식이든 DB를 쓰지 않는다.
+    """
+    await session.commit()
+
+
+async def _respond(document: ReportDocument, fmt: str) -> Response:
     if fmt not in FORMATS:
         raise ValidationError(
             f"지원하지 않는 형식입니다: {fmt}. {' · '.join(FORMATS)} 중 하나여야 합니다.",
@@ -75,8 +88,10 @@ def _respond(document: ReportDocument, fmt: str) -> Response:
         # 미리보기는 첨부가 아니라 화면에 그린다 — Content-Disposition을 붙이지 않는다.
         return Response(content=html, media_type="text/html; charset=utf-8")
 
+    # 렌더링은 **스레드에서** 한다 (`#1363`). 여기서 직접 부르면 1초 안팎 동안 이벤트
+    # 루프가 멈춰 같은 워커의 다른 요청이 전부 밀린다.
     return Response(
-        content=render_pdf(html),
+        content=await render_pdf_async(html),
         media_type="application/pdf",
         headers={"Content-Disposition": _disposition(document, "pdf")},
     )
@@ -97,7 +112,8 @@ async def voyage_report_route(
     항차의 리포트가 시점마다 달라진다.
     """
     document = await build_voyage_report(session, voyage_id, as_of=as_of)
-    return _respond(document, format)
+    await _release_session(session)
+    return await _respond(document, format)
 
 
 @router.get("/vessels/{vessel_id}/annual-report")
@@ -114,4 +130,5 @@ async def annual_report_route(
 ) -> Response:
     """연간 실적 리포트를 생성한다 (API_SPEC §8.4 · PRD §25.3)."""
     document = await build_annual_report(session, vessel_id, year=year, as_of=as_of)
-    return _respond(document, format)
+    await _release_session(session)
+    return await _respond(document, format)

@@ -27,6 +27,28 @@
 **면책 문구가 □인 문서를 200으로** 내보내고 있었다. 판정 근거는 ``TECH_SPEC §19.4``에
 적었다.
 
+## 렌더링은 **스레드에서, 한 번에 하나만** (`#1363`)
+
+``write_pdf()``는 순수 CPU 작업이고 1초 안팎이 걸린다. ``async`` 라우트에서 그대로 부르면
+**그 시간 동안 이벤트 루프가 멈춰** 헬스·로그인·계산 응답이 함께 밀린다(감사 실측: 10 ms
+틱이 최대 548 ms 정지). 그래서 :func:`render_pdf_async`가 스레드로 내보낸다 —
+``auth/password.py``가 Argon2에 쓰는 것과 같은 틀이다.
+
+**동시 상한은 1이다.** WeasyPrint는 거의 순수 파이썬이라 GIL을 놓지 않으므로, 동시에
+돌리면 서로를 느리게 만들 뿐이다. 실측(120행 표 · 예열 후):
+
+============  ==========  ================
+ 동시 건수     걸린 시간   최대 RSS 증가
+============  ==========  ================
+ 1             0.46초      +18 MiB
+ 2             1.56초      +29 MiB
+ 4             8.12초      +54 MiB
+ 8             23.77초     +110 MiB
+============  ==========  ================
+
+4건을 동시에 돌리면 8.12초인데 **한 건씩 줄 세우면 약 1.84초**다. 상한을 올리는 것은
+느려지는 대가로 메모리를 더 쓰는 것에 지나지 않는다.
+
 ## 지연 import
 
 WeasyPrint는 import 시점에 Pango를 연다. 이 모듈이 최상단에서 import하면 라이브러리가
@@ -38,7 +60,16 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+import anyio.to_thread
+
 from cii_platform.errors import AppError
+
+#: 동시에 도는 렌더링의 상한. **1이다** — 모듈 docstring의 실측 표 참조. 올리면 느려지고
+#: 메모리만 더 쓴다. 전용 한도를 두는 이유는 기본 스레드풀(40)을 공유하지 않기 위해서이기도
+#: 하다 — 리포트가 몰릴 때 비밀번호 해싱 같은 다른 스레드 작업까지 굶기지 않는다.
+MAX_CONCURRENT_RENDERS = 1
+
+_render_limiter = anyio.CapacityLimiter(MAX_CONCURRENT_RENDERS)
 
 
 class PdfUnavailableError(AppError):
@@ -166,3 +197,20 @@ def _render(html: str) -> bytes:
         raise PdfUnavailableError(str(exc)) from exc
 
     return HTML(string=html).write_pdf()
+
+
+async def render_pdf_async(html: str) -> bytes:
+    """:func:`render_pdf`를 **스레드에서** 실행한다 (`#1363`).
+
+    요청 경로(``async`` 라우트)는 이 함수를 쓴다. :func:`render_pdf`를 직접 부르면
+    렌더링이 끝날 때까지 **이벤트 루프가 멈춰** 같은 워커의 다른 요청이 전부 밀린다.
+
+    동시 상한(:data:`MAX_CONCURRENT_RENDERS`)은 **1**이다 — 스레드로 내보내는 목적은
+    루프를 풀어 주는 것이지 렌더링을 병렬로 돌리는 것이 아니다. 모듈 docstring의 실측
+    표가 그 근거이며, 상한을 넘은 요청은 앞 건이 끝날 때까지 **루프를 막지 않고**
+    기다린다.
+
+    폰트·렌더러 판정은 :func:`render_pdf` 안에서 그대로 일어난다 — 스레드 경계를 넘어
+    오는 것은 :class:`PdfUnavailableError` 하나이고, 호출부의 처리는 종전과 같다.
+    """
+    return await anyio.to_thread.run_sync(render_pdf, html, limiter=_render_limiter)
