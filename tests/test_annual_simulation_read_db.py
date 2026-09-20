@@ -1048,6 +1048,13 @@ async def test_a_run_with_the_factor_on_reproduces(session, vessel_id):
     assert again["data"]["deterministic"] == executed["data"]["deterministic"]
     assert again["data"]["feedback"] == executed["data"]["feedback"]
 
+    # ⚠️ **`==`로는 타입이 갈린 것을 못 본다** (`#1349`). CUBRID dialect가 `Boolean`을
+    # `SMALLINT`로 내리므로, 재현 경로의 생 SQL이 타입 없이 읽으면 `1`이 올라와
+    # `1 == True`로 통과한다 — 실행·조회는 `true`인데 **재현만 `1`**인 상태다.
+    # 화면은 truthiness라 보이는 영향이 없어 더 오래 남는다.
+    assert again["data"]["feedback"]["requested"] is True
+    assert executed["data"]["feedback"]["requested"] is True
+
 
 @pytest.mark.asyncio
 async def test_turning_the_factor_off_keeps_the_input_hash(session, vessel_id):

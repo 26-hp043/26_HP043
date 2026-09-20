@@ -354,6 +354,10 @@ async def _create_from_scenario(
         ],
         notes=None,
         created_from="FEATURE_2_ADOPTED",
+        # **여기서 커밋하지 않는다** (`#1349`). 호출부가 이어서 채택 표시·재계산 표시를
+        # 쓰고 마지막에 한 번 커밋한다 — 종전에는 새 항차가 먼저 확정돼, 뒤 단계가
+        # 실패하면 **채택 기록 없는 DRAFT 항차**가 남았다.
+        commit=False,
     )
 
 
