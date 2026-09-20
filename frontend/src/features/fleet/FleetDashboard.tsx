@@ -8,6 +8,7 @@ import { GradeDistribution } from './GradeDistribution'
 import { VesselMark } from './VesselMark'
 import { AnchorIcon, UnderwayChip, UnderwayIcon } from './UnderwayChip'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
+import { formatTimestamp } from '../../display/format'
 import { ErrorState } from '../../components/ErrorState'
 import { PositionChart } from './PositionChart'
 /*
@@ -503,17 +504,8 @@ function FleetHead({
         <p className="fleet__asof">
           {/* 상대 시각만으로는 어느 시점 데이터인지 특정할 수 없어 원본도 함께 둔다. */}
           <span className="fleet__asof-abs">
-            {/*
-              초를 내지 않는다. 선대 스냅숏의 기준 시각에 30초는 의미가 없고,
-              바로 옆에 상대 시각(「방금」)이 이미 있다. `toLocaleString`이
-              기본으로 초를 붙이는 것이라 형식을 명시해 끈다.
-            */}
-            기준{' '}
-            {new Date(asOf).toLocaleString('ko-KR', {
-              hour12: false,
-              dateStyle: 'medium',
-              timeStyle: 'short',
-            })}
+            {/* 형식은 `formatTimestamp`가 갖는다 (#1420) — 초를 내지 않는 판단이 그 안에 있다. */}
+            기준 {formatTimestamp(asOf)}
           </span>
           <span className="fleet__asof-rel">{relativeTime(asOf, new Date())}</span>
         </p>

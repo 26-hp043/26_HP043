@@ -258,6 +258,38 @@ export function formatGrouped(value: string, digits: number): string {
  * formatPercent('1')         // '100.0'
  */
 /**
+ * 기준 시각·기록 시각의 표시 형식 (#1420).
+ *
+ * ## 화면마다 달랐다
+ *
+ * `toLocaleString('ko-KR', { hour12: false })`을 화면이 직접 불러, 같은 성질의 값이
+ * 「2026. 9. 20. 22시 37분 22초」(선박 상세·실시간 CII·계산 이력·정박 기록)와
+ * 「2026. 9. 20. 22:37」(대시보드)로 갈렸다. 대시보드만 형식을 명시해 초를 끄고 있었고,
+ * 그 주석이 이유를 적어 두었다 — *「선대 스냅숏의 기준 시각에 30초는 의미가 없다」*.
+ * 그 판단은 다른 화면에서도 같으므로 여기로 올린다.
+ *
+ * ## 분까지만 적는다
+ *
+ * 이 값들은 **언제 기준인가**를 말하는 자리이고, 초는 읽는 사람이 쓸 수 있는 정보가
+ * 아니다. 60초마다 갱신되는 실시간 화면도 초를 보여 줄 이유가 없다 — 그 화면은 상대
+ * 시각(「방금 갱신」)을 따로 낸다.
+ *
+ * ## 시간대는 KST로 고정한다
+ *
+ * 종전에는 브라우저 시간대를 따랐다. `DESIGN_SYSTEM §11`이 수집 시각을 **KST**로 적고
+ * 서버도 KST 기준으로 말하므로, 다른 시간대에서 연 화면이 **같은 값을 다른 시각으로**
+ * 보이는 자리를 없앤다.
+ */
+export function formatTimestamp(value: string | Date): string {
+  return new Date(value).toLocaleString('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    hour12: false,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+}
+
+/**
  * 선박 용량(DWT·GT)을 표시 문자열로 (`DESIGN_SYSTEM §4.2` · #633).
  *
  * **화면마다 따로 포맷하지 않는다.** 종전에는 선박 관리 목록이

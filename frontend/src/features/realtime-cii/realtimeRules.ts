@@ -1,4 +1,5 @@
 import type { DVector } from '../../components/gradeScale'
+import { formatTimestamp } from '../../display/format'
 import { warningMessage } from '../voyage-cii/resultRules'
 import type { RiskLevel } from '../voyage-cii/types'
 import type { Rating, RealtimeCii, YtdValues } from './types'
@@ -338,9 +339,14 @@ export function formatOrNull(
   return value === null ? null : format(value)
 }
 
-/** 기준 시각 표시. 실시간 화면에서는 값 자체만큼 중요한 정보다. */
+/**
+ * 기준 시각 표시. 실시간 화면에서는 값 자체만큼 중요한 정보다.
+ *
+ * 형식은 `display/format`의 `formatTimestamp`가 갖는다 (#1420) — 화면마다 다르던 자리다.
+ * 이 이름을 남겨 두는 것은 호출부가 「이 화면의 기준 시각」으로 읽기 때문이다.
+ */
 export function formatAsOf(asOf: string): string {
-  return new Date(asOf).toLocaleString('ko-KR', { hour12: false })
+  return formatTimestamp(asOf)
 }
 
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ErrorState } from '../../components/ErrorState'
+import { formatTimestamp } from '../../display/format'
 import { fetchCalculationPage, type CalculationRow } from './calculationRuns'
 
 /**
@@ -162,7 +163,7 @@ export function CalculationHistory({
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id}>
-                  <td>{new Date(row.createdAt).toLocaleString('ko-KR', { hour12: false })}</td>
+                  <td>{formatTimestamp(row.createdAt)}</td>
                   <td>
                     {row.typeLabel}
                     {row.attachedToVoyage ? <span className="vd-calcs__tag">항차</span> : null}
