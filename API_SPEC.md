@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.41 |
+| 버전 | v1.42 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-20 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -2177,6 +2177,12 @@ POST /api/v1/calculations/voyage-cii
     "required_cii": "5.045066",
     "ratio_to_required": "0.98758",
     "estimated_rating": "C",
+    "rating_boundary_cii": {
+      "superior_boundary": "4.338757",
+      "lower_boundary": "4.742362",
+      "upper_boundary": "5.347770",
+      "inferior_boundary": "5.953178"
+    },
     "next_worse_boundary_margin": "0.365370",
     "next_worse_boundary_margin_ratio": "0.0724",
     "co2_emission_ton": "249.12",
@@ -2293,6 +2299,7 @@ Layer 1 결정론 수치는 **JSON 문자열**로 직렬화한다(§1.7). 입력
 | `required_cii` | **string** | Layer 1 |
 | `ratio_to_required` | **string** | Layer 1 |
 | `estimated_rating` | string | enum `A`~`E` |
+| `rating_boundary_cii` | **object** | Layer 1. 등급 경계 CII 4종(`superior`·`lower`·`upper`·`inferior`) — 값은 **string 6자리**. **화면이 `required_cii × d`로 다시 만들지 않게** 서버가 싣는다 (`#1371`) |
 | `next_worse_boundary_margin` | **string \| null** | Layer 1. **등급 E는 `null`** — 최하위 등급이라 악화 방향 경계가 없다 (#171) |
 | `next_worse_boundary_margin_ratio` | **string \| null** | Layer 1. 등급 E는 `null` (#171) |
 | `co2_emission_ton` | **string** | Layer 1 |
@@ -4048,3 +4055,4 @@ POST /api/v1/chat
 | 2026-09-20 | `#1318` | **v1.40 — §8.1·§8.5 CSV 수식 주입 방어를 「모든 셀」에서 「사용자 입력을 반출하는 셀과 라벨」로 좁히고, 수치 열은 렌더러가 숫자로 직렬화함을 규정.** 서버가 `Decimal`에서 만든 음수는 주입 벡터가 아닌데 종전 규정은 `-12.5`도 `'-12.5`로 만들어 스프레드시트가 **문자열로** 읽게 했다 — 지금 열들은 CHECK 제약상 음수가 없어 잠재형이지만 증감 열이 생기는 순간 열 전체가 문자열이 된다. 수치 열인지는 **열 선언으로만**(`TableSection.kinds` · `data_export.NUMERIC_COLUMNS`) 정하고 값 모양은 보지 않는다 — 종전 각주의 「판정기 자체가 취약점」은 그대로 유효하다. 선언된 열에 숫자 문법 밖의 값이 오면 문자열 규칙으로 되돌아간다(fail-closed — 수치 열에 `—`가 실제로 실리므로 `ValueError`로 세우지 않는다). §8.1 「값의 표기」 수치 행에 음수 표기를 보탰다. PDF·HTML과 `§8.2` 가져오기 방어는 무변경. 방어 규칙의 범위 변경이라 `AGENTS §4.3`에 따라 판본을 올린다 (#1247) |
 | 2026-09-20 | `#1319` | **v1.41 — §3.3 `planned_distance_source` 요청 필드·각주 등재 · §3.1 항차 객체에 `planned_distance_source` 키 추가 · §3.4 「거리를 바꾸면서 출처를 생략하면 `null`로 돌아간다」 각주**(#1052 ⓷ 후속 · 마이그레이션 059). `PRD §15.2`의 「좌표 기반 추정 거리」 표시가 저장된 항차에서는 불가능했다 — 거리 출처가 값으로 없었다. 값은 `USER_INPUT`·`COORDINATE_ESTIMATE` 둘이고 **생략은 `null` = 「모른다」**다(서버는 호출자가 숫자를 어떻게 얻었는지 모르므로 직접 입력으로도 적지 않는다). 화면은 항상 보내고, CSV 가져오기(`§8.2`)는 `USER_INPUT`, 시나리오 채택(`§5.2`)은 `null`이다. 거리가 바뀌면 옛 출처를 새 숫자에 남기지 않는다 — 직접 고친 값에 「추정」이 남는 것이 `PRD §0.3`이 금하는 거짓말이다. 요청 필드·객체 키 추가라 #966(v1.37)·#1197(v1.39)과 같은 기준으로 버전을 올린다 (#1256) |
 | 2026-09-20 | `#1361` | §6.3 응답에 **값 선택 규칙 각주** 추가 — `distance_nm`·`fuel_uses[].fuel_ton`은 「그 실행의 계산이 실제로 쓴 값」이고, `INCLUDE_AS_ACTUAL` 행은 실적 우선(`PRD §8.3`), **`INCLUDE_AS_PLAN` 행은 계획값만**. 종전 명세는 어느 벌을 싣는지 적지 않았고(`DB_SCHEMA §2.7` 각주가 「실적이 있으면 실적」 한 규칙만 적었다) 구현은 모든 행에 그 한 규칙을 적용해, `§3.6`이 허용하는 「항해 중 실적 일부를 넣은 진행(PLAN) 항차」가 **계산에 쓰지 않은 값**으로 「이 실행에 쓴 항차」에 나갔다 — 재현성 근거 화면이 거짓 근거였다. 구현(`services/annual_simulation.py` `_snapshot_voyage_view`)을 계산(`_inputs_from_snapshot`)의 `kind` 분기에 맞췄고 `tests/test_annual_simulation_read_db.py`가 응답의 `planned_W_capacity_nm`·`planned_M_gco2`와 목록의 PLAN 행을 대조한다. 필드·모양은 그대로이고 각주 보강이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#1337) |
+| 2026-09-20 | `#1385` | **v1.42 — §4.1 응답에 `rating_boundary_cii` 추가 (`#1371`).** 등급 경계 CII 4종을 **서버가 싣는다** — 종전에는 화면이 `required_cii`(표시용 6자리 문자열)를 float로 바꿔 d-vector를 곱하고 그 곱을 다시 3자리로 반올림해, **이중 반올림**으로 411,120건 중 **87건**에서 서버와 끝자리가 갈렸다(예: 서버 `1.645` vs 화면 `1.646`). `PRD §9.3` 「내부 계산값은 화면 표시 반올림값을 다시 사용하지 않는다」·`TECH_SPEC [ORACLE-S-2]`가 막는 자리다. 값은 `determine_rating`이 Layer 1 컨텍스트 안에서 낸 것이며 자릿수는 `attained_cii`·`required_cii`와 같은 **6자리**다(셋이 같은 축이라 나란히 놓으려면 같아야 한다). **등급 판정은 종전대로 서버가 하므로 등급이 바뀌는 변경이 아니다** — 화면에 적히는 경계 숫자만 서버와 일치하게 된다. 화면 표기 자릿수(3자리)도 그대로다. 새 필드라 `AGENTS §4.3`상 버전을 올린다 (#1371) |

@@ -413,6 +413,12 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
   "required_cii": "5.045066",
   "ratio_to_required": "0.98758",
   "estimated_rating": "C",
+  "rating_boundary_cii": {
+    "superior_boundary": "4.338757",
+    "lower_boundary": "4.742362",
+    "upper_boundary": "5.347770",
+    "inferior_boundary": "5.953178"
+  },
   "next_worse_boundary_margin": "0.365370",
   "next_worse_boundary_margin_ratio": "0.0724",
   "co2_emission_ton": "249.12",
@@ -2177,4 +2183,5 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-20 | `#1320` | §2.13 `weather_snapshot.source` 값 목록에 **`open_meteo_marine+forecast`**(정상 경로 기본값 — Marine·Forecast 두 엔드포인트를 한 행에 합침) 추가 · 값 표의 정본을 `TECH_SPEC §7.1`로 가리키고, 이 컬럼에 **집행 제약이 없다**는 실측(`1c444a5c4819` CHECK·`046`·`048`·`050` 트리거·ORM 어디에도 없음 — 자유 `VARCHAR(50)`)을 각주로 적었다. 어댑터 `SOURCE_MERGED`가 처음부터 이 값을 저장해 왔으므로 REJECT된 적 없고 마이그레이션 없음. 캐시 각주에 「외부 조회 실패 시에만 본다」 한 줄(`TECH_SPEC §7.3` v1.14). 값 목록 행 갱신이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#968) |
 | 2026-09-20 | `#1361` | §2.7 `voyages_json` 필드 표 `planned_*`/`actual_*` 행과 「API 응답과 모양이 다른 것은 의도다」 각주의 투영 규칙을 **행 종류별**로 정정 — 계산은 `ACTUAL` 행만 「실적이 있으면 실적」이고 `PLAN` 행은 **계획값만** 쓴다(`TECH_SPEC §11.4`). 종전 각주는 한 규칙만 적었고 `§6.3` 조회 구현이 그 문장대로 모든 행에 적용해, 진행(`IN_PROGRESS`) 항차의 실적 일부가 계산에 쓰이지 않았는데도 「이 실행에 쓴 항차」에 나갔다(`API_SPEC §6.3` `[#1337]` 각주). 저장 형태·예시 JSON·컬럼은 무변경. 각주 정정이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#1337) |
 | 2026-09-20 | `#1362` | **v1.34 — head `059` 대조.** 헤더는 v1.33까지 올라가 있었는데 절 일곱이 `051`~그 이전에 멈춰 있었다 — ⑴ §2.6에 `052` `as_of`·`053` `alternative_fuel` 두 열이 없었다(재현이 해시 키로 되살리는 값의 저장 위치가 정본에 없었다) → 두 행 + 「NULL이면 해시 키가 없다」 각주 ⑵ §8.1.0 그래프가 `051`에서 끝났다 → `059` ⑶ §7.1 FK 표 14행에 현행 FK 11건이 없었다(`app_user`를 부모로 하는 4건 전부 — 계정 물리 삭제 시 세션·토큰·대화·계획이 어떻게 되는지 총람으로는 볼 수 없었다) → 25행 + 「FK 21 + 트리거 대체 4」 각주 ⑷ 병합 전 리비전(`017`·`031`·`032`·`037`·`016`·`040`)이 §8.1.1·§8.1.2·§8.3·§2.21에 현행처럼 남아 있었다 → `6c7496c4d122`·`045`·`1c444a5c4819`와 `migration_guard.IRREVERSIBLE`의 현행 키로. `6c7496c4d122`가 넣는 행은 50이 아니라 **63**(기상 계수 10 · 시뮬 3 포함 — `migration_guard` 문자열도 정정) ⑸ §7.4 트리거 표 148은 `051` 시점이다 → `051`/`059` 두 열(**160** = 148 + `054` 6 + `055`·`058`·`059` 각 2). `a7d3e9b14f26` 「15개」는 세는 실수(4 + 6 + 4 = **14**) ⑹ §7.2가 PostgreSQL 트리거 5개만 적고 있었는데 CUBRID 배포는 `049`의 열 속성 `ON UPDATE CURRENT_DATETIME` **7테이블**이다(`app_user`·`not_underway_period` 포함) → 문단 추가 · 열 행 7곳 · §7.4 여덟째 항목 · ORM 주석 6곳 ⑺ §2.23 DDL 블록에 `056` `vessel_id`가 없었고, §2.1·§2.2·§2.15·§2.16 인덱스의 `WHERE …`는 CUBRID에 없다(`1c444a5c4819`는 전부 조건 없음 · `047`이 UNIQUE 둘을 비유일 + `trg_uq_`로) → DDL 한 줄 · 인덱스 블록 4곳 CUBRID 주석. 새 검사 `tests/test_dbschema_head_sync.py`가 그래프 끝·트리거 합계·§2.6 열 집합을 마이그레이션·ORM과 대조한다. 절 신설은 없으나 §7.1·§7.2·§7.4의 구조를 바꿨으므로 `AGENTS §4.3`에 따라 버전을 올린다 (#1342) |
+| 2026-09-20 | `#1385` | §2.5 `VOYAGE_ESTIMATE` 저장 예시에 `rating_boundary_cii` 4종 추가 (`#1371` · `API_SPEC §4.1` v1.42와 같은 변경). `tests/test_dbschema_json_example_sync.py`가 **예시 키와 실제 `result_json` 키를 대조**하므로 응답에 필드가 늘면 이 예시도 함께 늘어야 한다 — 실제로 그 검사가 이번 변경을 잡았다. `AGENTS §4.3`상 예시 행 추가라 버전은 올리지 않는다 (#1371) |
 | 2026-09-20 | `#1387` | §2.14 `audit_log`의 `action`·`entity_type` 열거를 **코드와 같게** 맞추고 각주로 사유를 남겼다 (`#1343`). 두 목록이 **양쪽으로** 어긋나 있었다 — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다(`entity_type`도 `app_user`·`chat_session`이 빠지고 쓰이지 않는 4개가 있었다). 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) **DB가 알려 주지 않으므로** 새 검사 `tests/test_audit_enum_sync.py`(6함수)가 `코드 리터럴 == services/audit.AUDIT_ACTIONS(+ migration_guard.BACKUP_ACTION) == 이 행`을 양방향으로 잠근다(`#968`의 `weather_snapshot.source`와 같은 틀). 계획값(`VOYAGE_TRANSITION` · `#1328`)은 **목록에 미리 적지 않는다** — 적으면 있는 것과 없는 것을 구분할 수 없게 된다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1343) |

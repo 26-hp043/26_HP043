@@ -91,3 +91,54 @@ describe('목표 등급 역산 (#727)', () => {
     expect(gradeTargets({ ...DATA, attained_cii: '5.000' }, BOUNDARY)).toEqual([])
   })
 })
+
+describe('경계 CII는 서버 값 그대로다 (#1371)', () => {
+  /*
+   * 종전에는 `required_cii`(표시용 6자리 문자열)를 float로 바꿔 d-vector를 곱했다.
+   * 411,120건 스캔에서 87건(0.021%)의 끝자리가 서버 값과 달랐다 — 예: BULK
+   * 274,178 DWT 2026 lower, 서버 `1.645` vs 화면 `1.646`. 등급 판정은 서버가 하므로
+   * 등급이 틀리지는 않지만, 화면이 「이 값 이하면 B」라고 적는 숫자가 서버와 다르다.
+   */
+  const SERVER_BOUNDARIES = {
+    superior_boundary: '1.000001',
+    lower_boundary: '2.000002',
+    upper_boundary: '3.000003',
+    inferior_boundary: '4.000004',
+  }
+
+  it('서버가 실어 준 값을 그대로 쓴다 — 다시 곱하지 않는다', () => {
+    const targets = gradeTargets(
+      { ...DATA, estimated_rating: 'E', rating_boundary_cii: SERVER_BOUNDARIES },
+      BOUNDARY,
+    )
+
+    // 서버 값(6자리)을 **표시 자릿수(3자리)로 한 번만** 줄인다 — 곱셈이 없다.
+    expect(targets.map((t) => t.boundaryCii)).toEqual(['1.000', '2.000', '3.000', '4.000'])
+  })
+
+  it('끝자리가 갈리는 실제 조합에서 서버 값을 따른다', () => {
+    // `required × d`를 float로 계산하면 `1.646`, 서버 정본은 `1.645`인 조합이다.
+    const targets = gradeTargets(
+      {
+        ...DATA,
+        estimated_rating: 'B',
+        required_cii: '1.851449',
+        attained_cii: '1.700000',
+        rating_boundary_cii: { ...SERVER_BOUNDARIES, superior_boundary: '1.645' },
+      },
+      { ...BOUNDARY, d1: '0.888771' },
+    )
+
+    expect(targets).toHaveLength(1)
+    expect(targets[0].boundaryCii).toBe('1.645')
+    // 곱셈으로 되살리면 여기서 갈린다 — 이중 반올림이 3번째 자리를 올린다.
+    expect((1.851449 * 0.888771).toFixed(3)).toBe('1.646')
+  })
+
+  it('서버가 싣지 않은 응답(옛 이력)에서는 곱셈으로 되살린다', () => {
+    const targets = gradeTargets({ ...DATA, rating_boundary_cii: null }, BOUNDARY)
+
+    expect(targets.length).toBeGreaterThan(0)
+    expect(targets[0].boundaryCii).toMatch(/^\d+\.\d{3}$/)
+  })
+})

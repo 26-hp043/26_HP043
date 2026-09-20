@@ -123,6 +123,9 @@ SERIALIZATION_DIGITS = {
     "fuel_ton": 2,
     #: ``calculation_basis.fuel_cf_details[].fuel_ton`` — 계약 예시가 ``"80.0"``이다.
     "detail_fuel_ton": 1,
+    #: 등급 경계 CII 4종 (`#1371`). ``attained_cii``·``required_cii``와 **같은 6자리**다 —
+    #: 셋이 같은 축(CII)의 값이라 자릿수가 다르면 화면에서 나란히 놓을 수 없다.
+    "boundary_cii": 6,
 }
 
 #: TECH_SPEC §5.4 재현성 계약이 응답에 싣도록 규정한 엔진 식별자.
@@ -599,6 +602,15 @@ def _build_data(
             layer1.ratio_to_required, SERIALIZATION_DIGITS["ratio_to_required"]
         ),
         "estimated_rating": layer1.rating,
+        # 등급 경계 CII 4종 (`#1371`). **화면이 다시 곱하지 않게 서버가 싣는다** —
+        # 종전에는 화면이 `required_cii`(표시용 6자리 문자열)를 float로 바꿔 d-vector를
+        # 곱했고, 411,120건 중 87건에서 끝자리가 갈렸다(`PRD §9.3` 「내부 계산값은 화면
+        # 표시 반올림값을 다시 사용하지 않는다」 · `TECH_SPEC [ORACLE-S-2]` 위반).
+        # 값은 `determine_rating`이 Layer 1 컨텍스트 안에서 낸 것 그대로다.
+        "rating_boundary_cii": {
+            name: _publish(value, SERIALIZATION_DIGITS["boundary_cii"])
+            for name, value in layer1.boundaries.items()
+        },
         # 등급 E는 악화 방향 경계가 없어 null이다 (#171 결론 · PRD §9.2).
         "next_worse_boundary_margin": (
             None

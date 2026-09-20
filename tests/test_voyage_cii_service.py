@@ -133,6 +133,31 @@ class TestSerializationMatchesApiSpec:
         value = getattr(layer1, attr)
         assert svc._publish(value, svc.SERIALIZATION_DIGITS[digits_key]) == expected
 
+    @pytest.mark.parametrize(
+        ("key", "expected"),
+        [
+            ("superior_boundary", "4.338757"),
+            ("lower_boundary", "4.742362"),
+            ("upper_boundary", "5.347770"),
+            ("inferior_boundary", "5.953178"),
+        ],
+    )
+    def test_rating_boundary_cii_is_published_at_six_digits(self, layer1, key, expected):
+        """응답의 등급 경계 CII 4종 (`#1371` · `API_SPEC §4.1`).
+
+        **화면이 `required_cii × d`로 다시 만들지 않게** 서버가 싣는 값이다. 종전에는
+        화면이 표시용 6자리 문자열을 float로 바꿔 곱하고 그 곱을 다시 3자리로
+        반올림해, **이중 반올림**으로 411,120건 중 87건에서 끝자리가 갈렸다.
+
+        자릿수는 `attained_cii`·`required_cii`와 **같은 6자리**다 — 셋이 같은 축(CII)의
+        값이라 다르면 화면에서 나란히 놓을 수 없다. 기대값은 `TECH_SPEC §1.2.3` 정본
+        30자리(`canonical`)를 6자리로 줄인 것이다.
+        """
+        assert (
+            svc._publish(layer1.boundaries[key], svc.SERIALIZATION_DIGITS["boundary_cii"])
+            == expected
+        )
+
 
 class TestPlainSerialization:
     """``_plain()`` — 확정·반올림 대상이 아닌 값."""
