@@ -1,0 +1,22 @@
+# Cloudflare Pages 설정 (#1322).
+#
+# 이 파일이 생기기 전에는 배포 명령의 인자만으로 돌았다(`wrangler pages deploy dist
+# --project-name bluelog`). `functions/`에 `/api/*` 프록시가 생기면서 **그 함수가 읽을
+# 값**(`API_ORIGIN`)을 둘 자리가 필요해졌다.
+#
+# ## 왜 대시보드 환경변수가 아닌가
+#
+# Pages 프로젝트 설정에 넣으면 **저장소에서 보이지 않는다.** 배포가 어디로 가는지
+# 아는 방법이 사람의 기억뿐이 되고, 값이 바뀌어도 커밋에 남지 않는다. 백엔드 주소는
+# 이미 `docs/OPERATIONS.md`와 `deploy.yml`에 적혀 있던 공개 값이므로 숨길 것이 없다.
+
+name = "bluelog"
+pages_build_output_dir = "dist"
+compatibility_date = "2026-09-20"
+
+[vars]
+# `functions/api/[[path]].ts`가 `/api/*`를 넘길 백엔드 오리진.
+#
+# **경로를 붙이지 않는다** — 오리진만 쓰이고 경로는 버려진다(`toUpstreamUrl`).
+# 슬래시가 더 붙어도 동작하도록 두었지만, 적을 때는 오리진만 적는다.
+API_ORIGIN = "http://131.186.22.10:8001"
