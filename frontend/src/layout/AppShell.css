@@ -38,6 +38,18 @@
   gap: var(--shell-gutter);
   padding: var(--shell-gutter);
 
+  /*
+   * 어시스턴트 런처가 우하단에 고정으로 떠 있어(`AssistantOverlay.css`) 바닥까지
+   * 내려가는 화면은 **마지막 줄이 덮인다.** 그만큼을 더 비운다 (`#1375`).
+   *
+   * ⚠️ **지우면 `§13` 🔒이 깨진다.** 덮이던 것이 `.disclaimer-banner`였다 —
+   * 「모든 결과 화면 하단에 면책 문구 상시 노출」이 그 조항이다.
+   *
+   * 값을 여기 적지 않는다 — 런처를 아는 파일이 갖는다. 폴백 `0px`은 그 CSS가
+   * 없는 경로(셸 밖에서 쓰이는 조각)를 위한 것이다.
+   */
+  padding-block-end: calc(var(--shell-gutter) + var(--assistant-launcher-reserve, 0px));
+
   /* 사이드바와 스택이 함께 읽어야 하므로 공통 조상에 둔다. */
   --shell-gutter: var(--grid-gutter);
 }
