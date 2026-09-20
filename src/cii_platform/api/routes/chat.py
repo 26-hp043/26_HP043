@@ -29,7 +29,7 @@ from cii_platform.db.repositories import chat as chat_repo
 from cii_platform.db.session import get_session
 from cii_platform.errors import ChatUnavailableError, NotFoundError
 from cii_platform.llm.anthropic import AnthropicProvider
-from cii_platform.llm.provider import LLMProvider, LLMUnavailableError, is_enabled
+from cii_platform.llm.provider import LLMProvider, is_enabled
 from cii_platform.services.chat import answer as answer_question
 
 router = APIRouter(tags=["chat"])
@@ -76,18 +76,23 @@ async def chat(
         if chat_session is None or chat_session.user_id != user.id:
             raise NotFoundError("대화를 찾을 수 없습니다.")
 
-    try:
-        result = await answer_question(
-            session,
-            provider=provider,
-            chat_session_id=chat_session.id,
-            user_id=str(user.id),
-            question=payload.message,
-            vessel_id=payload.vessel_id,
-            ip_address=_client_ip(request),
-        )
-    except LLMUnavailableError as exc:
-        raise ChatUnavailableError(str(exc)) from exc
+    # ⚠️ **여기서 `LLMUnavailableError`를 잡지 않는다** (`#1365`).
+    #
+    # 종전에 `except LLMUnavailableError → ChatUnavailableError(503)`가 있었으나
+    # **도달할 수 없었다** — `services/chat.py`가 상위 타입 `LLMError`를 먼저 잡아
+    # `discarded=True`로 200을 낸다(`API_SPEC §15.2` 「외부 모델 호출이 실패했다」).
+    # 잡히지 않는 `except`는 **그 경로가 있다고 읽히게** 만든다.
+    #
+    # 503이 나는 자리는 위 `get_provider()` 하나다 — `LLM_API_KEY` 미설정(`§15.4`).
+    result = await answer_question(
+        session,
+        provider=provider,
+        chat_session_id=chat_session.id,
+        user_id=str(user.id),
+        question=payload.message,
+        vessel_id=payload.vessel_id,
+        ip_address=_client_ip(request),
+    )
 
     await session.commit()
 

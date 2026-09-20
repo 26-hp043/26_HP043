@@ -184,7 +184,7 @@ async def answer(
                 ip_address=ip_address,
             )
     except TimeoutError:
-        return _result(TURN_TIMEOUT_MESSAGE, [], [], discarded=True, vessel_resolved=False)
+        return _result(TURN_TIMEOUT_MESSAGE, [], discarded=True, vessel_resolved=False)
 
 
 async def _answer_turn(
@@ -243,16 +243,16 @@ async def _answer_turn(
             response = await provider.complete(messages=messages, tools=tool_schemas())
         except LLMError as exc:
             # 공급자 실패는 숨기지 않되 **챗봇 안에서 끝난다** (`PRD §16.2`).
-            return _result(str(exc), tool_outputs, used_tools, discarded=True)
+            return _result(str(exc), used_tools, discarded=True)
 
         if response.stop_reason == STOP_REFUSAL:
-            return _result(REFUSAL_MESSAGE, tool_outputs, used_tools, discarded=True)
+            return _result(REFUSAL_MESSAGE, used_tools, discarded=True)
 
         # ⚠️ **잘린 응답으로는 도구도 돌리지 않는다.** `tool_use` 블록의 **인자가
         # 잘려** 있을 수 있어(벤더 문서), 그대로 돌리면 **엉뚱한 값으로 계산한다** —
         # 그리고 그 결과는 수학 검증을 통과한다(도구가 실제로 낸 값이므로).
         if response.stop_reason in STOP_TRUNCATED:
-            return _result(TRUNCATED_MESSAGE, tool_outputs, used_tools, discarded=True)
+            return _result(TRUNCATED_MESSAGE, used_tools, discarded=True)
 
         if not response.tool_calls:
             reply = response.text
@@ -261,7 +261,6 @@ async def _answer_turn(
         if len(used_tools) + len(response.tool_calls) > MAX_TOOL_CALLS_PER_TURN:
             return _result(
                 TOOL_BUDGET_MESSAGE,
-                tool_outputs,
                 used_tools,
                 discarded=True,
                 vessel_resolved=effective_vessel is not None,
@@ -313,7 +312,7 @@ async def _answer_turn(
             )
         messages.append({"role": "user", "content": results})
     else:
-        return _result(TOOL_BUDGET_MESSAGE, tool_outputs, used_tools, discarded=True)
+        return _result(TOOL_BUDGET_MESSAGE, used_tools, discarded=True)
 
     try:
         prior_answers = [
@@ -325,7 +324,6 @@ async def _answer_turn(
         # 그것을 근거로 삼는다.
         return _result(
             DISCARDED_MESSAGE,
-            tool_outputs,
             used_tools,
             discarded=True,
             vessel_resolved=effective_vessel is not None,
@@ -344,7 +342,6 @@ async def _answer_turn(
     )
     return _result(
         reply,
-        tool_outputs,
         used_tools,
         discarded=False,
         vessel_resolved=effective_vessel is not None,
@@ -353,7 +350,6 @@ async def _answer_turn(
 
 def _result(
     text: str,
-    tool_outputs: list[str],
     used_tools: list[str],
     *,
     discarded: bool,
@@ -363,8 +359,11 @@ def _result(
         "answer": text,
         # 면책은 **폐기했을 때도** 붙는다 — 「모든 응답에 disclaimer」가 완료 기준이다.
         "disclaimer": DISCLAIMER,
+        # 실행한 도구 이름만 싣는다. **개수를 따로 싣지 않는다** (`#1365`) —
+        # 종전에 있던 `tool_output_count`는 `len(tool_calls)`와 **늘 같았고**
+        # (출력과 이름이 같은 자리에서 함께 쌓인다) `API_SPEC §15.1` 표에도
+        # 없었다. 같은 값을 두 이름으로 내보내면 둘이 갈릴 자리가 생긴다.
         "tool_calls": list(used_tools),
-        "tool_output_count": len(tool_outputs),
         "discarded": discarded,
         # #1242 — 서버가 이 대화의 선박을 알고 있는가. **식별자 자체는 안 싣는다**
         # (`PRD §16.3.1` — 모델에게 가는 값이 아니라 화면에게 가는 값이다).
