@@ -990,3 +990,101 @@ describe('스냅샷 항차의 연료량이 없으면 「—」다 (#1095 ⑷)', 
     expect(screen.queryByText('LNG —t')).toBeNull()
   })
 })
+
+/**
+ * 첫 화면은 기준연도 · 목표 등급 · 실행이다 (#1418).
+ *
+ * 반복 횟수·seed·실적 보정·대체 연료는 모두 기본값이 있어 비워도 실행된다. 접되 **보이지 않는
+ * 칸이 결과를 바꾸고 있으면 접은 쪽이 말한다** — 요약이 「기본값으로 실행 / n개 바꿈」을 적는다.
+ * 검사는 문구가 아니라 **접힘 상태와 칸의 소속**을 본다(`AGENTS §4.6`).
+ */
+describe('고급 설정을 접는다 (#1418)', () => {
+  function openScreen() {
+    stubServer()
+    renderScreen()
+  }
+
+  function advanced(): HTMLDetailsElement {
+    const summary = screen.getByText(ANNUAL_COPY.advancedTitle)
+    return summary.closest('details') as HTMLDetailsElement
+  }
+
+  it('네 칸이 접힌 「고급 설정」 안에 있고, 목표 등급은 밖에 있다', async () => {
+    openScreen()
+    await screen.findByLabelText(ANNUAL_COPY.targetRatingLabel)
+
+    const details = advanced()
+    expect(details.open).toBe(false)
+    expect(details.contains(screen.getByLabelText(/반복 횟수/))).toBe(true)
+    expect(details.contains(screen.getByLabelText(/seed/))).toBe(true)
+    expect(details.contains(screen.getByLabelText(ANNUAL_COPY.feedbackToggle))).toBe(true)
+    expect(details.contains(screen.getByLabelText(ANNUAL_COPY.targetRatingLabel))).toBe(false)
+  })
+
+  /*
+   * seed 안내는 칸 안에(placeholder) 두고 화면에서는 감춘다 (#1418 화면 확인). 낭독에는
+   * 남아야 한다 — placeholder는 값이 들어오면 사라지고 낭독이 건너뛰기도 한다.
+   */
+  it('seed 안내가 칸 안에 있고 낭독에도 남는다', async () => {
+    openScreen()
+    const seedInput = (await screen.findByLabelText(/seed/)) as HTMLInputElement
+
+    expect(seedInput.placeholder).toBe(ANNUAL_COPY.seedHint)
+    const hintId = seedInput.getAttribute('aria-describedby')
+    const hint = document.getElementById(hintId ?? '')
+    expect(hint?.textContent).toBe(ANNUAL_COPY.seedHint)
+    // 같은 문장을 칸 아래에 한 번 더 그리지 않는다.
+    expect(hint?.className).toBe('sr-only')
+  })
+
+  it('기본값 그대로면 「기본값으로 실행」, 바꾸면 그 수를 적는다', async () => {
+    openScreen()
+    await screen.findByLabelText(ANNUAL_COPY.targetRatingLabel)
+    expect(screen.getByText(new RegExp(ANNUAL_COPY.advancedDefault))).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText(/seed/), { target: { value: '42' } })
+    fireEvent.click(screen.getByLabelText(ANNUAL_COPY.feedbackToggle))
+
+    expect(screen.getByText(new RegExp(`2${ANNUAL_COPY.advancedChangedSuffix}`))).toBeTruthy()
+  })
+
+  it('반복 횟수가 규칙을 어기면 펼쳐서 사유를 보인다 — 접힌 칸의 오류는 보이지 않는다', async () => {
+    openScreen()
+    // 연도 목록이 온 뒤에 눌러야 반복 횟수 판정까지 간다 — 그 전에는 「목록을 불러오는 중」이다.
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+    fireEvent.change(screen.getByLabelText(/반복 횟수/), { target: { value: '500' } })
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ANNUAL_COPY.runsBelowMin)
+    expect(advanced().open).toBe(true)
+  })
+})
+
+/**
+ * 재현 정보에서 seed 줄은 밖, 식별자와 항차 사본은 「계산 근거 보기」 안 (#1418).
+ *
+ * `PRD §12.4.3`이 「자동 seed … 결과에 표시한다」와 「이 seed로 다시 실행」 버튼을 요구한다 —
+ * 둘은 접지 않는다. 접는 것은 스냅샷·계산 이력 UUID와 이 실행에 쓴 항차다.
+ */
+describe('재현 정보의 식별자를 접는다 (#1418)', () => {
+  it('seed와 재현 버튼은 접히지 않고, 스냅샷·계산 이력은 접힌다', async () => {
+    stubServer()
+    renderScreen()
+    const card = await runOnce()
+
+    const seedRow = screen.getByText(/seed 12345/)
+    expect(seedRow.closest('details')).toBeNull()
+    expect(
+      screen.getByRole('button', { name: ANNUAL_COPY.reproduceButton }).closest('details'),
+    ).toBeNull()
+
+    const details = screen
+      .getByText(ANNUAL_COPY.reproDetailsToggle)
+      .closest('details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    expect(details.contains(screen.getByText(ANNUAL_COPY.snapshotLabel))).toBe(true)
+    expect(details.contains(screen.getByText(ANNUAL_COPY.runIdLabel))).toBe(true)
+    expect(card).toBeTruthy()
+  })
+})

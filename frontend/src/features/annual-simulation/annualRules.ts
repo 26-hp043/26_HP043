@@ -205,6 +205,30 @@ export function stackSegments(
 export const RUNS_MIN = 1_000
 export const RUNS_MAX = 10_000
 
+/** 반복 횟수 기본값 (`PRD §12.2` 기본 5,000). 화면 초깃값과 「바꿈」 판정이 같은 값을 본다. */
+export const RUNS_DEFAULT = '5000'
+
+/**
+ * 고급 설정에서 기본값이 아닌 칸의 수 (#1418).
+ *
+ * 접힌 요약이 「기본값으로 실행」인지 「n개 바꿈」인지를 가른다. 보이지 않는 칸이 결과를 바꾸고
+ * 있다면 접은 쪽이 그 사실을 말해야 한다. 공백만 있는 칸은 비운 것으로 본다 — 실행도 그렇게
+ * 다룬다(`seed.trim()`).
+ */
+export function countAdvancedChanges(values: {
+  runs: string
+  seed: string
+  applyFeedback: boolean
+  alternativeFuel: string
+}): number {
+  return [
+    values.runs.trim() !== RUNS_DEFAULT,
+    values.seed.trim() !== '',
+    values.applyFeedback,
+    values.alternativeFuel !== '',
+  ].filter(Boolean).length
+}
+
 /** 반복 횟수 입력의 위반. 없으면 `null`. 문구는 `copy.ts`가 갖는다. */
 export function validateRuns(text: string): string | null {
   const trimmed = text.trim()

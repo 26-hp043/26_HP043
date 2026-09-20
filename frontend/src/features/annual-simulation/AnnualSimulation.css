@@ -236,6 +236,63 @@
  * (`…6de71b31c666실행 시점의 항차 데이터를…`). 나머지 다섯 자리는 단독 span이라
  * 그대로 둔다.
  */
+/*
+ * 고급 설정 · 계산 근거 접기 (#1418). 여는 줄은 다른 `<summary>`(실시간 CII 「산출 가정」)와
+ * 같은 모양이다. 열린 뒤의 칸 간격은 폼과 같다.
+ */
+.annual-sim__advanced,
+.annual-sim__repro-details {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-12);
+}
+
+.annual-sim__advanced > summary,
+.annual-sim__repro-details > summary {
+  cursor: pointer;
+  inline-size: fit-content;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text);
+}
+
+.annual-sim__advanced > summary:focus-visible,
+.annual-sim__repro-details > summary:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+
+.annual-sim__advanced[open] {
+  display: flex;
+  flex-direction: column;
+  /*
+   * 칸 사이를 16으로 (#1418 화면 확인). 네 칸이 한자리에 모이자 12로는 체크박스가 위 입력칸에
+   * 붙어 보였다 — 체크박스 줄에는 입력칸 같은 면이 없어 여백이 그만큼 더 필요하다.
+   */
+  gap: var(--space-16);
+}
+
+/* 체크박스·셀렉트 줄과 그 아래 설명의 간격 (#1418 화면 확인) — 4는 글자에 붙는다. */
+.annual-sim__advanced .annual-sim__field {
+  gap: var(--space-8);
+}
+
+/*
+ * 체크박스 줄은 **위 입력칸과 더 벌린다** (#1418 화면 확인). 입력칸은 테두리가 자기 자리를
+ * 그리지만 체크박스 줄은 글자뿐이라, 같은 간격이면 앞 칸에 딸린 설명처럼 읽힌다.
+ */
+.annual-sim__advanced .annual-sim__field--check {
+  margin-block-start: var(--space-8);
+}
+
+.annual-sim__advanced > summary .annual-sim__hint {
+  font-weight: var(--font-weight-body);
+}
+
+.annual-sim__repro-details[open] > summary {
+  margin-block-end: var(--space-8);
+}
+
 .annual-sim__repro dd .annual-sim__hint {
   display: block;
 }

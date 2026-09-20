@@ -54,6 +54,7 @@ export function Field({
   labelEn,
   unit,
   hint,
+  hintHidden,
   error,
   children,
 }: {
@@ -74,6 +75,14 @@ export function Field({
   labelEn?: string
   unit?: string
   hint?: string
+  /**
+   * 힌트를 **화면에서만** 감춘다 — 낭독에는 남는다 (`labelHidden`과 같은 규율).
+   *
+   * placeholder가 같은 말을 하는 자리에서 쓴다. 같은 문장을 칸 안과 칸 아래에 두 번
+   * 두면 줄만 늘고, 그렇다고 힌트를 **지우면** 입력을 시작한 뒤 그 말이 사라진다 —
+   * placeholder는 값이 들어오면 없어지고 낭독이 건너뛰기도 한다. 지우는 대신 감춘다.
+   */
+  hintHidden?: boolean
   error?: string
   children: (control: FieldControlProps) => ReactNode
 }) {
@@ -103,7 +112,7 @@ export function Field({
       {children(control)}
 
       {hint ? (
-        <p className="field__hint" id={hintId}>
+        <p className={hintHidden ? 'sr-only' : 'field__hint'} id={hintId}>
           {hint}
         </p>
       ) : null}
