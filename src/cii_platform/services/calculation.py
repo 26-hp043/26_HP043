@@ -121,7 +121,7 @@ async def list_calculation_runs(
         parsed_cursor = calc_run_repo.decode_cursor(cursor)
         if parsed_cursor is None:
             raise ValidationError(
-                "cursor 형식이 올바르지 않습니다.",
+                "커서 형식이 올바르지 않습니다.",
                 field="cursor",
                 field_label="커서",
             )

@@ -116,9 +116,7 @@ def _parse_cursor(cursor: str | None) -> Cursor | None:
         return None
     parsed = decode_cursor(cursor)
     if parsed is None:
-        raise ValidationError(
-            "cursor 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
-        )
+        raise ValidationError("커서 형식이 올바르지 않습니다.", field="cursor", field_label="커서")
     return parsed
 
 

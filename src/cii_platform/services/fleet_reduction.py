@@ -25,6 +25,7 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy import select
 
+from cii_platform.api.field_labels import field_label
 from cii_platform.calc.annual_simulation import backsolve_required_cut, project_deterministic
 from cii_platform.calc.fleet_reduction import (
     PlannedLeg,
@@ -107,14 +108,30 @@ def _legs(voyages_json: list[dict]) -> list[PlannedLeg]:
 
 
 def _parse_money(mapping: dict[str, object] | None, field: str) -> dict[str, Decimal]:
+    """단가 묶음을 `Decimal`로 (`§2.17.1`).
+
+    ⚠️ **문구에 필드명 원문을 쓰지 않는다** (`API_SPEC §1.3.2` · `#999` · `#1329`).
+    종전에는 `"charter_usd_per_day.<uuid> 값이 숫자가 아닙니다."`처럼 **필드 경로가
+    그대로** 나갔다 — 사용자는 그 이름을 본 적이 없다. 라벨로 부르고, **어느 항목인지**는
+    ``details[].field``가 이미 말한다.
+    """
+    label = field_label(field)
     parsed: dict[str, Decimal] = {}
     for key, raw in (mapping or {}).items():
         try:
             value = Decimal(str(raw))
         except ArithmeticError as exc:
-            raise ValidationError(f"{field}.{key} 값이 숫자가 아닙니다.", field=field) from exc
+            raise ValidationError(
+                f"{label}에 숫자가 아닌 값이 있습니다: {raw}",
+                field=field,
+                field_label=label,
+            ) from exc
         if value < 0:
-            raise ValidationError(f"{field}.{key} 값은 0 이상이어야 합니다.", field=field)
+            raise ValidationError(
+                f"{label}는 0 이상이어야 합니다: {raw}",
+                field=field,
+                field_label=label,
+            )
         parsed[key] = value
     return parsed
 
@@ -385,7 +402,7 @@ async def list_reduction_plans(
         parsed = decode_plan_cursor(cursor)
         if parsed is None:
             raise ValidationError(
-                "cursor 형식이 올바르지 않습니다.",
+                "커서 형식이 올바르지 않습니다.",
                 field="cursor",
                 field_label="커서",
             )

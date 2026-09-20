@@ -714,7 +714,8 @@ async def get_fleet_summary(
     year = regulation_year if regulation_year is not None else resolved.year
     if sort not in FLEET_SORT_KEYS:
         raise ValidationError(
-            f"sort는 {' · '.join(FLEET_SORT_KEYS)} 중 하나여야 합니다: {sort}",
+            # 필드명 원문(`sort`)이 아니라 라벨로 부른다 (`API_SPEC §1.3.2` · `#1329`).
+            f"정렬 기준은 {' · '.join(FLEET_SORT_KEYS)} 중 하나여야 합니다: {sort}",
             field="sort",
             field_label="정렬",
         )
@@ -900,11 +901,11 @@ def _decode_fleet_cursor(token: str, sort: str) -> int:
         offset, cursor_sort = int(payload["o"]), str(payload["s"])
     except (ValueError, KeyError, TypeError, UnicodeError):
         raise ValidationError(
-            "cursor 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
+            "커서 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
         ) from None
     if offset < 0 or cursor_sort != sort:
         raise ValidationError(
-            "cursor가 이 정렬의 것이 아닙니다. 첫 페이지부터 다시 불러오세요.",
+            "커서가 이 정렬의 것이 아닙니다. 첫 페이지부터 다시 불러오세요.",
             field="cursor",
             field_label="커서",
         )
