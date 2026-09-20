@@ -14,6 +14,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import audit_log as audit_repo
+from cii_platform.errors import ValidationError
+from cii_platform.services.pagination import normalize_limit
 
 #: 저장소가 실제로 남기는 ``audit_log.action`` 값 (`#1343`).
 #:
@@ -55,6 +57,7 @@ AUDIT_ENTITY_TYPES: frozenset[str] = frozenset(
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -433,3 +436,94 @@ async def record_chat_tool_call(
         details=details,
         ip_address=ip_address,
     )
+
+
+# ---------------------------------------------------------------------------
+# 조회 (`#1241` · ``API_SPEC §16.1``)
+# ---------------------------------------------------------------------------
+#
+# ⚠️ **쌓기만 하고 읽는 경로가 없었다.** 누가 언제 무엇을 적재했는지 확인하려면
+# DB 직접 조회뿐이었다 — `#673`이 `PARAMETER_IMPORT`로 사용자·시각·행 수·판본을
+# 남기게 해 두었는데, 그 기록에 닿을 방법이 제품 안에 없었다.
+
+
+def _event_to_dict(row) -> dict[str, object]:
+    """행 하나를 ``API_SPEC §16.1`` ``data[]`` 항목으로 바꾼다.
+
+    ⚠️ **``details_json``을 그대로 싣는다 — 거르지 않는다.** 감사는 **사실만** 적는
+    자리이고(`TECH_SPEC §13.1`), 자격 증명은 **애초에 들어가지 않는다**: 이 모듈의
+    기록 함수들이 담는 것은 수·상태·식별자뿐이다. 여기서 다시 거르면 **거르는
+    규칙이 두 곳**에 생기고, 나중에 한쪽만 고쳐지면 「걸렀다」가 거짓이 된다.
+    """
+    return {
+        "id": str(row.id),
+        "timestamp": row.timestamp.isoformat() if row.timestamp is not None else None,
+        "action": row.action,
+        "user_id": row.user_id,
+        "entity_type": row.entity_type,
+        "entity_id": str(row.entity_id) if row.entity_id is not None else None,
+        "details": row.details_json,
+        "ip_address": row.ip_address,
+    }
+
+
+async def list_events(
+    session: AsyncSession,
+    *,
+    limit: int | None = None,
+    cursor: str | None = None,
+    action: str | None = None,
+    entity_type: str | None = None,
+    user_id: str | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    """감사 로그 목록과 페이지네이션 메타 (`API_SPEC §16.1` · `#1241`).
+
+    ``action``은 **아는 값만 받는다** — 오타를 빈 목록으로 돌려주면 사용자는
+    「그런 사건이 없다」로 읽는다. 목록은 :data:`AUDIT_ACTIONS` 하나이며
+    `DB_SCHEMA §2.14`와 ``tests/test_audit_enum_sync.py``가 대조한다.
+    """
+    if action is not None and action not in AUDIT_ACTIONS:
+        raise ValidationError(
+            f"알 수 없는 감사 활동입니다: {action}",
+            field="action",
+            field_label="활동",
+        )
+
+    page_size = normalize_limit(
+        limit, default=audit_repo.DEFAULT_LIMIT, maximum=audit_repo.MAX_LIMIT
+    )
+
+    parsed = None
+    if cursor is not None:
+        parsed = audit_repo.decode_cursor(cursor)
+        if parsed is None:
+            raise ValidationError(
+                "커서 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
+            )
+
+    rows = await audit_repo.list_events(
+        session,
+        limit=page_size,
+        cursor=parsed,
+        action=action,
+        entity_type=entity_type,
+        user_id=user_id,
+        since=since,
+        until=until,
+    )
+
+    has_more = len(rows) > page_size
+    page = rows[:page_size]
+    next_cursor = (
+        audit_repo.encode_cursor(audit_repo.AuditCursor(page[-1].timestamp, page[-1].id))
+        if has_more and page
+        else None
+    )
+    # `next_cursor`는 **다음 페이지가 있을 때만** 채운다 — 늘 채우면 클라이언트가
+    # 같은 커서를 반복해 무한 루프에 빠진다 (`§1.9`와 같은 규약).
+    return [_event_to_dict(row) for row in page], {
+        "next_cursor": next_cursor,
+        "has_more": has_more,
+    }

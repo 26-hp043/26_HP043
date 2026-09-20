@@ -405,6 +405,7 @@ _PROBE = [
     ("GET", "/fleet/reduction-plans", None),
     ("GET", f"/fleet/reduction-plans/{uuid4()}", None),
     ("POST", "/parameters/import", {}),
+    ("GET", "/audit-logs", None),
 ]
 
 #: 사무직으로 두드려 볼 **관리자 전용** 경로 (#1301). 계정 관리 둘이 여기로 옮겨 왔다.

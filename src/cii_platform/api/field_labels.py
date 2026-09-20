@@ -38,6 +38,11 @@ _FIELD_LABELS: dict[str, str] = {
     # --- 목록 조회 쿼리 파라미터 (#51 · API_SPEC §2.1) ---
     "limit": "페이지 크기",
     "cursor": "커서",
+    # 감사 로그 조회 필터 (`API_SPEC §16.1` · `#1241`).
+    "action": "활동",
+    "entity_type": "대상 종류",
+    "since": "시작 시각",
+    "until": "종료 시각",
     "ship_type": "선종",
     "search": "검색어",
     #

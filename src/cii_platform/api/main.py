@@ -23,6 +23,7 @@ from cii_platform.api.rate_limit import (
     rate_limit_middleware,
 )
 from cii_platform.api.routes.annual_simulations import router as annual_simulations_router
+from cii_platform.api.routes.audit_logs import router as audit_logs_router
 from cii_platform.api.routes.auth import router as auth_router
 from cii_platform.api.routes.auth_dev import router as auth_dev_router
 from cii_platform.api.routes.auth_dev import should_register_dev_auth
@@ -198,6 +199,7 @@ app.include_router(annual_simulations_router, prefix=API_V1_PREFIX)
 # #444 규제 파라미터 조회 — 화면이 선택지를 자기 코드에 박아 두지 않게 한다.
 # 읽기 전용이다. 개정 적재(§7.5)는 이력 보존·권한(#359)과 함께 정해야 한다.
 app.include_router(parameters_router, prefix=API_V1_PREFIX)
+app.include_router(audit_logs_router, prefix=API_V1_PREFIX)
 # #361 리포트 — 응답이 JSON이 아니라 파일(PDF·CSV·HTML)이다.
 app.include_router(reports_router, prefix=API_V1_PREFIX)
 # #59 자료 내보내기 — CSV는 파일(StreamingResponse), JSON은 표준 봉투다.
