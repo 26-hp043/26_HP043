@@ -1598,11 +1598,21 @@ MVP 기본 분포는 잔여 항차에만 적용한다. 확정 실적은 변하�
 |---|---|---|---|
 | 거리 | triangular | min=0.97×plan, mode=plan, max=1.05×plan | 우회·대기 가능성 |
 | 연료 사용량 | triangular | min=0.90×plan, mode=plan, max=1.15×plan | 기상·운항 변동 |
-| 속도 | triangular | min=plan-1kn, mode=plan, max=plan+1kn | 감속·증속 변동 |
+| 속도 | triangular **(Monte Carlo 미표본 — 아래 각주)** | min=plan-1kn, mode=plan, max=plan+1kn | 감속·증속 변동. 표본추출하지 않고 `§12.6` 민감도로 다룬다 |
 | 잔여 항차 수 | fixed | 계획 목록 기준 | MVP에서는 고정 |
 | 연료 종류 | fixed | 계획 연료 기준 | MVP에서는 고정 |
 
 분포 기본값은 `simulation_parameter`로 관리하며 코드 하드코딩하지 않는다.
+
+> **[#1346] 속도는 분포를 정의해 두되 Monte Carlo가 표본추출하지 않는다 — `§12.6` 민감도 전용이다.**
+>
+> `CII = M / (W · Dt)`에 **속도는 들어가지 않는다.** 분자는 연료, 분모는 거리로 정해지므로 속도를 독립으로 뽑아도 **결과가 한 톨도 바뀌지 않는다.** 영향을 주게 하려면 `§11.4.1` cubic model로 속도→연료를 이어야 하는데, 연료는 이미 `0.90~1.15` 삼각분포로 **독립 표본추출**되고 있어 그렇게 하면 **같은 변동을 두 번 세게 된다** — 연료 분포의 설명 「기상·운항 변동」이 속도 변동을 이미 흡수하고 있다.
+>
+> 그래서 속도는 **one-at-a-time 민감도**(`§12.6` 「잔여 항차 평균 속도 ±1kn」)에서만 cubic model을 통해 움직인다. 그쪽은 변수를 **하나만** 바꾸므로 이중 계상이 생기지 않는다.
+>
+> ⚠️ **`simulation_parameter`의 `SPEED` 행은 그대로 둔다.** 표본추출에 쓰지 않지만 `parameters_used.simulation_profile`과 `parameter_hash`(`TECH_SPEC §5.2.1.1`)에는 **계속 싣는다** — 빼면 속도를 표본추출하게 되는 날 **옛 실행과 해시가 겹쳐 「재현됐다」가 거짓**이 되고, 두면 값이 같은데 재현이 막히는 **보수적 거부**에 그친다. 두 오차의 방향이 다르다.
+>
+> ⚠️ **`§12.6`의 ±1kn은 이 행에서 오지 않는다 — 정본이 직접 못박은 값이다.** 연료 ±10%·거리 ±5%와 같은 줄에 있고 응답 키도 `speed_minus_1kn`·`speed_plus_1kn`으로 고정돼 있다(`API_SPEC §6.1`). 이 행을 민감도 폭으로 읽게 만들면 운영자가 2 kn로 바꿨을 때 **키가 거짓말을 한다.**
 
 **[ORACLE 삼각분포 가드]** 삼각분포 bounds의 물리적 타당성을 보장해야 한다:
 - 속도: `min = max(plan - 1, 1.0)`. 계획 속도가 1.5kn인 경우 min=0.5kn이 되므로 floor 적용.
@@ -1614,7 +1624,7 @@ MVP 기본 분포는 잔여 항차에만 적용한다. 확정 실적은 변하�
 
 ```text
 for i in 1..N:
-    sample each remaining voyage distance/fuel/speed
+    sample each remaining voyage distance/fuel   # 속도는 미표본 — §12.4.1 각주
     calculate projected annual attained CII
     calculate rating
     store attained CII, rating

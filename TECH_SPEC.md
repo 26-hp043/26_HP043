@@ -385,9 +385,11 @@ def sample_triangular(rng, plan_value: float, params: dict) -> float:
 |---|---|---|---|---|
 | 거리 (nm) | 0.97 | plan | 1.05 | min > 0 |
 | 연료 (ton) | 0.90 | plan | 1.15 | min > 0 |
-| 속도 (kn) | — | plan | — | min = max(plan - 1, 1.0), max = plan + 1 |
+| 속도 (kn) | — | plan | — | min = max(plan - 1, 1.0), max = plan + 1 · **Monte Carlo 미표본** |
 
 > 속도는 min/max를 ratio가 아닌 절대 오프셋(`plan ± 1kn`)으로 정의하며, 최소값 floor는 1.0kn이다.
+>
+> ⚠️ **[#1346] 이 행은 정의만 두고 Monte Carlo가 표본추출하지 않는다** — `PRD §12.4.1` 각주. `CII = M / (W · Dt)`에 속도가 없어 독립으로 뽑아도 결과가 바뀌지 않고, cubic model로 이으면 **독립 표본추출된 연료와 같은 변동을 두 번 센다**. 속도는 `PRD §12.6` one-at-a-time 민감도(`±1kn`)에서만 움직인다. `calc/annual_simulation.py`의 `_sample_band` 호출이 **거리·연료 둘뿐**인 것이 그 구현이다.
 
 #### 2.3.3 SciPy 혼용 금지
 
@@ -912,6 +914,8 @@ def compute_parameter_hash(parameters_used: dict) -> str:
 ```
 
 **왜 필요한가.** `simulation_parameter`(`DB_SCHEMA §2.19`)의 행이 바뀌면 **같은 seed로 다시 돌려도 결과가 달라진다.** `§5.4` 재현성 계약 1항의 「동일 `parameter_hash`」가 그 변화를 덮지 못하면 계약이 성립하지 않는다.
+
+> ⚠️ **[#1346] `SPEED` 행은 예외다 — 바뀌어도 결과는 달라지지 않는다.** 그래도 **계속 싣는다.** 빼면 속도를 표본추출하게 되는 날 **옛 실행과 해시가 겹쳐 「재현됐다」가 거짓**이 되고, 두면 값이 같은데 재현이 막히는 **보수적 거부**에 그친다 — 두 오차의 방향이 다르다(`PRD §12.4.1` 각주).
 
 **다른 계산 타입의 `parameter_hash`는 바뀌지 않는다.** `parameters_used`는 실행마다 따로 기록되므로, 이 항목은 `SIMULATION` 실행에만 들어간다 — 기능①·②의 기존 해시는 영향을 받지 않는다.
 
