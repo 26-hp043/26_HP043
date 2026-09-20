@@ -986,9 +986,11 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **[ORACLE-S-5 주의]** `weather_factor`는 hash 계산 시점에 이미 계산되어 있어야 한다. 기상 데이터 조회가 비동기인 경우, 조회 완료 후 hash를 계산한다. `weather_model = NONE`이면 `weather_factor = 1.0`으로 설정한다.
 
-> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(선박·연도·capacity 축 값·연료 추정의 결정 인자(`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`)·확정된 시나리오 계획 3건(`scenarios`)·`weather_model`·`weather_factor`)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
+> **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`ship_type`·`transport_capacity`·`reference_capacity`·`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`·`scenarios`·`weather_model`·`weather_factor` — 선박·연도·capacity 축 값·연료 추정의 결정 인자 넷·확정된 시나리오 계획 3건·기상 둘)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
 
-> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
+> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`·`apply_feedback_factor`·`as_of`·`alternative_fuel`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. **뒤 셋은 선택 키**다 — `apply_feedback_factor`는 `#363`, `as_of`는 `#816`, `alternative_fuel`은 `#756` ⑴에서 늘었다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
+
+> **선택 키 규약 — 「골랐을 때만 넣는다」(#1344).** `apply_feedback_factor`·`as_of`·`alternative_fuel` 셋은 목록에 있어도 **그 선택을 실제로 한 실행에만** 담긴다. `_filter_fields`가 입력 dict에 **있는 키만** 담으므로, 끈 실행에 `False`를, 미명시 실행에 서버 확정 시각을 넣으면 **이미 저장된 실행 전부의 해시가 바뀐다.** `§5.4.1` 4항이 `INPUT_FIELDS`의 `as_of`에 대해 적은 것과 같은 규칙이며, 기능③에서는 세 번 적용됐다. `as_of`의 값은 **DB 정밀도(밀리초)로 깎은 isoformat 문자열**로 통일한다 — 저장할 때와 재현할 때(DB에서 읽은 값)의 재료가 한 글자라도 갈리면 안 된다. `alternative_fuel`은 **무엇을 골랐는가**(연료 코드)만 담는다 — CF 자체는 `parameters_used` v2의 `fuel_types` 블록이 덮는다.
 
 ### 5.4 재현성 계약 (Reproducibility Contract)
 
@@ -1037,8 +1039,25 @@ nuw_hours  = Σ(not_underway_period ∩ [t0, window_end])
 underway_hours = max(elapsed - nuw_hours, 0)
 
 distance_nm = planned_speed_kn × underway_hours
-fuel_ton    = reference_daily_foc_ton × underway_hours / 24
+
+speed_factor = (planned_speed_kn / reference_speed_kn)³        # §4.1 cubic speed model
+fuel_ton     = reference_daily_foc_ton × speed_factor × underway_hours / 24
 ```
+
+> **연료는 `§4.1` cubic speed model을 그대로 쓴다 (#796).** 종전에 이 절은
+> `fuel_ton = reference_daily_foc_ton × underway_hours / 24`로 적었는데, 그것은
+> **거리는 항차의 계획 속도로 늘리면서 연료는 선박 기준 속도의 소모율을 그대로**
+> 곱하는 식이다 — 계획 14 kn · 기준 12 kn이면 `(14/12)³ = 1.588`배 **과소** 산출된다.
+> 구현은 `calc/fuel_estimator.estimate_fuel_ton`에 위임한다: 그 함수는
+> `duration_days = distance_nm / speed_kn / 24`로 기간을 구하는데
+> `distance_nm = planned_speed_kn × underway_hours`이므로 **`underway_hours / 24`와 같은 값**이다.
+> 즉 not under way 시간을 뺀 계산이 그대로 보존되고 달라지는 것은 `speed_factor` 하나다.
+>
+> **`weather_factor`는 적용하지 않는다** — 시계는 기상 스냅샷을 모르고 경과 구간의
+> 기상 이력도 갖고 있지 않다. 없는 값을 지어내면 **사용자가 볼 수 없는 데이터에
+> 누적량이 의존**하게 되므로 `DEFAULT_WEATHER_FACTOR`(`§4.4` · `weather_model=NONE`)를 쓴다.
+>
+> `§12.3`과 이 절의 변경 이력은 `#796` 당시 갱신됐으나 **이 산식 블록만 남아 있었다**(`#1344`).
 
 **경계 처리**
 
@@ -1049,6 +1068,7 @@ fuel_ton    = reference_daily_foc_ton × underway_hours / 24
 | 도착 실적 있음 | `min(as_of, arrival)`까지만 | 도착한 항차의 누적량이 계속 늘면 안 된다. 이때는 **시뮬레이션 값이 아니다** |
 | **도착 실적 없음 + `as_of` > 도착 예정일** | `min(as_of, planned_arrival_at)`까지만 + `IN_PROGRESS_PAST_ETA` 경고 (`#649`) | 상한이 없으면 계획을 아무리 넘겨도 거리·연료가 계속 자란다 — 출항 90일 뒤면 계획의 7배다. 실사용에서 이 상태는 「운항이 계속되고 있다」가 아니라 **「도착 실적 입력을 잊었다」**이다 |
 | 속도·일일 소모율 없음 | 각각 0 | `reference_daily_foc_ton`은 nullable(`DB_SCHEMA §2.1`). 기본값을 넣으면 화면이 근거 없는 연료를 표시한다 |
+| **기준 속도(`reference_speed_kn`) 없음** | `speed_factor = 1`로 쌓고 `SIMULATION_NO_REFERENCE_SPEED` 경고 (`#796` · `§12.3`) | 소모율도 속도도 있고 **모르는 것이 보정 계수 하나뿐**이라 기여를 통째로 빼지 않는다. 배수 1은 「계획 속도가 곧 기준 속도」라는 가정이며 어느 방향으로도 치우치지 않는다. 다만 **조용히 넘어가지 않는다** — 값이 정확하지 않다는 사실을 화면이 말해야 사용자가 제원을 채운다 |
 
 시계가 만든 값에는 **「시뮬레이션 데이터」 표시**(`PRD R-5`)를 응답 플래그로 붙인다. 실적이 확정된 구간은 시계가 만든 값이 아니므로 플래그가 서지 않는다.
 
