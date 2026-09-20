@@ -1170,8 +1170,8 @@ margin_ratio = (next_worse_boundary - attained_cii) / required_cii
 | 연료 종류 | Y | `fuel_uses[].fuel_type` | ⑴과 동일 |
 | 예상 연료 사용량 | Y | `fuel_uses[].planned_fuel_ton` | ⑴과 같은 값 |
 | 연료 출처 | Y | `fuel_uses[].source` | `USER_INPUT` 등 |
-| 출발항 | Y | `departure_port_name` | 1~100자 |
-| 도착항 | Y | `arrival_port_name` | 1~100자 |
+| 출발항 | Y | `departure_port_name` | 1~200자 |
+| 도착항 | Y | `arrival_port_name` | 1~200자 |
 | 메모 | N | `notes` | 0~1000자 |
 
 > 생성 시 `status = DRAFT`, `annual_inclusion_policy = EXCLUDE`가 자동 설정된다. **`annual_inclusion_policy`는 생성 요청 본문에 넣지 않는다** (API_SPEC §3.3).
@@ -1313,8 +1313,8 @@ CII가 가장 낮은 시나리오: SLOW_STEAMING
 |---|---|---|---|---|
 | `vessel_id` | Y | UUID | 선택 선박 | 대상 선박 |
 | `regulation_year` | Y | int | 현재 연도 | 등급 기준 |
-| `current_lat` | Y | decimal | 없음 | 현재 위도 |
-| `current_lon` | Y | decimal | 없음 | 현재 경도 |
+| `current_lat` | 조건부 | decimal | 없음 | 현재 위도. `direct_distance_nm`이 없으면 목적항 좌표와 함께 필요하다 (`API_SPEC §5.1` · `#830`) |
+| `current_lon` | 조건부 | decimal | 없음 | 현재 경도. 위와 같다 |
 | `destination_port_name` | Y | string | 없음 | 목적항 |
 | `destination_lat` | 조건부 | decimal | 없음 | 목적항 위도 |
 | `destination_lon` | 조건부 | decimal | 없음 | 목적항 경도 |
@@ -1323,7 +1323,7 @@ CII가 가장 낮은 시나리오: SLOW_STEAMING
 | `base_daily_foc_ton` | 조건부 | decimal | 선박 기준값 | 기준속도 일일 연료소모량 |
 | `direct_distance_nm` | 조건부 | decimal | 자동 계산 | 직항 거리 |
 | `detour_distance_nm` | 조건부 | decimal | direct × 1.05 | 우회 거리 |
-| `slow_speed_kn` | Y | decimal | max(current - 1, 1.0) | 감속 시나리오 속도. VAL-009에 의해 최소 1.0kn |
+| `slow_speed_kn` | N | decimal | max(current - 1, 1.0) | 감속 시나리오 속도. **미지정이면 서버가 기본값을 계산한다** — 기본값이 있으므로 필수가 아니다. VAL-009에 의해 최소 1.0kn |
 
 ### 11.4 연료 예측 모델
 
@@ -1452,9 +1452,9 @@ MVP 권장 데이터 소스는 다음과 같다.
 | `target_rating` | Y | enum | C | 목표 등급. A~C 권장. D 허용(`TARGET_RATING_D` warning). E 거부(§12.8) |
 | `completed_voyages` | 자동 | list | CONFIRMED/COMPLETED | 누적 실적 |
 | `remaining_voyages` | 자동/수동 | list | PLANNED/IN_PROGRESS | 잔여 계획 |
-| `simulation_runs` | Y | int | 5000 | 1000~10000 |
-| `random_seed` | Y | int | 자동 생성 후 저장 | 재현성 |
-| `distribution_profile` | Y | enum | DEFAULT | 불확실성 분포 세트 |
+| `simulation_runs` | N | int | 5000 | 1000~10000. 기본값이 있으므로 필수가 아니다 |
+| `random_seed` | N | int | 자동 생성 후 저장 | 재현성. 미지정이면 서버가 생성해 저장한다 |
+| `distribution_profile` | N | enum | DEFAULT | 불확실성 분포 세트 |
 | `apply_feedback_factor` | N | bool | false | 실적 보정계수(`§12.2.1`)를 잔여 계획 연료에 곱한다 [#363] |
 
 #### 12.2.1 실적 보정계수 [#363]
@@ -1872,44 +1872,22 @@ GET /api/v1/annual-simulations/{simulation_run_id}
 }
 ```
 
-응답 예시:
+**응답 형태의 정본은 [`API_SPEC §6.1`](./API_SPEC.md)이다 — 여기서 되풀이하지 않는다** (`#1348`).
 
-```json
-{
-  "data": {
-    "simulation_run_id": "uuid",
-    "deterministic": {
-      "projected_attained_cii": "5.020000",
-      "projected_rating": "C"
-    },
-    "monte_carlo": {
-      "seed": 12345,
-      "runs": 5000,
-      "rating_probabilities": {
-        "A": 0.02,
-        "B": 0.28,
-        "C": 0.55,
-        "D": 0.13,
-        "E": 0.02
-      },
-      "target_success_probability": 0.30,
-      "p10": 4.71,
-      "p50": 5.04,
-      "p90": 5.42
-    },
-    "risk_level": "HIGH"
-  },
-  "parameters_used": { ... },
-  "model_version": { ... },
-  "input_hash": "sha256:...",
-  "parameter_hash": "sha256:...",
-  "warnings": ["REFERENCE_ONLY"],
-  "disclaimer": "참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.",
-  "meta": { ... }
-}
-```
+`§14`는 스스로 *「실제 상세 API는 `API_SPEC.md`에서 확정한다」*고 적는데, 종전에는 **응답 예시 전체를 여기에도 실어** 두 곳이 갈라졌다. 실제로 세 가지가 어긋나 있었다 — 키 이름(`simulation_run_id` → **`simulation_id`**) · seed의 자리(`monte_carlo.seed` → **`monte_carlo.rng_metadata.seed_entropy`**) · 확률의 타입(JSON 숫자 → **문자열**, `API_SPEC §1.7`).
+
+PRD가 이 절에서 **요구하는 것**은 다음 넷이며, 그것만 남긴다.
+
+| 요구 | 어디서 확정하나 |
+|---|---|
+| 결정론 예측(`projected_attained_cii` · `projected_rating`)을 낸다 | `API_SPEC §6.1` |
+| 몬테카를로 등급 확률 분포와 목표 달성 확률을 낸다 | 〃 |
+| 재현에 필요한 재료(seed · 입력 해시 · 파라미터 해시 · 모델 판본)를 함께 싣는다 | `TECH_SPEC §5.3` · `§5.4` |
+| `REFERENCE_ONLY` warning과 면책 문구(`§6.3`)를 반드시 싣는다 | `API_SPEC §1.6` · `PRD §6.3` |
 
 > **[EXT-3-1]** PRD §14.4 API 예시를 §14.2 및 API_SPEC v1.2 포맷(data/meta 구조, Layer 1 deterministic 문자열 직렬화, REFERENCE_ONLY warning 코드)과 일치시켰다.
+>
+> ⚠️ **그 예시는 `#1348`에서 지웠다.** 한 번 맞춘 예시가 **다시 갈라졌기 때문**이다 — 맞추는 것으로는 재발을 막지 못한다는 것이 이 각주와 `#1348` 두 번으로 확인됐다. 지금은 `API_SPEC §6.1`을 가리킨다.
 
 ### 14.5 Parameter API
 
@@ -2714,3 +2692,4 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 | 2026-09-20 | `#1319` | **§15.2 「표시하는 자리」 각주에 `#1256` 후속 문단** — `#1052` ⓷이 「저장 뒤에도 밝히려면 §3.3 개정이 선행된다」고 미뤄 둔 자리를 마이그레이션 059(`voyage.planned_distance_source`)가 받았다. 저장된 항차의 계획 거리에도 **출처가 좌표 추정일 때만** 같은 표시가 붙고, 출처를 모르는 행(`null`)에는 종전대로 붙이지 않는다 — 기존 행을 대권거리 대조로 되채우지 않는다(직접 입력한 값에도 「추정」이 붙는 `§0.3`의 거짓말). 각주 보강이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#1256) |
 | 2026-09-20 | `#1320` | **§11.6 `[ORACLE-R-4]` 뒤 · §15.3 `WeatherProvider` 스케치 뒤에 `[#968]` 각주 2개** — 기상 조회 계층의 실현 방식(`TECH_SPEC §7.1`·`§7.3` v1.14)을 가리킨다. 캐시 key는 0.5° 격자 2요소이고 `date`·`hour_bucket_6h`는 key가 아니라 스냅샷 나이 판정(6h `WEATHER_STALE` · 24h 폐기)으로 들어가며, 스케치의 세 메서드는 능력 목록이라 구현은 `fetch` 한 메서드와 저장소 조회로 나눴다. 요구(최신 조회 우선 · 6h·24h 기준)는 바뀌지 않았고 표기를 구현과 맞춘 정정이라 버전은 올리지 않는다(`AGENTS §4.3`) (#968) |
 | 2026-09-20 | `#1360` | **§21 지도 자산 각주 정정 — 사실 정정이며 범위 판단이 아니다.** `#985`(2026-09-18)가 항만 43곳의 깊은 층(z7–z10)을 걷어내고 전 세계 z0–z5(26 MB)로 좁혔는데, 이 절이 여전히 종전 구성(z0–z6+z7–z10 · 95 MB · 「저장소에 넣지 않는다」)을 적고 있었다. 실측값으로 고치고, 정확한 수치는 `scripts/fetch_basemap.sh`를, 확대 상한은 `basemap.ts`의 `MAX_ZOOM`을 가리키도록 해 값이 다시 벌어지지 않게 했다. 자산이 저장소에 커밋돼 있다는 사실(`git ls-files`로 확인)도 반영했다. `2702`행(`#763` 변경 이력)은 2026-09-12 당시 기록이라 그대로 둔다. `AGENTS §4.3` 「오기·값 정정」이라 버전은 올리지 않는다 (#1340) |
+| 2026-09-20 | `#1394` | **§11.3 · §12.2 필수 표기 정정 · §10.2 길이 정정 · §14.4 응답 예시 삭제.** 네 곳 모두 **요구가 바뀐 것이 아니라 PRD가 뒤처졌던 것**이다 (`#1348`). ⑴ `§11.3` `current_lat`·`current_lon`을 **조건부**로, `slow_speed_kn`을 **N**으로 — `#830`이 이미 정정했고 `API_SPEC §5.1`·`schemas/scenario_compare.py`가 그 값이다. ⑵ `§12.2` `simulation_runs`·`random_seed`·`distribution_profile`을 **N**으로 — **셋 다 기본값이 있다.** ⑶ `§10.2` 항만명을 **1~200자**로 — DB 컬럼·API 계약·기존 데이터가 전부 200이라, 100으로 좁히면 **이미 저장된 값이 수정 불가**가 된다. ⚠️ **메모 1000자는 반대 방향이다** — PRD만 값을 갖고 아무도 구현하지 않았으므로 `AGENTS §3.1`대로 **코드가 PRD를 따른다**(`NOTES_MAX_LENGTH`). ⑷ `§14.4` 응답 예시를 지우고 `API_SPEC §6.1`을 가리킨다 — `[EXT-3-1]` 각주가 *「일치시켰다」*고 적는데 **다시 갈라졌다**(키 이름·seed의 자리·확률의 타입 셋). 맞추는 것으로 재발을 막지 못한다는 것이 두 번으로 확인됐고, `§14`가 스스로 *「상세는 `API_SPEC.md`에서 확정한다」*고 적는다. PRD가 요구하는 넷만 표로 남겼다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1348) |

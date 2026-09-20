@@ -249,6 +249,27 @@ def test_create_accepts_multiple_fuel_types(voyage_app):
     assert sorted(codes) == ["DIESEL_GAS_OIL", "HFO"]
 
 
+def test_notes_at_the_limit_is_accepted(voyage_app):
+    """`PRD §10.2` ⑵ — 메모 **0~1000자**. 경계 1000은 통과한다 (`#1348`)."""
+    resp = voyage_app.post(CREATE_URL, json={**PAYLOAD, "notes": "가" * 1000})
+    assert resp.status_code == 201
+
+
+def test_notes_over_the_limit_is_422(voyage_app):
+    """정본이 상한을 정해 뒀는데 **코드에 없었다** (`#1348`).
+
+    DB가 ``TEXT``라 컬럼은 받는다. 그러나 **받는 것과 받아도 되는 것은 다르다** —
+    상한이 없으면 요청 본문 크기가 유일한 방어다. `AGENTS §3.1`상 `PRD`가 상위
+    정본이므로 그 값(1000)을 코드가 따른다.
+    """
+    resp = voyage_app.post(CREATE_URL, json={**PAYLOAD, "notes": "가" * 1001})
+
+    assert resp.status_code == 422
+    detail = resp.json()["error"]["details"][0]
+    assert detail["field"] == "notes"
+    assert detail["field_label"] == "메모"
+
+
 def test_create_with_negative_distance_is_422(voyage_app):
     resp = voyage_app.post(CREATE_URL, json={**PAYLOAD, "planned_distance_nm": -1})
     assert resp.status_code == 422
