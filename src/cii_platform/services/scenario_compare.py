@@ -201,6 +201,7 @@ async def compare_scenarios(
     payload: ScenarioCompareInput,
     *,
     weather_provider=None,
+    persist: bool = True,
 ) -> dict[str, object]:
     """3개 시나리오를 계산·저장하고 API_SPEC §5.1 응답 dict를 반환한다.
 
@@ -209,6 +210,10 @@ async def compare_scenarios(
     ``weather_provider``는 **테스트가 갈아 끼우는 자리**다(#62). 기본값이 ``None``인
     이유는 조회가 필요할 때만 어댑터를 만들기 위해서다 — 기상 보정을 쓰지 않는
     요청까지 외부 클라이언트 생성 비용을 지불할 이유가 없다.
+
+    ``persist=False``는 **저장하지 않는 경로**다 (`#1334` ⑷) — 근거는
+    :func:`~cii_platform.services.voyage_cii.estimate_voyage_cii`의 같은 절에 있다.
+    챗봇 도구가 이 함수도 부른다.
     """
     if weather_provider is None and payload.weather_model not in (None, "NONE"):
         from cii_platform.weather.open_meteo import OpenMeteoProvider
@@ -348,27 +353,25 @@ async def compare_scenarios(
     }
 
     duration_ms = max(1, round((time.perf_counter() - started) * 1000))
-    run = await calc_run_repo.insert_scenario(
-        session,
-        vessel_id=payload.vessel_id,
-        input_hash=input_hash,
-        parameter_hash=parameter_hash,
-        model_version=model_version,
-        result_json=data,
-        parameters_used=parameters_used,
-        warnings=warnings,
-        duration_ms=duration_ms,
-        # 시나리오 3행과 **같은 스냅샷**이다 — 한 요청이 한 번 조회한 기상으로 세 계획을
-        # 모두 보정한다. 보정 인자 자체는 ``result_json.scenarios[].weather_factor``에
-        # 있다(``TECH_SPEC §5.4`` 4항 · #904).
-        weather_snapshot_id=weather.snapshot_id,
-    )
-    await session.commit()
+    run_id: str | None = None
+    if persist:
+        run_id = await _persist_scenario_run(
+            session,
+            vessel_id=payload.vessel_id,
+            input_hash=input_hash,
+            parameter_hash=parameter_hash,
+            model_version=model_version,
+            result_json=data,
+            parameters_used=parameters_used,
+            warnings=warnings,
+            duration_ms=duration_ms,
+            weather_snapshot_id=weather.snapshot_id,
+        )
 
     return {
         "data": data,
         "parameters_used": parameters_used,
-        "calculation_run_id": str(run.id),
+        "calculation_run_id": run_id,
         "model_version": model_version,
         "input_hash": input_hash,
         "parameter_hash": parameter_hash,
@@ -376,6 +379,18 @@ async def compare_scenarios(
         "disclaimer": DISCLAIMER,
         "_duration_ms": duration_ms,
     }
+
+
+async def _persist_scenario_run(session: AsyncSession, **fields) -> str:
+    """계산 이력 한 행을 남긴다.
+
+    ``weather_snapshot_id``는 시나리오 3행과 **같은 스냅샷**이다 — 한 요청이 한 번
+    조회한 기상으로 세 계획을 모두 보정한다. 보정 인자 자체는
+    ``result_json.scenarios[].weather_factor``에 있다(``TECH_SPEC §5.4`` 4항 · #904).
+    """
+    run = await calc_run_repo.insert_scenario(session, **fields)
+    await session.commit()
+    return str(run.id)
 
 
 # --- 조회 + 입력 확정 ----------------------------------------------------------------

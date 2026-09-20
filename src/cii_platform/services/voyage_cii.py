@@ -336,12 +336,32 @@ def _model_version() -> dict[str, object]:
 # --- 서비스 진입점 ----------------------------------------------------------------
 
 
-async def estimate_voyage_cii(session: AsyncSession, payload: VoyageCiiInput) -> dict[str, object]:
+async def estimate_voyage_cii(
+    session: AsyncSession, payload: VoyageCiiInput, *, persist: bool = True
+) -> dict[str, object]:
     """항차 CII를 추정하고 이력을 저장한 뒤 API_SPEC §4.1 응답 dict를 반환한다.
 
     ``meta``는 채우지 않는다 — ``request_id``·``timestamp``는 미들웨어가 요청 단위로
     만들고 라우트가 붙인다. 서비스가 ``request`` 객체를 알면 계층이 뒤집힌다.
     ``duration_ms``만 여기서 잰다(계산 시간이 서비스의 관심사다).
+
+    ## ``persist=False`` — 저장하지 않는 경로 (`#1334` ⑷)
+
+    챗봇 도구가 이 함수를 부른다. ``services/chat_tools`` 머리말은 *「쓰기 도구를
+    넣지 않는다 … ``PRD §16.2`` 격리」* 라고 적는데, **읽기 도구가 쓰고 있었다** —
+    ``calculation_run``에 행이 남고 턴 중간에 ``commit``까지 했다.
+
+    ``calculation_run``은 **출처 열이 없고 삭제 금지 트리거**가 걸려 있다. 시연 중
+    「14노트로 1000마일이면?」 한 번마다 모델이 만든 입력의 계산 행이 그 선박의 계산
+    이력과 ``§8.1 type=calculations`` 내보내기에 **화면 계산과 구별 없이** 쌓이고
+    지울 수 없다. **답변이 폐기돼도 행은 남는다.**
+
+    「저장 유지 + 출처 표시」는 고르지 않았다 — 출처 열을 새로 만들고(마이그레이션)
+    이력 화면과 내보내기가 그 열을 읽게 해야 하는데, 그러고도 **행이 쌓이는 것 자체는
+    남는다.**
+
+    저장하지 않으면 ``calculation_run_id``가 ``None``이다. 키를 빼지 않는 이유는
+    호출부가 **키의 유무가 아니라 값**을 보게 하기 위해서다.
     """
     started = time.perf_counter()
 
@@ -418,24 +438,27 @@ async def estimate_voyage_cii(session: AsyncSession, payload: VoyageCiiInput) ->
     model_version = _model_version()
     duration_ms = max(1, round((time.perf_counter() - started) * 1000))
 
-    run = await calc_run_repo.insert_voyage_estimate(
-        session,
-        vessel_id=payload.vessel_id,
-        voyage_id=payload.voyage_id,
-        input_hash=input_hash,
-        parameter_hash=parameter_hash,
-        model_version=model_version,
-        result_json=data,
-        parameters_used=parameters_used,
-        warnings=warnings,
-        duration_ms=duration_ms,
-    )
-    await session.commit()
+    run_id: str | None = None
+    if persist:
+        run = await calc_run_repo.insert_voyage_estimate(
+            session,
+            vessel_id=payload.vessel_id,
+            voyage_id=payload.voyage_id,
+            input_hash=input_hash,
+            parameter_hash=parameter_hash,
+            model_version=model_version,
+            result_json=data,
+            parameters_used=parameters_used,
+            warnings=warnings,
+            duration_ms=duration_ms,
+        )
+        await session.commit()
+        run_id = str(run.id)
 
     return {
         "data": data,
         "parameters_used": parameters_used,
-        "calculation_run_id": str(run.id),
+        "calculation_run_id": run_id,
         "model_version": model_version,
         "input_hash": input_hash,
         "parameter_hash": parameter_hash,

@@ -75,7 +75,8 @@ def test_publishable_renames_api_fields_to_canonical_names() -> None:
     assert published == {
         "rating": "C",
         "attained_cii": "4.98",
-        "next_boundary_gap": "0.012",
+        # `#1334` ⑵ — 비율에는 **화면 표기가 함께 실린다**. 키는 늘어나지 않는다.
+        "next_boundary_gap": "0.012 (1.2%)",
     }
     assert set(published) <= OUTBOUND_WHITELIST
 
