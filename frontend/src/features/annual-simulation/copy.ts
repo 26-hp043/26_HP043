@@ -91,7 +91,17 @@ export const ANNUAL_COPY = {
   runsBelowMin: '반복 횟수는 1,000 이상이어야 합니다.',
   runsAboveMax: '반복 횟수는 10,000 이하여야 합니다.',
   seedLabel: 'seed (선택)',
-  seedHint: '비워 두면 서버가 정합니다. 같은 seed는 같은 결과를 냅니다.',
+  /*
+   * 고급 설정 접기 (#1418). 반복 횟수·seed·실적 보정·대체 연료는 모두 기본값이 있어 비워도
+   * 실행된다. 접힌 채로 기본값이 아닌 값이 있으면 요약에 그 수를 적는다 — 보이지 않는 칸이
+   * 결과를 바꾸고 있다는 것을 접은 쪽이 말해야 한다.
+   */
+  advancedTitle: '고급 설정',
+  advancedDefault: '기본값으로 실행',
+  // 앞에 바꾼 칸 수가 붙는다 — 「2개 바꿈」. 문구는 문자열로만 둔다(`copy.test.ts`가 전수 검사한다).
+  advancedChangedSuffix: '개 바꿈',
+  // 칸 안(placeholder)에 들어가는 문장이라 짧게 (#1418 화면 확인). 낭독에도 같은 문장이 남는다.
+  seedHint: '비우면 서버가 정함 · 같은 seed면 같은 결과',
   submit: '시뮬레이션 실행',
   submitting: '실행 중입니다…',
 
@@ -219,6 +229,8 @@ export const ANNUAL_COPY = {
   snapshotLabel: '데이터 스냅샷',
   snapshotHint: '실행 시점의 항차 데이터를 따로 보관합니다.',
   runIdLabel: '계산 이력',
+  /* 스냅샷·계산 이력 식별자와 항차 사본을 접는다 (#1418). seed 줄과 재현 버튼은 밖에 둔다. */
+  reproDetailsToggle: '계산 근거 보기',
   /* 이 실행에 쓴 항차 (`API_SPEC §6.3` · #992) — 펼칠 때 불러온다. */
   snapshotVoyagesToggle: '이 실행에 쓴 항차 보기',
   snapshotVoyagesLoading: '항차를 불러오는 중입니다…',

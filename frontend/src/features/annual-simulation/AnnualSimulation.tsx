@@ -30,6 +30,8 @@ import {
   stackSegments,
   toPercent,
   validateRuns,
+  RUNS_DEFAULT,
+  countAdvancedChanges,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
@@ -113,7 +115,7 @@ export function AnnualSimulation({
    */
   const generationRef = useRef(0)
   const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>('B')
-  const [runs, setRuns] = useState('5000')
+  const [runs, setRuns] = useState(RUNS_DEFAULT)
   /** 반복 횟수 위반 문구. 실행을 누를 때 판정하고, 값을 고치면 지운다 (#1096 ⑴). */
   const [runsError, setRunsError] = useState<string | null>(null)
   const [seed, setSeed] = useState('')
@@ -125,6 +127,12 @@ export function AnnualSimulation({
    * 같은 규약).
    */
   const [alternativeFuel, setAlternativeFuel] = useState('')
+  /*
+   * 고급 설정 펼침 (#1418). 반복 횟수 오류가 나면 **펼친다** — 접힌 칸의 오류는 보이지
+   * 않는다. 그래서 `<details>`의 열림을 상태로 쥔다.
+   */
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const advancedChanged = countAdvancedChanges({ runs, seed, applyFeedback, alternativeFuel })
   const fuelOptions = useFuelOptions()
 
   // 연도 선택지도 CII 예측과 **같은 경계** 뒤에 둔다 (`#534` · `#558`). 기준이 갈리면
@@ -240,6 +248,7 @@ export function AnnualSimulation({
     const runsProblem = validateRuns(runs)
     if (runsProblem !== null) {
       setRunsError(runsProblem)
+      setAdvancedOpen(true)
       return
     }
     setState({ status: 'running' })
@@ -360,87 +369,114 @@ export function AnnualSimulation({
           )}
         </Field>
 
-        <Field
-          id="annual-sim-runs"
-          label={ANNUAL_COPY.runsLabel}
-          hint={ANNUAL_COPY.runsHint}
-          error={runsError ?? undefined}
-        >
-          {/* `step`을 두지 않는다 — 서버 규칙(정수 · 1,000 이상)에 없는 제약이다. */}
-          {(control) => (
-            <input
-              {...control}
-              className="annual-sim__control"
-              type="number"
-              min={RUNS_MIN}
-              max={RUNS_MAX}
-              value={runs}
-              onChange={(event) => {
-                setRuns(event.target.value)
-                setRunsError(null)
-              }}
-            />
-          )}
-        </Field>
-
-        <Field id="annual-sim-seed" label={ANNUAL_COPY.seedLabel} hint={ANNUAL_COPY.seedHint}>
-          {(control) => (
-            <input
-              {...control}
-              className="annual-sim__control"
-              type="text"
-              inputMode="numeric"
-              value={seed}
-              onChange={(event) => setSeed(event.target.value)}
-            />
-          )}
-        </Field>
-
-        <div className="annual-sim__field">
-          <label className="annual-sim__check" htmlFor="annual-sim-feedback">
-            <input
-              id="annual-sim-feedback"
-              type="checkbox"
-              checked={applyFeedback}
-              aria-describedby="annual-sim-feedback-hint"
-              onChange={(event) => setApplyFeedback(event.target.checked)}
-            />
-            {ANNUAL_COPY.feedbackToggle}
-          </label>
-          <span id="annual-sim-feedback-hint" className="annual-sim__hint">
-            {ANNUAL_COPY.feedbackToggleHint}
-          </span>
-        </div>
-
         {/*
-          대체 연료 지렛대 (#756 ⑴ · 결정 「나」 — 질량 유지). 목록은 파라미터
-          카탈로그(`useFuelOptions`)에서 온다 — 고정표를 두면 연료가 추가·비활성화될 때
-          화면만 따라간다(#558과 같은 이유). 불러오기에 실패하면 선택지를 아예
-          둘지 않는다: 지금 고를 수 없는 연료를 보여 주면 고르고 나서 실패하게 된다.
+          기본값이 있는 네 칸을 접는다 (#1418). 첫 화면이 입력 폼이 아니라 **기준연도 · 목표 등급 ·
+          실행**이 되게. 입력칸을 숨기지 말라는 조항은 `PRD §12`·`UIFLOW 2-3`에 없다.
         */}
-        {!fuelOptions.failed && fuelOptions.fuels.length > 0 ? (
-          <div className="annual-sim__field">
-            <label className="annual-sim__label" htmlFor="annual-sim-alt-fuel">
-              {ANNUAL_COPY.alternativeFuelLabel}
+        <details
+          className="annual-sim__advanced"
+          open={advancedOpen}
+          onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        >
+          <summary>
+            {ANNUAL_COPY.advancedTitle}
+            <span className="annual-sim__hint">
+              {' · '}
+              {advancedChanged === 0
+                ? ANNUAL_COPY.advancedDefault
+                : `${advancedChanged}${ANNUAL_COPY.advancedChangedSuffix}`}
+            </span>
+          </summary>
+          <Field
+            id="annual-sim-runs"
+            label={ANNUAL_COPY.runsLabel}
+            hint={ANNUAL_COPY.runsHint}
+            error={runsError ?? undefined}
+          >
+            {/* `step`을 두지 않는다 — 서버 규칙(정수 · 1,000 이상)에 없는 제약이다. */}
+            {(control) => (
+              <input
+                {...control}
+                className="annual-sim__control"
+                type="number"
+                min={RUNS_MIN}
+                max={RUNS_MAX}
+                value={runs}
+                onChange={(event) => {
+                  setRuns(event.target.value)
+                  setRunsError(null)
+                }}
+              />
+            )}
+          </Field>
+
+          {/*
+            seed 안내는 칸 안에 둔다 (#1418 화면 확인). 빈 칸일 때만 보이면 되는 말이고,
+            고급 설정을 열었을 때 줄 수를 늘리지 않는다. `aria-describedby`로도 같은 문장을
+            이어 둔다 — 플레이스홀더는 입력을 시작하면 사라지고 낭독이 건너뛰기도 한다.
+          */}
+          <Field id="annual-sim-seed" label={ANNUAL_COPY.seedLabel} hint={ANNUAL_COPY.seedHint} hintHidden>
+            {(control) => (
+              <input
+                {...control}
+                className="annual-sim__control"
+                type="text"
+                inputMode="numeric"
+                placeholder={ANNUAL_COPY.seedHint}
+                value={seed}
+                onChange={(event) => setSeed(event.target.value)}
+              />
+            )}
+          </Field>
+
+          <div className="annual-sim__field annual-sim__field--check">
+            <label className="annual-sim__check" htmlFor="annual-sim-feedback">
+              <input
+                id="annual-sim-feedback"
+                type="checkbox"
+                checked={applyFeedback}
+                aria-describedby="annual-sim-feedback-hint"
+                onChange={(event) => setApplyFeedback(event.target.checked)}
+              />
+              {ANNUAL_COPY.feedbackToggle}
             </label>
-            <select
-              id="annual-sim-alt-fuel"
-              value={alternativeFuel}
-              aria-describedby="annual-sim-alt-fuel-hint"
-              onChange={(event) => setAlternativeFuel(event.target.value)}
-            >
-              <option value="">{ANNUAL_COPY.alternativeFuelNone}</option>
-              {fuelOptions.fuels.map((fuel) => (
-                <option key={fuel.code} value={fuel.code}>
-                  {fuelTypeOptionText(fuel.code)}
-                </option>
-              ))}
-            </select>
-            <span id="annual-sim-alt-fuel-hint" className="annual-sim__hint">
-              {ANNUAL_COPY.alternativeFuelHint}
+            <span id="annual-sim-feedback-hint" className="annual-sim__hint">
+              {ANNUAL_COPY.feedbackToggleHint}
             </span>
           </div>
-        ) : null}
+
+          {/*
+            대체 연료 지렛대 (#756 ⑴ · 결정 「나」 — 질량 유지). 목록은 파라미터
+            카탈로그(`useFuelOptions`)에서 온다 — 고정표를 두면 연료가 추가·비활성화될 때
+            화면만 따라간다(#558과 같은 이유). 불러오기에 실패하면 선택지를 아예
+            둘지 않는다: 지금 고를 수 없는 연료를 보여 주면 고르고 나서 실패하게 된다.
+          */}
+          {!fuelOptions.failed && fuelOptions.fuels.length > 0 ? (
+            <div className="annual-sim__field">
+              <label className="annual-sim__label" htmlFor="annual-sim-alt-fuel">
+                {ANNUAL_COPY.alternativeFuelLabel}
+              </label>
+              {/* 다른 칸과 같은 컨트롤 규격을 준다 (#1418) — 이 셀렉트만 브라우저 기본 모양이었다. */}
+              <select
+                id="annual-sim-alt-fuel"
+                className="annual-sim__control"
+                value={alternativeFuel}
+                aria-describedby="annual-sim-alt-fuel-hint"
+                onChange={(event) => setAlternativeFuel(event.target.value)}
+              >
+                <option value="">{ANNUAL_COPY.alternativeFuelNone}</option>
+                {fuelOptions.fuels.map((fuel) => (
+                  <option key={fuel.code} value={fuel.code}>
+                    {fuelTypeOptionText(fuel.code)}
+                  </option>
+                ))}
+              </select>
+              <span id="annual-sim-alt-fuel-hint" className="annual-sim__hint">
+                {ANNUAL_COPY.alternativeFuelHint}
+              </span>
+            </div>
+          ) : null}
+        </details>
 
         <button
           type="submit"
@@ -866,25 +902,34 @@ function Result({
       <section className="annual-sim__block">
         <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.reproTitle}</h2>
         <p className="annual-sim__caption">{ANNUAL_COPY.reproCaption}</p>
+        {/*
+          seed 줄은 밖에 둔다 (#1418) — `PRD §12.4.3` 「자동 seed … 결과에 표시한다」.
+          스냅샷·계산 이력 식별자(UUID)와 항차 사본은 「계산 근거 보기」 안으로.
+        */}
         <dl className="annual-sim__repro">
           <dt>seed</dt>
           <dd>{reproducibilityLine(mc)}</dd>
-          <dt>{ANNUAL_COPY.snapshotLabel}</dt>
-          <dd>
-            {result.snapshot.snapshot_id}
-            <span className="annual-sim__hint">
-              {ANNUAL_COPY.snapshotHint} ({result.snapshot.voyage_count}건)
-            </span>
-          </dd>
-          <dt>{ANNUAL_COPY.runIdLabel}</dt>
-          <dd>{result.calculation_run_id}</dd>
         </dl>
-        {/* 이 실행에 쓴 항차 — 펼칠 때 불러온다 (`API_SPEC §6.3` · #992). */}
-        <SnapshotVoyages
-          simulationId={result.simulation_id}
-          voyageCount={result.snapshot.voyage_count}
-          provider={provider}
-        />
+        <details className="annual-sim__repro-details">
+          <summary>{ANNUAL_COPY.reproDetailsToggle}</summary>
+          <dl className="annual-sim__repro">
+            <dt>{ANNUAL_COPY.snapshotLabel}</dt>
+            <dd>
+              {result.snapshot.snapshot_id}
+              <span className="annual-sim__hint">
+                {ANNUAL_COPY.snapshotHint} ({result.snapshot.voyage_count}건)
+              </span>
+            </dd>
+            <dt>{ANNUAL_COPY.runIdLabel}</dt>
+            <dd>{result.calculation_run_id}</dd>
+          </dl>
+          {/* 이 실행에 쓴 항차 — 펼칠 때 불러온다 (`API_SPEC §6.3` · #992). */}
+          <SnapshotVoyages
+            simulationId={result.simulation_id}
+            voyageCount={result.snapshot.voyage_count}
+            provider={provider}
+          />
+        </details>
         {/*
           `PRD §12.4.3` 「결과 재현 버튼」(#776). `#556`은 이 경로를 「검증 수단이지
           사용자 기능이 아니다」로 판정했으나 `PRD §12.4.3`이 버튼을 요구해 뒤집혔다.
