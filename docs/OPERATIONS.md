@@ -64,7 +64,7 @@ npm run dev   # VITE_API_BASE_URL 불필요
 
 ```toml
 [vars]
-API_ORIGIN = "http://131.186.22.10:8001"
+API_ORIGIN = "https://<터널이 준 호스트명>"     # 배포가 시크릿에서 덮어쓴다 (#1496)
 ```
 
 영향받는 소스 파일:
@@ -73,6 +73,17 @@ API_ORIGIN = "http://131.186.22.10:8001"
 - `frontend/src/auth/session.ts` — `AUTH_API_BASE`
 
 셋 모두 `import.meta.env.VITE_API_BASE_URL ?? '/api/v1'`이라 **상대 경로가 원래 기본값**이다.
+
+#### ⚠️ 백엔드 주소는 **호스트명**이어야 한다 (#1496)
+
+`API_ORIGIN`에 **IP를 적으면 프록시가 동작하지 않는다.** Cloudflare 공식 문서 원문이다.
+
+> *"For Workers subrequests, requests can only be made to URLs, **not to IP addresses directly**."*
+> — [Workers Known issues](https://developers.cloudflare.com/workers/platform/known-issues/)
+
+2026-09-21 실측 — `https://bluelog-bx7.pages.dev/api/v1/health` → **403 · `error code: 1003`**(Direct IP access not allowed). **화면은 200으로 뜨고 `/api/*`만 끊긴다.**
+
+호스트명은 **Cloudflare Tunnel**이 준다(§3.6). 값은 저장소에 두지 않고 시크릿 `API_ORIGIN`으로 넣으면 배포가 `wrangler.toml`에 렌더한다 — 터널을 만들 때 정해지므로 커밋 시점에 알 수 없기 때문이다.
 
 #### 왜 절대 URL + CORS가 아닌가
 
@@ -357,9 +368,41 @@ docker compose -f docker-compose.prod.app.yml --profile migrate \
   run --rm -T migrate python -m cii_platform.db.demo_seed --clear  # 초기화
 ```
 
-### 3.5 롤백
+### 3.5 Cloudflare Tunnel (#1496)
 
-#### 3.5.1 지금 떠 있는 것이 어느 커밋인지 답하기 (#789 완료 기준)
+백엔드에 **호스트명과 HTTPS를 주는 통로**다. `cloudflared`가 app-01에서 **아웃바운드로만** 연결하므로 인바운드 포트를 열지 않는다 — `:8001` 직접 노출(`#786`)과 프록시 뒤 요청 한도(`#1483`)도 같은 걸음에 닫힌다.
+
+#### 3.5.1 설정 순서
+
+1. **Cloudflare 대시보드** → Zero Trust → Networks → Tunnels → 터널 생성
+2. Public hostname을 추가하고 서비스를 **`http://backend:8000`**으로 지정한다 — `cloudflared`가 `cii-app-net`에 붙어 있어 그 이름으로 닿는다
+3. 커넥터 **토큰**을 복사해 GitHub 시크릿 **`CLOUDFLARE_TUNNEL_TOKEN`**에 넣는다
+4. 2번에서 받은 **호스트명**을 시크릿 **`API_ORIGIN`**에 넣는다 (`https://` 포함)
+5. 배포하면 `cloudflared`가 뜨고 `wrangler.toml`이 그 호스트명으로 렌더된다
+
+#### 3.5.2 확인
+
+```bash
+curl -i https://bluelog-bx7.pages.dev/api/v1/health
+# 200 → 성공
+# 403 (error 1003) → API_ORIGIN이 아직 IP다
+```
+
+#### 3.5.3 되돌리기
+
+전 단계가 가역적이다. **`:8001`을 먼저 닫지 않는 것**이 요점 — 터널이 검증될 때까지 직접 호출로 원인을 가릴 수단을 남긴다.
+
+| 단계 | 되돌리는 법 |
+|---|---|
+| `cloudflared` | `docker compose -f docker-compose.prod.app.yml stop cloudflared` |
+| `API_ORIGIN` | 시크릿을 되돌리고 재배포 (값이 저장소에 없으므로 커밋 되돌리기가 필요 없다) |
+| 터널 | 대시보드에서 삭제. 비용 0 |
+
+⚠️ **되돌려도 로그인은 되지 않는다.** 이 배포본은 로그인이 된 적이 한 번도 없다 — 되돌리기는 「지금보다 나아짐」이 아니라 **「더 나빠지지 않음」**이다.
+
+### 3.6 롤백
+
+#### 3.6.1 지금 떠 있는 것이 어느 커밋인지 답하기 (#789 완료 기준)
 
 ```bash
 # app-01 — 백엔드 컨테이너가 달린 이미지 태그(=배포 커밋 SHA)
@@ -374,7 +417,7 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 \
 배포 워크플로 로그(GitHub Actions `Deploy to OCI`)에도 어느 커밋이 나갔는지
 남는다. **화면과 서버가 어긋난 것 같으면 이 명령부터** — 어느 쪽이 낡았는지가 정해진다.
 
-#### 3.5.2 이미지 되돌리기 — 마이그레이션이 없던 배포
+#### 3.6.2 이미지 되돌리기 — 마이그레이션이 없던 배포
 
 ```bash
 # 이전 SHA 태그로 이미지 되돌리기
@@ -388,7 +431,7 @@ sed -i 's|BACKEND_IMAGE=.*|BACKEND_IMAGE=ghcr.io/26-hp043/bluelog-backend:<이�
 docker compose -f docker-compose.prod.app.yml up -d backend
 ```
 
-#### 3.5.3 마이그레이션이 섞인 배포의 롤백 — 순서가 있다
+#### 3.6.3 마이그레이션이 섞인 배포의 롤백 — 순서가 있다
 
 주의: 마이그레이션이 포함된 배포는 단순 이미지 교체로 되돌릴 수 없다.
 순서는 **백업 먼저, 판정 다음, 교체 마지막**이다.
@@ -402,7 +445,7 @@ python3 scripts/db_backup.py backup
 #    IRREVERSIBLE 목록과 24시간 가드: src/cii_platform/db/migration_guard.py
 #    ALLOW_IRREVERSIBLE_DOWNGRADE=<rev> 로만 풀린다.
 
-# 3) 되돌릴 수 있으면: alembic downgrade -1 → 이전 sha 이미지로 교체(위 3.5.2)
+# 3) 되돌릴 수 있으면: alembic downgrade -1 → 이전 sha 이미지로 교체(위 3.6.2)
 #    FK(RESTRICT)로 실패하면 1)의 덤프로 되돌린다(db_backup.py restore).
 ```
 

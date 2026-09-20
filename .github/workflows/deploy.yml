@@ -35,6 +35,11 @@
 #   SIGNUP_ALLOWED_DOMAINS  가입 허용 메일 도메인.
 #   SIGNUP_INVITE_CODE      초대 코드.
 #   TOUR_ACCESS_CODE        둘러보기 링크의 접근 코드 (#1486). 비우면 둘러보기가 닫힌다.
+#   CLOUDFLARE_TUNNEL_TOKEN Cloudflare Tunnel 커넥터 토큰 (#1496). 있으면 app-01에
+#                           cloudflared를 띄운다. 없으면 터널을 쓰지 않는다.
+#   API_ORIGIN              Pages Function이 백엔드를 부를 **호스트명** (#1496).
+#                           ⚠️ **IP를 넣으면 안 된다** — Workers는 IP로 fetch할 수 없다
+#                           (실측 `error code: 1003`). 터널이 준 호스트명을 넣는다.
 #   MAIL_FROM / SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD
 #                           MAIL_BACKEND 기본값은 console 이다 — SMTP_* 를
 #                           등록할 때 MAIL_BACKEND=smtp 도 함께 넣는다.
@@ -319,6 +324,7 @@ jobs:
           SIGNUP_INVITE_CODE: ${{ secrets.SIGNUP_INVITE_CODE }}
           INITIAL_ADMIN_EMAILS: ${{ secrets.INITIAL_ADMIN_EMAILS }}
           TOUR_ACCESS_CODE: ${{ secrets.TOUR_ACCESS_CODE }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           MAIL_BACKEND: ${{ secrets.MAIL_BACKEND }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
@@ -344,6 +350,7 @@ jobs:
              SIGNUP_INVITE_CODE='${SIGNUP_INVITE_CODE:-}' \
              INITIAL_ADMIN_EMAILS='${INITIAL_ADMIN_EMAILS:-}' \
              TOUR_ACCESS_CODE='${TOUR_ACCESS_CODE:-}' \
+             CLOUDFLARE_TUNNEL_TOKEN='${CLOUDFLARE_TUNNEL_TOKEN:-}' \
              MAIL_BACKEND='${MAIL_BACKEND:-console}' \
              MAIL_FROM='${MAIL_FROM:-}' \
              SMTP_HOST='${SMTP_HOST:-}' SMTP_PORT='${SMTP_PORT:-587}' \
@@ -381,6 +388,7 @@ jobs:
           INITIAL_ADMIN_EMAILS=${INITIAL_ADMIN_EMAILS}
           SMTP_USE_TLS=${SMTP_USE_TLS}
           TOUR_ACCESS_CODE=${TOUR_ACCESS_CODE}
+          CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
           MAIL_BACKEND=${MAIL_BACKEND}
           MAIL_FROM=${MAIL_FROM}
           SMTP_HOST=${SMTP_HOST}
@@ -425,6 +433,17 @@ jobs:
             echo "[app-01] 데모 데이터 seed"
             docker compose -f docker-compose.prod.app.yml --profile migrate \
               run --rm -T migrate python -m cii_platform.db.demo_seed </dev/null
+          fi
+
+          # Cloudflare Tunnel (#1496) — **토큰이 있을 때만.**
+          #
+          # 토큰이 없으면 `cloudflared`가 뜨자마자 죽고 재시작 루프가 된다. 프로필 뒤에
+          # 두고 여기서 조건으로 올린다(`migrate`와 같은 방식).
+          if [ -n "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
+            echo "[app-01] cloudflared 시작"
+            docker compose -f docker-compose.prod.app.yml --profile tunnel up -d cloudflared </dev/null
+          else
+            echo "::warning::CLOUDFLARE_TUNNEL_TOKEN 미설정 — 터널을 띄우지 않는다 (#1496)"
           fi
 
           # Backend 시작
@@ -507,6 +526,40 @@ jobs:
       - run: npm run build
         env:
           VITE_API_BASE_URL: /api/v1
+
+      # `API_ORIGIN`을 시크릿에서 렌더한다 (#1496).
+      #
+      # ## 왜 저장소에 두지 않는가
+      #
+      # 종전에는 `wrangler.toml`에 `http://131.186.22.10:8001`이 박혀 있었다. **그 IP가
+      # 결함의 원인이었고**(Workers는 IP로 fetch할 수 없다 · 실측 `error 1003`), 터널이
+      # 주는 호스트명은 터널을 만들 때 정해지므로 **커밋 시점에 알 수 없다.**
+      #
+      # ⚠️ 미설정이면 **배포를 멈춘다.** 자리표시자가 그대로 올라가면 프록시가 조용히
+      # 실패하고, 증상은 종전과 똑같은 「로그인이 안 된다」라 구분되지 않는다.
+      - name: wrangler.toml의 API_ORIGIN 렌더
+        env:
+          API_ORIGIN: ${{ secrets.API_ORIGIN }}
+        run: |
+          if [ -z "${API_ORIGIN}" ]; then
+            echo "::error::시크릿 API_ORIGIN 이 비어 있다 — Pages Function이 백엔드를 찾지 못한다 (#1496)"
+            exit 1
+          fi
+          case "${API_ORIGIN}" in
+            *[0-9].[0-9]*[0-9].[0-9]*[0-9].[0-9]*)
+              echo "::error::API_ORIGIN 이 IP 주소로 보인다 — Workers는 IP로 fetch할 수 없다 (#1496)"
+              exit 1
+              ;;
+          esac
+          python3 - "${API_ORIGIN}" <<'PY'
+          import pathlib, re, sys
+          p = pathlib.Path("wrangler.toml")
+          t = p.read_text(encoding="utf-8")
+          t2 = re.sub(r'^API_ORIGIN\s*=.*$', f'API_ORIGIN = "{sys.argv[1]}"', t, count=1, flags=re.M)
+          assert t2 != t, "wrangler.toml에 API_ORIGIN 줄이 없다"
+          p.write_text(t2, encoding="utf-8")
+          PY
+          grep -n '^API_ORIGIN' wrangler.toml
 
       - name: wrangler pages deploy (프로덕션)
         env:

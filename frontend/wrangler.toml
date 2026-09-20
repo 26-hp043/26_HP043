@@ -17,6 +17,15 @@ compatibility_date = "2026-09-20"
 [vars]
 # `functions/api/[[path]].ts`가 `/api/*`를 넘길 백엔드 오리진.
 #
+# ⚠️ **이 값은 배포가 시크릿에서 덮어쓴다** (`#1496` · `deploy.yml`의 「wrangler.toml의
+# API_ORIGIN 렌더」 단계). 아래는 **자리표시자**이며 그대로 올라가면 프록시가 실패한다 —
+# 배포가 시크릿 미설정 시 멈추게 해 두었다.
+#
+# ## 왜 IP를 적지 않는가 (#1496)
+#
+# 종전에는 `http://131.186.22.10:8001`이 박혀 있었다. Cloudflare 공식 문서가
+# *「Workers 서브리퀘스트는 URL로만 보낼 수 있고 IP로는 보낼 수 없다」*로 적고,
+# 실측에서도 `error code: 1003`(Direct IP access not allowed)이 났다.
+#
 # **경로를 붙이지 않는다** — 오리진만 쓰이고 경로는 버려진다(`toUpstreamUrl`).
-# 슬래시가 더 붙어도 동작하도록 두었지만, 적을 때는 오리진만 적는다.
-API_ORIGIN = "http://131.186.22.10:8001"
+API_ORIGIN = "https://REPLACE-ME.invalid"

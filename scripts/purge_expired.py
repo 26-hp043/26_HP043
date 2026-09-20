@@ -91,7 +91,7 @@ DEFAULT_COMPOSE = "docker compose -f docker-compose.prod.yml"
 #: ⚠️ **토폴로지마다 다르다** (`#1330`). ``docker-compose.prod.yml``은 ``db``지만
 #: OCI 배포가 쓰는 ``docker-compose.prod.db.yml``은 **``cubrid``**이고,
 #: ``docs/OPERATIONS.md``도 ``exec -T cubrid``로 적는다. 이름을 박아 두면 그쪽에서
-#: **어느 명령도 돌지 않는다** — `OPERATIONS §3.4.3` 롤백 절차가 그래서 막혔다.
+#: **어느 명령도 돌지 않는다** — `OPERATIONS §3.6.3` 롤백 절차가 그래서 막혔다.
 DEFAULT_DB_SERVICE = "db"
 
 #: 조회용 — ``-t``(plain-output) ``-N``(skip-column-names)이 ``psql -At``과 같은
