@@ -158,6 +158,24 @@ async def get_vessel(session: AsyncSession, vessel_id: UUID) -> dict[str, object
     return to_dict(vessel)
 
 
+async def _require_fuel_type(session: AsyncSession, code: str | None) -> None:
+    """``default_fuel_type``이 **활성 연료 종류인지** 확인한다 (`#1332`).
+
+    종전에는 검사가 없어 ``fk_vessel_default_fuel`` 위반이 그대로 올라와 **500**이
+    됐다 — 사용자가 고칠 수 있는 입력인데 「서버 오류」로 보였다. 같은 파일의
+    ``ship_type``(VAL-004)은 처음부터 422였다.
+    """
+    if code is None:
+        return
+    rows = await param_repo.get_fuel_types_by_codes(session, [code])
+    if code not in rows:
+        raise ValidationError(
+            f"알 수 없는 연료 종류입니다: {code}",
+            field="default_fuel_type",
+            field_label="기본 연료",
+        )
+
+
 async def create_vessel(
     session: AsyncSession,
     *,
@@ -193,6 +211,8 @@ async def create_vessel(
             field="ship_type",
             field_label="선종",
         )
+
+    await _require_fuel_type(session, default_fuel_type)
 
     existing = await vessel_repo.find_active_by_imo(session, imo_number)
     if existing is not None:
@@ -283,6 +303,7 @@ async def update_vessel(
             specs_changed = True
         vessel.deadweight = deadweight
     if default_fuel_type is not None:
+        await _require_fuel_type(session, default_fuel_type)
         vessel.default_fuel_type = default_fuel_type
     if reference_speed_kn is not None:
         vessel.reference_speed_kn = reference_speed_kn

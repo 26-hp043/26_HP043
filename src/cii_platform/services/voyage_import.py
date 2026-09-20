@@ -68,7 +68,7 @@ from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import AppError, ValidationError
 from cii_platform.reports.csv_export import sanitize
-from cii_platform.services.voyage import create_voyage
+from cii_platform.services.voyage import create_voyage, require_vessel
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -394,6 +394,11 @@ async def import_voyages(
     ``missing_departure_count``이며, ``dry_run``일 때 ``imported_count``는 **들어갈 수 있는
     행 수**다(``missing_departure_count``도 들어갈 행 가운데의 수다).
     """
+    # 선박을 **파일을 읽기 전에** 본다 (`#1332`). 종전에는 이 검사가 없어
+    # `dry_run`이 「전부 가능」이라 답한 뒤 실제 적재에서 **행마다 FK 실패**가 났고,
+    # 없는 선박이면 500이었다(`API_SPEC §1.4`는 404).
+    await require_vessel(session, vessel_id)
+
     rows, truncated = read_rows(content, content_type=content_type)
     known_fuels = {row.code for row in await param_repo.list_active_fuel_types(session)}
 

@@ -78,6 +78,14 @@ class _FakeSession:
         self.deleted.append(obj)
 
 
+class _FakeVessel:
+    """선박 존재 검사용 대역 (`#1332`)."""
+
+    def __init__(self, vessel_id) -> None:
+        self.id = vessel_id
+        self.is_deleted = False
+
+
 class _FakeFuelRow:
     def __init__(self, code="HFO", cf="3.114"):
         self.code = code
@@ -119,9 +127,33 @@ def voyage_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         return False
 
     async def fake_list_active(
-        session, *, vessel_id, limit, cursor=None, status=None, regulation_year=None
+        session,
+        *,
+        vessel_id,
+        limit,
+        cursor=None,
+        status=None,
+        regulation_year=None,
+        annual_inclusion_policy=None,
     ):
-        return voyage_store[: limit + 1]
+        # `#1332` — 실제 저장소는 세 필터를 전부 건다. 대역이 무시하면 「필터를
+        # 넘겼는데 안 걸린다」가 여기서 드러나지 않는다.
+        rows = voyage_store
+        if status is not None:
+            rows = [v for v in rows if v.status == status]
+        if annual_inclusion_policy is not None:
+            rows = [v for v in rows if v.annual_inclusion_policy == annual_inclusion_policy]
+        return rows[: limit + 1]
+
+    async def fake_get_vessel(session, vessel_id):
+        # `#1332` — 서비스가 선박 존재를 본다. 대역이 없으면 `_FakeSession`이 실제
+        # 쿼리를 받아 `execute`가 없다고 터진다.
+        return _FakeVessel(vessel_id)
+
+    async def fake_get_regulation_year(session, year):
+        # VAL-005 (`#1332`). 이 파일의 픽스처는 seed 연도를 쓰므로 있다고 답한다 —
+        # 「없는 연도」 경로는 DB 검사(`test_voyages_db.py`)가 본다.
+        return object()
 
     async def fake_get_by_id(session, voyage_id):
         return next((v for v in voyage_store if v.id == voyage_id), None)
@@ -137,6 +169,8 @@ def voyage_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setattr(svc.voyage_repo, "list_active", fake_list_active)
     monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
     monkeypatch.setattr(svc.param_repo, "get_fuel_types_by_codes", fake_get_fuel_types_by_codes)
+    monkeypatch.setattr(svc.vessel_repo, "get_by_id", fake_get_vessel)
+    monkeypatch.setattr(svc.param_repo, "get_regulation_year", fake_get_regulation_year)
 
     async def override_session():
         yield _FakeSession()
@@ -419,6 +453,13 @@ class TestUpdateNullSemantics:
         # #865 — 계획값 변경 시 무효화 호출이 추가됐다. 가짜 세션으로는 실제
         # 저장소를 돌릴 수 없으므로 대역으로 대체한다.
         monkeypatch.setattr(svc.voyage_repo, "mark_calculations_needing_recalc", fake_mark_recalc)
+
+        async def fake_get_regulation_year(_session, _year):
+            # VAL-005 (`#1332`). 이 묶음은 **null 의미론**을 보므로 연도는 있다고
+            # 답한다 — 「없는 연도」 경로는 DB 검사가 본다.
+            return object()
+
+        monkeypatch.setattr(svc.param_repo, "get_regulation_year", fake_get_regulation_year)
 
         async def override_session():
             yield _FakeSession()
