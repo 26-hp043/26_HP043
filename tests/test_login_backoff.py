@@ -24,6 +24,7 @@ from cii_platform.auth import backoff as backoff_mod
 from cii_platform.auth.backoff import (
     BASE_DELAY_SECONDS,
     MAX_DELAY_SECONDS,
+    MAX_TRACKED_EMAILS,
     THRESHOLD,
     LoginBackoff,
     _delay_for_failures,
@@ -61,6 +62,55 @@ def test_window_is_the_only_recovery():
         assert box.delay_seconds("a@example.com") == 0.0, "창이 지났는데 지연이 남았다"
     finally:
         time.monotonic = real_monotonic  # type: ignore[assignment]
+
+
+def test_the_table_does_not_grow_without_bound(monkeypatch: pytest.MonkeyPatch):
+    """표가 상한을 넘으면 **만료분을 먼저 쓸어낸다** (`#1368`).
+
+    만료 항목은 **그 이메일을 다시 조회할 때** 지워지는데, 공격은 대개 매번 다른
+    이메일로 온다 — 그 경로만으로는 다시 조회되는 일이 없어 재시작 전까지 쌓인다.
+    """
+    monkeypatch.setattr(backoff_mod, "MAX_TRACKED_EMAILS", 5)
+    box = LoginBackoff()
+
+    base = time.monotonic()
+    monkeypatch.setattr(time, "monotonic", lambda: base)
+    for index in range(5):
+        box.record_failure(f"old{index}@example.com")
+    assert len(box._failures) == 5
+
+    # 창을 넘긴 시점에 새 실패가 하나 들어오면, 오래된 것들이 쓸려 나간다.
+    monkeypatch.setattr(time, "monotonic", lambda: base + 16 * 60)
+    box.record_failure("new@example.com")
+
+    assert set(box._failures) == {"new@example.com"}
+
+
+def test_still_bounded_when_nothing_has_expired(monkeypatch: pytest.MonkeyPatch):
+    """만료된 것이 없어도 **가장 오래된 것부터 버려** 상한을 지킨다 (`#1368`).
+
+    지연이 필요한 쪽은 **지금 두드리고 있는** 이메일이지, 한참 전에 한 번 틀린
+    이메일이 아니다.
+    """
+    monkeypatch.setattr(backoff_mod, "MAX_TRACKED_EMAILS", 3)
+    box = LoginBackoff()
+
+    base = time.monotonic()
+    for index in range(6):
+        monkeypatch.setattr(time, "monotonic", lambda index=index: base + index)
+        box.record_failure(f"a{index}@example.com")
+
+    assert len(box._failures) == 3
+    assert set(box._failures) == {"a3@example.com", "a4@example.com", "a5@example.com"}
+
+
+def test_the_bound_is_high_enough_not_to_punish_normal_use():
+    """상한은 **정상 사용을 깨지 않을 만큼** 크다 (`#1368`).
+
+    상한이 낮으면 동시에 백오프가 걸린 계정이 조금만 늘어도 카운터가 밀려나
+    **공격자가 상한을 이용해 자기 항목을 지우게** 된다.
+    """
+    assert MAX_TRACKED_EMAILS >= 1000
 
 
 def test_success_resets_immediately():
