@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.db.session import get_session
 from cii_platform.errors import NotFoundError
+from cii_platform.geocode.nominatim import GeocodeProvider
 from cii_platform.services.geocoding import lookup_port
 from cii_platform.services.sample_ports import estimate_distance, list_sample_ports
 
@@ -86,9 +87,11 @@ async def lookup_port_route(
     샘플 목록 → 캐시 → 외부 조회 순으로 보고, 못 찾으면 404다. 실패해도 항차 입력은
     막히지 않는다(`PRD §16.2`) — 화면이 문구를 보여 주고 사용자가 직접 넣는다.
     """
-    from cii_platform.geocode.nominatim import NominatimProvider
-
-    found, reason = await lookup_port(session, name=name, provider=NominatimProvider())
+    # 제공자는 **프로세스에 하나**다(`main.py`가 `app.state`에 둔다). 요청마다 새로 만들면
+    # 어댑터 안의 「초당 1회」 시각이 매번 초기화되어 상한이 한 번도 걸리지 않는다 (`#1335`).
+    # 앱이 제공자를 두지 않았으면 바깥으로 나가지 않는다 — 샘플·캐시까지만 본다.
+    provider: GeocodeProvider | None = getattr(request.app.state, "geocode_provider", None)
+    found, reason = await lookup_port(session, name=name, provider=provider)
     if found is None:
         raise NotFoundError(_LOOKUP_FAILURE_MESSAGES[reason or "NOT_A_PORT"])
     return {
