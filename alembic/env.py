@@ -1,20 +1,18 @@
 import asyncio
 import sys
+from contextlib import suppress
 from logging.config import fileConfig
 from pathlib import Path
 
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
-from sqlalchemy.engine import engine_from_config
+from sqlalchemy.engine import Connection, engine_from_config
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
 # Register CUBRID Alembic DDL implementation (#1058).
-try:
+with suppress(ImportError):
     from sqlalchemy_cubrid.alembic_impl import CubridImpl as _CubridImpl  # noqa: F401
-except ImportError:
-    pass
 
 # src 레이아웃을 sys.path에 추가하여 editable 설치 없이도 cii_platform을 import할 수 있게 한다.
 _SRC = Path(__file__).resolve().parents[1] / "src"
@@ -23,7 +21,11 @@ if str(_SRC) not in sys.path:
 
 from cii_platform.config import DATABASE_URL  # noqa: E402
 from cii_platform.db.models import Base  # noqa: E402
-from cii_platform.db.url import normalize_to_async, normalize_to_sync  # noqa: E402
+from cii_platform.db.url import (  # noqa: E402
+    escape_configparser_value,
+    normalize_to_async,
+    normalize_to_sync,
+)
 
 config = context.config
 
@@ -60,7 +62,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 def _run_migrations_sync() -> None:
     url = normalize_to_sync(DATABASE_URL)
-    config.set_main_option("sqlalchemy.url", url)
+    config.set_main_option("sqlalchemy.url", escape_configparser_value(url))
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
@@ -73,7 +75,7 @@ def _run_migrations_sync() -> None:
 
 async def _run_migrations_async() -> None:
     url = normalize_to_async(DATABASE_URL)
-    config.set_main_option("sqlalchemy.url", url)
+    config.set_main_option("sqlalchemy.url", escape_configparser_value(url))
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
