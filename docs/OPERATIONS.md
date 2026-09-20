@@ -297,9 +297,69 @@ docker compose -f docker-compose.prod.app.yml up -d backend
 curl http://localhost:8001/api/v1/health
 ```
 
-### 3.4 롤백
+### 3.4 데모 데이터 적재·초기화 (#1485)
 
-#### 3.4.1 지금 떠 있는 것이 어느 커밋인지 답하기 (#789 완료 기준)
+배포 직후 DB에는 **규제 파라미터만** 있다. 선박·항차는 들어가지 않으므로 대시보드가 비어 있다.
+
+> ⚠️ **「데모 데이터는 `development`·`test`에서만 적재된다」는 말은 틀리다.** `demo_seed.seed_demo()`는 환경을 보지 않는다 — 환경 가드는 **시연 계정(`app_user`) 한 항목 안에만** 있다(`should_seed_demo_user`). `staging`에서 적재하면 **선박·항차는 전부 들어가고 계정만 0행**이 된다.
+
+#### 3.4.1 적재하는 법
+
+GitHub Actions에서 `Deploy to OCI` 워크플로를 **수동 실행**하고 입력을 켠다.
+
+| 입력 | 뜻 |
+|---|---|
+| `seed_demo` | 데모 데이터를 적재한다 |
+| `clear_demo` | 적재 **전에** 기존 데모 데이터를 지운다 |
+| 둘 다 | 「지우고 새로 넣기」 — 시각을 새로 잡을 때 |
+
+```bash
+gh workflow run deploy.yml -f seed_demo=true
+gh workflow run deploy.yml -f seed_demo=true -f clear_demo=true   # 새로 잡기
+```
+
+적재되는 것: 선박 **5척** · 항차 **33건**(COMPLETED 11 · IN_PROGRESS 3 · PLANNED 19) · 항차 연료 33 · 정박 구간 4 · 정박 연료 8. 계정은 0행이다.
+
+**자동 배포에서는 켜지지 않는다.** `push` 트리거에는 `inputs`가 없어 빈 문자열이 되고, 셸이 `= "true"`로만 보기 때문이다. `tests/test_deploy_demo_seed.py`가 그 조건이 지워지는 것을 막는다.
+
+#### 3.4.2 ⚠️ 시각이 적재일 기준 상대값이다 (#792)
+
+시드의 날짜는 **적재한 날**을 기준으로 잡힌다. 진행 중 항차의 도착 예정이 `+1`~`+12`일, 관찰선의 최근 구간이 `-12`~`-8`일이다. 그래서 **적재가 오래되면 화면이 의도한 상태에서 멀어진다.**
+
+| 경과 | 나타나는 것 |
+|---|---|
+| 하루 | 관찰선 진행 항차가 도착 예정을 넘겨 `IN_PROGRESS_PAST_ETA` 대상이 된다 |
+| 약 3주 | 최근 구간이 30일 창을 벗어나 `NO_RECENT_DATA`가 된다 |
+
+**적재는 덮어쓰지 않는다** — `_insert_ignoring_existing()`이 `IntegrityError`를 삼키므로 이미 있는 행은 그대로다. 다시 돌려서는 시각이 갱신되지 않고, **지우고 넣어야** 한다.
+
+> **시연·인터뷰 직전에 `clear_demo=true` + `seed_demo=true`로 한 번 돌린다.** 회차가 여러 번이면 회차 사이에도 돌린다 — 둘러보기 세션은 관리자 권한이라 누군가 선박을 지웠을 수 있고, 다시 적재하면 되살아난다(#1486 결정).
+
+#### 3.4.3 지울 때 남는 것
+
+`clear_demo`는 **계산 이력이 참조하는 행을 억지로 지우지 않는다**(#1088). `calculation_run`은 보존 대상이라 그것이 가리키는 항차·선박은 `RESTRICT`에 걸린다. 남긴 수는 출력에 따로 나온다.
+
+```
+voyage: 33행 삭제
+vessel: 5행 삭제
+voyage: 0행 남김 (계산 이력이 참조)
+vessel: 0행 남김 (계산 이력이 참조)
+```
+
+호스트에서 직접 돌릴 때는 다음과 같다(분리 토폴로지).
+
+```bash
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
+cd ~/bluelog
+docker compose -f docker-compose.prod.app.yml --profile migrate \
+  run --rm -T migrate python -m cii_platform.db.demo_seed          # 적재
+docker compose -f docker-compose.prod.app.yml --profile migrate \
+  run --rm -T migrate python -m cii_platform.db.demo_seed --clear  # 초기화
+```
+
+### 3.5 롤백
+
+#### 3.5.1 지금 떠 있는 것이 어느 커밋인지 답하기 (#789 완료 기준)
 
 ```bash
 # app-01 — 백엔드 컨테이너가 달린 이미지 태그(=배포 커밋 SHA)
@@ -314,7 +374,7 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 \
 배포 워크플로 로그(GitHub Actions `Deploy to OCI`)에도 어느 커밋이 나갔는지
 남는다. **화면과 서버가 어긋난 것 같으면 이 명령부터** — 어느 쪽이 낡았는지가 정해진다.
 
-#### 3.4.2 이미지 되돌리기 — 마이그레이션이 없던 배포
+#### 3.5.2 이미지 되돌리기 — 마이그레이션이 없던 배포
 
 ```bash
 # 이전 SHA 태그로 이미지 되돌리기
@@ -328,7 +388,7 @@ sed -i 's|BACKEND_IMAGE=.*|BACKEND_IMAGE=ghcr.io/26-hp043/bluelog-backend:<이�
 docker compose -f docker-compose.prod.app.yml up -d backend
 ```
 
-#### 3.4.3 마이그레이션이 섞인 배포의 롤백 — 순서가 있다
+#### 3.5.3 마이그레이션이 섞인 배포의 롤백 — 순서가 있다
 
 주의: 마이그레이션이 포함된 배포는 단순 이미지 교체로 되돌릴 수 없다.
 순서는 **백업 먼저, 판정 다음, 교체 마지막**이다.
@@ -342,7 +402,7 @@ python3 scripts/db_backup.py backup
 #    IRREVERSIBLE 목록과 24시간 가드: src/cii_platform/db/migration_guard.py
 #    ALLOW_IRREVERSIBLE_DOWNGRADE=<rev> 로만 풀린다.
 
-# 3) 되돌릴 수 있으면: alembic downgrade -1 → 이전 sha 이미지로 교체(위 3.4.2)
+# 3) 되돌릴 수 있으면: alembic downgrade -1 → 이전 sha 이미지로 교체(위 3.5.2)
 #    FK(RESTRICT)로 실패하면 1)의 덤프로 되돌린다(db_backup.py restore).
 ```
 
