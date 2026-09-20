@@ -101,10 +101,26 @@ export function AuthShell({
           </h1>
           {description ? <p className="auth-description">{description}</p> : null}
 
+          {children}
+
           {disclaimer ? (
             /*
              * PRD §0.3 원문. 결과 화면 하단 배너(§6.3)와 같은 문구군이며
              * 로그인 화면에도 노출한다(UIFLOW §0).
+             *
+             * ## 폼 **아래**다 (#1425)
+             *
+             * 종전에는 카드 맨 위, 제목 바로 다음이었다. 로그인하러 온 사람의 첫
+             * 시선이 로그인 버튼이 아니라 **네 줄짜리 고지**에 갔고, 매번 읽히지
+             * 않은 채 지나가는 자리였다.
+             *
+             * **문구도 노출 여부도 그대로다.** `UIFLOW §0`은 로그인 화면에 면책이
+             * **있을 것**만 요구하고 위치를 정하지 않으며, `DESIGN_SYSTEM §13`의
+             * 「결과 화면 하단」은 결과 화면 규정이다 — 그 규정을 여기에 끌어다
+             * 쓰지 않는다. 다만 **하단이 면책의 자리**라는 그 판단과 방향은 같다.
+             *
+             * 카드 **안**에 둔다. 밖(`auth-footer` 아래)으로 내면 회원가입 링크
+             * 뒤에 붙어 카드와 무관한 꼬리말로 읽힌다.
              */
             <p className="auth-disclaimer" role="note">
               본 결과는 공개 데이터, 사용자 입력값, 추정 모델을 기반으로 한 참고용
@@ -112,8 +128,6 @@ export function AuthShell({
               사용자에게 있습니다.
             </p>
           ) : null}
-
-          {children}
         </section>
 
         {footer ? <p className="auth-footer">{footer}</p> : null}

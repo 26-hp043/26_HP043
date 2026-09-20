@@ -185,7 +185,8 @@
 
 /* PRD §0.3 면책 — 인셋 배경으로 본문과 구분한다. */
 .auth-disclaimer {
-  margin: 0 0 var(--spacing-lg);
+  /* 폼 아래로 내려갔다 (#1425) — 여백도 위쪽으로 옮긴다. */
+  margin: var(--spacing-lg) 0 0;
   padding: var(--spacing-md);
   border-radius: var(--radius-control);
   background: var(--surface-inset);

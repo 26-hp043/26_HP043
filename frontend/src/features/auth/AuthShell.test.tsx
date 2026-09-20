@@ -80,6 +80,43 @@ describe('AuthShell 브랜드 판 — #608', () => {
     expect(container.querySelector('.auth-disclaimer')).not.toBeNull()
   })
 
+  /**
+   * 면책 문구는 **폼 아래**다 (`#1425`).
+   *
+   * 종전에는 카드 맨 위라, 로그인하러 온 사람의 첫 시선이 로그인 버튼이 아니라 네
+   * 줄짜리 고지에 갔다. `UIFLOW §0`은 로그인 화면에 면책이 **있을 것**만 요구하고
+   * 위치를 정하지 않는다.
+   *
+   * **문구는 보지 않는다** — `PRD §0.3` 정본이라 이 검사가 잠글 것이 아니고, 위에
+   * 노출 여부를 보는 검사가 따로 있다. 여기서 보는 것은 **순서**뿐이다.
+   */
+  it('면책 문구가 폼보다 뒤에 온다 — 첫 시선이 고지에 가지 않는다 (#1425)', () => {
+    const { container } = render(
+      <AuthShell title="로그인" disclaimer>
+        <form>
+          <button type="submit">로그인</button>
+        </form>
+      </AuthShell>,
+    )
+
+    const card = container.querySelector('.auth-card')
+    const note = container.querySelector('.auth-disclaimer')
+    const submit = container.querySelector('button[type="submit"]')
+    expect(note).not.toBeNull()
+    expect(submit).not.toBeNull()
+
+    /*
+     * `DOCUMENT_POSITION_FOLLOWING` — 면책이 버튼 **뒤**에 있다. 화면 순서와 낭독
+     * 순서가 같은 것이 요점이라 CSS가 아니라 DOM 순서를 본다.
+     */
+    expect(
+      submit!.compareDocumentPosition(note!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    // 카드 **안**이다 — 밖으로 내면 회원가입 링크 뒤의 꼬리말로 읽힌다.
+    expect(note!.closest('.auth-card')).toBe(card)
+  })
+
   it('제목은 카드 안에 있고 판 밖이다 — aria-labelledby가 카드를 가리킨다', () => {
     /*
      * 판이 `<aside>`라 보조 기술이 「본문 밖」으로 읽는다. 제목이 판으로 넘어가면
