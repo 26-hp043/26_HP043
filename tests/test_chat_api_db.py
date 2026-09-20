@@ -92,9 +92,7 @@ async def test_plain_answer_carries_the_canonical_disclaimer(migrated_db, app_fr
         await _cleanup()
 
 
-async def test_the_response_keys_are_exactly_what_the_contract_lists(
-    migrated_db, app_fresh_engine
-):
+async def test_the_response_keys_are_exactly_what_the_contract_lists(migrated_db, app_fresh_engine):
     """`API_SPEC §15.1` 응답 표 ↔ **실제 `data` 키 집합** (`#1365`).
 
     종전 계약 검사는 **값 몇 개만** 보았다 — 그래서 표에 없는 키가 늘어도 통과했고,
