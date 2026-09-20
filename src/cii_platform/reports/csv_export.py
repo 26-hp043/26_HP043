@@ -119,9 +119,18 @@ def iter_csv(document: ReportDocument) -> Iterator[str]:
     메모리 사용량이 된다.
 
     첫 조각에 BOM을 붙인다 — 파일의 맨 앞이어야 Excel이 알아본다.
+
+    ⚠️ **검증은 이 함수가 불리는 순간 한다** (`#1368`). 종전에는 제너레이터 본문 안에
+    있어 **첫 조각을 요구받을 때** 돌았는데, 그때는 ``StreamingResponse``가 이미 상태
+    코드와 헤더를 내보낸 뒤다 — 예외가 나도 오류 응답이 될 수 없고 전송이 중간에
+    끊길 뿐이다. 검증을 앞으로 빼고 본문을 :func:`_iter_csv_chunks`로 나눈다.
     """
     document.validate()
+    return _iter_csv_chunks(document)
 
+
+def _iter_csv_chunks(document: ReportDocument) -> Iterator[str]:
+    """:func:`iter_csv`의 본문. 검증은 저쪽이 **미리** 끝낸다 (`#1368`)."""
     buffer = io.StringIO()
     writer = _writer(buffer)
 
@@ -192,8 +201,15 @@ def iter_table_csv(
     escape·BOM·CRLF는 같은 함수·같은 상수를 쓴다. 규칙이 두 곳에 생기면 한쪽만
     고쳐지는 날이 온다.
 
-    행을 한 줄씩 만들어 내보내므로 **연도 전체 항차를 메모리에 쌓지 않는다** —
-    호출부가 제너레이터를 넘기면 그대로 흘러간다.
+    행을 한 줄씩 **문자열로 바꿔** 내보내므로, 완성된 CSV 전체를 메모리에 들고 있지
+    않는다. 다만 **지금 호출부는 행을 이미 리스트로 들고 온다**
+    (``services/data_export.py``의 ``ExportTable.rows``) — 그쪽이 제너레이터를 넘기게
+    바꾸면 행 자체도 흘러간다 (`#1368`에서 주석을 사실에 맞췄다).
+
+    ⚠️ 행을 흘려보내려면 **응답을 쓰는 동안 DB 세션이 열려 있어야 한다.** `#1363`·`#1364`가
+    바로 그 반대 방향으로 옮긴 참이다 — 외부·렌더링을 기다리는 동안 커넥션을 쥐면 풀이
+    마른다. 그래서 「행도 흘린다」는 **커서 기반 조회와 함께** 판단할 일이지 이 함수만
+    고쳐서 될 일이 아니다.
     """
     buffer = io.StringIO()
     writer = _writer(buffer)
