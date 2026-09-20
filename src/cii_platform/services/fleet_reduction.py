@@ -15,10 +15,14 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+import sqlalchemy as sa
 from sqlalchemy import select
 
 from cii_platform.calc.annual_simulation import backsolve_required_cut, project_deterministic
@@ -41,6 +45,7 @@ from cii_platform.services.fleet_summary import (
     prior_confirmed_ratings,
     spec_gap,
 )
+from cii_platform.services.pagination import normalize_limit
 from cii_platform.services.request_cache import enable as enable_request_cache
 from cii_platform.services.request_cache import put as cache_put
 from cii_platform.services.simulation_clock import resolve_as_of
@@ -55,10 +60,16 @@ _RATINGS = ("A", "B", "C", "D", "E")
 _CII_DIGITS = 4
 _MONEY_DIGITS = 2
 _TON_DIGITS = 2
+
+#: 커서 인코딩 구분자 — ISO 8601·UUID에 등장할 수 없는 제어문자 (`calculation_run`과 같다).
+_PLAN_CURSOR_SEP = "\x00"
 _DAY_DIGITS = 2
 
-#: 목록 조회 기본·최대 건수.
+#: 목록 조회 기본 건수 (`API_SPEC §1.5` · `§1.9`와 같은 20).
 PLAN_LIST_LIMIT = 20
+
+#: 목록 조회 최대 건수. `API_SPEC §1.9`의 다른 목록과 같다.
+PLAN_LIST_MAX = 100
 
 
 def _publish(value: Decimal | None, digits: int) -> str | None:
@@ -345,21 +356,81 @@ async def save_reduction_plan(
 
 
 async def list_reduction_plans(
-    session: AsyncSession, *, limit: int = PLAN_LIST_LIMIT
-) -> list[dict]:
-    """최근 저장순. ``result``는 싣지 않는다 — 목록에는 무거워서다(단건 조회에 있다)."""
-    rows = (
-        (
-            await session.execute(
-                select(FleetReductionPlan)
-                .order_by(FleetReductionPlan.created_at.desc(), FleetReductionPlan.id)
-                .limit(max(1, min(limit, PLAN_LIST_LIMIT)))
-            )
-        )
-        .scalars()
-        .all()
+    session: AsyncSession,
+    *,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> tuple[list[dict], dict[str, object]]:
+    """최근 저장순 한 페이지와 페이지네이션 메타 (`API_SPEC §1.5` · `§2.17.3`).
+
+    ``result``는 싣지 않는다 — 목록에는 무거워서다(단건 조회에 있다).
+
+    ## 왜 커서가 생겼나 (`#1367`)
+
+    종전에는 **20건에서 자르면서 그 사실을 응답이 말하지 않았다.** 21번째 계획은
+    볼 방법이 없었고, 화면에는 「계획이 20개뿐」과 구분되지 않았다 — `#1076`이
+    계산 이력에서 고친 것과 **같은 형태**다(「없다」와 「아직 다 주지 않았다」를
+    같은 모양으로 그린다).
+
+    keyset 커서를 쓰는 이유도 같다 — 앞 페이지에서 행이 지워지면 offset은 다음
+    페이지가 한 건을 건너뛴다. 정렬 키가 ``(created_at desc, id)``이고 저장이
+    같은 순간에 겹칠 수 있어 ``id``를 2차 키로 둔다.
+    """
+    page_size = normalize_limit(limit, default=PLAN_LIST_LIMIT, maximum=PLAN_LIST_MAX)
+
+    stmt = select(FleetReductionPlan).order_by(
+        FleetReductionPlan.created_at.desc(), FleetReductionPlan.id.desc()
     )
-    return [{k: v for k, v in _plan_body(plan).items() if k != "result"} for plan in rows]
+    if cursor is not None:
+        parsed = decode_plan_cursor(cursor)
+        if parsed is None:
+            raise ValidationError(
+                "cursor 형식이 올바르지 않습니다.",
+                field="cursor",
+                field_label="커서",
+            )
+        created_at, plan_id = parsed
+        stmt = stmt.where(
+            sa.tuple_(FleetReductionPlan.created_at, FleetReductionPlan.id)
+            < sa.tuple_(created_at, plan_id)
+        )
+
+    # 한 건을 더 받아 **초과분의 존재 여부**로 has_more를 정한다 — 따로 COUNT를
+    # 돌리면 두 쿼리 사이에 저장이 끼어들어 답이 어긋난다.
+    rows = (await session.execute(stmt.limit(page_size + 1))).scalars().all()
+    has_more = len(rows) > page_size
+    page = list(rows[:page_size])
+
+    next_cursor = (
+        encode_plan_cursor(page[-1].created_at, page[-1].id) if has_more and page else None
+    )
+    data = [{k: v for k, v in _plan_body(plan).items() if k != "result"} for plan in page]
+    return data, {"next_cursor": next_cursor, "has_more": has_more}
+
+
+def encode_plan_cursor(created_at: datetime, plan_id: UUID) -> str:
+    """``(created_at, id)``를 URL-safe base64로 (`calculation_run`과 같은 정책)."""
+    raw = f"{created_at.isoformat()}{_PLAN_CURSOR_SEP}{plan_id}".encode()
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def decode_plan_cursor(token: str) -> tuple[datetime, UUID] | None:
+    """되돌린다. 형식이 깨졌으면 ``None`` — **예외를 던지지 않는다.**
+
+    잘못된 커서는 사용자가 URL을 손댄 경우가 대부분이고, 그때 500이 나가면 안 된다.
+    오류로 볼지 첫 페이지로 볼지는 호출부가 정한다(여기서는 422다).
+    """
+    try:
+        raw = base64.urlsafe_b64decode(token.encode("ascii")).decode()
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    created_raw, sep, id_raw = raw.partition(_PLAN_CURSOR_SEP)
+    if not sep or not id_raw:
+        return None
+    try:
+        return datetime.fromisoformat(created_raw), UUID(id_raw)
+    except ValueError:
+        return None
 
 
 async def get_reduction_plan(session: AsyncSession, plan_id: UUID) -> dict[str, object]:
