@@ -141,3 +141,82 @@ describe('createApiFleetReductionProvider', () => {
     ).rejects.toThrow(new FleetReductionError('감속률: 50 이하여야 합니다.'))
   })
 })
+
+/**
+ * 저장한 계획 목록의 커서 페이지네이션 (`#1395` · `#1367` 후속).
+ *
+ * `#1367`이 서버에 커서를 붙인 뒤 이 화면은 **첫 페이지만 받고 그 사실을 말하지
+ * 않았다** — 21번째 계획이 셀렉트에 뜨지 않았고, 화면은 그것이 전부인 것처럼
+ * 보였다. 「계획이 N개뿐」과 「아직 다 주지 않았다」가 **같은 모양**이었다.
+ *
+ * `reports/apiProvider.listVoyages`(`#627`)가 같은 모양의 셀렉트에서 한 판단을
+ * 그대로 따른다 — 「더 보기」가 아니라 **끝까지 부른다**.
+ */
+function planPage(ids: string[], meta: { next_cursor: string | null; has_more: boolean }) {
+  return {
+    data: ids.map((id) => ({
+      plan_id: id,
+      plan_name: `계획 ${id}`,
+      regulation_year: 2026,
+      target: 'NO_AT_RISK',
+      adjustments: [],
+      prices: null,
+      created_at: null,
+    })),
+    meta,
+  }
+}
+
+describe('list — 커서 페이지네이션 (#1395)', () => {
+  it('페이지를 끝까지 순회해 **전부** 돌려준다', async () => {
+    const pages = [
+      planPage(['p1', 'p2'], { next_cursor: 'c2', has_more: true }),
+      planPage(['p3'], { next_cursor: null, has_more: false }),
+    ]
+    const seen: string[] = []
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      seen.push(String(input))
+      return jsonResponse(pages[seen.length - 1])
+    })
+
+    const plans = await createApiFleetReductionProvider(
+      fetchImpl as typeof fetch,
+      '/api/v1',
+    ).list()
+
+    expect(plans.map((p) => p.planId)).toEqual(['p1', 'p2', 'p3'])
+    expect(seen[0]).not.toContain('cursor=')
+    expect(seen[1]).toContain('cursor=c2')
+  })
+
+  it('⚠️ 커서가 전진하지 않으면 멈춘다 — 페이지 상한으로 막지 않는다', async () => {
+    // 임의의 상한을 두면 그 너머를 **조용히 자른다**. 서버가 같은 커서를 다시
+    // 주는 것은 계약 위반이고, 그때만 루프가 무한해진다.
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(planPage(['p1'], { next_cursor: 'same', has_more: true })),
+    )
+
+    const plans = await createApiFleetReductionProvider(
+      fetchImpl as typeof fetch,
+      '/api/v1',
+    ).list()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(plans.map((p) => p.planId)).toEqual(['p1', 'p1'])
+  })
+
+  it('한 페이지로 끝나면 한 번만 부른다 — 구버전 서버(meta 없음)도 같다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: planPage(['p1'], {
+      next_cursor: null,
+      has_more: false,
+    }).data }))
+
+    const plans = await createApiFleetReductionProvider(
+      fetchImpl as typeof fetch,
+      '/api/v1',
+    ).list()
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(plans).toHaveLength(1)
+  })
+})
