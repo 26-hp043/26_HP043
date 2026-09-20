@@ -112,6 +112,9 @@ async def _make_voyage(
         # `EXCLUDE`를 보는 검사는 그 값을 **명시적으로** 넘긴다.
         "policy": "INCLUDE_AS_PLAN",
         "year": YEAR,
+        # `#1321` — 시계가 **계획 거리에서도** 자른다. 3,000nm ÷ 14kn ≈ 8.9일이라,
+        # 그보다 오래 뛰는 항차를 보려면 계획을 늘려야 한다. 기본값은 그대로 둔다.
+        "planned_distance": 3000,
     }
     fields.update(over)
     await session.execute(
@@ -121,7 +124,7 @@ async def _make_voyage(
             "actual_departure_at, planned_arrival_at, annual_inclusion_policy, "
             "regulation_year, created_from) "
             "VALUES (:id, :vessel_id, :status, 'Busan', 'Singapore', "
-            "3000, 14, :departed, :planned_arrival, :policy, :year, 'MANUAL')"
+            ":planned_distance, 14, :departed, :planned_arrival, :policy, :year, 'MANUAL')"
         ),
         fields,
     )
@@ -231,7 +234,16 @@ async def test_progress_is_injected_when_both_sides_exist(session):
     """
     vessel_id = await _make_vessel(session, foc=Decimal("120"))
     await _add_actuals(session, await _make_voyage(session, vessel_id))
-    await _make_voyage(session, vessel_id, departed_at=datetime(YEAR, 6, 1, tzinfo=UTC))
+    # `#1321` — 계획 거리를 넉넉히 준다. 기본 3,000nm는 14kn로 **8.9일**이면 차고,
+    # 그 뒤로는 시계가 값을 늘리지 않는다(그것이 `#1321`이 고친 것이다). 아래 두
+    # 시점(6/21 · 7/1)은 출항 6/1에서 20·30일 뒤라 **둘 다 상한 뒤**가 되어 값이
+    # 같아진다 — 이 검사가 보려는 것은 상한이 아니라 **진행분이 값을 움직이는가**다.
+    await _make_voyage(
+        session,
+        vessel_id,
+        departed_at=datetime(YEAR, 6, 1, tzinfo=UTC),
+        planned_distance=30000,
+    )
 
     # 두 시점 **모두** 확정 항차가 이미 집계에 든 뒤로 잡는다. 확정 항차가 중간에
     # 들어오면 그 항차의 연비가 평균을 희석해 값이 좋아지고, 그건 시계가 만든

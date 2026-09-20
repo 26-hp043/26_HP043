@@ -1067,13 +1067,18 @@ async def test_days_to_d_baseline_counts_the_in_progress_contribution(session):
     # 진행 중 항차 — 창 시작보다 앞서 출항해 기준선 기여분이 실재하게 만든다.
     # foc와 경과일이 attained를 D 진입 경계 너머로 밀면 `ALREADY_AT_OR_BELOW`가
     # 되어 n일이 사라지므로, 확정 실적을 낮게 잡아 B 밴드에 둔다.
+    #
+    # ⚠️ **계획 거리를 넉넉히 준다** (`#1321`). 시계가 계획 거리에서도 자르므로,
+    # 3,000nm(14kn로 8.9일)면 7/29에 멎어 창 시작(8/2)과 `as_of`(9/1)의 기여분이
+    # **같아지고** `days_to_d`가 `NO_RECENT_DATA`가 된다. 이 검사가 보려는 것은
+    # 상한이 아니라 **기준선이 진행분을 세는가**이므로 43일을 다 뛰게 둔다.
     await session.execute(
         text(
             "INSERT INTO voyage (vessel_id, status, annual_inclusion_policy, regulation_year, "
             " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
             " actual_departure_at, planned_arrival_at, created_from) "
             "VALUES (:vid, 'IN_PROGRESS', 'INCLUDE_AS_PLAN', :yr, 'BUSAN', 'SINGAPORE', "
-            " 3000, 14, :departed, NULL, 'MANUAL')"
+            " 20000, 14, :departed, NULL, 'MANUAL')"
         ),
         {"vid": vessel_id, "yr": YEAR, "departed": datetime(YEAR, 7, 20, tzinfo=UTC)},
     )

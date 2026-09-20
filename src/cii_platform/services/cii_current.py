@@ -112,6 +112,7 @@ WARNING_SIM_NO_REFERENCE_SPEED = "SIMULATION_NO_REFERENCE_SPEED"
 #: 있다」가 아니라 **「도착 실적 입력을 잊었다」**이므로, 값을 자르는 것만으로는
 #: 부족하고 **왜 멈췄는지**를 함께 알려야 한다.
 WARNING_IN_PROGRESS_PAST_ETA = "IN_PROGRESS_PAST_ETA"
+WARNING_IN_PROGRESS_PLANNED_DISTANCE_REACHED = "IN_PROGRESS_PLANNED_DISTANCE_REACHED"
 
 #: ⑶을 낼 수 없다 — 연말이 지났거나 ``as_of``가 연말이다. 남은 기간이 0이면
 #: 잔여 계획도 남지 않아 ⑶은 ⑴과 같은 값이 되고, 따로 낼 이유가 없다.
@@ -454,6 +455,9 @@ async def _resolve_progress(session: AsyncSession, *, vessel, voyage, as_of: dat
         # `#649` — 실적이 없으면 예정일에서 자른다. 종전에는 넘기지 않아 상한이
         # 없었고, 예정일을 지난 항차의 누적이 계속 자랐다.
         planned_arrival_at=voyage.planned_arrival_at,
+        # `#1321` — 계획 거리에서도 자른다. 종전에는 상한이 **시각 하나**뿐이라
+        # 도착 예정일 **안에서도** 계획을 넘었다(시연 시드 186%·359%).
+        planned_distance_nm=voyage.planned_distance_nm,
         speed_kn=voyage.planned_speed_kn or vessel.reference_speed_kn,
         daily_foc_ton=vessel.reference_daily_foc_ton,
         # cubic speed model의 기준점 (`TECH_SPEC §4.1`, `#796`). 종전에는 넘기지
@@ -675,6 +679,11 @@ async def resolve_in_progress_state(
     # 들어가고, 그때도 「왜 더 늘지 않는가」를 화면이 말해야 한다.
     if progress.past_planned_arrival:
         warnings.append(WARNING_IN_PROGRESS_PAST_ETA)
+    # `#1321` — 예정일과 **별개 코드**다. 계획 거리는 예정일보다 먼저 찰 수 있고
+    # (감시선 시드는 3.6일 앞선다), 한 코드로 묶으면 화면이 「도착 예정일이
+    # 지났습니다」라고 거짓말을 한다.
+    if progress.reached_planned_distance:
+        warnings.append(WARNING_IN_PROGRESS_PLANNED_DISTANCE_REACHED)
 
     # 보정을 못 한 사실은 **값이 들어갔을 때만** 알린다 — 진행분이 0이면 보정
     # 여부가 결과에 아무 영향이 없고, 그때 경고를 띄우면 고칠 것이 없는 안내가 된다.
