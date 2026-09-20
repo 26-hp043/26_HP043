@@ -23,18 +23,20 @@ bit-exact 재현이 안 된다.**
 않는 값(수송능력·연도에 의존)이라 루프 안에서 다시 만들 이유가 없고, Layer 1이
 확정한 값을 그대로 쓰는 편이 결정론 결과와 어긋나지 않는다.
 
-## ⚠️ 명세의 미해결 지점 — 속도
+## 속도는 표본추출하지 않는다 — 정본이 그렇게 정했다 (``#1346``)
 
-``PRD §12.4.1``은 거리·연료·**속도** 셋을 각각 독립 삼각분포로 표본추출하라고 적는다.
-그런데 CII는 ``M / (W · Dt)``이고 **속도는 이 식에 들어가지 않는다** — 연료와 거리로만
-정해진다. 연료를 독립으로 뽑으면서 속도도 독립으로 뽑으면, 속도가 결과에 아무 영향을
-주지 못하거나(현재 식) 같은 변동을 두 번 세게 된다(cubic model로 연결할 경우).
+이 모듈은 **거리·연료만 표본추출한다.** CII는 ``M / (W · Dt)``이고 **속도는 이 식에
+들어가지 않으므로**, 속도를 독립으로 뽑아도 결과가 한 톨도 바뀌지 않는다. 영향을 주게
+하려면 ``PRD §11.4.1`` cubic model로 속도→연료를 이어야 하는데, 연료는 이미
+``0.90~1.15`` 삼각분포로 **독립 표본추출**되고 있어 그렇게 하면 **같은 변동을 두 번
+세게 된다** — 연료 분포의 설명 「기상·운항 변동」이 속도 변동을 이미 흡수한다.
 
-이 모듈은 **거리·연료만 표본추출한다.** 연료 분포의 설명이 「기상·운항 변동」이라
-속도 변동을 이미 흡수하고 있다고 본다. 속도는 ``§12.6`` 민감도 분석에서 cubic
-model(``fuel_estimator``)을 통해 다룬다 — 그쪽은 연결이 명시돼 있다.
+속도는 ``PRD §12.6`` one-at-a-time 민감도에서만 cubic model(:func:`_shift_speed`)을
+통해 움직인다. 그쪽은 변수를 **하나만** 바꾸므로 이중 계상이 생기지 않는다.
 
-**정본 정정이 필요한 지점이며, 임의로 식을 만들지 않았다.**
+⚠️ **종전 이 자리는 (``#1346`` 정정 전) 「정본 정정이 필요한 지점이며, 임의로 식을
+만들지 않았다」로 적혀 있었다.** ``#1346``에서 ``PRD §12.4.1``·``TECH_SPEC §2.3.2``·
+``DB_SCHEMA §2.19``가 **구현 쪽으로** 정리돼, 더는 미해결이 아니다.
 
 ## ``simulation_parameter``는 호출부가 읽는다
 
@@ -155,12 +157,21 @@ class DistributionProfile:
 
     distance: TriangularBand
     fuel: TriangularBand
-    #: 속도 변동 폭(kn). 현재 Monte Carlo에서 쓰지 않는다 — 모듈 docstring 참조.
-    #: 민감도 분석(``§12.6``)의 ±1kn이 이 값이다.
+    #: 속도 변동 폭(kn). ``simulation_parameter``의 ``SPEED`` 행에서 오며
+    #: **표본추출에도 민감도에도 쓰지 않는다** — 모듈 docstring · ``PRD §12.4.1`` 각주.
+    #:
+    #: ⚠️ **``PRD §12.6`` 민감도의 ±1kn이 이 값이 아니다** (``#1346`` 정정). 그쪽은
+    #: 정본이 직접 못박았고 :func:`analyze_sensitivity`가 ``±1.0``을 그대로 쓴다.
+    #: 응답 키도 ``speed_minus_1kn``으로 고정이라(``API_SPEC §6.1``) 이 값을 민감도
+    #: 폭으로 쓰면 운영자가 2 kn로 바꿨을 때 **키가 거짓말을 한다.**
+    #:
+    #: 그래도 읽어서 ``parameters_used``·``parameter_hash``에 싣는다 — 빼면 속도를
+    #: 표본추출하게 되는 날 **옛 실행과 해시가 겹쳐 「재현됐다」가 거짓**이 된다.
     speed_delta_kn: float = 1.0
 
 
-#: ``PRD §12.4.1`` 기본 분포. **테이블이 생기면 호출부가 대체한다** — 모듈 docstring 참조.
+#: ``PRD §12.4.1`` 기본 분포. **호출부가 ``simulation_parameter`` 행으로 대체한다**
+#: — 모듈 docstring 참조.
 DEFAULT_PROFILE = DistributionProfile(
     distance=TriangularBand(min_factor=0.97, max_factor=1.05),
     fuel=TriangularBand(min_factor=0.90, max_factor=1.15),
@@ -931,6 +942,10 @@ def analyze_sensitivity(
     :returns: ``(항목 목록, 경고)``. 경고에 ``SENSITIVITY_ONE_AT_A_TIME``이 항상
         들어간다 — ``§12.8``이 「복합 효과 미포함」 안내를 요구한다.
     """
+    # ⚠️ 변화량은 ``PRD §12.6`` 표가 **직접 못박은 값**이다 — ``DistributionProfile``
+    # (``simulation_parameter``)에서 오지 않는다 (``#1346``). 응답 키가
+    # ``speed_minus_1kn``·``fuel_minus_10pct``로 고정이라(``API_SPEC §6.1``)
+    # 운영자가 폭을 바꾸면 **키가 거짓말을 한다.**
     levers: list[tuple[str, str, Sequence[RemainingVoyage]]] = [
         ("fuel", "-10%", _shift_fuel(remaining, 0.90)),
         ("fuel", "+10%", _shift_fuel(remaining, 1.10)),
