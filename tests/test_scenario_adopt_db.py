@@ -386,6 +386,44 @@ async def test_create_mode_makes_a_new_voyage(session, vessel_id):
 
 
 @pytest.mark.asyncio
+async def test_create_mode_writes_in_one_transaction(session, vessel_id, monkeypatch):
+    """새 항차와 채택 표시는 **한 트랜잭션**이다 — 커밋이 한 번이다 (`#1349`).
+
+    종전에는 `create_voyage`가 안에서 커밋해 새 항차가 **먼저 확정**됐고, 그 뒤 채택
+    표시·재계산 표시가 실패하면 **채택 기록 없는 DRAFT 항차**가 남았다. 화면이 이 모드를
+    쓰지 않아(`UIFLOW 2-6`) 눈에 띄지 않았을 뿐이다.
+
+    남은 행을 세는 대신 **커밋 횟수**를 센다 — 이 하네스는 바깥 트랜잭션 안에서 돌아
+    중간 커밋이 격리를 벗어나지 않으므로, 행으로는 두 경로가 구분되지 않는다.
+    「한 트랜잭션」이라는 성질 자체를 바로 단언하는 편이 정확하다.
+    """
+    source_id = await _new_voyage(session, vessel_id)
+    scenario_id = await _new_scenario(session, vessel_id)
+
+    commits = 0
+    real_commit = session.commit
+
+    async def counting_commit() -> None:
+        nonlocal commits
+        commits += 1
+        await real_commit()
+
+    monkeypatch.setattr(session, "commit", counting_commit)
+
+    await adopt_scenario(
+        session,
+        scenario_id,
+        target_voyage_id=source_id,
+        adopt_mode=MODE_CREATE,
+        departure_port_name="ULSAN",
+        arrival_port_name="TOKYO",
+        planned_departure_at=DEPARTURE,
+    )
+
+    assert commits == 1, f"커밋이 {commits}번이다 — 새 항차가 먼저 확정되면 부분 쓰기가 남는다"
+
+
+@pytest.mark.asyncio
 async def test_create_mode_records_where_it_came_from(session, vessel_id):
     """`created_from=FEATURE_2_ADOPTED` — 나중에 「이 항차는 어디서 왔나」를 묻는다."""
     source_id = await _new_voyage(session, vessel_id)
