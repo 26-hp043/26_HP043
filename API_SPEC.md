@@ -232,18 +232,18 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 |---|---|---|
 | 200 OK | — | 성공 (warning 포함 가능). 기상 API 실패 시 NONE fallback으로 계산, `warnings`에 `WEATHER_NONE_FALLBACK` 포함 |
 | 201 Created | — | 리소스 생성 성공 |
-| 400 Bad Request | `BAD_REQUEST` | JSON 파싱 오류, 잘못된 Content-Type |
+| 400 Bad Request | `BAD_REQUEST` | **프레임워크가 낸 400**을 `§1.3.2` 포맷으로 변환한 것 (`#183`). **우리 코드가 직접 내는 자리는 없다** — JSON 파싱 오류·잘못된 Content-Type은 아래 **422**다 (`#1366` 실측) |
 | 401 Unauthorized | `UNAUTHORIZED` | 세션 없음, 세션 만료, 세션 무효 |
 | 401 Unauthorized | `INVALID_CREDENTIALS` | 자격 증명 오류 — 로그인 실패(없는 이메일·틀린 비밀번호가 **같은 코드·같은 문구**) · 비밀번호 변경의 현재 비밀번호 오입력(`details[].field` = `current_password`). **세션 문제가 아니다** (#902) |
 | 403 Forbidden | `CSRF_ERROR` | CSRF 토큰 누락 또는 불일치 |
-| 403 Forbidden | `FORBIDDEN_ROLE` | 역할이 허용하지 않는 작업 — 현장직이 사무직 전용 경로를, 또는 현장직·사무직이 관리자 전용 경로(`§1.2` 두 표)를 부름. 문구는 대상 경계에 따라 갈린다 — 사무직 전용은 `"이 작업은 사무직 권한이 있는 계정만 할 수 있습니다."`, 관리자 전용은 `"이 작업은 관리자 권한이 있는 계정만 할 수 있습니다."`(`PRD §6.3`). **CSRF와 같은 403이지만 코드가 다르다** — 화면은 `error.code`로 가른다: CSRF는 토큰을 다시 실어 재시도, 역할은 안내하고 끝낸다 (#672 · #1301) |
+| 403 Forbidden | `FORBIDDEN_ROLE` | 역할이 허용하지 않는 작업 — 현장직이 사무직 전용 경로를, 또는 현장직·사무직이 관리자 전용 경로(`§1.2` 두 표)를 부름. 문구는 대상 경계에 따라 갈린다 — 사무직 전용은 `"이 작업은 사무직 권한이 있는 계정만 할 수 있습니다."`, 관리자 전용은 `"이 작업은 관리자 권한이 있는 계정만 할 수 있습니다."`(`PRD §6.3`). **CSRF와 같은 403이지만 코드가 다르다** — 화면이 `error.code`로 가를 수 있게 둔 것이다. 둘 다 **재시도하지 않고 안내로 끝낸다** (`#1366`). CSRF 토큰은 로그인 시 내려주는 `csrf` 쿠키에서만 오고 **다시 받는 경로가 없으므로**, 그 쿠키가 없거나 어긋난 상태에서는 같은 요청을 다시 보내도 결과가 같다 — 그 세션으로는 더 진행할 수 없고 **다시 로그인**해야 한다 (#672 · #1301) |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 리소스 ID |
 | 404 Not Found | `NOT_FOUND` | 존재하지 않는 **경로** (프레임워크 자동 발생 — `#183`에서 §1.3.2 포맷으로 변환). 리소스 ID 미존재와 동일한 코드를 쓴다 |
 | 405 Method Not Allowed | `METHOD_NOT_ALLOWED` | 경로는 존재하나 HTTP 메서드가 허용되지 않음 (프레임워크 자동 발생 — `#183`에서 변환) |
 | 409 Conflict | `PARAMETER_ERROR` | 규정 파라미터 누락 또는 불일치. 재현 시 파라미터 변경 |
 | 409 Conflict | `MODEL_VERSION_MISMATCH` | 재현(§6.4) 시 `model_version`이 원본과 다르고 결과도 다름 — 약속 밖의 변화(`TECH_SPEC §10.3` · #833) |
 | 409 Conflict | `CONFLICT` | 리소스 중복 (예: 동일 IMO 번호 선박 재등록) |
-| 422 Unprocessable Entity | `VALIDATION_ERROR` | VAL-001~010 위반 |
+| 422 Unprocessable Entity | `VALIDATION_ERROR` | VAL-001~010 위반. **JSON 파싱 오류**(「요청 본문이 올바른 JSON이 아닙니다.」)와 **잘못된 Content-Type**(「요청 본문 형식이 올바르지 않습니다.」)도 여기다 — `§1.3.2`가 이미 422로 서술하며, 실측도 같다 (`#1366`) |
 | 422 Unprocessable Entity | `CALCULATION_ERROR` | 분모 0, overflow, 음수 결과 |
 | 422 Unprocessable Entity | `MODEL_BREAKDOWN_ERROR` | BN > 8, ΔV/V ≥ 100% |
 | 422 Unprocessable Entity | `STATE_TRANSITION_ERROR` | 허용되지 않은 상태 전환 (PRD §8.1.1) |
@@ -4056,3 +4056,4 @@ POST /api/v1/chat
 | 2026-09-20 | `#1319` | **v1.41 — §3.3 `planned_distance_source` 요청 필드·각주 등재 · §3.1 항차 객체에 `planned_distance_source` 키 추가 · §3.4 「거리를 바꾸면서 출처를 생략하면 `null`로 돌아간다」 각주**(#1052 ⓷ 후속 · 마이그레이션 059). `PRD §15.2`의 「좌표 기반 추정 거리」 표시가 저장된 항차에서는 불가능했다 — 거리 출처가 값으로 없었다. 값은 `USER_INPUT`·`COORDINATE_ESTIMATE` 둘이고 **생략은 `null` = 「모른다」**다(서버는 호출자가 숫자를 어떻게 얻었는지 모르므로 직접 입력으로도 적지 않는다). 화면은 항상 보내고, CSV 가져오기(`§8.2`)는 `USER_INPUT`, 시나리오 채택(`§5.2`)은 `null`이다. 거리가 바뀌면 옛 출처를 새 숫자에 남기지 않는다 — 직접 고친 값에 「추정」이 남는 것이 `PRD §0.3`이 금하는 거짓말이다. 요청 필드·객체 키 추가라 #966(v1.37)·#1197(v1.39)과 같은 기준으로 버전을 올린다 (#1256) |
 | 2026-09-20 | `#1361` | §6.3 응답에 **값 선택 규칙 각주** 추가 — `distance_nm`·`fuel_uses[].fuel_ton`은 「그 실행의 계산이 실제로 쓴 값」이고, `INCLUDE_AS_ACTUAL` 행은 실적 우선(`PRD §8.3`), **`INCLUDE_AS_PLAN` 행은 계획값만**. 종전 명세는 어느 벌을 싣는지 적지 않았고(`DB_SCHEMA §2.7` 각주가 「실적이 있으면 실적」 한 규칙만 적었다) 구현은 모든 행에 그 한 규칙을 적용해, `§3.6`이 허용하는 「항해 중 실적 일부를 넣은 진행(PLAN) 항차」가 **계산에 쓰지 않은 값**으로 「이 실행에 쓴 항차」에 나갔다 — 재현성 근거 화면이 거짓 근거였다. 구현(`services/annual_simulation.py` `_snapshot_voyage_view`)을 계산(`_inputs_from_snapshot`)의 `kind` 분기에 맞췄고 `tests/test_annual_simulation_read_db.py`가 응답의 `planned_W_capacity_nm`·`planned_M_gco2`와 목록의 PLAN 행을 대조한다. 필드·모양은 그대로이고 각주 보강이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#1337) |
 | 2026-09-20 | `#1385` | **v1.42 — §4.1 응답에 `rating_boundary_cii` 추가 (`#1371`).** 등급 경계 CII 4종을 **서버가 싣는다** — 종전에는 화면이 `required_cii`(표시용 6자리 문자열)를 float로 바꿔 d-vector를 곱하고 그 곱을 다시 3자리로 반올림해, **이중 반올림**으로 411,120건 중 **87건**에서 서버와 끝자리가 갈렸다(예: 서버 `1.645` vs 화면 `1.646`). `PRD §9.3` 「내부 계산값은 화면 표시 반올림값을 다시 사용하지 않는다」·`TECH_SPEC [ORACLE-S-2]`가 막는 자리다. 값은 `determine_rating`이 Layer 1 컨텍스트 안에서 낸 것이며 자릿수는 `attained_cii`·`required_cii`와 같은 **6자리**다(셋이 같은 축이라 나란히 놓으려면 같아야 한다). **등급 판정은 종전대로 서버가 하므로 등급이 바뀌는 변경이 아니다** — 화면에 적히는 경계 숫자만 서버와 일치하게 된다. 화면 표기 자릿수(3자리)도 그대로다. 새 필드라 `AGENTS §4.3`상 버전을 올린다 (#1371) |
+| 2026-09-20 | `#1392` | **§1.4 두 줄을 실제 동작에 맞춤.** ⑴ **JSON 파싱 오류·잘못된 Content-Type이 400이 아니라 422**다 — 같은 문서 `§1.3.2`는 이미 422로 서술했고 표 쪽만 낡아 있었다. 코드에 `BAD_REQUEST`를 직접 raise하는 자리는 0건이며 그 코드는 **프레임워크가 낸 400을 변환할 때**(`#183`)만 쓰이므로, 400 행에 그 사실을 적었다. ⑵ **`CSRF_ERROR`의 「화면이 토큰을 다시 실어 재시도한다」가 성립하지 않는다** — `csrf` 쿠키는 `_attach_session_cookies`에서만 나오고 그 함수는 **세션을 발급하는 두 자리**(로그인·가입)에서만 불린다. 즉 토큰을 다시 받을 경로가 없어 화면을 고쳐도 같은 답이며, 그 세션으로는 **다시 로그인**해야 한다. 규정을 지우지 않고 **왜 성립하지 않는지**를 적었다 — 지우기만 하면 다음 사람이 같은 규정을 다시 쓴다. 가드는 `tests/test_auth_failure_paths.py`·`tests/test_validation_messages.py`가 갖는다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1366) |

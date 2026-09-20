@@ -196,6 +196,29 @@ def test_malformed_json_names_the_body_not_a_character_offset(echo: TestClient):
     }
 
 
+def test_malformed_json_is_422_not_400(echo: TestClient):
+    """JSON 파싱 오류는 **422 `VALIDATION_ERROR`**다 (`API_SPEC §1.4` · `#1366`).
+
+    `§1.4` 표가 400 `BAD_REQUEST`로 적고 있었는데 **코드에는 그 자리가 없었다** —
+    `BAD_REQUEST`는 프레임워크가 낸 400을 변환할 때만 쓰인다. 같은 문서 `§1.3.2`는
+    이미 422로 서술했으므로 표 쪽이 낡아 있었다.
+    """
+    resp = echo.post("/echo", content=b"{not json", headers={"Content-Type": "application/json"})
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
+def test_wrong_content_type_is_422_too(echo: TestClient):
+    """잘못된 Content-Type도 같은 자리다 (`API_SPEC §1.4` · `#1366`)."""
+    resp = echo.post("/echo", content=b"name=x", headers={"Content-Type": "text/plain"})
+
+    assert resp.status_code == 422
+    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    # 정본 문구 (API_SPEC §1.4 · §11) — 바꾸려면 API_SPEC 개정이 먼저다.
+    assert resp.json()["error"]["details"][0]["message"] == "요청 본문 형식이 올바르지 않습니다."
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 3. 라벨이 빠지지 않는다 — 전 엔드포인트
 # ─────────────────────────────────────────────────────────────────────────────

@@ -116,6 +116,45 @@ async def test_logout_without_csrf_header_is_403(migrated_db, app_fresh_engine):
         await _cleanup_stub_user()
 
 
+async def test_csrf_failure_hands_back_no_new_token(migrated_db, app_fresh_engine):
+    """CSRF 403은 **새 토큰을 실어 주지 않는다** — 그래서 재시도할 수 없다 (`#1366`).
+
+    `API_SPEC §1.4`가 *「화면이 토큰을 다시 실어 재시도한다」*고 적고 있었는데,
+    화면에 그 경로가 없을 뿐 아니라 **서버에도 토큰을 다시 받을 자리가 없다.**
+    `csrf` 쿠키는 세션을 발급하는 응답(`_attach_session_cookies`)에서만 나온다.
+
+    즉 이 상태에서 같은 요청을 다시 보내면 **결과가 같다.** 규정을 지우는 것이
+    아니라, **재시도가 성립하지 않는다**는 사실을 검사로 붙잡아 둔다.
+    """
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            client.cookies.delete("csrf")
+
+            resp = client.post("/api/v1/auth/logout")
+            assert resp.status_code == 403
+            assert resp.json()["error"]["code"] == "CSRF_ERROR"
+
+            # 응답이 토큰을 돌려주지 않는다 — 돌려준다면 재시도가 성립한다.
+            assert "csrf" not in resp.cookies
+
+            # 세션은 멀쩡한데도 **어느 조회도 토큰을 다시 주지 않는다.** 이것이
+            # 재시도가 성립하지 않는 이유다 — `csrf` 쿠키는 세션을 발급하는
+            # 응답에서만 나온다(`_attach_session_cookies`).
+            for path in ("/api/v1/auth/me", "/api/v1/vessels"):
+                ok = client.get(path)
+                assert ok.status_code == 200, path
+                assert "csrf" not in ok.cookies, path
+            assert "csrf" not in client.cookies
+
+            # 그러므로 그대로 다시 보내도 같은 답이다.
+            again = client.post("/api/v1/auth/logout")
+            assert again.status_code == 403
+            assert again.json()["error"]["code"] == "CSRF_ERROR"
+    finally:
+        await _cleanup_stub_user()
+
+
 async def test_logout_is_not_idempotent_without_a_session(migrated_db, app_fresh_engine):
     """**「세션 없어도 204」가 아니다** (`#634`).
 
