@@ -15,6 +15,40 @@ from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import audit_log as audit_repo
 
+#: 저장소가 실제로 남기는 ``audit_log.action`` 값 (`#1343`).
+#:
+#: **한 곳에 모아 두는 이유** — 종전에는 함수마다 문자열이 박혀 있어 `DB_SCHEMA §2.14`의
+#: 목록과 갈려도 아무것도 깨지지 않았다. 실제로 **5개가 문서에 없고 4개는 문서에만**
+#: 있었다(`PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT`). `#1241`(감사 로그
+#: 조회 화면)이 그 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.**
+#:
+#: 대부분은 이 모듈이 남기지만 ``PARAMETER_IMPORT``는 `services/parameter_import.py`가
+#: 직접 넣는다. 값의 **정의**는 여기 한 곳에 둔다 — 쓰는 자리가 갈려도 목록은 하나여야
+#: `DB_SCHEMA §2.14`와 대조할 수 있다.
+#:
+#: ⚠️ ``DB_BACKUP``은 여기 없다 — `db/migration_guard.py`가 남기며, 서비스 계층을 거치지
+#: 않는다(마이그레이션 실행 중이라 세션이 다르다). 문서 목록에는 함께 적는다.
+AUDIT_ACTIONS: frozenset[str] = frozenset(
+    {
+        "LOGIN_SUCCESS",
+        "LOGIN_FAILURE",
+        "LOGOUT",
+        "PASSWORD_CHANGE",
+        "ACCOUNT_DELETE",
+        "ROLE_CHANGE",
+        "CALCULATION_RUN",
+        "VOYAGE_CONFIRM",
+        "CHAT_MESSAGE",
+        "CHAT_TOOL_CALL",
+        "PARAMETER_IMPORT",
+    }
+)
+
+#: 저장소가 실제로 쓰는 ``audit_log.entity_type`` 값 (`#1343`).
+AUDIT_ENTITY_TYPES: frozenset[str] = frozenset(
+    {"app_user", "calculation_run", "chat_session", "voyage"}
+)
+
 if TYPE_CHECKING:
     from uuid import UUID
 

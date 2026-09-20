@@ -846,11 +846,17 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | PARAMETER_CHANGE, VOYAGE_CONFIRM, CALCULATION_RUN, VOYAGE_TRANSITION, IMPORT, EXPORT, **LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT** [#277] · **DB_BACKUP** [#827] · **ROLE_CHANGE** [#672] (`user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after`) |
-| `entity_type` | VARCHAR(30) | NULL | `vessel`, `voyage`, `calculation_run`, **`regulation_year`**, **`fuel_type`**, **`reference_line`** **[Oracle 관찰 #4]** |
+| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_CONFIRM` **[#1343]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
+| `entity_type` | VARCHAR(30) | NULL | `app_user`, `calculation_run`, `chat_session`, `voyage` **[#1343]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |
 | `ip_address` | VARCHAR(45) | NULL | 요청 IP |
+
+> **[#1343] 위 두 목록은 코드가 실제로 쓰는 값과 같다.** `tests/test_audit_enum_sync.py`가 잠근다 — `services/audit.AUDIT_ACTIONS`·`AUDIT_ENTITY_TYPES`(+ `migration_guard.BACKUP_ACTION`)와 이 두 행을 대조한다. 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) DB가 알려 주지 않으므로 검사가 그 자리를 대신한다(`#968`의 `weather_snapshot.source`와 같은 틀).
+>
+> **종전 목록은 양쪽으로 어긋나 있었다** — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다. `entity_type`도 `app_user`·`chat_session`이 빠지고 `vessel`·`regulation_year`·`fuel_type`·`reference_line`이 쓰이지 않은 채 적혀 있었다. `#1241`(감사 로그 조회 화면)이 이 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.**
+>
+> ⚠️ **항차 상태 전환 감사(`VOYAGE_TRANSITION`)는 지금 없다** — `#1328`이 「확정 뒤 정정·보관에 감사 로그가 없다」로 다룬다. 그 이슈가 기록을 넣을 때 **값과 이 목록을 함께** 늘린다. 계획을 목록에 미리 적어 두지 않는 것은, 적어 두면 **있는 것과 없는 것을 구분할 수 없게** 되기 때문이다.
 
 **인덱스:**
 

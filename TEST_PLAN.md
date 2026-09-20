@@ -1826,6 +1826,7 @@ CI는 `.github/workflows/ci.yml` 한 파일에 잡 4개, 제목 검사가 `pr-ti
 | `test_weather_client_db.py` | 19 | **§3 통합 · 기상 조회** — 두 엔드포인트 · 부분 실패 · 시각 선택 · 캐시 격자 · 스냅샷 저장 · 모델 디스패치 (`#61`) |
 | `test_weather_fallback_db.py` | 17 | **§3 통합 · 기상 fallback** — `PRD §11.6` 네 칸(최신·6h·6~24h·없음) · 실험 모델 배지 · 「보정하지 않았다」를 조용히 넘기지 않는다 (`#62`) · **CB 있음/없음/범위 밖의 경고 조합**(`#966` — 실측 CB가 Cform 범위 밖이면 `CB_OUT_OF_RANGE`, 상한은 반개구간) |
 | `test_weather_simulation_migrations.py` | 14 | §5 DB · 제약·마이그레이션 |
+| `test_audit_enum_sync.py` | 6 | **§5 인프라 · 문서 정합** — `audit_log.action`·`entity_type` 값 사슬(`#1343`). `코드 리터럴 == AUDIT_ACTIONS(+DB_BACKUP) == DB_SCHEMA §2.14 행`을 양방향으로 본다. 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) **DB가 알려 주지 않는다** — 실제로 쓰는 5개가 문서에 없고 쓰지 않는 4개가 적혀 있었다. `#1241`(감사 로그 조회 화면)이 그 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.** `DB_BACKUP`은 `migration_guard`가 상수 이름으로 넣어 리터럴로 잡히지 않으므로 따로 본다 |
 | `test_weather_source_sync.py` | 3 | **§5 인프라 · 문서 정합** — `weather_snapshot.source` 값 사슬(코드 상수 `SOURCE_*` ⊆ `TECH_SPEC §7.1` 값 표 = `DB_SCHEMA §2.13` 행)이 어긋나는 것을 막는다. 이 컬럼은 DB가 강제하지 않는다(`DB_SCHEMA §7.4`) (`#968`) |
 | `test_ytd_cii_service_db.py` | 25 | **§2.10 단위 · YTD 산출 엔진** |
 | `test_ytd_engine.py` | 26 | **§2.10 단위 · YTD 산출 엔진** |
@@ -1836,7 +1837,7 @@ CI는 `.github/workflows/ci.yml` 한 파일에 잡 4개, 제목 검사가 `pr-ti
 | `test_db_session_param_convert.py` | 13 | **§5 DB · 운영 엔진의 CUBRID 파라미터 변환 훅** (`db/session.py`) — 🔴 이 훅은 **배포 엔진에만** 붙고 검사는 `conftest`가 붙이는 제 변환기를 쓰는 엔진으로 돌아, 전 검사에서 **한 번도 실행되지 않고 있었다**(커버리지 하한 게이트가 `db/session.py 78.6%`로 잡았다 · `#955`). 그 갈라짐은 이미 한 번 결함을 냈다 — `conftest` 쪽이 모든 `datetime`을 초로 깎아 **검사만 없는 결함을 만들어 내고** 있었다. 운영 쪽 규칙을 못 박는다: `UUID`→hex 32자 · `Decimal`→`str` · **`datetime`은 건드리지 않는다** · 그 밖의 값·딕셔너리 파라미터 통과 · `CAST(? AS 타입)`→`?`(열 캐스트는 그대로) · `IS 0/1`→`= 0/1`(**`IS NULL`은 그대로** — 바꾸면 NULL 비교가 영원히 거짓) · 훅이 실제로 엔진에 **등록되는가**까지. 돌연변이 3종(UUID를 `str`로 · `IS` 정규식을 `\w+`로 넓힘 · 캐스트 치환 제거) **3/3 검출**. `#1246` — 테스트 엔진이 **프로덕션 훅을 우선 붙이고** 테스트 전용 변환(datetime 리터럴·`::cast`·`RETURNING`·INSERT id)을 그 위에 얹는 2층이 됐다(운영 경로를 실제 쿼리로 탄다). 치환 관측 2종도 여기 — `cast=`/`bool=` 카운트 로그가 남는가 · 깨끗한 문장은 로그가 없는가 |
 | `test_zz_roundtrip.py` | 4 | §5 DB · 제약·마이그레이션 (데모 seed 분리 후 롤백 — `#451`) |
 
-**합계 167개 파일 · 2303 함수 · 2867 수집.** (2026-09-20 실측 — #1370 3함수 추가 반영)
+**합계 168개 파일 · 2309 함수 · 2873 수집.** (2026-09-20 실측 — #1343 `test_audit_enum_sync.py` 신설 6함수 반영)
 
 ### 14.3 계획분 — 아직 파일이 없는 것
 
