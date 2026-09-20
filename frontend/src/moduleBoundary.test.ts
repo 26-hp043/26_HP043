@@ -21,10 +21,14 @@ import { describe, expect, it } from 'vitest'
  *
  * ## 무엇이 「참조」인가
  *
- * **테스트 파일을 포함한 다른 모든 `.ts`/`.tsx`**에서 그 이름이 한 번이라도 나오면
- * 참조로 센다. `#594` 본문이 「테스트만 쓰는 것은 스크립트가 테스트를 제외해서
+ * **테스트 파일을 포함한 다른 모든 `.ts`/`.tsx`**에서 그 이름이 **코드로** 한 번이라도
+ * 나오면 참조로 센다. `#594` 본문이 「테스트만 쓰는 것은 스크립트가 테스트를 제외해서
  * 잡혔다」고 적었는데 **사실이 아니다** — 재현 명령도 참조를 셀 때는 테스트를
  * 포함한다. 여기 남는 것들은 테스트도 쓰지 않는다.
+ *
+ * **주석과 문자열 안의 이름은 참조가 아니다** (`#1351` · :func:`withoutCommentsAndStrings`).
+ * 설명 문장에 이름이 우연히 나온다는 이유로 죽은 코드가 빠져나가면, 이 검사는 **잡는
+ * 것이 없는데 초록**인 상태가 된다.
  *
  * ## 이 그물에 걸리지 않는 참조가 있다
  *
@@ -51,11 +55,85 @@ const FILES = walk(HERE)
  * 무력화한다.
  */
 const SELF = join(HERE, 'moduleBoundary.test.ts')
-const SOURCE = new Map(
-  FILES.filter((f) => f !== SELF).map((f) => [f, readFileSync(f, 'utf-8')]),
-)
+/** 원문 그대로. **문자열 내용을 봐야 하는 검사**가 이것을 쓴다 (`#1351`). */
+const RAW = new Map(FILES.filter((f) => f !== SELF).map((f) => [f, readFileSync(f, 'utf-8')]))
+
+/** 참조를 세는 사본 — 주석·문자열 내용이 지워져 있다 (`#1351`). */
+const SOURCE = new Map([...RAW].map(([f, text]) => [f, withoutCommentsAndStrings(text)]))
 
 const DECLARATION = /^export (?:const|function|class|interface|type) (\w+)/gm
+
+/**
+ * 주석과 문자열의 **내용**을 지운 사본. 참조는 이것으로 센다 (`#1351`).
+ *
+ * ## 무엇이 문제였나
+ *
+ * 종전에는 파일 본문을 그대로 훑어 **주석 속 이름도 참조로 셌다.** 렌더 소비처가
+ * 0곳인 `ComingSoon`이 다른 파일의 **설명 문장**에 이름이 나온다는 이유로 미참조
+ * 목록에 걸리지 않았다 — `KEPT`에 등재되어 봐준 것이 아니라 **탐지기가 못 본 것**이다.
+ *
+ * 위험한 것은 죽은 코드 하나가 아니다. **앞으로 진짜 죽은 코드가 생겨도 누군가의 설명
+ * 주석에 같은 이름이 우연히 등장하면 이 검사가 조용히 놓친다** — 잡는 것이 없는데
+ * 초록인 상태가 가장 나쁘다.
+ *
+ * ## 문자열도 지운다
+ *
+ * 이름이 문자열 안에 있는 것은 **코드가 그 export를 쓰는 것이 아니다.**
+ * `screens.test.ts`의 `source.includes('ComingSoon')`이 그 예다 — 페이지 파일 **본문에
+ * 그 낱말이 있는지**를 보는 것이지 컴포넌트를 부르는 것이 아니다.
+ *
+ * 문자열을 지워서 새로 드러나는 것은 **`ComingSoon` 하나뿐이다**(실측). 파이썬 검사가
+ * TS 소스를 문자열로 읽는 건은 아래 `KEPT`가 이미 따로 잠그고 있다.
+ *
+ * 따옴표 자체는 남긴다 — 지우는 것은 **내용**이고, 단어 경계 검색만 하므로 줄 수·위치는
+ * 맞출 필요가 없다.
+ */
+function withoutCommentsAndStrings(text: string): string {
+  let out = ''
+  let index = 0
+  let quote: string | null = null
+
+  while (index < text.length) {
+    const char = text[index]
+
+    if (quote) {
+      if (char === '\\') {
+        index += 2
+        continue
+      }
+      if (char === quote) {
+        out += char
+        quote = null
+      }
+      index += 1
+      continue
+    }
+
+    if (char === "'" || char === '"' || char === '`') {
+      quote = char
+      out += char
+      index += 1
+      continue
+    }
+
+    if (char === '/' && text[index + 1] === '/') {
+      const end = text.indexOf('\n', index)
+      index = end === -1 ? text.length : end
+      continue
+    }
+
+    if (char === '/' && text[index + 1] === '*') {
+      const end = text.indexOf('*/', index + 2)
+      index = end === -1 ? text.length : end + 2
+      continue
+    }
+
+    out += char
+    index += 1
+  }
+
+  return out
+}
 
 /** `src` 기준 상대 경로 + 이름. 목록 키와 같은 모양이다. */
 function key(file: string, name: string): string {
@@ -81,6 +159,12 @@ function unreferencedExports(): string[] {
  * 이슈 완료 기준 그대로다 — 「남아 있다면 남긴 이유가 코드에 있다」.
  */
 const KEPT: Readonly<Record<string, string>> = {
+  // ── 의도된 보관: 지금 쓰이지 않지만 지우지 않는다 ─────────────────────────
+  'components/ComingSoon.tsx::ComingSoon':
+    '#594 판정 — 렌더 소비처가 0곳이지만 미구현 화면의 표준 스텁이라 남긴다. ' +
+    '#1351 전까지는 다른 파일의 주석·문자열에 이름이 나온다는 이유로 탐지기가 이것을 ' +
+    '「참조 있음」으로 오인해, 봐준 것이 아니라 못 본 것이었다',
+
   // ── 크로스 언어 참조: 파이썬 가드가 이 파일을 문자열로 읽는다 ──────────────
   'features/realtime-cii/realtimeRules.ts::PROJECTION_REASONS':
     'tests/test_reports.py가 `export const PROJECTION_REASONS` 문자열을 잘라 파싱한다',
@@ -191,7 +275,8 @@ describe('항차 상태 이름표는 하나다 (#594)', () => {
   it('화면 전체에 상태 이름표가 하나뿐이다', () => {
     // 종전에는 보고서 화면이 자기 표를 갖고 같은 상태를 다른 이름으로 불렀다
     // (`계획 확정` ↔ `계획`), 그리고 `ARCHIVED`가 빠져 코드가 그대로 나왔다.
-    const tables = [...SOURCE]
+    // 이 검사는 **문자열 안의 이름표**를 보므로 원문을 쓴다 (`#1351`).
+    const tables = [...RAW]
       .filter(([f]) => !f.includes('.test.'))
       .filter(([, t]) => /IN_PROGRESS: '[^']+'/.test(t) && /CONFIRMED: '[^']+'/.test(t))
       .map(([f]) => relative(HERE, f).replaceAll('\\', '/'))
