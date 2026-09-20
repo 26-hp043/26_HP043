@@ -588,3 +588,32 @@ describe('연말 예상 가정의 CO₂에 tCO₂를 쓴다 (#1095 ⑴)', () => 
     expect(completedValue).toContain('tCO₂')
   })
 })
+
+/**
+ * 면책은 화면 하단 배너 한 곳에서만 말한다 (#1416 · `DESIGN_SYSTEM §13` 🔒).
+ *
+ * 종전에는 서버의 `REFERENCE_ONLY`가 경고 목록에 「본 화면의 값은 참고용 예측값이며…」로
+ * 한 번 더 나왔다. 배너 문구는 정본(`PRD §6.3`)이라 문장을 그대로 세되, **몇 번 나오는지**만 본다.
+ */
+describe('면책은 한 번만 (#1416)', () => {
+  function once(data: RealtimeCii): RealtimeCiiProvider {
+    return { load: vi.fn(async () => data) }
+  }
+
+  it('REFERENCE_ONLY가 와도 참고용 고지는 하단 배너 하나다', async () => {
+    renderView(once({ ...BASE, warnings: ['REFERENCE_ONLY', 'COMPLETED_NO_DISTANCE'] }))
+
+    const banners = await screen.findAllByText(/참고용 예측값/)
+    expect(banners).toHaveLength(1)
+    expect(banners[0].getAttribute('role')).toBe('note')
+    // 면책과 무관한 경고는 남는다 — 목록을 통째로 지우지 않는다.
+    expect(document.querySelector('.rt__warnings')).not.toBeNull()
+  })
+
+  it('면책 말고 경고가 없으면 경고 목록을 그리지 않는다', async () => {
+    renderView(once({ ...BASE, warnings: ['REFERENCE_ONLY'] }))
+
+    await screen.findAllByText(/참고용 예측값/)
+    expect(document.querySelector('.rt__warnings')).toBeNull()
+  })
+})

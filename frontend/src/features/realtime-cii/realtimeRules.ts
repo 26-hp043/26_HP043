@@ -45,9 +45,16 @@ export const PROJECTION_REASONS: Readonly<Record<string, string>> = {
 /**
  * 이 화면에서만 달리 적는 경고 문구.
  *
- * `REFERENCE_ONLY`는 이 화면이 **실시간 누적값**을 보여 주는 자리라 「본 화면의 값은」으로
- * 시작해야 하고, `COMPLETED_NO_FUEL`은 여기서 **이미 일어난 대체**를 말한다(기능①은
- * 「임시 사용 중」이라는 진행형이다).
+ * `COMPLETED_NO_FUEL`은 여기서 **이미 일어난 대체**를 말한다(기능①은 「임시 사용 중」이라는
+ * 진행형이다).
+ *
+ * ## `REFERENCE_ONLY`는 뺐다 (#1416)
+ *
+ * 「본 화면의 값은 참고용 예측값이며…」를 따로 두었는데, 이 화면은 하단에 `DisclaimerBanner`
+ * (`DESIGN_SYSTEM §13` 🔒)를 늘 그리고 경고 목록도 같은 말을 한 번 더 했다. 경고 목록에서
+ * `displayWarnings()`로 거르므로 이 항목은 **화면에 나올 자리가 없는 문구**가 됐다 — 남기면
+ * `#1292`가 지운 사본과 같은 처지다. 「실시간 누적값」이라는 뉘앙스는 YTD 카드의 「연중 누적
+ * 예측값이며 공식 등급이 아닙니다」가 이미 말한다.
  *
  * ## 폴백과 같은 문구를 두지 않는다 (#1292)
  *
@@ -67,7 +74,6 @@ export const PROJECTION_REASONS: Readonly<Record<string, string>> = {
 // 이 파일 안에서만 쓴다 — `export`를 붙이면 모듈 경계가 실제보다 넓어 보인다 (#594).
 // 검사는 `realtimeRules.test.ts`가 `warningText()`를 통해 본다.
 const WARNING_TEXT: Readonly<Record<string, string>> = {
-  REFERENCE_ONLY: '본 화면의 값은 참고용 예측값이며 규제 제출용 공식 결과가 아닙니다.',
   COMPLETED_NO_FUEL:
     '완료된 항차 일부에 실적 연료가 없어 계획값으로 대신 계산했습니다.',
 }
@@ -88,7 +94,7 @@ const WARNING_TEXT: Readonly<Record<string, string>> = {
  *
  * ## 왜 위 맵을 지우고 완전히 위임하지 않는가
  *
- * 두 맵의 문구가 **2종에서 다르다**(`REFERENCE_ONLY`·`COMPLETED_NO_FUEL`). 화면 문구는
+ * 두 맵의 문구가 **1종에서 다르다**(`COMPLETED_NO_FUEL` — `REFERENCE_ONLY`는 `#1416`에서 뺐다). 화면 문구는
  * `AGENTS §3.2.2`상 **디자인 소관**이라 구현이 임의로 통일할 사안이 아니다.
  *
  * `#1292`에서 **같았던 5종은 지웠다** — 위 맵 주석. 지금 `WARNING_TEXT`에 남은 것은
