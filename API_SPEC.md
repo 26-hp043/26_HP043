@@ -250,7 +250,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 422 Unprocessable Entity | `WEATHER_FETCH_ERROR` | ⚠️ **지금은 나가지 않는다** (`#1347`). fallback을 거부하는 요청 옵션이 없어 `services/weather.py`의 `resolve_with_fallback`이 항상 **200 + `WEATHER_NONE_FALLBACK`**으로 이어 간다. 코드는 남겨 둔다 — 그 옵션이 생기면 이 자리가 그대로 쓰인다 |
 | 429 Too Many Requests | `RATE_LIMIT_EXCEEDED` | 분당 요청 한도 초과 |
 | 500 Internal Server Error | `INTERNAL_ERROR` | 서버 내부 오류 |
-| 503 Service Unavailable | `CHAT_UNAVAILABLE` | 챗봇을 쓸 수 없다 — `LLM_API_KEY` 미설정 또는 외부 모델 호출 실패. **`/chat`에서만 난다** (`§15` · `PRD §16.2` 장애 격리: 챗봇이 죽어도 계산·보고 경로는 영향받지 않는다) |
+| 503 Service Unavailable | `CHAT_UNAVAILABLE` | 챗봇을 쓸 수 없다 — **`LLM_API_KEY` 미설정**일 때만이다 (`§15.4` · `#1365` 정정). **`/chat`에서만 난다** (`§15` · `PRD §16.2` 장애 격리: 챗봇이 죽어도 계산·보고 경로는 영향받지 않는다).<br>⚠️ **외부 모델 호출 실패는 503이 아니라 200 + `discarded: true`**다 (`§15.2`) — 그쪽이 장애 격리의 내용이다. 종전 이 행이 둘을 함께 적어 `§15.2`·`§15.4`·구현과 어긋나 있었고, 라우트의 `except LLMUnavailableError`는 상위 타입이 먼저 잡혀 **도달할 수 없었다** |
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | canonical test vector 불일치, 재현 결과 hash 불일치 |
 | 미등록 status (403·415 등) | `HTTP_ERROR` | §1.4 표에 없는 status를 만났을 때의 범용 코드 — 모든 status에 걸쳐 쓰므로 단일 status를 붙이지 않는다 (`#183`에서 변환) |
 
@@ -3918,6 +3918,10 @@ POST /api/v1/chat
 | `data.discarded` | boolean | `true`면 **모델의 답을 버렸다** — 아래 참조 |
 | `data.vessel_resolved` | boolean | 서버가 이 대화의 선박을 알고 있는가 (#1242). **식별자 자체는 싣지 않는다** — 이 값은 화면을 위한 것이지 모델 전송이 아니다 |
 
+> **[#1365] 이 표가 `data`의 키 전부다.** 실제 응답에 `tool_output_count`가 더 실리고 있었는데 표에 없었다 — 그 값은 **`tool_calls`의 길이와 늘 같았다**(도구 출력과 이름이 같은 자리에서 함께 쌓인다). 같은 값을 두 이름으로 내보내면 둘이 갈릴 자리가 생기므로 **응답에서 뺐다.** 화면은 쓰지 않았다(`frontend/src` 실측 0건).
+>
+> `tests/test_chat_api_db.py`가 **키 집합을 통째로** 잠근다 — 종전 계약 검사는 값 몇 개만 보아 **표에 없는 키가 늘어도 통과**했다.
+
 ```json
 {
   "data": {
@@ -3961,6 +3965,7 @@ POST /api/v1/chat
 | 남의 대화 `session_id` | 404 | `NOT_FOUND` |
 | 분당 10회 초과 | 429 | `RATE_LIMIT_EXCEEDED` (`§13.2` `chat` 버킷) |
 | `LLM_API_KEY` 미설정 | 503 | `CHAT_UNAVAILABLE` |
+| **외부 모델 호출 실패** | **200** | — (`discarded: true` · `§15.2`). 503이 아니다 (`#1365`) |
 
 ### 15.5 스트리밍을 쓰지 않는다
 
