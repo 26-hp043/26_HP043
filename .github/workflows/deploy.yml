@@ -20,6 +20,9 @@
 #   CUBRID_PASSWORD       dba 비밀번호. 양쪽 호스트 동일.
 #   CORS_ALLOW_ORIGINS    프론트엔드 오리진 (쉼표 구분).
 #   APP_PUBLIC_URL        메일 링크 기준 주소 (프론트엔드 공개 URL).
+#   INITIAL_ADMIN_EMAILS  최초 관리자 이메일(쉼표 구분). **선택이 아니다** — 비면 관리자
+#                         0명으로 뜨고 화면으로는 아무도 역할을 올릴 수 없다 (#672 · #1301).
+#                         APP_ENV=production이면 기동이 거부되고, staging이면 조용히 뜬다.
 #
 # 프론트엔드 배포 시크릿 (#1236):
 #   CLOUDFLARE_API_TOKEN    Cloudflare API 토큰 (Pages:Edit 권한).
@@ -314,6 +317,7 @@ jobs:
           APP_PUBLIC_URL: ${{ secrets.APP_PUBLIC_URL }}
           SIGNUP_ALLOWED_DOMAINS: ${{ secrets.SIGNUP_ALLOWED_DOMAINS }}
           SIGNUP_INVITE_CODE: ${{ secrets.SIGNUP_INVITE_CODE }}
+          INITIAL_ADMIN_EMAILS: ${{ secrets.INITIAL_ADMIN_EMAILS }}
           TOUR_ACCESS_CODE: ${{ secrets.TOUR_ACCESS_CODE }}
           MAIL_BACKEND: ${{ secrets.MAIL_BACKEND }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
@@ -321,6 +325,7 @@ jobs:
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_USE_TLS: ${{ secrets.SMTP_USE_TLS }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           # 데모 데이터 적재·초기화 (#1485). push 트리거에는 `inputs`가 없어 빈 문자열이
           # 되므로 **자동 배포에서는 켜지지 않는다** — 아래 셸이 `= "true"`로만 본다.
@@ -337,11 +342,13 @@ jobs:
              APP_PUBLIC_URL='${APP_PUBLIC_URL:-}' \
              SIGNUP_ALLOWED_DOMAINS='${SIGNUP_ALLOWED_DOMAINS:-}' \
              SIGNUP_INVITE_CODE='${SIGNUP_INVITE_CODE:-}' \
+             INITIAL_ADMIN_EMAILS='${INITIAL_ADMIN_EMAILS:-}' \
              TOUR_ACCESS_CODE='${TOUR_ACCESS_CODE:-}' \
              MAIL_BACKEND='${MAIL_BACKEND:-console}' \
              MAIL_FROM='${MAIL_FROM:-}' \
              SMTP_HOST='${SMTP_HOST:-}' SMTP_PORT='${SMTP_PORT:-587}' \
              SMTP_USER='${SMTP_USER:-}' SMTP_PASSWORD='${SMTP_PASSWORD:-}' \
+             SMTP_USE_TLS='${SMTP_USE_TLS:-true}' \
              LLM_API_KEY='${LLM_API_KEY:-}' \
              GHCR_USER='${{ github.actor }}' GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
              GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
@@ -371,6 +378,8 @@ jobs:
           APP_PUBLIC_URL=${APP_PUBLIC_URL}
           SIGNUP_ALLOWED_DOMAINS=${SIGNUP_ALLOWED_DOMAINS}
           SIGNUP_INVITE_CODE=${SIGNUP_INVITE_CODE}
+          INITIAL_ADMIN_EMAILS=${INITIAL_ADMIN_EMAILS}
+          SMTP_USE_TLS=${SMTP_USE_TLS}
           TOUR_ACCESS_CODE=${TOUR_ACCESS_CODE}
           MAIL_BACKEND=${MAIL_BACKEND}
           MAIL_FROM=${MAIL_FROM}

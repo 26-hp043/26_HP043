@@ -1,0 +1,121 @@
+"""이슈 #1475 · 배포가 렌더하는 `.env`가 **compose가 쓰는 값을 빠뜨리지 않는지** 고정한다.
+
+## 체인은 세 고리인데 검사는 둘까지만 있었다
+
+```
+.env.app.example  →  docker-compose.prod.app.yml  →  .github/workflows/deploy.yml 의 `.env` 렌더
+└──── test_compose_env_wiring.py 가 본다 (#1290) ────┘   └─────── 아무도 보지 않았다 ───────┘
+```
+
+`#1290`이 첫 고리를 메우고 멈췄다. 그 결과 `INITIAL_ADMIN_EMAILS`가 **본보기에도 있고
+compose의 `environment:`에도 있는데** 배포가 `.env`에 쓰지 않아 **항상 빈 값**이었다.
+
+## 왜 조용한가
+
+`deploy.yml`은 `.env`를 `cat > .env`로 **통째로 덮어쓴다.** 그래서 app-01에 손으로 적어
+두어도 **다음 배포가 지운다** — 「적어 뒀는데 아무 일도 없다」가 되는 자리이며, `#508`·
+`#1290`·`#1331`이 각각 다른 변수에서 겪은 것과 같은 종류다.
+
+그리고 증상이 환경에 따라 다르다.
+
+| `APP_ENV` | `INITIAL_ADMIN_EMAILS`가 빌 때 |
+|---|---|
+| `production` | 기동 거부 — 배포 로그에 **빨갛게 남는다** |
+| `staging` | **조용히 뜬다. 관리자 0명으로** |
+
+배포본은 `staging`이다(`deploy.yml`의 `${{ secrets.APP_ENV || 'staging' }}` · `#1478`).
+즉 **더 조용한 쪽**으로 떨어져 있었다 — `role_bootstrap` 독스트링이 *「`staging`에는 이
+가드가 없다 … 사람이 값을 채웠는지 직접 봐야 한다」*로 미리 적어 둔 상태다.
+
+케이스: (`TEST_PLAN §14.5` 정의 없음 — 배포 배선 회귀 테스트)
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+_DEPLOY = _ROOT / ".github" / "workflows" / "deploy.yml"
+_PROD_APP = _ROOT / "docker-compose.prod.app.yml"
+_APP_ENV_EXAMPLE = _ROOT / ".env.app.example"
+
+#: 렌더에 없어도 되는 값 — compose가 **안전한 기본값**을 자기 쪽에 들고 있는 것들.
+#:
+#: `LOG_FILE`·`RATE_LIMIT_*`·`USE_FORWARDED_FOR`처럼 본보기에 없는 값은 애초에 아래
+#: 대조 대상이 아니다. 이 집합은 **본보기에 있으면서도** 렌더에서 빼는 것을 적는 자리이며,
+#: 지금은 비어 있다 — 빠뜨려도 되는 값이 있으면 **여기에 사유와 함께** 적는다.
+_RENDER_EXEMPT: frozenset[str] = frozenset()
+
+
+def _rendered_keys() -> set[str]:
+    """app-01 `.env` 렌더 heredoc이 쓰는 키.
+
+    db-01에도 같은 모양의 heredoc이 있으므로(`CUBRID_PASSWORD` 한 줄) **뒤쪽**을 고른다.
+    """
+    lines = _DEPLOY.read_text(encoding="utf-8").splitlines()
+    starts = [i for i, line in enumerate(lines) if "cat > .env" in line]
+    assert starts, "deploy.yml에서 `.env` 렌더 heredoc을 찾지 못했다."
+    start = starts[-1]
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "EOF")
+    return {
+        m.group(1)
+        for line in lines[start + 1 : end]
+        if (m := re.match(r"\s*([A-Z][A-Z0-9_]*)=", line))
+    }
+
+
+def _example_keys() -> set[str]:
+    text = _APP_ENV_EXAMPLE.read_text(encoding="utf-8")
+    return set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]*)=", text, re.M))
+
+
+def test_deploy_renders_every_value_the_compose_substitutes():
+    """🔴 본보기에 있고 compose가 `${...}`로 치환하는 값은 **배포 렌더에도 있다** (#1475).
+
+    빠지면 compose가 빈 문자열을 넘기고, 그 사실이 **어디에도 드러나지 않는다.**
+    """
+    compose = _PROD_APP.read_text(encoding="utf-8")
+    rendered = _rendered_keys()
+
+    missing = sorted(
+        name for name in _example_keys() - rendered - _RENDER_EXEMPT if f"${{{name}" in compose
+    )
+    assert not missing, (
+        f"`.env.app.example`에 있고 compose가 치환하는데 deploy.yml의 `.env` 렌더에 없는 값: "
+        f"{', '.join(missing)}. compose가 빈 문자열을 넘기고, app-01의 `.env`에 손으로 적어도 "
+        "`cat > .env`가 다음 배포에서 지운다 (#1475)."
+    )
+
+
+def test_initial_admin_emails_reaches_the_container():
+    """🔴 `INITIAL_ADMIN_EMAILS`가 **세 고리 전부**에 있다 (#1475 · #672 · #1301).
+
+    이 값이 비면 새 DB는 **관리자 0명**으로 뜨고, 역할을 올리는 경로가 관리자 전용이라
+    **화면으로는 아무도 풀 수 없다.** 위 일반 검사가 이미 덮지만, 이 변수는 빠졌을 때의
+    대가가 커서 이름을 박아 따로 고정한다 — 일반 검사가 느슨해져도 이쪽은 남는다.
+    """
+    name = "INITIAL_ADMIN_EMAILS"
+
+    assert name in _example_keys(), f".env.app.example에 {name}이 없다."
+    assert f"${{{name}" in _PROD_APP.read_text(encoding="utf-8"), (
+        f"docker-compose.prod.app.yml의 environment에 {name}이 없다 — 이 서비스에는 "
+        "env_file이 없어 목록에 없으면 컨테이너에 닿지 않는다 (#1290)."
+    )
+    assert name in _rendered_keys(), (
+        f"deploy.yml의 `.env` 렌더에 {name}이 없다 — 배포가 `.env`를 덮어쓰므로 "
+        "손으로 적어 둔 값도 사라진다 (#1475)."
+    )
+
+
+def test_legacy_initial_office_emails_is_not_rendered():
+    """옛 이름 `INITIAL_OFFICE_EMAILS`를 **렌더하지 않는다** (#1301).
+
+    그 값이 비어 있지 않으면 앱이 **환경과 무관하게 기동을 거부한다**
+    (`auth/role_bootstrap.py`). 이름이 바뀐 것을 그 자리에서 알리려는 장치이므로,
+    배포가 빈 값이라도 써 두면 조용히 지나갈 뿐 도움이 되지 않는다.
+    """
+    assert "INITIAL_OFFICE_EMAILS" not in _rendered_keys(), (
+        "deploy.yml이 옛 이름 INITIAL_OFFICE_EMAILS를 렌더한다 — 이름이 바뀐 것을 "
+        "알리는 기동 거부가 무의미해진다 (#1301)."
+    )

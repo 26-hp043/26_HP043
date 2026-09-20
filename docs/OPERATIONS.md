@@ -580,6 +580,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `CUBRID_PASSWORD` | dba 비밀번호 (<=31바이트, ASCII) | |
 | `CORS_ALLOW_ORIGINS` | 프론트엔드 오리진 | `https://bluelog-bx7.pages.dev` |
 | `APP_PUBLIC_URL` | 메일 링크 기준 주소 | `https://bluelog-bx7.pages.dev` |
+| `INITIAL_ADMIN_EMAILS` | **최초 관리자** 이메일(쉼표 구분). 여기 든 주소는 **가입·로그인할 때마다** 관리자로 맞춰진다 — 「처음 한 번」이 아니라 「항상 관리자인 사람」이다. ⚠️ **비면 관리자 0명으로 뜨고 화면으로는 아무도 역할을 올릴 수 없다** (`#672` · `#1301`). `APP_ENV=production`이면 기동이 거부되지만 **`staging`에는 그 가드가 없어 조용히 뜬다** — 배포 기본값이 `staging`이므로(`#1478`) **반드시 등록한다** (`#1475`) | `a@ex.com,b@ex.com` |
 
 ### 5.2 권장 시크릿
 
@@ -593,6 +594,8 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `SMTP_PORT` | SMTP 포트. **비워 두면 587**(submission)이다. **465를 넣으면 implicit TLS**로 붙는다 — 연결하는 순간부터 TLS이고 `SMTP_USE_TLS`와 무관하게 STARTTLS를 걸지 않는다(`RFC 8314 §3.3` · `#1331`) |
 | `SMTP_USER` | SMTP 사용자 |
 | `SMTP_PASSWORD` | SMTP 비밀번호 |
+| `SMTP_USE_TLS` | STARTTLS 사용 여부. 비워 두면 `true`. `SMTP_PORT=465`(implicit TLS)에서는 값과 무관하다 (`#1475`에서 배선) |
+| `TOUR_ACCESS_CODE` | **둘러보기 링크의 접근 코드** (`#1486`). `/login?tour=<코드>`로 들어온 사람에게 관리자 열람 세션을 준다. ⚠️ **비면 둘러보기가 닫힌다**(fail-closed) — 가입 게이트와 반대 방향이라 미설정이 안전한 기본값이다. 코드는 URL에 실려 브라우저 히스토리·접근 로그에 남으므로 **32자 이상**을 권하고, 인터뷰가 끝나면 비운다. 다만 **이미 발급된 세션은 7일간 살아 있다** |
 
 ### 5.3 선택 시크릿
 
