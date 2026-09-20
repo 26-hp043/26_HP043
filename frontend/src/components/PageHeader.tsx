@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useI18n } from '../i18n/core'
 import { SCREEN_BY_ID, type ScreenId } from '../screens'
 import './PageHeader.css'
 
@@ -41,16 +42,19 @@ interface PageHeaderProps {
 
 export function PageHeader({ screen, children }: PageHeaderProps) {
   const meta = SCREEN_BY_ID[screen]
+  const { language } = useI18n()
 
   return (
     <header className="page-head">
-      <h1 className="page-head__title">
-        {meta.label}
-        {/* `§14` — 한국어 라벨 + 영문 약어 병기. 영문은 보조라 크기·굵기를 낮춘다. */}
-        <span className="page-head__title-en" lang="en">
-          {meta.labelEn}
-        </span>
-      </h1>
+      {/*
+        화면 이름은 **언어에 맞는 것 하나만** 적는다 (`#1426`).
+
+        종전에는 한국어 제목 옆에 영문을 늘 붙였는데, 그 영문은 `Dashboard`처럼
+        **약어가 아닌 일반 단어**라 `§3` 🔒 「영문 약어 병기」의 대상이 아니었다.
+        게다가 언어와 무관하게 한국어가 주 제목이라 **영어 모드에서도 제목만
+        한국어로 남아 있었다** — 토글이 닿지 않는 자리였다.
+      */}
+      <h1 className="page-head__title">{language === 'en' ? meta.labelEn : meta.label}</h1>
       {children}
     </header>
   )

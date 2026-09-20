@@ -304,9 +304,6 @@ export function AppShell() {
                     <span className="app-shell__nav-label">
                       {language === 'en' ? item.labelEn : item.label}
                     </span>
-                    <span className="app-shell__nav-label-en">
-                      {language === 'en' ? item.label : item.labelEn}
-                    </span>
                   </span>
                 </NavLink>
               </li>
@@ -325,9 +322,6 @@ export function AppShell() {
                   <span className="app-shell__nav-text">
                     <span className="app-shell__nav-label">
                       {language === 'en' ? item.labelEn : item.label}
-                    </span>
-                    <span className="app-shell__nav-label-en">
-                      {language === 'en' ? item.label : item.labelEn}
                     </span>
                   </span>
                   <span className="app-shell__nav-tag">{lockedTag}</span>

@@ -23,6 +23,7 @@ import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import type { AnnualImpact, VoyageCiiResponse } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Icon } from '../../components/Icon'
+import { useShowsLabelEn } from '../../i18n/core'
 
 /**
  * 「연간 반영 시 변화」의 표시 값 — `PRD §10.4` 행 (`#1338`).
@@ -104,6 +105,8 @@ export function VoyageCiiResult({ state, stale = false }: VoyageCiiResultProps) 
 /* ------------------------------------------------------------------ */
 
 function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale: boolean }) {
+  const showsLabelEn = useShowsLabelEn()
+
   const data = response.data
   const unit = ciiUnit(data.transport_capacity_basis)
   const margin = marginDisplay(data.estimated_rating, data.next_worse_boundary_margin_ratio)
@@ -117,7 +120,12 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
     >
       <h2 className="card__title voyage-cii-result__title">
         계산 결과
-        <span className="voyage-cii-result__title-en"> Result</span>
+        {showsLabelEn ? (
+          <span className="voyage-cii-result__title-en" lang="en">
+            {' '}
+            Result
+          </span>
+        ) : null}
       </h2>
 
       {/*
@@ -451,6 +459,8 @@ interface MetricProps {
 }
 
 function Metric({ label, labelEn, value, unit, emphasis }: MetricProps) {
+  const showsLabelEn = useShowsLabelEn()
+
   return (
     <div
       className={
@@ -462,7 +472,12 @@ function Metric({ label, labelEn, value, unit, emphasis }: MetricProps) {
       <dt className="voyage-cii-result__metric-label">
         {label}
         {labelEn ? (
-          <span className="voyage-cii-result__metric-label-en"> {labelEn}</span>
+          showsLabelEn ? (
+            <span className="voyage-cii-result__metric-label-en" lang="en">
+              {' '}
+              {labelEn}
+            </span>
+          ) : null
         ) : null}
       </dt>
       <dd className="voyage-cii-result__metric-value">

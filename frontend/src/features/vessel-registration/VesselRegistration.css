@@ -22,11 +22,7 @@
   margin-bottom: var(--space-4);
 }
 
-.vessel-registration__title-en {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-body);
-}
+/* 영문 병기를 걷었다 (`#1426`) — `PageHeader`와 같은 판단이다. */
 
 .vessel-registration__lead {
   color: var(--color-text-muted);
