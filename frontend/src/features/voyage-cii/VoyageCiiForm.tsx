@@ -412,7 +412,7 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
           labelEn="Speed"
           unit={DISPLAY_UNITS.speed}
           error={errors[FIELD.speedKn]}
-          hint="이 화면의 CII 값은 연료량과 거리가 정하므로 속력만 바꿔도 같습니다. 다만 「계획 저장」을 하면 이 값이 계획 속력이 되고 도착 예정 시각을 정합니다 — 실제 운항 속력을 넣어 주세요."
+          hint="CII는 연료·거리로 정해져 속력만 바꿔도 같습니다. 다만 「계획 저장」 시 이 값이 계획 속력·도착 예정 시각이 되니 실제 운항 속력을 넣어 주세요."
         >
           {(control) => (
             <input
