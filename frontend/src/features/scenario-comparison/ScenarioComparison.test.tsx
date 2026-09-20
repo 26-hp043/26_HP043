@@ -299,7 +299,23 @@ describe('서버 경고가 화면에 뜬다 (#821)', () => {
      */
     expect(await screen.findByText(/공식 CII 적용 대상이 아닐 수 있습니다/)).toBeTruthy()
     expect(screen.getByText(/기상 보정 없이 계산했습니다/)).toBeTruthy()
-    expect(screen.getByText(/참고용 예측값입니다\. 규제 제출용이 아닙니다/)).toBeTruthy()
+  })
+
+  /*
+   * 면책은 하단 배너 한 곳에서만 말한다 (#1416 · `DESIGN_SYSTEM §13` 🔒). `REFERENCE_ONLY`는
+   * 그 배너와 같은 말이라 경고 목록에서는 거른다 — 종전에는 이 검사가 **중복을 단언**하고 있었다.
+   * 배너는 이 컴포넌트가 아니라 페이지(`RouteComparisonPage`)가 그리므로, 여기서는 **컴포넌트가
+   * 참고용 고지를 하나도 그리지 않는다**를 본다.
+   */
+  it('면책은 화면에 한 번만 나온다 — 경고 목록이 배너를 반복하지 않는다 (#1416)', async () => {
+    stubServerWithComparison()
+    renderScreen()
+    await compareAndWaitForResult()
+
+    await screen.findByText(/공식 CII 적용 대상이 아닐 수 있습니다/)
+    expect(screen.queryByText(/참고용 예측값/)).toBeNull()
+    // 면책과 무관한 경고는 그대로 남는다 — 목록을 통째로 지우지 않는다.
+    expect(screen.getByText(/기상 보정 없이 계산했습니다/)).toBeTruthy()
   })
 
   it('경고 코드 원문을 그대로 노출하지 않는다 — 맵을 거친다', async () => {

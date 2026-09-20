@@ -5,7 +5,13 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { GradeScaleBar } from '../../components/GradeScaleBar'
-import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
+import {
+  ciiUnit,
+  displayWarnings,
+  marginDisplay,
+  riskLabel,
+  warningMessage,
+} from '../voyage-cii/resultRules'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -281,6 +287,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
    * (전체 경고 목록은 화면 아래에 그대로 남는다).
    */
   const ytdBlockers = data.warnings.filter((code) => YTD_BLOCKER_WARNINGS.has(code))
+  const shownWarnings = displayWarnings(data.warnings)
 
   return (
     <div className="rt">
@@ -475,9 +482,13 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
       </div>
 
       {/* ── 경고 ─────────────────────────────────────────────────── */}
-      {data.warnings.length > 0 ? (
+      {/*
+        면책은 화면 하단 배너 한 곳에서만 말한다 (#1416). `REFERENCE_ONLY`는 그 배너
+        (`DESIGN_SYSTEM §13` 🔒)와 같은 말이라 거른다 — 기능①·항로 비교와 같은 함수다.
+      */}
+      {shownWarnings.length > 0 ? (
         <ul className="rt__warnings">
-          {data.warnings.map((code) => (
+          {shownWarnings.map((code) => (
             <li key={code}>{warningText(code)}</li>
           ))}
         </ul>

@@ -27,8 +27,8 @@ import { WARNING_MESSAGE } from '../voyage-cii/resultRules'
  * `#822`는 `warningText`가 `warningMessage`로 폴백하게 했다. 그러면 정본에 있는
  * 코드는 원문으로 노출될 수 없다 — **그 성질을 여기서 고정한다.**
  *
- * 로컬 맵을 지우지 않은 이유는 두 맵의 문구가 2종에서 다르고(`REFERENCE_ONLY`·
- * `COMPLETED_NO_FUEL`), 화면 문구가 `AGENTS §3.2.2`상 디자인 소관이기 때문이다.
+ * 로컬 맵을 지우지 않은 이유는 두 맵의 문구가 다르고(`COMPLETED_NO_FUEL` — `REFERENCE_ONLY`는
+ * `#1416`에서 경고 목록에서 거르며 뺐다), 화면 문구가 `AGENTS §3.2.2`상 디자인 소관이기 때문이다.
  * 대신 로컬 맵이 **정본에 없는 코드를 발명하지 않았는지**를 함께 본다.
  *
  * ## 사본은 소스로 본다 (#1292)
@@ -88,10 +88,10 @@ describe('실시간 CII 화면이 경고 코드를 원문으로 노출하지 않
      * `SIMULATION_NO_FUEL_RATE`는 **행동을 안내해야 한다**(모듈 머리주석). 폴백이
      * 로컬 맵보다 먼저 걸리면 그 의도가 사라진다.
      */
-    expect(warningText('REFERENCE_ONLY')).toBe(
-      '본 화면의 값은 참고용 예측값이며 규제 제출용 공식 결과가 아닙니다.',
+    expect(warningText('COMPLETED_NO_FUEL')).toBe(
+      '완료된 항차 일부에 실적 연료가 없어 계획값으로 대신 계산했습니다.',
     )
-    expect(warningText('REFERENCE_ONLY')).not.toBe(WARNING_MESSAGE.REFERENCE_ONLY)
+    expect(warningText('COMPLETED_NO_FUEL')).not.toBe(WARNING_MESSAGE.COMPLETED_NO_FUEL)
   })
 
   it('정본에 없는 코드가 오면 코드 자체를 보인다 — 조용히 감추지 않는다', () => {

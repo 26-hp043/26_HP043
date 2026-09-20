@@ -34,7 +34,13 @@ import {
   formatPercent,
   toDecimalInput,
 } from '../../display/format'
-import { ciiUnit, marginDisplay, riskLabel, warningMessage } from '../voyage-cii/resultRules'
+import {
+  ciiUnit,
+  displayWarnings,
+  marginDisplay,
+  riskLabel,
+  warningMessage,
+} from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
 import { COORDINATE_DISTANCE_NOTICE, ESTIMATE_NOTICE, NO_AUTO_DECISION_NOTICE } from './notices'
 import { selectScenarioProvider } from './providerSelection'
@@ -759,6 +765,7 @@ export function ScenarioComparison({
   const { response, snapshot } = state
   const unit = ciiUnit(response.transport_capacity_basis)
   const summary = lowestSummary(response.scenarios)
+  const shownWarnings = displayWarnings(response.warnings)
 
   /*
    * 제목의 선박명 (#821 · #875).
@@ -903,9 +910,15 @@ export function ScenarioComparison({
           ))}
         </dl>
 
-        {response.warnings.length > 0 ? (
+        {/*
+          면책은 화면 하단 배너 한 곳에서만 말한다 (#1416). `REFERENCE_ONLY`는 그 배너
+          (`DESIGN_SYSTEM §13` 🔒)와 같은 말이라 여기서 거른다 — 기능①(`VoyageCiiResult`)과
+          같은 함수다. `apiProvider`는 여전히 서버 경고를 그대로 넘긴다(#821): 거르는 것은
+          **이 화면의 배치 문제**이고 응답은 건드리지 않는다.
+        */}
+        {shownWarnings.length > 0 ? (
           <ul className="scenario-comparison__warnings">
-            {response.warnings.map((code) => (
+            {shownWarnings.map((code) => (
               <li key={code} className="scenario-comparison__warning">
                 <span><Icon glyph={AlertTriangle} size="inline" /></span> {warningMessage(code)}
               </li>
