@@ -932,6 +932,7 @@ LLM 챗봇 대화의 개별 메시지다. 외부 LLM 전송은 §16.3의 MUST �
 stateDiagram-v2
     [*] --> DRAFT
     DRAFT --> PLANNED: save_plan
+    DRAFT --> CANCELLED: cancel
     PLANNED --> IN_PROGRESS: start_voyage
     IN_PROGRESS --> COMPLETED: enter_actual_result
     COMPLETED --> CONFIRMED: confirm_actuals
@@ -940,6 +941,8 @@ stateDiagram-v2
     CONFIRMED --> ARCHIVED: archive
     CONFIRMED --> COMPLETED: correct_actuals (audit log required)
 ```
+
+> **[#1328] `DRAFT → CANCELLED`를 상태도에 넣었다.** 구현(`services/voyage._TRANSITIONS`)과 **화면**(`frontend/src/features/voyage-management/voyageRules.ts`)이 처음부터 이 전환을 열어 두었는데 상태도에만 없었다 — 문서를 보고 만든 클라이언트·검사는 422를 기대한다. **코드에서 닫는 쪽은 성립하지 않는다**: 화면이 이미 제공하는 동작을 없애는 일이다. `§8.2`상 취소된 DRAFT는 hard delete 가능이라 데이터가 남지도 않는다.
 
 | 상태 | 의미 | 연간 시뮬레이터 반영 |
 |---|---|---|
@@ -2694,3 +2697,4 @@ LLM 챗봇은 IMO 규제값 계산·등급 산정의 신뢰 경로에 개입하�
 | 2026-09-20 | `#1360` | **§21 지도 자산 각주 정정 — 사실 정정이며 범위 판단이 아니다.** `#985`(2026-09-18)가 항만 43곳의 깊은 층(z7–z10)을 걷어내고 전 세계 z0–z5(26 MB)로 좁혔는데, 이 절이 여전히 종전 구성(z0–z6+z7–z10 · 95 MB · 「저장소에 넣지 않는다」)을 적고 있었다. 실측값으로 고치고, 정확한 수치는 `scripts/fetch_basemap.sh`를, 확대 상한은 `basemap.ts`의 `MAX_ZOOM`을 가리키도록 해 값이 다시 벌어지지 않게 했다. 자산이 저장소에 커밋돼 있다는 사실(`git ls-files`로 확인)도 반영했다. `2702`행(`#763` 변경 이력)은 2026-09-12 당시 기록이라 그대로 둔다. `AGENTS §4.3` 「오기·값 정정」이라 버전은 올리지 않는다 (#1340) |
 | 2026-09-20 | `#1394` | **§11.3 · §12.2 필수 표기 정정 · §10.2 길이 정정 · §14.4 응답 예시 삭제.** 네 곳 모두 **요구가 바뀐 것이 아니라 PRD가 뒤처졌던 것**이다 (`#1348`). ⑴ `§11.3` `current_lat`·`current_lon`을 **조건부**로, `slow_speed_kn`을 **N**으로 — `#830`이 이미 정정했고 `API_SPEC §5.1`·`schemas/scenario_compare.py`가 그 값이다. ⑵ `§12.2` `simulation_runs`·`random_seed`·`distribution_profile`을 **N**으로 — **셋 다 기본값이 있다.** ⑶ `§10.2` 항만명을 **1~200자**로 — DB 컬럼·API 계약·기존 데이터가 전부 200이라, 100으로 좁히면 **이미 저장된 값이 수정 불가**가 된다. ⚠️ **메모 1000자는 반대 방향이다** — PRD만 값을 갖고 아무도 구현하지 않았으므로 `AGENTS §3.1`대로 **코드가 PRD를 따른다**(`NOTES_MAX_LENGTH`). ⑷ `§14.4` 응답 예시를 지우고 `API_SPEC §6.1`을 가리킨다 — `[EXT-3-1]` 각주가 *「일치시켰다」*고 적는데 **다시 갈라졌다**(키 이름·seed의 자리·확률의 타입 셋). 맞추는 것으로 재발을 막지 못한다는 것이 두 번으로 확인됐고, `§14`가 스스로 *「상세는 `API_SPEC.md`에서 확정한다」*고 적는다. PRD가 요구하는 넷만 표로 남겼다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1348) |
 | 2026-09-20 | `#1398` | **§7.6 `[ORACLE-R-7]` 「애플리케이션 시작 시 `parse(a_raw) == a_decimal` 검증」 삭제** — 그 검사는 **존재한 적이 없다** (`#1347`). 넣지 않기로 한 사유는 `TECH_SPEC §9.3`에 적었다: ⑴ 어긋날 경로가 이미 없다(쓰기 둘 다 `a_raw`에서 `a_decimal`을 파생한다) ⑵ `api/main.py`의 `lifespan`은 **DB 연결을 하나도 열지 않는데** 전수 검사를 넣으면 **기동이 DB 가용성에 묶여** OCI 분리 토폴로지에서 크래시 루프가 된다. 대신 **실제 보증**(시드 상수 전수 대조 · 적재 경로의 파생)을 적었다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1347) |
+| 2026-09-20 | `#1403` | **§8.1 상태도에 `DRAFT → CANCELLED` 추가** (`#1328`). 구현(`services/voyage._TRANSITIONS`)과 **화면**(`frontend/src/features/voyage-management/voyageRules.ts`)이 처음부터 이 전환을 열어 두었는데 상태도에만 없어, **문서를 보고 만든 클라이언트·검사는 422를 기대**했다. **코드에서 닫는 쪽은 성립하지 않는다** — 화면이 이미 제공하는 동작을 없애는 일이다(감사는 이것을 「의존할 수 있음」으로 **추정**했고 실측으로 확인했다). `§8.2`상 취소된 DRAFT는 hard delete 가능이라 데이터가 남지도 않는다. 가드는 `tests/test_voyage_transition_canon_sync.py`가 갖는다 — 코드 ↔ 이 상태도 ↔ `API_SPEC §3.5` 표 셋을 대조한다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#1328) |

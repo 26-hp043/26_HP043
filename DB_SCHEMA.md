@@ -867,7 +867,7 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_CONFIRM` **[#1343]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
+| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
 | `entity_type` | VARCHAR(30) | NULL | `app_user`, `calculation_run`, `chat_session`, `voyage` **[#1343]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |
@@ -877,7 +877,9 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 >
 > **종전 목록은 양쪽으로 어긋나 있었다** — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다. `entity_type`도 `app_user`·`chat_session`이 빠지고 `vessel`·`regulation_year`·`fuel_type`·`reference_line`이 쓰이지 않은 채 적혀 있었다. `#1241`(감사 로그 조회 화면)이 이 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.**
 >
-> ⚠️ **항차 상태 전환 감사(`VOYAGE_TRANSITION`)는 지금 없다** — `#1328`이 「확정 뒤 정정·보관에 감사 로그가 없다」로 다룬다. 그 이슈가 기록을 넣을 때 **값과 이 목록을 함께** 늘린다. 계획을 목록에 미리 적어 두지 않는 것은, 적어 두면 **있는 것과 없는 것을 구분할 수 없게** 되기 때문이다.
+> **[#1328] `VOYAGE_TRANSITION`이 들어왔다.** 위 각주가 「`#1328`이 기록을 넣을 때 값과 이 목록을 함께 늘린다」로 자리를 비워 뒀던 것이며, 그 이슈가 **확정 뒤의 두 전환**(`CONFIRMED → COMPLETED` 정정 · `CONFIRMED → ARCHIVED` 보관)을 기록하면서 같은 PR에서 채웠다 — `PRD §8.1.1`·`API_SPEC §3.5`가 둘 다 「audit log 필수」로 정한 것이다. `details_json`은 `VOYAGE_CONFIRM`과 같은 모양(`from_status`·`to_status`·`annual_inclusion_policy`)이다.
+>
+> ⚠️ **다른 전환은 여전히 기록하지 않는다** — `PLANNED → IN_PROGRESS` 등은 되돌릴 수 있고 정본이 지목하지도 않았다. 기록 대상을 넓히는 것은 감사 로그를 늘리는 일이 아니라 **무엇이 중요한지를 흐리는 일**이다.
 
 **인덱스:**
 
@@ -2204,3 +2206,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-20 | `#1387` | §2.14 `audit_log`의 `action`·`entity_type` 열거를 **코드와 같게** 맞추고 각주로 사유를 남겼다 (`#1343`). 두 목록이 **양쪽으로** 어긋나 있었다 — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다(`entity_type`도 `app_user`·`chat_session`이 빠지고 쓰이지 않는 4개가 있었다). 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) **DB가 알려 주지 않으므로** 새 검사 `tests/test_audit_enum_sync.py`(6함수)가 `코드 리터럴 == services/audit.AUDIT_ACTIONS(+ migration_guard.BACKUP_ACTION) == 이 행`을 양방향으로 잠근다(`#968`의 `weather_snapshot.source`와 같은 틀). 계획값(`VOYAGE_TRANSITION` · `#1328`)은 **목록에 미리 적지 않는다** — 적으면 있는 것과 없는 것을 구분할 수 없게 된다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1343) |
 | 2026-09-20 | `#1394` | §2.4 `voyage.notes` 행에 **입력 상한 1000자** 명시 (`PRD §10.2` ⑵ · `API_SPEC §3.3`). 컬럼은 `TEXT`라 더 받지만 API가 거른다 — **컬럼 타입과 입력 계약은 다른 축**이고, 행에 적어 두지 않으면 스키마만 읽는 사람은 상한이 없다고 읽는다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#1348) |
 | 2026-09-20 | `#1398` | **ER 다이어그램 9표 누락 보강 · §4.3 `weather_snapshot` 삭제 경로 신설 · 오기 넷 정정** (`#1347`). ⑴ 다이어그램이 `§2`의 표 25개 중 **15개만** 담고 있었다 — 인증 3 · 챗봇 2 · 위치 이력 · 감축 계획을 더해 **22개**가 됐다(나머지 셋은 **FK가 하나도 없는 독립 표**라 그리지 않고 사유를 적었다). **카디널리티는 실제 FK에서 읽었다.** ⑵ `§4.3` 「`weather_snapshot` 30일(TTL 만료 후 삭제)」이 **지우는 경로 없이** 적혀 있었다 — `scripts/purge_expired.py`에 넣고, ⚠️ **참조 표가 둘**임을 `§2.13`에 명시했다: `voyage_scenario`(`§2.4`)는 **`ON DELETE SET NULL`**이라 막지 않고 **조용히 링크만 끊는다**(RESTRICT보다 나쁘다). ⑶ 「`fuel_type`은 `code`가 PK」 → **PK는 `id`, `code`는 별도 UNIQUE**. ⑷ 「이 저장소는 PG 16」 → **CUBRID 11.4.6**이며 `§4.2` 머리에 「이 절 전체가 PostgreSQL 전제」 경고. ⑸ **「2023년의 `0`은 유효값」이 사실이 아니다** — 2023 Z는 `5.0000`%다(`§3.1` · `PRD §3.4.1`). **결론(`>= 0`)은 맞는데 근거가 틀린** 형태라 그대로 통과해 왔다(`AGENTS §2.1` 적용례). 마이그레이션 번호도 `023` → **`046`**. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1347) |
+| 2026-09-20 | `#1403` | **§2.14 `action` 목록에 `VOYAGE_TRANSITION` 추가** (`#1328`). `#1343`(PR #1387)이 「계획값을 목록에 미리 적지 않는다」로 **자리를 비워 두고 이 이슈를 가리켰던** 값이며, 그 이슈가 **확정 뒤의 두 전환**(`CONFIRMED → COMPLETED` 정정 · `CONFIRMED → ARCHIVED` 보관)을 기록하면서 같은 PR에서 채웠다. `AGENTS §6.1`의 유예 처리가 의도대로 작동한 경우다 — 그리고 `test_audit_enum_sync`(`#1343`)가 **액션을 코드에 더하자 즉시 실패해** 이 행을 같은 변경에서 채우도록 강제했다. `details_json`은 `VOYAGE_CONFIRM`과 같은 모양이다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#1328) |

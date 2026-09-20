@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 from uuid import uuid4
 
+import pytest
 from conftest import same_uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import bindparam, text
@@ -225,7 +226,8 @@ async def test_other_transitions_do_not_write_confirm_events(migrated_db, app_fr
     """확정이 아닌 전환은 이 스트림에 들어오지 않는다.
 
     되돌릴 수 있는 전환까지 같은 action으로 남기면 **무엇이 중요한지가 흐려진다** —
-    정본(`TECH_SPEC §13.1`)이 지목한 것은 확정이다.
+    정본이 지목한 것은 **확정**과 **확정 뒤의 정정·보관** 셋뿐이다(`PRD §8.1.1` ·
+    `API_SPEC §3.5`). 뒤의 둘은 `VOYAGE_TRANSITION`으로 따로 남는다 (`#1328`).
     """
     voyage_id = str(uuid4())
     try:
@@ -244,6 +246,82 @@ async def test_other_transitions_do_not_write_confirm_events(migrated_db, app_fr
 
         async with get_sessionmaker()() as s:
             assert await _fetch_events(s, "VOYAGE_CONFIRM") == []
+    finally:
+        await _cleanup(voyage_id)
+
+
+@pytest.mark.parametrize("to_status", ["COMPLETED", "ARCHIVED"])
+async def test_a_transition_out_of_confirmed_is_recorded(migrated_db, app_fresh_engine, to_status):
+    """⚠️ #1328 — **확정을 되돌리거나 닫는 전환이 기록되지 않았다.**
+
+    `PRD §8.1.1`과 `API_SPEC §3.5`가 둘 다 「audit log 필수」로 정하는데 코드는
+    `TECH_SPEC §13.1`(「항차 확정」 하나)만 근거로 삼아 확정만 남겼다 —
+    **확정된 실적을 되돌려 고친 뒤 다시 확정하면** 로그에 「확정」 두 건만 남고
+    **누가 언제 되돌렸는지**가 사라진다. `AGENTS §3.1`상 `PRD` > `TECH_SPEC`이다.
+    """
+    voyage_id = str(uuid4())
+    try:
+        await _seed_completed_voyage(voyage_id)
+
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            headers = _csrf(client)
+            confirmed = client.post(
+                f"/api/v1/voyages/{voyage_id}/transition",
+                json={"to_status": "CONFIRMED"},
+                headers=headers,
+            )
+            assert confirmed.status_code == 200, confirmed.text
+
+            moved = client.post(
+                f"/api/v1/voyages/{voyage_id}/transition",
+                json={"to_status": to_status},
+                headers=headers,
+            )
+            assert moved.status_code == 200, moved.text
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            (event,) = await _fetch_events(s, "VOYAGE_TRANSITION")
+            assert event["user_id"], "주체가 비어 있다"
+            assert event["entity_type"] == "voyage"
+            assert same_uuid(event["entity_id"], voyage_id)
+            # `_fetch_events`가 `JSONText()`를 붙여 읽으므로 **이미 dict**다
+            # (붙이지 않으면 문자열이 온다 — 그 파일 머리 주석).
+            details = event["details_json"]
+            # **변경 전/후가 함께** 남는다 — 「무엇에서 무엇으로」가 없으면 로그가
+            # 「바뀌었다」만 말한다(`VOYAGE_CONFIRM`과 같은 규약).
+            assert details["from_status"] == "CONFIRMED"
+            assert details["to_status"] == to_status
+    finally:
+        await _cleanup(voyage_id)
+
+
+async def test_a_reversible_transition_writes_no_transition_event(migrated_db, app_fresh_engine):
+    """**기록 대상을 넓히지 않았는지** 본다 (`#1328`).
+
+    이것이 없으면 「모든 전환을 기록한다」로 위 검사를 만족시킬 수 있고, 그러면
+    `record_voyage_confirm`이 세운 판단(**무엇이 중요한지를 흐리지 않는다**)이
+    무너진다.
+    """
+    voyage_id = str(uuid4())
+    try:
+        await _seed_planned_voyage(voyage_id)
+
+        with TestClient(app, base_url=_BASE) as client:
+            client.post("/api/v1/auth/dev-login")
+            response = client.post(
+                f"/api/v1/voyages/{voyage_id}/transition",
+                json={"to_status": "IN_PROGRESS"},
+                headers=_csrf(client),
+            )
+            assert response.status_code == 200, response.text
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            assert await _fetch_events(s, "VOYAGE_TRANSITION") == []
     finally:
         await _cleanup(voyage_id)
 
