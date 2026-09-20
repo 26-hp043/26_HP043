@@ -37,6 +37,7 @@ from datetime import date
 from decimal import Decimal
 
 import sqlalchemy as sa
+from sqlalchemy.engine import Connection
 
 from alembic import op
 
@@ -605,6 +606,27 @@ def _with_id(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return [{"id": uuid.uuid4().hex, **row} for row in rows]
 
 
+def _skip_existing(
+    conn: Connection,
+    table: sa.TableClause,
+    key_columns: tuple[str, ...],
+    rows: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """자연키가 이미 있는 행은 넘긴다 (#1201).
+
+    운영 DB는 2026-09-15 수동 세팅에서 ``python -m cii_platform.db.seed``로 63행을 받은
+    뒤 ``1c444a5c4819``에 머물러 있었다 — 이 리비전은 그 뒤에 합쳐졌으므로, 첫 자동
+    배포의 ``upgrade head``가 **이미 찬 표를 만나** ``uq_fuel_type_code``에 걸려 죽었다.
+    UNIQUE 키에 걸리지 않게 있는 키는 넘긴다. **값을 갱신하지 않는다** — 재적재는
+    ``seed_all()``의 몫이다(``DB_SCHEMA §8.1.1``의 upsert 금지와 같은 선).
+    """
+    existing = {
+        tuple(row)
+        for row in conn.execute(sa.select(*(table.c[column] for column in key_columns))).fetchall()
+    }
+    return [row for row in rows if tuple(row[column] for column in key_columns) not in existing]
+
+
 def upgrade() -> None:
     """부트스트랩 63행을 넣는다.
 
@@ -618,32 +640,57 @@ def upgrade() -> None:
     앞의 넷 50행이 `ci.yml`의 「규제 파라미터 적재 확인 (50행)」이 세는 그 50행이다.
     뒤의 둘을 빼면 기상 보정이 전 선종에서 죽고(`weather.py`) 연간 시뮬레이션이
     `알 수 없는 분포 프로파일입니다: DEFAULT`로 떨어진다 — 실측으로 확인했다.
+
+    **이미 있는 자연키는 넘긴다**(`_skip_existing` · #1201) — seed를 이 리비전보다
+    먼저 받은 환경(2026-09-15 수동 세팅)에서 ``upgrade head``가 UNIQUE 위반으로
+    죽지 않게 한다. 빈 목록은 ``bulk_insert``가 조용히 넘긴다.
     """
-    op.bulk_insert(_fuel_type, _with_id(SEED_FUEL_TYPES))
-    op.bulk_insert(
+    conn = op.get_bind()
+
+    fuel_rows = _skip_existing(conn, _fuel_type, ("code",), SEED_FUEL_TYPES)
+    op.bulk_insert(_fuel_type, _with_id(fuel_rows))
+
+    z_factor_rows = _skip_existing(
+        conn,
         _regulation_year,
-        _with_id(
-            [
-                {
-                    **row,
-                    "source_ref": SOURCE_Z_FACTOR,
-                    "version": PARAMETER_SET_VERSION,
-                    "is_active": 1,
-                }
-                for row in SEED_Z_FACTORS
-            ]
-        ),
+        ("year",),
+        [
+            {
+                **row,
+                "source_ref": SOURCE_Z_FACTOR,
+                "version": PARAMETER_SET_VERSION,
+                "is_active": 1,
+            }
+            for row in SEED_Z_FACTORS
+        ],
     )
-    op.bulk_insert(
+    op.bulk_insert(_regulation_year, _with_id(z_factor_rows))
+
+    reference_line_rows = _skip_existing(
+        conn,
         _cii_reference_line,
-        _with_id([{**row, "source_ref": SOURCE_REFERENCE_LINE} for row in SEED_REFERENCE_LINES]),
+        ("ship_type", "condition_expr"),
+        [{**row, "source_ref": SOURCE_REFERENCE_LINE} for row in SEED_REFERENCE_LINES],
     )
-    op.bulk_insert(
+    op.bulk_insert(_cii_reference_line, _with_id(reference_line_rows))
+
+    rating_boundary_rows = _skip_existing(
+        conn,
         _cii_rating_boundary,
-        _with_id([{**row, "source_ref": SOURCE_RATING_BOUNDARY} for row in SEED_RATING_BOUNDARIES]),
+        ("ship_type", "condition_expr"),
+        [{**row, "source_ref": SOURCE_RATING_BOUNDARY} for row in SEED_RATING_BOUNDARIES],
     )
-    op.bulk_insert(_weather_model_parameter, _with_id(SEED_WEATHER_PARAMS))
-    op.bulk_insert(_simulation_parameter, _with_id(SEED_SIMULATION_PARAMETERS))
+    op.bulk_insert(_cii_rating_boundary, _with_id(rating_boundary_rows))
+
+    weather_rows = _skip_existing(
+        conn, _weather_model_parameter, ("model_version", "key"), SEED_WEATHER_PARAMS
+    )
+    op.bulk_insert(_weather_model_parameter, _with_id(weather_rows))
+
+    simulation_rows = _skip_existing(
+        conn, _simulation_parameter, ("profile", "variable"), SEED_SIMULATION_PARAMETERS
+    )
+    op.bulk_insert(_simulation_parameter, _with_id(simulation_rows))
 
 
 def downgrade() -> None:
