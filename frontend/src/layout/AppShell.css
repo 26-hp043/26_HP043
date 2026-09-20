@@ -421,16 +421,14 @@
   font-weight: var(--font-weight-label);
 }
 
-/* DESIGN_SYSTEM §14 — 한국어 라벨 + 영문 약어 병기 */
-.app-shell__nav-label-en {
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
-  color: var(--color-text-muted);
-}
-
-.app-shell__nav-link--active .app-shell__nav-label-en {
-  color: var(--color-link);
-}
+/*
+ * 영문 보조 라벨을 걷었다 (`#1426`).
+ *
+ * 사이드바는 현재 언어의 이름을 주 라벨로, **다른 언어**를 보조로 함께 적고 있었다.
+ * 그 영문은 `Dashboard`처럼 **약어가 아닌 일반 단어**라 `§3` 🔒 「영문 약어 병기」의
+ * 대상이 아니었고, `#1215`가 한/EN 토글을 만든 뒤로는 같은 말을 두 언어로 동시에
+ * 적을 이유도 없다. 규칙이 `.app-shell__nav-label` 하나로 줄었다.
+ */
 
 /*
  * 비활성 항목 — 숨기지 않고 노출한다 (§7.2, 2026-08-04 회신).
@@ -442,8 +440,7 @@
   color: var(--color-text-disabled);
 }
 
-.app-shell__nav-link--disabled .app-shell__nav-label,
-.app-shell__nav-link--disabled .app-shell__nav-label-en {
+.app-shell__nav-link--disabled .app-shell__nav-label {
   color: var(--color-text-disabled);
 }
 

@@ -59,6 +59,7 @@ import type { ScenarioComparisonResponse, ScenarioResult } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
+import { useShowsLabelEn } from '../../i18n/core'
 
 /**
  * 기능② 시나리오 비교 (#156).
@@ -131,6 +132,7 @@ export function ScenarioComparison({
   /** 면책 배너는 페이지가 항상 렌더한다(`DESIGN_SYSTEM §13` 🔒). */
   onDisclaimer?: (text: string | undefined) => void
 }) {
+  const showsLabelEn = useShowsLabelEn()
   // 화면은 provider가 어떻게 만들어지는지 알지 않는다 (#134). demo 갈래는 #542가
   // 없앴다.
   const provider = useMemo(() => selectScenarioProvider(), [])
@@ -326,7 +328,12 @@ export function ScenarioComparison({
     >
       <h2 className="card__title scenario-comparison__form-title">
         비교 조건
-        <span className="scenario-comparison__form-title-en"> Comparison Input</span>
+        {showsLabelEn ? (
+          <span className="scenario-comparison__form-title-en" lang="en">
+            {' '}
+            Comparison Input
+          </span>
+        ) : null}
       </h2>
       {catalogError !== null && (
         <p className="scenario-comparison__error-message" role="alert">
@@ -511,7 +518,12 @@ export function ScenarioComparison({
       */}
       <h3 className="scenario-comparison__form-subtitle">
         선택 입력
-        <span className="scenario-comparison__form-title-en"> Optional</span>
+        {showsLabelEn ? (
+          <span className="scenario-comparison__form-title-en" lang="en">
+            {' '}
+            Optional
+          </span>
+        ) : null}
         <span className="scenario-comparison__field-hint">
           비워 두면 기본 규칙(우회 +5% · 감속 −1kn)으로 계산합니다.
         </span>
@@ -834,7 +846,12 @@ export function ScenarioComparison({
         <header className="scenario-comparison__header">
           <h2 className="scenario-comparison__title">
             시나리오 비교
-            <span className="scenario-comparison__title-en"> Scenario Comparison</span>
+            {showsLabelEn ? (
+              <span className="scenario-comparison__title-en" lang="en">
+                {' '}
+                Scenario Comparison
+              </span>
+            ) : null}
           </h2>
           <p className="scenario-comparison__context">
             {vesselName !== null && `${vesselName} · `}

@@ -40,12 +40,15 @@
   gap: var(--spacing-sm);
 }
 
-/* 영문 병기는 보조 표기다 — `§3`의 h3 크기 · 본문 굵기 · 보조 문자색. */
-.page-head__title-en {
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-body);
-  color: var(--text-secondary);
-}
+/*
+ * 영문 병기를 걷었다 (`#1426`). 화면 이름은 언어에 맞는 것 하나만 적는다 —
+ * `Dashboard`처럼 약어가 아닌 일반 단어라 `§3` 🔒 「영문 약어 병기」의 대상이
+ * 아니었고, 언어와 무관하게 한국어가 주 제목이라 **영어 모드에서도 제목만 한국어로
+ * 남아 있었다.**
+ *
+ * `.page-head__title`의 flex·gap은 남긴다 — 자식이 하나여도 `§3` 정렬 규격은
+ * 이 자리가 소유한다(`#709`가 흩어진 것을 여기로 모았다).
+ */
 
 /* 부제 — 화면이 무엇을 보여 주는가. */
 .page-head__sub {

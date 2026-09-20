@@ -19,6 +19,7 @@ import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import type { ResultState } from './resultRules'
 import { Field } from '../../components/Field'
+import { useShowsLabelEn } from '../../i18n/core'
 
 /**
  * 기능① 항차 조건 입력 폼 (#135).
@@ -77,6 +78,8 @@ interface VoyageCiiFormProps {
 const SHELL_VESSEL_MISSING = '상단바에서 고른 선박이 목록에 없어 첫 번째 선박으로 바꿨습니다. 확인해 주세요.'
 
 export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormProps) {
+  const showsLabelEn = useShowsLabelEn()
+
   // 연료 선택지도 선박·연도와 같은 경계 뒤에 둔다 (#542). 종전에는 `selectableFuels()`가
   // 고정표(`referenceTable.ts`)를 직행으로 읽어, 실 API 모드에서도 서버가 아는 연료와
   // 화면이 보여 주는 연료가 갈릴 수 있었다.
@@ -252,7 +255,12 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
     <form className="voyage-cii-form" onSubmit={handleSubmit} noValidate>
       <h2 className="card__title voyage-cii-form__title">
         항차 조건 입력
-        <span className="voyage-cii-form__title-en"> Voyage Input</span>
+        {showsLabelEn ? (
+          <span className="voyage-cii-form__title-en" lang="en">
+            {' '}
+            Voyage Input
+          </span>
+        ) : null}
       </h2>
 
       {/*
@@ -502,11 +510,18 @@ interface StaticFieldProps {
  * 오해하게 만든다(#135 코멘트). 값은 요청에 그대로 실린다.
  */
 function StaticField({ label, labelEn, value }: StaticFieldProps) {
+  const showsLabelEn = useShowsLabelEn()
+
   return (
     <div className="voyage-cii-form__field">
       <p className="voyage-cii-form__label">
         {label}
-        <span className="voyage-cii-form__label-en"> {labelEn}</span>
+        {showsLabelEn ? (
+          <span className="voyage-cii-form__label-en" lang="en">
+            {' '}
+            {labelEn}
+          </span>
+        ) : null}
       </p>
       <p className="voyage-cii-form__static">{value}</p>
     </div>

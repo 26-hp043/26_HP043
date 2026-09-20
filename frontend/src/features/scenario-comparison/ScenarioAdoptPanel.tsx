@@ -11,6 +11,7 @@ import type { ScenarioAdoptResult, ScenarioResult } from './types'
 import { adoptConfirmMessage, fieldLabel, invalidatedMessage, isPlanning } from './adoptRules'
 import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
+import { useShowsLabelEn } from '../../i18n/core'
 
 /**
  * 비교한 시나리오를 **항차 계획에 반영**한다 (`#580` · `API_SPEC §5.2`).
@@ -79,6 +80,7 @@ export function ScenarioAdoptPanel({
   /** 상단바에서 고른 항차. 반영 가능한 항차면 기본 선택으로 쓴다. */
   preferredVoyageId: string | null
 }) {
+  const showsLabelEn = useShowsLabelEn()
   const catalog = useMemo(() => createApiVoyageCatalog(), [])
   // 채택은 사무직 전용이다 (`API_SPEC §1.2` · #1325). 현장직은 폼을 읽되 반영 버튼이 잠긴다.
   const office = isOffice(useAuthUser())
@@ -145,7 +147,12 @@ export function ScenarioAdoptPanel({
     <section className="scenario-adopt" aria-labelledby="scenario-adopt-title">
       <h3 id="scenario-adopt-title" className="scenario-adopt__title">
         계획에 반영
-        <span className="scenario-adopt__title-en"> Adopt to Plan</span>
+        {showsLabelEn ? (
+          <span className="scenario-adopt__title-en" lang="en">
+            {' '}
+            Adopt to Plan
+          </span>
+        ) : null}
       </h3>
       <p className="scenario-adopt__lead">
         고른 시나리오의 항해거리 · 평균 속력으로 <strong>계획 단계 항차</strong>(작성 중 ·

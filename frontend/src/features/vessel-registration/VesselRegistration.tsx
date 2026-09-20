@@ -27,6 +27,7 @@ import {
 import { SHIP_TYPES, shipTypeLabel } from './shipTypes'
 import type { Vessel } from './types'
 import { Field } from '../../components/Field'
+import { useI18n } from '../../i18n/core'
 
 /**
  * 선박 등록 화면 (`UIFLOW 1-2` · `PRD §6.2 SCR-002` · #441).
@@ -62,6 +63,7 @@ import { Field } from '../../components/Field'
  * `#510`이 모두 대시보드를 가리킨다. 링크 순서가 그 판단을 반영한다.
  */
 export function VesselRegistration() {
+  const { language } = useI18n()
   const provider = useMemo(() => createVesselRegistrationProvider(), [])
   // 연료 선택지는 서버가 준다 (#542). 종전에는 고정표(`referenceTable.ts`)를 읽어,
   // 등록 화면이 보여 주는 연료와 서버가 받는 연료가 갈릴 수 있었다.
@@ -130,12 +132,11 @@ export function VesselRegistration() {
   return (
     <section className="vessel-registration">
       <header className="vessel-registration__header">
+        {/* 화면 이름은 언어에 맞는 것 하나만 적는다 (`#1426` · `PageHeader`와 같은 판단). */}
         <h1 className="vessel-registration__title">
-          {SCREEN_BY_ID.VESSEL_REGISTRATION.label}
-          <span className="vessel-registration__title-en">
-            {' '}
-            {SCREEN_BY_ID.VESSEL_REGISTRATION.labelEn}
-          </span>
+          {language === 'en'
+            ? SCREEN_BY_ID.VESSEL_REGISTRATION.labelEn
+            : SCREEN_BY_ID.VESSEL_REGISTRATION.label}
         </h1>
         <p className="vessel-registration__lead">
           IMO 번호·선명·선종만 있으면 등록됩니다. 제원은 나중에 채울 수 있습니다.

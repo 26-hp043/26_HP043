@@ -77,6 +77,26 @@ export type I18nContextValue = {
 export const LanguageContext = createContext<I18nContextValue | null>(null)
 
 /** 셸 어디서나 — provider 없이 쓰면 기본(ko) 사전으로 동작한다(테스트 편의). */
+/**
+ * 영문 보조 라벨을 그릴 것인가 (`#1426`).
+ *
+ * `DESIGN_SYSTEM §3` 🔒과 `PRD §4`는 「한국어 기본 + **영문 약어** 병기」다. 그런데
+ * 화면에 붙어 있던 영문은 `Dashboard` · `Distance` · `Vessel Name`처럼 **약어가 아닌
+ * 일반 단어**였다 — 정본이 허용한 적 없는 표기이고, `#1215`가 한/EN 토글을 만든
+ * 뒤로는 **같은 말을 두 언어로 동시에** 적을 이유도 사라졌다.
+ *
+ * 한국어 모드에서는 그리지 않는다. 영어 모드에서는 남긴다 — 폼 라벨의 한국어는
+ * 하드코딩이라(번역 대상이 아니다) **그 영문 보조가 영어 사용자에게 가는 유일한
+ * 영어**다. 화면 이름처럼 데이터에 영어 이름이 따로 있는 자리는 이 훅이 아니라
+ * 언어에 맞는 이름 **하나**를 고른다.
+ *
+ * ⚠️ 단위(`DWT` · `GT` · `nm` · `t/일`)와 한국어 라벨 안의 약어(「IMO 번호」 ·
+ * 「CII 예측」)는 이 규칙의 대상이 아니다. 그쪽이 정본이 말하는 「영문 약어」다.
+ */
+export function useShowsLabelEn(): boolean {
+  return useI18n().language === 'en'
+}
+
 export function useI18n(): I18nContextValue {
   const context = useContext(LanguageContext)
   if (context !== null) return context

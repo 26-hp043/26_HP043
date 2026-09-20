@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 
 import './Field.css'
+import { useShowsLabelEn } from '../i18n/core'
 
 /**
  * 폼 필드 한 벌 — **`DESIGN_SYSTEM §8.4` 규격을 여기서 강제한다** (`#936`).
@@ -86,6 +87,7 @@ export function Field({
   error?: string
   children: (control: FieldControlProps) => ReactNode
 }) {
+  const showsLabelEn = useShowsLabelEn()
   const errorId = `${id}-error`
   const hintId = `${id}-hint`
 
@@ -105,7 +107,12 @@ export function Field({
     <div className="field">
       <label className={labelHidden ? 'sr-only' : 'field__label'} htmlFor={id}>
         {label}
-        {labelEn ? <span className="field__label-en"> {labelEn}</span> : null}
+        {labelEn && showsLabelEn ? (
+          <span className="field__label-en" lang="en">
+            {' '}
+            {labelEn}
+          </span>
+        ) : null}
         {unit ? <span className="field__unit">{unit}</span> : null}
       </label>
 
