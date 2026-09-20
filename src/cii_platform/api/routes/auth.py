@@ -65,6 +65,7 @@ from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import ROLE_ADMIN, ROLE_FIELD, AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.models.user_token import PURPOSE_EMAIL_VERIFY
+from cii_platform.db.repositories import chat as chat_repo
 from cii_platform.db.session import get_session
 from cii_platform.errors import NotFoundError
 from cii_platform.mail import MailDeliveryError, get_mailer
@@ -575,12 +576,17 @@ async def delete_me(
 ) -> Response:
     """탈퇴 — soft delete 후 세션을 전부 무효화한다 (`API_SPEC §1.2`, #506).
 
-    ## 행을 지우지 않는다
+    ## 행을 지우지 않는다 — 단, 대화는 지운다
 
     `app_user.is_deleted`를 세울 뿐이다. `calculation_run`은 immutable이고
     (`DB_SCHEMA §7.3`) `audit_log`는 보존 대상이라(`§7.1`) **그 사용자가 남긴
     계산·감사 기록은 그대로 남는다.** 규제 대응의 근거가 되는 기록이므로 지우지
     않는 것이 옳고, 탈퇴 확인 문구가 그 사실을 미리 알린다(`PRD §6.3`).
+
+    **대화(`chat_session`·`chat_message`)는 예외다** (`#1330`). `PRD §16.3`이
+    「GDPR 유사 삭제 요청 지원」을 적는데 **응할 경로가 없었다** — 탈퇴해도 그
+    사용자의 대화 원문이 남았다. 대화는 규제 대응의 근거가 아니고 남겨 둘 이유가
+    **보존 정책 90일뿐**인데, 탈퇴는 그 기간을 앞당기는 요청이다.
 
     ## 같은 이메일로 다시 가입할 수 있다
 
@@ -604,10 +610,16 @@ async def delete_me(
 
     user.is_deleted = True
     revoked = await revoke_all_sessions(session, user_id=user.id)
+    # `#1330` — 대화 **원문은 지운다.** `PRD §16.3`의 「GDPR 유사 삭제 요청 지원」이
+    # 탈퇴에 걸리는 지점이다. 위 「행을 지우지 않는다」는 계산·감사 기록에 대한
+    # 것이고, 대화 원문은 그 근거가 아니다 — 남겨 둘 이유가 보존 정책 90일뿐인데
+    # 탈퇴는 그 기간을 앞당기는 요청이다.
+    purged_chats = await chat_repo.delete_for_user(session, user_id=user.id)
     await audit_svc.record_account_delete(
         session,
         user_id=str(user.id),
         revoked_sessions=revoked,
+        purged_chat_sessions=purged_chats,
         ip_address=_client_ip(request),
     )
     await session.commit()

@@ -1686,6 +1686,12 @@ ROUTE_COVERAGE: dict[str, str] = {
     "GET /weather/snapshot": (
         "tests/test_weather_api_db.py::test_snapshot_is_returned_in_the_spec_shape"
     ),
+    # `API_SPEC §15.6` (#1330) — 성공이 **204(본문 없음)**이라 비교할 계약이 없다.
+    # 지워진 대화를 돌려줄 수 없기 때문이다. 그 파일이 HTTP로 204·404·CSRF 403과
+    # **대화 행이 실제로 사라졌는지**를 본다.
+    "DELETE /chat/sessions/{}": (
+        "tests/test_erasure_paths_db.py::test_the_delete_endpoint_answers_204_and_404"
+    ),
     # `API_SPEC §15.1` (#121) — 응답이 **외부 모델의 답**이라 데모 시드로는 볼 수 없다.
     # 그 파일이 `FakeProvider`를 끼워 봉투 다섯 칸(`session_id`·`answer`·
     # `disclaimer`·`tool_calls`·`discarded`)을 각각 단언한다.

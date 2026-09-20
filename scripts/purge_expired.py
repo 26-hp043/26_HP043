@@ -25,6 +25,8 @@
 
 - ``COMPOSE`` — 기본 ``docker compose -f docker-compose.prod.yml``. 개발 스택에는
   ``COMPOSE="docker compose"``
+- ``DB_SERVICE`` — DB 컨테이너의 compose 서비스 이름. 기본 ``db``. **OCI 배포는
+  ``DB_SERVICE=cubrid``** (``docker-compose.prod.db.yml`` · `#1330`)
 
 ## ⚠️ 무엇을 지우고 무엇을 안 지우나
 
@@ -84,13 +86,27 @@ from datetime import UTC, datetime
 #: ``db_backup.py``와 같은 기본값.
 DEFAULT_COMPOSE = "docker compose -f docker-compose.prod.yml"
 
+#: DB 컨테이너의 **compose 서비스 이름**.
+#:
+#: ⚠️ **토폴로지마다 다르다** (`#1330`). ``docker-compose.prod.yml``은 ``db``지만
+#: OCI 배포가 쓰는 ``docker-compose.prod.db.yml``은 **``cubrid``**이고,
+#: ``docs/OPERATIONS.md``도 ``exec -T cubrid``로 적는다. 이름을 박아 두면 그쪽에서
+#: **어느 명령도 돌지 않는다** — `OPERATIONS §3.4.3` 롤백 절차가 그래서 막혔다.
+DEFAULT_DB_SERVICE = "db"
+
 #: 조회용 — ``-t``(plain-output) ``-N``(skip-column-names)이 ``psql -At``과 같은
 #: 출력을 낸다. ``$POSTGRES_USER``·``$POSTGRES_DB``는 compose에서 이미 사라졌다.
-_CSQL_PLAIN = 'csql -u dba -e -t -N "$CUBRID_DB"'
+#:
+#: ⚠️ **``-p``가 빠져 있었다** (`#1330`). ``db_backup.py``는 *「``-p``를 빠뜨리면 …
+#: ``errno=-171``로 선다」* 고 적고 ``-p "$CUBRID_PASSWORD"``를 넘기는데, 이쪽만
+#: 빠져 있었다. 그래서 README의 crontab(``47 3 * * * … purge_expired.py``)이 **매일
+#: 세 표 모두 실패**했고 감사 INSERT까지 실패해, `PRD §16.3`의 90일 보존 삭제가
+#: **운영에서 한 번도 돌지 않았다.**
+_CSQL_PLAIN = 'csql -u dba -p "$CUBRID_PASSWORD" -e -t -N "$CUBRID_DB"'
 
 #: ``DELETE``용 — plain 모드는 **아무것도 출력하지 않아** 지운 행 수를 셀 수 없다.
 #: 장식된 기본 출력의 ``N row(s) affected.``를 읽는다.
-_CSQL = 'csql -u dba -e "$CUBRID_DB"'
+_CSQL = 'csql -u dba -p "$CUBRID_PASSWORD" -e "$CUBRID_DB"'
 
 #: 만료 **뒤** 며칠을 더 두는가.
 #:
@@ -172,6 +188,8 @@ class Db:
 
     compose: list[str]
     run: object = field(default=run_process)
+    #: compose 서비스 이름 — ``run`` 뒤에 둔다(검사가 위치 인자를 쓴다).
+    service: str = DEFAULT_DB_SERVICE
 
     def query(self, sql: str, *, plain: bool = True) -> str:
         """``plain=False``는 장식된 출력을 그대로 돌려준다 — ``DELETE``의 행 수용."""
@@ -180,7 +198,7 @@ class Db:
             *self.compose,
             "exec",
             "-T",
-            "db",
+            self.service,
             "sh",
             "-c",
             f"{client} -c {shlex.quote(sql)}",
@@ -289,7 +307,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.grace_days < 0:
         parser.error("--grace-days는 0 이상이어야 합니다")
 
-    db = Db(shlex.split(os.environ.get("COMPOSE", DEFAULT_COMPOSE)))
+    db = Db(
+        shlex.split(os.environ.get("COMPOSE", DEFAULT_COMPOSE)),
+        service=os.environ.get("DB_SERVICE", DEFAULT_DB_SERVICE),
+    )
     counts, failures = purge(db, grace_days=args.grace_days, dry_run=args.dry_run)
 
     verb = "지울 대상" if args.dry_run else "지웠다"

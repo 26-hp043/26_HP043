@@ -35,6 +35,7 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "LOGOUT",
         "PASSWORD_CHANGE",
         "ACCOUNT_DELETE",
+        "CHAT_DELETE",
         "ROLE_CHANGE",
         "CALCULATION_RUN",
         "VOYAGE_CONFIRM",
@@ -131,11 +132,38 @@ async def record_password_change(
     )
 
 
+async def record_chat_delete(
+    session: AsyncSession,
+    *,
+    user_id: str,
+    session_id: UUID,
+    ip_address: str | None = None,
+) -> None:
+    """대화 삭제 (`#1330`) — ``PRD §16.3`` GDPR 유사 삭제 요청.
+
+    **지운 행은 되짚을 수 없으므로 이 기록이 유일한 근거다.** 삭제 요청에 응했다는
+    사실을 나중에 증명해야 하는 것이 이 규정의 성질이고, 그 증명은 지워진 대화
+    안에 있을 수 없다.
+
+    ``entity_id``에 대화 id를 남긴다 — **대화 내용은 남기지 않는다.** 무엇을 지웠는지
+    본문으로 적으면 「지웠다」가 감사 로그에서 거짓이 된다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="CHAT_DELETE",
+        user_id=user_id,
+        entity_type="chat_session",
+        entity_id=str(session_id),
+        ip_address=ip_address,
+    )
+
+
 async def record_account_delete(
     session: AsyncSession,
     *,
     user_id: str,
     revoked_sessions: int,
+    purged_chat_sessions: int = 0,
     ip_address: str | None = None,
 ) -> None:
     """탈퇴 (#506) — soft delete.
@@ -143,12 +171,19 @@ async def record_account_delete(
     **행을 지우지 않으므로 이 기록이 곧 「언제 탈퇴했는가」의 답**이다.
     `app_user`에 탈퇴 시각 컬럼이 없어(`is_deleted` 불리언뿐) 여기가 유일한 시점
     근거다.
+
+    ``purged_chat_sessions``는 **지운 대화 수**다 (`#1330`). 지운 행은 되짚을 수
+    없으므로 **몇 건을 지웠는지가 유일한 기록**이다 — 삭제 요청에 응했다는 사실을
+    나중에 증명해야 하는 것이 GDPR 유사 삭제의 성질이다.
     """
     await audit_repo.insert_event(
         session,
         action="ACCOUNT_DELETE",
         user_id=user_id,
-        details={"revoked_sessions": revoked_sessions},
+        details={
+            "revoked_sessions": revoked_sessions,
+            "purged_chat_sessions": purged_chat_sessions,
+        },
         ip_address=ip_address,
     )
 
