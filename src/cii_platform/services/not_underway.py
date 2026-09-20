@@ -24,12 +24,14 @@ not under way 연료는 CII 분자 ``M``에 그대로 들어간다(``#353``). �
 
 from __future__ import annotations
 
+from datetime import UTC
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import not_underway as nu_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
+from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
 
 if TYPE_CHECKING:
@@ -131,6 +133,22 @@ async def _require_period(session: AsyncSession, period_id: UUID):
     return period
 
 
+def _utc_year(moment: datetime) -> int:
+    """UTC 기준 연도 (`#1333`).
+
+    ``datetime.year``는 **오프셋이 붙은 값의 현지 연도**다. `API_SPEC §2.10`·`§8.2`가
+    시간대 있는 시각을 받으므로 ``+09:00``으로 온 1/1 새벽은 UTC로 전년도인데
+    ``.year``는 새해를 답한다. 귀속 연도는 **CII 분자·분모가 어느 해에 들어가는가**라
+    한 기준으로만 정해야 한다.
+
+    시간대 없는 값은 여기 오지 않는다 — 스키마가 ``AwareDatetime``으로 막고, CSV
+    파서는 행 오류를 낸다. 그래도 방어적으로 ``tzinfo`` 없으면 그대로 연도를 쓴다.
+    """
+    if moment.tzinfo is None:
+        return moment.year
+    return moment.astimezone(UTC).year
+
+
 def _resolve_regulation_year(
     started_at: datetime, ended_at: datetime | None, requested: int | None
 ) -> int:
@@ -142,11 +160,18 @@ def _resolve_regulation_year(
     명시했다면 ``started_at`` 또는 ``ended_at``의 연도 중 하나여야 한다. 연말을
     걸치는 구간(12/30~1/2)은 **어느 해에 넣을지가 실제로 판단 사항**이라 사용자의
     선택을 받되, 무관한 연도(2020년 구간을 2026년으로)는 오타로 보고 막는다.
+
+    ⚠️ **연도는 UTC로 뽑는다 (`#1333`).** 종전에는 ``started_at.year``를 그대로 읽어
+    **오프셋이 붙은 값의 현지 연도**가 나왔다 — `API_SPEC §8.2` 예시 형식(``+09:00``)
+    대로 KST 1/1 새벽 정박을 올리면 UTC로는 전년도인데 **다음 해 CII 분자·분모에
+    들어갔고**, 올바른 연도를 명시하면 *「규제연도는 구간이 걸친 연도(2027)여야
+    합니다」*로 거부됐다. 항차 CSV는 처음부터 ``astimezone(UTC)``로 정규화한다
+    (``voyage_import``) — **같은 저장소 안에서 두 경로가 갈려 있었다.**
     """
-    start_year = started_at.year
+    start_year = _utc_year(started_at)
     allowed = {start_year}
     if ended_at is not None:
-        allowed.add(ended_at.year)
+        allowed.add(_utc_year(ended_at))
 
     if requested is None:
         return start_year
@@ -250,6 +275,25 @@ async def list_periods(
     return [to_dict(p, fuel_map.get(p.id, [])) for p in periods]
 
 
+async def _require_voyage_of_vessel(
+    session: AsyncSession, voyage_id: UUID, vessel_id: UUID
+) -> None:
+    """귀속 항차가 **이 선박의 살아 있는 항차**인지 확인한다 (`#1333`).
+
+    기능①(``services/voyage_cii.py``)이 `#817`에서 같은 검사를 이미 두었다 — 이
+    경로만 빠져 있어 ⑴ 없는 항차 id는 FK 위반으로 **500**이 되고 ⑵ **다른 선박의
+    항차에도 붙었다**. 뒤엣것이 더 나쁘다: 그 항차의 계획이 바뀔 때 **엉뚱한 선박의
+    계산**이 재계산 필요로 표시되고, 아무 오류도 나지 않는다.
+    """
+    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    if voyage is None or voyage.is_deleted:
+        raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
+    if voyage.vessel_id != vessel_id:
+        raise ValidationError(
+            "이 선박의 항차가 아닙니다.", field="voyage_id", field_label="귀속 항차"
+        )
+
+
 async def create_period(
     session: AsyncSession,
     vessel_id: UUID,
@@ -273,6 +317,8 @@ async def create_period(
     넣는다. 연료를 나중에 추가하는 경로(§2.13)는 따로 있다.
     """
     await _require_vessel(session, vessel_id)
+    if voyage_id is not None:
+        await _require_voyage_of_vessel(session, voyage_id, vessel_id)
     _validate_enum(period_type, PERIOD_TYPES, field="period_type", label="구간 유형")
     for fu in fuel_uses:
         _validate_enum(fu["consumer_type"], CONSUMER_TYPES, field="consumer_type", label="소비원")
@@ -360,6 +406,11 @@ async def update_period(
             str(fields["period_type"]), PERIOD_TYPES, field="period_type", label="구간 유형"
         )
 
+    # 귀속 항차를 바꾸는 요청도 생성과 **같은 검사**를 받는다 (`#1333`). 한쪽만 막으면
+    # 「만들 때는 못 붙이는데 고칠 때는 붙는」 상태가 된다. `null`은 클리어이므로 통과다.
+    if fields.get("voyage_id") is not None:
+        await _require_voyage_of_vessel(session, fields["voyage_id"], period.vessel_id)  # type: ignore[arg-type]
+
     # 시각이 하나라도 바뀌면 순서와 겹침을 **바뀐 뒤의 값으로** 다시 본다.
     # 바뀌는 쪽만 검사하면 「종료만 앞당겨 시작보다 이르게」가 통과한다.
     started_at = fields.get("started_at", period.started_at)
@@ -396,9 +447,9 @@ async def update_period(
             started_at, ended_at, fields["regulation_year"]
         )
     elif "started_at" in fields or "ended_at" in fields:
-        valid_years = {started_at.year} | ({ended_at.year} if ended_at else set())
+        valid_years = {_utc_year(started_at)} | ({_utc_year(ended_at)} if ended_at else set())
         if period.regulation_year not in valid_years:
-            fields["regulation_year"] = started_at.year
+            fields["regulation_year"] = _utc_year(started_at)
 
     for key, value in fields.items():
         setattr(period, key, value)

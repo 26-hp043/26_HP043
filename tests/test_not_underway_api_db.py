@@ -74,8 +74,31 @@ async def _cleanup(vessel_id: str) -> None:
             text("DELETE FROM not_underway_period WHERE vessel_id = :v"),
             {"v": UUID(vessel_id)},
         )
+        # `#1333` — 귀속 항차 검사가 쓰는 항차도 같이 지운다. 남기면 다음 실행의
+        # 집계·겹침 판정이 이 행을 본다.
+        await s.execute(text("DELETE FROM voyage WHERE vessel_id = :v"), {"v": UUID(vessel_id)})
         await s.execute(text("DELETE FROM vessel WHERE id = :v"), {"v": UUID(vessel_id)})
         await s.commit()
+
+
+async def _seed_voyage(vessel_id: str) -> UUID:
+    """귀속 항차 1건 (`#1333`). 다른 선박 항차를 붙이려는 시도를 만들 때 쓴다."""
+    from cii_platform.db.session import get_sessionmaker
+
+    voyage_id = uuid4()
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text(
+                "INSERT INTO voyage (id, vessel_id, status, departure_port_name, "
+                "arrival_port_name, planned_distance_nm, planned_speed_kn, "
+                "annual_inclusion_policy, created_from) "
+                "VALUES (:id, :v, 'DRAFT', 'Busan', 'Singapore', 3000, 14, "
+                "'EXCLUDE', 'MANUAL')"
+            ),
+            {"id": voyage_id, "v": UUID(vessel_id)},
+        )
+        await s.commit()
+    return voyage_id
 
 
 def _period_body(**over) -> dict:
@@ -179,6 +202,94 @@ async def test_overlap_is_409_and_bad_enum_is_422(migrated_db, app_fresh_engine)
             )
             assert bad_enum.status_code == 422, bad_enum.text
     finally:
+        await _cleanup(vessel_id)
+
+
+async def test_naive_datetimes_are_422_not_500(migrated_db, app_fresh_engine):
+    """⚠️ #1333 — **시간대 없는 시각은 422**다. 종전에는 두 가지가 났다.
+
+    * `PATCH`는 요청의 naive와 DB의 aware를 비교하다 `TypeError`로 **500**
+    * `POST`는 서버 세션 시간대로 해석해 **조용히 다른 순간**을 저장
+
+    같은 모듈의 CSV 경로는 처음부터 시간대를 요구했다 — **한 리소스의 두 입구가
+    다른 규칙**을 쓰고 있었다. 사용자가 고칠 수 있는 입력이므로 500이 아니라 422다.
+    """
+    vessel_id = await _seed_vessel()
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            headers = _csrf(client)
+            base = f"/api/v1/vessels/{vessel_id}/not-underway-periods"
+
+            created = client.post(base, json=_period_body(), headers=headers)
+            assert created.status_code == 201, created.text
+            period_id = created.json()["data"]["id"]
+
+            naive = client.post(
+                base,
+                json=_period_body(started_at="2026-09-01T00:00:00"),
+                headers=headers,
+            )
+            assert naive.status_code == 422, naive.text
+            assert naive.json()["error"]["details"][0]["field"] == "started_at"
+
+            patched = client.patch(
+                f"/api/v1/not-underway-periods/{period_id}",
+                json={"ended_at": "2026-09-12T09:00:00"},
+                headers=headers,
+            )
+            assert patched.status_code == 422, patched.text
+    finally:
+        await _cleanup(vessel_id)
+
+
+async def test_a_voyage_of_another_vessel_cannot_be_attached(migrated_db, app_fresh_engine):
+    """⚠️ #1333 — 귀속 항차는 **이 선박의 살아 있는 항차**여야 한다.
+
+    종전에는 ⑴ 없는 항차 id가 FK 위반으로 **500**이 되고 ⑵ **다른 선박의 항차에도
+    붙었다**. 뒤엣것이 더 나쁘다 — 그 항차의 계획이 바뀔 때 **엉뚱한 선박의 계산**이
+    재계산 필요로 표시되고, 아무 오류도 나지 않는다.
+
+    기능①(`services/voyage_cii.py`)은 `#817`에서 같은 검사를 이미 두었다.
+    """
+    vessel_id = await _seed_vessel()
+    other_id = await _seed_vessel()
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            headers = _csrf(client)
+            base = f"/api/v1/vessels/{vessel_id}/not-underway-periods"
+
+            missing = client.post(base, json=_period_body(voyage_id=str(uuid4())), headers=headers)
+            assert missing.status_code == 404, missing.text
+
+            foreign = await _seed_voyage(other_id)
+            attached = client.post(base, json=_period_body(voyage_id=str(foreign)), headers=headers)
+            assert attached.status_code == 422, attached.text
+            assert attached.json()["error"]["details"][0]["field"] == "voyage_id"
+
+            # ⚠️ **고치는 경로도 같은 검사를 받는다.** 한쪽만 막으면 「만들 때는 못
+            # 붙이는데 고칠 때는 붙는」 상태가 되고, 그쪽이 더 조용하다.
+            created = client.post(base, json=_period_body(), headers=headers)
+            assert created.status_code == 201, created.text
+            period_id = created.json()["data"]["id"]
+            patched = client.patch(
+                f"/api/v1/not-underway-periods/{period_id}",
+                json={"voyage_id": str(foreign)},
+                headers=headers,
+            )
+            assert patched.status_code == 422, patched.text
+            assert patched.json()["error"]["details"][0]["field"] == "voyage_id"
+
+            # `null`은 클리어이므로 통과한다 — 검사가 지나치게 넓어지지 않았는지 본다.
+            cleared = client.patch(
+                f"/api/v1/not-underway-periods/{period_id}",
+                json={"voyage_id": None},
+                headers=headers,
+            )
+            assert cleared.status_code == 200, cleared.text
+    finally:
+        await _cleanup(other_id)
         await _cleanup(vessel_id)
 
 
