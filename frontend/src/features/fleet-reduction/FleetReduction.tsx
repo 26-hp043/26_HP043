@@ -438,8 +438,22 @@ function VesselRow({
   const unavailable = vessel.unavailableReason !== null
   return (
     <tr>
-      <th scope="row">
-        <Link to={`/vessels/${vessel.vesselId}`}>{vessel.vesselName}</Link>
+      {/*
+        선박명은 **한 줄로 고정한다** (`#1427`).
+
+        종전에는 「샘플 로로 여객선 (25,000 GT)」 같은 이름이 넉 줄로 꺾여 행 높이가
+        들쭉날쭉했다 — 감속률 슬라이더가 행마다 다른 높이에 놓여 **세로로 훑기가
+        어려웠다.** `nowrap`은 머리글과 숫자 칸에만 걸려 있었다.
+
+        `title`은 **넘치는 이름을 마우스로 확인하는 보조 수단**이다. 잘린 이름이
+        유일한 채널이 아니라는 점이 `#1424`(툴팁을 쓰지 않기로 한 자리)와 다르다 —
+        링크의 접근성 이름은 **잘리지 않은 전체 텍스트**이고(말줄임은 그리기일 뿐
+        DOM을 자르지 않는다), 이름 전체는 선박 상세에도 있다.
+      */}
+      <th scope="row" className="fr__vessel">
+        <Link to={`/vessels/${vessel.vesselId}`} title={vessel.vesselName}>
+          {vessel.vesselName}
+        </Link>
       </th>
       <td>
         {vessel.before && vessel.after ? (
