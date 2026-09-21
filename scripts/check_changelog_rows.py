@@ -18,7 +18,10 @@
 
 ## 무엇을 보는가
 
-행을 ``(날짜, 커밋 열)``로 식별한다. 요약 문구는 고쳐도 되므로 키에 넣지 않는다.
+행을 **커밋 열이 가리키는 참조의 집합**(``#1512`` · 커밋 해시)으로 식별한다(`#1522`).
+요약 문구·날짜·꼬리(``⑵``)는 키에 넣지 않는다 — 이 검사가 지키는 것은 「어떤 PR의 기록이
+사라지지 않는다」이고, 날짜 오타 정정이나 꼬리 붙이기는 그 기록을 없애지 않는다. 종전
+키 ``(날짜, 커밋 열 원문)``은 그런 정상 편집을 「사라진 행」으로 읽었다.
 
 1. **base → 머지 결과**에서 줄어든 행 — 덮어쓰기(`#1488`)
 2. **PR의 어느 커밋에든 있었는데** 머지 결과에 없는 행 — 충돌 해결에서 빠짐(`#1512`).
@@ -28,6 +31,15 @@
 
 커밋 열이 아직 채워지지 않은 행(``#___`` · ``#<PR>`` · 빈 칸)은 대상이 아니다 — 그런 행이
 번호로 바뀌며 「사라지는」 것은 정상이고, 남아 있는 것은 `test_doc_cross_refs.py`가 잡는다.
+⚠️ **임시값은 숫자가 아니어야 한다.** 이슈 번호를 적어 두었다가 PR 번호로 고치면 이슈
+번호 행이 「사라진 행」으로 잡힌다(`#1519`) — `AGENTS §4.1`.
+
+## 리베이스로 푼 충돌 (`#1522`)
+
+2번은 **PR의 커밋**을 ``base..HEAD``로 읽는다. 충돌을 리베이스로 풀면 옛 커밋이 그 범위에서
+사라져, 해결 중에 빠진 행을 볼 수 없다. ``--previous-head``(CI의 ``github.event.before`` —
+직전 푸시의 head)를 주면 그 커밋까지 함께 읽는다. 받아 두지 않은 커밋이면 가져와 보고,
+그래도 없으면 경고만 남기고 넘어간다.
 
 ## 일부러 지울 때
 
@@ -63,11 +75,11 @@ _REFERENCE = re.compile(r"#[0-9]+|`[0-9a-f]{7,40}`")
 #: ``#`` 뒤에 숫자가 오지 않는 자리 — 아직 채우지 않은 칸.
 _PLACEHOLDER = re.compile(r"#(?![0-9])")
 
-Key = tuple[str, str]
+Key = tuple[str, ...]
 
 
 def row_keys(text: str) -> Counter[Key]:
-    """문서의 변경 이력 행을 ``(날짜, 커밋 열)`` 키로 센다. 채우지 않은 행은 뺀다."""
+    """문서의 변경 이력 행을 **커밋 열의 참조 집합** 키로 센다. 채우지 않은 행은 뺀다."""
     keys: Counter[Key] = Counter()
     for line in text.splitlines():
         matched = _ROW.match(line)
@@ -76,7 +88,7 @@ def row_keys(text: str) -> Counter[Key]:
         commit = matched.group("commit").strip()
         if _PLACEHOLDER.search(commit) or not _REFERENCE.search(commit):
             continue
-        keys[(matched.group("date"), commit)] += 1
+        keys[tuple(sorted(set(_REFERENCE.findall(commit))))] += 1
     return keys
 
 
@@ -104,24 +116,47 @@ def _show(root: Path, rev: str, path: str) -> str:
         return ""
 
 
-def check(root: Path, base: str) -> list[str]:
+def _label(key: Key) -> str:
+    return " · ".join(key)
+
+
+def _previous_commits(root: Path, base: str, previous_head: str | None) -> list[str]:
+    """직전 푸시의 head까지의 커밋 — 리베이스 전 커밋을 읽기 위해서다."""
+    if not previous_head or set(previous_head) == {"0"}:
+        return []
+    try:
+        _git(root, "cat-file", "-e", f"{previous_head}^{{commit}}")
+    except subprocess.CalledProcessError:
+        try:
+            _git(root, "fetch", "--quiet", "origin", previous_head)
+        except subprocess.CalledProcessError:
+            print(
+                f"::warning::직전 head {previous_head}를 가져오지 못해 "
+                "리베이스 전 커밋은 보지 않습니다"
+            )
+            return []
+    return _git(root, "rev-list", f"{base}..{previous_head}").split()
+
+
+def check(root: Path, base: str, previous_head: str | None = None) -> list[str]:
     """위반 목록. 비어 있으면 통과다."""
     commits = _git(root, "rev-list", f"{base}..HEAD").split()
+    commits += _previous_commits(root, base, previous_head)
     problems: list[str] = []
     for doc in DOCS:
         path = root / doc
         if not path.exists():
             continue
         merged = row_keys(path.read_text(encoding="utf-8"))
-        for date, commit in overwritten(row_keys(_show(root, base, doc)), merged):
-            problems.append(f"{doc}: base에 있던 행이 사라졌습니다 — {date} {commit}")
+        for key in overwritten(row_keys(_show(root, base, doc)), merged):
+            problems.append(f"{doc}: base에 있던 행이 사라졌습니다 — {_label(key)}")
 
         seen: set[Key] = set()
         for rev in commits:
             seen.update(row_keys(_show(root, rev, doc)))
-        for date, commit in dropped_in_pr(seen, merged):
+        for key in dropped_in_pr(seen, merged):
             problems.append(
-                f"{doc}: 이 PR의 커밋에 있던 행이 머지 결과에서 빠졌습니다 — {date} {commit}"
+                f"{doc}: 이 PR의 커밋에 있던 행이 머지 결과에서 빠졌습니다 — {_label(key)}"
             )
     return problems
 
@@ -130,14 +165,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base", required=True, help="비교할 base 리비전 (예: origin/main)")
     parser.add_argument("--root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--previous-head",
+        default=None,
+        help="직전 푸시의 head (CI의 github.event.before) — 리베이스 전 커밋도 읽는다",
+    )
     args = parser.parse_args(argv)
 
-    problems = check(args.root, args.base)
+    problems = check(args.root, args.base, args.previous_head)
     for problem in problems:
         print(f"::error::{problem}")
     if problems:
         print(
             "변경 이력 행은 지우지 않습니다(`AGENTS §4.1`). 충돌 해결에서 빠졌다면 되살리고, "
+            "PR 번호를 받기 전 임시값이었다면 숫자가 아닌 `#___`로 적으세요. "
             "일부러 지운 것이면 PR에 `changelog-row-removal` 라벨을 붙인 뒤 CI를 다시 돌리세요."
         )
         return 1
