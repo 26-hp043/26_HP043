@@ -121,6 +121,23 @@ def _by(issues: list[dict], severity: str) -> list[dict]:
     return [item for item in issues if item["severity"] == severity]
 
 
+#: `API_SPEC §2.16` ``completeness`` — 비율의 분자·분모와 축별 제외 내역 (#1532).
+_COMPLETENESS_KEYS = {
+    "total_co2_ton",
+    "measured_co2_ton",
+    "excluded_unavailable_co2_ton",
+    "excluded_substituted_co2_ton",
+    "excluded_anomaly_co2_ton",
+}
+
+
+def _excluded_sum(block: dict[str, str]) -> Decimal:
+    return sum(
+        (Decimal(block[key]) for key in _COMPLETENESS_KEYS if key.startswith("excluded_")),
+        Decimal(0),
+    )
+
+
 @pytest.mark.asyncio
 async def test_clean_confirmed_voyages_raise_no_issue(session, vessel_id):
     await _voyage(session, vessel_id, no="A")
@@ -318,7 +335,9 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "unconfirmed_count",
         "anomaly_unjudged_count",
         "completeness_ratio",
+        "completeness",
     }
+    assert set(result["summary"]["completeness"]) == _COMPLETENESS_KEYS
     mine = next(row for row in result["vessels"] if same_uuid(row["vessel_id"], vessel_id))
     assert set(mine) == {
         "vessel_id",
@@ -329,7 +348,9 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "ytd_rating",
         "voyage_count",
         "completeness_ratio",
+        "completeness",
     }
+    assert set(mine["completeness"]) == _COMPLETENESS_KEYS
     issues = [item for item in result["issues"] if same_uuid(item["vessel_id"], vessel_id)]
     for item in issues:
         assert set(item) == {
@@ -436,3 +457,109 @@ async def test_a_fuelless_voyage_is_pointed_at_even_when_mixed(session, vessel_i
     # 아니므로 **현행을 그대로 잠그고 사실을 적어 둔다.** 이 비율이 눈감는 자리를
     # 위의 항차 행이 대신 가리키는 것이 이번 변경의 값이다.
     assert Decimal(vessel_row["completeness_ratio"]) == Decimal("1.0000")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 완결성의 분자·분모와 제외 내역 (`API_SPEC §2.16` `completeness` · #1532)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_completeness_carries_its_numerator_denominator_and_exclusions(session, vessel_id):
+    """비율만 주면 검산할 수 없다 — 분자·분모와 빠진 CO₂를 축별로 싣는다 (#1532).
+
+    실측 240t + 대체 360t(HFO CF 3.114): 누적 (240+360)×3.114 = 1868.40t · 실측 240×3.114
+    = 747.36t · 대체로 빠진 360×3.114 = 1121.04t. 정수 검산: 600×3114 = 1868400 →
+    1868.40 (`AGENTS §5`).
+    """
+    await _voyage(session, vessel_id, no="A")
+    await _voyage(session, vessel_id, no="B", actual_fuel=None, planned_fuel=360)
+
+    vessel, _, summary = await _mine(session, vessel_id)
+    block = vessel["completeness"]
+
+    assert block["total_co2_ton"] == "1868.40"
+    assert block["measured_co2_ton"] == "747.36"
+    assert block["excluded_substituted_co2_ton"] == "1121.04"
+    assert block["excluded_unavailable_co2_ton"] == "0.00"
+    assert block["excluded_anomaly_co2_ton"] == "0.00"
+    # 실측 + 제외 합 = 누적 — 이 값들은 소수 2자리에서 정확히 떨어진다.
+    assert Decimal(block["measured_co2_ton"]) + _excluded_sum(block) == Decimal(
+        block["total_co2_ton"]
+    )
+    # 비율은 이 둘로 재현된다 — 「어디서 온 0.4인가」가 응답 안에서 닫힌다.
+    assert vessel["completeness_ratio"] == "0.4000"
+    assert Decimal(block["measured_co2_ton"]) / Decimal(block["total_co2_ton"]) == Decimal("0.4")
+    # 선대 합에도 같은 내역이 있고, 이 선박분이 그 안에 들어 있다.
+    assert Decimal(summary["completeness"]["total_co2_ton"]) >= Decimal(block["total_co2_ton"])
+
+
+@pytest.mark.asyncio
+async def test_a_lone_anomalous_voyage_explains_its_zero_completeness(session, vessel_id):
+    """`#1532`의 발단 — 유일한 항차가 이상치라 완결성이 0%인데 **이유가 응답에 없었다.**
+
+    이제 누적 전부가 이상치 축에 실린다: 480×3.114 = 1494.72t (정수 검산 480×3114 =
+    1494720). 실측은 0이고 다른 축은 비어 있다 — 0%의 출처가 한 축으로 닫힌다.
+    """
+    await _voyage(session, vessel_id, no="A", actual_fuel=480)
+
+    vessel, issues, _ = await _mine(session, vessel_id)
+    block = vessel["completeness"]
+
+    assert _by(issues, SEVERITY_ANOMALY), "이상치가 아니면 이 검사는 아무것도 보지 않는다"
+    assert vessel["completeness_ratio"] == "0.0000"
+    assert block["measured_co2_ton"] == "0.00"
+    assert block["total_co2_ton"] == "1494.72"
+    assert block["excluded_anomaly_co2_ton"] == "1494.72"
+    assert block["excluded_substituted_co2_ton"] == "0.00"
+    assert block["excluded_unavailable_co2_ton"] == "0.00"
+
+
+@pytest.mark.asyncio
+async def test_a_voyage_with_two_severities_is_excluded_on_one_axis_only(session, vessel_id):
+    """⚠️ 겹치는 항차를 두 축에 다 더하면 「실측 + 제외 합 = 누적」이 깨진다.
+
+    한 항차에 HFO는 계획값으로 대체(대체 계산)되고 LFO 행은 실적·계획 모두 비어(계산
+    불가) 있다. 빠진 CO₂는 우선순위상 앞선 **계산 불가** 축에만 실린다 — 대체 축은 0이다.
+    누적 (240+300)×3.114 = 1681.56t · 실측 747.36t · 계산 불가로 빠진 300×3.114 = 934.20t.
+    """
+    await _voyage(session, vessel_id, no="A")
+    target = await _voyage(session, vessel_id, no="B", actual_fuel=None, planned_fuel=300)
+    # 유종은 `fuel_type` 마스터에 있는 코드여야 한다(참조 트리거) — `DB_SCHEMA §3.2` LFO.
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use "
+            "(voyage_id, fuel_type, planned_fuel_ton, actual_fuel_ton, cf_used, source) "
+            "VALUES (:vid, 'LFO', NULL, NULL, 3.151, 'USER_INPUT')"
+        ),
+        {"vid": target},
+    )
+
+    vessel, issues, _ = await _mine(session, vessel_id)
+    block = vessel["completeness"]
+
+    # 정말 두 심각도에 걸렸는가 — 아니면 이 검사는 우선순위를 보지 않는다.
+    assert _voyage_ids(_by(issues, SEVERITY_SUBSTITUTED)) == [uuid_canon(target)]
+    assert _voyage_ids(_by(issues, SEVERITY_UNAVAILABLE)) == [uuid_canon(target)]
+    assert block["total_co2_ton"] == "1681.56"
+    assert block["measured_co2_ton"] == "747.36"
+    assert block["excluded_unavailable_co2_ton"] == "934.20"
+    assert block["excluded_substituted_co2_ton"] == "0.00"
+    assert block["excluded_anomaly_co2_ton"] == "0.00"
+    assert Decimal(block["measured_co2_ton"]) + _excluded_sum(block) == Decimal(
+        block["total_co2_ton"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_vessel_without_a_ratio_has_no_breakdown_either(session, vessel_id):
+    """비율을 낼 수 없는 선박(제원 결측)은 내역도 `null`이다 — 재료가 같다."""
+    await _voyage(session, vessel_id, no="A")
+    await session.execute(
+        text("UPDATE vessel SET deadweight = NULL WHERE id = :id"), {"id": vessel_id}
+    )
+
+    vessel, _, _ = await _mine(session, vessel_id)
+
+    assert vessel["completeness_ratio"] is None
+    assert vessel["completeness"] is None

@@ -34,6 +34,18 @@ export interface DataQualityIssue {
   ciiReason: string | null
 }
 
+/**
+ * 완결성 비율의 분자·분모와 제외 내역 (`API_SPEC §2.16` · #1532). CO₂ 톤 문자열(소수 2자리).
+ * `measured + Σexcluded = total` — 한 항차는 한 축에만 더해진다(계산 불가 > 대체 계산 > 이상치).
+ */
+export interface CompletenessBreakdown {
+  totalCo2Ton: string
+  measuredCo2Ton: string
+  excludedUnavailableCo2Ton: string
+  excludedSubstitutedCo2Ton: string
+  excludedAnomalyCo2Ton: string
+}
+
 interface DataQualityVessel {
   vesselId: string
   vesselName: string
@@ -44,6 +56,8 @@ interface DataQualityVessel {
   voyageCount: number
   /** 0~1 비율 문자열. 배출이 없거나 계산할 수 없으면 `null` */
   completenessRatio: string | null
+  /** 비율의 내역 — `completenessRatio`와 같은 조건에서 `null`. 화면 표시는 아직 없다(#1532 후속) */
+  completeness?: CompletenessBreakdown | null
 }
 
 export interface DataQualitySnapshot {
@@ -52,6 +66,8 @@ export interface DataQualitySnapshot {
   /** 이상치를 **판정하지 못한** 항차 수 — 0건과 섞지 않는다 */
   anomalyUnjudged: number
   completenessRatio: string | null
+  /** 선대 합의 내역 — 낼 수 있는 선박들의 분자·분모를 각각 더한 것 */
+  completeness?: CompletenessBreakdown
   vessels: DataQualityVessel[]
   issues: DataQualityIssue[]
 }

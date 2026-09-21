@@ -2,6 +2,7 @@ import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../aut
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import {
   SEVERITIES,
+  type CompletenessBreakdown,
   type DataQualityIssue,
   type DataQualityProvider,
   type DataQualitySnapshot,
@@ -50,6 +51,7 @@ interface ServerBody {
       unconfirmed_count: number
       anomaly_unjudged_count: number
       completeness_ratio: string | null
+      completeness?: ServerCompleteness
     }
     vessels: Array<{
       vessel_id: string
@@ -60,8 +62,29 @@ interface ServerBody {
       ytd_rating: string | null
       voyage_count: number
       completeness_ratio: string | null
+      completeness?: ServerCompleteness | null
     }>
     issues: ServerIssue[]
+  }
+}
+
+/** `API_SPEC §2.16` `completeness` (#1532) — 톤 문자열 그대로 옮긴다. */
+interface ServerCompleteness {
+  total_co2_ton: string
+  measured_co2_ton: string
+  excluded_unavailable_co2_ton: string
+  excluded_substituted_co2_ton: string
+  excluded_anomaly_co2_ton: string
+}
+
+function toCompleteness(raw: ServerCompleteness | null | undefined): CompletenessBreakdown | null {
+  if (!raw) return null
+  return {
+    totalCo2Ton: raw.total_co2_ton,
+    measuredCo2Ton: raw.measured_co2_ton,
+    excludedUnavailableCo2Ton: raw.excluded_unavailable_co2_ton,
+    excludedSubstitutedCo2Ton: raw.excluded_substituted_co2_ton,
+    excludedAnomalyCo2Ton: raw.excluded_anomaly_co2_ton,
   }
 }
 
@@ -132,6 +155,7 @@ export function createApiDataQualityProvider(
         },
         anomalyUnjudged: s.anomaly_unjudged_count,
         completenessRatio: s.completeness_ratio,
+        completeness: toCompleteness(s.completeness) ?? undefined,
         vessels: data.vessels.map((v) => ({
           vesselId: v.vessel_id,
           vesselName: v.vessel_name,
@@ -141,6 +165,7 @@ export function createApiDataQualityProvider(
           ytdRating: v.ytd_rating as Rating | null,
           voyageCount: v.voyage_count,
           completenessRatio: v.completeness_ratio,
+          completeness: toCompleteness(v.completeness),
         })),
         issues: data.issues.map(toIssue),
       }

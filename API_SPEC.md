@@ -1569,7 +1569,14 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
       "anomaly_count": 1,
       "unconfirmed_count": 2,
       "anomaly_unjudged_count": 0,
-      "completeness_ratio": "0.9420"
+      "completeness_ratio": "0.9420",
+      "completeness": {
+        "total_co2_ton": "1868.40",
+        "measured_co2_ton": "1760.04",
+        "excluded_unavailable_co2_ton": "0.00",
+        "excluded_substituted_co2_ton": "108.36",
+        "excluded_anomaly_co2_ton": "0.00"
+      }
     },
     "vessels": [
       {
@@ -1580,7 +1587,14 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
         "ytd_attained_cii": "8.9799",
         "ytd_rating": "E",
         "voyage_count": 3,
-        "completeness_ratio": "0.9420"
+        "completeness_ratio": "0.9420",
+        "completeness": {
+          "total_co2_ton": "1868.40",
+          "measured_co2_ton": "1760.04",
+          "excluded_unavailable_co2_ton": "0.00",
+          "excluded_substituted_co2_ton": "108.36",
+          "excluded_anomaly_co2_ton": "0.00"
+        }
       }
     ],
     "issues": [
@@ -1613,14 +1627,17 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 | `SUBSTITUTED` | 대체 계산 | 실적 대신 계획값이 들어갔다 (`PRD §8.3` · `ytd.substitutions` `§2.14`) | `DISTANCE` · `FUEL:<유종>` |
 | `UNAVAILABLE` | 계산 불가 | ⑴ 선박 CII를 낼 수 없다(`voyage_id`가 `null`) ⑵ 연료 행에 실적도 계획도 없다 | ⑴ `§2.8` `unavailable_reason`과 같은 어휘(`NO_DATA` · `MISSING_SPEC` · `NO_PARAMETERS` · `CALCULATION_ERROR`) ⑵ `FUEL_UNFILLED:<유종>` |
 | `ANOMALY` | 이상치 | `PRD §17.4.1` | `FUEL_VS_MODEL` · `SPEED_ABOVE_REFERENCE` · `SPEED_MISMATCH` |
-| `UNCONFIRMED` | 실적 미입력 | `COMPLETED`에서 `CONFIRMED`로 미전이 (`PRD §8.4`) | `COMPLETED` |
+| `UNCONFIRMED` | 실적 확정 전 | `COMPLETED`에서 `CONFIRMED`로 미전이 (`PRD §8.1`·`§8.1.1`) | `COMPLETED` |
 
-한 항차가 여러 심각도에 걸리면 **심각도마다 한 행**이다(예: 대체 계산이면서 실적 미입력). `summary.*_count`는 그 행 수다.
+> **[#1532] 화면 이름 「실적 미입력」 → 「실적 확정 전」.** `PRD §8.1`이 `COMPLETED`를 「실적 입력 완료, 미확정」으로 정의하므로 실적은 들어가 있다. 값 `UNCONFIRMED`와 `codes`는 그대로다 — 바뀐 것은 화면 이름과 근거 인용(`§8.4` 재계산 정책 → `§8.1`·`§8.1.1` 상태 전이)뿐이다.
+
+한 항차가 여러 심각도에 걸리면 **심각도마다 한 행**이다(예: 대체 계산이면서 실적 확정 전). `summary.*_count`는 그 행 수다.
 
 | 필드 | 설명 |
 |---|---|
 | `summary.anomaly_unjudged_count` | 이상치를 **판정하지 못한** 항차 수 — 선박 제원·운항 시각이 없어 세 검사 중 하나도 돌릴 수 없었다. **이상치 0건과 섞지 않는다** |
 | `summary.completeness_ratio` · `vessels[].completeness_ratio` | 누적 CO₂ 중 실측으로 계산된 비율(`PRD §17.4.3`) · 소수 4자리 문자열. 배출이 없거나 계산할 수 없으면 `null` — **100%로 채우지 않는다** |
+| `summary.completeness` · `vessels[].completeness` | **[#1532]** 그 비율의 분자·분모와 제외 내역 — 비율만으로는 0%든 54.2%든 화면에서 검산할 수 없다. 모두 **CO₂ 톤 · 소수 2자리 문자열**(`§2.7` `co2_ton`과 같은 규약 · `§1.7`의 `ROUND_HALF_UP` — `[#1349]`의 절사는 CII 필드에만 적용된다). `total_co2_ton`(분모 · 누적 CO₂, not under way 포함) · `measured_co2_ton`(분자 · 실측으로 인정된 CO₂, not under way 포함) · `excluded_unavailable_co2_ton` · `excluded_substituted_co2_ton` · `excluded_anomaly_co2_ton`(각각 계산 불가 · 대체 계산 · 이상치로 빠진 CO₂). **`measured + Σexcluded = total`이 g 단위에서 정확히 성립한다** — 한 항차가 여러 심각도에 걸리면 빠진 CO₂를 **계산 불가 > 대체 계산 > 이상치** 순으로 앞선 한 축에만 더한다(두 축에 다 더하면 합이 맞지 않는다). 톤 문자열은 각각 반올림되므로 화면 검산은 마지막 자리 안에서 맞는다. `vessels[].completeness`는 `completeness_ratio`와 같은 조건에서 `null`(선박 누적을 낼 수 없을 때); `summary.completeness`는 낼 수 있는 선박들의 합이라 늘 있다 — 선박이 0척이면 전부 `"0.00"`이고 비율은 `null`이다. 실적 확정 전(`UNCONFIRMED`)은 어느 축에도 없다 — 완결성에서 빼지 않기 때문이다(`PRD §17.4.3`) |
 | `issues[].cii_impact` | 그 항차를 **뺀** 누적 CII와의 차이(`PRD §17.4.2`). `delta` = `attained_cii` − `attained_cii_without` — **양수면 이 항차가 누적 CII를 높이고(나쁘게) 있다** |
 | `issues[].cii_impact_reason` | `cii_impact`가 `null`인 이유 — `ONLY_VOYAGE`(이 항차뿐이라 빼면 누적이 없다) · `BASE_UNAVAILABLE`(선박 누적 CII를 낼 수 없다). 선박 단위 행이면 둘 다 `null` |
 

@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from conftest import ensure_regulation_year, insert_if_not_exists
+from conftest import ensure_regulation_year, insert_if_not_exists, same_uuid
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from cii_platform.errors import NotFoundError, StateTransitionError, ValidationE
 from cii_platform.reports.csv_export import render_csv
 from cii_platform.reports.document import TableSection
 from cii_platform.services import report as report_service
+from cii_platform.services.data_quality import SEVERITY_UNCONFIRMED, get_fleet_data_quality
 from cii_platform.services.report import build_annual_report, build_voyage_report
 
 YEAR = 2026
@@ -786,6 +787,55 @@ async def test_self_check_counts_substitutions_by_axis(session, vessel_id):
     for label in ("연료 대체 계산", "거리 대체 계산"):
         count = int(rows[label][1].removesuffix("건"))
         assert rows[label][2] == ("확인 필요" if count else "해당 없음"), label
+
+
+@pytest.mark.asyncio
+async def test_self_check_tells_in_progress_from_unconfirmed(session, vessel_id):
+    """IT-REPORT-006 — 진행 중과 실적 확정 전은 **다른 행**이다 (`#1532`).
+
+    종전에는 진행 중 항차 수에 「실적 미입력 (진행 중)」이라는 이름이 붙어 있었다 — 표가
+    세는 것과 표에 적힌 이름이 달랐다. 행 이름은 표시 문구라 리터럴로 잠그지 않고
+    (`AGENTS §4.6`), **확정을 말하는 행과 진행을 말하는 행이 따로 있고 각각의 수가
+    재료와 같다**는 성질을 본다.
+    """
+    await _make_voyage(session, vessel_id)
+    await _make_voyage(session, vessel_id, status="COMPLETED", policy="INCLUDE_AS_ACTUAL")
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    rows = _section(document, "제출 전 자체 점검").rows
+    unconfirmed = [row for row in rows if "확정" in row[0]]
+    in_progress = [row for row in rows if "진행 중" in row[0]]
+
+    assert len(unconfirmed) == 1 and len(in_progress) == 1
+    assert unconfirmed[0] is not in_progress[0]
+    # 확정 전 1건(COMPLETED) — 진행 중 항차는 없다. 판정은 건수에서 나온다.
+    assert unconfirmed[0][1] == "1건" and unconfirmed[0][2] == "확인 필요"
+    assert in_progress[0][1] == "0건" and in_progress[0][2] == "해당 없음"
+    # 「미입력」이라는 말은 표 어디에도 없다 — 실적은 들어가 있다(`PRD §8.1`).
+    assert not [row for row in rows if "미입력" in row[0]]
+
+
+@pytest.mark.asyncio
+async def test_self_check_unconfirmed_count_matches_the_data_quality_screen(session, vessel_id):
+    """리포트의 확정 전 건수와 데이터 점검 화면의 「실적 확정 전」 행 수가 같다 (`#1532`).
+
+    같은 조회(`INCLUDE_AS_ACTUAL` 항차 중 `COMPLETED`)로 세기 때문이다 — 다른 쿼리로
+    세면 화면과 인쇄물이 다른 수를 내고, 사무직은 어느 쪽을 믿을지 알 수 없다.
+    """
+    await _make_voyage(session, vessel_id, status="COMPLETED", policy="INCLUDE_AS_ACTUAL")
+    await _make_voyage(session, vessel_id, status="COMPLETED", policy="INCLUDE_AS_ACTUAL")
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    row = next(row for row in _section(document, "제출 전 자체 점검").rows if "확정" in row[0])
+    screen = await get_fleet_data_quality(session, regulation_year=YEAR)
+    mine = [
+        item
+        for item in screen["issues"]
+        if item["severity"] == SEVERITY_UNCONFIRMED and same_uuid(item["vessel_id"], vessel_id)
+    ]
+
+    assert len(mine) == 2, "화면이 두 항차를 확정 전으로 세지 않으면 대조가 성립하지 않는다"
+    assert row[1] == f"{len(mine)}건"
 
 
 @pytest.mark.asyncio
