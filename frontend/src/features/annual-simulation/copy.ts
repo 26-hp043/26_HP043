@@ -76,6 +76,18 @@ export const ANNUAL_COPY = {
 
   /* ── 실행 입력 ─────────────────────────────────────────────────────── */
   runTitle: '실행 조건',
+  /*
+   * 대상 선박 (#1553). 선박은 상단바 전역 선택을 따르는데 **이름이 입력에도 결과에도
+   * 없어** 결과 카드만 보고는 어느 배의 숫자인지 알 수 없었다.
+   */
+  targetVesselLabel: '대상 선박',
+  targetVesselHint: '상단에서 바꿉니다.',
+  targetVesselNone: '선택되지 않음',
+  targetVesselLoading: '불러오는 중…',
+  /** 목록에 이름이 없다 — 실패했거나, 목록에 없는 배를 주소로 골랐다. id를 내보이지 않는다 */
+  targetVesselUnknown: '이름을 불러오지 못한 선박',
+  /** 결과 머리 한 줄의 앞머리 — 뒤에 「선박 · 2026년 · 목표 등급 C」가 붙는다 */
+  resultConditionsLabel: '이 결과의 조건',
   targetRatingLabel: '목표 등급',
   /** `PRD §12.8` — E는 목록에 두지 않는다. 「달성」이 의미를 잃는다 */
   targetRatingHint: 'A~D 중에서 고릅니다.',

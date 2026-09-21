@@ -372,3 +372,36 @@ function gramsToTonnes(grams: string): string {
   const tonnes = `${padded.slice(0, -6)}.${padded.slice(-6)}${fracPart}`
   return negative ? `-${tonnes}` : tonnes
 }
+
+/**
+ * 대상 선박을 화면에 적을 이름 (#1553).
+ *
+ * 이름은 셸이 이미 받은 목록(`shell.vessels`)에서 읽는다 — 새로 조회하지 않는다. 목록에서
+ * 못 찾으면 **왜 못 찾았는지**를 가른다 — 아직 오는 중과 못 받은 것은 사용자가 할 일이 다르다.
+ * 선박 id(UUID)를 대신 적지 않는다.
+ */
+export function targetVesselText(
+  vesselId: string | null,
+  vessels: readonly { id: string; displayName: string }[],
+  vesselsState: 'loading' | 'ready' | 'failed',
+  copy: { none: string; loading: string; unknown: string },
+): string {
+  if (vesselId === null) return copy.none
+  const found = vessels.find((vessel) => vessel.id === vesselId)
+  if (found) return found.displayName
+  return vesselsState === 'loading' ? copy.loading : copy.unknown
+}
+
+/**
+ * 결과 머리의 조건 한 줄 — 「샘플 벌크선 · 2026년 · 목표 등급 C」 (#1553).
+ *
+ * **실행 시점의 값**을 받는다. 배 · 연도를 바꾸면 결과가 지워지지만(`#1094`) 목표 등급은
+ * 지우지 않으므로(같은 조건으로 두 배를 비교하려고) 지금 고른 값을 적으면 결과와 어긋난다.
+ */
+export function resultConditionsText(conditions: {
+  vesselName: string
+  year: string
+  target: string
+}): string {
+  return `${conditions.vesselName} · ${conditions.year}년 · 목표 등급 ${conditions.target}`
+}

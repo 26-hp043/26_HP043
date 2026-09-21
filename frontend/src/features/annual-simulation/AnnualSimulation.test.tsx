@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { AnnualSimulation } from './AnnualSimulation'
 import * as session from '../../auth/session'
@@ -1112,5 +1112,67 @@ describe('목표 등급 기본값 (#1453)', () => {
     const call = fetchImpl.mock.calls.find(([url]) => String(url).endsWith('/annual-simulations'))
     expect(call).toBeTruthy()
     expect(JSON.parse((call![1] as RequestInit).body as string).target_rating).toBe('C')
+  })
+})
+
+/**
+ * 어느 배 · 어느 조건으로 계산했는지 화면에 있다 (#1553).
+ *
+ * 선박은 상단바 전역 선택을 따르는데 이름이 입력에도 결과에도 없었다. 결과 줄은 **실행
+ * 시점의 값**이어야 한다 — 목표 등급은 실행 뒤에 바꿔도 결과가 지워지지 않는다.
+ */
+describe('대상 선박과 결과의 조건 (#1553)', () => {
+  function renderShell(value: ShellContext) {
+    return render(
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    )
+  }
+
+  const targetLine = () =>
+    screen.getByText(ANNUAL_COPY.targetVesselLabel).closest('.annual-sim__target') as HTMLElement
+
+  it('실행 조건 머리에 대상 선박 이름과 바꾸는 곳이 있다', async () => {
+    stubServer()
+    renderScreen()
+    await screen.findByRole('option', { name: '2026' })
+    expect(within(targetLine()).getByText('샘플 벌크선')).toBeTruthy()
+    expect(within(targetLine()).getByText(ANNUAL_COPY.targetVesselHint)).toBeTruthy()
+  })
+
+  it('고르지 않았으면 「선택되지 않음」, 목록이 오는 중이면 「불러오는 중」', () => {
+    stubServer()
+    const { unmount } = renderShell({ ...EMPTY_SHELL_CONTEXT, vesselsState: 'ready' })
+    expect(within(targetLine()).getByText(ANNUAL_COPY.targetVesselNone)).toBeTruthy()
+    unmount()
+
+    renderShell({ ...EMPTY_SHELL_CONTEXT, vesselId: VESSEL_ID, vesselsState: 'loading' })
+    expect(within(targetLine()).getByText(ANNUAL_COPY.targetVesselLoading)).toBeTruthy()
+  })
+
+  it('결과 머리에 이 결과의 조건이 있다 — 결과만 캡처해도 어느 배인지 읽힌다', async () => {
+    stubServer()
+    renderScreen()
+    await runOnce()
+    const line = screen.getByText(ANNUAL_COPY.resultConditionsLabel).closest('p') as HTMLElement
+    expect(line.textContent).toContain('샘플 벌크선 · 2026년 · 목표 등급 C')
+    // 결과 영역의 맨 위다 — 추정 고지보다 먼저.
+    expect(line.previousElementSibling).toBeNull()
+  })
+
+  it('⚠️ 실행 뒤 목표를 바꿔도 결과 줄은 실행 때의 목표다', async () => {
+    stubServer()
+    renderScreen()
+    await runOnce()
+    fireEvent.change(screen.getByLabelText(ANNUAL_COPY.targetRatingLabel), { target: { value: 'A' } })
+
+    const line = screen.getByText(ANNUAL_COPY.resultConditionsLabel).closest('p') as HTMLElement
+    expect(line.textContent).toContain('목표 등급 C')
+    expect(line.textContent).not.toContain('목표 등급 A')
   })
 })
