@@ -496,3 +496,76 @@ describe('경고 배너 · D등급 진입 임박 (#1569)', () => {
     expect(within(card).getByText('E 1년차')).toBeTruthy()
   })
 })
+
+/**
+ * 대시보드가 「실적 확정 전 항차」 카드를 그리는가 (#1573).
+ *
+ * 카드 자체는 `UnconfirmedVoyages.test.tsx`가 본다. 여기서는 **대시보드에 붙어 있고, 선대 요약
+ * 다음에 오며, 그 조회가 실패해도 대시보드는 그대로인가**를 본다.
+ */
+describe('실적 확정 전 항차 카드의 자리 (#1573)', () => {
+  const DQ = {
+    data: {
+      regulation_year: 2026,
+      summary: {
+        substituted_count: 0,
+        unavailable_count: 0,
+        anomaly_count: 0,
+        unconfirmed_count: 1,
+        anomaly_unjudged_count: 0,
+        completeness_ratio: null,
+      },
+      vessels: [],
+      issues: [
+        {
+          severity: 'UNCONFIRMED',
+          vessel_id: 'v1',
+          vessel_name: '가선',
+          voyage_id: 'voy-1',
+          voyage_no: '2026-01',
+          codes: [],
+          cii_impact: null,
+          cii_impact_reason: null,
+        },
+      ],
+    },
+  }
+
+  function stubWith(dq: 'ok' | 'fail') {
+    const fleet = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/fleet/data-quality')) {
+          return dq === 'ok'
+            ? ({ ok: true, status: 200, json: async () => DQ } as Response)
+            : ({ ok: false, status: 500, json: async () => ({}) } as Response)
+        }
+        return { ok: true, status: 200, json: async () => fleet } as Response
+      }),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+  }
+
+  it('선대 요약 바로 다음에 있다', async () => {
+    stubWith('ok')
+    const card = await screen.findByRole('region', { name: '실적 확정 전 항차' })
+    const kpi = screen.getByRole('region', { name: '선대 요약' })
+    expect(kpi.nextElementSibling).toBe(card)
+    expect(within(card).getByRole('link', { name: /^이 항차로/ }).getAttribute('href')).toBe(
+      '/vessels/v1?actuals=voy-1',
+    )
+  })
+
+  it('그 조회가 실패해도 대시보드는 그대로 그려진다', async () => {
+    stubWith('fail')
+    expect(await screen.findByText(/실적 확정 전 항차를 불러오지 못했습니다/)).toBeTruthy()
+    expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
+    expect(screen.getByText('가선')).toBeTruthy()
+  })
+})

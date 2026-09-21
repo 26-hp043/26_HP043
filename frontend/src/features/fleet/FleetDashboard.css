@@ -824,3 +824,64 @@
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
 }
+
+/* ── 실적 확정 전 항차 (#1573) ─────────────────────────────────── */
+
+.todo__count {
+  margin-inline-start: var(--spacing-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.todo__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 선박 · 항차 · 입구 한 줄. 입구는 오른쪽 끝에 모아 눈이 세로로 훑게 한다. */
+.todo__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  font-size: var(--font-size-body);
+}
+
+.todo__vessel {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--font-weight-label);
+}
+
+.todo__voyage {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.todo__go {
+  margin-inline-start: auto;
+  color: var(--color-link);
+  white-space: nowrap;
+}
+
+.todo__go:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+
+.todo__more,
+.todo__failed {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}

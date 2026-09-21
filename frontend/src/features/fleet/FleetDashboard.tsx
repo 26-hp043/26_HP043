@@ -11,6 +11,7 @@ import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { formatTimestamp } from '../../display/format'
 import { ErrorState } from '../../components/ErrorState'
 import { PositionChart } from './PositionChart'
+import { UnconfirmedVoyages } from './UnconfirmedVoyages'
 /*
  * 지도는 **자산이 있을 때만** 내려받는다 (`#763`).
  *
@@ -385,6 +386,12 @@ export function FleetDashboard() {
           ) : null}
         </div>
       </section>
+
+      {/*
+        할 일 — 실적 확정 전 항차 (#1573). 선대 요약 **다음**이다 — 경고 배너 · 조치 필요는
+        규제 의무라 이보다 앞선다. 0건이면 스스로 그리지 않는다.
+      */}
+      <UnconfirmedVoyages />
 
       <div className="fleet__split">
         <div className="fleet__col">
