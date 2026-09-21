@@ -86,6 +86,12 @@ export function SignupPage() {
     <AuthShell
       title="회원가입"
       description="이메일과 비밀번호로 계정을 만듭니다. 가입 후 확인 메일이 발송됩니다."
+      /*
+       * `UIFLOW §0` `0-1`이 회원가입의 구성 요소로 「면책 문구」를 적는다(#1455).
+       * 종전에는 로그인에만 켜져 있었다 — 서비스를 처음 만나는 자리는 로그인이
+       * 아니라 가입이고, 참고용 예측이라는 고지는 계정을 만들기 **전에** 읽혀야 한다.
+       */
+      disclaimer
       footer={
         <>
           이미 계정이 있으신가요? <Link to={LOGIN_PATH}>로그인</Link>
