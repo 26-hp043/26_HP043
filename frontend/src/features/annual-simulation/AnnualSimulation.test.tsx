@@ -264,6 +264,30 @@ describe('민감도 — 거리 행의 이유 (#756)', () => {
     expect(screen.getByText(ANNUAL_COPY.sensitivityNoRemainingNote)).toBeTruthy()
     // 거리 행 설명은 **띄우지 않는다** — 그것만 띄우면 나머지 행이 유효해 보인다.
     expect(screen.queryByText(ANNUAL_COPY.distanceNote)).toBeNull()
+
+    /*
+     * #1580 — 같은 값 여덟 줄과 설명 두 개가 쌓이지 않는다. 표도, 표에 붙는 서버 설명
+     * (`interaction_note`)도 없다 — 안내 한 줄이 이 절의 전부다.
+     */
+    const section = screen.getByRole('heading', { name: ANNUAL_COPY.sensitivityTitle }).closest('section')!
+    expect(within(section).queryByRole('table')).toBeNull()
+    expect(within(section).queryByText('개별 효과만 표시합니다.')).toBeNull()
+    expect(section.querySelectorAll('p')).toHaveLength(1)
+  })
+
+  it('잔여 계획이 있으면 표와 서버 설명을 그대로 둔다 (#1580)', async () => {
+    stubWith(
+      withSensitivity({
+        speed_minus_1kn: { projected_cii: '8.100000', rating_change: 'E→D', target_probability_change: '0.1200' },
+      }),
+    )
+    renderScreen()
+    await runOnce()
+
+    const section = screen.getByRole('heading', { name: ANNUAL_COPY.sensitivityTitle }).closest('section')!
+    expect(within(section).getByRole('table')).toBeTruthy()
+    expect(within(section).getByText('개별 효과만 표시합니다.')).toBeTruthy()
+    expect(within(section).queryByText(ANNUAL_COPY.sensitivityNoRemainingNote)).toBeNull()
   })
 
   it('거리 행이 있으면 거의 변하지 않는 이유를 말한다 — 「효과 없음」으로 읽히지 않게', async () => {

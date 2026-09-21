@@ -634,6 +634,7 @@ function Result({
   const flag = riskFlag(pDorE)
   const segments = stackSegments(mc.rating_probabilities)
   const rows = sensitivityRows(result.sensitivity_analysis)
+  const noRemaining = result.warnings.includes(NO_REMAINING_VOYAGES)
 
   return (
     <>
@@ -889,58 +890,65 @@ function Result({
         <section className="annual-sim__block">
           <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.sensitivityTitle}</h2>
           {/*
-           * `interaction_note`는 `ORACLE-M-3`이 응답 포함을 지정한 항목이다. 빼면
-           * 사용자가 두 변수를 함께 조정했을 때의 결과를 이 표에서 읽으려 한다.
-           */}
-          <p className="annual-sim__caption">
-            {result.sensitivity_analysis.interaction_note}
-          </p>
-          {/*
-            ⚠️ **잔여 계획이 0건이면 여섯 행이 전부 같은 값**이다 — 지렛대가 움직일
-            대상이 없다(#756 · 2026-09-13 화면 실측). 그때 거리 행 설명만 띄우면
-            **나머지 행은 의미가 있는 것처럼 읽힌다.** 응답이 이미 `NO_REMAINING_VOYAGES`를
-            싣고 있으므로, 화면이 아는 사실을 이 자리에서 말한다(`#630`과 같은 처리).
-
-            잔여가 있을 때만 거리 행 설명을 띄운다. 거리 행은 잔여 계획과 확정 실적의
-            배출 강도가 같으면 기준과 **정확히 같은** 값이 나온다 — 모델의 성질이지
-            결함이 아니다(`PRD §12.6` 각주). 그 행이 표에 있을 때만 이유를 말한다.
+            ⚠️ **잔여 계획이 0건이면 표를 그리지 않는다** (#1580). 지렛대는 잔여 계획 항차를
+            움직여 결과를 다시 내므로 0건이면 **모든 행이 기준과 같은 값**이다(#756 · 실측
+            8행 전부 「E→E · +0.0%」). 표를 두고 안내를 붙이면 같은 값 여덟 줄과 설명 두 개가
+            한 자리에 쌓인다 — 안내 한 줄이 이 절의 전부다. 응답의 `NO_REMAINING_VOYAGES`로
+            가른다(화면이 다시 판정하지 않는다).
           */}
-          {result.warnings.includes(NO_REMAINING_VOYAGES) ? (
+          {noRemaining ? (
             <p className="annual-sim__caption">{ANNUAL_COPY.sensitivityNoRemainingNote}</p>
-          ) : rows.some((row) => row.key.startsWith('distance_')) ? (
-            <p className="annual-sim__caption">{ANNUAL_COPY.distanceNote}</p>
-          ) : null}
-          <div className="annual-sim__tablewrap">
-            <table className="annual-sim__table">
-              <thead>
-                <tr>
-                  <th scope="col">{ANNUAL_COPY.columnVariable}</th>
-                  <th scope="col">{ANNUAL_COPY.columnProjectedCii}</th>
-                  <th scope="col">{ANNUAL_COPY.columnRatingChange}</th>
-                  <th scope="col">{ANNUAL_COPY.columnProbabilityChange}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ key, label, entry, probabilityChange }) => (
-                  <tr key={key}>
-                    <th scope="row">
-                      {label}
-                      {entry.alternative_fuel ? ` (${entry.alternative_fuel})` : ''}
-                    </th>
-                    <td>{formatDecimalString(entry.projected_cii, DISPLAY_DIGITS.cii)}</td>
-                    <td>{entry.rating_change}</td>
-                    {/*
-                      `#822` — 종전에는 서버 값(`+0.12`)을 **그대로** 그렸다. 이 표
-                      위쪽 지표가 `30.0%`라 사용자는 0.12%p로 읽지만 실제는 12%p다.
-                      백분율 환산은 `sensitivityRows`가 한다 — 컴포넌트 안 삼항
-                      연산자는 검사가 닿지 않는 자리였다.
-                    */}
-                    <td>{probabilityChange}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          ) : (
+            <>
+              {/*
+               * `interaction_note`는 `ORACLE-M-3`이 응답 포함을 지정한 항목이다. 빼면
+               * 사용자가 두 변수를 함께 조정했을 때의 결과를 이 표에서 읽으려 한다 — 그래서
+               * **표가 있을 때는** 늘 함께 둔다.
+               */}
+              <p className="annual-sim__caption">
+                {result.sensitivity_analysis.interaction_note}
+              </p>
+              {/*
+                거리 행은 잔여 계획과 확정 실적의 배출 강도가 같으면 기준과 **정확히 같은**
+                값이 나온다 — 모델의 성질이지 결함이 아니다(`PRD §12.6` 각주 · #756). 그 행이
+                표에 있을 때만 이유를 말한다.
+              */}
+              {rows.some((row) => row.key.startsWith('distance_')) ? (
+                <p className="annual-sim__caption">{ANNUAL_COPY.distanceNote}</p>
+              ) : null}
+              <div className="annual-sim__tablewrap">
+                <table className="annual-sim__table">
+                  <thead>
+                    <tr>
+                      <th scope="col">{ANNUAL_COPY.columnVariable}</th>
+                      <th scope="col">{ANNUAL_COPY.columnProjectedCii}</th>
+                      <th scope="col">{ANNUAL_COPY.columnRatingChange}</th>
+                      <th scope="col">{ANNUAL_COPY.columnProbabilityChange}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(({ key, label, entry, probabilityChange }) => (
+                      <tr key={key}>
+                        <th scope="row">
+                          {label}
+                          {entry.alternative_fuel ? ` (${entry.alternative_fuel})` : ''}
+                        </th>
+                        <td>{formatDecimalString(entry.projected_cii, DISPLAY_DIGITS.cii)}</td>
+                        <td>{entry.rating_change}</td>
+                        {/*
+                          `#822` — 종전에는 서버 값(`+0.12`)을 **그대로** 그렸다. 이 표
+                          위쪽 지표가 `30.0%`라 사용자는 0.12%p로 읽지만 실제는 12%p다.
+                          백분율 환산은 `sensitivityRows`가 한다 — 컴포넌트 안 삼항
+                          연산자는 검사가 닿지 않는 자리였다.
+                        */}
+                        <td>{probabilityChange}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </section>
       ) : null}
 
