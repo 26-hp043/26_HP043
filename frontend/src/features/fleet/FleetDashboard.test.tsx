@@ -50,7 +50,7 @@ function vessel(id: string, name: string) {
     ytd_required_cii: '5.5000',
     ytd_rating: 'B',
     risk_level: 'LOW',
-    risk_reasons: [],
+    risk_reasons: [] as string[],
     days_to_d: null,
     days_to_d_reason: 'NOT_THIS_YEAR',
     unavailable_reason: null,
