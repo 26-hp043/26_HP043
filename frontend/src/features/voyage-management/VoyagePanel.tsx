@@ -10,6 +10,7 @@ import {
   POLICY_LABELS,
   STATUS_LABELS,
   canEnterActuals,
+  primaryAction,
   hasErrors,
   nextStatuses,
   toLocalInput,
@@ -310,6 +311,28 @@ function VoyageRow({
     }
   }
 
+  const primary = primaryAction(voyage)
+  const primaryTo = primary?.kind === 'transition' ? primary.to : null
+  const otherTransitions = nextStatuses(voyage.status).filter(
+    (to) => to !== primaryTo && to !== 'CANCELLED',
+  )
+  const canCancel = nextStatuses(voyage.status).includes('CANCELLED')
+
+  /*
+    「실적 입력」이 주 버튼이어도 **열린 뒤에는 채움을 내린다** — 그때 글자는 「실적 닫기」이고,
+    할 일은 폼 안의 「실적 저장」이다. 닫기를 가장 진하게 칠하지 않는다.
+  */
+  const actualsToggle = (asPrimary: boolean) => (
+    <button
+      type="button"
+      className={asPrimary ? 'vy__toggle vy__primary' : 'vy__toggle'}
+      onClick={() => setActualsOpen((open) => !open)}
+      aria-expanded={actualsOpen}
+    >
+      {actualsOpen ? '실적 닫기' : '실적 입력'}
+    </button>
+  )
+
   return (
     <li
       className={openOnMount ? 'vy__row vy__row--target' : 'vy__row'}
@@ -378,15 +401,24 @@ function VoyageRow({
         <ErrorState level="region" size="compact" message={rowError} />
       ) : null}
 
+      {/*
+        카드마다 **다음에 누를 것 하나**만 채움 버튼이다 (#1551 · `primaryAction`).
+
+        종전에는 전환 · 실적 입력 · 취소가 모두 같은 외곽선이라, 막힌 전환의 사유(「실적 연료를
+        먼저…」)가 바로 옆 「실적 입력」과 이어지지 않았고 완료 카드는 「실적 확정으로」와
+        「실적 입력」 중 무엇이 먼저인지 말하지 않았다. 순서는 **주 버튼 → 나머지 전환 → 실적
+        입력 → 취소**다. 취소는 주 동작이 아닌 자리라 텍스트 버튼이다(`DESIGN_SYSTEM §8`).
+      */}
       <div className="vy__row-actions">
-        {nextStatuses(voyage.status).map((to) => {
+        {primary?.kind === 'actuals' ? actualsToggle(!actualsOpen) : null}
+        {[...(primaryTo !== null ? [primaryTo] : []), ...otherTransitions].map((to) => {
           const blocker = transitionBlocker(voyage, to)
           const blockerId = `vy-blocker-${voyage.id}-${to}`
           return (
             <span className="vy__action" key={to}>
               <button
                 type="button"
-                className="vy__transition"
+                className={to === primaryTo ? 'vy__transition vy__primary' : 'vy__transition'}
                 disabled={busy || blocker !== null}
                 /* 사유가 눈에만 있었다 — 낭독에도 닿게 한다 (`§14` · `#1170` ⑵). */
                 aria-describedby={blocker ? blockerId : undefined}
@@ -404,14 +436,16 @@ function VoyageRow({
           )
         })}
 
-        {canEnterActuals(voyage.status) ? (
+        {canEnterActuals(voyage.status) && primary?.kind !== 'actuals' ? actualsToggle(false) : null}
+
+        {canCancel ? (
           <button
             type="button"
-            className="vy__toggle"
-            onClick={() => setActualsOpen((open) => !open)}
-            aria-expanded={actualsOpen}
+            className="vy__text-action"
+            disabled={busy}
+            onClick={() => void run(() => api.transition(voyage, 'CANCELLED'))}
           >
-            {actualsOpen ? '실적 닫기' : '실적 입력'}
+            이 항차 취소
           </button>
         ) : null}
       </div>

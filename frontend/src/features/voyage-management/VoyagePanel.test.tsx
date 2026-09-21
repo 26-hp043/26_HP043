@@ -740,3 +740,102 @@ describe('항차 카드로 데려가기 (#1549)', () => {
     expect(screen.queryByText(/찾는 항차가/)).toBeNull()
   })
 })
+
+/**
+ * 카드마다 다음에 누를 것 하나가 주 버튼이다 (#1551).
+ *
+ * 규칙(`primaryAction`)은 `voyageRules.test.ts`가 상태별로 본다. 여기서는 **화면이 그 규칙을
+ * 따르는가** — 채움 버튼이 많아야 하나이고, 맨 앞에 있고, 취소는 텍스트 버튼인가를 본다.
+ */
+describe('항차 카드의 주 버튼 (#1551)', () => {
+  const FUELED: ManagedVoyage = {
+    ...IN_PROGRESS,
+    fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: 320 }],
+  }
+  const COMPLETED_NO_DISTANCE: ManagedVoyage = {
+    ...FUELED,
+    status: 'COMPLETED',
+    inclusionPolicy: 'INCLUDE_AS_ACTUAL',
+  }
+  const CONFIRMED: ManagedVoyage = {
+    ...COMPLETED_NO_DISTANCE,
+    status: 'CONFIRMED',
+    actualDistanceNm: 2290,
+  }
+
+  function renderOne(voyage: ManagedVoyage, over: Partial<VoyageManagementProvider> = {}) {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({ voyages: [voyage], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
+          ...over,
+        })}
+      />,
+    )
+  }
+
+  const row = () => document.getElementById('voyage-v-1') as HTMLLIElement
+  const primaries = () => Array.from(row().querySelectorAll('.vy__primary'))
+  const actionsFirst = () => row().querySelector('.vy__row-actions button') as HTMLButtonElement
+
+  it('항해 중 · 연료 실적 없음 — 「실적 입력」이 주 버튼이고, 막힌 완료의 사유가 그것을 가리킨다', async () => {
+    renderOne(IN_PROGRESS)
+    const actuals = await screen.findByRole('button', { name: '실적 입력' })
+    expect(primaries()).toEqual([actuals])
+    expect(actionsFirst()).toBe(actuals)
+
+    const complete = screen.getByRole('button', { name: '항해 완료로' }) as HTMLButtonElement
+    expect(complete.disabled).toBe(true)
+    expect(complete.className).not.toContain('vy__primary')
+    expect(document.getElementById(complete.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(
+      /「실적 입력」/,
+    )
+  })
+
+  it('항해 중 · 연료 실적 있음 — 「항해 완료로」가 주 버튼이고 맨 앞이다', async () => {
+    renderOne(FUELED)
+    const complete = await screen.findByRole('button', { name: '항해 완료로' })
+    expect(primaries()).toEqual([complete])
+    expect(actionsFirst()).toBe(complete)
+    expect(screen.getByRole('button', { name: '실적 입력' }).className).not.toContain('vy__primary')
+  })
+
+  it('「실적 입력」을 열면 채움을 내린다 — 할 일은 폼 안의 「실적 저장」이다', async () => {
+    renderOne(IN_PROGRESS)
+    fireEvent.click(await screen.findByRole('button', { name: '실적 입력' }))
+    expect(screen.getByRole('button', { name: '실적 닫기' }).className).not.toContain('vy__primary')
+    expect(primaries()).toEqual([])
+  })
+
+  it('완료 · 실제 거리 없음 — 확정은 누르기 전에 사유를 내고 「실적 입력」이 주 버튼이다', async () => {
+    renderOne(COMPLETED_NO_DISTANCE)
+    const confirm = (await screen.findByRole('button', { name: '실적 확정으로' })) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    expect(screen.getByText(/실제 거리를 넣어야 실적을 확정할 수 있습니다/)).toBeTruthy()
+    expect(primaries()).toEqual([screen.getByRole('button', { name: '실적 입력' })])
+  })
+
+  it('실적 확정 — 다음 단계가 없어 채움 버튼이 없다', async () => {
+    renderOne(CONFIRMED)
+    await screen.findByRole('button', { name: '보관됨으로' })
+    expect(primaries()).toEqual([])
+  })
+
+  it('취소는 텍스트 버튼 「이 항차 취소」이고 누르면 종전처럼 바로 취소된다', async () => {
+    const transition = vi.fn(async () => IN_PROGRESS)
+    renderOne(IN_PROGRESS, { transition })
+    const cancel = await screen.findByRole('button', { name: '이 항차 취소' })
+    expect(cancel.className).toBe('vy__text-action')
+    expect(screen.queryByRole('button', { name: '취소됨으로' })).toBeNull()
+
+    fireEvent.click(cancel)
+    await waitFor(() => expect(transition).toHaveBeenCalledWith(IN_PROGRESS, 'CANCELLED'))
+  })
+
+  it('취소할 수 없는 상태에는 없다', async () => {
+    renderOne(CONFIRMED)
+    await screen.findByRole('button', { name: '보관됨으로' })
+    expect(screen.queryByRole('button', { name: '이 항차 취소' })).toBeNull()
+  })
+})

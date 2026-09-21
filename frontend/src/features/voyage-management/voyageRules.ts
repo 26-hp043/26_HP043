@@ -123,13 +123,8 @@ export function transitionBlocker(
     return `${STATUS_LABELS[voyage.status]}에서는 갈 수 없는 상태입니다.`
   }
 
-  // IN_PROGRESS → COMPLETED: 최소 1개 actual_fuel_ton > 0 (ORACLE-C-4)
-  if (to === 'COMPLETED' && voyage.status === 'IN_PROGRESS') {
-    const hasActual = voyage.fuelUses.some(
-      (use) => use.actualFuelTon !== null && use.actualFuelTon > 0,
-    )
-    if (!hasActual) return '실적 연료를 먼저 입력해야 항해를 완료할 수 있습니다.'
-  }
+  const shortage = actualsShortage(voyage, to)
+  if (shortage !== null) return shortage
 
   // policy를 켜는 전환은 regulation_year가 있어야 한다 (#150)
   const policy = policyForTransition(voyage.inclusionPolicy, to)
@@ -138,6 +133,75 @@ export function transitionBlocker(
     return '연간 반영을 하려면 기준연도가 필요합니다.'
   }
 
+  return null
+}
+
+/**
+ * 실적이 모자라 그 전환이 막히는가 — 모자라면 사유, 아니면 `null` (#1551).
+ *
+ * `transitionBlocker`에서 떼어 낸 것은 **이 갈래만 같은 카드 안에서 풀 수 있기** 때문이다 —
+ * 사유가 가리키는 「실적 입력」이 바로 옆에 있다. 기준연도 부족은 여기서 풀 수 없다.
+ *
+ * 조건은 서버 `_guard_actual_data`(`services/voyage.py`)의 사본이다(`API_SPEC §3.5`).
+ *
+ * * `IN_PROGRESS → COMPLETED` — 연료 실적이 **하나라도** 0보다 크다 (ORACLE-C-4)
+ * * `COMPLETED → CONFIRMED` — 연료 실적이 **전부** 0보다 크고 실제 거리도 0보다 크다.
+ *   종전에는 화면이 이 가드를 보지 않아 눌러 보고 422를 받았다
+ */
+export function actualsShortage(voyage: ManagedVoyage, to: VoyageStatus): string | null {
+  const filled = (value: number | null) => value !== null && value > 0
+
+  if (to === 'COMPLETED' && voyage.status === 'IN_PROGRESS') {
+    if (!voyage.fuelUses.some((use) => filled(use.actualFuelTon))) {
+      return '「실적 입력」에서 실제 연료량을 넣어야 항해를 완료할 수 있습니다.'
+    }
+  }
+
+  if (to === 'CONFIRMED' && voyage.status === 'COMPLETED') {
+    const missing = voyage.fuelUses.filter((use) => !filled(use.actualFuelTon))
+    if (missing.length > 0) {
+      const names = missing.map((use) => use.fuelType).join(', ')
+      return `「실적 입력」에서 모든 연료의 실제 연료량을 넣어야 실적을 확정할 수 있습니다 — 미입력: ${names}.`
+    }
+    if (!filled(voyage.actualDistanceNm)) {
+      return '「실적 입력」에서 실제 거리를 넣어야 실적을 확정할 수 있습니다.'
+    }
+  }
+
+  return null
+}
+
+/**
+ * 항차의 **정방향 다음 상태** — 계획 → 항해 → 완료 → 확정 (#1551).
+ *
+ * 취소 · 보관 · 확정 되돌리기는 다음 단계가 아니다. 실적 확정에서 멈춘다.
+ */
+const FORWARD: Partial<Record<VoyageStatus, VoyageStatus>> = {
+  DRAFT: 'PLANNED',
+  PLANNED: 'IN_PROGRESS',
+  IN_PROGRESS: 'COMPLETED',
+  COMPLETED: 'CONFIRMED',
+}
+
+/** 카드의 주 버튼이 하는 일 (#1551). */
+type PrimaryAction = { kind: 'transition'; to: VoyageStatus } | { kind: 'actuals' }
+
+/**
+ * 카드에서 **다음에 누를 것 하나** — 없으면 `null` (#1551).
+ *
+ * 1. 정방향 다음 상태로 갈 수 있으면 그 전환
+ * 2. 실적이 모자라 막혔고 이 카드에서 실적을 넣을 수 있으면 「실적 입력」 — 막힌 사유가
+ *    가리키는 것이 그것이다
+ * 3. 그 밖(다음 단계가 없다 · 이 카드에서 풀 수 없는 사유로 막혔다)은 주 버튼을 두지 않는다 —
+ *    누를 수 없는 것을 주 버튼으로 칠하면 가장 눈에 띄는 것이 비활성이 된다
+ */
+export function primaryAction(voyage: ManagedVoyage): PrimaryAction | null {
+  const next = FORWARD[voyage.status]
+  if (next === undefined || !nextStatuses(voyage.status).includes(next)) return null
+  if (transitionBlocker(voyage, next) === null) return { kind: 'transition', to: next }
+  if (actualsShortage(voyage, next) !== null && canEnterActuals(voyage.status)) {
+    return { kind: 'actuals' }
+  }
   return null
 }
 

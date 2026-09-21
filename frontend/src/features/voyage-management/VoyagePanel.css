@@ -47,6 +47,53 @@
   font-weight: var(--font-weight-label);
 }
 
+/*
+ * 카드의 주 버튼 — 다음에 누를 것 하나 (#1551 · `primaryAction`). `DESIGN_SYSTEM §8`
+ * Primary(navy 채움 / 흰 글자). 면은 `--color-primary-solid`다 — `--color-primary`를
+ * 면으로 쓰면 다크에서 깨진다(`§8` 슬라이더와 같은 이유).
+ */
+.vy__primary {
+  background: var(--color-primary-solid);
+  border-color: transparent;
+  color: var(--color-on-primary);
+  font-weight: var(--font-weight-label);
+}
+
+.vy__primary:hover:not(:disabled) {
+  background: var(--color-primary-solid-hover);
+}
+
+/*
+ * 「이 항차 취소」 — 주 동작이 아닌 자리의 텍스트 버튼 (#1551 · `DESIGN_SYSTEM §8` · `#1266`).
+ * 카드마다 반복되므로 외곽선으로 두면 주 버튼 옆에서 같은 무게로 경쟁한다.
+ */
+.vy__text-action {
+  margin-inline-start: auto;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-family: inherit;
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+/* `§8`의 hover 면은 `--surface-inset`이지만 항차 카드 자체가 그 면이라 바뀌지 않는다 — 카드면으로 띄운다. */
+.vy__text-action:hover:not(:disabled) {
+  background: var(--surface-card);
+}
+
+.vy__text-action:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.vy__text-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .vy__toggle:disabled,
 .vy__submit:disabled,
 .vy__cancel:disabled,
