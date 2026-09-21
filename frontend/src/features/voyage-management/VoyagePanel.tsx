@@ -73,8 +73,9 @@ interface VoyagePanelProps {
   vesselId: string
   provider?: VoyageManagementProvider
   /**
-   * 들어오자마자 실적 입력을 열어 둘 항차 (#1540 · `voyageActualsPath`).
-   * 실시간 CII의 「이 항차 실적 입력」이 여기로 온다.
+   * 들어오자마자 데려갈 항차 (#1540 · #1549 · `voyageActualsPath`).
+   * 실시간 CII의 「이 항차 실적 입력」과 데이터 점검의 「이 항차로」가 여기로 온다.
+   * 그 카드로 스크롤해 초점을 두고, 실적을 넣을 수 있는 항차면 입력을 열어 둔다.
    */
   openActualsFor?: string | null
 }
@@ -131,6 +132,18 @@ export function VoyagePanel({ vesselId, provider, openActualsFor = null }: Voyag
     void load()
   }, [load])
 
+  /**
+   * 데려갈 항차가 받은 목록에 없다 (#1549). 조용히 맨 위에 머무르면 사용자는 링크가 고장 난
+   * 줄 안다. 다음 페이지가 있으면 거기 있을 수 있고 — 「더 보기」로 불러와 행이 그려지면
+   * 그 행이 스스로 스크롤한다 — 없으면 이 선박의 기록에 없는 항차다(삭제 등).
+   * 첫 페이지를 못 받은 경우는 오류가 이미 말하므로 겹쳐 말하지 않는다.
+   */
+  const targetMissing =
+    openActualsFor !== null &&
+    voyages !== null &&
+    failure === null &&
+    !voyages.some((voyage) => voyage.id === openActualsFor)
+
   const replace = (updated: ManagedVoyage) => {
     setVoyages((rows) => (rows ?? []).map((row) => (row.id === updated.id ? updated : row)))
   }
@@ -170,6 +183,14 @@ export function VoyagePanel({ vesselId, provider, openActualsFor = null }: Voyag
             setFormOpen(false)
           }}
         />
+      ) : null}
+
+      {targetMissing ? (
+        <p className="vy__target-missing" role="status">
+          {hasMore
+            ? '찾는 항차가 아직 불러오지 않은 목록에 있을 수 있습니다. 아래 「더 보기」로 이어서 불러오면 그 항차로 이동합니다.'
+            : '찾는 항차가 이 선박의 항차 기록에 없습니다. 삭제됐거나 다른 선박의 항차일 수 있습니다.'}
+        </p>
       ) : null}
 
       {voyages === null ? (
@@ -248,12 +269,14 @@ function VoyageRow({
   const [actualsOpen, setActualsOpen] = useState(openOnMount && canEnterActuals(voyage.status))
   const rowRef = useRef<HTMLLIElement>(null)
   useEffect(() => {
-    if (!openOnMount || !canEnterActuals(voyage.status)) return
+    if (!openOnMount) return
     const row = rowRef.current
     // jsdom에는 scrollIntoView가 없다 — 있을 때만 부른다.
     row?.scrollIntoView?.({ block: 'start' })
-    // 첫 입력칸으로 초점을 옮긴다 — 키보드·낭독 사용자도 같은 자리에 도착한다.
-    row?.querySelector<HTMLInputElement>('.vy__form--actuals input')?.focus({ preventScroll: true })
+    // 초점을 옮긴다 — 키보드·낭독 사용자도 같은 자리에 도착한다. 입력이 열렸으면 첫 칸,
+    // 아니면 카드 자체(#1549 — 확정 항차도 데이터 점검에서 데려온다).
+    const firstInput = row?.querySelector<HTMLInputElement>('.vy__form--actuals input')
+    ;(firstInput ?? row)?.focus({ preventScroll: true })
     // 한 번만 — 목록이 다시 와도 사용자가 닫은 폼을 다시 열지 않는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -288,7 +311,13 @@ function VoyageRow({
   }
 
   return (
-    <li className="vy__row" id={`voyage-${voyage.id}`} ref={rowRef}>
+    <li
+      className={openOnMount ? 'vy__row vy__row--target' : 'vy__row'}
+      id={`voyage-${voyage.id}`}
+      ref={rowRef}
+      // 데려온 카드만 초점을 받을 수 있다 — 탭 순서에는 넣지 않는다(#1549).
+      tabIndex={openOnMount ? -1 : undefined}
+    >
       <div className="vy__row-main">
         <span className="vy__no">{voyage.voyageNo ?? NO_VALUE}</span>
         <span className={`vy__badge vy__badge--${voyage.status.toLowerCase()}`}>

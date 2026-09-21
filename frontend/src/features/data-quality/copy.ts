@@ -36,6 +36,7 @@ export const DATA_QUALITY_COPY = {
   colGo: '이동',
   vesselLevel: '선박 전체',
   goToVessel: '선박 상세',
+  goToVoyage: '이 항차로',
   /*
    * ⚠️ **부호의 뜻을 적는다.** `+0.12`만 보면 좋아졌다는 뜻인지 나빠졌다는 뜻인지 알 수
    * 없다 — CII는 낮을수록 좋다.

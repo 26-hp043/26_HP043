@@ -5,6 +5,7 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { formatDecimalString, formatPercent } from '../../display/format'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useYearOptions } from '../parameters/yearCatalog'
+import { voyageActualsPath } from '../voyage-management/voyageRules'
 import { createApiDataQualityProvider } from './apiProvider'
 import {
   DATA_QUALITY_COPY as COPY,
@@ -296,7 +297,22 @@ function IssueGroup({ severity, issues }: { severity: Severity; issues: DataQual
                     <Impact issue={issue} />
                   </td>
                   <td>
-                    <Link to={`/vessels/${issue.vesselId}`}>{COPY.goToVessel}</Link>
+                    {/*
+                      항차 행은 **그 항차 카드로** 간다 (#1549). 종전에는 모든 행이 선박 상세
+                      맨 위로 가서 페이지 중간의 항차를 다시 찾아야 했다. 실적을 넣을 수 있는
+                      항차면 입력이 열린 채 도착한다(`#1540`과 같은 진입). 선박 단위 행은
+                      가리킬 항차가 없어 종전대로 선박 상세다.
+                    */}
+                    {issue.voyageId === null ? (
+                      <Link to={`/vessels/${issue.vesselId}`}>{COPY.goToVessel}</Link>
+                    ) : (
+                      <Link
+                        to={voyageActualsPath(issue.vesselId, issue.voyageId)}
+                        aria-label={`${COPY.goToVoyage} — ${issue.vesselName} ${issue.voyageNo ?? ''}`.trim()}
+                      >
+                        {COPY.goToVoyage}
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))}

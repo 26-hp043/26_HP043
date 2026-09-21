@@ -647,3 +647,96 @@ describe('실적 폼 바로 열기 (#1540)', () => {
     expect(screen.queryByRole('button', { name: '실적 저장' })).toBeNull()
   })
 })
+
+/**
+ * 입력을 열 수 없는 항차도 카드로는 데려간다 (#1549).
+ *
+ * 데이터 점검의 대체 계산 · 이상치 행은 **확정 항차**가 많다. `#1540`은 실적을 넣을 수 있는
+ * 항차에서만 스크롤·초점을 줘서, 그대로 이으면 도착해도 맨 위에 머물렀다. 그리고 데려갈
+ * 항차가 목록에 없으면 조용히 있지 않고 그 사실을 말한다.
+ */
+describe('항차 카드로 데려가기 (#1549)', () => {
+  const CONFIRMED: ManagedVoyage = {
+    ...IN_PROGRESS,
+    id: 'v-3',
+    voyageNo: '2026-03',
+    status: 'CONFIRMED',
+  }
+
+  function pages(first: ManagedVoyage[], hasMore: boolean, second: ManagedVoyage[] = []) {
+    return stubProvider({
+      list: vi.fn(async (_vesselId: string, cursor: string | null) =>
+        cursor === null
+          ? { voyages: first, fuelTypes: ['HFO'], nextCursor: hasMore ? 'c-2' : null, hasMore }
+          : { voyages: second, fuelTypes: ['HFO'], nextCursor: null, hasMore: false },
+      ),
+    })
+  }
+
+  it('확정 항차는 입력을 열지 않고 카드에 초점을 둔다', async () => {
+    render(
+      <VoyagePanel vesselId="ves-1" provider={pages([IN_PROGRESS, CONFIRMED], false)} openActualsFor="v-3" />,
+    )
+    await screen.findByText('2026-03')
+    const row = document.getElementById('voyage-v-3') as HTMLLIElement
+    await waitFor(() => expect(document.activeElement).toBe(row))
+    expect(row.className).toContain('vy__row--target')
+    expect(screen.queryByRole('button', { name: '실적 저장' })).toBeNull()
+  })
+
+  it('지정하지 않은 카드는 초점을 받을 수 없고 표시도 없다 — 탭 순서가 그대로다', async () => {
+    render(
+      <VoyagePanel vesselId="ves-1" provider={pages([IN_PROGRESS, CONFIRMED], false)} openActualsFor="v-3" />,
+    )
+    await screen.findByText('2026-03')
+    const other = document.getElementById('voyage-v-1') as HTMLLIElement
+    expect(other.hasAttribute('tabindex')).toBe(false)
+    expect(other.className).not.toContain('vy__row--target')
+  })
+
+  it('다음 페이지가 있으면 「더 보기」로 부르라고 하고, 불러오면 그 항차로 간다', async () => {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={pages([IN_PROGRESS], true, [CONFIRMED])}
+        openActualsFor="v-3"
+      />,
+    )
+    expect(await screen.findByText(/아직 불러오지 않은 목록에 있을 수 있습니다/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '더 보기' }))
+    await screen.findByText('2026-03')
+    const row = document.getElementById('voyage-v-3') as HTMLLIElement
+    await waitFor(() => expect(document.activeElement).toBe(row))
+    expect(screen.queryByText(/아직 불러오지 않은 목록에/)).toBeNull()
+  })
+
+  it('다음 페이지도 없으면 기록에 없다고 말한다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={pages([IN_PROGRESS], false)} openActualsFor="gone" />)
+    expect(await screen.findByText(/이 선박의 항차 기록에 없습니다/)).toBeTruthy()
+  })
+
+  it('목록을 못 받았으면 오류만 말한다 — 「기록에 없다」를 겹쳐 말하지 않는다', async () => {
+    const provider = stubProvider({
+      list: vi.fn(async () => {
+        throw new Error('항차를 불러오지 못했습니다.')
+      }),
+    })
+    render(<VoyagePanel vesselId="ves-1" provider={provider} openActualsFor="v-3" />)
+    expect(await screen.findByText('항차를 불러오지 못했습니다.')).toBeTruthy()
+    expect(screen.queryByText(/찾는 항차가/)).toBeNull()
+  })
+
+  it('찾았거나 지정하지 않았으면 아무 말도 하지 않는다', async () => {
+    const { unmount } = render(
+      <VoyagePanel vesselId="ves-1" provider={pages([IN_PROGRESS], true)} openActualsFor="v-1" />,
+    )
+    await screen.findByText('2026-01')
+    expect(screen.queryByText(/찾는 항차가/)).toBeNull()
+    unmount()
+
+    render(<VoyagePanel vesselId="ves-1" provider={pages([IN_PROGRESS], true)} />)
+    await screen.findByText('2026-01')
+    expect(screen.queryByText(/찾는 항차가/)).toBeNull()
+  })
+})
