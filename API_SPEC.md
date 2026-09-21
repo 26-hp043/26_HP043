@@ -1032,7 +1032,7 @@ C등급이어도 여유가 없으면 `risk_level`은 `HIGH`지만 규제 의무�
 | `E_THIS_YEAR` | 올해 YTD 등급이 **E** |
 | `D_THIRD_YEAR` | 직전 2개 규제연도의 확정 등급이 연속 **D**이고 올해 YTD도 **D** |
 
-> 기준이 **연말 예상 등급이 아니라 YTD 등급**이다. 예상 등급은 Monte Carlo 종속이라 같은 화면을 두 번 열면 값이 달라질 수 있어, `PRD §3.3.7`이 그 기준을 후속 이슈로 연기했다.
+> 기준이 **연말 예상 등급이 아니라 YTD 등급**이다 — 올해 지금까지 쌓인 실측 위에서 판정한다. **연말 예상 등급 위에서의 「위험 선박 0척」은 `§2.17` 함대 감축 계획의 `target`이 판정한다**(결정론 연말 예상 · `PRD §3.3.7` · `#1531`). 두 기준은 합치지 않는다.
 
 #### `days_to_d` — 「D등급 진입까지 n일」
 
@@ -1658,7 +1658,7 @@ POST /api/v1/fleet/reduction-plans/evaluate
 | 필드 | 타입 | 필수 | 검증 | 설명 |
 |---|---|---|---|---|
 | `regulation_year` | int | Y | 2000~2100 | |
-| `target` | string | Y | `NO_AT_RISK` · `ALL_C_OR_BETTER` | 위험 선박 0척 / 전 선박 C 이상 (`PRD §12.3.2` ⑸) |
+| `target` | string | Y | `NO_AT_RISK` · `ALL_C_OR_BETTER` | 위험 선박 0척 / 전 선박 C 이상 (`PRD §12.3.2` ⑸). **판정은 조정 후 연말 결정론 예상 등급(`vessels[].after`)으로 한다** — `§2.8` 대시보드의 「위험 선박」(올해 누적 YTD)과 기준이 다르다 (`#1531`) |
 | `adjustments[]` | list | N | `speed_reduction_percent` 0~50 | 선박별 감속률(%). **목록에 없는 선박은 0%** · 모르는 선박이면 422 · **같은 선박이 두 번 오면 422**(`#1070` ⑶ — 받아 주면 계산은 마지막 값으로 하고 저장본에는 두 값이 다 남아, 다시 연 계획이 어느 감속률이었는지 답할 수 없다) |
 | `prices.charter_usd_per_day` | map | N | 0 이상 | 선박 ID → 일일 용선료(USD). **계획의 가정값**. 키는 **UUID 표준 표기(소문자)로 정규화**해 받으므로 대문자로 보내도 같은 선박이다 · UUID가 아니면 422 · 정규화 후 같은 선박이 두 번이면 422 (`#1070` ⑵) |
 | `prices.fuel_usd_per_ton` | map | N | 0 이상 | 유종 코드 → 연료 단가(USD/t) |
@@ -1714,7 +1714,7 @@ POST /api/v1/fleet/reduction-plans/evaluate
 | `target_met` | 계산할 수 있는 모든 선박이 조정 후 목표 이상이면 `true`. **계산할 수 있는 선박이 0척이면 `null`** |
 | `vessels[].unavailable_reason` | 계산하지 못한 선박 — `§2.8`과 같은 어휘. 이때 `before` 이하 필드가 없다 |
 | `vessels[].before` | **`§6.1` 결정론 연말 예상과 같은 값**(같은 입력 조립) |
-| `vessels[].target_rating` | 그 선박이 넘지 말아야 할 등급 — `NO_AT_RISK`면 D, 직전 2개 연도 확정 D면 C |
+| `vessels[].target_rating` | 그 선박이 넘지 말아야 할 등급 — `NO_AT_RISK`면 D, 직전 2개 연도 확정 D면 C. `vessels[].after`(연말 결정론 예상)와 비교한다 (`#1531`) |
 | `vessels[].skipped_voyages` | 기준 속력·기준 일일 연료가 없어 **감속을 적용하지 못한** 잔여 항차 수 — 0보다 크면 `warnings`에 `SLOWDOWN_SKIPPED_NO_SPEED_MODEL` |
 | `vessels[].remaining_voyage_count` | **스냅샷의 잔여 계획(PLAN) 항차 수** — `§6.1` `deterministic.remaining_voyage_count`와 **같은 기준**이다(`#1070` ⑷). 계산에서 뺀 항차가 있어도 이 수는 줄지 않는다. 무엇을 뺐는지는 `warnings`가 말한다 — 종전에는 제외 **후** 개수를 실어, 같은 선박·같은 연도인데 연간 등급 관리 화면과 항차 수가 달랐다 |
 | `vessels[].required_cut_fuel_ton` · `achievable` | 조정 **후**에도 남는 필요 감축량(`§6.1.1` · `PRD §12.3.1`). 잔여 계획이 없으면 `null` |
