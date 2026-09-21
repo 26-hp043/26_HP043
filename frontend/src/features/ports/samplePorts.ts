@@ -60,6 +60,19 @@ export function portOptionLabel(port: SamplePort): string {
 export const ESTIMATED_DISTANCE_HINT =
   '좌표 기반 추정 거리 — 운하·해협을 돌아가는 실제 항로보다 짧을 수 있습니다. 실제 항로거리를 알면 고쳐 주세요.'
 
+/**
+ * 저장된 항차 목록의 추정 거리 표시 (#1354).
+ *
+ * 입력 칸 문구의 「고쳐 주세요」는 목록에서 따를 수 없다 — 목록에는 계획 거리를 고치는 경로가
+ * 없고, 항해가 끝난 항차는 서버도 바꾸지 않는다(`API_SPEC §3.4`). 그래서 목록은 **할 일 대신
+ * 그 값이 결과를 어느 쪽으로 기울이는지**를 적는다. 짧은 거리는 분모를 줄여 CII를 실제보다
+ * 나쁘게 보이게 한다(`PRD §15.2` 오차 방향 표 ①).
+ *
+ * 앞머리 「좌표 기반 추정 거리」는 `PRD §15.2`가 정한 표기라 입력 칸과 같게 둔다.
+ */
+export const ESTIMATED_DISTANCE_LIST_NOTE =
+  '좌표 기반 추정 거리 — 운하·해협을 돌아가는 실제 항로보다 짧을 수 있어, 이 거리로 낸 CII는 실제보다 나쁘게 보일 수 있습니다.'
+
 /** 추정 거리를 계획 거리 칸에 넣을 문자열로 — 소수 2자리(`planned_distance_nm` NUMERIC(12,2)). */
 export function distanceInput(distanceNm: number): string {
   return distanceNm.toFixed(2)

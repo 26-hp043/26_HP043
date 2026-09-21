@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { VoyagePanel } from './VoyagePanel'
 import type { VoyageManagementProvider } from './apiProvider'
 import type { ActualsDraft, DistanceSource, ManagedVoyage, VoyageDraft } from './types'
+import { ESTIMATED_DISTANCE_HINT } from '../ports/samplePorts'
 
 /**
  * 항차 시각 4종의 **입력 칸이 실제로 화면에 있는가** (#873).
@@ -533,6 +534,33 @@ describe('계획 거리의 출처 (#1256)', () => {
     )
 
     expect(await screen.findByText(/좌표 기반 추정 거리 — /)).toBeTruthy()
+  })
+
+  /**
+   * 목록의 안내는 그 자리에서 따를 수 있는 말이어야 한다 (#1354).
+   *
+   * 목록에는 계획 거리를 고치는 경로가 없다. 문구 자체가 아니라 **성질**을 본다(`AGENTS §4.6`) —
+   * 입력 칸 문구와 달라야 하고, 고치라는 요청이 없어야 하며, 정본 표기로 시작해야 한다.
+   */
+  it('목록의 안내는 고치라고 하지 않는다 — 목록에는 고칠 경로가 없다', async () => {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({
+            voyages: [withSource('COORDINATE_ESTIMATE')],
+            fuelTypes: ['HFO'],
+            nextCursor: null,
+            hasMore: false,
+          })),
+        })}
+      />,
+    )
+
+    const note = (await screen.findByText(/좌표 기반 추정 거리 — /)).textContent ?? ''
+    expect(note).not.toBe(ESTIMATED_DISTANCE_HINT)
+    expect(note).not.toMatch(/고쳐|수정해|입력해/)
+    expect(note.startsWith('좌표 기반 추정 거리')).toBe(true)
   })
 
   it.each([null, 'USER_INPUT'] as const)(

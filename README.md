@@ -324,7 +324,7 @@ VITE_API_BASE_URL=/api/v1 docker compose -f docker-compose.prod.yml build fronte
 
 ### ⚠️ 배포 환경에서는 스텁 인증이 등록되지 않는다
 
-`APP_ENV`가 `production`·`staging`이면 **스텁 인증(`/api/v1/auth/dev-login`) 라우트가 등록되지 않는다** — 런타임 분기가 아니라 기동 시점에 갈린다(`main.py`의 `should_register_dev_auth()`, #276). 따라서 위 절차만 밟으면 화면은 뜨지만 **계산 API는 401을 낸다.** 실제 사용에는 회원가입(`POST /auth/signup`)으로 계정을 만들어야 하며, 가입 확인 메일 발송을 위해 **SMTP 설정(#407)** 이 함께 필요하다.
+`APP_ENV`가 `production`·`staging`이면 **스텁 인증(`/api/v1/auth/dev-login`) 라우트가 등록되지 않는다** — 런타임 분기가 아니라 기동 시점에 갈린다(`main.py`의 `should_register_dev_auth()`, #276). 따라서 위 절차만 밟으면 화면은 뜨지만 **계산 API는 401을 낸다.** 실제 사용에는 회원가입(`POST /auth/signup`)으로 계정을 만들어야 하며, 가입 확인 메일 발송을 위해 **SMTP 설정(#407)** 이 함께 필요하다 — 클라우드 배포는 2026-09-21부터 설정돼 있다(`staging` + `MAIL_BACKEND=smtp` · `#787` · `docs/OPERATIONS.md §4.5`).
 
 > ### 시연 경로도 `.env`를 읽는다 (`#693`)
 >
