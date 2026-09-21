@@ -272,8 +272,11 @@ function RevisionHistory({ provider }: { provider: ParameterRevisionProvider }) 
     void load(null)
   }, [load])
 
+  // 「더 보기」가 잠기는 것은 다음 쪽을 받는 동안뿐이다 — 선행 조건이 아니라 진행 중 상태다(§14).
+  const loadingMore = state === 'more'
+
   return (
-    <div className="param-revision__history" aria-labelledby="param-revision-history-title">
+    <section className="param-revision__history" aria-labelledby="param-revision-history-title">
       <h4 id="param-revision-history-title" className="param-revision__subtitle">
         개정 이력
       </h4>
@@ -321,11 +324,11 @@ function RevisionHistory({ provider }: { provider: ParameterRevisionProvider }) 
           type="button"
           className="param-revision__more"
           onClick={() => void load(nextCursor)}
-          disabled={state === 'more'}
+          disabled={loadingMore}
         >
-          {state === 'more' ? '불러오는 중…' : '더 보기'}
+          {loadingMore ? '불러오는 중…' : '더 보기'}
         </button>
       ) : null}
-    </div>
+    </section>
   )
 }

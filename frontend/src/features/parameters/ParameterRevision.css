@@ -103,6 +103,13 @@
   color: var(--text-primary);
 }
 
+.param-revision__result,
+.param-revision__history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
 .param-revision__summary {
   margin: 0;
   font-size: var(--font-size-label);

@@ -259,6 +259,10 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     'features/voyage-cii/VoyageCiiActions.tsx :: stale': 'voyage-cii-actions-stale',
     'features/voyage-cii/VoyageCiiActions.tsx :: stale || exporting': 'voyage-cii-actions-stale',
     // 파일 선택칸이 같은 줄에 있다 — 고르지 않았다는 것이 그 칸으로 보인다.
+    'features/parameters/ParameterRevision.tsx :: file === null || busy !== null': null,
+    // #1517 — 검증을 통과하고 오류가 0건일 때만 연다(전부 아니면 전무). 잠긴 이유를 곁에 적는다.
+    'features/parameters/ParameterRevision.tsx :: !ready || busy !== null': 'param-revision-commit-note',
+    // 파일 선택칸이 같은 줄에 있다 — 고르지 않았다는 것이 그 칸으로 보인다.
     'features/voyage-management/ImportCsv.tsx :: file === null || busy !== null': null,
     'features/voyage-management/ImportCsv.tsx :: !canCommit(result) || busy !== null':
       'vy-import-commit-note',
