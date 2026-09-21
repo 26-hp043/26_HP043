@@ -20,6 +20,7 @@ import {
 import type { FieldErrors } from './voyageRules'
 import {
   ESTIMATED_DISTANCE_HINT,
+  ESTIMATED_DISTANCE_LIST_NOTE,
   distanceInput,
   matchSamplePort,
   portOptionLabel,
@@ -303,15 +304,17 @@ function VoyageRow({
       {/*
         저장된 계획 거리가 좌표 추정이면 그 사실을 붙인다 (#1256 · `PRD §15.2`).
 
-        문구는 입력 칸이 쓰는 `ESTIMATED_DISTANCE_HINT`를 **그대로** 쓴다 — 같은 값에 다른 말을
-        하지 않는다. `COORDINATE_DISTANCE_NOTICE`(항로 비교)는 「현재 위치에서 목적항까지」라
-        항차의 출발항 → 도착항에는 맞지 않는다.
+        문구는 목록용 `ESTIMATED_DISTANCE_LIST_NOTE`를 쓴다 (#1354). 입력 칸의
+        `ESTIMATED_DISTANCE_HINT`는 끝이 「고쳐 주세요」인데 목록에는 계획 거리를 고치는 경로가
+        없다 — 따를 수 없는 말 대신 그 값이 CII를 어느 쪽으로 기울이는지를 적는다. 앞머리
+        「좌표 기반 추정 거리」는 두 문구가 같다(`PRD §15.2`). `COORDINATE_DISTANCE_NOTICE`(항로
+        비교)는 「현재 위치에서 목적항까지」라 항차의 출발항 → 도착항에는 맞지 않는다.
 
         **`null`(「모른다」)에는 아무것도 붙이지 않는다.** 059 이전 항차와 출처 없이 만든
         항차가 여기 들고, 직접 입력한 값에 「추정」이 붙는 것이 `PRD §0.3`이 금하는 거짓말이다.
       */}
       {voyage.plannedDistanceSource === 'COORDINATE_ESTIMATE' ? (
-        <p className="vy__hint">{ESTIMATED_DISTANCE_HINT}</p>
+        <p className="vy__hint">{ESTIMATED_DISTANCE_LIST_NOTE}</p>
       ) : null}
 
       {rowError ? (
