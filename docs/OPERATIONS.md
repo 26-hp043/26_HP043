@@ -283,7 +283,8 @@ cp .env.app.example .env
 #   DATABASE_URL=cubrid+pycubrid://dba:<URL인코딩된비밀번호>@10.0.1.132:33100/cii
 #   CORS_ALLOW_ORIGINS=https://bluelog-bx7.pages.dev
 #   APP_PUBLIC_URL=https://bluelog-bx7.pages.dev
-#   APP_ENV=staging  (SMTP 미설정 시)  또는  production (SMTP 설정 완료 시)
+#   APP_ENV=staging  (현재 — 메일은 MAIL_BACKEND=smtp로 실제 발송한다 · #787)
+#     production 전환은 가입 게이트(#1530)·INITIAL_ADMIN_EMAILS까지 갖춘 뒤다 (§4.5)
 #   INITIAL_ADMIN_EMAILS=<쉼표로 구분한 이메일>  (가입·로그인마다 이 목록을 관리자로 맞춘다 —
 #     비면 새 DB는 관리자 0명이고 역할을 올려 줄 사람이 없다. §4.5 참고, #672 · #1301)
 #     ⚠️ 옛 이름 INITIAL_OFFICE_EMAILS는 읽히지 않는다 — 남아 있으면 기동 실패 (#1301)
@@ -605,11 +606,15 @@ echo "<PAT>" | docker login ghcr.io -u <사용자명> --password-stdin
 |---------|------|-------------|------------|------------------------------|
 | `development` | 로컬 개발 | `console` 허용 | 비활성 | **열림** |
 | `test` | 자동 검사 | `console` 허용 | 비활성 | **열림** |
-| `staging` | SMTP 없이 배포 검증 | `console` 허용 | 비활성 | **닫힘** (#1058) |
+| `staging` | 배포 검증 · **현재 클라우드 배포** | `console` 허용 · `smtp`면 실제 발송 | 비활성 | **닫힘** (#1058) |
 | `production` | 운영 | `smtp` 필수 (console이면 기동 실패) | 필수 | **닫힘** |
 
-현재 상태: **`staging`** (SMTP 미설정).
-SMTP 설정 후 `APP_ENV=production`으로 전환한다.
+현재 상태: **`staging` + `MAIL_BACKEND=smtp`** — 인증·재설정 메일이 **실제로 발송된다** (2026-09-21 · `#787`).
+
+- **메일을 켜는 데 `production`이 필요하지 않다.** `mail/config.py`가 막는 것은 「`production`인데 `console`」 한 조합뿐이고, `smtp` 분기는 `APP_ENV`를 보지 않는다. 시크릿 6종(§5.2)만으로 `staging`에서 실제 발송한다.
+- **`production` 전환은 아직이다.** 바꾸면 기동 가드 셋이 함께 돈다 — 메일(`#524`, 지금은 통과) · 가입 게이트(`#808` — 시크릿이 비어 있으면 거부 · `#1530`) · 최초 관리자(`INITIAL_ADMIN_EMAILS` — 비어 있으면 거부). 뒤의 둘을 갖춘 뒤 바꾼다.
+
+> ⚠️ **기동은 SMTP에 접속해 보지 않는다** (`api/main.py` lifespan — 설정만 읽는다). 앱 비밀번호가 틀려도 배포·`/health`는 초록불이고, 틀린 것은 **첫 발송에서** 드러난다 — 가입은 발송이 실패해도 `201`로 끝나고 로그에만 남으며(`routes/auth.py` `가입 확인 메일 발송 실패 — 계정은 생성됨`), 인증 메일 재발송·비밀번호 재설정은 `500`(「메일이 발송되지 않았습니다」)을 낸다. 배포 로그의 `메일 백엔드: smtp`는 **설정을 읽었다**는 뜻일 뿐이다. SMTP 시크릿을 바꾸면 **실제 수신함으로 왕복**해 확인한다.
 
 > ⚠️ **`staging`의 마지막 열은 2026-09-15에 바뀌었다 (`#1058`).** 종전 판정은
 > `not is_production()`이라 `staging`에서 **`POST /auth/dev-login`(미인증 세션 발급) ·
@@ -721,12 +726,12 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 |--------|------|
 | `SIGNUP_ALLOWED_DOMAINS` | 가입 허용 메일 도메인 (쉼표 구분) |
 | `SIGNUP_INVITE_CODE` | 초대 코드 (16자 이상 권장). 문자 집합 주의는 아래 `TOUR_ACCESS_CODE` 행과 같다 — 모든 시크릿에 해당한다 |
-| `MAIL_BACKEND` | `smtp` (프로덕션) |
-| `MAIL_FROM` | 발신 주소 (예: `BlueLog <no-reply@example.com>`) |
+| `MAIL_BACKEND` | `smtp`. **등록됨(2026-09-21 · `#787`)** — `staging`에서도 실제 발송한다(§4.5). 비우면 `console`(로그로만) |
+| `MAIL_FROM` | 발신 주소. 현재 `BlueLog <26hp043@gmail.com>`. ⚠️ **Gmail SMTP는 `SMTP_USER` 계정 주소로 둔다** — 다른 주소를 넣으면 Gmail이 계정 주소로 덮어쓴다(별칭 등록 주소 제외). **비우면 `BlueLog <no-reply@localhost>`로 나간다** |
 | `SMTP_HOST` | SMTP 서버 (예: `smtp.gmail.com`) |
 | `SMTP_PORT` | SMTP 포트. **비워 두면 587**(submission)이다. **465를 넣으면 implicit TLS**로 붙는다 — 연결하는 순간부터 TLS이고 `SMTP_USE_TLS`와 무관하게 STARTTLS를 걸지 않는다(`RFC 8314 §3.3` · `#1331`) |
 | `SMTP_USER` | SMTP 사용자 |
-| `SMTP_PASSWORD` | SMTP 비밀번호 |
+| `SMTP_PASSWORD` | SMTP 비밀번호. Gmail은 계정 비밀번호가 아니라 **앱 비밀번호**(16자, 계정 2단계 인증이 켜져 있어야 발급된다 · myaccount.google.com/apppasswords)다. 공용 계정 `26hp043@gmail.com`에서 발급한다. 계정 비밀번호를 바꾸면 무효가 될 수 있으니, 그때는 재발급해 이 시크릿을 갈고 재배포한다 |
 | `SMTP_USE_TLS` | STARTTLS 사용 여부. 비워 두면 `true`. `SMTP_PORT=465`(implicit TLS)에서는 값과 무관하다 (`#1475`에서 배선) |
 | `TOUR_ACCESS_CODE` | **둘러보기 링크의 접근 코드** (`#1486`). `/login?tour=<코드>`로 들어온 사람에게 관리자 열람 세션을 준다. ⚠️ **비면 둘러보기가 닫힌다**(fail-closed) — 가입 게이트와 반대 방향이라 미설정이 안전한 기본값이다. 코드는 URL에 실려 브라우저 히스토리·접근 로그에 남으므로 **32자 이상**을 권하고, 인터뷰가 끝나면 비운다. 다만 **이미 발급된 세션은 7일간 살아 있다**. ⚠️ **문자는 `[A-Za-z0-9_-]`로 한정한다**(`python -c "import secrets;print(secrets.token_urlsafe(32))"`) — `'`가 들어가면 배포 ssh 인용이 끊겨 **잡이 통째로 실패**하고, `$`가 들어가면 compose가 `.env`를 보간해 **값이 조용히 잘린다**(`#1495` 실측). 잘려도 fail-closed라 링크만 거절되지만 원인이 보이지 않는다 |
 
@@ -1059,7 +1064,8 @@ DELETE /api/v1/auth/me (X-CSRF-Token) → 204, 이후 /auth/me → 401   ← 검
 - [ ] **`INITIAL_ADMIN_EMAILS` 설정** — ⚠️ **`.env`에 적는 것만으로는 닿지 않는다.** `docker-compose.prod.app.yml`의 `backend`에는 `env_file:`이 없고 `environment:` 목록만 주입되는데, `#1290` 이전 판에는 이 키가 그 목록에 **없었다** — compose가 `.env`를 읽는 것은 `${VAR}` 치환용이지 컨테이너 주입이 아니다(`#508`과 같은 함정). 그러므로 **`#1290`의 compose 변경을 함께 내려받은 뒤** `.env`를 채운다. 값을 채우고 해당 계정으로 다시 로그인하면 해소된다(`§3.3`, `§4.5`, `#672`, `#1290`)
   - 지금 사무직이 몇 명인지는 DB가 답한다 — `SELECT email, [role] FROM app_user WHERE is_deleted = false` (CUBRID에서 `role`은 예약어라 대괄호가 필요하다)
 - [ ] **`TOUR_ACCESS_CODE` 설정** — 미등록이라 **둘러보기 링크가 닫혀 있다**(fail-closed · `#1486`). 로그인 없이 화면을 보여 줄 유일한 경로이므로 시연 전에 정한다
-- [ ] **SMTP 설정** → `APP_ENV=production` 전환 (#787)
+- [x] ~~**SMTP 설정**~~ — 완료(2026-09-21 · `#787`). 공용 계정 Gmail SMTP(587 · STARTTLS), `staging`에서 실제 발송(§4.5)
+- [ ] **`APP_ENV=production` 전환** — 가입 게이트 시크릿(`#1530`) · `INITIAL_ADMIN_EMAILS`를 갖춘 뒤(§4.5)
 - [x] ~~**GitHub Secrets 등록**~~ — 완료(12종). 백엔드 9종(`#1201`) · `CLOUDFLARE_API_TOKEN`(`#1479`) · `API_ORIGIN`(`#1496`). 재발은 `test_deploy_secrets_are_listed_in_the_operations_secret_tables`가 막는다
 - [ ] **커스텀 도메인** → 화면(Pages)은 아직 `bluelog-bx7.pages.dev`다. **API는 `bluelog-api.kpubdata.com`으로 확보**됐다(`#1496` · §3.5). 화면 도메인을 붙이면 `CORS_ALLOW_ORIGINS`·`APP_PUBLIC_URL`도 함께 바꾼다 (#785)
 - [x] ~~**CUBRID 비밀번호 설정**~~ — 완료. `CUBRID_PASSWORD` 시크릿이 배포·헬스체크 양쪽에 쓰인다
