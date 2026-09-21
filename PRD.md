@@ -1343,7 +1343,7 @@ CII가 가장 낮은 시나리오: SLOW_STEAMING
 | `regulation_year` | Y | int | 현재 연도 | 등급 기준 |
 | `current_lat` | 조건부 | decimal | 없음 | 현재 위도. `direct_distance_nm`이 없으면 목적항 좌표와 함께 필요하다 (`API_SPEC §5.1` · `#830`) |
 | `current_lon` | 조건부 | decimal | 없음 | 현재 경도. 위와 같다 |
-| `destination_port_name` | Y | string | 없음 | 목적항 |
+| `destination_port_name` | N | string | 없음 | 목적항 **표기용**. 결과·계획에 이름으로 남을 뿐 **계산에 쓰지 않는다** — 거리는 좌표 또는 `direct_distance_nm`이 정한다 (`API_SPEC §5.1` · `#1454`) |
 | `destination_lat` | 조건부 | decimal | 없음 | 목적항 위도 |
 | `destination_lon` | 조건부 | decimal | 없음 | 목적항 경도 |
 | `current_speed_kn` | Y | decimal | 없음 | 현재 속도 |

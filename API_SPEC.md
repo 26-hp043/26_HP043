@@ -2454,6 +2454,7 @@ POST /api/v1/scenarios/compare
 | `regulation_year` | int | Y | VAL-005 | 등급 기준연도 |
 | `current_lat` | decimal | 조건부 | VAL-007: −90 ~ +90 | 현재 위도. `direct_distance_nm`이 없으면 목적항 좌표와 함께 필요(서비스가 검증) — #830 정정, 종전 「Y」 |
 | `current_lon` | decimal | 조건부 | VAL-007: −180 ~ +180 | 현재 경도. 위와 같다 |
+| `destination_port_name` | string | N | 최대 200자 | 목적항 이름. **표기용이라 계산에 쓰지 않는다** — 요청 예시에는 있었으나 이 표에 없었다 (`#1454`) |
 | `destination_lat` | decimal | 조건부 | VAL-007 | 목적항 위도 (거리 자동 계산 시 필요) |
 | `destination_lon` | decimal | 조건부 | VAL-007 | 목적항 경도 |
 | `current_speed_kn` | decimal | Y | VAL-009: ≥ 1.0 | 현재 속도 |
