@@ -658,6 +658,79 @@ describe('선택 입력이 요청까지 도달한다 (#892)', () => {
  * 서버는 `#58`로 있었는데 화면 소비처가 0곳이었다. 흐름은 디자인 판정(2026-08-23)을
  * 따른다 — 계획 단계 항차만 · 같은 화면에 남는다 · 되돌리기 없음을 **채택 전에** 알린다.
  */
+/**
+ * 입력을 성격으로 셋으로 가른다 (`#1417`).
+ *
+ * 종전에는 13칸이 `<fieldset>` 없이 한 평면에 놓여, 비워도 되는 칸과 비우면 계산이
+ * 안 되는 칸이 같은 무게였다. **비워 두면 서버 기본인 칸**을 「고급 설정」으로 접었다.
+ *
+ * ⚠️ jsdom은 닫힌 `<details>` 안의 칸도 찾아 준다 — 위 검사들이 고급 칸을 **펼치지 않고**
+ * 채워도 통과하는 이유다. 실제 브라우저에서는 접힌 칸에 닿을 수 없으므로, 여기서는
+ * **접혀 있는가 · 오류가 나면 펼치는가 · 겉에서 안쪽 상태가 보이는가**를 따로 본다.
+ */
+describe('입력 묶음과 고급 설정 (#1417)', () => {
+  const advanced = () =>
+    screen.getByText('고급 설정').closest('details') as HTMLDetailsElement
+
+  it('필수·위치 묶음이 있고, 고급은 처음에 접혀 있다', async () => {
+    stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    expect(screen.getByRole('group', { name: '필수 입력' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: '위치' })).toBeTruthy()
+    expect(advanced().open).toBe(false)
+  })
+
+  it('비워 두면 서버 기본이라는 것을 접힌 겉에서 말하고, 칸을 채우면 그 수를 말한다', async () => {
+    stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    const summary = advanced().querySelector('summary') as HTMLElement
+    expect(summary.textContent).toContain('기본 규칙')
+
+    fireEvent.change(screen.getByLabelText(/감속 속력/), { target: { value: '10' } })
+
+    // 안에 값이 들어 있는데 겉에서 안 보이면 기본 규칙으로 계산했다고 믿는다 (#1418).
+    expect(summary.textContent).toContain('1개')
+  })
+
+  it('고급 칸에 오류가 나면 스스로 펼친다 — 접힌 채로는 오류가 보이지 않는다', async () => {
+    stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    expect(advanced().open).toBe(false)
+
+    fireEvent.change(screen.getByLabelText(/감속 속력/), { target: { value: '0.5' } })
+    await clickCompare()
+
+    expect(await screen.findByText(/감속 속력은 1 이상이어야 합니다\./)).toBeTruthy()
+    expect(advanced().open).toBe(true)
+  })
+
+  it('목적항은 필수 묶음이 아니라 위치 묶음에 있다 — #1454로 선택 필드가 됐다', async () => {
+    stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    const destination = screen.getByLabelText('목적항')
+    expect(destination.closest('fieldset')?.querySelector('legend')?.textContent).toBe('위치')
+    expect(destination.hasAttribute('required')).toBe(false)
+  })
+
+  it('결과 카드에 계약 코드가 보이지 않는다 — 한국어 이름이 바로 위에 있다', async () => {
+    stubServerWithComparison()
+    renderScreen()
+    await compareAndWaitForResult()
+
+    // 「감속」은 카드 이름과 표·범례에 여러 번 나온다 — 있는지만 본다.
+    expect(screen.getAllByText('감속').length).toBeGreaterThan(0)
+    expect(screen.queryByText('SLOW_STEAMING')).toBeNull()
+    expect(screen.queryByText('DETOUR')).toBeNull()
+  })
+})
+
 describe('계획에 반영 (#580)', () => {
   const VESSEL = '00000000-0000-4000-8000-000000000001'
   const VOYAGES = [

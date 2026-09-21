@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   FIELD,
   MIN_SPEED_KN,
+  countAdvancedFilled,
+  hasAdvancedError,
   initialFormState,
   toRequest as toRequestWith,
   usesCoordinateDistance,
@@ -355,3 +357,21 @@ describe('좌표 기반 직항 거리 (#1005)', () => {
   })
 })
 
+describe('고급 설정의 상태 (#1417)', () => {
+  it('처음에는 기본에서 벗어난 칸이 없다 — 기상 모델의 기본은 빈 칸이 아니라 NONE이다', () => {
+    expect(countAdvancedFilled(initialFormState())).toBe(0)
+  })
+
+  it('칸을 채우면 센다 — 기상 모델은 NONE이 아닐 때만', () => {
+    const form = { ...initialFormState(), slowSpeedKn: '10', weatherModel: 'SIMPLE_RULE' }
+    expect(countAdvancedFilled(form)).toBe(2)
+    expect(countAdvancedFilled({ ...initialFormState(), detourDistanceNm: '   ' })).toBe(0)
+  })
+
+  it('고급 칸의 오류만 고급 오류다 — 필수 칸 오류로 펼치지 않는다', () => {
+    expect(hasAdvancedError({ [FIELD.slowSpeedKn]: 'x' })).toBe(true)
+    expect(hasAdvancedError({ [FIELD.currentLat]: 'x' })).toBe(true)
+    expect(hasAdvancedError({ [FIELD.baseSpeedKn]: 'x' })).toBe(false)
+    expect(hasAdvancedError({})).toBe(false)
+  })
+})
