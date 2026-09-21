@@ -100,7 +100,7 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
           className="history__chart"
           viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           role="img"
-          aria-label={`연도별 CII 이력 차트. 값은 아래 표에 있습니다. 단위 ${unit}.`}
+          aria-label={`연도별 CII 이력 차트. 값은 아래 「${TABLE_TOGGLE}」에 있습니다. 단위 ${unit}.`}
         >
           {/*
             `§9.1` — 그리드선은 **가로만**. 세로 그리드선은 시간축이라 쓰지 않는다.
@@ -186,9 +186,17 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
               `§9.1`의 세로축 눈금을 대신하는 자리이기도 하다(막대가 둘셋뿐이라
               눈금보다 값을 직접 적는 편이 짧다).
             */}
-            {year.attainedCii === null
-              ? null
-              : formatDecimalString(year.attainedCii, DISPLAY_DIGITS.cii)}
+            {/*
+              **올해는 값 대신 「진행 중」이다** (#1571). 같은 값이 바로 위 「올해 누적」 카드에
+              있다 — 첫 화면에서 세 번(카드 · 여기 · 표) 나오던 것을 카드 한 곳으로 모은다.
+              막대는 그대로 그려 확정된 해와 높낮이를 견줄 수 있게 두고, 등급 문자는 막대 색의
+              보조 채널이라 남긴다(`§14`). 연중 값이 추정이라는 사실도 함께 드러난다.
+            */}
+            {year.status === 'IN_PROGRESS'
+              ? <span className="history__cap-progress">{IN_PROGRESS_CAP}</span>
+              : year.attainedCii === null
+                ? null
+                : formatDecimalString(year.attainedCii, DISPLAY_DIGITS.cii)}
           </p>
         ))}
       </div>
@@ -224,11 +232,26 @@ export function CiiHistoryChart({ years, basis }: CiiHistoryChartProps) {
         작을수록 효율이 높습니다.
       </p>
 
-      <HistoryTable years={years} unit={unit} />
+      {/*
+        연도별 표는 **접는다** (#1571). 차트의 대체 표(`PRD §16.4` · `DESIGN_SYSTEM §14`)라
+        없앨 수 없지만, 펼쳐 두면 차트 라벨 · 「올해 누적」 카드와 같은 값을 세 번째로 적는다.
+        차트의 `aria-label`이 이 접기를 가리킨다. 차트가 없는 선박(위 갈래)은 표가 유일한
+        자리라 펼쳐 둔다. 연료별 내역은 차트에 없는 정보라 접지 않는다.
+      */}
+      <details className="history__table-toggle">
+        <summary>{TABLE_TOGGLE}</summary>
+        <HistoryTable years={years} unit={unit} />
+      </details>
       <FuelTable years={years} />
     </div>
   )
 }
+
+/** 연도별 표를 여는 접기의 이름 (#1571) — 차트 `aria-label`이 같은 이름으로 가리킨다. */
+const TABLE_TOGGLE = '표로 보기'
+
+/** 올해(진행 중) 막대 라벨 (#1571) — 값은 「올해 누적」 카드 한 곳에 있다. */
+const IN_PROGRESS_CAP = '진행 중'
 
 /**
  * 표 요약 — `PRD §16.4` 「표 대체 설명」.

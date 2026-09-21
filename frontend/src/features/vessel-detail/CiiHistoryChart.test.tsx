@@ -171,3 +171,54 @@ describe('연도별 연료 내역 (#769)', () => {
     expect(fuelTable(container)).toBeNull()
   })
 })
+
+/**
+ * 올해 값은 「올해 누적」 카드 한 곳에 (#1571).
+ *
+ * 종전에는 같은 올해 값이 카드 · 차트 막대 라벨 · 연도별 표에 세 번 나왔다. 올해 막대 라벨은
+ * 「진행 중」, 연도별 표는 「표로 보기」 접기 안이다. 차트가 없으면 표가 유일한 자리라 펼친다.
+ */
+describe('올해 값은 한 번 (#1571)', () => {
+  const YEARS = [
+    year({ regulationYear: 2025, attainedCii: '5.200000', rating: 'C' }),
+    year({ regulationYear: 2026, status: 'IN_PROGRESS', attainedCii: '8.214000', rating: 'E' }),
+  ]
+  const caps = (container: HTMLElement) =>
+    [...container.querySelectorAll('.history__cap')].map((cap) => cap.textContent)
+
+  it('올해 막대 라벨은 등급 + 「진행 중」이고 값이 없다 — 확정된 해는 값을 적는다', () => {
+    const { container } = render(<CiiHistoryChart years={YEARS} basis="DWT" />)
+    expect(caps(container)).toEqual(['C5.200', 'E진행 중'])
+  })
+
+  it('연도별 표는 「표로 보기」 안에 닫혀 있고, 차트가 그 이름을 가리킨다', () => {
+    const { container } = render(<CiiHistoryChart years={YEARS} basis="DWT" />)
+    const details = container.querySelector('details.history__table-toggle') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    expect(details.querySelector('summary')?.textContent).toBe('표로 보기')
+    expect(details.querySelector('caption')?.textContent).toMatch(/연도별 CII 실적/)
+    expect(container.querySelector('svg')?.getAttribute('aria-label')).toContain('「표로 보기」')
+  })
+
+  it('연료별 내역은 접지 않는다 — 차트에 없는 정보다', () => {
+    const withFuel = YEARS.map((y) => ({
+      ...y,
+      fuels: [{ fuelType: 'HFO', fuelTon: '80.00', co2Ton: '249.10', co2SharePercent: '100.00' }],
+    }))
+    const { container } = render(<CiiHistoryChart years={withFuel} basis="DWT" />)
+    const fuel = [...container.querySelectorAll('caption')].find((c) => /연료 내역/.test(c.textContent ?? ''))
+    expect(fuel?.closest('details')).toBeNull()
+  })
+
+  it('차트가 없으면(실적 없음) 연도별 표는 펼쳐 둔다 — 유일한 자리다', () => {
+    const { container } = render(
+      <CiiHistoryChart
+        years={[year({ regulationYear: 2026, status: 'IN_PROGRESS', dataAvailable: false, attainedCii: null })]}
+        basis="DWT"
+      />,
+    )
+    expect(container.querySelector('svg')).toBeNull()
+    const table = container.querySelector('table.history__table') as HTMLElement
+    expect(table.closest('details')).toBeNull()
+  })
+})
