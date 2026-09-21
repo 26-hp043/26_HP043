@@ -62,6 +62,64 @@ export const SAMPLE_FILLED_FIELDS = [
   'reference_daily_foc_ton',
 ] as const
 
+/** `applySample`이 채우는 여섯 폼 필드 — `hasDivergedFields`가 이 목록으로 돈다. */
+const SAMPLE_FORM_FIELDS = [
+  'shipType',
+  'grossTonnage',
+  'deadweight',
+  'defaultFuelType',
+  'referenceSpeedKn',
+  'referenceDailyFocTon',
+] as const satisfies readonly (keyof VesselFormState)[]
+
+/**
+ * 두 텍스트 값이 「같은 값」인지 본다. 문자 그대로 같으면 참이고, 아니면 **둘 다
+ * 유한수로 읽힐 때만** 수치로 비교한다 — `'12345.0'`과 `'12345'`는 표현만 다를 뿐
+ * 같은 값이다. `Number('')`가 `0`이라 빈 문자열을 수치로 취급하면 안 된다.
+ */
+function sameValue(a: string, b: string): boolean {
+  if (a === b) return true
+  if (a.trim() === '' || b.trim() === '') return false
+  const na = Number(a)
+  const nb = Number(b)
+  return Number.isFinite(na) && Number.isFinite(nb) && na === nb
+}
+
+/**
+ * 샘플을 고르면 **사용자가 직접 적은 값이 사라지는가**를 본다 (`#1526`).
+ *
+ * 샘플을 고를 때 조건 없이 덮으면(`applySample`) 직접 입력한 값이 조용히 사라진다.
+ * 이 함수는 「덮기 전에 물어야 하는가」를 판정하는 순수 함수다 — 화면은 이 결과로만
+ * `confirm()`을 부른다. 한 칸이 걸리려면 셋이 모두 성립해야 한다.
+ *
+ * 1. **값이 있다** — 빈 칸은 덮어도 잃을 것이 없다.
+ * 2. **마지막으로 채운 샘플의 값이 아니다** — 샘플이 넣은 값은 사용자가 적은 값이
+ *    아니다. 그래서 샘플끼리 바꿀 때는 묻지 않는다(`lastApplied`가 없으면 이 조건은
+ *    늘 성립한다).
+ * 3. **고르려는 샘플이 넣을 값과 다르다** — 같으면 바뀌는 것이 없다.
+ *
+ * 값 비교는 `applySample`과 **같은 변환**을 거친 뒤 한다(`sameValue`).
+ */
+export function hasDivergedFields(
+  state: VesselFormState,
+  lastApplied: SampleVessel | null,
+  next: SampleVessel,
+): boolean {
+  const fromLast = lastApplied === null ? null : applySample(state, lastApplied)
+  const fromNext = applySample(state, next)
+  return SAMPLE_FORM_FIELDS.some((field) => {
+    const current = state[field]
+    if (current.trim() === '') return false
+    if (fromLast !== null && sameValue(current, fromLast[field])) return false
+    return !sameValue(current, fromNext[field])
+  })
+}
+
+/** 샘플 덮어쓰기 확인 문구. 문구 자체는 표시 문구다(`AGENTS §4.6`) — 디자인 확정 전 자리표시자. */
+export function sampleOverwriteConfirmMessage(): string {
+  return '입력한 선종·제원을 샘플 값으로 바꿀까요?'
+}
+
 function isSample(row: unknown): row is SampleVessel {
   if (typeof row !== 'object' || row === null) return false
   const r = row as Record<string, unknown>
