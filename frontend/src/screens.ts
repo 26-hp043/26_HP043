@@ -283,8 +283,9 @@ export const SCREEN_BY_ID = {
     uiflowRef: '2-6',
     purpose: '사용자 및 시스템 환경 설정',
     width: 'form',
-    // 계정 관리로 좁혀 구현 (#506). 조직·권한 설정은 #359 결정 후 붙인다 —
-    // 자기 계정 관리는 권한과 무관해 UIFLOW 판정 보류와 충돌하지 않는다.
+    // 계정 관리(#506) + 「규제 기준값」 절(#1516 · `#1239` 결정 B). 조직·세부 권한
+    // 설정은 여전히 없다(`PRD §5.2`). 규제 기준값은 새 화면이 아니라 이 화면 안의
+    // 절이라 화면 ID를 늘리지 않는다 — 링크는 설정 경로 + 앵커다.
     implemented: true,
   },
 } as const satisfies Record<ScreenId, ScreenMeta>
