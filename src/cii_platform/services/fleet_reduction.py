@@ -34,7 +34,7 @@ from cii_platform.calc.fleet_reduction import (
     summarize_costs,
     target_rating_for,
 )
-from cii_platform.calc.precision import layer1_context
+from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING, layer1_context
 from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import AppError, NotFoundError, ParameterError, ValidationError
@@ -74,9 +74,24 @@ PLAN_LIST_MAX = 100
 
 
 def _publish(value: Decimal | None, digits: int) -> str | None:
+    """CII가 아닌 값(연료·일수·금액·감속률)을 문자열로 — ``API_SPEC §1.7``.
+
+    반올림을 명시한다 — ``f"{value:.2f}"``는 호출 스레드의 Decimal 컨텍스트를 따라 갈린다.
+    """
     if value is None:
         return None
-    return f"{value:.{digits}f}"
+    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING))
+
+
+def _publish_cii(value: Decimal | None) -> str | None:
+    """감속 전후 CII를 소수 4자리로 **절사**한다 (`#1349` · 선대 요약과 같다).
+
+    화면이 3자리로 다시 반올림하므로 여기서 반올림하면 두 번 반올림된다
+    (`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+    """
+    if value is None:
+        return None
+    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=CII_SERIALIZATION_ROUNDING))
 
 
 def _legs(voyages_json: list[dict]) -> list[PlannedLeg]:
@@ -271,11 +286,11 @@ async def evaluate_reduction_plan(
                 **base_row,
                 "unavailable_reason": None,
                 "before": {
-                    "attained_cii": _publish(before.attained_cii, _CII_DIGITS),
+                    "attained_cii": _publish_cii(before.attained_cii),
                     "rating": before.rating,
                 },
                 "after": {
-                    "attained_cii": _publish(after.attained_cii, _CII_DIGITS),
+                    "attained_cii": _publish_cii(after.attained_cii),
                     "rating": after.rating,
                 },
                 "target_rating": target_rating,

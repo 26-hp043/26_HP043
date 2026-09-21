@@ -85,7 +85,9 @@ ANCHOR: dict[str, dict[str, Any]] = {
         "duration_hours": "846.1538",
         "fuel_ton": "987.99",
         "co2_emission_ton": "3076.60",
-        "attained_cii": "5.593814",
+        # 원값 5.59381377… — CII는 6자리 **절사**다(`#1349` · `TECH_SPEC §1.2.1`). 종전 앵커
+        # `"5.593814"`는 HALF_UP 시절 값이다. 수치 계약이며 표시 문구가 아니다.
+        "attained_cii": "5.593813",
         "ratio_to_required": "1.10877",
         "estimated_rating": "D",
         "risk_level": "HIGH",

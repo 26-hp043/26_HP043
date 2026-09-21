@@ -27,7 +27,7 @@ Layer 1 전용이 아니라 표시 반올림(`PRD §9.3`)까지 걸리는 저장
 
 import functools
 from collections.abc import Callable
-from decimal import ROUND_HALF_UP, Decimal, DefaultContext, localcontext
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, DefaultContext, localcontext
 
 # TECH_SPEC §1.2.1 표. 값을 바꾸면 재현성 계약(§5.4)이 바뀐다.
 #
@@ -44,6 +44,20 @@ LAYER1_CANONICAL_SIGNIFICANT_DIGITS = 30
 LAYER1_WORKING_PRECISION = LAYER1_CANONICAL_SIGNIFICANT_DIGITS + 20
 
 LAYER1_ROUNDING = ROUND_HALF_UP
+
+#: **응답 직렬화에서 CII의 자릿수를 줄일 때**의 반올림 — `TECH_SPEC §1.2.1` 「응답 직렬화의
+#: 절사」(`#1349`). 저장소 공통 정책(:data:`LAYER1_ROUNDING`)의 **유일한 예외**다.
+#:
+#: 화면·보고서는 받은 문자열을 소수 3자리로 **반올림**한다(`PRD §9.3`). 전송 단계(소수 6·4)도
+#: 반올림이면 반올림이 두 번이 되어 드물게 끝자리가 1 올라간다 — `4.9824996`은 원값에서
+#: 바로 3자리면 `4.982`인데, 6자리 HALF_UP `"4.982500"`을 거치면 `4.983`이 된다. 절사로
+#: 잃는 양은 `10⁻ⁿ` 미만이라 3자리 반올림 경계를 넘지 못하므로, 「절사 뒤 표시 반올림」은
+#: 「원값 직접 반올림」과 언제나 같다(음수도 대칭 — `ROUND_DOWN`은 0 방향 절사다).
+#:
+#: **적용 범위는 CII 값을 싣는 필드뿐이다.** 공표 확정(유효숫자 30)과 등급 판정은 그대로이고,
+#: 전송 자릿수가 표시 자릿수와 같은 필드(연료 소수 1자리)·Layer 2 확률(소수 4자리가 곧
+#: 정본)·보고서 표시 단계·비율·물리량은 그대로 `ROUND_HALF_UP`이다.
+CII_SERIALIZATION_ROUNDING = ROUND_DOWN
 
 
 def apply_default_rounding() -> None:

@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import capacity_axis
-from cii_platform.calc.precision import LAYER1_ROUNDING
+from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
@@ -80,9 +80,15 @@ _DIGITS = {"cii": 6, "distance_nm": 2, "fuel_ton": 2, "co2_ton": 2, "share_perce
 _GRAMS_PER_TON = Decimal(1_000_000)
 
 
-def _publish(value: Decimal, digits: int) -> str:
-    """정본값을 표시 자릿수 문자열로 확정한다 (표시 계약 — 계산 정밀도가 아니다)."""
-    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING))
+def _publish(value: Decimal, kind: str) -> str:
+    """정본값을 전송 자릿수 문자열로 확정한다 (표시 계약 — 계산 정밀도가 아니다).
+
+    반올림은 **종류가 정한다** (`#1349`). ``"cii"``(연도별 ``attained``·``required``)는
+    절사하고, 거리·연료·CO₂·비중은 ``ROUND_HALF_UP`` 그대로다 — 절사는 화면의 3자리
+    반올림과 겹쳐 두 번 반올림되는 것을 막는 장치다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+    """
+    rounding = CII_SERIALIZATION_ROUNDING if kind == "cii" else LAYER1_ROUNDING
+    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
 
 
 def _validate_window(start: int, end: int) -> None:
@@ -136,14 +142,12 @@ def _fuel_rows(
         rows.append(
             {
                 "fuel_type": fuel_type,
-                "fuel_ton": _publish(ton, _DIGITS["fuel_ton"]),
-                "co2_ton": (
-                    None if co2_g is None else _publish(co2_g / _GRAMS_PER_TON, _DIGITS["co2_ton"])
-                ),
+                "fuel_ton": _publish(ton, "fuel_ton"),
+                "co2_ton": (None if co2_g is None else _publish(co2_g / _GRAMS_PER_TON, "co2_ton")),
                 "co2_share_percent": (
                     None
                     if co2_g is None or total_co2_g <= 0
-                    else _publish(co2_g / total_co2_g * 100, _DIGITS["share_percent"])
+                    else _publish(co2_g / total_co2_g * 100, "share_percent")
                 ),
             }
         )
@@ -219,12 +223,10 @@ async def _year_row(
         row["total_distance_nm"] = (
             None
             if result.total_distance_nm is None
-            else _publish(result.total_distance_nm, _DIGITS["distance_nm"])
+            else _publish(result.total_distance_nm, "distance_nm")
         )
         row["total_fuel_ton"] = (
-            None
-            if result.total_fuel_ton is None
-            else _publish(result.total_fuel_ton, _DIGITS["fuel_ton"])
+            None if result.total_fuel_ton is None else _publish(result.total_fuel_ton, "fuel_ton")
         )
         # 거리가 0이라 CII는 못 내도 **연료는 들어갔을 수 있다**(정박만 한 해).
         row["fuels"] = _fuel_rows(result.fuel_ton_breakdown, result.fuel_breakdown_g)
@@ -252,14 +254,14 @@ async def _year_row(
         "status": status,
         "data_available": True,
         "reason": None,
-        "attained_cii": _publish(result.attained_cii, _DIGITS["cii"]),
-        "required_cii": _publish(result.required_cii, _DIGITS["cii"]),
+        "attained_cii": _publish(result.attained_cii, "cii"),
+        "required_cii": _publish(result.required_cii, "cii"),
         "rating": result.rating,
         "voyage_count": result.voyage_count,
         # 거리·연료에 들어간 진행분을 센다 — 없으면 한 행 안에서 검산이 안 맞는다 (`#800`).
         "in_progress_voyage_count": result.in_progress_voyage_count,
-        "total_distance_nm": _publish(result.total_distance_nm, _DIGITS["distance_nm"]),
-        "total_fuel_ton": _publish(result.total_fuel_ton, _DIGITS["fuel_ton"]),
+        "total_distance_nm": _publish(result.total_distance_nm, "distance_nm"),
+        "total_fuel_ton": _publish(result.total_fuel_ton, "fuel_ton"),
         "fuels": _fuel_rows(result.fuel_ton_breakdown, result.fuel_breakdown_g),
     }
 

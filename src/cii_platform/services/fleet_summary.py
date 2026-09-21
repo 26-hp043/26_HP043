@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import resolve_transport_capacity
-from cii_platform.calc.precision import layer1_context
+from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING, layer1_context
 from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
@@ -149,14 +149,28 @@ RECENT_WINDOW_DAYS = 30
 
 
 def _publish(value: Decimal | None, digits: int) -> str | None:
-    """Layer 1 값을 표시 문자열로.
+    """Layer 1 값을 표시 문자열로 — CII가 아닌 값(좌표 등)에 쓴다.
 
     ``float``으로 되돌리지 않는다 — `API_SPEC §1.7`이 문자열 직렬화로 지킨 정밀도가
-    그 순간 사라진다.
+    그 순간 사라진다. 반올림을 명시한다 — ``f"{value:.4f}"``는 호출 스레드의 Decimal
+    컨텍스트를 따라 갈린다(`#1349`).
     """
     if value is None:
         return None
-    return f"{value:.{digits}f}"
+    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING))
+
+
+def _publish_cii(value: Decimal | None) -> str | None:
+    """YTD CII를 대시보드 자릿수(소수 4)로 **절사**한다 (`#1349`).
+
+    화면은 이 문자열을 다시 3자리로 반올림한다. 여기서도 반올림하면 두 번 반올림되어
+    4자리에서는 5.1%가 끝자리가 올라갔다 — 절사 뒤 반올림은 원값 직접 반올림과 언제나
+    같다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」). CII 필드는 :func:`_publish`가 아니라
+    이 함수를 거친다.
+    """
+    if value is None:
+        return None
+    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=CII_SERIALIZATION_ROUNDING))
 
 
 def _route_of(voyage) -> dict[str, str] | None:
@@ -806,8 +820,8 @@ async def get_fleet_summary(
                     else None
                 ),
                 "data_available": ytd.data_available,
-                "ytd_attained_cii": _publish(ytd.attained_cii, _CII_DIGITS),
-                "ytd_required_cii": _publish(ytd.required_cii, _CII_DIGITS),
+                "ytd_attained_cii": _publish_cii(ytd.attained_cii),
+                "ytd_required_cii": _publish_cii(ytd.required_cii),
                 "ytd_rating": ytd.rating,
                 "risk_level": ytd.risk_level,
                 "risk_reasons": reasons,

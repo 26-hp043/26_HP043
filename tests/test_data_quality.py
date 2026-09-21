@@ -162,3 +162,17 @@ def test_completeness_is_a_share_of_emissions_not_of_voyages():
 def test_no_emissions_is_not_full_completeness():
     """배출이 없는 선박을 100%로 적으면 **데이터가 없는 선박이 가장 완결돼 보인다.**"""
     assert completeness_ratio(Decimal(0), Decimal(0)) is None
+
+
+def test_publish_cii_truncates_toward_zero_and_ratio_rounds():
+    """CII 영향값은 절사, 완전성 비율은 반올림 (`#1349` · `TECH_SPEC §1.2.1`).
+
+    ``delta``는 음수일 수 있다 — ``ROUND_DOWN``은 0 방향 절사라 부호에 대칭이고, 절사 뒤
+    화면의 3자리 반올림은 원값 직접 반올림과 같다. 기대값은 수치 계약이며 표시 문구가 아니다.
+    """
+    from cii_platform.services.data_quality import _RATIO_DIGITS, _publish, _publish_cii
+
+    assert _publish_cii(Decimal("4.9824996")) == "4.9824"
+    assert _publish_cii(Decimal("-0.0004996")) == "-0.0004"
+    assert _publish_cii(None) is None
+    assert _publish(Decimal("0.98765"), _RATIO_DIGITS) == "0.9877"

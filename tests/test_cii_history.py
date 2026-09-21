@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from uuid import uuid4
 
 import pytest
@@ -149,13 +149,13 @@ async def test_year_values_delegate_to_ytd_service(session):
     for year in (2025, 2026):
         ytd = await compute_ytd_cii(session, vessel_id=vessel_id, regulation_year=year)
         row = by_year[year]
-        # 직렬화 비교는 서비스와 같은 반올림(ROUND_HALF_UP)으로 — 기본 context의
-        # HALF_EVEN과 tie에서 갈라진다.
+        # 직렬화 비교는 서비스와 같은 반올림으로 — 기본 context의 HALF_EVEN과 tie에서
+        # 갈라진다. CII는 절사(ROUND_DOWN · `#1349`), 거리·연료는 ROUND_HALF_UP이다.
         assert row["attained_cii"] == str(
-            ytd.attained_cii.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+            ytd.attained_cii.quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
         )
         assert row["required_cii"] == str(
-            ytd.required_cii.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+            ytd.required_cii.quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
         )
         assert row["rating"] == ytd.rating
         assert row["voyage_count"] == ytd.voyage_count
@@ -165,6 +165,19 @@ async def test_year_values_delegate_to_ytd_service(session):
         assert row["total_fuel_ton"] == str(
             ytd.total_fuel_ton.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         )
+
+
+def test_publish_truncates_cii_but_rounds_quantities():
+    """연도별 CII는 절사, 거리·연료는 반올림 (`#1349` · `TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+
+    ``4.9824996``은 원값에서 바로 3자리면 `4.982`인데 6자리 HALF_UP ``"4.982500"``을 거치면
+    화면이 `4.983`으로 올린다. 기대값은 수치 계약이며 표시 문구가 아니다.
+    """
+    from cii_platform.services.cii_history import _publish
+
+    assert _publish(Decimal("4.9824996"), "cii") == "4.982499"
+    assert _publish(Decimal("1234.565"), "distance_nm") == "1234.57"
+    assert _publish(Decimal("80.005"), "fuel_ton") == "80.01"
 
 
 @pytest.mark.asyncio

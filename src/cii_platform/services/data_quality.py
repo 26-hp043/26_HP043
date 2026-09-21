@@ -38,7 +38,7 @@ from cii_platform.calc.data_quality import (
     completeness_ratio,
     judge_anomaly,
 )
-from cii_platform.calc.precision import layer1_context
+from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING, layer1_context
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -102,10 +102,24 @@ _RATIO_DIGITS = 4
 
 
 def _publish(value: Decimal | None, digits: int) -> str | None:
-    """Layer 1 값을 문자열로 확정한다 — ``API_SPEC §1.7`` (선대 요약과 같은 규약)."""
+    """CII가 아닌 값(완전성 비율)을 문자열로 확정한다 — ``API_SPEC §1.7`` (선대 요약과 같은 규약).
+
+    반올림을 명시한다 — ``f"{value:.4f}"``는 호출 스레드의 Decimal 컨텍스트를 따라 갈린다.
+    """
     if value is None:
         return None
-    return f"{value:.{digits}f}"
+    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING))
+
+
+def _publish_cii(value: Decimal | None) -> str | None:
+    """CII 값(누적·제외 시·차이)을 소수 4자리로 **절사**한다 (`#1349` · 선대 요약과 같다).
+
+    ``delta``는 음수일 수 있다 — ``ROUND_DOWN``은 0 방향 절사라 부호에 대칭이고, 절사 뒤
+    화면의 3자리 반올림은 원값 직접 반올림과 같다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+    """
+    if value is None:
+        return None
+    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=CII_SERIALIZATION_ROUNDING))
 
 
 @dataclass(frozen=True)
@@ -208,9 +222,9 @@ async def _impact(
         return None, IMPACT_ONLY_VOYAGE
     return (
         {
-            "attained_cii": _publish(base.attained_cii, _CII_DIGITS),
-            "attained_cii_without": _publish(without.attained_cii, _CII_DIGITS),
-            "delta": _publish(base.attained_cii - without.attained_cii, _CII_DIGITS),
+            "attained_cii": _publish_cii(base.attained_cii),
+            "attained_cii_without": _publish_cii(without.attained_cii),
+            "delta": _publish_cii(base.attained_cii - without.attained_cii),
             "rating": base.rating,
             "rating_without": without.rating,
         },
@@ -368,7 +382,7 @@ async def get_fleet_data_quality(
                 "vessel_name": vessel.name,
                 "data_available": bool(ytd is not None and ytd.data_available),
                 "unavailable_reason": vessel_reason,
-                "ytd_attained_cii": _publish(ytd.attained_cii if ytd else None, _CII_DIGITS),
+                "ytd_attained_cii": _publish_cii(ytd.attained_cii if ytd else None),
                 "ytd_rating": ytd.rating if ytd else None,
                 "voyage_count": len(voyages),
                 "completeness_ratio": _publish(ratio, _RATIO_DIGITS),

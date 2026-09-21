@@ -46,7 +46,11 @@ from typing import TYPE_CHECKING
 from cii_platform.calc.annual_simulation import project_deterministic
 from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
-from cii_platform.calc.precision import LAYER1_ROUNDING, layer1_context
+from cii_platform.calc.precision import (
+    CII_SERIALIZATION_ROUNDING,
+    LAYER1_ROUNDING,
+    layer1_context,
+)
 from cii_platform.calc.rating_engine import (
     calculate_deterministic_risk,
     calculate_margin_ratio,
@@ -139,10 +143,16 @@ WARNING_NO_REMAINING_PLAN = "PROJECTION_NO_REMAINING_PLAN"
 
 
 def _publish(value: Decimal | None, kind: str) -> str | None:
-    """``API_SPEC §1.7`` 문자열 직렬화. ``float``으로 되돌리면 정밀도가 사라진다."""
+    """``API_SPEC §1.7`` 문자열 직렬화. ``float``으로 되돌리면 정밀도가 사라진다.
+
+    반올림은 **종류가 정한다** (`#1349`). ``"cii"``(YTD·경계·연말 예상·진행 중 항차의 CII)는
+    절사하고, 비율·물리량·남은 일수는 ``ROUND_HALF_UP`` 그대로다 — 절사는 화면의 3자리
+    반올림과 겹쳐 두 번 반올림되는 것을 막는 장치다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+    """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=LAYER1_ROUNDING))
+    rounding = CII_SERIALIZATION_ROUNDING if kind == "cii" else LAYER1_ROUNDING
+    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
 
 
 def _validate_year(year: int) -> None:

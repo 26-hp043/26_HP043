@@ -66,7 +66,7 @@ from cii_platform.calc.annual_simulation import (
 )
 from cii_platform.calc.cii_engine import calculate_required_cii
 from cii_platform.calc.hash import compute_annual_input_hash, compute_parameter_hash
-from cii_platform.calc.precision import LAYER1_ROUNDING
+from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -154,14 +154,26 @@ _PROBABILITY_LEVERS = frozenset(
     {"speed_minus_1kn", "speed_plus_1kn", "fuel_minus_10pct", "fuel_plus_10pct"}
 )
 
-_DIGITS = {"cii": 6, "probability": 4}
+#: 직렬화 자릿수와 반올림 — **종류가 정한다** (`#1349`).
+#:
+#: * ``"cii"`` — CII 값(``projected_attained_cii``·``target_cii``·민감도 ``projected_cii``).
+#:   소수 6자리를 **절사**한다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」) — 화면이 3자리로
+#:   다시 반올림하므로, 여기서도 반올림하면 두 번 반올림되어 끝자리가 올라간다.
+#: * ``"quantity"`` — 같은 6자리지만 CII가 아닌 것(보정계수 ``feedback.factor``, 배출량
+#:   ``*_M_gco2``, 수송량 ``*_W_capacity_nm``, 필요 감축량 ``required_cut_*``). 절사 결정의
+#:   범위는 CII라 ``ROUND_HALF_UP`` 그대로다.
+#: * ``"probability"`` — Layer 2 소수 4자리(`TECH_SPEC §2.4`). 그 4자리 자체가 정본 확정값이라
+#:   전송용으로 줄이는 값이 아니며 ``ROUND_HALF_UP``이다.
+_DIGITS = {"cii": 6, "quantity": 6, "probability": 4}
 
 
-def _publish(value: Decimal | None, kind: str = "cii") -> str | None:
-    """``API_SPEC §1.7`` 문자열 직렬화."""
+def _publish(value: Decimal | None, kind: str) -> str | None:
+    """``API_SPEC §1.7`` 문자열 직렬화. 종류(:data:`_DIGITS`)를 **호출 자리마다 적는다** —
+    기본값을 두면 CII가 아닌 6자리 값이 조용히 절사된다."""
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=LAYER1_ROUNDING))
+    rounding = CII_SERIALIZATION_ROUNDING if kind == "cii" else LAYER1_ROUNDING
+    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
 
 
 # ─── 입력 확정 ───────────────────────────────────────────────────────────────
@@ -370,7 +382,7 @@ def _resolve_feedback(
     applied = requested and result.factor is not None
     warnings = [WARNING_FEEDBACK_UNAVAILABLE] if requested and result.factor is None else []
     block = {
-        "factor": _publish(result.factor),
+        "factor": _publish(result.factor, "quantity"),
         "sample_size": result.sample_size,
         "min_sample": MIN_FEEDBACK_SAMPLE,
         "requested": requested,
@@ -994,7 +1006,7 @@ def _build_sensitivity(
             continue
 
         item: dict[str, object] = {
-            "projected_cii": _publish(entry.attained_cii),
+            "projected_cii": _publish(entry.attained_cii, "cii"),
             "rating_change": _rating_change(base_rating, entry.rating),
         }
 
@@ -1240,17 +1252,17 @@ def _payload(
     """
     payload: dict[str, object] = {
         "deterministic": {
-            "projected_attained_cii": _publish(deterministic.attained_cii),
+            "projected_attained_cii": _publish(deterministic.attained_cii, "cii"),
             "projected_rating": deterministic.rating,
             "completed_voyage_count": completed_voyage_count,
             "remaining_voyage_count": remaining_voyage_count,
-            "completed_M_gco2": _publish(deterministic.completed_co2_g),
+            "completed_M_gco2": _publish(deterministic.completed_co2_g, "quantity"),
             "completed_W_capacity_nm": _publish(
-                transport_capacity * deterministic.completed_distance_nm
+                transport_capacity * deterministic.completed_distance_nm, "quantity"
             ),
-            "planned_M_gco2": _publish(deterministic.planned_co2_g),
+            "planned_M_gco2": _publish(deterministic.planned_co2_g, "quantity"),
             "planned_W_capacity_nm": _publish(
-                transport_capacity * deterministic.planned_distance_nm
+                transport_capacity * deterministic.planned_distance_nm, "quantity"
             ),
         },
         #
@@ -1261,10 +1273,10 @@ def _payload(
         "feedback": feedback,
         "reduction_plan": {
             "target_rating": reduction_plan.target_rating,
-            "target_cii": _publish(reduction_plan.target_cii),
-            "allowed_planned_M_gco2": _publish(reduction_plan.allowed_planned_co2_g),
-            "required_cut_gco2": _publish(reduction_plan.required_cut_g),
-            "required_cut_fuel_ton": _publish(reduction_plan.required_cut_fuel_ton),
+            "target_cii": _publish(reduction_plan.target_cii, "cii"),
+            "allowed_planned_M_gco2": _publish(reduction_plan.allowed_planned_co2_g, "quantity"),
+            "required_cut_gco2": _publish(reduction_plan.required_cut_g, "quantity"),
+            "required_cut_fuel_ton": _publish(reduction_plan.required_cut_fuel_ton, "quantity"),
             "achievable": reduction_plan.achievable,
         },
         "monte_carlo": {
@@ -1299,7 +1311,7 @@ def _payload(
         payload["sensitivity_analysis"]["fuel_cf_alternative"] = {
             "alternative_fuel": fuel_cf_alternative.fuel_code,
             "alternative_cf": str(fuel_cf_alternative.cf),
-            "projected_cii": _publish(fuel_cf_alternative.attained_cii),
+            "projected_cii": _publish(fuel_cf_alternative.attained_cii, "cii"),
             "co2_change": "{}%".format(
                 (fuel_cf_alternative.co2_change_ratio * 100).quantize(
                     Decimal("0.1"), rounding=LAYER1_ROUNDING
