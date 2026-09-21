@@ -1903,7 +1903,7 @@ GET /api/v1/annual-simulations/{simulation_run_id}
 {
   "vessel_id": "uuid",
   "regulation_year": 2026,
-  "target_rating": "B",
+  "target_rating": "C",
   "simulation_runs": 5000,
   "random_seed": 12345,
   "distribution_profile": "DEFAULT"

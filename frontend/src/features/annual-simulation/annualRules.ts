@@ -205,6 +205,19 @@ export function stackSegments(
 export const RUNS_MIN = 1_000
 export const RUNS_MAX = 10_000
 
+/**
+ * 목표 등급 기본값 (`PRD §12.2` 입력 표 — 기본 **C**).
+ *
+ * 종전 화면은 **B**로 시작했다 (`#1453`). PRD 입력 표는 C인데 같은 문서의 요청 예시가
+ * B라, 화면이 예시를 따랐다. 대부분의 사용자는 첫 값을 바꾸지 않고 실행하므로
+ * 「B 이상 받을 확률」이 **사용자가 고른 적 없는 목표**로 나왔다.
+ *
+ * C는 규제 준수선이다. 제품이 기본값으로 「한 단계 더 잘하라」를 정해 두지 않는다 —
+ * 목표를 올리는 것은 사용자의 몫이다(`§11` 중립). 표·예시·화면 세 곳이 이 값을 공유하며
+ * `targetDefault.sync.test.ts`가 대조한다.
+ */
+export const TARGET_DEFAULT = 'C'
+
 /** 반복 횟수 기본값 (`PRD §12.2` 기본 5,000). 화면 초깃값과 「바꿈」 판정이 같은 값을 본다. */
 export const RUNS_DEFAULT = '5000'
 

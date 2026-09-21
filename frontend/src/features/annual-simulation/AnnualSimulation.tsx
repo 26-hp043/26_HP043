@@ -31,6 +31,7 @@ import {
   toPercent,
   validateRuns,
   RUNS_DEFAULT,
+  TARGET_DEFAULT,
   countAdvancedChanges,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
@@ -114,7 +115,7 @@ export function AnnualSimulation({
    * Monte Carlo 10,000회는 초 단위라 전환할 시간이 충분하다.
    */
   const generationRef = useRef(0)
-  const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>('B')
+  const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>(TARGET_DEFAULT)
   const [runs, setRuns] = useState(RUNS_DEFAULT)
   /** 반복 횟수 위반 문구. 실행을 누를 때 판정하고, 값을 고치면 지운다 (#1096 ⑴). */
   const [runsError, setRunsError] = useState<string | null>(null)
