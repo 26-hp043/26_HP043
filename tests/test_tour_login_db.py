@@ -102,6 +102,43 @@ async def _tour_user_row_count() -> int:
         return result.scalar_one()
 
 
+async def _set_argon2_password() -> None:
+    """재설정이 스텁 해시를 Argon2로 덮어쓴 상태를 흉내 낸다 (#1495)."""
+    from cii_platform.auth.password import hash_password
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text("UPDATE app_user SET password_hash = :h WHERE email = :e"),
+            {"h": hash_password("stolen-password-2026"), "e": _TOUR_EMAIL},
+        )
+        await s.commit()
+
+
+async def _tour_password_hash() -> str:
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        result = await s.execute(
+            text("SELECT password_hash FROM app_user WHERE email = :e"), {"e": _TOUR_EMAIL}
+        )
+        return result.scalar_one()
+
+
+async def _tour_token_count() -> int:
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        result = await s.execute(
+            text(
+                "SELECT COUNT(*) FROM user_token WHERE user_id = "
+                "(SELECT id FROM app_user WHERE email = :e)"
+            ),
+            {"e": _TOUR_EMAIL},
+        )
+        return result.scalar_one()
+
+
 async def _soft_delete_tour_user() -> None:
     """둘러보기 세션이 스스로 탈퇴한 상황을 흉내 낸다 (#1486).
 
@@ -350,6 +387,58 @@ async def test_tour_stub_does_not_count_as_the_last_admin(client, monkeypatch):
 
         # 스텁이 생겼는데도 사람 관리자 수는 그대로다.
         assert after == before
+    finally:
+        await _cleanup()
+
+
+async def test_password_reset_does_not_issue_a_token_for_the_stub(client, monkeypatch):
+    """🔴 스텁 계정 이메일로 재설정을 요청해도 **토큰이 발급되지 않는다** (#1495).
+
+    ## 무엇을 막는가
+
+    재설정은 이메일로만 계정을 찾고 **해시 형식을 보지 않았다.** 그래서 스텁 계정에도
+    토큰을 발급했고, 확정되면 `password_hash`가 Argon2가 되어 **그때부터
+    `POST /auth/login`이 열린다** — `TOUR_ACCESS_CODE`를 비워도 닫히지 않는 **영구
+    우회로**다. 게다가 `MAIL_BACKEND=console`이면 재설정 링크가 로그에 남는다.
+
+    ## 왜 조용한가
+
+    응답은 성공과 **똑같다**(계정 존재 비노출). 토큰이 생겼는지는 DB를 봐야 알 수 있다.
+    """
+    monkeypatch.setenv(tour_gate.ENV_NAME, _CODE)
+    try:
+        assert _tour_login(client, _CODE).status_code == 200
+        before = await _tour_token_count()
+
+        resp = client.post(
+            f"{API_V1_PREFIX}/auth/password-reset/request", json={"email": _TOUR_EMAIL}
+        )
+        # ⚠️ **응답은 일반 계정과 같아야 한다** — 여기서 다른 답을 내면 「이 주소는 스텁」이
+        # 드러나고, 그것이 이 라우트가 지키려는 계정 존재 비노출과 같은 성질의 누출이다.
+        assert resp.status_code == 200, resp.text
+
+        assert await _tour_token_count() == before
+    finally:
+        await _cleanup()
+
+
+async def test_tour_login_heals_a_replaced_password_hash(client, monkeypatch):
+    """🔴 해시가 Argon2로 바뀌어 있어도 다음 둘러보기 로그인이 **자리표시자로 되돌린다** (#1495).
+
+    재설정 경로는 위 검사가 막지만, **막기 전에 이미 바뀐 행**이 배포본에 남아 있을 수
+    있다. 되돌리지 않으면 그 행은 영영 비밀번호로 열린다.
+    """
+    monkeypatch.setenv(tour_gate.ENV_NAME, _CODE)
+    try:
+        assert _tour_login(client, _CODE).status_code == 200
+        await _set_argon2_password()
+        assert (await _tour_password_hash()).startswith("$argon2")
+
+        with TestClient(app, base_url=_BASE) as second_client:
+            second = second_client.post(f"{API_V1_PREFIX}/auth/tour-login", json={"code": _CODE})
+        assert second.status_code == 200, second.text
+
+        assert not (await _tour_password_hash()).startswith("$argon2")
     finally:
         await _cleanup()
 

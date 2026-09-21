@@ -64,7 +64,7 @@ npm run dev   # VITE_API_BASE_URL 불필요
 
 ```toml
 [vars]
-API_ORIGIN = "http://131.186.22.10:8001"
+API_ORIGIN = "https://<터널이 준 호스트명>"     # 배포가 시크릿에서 덮어쓴다 (#1496)
 ```
 
 영향받는 소스 파일:
@@ -73,6 +73,17 @@ API_ORIGIN = "http://131.186.22.10:8001"
 - `frontend/src/auth/session.ts` — `AUTH_API_BASE`
 
 셋 모두 `import.meta.env.VITE_API_BASE_URL ?? '/api/v1'`이라 **상대 경로가 원래 기본값**이다.
+
+#### ⚠️ 백엔드 주소는 **호스트명**이어야 한다 (#1496)
+
+`API_ORIGIN`에 **IP를 적으면 프록시가 동작하지 않는다.** Cloudflare 공식 문서 원문이다.
+
+> *"For Workers subrequests, requests can only be made to URLs, **not to IP addresses directly**."*
+> — [Workers Known issues](https://developers.cloudflare.com/workers/platform/known-issues/)
+
+2026-09-21 실측 — `https://bluelog-bx7.pages.dev/api/v1/health` → **403 · `error code: 1003`**(Direct IP access not allowed). **화면은 200으로 뜨고 `/api/*`만 끊긴다.**
+
+호스트명은 **Cloudflare Tunnel**이 준다(§3.6). 값은 저장소에 두지 않고 시크릿 `API_ORIGIN`으로 넣으면 배포가 `wrangler.toml`에 렌더한다 — 터널을 만들 때 정해지므로 커밋 시점에 알 수 없기 때문이다.
 
 #### 왜 절대 URL + CORS가 아닌가
 
@@ -357,9 +368,101 @@ docker compose -f docker-compose.prod.app.yml --profile migrate \
   run --rm -T migrate python -m cii_platform.db.demo_seed --clear  # 초기화
 ```
 
-### 3.5 롤백
+### 3.5 Cloudflare Tunnel (#1496)
 
-#### 3.5.1 지금 떠 있는 것이 어느 커밋인지 답하기 (#789 완료 기준)
+백엔드에 **호스트명과 HTTPS를 주는 통로**다. `cloudflared`가 app-01에서 **아웃바운드로만** 연결하므로 인바운드 포트를 열지 않는다 — `:8001` 직접 노출(`#786`)과 프록시 뒤 요청 한도(`#1483`)도 같은 걸음에 닫힌다.
+
+> 🔴 **이 터널은 우리가 만든 것이 아니라 `ourtax`의 것을 함께 쓴다.** 같은 VM(`ourtax-app`)에서
+> **systemd `cloudflared`가 2026-09-12부터 이미 돌고 있었고**, 우리는 거기에 ingress 규칙 한 줄을
+> 더했다. 아래 세 가지가 그 결과이며, **모르고 건드리면 남의 서비스가 끊긴다.**
+>
+> | 사실 | 뜻 |
+> |---|---|
+> | 커넥터는 **호스트의 systemd**다 (`/usr/local/bin/cloudflared`) | compose의 `cloudflared` 서비스(profile `tunnel`)는 **쓰지 않는다** |
+> | ingress는 **로컬 파일** `/etc/cloudflared/config.yml`이 정한다 | 대시보드에서 Public hostname을 추가해도 반영되지 않는다 |
+> | catch-all이 **ourtax**(`localhost:8000`)로 간다 | 우리 규칙은 **반드시 catch-all 앞에** 둔다 |
+
+#### 3.5.1 지금 구성
+
+```
+브라우저 → bluelog-bx7.pages.dev (Pages Function)
+             │ API_ORIGIN
+             ▼
+        https://bluelog-api.kpubdata.com        ← CNAME → 26dac387-….cfargotunnel.com (proxied)
+             ▼
+        app-01 systemd cloudflared (터널 26dac387-…, ourtax와 공유)
+             ├─ hostname: bluelog-api.kpubdata.com → http://localhost:8001   (cii-backend)
+             └─ service(catch-all)                → http://localhost:8000   (ourtax-backend)
+```
+
+`/etc/cloudflared/config.yml`:
+
+```yaml
+tunnel: ourtax-backend
+ingress:
+  - hostname: bluelog-api.kpubdata.com
+    service: http://localhost:8001
+  - service: http://localhost:8000     # ourtax — 반드시 마지막
+```
+
+> **왜 `http://localhost:8001`인가** — 커넥터가 **호스트에서** 돌기 때문이다. compose의 컨테이너
+> 커넥터였다면 `http://backend:8000`(도커 네트워크 이름)이었을 것이다. 둘을 바꿔 적으면 502가 난다.
+
+#### 3.5.2 GitHub 시크릿
+
+| 시크릿 | 값 | 비고 |
+|---|---|---|
+| `API_ORIGIN` | `https://bluelog-api.kpubdata.com` | 배포가 `wrangler.toml`에 렌더한다. 없으면 `deploy-frontend`가 **의도적으로 멈춘다** |
+| `CLOUDFLARE_TUNNEL_TOKEN` | **비워 둔다** | ⚠️ 아래 참조 |
+
+> ⚠️ **`CLOUDFLARE_TUNNEL_TOKEN`을 등록하지 않는다 (의도).** 등록하면 compose가 `cloudflared`
+> 컨테이너를 띄워 **같은 터널에 커넥터가 둘**이 된다. 배포 로그의
+> `::warning:: CLOUDFLARE_TUNNEL_TOKEN 미설정 — 터널을 띄우지 않는다`는 **이 구성에서 정상이며,
+> 「고쳐야 할 경고」가 아니다.** 터널은 호스트 systemd가 이미 제공한다.
+
+#### 3.5.3 호스트명을 추가·변경할 때
+
+대시보드가 아니라 **VM에서** 한다.
+
+```bash
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
+sudo cp /etc/cloudflared/config.yml /etc/cloudflared/config.yml.bak.$(date +%Y%m%d%H%M%S)
+sudo vi /etc/cloudflared/config.yml            # 새 hostname 규칙은 catch-all **앞**에
+sudo cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate   # → OK 확인 필수
+sudo systemctl restart cloudflared             # ⚠️ 재시작 수 초간 ourtax도 함께 끊긴다
+```
+
+DNS는 Cloudflare에 CNAME으로 만든다 — `<이름>` → `26dac387-2f05-49a5-b807-5172001c2382.cfargotunnel.com`, **proxied**. `ourtax-api.kpubdata.com`이 같은 모양이다.
+
+#### 3.5.4 확인
+
+```bash
+curl -i https://bluelog-bx7.pages.dev/api/v1/health   # 200 → 성공
+curl -i https://bluelog-api.kpubdata.com/api/v1/health # 터널만 검증 (Pages를 건너뛴다)
+curl -i http://131.186.22.10:8001/api/v1/health        # 백엔드만 검증 (터널을 건너뛴다)
+```
+
+| 증상 | 원인 |
+|---|---|
+| `403` · `error code: 1003` | `API_ORIGIN`이 **IP**다. Workers는 IP로 요청하지 못한다 |
+| `1033` | DNS는 터널을 가리키는데 **ingress에 그 hostname 규칙이 없다** |
+| ourtax 응답(`{"detail":"Not Found"}`)이 온다 | 규칙을 **catch-all 뒤에** 넣었다 |
+| `502` | ingress의 `service:` 주소가 틀렸다(`localhost:8001` ↔ `backend:8000` 혼동) |
+
+#### 3.5.5 되돌리기
+
+**`:8001`을 먼저 닫지 않는 것**이 요점 — 터널이 검증될 때까지 직접 호출로 원인을 가릴 수단을 남긴다.
+
+| 단계 | 되돌리는 법 |
+|---|---|
+| ingress | `sudo cp /etc/cloudflared/config.yml.bak.<타임스탬프> /etc/cloudflared/config.yml && sudo systemctl restart cloudflared` |
+| DNS | `bluelog-api.kpubdata.com` 레코드 삭제 |
+| `API_ORIGIN` | 시크릿을 지우고 재배포 — `deploy-frontend`가 다시 멈춘다(값이 저장소에 없으므로 커밋 되돌리기는 필요 없다) |
+| 터널 자체 | 🔴 **삭제하지 않는다.** ourtax가 같은 터널을 쓴다 |
+
+### 3.6 롤백
+
+#### 3.6.1 지금 떠 있는 것이 어느 커밋인지 답하기 (#789 완료 기준)
 
 ```bash
 # app-01 — 백엔드 컨테이너가 달린 이미지 태그(=배포 커밋 SHA)
@@ -374,7 +477,7 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 \
 배포 워크플로 로그(GitHub Actions `Deploy to OCI`)에도 어느 커밋이 나갔는지
 남는다. **화면과 서버가 어긋난 것 같으면 이 명령부터** — 어느 쪽이 낡았는지가 정해진다.
 
-#### 3.5.2 이미지 되돌리기 — 마이그레이션이 없던 배포
+#### 3.6.2 이미지 되돌리기 — 마이그레이션이 없던 배포
 
 ```bash
 # 이전 SHA 태그로 이미지 되돌리기
@@ -388,7 +491,7 @@ sed -i 's|BACKEND_IMAGE=.*|BACKEND_IMAGE=ghcr.io/26-hp043/bluelog-backend:<이�
 docker compose -f docker-compose.prod.app.yml up -d backend
 ```
 
-#### 3.5.3 마이그레이션이 섞인 배포의 롤백 — 순서가 있다
+#### 3.6.3 마이그레이션이 섞인 배포의 롤백 — 순서가 있다
 
 주의: 마이그레이션이 포함된 배포는 단순 이미지 교체로 되돌릴 수 없다.
 순서는 **백업 먼저, 판정 다음, 교체 마지막**이다.
@@ -402,7 +505,7 @@ python3 scripts/db_backup.py backup
 #    IRREVERSIBLE 목록과 24시간 가드: src/cii_platform/db/migration_guard.py
 #    ALLOW_IRREVERSIBLE_DOWNGRADE=<rev> 로만 풀린다.
 
-# 3) 되돌릴 수 있으면: alembic downgrade -1 → 이전 sha 이미지로 교체(위 3.5.2)
+# 3) 되돌릴 수 있으면: alembic downgrade -1 → 이전 sha 이미지로 교체(위 3.6.2)
 #    FK(RESTRICT)로 실패하면 1)의 덤프로 되돌린다(db_backup.py restore).
 ```
 
@@ -581,13 +684,18 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `CORS_ALLOW_ORIGINS` | 프론트엔드 오리진 | `https://bluelog-bx7.pages.dev` |
 | `APP_PUBLIC_URL` | 메일 링크 기준 주소 | `https://bluelog-bx7.pages.dev` |
 | `INITIAL_ADMIN_EMAILS` | **최초 관리자** 이메일(쉼표 구분). 여기 든 주소는 **가입·로그인할 때마다** 관리자로 맞춰진다 — 「처음 한 번」이 아니라 「항상 관리자인 사람」이다. ⚠️ **비면 관리자 0명으로 뜨고 화면으로는 아무도 역할을 올릴 수 없다** (`#672` · `#1301`). `APP_ENV=production`이면 기동이 거부되지만 **`staging`에는 그 가드가 없어 조용히 뜬다** — 배포 기본값이 `staging`이므로(`#1478`) **반드시 등록한다** (`#1475`) | `a@ex.com,b@ex.com` |
+| `CLOUDFLARE_API_TOKEN` | **Cloudflare Pages 배포 토큰**(Pages:Edit). 없으면 `deploy-frontend`가 자격증명 점검에서 멈춰 **화면이 영원히 옛 판**으로 남는다 — 실제로 8회 연속 실패했다 (`#1236` · `#1479`) | |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 계정 ID (§6.1 공개값) | `22abb4f21a4c7886292a2a0ecadf331b` |
+| `API_ORIGIN` | Pages Function이 백엔드를 부를 **호스트명**(`https://` 포함 · §3.5). ⚠️ **IP를 넣으면 프록시가 403(`error 1003`)을 낸다** — Workers는 IP로 요청하지 못한다 (`#1496`) | `https://bluelog-api.kpubdata.com` |
+
+> **위 넷은 「필수」의 뜻이 서로 다르다.** 앞의 9종이 없으면 **백엔드 배포**가 서고, `CLOUDFLARE_*`·`API_ORIGIN`이 없으면 **화면 배포**가 선다. 잡이 갈라져 있어 한쪽이 빨간불이어도 다른 쪽은 초록불이므로, **`Deploy to OCI` 실행의 5잡이 모두 초록불인지**로 확인한다 (`#1201` · `#1479` · `#1496`이 전부 이 자리에서 났다).
 
 ### 5.2 권장 시크릿
 
 | 시크릿 | 설명 |
 |--------|------|
 | `SIGNUP_ALLOWED_DOMAINS` | 가입 허용 메일 도메인 (쉼표 구분) |
-| `SIGNUP_INVITE_CODE` | 초대 코드 (16자 이상 권장) |
+| `SIGNUP_INVITE_CODE` | 초대 코드 (16자 이상 권장). 문자 집합 주의는 아래 `TOUR_ACCESS_CODE` 행과 같다 — 모든 시크릿에 해당한다 |
 | `MAIL_BACKEND` | `smtp` (프로덕션) |
 | `MAIL_FROM` | 발신 주소 (예: `BlueLog <no-reply@example.com>`) |
 | `SMTP_HOST` | SMTP 서버 (예: `smtp.gmail.com`) |
@@ -595,13 +703,14 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `SMTP_USER` | SMTP 사용자 |
 | `SMTP_PASSWORD` | SMTP 비밀번호 |
 | `SMTP_USE_TLS` | STARTTLS 사용 여부. 비워 두면 `true`. `SMTP_PORT=465`(implicit TLS)에서는 값과 무관하다 (`#1475`에서 배선) |
-| `TOUR_ACCESS_CODE` | **둘러보기 링크의 접근 코드** (`#1486`). `/login?tour=<코드>`로 들어온 사람에게 관리자 열람 세션을 준다. ⚠️ **비면 둘러보기가 닫힌다**(fail-closed) — 가입 게이트와 반대 방향이라 미설정이 안전한 기본값이다. 코드는 URL에 실려 브라우저 히스토리·접근 로그에 남으므로 **32자 이상**을 권하고, 인터뷰가 끝나면 비운다. 다만 **이미 발급된 세션은 7일간 살아 있다** |
+| `TOUR_ACCESS_CODE` | **둘러보기 링크의 접근 코드** (`#1486`). `/login?tour=<코드>`로 들어온 사람에게 관리자 열람 세션을 준다. ⚠️ **비면 둘러보기가 닫힌다**(fail-closed) — 가입 게이트와 반대 방향이라 미설정이 안전한 기본값이다. 코드는 URL에 실려 브라우저 히스토리·접근 로그에 남으므로 **32자 이상**을 권하고, 인터뷰가 끝나면 비운다. 다만 **이미 발급된 세션은 7일간 살아 있다**. ⚠️ **문자는 `[A-Za-z0-9_-]`로 한정한다**(`python -c "import secrets;print(secrets.token_urlsafe(32))"`) — `'`가 들어가면 배포 ssh 인용이 끊겨 **잡이 통째로 실패**하고, `$`가 들어가면 compose가 `.env`를 보간해 **값이 조용히 잘린다**(`#1495` 실측). 잘려도 fail-closed라 링크만 거절되지만 원인이 보이지 않는다 |
 
 ### 5.3 선택 시크릿
 
 | 시크릿 | 설명 |
 |--------|------|
 | `APP_ENV` | 배포 환경. **비워 두면 `staging`** (`#524` — SMTP 미설정 배포의 정상 경로 · §4.5). `SMTP_*`를 등록한 뒤 `production`으로 바꾼다. 비워 둔 채로도 `deploy.yml`이 `.env`에 `APP_ENV=staging`을 렌더링하므로 compose 기본값(`production`)으로 떨어지지 않는다 (`#1201`). |
+| `CLOUDFLARE_TUNNEL_TOKEN` | 🔴 **비워 둔다 (의도).** 터널 커넥터는 app-01의 **systemd `cloudflared`**가 이미 제공하며 `ourtax`와 공유한다(§3.5). 등록하면 compose가 커넥터를 **하나 더** 띄운다. 배포 로그의 `::warning:: CLOUDFLARE_TUNNEL_TOKEN 미설정`은 **정상 상태의 표시**다 |
 | `LLM_API_KEY` | Anthropic Claude API 키 (챗봇 기능. 비어있으면 챗봇만 비활성) |
 
 ---
@@ -888,15 +997,46 @@ ssh ubuntu@131.186.22.10 "cd ~/bluelog && docker compose -f docker-compose.prod.
 | cii-backend 컨테이너 | Up, healthy | 포트 8001 |
 | cii-cubrid 컨테이너 | Up, healthy | 포트 33100 |
 
-### 10.2 남은 작업
+### 10.3 배포 검증 결과 (2026-09-21 00:4x UTC · 터널 경유 전 구간)
 
-- [ ] **재배포 필요** — `#1058`의 개발 편의 표면 차단이 이미지에 반영되려면 백엔드를 다시 올려야 한다(추적: `#1177`). 현재 배포본은 `dev-login`·`/docs`가 열린 상태다(2026-09-15 20:0x 실측: 둘 다 **200**). ⚠️ **순서 주의** — 이 재배포(`#1160` 반영분)가 `INITIAL_ADMIN_EMAILS` 설정보다 먼저 들어가면 `dev-login`이 닫히는데, 그 값이 비어 있으면 **사무직으로 들어갈 길이 완전히 사라진다**(`#1290`, `§4.5`). 재배포 전에 `.env`부터 채운다
+`#1496` 해결 뒤 **화면 → Pages Function → 터널 → 백엔드 → DB** 전 구간을 실측했다.
+
+| 확인 | 결과 | 비고 |
+|---|---|---|
+| 화면 | `200` | `https://bluelog-bx7.pages.dev` · `/login` SPA 폴백도 `200` |
+| **프록시 경유 헬스** | `200` | `/api/v1/health` — 종전 `403 (error 1003)` |
+| 터널 직결 | `200` | `https://bluelog-api.kpubdata.com/api/v1/health` |
+| 백엔드 직결 | `200` | `http://131.186.22.10:8001/api/v1/health` (`#786` 전까지 유지) |
+| **클라우드 로그인** | **성공** | `#1322` 완료 기준 — 아래 상세 |
+| 미인증 업무 API | `401` | 쿠키 없이 `/fleet/summary` |
+| `dev-login` · `/docs` | `401` · `401` | `staging` 자세 유지 (`#1058` · §4.5) |
+| 배포 파이프라인 | **5잡 초록불** | run `35548027088`(workflow_dispatch) |
+
+**로그인 상세** (`#1322` — 「혼합 콘텐츠·Secure 쿠키·SameSite로 로그인이 성립하지 않는다」의 해소 증거)
+
+```
+POST /api/v1/auth/signup        → 201  (role FIELD)
+  set-cookie: sid=…;  HttpOnly; Path=/; SameSite=lax; Secure      ← pages.dev 오리진
+  set-cookie: csrf=…;           Path=/; SameSite=lax; Secure
+GET  /api/v1/auth/me            → 200  (세션 유효)
+GET  /api/v1/fleet/summary?year=2026 → 200  (선박 5척 · 등급 B1 C1 D1 E2)
+DELETE /api/v1/auth/me (X-CSRF-Token) → 204, 이후 /auth/me → 401   ← 검증 계정 정리
+```
+
+> **왜 이제 되는가** — 화면과 API가 **같은 오리진**(`pages.dev`)이 됐기 때문이다. Pages Function이
+> `/api/*`를 터널 호스트명으로 넘기므로 브라우저에게는 동일 출처이고, `SameSite=lax` · `Secure`
+> 쿠키가 그대로 저장·전송된다. 종전 구조(`https` 화면 → `http://IP:8001`)에서는 세 겹으로 막혔다.
+
+### 10.4 남은 작업
+
+- [x] ~~**재배포 필요**(`#1177`)~~ — 해소. 2026-09-21 실측으로 `dev-login`·`/docs` 둘 다 **401**이다(§10.3). ⚠️ 그 대신 아래 `INITIAL_ADMIN_EMAILS`가 **더 급해졌다** — `dev-login`이 닫힌 지금, 관리자 0명이면 사무직·관리자 화면에 들어갈 길이 없다
 - [ ] **`INITIAL_ADMIN_EMAILS` 설정** — ⚠️ **`.env`에 적는 것만으로는 닿지 않는다.** `docker-compose.prod.app.yml`의 `backend`에는 `env_file:`이 없고 `environment:` 목록만 주입되는데, `#1290` 이전 판에는 이 키가 그 목록에 **없었다** — compose가 `.env`를 읽는 것은 `${VAR}` 치환용이지 컨테이너 주입이 아니다(`#508`과 같은 함정). 그러므로 **`#1290`의 compose 변경을 함께 내려받은 뒤** `.env`를 채운다. 값을 채우고 해당 계정으로 다시 로그인하면 해소된다(`§3.3`, `§4.5`, `#672`, `#1290`)
   - 지금 사무직이 몇 명인지는 DB가 답한다 — `SELECT email, [role] FROM app_user WHERE is_deleted = false` (CUBRID에서 `role`은 예약어라 대괄호가 필요하다)
+- [ ] **`TOUR_ACCESS_CODE` 설정** — 미등록이라 **둘러보기 링크가 닫혀 있다**(fail-closed · `#1486`). 로그인 없이 화면을 보여 줄 유일한 경로이므로 시연 전에 정한다
 - [ ] **SMTP 설정** → `APP_ENV=production` 전환 (#787)
-- [ ] **GitHub Secrets 등록** → deploy 워크플로 자동화
-- [ ] **커스텀 도메인** → Cloudflare Pages + 백엔드 CORS 업데이트 (#785)
-- [ ] **CUBRID 비밀번호 설정** → 현재 dba는 빈 비밀번호
+- [x] ~~**GitHub Secrets 등록**~~ — 완료(12종). 백엔드 9종(`#1201`) · `CLOUDFLARE_API_TOKEN`(`#1479`) · `API_ORIGIN`(`#1496`). 재발은 `test_deploy_secrets_are_listed_in_the_operations_secret_tables`가 막는다
+- [ ] **커스텀 도메인** → 화면(Pages)은 아직 `bluelog-bx7.pages.dev`다. **API는 `bluelog-api.kpubdata.com`으로 확보**됐다(`#1496` · §3.5). 화면 도메인을 붙이면 `CORS_ALLOW_ORIGINS`·`APP_PUBLIC_URL`도 함께 바꾼다 (#785)
+- [x] ~~**CUBRID 비밀번호 설정**~~ — 완료. `CUBRID_PASSWORD` 시크릿이 배포·헬스체크 양쪽에 쓰인다
 - [ ] **ufw 활성화** → `ops/host/ufw-db-01.sh` 실행
 - [ ] **zram 스왑** → `ops/host/setup-zram-swap.sh` 실행 (이미 our-tax에서 적용됐을 수 있음)
 - [ ] **백업 절차** → 정기 백업 스크립트 (#788)
