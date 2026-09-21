@@ -114,6 +114,30 @@ export function createYearCatalog(env: ImportMetaEnv = import.meta.env): YearCat
   return createApiYearCatalog((env[API_BASE_URL_ENV_KEY] as string | undefined) || undefined)
 }
 
+/**
+ * 화면에 내놓는 연도 선택지 — **최신 연도부터**, 조회 화면은 **올해까지만** (#1584).
+ *
+ * ## 순서를 한 곳에서 정한다
+ *
+ * 종전에는 일곱 화면이 서버 목록(오름차순 2023~2030)을 그대로 그렸고 보고서만 이 규칙을
+ * 따로 들고 있어(`reportRules.yearOptions` · `#635`) **보고서만 내림차순**이었다. 기본값은
+ * 어느 화면이든 올해라, 최신 연도가 위에 있어야 기본값이 목록 머리 근처에 온다.
+ *
+ * ## 조회 화면은 미래 연도를 넣지 않는다 (`throughYear`)
+ *
+ * 실적이 있을 수 없는 해를 고르면 조회 화면은 언제나 빈 결과이고, 사용자는 그것을
+ * 고장으로 읽는다(`#635`가 보고서에서 먼저 막은 이유). 계획을 짜는 화면(CII 예측 · 연간
+ * 등급 · 항로 비교)은 다음 해를 고를 수 있어야 하므로 `null`을 준다.
+ *
+ * ⚠️ 「데이터가 있는 연도」 그 자체를 알려 주는 서버 경로는 없다 — 하한은 서버 목록
+ * (규제 시작 2023)이, 상한은 올해가 정한다. 규제 이전 해가 목록에 없는 것도 같은 논거다.
+ *
+ * 개수를 자르지 않는다 — 규제연도가 늘면 선택지도 는다(종전 `span = 5` 제거 · `#635`).
+ */
+export function displayYears(rows: readonly number[], throughYear: number | null): number[] {
+  return rows.filter((year) => throughYear === null || year <= throughYear).sort((a, b) => b - a)
+}
+
 /** `useYearOptions()`가 돌려주는 것. 로딩·실패를 **빈 목록과 구분한다.** */
 export interface YearOptionsState {
   years: number[]
@@ -149,7 +173,14 @@ export interface YearOptionsState {
  * 셸이 선박을 아직 정하지 않은 순간이 있다. 그때 부르면 demo 구현이 빈 목록을 주고,
  * 화면은 「등록된 규제연도가 없습니다」를 잠깐 보인다.
  */
-export function useYearOptions(vesselId: string): YearOptionsState {
+export function useYearOptions(
+  vesselId: string,
+  /**
+   * 조회 화면(데이터 점검 · 보고서 · CSV 내보내기 · 감축 계획)은 `true` — 올해 이후를 뺀다
+   * (#1584 · `displayYears`). 계획을 짜는 화면은 기본값(`false`)이다.
+   */
+  { throughCurrentYear = false }: { throughCurrentYear?: boolean } = {},
+): YearOptionsState {
   const catalog = useMemo(() => createYearCatalog(), [])
   const [years, setYears] = useState<number[]>([])
   const [loading, setLoading] = useState(true)
@@ -168,7 +199,9 @@ export function useYearOptions(vesselId: string): YearOptionsState {
     catalog
       .listYears(vesselId)
       .then((rows) => {
-        if (!cancelled) setYears(rows)
+        if (!cancelled) {
+          setYears(displayYears(rows, throughCurrentYear ? new Date().getFullYear() : null))
+        }
       })
       .catch(() => {
         if (cancelled) return
@@ -181,7 +214,7 @@ export function useYearOptions(vesselId: string): YearOptionsState {
     return () => {
       cancelled = true
     }
-  }, [catalog, vesselId])
+  }, [catalog, vesselId, throughCurrentYear])
 
   return { years, loading, failed }
 }

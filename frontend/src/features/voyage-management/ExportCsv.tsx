@@ -57,7 +57,7 @@ export function ExportCsv({
    * 연도 선택지도 서버에서 온다 (`#632`가 세 화면에 세운 규칙). 여기만 자유 입력으로
    * 두면 파라미터가 없는 해를 넣을 수 있고, 그때 서버가 거부한다.
    */
-  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(vesselId)
+  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(vesselId, { throughCurrentYear: true })
 
   const set = (key: keyof ExportFormState) => (value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }))

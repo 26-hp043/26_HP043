@@ -4,6 +4,7 @@ import {
   YearCatalogError,
   createApiYearCatalog,
   createYearCatalog,
+  displayYears,
 } from './yearCatalog'
 
 /**
@@ -153,4 +154,41 @@ describe('전환 스위치', () => {
     expect(rows).toEqual([2023, 2026, 2030])
   })
 
+})
+
+/**
+ * 화면에 내놓는 연도 선택지 (#1584). 종전 `reportRules.yearOptions`(#635)의 검사를
+ * 옮겨 왔다 — 규칙이 보고서 한 화면에서 모든 화면으로 넓어졌다.
+ */
+describe('연도 선택지 — 최신 연도부터 · 조회 화면은 올해까지', () => {
+  /** `GET /parameters/regulation-years`가 주는 값 (현재 seed 기준). */
+  const SERVER_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030]
+
+  it('조회 화면은 미래 연도를 넣지 않는다 — 실적이 있을 수 없는 해다', () => {
+    expect(displayYears(SERVER_YEARS, 2026)).toEqual([2026, 2025, 2024, 2023])
+  })
+
+  it('계획 화면(`null`)은 미래 연도를 남기고 순서만 최신부터다', () => {
+    expect(displayYears(SERVER_YEARS, null)).toEqual([2030, 2029, 2028, 2027, 2026, 2025, 2024, 2023])
+  })
+
+  it('서버 순서에 기대지 않는다', () => {
+    expect(displayYears([2025, 2023, 2024], 2026)).toEqual([2025, 2024, 2023])
+    expect(displayYears([2025, 2023, 2024], null)).toEqual([2025, 2024, 2023])
+  })
+
+  it('개수를 자르지 않는다 — 규제연도가 늘면 선택지도 는다', () => {
+    expect(displayYears(SERVER_YEARS, 2030)).toHaveLength(8)
+  })
+
+  it('목록이 비면 선택지도 비운다 — 기본값을 지어내지 않는다', () => {
+    expect(displayYears([], 2026)).toEqual([])
+    expect(displayYears([], null)).toEqual([])
+  })
+
+  it('입력 배열을 바꾸지 않는다', () => {
+    const rows = [2023, 2024]
+    displayYears(rows, null)
+    expect(rows).toEqual([2023, 2024])
+  })
 })

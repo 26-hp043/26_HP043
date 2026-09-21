@@ -57,7 +57,7 @@ const EMPTY_PRICES: Prices = { charterUsdPerDay: {}, fuelUsdPerTon: {} }
 
 export function FleetReduction({ provider }: { provider?: FleetReductionProvider }) {
   const api = useMemo(() => provider ?? createApiFleetReductionProvider(), [provider])
-  const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY)
+  const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
   const [year, setYear] = useState('')
   const [target, setTarget] = useState<Target>('NO_AT_RISK')
   const [percents, setPercents] = useState<Record<string, number>>({})

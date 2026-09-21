@@ -196,10 +196,11 @@ describe('규제연도 — 자유 입력이 아니라 서버 목록이다 (#632)
     const select = await screen.findByLabelText(/규제연도/)
     expect(select.tagName).toBe('SELECT')
     await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(3))
+    // 최신 연도부터 · 계획을 짜는 화면이라 미래 연도를 남긴다 (#1584)
     expect([...select.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
-      '2026',
-      '2027',
       '2030',
+      '2027',
+      '2026',
     ])
   })
 

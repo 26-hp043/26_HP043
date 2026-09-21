@@ -48,7 +48,7 @@ const FLEET_KEY = 'fleet'
 
 export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
   const api = useMemo(() => provider ?? createApiDataQualityProvider(), [provider])
-  const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY)
+  const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
   const [year, setYear] = useState('')
   const [state, setState] = useState<LoadState>({ status: 'loading' })
 
