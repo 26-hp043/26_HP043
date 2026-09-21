@@ -524,8 +524,7 @@ export function FleetDashboard() {
        * 면책은 결과 유무와 무관하게 상시 노출한다(`DESIGN_SYSTEM §13` 🔒).
        * YTD 등급은 연중 누적 예측값이지 공식 등급이 아니다(`PRD §3.3.7` 각주).
        */}
-      <DisclaimerBanner />
-      <p className="fleet__source">일부 값은 사용자 입력 또는 모델 추정값입니다.</p>
+      <DisclaimerBanner estimate />
     </div>
   )
 }

@@ -35,6 +35,7 @@ import {
   countAdvancedChanges,
   reductionCutText,
   resultConditionsText,
+  estimateNoticeText,
   targetVesselText,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
@@ -647,7 +648,7 @@ function Result({
       {result.is_sample_data ? (
         <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
       ) : (
-        <p className="annual-sim__notice">{ANNUAL_COPY.estimateNotice}</p>
+        <p className="annual-sim__notice">{estimateNoticeText(result.as_of)}</p>
       )}
 
       {/* ── 결정론 (PRD §12.3) ─────────────────────────────────────── */}

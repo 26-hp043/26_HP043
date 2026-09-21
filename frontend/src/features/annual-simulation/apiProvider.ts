@@ -131,6 +131,7 @@ export function createApiAnnualSimulationProvider(
       data?: unknown
       calculation_run_id?: unknown
       warnings?: unknown
+      meta?: { as_of?: unknown } | null
     } | null
     const data = envelope?.data
     if (data === null || typeof data !== 'object') {
@@ -150,11 +151,16 @@ export function createApiAnnualSimulationProvider(
       throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
     }
 
+    // 기준 시각도 `data` 밖(`meta.as_of`)이다 (#1578). 없으면 키를 만들지 않는다 —
+    // 빈 문자열로 채우면 고지가 「기준 시각은 입니다」가 된다.
+    const asOf = envelope?.meta?.as_of
+
     // Layer 1 값을 손대지 않고 그대로 넘긴다.
     return {
-      ...(data as Omit<AnnualSimulationResult, 'calculation_run_id' | 'warnings'>),
+      ...(data as Omit<AnnualSimulationResult, 'calculation_run_id' | 'warnings' | 'as_of'>),
       calculation_run_id: runId,
       warnings: warnings as string[],
+      ...(typeof asOf === 'string' && asOf !== '' ? { as_of: asOf } : {}),
     }
   }
 

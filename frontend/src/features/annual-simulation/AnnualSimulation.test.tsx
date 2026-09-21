@@ -10,6 +10,7 @@ import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { ANNUAL_COPY } from './copy'
 import type { FeedbackBlock, ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
+import { formatTimestamp } from '../../display/format'
 
 /**
  * 「이 seed로 다시 실행」의 **화면 배선** (`PRD §12.4.3` · #776).
@@ -23,6 +24,7 @@ import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContex
  */
 
 const VESSEL_ID = '00000000-0000-4000-8000-000000000001'
+const AS_OF = '2026-09-21T05:24:00Z'
 
 function body(simulationId: string) {
   return {
@@ -61,6 +63,8 @@ function body(simulationId: string) {
     },
     calculation_run_id: `run-${simulationId}`,
     warnings: [],
+    // 서버는 집계에 쓴 시각을 늘 싣는다(`API_SPEC §6.1` · `#816`) — 결과 위 고지가 쓴다 (#1578)
+    meta: { duration_ms: 10, as_of: AS_OF },
   }
 }
 
@@ -1174,5 +1178,17 @@ describe('대상 선박과 결과의 조건 (#1553)', () => {
     const line = screen.getByText(ANNUAL_COPY.resultConditionsLabel).closest('p') as HTMLElement
     expect(line.textContent).toContain('목표 등급 C')
     expect(line.textContent).not.toContain('목표 등급 A')
+  })
+})
+
+describe('결과 위 추정 고지 (#1578 · `DESIGN_SYSTEM §11`)', () => {
+  it('응답의 기준 시각을 담고, 하단 면책의 「예측값」을 되풀이하지 않는다', async () => {
+    stubServer()
+    renderScreen()
+    await runOnce()
+
+    const notice = await screen.findByText(/잔여 계획을 전제로 한 추정값/)
+    expect(notice.textContent).toContain(`기준 시각은 ${formatTimestamp(AS_OF)}입니다.`)
+    expect(notice.textContent).not.toMatch(/예측값/)
   })
 })

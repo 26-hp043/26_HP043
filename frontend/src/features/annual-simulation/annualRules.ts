@@ -1,5 +1,11 @@
 import { addFixed, compareFixed } from '../../display/decimal'
-import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped, formatPercent } from '../../display/format'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  formatGrouped,
+  formatPercent,
+  formatTimestamp,
+} from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { MonteCarloBlock, SensitivityAnalysis, SensitivityEntry } from './types'
 import { ANNUAL_COPY } from './copy'
@@ -404,4 +410,17 @@ export function resultConditionsText(conditions: {
   target: string
 }): string {
   return `${conditions.vesselName} · ${conditions.year}년 · 목표 등급 ${conditions.target}`
+}
+
+/**
+ * 결과 위 화면 단위 추정 고지 (`DESIGN_SYSTEM §11` · #1578).
+ *
+ * §11은 전면 추정 화면이 개별 표기를 고지로 갈음할 때 **추정 성격과 기준 시각**을 담으라고
+ * 한다. 기준 시각은 응답 `meta.as_of` — 집계에 실제로 쓴 시각이다. 없으면 추정 성격만
+ * 말한다(빈 시각을 지어내지 않는다).
+ */
+export function estimateNoticeText(asOf: string | undefined): string {
+  if (asOf === undefined) return ANNUAL_COPY.estimateNotice
+  const time = formatTimestamp(asOf)
+  return `${ANNUAL_COPY.estimateNotice} ${ANNUAL_COPY.estimateAsOf.replace('{time}', time)}`
 }

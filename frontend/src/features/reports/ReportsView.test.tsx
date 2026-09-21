@@ -347,3 +347,14 @@ describe('상단바 선택을 따른다 (#1414)', () => {
     expect(selectVoyageId).toHaveBeenCalledWith('a-1')
   })
 })
+
+describe('하단 안내가 면책 배너를 되풀이하지 않는다 (#1578)', () => {
+  it('리포트의 성격(내부 보고용)만 말하고 「공식 문서가 아니다」는 배너 한 곳이다', async () => {
+    render(<ReportsView provider={stub()} />)
+    await waitFor(() => expect(vesselSelect().querySelectorAll('option').length).toBeGreaterThan(1))
+
+    expect(screen.getByText(/내부 보고용/).closest('p')?.textContent).toBe('리포트는 내부 보고용입니다.')
+    expect(screen.queryByText(/대관 제출용/)).toBeNull()
+    expect(screen.getAllByText(/공식/)).toHaveLength(1)
+  })
+})

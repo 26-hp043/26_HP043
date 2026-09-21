@@ -569,3 +569,30 @@ describe('실적 확정 전 항차 카드의 자리 (#1573)', () => {
     expect(screen.getByText('가선')).toBeTruthy()
   })
 })
+
+describe('하단 고지는 배너 한 칸 (#1578)', () => {
+  it('「추정값 사용」 문장이 면책 배너 안에 한 번만 있다 — 따로 떠 있는 문단이 없다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            status: 200,
+            json: async () => page([vessel('v1', '가')], { next_cursor: null, has_more: false }),
+          }) as Response,
+      ),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가')
+
+    const hits = screen.getAllByText(/일부 값은 사용자 입력 또는 모델 추정값입니다/)
+    expect(hits).toHaveLength(1)
+    expect(hits[0].getAttribute('role')).toBe('note')
+    expect(hits[0].textContent).toMatch(/^참고용 예측값입니다/)
+  })
+})

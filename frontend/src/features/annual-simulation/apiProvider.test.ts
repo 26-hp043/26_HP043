@@ -166,6 +166,20 @@ describe('오류', () => {
     expect(result.warnings).toEqual(['REFERENCE_ONLY'])
     expect(result.simulation_id).toBe('sim-1')
   })
+
+  it('meta.as_of(기준 시각)도 결과에 합친다 (#1578)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({ ...OK_BODY, meta: { duration_ms: 12, as_of: '2026-09-21T05:24:00Z' } }),
+    )
+    const result = await createApiAnnualSimulationProvider({ fetchImpl }).run(REQUEST)
+    expect(result.as_of).toBe('2026-09-21T05:24:00Z')
+  })
+
+  it('meta.as_of가 없으면 키를 만들지 않는다 — 빈 시각으로 채우지 않는다 (#1578)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ ...OK_BODY, meta: { duration_ms: 12 } }))
+    const result = await createApiAnnualSimulationProvider({ fetchImpl }).run(REQUEST)
+    expect('as_of' in result).toBe(false)
+  })
 })
 
 // `PRD §12.4.3` 「결과 재현 버튼」의 데이터 경계 (#776). 화면 배선은
