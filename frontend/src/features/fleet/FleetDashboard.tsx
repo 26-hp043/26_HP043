@@ -28,6 +28,8 @@ import {
 import { appliedBaselineText, regulationParametersPath } from '../parameters/referenceRules'
 import {
   daysToDText,
+  daysValueText,
+  showsDaysToD,
   isAtRisk,
   relativeTime,
   unavailableHint,
@@ -247,6 +249,11 @@ export function FleetDashboard() {
       {/*
        * 경고 배너 — 문구는 `PRD §6.3`이 확정한 원문 그대로다(#352 원문 대조).
        * 위험 선박이 없으면 표시하지 않는다 — 0척 배너를 상시 띄우면 경고가 배경이 된다.
+       *
+       * **이 한 줄만 말한다** (#1569). 종전에는 아래에 「가장 임박 — … · D등급까지 N일」을
+       * 붙였는데, 위험 선박은 이미 D · E라 「D등급까지」가 없으므로 그 줄은 **정의상 늘
+       * 배너가 말하는 배가 아닌 배**를 가리켰다. 배너가 없는 날(위험 0척)에는 함께
+       * 사라지기도 했다. 요약 행의 한 칸으로 옮겼다.
        */}
       {banner ? (
         <section className="warn" role="alert">
@@ -266,14 +273,6 @@ export function FleetDashboard() {
           ) : (
             <p className="warn__main">{banner}</p>
           )}
-          {soonest ? (
-            <p className="warn__sub">
-              {/* 문구를 다시 쓰지 않고 `daysToDText`를 부른다 (#592). 종전에는
-                  같은 문장을 여기서 한 번 더 조립해, 선박 카드와 이 배너의
-                  자릿수가 갈릴 수 있었다. */}
-              가장 임박 — {soonest.name} · {daysToDText(soonest.days, null)}
-            </p>
-          ) : null}
         </section>
       ) : null}
 
@@ -351,6 +350,28 @@ export function FleetDashboard() {
           없는 것은 **적용 대상 판정**이다(`types.ts` `grossTonnage` 주석 ·
           `#653`). 안 되는 일을 넓게 적으면 사용자가 다른 값까지 의심한다.
         */}
+        {/*
+          ## D등급 진입 임박 (#1569)
+          경고 배너 부제에서 옮겨 왔다 — 배너 주제(이미 D · E인 위험 선박)와 다른 배를
+          가리켰다. 서버가 고른 값을 그대로 그린다(`summary.soonest_d_entry` · `#989`) —
+          받은 페이지에서 다시 고르면 101번째 배가 빠진다.
+        */}
+        <div className="kpi">
+          <p className="kpi__label">D등급 진입 임박</p>
+          {soonest ? (
+            <>
+              <p className="kpi__value">{daysValueText(soonest.days)}</p>
+              <p className="kpi__foot">
+                <Link className="kpi__link" to={`/vessels/${soonest.vesselId}`}>
+                  {soonest.name}
+                </Link>
+              </p>
+            </>
+          ) : (
+            <p className="kpi__foot">해당 선박 없음</p>
+          )}
+        </div>
+
         <div className="kpi">
           <p className="kpi__label">GT 미입력</p>
           <p className="kpi__value">{missingGt}</p>
@@ -642,25 +663,31 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
              * 종전에는 제원이 없어도 「실적 없음」으로 보여, 항차를 등록해도 해결되지
              * 않는 선박을 사용자가 계속 들여다보게 됐다.
              */}
-            <span
-              className="vessel__days"
-              title={
-                vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
-              }
-              /*
-               * `role` 없는 `<span>`의 `aria-label`은 무시된다 (#829 ⑸b).
-               * 라벨이 붙는 조건과 **같은 조건**으로 준다 — 값이 있을 때는 본문
-               * 텍스트가 그대로 읽히면 되므로 역할을 만들지 않는다.
-               */
-              role={vessel.dataAvailable ? undefined : 'img'}
-              aria-label={
-                vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
-              }
-            >
-              {vessel.dataAvailable
-                ? daysToDText(vessel.daysToD, vessel.daysToDReason)
-                : unavailableText(vessel.unavailableReason)}
-            </span>
+            {/*
+              이미 D 이하면 이 칸을 그리지 않는다 (#1569 · `showsDaysToD`) — 「D등급 이하」가
+              왼쪽 마크의 등급을 되풀이했다.
+            */}
+            {!vessel.dataAvailable || showsDaysToD(vessel.daysToD, vessel.daysToDReason) ? (
+              <span
+                className="vessel__days"
+                title={
+                  vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
+                }
+                /*
+                 * `role` 없는 `<span>`의 `aria-label`은 무시된다 (#829 ⑸b).
+                 * 라벨이 붙는 조건과 **같은 조건**으로 준다 — 값이 있을 때는 본문
+                 * 텍스트가 그대로 읽히면 되므로 역할을 만들지 않는다.
+                 */
+                role={vessel.dataAvailable ? undefined : 'img'}
+                aria-label={
+                  vessel.dataAvailable ? undefined : unavailableHint(vessel.unavailableReason)
+                }
+              >
+                {vessel.dataAvailable
+                  ? daysToDText(vessel.daysToD, vessel.daysToDReason)
+                  : unavailableText(vessel.unavailableReason)}
+              </span>
+            ) : null}
           </span>
         </span>
       </Link>

@@ -45,6 +45,29 @@ export function riskReasonText(reason: RiskReason): string {
 }
 
 /**
+ * 남은 일수만 — `36일` (#1569). 자릿수·단위는 `§4.2`가 소유한다.
+ *
+ * 대시보드 요약 행의 「D등급 진입 임박」 칸이 쓴다. 칸 라벨이 이미 「D등급」을 말하므로
+ * 값에 「D등급까지」를 다시 붙이지 않는다. `daysToDText`도 이것을 불러 두 자리의 자릿수가
+ * 갈리지 않는다(`#592`).
+ */
+export function daysValueText(days: number): string {
+  return `${formatDecimalString(toDecimalInput(days), DISPLAY_DIGITS.days)}${DISPLAY_UNITS.day}`
+}
+
+/**
+ * 카드에 「D등급까지」 칸을 그리는가 (#1569).
+ *
+ * **이미 D 이하(`ALREADY_AT_OR_BELOW`)면 그리지 않는다** — 왼쪽 배 마크가 등급을 이미
+ * 말하는데 「D등급 이하」가 그것을 되풀이한다. 다른 사유(정박 중 · 실적 없음 · 올해 진입
+ * 없음 · 최근 항해 없음)는 **왜 숫자가 없는지**라 남긴다. 값이 없는 선박(`dataAvailable`
+ * false)은 사유 문구를 쓰므로 여기서 가르지 않는다.
+ */
+export function showsDaysToD(daysToD: number | null, reason: DaysReason | null): boolean {
+  return !(daysToD === null && reason === 'ALREADY_AT_OR_BELOW')
+}
+
+/**
  * 「D등급 진입까지」 표시 문구.
  *
  * **숫자를 못 낸 것과 0일인 것을 같은 문구로 쓰지 않는다.** 서버가 사유를 따로 주는
@@ -55,10 +78,7 @@ export function riskReasonText(reason: RiskReason): string {
  * 대시보드 카드에 `12.4일`이 나갈 자리였다.
  */
 export function daysToDText(days: number | null, reason: DaysReason | null): string {
-  if (days !== null) {
-    const text = formatDecimalString(toDecimalInput(days), DISPLAY_DIGITS.days)
-    return `D등급까지 ${text}${DISPLAY_UNITS.day}`
-  }
+  if (days !== null) return `D등급까지 ${daysValueText(days)}`
   switch (reason) {
     case 'ALREADY_AT_OR_BELOW':
       return 'D등급 이하'
