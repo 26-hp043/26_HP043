@@ -90,6 +90,103 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/**
+ * 입력칸 기본값은 고른 배의 제원이다 (#1538).
+ *
+ * 종전에는 `initialFormState()`의 고정 데모 값(12.8 kn · 26.88 t/일)이라 어느 배를 골라도
+ * 같았고, 그대로 비교하면 **다른 배의 숫자로** 계산한 결과가 그 배 이름으로 나왔다.
+ */
+describe('입력칸 기본값 — 고른 배의 제원 (#1538)', () => {
+  const BULK = {
+    id: '00000000-0000-4000-8000-000000000001',
+    displayName: '샘플 벌크선 (50,000 DWT)',
+    shipType: 'BULK_CARRIER',
+    spec: { referenceSpeedKn: '12', referenceDailyFocTon: '23.04', defaultFuelType: null },
+  }
+  const CARGO = {
+    id: '00000000-0000-4000-8000-000000000003',
+    displayName: 'DONGJIN ENDURANCE',
+    shipType: 'GENERAL_CARGO',
+    spec: { referenceSpeedKn: '12.8', referenceDailyFocTon: null, defaultFuelType: null },
+  }
+
+  function tree(value: ShellContext) {
+    return (
+      <MemoryRouter initialEntries={['/scenarios']}>
+        <Routes>
+          <Route element={<Outlet context={value} />}>
+            <Route path="/scenarios" element={<ScenarioComparison />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+  }
+  function shell(vesselId: string, vessels = [BULK, CARGO]): ShellContext {
+    return {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId,
+      vessels,
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+  }
+  const speed = () => screen.getByLabelText(/현재 속력/) as HTMLInputElement
+  const dailyFoc = () => screen.getByLabelText(/기준 일일 연료소모량/) as HTMLInputElement
+
+  it('고른 배의 기준속도·일일 연료로 채운다 — 고정 데모 값이 아니다', async () => {
+    stubServer()
+    render(tree(shell(BULK.id)))
+
+    await waitFor(() => expect(speed().value).toBe('12'))
+    expect(dailyFoc().value).toBe('23.04')
+    expect(screen.getByText('선박 제원 값입니다. 고치면 이 비교에만 씁니다.')).toBeTruthy()
+  })
+
+  it('제원에 일일 연료가 없으면 칸을 비우고 그 사실을 말한다', async () => {
+    stubServer()
+    render(tree(shell(CARGO.id)))
+
+    await waitFor(() => expect(speed().value).toBe('12.8'))
+    expect(dailyFoc().value).toBe('')
+    expect(
+      screen.getByText('선박 제원에 이 값이 없습니다 — 직접 입력하면 이 비교에 씁니다.'),
+    ).toBeTruthy()
+  })
+
+  it('⚠️ 배를 바꾸면 새 배의 제원으로 바뀐다 — 앞 배의 값이 남지 않는다', async () => {
+    stubServer()
+    const { rerender } = render(tree(shell(BULK.id)))
+    await waitFor(() => expect(dailyFoc().value).toBe('23.04'))
+
+    rerender(tree(shell(CARGO.id)))
+
+    await waitFor(() => expect(speed().value).toBe('12.8'))
+    expect(dailyFoc().value).toBe('')
+  })
+
+  it('같은 배에서 고친 칸은 목록이 다시 와도 덮지 않는다', async () => {
+    stubServer()
+    const { rerender } = render(tree(shell(BULK.id)))
+    await waitFor(() => expect(speed().value).toBe('12'))
+
+    fireEvent.change(speed(), { target: { value: '10.5' } })
+    // 셸이 목록을 다시 받아 제원 객체가 새로 만들어진 상황
+    rerender(tree(shell(BULK.id, [{ ...BULK, spec: { ...BULK.spec } }, CARGO])))
+
+    await act(async () => {})
+    expect(speed().value).toBe('10.5')
+  })
+
+  it('제원을 모르는 선택지는 건드리지 않는다 — 종전 기본값 그대로', async () => {
+    stubServer()
+    renderScreen()
+
+    await screen.findByLabelText(/현재 속력/)
+    expect(speed().value).toBe('12.8')
+    expect(dailyFoc().value).toBe('26.88')
+  })
+})
+
 describe('규제연도 — 자유 입력이 아니라 서버 목록이다 (#632)', () => {
   it('셀렉트를 그리고 서버가 준 해로 채운다', async () => {
     stubServer()

@@ -31,6 +31,22 @@ export interface VesselOption {
   id: string
   displayName: string
   shipType: string
+  /**
+   * 입력 화면이 기본값으로 쓰는 제원 (#1538).
+   *
+   * **없는 것(`undefined`)과 비어 있는 것(`null`)을 가른다.** 목록 응답을 거치지 않은
+   * 선택지(검사 픽스처 등)는 제원을 모르므로 `undefined`이고, 화면은 그때 칸을 건드리지
+   * 않는다. 서버가 준 선박에 값이 없으면 각 칸이 `null`이고, 화면은 그 칸을 **비운다** —
+   * 다른 배의 값이나 고정 데모 값을 남겨 두면 그 배 이름으로 다른 숫자가 계산된다.
+   */
+  spec?: VesselSpecDefaults
+}
+
+/** 목록 응답의 제원 세 칸. 숫자는 입력칸에 그대로 넣을 수 있게 문자열로 둔다. */
+export interface VesselSpecDefaults {
+  referenceSpeedKn: string | null
+  referenceDailyFocTon: string | null
+  defaultFuelType: string | null
 }
 
 /** 선박 목록 조회의 데이터 경계. 화면은 출처를 알지 않는다 (`#134`). */
@@ -43,6 +59,16 @@ interface VesselListItem {
   id?: unknown
   name?: unknown
   ship_type?: unknown
+  reference_speed_kn?: unknown
+  reference_daily_foc_ton?: unknown
+  default_fuel_type?: unknown
+}
+
+/** 서버 숫자(또는 십진 문자열)를 입력칸 문자열로. 값이 없거나 읽을 수 없으면 `null`. */
+function specText(value: unknown): string | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : null
+  if (typeof value === 'string' && value.trim() !== '') return value.trim()
+  return null
 }
 
 /**
@@ -102,6 +128,11 @@ export function createApiVesselCatalog(baseUrl?: string): VesselCatalogProvider 
           id: row.id as string,
           displayName: row.name as string,
           shipType: typeof row.ship_type === 'string' ? row.ship_type : '',
+          spec: {
+            referenceSpeedKn: specText(row.reference_speed_kn),
+            referenceDailyFocTon: specText(row.reference_daily_foc_ton),
+            defaultFuelType: specText(row.default_fuel_type),
+          },
         }))
     },
   }

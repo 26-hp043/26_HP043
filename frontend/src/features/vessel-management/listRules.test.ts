@@ -152,10 +152,29 @@ describe('blockedReasons — 이 배로 지금 할 수 없는 것', () => {
     const [reason] = blockedReasons(vessel({ reference_daily_foc_ton: null }))
     expect(reason.fields).toBe('기준 일일 연료소모량 없음')
     expect(reason.consequence).toBe(
-      '항로 비교가 실패하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다',
+      '항로 비교에서 매번 직접 입력해야 하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다',
     )
     // ⚠️ 결과절에 항목 이름이 섞이면 화면에서 같은 말이 두 번 나온다.
     expect(reason.consequence).not.toContain('없음')
+  })
+
+  /*
+   * `#1538` — 항로 비교의 결과는 비어 있는 칸에 달렸다. 기준속도는 서버가 선박 값만 보므로
+   * 비교가 **실패**하고, 일일 연료만 비면 비교 화면에서 **직접 넣으면** 된다.
+   */
+  it('기준속도가 비면 「실패」, 일일 연료만 비면 「직접 입력」이다 (#1538)', () => {
+    const speed = blockedReasons(vessel({ reference_speed_kn: null }))
+    expect(speed.find((r) => r.consequence.includes('항로 비교'))?.consequence).toContain(
+      '항로 비교가 실패',
+    )
+    const both = blockedReasons(vessel({ reference_speed_kn: null, reference_daily_foc_ton: null }))
+    expect(both.find((r) => r.consequence.includes('항로 비교'))?.consequence).toContain(
+      '항로 비교가 실패',
+    )
+    const fuelOnly = blockedReasons(vessel({ reference_daily_foc_ton: null }))
+    expect(fuelOnly.find((r) => r.consequence.includes('항로 비교'))?.consequence).toContain(
+      '직접 입력',
+    )
   })
 
   it('데모 선박의 실제 상태를 그대로 재현한다 — 4척 모두 일일 연료가 비어 있다', () => {

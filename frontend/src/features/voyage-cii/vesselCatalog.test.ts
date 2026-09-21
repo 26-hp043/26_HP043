@@ -57,6 +57,41 @@ describe('실 API 카탈로그', () => {
     ])
   })
 
+  /*
+   * `#1538` — 항로 비교가 이 제원으로 입력칸을 채운다. **없는 것과 비어 있는 것을 가른다**:
+   * 서버가 준 배의 빈 값은 `null`(칸을 비운다), 목록을 거치지 않은 선택지는 `spec`이 없다.
+   */
+  it('제원 세 칸을 문자열로 싣고, 빈 값은 null로 둔다 (#1538)', async () => {
+    mockFetch(() =>
+      jsonResponse({
+        data: [
+          {
+            id: 'v-1',
+            name: '샘플 벌크선',
+            ship_type: 'BULK_CARRIER',
+            reference_speed_kn: 12,
+            reference_daily_foc_ton: 23.04,
+            default_fuel_type: 'LNG',
+          },
+          { id: 'v-2', name: '제원 없는 배', ship_type: 'GENERAL_CARGO', reference_speed_kn: null },
+        ],
+      }),
+    )
+
+    const [full, empty] = await createApiVesselCatalog('/api/v1').listVessels()
+
+    expect(full.spec).toEqual({
+      referenceSpeedKn: '12',
+      referenceDailyFocTon: '23.04',
+      defaultFuelType: 'LNG',
+    })
+    expect(empty.spec).toEqual({
+      referenceSpeedKn: null,
+      referenceDailyFocTon: null,
+      defaultFuelType: null,
+    })
+  })
+
   it('GET /vessels를 인증 헤더와 함께 부른다', async () => {
     const spy = mockFetch(() => jsonResponse(OK_BODY))
 
