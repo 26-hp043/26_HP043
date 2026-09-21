@@ -1088,3 +1088,26 @@ describe('재현 정보의 식별자를 접는다 (#1418)', () => {
     expect(card).toBeTruthy()
   })
 })
+
+/**
+ * 목표 등급은 C로 시작한다 (`#1453` · `PRD §12.2`).
+ *
+ * 종전에는 B였다. 첫 값을 바꾸지 않고 실행하는 사용자에게는 기본값이 곧 목표다 —
+ * 요청 본문까지 C가 가는지를 본다. 셀렉트만 보면 화면과 전송이 갈릴 때 잡지 못한다.
+ */
+describe('목표 등급 기본값 (#1453)', () => {
+  it('처음 고른 목표가 C이고, 바꾸지 않고 실행하면 C가 전송된다', async () => {
+    stubRole('OFFICE')
+    const fetchImpl = stubServer()
+    renderScreen()
+
+    const select = (await screen.findByLabelText(/목표 등급/)) as HTMLSelectElement
+    expect(select.value).toBe('C')
+
+    await runOnce()
+
+    const call = fetchImpl.mock.calls.find(([url]) => String(url).endsWith('/annual-simulations'))
+    expect(call).toBeTruthy()
+    expect(JSON.parse((call![1] as RequestInit).body as string).target_rating).toBe('C')
+  })
+})
