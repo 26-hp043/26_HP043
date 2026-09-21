@@ -34,6 +34,23 @@ def test_tool_schemas_cover_exactly_the_four_tools() -> None:
     assert "create_voyage" not in names
 
 
+def test_year_end_tool_name_and_description_drop_the_simulation_framing() -> None:
+    """`#1534`(결정요청 v6 `D-32`) — 이름과 설명이 **결정론 계산**을 말한다.
+
+    이 도구는 몬테카를로 확률이 아니라 확정 실적 + 잔여 계획을 외삽한 값을 낸다
+    (``PRD §3.3`` ⑶). 종전 이름 ``run_annual_simulation``과 설명의 「시뮬레이션」·
+    「기능③」은 `PRD §12`의 확률 시뮬레이션을 가리켜 혼동을 낳았다 — 성질을
+    단언한다(``AGENTS §4.6``): 그 두 표현이 **없어야 한다**.
+    """
+    assert chat_tools.TOOL_PROJECT_YEAR_END == "project_year_end"
+    schema = next(
+        s for s in chat_tools.tool_schemas() if s["name"] == chat_tools.TOOL_PROJECT_YEAR_END
+    )
+    description = str(schema["description"])
+    assert "시뮬레이션" not in description
+    assert "기능③" not in description
+
+
 def test_tool_schemas_are_described_in_korean() -> None:
     """IT-CHAT-017 — 설명이 한국어다.
 
@@ -174,7 +191,7 @@ async def test_calculation_tools_need_a_vessel_first() -> None:
     for name in (
         chat_tools.TOOL_CALC_VOYAGE_CII,
         chat_tools.TOOL_COMPARE_SCENARIOS,
-        chat_tools.TOOL_RUN_ANNUAL_SIMULATION,
+        chat_tools.TOOL_PROJECT_YEAR_END,
     ):
         outcome = await chat_tools.run_tool(None, name=name, arguments={}, vessel_id=None)  # type: ignore[arg-type]
         body = json.loads(outcome.envelope)
