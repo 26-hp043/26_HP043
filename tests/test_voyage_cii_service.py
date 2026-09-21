@@ -14,7 +14,8 @@
 from __future__ import annotations
 
 import json
-from decimal import Decimal
+import random
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import pytest
@@ -131,7 +132,7 @@ class TestSerializationMatchesApiSpec:
     )
     def test_field(self, layer1, attr, digits_key, expected):
         value = getattr(layer1, attr)
-        assert svc._publish(value, svc.SERIALIZATION_DIGITS[digits_key]) == expected
+        assert svc._publish(value, digits_key) == expected
 
     @pytest.mark.parametrize(
         ("key", "expected"),
@@ -153,10 +154,64 @@ class TestSerializationMatchesApiSpec:
         값이라 다르면 화면에서 나란히 놓을 수 없다. 기대값은 `TECH_SPEC §1.2.3` 정본
         30자리(`canonical`)를 6자리로 줄인 것이다.
         """
-        assert (
-            svc._publish(layer1.boundaries[key], svc.SERIALIZATION_DIGITS["boundary_cii"])
-            == expected
-        )
+        assert svc._publish(layer1.boundaries[key], "boundary_cii") == expected
+
+
+class TestSerializationTruncatesCii:
+    """CII 필드의 자릿수 줄임은 **절사**다 (`#1349` · `TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+
+    화면·보고서는 받은 문자열을 소수 3자리로 반올림한다. 전송 단계(6자리)도 반올림이면
+    반올림이 두 번이 되어 드물게 끝자리가 1 올라간다. 아래 기대값은 **수치 계약**이며
+    표시 문구가 아니다 — `AGENTS §4.6`의 리터럴 규칙은 문구에 관한 것이다.
+    """
+
+    #: 원값에서 바로 3자리면 `4.982`인데, 6자리 HALF_UP ``"4.982500"``을 거치면 `4.983`이 된다.
+    BOUNDARY = Decimal("4.9824996")
+
+    @pytest.mark.parametrize("field", sorted(svc.SERIALIZATION_CII_FIELDS))
+    def test_cii_fields_round_down(self, field):
+        assert svc._publish(self.BOUNDARY, field) == "4.982499"
+
+    def test_negative_margin_truncates_toward_zero(self):
+        """``next_worse_boundary_margin``은 음수일 수 있다 — ``ROUND_DOWN``은 부호에 대칭이다."""
+        assert svc._publish(Decimal("-0.0004996"), "margin") == "-0.000499"
+
+    @pytest.mark.parametrize(
+        ("value", "field", "expected"),
+        [
+            # 전송 자릿수 = 표시 자릿수 — 절사하면 그 문자열이 곧 표시가 된다.
+            (Decimal("80.05"), "detail_fuel_ton", "80.1"),
+            # 비율은 결정 범위 밖이다 — 그대로 반올림.
+            (Decimal("0.987585"), "ratio_to_required", "0.98759"),
+            (Decimal("0.07245"), "margin_ratio", "0.0725"),
+            # 물리량도 그대로.
+            (Decimal("249.125"), "co2_ton", "249.13"),
+            (Decimal("80.005"), "fuel_ton", "80.01"),
+        ],
+    )
+    def test_non_cii_fields_keep_half_up(self, value, field, expected):
+        assert svc._publish(value, field) == expected
+
+    def test_truncate_then_display_equals_direct_display(self):
+        """「6자리 절사 → 3자리 HALF_UP」은 「원값에서 바로 3자리 HALF_UP」과 같다.
+
+        ``services/report._display``가 그 3자리 단계다. 고정 경계값과 결정론적 무작위
+        표본으로 본다 — 전송이 HALF_UP이면 6자리에서 약 0.047%가 어긋난다
+        (`TECH_SPEC §1.2.1`).
+        """
+        from cii_platform.services.report import _display
+
+        rng = random.Random(1349)
+        samples = [self.BOUNDARY, Decimal("-0.0004996"), Decimal("5.0455"), Decimal("0")] + [
+            Decimal(rng.randrange(0, 20_000_000_000)).scaleb(-9) for _ in range(5_000)
+        ]
+        for value in samples:
+            direct = str(value.quantize(Decimal("0.001"), rounding=ROUND_HALF_UP))
+            assert _display(svc._publish(value, "attained_cii"), "cii") == direct, value
+
+    def test_model_version_rounding_describes_layer1_not_serialization(self):
+        """``decimal_rounding``은 Layer 1 계산·공표 확정의 반올림이다 — 직렬화 절사가 아니다."""
+        assert svc._model_version()["decimal_rounding"] == ROUND_HALF_UP
 
 
 class TestPlainSerialization:

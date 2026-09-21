@@ -53,6 +53,7 @@ from cii_platform.calc.cii_engine import (
 )
 from cii_platform.calc.hash import compute_input_hash, compute_parameter_hash
 from cii_platform.calc.precision import (
+    CII_SERIALIZATION_ROUNDING,
     LAYER1_CANONICAL_SIGNIFICANT_DIGITS,
     LAYER1_ROUNDING,
     layer1_context,
@@ -128,7 +129,20 @@ SERIALIZATION_DIGITS = {
     #: 등급 경계 CII 4종 (`#1371`). ``attained_cii``·``required_cii``와 **같은 6자리**다 —
     #: 셋이 같은 축(CII)의 값이라 자릿수가 다르면 화면에서 나란히 놓을 수 없다.
     "boundary_cii": 6,
+    #: 기능② ``duration_hours`` (``services/scenario_compare``) — 프론트엔드
+    #: ``serializeHours``(``toFixed(4)``)와 같다.
+    "duration_hours": 4,
 }
+
+#: :data:`SERIALIZATION_DIGITS` 가운데 **CII 값을 싣는 필드** — 자릿수를 줄일 때 반올림이
+#: 아니라 **절사**한다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」 · `#1349`). 반올림 모드를
+#: 호출 자리마다 넘기지 않고 이 표에서 정하는 것은, 필드를 하나 더할 때 **빠뜨릴 수 없게**
+#: 하기 위해서다 — 여기 없으면 :data:`LAYER1_ROUNDING`이다.
+#:
+#: ``margin``(``next_worse_boundary_margin``)은 CII 축의 차이라 같은 축이다.
+#: ``margin_ratio``·``ratio_to_required``는 비율이고, ``detail_fuel_ton``은 전송 자릿수가
+#: 표시 자릿수와 같아 절사하면 그 문자열이 곧 표시가 된다 — 둘 다 그대로 반올림이다.
+SERIALIZATION_CII_FIELDS = frozenset({"attained_cii", "required_cii", "boundary_cii", "margin"})
 
 #: TECH_SPEC §5.4 재현성 계약이 응답에 싣도록 규정한 엔진 식별자.
 ENGINE_NAME = "dual-precision-v1"
@@ -264,18 +278,24 @@ def _compute_layer1(
 # --- 직렬화 헬퍼 ------------------------------------------------------------------
 
 
-def _publish(value: Decimal, digits: int) -> str:
+def _publish(value: Decimal, field: str) -> str:
     """Layer 1 값을 응답 문자열로 확정한다.
 
     **두 단계다.** 먼저 §1.2.1의 공표 확정(유효숫자 30)을 거치고, 그 다음 API_SPEC
-    §4.1 예시가 쓰는 자릿수로 형식화한다. 앞 단계를 건너뛰면 응답에 50자리가 그대로
-    실리고, 뒤 단계를 건너뛰면 계약 예시(``"4.982400"``)와 형태가 달라진다.
+    §4.1 예시가 쓰는 자릿수(:data:`SERIALIZATION_DIGITS`)로 형식화한다. 앞 단계를
+    건너뛰면 응답에 50자리가 그대로 실리고, 뒤 단계를 건너뛰면 계약 예시
+    (``"4.982400"``)와 형태가 달라진다.
 
-    ``quantize``의 반올림은 §1.2.1과 같은 ``ROUND_HALF_UP``이다.
+    뒤 단계의 반올림은 **필드가 정한다** (`#1349`). CII 필드
+    (:data:`SERIALIZATION_CII_FIELDS`)는 ``ROUND_DOWN``으로 절사하고, 나머지는 §1.2.1의
+    ``ROUND_HALF_UP``이다 — 절사는 화면의 3자리 반올림과 합쳐 두 번 반올림되는 것을
+    막는 장치라(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」), 전송 자릿수가 표시
+    자릿수와 같은 필드에는 걸지 않는다.
     """
     canonical = publish_layer1_canonical(value)
-    quantum = Decimal(1).scaleb(-digits)
-    return str(canonical.quantize(quantum, rounding=LAYER1_ROUNDING))
+    quantum = Decimal(1).scaleb(-SERIALIZATION_DIGITS[field])
+    rounding = CII_SERIALIZATION_ROUNDING if field in SERIALIZATION_CII_FIELDS else LAYER1_ROUNDING
+    return str(canonical.quantize(quantum, rounding=rounding))
 
 
 def _plain(value: Decimal) -> str:
@@ -323,6 +343,11 @@ def _model_version() -> dict[str, object]:
     ``decimal_precision``은 **공표 자릿수(30)**를 싣는다. 작업 정밀도(50)가 아니다 —
     API_SPEC §4.1 예시가 30이고, 클라이언트가 알아야 하는 것은 「응답 값이 몇 자리로
     확정됐는가」이기 때문이다(#179가 두 값을 분리한 이유와 같다).
+
+    ``decimal_rounding``도 같은 층이다 — **Layer 1 계산과 공표 확정**의 반올림
+    (``ROUND_HALF_UP``)이며, 그 30자리 공표값을 전송 자릿수(소수 6)로 줄이는 직렬화
+    단계의 절사(:func:`_publish` · `#1349`)를 말하지 않는다. 저장된 옛 결과의
+    ``ROUND_HALF_UP`` 문자열도 그대로 둔다(§1.2.1 — 재현은 해시만 비교한다).
     """
     return {
         "engine": ENGINE_NAME,
@@ -591,14 +616,13 @@ async def _annual_impact(
 
     # 자릿수는 이 응답의 다른 CII 값과 **같게** 둔다 — 한 응답 안에서 같은 양이
     # 다른 자릿수로 실리면 화면이 둘을 다른 종류의 값으로 다루게 된다.
-    digits = SERIALIZATION_DIGITS["attained_cii"]
     return {
         "before": {
-            "attained_cii": _publish(before.attained_cii, digits),
+            "attained_cii": _publish(before.attained_cii, "attained_cii"),
             "rating": before.rating,
         },
         "after": {
-            "attained_cii": _publish(after.attained_cii, digits),
+            "attained_cii": _publish(after.attained_cii, "attained_cii"),
             "rating": after.rating,
         },
         "rating_changed": before.rating != after.rating,
@@ -737,7 +761,7 @@ def _normalized_fuel_details(payload: VoyageCiiInput, fuel_rows) -> list[dict[st
         {
             "fuel_type": code,
             "cf": _plain(Decimal(fuel_rows[code].cf)),
-            "fuel_ton": _publish(total, SERIALIZATION_DIGITS["detail_fuel_ton"]),
+            "fuel_ton": _publish(total, "detail_fuel_ton"),
         }
         for code, total in totals.items()
     ]
@@ -756,11 +780,9 @@ def _build_data(
 ) -> dict[str, object]:
     """API_SPEC §4.1 ``data`` 블록."""
     return {
-        "attained_cii": _publish(layer1.attained_cii, SERIALIZATION_DIGITS["attained_cii"]),
-        "required_cii": _publish(layer1.required_cii, SERIALIZATION_DIGITS["required_cii"]),
-        "ratio_to_required": _publish(
-            layer1.ratio_to_required, SERIALIZATION_DIGITS["ratio_to_required"]
-        ),
+        "attained_cii": _publish(layer1.attained_cii, "attained_cii"),
+        "required_cii": _publish(layer1.required_cii, "required_cii"),
+        "ratio_to_required": _publish(layer1.ratio_to_required, "ratio_to_required"),
         "estimated_rating": layer1.rating,
         # 등급 경계 CII 4종 (`#1371`). **화면이 다시 곱하지 않게 서버가 싣는다** —
         # 종전에는 화면이 `required_cii`(표시용 6자리 문자열)를 float로 바꿔 d-vector를
@@ -768,22 +790,17 @@ def _build_data(
         # 표시 반올림값을 다시 사용하지 않는다」 · `TECH_SPEC [ORACLE-S-2]` 위반).
         # 값은 `determine_rating`이 Layer 1 컨텍스트 안에서 낸 것 그대로다.
         "rating_boundary_cii": {
-            name: _publish(value, SERIALIZATION_DIGITS["boundary_cii"])
-            for name, value in layer1.boundaries.items()
+            name: _publish(value, "boundary_cii") for name, value in layer1.boundaries.items()
         },
         # 등급 E는 악화 방향 경계가 없어 null이다 (#171 결론 · PRD §9.2).
         "next_worse_boundary_margin": (
-            None
-            if layer1.margin is None
-            else _publish(layer1.margin, SERIALIZATION_DIGITS["margin"])
+            None if layer1.margin is None else _publish(layer1.margin, "margin")
         ),
         "next_worse_boundary_margin_ratio": (
-            None
-            if layer1.margin_ratio is None
-            else _publish(layer1.margin_ratio, SERIALIZATION_DIGITS["margin_ratio"])
+            None if layer1.margin_ratio is None else _publish(layer1.margin_ratio, "margin_ratio")
         ),
-        "co2_emission_ton": _publish(layer1.total_co2_t, SERIALIZATION_DIGITS["co2_ton"]),
-        "fuel_consumption_ton": _publish(layer1.fuel_total_ton, SERIALIZATION_DIGITS["fuel_ton"]),
+        "co2_emission_ton": _publish(layer1.total_co2_t, "co2_ton"),
+        "fuel_consumption_ton": _publish(layer1.fuel_total_ton, "fuel_ton"),
         # 입력 에코는 **숫자**다 (API_SPEC §4.1 응답 타입 표).
         "distance_nm": float(payload.distance_nm),
         "risk_level": layer1.risk_level,

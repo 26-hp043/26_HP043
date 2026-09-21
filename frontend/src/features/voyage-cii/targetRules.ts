@@ -1,4 +1,4 @@
-import { DISPLAY_DIGITS } from '../../display/format'
+import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
 import type { Rating } from './types'
 
 /**
@@ -131,6 +131,17 @@ export function gradeTargets(data: TargetInputs, boundary: RatingBoundary): Grad
       : Number(fromServer)
     if (!(boundaryCii > 0)) return []
 
+    /*
+     * 표시는 **문자열에서** 줄인다 (`#1349`). 서버는 6자리를 절사해 보내고 화면이 3자리로
+     * 한 번 반올림하는 것이 `TECH_SPEC §1.2.1`의 계약인데, `Number("4.982500").toFixed(3)`은
+     * float64가 `4.9825`를 `4.98249999…`로 담아 `4.982`를 낸다 — 반올림이 아니라
+     * 표현 오차다. `formatDecimalString`은 십진 문자열을 그대로 HALF_UP한다.
+     * 곱셈으로 되살린 값은 이미 float라 `toFixed`로 둔다.
+     */
+    const boundaryCiiText = fromServer === undefined || fromServer === null
+      ? boundaryCii.toFixed(DISPLAY_DIGITS.cii)
+      : formatDecimalString(fromServer, DISPLAY_DIGITS.cii)
+
     const allowed = floorTo(fuel * (boundaryCii / attained), DISPLAY_DIGITS.fuelTon)
 
     /*
@@ -143,7 +154,7 @@ export function gradeTargets(data: TargetInputs, boundary: RatingBoundary): Grad
 
     targets.push({
       rating: RATING_ORDER[i],
-      boundaryCii: boundaryCii.toFixed(DISPLAY_DIGITS.cii),
+      boundaryCii: boundaryCiiText,
       allowedFuelTon: allowed.toFixed(DISPLAY_DIGITS.fuelTon),
       reduceFuelTon: reduce.toFixed(DISPLAY_DIGITS.fuelTon),
       reducePercent: ((reduce / fuel) * 100).toFixed(DISPLAY_DIGITS.percent),

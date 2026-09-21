@@ -197,3 +197,16 @@ def test_slowed_fuel_equals_route_comparison_at_the_new_speed():
     )
 
     assert slowed == pytest.approx(float(route_comparison))
+
+
+def test_publish_cii_truncates_and_quantities_round():
+    """감속 전후 CII는 4자리 **절사**, 연료·일수·감속률은 반올림 (`#1349` · `TECH_SPEC §1.2.1`).
+
+    기대값은 수치 계약이며 표시 문구가 아니다.
+    """
+    from cii_platform.services.fleet_reduction import _TON_DIGITS, _publish, _publish_cii
+
+    assert _publish_cii(Decimal("4.9824996")) == "4.9824"
+    assert _publish_cii(None) is None
+    assert _publish(Decimal("80.005"), _TON_DIGITS) == "80.01"
+    assert _publish(Decimal("12.35"), 1) == "12.4"

@@ -592,7 +592,8 @@ async def test_watch_vessel_third_voyage_leaves_the_dashboard_unchanged(conn):
     assert result["summary"]["at_risk"] == 2
     watch = next(row for row in result["vessels"] if row["vessel_id"] == VESSEL_IDS["watch"])
     assert watch["ytd_rating"] == "C"
-    assert watch["ytd_attained_cii"] == "7.1462"
+    # 4자리 **절사**(`#1349`) — 원값 7.14615…의 표시 3자리는 7.146이다.
+    assert watch["ytd_attained_cii"] == "7.1461"
 
 
 async def test_watch_vessel_reports_a_feedback_factor(conn):

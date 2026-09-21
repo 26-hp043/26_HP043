@@ -30,7 +30,7 @@ V5 감시선 계획   500nm @13kn (소요 1.60일 · 창  5.75일)  ETA 1,794nm 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal, localcontext
+from decimal import ROUND_DOWN, Decimal, localcontext
 from uuid import uuid4
 
 import pytest
@@ -321,8 +321,10 @@ async def test_fleet_summary_agrees(session, vessel) -> None:
 
     mine = next(v for v in fleet["vessels"] if v["vessel_id"] == str(vessel))
 
+    # 대시보드는 CII를 4자리로 **절사**해 싣는다(`#1349` · `TECH_SPEC §1.2.1`). 6자리도
+    # 절사값이므로 6자리를 다시 4자리로 절사하면 원값의 4자리 절사와 같다.
     assert _number(mine["ytd_attained_cii"]) == _number(data["ytd"]["attained_cii"]).quantize(
-        Decimal("0.0001")
+        Decimal("0.0001"), rounding=ROUND_DOWN
     )
 
 
