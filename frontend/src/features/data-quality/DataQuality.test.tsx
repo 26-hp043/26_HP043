@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { DataQuality } from './DataQuality'
 import { DATA_QUALITY_COPY, SEVERITY_TITLE } from './copy'
@@ -268,5 +268,35 @@ describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
     const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
     expect(within(group).getByText('NEW_REASON')).toBeTruthy()
     expect(group.querySelector('.dq__footnotes')).toBeNull()
+  })
+})
+
+describe('연도 선택지 — 조회 화면은 올해까지 · 최신 연도부터 (#1584)', () => {
+  it('서버 목록 2023~2030 중 올해 이후를 빼고 최신 연도부터 보인다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-06-01T00:00:00Z'))
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          new Response(
+            JSON.stringify({ data: [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030].map((year) => ({ year, z_factor_percent: '1.0000' })) }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ),
+      )
+      const provider: DataQualityProvider = { load: vi.fn(async () => SNAPSHOT) }
+      render(
+        <MemoryRouter>
+          <DataQuality provider={provider} />
+        </MemoryRouter>,
+      )
+      const select = (await screen.findByLabelText(DATA_QUALITY_COPY.yearLabel)) as HTMLSelectElement
+      await waitFor(() => expect(select.querySelectorAll('option')).toHaveLength(4))
+      expect([...select.options].map((o) => o.textContent)).toEqual(['2026', '2025', '2024', '2023'])
+      expect(select.value).toBe('2026')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

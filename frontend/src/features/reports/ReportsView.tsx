@@ -8,7 +8,6 @@ import {
   sameTarget,
   targetOf,
   voyageLabel,
-  yearOptions,
 } from './reportRules'
 import type {
   DownloadFormat,
@@ -104,12 +103,15 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
    * 규제연도 선택지 (`#635`). 기능①·연간 시뮬레이션·항로 비교가 이미 쓰는 훅이며
    * (`#632`), 보고서 화면만 로컬 상수를 보고 있었다.
    */
+  /*
+   * 올해까지 · 최신 연도부터는 이제 훅이 모든 조회 화면에 같게 한다 (#1584) — 종전에는
+   * 이 화면만 `reportRules.yearOptions`로 따로 하고 있었다.
+   */
   const {
-    years: regulationYears,
+    years,
     loading: yearsLoading,
     failed: yearsFailed,
-  } = useYearOptions(vesselId)
-  const years = yearOptions(regulationYears, new Date().getFullYear())
+  } = useYearOptions(vesselId, { throughCurrentYear: true })
 
   const [preview, setPreview] = useState<{ target: ReportTarget; html: string } | null>(
     null,
