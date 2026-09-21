@@ -16,8 +16,8 @@
 ## 무엇을 못 박는가
 
 ⑴ `uuid.UUID` → 저장 형식(hex 32자) ⑵ `Decimal` → `str` ⑶ 그 밖의 값은 **손대지 않는다**
-(특히 ``datetime`` — 손대면 밀리초가 사라진다) ⑷ `CAST(? AS 타입)` → `?`
-⑸ `IS 0`/`IS 1` → `= 0`/`= 1`.
+(특히 ``datetime`` — 손대면 밀리초가 사라진다) ⑷ `CAST(? AS 타입)`·`IS 0/1`은 **고쳐 쓰지
+않고 감지만 한다**(#1316 — 종전에는 치환했다) ⑸ 그 두 모양이 `src/`에 없다(소스 가드).
 
 ⚠️ 훅은 엔진 없이 **직접 부른다.** 엔진을 만들면 `DATABASE_URL`에 매이고, 확인하려는 것은
 연결이 아니라 **변환 규칙**이다.
@@ -90,27 +90,34 @@ def test_dict_parameters_are_not_rewritten():
     assert params is given
 
 
-def test_cast_placeholder_is_unwrapped():
-    """`CAST(? AS 타입)` → `?`. CUBRID가 이 캐스트를 받지 못하는 자리가 있다."""
-    statement, _ = _convert(
-        "INSERT INTO t (a, b) VALUES (CAST(? AS jsonb), CAST(? AS uuid))", ("{}", "x")
-    )
+def test_cast_placeholder_is_not_rewritten():
+    """`CAST(? AS 타입)`을 **고쳐 쓰지 않는다** (#1316).
 
-    assert statement == "INSERT INTO t (a, b) VALUES (?, ?)"
+    종전에는 `?`로 떼어 냈다. 운영 코드가 이 모양을 내지 않음을 세어 확인한 뒤 치환을
+    걷었다 — 정규식은 문장이 무엇이든 모양만 맞으면 바꾸므로, 예상 밖 문장에 닿으면
+    **조용히 틀린 결과**가 난다. 남아 있으면 CUBRID가 시끄럽게 거부하는 편이 낫다.
+    """
+    given = "INSERT INTO t (a, b) VALUES (CAST(? AS jsonb), CAST(? AS uuid))"
+
+    statement, _ = _convert(given, ("{}", "x"))
+
+    assert statement == given
 
 
 def test_a_real_cast_of_a_column_is_left_alone():
-    """열을 캐스트하는 것은 그대로 둔다 — 떼어 내는 것은 **자리표시자**뿐이다."""
+    """열을 캐스트하는 것은 그대로 둔다."""
     statement, _ = _convert("SELECT CAST(n AS INT) FROM t", ())
 
     assert statement == "SELECT CAST(n AS INT) FROM t"
 
 
-def test_is_boolean_literal_becomes_equals():
-    """`IS 0`/`IS 1` → `= 0`/`= 1`. CUBRID에서 `IS`의 오른쪽은 NULL·TRUE·FALSE만 온다."""
-    statement, _ = _convert("SELECT 1 FROM t WHERE a IS 0 AND b IS 1", ())
+def test_is_boolean_literal_is_not_rewritten():
+    """`IS 0`/`IS 1`을 **고쳐 쓰지 않는다** (#1316) — ORM에서는 `== 0`/`== 1`로 쓴다."""
+    given = "SELECT 1 FROM t WHERE a IS 0 AND b IS 1"
 
-    assert statement == "SELECT 1 FROM t WHERE a = 0 AND b = 1"
+    statement, _ = _convert(given, ())
+
+    assert statement == given
 
 
 def test_is_null_is_left_alone():
@@ -134,18 +141,19 @@ def test_the_hook_is_registered_on_the_engine():
     assert event.contains(engine.sync_engine, "before_cursor_execute", cubrid_param_convert)
 
 
-def test_rewrites_leave_an_observability_trace(caplog):
-    """치환은 흔적을 남긴다 (#1246) — 예상 밖 문장에 닿는 순간을 잡는 수단.
+def test_detections_leave_an_observability_trace(caplog):
+    """두 모양을 만나면 흔적을 남긴다 (#1246 · #1316) — 운영의 DEBUG 관측.
 
-    정규식 리라이팅은 dialect가 못 내는 문장을 앱이 고쳐 쓰는 것이다. 몇 번 일어나는지
-    보이지 않으면 ORM이 문장 형태를 바꾸는 순간 조용히 깨진다.
+    치환은 걷었지만 관측은 남긴다. 검사 스위트가 치지 않는 운영 전용 문장이 이 모양을
+    내면, CUBRID 오류와 함께 **어느 문장이었는지**가 로그에 남아야 원인을 바로 읽는다.
     """
     import logging
 
+    given = "SELECT 1 FROM t WHERE a = CAST(? AS VARCHAR) AND b IS 1"
     with caplog.at_level(logging.DEBUG, logger="cii_platform.db.session"):
-        statement, _ = _convert("SELECT 1 FROM t WHERE a = CAST(? AS VARCHAR) AND b IS 1", ())
+        statement, _ = _convert(given, ())
 
-    assert statement == "SELECT 1 FROM t WHERE a = ? AND b = 1"
+    assert statement == given
     message = next(
         r.getMessage() for r in caplog.records if "cubrid_param_convert" in r.getMessage()
     )
@@ -161,3 +169,56 @@ def test_clean_statements_are_not_logged(caplog):
         _convert("SELECT 1 FROM t WHERE a = ?", ())
 
     assert not [r for r in caplog.records if "cubrid_param_convert" in r.getMessage()]
+
+
+def test_source_does_not_compare_booleans_with_is():
+    """`src/`에 ``.is_(True|False)``·``.is_not(True|False)`` **호출**이 없다 (#1316).
+
+    SQLAlchemy는 이것을 ``IS 1``/``IS 0``으로 렌더하는데 CUBRID가 거부한다(``IS``의
+    오른쪽은 NULL·TRUE·FALSE만). 변환기가 고쳐 쓰던 것을 걷었으므로, 다시 들어오면
+    **검사 스위트가 그 경로를 치지 않는 한** 운영에서 처음 드러난다. 소스에서 막는다 —
+    저장소 관례는 ``== 0``/``== 1``이다(`repositories/parameters.py` · `calculation_run.py`).
+
+    문자열 검색이 아니라 **구문 트리**로 본다 — 그 관례를 설명하는 주석·docstring이
+    ``.is_(True)``를 인용하고 있어 문자열로 찾으면 설명까지 잡힌다.
+    """
+    import ast
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "src"
+    offenders = []
+    for path in sorted(src.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"is_", "is_not", "isnot"}
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, bool)
+            ):
+                offenders.append(f"{path.relative_to(src)}:{node.lineno}")
+
+    assert offenders == [], f"CUBRID가 거부하는 `IS 0/1`을 낸다 — `== 0/1`로: {offenders}"
+
+
+def test_source_has_no_cast_placeholder_in_raw_sql():
+    """`src/`의 생 SQL에 ``CAST(:이름 AS 타입)``이 없다 (#1316).
+
+    PostgreSQL 시절 모양이다. 변환기가 떼어 내던 것을 걷었으므로 들어오면 CUBRID가
+    거부한다. 열을 캐스트하는 ``CAST(열 AS 타입)``은 대상이 아니다.
+    """
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "src"
+    pattern = re.compile(r"CAST\(\s*:\w+\s+AS\s", re.IGNORECASE)
+    offenders = [
+        f"{path.relative_to(src)}:{lineno}"
+        for path in sorted(src.rglob("*.py"))
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if pattern.search(line)
+    ]
+
+    assert offenders == [], f"CAST 자리표시자는 CUBRID가 거부한다: {offenders}"

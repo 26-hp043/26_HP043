@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.34 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** |
-| 최종 수정일 | 2026-09-20 |
+| 최종 수정일 | 2026-09-22 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -1788,7 +1788,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
   사라졌다. **검사를 지우지 않고** §7.1이 지키려던 것(「없는 연료 코드를 참조하는 행이
   생기지 않는다」)을 자식 쪽에서 보게 했다.
 
-#### CUBRID에서 달라지는 것 여덟
+#### CUBRID에서 달라지는 것 아홉
 
 1. **FK는 PK만 가리킬 수 있다.** `fuel_type`은 PK가 `id`이고 `code`는 별도 UNIQUE라
    `§7.1` 마지막 두 행(그리고 `not_underway_fuel_use`)은 **FK로 걸 수 없다.**
@@ -1850,6 +1850,19 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
    `MODIFY updated_at DATETIMETZ DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_DATETIME`을
    걸었다. 계약은 같고 **찾는 자리가 다르다** — `db_trigger`에서 `%updated%`는 0행이고
    `db_attribute`의 열 속성에 있다. 위 트리거 표에 `updated_at` 행이 없는 이유다.
+9. **`IS`의 오른쪽에 `0`/`1`이 올 수 없다** (`#1316`). `IS`는 `NULL`·`TRUE`·`FALSE`만 받는다.
+   SQLAlchemy는 불리언 열의 `.is_(False)`를 `IS 0`으로 렌더하므로(`sqlalchemy-cubrid` 1.7.1 ·
+   `supports_native_boolean = False`) 그 문장이 그대로 선다.
+
+   ```
+   SELECT count(*) FROM app_user WHERE is_deleted IS 0
+   → Syntax error: unexpected '0', expecting NOT or Null
+   ```
+
+   🔒 **ORM에서 불리언 열은 `== 0`/`== 1`로 비교한다.** 한때 운영 엔진의 변환기가 `IS 0/1`을
+   `= 0/1`로 고쳐 썼으나, 정규식은 모양만 맞으면 어떤 문장이든 바꾸므로 걷었다(`#1316`).
+   `tests/test_db_session_param_convert.py`의 소스 가드가 `src/`의 `.is_(True/False)`
+   호출을 막는다.
 
 `calculation_run`이 **전면 불변이 아니라는 것**은 `§7.3`·`024` 그대로다 — DELETE는 언제나
 거부, UPDATE는 `needs_recalc` 0 → 1 플립이면서 다른 열이 그대로일 때만 통과한다.
@@ -2211,3 +2224,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-20 | `#1403` | **§2.14 `action` 목록에 `VOYAGE_TRANSITION` 추가** (`#1328`). `#1343`(PR #1387)이 「계획값을 목록에 미리 적지 않는다」로 **자리를 비워 두고 이 이슈를 가리켰던** 값이며, 그 이슈가 **확정 뒤의 두 전환**(`CONFIRMED → COMPLETED` 정정 · `CONFIRMED → ARCHIVED` 보관)을 기록하면서 같은 PR에서 채웠다. `AGENTS §6.1`의 유예 처리가 의도대로 작동한 경우다 — 그리고 `test_audit_enum_sync`(`#1343`)가 **액션을 코드에 더하자 즉시 실패해** 이 행을 같은 변경에서 채우도록 강제했다. `details_json`은 `VOYAGE_CONFIRM`과 같은 모양이다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#1328) |
 | 2026-09-20 | `#1410` | **§2.19에 `SPEED` 행의 성격 각주 추가** (`#1346`). 이 표의 `bound_type`·`floor_value`가 **속도 때문에** 존재하는데, 정작 그 행은 **Monte Carlo가 표본추출하지 않는다**(`PRD §12.4.1` 각주). 그래도 **행을 지우지 않는 이유**를 함께 적었다 — `parameters_used`·`parameter_hash`에서 빼면 속도를 표본추출하게 되는 날 **옛 실행과 해시가 겹쳐 「재현됐다」가 거짓**이 된다. ⚠️ 이 행은 `PRD §12.6` 민감도의 ±1kn이 아니다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#1346) |
 | 2026-09-20 | `#1413` | §2.14 `audit_log.action` 열거에 **`CHAT_DELETE` 추가** (`#1330`). 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) **DB가 알려 주지 않으므로** `tests/test_audit_enum_sync.py`가 `코드 == 문서`를 양방향으로 잠근다(`#1343`의 틀). `AGENTS §4.3`상 값 추가라 버전은 올리지 않는다 (#1330) |
+| 2026-09-22 | `#1587` | **「CUBRID에서 달라지는 것」 9번째 — `IS`의 오른쪽에 `0`/`1`이 올 수 없다** (`#1316`). SQLAlchemy가 불리언 열의 `.is_(False)`를 `IS 0`으로 렌더하는데 CUBRID가 문법 오류로 거부한다. 운영 엔진 변환기가 `= 0`으로 고쳐 쓰던 것을 걷고(정규식은 모양만 맞으면 어떤 문장이든 바꾼다) ORM에서 `== 0/1`로 비교한다는 규칙과 소스 가드 위치를 적었다. 제목 「여덟」→「아홉」. `§4.3`상 항목 추가라 버전은 올리지 않는다 |

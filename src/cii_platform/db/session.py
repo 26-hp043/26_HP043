@@ -36,17 +36,25 @@ if TYPE_CHECKING:
 # 정책을 공유한다.
 
 
-#: ``CAST(? AS <타입>)``을 맨 물음표로 되돌린다. SQLAlchemy가 붙이는 캐스트를 CUBRID가
-#: 받지 못하는 자리가 있어 떼어 낸다.
+#: ``CAST(? AS <타입>)`` — CUBRID가 받지 못하는 자리가 있는 캐스트 자리표시자.
+#: ``IS 0`` / ``IS 1`` — CUBRID에서 ``IS``의 오른쪽은 ``NULL``·``TRUE``·``FALSE``만 온다.
+#:
+#: ⚠️ **감지만 하고 고쳐 쓰지 않는다** (#1316). 종전에는 두 모양을 정규식으로 치환했다.
+#: 검사 스위트 전체를 세어 보니(2026-09-22 · 3114 passed) 운영 코드가 내는 것은
+#: ``auth.py``의 ``.is_(False)`` 세 곳뿐이었고 — 저장소의 다른 자리는 이미 ``== 1``을
+#: 쓰고 있었다 — CAST 71건은 전부 **테스트의 PostgreSQL 시절 생 SQL**이었다. 셋을
+#: ``== 0``으로, 테스트 SQL을 고친 뒤 치환이 0건이 되어 걷어냈다.
+#:
+#: 치환을 남겨 두지 않는 이유는 정규식이 **문장이 무엇이든 모양만 맞으면 바꾸기** 때문이다.
+#: 예상 밖 문장에 닿으면 오류가 아니라 **조용히 틀린 결과**가 난다. 고쳐 쓰지 않으면 같은
+#: 문장이 CUBRID에서 문법 오류로 **시끄럽게** 실패한다 — 그쪽이 낫다. 소스에 다시 들어오는
+#: 것은 ``tests/test_db_session_param_convert.py``의 소스 가드가 막는다.
 _CAST_PLACEHOLDER = re.compile(r"CAST\(\? AS \w+\)")
+_IS_BOOL_LITERAL = re.compile(r"\bIS [01]\b")
 
-#: ``IS 0`` / ``IS 1``. CUBRID에서 ``IS``의 오른쪽은 ``NULL``·``TRUE``·``FALSE``만 온다.
-_IS_BOOL_LITERAL = re.compile(r"\bIS ([01])\b")
-
-#: 치환 관측용 (#1246). 정규식 리라이팅은 dialect가 못 내는 문장을 앱이 대신
-#: 고쳐 쓰는 것이므로 — **무엇이 얼마나 치환되는지 보이지 않으면**, ORM이 문장 형태를
-#: 바꾸는 순간(버전 업·새 쿼리 패턴) 조용히 깨지는지 아무도 모른다. DEBUG 레벨이라
-#: 운영 로그가 문장으로 시끄러워지지 않는다.
+#: 감지 관측용 (#1246 · #1316). 두 모양이 보이면 문장 앞 120자를 남긴다 — 곧 CUBRID가
+#: 거부할 문장이므로 오류 로그와 짝지어 원인을 바로 읽게 한다. DEBUG 레벨이라 운영
+#: 로그가 문장으로 시끄러워지지 않는다(검사는 `tests/conftest.py`가 DEBUG로 받아 센다).
 _LOG = logging.getLogger(__name__)
 
 
@@ -79,12 +87,12 @@ def cubrid_param_convert(
             p.hex if isinstance(p, uuid.UUID) else str(p) if isinstance(p, Decimal) else p
             for p in parameters
         )
-    statement, n_cast = _CAST_PLACEHOLDER.subn("?", statement)
-    statement, n_bool = _IS_BOOL_LITERAL.subn(r"= \1", statement)
+    n_cast = len(_CAST_PLACEHOLDER.findall(statement))
+    n_bool = len(_IS_BOOL_LITERAL.findall(statement))
     if n_cast or n_bool:
-        # 치환이 일어난 문장을 남긴다(#1246) — 예상 밖 문장에 닿는 순간을 잡는 수단.
+        # 고쳐 쓰지 않고 남기기만 한다(#1316) — 이 문장은 CUBRID가 거부한다.
         _LOG.debug(
-            "cubrid_param_convert 치환: cast=%d bool=%d — %s",
+            "cubrid_param_convert 감지(치환 안 함): cast=%d bool=%d — %s",
             n_cast,
             n_bool,
             statement[:120],

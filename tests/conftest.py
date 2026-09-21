@@ -7,6 +7,7 @@ DATABASE_URL 환경변수로 대상 DB를 바꿀 수 있으며, 미설정 시 co
 """
 
 import contextlib
+import logging
 import os
 import subprocess
 import sys
@@ -335,6 +336,52 @@ def pytest_sessionfinish(session, exitstatus):
     _release_suite_lock()
 
 
+class _ConverterTally(logging.Handler):
+    """CUBRID 변환기가 **감지한 문장**을 스위트 전체에서 센다 (#1316).
+
+    변환기(`db.session.cubrid_param_convert`)는 CUBRID가 거부하는 두 모양
+    (``CAST(? AS 타입)`` · ``IS 0/1``)을 만나면 로그를 남긴다. 그 로그는 운영 기본
+    레벨에서 보이지 않으므로, 검사 중에만 이 로거를 받아 **몇 번 · 어떤 문장**이었는지
+    끝에 요약한다 — CI `test` 잡 로그에서 읽는 수치다.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.DEBUG)
+        self.cast = 0
+        self.bool = 0
+        self.statements: dict[str, int] = {}
+
+    def emit(self, record: logging.LogRecord) -> None:
+        args = record.args
+        if not (isinstance(args, tuple) and len(args) == 3):
+            return
+        n_cast, n_bool, statement = args
+        self.cast += int(n_cast)
+        self.bool += int(n_bool)
+        self.statements[str(statement)] = self.statements.get(str(statement), 0) + 1
+
+
+_CONVERTER_TALLY = _ConverterTally()
+
+
+def pytest_configure(config):
+    """변환기 로거를 DEBUG로 받아 센다 (#1316) — 루트 레벨은 건드리지 않는다."""
+    converter_log = logging.getLogger("cii_platform.db.session")
+    converter_log.setLevel(logging.DEBUG)
+    converter_log.addHandler(_CONVERTER_TALLY)
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    """스위트 끝에 변환기 감지 합계를 찍는다 (#1316)."""
+    tally = _CONVERTER_TALLY
+    terminalreporter.write_sep("-", "cubrid_param_convert 감지 합계 (#1316)")
+    terminalreporter.write_line(
+        f"cast={tally.cast} bool={tally.bool} 문장 종류={len(tally.statements)}"
+    )
+    for statement, count in sorted(tally.statements.items(), key=lambda kv: -kv[1])[:20]:
+        terminalreporter.write_line(f"  {count:>5} × {statement}")
+
+
 @pytest.fixture(autouse=True)
 def _fresh_rate_limiter():
     """매 테스트마다 ``main.app``의 분당 카운터를 새것으로 바꾼다 (#651).
@@ -482,9 +529,10 @@ def _install_cubrid_param_converter(engine):
 
     프로덕션 변환(``db.session.cubrid_param_convert``)을 **먼저 붙인다.** 테스트 엔진이
     운영과 같은 경로를 타므로, 두 변환기가 따로 놀아 「검사는 초록인데 운영이 깨지는」
-    사고(``2538271``)의 구조적 원인이 사라진다. UUID→hex · Decimal→str · ``CAST(? AS …)``
-    제거 · ``IS 0/1``→``= 0/1`` 은 프로덕션 훅이 이미 하므로 아래 층에서 다시 하지
-    않는다(문서의 종전 서술 「Decimal→float」는 코드와 갈려 있었다 — 실제는 ``str``).
+    사고(``2538271``)의 구조적 원인이 사라진다. UUID→hex · Decimal→str 은 프로덕션 훅이
+    이미 하므로 아래 층에서 다시 하지 않는다(문서의 종전 서술 「Decimal→float」는 코드와
+    갈려 있었다 — 실제는 ``str``). ``CAST(? AS …)``·``IS 0/1``은 **어느 층도 고쳐 쓰지
+    않는다**(#1316 — 문장 쪽을 고쳤다).
 
     아래 층은 **테스트에만 필요한 변환**이다. ``sa.text()`` 실험 SQL이 운영 ORM 경로와
     다르게 내는 문장·파라미터를 받는다:
@@ -558,8 +606,8 @@ def _install_cubrid_param_converter(engine):
         )
         statement = statement.replace("interval '1 hour'", "1/24.0")
         statement = re.sub(r"::(uuid|timestamptz|timestamp|text|jsonb)", "", statement)
-        # (`CAST(? AS …)`·`IS 0/1` 치환은 1층 프로덕션 훅이 했다 — 여기서 다시 하지
-        # 않는다. 정규식이 두 벌이면 어긋나는 날 아무도 못 잡는다. #1246)
+        # (`CAST(? AS …)`·`IS 0/1`은 어느 층도 고쳐 쓰지 않는다 — #1316에서 문장 쪽을
+        # 고치고 1층 치환을 걷었다. 여기서 되살리면 검사만 통과하고 운영이 깨진다.)
 
         # 3. CUBRID: RETURNING 미지원 — INSERT RETURNING ... 전체 제거
         #    복수 컬럼(RETURNING id, created_at)도 처리한다.

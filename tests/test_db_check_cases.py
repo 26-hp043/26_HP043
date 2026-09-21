@@ -46,7 +46,7 @@ async def _voyage(conn, vessel_id: str, **over) -> None:
             " departure_port_name, arrival_port_name, planned_distance_nm, planned_speed_kn, "
             " arrival_lat, arrival_lon) "
             "VALUES (:vid, :status, :policy, :year, 'BUSAN', 'SINGAPORE', 1000, 12, "
-            " :arr_lat, CASE WHEN CAST(:arr_lat AS numeric) IS NULL THEN NULL ELSE 0 END)"
+            " :arr_lat, CASE WHEN :arr_lat IS NULL THEN NULL ELSE 0 END)"
         ),
         values,
     )
