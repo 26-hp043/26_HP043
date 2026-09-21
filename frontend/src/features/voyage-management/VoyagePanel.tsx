@@ -12,9 +12,11 @@ import {
   canEnterActuals,
   primaryAction,
   hasErrors,
+  isRevert,
   nextStatuses,
   toLocalInput,
   transitionBlocker,
+  transitionCaution,
   validateActuals,
   validateDraft,
 } from './voyageRules'
@@ -27,7 +29,7 @@ import {
   portOptionLabel,
   type SamplePort,
 } from '../ports/samplePorts'
-import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageFuelDraft } from './types'
+import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageFuelDraft, VoyageStatus } from './types'
 import './VoyagePanel.css'
 import { Field } from '../../components/Field'
 import { ErrorState } from '../../components/ErrorState'
@@ -269,6 +271,33 @@ function VoyageRow({
    */
   const [actualsOpen, setActualsOpen] = useState(openOnMount && canEnterActuals(voyage.status))
   const rowRef = useRef<HTMLLIElement>(null)
+  /*
+   * 되돌릴 수 없거나 정본이 재확인을 요구하는 전환은 **카드 안 확인 줄**을 거친다 (#1598 ·
+   * `transitionCaution`). 모달을 두지 않는다 — 저장소에 아직 모달이 없고(`DESIGN_SYSTEM §5`
+   * `--radius-modal` 사용처 0 · `§16` 항목 17 겹침 순서 미결), 확인할 대상(이 카드의 값)이
+   * 줄 바로 위에 보여야 판단할 수 있다.
+   */
+  const [pending, setPending] = useState<VoyageStatus | null>(null)
+  const pendingTrigger = useRef<HTMLButtonElement | null>(null)
+  const keepRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    // 줄이 열리면 **안전한 쪽**(「그만두기」)에 초점 — Enter를 한 번 더 눌러 실행되지 않게.
+    if (pending !== null) keepRef.current?.focus()
+  }, [pending])
+  const closePending = () => {
+    setPending(null)
+    // 초점을 누른 버튼으로 돌려준다 — 줄이 사라지면 초점이 문서 머리로 떨어진다.
+    pendingTrigger.current?.focus()
+  }
+  /** 확인이 필요한 전환이면 줄을 열고, 아니면 바로 돌린다. */
+  const request = (to: VoyageStatus, trigger: HTMLButtonElement) => {
+    if (transitionCaution(voyage.status, to) === null) {
+      void run(() => api.transition(voyage, to))
+      return
+    }
+    pendingTrigger.current = trigger
+    setPending(to)
+  }
   useEffect(() => {
     if (!openOnMount) return
     const row = rowRef.current
@@ -314,8 +343,11 @@ function VoyageRow({
   const primary = primaryAction(voyage)
   const primaryTo = primary?.kind === 'transition' ? primary.to : null
   const otherTransitions = nextStatuses(voyage.status).filter(
-    (to) => to !== primaryTo && to !== 'CANCELLED',
+    (to) => to !== primaryTo && to !== 'CANCELLED' && !isRevert(voyage.status, to),
   )
+  const revertTo = nextStatuses(voyage.status).find((to) => isRevert(voyage.status, to)) ?? null
+  const caution = pending === null ? null : transitionCaution(voyage.status, pending)
+  const cautionId = `vy-caution-${voyage.id}`
   const canCancel = nextStatuses(voyage.status).includes('CANCELLED')
 
   /*
@@ -422,7 +454,8 @@ function VoyageRow({
                 disabled={busy || blocker !== null}
                 /* 사유가 눈에만 있었다 — 낭독에도 닿게 한다 (`§14` · `#1170` ⑵). */
                 aria-describedby={blocker ? blockerId : undefined}
-                onClick={() => void run(() => api.transition(voyage, to))}
+                aria-expanded={transitionCaution(voyage.status, to) ? pending === to : undefined}
+                onClick={(event) => request(to, event.currentTarget)}
               >
                 {withRo(STATUS_LABELS[to])}
               </button>
@@ -438,17 +471,70 @@ function VoyageRow({
 
         {canEnterActuals(voyage.status) && primary?.kind !== 'actuals' ? actualsToggle(false) : null}
 
+        {/*
+          확정 되돌리기는 **뒤로 가는** 전환이라 「항해 완료로」 틀에 두지 않는다 (#1598 · `isRevert`).
+          오류 정정에만 쓰는 동작이라 취소와 같은 텍스트 버튼이다(`DESIGN_SYSTEM §8`).
+        */}
+        {revertTo !== null ? (
+          <button
+            type="button"
+            className="vy__text-action"
+            disabled={busy}
+            aria-expanded={pending === revertTo}
+            onClick={(event) => request(revertTo, event.currentTarget)}
+          >
+            확정 되돌리기
+          </button>
+        ) : null}
+
         {canCancel ? (
           <button
             type="button"
             className="vy__text-action"
             disabled={busy}
-            onClick={() => void run(() => api.transition(voyage, 'CANCELLED'))}
+            aria-expanded={pending === 'CANCELLED'}
+            onClick={(event) => request('CANCELLED', event.currentTarget)}
           >
             이 항차 취소
           </button>
         ) : null}
       </div>
+
+      {/*
+        확인 줄 (#1598). 무엇이 달라지는지 적고, 실행 버튼은 동사로 끝난다. 초점은 「그만두기」에
+        먼저 간다. Escape도 「그만두기」다.
+      */}
+      {pending !== null && caution !== null ? (
+        <div
+          className="vy__caution"
+          role="group"
+          aria-labelledby={cautionId}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') closePending()
+          }}
+        >
+          <p id={cautionId} className="vy__caution-text">
+            {caution.message}
+          </p>
+          <div className="vy__caution-actions">
+            <button
+              type="button"
+              className="vy__transition"
+              disabled={busy}
+              onClick={() => {
+                const to = pending
+                setPending(null)
+                void run(() => api.transition(voyage, to))
+              }}
+            >
+              {caution.confirm}
+            </button>
+            <button type="button" ref={keepRef} className="vy__text-action" onClick={closePending}>
+              그만두기
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {actualsOpen ? (
         <ActualsForm

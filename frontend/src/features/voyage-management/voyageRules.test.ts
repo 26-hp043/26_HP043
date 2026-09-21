@@ -11,10 +11,12 @@ import {
   toIsoInstant,
   toLocalInput,
   transitionBlocker,
+  transitionCaution,
+  isRevert,
   validateActuals,
   validateDraft,
 } from './voyageRules'
-import type { ActualsDraft, ManagedVoyage, VoyageDraft } from './types'
+import type { ActualsDraft, ManagedVoyage, VoyageDraft, VoyageStatus } from './types'
 
 const voyage = (over: Partial<ManagedVoyage> = {}): ManagedVoyage => ({
   id: 'v1',
@@ -445,5 +447,43 @@ describe('primaryAction — 카드에서 다음에 누를 것 하나 (#1551)', (
     })
     expect(transitionBlocker(noYear, 'COMPLETED')).toMatch(/기준연도/)
     expect(primaryAction(noYear)).toBeNull()
+  })
+})
+
+describe('transitionCaution — 한 번 더 묻는 전환 (#1598)', () => {
+  const ALL: VoyageStatus[] = ['DRAFT', 'PLANNED', 'IN_PROGRESS', 'COMPLETED', 'CONFIRMED', 'CANCELLED', 'ARCHIVED']
+
+  it('확정 되돌리기 · 취소 · 보관만 묻는다 — 서버가 허용하는 전환 전체를 훑는다', () => {
+    const asked = ALL.flatMap((from) =>
+      nextStatuses(from)
+        .filter((to) => transitionCaution(from, to) !== null)
+        .map((to) => `${from}→${to}`),
+    )
+    expect(asked.sort()).toEqual(
+      [
+        'CONFIRMED→ARCHIVED',
+        'CONFIRMED→COMPLETED',
+        'DRAFT→CANCELLED',
+        'IN_PROGRESS→CANCELLED',
+        'PLANNED→CANCELLED',
+      ].sort(),
+    )
+  })
+
+  it('확정 되돌리기는 감사 기록과 오류 정정 목적을 말한다 (`API_SPEC §3.5`)', () => {
+    const c = transitionCaution('CONFIRMED', 'COMPLETED')!
+    expect(c.message).toMatch(/감사 기록/)
+    expect(c.message).toMatch(/바로잡을 때만/)
+    expect(c.confirm).toBe('확정 되돌리기')
+  })
+
+  it('취소 · 보관은 되돌릴 수 없다고 말한다', () => {
+    expect(transitionCaution('PLANNED', 'CANCELLED')!.message).toMatch(/되돌릴 수 없고/)
+    expect(transitionCaution('CONFIRMED', 'ARCHIVED')!.message).toMatch(/되돌릴 수 없고/)
+  })
+
+  it('isRevert는 확정 → 완료 하나다', () => {
+    const reverts = ALL.flatMap((from) => nextStatuses(from).filter((to) => isRevert(from, to)).map((to) => `${from}→${to}`))
+    expect(reverts).toEqual(['CONFIRMED→COMPLETED'])
   })
 })

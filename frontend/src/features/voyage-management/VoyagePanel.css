@@ -274,6 +274,40 @@
   word-break: keep-all;
 }
 
+/*
+ * 확인 줄 (#1598) — 되돌릴 수 없거나 정본이 재확인을 요구하는 전환 앞에서 한 번 묻는다.
+ * 경고 배너와 같은 모양(`DESIGN_SYSTEM §8` — 상태색 좌측 스트라이프)이고 카드 안에 둔다 —
+ * 모달이 아니다(첫 모달은 `§16` 항목 17 겹침 순서가 정해진 뒤).
+ */
+.vy__caution {
+  display: grid;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: var(--surface-card);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-warning);
+  border-radius: 0;
+}
+
+.vy__caution-text {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--text-primary);
+  word-break: keep-all;
+}
+
+.vy__caution-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  align-items: center;
+}
+
+/* 「그만두기」는 실행 버튼 곁에 둔다 — 카드 행의 텍스트 버튼처럼 끝으로 밀지 않는다. */
+.vy__caution-actions .vy__text-action {
+  margin-inline-start: 0;
+}
+
 /* ---------- 폼 ---------- */
 
 .vy__form {

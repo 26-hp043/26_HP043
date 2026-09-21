@@ -822,7 +822,7 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
     expect(primaries()).toEqual([])
   })
 
-  it('취소는 텍스트 버튼 「이 항차 취소」이고 누르면 종전처럼 바로 취소된다', async () => {
+  it('취소는 텍스트 버튼 「이 항차 취소」이고, 확인 줄을 거쳐 취소된다 (#1598)', async () => {
     const transition = vi.fn(async () => IN_PROGRESS)
     renderOne(IN_PROGRESS, { transition })
     const cancel = await screen.findByRole('button', { name: '이 항차 취소' })
@@ -830,6 +830,8 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
     expect(screen.queryByRole('button', { name: '취소됨으로' })).toBeNull()
 
     fireEvent.click(cancel)
+    expect(transition).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '취소하기' }))
     await waitFor(() => expect(transition).toHaveBeenCalledWith(IN_PROGRESS, 'CANCELLED'))
   })
 
@@ -837,5 +839,91 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
     renderOne(CONFIRMED)
     await screen.findByRole('button', { name: '보관됨으로' })
     expect(screen.queryByRole('button', { name: '이 항차 취소' })).toBeNull()
+  })
+})
+
+describe('되돌릴 수 없는 전환 · 확정 되돌리기는 한 번 더 묻는다 (#1598 · `API_SPEC §3.5`)', () => {
+  const CONFIRMED: ManagedVoyage = {
+    ...IN_PROGRESS,
+    status: 'CONFIRMED',
+    inclusionPolicy: 'INCLUDE_AS_ACTUAL',
+    actualDistanceNm: 2290,
+    fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: 320 }],
+  }
+  const FUELED: ManagedVoyage = {
+    ...IN_PROGRESS,
+    fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: 320 }],
+  }
+
+  function renderOne(voyage: ManagedVoyage, transition = vi.fn(async () => voyage)) {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({ voyages: [voyage], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
+          transition,
+        })}
+      />,
+    )
+    return transition
+  }
+  const caution = () => document.querySelector('.vy__caution') as HTMLElement | null
+
+  it('확정 항차는 「항해 완료로」가 아니라 「확정 되돌리기」 텍스트 버튼이다', async () => {
+    renderOne(CONFIRMED)
+    const revert = await screen.findByRole('button', { name: '확정 되돌리기' })
+    expect(revert.className).toBe('vy__text-action')
+    expect(screen.queryByRole('button', { name: '항해 완료로' })).toBeNull()
+    // 보관은 종전 틀 그대로
+    expect(screen.getByRole('button', { name: '보관됨으로' })).toBeTruthy()
+  })
+
+  it('누르면 바로 되돌리지 않고, 무엇이 달라지는지 적은 확인 줄을 연다', async () => {
+    const transition = renderOne(CONFIRMED)
+    const revert = await screen.findByRole('button', { name: '확정 되돌리기' })
+    fireEvent.click(revert)
+
+    expect(transition).not.toHaveBeenCalled()
+    const group = within(caution()!)
+    expect(caution()!.getAttribute('role')).toBe('group')
+    expect(screen.getByRole('group', { name: /감사 기록에 남습니다/ })).toBe(caution())
+    expect(revert.getAttribute('aria-expanded')).toBe('true')
+    // 초점은 안전한 쪽에 먼저 간다
+    expect(document.activeElement).toBe(group.getByRole('button', { name: '그만두기' }))
+
+    fireEvent.click(group.getByRole('button', { name: '확정 되돌리기' }))
+    await waitFor(() => expect(transition).toHaveBeenCalledWith(CONFIRMED, 'COMPLETED'))
+    expect(caution()).toBeNull()
+  })
+
+  it('「그만두기」 · Escape는 아무것도 하지 않고 누른 버튼으로 초점을 돌려준다', async () => {
+    const transition = renderOne(CONFIRMED)
+    const archive = await screen.findByRole('button', { name: '보관됨으로' })
+
+    fireEvent.click(archive)
+    expect(within(caution()!).getByText(/보관한 항차는 되돌릴 수 없고/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '그만두기' }))
+    expect(caution()).toBeNull()
+    expect(document.activeElement).toBe(archive)
+
+    fireEvent.click(archive)
+    fireEvent.keyDown(screen.getByRole('button', { name: '그만두기' }), { key: 'Escape' })
+    expect(caution()).toBeNull()
+    expect(document.activeElement).toBe(archive)
+    expect(transition).not.toHaveBeenCalled()
+  })
+
+  it('보관도 확인 줄을 거쳐 전환된다', async () => {
+    const transition = renderOne(CONFIRMED)
+    fireEvent.click(await screen.findByRole('button', { name: '보관됨으로' }))
+    fireEvent.click(screen.getByRole('button', { name: '보관하기' }))
+    await waitFor(() => expect(transition).toHaveBeenCalledWith(CONFIRMED, 'ARCHIVED'))
+  })
+
+  it('정방향 전환은 종전처럼 바로 간다 — 확인 줄이 없다', async () => {
+    const transition = renderOne(FUELED)
+    fireEvent.click(await screen.findByRole('button', { name: '항해 완료로' }))
+    expect(caution()).toBeNull()
+    await waitFor(() => expect(transition).toHaveBeenCalledWith(FUELED, 'COMPLETED'))
   })
 })

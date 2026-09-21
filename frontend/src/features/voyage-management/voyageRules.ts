@@ -72,6 +72,60 @@ export function nextStatuses(status: VoyageStatus): readonly VoyageStatus[] {
 }
 
 /**
+ * 누르기 전에 한 번 더 묻는 전환 (#1598) — 없으면 `null`.
+ *
+ * ## 셋이다
+ *
+ * * **확정 되돌리기**(`CONFIRMED → COMPLETED`) — `API_SPEC §3.5` · `PRD §8.1`이 「재확인
+ *   다이얼로그 표시」를 요구한다. 오류 정정 목적만이고 감사 기록이 남는다(`#1328`)
+ * * **취소** · **보관** — 정본 요구는 아니지만 **되돌릴 수 없는 상태**로 간다
+ *   (`TRANSITIONS`에서 `CANCELLED` · `ARCHIVED`는 나가는 길이 없다). 한 번의 오클릭이
+ *   항차를 연간 계산에서 영구히 뺀다(디자인 결정 2026-09-22)
+ *
+ * 문구는 **무엇이 달라지는지**만 말한다 — 「정말로?」만 물으면 눌러 본 사람이 판단할
+ * 근거가 없다. 확인 버튼은 동사로 끝나 무엇을 하는지 스스로 말한다.
+ */
+interface TransitionCaution {
+  /** 확인 줄의 설명 */
+  message: string
+  /** 확인 버튼 */
+  confirm: string
+}
+
+export function transitionCaution(from: VoyageStatus, to: VoyageStatus): TransitionCaution | null {
+  if (from === 'CONFIRMED' && to === 'COMPLETED') {
+    return {
+      message:
+        '확정을 되돌리면 이 항차는 「항해 완료」로 돌아가 실적을 다시 고칠 수 있습니다. 누가 언제 되돌렸는지 감사 기록에 남습니다 — 잘못 확정한 실적을 바로잡을 때만 쓰세요.',
+      confirm: '확정 되돌리기',
+    }
+  }
+  if (to === 'CANCELLED') {
+    return {
+      message: '취소한 항차는 되돌릴 수 없고, 연간 CII 계산에서 빠집니다.',
+      confirm: '취소하기',
+    }
+  }
+  if (to === 'ARCHIVED') {
+    return {
+      message: '보관한 항차는 되돌릴 수 없고, 읽기 전용이 되어 연간 CII 계산에서 빠집니다.',
+      confirm: '보관하기',
+    }
+  }
+  return null
+}
+
+/**
+ * 뒤로 가는 전환인가 — 확정 되돌리기 하나다 (#1598).
+ *
+ * 다른 전환과 같은 「{상태}로」 틀로 두면 「항해 완료로」가 되어 **앞으로 나아가는 단계**처럼
+ * 읽혔다. 카드는 이것을 「확정 되돌리기」 텍스트 버튼으로 그린다(`DESIGN_SYSTEM §8`).
+ */
+export function isRevert(from: VoyageStatus, to: VoyageStatus): boolean {
+  return from === 'CONFIRMED' && to === 'COMPLETED'
+}
+
+/**
  * 실적 폼을 열 수 있는가 — `API_SPEC §3.6` 상태별 허용.
  *
  * `DRAFT`·`PLANNED`는 **아직 뜨지 않은 항차**라 실적이 있을 수 없다. `CONFIRMED`는
