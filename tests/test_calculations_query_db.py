@@ -43,8 +43,9 @@ async def _insert_run(
     calculation_type: str = "VOYAGE_ESTIMATE",
     needs_recalc: bool = False,
 ) -> str:
-    # JSONB 값은 CAST(:param AS jsonb)로 바인딩한다 — 리터럴 안에 ':1' 같은 열쇠가
-    # 있으면 text()가 bind parameter로 오해해 파싱이 깨진다.
+    # JSON 값은 파라미터로 바인딩한다 — 리터럴 안에 ':1' 같은 열쇠가 있으면 text()가
+    # bind parameter로 오해해 파싱이 깨진다. 종전 `CAST(:param AS jsonb)`는 PostgreSQL
+    # 시절 모양이라 CUBRID 변환기가 떼어 내고 있었다 — 변환기가 치환을 멈춰(#1316) 걷었다.
     return await insert_returning_id(
         session,
         "INSERT INTO calculation_run "
@@ -52,7 +53,7 @@ async def _insert_run(
         " input_hash, parameter_hash, model_version, result_json, parameters_used, "
         " needs_recalc) "
         "VALUES (:ctype, :vid, NULL, :ih, :ph, "
-        " CAST(:mv AS jsonb), CAST(:rj AS jsonb), '{}'::jsonb, :nr) RETURNING id",
+        " :mv, :rj, '{}'::jsonb, :nr) RETURNING id",
         {
             "ctype": calculation_type,
             "vid": vessel_id,

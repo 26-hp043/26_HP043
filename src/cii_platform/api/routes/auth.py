@@ -238,7 +238,8 @@ async def _lock_admin_users(session: AsyncSession) -> int:
         select(AppUser)
         .where(
             AppUser.role == ROLE_ADMIN,
-            AppUser.is_deleted.is_(False),
+            # `.is_(False)`는 `IS 0`을 내는데 CUBRID가 거부한다 — `== 0`으로 쓴다(#1316).
+            AppUser.is_deleted == 0,
             AppUser.id != _TOUR_USER_ID,
         )
         .with_for_update()
@@ -832,7 +833,7 @@ async def list_users(
 ) -> dict[str, object]:
     """살아 있는 계정 전부 — **관리자 전용** (`API_SPEC §1.2`, #672 · #1301)."""
     result = await session.execute(
-        select(AppUser).where(AppUser.is_deleted.is_(False)).order_by(AppUser.email)
+        select(AppUser).where(AppUser.is_deleted == 0).order_by(AppUser.email)
     )
     return {
         "data": [_user_payload(row) for row in result.scalars().all()],
@@ -867,7 +868,7 @@ async def update_user_role(
         raise AuthenticationError()
 
     result = await session.execute(
-        select(AppUser).where(AppUser.id == user_id, AppUser.is_deleted.is_(False))
+        select(AppUser).where(AppUser.id == user_id, AppUser.is_deleted == 0)
     )
     target = result.scalar_one_or_none()
     if target is None:

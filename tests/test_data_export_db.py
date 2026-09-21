@@ -513,8 +513,7 @@ async def _insert_calculation_run(session, vessel_id: UUID, **overrides) -> UUID
             "  parameter_hash, model_version, result_json, parameters_used, warnings_json, "
             "  duration_ms, created_at) "
             "VALUES (:id, :vessel_id, :calculation_type, :input_hash, :parameter_hash, "
-            "  CAST(:model_version AS jsonb), CAST(:result_json AS jsonb), "
-            "  CAST(:parameters_used AS jsonb), CAST(:warnings_json AS jsonb), "
+            "  :model_version, :result_json, :parameters_used, :warnings_json, "
             "  :duration_ms, :created_at)"
         ),
         fields,
