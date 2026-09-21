@@ -997,15 +997,46 @@ ssh ubuntu@131.186.22.10 "cd ~/bluelog && docker compose -f docker-compose.prod.
 | cii-backend 컨테이너 | Up, healthy | 포트 8001 |
 | cii-cubrid 컨테이너 | Up, healthy | 포트 33100 |
 
-### 10.2 남은 작업
+### 10.3 배포 검증 결과 (2026-09-21 00:4x UTC · 터널 경유 전 구간)
 
-- [ ] **재배포 필요** — `#1058`의 개발 편의 표면 차단이 이미지에 반영되려면 백엔드를 다시 올려야 한다(추적: `#1177`). 현재 배포본은 `dev-login`·`/docs`가 열린 상태다(2026-09-15 20:0x 실측: 둘 다 **200**). ⚠️ **순서 주의** — 이 재배포(`#1160` 반영분)가 `INITIAL_ADMIN_EMAILS` 설정보다 먼저 들어가면 `dev-login`이 닫히는데, 그 값이 비어 있으면 **사무직으로 들어갈 길이 완전히 사라진다**(`#1290`, `§4.5`). 재배포 전에 `.env`부터 채운다
+`#1496` 해결 뒤 **화면 → Pages Function → 터널 → 백엔드 → DB** 전 구간을 실측했다.
+
+| 확인 | 결과 | 비고 |
+|---|---|---|
+| 화면 | `200` | `https://bluelog-bx7.pages.dev` · `/login` SPA 폴백도 `200` |
+| **프록시 경유 헬스** | `200` | `/api/v1/health` — 종전 `403 (error 1003)` |
+| 터널 직결 | `200` | `https://bluelog-api.kpubdata.com/api/v1/health` |
+| 백엔드 직결 | `200` | `http://131.186.22.10:8001/api/v1/health` (`#786` 전까지 유지) |
+| **클라우드 로그인** | **성공** | `#1322` 완료 기준 — 아래 상세 |
+| 미인증 업무 API | `401` | 쿠키 없이 `/fleet/summary` |
+| `dev-login` · `/docs` | `401` · `401` | `staging` 자세 유지 (`#1058` · §4.5) |
+| 배포 파이프라인 | **5잡 초록불** | run `35548027088`(workflow_dispatch) |
+
+**로그인 상세** (`#1322` — 「혼합 콘텐츠·Secure 쿠키·SameSite로 로그인이 성립하지 않는다」의 해소 증거)
+
+```
+POST /api/v1/auth/signup        → 201  (role FIELD)
+  set-cookie: sid=…;  HttpOnly; Path=/; SameSite=lax; Secure      ← pages.dev 오리진
+  set-cookie: csrf=…;           Path=/; SameSite=lax; Secure
+GET  /api/v1/auth/me            → 200  (세션 유효)
+GET  /api/v1/fleet/summary?year=2026 → 200  (선박 5척 · 등급 B1 C1 D1 E2)
+DELETE /api/v1/auth/me (X-CSRF-Token) → 204, 이후 /auth/me → 401   ← 검증 계정 정리
+```
+
+> **왜 이제 되는가** — 화면과 API가 **같은 오리진**(`pages.dev`)이 됐기 때문이다. Pages Function이
+> `/api/*`를 터널 호스트명으로 넘기므로 브라우저에게는 동일 출처이고, `SameSite=lax` · `Secure`
+> 쿠키가 그대로 저장·전송된다. 종전 구조(`https` 화면 → `http://IP:8001`)에서는 세 겹으로 막혔다.
+
+### 10.4 남은 작업
+
+- [x] ~~**재배포 필요**(`#1177`)~~ — 해소. 2026-09-21 실측으로 `dev-login`·`/docs` 둘 다 **401**이다(§10.3). ⚠️ 그 대신 아래 `INITIAL_ADMIN_EMAILS`가 **더 급해졌다** — `dev-login`이 닫힌 지금, 관리자 0명이면 사무직·관리자 화면에 들어갈 길이 없다
 - [ ] **`INITIAL_ADMIN_EMAILS` 설정** — ⚠️ **`.env`에 적는 것만으로는 닿지 않는다.** `docker-compose.prod.app.yml`의 `backend`에는 `env_file:`이 없고 `environment:` 목록만 주입되는데, `#1290` 이전 판에는 이 키가 그 목록에 **없었다** — compose가 `.env`를 읽는 것은 `${VAR}` 치환용이지 컨테이너 주입이 아니다(`#508`과 같은 함정). 그러므로 **`#1290`의 compose 변경을 함께 내려받은 뒤** `.env`를 채운다. 값을 채우고 해당 계정으로 다시 로그인하면 해소된다(`§3.3`, `§4.5`, `#672`, `#1290`)
   - 지금 사무직이 몇 명인지는 DB가 답한다 — `SELECT email, [role] FROM app_user WHERE is_deleted = false` (CUBRID에서 `role`은 예약어라 대괄호가 필요하다)
+- [ ] **`TOUR_ACCESS_CODE` 설정** — 미등록이라 **둘러보기 링크가 닫혀 있다**(fail-closed · `#1486`). 로그인 없이 화면을 보여 줄 유일한 경로이므로 시연 전에 정한다
 - [ ] **SMTP 설정** → `APP_ENV=production` 전환 (#787)
-- [ ] **GitHub Secrets 등록** → deploy 워크플로 자동화
-- [ ] **커스텀 도메인** → Cloudflare Pages + 백엔드 CORS 업데이트 (#785)
-- [ ] **CUBRID 비밀번호 설정** → 현재 dba는 빈 비밀번호
+- [x] ~~**GitHub Secrets 등록**~~ — 완료(12종). 백엔드 9종(`#1201`) · `CLOUDFLARE_API_TOKEN`(`#1479`) · `API_ORIGIN`(`#1496`). 재발은 `test_deploy_secrets_are_listed_in_the_operations_secret_tables`가 막는다
+- [ ] **커스텀 도메인** → 화면(Pages)은 아직 `bluelog-bx7.pages.dev`다. **API는 `bluelog-api.kpubdata.com`으로 확보**됐다(`#1496` · §3.5). 화면 도메인을 붙이면 `CORS_ALLOW_ORIGINS`·`APP_PUBLIC_URL`도 함께 바꾼다 (#785)
+- [x] ~~**CUBRID 비밀번호 설정**~~ — 완료. `CUBRID_PASSWORD` 시크릿이 배포·헬스체크 양쪽에 쓰인다
 - [ ] **ufw 활성화** → `ops/host/ufw-db-01.sh` 실행
 - [ ] **zram 스왑** → `ops/host/setup-zram-swap.sh` 실행 (이미 our-tax에서 적용됐을 수 있음)
 - [ ] **백업 절차** → 정기 백업 스크립트 (#788)
