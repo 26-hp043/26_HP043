@@ -543,6 +543,33 @@
 }
 
 /*
+ * 연도별 표 접기 (#1571). `<details>`에 flex를 걸지 않는다 — 브라우저마다 다르게 그린다
+ * (`VoyagePanel.css` 「형식 보기」와 같은 모양).
+ */
+.history__table-toggle > summary {
+  cursor: pointer;
+  inline-size: fit-content;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.history__table-toggle > summary:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+
+.history__table-toggle[open] > summary {
+  margin-block-end: var(--spacing-sm);
+}
+
+/* 올해 막대의 「진행 중」 (#1571) — 값 자리에 서지만 값이 아니므로 보조 글자다. */
+.history__cap-progress {
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+/*
  * ## 표를 카드 폭까지 늘리지 않는다 (#721)
  *
  * `inline-size: 100%`면 여섯 열이 카드 폭을 나눠 갖는다. 주 영역이 약 890px이라
