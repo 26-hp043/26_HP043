@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useAuthUser, type CurrentUser } from '../../auth/session'
+import { ParameterRevision } from './ParameterRevision'
+import { createApiParameterRevisionProvider, type ParameterRevisionProvider } from './revisionProvider'
 import { useLocation } from 'react-router'
 import { ErrorState } from '../../components/ErrorState'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
@@ -47,11 +50,29 @@ import './RegulationParametersSection.css'
  */
 export function RegulationParametersSection({
   provider,
+  revisionProvider,
+  user,
 }: {
   /** 테스트 주입점. 없으면 실 API. */
   provider?: ReferenceParametersProvider
+  /** 개정 적재·이력(`#1517`) 테스트 주입점. 없으면 실 API. */
+  revisionProvider?: ParameterRevisionProvider
+  /** 테스트 주입점. 없으면 로그인 세션의 사용자. */
+  user?: CurrentUser | null
 }) {
   const api = useMemo(() => provider ?? createApiReferenceParametersProvider(), [provider])
+  const revisionApi = useMemo(
+    () => revisionProvider ?? createApiParameterRevisionProvider(),
+    [revisionProvider],
+  )
+  const authUser = useAuthUser()
+  const currentUser = user !== undefined ? user : authUser
+  /*
+   * 개정을 확정하면 네 표를 다시 받는다(`#1517`). 올린 사람이 같은 화면에서 새 값이
+   * 현행으로 올라오고 옛 값이 이행 행으로 물러난 것을 곧바로 확인하게 — 적재와 확인을
+   * 가르지 않는다(`#1239` 결정 H).
+   */
+  const [reloadKey, setReloadKey] = useState(0)
   const [includeInactive, setIncludeInactive] = useState(false)
   const [years, setYears] = useState<RegulationYearRow[] | null>(null)
   const [lines, setLines] = useState<ReferenceLineRow[] | null>(null)
@@ -88,7 +109,7 @@ export function RegulationParametersSection({
     return () => {
       alive = false
     }
-  }, [api, includeInactive])
+  }, [api, includeInactive, reloadKey])
 
   // 연료는 이력이 없어 전환과 무관하다 — 한 번만 받는다.
   useEffect(() => {
@@ -104,7 +125,7 @@ export function RegulationParametersSection({
     return () => {
       alive = false
     }
-  }, [api])
+  }, [api, reloadKey])
 
   /*
    * 해시로 들어오면 절로 초점을 옮긴다. 세 자리의 링크가 `…/settings#regulation-parameters`로
@@ -314,6 +335,12 @@ export function RegulationParametersSection({
           </tbody>
         </table>
       </Group>
+
+      <ParameterRevision
+        user={currentUser}
+        provider={revisionApi}
+        onImported={() => setReloadKey((key) => key + 1)}
+      />
     </section>
   )
 }
