@@ -497,3 +497,47 @@ def test_deploy_renders_app_env_with_staging_default():
         "staging에서도 기동이 선다(#524 가드의 역방향)."
     )
     assert "MAIL_BACKEND:-smtp" not in workflow
+
+
+#: `deploy.yml`이 읽는 시크릿 이름. `${{ secrets.NAME }}`.
+_WORKFLOW_SECRET = re.compile(r"secrets\.([A-Z][A-Z0-9_]*)")
+
+#: `OPERATIONS.md §5` 표의 첫 칸 — ``| `NAME` | 설명 |``.
+_DOCUMENTED_SECRET = re.compile(r"^\|\s*`([A-Z][A-Z0-9_]*)`\s*\|", re.M)
+
+
+def test_deploy_secrets_are_listed_in_the_operations_secret_tables():
+    """`deploy.yml`이 요구하는 시크릿이 `OPERATIONS.md §5` **표에** 있다.
+
+    ## 같은 자리에서 세 번 섰다
+
+    | 건 | 증상 |
+    |---|---|
+    | `#1201` | 필수 9종 미등록 — `deploy-db`가 가드에서 즉시 실패, 누적 7회 |
+    | `#1479` | `CLOUDFLARE_API_TOKEN` 미등록 — `deploy-frontend` 8회 연속 실패 |
+    | `#1496` | `API_ORIGIN` 미등록 — `deploy-frontend`가 자리표시자 검사에서 정지 |
+
+    셋 다 **워크플로는 값을 요구하는데 등록 목록에는 그 이름이 없었다.**
+
+    ## 산문에 있는 것으로는 부족하다
+
+    `API_ORIGIN`은 `§3.5` 본문에 설명까지 붙어 있었지만 **`§5` 표에는 없었다.** 시크릿을
+    등록하는 사람이 여는 것은 `§5`이고, 거기 없는 이름은 **등록되지 않는다.** 그래서 이
+    검사는 산문이 아니라 **표의 첫 칸**만 본다.
+
+    ``GITHUB_TOKEN``은 Actions가 자동으로 주입하므로 뺀다.
+    """
+    workflow = (_ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    operations = (_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+
+    start = operations.index("## 5. GitHub Actions 시크릿")
+    section = operations[start : operations.index("## 6. ", start)]
+    documented = set(_DOCUMENTED_SECRET.findall(section))
+    required = set(_WORKFLOW_SECRET.findall(workflow)) - {"GITHUB_TOKEN"}
+
+    missing = sorted(required - documented)
+    assert not missing, (
+        f"deploy.yml이 쓰는데 OPERATIONS.md §5 표에 없는 시크릿: {missing}. "
+        "등록하는 사람은 §5 표를 보고 움직인다 — 표에 없으면 등록되지 않고, "
+        "배포는 그 시크릿을 읽는 잡에서 선다 (#1201 · #1479 · #1496)."
+    )

@@ -35,8 +35,12 @@
 #   SIGNUP_ALLOWED_DOMAINS  가입 허용 메일 도메인.
 #   SIGNUP_INVITE_CODE      초대 코드.
 #   TOUR_ACCESS_CODE        둘러보기 링크의 접근 코드 (#1486). 비우면 둘러보기가 닫힌다.
-#   CLOUDFLARE_TUNNEL_TOKEN Cloudflare Tunnel 커넥터 토큰 (#1496). 있으면 app-01에
-#                           cloudflared를 띄운다. 없으면 터널을 쓰지 않는다.
+#   CLOUDFLARE_TUNNEL_TOKEN Cloudflare Tunnel 커넥터 토큰 (#1496).
+#                           🔴 현재 운영은 이 값을 **비워 둔다(의도)** — 커넥터는 app-01의
+#                           systemd cloudflared가 이미 제공하며 ourtax와 공유한다
+#                           (docs/OPERATIONS.md §3.5). 등록하면 compose가 커넥터를 하나 더
+#                           띄워 같은 터널에 둘이 붙는다. 아래 "CLOUDFLARE_TUNNEL_TOKEN
+#                           미설정" 경고는 그래서 정상이며 고칠 대상이 아니다.
 #   API_ORIGIN              Pages Function이 백엔드를 부를 **호스트명** (#1496).
 #                           ⚠️ **IP를 넣으면 안 된다** — Workers는 IP로 fetch할 수 없다
 #                           (실측 `error code: 1003`). 터널이 준 호스트명을 넣는다.
