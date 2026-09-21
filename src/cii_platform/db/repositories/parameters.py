@@ -44,14 +44,16 @@ async def list_regulation_years(
     ``active_only``가 기본 ``True``인 이유는 :func:`get_regulation_year`와 같다 —
     **개정으로 대체된 행이 현행처럼 보이면 안 된다.**
     """
-    stmt = select(RegulationYear).order_by(RegulationYear.year)
+    # 이행 행까지 줄 때(`#1515`) 같은 연도가 여러 번 나오므로 적재 순서를 2차 키로 둔다.
+    # 활성만 줄 때는 연도당 한 행이라 정렬이 종전과 같다.
+    stmt = select(RegulationYear).order_by(RegulationYear.year, RegulationYear.created_at)
     if active_only:
         stmt = stmt.where(RegulationYear.is_active == 1)
     return list((await session.execute(stmt)).scalars().all())
 
 
 async def list_reference_lines(
-    session: AsyncSession, ship_type: str | None = None
+    session: AsyncSession, ship_type: str | None = None, *, active_only: bool = True
 ) -> Sequence[CiiReferenceLine]:
     """기준선 후보 행을 조회한다. ``ship_type``이 없으면 전 선종 (#444).
 
@@ -62,35 +64,39 @@ async def list_reference_lines(
     선종을 지정하지 않는 경로는 조회 API(``API_SPEC §7.3``)를 위한 것이다 — 계산은
     언제나 한 선종만 본다.
 
-    **활성 행만 돌려준다** (#673 · `054`). 개정으로 대체된 이행 행이 섞이면 같은
+    **기본은 활성 행만이다** (#673 · `054`). 개정으로 대체된 이행 행이 섞이면 같은
     선종·조건의 기준선이 둘 나오는데, 어느 것이 현행인지 호출자가 알 수 없다 —
     계산이 쓰는 것도 활성 행이다. :func:`get_active_reference_line`의 조회 갈래와
     같은 규약이다.
+
+    ``active_only=False``는 **조회 API(`API_SPEC §7.3` ``?active=false``)만** 쓴다
+    (`#1515`) — 개정 다음 날 옛 판본의 값을 볼 경로가 그것뿐이다. 계산 경로는 이
+    인자를 주지 않는다(``tests/test_parameters_api_db.py``가 소스를 훑어 잠근다).
     """
-    stmt = (
-        select(CiiReferenceLine)
-        .where(CiiReferenceLine.is_active == 1)
-        .order_by(CiiReferenceLine.ship_type, CiiReferenceLine.condition_expr)
+    stmt = select(CiiReferenceLine).order_by(
+        CiiReferenceLine.ship_type, CiiReferenceLine.condition_expr, CiiReferenceLine.created_at
     )
+    if active_only:
+        stmt = stmt.where(CiiReferenceLine.is_active == 1)
     if ship_type is not None:
         stmt = stmt.where(CiiReferenceLine.ship_type == ship_type)
     return list((await session.execute(stmt)).scalars().all())
 
 
 async def list_rating_boundaries(
-    session: AsyncSession, ship_type: str | None = None
+    session: AsyncSession, ship_type: str | None = None, *, active_only: bool = True
 ) -> Sequence[CiiRatingBoundary]:
     """등급 경계 후보 행을 조회한다. ``ship_type``이 없으면 전 선종 (#444).
 
     행 선택은 ``calc.rating_engine.select_rating_boundary()``가 한다
-    (:func:`list_reference_lines`와 같은 이유). **활성 행만 돌려준다** (#673 · `054`) —
-    같은 이유로 같은 규약이다.
+    (:func:`list_reference_lines`와 같은 이유). **기본은 활성 행만이다** (#673 · `054`) —
+    같은 이유로 같은 규약이며, ``active_only=False``도 같은 자리(조회 API)만 쓴다.
     """
-    stmt = (
-        select(CiiRatingBoundary)
-        .where(CiiRatingBoundary.is_active == 1)
-        .order_by(CiiRatingBoundary.ship_type, CiiRatingBoundary.condition_expr)
+    stmt = select(CiiRatingBoundary).order_by(
+        CiiRatingBoundary.ship_type, CiiRatingBoundary.condition_expr, CiiRatingBoundary.created_at
     )
+    if active_only:
+        stmt = stmt.where(CiiRatingBoundary.is_active == 1)
     if ship_type is not None:
         stmt = stmt.where(CiiRatingBoundary.ship_type == ship_type)
     return list((await session.execute(stmt)).scalars().all())

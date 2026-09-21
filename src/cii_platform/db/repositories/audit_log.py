@@ -17,9 +17,12 @@ from uuid import UUID
 
 from sqlalchemy import select, tuple_
 
+from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.audit_log import AuditLog
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncSession
 
 #: 한 페이지 기본·최대 (``API_SPEC §1.5`` 공통 정책 · `§1.9`와 같은 값).
@@ -137,3 +140,33 @@ async def list_events(
 
     stmt = stmt.order_by(AuditLog.timestamp.desc(), AuditLog.id.desc()).limit(limit + 1)
     return list((await session.execute(stmt)).scalars())
+
+
+async def get_actors(session: AsyncSession, user_ids: Sequence[str]) -> dict[str, AppUser]:
+    """감사 행의 ``user_id`` → ``app_user`` 행 (`#1515`).
+
+    **탈퇴 계정도 포함한다** — ``is_deleted``로 거르지 않는다. 감사가 답해야 하는
+    질문은 「지금 누가 있는가」가 아니라 **「그때 누가 했는가」**이고, 탈퇴는 soft
+    delete라 행이 남아 있다(``services.audit.record_account_delete``).
+
+    ``audit_log.user_id``는 ``VARCHAR``이고 ``app_user.id``는 ``CHAR(32)``라 SQL
+    JOIN으로 묶지 않는다 — 문자열 모양(하이픈 유무)이 갈리면 조용히 0건이 된다.
+    UUID로 파싱되는 값만 골라 ``IN``으로 묻고, 파싱되지 않는 값(`dev` 스텁·검사용
+    표식)은 「행위자를 못 찾음」으로 남긴다. 반환 dict의 키는 **호출자가 준 문자열
+    그대로**다.
+    """
+    # 같은 계정이 하이픈 유무가 다른 두 문자열로 적혀 있어도 둘 다 풀리게 UUID마다
+    # 원문 목록을 둔다.
+    wanted: dict[UUID, list[str]] = {}
+    for raw in user_ids:
+        if raw is None:
+            continue
+        try:
+            wanted.setdefault(UUID(str(raw)), []).append(raw)
+        except ValueError:
+            continue
+    if not wanted:
+        return {}
+    stmt = select(AppUser).where(AppUser.id.in_(list(wanted)))
+    rows = (await session.execute(stmt)).scalars().all()
+    return {raw: row for row in rows for raw in wanted.get(UUID(str(row.id)), ())}

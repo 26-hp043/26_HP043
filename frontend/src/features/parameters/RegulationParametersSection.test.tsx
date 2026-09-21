@@ -267,3 +267,61 @@ describe('실패는 절 안에 남는다', () => {
     await waitFor(() => expect(bodyRows('regp-table-fuels')).toHaveLength(FUELS.length))
   })
 })
+
+describe('개정 적재와 조회 표가 이어진다 (#1517 · #1239 결정 H)', () => {
+  function office(): session.CurrentUser {
+    return {
+      id: 'u1',
+      email: 'office@example.com',
+      displayName: '사무직',
+      role: 'OFFICE',
+      emailVerifiedAt: '2026-09-01T00:00:00Z',
+    } as session.CurrentUser
+  }
+
+  it('확정하면 네 표를 다시 불러온다 — 올린 값이 같은 화면에서 현행으로 보인다', async () => {
+    const { provider } = fakeProvider()
+    const revision = {
+      importParameters: vi
+        .fn()
+        .mockResolvedValueOnce({ kind: 'regulation_years', importedCount: 1, replacedCount: 1, errors: [], dryRun: true })
+        .mockResolvedValueOnce({ kind: 'regulation_years', importedCount: 1, replacedCount: 1, errors: [], dryRun: false }),
+      listRevisions: vi.fn(async () => ({ events: [], nextCursor: null })),
+    }
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <RegulationParametersSection provider={provider} revisionProvider={revision} user={office()} />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(provider.listRegulationYears).toHaveBeenCalledTimes(1))
+
+    const input = screen.getByLabelText('적재할 CSV 파일') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['year\n2027\n'], 'z.csv', { type: 'text/csv' })] } })
+    fireEvent.click(screen.getByRole('button', { name: '검증' }))
+    const commit = screen.getByRole('button', { name: '확정' }) as HTMLButtonElement
+    await waitFor(() => expect(commit.disabled).toBe(false))
+    fireEvent.click(commit)
+
+    await waitFor(() => expect(provider.listRegulationYears).toHaveBeenCalledTimes(2))
+    expect(provider.listReferenceLines).toHaveBeenCalledTimes(2)
+    expect(provider.listRatingBoundaries).toHaveBeenCalledTimes(2)
+    expect(provider.listFuelTypes).toHaveBeenCalledTimes(2)
+  })
+
+  it('현장직에게도 조회 표는 보이고 적재 영역만 잠긴다', async () => {
+    const { provider } = fakeProvider()
+    const revision = { importParameters: vi.fn(), listRevisions: vi.fn() }
+    render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <RegulationParametersSection
+          provider={provider}
+          revisionProvider={revision}
+          user={{ ...office(), role: 'FIELD' }}
+        />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(bodyRows('regp-table-years')).toHaveLength(YEARS.length))
+    expect(screen.queryByLabelText('적재할 CSV 파일')).toBeNull()
+    expect(revision.listRevisions).not.toHaveBeenCalled()
+  })
+})
