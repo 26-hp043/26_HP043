@@ -65,10 +65,15 @@ export interface ComparisonFormState {
  * 서버 `WeatherModel`(`api/schemas/voyage_cii.py:22`)과 같은 값이다. 화면이 목록을
  * 따로 들고 있는 이유는 이 enum에 조회 엔드포인트가 없기 때문이다 — 연료·연도와
  * 달리 DB 테이블이 아니라 코드 리터럴이다.
+ *
+ * 선택지 글자에 계약 코드(`SIMPLE_RULE`)를 괄호로 붙이지 않는다 (#1524) — `DESIGN_SYSTEM §3`
+ * 영문 병기 규칙(`#1452`)의 예외는 화면 밖 문서와 대조하는 열쇠일 때뿐인데, 이 코드는 그런
+ * 대조 상대가 없다. 서버로 보내는 값은 그대로 `code`다. 「Townsin-Kwon」은 저자 이름을 딴
+ * 고유명이라 코드가 아니다.
  */
 export const WEATHER_MODELS: ReadonlyArray<{ code: WeatherModel; label: string }> = [
   { code: 'NONE', label: '사용 안 함' },
-  { code: 'SIMPLE_RULE', label: '간이 규칙 (SIMPLE_RULE)' },
+  { code: 'SIMPLE_RULE', label: '간이 규칙' },
   { code: 'TOWNSIN_KWON_ALPHA', label: 'Townsin-Kwon (실험 모델)' },
 ]
 

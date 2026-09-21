@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  WEATHER_MODELS,
   FIELD,
   MIN_SPEED_KN,
   countAdvancedFilled,
@@ -373,5 +374,23 @@ describe('고급 설정의 상태 (#1417)', () => {
     expect(hasAdvancedError({ [FIELD.currentLat]: 'x' })).toBe(true)
     expect(hasAdvancedError({ [FIELD.baseSpeedKn]: 'x' })).toBe(false)
     expect(hasAdvancedError({})).toBe(false)
+  })
+})
+
+describe('기상 모델 선택지 글자 (#1524)', () => {
+  it('선택지 글자에 계약 코드 모양(대문자·밑줄)이 없다', () => {
+    // 문구가 아니라 성질을 단언한다(`AGENTS §4.6`) — 글자는 디자인 담당이 바꿀 수 있다.
+    for (const model of WEATHER_MODELS) {
+      expect(model.label, model.code).not.toMatch(/\b[A-Z]+_[A-Z_]+\b/)
+      expect(model.label, model.code).not.toContain(model.code)
+    }
+  })
+
+  it('보내는 값은 계약 코드 그대로다', () => {
+    expect(WEATHER_MODELS.map((model) => model.code)).toEqual([
+      'NONE',
+      'SIMPLE_RULE',
+      'TOWNSIN_KWON_ALPHA',
+    ])
   })
 })
