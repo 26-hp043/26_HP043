@@ -225,7 +225,7 @@ async def test_annual_simulation_passes_the_reason_code_through(session, vessel_
     """
     raw = await chat_tools.run_tool(
         session,
-        name=chat_tools.TOOL_RUN_ANNUAL_SIMULATION,
+        name=chat_tools.TOOL_PROJECT_YEAR_END,
         arguments={"regulation_year": 2026},
         vessel_id=vessel_id,
     )
@@ -245,7 +245,7 @@ async def test_annual_simulation_publishes_only_the_whitelist(session, vessel_id
 
     raw = await chat_tools.run_tool(
         session,
-        name=chat_tools.TOOL_RUN_ANNUAL_SIMULATION,
+        name=chat_tools.TOOL_PROJECT_YEAR_END,
         arguments={"regulation_year": 2026},
         vessel_id=vessel_id,
     )

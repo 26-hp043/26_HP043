@@ -79,6 +79,27 @@ BOUNDARY_GAP_MEANING = (
     "등급 E는 더 나빠질 등급이 없어 이 값이 없습니다."
 )
 
+#: 연말 예상 — ``PRD §3.3`` ⑶.
+#:
+#: `#1534`(결정요청 v6 `D-32`) — 챗봇 도구 `project_year_end`가 이 값을 낸다.
+#: **확률이 아니라 결정론 값**임을 먼저 밝힌다 — 종전 도구 이름
+#: ``run_annual_simulation``이 이 값을 `PRD §12`의 확률 시뮬레이션처럼 부르고 있었다.
+YEAR_END_PROJECTION_MEANING = (
+    "연말 예상은 실시간 CII와 선박 상세 화면에서 보는 값입니다. "
+    "지금까지 확정된 실적에 앞으로 남은 계획 항차를 더해 내다본 값이며, "
+    "확률이 아니라 정해진 하나의 값입니다."
+)
+
+#: 목표 달성 확률 — ``PRD §12.5``.
+#:
+#: **이 챗봇의 도구가 계산하는 값이 아니다.** 연간 등급 관리 화면의 시뮬레이션 결과이고,
+#: 챗봇은 그 확률을 스스로 새로 만들지 않는다 — 위 :data:`YEAR_END_PROJECTION_MEANING`과
+#: 혼동하기 쉬운 자리라 짝지어 둔다.
+GOAL_ACHIEVEMENT_PROBABILITY_MEANING = (
+    "목표 달성 확률은 연간 등급 관리 화면이 시뮬레이션으로 계산해 보여주는 값입니다. "
+    "이 챗봇의 도구가 계산하는 값이 아니며, 챗봇은 그 확률을 스스로 만들지 않습니다."
+)
+
 #: 모델에게 주는 풀이 묶음. 순서가 뜻을 만든다.
 #:
 #: :data:`ATTAINED_VS_REQUIRED`가 **먼저다** — 「낮을수록 좋다」를 모르면 나머지가
@@ -88,6 +109,8 @@ GLOSSARY: tuple[tuple[str, str], ...] = (
     ("등급", GRADE_MEANING),
     ("위험도", RISK_MEANING),
     ("다음 경계까지의 여유", BOUNDARY_GAP_MEANING),
+    ("연말 예상", YEAR_END_PROJECTION_MEANING),
+    ("목표 달성 확률", GOAL_ACHIEVEMENT_PROBABILITY_MEANING),
 )
 
 

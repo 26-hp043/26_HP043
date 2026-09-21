@@ -44,13 +44,16 @@ if TYPE_CHECKING:
 TOOL_SEARCH_VESSEL = "search_vessel"
 TOOL_CALC_VOYAGE_CII = "calc_voyage_cii"
 TOOL_COMPARE_SCENARIOS = "compare_scenarios"
-TOOL_RUN_ANNUAL_SIMULATION = "run_annual_simulation"
+#: `#1534`(결정요청 v6 `D-32`) — 이 도구는 몬테카를로 확률이 아니라 **결정론
+#: 연말 예상**(확정 실적 + 잔여 계획, `PRD §3.3` ⑶)을 낸다. 종전 이름
+#: ``run_annual_simulation``이 `PRD §12`의 확률 시뮬레이션을 가리키고 있었다.
+TOOL_PROJECT_YEAR_END = "project_year_end"
 
 TOOL_NAMES: tuple[str, ...] = (
     TOOL_SEARCH_VESSEL,
     TOOL_CALC_VOYAGE_CII,
     TOOL_COMPARE_SCENARIOS,
-    TOOL_RUN_ANNUAL_SIMULATION,
+    TOOL_PROJECT_YEAR_END,
 )
 
 
@@ -112,8 +115,11 @@ def tool_schemas() -> list[dict[str, object]]:
             },
         },
         {
-            "name": TOOL_RUN_ANNUAL_SIMULATION,
-            "description": "연말 등급 예상을 낸다(기능③). 지금까지의 실적에서 연말을 내다본다.",
+            "name": TOOL_PROJECT_YEAR_END,
+            "description": (
+                "연말 예상 등급을 낸다. 확정된 실적에 남은 계획 항차를 더해 외삽하는 "
+                "결정론 계산이며, 확률이 아니다."
+            ),
             "input_schema": {
                 "type": "object",
                 "properties": {"regulation_year": {"type": "integer"}},
@@ -394,7 +400,7 @@ async def run_tool(
             return ToolOutcome(await _calc_voyage_cii(session, arguments, vessel_id))
         if name == TOOL_COMPARE_SCENARIOS:
             return ToolOutcome(await _compare_scenarios(session, arguments, vessel_id))
-        return ToolOutcome(await _run_annual_simulation(session, arguments, vessel_id))
+        return ToolOutcome(await _project_year_end(session, arguments, vessel_id))
     except (
         ValidationError,
         NotFoundError,
@@ -502,7 +508,7 @@ async def _compare_scenarios(
     )
 
 
-async def _run_annual_simulation(
+async def _project_year_end(
     session: AsyncSession, arguments: dict[str, object], vessel_id: object
 ) -> str:
     from cii_platform.services.cii_current import get_current_cii
@@ -519,7 +525,7 @@ async def _run_annual_simulation(
         # 못 낸 사유는 **코드 그대로** 넘긴다. 서버가 문장을 만들지 않는다.
         reason = (year_end or {}).get("reason") if isinstance(year_end, dict) else None
         return envelope(
-            TOOL_RUN_ANNUAL_SIMULATION,
+            TOOL_PROJECT_YEAR_END,
             error=f"연말 예상을 낼 수 없습니다 (사유 코드: {reason or 'UNKNOWN'}).",
         )
-    return envelope(TOOL_RUN_ANNUAL_SIMULATION, result=_publishable(year_end, _RESULT_KEYS))
+    return envelope(TOOL_PROJECT_YEAR_END, result=_publishable(year_end, _RESULT_KEYS))

@@ -128,6 +128,28 @@ def test_glossary_carries_no_multi_digit_numbers() -> None:
         assert not extract_numbers(text), (term, extract_numbers(text))
 
 
+def test_glossary_distinguishes_year_end_projection_from_goal_probability() -> None:
+    """`#1534`(결정요청 v6 `D-32`) — 「연말 예상」과 「목표 달성 확률」을 가른다.
+
+    챗봇 도구 `project_year_end`가 내는 값(확정 실적 + 잔여 계획을 더한 결정론
+    값, ``PRD §3.3`` ⑶)과 연간 등급 관리 화면의 시뮬레이션 확률(``PRD §12.5``)을
+    같은 이름 아래 섞으면 안 된다. 두 항목이 풀이에 있는지, 그리고 확률 쪽은
+    **챗봇이 스스로 계산하지 않는다**는 말을 담고 있는지 본다.
+
+    ⚠️ **D-31(#1533)은 아직 구현되지 않았다** — 저장 결과를 읽어 확률을 답하는
+    경로가 없으므로, 이 풀이는 「챗봇이 저장 결과를 읽어 답한다」를 주장하지
+    않는다. 「스스로 만들지 않는다」까지만 말한다.
+    """
+    terms = dict(GLOSSARY)
+    assert "연말 예상" in terms
+    assert "목표 달성 확률" in terms
+    assert "결정론" in terms["연말 예상"] or "확률이 아니" in terms["연말 예상"]
+    assert "스스로" in terms["목표 달성 확률"]
+    # 두 항목도 숫자 없음 규칙을 지킨다(위 검사와 같은 눈으로).
+    assert not extract_numbers(terms["연말 예상"])
+    assert not extract_numbers(terms["목표 달성 확률"])
+
+
 def test_system_prompt_actually_carries_the_glossary() -> None:
     """IT-CHAT-047 — 풀이가 **실제로 모델에게 간다**.
 
