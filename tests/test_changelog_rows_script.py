@@ -59,9 +59,7 @@ def test_같은_PR의_여러_행은_개수로_센다():
 
 def test_PR_커밋에만_있던_행이_빠지면_잡는다():
     """`#1512` — 행을 싣던 PR의 충돌 해결에서 빠졌다. base에 없던 행이라 1번으로는 안 보인다."""
-    seen = set(
-        rows.row_keys(_table("| 2026-09-21 | `#1510` | a |", "| 2026-09-21 | `#1512` | b |"))
-    )
+    seen = rows.row_keys(_table("| 2026-09-21 | `#1510` | a |", "| 2026-09-21 | `#1512` | b |"))
     merged = rows.row_keys(_table("| 2026-09-21 | `#1510` | a |"))
     assert rows.dropped_in_pr(seen, merged) == [("#1512",)]
 
@@ -93,7 +91,7 @@ def test_커밋_열에_꼬리를_붙여도_잃은_행이_아니다():
 
 def test_자기_행의_날짜를_고쳐도_빠진_행이_아니다():
     """`#1522` ⑷ — 자정을 넘겨 자기 행 날짜를 고치는 것. 이슈에 없던 네 번째 오탐이다."""
-    seen = set(rows.row_keys(_table("| 2026-09-21 | `#1519` | a |")))
+    seen = rows.row_keys(_table("| 2026-09-21 | `#1519` | a |"))
     merged = rows.row_keys(_table("| 2026-09-22 | `#1519` | a |"))
     assert rows.dropped_in_pr(seen, merged) == []
 
@@ -104,13 +102,20 @@ def test_숫자_임시값을_PR_번호로_바꾸면_잡힌다():
     참조가 바뀐 것은 기록이 바뀐 것이라 검사는 구분할 수 없다. 임시값은 숫자가 아닌
     ``#___``로 적는다(`AGENTS §4.1`) — 그러면 아래 검사처럼 통과한다.
     """
-    seen = set(rows.row_keys(_table("| 2026-09-21 | `#1516` | a |")))
+    seen = rows.row_keys(_table("| 2026-09-21 | `#1516` | a |"))
     merged = rows.row_keys(_table("| 2026-09-21 | `#1519` | a |"))
     assert rows.dropped_in_pr(seen, merged) == [("#1516",)]
 
 
+def test_같은_PR의_여러_행_중_하나가_빠져도_잡는다():
+    """`#1607` — 키가 참조 집합이라 ⑼·⑽이 한 키가 된다. 「있었나」만 보면 하나가 빠져도 통과했다."""
+    seen = rows.row_keys(_table("| 2026-09-17 | `#1081` ⑼ | a |", "| 2026-09-17 | `#1081` ⑽ | b |"))
+    merged = rows.row_keys(_table("| 2026-09-17 | `#1081` ⑼ | a |"))
+    assert rows.dropped_in_pr(seen, merged) == [("#1081",)]
+
+
 def test_숫자가_아닌_임시값은_PR_번호로_바꿔도_통과한다():
-    seen = set(rows.row_keys(_table("| 2026-09-21 | `#___` | a |")))
+    seen = rows.row_keys(_table("| 2026-09-21 | `#___` | a |"))
     merged = rows.row_keys(_table("| 2026-09-21 | `#1519` | a |"))
     assert rows.dropped_in_pr(seen, merged) == []
 
@@ -220,3 +225,26 @@ def test_직전_head가_없거나_0이면_건너뛴다(tmp_path):
     _rebase_conflict_repo(tmp_path, keep_own_row=True)
     assert rows.check(tmp_path, "main", previous_head="") == []
     assert rows.check(tmp_path, "main", previous_head="0" * 40) == []
+
+
+def test_실제_git_이력에서_같은_PR의_둘째_행이_빠지면_잡는다(tmp_path):
+    """`#1607` — 배선까지: PR 커밋에서 한 번이라도 둘이었으면 머지 결과도 둘이어야 한다."""
+    doc = tmp_path / "TEST_PLAN.md"
+    _git(tmp_path, "init", "-q", "-b", "main")
+    doc.write_text(_table("| 2026-09-20 | `#1487` | a |"))
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "base")
+    _git(tmp_path, "checkout", "-qb", "pr")
+    doc.write_text(
+        _table(
+            "| 2026-09-20 | `#1487` | a |",
+            "| 2026-09-22 | `#1606` | 하나 |",
+            "| 2026-09-22 | `#1606` ⑵ | 둘 |",
+        )
+    )
+    _git(tmp_path, "commit", "-qam", "행 둘")
+    doc.write_text(_table("| 2026-09-20 | `#1487` | a |", "| 2026-09-22 | `#1606` | 하나 |"))
+    _git(tmp_path, "commit", "-qam", "충돌 해결에서 하나가 빠짐")
+
+    problems = rows.check(tmp_path, "main")
+    assert any("커밋에 있던 행" in p and "#1606" in p for p in problems)

@@ -97,9 +97,14 @@ def overwritten(base: Counter[Key], merged: Counter[Key]) -> list[Key]:
     return sorted((base - merged).elements())
 
 
-def dropped_in_pr(seen: set[Key], merged: Counter[Key]) -> list[Key]:
-    """PR 커밋 어딘가에 있었는데 머지 결과에 없는 행 — 충돌 해결에서 빠짐."""
-    return sorted(key for key in seen if merged[key] == 0)
+def dropped_in_pr(seen: Counter[Key], merged: Counter[Key]) -> list[Key]:
+    """PR 커밋 어딘가에 있었는데 머지 결과에서 줄어든 행 — 충돌 해결에서 빠짐.
+
+    ``seen``은 PR의 각 커밋에서 센 행 수의 **키별 최댓값**이다(`#1607`). 키가 참조
+    집합이라(`#1522`) ``#1081`` ⑼·⑽처럼 한 PR의 여러 행이 한 키로 합쳐지므로, 「있었나/
+    없나」만 보면 둘 중 하나가 빠진 것을 놓친다 — 개수로 본다.
+    """
+    return sorted((seen - merged).elements())
 
 
 def _git(root: Path, *args: str) -> str:
@@ -151,9 +156,9 @@ def check(root: Path, base: str, previous_head: str | None = None) -> list[str]:
         for key in overwritten(row_keys(_show(root, base, doc)), merged):
             problems.append(f"{doc}: base에 있던 행이 사라졌습니다 — {_label(key)}")
 
-        seen: set[Key] = set()
+        seen: Counter[Key] = Counter()
         for rev in commits:
-            seen.update(row_keys(_show(root, rev, doc)))
+            seen |= row_keys(_show(root, rev, doc))  # 키별 최댓값 (#1607)
         for key in dropped_in_pr(seen, merged):
             problems.append(
                 f"{doc}: 이 PR의 커밋에 있던 행이 머지 결과에서 빠졌습니다 — {_label(key)}"
