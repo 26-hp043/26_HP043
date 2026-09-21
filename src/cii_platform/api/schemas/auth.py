@@ -63,11 +63,17 @@ class TourLoginRequest(BaseModel):
 
     길이 상한은 ``SignupRequest.invite_code``와 같은 200자다. 상한이 없으면 거절될
     요청에 긴 문자열을 실어 보내는 것만으로 비교 비용을 끌어올릴 수 있다.
+
+    **하한은 두지 않는다** (#1486 후속). 공개 둘러보기(`TOUR_PUBLIC`)에서는 코드 없이
+    들어오며, 화면이 빈 문자열을 보낸다. 하한을 두면 그 요청이 **스키마에서 먼저 잘려**
+    ``tour_is_public()`` 판정까지 닿지 못한다 — 실제로 그렇게 막혔다. 빈 코드가 통과하는
+    것은 「코드 검사를 건너뛴다」는 뜻이 아니다: 공개 스위치가 꺼져 있으면
+    ``verify_tour_code("")``가 fail-closed로 거절한다.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    code: Annotated[str, Field(min_length=1, max_length=200)]
+    code: Annotated[str, Field(max_length=200)] = ""
 
 
 class PasswordChangeRequest(BaseModel):

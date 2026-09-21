@@ -220,3 +220,34 @@ async def test_policy_applies_only_to_the_tour_principal(client, monkeypatch):
     finally:
         await _cleanup_admin()
         await _cleanup()
+
+
+# --- 공개 스위치 — 코드 없이 들어오는 문 (#1486 후속) -----------------------------------------
+
+
+async def test_public_switch_lets_empty_code_in(client, monkeypatch):
+    """🔴 공개 스위치가 켜지면 **빈 코드로 들어온다**.
+
+    스키마에 길이 하한이 있으면 이 요청은 ``tour_is_public()`` 판정까지 닿지 못하고
+    **422로 먼저 잘린다** — 배포에서 실제로 그렇게 막혔다. 화면의 상시 버튼이 보내는 것이
+    바로 이 모양이라, 하한을 되돌리면 버튼이 조용히 죽는다.
+    """
+    monkeypatch.setenv(tour_gate.PUBLIC_ENV_NAME, "true")
+    monkeypatch.delenv(tour_gate.ENV_NAME, raising=False)
+    try:
+        resp = client.post(f"{API_V1_PREFIX}/auth/tour-login", json={"code": ""})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["data"]["role"] == "ADMIN"
+    finally:
+        await _cleanup()
+
+
+async def test_empty_code_is_rejected_when_switch_is_off(client, monkeypatch):
+    """스위치가 꺼져 있으면 빈 코드는 거절된다 — 하한을 없앤 것이 문을 열지 않는다."""
+    monkeypatch.delenv(tour_gate.PUBLIC_ENV_NAME, raising=False)
+    monkeypatch.setenv(tour_gate.ENV_NAME, _CODE)
+    try:
+        resp = client.post(f"{API_V1_PREFIX}/auth/tour-login", json={"code": ""})
+        assert resp.status_code == 422, resp.text
+    finally:
+        await _cleanup()
