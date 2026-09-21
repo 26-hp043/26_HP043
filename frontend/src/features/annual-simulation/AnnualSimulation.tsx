@@ -34,6 +34,8 @@ import {
   TARGET_DEFAULT,
   countAdvancedChanges,
   reductionCutText,
+  resultConditionsText,
+  targetVesselText,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
@@ -77,7 +79,11 @@ type RunState =
    */
   | { status: 'blocked'; message: string }
   | { status: 'running' }
-  | { status: 'success'; result: AnnualSimulationResult }
+  /*
+   * `conditions`는 **실행 시점의 값**이다 (#1553). 목표 등급은 실행 뒤에 바꿔도 결과를
+   * 지우지 않으므로, 결과 머리에 지금 고른 값을 적으면 결과와 어긋난다.
+   */
+  | { status: 'success'; result: AnnualSimulationResult; conditions: RunConditions }
   | { status: 'error'; message: string }
 
 /**
@@ -90,6 +96,13 @@ type RunState =
  * 예측)는 `#534`, 연료는 `#568`이 옮겼다. 같은 `yearCatalog`를 쓰므로 두 화면의 선택지가
  * 갈리지 않는다.
  */
+
+/** 결과가 어떤 조건으로 나왔는가 — 결과 머리 한 줄에 적는다 (#1553). */
+interface RunConditions {
+  vesselName: string
+  year: string
+  target: string
+}
 
 /** `PRD §12.8` — **E는 목록에 없다.** 목표가 최하위 등급이면 「달성」이 의미를 잃는다. */
 const TARGET_RATINGS = ['A', 'B', 'C', 'D'] as const
@@ -230,6 +243,12 @@ export function AnnualSimulation({
     setState({ status: 'idle' })
   }, [shell.vesselId, year])
 
+  const targetVessel = targetVesselText(shell.vesselId, shell.vessels, shell.vesselsState, {
+    none: ANNUAL_COPY.targetVesselNone,
+    loading: ANNUAL_COPY.targetVesselLoading,
+    unknown: ANNUAL_COPY.targetVesselUnknown,
+  })
+
   const run = useCallback(async () => {
     // 실행 전 차단은 `blocked`다 — 실패가 아니라 안내 (#1096 ⑸).
     if (shell.vesselId === null) {
@@ -255,6 +274,8 @@ export function AnnualSimulation({
     }
     setState({ status: 'running' })
     const ticket = generationRef.current
+    // 누른 순간의 조건을 잡아 둔다 — 응답을 기다리는 동안 목표를 바꿔도 결과 줄은 이것이다.
+    const conditions: RunConditions = { vesselName: targetVessel, year, target }
     try {
       const result = await provider.run({
         vessel_id: shell.vesselId,
@@ -271,7 +292,7 @@ export function AnnualSimulation({
       // 기다리는 동안 대상이 바뀌었으면 **버린다** — 새 선박 화면에 앞 배의 성공
       // 결과를 붙이지 않는다 (`#1094`).
       if (ticket !== generationRef.current) return
-      setState({ status: 'success', result })
+      setState({ status: 'success', result, conditions })
       onDisclaimer?.(undefined)
     } catch (error: unknown) {
       // 실패도 같다. 앞 배의 오류 문구를 새 배 화면에 띄우면 사용자는 새 배에
@@ -282,7 +303,7 @@ export function AnnualSimulation({
         message: error instanceof Error ? error.message : ANNUAL_COPY.errorFallback,
       })
     }
-  }, [provider, shell.vesselId, year, yearsFailed, target, runs, seed, applyFeedback, alternativeFuel, onDisclaimer])
+  }, [provider, shell.vesselId, targetVessel, year, yearsFailed, target, runs, seed, applyFeedback, alternativeFuel, onDisclaimer])
 
   return (
     <section className="annual-sim">
@@ -318,6 +339,16 @@ export function AnnualSimulation({
         <Link className="annual-sim__fleet-link" to={SCREEN_BY_ID.FLEET_REDUCTION.path}>
           {ANNUAL_COPY.fleetLink}
         </Link>
+
+        {/*
+          대상 선박 (#1553) — 입력이 아니라 **읽기 전용**이다. 선박은 상단바 전역 선택이
+          소유하고(`shellContext`), 여기서 따로 고르게 하면 두 곳이 갈린다(`#535`).
+        */}
+        <div className="annual-sim__target">
+          <span className="annual-sim__target-label">{ANNUAL_COPY.targetVesselLabel}</span>
+          <strong className="annual-sim__target-name">{targetVessel}</strong>
+          <span className="annual-sim__target-hint">{ANNUAL_COPY.targetVesselHint}</span>
+        </div>
 
         {/* 컨트롤이 없는 가지가 있다(로딩·실패) — `control`은 `<select>`를 실제로
             그리는 가지에서만 펼친다 (`#936`). */}
@@ -541,6 +572,7 @@ export function AnnualSimulation({
           <Result
             key={state.result.simulation_id}
             result={state.result}
+            conditions={state.conditions}
             provider={provider}
           />
         ) : null}
@@ -572,9 +604,11 @@ type ReproduceState =
 
 function Result({
   result,
+  conditions,
   provider,
 }: {
   result: AnnualSimulationResult
+  conditions: RunConditions
   provider: AnnualSimulationProvider
 }) {
   const { deterministic: det, monte_carlo: mc, reduction_plan: cut, feedback } = result
@@ -602,6 +636,14 @@ function Result({
 
   return (
     <>
+      {/*
+        이 결과의 조건 (#1553) — 결과만 캡처해도 어느 배 · 어느 해 · 어느 목표인지 읽히게.
+        결과 블록들의 맨 위, 추정 고지보다 먼저다.
+      */}
+      <p className="annual-sim__conditions">
+        <span className="annual-sim__conditions-label">{ANNUAL_COPY.resultConditionsLabel}</span>{' '}
+        <strong>{resultConditionsText(conditions)}</strong>
+      </p>
       {result.is_sample_data ? (
         <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
       ) : (

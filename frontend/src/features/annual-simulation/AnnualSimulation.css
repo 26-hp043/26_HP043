@@ -653,3 +653,39 @@
   align-self: flex-start;
   font-size: var(--font-size-label);
 }
+
+/*
+ * 대상 선박 (#1553) — 실행 조건 머리의 읽기 전용 한 줄. 입력이 아니므로 입력 칸 모양을
+ * 쓰지 않는다(눌러도 바뀌지 않는 칸이 된다). 이름만 굵게, 나머지는 보조 글자.
+ */
+.annual-sim__target {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-4) var(--space-8);
+  font-size: var(--font-size-label);
+}
+
+.annual-sim__target-label,
+.annual-sim__target-hint,
+.annual-sim__conditions-label {
+  color: var(--color-text-muted);
+}
+
+.annual-sim__target-name {
+  font-size: var(--font-size-body);
+  color: var(--color-text);
+  word-break: keep-all;
+}
+
+.annual-sim__target-hint {
+  font-size: var(--font-size-micro);
+}
+
+/* 결과 머리의 조건 한 줄 (#1553) — 결과 블록들의 맨 위. */
+.annual-sim__conditions {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--color-text);
+  word-break: keep-all;
+}

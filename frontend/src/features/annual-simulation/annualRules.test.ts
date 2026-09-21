@@ -1,6 +1,8 @@
 import { formatPercent } from '../../display/format'
 import { describe, expect, it } from 'vitest'
 import {
+  resultConditionsText,
+  targetVesselText,
   probabilityOfDorE,
   reproducibilityLine,
   riskFlag,
@@ -430,5 +432,36 @@ describe('줄여야 하는 양 — §4.2 단위·자릿수 (#1539)', () => {
     expect(reductionCutText('1149999.9999999999', '0').co2).toBe('1.1 tCO₂')
     expect(reductionCutText('1050000', '0.05').co2).toBe('1.1 tCO₂')
     expect(reductionCutText('1050000', '0.05').fuel).toBe('0.1 t')
+  })
+})
+
+describe('targetVesselText — 대상 선박 이름 (#1553)', () => {
+  const copy = { none: 'NONE', loading: 'LOADING', unknown: 'UNKNOWN' }
+  const vessels = [{ id: 'v-1', displayName: '샘플 벌크선' }]
+
+  it('목록에서 이름을 읽는다', () => {
+    expect(targetVesselText('v-1', vessels, 'ready', copy)).toBe('샘플 벌크선')
+  })
+
+  it('고르지 않았으면 그렇다고 말한다 — 목록 상태와 무관하다', () => {
+    expect(targetVesselText(null, vessels, 'ready', copy)).toBe('NONE')
+    expect(targetVesselText(null, [], 'loading', copy)).toBe('NONE')
+  })
+
+  it('목록이 아직 오는 중이면 불러오는 중이다', () => {
+    expect(targetVesselText('v-1', [], 'loading', copy)).toBe('LOADING')
+  })
+
+  it('목록을 못 받았거나 목록에 없으면 id를 내보이지 않고 모른다고 말한다', () => {
+    expect(targetVesselText('v-1', [], 'failed', copy)).toBe('UNKNOWN')
+    expect(targetVesselText('v-9', vessels, 'ready', copy)).toBe('UNKNOWN')
+  })
+})
+
+describe('resultConditionsText — 결과 머리 한 줄 (#1553)', () => {
+  it('선박 · 연도 · 목표 등급을 한 줄로', () => {
+    expect(resultConditionsText({ vesselName: '샘플 벌크선', year: '2026', target: 'C' })).toBe(
+      '샘플 벌크선 · 2026년 · 목표 등급 C',
+    )
   })
 })
