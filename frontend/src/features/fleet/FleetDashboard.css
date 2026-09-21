@@ -343,7 +343,7 @@
  *
  * 종전에는 `--cii-e-border`였는데 **이 클래스가 붙는 조건은 등급이 아니다.**
  *
- *     riskReasons: 'E_THIS_YEAR' | 'D_THREE_YEARS'   (`fleetRules.isAtRisk`)
+ *     riskReasons: 'E_THIS_YEAR' | 'D_THIRD_YEAR'   (`fleetRules.isAtRisk`)
  *
  * `D등급 3년 연속` 선박도 참이므로 **마크에 `D`가 찍힌 행에 등급 E 색 테두리**가
  * 붙었다 — `§0.2` 제약 2가 「등급 색은 A~E 문자와 **함께**」라고 한 그 어긋남이다.
