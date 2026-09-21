@@ -18,12 +18,21 @@
 계산 불가      ⑴ 선박 CII를 낼 수 없다 ⑵ 연료 행에 넣을        ⑴ 선대 요약과 같은 사유 (#419)
                값이 하나도 없다                               ⑵ ``ytd.unfilled`` (#513)
 이상치         계산됐으나 신뢰도 낮음                        ``calc.data_quality.judge_anomaly``
-실적 미입력    ``COMPLETED``에서 ``CONFIRMED``로 미전이       ``voyage.status`` (``PRD §8.4``)
+실적 확정 전   ``COMPLETED``에서 ``CONFIRMED``로 미전이       ``voyage.status`` (``PRD §8.1``)
 =============  =============================================  ====================================
 
 **집계 기준은 실적 확정 항차(``INCLUDE_AS_ACTUAL``)이며 진행 중 항차를 넣지 않는다.** 진행분은
 시계가 만든 추정이라(``#368``) 「실측이 아니다」가 정의상 참이고, 매 조회마다 값이 바뀐다 —
 넣으면 이 화면의 모든 선박이 늘 「대체 계산」을 갖는다.
+
+완결성의 분자·분모와 제외 내역 (`#1532`)
+--------------------------------------
+비율만 주면 0%든 54.2%든 화면에서 검산할 수 없다 — 분자·분모는 서버만 안다. 그래서
+``completeness``에 누적 CO₂ · 실측으로 인정된 CO₂ · 축별로 빠진 CO₂를 함께 싣는다.
+
+한 항차가 여러 심각도에 걸려도 **빠진 CO₂는 한 축에만** 더한다 — 우선순위는
+계산 불가 > 대체 계산 > 이상치(:data:`_EXCLUSION_PRIORITY`). 겹치는 항차를 두 축에 다 더하면
+「실측 + 제외 합 = 누적」이 성립하지 않아 내역을 검산할 수 없다.
 """
 
 from __future__ import annotations
@@ -99,6 +108,20 @@ IMPACT_BASE_UNAVAILABLE = "BASE_UNAVAILABLE"
 _STATUS_COMPLETED = "COMPLETED"
 _CII_DIGITS = 4
 _RATIO_DIGITS = 4
+#: CO₂ 톤 문자열의 소수 자릿수 — `§2.7` ``co2_ton``과 같다. `#1349`의 절사는 CII 필드에만
+#: 적용되므로 톤은 ``ROUND_HALF_UP`` 그대로다(``API_SPEC §1.7``).
+_CO2_TON_DIGITS = 2
+#: ``PRD §3.3.2`` — 연료 톤 × CF(tCO₂/t) → g. 응답은 t로 되돌려 싣는다.
+_GRAMS_PER_TON = Decimal(1_000_000)
+
+#: 완결성에서 빠진 CO₂를 **어느 축에** 더하는가 — 한 항차가 여러 심각도에 걸리면 앞선
+#: 것 하나에만 더한다. 순서는 「고칠 수 없는 것」이 먼저다: 계산 불가는 값 자체가 없고,
+#: 대체 계산은 계획값이 들어갔으며, 이상치는 값은 있으나 믿기 어려운 것이다.
+_EXCLUSION_PRIORITY: tuple[str, ...] = (
+    SEVERITY_UNAVAILABLE,
+    SEVERITY_SUBSTITUTED,
+    SEVERITY_ANOMALY,
+)
 
 
 def _publish(value: Decimal | None, digits: int) -> str | None:
@@ -120,6 +143,34 @@ def _publish_cii(value: Decimal | None) -> str | None:
     if value is None:
         return None
     return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=CII_SERIALIZATION_ROUNDING))
+
+
+def _publish_co2_ton(grams: Decimal) -> str:
+    """CO₂ g → t 문자열 (소수 2자리 · ``ROUND_HALF_UP``) — `§2.7` ``co2_ton``과 같은 규약."""
+    return str(
+        (grams / _GRAMS_PER_TON).quantize(
+            Decimal(1).scaleb(-_CO2_TON_DIGITS), rounding=LAYER1_ROUNDING
+        )
+    )
+
+
+def _completeness_block(
+    measured_g: Decimal, total_g: Decimal, excluded_g: dict[str, Decimal]
+) -> dict[str, str]:
+    """``completeness`` — 비율의 분자·분모와 축별 제외 내역 (``API_SPEC §2.16`` · `#1532`).
+
+    ``measured + Σexcluded = total``이 **g 단위에서 정확히** 성립한다 — 각 항차의 CO₂를
+    실측 아니면 한 축에만 더하기 때문이다. 톤 문자열은 다섯 값이 **각각** 소수 2자리로
+    반올림되므로, 문자열끼리 더하면 누적과 **최대 0.02 t** 어긋날 수 있다(가수 넷의
+    반올림 오차가 한쪽으로 쏠릴 때 — 코드 검토에서 재현). 정확한 검산은 g 단위다.
+    """
+    return {
+        "total_co2_ton": _publish_co2_ton(total_g),
+        "measured_co2_ton": _publish_co2_ton(measured_g),
+        "excluded_unavailable_co2_ton": _publish_co2_ton(excluded_g[SEVERITY_UNAVAILABLE]),
+        "excluded_substituted_co2_ton": _publish_co2_ton(excluded_g[SEVERITY_SUBSTITUTED]),
+        "excluded_anomaly_co2_ton": _publish_co2_ton(excluded_g[SEVERITY_ANOMALY]),
+    }
 
 
 @dataclass(frozen=True)
@@ -263,6 +314,7 @@ async def get_fleet_data_quality(
     unjudged = 0
     fleet_measured = Decimal(0)
     fleet_total = Decimal(0)
+    fleet_excluded = dict.fromkeys(_EXCLUSION_PRIORITY, Decimal(0))
 
     for vessel in vessels:
         base = await _base_ytd(session, vessel, year)
@@ -297,6 +349,7 @@ async def get_fleet_data_quality(
         }
         measured = Decimal(0)
         total = Decimal(0)
+        excluded = dict.fromkeys(_EXCLUSION_PRIORITY, Decimal(0))
 
         for voyage in voyages:
             rows = fuel_by_voyage.get(voyage.id, [])
@@ -342,12 +395,14 @@ async def get_fleet_data_quality(
             voyage_co2 = _voyage_co2(rows)
             total += voyage_co2
             # 완결성의 「실측」 — 대체·계산 불가·이상치가 없는 항차 (`PRD §17.4.3`).
-            # 실적 미입력은 값 자체는 실측이므로 빼지 않는다.
-            if not any(
-                severity in (SEVERITY_SUBSTITUTED, SEVERITY_UNAVAILABLE, SEVERITY_ANOMALY)
-                for severity, _ in voyage_issues
-            ):
+            # 실적 확정 전은 값 자체는 실측이므로 빼지 않는다. 빠진 항차의 CO₂는
+            # **우선순위상 앞선 한 축에만** 더한다 — 그래야 내역의 합이 누적과 맞는다.
+            severities = {severity for severity, _ in voyage_issues}
+            axis = next((s for s in _EXCLUSION_PRIORITY if s in severities), None)
+            if axis is None:
                 measured += voyage_co2
+            else:
+                excluded[axis] += voyage_co2
 
             if not voyage_issues:
                 continue
@@ -369,12 +424,16 @@ async def get_fleet_data_quality(
                 )
 
         ratio: Decimal | None = None
+        completeness: dict[str, str] | None = None
         if ytd is not None and ytd.data_available:
             # not under way 연료는 기록된 실측이다 — 분자·분모 모두에 더한다.
             nu = ytd.not_underway_co2_g or Decimal(0)
             ratio = completeness_ratio(measured + nu, total + nu)
+            completeness = _completeness_block(measured + nu, total + nu, excluded)
             fleet_measured += measured + nu
             fleet_total += total + nu
+            for severity in _EXCLUSION_PRIORITY:
+                fleet_excluded[severity] += excluded[severity]
 
         vessel_rows.append(
             {
@@ -386,6 +445,8 @@ async def get_fleet_data_quality(
                 "ytd_rating": ytd.rating if ytd else None,
                 "voyage_count": len(voyages),
                 "completeness_ratio": _publish(ratio, _RATIO_DIGITS),
+                # 비율을 낼 수 없는 선박(누적 없음)은 내역도 없다 — 재료가 같다.
+                "completeness": completeness,
             }
         )
 
@@ -412,6 +473,8 @@ async def get_fleet_data_quality(
             "completeness_ratio": _publish(
                 completeness_ratio(fleet_measured, fleet_total), _RATIO_DIGITS
             ),
+            # 선대 값은 선박들의 분자·분모를 각각 더한 것이다(`PRD §17.4.3`) — 내역도 같다.
+            "completeness": _completeness_block(fleet_measured, fleet_total, fleet_excluded),
         },
         "vessels": vessel_rows,
         "issues": issues,

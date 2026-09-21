@@ -483,8 +483,11 @@ async def _not_underway_section(
     )
 
 
-def _self_check_section(
+async def _self_check_section(
+    session: AsyncSession,
     *,
+    vessel_id: UUID,
+    year: int,
     ytd: dict[str, object],
     year_row: dict[str, object],
 ) -> TableSection:
@@ -503,7 +506,14 @@ def _self_check_section(
 
     - **대체 계산** — 실적 대신 계획값을 쓴 항차가 몇 건인가(`ytd.substitutions` · `#449`).
       축(연료·거리)으로 나눈다: 고칠 곳이 다르다
-    - **실적 미입력** — 진행 중 항차가 몇 건 섞여 있는가. 확정 전 값이라 제출 전에 닫아야 한다
+    - **진행 중 항차** — 아직 항해 중인 항차가 몇 건 섞여 있는가(`in_progress_voyage_count`).
+      시계가 만든 추정이라 제출 전에 닫아야 한다
+    - **실적 확정 전 항차** — `COMPLETED`에서 `CONFIRMED`로 넘어가지 않은 항차가 몇 건인가.
+      데이터 점검 화면(`#513` 2-11)의 「실적 확정 전」과 **같은 조회·같은 조건**으로 센다 —
+      다른 쿼리로 세면 화면과 리포트가 다른 수를 낸다(`#1532`)
+
+    종전에는 진행 중 항차 수에 「실적 미입력」이라는 이름이 붙어 있었다 — 표가 세는 것과
+    표에 적힌 이름이 달랐다(`#1532`).
 
     **제원 결측은 여기서 세지 않는다.** 용량 축(DWT·GT)이 비면 YTD 계산이 서지 않아
     **리포트 생성 자체가 422로 막힌다**(`services/ytd_cii.py`). 이 표에 행을 두면 늘
@@ -516,6 +526,15 @@ def _self_check_section(
     fuel_rows = [item for item in substitutions if item.get("axis") == "FUEL"]
     distance_rows = [item for item in substitutions if item.get("axis") == "DISTANCE"]
     in_progress = int(year_row.get("in_progress_voyage_count") or 0)
+    # 데이터 점검(`services/data_quality.py`)이 `UNCONFIRMED`를 세는 것과 같은 조회다 —
+    # `INCLUDE_AS_ACTUAL` 항차 중 `COMPLETED`. `as_of`로 자르지 않는 것도 같다.
+    unconfirmed = sum(
+        1
+        for voyage in await voyage_repo.list_annual_inclusions(
+            session, vessel_id=vessel_id, regulation_year=year, policy=POLICY_INCLUDE_AS_ACTUAL
+        )
+        if voyage.status == "COMPLETED"
+    )
 
     def _verdict(count: int) -> str:
         """판정 두 말 — `PRD §25.4` (2026-09-18 확정 · `#1052` ⓶).
@@ -543,10 +562,16 @@ def _self_check_section(
             "실적 거리가 없어 계획값으로 계산했습니다",
         ],
         [
-            "실적 미입력 (진행 중)",
+            "진행 중 항차",
             f"{in_progress}건",
             _verdict(in_progress),
-            "확정 전 항차가 누적에 섞여 있습니다",
+            "아직 항해 중인 항차의 기여분이 누적에 섞여 있습니다",
+        ],
+        [
+            "실적 확정 전 항차",
+            f"{unconfirmed}건",
+            _verdict(unconfirmed),
+            "완료됐지만 실적이 확정되지 않았습니다. 제출 전에 확정해야 합니다",
         ],
     ]
 
@@ -711,7 +736,9 @@ async def build_annual_report(
         # `PRD §21` 「공식 보고서 보조」 — 제출 **전에** 우리 데이터의 상태를 훑는 절이다
         # (`#770`). 별도 리포트로 만들지 않는다: 「제출 전 검토용」이라는 제목의 문서가
         # 따로 있으면 `§25.1`의 「대관 제출용은 하지 않는다」와 경계가 흐려진다.
-        _self_check_section(ytd=ytd, year_row=year_row),
+        await _self_check_section(
+            session, vessel_id=vessel_id, year=target_year, ytd=ytd, year_row=year_row
+        ),
     ]
 
     # 연말 예상은 **가정과 함께** 싣는다 (`PRD §3.3` ⑶). 값만 실으면 확정값처럼 읽힌다.
