@@ -753,6 +753,27 @@ async def test_self_check_says_it_is_not_for_submission(session, vessel_id):
 
 
 @pytest.mark.asyncio
+async def test_self_check_says_g5_is_not_applied(session, vessel_id):
+    """IT-REPORT-005 — **G5 미반영**을 고지에 적는다 (#762).
+
+    검증기관 공식값과 대조하는 사무직이 차이의 이유를 이 문서에서 읽어야 한다. 문서
+    전체 면책은 「공식이 아니다」만 말하고 무엇이 빠졌는지는 말하지 않는다. 표의 행이
+    아니라 고지 문장이다 — 건수가 없어 늘 같은 값이 찍히는 칸은 죽은 칸이다.
+    """
+    await _make_voyage(session, vessel_id)
+    document = await build_annual_report(session, vessel_id, year=YEAR, as_of=AS_OF)
+
+    section = _section(document, "제출 전 자체 점검")
+    # 정본 문구 (PRD §25.3 · #762) — 바꾸려면 PRD 개정이 먼저다.
+    assert (
+        "G5 보정계수·항해 조정(MEPC.355(78))은 반영하지 않았습니다. 보정 대상 선박"
+        "(빙등급·셔틀탱커·STS 작업·냉동 컨테이너)은 검증기관 값보다 CII가 높게 나올 수"
+        " 있습니다."
+    ) in (section.note or "")
+    assert not [row for row in section.rows if "G5" in row[0]], "행이 아니라 고지다"
+
+
+@pytest.mark.asyncio
 async def test_self_check_counts_substitutions_by_axis(session, vessel_id):
     """IT-REPORT-003 — 대체 계산을 **축으로 나눈다.** 연료와 거리는 고칠 곳이 다르다."""
     await _make_voyage(session, vessel_id)
