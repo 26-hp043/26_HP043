@@ -47,6 +47,20 @@ export function LoginPage() {
   const [tourCode] = useState(() => searchParams.get('tour'))
 
   /*
+   * 공개 둘러보기 스위치 (#1486 후속).
+   *
+   * 링크에 코드가 없어도 버튼을 보인다 — 평가자·인터뷰 대상자가 **주소만 알면** 들어올 수
+   * 있어야 하기 때문이다. 이 값은 **불리언**이고 접근 코드가 아니다. 코드를 `VITE_`로
+   * 넣으면 빌드 산출물에 그대로 인라인되어 「비밀 링크」보다 못한 상태가 된다 — 문을 여는
+   * 판정은 서버의 `TOUR_PUBLIC`이 한다.
+   *
+   * 그래도 안전한 이유는 **둘러보기 세션이 읽기 전용**이기 때문이다
+   * (`auth/tour_policy.py`) — 문이 넓어져도 권한은 넓어지지 않는다.
+   */
+  const tourIsPublic = import.meta.env.VITE_TOUR_PUBLIC === 'true'
+  const showTour = tourIsPublic || tourCode !== null
+
+  /*
    * 주소창에서 코드를 지운다 (`#1495`).
    *
    * 코드는 URL에 실려 오므로 **브라우저 히스토리·북마크·화면 공유·뒤로가기**에 그대로
@@ -104,7 +118,7 @@ export function LoginPage() {
    * 화면이 따로 지어내면 그 규칙이 깨진다.
    */
   const submitTour = async () => {
-    if (!tourCode) return
+    if (!showTour) return
     setBusy(true)
     setFailure(null)
     try {
@@ -166,7 +180,7 @@ export function LoginPage() {
         </button>
       </form>
 
-      {tourCode ? (
+      {showTour ? (
         <button
           className="auth-secondary"
           type="button"
@@ -174,7 +188,7 @@ export function LoginPage() {
           onClick={() => void submitTour()}
           data-testid="tour-submit"
         >
-          {busy ? '둘러보기 로그인 중…' : '둘러보기로 로그인'}
+          {busy ? '둘러보기 여는 중…' : '로그인 없이 둘러보기'}
         </button>
       ) : null}
 

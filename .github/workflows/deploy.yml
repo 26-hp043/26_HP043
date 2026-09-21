@@ -328,6 +328,7 @@ jobs:
           SIGNUP_INVITE_CODE: ${{ secrets.SIGNUP_INVITE_CODE }}
           INITIAL_ADMIN_EMAILS: ${{ secrets.INITIAL_ADMIN_EMAILS }}
           TOUR_ACCESS_CODE: ${{ secrets.TOUR_ACCESS_CODE }}
+          TOUR_PUBLIC: ${{ secrets.TOUR_PUBLIC }}
           CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
           MAIL_BACKEND: ${{ secrets.MAIL_BACKEND }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
@@ -354,6 +355,7 @@ jobs:
              SIGNUP_INVITE_CODE='${SIGNUP_INVITE_CODE:-}' \
              INITIAL_ADMIN_EMAILS='${INITIAL_ADMIN_EMAILS:-}' \
              TOUR_ACCESS_CODE='${TOUR_ACCESS_CODE:-}' \
+             TOUR_PUBLIC='${TOUR_PUBLIC:-}' \
              CLOUDFLARE_TUNNEL_TOKEN='${CLOUDFLARE_TUNNEL_TOKEN:-}' \
              MAIL_BACKEND='${MAIL_BACKEND:-console}' \
              MAIL_FROM='${MAIL_FROM:-}' \
@@ -392,6 +394,7 @@ jobs:
           INITIAL_ADMIN_EMAILS=${INITIAL_ADMIN_EMAILS}
           SMTP_USE_TLS=${SMTP_USE_TLS}
           TOUR_ACCESS_CODE=${TOUR_ACCESS_CODE}
+          TOUR_PUBLIC=${TOUR_PUBLIC}
           CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
           MAIL_BACKEND=${MAIL_BACKEND}
           MAIL_FROM=${MAIL_FROM}
@@ -530,6 +533,10 @@ jobs:
       - run: npm run build
         env:
           VITE_API_BASE_URL: /api/v1
+          # 불리언 하나다 — **접근 코드는 번들에 넣지 않는다**(`VITE_`는 빌드 산출물에
+          # 그대로 인라인된다). 코드 없는 둘러보기를 실제로 허용할지는 서버의
+          # `TOUR_PUBLIC`이 판정하며, 이 값은 버튼을 보일지만 정한다 (#1486 후속).
+          VITE_TOUR_PUBLIC: ${{ secrets.TOUR_PUBLIC }}
 
       # `API_ORIGIN`을 시크릿에서 렌더한다 (#1496).
       #

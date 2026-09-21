@@ -413,10 +413,16 @@ export async function login(
  * 문구로 낸다 — 계정 존재 여부를 숨기는 로그인 규칙과 같은 이유).
  */
 export async function tourLogin(
-  code: string,
+  code: string | null,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<CurrentUser> {
-  const { body, status } = await postJsonWithStatus(TOUR_LOGIN_API_URL, { code }, fetchImpl)
+  // 공개 둘러보기(`VITE_TOUR_PUBLIC`)에서는 코드가 없다 — 서버의 `TOUR_PUBLIC` 스위치가
+  // 판정한다. 코드를 화면 번들에 심지 않는 것이 요점이라 빈 문자열을 그대로 보낸다.
+  const { body, status } = await postJsonWithStatus(
+    TOUR_LOGIN_API_URL,
+    { code: code ?? '' },
+    fetchImpl,
+  )
   currentUser = requireUser(body, status)
   notify()
   return currentUser
