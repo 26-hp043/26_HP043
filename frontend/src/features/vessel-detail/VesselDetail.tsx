@@ -550,8 +550,7 @@ export function VesselDetail({
       */}
       <CalculationHistory vesselId={vessel.id} />
 
-      <DisclaimerBanner />
-      <p className="fleet__source">일부 값은 사용자 입력 또는 모델 추정값입니다.</p>
+      <DisclaimerBanner estimate />
     </div>
   )
 }

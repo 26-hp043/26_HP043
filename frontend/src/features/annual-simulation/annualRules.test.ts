@@ -1,6 +1,7 @@
-import { formatPercent } from '../../display/format'
+import { formatPercent, formatTimestamp } from '../../display/format'
 import { describe, expect, it } from 'vitest'
 import {
+  estimateNoticeText,
   resultConditionsText,
   targetVesselText,
   probabilityOfDorE,
@@ -463,5 +464,28 @@ describe('resultConditionsText — 결과 머리 한 줄 (#1553)', () => {
     expect(resultConditionsText({ vesselName: '샘플 벌크선', year: '2026', target: 'C' })).toBe(
       '샘플 벌크선 · 2026년 · 목표 등급 C',
     )
+  })
+})
+
+describe('결과 위 추정 고지 — 추정 성격과 기준 시각 (#1578 · `DESIGN_SYSTEM §11`)', () => {
+  const AS_OF = '2026-09-21T05:24:37Z'
+
+  it('기준 시각을 KST 분 단위로 잇는다', () => {
+    expect(estimateNoticeText(AS_OF)).toBe(
+      `이 결과의 수치는 모두 잔여 계획을 전제로 한 추정값입니다. 기준 시각은 ${formatTimestamp(AS_OF)}입니다.`,
+    )
+    // 초를 적지 않는다(`formatTimestamp`) — 37초가 새어 나오면 공용 형식을 우회한 것이다
+    expect(estimateNoticeText(AS_OF)).not.toMatch(/37/)
+  })
+
+  it('시각이 없으면 추정 성격만 — 빈 시각을 지어내지 않는다', () => {
+    expect(estimateNoticeText(undefined)).toBe('이 결과의 수치는 모두 잔여 계획을 전제로 한 추정값입니다.')
+    expect(estimateNoticeText(undefined)).not.toMatch(/기준 시각/)
+  })
+
+  it('하단 면책 배너의 말(「예측값」 · 「실측이 아닙니다」)을 되풀이하지 않는다', () => {
+    const text = estimateNoticeText(AS_OF)
+    expect(text).not.toMatch(/예측값/)
+    expect(text).not.toMatch(/실측이 아닙니다/)
   })
 })

@@ -365,3 +365,13 @@ describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
   })
 })
 
+describe('하단 고지는 배너 한 칸 (#1578)', () => {
+  it('「추정값 사용」 문장이 면책 배너 안에 한 번만 있다', async () => {
+    renderAt(stub())
+    await screen.findAllByText('샘플 벌크선')
+
+    const hits = screen.getAllByText(/일부 값은 사용자 입력 또는 모델 추정값입니다/)
+    expect(hits).toHaveLength(1)
+    expect(hits[0].getAttribute('role')).toBe('note')
+  })
+})

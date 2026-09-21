@@ -198,6 +198,14 @@ export interface AnnualSimulationResult {
   snapshot: SnapshotBlock
   warnings: string[]
   /**
+   * 집계에 실제로 쓴 기준 시각 — 응답 **`meta.as_of`**(`API_SPEC §6.1` · `#816`).
+   *
+   * `data` 밖에 있어 provider가 합친다. 화면 단위 추정 고지가 기준 시각을 담아야 한다
+   * (`DESIGN_SYSTEM §11` · #1578). **없을 수 있다** — 서버가 키를 조용히 만들지 않는다고
+   * 적으므로(`routes/annual_simulations.py` `_with_meta`) 없으면 고지가 시각을 빼고 말한다.
+   */
+  as_of?: string
+  /**
    * 실제 계산이 아니라 예시 데이터임을 나타낸다.
    *
    * **서버 응답에는 이 필드가 없다** — demo provider만 `true`로 채운다. 화면이 배지를

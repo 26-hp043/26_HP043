@@ -530,8 +530,12 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
        * 화면에는 여기서 넣는다 — 문서를 만들지 않고 화면만 본 사용자도 있다.
        */}
       <DisclaimerBanner />
+      {/*
+        리포트의 **성격**만 말한다(`PRD §25.1`). 종전 뒷문장 「대관 제출용 공식 문서가
+        아닙니다」는 바로 위 배너의 「규제 제출용 공식 결과가 아닙니다」와 같은 말이었다 (#1578).
+      */}
       <p className="rp__note">
-        리포트는 <b>내부 보고용</b>입니다. 대관 제출용 공식 문서가 아닙니다.
+        리포트는 <b>내부 보고용</b>입니다.
       </p>
     </div>
   )

@@ -16,17 +16,32 @@ import './DisclaimerBanner.css'
 const DEFAULT_DISCLAIMER =
   '참고용 예측값입니다. 규제 제출용 공식 결과가 아닙니다.'
 
+/**
+ * PRD §6.3 — 「추정값 사용」 행의 문구를 그대로 복사했다.
+ *
+ * ## 배너 안에 두는 이유 (#1578)
+ *
+ * 대시보드 · 선박 상세가 이 문장을 배너 **바로 아래 별도 문단**으로 붙여, 하단에 고지
+ * 두 덩어리가 겹쳐 보였다. 두 화면에는 수치별 추정 표시가 없거나 일부뿐이라 이 문장이
+ * 추정 사실을 말하는 자리다 — 지우지 않고 **배너 한 칸의 둘째 문장**으로 옮긴다.
+ * 문구는 바꾸지 않는다.
+ */
+const ESTIMATE_NOTICE = '일부 값은 사용자 입력 또는 모델 추정값입니다.'
+
 interface DisclaimerBannerProps {
   /** 서버 응답의 `disclaimer`. 비어 있으면 PRD §6.3 기본 문구를 쓴다. */
   text?: string
+  /** PRD §6.3 「추정값 사용」 문장을 같은 배너 안 둘째 문장으로 잇는다 (#1578). */
+  estimate?: boolean
 }
 
-export function DisclaimerBanner({ text }: DisclaimerBannerProps) {
+export function DisclaimerBanner({ text, estimate = false }: DisclaimerBannerProps) {
   const message = text?.trim() ? text : DEFAULT_DISCLAIMER
 
   return (
     <p className="disclaimer-banner" role="note">
       {message}
+      {estimate ? ` ${ESTIMATE_NOTICE}` : null}
     </p>
   )
 }
