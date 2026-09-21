@@ -551,3 +551,73 @@ async def test_risk_narrative_survives_the_watch_vessel(conn):
     # 종전에는 0이었다 — C가 생겨야 「D 진입 전」 구간이 화면에 나타난다.
     assert summary["rating_distribution"]["C"] >= 1
     assert summary["rating_distribution"]["D"] >= 1, "로로 여객선의 D 표시가 사라지면 안 된다"
+
+
+async def test_watch_vessel_has_enough_confirmed_voyages_for_feedback(conn):
+    """관찰 대상 선박의 2026 확정 항차가 **보정계수 최소 표본**을 채운다 (#1299).
+
+    실적 보정계수(`PRD §12.2.1`)는 확정 항차가 ``MIN_FEEDBACK_SAMPLE``건 있어야 계산된다.
+    종전 시연 선대는 다섯 척 모두 모자라 이 기능이 **시연에서 한 번도 걸리지 않았다.**
+    셋째 항차는 그 배 자신의 확정 2건 합산 강도에서 파생했다(`demo_seed.py` 머리 주석).
+    """
+    from cii_platform.calc.annual_simulation import MIN_FEEDBACK_SAMPLE
+
+    count = (
+        await conn.execute(
+            text(
+                "SELECT count(*) FROM voyage v JOIN voyage_fuel_use f ON f.voyage_id = v.id "
+                "WHERE v.vessel_id = :vid AND v.regulation_year = 2026 "
+                "AND v.status = 'COMPLETED' AND v.annual_inclusion_policy = 'INCLUDE_AS_ACTUAL' "
+                "AND v.actual_distance_nm > 0 AND f.actual_fuel_ton > 0 "
+                "AND v.is_deleted = 0"
+            ).bindparams(bindparam("vid", type_=UuidText)),
+            {"vid": VESSEL_IDS["watch"]},
+        )
+    ).scalar_one()
+
+    assert count >= MIN_FEEDBACK_SAMPLE
+
+
+async def test_watch_vessel_third_voyage_leaves_the_dashboard_unchanged(conn):
+    """셋째 항차가 대시보드 서사를 **바꾸지 않는다** (#1299 결정 불변 ⑴).
+
+    파생 항차의 실적 강도가 이 배의 합산 강도와 같아 YTD attained가 그대로다
+    (392.42 / 5,700 = 358 / 5,200). 위 `test_risk_narrative_survives_the_watch_vessel`은
+    부등식이라 분포 한 칸이 움직여도 통과한다 — 여기서는 **분포 전체**를 잠근다.
+    """
+    async with AsyncSession(bind=conn, expire_on_commit=False) as session:
+        result = await get_fleet_summary(session, regulation_year=2026, as_of=datetime.now(UTC))
+
+    assert result["summary"]["rating_distribution"] == {"A": 0, "B": 1, "C": 1, "D": 1, "E": 2}
+    assert result["summary"]["at_risk"] == 2
+    watch = next(row for row in result["vessels"] if row["vessel_id"] == VESSEL_IDS["watch"])
+    assert watch["ytd_rating"] == "C"
+    assert watch["ytd_attained_cii"] == "7.1462"
+
+
+async def test_watch_vessel_reports_a_feedback_factor(conn):
+    """연간 시뮬레이션에서 관찰 대상 선박의 **보정계수가 실제로 나온다** (#1299).
+
+    값은 확정 3건의 실적 합 ÷ 계획 합 = (263 + 34.42 + 95) / (263 + 33.17 + 82)
+    = 392.42 / 378.17 = 1.037681 — 합산 강도비 358 / 345와 같다(파생 항차가 같은 비를
+    갖는다). 기본은 곱하지 않는다(`applied` 거짓 · `PRD §12.2.1`).
+    """
+    from decimal import Decimal
+
+    from cii_platform.services.annual_simulation import run_annual_simulation
+
+    async with AsyncSession(bind=conn, expire_on_commit=False) as session:
+        result = await run_annual_simulation(
+            session,
+            vessel_id=VESSEL_IDS["watch"],
+            regulation_year=2026,
+            target_rating="C",
+            simulation_runs=200,
+            random_seed=42,
+            as_of=datetime.now(UTC),
+        )
+
+    feedback = result["data"]["feedback"]
+    assert feedback["sample_size"] == 3
+    assert Decimal(feedback["factor"]) == Decimal("1.037681")
+    assert feedback["applied"] is False

@@ -272,6 +272,8 @@ V5_RECENT = uuid.UUID("00000000-0000-4000-8000-000000000113")
 # 「모든 선박에 2년 이력」과 「운항 중이면 진행 중 항차」를 잠근다.
 V5_2025 = uuid.UUID("00000000-0000-4000-8000-000000000114")
 V5_IN_PROGRESS = uuid.UUID("00000000-0000-4000-8000-000000000115")
+#: 실적 보정계수 표본 셋째 (#1299) — 아래 `SEED_VOYAGES_WATCH`의 파생 항차.
+V5_MID = uuid.UUID("00000000-0000-4000-8000-000000000116")
 
 # not_underway_period: …0201~0203
 P_CANAL = "00000000-0000-4000-8000-000000000201"
@@ -1042,6 +1044,19 @@ SEED_VOYAGES: list[dict[str, object]] = [
 #:
 #: 30일을 고른 이유는 **연말까지 남은 날수**와의 관계다. 이 값이 남은 날수보다 크면
 #: `NOT_THIS_YEAR`로 다시 `—`가 된다 — 45일로 두면 11월 중순부터 빈다.
+#:
+#: **`#1299` — 확정 항차 셋째(`V5_MID`)를 더했다.** 실적 보정계수(`PRD §12.2.1`)는 확정
+#: 항차가 `MIN_FEEDBACK_SAMPLE = 3`건 있어야 계산된다. 이 배는 2건이라 시연에서 보정계수가
+#: 한 번도 걸리지 않았다. 셋째는 **이 배 자신의 확정 2건 합산 강도에서 파생**했다(값을
+#: 지어내지 않는다 · `#1220`과 같은 방식):
+#:
+#:   계획 (263 + 82) / 5,200 = 0.066346 t/nm  x 500 nm = 33.17 t
+#:   실적 (263 + 95) / 5,200 = 0.068846 t/nm  x 500 nm = 34.42 t
+#:
+#: 실적 강도가 합산과 같으므로 **YTD는 그대로다**(392.42 / 5,700 = 0.068846 → 7.146, C).
+#: 누적 거리만 5,700이 되어 n일이 몇 일 늘어난다. 거리 500 nm는 이 배의 진행 중
+#: 항차(`2026-W3`)와 같은 값이다 — 크게 두면 연간 시뮬레이션의 B 확률이 무너진다.
+#: 날짜는 **절대 6월**이다 — 30일 창 밖이고 `V5_RECENT`(`_rel`)보다 앞선다.
 SEED_VOYAGES_WATCH: list[dict[str, object]] = [
     {
         # 2025 이력 — 연도별 이력 화면용. `regulation_year: 2025`라 2026 YTD에는
@@ -1111,6 +1126,25 @@ SEED_VOYAGES_WATCH: list[dict[str, object]] = [
         "actual_arrival_at": _utc(2026, 4, 23, 18),
     },
     {
+        # 중간 구간 (#1299) — 실적 보정계수 표본 셋째. 위 머리 주석의 파생식 참조.
+        "id": V5_MID,
+        "vessel_id": VESSEL_ID_WATCH,
+        "voyage_no": "2026-W1A",
+        "status": "COMPLETED",
+        "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
+        "regulation_year": 2026,
+        "departure_port_name": "KAOHSIUNG",
+        "arrival_port_name": "SHANGHAI",
+        "planned_distance_nm": Decimal("500.00"),
+        "actual_distance_nm": Decimal("500.00"),
+        "planned_speed_kn": Decimal("13.00"),
+        "actual_avg_speed_kn": Decimal("13.00"),
+        "planned_departure_at": _utc(2026, 6, 5),
+        "planned_arrival_at": _utc(2026, 6, 7),
+        "actual_departure_at": _utc(2026, 6, 5, 6),
+        "actual_arrival_at": _utc(2026, 6, 6, 20),
+    },
+    {
         # 최근 구간 — 강도를 8.22로 올린다. **이것이 없으면 `NOT_WORSENING`이다.**
         "id": V5_RECENT,
         "vessel_id": VESSEL_ID_WATCH,
@@ -1152,6 +1186,13 @@ SEED_VOYAGE_FUELS: list[dict[str, object]] = [
         "voyage_id": V5_EARLY,
         "planned_fuel_ton": Decimal("263.00"),
         "actual_fuel_ton": Decimal("263.00"),
+    },
+    {
+        # `#1299` 중간 구간 — 이 배 확정 2건의 합산 강도 x 500 nm(머리 주석).
+        "id": uuid.UUID("00000000-0000-4000-8000-000000000416"),
+        "voyage_id": V5_MID,
+        "planned_fuel_ton": Decimal("33.17"),
+        "actual_fuel_ton": Decimal("34.42"),
     },
     {
         # `#889` 최근 구간 — 계획 82t 대비 **95t 초과**. 이 초과가 곧 「악화 중」이다.
