@@ -66,7 +66,7 @@ describe('둘러보기 링크 (#1486)', () => {
     fireEvent.click(button)
 
     await waitFor(() => expect(fetchImpl).toHaveBeenCalled())
-    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(JSON.parse(String(init.body))).toEqual({ code: '' })
   })
 
