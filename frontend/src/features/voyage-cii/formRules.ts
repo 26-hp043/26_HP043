@@ -325,3 +325,39 @@ export function toFormErrors(error: unknown): FormErrors {
       error instanceof Error ? error.message : '계산 중 알 수 없는 오류가 발생했습니다.',
   }
 }
+
+/**
+ * 상단에서 고른 항차의 계획값으로 채울 칸 (#1576 · `UIFLOW 2-1`).
+ *
+ * CII 예측은 **항해 전** 항차 조건으로 추정하는 화면이다. 그래서 작성 중 · 계획 확정 항차만
+ * 채운다 — 항해 중 · 완료 항차는 실적이 따로 있어 계획값으로 채우면 「이미 떠난 항차를 계획대로
+ * 다시 추정」이 된다. 그때는 `null`이다.
+ *
+ * * 계획값이 빈 칸은 **비운다** — 앞 항차의 값을 남기지 않는다(`#1538`과 같은 규칙)
+ * * 연료가 한 종이면 그 연료와 계획 연료량을 채운다
+ * * **여러 종이면 연료 칸을 비우고 종 수를 돌려준다** — 이 폼은 연료 칸이 한 종이다. 두 연료를
+ *   한 칸에 더하면 배출계수가 달라 CO₂가 틀린다. 화면이 그 사실을 말한다
+ */
+export function prefillFromVoyage(voyage: {
+  status: string
+  plannedDistanceNm: number | null
+  plannedSpeedKn: number | null
+  fuelUses: readonly { fuelType: string; plannedFuelTon: number | null }[]
+}): {
+  fields: Pick<VoyageCiiFormState, 'distanceNm' | 'speedKn' | 'fuelType' | 'fuelTon'>
+  /** 연료가 여러 종이라 연료 칸을 비웠으면 그 종 수, 아니면 `null` */
+  multiFuelCount: number | null
+} | null {
+  if (voyage.status !== 'DRAFT' && voyage.status !== 'PLANNED') return null
+  const asText = (value: number | null) => (value === null ? '' : String(value))
+  const only = voyage.fuelUses.length === 1 ? voyage.fuelUses[0] : null
+  return {
+    fields: {
+      distanceNm: asText(voyage.plannedDistanceNm),
+      speedKn: asText(voyage.plannedSpeedKn),
+      fuelType: only ? only.fuelType : '',
+      fuelTon: only ? asText(only.plannedFuelTon) : '',
+    },
+    multiFuelCount: voyage.fuelUses.length > 1 ? voyage.fuelUses.length : null,
+  }
+}

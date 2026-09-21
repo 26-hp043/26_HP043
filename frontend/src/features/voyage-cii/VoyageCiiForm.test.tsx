@@ -2,10 +2,11 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { VoyageCiiForm } from './VoyageCiiForm'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
+import type { ManagedVoyage } from '../voyage-management/types'
 
 /**
  * 기능① 입력 폼의 **배선** 검증 (#557).
@@ -308,5 +309,191 @@ describe('연도 칸이 「선박 미선택」을 「연도 없음」으로 말�
      */
     expect(await screen.findByText('선박을 선택해 주세요.')).toBeTruthy()
     expect(screen.queryByText('규제연도를 선택해 주세요.')).toBeNull()
+  })
+})
+
+/**
+ * 상단 항차 · 선박 기본 연료로 칸을 채운다 (#1576).
+ *
+ * 규칙(`prefillFromVoyage`)은 `formRules.test.ts`가 상태별로 본다. 여기서는 **폼이 셸의
+ * 항차를 따라 그 규칙을 부르고, 항차마다 한 번만 채우고, 늦은 응답을 버리는가**를 본다.
+ */
+describe('상단 항차와 기본 연료로 채우기 (#1576)', () => {
+  const VESSEL = '00000000-0000-4000-8000-000000000001'
+  const planned = (over: Partial<ManagedVoyage> = {}): ManagedVoyage => ({
+    id: 'voy-1',
+    voyageNo: '2026-03',
+    status: 'PLANNED',
+    inclusionPolicy: 'INCLUDE_AS_PLAN',
+    regulationYear: 2026,
+    departurePortName: 'Busan',
+    arrivalPortName: 'Singapore',
+    plannedDistanceNm: 2300,
+    plannedDistanceSource: null,
+    plannedSpeedKn: 14,
+    actualDistanceNm: null,
+    actualAvgSpeedKn: null,
+    plannedDepartureAt: null,
+    plannedArrivalAt: null,
+    actualDepartureAt: null,
+    actualArrivalAt: null,
+    fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: null }],
+    ...over,
+  })
+
+  function renderWith(
+    context: Partial<ShellContext>,
+    loadVoyage: (id: string) => Promise<ManagedVoyage>,
+  ) {
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId: VESSEL,
+      vessels: [
+        {
+          id: VESSEL,
+          displayName: '샘플 벌크선',
+          shipType: 'BULK_CARRIER',
+          spec: { referenceSpeedKn: '12', referenceDailyFocTon: '23.04', defaultFuelType: 'LNG' },
+        },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+      ...context,
+    }
+    const element = <VoyageCiiForm loadVoyage={loadVoyage} />
+    const tree = (ctx: ShellContext) => (
+      <MemoryRouter initialEntries={['/voyage-cii']}>
+        <Routes>
+          <Route element={<Outlet context={ctx} />}>
+            <Route path="/voyage-cii" element={element} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+    const result = render(tree(value))
+    return {
+      rerenderWith: (over: Partial<ShellContext>) => result.rerender(tree({ ...value, ...over })),
+    }
+  }
+
+  const input = (label: RegExp) => screen.getByLabelText(label) as HTMLInputElement
+
+  it('계획 항차를 고르고 들어오면 거리 · 속력 · 연료 · 연료량이 채워진다', async () => {
+    stubServer()
+    renderWith({ voyageId: 'voy-1' }, vi.fn(async () => planned()))
+    await waitFor(() => expect(input(/항해거리/).value).toBe('2300'))
+    expect(input(/평균 속력/).value).toBe('14')
+    expect(input(/연료 사용량/).value).toBe('331')
+    await waitFor(() => expect((screen.getByLabelText(/연료 종류/) as HTMLSelectElement).value).toBe('HFO'))
+  })
+
+  it('연료가 여러 종이면 연료 칸은 비우고 그 까닭을 말한다 — 기본 연료로도 채우지 않는다', async () => {
+    stubServer()
+    renderWith(
+      { voyageId: 'voy-1' },
+      vi.fn(async () =>
+        planned({
+          fuelUses: [
+            { fuelType: 'HFO', plannedFuelTon: 300, actualFuelTon: null },
+            { fuelType: 'MDO', plannedFuelTon: 31, actualFuelTon: null },
+          ],
+        }),
+      ),
+    )
+    expect(await screen.findByText(/연료가 2종이라 여기서는 한 종만/)).toBeTruthy()
+    expect(input(/항해거리/).value).toBe('2300')
+    expect(input(/연료 사용량/).value).toBe('')
+    expect((screen.getByLabelText(/연료 종류/) as HTMLSelectElement).value).toBe('')
+  })
+
+  it('항해 중 항차는 채우지 않고 그렇다고 말한다', async () => {
+    stubServer()
+    renderWith({ voyageId: 'voy-1' }, vi.fn(async () => planned({ status: 'IN_PROGRESS' })))
+    expect(await screen.findByText(/「항해 중」 상태라 계획값으로 채우지 않았습니다/)).toBeTruthy()
+    expect(input(/항해거리/).value).toBe('')
+  })
+
+  it('항차가 없으면 선박 기본 연료로 연료 종류만 채운다', async () => {
+    stubServer()
+    const load = vi.fn(async () => planned())
+    renderWith({ voyageId: null }, load)
+    await waitFor(() => expect((screen.getByLabelText(/연료 종류/) as HTMLSelectElement).value).toBe('LNG'))
+    expect(input(/항해거리/).value).toBe('')
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it('같은 항차에서 고친 칸은 다시 덮지 않고, 항차를 바꾸면 새 값이 들어온다', async () => {
+    stubServer()
+    const load = vi.fn(async (id: string) =>
+      id === 'voy-1' ? planned() : planned({ id: 'voy-2', plannedDistanceNm: 4100 }),
+    )
+    const { rerenderWith } = renderWith({ voyageId: 'voy-1' }, load)
+    await waitFor(() => expect(input(/항해거리/).value).toBe('2300'))
+    fireEvent.change(input(/항해거리/), { target: { value: '2500' } })
+
+    rerenderWith({ voyageId: 'voy-1' })
+    await Promise.resolve()
+    expect(input(/항해거리/).value).toBe('2500')
+    expect(load).toHaveBeenCalledTimes(1)
+
+    rerenderWith({ voyageId: 'voy-2' })
+    await waitFor(() => expect(input(/항해거리/).value).toBe('4100'))
+  })
+
+  it('늦게 온 앞 항차의 응답은 버린다', async () => {
+    stubServer()
+    let releaseFirst: (v: ManagedVoyage) => void = () => {}
+    const load = vi.fn((id: string) =>
+      id === 'voy-1'
+        ? new Promise<ManagedVoyage>((resolve) => {
+            releaseFirst = resolve
+          })
+        : Promise.resolve(planned({ id: 'voy-2', plannedDistanceNm: 4100 })),
+    )
+    const { rerenderWith } = renderWith({ voyageId: 'voy-1' }, load)
+    rerenderWith({ voyageId: 'voy-2' })
+    await waitFor(() => expect(input(/항해거리/).value).toBe('4100'))
+    await act(async () => {
+      releaseFirst(planned())
+    })
+    expect(input(/항해거리/).value).toBe('4100')
+  })
+
+  it('제원이 늦게 와도 항차가 비운 연료 칸을 기본 연료로 덮지 않는다 — 항차가 우선이다', async () => {
+    stubServer()
+    const multi = planned({
+      fuelUses: [
+        { fuelType: 'HFO', plannedFuelTon: 300, actualFuelTon: null },
+        { fuelType: 'MDO', plannedFuelTon: 31, actualFuelTon: null },
+      ],
+    })
+    const noSpec = [{ id: VESSEL, displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' }]
+    const { rerenderWith } = renderWith({ voyageId: 'voy-1', vessels: noSpec }, vi.fn(async () => multi))
+    await screen.findByText(/연료가 2종이라/)
+    rerenderWith({
+      voyageId: 'voy-1',
+      vessels: [
+        {
+          id: VESSEL,
+          displayName: '샘플 벌크선',
+          shipType: 'BULK_CARRIER',
+          spec: { referenceSpeedKn: '12', referenceDailyFocTon: '23.04', defaultFuelType: 'LNG' },
+        },
+      ],
+    })
+    await act(async () => {})
+    expect((screen.getByLabelText(/연료 종류/) as HTMLSelectElement).value).toBe('')
+  })
+
+  it('항차를 못 불러오면 칸은 비운 채 한 줄로 말한다', async () => {
+    stubServer()
+    renderWith(
+      { voyageId: 'voy-1' },
+      vi.fn(async () => {
+        throw new Error('x')
+      }),
+    )
+    expect(await screen.findByText(/상단의 항차를 불러오지 못해/)).toBeTruthy()
+    expect(input(/항해거리/).value).toBe('')
   })
 })
