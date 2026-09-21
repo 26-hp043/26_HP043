@@ -71,11 +71,11 @@ on:
         type: boolean
         default: false
       seed_demo:
-        description: "데모 데이터(선박 5척·항차 33건)를 적재한다. 시연·인터뷰 직전에 켠다 (#1485)."
+        description: "데모 데이터(선박 5척·항차 34건 — CONFIRMED 11·COMPLETED 1·IN_PROGRESS 3·PLANNED 19)를 적재한다. 시연·인터뷰 직전에 켠다 (#1485)."
         type: boolean
         default: false
       clear_demo:
-        description: "적재 전에 기존 데모 데이터를 지운다. seed_demo와 함께 켜면 「지우고 새로 넣기」 (#1485)."
+        description: "적재 전에 기존 데모 데이터를 지운다(저장한 함대 감축 계획은 전량 · #1536). seed_demo와 함께 켜면 「지우고 새로 넣기」 (#1485)."
         type: boolean
         default: false
 

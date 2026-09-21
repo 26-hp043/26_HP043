@@ -74,13 +74,18 @@ async def test_operation_statuses_are_mixed(conn):
 
 
 async def test_every_vessel_has_two_year_history(conn):
-    """5척 모두 2025·2026 두 연도에 COMPLETED 항차를 갖는다 (연도별 이력 화면용)."""
+    """5척 모두 2025·2026 두 연도에 완료 항차(COMPLETED·CONFIRMED)를 갖는다 (연도별 이력 화면용).
+
+    `#1536`이 완료 항차 12건 중 11건을 `CONFIRMED`로 바꿨다 — 「완료된 항차」는 두 상태를
+    함께 본다. 시드가 어느 쪽 상태를 주든 지키려는 것은 **두 해의 실적이 있다**는 성질이다.
+    """
     rows = (
         await conn.execute(
             text(
                 "SELECT vessel_id::text, count(DISTINCT regulation_year) "
                 "FROM voyage "
-                "WHERE status = 'COMPLETED' AND annual_inclusion_policy = 'INCLUDE_AS_ACTUAL' "
+                "WHERE status IN ('COMPLETED','CONFIRMED') "
+                "AND annual_inclusion_policy = 'INCLUDE_AS_ACTUAL' "
                 "GROUP BY vessel_id"
             )
         )
@@ -136,13 +141,14 @@ async def test_in_progress_voyage_is_at_most_one_per_vessel(conn):
 
 
 async def test_completed_voyages_have_actuals(conn):
-    """완료 항차 8건은 전부 실적(연료·거리)을 갖는다 — 연간 실적 집계의 입력."""
+    """완료 항차(COMPLETED·CONFIRMED)는 전부 실적(연료·거리)을 갖는다 — 연간 실적 집계의 입력."""
     rows = (
         await conn.execute(
             text(
                 "SELECT count(*) FROM voyage v "
                 "JOIN voyage_fuel_use f ON f.voyage_id = v.id "
-                "WHERE v.status = 'COMPLETED' AND v.annual_inclusion_policy = 'INCLUDE_AS_ACTUAL'"
+                "WHERE v.status IN ('COMPLETED','CONFIRMED') "
+                "AND v.annual_inclusion_policy = 'INCLUDE_AS_ACTUAL'"
                 " AND (f.actual_fuel_ton IS NULL OR v.actual_distance_nm IS NULL)"
             )
         )
@@ -398,7 +404,7 @@ async def _vessel_row(conn, vessel_id: str):
 
 
 async def _rating_for_2026_completed_voyage(conn, vessel_id: str) -> str:
-    """해당 선박의 2026년 COMPLETED 항차로 등급을 실제 계산한다.
+    """해당 선박의 2026년 완료 항차(COMPLETED·CONFIRMED)로 등급을 실제 계산한다.
 
     규제 파라미터는 ``cii_platform.db.seed`` 상수에서 온다(CI에서
     ``scripts/seed.py``가 적재되지 않으므로 상수 직접 사용).
@@ -414,14 +420,14 @@ async def _rating_for_2026_completed_voyage(conn, vessel_id: str) -> str:
             text(
                 "SELECT v.actual_distance_nm, f.fuel_type, f.actual_fuel_ton, f.cf_used "
                 "FROM voyage v JOIN voyage_fuel_use f ON f.voyage_id = v.id "
-                "WHERE v.vessel_id = :vid AND v.status = 'COMPLETED' "
+                "WHERE v.vessel_id = :vid AND v.status IN ('COMPLETED','CONFIRMED') "
                 "AND v.regulation_year = 2026",
             )
             .bindparams(bindparam("vid", type_=UuidText()))
             .bindparams(vid=vessel_id)
         )
     ).all()
-    assert legs, f"{vessel_id}: 2026 COMPLETED 항차가 없다"
+    assert legs, f"{vessel_id}: 2026 완료 항차가 없다"
     total_distance = sum(leg.actual_distance_nm for leg in legs)
 
     ref_line = select_reference_line(vessel, SEED_REFERENCE_LINES)
@@ -478,7 +484,7 @@ async def test_bulk_vessel_deteriorates_2025_to_2026(conn):
                 "SELECT v.regulation_year, v.actual_distance_nm, "
                 "f.actual_fuel_ton, f.cf_used "
                 "FROM voyage v JOIN voyage_fuel_use f ON f.voyage_id = v.id "
-                "WHERE v.vessel_id = :vid AND v.status = 'COMPLETED'"
+                "WHERE v.vessel_id = :vid AND v.status IN ('COMPLETED','CONFIRMED')"
             )
             .bindparams(bindparam("vid", type_=UuidText()))
             .bindparams(vid=VESSEL_IDS["bulk"])
@@ -567,7 +573,8 @@ async def test_watch_vessel_has_enough_confirmed_voyages_for_feedback(conn):
             text(
                 "SELECT count(*) FROM voyage v JOIN voyage_fuel_use f ON f.voyage_id = v.id "
                 "WHERE v.vessel_id = :vid AND v.regulation_year = 2026 "
-                "AND v.status = 'COMPLETED' AND v.annual_inclusion_policy = 'INCLUDE_AS_ACTUAL' "
+                "AND v.status IN ('COMPLETED','CONFIRMED') "
+                "AND v.annual_inclusion_policy = 'INCLUDE_AS_ACTUAL' "
                 "AND v.actual_distance_nm > 0 AND f.actual_fuel_ton > 0 "
                 "AND v.is_deleted = 0"
             ).bindparams(bindparam("vid", type_=UuidText)),
@@ -622,3 +629,63 @@ async def test_watch_vessel_reports_a_feedback_factor(conn):
     assert feedback["sample_size"] == 3
     assert Decimal(feedback["factor"]) == Decimal("1.037681")
     assert feedback["applied"] is False
+
+
+async def test_only_the_bulk_2026_voyage_is_left_unconfirmed(conn):
+    """완료 항차 중 확정 전(`COMPLETED`)은 **벌크선 50k의 2026-01 하나뿐**이다 (#1536 · `D-30`).
+
+    종전 시드는 완료 12건이 전부 `COMPLETED`라 데이터 점검(`UIFLOW 2-11`)이 올해 완료
+    항차 여섯 건 전부를 「실적 확정 전」으로 냈다 — 아무도 확정을 하지 않은 회사처럼
+    보이고, 그 화면이 드러내야 할 이상치 한 건이 여섯 건 사이에 묻혔다. 2025년은 보고가
+    끝난 해라 전부 `CONFIRMED`, 2026년은 발표 동선의 배인 이 항차만 남긴다.
+
+    상태 열과 **데이터 점검 결과** 둘 다 잠근다 — 점검이 「확정 전 1건 · 이상치 1건」으로
+    시작하고 둘이 같은 항차여야 「점검에서 발견 → 선박 상세에서 확정」이 한 건으로 이어진다.
+    """
+    from cii_platform.services.data_quality import (
+        SEVERITY_ANOMALY,
+        SEVERITY_UNCONFIRMED,
+        get_fleet_data_quality,
+    )
+
+    rows = (
+        await conn.execute(
+            text(
+                "SELECT vessel_id::text, voyage_no, regulation_year FROM voyage "
+                "WHERE status = 'COMPLETED' AND is_deleted = 0"
+            )
+        )
+    ).all()
+    assert [(uuid_canon(r[0]), r[1], r[2]) for r in rows] == [(VESSEL_IDS["bulk"], "2026-01", 2026)]
+
+    confirmed_2025 = (
+        await conn.execute(
+            text(
+                "SELECT count(*) FROM voyage WHERE status = 'CONFIRMED' "
+                "AND regulation_year = 2025 AND is_deleted = 0"
+            )
+        )
+    ).scalar_one()
+    assert confirmed_2025 == 5, "2025년은 보고가 끝난 해 — 완료 항차 전부가 CONFIRMED여야 한다"
+
+    async with AsyncSession(bind=conn, expire_on_commit=False) as session:
+        result = await get_fleet_data_quality(session, regulation_year=2026)
+
+    assert result["summary"]["unconfirmed_count"] == 1
+    assert result["summary"]["anomaly_count"] == 1
+    flagged = {
+        item["severity"]: item["voyage_id"]
+        for item in result["issues"]
+        if item["severity"] in (SEVERITY_UNCONFIRMED, SEVERITY_ANOMALY)
+    }
+    bulk_2026 = (
+        await conn.execute(
+            text("SELECT id::text FROM voyage WHERE voyage_no = '2026-01' AND vessel_id = :vid")
+            .bindparams(bindparam("vid", type_=UuidText()))
+            .bindparams(vid=VESSEL_IDS["bulk"])
+        )
+    ).scalar_one()
+    assert {k: uuid_canon(v) for k, v in flagged.items()} == {
+        SEVERITY_UNCONFIRMED: uuid_canon(bulk_2026),
+        SEVERITY_ANOMALY: uuid_canon(bulk_2026),
+    }, "확정 전 항차와 이상치 항차가 같은 한 건이어야 시연 동선이 이어진다"

@@ -430,15 +430,35 @@ SEED_STATE_UPDATES: list[tuple] = [
     ),
 ]
 
-#: 항차 이력. COMPLETED는 전부 INCLUDE_AS_ACTUAL + regulation_year(연간 집계 대상).
-#: 1번 벌크선의 연료를 과다(620t/4,300nm)로 넣은 것이 위험 선박 서사의 핵심.
+#: 항차 이력. 완료 항차(COMPLETED·CONFIRMED)는 전부 INCLUDE_AS_ACTUAL + regulation_year
+#: (연간 집계 대상). 1번 벌크선의 연료를 과다(620t/4,300nm)로 넣은 것이 위험 선박 서사의 핵심.
+#:
+#: **완료 항차의 확정 상태 (#1536 · 결정요청 v6 `D-30`).** 완료 항차 12건 중 **11건이
+#: `CONFIRMED`, 1건만 `COMPLETED`(확정 전)** 이다. 종전에는 12건 전부 `COMPLETED`였는데,
+#: 그러면 데이터 점검(`UIFLOW 2-11` · `services/data_quality.py`)이 **올해 완료 항차 여섯 건
+#: 전부를 「실적 확정 전」으로** 냈다 — 아무도 확정을 하지 않은 회사처럼 보이고, 그 화면이
+#: 드러내야 할 이상치 한 건이 여섯 건 사이에 묻혔다.
+#:
+#:   CONFIRMED 11건 — 2025년 5건: `V1_2025` · `V2_2025` · `V3_2025` · `V4_2025` · `V5_2025`
+#:                    (이미 보고가 끝난 해)
+#:                    2026년 6건: `V2_2026` · `V3_2026` · `V4_2026` · `V5_EARLY` · `V5_MID`
+#:                    · `V5_RECENT`
+#:   COMPLETED  1건 — `V1_2026` (벌크선 50k · 2026-01). **발표 동선의 배**이자 연료 과다
+#:                    이상치라, 「데이터 점검에서 발견 → 선박 상세에서 확정」 동선이 이 한
+#:                    건으로 이어진다.
+#:
+#: 확정 여부는 등급에 영향이 없다 — 연간 누적·데이터 점검·보정계수 표본은 `status`가 아니라
+#: `annual_inclusion_policy = INCLUDE_AS_ACTUAL`로 항차를 고른다(`services/ytd_cii.py` 표 ·
+#: `db/repositories/voyage.py` `list_annual_inclusions`). 리포트도 두 상태를 같이 받는다
+#: (`services/report.py` `REPORTABLE_STATUSES`). `voyage` 표에 확정 시각 열은 없으므로
+#: 상태 값만 바꾸면 된다(`chk_status_policy`가 `CONFIRMED + INCLUDE_AS_ACTUAL`을 허용한다).
 SEED_VOYAGES: list[dict[str, object]] = [
     {
         # 2025년 실적 400t — D 등급(실제 엔진 산출 ratio ≈ 1.13, D 구간 1.06~1.18).
         "id": V1_2025,
         "vessel_id": BULK,
         "voyage_no": "2025-01",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2025,
         "departure_port_name": "BUSAN",
@@ -455,6 +475,10 @@ SEED_VOYAGES: list[dict[str, object]] = [
     {
         # 위험 선박 서사 — 2026년 실적 620t(계획 530t 대비 초과). ratio ≈ 1.78로
         # E 등급으로 악화. 2025 D → 2026 E 악화 흐름 자체가 경고 배너 시연 데이터다.
+        #
+        # **완료 항차 중 유일하게 `COMPLETED`(확정 전)로 둔다** (#1536 · 위 머리 주석).
+        # 데이터 점검이 「실적 확정 전」 1건 · 이상치 1건으로 시작하고, 둘 다 이 항차라
+        # 「점검에서 발견 → 선박 상세에서 확정」 동선이 한 건으로 이어진다.
         "id": V1_2026,
         "vessel_id": BULK,
         "voyage_no": "2026-01",
@@ -476,7 +500,7 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "id": V2_2025,
         "vessel_id": CONTAINER,
         "voyage_no": "2025-01",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2025,
         "departure_port_name": "SHANGHAI",
@@ -494,7 +518,7 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "id": V2_2026,
         "vessel_id": CONTAINER,
         "voyage_no": "2026-01",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2026,
         "departure_port_name": "SHANGHAI",
@@ -534,7 +558,7 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "id": V3_2025,
         "vessel_id": GENERAL_CARGO,
         "voyage_no": "2025-01",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2025,
         "departure_port_name": "BUSAN",
@@ -552,7 +576,7 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "id": V3_2026,
         "vessel_id": GENERAL_CARGO,
         "voyage_no": "2026-01",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2026,
         "departure_port_name": "BUSAN",
@@ -570,7 +594,7 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "id": V4_2025,
         "vessel_id": VESSEL_ID_RO_RO,
         "voyage_no": "2025-01",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2025,
         "departure_port_name": "BUSAN",
@@ -588,7 +612,7 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "id": V4_2026,
         "vessel_id": VESSEL_ID_RO_RO,
         "voyage_no": "2026-01",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2026,
         "departure_port_name": "BUSAN",
@@ -1064,7 +1088,7 @@ SEED_VOYAGES_WATCH: list[dict[str, object]] = [
         "id": V5_2025,
         "vessel_id": VESSEL_ID_WATCH,
         "voyage_no": "2025-W1",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2025,
         "departure_port_name": "BUSAN",
@@ -1111,7 +1135,7 @@ SEED_VOYAGES_WATCH: list[dict[str, object]] = [
         "id": V5_EARLY,
         "vessel_id": VESSEL_ID_WATCH,
         "voyage_no": "2026-W1",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2026,
         "departure_port_name": "ULSAN",
@@ -1130,7 +1154,7 @@ SEED_VOYAGES_WATCH: list[dict[str, object]] = [
         "id": V5_MID,
         "vessel_id": VESSEL_ID_WATCH,
         "voyage_no": "2026-W1A",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2026,
         "departure_port_name": "KAOHSIUNG",
@@ -1149,7 +1173,7 @@ SEED_VOYAGES_WATCH: list[dict[str, object]] = [
         "id": V5_RECENT,
         "vessel_id": VESSEL_ID_WATCH,
         "voyage_no": "2026-W2",
-        "status": "COMPLETED",
+        "status": "CONFIRMED",
         "annual_inclusion_policy": "INCLUDE_AS_ACTUAL",
         "regulation_year": 2026,
         "departure_port_name": "KAOHSIUNG",
@@ -1922,12 +1946,36 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
     이제 없다** — ``#1058`` CUBRID 전환이 이력을 ``1c444a5c4819_initial_cubrid_schema``로
     합쳤다(`ls alembic/versions/` 실측: 043~051 + 통합 리비전 셋). 번호를 지우고 성질만
     남긴다.
+
+    ## 저장한 함대 감축 계획은 **전량** 지운다 (#1536)
+
+    ``fleet_reduction_plan``(`UIFLOW 2-10` · `#513`)은 시드가 넣는 표가 아니라 **화면에서
+    저장한** 것이다. 그래서 「시드가 넣은 행」을 가려낼 표지가 없다 — 시드 UUID도, 출처
+    열도 없다. 이 함수는 그 표의 **모든 행**을 지운다. 시연 DB 하나를 여러 사람이 같은
+    계정으로 쓰는 지금 구조에서는 둘러보기 세션마다 남긴 계획이 다음 회차의 첫 화면에
+    그대로 남고, 삭제 API·버튼은 정본에도 없다(`API_SPEC §2.17` — 평가·저장·목록·단건
+    조회 넷뿐). 회차 사이 재적재가 「알려진 상태로 되돌린다」(`#1486`)는 뜻을 저장 계획까지
+    넓힌 것이다(결정요청 v6 `D-30`).
+
+    ⚠️ **운영 데이터가 섞인 DB에서 부르면 그 계획도 함께 사라진다.** 이 함수는 시연 DB
+    초기화 용도이며(`docs/OPERATIONS.md §3.4.2`), 지운 수는 ``fleet_reduction_plan`` 키로
+    함께 돌려준다. FK는 ``created_by → app_user``(``SET NULL``) 하나뿐이라 지우는 데
+    막히는 참조가 없다.
     """
     voyage_ids = [row["id"] for row in (*SEED_VOYAGES, *SEED_VOYAGES_WATCH)]
     period_ids = [row["id"] for row in SEED_PERIODS]
     vessel_ids = [row["id"] for row in (*SEED_VESSELS, *SEED_VESSEL_GT_AXIS, *SEED_VESSEL_WATCH)]
 
     counts: dict[str, int] = {}
+
+    #
+    # 저장한 함대 감축 계획 — **전량** 삭제 (#1536 · 위 docstring). 다른 표와 달리
+    # 시드 id로 거르지 않는다. 다른 표를 참조하지 않으므로 순서는 무관하다.
+    #
+    from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
+
+    result = await conn.execute(sa.delete(FleetReductionPlan.__table__))
+    counts["fleet_reduction_plan"] = result.rowcount
 
     #
     # 참조가 없는 자식부터. 이 둘이 ``fuel_type``을 참조하므로 여기까지만 지워도
@@ -2075,7 +2123,10 @@ async def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover -
     parser.add_argument(
         "--clear",
         action="store_true",
-        help="적재 대신 데모 데이터를 지운다. 계산 이력이 참조하는 행은 남는다 (#1088).",
+        help=(
+            "적재 대신 데모 데이터를 지운다. 계산 이력이 참조하는 행은 남는다 (#1088). "
+            "저장한 함대 감축 계획(fleet_reduction_plan)은 전량 지운다 (#1536)."
+        ),
     )
     args = parser.parse_args(argv)
 

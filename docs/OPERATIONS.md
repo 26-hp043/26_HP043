@@ -330,7 +330,9 @@ gh workflow run deploy.yml -f seed_demo=true
 gh workflow run deploy.yml -f seed_demo=true -f clear_demo=true   # 새로 잡기
 ```
 
-적재되는 것: 선박 **5척** · 항차 **33건**(COMPLETED 11 · IN_PROGRESS 3 · PLANNED 19) · 항차 연료 33 · 정박 구간 4 · 정박 연료 8. 계정은 0행이다.
+적재되는 것: 선박 **5척** · 항차 **34건**(CONFIRMED 11 · COMPLETED 1 · IN_PROGRESS 3 · PLANNED 19) · 항차 연료 34 · 정박 구간 4 · 정박 연료 8. 계정은 0행이다.
+
+> **완료 항차 12건 중 확정 전(`COMPLETED`)은 벌크선 50k의 2026-01 항차 하나뿐이다** (#1536 · 결정요청 v6 `D-30`). 2025년 5건은 보고가 끝난 해라 전부 `CONFIRMED`이고, 2026년도 그 한 건만 빼고 `CONFIRMED`다. 그래서 데이터 점검(`UIFLOW 2-11`)은 「실적 확정 전 1건 · 이상치 1건」으로 시작하고, 둘 다 같은 항차라 「점검에서 발견 → 선박 상세에서 확정」 동선이 한 건으로 이어진다. 등급·위험 선박 서사는 확정 여부와 무관하다 — 연간 누적은 `annual_inclusion_policy`로 항차를 고른다.
 
 **자동 배포에서는 켜지지 않는다.** `push` 트리거에는 `inputs`가 없어 빈 문자열이 되고, 셸이 `= "true"`로만 보기 때문이다. `tests/test_deploy_demo_seed.py`가 그 조건이 지워지는 것을 막는다.
 
@@ -346,17 +348,24 @@ gh workflow run deploy.yml -f seed_demo=true -f clear_demo=true   # 새로 잡�
 **적재는 덮어쓰지 않는다** — `_insert_ignoring_existing()`이 `IntegrityError`를 삼키므로 이미 있는 행은 그대로다. 다시 돌려서는 시각이 갱신되지 않고, **지우고 넣어야** 한다.
 
 > **시연·인터뷰 직전에 `clear_demo=true` + `seed_demo=true`로 한 번 돌린다.** 회차가 여러 번이면 회차 사이에도 돌린다 — 둘러보기 세션은 관리자 권한이라 누군가 선박을 지웠을 수 있고, 다시 적재하면 되살아난다(#1486 결정).
+>
+> **저장한 함대 감축 계획(`fleet_reduction_plan`)은 이때 전량 지워진다** (#1536). 그 표는 시드가 넣는 것이 아니라 화면(`UIFLOW 2-10`)에서 저장한 것이라 「시드가 넣은 행」을 가려낼 표지가 없고, 삭제 API·버튼은 정본에도 없다(`API_SPEC §2.17`). 둘러보기 세션마다 누군가 계획을 저장하면 하나뿐인 시연 DB에 흔적이 쌓이므로, 재적재가 계획까지 알려진 상태로 되돌린다. 시연 DB에서 계획을 남겨야 할 이유가 생기면 재적재 전에 따로 내보낸다.
+>
+> **로컬 노트북은 `bash scripts/demo_up.sh --reseed`가 같은 절차다** (#1536). 4b 단계에서 `demo_seed --clear`를 돌린 뒤 적재한다. `docker compose down -v`로 대신하지 않는다 — 볼륨까지 지워 계산 이력·계정·규제 파라미터가 함께 사라진다.
 
 #### 3.4.3 지울 때 남는 것
 
 `clear_demo`는 **계산 이력이 참조하는 행을 억지로 지우지 않는다**(#1088). `calculation_run`은 보존 대상이라 그것이 가리키는 항차·선박은 `RESTRICT`에 걸린다. 남긴 수는 출력에 따로 나온다.
 
 ```
-voyage: 33행 삭제
+fleet_reduction_plan: 2행 삭제
+voyage: 34행 삭제
 vessel: 5행 삭제
 voyage: 0행 남김 (계산 이력이 참조)
 vessel: 0행 남김 (계산 이력이 참조)
 ```
+
+`fleet_reduction_plan` 행은 **남긴 수가 없다** — 시드 id로 거르지 않고 전량 지우며, 참조하는 FK가 `created_by → app_user`(`SET NULL`) 하나뿐이라 막히지 않는다(#1536).
 
 호스트에서 직접 돌릴 때는 다음과 같다(분리 토폴로지).
 
