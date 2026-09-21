@@ -228,6 +228,36 @@ class TestLogin:
         finally:
             await _cleanup(["secret@example.com"])
 
+    async def test_unknown_email_login_spends_dummy_verification(self, client, monkeypatch):
+        """없는 계정도 비밀번호 검증 한 번만큼 시간을 쓴다 (#1405).
+
+        `API_SPEC §1.2`는 「같은 소요시간」을 **로그인 하나로** 좁혀 보증한다. 그 보증은
+        없는 계정 분기가 ``verify_dummy_async``를 부르는 데 걸려 있다 — 이 호출을 지우면
+        응답 문구는 그대로라 위 검사는 통과하고, **정본 문장만 다시 거짓이 된다.**
+        벽시계 시간 비교는 CI 부하에 흔들리므로 호출 자체를 단언한다.
+        """
+        from cii_platform.api.routes import auth as auth_routes
+
+        calls: list[str] = []
+        real = auth_routes.verify_dummy_async
+
+        async def spy(password: str) -> None:
+            calls.append(password)
+            await real(password)
+
+        monkeypatch.setattr(auth_routes, "verify_dummy_async", spy)
+        client.cookies.clear()
+
+        resp = client.post(
+            "/api/v1/auth/login",
+            json={"email": "ghost-1405@example.com", "password": "totally-wrong-pw"},
+        )
+
+        assert resp.status_code == 401
+        assert resp.json()["error"]["message"] == LOGIN_FAILED_MESSAGE
+        # 없는 계정 분기에서 정확히 한 번, 보낸 비밀번호로 — 결과는 버린다.
+        assert calls == ["totally-wrong-pw"]
+
     async def test_login_is_case_insensitive_on_email(self, client):
         try:
             client.post(
