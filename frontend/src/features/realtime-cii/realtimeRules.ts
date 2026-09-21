@@ -1,5 +1,6 @@
 import type { DVector } from '../../components/gradeScale'
-import { formatTimestamp } from '../../display/format'
+import { subtractFixed } from '../../display/decimal'
+import { DISPLAY_DIGITS, formatTimestamp } from '../../display/format'
 import { warningMessage } from '../voyage-cii/resultRules'
 import type { RiskLevel } from '../voyage-cii/types'
 import type { Rating, RealtimeCii, YtdValues } from './types'
@@ -236,18 +237,65 @@ export function ratingTransition(data: RealtimeCii): RatingTransition | null {
 }
 
 /**
- * 전이 라벨.
+ * 연말 예상의 **등급과 값의 방향을 한 문장으로** (#1555).
  *
- * `DESIGN_SYSTEM §14` — 색만으로 의미를 전달하지 않는다. 이 문구가 색과 짝을 이루는
- * 보조 채널이라 **색을 못 보아도 방향이 읽힌다.**
+ * 종전에는 YTD 카드가 등급 전이(「등급 유지 예상」)를, 연말 예상 카드가 값의 방향(「현재
+ * 누적보다 나빠지는 추세」)을 따로 말해, 둘 다 사실인데 나란히 읽으면 「유지」와
+ * 「나빠진다」로 어긋났다. 같은 자리에서 두 축을 **이름 붙여** 말한다.
  *
- * `§4.3`의 ▼▲는 여기 쓰지 않는다. 그 기호는 **CII 수치의 증감** 표기이고, 등급
- * 이동에 갖다 붙이면 「등급 하락」과 「CII 증가(▲)」가 한 줄에서 서로 반대로 읽힌다.
+ * * 등급 — `ratingTransition` · 「등급은 E 유지」 / 「등급은 D → E 하락」
+ * * 값 — `projectionDirection` · 「값은 현재 누적보다 나빠짐 ▲ +0.752」. 화살표와 부호는
+ *   `DESIGN_SYSTEM §4.3` 🔒(CII 증가 ▲ · 감소 ▼ · 부호 항상), 차이는 **표시 자릿수**
+ *   (`§4.1` 3자리)에서 문자열로 뺀다 — 화면의 두 값을 눈으로 빼 본 결과와 같아야 한다
+ *
+ * 둘 중 하나만 있으면 그 하나만, 둘 다 없으면 `null`이다. 없는 축을 「같음」으로 채우지
+ * 않는다(`projectionDirection`과 같은 이유).
  */
-export const RATING_TRANSITION_TEXT: Readonly<Record<TransitionDirection, string>> = {
-  IMPROVING: '등급 상승 예상',
-  WORSENING: '등급 하락 예상',
-  FLAT: '등급 유지 예상',
+export function projectionSentence(data: RealtimeCii): {
+  text: string
+  /** 색 클래스용 — 값의 방향이 있으면 그것, 없으면 등급의 방향 */
+  tone: TransitionDirection
+} | null {
+  const transition = ratingTransition(data)
+  const valueDirection = projectionDirection(data)
+
+  const parts: string[] = []
+  // 값의 방향은 **표시 자릿수에서** 다시 본다 — 원본으로는 나빠졌어도 3자리에서 같으면
+  // 「+0.000 나빠짐」이 되어 화면의 두 값과 말이 어긋난다.
+  let valueTone: TransitionDirection | null = null
+  if (transition !== null) {
+    parts.push(
+      transition.direction === 'FLAT'
+        ? `등급은 ${transition.to} 유지`
+        : `등급은 ${transition.from} → ${transition.to} ${
+            transition.direction === 'WORSENING' ? '하락' : '상승'
+          }`,
+    )
+  }
+  if (valueDirection !== null) {
+    // `projectionDirection`이 `null`이 아니면 두 값이 모두 있다.
+    const delta = subtractFixed(
+      data.projection.attainedCii as string,
+      data.ytd.attainedCii as string,
+      DISPLAY_DIGITS.cii,
+    )
+    if (/^-?0(\.0+)?$/.test(delta)) {
+      valueTone = 'FLAT'
+      parts.push('값은 현재 누적과 같음')
+    } else if (delta.startsWith('-')) {
+      valueTone = 'IMPROVING'
+      parts.push(`값은 현재 누적보다 나아짐 ▼ ${delta}`)
+    } else {
+      valueTone = 'WORSENING'
+      parts.push(`값은 현재 누적보다 나빠짐 ▲ +${delta}`)
+    }
+  }
+
+  if (parts.length === 0) return null
+  return {
+    text: parts.join(' · '),
+    tone: valueTone ?? (transition as RatingTransition).direction,
+  }
 }
 
 /**

@@ -681,3 +681,54 @@ describe('「이 항차 실적 입력」 (#1540)', () => {
     expect(screen.queryByRole('link', { name: '이 항차 실적 입력' })).toBeNull()
   })
 })
+
+/**
+ * 연말 예상은 한 곳에서 한 문장으로 (#1555).
+ *
+ * 종전에는 YTD 카드의 「현재 누적 → 연말 예상」 전이와 연말 예상 카드가 같은 등급을 두 번
+ * 그렸고, 「등급 유지 예상」과 「현재 누적보다 나빠지는 추세」가 떨어진 두 자리에서 어긋났다.
+ * YTD 카드의 「기준 대비」도 스케일 바 마커와 두 번 나왔다.
+ */
+describe('연말 예상은 연말 예상 카드 한 곳 (#1555)', () => {
+  const ytdCard = () => screen.getByRole('region', { name: '연간 누적 CII' })
+  const projectionCard = () => screen.getByRole('region', { name: '연말 예상' })
+
+  it('YTD 카드에는 연말 예상 등급이 없고 현재 누적 등급만 있다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(within(ytdCard()).getByLabelText('현재 누적 기준 예상 등급 B')).toBeTruthy()
+    expect(within(ytdCard()).queryByLabelText(/연말 예상 등급/)).toBeNull()
+    expect(within(ytdCard()).queryByText(/연말 예상/)).toBeNull()
+  })
+
+  it('연말 예상 등급은 화면 전체에 한 번이다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(screen.getAllByLabelText('연말 예상 등급 C')).toHaveLength(1)
+    expect(within(projectionCard()).getByLabelText('연말 예상 등급 C')).toBeTruthy()
+  })
+
+  it('연말 예상 카드가 등급과 값의 방향을 한 문장으로 말한다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    const sentence = within(projectionCard()).getByText(/^등급은 /)
+    expect(sentence.textContent).toBe('등급은 B → C 하락 · 값은 현재 누적보다 나빠짐 ▲ +0.863')
+    expect(sentence.className).toContain('rt__direction--worsening')
+  })
+
+  it('스케일 바가 있으면 YTD 사실 목록에 「기준 대비」가 없다 — 비율은 바 마커가 한 번 적는다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(within(ytdCard()).getByRole('img', { name: /연간 누적 CII의 등급 스케일/ })).toBeTruthy()
+    expect(within(ytdCard()).queryByText('기준 대비')).toBeNull()
+  })
+
+  it('스케일 바를 못 그리면(경계 없음) 「기준 대비」가 목록에 남는다', async () => {
+    const noBounds: RealtimeCii = { ...BASE, ytd: { ...BASE.ytd, boundaries: null } }
+    renderView({ load: vi.fn(async () => noBounds) })
+    await screen.findByText(/Busan/)
+    expect(within(ytdCard()).queryByRole('img', { name: /등급 스케일/ })).toBeNull()
+    expect(within(ytdCard()).getByText('기준 대비')).toBeTruthy()
+    expect(within(ytdCard()).getByText('107.3%')).toBeTruthy()
+  })
+})

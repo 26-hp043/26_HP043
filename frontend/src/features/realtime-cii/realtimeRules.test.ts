@@ -6,11 +6,11 @@ import {
 } from '../../display/format'
 import {
   POLL_INTERVAL_MS,
-  RATING_TRANSITION_TEXT,
   formatOrNull,
   isDegradingAtBerth,
   isNotUnderWay,
   projectionDirection,
+  projectionSentence,
   projectionReason,
   ratingTransition,
   remainingDistanceNm,
@@ -163,13 +163,6 @@ describe('등급 전이 — ⑴ → ⑶', () => {
       ytd: { ...BASE.ytd, dataAvailable: false },
     }
     expect(ratingTransition(noYtd)).toBeNull()
-  })
-
-  it('세 방향 모두 라벨 문구를 갖는다', () => {
-    // 색 외 보조 채널(§14). 빠진 방향이 있으면 그 상태에서 색만 남는다.
-    expect(RATING_TRANSITION_TEXT.WORSENING).toBe('등급 하락 예상')
-    expect(RATING_TRANSITION_TEXT.IMPROVING).toBe('등급 상승 예상')
-    expect(RATING_TRANSITION_TEXT.FLAT).toBe('등급 유지 예상')
   })
 
   it('CII 값 방향과 등급 전이는 별개다', () => {
@@ -496,5 +489,55 @@ describe('등급 스케일 — 절대 경계를 비율 공간으로 (#725)', () 
       withYtd({ boundaries: { ...BASE.ytd.boundaries!, upper: '' } }),
     )!
     expect(buildGradeScale(BASE.ytd.ratioToRequired!, d)).toBeNull()
+  })
+})
+
+describe('projectionSentence — 연말 예상의 등급과 값을 한 문장으로 (#1555)', () => {
+  const with_ = (
+    ytd: Partial<RealtimeCii['ytd']>,
+    projection: Partial<RealtimeCii['projection']>,
+  ): RealtimeCii => ({
+    ...BASE,
+    ytd: { ...BASE.ytd, ...ytd },
+    projection: { ...BASE.projection, ...projection },
+  })
+
+  it('등급이 바뀌고 값이 나빠지면 둘 다 말한다 — 차이는 표시 3자리에서, ▲ + 부호', () => {
+    // 18.637188 → 18.637 · 19.500000 → 19.500 · 차 +0.863 (§4.1 · §4.3)
+    expect(projectionSentence(BASE)).toEqual({
+      text: '등급은 B → C 하락 · 값은 현재 누적보다 나빠짐 ▲ +0.863',
+      tone: 'WORSENING',
+    })
+  })
+
+  it('⚠️ 등급은 그대로인데 값이 나빠지는 상태를 한 문장으로 — 종전에 두 카드가 어긋나 읽힌 경우', () => {
+    const r = projectionSentence(with_({ rating: 'E', attainedCii: '8.214000' }, { rating: 'E', attainedCii: '8.966000' }))
+    expect(r?.text).toBe('등급은 E 유지 · 값은 현재 누적보다 나빠짐 ▲ +0.752')
+    expect(r?.tone).toBe('WORSENING')
+  })
+
+  it('나아지면 ▼와 음수 부호, 등급은 상승', () => {
+    const r = projectionSentence(with_({ rating: 'D', attainedCii: '9.000000' }, { rating: 'C', attainedCii: '8.690000' }))
+    expect(r).toEqual({ text: '등급은 D → C 상승 · 값은 현재 누적보다 나아짐 ▼ -0.310', tone: 'IMPROVING' })
+  })
+
+  it('원본은 달라도 표시 3자리에서 같으면 「같음」이다 — 「+0.000 나빠짐」을 만들지 않는다', () => {
+    const r = projectionSentence(with_({ rating: 'C', attainedCii: '5.000100' }, { rating: 'C', attainedCii: '5.000400' }))
+    expect(r).toEqual({ text: '등급은 C 유지 · 값은 현재 누적과 같음', tone: 'FLAT' })
+  })
+
+  it('반올림 경계는 표시값으로 뺀다 — 원본 차(0.0002 → 0.000)가 아니라 화면 두 값의 차(0.001)', () => {
+    // 화면: 5.000 · 5.001. 원본 차를 반올림하면 「같음」이 되어 두 값과 말이 어긋난다.
+    const r = projectionSentence(with_({ attainedCii: '5.000400' }, { attainedCii: '5.000600' }))
+    expect(r?.text).toContain('▲ +0.001')
+  })
+
+  it('값이 없으면 등급만, 등급이 없으면 값만 말한다 — 없는 쪽을 「같음」으로 채우지 않는다', () => {
+    expect(projectionSentence(with_({}, { attainedCii: null }))).toEqual({ text: '등급은 B → C 하락', tone: 'WORSENING' })
+    expect(projectionSentence(with_({ rating: null }, {}))?.text).toBe('값은 현재 누적보다 나빠짐 ▲ +0.863')
+  })
+
+  it('둘 다 없으면 null', () => {
+    expect(projectionSentence(with_({ rating: null, attainedCii: null }, {}))).toBeNull()
   })
 })
