@@ -1,5 +1,5 @@
 import { addFixed, compareFixed } from '../../display/decimal'
-import { formatPercent } from '../../display/format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped, formatPercent } from '../../display/format'
 import type { Rating } from '../voyage-cii/types'
 import type { MonteCarloBlock, SensitivityAnalysis, SensitivityEntry } from './types'
 import { ANNUAL_COPY } from './copy'
@@ -344,3 +344,31 @@ export function reproducibilityLine(mc: MonteCarloBlock): string {
 }
 
 
+
+/**
+ * 「목표까지 줄여야 하는 양」의 두 값 (#1539).
+ *
+ * 서버는 CO₂를 **그램**(`required_cut_gco2` — CII 분자와 같은 단위)으로 준다. 종전에는 그대로
+ * `2785954859 g`로 적었다 — 구분자도 환산도 없어 자릿수를 세어야 읽혔고, 다른 화면은 같은 양을
+ * `2,710.6 tCO₂`로 적는다. 연료도 2자리(`894.65 t`)라 `§4.2` 1자리와 달랐다.
+ *
+ * **g → t는 소수점을 여섯 자리 옮긴다** — 나눗셈을 부동소수로 하지 않는다(`§4.1` 반올림은
+ * 문자열로 한다). 옮긴 뒤 `§4.2` 자릿수 · 구분자 · 단위(`tCO₂` · `t`)로 적는다.
+ */
+export function reductionCutText(gco2: string, fuelTon: string): { co2: string; fuel: string } {
+  return {
+    co2: `${formatGrouped(gramsToTonnes(gco2), DISPLAY_DIGITS.co2Ton)} ${DISPLAY_UNITS.co2}`,
+    fuel: `${formatGrouped(fuelTon, DISPLAY_DIGITS.fuelTon)} ${DISPLAY_UNITS.fuel}`,
+  }
+}
+
+/** 십진 문자열의 소수점을 왼쪽으로 여섯 자리 옮긴다 (g → t). */
+function gramsToTonnes(grams: string): string {
+  const trimmed = grams.trim()
+  const negative = trimmed.startsWith('-')
+  const unsigned = trimmed.replace(/^[+-]/, '')
+  const [intPart, fracPart = ''] = unsigned.split('.')
+  const padded = intPart.padStart(7, '0')
+  const tonnes = `${padded.slice(0, -6)}.${padded.slice(-6)}${fracPart}`
+  return negative ? `-${tonnes}` : tonnes
+}
