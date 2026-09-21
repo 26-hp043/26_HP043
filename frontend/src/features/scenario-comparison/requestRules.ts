@@ -91,6 +91,47 @@ export const FIELD = {
 export type FormErrors = Record<string, string>
 
 /**
+ * 「고급 설정」에 접히는 칸 (`#1417`).
+ *
+ * 공통점은 하나다 — **비워 두면 서버 기본으로 계산된다.** 우회 거리(`direct × 1.05`) ·
+ * 감속 속력(`max(current − 1, 1.0)`) · 기상 모델(`NONE`)은 서버가 채우고, 현재 좌표는
+ * 기상 보정과 대권거리 출발점에만 쓰인다. 위의 필수 여섯 칸은 없으면 계산이 안 된다.
+ *
+ * 목적항은 여기 없다 — `#1454`로 **선택 필드**가 됐지만 표기용이라 「위치」 묶음에
+ * 현재 위치와 나란히 둔다. 항만을 고르면 좌표가 여기(현재 좌표)로 채워진다.
+ */
+const ADVANCED_FIELDS = [
+  FIELD.detourDistanceNm,
+  FIELD.slowSpeedKn,
+  FIELD.weatherModel,
+  FIELD.currentLat,
+  FIELD.currentLon,
+] as const
+
+/** 오류 맵에 고급 칸의 오류가 있는가 — 접힌 채로 두면 오류가 보이지 않는다. */
+export function hasAdvancedError(errors: FormErrors): boolean {
+  return ADVANCED_FIELDS.some((field) => field in errors)
+}
+
+/**
+ * 고급 칸 중 **기본에서 벗어난** 칸의 수 (`#1417`).
+ *
+ * 접힌 요약에 적는다. 안에 값이 들어 있는데 겉에서 보이지 않으면, 사용자는 기본
+ * 규칙으로 계산했다고 믿는다 — `#1418`(연간 등급 「고급 설정」)에서 같은 이유로
+ * 「n개 바꿈」을 겉에 둔 것과 같은 판단이다. 기상 모델은 빈 칸이 아니라 `NONE`이
+ * 기본이다.
+ */
+export function countAdvancedFilled(form: ComparisonFormState): number {
+  return [
+    form.detourDistanceNm.trim() !== '',
+    form.slowSpeedKn.trim() !== '',
+    form.weatherModel !== 'NONE',
+    form.currentLat.trim() !== '',
+    form.currentLon.trim() !== '',
+  ].filter(Boolean).length
+}
+
+/**
  * `PRD §9.1` VAL-009 — 감속 속도의 하한.
  *
  * 서버 `services/scenario_compare.py`의 `MIN_SPEED_KN`과 같은 값이다. 화면이 이
