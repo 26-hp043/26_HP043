@@ -183,3 +183,40 @@ describe('0건 항목은 위험색을 달지 않는다 (#1288)', () => {
     expect(container.querySelectorAll('.dq__group')).toHaveLength(4)
   })
 })
+
+/**
+ * 「이동」이 그 항차 카드로 간다 (#1549).
+ *
+ * 종전에는 모든 행이 `/vessels/:id` — 선박 상세 맨 위였다. 받는 쪽(`VoyagePanel`)이 카드로
+ * 스크롤하는 것은 `VoyagePanel.test.tsx`가 보고, 여기서는 **어느 행이 어디로 가는가**를 본다.
+ */
+describe('점검 행에서 그 항차로 (#1549)', () => {
+  it('항차 행은 그 항차로 간다 — 경로를 값으로 고정한다', async () => {
+    renderWith(SNAPSHOT)
+    const link = await screen.findByRole('link', { name: '이 항차로 — MV One B' })
+    expect(link.getAttribute('href')).toBe('/vessels/v1?actuals=voy-2')
+    expect(link.textContent).toBe('이 항차로')
+  })
+
+  it('선박 단위 행은 가리킬 항차가 없어 선박 상세로 간다', async () => {
+    renderWith({
+      ...SNAPSHOT,
+      counts: { ...SNAPSHOT.counts, UNAVAILABLE: 1 },
+      issues: [
+        {
+          severity: 'UNAVAILABLE',
+          vesselId: 'v2',
+          vesselName: 'MV Empty',
+          voyageId: null,
+          voyageNo: null,
+          codes: ['NO_PARAMETERS'],
+          cii: null,
+          ciiReason: null,
+        },
+      ],
+    })
+    const link = await screen.findByRole('link', { name: '선박 상세' })
+    expect(link.getAttribute('href')).toBe('/vessels/v2')
+    expect(screen.queryByRole('link', { name: /이 항차로/ })).toBeNull()
+  })
+})
