@@ -44,10 +44,10 @@
   --grid-frame-min: 1440px;
   --grid-gnb-expanded: 240px;
   --grid-gnb-collapsed: 64px;
-  --grid-content-width: 1680px;
+  --grid-content-width: 1608px;
   --grid-columns: 12;
   --grid-gutter: 24px;
-  --grid-margin: 32px;
+  --grid-margin: 24px;
   --grid-split-primary: 7;
   --grid-split-secondary: 5;
   /* ── 터치 타깃 (target) ────────────────────────────────────────── */
