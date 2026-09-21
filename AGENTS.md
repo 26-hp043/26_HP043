@@ -7,7 +7,7 @@
 | 문서명 | AGENTS.md |
 | 버전 | v1.10 |
 | 상태 | 운영 중 (전 저장소 적용) — v1.5에서 §3.2.3에 MVP 범위 판정 행 추가 (#269) |
-| 최종 수정일 | 2026-09-19 |
+| 최종 수정일 | 2026-09-22 |
 
 ---
 
@@ -61,7 +61,7 @@ AI 에이전트(리뷰·분석 에이전트 등)가 다음 유형의 finding을 
 >
 > **원문 대조 확인: 신하늘(`sky01170851`), 2026-08-06.** `§2.5`(MEPC 78/17/Add.1 Annex 14, 3쪽) · 개정 `§4.2`(같은 Annex 14, 5쪽) · `MEPC.412(84)`의 *"Section 4.2 is replaced with the following"* 문언과 DWT 8종·GT 4종 목록을 IMO 원문과 직접 대조해 확인했다.
 
-> **[#762] G5는 `잠정(Interim)` 지침이며 2026-01-01까지 재검토가 예정돼 있다.** 결의안 본문 4항이 *"AGREES to keep the Guidelines under review … a review of the operational measure … shall be completed by 1 January 2026"* 로 적는다. **값을 옮겨 적기 전에 최신 개정 여부를 확인한다** — G1이 `MEPC.412(84)`로 개정된 것과 같은 경로다(`#163`).
+> **[#762] G5는 `잠정(Interim)` 지침이며 2026-01-01까지 재검토가 예정돼 있다.** 결의안 본문 4항이 *"AGREES to keep the Guidelines under review … a review of the operational measure … shall be completed by 1 January 2026"* 로 적는다. **값을 옮겨 적기 전에 최신 개정 여부를 확인한다** — G1이 `MEPC.412(84)`로 개정된 것과 같은 경로다(`#163`). **범위 판정 — 계산에 반영하지 않는다**(2026-09-17 결정 · 사유 셋은 `PRD §5.2` `[#762]` 각주, 다시 여는 조건은 `PRD §21` G5 행). 2026-09-22에 IMO 결의안 목록(MEPC 79~84)을 확인했을 때 G5를 개정·대체한 결의는 없었다 (정황 — 제목 대조).
 >
 > ⚠️ **G5의 보정계수 상당수는 G5가 값을 갖고 있지 않다.** `f_i`·`f_m`·`f_c`·`f_i,VSE`는 **EEDI 계산 지침**(`MEPC.308(73)`, `MEPC.322(74)`·`MEPC.332(76)` 개정)을 참조 지정하며, G5 §4.6이 *"provided they are included in the ship's EEDI Technical File or EEXI Technical file"* 로 **선박별 기술 파일**을 전제한다. 즉 이 넷은 **규제값 표가 아니라 선박 문서**에서 온다 — 우리 파라미터 표에 담을 수 있는 성질이 아니다.
 >
