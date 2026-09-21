@@ -447,19 +447,34 @@ async def record_chat_tool_call(
 # 남기게 해 두었는데, 그 기록에 닿을 방법이 제품 안에 없었다.
 
 
-def _event_to_dict(row) -> dict[str, object]:
+def _actor_to_dict(user) -> dict[str, object] | None:
+    """``actor`` 블록 — ``{display_name, email}`` 또는 행위자를 못 찾으면 ``None`` (`#1515`).
+
+    ``user_id``(UUID)만으로는 「누가 올렸나」에 답이 되지 않는다. 이름·이메일 둘만
+    싣는다 — 역할·탈퇴 여부 같은 **현재 상태**는 감사 행의 일부가 아니다.
+    """
+    if user is None:
+        return None
+    return {"display_name": user.display_name, "email": user.email}
+
+
+def _event_to_dict(row, actor=None) -> dict[str, object]:
     """행 하나를 ``API_SPEC §16.1`` ``data[]`` 항목으로 바꾼다.
 
     ⚠️ **``details_json``을 그대로 싣는다 — 거르지 않는다.** 감사는 **사실만** 적는
     자리이고(`TECH_SPEC §13.1`), 자격 증명은 **애초에 들어가지 않는다**: 이 모듈의
     기록 함수들이 담는 것은 수·상태·식별자뿐이다. 여기서 다시 거르면 **거르는
     규칙이 두 곳**에 생기고, 나중에 한쪽만 고쳐지면 「걸렀다」가 거짓이 된다.
+
+    ``user_id``는 그대로 두고 ``actor``를 **덧붙인다** — 필터(``?user_id=``)와 이어
+    붙일 키가 사라지면 안 된다.
     """
     return {
         "id": str(row.id),
         "timestamp": row.timestamp.isoformat() if row.timestamp is not None else None,
         "action": row.action,
         "user_id": row.user_id,
+        "actor": _actor_to_dict(actor),
         "entity_type": row.entity_type,
         "entity_id": str(row.entity_id) if row.entity_id is not None else None,
         "details": row.details_json,
@@ -521,9 +536,14 @@ async def list_events(
         if has_more and page
         else None
     )
+    # 행위자는 **한 페이지 분을 한 번에** 푼다 — 행마다 물으면 페이지 크기만큼 왕복이
+    # 생긴다. 탈퇴 계정도 돌아온다(`get_actors`).
+    actors = await audit_repo.get_actors(
+        session, [row.user_id for row in page if row.user_id is not None]
+    )
     # `next_cursor`는 **다음 페이지가 있을 때만** 채운다 — 늘 채우면 클라이언트가
     # 같은 커서를 반복해 무한 루프에 빠진다 (`§1.9`와 같은 규약).
-    return [_event_to_dict(row) for row in page], {
+    return [_event_to_dict(row, actors.get(row.user_id)) for row in page], {
         "next_cursor": next_cursor,
         "has_more": has_more,
     }

@@ -2997,8 +2997,16 @@ POST /api/v1/annual-simulations/{simulation_run_id}/reproduce
 ### 7.1 규정 연도 조회
 
 ```http
-GET /api/v1/parameters/regulation-years
+GET /api/v1/parameters/regulation-years?active=true
 ```
+
+**쿼리 파라미터** (`#1515`)
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `active` | bool | N | 기본 `true` — **현행(활성) 행만**, 종전 응답과 같다. `false`면 개정으로 대체된 **이행 행까지 전부** 돌려준다(현행 행도 함께 온다). 각 행의 `is_active`가 어느 쪽인지 말한다 |
+
+> ⚠️ **`§7.2` 연료의 `active=false`와 뜻이 다르다.** 연료는 「비활성만」이고 여기(연도·기준선·경계)는 「전부」다 — 이 세 조회의 용도가 **옛 판본을 현행과 나란히 놓고 비교**하는 것이기 때문이다(`PRD §8.4` 개정 다음 날의 화면). 연료 쪽 계약은 `#444`부터 있던 것이라 바꾸지 않는다.
 
 #### 응답 (200 OK)
 
@@ -3010,18 +3018,30 @@ GET /api/v1/parameters/regulation-years
       "z_factor_percent": "11.0",
       "effective_from": "2026-01-01",
       "source_ref": "MEPC.400(83)",
-      "version": "2024-q1"
+      "version": "2024-q1",
+      "is_active": true,
+      "created_at": "2026-09-18T02:14:07+00:00"
     }
   ],
   "meta": { ... }
 }
 ```
 
+**판본 세 필드** — `§7.1`·`§7.3`·`§7.4`가 똑같이 싣는다 (`#1515`)
+
+| 필드 | 타입 | 뜻 |
+|---|---|---|
+| `version` | string | 판본 라벨. 시드는 `1.0`, `§7.5` 적재분은 `import.<UTC 시각>` |
+| `is_active` | bool | 현행이면 `true`. `active=true`(기본) 조회에서는 항상 `true`다 |
+| `created_at` | ISO 8601 | 행이 들어온 시각(`created_at` 컬럼). 파라미터 테이블에는 `updated_at`이 없다 — 개정은 행을 고치지 않고 새 행을 넣는다(`DB_SCHEMA §7.2`) |
+
 ### 7.2 연료 종류 조회
 
 ```http
 GET /api/v1/parameters/fuel-types?active=true
 ```
+
+> **연료에는 판본 이력이 없다** (`#1515`). `fuel_type`은 `DB_SCHEMA §7.2`의 명시적 예외로 CF 개정을 **제자리에서 갱신**한다(`§7.5` 「개정의 반영 방식」) — 그래서 이 응답에 `version`·`created_at`을 싣지 않고, `?active=false`는 「이전 판본」이 아니라 **「비활성 연료만」**을 뜻한다. 개정 이력이 필요하면 `§16.1` 감사 로그(`PARAMETER_IMPORT` · `details.source_refs`)가 그 답이다.
 
 #### 응답 (200 OK)
 
@@ -3044,8 +3064,15 @@ GET /api/v1/parameters/fuel-types?active=true
 ### 7.3 선종별 Reference Line 조회
 
 ```http
-GET /api/v1/parameters/reference-lines?ship_type=BULK_CARRIER
+GET /api/v1/parameters/reference-lines?ship_type=BULK_CARRIER&active=true
 ```
+
+**쿼리 파라미터**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `ship_type` | string | N | 선종 필터. 생략하면 전 선종. 모르는 선종은 빈 배열이 아니라 **422** |
+| `active` | bool | N | `§7.1`과 같다 — 기본 `true`(현행만), `false`면 이행 행까지 전부 (`#1515`) |
 
 #### 응답 (200 OK)
 
@@ -3059,7 +3086,10 @@ GET /api/v1/parameters/reference-lines?ship_type=BULK_CARRIER
       "a_raw": "4745",
       "a_decimal": "4745",
       "c": "0.622",
-      "source_ref": "MEPC.353(78)"
+      "source_ref": "MEPC.353(78)",
+      "version": "1.0",
+      "is_active": true,
+      "created_at": "2026-09-18T02:14:07+00:00"
     },
     {
       "ship_type": "BULK_CARRIER",
@@ -3068,18 +3098,25 @@ GET /api/v1/parameters/reference-lines?ship_type=BULK_CARRIER
       "a_raw": "4745",
       "a_decimal": "4745",
       "c": "0.622",
-      "source_ref": "MEPC.353(78)"
+      "source_ref": "MEPC.353(78)",
+      "version": "1.0",
+      "is_active": true,
+      "created_at": "2026-09-18T02:14:07+00:00"
     }
   ],
   "meta": { ... }
 }
 ```
 
+`version`·`is_active`·`created_at`은 `§7.1`의 판본 세 필드다. `active=false`로 받으면 같은 `ship_type`·`condition_expr`의 행이 판본마다 하나씩 온다 — 정렬은 선종 · 조건식 · **적재 시각** 순이라 이행 행이 현행 행 앞에 선다.
+
 ### 7.4 등급 경계 조회
 
 ```http
-GET /api/v1/parameters/rating-boundaries?ship_type=BULK_CARRIER
+GET /api/v1/parameters/rating-boundaries?ship_type=BULK_CARRIER&active=true
 ```
+
+**쿼리 파라미터** — `§7.3`과 같다 (`ship_type` · `active`).
 
 #### 응답 (200 OK)
 
@@ -3094,12 +3131,19 @@ GET /api/v1/parameters/rating-boundaries?ship_type=BULK_CARRIER
       "d2": "0.94",
       "d3": "1.06",
       "d4": "1.18",
-      "source_ref": "MEPC.354(78)"
+      "source_ref": "MEPC.354(78)",
+      "version": "1.0",
+      "is_active": true,
+      "created_at": "2026-09-18T02:14:07+00:00"
     }
   ],
   "meta": { ... }
 }
 ```
+
+`version`·`is_active`·`created_at`은 `§7.1`의 판본 세 필드다.
+
+> 🔴 **계산은 `active`와 무관하게 언제나 활성 행만 본다.** `?active=false`는 `§7.1`·`§7.3`·`§7.4` **조회 응답**에만 있는 스위치이고, 항차 CII·YTD·시나리오 비교가 부르는 저장소 갈래에는 이 인자가 없다 — 대체된 기준선으로 등급이 나오면 `TECH_SPEC §5.4` 재현성 계약이 깨진다. `tests/test_parameters_api_db.py`가 소스를 훑어 잠근다 (`#1515`).
 
 ### 7.5 파라미터 Import
 
@@ -3152,7 +3196,8 @@ POST /api/v1/parameters/import
 #### 개정의 반영 방식 (`DB_SCHEMA §7.2`)
 
 - 세 테이블(연도·기준선·경계) — 기존 **활성 행을 끄고**(`is_active = 0`, 이행 행으로
-  보존) 새 행을 넣는다. 조회 API와 계산은 활성 행만 본다
+  보존) 새 행을 넣는다. 계산은 활성 행만 보고, 조회 API도 기본은 같다 — 이행 행은
+  `?active=false`로만 온다(`§7.1` · `#1515`)
 - `fuel_type` — §7.2의 명시적 예외. CF를 **제자리에서 갱신**하고 `content_hash`를 다시
   계산한다. `OTHER`를 비롯한 새 코드는 새 행으로 만든다 — 이 경로가 연료를 만드는 유일한
   쓰기 경로다
@@ -3177,6 +3222,26 @@ POST /api/v1/parameters/import
 | `imported_count` | **적용된 행 수** (연료 갱신도 포함 — 신규만 세면 「안 들어갔다」로 읽힌다) |
 | `replaced_count` | 그중 기존 활성 행(연료는 기존 행)을 대체·갱신한 수 |
 | `errors[]` | `{row, field, message}` — 원본 파일의 행 번호다. **하나라도 있으면 아무것도 들어가지 않았다** |
+
+#### 감사 로그 `details` (`PARAMETER_IMPORT`)
+
+적재가 성공하면 `audit_log`에 한 행이 남고(`§16.1`로 읽는다), `details`는 다음과 같다. `dry_run`은 남지 않는다 — 적재가 일어나지 않았다.
+
+```json
+{
+  "imported_count": 3,
+  "replaced_count": 1,
+  "version": "import.20260921T031500Z",
+  "dry_run": false,
+  "source_refs": ["MEPC.400(83) amendment", "MEPC.999(99) draft"]
+}
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `imported_count` · `replaced_count` | 응답과 같은 값 |
+| `version` | 이 배치가 새 행에 찍은 판본 라벨 — `§7.1` 응답의 `version`과 이어진다 |
+| `source_refs` | 적재한 행들의 `source_ref` **고유 목록, 정렬** (`#1515`). 행 수·판본만으로는 「무엇을 근거로 바뀌었나」에 답할 수 없어 함께 남긴다. 연료는 판본 이력이 없으므로(`§7.2`) **이 목록이 연료 CF 개정의 유일한 출처 기록**이다 |
 
 ---
 
@@ -4086,8 +4151,23 @@ POST /api/v1/chat
 |---|---|
 | `id` · `timestamp` | 사건 식별자와 시각 |
 | `action` · `entity_type` · `entity_id` | 무엇이 일어났고 무엇에 대해서인가 |
-| `user_id` · `ip_address` | 누가·어디서 |
-| `details` | 활동별 부가 정보 (`PARAMETER_IMPORT`의 행 수·판본 등) |
+| `user_id` · `ip_address` | 누가·어디서. `user_id`는 `app_user.id` 문자열 — **그대로 남는다**(`?user_id=` 필터와 이어 붙일 키다) |
+| `actor` | `{"display_name": string \| null, "email": string}` **또는 `null`** (`#1515`). `user_id`로 `app_user`를 푼 것 — **탈퇴(soft delete) 계정도 풀린다.** `null`은 「행위자를 못 찾았다」(`user_id`가 없거나 `app_user`에 없다)이고, `display_name: null`은 「찾았는데 이름을 안 적었다」다 — 둘은 다른 「없음」이다 |
+| `details` | 활동별 부가 정보. `PARAMETER_IMPORT`는 행 수·판본·**`source_refs`**(`§7.5`) |
+
+```json
+{
+  "id": "a3f1…",
+  "timestamp": "2026-09-21T03:15:00+00:00",
+  "action": "PARAMETER_IMPORT",
+  "user_id": "6a8b3660-…",
+  "actor": { "display_name": "홍길동", "email": "office@example.com" },
+  "entity_type": "regulation_years",
+  "entity_id": null,
+  "details": { "imported_count": 3, "replaced_count": 1, "version": "import.20260921T031500Z", "dry_run": false, "source_refs": ["MEPC.400(83) amendment"] },
+  "ip_address": "10.0.0.1"
+}
+```
 
 **오류**
 
@@ -4102,6 +4182,8 @@ POST /api/v1/chat
 > **모르는 `action`을 빈 목록으로 돌려주지 않는다.** 오타(`PARAMETER_IMPORTT`)를 0건으로 답하면 사용자는 **「그런 사건이 없다」**로 읽는다 — 「없다」와 「잘못 물었다」는 다른 답이다. 목록은 `services/audit.AUDIT_ACTIONS` 하나이며 `tests/test_audit_enum_sync.py`가 `DB_SCHEMA §2.14`와 대조한다.
 
 > **`details`를 거르지 않는다.** 감사는 **사실만** 적는 자리이고(`TECH_SPEC §13.1`), 자격 증명은 **애초에 들어가지 않는다** — 기록 함수들이 담는 것은 수·상태·식별자뿐이다. 조회에서 다시 거르면 **거르는 규칙이 두 곳**에 생기고, 나중에 한쪽만 고쳐지면 「걸렀다」가 거짓이 된다.
+
+> **`actor`는 탈퇴 계정도 푼다.** 감사가 답할 질문은 「지금 누가 있는가」가 아니라 **「그때 누가 했는가」**다. 탈퇴는 soft delete라 행이 남아 있고(`record_account_delete`), `is_deleted`로 거르면 탈퇴한 사람이 올린 개정이 **행위자 없음**으로 보인다 — 그것이 감사 기록으로서 가장 나쁜 답이다. 이름·이메일 둘만 싣고 역할·탈퇴 여부 같은 **현재 상태**는 싣지 않는다 — 그것은 감사 행의 일부가 아니다. `app_user.id`(`CHAR(32)`)와 `audit_log.user_id`(`VARCHAR`)는 SQL JOIN으로 묶지 않고 페이지 단위로 UUID를 풀어 `IN`으로 묻는다 — 문자열 모양(하이픈 유무)이 갈리면 JOIN은 조용히 0건이 된다.
 
 > ⚠️ **이 조회는 쓰기 경로를 막지 않는다.** `SELECT`만 하고 잠금을 잡지 않는다 — 조회가 적재·계산을 방해하면 감사 자체가 부담이 되고, 그러면 기록을 줄이자는 압력이 생긴다.
 
@@ -4245,3 +4327,4 @@ POST /api/v1/chat
 | 2026-09-21 | `#1491` | **§1.2 「둘러보기」 정책 행 신설 · 인증 예외 경로 표·인증 엔드포인트 표에 `POST /auth/tour-login` 추가 · 「관리자가 되는 경로」 문장 보완 · dev-login 각주 옆 대조 문단 · CSRF 각주 수치 갱신 · §12 요약표 행 · §13.2 인증 API 대상 다섯 → 여섯** (`#1486`). 배포본은 `APP_ENV=staging`이라 `dev-login`이 등록되지 않는데(`#1058`), 인터뷰 대상자에게 로그인 없이 대시보드를 보여 줄 경로가 없었다. `_DEV_SURFACE_ENVS`에 `staging`을 더하면 `/docs`·시연 계정 시드까지 함께 열려 택하지 않고, **환경과 무관하게 항상 등록되되 `TOUR_ACCESS_CODE`로 잠기는** 별도 경로를 뒀다. ⚠️ **fail-closed** — 가입 제한(`#808`)의 판정은 둘 다 비면 **통과**인데 그 패턴을 쓰면 미설정 배포에서 **누구나 관리자**가 되므로 비어 있으면 **항상 거절**한다. 거절 문구는 꺼짐·불일치를 가르지 않는다(`PRD §6.3`). CSRF 각주는 종전 문장이 「8개 전부 공개」라면서 **7종만 열거**해 스스로 어긋나 있어 `#634` 당시 수치를 그대로 두고 현재 수치(38개 중 8개)를 따로 적었다 — `tests/test_auth_wiring.py`의 `_mutating_routes()`로 센 값이다. `AGENTS §4.3`상 행 추가·각주 보강이라 버전은 올리지 않는다 (#1486) |
 | 2026-09-21 | `#1506` | **§5.1 요청 필드 표에 `destination_port_name` 행 신설** (`#1454`). 요청 예시 JSON에는 있었는데 **표에 행이 없었다** — 같은 문서가 자기와 어긋난 상태로, `#591`이 엔드포인트 요약표에서 겪은 것과 같은 유형이다. `N` · string · 최대 200자(서버 `Field(max_length=200)`와 같은 값) · 표기용. 요청 필드 표 ↔ pydantic 스키마를 대조하는 가드가 없어(`test_api_spec_endpoints_sync.py`는 엔드포인트만 본다) 빠진 채 남아 있었다. 행 추가라 `AGENTS §4.3`상 버전은 올리지 않는다. ⚠️ **이 행은 `#1506`이 머지된 뒤에 적었다** — 그 PR의 마지막 푸시에 들어가지 못했다(`AGENTS §4.1`). `#1484`→`#1487` 선례대로 다음 PR(`#1417`)이 함께 싣는다. (#1454) |
 | 2026-09-21 | `#1511` | **§1.2 「둘러보기」 정책 행·인증 예외 경로 표·인증 엔드포인트 표·dev-login 대조 각주 · §12 요약표 정정** (`#1486`). `#1505`·`#1507`이 둘러보기를 **읽기 전용 + 공개 스위치**로 바꿨는데 정본을 함께 고치지 않아, `§1.2`가 *「둘러보기 세션에 별도 권한 가드는 **두지 않는다**(`#1486` 2026-09-21 결정)」*라고 **반대로** 적고 있었다 — 같은 저장소의 `docs/OPERATIONS.md §3.7`은 *「항상 읽기 전용」*이라 적어 **두 정본이 정면으로 어긋난 상태**였다. 고친 것 둘이다: ⑴ **문이 둘**이다 — `TOUR_ACCESS_CODE`(링크 코드)와 `TOUR_PUBLIC=true`(코드 없이 상시 버튼). 종전 문장은 *「하나로 잠긴다」*였다 ⑵ **권한은 문과 무관하게 항상 읽기 전용**이다 — 역할은 `ADMIN`이지만 인증 미들웨어가 쓰기 전체·`GET /auth/users`·`GET /audit-logs`·자기 탈퇴를 403으로 막는다(`auth/tour_policy.py`). **역할을 늘리는 것이 아니라 세션 정책 한 겹**이라 `PRD §5.2`의 역할 3종 제한과 부딪히지 않는다 — 뒤집힌 근거가 바로 그 제한이었다. 실서버 대조로 확인했다(빈 코드 `tour-login` 200 · `/vessels` 200 · `/auth/users` 403 · `/audit-logs` 403). `AGENTS §4.3`상 오기·값 정정이라 버전은 올리지 않는다 (#1486) |
+| 2026-09-21 | `#1520` | **§7.1·§7.3·§7.4 쿼리 `active`(기본 `true` — 종전과 같다) · 응답에 판본 세 필드 `version`·`is_active`·`created_at` · §7.2 「연료에는 판본 이력이 없다」 각주 · §7.5 감사 `details` 표 신설(`source_refs`) · §16.1 `actor` 행·예시·각주** (`#1515` · `#1239` ③). 조회 4종의 필드가 고르지 않았다 — 연도는 `version`, 연료는 `is_active`·`?active=false`를 갖는데 **기준선·경계는 둘 다 없고 활성분만 줬다**(`repositories/parameters.py`의 `is_active == 1` 하드코딩). 개정 다음 날 사무직 화면에는 옛 판본 계산과 새 판본 계산이 나란히 놓이는데(`PRD §8.4`) 옛 판본의 값을 볼 경로가 없었다. ⚠️ **`active=false`의 뜻이 연료와 다르다** — 연료는 「비활성만」(`#444`부터의 계약, 유지), 세 조회는 「전부」다: 용도가 **나란히 놓고 비교**하는 것이라 현행 행이 빠지면 안 된다. 🔴 **계산 경로는 이 인자를 모른다** — 저장소 기본값(활성만)만 쓰며 `tests/test_parameters_api_db.py`가 소스를 훑어 잠근다. 연료는 제자리 갱신이라 이력이 없다는 사실을 **응답이 아니라 정본에** 적었다(「없음의 종류」 — 필드를 비워 두면 「아직 안 만들었다」로 읽힌다). 감사 응답은 `user_id`(UUID)만 실어 「누가 올렸나」에 답이 되지 않았다 — `actor`를 **덧붙이고** `user_id`는 그대로 둔다(필터 키). 탈퇴 계정도 푼다. `details`에 값의 **출처**가 없어 `source_refs`(고유·정렬)를 더했다 — 연료 CF 개정은 이것이 유일한 출처 기록이다. `AGENTS §4.3`상 필드·행 추가라 버전은 올리지 않는다 (#1515) |

@@ -178,6 +178,40 @@ async def test_new_year_is_imported_and_audited(client, conn):
     assert details["imported_count"] == 1
 
 
+async def test_the_audit_row_lists_the_source_refs_of_what_it_loaded(client, conn):
+    """`details.source_refs` — **무엇을 근거로** 바뀌었나 (`#1515`).
+
+    행 수·판본만으로는 답할 수 없다. 고유값을 정렬한 목록이라 같은 파일이면 같은 값이고,
+    두 행이 같은 출처를 적어도 한 번만 나온다.
+    """
+    data = _post(
+        client,
+        _csv(
+            _REGULATION_HEADER,
+            "2031,17.9,2030-01-01,MEPC.400(83) amendment",
+            "2032,19.0,2031-01-01,MEPC.400(83) amendment",
+            "2033,20.1,2032-01-01,MEPC.999(99) draft",
+        ),
+        "regulation_years",
+    )
+    assert data["imported_count"] == 3
+
+    details = (
+        await conn.execute(
+            text(
+                "SELECT details_json FROM audit_log "
+                "WHERE \"action\" = 'PARAMETER_IMPORT' AND entity_type = 'regulation_years'"
+            )
+        )
+    ).scalar_one()
+    if isinstance(details, str):  # 생 SQL은 JSONText 없이 문자열로 온다 (#1058)
+        import json
+
+        details = json.loads(details)
+    assert details["source_refs"] == ["MEPC.400(83) amendment", "MEPC.999(99) draft"]
+    assert details["version"].startswith("import.")
+
+
 async def test_revision_deactivates_the_old_row_and_keeps_history(client, conn):
     """개정 — 기존 활성 행은 이행 행으로 남고 새 행이 현행이 된다 (DB_SCHEMA §7.2)."""
     data = _post(
