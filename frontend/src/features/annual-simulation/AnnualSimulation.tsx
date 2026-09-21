@@ -33,6 +33,7 @@ import {
   RUNS_DEFAULT,
   TARGET_DEFAULT,
   countAdvancedChanges,
+  reductionCutText,
 } from './annualRules'
 import { createAnnualSimulationProvider } from './providerSelection'
 import type { AnnualSimulationProvider, AnnualSimulationResult } from './types'
@@ -709,13 +710,14 @@ function Result({
             <p className="annual-sim__caption">{ANNUAL_COPY.reductionNoneNeeded}</p>
           ) : (
             <div className="annual-sim__metrics">
+              {/* 단위·자릿수는 `§4.2`가 소유한다 — g을 그대로 적던 자리다 (#1539). */}
               <Metric
                 label={ANNUAL_COPY.reductionCutLabel}
-                value={`${formatDecimalString(cut.required_cut_gco2, 0)} g`}
+                value={reductionCutText(cut.required_cut_gco2, cut.required_cut_fuel_ton).co2}
               />
               <Metric
                 label={ANNUAL_COPY.reductionCutFuelLabel}
-                value={`${formatDecimalString(cut.required_cut_fuel_ton, 2)} t`}
+                value={reductionCutText(cut.required_cut_gco2, cut.required_cut_fuel_ton).fuel}
               />
             </div>
           )}

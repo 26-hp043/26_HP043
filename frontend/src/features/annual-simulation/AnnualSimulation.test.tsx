@@ -430,7 +430,10 @@ describe('필요 감축량 — 목표 역산 (#433)', () => {
 
     expect(screen.getByText(ANNUAL_COPY.reductionTitle)).toBeTruthy()
     expect(screen.getByText(ANNUAL_COPY.reductionCutLabel)).toBeTruthy()
-    expect(screen.getByText(/36\.26/)).toBeTruthy()
+    // §4.2 — CO₂는 tCO₂ · 1자리, 연료는 t · 1자리 (#1539). 종전에는 `330900000 g` · `36.26 t`였다.
+    expect(screen.getByText('330.9 tCO₂')).toBeTruthy()
+    expect(screen.getByText('36.3 t')).toBeTruthy()
+    expect(screen.queryByText(/\d g$/)).toBeNull()
   })
 
   it('⚠️ 무엇을 고정했는지 말한다 — 「항차를 줄여도 되지 않나」로 읽히지 않게', async () => {

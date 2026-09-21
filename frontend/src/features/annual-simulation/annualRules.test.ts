@@ -12,6 +12,7 @@ import {
   toPercent,
   toSignedPercent,
   validateRuns,
+  reductionCutText,
 } from './annualRules'
 import { ANNUAL_COPY } from './copy'
 import type { MonteCarloBlock } from './types'
@@ -403,5 +404,31 @@ describe('validateRuns (#1096 ⑴)', () => {
     expect(validateRuns('2500.5')).toBe(ANNUAL_COPY.runsNotInteger)
     expect(validateRuns('abc')).toBe(ANNUAL_COPY.runsNotInteger)
     expect(validateRuns('1e3')).toBe(ANNUAL_COPY.runsNotInteger)
+  })
+})
+
+/**
+ * 「목표까지 줄여야 하는 양」 (#1539) — 서버의 그램을 `§4.2` tCO₂ · 1자리 · 구분자로.
+ * 종전 화면은 `2785954859 g` · `894.65 t`였다.
+ */
+describe('줄여야 하는 양 — §4.2 단위·자릿수 (#1539)', () => {
+  it('실제 응답 값: g → tCO₂ 환산 · 구분자 · 1자리', () => {
+    expect(reductionCutText('2785954859.000000', '894.650000')).toEqual({
+      co2: '2,786.0 tCO₂',
+      fuel: '894.7 t',
+    })
+  })
+
+  it('1톤 미만도 소수점을 옮긴다 — 앞자리 0을 채운다', () => {
+    expect(reductionCutText('45765', '0.014').co2).toBe('0.0 tCO₂')
+    expect(reductionCutText('450000', '0.14').co2).toBe('0.5 tCO₂')
+  })
+
+  it('반올림 경계는 문자열로 — 부동소수 오차를 타지 않는다', () => {
+    expect(reductionCutText('1049999.999999', '0').co2).toBe('1.0 tCO₂')
+    // 부동소수로 나누면 1150000으로 뭉개져 1.2가 된다 — 서버는 소수 여섯 자리 문자열을 준다
+    expect(reductionCutText('1149999.9999999999', '0').co2).toBe('1.1 tCO₂')
+    expect(reductionCutText('1050000', '0.05').co2).toBe('1.1 tCO₂')
+    expect(reductionCutText('1050000', '0.05').fuel).toBe('0.1 t')
   })
 })
