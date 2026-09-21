@@ -7,6 +7,7 @@ import {
   validateForm as validateFormWith,
   type VoyageCiiFormState,
   pickDefaultYear,
+  prefillFromVoyage,
 } from './formRules'
 import { VoyageCiiError } from './provider'
 
@@ -347,5 +348,62 @@ describe('pickDefaultYear — 규제연도 기본 선택', () => {
 
   it('문자열 비교로 놓치지 않는다 — 목록은 숫자다', () => {
     expect(pickDefaultYear([2026], 2026, '2026')).toBe('2026')
+  })
+})
+
+describe('prefillFromVoyage — 상단 항차의 계획값 (#1576)', () => {
+  const voyage = (over: Record<string, unknown> = {}) => ({
+    status: 'PLANNED',
+    plannedDistanceNm: 2300,
+    plannedSpeedKn: 14,
+    fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 331 }],
+    ...over,
+  })
+
+  it('계획 확정 · 연료 1종 — 거리 · 속력 · 연료 · 연료량을 채운다', () => {
+    expect(prefillFromVoyage(voyage())).toEqual({
+      fields: { distanceNm: '2300', speedKn: '14', fuelType: 'HFO', fuelTon: '331' },
+      multiFuelCount: null,
+    })
+  })
+
+  it('작성 중도 채운다 — 항해 전이다', () => {
+    expect(prefillFromVoyage(voyage({ status: 'DRAFT' }))).not.toBeNull()
+  })
+
+  it.each(['IN_PROGRESS', 'COMPLETED', 'CONFIRMED', 'CANCELLED', 'ARCHIVED'])(
+    '%s는 채우지 않는다 — 항해 전 조건이 아니다',
+    (status) => {
+      expect(prefillFromVoyage(voyage({ status }))).toBeNull()
+    },
+  )
+
+  it('⚠️ 연료가 여러 종이면 연료 칸을 비우고 종 수를 돌려준다 — 한 칸에 더하면 CO₂가 틀린다', () => {
+    const r = prefillFromVoyage(
+      voyage({
+        fuelUses: [
+          { fuelType: 'HFO', plannedFuelTon: 300 },
+          { fuelType: 'MDO', plannedFuelTon: 31 },
+        ],
+      }),
+    )
+    expect(r).toEqual({
+      fields: { distanceNm: '2300', speedKn: '14', fuelType: '', fuelTon: '' },
+      multiFuelCount: 2,
+    })
+  })
+
+  it('계획값이 빈 칸은 비운다 — 앞 항차의 값을 남기지 않는다', () => {
+    const r = prefillFromVoyage(
+      voyage({ plannedSpeedKn: null, fuelUses: [{ fuelType: 'HFO', plannedFuelTon: null }] }),
+    )
+    expect(r?.fields).toEqual({ distanceNm: '2300', speedKn: '', fuelType: 'HFO', fuelTon: '' })
+  })
+
+  it('연료 기록이 없으면 연료 칸을 비우고 여러 종으로 치지 않는다', () => {
+    expect(prefillFromVoyage(voyage({ fuelUses: [] }))).toEqual({
+      fields: { distanceNm: '2300', speedKn: '14', fuelType: '', fuelTon: '' },
+      multiFuelCount: null,
+    })
   })
 })

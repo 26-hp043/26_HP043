@@ -155,6 +155,38 @@ function toVoyage(raw: ServerVoyage): ManagedVoyage {
   }
 }
 
+/**
+ * 항차 한 건 — `GET /voyages/{id}` (`API_SPEC §3.2` · #1576).
+ *
+ * CII 예측이 상단에서 고른 항차의 계획값으로 입력칸을 채울 때 쓴다. provider 인터페이스에
+ * 넣지 않은 이유는 **항차 관리 화면이 쓰지 않기** 때문이다 — 넣으면 그 화면의 대역들이 쓰지
+ * 않는 메서드를 모두 갖춰야 한다. 모양은 목록과 같은 `toVoyage`로 읽어 두 경로가 갈리지 않는다.
+ */
+export async function fetchVoyage(
+  voyageId: string,
+  fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+  baseUrl: string = DEFAULT_API_BASE_URL,
+): Promise<ManagedVoyage> {
+  let response: Response
+  try {
+    response = await fetchImpl(`${baseUrl}/voyages/${encodeURIComponent(voyageId)}`, {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json', ...csrfHeaders() },
+    })
+  } catch (cause) {
+    throw new VoyageError('서버에 연결하지 못했습니다.', { cause })
+  }
+  if (response.status === 401) {
+    redirectToLogin()
+    throw new VoyageError(SESSION_EXPIRED_MESSAGE)
+  }
+  if (!response.ok) throw new VoyageError(`항차를 불러오지 못했습니다 (HTTP ${response.status}).`)
+  const body = (await response.json().catch(() => null)) as { data?: ServerVoyage } | null
+  if (!body?.data) throw new VoyageError('응답 형식이 올바르지 않습니다.')
+  return toVoyage(body.data)
+}
+
 export interface VoyageManagementProvider {
   /**
    * 항차 한 페이지 (`API_SPEC §3.1` 커서 페이지네이션).

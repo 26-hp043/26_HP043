@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import './VoyageCiiForm.css'
 import {
   FIELD,
   initialFormState,
+  prefillFromVoyage,
   toFormErrors,
   toRequest,
   validateForm,
@@ -12,6 +13,9 @@ import {
   pickDefaultYear,
 } from './formRules'
 import { DISPLAY_UNITS } from '../../display/format'
+import { fetchVoyage } from '../voyage-management/apiProvider'
+import { STATUS_LABELS } from '../voyage-management/voyageRules'
+import type { ManagedVoyage } from '../voyage-management/types'
 import { createVoyageCiiProvider } from './providerSelection'
 import { useShellContext } from '../../layout/shellContext'
 import { useYearOptions } from '../parameters/yearCatalog'
@@ -73,11 +77,17 @@ interface VoyageCiiFormProps {
    * 조건의 답처럼 보여 주는 것을 막는다.
    */
   onStaleChange?: (stale: boolean) => void
+  /** 상단에서 고른 항차 한 건을 읽는다 (#1576). 검사가 대역을 넣는 자리다. */
+  loadVoyage?: (voyageId: string) => Promise<ManagedVoyage>
 }
 
 const SHELL_VESSEL_MISSING = '상단바에서 고른 선박이 목록에 없어 첫 번째 선박으로 바꿨습니다. 확인해 주세요.'
 
-export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormProps) {
+export function VoyageCiiForm({
+  onStateChange,
+  onStaleChange,
+  loadVoyage = fetchVoyage,
+}: VoyageCiiFormProps) {
   const showsLabelEn = useShowsLabelEn()
 
   // 연료 선택지도 선박·연도와 같은 경계 뒤에 둔다 (#542). 종전에는 `selectableFuels()`가
@@ -167,6 +177,75 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
   }, [years])
 
   const selectedVessel = vessels.find((v) => v.id === state.vesselId)
+
+  /*
+   * ## 상단 항차와 선박 기본 연료로 칸을 채운다 (#1576)
+   *
+   * 종전에는 선박만 상단을 따르고 항차는 받지 않아, 계획 항차를 골라도 거리 · 속력 · 연료가
+   * 비어 있었다. 규칙은 `prefillFromVoyage`가 정한다 — 작성 중 · 계획 확정 항차만, 연료가
+   * 여러 종이면 연료 칸을 비우고 말한다.
+   *
+   * **항차마다 한 번**이다(`#1538` 항로 비교와 같은 규칙) — 효과가 항차 id에만 걸려 있어 같은
+   * 항차에서 고친 칸은 다시 덮지 않고, 항차를 바꾸면 새 값이 들어온다. 늦게 온 앞 항차의 응답은
+   * 버린다(`alive`).
+   *
+   * 기본 연료는 **항차가 칸을 채우지 않았을 때만** 넣는다 — 항차의 연료(또는 여러 종이라 비운
+   * 칸)가 우선이다. 선박마다 한 번이다.
+   */
+  const shellVoyageId = shell.voyageId
+  const voyagePrefilledFor = useRef<string | null>(null)
+  // 안내는 **어느 항차의 것인지와 함께** 둔다 — 항차를 바꾸거나 풀면 옛 안내가 저절로 사라진다.
+  const [voyageNoticeFor, setVoyageNoticeFor] = useState<{ voyageId: string; text: string | null } | null>(null)
+  const voyageNotice =
+    voyageNoticeFor !== null && voyageNoticeFor.voyageId === shellVoyageId ? voyageNoticeFor.text : null
+  useEffect(() => {
+    if (shellVoyageId === null) {
+      voyagePrefilledFor.current = null
+      return
+    }
+    let alive = true
+    loadVoyage(shellVoyageId).then(
+      (voyage) => {
+        if (!alive) return
+        voyagePrefilledFor.current = shellVoyageId
+        const prefill = prefillFromVoyage(voyage)
+        if (prefill === null) {
+          setVoyageNoticeFor({
+            voyageId: shellVoyageId,
+            text: `상단의 항차는 「${STATUS_LABELS[voyage.status]}」 상태라 계획값으로 채우지 않았습니다 — CII 예측은 항해 전 조건으로 추정합니다.`,
+          })
+          return
+        }
+        setState((prev) => ({ ...prev, ...prefill.fields }))
+        setVoyageNoticeFor({
+          voyageId: shellVoyageId,
+          text:
+            prefill.multiFuelCount === null
+              ? null
+              : `이 항차는 연료가 ${prefill.multiFuelCount}종이라 여기서는 한 종만 넣을 수 있습니다 — 연료 칸은 비워 두었습니다.`,
+        })
+      },
+      () => {
+        if (!alive) return
+        voyagePrefilledFor.current = shellVoyageId
+        setVoyageNoticeFor({ voyageId: shellVoyageId, text: '상단의 항차를 불러오지 못해 입력칸을 채우지 않았습니다.' })
+      },
+    )
+    return () => {
+      alive = false
+    }
+  }, [shellVoyageId, loadVoyage])
+
+  const selectedSpec = selectedVessel?.spec
+  const specAppliedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (state.vesselId === '' || selectedSpec === undefined) return
+    if (specAppliedFor.current === state.vesselId) return
+    specAppliedFor.current = state.vesselId
+    const fuel = selectedSpec.defaultFuelType
+    if (fuel === null || voyagePrefilledFor.current !== null) return
+    setState((prev) => (prev.fuelType === '' ? { ...prev, fuelType: fuel } : prev))
+  }, [state.vesselId, selectedSpec])
 
   /** 한 필드를 갱신하고 그 필드의 오류만 지운다. 다른 필드의 오류는 그대로 둔다. */
   /*
@@ -276,6 +355,13 @@ export function VoyageCiiForm({ onStateChange, onStaleChange }: VoyageCiiFormPro
           </p>
         ) : null,
       )}
+
+      {/* 상단 항차로 채운 결과 · 채우지 못한 까닭 (#1576). 오류가 아니라 안내다. */}
+      {voyageNotice !== null ? (
+        <p className="voyage-cii-form__hint" role="status">
+          {voyageNotice}
+        </p>
+      ) : null}
 
       <div className="voyage-cii-form__grid">
         {/* 선박 — 1척이면 고정 표시, 2척 이상이면 셀렉트 */}

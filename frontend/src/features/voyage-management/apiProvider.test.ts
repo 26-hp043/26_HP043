@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createApiVoyageManagementProvider, VoyageError } from './apiProvider'
+import { createApiVoyageManagementProvider, fetchVoyage, VoyageError } from './apiProvider'
 import { toIsoInstant } from './voyageRules'
 import type { ActualsDraft, ManagedVoyage, VoyageDraft } from './types'
 
@@ -537,5 +537,36 @@ describe('planned_distance_source — #1256', () => {
     const result = await createApiVoyageManagementProvider(fetchMock, '').list('v-1')
 
     expect(result.voyages[0].plannedDistanceSource).toBe(expected)
+  })
+})
+
+describe('fetchVoyage — 항차 한 건 (#1576 · API_SPEC §3.2)', () => {
+  const json = (body: unknown, status = 200) =>
+    ({ ok: status >= 200 && status < 300, status, json: async () => body }) as Response
+
+  it('GET /voyages/{id}를 부르고 목록과 같은 모양으로 읽는다', async () => {
+    const fetchImpl = vi.fn(async (_url: string) =>
+      json({
+        data: {
+          id: 'voy-1',
+          voyage_no: '2026-03',
+          status: 'PLANNED',
+          planned_distance_nm: '2300.00',
+          planned_speed_kn: '14.0',
+          fuel_uses: [{ fuel_type: 'HFO', planned_fuel_ton: '331.0', actual_fuel_ton: null }],
+        },
+      }),
+    )
+    const voyage = await fetchVoyage('voy-1', fetchImpl as unknown as typeof fetch, 'https://x/api/v1')
+    expect(String(fetchImpl.mock.calls[0][0])).toBe('https://x/api/v1/voyages/voy-1')
+    expect(voyage.status).toBe('PLANNED')
+    expect(voyage.plannedDistanceNm).toBe(2300)
+    expect(voyage.fuelUses).toEqual([{ fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: null }])
+  })
+
+  it('실패는 VoyageError로 올린다', async () => {
+    await expect(fetchVoyage('voy-1', vi.fn(async () => json({}, 404)), 'https://x')).rejects.toBeInstanceOf(
+      VoyageError,
+    )
   })
 })
