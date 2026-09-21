@@ -25,15 +25,13 @@ import { regulationParametersPath } from '../parameters/referenceRules'
 import { voyageActualsPath } from '../voyage-management/voyageRules'
 import {
   POLL_INTERVAL_MS,
-  RATING_TRANSITION_TEXT,
   formatAsOf,
   formatOrNull,
   isDegradingAtBerth,
   isNotUnderWay,
-  projectionDirection,
+  projectionSentence,
   projectionReason,
   hasSubstitutedInputs,
-  ratingTransition,
   substitutionSummary,
   remainingDistanceNm,
   voyageProgressRatio,
@@ -364,7 +362,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 
         {data.ytd.dataAvailable && data.ytd.rating ? (
           <div className="ytd">
-            <RatingTransitionView data={data} current={data.ytd.rating} />
+            <YtdGrade data={data} current={data.ytd.rating} />
             {/*
               자릿수는 `DESIGN_SYSTEM §4`(🔒)가 정한다 — CII 3자리(`§4.1`),
               거리 0자리·연료 1자리(`§4.2`). 종전에는 서버 원본 문자열을 그대로
@@ -598,18 +596,25 @@ function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
   const margin = marginDisplay(rating, ytd.marginRatio)
   const ratio = formatOrNull(ytd.ratioToRequired, (v) => `${formatPercent(v)}%`)
   const scale = ytdGradeScaleVector(ytd)
+  /*
+   * 스케일 바를 그리면 **그 마커가 비율을 적는다** — 목록에도 두면 한 카드에 같은 값이 두 번이다
+   * (#1555). 바를 못 그리면(경계 없음 · 기준 0) 목록이 유일한 자리라 남긴다.
+   */
+  const drawsBar = Boolean(scale && ytd.ratioToRequired && ratio)
 
   return (
     <div className="rt__axis">
       <dl className="rt__axis-facts">
-        <div>
-          <dt>기준 대비</dt>
-          {/*
-            「7.871 / 5.045」를 눈으로 나누고 있었다. 서버가 `ratio_to_required`를
-            이미 싣는다 — 기능①의 「기준 대비 비율」과 같은 값·같은 자릿수다.
-          */}
-          <dd className={ratio ? 'num' : 'num muted'}>{ratio ?? '—'}</dd>
-        </div>
+        {drawsBar ? null : (
+          <div>
+            <dt>기준 대비</dt>
+            {/*
+              「7.871 / 5.045」를 눈으로 나누고 있었다. 서버가 `ratio_to_required`를
+              이미 싣는다 — 기능①의 「기준 대비 비율」과 같은 값·같은 자릿수다.
+            */}
+            <dd className={ratio ? 'num' : 'num muted'}>{ratio ?? '—'}</dd>
+          </div>
+        )}
         <div>
           <dt>위험도</dt>
           <dd className={riskText ? `rt__risk rt__risk--${risk!.toLowerCase()}` : 'muted'}>
@@ -642,7 +647,7 @@ function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
         바를 아예 만들지 않는다 — 컴포넌트에 넘겨 「못 읽는다」를 적게 하면, 값이
         원래 없는 상태(실적 없음)까지 오류처럼 보인다.
       */}
-      {scale && ytd.ratioToRequired && ratio ? (
+      {drawsBar && scale && ytd.ratioToRequired && ratio ? (
         <GradeScaleBar
           ratioToRequired={ytd.ratioToRequired}
           boundaries={scale}
@@ -778,97 +783,31 @@ function VoyagePanel({
 }
 
 /**
- * ⑴ → ⑶ 등급 전이 — 「현재 누적 기준 예상 등급」이 연말에 어디로 가는가.
+ * ⑴ 현재 누적 등급 — **연말 예상은 여기서 말하지 않는다** (#1555).
  *
- * ## 왜 ⑴ 카드 안에 두는가
+ * 종전(`#725`)에는 이 자리에 「현재 누적 → 연말 예상」 전이를 같은 크기 배지 둘로 그렸다.
+ * 그런데 ⑶ 카드도 연말 예상 등급을 그려 **같은 값이 두 곳**에 있었고, 여기의 「등급 유지
+ * 예상」과 ⑶의 「현재 누적보다 나빠지는 추세」가 나란히 어긋나 읽혔다(하나는 등급, 하나는
+ * 값의 방향이었다). `PRD §3.3.8`이 ⑶을 **보조 표시**로 정하므로 연말 예상은 ⑶ 한 곳에서,
+ * 등급과 값을 한 문장으로 말한다(`projectionSentence`).
  *
- * `API_SPEC §2.14`가 ⑴을 **주 표시**, ⑶을 **보조 표시**로 못박는다. 전이를 별도
- * 카드로 떼면 ⑶이 ⑴과 같은 무게를 얻어 그 위계가 무너진다. ⑴의 자리에서
- * 「지금 여기, 이대로 가면 저기」를 말하는 것이 위계를 지키면서 전이를 보이는 길이다.
- *
- * 같은 이유로 **연말 배지를 한 단계 작게** 쓴다. 크기 차이 자체가 「확정에 가까운
- * 누적 : 가정 위의 추정」을 말한다.
- *
- * ## 색은 §2.3 시맨틱만 쓴다
- *
- * 배지 두 개는 등급 램프다(`§2.4.4`가 등급 표시에 램프+패턴을 요구한다). 반면
- * **화살표와 라벨은 등급이 아니라 「변화 방향」**이므로 `§2.3` 시맨틱을 쓴다 —
- * 같은 절이 시맨틱 색을 등급 표시에 쓰는 것을 금지하는데, 방향은 등급이 아니다.
- *
- * `--color-warning`은 쓰지 않는다. 그 별칭은 현재 `--cii-c-fill`(등급 램프)을
- * 가리켜서, 쓰는 순간 램프가 시맨틱 자리로 새어 들어온다.
+ * 신뢰도 배지는 **현재 누적 등급 옆**에 붙는다 (`DESIGN_SYSTEM §8` · `#485` ⑤). 대체가
+ * 일어난 것은 YTD 집계의 입력이다. 판정은 `§8.1`을 구현한 `hasSubstitutedInputs`가 소유한다.
  */
-function RatingTransitionView({ data, current }: { data: RealtimeCii; current: Rating }) {
-  const transition = ratingTransition(data)
-
-  /*
-   * 신뢰도 배지는 **현재 누적 등급 옆**에 붙는다 (`DESIGN_SYSTEM §8` · `#485` ⑤).
-   * 대체가 일어난 것은 YTD 집계의 입력이므로, 연말 예상 쪽에 붙이면 무엇이
-   * 추정인지 어긋난다. 판정은 `§8.1`을 구현한 `hasSubstitutedInputs`가 소유한다.
-   */
-  const confidence = hasSubstitutedInputs(data.ytd) ? (
-    <>
-      <DataConfidenceBadge detail={substitutionSummary(data.ytd)} />
-      {/* 무엇이 추정인지 선대 단위로 보는 곳 — `UIFLOW 2-11` 진입 조건 「신뢰도 표시」 (#1082). */}
-      <Link className="rt__confidence-link" to={SCREEN_BY_ID.DATA_QUALITY.path}>
-        {SCREEN_BY_ID.DATA_QUALITY.label}
-      </Link>
-    </>
-  ) : null
-
-  /*
-   * 연말 예상을 못 내면 현재 등급만 그린다. 없는 쪽을 빈 배지나 「—」로 채우면
-   * 전이가 있는 것처럼 읽히고, 사유는 ⑶ 카드가 이미 글로 말한다.
-   */
-  if (!transition) {
-    return (
-      <span className="rt__grade-row">
-        <GradeBadge rating={current} label={`현재 누적 기준 예상 등급 ${current}`} />
-        {confidence}
-      </span>
-    )
-  }
-
-  const modifier = transition.direction.toLowerCase()
-
+function YtdGrade({ data, current }: { data: RealtimeCii; current: Rating }) {
   return (
-    <div className="rt__transition">
-      <div className="rt__transition-pair">
-        <div className="rt__transition-step">
-          <span className="rt__transition-caption">현재 누적</span>
-          <span className="rt__grade-row">
-            <GradeBadge
-              rating={transition.from}
-              label={`현재 누적 기준 예상 등급 ${transition.from}`}
-            />
-            {confidence}
-          </span>
-        </div>
-
-        {/* 잇는 기호일 뿐이라 방향을 뜻하지 않는다 — 방향은 아래 라벨이 말한다. */}
-        <span className={`rt__transition-arrow rt__transition-arrow--${modifier}`} aria-hidden="true">
-          →
-        </span>
-
-        <div className="rt__transition-step">
-          <span className="rt__transition-caption">연말 예상</span>
-          {/*
-           * 현재 누적과 **같은 크기**다 (#725). 종전에는 `sm`이었는데, 크기 차이는
-           * 「덜 중요하다」로 읽힌다 — 이 화면에서 사용자가 보러 오는 값이 바로
-           * 연말 예상이므로 정반대다. 두 값의 차이는 시점이고, 그 시점 차이는
-           * 캡션(현재 누적 / 연말 예상)과 화살표가 이미 말한다.
-           */}
-          <GradeBadge
-            rating={transition.to}
-            label={`연말 예상 등급 ${transition.to}`}
-          />
-        </div>
-      </div>
-
-      <p className={`rt__transition-label rt__transition-label--${modifier}`}>
-        {RATING_TRANSITION_TEXT[transition.direction]}
-      </p>
-    </div>
+    <span className="rt__grade-row">
+      <GradeBadge rating={current} label={`현재 누적 기준 예상 등급 ${current}`} />
+      {hasSubstitutedInputs(data.ytd) ? (
+        <>
+          <DataConfidenceBadge detail={substitutionSummary(data.ytd)} />
+          {/* 무엇이 추정인지 선대 단위로 보는 곳 — `UIFLOW 2-11` 진입 조건 「신뢰도 표시」 (#1082). */}
+          <Link className="rt__confidence-link" to={SCREEN_BY_ID.DATA_QUALITY.path}>
+            {SCREEN_BY_ID.DATA_QUALITY.label}
+          </Link>
+        </>
+      ) : null}
+    </span>
   )
 }
 
@@ -922,7 +861,7 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
     return <p className="rt__nodata">{projectionReason(projection.reason)}</p>
   }
 
-  const direction = projectionDirection(data)
+  const sentence = projectionSentence(data)
 
   return (
     <>
@@ -945,13 +884,14 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
               formatDecimalString(v, DISPLAY_DIGITS.cii),
             ) ?? '—'}
           </p>
-          {direction ? (
-            <p className={`rt__direction rt__direction--${direction.toLowerCase()}`}>
-              {direction === 'IMPROVING'
-                ? '현재 누적보다 나아지는 추세'
-                : direction === 'WORSENING'
-                  ? '현재 누적보다 나빠지는 추세'
-                  : '현재 누적과 같은 수준'}
+          {/*
+            등급과 값의 방향을 **한 문장**으로 (#1555 · `projectionSentence`). 종전에는 값의
+            방향만 여기 있고 등급의 방향은 ⑴ 카드에 있어, 「나빠지는 추세」와 「등급 유지」가
+            떨어진 두 자리에서 어긋나 읽혔다.
+          */}
+          {sentence ? (
+            <p className={`rt__direction rt__direction--${sentence.tone.toLowerCase()}`}>
+              {sentence.text}
             </p>
           ) : null}
         </div>
