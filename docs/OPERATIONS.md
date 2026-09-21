@@ -372,33 +372,93 @@ docker compose -f docker-compose.prod.app.yml --profile migrate \
 
 백엔드에 **호스트명과 HTTPS를 주는 통로**다. `cloudflared`가 app-01에서 **아웃바운드로만** 연결하므로 인바운드 포트를 열지 않는다 — `:8001` 직접 노출(`#786`)과 프록시 뒤 요청 한도(`#1483`)도 같은 걸음에 닫힌다.
 
-#### 3.5.1 설정 순서
+> 🔴 **이 터널은 우리가 만든 것이 아니라 `ourtax`의 것을 함께 쓴다.** 같은 VM(`ourtax-app`)에서
+> **systemd `cloudflared`가 2026-09-12부터 이미 돌고 있었고**, 우리는 거기에 ingress 규칙 한 줄을
+> 더했다. 아래 세 가지가 그 결과이며, **모르고 건드리면 남의 서비스가 끊긴다.**
+>
+> | 사실 | 뜻 |
+> |---|---|
+> | 커넥터는 **호스트의 systemd**다 (`/usr/local/bin/cloudflared`) | compose의 `cloudflared` 서비스(profile `tunnel`)는 **쓰지 않는다** |
+> | ingress는 **로컬 파일** `/etc/cloudflared/config.yml`이 정한다 | 대시보드에서 Public hostname을 추가해도 반영되지 않는다 |
+> | catch-all이 **ourtax**(`localhost:8000`)로 간다 | 우리 규칙은 **반드시 catch-all 앞에** 둔다 |
 
-1. **Cloudflare 대시보드** → Zero Trust → Networks → Tunnels → 터널 생성
-2. Public hostname을 추가하고 서비스를 **`http://backend:8000`**으로 지정한다 — `cloudflared`가 `cii-app-net`에 붙어 있어 그 이름으로 닿는다
-3. 커넥터 **토큰**을 복사해 GitHub 시크릿 **`CLOUDFLARE_TUNNEL_TOKEN`**에 넣는다
-4. 2번에서 받은 **호스트명**을 시크릿 **`API_ORIGIN`**에 넣는다 (`https://` 포함)
-5. 배포하면 `cloudflared`가 뜨고 `wrangler.toml`이 그 호스트명으로 렌더된다
+#### 3.5.1 지금 구성
 
-#### 3.5.2 확인
-
-```bash
-curl -i https://bluelog-bx7.pages.dev/api/v1/health
-# 200 → 성공
-# 403 (error 1003) → API_ORIGIN이 아직 IP다
+```
+브라우저 → bluelog-bx7.pages.dev (Pages Function)
+             │ API_ORIGIN
+             ▼
+        https://bluelog-api.kpubdata.com        ← CNAME → 26dac387-….cfargotunnel.com (proxied)
+             ▼
+        app-01 systemd cloudflared (터널 26dac387-…, ourtax와 공유)
+             ├─ hostname: bluelog-api.kpubdata.com → http://localhost:8001   (cii-backend)
+             └─ service(catch-all)                → http://localhost:8000   (ourtax-backend)
 ```
 
-#### 3.5.3 되돌리기
+`/etc/cloudflared/config.yml`:
 
-전 단계가 가역적이다. **`:8001`을 먼저 닫지 않는 것**이 요점 — 터널이 검증될 때까지 직접 호출로 원인을 가릴 수단을 남긴다.
+```yaml
+tunnel: ourtax-backend
+ingress:
+  - hostname: bluelog-api.kpubdata.com
+    service: http://localhost:8001
+  - service: http://localhost:8000     # ourtax — 반드시 마지막
+```
+
+> **왜 `http://localhost:8001`인가** — 커넥터가 **호스트에서** 돌기 때문이다. compose의 컨테이너
+> 커넥터였다면 `http://backend:8000`(도커 네트워크 이름)이었을 것이다. 둘을 바꿔 적으면 502가 난다.
+
+#### 3.5.2 GitHub 시크릿
+
+| 시크릿 | 값 | 비고 |
+|---|---|---|
+| `API_ORIGIN` | `https://bluelog-api.kpubdata.com` | 배포가 `wrangler.toml`에 렌더한다. 없으면 `deploy-frontend`가 **의도적으로 멈춘다** |
+| `CLOUDFLARE_TUNNEL_TOKEN` | **비워 둔다** | ⚠️ 아래 참조 |
+
+> ⚠️ **`CLOUDFLARE_TUNNEL_TOKEN`을 등록하지 않는다 (의도).** 등록하면 compose가 `cloudflared`
+> 컨테이너를 띄워 **같은 터널에 커넥터가 둘**이 된다. 배포 로그의
+> `::warning:: CLOUDFLARE_TUNNEL_TOKEN 미설정 — 터널을 띄우지 않는다`는 **이 구성에서 정상이며,
+> 「고쳐야 할 경고」가 아니다.** 터널은 호스트 systemd가 이미 제공한다.
+
+#### 3.5.3 호스트명을 추가·변경할 때
+
+대시보드가 아니라 **VM에서** 한다.
+
+```bash
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10
+sudo cp /etc/cloudflared/config.yml /etc/cloudflared/config.yml.bak.$(date +%Y%m%d%H%M%S)
+sudo vi /etc/cloudflared/config.yml            # 새 hostname 규칙은 catch-all **앞**에
+sudo cloudflared --config /etc/cloudflared/config.yml tunnel ingress validate   # → OK 확인 필수
+sudo systemctl restart cloudflared             # ⚠️ 재시작 수 초간 ourtax도 함께 끊긴다
+```
+
+DNS는 Cloudflare에 CNAME으로 만든다 — `<이름>` → `26dac387-2f05-49a5-b807-5172001c2382.cfargotunnel.com`, **proxied**. `ourtax-api.kpubdata.com`이 같은 모양이다.
+
+#### 3.5.4 확인
+
+```bash
+curl -i https://bluelog-bx7.pages.dev/api/v1/health   # 200 → 성공
+curl -i https://bluelog-api.kpubdata.com/api/v1/health # 터널만 검증 (Pages를 건너뛴다)
+curl -i http://131.186.22.10:8001/api/v1/health        # 백엔드만 검증 (터널을 건너뛴다)
+```
+
+| 증상 | 원인 |
+|---|---|
+| `403` · `error code: 1003` | `API_ORIGIN`이 **IP**다. Workers는 IP로 요청하지 못한다 |
+| `1033` | DNS는 터널을 가리키는데 **ingress에 그 hostname 규칙이 없다** |
+| ourtax 응답(`{"detail":"Not Found"}`)이 온다 | 규칙을 **catch-all 뒤에** 넣었다 |
+| `502` | ingress의 `service:` 주소가 틀렸다(`localhost:8001` ↔ `backend:8000` 혼동) |
+
+#### 3.5.5 되돌리기
+
+**`:8001`을 먼저 닫지 않는 것**이 요점 — 터널이 검증될 때까지 직접 호출로 원인을 가릴 수단을 남긴다.
 
 | 단계 | 되돌리는 법 |
 |---|---|
-| `cloudflared` | `docker compose -f docker-compose.prod.app.yml stop cloudflared` |
-| `API_ORIGIN` | 시크릿을 되돌리고 재배포 (값이 저장소에 없으므로 커밋 되돌리기가 필요 없다) |
-| 터널 | 대시보드에서 삭제. 비용 0 |
-
-⚠️ **되돌려도 로그인은 되지 않는다.** 이 배포본은 로그인이 된 적이 한 번도 없다 — 되돌리기는 「지금보다 나아짐」이 아니라 **「더 나빠지지 않음」**이다.
+| ingress | `sudo cp /etc/cloudflared/config.yml.bak.<타임스탬프> /etc/cloudflared/config.yml && sudo systemctl restart cloudflared` |
+| DNS | `bluelog-api.kpubdata.com` 레코드 삭제 |
+| `API_ORIGIN` | 시크릿을 지우고 재배포 — `deploy-frontend`가 다시 멈춘다(값이 저장소에 없으므로 커밋 되돌리기는 필요 없다) |
+| 터널 자체 | 🔴 **삭제하지 않는다.** ourtax가 같은 터널을 쓴다 |
 
 ### 3.6 롤백
 
@@ -624,6 +684,11 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `CORS_ALLOW_ORIGINS` | 프론트엔드 오리진 | `https://bluelog-bx7.pages.dev` |
 | `APP_PUBLIC_URL` | 메일 링크 기준 주소 | `https://bluelog-bx7.pages.dev` |
 | `INITIAL_ADMIN_EMAILS` | **최초 관리자** 이메일(쉼표 구분). 여기 든 주소는 **가입·로그인할 때마다** 관리자로 맞춰진다 — 「처음 한 번」이 아니라 「항상 관리자인 사람」이다. ⚠️ **비면 관리자 0명으로 뜨고 화면으로는 아무도 역할을 올릴 수 없다** (`#672` · `#1301`). `APP_ENV=production`이면 기동이 거부되지만 **`staging`에는 그 가드가 없어 조용히 뜬다** — 배포 기본값이 `staging`이므로(`#1478`) **반드시 등록한다** (`#1475`) | `a@ex.com,b@ex.com` |
+| `CLOUDFLARE_API_TOKEN` | **Cloudflare Pages 배포 토큰**(Pages:Edit). 없으면 `deploy-frontend`가 자격증명 점검에서 멈춰 **화면이 영원히 옛 판**으로 남는다 — 실제로 8회 연속 실패했다 (`#1236` · `#1479`) | |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 계정 ID (§6.1 공개값) | `22abb4f21a4c7886292a2a0ecadf331b` |
+| `API_ORIGIN` | Pages Function이 백엔드를 부를 **호스트명**(`https://` 포함 · §3.5). ⚠️ **IP를 넣으면 프록시가 403(`error 1003`)을 낸다** — Workers는 IP로 요청하지 못한다 (`#1496`) | `https://bluelog-api.kpubdata.com` |
+
+> **위 넷은 「필수」의 뜻이 서로 다르다.** 앞의 9종이 없으면 **백엔드 배포**가 서고, `CLOUDFLARE_*`·`API_ORIGIN`이 없으면 **화면 배포**가 선다. 잡이 갈라져 있어 한쪽이 빨간불이어도 다른 쪽은 초록불이므로, **`Deploy to OCI` 실행의 5잡이 모두 초록불인지**로 확인한다 (`#1201` · `#1479` · `#1496`이 전부 이 자리에서 났다).
 
 ### 5.2 권장 시크릿
 
@@ -645,6 +710,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | 시크릿 | 설명 |
 |--------|------|
 | `APP_ENV` | 배포 환경. **비워 두면 `staging`** (`#524` — SMTP 미설정 배포의 정상 경로 · §4.5). `SMTP_*`를 등록한 뒤 `production`으로 바꾼다. 비워 둔 채로도 `deploy.yml`이 `.env`에 `APP_ENV=staging`을 렌더링하므로 compose 기본값(`production`)으로 떨어지지 않는다 (`#1201`). |
+| `CLOUDFLARE_TUNNEL_TOKEN` | 🔴 **비워 둔다 (의도).** 터널 커넥터는 app-01의 **systemd `cloudflared`**가 이미 제공하며 `ourtax`와 공유한다(§3.5). 등록하면 compose가 커넥터를 **하나 더** 띄운다. 배포 로그의 `::warning:: CLOUDFLARE_TUNNEL_TOKEN 미설정`은 **정상 상태의 표시**다 |
 | `LLM_API_KEY` | Anthropic Claude API 키 (챗봇 기능. 비어있으면 챗봇만 비활성) |
 
 ---
