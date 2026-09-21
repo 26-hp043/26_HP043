@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { FleetDashboard } from './FleetDashboard'
+import { regulationParametersPath } from '../parameters/referenceRules'
 
 /**
  * 지도는 대역으로 둔다 (`#1091`).
@@ -304,3 +305,127 @@ describe('정렬 변경 · 추가 조회 경합 (#1092)', () => {
   })
 })
 
+
+/**
+ * 규제 기준값 절과의 연결 (`#1516` · `#1239` 결정 A·B).
+ *
+ * ⑴ 「적용 기준」 한 줄은 규정 연도 표에서 **대시보드가 계산에 쓴 연도의 활성 행**을 찾아
+ * 만든다 — 없으면 줄 자체가 없다(값을 지어내지 않는다). ⑵ 「기준값 없음」 선박에는
+ * 기존 안내 문구를 그대로 둔 채 절로 가는 링크가 붙는다.
+ */
+describe('규제 기준값 절과의 연결 (#1516)', () => {
+  function stubWithYears(
+    years: Array<Record<string, unknown>>,
+    vessels: Array<Record<string, unknown>> = [vessel('v1', '가선')],
+  ) {
+    const body = page(vessels as ReturnType<typeof vessel>[], { next_cursor: null, has_more: false })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = new URL(String(input), 'https://x')
+        if (url.pathname.endsWith('/parameters/regulation-years')) {
+          return { ok: true, status: 200, json: async () => ({ data: years }) } as Response
+        }
+        return { ok: true, status: 200, json: async () => body } as Response
+      }),
+    )
+  }
+
+  const YEAR_2026 = {
+    year: 2026,
+    z_factor_percent: '11.0',
+    effective_from: '2026-01-01',
+    source_ref: 'MEPC.400(83)',
+    version: '2025-q2',
+    is_active: true,
+  }
+
+  it('계산 연도의 활성 행이 있으면 출처·감축률을 문자열 그대로 실은 한 줄이 있다', async () => {
+    stubWithYears([YEAR_2026])
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+
+    const line = await screen.findByTestId('fleet-baseline')
+    const text = line.textContent ?? ''
+    expect(text).toContain('MEPC.400(83)')
+    expect(text).toContain('11.0%')
+    expect(within(line).getByRole('link').getAttribute('href')).toBe(regulationParametersPath())
+  })
+
+  it('계산 연도의 행이 없으면 한 줄을 그리지 않는다 — 다른 연도의 값을 붙이지 않는다', async () => {
+    stubWithYears([{ ...YEAR_2026, year: 2025 }])
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('가선')
+    expect(screen.queryByTestId('fleet-baseline')).toBeNull()
+  })
+
+  it('규정 연도 조회가 실패해도 선대 현황은 그대로 뜬다', async () => {
+    const body = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = new URL(String(input), 'https://x')
+        if (url.pathname.endsWith('/parameters/regulation-years')) {
+          return { ok: false, status: 500, json: async () => ({}) } as Response
+        }
+        return { ok: true, status: 200, json: async () => body } as Response
+      }),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText('가선')).toBeTruthy()
+    expect(screen.queryByTestId('fleet-baseline')).toBeNull()
+  })
+
+  it('「기준값 없음」 선박에는 안내 문구와 함께 절로 가는 링크가 붙는다', async () => {
+    const missing = {
+      ...vessel('v2', '나선'),
+      data_available: false,
+      ytd_attained_cii: null,
+      ytd_required_cii: null,
+      ytd_rating: null,
+      unavailable_reason: 'NO_PARAMETERS',
+    }
+    stubWithYears([], [vessel('v1', '가선'), missing])
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('나선')
+    const links = screen
+      .getAllByRole('link')
+      .filter((link) => link.getAttribute('href') === regulationParametersPath())
+    // 기준값 없음 선박 한 척 → 링크 하나. 실적이 있는 선박에는 붙지 않는다.
+    expect(links).toHaveLength(1)
+    const row = links[0].closest('li') as HTMLElement
+    expect(within(row).getByText('나선')).toBeTruthy()
+  })
+
+  it('실적이 있는 선박에는 그 링크가 없다', async () => {
+    stubWithYears([])
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('가선')
+    expect(
+      screen.getAllByRole('link').some((link) => link.getAttribute('href') === regulationParametersPath()),
+    ).toBe(false)
+  })
+})

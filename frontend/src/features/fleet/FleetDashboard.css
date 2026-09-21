@@ -41,6 +41,25 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * 「적용 기준 — 출처 · 연도 감축률」 한 줄 (#1516). 기준 시각과 같은 급의 메타 정보라
+ * 같은 크기·색이고, 절로 가는 링크를 곁들인다.
+ */
+.fleet__baseline {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.fleet__baseline-link {
+  color: var(--color-link);
+}
+
 .fleet__loading {
   margin: 0;
   padding: var(--spacing-2xl);
@@ -767,6 +786,26 @@
 
 .vessel__days {
   color: var(--text-secondary);
+}
+
+/*
+ * 「기준값 없음」 선박 카드 아래 안내 + 링크 (#1516). 카드 링크(`.vessel__link`) 밖에
+ * 놓이므로 같은 안쪽 여백을 주어 카드 본문과 줄이 맞는다.
+ */
+.vessel__note {
+  margin: 0;
+  padding: 0 var(--spacing-md) var(--spacing-md);
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+  word-break: keep-all;
+}
+
+.vessel__note-link {
+  color: var(--color-link);
+  white-space: nowrap;
 }
 
 /* ── 데이터 출처 문구 — PRD §6.3 ───────────────────────────────── */

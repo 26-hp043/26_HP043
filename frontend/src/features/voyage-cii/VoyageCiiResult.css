@@ -388,3 +388,9 @@
 .voyage-cii-result__basis-table {
   margin-block-start: var(--space-12);
 }
+
+/* 「계산 근거」 패널 끝의 「규제 기준값 전체 보기」 (#1516) — 표 아래 한 줄, 표와 같은 크기. */
+.voyage-cii-result__basis-link {
+  margin: var(--space-12) 0 0;
+  font-size: var(--font-size-label);
+}

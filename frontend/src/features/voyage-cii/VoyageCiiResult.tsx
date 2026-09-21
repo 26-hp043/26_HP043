@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
+import { Link } from 'react-router'
 import './VoyageCiiResult.css'
 import {
   DISPLAY_DIGITS,
@@ -24,6 +25,7 @@ import type { AnnualImpact, VoyageCiiResponse } from './types'
 import { ErrorState } from '../../components/ErrorState'
 import { Icon } from '../../components/Icon'
 import { useShowsLabelEn } from '../../i18n/core'
+import { regulationParametersPath } from '../parameters/referenceRules'
 
 /**
  * 「연간 반영 시 변화」의 표시 값 — `PRD §10.4` 행 (`#1338`).
@@ -444,6 +446,15 @@ function CalculationBasisPanel({ response }: { response: VoyageCiiResponse }) {
           ))}
         </tbody>
       </table>
+
+      {/*
+        이 패널은 **이 계산이 쓴** 값만 보인다. 다른 선종·연도의 값, 대체된 옛 판본, 원문
+        표기(`a_raw`)는 설정의 「규제 기준값」 절에 있다 (#1516 · `#1239` 결정 B) — 대조하러
+        온 사람이 여기서 막히지 않게 잇는다.
+      */}
+      <p className="voyage-cii-result__basis-link">
+        <Link to={regulationParametersPath()}>규제 기준값 전체 보기</Link>
+      </p>
     </details>
   )
 }

@@ -566,3 +566,15 @@
   line-height: var(--line-height-label);
   text-align: right;
 }
+
+/*
+ * 「기준 (required)」 아래 「기준값 근거」 링크 (#1516). `.rt__figure-hint`와 같은 자리라
+ * 34px·700을 물려받는 것을 같은 값으로 되돌린다 — 링크는 값이 아니라 값의 출처다.
+ */
+.rt__figure-link {
+  display: block;
+  margin-block-start: var(--spacing-xs);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-micro);
+}

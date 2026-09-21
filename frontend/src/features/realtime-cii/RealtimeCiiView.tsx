@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
@@ -21,6 +21,7 @@ import {
   toDecimalInput,
 } from '../../display/format'
 import { createApiRealtimeCiiProvider, RealtimeCiiError } from './apiProvider'
+import { regulationParametersPath } from '../parameters/referenceRules'
 import {
   POLL_INTERVAL_MS,
   RATING_TRANSITION_TEXT,
@@ -378,11 +379,21 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
                   formatDecimalString(v, DISPLAY_DIGITS.cii),
                 )}
               />
+              {/*
+                「왜 이 등급인가」의 출발점 (#1516 · `#1239` 결정 B·D). 기준값은
+                `a`·`c` × (1 − Z/100)에서 오는데 그 상수가 어디에도 보이지 않았다 —
+                설정의 「규제 기준값」 절로 잇는다. 현장직도 이 사슬을 끝까지 따라간다.
+              */}
               <Figure
                 label="기준 (required)"
                 value={formatOrNull(data.ytd.requiredCii, (v) =>
                   formatDecimalString(v, DISPLAY_DIGITS.cii),
                 )}
+                link={
+                  <Link className="rt__figure-link" to={regulationParametersPath()}>
+                    기준값 근거
+                  </Link>
+                }
               />
               {/*
                 누적 거리를 운항·정박으로 쪼갠다 (#725). 위의 정박 경고가 「거리는
@@ -515,10 +526,13 @@ function Figure({
   value,
   suffix = '',
   hint = null,
+  link = null,
 }: {
   label: string
   value: string | null
   suffix?: string
+  /** 값 아래 링크 — 그 값의 근거가 있는 자리로 (#1516). `hint`처럼 `<dd>` 안이다. */
+  link?: ReactNode
   /**
    * 값 아래 한 줄 — **그 값이 무엇으로 이루어졌는가** (`#725`).
    *
@@ -534,6 +548,7 @@ function Figure({
       <dd className={value ? 'num' : 'num muted'}>
         {value ? `${value}${suffix}` : '—'}
         {hint ? <span className="rt__figure-hint">{hint}</span> : null}
+        {link}
       </dd>
     </div>
   )

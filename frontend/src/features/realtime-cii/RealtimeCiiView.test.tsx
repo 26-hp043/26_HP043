@@ -2,12 +2,13 @@
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
 import { RealtimeCiiView } from './RealtimeCiiView'
 import { RealtimeCiiError } from './apiProvider'
 import { POLL_INTERVAL_MS } from './realtimeRules'
 import type { RealtimeCii, RealtimeCiiProvider } from './types'
+import { regulationParametersPath } from '../parameters/referenceRules'
 
 /**
  * 폴링 실패가 화면을 비우지 않는다 (`#755`).
@@ -615,5 +616,22 @@ describe('면책은 한 번만 (#1416)', () => {
 
     await screen.findAllByText(/참고용 예측값/)
     expect(document.querySelector('.rt__warnings')).toBeNull()
+  })
+})
+
+/**
+ * 「기준 (required)」 옆의 「기준값 근거」 링크 (`#1516` · `#1239` 결정 B·D).
+ *
+ * 현장직의 「왜 이 등급인가」 사슬은 여기서 시작한다 — required → `a`·`c` × Z → d. 링크의
+ * **목적지**가 설정의 절 앵커인지를 본다.
+ */
+describe('기준값 근거 링크 (#1516)', () => {
+  it('연간 누적 카드 안에 절 앵커로 가는 링크가 있다', async () => {
+    const provider: RealtimeCiiProvider = { load: vi.fn(async () => BASE) }
+    renderView(provider)
+
+    const card = await screen.findByRole('region', { name: '연간 누적 CII' })
+    const links = within(card).getAllByRole('link')
+    expect(links.some((link) => link.getAttribute('href') === regulationParametersPath())).toBe(true)
   })
 })

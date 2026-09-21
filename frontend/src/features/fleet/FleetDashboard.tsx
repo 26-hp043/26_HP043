@@ -22,6 +22,11 @@ const FleetMap = lazy(() => import('./FleetMap').then((m) => ({ default: m.Fleet
 import { BASEMAP_MISSING_NOTICE, hasBasemap } from './basemap'
 import { createApiFleetProvider } from './apiProvider'
 import {
+  createApiReferenceParametersProvider,
+  type RegulationYearRow,
+} from '../parameters/referenceApiProvider'
+import { appliedBaselineText, regulationParametersPath } from '../parameters/referenceRules'
+import {
   daysToDText,
   isAtRisk,
   relativeTime,
@@ -92,6 +97,13 @@ export function FleetDashboard() {
    */
   const generationRef = useRef(0)
   const provider = useMemo(() => createApiFleetProvider(), [])
+  /*
+   * 「적용 기준」 한 줄의 재료 (`#1516` · `#1239` 결정 B). 규정 연도 표를 한 번 받아
+   * 대시보드가 계산에 쓴 연도(`snapshot.regulationYear`)의 활성 행을 찾는다. **실패해도
+   * 아무 것도 하지 않는다** — 이 줄은 부속이고, 선대 현황이 뜨는 데 조건이 아니다.
+   */
+  const referenceProvider = useMemo(() => createApiReferenceParametersProvider(), [])
+  const [regulationYears, setRegulationYears] = useState<RegulationYearRow[]>([])
 
   // 정렬이 바뀌면 첫 페이지부터 다시 받는다 — 서버가 정렬한다(#772).
   useEffect(() => {
@@ -103,6 +115,19 @@ export function FleetDashboard() {
       alive = false
     }
   }, [])
+
+  useEffect(() => {
+    let alive = true
+    referenceProvider.listRegulationYears().then(
+      (rows) => {
+        if (alive) setRegulationYears(rows)
+      },
+      () => undefined,
+    )
+    return () => {
+      alive = false
+    }
+  }, [referenceProvider])
 
   useEffect(() => {
     let alive = true
@@ -216,6 +241,7 @@ export function FleetDashboard() {
         asOf={snapshot.asOf}
         regulationYear={snapshot.regulationYear}
         total={counts.total}
+        baseline={appliedBaselineText(regulationYears, snapshot.regulationYear)}
       />
 
       {/*
@@ -483,10 +509,13 @@ function FleetHead({
   asOf,
   regulationYear,
   total,
+  baseline = null,
 }: {
   asOf?: string
   regulationYear?: number
   total?: number
+  /** 「적용 기준 — 출처 · 연도 감축률」 한 줄. 그 연도의 활성 행이 없으면 `null`이고 그리지 않는다. */
+  baseline?: string | null
 }) {
   return (
     <PageHeader screen="MAINBOARD">
@@ -508,6 +537,19 @@ function FleetHead({
             기준 {formatTimestamp(asOf)}
           </span>
           <span className="fleet__asof-rel">{relativeTime(asOf, new Date())}</span>
+        </p>
+      ) : null}
+      {/*
+       * 어느 규정 판본으로 계산했는가 (`#1516` · `#1239` 결정 B). 개정 다음 날 이 화면의
+       * 등급이 어제와 다를 때, 사용자가 처음 확인할 것이 이 줄이다. 값을 지어내지 않는다 —
+       * 그 연도의 행이 없으면 줄 자체가 없다(`appliedBaselineText`).
+       */}
+      {baseline !== null ? (
+        <p className="fleet__baseline" data-testid="fleet-baseline">
+          <span>{baseline}</span>
+          <Link className="fleet__baseline-link" to={regulationParametersPath()}>
+            규제 기준값
+          </Link>
         </p>
       ) : null}
     </PageHeader>
@@ -622,6 +664,20 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
           </span>
         </span>
       </Link>
+      {/*
+       * 「기준값 없음」은 사용자가 할 수 있는 것이 없는 사유다 — 안내가 「운영자에게
+       * 문의하세요」로 끝나는데 그 운영자가 갈 자리가 없었다 (`#1516` · `#1239` 결정 A).
+       * 문구는 그대로 두고(`unavailableHint`) 그 자리로 가는 링크를 덧붙인다. 카드 링크
+       * 안에 링크를 겹칠 수 없으므로 카드 아래 한 줄이다.
+       */}
+      {!vessel.dataAvailable && vessel.unavailableReason === 'NO_PARAMETERS' ? (
+        <p className="vessel__note">
+          <span>{unavailableHint(vessel.unavailableReason)}</span>
+          <Link className="vessel__note-link" to={regulationParametersPath()}>
+            규제 기준값 보기
+          </Link>
+        </p>
+      ) : null}
     </li>
   )
 }
