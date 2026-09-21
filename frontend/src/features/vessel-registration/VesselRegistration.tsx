@@ -22,7 +22,10 @@ import {
   SAMPLE_FILLED_FIELDS,
   SAMPLE_LOAD_FAILED_MESSAGE,
   applySample,
+  hasDivergedFields,
+  sampleOverwriteConfirmMessage,
   useSampleVessels,
+  type SampleVessel,
 } from './sampleVessels'
 import { SHIP_TYPES, shipTypeLabel } from './shipTypes'
 import type { Vessel } from './types'
@@ -75,13 +78,35 @@ export function VesselRegistration() {
   const [registered, setRegistered] = useState<Vessel | null>(null)
   const { samples, loading: samplesLoading, failed: samplesFailed } = useSampleVessels()
   const [sampleId, setSampleId] = useState('')
+  // 마지막으로 적용한 샘플 (`#1526`). `hasDivergedFields`가 이 값을 기준으로 사용자가
+  // 직접 고친 칸이 있는지 판정한다 — 없으면(첫 선택이면) 빈 폼 여부로 판정한다.
+  const [lastAppliedSample, setLastAppliedSample] = useState<SampleVessel | null>(null)
 
-  /** 샘플을 고르면 제원을 채우고 **채운 필드의 오류만** 지운다. 비우면 아무것도 바꾸지 않는다. */
+  /**
+   * 샘플을 고르면 제원을 채우고 **채운 필드의 오류만** 지운다. 비우면 아무것도 바꾸지 않는다.
+   *
+   * `#1526` — 마지막으로 적용한 샘플과 달라진(=사용자가 직접 남긴) 값이 있으면 덮기 전에
+   * 한 번 확인한다(`hasDivergedFields`). 빈 폼에서 고르거나 샘플→샘플로 바로 바꾸는 것은
+   * 묻지 않는다. 취소하면 아무것도 바꾸지 않는다 — 선택 상자도 이전 값 그대로 둔다.
+   */
   function chooseSample(id: string) {
-    setSampleId(id)
     const sample = samples.find((s) => s.sample_id === id)
-    if (!sample) return
+    if (!sample) {
+      // 선택 해제(id === ''). 제원 칸은 여전히 `lastAppliedSample`이 채운 값을 담고
+      // 있으므로 그 값은 그대로 둔다 — 지우면 다음에 같은 샘플을 다시 골랐을 때
+      // 「바뀐 게 없는데도 확인을 구하는」 오탐이 생긴다.
+      setSampleId(id)
+      return
+    }
+    if (
+      hasDivergedFields(state, lastAppliedSample, sample) &&
+      !globalThis.confirm(sampleOverwriteConfirmMessage())
+    ) {
+      return
+    }
+    setSampleId(id)
     setState((prev) => applySample(prev, sample))
+    setLastAppliedSample(sample)
     setErrors((prev) => {
       const next = { ...prev }
       for (const field of SAMPLE_FILLED_FIELDS) delete next[field]
@@ -121,6 +146,10 @@ export function VesselRegistration() {
       // 폼을 비운다 — 같은 값이 남아 있으면 두 번째 제출이 409를 맞는다.
       setState(initialFormState())
       setSampleId('')
+      // 빈 폼이 됐으니 「마지막 적용 샘플」도 함께 잊는다 — 다음 선택은 빈 폼에서
+      // 고르는 것과 같다(`hasDivergedFields`가 어차피 빈 칸은 건드리지 않지만,
+      // 이전 등록의 샘플을 들고 있을 이유가 없다).
+      setLastAppliedSample(null)
       setErrors({})
     } catch (error) {
       setErrors(toFormErrors(error))
@@ -225,14 +254,15 @@ export function VesselRegistration() {
 
           ## 왜 맨 아래가 아닌가
 
-          `applySample`은 선종·제원 여섯 칸을 **조건 없이 덮어쓰고, 샘플에 값이 없는
-          칸은 비운다**(두 샘플이 섞인 제원을 막으려고 그렇게 정했다). 첫 섹션일
-          때는 아무것도 입력하기 전에 고르므로 덮을 것이 없었다. 등록 버튼 위로
-          내리면 **제원을 다 입력한 뒤에 샘플을 만나고, 고르면 그 입력이 통째로
-          사라진다.**
+          `applySample`은 선종·제원 여섯 칸을 덮어쓰고, 샘플에 값이 없는 칸은
+          비운다(두 샘플이 섞인 제원을 막으려고 그렇게 정했다). 첫 섹션일 때는
+          아무것도 입력하기 전에 고르므로 덮을 것이 없었다. 등록 버튼 위로 내리면
+          **제원을 다 입력한 뒤에 샘플을 만난다** — 그래서 직접 입력한 값이 있으면
+          덮기 전에 한 번 확인한다(`#1526`, `hasDivergedFields`). 빈 폼에서 고르거나
+          샘플→샘플로 바로 바꾸는 것은 묻지 않는다.
 
-          여기라면 덮이는 것은 바로 위의 선종 한 칸뿐이고, 「제원을 모르면 샘플에서」가
-          자기가 채우는 섹션 바로 앞에서 읽힌다. **동작은 바꾸지 않았다.**
+          여기라면 확인이 필요할 일은 바로 위의 선종 한 칸뿐이고, 「제원을 모르면
+          샘플에서」가 자기가 채우는 섹션 바로 앞에서 읽힌다.
         */}
         <fieldset className="vessel-registration__fieldset">
           <legend className="vessel-registration__legend">샘플 선박 · 선택 입력</legend>
@@ -241,7 +271,7 @@ export function VesselRegistration() {
               id="sample-vessel"
               label="샘플 선박에서 채우기"
               labelEn="Sample Vessel"
-              hint="선종·제원을 샘플 값으로 바꿉니다 — 직접 입력한 값도 덮습니다. IMO 번호·선명은 그대로 둡니다."
+              hint="선종·제원을 샘플 값으로 채웁니다 — 직접 적은 값이 있으면 바꾸기 전에 묻습니다. IMO 번호·선명은 그대로 둡니다."
             >
               {(control) => (
                 <select

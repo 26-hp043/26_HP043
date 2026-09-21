@@ -83,6 +83,18 @@ function fillRequired(imo: string, name: string) {
   fireEvent.change(screen.getByLabelText(/^선종/), { target: { value: 'BULK_CARRIER' } })
 }
 
+/**
+ * IMO·선명만 채운다 — 선종은 손대지 않는다.
+ *
+ * `#1526`의 「빈 폼」은 `hasDivergedFields`가 보는 여섯 칸(선종 포함) 기준이다.
+ * `fillRequired`는 선종까지 고르므로, 그 여섯 칸을 정말 비워 두고 싶은
+ * 샘플-덮어쓰기-확인 테스트에서는 이 헬퍼를 쓴다.
+ */
+function fillIdentity(imo: string, name: string) {
+  fireEvent.change(screen.getByLabelText(/^IMO 번호/), { target: { value: imo } })
+  fireEvent.change(screen.getByLabelText(/^선명/), { target: { value: name } })
+}
+
 afterEach(() => {
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -124,6 +136,10 @@ describe('등록 폼의 입력 순서 (#1423)', () => {
 
   it('샘플을 고르면 제원이 채워지고 IMO·선명은 그대로다 — 옮겨도 동작은 같다', async () => {
     stubFetch([])
+    // `fillRequired`가 선종을 직접 고른다(`#1526` 기준 여섯 칸 중 하나). 그 선종이
+    // 고르는 샘플과 다르면 확인창이 뜨므로 승인으로 둔다 — 이 검사가 보는 것은
+    // 「채워지고 IMO·선명은 그대로다」이지 확인 여부가 아니다.
+    vi.stubGlobal('confirm', vi.fn(() => true))
     render(
       <MemoryRouter>
         <VesselRegistration />
@@ -183,5 +199,82 @@ describe('등록 결과 카드 (#1102 ⑷)', () => {
     expect(await screen.findByText('이미 등록된 IMO 번호입니다.')).toBeTruthy()
     // 실패한 시도 옆에 이전 성공 카드가 있으면 실패한 쪽이 등록된 것처럼 읽힌다.
     await waitFor(() => expect(screen.queryByText('등록 완료')).toBeNull())
+  })
+})
+
+/**
+ * 샘플 덮어쓰기 확인 (`#1526`).
+ *
+ * 판정 자체(`hasDivergedFields`)는 `sampleVessels.test.ts`가 순수 함수로 잠근다.
+ * 여기서는 화면이 그 판정으로 `confirm()`을 부르는지 · 취소하면 실제로 아무것도
+ * 바꾸지 않는지를 본다.
+ */
+describe('샘플 덮어쓰기 확인 (#1526)', () => {
+  it('빈 폼에서 고르면 확인을 구하지 않는다', async () => {
+    stubFetch([])
+    const confirmSpy = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirmSpy)
+    render(
+      <MemoryRouter>
+        <VesselRegistration />
+      </MemoryRouter>,
+    )
+    fillIdentity('9000001', '알파호')
+
+    fireEvent.change(await screen.findByLabelText(/^샘플 선박에서 채우기/), {
+      target: { value: 's1' },
+    })
+
+    await waitFor(() =>
+      expect((screen.getByLabelText(/^재화중량톤수/) as HTMLInputElement).value).toBe('50000'),
+    )
+    expect(confirmSpy).not.toHaveBeenCalled()
+  })
+
+  it('직접 입력한 값이 있으면 확인을 구하고, 취소하면 값도 선택도 그대로다', async () => {
+    stubFetch([])
+    const confirmSpy = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirmSpy)
+    render(
+      <MemoryRouter>
+        <VesselRegistration />
+      </MemoryRouter>,
+    )
+    fillIdentity('9000001', '알파호')
+    fireEvent.change(await screen.findByLabelText(/^재화중량톤수/), {
+      target: { value: '12345' },
+    })
+
+    const select = (await screen.findByLabelText(
+      /^샘플 선박에서 채우기/,
+    )) as HTMLSelectElement
+    fireEvent.change(select, { target: { value: 's1' } })
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    // 취소했으니 직접 넣은 값이 남고, 선택 상자도 적용하지 않은 채 그대로다.
+    expect((screen.getByLabelText(/^재화중량톤수/) as HTMLInputElement).value).toBe('12345')
+    expect(select.value).toBe('')
+  })
+
+  it('직접 입력한 값이 있어도 확인하면 샘플 값으로 덮는다', async () => {
+    stubFetch([])
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    render(
+      <MemoryRouter>
+        <VesselRegistration />
+      </MemoryRouter>,
+    )
+    fillIdentity('9000001', '알파호')
+    fireEvent.change(await screen.findByLabelText(/^재화중량톤수/), {
+      target: { value: '12345' },
+    })
+
+    fireEvent.change(await screen.findByLabelText(/^샘플 선박에서 채우기/), {
+      target: { value: 's1' },
+    })
+
+    await waitFor(() =>
+      expect((screen.getByLabelText(/^재화중량톤수/) as HTMLInputElement).value).toBe('50000'),
+    )
   })
 })
