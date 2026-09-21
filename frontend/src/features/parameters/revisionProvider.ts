@@ -25,7 +25,7 @@ export class RevisionError extends Error {
   }
 }
 
-export interface RevisionPage {
+interface RevisionPage {
   events: ParameterRevisionEvent[]
   nextCursor: string | null
 }
@@ -40,7 +40,7 @@ export interface ParameterRevisionProvider {
 }
 
 /** 한 번에 불러오는 이력 수. 개정은 드문 사건이라 첫 화면에 대부분 들어간다. */
-export const REVISION_PAGE_SIZE = 20
+const REVISION_PAGE_SIZE = 20
 
 interface ServerError {
   error?: { message?: string; details?: Array<{ field?: string }> }

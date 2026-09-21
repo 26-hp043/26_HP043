@@ -27,7 +27,7 @@ export type ParameterKind =
   | 'rating_boundaries'
   | 'fuel_types'
 
-export interface ParameterKindSpec {
+interface ParameterKindSpec {
   kind: ParameterKind
   label: string
   /**
