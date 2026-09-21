@@ -170,8 +170,8 @@
     },
     "content-width": {
       "$type": "number",
-      "$value": 1680,
-      "$description": "1920 - GNB 240",
+      "$value": 1608,
+      "$description": "1920 - 외곽 24 - GNB 240 - gap 24 - 외곽 24",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:276",
         "com.figma.scopes": [
@@ -201,7 +201,8 @@
     },
     "margin": {
       "$type": "number",
-      "$value": 32,
+      "$value": 24,
+      "$description": "페이지 외곽 여백 (DESIGN_SYSTEM §6 · §7.1)",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:279",
         "com.figma.scopes": [
