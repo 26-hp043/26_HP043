@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   daysToDText,
+  daysValueText,
+  showsDaysToD,
   distributionAria,
   distributionSlots,
   gradeDistributionSegments,
@@ -358,5 +360,28 @@ describe('등급 자리 — 픽토그램용', () => {
     const distribution = dist({ B: 1, D: 1, E: 2 })
     expect(distributionSlots(distribution)).toHaveLength(5)
     expect(gradeDistributionSegments(distribution)).toHaveLength(3)
+  })
+})
+
+describe('daysValueText · showsDaysToD (#1569)', () => {
+  it('남은 일수만 — 자릿수·단위는 daysToDText와 같다', () => {
+    expect(daysValueText(36)).toBe('36일')
+    expect(daysValueText(12.5)).toBe('13일')
+    expect(daysToDText(12.5, null)).toBe(`D등급까지 ${daysValueText(12.5)}`)
+  })
+
+  it('이미 D 이하면 「D등급까지」 칸을 그리지 않는다 — 마크가 등급을 이미 말한다', () => {
+    expect(showsDaysToD(null, 'ALREADY_AT_OR_BELOW')).toBe(false)
+  })
+
+  it.each(['NOT_THIS_YEAR', 'NOT_UNDER_WAY', 'NO_DATA', 'NO_RECENT_DATA', null] as const)(
+    '다른 사유(%s)는 왜 숫자가 없는지라 남긴다',
+    (reason) => {
+      expect(showsDaysToD(null, reason)).toBe(true)
+    },
+  )
+
+  it('숫자가 있으면 그린다', () => {
+    expect(showsDaysToD(36, null)).toBe(true)
   })
 })

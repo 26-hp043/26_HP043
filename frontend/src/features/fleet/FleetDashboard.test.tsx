@@ -50,7 +50,7 @@ function vessel(id: string, name: string) {
     ytd_required_cii: '5.5000',
     ytd_rating: 'B',
     risk_level: 'LOW',
-    risk_reasons: [],
+    risk_reasons: [] as string[],
     days_to_d: null,
     days_to_d_reason: 'NOT_THIS_YEAR',
     unavailable_reason: null,
@@ -427,5 +427,72 @@ describe('규제 기준값 절과의 연결 (#1516)', () => {
     expect(
       screen.getAllByRole('link').some((link) => link.getAttribute('href') === regulationParametersPath()),
     ).toBe(false)
+  })
+})
+
+/**
+ * 배너는 한 주제 · 「가장 임박」은 요약 행 · 이미 D 이하 카드는 등급을 되풀이하지 않는다 (#1569).
+ *
+ * 종전 배너 부제 「가장 임박 — … · D등급까지 N일」은 위험 선박(이미 D · E)이 아닌 배를 가리켰고,
+ * 위험 0척이라 배너가 없는 날에는 함께 사라졌다.
+ */
+describe('경고 배너 · D등급 진입 임박 (#1569)', () => {
+  function renderWith(summary: Record<string, unknown>, rows: ReturnType<typeof vessel>[]) {
+    const body = page(rows, { next_cursor: null, has_more: false })
+    const withSummary = { ...body, data: { ...body.data, summary: { ...body.data.summary, ...summary } } }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => withSummary }) as Response),
+    )
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+  }
+
+  const SOONEST = { soonest_d_entry: { vessel_id: 'v9', name: '임박선', days: 36 } }
+  const RISKY = {
+    ...vessel('v1', '위험선'),
+    ytd_rating: 'E',
+    risk_reasons: ['E_THIS_YEAR'],
+    days_to_d: null,
+    days_to_d_reason: 'ALREADY_AT_OR_BELOW',
+  }
+
+  it('배너는 원문 한 줄만 — 가장 임박한 배를 말하지 않는다', async () => {
+    renderWith({ at_risk: 1, ...SOONEST }, [RISKY])
+    const banner = await screen.findByRole('alert')
+    expect(banner.textContent).toBe('시정조치계획 대상 위험 선박 1척')
+    expect(within(banner).queryByText(/임박/)).toBeNull()
+  })
+
+  it('요약 행에 「D등급 진입 임박」 — 일수와 선박 상세 링크', async () => {
+    renderWith({ at_risk: 1, ...SOONEST }, [RISKY])
+    const kpi = await screen.findByRole('region', { name: '선대 요약' })
+    const cell = within(kpi).getByText('D등급 진입 임박').closest('.kpi') as HTMLElement
+    expect(within(cell).getByText('36일')).toBeTruthy()
+    expect(within(cell).getByRole('link', { name: '임박선' }).getAttribute('href')).toBe('/vessels/v9')
+  })
+
+  it('⚠️ 위험 0척이라 배너가 없어도 임박한 배는 보인다', async () => {
+    renderWith({ at_risk: 0, ...SOONEST }, [vessel('v2', '보통선')])
+    const kpi = await screen.findByRole('region', { name: '선대 요약' })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(within(kpi).getByRole('link', { name: '임박선' })).toBeTruthy()
+  })
+
+  it('후보가 없으면 「해당 선박 없음」', async () => {
+    renderWith({ at_risk: 0, soonest_d_entry: null }, [vessel('v2', '보통선')])
+    const kpi = await screen.findByRole('region', { name: '선대 요약' })
+    const cell = within(kpi).getByText('D등급 진입 임박').closest('.kpi') as HTMLElement
+    expect(within(cell).getByText('해당 선박 없음')).toBeTruthy()
+  })
+
+  it('이미 D 이하인 카드에는 「D등급 이하」가 없고 규제 플래그는 남는다', async () => {
+    renderWith({ at_risk: 1, ...SOONEST }, [RISKY])
+    const card = (await screen.findByText('위험선')).closest('li') as HTMLElement
+    expect(within(card).queryByText('D등급 이하')).toBeNull()
+    expect(within(card).getByText('E 1년차')).toBeTruthy()
   })
 })

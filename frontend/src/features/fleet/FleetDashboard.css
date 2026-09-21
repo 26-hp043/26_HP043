@@ -148,15 +148,16 @@
  * 고르게 해 봤으나, 그러면 칸 **경계**가 내용 길이를 따라 움직여 세 덩어리의
  * 자리가 데이터에 따라 바뀐다.
  *
- * `repeat(3, minmax(0, 1fr))`은 경계를 고정하고, `justify-items: center`가 각
- * 칸 안에서 내용을 가운데로 모은다. **선박 수가 바뀌어도 세 덩어리의 자리는
+ * `repeat(4, minmax(0, 1fr))`은 경계를 고정하고, `justify-items: center`가 각
+ * 칸 안에서 내용을 가운데로 모은다. **선박 수가 바뀌어도 네 덩어리의 자리는
  * 그대로다.**
  *
  * 좁아지면 아래 미디어 쿼리가 한 칸으로 떨어뜨린다.
  */
 .fleet__kpi {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* 넷째 칸 「D등급 진입 임박」 (#1569) — 경고 배너 부제에서 옮겨 왔다. */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   justify-items: center;
   gap: var(--spacing-xl);
   align-items: start;
@@ -180,7 +181,7 @@
 }
 
 /*
- * 세 칸의 제목이다. 이 카드에는 `card__title`이 없고 **이 줄이 유일한 머리**라,
+ * 네 칸의 제목이다. 이 카드에는 `card__title`이 없고 **이 줄이 유일한 머리**라,
  * 라벨 크기(13)로는 아래 큰 숫자에 눌려 무엇을 세는 수인지가 늦게 읽혔다.
  *
  * `§3`의 h3(16) + 라벨 굵기(500). 카드 제목(16/600)보다 한 단 가볍게 둔다 —
@@ -526,12 +527,6 @@
   margin: 0;
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-h3);
-}
-
-.warn__sub {
-  margin: 0;
-  font-size: var(--font-size-label);
-  opacity: 0.9;
 }
 
 /* ── 등급 분포 ──────────────────────────────────────────────────── */
