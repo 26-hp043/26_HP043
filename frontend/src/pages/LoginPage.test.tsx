@@ -33,13 +33,41 @@ afterEach(async () => {
 })
 
 describe('둘러보기 링크 (#1486)', () => {
-  it('?tour= 가 없으면 버튼이 렌더되지 않는다', () => {
+  it('?tour= 도 없고 공개 스위치도 꺼져 있으면 버튼이 렌더되지 않는다', () => {
+    vi.stubEnv('VITE_TOUR_PUBLIC', '')
     render(
       <MemoryRouter initialEntries={['/login']}>
         <LoginPage />
       </MemoryRouter>,
     )
     expect(screen.queryByTestId('tour-submit')).toBeNull()
+  })
+
+  /*
+   * 공개 둘러보기 (#1486 후속).
+   *
+   * 링크 없이도 들어올 수 있어야 하지만, **코드가 번들에 실리면 안 된다** — 그래서 화면이
+   * 읽는 것은 불리언 하나이고, 호출은 코드 없이 나간다(서버의 `TOUR_PUBLIC`이 판정).
+   */
+  it('공개 스위치가 켜져 있으면 코드 없이도 버튼이 보이고 빈 코드로 서버를 부른다', async () => {
+    vi.stubEnv('VITE_TOUR_PUBLIC', 'true')
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ data: { id: 'u1', email: 'tour@bluelog.local', display_name: '둘러보기' } }),
+    )
+    vi.stubGlobal('fetch', fetchImpl)
+
+    render(
+      <MemoryRouter initialEntries={['/login']}>
+        <LoginPage />
+      </MemoryRouter>,
+    )
+
+    const button = screen.getByTestId('tour-submit')
+    fireEvent.click(button)
+
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalled())
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toEqual({ code: '' })
   })
 
   it('?tour=abc 가 있으면 버튼이 보이고, 누르면 tourLogin이 그 코드로 서버를 부른다', async () => {

@@ -19,6 +19,7 @@ from cii_platform.auth.dependencies import (
     is_public_path,
     resolve_session,
 )
+from cii_platform.auth.tour_policy import is_tour_user, tour_denial_reason
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -42,9 +43,17 @@ async def auth_middleware(
         return await call_next(request)
 
     try:
-        await resolve_session(request)
+        user = await resolve_session(request)
     except AuthenticationError as exc:
         return _unauthorized_response(request, exc.message)
+
+    # 둘러보기 세션은 읽기 전용이다 (#1486 후속 · `auth/tour_policy.py`가 이유를 적는다).
+    # 라우트 의존성이 아니라 여기서 거는 것이 요점 — 쓰기 라우트 상당수가 인증 의존성을
+    # 주입받지 않아, 의존성으로 걸면 새 라우트가 늘 때마다 조용히 빠진다.
+    if is_tour_user(user):
+        reason = tour_denial_reason(request.method, request.url.path)
+        if reason is not None:
+            return _forbidden_response(request, reason)
 
     return await call_next(request)
 
@@ -64,3 +73,26 @@ def _unauthorized_response(request: Request, message: str) -> Response:
         },
     }
     return JSONResponse(status_code=401, content=body)
+
+
+def _forbidden_response(request: Request, message: str) -> Response:
+    """403 응답을 `API_SPEC §1.4` 포맷으로 만든다.
+
+    코드는 역할 가드와 **같은 ``FORBIDDEN_ROLE``**을 쓴다. 화면이 이미 그 코드로 「권한이
+    없어 막혔다」를 처리하고 있어, 새 코드를 만들면 같은 뜻을 두 갈래로 다루게 된다
+    (`dependencies.py`가 CSRF와 역할을 가른 기준: **status가 같아도 원인이 다르면 코드를
+    가르고, 원인이 같으면 코드를 합친다**).
+    """
+    from starlette.responses import JSONResponse
+
+    from cii_platform.api.timefmt import iso_utc_now
+
+    state = getattr(request, "state", None)
+    body = {
+        "error": {"code": "FORBIDDEN_ROLE", "message": message},
+        "meta": {
+            "request_id": getattr(state, "request_id", None),
+            "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
+        },
+    }
+    return JSONResponse(status_code=403, content=body)

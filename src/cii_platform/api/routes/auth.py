@@ -64,7 +64,8 @@ from cii_platform.auth.session import (
 from cii_platform.auth.signup_gate import REJECTED_MESSAGE as SIGNUP_REJECTED_MESSAGE
 from cii_platform.auth.signup_gate import load_signup_gate
 from cii_platform.auth.tour_gate import REJECTED_MESSAGE as TOUR_REJECTED_MESSAGE
-from cii_platform.auth.tour_gate import verify_tour_code
+from cii_platform.auth.tour_gate import TOUR_USER_ID as _TOUR_USER_ID
+from cii_platform.auth.tour_gate import tour_is_public, verify_tour_code
 from cii_platform.config import public_base_url
 from cii_platform.db.models.app_user import ROLE_ADMIN, ROLE_FIELD, AppUser
 from cii_platform.db.models.user_session import UserSession
@@ -113,7 +114,9 @@ EMAIL_TAKEN_MESSAGE = "이미 가입된 이메일입니다. 로그인하거나 �
 #: **고정 상수여야 한다** (`#308`이 dev-login에서 겪은 것과 같다) — ``uuid4()``를 모듈
 #: 로드 시점에 평가하면 서버 재기동마다 PK가 달라져 기존 행을 못 찾고 INSERT를 시도하고,
 #: ``email``이 같아 UNIQUE 위반으로 500이 난다.
-_TOUR_USER_ID = UUID("00000000-0000-4000-8000-000000000700")
+#: 판정의 단일 출처는 :data:`~cii_platform.auth.tour_gate.TOUR_USER_ID`다 — 중앙 읽기 전용
+#: 정책(`auth/tour_policy.py`)이 같은 값을 보며, 두 곳에 각자 적으면 한쪽만 바뀌는 날
+#: 정책이 조용히 풀린다. 이름은 이 모듈이 쓰던 것을 유지한다.
 
 _TOUR_EMAIL = "tour@bluelog.local"
 
@@ -483,7 +486,10 @@ async def tour_login(
     새고, 맞히려는 사람에게 「거의 맞았다」는 신호를 준다
     (:data:`~cii_platform.auth.tour_gate.REJECTED_MESSAGE`).
     """
-    if not verify_tour_code(payload.code):
+    # 공개 스위치(`TOUR_PUBLIC`)가 켜진 배포에서는 코드 없이도 들어온다 — 로그인 화면의
+    # 상시 노출 버튼이 이 경로를 쓴다. **문만 넓어지고 권한은 그대로다**(둘러보기 세션은
+    # `auth/tour_policy.py`가 읽기 전용으로 묶는다).
+    if not (tour_is_public() or verify_tour_code(payload.code)):
         # 실패도 감사에 남긴다 — 공개 주소의 문이라 시도 자체가 신호다.
         # ⚠️ **코드 원문을 남기지 않는다**(`DB_SCHEMA` — 자격 증명 값은 기록하지 않는다).
         await audit_svc.record_login_failure(

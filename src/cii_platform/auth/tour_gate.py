@@ -42,9 +42,24 @@ from __future__ import annotations
 import hmac
 import os
 from collections.abc import Mapping
+from uuid import UUID
 
 #: 접근 코드를 담는 환경변수. 비어 있으면 둘러보기는 **닫힌다.**
 ENV_NAME = "TOUR_ACCESS_CODE"
+
+#: 코드 없이 둘러보기를 여는 배포 스위치 (#1486 후속).
+#:
+#: 로그인 화면의 **상시 노출 버튼**이 이 값으로 열린다. 코드를 화면 번들에 심는 대신
+#: 스위치를 서버에 두는 이유는 ``VITE_`` 변수가 빌드 산출물에 그대로 인라인되기 때문이다 —
+#: 번들에 넣으면 「비밀 링크」보다 못한 상태가 된다(코드는 공개되는데 회수는 어렵다).
+PUBLIC_ENV_NAME = "TOUR_PUBLIC"
+
+#: 둘러보기 계정의 고정 id — 판정의 단일 출처.
+#:
+#: 라우트(`auth.py`)가 계정을 만들 때와 중앙 정책(`tour_policy`)이 「이 요청이 둘러보기인가」를
+#: 판정할 때 **같은 값**을 봐야 한다. 두 곳에 각자 적으면 한쪽만 바뀌는 날 읽기 전용이 조용히
+#: 풀린다.
+TOUR_USER_ID = UUID("00000000-0000-4000-8000-000000000700")
 
 #: 거절 문구 (`PRD §6.3`).
 #:
@@ -52,6 +67,19 @@ ENV_NAME = "TOUR_ACCESS_CODE"
 #: 새고, 코드를 맞히는 사람에게 「거의 맞았다」는 신호를 준다 — ``signup_gate``의
 #: :data:`~cii_platform.auth.signup_gate.REJECTED_MESSAGE`와 같은 원칙이다.
 REJECTED_MESSAGE = "둘러보기 링크가 올바르지 않습니다. 받으신 링크를 다시 확인해 주세요."
+
+
+def tour_is_public(environ: Mapping[str, str] | None = None) -> bool:
+    """코드 없이 둘러보기를 허용하는 배포인가 (기본 **False**).
+
+    ``true``/``1``/``yes``만 참으로 본다 — 오타가 **여는 쪽으로** 틀리지 않게 한다
+    (`config._DEV_SURFACE_ENVS`가 여는 목록으로 판정하는 것과 같은 방향).
+
+    이 스위치가 켜져도 **둘러보기 세션은 읽기 전용**이다(:mod:`~cii_platform.auth.tour_policy`).
+    문을 넓히는 것과 권한을 넓히는 것은 별개이며, 넓어지는 쪽은 문뿐이다.
+    """
+    source = os.environ if environ is None else environ
+    return (source.get(PUBLIC_ENV_NAME) or "").strip().lower() in {"true", "1", "yes"}
 
 
 def load_tour_code(environ: Mapping[str, str] | None = None) -> str | None:
