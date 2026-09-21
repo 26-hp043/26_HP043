@@ -137,6 +137,30 @@
   white-space: nowrap;
 }
 
+/*
+ * 선박명 칸 — 한 줄 + 말줄임 (`#1427`).
+ *
+ * 표가 `table-layout: auto`라 셀은 내용만큼 늘어난다. **최대 폭이 없으면 말줄임이
+ * 서지 않는다** — `text-overflow`는 넘칠 곳이 있어야 동작한다. 지금 데이터에서 가장
+ * 긴 이름(「샘플 로로 여객선 (25,000 GT)」)이 들어가는 폭으로 잡아, 평상시에는
+ * 자르지 않고 더 긴 이름만 줄인다.
+ *
+ * `ch` 단위인 이유 — px로 잡으면 글자 크기가 바뀔 때 잘리는 글자 수가 달라진다.
+ *
+ * 말줄임은 `<a>`에 건다. 셀(`th`)에 걸면 `display: table-cell`이라 `overflow`가
+ * 듣지 않는다.
+ */
+.fr__vessel {
+  max-inline-size: 24ch;
+}
+
+.fr__vessel a {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fr__num {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
