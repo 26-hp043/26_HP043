@@ -1,11 +1,12 @@
 import { ArrowLeft } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router'
+import { Link, useParams, useSearchParams } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { NotUnderwayPanel } from '../not-underway/NotUnderwayPanel'
 import { VoyagePanel } from '../voyage-management/VoyagePanel'
+import { ACTUALS_PARAM } from '../voyage-management/voyageRules'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import { detailStatusText } from '../fleet/fleetRules'
@@ -71,6 +72,9 @@ export function VesselDetail({
   provider?: VesselDetailProvider
 } = {}) {
   const { vesselId } = useParams()
+  // 실시간 CII의 「이 항차 실적 입력」 (#1540 · `voyageActualsPath`)
+  const [searchParams] = useSearchParams()
+  const openActualsFor = searchParams.get(ACTUALS_PARAM)
   const [detail, setDetail] = useState<Detail | null>(null)
   /*
    * provider를 매 렌더마다 새로 만들지 않는다. 로딩과 위치 저장이 같은
@@ -467,7 +471,7 @@ export function VesselDetail({
       */}
       <div className="vd__split">
         <div className="vd__main">
-          <VoyagePanel vesselId={vessel.id} />
+          <VoyagePanel vesselId={vessel.id} openActualsFor={openActualsFor} />
         </div>
 
         <div className="vd__side">

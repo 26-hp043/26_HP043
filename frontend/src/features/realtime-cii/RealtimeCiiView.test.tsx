@@ -9,6 +9,7 @@ import { RealtimeCiiError } from './apiProvider'
 import { POLL_INTERVAL_MS } from './realtimeRules'
 import type { RealtimeCii, RealtimeCiiProvider } from './types'
 import { regulationParametersPath } from '../parameters/referenceRules'
+import { voyageActualsPath } from '../voyage-management/voyageRules'
 
 /**
  * 폴링 실패가 화면을 비우지 않는다 (`#755`).
@@ -633,5 +634,50 @@ describe('기준값 근거 링크 (#1516)', () => {
     const card = await screen.findByRole('region', { name: '연간 누적 CII' })
     const links = within(card).getAllByRole('link')
     expect(links.some((link) => link.getAttribute('href') === regulationParametersPath())).toBe(true)
+  })
+})
+
+/**
+ * 이 항차의 실적 입력으로 한 번에 간다 (#1540).
+ *
+ * 이 화면은 현장직의 주 화면이고(`UIFLOW §2.2`), 산출 가정이 「도착 실적을 입력하면
+ * 확정됩니다」라고 말한다. 입력은 선박 상세에만 있어 되돌아가 찾아야 했다.
+ */
+describe('「이 항차 실적 입력」 (#1540)', () => {
+  it('항차 카드 안에 그 항차의 실적 입력으로 가는 링크가 있다', async () => {
+    const provider: RealtimeCiiProvider = { load: vi.fn(async () => BASE) }
+    renderView(provider)
+
+    const card = await screen.findByRole('region', { name: '항차 CII 기여도' })
+    const link = within(card).getByRole('link', { name: '이 항차 실적 입력' })
+    expect(link.getAttribute('href')).toBe(voyageActualsPath('v-1', 'vy-1'))
+  })
+
+  it('아직 가는 중이면 보조, 계획 거리를 다 채웠으면 채움 버튼이다', async () => {
+    const going: RealtimeCiiProvider = { load: vi.fn(async () => BASE) }
+    const { unmount } = renderView(going)
+    const link = await screen.findByRole('link', { name: '이 항차 실적 입력' })
+    expect(link.className).not.toContain('rt__actuals--primary')
+    unmount()
+
+    const arrived: RealtimeCiiProvider = {
+      load: vi.fn(async () => ({
+        ...BASE,
+        currentVoyage: { ...BASE.currentVoyage!, distanceNm: '3000.00' },
+      })),
+    }
+    renderView(arrived)
+    const primary = await screen.findByRole('link', { name: '이 항차 실적 입력' })
+    expect(primary.className).toContain('rt__actuals--primary')
+  })
+
+  it('진행 중 항차가 없으면 링크도 없다', async () => {
+    const provider: RealtimeCiiProvider = {
+      load: vi.fn(async () => ({ ...BASE, currentVoyage: null })),
+    }
+    renderView(provider)
+
+    await screen.findByText('진행 중인 항차가 없습니다.')
+    expect(screen.queryByRole('link', { name: '이 항차 실적 입력' })).toBeNull()
   })
 })
