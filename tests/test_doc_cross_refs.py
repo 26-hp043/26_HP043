@@ -346,6 +346,15 @@ def test_다중_회사_착수_조건과_선행_이슈가_적혀_있다() -> None
 #: 점에서, 이 파일이 `AGENTS §4.7` 금지 예시를 코드펜스로 비켜 간 것과 같은 자리다.
 _CHANGELOG_COMMIT_CELL = re.compile(r"^\|\s*[0-9]{4}-[0-9]{2}-[0-9]{2}\s*\|(?P<commit>[^|]*)\|")
 
+#: 커밋 열이 **가리킬 수 있는 것** — PR·이슈 번호(``#1284`` · ``PR #423``) 또는 커밋
+#: 해시(`` `0f59999` ``). 초기 행은 해시를, 그 뒤 한동안은 ``PR #423``을 적었다 —
+#: 모양이 셋이라도 **실재하는 번호 하나를 가리킨다**는 성질은 같다.
+_CHANGELOG_REFERENCE = re.compile(r"#[0-9]+|`[0-9a-f]{7,40}`")
+
+#: ``#`` 뒤에 숫자가 오지 않는 자리 — 빈칸(``#___``)이든 초안의 이름표(``#<PR>``)든
+#: 모양을 가리지 않는다 (`#1498`).
+_CHANGELOG_PLACEHOLDER = re.compile(r"#(?![0-9])")
+
 
 def test_변경_이력에_PR_번호가_비어_있지_않다() -> None:
     """`AGENTS §4.1` — 커밋 열에는 PR 번호를 적는다 (`#1286`).
@@ -367,6 +376,21 @@ def test_변경_이력에_PR_번호가_비어_있지_않다() -> None:
     **커밋 열만** 본다. 요약 열은 ``#___``를 인용할 수 있고, 실제로 이 검사를 들인
     행이 그렇게 적었다 — `_CHANGELOG_COMMIT_CELL` 주석을 보라.
 
+    ## 모양이 아니라 성질을 본다 (`#1498`)
+
+    처음 이 검사는 ``#___``라는 **문자열 하나**를 찾았다. `#1489`의 행이 초안의
+    이름표 ``#<PR>``을 그대로 달고 main에 들어갔는데 **통과했다** — 빈칸의 모양이
+    하나 더 있었을 뿐이다. 다음 모양(``#TBD`` · ``#N`` · 빈 칸)도 같은 길로 샌다.
+
+    그래서 두 가지를 본다.
+
+    1. ``#`` 뒤에는 **숫자가 온다.** 숫자가 아닌 것은 무엇이든 아직 채우지 않은 칸이다.
+    2. 칸이 **무언가를 가리킨다** — ``#숫자`` 또는 커밋 해시. 아예 비운 칸은 1번에
+       걸리지 않으므로 이쪽이 잡는다.
+
+    ``⑵`` · ``(2차)`` · ``후속`` 같은 꼬리는 막지 않는다 — 같은 PR의 몇 번째 행인지를
+    적는 관행이 있고, 가리키는 번호는 그대로 있다.
+
     ## 이 검사는 「머지 후 채운다」를 「PR을 연 뒤 채운다」로 당긴다
 
     `AGENTS §4.1`이 *「PR 번호는 **사전에 확정**되고」*라고 적는다 — 번호는 PR을
@@ -378,11 +402,15 @@ def test_변경_이력에_PR_번호가_비어_있지_않다() -> None:
         path = _ROOT / name
         for index, line in enumerate(_text(path).splitlines(), start=1):
             matched = _CHANGELOG_COMMIT_CELL.match(line)
-            if matched and "#___" in matched.group("commit"):
-                offenders.append(f"{name}:{index}")
+            if not matched:
+                continue
+            commit = matched.group("commit")
+            if _CHANGELOG_PLACEHOLDER.search(commit) or not _CHANGELOG_REFERENCE.search(commit):
+                offenders.append(f"{name}:{index} {commit.strip()!r}")
 
     assert offenders == [], (
-        "변경 이력 행의 커밋 열이 비어 있습니다 — PR을 연 뒤 그 번호로 채우세요. "
+        "변경 이력 행의 커밋 열이 비어 있거나 번호 자리에 숫자가 아닌 것이 있습니다 — "
+        "PR을 연 뒤 그 번호로 채우세요. "
         "`AGENTS §4.1`이 「PR 번호는 **사전에 확정**된다」고 적는다: "
         f"{offenders}"
     )
