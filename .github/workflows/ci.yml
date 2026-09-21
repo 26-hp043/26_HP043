@@ -59,7 +59,12 @@ jobs:
           !contains(github.event.pull_request.labels.*.name, 'changelog-row-removal')
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: python scripts/check_changelog_rows.py --base "origin/$BASE_REF"
+          # 직전 푸시의 head (#1522) — 충돌을 리베이스로 풀면 옛 커밋이 base..HEAD에서
+          # 사라져 해결 중에 빠진 행을 볼 수 없다. 첫 푸시(opened)에서는 비어 있다.
+          PREVIOUS_HEAD: ${{ github.event.before }}
+        run: >-
+          python scripts/check_changelog_rows.py --base "origin/$BASE_REF"
+          --previous-head "$PREVIOUS_HEAD"
 
   test:
     runs-on: ubuntu-latest
