@@ -107,8 +107,70 @@
 .scenario-comparison__form-title,
 .scenario-comparison__form-subtitle,
 .scenario-comparison__form-actions,
+.scenario-comparison__group,
+.scenario-comparison__advanced,
 .scenario-comparison__form > .scenario-comparison__error-message {
   grid-column: 1 / -1;
+}
+
+/*
+ * 입력 묶음 (`#1417`). 폼이 `auto-fit` 그리드라 칸이 폼의 직계 자식일 때만 열을 채운다
+ * — `<fieldset>`·`<details>`로 감싸면 그 안에서 **같은 그리드를 다시 편다.** 값을 폼과
+ * 같게 두어 묶음 경계를 넘어도 열 폭이 흔들리지 않게 한다.
+ *
+ * `<fieldset>`의 브라우저 기본(테두리 · 안쪽 여백 · `min-inline-size: min-content`)을
+ * 걷는다. 마지막 것이 남으면 좁은 폭에서 묶음이 폼 밖으로 넘친다.
+ */
+.scenario-comparison__group,
+.scenario-comparison__advanced-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-12);
+}
+
+.scenario-comparison__group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+
+.scenario-comparison__group > legend,
+.scenario-comparison__advanced-body > p {
+  grid-column: 1 / -1;
+}
+
+/*
+ * `<details>`에는 그리드를 걸지 않는다 — Chromium이 안쪽 배치에 쓰지 않는다(#1417 화면
+ * 확인). 요약과 본문 사이 간격만 준다.
+ */
+.scenario-comparison__advanced-body {
+  margin-block-start: var(--space-12);
+}
+
+/* `<legend>`는 float 없이는 그리드 항목이 되지 않는다 — 소제목 모양만 빌리고 폭을 채운다. */
+.scenario-comparison__group > legend {
+  float: left;
+  inline-size: 100%;
+}
+
+.scenario-comparison__advanced {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-12);
+}
+
+.scenario-comparison__advanced > summary {
+  cursor: pointer;
+  inline-size: fit-content;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-text);
+}
+
+.scenario-comparison__advanced > summary:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
 }
 
 /*
@@ -396,10 +458,10 @@
   font-weight: var(--font-weight-h3);
 }
 
-.scenario-card__type {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-}
+/*
+ * `.scenario-card__type`을 걷었다 (`#1417`). 계약 코드(`SLOW_STEAMING`)가 한국어 이름
+ * 바로 아래 찍혀 있었다 — 같은 것을 두 번, 그중 하나는 사용자가 읽을 수 없는 말로.
+ */
 
 .scenario-card__cii {
   font-size: var(--font-size-display);
