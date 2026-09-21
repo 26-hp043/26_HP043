@@ -7,8 +7,9 @@
 # 시연 중에 "떴는데 아직 안 된" 상태를 만난다.
 #
 # 사용:
-#   bash scripts/demo_up.sh          DB + 백엔드까지
-#   bash scripts/demo_up.sh --check  기동하지 않고 현재 상태만 점검
+#   bash scripts/demo_up.sh           DB + 백엔드까지
+#   bash scripts/demo_up.sh --check   기동하지 않고 현재 상태만 점검
+#   bash scripts/demo_up.sh --reseed  데모 데이터를 지우고 다시 넣은 뒤 기동 (#1536)
 #
 # 프론트엔드는 별도 창에서 띄운다 (아래 안내 참조).
 
@@ -24,7 +25,19 @@ command -v docker >/dev/null 2>&1 || DOCKER="/mnt/c/Program Files/Docker/Docker/
 VENV="$ROOT/.venv/bin"
 CUBRID_DB="${CUBRID_DB:-cii}"
 DB_URL="cubrid+pycubrid://dba:@localhost:33100/$CUBRID_DB"
-CHECK_ONLY="${1:-}"
+
+# 인자. `--check`는 기동하지 않고 점검만, `--reseed`는 4b 단계에서 데모 데이터를 **지우고
+# 다시 넣는다** (#1536). 둘은 겹치지 않는다 — 점검은 아무것도 바꾸지 않아야 하므로
+# `--check`가 있으면 `--reseed`는 무시하고 그 사실을 말한다.
+CHECK_ONLY=""
+RESEED=0
+for arg in "$@"; do
+  case "$arg" in
+    --check)  CHECK_ONLY="--check" ;;
+    --reseed) RESEED=1 ;;
+    *) printf '\033[31m✗\033[0m 모르는 인자: %s (--check · --reseed)\n' "$arg"; exit 2 ;;
+  esac
+done
 
 # 개발 DB 컨테이너와 호스트 포트 — `docker-compose.yml`의 `db` 서비스와 같아야 한다
 # (`tests/test_demo_up_script.py`가 대조한다). 한 서버에 `cii`·`cii_test` 두 DB를 두는
@@ -181,8 +194,24 @@ fi
 # UUID가 DB에 없어 **첫 요청이 「그런 선박 없음」으로** 떨어진다.
 #
 # 멱등이라(ON CONFLICT DO NOTHING) 여러 번 실행해도 행이 늘지 않는다.
+#
+# **멱등은 「덮어쓰지 않는다」이기도 하다.** 시드의 시각은 적재일 기준 상대값이라(#792)
+# 오래된 적재는 진행 중 항차가 계획 거리를 다 채운 채 멎고, 둘러보기 세션이 저장한
+# 함대 감축 계획은 시드가 건드리지 않는 표라 그대로 남는다. `--reseed`는 적재 전에
+# `--clear`를 한 번 돌려 그 상태를 되돌린다 — 배포본의 `clear_demo=true` +
+# `seed_demo=true`(`docs/OPERATIONS.md §3.4.2`)와 같은 절차다 (#1536). 볼륨은 지우지
+# 않으므로 계산 이력·계정은 남는다.
 
 step "4b. 데모 데이터 (시연용 선박·항차)"
+if [ "$RESEED" = "1" ] && [ "$CHECK_ONLY" = "--check" ]; then
+  info "--check와 함께라 --reseed는 무시합니다 — 점검은 아무것도 바꾸지 않습니다."
+fi
+if [ "$RESEED" = "1" ] && [ "$CHECK_ONLY" != "--check" ]; then
+  "$VENV/python" -m cii_platform.db.demo_seed --clear >/tmp/demo_clear.log 2>&1 || {
+    bad "데모 데이터 삭제 실패 — /tmp/demo_clear.log 참조"; tail -5 /tmp/demo_clear.log; exit 1;
+  }
+  ok "데모 데이터를 지웠습니다 (저장한 함대 감축 계획 포함) — /tmp/demo_clear.log"
+fi
 if [ "$CHECK_ONLY" != "--check" ]; then
   "$VENV/python" -m cii_platform.db.demo_seed >/tmp/demo_data.log 2>&1 || {
     bad "데모 데이터 적재 실패 — /tmp/demo_data.log 참조"; tail -5 /tmp/demo_data.log; exit 1;
@@ -253,8 +282,10 @@ PY
 )
   if [ -n "$DRIFT" ]; then
     printf '\033[33m!\033[0m 시드에는 있는데 DB에 없는 제원: %s\n' "$DRIFT"
-    printf '  demo_seed는 기존 행을 덮지 않습니다. 데모 DB를 비우고 다시 넣으십시오.\n'
-    printf '    %s compose down -v && bash scripts/demo_up.sh\n\n' "$DOCKER"
+    printf '  demo_seed는 기존 행을 덮지 않습니다. 데모 데이터를 지우고 다시 넣으십시오.\n'
+    # `compose down -v`를 권하지 않는다 (#1536) — 볼륨까지 지워 계산 이력·계정·규제
+    # 파라미터가 함께 사라진다. `--reseed`는 데모 데이터만 지우고 다시 넣는다.
+    printf '    bash scripts/demo_up.sh --reseed\n\n'
   else
     ok "시드 제원이 DB와 일치합니다"
   fi
@@ -565,6 +596,9 @@ cat <<'GUIDE'
 
  이 계정은 데모 시드가 넣습니다. APP_ENV가 development·test가 아니면 만들어지지 않습니다
  (staging 포함 — #1058에서 기준이 「production만」에서 바뀌었습니다).
+
+ 시연·둘러보기 회차 사이에는 데모 데이터를 지우고 다시 넣으세요 (docs/OPERATIONS.md §3.4.2):
+     bash scripts/demo_up.sh --reseed      # 시각을 새로 잡고 저장한 감축 계획도 지웁니다 (#1536)
 
  로그인 화면을 건너뛰려면 브라우저 콘솔에서:
 

@@ -29,6 +29,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -276,4 +277,51 @@ async def test_fuel_of_a_voyage_kept_for_calculation_history_survives(conn: Asyn
     )
     assert fuel.scalar_one() == fuel_before, (
         "남긴 항차의 연료가 지워졌다 — 그 항차로 다시 계산하면 분자가 비어 값이 달라진다"
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 저장한 함대 감축 계획은 재적재 때 함께 지운다 (#1536)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_clear_deletes_every_saved_reduction_plan(conn: AsyncConnection):
+    """``clear_demo``가 ``fleet_reduction_plan``을 **전량** 지우고 그 수를 보고한다 (`#1536`).
+
+    저장 계획은 시드가 넣는 표가 아니라 **화면에서 저장한** 것이라 「시드가 넣은 행」을
+    가려낼 표지가 없다. 종전 ``clear_demo``는 시드 여섯 표만 지워 **둘러보기 세션이 남긴
+    계획이 재적재 뒤에도 살아남았다**(시연 DB의 「ㅇㄹ」). 삭제 API·버튼은 정본에도
+    없으므로(`API_SPEC §2.17`) 지우는 경로는 이 함수뿐이다.
+
+    두 가지를 잠근다 — ⑴ 부른 뒤 표가 비어 있다 ⑵ 지운 수가 ``fleet_reduction_plan``
+    키로 보고된다(`main`이 그 키를 그대로 찍는다). 계정 FK는 ``SET NULL``이라 지우는 데
+    막힐 참조가 없다.
+    """
+    from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
+
+    await conn.execute(sa.delete(FleetReductionPlan.__table__))
+    await conn.execute(
+        sa.insert(FleetReductionPlan.__table__).values(
+            id=uuid.uuid4(),
+            name="회차 사이에 남은 계획",
+            regulation_year=2026,
+            target="ALL_C_OR_BETTER",
+            adjustments=[],
+            prices={},
+            result={},
+        )
+    )
+    assert await _count(conn, "fleet_reduction_plan") == 1, (
+        "전제가 깨졌다 — 계획 1건이 들어가야 한다"
+    )
+
+    counts = await clear_demo(conn)
+
+    assert counts["fleet_reduction_plan"] == 1, (
+        "지운 계획 수가 보고되지 않는다 — 운영자가 재적재 출력에서 "
+        "저장 계획이 지워졌는지 알 수 없다"
+    )
+    assert await _count(conn, "fleet_reduction_plan") == 0, (
+        "저장 계획이 남았다 — 다음 회차의 첫 화면에 지난 세션의 흔적이 그대로 보인다"
     )

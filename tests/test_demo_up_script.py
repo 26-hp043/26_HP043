@@ -530,3 +530,115 @@ def test_healthy_but_unpublished_db_stops_the_script():
     assert "docker compose up -d --force-recreate db" in text
     check_branch = text.split('if [ "$CHECK_ONLY" = "--check" ]; then', 1)[1].split("else", 1)[0]
     assert "_explain_port_holder" in check_branch
+
+
+# --- #1536 — 회차 사이 재적재 `--reseed` ----------------------------------------------
+#
+# 시드는 덮어쓰지 않으므로(멱등) 시각이 낡은 적재와 둘러보기 세션이 저장한 감축 계획은
+# 다시 돌려서는 되돌아오지 않는다. 배포본에는 `clear_demo=true` + `seed_demo=true`
+# (`OPERATIONS §3.4.2`)가 있었는데 **로컬 스크립트에는 같은 절차가 없었고**, 안내는
+# 볼륨까지 지우는 `compose down -v`를 가리켰다.
+
+
+def _arg_parser_block() -> str:
+    """스크립트의 인자 처리 블록(``CHECK_ONLY=""`` 부터 첫 ``done`` 까지)을 그대로 꺼낸다."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    start = text.index('CHECK_ONLY=""')
+    end = text.index("\ndone\n", start) + len("\ndone\n")
+    return text[start:end]
+
+
+def _parse_args(*args: str) -> tuple[int, str]:
+    done = subprocess.run(
+        [
+            "bash",
+            "-c",
+            _arg_parser_block() + '\nprintf "%s|%s" "$CHECK_ONLY" "$RESEED"',
+            "_",
+            *args,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    return done.returncode, done.stdout
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ((), "|0"),
+        (("--check",), "--check|0"),
+        (("--reseed",), "|1"),
+        # 순서와 무관하게 둘 다 읽는다 — 4b가 「--check면 --reseed 무시」를 판단한다.
+        (("--reseed", "--check"), "--check|1"),
+        (("--check", "--reseed"), "--check|1"),
+    ],
+)
+def test_arguments_are_parsed_in_any_order(args: tuple[str, ...], expected: str):
+    """`--check`·`--reseed`를 **어느 자리에서든** 읽는다 (`#1536`).
+
+    종전에는 ``CHECK_ONLY="${1:-}"`` 한 줄이라 **첫 인자만** 봤다. 옵션이 둘이 되면
+    두 번째는 조용히 버려진다.
+    """
+    code, out = _parse_args(*args)
+
+    assert code == 0
+    assert out == expected
+
+
+def test_unknown_argument_is_rejected():
+    """오타는 조용히 넘기지 않는다 — ``--rseed``가 「재적재 없이 그냥 기동」이 되면 안 된다."""
+    code, _ = _parse_args("--rseed")
+
+    assert code != 0
+
+
+def test_reseed_clears_before_seeding_in_step_four_b():
+    """`--reseed`가 4b 단계에서 **적재 전에** ``--clear``를 돌린다 (`#1536`).
+
+    순서가 뒤집히면 「넣고 지우기」가 되어 빈 DB로 기동한다.
+    """
+    text = _SCRIPT.read_text(encoding="utf-8")
+    step = text.split('step "4b. 데모 데이터 (시연용 선박·항차)"', 1)[1].split('step "4d.', 1)[0]
+    code = [line for line in step.splitlines() if not line.lstrip().startswith("#")]
+    joined = "\n".join(code)
+
+    clear_at = joined.index("cii_platform.db.demo_seed --clear")
+    seed_at = joined.index("cii_platform.db.demo_seed >")
+    assert clear_at < seed_at, "--clear가 적재 뒤에 온다 — 넣고 지우면 빈 DB로 기동한다"
+
+    # 삭제는 `--reseed`일 때만, 그리고 `--check`에서는 절대 돌지 않는다 — 점검은 아무것도
+    # 바꾸지 않는다는 계약(`#637`)이다.
+    assert 'if [ "$RESEED" = "1" ] && [ "$CHECK_ONLY" != "--check" ]; then' in joined
+    # 실패를 삼키지 않는다 — 지우지 못한 채 적재하면 옛 시각이 그대로 남는다.
+    assert "/tmp/demo_clear.log" in joined
+    assert "exit 1" in joined.split("--clear", 1)[1].split("cii_platform.db.demo_seed >", 1)[0]
+
+
+def test_drift_guidance_no_longer_destroys_the_volume():
+    """4c의 안내가 `compose down -v`를 권하지 않는다 (`#1536`).
+
+    그 명령은 **볼륨을 지운다** — 데모 데이터만이 아니라 계산 이력·계정·규제 파라미터가
+    함께 사라진다. 시드가 덮어쓰지 않는 문제의 해법은 `--reseed`다.
+    """
+    code = "\n".join(_code_lines())
+
+    assert "compose down -v" not in code
+    step = code.split("시드 보강분이 실제로 들어왔는가", 1)[-1]
+    assert "demo_up.sh --reseed" in step
+
+
+def test_guide_points_to_reseed_between_sessions():
+    """안내문이 회차 사이 재적재 절차를 **운영 정본과 같은 절**로 가리킨다 (`#1536`)."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    guide = text.split("cat <<'GUIDE'", 1)[1]
+
+    assert "--reseed" in guide
+    assert "OPERATIONS.md §3.4.2" in guide
+
+
+def test_usage_header_lists_reseed():
+    """헤더 사용법에 `--reseed`가 있다 — 옵션은 파일 첫 화면에서 보여야 한다."""
+    header = _SCRIPT.read_text(encoding="utf-8").split("set -uo pipefail", 1)[0]
+
+    assert "--reseed" in header
