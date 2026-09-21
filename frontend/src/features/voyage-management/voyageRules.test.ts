@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   voyageActualsPath,
+  actualsShortage,
+  primaryAction,
   actualsPayload,
   canEnterActuals,
   hasErrors,
@@ -104,7 +106,8 @@ describe('policyForTransition — 데모 마지막 한 걸음이 여기서 막�
 
 describe('transitionBlocker', () => {
   it('실적 연료가 없으면 완료로 가지 못한다 (ORACLE-C-4)', () => {
-    expect(transitionBlocker(voyage(), 'COMPLETED')).toMatch(/실적 연료/)
+    // 사유는 풀 방법(「실적 입력」)을 가리킨다 (#1551).
+    expect(transitionBlocker(voyage(), 'COMPLETED')).toMatch(/「실적 입력」.*실제 연료량/)
   })
 
   it('실적 연료가 있으면 통과한다', () => {
@@ -341,5 +344,106 @@ describe('voyageActualsPath (#1540)', () => {
 
   it('항차 id를 URL에 안전하게 싣는다', () => {
     expect(voyageActualsPath('ves-1', 'a b&c')).toBe('/vessels/ves-1?actuals=a%20b%26c')
+  })
+})
+
+describe('actualsShortage — 서버 _guard_actual_data의 사본 (#1551)', () => {
+  const done = (over: Partial<ManagedVoyage> = {}) =>
+    voyage({
+      status: 'COMPLETED',
+      inclusionPolicy: 'INCLUDE_AS_ACTUAL',
+      actualDistanceNm: 10950,
+      fuelUses: [
+        { fuelType: 'HFO', plannedFuelTon: 800, actualFuelTon: 820 },
+        { fuelType: 'MDO', plannedFuelTon: 40, actualFuelTon: 38 },
+      ],
+      ...over,
+    })
+
+  it('완료 → 확정: 연료 실적이 하나라도 비면 막고 어느 연료인지 말한다', () => {
+    const one = done({
+      fuelUses: [
+        { fuelType: 'HFO', plannedFuelTon: 800, actualFuelTon: 820 },
+        { fuelType: 'MDO', plannedFuelTon: 40, actualFuelTon: null },
+      ],
+    })
+    expect(actualsShortage(one, 'CONFIRMED')).toMatch(/미입력: MDO\.$/)
+  })
+
+  it('완료 → 확정: 0도 입력으로 치지 않는다 — 서버가 > 0을 본다', () => {
+    const zero = done({ fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 800, actualFuelTon: 0 }] })
+    expect(actualsShortage(zero, 'CONFIRMED')).toMatch(/미입력: HFO/)
+  })
+
+  it('완료 → 확정: 연료가 다 있어도 실제 거리가 없으면 막는다', () => {
+    expect(actualsShortage(done({ actualDistanceNm: null }), 'CONFIRMED')).toMatch(/실제 거리/)
+    expect(actualsShortage(done({ actualDistanceNm: 0 }), 'CONFIRMED')).toMatch(/실제 거리/)
+  })
+
+  it('완료 → 확정: 다 있으면 통과한다', () => {
+    expect(actualsShortage(done(), 'CONFIRMED')).toBeNull()
+    expect(transitionBlocker(done(), 'CONFIRMED')).toBeNull()
+  })
+
+  it('항해 중 → 완료는 연료 하나면 된다 — 거리는 보지 않는다', () => {
+    const one = voyage({
+      fuelUses: [
+        { fuelType: 'HFO', plannedFuelTon: 800, actualFuelTon: 820 },
+        { fuelType: 'MDO', plannedFuelTon: 40, actualFuelTon: null },
+      ],
+    })
+    expect(actualsShortage(one, 'COMPLETED')).toBeNull()
+  })
+
+  it('transitionBlocker가 확정 가드를 함께 본다 — 종전에는 눌러 보고 422였다', () => {
+    expect(transitionBlocker(done({ actualDistanceNm: null }), 'CONFIRMED')).toMatch(/실제 거리/)
+  })
+})
+
+describe('primaryAction — 카드에서 다음에 누를 것 하나 (#1551)', () => {
+  const withFuel = [{ fuelType: 'HFO', plannedFuelTon: 800, actualFuelTon: 820 }]
+
+  it.each([
+    ['DRAFT', { status: 'DRAFT' as const, inclusionPolicy: 'EXCLUDE' as const }, 'PLANNED'],
+    ['PLANNED', { status: 'PLANNED' as const }, 'IN_PROGRESS'],
+    ['IN_PROGRESS · 연료 있음', { fuelUses: withFuel }, 'COMPLETED'],
+    [
+      'COMPLETED · 실적 다 있음',
+      { status: 'COMPLETED' as const, inclusionPolicy: 'INCLUDE_AS_ACTUAL' as const, fuelUses: withFuel, actualDistanceNm: 10950 },
+      'CONFIRMED',
+    ],
+  ])('%s → 정방향 다음 상태로 전환', (_name, over, to) => {
+    expect(primaryAction(voyage(over))).toEqual({ kind: 'transition', to })
+  })
+
+  it('항해 중 · 연료 실적 없음 → 「실적 입력」', () => {
+    expect(primaryAction(voyage())).toEqual({ kind: 'actuals' })
+  })
+
+  it('완료 · 실제 거리 없음 → 「실적 입력」', () => {
+    const v = voyage({ status: 'COMPLETED', inclusionPolicy: 'INCLUDE_AS_ACTUAL', fuelUses: withFuel })
+    expect(primaryAction(v)).toEqual({ kind: 'actuals' })
+  })
+
+  it('실적 확정 · 취소 · 보관은 다음 단계가 없다 — 되돌리기 · 보관은 주 버튼이 아니다', () => {
+    expect(primaryAction(voyage({ status: 'CONFIRMED', inclusionPolicy: 'INCLUDE_AS_ACTUAL' }))).toBeNull()
+    expect(primaryAction(voyage({ status: 'CANCELLED', inclusionPolicy: 'EXCLUDE' }))).toBeNull()
+    expect(primaryAction(voyage({ status: 'ARCHIVED', inclusionPolicy: 'EXCLUDE' }))).toBeNull()
+  })
+
+  it('이 카드에서 풀 수 없는 사유로 막히면 주 버튼을 두지 않는다 — 비활성을 칠하지 않는다', () => {
+    // 기준연도 부족은 실적 입력으로 풀리지 않는다.
+    const noYear = voyage({ status: 'PLANNED', regulationYear: null })
+    expect(primaryAction(noYear)).toBeNull()
+  })
+
+  it('실적을 넣을 수 있는 카드라도 막힌 까닭이 실적이 아니면 「실적 입력」을 주 버튼으로 두지 않는다', () => {
+    // 연료 실적은 있고 기준연도가 없다 — 완료로 가며 반영이 「실적」으로 바뀌어 기준연도를 요구한다.
+    const noYear = voyage({
+      regulationYear: null,
+      fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 800, actualFuelTon: 820 }],
+    })
+    expect(transitionBlocker(noYear, 'COMPLETED')).toMatch(/기준연도/)
+    expect(primaryAction(noYear)).toBeNull()
   })
 })
