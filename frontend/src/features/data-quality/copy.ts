@@ -92,7 +92,27 @@ export function reasonText(code: string): string {
   return detail ? `${text} (${detail})` : text
 }
 
-export const IMPACT_REASON_TEXT: Record<string, string> = {
-  ONLY_VOYAGE: '이 항차뿐이라 빼고 비교할 값이 없습니다',
-  BASE_UNAVAILABLE: '선박 누적 CII를 계산할 수 없습니다',
+/**
+ * CII 영향을 낼 수 없는 사유 (`API_SPEC §2.16` `cii_impact_reason`).
+ *
+ * ## 칸은 짧게, 이유는 표 아래 한 번 (#1580)
+ *
+ * 종전에는 칸마다 긴 문장을 적어, 사유가 같은 행이 여럿이면 **같은 문장이 표 안에서 줄마다
+ * 되풀이**됐다(실측 5행). 칸에는 짧은 말과 표시(`*`)만 두고, 그 표가 담은 사유만 표 아래에
+ * 한 번씩 적는다. 표시는 **사유마다 고정**이라 표가 달라도 같은 사유는 같은 표시다.
+ */
+export const IMPACT_REASON: Record<string, { cell: string; mark: string; note: string }> = {
+  ONLY_VOYAGE: {
+    cell: '비교 불가',
+    mark: '*',
+    note: '선박의 유일한 항차라 빼고 비교할 누적 CII가 없습니다.',
+  },
+  BASE_UNAVAILABLE: {
+    cell: '계산 불가',
+    mark: '**',
+    note: '선박 누적 CII를 계산할 수 없어 차이를 낼 수 없습니다.',
+  },
 }
+
+/** 표시 순서 — 표 아래 각주는 이 순서로 적는다(행 순서에 따라 흔들리지 않게). */
+export const IMPACT_REASON_ORDER = ['ONLY_VOYAGE', 'BASE_UNAVAILABLE'] as const

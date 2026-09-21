@@ -9,7 +9,8 @@ import { voyageActualsPath } from '../voyage-management/voyageRules'
 import { createApiDataQualityProvider } from './apiProvider'
 import {
   DATA_QUALITY_COPY as COPY,
-  IMPACT_REASON_TEXT,
+  IMPACT_REASON,
+  IMPACT_REASON_ORDER,
   SEVERITY_MEANING,
   SEVERITY_TITLE,
   reasonText,
@@ -318,9 +319,33 @@ function IssueGroup({ severity, issues }: { severity: Severity; issues: DataQual
               ))}
             </tbody>
           </table>
+          <ImpactNotes issues={issues} />
         </div>
       )}
     </section>
+  )
+}
+
+/**
+ * CII 영향 칸의 표시(`*`)가 가리키는 사유 — **이 표에 나온 것만**, 한 번씩 (#1580).
+ *
+ * 칸마다 긴 문장을 되풀이하던 것을 여기로 모은다. 나오지 않은 사유까지 적으면 표에 없는
+ * 사실을 말하게 된다.
+ */
+function ImpactNotes({ issues }: { issues: DataQualityIssue[] }) {
+  const present = new Set(
+    issues.filter((issue) => issue.voyageId !== null && issue.cii === null).map((issue) => issue.ciiReason),
+  )
+  const notes = IMPACT_REASON_ORDER.filter((code) => present.has(code))
+  if (notes.length === 0) return null
+  return (
+    <ul className="dq__footnotes">
+      {notes.map((code) => (
+        <li key={code}>
+          {IMPACT_REASON[code].mark} {IMPACT_REASON[code].note}
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -333,9 +358,13 @@ function IssueGroup({ severity, issues }: { severity: Severity; issues: DataQual
 function Impact({ issue }: { issue: DataQualityIssue }) {
   if (issue.voyageId === null) return <span className="dq__muted">—</span>
   if (issue.cii === null) {
+    const reason = IMPACT_REASON[issue.ciiReason ?? '']
+    // 모르는 사유는 코드 그대로 — 빈칸이면 문제가 없는 것처럼 보인다(`reasonText`와 같은 규칙)
+    if (reason === undefined) return <span className="dq__muted">{issue.ciiReason ?? '—'}</span>
     return (
       <span className="dq__muted">
-        {IMPACT_REASON_TEXT[issue.ciiReason ?? ''] ?? issue.ciiReason ?? '—'}
+        {reason.cell}
+        {reason.mark}
       </span>
     )
   }

@@ -123,10 +123,12 @@ describe('데이터 점검 화면 (#513)', () => {
     expect(screen.getByText(DATA_QUALITY_COPY.impactCaption)).toBeTruthy()
   })
 
-  it('영향을 낼 수 없으면 0이 아니라 사유를 적는다', async () => {
+  it('영향을 낼 수 없으면 0이 아니라 사유를 적는다 — 칸은 짧게, 이유는 표 아래 (#1580)', async () => {
     renderWith(SNAPSHOT)
 
-    expect(await screen.findByText('이 항차뿐이라 빼고 비교할 값이 없습니다')).toBeTruthy()
+    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    expect(within(group).getByText('비교 불가*')).toBeTruthy()
+    expect(within(group).getByText('* 선박의 유일한 항차라 빼고 비교할 누적 CII가 없습니다.')).toBeTruthy()
   })
 
   it('항차가 없는 선박은 「계산 불가」가 아니라 「실적 항차 없음」이다', async () => {
@@ -218,5 +220,53 @@ describe('점검 행에서 그 항차로 (#1549)', () => {
     const link = await screen.findByRole('link', { name: '선박 상세' })
     expect(link.getAttribute('href')).toBe('/vessels/v2')
     expect(screen.queryByRole('link', { name: /이 항차로/ })).toBeNull()
+  })
+})
+
+describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
+  function issue(voyageId: string, ciiReason: string | null) {
+    return {
+      severity: 'ANOMALY' as const,
+      vesselId: `v-${voyageId}`,
+      vesselName: `선박 ${voyageId}`,
+      voyageId,
+      voyageNo: voyageId,
+      codes: ['FUEL_VS_MODEL'],
+      cii: null,
+      ciiReason,
+    }
+  }
+
+  it('같은 사유가 다섯 행이어도 긴 문장은 표 아래 한 번이다', async () => {
+    renderWith({ ...SNAPSHOT, issues: ['a', 'b', 'c', 'd', 'e'].map((id) => issue(id, 'ONLY_VOYAGE')) })
+
+    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    expect(within(group).getAllByText('비교 불가*')).toHaveLength(5)
+    expect(within(group).getAllByText(/유일한 항차라/)).toHaveLength(1)
+  })
+
+  it('사유마다 표시가 다르고, 표에 나온 사유만 적는다', async () => {
+    renderWith({ ...SNAPSHOT, issues: [issue('a', 'BASE_UNAVAILABLE'), issue('b', 'BASE_UNAVAILABLE')] })
+
+    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    expect(within(group).getAllByText('계산 불가**')).toHaveLength(2)
+    expect(within(group).getByText('** 선박 누적 CII를 계산할 수 없어 차이를 낼 수 없습니다.')).toBeTruthy()
+    expect(within(group).queryByText(/유일한 항차라/)).toBeNull()
+  })
+
+  it('두 사유가 섞이면 정해진 순서로 둘 다 적는다', async () => {
+    renderWith({ ...SNAPSHOT, issues: [issue('a', 'BASE_UNAVAILABLE'), issue('b', 'ONLY_VOYAGE')] })
+
+    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    const notes = group.querySelectorAll('.dq__footnotes li')
+    expect(Array.from(notes, (li) => li.textContent?.slice(0, 2))).toEqual(['* ', '**'])
+  })
+
+  it('모르는 사유는 코드 그대로 칸에 — 표 아래에는 적지 않는다', async () => {
+    renderWith({ ...SNAPSHOT, issues: [issue('a', 'NEW_REASON')] })
+
+    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    expect(within(group).getByText('NEW_REASON')).toBeTruthy()
+    expect(group.querySelector('.dq__footnotes')).toBeNull()
   })
 })

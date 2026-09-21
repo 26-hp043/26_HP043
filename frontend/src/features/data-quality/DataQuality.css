@@ -195,3 +195,12 @@
 .dq__connector {
   color: var(--color-text-muted);
 }
+
+/* CII 영향 칸의 표시가 가리키는 사유 — 표 아래 한 번 (#1580) */
+.dq__footnotes {
+  margin: var(--space-8) 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-label);
+}
