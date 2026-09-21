@@ -32,7 +32,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from uuid import uuid4
 
 import pytest
@@ -220,7 +220,12 @@ async def test_all_paths_report_the_same_ytd(session, vessel_with_voyage_in_prog
 
     reference = numbers["cii_current"]
     for name, value in numbers.items():
-        assert value == reference.quantize(value), f"{name}가 다른 YTD를 낸다: {values}"
+        # 대시보드는 CII를 4자리로 **절사**해 싣고(`#1349` · `TECH_SPEC §1.2.1`), 리포트는
+        # 3자리로 **반올림**해 표시한다. 기준(6자리)도 절사값이라 두 방식 모두 원값에서
+        # 바로 한 번 줄인 것과 같다.
+        rounding = ROUND_DOWN if name == "fleet_summary" else ROUND_HALF_UP
+        expected = reference.quantize(value, rounding=rounding)
+        assert value == expected, f"{name}가 다른 YTD를 낸다: {values}"
 
 
 @pytest.mark.asyncio

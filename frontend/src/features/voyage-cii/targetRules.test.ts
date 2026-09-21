@@ -135,6 +135,27 @@ describe('경계 CII는 서버 값 그대로다 (#1371)', () => {
     expect((1.851449 * 0.888771).toFixed(3)).toBe('1.646')
   })
 
+  it('표시 반올림은 문자열에서 한다 — "4.982500"은 4.983이다 (#1349)', () => {
+    /*
+     * 서버는 6자리를 절사해 보내고 화면이 3자리로 **한 번** 반올림한다(`TECH_SPEC §1.2.1`
+     * 「응답 직렬화의 절사」). 그 한 번을 float로 하면 `4.9825`가 `4.98249999…`로 담겨
+     * 내려간다 — 반올림 규칙이 아니라 표현 오차다. 기대값은 수치 계약이며 표시 문구가 아니다.
+     */
+    const targets = gradeTargets(
+      {
+        ...DATA,
+        estimated_rating: 'B',
+        rating_boundary_cii: { ...SERVER_BOUNDARIES, superior_boundary: '4.982500' },
+      },
+      BOUNDARY,
+    )
+
+    expect(targets).toHaveLength(1)
+    expect(targets[0].boundaryCii).toBe('4.983')
+    // float 경로는 여기서 갈린다.
+    expect(Number('4.982500').toFixed(3)).toBe('4.982')
+  })
+
   it('서버가 싣지 않은 응답(옛 이력)에서는 곱셈으로 되살린다', () => {
     const targets = gradeTargets({ ...DATA, rating_boundary_cii: null }, BOUNDARY)
 

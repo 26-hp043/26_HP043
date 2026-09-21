@@ -1430,3 +1430,16 @@ def test_soonest_d_entry_breaks_ties_by_name_then_id():
     assert (
         fleet_summary._soonest_d_entry([{"vessel_id": "x", "name": "X", "days_to_d": None}]) is None
     )
+
+
+def test_publish_cii_truncates_and_publish_rounds():
+    """YTD CII는 대시보드 4자리로 **절사**, 좌표처럼 CII가 아닌 값은 반올림 (`#1349`).
+
+    4자리에서는 HALF_UP 전송이 화면 3자리 반올림과 겹쳐 5.1%가 끝자리를 올렸다
+    (`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」). 기대값은 수치 계약이며 표시 문구가 아니다.
+    """
+    assert fleet_summary._publish_cii(Decimal("4.9824996")) == "4.9824"
+    assert fleet_summary._publish_cii(None) is None
+    assert fleet_summary._publish(Decimal("4.9824996"), 6) == "4.982500"
+    assert fleet_summary._publish(Decimal("37.5665005"), 6) == "37.566501"
+    assert fleet_summary._publish(None, 6) is None

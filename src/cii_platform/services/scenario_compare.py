@@ -47,7 +47,6 @@ from cii_platform.errors import NotFoundError, ParameterError, ValidationError
 from cii_platform.services.calc_errors import log_calculation_failure, selection_error, spec_error
 from cii_platform.services.voyage_cii import (
     DISCLAIMER,
-    SERIALIZATION_DIGITS,
     _build_warnings,
     _compute_layer1,
     _Layer1Values,
@@ -94,9 +93,6 @@ _DB_SCALE = {
     "weather_factor": Decimal("0.0001"),
     "cii": Decimal("0.00000001"),
 }
-
-#: 응답의 ``duration_hours`` 자릿수 — 프론트엔드 ``serializeHours``(toFixed(4))와 같다.
-_DURATION_DIGITS = 4
 
 
 @dataclass(frozen=True)
@@ -671,25 +667,21 @@ def _serialize_scenarios(
                 # 입력 에코는 숫자다 (API_SPEC §5.1 응답 예시).
                 "distance_nm": float(item.plan.distance_nm),
                 "speed_kn": float(item.plan.speed_kn),
-                "duration_hours": _publish(item.duration_hours, _DURATION_DIGITS),
-                "fuel_ton": _publish(item.fuel_ton, SERIALIZATION_DIGITS["fuel_ton"]),
-                "co2_emission_ton": _publish(layer1.total_co2_t, SERIALIZATION_DIGITS["co2_ton"]),
-                "attained_cii": _publish(layer1.attained_cii, SERIALIZATION_DIGITS["attained_cii"]),
-                "required_cii": _publish(layer1.required_cii, SERIALIZATION_DIGITS["required_cii"]),
-                "ratio_to_required": _publish(
-                    layer1.ratio_to_required, SERIALIZATION_DIGITS["ratio_to_required"]
-                ),
+                "duration_hours": _publish(item.duration_hours, "duration_hours"),
+                "fuel_ton": _publish(item.fuel_ton, "fuel_ton"),
+                "co2_emission_ton": _publish(layer1.total_co2_t, "co2_ton"),
+                "attained_cii": _publish(layer1.attained_cii, "attained_cii"),
+                "required_cii": _publish(layer1.required_cii, "required_cii"),
+                "ratio_to_required": _publish(layer1.ratio_to_required, "ratio_to_required"),
                 "estimated_rating": layer1.rating,
                 # 등급 E는 악화 방향 경계가 없어 null이다 (#171 결론).
                 "next_worse_boundary_margin": (
-                    None
-                    if layer1.margin is None
-                    else _publish(layer1.margin, SERIALIZATION_DIGITS["margin"])
+                    None if layer1.margin is None else _publish(layer1.margin, "margin")
                 ),
                 "next_worse_boundary_margin_ratio": (
                     None
                     if layer1.margin_ratio is None
-                    else _publish(layer1.margin_ratio, SERIALIZATION_DIGITS["margin_ratio"])
+                    else _publish(layer1.margin_ratio, "margin_ratio")
                 ),
                 "risk_level": layer1.risk_level,
                 "weather_factor": float(weather_factor),
@@ -718,7 +710,7 @@ def _build_summary(computed: list[_ScenarioComputed]) -> dict[str, list[str]]:
     SLOW_STEAMING)를 따르므로 결정론적이다.
     """
 
-    def lowest(key, digits: int) -> list[str]:
+    def lowest(key, field: str) -> list[str]:
         # **응답에 실리는 자릿수로 비교한다** (#799). 내부 ``Decimal``은 `prec=30`
         # 이라, 거리가 분자·분모에서 소거되는 직항·우회도 끝자리가 미세하게 갈린다 —
         # 그대로 비교하면 **화면에 같은 값이 찍혀 있는데 동률이 아니라고 판정**한다.
@@ -727,19 +719,15 @@ def _build_summary(computed: list[_ScenarioComputed]) -> dict[str, list[str]]:
         # ``min``에 넣으면 사전순이 되어 `'154.61'` < `'99.00'`처럼 자릿수가 다를 때
         # 뒤집힌다 — 기존 계약 테스트가 이 실수를 잡았다.
         published = [
-            (item.plan.scenario_type, Decimal(_publish(key(item), digits))) for item in computed
+            (item.plan.scenario_type, Decimal(_publish(key(item), field))) for item in computed
         ]
         best = min(value for _, value in published)
         return [scenario for scenario, value in published if value == best]
 
     return {
-        "lowest_cii_scenarios": lowest(
-            lambda item: item.layer1.attained_cii, SERIALIZATION_DIGITS["attained_cii"]
-        ),
-        "shortest_duration_scenarios": lowest(lambda item: item.duration_hours, _DURATION_DIGITS),
-        "lowest_fuel_scenarios": lowest(
-            lambda item: item.fuel_ton, SERIALIZATION_DIGITS["fuel_ton"]
-        ),
+        "lowest_cii_scenarios": lowest(lambda item: item.layer1.attained_cii, "attained_cii"),
+        "shortest_duration_scenarios": lowest(lambda item: item.duration_hours, "duration_hours"),
+        "lowest_fuel_scenarios": lowest(lambda item: item.fuel_ton, "fuel_ton"),
     }
 
 

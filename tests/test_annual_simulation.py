@@ -1176,3 +1176,41 @@ def test_fuel_cf_alternative_scales_with_cf():
         str(completed.co2_g)
     )
     assert abs(base.co2_change_ratio - planned_delta_g / total_before_g) < Decimal("1e-12")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 응답 직렬화 — TECH_SPEC §1.2.1 「응답 직렬화의 절사」 (#1349)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_publish_kinds_truncate_only_cii():
+    """직렬화 반올림은 **종류가 정한다.**
+
+    같은 6자리라도 CII는 절사, 배출량·수송량·보정계수(``"quantity"``)는 반올림이다.
+    확률 4자리는 정본 확정값이라 반올림 그대로다(`#757`). 기대값은 수치 계약이며 표시
+    문구가 아니다.
+    """
+    from cii_platform.services.annual_simulation import _DIGITS, _publish
+
+    value = Decimal("4.9824996")
+    assert _publish(value, "cii") == "4.982499"
+    assert _publish(value, "quantity") == "4.982500"
+    assert _publish(Decimal("0.56785"), "probability") == "0.5679"
+    assert _DIGITS["cii"] == _DIGITS["quantity"], "자릿수는 같고 반올림만 다르다"
+    assert _publish(None, "cii") is None
+
+
+def test_every_publish_call_names_its_kind():
+    """``_publish`` 호출은 전부 종류를 적는다.
+
+    기본값이 있으면 CII가 아닌 6자리 값이 조용히 절사된다.
+    """
+    import inspect
+    import re
+
+    from cii_platform.services import annual_simulation as module
+
+    calls = re.findall(r"(?<!def )_publish\((?:[^()]|\([^()]*\))*\)", inspect.getsource(module))
+    assert len(calls) >= 12, calls
+    for call in calls:
+        assert re.search(r'"(cii|quantity|probability)"\s*\)$', call), call

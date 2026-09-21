@@ -1015,3 +1015,18 @@ async def test_an_excluded_voyage_does_not_ask_the_user_to_fix_specs(session):
     assert excluded.contribution is None
     assert excluded.warnings == []
     assert excluded.voyage is not None, "화면이 그릴 ⑵의 근거는 남는다"
+
+
+def test_publish_truncates_cii_kind_only():
+    """``"cii"`` 종류만 절사한다 (`#1349` · `TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+
+    YTD·경계·연말 예상·진행 중 항차의 CII가 이 종류다. 비율·거리·남은 일수는
+    ``ROUND_HALF_UP`` 그대로다. 기대값은 수치 계약이며 표시 문구가 아니다.
+    """
+    from cii_platform.services.cii_current import _publish
+
+    assert _publish(Decimal("4.9824996"), "cii") == "4.982499"
+    assert _publish(Decimal("-0.0004996"), "cii") == "-0.000499"
+    assert _publish(Decimal("0.987585"), "ratio") == "0.98759"
+    assert _publish(Decimal("120.505"), "distance_nm") == "120.51"
+    assert _publish(None, "cii") is None
