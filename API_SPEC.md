@@ -1206,6 +1206,8 @@ POST /api/v1/vessels/{vessel_id}/not-underway-periods
 | `regulation_year` | integer \| null | N | 생략하면 **서버가 `started_at`의 연도로 채운다** |
 | `voyage_id` | string \| null | N | 맥락 참조. 구간은 항차가 아니라 **선박+연도**에 귀속된다. **이 선박의 살아 있는 항차**여야 한다 — 없으면 404, 다른 선박의 항차면 422 (`#1333` · `§5.1`과 같은 검사) |
 | `fuel_uses` | array | N | 비워 둘 수 있다 — 실적은 §2.13으로 뒤에 붙인다 |
+| `fuel_uses[].consumer_type` | string | Y | 소비처 — `§2.9` `meta.consumer_types`의 값. §2.13의 본문과 같은 모양(`NotUnderwayFuelUseCreateRequest`)이다 — 이 행과 아래 `fuel_type` 행은 예시에는 있었으나 표에 없었다 (`#1523`) |
+| `fuel_uses[].fuel_type` | string | Y | 연료 코드. active 여부는 서비스가 본다 |
 | `fuel_uses[].fuel_ton` | number | Y | **`> 0`**. 0톤은 「안 썼다」가 아니라 오타다 |
 
 > **`cf_used`를 받지 않는다.** 배출계수는 서버가 계산 시점 값으로 뜬다. 화면이 보내면 사용자가 배출계수를 정하는 셈이 되고, `PRD §8.4`의 「CF 개정 시 과거 계산은 snapshot 보존」이 무너진다. 항차 연료(`§3.3`)와 같은 처리다.
@@ -1660,6 +1662,8 @@ POST /api/v1/fleet/reduction-plans/evaluate
 | `regulation_year` | int | Y | 2000~2100 | |
 | `target` | string | Y | `NO_AT_RISK` · `ALL_C_OR_BETTER` | 위험 선박 0척 / 전 선박 C 이상 (`PRD §12.3.2` ⑸). **판정은 조정 후 연말 결정론 예상 등급(`vessels[].after`)으로 한다** — `§2.8` 대시보드의 「위험 선박」(올해 누적 YTD)과 기준이 다르다 (`#1531`) |
 | `adjustments[]` | list | N | `speed_reduction_percent` 0~50 | 선박별 감속률(%). **목록에 없는 선박은 0%** · 모르는 선박이면 422 · **같은 선박이 두 번 오면 422**(`#1070` ⑶ — 받아 주면 계산은 마지막 값으로 하고 저장본에는 두 값이 다 남아, 다시 연 계획이 어느 감속률이었는지 답할 수 없다) |
+| `adjustments[].vessel_id` | UUID | Y | 존재 확인 | 감속을 적용할 선박. 이 행과 아래 행은 예시에는 있었으나 표에 없었다 (`VesselAdjustment` · `#1523`) |
+| `adjustments[].speed_reduction_percent` | decimal | Y | 0~50 | 감속률(%). 상한은 `PRD §12.3.2` |
 | `prices.charter_usd_per_day` | map | N | 0 이상 | 선박 ID → 일일 용선료(USD). **계획의 가정값**. 키는 **UUID 표준 표기(소문자)로 정규화**해 받으므로 대문자로 보내도 같은 선박이다 · UUID가 아니면 422 · 정규화 후 같은 선박이 두 번이면 422 (`#1070` ⑵) |
 | `prices.fuel_usd_per_ton` | map | N | 0 이상 | 유종 코드 → 연료 단가(USD/t) |
 
@@ -2632,6 +2636,9 @@ POST /api/v1/scenarios/{scenario_id}/adopt
 |---|---|---|---|
 | `target_voyage_id` | UUID | Y | 반영할 대상 항차 ID. `CREATE_NEW_VOYAGE` 모드 시 신규 항차 생성 |
 | `adopt_mode` | string | N | 기본: `UPDATE_EXISTING_PLAN`. `CREATE_NEW_VOYAGE` 시 신규 항차 생성 (departure_port_name, arrival_port_name, planned_departure_at 추가 필요) |
+| `departure_port_name` | string | 조건부 | 새 항차의 출발항 이름 (최대 100자). **`CREATE_NEW_VOYAGE`에서만 필요**하며 없으면 422 — 모드별 필수 여부는 서비스가 판정하고, 스키마(`ScenarioAdoptRequest`)에서는 선택 필드다. 기본 모드에서는 무시된다 (`#1523`) |
+| `arrival_port_name` | string | 조건부 | 새 항차의 도착항 이름 (최대 100자). 위와 같다 |
+| `planned_departure_at` | string (ISO 8601) | 조건부 | 새 항차의 출발 예정 시각. 위와 같다 |
 
 #### 응답 (200 OK)
 
