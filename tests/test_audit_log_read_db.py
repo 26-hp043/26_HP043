@@ -16,6 +16,10 @@
 자리를 고쳤다), 모르는 `action`이 **빈 목록이 아니라 422**인가(「없다」와 「잘못
 물었다」는 다른 답이다), 현장직이 막히는가, 그리고 **조회가 쓰기를 막지 않는가**.
 
+`#1515`가 **행위자**를 더했다 — `user_id`(UUID)만으로는 「누가 올렸나」에 답이 되지
+않는다. `actor`가 이름·이메일로 풀리는가, **탈퇴(soft delete) 계정도** 풀리는가,
+`app_user`에 없는 행위자는 **`null`**인가(빈 dict나 500이 아니라)를 본다.
+
 케이스 (`TEST_PLAN §14.5`): IT-AUDIT-002 — 변경 경로 기록 열람
 
 ⚠️ **이 검사는 자기 행만 본다.** `audit_log`는 세션 seed·다른 검사가 함께 쓰는
@@ -26,10 +30,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from conftest import insert_returning_id
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +44,9 @@ from cii_platform.services import audit as audit_svc
 
 #: 이 검사 전용 표식 — 다른 검사의 행과 섞이지 않게 한다.
 MARK = "audit-read-probe"
+
+#: 행위자 검사가 만드는 계정의 이메일 접두 — 뒷정리가 이 접두로 지운다.
+ACTOR_EMAIL_PREFIX = "audit-actor-"
 
 
 @pytest_asyncio.fixture
@@ -83,6 +91,44 @@ async def _read(session, **over):
     kwargs = {"entity_type": MARK}
     kwargs.update(over)
     return await audit_svc.list_events(session, **kwargs)
+
+
+async def _insert_actor(session, *, display_name: str | None, deleted: bool) -> tuple[str, str]:
+    """계정 한 명을 심고 ``(id 문자열, 이메일)``을 돌려준다. ``deleted``면 탈퇴 상태."""
+    email = f"{ACTOR_EMAIL_PREFIX}{uuid4().hex[:8]}@example.com"
+    raw_id = await insert_returning_id(
+        session,
+        "INSERT INTO app_user (email, password_hash, display_name, is_deleted) "
+        "VALUES (:e, 'x', :dn, :del) RETURNING id",
+        {"e": email, "dn": display_name, "del": 1 if deleted else 0},
+    )
+    # 감사 행의 `user_id`는 라우트가 `str(user.id)`로 적는다 — 하이픈 있는 모양이다.
+    return str(UUID(raw_id)), email
+
+
+async def _insert_event_by(session, user_id: str) -> None:
+    await session.execute(
+        text(
+            'INSERT INTO audit_log (id, "timestamp", user_id, "action", entity_type, '
+            "details_json, ip_address) VALUES (:id, :ts, :u, 'PARAMETER_IMPORT', :et, "
+            "'{}', '10.0.0.1')"
+        ),
+        {"id": uuid4(), "ts": datetime(2026, 4, 1, tzinfo=UTC), "u": user_id, "et": MARK},
+    )
+
+
+@pytest_asyncio.fixture
+async def actors(session):
+    """현역 한 명·탈퇴 한 명을 심고 각자의 감사 행을 남긴다."""
+    alive_id, alive_email = await _insert_actor(session, display_name="홍길동", deleted=False)
+    gone_id, gone_email = await _insert_actor(session, display_name=None, deleted=True)
+    await _insert_event_by(session, alive_id)
+    await _insert_event_by(session, gone_id)
+    await session.commit()
+    return {
+        "alive": (alive_id, alive_email),
+        "gone": (gone_id, gone_email),
+    }
 
 
 @pytest.mark.asyncio
@@ -163,6 +209,43 @@ async def test_a_broken_cursor_is_refused(session) -> None:
         await _read(session, cursor="not-a-cursor")
 
 
+@pytest.mark.asyncio
+async def test_the_actor_is_resolved_to_a_name_and_an_email(session, actors) -> None:
+    """**이것이 `#1515`의 감사 쪽이다** — UUID 옆에 사람이 선다. `user_id`는 그대로 남는다."""
+    alive_id, alive_email = actors["alive"]
+    rows, _ = await _read(session, user_id=alive_id)
+
+    assert len(rows) == 1
+    assert rows[0]["user_id"] == alive_id
+    assert rows[0]["actor"] == {"display_name": "홍길동", "email": alive_email}
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_account_still_resolves(session, actors) -> None:
+    """탈퇴는 soft delete다.
+
+    감사가 답할 질문은 「그때 누가 했는가」이지 「지금 누가 있는가」가 아니다.
+    """
+    gone_id, gone_email = actors["gone"]
+    rows, _ = await _read(session, user_id=gone_id)
+
+    assert len(rows) == 1
+    assert rows[0]["actor"] == {"display_name": None, "email": gone_email}
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_actor_is_null_not_an_error(session, events) -> None:
+    """`app_user`에 없는 행위자(`probe-user` 같은 값)는 **`null`**이다 — 빈 dict도 500도 아니다.
+
+    「없음」의 종류가 갈려야 한다: `null`은 「못 찾았다」, `display_name: null`은
+    「찾았는데 이름을 안 적었다」다.
+    """
+    rows, _ = await _read(session)
+
+    assert rows and all(row["actor"] is None for row in rows)
+    assert all(row["user_id"] == "probe-user" for row in rows)
+
+
 def test_the_cursor_round_trips() -> None:
     """인코딩이 값을 잃지 않는지 — 잃으면 다음 페이지가 조용히 어긋난다."""
     original = audit_repo.AuditCursor(datetime(2026, 3, 1, 12, 30, tzinfo=UTC), uuid4())
@@ -231,6 +314,9 @@ async def _cleanup() -> None:
     async with get_sessionmaker()() as s:
         await s.execute(text("DELETE FROM audit_log WHERE entity_type = :m"), {"m": MARK})
         await s.execute(text("DELETE FROM audit_log WHERE user_id = :u"), {"u": "probe-user"})
+        await s.execute(
+            text("DELETE FROM app_user WHERE email LIKE :p"), {"p": f"{ACTOR_EMAIL_PREFIX}%"}
+        )
         await s.commit()
 
 

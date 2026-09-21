@@ -44,6 +44,20 @@ def _date(value) -> str | None:
     return None if value is None else value.isoformat()
 
 
+def _revision(row) -> dict[str, object]:
+    """판본 세 필드 — ``version`` · ``is_active`` · ``created_at`` (`#1515`).
+
+    세 조회(연도·기준선·경계)가 같은 모양을 갖게 한 곳에서 만든다. ``is_active``는
+    CUBRID가 ``1``/``0``으로 돌려줄 수 있어 ``bool``로 고정한다 — 화면이 ``=== true``로
+    비교하면 ``1``은 거짓이 된다.
+    """
+    return {
+        "version": row.version,
+        "is_active": bool(row.is_active),
+        "created_at": None if row.created_at is None else row.created_at.isoformat(),
+    }
+
+
 def _validate_ship_type(ship_type: str | None) -> None:
     """모르는 선종은 **빈 배열이 아니라 오류**로 돌려준다 (#237과 같은 판단).
 
@@ -60,20 +74,26 @@ def _validate_ship_type(ship_type: str | None) -> None:
         )
 
 
-async def list_regulation_years(session: AsyncSession) -> list[dict[str, object]]:
+async def list_regulation_years(
+    session: AsyncSession, *, active: bool = True
+) -> list[dict[str, object]]:
     """규정 연도(Z계수) 목록 (``API_SPEC §7.1``).
 
-    **활성 행만 돌려준다.** 개정으로 대체된 행까지 섞으면 같은 연도가 두 번 나오고,
+    **기본은 활성 행만이다.** 개정으로 대체된 행까지 섞으면 같은 연도가 두 번 나오고,
     호출자는 어느 것이 현행인지 알 수 없다 — 계산이 쓰는 것도 활성 행이다.
+
+    ``active=False``는 이행 행까지 **전부** 준다 (`#1515`). 개정 다음 날 화면에는
+    옛 판본 계산과 새 판본 계산이 나란히 놓이는데(``PRD §8.4``), 옛 판본의 값을 볼
+    경로가 없었다. 각 행이 ``is_active``를 실어 호출자가 현행을 가려낸다.
     """
-    rows = await param_repo.list_regulation_years(session)
+    rows = await param_repo.list_regulation_years(session, active_only=active)
     return [
         {
             "year": row.year,
             "z_factor_percent": _num(row.z_factor_percent),
             "effective_from": _date(row.effective_from),
             "source_ref": row.source_ref,
-            "version": row.version,
+            **_revision(row),
         }
         for row in rows
     ]
@@ -102,16 +122,19 @@ async def list_fuel_types(
 
 
 async def list_reference_lines(
-    session: AsyncSession, *, ship_type: str | None = None
+    session: AsyncSession, *, ship_type: str | None = None, active: bool = True
 ) -> list[dict[str, object]]:
     """선종별 기준선 (``API_SPEC §7.3``).
 
     ``a_raw``와 ``a_decimal``을 **둘 다** 내보낸다. ``14405E7``은 IMO 표의 원문 표기이고
     ``a_decimal``은 그것을 푼 값이다(``PRD §3.4.3``) — 원문을 빼면 호출자가 우리 변환을
     검증할 수 없다.
+
+    ``active``의 뜻은 :func:`list_regulation_years`와 같다 — 기본 활성만, ``False``면
+    이행 행까지 전부 (`#1515`).
     """
     _validate_ship_type(ship_type)
-    rows = await param_repo.list_reference_lines(session, ship_type)
+    rows = await param_repo.list_reference_lines(session, ship_type, active_only=active)
     return [
         {
             "ship_type": row.ship_type,
@@ -121,17 +144,18 @@ async def list_reference_lines(
             "a_decimal": _num(row.a_decimal),
             "c": _num(row.c),
             "source_ref": row.source_ref,
+            **_revision(row),
         }
         for row in rows
     ]
 
 
 async def list_rating_boundaries(
-    session: AsyncSession, *, ship_type: str | None = None
+    session: AsyncSession, *, ship_type: str | None = None, active: bool = True
 ) -> list[dict[str, object]]:
-    """선종별 등급 경계 d-vector (``API_SPEC §7.4``)."""
+    """선종별 등급 경계 d-vector (``API_SPEC §7.4``). ``active``는 위와 같다."""
     _validate_ship_type(ship_type)
-    rows = await param_repo.list_rating_boundaries(session, ship_type)
+    rows = await param_repo.list_rating_boundaries(session, ship_type, active_only=active)
     return [
         {
             "ship_type": row.ship_type,
@@ -142,6 +166,7 @@ async def list_rating_boundaries(
             "d3": _num(row.d3),
             "d4": _num(row.d4),
             "source_ref": row.source_ref,
+            **_revision(row),
         }
         for row in rows
     ]

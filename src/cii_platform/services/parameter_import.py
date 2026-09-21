@@ -540,6 +540,9 @@ async def import_parameters(
             "replaced_count": replaced_count,
             "version": version,
             "dry_run": False,
+            # 값의 **출처**를 함께 남긴다 (`#1515`) — 행 수·판본만으로는 「무엇을 근거로
+            # 바뀌었나」에 답할 수 없다. 고유값을 정렬해 두어 같은 파일이면 같은 목록이다.
+            "source_refs": sorted({str(item["source_ref"]) for _, item in parsed}),
         },
         ip_address=ip_address,
     )

@@ -13,6 +13,9 @@
    클라이언트 계산이 서버와 미세하게 갈리고, 그 차이는 등급 경계 근처에서만 드러난다
 3. **값이 DB와 같다** — 자릿수가 아니라 값으로 대조한다
 4. **모르는 선종은 빈 배열이 아니라 오류** — 오타와 「아직 없다」가 구분되어야 한다
+5. **`active`의 기본은 현행과 같고, `False`만 이행 행을 연다** (`#1515`) — 개정 다음 날
+   옛 판본을 볼 경로가 그것뿐인데, 그 경로가 **계산으로 새면** 대체된 값으로 등급이
+   나온다. 계산 경로가 저장소 기본값(활성만)만 쓰는지 소스를 훑어 함께 잠근다
 
 세 번째가 중요하다. 문자열이라는 것만 보면 `"0"`을 돌려주는 구현도 통과한다.
 """
@@ -20,12 +23,14 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.errors import ValidationError
 from cii_platform.services.parameters import (
     list_fuel_types,
@@ -45,6 +50,10 @@ async def _scalar(session, sql: str, **params):
     return (await session.execute(text(sql), params)).scalar_one()
 
 
+#: 세 조회(연도·기준선·경계)가 똑같이 싣는 판본 필드 (`API_SPEC §7.1`·`§7.3`·`§7.4` · `#1515`).
+REVISION_FIELDS = ("version", "is_active", "created_at")
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # §7.1 규정 연도
 # ─────────────────────────────────────────────────────────────────────────────
@@ -61,7 +70,7 @@ async def test_regulation_years_are_listed_with_the_contract_fields(session):
             "z_factor_percent",
             "effective_from",
             "source_ref",
-            "version",
+            *REVISION_FIELDS,
         }
         assert isinstance(row["year"], int)
         assert isinstance(row["z_factor_percent"], str)
@@ -173,6 +182,7 @@ async def test_reference_lines_keep_the_imo_raw_notation(session):
             "a_decimal",
             "c",
             "source_ref",
+            *REVISION_FIELDS,
         }
         assert isinstance(row["a_raw"], str)
         assert isinstance(row["a_decimal"], str)
@@ -204,6 +214,7 @@ async def test_rating_boundaries_carry_the_d_vector(session):
         "d3",
         "d4",
         "source_ref",
+        *REVISION_FIELDS,
     }
     # d1 < d2 < d3 < d4 — 경계의 정의 자체다 (`PRD §3.4.4`).
     values = [Decimal(row[key]) for key in ("d1", "d2", "d3", "d4")]
@@ -229,6 +240,123 @@ async def test_unknown_ship_type_is_rejected_not_emptied(session):
         await list_reference_lines(session, ship_type="BULK_CARIER")
     with pytest.raises(ValidationError):
         await list_rating_boundaries(session, ship_type="BULK_CARIER")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# `active` — 기본은 현행, `False`는 이행 행까지 (#1515)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _deactivate_one_of_each(session) -> None:
+    """세 표에서 한 행씩 이행 행으로 끈다 — `conn` 트랜잭션 안이라 되돌아간다."""
+    await session.execute(text('UPDATE regulation_year SET is_active = 0 WHERE "year" = 2026'))
+    await session.execute(
+        text(
+            "UPDATE cii_reference_line SET is_active = 0 "
+            "WHERE ship_type = 'BULK_CARRIER' AND condition_expr = 'DWT >= 279000'"
+        )
+    )
+    await session.execute(
+        text("UPDATE cii_rating_boundary SET is_active = 0 WHERE ship_type = 'BULK_CARRIER'")
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_default_is_the_same_as_active_true(session):
+    """`?active`를 생략한 호출자는 **종전과 같은 목록**을 받는다 — 호환이 이 인자의 조건이다."""
+    await _deactivate_one_of_each(session)
+
+    assert await list_regulation_years(session) == await list_regulation_years(session, active=True)
+    assert await list_reference_lines(session) == await list_reference_lines(session, active=True)
+    assert await list_rating_boundaries(session) == await list_rating_boundaries(
+        session, active=True
+    )
+    for rows in (
+        await list_regulation_years(session),
+        await list_reference_lines(session),
+        await list_rating_boundaries(session),
+    ):
+        assert rows and all(row["is_active"] is True for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_active_false_adds_the_superseded_rows_with_is_active_false(session):
+    """이행 행은 **명시했을 때만** 오고, 왔을 때는 `is_active`가 그것을 말한다.
+
+    `is_active`는 `bool`이어야 한다 — CUBRID가 `1`/`0`으로 돌려주면 화면의 `=== true`가
+    현행 행을 이행 행으로 그린다.
+    """
+    await _deactivate_one_of_each(session)
+
+    years = await list_regulation_years(session, active=False)
+    lines = await list_reference_lines(session, ship_type="BULK_CARRIER", active=False)
+    bounds = await list_rating_boundaries(session, ship_type="BULK_CARRIER", active=False)
+
+    off_year = [r for r in years if r["year"] == 2026]
+    off_line = [r for r in lines if r["condition_expr"] == "DWT >= 279000"]
+    assert off_year and off_year[0]["is_active"] is False
+    assert off_line and off_line[0]["is_active"] is False
+    assert bounds and all(r["is_active"] is False for r in bounds)
+    # 현행 행도 같은 목록에 함께 온다 — 「전부」이지 「비활성만」이 아니다 (`§7.2` 연료와 다르다)
+    assert any(r["is_active"] is True for r in years)
+    assert any(r["is_active"] is True for r in lines)
+    # 판본·적재 시각이 문자열로 실린다
+    for row in (*years, *lines, *bounds):
+        assert isinstance(row["version"], str) and row["version"]
+        assert isinstance(row["created_at"], str) and "T" in row["created_at"]
+
+
+@pytest.mark.asyncio
+async def test_active_false_is_a_superset_of_the_default(session):
+    """`active=False`는 기본 목록을 **포함**한다 — 빠지는 행이 있으면 화면의 「전체」가 거짓이다."""
+    await _deactivate_one_of_each(session)
+
+    def keys(rows, *fields):
+        return {tuple(row[f] for f in fields) for row in rows}
+
+    assert keys(await list_regulation_years(session), "year", "version") <= keys(
+        await list_regulation_years(session, active=False), "year", "version"
+    )
+    assert keys(await list_reference_lines(session), "ship_type", "condition_expr") <= keys(
+        await list_reference_lines(session, active=False), "ship_type", "condition_expr"
+    )
+
+
+@pytest.mark.asyncio
+async def test_calculation_path_repository_calls_still_see_only_active_rows(session):
+    """계산이 부르는 저장소 갈래(인자 없음)는 **여전히 활성 행만** 준다.
+
+    조회 API용 인자가 계산으로 새면 대체된 기준선으로 등급이 나온다 — 같은 항차를 다시
+    계산했을 때 값이 달라지는 것이 `TECH_SPEC §5.4` 재현성 계약 위반이다.
+    """
+    await _deactivate_one_of_each(session)
+
+    assert await param_repo.get_regulation_year(session, 2026) is None
+    lines = await param_repo.list_reference_lines(session, "BULK_CARRIER")
+    assert lines and all(row.condition_expr != "DWT >= 279000" for row in lines)
+    bounds = await param_repo.list_rating_boundaries(session)
+    assert bounds and all(row.ship_type != "BULK_CARRIER" for row in bounds)
+    assert all(bool(row.is_active) for row in (*lines, *bounds))
+
+
+def test_only_the_lookup_service_opens_the_superseded_rows():
+    """`active_only=`를 넘기는 곳은 `services/parameters.py` 하나여야 한다.
+
+    동작 검사로는 잡히지 않는다 — 계산 경로 하나가 `active_only=False`를 넘겨도 개정이
+    한 번도 없었던 DB에서는 모든 결과가 같다. 그래서 소스를 훑는다
+    (`test_regulation_ship_type_sync_db.py`가 `#834`에서 같은 이유로 같은 방법을 썼다).
+    """
+    root = Path(__file__).resolve().parents[1] / "src" / "cii_platform"
+    # 저장소 자신(시그니처·docstring)과 조회 서비스만 이 이름을 가질 수 있다.
+    allowed = {"db/repositories/parameters.py", "services/parameters.py"}
+    offenders = [
+        f"{path.relative_to(root).as_posix()}:{i}"
+        for path in sorted(root.rglob("*.py"))
+        if path.relative_to(root).as_posix() not in allowed
+        for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if "active_only=" in line
+    ]
+    assert not offenders, f"계산 경로가 이행 행을 열고 있다: {offenders} (#1515)"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
