@@ -211,6 +211,14 @@ if [ "$RESEED" = "1" ] && [ "$CHECK_ONLY" != "--check" ]; then
     bad "데모 데이터 삭제 실패 — /tmp/demo_clear.log 참조"; tail -5 /tmp/demo_clear.log; exit 1;
   }
   ok "데모 데이터를 지웠습니다 (저장한 함대 감축 계획 포함) — /tmp/demo_clear.log"
+  # 계산 이력이 참조하는 항차·선박은 지우지 않고 남긴다(#1088). 남은 행은 적재가
+  # 덮어쓰지 않아 시각·제원이 옛 값 그대로다 — 로그에만 두면 「새로 잡았다」로 읽힌다 (#1608).
+  KEPT=$(grep -E '행 남김' /tmp/demo_clear.log | grep -vE ': 0행 남김' || true)
+  if [ -n "$KEPT" ]; then
+    printf '  \033[33m!\033[0m %s\n' "계산 이력이 붙은 행은 지우지 않았습니다 — 이 행들의 시각·제원은 갱신되지 않습니다:"
+    printf '%s\n' "$KEPT" | sed 's/^/      /'
+    info "그 행까지 새로 잡는 방법과 대가(계정·계산 이력이 함께 사라짐)는 docs/OPERATIONS.md §3.4.2"
+  fi
 fi
 if [ "$CHECK_ONLY" != "--check" ]; then
   "$VENV/python" -m cii_platform.db.demo_seed >/tmp/demo_data.log 2>&1 || {
@@ -598,7 +606,7 @@ cat <<'GUIDE'
  (staging 포함 — #1058에서 기준이 「production만」에서 바뀌었습니다).
 
  시연·둘러보기 회차 사이에는 데모 데이터를 지우고 다시 넣으세요 (docs/OPERATIONS.md §3.4.2):
-     bash scripts/demo_up.sh --reseed      # 시각을 새로 잡고 저장한 감축 계획도 지웁니다 (#1536)
+     bash scripts/demo_up.sh --reseed      # 시각을 새로 잡고 저장한 감축 계획도 지웁니다 (#1536) — 계산 이력이 붙은 행은 남는다고 알려 줍니다 (#1608)
 
  로그인 화면을 건너뛰려면 브라우저 콘솔에서:
 

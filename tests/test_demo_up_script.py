@@ -642,3 +642,41 @@ def test_usage_header_lists_reseed():
     header = _SCRIPT.read_text(encoding="utf-8").split("set -uo pipefail", 1)[0]
 
     assert "--reseed" in header
+
+
+def _kept_block() -> str:
+    text = _SCRIPT.read_text(encoding="utf-8")
+    start = text.index("KEPT=$(")
+    end = text.index("\n  fi\n", start) + len("\n  fi\n")
+    return text[start:end]
+
+
+@pytest.mark.parametrize(
+    ("log", "warned"),
+    [
+        (
+            "voyage: 34행 삭제\nvoyage: 0행 남김 (계산 이력이 참조)\n"
+            "vessel: 0행 남김 (계산 이력이 참조)\n",
+            False,
+        ),
+        (
+            "voyage: 33행 삭제\nvoyage: 1행 남김 (계산 이력이 참조)\n"
+            "vessel: 0행 남김 (계산 이력이 참조)\n",
+            True,
+        ),
+    ],
+)
+def test_reseed_shows_rows_it_could_not_clear(tmp_path, log, warned):
+    """`--reseed`가 남긴 행을 **화면에** 알린다 (`#1608`).
+
+    계산 이력이 참조하는 항차·선박은 `--clear`가 남기고(`#1088`), 적재는 그 행을 덮어쓰지
+    않는다 — 로그에만 두면 「시각을 새로 잡았다」로 읽힌다. 0행이면 아무 말도 하지 않는다.
+    """
+    (tmp_path / "demo_clear.log").write_text(log, encoding="utf-8")
+    block = _kept_block().replace("/tmp/demo_clear.log", str(tmp_path / "demo_clear.log"))
+    script = "info() { printf '  · %s\\n' \"$1\"; }\n" + block
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, check=True).stdout
+
+    assert ("1행 남김" in out) is warned
+    assert ("OPERATIONS.md §3.4.2" in out) is warned
+    assert "0행 남김" not in out
