@@ -151,6 +151,42 @@ describe('함대 감축 계획 화면 (#513)', () => {
 /**
  * 오류 경로 (#1069) — 실패 한 번에 입력 칸까지 사라지면 **고칠 곳이 없어** 새로고침 말고는 빠져나올 수 없다.
  */
+/**
+ * 선박명이 한 줄로 고정된다 (`#1427`).
+ *
+ * 종전에는 「샘플 로로 여객선 (25,000 GT)」 같은 이름이 넉 줄로 꺾여 행 높이가
+ * 들쭉날쭉했다 — 감속률 슬라이더가 행마다 다른 높이에 놓여 세로로 훑기가 어려웠다.
+ *
+ * **CSS는 jsdom에서 계산되지 않으므로 「보이는 줄 수」를 잴 수 없다.** 대신 그 규격을
+ * 지는 자리(전용 클래스)가 이름 칸에 붙어 있는지와, **잘려도 이름을 잃지 않는지**를
+ * 본다 — 접근성 이름은 전체 텍스트이고, `title`이 마우스 보조로 같은 값을 든다.
+ */
+describe('선박명은 한 줄로 고정된다 (#1427)', () => {
+  const LONG = '샘플 로로 여객선 (25,000 GT)'
+
+  it('이름 칸이 한 줄 규격을 지는 클래스를 갖는다', async () => {
+    renderWith(result({ vessels: [{ ...result().vessels[0], vesselName: LONG }] }))
+
+    const link = await screen.findByRole('link', { name: LONG })
+    const cell = link.closest('th')
+    expect(cell).not.toBeNull()
+    expect(cell!.className).toContain('fr__vessel')
+  })
+
+  it('잘려도 이름을 잃지 않는다 — 접근성 이름과 title이 전체 이름이다', async () => {
+    renderWith(result({ vessels: [{ ...result().vessels[0], vesselName: LONG }] }))
+
+    const link = await screen.findByRole('link', { name: LONG })
+    /*
+     * 말줄임은 **그리기**일 뿐 DOM을 자르지 않는다 — 낭독은 계속 전체 이름을 읽는다.
+     * `title`은 그 위에 얹는 마우스 보조다(`#1424`와 달리 여기 담긴 것이 다른 데
+     * 없는 정보가 아니다).
+     */
+    expect(link.textContent).toBe(LONG)
+    expect(link.getAttribute('title')).toBe(LONG)
+  })
+})
+
 describe('함대 감축 계획 화면 — 실패해도 빠져나올 수 있다 (#1069)', () => {
   function renderProvider(provider: FleetReductionProvider) {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
