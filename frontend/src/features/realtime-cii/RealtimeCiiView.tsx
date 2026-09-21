@@ -22,6 +22,7 @@ import {
 } from '../../display/format'
 import { createApiRealtimeCiiProvider, RealtimeCiiError } from './apiProvider'
 import { regulationParametersPath } from '../parameters/referenceRules'
+import { voyageActualsPath } from '../voyage-management/voyageRules'
 import {
   POLL_INTERVAL_MS,
   RATING_TRANSITION_TEXT,
@@ -475,7 +476,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
             <span className="card__meta">등급 판정 대상 아님</span>
           </div>
           {data.currentVoyage ? (
-            <VoyagePanel data={data} unit={unit} />
+            <VoyagePanel data={data} unit={unit} vesselId={vesselId} />
           ) : (
             /* 항차가 없는 것은 오류가 아니다 — 정박 중이거나 아직 등록 전이다. */
             <p className="rt__nodata">진행 중인 항차가 없습니다.</p>
@@ -654,7 +655,15 @@ function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
   )
 }
 
-function VoyagePanel({ data, unit }: { data: RealtimeCii; unit: string }) {
+function VoyagePanel({
+  data,
+  unit,
+  vesselId,
+}: {
+  data: RealtimeCii
+  unit: string
+  vesselId?: string
+}) {
   const voyage = data.currentVoyage!
   const ratio = voyageProgressRatio(data)
   const remaining = remainingDistanceNm(data)
@@ -744,6 +753,26 @@ function VoyagePanel({ data, unit }: { data: RealtimeCii; unit: string }) {
         항차 구간값에는 등급을 붙이지 않습니다. 등급은 <b>연간 누적</b>에만
         해당합니다.
       </p>
+
+      {/*
+        이 항차의 실적 입력으로 한 번에 간다 (#1540).
+
+        이 화면은 현장직의 주 화면이고(`UIFLOW §2.2`), 연말 예상의 산출 가정이
+        「도착 실적을 입력하면 확정됩니다」라고 말한다. 그런데 입력은 선박 상세의 항차 카드
+        사이에만 있어 되돌아가 찾아야 했다. 선박 상세가 이 항차의 입력을 **열어 둔 채**
+        그 카드로 데려간다 — 입력을 여기 복제하지 않는다(`voyageActualsPath` 주석).
+
+        **계획 거리를 다 채웠으면(남은 거리 0) 채움 버튼이다** — 그때 이 화면에서 할 다음
+        일이 그것뿐이다. 아직 가는 중이면 보조 링크다.
+      */}
+      {vesselId ? (
+        <Link
+          className={remaining === 0 ? 'rt__actuals rt__actuals--primary' : 'rt__actuals'}
+          to={voyageActualsPath(vesselId, voyage.voyageId)}
+        >
+          이 항차 실적 입력
+        </Link>
+      ) : null}
     </>
   )
 }

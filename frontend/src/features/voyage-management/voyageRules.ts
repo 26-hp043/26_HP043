@@ -384,3 +384,20 @@ export function actualsPayload(draft: ActualsDraft): Record<string, unknown> {
 
   return payload
 }
+
+/**
+ * 「이 항차 실적 입력」으로 가는 주소 (#1540).
+ *
+ * 실적 입력은 선박 상세의 항차 카드에만 있다. 실시간 CII(현장직의 주 화면 · `UIFLOW §2.2`)가
+ * 「도착 실적을 입력하면 확정됩니다」라고 말하면서 그 자리로 가는 길이 없었다 — 되돌아가
+ * 카드 7장 사이에서 찾아야 했다. 이 주소로 오면 선박 상세가 **그 항차 카드의 실적 입력을
+ * 열어 둔 채** 그 카드로 스크롤한다.
+ *
+ * 입력을 실시간 CII에 복제하지 않는다 — 같은 입력이 두 곳에 있으면 한쪽만 고쳐진다
+ * (`#824` ⑸의 「실패하면 닫지 않는다」 같은 규칙이 그렇다).
+ */
+export const ACTUALS_PARAM = 'actuals'
+
+export function voyageActualsPath(vesselId: string, voyageId: string): string {
+  return `/vessels/${vesselId}?${ACTUALS_PARAM}=${encodeURIComponent(voyageId)}`
+}

@@ -578,3 +578,35 @@
   font-weight: var(--font-weight-body);
   line-height: var(--line-height-micro);
 }
+
+/*
+ * 「이 항차 실적 입력」 (#1540). 평소에는 보조(아웃라인), 계획 거리를 다 채웠으면 채움 —
+ * 그때 이 화면에서 할 다음 일이 그것뿐이다. 채움 색은 `vd__drill`과 같은 이유로 채움면 토큰이다.
+ */
+.rt__actuals {
+  align-self: flex-start;
+  display: inline-block;
+  margin-block-start: var(--spacing-md);
+  padding: var(--spacing-sm) var(--spacing-md);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  color: var(--color-link);
+  border: var(--borderWidth-default) solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  text-decoration: none;
+}
+
+.rt__actuals--primary {
+  color: var(--color-on-primary);
+  background: var(--color-primary-solid);
+  border-color: transparent;
+}
+
+.rt__actuals--primary:hover {
+  background: var(--color-primary-solid-hover);
+}
+
+.rt__actuals:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}

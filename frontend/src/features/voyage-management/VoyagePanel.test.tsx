@@ -607,3 +607,43 @@ describe('CSV 형식 안내 (#1415)', () => {
     expect(within(details).getByText(/선택 컬럼/)).toBeTruthy()
   })
 })
+
+/**
+ * 실시간 CII에서 넘어오면 그 항차의 실적 폼이 열려 있다 (#1540).
+ *
+ * 실시간 CII의 「이 항차 실적 입력」은 `?actuals=<항차 id>`로 선박 상세에 온다. 받는 쪽이
+ * 폼을 열지 않으면 사용자는 항차 목록에서 같은 항차를 다시 찾아 「실적 입력」을 눌러야
+ * 한다 — 링크가 한 일이 없다. 실적을 넣을 수 없는 상태(계획)는 열지 않는다.
+ */
+describe('실적 폼 바로 열기 (#1540)', () => {
+  const PLANNED: ManagedVoyage = { ...IN_PROGRESS, id: 'v-2', voyageNo: '2026-02', status: 'PLANNED' }
+
+  function providerWith(voyages: ManagedVoyage[]) {
+    return stubProvider({
+      list: vi.fn(async () => ({ voyages, fuelTypes: ['HFO', 'MDO'], nextCursor: null, hasMore: false })),
+    })
+  }
+
+  it('지정한 진행 중 항차의 실적 폼이 열리고 첫 칸에 초점이 간다', async () => {
+    render(
+      <VoyagePanel vesselId="ves-1" provider={providerWith([IN_PROGRESS, PLANNED])} openActualsFor="v-1" />,
+    )
+    const save = await screen.findByRole('button', { name: '실적 저장' })
+    const row = save.closest('li') as HTMLLIElement
+    expect(row.id).toBe('voyage-v-1')
+    await waitFor(() => expect(document.activeElement?.closest('li')).toBe(row))
+    expect(document.activeElement?.tagName).toBe('INPUT')
+  })
+
+  it('지정하지 않으면 열리지 않는다 — 종전 동작', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={providerWith([IN_PROGRESS])} />)
+    await screen.findByRole('button', { name: '실적 입력' })
+    expect(screen.queryByRole('button', { name: '실적 저장' })).toBeNull()
+  })
+
+  it('계획 상태 항차는 지정해도 열지 않는다 — 실적을 넣을 수 없다', async () => {
+    render(<VoyagePanel vesselId="ves-1" provider={providerWith([PLANNED])} openActualsFor="v-2" />)
+    await screen.findByText('2026-02')
+    expect(screen.queryByRole('button', { name: '실적 저장' })).toBeNull()
+  })
+})

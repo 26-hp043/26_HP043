@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  voyageActualsPath,
   actualsPayload,
   canEnterActuals,
   hasErrors,
@@ -330,5 +331,15 @@ describe('actualsPayload — 시각 두 칸 (#873)', () => {
     const payload = actualsPayload(actuals({ actualDistanceNm: '11200' }))
     expect(payload).not.toHaveProperty('actual_departure_at')
     expect(payload).not.toHaveProperty('actual_arrival_at')
+  })
+})
+
+describe('voyageActualsPath (#1540)', () => {
+  it('선박 상세로 가며 항차 id를 actuals에 싣는다', () => {
+    expect(voyageActualsPath('ves-1', 'vy-1')).toBe('/vessels/ves-1?actuals=vy-1')
+  })
+
+  it('항차 id를 URL에 안전하게 싣는다', () => {
+    expect(voyageActualsPath('ves-1', 'a b&c')).toBe('/vessels/ves-1?actuals=a%20b%26c')
   })
 })

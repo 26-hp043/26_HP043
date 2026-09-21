@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped } from '../../display/format'
 import { withRo } from '../../display/josa'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
@@ -72,9 +72,14 @@ function routeText(voyage: ManagedVoyage): string {
 interface VoyagePanelProps {
   vesselId: string
   provider?: VoyageManagementProvider
+  /**
+   * 들어오자마자 실적 입력을 열어 둘 항차 (#1540 · `voyageActualsPath`).
+   * 실시간 CII의 「이 항차 실적 입력」이 여기로 온다.
+   */
+  openActualsFor?: string | null
 }
 
-export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
+export function VoyagePanel({ vesselId, provider, openActualsFor = null }: VoyagePanelProps) {
   const [voyages, setVoyages] = useState<ManagedVoyage[] | null>(null)
   const [fuelTypes, setFuelTypes] = useState<string[]>([])
   const [failure, setFailure] = useState<string | null>(null)
@@ -179,7 +184,13 @@ export function VoyagePanel({ vesselId, provider }: VoyagePanelProps) {
       ) : (
         <ul className="vy__list">
           {voyages.map((voyage) => (
-            <VoyageRow key={voyage.id} voyage={voyage} api={api} onChange={replace} />
+            <VoyageRow
+              key={voyage.id}
+              voyage={voyage}
+              api={api}
+              onChange={replace}
+              openOnMount={voyage.id === openActualsFor}
+            />
           ))}
         </ul>
       )}
@@ -221,14 +232,31 @@ function VoyageRow({
   voyage,
   api,
   onChange,
+  openOnMount = false,
 }: {
   voyage: ManagedVoyage
   api: VoyageManagementProvider
   onChange: (updated: ManagedVoyage) => void
+  openOnMount?: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [rowError, setRowError] = useState<string | null>(null)
-  const [actualsOpen, setActualsOpen] = useState(false)
+  /*
+   * 실시간 CII에서 「이 항차 실적 입력」으로 왔으면 **열린 채로 시작한다** (#1540).
+   * 진행 중 · 완료 항차가 아니면(`canEnterActuals`) 열지 않는다 — 실적을 넣을 수 없는 항차다.
+   */
+  const [actualsOpen, setActualsOpen] = useState(openOnMount && canEnterActuals(voyage.status))
+  const rowRef = useRef<HTMLLIElement>(null)
+  useEffect(() => {
+    if (!openOnMount || !canEnterActuals(voyage.status)) return
+    const row = rowRef.current
+    // jsdom에는 scrollIntoView가 없다 — 있을 때만 부른다.
+    row?.scrollIntoView?.({ block: 'start' })
+    // 첫 입력칸으로 초점을 옮긴다 — 키보드·낭독 사용자도 같은 자리에 도착한다.
+    row?.querySelector<HTMLInputElement>('.vy__form--actuals input')?.focus({ preventScroll: true })
+    // 한 번만 — 목록이 다시 와도 사용자가 닫은 폼을 다시 열지 않는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /**
    * 한 항차의 요청을 돌리고 **성공 여부를 돌려준다** (`#824` ⑸).
@@ -260,7 +288,7 @@ function VoyageRow({
   }
 
   return (
-    <li className="vy__row">
+    <li className="vy__row" id={`voyage-${voyage.id}`} ref={rowRef}>
       <div className="vy__row-main">
         <span className="vy__no">{voyage.voyageNo ?? NO_VALUE}</span>
         <span className={`vy__badge vy__badge--${voyage.status.toLowerCase()}`}>
