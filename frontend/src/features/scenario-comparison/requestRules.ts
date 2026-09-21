@@ -1,6 +1,7 @@
 import { withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
 import type { WeatherModel } from '../voyage-cii/types'
+import type { VesselSpecDefaults } from '../voyage-cii/vesselCatalog'
 import type { ScenarioComparisonRequest } from './types'
 
 /**
@@ -155,6 +156,32 @@ export const MIN_SPEED_KN = 1.0
  * 나왔다. 바로 위 선박 축에 적어 둔 원칙이 연도 축에만 빠져 있었다. 목록이 오면
  * `pickDefaultYear`가 채운다.
  */
+/**
+ * 고른 배의 제원을 입력칸에 채운다 (#1538).
+ *
+ * 종전에는 속력·일일 연료가 `initialFormState()`의 **고정 데모 값**(12.8 kn · 26.88 t/일 —
+ * `#139` 계약 픽스처)이라 어느 배를 골라도 같았다. 벌크 50k(제원 12.0 kn · 23.04 t/일)를
+ * 고르고 그대로 비교하면 **다른 배의 숫자로** 계산한 결과가 그 배 이름으로 나왔다.
+ *
+ * - 제원에 값이 **없으면 칸을 비운다** — 앞 배의 값을 남기면 같은 사고가 난다.
+ *   일일 연료가 빈 배는 사용자가 넣어야 계산된다(`API_SPEC §5.1` 「선박 기준값 없을 시 필요」).
+ * - 연료 종류는 **기본 연료가 있을 때만** 바꾼다. 없으면 지금 고른 것을 둔다 —
+ *   연료 종류는 배의 수치가 아니라 이번 항해의 선택이라, 다른 배의 값이 남는 문제가 아니다.
+ *
+ * 한 배에 **한 번만** 부른다(호출 쪽이 지킨다). 같은 배에서 사용자가 고친 칸은 덮지 않는다.
+ */
+export function applyVesselSpec(
+  prev: ComparisonFormState,
+  spec: VesselSpecDefaults,
+): ComparisonFormState {
+  return {
+    ...prev,
+    baseSpeedKn: spec.referenceSpeedKn ?? '',
+    baseDailyFocTon: spec.referenceDailyFocTon ?? '',
+    fuelType: spec.defaultFuelType ?? prev.fuelType,
+  }
+}
+
 export function initialFormState(): ComparisonFormState {
   return {
     vesselId: '',

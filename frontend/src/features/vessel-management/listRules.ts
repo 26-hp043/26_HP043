@@ -158,7 +158,8 @@ export interface BlockedReason {
   /** 「총톤수(GT) 없음」 · 「기준속도 · 기준 일일 연료소모량 없음」 */
   fields: string
   /**
-   * ⚠️ **이 문장은 고치지 않는다 (`#630`).** 사실관계를 실측으로 확인하고 고친 것이다.
+   * ⚠️ **사실관계를 실측으로 확인한 문장이다 (`#630`).** 고칠 때는 서버 동작을 다시 확인한다 —
+   * `#1538`이 항로 비교 결과를 비어 있는 칸에 따라 둘로 가른 것이 그 예다.
    */
   consequence: string
 }
@@ -202,13 +203,23 @@ export function blockedReasons(vessel: Vessel): BlockedReason[] {
    * `_has_speed_model`이 같은 판단을 한다) — 하나만 있으면 「기준속도는 있으니
    * 되겠지」로 읽히므로 **무엇이 빠졌는지 이름을 적는다.**
    */
-  const missingFuelModel = items
-    .filter((item) => item.key !== 'capacity' && !item.filled)
-    .map((item) => item.label)
+  const missing = items.filter((item) => item.key !== 'capacity' && !item.filled)
+  const missingFuelModel = missing.map((item) => item.label)
   if (missingFuelModel.length > 0) {
+    /*
+     * 항로 비교의 결과는 **어느 칸이 비었나에 따라 다르다** (#1538 · `scenario_compare.py`).
+     * - 기준속도: 서버가 선박 값만 본다(`_resolve_reference_speed`) — **비교가 실패한다**
+     * - 기준 일일 연료만: 요청 값이 먼저다(`_resolve_base_daily_foc`) — 비교 화면이 제원으로
+     *   칸을 채우므로 **빈 칸을 직접 넣어야** 계산된다. 실패가 아니다.
+     * 종전에는 둘 다 「실패」로 적었다. 비교 화면이 고정 데모 값(26.88 t/일)을 채워 두던
+     * 시절에는 일일 연료가 비어도 실제로는 **다른 배의 값으로** 계산되고 있었다.
+     */
+    const speedMissing = missing.some((item) => item.key === 'referenceSpeed')
     reasons.push({
       fields: `${missingFuelModel.join(' · ')} 없음`,
-      consequence: '항로 비교가 실패하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다',
+      consequence: speedMissing
+        ? '항로 비교가 실패하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다'
+        : '항로 비교에서 매번 직접 입력해야 하고, 연간 시뮬레이션의 감속 민감도가 산출되지 않습니다',
     })
   }
 

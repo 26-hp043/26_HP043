@@ -9,6 +9,7 @@ import {
   MIN_SPEED_KN,
   NO_VESSEL_MESSAGE,
   WEATHER_MODELS,
+  applyVesselSpec,
   initialFormState,
   countAdvancedFilled,
   hasAdvancedError,
@@ -229,6 +230,30 @@ export function ScenarioComparison({
     }
     if (vessels !== null && vessels.length === 1) selectVesselId(vessels[0].id)
   }, [shellVesselId, vessels, selectVesselId, SHELL_VESSEL_MISSING])
+
+  /*
+   * 고른 배의 제원으로 속력·일일 연료·연료 종류를 채운다 (#1538).
+   *
+   * **배마다 한 번만** 채운다 — 목록이 다시 와서 같은 배의 제원 객체가 새로 만들어져도
+   * 다시 덮지 않는다. 그래서 같은 배에서 사용자가 고친 칸은 남고, **배를 바꾸면** 새 배의
+   * 제원으로 바뀐다(앞 배의 숫자가 새 배 이름으로 계산되던 것이 이번 결함이다).
+   *
+   * 제원을 모르는 선택지(`spec === undefined`)는 건드리지 않는다 — `vesselCatalog.ts` 참조.
+   */
+  const selectedSpec = vessels?.find((option) => option.id === form.vesselId)?.spec
+  const specAppliedFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (form.vesselId === '' || selectedSpec === undefined) return
+    if (specAppliedFor.current === form.vesselId) return
+    specAppliedFor.current = form.vesselId
+    setForm((prev) => applyVesselSpec(prev, selectedSpec))
+  }, [form.vesselId, selectedSpec])
+  const dailyFocHint =
+    selectedSpec === undefined
+      ? '선박 정보에 이 값이 없어도 여기 입력한 값으로 계산합니다.'
+      : selectedSpec.referenceDailyFocTon === null
+        ? '선박 제원에 이 값이 없습니다 — 직접 입력하면 이 비교에 씁니다.'
+        : '선박 제원 값입니다. 고치면 이 비교에만 씁니다.'
 
   // 목적지 이름이 바뀌면 앞 조회의 안내는 다른 항만 것이다 — 지운다 (#1097 ⑴).
   const destinationName = form.destinationPortName.trim()
@@ -490,7 +515,7 @@ export function ScenarioComparison({
         <Field
           id="sc-baseDailyFocTon"
           label={`기준 일일 연료소모량 (${DISPLAY_UNIT_DAILY_FUEL})`}
-          hint="선박 정보에 이 값이 없어도 여기 입력한 값으로 계산합니다."
+          hint={dailyFocHint}
           error={errors[FIELD.baseDailyFocTon]}
         >
           {(control) => (
