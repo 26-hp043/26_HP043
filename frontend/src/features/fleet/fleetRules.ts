@@ -395,3 +395,37 @@ export function missingPositionAria(total: number, shown: number): string {
 /** 좌표가 **하나도** 없을 때. 위 일부 결측 문구의 뒷줄과 같은 말이다. */
 export const NO_POSITION_RECORDED_TEXT =
   '위치가 기록된 선박이 없습니다. 선박 상세에서 현재 위치를 입력하면 여기에 표시됩니다.'
+
+/** 대시보드 「실적 확정 전 항차」 카드가 한 번에 보이는 행 수 (#1573). 나머지는 데이터 점검에서 본다. */
+export const UNCONFIRMED_VISIBLE = 5
+
+/**
+ * 데이터 점검 응답에서 **실적 확정 전 항차**만 고른다 (#1573).
+ *
+ * `UNCONFIRMED`(COMPLETED → CONFIRMED 미전이 · `API_SPEC §2.16`)이고 가리킬 항차가 있는 것만.
+ * 한 항차가 여러 번 나와도 한 행이다. 순서는 서버가 준 대로다 — 화면이 다시 정렬하지 않는다.
+ */
+export function unconfirmedVoyages(
+  issues: readonly {
+    severity: string
+    vesselId: string
+    vesselName: string
+    voyageId: string | null
+    voyageNo: string | null
+  }[],
+): { vesselId: string; vesselName: string; voyageId: string; voyageNo: string | null }[] {
+  const seen = new Set<string>()
+  const rows: { vesselId: string; vesselName: string; voyageId: string; voyageNo: string | null }[] = []
+  for (const issue of issues) {
+    if (issue.severity !== 'UNCONFIRMED' || issue.voyageId === null) continue
+    if (seen.has(issue.voyageId)) continue
+    seen.add(issue.voyageId)
+    rows.push({
+      vesselId: issue.vesselId,
+      vesselName: issue.vesselName,
+      voyageId: issue.voyageId,
+      voyageNo: issue.voyageNo,
+    })
+  }
+  return rows
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   daysToDText,
+  unconfirmedVoyages,
   daysValueText,
   showsDaysToD,
   distributionAria,
@@ -383,5 +384,30 @@ describe('daysValueText · showsDaysToD (#1569)', () => {
 
   it('숫자가 있으면 그린다', () => {
     expect(showsDaysToD(36, null)).toBe(true)
+  })
+})
+
+describe('unconfirmedVoyages (#1573)', () => {
+  const row = (over: Record<string, unknown> = {}) => ({
+    severity: 'UNCONFIRMED',
+    vesselId: 'v1',
+    vesselName: '가선',
+    voyageId: 'voy-1',
+    voyageNo: '2026-01',
+    ...over,
+  })
+
+  it('UNCONFIRMED이고 항차가 있는 것만 — 서버 순서 그대로', () => {
+    const out = unconfirmedVoyages([
+      row({ voyageId: 'a' }),
+      row({ severity: 'ANOMALY', voyageId: 'b' }),
+      row({ voyageId: null }),
+      row({ voyageId: 'c' }),
+    ])
+    expect(out.map((r) => r.voyageId)).toEqual(['a', 'c'])
+  })
+
+  it('같은 항차는 한 행이다', () => {
+    expect(unconfirmedVoyages([row(), row()])).toHaveLength(1)
   })
 })
