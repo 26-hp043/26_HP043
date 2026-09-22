@@ -60,6 +60,16 @@
   overflow-y: auto;
 }
 
+/*
+ * 360 기둥 안에서는 칸을 한 줄에 하나씩 둔다 (#1711). 폼 자체는 2열 격자인데, 기둥 안
+ * 폭(패딩을 뺀 312px)을 둘로 나누면 한 칸이 148px라 선박 이름이 두 줄로 꺾이고 속력
+ * 안내문이 여섯 줄로 늘어 오히려 폼이 길어졌다(1440 캡처). 한 단으로 떨어진 1100
+ * 이하에서는 폭이 넉넉해 폼의 2열을 그대로 쓴다.
+ */
+.cii-forecast-page__split > .voyage-cii-form .voyage-cii-form__grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* 결과 단 — 결론 띠 · 고지 · 결과 카드(「이 결과로」 포함)를 세로로 쌓는다. */
 .cii-forecast-page__split > .cii-forecast-page__result {
   display: flex;
@@ -89,9 +99,23 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .cii-forecast-page__split > .voyage-cii-form .voyage-cii-form__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .cii-forecast-page__split > .voyage-cii-form {
     position: static;
     max-block-size: none;
     overflow-y: visible;
+  }
+}
+
+/*
+ * 위 1100 규칙이 폼 자체의 640 규칙(`VoyageCiiForm.css`)보다 구체적이라 그것을 덮는다.
+ * 폰 폭에서는 다시 한 줄에 하나로 — 폼이 원래 하던 대로다.
+ */
+@media (max-width: 640px) {
+  .cii-forecast-page__split > .voyage-cii-form .voyage-cii-form__grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
