@@ -67,6 +67,8 @@ const BASE: RealtimeCii = {
     totalDistanceNm: '10620.00',
     voyageCount: 3,
     notUnderwayPeriodCount: 0,
+    notUnderwayFuelTon: '0.00',
+    notUnderwayCo2Ton: '0.00',
     // 기본 픽스처는 **전부 실측**이다 — 신뢰도 배지가 붙지 않는 상태 (#485 ⑤).
     substitutions: [],
   },

@@ -65,6 +65,15 @@ export interface YtdValues {
   totalDistanceNm: string | null
   voyageCount: number
   notUnderwayPeriodCount: number
+  /**
+   * 정박 구간에 기록된 연료 톤과 그 배출량 (`#1658` · `API_SPEC §2.14`).
+   *
+   * **「정박이 지금 등급을 밀고 있는가」의 근거다.** 구간 수만으로는 연료가 없는 구간과
+   * 구분되지 않는다 — 연료가 0이면 분자가 늘지 않아 누적값이 움직이지 않는다.
+   * 서버가 누적을 낼 수 없는 해는 배출량이 `null`이다.
+   */
+  notUnderwayFuelTon: string
+  notUnderwayCo2Ton: string | null
   /** 비어 있으면 전부 실측이다 (`§2.14`). */
   substitutions: Substitution[]
 }

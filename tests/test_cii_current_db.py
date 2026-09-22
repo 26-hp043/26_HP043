@@ -1033,3 +1033,46 @@ def test_publish_truncates_every_kind():
     assert _publish(Decimal("249.125"), "co2_ton") == "249.12"
     assert _publish(Decimal("12.34569"), "hours") == "12.3456"
     assert _publish(None, "cii") is None
+
+
+@pytest.mark.asyncio
+async def test_berth_share_is_reported_so_the_screen_need_not_guess(session):
+    """`#1658` — 정박 구간의 **연료·배출 몫**을 응답이 직접 말한다.
+
+    화면은 종전에 「정박 상태 + 구간 수 > 0」으로 「계속 악화 중」을 그렸다. 연료가 없는 구간도
+    그렇게 보였는데, 연료가 0이면 분자가 늘지 않아 **등급은 그대로**다(`UIFLOW 2-9`의 구분
+    기준이 「정박 연료 기록」이다). 값은 계층 1이 이미 계산한 것을 옮긴 것이라 지어낸 수가 없다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+
+    period_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_period (id, vessel_id, regulation_year, "
+            "period_type, started_at, distance_nm) VALUES (:id, :vid, 2026, "
+            "'AT_ANCHOR', '2026-06-25T00:00:00Z', 0)"
+        ),
+        {"id": period_id, "vid": vessel_id},
+    )
+
+    # ⑴ 구간만 있고 연료가 없다 — 몫은 0이다.
+    empty, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    assert empty["ytd"]["not_underway_period_count"] == 1
+    assert Decimal(empty["ytd"]["not_underway_fuel_ton"]) == 0
+    assert Decimal(empty["ytd"]["not_underway_co2_ton"]) == 0
+
+    # ⑵ 연료를 넣으면 몫이 잡힌다.
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_fuel_use (period_id, consumer_type, fuel_type, "
+            "fuel_ton, cf_used) VALUES (:id, 'OIL_FIRED_BOILER', 'HFO', 40, 3.114)"
+        ),
+        {"id": period_id},
+    )
+    filled, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    assert Decimal(filled["ytd"]["not_underway_fuel_ton"]) == Decimal("40")
+    # 40 t × CF 3.114 = 124.56 tCO₂ — 응답은 톤 단위 문자열이다.
+    assert Decimal(filled["ytd"]["not_underway_co2_ton"]) == Decimal("124.56")
+    # 전체 몫보다 클 수 없다.
+    assert Decimal(filled["ytd"]["not_underway_co2_ton"]) <= Decimal(filled["ytd"]["total_co2_ton"])
