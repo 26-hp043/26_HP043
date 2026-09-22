@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
-import { createApiParametersProvider, ParametersError } from './apiProvider'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { createApiParametersProvider, ParametersError } from '../../api/parameters'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 
 /**
  * 연료 종류 선택지의 데이터 경계 (#542 · #558).

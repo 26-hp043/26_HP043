@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 
 /**

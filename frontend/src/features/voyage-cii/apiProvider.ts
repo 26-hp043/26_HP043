@@ -1,3 +1,4 @@
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import { VoyageCiiError, type VoyageCiiErrorCode, type VoyageCiiProvider } from './provider'
 import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
@@ -27,13 +28,6 @@ import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
  * 문자열 직렬화로 지킨 정밀도가 사라진다. **재직렬화도 하지 않는다.**
  */
 
-/**
- * 기본 API base URL.
- * - 개발: vite 프록시를 거치므로 상대 경로 '/api/v1'이 맞다.
- * - Cloudflare Pages: VITE_API_BASE_URL 환경변수로 OCI 백엔드 절대 URL을 주입한다.
- *   예: VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1
- */
-export const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 /**
  * 서버 오류 코드 → provider 오류 코드.
