@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import base64
 import binascii
+from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import or_, select, tuple_, update
 
 from cii_platform.db.models.vessel import Vessel
 
@@ -91,6 +93,52 @@ async def get_by_id(session: AsyncSession, vessel_id: UUID) -> Vessel | None:
     """
     stmt = select(Vessel).where(Vessel.id == vessel_id, Vessel.is_deleted == 0)
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def update_current_position_if_newer(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    lat: Decimal,
+    lon: Decimal,
+    observed_at: datetime,
+    underway_state: str | None = None,
+    detail_status: str | None = None,
+) -> bool:
+    """**더 새 관측일 때만** 현재 위치를 덮는다 (`#1628` · `TECH_SPEC §16.3`).
+
+    비교와 쓰기를 **한 문장 안에서** 한다. 종전에는 파이썬이 읽어 비교한 뒤 ORM으로
+    덮었는데, 두 적재가 교차하면 **먼저 읽은 오래된 관측이 나중에 커밋되어** 현재
+    위치를 과거로 되돌린다 — 화면에서는 배가 뒤로 간다. 배치가 겹쳐 돌거나 재전송이
+    섞이면 실제로 일어나는 순서다.
+
+    :returns: 실제로 덮었으면 ``True``. 더 오래된(또는 같은) 관측이면 ``False``이며
+        **오류가 아니다** — 늦게 온 옛 값을 버리는 것이 이 함수의 일이다.
+
+    운항 상태 두 축은 **함께** 적는다(026 `chk_vessel_state_pair`가 한쪽만 바뀐 상태를
+    거부한다). 둘 다 ``None``이면 상태는 건드리지 않는다.
+    """
+    values: dict[str, object] = {
+        "current_lat": lat,
+        "current_lon": lon,
+        "position_updated_at": observed_at,
+    }
+    if underway_state is not None and detail_status is not None:
+        values["underway_state"] = underway_state
+        values["detail_status"] = detail_status
+
+    stmt = (
+        update(Vessel)
+        .where(
+            Vessel.id == vessel_id,
+            Vessel.is_deleted == 0,
+            # `IS NULL`이거나 더 오래된 것일 때만 — 같은 시각은 덮지 않는다(같은 값이다).
+            or_(Vessel.position_updated_at.is_(None), Vessel.position_updated_at < observed_at),
+        )
+        .values(**values)
+    )
+    result = await session.execute(stmt)
+    return (result.rowcount or 0) > 0
 
 
 async def find_active_by_imo(session: AsyncSession, imo_number: str) -> Vessel | None:

@@ -319,3 +319,52 @@ def test_unknown_nav_status_is_not_a_judgement():
     assert state_pair_from(6) is None
     assert state_pair_from(15) is None
     assert state_pair_from(None) is None
+
+
+async def test_an_older_observation_does_not_move_the_vessel_back(session):
+    """**더 오래된 관측**은 현재 위치를 덮지 못한다 (`#1628`).
+
+    ## 무엇이 문제였나
+
+    종전에는 파이썬이 `position_updated_at`을 읽어 비교한 뒤 ORM으로 덮었다. 두 적재가
+    교차하면 **먼저 읽은 오래된 관측이 나중에 커밋되어** 현재 위치를 뒤로 민다 —
+    화면에서는 **배가 되돌아간다.** 배치가 겹쳐 돌거나 재전송이 섞이면 나는 순서다.
+
+    ## 무엇을 잠그는가
+
+    비교가 **`WHERE`에 있는지**를 본다. 조건이 SQL 안에 있으면 읽기와 쓰기 사이가
+    없으므로, 커밋 순서가 어떻든 오래된 값이 이기지 못한다. 여기서는 그 조건 자체를
+    **순서대로 불러** 확인한다 — 두 연결을 띄우지 않는 이유는 이 보장이 응용 계층의
+    순서가 아니라 **한 문장 안에** 있기 때문이다.
+    """
+    from cii_platform.db.repositories import vessel as vessel_repo
+
+    vessel_id = await _insert_vessel(session, "7300991")
+
+    newer = datetime(2026, 8, 10, 10, 0, tzinfo=UTC)
+    older = datetime(2026, 8, 10, 9, 0, tzinfo=UTC)
+
+    applied = await vessel_repo.update_current_position_if_newer(
+        session, vessel_id=vessel_id, lat=Decimal("35.10"), lon=Decimal("129.00"), observed_at=newer
+    )
+    assert applied is True
+
+    # 오래된 관측은 **버린다** — 오류가 아니라 「덮지 않았다」이다.
+    stale = await vessel_repo.update_current_position_if_newer(
+        session, vessel_id=vessel_id, lat=Decimal("20.00"), lon=Decimal("100.00"), observed_at=older
+    )
+    assert stale is False
+
+    # 같은 시각도 덮지 않는다 — 같은 값을 다시 쓰는 일이다.
+    same = await vessel_repo.update_current_position_if_newer(
+        session, vessel_id=vessel_id, lat=Decimal("1.00"), lon=Decimal("1.00"), observed_at=newer
+    )
+    assert same is False
+
+    row = await session.execute(
+        text("SELECT current_lat, position_updated_at FROM vessel WHERE id = :v"),
+        {"v": vessel_id},
+    )
+    lat, updated = row.one()
+    assert Decimal(str(lat)) == Decimal("35.10")
+    assert updated.replace(tzinfo=UTC) == newer
