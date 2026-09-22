@@ -17,8 +17,11 @@
  *
  * ## `--color-warning-text`를 쓴다
  *
- * `--color-warning`(`--cii-c-fill` 별칭)은 라이트에서 문자 대비가 3.09:1이라
- * `§0.2` 제약 1(4.5:1)에 못 미친다. 문자 전용 별칭을 쓴다 — `tokens.css` 주석 참조.
+ * `--color-warning`(= `--semantic-warning`)은 라이트에서 흰 카드 위 문자 대비가
+ * `§0.2` 제약 1(4.5:1)에 못 미친다. 문자 전용 토큰을 쓴다 — 값·대비는 `tokens.css`
+ * 「문자로 쓸 때의 시맨틱 색」 주석이 소유한다.
+ * (`#1022` 이전에는 `--color-warning`이 `--cii-c-fill`의 별칭이었고 대비도 그 값으로
+ * 적혀 있었다. 사유 — 라이트 문자 대비 미달 — 는 지금도 같다.)
  */
 
 .applicability-badge {

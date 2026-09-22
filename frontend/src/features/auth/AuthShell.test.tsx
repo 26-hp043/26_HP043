@@ -165,11 +165,15 @@ describe('AuthShell 브랜드 판 — #608', () => {
 })
 
 describe('미인증 배너 — 등급 색을 쓰지 않는다 (#748)', () => {
-  it('배너 규칙이 등급 토큰에도, 그 별칭(`--color-warning`)에도 닿지 않는다', () => {
+  it('배너 규칙이 등급 토큰에도, Warning 계열(`--color-warning*`)에도 닿지 않는다', () => {
     /*
      * `§0.2` 제약 2 — 등급 색은 A~E 문자나 등급 축 라벨과 함께만 나타난다. 이 배너는
-     * 이메일 인증 안내라 둘 다 없다. `--color-warning`·`--color-warning-text`는
-     * **`--cii-c-fill`을 가리키므로**(`tokens.css`) 이름만 바꿔 옮기면 값이 그대로다.
+     * 이메일 인증 안내라 둘 다 없다.
+     *
+     * Warning 계열을 함께 막는 것은 `#748` 당시 `--color-warning`·`--color-warning-text`가
+     * `--cii-c-fill`을 가리켰기 때문이다. `#1022` 이후 둘은 `--semantic-warning` 쪽이지만,
+     * 배너 색은 `§2.3` 「안내 배너」 = Info로 정해져 있다(아래 테스트). Warning으로 옮기는
+     * 것은 이름 교체가 아니라 디자인 결정이므로 이 단언은 그대로 둔다.
      */
     const banner = [...rules.matchAll(/([^{}]*verify-banner[^{}]*)\{([^}]*)\}/g)]
     expect(banner.length, '.verify-banner 규칙을 찾지 못했습니다').toBeGreaterThan(0)

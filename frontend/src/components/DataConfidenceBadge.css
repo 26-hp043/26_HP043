@@ -4,9 +4,12 @@
  * `GradeBadge`의 `sm` 규격(13px / 패딩 3·8 / radius 4)에 맞춘다 — 나란히 놓이는데
  * 높이가 다르면 행 정렬이 흔들린다.
  *
- * **테두리형이다.** 등급 배지는 채움형이므로, 시맨틱 Warning의 값이 C등급 색과
- * 같더라도(`--color-warning`이 `--cii-c-fill`의 별칭이다) 형태로 갈린다.
- * `RegulatoryFlag`와 같은 규율이며, 두 배지는 색으로 구분된다.
+ * **테두리형이다.** 등급 배지는 채움형이므로 나란히 놓여도 형태로 갈린다.
+ * `RegulatoryFlag`와 같은 규율이며, 두 배지는 색으로 구분된다(Warning / Danger).
+ *
+ * 색은 `--color-warning-text` — 시맨틱 Warning(`--semantic-warning`)의 문자 전용
+ * 토큰이다. 라이트만 별도 값이며 사정은 `tokens.css` 주석이 소유한다.
+ * (`#1022` 이전에는 `--color-warning`이 `--cii-c-fill`의 별칭이었다. 지금은 아니다.)
  */
 
 .data-confidence-badge {
