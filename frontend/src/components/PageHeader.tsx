@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useI18n } from '../i18n/core'
+import { useI18n, useTextLang } from '../i18n/core'
 import { SCREEN_BY_ID, type ScreenId } from '../screens'
 import './PageHeader.css'
 
@@ -43,6 +43,7 @@ interface PageHeaderProps {
 export function PageHeader({ screen, children }: PageHeaderProps) {
   const meta = SCREEN_BY_ID[screen]
   const { language } = useI18n()
+  const textLang = useTextLang()
 
   return (
     <header className="page-head">
@@ -54,7 +55,10 @@ export function PageHeader({ screen, children }: PageHeaderProps) {
         게다가 언어와 무관하게 한국어가 주 제목이라 **영어 모드에서도 제목만
         한국어로 남아 있었다** — 토글이 닿지 않는 자리였다.
       */}
-      <h1 className="page-head__title">{language === 'en' ? meta.labelEn : meta.label}</h1>
+      {/* 영문 이름을 그리는 동안만 `lang="en"` — 루트는 늘 `ko`다 (`#1652`). */}
+      <h1 className="page-head__title" lang={textLang}>
+        {language === 'en' ? meta.labelEn : meta.label}
+      </h1>
       {children}
     </header>
   )

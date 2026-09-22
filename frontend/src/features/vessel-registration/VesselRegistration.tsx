@@ -30,7 +30,7 @@ import {
 import { SHIP_TYPES, shipTypeLabel } from './shipTypes'
 import type { Vessel } from './types'
 import { Field } from '../../components/Field'
-import { useI18n } from '../../i18n/core'
+import { useI18n, useTextLang } from '../../i18n/core'
 
 /**
  * 선박 등록 화면 (`UIFLOW 1-2` · `PRD §6.2 SCR-002` · #441).
@@ -67,6 +67,7 @@ import { useI18n } from '../../i18n/core'
  */
 export function VesselRegistration() {
   const { language } = useI18n()
+  const textLang = useTextLang()
   const provider = useMemo(() => createVesselRegistrationProvider(), [])
   // 연료 선택지는 서버가 준다 (#542). 종전에는 고정표(`referenceTable.ts`)를 읽어,
   // 등록 화면이 보여 주는 연료와 서버가 받는 연료가 갈릴 수 있었다.
@@ -162,7 +163,7 @@ export function VesselRegistration() {
     <section className="vessel-registration">
       <header className="vessel-registration__header">
         {/* 화면 이름은 언어에 맞는 것 하나만 적는다 (`#1426` · `PageHeader`와 같은 판단). */}
-        <h1 className="vessel-registration__title">
+        <h1 className="vessel-registration__title" lang={textLang}>
           {language === 'en'
             ? SCREEN_BY_ID.VESSEL_REGISTRATION.labelEn
             : SCREEN_BY_ID.VESSEL_REGISTRATION.label}

@@ -21,7 +21,7 @@ import { ErrorBoundary, ErrorScreen } from '../components/ErrorBoundary'
 import { AccountMenu } from './AccountMenu'
 import { GradePatternDefs } from '../components/GradePatternDefs'
 import { isOffice, logout, useAuthUser } from '../auth/session'
-import { useI18n } from '../i18n/core'
+import { useI18n, useTextLang } from '../i18n/core'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
 import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
 import { AssistantOverlay } from '../features/assistant/AssistantOverlay'
@@ -71,6 +71,8 @@ export function AppShell() {
   const width = screen?.width ?? 'form'
   const user = useAuthUser()
   const { language, t } = useI18n()
+  // 영어로 바뀌는 자리에만 붙인다 — 루트는 늘 `ko`다 (`#1652` · `useTextLang` 주석).
+  const textLang = useTextLang()
 
   const vesselCatalog = useMemo(() => createVesselCatalog(), [])
   const voyageCatalog = useMemo(() => createVoyageCatalog(), [])
@@ -314,7 +316,7 @@ export function AppShell() {
                 >
                   <NavIcon id={item.id} />
                   <span className="app-shell__nav-text">
-                    <span className="app-shell__nav-label">
+                    <span className="app-shell__nav-label" lang={textLang}>
                       {language === 'en' ? item.labelEn : item.label}
                     </span>
                   </span>
@@ -333,11 +335,13 @@ export function AppShell() {
                 >
                   <NavIcon id={item.id} />
                   <span className="app-shell__nav-text">
-                    <span className="app-shell__nav-label">
+                    <span className="app-shell__nav-label" lang={textLang}>
                       {language === 'en' ? item.labelEn : item.label}
                     </span>
                   </span>
-                  <span className="app-shell__nav-tag">{lockedTag}</span>
+                  <span className="app-shell__nav-tag" lang={textLang}>
+                    {lockedTag}
+                  </span>
                 </span>
               </li>
             )
@@ -360,7 +364,7 @@ export function AppShell() {
            */}
           <span className="app-shell__util-item">
             <ShipGlyph />
-            <label className="app-shell__util-label" htmlFor="global-vessel">
+            <label className="app-shell__util-label" htmlFor="global-vessel" lang={textLang}>
               {t('shell.vessel')}
             </label>
             <select
@@ -381,7 +385,7 @@ export function AppShell() {
                 바로 아래 항차 셀렉트가 `#824` ⑶에서 이미 이 형태다. 문구는
                 `PRD §6.4` 패턴(폼 컨트롤 안 · 마침표 없음)을 따른다.
               */}
-              <option value="">
+              <option value="" lang={textLang}>
                 {vesselsState === 'loading'
                   ? t('shell.vessel.loading')
                   : vesselsState === 'failed'
@@ -399,7 +403,7 @@ export function AppShell() {
           </span>
           <span className="app-shell__util-item">
             <VoyageGlyph />
-            <label className="app-shell__util-label" htmlFor="global-voyage">
+            <label className="app-shell__util-label" htmlFor="global-voyage" lang={textLang}>
               {t('shell.voyage')}
             </label>
             {/*
@@ -420,7 +424,7 @@ export function AppShell() {
                 없음」이라 사용자가 **항차를 만들어야 하는지 서버를 봐야 하는지**
                 알 수 없었다 — 선박 셀렉트는 이미 그 셋을 가른다.
               */}
-              <option value="">
+              <option value="" lang={textLang}>
                 {context.vesselId === null
                   ? t('shell.voyage.selectVesselFirst')
                   : voyagesState === 'loading'
@@ -450,6 +454,7 @@ export function AppShell() {
           <button
             type="button"
             className="app-shell__iconbtn"
+            lang={textLang}
             aria-label={t('shell.notification.aria')}
             title={t('shell.notification.title')}
             disabled
@@ -488,6 +493,7 @@ export function AppShell() {
               <button
                 type="button"
                 className="app-shell__logout"
+                lang={textLang}
                 onClick={() => void runLogout()}
                 data-testid="logout-button"
               >
