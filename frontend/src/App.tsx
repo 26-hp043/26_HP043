@@ -33,7 +33,8 @@ import { SettingsPage } from './pages/SettingsPage'
  *
  * **로그인 계열(§0)은 셸 밖**에 둔다 — 사이드바·상단바가 없는 전체 화면이며,
  * 가드로 보호하면 로그인으로 돌아가는 무한 루프가 된다. 그 외 모든 화면은
- * `RequireAuth`로 감싼다(#278). demo 모드에서는 가드가 스스로 우회한다.
+ * `RequireAuth`로 감싼다(#278). 가드는 **항상** 적용된다 — 종전 demo 모드의 우회는
+ * `#542`가 데모 모드를 폐기하면서 없어졌다(`#1660`).
  *
  * **3계층 드릴다운(#348)** — `/vessels/:vesselId`(선박 상세, 2-8)과
  * `/vessels/:vesselId/voyages/:voyageId`(실시간 CII, 2-9)은 경로 파라미터를

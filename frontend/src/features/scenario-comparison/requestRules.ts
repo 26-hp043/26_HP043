@@ -450,8 +450,8 @@ export function weatherNeedsCoordinates(state: ComparisonFormState): boolean {
 /**
  * 선박 목록이 비었을 때의 안내.
  *
- * demo 모드에서는 고정표가 1척을 주므로 사실상 실 API에서만 나온다 — 선박을 아직
- * 등록하지 않은 상태다(`UIFLOW 1-1`). **비교 버튼을 눌러 보게 두지 않는다.**
+ * 선박을 아직 등록하지 않은 상태다(`UIFLOW 1-1`). **비교 버튼을 눌러 보게 두지 않는다.**
+ * (종전 「demo 모드에서는 고정표가 1척을 준다」는 `#542` 데모 폐기로 사실이 아니다 · `#1660`)
  */
 export const NO_VESSEL_MESSAGE =
   '등록된 선박이 없어 비교할 대상이 없습니다. 선박을 먼저 등록해 주세요.'
