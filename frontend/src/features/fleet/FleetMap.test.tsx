@@ -19,6 +19,15 @@ import type { FleetVessel } from './types'
  * `FleetMap`을 통째로 대역으로 바꾸는 이유다). 여기서 보려는 것은 **지도 자체가
  * 아니라 지도 옆의 안내**이므로, 지도를 대역으로 두고 그 안내만 본다.
  */
+/**
+ * 만들어진 지도를 기록한다 (`#1645`) — 「그때 만들어졌는가 · 정리됐는가」를 보려면
+ * 인스턴스가 필요하다. 모의 안에서 `globalThis`를 거치는 것은 `vi.mock` 팩토리가
+ * 호이스팅되어 파일 상단의 값을 가져다 쓸 수 없기 때문이다.
+ */
+type FakeMapRecord = { remove: ReturnType<typeof vi.fn> }
+const mapsCreated = (): FakeMapRecord[] =>
+  ((globalThis as { __fleetMaps?: FakeMapRecord[] }).__fleetMaps ??= [])
+
 vi.mock('maplibre-gl', () => {
   class FakeMap {
     touchZoomRotate = { disableRotation: vi.fn() }
@@ -31,6 +40,11 @@ vi.mock('maplibre-gl', () => {
     getZoom = vi.fn().mockReturnValue(0)
     fitBounds = vi.fn()
     remove = vi.fn()
+    constructor() {
+      const registry = (globalThis as { __fleetMaps?: unknown[] })
+      registry.__fleetMaps ??= []
+      registry.__fleetMaps.push(this)
+    }
   }
   class FakeMarker {
     setLngLat = vi.fn().mockReturnThis()
@@ -98,15 +112,44 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
   })
 
   /**
-   * 캡션이 줄어도 **두 사실은 남는다** (`#1421`).
+   * 좌표가 **나중에** 들어오면 지도가 그때 생긴다 (`#1645`).
    *
-   * 세 문장을 두 문장으로 줄이면서 첫 문장(「확대·축소로 위치를 확인할 수 있습니다」)을
-   * 뺐다 — 지도라면 누구나 하는 조작이다. 남은 둘은 뺄 수 없다: 점선이 육지를
-   * 가로지르는 이유(`#1275`)와 굵은 테두리의 뜻(`DESIGN_SYSTEM §9.5` 🔒)은 **그림이
-   * 스스로 말하지 못한다.** 다음에 또 줄일 때 둘 중 하나가 사라지면 여기서 걸린다.
+   * 종전에는 지도 초기화가 의존성 없는 effect라 **마운트 때 한 번만** 돌았다. 좌표가
+   * 한 척도 없으면 캔버스 자체가 그려지지 않아 그 한 번이 헛돌았고, 위치가 들어와
+   * 캔버스가 나타나도 effect가 다시 돌지 않아 **새로고침해야 지도가 보였다.**
    *
-   * 문구가 아니라 **사실**을 본다 — 표현은 바뀌어도 된다(`AGENTS §4.6`).
+   * 실제로 이 순서가 난다 — 선대 조회가 먼저 오고 위치 갱신이 뒤따르거나
+   * (`#1624` 위치 이력), 현장직이 위치를 막 입력한 직후가 그렇다.
    */
+  it('좌표가 나중에 들어오면 지도를 그때 만든다 (#1645)', () => {
+    mapsCreated().length = 0
+
+    const { rerender } = render(
+      <FleetMap vessels={[vessel('1', null, null), vessel('2', null, null)]} />,
+    )
+    // 캔버스가 없으니 지도도 없다 — 여기까지는 종전과 같다.
+    expect(screen.queryByRole('img')).toBeNull()
+    expect(mapsCreated()).toHaveLength(0)
+
+    rerender(<FleetMap vessels={[vessel('1', '35.1', '129.0'), vessel('2', null, null)]} />)
+
+    expect(screen.getByRole('img')).toBeTruthy()
+    // 종전에는 여기서 0이었다 — 캔버스는 생겼는데 지도는 만들어지지 않았다.
+    expect(mapsCreated()).toHaveLength(1)
+  })
+
+  it('좌표가 사라지면 지도를 정리한다 — 인스턴스가 남지 않는다 (#1645)', () => {
+    mapsCreated().length = 0
+
+    const { rerender } = render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
+    expect(mapsCreated()).toHaveLength(1)
+
+    rerender(<FleetMap vessels={[vessel('1', null, null)]} />)
+
+    expect(screen.getByText(/위치가 기록된 선박이 없습니다/)).toBeTruthy()
+    expect(mapsCreated()[0].remove).toHaveBeenCalled()
+  })
+
   it('기본 캡션은 점선이 육지를 가로지른다는 것과 굵은 테두리의 뜻을 둘 다 말한다 (#1421)', () => {
     const { container } = render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
 

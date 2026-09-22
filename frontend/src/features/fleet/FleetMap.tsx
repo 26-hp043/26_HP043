@@ -180,13 +180,24 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
   const shown = placed(vessels).length
   const missingText = missingPositionText(vessels.length, shown)
 
-  const container = useRef<HTMLDivElement | null>(null)
+  /*
+   * 캔버스 자리를 **ref가 아니라 state로 잡는다** (`#1645`).
+   *
+   * 종전에는 `useRef` + 의존성 없는 effect였다. 그런데 좌표가 한 척도 없으면 아래
+   * 분기가 **캔버스 자체를 그리지 않으므로** 첫 실행에서 `container.current`가
+   * `null`이라 지도를 만들지 않고 끝났고, 나중에 위치가 들어와 캔버스가 그려져도
+   * **effect가 다시 돌지 않아** 그 자리는 빈 채로 남았다 — 새로고침해야 보였다.
+   *
+   * ref 콜백이 노드를 state로 올리면 붙고 떨어지는 것이 렌더에 잡힌다. 좌표가
+   * 사라져 캔버스가 빠질 때도 같은 effect의 정리가 돌아 지도가 남지 않는다.
+   */
+  const [canvas, setCanvas] = useState<HTMLDivElement | null>(null)
   const map = useRef<maplibregl.Map | null>(null)
   const markers = useRef<maplibregl.Marker[]>([])
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
-    if (container.current === null || map.current !== null) return
+    if (canvas === null || map.current !== null) return
 
     /*
      * PMTiles 프로토콜은 **전역에 한 번만** 등록한다. 같은 이름으로 두 번 등록하면
@@ -200,7 +211,7 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
     }
 
     const instance = new maplibregl.Map({
-      container: container.current,
+      container: canvas,
       style: {
         version: 8,
         // 글리프도 **우리 오리진**이다. CDN을 가리키면 지도 배경은 오프라인에서
@@ -241,9 +252,11 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
     return () => {
       instance.remove()
       map.current = null
+      // 마커는 지도와 함께 사라진다 — 참조만 남으면 다음 지도에서 지우려다 헛돈다.
+      markers.current = []
       setReady(false)
     }
-  }, [])
+  }, [canvas])
 
   useEffect(() => {
     const instance = map.current
@@ -338,7 +351,7 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
       */}
       <div
         className="fleetmap__canvas"
-        ref={container}
+        ref={setCanvas}
         role="img"
         aria-label={
           ariaLabel ??
