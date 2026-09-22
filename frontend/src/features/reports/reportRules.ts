@@ -87,15 +87,22 @@ export function targetOf(
   return { kind: 'VOYAGE', voyageId: selection.voyageId }
 }
 
-/** 두 대상이 같은가 — 미리보기를 다시 받아야 하는지 판단한다. */
-export function sameTarget(a: ReportTarget | null, b: ReportTarget | null): boolean {
-  if (a === null || b === null) return a === b
-  if (a.kind !== b.kind) return false
-  if (a.kind === 'VOYAGE' && b.kind === 'VOYAGE') return a.voyageId === b.voyageId
-  if (a.kind === 'ANNUAL' && b.kind === 'ANNUAL') {
-    return a.vesselId === b.vesselId && a.year === b.year
-  }
-  return false
+/**
+ * 대상을 문자열 하나로 줄인다 — 보고 있는 문서가 지금 조건의 것인지 판단한다 (#1768).
+ *
+ * ## 왜 `sameTarget(a, b)`가 아닌가
+ *
+ * 이 판단을 하는 곳이 **효과의 의존성**으로 옮겨 갔다. 대상 객체는 렌더마다 새로
+ * 만들어지므로 그대로 의존성에 넣으면 조건이 그대로여도 매 렌더 효과가 돌고, 문서를
+ * 만드는 중의 렌더까지 새 요청이 된다. 키 하나로 줄이면 의존성이 원시값이 되어
+ * **조건이 실제로 바뀐 렌더에서만** 돈다.
+ *
+ * 종류를 접두로 두므로 `ANNUAL`과 `VOYAGE`의 키가 섞이지 않는다.
+ */
+export function targetKey(target: ReportTarget): string {
+  return target.kind === 'VOYAGE'
+    ? `VOYAGE:${target.voyageId}`
+    : `ANNUAL:${target.vesselId}:${target.year}`
 }
 
 /*

@@ -5,15 +5,69 @@
  */
 
 .rp {
+  /*
+   * 기둥이 붙는 자리 — sticky 상단바 아래다(위 틈 + 최소 높이 56px + 아래 틈).
+   * 조건 기둥과 문서 높이가 **같은 값**에서 나와야 둘이 어긋나지 않으므로, 한쪽 규칙에
+   * 두지 않고 화면 뿌리에서 한 번 정한다.
+   */
+  --rp-sticky-top: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xl);
 }
 
+/*
+ * 입력-결과 2단 — `DESIGN_SYSTEM §8.7` 〔권장〕 (#1768).
+ *
+ * ## 왜 나누나
+ *
+ * 종전에는 조건 카드가 전폭으로 눕고 문서가 그 **아래**에 붙었다. 1440 × 900 실측에서
+ * 조건 카드는 `1128 × 242`이고 내용이 `y≈540`에서 끝나 **첫 화면의 40%가 빈 면**이었다.
+ * 게다가 조건을 한 칸 바꾸려면 위로 스크롤해 돌아가야 했고, 돌아가면 이번에는 문서가
+ * 화면 밖으로 나갔다 — 조건을 바꾸며 결과를 보는 일이 한 화면에서 끝나지 않았다.
+ *
+ * ## 고정 폭 기둥이지 12컬럼 분할이 아니다
+ *
+ * `§7.1`의 7:5가 아니라 `§8.7`이 이 형태의 화면에 따로 정한 틀이다 — 입력 기둥
+ * `--grid-input-column`(360) 고정 · 결과는 나머지 전체. `CII 예측`(#1711) · `연간 등급
+ * 관리`(#1700) · `항로 비교`(#1745)와 같은 규칙이며, `styles/inputColumn.sync.test.ts`가
+ * 네 화면을 한 표로 대조한다.
+ */
+.rp__split {
+  display: grid;
+  grid-template-columns: var(--grid-input-column) minmax(0, 1fr);
+  gap: var(--grid-gutter);
+  /*
+   * 조건이 문서보다 짧다. stretch로 두면 짧은 쪽 카드가 문서 높이까지 늘어나 아래가
+   * 빈 카드로 남는다. sticky가 붙으려면 역시 start여야 한다.
+   */
+  align-items: start;
+}
+
 .rp__form {
+  /*
+   * 조건 기둥은 스크롤을 따라온다(`§8.7`). 안내 문구가 여러 줄 붙으면 기둥이 창보다
+   * 길어질 수 있어 높이를 창에 맞추고 기둥 안에서 스크롤한다 — 그러지 않으면 아래
+   * 「미리보기」·다운로드 버튼에 닿지 못한다.
+   */
+  position: sticky;
+  top: var(--rp-sticky-top);
+  max-block-size: calc(
+    100vh - var(--rp-sticky-top) - var(--shell-gutter, var(--grid-gutter))
+  );
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: var(--spacing-lg);
+}
+
+/* 문서 기둥. `minmax(0, 1fr)`의 짝으로 최소 폭을 풀어 둔다 — 안 그러면 기둥이 내용만큼 넓어진다. */
+.rp__doc {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  min-inline-size: 0;
 }
 
 /* ── 종류 선택 ──────────────────────────────────────────────────── */
@@ -171,7 +225,15 @@
 
 .rp__frame {
   inline-size: 100%;
-  block-size: 70vh;
+  /*
+   * 2단에서는 문서가 기둥을 채운다 (#1768). 종전 `70vh`는 문서가 조건 **아래**에 있던
+   * 시절의 값이라, 나란히 두면 문서만 짧고 기둥 아래가 남는다. 카드 머리(제목 줄) 높이를
+   * 빼고 창에 맞춘 뒤, 넘치는 부분은 문서 안에서 스크롤한다. 1100 이하에서 접히면 위
+   * 미디어 쿼리가 종전 값으로 되돌린다.
+   */
+  block-size: calc(
+    100vh - var(--rp-sticky-top) - var(--shell-gutter, var(--grid-gutter)) - 56px
+  );
   min-block-size: 420px;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-control);
@@ -179,13 +241,73 @@
   background: #ffffff;
 }
 
-/* 조건이 바뀌면 지금 보이는 문서가 그 조건의 것이 아니다. */
-.rp__frame--stale {
+/*
+ * 바뀐 조건으로 다시 만드는 중 — 지금 보이는 문서는 **아직 그 조건의 것이 아니다.**
+ * 문구(카드 머리의 「만드는 중…」)와 채널 둘로 말한다.
+ */
+.rp__frame--busy {
   opacity: 0.5;
+}
+
+/*
+ * 자리표시자 — 빈 면을 두지 않는다 (`PRD §6.4` 「선행 선택 필요」).
+ *
+ * 면을 띄우지 않는다(`§5` 카드 예산) — 이미 문서 카드 **안**이다. 들어간 면으로만
+ * 「여기가 문서 자리」임을 말한다.
+ */
+.rp__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  text-align: center;
+  min-block-size: 420px;
+  padding: var(--spacing-xl);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+}
+
+.rp__placeholder-lead {
+  margin: 0;
+  font-size: var(--font-size-body);
+  color: var(--text-primary);
+}
+
+.rp__placeholder-note {
+  margin: 0;
+  max-inline-size: 42ch;
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
 }
 
 .rp__note {
   margin: 0;
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
+}
+
+/*
+ * 1100 이하에서는 조건이 위, 문서가 아래로 접힌다(`§8.7`). 접힌 뒤에는 따라오지 않는다
+ * — 문서 위에 조건이 덮이면 문서를 읽을 수 없다.
+ *
+ * **파일 끝에 둔다.** 특정도가 같으므로 `.rp__form`·`.rp__frame` 기본 규칙보다 **뒤에
+ * 있어야** 이긴다 — 앞에 두면 접혀도 조건이 계속 따라와 문서를 덮는다.
+ *
+ * 미디어 쿼리 조건에는 커스텀 프로퍼티를 쓸 수 없어 리터럴로 적는다.
+ */
+@media (max-width: 1100px) {
+  .rp__split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rp__form {
+    position: static;
+    max-block-size: none;
+    overflow-y: visible;
+  }
+
+  .rp__frame {
+    block-size: 70vh;
+  }
 }

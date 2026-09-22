@@ -377,3 +377,93 @@ describe('선대가 100척을 넘어도 (#1644)', () => {
     expect(vesselSelect().options.length).toBeGreaterThanOrEqual(200)
   })
 })
+
+
+/**
+ * 입력-결과 2단과 「한 번 만든 뒤에는 따라 갱신」 (#1768).
+ *
+ * 종전에는 문서가 조건 **아래**에 붙었고, 조건을 바꾸면 낡은 문서를 남겨 둔 채
+ * 「조건이 바뀌었습니다 — 다시 만들어 주세요」라고 시켰다 — 화면이 할 수 있는 일을
+ * 사용자에게 시킨 셈이다. 누르기 전에는 그 자리가 아예 없어 **첫 화면의 40%가 빈
+ * 면**이었다.
+ */
+describe('한 번 만든 뒤에는 조건을 따라간다 (#1768)', () => {
+  const twoVoyages = () =>
+    stub({
+      listVoyages: vi.fn(async () => [voyage('a-1', 'A-2026-01'), voyage('a-2', 'A-2026-02')]),
+    })
+
+  it('마운트만으로는 만들지 않는다 — 조건을 정하기 전의 문서는 누구의 질문도 아니다', async () => {
+    const provider = twoVoyages()
+    renderInShell(provider, { vesselId: 'v-a', voyageId: 'a-1' })
+    await chooseVoyageKind()
+
+    await waitFor(() => expect(voyageSelect().value).toBe('a-1'))
+    // `#511`이 항로 비교에서 정한 것과 같다 — 실패하면 화면이 오류로 시작한다.
+    expect(provider.previewHtml).not.toHaveBeenCalled()
+  })
+
+  it('누르기 전에도 빈 면이 아니다 — 무엇을 고르면 무엇이 나오는지가 있다', async () => {
+    render(<ReportsView provider={stub()} />)
+
+    expect(await screen.findByText(/선박을 먼저 선택해 주세요/)).toBeTruthy()
+    expect(screen.getByText(/같은 문서/)).toBeTruthy()
+  })
+
+  it('조건을 바꾸면 문서를 다시 만든다 — 「다시 만들어 주세요」가 없다', async () => {
+    const provider = twoVoyages()
+    renderInShell(provider, { vesselId: 'v-a' })
+    await chooseVoyageKind()
+    await screen.findByRole('option', { name: /A-2026-01/ })
+
+    fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
+    fireEvent.click(screen.getByTestId('preview-button'))
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
+
+    fireEvent.change(voyageSelect(), { target: { value: 'a-2' } })
+
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(2))
+    expect(provider.previewHtml).toHaveBeenLastCalledWith({ kind: 'VOYAGE', voyageId: 'a-2' })
+    expect(screen.queryByText(/다시 만들어 주세요/)).toBeNull()
+  })
+
+  it('같은 조건으로 다시 그려도 두 번 부르지 않는다', async () => {
+    const provider = twoVoyages()
+    renderInShell(provider, { vesselId: 'v-a' })
+    await chooseVoyageKind()
+    await screen.findByRole('option', { name: /A-2026-01/ })
+
+    fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
+    fireEvent.click(screen.getByTestId('preview-button'))
+    await waitFor(() => expect(screen.getByTitle('리포트 미리보기')).toBeTruthy())
+
+    /*
+     * 문서가 도착하면 `preview`가 바뀌어 효과가 한 번 더 돈다. 키가 같아 거기서
+     * 멈추지 않으면 **자기 자신을 다시 부르는 고리**가 된다.
+     */
+    await waitFor(() => expect(provider.previewHtml).toHaveBeenCalledTimes(1))
+  })
+
+  it('다시 만들다 실패해도 앞 문서를 지우지 않는다', async () => {
+    let calls = 0
+    const provider = twoVoyages()
+    provider.previewHtml = vi.fn(async () => {
+      calls += 1
+      if (calls === 1) return '<p>first</p>'
+      throw new Error('서버 오류')
+    })
+    renderInShell(provider, { vesselId: 'v-a' })
+    await chooseVoyageKind()
+    await screen.findByRole('option', { name: /A-2026-01/ })
+
+    fireEvent.change(voyageSelect(), { target: { value: 'a-1' } })
+    fireEvent.click(screen.getByTestId('preview-button'))
+    await waitFor(() => expect(screen.getByTitle('리포트 미리보기')).toBeTruthy())
+
+    fireEvent.change(voyageSelect(), { target: { value: 'a-2' } })
+
+    expect(await screen.findByText(/리포트를 만들지 못했습니다/)).toBeTruthy()
+    // 되돌리려고 조건을 기억해 다시 고르게 하지 않는다 — 보던 문서는 남는다.
+    expect(screen.getByTitle('리포트 미리보기')).toBeTruthy()
+  })
+})
