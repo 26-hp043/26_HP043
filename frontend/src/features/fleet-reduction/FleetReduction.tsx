@@ -214,7 +214,17 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       */}
       {shown !== null ? <FleetVerdict result={shown} adjusted={adjusted} /> : null}
 
-      {/* `PRD §6.3` 결정론 안내 — `§8.6`상 고지는 띠 바로 아래 한 줄이다. */}
+      {/*
+        `PRD §6.3` 결정론 안내 — 띠 묶음(띠 · 상태 문장 · 2열 목록) **바로 아래 한 줄**이다
+        (`§8.6` · `§13` · `#1578`).
+
+        **띠 안에 두지 않는다.** 이 문구는 계산 전 · 실패에도 보여야 한다 — 연간 등급 관리와
+        값이 다르게 보이는 이유를 말하는 자리라, 결과가 없을 때 사라지면 그때 들어온 사용자가
+        두 화면 중 하나가 틀렸다고 읽는다(`UIFLOW 2-10`).
+
+        색 띠를 걷었다 — 바로 위 상태 문장이 그 자리를 쓰고, 색 띠가 둘이면 어느 쪽이 상태인지
+        가려진다(`§2.3` 경고색은 한 자리에 한 번).
+      */}
       <p className="fr__notice">{COPY.deterministicNotice}</p>
 
       {/*
