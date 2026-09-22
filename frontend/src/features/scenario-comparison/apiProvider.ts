@@ -88,20 +88,68 @@ interface ServerBody {
   }
 }
 
+/**
+ * 계약이 정한 열거값 (`API_SPEC §5.1` · `PRD §7.5`).
+ *
+ * **서버가 준 문자열을 `as`로 단정하지 않는다** (`#1619`). 종전에는 세 자리
+ * (`scenario_type` · `estimated_rating` · `risk_level`)를 **검사 없이** 화면 타입으로
+ * 단정했다. 200이면서 계약을 어긴 응답 — 새 등급 문자, 오타난 시나리오 종류, 빈
+ * 문자열 — 이 그대로 화면까지 갔고, 거기서 **등급 색도 위험도 배지도 붙지 않은 채**
+ * 표가 그려졌다. 잘못은 서버에서 났는데 사용자는 화면이 고장 난 것으로 본다.
+ *
+ * 여기서 막으면 `ScenarioComparisonError`가 되어 **비교 화면이 오류로 끝난다** —
+ * 「값이 이상하다」와 「계산하지 못했다」 중 뒤엣것이 사실에 가깝다.
+ */
+const SCENARIO_TYPES: readonly string[] = ['DIRECT', 'DETOUR', 'SLOW_STEAMING']
+const RATINGS: readonly string[] = ['A', 'B', 'C', 'D', 'E']
+const RISK_LEVELS: readonly string[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+
+/** 계약 위반은 전부 같은 문구로 끝낸다 — 어느 칸이 틀렸는지는 `field`가 말한다. */
+const CONTRACT_ERROR_MESSAGE = '비교 결과를 읽지 못했습니다. 잠시 후 다시 시도해 주세요.'
+
+function requireEnum(value: string, allowed: readonly string[], field: string): string {
+  if (!allowed.includes(value)) {
+    throw new ScenarioComparisonError('CALCULATION_ERROR', CONTRACT_ERROR_MESSAGE, field)
+  }
+  return value
+}
+
+/** 비어 있으면 계약 위반이다 — 빈 문자열을 Layer 1 값으로 화면에 올리지 않는다. */
+function requireText(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new ScenarioComparisonError('CALCULATION_ERROR', CONTRACT_ERROR_MESSAGE, field)
+  }
+  return value
+}
+
 function toScenario(raw: ServerScenario): ScenarioResult {
   return {
-    scenario_id: raw.scenario_id,
-    scenario_type: raw.scenario_type as ScenarioResult['scenario_type'],
+    scenario_id: requireText(raw.scenario_id, 'scenario_id'),
+    scenario_type: requireEnum(
+      raw.scenario_type,
+      SCENARIO_TYPES,
+      'scenario_type',
+    ) as ScenarioResult['scenario_type'],
     scenario_name: raw.scenario_name,
     distance_nm: raw.distance_nm,
     speed_kn: raw.speed_kn,
-    duration_hours: raw.duration_hours,
-    fuel_ton: raw.fuel_ton,
-    co2_emission_ton: raw.co2_emission_ton,
-    attained_cii: raw.attained_cii,
-    ratio_to_required: raw.ratio_to_required,
-    estimated_rating: raw.estimated_rating as ScenarioResult['estimated_rating'],
-    risk_level: raw.risk_level as ScenarioResult['risk_level'],
+    // Layer 1 값은 문자열 그대로 올린다(`API_SPEC §1.7`) — 여기서는 **비었는지만** 본다.
+    duration_hours: requireText(raw.duration_hours, 'duration_hours'),
+    fuel_ton: requireText(raw.fuel_ton, 'fuel_ton'),
+    co2_emission_ton: requireText(raw.co2_emission_ton, 'co2_emission_ton'),
+    attained_cii: requireText(raw.attained_cii, 'attained_cii'),
+    ratio_to_required: requireText(raw.ratio_to_required, 'ratio_to_required'),
+    estimated_rating: requireEnum(
+      raw.estimated_rating,
+      RATINGS,
+      'estimated_rating',
+    ) as ScenarioResult['estimated_rating'],
+    risk_level: requireEnum(
+      raw.risk_level,
+      RISK_LEVELS,
+      'risk_level',
+    ) as ScenarioResult['risk_level'],
+    // 이 칸은 **없을 수 있다** — 가장 나쁜 등급이면 다음 경계가 없다(`API_SPEC §5.1`).
     next_worse_boundary_margin_ratio: raw.next_worse_boundary_margin_ratio,
   }
 }

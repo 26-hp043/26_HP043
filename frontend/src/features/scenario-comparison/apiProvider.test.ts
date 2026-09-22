@@ -189,6 +189,69 @@ describe('응답 매핑', () => {
   })
 })
 
+/**
+ * 200인데 계약을 어긴 응답 (`#1619`).
+ *
+ * 종전에는 `scenario_type`·`estimated_rating`·`risk_level`을 **검사 없이** 화면 타입으로
+ * 단정했다(`as`). 새 등급 문자나 오타난 종류가 그대로 화면까지 가면 **등급 색도 위험도
+ * 배지도 붙지 않은 표**가 그려지고, 사용자는 서버가 아니라 화면이 고장 난 것으로 읽는다.
+ *
+ * 여기서 잠그는 것은 **화면까지 가지 않는다**는 성질이다 — 문구가 아니라 `throw`를 본다.
+ */
+describe('계약을 어긴 200 응답 (#1619)', () => {
+  function withFirstScenario(patch: Record<string, unknown>) {
+    const body = structuredClone(OK_BODY)
+    Object.assign(body.data.scenarios[0], patch)
+    return body
+  }
+
+  const VIOLATIONS: Array<[string, Record<string, unknown>]> = [
+    ['모르는 시나리오 종류', { scenario_type: 'ZIGZAG' }],
+    ['모르는 등급', { estimated_rating: 'F' }],
+    ['모르는 위험도', { risk_level: 'EXTREME' }],
+    ['빈 등급', { estimated_rating: '' }],
+    ['빈 Layer 1 값', { attained_cii: '' }],
+    ['빈 시나리오 id', { scenario_id: '' }],
+  ]
+
+  it.each(VIOLATIONS)('%s이면 화면까지 가지 않는다', async (_label, patch) => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(withFirstScenario(patch)))
+
+    await expect(createApiScenarioProvider(fetchImpl).compare(REQUEST)).rejects.toThrow(
+      ScenarioComparisonError,
+    )
+  })
+
+  it('어느 칸이 틀렸는지 남긴다 — 화면이 아니라 로그가 읽는다', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(withFirstScenario({ risk_level: 'EXTREME' })))
+
+    await expect(
+      createApiScenarioProvider(fetchImpl).compare(REQUEST),
+    ).rejects.toMatchObject({ field: 'risk_level' })
+  })
+
+  it('다음 경계가 없는 것은 위반이 아니다 — 가장 나쁜 등급이면 null이다', async () => {
+    // `OK_BODY`가 이미 `next_worse_boundary_margin_ratio: null`이다. 검증이 이 칸까지
+    // 막으면 E 등급 응답이 전부 실패한다 — 과잉 수정을 여기서 잠근다.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+
+    expect(result.scenarios[0].next_worse_boundary_margin_ratio).toBeNull()
+  })
+
+  it('Layer 1 값은 문자열 그대로 올린다 — 검증이 형을 바꾸지 않는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+
+    expect(result.scenarios[0].attained_cii).toBe('42.535870')
+    expect(result.scenarios[0].fuel_ton).toBe('87.50')
+  })
+})
+
 describe('실패 경로', () => {
   it('422 검증 오류의 field를 옮긴다 — 화면이 입력창에 붙일 수 있어야 한다', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(

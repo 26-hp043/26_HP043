@@ -1,17 +1,21 @@
 import type { CapacityBasis, Rating, RiskLevel, WeatherModel } from '../voyage-cii/types'
 
 /**
- * 기능②(운항 중 시나리오 비교)의 요청·응답 타입.
+ * 기능②(운항 중 시나리오 비교)의 **화면 모델** 타입.
  *
- * ## ⚠️ 임시 정의다 — `#151` 확정 후 정본에 맞춘다
+ * ## HTTP 계약이 아니라 화면이 쓰는 모양이다 (`#1619` 정정)
  *
- * **`API_SPEC §5.1`의 예시값을 참조하지 않았다.** `fuel_ton`·`co2_emission_ton`·
- * `attained_cii`가 서로 어긋나 있고 `weather_model`도 요청/응답이 맞지 않는다.
- * 정정은 `#151`이 처리하며 그 전까지 `§5.1`은 기능②의 타입 정본이 아니다.
+ * 종전 이 머리말은 *「임시 정의다 — `#151` 확정 후 정본에 맞춘다」*로 적혀 있었다.
+ * **`#151`은 끝났다.** 지금 이 파일이 맡는 것은 **화면이 쓰는 모양**이고, 서버 payload
+ * 와의 차이(`base_distance_nm` → `direct_distance_nm` · `base_speed_kn` →
+ * `current_speed_kn`)를 메우는 **변환 책임은 `apiProvider.ts`**에 있다. 그 경계 덕에
+ * 화면은 서버 필드명이 바뀌어도 한 자리만 고치면 된다.
  *
- * 필드명은 **`PRD §7.5 VoyageScenario`**(상위 문서)에서 가져왔다 — `scenario_type` ·
- * `distance_nm` · `speed_kn` · `duration_hours` · `fuel_ton` · `estimated_rating` ·
- * `risk_level`. `AGENTS §3` 우선순위상 `API_SPEC`이 미확정인 지금 `PRD`가 기준이다.
+ * HTTP 계약의 정본은 `API_SPEC §5.1`이다. 이 파일은 그것을 **다시 적지 않는다** —
+ * adapter가 계약을 검사하고(`apiProvider.toScenario`), 어기면 화면까지 올리지 않는다.
+ *
+ * 필드명은 **`PRD §7.5 VoyageScenario`**를 따른다 — `scenario_type` · `distance_nm` ·
+ * `speed_kn` · `duration_hours` · `fuel_ton` · `estimated_rating` · `risk_level`.
  *
  * ## Layer 1 값은 문자열이다
  *
