@@ -46,6 +46,20 @@ export function matchSamplePort(ports: readonly SamplePort[], text: string): Sam
   return ports.find((p) => p.name === upper || p.name_ko === wanted) ?? null
 }
 
+/**
+ * 저장된 항구 이름을 **보이는 이름**으로 (#1742).
+ *
+ * 두 이름의 소유는 이 파일이 이미 갈라 두었다 — `name`은 「항차에 저장되는 이름(대문자
+ * 영문)」이고 `name_ko`는 「목록에 보이는 이름」이다. 그런데 기록을 보여 주는 자리가
+ * 저장값을 그대로 적어, **고르는 자리에서는 「부산」이고 기록에서는 「BUSAN」**이었다.
+ *
+ * 목록에 없는 항구는 **입력한 그대로** 돌려준다 — 사전에 없는 이름을 지어내지 않는다
+ * (자유 입력 항구가 있다 · `#760`). 목록을 아직 받지 못했을 때도 같다.
+ */
+export function portDisplayName(ports: readonly SamplePort[], stored: string): string {
+  return matchSamplePort(ports, stored)?.name_ko ?? stored
+}
+
 /** 목록에 보이는 한 줄 — 「부산 · KR」. */
 export function portOptionLabel(port: SamplePort): string {
   return `${port.name_ko} · ${port.country_code}`

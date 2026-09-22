@@ -1034,3 +1034,49 @@ describe('바뀌면 부모에게 알린다 (#1647)', () => {
     await waitFor(() => expect(onChanged).toHaveBeenCalled())
   })
 })
+
+/**
+ * 항구는 **보이는 이름**으로 적는다 (#1742).
+ *
+ * 저장값은 대문자 영문(`samplePorts.ts`의 `name`)이고 화면 이름은 `name_ko`다. 항차 추가
+ * 폼의 선택지가 「부산 · KR」인데 표가 「BUSAN」이면 같은 항구가 한 화면에서 두 이름을 갖는다.
+ */
+describe('항차 표의 항구 이름 (#1742)', () => {
+  const BUSAN_TO_SG: ManagedVoyage = {
+    ...IN_PROGRESS,
+    departurePortName: 'BUSAN',
+    arrivalPortName: 'SINGAPORE',
+  }
+
+  function renderWithPorts(ports: unknown[], voyage: ManagedVoyage = BUSAN_TO_SG) {
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({
+          list: vi.fn(async () => ({ voyages: [voyage], fuelTypes: ['HFO'], nextCursor: null, hasMore: false })),
+          samplePorts: vi.fn(async () => ports as never),
+        })}
+      />,
+    )
+  }
+
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGKEP', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+  ]
+
+  it('목록에 있는 항구는 한글로 선다 — 폼의 선택지와 같은 이름이다', async () => {
+    renderWithPorts(PORTS)
+    expect(await screen.findByText('부산 → 싱가포르')).toBeTruthy()
+  })
+
+  it('⚠️ 목록에 없는 항구는 입력한 그대로다 (#760 자유 입력)', async () => {
+    renderWithPorts(PORTS, { ...BUSAN_TO_SG, arrivalPortName: 'KAOHSIUNG' })
+    expect(await screen.findByText('부산 → KAOHSIUNG')).toBeTruthy()
+  })
+
+  it('목록을 못 받으면 저장값 그대로다 — 빈칸으로 두지 않는다', async () => {
+    renderWithPorts([])
+    expect(await screen.findByText('BUSAN → SINGAPORE')).toBeTruthy()
+  })
+})
