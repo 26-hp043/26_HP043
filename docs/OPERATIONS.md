@@ -751,7 +751,10 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `APP_ENV` | 배포 환경. **비워 두면 `staging`** (`#524` — SMTP 미설정 배포의 정상 경로 · §4.5). `SMTP_*`를 등록한 뒤 `production`으로 바꾼다. 비워 둔 채로도 `deploy.yml`이 `.env`에 `APP_ENV=staging`을 렌더링하므로 compose 기본값(`production`)으로 떨어지지 않는다 (`#1201`). |
 | `CLOUDFLARE_TUNNEL_TOKEN` | 🔴 **비워 둔다 (의도).** 터널 커넥터는 app-01의 **systemd `cloudflared`**가 이미 제공하며 `ourtax`와 공유한다(§3.5). 등록하면 compose가 커넥터를 **하나 더** 띄운다. 배포 로그의 `::warning:: CLOUDFLARE_TUNNEL_TOKEN 미설정`은 **정상 상태의 표시**다 |
 | `TOUR_PUBLIC` | **코드 없이 둘러보기를 여는 스위치**(`true`일 때만 열림 · `#1486` 후속). 켜면 로그인 화면에 「로그인 없이 둘러보기」 버튼이 상시 노출되고 접근 코드 없이 들어온다. ⚠️ **접근 코드를 `VITE_`로 넣지 않는다** — 빌드 산출물에 그대로 인라인되어 비밀 링크보다 못해진다. 화면에는 이 **불리언만** 전달된다(`VITE_TOUR_PUBLIC`). 문이 넓어져도 권한은 그대로다 — 둘러보기 세션은 **읽기 전용**이다(§3.7) |
-| `LLM_API_KEY` | Anthropic Claude API 키 (챗봇 기능. 비어있으면 챗봇만 비활성) |
+| `LLM_API_KEY` | 챗봇 LLM API 키. **비어 있거나 자리표시자 `-`면 챗봇만 비활성**(`#1535`) — 화면은 패널을 열 때 `GET /chat/status`로 먼저 안다(`API_SPEC §15.7`). 켜졌는지는 로그인한 브라우저에서 그 주소를 열어 `available`로 확인한다 |
+| `LLM_BASE_URL` | 챗봇 연결의 기준 주소(`#1535`). **비우면 `https://api.anthropic.com`**. 경로 `/v1/messages`는 코드가 붙인다. Anthropic Messages 형식을 내는 다른 공급자로 옮길 때만 넣는다 |
+| `LLM_MODEL` | 챗봇 모델 이름(`#1535`). **비우면 `claude-haiku-4-5-20251001`** |
+| `LLM_AUTH_SCHEME` | 챗봇 인증 헤더 방식(`#1535`). **비우면 `x-api-key`**, 다른 값은 `bearer`(`Authorization: Bearer`) 하나다. ⚠️ **그 밖의 값이면 챗봇이 꺼진다** — 운영자가 적은 것과 다른 헤더로 키를 내보내지 않기 위해서다 |
 
 ---
 

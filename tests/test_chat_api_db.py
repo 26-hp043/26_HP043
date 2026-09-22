@@ -891,3 +891,46 @@ async def test_turn_budget_default_comes_from_the_provider_constant():
 
     assert chat_service.TURN_TIMEOUT_SECONDS == TURN_TIMEOUT_SECONDS
     assert 0 < TURN_TIMEOUT_SECONDS < 30.0 * 4, "최악 경로보다 커지면 가드가 아니다"
+
+
+async def test_status_needs_login_and_answers_a_boolean(migrated_db, app_fresh_engine, monkeypatch):
+    """`#1535` · ``API_SPEC §15.7`` — 로그인이 필요하고 ``available`` 불린 **하나만** 낸다.
+
+    화면은 패널을 여는 순간 이것을 부른다. 키 값이나 꺼진 이유가 실리면 사용자가
+    고칠 수 없는 운영 정보가 화면으로 나간다.
+    """
+    monkeypatch.delenv("LLM_AUTH_SCHEME", raising=False)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.get("/api/v1/chat/status").status_code == 401
+
+            _login(client)
+            monkeypatch.setenv("LLM_API_KEY", "-")
+            off = client.get("/api/v1/chat/status")
+            assert off.status_code == 200
+            assert off.json()["data"] == {"available": False}
+
+            monkeypatch.setenv("LLM_API_KEY", "real-looking-key")
+            on = client.get("/api/v1/chat/status")
+            assert on.json()["data"] == {"available": True}
+            assert "real-looking-key" not in on.text
+    finally:
+        await _cleanup()
+
+
+async def test_placeholder_key_is_503_not_an_outbound_call(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """`#1535` — 자리표시자 키로 질문하면 **외부를 부르지 않고 503**이다.
+
+    종전에는 ``-``를 키로 보내 인증 실패 → ``discarded``로 끝나며 질문만 이력에 쌓였다.
+    """
+    monkeypatch.setenv("LLM_API_KEY", "-")
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post("/api/v1/chat", json={"message": "안녕하세요"}, headers=headers)
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "CHAT_UNAVAILABLE"
+    finally:
+        await _cleanup()

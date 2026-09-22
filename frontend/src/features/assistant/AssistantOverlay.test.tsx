@@ -369,3 +369,35 @@ describe('열림을 셸에 알린다 (#1613 · R21)', () => {
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
   })
 })
+
+describe('패널을 열 때 사용 가능 여부를 먼저 묻는다 (`#1535` · `API_SPEC §15.7`)', () => {
+  it('서버가 「쓸 수 없음」이면 질문하기 전에 안내하고 입력을 닫는다', async () => {
+    const status = vi.fn(async () => ({ available: false }))
+    const { ask } = setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() => expect(screen.getByRole('status').textContent).not.toBe(''))
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(true)
+    expect(status).toHaveBeenCalledTimes(1)
+    expect(ask).not.toHaveBeenCalled()
+  })
+
+  it('「쓸 수 있음」이면 안내 없이 질문을 받는다', async () => {
+    const status = vi.fn(async () => ({ available: true }))
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() => expect(status).toHaveBeenCalled())
+    expect(screen.queryByRole('status')).toBeNull()
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(false)
+  })
+
+  it('조회가 실패하면 입력을 막지 않는다 — 모르는 상태를 「쓸 수 없음」으로 그리지 않는다', async () => {
+    const status = vi.fn(async () => {
+      throw new AssistantError('상태를 확인하지 못했습니다 (HTTP 500).')
+    })
+    setup({ provider: { ask: vi.fn<AssistantProvider['ask']>(async () => ANSWER), status } })
+    open()
+    await waitFor(() => expect(status).toHaveBeenCalled())
+    expect(screen.queryByRole('status')).toBeNull()
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(false)
+  })
+})

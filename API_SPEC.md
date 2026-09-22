@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.42 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-09-22 |
+| 최종 수정일 | 2026-09-23 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -264,7 +264,7 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 | 422 Unprocessable Entity | `WEATHER_FETCH_ERROR` | ⚠️ **지금은 나가지 않는다** (`#1347`). fallback을 거부하는 요청 옵션이 없어 `services/weather.py`의 `resolve_with_fallback`이 항상 **200 + `WEATHER_NONE_FALLBACK`**으로 이어 간다. 코드는 남겨 둔다 — 그 옵션이 생기면 이 자리가 그대로 쓰인다 |
 | 429 Too Many Requests | `RATE_LIMIT_EXCEEDED` | 분당 요청 한도 초과 |
 | 500 Internal Server Error | `INTERNAL_ERROR` | 서버 내부 오류 |
-| 503 Service Unavailable | `CHAT_UNAVAILABLE` | 챗봇을 쓸 수 없다 — **`LLM_API_KEY` 미설정**일 때만이다 (`§15.4` · `#1365` 정정). **`/chat`에서만 난다** (`§15` · `PRD §16.2` 장애 격리: 챗봇이 죽어도 계산·보고 경로는 영향받지 않는다).<br>⚠️ **외부 모델 호출 실패는 503이 아니라 200 + `discarded: true`**다 (`§15.2`) — 그쪽이 장애 격리의 내용이다. 종전 이 행이 둘을 함께 적어 `§15.2`·`§15.4`·구현과 어긋나 있었고, 라우트의 `except LLMUnavailableError`는 상위 타입이 먼저 잡혀 **도달할 수 없었다** |
+| 503 Service Unavailable | `CHAT_UNAVAILABLE` | 챗봇을 쓸 수 없다 — **`LLM_API_KEY` 미설정(자리표시자 `-` 포함)이거나 `LLM_AUTH_SCHEME`이 모르는 값**일 때만이다 (`§15.4` · `#1365` 정정 · `#1535`). 화면은 `GET /chat/status`(`§15.7`)로 질문 전에 안다. **`/chat`에서만 난다** (`§15` · `PRD §16.2` 장애 격리: 챗봇이 죽어도 계산·보고 경로는 영향받지 않는다).<br>⚠️ **외부 모델 호출 실패는 503이 아니라 200 + `discarded: true`**다 (`§15.2`) — 그쪽이 장애 격리의 내용이다. 종전 이 행이 둘을 함께 적어 `§15.2`·`§15.4`·구현과 어긋나 있었고, 라우트의 `except LLMUnavailableError`는 상위 타입이 먼저 잡혀 **도달할 수 없었다** |
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | canonical test vector 불일치, 재현 결과 hash 불일치 |
 | 미등록 status (403·415 등) | `HTTP_ERROR` | §1.4 표에 없는 status를 만났을 때의 범용 코드 — 모든 status에 걸쳐 쓰므로 단일 status를 붙이지 않는다 (`#183`에서 변환) |
 
@@ -3886,6 +3886,7 @@ GET /api/v1/health
 | GET | `/api/v1/weather/snapshot` | 기상 스냅샷 (내부) | §15.3 |
 | POST | `/api/v1/weather/refresh` | 기상 수동 갱신 (**열지 않는다 — `§9.2` 판정 `#767`**) | §15.3 |
 | POST | `/api/v1/chat` | 챗봇 질의 (실험 · O-12) | §15 · PRD §7.8 |
+| GET | `/api/v1/chat/status` | 챗봇 사용 가능 여부 — 화면이 패널을 열 때 | §15.7 |
 | DELETE | `/api/v1/chat/sessions/{session_id}` | 대화 삭제 (GDPR 유사 삭제 요청) | §15.6 · PRD §16.3 |
 | GET | `/api/v1/audit-logs` | 감사 로그 조회 (사무직 이상) | §16.1 · DB_SCHEMA §2.14 |
 
@@ -4121,7 +4122,7 @@ POST /api/v1/chat
 | `message` 누락·2000자 초과 | 422 | `VALIDATION_ERROR` |
 | 남의 대화 `session_id` | 404 | `NOT_FOUND` |
 | 분당 10회 초과 | 429 | `RATE_LIMIT_EXCEEDED` (`§13.2` `chat` 버킷) |
-| `LLM_API_KEY` 미설정 | 503 | `CHAT_UNAVAILABLE` |
+| `LLM_API_KEY` 미설정 · 자리표시자 `-` · `LLM_AUTH_SCHEME`이 모르는 값 (`§15.7`의 `available: false`와 같은 조건) | 503 | `CHAT_UNAVAILABLE` |
 | **모델이 보낸 도구 인자가 빠졌거나 숫자가 아니다** | **200** | — (도구 오류 봉투 · `#1334` ⑴). 종전에는 `KeyError`·`InvalidOperation`·`ValueError`가 잡히지 않아 **턴 전체가 500**이 됐고, 롤백으로 **방금 저장한 사용자 질문까지 사라졌다**. 모델이 스스로 고쳐 다시 부를 수 있게 봉투로 되돌린다 |
 | **외부 모델 호출 실패** | **200** | — (`discarded: true` · `§15.2`). 503이 아니다 (`#1365`) |
 
@@ -4147,6 +4148,26 @@ POST /api/v1/chat
 - **감사에 대화 내용을 적지 않는다** — 적으면 「지웠다」가 감사 로그에서 거짓이 된다. 다만 **지운 행은 되짚을 수 없으므로 이 기록이 삭제 요청에 응했다는 유일한 근거**다.
 
 > **계정 전체 삭제는 `DELETE /auth/me`가 함께 처리한다** (`§1.2`). 탈퇴는 `app_user`를 soft delete하지만 **그 사용자의 대화는 실제로 지우고** 지운 수를 `ACCOUNT_DELETE.details_json.purged_chat_sessions`에 남긴다.
+
+### 15.7 `GET /chat/status` — 챗봇 사용 가능 여부 [#1535]
+
+화면이 **패널을 여는 순간** 부른다. 종전에는 질문을 보내 `503`을 받아야만 챗봇을 쓸 수 없다는 것을 알았다 — 사용자는 질문을 다 쓴 뒤에야 알았고, 운영자는 키를 넣은 뒤 켜졌는지 확인할 방법이 질문을 보내 보는 것뿐이었다.
+
+| 항목 | 값 |
+|---|---|
+| 인증 | 필요 (CSRF 불필요 — 조회다) |
+| 성공 | **200** `{"data": {"available": true}, "meta": {…}}` |
+| 한도 | **기본 버킷** (`§13.2`). `chat` 버킷(분당 10)이 아니다 — 패널을 열 때마다 부르는 조회가 질문 한도를 깎으면 질문도 하기 전에 429가 난다 |
+
+**`available`이 거짓인 조건** — 셋 중 하나다. 이 조건은 `POST /chat`이 `503 CHAT_UNAVAILABLE`을 내는 조건과 **같다**(`§15.4`).
+
+1. `LLM_API_KEY`가 비어 있다
+2. `LLM_API_KEY`가 자리표시자 `-`다 — GitHub 시크릿은 빈 값으로 둘 수 없어 운영이 `-`를 넣어 둔다. 종전에는 이것을 키로 보내 **질문마다 인증 실패 → `discarded`** 로 끝났다
+3. `LLM_AUTH_SCHEME`이 `x-api-key`·`bearer` 밖의 값이다 — 모르는 값을 기본값으로 고쳐 읽으면 운영자가 적은 것과 다른 헤더로 키가 나간다
+
+- **불린 하나만 낸다.** 키 값도, 셋 중 어느 이유인지도 내지 않는다 — 이유는 운영자의 일이고 사용자가 고칠 수 없다.
+- ⚠️ **외부 모델이 실제로 답하는지는 보지 않는다.** 설정만 본다 — 조회마다 외부를 부르면 과금된다. `available: true`인데 호출이 실패하면 종전대로 `200 + discarded: true`다(`§15.2`).
+- 화면은 조회가 실패하면(연결 실패·5xx) **입력을 막지 않는다** — 모르는 상태를 「쓸 수 없음」으로 그리지 않는다. 그때는 질문을 보낸 뒤 `503`으로 아는 종전 경로가 그대로 남는다.
 
 ---
 
@@ -4364,3 +4385,4 @@ POST /api/v1/chat
 | 2026-09-22 | `#1594` | **§2.8 YTD 기준 각주 교체 · §2.17 `target`·`vessels[].target_rating`에 판정 기준** (`#1531`) — 대시보드 「위험 선박」은 올해 누적, 감축 계획 `target`은 조정 후 연말 결정론 예상(`vessels[].after`). `§4.3`상 각주 보강이라 버전은 올리지 않는다 |
 | 2026-09-22 | `#1601` | **요청 표에 빠져 있던 7행** (`#1523`) — `§2.10` `fuel_uses[].consumer_type`·`fuel_type` · `§2.17.1` `adjustments[].vessel_id`·`speed_reduction_percent` · `§5.2` `departure_port_name`·`arrival_port_name`·`planned_departure_at`(조건부 — `CREATE_NEW_VOYAGE`에서만 필수). 표와 요청 스키마를 양방향으로 대조하는 검사(`tests/test_api_spec_request_fields_sync.py`)의 첫 실행에서 나왔다 — 스키마는 전부 맞았고 표가 뒤따르지 못했다. `§4.3`상 행 추가라 버전은 올리지 않는다 |
 | 2026-09-22 | `#1606` | **§2.16 심각도 이름 「실적 확정 전」 · 선박 행·요약에 `completeness`**(누적 · 실측 · 제외 3축 CO₂ t · 겹친 항차는 한 축에만 — 계산 불가 > 대체 > 이상치) (`#1532`). 완결성 0%의 이유를 숫자로 답하게 한다. `§4.3`상 필드·행 추가라 버전은 올리지 않는다 |
+| 2026-09-23 | `#___` | **§15.7 `GET /chat/status` 신설 · §12 요약표 행 · §1.4·§15.4의 503 조건에 자리표시자 `-`·인증 방식 오류 추가** (`#1535`). 화면이 챗봇 사용 가능 여부를 **질문을 보내 503을 받아야만** 알았다. 패널을 열 때 부르는 조회를 두고 `available` 불린 하나만 낸다 — 키 값·꺼진 이유는 내지 않는다. **기본 버킷**에 둔 이유는 패널을 열 때마다 질문 한도(분당 10)를 깎지 않기 위해서다. 운영 시크릿이 자리표시자 `-`라 질문마다 인증 실패로 `discarded`가 쌓이던 것을 **빈 값과 같이 꺼짐**으로 본다. 주소·모델·인증 방식의 환경변수화(`LLM_BASE_URL`·`LLM_MODEL`·`LLM_AUTH_SCHEME`)는 설정 문서(`.env.example`·`OPERATIONS §5.3`) 소관이라 이 문서에는 503 조건만 적었다. `AGENTS §4.3`상 기존 경로의 보완이라 버전은 올리지 않는다(`#1413` 선례) (#1535) |

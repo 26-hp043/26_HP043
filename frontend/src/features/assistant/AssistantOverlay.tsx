@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
 import type { AssistantProvider, ChatTurn } from './types'
@@ -75,6 +75,12 @@ const TARGET_LABEL = '계산 대상'
 const TARGET_HINT = '상단에서 바꿉니다'
 const TARGET_NONE = '선택한 선박 없음 — 계산 질문은 상단에서 선박을 고른 뒤 답합니다'
 
+/**
+ * #1535 — 패널을 열 때 서버가 「쓸 수 없음」이라고 답하면 입력 대신 보이는 안내.
+ * 종전에는 질문을 다 쓰고 보낸 뒤에야 503으로 알았다.
+ */
+const STATUS_UNAVAILABLE = '지금은 AI 어시스턴트를 사용할 수 없습니다. 관리자에게 문의해 주세요.'
+
 /** 보내는 중 표시 (`Q10` ⓑ — 스트리밍 대신 로딩 표시). */
 const PENDING_TEXT = '답변을 준비하고 있습니다…'
 
@@ -125,6 +131,8 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
   const [pending, setPending] = useState(false)
   const [disclaimer, setDisclaimer] = useState<string | null>(null)
   const [stopped, setStopped] = useState(false)
+  /** #1535 — 패널을 열 때 받은 상태가 「쓸 수 없음」이었다. 질문 뒤 503과 구분해 안내를 그린다. */
+  const [statusOff, setStatusOff] = useState(false)
   const sessionRef = useRef<string | undefined>(undefined)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const logRef = useRef<HTMLDivElement | null>(null)
@@ -133,7 +141,32 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
   const openedOnceRef = useRef(false)
   const panelId = useId()
 
-  const client = provider ?? createApiAssistantProvider()
+  /*
+   * 렌더마다 새로 만들면 아래 상태 조회 효과가 렌더마다 다시 돈다(#1535) — provider가
+   * 바뀔 때만 만든다.
+   */
+  const client = useMemo(() => provider ?? createApiAssistantProvider(), [provider])
+
+  useEffect(() => {
+    /*
+     * #1535 — 열 때마다 한 번 묻는다. 닫았다 여는 사이 운영자가 키를 넣거나 뺄 수 있다.
+     * 조회가 실패하면 **아무것도 바꾸지 않는다** — 모르는 상태를 「쓸 수 없음」으로 그리지
+     * 않는다. 그때는 질문 뒤 503으로 아는 종전 경로가 남는다(`API_SPEC §15.7`).
+     */
+    if (!open || !client.status) return
+    let cancelled = false
+    client.status().then(
+      ({ available }) => {
+        if (cancelled) return
+        setStatusOff(!available)
+        setStopped(!available)
+      },
+      () => {},
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [open, client])
 
   useEffect(() => {
     onOpenChange?.(open)
@@ -273,6 +306,12 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
       </p>
 
       <p className="assistant__intro">{INTRO}</p>
+
+      {statusOff ? (
+        <p className="assistant__notice" role="status">
+          {STATUS_UNAVAILABLE}
+        </p>
+      ) : null}
 
       {/* 대화를 시작하면 걷는다 — 그 뒤에는 로그가 자리를 쓴다. */}
       {turns.length === 0 ? (
