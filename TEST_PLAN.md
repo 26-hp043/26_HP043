@@ -47,27 +47,16 @@
 
 ```
 tests/
-  conftest.py                           # 공용 fixture (DB session, httpx client, JSON loader) [ORACLE-M-5]
+  conftest.py                           # 공용 fixture — §1.6 참조 (DB 마이그레이션·연결·JSON 로더) [ORACLE-M-5]
   fixtures/
     cii/
       bulk_50000_hfo_2026.json          # Fixture 1
       rating_boundaries_bulk_2026.json  # Fixture 2
-      tanker_80000_hfo_2025.json        # 추가 선종
-      container_50000_hfo_2026.json     # 추가 선종
-    capacity/
-      bulk_300k_capacity_separation.json  # P0-1 이중 capacity
-      lng_50k_capacity_separation.json    # P0-1 LNG 위험 사례
+    csv/
+      voyage_import_sample.csv          # 항차 CSV 가져오기 (§8.2)
     simulation/
-      annual_seed_12345_input.json
+      annual_seed_12345_input.json      # Fixture 3
       annual_seed_12345_expected.json
-    api/
-      voyage_estimate_response.json
-      scenario_compare_response.json
-      voyage_create_invalid_policy.json
-    weather/
-      open_meteo_success.json
-      api_fail_cache_6h.json
-      api_fail_no_cache.json
   unit/
     test_cii_engine.py
     test_rating_boundary.py
@@ -313,7 +302,13 @@ raw_boundary = input 조건으로 재계산한 확정 전 경계 (§1.2.1 「공
 
 ### 1.5 Fixture 4 — 이중 Capacity 분리 [EXT-P0-1]
 
-**파일**: `tests/fixtures/capacity/bulk_300k_capacity_separation.json`
+> ⚠️ **이 절의 파일은 만들어지지 않았다** (`#1666` 확인 · 2026-09-23). `tests/fixtures/capacity/`는 저장소에 없고, 아래 JSON을 읽는 코드도 없다 — 문자열 `capacity_separation`이 나오는 곳은 **이 문서 자신뿐**이다.
+>
+> **대신 `tests/test_capacity_rules.py`(19함수)가 같은 것을 인라인 값으로 검증한다.** 300,000 DWT 벌크선의 transport capacity(실제 DWT)와 reference capacity(`fixed 65000`)가 갈리는지를 값으로 단언하며, 픽스처 파일을 거치지 않는다.
+>
+> **아래 JSON은 그 규칙의 설명으로 남긴다** — 값이 `§1.2`·`§1.3`처럼 파일과 대조되는 정본값이 아니라, **무엇을 가르는가**를 적어 둔 예시다. 파일을 만들 이유가 생기면(다른 언어 구현이 같은 값을 읽어야 할 때) 그때 이 블록에서 만든다.
+
+**파일**: `tests/fixtures/capacity/bulk_300k_capacity_separation.json` (미생성 — 위 각주)
 
 ```json
 {
@@ -335,7 +330,7 @@ raw_boundary = input 조건으로 재계산한 확정 전 경계 (§1.2.1 「공
 }
 ```
 
-**파일**: `tests/fixtures/capacity/lng_50k_capacity_separation.json`
+**파일**: `tests/fixtures/capacity/lng_50k_capacity_separation.json` (미생성 — 위 각주)
 
 ```json
 {
@@ -416,7 +411,7 @@ def load_fixture():
 - **합격 기준은 수기로 검증이 끝난 `§1.2`의 6개 값이다.** 독립 구현만으로는 한계가 있다 — 같은 식을 다시 옮겨 적는 것이라 **옮겨 적는 실수는 잡아도 식 자체가 틀렸으면 같이 틀린다.**
 - **작업 순서** — ⑴ 생성기를 먼저 만들고 ⑵ 확정된 6개 값이 그대로 재현되는지로 생성기를 검증한 뒤 ⑶ 픽스처 파일을 만든다. **없는 파일을 가리키는 문장이 중간에 존재하지 않게** 하는 순서다.
 
-> **소관** — 생성기와 `tests/fixtures/` 파일은 **`#45`에서 만든다.** 현재 저장소에 둘 다 없으며, 픽스처를 **글자로 대조하는 코드도 0곳**이다. 경로·조건은 데이터·문서 담당(`sky01170851`)의 확인 9 · 10 회신에서 확정됐다.
+> **소관 — 생성기도 픽스처도 이미 있다** (`#1666` 정정 · 2026-09-23). `scripts/gen_fixtures.py`와 `tests/fixtures/`의 다섯 파일은 `#45`에서 **만들어졌다.** 픽스처를 **글자로 대조하는 검사**도 있다 — `tests/test_layer1_fixtures.py`의 `test_generator_reproduces_fixture_files`(생성기를 다시 돌려 파일과 대조) · `test_fixture_files_match_test_plan`(파일이 `§1.2`·`§1.3`의 JSON 블록과 같은지 대조) · `test_generator_does_not_import_service_code`(위 독립성 조건 1). 종전 문장은 *「현재 저장소에 둘 다 없으며, 픽스처를 글자로 대조하는 코드도 0곳이다」*로 적고 있었다 — `§1.2`의 같은 종류 문장은 `#195`가 이미 같은 이유로 지웠고, 이 자리만 남아 있었다.
 
 ---
 
@@ -2333,3 +2328,4 @@ CI는 `.github/workflows/ci.yml` 한 파일에 잡 4개, 제목 검사가 `pr-ti
 | 2026-09-23 | `#1760` | §14 `test_workflow_action_pins.py` **신설(3함수)** · 합계 실측 갱신. 워크플로 액션 **18곳을 커밋 SHA로 고정**하고 그것이 되돌려지지 않게 잠갔다(`#1638` · `F-12` 결정). 태그는 움직이므로 「검토한 코드와 실행되는 코드가 같다」를 태그에 맡길 수 없고, 이 저장소의 배포 워크플로는 **GHCR 쓰기 권한과 SSH 개인키**를 쥐고 돈다. 갱신 경로는 막히지 않는다 — Dependabot이 SHA 형식을 읽고 새 SHA로 PR을 연다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#1638) |
 | 2026-09-23 | `#1721` | **§3.15 위치 스냅샷 · AIS 수집 절 머리의 데모 선박 전제 정정** (`#1662`) — 「5척 모두 합성 IMO」 → 3척 합성 · 2척 실존(항차는 시드가 만든 것). `PRD §21` `[#764]`와 같은 정정이다. 문서 정정이라 버전은 올리지 않는다 (#1662) |
 | 2026-09-23 | `#1739` | §14 `test_request_instants.py` **신설(4함수 · 파라미터라이즈로 18수집)** · 합계 실측 갱신(192파일·2622함수·3267수집 → **193파일·2626함수·3285수집**). 항차·시나리오·연간 시뮬레이션의 요청 시각에 **시간대를 요구**하고 UTC로 맞춘다(`API_SPEC §1.11` 신설). 같은 규칙을 CSV 경로는 `#906`이, not under way JSON 경로는 `#1333`이 이미 세웠고 **세 경로만 남아 있었다** — 시간대 없는 값은 읽는 쪽에 따라 다른 순간이라, 배포 호스트의 시간대가 항차 순서·연간 귀속·`as_of` 경계를 바꾼다(`§1.10` 재현성 계약이 서버 설정에 달린다). DB 없이 도는 스키마 경계 검사이며, 한 필드를 `datetime`으로 되돌리는 돌연변이에 **5건이 실패**해 가드가 동작함을 확인했다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#1627) |
+| 2026-09-23 | `#1749` | **§1.1·§1.5·§1.7의 픽스처 현황을 실제 저장소와 맞춤** (`#1666`). ⑴ **`§1.7` 소관 콜아웃이 정반대를 적고 있었다** — *「생성기와 `tests/fixtures/` 파일은 `#45`에서 만든다. 현재 저장소에 둘 다 없으며, 픽스처를 글자로 대조하는 코드도 0곳이다」*. 셋 다 있다: `scripts/gen_fixtures.py` · 픽스처 5개 · 대조 검사 3개(`test_layer1_fixtures.py`). 같은 종류의 문장을 `§1.2`에서는 `#195`가 이미 지웠고 **이 자리만 남아 있었다** ⑵ `§1.1` 디렉터리 트리가 **없는 픽스처 9개**(`tanker_80000` · `container_50000` · `capacity/` 2 · `api/` 3 · `weather/` 3)를 싣고 **있는 것 하나**(`csv/voyage_import_sample.csv`)를 빠뜨렸다 — 실측으로 교체했다 ⑶ `conftest.py` 주석의 `DB session`·`httpx client`는 실재하지 않는 이름이라 `§1.6` 참조로 바꿨다 ⑷ **`§1.5` Fixture 4는 파일이 없다** — 문자열 `capacity_separation`이 나오는 곳은 이 문서 자신뿐이고, 같은 것을 `test_capacity_rules.py` 19함수가 인라인 값으로 검증한다. 그 사실을 각주로 적고 JSON은 규칙 설명으로 남겼다. 코드·픽스처 값은 건드리지 않았다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1666) |
