@@ -1,6 +1,6 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
-import { ParametersError } from './apiProvider'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
+import { ParametersError } from '../../api/parameters'
 
 /**
  * 규제 기준값 **표 조회** — `API_SPEC §7.1~§7.4` 네 표를 행 그대로 받는다 (`#1516` · 서버 보강은 `#1515`).

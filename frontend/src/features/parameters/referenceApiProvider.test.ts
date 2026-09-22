@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ParametersError } from './apiProvider'
+import { ParametersError } from '../../api/parameters'
 import { createApiReferenceParametersProvider } from './referenceApiProvider'
 
 /**

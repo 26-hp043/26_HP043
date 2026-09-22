@@ -176,8 +176,8 @@ const KEPT: Readonly<Record<string, string>> = {
     '오류 계약 4종(VoyageError·NotUnderwayError·ParametersError·FuelCatalogError) 중 하나. 하나만 감추면 이 provider만 다른 규칙으로 읽힌다',
 
   // ── provider·훅 경계 타입: 이름이 곧 경계 문서다 (#134) ────────────────────
-  'features/parameters/apiProvider.ts::ParametersProvider': 'provider 경계 (#134)',
-  'features/parameters/apiProvider.ts::FuelTypeOption': 'provider 응답 계약',
+  'api/parameters.ts::ParametersProvider': 'provider 경계 (#134)',
+  'api/parameters.ts::FuelTypeOption': 'provider 응답 계약',
   'features/parameters/fuelCatalog.ts::FuelCatalogProvider': 'provider 경계 (#134)',
   'features/parameters/fuelCatalog.ts::FuelOptionsState': '훅 반환 계약',
   'features/parameters/yearCatalog.ts::YearOptionsState': '훅 반환 계약',
@@ -282,5 +282,92 @@ describe('항차 상태 이름표는 하나다 (#594)', () => {
       .map(([f]) => relative(HERE, f).replaceAll('\\', '/'))
 
     expect(tables).toEqual(['features/voyage-management/voyageRules.ts'])
+  })
+})
+
+/**
+ * 기능 사이 `apiProvider` import — **한 기능이 다른 기능의 요청 계층에 기대지 않는다** (`#1249`).
+ *
+ * ## 무엇이 문제였나
+ *
+ * `DEFAULT_API_BASE_URL`은 **어느 기능의 것도 아닌데** `voyage-cii/apiProvider.ts`에
+ * 살았고(그리고 `annual-simulation`에 **한 벌 더** 있었다), 다른 기능 열여섯이 그것을
+ * 가리켰다. `readPageMeta`도 `vessel-management`에서 둘이 가져다 썼다.
+ *
+ * 화면에는 드러나지 않는다. 드러나는 것은 **한 기능을 들어내려 할 때**다 — 선대·정박·
+ * 챗봇·보고서가 `voyage-cii`의 파일 하나에 매달려 있었다. 같은 값이 두 곳에 있었다는
+ * 것은 이미 **한쪽만 바뀌는 날**을 예약해 둔 상태이기도 했다.
+ *
+ * ## 왜 이 범위인가
+ *
+ * 기능 사이 import를 **전부** 막지 않는다. `voyage-cii/types`·`voyage-management/voyageRules`
+ * 처럼 **도메인 규칙과 타입**을 나눠 쓰는 자리가 백여 곳이고, 그것을 한 번에 끊는 것은
+ * 이 이슈의 결정(`#1249` 「나」)이 하지 않기로 한 일이다. 여기서 잠그는 것은 **요청
+ * 계층**(`apiProvider` · `*Provider.ts`)이다 — 공용으로 옮길 자리가 이미 생겼으므로
+ * (`api/base.ts`) 새로 기대는 것은 실수다.
+ */
+describe('기능 사이 요청 계층 import (#1249)', () => {
+  const FEATURE = /features\/([a-z-]+)\//
+
+  /**
+   * **원문(`RAW`)으로 센다.** `SOURCE`는 문자열 **내용**을 지운 사본이라
+   * (`#1351`) `from '../x/apiProvider'`의 경로가 통째로 사라진다 — 그것으로 세면
+   * 위반이 하나도 없는 것처럼 보인다. 대신 `import` 줄만 본다(주석 속 경로가
+   * 위반으로 잡히지 않게).
+   */
+  function crossFeatureProviderImports(): string[] {
+    const found: string[] = []
+    for (const [file, text] of RAW) {
+      const from = FEATURE.exec(relative(HERE, file).replaceAll('\\', '/'))
+      if (from === null) continue
+      for (const match of text.matchAll(/^import[^\n]*from '\.\.\/([a-z-]+)\/([A-Za-z]*[Pp]rovider)'/gm)) {
+        if (match[1] !== from[1]) {
+          found.push(`${relative(HERE, file).replaceAll('\\', '/')} → ${match[1]}/${match[2]}`)
+        }
+      }
+    }
+    return found.sort()
+  }
+
+  /**
+   * 남겨 둔 다섯 — **화면이 다른 기능의 조회를 합쳐 보이는 자리**와 **여러 기능의
+   * 경로를 한자리에서 대조하는 검사**다. 요청 계층이 서로에게 기대는 것이 아니라
+   * 바깥에서 둘을 **조립**하는 것이므로 이 규칙이 막으려던 결합과 다르다.
+   *
+   * 목록으로 두는 이유는 `#594`의 `KEPT`와 같다 — **새로 늘면 여기서 걸리고**,
+   * 사유를 적지 않은 채로는 늘릴 수 없다.
+   */
+  const COMPOSITION = [
+    // 선대 대시보드가 데이터 점검의 「실적 확정 전」 목록을 함께 보인다.
+    'features/fleet/UnconfirmedVoyages.tsx → data-quality/apiProvider',
+    // 한 화면이 항차 하나를 읽어 폼을 채운다 — 항차 관리의 조회를 다시 만들지 않는다.
+    'features/voyage-cii/VoyageCiiForm.tsx → voyage-management/apiProvider',
+    // 아래 셋은 검사다. 여러 기능의 요청 경로·타입을 한자리에서 대조한다.
+    'features/voyage-cii/VoyageCiiActions.test.tsx → voyage-management/apiProvider',
+    'features/voyage-cii/apiPath.test.ts → annual-simulation/apiProvider',
+    'features/voyage-cii/apiPath.test.ts → scenario-comparison/apiProvider',
+  ].sort()
+
+  it('요청 계층 결합은 사유가 적힌 다섯뿐이다', () => {
+    expect(crossFeatureProviderImports()).toEqual(COMPOSITION)
+  })
+
+  it('목록이 낡지 않았다 — 사라진 자리는 뺀다', () => {
+    const actual = new Set(crossFeatureProviderImports())
+    expect(COMPOSITION.filter((entry) => !actual.has(entry))).toEqual([])
+  })
+
+  it('공용 자리가 실제로 있다 — 규칙만 있고 갈 곳이 없으면 규칙이 무시된다', () => {
+    const shared = readFileSync(join(HERE, 'api/base.ts'), 'utf-8')
+    expect(shared).toContain('export const DEFAULT_API_BASE_URL')
+    expect(shared).toContain('export function readPageMeta')
+  })
+
+  it('같은 상수를 두 곳이 정의하지 않는다', () => {
+    const definers = [...RAW]
+      .filter(([, text]) => /^export const DEFAULT_API_BASE_URL/m.test(text))
+      .map(([f]) => relative(HERE, f).replaceAll('\\', '/'))
+
+    expect(definers).toEqual(['api/base.ts'])
   })
 })

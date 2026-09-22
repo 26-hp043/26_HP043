@@ -1,5 +1,5 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import type { FleetLoadOptions, FleetProvider, FleetSnapshot, FleetVessel } from './types'
 
 /** `API_SPEC §1.5` 상한. 첫 페이지를 크게 두는 이유는 `load()` 주석. */

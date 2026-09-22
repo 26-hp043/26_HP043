@@ -1,6 +1,6 @@
 import { csrfHeaders, redirectToLogin } from '../auth/session'
 import { MAX_PAGES, nextCursorOf, pagedUrl } from './catalogPaging'
-import { DEFAULT_API_BASE_URL } from '../features/voyage-cii/apiProvider'
+import { DEFAULT_API_BASE_URL } from '../api/base'
 import { API_BASE_URL_ENV_KEY } from '../features/voyage-cii/providerSelection'
 
 /**

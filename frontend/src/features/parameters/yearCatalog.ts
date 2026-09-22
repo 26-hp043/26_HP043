@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createApiParametersProvider, ParametersError } from './apiProvider'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { createApiParametersProvider, ParametersError } from '../../api/parameters'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import { API_BASE_URL_ENV_KEY } from '../voyage-cii/providerSelection'
 
 /**

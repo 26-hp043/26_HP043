@@ -1,6 +1,6 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { readPageMeta } from '../vessel-management/apiProvider'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { readPageMeta } from '../../api/base'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import type {
   ParameterImportResult,
   ParameterImportRowError,

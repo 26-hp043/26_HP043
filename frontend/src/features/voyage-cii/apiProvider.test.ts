@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import {
-  DEFAULT_API_BASE_URL,
   MALFORMED_ERROR_MESSAGE,
   NETWORK_ERROR_MESSAGE,
   createApiProvider,
