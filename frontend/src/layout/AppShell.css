@@ -569,9 +569,10 @@
 }
 
 /*
- * 포커스는 옆 컨트롤과 같은 링을 쓴다. 종전의 `outline: 2px solid var(--color-info)`는
- * **`--color-info`가 `--semantic-primary`의 별칭**이라, 버튼이 그 색으로 채워진
- * 지금은 테두리와 면이 같은 색이 된다.
+ * 포커스는 옆 컨트롤과 같은 링(`--focus-outline` → `--semantic-focus`)을 쓴다.
+ * 종전에는 `outline: 2px solid var(--color-info)`였는데, 당시 `--color-info`는
+ * `--semantic-primary`의 별칭이라 버튼 면과 같은 색이 됐다. `#1022` 이후
+ * `--color-info`는 `--semantic-info`(안내)를 가리키며, 포커스 색의 계약이 아니다.
  */
 .app-shell__logout:focus-visible {
   outline: var(--focus-outline);
