@@ -75,7 +75,11 @@
   font-size: var(--font-size-label);
   color: var(--text-primary);
   background: transparent;
-  border: 0;
+  /*
+   * 투명 테두리 1px — 같은 줄 카드 버튼(`.vy__transition` 등 1px 테두리)과 **높이를 맞춘다**
+   * (`DESIGN_SYSTEM §8` 텍스트 버튼 높이 〔확정〕 · `#1297`). 종전 `border: 0`이라 24px로 이웃(26px)보다 낮았다.
+   */
+  border: 1px solid transparent;
   border-radius: var(--radius-control);
   cursor: pointer;
 }
