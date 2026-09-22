@@ -230,6 +230,16 @@
           "ALL_SCOPES"
         ]
       }
+    },
+    "input-column": {
+      "$type": "number",
+      "$value": 360,
+      "$extensions": {
+        "com.figma.variableId": "VariableID:34:3",
+        "com.figma.scopes": [
+          "ALL_SCOPES"
+        ]
+      }
     }
   },
   "target": {

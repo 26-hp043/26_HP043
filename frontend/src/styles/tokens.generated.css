@@ -50,6 +50,7 @@
   --grid-margin: 24px;
   --grid-split-primary: 7;
   --grid-split-secondary: 5;
+  --grid-input-column: 360px;
   /* ── 터치 타깃 (target) ────────────────────────────────────────── */
   --target-row: 40px;
   --target-button: 36px;
