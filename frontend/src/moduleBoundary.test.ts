@@ -363,6 +363,22 @@ describe('기능 사이 요청 계층 import (#1249)', () => {
     expect(shared).toContain('export function readPageMeta')
   })
 
+  /**
+   * **공용이 기능을 거꾸로 가리키지 않는다** (밤 회귀 점검 · `#1249` 후속).
+   *
+   * `api/`는 어느 기능의 것도 아닌 것들이 사는 자리다. 그것이 특정 기능을 import하면
+   * **그 기능이 공용의 전제**가 되어, 공용으로 옮긴 이유가 사라진다. `auth/session`처럼
+   * 기능 폴더 **밖**에 있는 공용 모듈은 대상이 아니다.
+   */
+  it('공용 `api/`가 기능을 import하지 않는다', () => {
+    const offenders = [...RAW]
+      .filter(([file]) => relative(HERE, file).replaceAll('\\', '/').startsWith('api/'))
+      .filter(([, text]) => /^import[^\n]*from '[^']*features\//m.test(text))
+      .map(([file]) => relative(HERE, file).replaceAll('\\', '/'))
+
+    expect(offenders).toEqual([])
+  })
+
   it('같은 상수를 두 곳이 정의하지 않는다', () => {
     const definers = [...RAW]
       .filter(([, text]) => /^export const DEFAULT_API_BASE_URL/m.test(text))

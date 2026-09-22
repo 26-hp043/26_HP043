@@ -53,7 +53,7 @@ interface YearCatalogProvider {
    * 해당 선박이 고를 수 있는 규제연도. 오름차순.
    *
    * **실 API 구현은 `vesselId`를 쓰지 않는다.** Z계수는 전 선종 공통이라 선박마다
-   * 목록이 갈리지 않기 때문이다(`parameters/apiProvider.ts` 주석 참조). 인자를
+   * 목록이 갈리지 않기 때문이다(`api/parameters.ts` 주석 참조 — `#1249`로 옮겼다). 인자를
    * 남겨 둔 것은 demo 구현이 고정표를 `(vesselId, year)` 키로 들고 있어서이며,
    * 두 구현이 같은 서명을 갖도록 맞춘 것이다.
    */
