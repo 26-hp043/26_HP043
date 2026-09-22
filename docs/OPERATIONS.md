@@ -209,29 +209,43 @@ GitHub Actions (deploy.yml)
 시크릿은 `CLOUDFLARE_API_TOKEN`·`CLOUDFLARE_ACCOUNT_ID` 둘뿐이고, 비어 있으면
 잡 첫 단계에서 이름만 보고 실패한다.
 
-수동 배포(폴백 — 자동 배포가 깨졌거나 급할 때):
+수동 배포(폴백 — 자동 배포가 깨졌거나 급할 때). **자동 잡(`deploy.yml` `deploy-frontend`)과 같은 세 단계**를 손으로 한다 (`#1669`):
 
 ```bash
-# 로컬에서 빌드 + 배포
 cd frontend
 npm ci
-VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1 npm run build
-wrangler pages deploy dist --project-name bluelog --branch main
+
+# ⑴ 빌드 — 화면은 자기 오리진만 부른다(같은 오리진 · #1322). 상대 경로를 굳힌다
+VITE_API_BASE_URL=/api/v1 npm run build
+
+# ⑵ Pages Function이 넘길 백엔드 호스트명을 wrangler.toml에 넣는다 — 커밋하지 않는다
+#    값은 시크릿 API_ORIGIN과 같다(터널 호스트명 · §3.5). ⚠️ IP를 넣으면 프록시가 403(error 1003)
+sed -i 's|^API_ORIGIN = .*|API_ORIGIN = "https://<터널 호스트명>"|' wrangler.toml
+
+# ⑶ 배포 — 출력 디렉터리와 프로젝트 이름은 wrangler.toml이 갖는다. 위치 인자(dist)를 주지 않는다
+npx --yes wrangler@4 pages deploy --branch main
+
+# 끝나면 wrangler.toml의 API_ORIGIN을 자리표시자로 되돌린다(작업 트리 변경을 버린다)
 ```
+
+- **권한** — `CLOUDFLARE_API_TOKEN`(Pages:Edit)과 `CLOUDFLARE_ACCOUNT_ID`를 환경변수로 준다. 값은 GitHub 시크릿과 같다. **토큰은 문서에 적지 않는다.**
+- **프로덕션과 미리보기** — `--branch main`이 프로덕션(`bluelog-bx7.pages.dev`)이다. 다른 이름을 주면 **미리보기 배포**가 되어 프로덕션 화면은 그대로다.
+- **올리는 것은 작업 트리의 `dist`다** — 배포하려는 커밋을 먼저 체크아웃하고 빌드한다. 로컬에 커밋하지 않은 변경이 있으면 그대로 올라간다.
+- ⚠️ **종전 이 자리의 명령**(`VITE_API_BASE_URL=http://<app-01 IP>:8001/api/v1` · `wrangler pages deploy dist --project-name bluelog`)은 **따라 하면 안 된다** — 앞의 것은 교차 사이트 쿠키가 실리지 않아 로그인이 안 되던 구성이고(`#1322`), 뒤의 것은 `wrangler.toml`의 `pages_build_output_dir`와 충돌해 wrangler가 거부한다.
 
 Cloudflare 인증:
 ```bash
-export CLOUDFLARE_API_TOKEN=<토큰>
-export CLOUDFLARE_ACCOUNT_ID=22abb4f21a4c7886292a2a0ecadf331b
+export CLOUDFLARE_API_TOKEN=<토큰 — 시크릿 CLOUDFLARE_API_TOKEN>
+export CLOUDFLARE_ACCOUNT_ID=<계정 ID — §6.1 공개값 · 시크릿 CLOUDFLARE_ACCOUNT_ID와 같다>
 ```
 
 Pages 프로젝트 정보:
 | 항목 | 값 |
 |------|-----|
-| 프로젝트명 | `bluelog` |
+| 프로젝트명 | `bluelog` (`frontend/wrangler.toml` `name`) |
 | 프로덕션 URL | https://bluelog-bx7.pages.dev |
-| 빌드 명령 | `VITE_API_BASE_URL=... npm run build` |
-| 출력 디렉토리 | `frontend/dist` |
+| 빌드 명령 | `VITE_API_BASE_URL=/api/v1 npm run build` |
+| 출력 디렉토리 | `frontend/dist` (`frontend/wrangler.toml` `pages_build_output_dir`) |
 
 ### 3.3 수동 백엔드 배포 (SSH)
 
@@ -772,19 +786,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 
 ### 6.2 배포 명령
 
-```bash
-# 환경변수 설정
-export CLOUDFLARE_API_TOKEN=<토큰>
-export CLOUDFLARE_ACCOUNT_ID=22abb4f21a4c7886292a2a0ecadf331b
-
-# 빌드
-cd frontend
-npm ci
-VITE_API_BASE_URL=http://131.186.22.10:8001/api/v1 npm run build
-
-# 배포
-wrangler pages deploy dist --project-name bluelog --branch main
-```
+**§3.2 「수동 배포」와 같다** — 명령을 두 곳에 적지 않는다(`#1669`). 종전 이 절은 §3.2와 같은 낡은 명령(`VITE_API_BASE_URL=http://<IP>…` · 위치 인자 `dist`)을 한 벌 더 들고 있었다.
 
 ### 6.3 커스텀 도메인 추가 (향후)
 
@@ -794,7 +796,7 @@ wrangler pages project add-domain bluelog <도메인>
 
 도메인 추가 시 변경 필요:
 1. 백엔드 `CORS_ALLOW_ORIGINS`에 새 도메인 추가
-2. 프론트엔드 빌드 시 `VITE_API_BASE_URL` 유지 (백엔드 IP는 동일)
+2. 프론트엔드 빌드는 `VITE_API_BASE_URL=/api/v1` 그대로다(같은 오리진) — 백엔드 호스트명은 시크릿 `API_ORIGIN`이 정한다
 3. `APP_PUBLIC_URL`을 새 도메인으로 변경
 
 ---
