@@ -122,6 +122,20 @@ export function withContextQuery(
 }
 
 /**
+ * 「진행 중 항차」를 뜻하는 경로 조각 (#1688).
+ *
+ * 선박 상세의 실시간 CII 입구는 `/vessels/:vesselId/voyages/current`로 들어간다.
+ * 어느 항차가 진행 중인지는 **서버가 고른다**(`API_SPEC §2.14` · `§2.8` 「고르는 규칙」)
+ * — 화면이 항차 id를 미리 알 필요가 없어서다.
+ *
+ * 그래서 이 조각은 **항차 id가 아니다.** 종전에는 `readFromPath`가 이것을 id로
+ * 돌려줘 셸이 `current`를 항차로 기억했고, CII 예측의 입력칸 채움(#1576)이
+ * `GET /voyages/current`를 불러 422를 받았다. 상단바 셀렉트에는 그런 항차가 없어
+ * 「항차 선택 안 함」으로 보였으므로 사용자는 원인을 알 수 없었다.
+ */
+export const CURRENT_VOYAGE_SEGMENT = 'current'
+
+/**
  * 경로에서 선박·항차를 읽는다. 계층 화면이 아니면 둘 다 `null`.
  *
  * `screens.ts`의 경로 상수를 쓴다 — 문자열을 다시 적으면 `#348`이 경로를 바꿀 때
@@ -132,7 +146,7 @@ export function readFromPath(pathname: string): GlobalContextValue {
   if (voyage) {
     return {
       vesselId: voyage.params.vesselId ?? null,
-      voyageId: voyage.params.voyageId ?? null,
+      voyageId: asVoyageId(voyage.params.voyageId),
     }
   }
   const vessel = matchPath(SCREEN_BY_ID.VESSEL_DETAIL.path, pathname)
@@ -148,6 +162,12 @@ export function isVesselScopedPath(pathname: string): boolean {
     matchPath(SCREEN_BY_ID.VESSEL_DETAIL.path, pathname) !== null ||
     matchPath(SCREEN_BY_ID.REALTIME_CII.path, pathname) !== null
   )
+}
+
+/** 경로 조각을 항차 id로 받는다. 「진행 중 항차」 조각은 id가 아니다 (#1688). */
+function asVoyageId(segment: string | undefined | null): string | null {
+  if (segment === undefined || segment === null) return null
+  return segment === CURRENT_VOYAGE_SEGMENT ? null : segment
 }
 
 /** 선박 상세 경로. */
@@ -251,7 +271,8 @@ export function loadStored(storage: Storage | undefined = safeSessionStorage()):
     const parsed = JSON.parse(raw) as Partial<GlobalContextValue>
     return {
       vesselId: typeof parsed.vesselId === 'string' ? parsed.vesselId : null,
-      voyageId: typeof parsed.voyageId === 'string' ? parsed.voyageId : null,
+      // #1688 이전에 기억된 `current`가 탭에 남아 있을 수 있다 — 읽을 때도 거른다.
+      voyageId: typeof parsed.voyageId === 'string' ? asVoyageId(parsed.voyageId) : null,
     }
   } catch {
     return EMPTY_CONTEXT
