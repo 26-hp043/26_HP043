@@ -531,7 +531,8 @@
 .rt__actuals--primary {
   color: var(--color-on-primary);
   background: var(--color-primary-solid);
-  border-color: transparent;
+  /* 경계는 테두리가 맡는다 (`tokens.css` 「Primary 채움 컨트롤의 테두리」 · #1296). */
+  border-color: var(--color-primary-solid-border);
 }
 
 .rt__actuals--primary:hover {
