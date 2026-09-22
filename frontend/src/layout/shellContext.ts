@@ -51,6 +51,14 @@ export interface ShellContext {
    * `#535`가 선박에서 고친 갈림이 항차에서 다시 난다.
    */
   selectVoyageId: (voyageId: string | null) => void
+  /**
+   * 셸이 들고 있는 선박 목록을 **다시 부른다** (`#1643`).
+   *
+   * 목록은 셸이 mount할 때 한 번만 부른다. 그 뒤 선박을 등록·수정하거나 CSV로 들여오면
+   * 상단 선택기와 기본 제원이 **옛 값에 머물고**, 새로고침해야 맞았다. 바꾼 화면이 이것을
+   * 부르면 그 자리에서 최신화된다 — 화면이 목록을 소유하지 않는다는 규칙(위)은 그대로다.
+   */
+  refreshVessels: () => void
 }
 
 /**
@@ -73,4 +81,5 @@ export const EMPTY_SHELL_CONTEXT: ShellContext = {
   vesselsState: 'loading',
   selectVesselId: () => {},
   selectVoyageId: () => {},
+  refreshVessels: () => {},
 }

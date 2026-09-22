@@ -545,3 +545,41 @@ describe('상단바 선박 셀렉트가 실패와 없음을 가른다 (#1093 ⑴
     expect(vesselSelect().disabled).toBe(false)
   })
 })
+
+
+/** 셸이 준 `refreshVessels`를 눌러 볼 수 있는 자식. */
+function RefreshProbe() {
+  const context = useShellContext()
+  return (
+    <button type="button" onClick={() => context.refreshVessels()}>
+      목록 다시 부르기
+    </button>
+  )
+}
+
+function renderShellWithProbe() {
+  return render(
+    <MemoryRouter initialEntries={[FORECAST_PATH]}>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route path={FORECAST_PATH} element={<RefreshProbe />} />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+describe('선박 목록 다시 부르기 (#1643)', () => {
+  it('refreshVessels를 부르면 목록을 한 번 더 조회한다 — 등록·수정 뒤 선택기가 낡지 않게', async () => {
+    const calls = stubServer()
+    renderShellWithProbe()
+
+    const listCalls = () =>
+      calls.filter((url) => url.includes('/vessels') && !url.includes('/voyages')).length
+    await waitFor(() => expect(listCalls()).toBe(1))
+
+    fireEvent.click(screen.getByRole('button', { name: '목록 다시 부르기' }))
+
+    await waitFor(() => expect(listCalls()).toBe(2))
+  })
+})

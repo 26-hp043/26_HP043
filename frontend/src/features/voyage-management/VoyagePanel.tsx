@@ -81,9 +81,22 @@ interface VoyagePanelProps {
    * 그 카드로 스크롤해 초점을 두고, 실적을 넣을 수 있는 항차면 입력을 열어 둔다.
    */
   openActualsFor?: string | null
+  /**
+   * 항차를 만들거나 바꾼 **뒤** 부른다 (`#1647`). 부모(선박 상세)가 누적 CII·요약·실시간 CII
+   * 진입을 다시 부르게 하는 자리다 — 이 패널은 자기 목록만 갱신하므로, 부모는 옛 집계를 그대로
+   * 보이고 있었다.
+   *
+   * **성공에서만** 부른다. 실패에서 부르면 부모가 바뀌지 않은 데이터를 다시 부른다.
+   */
+  onChanged?: () => void
 }
 
-export function VoyagePanel({ vesselId, provider, openActualsFor = null }: VoyagePanelProps) {
+export function VoyagePanel({
+  vesselId,
+  provider,
+  openActualsFor = null,
+  onChanged,
+}: VoyagePanelProps) {
   const [voyages, setVoyages] = useState<ManagedVoyage[] | null>(null)
   const [fuelTypes, setFuelTypes] = useState<string[]>([])
   const [failure, setFailure] = useState<string | null>(null)
@@ -149,6 +162,8 @@ export function VoyagePanel({ vesselId, provider, openActualsFor = null }: Voyag
 
   const replace = (updated: ManagedVoyage) => {
     setVoyages((rows) => (rows ?? []).map((row) => (row.id === updated.id ? updated : row)))
+    // 상태 전환·실적 입력이 선박의 누적 CII를 바꾼다 (`#1647`).
+    onChanged?.()
   }
 
   return (
@@ -184,6 +199,7 @@ export function VoyagePanel({ vesselId, provider, openActualsFor = null }: Voyag
             const created = await api.create(vesselId, draft)
             setVoyages((rows) => [created, ...(rows ?? [])])
             setFormOpen(false)
+            onChanged?.()
           }}
         />
       ) : null}

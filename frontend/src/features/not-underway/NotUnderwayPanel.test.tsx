@@ -134,3 +134,36 @@ describe('구간 연료 편집 (#638)', () => {
     expect(screen.queryByTestId('nu-fuel-form')).toBeNull()
   })
 })
+
+
+describe('바뀌면 부모에게 알린다 (#1648)', () => {
+  it('연료를 더하면 onChanged를 부른다 — 누적 CII가 바뀌기 때문이다', async () => {
+    const onChanged = vi.fn()
+    const user = userEvent.setup()
+    render(<NotUnderwayPanel vesselId="v-1" provider={stub()} onChanged={onChanged} />)
+    await screen.findByTestId('nu-fuel-add')
+
+    await user.click(screen.getByTestId('nu-fuel-add'))
+    await user.type(screen.getByLabelText('연료량'), '4.5')
+    await user.click(screen.getByTestId('nu-fuel-save'))
+
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+  })
+
+  it('실패하면 부르지 않는다 — 바뀌지 않은 데이터를 다시 부르지 않는다', async () => {
+    const onChanged = vi.fn()
+    const addFuelUse = vi.fn().mockRejectedValue(new Error('거부됨'))
+    const user = userEvent.setup()
+    render(
+      <NotUnderwayPanel vesselId="v-1" provider={stub({ addFuelUse })} onChanged={onChanged} />,
+    )
+    await screen.findByTestId('nu-fuel-add')
+
+    await user.click(screen.getByTestId('nu-fuel-add'))
+    await user.type(screen.getByLabelText('연료량'), '4.5')
+    await user.click(screen.getByTestId('nu-fuel-save'))
+
+    await waitFor(() => expect(addFuelUse).toHaveBeenCalled())
+    expect(onChanged).not.toHaveBeenCalled()
+  })
+})

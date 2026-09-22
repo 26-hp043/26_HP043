@@ -985,3 +985,29 @@ describe('되돌릴 수 없는 전환 · 확정 되돌리기는 한 번 더 묻�
     await waitFor(() => expect(transition).toHaveBeenCalledWith(FUELED, 'COMPLETED'))
   })
 })
+
+
+describe('바뀌면 부모에게 알린다 (#1647)', () => {
+  it('항차를 만들면 onChanged를 부른다 — 선박 상세의 누적값이 바뀐다', async () => {
+    const onChanged = vi.fn()
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({ create, samplePorts: vi.fn(async () => []) })}
+        onChanged={onChanged}
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-11' } })
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '1000' } })
+    fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
+    fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '80' } })
+    fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
+  })
+})

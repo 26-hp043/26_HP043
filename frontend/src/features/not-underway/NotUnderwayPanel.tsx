@@ -45,10 +45,17 @@ import { Field } from '../../components/Field'
 export function NotUnderwayPanel({
   vesselId,
   provider,
+  onChanged,
 }: {
   vesselId: string
   /** 테스트가 갈아 끼운다 — 이 저장소의 vitest에는 DOM도 네트워크도 없다. */
   provider?: NotUnderwayProvider
+  /**
+   * 구간·연료를 바꾼 **뒤** 부른다 (`#1648`). 정박 연료와 기간은 누적 CII의 분자·분모에
+   * 들어가므로(`PRD §3.3`), 이 패널만 갱신하면 부모(선박 상세)의 누적값이 옛 기록으로 남는다.
+   * **성공에서만** 부른다.
+   */
+  onChanged?: () => void
 }) {
   const [periods, setPeriods] = useState<Period[] | null>(null)
   const [choices, setChoices] = useState<{
@@ -114,6 +121,7 @@ export function NotUnderwayPanel({
             await api.create(vesselId, draft)
             setFormOpen(false)
             await reload()
+            onChanged?.()
           }}
         />
       ) : null}
@@ -141,18 +149,22 @@ export function NotUnderwayPanel({
               onClose={async (endedAt) => {
                 await api.close(period.id, endedAt)
                 await reload()
+                onChanged?.()
               }}
               onRemove={async () => {
                 await api.remove(period.id)
                 await reload()
+                onChanged?.()
               }}
               onAddFuel={async (draft) => {
                 await api.addFuelUse(period.id, draft)
                 await reload()
+                onChanged?.()
               }}
               onRemoveFuel={async (fuelUseId) => {
                 await api.removeFuelUse(period.id, fuelUseId)
                 await reload()
+                onChanged?.()
               }}
             />
           ))}
