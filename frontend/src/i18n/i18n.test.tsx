@@ -83,15 +83,83 @@ describe('기본 언어', () => {
 })
 
 describe('전환', () => {
-  it('바꾸면 문구가 바뀌고 <html lang>과 저장값이 따라간다', () => {
+  it('바꾸면 문구와 저장값이 따라간다', () => {
     const { getByTestId } = setup()
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'to-en' }))
     })
     expect(getByTestId('probe-lang').textContent).toBe('en')
     expect(getByTestId('probe-text').textContent).toBe('Vessel')
-    expect(document.documentElement.lang).toBe('en')
     expect(window.localStorage.getItem('bluelog.lang')).toBe('en')
+  })
+})
+
+/**
+ * 문서 언어 경계 (`#1652`).
+ *
+ * 종전 단언은 「루트가 `en`이 된다」였다. 그런데 영문 모드에서 영어로 바뀌는 것은
+ * 셸 문자열뿐이고 화면 본문·면책·선박명은 한국어로 남으므로, 루트를 `en`으로
+ * 돌리면 **그 한국어 전부가 영어라고 표시된다.** 루트는 `ko`로 두고 바뀌는 쪽에
+ * `lang="en"`을 붙이는 것으로 뒤집었다 — 이 describe가 그 두 축을 함께 본다.
+ *
+ * 정본 인용이 붙지 않은 표시 성질 검사이므로 `AGENTS §4.6`상 정본 개정 없이
+ * 바꿀 수 있는 단언이다. `PRD.md:571`도 「셸 문자열의 영문 전환」이라 적을 뿐
+ * 루트 `lang`을 말하지 않는다.
+ */
+describe('문서 언어 경계 (#1652)', () => {
+  function toggles() {
+    return render(
+      <LanguageProvider>
+        <LanguageToggle />
+        <ThemeToggle />
+        <Probe />
+      </LanguageProvider>,
+    )
+  }
+
+  const toEn = () =>
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'to-en' }))
+    })
+
+  it('영문으로 바꿔도 문서 루트는 ko다 — 한국어 본문이 영어로 표시되지 않게', () => {
+    const { getByTestId } = setup()
+    expect(document.documentElement.lang).toBe('ko')
+
+    toEn()
+
+    expect(getByTestId('probe-lang').textContent).toBe('en')
+    expect(document.documentElement.lang).toBe('ko')
+  })
+
+  it('영문으로 바뀌는 셸 문자열에 lang="en"이 붙는다', () => {
+    toggles()
+    toEn()
+
+    expect(screen.getByRole('radiogroup', { name: 'Language' }).getAttribute('lang')).toBe(
+      'en',
+    )
+    expect(screen.getByRole('radio', { name: 'English' }).getAttribute('lang')).toBe('en')
+    expect(screen.getByRole('radiogroup', { name: 'Theme' }).getAttribute('lang')).toBe('en')
+    expect(screen.getByTestId('theme-dark').getAttribute('lang')).toBe('en')
+  })
+
+  it('한국어 모드에서는 lang을 붙이지 않는다 — 루트에서 상속받는다', () => {
+    toggles()
+
+    expect(screen.getByRole('radiogroup', { name: '언어' }).getAttribute('lang')).toBeNull()
+    expect(screen.getByRole('radio', { name: '한국어' }).getAttribute('lang')).toBeNull()
+    expect(screen.getByTestId('theme-dark').getAttribute('lang')).toBeNull()
+  })
+
+  it('언어 칸의 「한」은 영문 모드에서도 ko로 남는다', () => {
+    toggles()
+    toEn()
+
+    const korean = screen.getByRole('radio', { name: 'Korean' })
+    expect(korean.getAttribute('lang')).toBe('en')
+    // 버튼의 이름(`aria-label`)은 영어지만 칸에 적힌 글자는 한국어 그대로다.
+    expect(korean.querySelector('.language-toggle__glyph')?.getAttribute('lang')).toBe('ko')
   })
 })
 

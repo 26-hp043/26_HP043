@@ -114,4 +114,14 @@ describe('화면 이름은 언어에 맞는 것 하나만 (#1426)', () => {
     expect(title.textContent).toBe(meta.labelEn)
     expect(title.textContent).not.toContain(meta.label)
   })
+
+  it('영어 이름에는 lang="en"이 붙고 한국어 이름에는 붙지 않는다 (#1652)', () => {
+    renderWith(<PageHeader screen="MAINBOARD" />)
+
+    expect(screen.getByRole('heading', { level: 1 }).getAttribute('lang')).toBeNull()
+
+    toEn()
+
+    expect(screen.getByRole('heading', { level: 1 }).getAttribute('lang')).toBe('en')
+  })
 })

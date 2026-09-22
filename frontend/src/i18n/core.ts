@@ -97,6 +97,26 @@ export function useShowsLabelEn(): boolean {
   return useI18n().language === 'en'
 }
 
+/**
+ * 영어로 렌더되는 자리에 붙일 `lang` 값 (`#1652`) — 한국어 모드에서는 `undefined`다.
+ *
+ * ## 왜 루트가 아니라 자리마다인가
+ *
+ * 문서 루트(`<html lang>`)는 **항상 `ko`**다(`Provider.tsx`). 영문 모드에서 영어로
+ * 바뀌는 것은 이 사전이 덮는 **셸 문자열뿐**이고, 화면 본문·면책(`PRD §6.3`)·
+ * 경고(`API_SPEC §1.6`)·선박명·항차명은 그대로 한국어다. 루트를 `en`으로 돌리면
+ * 그 한국어 전부가 영어라고 표시되어 스크린 리더가 영어 발음 엔진으로 읽는다 —
+ * 화면의 대부분이 대상이므로 손해가 이득보다 크다.
+ *
+ * 그래서 **바뀌는 쪽에 표시를 붙인다.** WCAG 3.1.2(부분 언어)가 정확히 이 자리다.
+ *
+ * `undefined`를 돌려주는 것은 속성을 **아예 붙이지 않기** 위해서다 — `lang="ko"`를
+ * 중복으로 적으면 루트에서 상속되는 값과 같은 말을 두 벌로 들고 있게 된다.
+ */
+export function useTextLang(): 'en' | undefined {
+  return useI18n().language === 'en' ? 'en' : undefined
+}
+
 export function useI18n(): I18nContextValue {
   const context = useContext(LanguageContext)
   if (context !== null) return context

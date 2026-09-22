@@ -6,7 +6,7 @@ import type { CurrentUser } from '../auth/session'
 import './AccountMenu.css'
 import { ChevronDown } from 'lucide-react'
 import { Icon } from '../components/Icon'
-import { useI18n } from '../i18n/core'
+import { useI18n, useTextLang } from '../i18n/core'
 import { ThemeToggle } from '../theme/ThemeToggle'
 import { LanguageToggle } from '../i18n/LanguageToggle'
 
@@ -46,6 +46,7 @@ function initialOf(name: string): string {
 
 export function AccountMenu({ user }: { user: CurrentUser }) {
   const { t } = useI18n()
+  const textLang = useTextLang()
   const [open, setOpen] = useState(false)
   const panelId = useId()
   const themeLabelId = useId()
@@ -122,7 +123,15 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         hidden={!open}
         data-testid="account-panel"
       >
-        <p className="account-menu__panel-name">
+        {/*
+          이름이 없을 때만 사전 문구가 들어간다 — 그때만 영어일 수 있으므로
+          `lang`도 그 경우에만 붙인다 (`#1652`). 사용자 이름은 어느 언어에서나
+          입력된 그대로다.
+        */}
+        <p
+          className="account-menu__panel-name"
+          lang={user.displayName === null || user.displayName === undefined ? textLang : undefined}
+        >
           {user.displayName ?? t('account.noDisplayName')}
         </p>
         <p className="account-menu__panel-email">{user.email}</p>
@@ -132,7 +141,7 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
           `§0.2` 제약 2에도 걸렸다 — `#1022` 이후 `--semantic-warning` 쪽이다. 여기에
           색을 줄지는 디자인 결정이며 이 주석이 정하지 않는다.)
         */}
-        <p className="account-menu__verify">
+        <p className="account-menu__verify" lang={textLang}>
           {verified ? t('account.verified') : t('account.unverified')}
         </p>
 
@@ -150,13 +159,17 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         */}
         <div className="account-menu__settings">
           <div className="account-menu__setting">
-            <span className="account-menu__setting-label" id={themeLabelId}>
+            <span className="account-menu__setting-label" id={themeLabelId} lang={textLang}>
               {t('account.theme')}
             </span>
             <ThemeToggle labelledBy={themeLabelId} />
           </div>
           <div className="account-menu__setting">
-            <span className="account-menu__setting-label" id={languageLabelId}>
+            <span
+              className="account-menu__setting-label"
+              id={languageLabelId}
+              lang={textLang}
+            >
               {t('account.language')}
             </span>
             <LanguageToggle labelledBy={languageLabelId} />
@@ -164,8 +177,10 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         </div>
 
         <Link className="account-menu__link" to={SCREEN_BY_ID.SETTINGS.path}>
-          <span>{t('account.settings')}</span>
-          <span className="account-menu__link-sub">{t('account.settingsSub')}</span>
+          <span lang={textLang}>{t('account.settings')}</span>
+          <span className="account-menu__link-sub" lang={textLang}>
+            {t('account.settingsSub')}
+          </span>
         </Link>
       </div>
     </div>
