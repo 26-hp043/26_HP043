@@ -185,15 +185,21 @@ async def ingest_ais_positions(
 
         # 현재 위치는 **더 새 관측일 때만** 덮는다. 배치가 겹쳐 돌거나 재전송이
         # 섞이면 오래된 관측이 뒤에 도착할 수 있고, 그것을 그대로 쓰면 배가 뒤로 간다.
-        if vessel.position_updated_at is None or position.observed_at > vessel.position_updated_at:
-            vessel.current_lat = position.lat
-            vessel.current_lon = position.lon
-            vessel.position_updated_at = position.observed_at
-            state = state_pair_from(position.nav_status)
-            if state is not None:
-                # **두 축을 함께** 적는다 — 026 `chk_vessel_state_pair`가 한쪽만
-                # 바뀐 상태를 거부한다.
-                vessel.underway_state, vessel.detail_status = state
+        #
+        # **비교와 쓰기를 한 문장에서 한다** (`#1628` · `F-8`). 종전에는 파이썬이 읽어
+        # 비교한 뒤 ORM으로 덮었는데, 두 적재가 교차하면 **먼저 읽은 오래된 관측이
+        # 나중에 커밋되어** 현재 위치를 과거로 되돌린다. 조건을 `WHERE`로 옮기면 그
+        # 사이가 없다.
+        state = state_pair_from(position.nav_status)
+        await vessel_repo.update_current_position_if_newer(
+            session,
+            vessel_id=vessel.id,
+            lat=position.lat,
+            lon=position.lon,
+            observed_at=position.observed_at,
+            underway_state=state[0] if state is not None else None,
+            detail_status=state[1] if state is not None else None,
+        )
 
     await session.commit()
     _log.info(
