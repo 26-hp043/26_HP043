@@ -206,17 +206,40 @@ export function VoyagePanel({ vesselId, provider, openActualsFor = null }: Voyag
           한 번에 가져올 수 있습니다.
         </p>
       ) : (
-        <ul className="vy__list">
-          {voyages.map((voyage) => (
-            <VoyageRow
-              key={voyage.id}
-              voyage={voyage}
-              api={api}
-              onChange={replace}
-              openOnMount={voyage.id === openActualsFor}
-            />
-          ))}
-        </ul>
+        /*
+          카드 목록 → 표 (#1729). 종전에는 항차마다 카드 한 장이었고 카드 일곱 장이
+          세로 1,500px이었다 — 같은 라벨(거리 · 속력 · 연료)이 일곱 번 반복됐다.
+          표에서는 라벨이 머리에 한 번만 선다. 행을 펼치면 나머지(속력 · 정책 · 다른 전환 ·
+          실적 입력 · 확인 줄)가 그 아래 줄에 나온다.
+        */
+        <div className="vy__tablewrap">
+          <table className="vy__table">
+            <thead>
+              <tr>
+                <th scope="col">항차</th>
+                <th scope="col">구간</th>
+                <th scope="col">상태</th>
+                <th scope="col">거리 (nm)</th>
+                <th scope="col">연료 (t)</th>
+                <th scope="col">계획 대비</th>
+                <th scope="col">
+                  <span className="sr-only">조치</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {voyages.map((voyage) => (
+                <VoyageRow
+                  key={voyage.id}
+                  voyage={voyage}
+                  api={api}
+                  onChange={replace}
+                  openOnMount={voyage.id === openActualsFor}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {/*
@@ -270,7 +293,7 @@ function VoyageRow({
    * 진행 중 · 완료 항차가 아니면(`canEnterActuals`) 열지 않는다 — 실적을 넣을 수 없는 항차다.
    */
   const [actualsOpen, setActualsOpen] = useState(openOnMount && canEnterActuals(voyage.status))
-  const rowRef = useRef<HTMLLIElement>(null)
+  const rowRef = useRef<HTMLTableRowElement>(null)
   /*
    * 되돌릴 수 없거나 정본이 재확인을 요구하는 전환은 **카드 안 확인 줄**을 거친다 (#1598 ·
    * `transitionCaution`). 모달을 두지 않는다 — 저장소에 아직 모달이 없고(`DESIGN_SYSTEM §5`
@@ -305,7 +328,13 @@ function VoyageRow({
     row?.scrollIntoView?.({ block: 'start' })
     // 초점을 옮긴다 — 키보드·낭독 사용자도 같은 자리에 도착한다. 입력이 열렸으면 첫 칸,
     // 아니면 카드 자체(#1549 — 확정 항차도 데이터 점검에서 데려온다).
-    const firstInput = row?.querySelector<HTMLInputElement>('.vy__form--actuals input')
+    /*
+      실적 폼은 **다음 줄**(펼침 줄)에 있다 (#1729) — 행 안에서 찾으면 못 찾는다.
+      찾지 못하면 행 자체에 초점을 둔다(확정 항차처럼 열 입력이 없는 경우다 · #1549).
+    */
+    const firstInput = row?.nextElementSibling?.querySelector<HTMLInputElement>(
+      '.vy__form--actuals input',
+    )
     ;(firstInput ?? row)?.focus({ preventScroll: true })
     // 한 번만 — 목록이 다시 와도 사용자가 닫은 폼을 다시 열지 않는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -351,6 +380,42 @@ function VoyageRow({
   const canCancel = nextStatuses(voyage.status).includes('CANCELLED')
 
   /*
+    펼침 줄 (#1729) — 속력 · 정책 · 나머지 전환 · 실적 입력 · 확인 줄이 여기 있다.
+    실적 입력이 열렸거나 오류 · 확인 줄이 서 있으면 **접기와 무관하게 펼친다**:
+    그 내용이 보이지 않으면 사용자는 아무 일도 일어나지 않았다고 읽는다.
+  */
+  const [detailOpen, setDetailOpen] = useState(openOnMount)
+  const open = detailOpen || actualsOpen || rowError !== null || pending !== null
+  const detailId = `vy-detail-${voyage.id}`
+
+  /** 상태 전환 버튼 하나 — 행(주 버튼)과 펼침 줄(나머지)이 같은 모양을 쓴다 (#1729). */
+  const transitionButton = (to: VoyageStatus, asPrimary: boolean) => {
+    const blocker = transitionBlocker(voyage, to)
+    const blockerId = `vy-blocker-${voyage.id}-${to}`
+    return (
+      <span className="vy__action" key={to}>
+        <button
+          type="button"
+          className={asPrimary ? 'vy__transition vy__primary' : 'vy__transition'}
+          disabled={busy || blocker !== null}
+          /* 사유가 눈에만 있었다 — 낭독에도 닿게 한다 (`§14` · `#1170` ⑵). */
+          aria-describedby={blocker ? blockerId : undefined}
+          aria-expanded={transitionCaution(voyage.status, to) ? pending === to : undefined}
+          onClick={(event) => request(to, event.currentTarget)}
+        >
+          {withRo(STATUS_LABELS[to])}
+        </button>
+        {/* 왜 못 누르는지 버튼 옆에 적는다 — 눌러 보고 422를 받는 것보다 낫다. */}
+        {blocker ? (
+          <span id={blockerId} className="vy__blocker">
+            {blocker}
+          </span>
+        ) : null}
+      </span>
+    )
+  }
+
+  /*
     「실적 입력」이 주 버튼이어도 **열린 뒤에는 채움을 내린다** — 그때 글자는 「실적 닫기」이고,
     할 일은 폼 안의 「실적 저장」이다. 닫기를 가장 진하게 칠하지 않는다.
   */
@@ -366,188 +431,242 @@ function VoyageRow({
   )
 
   return (
-    <li
-      className={openOnMount ? 'vy__row vy__row--target' : 'vy__row'}
-      id={`voyage-${voyage.id}`}
-      ref={rowRef}
-      // 데려온 카드만 초점을 받을 수 있다 — 탭 순서에는 넣지 않는다(#1549).
-      tabIndex={openOnMount ? -1 : undefined}
-    >
-      <div className="vy__row-main">
-        <span className="vy__no">{voyage.voyageNo ?? NO_VALUE}</span>
-        <span className={`vy__badge vy__badge--${voyage.status.toLowerCase()}`}>
-          {STATUS_LABELS[voyage.status]}
-        </span>
-        <span className="vy__route">{routeText(voyage)}</span>
-        <span className="vy__policy">{POLICY_LABELS[voyage.inclusionPolicy]}</span>
-      </div>
-
+    <>
       {/*
-        여섯 칸을 **세 쌍**으로 묶었다 (#721).
-
-        종전에는 `계획 거리 · 실제 거리 · 계획 속력 · 실제 평균 속력 · 계획 연료 ·
-        실제 연료`가 여섯 칸에 흩어져 있었다. **이 패널의 머리글 스스로**가
-        「계획 대비 실적 차이가 다음 항차의 예측을 다듬는 근거」라고 적어 두고,
-        정작 화면은 비교할 두 값을 갈라 놓고 있었다.
-
-        라벨이 절반이 되고 비교가 한 눈에 들어온다. 화살표의 뜻은 위 머리글이 적는다.
+        항차 한 건 = 표의 한 행 (#1729). 종전에는 카드 한 장이었고, 카드마다 라벨
+        (거리 · 속력 · 연료)이 되풀이됐다. 행에는 **한눈에 비교하는 값**만 두고,
+        나머지(속력 · 정책 · 다른 전환 · 실적 입력 · 확인 줄)는 아래 펼침 줄로 내린다.
       */}
-      <dl className="vy__figures">
-        <Pair
-          label="거리"
-          planned={quantity(voyage.plannedDistanceNm, DISPLAY_DIGITS.distanceNm)}
-          actual={quantity(voyage.actualDistanceNm, DISPLAY_DIGITS.distanceNm)}
-          unit={DISPLAY_UNITS.distance}
-        />
-        <Pair
-          label="속력"
-          planned={quantity(voyage.plannedSpeedKn, DISPLAY_DIGITS.speedKn)}
-          actual={quantity(voyage.actualAvgSpeedKn, DISPLAY_DIGITS.speedKn)}
-          unit={DISPLAY_UNITS.speed}
-        />
-        <Pair
-          label="연료"
-          planned={quantity(totalFuel(voyage, 'planned'), DISPLAY_DIGITS.fuelTon)}
-          actual={quantity(totalFuel(voyage, 'actual'), DISPLAY_DIGITS.fuelTon)}
-          unit={DISPLAY_UNITS.fuel}
-        />
-      </dl>
+      <tr
+        className={openOnMount ? 'vy__row vy__row--target' : 'vy__row'}
+        id={`voyage-${voyage.id}`}
+        ref={rowRef}
+        // 데려온 행만 초점을 받을 수 있다 — 탭 순서에는 넣지 않는다(#1549).
+        tabIndex={openOnMount ? -1 : undefined}
+      >
+        <th scope="row" className="vy__no">
+          {voyage.voyageNo ?? NO_VALUE}
+        </th>
+        <td className="vy__route">{routeText(voyage)}</td>
+        <td>
+          <span className={`vy__badge vy__badge--${voyage.status.toLowerCase()}`}>
+            {STATUS_LABELS[voyage.status]}
+          </span>
+        </td>
+        {/*
+          계획 → 실적 두 값을 한 칸에 둔다 (#721의 세 쌍을 표로 옮긴 것). 화살표의 뜻은
+          패널 머리글이 한 번 적고, 낭독에는 `sr-only` 라벨이 붙는다(`§14` — 한 채널에만
+          의존하지 않는다). 단위는 열 머리에 한 번만 적는다.
+        */}
+        <td className="num">
+          <PairCell
+            planned={quantity(voyage.plannedDistanceNm, DISPLAY_DIGITS.distanceNm)}
+            actual={quantity(voyage.actualDistanceNm, DISPLAY_DIGITS.distanceNm)}
+          />
+        </td>
+        <td className="num">
+          <PairCell
+            planned={quantity(totalFuel(voyage, 'planned'), DISPLAY_DIGITS.fuelTon)}
+            actual={quantity(totalFuel(voyage, 'actual'), DISPLAY_DIGITS.fuelTon)}
+          />
+        </td>
+        {/*
+          계획 대비 칩 — 거리 차이 하나다. 두 값을 나란히 보는 이유가 이 차이이므로
+          그 차이를 화면이 직접 적는다. 색을 쓰지 않는다 — 「늘었다」가 곧 나쁨은 아니다
+          (`§2.3` 경고색은 한 자리에 한 번).
+        */}
+        <td className="num">
+          {deltaText(voyage) === null ? (
+            NO_VALUE
+          ) : (
+            <span className="vy__delta">{deltaText(voyage)}</span>
+          )}
+        </td>
+        <td className="vy__row-actions">
+          {/* 다음에 누를 것 하나만 행에 둔다 (#1551). 나머지는 펼침 줄이다. */}
+          {primary?.kind === 'actuals' ? actualsToggle(!actualsOpen) : null}
+          {primaryTo !== null ? transitionButton(primaryTo, true) : null}
+          <button
+            type="button"
+            className="vy__text-action"
+            aria-expanded={open}
+            aria-controls={detailId}
+            onClick={() => setDetailOpen((value) => !value)}
+          >
+            {open ? '접기' : '자세히'}
+          </button>
+        </td>
+      </tr>
 
-      {/*
-        저장된 계획 거리가 좌표 추정이면 그 사실을 붙인다 (#1256 · `PRD §15.2`).
+      {open ? (
+        <tr className="vy__detail">
+          <td colSpan={7} id={detailId}>
 
-        문구는 목록용 `ESTIMATED_DISTANCE_LIST_NOTE`를 쓴다 (#1354). 입력 칸의
-        `ESTIMATED_DISTANCE_HINT`는 끝이 「고쳐 주세요」인데 목록에는 계획 거리를 고치는 경로가
-        없다 — 따를 수 없는 말 대신 그 값이 CII를 어느 쪽으로 기울이는지를 적는다. 앞머리
-        「좌표 기반 추정 거리」는 두 문구가 같다(`PRD §15.2`). `COORDINATE_DISTANCE_NOTICE`(항로
-        비교)는 「현재 위치에서 목적항까지」라 항차의 출발항 → 도착항에는 맞지 않는다.
+          {/*
+            저장된 계획 거리가 좌표 추정이면 그 사실을 붙인다 (#1256 · `PRD §15.2`).
 
-        **`null`(「모른다」)에는 아무것도 붙이지 않는다.** 059 이전 항차와 출처 없이 만든
-        항차가 여기 들고, 직접 입력한 값에 「추정」이 붙는 것이 `PRD §0.3`이 금하는 거짓말이다.
-      */}
-      {voyage.plannedDistanceSource === 'COORDINATE_ESTIMATE' ? (
-        <p className="vy__hint">{ESTIMATED_DISTANCE_LIST_NOTE}</p>
-      ) : null}
+            문구는 목록용 `ESTIMATED_DISTANCE_LIST_NOTE`를 쓴다 (#1354). 입력 칸의
+            `ESTIMATED_DISTANCE_HINT`는 끝이 「고쳐 주세요」인데 목록에는 계획 거리를 고치는 경로가
+            없다 — 따를 수 없는 말 대신 그 값이 CII를 어느 쪽으로 기울이는지를 적는다. 앞머리
+            「좌표 기반 추정 거리」는 두 문구가 같다(`PRD §15.2`). `COORDINATE_DISTANCE_NOTICE`(항로
+            비교)는 「현재 위치에서 목적항까지」라 항차의 출발항 → 도착항에는 맞지 않는다.
 
-      {rowError ? (
-        <ErrorState level="region" size="compact" message={rowError} />
-      ) : null}
+            **`null`(「모른다」)에는 아무것도 붙이지 않는다.** 059 이전 항차와 출처 없이 만든
+            항차가 여기 들고, 직접 입력한 값에 「추정」이 붙는 것이 `PRD §0.3`이 금하는 거짓말이다.
+          */}
+          {voyage.plannedDistanceSource === 'COORDINATE_ESTIMATE' ? (
+            <p className="vy__hint">{ESTIMATED_DISTANCE_LIST_NOTE}</p>
+          ) : null}
 
-      {/*
-        카드마다 **다음에 누를 것 하나**만 채움 버튼이다 (#1551 · `primaryAction`).
+          {rowError ? (
+            <ErrorState level="region" size="compact" message={rowError} />
+          ) : null}
 
-        종전에는 전환 · 실적 입력 · 취소가 모두 같은 외곽선이라, 막힌 전환의 사유(「실적 연료를
-        먼저…」)가 바로 옆 「실적 입력」과 이어지지 않았고 완료 카드는 「실적 확정으로」와
-        「실적 입력」 중 무엇이 먼저인지 말하지 않았다. 순서는 **주 버튼 → 나머지 전환 → 실적
-        입력 → 취소**다. 취소는 주 동작이 아닌 자리라 텍스트 버튼이다(`DESIGN_SYSTEM §8`).
-      */}
-      <div className="vy__row-actions">
-        {primary?.kind === 'actuals' ? actualsToggle(!actualsOpen) : null}
-        {[...(primaryTo !== null ? [primaryTo] : []), ...otherTransitions].map((to) => {
-          const blocker = transitionBlocker(voyage, to)
-          const blockerId = `vy-blocker-${voyage.id}-${to}`
-          return (
-            <span className="vy__action" key={to}>
+          {/*
+            카드마다 **다음에 누를 것 하나**만 채움 버튼이다 (#1551 · `primaryAction`).
+
+            종전에는 전환 · 실적 입력 · 취소가 모두 같은 외곽선이라, 막힌 전환의 사유(「실적 연료를
+            먼저…」)가 바로 옆 「실적 입력」과 이어지지 않았고 완료 카드는 「실적 확정으로」와
+            「실적 입력」 중 무엇이 먼저인지 말하지 않았다. 순서는 **주 버튼 → 나머지 전환 → 실적
+            입력 → 취소**다. 취소는 주 동작이 아닌 자리라 텍스트 버튼이다(`DESIGN_SYSTEM §8`).
+          */}
+          {/*
+            행에 올라가지 않은 값들 (#1729) — 속력 쌍과 산입 정책. 거리 · 연료와 달리
+            한눈에 견줄 일이 드물어 펼쳤을 때만 보인다.
+          */}
+          <dl className="vy__figures">
+            <Pair
+              label="속력"
+              planned={quantity(voyage.plannedSpeedKn, DISPLAY_DIGITS.speedKn)}
+              actual={quantity(voyage.actualAvgSpeedKn, DISPLAY_DIGITS.speedKn)}
+              unit={DISPLAY_UNITS.speed}
+            />
+            <div>
+              <dt>연간 산입</dt>
+              <dd>{POLICY_LABELS[voyage.inclusionPolicy]}</dd>
+            </div>
+          </dl>
+
+          <div className="vy__row-actions">
+            {otherTransitions.map((to) => transitionButton(to, false))}
+
+            {canEnterActuals(voyage.status) && primary?.kind !== 'actuals' ? actualsToggle(false) : null}
+
+            {/*
+              확정 되돌리기는 **뒤로 가는** 전환이라 「항해 완료로」 틀에 두지 않는다 (#1598 · `isRevert`).
+              오류 정정에만 쓰는 동작이라 취소와 같은 텍스트 버튼이다(`DESIGN_SYSTEM §8`).
+            */}
+            {revertTo !== null ? (
               <button
                 type="button"
-                className={to === primaryTo ? 'vy__transition vy__primary' : 'vy__transition'}
-                disabled={busy || blocker !== null}
-                /* 사유가 눈에만 있었다 — 낭독에도 닿게 한다 (`§14` · `#1170` ⑵). */
-                aria-describedby={blocker ? blockerId : undefined}
-                aria-expanded={transitionCaution(voyage.status, to) ? pending === to : undefined}
-                onClick={(event) => request(to, event.currentTarget)}
+                className="vy__text-action"
+                disabled={busy}
+                aria-expanded={pending === revertTo}
+                onClick={(event) => request(revertTo, event.currentTarget)}
               >
-                {withRo(STATUS_LABELS[to])}
+                확정 되돌리기
               </button>
-              {/* 왜 못 누르는지 버튼 옆에 적는다 — 눌러 보고 422를 받는 것보다 낫다. */}
-              {blocker ? (
-                <span id={blockerId} className="vy__blocker">
-                  {blocker}
-                </span>
-              ) : null}
-            </span>
-          )
-        })}
+            ) : null}
 
-        {canEnterActuals(voyage.status) && primary?.kind !== 'actuals' ? actualsToggle(false) : null}
+            {canCancel ? (
+              <button
+                type="button"
+                className="vy__text-action"
+                disabled={busy}
+                aria-expanded={pending === 'CANCELLED'}
+                onClick={(event) => request('CANCELLED', event.currentTarget)}
+              >
+                이 항차 취소
+              </button>
+            ) : null}
+          </div>
 
-        {/*
-          확정 되돌리기는 **뒤로 가는** 전환이라 「항해 완료로」 틀에 두지 않는다 (#1598 · `isRevert`).
-          오류 정정에만 쓰는 동작이라 취소와 같은 텍스트 버튼이다(`DESIGN_SYSTEM §8`).
-        */}
-        {revertTo !== null ? (
-          <button
-            type="button"
-            className="vy__text-action"
-            disabled={busy}
-            aria-expanded={pending === revertTo}
-            onClick={(event) => request(revertTo, event.currentTarget)}
-          >
-            확정 되돌리기
-          </button>
-        ) : null}
-
-        {canCancel ? (
-          <button
-            type="button"
-            className="vy__text-action"
-            disabled={busy}
-            aria-expanded={pending === 'CANCELLED'}
-            onClick={(event) => request('CANCELLED', event.currentTarget)}
-          >
-            이 항차 취소
-          </button>
-        ) : null}
-      </div>
-
-      {/*
-        확인 줄 (#1598). 무엇이 달라지는지 적고, 실행 버튼은 동사로 끝난다. 초점은 「그만두기」에
-        먼저 간다. Escape도 「그만두기」다.
-      */}
-      {pending !== null && caution !== null ? (
-        <div
-          className="vy__caution"
-          role="group"
-          aria-labelledby={cautionId}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') closePending()
-          }}
-        >
-          <p id={cautionId} className="vy__caution-text">
-            {caution.message}
-          </p>
-          <div className="vy__caution-actions">
-            <button
-              type="button"
-              className="vy__transition"
-              disabled={busy}
-              onClick={() => {
-                const to = pending
-                setPending(null)
-                void run(() => api.transition(voyage, to))
+          {/*
+            확인 줄 (#1598). 무엇이 달라지는지 적고, 실행 버튼은 동사로 끝난다. 초점은 「그만두기」에
+            먼저 간다. Escape도 「그만두기」다.
+          */}
+          {pending !== null && caution !== null ? (
+            <div
+              className="vy__caution"
+              role="group"
+              aria-labelledby={cautionId}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') closePending()
               }}
             >
-              {caution.confirm}
-            </button>
-            <button type="button" ref={keepRef} className="vy__text-action" onClick={closePending}>
-              그만두기
-            </button>
-          </div>
-        </div>
-      ) : null}
+              <p id={cautionId} className="vy__caution-text">
+                {caution.message}
+              </p>
+              <div className="vy__caution-actions">
+                <button
+                  type="button"
+                  className="vy__transition"
+                  disabled={busy}
+                  onClick={() => {
+                    const to = pending
+                    setPending(null)
+                    void run(() => api.transition(voyage, to))
+                  }}
+                >
+                  {caution.confirm}
+                </button>
+                <button type="button" ref={keepRef} className="vy__text-action" onClick={closePending}>
+                  그만두기
+                </button>
+              </div>
+            </div>
+          ) : null}
 
-      {actualsOpen ? (
-        <ActualsForm
-          voyage={voyage}
-          onCancel={() => setActualsOpen(false)}
-          onSubmit={async (draft) => {
-            // 성공했을 때만 닫는다 (`#824` ⑸) — 실패에 닫으면 입력이 사라진다.
-            if (await run(() => api.saveActuals(voyage.id, draft))) setActualsOpen(false)
-          }}
-        />
+          {actualsOpen ? (
+            <ActualsForm
+              voyage={voyage}
+              onCancel={() => setActualsOpen(false)}
+              onSubmit={async (draft) => {
+                // 성공했을 때만 닫는다 (`#824` ⑸) — 실패에 닫으면 입력이 사라진다.
+                if (await run(() => api.saveActuals(voyage.id, draft))) setActualsOpen(false)
+              }}
+            />
+          ) : null}
+          </td>
+        </tr>
       ) : null}
-    </li>
+    </>
   )
+}
+
+/**
+ * 「계획 → 실적」 한 칸 (#1729 · 종전 `Pair`의 값 부분).
+ *
+ * 라벨과 단위는 열 머리가 한 번씩 적는다. 화살표는 장식이므로 `aria-hidden`이고,
+ * 낭독에는 「계획 … 실적 …」이 남는다(`DESIGN_SYSTEM §14` — 한 채널에만 의존하지 않는다).
+ */
+function PairCell({ planned, actual }: { planned: string; actual: string }) {
+  return (
+    <>
+      <span className="sr-only">계획 </span>
+      {planned}
+      <span className="vy__arrow" aria-hidden="true">
+        {' → '}
+      </span>
+      <span className="sr-only">실적 </span>
+      {actual}
+    </>
+  )
+}
+
+/**
+ * 계획 대비 거리 차이 (#1729). 실적이 없으면 `null` — 0으로 적으면 「계획대로 갔다」가 된다.
+ *
+ * 자릿수·단위는 `DESIGN_SYSTEM §4.2`를 따른다. 부호는 늘 붙인다 — 「+65」와 「65」가
+ * 같은 칸에 섞이면 어느 쪽이 늘어난 것인지 읽을 수 없다.
+ */
+function deltaText(voyage: ManagedVoyage): string | null {
+  const planned = voyage.plannedDistanceNm
+  const actual = voyage.actualDistanceNm
+  if (planned === null || actual === null) return null
+  const diff = actual - planned
+  const sign = diff > 0 ? '+' : diff < 0 ? '−' : '±'
+  return `${sign}${formatGrouped(String(Math.abs(diff)), DISPLAY_DIGITS.distanceNm)} ${DISPLAY_UNITS.distance}`
 }
 
 function VoyageForm({

@@ -55,6 +55,23 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 비율 막대 (#1729) — 값 아래 얇은 한 줄. 색은 Primary 하나다(등급 램프를 쓰지 않는다). */
+.verdict-strip__meter {
+  display: block;
+  inline-size: 100%;
+  block-size: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.verdict-strip__meter-bar {
+  display: block;
+  block-size: 100%;
+  background: var(--color-primary);
+}
+
 /* 단위는 값보다 작고 흐리게 — 값과 같은 줄의 아래선에 맞춘다. */
 .verdict-strip__unit {
   align-self: flex-end;

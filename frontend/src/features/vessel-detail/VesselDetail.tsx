@@ -2,7 +2,6 @@ import { ArrowLeft } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
-import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { NotUnderwayPanel } from '../not-underway/NotUnderwayPanel'
 import { VoyagePanel } from '../voyage-management/VoyagePanel'
@@ -18,11 +17,15 @@ import {
   formatCapacity,
   formatDecimalString,
   formatGrouped,
+  formatPercent,
   formatTimestamp,
+  toDecimalInput,
 } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
 import { PositionForm } from './PositionForm'
+import { VerdictStrip } from '../../components/VerdictStrip'
+import { voyageProgress } from './types'
 import type {
   CiiYear,
   InProgressVoyage,
@@ -256,99 +259,61 @@ export function VesselDetail({
         </div>
       </header>
 
-      {/* ── 올해 누적(YTD) — 주 표시 ─────────────────────────────── */}
-      <section className="card vd__ytd" aria-label="올해 누적 CII">
-        <div className="card__head">
+      {/*
+        ── 선박 바 = 결론 띠 (`DESIGN_SYSTEM §8.6` 🔒 · #1729) ─────────────
+
+        이 화면의 답은 **올해 누적 등급과 값**이다. 종전에는 YTD 카드 안에서 등급 배지 ·
+        실적 · 기준 · 완료 항차가 **네 칸에 같은 무게**로 놓여, 무엇이 답이고 무엇이 딸린
+        수치인지 보이지 않았다.
+
+        보조는 진행 중 항차의 진행률이다(`§8.6` 표). 위험도 pill은 두지 않는다 —
+        `API_SPEC §2.7` 연도별 이력에 `risk_level`이 없고, 없는 값을 다른 경로에서
+        더 불러오지 않는다(`§8.6` · #1728).
+      */}
+      {current?.dataAvailable ? (
+        <VerdictStrip
+          label="올해 누적 CII"
+          main={{
+            label: `올해 누적 (YTD) · ${current.regulationYear}년`,
+            value: ytdValueText(current),
+            unit,
+            rating: current.rating,
+            ratingLabel: current.rating
+              ? `올해 누적 등급 ${current.rating}`
+              : '올해 누적 등급 없음',
+          }}
+          sub={progressSlot(inProgress)}
+        />
+      ) : (
+        <section className="card" aria-label="올해 누적 CII">
           <h2 className="card__title">올해 누적 (YTD)</h2>
-          <span className="card__meta">
-            {current ? `${current.regulationYear}년 · 진행 중` : '—'}
-          </span>
-          {/*
-            `UIFLOW 2-11` 진입 조건 「`2-8` 선박 상세의 신뢰도 표시」 (#1082). 여기에는
-            **누적값의 출처를 확인하는 길**만 누적 카드 머리에 둔다. **데이터 완결성 비율은
-            선박 상세에 두지 않는다**(2026-09-22 확정 · `#1052` ⑺) — 비율은 `2-11`이 소유하고
-            같은 값을 두 곳에서 관리하지 않는다. 신뢰도 배지(`DataConfidenceBadge`)는 아직 없다.
-          */}
-          <Link className="card__meta" to={SCREEN_BY_ID.DATA_QUALITY.path}>
-            {SCREEN_BY_ID.DATA_QUALITY.label}
-          </Link>
-        </div>
-
-        {/*
-          게이트는 `dataAvailable` 하나다 (#876).
-
-          종전에는 `current.rating`도 함께 봤다. 그런데 **등급 null은 비정상이 아니다**
-          — `API_SPEC §2.7`이 `rating: string | null`로 규정하고, `#834`(RO_RO
-          여객선 고속선의 등급 경계 누락)가 그 조건을 실재시킨다. 등급 하나가 비었다고
-          **서버가 준 실적·기준·항차 수를 전부 버리고** 「올해 등록된 항차 실적이
-          없습니다」를 내면, 실적이 있는데 없다고 말하는 것이 된다.
-
-          아래 칸들은 이미 각자 null을 `—`로 처리한다 — 바깥 게이트가 그 처리를
-          무효화하고 있었다. `GradeBadge`도 null을 「없음」 변형으로 그린다.
-        */}
-        {current?.dataAvailable ? (
-          <div className="ytd">
-            {/*
-              등급에도 라벨을 붙인다 (#723). 옆 세 칸은 「실적」·「기준」·「항차」라는
-              머리를 갖는데 등급만 배지 하나로 떠 있어, **네 칸 중 하나만 다른 문법**으로
-              읽혔다.
-            */}
-            <div className="ytd__grade">
-              <p className="ytd__grade-label">등급</p>
-              <GradeBadge
-                rating={current.rating}
-                label={
-                  current.rating ? `올해 누적 등급 ${current.rating}` : '올해 누적 등급 없음'
-                }
-              />
-            </div>
-            <dl className="ytd__figures">
-              {/*
-                `DESIGN_SYSTEM §4.1` 🔒 — CII는 **소수 3자리 고정**이고
-                `required_cii`도 같다. 서버가 주는 원본 문자열은 6자리라
-                그대로 쓰면 다른 화면(CII 예측·항로 비교)과 자릿수가 어긋난다.
-                §4.1이 「내부에는 API 원본을 그대로 보관하고 **반올림은 표시
-                시점에만**」이라고 정한 그 표시 시점이 여기다.
-              */}
-              <div>
-                <dt>실적 (attained)</dt>
-                <dd className="num">
-                  {/*
-                    `dataAvailable`이 참이어도 타입은 `string | null`이다. 종전에는
-                    값을 그대로 넣어 null이 **빈칸**으로 렌더됐다 — 옆 항목처럼
-                    `—`로 적어 「값이 없다」를 눈에 보이게 한다.
-                  */}
-                  {current.attainedCii === null
-                    ? '—'
-                    : formatDecimalString(current.attainedCii, DISPLAY_DIGITS.cii)}
-                </dd>
-              </div>
-              <div>
-                <dt>기준 (required)</dt>
-                <dd className="num">
-                  {current.requiredCii === null
-                    ? '—'
-                    : formatDecimalString(current.requiredCii, DISPLAY_DIGITS.cii)}
-                </dd>
-              </div>
-              <div>
-                {/* 완료 항차 수다 — 진행분이 CII에 들어가 있으면 함께 적는다 (#987). */}
-                <dt>완료 항차</dt>
-                <dd className="num">{voyageCountText(current)}</dd>
-              </div>
-            </dl>
-            {/* 단위는 서버가 준 축에서 파생한다 — 고정 문자열 금지(§4.1 🔒). */}
-            <p className="ytd__unit">단위 {unit}</p>
-          </div>
-        ) : (
           <p className="vd__nodata">{noDataText(current)}</p>
-        )}
+        </section>
+      )}
 
+      {/*
+        띠 아래 한 줄 — 완료 항차 수 · 단위 · 고지 (`§8.6` · #1578). 종전에는 완료 항차가
+        등급과 같은 크기의 네 번째 칸이었고, 단위와 고지는 카드 안 별도 줄이었다.
+      */}
+      <div className="vd__under">
+        <p className="vd__under-facts">
+          {current?.dataAvailable ? (
+            <>
+              <span>완료 항차 {voyageCountText(current)}</span>
+              <span>단위 {unit}</span>
+            </>
+          ) : null}
+            {/*
+              데이터 점검 입구 — 종전에는 YTD 카드 머리에 있었다. 카드가 띠로 바뀌며
+              같은 줄(완료 항차 · 단위)로 내려왔다. 비율은 `2-11`이 소유한다(#1082 · #1052 ⑺).
+            */}
+          <Link to={SCREEN_BY_ID.DATA_QUALITY.path}>{SCREEN_BY_ID.DATA_QUALITY.label}</Link>
+        </p>
         <p className="vd__note">
           올해 값은 연중 누적 예측값이며 <b>공식 등급이 아닙니다</b>. 공식 등급은 연말
           DCS 보고·검증 후 확정됩니다.
         </p>
-      </section>
+      </div>
 
       <div className="vd__split">
         {/* ── 연도별 이력 ────────────────────────────────────────── */}
@@ -362,7 +327,12 @@ export function VesselDetail({
 
         {/* ── 제원 · 현재 상태 ───────────────────────────────────── */}
         <div className="vd__side">
-          <section className="card" aria-label="선박 제원">
+          {/*
+            제원과 현재 상태를 한 면에 담는다 (#1729 · `DESIGN_SYSTEM §5` 카드 예산).
+            둘 다 「이 배가 어떤 배이고 지금 무엇을 하고 있나」라 한 덩어리로 읽힌다 —
+            면을 둘로 나눌 이유가 값의 출처뿐이었다.
+          */}
+          <section className="card" aria-label="선박 제원 · 현재 상태">
             <div className="card__head">
               <h2 className="card__title">제원</h2>
             </div>
@@ -410,11 +380,9 @@ export function VesselDetail({
               />
               <Spec label="기본 연료" value={vessel.defaultFuelType} />
             </dl>
-          </section>
 
-          <section className="card" aria-label="현재 상태">
-            <div className="card__head">
-              <h2 className="card__title">현재 상태</h2>
+            <div className="card__head vd__subhead">
+              <h3 className="card__title">현재 상태</h3>
             </div>
             <dl className="spec">
               <Spec label="운항 상태" value={stateText(vessel.underwayState)} />
@@ -555,6 +523,49 @@ export function VesselDetail({
       <DisclaimerBanner estimate />
     </div>
   )
+}
+
+/** 값이 없을 때의 표기 — 빈칸은 「아직 안 온 값」으로 읽힌다. */
+const NO_VALUE = '—'
+
+/**
+ * 띠의 주 결론 값 — 「실적 / 기준」 한 쌍 (`DESIGN_SYSTEM §8.6` 표의 선박 상세 행).
+ *
+ * 두 값을 나란히 두는 것이 이 화면의 답이다 — 실적만으로는 등급이 왜 그 등급인지
+ * 읽히지 않는다. 값이 없으면 `—`로 적는다(빈칸은 「아직 안 온 값」으로 읽힌다).
+ *
+ * 자릿수는 `DESIGN_SYSTEM §4.1` 🔒 — CII는 소수 3자리 고정이고 `required_cii`도 같다.
+ */
+function ytdValueText(year: CiiYear): string {
+  const attained =
+    year.attainedCii === null ? NO_VALUE : formatDecimalString(year.attainedCii, DISPLAY_DIGITS.cii)
+  const required =
+    year.requiredCii === null ? NO_VALUE : formatDecimalString(year.requiredCii, DISPLAY_DIGITS.cii)
+  return `${attained} / ${required}`
+}
+
+/**
+ * 띠의 보조 — 진행 중 항차와 진행률 (#1729).
+ *
+ * 진행률은 **이미 부르고 있는 조회**에서 온다(`findInProgressVoyage`). 계획 거리나 실적
+ * 거리가 없으면 막대 없이 항차 번호만 적는다 — 0%로 지어내면 「아직 아무것도 안 갔다」가
+ * 되어 없는 사실을 말하게 된다.
+ */
+function progressSlot(
+  inProgress: InProgressVoyage | null | 'loading',
+): { label: string; value: string; meter?: { ratio: number; label: string } } {
+  const label = '진행 중 항차'
+  if (inProgress === 'loading') return { label, value: '확인 중…' }
+  if (inProgress === null) return { label, value: '없음' }
+
+  const name = inProgress.voyageNo ?? NO_VALUE
+  const ratio = voyageProgress(inProgress)
+  if (ratio === null) return { label, value: name }
+  return {
+    label,
+    value: `${name} · ${formatPercent(toDecimalInput(ratio))}%`,
+    meter: { ratio, label: '항해 진행률' },
+  }
 }
 
 function BackLink() {

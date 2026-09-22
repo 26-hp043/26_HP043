@@ -135,15 +135,6 @@
 
 /* ---------- 목록 ---------- */
 
-.vy__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
 .vy__row {
   display: flex;
   flex-direction: column;
@@ -179,13 +170,6 @@
   word-break: keep-all;
 }
 
-.vy__row-main {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  flex-wrap: wrap;
-}
-
 .vy__no {
   font-weight: var(--font-weight-label);
   color: var(--text-primary);
@@ -210,21 +194,6 @@
 }
 
 .vy__route,
-.vy__policy {
-  font-size: var(--font-size-micro);
-  color: var(--text-secondary);
-}
-
-/*
- * 종전에는 `margin-inline-start: auto`로 행 오른쪽 끝에 밀어 두었다. 수치를 세 쌍으로
- * 붙이고 나니(#721) **왼쪽 410px에 값이 뭉치고 이 표기만 1,810px 지점에 혼자 떠**
- * 사이 1,400px이 비었다. 붙는 자리로 데려온다 — 항로 바로 다음이 그 자리다.
- */
-.vy__policy {
-  color: var(--text-secondary);
-  font-size: var(--font-size-micro);
-}
-
 /*
  * ## `auto-fit`이 칸을 늘리고 있었다 (#721)
  *
@@ -718,4 +687,68 @@
   margin: 0;
   font-size: var(--font-size-micro);
   color: var(--color-danger-text);
+}
+
+/* ── 항차 표 (#1729) ────────────────────────────────────────────── */
+
+/*
+ * 카드 일곱 장(세로 ≈1,500px)을 표 하나로 바꿨다. 라벨이 머리에 한 번만 서고,
+ * 행마다 되풀이되던 「거리 · 속력 · 연료」 세 쌍이 사라진다.
+ *
+ * 좁은 폭에서는 가로로 스크롤한다 — 열을 접으면 어느 행이 어느 항차인지 잃는다.
+ */
+.vy__tablewrap {
+  overflow-x: auto;
+}
+
+.vy__table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 720px;
+  font-size: var(--font-size-label);
+}
+
+.vy__table th,
+.vy__table td {
+  padding: var(--spacing-sm);
+  border-bottom: 1px solid var(--border-default);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.vy__table thead th {
+  color: var(--text-secondary);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-label);
+  border-bottom: 1px solid var(--border-strong, var(--border-default));
+  white-space: nowrap;
+}
+
+.vy__table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.vy__table tbody tr:hover > * {
+  background: var(--surface-inset);
+}
+
+/* 펼침 줄 — 행 아래 한 칸을 통으로 쓴다. 면을 띄우지 않는다(`DESIGN_SYSTEM §5`). */
+.vy__detail > td {
+  background: var(--surface-inset);
+}
+
+.vy__detail > td > * + * {
+  margin-top: var(--spacing-sm);
+}
+
+/* 계획 대비 칩 — 색을 쓰지 않는다. 「늘었다」가 곧 나쁨은 아니다(`§2.3`). */
+.vy__delta {
+  display: inline-block;
+  padding: 2px var(--spacing-sm);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  white-space: nowrap;
 }

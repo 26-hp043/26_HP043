@@ -22,10 +22,14 @@ import { describe, expect, it } from 'vitest'
  * 레이아웃을 계산하지 않아 컨테이너 쿼리가 걸리는지 렌더 결과로는 확인할 수 없다.
  * `styles/cardSpec.test.ts`가 이미 쓰는 방식대로 CSS 소스 자체를 검사한다 — 컨테이너
  * 선언과 접는 규칙이 **둘 다** 있어야 실제로 걸린다.
+ *
+ * ## 이제 이 격자를 쓰는 화면은 하나다 (#1729)
+ *
+ * 선박 상세가 결론 띠(`DESIGN_SYSTEM §8.6`)로 바뀌며 YTD 카드를 더 쓰지 않는다. 규칙도
+ * 남은 사용처인 실시간 CII로 옮겼다 — 검사도 그 파일 하나를 본다.
  */
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
-const VESSEL_DETAIL_CSS = readFileSync(join(HERE, 'VesselDetail.css'), 'utf-8')
 const REALTIME_CII_CSS = readFileSync(
   join(HERE, '../realtime-cii/RealtimeCiiView.css'),
   'utf-8',
@@ -55,14 +59,11 @@ function containerBlockBodies(text: string): string[] {
 }
 
 describe('YTD 격자 — 컨테이너 쿼리로 1열 접힘 (#1352)', () => {
-  it('선박 상세 YTD 카드(.vd__ytd)가 컨테이너 쿼리 대상으로 선언돼 있다', () => {
-    const body = stripComments(VESSEL_DETAIL_CSS)
-    expect(
-      /\.vd__ytd\s*\{[^}]*container-type:\s*inline-size/.test(body),
-      '.vd__ytd에 `container-type: inline-size`가 있어야 `.ytd`의 @container가 이 카드의 ' +
-        '실제 폭을 잰다. 없으면 컨테이너 쿼리가 가장 가까운 다른 조상(있다면)이나 아무 ' +
-        '조상에도 걸리지 않아 무시된다.',
-    ).toBe(true)
+  it('⚠️ 선박 상세에는 YTD 격자가 없다 — 결론 띠로 바뀌었다 (#1729)', () => {
+    const body = stripComments(
+      readFileSync(join(HERE, 'VesselDetail.css'), 'utf-8'),
+    )
+    expect(body).not.toMatch(/\.ytd\b/)
   })
 
   it('실시간 CII YTD 카드(.rt__ytd)가 컨테이너 쿼리 대상으로 선언돼 있다', () => {
@@ -75,7 +76,7 @@ describe('YTD 격자 — 컨테이너 쿼리로 1열 접힘 (#1352)', () => {
   })
 
   it('카드 폭이 좁아지면 `.ytd`가 1열로 접힌다', () => {
-    const body = stripComments(VESSEL_DETAIL_CSS)
+    const body = stripComments(REALTIME_CII_CSS)
     const blocks = containerBlockBodies(body)
     const collapsesToOneColumn = blocks.some(
       (block) =>
@@ -92,7 +93,7 @@ describe('YTD 격자 — 컨테이너 쿼리로 1열 접힘 (#1352)', () => {
   })
 
   it('값(`.ytd__figures dd`)이 좁은 칸 안에서 옆으로 흘러넘치지 않고 접힌다', () => {
-    const body = stripComments(VESSEL_DETAIL_CSS)
+    const body = stripComments(REALTIME_CII_CSS)
     const match = body.match(/\.ytd__figures dd\s*\{([^}]*)\}/)
     expect(match, '.ytd__figures dd 규칙을 찾지 못했다').not.toBeNull()
     expect(

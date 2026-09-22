@@ -4,6 +4,16 @@ import '../../test/renderSetup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { VoyagePanel } from './VoyagePanel'
+
+/**
+ * 행의 「자세히」를 눌러 펼침 줄을 연다 (#1729).
+ *
+ * 표로 바뀌면서 **행에는 다음에 누를 것 하나**만 둔다(#1551). 나머지 전환 · 실적 입력 ·
+ * 취소 · 속력 · 안내문은 펼침 줄에 있다.
+ */
+async function expandRow(): Promise<void> {
+  fireEvent.click(await screen.findByRole('button', { name: '자세히' }))
+}
 import type { VoyageManagementProvider } from './apiProvider'
 import type { ActualsDraft, DistanceSource, ManagedVoyage, VoyageDraft } from './types'
 import { ESTIMATED_DISTANCE_HINT } from '../ports/samplePorts'
@@ -533,7 +543,9 @@ describe('계획 거리의 출처 (#1256)', () => {
       />,
     )
 
-    expect(await screen.findByText(/좌표 기반 추정 거리 — /)).toBeTruthy()
+    // 안내는 펼침 줄 안이다 (#1729) — 행에는 한눈에 견주는 값만 둔다.
+    fireEvent.click(await screen.findByRole('button', { name: '자세히' }))
+    expect(screen.getByText(/좌표 기반 추정 거리 — /)).toBeTruthy()
   })
 
   /**
@@ -557,7 +569,8 @@ describe('계획 거리의 출처 (#1256)', () => {
       />,
     )
 
-    const note = (await screen.findByText(/좌표 기반 추정 거리 — /)).textContent ?? ''
+    fireEvent.click(await screen.findByRole('button', { name: '자세히' }))
+    const note = screen.getByText(/좌표 기반 추정 거리 — /).textContent ?? ''
     expect(note).not.toBe(ESTIMATED_DISTANCE_HINT)
     expect(note).not.toMatch(/고쳐|수정해|입력해/)
     expect(note.startsWith('좌표 기반 추정 거리')).toBe(true)
@@ -629,9 +642,10 @@ describe('실적 폼 바로 열기 (#1540)', () => {
       <VoyagePanel vesselId="ves-1" provider={providerWith([IN_PROGRESS, PLANNED])} openActualsFor="v-1" />,
     )
     const save = await screen.findByRole('button', { name: '실적 저장' })
-    const row = save.closest('li') as HTMLLIElement
-    expect(row.id).toBe('voyage-v-1')
-    await waitFor(() => expect(document.activeElement?.closest('li')).toBe(row))
+    // 항차 한 건은 행 하나 + 펼침 줄 하나다 (#1729) — 폼은 펼침 줄 안이고, 초점은 행에서 잰다.
+    const row = document.getElementById('voyage-v-1') as HTMLTableRowElement
+    expect(save.closest('tr')?.previousElementSibling).toBe(row)
+    await waitFor(() => expect(document.activeElement?.closest('tr')).toBeTruthy())
     expect(document.activeElement?.tagName).toBe('INPUT')
   })
 
@@ -678,7 +692,7 @@ describe('항차 카드로 데려가기 (#1549)', () => {
       <VoyagePanel vesselId="ves-1" provider={pages([IN_PROGRESS, CONFIRMED], false)} openActualsFor="v-3" />,
     )
     await screen.findByText('2026-03')
-    const row = document.getElementById('voyage-v-3') as HTMLLIElement
+    const row = document.getElementById('voyage-v-3') as HTMLTableRowElement
     await waitFor(() => expect(document.activeElement).toBe(row))
     expect(row.className).toContain('vy__row--target')
     expect(screen.queryByRole('button', { name: '실적 저장' })).toBeNull()
@@ -689,7 +703,7 @@ describe('항차 카드로 데려가기 (#1549)', () => {
       <VoyagePanel vesselId="ves-1" provider={pages([IN_PROGRESS, CONFIRMED], false)} openActualsFor="v-3" />,
     )
     await screen.findByText('2026-03')
-    const other = document.getElementById('voyage-v-1') as HTMLLIElement
+    const other = document.getElementById('voyage-v-1') as HTMLTableRowElement
     expect(other.hasAttribute('tabindex')).toBe(false)
     expect(other.className).not.toContain('vy__row--target')
   })
@@ -706,7 +720,7 @@ describe('항차 카드로 데려가기 (#1549)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '더 보기' }))
     await screen.findByText('2026-03')
-    const row = document.getElementById('voyage-v-3') as HTMLLIElement
+    const row = document.getElementById('voyage-v-3') as HTMLTableRowElement
     await waitFor(() => expect(document.activeElement).toBe(row))
     expect(screen.queryByText(/아직 불러오지 않은 목록에/)).toBeNull()
   })
@@ -775,7 +789,7 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
     )
   }
 
-  const row = () => document.getElementById('voyage-v-1') as HTMLLIElement
+  const row = () => document.getElementById('voyage-v-1') as HTMLTableRowElement
   const primaries = () => Array.from(row().querySelectorAll('.vy__primary'))
   const actionsFirst = () => row().querySelector('.vy__row-actions button') as HTMLButtonElement
 
@@ -785,6 +799,7 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
     expect(primaries()).toEqual([actuals])
     expect(actionsFirst()).toBe(actuals)
 
+    await expandRow()
     const complete = screen.getByRole('button', { name: '항해 완료로' }) as HTMLButtonElement
     expect(complete.disabled).toBe(true)
     expect(complete.className).not.toContain('vy__primary')
@@ -798,6 +813,7 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
     const complete = await screen.findByRole('button', { name: '항해 완료로' })
     expect(primaries()).toEqual([complete])
     expect(actionsFirst()).toBe(complete)
+    await expandRow()
     expect(screen.getByRole('button', { name: '실적 입력' }).className).not.toContain('vy__primary')
   })
 
@@ -810,7 +826,8 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
 
   it('완료 · 실제 거리 없음 — 확정은 누르기 전에 사유를 내고 「실적 입력」이 주 버튼이다', async () => {
     renderOne(COMPLETED_NO_DISTANCE)
-    const confirm = (await screen.findByRole('button', { name: '실적 확정으로' })) as HTMLButtonElement
+    await expandRow()
+    const confirm = screen.getByRole('button', { name: '실적 확정으로' }) as HTMLButtonElement
     expect(confirm.disabled).toBe(true)
     expect(screen.getByText(/실제 거리를 넣어야 실적을 확정할 수 있습니다/)).toBeTruthy()
     expect(primaries()).toEqual([screen.getByRole('button', { name: '실적 입력' })])
@@ -818,14 +835,16 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
 
   it('실적 확정 — 다음 단계가 없어 채움 버튼이 없다', async () => {
     renderOne(CONFIRMED)
-    await screen.findByRole('button', { name: '보관됨으로' })
+    await expandRow()
+    expect(screen.getByRole('button', { name: '보관됨으로' })).toBeTruthy()
     expect(primaries()).toEqual([])
   })
 
   it('취소는 텍스트 버튼 「이 항차 취소」이고, 확인 줄을 거쳐 취소된다 (#1598)', async () => {
     const transition = vi.fn(async () => IN_PROGRESS)
     renderOne(IN_PROGRESS, { transition })
-    const cancel = await screen.findByRole('button', { name: '이 항차 취소' })
+    await expandRow()
+    const cancel = screen.getByRole('button', { name: '이 항차 취소' })
     expect(cancel.className).toBe('vy__text-action')
     expect(screen.queryByRole('button', { name: '취소됨으로' })).toBeNull()
 
@@ -837,7 +856,7 @@ describe('항차 카드의 주 버튼 (#1551)', () => {
 
   it('취소할 수 없는 상태에는 없다', async () => {
     renderOne(CONFIRMED)
-    await screen.findByRole('button', { name: '보관됨으로' })
+    await expandRow()
     expect(screen.queryByRole('button', { name: '이 항차 취소' })).toBeNull()
   })
 })
@@ -871,7 +890,8 @@ describe('되돌릴 수 없는 전환 · 확정 되돌리기는 한 번 더 묻�
 
   it('확정 항차는 「항해 완료로」가 아니라 「확정 되돌리기」 텍스트 버튼이다', async () => {
     renderOne(CONFIRMED)
-    const revert = await screen.findByRole('button', { name: '확정 되돌리기' })
+    await expandRow()
+    const revert = screen.getByRole('button', { name: '확정 되돌리기' })
     expect(revert.className).toBe('vy__text-action')
     expect(screen.queryByRole('button', { name: '항해 완료로' })).toBeNull()
     // 보관은 종전 틀 그대로
@@ -880,7 +900,8 @@ describe('되돌릴 수 없는 전환 · 확정 되돌리기는 한 번 더 묻�
 
   it('누르면 바로 되돌리지 않고, 무엇이 달라지는지 적은 확인 줄을 연다', async () => {
     const transition = renderOne(CONFIRMED)
-    const revert = await screen.findByRole('button', { name: '확정 되돌리기' })
+    await expandRow()
+    const revert = screen.getByRole('button', { name: '확정 되돌리기' })
     fireEvent.click(revert)
 
     expect(transition).not.toHaveBeenCalled()
@@ -898,7 +919,8 @@ describe('되돌릴 수 없는 전환 · 확정 되돌리기는 한 번 더 묻�
 
   it('「그만두기」 · Escape는 아무것도 하지 않고 누른 버튼으로 초점을 돌려준다', async () => {
     const transition = renderOne(CONFIRMED)
-    const archive = await screen.findByRole('button', { name: '보관됨으로' })
+    await expandRow()
+    const archive = screen.getByRole('button', { name: '보관됨으로' })
 
     fireEvent.click(archive)
     expect(within(caution()!).getByText(/보관한 항차는 되돌릴 수 없고/)).toBeTruthy()
@@ -915,7 +937,8 @@ describe('되돌릴 수 없는 전환 · 확정 되돌리기는 한 번 더 묻�
 
   it('보관도 확인 줄을 거쳐 전환된다', async () => {
     const transition = renderOne(CONFIRMED)
-    fireEvent.click(await screen.findByRole('button', { name: '보관됨으로' }))
+    await expandRow()
+    fireEvent.click(screen.getByRole('button', { name: '보관됨으로' }))
     fireEvent.click(screen.getByRole('button', { name: '보관하기' }))
     await waitFor(() => expect(transition).toHaveBeenCalledWith(CONFIRMED, 'ARCHIVED'))
   })

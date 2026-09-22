@@ -43,3 +43,19 @@ describe('결론 띠', () => {
     expect(strip.querySelector('.verdict-strip__main .grade-badge')).toBeNull()
   })
 })
+
+/** 위험도 값이 없는 화면 — `DESIGN_SYSTEM §8.6` (#1728 · #1729). */
+describe('위험도 pill은 값이 있을 때만 (#1728)', () => {
+  it('넘기지 않으면 pill을 그리지 않는다 — 없는 값을 지어내지 않는다', () => {
+    render(
+      <VerdictStrip
+        label="결론"
+        main={{ label: '올해 누적', value: '8.214 / 5.045', rating: 'E' }}
+        sub={{ label: '진행 중 항차', value: '2026-02 · 100%' }}
+      />,
+    )
+    const strip = screen.getByRole('region', { name: '결론' })
+    expect(strip.querySelector('.verdict-strip__risk')).toBeNull()
+    expect(strip.querySelectorAll('.verdict-strip__value')).toHaveLength(1)
+  })
+})

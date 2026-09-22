@@ -211,13 +211,44 @@ describe('findInProgressVoyage (#588)', () => {
     expect(url).not.toContain('cii/current')
   })
 
-  it('있으면 최소 식별자만 돌려준다', async () => {
-    const fetchImpl = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ data: [{ id: 'vy-1', voyage_no: 'V-2026-001' }] }))
+  it('식별자와 진행률에 쓰는 두 거리를 돌려준다 (#1729)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: [
+          {
+            id: 'vy-1',
+            voyage_no: 'V-2026-001',
+            planned_distance_nm: '4200.00',
+            actual_distance_nm: 2100,
+          },
+        ],
+      }),
+    )
     const found = await createApiVesselDetailProvider(fetchImpl, '').findInProgressVoyage('v-1')
 
-    expect(found).toEqual({ id: 'vy-1', voyageNo: 'V-2026-001' })
+    // 거리는 계산에 쓰는 값이라 숫자다 — 문자열로 와도 숫자로 바꾼다.
+    expect(found).toEqual({
+      id: 'vy-1',
+      voyageNo: 'V-2026-001',
+      plannedDistanceNm: 4200,
+      actualDistanceNm: 2100,
+    })
+  })
+
+  it('거리가 없거나 숫자가 아니면 null이다 — 0으로 지어내지 않는다 (#1729)', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse({ data: [{ id: 'vy-1', voyage_no: null, actual_distance_nm: '—' }] }),
+      )
+    const found = await createApiVesselDetailProvider(fetchImpl, '').findInProgressVoyage('v-1')
+
+    expect(found).toEqual({
+      id: 'vy-1',
+      voyageNo: null,
+      plannedDistanceNm: null,
+      actualDistanceNm: null,
+    })
   })
 
   it('없으면 null — 빈 배열을 「있다」로 읽지 않는다', async () => {
@@ -233,6 +264,11 @@ describe('findInProgressVoyage (#588)', () => {
       .mockResolvedValue(jsonResponse({ data: [{ id: 'vy-1', voyage_no: null }] }))
     const found = await createApiVesselDetailProvider(fetchImpl, '').findInProgressVoyage('v-1')
 
-    expect(found).toEqual({ id: 'vy-1', voyageNo: null })
+    expect(found).toEqual({
+      id: 'vy-1',
+      voyageNo: null,
+      plannedDistanceNm: null,
+      actualDistanceNm: null,
+    })
   })
 })

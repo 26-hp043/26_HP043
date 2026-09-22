@@ -215,6 +215,14 @@ export function createApiVesselDetailProvider(
     return parsed ?? {}
   }
 
+  /** 서버 값이 숫자이거나 숫자 문자열일 때만 숫자로 (#1729). */
+  function toNumberOrNull(raw: unknown): number | null {
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
+    if (typeof raw !== 'string' || raw.trim() === '') return null
+    const value = Number(raw)
+    return Number.isFinite(value) ? value : null
+  }
+
   return {
     async findInProgressVoyage(vesselId: string): Promise<InProgressVoyage | null> {
       /*
@@ -222,12 +230,23 @@ export function createApiVesselDetailProvider(
        * `find_in_progress`), 여기서 필요한 것은 **있는가 없는가**뿐이다.
        */
       const body = await get(`/vessels/${vesselId}/voyages?status=IN_PROGRESS&limit=1`)
-      const rows = (body?.data ?? []) as Array<{ id?: unknown; voyage_no?: unknown }>
+      const rows = (body?.data ?? []) as Array<{
+        id?: unknown
+        voyage_no?: unknown
+        planned_distance_nm?: unknown
+        actual_distance_nm?: unknown
+      }>
       const first = rows[0]
       if (!first || typeof first.id !== 'string') return null
       return {
         id: first.id,
         voyageNo: typeof first.voyage_no === 'string' ? first.voyage_no : null,
+        /*
+         * 진행률에 쓰는 두 거리 (#1729) — **이 호출에 이미 실려 오는 값**이다. 서버가
+         * 문자열로 줄 수도 있어 숫자로 바꾸고, 숫자가 아니면 `null`로 둔다(지어내지 않는다).
+         */
+        plannedDistanceNm: toNumberOrNull(first.planned_distance_nm),
+        actualDistanceNm: toNumberOrNull(first.actual_distance_nm),
       }
     },
 
