@@ -187,6 +187,16 @@ def _ytd_to_dict(ytd) -> dict[str, object]:
         ),
         "total_co2_ton": _publish(ytd.total_co2_t, "co2_ton"),
         "total_fuel_ton": _publish(ytd.total_fuel_ton, "fuel_ton"),
+        #
+        # 정박 몫 (`#1658`). 화면은 **이 값이 0보다 클 때만** 「정박이 등급을 밀고 있다」고
+        # 그린다 — 구간 수만 보면 연료가 없는 구간도 악화로 그려진다(`UIFLOW 2-9`의 구분
+        # 기준은 「정박 연료 기록」이다). 값은 계층 1이 이미 계산한 것을 옮길 뿐이다.
+        #
+        "not_underway_fuel_ton": _publish(ytd.not_underway_fuel_ton, "fuel_ton"),
+        "not_underway_co2_ton": _publish(
+            None if ytd.not_underway_co2_g is None else ytd.not_underway_co2_g / Decimal(1_000_000),
+            "co2_ton",
+        ),
         "underway_distance_nm": _publish(ytd.underway_distance_nm, "distance_nm"),
         "not_underway_distance_nm": _publish(ytd.not_underway_distance_nm, "distance_nm"),
         "total_distance_nm": _publish(ytd.total_distance_nm, "distance_nm"),

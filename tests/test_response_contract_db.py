@@ -339,6 +339,10 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.ytd.margin_ratio",
             "data.ytd.not_underway_distance_nm",
             "data.ytd.not_underway_period_count",
+            # `#1658` — 정박 몫. 화면이 「정박이 등급을 밀고 있는가」를
+            # 구간 수가 아니라 이 값으로 본다.
+            "data.ytd.not_underway_fuel_ton",
+            "data.ytd.not_underway_co2_ton",
             "data.ytd.rating",
             "data.ytd.ratio_to_required",
             "data.ytd.required_cii",

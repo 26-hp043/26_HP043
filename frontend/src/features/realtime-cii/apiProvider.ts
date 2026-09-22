@@ -54,6 +54,8 @@ interface ServerYtd {
   total_distance_nm: string | null
   voyage_count: number
   not_underway_period_count: number
+  not_underway_fuel_ton?: string | null
+  not_underway_co2_ton?: string | null
   substitutions?: ServerSubstitution[]
 }
 
@@ -143,6 +145,10 @@ function toYtd(raw: ServerYtd): YtdValues {
     totalDistanceNm: raw.total_distance_nm,
     voyageCount: raw.voyage_count,
     notUnderwayPeriodCount: raw.not_underway_period_count,
+    // 서버가 아직 안 보내는 판(배포 전)에서는 `"0.00"`으로 둔다 — 없는 값을 「악화」로 읽지
+    // 않게 하려는 것이 이 필드의 목적이다 (`#1658`).
+    notUnderwayFuelTon: raw.not_underway_fuel_ton ?? '0.00',
+    notUnderwayCo2Ton: raw.not_underway_co2_ton ?? null,
     /*
      * **없으면 빈 배열로 읽는다.** 서버가 이 필드를 싣기 시작한 것은 `#449`이고,
      * 그 전 응답이나 다른 갈래에서는 키 자체가 없을 수 있다. `undefined`가
