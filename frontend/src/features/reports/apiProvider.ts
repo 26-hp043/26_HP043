@@ -103,12 +103,45 @@ export function createApiReportsProvider(
     return response
   }
 
-  return {
-    async listVessels(): Promise<VesselOption[]> {
-      const body = (await (await call('/vessels?limit=100')).json()) as {
-        data?: ServerVessel[]
+  /**
+   * 목록을 **끝까지** 부른다 — 선박·항차 셀렉트가 함께 쓴다 (`#627` → `#1644`).
+   *
+   * 서버 상한이 100이라 한 번으로는 101번째부터 잘린다. 임의의 페이지 상한을 두지 않는다 —
+   * 그 너머를 조용히 자르게 된다. 대신 **커서가 전진하지 않으면 중단**한다: 서버가 같은
+   * 커서를 다시 주는 것은 계약 위반이고, 그때만 루프가 무한해진다.
+   */
+  async function pageAll<T>(path: string): Promise<T[]> {
+    const rows: T[] = []
+    const seen = new Set<string>()
+    let cursor: string | null = null
+    for (;;) {
+      const query = `limit=100${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`
+      const raw = (await (await call(`${path}?${query}`)).json()) as {
+        data?: T[]
+        meta?: { next_cursor?: unknown; has_more?: unknown }
       }
-      return (body.data ?? []).map((raw) => ({
+      rows.push(...(raw.data ?? []))
+      const next = raw.meta?.next_cursor
+      const more = raw.meta?.has_more === true
+      // 커서가 없거나·빈 문자열이거나·이미 지나온 값이면 멈춘다.
+      if (!more || typeof next !== 'string' || next === '' || seen.has(next)) break
+      seen.add(next)
+      cursor = next
+    }
+    return rows
+  }
+
+  return {
+    /*
+     * 선박 선택지 — **항차와 같이 페이지를 끝까지 순회한다** (`#1644`).
+     *
+     * 종전에는 `?limit=100` 한 번이었다. 선대가 100척을 넘으면 101번째부터 셀렉트에 뜨지 않고,
+     * 셸에서 고른 선박이 첫 페이지에 없으면 화면이 「없는 선박」으로 보고 선택을 지웠다
+     * (`ReportsView`의 셸 동기화). `#627`이 항차에서 같은 결함을 같은 방법으로 고쳤다.
+     */
+    async listVessels(): Promise<VesselOption[]> {
+      const rows = await pageAll<ServerVessel>('/vessels')
+      return rows.map((raw) => ({
         id: raw.id,
         name: raw.name,
         imoNumber: raw.imo_number,
@@ -134,29 +167,8 @@ export function createApiReportsProvider(
      * 서버가 같은 커서를 다시 주는 것은 계약 위반이고, 그때만 루프가 무한해진다.
      */
     async listVoyages(vesselId: string): Promise<VoyageOption[]> {
-      const rows: ServerVoyage[] = []
-      const seen = new Set<string>()
-      let cursor: string | null = null
-
-      for (;;) {
-        const query = `limit=100${cursor === null ? '' : `&cursor=${encodeURIComponent(cursor)}`}`
-        const raw = (await (await call(`/vessels/${vesselId}/voyages?${query}`)).json()) as {
-          data?: ServerVoyage[]
-          meta?: { next_cursor?: unknown; has_more?: unknown }
-        }
-        rows.push(...(raw.data ?? []))
-
-        const next = raw.meta?.next_cursor
-        const more = raw.meta?.has_more === true
-        // 커서가 없거나·빈 문자열이거나·이미 지나온 값이면 멈춘다.
-        if (!more || typeof next !== 'string' || next === '' || seen.has(next)) break
-        seen.add(next)
-        cursor = next
-      }
-
-      const body = { data: rows }
-
-      return (body.data ?? []).map((raw) => ({
+      const rows = await pageAll<ServerVoyage>(`/vessels/${vesselId}/voyages`)
+      return rows.map((raw) => ({
         id: raw.id,
         voyageNo: raw.voyage_no,
         status: raw.status,

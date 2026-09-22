@@ -358,3 +358,22 @@ describe('하단 안내가 면책 배너를 되풀이하지 않는다 (#1578)', 
     expect(screen.getAllByText(/공식/)).toHaveLength(1)
   })
 })
+
+
+describe('선대가 100척을 넘어도 (#1644)', () => {
+  it('셸이 고른 150번째 선박을 지우지 않고 그 선박으로 조회한다', async () => {
+    const many: VesselOption[] = Array.from({ length: 200 }, (_, i) => ({
+      id: `v-${i + 1}`,
+      name: `VESSEL ${i + 1}`,
+      imoNumber: String(9000000 + i),
+    }))
+    const provider = stub({ listVessels: vi.fn(async () => many) })
+    const selectVesselId = vi.fn()
+    renderInShell(provider, { vesselId: 'v-150', selectVesselId })
+
+    await waitFor(() => expect(vesselSelect().value).toBe('v-150'))
+    await waitFor(() => expect(provider.listVoyages).toHaveBeenCalledWith('v-150'))
+    expect(selectVesselId).not.toHaveBeenCalledWith(null)
+    expect(vesselSelect().options.length).toBeGreaterThanOrEqual(200)
+  })
+})
