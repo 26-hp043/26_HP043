@@ -893,3 +893,68 @@ class TestTokenRouteContract:
             assert _flatten(done.json()) == MESSAGE_CONTRACT
         finally:
             await _cleanup(email)
+
+
+class TestConcurrentIssue:
+    """같은 사용자·같은 용도의 재발급을 **두 세션이 동시에** 해도 하나만 남는다 (`#1630`).
+
+    ## 무엇이 문제였나
+
+    ``issue_token``은 ⑴ 같은 용도의 미사용 토큰을 소진 처리하고 ⑵ 새 행을 만든다. 두
+    요청이 ⑴을 **각각 「지울 것이 없다」로 읽으면** 둘 다 ⑵를 해서 **활성 토큰이 두
+    개** 남는다. 「최신 링크 하나만 유효하다」는 계약이 그 자리에서 깨지고, 오래된 메일이
+    유출됐을 때 그 링크가 계속 듣는다.
+
+    ## 두 세션을 실제로 교차시킨다
+
+    한 세션이 잠금을 쥔 채 **커밋하지 않은 동안** 다른 세션이 같은 사용자로 발급을
+    시도한다. 잠금이 없으면 두 번째가 그대로 지나가고, 있으면 첫 세션이 커밋할 때까지
+    기다렸다가 **바뀐 상태를 보고** 앞 토큰을 무효화한다.
+
+    ``conn`` 픽스처는 한 연결을 돌려주므로 여기서는 쓰지 않는다 — **연결이 둘이어야**
+    경합이 성립한다.
+    """
+
+    async def test_two_sessions_leave_one_active_token(self, migrated_db):
+        import asyncio
+
+        from cii_platform.db.session import get_sessionmaker
+
+        sessionmaker = get_sessionmaker()
+        email = "concurrent-token@example.com"
+        try:
+            async with sessionmaker() as setup:
+                user_id = await insert_returning_id(
+                    setup,
+                    "INSERT INTO app_user (email, password_hash) VALUES (:e, 'x') RETURNING id",
+                    {"e": email},
+                )
+                await setup.commit()
+
+            started = asyncio.Event()
+
+            async def first() -> None:
+                async with sessionmaker() as s:
+                    await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
+                    started.set()
+                    # 잠금을 쥔 채 머문다 — 두 번째가 이 사이에 끼어들 자리다.
+                    await asyncio.sleep(0.5)
+                    await s.commit()
+
+            async def second() -> None:
+                await started.wait()
+                await asyncio.sleep(0.1)
+                async with sessionmaker() as s:
+                    await issue_token(s, user_id=user_id, purpose=PURPOSE_EMAIL_VERIFY)
+                    await s.commit()
+
+            await asyncio.gather(first(), second())
+
+            unused = await _token_hashes(email, PURPOSE_EMAIL_VERIFY, unused_only=True)
+            # 잠금이 없으면 여기가 2다 — 두 링크가 모두 살아 있다.
+            assert len(unused) == 1
+            # 앞 토큰이 사라진 것이 아니라 **소진 처리**돼 있어야 한다 (감사 흔적).
+            everything = await _token_hashes(email, PURPOSE_EMAIL_VERIFY, unused_only=False)
+            assert len(everything) == 2
+        finally:
+            await _cleanup(email)
