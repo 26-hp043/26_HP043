@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { formatCapacity } from '../../display/format'
-import { applicabilityHint, numberOrMissing } from './resultRules'
+import { APPLICABILITY_SHORT_LABEL } from '../../components/applicability'
+import { applicabilityHint, applicabilityValue, numberOrMissing } from './resultRules'
 import type { Vessel } from './types'
 
 function vessel(overrides: Partial<Vessel> = {}): Vessel {
@@ -34,6 +35,14 @@ describe('applicabilityHint', () => {
     const missing = applicabilityHint(vessel({ gross_tonnage: null }))
     const judged = applicabilityHint(vessel({ gross_tonnage: 3000 }))
     expect(missing).not.toBe(judged)
+  })
+
+  it('GT 미입력을 「판정됐다」고 적지 않는다 (#1656)', () => {
+    // 판정한 것이 아니라 **판정하지 못한 것**이다. 값 칸의 「GT 미입력」과 함께
+    // 읽었을 때 「이 배는 규제 대상이 아니다」로 읽히면 안 된다.
+    const hint = applicabilityHint(vessel({ gross_tonnage: null }))
+    expect(hint).toContain('판정할 수 없습니다')
+    expect(hint).not.toContain('대상이 아닌 것으로 판정')
   })
 
   it('GT 미입력이면 채우면 다시 판정된다는 사실을 알린다', () => {
@@ -102,5 +111,45 @@ describe('numberOrMissing — 용량 자릿수 (#822)', () => {
 
   it('`0`은 「미입력」이 아니다', () => {
     expect(numberOrMissing(0)).toBe('0')
+  })
+})
+
+/**
+ * 값 칸의 3상태 (`#1656`).
+ *
+ * 종전에는 `is_cii_applicable_hint ? '해당' : '미해당'`이라 **GT를 넣지 않은 배가
+ * 「미해당」**이었다. 곁의 문장이 원인을 말해도 값 칸은 단정한 채였고, 표만 훑는
+ * 사람에게는 그 단정만 남는다.
+ */
+describe('applicabilityValue (#1656)', () => {
+  it('세 상태가 서로 다른 말이 된다 — 둘을 같은 말로 덮지 않는다', () => {
+    const applicable = applicabilityValue(vessel({ is_cii_applicable_hint: true }))
+    const notApplicable = applicabilityValue(vessel({ gross_tonnage: 3000 }))
+    const unknown = applicabilityValue(vessel({ gross_tonnage: null }))
+
+    expect(new Set([applicable, notApplicable, unknown]).size).toBe(3)
+  })
+
+  it('GT 미입력은 미해당과 다른 말이고, 배지와 같은 말이다', () => {
+    // 목록·상세 배지(`APPLICABILITY_SHORT_LABEL`)와 다른 말을 쓰면 같은 배의
+    // 같은 상태가 화면마다 달라진다.
+    expect(applicabilityValue(vessel({ gross_tonnage: null }))).toBe(
+      APPLICABILITY_SHORT_LABEL.UNKNOWN,
+    )
+    expect(applicabilityValue(vessel({ gross_tonnage: 3000 }))).toBe(
+      APPLICABILITY_SHORT_LABEL.NOT_APPLICABLE,
+    )
+  })
+
+  it('대상인 선박은 값 칸을 비우지 않는다 — 배지와 달리 줄이 남는다', () => {
+    // `APPLICABILITY_SHORT_LABEL.APPLICABLE`은 빈 문자열이다(배지는 그리지 않는다).
+    expect(applicabilityValue(vessel({ is_cii_applicable_hint: true }))).not.toBe('')
+  })
+
+  it('화면이 GT로 다시 판정하지 않는다 — 서버가 true면 GT가 없어도 「해당」이다', () => {
+    const value = applicabilityValue(
+      vessel({ is_cii_applicable_hint: true, gross_tonnage: null }),
+    )
+    expect(value).toBe(applicabilityValue(vessel({ is_cii_applicable_hint: true })))
   })
 })

@@ -17,7 +17,7 @@ import {
   type VesselFormState,
 } from './formRules'
 import { createVesselRegistrationProvider } from './providerSelection'
-import { applicabilityHint, numberOrMissing } from './resultRules'
+import { applicabilityHint, applicabilityValue, numberOrMissing } from './resultRules'
 import {
   SAMPLE_FILLED_FIELDS,
   SAMPLE_LOAD_FAILED_MESSAGE,
@@ -498,10 +498,12 @@ function RegisteredCard({ vessel }: { vessel: Vessel }) {
         <Spec label="선종" value={shipTypeLabel(vessel.ship_type)} />
         <Spec label="재화중량톤수 (DWT)" value={numberOrMissing(vessel.deadweight)} />
         <Spec label="총톤수 (GT)" value={numberOrMissing(vessel.gross_tonnage)} />
-        <Spec
-          label="CII 적용 대상 추정"
-          value={vessel.is_cii_applicable_hint ? '해당' : '미해당'}
-        />
+        {/*
+          「미해당」의 두 원인을 값 칸에서도 가른다 (`#1656`). GT가 비어 있으면
+          서버 판정도 `false`이므로(`API_SPEC §2.3`), 종전의 boolean 표시는
+          **총톤수를 넣지 않은 배를 규제 대상이 아니라고** 적고 있었다.
+        */}
+        <Spec label="CII 적용 대상 추정" value={applicabilityValue(vessel)} />
       </dl>
       <p className="vessel-registration__result-hint">{applicabilityHint(vessel)}</p>
       {/*
