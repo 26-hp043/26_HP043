@@ -1393,9 +1393,18 @@ describe('비교 표 — 행은 지표, 열은 시나리오 (#1745)', () => {
     expect(screen.queryByText(/감속의 CII는 직항과 같습니다/)).toBeNull()
   })
 
-  it('지표별 최소값은 표 밖에 그대로 남는다 — 추천이 아니라 중립 표기다 (PRD §11.2)', async () => {
+  it('지표별 최소값은 그대로 남는다 — 추천이 아니라 중립 표기다 (PRD §11.2)', async () => {
     await renderTable()
 
     expect(screen.getByText('CII가 가장 낮은 시나리오')).toBeTruthy()
+  })
+
+  it('결과는 면 하나다 — 표와 최소값이 같은 면에 있고 카드가 남아 있지 않다 (§5)', async () => {
+    const table = await renderTable()
+
+    expect(document.querySelectorAll('.scenario-card')).toHaveLength(0)
+    const result = document.querySelector('.scenario-result')
+    expect(result?.contains(table)).toBe(true)
+    expect(result?.querySelector('.scenario-comparison__lowest')).toBeTruthy()
   })
 })

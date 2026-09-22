@@ -962,29 +962,37 @@ export function ScenarioComparison({
         />
 
         {/*
-          기준은 `DIRECT`다 (#739). 배열 첫 번째가 아니라 **타입으로** 찾는다 —
-          `PRD §11.2` 표 순서가 배열 순서와 같지만, 순서가 바뀌어도 기준이
-          따라 움직이면 안 된다. 없으면 `deltaFromDirect`가 `null`을 내고
-          차이 표시가 통째로 빠진다(잘못된 기준으로 빼는 것보다 낫다).
+          결과는 면 하나다 (`§5` 카드 예산 · #1745). 표와 「지표별 최소값」은 같은 것을
+          두 번 말하는 자리다 — 최소값 줄은 표에서 읽을 수 있는 사실의 요약이므로,
+          따로 떠 있는 카드로 두면 면만 하나 늘고 둘의 관계가 흐려진다.
+          이 화면의 면은 입력 · 결과 · 채택 셋이다.
         */}
-        <ScenarioTable
-          scenarios={response.scenarios}
-          direct={response.scenarios.find((s) => s.scenario_type === 'DIRECT')}
-          unit={unit}
-        />
+        <div className="scenario-result">
+          {/*
+            기준은 `DIRECT`다 (#739). 배열 첫 번째가 아니라 **타입으로** 찾는다 —
+            `PRD §11.2` 표 순서가 배열 순서와 같지만, 순서가 바뀌어도 기준이
+            따라 움직이면 안 된다. 없으면 `deltaFromDirect`가 `null`을 내고
+            차이 표시가 통째로 빠진다(잘못된 기준으로 빼는 것보다 낫다).
+          */}
+          <ScenarioTable
+            scenarios={response.scenarios}
+            direct={response.scenarios.find((s) => s.scenario_type === 'DIRECT')}
+            unit={unit}
+          />
 
-        {/*
-          PRD §11.2 — 추천 시나리오를 표시하지 않고 지표별 최소값만 중립적으로 적는다.
-          하나를 고르지 않으므로 세 줄의 답이 서로 다를 수 있다.
-        */}
-        <dl className="scenario-comparison__lowest">
-          {summary.map((item) => (
-            <div key={item.metric} className="scenario-comparison__lowest-row">
-              <dt>{item.label}</dt>
-              <dd>{namesOf(item.scenarioTypes)}</dd>
-            </div>
-          ))}
-        </dl>
+          {/*
+            PRD §11.2 — 추천 시나리오를 표시하지 않고 지표별 최소값만 중립적으로 적는다.
+            하나를 고르지 않으므로 세 줄의 답이 서로 다를 수 있다.
+          */}
+          <dl className="scenario-comparison__lowest">
+            {summary.map((item) => (
+              <div key={item.metric} className="scenario-comparison__lowest-row">
+                <dt>{item.label}</dt>
+                <dd>{namesOf(item.scenarioTypes)}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
 
         {/*
           면책은 화면 하단 배너 한 곳에서만 말한다 (#1416). `REFERENCE_ONLY`는 그 배너

@@ -366,12 +366,14 @@
   line-height: var(--line-height-label);
 }
 
-/* PRD §11.2 지표별 최소값 — 추천이 아니라 중립적 표기 */
+/*
+ * PRD §11.2 지표별 최소값 — 추천이 아니라 중립적 표기.
+ *
+ * 결과 면 안의 한 칸이다 (#1745). 종전에는 그림자 있는 카드였는데, **표에서 읽을 수
+ * 있는 사실의 요약**을 따로 띄우면 면만 하나 늘고 표와의 관계가 흐려진다(`§5`).
+ */
 .scenario-comparison__lowest {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv1);
+  border-block-start: 1px solid var(--color-border);
   padding: var(--space-16);
   margin: 0;
   display: flex;
@@ -415,18 +417,24 @@
 /* ---- 시나리오 비교 표 (#1745) ---- */
 
 /*
- * 표는 면 하나다 (`§5` 카드 예산). 종전에는 시나리오마다 카드가 떠 있어 결과 영역
- * 안에서만 면이 셋이었다 — 폼 · 카드 3 · 최소값 · 채택으로 여섯.
+ * 결과는 면 하나다 (`§5` 카드 예산). 종전에는 시나리오마다 카드가 떠 있어 결과 영역
+ * 안에서만 면이 넷이었다 — 폼 · 카드 3 · 최소값 · 채택으로 여섯. 지금은 입력 · 결과 ·
+ * 채택 셋이다.
  */
-.scenario-table-wrap {
+.scenario-result {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-lv1);
-  /*
-   * 좁아지면 가로로 스크롤한다. 열을 접어 숨기면 이 화면의 목적(셋을 나란히 견주기)이
-   * 사라지고, 칸을 더 좁히면 `4,410` 같은 값이 줄바꿈으로 꺾인다.
-   */
+  min-width: 0;
+}
+
+/*
+ * 좁아지면 표가 가로로 스크롤한다. 열을 접어 숨기면 이 화면의 목적(셋을 나란히
+ * 견주기)이 사라지고, 칸을 더 좁히면 `4,410` 같은 값이 줄바꿈으로 꺾인다.
+ * 스크롤은 **표만** 한다 — 면 전체가 밀리면 아래 최소값 줄까지 따라 움직인다.
+ */
+.scenario-table-wrap {
   overflow-x: auto;
 }
 
@@ -544,6 +552,7 @@
  * 경고가 아니므로 상태색 스트라이프를 쓰지 않는다. 사실 설명이지 문제 제기가 아니다.
  */
 .scenario-table__same {
+  margin: var(--space-12) var(--space-16) 0;
   background: var(--color-surface-2);
   border-radius: var(--radius-control);
   padding: var(--space-8) var(--space-12);
