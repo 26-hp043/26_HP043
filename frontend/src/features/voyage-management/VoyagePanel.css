@@ -135,21 +135,23 @@
 
 /* ---------- 목록 ---------- */
 
-.vy__row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  background: var(--surface-inset);
-  border-radius: var(--radius-card);
+/*
+ * 항차 한 건 = 표의 한 행 (#1729). 종전에는 카드(면 + 안쪽 여백)였다 — 그 선언이
+ * 남아 있으면 `display: flex`가 `table-row`를 덮어 칸이 세로로 쌓인다.
+ */
+.vy__row > * {
+  vertical-align: middle;
 }
 
 /*
  * 다른 화면에서 데려온 항차 카드 (#1540 · #1549). 스크롤로 도착해도 카드 목록 가운데
  * 어느 것인지 한눈에 보이게 왼쪽 띠를 단다. 초점 윤곽은 카드 자체가 초점을 받을 때만이다.
  */
-.vy__row--target {
+.vy__row--target > *:first-child {
   box-shadow: inset 3px 0 0 var(--color-primary-solid);
+}
+
+.vy__row--target {
   /*
    * 상단바가 sticky라(`AppShell.css` — 위 틈 `--shell-gutter` + 최소 높이 56px) 카드를 맨 위로
    * 붙이면 머리가 상단바 밑에 깔린다. 그만큼 띄워 멈춘다. 좁은 폭에서 상단바가 두 줄로
