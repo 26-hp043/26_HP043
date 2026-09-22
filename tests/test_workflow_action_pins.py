@@ -54,9 +54,7 @@ def test_the_workflows_are_read_at_all():
 
 def test_every_action_is_pinned_to_a_commit_sha():
     """태그로 적힌 액션이 하나도 없다."""
-    unpinned = [
-        f"{name}: {ref}" for name, ref in _refs() if not SHA.match(ref.split("@", 1)[1])
-    ]
+    unpinned = [f"{name}: {ref}" for name, ref in _refs() if not SHA.match(ref.split("@", 1)[1])]
 
     assert unpinned == [], "커밋 SHA로 고정하지 않은 액션이 있다:\n  " + "\n  ".join(unpinned)
 
