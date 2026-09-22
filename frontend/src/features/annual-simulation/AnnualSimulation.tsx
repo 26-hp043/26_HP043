@@ -747,7 +747,7 @@ function Result({
           </div>
 
           {!cut.achievable ? (
-            <p className="annual-sim__notice">{ANNUAL_COPY.reductionUnreachable}</p>
+            <p className="annual-sim__unreachable">{ANNUAL_COPY.reductionUnreachable}</p>
           ) : cut.required_cut_fuel_ton === null ? (
             <p className="annual-sim__caption">{ANNUAL_COPY.reductionNoPlan}</p>
           ) : cut.required_cut_gco2 === '0' || Number(cut.required_cut_gco2) === 0 ? (

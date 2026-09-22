@@ -114,9 +114,10 @@ describe('lookupPort (#768 — 목록 밖 항만의 좌표)', () => {
     expect(result).toEqual({ ok: false, message: LOOKUP_FAILED_FALLBACK })
   })
 
-  it('출처마다 다른 문구를 쓴다 — 어디서 온 좌표인지 사용자가 알아야 한다', () => {
-    expect(LOOKUP_SOURCE_NOTICE.SAMPLE).toContain('샘플')
-    expect(LOOKUP_SOURCE_NOTICE.CACHE).toContain('전에')
-    expect(LOOKUP_SOURCE_NOTICE.LOOKUP).toContain('OpenStreetMap')
+  it('출처 문구는 사용자가 할 일로 둘로 갈린다 — 검증된 목록 / 확인이 필요한 지도 조회 (#1052 ⑷)', () => {
+    // 캐시는 전에 지도 서비스에서 받아 둔 값이다 — 방금 조회한 것과 같은 말을 해야 한다.
+    expect(LOOKUP_SOURCE_NOTICE.CACHE).toBe(LOOKUP_SOURCE_NOTICE.LOOKUP)
+    expect(LOOKUP_SOURCE_NOTICE.SAMPLE).not.toBe(LOOKUP_SOURCE_NOTICE.LOOKUP)
+    expect(LOOKUP_SOURCE_NOTICE.SAMPLE).not.toBe('')
   })
 })

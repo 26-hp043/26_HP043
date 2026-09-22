@@ -331,6 +331,26 @@
   margin: 0;
 }
 
+/*
+ * 「목표까지 줄여야 하는 양」 넷째 상태 — **남은 계획을 다 없애도 목표에 닿지 않는다**
+ * (2026-09-22 확정 · `#1052` ⑸ · `UIFLOW 2-3`).
+ *
+ * `DESIGN_SYSTEM §8` 「상태색 좌측 스트라이프」 — 면은 중립, 3px Warning 띠, 글자는 본문색.
+ * 기능①의 경고 목록(`.voyage-cii-result__warning`)과 같은 모양이다. 종전에는 회색 안내
+ * (`.annual-sim__notice`)라 캡션 두 상태(줄일 것 없음 · 잔여 계획 0건)와 무게가 같았는데,
+ * 이 상태는 **사용자가 할 일이 정반대**다 — 계속 계획을 짜면 그 시간이 버려진다.
+ * Danger가 아닌 것은 실패·오류가 아니기 때문이다.
+ */
+.annual-sim__unreachable {
+  margin: 0;
+  padding: var(--space-8) var(--space-12);
+  border-left: 3px solid var(--color-warning);
+  border-radius: 0;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: var(--font-size-label);
+}
+
 .annual-sim__field {
   display: flex;
   flex-direction: column;
