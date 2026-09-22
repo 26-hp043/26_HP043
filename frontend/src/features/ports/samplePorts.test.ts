@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  portDisplayName,
   distanceInput,
   fetchSamplePorts,
   matchSamplePort,
@@ -119,5 +120,31 @@ describe('lookupPort (#768 — 목록 밖 항만의 좌표)', () => {
     expect(LOOKUP_SOURCE_NOTICE.CACHE).toBe(LOOKUP_SOURCE_NOTICE.LOOKUP)
     expect(LOOKUP_SOURCE_NOTICE.SAMPLE).not.toBe(LOOKUP_SOURCE_NOTICE.LOOKUP)
     expect(LOOKUP_SOURCE_NOTICE.SAMPLE).not.toBe('')
+  })
+})
+
+/** 보이는 이름 (#1742) — 저장값은 영문 대문자, 화면은 한글이다. */
+describe('portDisplayName', () => {
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGKEP', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+  ]
+
+  it('목록에 있으면 보이는 이름으로 바꾼다', () => {
+    expect(portDisplayName(PORTS, 'BUSAN')).toBe('부산')
+    expect(portDisplayName(PORTS, 'SINGAPORE')).toBe('싱가포르')
+  })
+
+  it('⚠️ 목록에 없으면 입력한 그대로다 — 없는 이름을 지어내지 않는다', () => {
+    expect(portDisplayName(PORTS, 'ULSAN')).toBe('ULSAN')
+    expect(portDisplayName(PORTS, '군산')).toBe('군산')
+  })
+
+  it('목록을 못 받았으면 저장값 그대로다', () => {
+    expect(portDisplayName([], 'BUSAN')).toBe('BUSAN')
+  })
+
+  it('이미 한글로 저장된 값도 그대로 선다 — 두 번 바꾸지 않는다', () => {
+    expect(portDisplayName(PORTS, '부산')).toBe('부산')
   })
 })

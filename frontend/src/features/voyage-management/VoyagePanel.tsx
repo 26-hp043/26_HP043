@@ -26,6 +26,7 @@ import {
   ESTIMATED_DISTANCE_LIST_NOTE,
   distanceInput,
   matchSamplePort,
+  portDisplayName,
   portOptionLabel,
   type SamplePort,
 } from '../ports/samplePorts'
@@ -68,8 +69,17 @@ function totalFuel(voyage: ManagedVoyage, kind: 'planned' | 'actual'): number | 
   return values.reduce((sum, value) => sum + value, 0)
 }
 
-function routeText(voyage: ManagedVoyage): string {
-  return `${voyage.departurePortName ?? NO_VALUE} \u2192 ${voyage.arrivalPortName ?? NO_VALUE}`
+/**
+ * 「출발 → 도착」 (#1742).
+ *
+ * 샘플 항만과 맞으면 보이는 이름(`name_ko`)으로 적는다 — 항차 추가 폼의 선택지가
+ * 「부산 · KR」인데 기록이 「BUSAN」이면 같은 항구가 한 화면에서 두 이름을 갖는다.
+ * 목록에 없는 항구는 입력한 그대로다.
+ */
+function routeText(voyage: ManagedVoyage, ports: readonly SamplePort[]): string {
+  const from = voyage.departurePortName === null ? NO_VALUE : portDisplayName(ports, voyage.departurePortName)
+  const to = voyage.arrivalPortName === null ? NO_VALUE : portDisplayName(ports, voyage.arrivalPortName)
+  return `${from} \u2192 ${to}`
 }
 
 interface VoyagePanelProps {
@@ -98,6 +108,12 @@ export function VoyagePanel({
   onChanged,
 }: VoyagePanelProps) {
   const [voyages, setVoyages] = useState<ManagedVoyage[] | null>(null)
+  /*
+    샘플 항만 목록 (#1742) — 기록의 항구를 **보이는 이름**으로 적는 데 쓴다.
+    종전에는 항차 추가 폼만 받아 두어, 폼을 열지 않으면 표가 저장값(대문자 영문)을 그대로 적었다.
+    패널이 한 번 받아 표와 폼이 같은 목록을 쓴다 — 두 자리가 다른 이름을 부르지 않는다.
+  */
+  const [ports, setPorts] = useState<SamplePort[]>([])
   const [fuelTypes, setFuelTypes] = useState<string[]>([])
   const [failure, setFailure] = useState<string | null>(null)
   const [formOpen, setFormOpen] = useState(false)
@@ -148,6 +164,24 @@ export function VoyagePanel({
     void load()
   }, [load])
 
+  /* 항만 목록은 한 번만 받는다 (#1742) — 못 받으면 빈 배열이고, 그때는 저장값을 그대로 적는다. */
+  useEffect(() => {
+    let alive = true
+    api
+      .samplePorts()
+      .then((rows) => {
+        if (alive) setPorts(rows)
+      })
+      .catch(() => {
+        if (alive) setPorts([])
+      })
+    return () => {
+      alive = false
+    }
+    // api는 렌더마다 새로 만들어질 수 있다 — 화면이 열릴 때 한 번만 받는다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   /**
    * 데려갈 항차가 받은 목록에 없다 (#1549). 조용히 맨 위에 머무르면 사용자는 링크가 고장 난
    * 줄 안다. 다음 페이지가 있으면 거기 있을 수 있고 — 「더 보기」로 불러와 행이 그려지면
@@ -193,6 +227,7 @@ export function VoyagePanel({
       {formOpen ? (
         <VoyageForm
           api={api}
+          ports={ports}
           fuelTypes={fuelTypes}
           onCancel={() => setFormOpen(false)}
           onSubmit={async (draft) => {
@@ -249,6 +284,7 @@ export function VoyagePanel({
                   key={voyage.id}
                   voyage={voyage}
                   api={api}
+                  ports={ports}
                   onChange={replace}
                   openOnMount={voyage.id === openActualsFor}
                 />
@@ -294,11 +330,14 @@ export function VoyagePanel({
 function VoyageRow({
   voyage,
   api,
+  ports,
   onChange,
   openOnMount = false,
 }: {
   voyage: ManagedVoyage
   api: VoyageManagementProvider
+  /** 보이는 항구 이름에 쓴다 (#1742). 못 받았으면 빈 배열이고, 그때는 저장값 그대로다. */
+  ports: readonly SamplePort[]
   onChange: (updated: ManagedVoyage) => void
   openOnMount?: boolean
 }) {
@@ -463,7 +502,7 @@ function VoyageRow({
         <th scope="row" className="vy__no">
           {voyage.voyageNo ?? NO_VALUE}
         </th>
-        <td className="vy__route">{routeText(voyage)}</td>
+        <td className="vy__route">{routeText(voyage, ports)}</td>
         <td>
           <span className={`vy__badge vy__badge--${voyage.status.toLowerCase()}`}>
             {STATUS_LABELS[voyage.status]}
@@ -695,11 +734,14 @@ function deltaText(voyage: ManagedVoyage): string | null {
 
 function VoyageForm({
   api,
+  ports,
   fuelTypes,
   onCancel,
   onSubmit,
 }: {
   api: VoyageManagementProvider
+  /** 패널이 한 번 받아 넘긴다 (#1742) — 표와 폼이 같은 목록을 본다. */
+  ports: readonly SamplePort[]
   fuelTypes: string[]
   onCancel: () => void
   onSubmit: (draft: VoyageDraft) => Promise<void>
@@ -722,7 +764,6 @@ function VoyageForm({
    * 샘플 항만 (#760 · `PRD §15.1`). 못 받아도 폼은 그대로 쓴다 — 목록은 편의이고 항만명은
    * 자유 입력이다. 그래서 실패를 폼 오류로 올리지 않고 선택지만 비운다.
    */
-  const [ports, setPorts] = useState<SamplePort[]>([])
   /** 계획 거리 칸이 **좌표 기반 추정 거리**로 채워졌는가 — 사용자가 고치면 내린다. */
   const [estimated, setEstimated] = useState(false)
 
@@ -736,22 +777,6 @@ function VoyageForm({
   const distanceGeneration = useRef(0)
   const [estimating, setEstimating] = useState(false)
 
-  useEffect(() => {
-    let alive = true
-    api
-      .samplePorts()
-      .then((rows) => {
-        if (alive) setPorts(rows)
-      })
-      .catch(() => {
-        if (alive) setPorts([])
-      })
-    return () => {
-      alive = false
-    }
-    // api는 렌더마다 새로 만들어질 수 있다 — 폼이 열릴 때 한 번만 받는다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   const set = (key: keyof VoyageDraft) => (value: string) =>
     setDraft((prev) => ({ ...prev, [key]: value }))
