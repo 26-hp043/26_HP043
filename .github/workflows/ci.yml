@@ -11,12 +11,12 @@ jobs:
     # 멈춤이 6시간이 되지 않게 한다 (#533). 정상 소요는 10초 안쪽이다.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # 변경 이력 행 검사가 base 브랜치와 PR의 커밋들을 읽는다 (#1498).
           # 기본값 1이면 머지 커밋 하나만 받아 비교할 이전 상태가 없다.
           fetch-depth: 0
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
       #
@@ -96,11 +96,11 @@ jobs:
           --health-retries 30
           --health-start-period 30s
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
@@ -188,12 +188,12 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # node-version은 frontend/package.json의 engines를 그대로 따른다.
       # react-router 8.3.0이 ">=22.22.0"을 요구하며, 이 저장소에는 .npmrc가 없어
       # engine-strict가 꺼져 있다 — npm이 engines를 강제하지 않으므로 낮은 Node에서
       # 설치는 통과하고 런타임·빌드에서 늦게 깨진다. CI에서 버전을 고정해 그 경로를 막는다.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           # frontend/package.json의 engines와 같은 값을 쓴다.
           # ⚠️ engines를 올릴 때 네 곳(package.json · 이 파일 · audit.yml · deploy.yml)을
@@ -257,7 +257,7 @@ jobs:
       APP_PUBLIC_URL: https://ci.example
       COMPOSE: docker compose -f docker-compose.prod.yml
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # build를 별도 단계로 두는 이유 — `docker compose run`은 같은 이름의 이미지가
       # 있으면 다시 굽지 않는다. 러너는 매번 깨끗하지만, README 배포 절차와 같은
