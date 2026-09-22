@@ -89,11 +89,27 @@
   outline-offset: 2px;
 }
 
+/*
+ * 두 단 — **12컬럼 + `span`** (`DESIGN_SYSTEM §7.1` 🔒 · `#1298`).
+ *
+ * 종전 `minmax(0, 7fr) minmax(0, 5fr)` + `gap: 16`은 다른 화면(대시보드 · `2-1` · `2-2` ·
+ * `2-3` · 선박 상세)과 **세로선이 어긋났다.** 같은 창에 겹쳐 잰 값(1440 · 1600 · 1920 모두) —
+ * 주 단 끝 `+0.66px`, **부 단 시작 `−7.34px`**. 앞엣것은 `fr`이 거터를 먼저 빼고 나누는
+ * 차이, 뒤엣것은 거터가 16이라 24보다 좁은 차이다. 다른 화면들처럼 12컬럼에 7 / 5를 건다.
+ */
 .fr__grid {
   display: grid;
-  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
-  gap: var(--space-16);
+  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  gap: var(--grid-gutter);
   align-items: start;
+}
+
+.fr__main {
+  grid-column: span var(--grid-split-primary);
+}
+
+.fr__side {
+  grid-column: span var(--grid-split-secondary);
 }
 
 /*
@@ -105,10 +121,10 @@
  *
  * 표가 들어가는 가장 좁은 뷰포트:
  *
- *   셸   24 + 240 + 24 + 24          = 312   (외곽 · 사이드바 · gap · 외곽 — §7.1)
- *   칸   (560 + 16×2 + 1×2) × 12 / 7 ≈ 1018  (표 + 카드 안여백 · 테두리)
- *   gap  16                                   (`.fr__grid`)
- *   합                                ≈ 1347
+ *   셸   24 + 240 + 24 + 24               = 312    (외곽 · 사이드바 · gap · 외곽 — §7.1)
+ *   칸   7/12 칸 = (W − 11×24) × 7/12 + 6×24 ≥ 560 + 16×2 + 1×2 = 594
+ *        → W ≥ (594 − 144) × 12/7 + 264 ≈ 1036   (12컬럼 · 거터 24 — `#1298`)
+ *   합                                     ≈ 1348
  *
  * 미디어 쿼리는 세로 스크롤바를 **포함한** 폭을 보므로(Windows 약 15px) 1362까지는
  * 실제로 표가 넘친다. 흔한 노트북 폭 1366을 두 단 쪽에 남기려고 **1365 이하를 1단**으로 둔다.
@@ -119,6 +135,12 @@
 @media (max-width: 1365px) {
   .fr__grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 한 단에서 `span 7`이 남으면 암묵 열이 생긴다 — 대시보드(`.fleet__col`)와 같이 푼다. */
+  .fr__main,
+  .fr__side {
+    grid-column: auto;
   }
 }
 

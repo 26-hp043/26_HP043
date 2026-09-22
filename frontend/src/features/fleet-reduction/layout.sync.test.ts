@@ -34,8 +34,6 @@ const tok = (group: string, key: string) => {
 
 /** Windows 기본 세로 스크롤바 폭. 미디어 쿼리는 이 폭을 포함한 뷰포트를 본다. */
 const SCROLLBAR = 15
-/** `.fr__grid`의 `gap: var(--space-16)`. */
-const GRID_GAP = 16
 
 function px(pattern: RegExp, what: string): number {
   const match = pattern.exec(CSS)
@@ -49,14 +47,30 @@ const breakpoint = px(
   '1단 전환점',
 )
 
-/** 두 단일 때 왼쪽 칸이 표를 품는 가장 좁은 뷰포트. */
+/**
+ * 두 단일 때 왼쪽 칸이 표를 품는 가장 좁은 뷰포트.
+ *
+ * `.fr__grid`는 12컬럼 + 거터(`#1298`)라, 주 단 폭은 `(W − 11g) × 7/12 + 6g`이다.
+ */
 function narrowestTwoColumn(): number {
-  const shell = tok('grid', 'margin') * 2 + tok('grid', 'gnb-expanded') + tok('grid', 'gutter')
+  const gutter = tok('grid', 'gutter')
+  const shell = tok('grid', 'margin') * 2 + tok('grid', 'gnb-expanded') + gutter
   const card = tableMin + tok('spacing', 'lg') * 2 + tok('borderWidth', 'default') * 2
   const primary = tok('grid', 'split-primary')
-  const total = primary + tok('grid', 'split-secondary')
-  return shell + GRID_GAP + (card * total) / primary
+  const columns = tok('grid', 'split-primary') + tok('grid', 'split-secondary')
+  const content = ((card - (primary - 1) * gutter) * columns) / primary + (columns - 1) * gutter
+  return shell + content
 }
+
+describe('감축 계획 두 단은 12컬럼이다 (#1298)', () => {
+  it('`fr` 비율이 아니라 `--grid-columns` + `span`으로 나눈다 — 다른 화면과 세로선이 같다', () => {
+    const grid = /\.fr__grid\s*\{([^}]*)\}/.exec(CSS)?.[1] ?? ''
+    expect(grid).toMatch(/grid-template-columns:\s*repeat\(var\(--grid-columns\)/)
+    expect(grid).toMatch(/gap:\s*var\(--grid-gutter\)/)
+    expect(CSS).toMatch(/\.fr__main\s*\{[^}]*grid-column:\s*span var\(--grid-split-primary\)/)
+    expect(CSS).toMatch(/\.fr__side\s*\{[^}]*grid-column:\s*span var\(--grid-split-secondary\)/)
+  })
+})
 
 describe('감축 계획 1단 전환점 (#1451)', () => {
   it('두 단이 되는 가장 좁은 폭에서도 표가 7/12 칸에 들어간다', () => {
