@@ -1,4 +1,4 @@
-"""챗봇 도구 4종 (`#121` · `Q9` ⓐ).
+"""챗봇 도구 5종 (`#121` · `Q9` ⓐ · `#1533`).
 
 ## 쓰기 도구를 넣지 않는다
 
@@ -48,12 +48,19 @@ TOOL_COMPARE_SCENARIOS = "compare_scenarios"
 #: 연말 예상**(확정 실적 + 잔여 계획, `PRD §3.3` ⑶)을 낸다. 종전 이름
 #: ``run_annual_simulation``이 `PRD §12`의 확률 시뮬레이션을 가리키고 있었다.
 TOOL_PROJECT_YEAR_END = "project_year_end"
+#: `#1533`(결정요청 v6 `D-31` 가안) — **화면이 방금 낸 결과**를 저장된 실행에서 읽는다.
+#:
+#: 다른 계산 도구는 그 자리에서 **새로 계산**한다. 입력이 조금만 달라도 화면과 다른 수가
+#: 나오고, 확률(몬테카를로)은 다시 돌리면 화면과 같아질 수 없다. 면책 문구
+#: 「화면의 계산 결과를 풀어 쓴 것」(``PRD §6.3``)이 참이 되는 경로가 이것이다.
+TOOL_EXPLAIN_SCREEN_RESULT = "explain_screen_result"
 
 TOOL_NAMES: tuple[str, ...] = (
     TOOL_SEARCH_VESSEL,
     TOOL_CALC_VOYAGE_CII,
     TOOL_COMPARE_SCENARIOS,
     TOOL_PROJECT_YEAR_END,
+    TOOL_EXPLAIN_SCREEN_RESULT,
 )
 
 
@@ -117,14 +124,26 @@ def tool_schemas() -> list[dict[str, object]]:
         {
             "name": TOOL_PROJECT_YEAR_END,
             "description": (
-                "연말 예상 등급을 낸다. 확정된 실적에 남은 계획 항차를 더해 외삽하는 "
-                "결정론 계산이며, 확률이 아니다."
+                "올해 누적 CII(ytd)와 연말 예상 등급(year_end_projection)을 함께 낸다. "
+                "연말 예상은 확정된 실적에 남은 계획 항차를 더해 외삽하는 결정론 계산이며, "
+                "확률이 아니다."
             ),
             "input_schema": {
                 "type": "object",
                 "properties": {"regulation_year": {"type": "integer"}},
                 "required": [],
             },
+        },
+        {
+            "name": TOOL_EXPLAIN_SCREEN_RESULT,
+            "description": (
+                "사용자가 화면에서 방금 낸 계산 결과(항차 CII 추정 · 속도 시나리오 비교 · "
+                "연간 시뮬레이션)를 저장된 기록에서 그대로 읽는다. 새로 계산하지 않는다. "
+                "「이 결과」·「방금 결과」·「화면의 값」을 물으면 먼저 이 도구를 쓴다. "
+                "연간 시뮬레이션이면 목표 달성 확률과 등급별 확률도 준다. "
+                "화면이 결과를 넘기지 않았으면 오류를 돌려준다."
+            ),
+            "input_schema": {"type": "object", "properties": {}, "required": []},
         },
     ]
 
@@ -146,7 +165,11 @@ def _regulation_year(arguments: dict[str, object]) -> int:
 
 
 def envelope(
-    tool: str, *, result: dict[str, object] | None = None, error: str | None = None
+    tool: str,
+    *,
+    result: dict[str, object] | None = None,
+    error: str | None = None,
+    kind: str | None = None,
 ) -> str:
     """도구 응답을 봉투에 담아 **문자열**로 만든다.
 
@@ -157,6 +180,10 @@ def envelope(
     지난 값**이어야 한다 — 이 함수는 필터하지 않는다(봉투의 책임이 아니다).
     """
     body: dict[str, object] = {"tool": tool, "ok": error is None}
+    # `#1533` — 저장된 결과의 종류(``calculation_run.calculation_type``의 네 상수 중 하나).
+    # 우리가 정한 코드값이라 봉투에 둔다 — 도메인 값이 아니다.
+    if kind is not None:
+        body["kind"] = kind
     if error is not None:
         body["error"] = error
     if result is not None:
@@ -178,6 +205,13 @@ _PUBLISH_MAP: dict[str, str] = {
     "estimated_rating": "rating",
     "risk_level": "risk_level",
     "next_worse_boundary_margin_ratio": "next_boundary_gap",
+    # `#1533` — 연간 시뮬레이션 저장 결과. ``projected_*``는 연말 예상이라 화면이 같은
+    # 자리에 「연말 예상」으로 보여 준다 — 모델에게는 ``kind``가 그 맥락을 준다.
+    "projected_attained_cii": "attained_cii",
+    "projected_rating": "rating",
+    "target_rating": "target_rating",
+    "target_success_probability": "target_success_probability",
+    "rating_probabilities": "rating_probabilities",
 }
 
 
@@ -197,6 +231,20 @@ _RESULT_KEYS: tuple[str, ...] = (
 
 #: 비율로 내려가는 값 — 화면은 **백분율로 보여 준다**.
 _GAP_KEY = "next_boundary_gap"
+#: `#1533` — 확률 값도 0~1 비율로 저장돼 있고 화면은 백분율로 보여 준다.
+_PROBABILITY_KEY = "target_success_probability"
+_RATING_PROBABILITIES_KEY = "rating_probabilities"
+
+#: `#1533` — 연간 시뮬레이션 저장 결과에서 내보내는 값(``deterministic`` · ``monte_carlo``
+#: · 최상위 ``risk_level``을 한 층으로 모은 뒤의 이름).
+_ANNUAL_KEYS: tuple[str, ...] = (
+    "projected_attained_cii",
+    "projected_rating",
+    "risk_level",
+    "target_rating",
+    "target_success_probability",
+    "rating_probabilities",
+)
 
 #: 화면의 백분율 자릿수 (`DESIGN_SYSTEM §4.1` · ``DISPLAY_DIGITS.percent`` = 1).
 _PERCENT_QUANTUM = Decimal("0.1")
@@ -254,6 +302,15 @@ def _publishable(payload: dict[str, object], keys: tuple[str, ...]) -> dict[str,
     gap = picked.get(_GAP_KEY)
     if gap is not None:
         picked[_GAP_KEY] = _with_screen_percent(gap)
+    # `#1533` — 확률도 화면은 백분율로 보여 준다(``_with_screen_percent`` 머리말과 같은 이유).
+    probability = picked.get(_PROBABILITY_KEY)
+    if probability is not None:
+        picked[_PROBABILITY_KEY] = _with_screen_percent(probability)
+    by_rating = picked.get(_RATING_PROBABILITIES_KEY)
+    if isinstance(by_rating, dict):
+        picked[_RATING_PROBABILITIES_KEY] = {
+            str(grade): _with_screen_percent(value) for grade, value in sorted(by_rating.items())
+        }
     return filter_outbound(picked)
 
 
@@ -367,6 +424,7 @@ async def run_tool(
     vessel_id: object | None,
     chat_session_id: UUID | None = None,
     vessel_locked: bool = False,
+    screen_run_id: UUID | None = None,
 ) -> ToolOutcome:
     """도구 하나를 실행하고 **봉투에 담은 문자열**을 돌려준다.
 
@@ -376,6 +434,8 @@ async def run_tool(
         (#1242). 없으면(단위 검사 등) 저장 없이 결과만 낸다.
     :param vessel_locked: 이 턴에 **화면이 ``vessel_id``를 넘겼다**는 표시 — 세션
         귀속이 화면값을 덮어쓰지 않는다(``API_SPEC §15.1`` 우선순위).
+    :param screen_run_id: 이 턴에 화면이 넘긴 ``calculation_run_id`` (`#1533`).
+        **모델에게는 넘기지 않는다** — 모델은 「화면의 결과를 읽어라」만 고른다.
 
     ## 실패를 자연어로 돌려주지 않는다
 
@@ -394,6 +454,8 @@ async def run_tool(
                 chat_session_id=chat_session_id,
                 vessel_locked=vessel_locked,
             )
+        if name == TOOL_EXPLAIN_SCREEN_RESULT:
+            return ToolOutcome(await _explain_screen_result(session, screen_run_id, vessel_id))
         if vessel_id is None:
             return ToolOutcome(envelope(name, error="어느 선박인지 먼저 정해야 합니다."))
         if name == TOOL_CALC_VOYAGE_CII:
@@ -528,4 +590,80 @@ async def _project_year_end(
             TOOL_PROJECT_YEAR_END,
             error=f"연말 예상을 낼 수 없습니다 (사유 코드: {reason or 'UNKNOWN'}).",
         )
-    return envelope(TOOL_PROJECT_YEAR_END, result=_publishable(year_end, _RESULT_KEYS))
+    # `#1533` — 올해 누적(⑴ ``ytd``)도 함께 넘긴다. 실시간 CII 화면이 크게 보여 주는 값이
+    # 이것인데 종전에는 ⑶ 블록만 넘겨 「왜 지금 E야?」에 답할 수 없었다. 결정론 계산이라
+    # 같은 선박·연도로 다시 불러도 화면과 같은 값이다(결정 코멘트 `D-31`).
+    ytd = data.get("ytd")
+    result: dict[str, object] = {"year_end_projection": _publishable(year_end, _RESULT_KEYS)}
+    if isinstance(ytd, dict) and ytd.get("data_available"):
+        result["ytd"] = _publishable(ytd, _RESULT_KEYS)
+    return envelope(TOOL_PROJECT_YEAR_END, result=result)
+
+
+#: `#1533` — 저장 결과를 읽었는데 설명할 값이 없을 때(``#443`` 이전 연간 실행 등).
+_SCREEN_RESULT_EMPTY = (
+    "이 결과에는 설명에 쓸 값이 저장돼 있지 않습니다. 화면에서 다시 계산해 주세요."
+)
+
+
+async def _explain_screen_result(
+    session: AsyncSession, screen_run_id: UUID | None, vessel_id: object | None
+) -> str:
+    """화면이 넘긴 실행의 **저장된 결과**를 읽는다 (`#1533` · ``API_SPEC §15.1``).
+
+    ## 새로 계산하지 않는다
+
+    저장된 ``result_json``을 그대로 읽는다. 다시 계산하면 그 사이 규정 파라미터가 바뀌었을
+    때 화면과 다른 값이 나온다 — ``get_annual_simulation``이 다시 계산하지 않는 것과 같은
+    이유다.
+
+    ## 선박이 다르면 읽지 않는다
+
+    화면 상단의 선박(``vessel_id``)과 실행의 선박이 다르면 오류다. 사용자는 상단의 배를
+    보며 묻는데, 다른 배의 결과로 답하면 **맞는 수로 틀린 설명**이 된다. 상단 선박이
+    없으면(선박 없이 연 화면) 실행의 선박을 따지지 않는다 — 식별자는 어차피 나가지 않는다.
+    """
+    from cii_platform.db.models.calculation_run import CalculationRun
+
+    if screen_run_id is None:
+        return envelope(
+            TOOL_EXPLAIN_SCREEN_RESULT,
+            error="화면에서 넘겨받은 계산 결과가 없습니다. 화면에서 먼저 계산해 주세요.",
+        )
+    run = await session.get(CalculationRun, screen_run_id)
+    if run is None:
+        raise NotFoundError("계산 결과를 찾을 수 없습니다.")
+    if vessel_id is not None and str(run.vessel_id) != str(vessel_id):
+        return envelope(
+            TOOL_EXPLAIN_SCREEN_RESULT,
+            error="화면의 계산 결과와 상단에서 고른 선박이 다릅니다. 선박을 확인해 주세요.",
+        )
+
+    kind = str(run.calculation_type)
+    stored = run.result_json if isinstance(run.result_json, dict) else {}
+    if kind == "SCENARIO":
+        rows = stored.get("scenarios") or []
+        if not rows:
+            return envelope(TOOL_EXPLAIN_SCREEN_RESULT, error=_SCREEN_RESULT_EMPTY, kind=kind)
+        # ⚠️ 저장 순서 그대로 — 순위로 정렬하지 않는다(No-Advice).
+        return envelope(
+            TOOL_EXPLAIN_SCREEN_RESULT,
+            result={"scenarios": [_publishable(row, _RESULT_KEYS) for row in rows]},
+            kind=kind,
+        )
+    if kind.startswith("ANNUAL_"):
+        flat: dict[str, object] = {}
+        for block in ("deterministic", "monte_carlo"):
+            section = stored.get(block)
+            if isinstance(section, dict):
+                flat.update(section)
+        if stored.get("risk_level") is not None:
+            flat["risk_level"] = stored["risk_level"]
+        published = _publishable(flat, _ANNUAL_KEYS)
+        if not published:
+            return envelope(TOOL_EXPLAIN_SCREEN_RESULT, error=_SCREEN_RESULT_EMPTY, kind=kind)
+        return envelope(TOOL_EXPLAIN_SCREEN_RESULT, result=published, kind=kind)
+    published = _publishable(stored, _RESULT_KEYS)
+    if not published:
+        return envelope(TOOL_EXPLAIN_SCREEN_RESULT, error=_SCREEN_RESULT_EMPTY, kind=kind)
+    return envelope(TOOL_EXPLAIN_SCREEN_RESULT, result=published, kind=kind)

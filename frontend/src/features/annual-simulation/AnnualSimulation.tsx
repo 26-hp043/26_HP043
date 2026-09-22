@@ -47,6 +47,7 @@ import { SnapshotVoyages } from './SnapshotVoyages'
 import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { Icon } from '../../components/Icon'
+import { publishScreenResult } from '../assistant/screenResult'
 
 /**
  * 기능③ 연간 CII 시뮬레이션 화면 (#157 · **#442에서 실 API 연결**).
@@ -294,6 +295,8 @@ export function AnnualSimulation({
       // 기다리는 동안 대상이 바뀌었으면 **버린다** — 새 선박 화면에 앞 배의 성공
       // 결과를 붙이지 않는다 (`#1094`).
       if (ticket !== generationRef.current) return
+      // #1533 — 챗봇이 확률까지 저장된 실행에서 읽게 한다(다시 돌리면 화면과 달라진다).
+      publishScreenResult(result.calculation_run_id)
       setState({ status: 'success', result, conditions })
       onDisclaimer?.(undefined)
     } catch (error: unknown) {

@@ -63,8 +63,28 @@ PROVIDER_FAKE = "fake"
 #: 확인한다.
 API_KEY_ENV = "LLM_API_KEY"
 
-#: `Q4` 결정 — Claude Haiku 4.5.
+#: `Q4` 결정 — Claude Haiku 4.5. ``LLM_MODEL``이 비어 있을 때 쓴다 (`#1535`).
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+
+#: Messages API의 기준 주소 (`#1535`). ``LLM_BASE_URL``이 비어 있을 때 쓴다.
+#:
+#: 경로(``/v1/messages``)는 공급자 구현이 붙인다 — Anthropic 형식을 내는 다른 공급자
+#: (Z.ai ``https://api.z.ai/api/anthropic`` 등)가 **기준 주소만** 안내하기 때문이다.
+DEFAULT_BASE_URL = "https://api.anthropic.com"
+
+#: 인증 헤더 방식 (`#1535`). ``LLM_AUTH_SCHEME``이 비어 있으면 첫 값이다.
+#:
+#: ``x-api-key``는 Anthropic 규격이고, ``bearer``는 ``Authorization: Bearer``로 보낸다.
+AUTH_SCHEME_API_KEY = "x-api-key"
+AUTH_SCHEME_BEARER = "bearer"
+AUTH_SCHEMES = (AUTH_SCHEME_API_KEY, AUTH_SCHEME_BEARER)
+
+#: 「키가 없다」로 보는 자리표시자 (`#1535`).
+#:
+#: GitHub 시크릿은 빈 값으로 둘 수 없어 운영에서 ``-``를 넣어 두었다(2026-09-22). 그대로
+#: 두면 ``is_enabled()``가 참이 되어 **질문마다 외부 호출이 인증 실패로 끝나고 기록만
+#: 쌓인다** — 화면은 그것을 미리 알 수 없다. 빈 값과 같이 「꺼짐」으로 읽는다.
+KEY_PLACEHOLDERS = frozenset({"-"})
 
 
 #: 한 턴(질문→도구 왕복→답)의 시간 상한 (#1245).
@@ -192,15 +212,44 @@ class FakeProvider:
 
 
 def api_key() -> str | None:
-    """설정된 키. 없으면 ``None``."""
+    """설정된 키. 없거나 자리표시자(:data:`KEY_PLACEHOLDERS`)면 ``None``."""
     # 리터럴로 읽는다 — 위 `API_KEY_ENV` 주석 참조.
     value = os.environ.get("LLM_API_KEY", "").strip()
+    if value in KEY_PLACEHOLDERS:
+        return None
     return value or None
 
 
+def base_url() -> str:
+    """Messages API 기준 주소 (`#1535`). 끝의 ``/``는 걷는다."""
+    value = os.environ.get("LLM_BASE_URL", "").strip().rstrip("/")
+    return value or DEFAULT_BASE_URL
+
+
+def model_name() -> str:
+    """부를 모델 (`#1535`)."""
+    return os.environ.get("LLM_MODEL", "").strip() or DEFAULT_MODEL
+
+
+def auth_scheme() -> str | None:
+    """인증 헤더 방식 (`#1535`). **모르는 값이면 ``None``** — 챗봇을 끈다.
+
+    모르는 값을 기본값으로 바꿔 읽으면, 운영자가 적은 방식과 다른 헤더로 **키가
+    외부에 나간다.** 틀린 설정은 조용히 고치지 않고 「쓸 수 없음」으로 드러낸다.
+    """
+    value = os.environ.get("LLM_AUTH_SCHEME", "").strip().lower()
+    if not value:
+        return AUTH_SCHEME_API_KEY
+    return value if value in AUTH_SCHEMES else None
+
+
 def is_enabled() -> bool:
-    """챗봇을 쓸 수 있는가.
+    """챗봇을 쓸 수 있는가 — ``GET /chat/status``의 답이다 (``API_SPEC §15.7``).
 
     **앱 기동 판정에 쓰지 않는다** — 챗봇 요청 처리에서만 본다 (``PRD §16.2``).
+
+    ⚠️ **외부 모델이 실제로 답하는지는 보지 않는다.** 설정만 본다 — 여기서 외부를
+    부르면 상태 조회마다 과금된다. 설정이 있는데 호출이 실패하면 기존대로
+    ``discarded``다 (``API_SPEC §15.2``).
     """
-    return api_key() is not None
+    return api_key() is not None and auth_scheme() is not None

@@ -48,6 +48,36 @@ def get_provider() -> LLMProvider:
     return AnthropicProvider()
 
 
+@router.get("/chat/status")
+async def chat_status(
+    request: Request,
+    _user: Annotated[AppUser, Depends(get_current_user)],
+) -> dict[str, object]:
+    """챗봇을 지금 쓸 수 있는가 (``API_SPEC §15.7`` · `#1535`).
+
+    화면이 패널을 여는 순간 부른다 — 종전에는 질문을 보내 503을 받아야만 알았다.
+
+    ## 불린 하나만 낸다
+
+    키 값도, 꺼진 이유(키 없음 · 자리표시자 · 인증 방식 오류)도 내지 않는다. 이유는
+    운영자의 일이고 사용자가 고칠 수 없다 — 화면이 할 일은 「지금은 쓸 수 없다」를
+    먼저 보이는 것뿐이다.
+
+    ## 한도 버킷은 ``chat``이 아니다
+
+    ``CHAT_PATHS``는 ``/chat`` 하나다. 패널을 열 때마다 부르는 조회가 질문 한도(분당
+    10)를 깎으면 사용자는 질문도 하기 전에 429를 만난다 — 기본 버킷에 둔다.
+    """
+    state = getattr(request, "state", None)
+    return {
+        "data": {"available": is_enabled()},
+        "meta": {
+            "request_id": getattr(state, "request_id", None),
+            "timestamp": getattr(state, "timestamp", None) or iso_utc_now(),
+        },
+    }
+
+
 @router.post("/chat")
 async def chat(
     request: Request,
@@ -75,7 +105,14 @@ async def chat(
         chat_session = await chat_repo.create_session(session, user_id=user.id)
     else:
         chat_session = await chat_repo.get_session_row(session, session_id=payload.session_id)
-        if chat_session is None or chat_session.user_id != user.id:
+        # `#1632` — **만료된 대화도 없는 대화다.** 청소(`purge_expired`)는 하루 한 번이라,
+        # 그 사이에 만료된 대화로 외부 모델을 부르고 메시지를 쌓을 수 있었다. 남의 대화와
+        # 같은 404로 답한다 — 다른 코드를 두면 「있었지만 만료됐다」가 새어 존재 여부를 알린다.
+        if (
+            chat_session is None
+            or chat_session.user_id != user.id
+            or chat_repo.is_expired(chat_session)
+        ):
             raise NotFoundError("대화를 찾을 수 없습니다.")
 
     # ⚠️ **여기서 `LLMUnavailableError`를 잡지 않는다** (`#1365`).
@@ -93,6 +130,7 @@ async def chat(
         user_id=str(user.id),
         question=payload.message,
         vessel_id=payload.vessel_id,
+        calculation_run_id=payload.calculation_run_id,
         ip_address=_client_ip(request),
     )
 

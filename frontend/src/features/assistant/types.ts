@@ -49,9 +49,18 @@ export interface ChatAnswer {
 }
 
 export interface AssistantProvider {
+  /**
+   * 챗봇을 지금 쓸 수 있는가 — `GET /chat/status` (`API_SPEC §15.7` · `#1535`).
+   *
+   * 선택 항목이다 — 없으면 오버레이는 조회 없이 종전대로 질문 뒤 503으로 안다.
+   * 조회 자체가 실패하면 **던진다**. 오버레이는 그것을 「쓸 수 없음」으로 읽지 않는다.
+   */
+  status?(): Promise<{ readonly available: boolean }>
   ask(input: {
     message: string
     sessionId?: string
     vesselId?: string
+    /** #1533 — 화면이 방금 낸 계산 결과의 실행 id. 서버 도구가 저장된 결과를 읽는다. */
+    calculationRunId?: string
   }): Promise<ChatAnswer>
 }

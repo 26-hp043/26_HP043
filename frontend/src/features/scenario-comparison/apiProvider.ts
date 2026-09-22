@@ -80,6 +80,7 @@ interface ServerBody {
    */
   warnings?: string[]
   disclaimer?: string
+  calculation_run_id?: string
   error?: {
     code?: string
     message?: string
@@ -226,6 +227,10 @@ export function createApiScenarioProvider(
          * 다시 기본값을 두면 **같은 문구가 두 곳**이 되어 또 갈린다.
          */
         disclaimer: body?.disclaimer ?? '',
+        // #1533 — 챗봇이 이 실행의 저장된 결과를 읽는다. 없으면 싣지 않는다.
+        ...(typeof body?.calculation_run_id === 'string'
+          ? { calculation_run_id: body.calculation_run_id }
+          : {}),
       }
     },
 

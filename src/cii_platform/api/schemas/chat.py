@@ -25,6 +25,9 @@ class ChatRequest(BaseModel):
 
     :param session_id: 이어 갈 대화. 없으면 **새로 만든다**.
     :param vessel_id: 화면이 보고 있는 선박. 계산 도구가 이 선박으로 돈다.
+    :param calculation_run_id: 화면이 방금 낸 계산 결과의 실행 id (`#1533`). 도구
+        ``explain_screen_result``가 이 실행의 **저장된 결과**를 읽는다. 외부 모델로는
+        나가지 않는다(식별자는 ``PRD §16.3.1`` 전송 금지 성격).
 
     ``extra="forbid"`` — 계산 API와 같은 이유다. 오타 필드를 조용히 무시하면
     사용자가 보낸 값이 반영되지 않은 채 답이 나간다.
@@ -35,3 +38,4 @@ class ChatRequest(BaseModel):
     message: Annotated[str, Field(min_length=1, max_length=MAX_QUESTION_CHARS)]
     session_id: UUID | None = None
     vessel_id: UUID | None = None
+    calculation_run_id: UUID | None = None

@@ -81,6 +81,10 @@ services:
       RATE_LIMIT_CHAT_PER_MINUTE: ${RATE_LIMIT_CHAT_PER_MINUTE:-10}
       # 챗봇
       LLM_API_KEY: ${LLM_API_KEY:-}
+      # 비우면 Anthropic 기본값 (#1535)
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_AUTH_SCHEME: ${LLM_AUTH_SCHEME:-}
       # 프록시
       USE_FORWARDED_FOR: ${USE_FORWARDED_FOR:-false}
       # #827 ⑵ 구조화 로그 — JSON 한 줄·회전(10MB×5). 장애 대응은 이 파일을 본다

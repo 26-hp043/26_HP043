@@ -42,7 +42,25 @@ export function createApiAssistantProvider(
   baseUrl: string = DEFAULT_API_BASE_URL,
 ): AssistantProvider {
   return {
-    async ask({ message, sessionId, vesselId }): Promise<ChatAnswer> {
+    /*
+     * #1535 — 패널을 열 때 한 번 묻는다. **실패는 던진다** — 모르는 상태를 「쓸 수 없음」으로
+     * 바꾸면 서버가 잠깐 흔들린 것만으로 사용자가 챗봇이 없는 줄 안다. 401도 여기서는
+     * 로그인으로 보내지 않는다 — 질문 경로(`ask`)가 이미 그 일을 한다.
+     */
+    async status() {
+      const response = await fetchImpl(`${baseUrl}/chat/status`, {
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      })
+      if (!response.ok) throw new AssistantError(`상태를 확인하지 못했습니다 (HTTP ${response.status}).`)
+      const body = (await response.json()) as { data?: { available?: unknown } }
+      if (typeof body.data?.available !== 'boolean') {
+        throw new AssistantError('응답 형식이 올바르지 않습니다.')
+      }
+      return { available: body.data.available }
+    },
+
+    async ask({ message, sessionId, vesselId, calculationRunId }): Promise<ChatAnswer> {
       let response: Response
       try {
         response = await fetchImpl(`${baseUrl}/chat`, {
@@ -57,6 +75,7 @@ export function createApiAssistantProvider(
             message,
             ...(sessionId ? { session_id: sessionId } : {}),
             ...(vesselId ? { vessel_id: vesselId } : {}),
+            ...(calculationRunId ? { calculation_run_id: calculationRunId } : {}),
           }),
         })
       } catch (cause) {

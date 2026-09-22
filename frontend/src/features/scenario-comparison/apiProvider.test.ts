@@ -375,3 +375,17 @@ describe('시나리오 채택 — POST /scenarios/{id}/adopt (#580)', () => {
     })
   })
 })
+
+describe('실행 id (#1533)', () => {
+  it('응답 최상위의 calculation_run_id를 넘긴다 — 챗봇이 이 실행을 읽는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ ...OK_BODY, calculation_run_id: 'run-9' }))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect(result.calculation_run_id).toBe('run-9')
+  })
+
+  it('없으면 키를 만들지 않는다', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const result = await createApiScenarioProvider(fetchImpl).compare(REQUEST)
+    expect('calculation_run_id' in result).toBe(false)
+  })
+})

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -891,3 +892,134 @@ async def test_turn_budget_default_comes_from_the_provider_constant():
 
     assert chat_service.TURN_TIMEOUT_SECONDS == TURN_TIMEOUT_SECONDS
     assert 0 < TURN_TIMEOUT_SECONDS < 30.0 * 4, "최악 경로보다 커지면 가드가 아니다"
+
+
+async def test_status_needs_login_and_answers_a_boolean(migrated_db, app_fresh_engine, monkeypatch):
+    """`#1535` · ``API_SPEC §15.7`` — 로그인이 필요하고 ``available`` 불린 **하나만** 낸다.
+
+    화면은 패널을 여는 순간 이것을 부른다. 키 값이나 꺼진 이유가 실리면 사용자가
+    고칠 수 없는 운영 정보가 화면으로 나간다.
+    """
+    monkeypatch.delenv("LLM_AUTH_SCHEME", raising=False)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.get("/api/v1/chat/status").status_code == 401
+
+            _login(client)
+            monkeypatch.setenv("LLM_API_KEY", "-")
+            off = client.get("/api/v1/chat/status")
+            assert off.status_code == 200
+            assert off.json()["data"] == {"available": False}
+
+            monkeypatch.setenv("LLM_API_KEY", "real-looking-key")
+            on = client.get("/api/v1/chat/status")
+            assert on.json()["data"] == {"available": True}
+            assert "real-looking-key" not in on.text
+    finally:
+        await _cleanup()
+
+
+async def test_placeholder_key_is_503_not_an_outbound_call(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """`#1535` — 자리표시자 키로 질문하면 **외부를 부르지 않고 503**이다.
+
+    종전에는 ``-``를 키로 보내 인증 실패 → ``discarded``로 끝나며 질문만 이력에 쌓였다.
+    """
+    monkeypatch.setenv("LLM_API_KEY", "-")
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post("/api/v1/chat", json={"message": "안녕하세요"}, headers=headers)
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "CHAT_UNAVAILABLE"
+    finally:
+        await _cleanup()
+
+
+async def _expire(session_id: str) -> None:
+    """대화를 **청소 전의 만료 상태**로 만든다 — 행은 남아 있고 기한만 지났다 (`#1632`).
+
+    ``chk_chat_session_expires``(``expires_at > created_at``) 때문에 생성 시각도 함께 당긴다.
+    """
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text(
+                "UPDATE chat_session SET created_at = :c, expires_at = :e WHERE id = :id"
+            ).bindparams(bindparam("id", type_=UuidText)),
+            {
+                "c": datetime.now(UTC) - timedelta(days=100),
+                "e": datetime.now(UTC) - timedelta(days=10),
+                "id": UUID(session_id),
+            },
+        )
+        await s.commit()
+
+
+async def _message_count(session_id: str) -> int:
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        return (
+            await s.execute(
+                text("SELECT COUNT(*) FROM chat_message WHERE session_id = :id").bindparams(
+                    bindparam("id", type_=UuidText)
+                ),
+                {"id": UUID(session_id)},
+            )
+        ).scalar_one()
+
+
+async def test_an_expired_session_is_not_found_and_calls_nothing(migrated_db, app_fresh_engine):
+    """`#1632` — 만료된 대화로 이어 물으면 **404이고, 외부 모델도 메시지 저장도 없다.**
+
+    청소(`purge_expired`)는 하루 한 번이다. 그 사이의 만료 대화가 살아 있는 대화처럼 처리되면
+    보존 기한 90일(`PRD §16.3`)이 청소 시각에 달린 약속이 된다.
+    """
+    first = FakeProvider([LLMResponse(text="안녕하세요.")])
+    _use(first)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            session_id = client.post(
+                "/api/v1/chat", json={"message": "안녕"}, headers=headers
+            ).json()["data"]["session_id"]
+            before = await _message_count(session_id)
+            await _expire(session_id)
+
+            later = FakeProvider([LLMResponse(text="이 답이 나가면 안 됩니다.")])
+            _use(later)
+            response = client.post(
+                "/api/v1/chat",
+                json={"message": "계속", "session_id": session_id},
+                headers=headers,
+            )
+            assert response.status_code == 404
+            assert response.json()["error"]["code"] == "NOT_FOUND"
+            assert later.calls == []
+            assert await _message_count(session_id) == before
+    finally:
+        await _cleanup()
+
+
+def test_expiry_boundary_matches_the_purge_condition() -> None:
+    """`#1632` — 경계(``expires_at == now``)는 **만료**다. 청소(``expires_at <= cutoff``)와 같다.
+
+    시간대 없는 값은 UTC로 읽는다 — 드라이버가 시간대를 떼어 돌려주는 경우가 있다.
+    """
+    from types import SimpleNamespace
+
+    from cii_platform.db.repositories.chat import is_expired
+
+    now = datetime(2026, 9, 23, 0, 0, tzinfo=UTC)
+    assert is_expired(SimpleNamespace(expires_at=now), now=now) is True  # type: ignore[arg-type]
+    assert (
+        is_expired(  # type: ignore[arg-type]
+            SimpleNamespace(expires_at=now + timedelta(seconds=1)), now=now
+        )
+        is False
+    )
+    naive = datetime(2026, 9, 22, 23, 59)
+    assert is_expired(SimpleNamespace(expires_at=naive), now=now) is True  # type: ignore[arg-type]

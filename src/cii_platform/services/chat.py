@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 
 from cii_platform.db.models.chat import ROLE_ASSISTANT, ROLE_USER
 from cii_platform.db.repositories import chat as chat_repo
+from cii_platform.errors import NotFoundError
 from cii_platform.llm.provider import (
     MAX_HISTORY_TURNS,
     MAX_TOOL_CALLS_PER_TURN,
@@ -165,6 +166,7 @@ async def answer(
     user_id: str | None,
     question: str,
     vessel_id: UUID | None = None,
+    calculation_run_id: UUID | None = None,
     ip_address: str | None = None,
     turn_timeout: float | None = None,
 ) -> dict[str, object]:
@@ -185,6 +187,7 @@ async def answer(
                 user_id=user_id,
                 question=question,
                 vessel_id=vessel_id,
+                calculation_run_id=calculation_run_id,
                 ip_address=ip_address,
             )
     except TimeoutError:
@@ -199,6 +202,7 @@ async def _answer_turn(
     user_id: str | None,
     question: str,
     vessel_id: UUID | None = None,
+    calculation_run_id: UUID | None = None,
     ip_address: str | None = None,
 ) -> dict[str, object]:
     """한 턴의 본문 — :func:`answer`의 시간 상한 안에서 돈다.
@@ -210,6 +214,13 @@ async def _answer_turn(
     :data:`MAX_TOOL_CALLS_PER_TURN`을 넘기면 **거기서 끊는다**. 모델이 도구를 잘못
     골라 왕복을 반복하는 것이 비용 폭주의 실제 경로다(``PRD §16.1`` 가드 2).
     """
+    # `#1632` — **외부 모델을 부르기 전에, 메시지를 쌓기 전에** 대화가 살아 있는지 다시 본다.
+    # 라우트가 이미 막지만 이 함수는 라우트 밖에서도 불리고(검사), 요청이 오가는 사이 기한을
+    # 넘길 수 있다. 여기서 끊으면 질문도 저장되지 않는다(라우트가 커밋하지 않는다).
+    session_row = await chat_repo.get_session_row(session, session_id=chat_session_id)
+    if session_row is None or chat_repo.is_expired(session_row):
+        raise NotFoundError("대화를 찾을 수 없습니다.")
+
     await chat_repo.add_message(
         session, session_id=chat_session_id, role=ROLE_USER, content=question
     )
@@ -226,7 +237,6 @@ async def _answer_turn(
     # 🔴 요청값은 세션에 싣지 않는다(#1242에서 정정) — 세션 귀속은 **검색의 고유
     # 일치만** 쓴다. 화면은 그 턴에서만 이기고, 세션의 「검색이 정한 배」를 화면이
     # 조용히 덮어쓰지 않게 한다(요청이 오지 않은 다음 턴의 대답이 달라지면 안 된다).
-    session_row = await chat_repo.get_session_row(session, session_id=chat_session_id)
     effective_vessel: UUID | None = vessel_id or getattr(session_row, "vessel_id", None)
 
     history = await chat_repo.list_messages(
@@ -296,6 +306,7 @@ async def _answer_turn(
                 vessel_id=effective_vessel,
                 chat_session_id=chat_session_id,
                 vessel_locked=vessel_id is not None,
+                screen_run_id=calculation_run_id,
             )
             if outcome.resolved_vessel_id is not None and vessel_id is None:
                 await chat_repo.set_vessel(
