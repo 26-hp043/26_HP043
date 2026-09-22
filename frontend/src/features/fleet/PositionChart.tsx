@@ -553,7 +553,10 @@ export function PositionChart({ vessels, minSpan = MIN_SPAN }: PositionChartProp
               24 그리드 경로를 이 좌표계로 옮긴다. 배 한 변을 `SHIP`으로 잡고
               중심이 (x, y)에 오도록 왼쪽 위 모서리를 반만큼 당긴다.
             */}
-            <g transform={`translate(${x - SHIP / 2} ${y - SHIP / 2}) scale(${SHIP / VESSEL_GRID})`}>
+            <g
+              className="position-chart__ship"
+              transform={`translate(${x - SHIP / 2} ${y - SHIP / 2}) scale(${SHIP / VESSEL_GRID})`}
+            >
               {/*
                 채움 → 무늬 → 테두리 순서다. 테두리를 채움에 얹으면 무늬가 선의
                 안쪽 절반을 덮어 위험 표시가 반 두께로 보인다 — 점일 때와 같다.
