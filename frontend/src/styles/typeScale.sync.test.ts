@@ -19,6 +19,8 @@ const TOKENS = readFileSync(join(SRC, 'styles', 'tokens.css'), 'utf-8')
 /** §3 이름 → 코드 토큰 접미사. 정본과 코드의 이름이 다른 곳을 한 곳에 적는다. */
 const CODE_NAME: Record<string, string> = {
   display: 'display',
+  // `#1763` — §3 v2.26이 `page`(28) 행을 두어 「알려진 차이」를 닫았다. 이제 표와 대조한다.
+  page: 'page',
   title: 'h2',
   heading: 'h3',
   body: 'body',
@@ -73,9 +75,12 @@ describe('타입 토큰이 DESIGN_SYSTEM §3과 같다 (#1691)', () => {
     expect(token('font-weight-label')).toBe(rows.get('label')!.weight)
   })
 
-  it('페이지 제목은 알려진 차이다 — 28, display와 떼어 둔다', () => {
-    // §3 개정(3단계) 전까지 남기는 차이. 개정되면 이 검사를 §3 행 대조로 바꾼다.
-    expect(token('font-size-page')).toBe(28)
+  it('페이지 제목은 KPI 숫자와 다른 크기다 (#1691 · #1763)', () => {
+    /*
+     * 크기 · 행간 대조는 위 `CODE_NAME` 반복이 맡는다(`#1763`이 `page` 행을 §3에 두면서
+     * 「알려진 차이」가 닫혔다). 여기서는 **둘이 같은 값으로 되돌아가지 않는지**만 본다 —
+     * 종전에는 h1이 `display`를 빌려 페이지 제목과 KPI 숫자가 한 값에 묶여 있었다.
+     */
     expect(token('font-size-page')).not.toBe(token('font-size-display'))
   })
 })
