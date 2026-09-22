@@ -510,7 +510,8 @@ describe('필요 감축량 — 목표 역산 (#433)', () => {
     renderScreen()
     await runOnce()
 
-    expect(screen.getByText(ANNUAL_COPY.reductionUnreachable)).toBeTruthy()
+    // 캡션 두 상태와 같은 무게로 두지 않는다 — Warning 좌측 스트라이프 (#1052 ⑸).
+    expect(screen.getByText(ANNUAL_COPY.reductionUnreachable).className).toBe('annual-sim__unreachable')
     expect(screen.queryByText(ANNUAL_COPY.reductionCutLabel)).toBeNull()
   })
 

@@ -263,9 +263,10 @@ export function VesselDetail({
             {current ? `${current.regulationYear}년 · 진행 중` : '—'}
           </span>
           {/*
-            `UIFLOW 2-11` 진입 조건 「`2-8` 선박 상세의 신뢰도 표시」 (#1082). 선박 상세에는 아직
-            신뢰도 표시(`DataConfidenceBadge`)가 없다 — 그 모양은 디자인 확정 대상(`#1052`)이라
-            여기서 만들지 않고, **누적값의 출처를 확인하는 길**만 누적 카드 머리에 둔다.
+            `UIFLOW 2-11` 진입 조건 「`2-8` 선박 상세의 신뢰도 표시」 (#1082). 여기에는
+            **누적값의 출처를 확인하는 길**만 누적 카드 머리에 둔다. **데이터 완결성 비율은
+            선박 상세에 두지 않는다**(2026-09-22 확정 · `#1052` ⑺) — 비율은 `2-11`이 소유하고
+            같은 값을 두 곳에서 관리하지 않는다. 신뢰도 배지(`DataConfidenceBadge`)는 아직 없다.
           */}
           <Link className="card__meta" to={SCREEN_BY_ID.DATA_QUALITY.path}>
             {SCREEN_BY_ID.DATA_QUALITY.label}
