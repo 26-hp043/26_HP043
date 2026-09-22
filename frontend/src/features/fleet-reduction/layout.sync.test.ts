@@ -10,7 +10,7 @@ import blueLogRaw from '../../design/tokens/BlueLog.tokens.json?raw'
  *
  * ## 왜 필요한가
  *
- * 전환점(1365)은 **표 최소 폭에서 계산한 값**이다. 누가 표에 열을 더해 `min-width`를
+ * 전환점(1734 · #1689)은 **표 최소 폭에서 계산한 값**이다. 누가 표에 열을 더해 `min-width`를
  * 늘리면 전환점도 함께 올라가야 하는데, 두 값은 같은 파일에서도 50줄 떨어져 있고 어느
  * 검사도 둘을 잇지 않는다 — 종전 1100이 바로 그렇게 표와 무관하게 정해진 값이었다.
  *
@@ -18,7 +18,13 @@ import blueLogRaw from '../../design/tokens/BlueLog.tokens.json?raw'
  *
  * 두 단일 때 7/12 칸이 「표 + 카드 안여백 · 테두리」를 품는 가장 좁은 뷰포트를 셸 토큰
  * (`DESIGN_SYSTEM §7.1`)에서 계산하고, 전환점이 그보다 **스크롤바 폭만큼 넉넉한지** 본다.
- * 반대로 너무 크게 잡아 넓은 화면까지 1단이 되는 것도 막는다 — 1440에서는 두 단이어야 한다.
+ * 반대로 너무 크게 잡아 넓은 화면까지 1단이 되는 것도 막는다 — 기본 프레임(1920)에서는 두 단이어야 한다.
+ *
+ * ## 이 검사가 못 보는 것 (#1689)
+ *
+ * `min-width`는 **선언값**이다. 내용이 더 넓으면 표는 선언과 무관하게 넘치는데, jsdom은
+ * 레이아웃을 계산하지 않아 여기서는 잴 수 없다 — 종전 560이 실측 760보다 작았던 것을 이
+ * 검사는 잡지 못했다. 열 · 문구를 바꾸면 브라우저에서 `scrollWidth`를 다시 재 이 값을 고친다.
  */
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -77,7 +83,13 @@ describe('감축 계획 1단 전환점 (#1451)', () => {
     expect(breakpoint + 1).toBeGreaterThanOrEqual(narrowestTwoColumn() + SCROLLBAR)
   })
 
-  it('frame-min(1440)에서는 두 단이다 — 전환점을 필요 이상으로 올리지 않는다', () => {
-    expect(breakpoint).toBeLessThan(tok('grid', 'frame-min'))
+  it('기본 프레임(1920)에서는 두 단이다 — 전환점을 필요 이상으로 올리지 않는다', () => {
+    // #1689: 표 실측 최소 폭(760)으로는 1440 · 1600이 1단이다. 1920까지 1단이 되면 7:5가 사라진다.
+    expect(breakpoint).toBeLessThan(tok('grid', 'frame-width'))
+  })
+
+  it('표 최소 폭을 실측값 아래로 되돌리지 않는다 (#1689)', () => {
+    // 2026-09-22 · 1440 · 시연 데이터에서 잰 내용의 최소 폭. 열을 줄이면 다시 재고 함께 고친다.
+    expect(tableMin).toBeGreaterThanOrEqual(760)
   })
 })
