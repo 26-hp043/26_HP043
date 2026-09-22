@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 # 다음 major가 깨지기 쉬운 패키지(fastapi · pydantic · starlette)에 맞춰 여유를 둔다.
 dependencies = [
     "numpy==2.1.0",
-    "sqlalchemy[asyncio]>=2.0.52,<2.1",
+    "sqlalchemy[asyncio]>=2.0.54,<2.1",
     # CUBRID 방언과 그 DBAPI. **둘은 한 벌이다.**
     #
     # `aiopycubrid`라는 배포본은 없다 — `cubrid+aiopycubrid`는 `sqlalchemy-cubrid`가
@@ -36,7 +36,7 @@ dependencies = [
     # 낮은 하한을 고집할 이유가 없고, 고집하면 머지마다 같은 충돌이 되돌아온다.
     "alembic>=1.20.0,<2.0",
     "fastapi>=0.141.1,<0.150",
-    "uvicorn[standard]>=0.52.4,<0.60",
+    "uvicorn[standard]>=0.53.0,<0.60",
     "httpx>=0.28.1,<0.29",
     "pyjwt[crypto]>=2.14.0,<3.0",
     # 인증 메일 발송 (#407). console 백엔드만 쓰는 개발 환경에서는 import되지 않는다.
@@ -64,13 +64,13 @@ dependencies = [
 # 여기만 고치면 로컬과 CI가 함께 따라온다. `ci.yml`에 버전을 적지 않는다.
 # pytest 계열은 마이너 버전 사이에서 큰 변화가 없어 상한만 둔다.
 dev = [
-    "ruff==0.16.7",
+    "ruff==0.16.8",
     "pytest>=9.1.1,<10.0",
     "pytest-asyncio>=1.4.0,<2.0",
     "pytest-cov>=7.1.0,<8.0",
     # PDF 텍스트 추출 (#361). 한글이 tofu로 렌더링되면 바이트 길이·HTTP 상태는
     # 정상이라 **추출된 텍스트로만** 잡을 수 있다.
-    "pypdf>=6.18.1,<7.0",
+    "pypdf>=6.19.0,<7.0",
 ]
 
 [tool.hatch.build.targets.wheel]
