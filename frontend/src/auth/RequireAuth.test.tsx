@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { RequireAuth } from './RequireAuth'
+import { AuthRequestError, logout, probeCurrentUser } from './session'
 
 /**
  * 확인 전에는 로그인으로 보내지 않는다 (#825 ⑴).
@@ -99,5 +100,34 @@ describe('세션 확인 전에는 판정하지 않는다 (#825 ⑴)', () => {
     renderGuard()
 
     expect(await screen.findByTestId('login-card')).toBeTruthy()
+  })
+})
+
+
+/**
+ * 로그아웃이 실패하면 **화면이 그대로 있어야** 한다 (`#1659`).
+ *
+ * 종전에는 실패 경로에서도 캐시를 비워, 이 가드가 `/login`으로 **먼저 이동**했다. 셸이 사라지면서
+ * 방금 띄운 실패 안내와 재시도 버튼이 함께 없어졌다.
+ */
+describe('로그아웃 실패 뒤에도 보호된 화면이 남는다 (#1659)', () => {
+  it('500 응답이면 던지고, 가드는 로그인으로 보내지 않는다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ME_OK))
+    await probeCurrentUser()
+    renderGuard()
+    expect(await screen.findByText('보호된 화면')).toBeTruthy()
+
+    const failing = (async () =>
+      ({
+        ok: false,
+        status: 500,
+        json: async () => ({ error: { message: '[서버 오류 문구]' } }),
+      }) as Response) as unknown as typeof fetch
+
+    await expect(logout(failing)).rejects.toBeInstanceOf(AuthRequestError)
+
+    // 서버 세션이 살아 있다 — 가드는 그대로 두고, 화면(셸)이 실패를 알린다.
+    expect(screen.getByText('보호된 화면')).toBeTruthy()
+    expect(screen.queryByTestId('login-card')).toBeNull()
   })
 })
