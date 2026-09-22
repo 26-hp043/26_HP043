@@ -111,9 +111,10 @@ figure {
 }
 
 h1 {
-  font-size: var(--font-size-display);
+  /* 페이지 제목은 KPI 숫자(`display`)와 크기를 나누지 않는다 — `tokens.css` `--font-size-page` (#1691). */
+  font-size: var(--font-size-page);
   font-weight: var(--font-weight-display);
-  line-height: var(--line-height-display);
+  line-height: var(--line-height-page);
   /*
    * `DESIGN_SYSTEM §3` 자간 — display·title 급은 조인다. `§3`은 화면이 아니라 **크기
    * 토큰**에 조임을 거므로 display 크기를 정하는 이 자리에 둔다 (#749).
@@ -134,6 +135,17 @@ h3 {
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-h3);
   line-height: var(--line-height-h3);
+}
+
+/*
+ * 브라우저 기본 굵기(bold = 700)를 쓰는 요소를 §3 굵기로 (#1691).
+ * 번들 글꼴에 700이 없어 기본값 그대로면 합성 굵기로 그려진다.
+ */
+b,
+strong,
+th,
+h4 {
+  font-weight: var(--font-weight-strong);
 }
 
 a {

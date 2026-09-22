@@ -58,8 +58,8 @@
 
 .rt__title {
   margin: 0;
-  font-size: var(--font-size-display);
-  line-height: var(--line-height-display);
+  font-size: var(--font-size-page); /* 페이지 제목 — KPI 숫자(display)와 나눈다 (#1691) */
+  line-height: var(--line-height-page);
   font-weight: var(--font-weight-display);
   letter-spacing: var(--letterSpacing-tight);
   color: var(--text-primary);
