@@ -5,7 +5,7 @@ import {
   subscribeTheme,
   type ThemeChoice,
 } from './theme'
-import { useI18n } from '../i18n/core'
+import { useI18n, useTextLang } from '../i18n/core'
 import './ThemeToggle.css'
 
 /**
@@ -36,6 +36,7 @@ import './ThemeToggle.css'
  */
 export function ThemeToggle({ labelledBy }: { labelledBy?: string } = {}) {
   const { t } = useI18n()
+  const textLang = useTextLang()
   // 서버 스냅샷(3번째 인자)은 `light` — SSR을 쓰지 않지만 vitest 환경에서
   // matchMedia가 없을 때의 초기값과 일치시켜 깜빡임 경고를 피한다.
   const theme = useSyncExternalStore<ThemeChoice>(
@@ -48,11 +49,12 @@ export function ThemeToggle({ labelledBy }: { labelledBy?: string } = {}) {
     <div
       className="theme-toggle"
       role="radiogroup"
+      lang={textLang}
       aria-label={labelledBy ? undefined : t('theme.groupLabel')}
       aria-labelledby={labelledBy}
     >
-      <Option current={theme} value="light" label={t('theme.light')} />
-      <Option current={theme} value="dark" label={t('theme.dark')} />
+      <Option current={theme} value="light" label={t('theme.light')} textLang={textLang} />
+      <Option current={theme} value="dark" label={t('theme.dark')} textLang={textLang} />
     </div>
   )
 }
@@ -61,16 +63,20 @@ function Option({
   current,
   value,
   label,
+  textLang,
 }: {
   current: ThemeChoice
   value: ThemeChoice
   label: string
+  /** 영문 모드에서 `'en'` — `label`(`aria-label`·`title`)이 영어로 바뀌는 자리다. */
+  textLang: 'en' | undefined
 }) {
   const selected = current === value
   return (
     <button
       type="button"
       role="radio"
+      lang={textLang}
       aria-checked={selected}
       aria-label={label}
       title={label}

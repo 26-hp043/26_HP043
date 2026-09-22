@@ -1,4 +1,4 @@
-import { LANGUAGES, useI18n, type Language } from './core'
+import { LANGUAGES, useI18n, useTextLang, type Language } from './core'
 import './LanguageToggle.css'
 
 /**
@@ -20,11 +20,13 @@ import './LanguageToggle.css'
  */
 export function LanguageToggle({ labelledBy }: { labelledBy?: string } = {}) {
   const { language, setLanguage, t } = useI18n()
+  const textLang = useTextLang()
 
   return (
     <div
       className="language-toggle"
       role="radiogroup"
+      lang={textLang}
       aria-label={labelledBy ? undefined : t('i18n.groupLabel')}
       aria-labelledby={labelledBy}
     >
@@ -35,6 +37,7 @@ export function LanguageToggle({ labelledBy }: { labelledBy?: string } = {}) {
           value={candidate}
           label={candidate === 'ko' ? t('i18n.korean') : t('i18n.english')}
           text={candidate === 'ko' ? '한' : 'EN'}
+          textLang={textLang}
           onSelect={setLanguage}
         />
       ))}
@@ -47,12 +50,15 @@ function Option({
   value,
   label,
   text,
+  textLang,
   onSelect,
 }: {
   current: Language
   value: Language
   label: string
   text: string
+  /** 영문 모드에서 `'en'` — `label`(`aria-label`·`title`)이 영어로 바뀌는 자리다. */
+  textLang: 'en' | undefined
   onSelect: (language: Language) => void
 }) {
   const selected = current === value
@@ -60,6 +66,7 @@ function Option({
     <button
       type="button"
       role="radio"
+      lang={textLang}
       aria-checked={selected}
       aria-label={label}
       title={label}
@@ -70,7 +77,8 @@ function Option({
       }
       onClick={() => onSelect(value)}
     >
-      <span className="language-toggle__glyph" aria-hidden="true">
+      {/* 칸에 적는 글자는 그 언어의 이름 그 자체다 — 버튼의 `lang`을 덮어쓴다. */}
+      <span className="language-toggle__glyph" aria-hidden="true" lang={value}>
         {text}
       </span>
     </button>
