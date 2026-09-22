@@ -314,7 +314,7 @@ async def list_remaining_plans(
     regulation_year: int,
     as_of: datetime | None = None,
 ) -> list[Voyage]:
-    """``as_of`` 시점의 **잔여 계획** — 도착 예정이 그 시점보다 늦은 것 (#816 ⑴).
+    """**잔여 계획** — 정책이 ``INCLUDE_AS_PLAN``인 항차 전부, 날짜로 자르지 않는다 (#1323).
 
     ⚠️ **도착 예정으로 자르지 않는다** (`#1323`). 종전에는 ``planned_arrival_at >
     as_of``를 걸어 **도착 예정이 지난 ``INCLUDE_AS_PLAN`` 항차가 어느 쪽에도 들지

@@ -188,14 +188,18 @@ async def _collect_voyages(session: AsyncSession, *, vessel_id: UUID, year: int,
     ``as_of=2026-03-01``로 요청해도 그 이후 도착한 확정 실적까지 집계됐다 — **다른
     ``as_of``가 같은 결과**를 내는, 「된 것처럼 보이는데 안 되는 것」이었다.
 
-    두 갈래의 절단 방향이 **반대**다 — 시점을 기준으로 상보 집합을 이뤄야 「3월 시점의
-    연말 전망」이 성립한다(``PRD §12` — 잔여 계획으로 연말을 예상한다):
+    ``as_of``가 **자르는 것은 확정 쪽뿐**이다. 두 집합을 가르는 것은 날짜가 아니라
+    **정책**이다(``PRD §12.2`` ``remaining_voyages`` — 대상을 상태로 적고 날짜로 자르지 않는다):
 
     * 확정(``INCLUDE_AS_ACTUAL``) — **도착 ≤ ``as_of``** 만. 미래 실적이 과거 조회에
-      섞이는 것을 막는다(``list_annual_inclusions``의 종전 절단과 같은 규칙).
-    * 잔여(``INCLUDE_AS_PLAN``) — **도착 > ``as_of``** (도착 예정이 없으면 포함).
-      같은 절단을 그대로 쓰면 잔여 계획이 전멸해 연말 예상이 확정 누계로만 수렴한다
-      — 기능③ 자체가 무너진다(2026-09-18 착수 중 실측).
+      섞이는 것을 막는다(``list_annual_inclusions``).
+    * 잔여(``INCLUDE_AS_PLAN``) — **날짜로 자르지 않는다**(`#1323`). 정책이
+      ``INCLUDE_AS_PLAN``인 항차는 도착 예정이 ``as_of``보다 이르든 늦든 전부 잔여다.
+
+    ⚠️ **[#1668] 종전 이 docstring은 잔여를 「도착 > ``as_of``」로 적고 있었다.** `#816`이 그렇게
+    넣었다가 `#1323`이 지웠는데(도착 예정이 지난 ``IN_PROGRESS``·``PLANNED``가 어느 쪽에도
+    들지 않아 연말 예상 등급이 D → C로 바뀌었다), 이 설명만 남아 실제 계산 경계를 거꾸로
+    읽게 했다. 저장소 쪽 근거는 :func:`voyage_repo.list_remaining_plans` docstring.
     """
     actual = await voyage_repo.list_annual_inclusions(
         session,
