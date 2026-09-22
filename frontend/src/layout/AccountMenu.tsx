@@ -127,9 +127,10 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
         </p>
         <p className="account-menu__panel-email">{user.email}</p>
         {/*
-          인증 상태에 색을 주지 않는다. 쓸 만한 경고색 별칭(`--color-warning-text`)이
-          현재 `--cii-c-fill`(등급 C)을 가리켜, 등급 문자 없이 쓰면 `§0.2` 제약 2를
-          어긴다. 미인증은 셸 상단 배너가 이미 상시로 알린다.
+          인증 상태에 색을 주지 않는다. 미인증은 셸 상단 배너가 이미 상시로 알린다.
+          (당시에는 경고색(`--color-warning-text`)이 `--cii-c-fill`(등급 C)을 가리켜
+          `§0.2` 제약 2에도 걸렸다 — `#1022` 이후 `--semantic-warning` 쪽이다. 여기에
+          색을 줄지는 디자인 결정이며 이 주석이 정하지 않는다.)
         */}
         <p className="account-menu__verify">
           {verified ? t('account.verified') : t('account.unverified')}
