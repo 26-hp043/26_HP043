@@ -221,27 +221,26 @@
 }
 
 /*
- * §2.5 (b) — **4단계 전용 색 램프를 만들지 않는다.** LOW·MEDIUM은 본문색 그대로다.
+ * §2.5 (b) 🔒 — **4단계 전용 색 램프를 만들지 않는다.** LOW·MEDIUM은 본문색 그대로다.
+ * HIGH는 Warning, CRITICAL은 Danger(둘 다 문자 전용 `-text` 토큰), **아이콘은 단계와
+ * 무관하게 Warning 하나**다 — 기능①(`VoyageCiiResult.css`)·시나리오 비교와 같은 규칙이며
+ * `riskColor.test.ts`가 세 화면을 함께 잡는다.
  *
- * ## 기능①과 한 토큰이 다르다
- *
- * `VoyageCiiResult.css`는 HIGH에 `--color-warning-text`를 쓴다. 그 토큰은 **다크에서
- * `--cii-c-fill`(등급 C 램프)로 풀린다**(`tokens.css` 237·252) — 등급 문자도 등급 축
- * 라벨도 없는 자리에 램프가 서는 것이라 `§0.2` 제약 2가 막으려는 상태다. 이 파일이
- * 위에서 `--color-warning`을 거부한 것과 같은 사유이고, 미인증 배너 색과도 같은 형태다.
- *
- * 그래서 HIGH·CRITICAL을 **한 색**으로 두고 정도는 라벨이 담당하게 한다 — `§2.5 (b)`가
- * 아이콘에 대해 적은 판단(*「아이콘은 주의가 필요하다만 전달하고 정도는 라벨이
- * 담당한다」*)을 색에 그대로 적용한 것이다. 두 화면을 한 토큰으로 맞추는 일은
- * `--color-warning-text`의 다크 정의를 정하는 일이라 `DESIGN_SYSTEM` 소유자 건이다.
+ * > **이력** — 종전에는 HIGH·CRITICAL·아이콘을 모두 Danger로 두었다. 사유는 *「`--color-
+ * > warning-text`가 다크에서 `--cii-c-fill`(등급 C 램프)로 풀린다」*였는데 `#1022`로 그
+ * > 별칭이 없어졌고(지금은 `--semantic-warning`), 2026-09-22 디자인 확정(`rlatnals4114`)으로
+ * > 위 규칙이 `§2.5 (b)`에 들어갔다.
  */
-.rt__axis-facts .rt__risk--high,
+.rt__axis-facts .rt__risk--high {
+  color: var(--color-warning-text);
+}
+
 .rt__axis-facts .rt__risk--critical {
   color: var(--color-danger-text);
 }
 
 .rt__risk-icon {
-  color: var(--color-danger-text);
+  color: var(--color-warning-text);
 }
 
 .rt__note,
