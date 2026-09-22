@@ -21,11 +21,16 @@ import {
   type FormErrors,
 } from './requestRules'
 import {
+  ESTIMATED_DISTANCE_HINT,
+  GREAT_CIRCLE_FAILED,
   LOOKUP_SOURCE_NOTICE,
+  distanceInput,
+  fetchGreatCircleNm,
   lookupPort,
   matchSamplePort,
   portOptionLabel,
   useSamplePorts,
+  type PortCoord,
 } from '../ports/samplePorts'
 import { ScenarioComparisonError } from './provider'
 import {
@@ -103,6 +108,25 @@ import { publishScreenResult } from '../assistant/screenResult'
  * `idle`이 기본이다 — **마운트 시 계산을 걸지 않는다.** 사용자가 조건을 정하기
  * 전의 계산은 누구의 질문도 아니고, 실패하면 화면이 오류로 시작한다(#511).
  */
+/** 좌표 찾기 한 칸의 안내 상태 (#768). 실패해도 폼을 막지 않으므로 오류가 아니라 안내다. */
+interface LookupState {
+  status: 'idle' | 'loading' | 'done'
+  message: string
+}
+
+const IDLE_LOOKUP: LookupState = { status: 'idle', message: '' }
+
+/**
+ * 두 입력 문자열을 좌표 한 쌍으로 — 한쪽이라도 비었거나 수가 아니면 `null`이다 (#1750).
+ *
+ * `Number('')`은 0이다. 빈 칸을 적도 0도로 읽으면 **고르지 않은 위치로 거리를 낸다.**
+ */
+function toCoord(lat: string, lon: string): PortCoord | null {
+  if (lat.trim() === '' || lon.trim() === '') return null
+  const parsed = { lat: Number(lat), lon: Number(lon) }
+  return Number.isFinite(parsed.lat) && Number.isFinite(parsed.lon) ? parsed : null
+}
+
 type LoadState =
   | { status: 'idle' }
   | { status: 'loading' }
@@ -169,6 +193,9 @@ export function ScenarioComparison({
    */
   const ports = useSamplePorts()
   const [currentPortText, setCurrentPortText] = useState('')
+  /** 지금 입력칸의 현재 위치 이름 — 목적항과 같은 이유로 늦게 온 응답이 대조한다 (#1097 ⑴). */
+  const currentNameRef = useRef('')
+  currentNameRef.current = currentPortText.trim()
   const [errors, setErrors] = useState<FormErrors>({})
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const advancedFilled = countAdvancedFilled(form)
@@ -178,10 +205,27 @@ export function ScenarioComparison({
    * 있으면 셀렉트는 빈 채로 폼은 그 id로 계산했다 — 보이는 대상과 계산 대상이 달랐다.
    */
   const SHELL_VESSEL_MISSING = '상단바에서 고른 선박이 목록에 없습니다. 다시 선택해 주세요.'
-  const [lookup, setLookup] = useState<{ status: 'idle' | 'loading' | 'done'; message: string }>({
-    status: 'idle',
-    message: '',
+  /*
+   * 좌표 찾기 안내 — **두 칸이 따로 갖는다** (#1750). 하나로 두면 현재 위치를 찾고 난
+   * 안내가 목적항 칸 아래에 붙는다.
+   */
+  const [lookup, setLookup] = useState<{ current: LookupState; destination: LookupState }>({
+    current: IDLE_LOOKUP,
+    destination: IDLE_LOOKUP,
   })
+  /*
+   * 추정 거리 (#1750).
+   *
+   * `estimatedRef`는 **직항 거리 칸의 값이 추정으로 채워진 것인지**를 기억한다. 항을 바꾸면
+   * 그 숫자는 새 항로의 추정도, 사용자가 넣은 값도 아니므로 비운다 — 사용자가 직접 넣은
+   * 값은 건드리지 않는다(`#1256`이 항차 추가 폼에서 같은 결함을 고쳤다).
+   *
+   * `distanceGeneration`은 늦게 온 응답을 버리는 표다(`#1657`).
+   */
+  const estimatedRef = useRef(false)
+  const distanceGeneration = useRef(0)
+  const [estimating, setEstimating] = useState(false)
+  const [distanceNotice, setDistanceNotice] = useState('')
   const [state, setState] = useState<LoadState>({ status: 'idle' })
 
   /*
@@ -256,11 +300,89 @@ export function ScenarioComparison({
         ? '선박 제원에 이 값이 없습니다 — 직접 입력하면 이 비교에 씁니다.'
         : '선박 제원 값입니다. 고치면 이 비교에만 씁니다.'
 
-  // 목적지 이름이 바뀌면 앞 조회의 안내는 다른 항만 것이다 — 지운다 (#1097 ⑴).
+  // 항만 이름이 바뀌면 앞 조회의 안내는 다른 항만 것이다 — 지운다 (#1097 ⑴).
   const destinationName = form.destinationPortName.trim()
   useEffect(() => {
-    setLookup({ status: 'idle', message: '' })
+    setLookup((prev) => ({ ...prev, destination: IDLE_LOOKUP }))
   }, [destinationName])
+  const currentName = currentPortText.trim()
+  useEffect(() => {
+    setLookup((prev) => ({ ...prev, current: IDLE_LOOKUP }))
+  }, [currentName])
+
+  /**
+   * 추정으로 채운 거리를 버린다 (#1256 · #1657).
+   *
+   * 항이나 좌표가 바뀌면 그 숫자는 **그때의 두 항에서 나온 값**이라 더 이상 이 항로의
+   * 추정이 아니다. 사용자가 직접 넣은 값(`estimatedRef.current === false`)은 남긴다.
+   * 진행 중이던 조회의 결과도 함께 버린다.
+   */
+  const dropEstimatedDistance = () => {
+    distanceGeneration.current += 1
+    setDistanceNotice('')
+    if (!estimatedRef.current) return
+    estimatedRef.current = false
+    setForm((prev) => ({ ...prev, baseDistanceNm: '' }))
+  }
+
+  const currentCoord = toCoord(form.currentLat, form.currentLon)
+  const destinationCoord = toCoord(form.destinationLat, form.destinationLon)
+  const canEstimate = currentCoord !== null && destinationCoord !== null
+
+  /** 「추정 거리 넣기」 — 누를 때만 부른다. 실패해도 폼은 그대로 쓴다(`PRD §16.2`). */
+  const estimateDistance = async () => {
+    if (currentCoord === null || destinationCoord === null || estimating) return
+    distanceGeneration.current += 1
+    const ticket = distanceGeneration.current
+    setEstimating(true)
+    setDistanceNotice('')
+    try {
+      const nm = await fetchGreatCircleNm(currentCoord, destinationCoord)
+      // 기다리는 동안 항이나 좌표가 바뀌었으면 이 거리는 다른 항로의 것이다 (#1657).
+      if (ticket !== distanceGeneration.current) return
+      estimatedRef.current = true
+      setForm((prev) => ({ ...prev, baseDistanceNm: distanceInput(nm) }))
+      setDistanceNotice(ESTIMATED_DISTANCE_HINT)
+    } catch (error) {
+      if (ticket !== distanceGeneration.current) return
+      setDistanceNotice(error instanceof Error ? error.message : GREAT_CIRCLE_FAILED)
+    } finally {
+      setEstimating(false)
+    }
+  }
+
+  /**
+   * 목록 밖 항만의 좌표를 찾는다 (#768). 두 칸이 같은 절차를 쓴다 (#1750).
+   *
+   * **입력 중에 부르지 않는다** — 공개 Nominatim 사용 정책이 자동완성을 금지한다.
+   */
+  const findCoordinates = async (side: 'current' | 'destination') => {
+    const nameRef = side === 'current' ? currentNameRef : destinationNameRef
+    const requested = nameRef.current
+    setLookup((prev) => ({ ...prev, [side]: { status: 'loading', message: '' } }))
+    const result = await lookupPort(requested)
+    // 조회하는 동안 이름이 바뀌었으면 이 좌표는 다른 항만 것이다 — 버린다 (#1097 ⑴).
+    if (nameRef.current !== requested) return
+    if (result.ok) {
+      setForm((current) =>
+        side === 'current'
+          ? { ...current, currentLat: String(result.port.lat), currentLon: String(result.port.lon) }
+          : {
+              ...current,
+              destinationLat: String(result.port.lat),
+              destinationLon: String(result.port.lon),
+            },
+      )
+      // 좌표가 바뀌었으니 앞서 채운 추정 거리는 이 항로의 것이 아니다.
+      dropEstimatedDistance()
+      setLookup((prev) => ({
+        ...prev,
+        [side]: { status: 'done', message: LOOKUP_SOURCE_NOTICE[result.port.source] ?? '' },
+      }))
+      return
+    }
+    setLookup((prev) => ({ ...prev, [side]: { status: 'done', message: result.message } }))
+  }
 
   /*
    * 연도를 고를 수 없으면 비교하지 않는다 (`#1093` ⑷).
@@ -480,8 +602,42 @@ export function ScenarioComparison({
                 className="scenario-comparison__control"
                 inputMode="decimal"
                 value={form.baseDistanceNm}
-                onChange={(e) => setForm((prev) => ({ ...prev, baseDistanceNm: e.target.value }))}
+                onChange={(e) => {
+                  /*
+                   * 손으로 고친 값은 더 이상 추정이 아니다 (#1750). 표시를 떼지 않으면
+                   * 사용자가 넣은 숫자에 「좌표 기반 추정 거리」가 붙은 채로 남는다.
+                   */
+                  estimatedRef.current = false
+                  setDistanceNotice('')
+                  setForm((prev) => ({ ...prev, baseDistanceNm: e.target.value }))
+                }}
               />
+              {/*
+                항구를 고르면 거리를 **손으로 넣지 않아도 된다** (#1750). 누를 때만 부른다 —
+                입력 중 자동 조회는 공개 Nominatim 사용 정책 위반이다(#768).
+
+                좌표가 없으면 비활성하고 **그 사유를 적는다**(`§14` 비활성 사유).
+              */}
+              <button
+                type="button"
+                className="scenario-comparison__lookup"
+                onClick={estimateDistance}
+                disabled={!canEstimate || estimating}
+                // §14 — 잠긴 사유를 낭독에도 잇는다 (#1170 ⑵).
+                aria-describedby={canEstimate ? undefined : 'sc-estimate-blocked'}
+              >
+                {estimating ? '추정하는 중…' : '추정 거리 넣기'}
+              </button>
+              {!canEstimate && (
+                <span id="sc-estimate-blocked" className="scenario-comparison__field-hint">
+                  현재 위치와 목적항의 좌표가 모두 있어야 추정할 수 있습니다.
+                </span>
+              )}
+              {distanceNotice !== '' && (
+                <span className="scenario-comparison__field-hint" role="status">
+                  {distanceNotice}
+                </span>
+              )}
               {/* 비우면 좌표로 계산한다는 것을 **누르기 전에** 알린다 (#1005 · `PRD §15.2`).
                   조건부라 `Field`의 `hint`가 아니라 여기 둔다 — `role="status"`로 떠야 한다. */}
               {usesCoordinateDistance(form) && (
@@ -570,20 +726,45 @@ export function ScenarioComparison({
 
         <Field id="sc-currentPort" label="현재 위치 (항만에서 고르기)">
           {(control) => (
-            <input
-              {...control}
-              className="scenario-comparison__control"
-              list="sc-ports"
-              value={currentPortText}
-              onChange={(e) => {
-                setCurrentPortText(e.target.value)
-                const match = matchSamplePort(ports, e.target.value)
-                if (match) {
-                  setForm((prev) => ({ ...prev, currentLat: String(match.lat), currentLon: String(match.lon) }))
-                }
-              }}
-              placeholder="예: BUSAN — 비워 두고 「고급 설정」에서 좌표를 넣어도 됩니다"
-            />
+            <>
+              <input
+                {...control}
+                className="scenario-comparison__control"
+                list="sc-ports"
+                value={currentPortText}
+                onChange={(e) => {
+                  setCurrentPortText(e.target.value)
+                  const match = matchSamplePort(ports, e.target.value)
+                  if (match) {
+                    setForm((prev) => ({
+                      ...prev,
+                      currentLat: String(match.lat),
+                      currentLon: String(match.lon),
+                    }))
+                  }
+                  // 출발점이 바뀌면 앞서 채운 추정 거리는 이 항로의 것이 아니다 (#1256).
+                  dropEstimatedDistance()
+                }}
+                placeholder="예: BUSAN — 비워 두고 「고급 설정」에서 좌표를 넣어도 됩니다"
+              />
+              {/*
+                목록 밖 항만도 **누르면** 좌표를 찾는다 (#768 · #1750). 종전에는 목적항에만
+                있어, 출발항이 목록 밖이면 두 끝이 생기지 않아 거리 추정이 막혔다.
+              */}
+              {currentName.length >= 2 && form.currentLat === '' && (
+                <button
+                  type="button"
+                  className="scenario-comparison__lookup"
+                  onClick={() => findCoordinates('current')}
+                  disabled={lookup.current.status === 'loading'}
+                >
+                  {lookup.current.status === 'loading' ? '찾는 중…' : '좌표 찾기'}
+                </button>
+              )}
+              {lookup.current.message !== '' && (
+                <span className="scenario-comparison__field-hint">{lookup.current.message}</span>
+              )}
+            </>
           )}
         </Field>
         <Field id="sc-destinationPortName" label="목적항">
@@ -603,6 +784,8 @@ export function ScenarioComparison({
                     destinationLat: match ? String(match.lat) : '',
                     destinationLon: match ? String(match.lon) : '',
                   })
+                  // 도착점이 바뀌면 앞서 채운 추정 거리는 이 항로의 것이 아니다 (#1256).
+                  dropEstimatedDistance()
                 }}
               />
               {form.destinationLat !== '' && (
@@ -613,37 +796,20 @@ export function ScenarioComparison({
                 공개 Nominatim 사용 정책이 자동완성을 금지하기 때문이다 — 타이핑에 붙이면
                 곧바로 위반이다. 실패해도 폼은 그대로 쓸 수 있다(`PRD §16.2`).
               */}
-              {form.destinationPortName.trim().length >= 2 && form.destinationLat === '' && (
+              {destinationName.length >= 2 && form.destinationLat === '' && (
                 <button
                   type="button"
                   className="scenario-comparison__lookup"
-                  onClick={async () => {
-                    const requested = form.destinationPortName.trim()
-                    setLookup({ status: 'loading', message: '' })
-                    const result = await lookupPort(requested)
-                    // 조회하는 동안 이름이 바뀌었으면 이 좌표는 다른 항만 것이다 — 버린다 (#1097 ⑴).
-                    if (destinationNameRef.current !== requested) return
-                    if (result.ok) {
-                      setForm((current) => ({
-                        ...current,
-                        destinationLat: String(result.port.lat),
-                        destinationLon: String(result.port.lon),
-                      }))
-                      setLookup({
-                        status: 'done',
-                        message: LOOKUP_SOURCE_NOTICE[result.port.source] ?? '',
-                      })
-                      return
-                    }
-                    setLookup({ status: 'done', message: result.message })
-                  }}
-                  disabled={lookup.status === 'loading'}
+                  onClick={() => findCoordinates('destination')}
+                  disabled={lookup.destination.status === 'loading'}
                 >
-                  {lookup.status === 'loading' ? '찾는 중…' : '좌표 찾기'}
+                  {lookup.destination.status === 'loading' ? '찾는 중…' : '좌표 찾기'}
                 </button>
               )}
-              {lookup.message !== '' && (
-                <span className="scenario-comparison__field-hint">{lookup.message}</span>
+              {lookup.destination.message !== '' && (
+                <span className="scenario-comparison__field-hint">
+                  {lookup.destination.message}
+                </span>
               )}
             </>
           )}

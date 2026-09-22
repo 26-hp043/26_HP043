@@ -55,15 +55,16 @@ const toRequest = (state: ComparisonFormState) => toRequestWith(state, FUELS)
 /**
  * **다 채운 폼**을 만든다.
  *
- * 선박과 연도는 `initialFormState()`가 비워 두므로(`#1093` ⑷ — 고르지 않은 값으로
- * 계산되는 것을 막는다) 여기서 명시한다. 검증 규칙을 보는 검사들은 「사용자가 골랐다」
- * 를 전제로 하며, 비었을 때의 거동은 아래 전용 검사가 따로 본다.
+ * 선박·연도·직항 거리는 `initialFormState()`가 비워 두므로(`#1093` ⑷ · `#1750` — 고르지
+ * 않은 값으로 계산되는 것을 막는다) 여기서 명시한다. 검증 규칙을 보는 검사들은 「사용자가
+ * 골랐다」를 전제로 하며, 비었을 때의 거동은 아래 전용 검사가 따로 본다.
  */
 function state(overrides: Partial<ComparisonFormState> = {}): ComparisonFormState {
   return {
     ...initialFormState(),
     vesselId: SEEDED_VESSEL_ID,
     regulationYear: '2026',
+    baseDistanceNm: '1000',
     ...overrides,
   }
 }
@@ -85,9 +86,18 @@ describe('initialFormState — 선박·연도에 기본값을 넣지 않는다',
     expect(validateForm(initialFormState())).toHaveProperty(FIELD.regulationYear)
   })
 
+  it('직항 거리도 비어 있다 (#1750)', () => {
+    /*
+     * 종전에는 `'1000'`이 박혀 있었다. `#1005`가 「비워 두면 현재 위치·목적항 좌표로
+     * 계산한다」를 열어 두었는데, **그 경로가 이 기본값에 덮여 있었다** — 항구를 골라도
+     * 1000nm으로 계산됐다. 선박·연도와 같은 원칙이다.
+     */
+    expect(initialFormState().baseDistanceNm).toBe('')
+    expect(validateForm(initialFormState())).toHaveProperty(FIELD.baseDistanceNm)
+  })
+
   it('나머지 조건은 종전 DEMO_REQUEST 값을 그대로 물려받는다', () => {
     const initial = initialFormState()
-    expect(initial.baseDistanceNm).toBe('1000')
     expect(initial.baseSpeedKn).toBe('12.8')
     expect(initial.baseDailyFocTon).toBe('26.88')
     expect(initial.fuelType).toBe('HFO')

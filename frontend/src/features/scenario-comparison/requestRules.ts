@@ -191,7 +191,13 @@ export function initialFormState(): ComparisonFormState {
   return {
     vesselId: '',
     regulationYear: '',
-    baseDistanceNm: '1000',
+    /*
+     * **비워 둔다** (#1750). 종전에는 `'1000'`이 박혀 있어, 현재 위치와 목적항을 골라도
+     * 그 값이 거리로 쓰였다 — `#1005`가 열어 둔 좌표 경로(`usesCoordinateDistance`)가
+     * 기본값에 덮여 있었다. 아래 선택 입력 넷을 비우는 것과 같은 이유다: **사용자가 고른
+     * 적 없는 조건으로 계산되지 않게 한다.**
+     */
+    baseDistanceNm: '',
     baseSpeedKn: '12.8',
     // 1000nm / 14kn ≈ 2.98일 · 총 80t → 일일 26.88t (#139 계약)
     baseDailyFocTon: '26.88',

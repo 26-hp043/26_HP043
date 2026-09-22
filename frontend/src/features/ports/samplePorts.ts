@@ -92,6 +92,63 @@ export function distanceInput(distanceNm: number): string {
   return distanceNm.toFixed(2)
 }
 
+/* ── 좌표 기반 추정 거리 (`GET /ports/great-circle`) ───────────────── */
+
+/**
+ * `GET /ports/great-circle`의 질의 문자열 (`API_SPEC §3.9` · #760).
+ *
+ * ## 왜 계약만 여기 두는가 (#1750)
+ *
+ * 이 호출을 쓰는 자리가 둘이 됐다 — 항차 추가 폼(`voyage-management/apiProvider`)과
+ * 항로 비교의 「추정 거리 넣기」다. **인자 이름과 응답 필드**는 서버 계약이라 한 곳에
+ * 둔다. 한쪽만 `from_lat`을 `lat1`로 고치면 그 화면만 조용히 깨진다.
+ *
+ * **전송은 각 모듈이 한다.** 항차 쪽은 세션 만료 redirect·CSRF 헤더를 붙이는 `call()`을
+ * 거치고, 이 파일의 함수들(`fetchSamplePorts` · `lookupPort`)은 평범한 fetch다 — 그 차이는
+ * 모듈의 정책이지 이 엔드포인트의 계약이 아니다.
+ */
+export function greatCircleQuery(from: PortCoord, to: PortCoord): string {
+  return new URLSearchParams({
+    from_lat: String(from.lat),
+    from_lon: String(from.lon),
+    to_lat: String(to.lat),
+    to_lon: String(to.lon),
+  }).toString()
+}
+
+/** 응답 본문에서 거리(해리)를 꺼낸다. 계약과 다르면 `null` — 부르는 쪽이 문구를 정한다. */
+export function greatCircleDistanceNm(body: unknown): number | null {
+  const data = (body as { data?: { distance_nm?: unknown } } | null | undefined)?.data
+  const distance = data?.distance_nm
+  return typeof distance === 'number' && Number.isFinite(distance) ? distance : null
+}
+
+/** 추정 거리를 받지 못했을 때의 문구 — 두 화면이 같은 말을 쓴다. */
+export const GREAT_CIRCLE_FAILED = '추정 거리를 받지 못했습니다.'
+
+/**
+ * 두 좌표의 대권거리(해리)를 받는다 — **추정값**이다 (`PRD §15.2`).
+ *
+ * 화면에서 직접 계산하지 않는다. 서버가 쓰는 식과 갈리면 같은 두 항에서 화면과 결과가
+ * 다른 거리를 말하게 된다(`§11` 출처 표기).
+ */
+export async function fetchGreatCircleNm(
+  from: PortCoord,
+  to: PortCoord,
+  fetchImpl: typeof fetch = globalThis.fetch,
+  baseUrl: string = DEFAULT_API_BASE_URL,
+): Promise<number> {
+  const response = await fetchImpl(`${baseUrl}/ports/great-circle?${greatCircleQuery(from, to)}`, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+  })
+  const body = (await response.json().catch(() => null)) as unknown
+  if (!response.ok) throw new Error(GREAT_CIRCLE_FAILED)
+  const distance = greatCircleDistanceNm(body)
+  if (distance === null) throw new Error('추정 거리 응답이 계약과 다릅니다.')
+  return distance
+}
+
 /** 응답 한 행이 계약 모양인가 — 목록을 받는 모든 경로가 같은 검사를 쓴다. */
 export function isSamplePort(row: unknown): row is SamplePort {
   if (typeof row !== 'object' || row === null) return false

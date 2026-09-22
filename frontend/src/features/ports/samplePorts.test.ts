@@ -9,6 +9,9 @@ import {
   LOOKUP_FAILED_FALLBACK,
   LOOKUP_SOURCE_NOTICE,
   lookupPort,
+  fetchGreatCircleNm,
+  greatCircleDistanceNm,
+  greatCircleQuery,
 } from './samplePorts'
 
 /**
@@ -146,5 +149,62 @@ describe('portDisplayName', () => {
 
   it('이미 한글로 저장된 값도 그대로 선다 — 두 번 바꾸지 않는다', () => {
     expect(portDisplayName(PORTS, '부산')).toBe('부산')
+  })
+})
+
+/*
+ * 좌표 기반 추정 거리의 **계약**을 이 파일이 소유한다 (#1750).
+ *
+ * 같은 엔드포인트를 항차 추가 폼(#760)과 항로 비교가 부른다. 인자 이름이나 응답 필드가
+ * 한쪽에서만 바뀌면 그 화면만 조용히 깨지므로, 질의와 응답 읽기를 여기 한 벌만 둔다.
+ */
+describe('좌표 기반 추정 거리 — GET /ports/great-circle (#1750)', () => {
+  const FROM = { lat: 35.1, lon: 129.0333 }
+  const TO = { lat: 1.2833, lon: 103.85 }
+
+  it('질의는 `API_SPEC §3.9`의 네 인자다', () => {
+    const query = greatCircleQuery(FROM, TO)
+    expect(query).toBe('from_lat=35.1&from_lon=129.0333&to_lat=1.2833&to_lon=103.85')
+  })
+
+  it('응답에서 거리를 꺼낸다 — 계약과 다르면 null이다', () => {
+    expect(greatCircleDistanceNm({ data: { distance_nm: 2504.62 } })).toBe(2504.62)
+    // 문자열은 숫자가 아니다. 삼키면 `NaN`이 거리 칸에 들어간다.
+    expect(greatCircleDistanceNm({ data: { distance_nm: '2504.62' } })).toBeNull()
+    expect(greatCircleDistanceNm({ data: {} })).toBeNull()
+    expect(greatCircleDistanceNm(null)).toBeNull()
+  })
+
+  it('받은 거리를 그대로 돌려준다 — 화면에서 다시 계산하지 않는다', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: { distance_nm: 2504.62 } }),
+    })) as unknown as typeof fetch
+
+    expect(await fetchGreatCircleNm(FROM, TO, fetchImpl, '/api/v1')).toBe(2504.62)
+    expect(String((fetchImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0])).toBe(
+      `/api/v1/ports/great-circle?${greatCircleQuery(FROM, TO)}`,
+    )
+  })
+
+  it('실패와 계약 위반을 가려 던진다 — 빈 값으로 삼키지 않는다', async () => {
+    const failing = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    })) as unknown as typeof fetch
+    await expect(fetchGreatCircleNm(FROM, TO, failing, '/api/v1')).rejects.toThrow(
+      '추정 거리를 받지 못했습니다.',
+    )
+
+    const malformed = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: {} }),
+    })) as unknown as typeof fetch
+    await expect(fetchGreatCircleNm(FROM, TO, malformed, '/api/v1')).rejects.toThrow(
+      '추정 거리 응답이 계약과 다릅니다.',
+    )
   })
 })

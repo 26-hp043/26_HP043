@@ -345,7 +345,7 @@ function stubServerWithComparison(body: unknown = COMPARE_BODY, years: number[] 
  * `'2026'`이 박혀 있어 목록이 오기 전에도 눌렸고, 그것이 고친 결함이다 — 사용자가
  * 고른 적 없는 해로 계산이 돌았다.
  */
-async function clickCompare() {
+async function clickCompare(distance: string | null = '1000') {
   const button = (await screen.findByRole('button', {
     name: /비교하기/,
   })) as HTMLButtonElement
@@ -375,6 +375,15 @@ async function clickCompare() {
    */
   await screen.findByRole('option', { name: '중유 (HFO)' }, WAIT)
   await waitFor(() => expect(button.disabled).toBe(false), WAIT)
+  /*
+   * ⚠️ **직항 거리를 채운다** (#1750). 종전에는 `initialFormState()`가 `'1000'`을 들고
+   * 있었는데, 그 기본값이 「항구를 골라도 거리를 손으로 넣는다」의 원인이라 비웠다.
+   * 이 도우미를 쓰는 검사들은 거리를 조건으로 보지 않으므로 여기서 한 번 넣는다 —
+   * 거리 자체를 보는 검사는 이 도우미를 쓰지 않고 직접 넣는다.
+   */
+  if (distance !== null) {
+    fireEvent.change(screen.getByLabelText(/직항 거리/), { target: { value: distance } })
+  }
   fireEvent.click(button)
   return button
 }
@@ -1080,7 +1089,8 @@ describe('샘플 항만 — 현재 위치·목적항 (#1005)', () => {
     fireEvent.change(screen.getByLabelText(/직항 거리/), { target: { value: '' } })
     expect(screen.getByText(/비워 두면 현재 위치와 목적항 좌표로 계산합니다/)).toBeTruthy()
 
-    await clickCompare()
+    // 거리를 비운 채로 보낸다 — 이 검사가 보는 것이 그 경로다 (#1005).
+    await clickCompare(null)
 
     await waitFor(() =>
       expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/scenarios/compare'))).toBe(true),
@@ -1406,5 +1416,164 @@ describe('비교 표 — 행은 지표, 열은 시나리오 (#1745)', () => {
     const result = document.querySelector('.scenario-result')
     expect(result?.contains(table)).toBe(true)
     expect(result?.querySelector('.scenario-comparison__lowest')).toBeTruthy()
+  })
+})
+
+/*
+ * 항구를 고르면 직항 거리를 손으로 넣지 않는다 (#1750).
+ *
+ * `#1005`가 「비우면 좌표로 계산한다」를 열어 두었지만 `initialFormState()`의 `'1000'`이
+ * 그 경로를 덮고 있었고, 비우고 눌러도 **거리는 결과에서야** 보였다. 여기서 보는 것은:
+ * 추정 거리가 칸에 들어오는가, 항을 바꾸면 사라지는가, 손으로 넣은 값은 남는가.
+ */
+describe('추정 거리 넣기 (#1750)', () => {
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGKEP', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+  ]
+
+  function stubWithGreatCircle(distanceNm: unknown = 2504.62) {
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/ports/great-circle')) {
+        return jsonResponse({ data: { distance_nm: distanceNm } })
+      }
+      if (url.includes('/ports/samples')) return jsonResponse({ data: PORTS })
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  async function pickBothPorts() {
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText(/현재 위치/), { target: { value: '부산' } })
+    fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'SINGAPORE' } })
+  }
+
+  const distanceInput = () => screen.getByLabelText(/직항 거리/) as HTMLInputElement
+  const estimateButton = () =>
+    screen.getByRole('button', { name: /추정 거리 넣기|추정하는 중/ }) as HTMLButtonElement
+
+  it('직항 거리는 처음에 비어 있다 — 고른 적 없는 1000nm으로 계산하지 않는다', async () => {
+    stubWithGreatCircle()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    expect(distanceInput().value).toBe('')
+  })
+
+  it('좌표가 없으면 버튼이 잠기고 그 사유를 적는다 (§14)', async () => {
+    stubWithGreatCircle()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    expect(estimateButton().disabled).toBe(true)
+    expect(screen.getByText(/좌표가 모두 있어야 추정할 수 있습니다/)).toBeTruthy()
+  })
+
+  it('두 항을 고르고 누르면 거리가 칸에 들어오고, 추정이라는 것과 왜 짧을 수 있는지를 적는다', async () => {
+    const fetchImpl = stubWithGreatCircle()
+    renderScreen()
+    await pickBothPorts()
+
+    await waitFor(() => expect(estimateButton().disabled).toBe(false))
+    fireEvent.click(estimateButton())
+
+    await waitFor(() => expect(distanceInput().value).toBe('2504.62'))
+    expect(screen.getByText(/좌표 기반 추정 거리/)).toBeTruthy()
+    expect(screen.getByText(/실제 항로보다 짧을 수 있습니다/)).toBeTruthy()
+
+    // 화면에서 계산하지 않는다 — 서버가 쓰는 값과 갈리면 안 된다.
+    const call = fetchImpl.mock.calls.find(([url]) => String(url).includes('/ports/great-circle'))!
+    expect(String(call[0])).toContain('from_lat=35.1')
+    expect(String(call[0])).toContain('to_lon=103.85')
+  })
+
+  it('항을 바꾸면 추정으로 채운 거리가 남지 않는다 (#1256)', async () => {
+    stubWithGreatCircle()
+    renderScreen()
+    await pickBothPorts()
+    await waitFor(() => expect(estimateButton().disabled).toBe(false))
+    fireEvent.click(estimateButton())
+    await waitFor(() => expect(distanceInput().value).toBe('2504.62'))
+
+    fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'TOKYO' } })
+
+    expect(distanceInput().value).toBe('')
+    expect(screen.queryByText(/좌표 기반 추정 거리 —/)).toBeNull()
+  })
+
+  it('손으로 넣은 거리는 항을 바꿔도 남는다 — 사용자가 넣은 값이다', async () => {
+    stubWithGreatCircle()
+    renderScreen()
+    await pickBothPorts()
+    fireEvent.change(distanceInput(), { target: { value: '2600' } })
+
+    fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'TOKYO' } })
+
+    expect(distanceInput().value).toBe('2600')
+  })
+
+  it('추정한 값을 손으로 고치면 추정 표시가 사라진다', async () => {
+    stubWithGreatCircle()
+    renderScreen()
+    await pickBothPorts()
+    await waitFor(() => expect(estimateButton().disabled).toBe(false))
+    fireEvent.click(estimateButton())
+    await waitFor(() => expect(distanceInput().value).toBe('2504.62'))
+
+    fireEvent.change(distanceInput(), { target: { value: '3100' } })
+
+    expect(screen.queryByText(/좌표 기반 추정 거리 —/)).toBeNull()
+  })
+
+  it('응답이 계약과 다르면 거리를 넣지 않고 그 사실을 말한다', async () => {
+    stubWithGreatCircle('2504.62')
+    renderScreen()
+    await pickBothPorts()
+    await waitFor(() => expect(estimateButton().disabled).toBe(false))
+    fireEvent.click(estimateButton())
+
+    expect(await screen.findByText(/추정 거리 응답이 계약과 다릅니다/)).toBeTruthy()
+    expect(distanceInput().value).toBe('')
+  })
+
+  it('현재 위치도 목록 밖이면 좌표를 찾을 수 있다 — 종전에는 목적항에만 있었다 (#768)', async () => {
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      const url = String(input)
+      if (url.includes('/ports/lookup')) {
+        return jsonResponse({ data: { name: 'ULSAN', lat: 35.5, lon: 129.4, source: 'LOOKUP' } })
+      }
+      if (url.includes('/ports/samples')) return jsonResponse({ data: PORTS })
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+
+    fireEvent.change(screen.getByLabelText(/현재 위치/), { target: { value: '울산항' } })
+    const buttons = screen.getAllByRole('button', { name: '좌표 찾기' })
+    expect(buttons).toHaveLength(1)
+    fireEvent.click(buttons[0])
+
+    await waitFor(() =>
+      expect((screen.getByLabelText(/현재 위도/) as HTMLInputElement).value).toBe('35.5'),
+    )
+    expect(screen.getByText(/지도 서비스\(OpenStreetMap\)에서 찾은 좌표입니다/)).toBeTruthy()
   })
 })
