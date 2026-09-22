@@ -11,8 +11,17 @@ import {
   sameInputs,
   type VoyageCiiFormState,
   pickDefaultYear,
+  effectiveFuelTon,
+  voyageHours,
+  type FuelInputMode,
 } from './formRules'
-import { DISPLAY_UNITS } from '../../display/format'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  DISPLAY_UNIT_DAILY_FUEL,
+  formatDecimalString,
+  formatGrouped,
+} from '../../display/format'
 import { fetchVoyage } from '../voyage-management/apiProvider'
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { ManagedVoyage } from '../voyage-management/types'
@@ -258,6 +267,11 @@ export function VoyageCiiForm({
    */
   const stale = submittedState !== null && !sameInputs(submittedState, state)
 
+  /* 「제원에서 채우기」가 쓰는 값과, 화면이 보이는 환산 결과 (#1718). */
+  const vesselDailyFocTon = selectedSpec?.referenceDailyFocTon ?? null
+  const derivedHours = voyageHours(state.distanceNm, state.speedKn)
+  const derivedFuelTon = effectiveFuelTon(state, vesselDailyFocTon)
+
   useEffect(() => {
     onStaleChange?.(stale)
   }, [stale, onStaleChange])
@@ -295,7 +309,7 @@ export function VoyageCiiForm({
     event.preventDefault()
     if (submitting) return
 
-    const found = validateForm(state, fuels)
+    const found = validateForm(state, fuels, vesselDailyFocTon)
     setErrors(found)
     if (Object.keys(found).length > 0) {
       onStateChange?.({ status: 'idle' })
@@ -307,7 +321,7 @@ export function VoyageCiiForm({
     setSubmitting(true)
     onStateChange?.({ status: 'loading' })
     try {
-      const request = toRequest(state)
+      const request = toRequest(state, vesselDailyFocTon)
       const response = await provider.estimate(request)
       // #1533 — 챗봇이 「이 결과」를 저장된 실행에서 읽게 한다.
       publishScreenResult(response.calculation_run_id)
@@ -555,26 +569,120 @@ export function VoyageCiiForm({
           </Field>
         )}
 
-        <Field
-          id="fuel-ton"
-          label="연료 사용량"
-          labelEn="Fuel Consumption"
-          unit={DISPLAY_UNITS.fuel}
-          error={errors[FIELD.fuelTon]}
-        >
-          {(control) => (
-            <input
-              {...control}
-              className="voyage-cii-form__control"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="any"
-              value={state.fuelTon}
-              onChange={(e) => update('fuelTon', e.target.value, FIELD.fuelTon)}
+        {/*
+          연료 입력 방식 (#1718) — 계약은 그대로다. 어느 방식이든 요청은 `fuel_ton`
+          하나이고(`toRequest`), 환산한 총량을 칸 아래에 그대로 보여 **무엇이 서버로
+          가는지** 화면에서 읽히게 한다.
+
+          라디오 그룹으로 둔다 — 셋 중 하나이고 서로 배타적이다. 방식을 바꿔도 값은
+          지우지 않는다: 총량으로 돌아오면 처음 넣은 총량이 그대로 있다.
+        */}
+        <fieldset className="voyage-cii-form__modes">
+          <legend className="voyage-cii-form__label">연료 입력 방식</legend>
+          {FUEL_MODES.map((mode) => (
+            <label key={mode.value} className="voyage-cii-form__mode">
+              <input
+                type="radio"
+                name="fuel-mode"
+                value={mode.value}
+                checked={state.fuelMode === mode.value}
+                onChange={() => update('fuelMode', mode.value, FIELD.fuelTon)}
+              />
+              {mode.label}
+            </label>
+          ))}
+        </fieldset>
+
+        {state.fuelMode === 'TOTAL' ? (
+          <Field
+            id="fuel-ton"
+            label="연료 사용량"
+            labelEn="Fuel Consumption"
+            unit={DISPLAY_UNITS.fuel}
+            error={errors[FIELD.fuelTon]}
+          >
+            {(control) => (
+              <input
+                {...control}
+                className="voyage-cii-form__control"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                value={state.fuelTon}
+                onChange={(e) => update('fuelTon', e.target.value, FIELD.fuelTon)}
+              />
+            )}
+          </Field>
+        ) : state.fuelMode === 'DAILY' ? (
+          <Field
+            id="fuel-daily"
+            label="하루 연료 사용량"
+            labelEn="Daily Fuel"
+            unit={DISPLAY_UNIT_DAILY_FUEL}
+            error={errors[FIELD.fuelTon]}
+          >
+            {(control) => (
+              <input
+                {...control}
+                className="voyage-cii-form__control"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                value={state.dailyFuelTon}
+                onChange={(e) => update('dailyFuelTon', e.target.value, FIELD.fuelTon)}
+              />
+            )}
+          </Field>
+        ) : (
+          /*
+            제원에서 채우기 — 입력칸이 없다. 값이 없는 선박이면 그 사실을 값 자리에
+            적는다(`§14` 「비활성의 사유」). 오류는 `validateForm`이 같은 자리에 세운다.
+          */
+          <div className="voyage-cii-form__field">
+            <StaticField
+              label="하루 연료 사용량"
+              labelEn="Daily Fuel"
+              value={
+                vesselDailyFocTon === null
+                  ? '이 선박에는 기준 일일 연료소모량이 없습니다'
+                  : `${formatDecimalString(vesselDailyFocTon, DISPLAY_DIGITS.fuelTon)} ${DISPLAY_UNIT_DAILY_FUEL} · 선박 제원`
+              }
             />
-          )}
-        </Field>
+            {/*
+              입력칸이 없으므로 `Field`의 오류 자리도 없다 — 같은 모양으로 직접 둔다.
+              `role="alert"`가 없으면 검증 실패가 낭독되지 않는다(`§8.4`).
+            */}
+            {errors[FIELD.fuelTon] ? (
+              <p className="field__error" role="alert">
+                {errors[FIELD.fuelTon]}
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        {/*
+          환산 결과 — 「나」·「다」에서만. 항해시간을 쓰는 이유는 `formRules.voyageHours`에
+          적었다(일수는 `§4.2`상 0자리라 화면의 셈이 어긋나 보인다).
+        */}
+        {state.fuelMode !== 'TOTAL' ? (
+          <p className="voyage-cii-form__derived" role="status">
+            {derivedHours === null ? (
+              '항해거리와 평균 속력을 넣으면 총량을 환산합니다.'
+            ) : derivedFuelTon === null ? (
+              '하루 연료 사용량을 넣으면 총량을 환산합니다.'
+            ) : (
+              <>
+                항해시간 {formatDecimalString(String(derivedHours), DISPLAY_DIGITS.durationHours)}{' '}
+                {DISPLAY_UNITS.duration} · 보내는 연료 총량{' '}
+                <strong>
+                  {formatGrouped(String(derivedFuelTon), DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
+                </strong>
+              </>
+            )}
+          </p>
+        ) : null}
       </div>
 
       <button className="voyage-cii-form__submit" type="submit" disabled={submitting}>
@@ -585,6 +693,13 @@ export function VoyageCiiForm({
 }
 
 /* ------------------------------------------------------------------ */
+
+/** 연료 입력 방식 셋 (#1718). 순서는 「아는 값이 무엇인가」의 흔한 순서다. */
+const FUEL_MODES: ReadonlyArray<{ value: FuelInputMode; label: string }> = [
+  { value: 'TOTAL', label: '총량' },
+  { value: 'DAILY', label: '하루 × 항해일' },
+  { value: 'VESSEL', label: '선박 제원에서' },
+]
 
 interface StaticFieldProps {
   label: string

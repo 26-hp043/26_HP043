@@ -498,3 +498,116 @@ describe('상단 항차와 기본 연료로 채우기 (#1576)', () => {
     expect(input(/항해거리/).value).toBe('')
   })
 })
+
+/**
+ * 연료 입력 방식 전환 (#1718).
+ *
+ * 셈과 검증은 `formRules.test.ts`가 잠근다. 여기서는 **화면이 그 셈을 쓰는가** —
+ * 고른 방식의 칸이 서고, 환산값이 보이고, 그 값이 그대로 요청에 실리는가를 본다.
+ */
+describe('연료 입력 방식 (#1718)', () => {
+  const VESSEL_ID = '00000000-0000-4000-8000-000000000001'
+
+  function renderWithSpec(referenceDailyFocTon: string | null) {
+    return renderForm({
+      vessels: [
+        {
+          id: VESSEL_ID,
+          displayName: '샘플 벌크선',
+          shipType: 'BULK_CARRIER',
+          spec: { referenceSpeedKn: '12', referenceDailyFocTon, defaultFuelType: 'HFO' },
+        },
+      ],
+    })
+  }
+
+  async function ready() {
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+    fireEvent.change(screen.getByLabelText(/항해거리/), { target: { value: '1000' } })
+    fireEvent.change(screen.getByLabelText(/평균 속력/), { target: { value: '12' } })
+  }
+
+  function submittedBody(fetchImpl: ReturnType<typeof stubServer>['fetchImpl']) {
+    /*
+     * `stubServer`의 스텁은 첫 인자만 선언해 두었다 — 본문을 보는 검사는 여기뿐이라
+     * 스텁의 서명을 넓히는 대신 이 자리에서 호출 기록을 읽는다.
+     */
+    const calls = fetchImpl.mock.calls as unknown as Array<[unknown, RequestInit | undefined]>
+    const call = calls.find(([url]) => String(url).includes('/calculations/voyage-cii'))
+    return JSON.parse(String(call?.[1]?.body))
+  }
+
+  it('하루 × 항해일을 고르면 하루 칸이 서고 환산 총량이 보인다', async () => {
+    stubServer()
+    renderWithSpec('23.04')
+    await ready()
+
+    fireEvent.click(screen.getByLabelText('하루 × 항해일'))
+    // 총량 칸은 사라지고 하루 칸이 선다 (라벨이 서로 겹치므로 id로 본다)
+    expect(document.querySelector('#fuel-ton')).toBeNull()
+    fireEvent.change(screen.getByLabelText(/하루 연료 사용량/), { target: { value: '23.04' } })
+
+    // 1000nm ÷ 12kn = 83.3h → 80.0t (`§4.2` — 시간 1자리 · 연료 1자리)
+    expect(screen.getByText(/항해시간 83\.3 h/)).toBeTruthy()
+    expect(screen.getByText(/80\.0 t/)).toBeTruthy()
+  })
+
+  it('화면이 보인 환산값이 그대로 요청에 실린다 — 계약은 `fuel_ton` 하나다', async () => {
+    const { fetchImpl } = stubServer()
+    renderWithSpec('23.04')
+    await ready()
+
+    fireEvent.click(screen.getByLabelText('하루 × 항해일'))
+    fireEvent.change(screen.getByLabelText(/하루 연료 사용량/), { target: { value: '23.04' } })
+    fireEvent.click(screen.getByRole('button', { name: '계산하기' }))
+
+    await waitFor(() => expect(submittedBody(fetchImpl)).toBeTruthy())
+    const body = submittedBody(fetchImpl) as { fuel_uses: Array<Record<string, unknown>> }
+    expect(body.fuel_uses).toHaveLength(1)
+    expect(body.fuel_uses[0].fuel_ton as number).toBeCloseTo(80, 3)
+  })
+
+  it('선박 제원에서 — 입력칸 대신 제원 값을 보이고 같은 값을 보낸다', async () => {
+    const { fetchImpl } = stubServer()
+    renderWithSpec('23.04')
+    await ready()
+
+    fireEvent.click(screen.getByLabelText('선박 제원에서'))
+    expect(screen.getByText(/23\.0 t\/일 · 선박 제원/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '계산하기' }))
+
+    await waitFor(() => expect(submittedBody(fetchImpl)).toBeTruthy())
+    const body = submittedBody(fetchImpl) as { fuel_uses: Array<Record<string, unknown>> }
+    expect(body.fuel_uses[0].fuel_ton as number).toBeCloseTo(80, 3)
+  })
+
+  it('⚠️ 제원이 없는 선박이면 사유를 값 자리에 적고, 누르면 오류로 막는다', async () => {
+    const { fetchImpl } = stubServer()
+    renderWithSpec(null)
+    await ready()
+
+    fireEvent.click(screen.getByLabelText('선박 제원에서'))
+    expect(screen.getByText(/기준 일일 연료소모량이 없습니다/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '계산하기' }))
+
+    await waitFor(() => expect(screen.getAllByRole('alert').length).toBeGreaterThan(0))
+    expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/calculations/voyage-cii'))).toBe(
+      false,
+    )
+  })
+
+  it('방식을 바꿨다 돌아와도 처음 총량이 그대로다', async () => {
+    stubServer()
+    renderWithSpec('23.04')
+    await ready()
+
+    fireEvent.change(document.querySelector('#fuel-ton') as HTMLInputElement, {
+      target: { value: '80' },
+    })
+    fireEvent.click(screen.getByLabelText('하루 × 항해일'))
+    fireEvent.click(screen.getByLabelText('총량'))
+
+    expect((document.querySelector('#fuel-ton') as HTMLInputElement).value).toBe('80')
+  })
+})

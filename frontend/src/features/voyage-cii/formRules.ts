@@ -32,7 +32,29 @@ export interface VoyageCiiFormState {
   speedKn: string
   fuelType: string
   fuelTon: string
+  /** 연료를 넣는 방식 (#1718). 계약은 그대로다 — 어느 방식이든 `fuel_ton` 하나를 보낸다. */
+  fuelMode: FuelInputMode
+  /** 「일일 × 항해일」에서 쓰는 하루 연료량 (`t/일`). 다른 방식에서는 비어 있어도 된다. */
+  dailyFuelTon: string
 }
+
+/**
+ * 연료 입력 방식 (#1718 · 재설계안 「입력 모드 전환」).
+ *
+ * 사용자가 아는 값이 「총 80t」일 때도 있고 「하루 23t쯤」일 때도 있다. 뒤쪽이면
+ * 종전에는 항해일을 손으로 곱해 넣어야 했다 — 거리와 속력을 이미 넣은 화면에서.
+ *
+ * | | 넣는 값 | 보내는 `fuel_ton` |
+ * |---|---|---|
+ * | `TOTAL` | 총량 | 그대로 |
+ * | `DAILY` | 하루 연료량 | 하루 × 항해시간 ÷ 24 |
+ * | `VESSEL` | (없음) | 선박 기준 일일 연료 × 항해시간 ÷ 24 |
+ *
+ * ⚠️ **속도 보정을 하지 않는다.** `PRD §11.4.1` cubic speed model은 기능②의 것이고
+ * 기상 계수까지 들어간다. 화면이 흉내 내면 같은 이름의 값이 서버와 다르게 나온다 —
+ * 기능①의 연료는 `PRD §10`상 **사용자가 넣는 값**이다.
+ */
+export type FuelInputMode = 'TOTAL' | 'DAILY' | 'VESSEL'
 
 /**
  * 필드별 오류 메시지.
@@ -84,7 +106,47 @@ export function initialFormState(): VoyageCiiFormState {
     speedKn: '',
     fuelType: '',
     fuelTon: '',
+    // 처음 들어온 화면은 종전과 같다 (#1718).
+    fuelMode: 'TOTAL',
+    dailyFuelTon: '',
   }
+}
+
+/**
+ * 항해시간 (`h`) — 거리 ÷ 속력. 일수가 아니라 시간으로 둔다.
+ *
+ * `DESIGN_SYSTEM §4.2`가 일수를 **0자리**로 정하므로 3.47일을 화면에 적으면 「3 일」이
+ * 된다. 그러면 하루 23.0t × 3일 = 69t이 되어 **화면의 셈이 보내는 값과 어긋나 보인다.**
+ * 같은 절이 소수가 필요한 구간을 시간(1자리)에 맡겼다.
+ */
+export function voyageHours(distanceNm: string, speedKn: string): number | null {
+  const distance = toNumber(distanceNm)
+  const speed = toNumber(speedKn)
+  if (distance === null || speed === null) return null
+  if (!(distance > 0) || !(speed > 0)) return null
+  return distance / speed
+}
+
+/**
+ * 이 폼이 실제로 보낼 연료 총량 (`t`).
+ *
+ * 화면에 보이는 환산값과 요청 본문이 갈리지 않도록 **한 곳에서만** 만든다 — 화면은
+ * 이 값을 그리고, `toRequest`는 같은 함수를 부른다.
+ *
+ * 부동소수 잡음을 남기지 않게 소수 4자리에서 끊는다. 표시 자릿수(`§4.2` 1자리)보다
+ * 깊게 두는 것은, 보내는 값을 표시 때문에 뭉개지 않기 위해서다.
+ */
+export function effectiveFuelTon(
+  state: VoyageCiiFormState,
+  vesselDailyFocTon: string | null = null,
+): number | null {
+  if (state.fuelMode === 'TOTAL') return toNumber(state.fuelTon)
+
+  const daily = state.fuelMode === 'DAILY' ? toNumber(state.dailyFuelTon) : toNumber(vesselDailyFocTon ?? '')
+  const hours = voyageHours(state.distanceNm, state.speedKn)
+  if (daily === null || hours === null) return null
+  if (!(daily > 0)) return null
+  return Math.round(((daily * hours) / 24) * 10000) / 10000
 }
 
 /**
@@ -200,6 +262,7 @@ export function pickDefaultYear(
 export function validateForm(
   state: VoyageCiiFormState,
   fuels: readonly FuelOption[],
+  vesselDailyFocTon: string | null = null,
 ): FormErrors {
   const errors: FormErrors = {}
 
@@ -227,12 +290,32 @@ export function validateForm(
     errors[FIELD.fuelType] = `알 수 없는 연료 종류입니다: ${state.fuelType}`
   }
 
-  const fuelTon = toNumber(state.fuelTon)
-  if (fuelTon === null) {
-    errors[FIELD.fuelTon] = '연료 사용량을 입력해 주세요.'
-  } else if (!(fuelTon > 0)) {
-    // VAL-002
-    errors[FIELD.fuelTon] = '연료 사용량은 0보다 커야 합니다.'
+  /*
+   * 방식이 무엇이든 **서버로 가는 값은 하나**라 오류 자리도 하나다 (#1718) — 화면에
+   * 보이는 연료 칸 아래에 선다. 「제원에서 채우기」는 입력칸이 없으므로 사유가 곧 오류다.
+   */
+  if (state.fuelMode === 'TOTAL') {
+    const fuelTon = toNumber(state.fuelTon)
+    if (fuelTon === null) {
+      errors[FIELD.fuelTon] = '연료 사용량을 입력해 주세요.'
+    } else if (!(fuelTon > 0)) {
+      // VAL-002
+      errors[FIELD.fuelTon] = '연료 사용량은 0보다 커야 합니다.'
+    }
+  } else if (state.fuelMode === 'DAILY') {
+    const daily = toNumber(state.dailyFuelTon)
+    if (daily === null) {
+      errors[FIELD.fuelTon] = '하루 연료 사용량을 입력해 주세요.'
+    } else if (!(daily > 0)) {
+      // VAL-002 — 총량과 같은 규칙이다. 하루치라고 해서 0이 허용되지 않는다.
+      errors[FIELD.fuelTon] = '하루 연료 사용량은 0보다 커야 합니다.'
+    } else if (voyageHours(state.distanceNm, state.speedKn) === null) {
+      errors[FIELD.fuelTon] = '항해거리와 평균 속력을 먼저 입력해 주세요.'
+    }
+  } else if (toNumber(vesselDailyFocTon ?? '') === null) {
+    errors[FIELD.fuelTon] = '이 선박에는 기준 일일 연료소모량이 없습니다. 다른 방식으로 넣어 주세요.'
+  } else if (voyageHours(state.distanceNm, state.speedKn) === null) {
+    errors[FIELD.fuelTon] = '항해거리와 평균 속력을 먼저 입력해 주세요.'
   }
 
   if (state.vesselId === '') {
@@ -269,11 +352,15 @@ export function validateForm(
  *
  * @throws 검증되지 않은 상태로 호출하면 `Error`. 항상 `validateForm()` 뒤에 부른다.
  */
-export function toRequest(state: VoyageCiiFormState): VoyageCiiRequest {
+export function toRequest(
+  state: VoyageCiiFormState,
+  vesselDailyFocTon: string | null = null,
+): VoyageCiiRequest {
   const regulationYear = toNumber(state.regulationYear)
   const distanceNm = toNumber(state.distanceNm)
   const speedKn = toNumber(state.speedKn)
-  const fuelTon = toNumber(state.fuelTon)
+  // 방식이 무엇이든 여기서 총량 하나가 된다 (#1718) — 화면이 보이는 환산값과 같은 함수다.
+  const fuelTon = effectiveFuelTon(state, vesselDailyFocTon)
 
   if (
     regulationYear === null ||
