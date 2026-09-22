@@ -144,11 +144,20 @@ interface LookedUpPort {
   source: string
 }
 
-/** 조회 결과의 출처 문구. 「어디서 온 좌표인가」를 사용자가 알아야 한다. */
+/**
+ * 조회 결과의 출처 문구 — **사용자가 할 일로 두 가지를 가른다** (2026-09-22 확정 · `#1052` ⑷).
+ *
+ * 출처 코드는 셋(`SAMPLE` · `CACHE` · `LOOKUP`)이지만 문구는 둘이다. 캐시는 **전에 지도
+ * 서비스에서 받아 둔 값**이라(`services/geocoding.py`) 방금 조회한 것과 똑같이 검증되지
+ * 않았다 — 종전에는 캐시에만 「확인 후 쓰세요」가 빠져, 같은 성질의 좌표가 부른 시점에 따라
+ * 다르게 말해졌다. 샘플 목록만 원본(NGA WPI)에서 옮긴 고정 값이다.
+ */
+const UNVERIFIED_NOTICE = '지도 서비스(OpenStreetMap)에서 찾은 좌표입니다. 확인 후 쓰세요.'
+
 export const LOOKUP_SOURCE_NOTICE: Record<string, string> = {
   SAMPLE: '샘플 항만 목록에서 찾았습니다.',
-  CACHE: '전에 조회해 둔 좌표입니다.',
-  LOOKUP: '지도 서비스(OpenStreetMap)에서 찾은 좌표입니다. 확인 후 쓰세요.',
+  CACHE: UNVERIFIED_NOTICE,
+  LOOKUP: UNVERIFIED_NOTICE,
 }
 
 /** 조회에 실패했을 때 화면이 쓰는 문구 — 서버가 준 문장을 그대로 보인다. */

@@ -3,7 +3,7 @@ import type { Severity } from './types'
 /**
  * 데이터 점검 화면 문구 (`UIFLOW 2-11` · `PRD §17.4` · #513).
  *
- * ⚠️ **모양·문구는 개발 임시안이다** — 디자인 확정 대상(`#1052`에 코멘트). 심각도 명칭·색은
+ * 모양·문구는 **2026-09-22에 현행대로 확정**됐다(`#1052` ⑹ · `UIFLOW 2-11`). 심각도 명칭·색은
  * `DESIGN_SYSTEM §2.3.1` 🔒 그대로다.
  */
 export const DATA_QUALITY_COPY = {
