@@ -1023,3 +1023,47 @@ def test_expiry_boundary_matches_the_purge_condition() -> None:
     )
     naive = datetime(2026, 9, 22, 23, 59)
     assert is_expired(SimpleNamespace(expires_at=naive), now=now) is True  # type: ignore[arg-type]
+
+
+async def test_a_regulation_value_from_the_table_passes_the_number_guard(
+    migrated_db, app_fresh_engine
+):
+    """`#1703` — 표 도구가 준 값을 **출처와 함께 인용한 답은 버려지지 않는다.**
+
+    종전에는 규제값을 줄 도구가 없어, 모델이 「감축률 11%」라고 말하면 수치 가드에 걸려
+    답이 버려졌다(`#122` 결정 근거).
+    """
+    from cii_platform.db.session import get_sessionmaker
+    from cii_platform.services import parameters as param_service
+
+    async with get_sessionmaker()() as s:
+        years = await param_service.list_regulation_years(s)
+    row = next(r for r in years if r["year"] == 2026)
+    z = row["z_factor_percent"]
+
+    provider = FakeProvider(
+        [
+            LLMResponse(
+                text="",
+                tool_calls=(
+                    ToolCall(
+                        name="lookup_regulation",
+                        arguments={"ship_type": "BULK_CARRIER", "regulation_year": 2026},
+                        id="t1",
+                    ),
+                ),
+            ),
+            LLMResponse(text=f"2026년 감축률은 {z}%이며 출처는 {row['source_ref']}입니다."),
+        ]
+    )
+    _use(provider)
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            data = client.post(
+                "/api/v1/chat", json={"message": "2026년 감축률은?"}, headers=headers
+            ).json()["data"]
+            assert data["discarded"] is False, data
+            assert data["tool_calls"] == ["lookup_regulation"]
+    finally:
+        await _cleanup()

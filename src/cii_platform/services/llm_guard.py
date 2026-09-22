@@ -36,6 +36,11 @@ OUTBOUND_WHITELIST: frozenset[str] = frozenset(
         "target_success_probability",
         "rating_probabilities",
         "target_rating",
+        # 규제 기준값 표 (#1703) — 적재된 행을 출처(`source_ref`)와 함께 그대로 인용한다
+        "reference_lines",
+        "rating_boundaries",
+        "reduction_factor",
+        "fuel_cf",
         # 코드 값
         "warning_code",
         "grade",

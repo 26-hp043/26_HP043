@@ -1,4 +1,4 @@
-"""챗봇 도구 5종 (`#121` · `Q9` ⓐ · `#1533`).
+"""챗봇 도구 6종 (`#121` · `Q9` ⓐ · `#1533` · `#1703`).
 
 ## 쓰기 도구를 넣지 않는다
 
@@ -54,6 +54,12 @@ TOOL_PROJECT_YEAR_END = "project_year_end"
 #: 나오고, 확률(몬테카를로)은 다시 돌리면 화면과 같아질 수 없다. 면책 문구
 #: 「화면의 계산 결과를 풀어 쓴 것」(``PRD §6.3``)이 참이 되는 경로가 이것이다.
 TOOL_EXPLAIN_SCREEN_RESULT = "explain_screen_result"
+#: `#1703`(`#122` 결정 · 결정요청 v3 `E-1` 안 「나」) — **규제 기준값 표**를 출처와 함께 읽는다.
+#:
+#: PDF 검색(RAG)을 하지 않기로 했다(`PRD §21`). 값의 출처를 사람이 원문 대조로 적재한
+#: 표 하나로 둔다 — 이 도구는 그 행을 **그대로 인용**할 뿐 계산하지 않는다
+#: (``PRD §20 O-12`` No-Compute).
+TOOL_LOOKUP_REGULATION = "lookup_regulation"
 
 TOOL_NAMES: tuple[str, ...] = (
     TOOL_SEARCH_VESSEL,
@@ -61,6 +67,7 @@ TOOL_NAMES: tuple[str, ...] = (
     TOOL_COMPARE_SCENARIOS,
     TOOL_PROJECT_YEAR_END,
     TOOL_EXPLAIN_SCREEN_RESULT,
+    TOOL_LOOKUP_REGULATION,
 )
 
 
@@ -144,6 +151,28 @@ def tool_schemas() -> list[dict[str, object]]:
                 "화면이 결과를 넘기지 않았으면 오류를 돌려준다."
             ),
             "input_schema": {"type": "object", "properties": {}, "required": []},
+        },
+        {
+            "name": TOOL_LOOKUP_REGULATION,
+            "description": (
+                "규제 기준값 표를 읽는다 — 선종의 기준선(a · c · 조건식), 규제 연도의 감축률(Z), "
+                "선종의 등급 경계(d1~d4), 연료의 CF. 각 행의 출처(source_ref, 예: MEPC.353(78))를 "
+                "함께 준다. 값을 답할 때는 반드시 출처를 함께 말한다. 결의안 본문의 해설이나 "
+                "G5 보정계수는 표에 없다 — 그때는 IMO 원문을 보라고 답한다. "
+                "선종을 말하지 않으면 이 대화의 선박 선종을 쓴다."
+            ),
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "ship_type": {
+                        "type": "string",
+                        "description": "선종 코드 (예: BULK_CARRIER, LNG_CARRIER)",
+                    },
+                    "regulation_year": {"type": "integer", "description": "규제 연도"},
+                    "fuel_code": {"type": "string", "description": "연료 코드 (예: HFO)"},
+                },
+                "required": [],
+            },
         },
     ]
 
@@ -456,6 +485,9 @@ async def run_tool(
             )
         if name == TOOL_EXPLAIN_SCREEN_RESULT:
             return ToolOutcome(await _explain_screen_result(session, screen_run_id, vessel_id))
+        if name == TOOL_LOOKUP_REGULATION:
+            # 선박 없이도 돈다 — 선종을 말하면 표를 읽는 데 선박은 필요 없다.
+            return ToolOutcome(await _lookup_regulation(session, arguments, vessel_id))
         if vessel_id is None:
             return ToolOutcome(envelope(name, error="어느 선박인지 먼저 정해야 합니다."))
         if name == TOOL_CALC_VOYAGE_CII:
@@ -667,3 +699,83 @@ async def _explain_screen_result(
     if not published:
         return envelope(TOOL_EXPLAIN_SCREEN_RESULT, error=_SCREEN_RESULT_EMPTY, kind=kind)
     return envelope(TOOL_EXPLAIN_SCREEN_RESULT, result=published, kind=kind)
+
+
+#: `#1703` — 표에서 **모델에게 보내는 칸**. 판본·활성 여부·생성 시각은 뺀다 — 모델이 쓸 곳이
+#: 없고, 보내지 않는 것이 기본이다(``PRD §16.3.1`` 「좁게 시작한다」).
+_REFERENCE_LINE_FIELDS = ("condition_expr", "capacity_rule", "a_raw", "c", "source_ref")
+_BOUNDARY_FIELDS = ("condition_expr", "capacity_basis", "d1", "d2", "d3", "d4", "source_ref")
+
+
+def _pick(row: dict[str, object], fields: tuple[str, ...]) -> dict[str, object]:
+    return {key: row.get(key) for key in fields}
+
+
+async def _lookup_regulation(
+    session: AsyncSession, arguments: dict[str, object], vessel_id: object | None
+) -> str:
+    """규제 기준값 표를 **적재된 그대로** 읽는다 (`#1703`).
+
+    값은 전부 ``services/parameters.py``의 기존 조회 서비스(``API_SPEC §7``)에서 온다 —
+    설정 화면의 「규제 기준값」 절이 보여 주는 것과 같은 행이다. 같은 값이 화면과 챗봇에서
+    달라질 자리를 만들지 않는다.
+
+    ## 선종을 말하지 않으면 대화의 선박 선종
+
+    ``vessel_id``가 있으면 그 선박의 ``ship_type``을 쓴다. 선종 코드는 규제 분류이지 선박을
+    식별하지 않지만, **응답에 싣지는 않는다** — 모델은 사용자가 물은 맥락으로 이미 안다.
+
+    ## 모르는 선종은 오류다
+
+    빈 결과로 돌려주면 「그 선종의 값이 없다」와 「오타」가 구분되지 않는다
+    (``_validate_ship_type``과 같은 판단). ``ValidationError``는 고정 문구로 바뀐다.
+    """
+    from cii_platform.services import parameters as param_service
+
+    ship_type = arguments.get("ship_type")
+    if ship_type is None and vessel_id is not None:
+        from cii_platform.db.models.vessel import Vessel
+
+        vessel = await session.get(Vessel, vessel_id)
+        ship_type = getattr(vessel, "ship_type", None)
+    if ship_type is None:
+        return envelope(
+            TOOL_LOOKUP_REGULATION,
+            error="어느 선종의 기준값인지 알려 주세요(예: 벌크선).",
+        )
+    ship_type = str(ship_type).strip().upper()
+    year = _regulation_year(arguments)
+
+    lines = await param_service.list_reference_lines(session, ship_type=ship_type)
+    boundaries = await param_service.list_rating_boundaries(session, ship_type=ship_type)
+    years = await param_service.list_regulation_years(session)
+    reduction = next((row for row in years if row.get("year") == year), None)
+
+    result: dict[str, object] = {
+        "reference_lines": [_pick(row, _REFERENCE_LINE_FIELDS) for row in lines],
+        "rating_boundaries": [_pick(row, _BOUNDARY_FIELDS) for row in boundaries],
+        # 표에 없는 연도면 **None**으로 둔다 — 가까운 연도의 값을 대신 주면 다른 해의 감축률을
+        # 그 해의 것으로 말하게 된다.
+        "reduction_factor": (
+            None
+            if reduction is None
+            else {
+                "year": reduction.get("year"),
+                "z_factor_percent": reduction.get("z_factor_percent"),
+                "source_ref": reduction.get("source_ref"),
+            }
+        ),
+    }
+    fuel_code = arguments.get("fuel_code")
+    if fuel_code is not None:
+        code = str(fuel_code).strip().upper()
+        fuels = await param_service.list_fuel_types(session)
+        fuel = next((row for row in fuels if str(row.get("code")).upper() == code), None)
+        if fuel is None:
+            raise NotFoundError("연료 종류를 찾을 수 없습니다.")
+        result["fuel_cf"] = {
+            "fuel_code": fuel.get("code"),
+            "cf": fuel.get("cf"),
+            "source_ref": fuel.get("source_ref"),
+        }
+    return envelope(TOOL_LOOKUP_REGULATION, result=filter_outbound(result))

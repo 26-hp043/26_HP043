@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { dirOf, srcKey } from './test/srcPaths'
 
 /**
  * 접근성 배선의 회귀를 막는다 (#829 ⑸).
@@ -11,7 +12,7 @@ import { join } from 'node:path'
  * 것은 낭독뿐이라 눈으로도 기존 검사로도 드러나지 않는다. 그래서 소스에서 본다 —
  * `moduleBoundary.test.ts`·`deadCss.test.ts`와 같은 규율이다.
  */
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = dirOf(import.meta.url)
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -22,7 +23,7 @@ function sources(dir: string): string[] {
   })
 }
 
-const FILES = sources(SRC).map((path) => ({ path: path.slice(SRC.length), text: readFileSync(path, 'utf8') }))
+const FILES = sources(SRC).map((path) => ({ path: srcKey(SRC, path), text: readFileSync(path, 'utf8') }))
 
 describe('접근성 배선 (#829 ⑸)', () => {
   it('검증 오류 문구에 role="alert"가 있다', () => {

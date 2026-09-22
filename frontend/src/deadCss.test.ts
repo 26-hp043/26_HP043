@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { dirOf, srcKey } from './test/srcPaths'
 
 /**
  * 죽은 CSS 클래스가 다시 쌓이지 않게 한다 (#831 ⑶).
@@ -23,7 +24,7 @@ import { join } from 'node:path'
  * CSS 주석에 적힌 `grid.gnb-expanded` 같은 문구가 선택자로 잡혔다. 실제로 겪은 오탐이라
  * 주석을 먼저 걷어낸다.
  */
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = dirOf(import.meta.url)
 
 /** 의도적으로 남긴 것. 지우려면 근거 주석과 함께 여기서도 빼야 한다. */
 const KEPT: Readonly<Record<string, string>> = {
@@ -86,7 +87,7 @@ function deadClasses(options: { applyKept?: boolean } = {}): string[] {
       if (used.has(cls)) continue
       if (applyKept && cls in KEPT) continue
       if (dynamicPrefixes.some((prefix) => cls.startsWith(prefix))) continue
-      dead.push(`${file.slice(SRC.length)} :: .${cls}`)
+      dead.push(`${srcKey(SRC, file)} :: .${cls}`)
     }
   }
   const result = [...new Set(dead)].sort()
@@ -164,7 +165,7 @@ function classesUsedInMarkup(): Map<string, Set<string>> {
         if (cls === '' || cls.endsWith('--') || cls.endsWith('__')) continue
         if (!/^-?[A-Za-z_][\w-]*$/.test(cls)) continue
         const at = used.get(cls) ?? new Set<string>()
-        at.add(file.slice(SRC.length))
+        at.add(srcKey(SRC, file))
         used.set(cls, at)
       }
     }
