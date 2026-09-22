@@ -48,7 +48,14 @@ export function ImportCsv({
   const [failure, setFailure] = useState<string | null>(null)
   const [busy, setBusy] = useState<'check' | 'commit' | null>(null)
 
+  /**
+   * 지금 화면이 기다리는 요청의 세대 (`#1642`). 파일이 바뀌면 올리고, 늦게 온 앞 요청의 결과는
+   * 버린다 — 버리지 않으면 파일 A의 성공이 파일 B를 확정 가능한 상태로 만든다.
+   */
+  const generation = useRef(0)
+
   function pick(next: File | null) {
+    generation.current += 1
     setFile(next)
     // 파일이 바뀌면 앞 파일의 검증 결과는 무효다. 남겨 두면 **다른 파일의 결과를
     // 보고 확정**하게 된다.
@@ -69,8 +76,11 @@ export function ImportCsv({
     }
     setBusy(dryRun ? 'check' : 'commit')
     setFailure(null)
+    const ticket = generation.current
     try {
       const next = await provider.importCsv(vesselId, file as File, { dryRun })
+      // 기다리는 동안 파일이 바뀌었으면 이 결과는 **지금 화면의 것이 아니다** (`#1642`).
+      if (ticket !== generation.current) return
       setResult(next)
       if (!next.dryRun) {
         onImported()
@@ -78,6 +88,7 @@ export function ImportCsv({
         setResult(next)
       }
     } catch (error) {
+      if (ticket !== generation.current) return
       setFailure(error instanceof VoyageError ? error.message : '가져오지 못했습니다.')
       setResult(null)
     } finally {
