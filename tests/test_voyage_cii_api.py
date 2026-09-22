@@ -125,7 +125,7 @@ class TestContractValues:
         [
             ("attained_cii", "4.982400"),
             ("required_cii", "5.045066"),
-            ("ratio_to_required", "0.98758"),
+            ("ratio_to_required", "0.98757"),
             ("estimated_rating", "C"),
             ("next_worse_boundary_margin", "0.365370"),
             ("next_worse_boundary_margin_ratio", "0.0724"),

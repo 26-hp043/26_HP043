@@ -167,8 +167,10 @@ async def test_year_values_delegate_to_ytd_service(session):
         )
 
 
-def test_publish_truncates_cii_but_rounds_quantities():
-    """연도별 CII는 절사, 거리·연료는 반올림 (`#1349` · `TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+def test_publish_truncates_cii_and_quantities_but_rounds_share():
+    """CII·거리·연료는 절사, 연료 비중만 반올림 (`#1349` → `#1600` · `TECH_SPEC §1.2.1`).
+
+    비중은 전송 자릿수(1)가 표시 자릿수와 같아 절사하면 그 문자열이 곧 표시가 된다.
 
     ``4.9824996``은 원값에서 바로 3자리면 `4.982`인데 6자리 HALF_UP ``"4.982500"``을 거치면
     화면이 `4.983`으로 올린다. 기대값은 수치 계약이며 표시 문구가 아니다.
@@ -176,8 +178,9 @@ def test_publish_truncates_cii_but_rounds_quantities():
     from cii_platform.services.cii_history import _publish
 
     assert _publish(Decimal("4.9824996"), "cii") == "4.982499"
-    assert _publish(Decimal("1234.565"), "distance_nm") == "1234.57"
-    assert _publish(Decimal("80.005"), "fuel_ton") == "80.01"
+    assert _publish(Decimal("1234.565"), "distance_nm") == "1234.56"
+    assert _publish(Decimal("80.005"), "fuel_ton") == "80.00"
+    assert _publish(Decimal("12.35"), "share_percent") == "12.4"
 
 
 @pytest.mark.asyncio

@@ -52,15 +52,20 @@ VALID_PAYLOAD: dict[str, Any] = {
 }
 
 #: 앵커 — calc 엔진 직접 산출. 시나리오 생성 규칙(PRD §11.2)이 적용된 값.
+#:
+#: `#1600` — 시간·연료·CO₂·비율도 전송 자릿수로 **절사**한다(`TECH_SPEC §1.2.1`). 종전 앵커 8개
+#: (`785.7143`·`1203.13`·`987.99`·`3568.13`·`3076.60`·`1.28591`×2·`1.10877`)는 HALF_UP 시절 값이고,
+#: 각각 끝자리 1이 내려갔다(예: DETOUR 연료 원값 `1203.125` → `1203.12`).
+#: 수치 계약이며 표시 문구가 아니다.
 ANCHOR: dict[str, dict[str, Any]] = {
     "DIRECT": {
         "distance_nm": 11000.0,
         "speed_kn": 14.0,
-        "duration_hours": "785.7143",
+        "duration_hours": "785.7142",
         "fuel_ton": "1145.83",
-        "co2_emission_ton": "3568.13",
+        "co2_emission_ton": "3568.12",
         "attained_cii": "6.487500",
-        "ratio_to_required": "1.28591",
+        "ratio_to_required": "1.28590",
         "estimated_rating": "E",
         "risk_level": "CRITICAL",
         "next_worse_boundary_margin": None,
@@ -70,10 +75,10 @@ ANCHOR: dict[str, dict[str, Any]] = {
         "distance_nm": 11550.0,
         "speed_kn": 14.0,
         "duration_hours": "825.0000",
-        "fuel_ton": "1203.13",
+        "fuel_ton": "1203.12",
         "co2_emission_ton": "3746.53",
         "attained_cii": "6.487500",
-        "ratio_to_required": "1.28591",
+        "ratio_to_required": "1.28590",
         "estimated_rating": "E",
         "risk_level": "CRITICAL",
         "next_worse_boundary_margin": None,
@@ -83,12 +88,12 @@ ANCHOR: dict[str, dict[str, Any]] = {
         "distance_nm": 11000.0,
         "speed_kn": 13.0,
         "duration_hours": "846.1538",
-        "fuel_ton": "987.99",
-        "co2_emission_ton": "3076.60",
+        "fuel_ton": "987.98",
+        "co2_emission_ton": "3076.59",
         # 원값 5.59381377… — CII는 6자리 **절사**다(`#1349` · `TECH_SPEC §1.2.1`). 종전 앵커
         # `"5.593814"`는 HALF_UP 시절 값이다. 수치 계약이며 표시 문구가 아니다.
         "attained_cii": "5.593813",
-        "ratio_to_required": "1.10877",
+        "ratio_to_required": "1.10876",
         "estimated_rating": "D",
         "risk_level": "HIGH",
         "next_worse_boundary_margin": "0.359364",
