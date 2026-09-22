@@ -11,8 +11,9 @@ import {
   findScreenByPath,
   type ScreenMeta,
 } from './screens'
+import { dirOf, srcKey } from './test/srcPaths'
 
-const SRC_DIR = new URL('.', import.meta.url).pathname
+const SRC_DIR = dirOf(import.meta.url)
 
 /** `src/` 아래 검사가 아닌 소스 파일 전부. 경로 정본 가드가 훑는 대상이다. */
 function sourceFiles(dir: string): string[] {
@@ -298,7 +299,7 @@ describe('화면 경로의 정본은 screens.ts 하나다 (#594 · #831)', () =>
       for (const path of AUTH_PATHS) {
         // 따옴표로 감싼 완전 일치만 본다 — 주석에 적힌 경로는 잡지 않는다.
         if (text.includes(`'${path}'`) || text.includes(`"${path}"`)) {
-          offenders.push(`${file.slice(SRC_DIR.length)} :: ${path}`)
+          offenders.push(`${srcKey(SRC_DIR, file)} :: ${path}`)
         }
       }
     }
