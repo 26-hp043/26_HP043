@@ -4,10 +4,10 @@ import { AuthAlert, AuthShell } from '../features/auth/AuthShell'
 import {
   AuthRequestError,
   LOGIN_PATH,
-  confirmEmailVerification,
   useAuthUser,
 } from '../auth/session'
 import { DEFAULT_PATH } from '../screens'
+import { verifyOnce } from './verifyEmailRequests'
 
 /**
  * 이메일 인증 — `UIFLOW v2.1` 0-4 (#415).
@@ -20,7 +20,16 @@ import { DEFAULT_PATH } from '../screens'
  *
  * 서버가 「없음」·「만료」·「이미 사용됨」을 같은 문구로 준다(`#408`). 화면도 그대로
  * 보여 주며, 다시 요청할 경로를 함께 안내한다.
+ *
+ * ## 토큰은 한 번만 쓴다 (`#1646`)
+ *
+ * 인증 토큰은 **일회용**이다. 그런데 개발 Strict Mode는 효과를 mount → unmount → mount로
+ * 두 번 돌린다 — 첫 요청이 토큰을 정상으로 소비하고, 두 번째 요청이 「이미 사용됨」 오류를
+ * 받아 **성공한 인증이 실패 화면으로 덮였다.** 토큰별로 진행 중·끝난 요청을 기억해 두 번째
+ * 효과가 **같은 요청의 결과를 받게** 한다. 실패한 요청은 기억에서 지운다 — 연결이 끊겨 실패한
+ * 링크를 다시 열었을 때 옛 실패가 되살아나면 안 된다.
  */
+
 export function VerifyEmailPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
@@ -35,7 +44,7 @@ export function VerifyEmailPage() {
     if (!token) return
     let alive = true
 
-    confirmEmailVerification(token)
+    verifyOnce(token)
       .then((text) => {
         if (!alive) return
         setMessage(text)

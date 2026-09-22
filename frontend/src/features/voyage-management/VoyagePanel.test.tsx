@@ -408,6 +408,64 @@ describe('샘플 항만 선택 (#760)', () => {
     expect(draft.arrivalCoord).toEqual({ lat: 1.2833, lon: 103.85 })
   })
 
+  it('추정을 기다리는 동안 항을 바꾸면 늦게 온 거리를 쓰지 않는다 (#1657)', async () => {
+    let release: (value: number) => void = () => {}
+    const greatCircle = vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          release = resolve
+        }),
+    )
+    await openForm({ greatCircle })
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: '부산' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'singapore' } })
+    fireEvent.click(await screen.findByRole('button', { name: '좌표 기반 추정 거리로 채우기' }))
+
+    // 응답이 오기 전에 도착항을 바꾼다 — 이 순간부터 앞 요청의 거리는 이 항로의 값이 아니다.
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: '부산' } })
+    release(2470.2)
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: /좌표 기반 추정 거리로 채우기/ }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    )
+    expect((screen.getByLabelText(/계획 거리/) as HTMLInputElement).value).toBe('')
+    expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
+  })
+
+  it('추정을 기다리는 동안 직접 입력한 거리를 덮어쓰지 않는다 (#1657)', async () => {
+    let release: (value: number) => void = () => {}
+    const greatCircle = vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          release = resolve
+        }),
+    )
+    await openForm({ greatCircle })
+    await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
+
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: '부산' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'singapore' } })
+    fireEvent.click(await screen.findByRole('button', { name: '좌표 기반 추정 거리로 채우기' }))
+
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '999' } })
+    release(2470.2)
+
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: /좌표 기반 추정 거리로 채우기/ }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    )
+    // 직접 입력이 자동 추정보다 앞선다 — 값도 출처 표시도 그대로다.
+    expect((screen.getByLabelText(/계획 거리/) as HTMLInputElement).value).toBe('999')
+    expect(screen.queryByText(/좌표 기반 추정 거리 — /)).toBeNull()
+  })
+
   it('거리를 고치면 추정값 표시를 내린다 — 사용자가 넣은 값은 추정이 아니다', async () => {
     await openForm()
     await waitFor(() => expect(document.querySelectorAll('#vy-ports option')).toHaveLength(2))
@@ -948,5 +1006,31 @@ describe('되돌릴 수 없는 전환 · 확정 되돌리기는 한 번 더 묻�
     fireEvent.click(await screen.findByRole('button', { name: '항해 완료로' }))
     expect(caution()).toBeNull()
     await waitFor(() => expect(transition).toHaveBeenCalledWith(FUELED, 'COMPLETED'))
+  })
+})
+
+
+describe('바뀌면 부모에게 알린다 (#1647)', () => {
+  it('항차를 만들면 onChanged를 부른다 — 선박 상세의 누적값이 바뀐다', async () => {
+    const onChanged = vi.fn()
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    render(
+      <VoyagePanel
+        vesselId="ves-1"
+        provider={stubProvider({ create, samplePorts: vi.fn(async () => []) })}
+        onChanged={onChanged}
+      />,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+    fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-11' } })
+    fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
+    fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
+    fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '1000' } })
+    fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
+    fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '80' } })
+    fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+    await waitFor(() => expect(onChanged).toHaveBeenCalled())
   })
 })

@@ -101,8 +101,17 @@ function ImportForm({
   const [busy, setBusy] = useState<'check' | 'commit' | null>(null)
   const spec = PARAMETER_KINDS.find((item) => item.kind === kind) ?? PARAMETER_KINDS[0]
 
+  /**
+   * 지금 화면이 기다리는 요청의 세대 (`#1642`).
+   *
+   * 종류·파일이 바뀌면 올린다. 앞 요청이 늦게 끝나면 세대가 달라 **결과를 버린다** — 버리지
+   * 않으면 파일 A의 성공이 파일 B를 확정 가능한 상태로 만든다.
+   */
+  const generation = useRef(0)
+
   function invalidate() {
     // 종류나 파일이 바뀌면 앞의 검증 결과는 무효다 — 남겨 두면 다른 파일의 결과를 보고 확정한다.
+    generation.current += 1
     setResult(null)
     setFailure(null)
   }
@@ -115,8 +124,11 @@ function ImportForm({
     }
     setBusy(dryRun ? 'check' : 'commit')
     setFailure(null)
+    const ticket = generation.current
     try {
       const next = await provider.importParameters(kind, file as File, { dryRun })
+      // 기다리는 동안 종류·파일이 바뀌었으면 이 결과는 **지금 화면의 것이 아니다** (`#1642`).
+      if (ticket !== generation.current) return
       setResult(next)
       if (!next.dryRun) {
         setFile(null)
@@ -124,6 +136,7 @@ function ImportForm({
         onImported()
       }
     } catch (error) {
+      if (ticket !== generation.current) return
       setFailure(error instanceof RevisionError ? error.message : '적재하지 못했습니다.')
       setResult(null)
     } finally {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import './AppShell.css'
 import { DEFAULT_PATH, NAV_SCREENS, findScreenByPath } from '../screens'
@@ -104,6 +104,13 @@ export function AppShell() {
     setRemembered(loadStored())
   }, [])
 
+  /**
+   * 선박 목록을 다시 부르게 하는 세대 (`#1643`). `refreshVessels()`가 올린다 — 등록·수정·
+   * CSV 들여오기처럼 목록을 바꾼 화면이 부른다.
+   */
+  const [catalogVersion, setCatalogVersion] = useState(0)
+  const refreshVessels = useCallback(() => setCatalogVersion((version) => version + 1), [])
+
   useEffect(() => {
     let alive = true
     vesselCatalog.listVessels().then(
@@ -123,7 +130,7 @@ export function AppShell() {
     return () => {
       alive = false
     }
-  }, [vesselCatalog])
+  }, [vesselCatalog, catalogVersion])
 
   /*
    * 지금 유효한 선택. 계층 화면이면 경로가, 쿼리 화면이면 쿼리가 정본이고,
@@ -247,10 +254,11 @@ export function AppShell() {
         applyContextRef.current(selectVessel(contextRef.current, vesselId)),
       selectVoyageId: (voyageId: string | null) =>
         applyContextRef.current(selectVoyage(contextRef.current, voyageId)),
+      refreshVessels,
     }),
     // `selectVesselId`·`selectVoyageId`는 ref를 거쳐 최신 값을 읽으므로 여기 넣지 않는다. 넣으면
     // 매 렌더 새 객체가 되고, 이 값을 의존성에 둔 화면의 효과가 무한히 돈다.
-    [context.vesselId, context.voyageId, vessels, vesselsState],
+    [context.vesselId, context.voyageId, vessels, vesselsState, refreshVessels],
   )
 
   return (

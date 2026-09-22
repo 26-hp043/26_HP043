@@ -375,3 +375,58 @@ describe('하단 고지는 배너 한 칸 (#1578)', () => {
     expect(hits[0].getAttribute('role')).toBe('note')
   })
 })
+
+/**
+ * 아래 패널이 바꾸면 이 화면의 누적값도 다시 부른다 (`#1647` · `#1648`).
+ *
+ * 패널은 자기 목록만 갱신했고, 위쪽 누적 CII·요약·실시간 CII 진입은 **옛 항차 집합**의 것으로
+ * 남아 새로고침해야 맞았다. 여기서는 정박 기록을 지워(`NotUnderwayPanel` → `onChanged`)
+ * 상세 조회가 한 번 더 나가는지 본다.
+ */
+describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () => {
+  function stubNetwork() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input)
+        const json = (body: unknown) =>
+          ({ ok: true, status: 200, json: async () => body, text: async () => '' }) as Response
+        if (url.includes('/parameters/fuel-types')) {
+          return json({ data: [{ code: 'HFO', display_name: 'HFO', is_active: true }] })
+        }
+        if (url.includes('/not-underway-periods') && (init?.method ?? 'GET') === 'DELETE') {
+          return { ok: true, status: 204, json: async () => ({}), text: async () => '' } as Response
+        }
+        if (url.includes('/not-underway-periods')) {
+          return json({
+            data: [
+              {
+                id: 'p-1',
+                period_type: 'IN_PORT',
+                started_at: '2026-08-01T00:00:00Z',
+                ended_at: '2026-08-02T00:00:00Z',
+                port_name: null,
+                fuel_uses: [],
+              },
+            ],
+            meta: { period_types: ['IN_PORT'], consumer_types: ['AUX_ENGINE'] },
+          })
+        }
+        return json({ data: [], meta: {} })
+      }),
+    )
+  }
+
+  it('정박 기록을 지우면 선박 상세 조회가 한 번 더 나간다', async () => {
+    stubNetwork()
+    const provider = stub()
+    renderAt(provider)
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(1))
+
+    const remove = await screen.findByRole('button', { name: /구간 삭제|삭제/ })
+    fireEvent.click(remove)
+
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    vi.unstubAllGlobals()
+  })
+})

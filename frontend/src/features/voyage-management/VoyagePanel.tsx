@@ -81,9 +81,22 @@ interface VoyagePanelProps {
    * 그 카드로 스크롤해 초점을 두고, 실적을 넣을 수 있는 항차면 입력을 열어 둔다.
    */
   openActualsFor?: string | null
+  /**
+   * 항차를 만들거나 바꾼 **뒤** 부른다 (`#1647`). 부모(선박 상세)가 누적 CII·요약·실시간 CII
+   * 진입을 다시 부르게 하는 자리다 — 이 패널은 자기 목록만 갱신하므로, 부모는 옛 집계를 그대로
+   * 보이고 있었다.
+   *
+   * **성공에서만** 부른다. 실패에서 부르면 부모가 바뀌지 않은 데이터를 다시 부른다.
+   */
+  onChanged?: () => void
 }
 
-export function VoyagePanel({ vesselId, provider, openActualsFor = null }: VoyagePanelProps) {
+export function VoyagePanel({
+  vesselId,
+  provider,
+  openActualsFor = null,
+  onChanged,
+}: VoyagePanelProps) {
   const [voyages, setVoyages] = useState<ManagedVoyage[] | null>(null)
   const [fuelTypes, setFuelTypes] = useState<string[]>([])
   const [failure, setFailure] = useState<string | null>(null)
@@ -149,6 +162,8 @@ export function VoyagePanel({ vesselId, provider, openActualsFor = null }: Voyag
 
   const replace = (updated: ManagedVoyage) => {
     setVoyages((rows) => (rows ?? []).map((row) => (row.id === updated.id ? updated : row)))
+    // 상태 전환·실적 입력이 선박의 누적 CII를 바꾼다 (`#1647`).
+    onChanged?.()
   }
 
   return (
@@ -184,6 +199,7 @@ export function VoyagePanel({ vesselId, provider, openActualsFor = null }: Voyag
             const created = await api.create(vesselId, draft)
             setVoyages((rows) => [created, ...(rows ?? [])])
             setFormOpen(false)
+            onChanged?.()
           }}
         />
       ) : null}
@@ -709,6 +725,15 @@ function VoyageForm({
   const [ports, setPorts] = useState<SamplePort[]>([])
   /** 계획 거리 칸이 **좌표 기반 추정 거리**로 채워졌는가 — 사용자가 고치면 내린다. */
   const [estimated, setEstimated] = useState(false)
+
+  /**
+   * 거리 입력의 세대 (`#1657`). 항만이 바뀌거나 사용자가 거리를 직접 고치면 올린다.
+   *
+   * 추정 요청이 도는 동안 입력이 바뀌면 **늦게 온 응답을 버린다** — 버리지 않으면 A/B 항로의
+   * 거리(와 「좌표 기반 추정」 출처)가 C 항로나 직접 입력한 값을 덮어쓴다. 그 값은 저장까지
+   * 따라가므로(`plannedDistanceSource` · `#1256`) 화면과 저장이 함께 어긋난다.
+   */
+  const distanceGeneration = useRef(0)
   const [estimating, setEstimating] = useState(false)
 
   useEffect(() => {
@@ -745,6 +770,8 @@ function VoyageForm({
       // 추정」으로 저장된다(출처가 저장까지 가면서 생긴 결함).
       return estimated ? { ...next, plannedDistanceNm: '' } : next
     })
+    // 항이 바뀌면 진행 중이던 추정의 결과는 이 항로의 것이 아니다 (`#1657`).
+    distanceGeneration.current += 1
     if (estimated) setEstimated(false)
   }
 
@@ -753,11 +780,15 @@ function VoyageForm({
   const estimateDistance = async () => {
     if (!draft.departureCoord || !draft.arrivalCoord || estimating) return
     setEstimating(true)
+    const ticket = distanceGeneration.current
     try {
       const distance = await api.greatCircle(draft.departureCoord, draft.arrivalCoord)
+      // 기다리는 동안 항만이나 거리 칸이 바뀌었으면 이 값은 **지금 입력의 것이 아니다** (`#1657`).
+      if (ticket !== distanceGeneration.current) return
       setDraft((prev) => ({ ...prev, plannedDistanceNm: distanceInput(distance) }))
       setEstimated(true)
     } catch (error) {
+      if (ticket !== distanceGeneration.current) return
       setFailure(error instanceof Error ? error.message : '추정 거리를 받지 못했습니다.')
     } finally {
       setEstimating(false)
@@ -844,7 +875,10 @@ function VoyageForm({
         label={`계획 거리 (${DISPLAY_UNITS.distance})`}
         value={draft.plannedDistanceNm}
         onChange={(value) => {
-          setEstimated(false) // 사용자가 고친 값은 추정값이 아니다
+          // 사용자가 고친 값은 추정값이 아니다. 진행 중이던 추정의 결과도 버린다 (`#1657`) —
+          // 직접 입력이 자동 추정보다 앞선다.
+          distanceGeneration.current += 1
+          setEstimated(false)
           set('plannedDistanceNm')(value)
         }}
         error={errors.plannedDistanceNm}

@@ -680,3 +680,49 @@ def test_reseed_shows_rows_it_could_not_clear(tmp_path, log, warned):
     assert ("1행 남김" in out) is warned
     assert ("OPERATIONS.md §3.4.2" in out) is warned
     assert "0행 남김" not in out
+
+
+# --- `--check`는 쓰기를 하지 않는다 (#1639) ---------------------------------------------
+
+
+def _step_six() -> str:
+    """6단계(계산 경로 확인) 본문만 꺼낸다."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    start = text.index('step "6. 계산 경로 확인"')
+    stop = text.index("# --- 7. 리포트 PDF 한글 폰트", start)
+    return text[start:stop]
+
+
+def test_check_does_not_call_the_writing_endpoints():
+    """`--check`는 `dev-login`·계산 호출을 하지 않는다 (`#1639`).
+
+    둘 다 **쓰기**다 — `dev-login`은 `user_session`과 감사 로그를, 계산은 `calculation_run`과
+    감사 로그를 만든다. 「점검만 했는데 DB가 바뀐다」는 `--check`의 계약과 어긋나고, 시연 전
+    점검이 이력 화면에 사람이 하지 않은 실행을 남긴다.
+    """
+    segment = _step_six()
+    guard = segment.index('if [ "$CHECK_ONLY" = "--check" ]; then')
+    for call in ("auth/dev-login", "calculations/voyage-cii"):
+        assert call in segment, call
+        assert guard < segment.index(call), f"{call}이 --check 분기 앞에 있다"
+    # 분기는 이 단계 안에서 닫힌다 — 7단계는 점검에서도 돈다.
+    assert segment.rstrip().endswith("fi")
+
+
+def test_no_other_step_writes_through_the_api():
+    """쓰기 호출은 6단계 밖에 없다 — 다른 단계가 같은 부작용을 되살리지 않게."""
+    text = _SCRIPT.read_text(encoding="utf-8")
+    segment = _step_six()
+    for call in ("auth/dev-login", "calculations/voyage-cii"):
+        # 주석·안내 문구(`printf`·브라우저 `fetch(`)는 실행이 아니다.
+        executed = [
+            line
+            for line in text.splitlines()
+            if call in line
+            and not line.lstrip().startswith("#")
+            and "printf" not in line
+            and "fetch(" not in line
+        ]
+        assert executed, call
+        for line in executed:
+            assert line in segment, line
