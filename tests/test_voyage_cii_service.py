@@ -122,7 +122,7 @@ class TestSerializationMatchesApiSpec:
         [
             ("attained_cii", "attained_cii", "4.982400"),
             ("required_cii", "required_cii", "5.045066"),
-            ("ratio_to_required", "ratio_to_required", "0.98758"),
+            ("ratio_to_required", "ratio_to_required", "0.98757"),
             ("margin", "margin", "0.365370"),
             ("margin_ratio", "margin_ratio", "0.0724"),
             ("total_co2_t", "co2_ton", "249.12"),
@@ -158,17 +158,44 @@ class TestSerializationMatchesApiSpec:
 
 
 class TestSerializationTruncatesCii:
-    """CII 필드의 자릿수 줄임은 **절사**다 (`#1349` · `TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
+    """자릿수 줄임은 **절사**다 — 전송 자릿수가 표시 자릿수보다 큰 모든 필드 (`#1349` → `#1600` ·
+    `TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
 
-    화면·보고서는 받은 문자열을 소수 3자리로 반올림한다. 전송 단계(6자리)도 반올림이면
-    반올림이 두 번이 되어 드물게 끝자리가 1 올라간다. 아래 기대값은 **수치 계약**이며
-    표시 문구가 아니다 — `AGENTS §4.6`의 리터럴 규칙은 문구에 관한 것이다.
+    화면·보고서는 받은 문자열을 표시 자릿수로 반올림한다. 전송 단계도 반올림이면 반올림이 두 번이
+    되어 드물게 끝자리가 1 올라간다. 아래 기대값은 **수치 계약**이며 표시 문구가 아니다 —
+    `AGENTS §4.6`의 리터럴 규칙은 문구에 관한 것이다.
     """
 
     #: 원값에서 바로 3자리면 `4.982`인데, 6자리 HALF_UP ``"4.982500"``을 거치면 `4.983`이 된다.
     BOUNDARY = Decimal("4.9824996")
 
-    @pytest.mark.parametrize("field", sorted(svc.SERIALIZATION_CII_FIELDS))
+    #: 화면이 다시 반올림하는 자릿수(`DESIGN_SYSTEM §4.1` · `§4.2`).
+    #: 비율은 백분율 소수 1 = 비율 소수 3.
+    DISPLAY = {
+        "attained_cii": 3,
+        "required_cii": 3,
+        "boundary_cii": 3,
+        "margin": 3,
+        "ratio_to_required": 3,
+        "margin_ratio": 3,
+        "co2_ton": 1,
+        "fuel_ton": 1,
+        "detail_fuel_ton": 1,
+        "duration_hours": 1,
+    }
+
+    TRUNCATED = sorted(set(svc.SERIALIZATION_DIGITS) - svc.SERIALIZATION_HALF_UP_FIELDS)
+
+    def test_every_serialized_field_has_a_display_digit(self):
+        """필드를 더하면 **표시 자릿수도 적어야** 한다 — 빠지면 여기서 걸린다."""
+        assert set(self.DISPLAY) == set(svc.SERIALIZATION_DIGITS)
+
+    def test_half_up_fields_are_exactly_those_sent_at_display_digits(self):
+        """반올림으로 줄이는 필드 = 전송 자릿수가 표시 자릿수와 **같은** 필드 (`#1600`)."""
+        same = {f for f, d in svc.SERIALIZATION_DIGITS.items() if d <= self.DISPLAY[f]}
+        assert same == svc.SERIALIZATION_HALF_UP_FIELDS
+
+    @pytest.mark.parametrize("field", ["attained_cii", "required_cii", "boundary_cii", "margin"])
     def test_cii_fields_round_down(self, field):
         assert svc._publish(self.BOUNDARY, field) == "4.982499"
 
@@ -179,18 +206,39 @@ class TestSerializationTruncatesCii:
     @pytest.mark.parametrize(
         ("value", "field", "expected"),
         [
-            # 전송 자릿수 = 표시 자릿수 — 절사하면 그 문자열이 곧 표시가 된다.
-            (Decimal("80.05"), "detail_fuel_ton", "80.1"),
-            # 비율은 결정 범위 밖이다 — 그대로 반올림.
-            (Decimal("0.987585"), "ratio_to_required", "0.98759"),
-            (Decimal("0.07245"), "margin_ratio", "0.0725"),
-            # 물리량도 그대로.
-            (Decimal("249.125"), "co2_ton", "249.13"),
-            (Decimal("80.005"), "fuel_ton", "80.01"),
+            # `#1600` — 비율·물리량도 절사한다.
+            (Decimal("0.987585"), "ratio_to_required", "0.98758"),
+            (Decimal("0.07245"), "margin_ratio", "0.0724"),
+            (Decimal("249.125"), "co2_ton", "249.12"),
+            (Decimal("80.005"), "fuel_ton", "80.00"),
+            (Decimal("785.71429"), "duration_hours", "785.7142"),
         ],
     )
-    def test_non_cii_fields_keep_half_up(self, value, field, expected):
+    def test_ratio_and_quantity_fields_truncate(self, value, field, expected):
         assert svc._publish(value, field) == expected
+
+    def test_display_digit_field_keeps_half_up(self):
+        """전송 자릿수 = 표시 자릿수 — 절사하면 그 문자열이 곧 표시가 된다."""
+        assert svc._publish(Decimal("80.05"), "detail_fuel_ton") == "80.1"
+
+    @pytest.mark.parametrize("field", TRUNCATED)
+    def test_truncate_then_display_equals_direct_display_every_field(self, field):
+        """필드마다 「전송 절사 → 표시 HALF_UP」 = 「원값 → 표시 HALF_UP」 (`#1600` 완료 기준).
+
+        결정론적 무작위 표본(seed 1600) + 경계값. 전송이 HALF_UP이면 4자리 비율·2자리 톤은 약 5%가
+        어긋났다(결정요청 v3 `E-8` 20만 건 재현).
+        """
+        rng = random.Random(1600)
+        display = Decimal(1).scaleb(-self.DISPLAY[field])
+        samples = [Decimal("0.98757869"), Decimal("0.07245"), Decimal("249.125"), Decimal("0")] + [
+            Decimal(rng.randrange(0, 20_000_000_000)).scaleb(-rng.choice((6, 7, 9)))
+            for _ in range(2_000)
+        ]
+        for value in samples:
+            sent = Decimal(svc._publish(value, field))
+            assert sent.quantize(display, rounding=ROUND_HALF_UP) == value.quantize(
+                display, rounding=ROUND_HALF_UP
+            ), (field, value, sent)
 
     def test_truncate_then_display_equals_direct_display(self):
         """「6자리 절사 → 3자리 HALF_UP」은 「원값에서 바로 3자리 HALF_UP」과 같다.

@@ -34,7 +34,7 @@ from cii_platform.calc.fleet_reduction import (
     summarize_costs,
     target_rating_for,
 )
-from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING, layer1_context
+from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING, layer1_context
 from cii_platform.db.models.fleet_reduction_plan import FleetReductionPlan
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import AppError, NotFoundError, ParameterError, ValidationError
@@ -83,6 +83,18 @@ def _publish(value: Decimal | None, digits: int) -> str | None:
     return str(value.quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING))
 
 
+def _publish_measure(value: Decimal | None, digits: int) -> str | None:
+    """표시보다 길게 보내는 물리량(연료 톤 소수 2 · 일수 소수 2)을 **절사**한다 (`#1600`).
+
+    화면은 연료를 소수 1, 일수를 정수로 다시 반올림한다(`DESIGN_SYSTEM §4.2`) — 여기서 반올림하면
+    두 번 반올림된다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」). 금액·감속률은 표시 자릿수가
+    정해지지 않았거나 같아서 :func:`_publish`(``ROUND_HALF_UP``)에 남긴다.
+    """
+    if value is None:
+        return None
+    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=SERIALIZATION_ROUNDING))
+
+
 def _publish_cii(value: Decimal | None) -> str | None:
     """감속 전후 CII를 소수 4자리로 **절사**한다 (`#1349` · 선대 요약과 같다).
 
@@ -91,7 +103,7 @@ def _publish_cii(value: Decimal | None) -> str | None:
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=CII_SERIALIZATION_ROUNDING))
+    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
 
 
 def _legs(voyages_json: list[dict]) -> list[PlannedLeg]:
@@ -295,8 +307,8 @@ async def evaluate_reduction_plan(
                 },
                 "target_rating": target_rating,
                 "meets_target": met,
-                "extra_days": _publish(slowed.extra_days, _DAY_DIGITS),
-                "fuel_saved_ton": _publish(
+                "extra_days": _publish_measure(slowed.extra_days, _DAY_DIGITS),
+                "fuel_saved_ton": _publish_measure(
                     sum(slowed.fuel_saved_ton_by_type.values(), Decimal(0)), _TON_DIGITS
                 ),
                 "skipped_voyages": slowed.skipped_voyages,
@@ -304,7 +316,7 @@ async def evaluate_reduction_plan(
                 # (#1070 ⑷). 계산에서 뺀 항차가 있으면 `warnings`가 그 사실을 말한다.
                 "remaining_voyage_count": inputs.plan_voyage_count,
                 # 조정 **후**에도 남는 필요 감축량 — 목표까지 연료를 더 줄여야 하는 양(`§12.3.1`).
-                "required_cut_fuel_ton": _publish(cut.required_cut_fuel_ton, _TON_DIGITS),
+                "required_cut_fuel_ton": _publish_measure(cut.required_cut_fuel_ton, _TON_DIGITS),
                 "achievable": cut.achievable,
             }
         )
@@ -324,12 +336,12 @@ async def evaluate_reduction_plan(
         "rating_distribution": {"before": before_dist, "after": after_dist},
         "costs": {
             "currency": "USD",
-            "extra_days": _publish(costs.extra_days, _DAY_DIGITS),
+            "extra_days": _publish_measure(costs.extra_days, _DAY_DIGITS),
             "charter_loss": _publish(costs.charter_loss_usd, _MONEY_DIGITS),
             "fuel_saving": _publish(costs.fuel_saving_usd, _MONEY_DIGITS),
             "net": _publish(costs.net_usd, _MONEY_DIGITS),
             "fuel_saved_ton_by_type": {
-                k: _publish(v, _TON_DIGITS) for k, v in sorted(fuel_saved.items())
+                k: _publish_measure(v, _TON_DIGITS) for k, v in sorted(fuel_saved.items())
             },
             "missing_charter_rates": list(costs.missing_charter_rates),
             "missing_fuel_prices": list(costs.missing_fuel_prices),

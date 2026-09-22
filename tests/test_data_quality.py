@@ -164,8 +164,8 @@ def test_no_emissions_is_not_full_completeness():
     assert completeness_ratio(Decimal(0), Decimal(0)) is None
 
 
-def test_publish_cii_truncates_toward_zero_and_ratio_rounds():
-    """CII 영향값은 절사, 완전성 비율은 반올림 (`#1349` · `TECH_SPEC §1.2.1`).
+def test_publish_cii_and_ratio_truncate_toward_zero():
+    """CII 영향값도 완전성 비율도 절사 (`#1349` → `#1600` · `TECH_SPEC §1.2.1`).
 
     ``delta``는 음수일 수 있다 — ``ROUND_DOWN``은 0 방향 절사라 부호에 대칭이고, 절사 뒤
     화면의 3자리 반올림은 원값 직접 반올림과 같다. 기대값은 수치 계약이며 표시 문구가 아니다.
@@ -175,4 +175,13 @@ def test_publish_cii_truncates_toward_zero_and_ratio_rounds():
     assert _publish_cii(Decimal("4.9824996")) == "4.9824"
     assert _publish_cii(Decimal("-0.0004996")) == "-0.0004"
     assert _publish_cii(None) is None
-    assert _publish(Decimal("0.98765"), _RATIO_DIGITS) == "0.9877"
+    assert _publish(Decimal("0.98765"), _RATIO_DIGITS) == "0.9876"
+
+
+def test_co2_ton_truncates():
+    """`#1600` — 완결성의 CO₂ 톤(소수 2)은 표시(소수 1)보다 길어 **절사**한다."""
+    from decimal import Decimal
+
+    from cii_platform.services.data_quality import _publish_co2_ton
+
+    assert _publish_co2_ton(Decimal("249125000")) == "249.12"

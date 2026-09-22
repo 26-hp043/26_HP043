@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import resolve_transport_capacity
-from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING, layer1_context
+from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING, layer1_context
 from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
@@ -170,7 +170,7 @@ def _publish_cii(value: Decimal | None) -> str | None:
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=CII_SERIALIZATION_ROUNDING))
+    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
 
 
 def _route_of(voyage) -> dict[str, str] | None:

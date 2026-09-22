@@ -379,6 +379,8 @@ MVP는 **자체 이메일·비밀번호 인증 + 서버 세션 쿠키**를 사�
 > 클라이언트는 `parameter_hash` + `input_hash`로 결과의 무결성을 검증한다. 값 자체의 bit-exact 비교는 JSON float 파싱으로 인해 신뢰할 수 없다.
 
 > **[#1349] CII 문자열의 마지막 자리는 절사값이다.** Layer 1 CII 필드는 전송 자릿수(상세 소수 6 · 대시보드 소수 4)가 표시 자릿수(소수 3)보다 크므로 **자릿수 줄임을 `ROUND_DOWN`으로 한다**(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」). 그래야 클라이언트가 표시 시점에 **한 번** 반올림한 값이 원값에서 바로 반올림한 값과 같다. 클라이언트는 받은 문자열을 **그대로 표시 자릿수로 반올림**하면 되고, 문자열을 다시 올려 맞추지 않는다. Layer 2 소수 4자리와 연료 소수 1자리처럼 전송 = 표시인 필드는 `ROUND_HALF_UP` 그대로다. 예시 `"4.982400"`은 두 방식이 같은 값이다.
+>
+> **[#1600] 비율·물리량도 같다.** 전송 자릿수가 표시 자릿수보다 큰 **모든 필드**(`ratio_to_required` · `margin_ratio` · `completeness_ratio` · 연료 t · CO₂ t · 거리 nm · 일수 · 시간 h)의 마지막 자리도 절사값이다(`TECH_SPEC §1.2.1` 표). 전송 = 표시 자릿수인 필드(연료 소수 1자리 `calculation_basis.fuel_cf_details[].fuel_ton`)와 Layer 2 확률(소수 4자리)은 그대로 반올림이다. 예시 값 여러 곳이 끝자리 1씩 내려갔다(`§4.1` `0.98758` → `0.98757` · `§5.1` 7곳) — 화면 표시는 어느 쪽이든 같다.
 
 ### 1.8 멱등성 (Idempotency)
 
@@ -2259,7 +2261,7 @@ POST /api/v1/calculations/voyage-cii
   "data": {
     "attained_cii": "4.982400",
     "required_cii": "5.045066",
-    "ratio_to_required": "0.98758",
+    "ratio_to_required": "0.98757",
     "estimated_rating": "C",
     "rating_boundary_cii": {
       "superior_boundary": "4.338757",
@@ -2345,7 +2347,7 @@ POST /api/v1/calculations/voyage-cii
   "data": {
     "attained_cii": "12.456000",
     "required_cii": "5.045066",
-    "ratio_to_required": "2.46895",
+    "ratio_to_required": "2.46894",
     "estimated_rating": "E",
     "next_worse_boundary_margin": null,
     "next_worse_boundary_margin_ratio": null,
@@ -2510,12 +2512,12 @@ POST /api/v1/scenarios/compare
         "scenario_name": "직항",
         "distance_nm": 11000.0,
         "speed_kn": 14.0,
-        "duration_hours": "785.7143",
+        "duration_hours": "785.7142",
         "fuel_ton": "935.76",
-        "co2_emission_ton": "2913.97",
+        "co2_emission_ton": "2913.96",
         "attained_cii": "5.298125",
         "required_cii": "5.045066",
-        "ratio_to_required": "1.05016",
+        "ratio_to_required": "1.05015",
         "estimated_rating": "C",
         "next_worse_boundary_margin": "0.049645",
         "next_worse_boundary_margin_ratio": "0.0098",
@@ -2541,10 +2543,10 @@ POST /api/v1/scenarios/compare
         "speed_kn": 14.0,
         "duration_hours": "825.0000",
         "fuel_ton": "982.55",
-        "co2_emission_ton": "3059.67",
+        "co2_emission_ton": "3059.66",
         "attained_cii": "5.298125",
         "required_cii": "5.045066",
-        "ratio_to_required": "1.05016",
+        "ratio_to_required": "1.05015",
         "estimated_rating": "C",
         "next_worse_boundary_margin": "0.049645",
         "next_worse_boundary_margin_ratio": "0.0098",
@@ -2569,7 +2571,7 @@ POST /api/v1/scenarios/compare
         "distance_nm": 11000.0,
         "speed_kn": 13.0,
         "duration_hours": "846.1538",
-        "fuel_ton": "806.86",
+        "fuel_ton": "806.85",
         "co2_emission_ton": "2512.55",
         "attained_cii": "4.568281",
         "required_cii": "5.045066",
@@ -4405,3 +4407,4 @@ POST /api/v1/chat
 | 2026-09-23 | `#1698` | **§15.7 `GET /chat/status` 신설 · §12 요약표 행 · §1.4·§15.4의 503 조건에 자리표시자 `-`·인증 방식 오류 추가** (`#1535`). 화면이 챗봇 사용 가능 여부를 **질문을 보내 503을 받아야만** 알았다. 패널을 열 때 부르는 조회를 두고 `available` 불린 하나만 낸다 — 키 값·꺼진 이유는 내지 않는다. **기본 버킷**에 둔 이유는 패널을 열 때마다 질문 한도(분당 10)를 깎지 않기 위해서다. 운영 시크릿이 자리표시자 `-`라 질문마다 인증 실패로 `discarded`가 쌓이던 것을 **빈 값과 같이 꺼짐**으로 본다. 주소·모델·인증 방식의 환경변수화(`LLM_BASE_URL`·`LLM_MODEL`·`LLM_AUTH_SCHEME`)는 설정 문서(`.env.example`·`OPERATIONS §5.3`) 소관이라 이 문서에는 503 조건만 적었다. `AGENTS §4.3`상 기존 경로의 보완이라 버전은 올리지 않는다(`#1413` 선례) (#1535) |
 | 2026-09-23 | `#1702` | **§15.1 요청에 `calculation_run_id` · 「화면의 결과를 읽는 도구」 소절** (`#1533`). 챗봇이 「화면의 계산 결과를 풀어 쓴다」(`PRD §6.3` 면책)고 말하면서 **화면의 결과를 받지 않았다** — 요청은 `message`·`session_id`·`vessel_id`뿐이었고 도구는 전부 새로 계산했다. 화면이 방금 낸 결과의 실행 id를 넘기고, 도구 `explain_screen_result`가 **저장된 결과를 읽는다**(다시 계산하지 않는다 — 확률은 다시 돌리면 화면과 같아질 수 없다). 상단 선박과 실행의 선박이 다르면 읽지 않는다. `project_year_end`는 올해 누적(`ytd`)도 함께 낸다. 연간 시뮬레이션의 확률 세 키는 `PRD §16.3.1` 표에 먼저 올렸다. `AGENTS §4.3`상 요청 필드·소절 추가라 버전은 올리지 않는다 (#1533) |
 | 2026-09-23 | `#1706` | **§15.4에 「만료된 대화」 행** (`#1632`). 90일 보존 기한은 하루 한 번 도는 청소(`scripts/purge_expired.py`)만 지키고 있었다 — 그 사이에 만료된 대화로 이어 물으면 **외부 모델을 부르고 질문을 저장했다.** 라우트와 서비스(외부 호출 직전) 두 곳에서 `expires_at`을 보고 404로 끊는다. 남의 대화와 같은 코드로 둔 이유는 존재 여부를 흘리지 않기 위해서다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#1632) |
+| 2026-09-23 | `#___` | **§1.7 각주 `[#1600]` · 예시 값 끝자리 정정** — 전송 자릿수가 표시보다 큰 비율·물리량도 절사값이다(`TECH_SPEC §1.2.1`). `§4.1` `ratio_to_required` `0.98758` → `0.98757`(원값 `0.987578690…`) · 등급 E 예시 `2.46895` → `2.46894` · `§5.1` `duration_hours` `785.7143` → `785.7142` · `co2_emission_ton` `2913.97` → `2913.96` · `3059.67` → `3059.66` · `ratio_to_required` `1.05016` → `1.05015`(×2) · `fuel_ton` `806.86` → `806.85`. §5.1은 예시 요청·가정 제원으로 엔진 식을 다시 계산해 얻었고, 같은 계산이 문서의 `attained_cii`(`5.298125` · `4.568281`)와 종전 HALF_UP 값을 그대로 재현함을 먼저 확인했다. `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1600) |

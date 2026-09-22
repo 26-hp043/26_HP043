@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import capacity_axis
-from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING
+from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
@@ -75,6 +75,9 @@ REASON_NO_DATA = "NO_DATA"
 #: ``voyage_cii.SERIALIZATION_DIGITS``와 같은 기준을 이력 필드에 맞게 재정의한다.
 _DIGITS = {"cii": 6, "distance_nm": 2, "fuel_ton": 2, "co2_ton": 2, "share_percent": 1}
 
+#: 전송 자릿수 = 표시 자릿수인 종류 — 반올림으로 줄인다(`#1600`). 나머지는 절사다.
+_HALF_UP_KINDS = frozenset({"share_percent"})
+
 #: 그램 → 톤. ``calc.annual_simulation.GRAMS_PER_TON``과 같은 값이되, 여기서는
 #: **표시 단위 환산**에만 쓴다(계산은 Layer 1이 이미 끝냈다).
 _GRAMS_PER_TON = Decimal(1_000_000)
@@ -83,11 +86,12 @@ _GRAMS_PER_TON = Decimal(1_000_000)
 def _publish(value: Decimal, kind: str) -> str:
     """정본값을 전송 자릿수 문자열로 확정한다 (표시 계약 — 계산 정밀도가 아니다).
 
-    반올림은 **종류가 정한다** (`#1349`). ``"cii"``(연도별 ``attained``·``required``)는
-    절사하고, 거리·연료·CO₂·비중은 ``ROUND_HALF_UP`` 그대로다 — 절사는 화면의 3자리
+    반올림은 **종류가 정한다** (`#1349` → `#1600`). 전송 자릿수가 표시 자릿수보다 큰
+    종류(CII 6>3 · 거리 2>0 · 연료·CO₂ 2>1)는 절사하고, 같은 종류(연료 비중 1=1)만
+    ``ROUND_HALF_UP``이다 — 절사하면 그 문자열이 곧 표시가 되기 때문이다. 절사는 화면의 표시
     반올림과 겹쳐 두 번 반올림되는 것을 막는 장치다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
     """
-    rounding = CII_SERIALIZATION_ROUNDING if kind == "cii" else LAYER1_ROUNDING
+    rounding = LAYER1_ROUNDING if kind in _HALF_UP_KINDS else SERIALIZATION_ROUNDING
     return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
 
 

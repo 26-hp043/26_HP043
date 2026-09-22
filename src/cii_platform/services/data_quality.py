@@ -47,7 +47,7 @@ from cii_platform.calc.data_quality import (
     completeness_ratio,
     judge_anomaly,
 )
-from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING, layer1_context
+from cii_platform.calc.precision import SERIALIZATION_ROUNDING, layer1_context
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -108,8 +108,8 @@ IMPACT_BASE_UNAVAILABLE = "BASE_UNAVAILABLE"
 _STATUS_COMPLETED = "COMPLETED"
 _CII_DIGITS = 4
 _RATIO_DIGITS = 4
-#: CO₂ 톤 문자열의 소수 자릿수 — `§2.7` ``co2_ton``과 같다. `#1349`의 절사는 CII 필드에만
-#: 적용되므로 톤은 ``ROUND_HALF_UP`` 그대로다(``API_SPEC §1.7``).
+#: CO₂ 톤 문자열의 소수 자릿수 — `§2.7` ``co2_ton``과 같다. 표시(소수 1)보다 길어 **절사**한다
+#: (`#1600` · ``TECH_SPEC §1.2.1`` 「응답 직렬화의 절사」).
 _CO2_TON_DIGITS = 2
 #: ``PRD §3.3.2`` — 연료 톤 × CF(tCO₂/t) → g. 응답은 t로 되돌려 싣는다.
 _GRAMS_PER_TON = Decimal(1_000_000)
@@ -127,11 +127,13 @@ _EXCLUSION_PRIORITY: tuple[str, ...] = (
 def _publish(value: Decimal | None, digits: int) -> str | None:
     """CII가 아닌 값(완전성 비율)을 문자열로 확정한다 — ``API_SPEC §1.7`` (선대 요약과 같은 규약).
 
-    반올림을 명시한다 — ``f"{value:.4f}"``는 호출 스레드의 Decimal 컨텍스트를 따라 갈린다.
+    **절사한다** (`#1600`). 완전성 비율은 4자리로 보내고 화면은 백분율 1자리(소수 3)로 다시
+    반올림한다 — 여기서 반올림하면 두 번 반올림되어 약 5%가 끝자리 1이 틀렸다(20만 건 재현).
+    반올림 모드를 명시한다 — ``f"{value:.4f}"``는 호출 스레드의 Decimal 컨텍스트를 따라 갈린다.
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=LAYER1_ROUNDING))
+    return str(value.quantize(Decimal(1).scaleb(-digits), rounding=SERIALIZATION_ROUNDING))
 
 
 def _publish_cii(value: Decimal | None) -> str | None:
@@ -142,14 +144,14 @@ def _publish_cii(value: Decimal | None) -> str | None:
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=CII_SERIALIZATION_ROUNDING))
+    return str(value.quantize(Decimal(1).scaleb(-_CII_DIGITS), rounding=SERIALIZATION_ROUNDING))
 
 
 def _publish_co2_ton(grams: Decimal) -> str:
-    """CO₂ g → t 문자열 (소수 2자리 · ``ROUND_HALF_UP``) — `§2.7` ``co2_ton``과 같은 규약."""
+    """CO₂ g → t 문자열 (소수 2자리 · **절사** · `#1600`) — `§2.7` ``co2_ton``과 같은 규약."""
     return str(
         (grams / _GRAMS_PER_TON).quantize(
-            Decimal(1).scaleb(-_CO2_TON_DIGITS), rounding=LAYER1_ROUNDING
+            Decimal(1).scaleb(-_CO2_TON_DIGITS), rounding=SERIALIZATION_ROUNDING
         )
     )
 

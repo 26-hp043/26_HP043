@@ -5,7 +5,7 @@
 | 문서명 | DB_SCHEMA.md |
 | 버전 | v1.34 |
 | 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** |
-| 최종 수정일 | 2026-09-22 |
+| 최종 수정일 | 2026-09-23 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -422,7 +422,7 @@ ALTER TABLE calculation_run ADD CONSTRAINT chk_calculation_type
 {
   "attained_cii": "4.982400",
   "required_cii": "5.045066",
-  "ratio_to_required": "0.98758",
+  "ratio_to_required": "0.98757",
   "estimated_rating": "C",
   "rating_boundary_cii": {
     "superior_boundary": "4.338757",
@@ -2225,3 +2225,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-20 | `#1410` | **§2.19에 `SPEED` 행의 성격 각주 추가** (`#1346`). 이 표의 `bound_type`·`floor_value`가 **속도 때문에** 존재하는데, 정작 그 행은 **Monte Carlo가 표본추출하지 않는다**(`PRD §12.4.1` 각주). 그래도 **행을 지우지 않는 이유**를 함께 적었다 — `parameters_used`·`parameter_hash`에서 빼면 속도를 표본추출하게 되는 날 **옛 실행과 해시가 겹쳐 「재현됐다」가 거짓**이 된다. ⚠️ 이 행은 `PRD §12.6` 민감도의 ±1kn이 아니다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#1346) |
 | 2026-09-20 | `#1413` | §2.14 `audit_log.action` 열거에 **`CHAT_DELETE` 추가** (`#1330`). 이 컬럼에는 집행 CHECK·트리거가 없어(`§7.4`) **DB가 알려 주지 않으므로** `tests/test_audit_enum_sync.py`가 `코드 == 문서`를 양방향으로 잠근다(`#1343`의 틀). `AGENTS §4.3`상 값 추가라 버전은 올리지 않는다 (#1330) |
 | 2026-09-22 | `#1587` | **「CUBRID에서 달라지는 것」 9번째 — `IS`의 오른쪽에 `0`/`1`이 올 수 없다** (`#1316`). SQLAlchemy가 불리언 열의 `.is_(False)`를 `IS 0`으로 렌더하는데 CUBRID가 문법 오류로 거부한다. 운영 엔진 변환기가 `= 0`으로 고쳐 쓰던 것을 걷고(정규식은 모양만 맞으면 어떤 문장이든 바꾼다) ORM에서 `== 0/1`로 비교한다는 규칙과 소스 가드 위치를 적었다. 제목 「여덟」→「아홉」. `§4.3`상 항목 추가라 버전은 올리지 않는다 |
+| 2026-09-23 | `#___` | **`result_json` 예시의 `ratio_to_required` `0.98758` → `0.98757`** (`#1600`). 비율도 전송 자릿수로 절사한다(`TECH_SPEC §1.2.1`). 이미 저장된 옛 결과 문자열은 고치지 않는다(`TECH_SPEC §5.4`). `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1600) |

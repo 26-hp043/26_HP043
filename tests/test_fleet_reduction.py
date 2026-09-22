@@ -210,3 +210,18 @@ def test_publish_cii_truncates_and_quantities_round():
     assert _publish_cii(None) is None
     assert _publish(Decimal("80.005"), _TON_DIGITS) == "80.01"
     assert _publish(Decimal("12.35"), 1) == "12.4"
+
+
+def test_measures_truncate_but_money_rounds():
+    """`#1600` — 연료 톤·일수는 표시(소수 1 · 정수)보다 길게 보내므로 **절사**, 금액은 반올림.
+
+    금액은 `DESIGN_SYSTEM §4.2`에 표시 자릿수 행이 없어 넓히지 않았다. 기대값은 수치 계약이다.
+    """
+    from decimal import Decimal
+
+    from cii_platform.services.fleet_reduction import _publish, _publish_measure
+
+    assert _publish_measure(Decimal("80.005"), 2) == "80.00"
+    assert _publish_measure(Decimal("12.345"), 2) == "12.34"
+    assert _publish_measure(None, 2) is None
+    assert _publish(Decimal("80.005"), 2) == "80.01"
