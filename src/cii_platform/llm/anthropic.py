@@ -24,20 +24,23 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from cii_platform.llm.provider import (
-    DEFAULT_MODEL,
+    AUTH_SCHEME_BEARER,
     MAX_OUTPUT_TOKENS,
     LLMError,
     LLMResponse,
     LLMUnavailableError,
     ToolCall,
     api_key,
+    auth_scheme,
+    base_url,
+    model_name,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-#: Messages API.
-ENDPOINT = "https://api.anthropic.com/v1/messages"
+#: Messages API 경로. 기준 주소(``LLM_BASE_URL`` · 기본 Anthropic)에 붙인다 (`#1535`).
+MESSAGES_PATH = "/v1/messages"
 
 #: 버전 헤더 — Anthropic이 요구한다.
 API_VERSION = "2023-06-01"
@@ -124,19 +127,38 @@ class AnthropicProvider:
     """``LLMProvider`` 구현체.
 
     :param key: 쓰지 않으면 ``LLM_API_KEY``를 읽는다.
-    :param model: 기본값은 `Q4`가 정한 Claude Haiku 4.5.
+    :param model: 쓰지 않으면 ``LLM_MODEL``(기본 `Q4`의 Claude Haiku 4.5)을 읽는다.
+    :param base: 쓰지 않으면 ``LLM_BASE_URL``(기본 Anthropic)을 읽는다.
+    :param scheme: 쓰지 않으면 ``LLM_AUTH_SCHEME``(기본 ``x-api-key``)을 읽는다.
+
+    주소·모델·인증 방식을 환경변수로 받는 것은 `#1535` 결정이다 — Anthropic 형식을
+    내는 다른 공급자로 옮길 때 **코드를 고치지 않고 설정만 바꾸기 위해서다.** 기본값이
+    종전 상수와 같아 설정을 비워 두면 동작이 바뀌지 않는다.
     """
 
     def __init__(
         self,
         *,
         key: str | None = None,
-        model: str = DEFAULT_MODEL,
+        model: str | None = None,
+        base: str | None = None,
+        scheme: str | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._key = key or api_key()
-        self._model = model
+        self._model = model or model_name()
+        self._endpoint = (base or base_url()).rstrip("/") + MESSAGES_PATH
+        self._scheme = scheme or auth_scheme()
         self._client = client
+
+    def _headers(self) -> dict[str, str]:
+        """인증 헤더. ``anthropic-version``은 방식과 무관하게 싣는다 — 형식 규격이다."""
+        headers = {"anthropic-version": API_VERSION, "content-type": "application/json"}
+        if self._scheme == AUTH_SCHEME_BEARER:
+            headers["authorization"] = f"Bearer {self._key}"
+        else:
+            headers["x-api-key"] = str(self._key)
+        return headers
 
     async def complete(
         self,
@@ -146,6 +168,8 @@ class AnthropicProvider:
     ) -> LLMResponse:
         if not self._key:
             raise LLMUnavailableError("챗봇이 설정되지 않았습니다 (LLM_API_KEY 없음).")
+        if self._scheme is None:
+            raise LLMUnavailableError("챗봇 인증 방식이 올바르지 않습니다 (LLM_AUTH_SCHEME).")
 
         system, rest = _split_system(messages)
         body: dict[str, Any] = {
@@ -160,18 +184,14 @@ class AnthropicProvider:
         if tools:
             body["tools"] = tools
 
-        headers = {
-            "x-api-key": self._key,
-            "anthropic-version": API_VERSION,
-            "content-type": "application/json",
-        }
+        headers = self._headers()
 
         try:
             if self._client is not None:
-                response = await self._client.post(ENDPOINT, json=body, headers=headers)
+                response = await self._client.post(self._endpoint, json=body, headers=headers)
             else:
                 async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
-                    response = await client.post(ENDPOINT, json=body, headers=headers)
+                    response = await client.post(self._endpoint, json=body, headers=headers)
             response.raise_for_status()
             return _parse(response.json())
         except httpx.HTTPStatusError as exc:

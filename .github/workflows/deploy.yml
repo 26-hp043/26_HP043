@@ -47,7 +47,9 @@
 #   MAIL_FROM / SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD
 #                           MAIL_BACKEND 기본값은 console 이다 — SMTP_* 를
 #                           등록할 때 MAIL_BACKEND=smtp 도 함께 넣는다.
-#   LLM_API_KEY             챗봇 LLM API 키.
+#   LLM_API_KEY             챗봇 LLM API 키. 비우거나 `-`면 챗봇만 꺼진다 (#1535).
+#   LLM_BASE_URL / LLM_MODEL / LLM_AUTH_SCHEME
+#                           챗봇 연결. 비우면 Anthropic 기본값 (#1535 · .env.example).
 
 name: Deploy to OCI
 
@@ -338,6 +340,10 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_USE_TLS: ${{ secrets.SMTP_USE_TLS }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          # 비우면 Anthropic 기본값 (#1535 · .env.example)
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL }}
+          LLM_AUTH_SCHEME: ${{ secrets.LLM_AUTH_SCHEME }}
           # 데모 데이터 적재·초기화 (#1485). push 트리거에는 `inputs`가 없어 빈 문자열이
           # 되므로 **자동 배포에서는 켜지지 않는다** — 아래 셸이 `= "true"`로만 본다.
           SEED_DEMO: ${{ inputs.seed_demo }}
@@ -363,6 +369,8 @@ jobs:
              SMTP_USER='${SMTP_USER:-}' SMTP_PASSWORD='${SMTP_PASSWORD:-}' \
              SMTP_USE_TLS='${SMTP_USE_TLS:-true}' \
              LLM_API_KEY='${LLM_API_KEY:-}' \
+             LLM_BASE_URL='${LLM_BASE_URL:-}' LLM_MODEL='${LLM_MODEL:-}' \
+             LLM_AUTH_SCHEME='${LLM_AUTH_SCHEME:-}' \
              GHCR_USER='${{ github.actor }}' GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
              GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
              bash -s" <<'ENDSSH'
@@ -403,6 +411,9 @@ jobs:
           SMTP_USER=${SMTP_USER}
           SMTP_PASSWORD=${SMTP_PASSWORD}
           LLM_API_KEY=${LLM_API_KEY}
+          LLM_BASE_URL=${LLM_BASE_URL}
+          LLM_MODEL=${LLM_MODEL}
+          LLM_AUTH_SCHEME=${LLM_AUTH_SCHEME}
           BACKEND_IMAGE=ghcr.io/${{ github.repository_owner }}/bluelog-backend:${BACKEND_TAG}
           EOF
 

@@ -225,3 +225,108 @@ async def test_missing_key_is_unavailable_not_a_generic_failure(
     provider = AnthropicProvider(key=None)
     with pytest.raises(LLMUnavailableError):
         await provider.complete(messages=[{"role": "user", "content": "질문"}])
+
+
+# ── #1535 주소·모델·인증 방식 환경변수화 · 자리표시자 ──────────────────────────
+
+
+@pytest.fixture
+def _clean_llm_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    for name in ("LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "LLM_AUTH_SCHEME"):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+@pytest.mark.parametrize("value", ["", "   ", "-", " - "])
+def test_blank_or_placeholder_key_means_disabled(_clean_llm_env, value: str) -> None:
+    """`#1535` — 자리표시자 ``-``는 **빈 값과 같이 꺼짐**이다.
+
+    GitHub 시크릿은 비워 둘 수 없어 운영에 ``-``를 넣어 두었다. 이것을 키로 읽으면
+    질문마다 외부 호출이 인증 실패로 끝나고, 화면은 그것을 미리 알 수 없다.
+    """
+    from cii_platform.llm.provider import api_key, is_enabled
+
+    _clean_llm_env.setenv("LLM_API_KEY", value)
+    assert api_key() is None
+    assert is_enabled() is False
+
+
+def test_unknown_auth_scheme_disables_the_chatbot(_clean_llm_env) -> None:
+    """`#1535` — 모르는 인증 방식은 **기본값으로 고쳐 읽지 않고 끈다.**
+
+    고쳐 읽으면 운영자가 적은 것과 다른 헤더로 키가 외부에 나간다.
+    """
+    from cii_platform.llm.provider import auth_scheme, is_enabled
+
+    _clean_llm_env.setenv("LLM_API_KEY", "k")
+    _clean_llm_env.setenv("LLM_AUTH_SCHEME", "basic")
+    assert auth_scheme() is None
+    assert is_enabled() is False
+
+
+async def test_defaults_keep_the_previous_anthropic_request(_clean_llm_env) -> None:
+    """`#1535` — 설정을 비워 두면 **종전과 같은 주소·모델·헤더**로 나간다.
+
+    환경변수화가 기본 동작을 바꾸면, 이 PR의 머지(= 자동 배포)가 곧 운영 챗봇 변경이 된다.
+    """
+    from cii_platform.llm.provider import DEFAULT_MODEL
+
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["headers"] = dict(request.headers)
+        seen["model"] = json.loads(request.content)["model"]
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "네."}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await AnthropicProvider(key="k", client=client).complete(
+            messages=[{"role": "user", "content": "질문"}]
+        )
+
+    assert seen["url"] == "https://api.anthropic.com/v1/messages"
+    assert seen["model"] == DEFAULT_MODEL == "claude-haiku-4-5-20251001"
+    headers = seen["headers"]
+    assert headers["x-api-key"] == "k"  # type: ignore[index]
+    assert "authorization" not in headers  # type: ignore[operator]
+
+
+async def test_env_moves_the_address_model_and_auth_header(_clean_llm_env) -> None:
+    """`#1535` — 주소·모델·인증 방식을 **설정만으로** 바꾼다.
+
+    Anthropic 형식을 내는 다른 공급자(예: Z.ai는 기준 주소 + Bearer로 안내)로 옮길 때
+    코드를 고치지 않기 위해서다. 끝의 ``/``는 걷어 경로가 ``//``가 되지 않게 한다.
+    """
+    _clean_llm_env.setenv("LLM_BASE_URL", "https://llm.example/api/anthropic/")
+    _clean_llm_env.setenv("LLM_MODEL", "some-model")
+    _clean_llm_env.setenv("LLM_AUTH_SCHEME", "Bearer")
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["headers"] = dict(request.headers)
+        seen["model"] = json.loads(request.content)["model"]
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "네."}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await AnthropicProvider(key="k", client=client).complete(
+            messages=[{"role": "user", "content": "질문"}]
+        )
+
+    assert seen["url"] == "https://llm.example/api/anthropic/v1/messages"
+    assert seen["model"] == "some-model"
+    headers = seen["headers"]
+    assert headers["authorization"] == "Bearer k"  # type: ignore[index]
+    assert "x-api-key" not in headers  # type: ignore[operator]
+    assert headers["anthropic-version"] == API_VERSION  # type: ignore[index]
+
+
+def test_status_path_does_not_spend_the_chat_bucket() -> None:
+    """`#1535` — ``GET /chat/status``는 **질문 한도(분당 10)를 깎지 않는다.**
+
+    패널을 열 때마다 부르므로, ``chat`` 버킷에 들면 질문도 하기 전에 429가 난다.
+    """
+    from cii_platform.api.rate_limit import BUCKET_CHAT, resolve_bucket
+
+    assert resolve_bucket("POST", "/api/v1/chat") == BUCKET_CHAT
+    assert resolve_bucket("GET", "/api/v1/chat/status") != BUCKET_CHAT
