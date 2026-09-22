@@ -23,7 +23,13 @@
   align-items: center;
   gap: var(--spacing-sm);
   max-inline-size: 260px;
-  padding: var(--space-4) var(--space-8);
+  /*
+   * 높이는 옆 로그아웃과 같다 — `DESIGN_SYSTEM §8` 텍스트 버튼 높이 〔확정〕 (`#1297`).
+   * 종전에는 머리글자 원(32px) + 위아래 여백 4px로 **40px**이라 32px 로그아웃과 나란히
+   * 어긋났다. 위아래 여백을 걷고 높이를 같은 토큰으로 준다 — 원이 그 높이를 채운다.
+   */
+  block-size: var(--target-icon-button);
+  padding: 0 var(--space-8);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
