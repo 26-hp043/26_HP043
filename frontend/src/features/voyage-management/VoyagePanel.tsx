@@ -664,6 +664,14 @@ function deltaText(voyage: ManagedVoyage): string | null {
   const planned = voyage.plannedDistanceNm
   const actual = voyage.actualDistanceNm
   if (planned === null || actual === null) return null
+  /*
+    ⚠️ **항해 중에는 적지 않는다.** 그때의 실적 거리는 「지금까지 간 거리」라, 계획과 빼면
+    「−2,100 nm 덜 갔다」가 된다 — 계획 대비 차이가 아니라 남은 거리다. 항해가 끝난 뒤
+    (완료 · 확정 · 보관)에만 두 값이 같은 것을 재는 값이 된다.
+  */
+  if (voyage.status === 'DRAFT' || voyage.status === 'PLANNED' || voyage.status === 'IN_PROGRESS') {
+    return null
+  }
   const diff = actual - planned
   const sign = diff > 0 ? '+' : diff < 0 ? '−' : '±'
   return `${sign}${formatGrouped(String(Math.abs(diff)), DISPLAY_DIGITS.distanceNm)} ${DISPLAY_UNITS.distance}`

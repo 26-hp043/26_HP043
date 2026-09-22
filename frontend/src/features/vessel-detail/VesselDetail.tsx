@@ -416,35 +416,7 @@ export function VesselDetail({
             />
 
           </section>
-        </div>
-      </div>
 
-      {/*
-        ── 분할 둘째 줄 : 항차 기록 · 현재 위치 (#723) ──────────────────
-
-        ## 왜 한 줄로는 안 되나
-
-        두 그림이 다 `inline-size: 100%` + 고정 종횡비다. **열 폭이 바뀌면 카드 높이가
-        따라 바뀐다** — 연도별 이력은 7열(896)에서 392px, 전폭(1544)에서 675px이다.
-        그래서 카드를 왼쪽에 넣으면 왼쪽이, 오른쪽에 넣으면 오른쪽이 길어진다.
-        한 번의 7:5 분할로는 어느 쪽도 맞지 않는다.
-
-        높이를 재서 두 줄로 갈랐다.
-
-        | 줄 | 좌(7) | 우(5) |
-        |---|---|---|
-        | 1 | 연도별 이력 668 | 제원 260 + 현재 상태 200 |
-        | 2 | 항차 기록 620 | 현재 위치 480 |
-
-        양쪽 여백이 130px 안쪽이다. 두 분할이 **같은 7:5**라 세로선이 이어져 페이지가
-        일관된 2단으로 읽힌다.
-      */}
-      <div className="vd__split">
-        <div className="vd__main">
-          <VoyagePanel vesselId={vessel.id} openActualsFor={openActualsFor} />
-        </div>
-
-        <div className="vd__side">
           <section className="card" aria-label="현재 위치">
             <div className="card__head">
               <h2 className="card__title">현재 위치</h2>
@@ -503,6 +475,16 @@ export function VesselDetail({
           </section>
         </div>
       </div>
+
+      {/*
+        ── 항차 기록은 전폭 (#1729) ─────────────────────────────────────
+
+        `#723`이 「연도별 이력 · 제원」 / 「항차 기록 · 현재 위치」 두 줄을 같은 7:5로
+        나눠 두었다. 항차 기록이 표가 되면서(#1729) 7열이 7/12 칸(1440에서 약 614px)에
+        들어가지 않아 오른쪽 두 열이 가로 스크롤 뒤로 숨었다 — 표를 전폭으로 두고,
+        위치 카드는 위 기둥(제원 · 현재 상태)으로 올렸다. 같은 배를 설명하는 값들이다.
+      */}
+      <VoyagePanel vesselId={vessel.id} openActualsFor={openActualsFor} />
 
       {/*
        * 정박 기록 입력 (#370). 선박 상세 아래에 두는 이유는, 이 기록이 바로 위
