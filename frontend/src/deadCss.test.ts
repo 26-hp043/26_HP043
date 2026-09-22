@@ -121,7 +121,6 @@ const SCAN_TIMEOUT_MS = 20_000
 /** 규칙이 없어도 되는 것. 넣으려면 **왜 없어도 되는지**를 함께 적는다. */
 const NO_STYLE: Readonly<Record<string, string>> = {
   // `card`·`fr__table`이 모양을 준다 — 이쪽은 BEM 블록 이름표다.
-  dq__summary: 'card가 모양을 준다 — 블록 이름표',
   // `card__title`이 모양을 준다 (#1303 — 종전 UNSTYLED_TODO의 마지막 항목).
   'scenario-comparison__title': 'card__title이 모양을 준다 — 블록 이름표',
   dq__vessels: 'card가 모양을 준다 — 블록 이름표',

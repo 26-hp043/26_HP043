@@ -90,15 +90,27 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** 점검 항목 목록 — `#1766`이 그룹 표 넷을 한 표로 합쳤다. */
+async function listSection(): Promise<HTMLElement> {
+  await screen.findByRole('heading', { name: DATA_QUALITY_COPY.listTitle })
+  return document.querySelector('.dq__list') as HTMLElement
+}
+
 describe('데이터 점검 화면 (#513)', () => {
-  it('⚠️ 네 그룹을 항상 그린다 — 0건 그룹도 지우지 않는다', async () => {
+  it('⚠️ 네 심각도를 항상 보인다 — 0건도 지우지 않는다 (#513 · #1766)', async () => {
     renderWith(SNAPSHOT)
 
+    /*
+     * `#1766`이 그룹 표 넷을 한 표로 합치면서 그룹 제목이 없어졌다. **0건을 지운 것이
+     * 아니다** — 요약 띠의 칸이 그 자리를 이어받는다. 「확인했고 0건이다」가 화면에
+     * 남아 있는지는 그대로 본다(지우면 「확인 안 함」과 구분되지 않는다).
+     */
+    const tiles = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
     for (const title of Object.values(SEVERITY_TITLE)) {
-      expect(await screen.findByRole('heading', { name: new RegExp(title) })).toBeTruthy()
+      expect(within(tiles).getByText(title), title).toBeTruthy()
     }
-    // 계산 불가·실적 미입력은 0건 — 「해당 없음」 문장이 있어야 한다.
-    expect(screen.getAllByText(DATA_QUALITY_COPY.emptyGroup)).toHaveLength(2)
+    // 계산 불가·실적 미입력은 0건 — 칸이 남아 0을 보인다.
+    expect(within(tiles).getAllByText('0')).toHaveLength(2)
   })
 
   it('완결성은 무엇의 비율인지 함께 말한다', async () => {
@@ -117,7 +129,7 @@ describe('데이터 점검 화면 (#513)', () => {
   it('CII 영향은 부호를 붙이고, 등급이 바뀌면 전이를 그린다', async () => {
     renderWith(SNAPSHOT)
 
-    const group = (await screen.findByRole('heading', { name: /대체 계산/ })).closest('section')!
+    const group = await listSection()
     expect(within(group).getByText('+0.223')).toBeTruthy()
     expect(within(group).getByLabelText('이 항차가 없으면 B, 있으면 C')).toBeTruthy()
     expect(screen.getByText(DATA_QUALITY_COPY.impactCaption)).toBeTruthy()
@@ -126,7 +138,7 @@ describe('데이터 점검 화면 (#513)', () => {
   it('영향을 낼 수 없으면 0이 아니라 사유를 적는다 — 칸은 짧게, 이유는 표 아래 (#1580)', async () => {
     renderWith(SNAPSHOT)
 
-    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    const group = await listSection()
     expect(within(group).getByText('비교 불가*')).toBeTruthy()
     expect(within(group).getByText('* 선박의 유일한 항차라 빼고 비교할 누적 CII가 없습니다.')).toBeTruthy()
   })
@@ -159,30 +171,33 @@ describe('데이터 점검 화면 (#513)', () => {
 describe('0건 항목은 위험색을 달지 않는다 (#1288)', () => {
   it('⚠️ 건수가 있는 것만 심각도 변형을 단다 — 타일', async () => {
     const { container } = renderWith(SNAPSHOT)
-    await screen.findByText(DATA_QUALITY_COPY.summaryTitle)
+    await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
 
     expect(container.querySelector('.dq__tile--substituted')).toBeTruthy() // 1건
     expect(container.querySelector('.dq__tile--anomaly')).toBeTruthy() // 1건
     expect(container.querySelector('.dq__tile--unavailable')).toBeNull() // 0건
+    expect(container.querySelector('.dq__tile--unconfirmed')).toBeNull() // 0건
   })
 
-  it('⚠️ 건수가 있는 것만 심각도 변형을 단다 — 그룹', async () => {
+  it('⚠️ 표의 심각도 칩은 늘 색을 단다 — 행이 있다는 것이 곧 볼 것이 있다는 뜻이다 (#1766)', async () => {
     const { container } = renderWith(SNAPSHOT)
-    await screen.findByText(DATA_QUALITY_COPY.summaryTitle)
+    await listSection()
 
-    expect(container.querySelector('.dq__group--substituted')).toBeTruthy()
-    expect(container.querySelector('.dq__group--anomaly')).toBeTruthy()
-    expect(container.querySelector('.dq__group--unavailable')).toBeNull()
-    expect(container.querySelector('.dq__group--unconfirmed')).toBeNull()
+    /*
+     * `#1288`의 조건은 **건수 0**이다. 행이 있는 심각도는 정의상 0건이 아니므로 칩에서는
+     * 그 조건이 성립할 수 없다 — 0건일 때 색을 빼는 판단은 요약 띠가 맡는다(위 검사).
+     */
+    expect(container.querySelector('.dq__severity--substituted')).toBeTruthy()
+    expect(container.querySelector('.dq__severity--anomaly')).toBeTruthy()
+    expect(container.querySelector('.dq__severity--unavailable')).toBeNull() // 행이 없다
   })
 
   it('색을 뺀 자리에도 기본 띠는 남는다 — 중립 클래스를 새로 만들지 않았다', async () => {
     const { container } = renderWith(SNAPSHOT)
-    await screen.findByText(DATA_QUALITY_COPY.summaryTitle)
+    await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
 
-    // 타일 넷(심각도 셋 + 완결성)과 그룹 넷이 모두 기본 클래스를 갖는다.
-    expect(container.querySelectorAll('.dq__tile')).toHaveLength(4)
-    expect(container.querySelectorAll('.dq__group')).toHaveLength(4)
+    // 타일 다섯 — 심각도 넷 + 완결성. `#1766`이 「실적 미입력」 칸을 더했다(그룹이 없어졌으므로).
+    expect(container.querySelectorAll('.dq__tile')).toHaveLength(5)
   })
 })
 
@@ -240,7 +255,7 @@ describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
   it('같은 사유가 다섯 행이어도 긴 문장은 표 아래 한 번이다', async () => {
     renderWith({ ...SNAPSHOT, issues: ['a', 'b', 'c', 'd', 'e'].map((id) => issue(id, 'ONLY_VOYAGE')) })
 
-    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    const group = await listSection()
     expect(within(group).getAllByText('비교 불가*')).toHaveLength(5)
     expect(within(group).getAllByText(/유일한 항차라/)).toHaveLength(1)
   })
@@ -248,7 +263,7 @@ describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
   it('사유마다 표시가 다르고, 표에 나온 사유만 적는다', async () => {
     renderWith({ ...SNAPSHOT, issues: [issue('a', 'BASE_UNAVAILABLE'), issue('b', 'BASE_UNAVAILABLE')] })
 
-    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    const group = await listSection()
     expect(within(group).getAllByText('계산 불가**')).toHaveLength(2)
     expect(within(group).getByText('** 선박 누적 CII를 계산할 수 없어 차이를 낼 수 없습니다.')).toBeTruthy()
     expect(within(group).queryByText(/유일한 항차라/)).toBeNull()
@@ -257,7 +272,7 @@ describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
   it('두 사유가 섞이면 정해진 순서로 둘 다 적는다', async () => {
     renderWith({ ...SNAPSHOT, issues: [issue('a', 'BASE_UNAVAILABLE'), issue('b', 'ONLY_VOYAGE')] })
 
-    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    const group = await listSection()
     const notes = group.querySelectorAll('.dq__footnotes li')
     expect(Array.from(notes, (li) => li.textContent?.slice(0, 2))).toEqual(['* ', '**'])
   })
@@ -265,7 +280,7 @@ describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
   it('모르는 사유는 코드 그대로 칸에 — 표 아래에는 적지 않는다', async () => {
     renderWith({ ...SNAPSHOT, issues: [issue('a', 'NEW_REASON')] })
 
-    const group = (await screen.findByRole('heading', { name: /이상치/ })).closest('section')!
+    const group = await listSection()
     expect(within(group).getByText('NEW_REASON')).toBeTruthy()
     expect(group.querySelector('.dq__footnotes')).toBeNull()
   })

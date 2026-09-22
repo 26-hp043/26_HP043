@@ -64,11 +64,16 @@
   color: var(--color-text-muted);
 }
 
+/*
+ * 요약 띠 (#1766) — 종전에는 카드 안의 4칸이었다. 건수 넷과 완결성은 「한 덩어리의
+ * 데이터」가 아니라 **아래 목록을 읽는 눈금**이라 면을 띄우지 않는다(`§5` 카드 예산).
+ * 칸은 다섯이다 — 그룹이 없어지면서 「실적 미입력」이 여기로 들어왔다.
+ */
 .dq__tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--space-12);
-  margin: var(--space-12) 0 0;
+  margin: 0;
 }
 
 .dq__tile {
@@ -104,20 +109,37 @@
   font-weight: normal;
 }
 
+/*
+ * 심각도 색 — `DESIGN_SYSTEM §2.3.1`. 띠의 칸은 **0건이면 색을 빼고**(`#1288`), 표의 칩은
+ * 행이 있다는 것 자체가 0건이 아니므로 늘 단다.
+ */
 .dq__tile--substituted,
-.dq__group--substituted,
+.dq__severity--substituted,
 .dq__tile--unavailable,
-.dq__group--unavailable {
+.dq__severity--unavailable {
   border-left-color: var(--color-danger);
 }
 
 .dq__tile--anomaly,
-.dq__group--anomaly {
+.dq__severity--anomaly {
   border-left-color: var(--color-warning);
 }
 
-.dq__group--unconfirmed {
+.dq__tile--unconfirmed,
+.dq__severity--unconfirmed {
   border-left-color: var(--color-text-muted);
+}
+
+/*
+ * 표의 심각도 칸 — 면을 채우지 않고 **왼쪽 띠**로만 말한다(`§16` 항목 8 「면은 중립,
+ * 아이콘·문구만 위험색」 · `§2.3` 경고색은 한 자리에 한 번). 요약 띠의 칸과 같은 문법이라
+ * 둘이 한 화면에서 따로 읽히지 않는다.
+ */
+.dq__severity {
+  display: inline-block;
+  padding-left: var(--space-8);
+  border-left: 4px solid var(--color-border);
+  white-space: nowrap;
 }
 
 .dq__list {
@@ -126,31 +148,59 @@
   gap: var(--space-12);
 }
 
-.dq__group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-8);
-  padding-left: var(--space-12);
-  border-left: 4px solid var(--color-border);
+/*
+ * 심각도가 뜻하는 것 (#1766) — `§2.3.1` 「의미」 열은 정본 문구라 화면에서 없애지 않는다.
+ * 그룹마다 한 줄이던 것을 접기 하나로 모은다: 늘 펴 두면 표보다 설명이 길어진다.
+ */
+.dq__legend > summary {
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+  padding: var(--space-8) 0;
+  list-style-position: inside;
 }
 
-.dq__group-title {
-  display: flex;
-  align-items: baseline;
+.dq__legend > summary:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.dq__legend-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
   gap: var(--space-8);
-  margin: 0;
-  font-size: var(--font-size-body);
+  margin: 0 0 var(--space-8);
+  font-size: var(--font-size-label);
+}
+
+.dq__legend-list dt {
   font-weight: var(--font-weight-h3);
 }
 
-.dq__group-count {
+.dq__legend-list dd {
+  margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-label);
-  font-variant-numeric: tabular-nums;
 }
 
 .dq__table-wrap {
   overflow-x: auto;
+}
+
+/*
+ * 점검 항목 표 (#1766) — 열 여섯(심각도 · 선박 · 항차 · 문제 · CII 영향 · 이동).
+ *
+ * **내용의 min-content는 555**다(2026-09-23 · 1440 · 시연 데이터 · 래퍼를 좁히고
+ * `scrollWidth`). 그 폭에서는 넘치지 않지만 문제 · 선박명 칸이 글자마다 꺾인다 — 그래서
+ * `min-width`는 **읽히는 하한**으로 720을 잡는다(선박 상세 항차 표와 같은 값).
+ *
+ * 720인 이유는 **1100에서 스크롤이 나지 않게** 하려는 것이다: 1100에서 이 카드 안쪽이
+ * 약 754px이라 720이 들어간다. 그보다 좁아지면 위 래퍼가 가로로 스크롤한다 — 열을 접어
+ * 숨기지 않는다.
+ *
+ * 하한이지 목표가 아니다(`#1689`). 열 · 문구를 바꾸면 다시 잰다.
+ */
+.dq__issues {
+  min-width: 720px;
 }
 
 .dq__table {
