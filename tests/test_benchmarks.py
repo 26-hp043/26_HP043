@@ -30,7 +30,7 @@ import time
 from collections.abc import Awaitable, Callable
 from decimal import Decimal
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fixture_loader import assert_layer1_equal
 from sqlalchemy import bindparam, text
@@ -45,6 +45,7 @@ from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii, calcul
 from cii_platform.calc.rating_engine import DVector
 from cii_platform.db.demo_seed import VESSEL_ID_BULK
 from cii_platform.db.types import UuidText
+from cii_platform.services.fleet_summary import get_fleet_summary
 from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
 
 # ── `TEST_PLAN §6` `[ORACLE-M-3]` 측정 조건 ──────────────────────────────────
@@ -56,6 +57,10 @@ P95_CII_CALCULATION = 1.0
 P95_SCENARIO_COMPARE = 5.0
 P95_DETERMINISTIC = 1.0
 P95_MONTE_CARLO_5000 = 3.0
+#: PERF-005 — 선대 상한(200척)에서 대시보드 한 번의 조회. `PRD §16.1` 「초기 페이지 로드」.
+P95_FLEET_SUMMARY = 3.0
+#: `PRD §5.1`이 정한 선대 상한. 이 규모에서 재는 것이 사무직의 하루와 맞다.
+BENCH_FLEET_SIZE = 200
 
 #: `PERF-002`가 만든 행을 되돌리는 문장 (`#1058`).
 #:
@@ -298,3 +303,88 @@ async def test_scenario_compare_p95(migrated_db, app_fresh_engine, capsys):
     assert deleted["runs"] == len(run_ids), (
         f"계산 실행 {len(run_ids)}건 중 {deleted['runs']}건만 지워졌다"
     )
+
+
+# ── PERF-005 대시보드 선대 요약 (200척) ──────────────────────────────────────
+
+#: 벤치마크 전용 선박 — 데모 시드와 겹치지 않는 IMO 대역(`98xxxxx`)을 쓴다.
+_BENCH_IMO_PREFIX = "98"
+
+_INSERT_BENCH_VESSEL = text(
+    "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight, "
+    "default_fuel_type, reference_speed_kn, reference_daily_foc_ton) "
+    "VALUES (:id, :imo, :name, 'BULK_CARRIER', 50000, 'HFO', 14, 30)"
+).bindparams(bindparam("id", type_=UuidText()))
+
+_DELETE_BENCH_VESSELS = text(
+    "DELETE FROM vessel WHERE imo_number LIKE :prefix"
+)
+
+
+async def test_fleet_summary_200_vessels_p95(migrated_db, app_fresh_engine, capsys):
+    """PERF-005 — 200척 선대의 대시보드 요약이 p95 < 3초.
+
+    ## 왜 이 자리를 재는가
+
+    `PRD §16.1`의 성능 목표 다섯 중 **초기 페이지 로드만** CI가 판정하지 않고 있었다
+    (`#1617`). 나머지 넷은 매 PR마다 여기서 돌고, 하필 판정 밖에 있던 한 행이
+    **사용자가 가장 먼저 보는 화면**이다.
+
+    구조 가드(`IT-CACHE-005`)는 N+1 회귀 하나만 잡는다. **척당 계산 비용이 늘어나는
+    회귀** — 선박마다 도는 집계가 무거워지는 종류 — 는 시간으로만 드러난다.
+
+    ## 200척인 이유
+
+    `PRD §5.1`이 정한 선대 상한이다. 시연 시드(5척)에서 재면 상한에서 무엇이 되는지
+    알 수 없고, 상한을 넘겨 재면 제품이 약속하지 않은 규모를 지키게 된다.
+
+    ## 브라우저는 재지 않는다
+
+    여기서 재는 것은 **서버 응답**이다. 번들 로드·렌더는 이 검사의 대상이 아니며
+    그 사실을 `PRD §16.1` 각주가 적는다 — 재지 않는 것을 잰 척하지 않는다.
+
+    ## 뒷정리
+
+    벤치마크 선박은 IMO 대역으로 모아 지운다. 남기면 뒤따르는 검사의 선대 수치가
+    흔들린다(`PERF-002`가 시나리오·계산 이력을 지우는 것과 같은 이유).
+    """
+    from cii_platform.db.session import get_sessionmaker
+
+    sessionmaker = get_sessionmaker()
+    seeded = 0
+
+    async def summary():
+        async with sessionmaker() as session:
+            return await get_fleet_summary(session, regulation_year=2026, limit=20)
+
+    try:
+        async with sessionmaker() as session:
+            for index in range(BENCH_FLEET_SIZE):
+                await session.execute(
+                    _INSERT_BENCH_VESSEL,
+                    {
+                        "id": uuid4(),
+                        "imo": f"{_BENCH_IMO_PREFIX}{index:05d}",
+                        "name": f"BENCH {index:03d}",
+                    },
+                )
+            await session.commit()
+            seeded = BENCH_FLEET_SIZE
+
+        first = await summary()
+        # 200척이 실제로 집계에 들어갔는지 — 빈 선대를 빠르게 재고 통과하지 않는다.
+        assert first["summary"]["total"] >= BENCH_FLEET_SIZE
+
+        p95 = await _measure_async(summary)
+        print(f"PERF-005 p95={p95 * 1000:.2f} ms (목표 {P95_FLEET_SUMMARY * 1000:.0f} ms)")
+        assert p95 < P95_FLEET_SUMMARY
+    finally:
+        async with sessionmaker() as session:
+            removed = await session.execute(
+                _DELETE_BENCH_VESSELS, {"prefix": f"{_BENCH_IMO_PREFIX}%"}
+            )
+            await session.commit()
+            deleted = removed.rowcount
+
+    # 정리가 **실제로 지웠는지** 본다 (`PERF-002`와 같은 이유 · `#1058`).
+    assert deleted == seeded, f"벤치마크 선박 {seeded}척 중 {deleted}척만 지워졌다"
