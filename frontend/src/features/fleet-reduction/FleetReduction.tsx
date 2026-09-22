@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 import { GradeBadge } from '../../components/GradeBadge'
+import { VerdictStrip } from '../../components/VerdictStrip'
 import { formatGrouped } from '../../display/format'
 import { warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
@@ -110,6 +111,15 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
     [year, target, percents, prices],
   )
   const pricesInvalid = hasInvalidPrice(prices)
+  /*
+   * 연료 단가 접기 (#1757). 값이 잘못된 동안에는 **스스로 펼친다** — 접힌 채로 두면
+   * 오류가 보이지 않는데 저장 버튼만 잠긴다(`#1417`이 항로 비교의 「고급 설정」에서
+   * 같은 판단을 했다).
+   */
+  const [pricesOpen, setPricesOpen] = useState(false)
+  useEffect(() => {
+    if (pricesInvalid) setPricesOpen(true)
+  }, [pricesInvalid])
 
   useEffect(() => {
     if (yearsLoading) return
@@ -189,11 +199,40 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
     setPrices(plan.prices)
   }
 
+  /** 감속률을 한 칸이라도 움직였는가 — 상태 문장이 「아직」과 「모자람」을 가른다. */
+  const adjusted = Object.values(percents).some((value) => value > 0)
+  const filledFuelPrices = fuelCodes.filter(
+    (code) => (prices.fuelUsdPerTon[code] ?? '').trim() !== '',
+  ).length
+
   return (
     <section className="fr">
+      {/*
+        결론 띠 (#1757 · `§8.6` 🔒). 종전에는 이 답(「목표를 달성합니다」)이 오른쪽 기둥
+        맨 위의 한 줄짜리 상태 문장이었고, 그 아래로 비용 · 단가 · 분포 · 저장이 네 장 더
+        쌓여 **표보다 긴 기둥**이 됐다.
+      */}
+      {shown !== null ? <FleetVerdict result={shown} adjusted={adjusted} /> : null}
+
+      {/*
+        `PRD §6.3` 결정론 안내 — 띠 묶음(띠 · 상태 문장 · 2열 목록) **바로 아래 한 줄**이다
+        (`§8.6` · `§13` · `#1578`).
+
+        **띠 안에 두지 않는다.** 이 문구는 계산 전 · 실패에도 보여야 한다 — 연간 등급 관리와
+        값이 다르게 보이는 이유를 말하는 자리라, 결과가 없을 때 사라지면 그때 들어온 사용자가
+        두 화면 중 하나가 틀렸다고 읽는다(`UIFLOW 2-10`).
+
+        색 띠를 걷었다 — 바로 위 상태 문장이 그 자리를 쓰고, 색 띠가 둘이면 어느 쪽이 상태인지
+        가려진다(`§2.3` 경고색은 한 자리에 한 번).
+      */}
       <p className="fr__notice">{COPY.deterministicNotice}</p>
 
-      <div className="fr__controls">
+      {/*
+        도구 줄 (#1757). 연도 · 목표 · 연료 단가 · 계획 저장을 표 위 한 줄에 모은다.
+        **면을 띄우지 않는다** — 조건을 다루는 자리는 「한 덩어리의 데이터」가 아니다
+        (`§5` 카드 예산). 단가 · 저장은 접어 두고 쓸 때만 편다.
+      */}
+      <div className="fr__tools">
         <Field id="fr-year" label={COPY.yearLabel}>
           {(control) => (
             <select
@@ -227,6 +266,140 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
             </select>
           )}
         </Field>
+
+        {/*
+          채운 칸 수를 접힌 겉에 적는다 (`#1417`과 같은 판단) — 안에 값이 들어 있는데
+          겉에서 안 보이면 사용자는 단가 없이 계산했다고 믿는다. 값이 잘못된 동안에는
+          **스스로 펼친다**: 접힌 채로는 오류가 보이지 않는다.
+        */}
+        <details
+          className="fr__tool"
+          open={pricesOpen}
+          onToggle={(e) => setPricesOpen(e.currentTarget.open)}
+        >
+          <summary>
+            {COPY.fuelPricesTitle}
+            {fuelCodes.length > 0 ? (
+              <span className="fr__tool-count">{` · ${filledFuelPrices} / ${fuelCodes.length} 입력함`}</span>
+            ) : null}
+          </summary>
+          <div className="fr__tool-body">
+            <p className="fr__caption">{COPY.pricesNote}</p>
+            {/* 어느 연료가 필요한지 서버가 말하기 전과 「필요 없음」을 가른다 (`#1273`). */}
+            {fuelCodes.length === 0 ? (
+              <p className="fr__muted">{shown ? COPY.fuelPricesNone : COPY.fuelPricesBeforeRun}</p>
+            ) : null}
+            <div className="fr__prices">
+              {fuelCodes.map((code) => {
+                const invalid = isInvalidPrice(prices.fuelUsdPerTon[code] ?? '')
+                return (
+                  <Field
+                    key={code}
+                    id={`fr-fuel-${code}`}
+                    /* 서버 `displayName`은 MEPC.364(79) 원문 표기라 정본 문구다 —
+                       화면에 내는 이름은 `fuelTypes.ts`가 갖는다 (`#598` · `AGENTS §4.6`). */
+                    label={fuelTypeOptionText(code)}
+                    error={invalid ? COPY.priceInvalid : undefined}
+                  >
+                    {(control) => (
+                      <input
+                        {...control}
+                        className="fr__control"
+                        type="number"
+                        min={0}
+                        inputMode="decimal"
+                        value={prices.fuelUsdPerTon[code] ?? ''}
+                        onChange={(e) =>
+                          setPrices((prev) => ({
+                            ...prev,
+                            fuelUsdPerTon: { ...prev.fuelUsdPerTon, [code]: e.target.value },
+                          }))
+                        }
+                      />
+                    )}
+                  </Field>
+                )
+              })}
+            </div>
+          </div>
+        </details>
+
+        <details className="fr__tool">
+          <summary>{COPY.saveTitle}</summary>
+          <div className="fr__tool-body">
+            <div className="fr__save">
+              <Field id="fr-plan-name" label={COPY.planNameLabel}>
+                {(control) => (
+                  <input
+                    {...control}
+                    className="fr__control"
+                    type="text"
+                    maxLength={100}
+                    value={planName}
+                    onChange={(e) => setPlanName(e.target.value)}
+                  />
+                )}
+              </Field>
+              <button
+                type="button"
+                className="fr__button"
+                disabled={saving || planName.trim() === '' || pricesInvalid}
+                /*
+                 * 단가 오류는 **다른 접기(연료 단가)에 있다** — 이 버튼 옆에서는
+                 * 왜 잠겼는지 알 길이 없었다. 이름이 비어 있는 쪽은 바로 위 칸이
+                 * 말하므로 적지 않는다 (`§14` 「비활성의 사유」 · `#1170` ⑵).
+                 */
+                aria-describedby={pricesInvalid ? 'fr-save-blocked' : undefined}
+                onClick={() => void save()}
+              >
+                {saving ? COPY.saving : COPY.saveButton}
+              </button>
+            </div>
+            {pricesInvalid ? (
+              <p id="fr-save-blocked" className="fr__caption" role="status">
+                {COPY.saveBlockedByPrice}
+              </p>
+            ) : null}
+            {saveMessage ? (
+              <p className="fr__caption" role="status">
+                {saveMessage}
+              </p>
+            ) : null}
+            {plansFailed || plans.length === 0 ? (
+              <div className="fr__field">
+                <span className="fr__label">{COPY.loadLabel}</span>
+                {plansFailed ? (
+                  <ErrorState
+                    level="region"
+                    size="compact"
+                    message={COPY.plansFailed}
+                    onRetry={() => setPlansKey((k) => k + 1)}
+                  />
+                ) : (
+                  <span className="fr__caption">{COPY.noPlans}</span>
+                )}
+              </div>
+            ) : (
+              <Field id="fr-load" label={COPY.loadLabel}>
+                {(control) => (
+                  <select
+                    {...control}
+                    className="fr__control"
+                    value=""
+                    onChange={(e) => loadPlan(e.target.value)}
+                  >
+                    <option value="">{COPY.loadPlaceholder}</option>
+                    {plans.map((pl) => (
+                      <option key={pl.planId} value={pl.planId}>
+                        {pl.planName}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </Field>
+            )}
+          </div>
+        </details>
       </div>
 
       {shown === null && evaluation.error === null ? (
@@ -244,8 +417,13 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       ) : null}
 
       {shown !== null ? (
-        <div className="fr__grid">
-          <section className="card fr__main" aria-labelledby="fr-vessels-title">
+        <>
+          {/*
+            표는 전폭이다 (#1757 · `§7.1` v2.25 「분할하지 않는 화면이 있다」). 결론이 띠로
+            올라가면 이 화면의 주 내용은 표 하나뿐이라 나란히 둘 부(副)가 없다 — 전환점도
+            없앴다(종전 1734 이하 1단).
+          */}
+          <section className="card fr__table-card" aria-labelledby="fr-vessels-title">
             <h2 id="fr-vessels-title" className="card__title">
               {COPY.vesselsTitle}
             </h2>
@@ -292,133 +470,85 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
             ) : null}
           </section>
 
-          <aside className="fr__side">
-            <Status result={shown} adjusted={Object.values(percents).some((p) => p > 0)} />
-            <Costs result={shown} />
-            <section className="card" aria-labelledby="fr-fuel-title">
-              <h2 id="fr-fuel-title" className="card__title">
-                {COPY.fuelPricesTitle}
-              </h2>
-              <p className="fr__caption">{COPY.pricesNote}</p>
-              {fuelCodes.length === 0 ? (
-                <p className="fr__muted">
-                  {shown ? COPY.fuelPricesNone : COPY.fuelPricesBeforeRun}
-                </p>
-              ) : null}
-              <div className="fr__prices">
-                {fuelCodes.map((code) => {
-                  const invalid = isInvalidPrice(prices.fuelUsdPerTon[code] ?? '')
-                  return (
-                    <Field
-                      key={code}
-                      id={`fr-fuel-${code}`}
-                      /* 서버 `displayName`은 MEPC.364(79) 원문 표기라 정본 문구다 —
-                         화면에 내는 이름은 `fuelTypes.ts`가 갖는다 (`#598` · `AGENTS §4.6`). */
-                      label={fuelTypeOptionText(code)}
-                      error={invalid ? COPY.priceInvalid : undefined}
-                    >
-                      {(control) => (
-                        <input
-                          {...control}
-                          className="fr__control"
-                          type="number"
-                          min={0}
-                          inputMode="decimal"
-                          value={prices.fuelUsdPerTon[code] ?? ''}
-                          onChange={(e) =>
-                            setPrices((prev) => ({
-                              ...prev,
-                              fuelUsdPerTon: { ...prev.fuelUsdPerTon, [code]: e.target.value },
-                            }))
-                          }
-                        />
-                      )}
-                    </Field>
-                  )
-                })}
-              </div>
-            </section>
-            <Distribution result={shown} />
-            <section className="card" aria-labelledby="fr-save-title">
-              <h2 id="fr-save-title" className="card__title">
-                {COPY.saveTitle}
-              </h2>
-              <div className="fr__save">
-                <Field id="fr-plan-name" label={COPY.planNameLabel}>
-                  {(control) => (
-                    <input
-                      {...control}
-                      className="fr__control"
-                      type="text"
-                      maxLength={100}
-                      value={planName}
-                      onChange={(e) => setPlanName(e.target.value)}
-                    />
-                  )}
-                </Field>
-                <button
-                  type="button"
-                  className="fr__button"
-                  disabled={saving || planName.trim() === '' || pricesInvalid}
-                  /*
-                   * 단가 오류는 **다른 절(연료 단가)에 있다** — 이 버튼 옆에서는
-                   * 왜 잠겼는지 알 길이 없었다. 이름이 비어 있는 쪽은 바로 위 칸이
-                   * 말하므로 적지 않는다 (`§14` 「비활성의 사유」 · `#1170` ⑵).
-                   */
-                  aria-describedby={pricesInvalid ? 'fr-save-blocked' : undefined}
-                  onClick={() => void save()}
-                >
-                  {saving ? COPY.saving : COPY.saveButton}
-                </button>
-              </div>
-              {pricesInvalid ? (
-                <p id="fr-save-blocked" className="fr__caption" role="status">
-                  {COPY.saveBlockedByPrice}
-                </p>
-              ) : null}
-              {saveMessage ? (
-                <p className="fr__caption" role="status">
-                  {saveMessage}
-                </p>
-              ) : null}
-              {plansFailed || plans.length === 0 ? (
-                <div className="fr__field">
-                  <span className="fr__label">{COPY.loadLabel}</span>
-                  {plansFailed ? (
-                    <ErrorState
-                      level="region"
-                      size="compact"
-                      message={COPY.plansFailed}
-                      onRetry={() => setPlansKey((k) => k + 1)}
-                    />
-                  ) : (
-                    <span className="fr__caption">{COPY.noPlans}</span>
-                  )}
-                </div>
-              ) : (
-                <Field id="fr-load" label={COPY.loadLabel}>
-                  {(control) => (
-                    <select
-                      {...control}
-                      className="fr__control"
-                      value=""
-                      onChange={(e) => loadPlan(e.target.value)}
-                    >
-                      <option value="">{COPY.loadPlaceholder}</option>
-                      {plans.map((p) => (
-                        <option key={p.planId} value={p.planId}>
-                          {p.planName}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </Field>
-              )}
-            </section>
-          </aside>
-        </div>
+          <Distribution result={shown} />
+        </>
       ) : null}
     </section>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/** 값이 없을 때 — 0으로 지어내지 않는다. */
+const NO_VALUE = '—'
+
+/**
+ * 결론 띠 — `§8.6` 🔒 표의 「함대 감축 계획」 행 (#1757).
+ *
+ * ## 주 결론은 척수다
+ *
+ * 이 화면의 답은 「목표를 몇 척이 달성하는가」 하나다. 등급 배지는 붙지 않는다 — 답이
+ * 등급이 아니다(연간 등급 관리의 「목표 달성 확률」과 같은 꼴).
+ *
+ * **분모는 계산할 수 있는 선박이다.** `unavailableReason`이 있는 선박은 `meetsTarget`이
+ * `null`이라 분자에도 분모에도 넣지 않는다 — 「계산하지 못함」을 「달성하지 못함」으로
+ * 세면 사용자가 손댈 수 없는 이유로 숫자가 나빠진다. 셀 수 있는 선박이 0척이면 척수
+ * 대신 `—`를 두고 그 사실을 아래 줄이 말한다.
+ *
+ * ## 위험도 pill은 두지 않는다
+ *
+ * 이 화면의 데이터에 위험도 값이 없다 — `§8.6` v2.23이 「값이 있을 때만 둔다」로 정했고
+ * 다른 경로를 더 불러 채우지 않는다 (#1728).
+ *
+ * ## 보조는 순손익 하나다
+ *
+ * 추가 항해일 · 용선료 손실 · 연료비 절감은 **띠 아래 2열 「라벨 · 값」 목록**이다
+ * (`§8.6` v2.25 · #1756). 종전에는 그 넷이 「비용 요약」 카드 한 장이었다.
+ */
+function FleetVerdict({ result, adjusted }: { result: EvaluateResult; adjusted: boolean }) {
+  const counted = result.vessels.filter((vessel) => vessel.meetsTarget !== null)
+  const met = counted.filter((vessel) => vessel.meetsTarget).length
+  const costs = result.costs
+
+  return (
+    <>
+      <VerdictStrip
+        label={`${TARGET_TEXT[result.target]} 달성 현황`}
+        main={{
+          label: `${TARGET_TEXT[result.target]} 달성`,
+          value: counted.length === 0 ? NO_VALUE : `${met} / ${counted.length}`,
+          unit: counted.length === 0 ? undefined : '척',
+        }}
+        /*
+         * ⚠️ 단가가 비면 **0이 아니라 「단가 입력 필요」다** (`PRD §12.3.2`). 0으로 두면
+         * 「손익 영향 없음」으로 읽힌다 — 표 아래 `Money`가 쓰는 문구를 그대로 쓴다.
+         */
+        sub={{
+          label: COPY.net,
+          value: costs.net === null ? COPY.needsPrice : formatGrouped(costs.net, 0),
+          unit: costs.net === null ? undefined : 'USD',
+        }}
+      />
+      <Status result={result} adjusted={adjusted} />
+      <dl className="fr__costs">
+        <div>
+          <dt>{COPY.extraDays}</dt>
+          <dd className="fr__num">{costs.extraDays}일</dd>
+        </div>
+        <div>
+          <dt>{COPY.charterLoss}</dt>
+          <dd>
+            <Money value={costs.charterLoss} />
+          </dd>
+        </div>
+        <div>
+          <dt>{COPY.fuelSaving}</dt>
+          <dd>
+            <Money value={costs.fuelSaving} />
+          </dd>
+        </div>
+      </dl>
+    </>
   )
 }
 
@@ -589,7 +719,7 @@ function Status({ result, adjusted }: { result: EvaluateResult; adjusted: boolea
     tone = 'missed'
   }
   return (
-    <p className={`card fr__status fr__status--${tone}`} role="status">
+    <p className={`fr__status fr__status--${tone}`} role="status">
       <strong>{TARGET_TEXT[result.target]}</strong> — {text}
     </p>
   )
@@ -598,41 +728,6 @@ function Status({ result, adjusted }: { result: EvaluateResult; adjusted: boolea
 function Money({ value }: { value: string | null }) {
   if (value === null) return <span className="fr__muted">{COPY.needsPrice}</span>
   return <span className="fr__num">{formatGrouped(value, 0)} USD</span>
-}
-
-function Costs({ result }: { result: EvaluateResult }) {
-  const c = result.costs
-  return (
-    <section className="card" aria-labelledby="fr-costs-title">
-      <h2 id="fr-costs-title" className="card__title">
-        {COPY.costsTitle}
-      </h2>
-      <dl className="fr__costs">
-        <div>
-          <dt>{COPY.extraDays}</dt>
-          <dd className="fr__num">{c.extraDays}일</dd>
-        </div>
-        <div>
-          <dt>{COPY.charterLoss}</dt>
-          <dd>
-            <Money value={c.charterLoss} />
-          </dd>
-        </div>
-        <div>
-          <dt>{COPY.fuelSaving}</dt>
-          <dd>
-            <Money value={c.fuelSaving} />
-          </dd>
-        </div>
-        <div>
-          <dt>{COPY.net}</dt>
-          <dd>
-            <Money value={c.net} />
-          </dd>
-        </div>
-      </dl>
-    </section>
-  )
 }
 
 function Distribution({ result }: { result: EvaluateResult }) {

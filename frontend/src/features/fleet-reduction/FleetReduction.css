@@ -13,15 +13,13 @@
   gap: var(--space-16);
 }
 
+/* 띠 바로 아래 고지 (#1757) — 색 띠는 바로 아래 상태 문장이 쓴다(`§2.3`). */
 .fr__notice {
   margin: 0;
-  padding: var(--space-8) var(--space-12);
-  border-left: 4px solid var(--color-border-strong);
   color: var(--color-text-muted);
   font-size: var(--font-size-label);
 }
 
-.fr__controls,
 .fr__save {
   display: flex;
   flex-wrap: wrap;
@@ -90,72 +88,77 @@
 }
 
 /*
- * 두 단 — **12컬럼 + `span`** (`DESIGN_SYSTEM §7.1` 🔒 · `#1298`).
+ * 이 화면은 **분할하지 않는다** (`DESIGN_SYSTEM §7.1` v2.25 · #1756 · #1757).
  *
- * 종전 `minmax(0, 7fr) minmax(0, 5fr)` + `gap: 16`은 다른 화면(대시보드 · `2-1` · `2-2` ·
- * `2-3` · 선박 상세)과 **세로선이 어긋났다.** 같은 창에 겹쳐 잰 값(1440 · 1600 · 1920 모두) —
- * 주 단 끝 `+0.66px`, **부 단 시작 `−7.34px`**. 앞엣것은 `fr`이 거터를 먼저 빼고 나누는
- * 차이, 뒤엣것은 거터가 16이라 24보다 좁은 차이다. 다른 화면들처럼 12컬럼에 7 / 5를 건다.
+ * 종전에는 12컬럼에 7:5를 걸고(`#1298`) 1734px 이하에서 한 단으로 접었다(`#1451` · `#1689`).
+ * 결론이 `§8.6` 띠로 올라가면 **주 내용이 표 하나뿐**이라 나란히 둘 부(副)가 없다 — 오른쪽
+ * 기둥에 쌓여 있던 상태 · 비용 · 단가 · 저장 네 장이 띠 · 띠 아래 목록 · 도구 줄로 갔다.
+ *
+ * 분할하지 않으므로 **전환점도 없다.** 좁아지면 표가 그 자리에서 가로로 스크롤한다
+ * (`.fr__table-wrap`) — 열을 접어 숨기지 않는다. `--grid-split-*`를 다시 들이지 않는지는
+ * `layout.sync.test.ts`가 본다.
+ *
+ * 표의 최소 폭(760)은 **실측값**이다 — 선박명 `24ch`(`#1427`) · 감속 슬라이더 칸 · `nowrap`
+ * 숫자 열을 더해 2026-09-22에 `scrollWidth`로 쟀다. 선언값 560으로 계산하던 종전 전환점이
+ * 1366~약 1730에서 표를 넘치게 했다(`#1689`). 열 · 문구를 바꾸면 다시 잰다.
  */
-.fr__grid {
-  display: grid;
-  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
-  gap: var(--grid-gutter);
-  align-items: start;
-}
-
-.fr__main {
-  grid-column: span var(--grid-split-primary);
-}
-
-.fr__side {
-  grid-column: span var(--grid-split-secondary);
+.fr__table-card {
+  min-width: 0;
 }
 
 /*
- * ## 1단 전환점은 1734px다 — 다른 화면의 1100이 아니다 (#1451 · #1689)
+ * 도구 줄 — 연도 · 목표 · 연료 단가 · 계획 저장 (#1757).
  *
- * 7:5는 **두 단일 때의** 비율이다(`DESIGN_SYSTEM §7.1`). 이 화면의 왼쪽 단은 열 6개짜리
- * 표(`.fr__main .fr__table`의 `min-width`)를 품어야 하고, 7/12 칸이 표보다 좁으면
- * 칸 안에 **가로 스크롤**이 나 오른쪽 열(연료 절감 · 용선료)이 첫 화면 밖으로 밀린다.
- *
- * ### 표 최소 폭은 실측값이다 (#1689)
- *
- * 종전 선언 `560px`은 실제보다 200px 작았다. 선박명 `24ch`(#1427) · 감속 슬라이더 칸 ·
- * `nowrap` 숫자 열이 더해진 **내용의 최소 폭은 760px**이고(2026-09-22 · 1440 · 라이트 ·
- * 시연 데이터 · `scrollWidth`), 1366~1600에서 칸(548~685)이 표보다 좁아 스크롤이 났다.
- * `min-width`는 표가 줄어들 수 있는 **아래 한계**라, 내용이 더 넓으면 선언과 무관하게 넘친다
- * — 그래서 이 값을 **내용의 실측 최소 폭**으로 둔다. 열 · 문구를 바꾸면 다시 잰다.
- *
- * ### 계산
- *
- *   셸   24 + 240 + 24 + 24               = 312    (외곽 · 사이드바 · gap · 외곽 — §7.1)
- *   칸   7/12 칸 = (W − 11×24) × 7/12 + 6×24 ≥ 760 + 16×2 + 1×2 = 794
- *        → W ≥ (794 − 144) × 12/7 + 264 ≈ 1378   (12컬럼 · 거터 24 — `#1298`)
- *   합                                     ≈ 1690   (+ 세로 스크롤바 약 15 → 1705)
- *
- * 2026-09-22 실측에서는 셸이 사이드바 앞에 24px를 더 쓰고 있어 칸이 계산보다 좁았다
- * (전환점 필요값 약 1730). 그 차이까지 품도록 **1734 이하를 1단**으로 둔다. 결과적으로
- * 1440 · 1600은 1단이다 — 재설계안(9/22)의 「결론 띠 + 전폭 표」와 같은 방향이다.
- *
- * 한 단으로 접힐 뿐 **비율을 바꾸지 않는다** — 두 단일 때는 언제나 7:5다.
+ * **면을 띄우지 않는다.** 조건을 다루는 자리는 「한 덩어리의 데이터」가 아니라서
+ * 카드 예산(`§5`)에서 세지 않는다. 단가 · 저장은 `<details>`로 접어 둔다.
  */
-@media (max-width: 1734px) {
-  .fr__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.fr__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-16);
+}
 
-  /* 한 단에서 `span 7`이 남으면 암묵 열이 생긴다 — 대시보드(`.fleet__col`)와 같이 푼다. */
-  .fr__main,
-  .fr__side {
-    grid-column: auto;
+/*
+ * 좁은 폭에서는 접기가 줄을 통째로 쓴다 — 연도 · 목표 옆에 끼면 요약 문구가 꺾인다.
+ * 넓어지면 같은 줄로 붙는다.
+ */
+.fr__tool {
+  flex: 1 1 100%;
+  min-width: 0;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-8);
+}
+
+@media (min-width: 900px) {
+  .fr__tool {
+    flex: 0 1 auto;
+    border-top: 0;
+    padding-top: 0;
   }
 }
 
-.fr__side {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-16);
+.fr__tool > summary {
+  cursor: pointer;
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-label);
+  padding: var(--space-8) 0;
+  list-style-position: inside;
+}
+
+.fr__tool > summary:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.fr__tool-count {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-body);
+  font-size: var(--font-size-micro);
+}
+
+.fr__tool-body > * + * {
+  margin-top: var(--space-8);
 }
 
 .fr__table-wrap {
@@ -168,7 +171,7 @@
   font-size: var(--font-size-label);
 }
 
-.fr__main .fr__table {
+.fr__table-card .fr__table {
   min-width: 760px;
 }
 
@@ -259,9 +262,12 @@
   color: var(--color-text-muted);
 }
 
+/* 띠 바로 아래 한 줄 — 카드가 아니다 (#1757). 색은 왼쪽 띠 하나로만 말한다. */
 .fr__status {
   margin: 0;
+  padding: var(--space-8) var(--space-12);
   border-left: 4px solid var(--color-border-strong);
+  font-size: var(--font-size-label);
 }
 
 /*
@@ -292,11 +298,15 @@
   border-left-color: var(--color-warning);
 }
 
+/*
+ * 띠 아래 2열 「라벨 · 값」 목록 (`§8.6` · #1757). 종전에는 「비용 요약」 카드였다 —
+ * 순손익은 띠의 보조로 올라갔고 나머지 셋이 여기 남는다. 타일로 감싸지 않는다.
+ */
 .fr__costs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: var(--space-12);
-  margin: var(--space-12) 0 0;
+  margin: 0;
 }
 
 .fr__costs dt {
@@ -343,6 +353,6 @@
 }
 
 /* 연말 등급 칸 — 배지 아래 목표 판정 한 줄이 들어가 좁으면 세로로 길어진다. */
-.fr__main .fr__table td:nth-child(2) {
+.fr__table-card .fr__table td:nth-child(2) {
   min-width: 9rem;
 }

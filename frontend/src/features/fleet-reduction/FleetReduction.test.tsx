@@ -355,3 +355,156 @@ describe('연료 단가는 이 계획에 필요한 연료만 묻는다 (#1273)',
     expect(screen.queryByText(FLEET_REDUCTION_COPY.fuelPricesNone)).toBeNull()
   })
 })
+
+/*
+ * 결론 띠 · 전폭 표 (#1757).
+ *
+ * 이 화면의 답은 「목표를 몇 척이 달성하는가」 하나인데 종전에는 오른쪽 기둥 맨 위의
+ * 한 줄짜리 상태 문장이었다. 여기서 보는 것은: 척수가 맞게 세어지는가(계산 못 한 선박을
+ * 실패로 세지 않는가), 위험도 pill을 두지 않는가, 오른쪽 기둥이 없어졌는가.
+ */
+describe('결론 띠 — DESIGN_SYSTEM §8.6 (#1757)', () => {
+  const strip = () => document.querySelector('.verdict-strip') as HTMLElement
+
+  it('주 결론은 목표 달성 척수다 — 계산 못 한 선박은 분모에도 넣지 않는다', async () => {
+    renderWith()
+    await screen.findByText('MV One')
+
+    /* 고정표: 계산 가능 1척(v1 · 달성) + 계산 불가 1척(v2). 「1 / 2」가 아니라 「1 / 1」이다. */
+    expect(strip().textContent).toContain('1 / 1')
+    expect(strip().textContent).toContain('척')
+  })
+
+  it('계산할 수 있는 선박이 0척이면 척수를 지어내지 않는다', async () => {
+    renderWith(
+      result({
+        targetMet: null,
+        vessels: [
+          {
+            vesselId: 'v2',
+            vesselName: 'MV Empty',
+            unavailableReason: 'NO_DATA',
+            before: null,
+            after: null,
+            targetRating: null,
+            meetsTarget: null,
+            extraDays: null,
+            fuelSavedTon: null,
+            skippedVoyages: 0,
+            requiredCutFuelTon: null,
+            achievable: null,
+          },
+        ],
+      }),
+    )
+    await screen.findByText('MV Empty')
+
+    expect(strip().textContent).toContain('—')
+    expect(strip().textContent).not.toContain('0 / 0')
+    /* 상태 문장은 `<strong>목표</strong> — 문구` 꼴이라 텍스트가 두 노드로 갈린다. */
+    expect(document.querySelector('.fr__status')?.textContent).toContain(
+      FLEET_REDUCTION_COPY.statusNoVessel,
+    )
+  })
+
+  it('⚠️ 보조는 순손익이고, 단가가 비면 0이 아니라 「단가 입력 필요」다 (PRD §12.3.2)', async () => {
+    renderWith()
+    await screen.findByText('MV One')
+
+    expect(strip().textContent).toContain(FLEET_REDUCTION_COPY.net)
+    expect(strip().textContent).toContain(FLEET_REDUCTION_COPY.needsPrice)
+  })
+
+  it('위험도 pill을 두지 않는다 — 이 화면의 데이터에 위험도 값이 없다 (§8.6 v2.23)', async () => {
+    renderWith()
+    await screen.findByText('MV One')
+
+    expect(document.querySelector('.verdict-strip__risk')).toBeNull()
+  })
+
+  it('나머지 비용 셋은 띠 아래 2열 목록이다 — 카드로 감싸지 않는다 (§8.6)', async () => {
+    renderWith()
+    await screen.findByText('MV One')
+
+    const costs = document.querySelector('.fr__costs') as HTMLElement
+    expect(costs.tagName).toBe('DL')
+    expect(costs.closest('.card')).toBeNull()
+    expect(costs.textContent).toContain(FLEET_REDUCTION_COPY.extraDays)
+    expect(costs.textContent).toContain(FLEET_REDUCTION_COPY.charterLoss)
+    expect(costs.textContent).toContain(FLEET_REDUCTION_COPY.fuelSaving)
+    /* 순손익은 띠로 올라갔다 — 같은 값을 두 번 적지 않는다. */
+    expect(costs.textContent).not.toContain(FLEET_REDUCTION_COPY.net)
+  })
+
+  it('표는 전폭이다 — 오른쪽 기둥이 없다', async () => {
+    renderWith()
+    await screen.findByText('MV One')
+
+    expect(document.querySelector('.fr__grid')).toBeNull()
+    expect(document.querySelector('.fr__side')).toBeNull()
+    const card = document.querySelector('.fr__table-card') as HTMLElement
+    expect(card.querySelector('table')).not.toBeNull()
+    expect(card.querySelector('.card__title')?.textContent).toBe(FLEET_REDUCTION_COPY.vesselsTitle)
+  })
+})
+
+/*
+ * 도구 줄 (#1757) — 연료 단가 · 계획 저장을 표 위 한 줄로 접었다. 접어 두는 대가로
+ * 「안에 값이 있는지」를 겉에서 알 수 있어야 한다(`#1417`과 같은 판단).
+ */
+describe('도구 줄 — 연료 단가 · 계획 저장 (#1757)', () => {
+  const toolByName = (name: RegExp) =>
+    (screen.getByText(name).closest('details') as HTMLDetailsElement)
+
+  it('연료 단가는 접혀 있고, 채운 칸 수를 겉에서 말한다', async () => {
+    renderWith(
+      result({
+        costs: { ...result().costs, missingFuelPrices: ['HFO', 'MGO'] },
+      }),
+    )
+    await screen.findByText('MV One')
+
+    const prices = toolByName(/연료 단가/)
+    expect(prices.open).toBe(false)
+    expect(prices.querySelector('summary')?.textContent).toContain('0 / 2 입력함')
+
+    fireEvent.change(await screen.findByLabelText('중유 (HFO)'), { target: { value: '600' } })
+    expect(prices.querySelector('summary')?.textContent).toContain('1 / 2 입력함')
+  })
+
+  it('단가가 잘못되면 스스로 펼친다 — 접힌 채로는 오류가 보이지 않는다', async () => {
+    renderWith(
+      result({
+        costs: { ...result().costs, missingFuelPrices: ['HFO'] },
+      }),
+    )
+    await screen.findByText('MV One')
+
+    const prices = toolByName(/연료 단가/)
+    expect(prices.open).toBe(false)
+    fireEvent.change(await screen.findByLabelText('중유 (HFO)'), { target: { value: '-1' } })
+
+    await waitFor(() => expect(prices.open).toBe(true))
+    expect(screen.getByText(FLEET_REDUCTION_COPY.priceInvalid)).toBeTruthy()
+  })
+
+  it('계획 저장도 접기 안이지만 잠긴 사유는 그대로 이어진다 (§14 · #1170 ⑵)', async () => {
+    renderWith(
+      result({
+        costs: { ...result().costs, missingFuelPrices: ['HFO'] },
+      }),
+    )
+    await screen.findByText('MV One')
+
+    fireEvent.change(await screen.findByLabelText('중유 (HFO)'), { target: { value: '-1' } })
+    fireEvent.change(screen.getByLabelText(FLEET_REDUCTION_COPY.planNameLabel), {
+      target: { value: '9월 계획' },
+    })
+
+    const save = screen.getByRole('button', { name: FLEET_REDUCTION_COPY.saveButton })
+    expect(save.getAttribute('aria-describedby')).toBe('fr-save-blocked')
+    expect(document.getElementById('fr-save-blocked')?.textContent).toBe(
+      FLEET_REDUCTION_COPY.saveBlockedByPrice,
+    )
+  })
+})
