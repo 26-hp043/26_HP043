@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CURRENT_VOYAGE_SEGMENT,
   EMPTY_CONTEXT,
   STORAGE_KEY,
   displayName,
@@ -62,6 +63,15 @@ describe('readFromPath — 경로가 정본이다', () => {
   it('계층 밖 화면에서는 아무것도 읽지 않는다', () => {
     expect(readFromPath('/dashboard')).toEqual(EMPTY_CONTEXT)
     expect(readFromPath('/reports')).toEqual(EMPTY_CONTEXT)
+  })
+
+  it('「진행 중 항차」 경로 조각은 항차 id가 아니다 (#1688)', () => {
+    // 선박 상세의 실시간 CII 입구. 어느 항차인지는 서버가 고른다 —
+    // 이것을 id로 읽으면 셸이 `current`를 기억하고 CII 예측이 `/voyages/current`로 422를 받는다.
+    expect(readFromPath(`/vessels/${VESSEL}/voyages/${CURRENT_VOYAGE_SEGMENT}`)).toEqual({
+      vesselId: VESSEL,
+      voyageId: null,
+    })
   })
 
   it('선박 관리 목록(/vessels)은 특정 선박을 가리키지 않는다', () => {
@@ -165,6 +175,23 @@ describe('저장 — 화면 전환 후에도 유지된다', () => {
     expect(loadStored(fakeStorage({ [STORAGE_KEY]: '{"vesselId":42}' }))).toEqual(
       EMPTY_CONTEXT,
     )
+  })
+
+  it('#1688 이전에 기억된 「진행 중 항차」 조각은 항차로 복원하지 않는다', () => {
+    const storage = fakeStorage({
+      [STORAGE_KEY]: JSON.stringify({ vesselId: VESSEL, voyageId: CURRENT_VOYAGE_SEGMENT }),
+    })
+    expect(loadStored(storage)).toEqual({ vesselId: VESSEL, voyageId: null })
+  })
+
+  it('실시간 CII 입구를 거쳐도 기억되는 항차가 없다 — 재현 순서 (#1688)', () => {
+    // 선박 상세 → 실시간 CII(`…/voyages/current`) → 사이드바 「CII 예측」
+    const storage = fakeStorage()
+    const realtimePath = `/vessels/${VESSEL}/voyages/${CURRENT_VOYAGE_SEGMENT}`
+    const onRealtime = readContext(realtimePath, '', EMPTY_CONTEXT)
+    saveStored(onRealtime, storage)
+    const onForecast = readContext('/voyage-cii', '', loadStored(storage))
+    expect(onForecast).toEqual({ vesselId: VESSEL, voyageId: null })
   })
 
   it('저장소가 없어도 던지지 않는다 — 편의 기능이다', () => {

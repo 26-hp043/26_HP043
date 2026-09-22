@@ -33,6 +33,7 @@ import type {
 import './VesselDetail.css'
 import { ErrorState } from '../../components/ErrorState'
 import { SCREEN_BY_ID } from '../../screens'
+import { CURRENT_VOYAGE_SEGMENT, voyagePath } from '../../layout/globalContext'
 import { voyageCountText } from './voyageCount'
 import { CalculationHistory } from './CalculationHistory'
 import { Icon } from '../../components/Icon'
@@ -248,7 +249,7 @@ export function VesselDetail({
           ) : inProgress === null ? (
             <NoVoyageDrill />
           ) : (
-            <Link className="vd__drill" to={`/vessels/${vessel.id}/voyages/current`}>
+            <Link className="vd__drill" to={voyagePath(vessel.id, CURRENT_VOYAGE_SEGMENT)}>
               진행 중 항차의 실시간 CII 보기
             </Link>
           )}
