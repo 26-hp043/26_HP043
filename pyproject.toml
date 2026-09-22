@@ -12,7 +12,7 @@ requires-python = ">=3.12"
 # 다음 major가 깨지기 쉬운 패키지(fastapi · pydantic · starlette)에 맞춰 여유를 둔다.
 dependencies = [
     "numpy==2.1.0",
-    "sqlalchemy[asyncio]>=2.0.52,<2.1",
+    "sqlalchemy[asyncio]>=2.0.54,<2.1",
     # CUBRID 방언과 그 DBAPI. **둘은 한 벌이다.**
     #
     # `aiopycubrid`라는 배포본은 없다 — `cubrid+aiopycubrid`는 `sqlalchemy-cubrid`가
