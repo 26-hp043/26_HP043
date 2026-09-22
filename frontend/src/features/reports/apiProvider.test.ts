@@ -234,3 +234,44 @@ describe('실패 경로', () => {
     await expect(promise).rejects.toMatchObject({ cause })
   })
 })
+
+
+/*
+ * 선박 선택지도 끝까지 부른다 (`#1644`). 선대가 100척을 넘으면 101번째부터 셀렉트에 없었고,
+ * 셸에서 고른 선박이 첫 페이지 밖이면 화면이 선택을 지웠다.
+ */
+describe('선박 선택지 페이지 순회 (#1644)', () => {
+  function page(ids: string[], next: string | null) {
+    return jsonResponse({
+      data: ids.map((id) => ({ id, name: id, imo_number: '0000000' })),
+      meta: { next_cursor: next, has_more: next !== null },
+    })
+  }
+
+  it('두 페이지를 이어 붙이고 두 번째 요청에 커서를 싣는다', async () => {
+    const first = Array.from({ length: 100 }, (_, i) => `v-${i + 1}`)
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(page(first, 'c1'))
+      .mockResolvedValueOnce(page(['v-101', 'v-150'], null))
+
+    const result = await createApiReportsProvider(fetchImpl).listVessels()
+
+    expect(result).toHaveLength(102)
+    expect(result.at(-1)?.id).toBe('v-150')
+    expect(String(fetchImpl.mock.calls[0][0])).toMatch(/\/vessels\?limit=100$/)
+    expect(String(fetchImpl.mock.calls[1][0])).toMatch(/cursor=c1/)
+  })
+
+  it('커서가 전진하지 않으면 멈춘다 — 서버 계약 위반에서 무한 루프를 막는다', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(page(['v-1'], 'same'))
+      .mockResolvedValueOnce(page(['v-2'], 'same'))
+      .mockResolvedValue(page(['v-x'], 'same'))
+
+    const result = await createApiReportsProvider(fetchImpl).listVessels()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(result.map((v) => v.id)).toEqual(['v-1', 'v-2'])
+  })
+})
