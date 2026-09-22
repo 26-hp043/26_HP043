@@ -1217,3 +1217,178 @@ describe('결과 위 추정 고지 (#1578 · `DESIGN_SYSTEM §11`)', () => {
     expect(notice.textContent).not.toMatch(/예측값/)
   })
 })
+
+/**
+ * 결론이 맨 위에 선다 (#1700 · `DESIGN_SYSTEM §8.6` 🔒 · `§5` 카드 예산).
+ *
+ * 종전에는 결과가 계산 순서(결정론 → 보정 → 목표까지 → 분포 → 민감도 → 재현)로
+ * 카드 6장 · 회색 타일 17개였고, 이 화면의 답인 목표 달성 확률이 **네 번째 카드의
+ * 두 번째 타일**에 본문 크기로 들어 있었다.
+ */
+describe('결론이 맨 위에 선다 (#1700)', () => {
+  /** 블록이 모두 있는 실행 — 면이 가장 많이 뜨는 경우로 예산을 잰다. */
+  function fullPayload() {
+    const payload = body('sim-1') as Record<string, any>
+    payload.data.reduction_plan = {
+      target_rating: 'B',
+      target_cii: '4.742300',
+      allowed_planned_M_gco2: '665580000.000000',
+      achievable: true,
+      required_cut_gco2: '330900000.000000',
+      required_cut_fuel_ton: '36.260000',
+    } satisfies ReductionPlanBlock
+    payload.data.feedback = {
+      factor: '1.064516',
+      sample_size: 4,
+      min_sample: 3,
+      requested: true,
+      applied: true,
+    } satisfies FeedbackBlock
+    payload.data.sensitivity_analysis = {
+      interaction_note: '각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다.',
+      speed_minus_1kn: { projected_cii: '4.900000', rating_change: 'C→C', target_probability_change: '0.1200' },
+    }
+    payload.warnings = ['SENSITIVITY_ONE_AT_A_TIME']
+    return payload
+  }
+
+  function stubWith(payload: unknown) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ data: [{ year: 2026 }] })
+        }
+        if (url.endsWith('/annual-simulations')) return jsonResponse(payload)
+        return jsonResponse({ data: {} })
+      }),
+    )
+  }
+
+  it('결과의 첫 자리는 결론 띠다 — 주 결론은 목표 달성 확률, 보조는 결정론 연말 예측', async () => {
+    stubServer()
+    renderScreen()
+    await runOnce()
+
+    const verdict = screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel })
+    expect(verdict.parentElement!.className).toBe('annual-sim__results')
+    expect(verdict.parentElement!.firstElementChild).toBe(verdict)
+
+    // 주 결론 — `display` 크기 자리에 달성 확률, 라벨에 목표 등급
+    expect(verdict.querySelector('.annual-sim__verdict-value')!.textContent).toBe('30.0%')
+    expect(within(verdict).getByText(`${ANNUAL_COPY.targetSuccessLabel} (B 이상)`)).toBeTruthy()
+
+    // 보조 — 등급 배지와 값이 한 쌍이다(`§14`)
+    const sub = verdict.querySelector('.annual-sim__verdict-sub') as HTMLElement
+    expect(within(sub).getByText(ANNUAL_COPY.verdictProjectedLabel)).toBeTruthy()
+    expect(sub.querySelector('.grade-badge')).toBeTruthy()
+    expect(sub.querySelector('.annual-sim__verdict-sub-value')!.textContent).toBe('5.025')
+
+    // 위험도 pill 하나 — `PRD §9.4.2` 달성 확률 기반
+    expect(verdict.querySelectorAll('.annual-sim__risk-pill')).toHaveLength(1)
+    expect(within(verdict).getByText('높음 HIGH')).toBeTruthy()
+  })
+
+  it('⚠️ 보조가 주 결론 크기로 커지지 않는다 — 크면 `§8.6` 위반이다', async () => {
+    stubServer()
+    renderScreen()
+    await runOnce()
+
+    const verdict = screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel })
+    // `display` 크기 클래스는 띠 안에 딱 하나 — 주 결론 자리뿐이다.
+    expect(verdict.querySelectorAll('.annual-sim__verdict-value')).toHaveLength(1)
+    expect(
+      verdict.querySelector('.annual-sim__verdict-sub .annual-sim__verdict-value'),
+    ).toBeNull()
+  })
+
+  it('P(D/E) 표기는 띠가 아니라 분포 곁이다 — 위험도와 다른 채널이 한 자리에 겹치지 않게', async () => {
+    stubServer()
+    renderScreen()
+    await runOnce()
+
+    const verdict = screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel })
+    expect(verdict.querySelector('.annual-sim__flag')).toBeNull()
+    const distribution = screen
+      .getByRole('heading', { name: ANNUAL_COPY.probabilityTitle })
+      .closest('section')!
+    expect(distribution.querySelector('.annual-sim__flag')).toBeTruthy()
+  })
+
+  it('떠 있는 면은 입력을 더해 4개 이하이고, 결과 안에 회색 타일이 없다 (`§5`)', async () => {
+    stubWith(fullPayload())
+    const { container } = renderScreen()
+    await runOnce()
+
+    const surfaces = container.querySelectorAll(
+      '.annual-sim__form, .annual-sim__verdict, .annual-sim__block',
+    )
+    expect(surfaces.length).toBeLessThanOrEqual(4)
+    // 종전 타일 클래스는 남지 않는다
+    expect(container.querySelector('[class*="annual-sim__metric"]')).toBeNull()
+  })
+
+  it('보정계수 · 결정론 세부는 「계산 근거」 안에 접히고, seed와 재현 버튼은 밖에 있다', async () => {
+    stubWith(fullPayload())
+    renderScreen()
+    await runOnce()
+
+    const details = screen
+      .getByText(ANNUAL_COPY.reproDetailsToggle)
+      .closest('details') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    for (const text of [
+      ANNUAL_COPY.feedbackTitle,
+      ANNUAL_COPY.deterministicTitle,
+      ANNUAL_COPY.completedLabel,
+      ANNUAL_COPY.remainingLabel,
+      ANNUAL_COPY.reproTitle,
+    ]) {
+      expect(details.contains(screen.getByText(text))).toBe(true)
+    }
+    expect(screen.getByText(/seed 12345/).closest('details')).toBeNull()
+    expect(
+      screen.getByRole('button', { name: ANNUAL_COPY.reproduceButton }).closest('details'),
+    ).toBeNull()
+    // 접힌 것은 카드가 아니다 — 바닥 위에 있다
+    expect(details.closest('.annual-sim__block')).toBeNull()
+  })
+
+  it('목표까지 · 분포 요약은 확률 분포 카드 안의 「라벨 · 값」 목록이다', async () => {
+    stubWith(fullPayload())
+    renderScreen()
+    await runOnce()
+
+    const distribution = screen
+      .getByRole('heading', { name: ANNUAL_COPY.probabilityTitle })
+      .closest('section')!
+    expect(within(distribution).getByRole('heading', { level: 3, name: ANNUAL_COPY.reductionTitle })).toBeTruthy()
+    expect(within(distribution).getByRole('heading', { level: 3, name: ANNUAL_COPY.spreadTitle })).toBeTruthy()
+    expect(within(distribution).getByText('330.9 tCO₂').closest('dl')).toBeTruthy()
+    expect(within(distribution).getByText(`${ANNUAL_COPY.reductionBoundaryLabel} (B)`)).toBeTruthy()
+  })
+
+  it('「복합 효과 미포함」은 민감도 절에 한 번만 나온다 — 맨 아래 경고 목록에 다시 서지 않는다', async () => {
+    stubWith(fullPayload())
+    renderScreen()
+    await runOnce()
+
+    expect(
+      screen.getAllByText('각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다.'),
+    ).toHaveLength(1)
+  })
+
+  it('민감도 절이 없는 실행에서는 경고 목록이 그 문장의 유일한 자리라 남긴다', async () => {
+    const payload = body('sim-1') as Record<string, any>
+    payload.warnings = ['SENSITIVITY_ONE_AT_A_TIME']
+    stubWith(payload)
+    renderScreen()
+    await runOnce()
+
+    expect(screen.queryByRole('heading', { name: ANNUAL_COPY.sensitivityTitle })).toBeNull()
+    expect(
+      screen.getByText('각 변수의 개별 효과만 표시합니다. 복합 효과는 포함되지 않습니다.'),
+    ).toBeTruthy()
+  })
+})

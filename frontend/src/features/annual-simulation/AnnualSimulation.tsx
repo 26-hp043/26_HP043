@@ -20,6 +20,7 @@ import { SCREEN_BY_ID } from '../../screens'
  * 문구는 `resultRules.WARNING_MESSAGE`가 갖는다 — 여기서는 **있는지만** 본다.
  */
 const NO_REMAINING_VOYAGES = 'NO_REMAINING_VOYAGES'
+const SENSITIVITY_ONE_AT_A_TIME = 'SENSITIVITY_ONE_AT_A_TIME'
 import {
   RUNS_MAX,
   RUNS_MIN,
@@ -638,138 +639,84 @@ function Result({
   const segments = stackSegments(mc.rating_probabilities)
   const rows = sensitivityRows(result.sensitivity_analysis)
   const noRemaining = result.warnings.includes(NO_REMAINING_VOYAGES)
+  /*
+   * 민감도 절이 있으면 「복합 효과 미포함」은 그 절이 `interaction_note`로 이미 말한다 (#1700).
+   * 서버가 같은 문장을 경고 코드로도 내려 종전에는 **카드 안과 맨 아래에 두 번** 나왔다.
+   * 절이 없을 때(`#433` 이전 실행 등)는 경고 목록이 유일한 자리라 남긴다.
+   */
+  const resultWarnings =
+    rows.length > 0
+      ? result.warnings.filter((code) => code !== SENSITIVITY_ONE_AT_A_TIME)
+      : result.warnings
 
   return (
     <>
       {/*
-        이 결과의 조건 (#1553) — 결과만 캡처해도 어느 배 · 어느 해 · 어느 목표인지 읽히게.
-        결과 블록들의 맨 위, 추정 고지보다 먼저다.
-      */}
-      <p className="annual-sim__conditions">
-        <span className="annual-sim__conditions-label">{ANNUAL_COPY.resultConditionsLabel}</span>{' '}
-        <strong>{resultConditionsText(conditions)}</strong>
-      </p>
-      {result.is_sample_data ? (
-        <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
-      ) : (
-        <p className="annual-sim__notice">{estimateNoticeText(result.as_of)}</p>
-      )}
+        ── 결론 띠 (`DESIGN_SYSTEM §8.6` 🔒 · #1700) ─────────────────────
 
-      {/* ── 결정론 (PRD §12.3) ─────────────────────────────────────── */}
-      <section className="annual-sim__block">
-        <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.deterministicTitle}</h2>
-        <p className="annual-sim__caption">{ANNUAL_COPY.deterministicCaption}</p>
-        <div className="annual-sim__metrics">
-          <Metric
-            label={ANNUAL_COPY.projectedCiiLabel}
-            value={formatDecimalString(det.projected_attained_cii, DISPLAY_DIGITS.cii)}
-          />
-          <div className="annual-sim__metric">
-            <span className="annual-sim__label">{ANNUAL_COPY.projectedRatingLabel}</span>
+        이 화면의 답은 **목표 달성 확률**이다 — 위험도(`PRD §9.4.2`)가 이 값에서 나온다.
+        종전에는 네 번째 카드의 두 번째 타일에 본문 크기로 들어 있어, 계산 순서를 따라
+        결정론 → 보정 → 목표까지를 지나야 닿았다.
+
+        보조는 결정론 연말 예측 하나다. 등급 배지와 값은 한 사실이다(`§14`).
+        집계 · 남은 항차 수는 아래 「계산 근거」로 내린다.
+      */}
+      <section className="annual-sim__verdict" aria-label={ANNUAL_COPY.verdictLabel}>
+        <div className="annual-sim__verdict-main">
+          <span className="annual-sim__label">
+            {ANNUAL_COPY.targetSuccessLabel} ({mc.target_rating} 이상)
+          </span>
+          <span className="annual-sim__verdict-value">
+            {toPercent(mc.target_success_probability)}
+          </span>
+        </div>
+        <div className="annual-sim__verdict-sub">
+          <span className="annual-sim__label">{ANNUAL_COPY.verdictProjectedLabel}</span>
+          <span className="annual-sim__verdict-grade">
             <GradeBadge
               rating={det.projected_rating}
-              size="lg"
+              size="sm"
               label={`${ANNUAL_COPY.projectedRatingLabel} ${det.projected_rating}`}
             />
-          </div>
-          <Metric
-            label={ANNUAL_COPY.completedLabel}
-            value={String(det.completed_voyage_count)}
-          />
-          <Metric
-            label={ANNUAL_COPY.remainingLabel}
-            value={String(det.remaining_voyage_count)}
-          />
+            <span className="annual-sim__verdict-sub-value">
+              {formatDecimalString(det.projected_attained_cii, DISPLAY_DIGITS.cii)}
+            </span>
+          </span>
         </div>
+        {/*
+          위험도 pill — `§2.5 (b)`의 단계별 색(HIGH Warning · CRITICAL Danger)은 **글자에만**
+          입힌다. 면과 테두리는 중립이다(`§2.3` 경고색은 한 자리에 한 번).
+        */}
+        <p className="annual-sim__risk-pill">
+          <span className="annual-sim__risk-pill-label">{ANNUAL_COPY.riskLabel}</span>
+          {risk.withIcon ? (
+            <span className="annual-sim__risk-pill-icon">
+              <Icon glyph={AlertTriangle} size="inline" />
+            </span>
+          ) : null}
+          <span
+            className={`annual-sim__risk-pill-value annual-sim__risk-pill-value--${result.risk_level.toLowerCase()}`}
+          >
+            {risk.text}
+          </span>
+        </p>
       </section>
 
       {/*
-        ── 실적 보정계수 (PRD §12.2.1 · #363) ─────────────────────────
-
-        세 상태를 가른다 — ⑴ 곱했다 ⑵ 값은 있으나 곱하지 않았다 ⑶ 표본이 모자라 값이
-        없다. ⚠️ ⑶을 1.0이나 빈칸으로 그리면 「계획대로 쓰고 있다」로 읽힌다.
-
-        `#363` 이전 실행에는 블록이 없다 — 그때는 카드를 그리지 않는다.
+        이 결과의 조건 (#1553) · 추정 고지 (#1578) — 띠 바로 아래 한 줄씩(`§8.6`).
+        결과만 캡처해도 어느 배 · 어느 해 · 어느 목표인지 읽힌다.
       */}
-      {feedback && (
-        <section className="annual-sim__block">
-          <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.feedbackTitle}</h2>
-          <p className="annual-sim__caption">{ANNUAL_COPY.feedbackCaption}</p>
-          <div className="annual-sim__metrics">
-            <Metric
-              label={ANNUAL_COPY.feedbackFactorLabel}
-              value={
-                feedback.factor === null
-                  ? ANNUAL_COPY.feedbackUnavailableValue
-                  : `× ${formatDecimalString(feedback.factor, 4)}`
-              }
-            />
-            <Metric
-              label={ANNUAL_COPY.feedbackSampleLabel}
-              value={`${feedback.sample_size}건`}
-              hint={`${ANNUAL_COPY.feedbackMinSampleHint} ${feedback.min_sample}건`}
-            />
-          </div>
-          {feedback.factor === null ? (
-            <p className="annual-sim__caption">{ANNUAL_COPY.feedbackUnavailable}</p>
-          ) : feedback.applied ? (
-            <p className="annual-sim__notice">{ANNUAL_COPY.feedbackApplied}</p>
-          ) : (
-            <p className="annual-sim__caption">{ANNUAL_COPY.feedbackNotApplied}</p>
-          )}
-        </section>
-      )}
-
-      {/*
-        ── 필요 감축량 (PRD §12.3.1 · #433) ──────────────────────────
-
-        **Monte Carlo를 부르지 않는다**(UIFLOW 2-10). 위 결정론 블록과 같은 실행에서
-        파생되므로 확률 결과와 전제가 갈릴 수 없다.
-
-        ⚠️ `#433` 이전에 만들어진 실행에는 블록이 없다 — 그때는 카드를 그리지 않는다.
-        없는 것을 0으로 그리면 「줄일 것이 없다」로 읽힌다.
-      */}
-      {cut && (
-        <section className="annual-sim__block">
-          <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.reductionTitle}</h2>
-          <p className="annual-sim__caption">{ANNUAL_COPY.reductionCaption}</p>
-
-          <div className="annual-sim__metrics">
-            <div className="annual-sim__metric">
-              <span className="annual-sim__label">{ANNUAL_COPY.reductionTargetLabel}</span>
-              <GradeBadge
-                rating={cut.target_rating}
-                size="lg"
-                label={`${ANNUAL_COPY.reductionTargetLabel} ${cut.target_rating}`}
-              />
-            </div>
-            <Metric
-              label={ANNUAL_COPY.reductionBoundaryLabel}
-              value={formatDecimalString(cut.target_cii, DISPLAY_DIGITS.cii)}
-            />
-          </div>
-
-          {!cut.achievable ? (
-            <p className="annual-sim__unreachable">{ANNUAL_COPY.reductionUnreachable}</p>
-          ) : cut.required_cut_fuel_ton === null ? (
-            <p className="annual-sim__caption">{ANNUAL_COPY.reductionNoPlan}</p>
-          ) : cut.required_cut_gco2 === '0' || Number(cut.required_cut_gco2) === 0 ? (
-            <p className="annual-sim__caption">{ANNUAL_COPY.reductionNoneNeeded}</p>
-          ) : (
-            <div className="annual-sim__metrics">
-              {/* 단위·자릿수는 `§4.2`가 소유한다 — g을 그대로 적던 자리다 (#1539). */}
-              <Metric
-                label={ANNUAL_COPY.reductionCutLabel}
-                value={reductionCutText(cut.required_cut_gco2, cut.required_cut_fuel_ton).co2}
-              />
-              <Metric
-                label={ANNUAL_COPY.reductionCutFuelLabel}
-                value={reductionCutText(cut.required_cut_gco2, cut.required_cut_fuel_ton).fuel}
-              />
-            </div>
-          )}
-        </section>
-      )}
+      <div className="annual-sim__under-verdict">
+        <p className="annual-sim__conditions">
+          <span className="annual-sim__conditions-label">{ANNUAL_COPY.resultConditionsLabel}</span>{' '}
+          <strong>{resultConditionsText(conditions)}</strong>
+        </p>
+        {result.is_sample_data ? (
+          <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
+        ) : (
+          <p className="annual-sim__notice">{estimateNoticeText(result.as_of)}</p>
+        )}
+      </div>
 
       {/* ── 확률 (PRD §12.4 · §12.5 · DESIGN_SYSTEM §10.2) ─────────── */}
       <section className="annual-sim__block">
@@ -797,8 +744,6 @@ function Result({
           aria-label={`${ANNUAL_COPY.probabilityTitle} — ${stackAria(segments)}`}
         >
           {segments.map((seg) => {
-            // 「0.0%」 구간은 그리지 않는다 — 폭이 없어 보이지 않는 요소에 초점이 가던
-            // 자리다 (#1096 ⑵). 값은 아래 범례와 그룹의 대체 텍스트에 그대로 있다.
             if (seg.empty) return null
             const pattern = gradePatternUrl(seg.rating)
             const inline = seg.inline
@@ -848,43 +793,75 @@ function Result({
             </li>
           ))}
         </ul>
+        {/*
+          `§2.5 (a)` — 확률 파생 표기 `P(D/E)`. 위험도 pill과 **다른 채널**이라 띠에 올리지
+          않고 분포 곁에 둔다. 한 자리에 두 경고 표기가 겹치지 않게 한다(`§2.3`).
+        */}
+        <p className={`annual-sim__flag annual-sim__flag--${flag.tone}`}>
+          {/* §2.5 (b) — 라벨이 바로 옆에 있으므로 장식이다. `Icon`이 aria-hidden을 붙인다. */}
+          {flag.withIcon ? <Icon glyph={AlertTriangle} size="inline" /> : null} {flag.text}
+        </p>
 
-        <div className="annual-sim__metrics">
-          <Metric
-            label={ANNUAL_COPY.targetSuccessLabel}
-            value={toPercent(mc.target_success_probability)}
-            hint={`${ANNUAL_COPY.targetSuccessHint} (${mc.target_rating} 이상)`}
-          />
-          <div className="annual-sim__metric">
-            <span className="annual-sim__label">{ANNUAL_COPY.riskLabel}</span>
-            <span className="annual-sim__risk">{risk.text}</span>
-            {/* DESIGN_SYSTEM §2.5 (a) — 확률 파생 표기. 위험도와 별개 채널이다. */}
-            <span className={`annual-sim__flag annual-sim__flag--${flag.tone}`}>
-              {/* §2.5 (b) — 라벨이 바로 옆에 있으므로 장식이다. `Icon`이 aria-hidden을 붙인다. */}
-              {flag.withIcon ? <Icon glyph={AlertTriangle} size="inline" /> : null} {flag.text}
-            </span>
+        {/*
+          목표까지 · 분포 요약 — 타일 대신 「라벨 · 값」 목록 두 벌을 나란히 둔다(`§5` 카드 예산).
+          섹션 제목이 `h2`라 다음 단계는 `h3`다 — 단계를 건너뛰지 않는다 (#1096 ⑶).
+        */}
+        <div className="annual-sim__pair">
+          {/*
+            ── 필요 감축량 (PRD §12.3.1 · #433) ──
+
+            **Monte Carlo를 부르지 않는다**(UIFLOW 2-10). 결정론 예측과 같은 실행에서
+            파생되므로 확률 결과와 전제가 갈릴 수 없다.
+
+            ⚠️ `#433` 이전에 만들어진 실행에는 블록이 없다 — 그때는 그리지 않는다.
+            없는 것을 0으로 그리면 「줄일 것이 없다」로 읽힌다.
+          */}
+          {cut && (
+            <div className="annual-sim__group">
+              <h3 className="annual-sim__sub-title">{ANNUAL_COPY.reductionTitle}</h3>
+              <p className="annual-sim__caption">{ANNUAL_COPY.reductionCaption}</p>
+              <dl className="annual-sim__list">
+                <Row
+                  label={`${ANNUAL_COPY.reductionBoundaryLabel} (${cut.target_rating})`}
+                  value={formatDecimalString(cut.target_cii, DISPLAY_DIGITS.cii)}
+                />
+                {cut.achievable &&
+                cut.required_cut_fuel_ton !== null &&
+                !(cut.required_cut_gco2 === '0' || Number(cut.required_cut_gco2) === 0) ? (
+                  <>
+                    {/* 단위·자릿수는 `§4.2`가 소유한다 — g을 그대로 적던 자리다 (#1539). */}
+                    <Row
+                      label={ANNUAL_COPY.reductionCutLabel}
+                      value={reductionCutText(cut.required_cut_gco2, cut.required_cut_fuel_ton).co2}
+                    />
+                    <Row
+                      label={ANNUAL_COPY.reductionCutFuelLabel}
+                      value={reductionCutText(cut.required_cut_gco2, cut.required_cut_fuel_ton).fuel}
+                    />
+                  </>
+                ) : null}
+              </dl>
+              {!cut.achievable ? (
+                <p className="annual-sim__unreachable">{ANNUAL_COPY.reductionUnreachable}</p>
+              ) : cut.required_cut_fuel_ton === null ? (
+                <p className="annual-sim__caption">{ANNUAL_COPY.reductionNoPlan}</p>
+              ) : cut.required_cut_gco2 === '0' || Number(cut.required_cut_gco2) === 0 ? (
+                <p className="annual-sim__caption">{ANNUAL_COPY.reductionNoneNeeded}</p>
+              ) : null}
+            </div>
+          )}
+          <div className="annual-sim__group">
+            <h3 className="annual-sim__sub-title">{ANNUAL_COPY.spreadTitle}</h3>
+            <dl className="annual-sim__list">
+              <Row label={ANNUAL_COPY.p10Label} value={formatDecimalString(mc.p10, DISPLAY_DIGITS.cii)} />
+              <Row label={ANNUAL_COPY.p50Label} value={formatDecimalString(mc.p50, DISPLAY_DIGITS.cii)} />
+              <Row label={ANNUAL_COPY.p90Label} value={formatDecimalString(mc.p90, DISPLAY_DIGITS.cii)} />
+              <Row
+                label={ANNUAL_COPY.meanLabel}
+                value={formatDecimalString(mc.mean_cii, DISPLAY_DIGITS.cii)}
+              />
+            </dl>
           </div>
-        </div>
-
-        {/* 섹션 제목이 `h2`라 다음 단계는 `h3`다 — 단계를 건너뛰지 않는다 (#1096 ⑶). */}
-        <h3 className="annual-sim__sub-title">{ANNUAL_COPY.spreadTitle}</h3>
-        <div className="annual-sim__metrics">
-          <Metric
-            label={ANNUAL_COPY.p10Label}
-            value={formatDecimalString(mc.p10, DISPLAY_DIGITS.cii)}
-          />
-          <Metric
-            label={ANNUAL_COPY.p50Label}
-            value={formatDecimalString(mc.p50, DISPLAY_DIGITS.cii)}
-          />
-          <Metric
-            label={ANNUAL_COPY.p90Label}
-            value={formatDecimalString(mc.p90, DISPLAY_DIGITS.cii)}
-          />
-          <Metric
-            label={ANNUAL_COPY.meanLabel}
-            value={formatDecimalString(mc.mean_cii, DISPLAY_DIGITS.cii)}
-          />
         </div>
       </section>
 
@@ -904,10 +881,9 @@ function Result({
           ) : (
             <>
               {/*
-               * `interaction_note`는 `ORACLE-M-3`이 응답 포함을 지정한 항목이다. 빼면
-               * 사용자가 두 변수를 함께 조정했을 때의 결과를 이 표에서 읽으려 한다 — 그래서
-               * **표가 있을 때는** 늘 함께 둔다.
-               */}
+                「복합 효과 미포함」 (`PRD §12.8`). 이 문장이 있으면 맨 아래 경고 목록에서는
+                같은 코드를 뺀다 — 위 `resultWarnings` 참조.
+              */}
               <p className="annual-sim__caption">
                 {result.sensitivity_analysis.interaction_note}
               </p>
@@ -955,46 +931,25 @@ function Result({
         </section>
       ) : null}
 
-      {/* ── 재현성 (TECH_SPEC §5.2 · §11) ──────────────────────────── */}
-      <section className="annual-sim__block">
-        <h2 className="card__title annual-sim__section-title">{ANNUAL_COPY.reproTitle}</h2>
-        <p className="annual-sim__caption">{ANNUAL_COPY.reproCaption}</p>
-        {/*
-          seed 줄은 밖에 둔다 (#1418) — `PRD §12.4.3` 「자동 seed … 결과에 표시한다」.
-          스냅샷·계산 이력 식별자(UUID)와 항차 사본은 「계산 근거 보기」 안으로.
-        */}
-        <dl className="annual-sim__repro">
-          <dt>seed</dt>
-          <dd>{reproducibilityLine(mc)}</dd>
-        </dl>
-        <details className="annual-sim__repro-details">
-          <summary>{ANNUAL_COPY.reproDetailsToggle}</summary>
-          <dl className="annual-sim__repro">
-            <dt>{ANNUAL_COPY.snapshotLabel}</dt>
-            <dd>
-              {result.snapshot.snapshot_id}
-              <span className="annual-sim__hint">
-                {ANNUAL_COPY.snapshotHint} ({result.snapshot.voyage_count}건)
-              </span>
-            </dd>
-            <dt>{ANNUAL_COPY.runIdLabel}</dt>
-            <dd>{result.calculation_run_id}</dd>
-          </dl>
-          {/* 이 실행에 쓴 항차 — 펼칠 때 불러온다 (`API_SPEC §6.3` · #992). */}
-          <SnapshotVoyages
-            simulationId={result.simulation_id}
-            voyageCount={result.snapshot.voyage_count}
-            provider={provider}
-          />
-        </details>
-        {/*
-          `PRD §12.4.3` 「결과 재현 버튼」(#776). `#556`은 이 경로를 「검증 수단이지
-          사용자 기능이 아니다」로 판정했으나 `PRD §12.4.3`이 버튼을 요구해 뒤집혔다.
+      {/*
+        ── 재현 · 계산 근거 (TECH_SPEC §5.2 · §11) — 카드 밖, 바닥 위 ────────
 
-          seed를 입력칸에 옮겨 적는 우회로 대신 두는 것이다 — 그 우회는 **폼의 다른 칸이
-          바뀌었으면 다른 조건으로** 돌고, 결과가 달라도 그것이 재현 실패인지 알 수 없다.
-        */}
+        seed 줄과 재현 버튼은 밖에 둔다 (#1418) — `PRD §12.4.3` 「자동 seed … 결과에
+        표시한다」 · 「결과 재현 버튼」(#776). 나머지(결정론 세부 · 보정계수 · 스냅샷 ·
+        계산 이력 · 항차 사본)는 「계산 근거」 하나로 접는다 (#1700). 종전에는 결정론 ·
+        보정계수 · 재현 정보가 각각 카드여서, 「계산하지 않음」 같은 보조 정보가 결론과
+        같은 무게로 떠 있었다.
+      */}
+      <section className="annual-sim__basis" aria-label={ANNUAL_COPY.reproTitle}>
         <div className="annual-sim__reproduce">
+          <dl className="annual-sim__repro">
+            <dt>seed</dt>
+            <dd>{reproducibilityLine(mc)}</dd>
+          </dl>
+          {/*
+            seed를 입력칸에 옮겨 적는 우회로 대신 두는 버튼이다 — 그 우회는 **폼의 다른 칸이
+            바뀌었으면 다른 조건으로** 돌고, 결과가 달라도 그것이 재현 실패인지 알 수 없다.
+          */}
           <button
             type="button"
             onClick={() => void runReproduce()}
@@ -1008,27 +963,19 @@ function Result({
             <>
               {/*
                 재현 성공은 **실패와 같은 무게**로 보인다 (2026-09-17 확정 ⓑ · `#1053` 40번).
-
-                종전에는 성공이 `--text-muted` 작은 한 줄이고 실패만 아이콘 달린 블록이라
-                **무게가 반대**였다 — 재현 확인은 「같은 결과가 나왔다」가 곧 결론인
-                검증 행위인데, 그 결론이 더 약하게 보였다.
-
                 모양은 `ErrorState`의 영역 실패를 따른다(중립 면 + 테두리 + 아이콘).
 
-                ⚠️ **색을 쓰지 않는다.** 같은 구조라면 아이콘·문구에 Success를 입히는
-                것이 `§0.2` 제약 2·3의 짝이지만, 라이트 `--color-success`(`#38a169`)가
-                이 면(`--color-surface-2`) 위에서 **2.89**라 비텍스트 `3:1`조차 넘지
-                못한다. Success 값이 정해지면(별건 이슈) 아이콘과 문구에 색만 입히면 된다.
+                ⚠️ **색을 쓰지 않는다.** 라이트 `--color-success`(`#38a169`)가 이 면
+                (`--color-surface-2`) 위에서 **2.89**라 비텍스트 `3:1`조차 넘지 못한다.
+                Success 값이 정해지면(별건 이슈) 아이콘과 문구에 색만 입히면 된다.
               */}
               <div className="annual-sim__reproduce-ok" role="status">
                 <Icon glyph={CheckCircle2} className="annual-sim__reproduce-ok-icon" size="inline" />
                 <p className="annual-sim__reproduce-ok-text">{ANNUAL_COPY.reproduceSuccess}</p>
               </div>
               {/*
-                재현 응답의 경고 (`#1095` ⑶). 문구는 `WARNING_MESSAGE`가 갖는다 —
-                `API_SPEC §1.6`과 `warningMessage.sync.test.ts`가 잠그는 사슬이다.
-                위 결과 경고 목록과 **다른 범위**라 여기 따로 둔다: 저쪽은 원본
-                실행의 경고이고 이쪽은 **재현 실행**의 경고다.
+                재현 응답의 경고 (`#1095` ⑶). 아래 결과 경고 목록과 **다른 범위**라 따로
+                둔다: 저쪽은 원본 실행의 경고이고 이쪽은 **재현 실행**의 경고다.
               */}
               {reproduce.warnings.length > 0 ? (
                 <ul className="annual-sim__warnings">
@@ -1047,11 +994,89 @@ function Result({
             message={reproduce.message}
           />
         ) : null}
+
+        <details className="annual-sim__repro-details">
+          <summary>{ANNUAL_COPY.reproDetailsToggle}</summary>
+
+          {/* ── 결정론 (PRD §12.3) — 값과 등급은 결론 띠에 있다. 여기는 무엇을 더했는지 ── */}
+          <div className="annual-sim__group">
+            <h3 className="annual-sim__sub-title">{ANNUAL_COPY.deterministicTitle}</h3>
+            <p className="annual-sim__caption">{ANNUAL_COPY.deterministicCaption}</p>
+            <dl className="annual-sim__list">
+              <Row
+                label={ANNUAL_COPY.projectedCiiLabel}
+                value={formatDecimalString(det.projected_attained_cii, DISPLAY_DIGITS.cii)}
+              />
+              <Row label={ANNUAL_COPY.projectedRatingLabel} value={det.projected_rating} />
+              <Row label={ANNUAL_COPY.completedLabel} value={String(det.completed_voyage_count)} />
+              <Row label={ANNUAL_COPY.remainingLabel} value={String(det.remaining_voyage_count)} />
+            </dl>
+          </div>
+
+          {/*
+            ── 실적 보정계수 (PRD §12.2.1 · #363) ──
+
+            세 상태를 가른다 — ⑴ 곱했다 ⑵ 값은 있으나 곱하지 않았다 ⑶ 표본이 모자라 값이
+            없다. ⚠️ ⑶을 1.0이나 빈칸으로 그리면 「계획대로 쓰고 있다」로 읽힌다.
+
+            `#363` 이전 실행에는 블록이 없다 — 그때는 그리지 않는다.
+          */}
+          {feedback && (
+            <div className="annual-sim__group">
+              <h3 className="annual-sim__sub-title">{ANNUAL_COPY.feedbackTitle}</h3>
+              <p className="annual-sim__caption">{ANNUAL_COPY.feedbackCaption}</p>
+              <dl className="annual-sim__list">
+                <Row
+                  label={ANNUAL_COPY.feedbackFactorLabel}
+                  value={
+                    feedback.factor === null
+                      ? ANNUAL_COPY.feedbackUnavailableValue
+                      : `× ${formatDecimalString(feedback.factor, 4)}`
+                  }
+                />
+                <Row
+                  label={ANNUAL_COPY.feedbackSampleLabel}
+                  value={`${feedback.sample_size}건`}
+                  hint={`${ANNUAL_COPY.feedbackMinSampleHint} ${feedback.min_sample}건`}
+                />
+              </dl>
+              {feedback.factor === null ? (
+                <p className="annual-sim__caption">{ANNUAL_COPY.feedbackUnavailable}</p>
+              ) : feedback.applied ? (
+                <p className="annual-sim__notice">{ANNUAL_COPY.feedbackApplied}</p>
+              ) : (
+                <p className="annual-sim__caption">{ANNUAL_COPY.feedbackNotApplied}</p>
+              )}
+            </div>
+          )}
+
+          <div className="annual-sim__group">
+            <h3 className="annual-sim__sub-title">{ANNUAL_COPY.reproTitle}</h3>
+            <p className="annual-sim__caption">{ANNUAL_COPY.reproCaption}</p>
+            <dl className="annual-sim__repro">
+              <dt>{ANNUAL_COPY.snapshotLabel}</dt>
+              <dd>
+                {result.snapshot.snapshot_id}
+                <span className="annual-sim__hint">
+                  {ANNUAL_COPY.snapshotHint} ({result.snapshot.voyage_count}건)
+                </span>
+              </dd>
+              <dt>{ANNUAL_COPY.runIdLabel}</dt>
+              <dd>{result.calculation_run_id}</dd>
+            </dl>
+            {/* 이 실행에 쓴 항차 — 펼칠 때 불러온다 (`API_SPEC §6.3` · #992). */}
+            <SnapshotVoyages
+              simulationId={result.simulation_id}
+              voyageCount={result.snapshot.voyage_count}
+              provider={provider}
+            />
+          </div>
+        </details>
       </section>
 
-      {result.warnings.length > 0 ? (
+      {resultWarnings.length > 0 ? (
         <ul className="annual-sim__warnings">
-          {result.warnings.map((code) => (
+          {resultWarnings.map((code) => (
             <li key={code}>{warningMessage(code)}</li>
           ))}
         </ul>
@@ -1059,26 +1084,26 @@ function Result({
     </>
   )
 }
-
 /** 스택 바의 대체 텍스트 — 색만으로 정보를 주지 않는다(`DESIGN_SYSTEM §14`). */
 function stackAria(segments: Array<{ rating: string; label: string }>): string {
   return segments.map((seg) => `${seg.rating} ${seg.label}`).join(', ')
 }
 
-function Metric({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: string
-  hint?: string
-}) {
+/**
+ * 「라벨 · 값」 한 줄 (`DESIGN_SYSTEM §5` 카드 예산 · #1700).
+ *
+ * 종전 `Metric`은 회색 타일(면 + 테두리)이라 카드 안에 면을 또 띄웠다 — 결과 한 번에
+ * 타일 17개였다. 목록 한 줄로 두고 구분선으로만 나눈다. `dl` 안의 `div` 묶음은 HTML이
+ * 허용하는 형태다.
+ */
+function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="annual-sim__metric">
-      <span className="annual-sim__label">{label}</span>
-      <span className="annual-sim__value">{value}</span>
-      {hint ? <span className="annual-sim__hint">{hint}</span> : null}
+    <div className="annual-sim__row">
+      <dt>{label}</dt>
+      <dd>
+        <span className="annual-sim__value">{value}</span>
+        {hint ? <span className="annual-sim__hint">{hint}</span> : null}
+      </dd>
     </div>
   )
 }

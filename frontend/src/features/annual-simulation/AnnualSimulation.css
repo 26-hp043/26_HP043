@@ -4,69 +4,67 @@
  */
 
 /*
- * 실행 조건 : 결과 좌우 2단.
+ * 실행 조건 : 결과 좌우 2단 — `DESIGN_SYSTEM §8.7` 입력-결과 2단〔권장〕 (#1700).
  *
- * ## 12컬럼 그리드 (DESIGN_SYSTEM §7.1 🔒)
+ * ## 입력은 고정 폭 360, 결과는 나머지 전체
  *
- * §7.1 그리드 표가 컬럼 12 · 거터 24를 고정하고, **주·부 영역 분할은 7:5로
- * 고정한다**고 못박는다. 여기서는 주 영역이 결과(7), 부 영역이 실행 조건(5)이다 —
- * `2-1 CII 예측` · `2-2 항로 비교`와 같은 배분이다.
- *
- * `5fr 7fr`로 쓰지 않는다. 그러면 거터 한 칸을 뺀 나머지를 5:7로 나누게 되어
- * **다른 화면의 12컬럼 요소와 세로선이 어긋난다.**
+ * 종전에는 `§7.1` 12컬럼의 5:7로 나눠 1440에서 입력이 440px로 넓고, 결과가 길어지면
+ * 입력 카드 아래 약 1,300px이 빈 기둥이었다. 입력 칸은 화면이 넓어져도 넓어질 이유가
+ * 없어 `--grid-input-column` 고정 폭을 쓴다(`§8.7`). `§7.1`은 **분할을 한다면 7:5**를
+ * 정한 것이고 이 배치는 `§8.7`이 따로 정한 틀이다.
  *
  * ## 제목은 두 단 위에 걸친다
  *
- * `__head`(제목·샘플 배지)는 `1 / -1`로 전체 폭을 쓴다. 한쪽 단에 넣으면 폭이
- * 절반이 되고, 두 단 모두를 가리키는 제목이 왼쪽 것처럼 읽힌다.
+ * `__head`(샘플 배지)는 `1 / -1`로 전체 폭을 쓴다. 한쪽 단에 넣으면 두 단 모두를
+ * 가리키는 표시가 왼쪽 것처럼 읽힌다.
  *
  * ## 폭은 이 파일이 정하지 않는다
  *
- * `ANNUAL_GRADE`가 `width: 'wide'`라 셸이 최대 1920 · 좌우 패딩 32를 건다
- * (§7.1 폭 정책 표의 「대시보드, **차트**, 시나리오 비교」 행 — 팬 차트와 확률
- * 스택 바가 이 화면의 주인공이다).
+ * `ANNUAL_GRADE`가 `width: 'wide'`라 셸이 최대 폭을 건다(§7.1 폭 정책 표).
  */
 .annual-sim {
   display: grid;
-  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  grid-template-columns: var(--grid-input-column) minmax(0, 1fr);
   gap: var(--grid-gutter);
   /*
    * 폼이 결과보다 짧다. stretch로 두면 짧은 쪽 카드가 긴 쪽 높이까지 늘어나
-   * 아래가 빈 카드로 남는다.
+   * 아래가 빈 카드로 남는다. sticky가 붙으려면 역시 start여야 한다.
    */
   align-items: start;
 }
 
 .annual-sim__results {
-  grid-column: span var(--grid-split-primary);
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
+  min-width: 0;
 }
 
 /*
- * 1100 이하에서는 세로로 떨어진다.
+ * 입력 기둥은 스크롤을 따라온다(`§8.7`). 붙는 자리는 sticky 상단바 아래다 —
+ * 상단바 위 틈 + 최소 높이 56px + 아래 틈(`AppShell.css`, `VoyagePanel.css`의
+ * `scroll-margin`과 같은 셈).
+ *
+ * 고급 설정을 펼치면 기둥이 창보다 길어질 수 있다. 그때 sticky만 두면 **아래쪽 실행
+ * 버튼에 닿을 수 없으므로** 높이를 창에 맞추고 기둥 안에서 스크롤한다.
+ */
+.annual-sim__form {
+  --annual-sim-sticky-top: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+
+  position: sticky;
+  top: var(--annual-sim-sticky-top);
+  max-block-size: calc(100vh - var(--annual-sim-sticky-top) - var(--shell-gutter, var(--grid-gutter)));
+  overflow-y: auto;
+}
+
+/*
+ * 1100 이하에서는 입력이 위, 결과가 아래로 접힌다(`§8.7`).
  *
  * 1100은 이 저장소가 이미 쓰던 값이다 — `FleetDashboard` · `RealtimeCiiView` ·
  * `VesselDetail` · `FleetReduction`이 여기서 2단을 접는다. 화면마다 다른 값을 쓰면
  * 창을 줄일 때 화면들이 제각각 무너져 같은 제품으로 보이지 않는다.
  *
- * ## `ScenarioComparison`은 1900이다 (#1279)
- *
- * 종전 주석이 그 화면도 1100이라고 적었는데 **사실이 아니다.** 결과 영역 안에
- * 3열 그리드가 또 들어가 「시나리오 셋을 나란히」가 1920에서야 성립하기 때문이며,
- * 근거를 표까지 그려 적어 두었다(`ScenarioComparison.css`의 `@media` 주석).
- *
- * **이 화면은 그 사정이 없다.** 결과 안에 중첩 그리드가 없고 민감도 표는
- * `min-width: 480px`이라 1440에서의 결과 폭(약 600px)에 들어간다. 그래서 1100을
- * 그대로 쓴다 — 같은 값을 쓰는 것이 목적이 아니라 **사정이 같아서** 같은 값이다.
- *
- * ## 접지 않는 것도 `§7.1` 위반이 아니다
- *
- * `ScenarioComparison.css`가 적어 둔 해석을 여기에도 남긴다 — `§7.1`은 **분할을
- * 한다면 7:5**를 정한 것이지 모든 화면이 분할하라는 것이 아니다. **어디서 접을지는
- * 구현이 정한다.** 이 화면에서 결과를 더 넓히고 싶어질 때, 정본 개정이 선행하는지
- * 다시 묻지 않아도 되도록 적어 둔다.
+ * 접힌 뒤에는 따라오지 않는다 — 결과 위에 입력이 덮이면 결과를 읽을 수 없다.
  *
  * 미디어 쿼리 조건에는 커스텀 프로퍼티를 쓸 수 없어 리터럴로 적는다.
  */
@@ -75,10 +73,10 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .annual-sim__head,
-  .annual-sim__form,
-  .annual-sim__results {
-    grid-column: auto;
+  .annual-sim__form {
+    position: static;
+    max-block-size: none;
+    overflow-y: visible;
   }
 }
 
@@ -90,34 +88,6 @@
   padding: var(--space-4) var(--space-12);
   font-size: var(--font-size-micro);
   font-weight: var(--font-weight-label);
-}
-
-.annual-sim__risk {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-}
-
-.annual-sim__metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--space-12);
-  margin: 0;
-}
-
-@media (max-width: 480px) {
-  .annual-sim__metrics {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.annual-sim__metric {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  padding: var(--space-12);
-  min-width: 0;
 }
 
 /* §8 테이블 — 행 hover · 수치 tabular-nums · 숫자 우측 정렬 */
@@ -183,6 +153,7 @@
 
 /* ─────────────────────────────────────────────────────────────────────────
  * #442 — 실 API 연결로 화면 구성이 4블록(결정론·확률·민감도·재현성)이 됐다.
+ * #1700 — 결론 띠 · 확률 분포 · 민감도 세 면과 바닥 위 「계산 근거」로 다시 묶었다.
  * 토큰만 참조한다(`DESIGN_SYSTEM §15`). 색·간격 리터럴을 쓰지 않는다.
  * ───────────────────────────────────────────────────────────────────────── */
 
@@ -193,10 +164,6 @@
   align-items: baseline;
   gap: var(--space-12);
   flex-wrap: wrap;
-}
-
-.annual-sim__form {
-  grid-column: span var(--grid-split-secondary);
 }
 
 .annual-sim__block,
@@ -439,21 +406,174 @@
   cursor: not-allowed;
 }
 
-.annual-sim__value {
-  font-size: var(--font-size-h3);
-  font-variant-numeric: tabular-nums;
+/*
+ * ── 결론 띠 — `DESIGN_SYSTEM §8.6` 🔒 (#1700) ─────────────────────────
+ *
+ * 주 결론 하나(`display`) · 보조 하나(`h2` 이하) · 위험도 pill 하나. 결과 안에서
+ * 떠 있는 면은 이 띠 · 확률 분포 · 민감도 셋이다 — 입력 카드를 더해 `§5` 카드 예산 4.
+ */
+.annual-sim__verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-16) var(--space-24);
+  padding: var(--space-16) var(--space-24);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
 }
 
-.annual-sim__metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: var(--space-16);
-}
-
-.annual-sim__metric {
+.annual-sim__verdict-main,
+.annual-sim__verdict-sub {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  min-width: 0;
+}
+
+/* 주와 보조 사이 세로 구분선 — 면을 하나 더 띄우지 않고 나눈다(`§5`). */
+.annual-sim__verdict-sub {
+  padding-inline-start: var(--space-24);
+  border-inline-start: 1px solid var(--color-border);
+}
+
+.annual-sim__verdict-value {
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.annual-sim__verdict-grade {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+/* 보조는 주보다 한 단 작다 — 커지면 `§8.6` 위반이다(`AnnualSimulation.test.tsx`가 잠근다). */
+.annual-sim__verdict-sub-value {
+  font-size: var(--font-size-h2);
+  line-height: var(--line-height-h2);
+  font-weight: var(--font-weight-h2);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 위험도 pill — 면과 테두리는 중립, 단계 색은 글자에만(`§2.5 (b)` · `§2.3` 한 자리에 한 번).
+ * 띠 오른쪽 끝에 붙인다. 좁아서 줄이 넘어가면 왼쪽부터 다시 선다.
+ */
+.annual-sim__risk-pill {
+  margin: 0 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  font-size: var(--font-size-label);
+}
+
+.annual-sim__risk-pill-label {
+  color: var(--color-text-muted);
+}
+
+.annual-sim__risk-pill-icon {
+  display: inline-flex;
+  color: var(--color-warning-text);
+}
+
+.annual-sim__risk-pill-value {
+  font-weight: var(--font-weight-strong);
+  color: var(--color-text);
+}
+
+.annual-sim__risk-pill-value--high { color: var(--color-warning-text); }
+.annual-sim__risk-pill-value--critical { color: var(--color-danger-text); }
+
+/* 띠 바로 아래 조건 · 추정 고지 — 바닥 위 한 줄씩(`§8.6` · #1578). */
+.annual-sim__under-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-inline: var(--space-4);
+}
+
+/*
+ * ── 「라벨 · 값」 목록 — `§5` 카드 예산 (#1700) ───────────────────────
+ *
+ * 종전 타일(면 + 테두리)을 걷고 구분선만 남긴다. 목록 두 벌(목표까지 · 분포 요약)은
+ * 넓으면 나란히, 좁으면 위아래로 선다.
+ */
+.annual-sim__pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-16) var(--space-32);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-12);
+}
+
+.annual-sim__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.annual-sim__list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.annual-sim__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-16);
+  padding-block: var(--space-8);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-body);
+}
+
+.annual-sim__row:last-child {
+  border-bottom: none;
+}
+
+.annual-sim__row dt {
+  color: var(--color-text-muted);
+}
+
+.annual-sim__row dd {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.annual-sim__value {
+  font-weight: var(--font-weight-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * ── 재현 · 계산 근거 — 카드 밖, 바닥 위 (#1700) ─────────────────────
+ *
+ * seed 줄 · 재현 버튼은 늘 보이고, 나머지는 「계산 근거 보기」 안에 접힌다.
+ */
+.annual-sim__basis {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding-inline: var(--space-4);
+}
+
+.annual-sim__repro-details[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
 }
 
 /*
@@ -463,7 +583,8 @@
  */
 .annual-sim__stack {
   display: flex;
-  height: var(--space-16);
+  /* 구간 안 문자 바탕(아래 `__seg-label`)이 위아래 여백을 두고 들어가는 높이 (#1700). */
+  height: var(--space-24);
   border-radius: var(--radius-pill);
   overflow: hidden;
   border: 1px solid var(--color-border);
@@ -495,39 +616,40 @@
 }
 
 /*
- * 구간 안 문자 — `DESIGN_SYSTEM §10.2` 「구간 폭 ≥ 8%일 때 내부에 `등급문자 nn%`」.
+ * 구간 안 문자 — `DESIGN_SYSTEM §10.2` 🔒 「구간 폭 ≥ 8%일 때 내부에 `등급문자 nn%`」.
  *
- * ## 후광이 없으면 §0.2 제약 1을 만족할 수 없다
+ * ## 단색 잉크로는 무늬 위에서 4.5:1을 낼 수 없다
  *
  * 글자가 앉는 바탕은 채움색 하나가 아니다. 그 위에 **`--cii-*-bg` 무늬가 불투명하게**
- * 깔리고(§2.4.4가 이 바를 패턴 대상으로 명시한다), `bg`는 설계상 `fill`의 **반대편
- * 끝**이다 — 다크 C를 예로 들면 바탕이 `#d98c2a`와 `#33220c` 사이를 오간다.
- * 한 글자 밑에 명도 양극단이 함께 있으므로 **어떤 단색 잉크로도 양쪽 모두에 대해
- * 4.5:1을 낼 수 없다.** 실제로 기존 토큰 전부를 10경우(5등급 × 2테마)에 대입해
- * 계산했고 최선이 2.23:1이었다.
+ * 깔리고(§2.4.4), `bg`는 설계상 `fill`의 **반대편 끝**이다 — 한 글자 밑에 명도 양극단이
+ * 함께 있어 기존 토큰 전부를 10경우(5등급 × 2테마)에 대입해도 최선이 2.23:1이었다.
  *
- * 그래서 글자 둘레에 **바탕색 후광**을 둘러 글자를 무늬에서 떼어 놓는다. 지도에서
- * 지명을 얹을 때 쓰는 방식이고, 이 저장소에도 `PositionChart` 이름표에 선례가 있다.
- * 후광 위의 대비는 라이트 17.4:1 · 다크 13.1:1이다.
+ * ## 후광 대신 바탕을 깐다 (#1700)
  *
- * 새 토큰을 만들지 않았다 — 잉크 `--color-text`, 후광 `--color-surface` 둘 다 기존
- * 값이고, 이 둘은 본문 대비 쌍이라 §0.2 제약 1을 이미 보장받는다.
+ * 종전에는 글자 둘레에 3px 후광(`-webkit-text-stroke`)을 둘렀다. 획 바깥으로 나오는
+ * 것은 절반인 1.5px이라, 4px 사선 무늬 위에서 **글자 사이 틈으로 무늬가 그대로 보여**
+ * 「E 100.0%」가 읽히지 않았다(재설계안 화면 실측). 바를 걷어 범례로만 두는 안은 `§10.2`가
+ * 🔒이라 택하지 않았다.
  *
- * `paint-order`가 없으면 후광이 글자 **위에** 그려져 획을 갉아먹는다.
+ * 글자 뒤에 `--color-surface` 바탕을 깔면 대비는 본문 쌍 그대로다(라이트 17.4:1 ·
+ * 다크 13.1:1). 새 토큰을 만들지 않는다 — 잉크 `--color-text`, 바탕 `--color-surface`는
+ * 본문 대비 쌍이라 `§0.2` 제약 1을 이미 보장받는다. 무늬는 바탕 둘레로 계속 보이므로
+ * 구간이 어느 등급인지는 그대로 읽힌다(`§14`).
  */
 .annual-sim__seg-label {
   position: relative;
   z-index: 1;
   padding-inline: var(--space-4);
+  border-radius: var(--radius-badge);
+  background: var(--color-surface);
   font-size: var(--font-size-micro);
   line-height: var(--line-height-micro);
   font-weight: var(--font-weight-label);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   color: var(--color-text);
-  paint-order: stroke fill;
-  -webkit-text-stroke: 3px var(--color-surface);
   /* 넘치면 잘라 낸다 — 8% 칸에서도 옆 구간을 침범하지 않는다. */
+  max-inline-size: 100%;
   overflow: hidden;
   text-overflow: clip;
 }
@@ -569,6 +691,7 @@
 
 /* `DESIGN_SYSTEM §2.5 (a)` — 확률 파생 표기. 등급 램프 색을 쓰지 않는다. */
 .annual-sim__flag {
+  margin: 0;
   font-size: var(--font-size-label);
   font-variant-numeric: tabular-nums;
 }
@@ -611,7 +734,6 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-8) var(--space-16);
-  margin-top: var(--space-16);
 }
 
 .annual-sim__reproduce button {
