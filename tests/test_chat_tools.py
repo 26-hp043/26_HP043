@@ -26,8 +26,8 @@ from cii_platform.services import chat_tools
 from cii_platform.services.llm_guard import OUTBOUND_WHITELIST, OutboundFieldError
 
 
-def test_tool_schemas_cover_exactly_the_four_tools() -> None:
-    """IT-CHAT-016 — `Q9`가 정한 4종이고, **쓰기 도구가 없다**."""
+def test_tool_schemas_cover_exactly_the_registered_tools() -> None:
+    """IT-CHAT-016 — `Q9`가 정한 4종 + `#1533` 화면 결과 읽기, **쓰기 도구가 없다**."""
     names = [schema["name"] for schema in chat_tools.tool_schemas()]
     assert names == list(chat_tools.TOOL_NAMES)
     # `#121` 본문의 `create_voyage`를 넣지 않기로 한 결정이 코드에 남아 있는지 본다.
@@ -196,3 +196,38 @@ async def test_calculation_tools_need_a_vessel_first() -> None:
         outcome = await chat_tools.run_tool(None, name=name, arguments={}, vessel_id=None)  # type: ignore[arg-type]
         body = json.loads(outcome.envelope)
         assert body["ok"] is False, name
+
+
+async def test_screen_result_tool_needs_a_run_from_the_screen() -> None:
+    """`#1533` — 화면이 실행 id를 넘기지 않았으면 **읽지도 계산하지도 않고** 오류 봉투다.
+
+    선박이 없어도 같은 오류다 — 이 도구는 선박이 아니라 화면의 실행을 기준으로 한다.
+    """
+    outcome = await chat_tools.run_tool(
+        None,  # type: ignore[arg-type]
+        name=chat_tools.TOOL_EXPLAIN_SCREEN_RESULT,
+        arguments={},
+        vessel_id=None,
+    )
+    body = json.loads(outcome.envelope)
+    assert body["ok"] is False
+    assert body["tool"] == chat_tools.TOOL_EXPLAIN_SCREEN_RESULT
+
+
+def test_probabilities_carry_the_screen_percent() -> None:
+    """`#1533` — 확률도 화면 표기(소수 1자리 %)를 덧붙인다 — ``next_boundary_gap``과 같은 규칙.
+
+    화면이 81.2%로 보여 주는데 도구가 0.8123만 주면, 모델이 화면대로 말한 답이 수치 검증에
+    걸려 폐기된다(`#1334` ⑵와 같은 경로).
+    """
+    out = chat_tools._publishable(
+        {
+            "target_success_probability": "0.8123",
+            "rating_probabilities": {"B": "0.3", "A": "0.1"},
+            "target_rating": "C",
+        },
+        chat_tools._ANNUAL_KEYS,
+    )
+    assert out["target_success_probability"] == "0.8123 (81.2%)"
+    assert out["rating_probabilities"] == {"A": "0.1 (10.0%)", "B": "0.3 (30.0%)"}
+    assert out["target_rating"] == "C"

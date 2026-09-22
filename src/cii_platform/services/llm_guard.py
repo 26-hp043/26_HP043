@@ -32,6 +32,10 @@ OUTBOUND_WHITELIST: frozenset[str] = frozenset(
         "rating",
         "risk_level",
         "next_boundary_gap",
+        # 연간 시뮬레이션 확률 (#1533) — 화면에 이미 보이는 값을 저장된 실행에서 읽는다
+        "target_success_probability",
+        "rating_probabilities",
+        "target_rating",
         # 코드 값
         "warning_code",
         "grade",

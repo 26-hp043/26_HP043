@@ -165,6 +165,7 @@ async def answer(
     user_id: str | None,
     question: str,
     vessel_id: UUID | None = None,
+    calculation_run_id: UUID | None = None,
     ip_address: str | None = None,
     turn_timeout: float | None = None,
 ) -> dict[str, object]:
@@ -185,6 +186,7 @@ async def answer(
                 user_id=user_id,
                 question=question,
                 vessel_id=vessel_id,
+                calculation_run_id=calculation_run_id,
                 ip_address=ip_address,
             )
     except TimeoutError:
@@ -199,6 +201,7 @@ async def _answer_turn(
     user_id: str | None,
     question: str,
     vessel_id: UUID | None = None,
+    calculation_run_id: UUID | None = None,
     ip_address: str | None = None,
 ) -> dict[str, object]:
     """한 턴의 본문 — :func:`answer`의 시간 상한 안에서 돈다.
@@ -296,6 +299,7 @@ async def _answer_turn(
                 vessel_id=effective_vessel,
                 chat_session_id=chat_session_id,
                 vessel_locked=vessel_id is not None,
+                screen_run_id=calculation_run_id,
             )
             if outcome.resolved_vessel_id is not None and vessel_id is None:
                 await chat_repo.set_vessel(

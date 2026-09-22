@@ -2,6 +2,7 @@ import { X } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
+import { currentScreenResult } from './screenResult'
 import type { AssistantProvider, ChatTurn } from './types'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
@@ -45,11 +46,13 @@ const PLACEHOLDER = '계산 결과에 대해 물어보세요'
  * 묻게 되고, 그 질문에는 답하지 않는 것이 맞는 동작이라 사용자가 고장으로 읽는다.
  */
 const INTRO =
-  '고른 선박으로 항차 CII · 속도 시나리오 · 연말 예상을 계산해 답합니다. 규제 판단이나 권고는 하지 않으며, 수치는 계산 엔진이 낸 값만 인용합니다.'
+  '이 화면에서 방금 낸 계산 결과를 읽어 설명하고, 고른 선박으로 항차 CII · 속도 시나리오 · 연말 예상을 계산해 답합니다. 규제 판단이나 권고는 하지 않으며, 수치는 계산 엔진이 낸 값만 인용합니다.'
 /*
  * #1613 — 종전 문구 「화면에 나온 계산 결과를 풀어 설명합니다」는 사실이 아니었다.
- * 챗봇은 화면의 값을 받지 않고 도구로 **새로 계산한다**(`chat_tools.py` 네 도구 · R18
- * `#1533`). 화면 값을 넘기게 되면 그때 다시 고친다.
+ * 챗봇은 화면의 값을 받지 않고 도구로 **새로 계산했다**.
+ *
+ * #1533 — 이제 화면이 방금 낸 결과의 실행 id를 넘기고(`screenResult.ts`) 서버 도구
+ * `explain_screen_result`가 그 **저장된 결과**를 읽는다. 그래서 첫 절을 되살렸다.
  */
 
 /**
@@ -210,6 +213,8 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         message,
         sessionId: sessionRef.current,
         vesselId,
+        // #1533 — 보내는 순간 **지금 화면**의 결과만 싣는다(다른 화면의 결과는 넘기지 않는다).
+        calculationRunId: currentScreenResult(),
       })
       sessionRef.current = answer.sessionId
       setDisclaimer(answer.disclaimer)

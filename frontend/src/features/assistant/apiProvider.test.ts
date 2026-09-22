@@ -25,3 +25,20 @@ describe('status()', () => {
     await expect(provider.status!()).rejects.toThrow()
   })
 })
+
+describe('ask()', () => {
+  it('화면의 결과 id를 calculation_run_id로 싣는다 (#1533) · 없으면 키를 싣지 않는다', async () => {
+    const body = {
+      data: { session_id: 's', answer: 'a', disclaimer: 'd', tool_calls: [], discarded: false },
+    }
+    const fetchImpl = vi.fn(
+      async () => new Response(JSON.stringify(body), { status: 200 }),
+    ) as unknown as typeof fetch
+    const provider = createApiAssistantProvider(fetchImpl, '/api/v1')
+    await provider.ask({ message: 'q', calculationRunId: 'run-1' })
+    await provider.ask({ message: 'q' })
+    const calls = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls
+    expect(JSON.parse(calls[0][1].body).calculation_run_id).toBe('run-1')
+    expect('calculation_run_id' in JSON.parse(calls[1][1].body)).toBe(false)
+  })
+})

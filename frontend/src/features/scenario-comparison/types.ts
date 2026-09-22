@@ -124,6 +124,11 @@ export interface ScenarioComparisonResponse {
   warnings: string[]
   /** `API_SPEC §5.1` 응답 최상위의 `disclaimer`. **서버 정본을 그대로** 쓴다 (`#821`). */
   disclaimer: string
+  /**
+   * `API_SPEC §5.1` 응답 최상위의 `calculation_run_id` (#1533). 챗봇이 이 실행의 저장된
+   * 결과를 읽는다. 선택 필드 — 가짜 provider·옛 응답에는 없을 수 있다.
+   */
+  calculation_run_id?: string
 }
 
 /**

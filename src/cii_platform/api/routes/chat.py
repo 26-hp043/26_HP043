@@ -123,6 +123,7 @@ async def chat(
         user_id=str(user.id),
         question=payload.message,
         vessel_id=payload.vessel_id,
+        calculation_run_id=payload.calculation_run_id,
         ip_address=_client_ip(request),
     )
 
