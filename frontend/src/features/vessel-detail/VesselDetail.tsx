@@ -1,9 +1,10 @@
 import { ArrowLeft } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { GradeBadge } from '../../components/GradeBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
+import { useShellContext } from '../../layout/shellContext'
 import { NotUnderwayPanel } from '../not-underway/NotUnderwayPanel'
 import { VoyagePanel } from '../voyage-management/VoyagePanel'
 import { ACTUALS_PARAM } from '../voyage-management/voyageRules'
@@ -96,6 +97,18 @@ export function VesselDetail({
     'loading',
   )
 
+  /**
+   * 아래 패널이 데이터를 바꾸면 올린다 (`#1647` · `#1648`).
+   *
+   * 항차(상태 전환·실적 입력·생성)와 정박 기록(구간·연료)은 **이 화면의 누적 CII·요약·실시간
+   * CII 진입 조건**을 바꾸는데, 패널은 자기 목록만 갱신했다. 그래서 새로고침하기 전까지 위쪽
+   * 숫자가 옛 항차 집합의 것이었다. 여기서 두 조회를 다시 부른다 — 패널이 부모를 직접 고치지
+   * 않고 **바뀌었다는 사실만** 알린다.
+   */
+  const shell = useShellContext()
+  const [changeCount, setChangeCount] = useState(0)
+  const noteChanged = useCallback(() => setChangeCount((count) => count + 1), [])
+
   useEffect(() => {
     if (!vesselId) return
     let alive = true
@@ -119,7 +132,7 @@ export function VesselDetail({
     return () => {
       alive = false
     }
-  }, [vesselId, provider])
+  }, [vesselId, provider, changeCount])
 
   useEffect(() => {
     if (!vesselId) return
@@ -442,9 +455,11 @@ export function VesselDetail({
             <PositionForm
               vessel={vessel}
               provider={provider}
-              onSaved={(updated: VesselSpec) =>
+              onSaved={(updated: VesselSpec) => {
                 setDetail((prev) => (prev ? { ...prev, vessel: updated } : prev))
-              }
+                // 상단 선택기의 목록·기본 제원도 이 값으로 바뀌어야 한다 (`#1643`).
+                shell.refreshVessels()
+              }}
             />
 
           </section>
@@ -473,7 +488,7 @@ export function VesselDetail({
       */}
       <div className="vd__split">
         <div className="vd__main">
-          <VoyagePanel vesselId={vessel.id} openActualsFor={openActualsFor} />
+          <VoyagePanel vesselId={vessel.id} openActualsFor={openActualsFor} onChanged={noteChanged} />
         </div>
 
         <div className="vd__side">
@@ -544,7 +559,7 @@ export function VesselDetail({
         항차가 먼저다 — 정박·묘박은 항차와 항차 사이의 구간이라,
         운항 기록을 위에서 아래로 읽으면 순서가 이렇게 된다.
       */}
-      <NotUnderwayPanel vesselId={vessel.id} />
+      <NotUnderwayPanel vesselId={vessel.id} onChanged={noteChanged} />
 
       {/*
         계산 이력 · 재계산 필요 표시 (#992 · `PRD §8.4`). 운항 기록(항차 · 정박) 아래에 두는
