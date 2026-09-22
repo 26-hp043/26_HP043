@@ -5,7 +5,8 @@ import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { VerifyEmailPage, resetVerificationRequests } from './VerifyEmailPage'
+import { VerifyEmailPage } from './VerifyEmailPage'
+import { resetVerificationRequests } from './verifyEmailRequests'
 
 /**
  * 이메일 인증 화면 (`#1646` · `UIFLOW 0-4` · `API_SPEC §1.2`).

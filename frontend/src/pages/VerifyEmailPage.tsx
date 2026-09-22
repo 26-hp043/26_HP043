@@ -4,10 +4,10 @@ import { AuthAlert, AuthShell } from '../features/auth/AuthShell'
 import {
   AuthRequestError,
   LOGIN_PATH,
-  confirmEmailVerification,
   useAuthUser,
 } from '../auth/session'
 import { DEFAULT_PATH } from '../screens'
+import { verifyOnce } from './verifyEmailRequests'
 
 /**
  * 이메일 인증 — `UIFLOW v2.1` 0-4 (#415).
@@ -30,24 +30,6 @@ import { DEFAULT_PATH } from '../screens'
  * 링크를 다시 열었을 때 옛 실패가 되살아나면 안 된다.
  */
 
-/** 토큰 → 그 토큰으로 이미 보낸 요청. 성공 결과는 남기고, 실패는 지운다. */
-const requests = new Map<string, Promise<string>>()
-
-/** 검사용 — 모듈 기억을 비운다. */
-export function resetVerificationRequests(): void {
-  requests.clear()
-}
-
-function verifyOnce(token: string): Promise<string> {
-  const existing = requests.get(token)
-  if (existing) return existing
-  const request = confirmEmailVerification(token).catch((error: unknown) => {
-    requests.delete(token)
-    throw error
-  })
-  requests.set(token, request)
-  return request
-}
 export function VerifyEmailPage() {
   const [searchParams] = useSearchParams()
   const token = searchParams.get('token')
