@@ -292,23 +292,23 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
   }
 
   /** 같은 값이 연도별 이력 표에도 나오므로 YTD 카드로 좁혀 본다. */
+  /** 선박 바(결론 띠)와 그 아래 한 줄 — 종전의 YTD 카드 자리다 (#1729). */
   async function ytdCard(container: HTMLElement) {
-    let card: Element | null = null
+    let strip: Element | null = null
     await waitFor(() => {
-      card = container.querySelector('.ytd')
-      expect(card).toBeTruthy()
+      strip = container.querySelector('.vd')
+      expect(strip?.querySelector('.verdict-strip')).toBeTruthy()
     })
-    return within(card as unknown as HTMLElement)
+    return within(strip as unknown as HTMLElement)
   }
 
   it('등급이 null이어도 실적·기준·항차 수가 그대로 나온다', async () => {
     const { container } = renderAt(withYear(YEAR_WITHOUT_RATING))
     const card = await ytdCard(container)
 
-    // `DESIGN_SYSTEM §4.1` — CII는 소수 3자리.
-    expect(card.getByText('8.980')).toBeTruthy()
-    expect(card.getByText('9.512')).toBeTruthy()
-    expect(card.getByText('17')).toBeTruthy()
+    // `DESIGN_SYSTEM §4.1` — CII는 소수 3자리. 띠의 주 결론은 「실적 / 기준」 한 쌍이다.
+    expect(card.getByText('8.980 / 9.512')).toBeTruthy()
+    expect(card.getByText(/완료 항차 17/)).toBeTruthy()
     // 「실적이 없다」는 문구가 나오면 안 된다 — 실적은 있다.
     expect(screen.queryByText(/올해 등록된 항차 실적이 없습니다/)).toBeNull()
   })
@@ -325,7 +325,7 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
 
     expect(await screen.findByLabelText('올해 누적 등급 C')).toBeTruthy()
     const card = await ytdCard(container)
-    expect(card.getByText('8.980')).toBeTruthy()
+    expect(card.getByText('8.980 / 9.512')).toBeTruthy()
   })
 
   it('데이터 자체가 없으면 종전대로 사유를 말한다', async () => {
@@ -351,17 +351,17 @@ describe('등급이 없어도 누적값은 보인다 (#876)', () => {
     const { container } = renderAt(withYear({ ...YEAR_WITHOUT_RATING, inProgressVoyageCount: 1 }))
     const card = await ytdCard(container)
 
-    const label = card.getByText('완료 항차')
-    expect(label.nextElementSibling?.textContent).toBe('17 (+진행 중 1)')
+    expect(card.getByText('완료 항차 17 (+진행 중 1)')).toBeTruthy()
   })
 })
 
 describe('데이터 점검 진입 (#1082 · `UIFLOW 2-11`)', () => {
-  it('올해 누적 카드 머리에 「데이터 점검」 링크가 있다', async () => {
+  it('선박 바 아래 한 줄에 「데이터 점검」 링크가 있다 (#1729)', async () => {
     renderAt(stub())
-    const card = await screen.findByLabelText('올해 누적 CII')
-    const link = within(card).getByRole('link', { name: '데이터 점검' })
+    await screen.findByRole('region', { name: '올해 누적 CII' })
+    const link = screen.getByRole('link', { name: '데이터 점검' })
     expect(link.getAttribute('href')).toBe('/data-quality')
+    expect(link.closest('.vd__under')).toBeTruthy()
   })
 })
 

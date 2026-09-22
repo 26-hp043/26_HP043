@@ -100,6 +100,32 @@ export interface VesselDetail {
 export interface InProgressVoyage {
   id: string
   voyageNo: string | null
+  /**
+   * 진행률에 쓰는 두 거리 (#1729). 표시용 문자열이 아니라 **계산에 쓰는 값**이라 숫자다.
+   *
+   * 선박 바의 보조 결론이 「진행 중 항차 진행률」이다(`DESIGN_SYSTEM §8.6`). 값은 이미
+   * 부르고 있는 진행 중 항차 조회에서 함께 읽는다 — 진행률 하나 때문에 호출을 늘리지
+   * 않는다. 둘 중 하나가 없으면 `null`이고, 그때 화면은 **항차 번호만** 적는다.
+   */
+  plannedDistanceNm: number | null
+  actualDistanceNm: number | null
+}
+
+/**
+ * 진행률(0~1) — 실적 거리 ÷ 계획 거리 (#1729).
+ *
+ * `realtime-cii`의 `voyageProgressRatio`와 같은 식이다. 그쪽은 실시간 응답
+ * (`API_SPEC §2.14`)의 필드를 쓰고 이쪽은 항차 목록(`§2.4`)의 필드를 쓴다 — 두 화면이
+ * 서로의 응답 타입을 알지 않도록 식만 같게 두고 각자 자기 자료에서 만든다.
+ *
+ * 분모가 없거나 0이면 `null`이다. 0%로 지어내지 않는다.
+ */
+export function voyageProgress(voyage: InProgressVoyage): number | null {
+  const planned = voyage.plannedDistanceNm
+  const done = voyage.actualDistanceNm
+  if (planned === null || done === null) return null
+  if (!Number.isFinite(planned) || planned <= 0 || !Number.isFinite(done)) return null
+  return Math.min(1, Math.max(0, done / planned))
 }
 
 export interface VesselDetailProvider {
