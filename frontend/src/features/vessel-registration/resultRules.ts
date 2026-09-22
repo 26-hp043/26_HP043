@@ -1,4 +1,4 @@
-import { applicabilityState } from '../../components/applicability'
+import { APPLICABILITY_SHORT_LABEL, applicabilityState } from '../../components/applicability'
 import { formatCapacity } from '../../display/format'
 import type { Vessel } from './types'
 
@@ -35,9 +35,35 @@ export function applicabilityHint(vessel: Vessel): string {
     return '이제 항차를 등록하면 이 선박의 CII가 집계됩니다.'
   }
   if (state === 'UNKNOWN') {
-    return '총톤수(GT)가 비어 있어 CII 적용 대상이 아닌 것으로 판정됐습니다. 총톤수를 채우면 다시 판정됩니다.'
+    // 판정한 것이 아니라 **판정하지 못한 것**이다 (`#1656`). 종전 문장은
+    // 「…아닌 것으로 판정됐습니다」로 적어, 값 칸의 「미해당」과 함께 읽으면
+    // **총톤수를 넣지 않은 배가 규제 대상이 아니라고** 말하고 있었다.
+    return '총톤수(GT)가 비어 있어 CII 적용 대상인지 판정할 수 없습니다. 총톤수를 채우면 판정됩니다.'
   }
   return 'CII 적용 대상이 아닌 것으로 판정됐습니다. 총톤수가 맞는지 확인해 주세요.'
+}
+
+/**
+ * 등록 결과 값 칸(「CII 적용 대상 추정」)에 적는 말 (`#1656`).
+ *
+ * 종전에는 `is_cii_applicable_hint ? '해당' : '미해당'`이었다. 서버는 GT가 비어
+ * 있어도 `false`를 주므로(`API_SPEC §2.3`), **총톤수를 넣지 않은 배가 「미해당」으로**
+ * 나왔다 — 곁의 안내 문장이 원인을 말해도 값 칸은 단정한 채였다.
+ *
+ * 판정은 공용 모듈(`components/applicability`)이 갖는다. 「미해당」의 두 갈래에
+ * 적는 말도 그쪽의 `APPLICABILITY_SHORT_LABEL`을 그대로 쓴다 — 목록·상세 배지와
+ * 같은 말이어야 사용자가 같은 것으로 읽는다.
+ *
+ * `APPLICABLE`만 여기서 적는다. 배지는 대상인 선박에 아무것도 그리지 않지만
+ * (`APPLICABILITY_SHORT_LABEL.APPLICABLE === ''`), **값 칸은 비울 수 없다** —
+ * 「해당」이라고 적어야 그 줄이 무엇을 말하는지가 남는다.
+ */
+export function applicabilityValue(vessel: Vessel): string {
+  const state = applicabilityState({
+    isCiiApplicableHint: vessel.is_cii_applicable_hint,
+    grossTonnage: vessel.gross_tonnage,
+  })
+  return state === 'APPLICABLE' ? '해당' : APPLICABILITY_SHORT_LABEL[state]
 }
 
 /**
