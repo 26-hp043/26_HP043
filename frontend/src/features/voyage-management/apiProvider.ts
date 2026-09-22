@@ -4,7 +4,13 @@ import { readPageMeta } from '../vessel-management/apiProvider'
 import { createApiParametersProvider } from '../parameters/apiProvider'
 import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import type { ImportResult, ImportRowError } from './importRules'
-import { isSamplePort, type PortCoord, type SamplePort } from '../ports/samplePorts'
+import {
+  greatCircleDistanceNm,
+  greatCircleQuery,
+  isSamplePort,
+  type PortCoord,
+  type SamplePort,
+} from '../ports/samplePorts'
 import { actualsPayload, policyForTransition, toIsoInstant } from './voyageRules'
 import type {
   ActualsDraft,
@@ -457,15 +463,14 @@ export function createApiVoyageManagementProvider(
     },
 
     async greatCircle(from, to) {
-      const query = new URLSearchParams({
-        from_lat: String(from.lat),
-        from_lon: String(from.lon),
-        to_lat: String(to.lat),
-        to_lon: String(to.lon),
-      })
-      const body = await call(`/ports/great-circle?${query}`)
-      const distance = (body?.data as { distance_nm?: unknown } | undefined)?.distance_nm
-      if (typeof distance !== 'number' || !Number.isFinite(distance)) {
+      /*
+       * 질의와 응답 읽기는 `features/ports`가 소유한다 (#1750). 항로 비교도 같은
+       * 엔드포인트를 부르므로 **인자 이름과 응답 필드**는 한 곳에 둔다 — 전송만 여기
+       * `call()`을 거친다(세션 만료 redirect · CSRF).
+       */
+      const body = await call(`/ports/great-circle?${greatCircleQuery(from, to)}`)
+      const distance = greatCircleDistanceNm(body)
+      if (distance === null) {
         throw new VoyageError('추정 거리 응답이 계약과 다릅니다.')
       }
       return distance

@@ -233,7 +233,8 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     'exporting',
     'pending',
     'stopped',
-    "lookup.status === 'loading'",
+    "lookup.current.status === 'loading'",
+    "lookup.destination.status === 'loading'",
     "reproduce.status === 'running'",
     "state.status === 'running'",
     "state.status === 'loading'",
@@ -256,6 +257,9 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
       'scenario-adopt-office-only',
     "features/scenario-comparison/ScenarioComparison.tsx :: state.status === 'loading' || noVessel || yearUnavailable":
       'sc-no-vessel',
+    // #1750 — 두 항의 좌표가 있어야 대권거리를 낼 수 있다. `estimating`은 일시적 진행 중이다.
+    'features/scenario-comparison/ScenarioComparison.tsx :: !canEstimate || estimating':
+      'sc-estimate-blocked',
     'features/vessel-detail/PositionForm.tsx :: busy || nothingToSave': 'vd-pos-nothing',
     'features/voyage-cii/VoyageCiiActions.tsx :: stale': 'voyage-cii-actions-stale',
     'features/voyage-cii/VoyageCiiActions.tsx :: stale || exporting': 'voyage-cii-actions-stale',
