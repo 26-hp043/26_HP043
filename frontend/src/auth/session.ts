@@ -554,22 +554,14 @@ export async function logout(
   }
 
   /*
-   * ⑶ 전역 컨텍스트를 지운다.
+   * ⑵ 실패했으면 **알리고 멈춘다.** 종전처럼 이동하면 사용자는 로그아웃됐다고 믿는데
+   * 서버 세션이 살아 있다 — 그것이 `#825` ⑵가 고친 결함이다.
    *
-   * `sessionStorage`는 「탭 수명」이지 「로그인 세션 수명」이 아니고, 아래 이동은
-   * **같은 탭 안에서** 일어난다. 지우지 않으면 다음 계정이 **앞 계정의 선박 선택**을
-   * 물려받는다(`globalContext.clearStored` 주석 참조).
-   *
-   * **실패했더라도 지운다** — 이 기기의 화면 상태를 남길 이유는 없다.
-   */
-  clearStored()
-  currentUser = null
-  authResolved = true
-  notify()
-
-  /*
-   * 실패했으면 **알리고 멈춘다.** 종전처럼 이동하면 사용자는 로그아웃됐다고 믿는데
-   * 서버 세션이 살아 있다 — 그것이 이 결함의 핵심이다.
+   * ⚠️ **실패 경로에서는 로그인 상태를 비우지 않는다** (`#1659`). 종전에는 비우고 알렸는데,
+   * 그 순간 `RequireAuth`가 `/login`으로 **먼저 이동해** 셸이 사라졌다 — 실패 안내와 다시
+   * 누를 버튼이 화면에서 없어졌다(실측: 500 응답 뒤 경고가 사라지고 주소만 바뀜). 서버 세션이
+   * 살아 있으므로 **로그인 상태를 유지하는 쪽이 사실과도 맞는다.** 전역 컨텍스트(선박 선택)도
+   * 그대로 둔다 — 사용자는 아직 그 화면에서 일하는 중이다.
    *
    * 던지는 이유는 `AuthRequestError`가 이미 「화면이 그대로 보여 줄 문구」를 담는
    * 계약이기 때문이다. 호출부가 그것을 띄운다.
@@ -577,6 +569,18 @@ export async function logout(
   if (failure !== null) {
     throw new AuthRequestError(failure, 0)
   }
+
+  /*
+   * ⑶ 성공했으니 전역 컨텍스트를 지운다.
+   *
+   * `sessionStorage`는 「탭 수명」이지 「로그인 세션 수명」이 아니고, 아래 이동은
+   * **같은 탭 안에서** 일어난다. 지우지 않으면 다음 계정이 **앞 계정의 선박 선택**을
+   * 물려받는다(`globalContext.clearStored` 주석 참조).
+   */
+  clearStored()
+  currentUser = null
+  authResolved = true
+  notify()
 
   if (typeof window !== 'undefined') {
     window.location.assign(LOGIN_PATH)

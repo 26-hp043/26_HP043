@@ -204,9 +204,12 @@ describe('logout', () => {
      * `sid`가 유효하고 `user_session.revoked_at`도 `NULL`이라, 백엔드가 돌아온 뒤
      * 다시 들어가면 **재로그인 없이 진입**된다 — 공용 PC에서 문제가 된다.
      *
-     * 지금은 **이 기기의 상태는 지우되(캐시·전역 컨텍스트) 이동하지 않고 던진다.**
-     * 화면(`AppShell`)이 그 문구를 띄우고 버튼은 그대로 남아 다시 누를 수 있다 —
-     * 「갇힌다」가 아니다. 그 자리가 이 검사가 지키는 것이다.
+     * 지금은 **이동하지 않고 던진다.** 화면(`AppShell`)이 그 문구를 띄우고 버튼은 그대로
+     * 남아 다시 누를 수 있다 — 「갇힌다」가 아니다.
+     *
+     * ⚠️ **`#1659`에서 한 번 더 바뀌었다 — 실패 경로에서는 캐시를 비우지 않는다.** 비우면
+     * `RequireAuth`가 `/login`으로 **먼저 이동해** 방금 띄운 실패 안내와 재시도 버튼이
+     * 사라졌다. 서버 세션이 살아 있으므로 로그인 상태를 유지하는 쪽이 사실과도 맞는다.
      */
     await probeCurrentUser(async () => ME_OK)
 
@@ -216,8 +219,28 @@ describe('logout', () => {
       }),
     ).rejects.toThrow(/연결하지 못했습니다/)
 
-    // 이 기기에 남길 이유가 없는 것은 지운다.
-    expect(getCachedUser()).toBeNull()
+    // 서버 세션이 살아 있다 — 로그인 상태를 유지해 실패 안내가 화면에 남는다 (#1659).
+    expect(getCachedUser()).not.toBeNull()
+  })
+
+  it('실패해도 전역 컨텍스트(선박 선택)를 지우지 않는다 (#1659)', async () => {
+    const store = new Map<string, string>([
+      [STORAGE_KEY, JSON.stringify({ vesselId: 'a-vessel', voyageId: null })],
+    ])
+    vi.stubGlobal('sessionStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => void store.set(key, value),
+      removeItem: (key: string) => void store.delete(key),
+    })
+    await probeCurrentUser(async () => ME_OK)
+
+    await expect(
+      logout((async () => jsonResponse({ error: { message: '서버 오류' } }, 500)) as unknown as typeof fetch),
+    ).rejects.toThrow('서버 오류')
+
+    // 사용자는 아직 그 화면에서 일하는 중이다 — 선택을 지울 이유가 없다.
+    expect(store.has(STORAGE_KEY)).toBe(true)
+    vi.unstubAllGlobals()
   })
 
   it('HTTP 실패도 잡는다 — fetch는 네트워크 실패에서만 reject한다 (#825 ⑵)', async () => {
