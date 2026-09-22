@@ -900,7 +900,12 @@ export function ScenarioComparison({
         className={`scenario-comparison__results${stale ? ' scenario-comparison__results--stale' : ''}`}
       >
         <header className="scenario-comparison__header">
-          <h2 className="scenario-comparison__title">
+          {/*
+            결과 제목은 다른 화면의 결과 제목(`VoyageCiiResult`)·이 화면의 폼 제목과 같은
+            `card__title`이다 (#1303). 종전에는 규칙 없는 이름표만 있어 전역 `h2`(20px · 700)로
+            그려졌고, 곁의 영문 병기(16px)와 폼 제목(`card__title` 16px · 600)보다 한 단 컸다.
+          */}
+          <h2 className="card__title scenario-comparison__title">
             시나리오 비교
             {showsLabelEn ? (
               <span className="scenario-comparison__title-en" lang="en">

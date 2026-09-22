@@ -121,6 +121,8 @@ const SCAN_TIMEOUT_MS = 20_000
 const NO_STYLE: Readonly<Record<string, string>> = {
   // `card`·`fr__table`이 모양을 준다 — 이쪽은 BEM 블록 이름표다.
   dq__summary: 'card가 모양을 준다 — 블록 이름표',
+  // `card__title`이 모양을 준다 (#1303 — 종전 UNSTYLED_TODO의 마지막 항목).
+  'scenario-comparison__title': 'card__title이 모양을 준다 — 블록 이름표',
   dq__vessels: 'card가 모양을 준다 — 블록 이름표',
   rp__preview: 'card가 모양을 준다 — 블록 이름표',
   vm: 'card가 모양을 준다 — 블록 이름표',
@@ -136,13 +138,12 @@ const NO_STYLE: Readonly<Record<string, string>> = {
 /**
  * ⚠️ **규칙이 없어도 되는지 아직 모르는 것.** 위 목록과 달리 **근거가 아니라 미제**다.
  *
- * 둘 다 고치면 화면의 크기·모양이 눈에 띄게 바뀌므로, 값을 임의로 고르지 않고
- * 자리를 만들어 둔다. 비면 이 목록도 지운다.
+ * 고치면 화면의 크기·모양이 눈에 띄게 바뀌는 것은 값을 임의로 고르지 않고 여기에 자리를
+ * 만들어 둔다. **비어도 지우지 않는다** — 다음 미제가 들어올 자리다(#1303).
  */
 const UNSTYLED_TODO: Readonly<Record<string, string>> = {
-  // `__title-en`(형제 span)에는 규칙이 있는데 `__title` 자신에는 없다. `<h2>`가
-  // 브라우저 기본 크기(2em)로 그려진다 — 다른 화면은 `card__title`을 쓴다.
-  'scenario-comparison__title': '항로 비교 결과 제목 — h2가 브라우저 기본 크기다',
+  // 비어 있다 (#1303 — 마지막 항목 `scenario-comparison__title`이 `card__title`을 받았다).
+  // 장치는 남긴다 — 일부러 비워 둔 것(NO_STYLE)과 아직 못 채운 것을 가르는 자리다.
 }
 
 /** `className`에 **완성형으로** 적힌 이름만 모은다. 동적 조립 조각은 세지 않는다. */
