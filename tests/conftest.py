@@ -483,6 +483,7 @@ def migrated_db() -> None:
     **여기서 막아야 실패 지점이 「DB를 쓰는 fixture」로 읽힌다.**
     """
     require_disposable_target()
+    _drop_everything()
     result = run_alembic("upgrade", "head")
     if result.returncode != 0:
         pytest.fail(_upgrade_failure_message(result), pytrace=False)
@@ -502,6 +503,74 @@ def migrated_db() -> None:
             await engine.dispose()
 
     asyncio.run(_seed())
+
+
+def _drop_everything() -> None:
+    """일회용 DB의 표를 **전부 떨어뜨리고** ``alembic_version``을 비운다 (`#1621`).
+
+    ## 왜 필요한가
+
+    종전 ``migrated_db``는 ``upgrade head`` + 멱등 시드뿐이라 **이전 실행이 남긴 행이
+    그대로 있었다.** 시드 적재는 ``ON CONFLICT DO NOTHING``이라 데모 선박은 늘지 않지만,
+    테스트가 만든 **항차·계산 이력·계정**은 남는다. 그 상태에서
+    ``test_dashboard_seed.py``의 「미확정 항차는 벌크선 `2026-01` 하나뿐」이 **이전
+    실행의 항차 열 건 이상을 함께 읽어** 실패했다(2026-09-22 전체 실행). 같은 검사를
+    단독 실행하면 통과했다 — **시작 상태가 이전 실행에 달려 있었다.**
+
+    `TECH_SPEC §5.4`의 재현성 원칙을 테스트 스위트 자신에게 적용한 것이다.
+
+    ## ``downgrade``에 기대지 않는다
+
+    마이그레이션 롤백은 트리거·제약의 역방향이 온전해야 성립하고(`#1373`), 이전 실행이
+    중간 리비전에서 끊기면 그 경로부터 막힌다. **표를 떨어뜨리는 쪽은 그 전제가 없다** —
+    무엇이 남아 있든 같은 빈 상태가 된다.
+
+    ## 일회용 DB에서만 한다
+
+    호출부가 :func:`require_disposable_target`을 먼저 지난다. 그 판정이 없으면 이 함수는
+    **시연 DB를 비우는 도구**가 된다 — `#691`이 막은 사고가 정확히 그 형태였다.
+
+    표가 없는 첫 실행에서도 조용히 지나간다(지울 것이 없으면 아무 일도 없다).
+    """
+    import asyncio
+
+    from sqlalchemy import text
+
+    async def _class_names(engine) -> list[str]:
+        async with engine.begin() as conn:
+            rows = await conn.execute(
+                text("SELECT class_name FROM db_class WHERE is_system_class = 'NO'")
+            )
+            return [row[0] for row in rows.all()]
+
+    async def _drop() -> None:
+        engine = create_async_engine(
+            TEST_DATABASE_URL, poolclass=pool.NullPool, **_cubrid_engine_kw
+        )
+        try:
+            # 외래키 순서를 모르므로 **줄어들지 않을 때까지 돈다.** 한 바퀴에 하나도
+            # 못 지우면 남은 것은 순서 문제가 아니므로 멈춘다 — 조용히 반쪽만 지운 채
+            # `upgrade head`로 넘어가면 「이미 있는 표」 오류로 끝난다(첫 구현이 그랬다).
+            remaining = await _class_names(engine)
+            while remaining:
+                dropped = 0
+                for name in remaining:
+                    try:
+                        async with engine.begin() as conn:
+                            await conn.execute(text(f'DROP TABLE "{name}"'))
+                        dropped += 1
+                    except Exception:  # noqa: BLE001 — 참조가 남았으면 다음 바퀴에 지워진다
+                        continue
+                if dropped == 0:
+                    pytest.fail(
+                        "테스트 DB를 비우지 못했다 — 남은 표: " + ", ".join(sorted(remaining)),
+                        pytrace=False,
+                    )
+                remaining = await _class_names(engine)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_drop())
 
 
 def _upgrade_failure_message(result: subprocess.CompletedProcess) -> str:
