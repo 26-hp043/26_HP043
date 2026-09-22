@@ -24,8 +24,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           # ci.yml · frontend/package.json의 engines와 같은 값을 쓴다.
           # ⚠️ engines를 올릴 때 세 곳(package.json · ci.yml · 이 파일)을 함께 올려야
@@ -53,8 +53,8 @@ jobs:
     # 야간 스케줄이라 멈춰도 사람이 늦게 안다 (#533)
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
       # 런타임+dev 전체 환경을 감사한다 — dev 도구(ruff·pytest)도 CI에서 실행되므로
