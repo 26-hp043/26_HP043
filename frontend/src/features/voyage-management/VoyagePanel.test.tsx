@@ -52,6 +52,17 @@ const IN_PROGRESS: ManagedVoyage = {
   fuelUses: [{ fuelType: 'HFO', plannedFuelTon: 331, actualFuelTon: null }],
 }
 
+/**
+ * `create()`가 돌려주는 항차 — **목록에 이미 있는 것과 다른 `id`여야 한다** (`#1616`).
+ *
+ * 종전에는 `create`도 `IN_PROGRESS`를 그대로 돌려줬는데, 화면은 생성된 항차를
+ * 목록 앞에 붙이므로(`VoyagePanel.tsx`의 `onSubmit`) **같은 `id`가 두 줄**이 됐다.
+ * React가 「Encountered two children with the same key」를 매 렌더 찍었고, 그 소음이
+ * 테스트 콘솔에 쌓여 **진짜 경고를 가렸다.** 서버는 새 `id`를 주므로 fixture 쪽이
+ * 현실과 달랐던 것이다.
+ */
+const CREATED: ManagedVoyage = { ...IN_PROGRESS, id: 'v-2', voyageNo: '2026-02' }
+
 function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManagementProvider {
   return {
     list: vi.fn(async () => ({
@@ -60,7 +71,7 @@ function stubProvider(over: Partial<VoyageManagementProvider> = {}): VoyageManag
       nextCursor: null,
       hasMore: false,
     })),
-    create: vi.fn(async () => IN_PROGRESS),
+    create: vi.fn(async () => CREATED),
     transition: vi.fn(async () => IN_PROGRESS),
     saveActuals: vi.fn(async () => IN_PROGRESS),
     importCsv: vi.fn(async () => ({
@@ -123,7 +134,7 @@ describe('생성 폼에 계획 시각 두 칸이 있다 (#873)', () => {
   })
 
   it('입력한 시각이 provider까지 도달한다 — 폼과 전송이 이어져 있다', async () => {
-    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => CREATED)
     render(<VoyagePanel vesselId="ves-1" provider={stubProvider({ create })} />)
     fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
 
@@ -142,6 +153,43 @@ describe('생성 폼에 계획 시각 두 칸이 있다 (#873)', () => {
     await waitFor(() => expect(create).toHaveBeenCalled())
     const draft = create.mock.calls[0][1]
     expect(draft.plannedDepartureAt).toBe('2026-06-01T09:00')
+  })
+
+  /**
+   * 만든 항차가 목록 앞에 붙을 때 **key가 겹치지 않는다** (`#1616`).
+   *
+   * fixture가 목록과 같은 `id`를 돌려주던 동안 React가 「같은 key인 자식 둘」을 매
+   * 렌더 찍었고, 그 소음이 이 파일의 콘솔을 채워 **진짜 경고를 가렸다.** 여기서
+   * 잠그는 것은 문구가 아니라 **같은 key가 두 번 그려지지 않는다**는 성질이다.
+   */
+  it('만든 항차가 목록에 붙어도 key가 겹치지 않는다 (#1616)', async () => {
+    const errors: unknown[][] = []
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+      errors.push(args)
+    })
+    try {
+      render(<VoyagePanel vesselId="ves-1" provider={stubProvider()} />)
+      fireEvent.click(await screen.findByRole('button', { name: '항차 추가' }))
+
+      fireEvent.change(screen.getByLabelText('항차 번호'), { target: { value: '2026-09' } })
+      fireEvent.change(screen.getByLabelText('출발항'), { target: { value: 'Busan' } })
+      fireEvent.change(screen.getByLabelText('도착항'), { target: { value: 'Singapore' } })
+      fireEvent.change(screen.getByLabelText(/계획 거리/), { target: { value: '2300' } })
+      fireEvent.change(screen.getByLabelText(/계획 속력/), { target: { value: '14' } })
+      fireEvent.change(screen.getByLabelText(/계획 연료 1/), { target: { value: '331' } })
+      fireEvent.click(screen.getByRole('button', { name: '항차 만들기' }))
+
+      // 목록에 두 줄이 된다 — 기존 것과 방금 만든 것.
+      await waitFor(() => expect(document.getElementById('voyage-v-2')).toBeTruthy())
+      expect(document.getElementById('voyage-v-1')).toBeTruthy()
+    } finally {
+      spy.mockRestore()
+    }
+
+    const duplicateKey = errors.filter((args) =>
+      args.some((arg) => typeof arg === 'string' && arg.includes('same key')),
+    )
+    expect(duplicateKey).toEqual([])
   })
 })
 
@@ -312,7 +360,7 @@ describe('연료가 선택돼 보이면 그대로 저장된다 (#824 ⑹)', () =
      */
     let release: ((rows: { voyages: ManagedVoyage[]; fuelTypes: string[]; nextCursor: null; hasMore: false }) => void) | null =
       null
-    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => CREATED)
     const provider = stubProvider({
       create,
       list: vi.fn(
@@ -368,7 +416,7 @@ describe('샘플 항만 선택 (#760)', () => {
   ]
 
   async function openForm(over: Partial<VoyageManagementProvider> = {}) {
-    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => CREATED)
     const greatCircle = vi.fn(async () => 2470.2)
     render(
       <VoyagePanel
@@ -544,7 +592,7 @@ describe('계획 거리의 출처 (#1256)', () => {
   ]
 
   async function openEstimatedForm() {
-    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => CREATED)
     render(
       <VoyagePanel
         vesselId="ves-1"

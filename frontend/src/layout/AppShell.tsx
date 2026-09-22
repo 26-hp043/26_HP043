@@ -99,12 +99,15 @@ export function AppShell() {
   const [voyagesState, setVoyagesState] = useState<'loading' | 'ready' | 'failed'>('ready')
   /** 로그아웃이 서버에서 실패했을 때의 문구 (`#825` ⑵). */
   const [logoutFailure, setLogoutFailure] = useState<string | null>(null)
-  // 계층 밖 화면에서 보일 「기억해 둔 선택」. 계층 화면에서는 URL이 이긴다.
-  const [remembered, setRemembered] = useState<GlobalContextValue>(EMPTY_CONTEXT)
-
-  useEffect(() => {
-    setRemembered(loadStored())
-  }, [])
+  /*
+   * 계층 밖 화면에서 보일 「기억해 둔 선택」. 계층 화면에서는 URL이 이긴다.
+   *
+   * **첫 렌더부터 저장값으로 시작한다** (`#1616`). 종전에는 `EMPTY_CONTEXT`로 그린 뒤
+   * effect가 덮어써, 상단바 선택칸이 한 프레임 「선택 안 함」으로 깜빡였다. `loadStored`는
+   * storage가 막히거나 값이 깨져도 삼키고 기본값을 돌려주므로(`globalContext.ts`)
+   * 초기화 함수로 부르는 것이 안전하다 — 렌더마다 부르지 않도록 함수를 그대로 넘긴다.
+   */
+  const [remembered, setRemembered] = useState<GlobalContextValue>(loadStored)
 
   /**
    * 선박 목록을 다시 부르게 하는 세대 (`#1643`). `refreshVessels()`가 올린다 — 등록·수정·
