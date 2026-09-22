@@ -15,12 +15,12 @@ import {
   SEVERITY_TITLE,
   reasonText,
 } from './copy'
+import { IMPACT_DIGITS, orderedIssues } from './issueOrder'
 import {
   SEVERITIES,
   type DataQualityIssue,
   type DataQualityProvider,
   type DataQualitySnapshot,
-  type Severity,
 } from './types'
 import './DataQuality.css'
 
@@ -118,55 +118,144 @@ function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
   if (snapshot.vessels.length === 0) {
     return <p className="dq__placeholder">{COPY.noVessels}</p>
   }
-  const bySeverity = (severity: Severity) =>
-    snapshot.issues.filter((issue) => issue.severity === severity)
+  /*
+   * 서버가 준 배열을 **CII 영향 순**으로 다시 늘어놓는다 (#1766 · `issueOrder.ts`).
+   * 원본은 그대로 둔다 — 정렬은 표시 순서이지 데이터가 아니다.
+   */
+  const rows = orderedIssues(snapshot.issues)
 
   return (
     <>
-      <section className="card dq__summary" aria-labelledby="dq-summary-title">
-        <h2 id="dq-summary-title" className="card__title">
-          {COPY.summaryTitle}
-        </h2>
-        <dl className="dq__tiles">
-          {(['SUBSTITUTED', 'UNAVAILABLE', 'ANOMALY'] as const).map((severity) => (
-            <div
-              key={severity}
-              className={`dq__tile${
-                showsSeverity(snapshot.counts[severity])
-                  ? ` dq__tile--${severity.toLowerCase()}`
-                  : ''
-              }`}
-            >
-              <dt>{SEVERITY_TITLE[severity]}</dt>
-              <dd>
-                {snapshot.counts[severity]}
-                <span className="dq__unit">{COPY.countSuffix}</span>
-              </dd>
-              {severity === 'ANOMALY' && snapshot.anomalyUnjudged > 0 ? (
-                <dd className="dq__hint">{COPY.unjudgedHint(snapshot.anomalyUnjudged)}</dd>
-              ) : null}
-            </div>
-          ))}
-          <div className="dq__tile">
-            <dt>{COPY.completenessLabel}</dt>
+      {/*
+        요약 띠 (#1766). 종전에는 카드 안의 4칸이었다 — 건수 넷과 완결성은 「한 덩어리의
+        데이터」가 아니라 아래 목록을 읽는 눈금이라 면을 띄우지 않는다(`§5` 카드 예산).
+
+        **결론 띠(`§8.6`)가 아니다.** 이 화면의 답은 하나가 아니라 성격이 다른 네 축의
+        건수다 — 하나로 합치면 그 넷을 한 수로 뭉갠다.
+      */}
+      <dl className="dq__tiles" aria-label={COPY.summaryTitle}>
+        {(['SUBSTITUTED', 'UNAVAILABLE', 'ANOMALY', 'UNCONFIRMED'] as const).map((severity) => (
+          <div
+            key={severity}
+            className={`dq__tile${
+              showsSeverity(snapshot.counts[severity]) ? ` dq__tile--${severity.toLowerCase()}` : ''
+            }`}
+          >
+            <dt>{SEVERITY_TITLE[severity]}</dt>
             <dd>
-              {snapshot.completenessRatio === null
-                ? COPY.completenessNone
-                : `${formatPercent(snapshot.completenessRatio)}%`}
+              {snapshot.counts[severity]}
+              <span className="dq__unit">{COPY.countSuffix}</span>
             </dd>
-            <dd className="dq__hint">{COPY.completenessHint}</dd>
+            {severity === 'ANOMALY' && snapshot.anomalyUnjudged > 0 ? (
+              <dd className="dq__hint">{COPY.unjudgedHint(snapshot.anomalyUnjudged)}</dd>
+            ) : null}
           </div>
-        </dl>
-      </section>
+        ))}
+        <div className="dq__tile">
+          <dt>{COPY.completenessLabel}</dt>
+          <dd>
+            {snapshot.completenessRatio === null
+              ? COPY.completenessNone
+              : `${formatPercent(snapshot.completenessRatio)}%`}
+          </dd>
+          <dd className="dq__hint">{COPY.completenessHint}</dd>
+        </div>
+      </dl>
 
       <section className="card dq__list" aria-labelledby="dq-list-title">
         <h2 id="dq-list-title" className="card__title">
           {COPY.listTitle}
         </h2>
         <p className="dq__caption">{COPY.impactCaption}</p>
-        {SEVERITIES.map((severity) => (
-          <IssueGroup key={severity} severity={severity} issues={bySeverity(severity)} />
-        ))}
+        {rows.length === 0 ? (
+          <p className="dq__empty">{COPY.noIssues}</p>
+        ) : (
+          <>
+            {/*
+              **한 표다** (#1766). 종전에는 심각도 그룹마다 같은 다섯 열짜리 표가 하나씩
+              서서, 행 6건에 표 머리가 세 번 나왔다. 심각도는 열이 된다.
+
+              0건 심각도를 지우는 것이 아니다 — 위 요약 띠가 「실적 미입력 0건」으로 계속
+              말한다(`#513`: 지우면 「확인 안 함」과 구분되지 않는다).
+            */}
+            <div className="dq__table-wrap">
+              <table className="dq__table dq__issues">
+                <thead>
+                  <tr>
+                    <th scope="col">{COPY.colSeverity}</th>
+                    <th scope="col">{COPY.colVessel}</th>
+                    <th scope="col">{COPY.colVoyage}</th>
+                    <th scope="col">{COPY.colProblem}</th>
+                    <th scope="col">{COPY.colImpact}</th>
+                    <th scope="col">{COPY.colGo}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((issue) => (
+                    <tr key={`${issue.vesselId}-${issue.voyageId ?? 'vessel'}-${issue.codes.join()}`}>
+                      <td>
+                        {/*
+                          행이 있다는 것 자체가 「볼 것이 있다」이므로 `#1288`의 조건(건수 0)은
+                          여기서 성립할 수 없다 — 칩은 늘 제 심각도 색을 단다. 0건일 때 색을
+                          빼는 판단은 위 요약 띠가 맡는다.
+                        */}
+                        <span className={`dq__severity dq__severity--${issue.severity.toLowerCase()}`}>
+                          {SEVERITY_TITLE[issue.severity]}
+                        </span>
+                      </td>
+                      <th scope="row">{issue.vesselName}</th>
+                      <td>{issue.voyageId === null ? COPY.vesselLevel : (issue.voyageNo ?? '—')}</td>
+                      <td>
+                        <ul className="dq__codes">
+                          {issue.codes.map((code) => (
+                            <li key={code}>{reasonText(code)}</li>
+                          ))}
+                        </ul>
+                      </td>
+                      <td>
+                        <Impact issue={issue} />
+                      </td>
+                      <td>
+                        {/*
+                          항차 행은 **그 항차 카드로** 간다 (#1549). 종전에는 모든 행이 선박 상세
+                          맨 위로 가서 페이지 중간의 항차를 다시 찾아야 했다. 실적을 넣을 수 있는
+                          항차면 입력이 열린 채 도착한다(`#1540`과 같은 진입). 선박 단위 행은
+                          가리킬 항차가 없어 종전대로 선박 상세다.
+                        */}
+                        {issue.voyageId === null ? (
+                          <Link to={`/vessels/${issue.vesselId}`}>{COPY.goToVessel}</Link>
+                        ) : (
+                          <Link
+                            to={voyageActualsPath(issue.vesselId, issue.voyageId)}
+                            aria-label={`${COPY.goToVoyage} — ${issue.vesselName} ${issue.voyageNo ?? ''}`.trim()}
+                          >
+                            {COPY.goToVoyage}
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <ImpactNotes issues={rows} />
+          </>
+        )}
+        {/*
+          심각도 넷의 뜻은 `DESIGN_SYSTEM §2.3.1` 「의미」 열이라 화면에서 없애지 않는다.
+          그룹마다 한 줄이던 것을 접기 하나로 모은다 — 늘 펴 두면 표보다 설명이 길어진다.
+        */}
+        <details className="dq__legend">
+          <summary>{COPY.legendTitle}</summary>
+          <dl className="dq__legend-list">
+            {SEVERITIES.map((severity) => (
+              <div key={severity}>
+                <dt>{SEVERITY_TITLE[severity]}</dt>
+                <dd>{SEVERITY_MEANING[severity]}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
       </section>
 
       <section className="card dq__vessels" aria-labelledby="dq-vessels-title">
@@ -251,81 +340,6 @@ function showsSeverity(count: number): boolean {
   return count > 0
 }
 
-function IssueGroup({ severity, issues }: { severity: Severity; issues: DataQualityIssue[] }) {
-  const titleId = `dq-group-${severity.toLowerCase()}`
-  return (
-    <section
-      className={`dq__group${
-        showsSeverity(issues.length) ? ` dq__group--${severity.toLowerCase()}` : ''
-      }`}
-      aria-labelledby={titleId}
-    >
-      <h3 id={titleId} className="dq__group-title">
-        {SEVERITY_TITLE[severity]}
-        <span className="dq__group-count">
-          {issues.length}
-          {COPY.countSuffix}
-        </span>
-      </h3>
-      <p className="dq__caption">{SEVERITY_MEANING[severity]}</p>
-      {issues.length === 0 ? (
-        <p className="dq__empty">{COPY.emptyGroup}</p>
-      ) : (
-        <div className="dq__table-wrap">
-          <table className="dq__table">
-            <thead>
-              <tr>
-                <th scope="col">{COPY.colVessel}</th>
-                <th scope="col">{COPY.colVoyage}</th>
-                <th scope="col">{COPY.colProblem}</th>
-                <th scope="col">{COPY.colImpact}</th>
-                <th scope="col">{COPY.colGo}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {issues.map((issue) => (
-                <tr key={`${issue.vesselId}-${issue.voyageId ?? 'vessel'}-${issue.codes.join()}`}>
-                  <th scope="row">{issue.vesselName}</th>
-                  <td>{issue.voyageId === null ? COPY.vesselLevel : (issue.voyageNo ?? '—')}</td>
-                  <td>
-                    <ul className="dq__codes">
-                      {issue.codes.map((code) => (
-                        <li key={code}>{reasonText(code)}</li>
-                      ))}
-                    </ul>
-                  </td>
-                  <td>
-                    <Impact issue={issue} />
-                  </td>
-                  <td>
-                    {/*
-                      항차 행은 **그 항차 카드로** 간다 (#1549). 종전에는 모든 행이 선박 상세
-                      맨 위로 가서 페이지 중간의 항차를 다시 찾아야 했다. 실적을 넣을 수 있는
-                      항차면 입력이 열린 채 도착한다(`#1540`과 같은 진입). 선박 단위 행은
-                      가리킬 항차가 없어 종전대로 선박 상세다.
-                    */}
-                    {issue.voyageId === null ? (
-                      <Link to={`/vessels/${issue.vesselId}`}>{COPY.goToVessel}</Link>
-                    ) : (
-                      <Link
-                        to={voyageActualsPath(issue.vesselId, issue.voyageId)}
-                        aria-label={`${COPY.goToVoyage} — ${issue.vesselName} ${issue.voyageNo ?? ''}`.trim()}
-                      >
-                        {COPY.goToVoyage}
-                      </Link>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <ImpactNotes issues={issues} />
-        </div>
-      )}
-    </section>
-  )
-}
-
 /**
  * CII 영향 칸의 표시(`*`)가 가리키는 사유 — **이 표에 나온 것만**, 한 번씩 (#1580).
  *
@@ -368,7 +382,8 @@ function Impact({ issue }: { issue: DataQualityIssue }) {
       </span>
     )
   }
-  const delta = formatDecimalString(issue.cii.delta, 3)
+  // 정렬도 같은 자릿수에서 비교한다 — 화면에 찍힌 숫자와 순서가 어긋나지 않게 (`issueOrder.ts`).
+  const delta = formatDecimalString(issue.cii.delta, IMPACT_DIGITS)
   const signed = delta.startsWith('-') || delta === '0.000' ? delta : `+${delta}`
   const { rating, ratingWithout } = issue.cii
   return (
