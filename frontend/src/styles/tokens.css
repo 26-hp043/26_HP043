@@ -355,26 +355,48 @@
   --font-sans: var(--fontFamilies-sans), system-ui, 'Malgun Gothic', sans-serif;
   --font-mono: var(--fontFamilies-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* 타입 스케일 — DESIGN_SYSTEM §3. 디자이너 JSON에 없어 여기서 유지한다. */
-  --font-size-display: 28px;
+  /*
+   * 타입 스케일 — DESIGN_SYSTEM §3. 디자이너 JSON에 없어 여기서 유지한다.
+   *
+   * **값은 §3 표와 같다** (#1691). 종전에는 display 28 · 굵기 700/600 · label 500으로
+   * §3(display 32 · 굵기 400/500만)과 달랐고, 번들 글꼴이 400 · 500 두 파일뿐이라
+   * (`fonts.css`) 600 · 700은 브라우저가 합성한 가짜 굵기로 그려졌다.
+   * `typeScale.sync.test.ts`가 §3 표와 이 값을 대조한다.
+   *
+   * 이름 대응 — §3 `title` = `h2` · `heading` = `h3` · `caption` = `micro`(12).
+   * §3의 11px `micro`는 쓰는 곳이 없어 두지 않는다(「선언과 사용이 함께」).
+   */
+  --font-size-display: 32px;
   --font-size-h2: 20px;
   --font-size-h3: 16px;
   --font-size-body: 14px;
   --font-size-label: 13px;
   --font-size-micro: 12px;
 
-  --line-height-display: 1.2;
-  --line-height-h2: 1.2;
-  --line-height-h3: 1.3;
-  --line-height-body: 1.5;
-  --line-height-label: 1.4;
-  --line-height-micro: 1.4;
+  /*
+   * 페이지 제목(h1) — **§3과 다른 값으로 남긴 알려진 차이** (#1691 결정 「가」).
+   * §3은 페이지 제목을 `title`(20)로 두지만, 20이면 카드 제목(16)과 한 단 차이라
+   * 위계가 무너진다. 재설계안이 28을 제안했고 §3 개정은 3단계 묶음에서 한다.
+   * 종전에는 h1이 `display`를 빌려 KPI 숫자와 크기가 묶여 있었다 — 떼어 낸다.
+   */
+  --font-size-page: 28px;
+  --line-height-page: 1.3;
 
-  --font-weight-display: 700;
-  --font-weight-h2: 700;
-  --font-weight-h3: 600;
+  /* 행간 — §3 표의 px 값을 크기로 나눈 비. 상속되도록 단위 없는 수로 둔다. */
+  --line-height-display: 1.25;
+  --line-height-h2: 1.4;
+  --line-height-h3: 1.5;
+  --line-height-body: 1.43;
+  --line-height-label: 1.385;
+  --line-height-micro: 1.333;
+
+  /* 굵기 — §3 「400 · 500만 쓴다」. `strong`은 강조 · 표 머리글에 쓰는 500이다. */
+  --font-weight-display: 500;
+  --font-weight-h2: 500;
+  --font-weight-h3: 500;
   --font-weight-body: 400;
-  --font-weight-label: 500;
+  --font-weight-label: 400;
+  --font-weight-strong: 500;
 
   /* ── 그림자 · 포커스 (라이트 기본값) ──────────────────────────────── */
   /*
