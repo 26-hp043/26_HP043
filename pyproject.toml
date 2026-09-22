@@ -38,6 +38,11 @@ dependencies = [
     "fastapi>=0.141.1,<0.150",
     "uvicorn[standard]>=0.53.0,<0.60",
     "httpx>=0.28.1,<0.29",
+    # `#1664` — 보고서·내보내기가 `ZoneInfo("Asia/Seoul")`을 쓴다(`services/report.py` ·
+    # `services/data_export.py`). Linux 이미지는 OS의 `/usr/share/zoneinfo`로 풀리지만
+    # **Windows에는 OS 시간대 데이터가 없어** 새 가상환경에서 `ZoneInfoNotFoundError`가
+    # 난다. `zoneinfo`는 OS 데이터가 없을 때만 이 패키지를 보므로 Linux 동작은 그대로다.
+    "tzdata>=2025.2",
     "pyjwt[crypto]>=2.14.0,<3.0",
     # 인증 메일 발송 (#407). console 백엔드만 쓰는 개발 환경에서는 import되지 않는다.
     "aiosmtplib>=5.1.3,<6.0",
