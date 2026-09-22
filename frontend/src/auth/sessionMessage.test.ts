@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { SESSION_EXPIRED_MESSAGE } from './session'
+import { dirOf, srcKey } from '../test/srcPaths'
 
 /**
  * 세션 만료 문구는 **한 곳에서만 나온다** (#901).
@@ -14,7 +15,7 @@ import { SESSION_EXPIRED_MESSAGE } from './session'
  * 문구 자체를 여기 다시 적지 않는다 — 적으면 이 파일이 **세 번째 출처**가 된다.
  * `session.ts`에서 가져와 대조한다.
  */
-const SRC = new URL('..', import.meta.url).pathname
+const SRC = dirOf(import.meta.url, '..')
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -32,7 +33,7 @@ describe('세션 만료 문구의 출처는 하나다 (#901)', () => {
     const declaring = files.filter((path) =>
       /export const SESSION_EXPIRED_MESSAGE/.test(readFileSync(path, 'utf8')),
     )
-    expect(declaring.map((p) => p.slice(SRC.length))).toEqual(['auth/session.ts'])
+    expect(declaring.map((p) => srcKey(SRC, p))).toEqual(['auth/session.ts'])
   })
 
   it('문구를 리터럴로 다시 적은 파일이 없다', () => {
@@ -42,7 +43,7 @@ describe('세션 만료 문구의 출처는 하나다 (#901)', () => {
         !path.endsWith('auth/session.ts') &&
         readFileSync(path, 'utf8').includes(SESSION_EXPIRED_MESSAGE),
     )
-    expect(offenders.map((p) => p.slice(SRC.length))).toEqual([])
+    expect(offenders.map((p) => srcKey(SRC, p))).toEqual([])
   })
 
   it('갈라져 있던 짧은 판이 남아 있지 않다', () => {
@@ -50,6 +51,6 @@ describe('세션 만료 문구의 출처는 하나다 (#901)', () => {
     const offenders = files.filter((path) =>
       readFileSync(path, 'utf8').includes('세션이 만료되었습니다.'),
     )
-    expect(offenders.map((p) => p.slice(SRC.length))).toEqual([])
+    expect(offenders.map((p) => srcKey(SRC, p))).toEqual([])
   })
 })

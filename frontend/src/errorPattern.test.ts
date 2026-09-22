@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { dirOf, srcKey } from './test/srcPaths'
 
 /*
  * `rlatnals4114`의 2026-09-10 확정 문서가 정한 규격을 잠그는 가드 2건.
  * **규격은 확정자가 정했고 개발은 가드만 만들었다**(`AGENTS §7.3`). 소스로 본다 — **화면이 깨지지 않는 성질**이라
  * 렌더 검사로는 잡히지 않는다.
  */
-const SRC = new URL('.', import.meta.url).pathname
+const SRC = dirOf(import.meta.url)
 
 function sources(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -93,7 +94,7 @@ describe('에러 표현 규격 가드 (#694)', () => {
       for (const match of stripped(file).matchAll(/([^{}]*)\{([^}]*)\}/g)) {
         if (!/error/i.test(match[1])) continue
         const hit = reachesGrade(match[2])
-        if (hit) offenders.push(`${file.slice(SRC.length)} :: ${match[1].trim()} :: ${hit}`)
+        if (hit) offenders.push(`${srcKey(SRC, file)} :: ${match[1].trim()} :: ${hit}`)
       }
     }
     expect(offenders).toEqual([])
@@ -117,7 +118,7 @@ describe('에러 표현 규격 가드 (#694)', () => {
           .replace(/(^|[^:])\/\/.*$/gm, '$1')
           .includes('empty--error'),
       )
-      .map((f) => f.slice(SRC.length))
+      .map((f) => srcKey(SRC, f))
     expect(offenders).toEqual([])
   })
 
@@ -137,7 +138,7 @@ describe('에러 표현 규격 가드 (#694)', () => {
             .replace(/(^|[^:])\/\/.*$/gm, '$1'),
         ),
       )
-      .map((f) => f.slice(SRC.length))
+      .map((f) => srcKey(SRC, f))
     expect(offenders).toEqual([])
   })
 })

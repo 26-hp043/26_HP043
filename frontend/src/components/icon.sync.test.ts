@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { dirOf, srcKey } from '../test/srcPaths'
 
 /**
  * **아이콘 규격값의 출처는 Figma 하나다** — `DESIGN_SYSTEM §12` · `§15` (`#1174`).
@@ -21,7 +22,7 @@ import { join } from 'node:path'
  * 코드가 어긋나면 실패한다.** 값을 비교하지 않고 **이름의 집합**을 비교하는 것이
  * 요점이다 — 값을 적어 두면 이 파일이 세 번째 출처가 된다.
  */
-const SRC = join(new URL('.', import.meta.url).pathname, '..')
+const SRC = dirOf(import.meta.url, '..')
 
 const ICON_TSX = readFileSync(join(SRC, 'components/Icon.tsx'), 'utf8')
 const ICON_CSS = readFileSync(join(SRC, 'components/Icon.css'), 'utf8')
@@ -92,7 +93,7 @@ describe('아이콘 규격 동기 — §12 · §15 (#1174)', () => {
       const text = readFileSync(path, 'utf8')
       for (const match of text.matchAll(/<Icon\b[\s\S]{0,200}?\/>/g)) {
         if (/size=\{[^}]*\d/.test(match[0])) {
-          offenders.push(`${path.slice(SRC.length)} :: ${match[0].replace(/\s+/g, ' ')}`)
+          offenders.push(`${srcKey(SRC, path)} :: ${match[0].replace(/\s+/g, ' ')}`)
         }
       }
     }
