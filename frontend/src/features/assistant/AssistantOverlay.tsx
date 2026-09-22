@@ -45,7 +45,35 @@ const PLACEHOLDER = '계산 결과에 대해 물어보세요'
  * 묻게 되고, 그 질문에는 답하지 않는 것이 맞는 동작이라 사용자가 고장으로 읽는다.
  */
 const INTRO =
-  '화면에 나온 계산 결과를 풀어 설명합니다. 규제 판단이나 권고는 하지 않으며, 수치는 계산 엔진이 낸 값만 인용합니다.'
+  '고른 선박으로 항차 CII · 속도 시나리오 · 연말 예상을 계산해 답합니다. 규제 판단이나 권고는 하지 않으며, 수치는 계산 엔진이 낸 값만 인용합니다.'
+/*
+ * #1613 — 종전 문구 「화면에 나온 계산 결과를 풀어 설명합니다」는 사실이 아니었다.
+ * 챗봇은 화면의 값을 받지 않고 도구로 **새로 계산한다**(`chat_tools.py` 네 도구 · R18
+ * `#1533`). 화면 값을 넘기게 되면 그때 다시 고친다.
+ */
+
+/**
+ * 첫 화면 예시 질문 (#1613) — **서버 도구가 실제로 답할 수 있는 것만** 둔다.
+ *
+ * 연말 예상(`project_year_end`) · 속도 시나리오(`compare_scenarios`) · 용어 풀이(프롬프트의
+ * 풀이집). 「어느 쪽이 나은가」처럼 도구가 답하지 않도록 막힌 질문은 넣지 않는다.
+ * 누르면 **입력칸에만** 채운다 — 사용자가 고쳐서 보낼 수 있고, 한 번 누름이 비용이 드는
+ * 호출이 되지 않는다.
+ */
+const EXAMPLES = [
+  '올해 연말 예상 등급은 어떻게 되나요?',
+  '지금 14노트 · 중유(HFO)로 가고 있어요. 속도 시나리오 셋의 CII를 보여 주세요.',
+  'attained CII와 required CII는 무엇인가요?',
+] as const
+
+/*
+ * 계산 대상 선박 (#1613). 선박명은 **화면에만** 보인다 — 외부 LLM으로 보내지 않는다
+ * (`PRD §16.3.1` · 요청에는 `vesselId`만 간다). 그래서 답에는 이름이 나오지 않으므로,
+ * 어느 배의 숫자인지는 이 줄이 말한다.
+ */
+const TARGET_LABEL = '계산 대상'
+const TARGET_HINT = '상단에서 바꿉니다'
+const TARGET_NONE = '선택한 선박 없음 — 계산 질문은 상단에서 선박을 고른 뒤 답합니다'
 
 /** 보내는 중 표시 (`Q10` ⓑ — 스트리밍 대신 로딩 표시). */
 const PENDING_TEXT = '답변을 준비하고 있습니다…'
@@ -81,9 +109,16 @@ export interface AssistantOverlayProps {
   readonly provider?: AssistantProvider
   /** 화면이 보고 있는 선박. 계산 도구가 이 선박으로 돈다. */
   readonly vesselId?: string
+  /** 그 선박의 이름 — 화면 표시에만 쓴다(#1613 · `PRD §16.3.1`). 목록이 아직 없으면 비어 있다. */
+  readonly vesselName?: string
+  /**
+   * 패널이 열리고 닫힐 때 셸에 알린다 (#1613). 넓은 화면에서 셸이 본문 오른쪽에 패널 폭만큼
+   * 비워 패널이 본문을 덮지 않게 한다.
+   */
+  readonly onOpenChange?: (open: boolean) => void
 }
 
-export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) {
+export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange }: AssistantOverlayProps) {
   const [open, setOpen] = useState(false)
   const [turns, setTurns] = useState<readonly ChatTurn[]>([])
   const [draft, setDraft] = useState('')
@@ -99,6 +134,10 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
   const panelId = useId()
 
   const client = provider ?? createApiAssistantProvider()
+
+  useEffect(() => {
+    onOpenChange?.(open)
+  }, [open, onOpenChange])
 
   useEffect(() => {
     if (open) {
@@ -221,7 +260,40 @@ export function AssistantOverlay({ provider, vesselId }: AssistantOverlayProps) 
         </button>
       </header>
 
+      <p className="assistant__target">
+        <span className="assistant__target-label">{TARGET_LABEL}</span>{' '}
+        {vesselId ? (
+          <>
+            <strong>{vesselName || '선택한 선박'}</strong>
+            <span className="assistant__target-hint"> · {TARGET_HINT}</span>
+          </>
+        ) : (
+          TARGET_NONE
+        )}
+      </p>
+
       <p className="assistant__intro">{INTRO}</p>
+
+      {/* 대화를 시작하면 걷는다 — 그 뒤에는 로그가 자리를 쓴다. */}
+      {turns.length === 0 ? (
+        <ul className="assistant__examples" role="list" aria-label="예시 질문">
+          {EXAMPLES.map((example) => (
+            <li key={example}>
+              <button
+                type="button"
+                className="assistant__example"
+                disabled={stopped}
+                onClick={() => {
+                  setDraft(example)
+                  inputRef.current?.focus()
+                }}
+              >
+                {example}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
 
       {/*
         `aria-live="polite"` — 답이 도착한 것을 스크린리더가 알린다. `assertive`를

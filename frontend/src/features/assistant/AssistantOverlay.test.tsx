@@ -296,3 +296,76 @@ describe('#1243 — 선박이 정해지지 않은 턴', () => {
     expect(bubble.textContent).not.toContain('먼저 골라')
   })
 })
+
+describe('계산 대상 · 예시 질문 · 안내 문구 (#1613 · R20)', () => {
+  it('고른 선박의 이름을 패널에 보인다 — 요청에는 id만 간다 (`PRD §16.3.1`)', async () => {
+    const { ask } = setup({ vesselId: 'v-1', vesselName: '샘플 벌크선' })
+    open()
+    const target = document.querySelector('.assistant__target') as HTMLElement
+    expect(target.textContent).toContain('샘플 벌크선')
+    expect(target.textContent).toContain('상단에서 바꿉니다')
+
+    await send('연말 예상은?')
+    await screen.findByText(ANSWER.answer)
+    const request = ask.mock.calls[0][0]
+    expect(request.vesselId).toBe('v-1')
+    expect(JSON.stringify(request)).not.toContain('샘플 벌크선')
+  })
+
+  it('선박이 없으면 먼저 고르라고 말한다', () => {
+    setup()
+    open()
+    expect(document.querySelector('.assistant__target')!.textContent).toMatch(/선택한 선박 없음/)
+  })
+
+  it('이름이 아직 없으면 id를 보이지 않는다', () => {
+    setup({ vesselId: '00000000-0000-4000-8000-000000000001' })
+    open()
+    const target = document.querySelector('.assistant__target')!.textContent ?? ''
+    expect(target).toContain('선택한 선박')
+    expect(target).not.toContain('0000')
+  })
+
+  it('예시 질문을 누르면 입력칸에만 채운다 — 보내지 않는다', () => {
+    const { ask } = setup({ vesselId: 'v-1', vesselName: '샘플 벌크선' })
+    open()
+    const examples = screen.getByRole('list', { name: '예시 질문' })
+    const buttons = examples.querySelectorAll('button')
+    expect(buttons).toHaveLength(3)
+
+    // 실제 브라우저에서는 누른 버튼이 초점을 가져간다 — jsdom은 옮기지 않으므로 먼저 준다
+    buttons[0].focus()
+    fireEvent.click(buttons[0])
+    expect((screen.getByLabelText('질문') as HTMLTextAreaElement).value).toBe(buttons[0].textContent)
+    expect(document.activeElement).toBe(screen.getByLabelText('질문'))
+    expect(ask).not.toHaveBeenCalled()
+  })
+
+  it('대화를 시작하면 예시 질문을 걷는다', async () => {
+    setup()
+    open()
+    await send('안녕하세요')
+    await screen.findByText(ANSWER.answer)
+    expect(screen.queryByRole('list', { name: '예시 질문' })).toBeNull()
+  })
+
+  it('안내 문구가 「화면의 계산 결과를 풀어 설명」한다고 말하지 않는다 — 새로 계산한다(R18)', () => {
+    setup()
+    open()
+    const intro = document.querySelector('.assistant__intro')!.textContent ?? ''
+    expect(intro).not.toMatch(/화면에 나온/)
+    expect(intro).toMatch(/계산해 답합니다/)
+  })
+})
+
+describe('열림을 셸에 알린다 (#1613 · R21)', () => {
+  it('열고 닫을 때 onOpenChange가 불린다', () => {
+    const onOpenChange = vi.fn()
+    setup({ onOpenChange })
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+    open()
+    expect(onOpenChange).toHaveBeenLastCalledWith(true)
+    fireEvent.click(screen.getByRole('button', { name: 'AI 어시스턴트 닫기' }))
+    expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+})

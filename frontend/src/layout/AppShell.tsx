@@ -81,6 +81,11 @@ export function AppShell() {
   const [vesselsState, setVesselsState] = useState<ShellContext['vesselsState']>('loading')
   const [voyages, setVoyages] = useState<VoyageOption[]>([])
   /*
+   * 어시스턴트 패널이 열려 있는가 (#1613 · R21). 넓은 화면에서 셸이 오른쪽에 패널 폭만큼
+   * 비운다 — 값과 조건은 `AssistantOverlay.css`의 `.app-shell--assistant-open`이 갖는다.
+   */
+  const [assistantOpen, setAssistantOpen] = useState(false)
+  /*
    * 항차 목록 조회가 어느 단계인가 (`#824` ⑶).
    *
    * **빈 배열의 이유를 구분하기 위해 있다** — 바로 위 선박 축이 `vesselsState`로 같은
@@ -249,7 +254,7 @@ export function AppShell() {
   )
 
   return (
-    <div className="app-shell">
+    <div className={assistantOpen ? 'app-shell app-shell--assistant-open' : 'app-shell'}>
       <GradePatternDefs />
 
       {/*
@@ -562,7 +567,11 @@ export function AppShell() {
           요구한다 — **서로 영향을 주지 않는다.** 어시스턴트 자신의 실패는 컴포넌트가
           자기 안에서 말풍선으로 만든다.
         */}
-        <AssistantOverlay vesselId={context.vesselId ?? undefined} />
+        <AssistantOverlay
+          vesselId={context.vesselId ?? undefined}
+          vesselName={vessels.find((vessel) => vessel.id === context.vesselId)?.displayName}
+          onOpenChange={setAssistantOpen}
+        />
       </div>
     </div>
   )
