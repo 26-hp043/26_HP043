@@ -601,3 +601,84 @@ async def test_missing_screen_run_never_echoes_the_id(session, vessel_id):
     body = _parsed(raw)
     assert body["ok"] is False, body
     assert str(ghost) not in _flat(body)
+
+
+# ── #1703 규제 기준값 표 도구 ───────────────────────────────────────────────────
+
+
+async def test_lookup_regulation_quotes_the_seeded_table_with_sources(session, vessel_id):
+    """`#1703` — 선종을 말하지 않으면 **대화의 선박 선종**으로, 표의 값을 **출처와 함께** 준다.
+
+    값은 설정의 「규제 기준값」 절과 같은 조회 서비스에서 온다 — 같은 값이 두 곳에서
+    달라질 자리가 없어야 한다.
+    """
+    from cii_platform.services import parameters as param_service
+
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_LOOKUP_REGULATION,
+        arguments={"regulation_year": 2026, "fuel_code": "hfo"},
+        vessel_id=vessel_id,
+    )
+    body = _parsed(raw)
+    assert body["ok"] is True, body
+    result = body["result"]
+
+    expected_lines = await param_service.list_reference_lines(session, ship_type="BULK_CARRIER")
+    assert [row["a_raw"] for row in result["reference_lines"]] == [
+        row["a_raw"] for row in expected_lines
+    ]
+    assert all(row["source_ref"] for row in result["reference_lines"])
+    assert all(row["source_ref"] for row in result["rating_boundaries"])
+    assert result["reduction_factor"]["year"] == 2026
+    assert result["reduction_factor"]["source_ref"]
+    assert result["fuel_cf"]["fuel_code"] == "HFO"
+    assert result["fuel_cf"]["source_ref"]
+    # 판본·활성·생성 시각은 보내지 않는다 — 좁게 시작한다.
+    flat = _flat(body)
+    assert "created_at" not in flat and "is_active" not in flat
+    assert VESSEL_NAME not in flat
+    assert str(vessel_id) not in flat
+
+
+async def test_lookup_regulation_runs_without_a_vessel(session):
+    """`#1703` — 선종을 말하면 **선박 없이도** 돈다. 규제 질문에 선박을 고르라고 하지 않는다."""
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_LOOKUP_REGULATION,
+        arguments={"ship_type": "lng_carrier", "regulation_year": 2026},
+        vessel_id=None,
+    )
+    body = _parsed(raw)
+    assert body["ok"] is True, body
+    assert body["result"]["reference_lines"], body
+
+
+async def test_lookup_regulation_does_not_borrow_another_year(session):
+    """`#1703` — 표에 없는 연도의 감축률은 **null**이다. 가까운 해의 값을 대신 주지 않는다."""
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_LOOKUP_REGULATION,
+        arguments={"ship_type": "BULK_CARRIER", "regulation_year": 2099},
+        vessel_id=None,
+    )
+    assert _parsed(raw)["result"]["reduction_factor"] is None
+
+
+async def test_lookup_regulation_unknown_type_is_a_fixed_error(session):
+    """`#1703` — 모르는 선종·연료는 **고정 문구** 오류다. 입력을 문구에 되싣지 않는다(`#1310`)."""
+    for arguments in ({"ship_type": "SUBMARINE_X"}, {"ship_type": "TANKER", "fuel_code": "ZZZ9"}):
+        raw = await chat_tools.run_tool(
+            session, name=chat_tools.TOOL_LOOKUP_REGULATION, arguments=arguments, vessel_id=None
+        )
+        body = _parsed(raw)
+        assert body["ok"] is False, body
+        assert "SUBMARINE_X" not in _flat(body) and "ZZZ9" not in _flat(body)
+
+
+async def test_lookup_regulation_without_any_ship_type_asks_for_one(session):
+    """`#1703` — 선종도 선박도 없으면 표를 통째로 주지 않고 선종을 묻는다."""
+    raw = await chat_tools.run_tool(
+        session, name=chat_tools.TOOL_LOOKUP_REGULATION, arguments={}, vessel_id=None
+    )
+    assert _parsed(raw)["ok"] is False
