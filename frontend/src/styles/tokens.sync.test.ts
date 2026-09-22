@@ -995,6 +995,66 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
   })
 
   /*
+   * `#1296` — **채움 Primary 컨트롤의 경계는 테두리가 맡는다** (2026-09-22 확정 · `DESIGN_SYSTEM §14`).
+   *
+   * 다크 채움면(`#385c8d`)은 주변과 `2.35`~`2.78`이고, 면을 띄우면 그 위 글자(`5.60`)가
+   * `4.5` 밑으로 내려간다. 그래서 면이 아니라 **테두리로** `3:1`을 채운다.
+   *
+   * 역할의 표식 — 채움면(`--color-primary-solid`)을 칠하고, **테두리를 선언하거나 누를 수
+   * 있는**(`cursor: pointer`) 규칙이다. 테두리 없는 채움(계정 메뉴의 머리글자 원 — 버튼 안의
+   * 장식)과 비활성(`cursor: progress`)은 표식에 걸리지 않는다. 예외 목록을 두지 않는다.
+   *
+   * 종전의 `transparent` · `none` · 면과 같은 토큰은 모두 **테두리가 없는 것과 같다.**
+   */
+  const FILL_RULE = /([^{}]*)\{([^}]*background(?:-color)?:\s*var\(\s*--color-primary-solid\s*\)[^}]*)\}/g
+
+  function primaryFillControls(): { where: string; rule: string }[] {
+    const found: { where: string; rule: string }[] = []
+    for (const file of cssFilesUnder(CSS_ROOT)) {
+      const body = readFileSync(file, 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const [, selector, rule] of body.matchAll(FILL_RULE)) {
+        const hasBorder = /(^|;|\s)border(?:-color)?\s*:/.test(rule)
+        const pressable = /cursor:\s*pointer/.test(rule)
+        if (!hasBorder && !pressable) continue
+        found.push({
+          where: `${file.slice(CSS_ROOT.length)} :: ${selector.trim().split('\n')[0].trim()}`,
+          rule,
+        })
+      }
+    }
+    return found
+  }
+
+  it('채움 Primary 컨트롤은 테두리를 `--color-primary-solid-border`로 그린다 (#1296)', () => {
+    const controls = primaryFillControls()
+    // 정규식이 헛돌면 공집합 통과가 된다 — 지금 다섯 자리가 있다.
+    expect(controls.length).toBeGreaterThanOrEqual(5)
+    const offenders = controls
+      .filter(({ rule }) => !/border(?:-color)?:[^;]*var\(\s*--color-primary-solid-border\s*\)/.test(rule))
+      .map(({ where }) => where)
+    expect(offenders, '채움 Primary 컨트롤의 경계는 테두리가 맡는다 (#1296)').toEqual([])
+  })
+
+  it.each(THEMES)('$name — 채움 Primary 테두리가 네 면에서 3:1 이상이다 (#1296)', ({ generated, alias }) => {
+    const border = evaluate('var(--color-primary-solid-border)', generated, alias)
+    for (const surface of TEXT_SURFACES) {
+      expect(contrast(border, generated[surface]), `${surface} 위 채움 Primary 테두리`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('다크 채움면은 여전히 주변과 3:1이 안 된다 — 테두리가 필요한 이유 (#1296)', () => {
+    /*
+     * 이 사실이 바뀌면(면을 띄우는 파생 · Figma 값 변경) 테두리 규칙을 다시 볼 때다.
+     * 그때 글자 대비(위 「채움면 위 글자」 검사)도 함께 움직인다.
+     */
+    const dark = THEMES.find((t) => t.name === '다크')
+    expect(dark, '다크 테마를 찾지 못했습니다').toBeDefined()
+    const { generated, alias } = dark as (typeof THEMES)[number]
+    const fill = evaluate(alias['--color-primary-solid'], generated, alias)
+    expect(contrast(fill, generated['--surface-card'])).toBeLessThan(3)
+  })
+
+  /*
    * `#985` — **개략도의 해안선은 장식이 아니다.**
    *
    * 베이스맵 자산이 없는 환경에서는 `PositionChart`가 대신 뜬다. 거기서 육지·바다는

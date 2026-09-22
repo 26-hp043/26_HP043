@@ -377,7 +377,8 @@
    */
   color: var(--color-on-primary);
   background: var(--color-primary-solid);
-  border: var(--borderWidth-default) solid transparent;
+  /* 경계는 테두리가 맡는다 (`tokens.css` 「Primary 채움 컨트롤의 테두리」 · #1296). */
+  border: var(--borderWidth-default) solid var(--color-primary-solid-border);
   border-radius: var(--radius-control);
   text-decoration: none;
 }
