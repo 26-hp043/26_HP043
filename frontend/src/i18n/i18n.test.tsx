@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { interpolate, useI18n } from './core'
 import { LanguageProvider } from './Provider'
 import { LanguageToggle } from './LanguageToggle'
+import { ThemeToggle } from '../theme/ThemeToggle'
 import { ko } from './ko'
 import { en } from './en'
 
@@ -113,5 +114,21 @@ describe('LanguageToggle', () => {
     })
     expect(english.getAttribute('aria-checked')).toBe('true')
     expect(window.localStorage.getItem('bluelog.lang')).toBe('en')
+  })
+})
+
+describe('ThemeToggle — 낭독 이름이 현재 언어를 따른다 (#1525)', () => {
+  it('영어 모드에서 테마 칸이 영어로 읽힌다 — 종전에는 한국어 리터럴이었다', () => {
+    window.localStorage.setItem('bluelog.lang', 'en')
+    render(
+      <LanguageProvider>
+        <ThemeToggle />
+      </LanguageProvider>,
+    )
+    expect(screen.getByRole('radiogroup', { name: en['theme.groupLabel'] })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: en['theme.light'] })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: en['theme.dark'] })).toBeTruthy()
+    // 한국어 이름이 남아 있지 않다.
+    expect(screen.queryByRole('radiogroup', { name: ko['theme.groupLabel'] })).toBeNull()
   })
 })

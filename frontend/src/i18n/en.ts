@@ -38,6 +38,10 @@ export const en: Record<MessageKey, string> = {
   'account.settings': 'Settings',
   'account.settingsSub': 'Account · Password',
 
+  'theme.groupLabel': 'Theme',
+  'theme.light': 'Light',
+  'theme.dark': 'Dark',
+
   'i18n.groupLabel': 'Language',
   'i18n.korean': 'Korean',
   'i18n.english': 'English',

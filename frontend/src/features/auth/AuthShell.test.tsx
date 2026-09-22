@@ -188,3 +188,14 @@ describe('미인증 배너 — 등급 색을 쓰지 않는다 (#748)', () => {
     expect(body).toMatch(/border-radius:\s*0/)
   })
 })
+
+describe('언어 선택 칸 — 인증 화면에는 두지 않는다 (#1525)', () => {
+  it('셸에 언어 radiogroup이 없다 — 눌러도 바뀌는 문자열이 없는 화면이다', () => {
+    /*
+     * 2026-09-22 결정. 인증 화면 문구가 사전(`i18n/ko.ts`)에 들어오면 이 검사를 지우고
+     * 칸을 둔다 — 그때까지는 누르면 아무것도 바뀌지 않는 컨트롤이 된다.
+     */
+    render(<AuthShell title="로그인">폼</AuthShell>)
+    expect(screen.queryByRole('radiogroup')).toBeNull()
+  })
+})

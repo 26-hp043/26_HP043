@@ -43,6 +43,11 @@ export const ko = {
   'account.settings': '설정',
   'account.settingsSub': '계정 정보 · 비밀번호',
 
+  /** 테마 선택 칸(#1525) — 아이콘만 있는 칸의 낭독 이름. 안내는 현재 언어로 읽힌다 */
+  'theme.groupLabel': '화면 테마',
+  'theme.light': '밝은 화면',
+  'theme.dark': '어두운 화면',
+
   /** 언어 선택 칸(#1215) — 안내는 현재 언어로 읽힌다 */
   'i18n.groupLabel': '언어',
   'i18n.korean': '한국어',
