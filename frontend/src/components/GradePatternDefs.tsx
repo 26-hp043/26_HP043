@@ -72,9 +72,18 @@
  * 값을 §15.1로 되돌렸으므로 **마커 크기에서 다시 봐야 한다.** 규격값이 20px에서
  * 읽히지 않는다면 그것은 정본 개정 사안이지 이 파일에서 조용히 조정할 일이 아니다.
  */
+/**
+ * 정의만 담는 SVG라 **레이아웃 흐름에 끼지 않게** 띄운다 (#1693).
+ *
+ * 셸(`.app-shell`)은 `display: flex` + `gap`이라, 폭 0이어도 flex 항목이면 뒤에 간격이
+ * 한 번 더 붙는다 — 모든 화면의 사이드바가 24가 아니라 48에서 시작했다(`§7.1` 산술이
+ * 24px 어긋남). `display: none`은 쓰지 않는다 — 일부 브라우저에서 `<pattern>` 참조가 끊긴다.
+ */
+const OUT_OF_FLOW = { position: 'absolute', width: 0, height: 0, overflow: 'hidden' } as const
+
 export function GradePatternDefs() {
   return (
-    <svg width="0" height="0" aria-hidden="true" focusable="false">
+    <svg width="0" height="0" aria-hidden="true" focusable="false" style={OUT_OF_FLOW}>
       <defs>
         {/* B — 45° 사선 ╱ */}
         <pattern

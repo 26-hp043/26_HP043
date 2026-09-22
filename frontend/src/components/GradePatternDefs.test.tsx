@@ -31,6 +31,16 @@ function pattern(container: HTMLElement, id: string) {
   return node as SVGPatternElement
 }
 
+describe('정의 SVG는 레이아웃 흐름에 끼지 않는다 (#1693)', () => {
+  it('position: absolute — 셸 flex의 gap을 한 칸 차지하지 않는다', () => {
+    const { container } = render(<GradePatternDefs />)
+    const svg = container.querySelector('svg') as SVGSVGElement
+    expect(svg.style.position).toBe('absolute')
+    // display: none이면 일부 브라우저에서 <pattern> 참조가 끊긴다.
+    expect(svg.style.display).not.toBe('none')
+  })
+})
+
 describe('등급 패턴 — §15.1 공통 규격', () => {
   it('타일 간격은 네 등급 모두 4px다', () => {
     const container = defs()
