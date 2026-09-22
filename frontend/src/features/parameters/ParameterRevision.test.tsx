@@ -135,3 +135,52 @@ describe('ParameterRevision', () => {
     expect(await screen.findByText('둘러보기에서는 열람할 수 없는 화면입니다.')).toBeTruthy()
   })
 })
+
+
+describe('늦게 온 검증 결과 (#1642)', () => {
+  /** 검증 응답을 테스트가 원할 때 끝내는 provider. */
+  function deferredProvider() {
+    let release: ((value: ParameterImportResult) => void) | null = null
+    const importParameters = vi.fn(
+      () =>
+        new Promise<ParameterImportResult>((resolve) => {
+          release = resolve
+        }),
+    )
+    return {
+      provider: { importParameters, listRevisions: vi.fn(async () => ({ events: [], nextCursor: null })) },
+      finish: (value: ParameterImportResult) => release?.(value),
+      importParameters,
+    }
+  }
+
+  it('기다리는 동안 종류를 바꾸면 앞 요청의 성공으로 확정이 열리지 않는다', async () => {
+    const { provider: p, finish } = deferredProvider()
+    render(<ParameterRevision user={user('OFFICE')} provider={p as never} />)
+    pickFile()
+    fireEvent.click(screen.getByRole('button', { name: '검증' }))
+
+    fireEvent.change(screen.getByLabelText('종류'), { target: { value: 'fuel_types' } })
+    finish(ok(true))
+
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: '검증' }) as HTMLButtonElement).disabled).toBe(false),
+    )
+    expect((screen.getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('기다리는 동안 파일을 바꿔도 앞 요청의 성공을 쓰지 않는다', async () => {
+    const { provider: p, finish } = deferredProvider()
+    render(<ParameterRevision user={user('OFFICE')} provider={p as never} />)
+    pickFile()
+    fireEvent.click(screen.getByRole('button', { name: '검증' }))
+
+    pickFile()
+    finish(ok(true))
+
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: '검증' }) as HTMLButtonElement).disabled).toBe(false),
+    )
+    expect((screen.getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+})
