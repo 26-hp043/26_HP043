@@ -60,7 +60,7 @@ export function createApiAssistantProvider(
       return { available: body.data.available }
     },
 
-    async ask({ message, sessionId, vesselId }): Promise<ChatAnswer> {
+    async ask({ message, sessionId, vesselId, calculationRunId }): Promise<ChatAnswer> {
       let response: Response
       try {
         response = await fetchImpl(`${baseUrl}/chat`, {
@@ -75,6 +75,7 @@ export function createApiAssistantProvider(
             message,
             ...(sessionId ? { session_id: sessionId } : {}),
             ...(vesselId ? { vessel_id: vesselId } : {}),
+            ...(calculationRunId ? { calculation_run_id: calculationRunId } : {}),
           }),
         })
       } catch (cause) {

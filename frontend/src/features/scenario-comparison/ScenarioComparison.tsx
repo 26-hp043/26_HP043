@@ -63,6 +63,7 @@ import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
 import { useShowsLabelEn } from '../../i18n/core'
+import { publishScreenResult } from '../assistant/screenResult'
 
 /**
  * 기능② 시나리오 비교 (#156).
@@ -314,6 +315,8 @@ export function ScenarioComparison({
     setState({ status: 'loading' })
     provider.compare(toRequest(form, fuels)).then(
       (response) => {
+        // #1533 — 챗봇이 「이 결과」를 저장된 실행에서 읽게 한다.
+        publishScreenResult(response.calculation_run_id)
         setState({ status: 'success', response, snapshot })
         onDisclaimer?.(response.disclaimer)
       },

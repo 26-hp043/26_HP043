@@ -60,5 +60,7 @@ export interface AssistantProvider {
     message: string
     sessionId?: string
     vesselId?: string
+    /** #1533 — 화면이 방금 낸 계산 결과의 실행 id. 서버 도구가 저장된 결과를 읽는다. */
+    calculationRunId?: string
   }): Promise<ChatAnswer>
 }

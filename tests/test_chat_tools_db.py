@@ -1,4 +1,4 @@
-"""챗봇 도구 4종의 **실제 실행 경로** (`#120` · IT-CHATDB-001~009).
+"""챗봇 도구 5종의 **실제 실행 경로** (`#120` · IT-CHATDB-001~009 · `#1533`).
 
 ## 왜 필요한가
 
@@ -36,9 +36,10 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.db.types import JSONText, UuidText
 from cii_platform.services import chat_tools
 
 #: `PRD §16.3.1` 전송 금지 값이 들어간 선박명 — 봉투에 나타나면 안 된다.
@@ -251,7 +252,12 @@ async def test_annual_simulation_publishes_only_the_whitelist(session, vessel_id
     )
     body = _parsed(raw)
     assert "error" not in body, body
-    assert set(body["result"]) <= set(chat_tools._PUBLISH_MAP.values()), body["result"]
+    # `#1533` — 연말 예상과 올해 누적을 **블록으로 나눠** 넘긴다. 블록 안은 정본 이름뿐이다.
+    assert set(body["result"]) <= {"year_end_projection", "ytd"}, body["result"]
+    assert "ytd" in body["result"], body["result"]
+    for block in body["result"].values():
+        assert set(block) <= set(chat_tools._PUBLISH_MAP.values()), block
+    assert "rating" in body["result"]["ytd"], body["result"]
 
     flat = _flat(body)
     assert VESSEL_NAME not in flat
@@ -436,3 +442,162 @@ async def test_search_with_two_matches_asks_the_screen(session, vessel_id):
     assert body["ok"] is False
     assert "2척이 일치합니다" in body["error"]
     assert outcome.resolved_vessel_id is None
+
+
+# ── #1533 화면의 결과를 읽는 도구 ────────────────────────────────────────────────
+
+_HASH = "sha256:" + "0" * 64
+
+
+async def _voyage_run(session, vessel_id) -> UUID:
+    """항차 CII 추정 한 건을 **저장해** 실행 id를 돌려준다(화면이 계산한 것과 같은 경로)."""
+    from cii_platform.services.voyage_cii import FuelUseInput, VoyageCiiInput, estimate_voyage_cii
+
+    response = await estimate_voyage_cii(
+        session,
+        VoyageCiiInput(
+            vessel_id=vessel_id,
+            regulation_year=2026,
+            distance_nm=Decimal("5000"),
+            speed_kn=Decimal("12"),
+            fuel_uses=(FuelUseInput(fuel_type="HFO", fuel_ton=Decimal("400")),),
+        ),
+    )
+    return UUID(str(response["calculation_run_id"]))
+
+
+async def test_screen_result_reads_the_stored_voyage_run(session, vessel_id):
+    """`#1533` — 화면이 낸 실행의 **저장된 값 그대로**를 넘긴다(다시 계산하지 않는다)."""
+    run_id = await _voyage_run(session, vessel_id)
+    stored = (
+        await session.execute(
+            text("SELECT result_json FROM calculation_run WHERE id = :id").bindparams(
+                bindparam("id", type_=UuidText)
+            ),
+            {"id": run_id},
+        )
+    ).scalar_one()
+    stored = json.loads(stored) if isinstance(stored, str) else stored
+
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_EXPLAIN_SCREEN_RESULT,
+        arguments={},
+        vessel_id=vessel_id,
+        screen_run_id=run_id,
+    )
+    body = _parsed(raw)
+    assert body["ok"] is True, body
+    assert body["kind"] == "VOYAGE_ESTIMATE"
+    assert body["result"]["attained_cii"] == stored["attained_cii"]
+    assert body["result"]["rating"] == stored["estimated_rating"]
+    flat = _flat(body)
+    assert VESSEL_NAME not in flat
+    assert str(vessel_id) not in flat
+    assert str(run_id) not in flat
+
+
+async def test_screen_result_keeps_the_scenario_order(session, vessel_id):
+    """`#1533` — 시나리오 실행은 **저장 순서 그대로** 넘긴다(순위화는 No-Advice 금지)."""
+    from cii_platform.services.scenario_compare import ScenarioCompareInput, compare_scenarios
+
+    response = await compare_scenarios(
+        session,
+        ScenarioCompareInput(
+            vessel_id=vessel_id,
+            regulation_year=2026,
+            current_speed_kn=Decimal("12"),
+            fuel_type="HFO",
+            direct_distance_nm=Decimal("5000"),
+            base_daily_foc_ton=Decimal("30"),
+        ),
+    )
+    expected = [row["attained_cii"] for row in response["data"]["scenarios"]]
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_EXPLAIN_SCREEN_RESULT,
+        arguments={},
+        vessel_id=vessel_id,
+        screen_run_id=UUID(str(response["calculation_run_id"])),
+    )
+    body = _parsed(raw)
+    assert body["kind"] == "SCENARIO", body
+    assert [row["attained_cii"] for row in body["result"]["scenarios"]] == expected
+
+
+async def test_screen_result_reads_annual_probabilities(session, vessel_id):
+    """`#1533` — 연간 시뮬레이션은 **확률을 저장값에서** 읽는다. 다시 돌리면 화면과 달라진다."""
+    run_id = uuid4()
+    payload = {
+        "deterministic": {"projected_attained_cii": "5.123456", "projected_rating": "D"},
+        "monte_carlo": {
+            "rating_probabilities": {"C": "0.25", "D": "0.6", "E": "0.15"},
+            "target_success_probability": "0.2500",
+            "target_rating": "C",
+            "p50": "5.1",
+        },
+        "risk_level": "HIGH",
+        "sensitivity_analysis": {},
+    }
+    await session.execute(
+        text(
+            "INSERT INTO calculation_run (id, calculation_type, vessel_id, input_hash, "
+            "parameter_hash, model_version, result_json, parameters_used) "
+            "VALUES (:id, 'ANNUAL_MONTE_CARLO', :vid, :h, :h, :mv, :rj, :pu)"
+        ).bindparams(
+            bindparam("id", type_=UuidText),
+            bindparam("vid", type_=UuidText),
+            bindparam("mv", type_=JSONText()),
+            bindparam("rj", type_=JSONText()),
+            bindparam("pu", type_=JSONText()),
+        ),
+        {"id": run_id, "vid": vessel_id, "h": _HASH, "mv": {}, "rj": payload, "pu": {}},
+    )
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_EXPLAIN_SCREEN_RESULT,
+        arguments={},
+        vessel_id=vessel_id,
+        screen_run_id=run_id,
+    )
+    body = _parsed(raw)
+    assert body["kind"] == "ANNUAL_MONTE_CARLO", body
+    result = body["result"]
+    assert result["target_success_probability"] == "0.2500 (25.0%)"
+    assert result["rating"] == "D"
+    assert result["attained_cii"] == "5.123456"
+    assert result["target_rating"] == "C"
+    assert result["risk_level"] == "HIGH"
+    assert set(result["rating_probabilities"]) == {"C", "D", "E"}
+    # 표에 없는 값(p50 등)은 나가지 않는다.
+    assert "p50" not in _flat(body)
+
+
+async def test_screen_result_of_another_vessel_is_refused(session, vessel_id):
+    """`#1533` — 상단 선박과 실행의 선박이 다르면 읽지 않는다 — 맞는 수로 틀린 배를 설명한다."""
+    run_id = await _voyage_run(session, vessel_id)
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_EXPLAIN_SCREEN_RESULT,
+        arguments={},
+        vessel_id=uuid4(),
+        screen_run_id=run_id,
+    )
+    body = _parsed(raw)
+    assert body["ok"] is False, body
+    assert "attained_cii" not in _flat(body)
+
+
+async def test_missing_screen_run_never_echoes_the_id(session, vessel_id):
+    """`#1533` — 없는 실행이면 고정 문구 오류다. id를 문구에 싣지 않는다(`#1310`)."""
+    ghost = uuid4()
+    raw = await chat_tools.run_tool(
+        session,
+        name=chat_tools.TOOL_EXPLAIN_SCREEN_RESULT,
+        arguments={},
+        vessel_id=vessel_id,
+        screen_run_id=ghost,
+    )
+    body = _parsed(raw)
+    assert body["ok"] is False, body
+    assert str(ghost) not in _flat(body)

@@ -6,6 +6,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { AssistantOverlay, type AssistantOverlayProps } from './AssistantOverlay'
 import { AssistantError } from './apiProvider'
 import type { AssistantProvider, ChatAnswer } from './types'
+import { publishScreenResult, resetScreenResult } from './screenResult'
 
 /**
  * AI 어시스턴트 오버레이 (`UIFLOW 2-7` · `#121`).
@@ -399,5 +400,29 @@ describe('패널을 열 때 사용 가능 여부를 먼저 묻는다 (`#1535` ·
     await waitFor(() => expect(status).toHaveBeenCalled())
     expect(screen.queryByRole('status')).toBeNull()
     expect((screen.getByLabelText('질문') as HTMLTextAreaElement).disabled).toBe(false)
+  })
+})
+
+describe('화면의 결과를 함께 보낸다 (`#1533`)', () => {
+  it('지금 화면이 낸 결과의 실행 id를 질문에 싣는다', async () => {
+    publishScreenResult('run-7')
+    try {
+      const { ask } = setup()
+      open()
+      await send('이 결과가 왜 D인가요?')
+      await waitFor(() => expect(ask).toHaveBeenCalled())
+      expect(ask.mock.calls[0][0].calculationRunId).toBe('run-7')
+    } finally {
+      resetScreenResult()
+    }
+  })
+
+  it('결과를 낸 적이 없으면 싣지 않는다', async () => {
+    resetScreenResult()
+    const { ask } = setup()
+    open()
+    await send('안녕하세요')
+    await waitFor(() => expect(ask).toHaveBeenCalled())
+    expect(ask.mock.calls[0][0].calculationRunId).toBeUndefined()
   })
 })
