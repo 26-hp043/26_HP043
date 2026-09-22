@@ -5,6 +5,7 @@ import {
   subscribeTheme,
   type ThemeChoice,
 } from './theme'
+import { useI18n } from '../i18n/core'
 import './ThemeToggle.css'
 
 /**
@@ -27,8 +28,14 @@ import './ThemeToggle.css'
  * `aria-label`을 들고 있으면 같은 말이 화면에 한 번·낭독에 한 번, 서로 다른
  * 소유자에게 **두 벌**로 남는다 — 한쪽만 고치는 날 갈린다. 보이는 라벨의 id를
  * 받으면 그쪽에 맡기고 자기 라벨은 내려놓는다.
+ *
+ * ## 낭독 이름은 사전을 거친다 (#1525)
+ *
+ * 종전에는 「화면 테마 / 밝은 화면 / 어두운 화면」이 리터럴이라 **영어 모드에서도 한국어로
+ * 읽혔다.** 옆 `LanguageToggle`이 이미 사전을 거치므로 같은 규칙을 따른다.
  */
 export function ThemeToggle({ labelledBy }: { labelledBy?: string } = {}) {
+  const { t } = useI18n()
   // 서버 스냅샷(3번째 인자)은 `light` — SSR을 쓰지 않지만 vitest 환경에서
   // matchMedia가 없을 때의 초기값과 일치시켜 깜빡임 경고를 피한다.
   const theme = useSyncExternalStore<ThemeChoice>(
@@ -41,11 +48,11 @@ export function ThemeToggle({ labelledBy }: { labelledBy?: string } = {}) {
     <div
       className="theme-toggle"
       role="radiogroup"
-      aria-label={labelledBy ? undefined : '화면 테마'}
+      aria-label={labelledBy ? undefined : t('theme.groupLabel')}
       aria-labelledby={labelledBy}
     >
-      <Option current={theme} value="light" label="밝은 화면" />
-      <Option current={theme} value="dark" label="어두운 화면" />
+      <Option current={theme} value="light" label={t('theme.light')} />
+      <Option current={theme} value="dark" label={t('theme.dark')} />
     </div>
   )
 }
