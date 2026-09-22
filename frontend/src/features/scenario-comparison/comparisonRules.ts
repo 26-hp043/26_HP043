@@ -62,8 +62,9 @@ export type ComparableMetric = 'attained_cii' | 'duration_hours' | 'fuel_ton'
  * 종합 점수를 매기거나 하나를 고르지 않는다. **지표마다 따로** 최소값을 낸다 —
  * 어느 지표가 중요한지는 사용자가 정한다(`PRD §6.3` 「자동 결정 금지」).
  *
- * 동률이면 **먼저 나온 시나리오**를 고른다. `PRD §11.2` 표 순서가 곧 배열 순서라
- * 결과가 흔들리지 않는다.
+ * **동률이면 전부 돌려준다** (`#799` · 아래 본문 주석). 같은 값 중 하나만 지목하는
+ * 것은 그 자체가 추천이기 때문이다 — 종전 이 자리는 「먼저 나온 시나리오를 고른다」로
+ * 적혀 **본문과 반대**를 말하고 있었다(`#1619` 정정).
  */
 export function lowestScenarios(
   scenarios: readonly ScenarioResult[],
