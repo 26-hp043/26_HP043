@@ -56,8 +56,11 @@ export function CiiForecastPage() {
         <VoyageCiiForm onStateChange={setResult} onStaleChange={setStale} />
         {/* 결과와 그 결과로 할 수 있는 일(#891 · `PRD §10.5`)을 한 단에 둔다. */}
         <div className="cii-forecast-page__result">
-          <VoyageCiiResult state={result} stale={stale} />
-          <VoyageCiiActions state={result} stale={stale} />
+          <VoyageCiiResult
+            state={result}
+            stale={stale}
+            actions={<VoyageCiiActions state={result} stale={stale} />}
+          />
         </div>
       </div>
       <DisclaimerBanner

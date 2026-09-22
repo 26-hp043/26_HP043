@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import './VoyageCiiResult.css'
 import {
@@ -19,6 +20,7 @@ import {
 } from './resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
 import { GradeScaleBar } from '../../components/GradeScaleBar'
+import { VerdictStrip } from '../../components/VerdictStrip'
 import { gradeTargets } from './targetRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import type { AnnualImpact, VoyageCiiResponse } from './types'
@@ -74,9 +76,14 @@ interface VoyageCiiResultProps {
    * 결과가 없으면 어긋날 대상도 없다.
    */
   stale?: boolean
+  /**
+   * 「이 결과로」 — 결과 카드 끝에 둔다 (#1711). 종전에는 페이지가 결과 아래에 따로
+   * 떠 있는 카드로 그렸다. 부품을 이 모듈이 알 필요는 없어 페이지가 넘긴다.
+   */
+  actions?: ReactNode
 }
 
-export function VoyageCiiResult({ state, stale = false }: VoyageCiiResultProps) {
+export function VoyageCiiResult({ state, stale = false, actions }: VoyageCiiResultProps) {
   if (state.status === 'idle') {
     return (
       <section className="voyage-cii-result voyage-cii-result--placeholder" aria-live="polite">
@@ -101,12 +108,20 @@ export function VoyageCiiResult({ state, stale = false }: VoyageCiiResultProps) 
     )
   }
 
-  return <SuccessResult response={state.response} stale={stale} />
+  return <SuccessResult response={state.response} stale={stale} actions={actions} />
 }
 
 /* ------------------------------------------------------------------ */
 
-function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale: boolean }) {
+function SuccessResult({
+  response,
+  stale,
+  actions,
+}: {
+  response: VoyageCiiResponse
+  stale: boolean
+  actions?: ReactNode
+}) {
   const showsLabelEn = useShowsLabelEn()
 
   const data = response.data
@@ -116,25 +131,42 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
   const warnings = displayWarnings(response.warnings)
 
   return (
-    <section
-      className={`voyage-cii-result${stale ? ' voyage-cii-result--stale' : ''}`}
+    <div
+      className={`voyage-cii-result-stack${stale ? ' voyage-cii-result-stack--stale' : ''}`}
       aria-live="polite"
     >
-      <h2 className="card__title voyage-cii-result__title">
-        계산 결과
-        {showsLabelEn ? (
-          <span className="voyage-cii-result__title-en" lang="en">
-            {' '}
-            Result
-          </span>
-        ) : null}
-      </h2>
+      {/*
+        ── 결론 띠 (`DESIGN_SYSTEM §8.6` 🔒 · #1711) ─────────────────────
+
+        이 화면의 답은 「이 항차는 C · 4.982, D까지 7.2% 여유」 한 줄이다. 종전에는 등급
+        배지 옆에 참고 등급 · 다음 경계 · 위험도가 본문 크기로 붙고, 예상 CII는 아래 타일
+        일곱 칸 중 첫 칸에 다른 수치와 같은 크기로 들어 있었다.
+
+        주 결론의 이름은 「항차 조건 기준 예상 CII」 그대로다(#1338) — 아래 「연간 반영 시
+        변화」와 다른 질문에 답한다는 구분을 띠에서도 지킨다.
+      */}
+      <VerdictStrip
+        label="결론"
+        main={{
+          label: '항차 조건 기준 예상 CII',
+          value: formatDecimalString(data.attained_cii, DISPLAY_DIGITS.cii),
+          unit,
+          rating: data.estimated_rating,
+          ratingLabel: `참고 등급 ${data.estimated_rating}`,
+        }}
+        /*
+          라벨이 없으면 굵은 「해당 없음 — 최하위 등급」이 **등급 E 자체를 설명하는 말**로
+          읽힌다 (#727). 실시간 CII 화면(`#725`)이 같은 값에 같은 라벨을 쓴다.
+        */
+        sub={{ label: '다음 경계까지', value: margin.text }}
+        risk={{ level: data.risk_level, heading: '위험도', ...risk }}
+      />
 
       {/*
         입력이 바뀌었는데 결과가 그대로 남아 있는 상태 (#727). 종전에는 표시가
-        없어 **옛 입력으로 낸 숫자를 현재 조건의 답으로** 읽게 됐다.
+        없어 **옛 입력으로 낸 숫자를 현재 조건의 답으로** 읽게 됐다. 띠 바로 아래다.
 
-        `role`을 붙이지 않는다 — 이 섹션이 이미 `aria-live`라 안내가 두 번 읽힌다.
+        `role`을 붙이지 않는다 — 이 묶음이 이미 `aria-live`라 안내가 두 번 읽힌다.
       */}
       {stale ? (
         <p className="voyage-cii-result__stale">
@@ -147,139 +179,122 @@ function SuccessResult({ response, stale }: { response: VoyageCiiResponse; stale
         DESIGN_SYSTEM §11 — 전면 추정 화면이므로 개별 점선 밑줄 대신 화면 단위 고지로
         갈음한다. 표시 수치가 전부 사용자 입력 기반 추정이라 개별 표기가 구분 정보를
         전달하지 못한다. 외부 데이터 출처가 없으므로 출처명 필드는 강제하지 않는다.
+        자리는 띠 바로 아래다(`§8.6` · #1578).
       */}
       <p className="voyage-cii-result__estimate-notice">
         이 화면의 수치는 모두 <strong>입력한 항차 조건에 기반한 추정값</strong>입니다.
         기준 시각은 계산을 실행한 시점입니다.
       </p>
 
-      <div className="voyage-cii-result__grade-row">
-        <GradeBadge rating={data.estimated_rating} label={`참고 등급 ${data.estimated_rating}`} />
-        <div className="voyage-cii-result__grade-meta">
-          <p className="voyage-cii-result__grade-label">참고 등급</p>
-          {/*
-            라벨이 없으면 굵은 「해당 없음 — 최하위 등급」이 **등급 E 자체를
-            설명하는 말**로 읽힌다 (#727). 실시간 CII 화면(`#725`)이 같은 값에
-            같은 라벨을 쓴다 — 두 화면이 같은 지표를 다른 이름으로 부르지 않는다.
-          */}
-          <p className="voyage-cii-result__margin">
-            <span className="voyage-cii-result__margin-label">다음 경계까지</span>
-            {margin.text}
-          </p>
-          <p className="voyage-cii-result__risk">
-            <span className="voyage-cii-result__risk-label">위험도</span>
-            {risk.withIcon ? (
-              // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden. 아이콘에도
-              // aria-label을 붙이면 「높음 HIGH 주의 필요」로 중복해 읽힌다.
-              <span className="voyage-cii-result__risk-icon">
-                <Icon glyph={AlertTriangle} size="inline" />
-              </span>
-            ) : null}
-            <span className={`voyage-cii-result__risk-value voyage-cii-result__risk-value--${data.risk_level.toLowerCase()}`}>
-              {risk.text}
+      <section className="voyage-cii-result" aria-labelledby="voyage-cii-result-title">
+        <h2 id="voyage-cii-result-title" className="card__title voyage-cii-result__title">
+          계산 결과
+          {showsLabelEn ? (
+            <span className="voyage-cii-result__title-en" lang="en">
+              {' '}
+              Result
             </span>
-          </p>
-        </div>
-      </div>
+          ) : null}
+        </h2>
 
-      <dl className="voyage-cii-result__metrics">
-        <Metric
-          label="항차 조건 기준 예상 CII"
-          value={formatDecimalString(data.attained_cii, DISPLAY_DIGITS.cii)}
-          unit={unit}
-          emphasis
-        />
-        <Metric
-          label="기준 CII"
-          labelEn="required CII"
-          value={formatDecimalString(data.required_cii, DISPLAY_DIGITS.cii)}
-          unit={unit}
-        />
-        <Metric
-          label="기준 대비 비율"
-          value={`${formatPercent(data.ratio_to_required)}%`}
-        />
-        <Metric
-          label="CO₂ 배출량"
-          value={formatGrouped(data.co2_emission_ton, DISPLAY_DIGITS.co2Ton)}
-          unit={DISPLAY_UNITS.co2}
-        />
-        <Metric
-          label="연료 사용량"
-          value={formatGrouped(data.fuel_consumption_ton, DISPLAY_DIGITS.fuelTon)}
-          unit={DISPLAY_UNITS.fuel}
-        />
-        <Metric
-          label="항해거리"
-          value={formatGrouped(toDecimalInput(data.distance_nm), DISPLAY_DIGITS.distanceNm)}
-          unit={DISPLAY_UNITS.distance}
-        />
         {/*
-          「연간 반영 시 변화」 — `PRD §10.4` 출력 표의 행 (`#1338`).
-
-          ⚠️ **위 칸들과 다른 질문에 답한다.** 위는 「이 항차 하나의 강도」이고
-          이 칸은 「선박의 연말 값이 이 항차 때문에 어디로 가나」다 — **두 값이
-          반대 방향을 가리키는 것이 정상**이므로 값 옆에 그 사실을 적는다.
-
-          기초 자료가 없으면 서버가 `null`을 주고 **칸 자체를 그리지 않는다** —
-          빈칸을 두면 「아직 안 온 값」으로 읽힌다(`#1097`과 같은 판단).
+          「라벨 · 값」 2열 목록 (`§5` 카드 예산 · #1711). 종전에는 타일 일곱 칸을 3열에
+          놓아 마지막 줄에 「연간 반영 시 변화」 한 칸만 남았다. 예상 CII는 띠로 올라갔다.
         */}
-        {data.annual_impact !== null ? (
-          <Metric
-            label="연간 반영 시 변화"
-            value={annualImpactValue(data.annual_impact)}
-            unit={data.annual_impact.rating_changed ? '등급 변동' : '등급 유지'}
+        <dl className="voyage-cii-result__list">
+          <Row
+            label="기준 CII"
+            labelEn="required CII"
+            value={formatDecimalString(data.required_cii, DISPLAY_DIGITS.cii)}
+            unit={unit}
           />
+          <Row label="기준 대비 비율" value={`${formatPercent(data.ratio_to_required)}%`} />
+          <Row
+            label="CO₂ 배출량"
+            value={formatGrouped(data.co2_emission_ton, DISPLAY_DIGITS.co2Ton)}
+            unit={DISPLAY_UNITS.co2}
+          />
+          <Row
+            label="연료 사용량"
+            value={formatGrouped(data.fuel_consumption_ton, DISPLAY_DIGITS.fuelTon)}
+            unit={DISPLAY_UNITS.fuel}
+          />
+          <Row
+            label="항해거리"
+            value={formatGrouped(toDecimalInput(data.distance_nm), DISPLAY_DIGITS.distanceNm)}
+            unit={DISPLAY_UNITS.distance}
+          />
+          {/*
+            「연간 반영 시 변화」 — `PRD §10.4` 출력 표의 행 (`#1338`).
+
+            ⚠️ **위 값들과 다른 질문에 답한다.** 띠는 「이 항차 하나의 강도」이고
+            이 줄은 「선박의 연말 값이 이 항차 때문에 어디로 가나」다 — **두 값이
+            반대 방향을 가리키는 것이 정상**이므로 값 옆에 그 사실을 적는다.
+
+            기초 자료가 없으면 서버가 `null`을 주고 **줄 자체를 그리지 않는다** —
+            빈칸을 두면 「아직 안 온 값」으로 읽힌다(`#1097`과 같은 판단).
+          */}
+          {data.annual_impact !== null ? (
+            <Row
+              label="연간 반영 시 변화"
+              value={annualImpactValue(data.annual_impact)}
+              unit={data.annual_impact.rating_changed ? '등급 변동' : '등급 유지'}
+            />
+          ) : null}
+        </dl>
+
+        {/*
+          목록 바로 아래 — 이 바는 한 값의 부속이 아니라 **예상 CII · 기준 CII가 놓인
+          축**이다. 폭도 카드 전체를 써야 눈금이 읽힌다.
+        */}
+        <GradeScaleBar
+          ratioToRequired={data.ratio_to_required}
+          boundaries={response.parameters_used.rating_boundary}
+          rating={data.estimated_rating}
+          valueLabel={`${formatPercent(data.ratio_to_required)}%`}
+          label="항차 조건 기준 예상 CII의 등급 스케일"
+        />
+
+        {/*
+          「그래서 얼마나 줄여야 하나」 (#727). 이 화면은 **항해 전** 화면이라
+          수치를 바꿀 여지가 아직 있고, 그 질문이 곧 이 화면을 여는 이유다.
+          표로 둔다 — 카드로 쪼개면 떠 있는 면이 늘어난다(`§5` · #1711).
+        */}
+        <GradeTargets
+          data={data}
+          boundary={response.parameters_used.rating_boundary}
+          unit={unit}
+        />
+
+        {/*
+          면책은 화면 하단 배너 한 곳에서만 말한다 — `REFERENCE_ONLY`는 그 문구와
+          같은 말이라 여기서 걸러 낸다. 나머지 경고는 그대로 싣는다.
+        */}
+        {warnings.length > 0 ? (
+          <ul className="voyage-cii-result__warnings">
+            {warnings.map((code) => (
+              <li key={code} className="voyage-cii-result__warning">
+                <span className="voyage-cii-result__warning-icon">
+                  <Icon glyph={AlertTriangle} size="inline" />
+                </span>
+                {warningMessage(code)}
+              </li>
+            ))}
+          </ul>
         ) : null}
-      </dl>
 
-      {/*
-        지표 격자 바로 아래 — 첫 칸이 「항차 조건 기준 예상 CII」다. 격자 안에
-        끼우지 않은 것은 이 바가 한 지표의 부속이 아니라 **위 세 CII 값이 놓인
-        축**이기 때문이다. 폭도 한 칸이 아니라 카드 전체를 써야 눈금이 읽힌다.
-      */}
-      <GradeScaleBar
-        ratioToRequired={data.ratio_to_required}
-        boundaries={response.parameters_used.rating_boundary}
-        rating={data.estimated_rating}
-        valueLabel={`${formatPercent(data.ratio_to_required)}%`}
-        label="항차 조건 기준 예상 CII의 등급 스케일"
-      />
+        {/*
+          「이 결과로」 (#891 · `PRD §10.5`) — 종전에는 결과 아래 **따로 떠 있는 카드**였다.
+          결과로 할 일은 결과 카드의 끝에 둔다(`§5` · #1711).
+        */}
+        {actions}
 
-      {/*
-        「그래서 얼마나 줄여야 하나」 (#727). 이 화면은 **항해 전** 화면이라
-        수치를 바꿀 여지가 아직 있고, 그 질문이 곧 이 화면을 여는 이유다.
-        종전에는 「E입니다」에서 끝나 다음 행동이 화면 밖에 있었다.
-      */}
-      <GradeTargets
-        data={data}
-        boundary={response.parameters_used.rating_boundary}
-        unit={unit}
-      />
-
-      {/* 「그 숫자가 어떻게 나왔나」 (#727) */}
-      <CalculationBasisPanel response={response} />
-
-      {/*
-        면책은 화면 하단 배너 한 곳에서만 말한다 — `REFERENCE_ONLY`는 그 문구와
-        같은 말이라 여기서 걸러 낸다. 나머지 경고는 그대로 싣는다.
-      */}
-      {warnings.length > 0 ? (
-        <ul className="voyage-cii-result__warnings">
-          {warnings.map((code) => (
-            <li key={code} className="voyage-cii-result__warning">
-              <span className="voyage-cii-result__warning-icon">
-                <Icon glyph={AlertTriangle} size="inline" />
-              </span>
-              {warningMessage(code)}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
+        {/* 「그 숫자가 어떻게 나왔나」 (#727) */}
+        <CalculationBasisPanel response={response} />
+      </section>
+    </div>
   )
 }
-
 /* ------------------------------------------------------------------ */
 
 /**
@@ -460,40 +475,36 @@ function CalculationBasisPanel({ response }: { response: VoyageCiiResponse }) {
 }
 
 /* ------------------------------------------------------------------ */
-
-interface MetricProps {
+/**
+ * 「라벨 · 값」 한 줄 (`DESIGN_SYSTEM §5` 카드 예산 · #1711).
+ *
+ * 종전 `Metric`은 회색 타일(면 + 테두리)이라 카드 안에 면을 또 띄웠다. 목록 한 줄로
+ * 두고 구분선으로만 나눈다. `dl` 안의 `div` 묶음은 HTML이 허용하는 형태다.
+ */
+interface RowProps {
   label: string
   labelEn?: string
   value: string
   unit?: string
-  emphasis?: boolean
 }
 
-function Metric({ label, labelEn, value, unit, emphasis }: MetricProps) {
+function Row({ label, labelEn, value, unit }: RowProps) {
   const showsLabelEn = useShowsLabelEn()
 
   return (
-    <div
-      className={
-        emphasis
-          ? 'voyage-cii-result__metric voyage-cii-result__metric--emphasis'
-          : 'voyage-cii-result__metric'
-      }
-    >
-      <dt className="voyage-cii-result__metric-label">
+    <div className="voyage-cii-result__row">
+      <dt>
         {label}
-        {labelEn ? (
-          showsLabelEn ? (
-            <span className="voyage-cii-result__metric-label-en" lang="en">
-              {' '}
-              {labelEn}
-            </span>
-          ) : null
+        {labelEn && showsLabelEn ? (
+          <span className="voyage-cii-result__row-label-en" lang="en">
+            {' '}
+            {labelEn}
+          </span>
         ) : null}
       </dt>
-      <dd className="voyage-cii-result__metric-value">
-        {value}
-        {unit ? <span className="voyage-cii-result__metric-unit"> {unit}</span> : null}
+      <dd>
+        <span className="voyage-cii-result__row-value">{value}</span>
+        {unit ? <span className="voyage-cii-result__row-unit"> {unit}</span> : null}
       </dd>
     </div>
   )

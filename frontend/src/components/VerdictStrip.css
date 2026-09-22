@@ -1,0 +1,97 @@
+/*
+ * 결론 띠 — `DESIGN_SYSTEM §8.6` 🔒 (#1700 · #1711).
+ *
+ * 떠 있는 면 하나다(`§5` 카드 예산에 센다). 주와 보조 사이는 면을 더 띄우지 않고
+ * 세로 구분선으로 나눈다.
+ */
+.verdict-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-16) var(--space-24);
+  padding: var(--space-16) var(--space-24);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-lv1);
+}
+
+.verdict-strip__main,
+.verdict-strip__sub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.verdict-strip__sub {
+  padding-inline-start: var(--space-24);
+  border-inline-start: 1px solid var(--color-border);
+}
+
+.verdict-strip__label {
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+}
+
+.verdict-strip__pair {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+
+.verdict-strip__value {
+  font-size: var(--font-size-display);
+  line-height: var(--line-height-display);
+  font-weight: var(--font-weight-display);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 보조는 주보다 한 단 작다 — 커지면 `§8.6` 위반이다(`VerdictStrip.sync.test.ts`가 잠근다). */
+.verdict-strip__sub-value {
+  font-size: var(--font-size-h2);
+  line-height: var(--line-height-h2);
+  font-weight: var(--font-weight-h2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 단위는 값보다 작고 흐리게 — 값과 같은 줄의 아래선에 맞춘다. */
+.verdict-strip__unit {
+  align-self: flex-end;
+  padding-block-end: var(--space-4);
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+}
+
+/*
+ * 위험도 pill — 면과 테두리는 중립, 단계 색은 글자에만(`§2.5 (b)` · `§2.3`).
+ * 띠 오른쪽 끝에 붙인다. 좁아서 줄이 넘어가면 왼쪽부터 다시 선다.
+ */
+.verdict-strip__risk {
+  margin: 0 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-12);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-2);
+  font-size: var(--font-size-label);
+}
+
+.verdict-strip__risk-label {
+  color: var(--color-text-muted);
+}
+
+.verdict-strip__risk-icon {
+  display: inline-flex;
+  color: var(--color-warning-text);
+}
+
+.verdict-strip__risk-value {
+  font-weight: var(--font-weight-strong);
+  color: var(--color-text);
+}
+
+.verdict-strip__risk-value--high { color: var(--color-warning-text); }
+.verdict-strip__risk-value--critical { color: var(--color-danger-text); }

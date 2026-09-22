@@ -28,29 +28,40 @@
 
 .cii-forecast-page__split {
   display: grid;
-  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  /*
+   * 입력 기둥은 고정 폭 360, 결과는 나머지 전체 — `DESIGN_SYSTEM §8.7` 〔권장〕 (#1711).
+   * 종전 5:7에서는 1440에서 입력이 440px로 넓고 결과가 좁았다. `§7.1`은 분할을 한다면
+   * 7:5를 정한 것이고, 이 배치는 `§8.7`이 따로 정한 틀이다. 연간 등급 관리(#1700)와
+   * 같은 규칙이다 — `styles/inputColumn.sync.test.ts`가 두 화면을 함께 대조한다.
+   */
+  grid-template-columns: var(--grid-input-column) minmax(0, 1fr);
   gap: var(--grid-gutter);
   /*
    * 폼이 결과보다 짧다. stretch로 두면 짧은 쪽 카드가 긴 쪽 높이까지 늘어나
-   * 아래가 빈 카드로 남는다.
+   * 아래가 빈 카드로 남는다. sticky가 붙으려면 역시 start여야 한다.
    */
   align-items: start;
 }
 
 /*
- * 두 자식의 루트 클래스로 직접 배치한다. 폼·결과 컴포넌트에 className prop을
- * 뚫지 않기 위한 선택이며, 그 대가로 이 파일이 자식의 루트 클래스명을 안다.
+ * 입력 기둥은 스크롤을 따라온다(`§8.7`). 붙는 자리는 sticky 상단바 아래다 — 위 틈 +
+ * 최소 높이 56px + 아래 틈. 연료 줄을 여럿 더하면 기둥이 창보다 길어질 수 있어 높이를
+ * 창에 맞추고 기둥 안에서 스크롤한다 — 그러지 않으면 아래 「계산하기」에 닿지 못한다.
+ *
+ * 폼 컴포넌트에 className prop을 뚫지 않고 루트 클래스로 직접 잡는다. 그 대가로 이
+ * 파일이 자식의 루트 클래스명을 안다.
  */
 .cii-forecast-page__split > .voyage-cii-form {
-  grid-column: span var(--grid-split-secondary);
+  --cii-forecast-sticky-top: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+
+  position: sticky;
+  top: var(--cii-forecast-sticky-top);
+  max-block-size: calc(100vh - var(--cii-forecast-sticky-top) - var(--shell-gutter, var(--grid-gutter)));
+  overflow-y: auto;
 }
 
-/*
- * 결과 단 — 결과 카드와 액션 카드(#891)를 세로로 쌓는다. 액션을 그리드의 셋째 자식으로
- * 두면 폼이 결과보다 길 때 그 아래 행으로 밀려 결과와 떨어진다.
- */
+/* 결과 단 — 결론 띠 · 고지 · 결과 카드(「이 결과로」 포함)를 세로로 쌓는다. */
 .cii-forecast-page__split > .cii-forecast-page__result {
-  grid-column: span var(--grid-split-primary);
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
@@ -58,21 +69,16 @@
 }
 
 /*
- * 1100 이하에서는 세로로 떨어진다.
+ * 1100 이하에서는 입력이 위, 결과가 아래로 접힌다(`§8.7`).
  *
  * 1100은 이 저장소가 이미 쓰던 값이다 — `FleetDashboard` · `RealtimeCiiView` ·
- * `VesselDetail`이 모두 여기서 2단을 접는다. 화면마다 다른 값을 쓰면 창을 줄일 때
- * 화면들이 제각각 무너져 같은 제품으로 보이지 않는다.
+ * `VesselDetail` · 연간 등급 관리가 모두 여기서 2단을 접는다.
  *
- * **종전 값 1440을 쓰지 않는다.** `max-width`는 경계를 포함하므로 뷰포트가 정확히
- * 1440인 흔한 환경(1440p 모니터·다수 노트북)과 1366 빔프로젝터에서 **2단이 아예
- * 보이지 않았다.** 이 화면은 셸(`width: 'form'`)이 1440에서 자르므로 값을 낮춰도
- * 레이아웃이 넓어지지 않는다 — 1440~1100 구간에서 2단이 유지될 뿐이다.
+ * 접힌 뒤에는 따라오지 않는다 — 결과 위에 입력이 덮이면 결과를 읽을 수 없다.
+ * 폭은 2단 이전의 정책(720)으로 돌아간다. 셸이 주는 폭을 한 단이 그대로 채우면
+ * 입력 필드 하나가 500px를 넘어 읽기 나빠진다.
  *
  * 미디어 쿼리 조건에는 커스텀 프로퍼티를 쓸 수 없어 리터럴로 적는다.
- *
- * 세로로 떨어진 뒤에는 2단 이전의 폭 정책(720)으로 돌아간다. 셸이 주는 폭을
- * 한 단이 그대로 채우면 입력 필드 하나가 500px를 넘어 읽기 나빠진다.
  */
 @media (max-width: 1100px) {
   .cii-forecast-page {
@@ -83,8 +89,9 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .cii-forecast-page__split > .voyage-cii-form,
-  .cii-forecast-page__split > .cii-forecast-page__result {
-    grid-column: auto;
+  .cii-forecast-page__split > .voyage-cii-form {
+    position: static;
+    max-block-size: none;
+    overflow-y: visible;
   }
 }

@@ -5,15 +5,16 @@
  * 버튼은 전부 Secondary(아웃라인)다 — 이 화면의 Primary는 「계산하기」이고, 한 화면에 채움
  * 버튼이 둘이면 어느 쪽이 주 동작인지 흐려진다(`§8`). **개발 임시안**이며 디자인 확정 요청에 올린다.
  */
+/*
+ * 결과 카드 끝의 한 구역이다 (#1711) — 면을 따로 띄우지 않고 구분선으로 나눈다
+ * (`DESIGN_SYSTEM §5` 카드 예산). 종전에는 결과 아래 떠 있는 카드였다.
+ */
 .voyage-cii-actions {
   display: flex;
   flex-direction: column;
   gap: var(--space-12);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv1);
-  padding: var(--space-16);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-16);
 }
 
 .voyage-cii-actions__title {

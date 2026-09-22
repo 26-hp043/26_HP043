@@ -9,7 +9,6 @@ import { useShellContext } from '../../layout/shellContext'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
-import { GradeBadge } from '../../components/GradeBadge'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
 import { SCREEN_BY_ID } from '../../screens'
@@ -47,6 +46,7 @@ import { SnapshotVoyages } from './SnapshotVoyages'
 import { isOffice, useAuthUser } from '../../auth/session'
 import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { Icon } from '../../components/Icon'
+import { VerdictStrip } from '../../components/VerdictStrip'
 import { publishScreenResult } from '../assistant/screenResult'
 
 /**
@@ -661,46 +661,20 @@ function Result({
         보조는 결정론 연말 예측 하나다. 등급 배지와 값은 한 사실이다(`§14`).
         집계 · 남은 항차 수는 아래 「계산 근거」로 내린다.
       */}
-      <section className="annual-sim__verdict" aria-label={ANNUAL_COPY.verdictLabel}>
-        <div className="annual-sim__verdict-main">
-          <span className="annual-sim__label">
-            {ANNUAL_COPY.targetSuccessLabel} ({mc.target_rating} 이상)
-          </span>
-          <span className="annual-sim__verdict-value">
-            {toPercent(mc.target_success_probability)}
-          </span>
-        </div>
-        <div className="annual-sim__verdict-sub">
-          <span className="annual-sim__label">{ANNUAL_COPY.verdictProjectedLabel}</span>
-          <span className="annual-sim__verdict-grade">
-            <GradeBadge
-              rating={det.projected_rating}
-              size="sm"
-              label={`${ANNUAL_COPY.projectedRatingLabel} ${det.projected_rating}`}
-            />
-            <span className="annual-sim__verdict-sub-value">
-              {formatDecimalString(det.projected_attained_cii, DISPLAY_DIGITS.cii)}
-            </span>
-          </span>
-        </div>
-        {/*
-          위험도 pill — `§2.5 (b)`의 단계별 색(HIGH Warning · CRITICAL Danger)은 **글자에만**
-          입힌다. 면과 테두리는 중립이다(`§2.3` 경고색은 한 자리에 한 번).
-        */}
-        <p className="annual-sim__risk-pill">
-          <span className="annual-sim__risk-pill-label">{ANNUAL_COPY.riskLabel}</span>
-          {risk.withIcon ? (
-            <span className="annual-sim__risk-pill-icon">
-              <Icon glyph={AlertTriangle} size="inline" />
-            </span>
-          ) : null}
-          <span
-            className={`annual-sim__risk-pill-value annual-sim__risk-pill-value--${result.risk_level.toLowerCase()}`}
-          >
-            {risk.text}
-          </span>
-        </p>
-      </section>
+      <VerdictStrip
+        label={ANNUAL_COPY.verdictLabel}
+        main={{
+          label: `${ANNUAL_COPY.targetSuccessLabel} (${mc.target_rating} 이상)`,
+          value: toPercent(mc.target_success_probability),
+        }}
+        sub={{
+          label: ANNUAL_COPY.verdictProjectedLabel,
+          value: formatDecimalString(det.projected_attained_cii, DISPLAY_DIGITS.cii),
+          rating: det.projected_rating,
+          ratingLabel: `${ANNUAL_COPY.projectedRatingLabel} ${det.projected_rating}`,
+        }}
+        risk={{ level: result.risk_level, heading: ANNUAL_COPY.riskLabel, ...risk }}
+      />
 
       {/*
         이 결과의 조건 (#1553) · 추정 고지 (#1578) — 띠 바로 아래 한 줄씩(`§8.6`).
