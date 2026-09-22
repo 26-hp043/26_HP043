@@ -64,6 +64,9 @@
    *
    * 후광 없이 잰 마커 채움은 **E를 빼고 전부 `3:1` 미달**이다
    * (A 2.89 · B 1.59 · C 1.93 · D 2.30 · none 1.76, 바다 기준).
+   *
+   * **개략도(`PositionChart.css` `.position-chart__ship`)도 같은 값을 쓴다** — `§9.5`가
+   * 「렌더러와 무관하게 모든 마커」로 정했다(`#1302`). 갈리면 `markerShadow.test.ts`가 실패한다.
    */
   filter: drop-shadow(0 0 1px var(--color-text));
 }
