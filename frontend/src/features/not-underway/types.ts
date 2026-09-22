@@ -41,9 +41,10 @@ export interface PeriodList {
   periodTypes: string[]
   consumerTypes: string[]
   /**
-   * 활성 연료 코드. `API_SPEC §7.2`의 연료 조회 API가 **아직 구현되지 않아** 구간
-   * 목록이 함께 준다 — 화면이 코드를 박아 두면 seed와 갈라진다(실제로 `MDO`는
-   * 그럴듯해 보이지만 시드에 없는 코드다).
+   * 활성 연료 코드. `API_SPEC §7.2` 연료 조회(`parameters.listFuelTypes`)에서 온다 — 구간 목록과
+   * **병렬로** 받는다(`apiProvider.ts`). 화면이 코드를 박아 두면 seed와 갈라진다(실제로 `MDO`는
+   * 그럴듯해 보이지만 시드에 없는 코드다). 종전에는 §7.2가 구현되기 전이라 구간 목록의
+   * `meta`에 실려 왔다(`#1660` 정정).
    */
   fuelTypes: string[]
 }
