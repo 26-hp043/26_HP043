@@ -178,6 +178,45 @@ describe('등록 결과 카드 (#1102 ⑷)', () => {
     expect(screen.queryByText('BULK_CARRIER')).toBeNull()
   })
 
+  /**
+   * 값 칸의 3상태 (`#1656`). 판정 자체는 `resultRules.test.ts`가 순수 함수로
+   * 잠그고, 여기서는 **카드가 그 판정을 그린다**는 것만 본다.
+   */
+  async function registerAndRead(vessel: Record<string, unknown>) {
+    stubFetch([jsonResponse({ data: { ...REGISTERED, ...vessel } }, 201)])
+    render(
+      <MemoryRouter>
+        <VesselRegistration />
+      </MemoryRouter>,
+    )
+    fillRequired('9000001', '알파호')
+    fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
+    await screen.findByText('등록 완료')
+
+    const label = screen.getByText('CII 적용 대상 추정')
+    return label.nextElementSibling?.textContent ?? ''
+  }
+
+  it('GT 미입력을 「미해당」으로 적지 않는다 (#1656)', async () => {
+    const value = await registerAndRead({ gross_tonnage: null, is_cii_applicable_hint: false })
+
+    expect(value).not.toBe('미해당')
+    expect(value).toContain('GT')
+  })
+
+  it('GT가 있는데 미해당이면 그대로 미해당이라고 적는다 (#1656)', async () => {
+    const value = await registerAndRead({ gross_tonnage: 3000, is_cii_applicable_hint: false })
+
+    expect(value).not.toContain('GT 미입력')
+    expect(value.length).toBeGreaterThan(0)
+  })
+
+  it('대상인 선박은 해당이라고 적는다 (#1656)', async () => {
+    const value = await registerAndRead({ gross_tonnage: 30000, is_cii_applicable_hint: true })
+
+    expect(value).toBe('해당')
+  })
+
   it('두 번째 등록이 실패하면 첫 선박의 「등록 완료」 카드가 남지 않는다', async () => {
     stubFetch([
       jsonResponse({ data: REGISTERED }, 201),
