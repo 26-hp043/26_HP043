@@ -1,6 +1,6 @@
 import { SESSION_EXPIRED_MESSAGE, redirectToLogin } from '../../auth/session'
 import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 
 /**
  * 선박 상세의 **계산 이력** (#992 · `API_SPEC §1.9` · `PRD §8.4` 「재계산 필요 표시」).

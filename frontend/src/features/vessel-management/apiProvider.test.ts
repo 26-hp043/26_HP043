@@ -1,10 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { DEFAULT_API_BASE_URL, readPageMeta } from '../../api/base'
 import {
   MALFORMED_ERROR_MESSAGE,
   NETWORK_ERROR_MESSAGE,
   createApiVesselManagementProvider,
-  readPageMeta,
   toVesselManagementError,
 } from './apiProvider'
 import { VesselManagementError } from './provider'
