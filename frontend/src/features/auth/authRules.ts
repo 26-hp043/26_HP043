@@ -77,9 +77,12 @@ export const ROLE_DESCRIPTION =
 /**
  * 사무직 전용 **화면**에 현장직이 들어왔을 때 (`RequireOffice`). 표시 문구다 — 서버의
  * `403 FORBIDDEN_ROLE` 문구(「이 작업은 …」)는 조작 단위라 화면 단위 안내는 따로 적는다.
+ *
+ * **역할을 바꿀 수 있는 사람은 관리자뿐이다**(`PATCH /auth/users/{id}/role` · `require_admin` ·
+ * `#1301`). 종전 문구는 「사무직 담당자에게」였는데 사무직에게는 그 권한이 없어, 안내를 따라간
+ * 사용자가 도움을 받을 수 없었다(`#1649`). 역할 이름을 `ROLE_LABEL`에서 가져와 둘이 갈리지 않게 한다.
  */
-export const OFFICE_ONLY_SCREEN_NOTICE =
-  '이 화면은 사무직 계정만 쓸 수 있습니다. 필요하면 사무직 담당자에게 역할 변경을 요청해 주세요.'
+export const OFFICE_ONLY_SCREEN_NOTICE = `이 화면은 ${ROLE_LABEL.OFFICE} 계정만 쓸 수 있습니다. 필요하면 ${ROLE_LABEL.ADMIN}에게 역할 변경을 요청해 주세요.`
 
 /** 사무직 전용 **조작**을 현장직 화면에서 비활성으로 둘 때의 짧은 설명. 표시 문구다. */
 export const OFFICE_ONLY_ACTION_HINT = '사무직 계정만 할 수 있는 작업입니다.'
