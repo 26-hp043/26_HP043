@@ -17,7 +17,7 @@
   "dependencies": {
     "@protomaps/basemaps": "^5.7.2",
     "lucide-react": "^1.45.0",
-    "maplibre-gl": "^6.9.0",
+    "maplibre-gl": "^6.10.0",
     "pmtiles": "^4.5.0",
     "react": "^19.2.8",
     "react-dom": "^19.3.0",
