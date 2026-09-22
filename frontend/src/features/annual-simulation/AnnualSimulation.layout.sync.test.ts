@@ -25,43 +25,8 @@ function rule(selector: string): string {
   return match[2]
 }
 
-describe('입력-결과 2단 — `DESIGN_SYSTEM §8.7`', () => {
-  it('입력 기둥은 `--grid-input-column` 고정 폭이다 — 12컬럼 비율(5:7)이 아니다', () => {
-    const body = rule('.annual-sim')
-    expect(body).toMatch(/grid-template-columns:\s*var\(--grid-input-column\)\s+minmax\(0,\s*1fr\)/)
-    expect(CSS).not.toMatch(/--grid-split-(primary|secondary)/)
-  })
-
-  it('입력 기둥은 스크롤을 따라오고, 창보다 길면 기둥 안에서 스크롤한다', () => {
-    const body = rule('.annual-sim__form')
-    expect(body).toMatch(/position:\s*sticky/)
-    expect(body).toMatch(/max-block-size:/)
-    expect(body).toMatch(/overflow-y:\s*auto/)
-  })
-
-  it('1100 이하에서는 한 단으로 접히고 따라오지 않는다', () => {
-    const media = /@media \(max-width: 1100px\) \{([\s\S]*?)\n\}/.exec(CSS)?.[1] ?? ''
-    expect(media).toMatch(/\.annual-sim\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/)
-    expect(media).toMatch(/\.annual-sim__form\s*\{[^}]*position:\s*static/)
-  })
-})
-
-describe('결론 띠 — `DESIGN_SYSTEM §8.6` 🔒', () => {
-  it('주 결론은 `display` 크기다', () => {
-    expect(rule('.annual-sim__verdict-value')).toMatch(/font-size:\s*var\(--font-size-display\)/)
-  })
-
-  it('⚠️ 보조는 `display`가 아니다 — 주 결론 크기로 커지면 위반이다', () => {
-    const body = rule('.annual-sim__verdict-sub-value')
-    expect(body).not.toMatch(/--font-size-display/)
-    expect(body).toMatch(/font-size:\s*var\(--font-size-h2\)/)
-  })
-
-  it('위험도 pill의 면은 중립이다 — 경고색은 글자에만 (`§2.3` · `§2.5 (b)`)', () => {
-    const body = rule('.annual-sim__risk-pill')
-    expect(body).not.toMatch(/warning|danger/)
-  })
-})
+// 입력-결과 2단은 화면들을 한 표로 대조한다 — `styles/inputColumn.sync.test.ts` (#1711).
+// 결론 띠의 크기 · pill 규칙은 공용 부품이 잠근다 — `components/VerdictStrip.sync.test.ts` (#1711).
 
 describe('카드 예산 — `DESIGN_SYSTEM §5`', () => {
   it('「라벨 · 값」 줄은 면을 띄우지 않는다 — 배경 · 그림자 없이 구분선만', () => {

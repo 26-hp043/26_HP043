@@ -101,3 +101,75 @@ describe('「계산 근거」 → 규제 기준값 절 (#1516)', () => {
     expect(screen.getByText(/a 4745 · c 0\.622/)).toBeTruthy()
   })
 })
+
+/**
+ * 결론이 맨 위에 선다 (#1711 · `DESIGN_SYSTEM §8.6` 🔒 · `§5` 카드 예산).
+ *
+ * 종전에는 등급 배지 옆에 참고 등급 · 다음 경계 · 위험도가 본문 크기로 붙고, 예상
+ * CII는 타일 일곱 칸 중 첫 칸이었다. 타일이 3열에 놓여 마지막 줄에 한 칸만 남았다.
+ */
+describe('결론이 맨 위에 선다 (#1711)', () => {
+  function renderResult(extra: Partial<VoyageCiiResponse['data']> = {}, stale = false) {
+    const response = { ...RESPONSE, data: { ...RESPONSE.data, ...extra } }
+    return render(
+      <MemoryRouter>
+        <VoyageCiiResult
+          state={{ status: 'success', response, request: REQUEST }}
+          stale={stale}
+          actions={<section className="voyage-cii-actions">이 결과로</section>}
+        />
+      </MemoryRouter>,
+    )
+  }
+
+  it('첫 자리는 결론 띠다 — 주: 참고 등급 + 예상 CII, 보조: 다음 경계까지', () => {
+    const { container } = renderResult()
+    const strip = screen.getByRole('region', { name: '결론' })
+    expect(container.querySelector('.voyage-cii-result-stack')!.firstElementChild).toBe(strip)
+
+    expect(strip.querySelector('.verdict-strip__value')!.textContent).toBe('4.982')
+    expect(within(strip).getByRole('img', { name: '참고 등급 C' })).toBeTruthy()
+    const sub = strip.querySelector('.verdict-strip__sub') as HTMLElement
+    expect(within(sub).getByText('다음 경계까지')).toBeTruthy()
+    expect(within(sub).getByText(/D 등급까지 7\.2%/)).toBeTruthy()
+    expect(strip.querySelectorAll('.verdict-strip__risk')).toHaveLength(1)
+  })
+
+  it('결과 안에 회색 타일이 없고, 수치는 「라벨 · 값」 목록이다', () => {
+    const { container } = renderResult()
+    expect(container.querySelector('[class*="voyage-cii-result__metric"]')).toBeNull()
+    const list = container.querySelector('dl.voyage-cii-result__list') as HTMLElement
+    expect(within(list).getByText('기준 CII')).toBeTruthy()
+    // 예상 CII는 띠로 올라갔다 — 목록에 다시 서지 않는다
+    expect(within(list).queryByText('항차 조건 기준 예상 CII')).toBeNull()
+  })
+
+  it('연간 반영 시 변화가 있으면 목록의 한 줄이다 — 따로 남는 칸이 없다', () => {
+    renderResult({
+      annual_impact: {
+        before: { attained_cii: '5.100000', rating: 'D' },
+        after: { attained_cii: '5.050000', rating: 'D' },
+        rating_changed: false,
+      },
+    } as Partial<VoyageCiiResponse['data']>)
+    const row = screen.getByText('연간 반영 시 변화').closest('.voyage-cii-result__row')
+    expect(row).toBeTruthy()
+    expect(within(row as HTMLElement).getByText('D → D')).toBeTruthy()
+  })
+
+  it('「이 결과로」는 결과 카드 안에 있다 — 따로 떠 있는 면이 아니다 (`§5`)', () => {
+    const { container } = renderResult()
+    const actions = container.querySelector('.voyage-cii-actions')!
+    expect(actions.closest('section.voyage-cii-result')).toBeTruthy()
+    // 떠 있는 면: 결론 띠 · 결과 카드 둘 (입력 카드는 페이지 쪽)
+    expect(container.querySelectorAll('.verdict-strip, section.voyage-cii-result')).toHaveLength(2)
+  })
+
+  it('입력이 바뀌면 안내가 띠 바로 아래에 선다', () => {
+    const { container } = renderResult({}, true)
+    const stack = container.querySelector('.voyage-cii-result-stack')!
+    expect(stack.className).toContain('voyage-cii-result-stack--stale')
+    const strip = screen.getByRole('region', { name: '결론' })
+    expect(strip.nextElementSibling!.className).toBe('voyage-cii-result__stale')
+  })
+})

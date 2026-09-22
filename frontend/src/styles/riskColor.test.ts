@@ -18,11 +18,12 @@ import { join } from 'node:path'
  */
 const SCREENS = [
   {
-    name: '기능① 항차 CII',
-    file: 'src/features/voyage-cii/VoyageCiiResult.css',
-    high: '.voyage-cii-result__risk-value--high',
-    critical: '.voyage-cii-result__risk-value--critical',
-    icon: '.voyage-cii-result__risk-icon',
+    // 기능① 항차 CII · 기능③ 연간 등급 — 결론 띠 공용 부품 (#1711)
+    name: '결론 띠 (기능① · ③)',
+    file: 'src/components/VerdictStrip.css',
+    high: '.verdict-strip__risk-value--high',
+    critical: '.verdict-strip__risk-value--critical',
+    icon: '.verdict-strip__risk-icon',
   },
   {
     name: '기능② 실시간 CII',

@@ -1276,17 +1276,17 @@ describe('결론이 맨 위에 선다 (#1700)', () => {
     expect(verdict.parentElement!.firstElementChild).toBe(verdict)
 
     // 주 결론 — `display` 크기 자리에 달성 확률, 라벨에 목표 등급
-    expect(verdict.querySelector('.annual-sim__verdict-value')!.textContent).toBe('30.0%')
+    expect(verdict.querySelector('.verdict-strip__value')!.textContent).toBe('30.0%')
     expect(within(verdict).getByText(`${ANNUAL_COPY.targetSuccessLabel} (B 이상)`)).toBeTruthy()
 
     // 보조 — 등급 배지와 값이 한 쌍이다(`§14`)
-    const sub = verdict.querySelector('.annual-sim__verdict-sub') as HTMLElement
+    const sub = verdict.querySelector('.verdict-strip__sub') as HTMLElement
     expect(within(sub).getByText(ANNUAL_COPY.verdictProjectedLabel)).toBeTruthy()
     expect(sub.querySelector('.grade-badge')).toBeTruthy()
-    expect(sub.querySelector('.annual-sim__verdict-sub-value')!.textContent).toBe('5.025')
+    expect(sub.querySelector('.verdict-strip__sub-value')!.textContent).toBe('5.025')
 
     // 위험도 pill 하나 — `PRD §9.4.2` 달성 확률 기반
-    expect(verdict.querySelectorAll('.annual-sim__risk-pill')).toHaveLength(1)
+    expect(verdict.querySelectorAll('.verdict-strip__risk')).toHaveLength(1)
     expect(within(verdict).getByText('높음 HIGH')).toBeTruthy()
   })
 
@@ -1297,9 +1297,9 @@ describe('결론이 맨 위에 선다 (#1700)', () => {
 
     const verdict = screen.getByRole('region', { name: ANNUAL_COPY.verdictLabel })
     // `display` 크기 클래스는 띠 안에 딱 하나 — 주 결론 자리뿐이다.
-    expect(verdict.querySelectorAll('.annual-sim__verdict-value')).toHaveLength(1)
+    expect(verdict.querySelectorAll('.verdict-strip__value')).toHaveLength(1)
     expect(
-      verdict.querySelector('.annual-sim__verdict-sub .annual-sim__verdict-value'),
+      verdict.querySelector('.verdict-strip__sub .verdict-strip__value'),
     ).toBeNull()
   })
 
@@ -1322,7 +1322,7 @@ describe('결론이 맨 위에 선다 (#1700)', () => {
     await runOnce()
 
     const surfaces = container.querySelectorAll(
-      '.annual-sim__form, .annual-sim__verdict, .annual-sim__block',
+      '.annual-sim__form, .verdict-strip, .annual-sim__block',
     )
     expect(surfaces.length).toBeLessThanOrEqual(4)
     // 종전 타일 클래스는 남지 않는다
