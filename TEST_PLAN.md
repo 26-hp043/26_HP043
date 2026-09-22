@@ -47,27 +47,16 @@
 
 ```
 tests/
-  conftest.py                           # 공용 fixture (DB session, httpx client, JSON loader) [ORACLE-M-5]
+  conftest.py                           # 공용 fixture — §1.6 참조 (DB 마이그레이션·연결·JSON 로더) [ORACLE-M-5]
   fixtures/
     cii/
       bulk_50000_hfo_2026.json          # Fixture 1
       rating_boundaries_bulk_2026.json  # Fixture 2
-      tanker_80000_hfo_2025.json        # 추가 선종
-      container_50000_hfo_2026.json     # 추가 선종
-    capacity/
-      bulk_300k_capacity_separation.json  # P0-1 이중 capacity
-      lng_50k_capacity_separation.json    # P0-1 LNG 위험 사례
+    csv/
+      voyage_import_sample.csv          # 항차 CSV 가져오기 (§8.2)
     simulation/
-      annual_seed_12345_input.json
+      annual_seed_12345_input.json      # Fixture 3
       annual_seed_12345_expected.json
-    api/
-      voyage_estimate_response.json
-      scenario_compare_response.json
-      voyage_create_invalid_policy.json
-    weather/
-      open_meteo_success.json
-      api_fail_cache_6h.json
-      api_fail_no_cache.json
   unit/
     test_cii_engine.py
     test_rating_boundary.py
@@ -313,7 +302,13 @@ raw_boundary = input 조건으로 재계산한 확정 전 경계 (§1.2.1 「공
 
 ### 1.5 Fixture 4 — 이중 Capacity 분리 [EXT-P0-1]
 
-**파일**: `tests/fixtures/capacity/bulk_300k_capacity_separation.json`
+> ⚠️ **이 절의 파일은 만들어지지 않았다** (`#1666` 확인 · 2026-09-23). `tests/fixtures/capacity/`는 저장소에 없고, 아래 JSON을 읽는 코드도 없다 — 문자열 `capacity_separation`이 나오는 곳은 **이 문서 자신뿐**이다.
+>
+> **대신 `tests/test_capacity_rules.py`(19함수)가 같은 것을 인라인 값으로 검증한다.** 300,000 DWT 벌크선의 transport capacity(실제 DWT)와 reference capacity(`fixed 65000`)가 갈리는지를 값으로 단언하며, 픽스처 파일을 거치지 않는다.
+>
+> **아래 JSON은 그 규칙의 설명으로 남긴다** — 값이 `§1.2`·`§1.3`처럼 파일과 대조되는 정본값이 아니라, **무엇을 가르는가**를 적어 둔 예시다. 파일을 만들 이유가 생기면(다른 언어 구현이 같은 값을 읽어야 할 때) 그때 이 블록에서 만든다.
+
+**파일**: `tests/fixtures/capacity/bulk_300k_capacity_separation.json` (미생성 — 위 각주)
 
 ```json
 {
@@ -335,7 +330,7 @@ raw_boundary = input 조건으로 재계산한 확정 전 경계 (§1.2.1 「공
 }
 ```
 
-**파일**: `tests/fixtures/capacity/lng_50k_capacity_separation.json`
+**파일**: `tests/fixtures/capacity/lng_50k_capacity_separation.json` (미생성 — 위 각주)
 
 ```json
 {
@@ -416,7 +411,7 @@ def load_fixture():
 - **합격 기준은 수기로 검증이 끝난 `§1.2`의 6개 값이다.** 독립 구현만으로는 한계가 있다 — 같은 식을 다시 옮겨 적는 것이라 **옮겨 적는 실수는 잡아도 식 자체가 틀렸으면 같이 틀린다.**
 - **작업 순서** — ⑴ 생성기를 먼저 만들고 ⑵ 확정된 6개 값이 그대로 재현되는지로 생성기를 검증한 뒤 ⑶ 픽스처 파일을 만든다. **없는 파일을 가리키는 문장이 중간에 존재하지 않게** 하는 순서다.
 
-> **소관** — 생성기와 `tests/fixtures/` 파일은 **`#45`에서 만든다.** 현재 저장소에 둘 다 없으며, 픽스처를 **글자로 대조하는 코드도 0곳**이다. 경로·조건은 데이터·문서 담당(`sky01170851`)의 확인 9 · 10 회신에서 확정됐다.
+> **소관 — 생성기도 픽스처도 이미 있다** (`#1666` 정정 · 2026-09-23). `scripts/gen_fixtures.py`와 `tests/fixtures/`의 다섯 파일은 `#45`에서 **만들어졌다.** 픽스처를 **글자로 대조하는 검사**도 있다 — `tests/test_layer1_fixtures.py`의 `test_generator_reproduces_fixture_files`(생성기를 다시 돌려 파일과 대조) · `test_fixture_files_match_test_plan`(파일이 `§1.2`·`§1.3`의 JSON 블록과 같은지 대조) · `test_generator_does_not_import_service_code`(위 독립성 조건 1). 종전 문장은 *「현재 저장소에 둘 다 없으며, 픽스처를 글자로 대조하는 코드도 0곳이다」*로 적고 있었다 — `§1.2`의 같은 종류 문장은 `#195`가 이미 같은 이유로 지웠고, 이 자리만 남아 있었다.
 
 ---
 
