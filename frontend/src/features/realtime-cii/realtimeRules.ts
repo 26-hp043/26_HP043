@@ -130,9 +130,17 @@ export function isNotUnderWay(data: RealtimeCii): boolean {
  * 그 상태를 「악화 중」으로 그리면 화면이 사실과 다른 말을 한다.
  *
  * `#370`이 만든 입력 경로가 바로 이 조건을 채우는 곳이다.
+ *
+ * ⚠️ **구간 수가 아니라 배출량을 본다** (`#1658`). 종전에는 `notUnderwayPeriodCount > 0`이라
+ * **연료가 없는 구간도 「계속 나빠집니다」**로 그렸다 — 기록이 없으면 분자가 그대로인데도
+ * 그렇게 말했다. `UIFLOW 2-9`가 구분 기준을 「정박 연료 기록」으로 정했고, 서버가 그 몫을
+ * 준다(`API_SPEC §2.14`). 값이 `null`(누적을 낼 수 없는 해)이면 **악화로 단정하지 않는다.**
  */
 export function isDegradingAtBerth(data: RealtimeCii): boolean {
-  return isNotUnderWay(data) && data.ytd.notUnderwayPeriodCount > 0
+  const co2 = data.ytd.notUnderwayCo2Ton
+  if (co2 === null) return false
+  const tons = Number(co2)
+  return isNotUnderWay(data) && Number.isFinite(tons) && tons > 0
 }
 
 /**

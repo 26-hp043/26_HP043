@@ -231,6 +231,12 @@ class YtdCiiOutput:
     #: ``data_available``가 ``False``여도 값 자체는 계산돼 있어 그대로 실린다 —
     #: 「거리는 없고 정박 연료만 있다」는 상태를 화면이 구분할 수 있게 한다.
     total_fuel_ton: Decimal | None = None
+    #: 정박(not under way) 구간에 기록된 **연료 톤** 합계 (`#1658`).
+    #:
+    #: ``total_fuel_ton``에 이미 섞여 있지만, 화면이 「정박이 지금 등급을 밀고 있는가」를
+    #: 판정하려면 정박 몫만 따로 있어야 한다 — 구간이 있어도 연료가 0이면 분자가 늘지
+    #: 않는다(`UIFLOW 2-9`의 구분 기준이 「정박 연료 기록」이다).
+    not_underway_fuel_ton: Decimal = Decimal(0)
     #: **실적 확정(`INCLUDE_AS_ACTUAL`) 항차 수** — 진행 중 항차를 세지 않는다 (`API_SPEC §2.7`).
     voyage_count: int = 0
     #: 누적에 **포함된** 진행 중 항차 수(0 또는 1) (`#800`).
@@ -402,6 +408,10 @@ async def compute_ytd_cii(
 
     fuel_ton_breakdown = _fuel_ton_breakdown(aggregated)
     total_fuel_ton = sum(fuel_ton_breakdown.values(), Decimal(0))
+    # `#1658` — 정박 몫만 따로 센다. `data_available`가 거짓이어도 값은 있다(거리가 0인 해).
+    not_underway_fuel_ton = sum(
+        (Decimal(row.fuel_ton) for row in aggregated.not_underway_fuel), Decimal(0)
+    )
 
     # 분모는 두 갈래의 **합**이다 (MEPC.412(84) §4.2).
     total_distance_nm = aggregated.underway_distance_nm + aggregated.not_underway_distance_nm
@@ -428,6 +438,7 @@ async def compute_ytd_cii(
             voyage_count=aggregated.voyage_count,
             in_progress_voyage_count=0 if in_progress is None else 1,
             not_underway_period_count=period_count,
+            not_underway_fuel_ton=not_underway_fuel_ton,
         )
 
     regulation = await _load_regulation_year(session, regulation_year)
@@ -495,6 +506,7 @@ async def compute_ytd_cii(
         total_co2_t=layer1.ytd.total_co2_t,
         underway_co2_g=layer1.ytd.underway_co2_g,
         not_underway_co2_g=layer1.ytd.not_underway_co2_g,
+        not_underway_fuel_ton=not_underway_fuel_ton,
         fuel_breakdown_g=layer1.ytd.fuel_breakdown_g,
         underway_distance_nm=aggregated.underway_distance_nm,
         not_underway_distance_nm=aggregated.not_underway_distance_nm,

@@ -1374,6 +1374,7 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
       "total_co2_ton": "…", "total_fuel_ton": "…",
       "underway_distance_nm": "…", "not_underway_distance_nm": "…", "total_distance_nm": "10620.00",
       "voyage_count": 3, "in_progress_voyage_count": 1, "not_underway_period_count": 1,
+      "not_underway_fuel_ton": "40.00", "not_underway_co2_ton": "124.56",
       "substitutions": [
         { "voyage_id": "…", "axis": "FUEL", "fuel_type": "HFO" },
         { "voyage_id": "…", "axis": "DISTANCE", "fuel_type": null }
@@ -1416,6 +1417,17 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
 ```
 
 모든 수치는 **문자열**이다 (`§1.7`). `parseFloat`으로 되돌리면 Layer 1이 `Decimal`로 지킨 정밀도가 사라진다.
+
+#### `ytd`의 정박 몫 — `not_underway_fuel_ton` · `not_underway_co2_ton` (#1658)
+
+정박(not under way) 구간에 기록된 **연료 톤과 그 배출량**이다. 둘 다 `total_fuel_ton`·`total_co2_ton`에 이미 포함돼 있고, 여기서는 **정박 몫만** 따로 싣는다.
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `not_underway_fuel_ton` | string | 정박 구간 연료 합 (2자리). 구간이 없거나 연료가 없으면 `"0.00"` |
+| `not_underway_co2_ton` | string \| null | 그 연료의 배출량 (2자리). 계층 1이 계산한 g을 t로 옮긴 값이며, 누적을 낼 수 없는 해는 `null` |
+
+**화면은 이 값으로 「정박이 지금 등급을 밀고 있는가」를 판정한다.** 종전에는 `not_underway_period_count > 0`만 보고 「계속 악화 중」을 그렸는데, **연료가 없는 구간도 그렇게 보였다** — 연료가 0이면 분자가 늘지 않아 등급은 그대로다. `UIFLOW 2-9`가 구분 기준을 「정박 연료 기록」으로 정해 두었고, 그 기준을 화면이 판정하려면 서버가 그 값을 주어야 한다.
 
 #### ⑶ 연말 예상의 산출 방식 — **남은 거리 기반** (`#798`)
 
@@ -4416,3 +4428,4 @@ POST /api/v1/chat
 | 2026-09-23 | `#1710` | **§15.1 「화면의 결과를 읽는 도구」 소절에 `lookup_regulation` 한 줄** (`#1703`) — 규제 기준값 표를 `source_ref`와 함께 읽는 챗봇 도구. `§7` 조회와 같은 서비스에서 값이 오고, 표에 없는 연도는 `null`로 둔다. `AGENTS §4.3`상 항목 추가라 버전은 올리지 않는다 (#1703) |
 | 2026-09-23 | `#1715` | **§3.1 `annual_inclusion_policy` 필터 각주를 현행으로** (`#1667`). 「이 표에만 있고 구현되지 않았다」는 `#1332`를 고치기 **전** 상태의 문장이었다 — PR `#1402`가 라우트에 선언·값 검증을 더한 뒤에도 남아 구현된 필터를 미구현으로 읽히게 했다. 「동작한다 · 정확 일치 · 생략 시 거르지 않음 · 검사 이름」으로 바꾸고 종전 결함은 각주로 남겼다. 문서 정정이라 `AGENTS §4.3`상 버전은 올리지 않는다 (#1667) |
 | 2026-09-23 | `#1737` | 역할 3종 도입 뒤 남은 서술 4곳 정정 — ⑴ `§1.2` 사무직 전용 경로 표의 **「두 역할 모두」 4곳을 「세 역할 모두」**로(`PATCH /vessels/{id}/position` · `GET` 연간 시뮬레이션 · `compare` · `GET §7.1~§7.4`. 같은 절의 다른 행은 이미 「세 역할」이었다) ⑵ `§9` Weather 머리말의 「일반 사용자에게는 노출되지 않는다」를 **실제 접근(로그인한 세 역할 모두 조회 · 역할 가드 없음)**으로 ⑶ 그 아래 `#767` 판정 블록의 「역할 구분이 없다」에 **대체 표시**(2026-09-12 당시 사실 — 사흘 뒤 `#672`가 역할을 도입했다. 판정 자체는 유효하고 근거만 바뀐다) ⑷ `§16.1` 감사 로그 오류 표의 `FORBIDDEN` → **`FORBIDDEN_ROLE`**(코드 `auth/dependencies.py`가 내는 실제 코드). `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 (#1663) |
+| 2026-09-23 | `#1733` | **§2.14 `ytd`에 `not_underway_fuel_ton` · `not_underway_co2_ton` 추가**(예시·소절) (`#1658` · 결정요청 전수검토신규 `F-19` 안 「가」). 화면이 「정박이 등급을 밀고 있는가」를 `not_underway_period_count > 0`으로 판정해 **연료 없는 구간도 「계속 악화 중」**으로 그렸다. `UIFLOW 2-9`가 구분 기준을 「정박 연료 기록」으로 정했으므로 서버가 그 값을 준다 — 계층 1이 이미 계산한 값을 옮길 뿐이라 지어낸 수가 없다. 필드 추가라 `§13.4` v2 규칙에 걸리지 않는다(기존 키·타입 불변). `AGENTS §4.3`상 행·소절 추가라 버전은 올리지 않는다 (#1658) |

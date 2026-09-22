@@ -66,6 +66,8 @@ const BASE: RealtimeCii = {
     totalDistanceNm: '10620.00',
     voyageCount: 3,
     notUnderwayPeriodCount: 0,
+    notUnderwayFuelTon: '0.00',
+    notUnderwayCo2Ton: '0.00',
     // 기본 픽스처는 **전부 실측**이다 — 신뢰도 배지가 붙지 않는 상태 (#485 ⑤).
     substitutions: [],
   },
@@ -205,13 +207,16 @@ describe('정박 판정 — 명세 3-③', () => {
 
     const withFuel = {
       ...berthed,
-      ytd: { ...berthed.ytd, notUnderwayPeriodCount: 1 },
+      ytd: { ...berthed.ytd, notUnderwayPeriodCount: 1, notUnderwayCo2Ton: '124.56' },
     }
     expect(isDegradingAtBerth(withFuel)).toBe(true)
   })
 
   it('항해 중이면 정박 기록이 있어도 「악화 중」이 아니다', () => {
-    const sailing = { ...BASE, ytd: { ...BASE.ytd, notUnderwayPeriodCount: 2 } }
+    const sailing = {
+      ...BASE,
+      ytd: { ...BASE.ytd, notUnderwayPeriodCount: 2, notUnderwayCo2Ton: '124.56' },
+    }
     expect(isDegradingAtBerth(sailing)).toBe(false)
   })
 })
@@ -539,5 +544,35 @@ describe('projectionSentence — 연말 예상의 등급과 값을 한 문장으
 
   it('둘 다 없으면 null', () => {
     expect(projectionSentence(with_({ rating: null, attainedCii: null }, {}))).toBeNull()
+  })
+})
+
+
+describe('정박 악화 판정은 배출량을 본다 (#1658)', () => {
+  const berthed = { ...BASE, underwayState: 'NOT_UNDER_WAY' as const }
+
+  it('구간이 있어도 정박 배출량이 0이면 악화가 아니다 — 분자가 늘지 않는다', () => {
+    const noFuel = {
+      ...berthed,
+      ytd: { ...berthed.ytd, notUnderwayPeriodCount: 3, notUnderwayCo2Ton: '0.00' },
+    }
+    expect(isNotUnderWay(noFuel)).toBe(true)
+    expect(isDegradingAtBerth(noFuel)).toBe(false)
+  })
+
+  it('배출량이 있으면 악화다', () => {
+    const withFuel = {
+      ...berthed,
+      ytd: { ...berthed.ytd, notUnderwayPeriodCount: 1, notUnderwayCo2Ton: '124.56' },
+    }
+    expect(isDegradingAtBerth(withFuel)).toBe(true)
+  })
+
+  it('배출량을 알 수 없으면(null) 악화로 단정하지 않는다', () => {
+    const unknown = {
+      ...berthed,
+      ytd: { ...berthed.ytd, notUnderwayPeriodCount: 2, notUnderwayCo2Ton: null },
+    }
+    expect(isDegradingAtBerth(unknown)).toBe(false)
   })
 })
