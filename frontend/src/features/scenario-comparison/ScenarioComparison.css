@@ -4,18 +4,18 @@
  */
 
 /*
- * 조건 입력 : 결과 좌우 2단.
+ * 조건 입력 : 결과 좌우 2단 — `DESIGN_SYSTEM §8.7` 〔권장〕 (#1745).
  *
- * ## 12컬럼 그리드 (DESIGN_SYSTEM §7.1 🔒)
+ * ## 고정 폭 기둥이지 12컬럼 분할이 아니다
  *
- * §7.1 그리드 표가 컬럼 12 · 거터 24를 고정하고, **주·부 영역 분할은 7:5로
- * 고정한다**고 못박는다. 여기서는 주 영역이 결과(7), 부 영역이 조건 입력(5)이다 —
- * 비교 결과가 이 화면의 주인공이고 입력은 그 조건을 다루는 자리다.
- * `2-1 CII 예측`과 같은 배분이며, 같은 이유다.
+ * 종전에는 `§7.1`의 7:5(결과 7 · 입력 5)였다. `§8.7`이 이 형태의 화면에 따로 정한
+ * 틀은 **입력 기둥 `--grid-input-column`(360) 고정 · 결과는 나머지 전체**다 —
+ * 입력 칸은 화면이 넓어져도 넓어질 이유가 없다. `CII 예측`(#1711) · `연간 등급
+ * 관리`(#1700)와 같은 규칙이며, `styles/inputColumn.sync.test.ts`가 세 화면을 한 표로
+ * 대조한다.
  *
- * `5fr 7fr`로 쓰지 않는다. 그러면 거터 한 칸을 뺀 나머지를 5:7로 나누게 되어
- * **다른 화면의 12컬럼 요소와 세로선이 어긋난다.** 12컬럼을 실제로 깔고 span으로
- * 잡아야 §7.1이 말한 「컴포넌트 폭 가정이 하나로 유지된다」가 성립한다.
+ * `§7.1` 위반이 아니다 — §7.1은 **분할을 한다면 7:5**를 정한 것이고, `§8.7`은 입력-결과
+ * 화면의 배치를 따로 정한다.
  *
  * ## 폭은 이 파일이 정하지 않는다
  *
@@ -25,63 +25,48 @@
  */
 .scenario-comparison {
   display: grid;
-  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+  grid-template-columns: var(--grid-input-column) minmax(0, 1fr);
   gap: var(--grid-gutter);
   /*
    * 폼이 결과보다 짧다. stretch로 두면 짧은 쪽 카드가 긴 쪽 높이까지 늘어나
-   * 아래가 빈 카드로 남는다.
+   * 아래가 빈 카드로 남는다. sticky가 붙으려면 역시 start여야 한다.
    */
   align-items: start;
 }
 
 .scenario-comparison__results {
-  grid-column: span var(--grid-split-primary);
   display: flex;
   flex-direction: column;
   gap: var(--space-16);
+  min-width: 0;
 }
 
 /*
- * 1900 이하에서는 세로로 떨어진다.
+ * 1100 이하에서는 입력이 위, 결과가 아래로 접힌다(`§8.7`).
  *
- * ## 왜 이 화면만 1900인가
+ * ## 1900이었다 (#1745)
  *
- * 다른 세 화면(`FleetDashboard` · `RealtimeCiiView` · `VesselDetail`)은 1100에서
- * 접는다. **그 값을 여기 그대로 쓰면 안 되는 이유는 부(副)가 아니라 주(主)에 있다.**
- * 저쪽은 주 영역이 카드 한 장이라 좁아져도 성립하지만, 이 화면은 주 영역 안에
- * **3열 그리드가 또 들어간다** — 중첩 그리드라 필요 폭이 다르다.
+ * 종전 주석은 이 화면만 1900인 이유를 **주 영역 안에 3열 그리드가 또 들어가기
+ * 때문**이라고 적고 있었다 — 카드 셋이 한 줄에 서려면 결과 폭이 684px 넘게 필요했고,
+ * 7:5 분할에서 그 폭은 1920에서야 나왔다. **그 중첩 그리드가 없어졌다.** 결과는 이제
+ * 표 하나이고, 열 셋은 좁아지면 가로 스크롤로 떨어진다.
  *
- * `.scenario-comparison__cards`가 `minmax(220px, 1fr)`이므로 시나리오 3개가 한 줄에
- * 놓이려면 `220×3 + 12×2 = 684px`가 있어야 한다. 2단일 때 결과 영역은 12컬럼 중
- * 7이라 그 폭이 **1920에서야** 나온다.
+ * 그래서 다른 화면과 같은 1100으로 내린다 — `FleetDashboard` · `RealtimeCiiView` ·
+ * `VesselDetail` · `CII 예측` · `연간 등급 관리`가 모두 여기서 접는다.
  *
- * | 뷰포트 | 2단일 때 결과 폭 | 카드 3열 |
- * |---|---|---|
- * | 1280 | 556 | ❌ 2+1로 깨짐 |
- * | 1440 | 650 | ❌ 2+1로 깨짐 |
- * | 1920 | 930 | ✅ |
- *
- * **이 화면의 목적이 「셋을 나란히 놓고 비교」다.** 하나가 아래로 떨어지면 화면이
- * 성립하지 않으므로, 2단을 유지하는 것보다 결과에 전체 폭을 주는 편이 낫다.
- * 발표가 1280~1440 프로젝터에서 이뤄지는 것도 같은 방향을 가리킨다.
- *
- * `DESIGN_SYSTEM §7.1` 위반이 아니다 — §7.1은 **분할을 한다면 7:5**를 정한 것이지
- * 모든 화면이 분할하라는 것이 아니다. 어디서 접을지는 구현이 정한다.
+ * 접힌 뒤에는 따라오지 않는다 — 결과 위에 입력이 덮이면 결과를 읽을 수 없다.
  *
  * 미디어 쿼리 조건에는 커스텀 프로퍼티를 쓸 수 없어 리터럴로 적는다.
- *
- * 1단으로 떨어진 뒤에 max-width를 걸지 않는다. 폼 내부가 이미
- * `auto-fit minmax(200px, 1fr)`이라 폭이 넓어지면 필드가 늘어나는 대신 열이 늘고,
- * 결과 카드도 같은 방식이다 — 한 단이 넓어져도 읽기가 나빠지지 않는다.
  */
-@media (max-width: 1900px) {
+@media (max-width: 1100px) {
   .scenario-comparison {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .scenario-comparison__form,
-  .scenario-comparison__results {
-    grid-column: auto;
+  .scenario-comparison__form {
+    position: static;
+    max-block-size: none;
+    overflow-y: visible;
   }
 }
 
@@ -93,7 +78,19 @@
  * §14 — 오류는 컨트롤 **아래**에 둔다.
  */
 .scenario-comparison__form {
-  grid-column: span var(--grid-split-secondary);
+  /*
+   * 입력 기둥은 스크롤을 따라온다(`§8.7`). 붙는 자리는 sticky 상단바 아래다 — 위 틈 +
+   * 최소 높이 56px + 아래 틈. 고급 설정을 펼치면 기둥이 창보다 길어질 수 있어 높이를
+   * 창에 맞추고 기둥 안에서 스크롤한다 — 그러지 않으면 아래 「비교하기」에 닿지 못한다.
+   */
+  --scenario-comparison-sticky-top: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+
+  position: sticky;
+  top: var(--scenario-comparison-sticky-top);
+  max-block-size: calc(
+    100vh - var(--scenario-comparison-sticky-top) - var(--shell-gutter, var(--grid-gutter))
+  );
+  overflow-y: auto;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -370,28 +367,13 @@
 }
 
 /*
- * 하한을 220 → 280으로 올린다 (#739). 차이 칸이 붙어 한 줄이 「이름 · 값 · 차이」
- * 셋이 되었고, 220px에서는 그 셋이 서로를 민다. 1280 콘텐츠 폭(≈968)에서도
- * 3열이 선다 — 280×3 + 12×2 = 864.
+ * PRD §11.2 지표별 최소값 — 추천이 아니라 중립적 표기.
+ *
+ * 결과 면 안의 한 칸이다 (#1745). 종전에는 그림자 있는 카드였는데, **표에서 읽을 수
+ * 있는 사실의 요약**을 따로 띄우면 면만 하나 늘고 표와의 관계가 흐려진다(`§5`).
  */
-.scenario-comparison__cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: var(--space-12);
-}
-
-@media (max-width: 560px) {
-  .scenario-comparison__cards {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-/* PRD §11.2 지표별 최소값 — 추천이 아니라 중립적 표기 */
 .scenario-comparison__lowest {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-lv1);
+  border-block-start: 1px solid var(--color-border);
   padding: var(--space-16);
   margin: 0;
   display: flex;
@@ -432,143 +414,155 @@
   font-size: var(--font-size-label);
 }
 
-/* ---- 시나리오 카드 ---- */
+/* ---- 시나리오 비교 표 (#1745) ---- */
 
-.scenario-card {
+/*
+ * 결과는 면 하나다 (`§5` 카드 예산). 종전에는 시나리오마다 카드가 떠 있어 결과 영역
+ * 안에서만 면이 넷이었다 — 폼 · 카드 3 · 최소값 · 채택으로 여섯. 지금은 입력 · 결과 ·
+ * 채택 셋이다.
+ */
+.scenario-result {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-lv1);
-  padding: var(--space-16);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-8);
   min-width: 0;
 }
 
-.scenario-card__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-8);
+/*
+ * 좁아지면 표가 가로로 스크롤한다. 열을 접어 숨기면 이 화면의 목적(셋을 나란히
+ * 견주기)이 사라지고, 칸을 더 좁히면 `4,410` 같은 값이 줄바꿈으로 꺾인다.
+ * 스크롤은 **표만** 한다 — 면 전체가 밀리면 아래 최소값 줄까지 따라 움직인다.
+ */
+.scenario-table-wrap {
+  overflow-x: auto;
 }
 
-.scenario-card__name {
+.scenario-table {
+  inline-size: 100%;
+  min-inline-size: 520px;
+  border-collapse: collapse;
+}
+
+.scenario-table th,
+.scenario-table td {
+  padding: var(--space-8) var(--space-12);
+  border-block-end: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+  font-size: var(--font-size-body);
+}
+
+.scenario-table tbody tr:last-child > * {
+  border-block-end: none;
+}
+
+/* 지표 이름 칸 — 값이 주인공이므로 라벨은 한 단 약하게 둔다. */
+.scenario-table tbody th[scope='row'] {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-body);
+  white-space: nowrap;
+}
+
+.scenario-table__unit {
+  font-size: var(--font-size-micro);
+}
+
+.scenario-table__corner {
+  /* 첫 열 머리는 비워 두지 않되 시나리오 이름과 같은 무게로 읽히지 않게 한다. */
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-body);
+}
+
+.scenario-table__scenario {
+  vertical-align: bottom;
+  border-block-end: 1px solid var(--color-border);
+}
+
+.scenario-table__name {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-8);
   font-size: var(--font-size-h3);
   font-weight: var(--font-weight-h3);
 }
 
 /*
- * `.scenario-card__type`을 걷었다 (`#1417`). 계약 코드(`SLOW_STEAMING`)가 한국어 이름
- * 바로 아래 찍혀 있었다 — 같은 것을 두 번, 그중 하나는 사용자가 읽을 수 없는 말로.
+ * 「기준」 표식 (#739). 색을 쓰지 않는다 — 기준이라는 사실은 순서·역할이지 우열이
+ * 아니다(`PRD §11.2`).
  */
-
-.scenario-card__cii {
-  font-size: var(--font-size-display);
-  font-weight: var(--font-weight-display);
-  line-height: var(--line-height-display);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-.scenario-card__cii-unit {
+.scenario-table__baseline {
+  background: var(--color-surface-2);
+  border-radius: var(--radius-control);
+  padding: 0 var(--space-4);
   color: var(--color-text-muted);
-  /* 28px 숫자 옆의 12px은 붙어 있는 티끌로 보인다 (#739). */
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-micro);
   font-weight: var(--font-weight-body);
 }
 
-.scenario-card__margin {
-  font-size: var(--font-size-label);
+/*
+ * 값 칸.
+ *
+ * **오른쪽 정렬하지 않는다.** 한 열에 세로로 놓이는 것은 같은 지표의 여러 값이 아니라
+ * **서로 다른 지표**(CII · 항해거리 · 속력 · 연료 …)라서 소수점을 맞출 대상이 없고,
+ * 넓은 창에서는 값이 열 머리의 시나리오 이름과 멀리 떨어진다. 열 머리와 같은 쪽에
+ * 붙인다. `tabular-nums`는 그대로 둔다 — 같은 행의 세 값이 자릿수로 견줘진다(`§4.2`).
+ *
+ * 값과 증감을 세로로 쌓는다: 나란히 두면 `4,410` 옆 `+210`이 한 수처럼 읽힌다.
+ */
+.scenario-table__num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.scenario-table__value {
+  display: block;
   font-weight: var(--font-weight-label);
 }
 
-.scenario-card__risk {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-  font-size: var(--font-size-label);
-}
-
-.scenario-card__risk-label {
+/*
+ * 직항 대비 (#739). 값보다 한 단 낮춘다 — 표의 주인공은 절대값이고 증감은 그 값을
+ * 읽는 보조선이다. **색을 주지 않는다**(아래 `DeltaValue` 주석 · `PRD §11.2`).
+ */
+.scenario-table__delta {
+  display: block;
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-label);
+  font-weight: var(--font-weight-body);
+  font-variant-numeric: tabular-nums;
 }
 
-.scenario-card__risk-icon {
+.scenario-table__risk-icon {
   color: var(--color-warning-text);
+  margin-inline-end: var(--space-4);
 }
 
 /* §2.5 (b) — 4단계 전용 램프를 만들지 않는다. §2.3 시맨틱만 차용. */
-.scenario-card__risk-value {
+.scenario-table__risk-value {
   font-weight: var(--font-weight-label);
   color: var(--color-text);
 }
 
-.scenario-card__risk-value--high {
+.scenario-table__risk-value--high {
   color: var(--color-warning-text);
 }
 
-.scenario-card__risk-value--critical {
+.scenario-table__risk-value--critical {
   color: var(--color-danger-text);
 }
 
-.scenario-card__rows {
-  margin: var(--space-4) 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-8);
-}
-
 /*
- * 12px이었다 (#739). 이 저장소에서 `--font-size-micro`는 보조 문구용이고 지표
- * **값**에 쓰는 화면은 여기뿐이었다. 게다가 카드 격자가 `auto-fit`이라 1920
- * 창에서 카드 하나가 500px 넘게 벌어진다 — **칸은 남는데 글씨만 줄어 있었다.**
- *
- * `flex` + `margin-left: auto` 대신 격자로 바꾼다. 차이 칸이 생겨 열이 셋이
- * 되었고, 자동 여백으로 미는 방식으로는 세 열의 자리가 카드마다 달라진다.
+ * 「직항과 같습니다」 — 같은 숫자 두 개가 나란히 놓인 이유를 말하는 자리다.
+ * 경고가 아니므로 상태색 스트라이프를 쓰지 않는다. 사실 설명이지 문제 제기가 아니다.
  */
-.scenario-card__row {
-  display: grid;
-  grid-template-columns: 1fr max-content minmax(0, max-content);
-  align-items: baseline;
-  gap: var(--space-8);
-  font-size: var(--font-size-body);
-}
-
-.scenario-card__row dt {
-  color: var(--color-text-muted);
-}
-
-.scenario-card__row dd {
-  margin: 0;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  font-weight: var(--font-weight-label);
-}
-
-.scenario-card__row-unit {
-  color: var(--color-text-muted);
-  font-weight: var(--font-weight-body);
-}
-
-/*
- * 차이 칸 (#739). 값보다 한 단 낮춘다 — 이 카드의 주인공은 절대값이고 차이는
- * 그 값을 읽는 보조선이다. 폭을 고정하지 않는 것은 `동일`(2자)과 `+16.5`(5자)의
- * 폭이 다르기 때문인데, 오른쪽 정렬이라 자릿수는 여전히 맞아떨어진다.
- */
-.scenario-card__row-delta {
-  min-inline-size: 5.5ch;
-}
-
-.scenario-card__delta {
-  color: var(--color-text-muted);
+.scenario-table__same {
+  margin: var(--space-12) var(--space-16) 0;
+  background: var(--color-surface-2);
+  border-radius: var(--radius-control);
+  padding: var(--space-8) var(--space-12);
   font-size: var(--font-size-label);
-  font-weight: var(--font-weight-body);
-  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-label);
 }
 
 /* ── 시나리오 도식 (#739) ──────────────────────────────────────────── */
@@ -611,40 +605,6 @@
   stroke: var(--color-text);
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
-}
-
-/* ── 직항 대비 (#739) ─────────────────────────────────────────────── */
-
-.scenario-card__baseline,
-.scenario-card__cii-delta {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-8);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-label);
-}
-
-.scenario-card__delta-label {
-  color: var(--color-text-muted);
-}
-
-/*
- * 「직항과 같습니다」 — 같은 숫자 두 개가 나란히 놓인 이유를 말하는 자리다.
- * 경고가 아니므로 상태색 스트라이프를 쓰지 않는다. 사실 설명이지 문제 제기가 아니다.
- */
-.scenario-card__cii-same {
-  background: var(--color-surface-2);
-  border-radius: var(--radius-control);
-  padding: var(--space-8) var(--space-12);
-  font-size: var(--font-size-label);
-  line-height: var(--line-height-label);
-}
-
-.scenario-card__margin-label {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-  font-weight: var(--font-weight-body);
-  margin-right: var(--space-8);
 }
 
 /* 목적항 좌표 찾기 (#768) — 칸 안의 보조 동작이라 제출 버튼보다 약하게 둔다. */

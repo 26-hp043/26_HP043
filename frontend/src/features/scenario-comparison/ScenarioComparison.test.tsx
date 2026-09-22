@@ -3,7 +3,7 @@ import '../../test/renderSetup'
 
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { ScenarioComparison } from './ScenarioComparison'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
@@ -1288,5 +1288,123 @@ describe('연도 목록이 없으면 비교를 차단한다 (#1093 ⑷)', () => 
     renderScreen()
 
     await waitFor(() => expect(submitButton().disabled).toBe(false))
+  })
+})
+
+/*
+ * 비교 표 (#1745).
+ *
+ * 종전에는 시나리오마다 카드 한 장이었고 카드마다 같은 여덟 줄이 반복됐다 —
+ * **비교하는 화면에서 비교가 가장 어려웠다.** 여기서 보는 것은 셋이다: 같은 지표의
+ * 세 값이 한 줄에 서는가, 증감이 직항 기준인가, 화면이 어느 쪽을 추천하지 않는가.
+ */
+describe('비교 표 — 행은 지표, 열은 시나리오 (#1745)', () => {
+  /** `COMPARE_BODY`는 세 시나리오가 값이 같다 — 증감을 보려면 갈라 놓아야 한다. */
+  const VARIED: Record<string, Partial<{ distance_nm: number; attained_cii: string; fuel_ton: string }>> = {
+    DIRECT: { distance_nm: 1000, attained_cii: '42.535870', fuel_ton: '87.50' },
+    DETOUR: { distance_nm: 1050, attained_cii: '42.535870', fuel_ton: '91.88' },
+    SLOW_STEAMING: { distance_nm: 1000, attained_cii: '38.100000', fuel_ton: '78.40' },
+  }
+
+  const variedBody = {
+    ...COMPARE_BODY,
+    data: {
+      ...COMPARE_BODY.data,
+      scenarios: COMPARE_BODY.data.scenarios.map((scenario) => ({
+        ...scenario,
+        ...VARIED[scenario.scenario_type],
+      })),
+    },
+  }
+
+  async function renderTable(body: unknown = variedBody) {
+    stubServerWithComparison(body)
+    renderScreen()
+    await compareAndWaitForResult()
+    return screen.getByRole('table')
+  }
+
+  it('열 머리가 시나리오 셋이고, 기준인 직항이 그 사실을 말한다', async () => {
+    const table = await renderTable()
+    const heads = within(table).getAllByRole('columnheader')
+
+    expect(heads.map((head) => head.textContent)).toEqual([
+      '지표',
+      '직항기준',
+      '우회',
+      '감속',
+    ])
+  })
+
+  it('같은 지표의 세 값이 한 줄에 선다 — 카드 사이로 눈을 옮기지 않는다', async () => {
+    const table = await renderTable()
+    const row = within(table).getByRole('row', { name: /항해거리/ })
+
+    expect(
+      within(row)
+        .getAllByRole('cell')
+        .map((cell) => cell.textContent),
+    ).toEqual(['1,000', '1,050+50', '1,000동일'])
+  })
+
+  it('단위는 지표 이름 옆에 한 번만 — 칸마다 반복하지 않는다', async () => {
+    const table = await renderTable()
+    const row = within(table).getByRole('row', { name: /항해거리/ })
+
+    expect(within(row).getByRole('rowheader').textContent).toBe('항해거리 (nm)')
+    for (const cell of within(row).getAllByRole('cell')) {
+      expect(cell.textContent).not.toMatch(/nm/)
+    }
+  })
+
+  it('증감은 직항 기준이다 — 직항 칸에는 증감이 없다', async () => {
+    const table = await renderTable()
+    const cells = within(within(table).getByRole('row', { name: /예상 연료/ })).getAllByRole('cell')
+
+    expect(cells[0].textContent).toBe('87.5')
+    expect(cells[1].textContent).toBe('91.9+4.4')
+    expect(cells[2].textContent).toBe('78.4−9.1')
+  })
+
+  it('증감에 색을 주지 않는다 — 어느 쪽이 나은지는 화면이 판정하지 않는다 (PRD §11.2)', async () => {
+    const table = await renderTable()
+    const cells = within(within(table).getByRole('row', { name: /예상 연료/ })).getAllByRole('cell')
+
+    for (const cell of cells.slice(1)) {
+      const delta = cell.querySelector('.scenario-table__delta')
+      expect(delta?.className).toBe('scenario-table__delta')
+    }
+  })
+
+  it('결론 띠를 두지 않는다 — §8.6 표의 「항로 비교」 행이 그렇게 정했다', async () => {
+    await renderTable()
+
+    expect(document.querySelector('.verdict-strip')).toBeNull()
+    expect(screen.queryByText(/추천/)).toBeNull()
+  })
+
+  it('CII가 직항과 같으면 그 이유를 표 아래에 적는다 (#739)', async () => {
+    await renderTable()
+
+    /* 우회는 거리가 길고 CII가 같다 — 「거리당 값」 설명이 붙는다. */
+    expect(screen.getByText(/우회의 CII는 직항과 같습니다/)).toBeTruthy()
+    expect(screen.getByText(/거리가 늘어도 연료가 같은 비율로 늘어/)).toBeTruthy()
+    /* 감속은 CII가 다르다 — 설명할 일이 없다. */
+    expect(screen.queryByText(/감속의 CII는 직항과 같습니다/)).toBeNull()
+  })
+
+  it('지표별 최소값은 그대로 남는다 — 추천이 아니라 중립 표기다 (PRD §11.2)', async () => {
+    await renderTable()
+
+    expect(screen.getByText('CII가 가장 낮은 시나리오')).toBeTruthy()
+  })
+
+  it('결과는 면 하나다 — 표와 최소값이 같은 면에 있고 카드가 남아 있지 않다 (§5)', async () => {
+    const table = await renderTable()
+
+    expect(document.querySelectorAll('.scenario-card')).toHaveLength(0)
+    const result = document.querySelector('.scenario-result')
+    expect(result?.contains(table)).toBe(true)
+    expect(result?.querySelector('.scenario-comparison__lowest')).toBeTruthy()
   })
 })

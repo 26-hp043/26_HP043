@@ -22,6 +22,13 @@ const SCREENS = [
     grid: '.annual-sim',
     input: '.annual-sim__form',
   },
+  {
+    // #1745 — 종전에는 `§7.1` 7:5에 1900 접힘이었다. 결과가 표 하나가 되며 이 틀로 옮겼다.
+    name: '항로 비교',
+    file: 'src/features/scenario-comparison/ScenarioComparison.css',
+    grid: '.scenario-comparison',
+    input: '.scenario-comparison__form',
+  },
 ] as const
 
 function stripComments(css: string): string {
