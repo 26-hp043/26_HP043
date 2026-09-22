@@ -46,6 +46,24 @@ async def create_session(
     return row
 
 
+def is_expired(row: ChatSession, *, now: datetime | None = None) -> bool:
+    """대화가 보존 기한(``expires_at`` · 생성 + 90일)을 넘겼는가 (`#1632`).
+
+    **경계는 만료다**(``expires_at <= now``) — :func:`purge_expired`가 같은 조건으로
+    지운다. 두 조건이 어긋나면 「지워지지 않았지만 쓸 수 없는」 또는 그 반대의 순간이 생긴다.
+
+    ⚠️ **청소 작업의 실행 여부에 기대지 않는다.** 청소는 하루 한 번 도는 보관 정리이고,
+    그 사이에 만료된 대화로 외부 모델을 부르거나 메시지를 쌓는 것을 막는 것은 API의 일이다.
+
+    시간대 없는 값은 UTC로 읽는다 — 저장이 UTC로 되며(``create_session``), 드라이버가
+    시간대를 떼어 돌려주는 경우가 있다.
+    """
+    expires = row.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=UTC)
+    return expires <= (now or datetime.now(UTC))
+
+
 async def get_session_row(session: AsyncSession, *, session_id: UUID) -> ChatSession | None:
     """대화 하나. 없으면 ``None``.
 
