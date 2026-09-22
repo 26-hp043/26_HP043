@@ -5,6 +5,8 @@ import {
   toFormErrors,
   toRequest,
   validateForm as validateFormWith,
+  effectiveFuelTon,
+  voyageHours,
   type VoyageCiiFormState,
   pickDefaultYear,
   prefillFromVoyage,
@@ -79,6 +81,9 @@ describe('initialFormState', () => {
       speedKn: '',
       fuelType: '',
       fuelTon: '',
+      // 연료 입력 방식은 종전과 같은 「총량」으로 시작한다 (#1718).
+      fuelMode: 'TOTAL',
+      dailyFuelTon: '',
     })
   })
 
@@ -405,5 +410,78 @@ describe('prefillFromVoyage — 상단 항차의 계획값 (#1576)', () => {
       fields: { distanceNm: '2300', speedKn: '14', fuelType: '', fuelTon: '' },
       multiFuelCount: null,
     })
+  })
+})
+
+/**
+ * 연료 입력 방식 (#1718).
+ *
+ * 계약은 그대로다 — 방식이 무엇이든 요청은 `fuel_uses[0].fuel_ton` 하나다. 화면이
+ * 바꾸는 것은 **그 값을 어떻게 얻는가**뿐이고, 여기서 그 셈과 검증을 잠근다.
+ */
+describe('연료 입력 방식 (#1718)', () => {
+  function base(): VoyageCiiFormState {
+    return {
+      ...initialFormState(),
+      vesselId: 'v-1',
+      regulationYear: '2026',
+      distanceNm: '1000',
+      speedKn: '12',
+      fuelType: 'HFO',
+    }
+  }
+
+  it('총량은 넣은 값을 그대로 보낸다 — 종전과 같다', () => {
+    const state = { ...base(), fuelTon: '80' }
+    expect(effectiveFuelTon(state)).toBe(80)
+    expect(toRequest(state).fuel_uses).toEqual([{ fuel_type: 'HFO', fuel_ton: 80 }])
+  })
+
+  it('하루 × 항해일은 거리 ÷ 속력으로 환산한다 — 1000nm · 12kn · 23.04t/일 → 80.0t', () => {
+    const state = { ...base(), fuelMode: 'DAILY' as const, dailyFuelTon: '23.04' }
+    // 1000 / 12 = 83.333h → 3.4722일 × 23.04 = 80.0t
+    expect(effectiveFuelTon(state)).toBeCloseTo(80, 3)
+    expect(toRequest(state).fuel_uses[0].fuel_ton).toBeCloseTo(80, 3)
+  })
+
+  it('제원에서 채우기는 선박의 기준 일일 연료를 쓴다 — 없으면 값이 없다', () => {
+    const state = { ...base(), fuelMode: 'VESSEL' as const }
+    expect(effectiveFuelTon(state, '23.04')).toBeCloseTo(80, 3)
+    expect(effectiveFuelTon(state, null)).toBeNull()
+  })
+
+  it('⚠️ 속도 보정을 하지 않는다 — 속력이 기준속력과 달라도 같은 하루치를 곱한다', () => {
+    /*
+     * `PRD §11.4.1` cubic speed model은 기능②의 것이다. 화면이 흉내 내면 같은 이름의
+     * 값이 서버와 다르게 나온다. 속력은 항해시간으로만 들어온다 — 거리 ÷ 속력.
+     */
+    const slow = { ...base(), speedKn: '10', fuelMode: 'DAILY' as const, dailyFuelTon: '23.04' }
+    expect(effectiveFuelTon(slow)).toBeCloseTo((23.04 * (1000 / 10)) / 24, 3)
+  })
+
+  it('거리·속력이 없으면 환산하지 않는다 — 0으로 지어내지 않는다', () => {
+    const state = { ...base(), distanceNm: '', fuelMode: 'DAILY' as const, dailyFuelTon: '23.04' }
+    expect(voyageHours(state.distanceNm, state.speedKn)).toBeNull()
+    expect(effectiveFuelTon(state)).toBeNull()
+    expect(validateFormWith(state, FUELS)[FIELD.fuelTon]).toContain('항해거리')
+  })
+
+  it('하루 연료도 총량과 같은 규칙이다 — 비었거나 0 이하면 같은 자리에 오류가 선다', () => {
+    const empty = { ...base(), fuelMode: 'DAILY' as const }
+    expect(validateFormWith(empty, FUELS)[FIELD.fuelTon]).toContain('입력해 주세요')
+    const zero = { ...base(), fuelMode: 'DAILY' as const, dailyFuelTon: '0' }
+    expect(validateFormWith(zero, FUELS)[FIELD.fuelTon]).toContain('0보다 커야')
+  })
+
+  it('제원이 없는 선박에서 「제원에서 채우기」를 고르면 사유가 오류로 선다', () => {
+    const state = { ...base(), fuelMode: 'VESSEL' as const }
+    expect(validateFormWith(state, FUELS, null)[FIELD.fuelTon]).toContain('기준 일일 연료소모량')
+    expect(validateFormWith(state, FUELS, '23.04')[FIELD.fuelTon]).toBeUndefined()
+  })
+
+  it('방식을 바꿔도 다른 방식의 값은 지워지지 않는다 — 상태가 둘 다 들고 있다', () => {
+    const state = { ...base(), fuelTon: '80', fuelMode: 'DAILY' as const, dailyFuelTon: '23.04' }
+    expect(effectiveFuelTon({ ...state, fuelMode: 'TOTAL' })).toBe(80)
+    expect(effectiveFuelTon(state)).toBeCloseTo(80, 3)
   })
 })

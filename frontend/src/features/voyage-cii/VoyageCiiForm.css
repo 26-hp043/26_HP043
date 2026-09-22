@@ -148,3 +148,43 @@
   border-color: var(--color-border-strong);
   cursor: not-allowed;
 }
+
+/* ── 연료 입력 방식 (#1718) ──────────────────────────────────────── */
+
+/*
+ * 라디오 셋. `fieldset`의 기본 테두리·여백을 걷고 폼의 다른 칸과 같은 간격에 둔다 —
+ * 면을 하나 더 띄우지 않는다(`DESIGN_SYSTEM §5`).
+ */
+.voyage-cii-form__modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-16);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.voyage-cii-form__modes > legend {
+  padding: 0;
+  margin-bottom: var(--space-4);
+}
+
+.voyage-cii-form__mode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  font-size: var(--font-size-label);
+  color: var(--color-text);
+}
+
+.voyage-cii-form__mode input:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+/* 환산 결과 — 무엇이 서버로 가는지 (#1718). 값만 굵게, 면은 없다. */
+.voyage-cii-form__derived {
+  margin: 0;
+  font-size: var(--font-size-label);
+  color: var(--color-text-muted);
+}
