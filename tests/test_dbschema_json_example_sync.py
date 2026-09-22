@@ -134,7 +134,7 @@ def _voyage_estimate_result() -> dict:
     layer1 = SimpleNamespace(
         attained_cii=Decimal("4.9824"),
         required_cii=Decimal("5.045066"),
-        ratio_to_required=Decimal("0.98758"),
+        ratio_to_required=Decimal("0.98757"),
         rating="C",
         # `#1371` — 응답이 등급 경계 CII 4종을 싣는다. 값은 `TECH_SPEC §1.2.3` 정본이다.
         boundaries={

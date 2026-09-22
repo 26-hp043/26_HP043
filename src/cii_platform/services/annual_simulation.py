@@ -66,7 +66,7 @@ from cii_platform.calc.annual_simulation import (
 )
 from cii_platform.calc.cii_engine import calculate_required_cii
 from cii_platform.calc.hash import compute_annual_input_hash, compute_parameter_hash
-from cii_platform.calc.precision import CII_SERIALIZATION_ROUNDING, LAYER1_ROUNDING
+from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -172,7 +172,7 @@ def _publish(value: Decimal | None, kind: str) -> str | None:
     기본값을 두면 CII가 아닌 6자리 값이 조용히 절사된다."""
     if value is None:
         return None
-    rounding = CII_SERIALIZATION_ROUNDING if kind == "cii" else LAYER1_ROUNDING
+    rounding = SERIALIZATION_ROUNDING if kind == "cii" else LAYER1_ROUNDING
     return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=rounding))
 
 

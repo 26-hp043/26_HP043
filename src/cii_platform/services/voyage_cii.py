@@ -53,9 +53,9 @@ from cii_platform.calc.cii_engine import (
 )
 from cii_platform.calc.hash import compute_input_hash, compute_parameter_hash
 from cii_platform.calc.precision import (
-    CII_SERIALIZATION_ROUNDING,
     LAYER1_CANONICAL_SIGNIFICANT_DIGITS,
     LAYER1_ROUNDING,
+    SERIALIZATION_ROUNDING,
     layer1_context,
     publish_layer1_canonical,
     validate_layer1_result,
@@ -108,7 +108,7 @@ CII_APPLICABLE_GT_THRESHOLD = applicability.CII_APPLICABLE_GT_THRESHOLD
 #: 표시는 프론트엔드가 다시 줄인다(CII 3자리 등).
 #:
 #: **필드마다 다르다.** 하나로 묶으면 계약 예시와 어긋난다 —
-#: ``ratio_to_required``는 ``"0.98758"``(5자리)인데 ``next_worse_boundary_margin_ratio``는
+#: ``ratio_to_required``는 ``"0.98757"``(5자리)인데 ``next_worse_boundary_margin_ratio``는
 #: ``"0.0724"``(4자리)이고, ``fuel_consumption_ton``은 ``"80.00"``(2자리)인데
 #: ``calculation_basis.fuel_cf_details[].fuel_ton``은 ``"80.0"``(1자리)이다.
 #:
@@ -134,15 +134,16 @@ SERIALIZATION_DIGITS = {
     "duration_hours": 4,
 }
 
-#: :data:`SERIALIZATION_DIGITS` 가운데 **CII 값을 싣는 필드** — 자릿수를 줄일 때 반올림이
-#: 아니라 **절사**한다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」 · `#1349`). 반올림 모드를
-#: 호출 자리마다 넘기지 않고 이 표에서 정하는 것은, 필드를 하나 더할 때 **빠뜨릴 수 없게**
-#: 하기 위해서다 — 여기 없으면 :data:`LAYER1_ROUNDING`이다.
+#: :data:`SERIALIZATION_DIGITS` 가운데 **자릿수를 반올림으로 줄이는 필드** — 나머지는 전부
+#: **절사**다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」 · `#1349` → `#1600`).
 #:
-#: ``margin``(``next_worse_boundary_margin``)은 CII 축의 차이라 같은 축이다.
-#: ``margin_ratio``·``ratio_to_required``는 비율이고, ``detail_fuel_ton``은 전송 자릿수가
-#: 표시 자릿수와 같아 절사하면 그 문자열이 곧 표시가 된다 — 둘 다 그대로 반올림이다.
-SERIALIZATION_CII_FIELDS = frozenset({"attained_cii", "required_cii", "boundary_cii", "margin"})
+#: 규칙은 「전송 자릿수가 표시 자릿수보다 크면 절사」 하나다. 예외를 적는 쪽으로 둔 것은, 필드를
+#: 하나 더할 때 **기본값이 절사**가 되게 하기 위해서다 — `#1349`는 반대로 절사할 필드를 적었고,
+#: 그 목록 밖의 비율·물리량이 두 번 반올림되고 있었다(`#1600`).
+#:
+#: ``detail_fuel_ton``은 전송 자릿수(1)가 표시 자릿수(연료 소수 1 · `DESIGN_SYSTEM §4.2`)와 같다 —
+#: 절사하면 그 문자열이 곧 표시가 되어 「절사가 아니라 반올림」(`DESIGN_SYSTEM §4.1`)을 어긴다.
+SERIALIZATION_HALF_UP_FIELDS = frozenset({"detail_fuel_ton"})
 
 #: TECH_SPEC §5.4 재현성 계약이 응답에 싣도록 규정한 엔진 식별자.
 ENGINE_NAME = "dual-precision-v1"
@@ -286,15 +287,14 @@ def _publish(value: Decimal, field: str) -> str:
     건너뛰면 응답에 50자리가 그대로 실리고, 뒤 단계를 건너뛰면 계약 예시
     (``"4.982400"``)와 형태가 달라진다.
 
-    뒤 단계의 반올림은 **필드가 정한다** (`#1349`). CII 필드
-    (:data:`SERIALIZATION_CII_FIELDS`)는 ``ROUND_DOWN``으로 절사하고, 나머지는 §1.2.1의
-    ``ROUND_HALF_UP``이다 — 절사는 화면의 3자리 반올림과 합쳐 두 번 반올림되는 것을
-    막는 장치라(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」), 전송 자릿수가 표시
-    자릿수와 같은 필드에는 걸지 않는다.
+    뒤 단계의 반올림은 **필드가 정한다** (`#1349` → `#1600`). 전송 자릿수가 표시 자릿수보다
+    큰 필드는 ``ROUND_DOWN``으로 절사하고, 같은 필드(:data:`SERIALIZATION_HALF_UP_FIELDS`)만
+    §1.2.1의 ``ROUND_HALF_UP``이다 — 절사는 화면의 표시 반올림과 합쳐 두 번 반올림되는 것을
+    막는 장치다(`TECH_SPEC §1.2.1` 「응답 직렬화의 절사」).
     """
     canonical = publish_layer1_canonical(value)
     quantum = Decimal(1).scaleb(-SERIALIZATION_DIGITS[field])
-    rounding = CII_SERIALIZATION_ROUNDING if field in SERIALIZATION_CII_FIELDS else LAYER1_ROUNDING
+    rounding = LAYER1_ROUNDING if field in SERIALIZATION_HALF_UP_FIELDS else SERIALIZATION_ROUNDING
     return str(canonical.quantize(quantum, rounding=rounding))
 
 
