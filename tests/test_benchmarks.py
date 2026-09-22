@@ -316,9 +316,7 @@ _INSERT_BENCH_VESSEL = text(
     "VALUES (:id, :imo, :name, 'BULK_CARRIER', 50000, 'HFO', 14, 30)"
 ).bindparams(bindparam("id", type_=UuidText()))
 
-_DELETE_BENCH_VESSELS = text(
-    "DELETE FROM vessel WHERE imo_number LIKE :prefix"
-)
+_DELETE_BENCH_VESSELS = text("DELETE FROM vessel WHERE imo_number LIKE :prefix")
 
 
 async def test_fleet_summary_200_vessels_p95(migrated_db, app_fresh_engine, capsys):
