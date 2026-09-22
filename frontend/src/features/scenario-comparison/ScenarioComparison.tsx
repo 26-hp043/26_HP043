@@ -961,22 +961,17 @@ export function ScenarioComparison({
           destinationName={snapshot.inputs.destinationPortName}
         />
 
-        <div className="scenario-comparison__cards">
-          {/*
-            기준은 `DIRECT`다 (#739). 배열 첫 번째가 아니라 **타입으로** 찾는다 —
-            `PRD §11.2` 표 순서가 배열 순서와 같지만, 순서가 바뀌어도 기준이
-            따라 움직이면 안 된다. 없으면 `deltaFromDirect`가 `null`을 내고
-            차이 표시가 통째로 빠진다(잘못된 기준으로 빼는 것보다 낫다).
-          */}
-          {response.scenarios.map((scenario) => (
-            <ScenarioCard
-              key={scenario.scenario_type}
-              scenario={scenario}
-              direct={response.scenarios.find((s) => s.scenario_type === 'DIRECT')}
-              unit={unit}
-            />
-          ))}
-        </div>
+        {/*
+          기준은 `DIRECT`다 (#739). 배열 첫 번째가 아니라 **타입으로** 찾는다 —
+          `PRD §11.2` 표 순서가 배열 순서와 같지만, 순서가 바뀌어도 기준이
+          따라 움직이면 안 된다. 없으면 `deltaFromDirect`가 `null`을 내고
+          차이 표시가 통째로 빠진다(잘못된 기준으로 빼는 것보다 낫다).
+        */}
+        <ScenarioTable
+          scenarios={response.scenarios}
+          direct={response.scenarios.find((s) => s.scenario_type === 'DIRECT')}
+          unit={unit}
+        />
 
         {/*
           PRD §11.2 — 추천 시나리오를 표시하지 않고 지표별 최소값만 중립적으로 적는다.
@@ -1025,94 +1020,257 @@ export function ScenarioComparison({
 
 /* ------------------------------------------------------------------ */
 
-function ScenarioCard({
-  scenario,
+/**
+ * 시나리오 비교 표 (#1745).
+ *
+ * ## 카드 세 장을 표 하나로
+ *
+ * 종전에는 시나리오마다 카드 한 장이었고, 카드마다 같은 여덟 줄(참고 등급 · CII ·
+ * 다음 경계까지 · 위험도 · 항해거리 · 평균 속력 · 예상 소요시간 · 예상 연료 ·
+ * CO₂ · 기준 대비)이 같은 순서로 반복됐다. **세 값을 견주려면 카드 사이로 눈을
+ * 옮겨야 했다** — 비교하는 화면에서 비교가 가장 어려웠다.
+ *
+ * 행이 지표, 열이 시나리오다. 라벨은 왼쪽에 한 번만 서고 같은 지표의 세 값이 한 줄에
+ * 나란히 놓인다.
+ *
+ * ## 단위는 지표 이름 옆에 한 번
+ *
+ * 칸마다 단위를 붙이면 `4,200 nm` `4,410 nm` `4,200 nm`으로 세 번 반복되어 정작
+ * 비교할 숫자를 가린다. 문자열은 여전히 `DISPLAY_UNITS`에서 읽는다 —
+ * `§4.2` 「화면에 리터럴로 박지 않는다 🔒」는 **자리**가 아니라 **출처**를 정한 것이다.
+ *
+ * ## 결론 띠를 두지 않는다
+ *
+ * `§8.6` 표의 「항로 비교」 행이 **두지 않는다**로 못박혀 있다. 이 화면의 결론은 비교
+ * 표 자체이고, 셋 중 하나를 골라 맨 위에 크게 적는 순간 그것이 추천이 된다
+ * (`PRD §11.2` · `§6.3` 자동 결정 금지). 같은 이유로 증감 칩에 색을 주지 않는다.
+ */
+function ScenarioTable({
+  scenarios,
   direct,
   unit,
 }: {
-  scenario: ScenarioResult
+  scenarios: readonly ScenarioResult[]
   direct: ScenarioResult | undefined
   unit: string
 }) {
-  const margin = marginDisplay(
-    scenario.estimated_rating,
-    scenario.next_worse_boundary_margin_ratio,
-  )
-  const risk = riskLabel(scenario.risk_level)
-  const delta = deltaFromDirect(scenario, direct)
+  const deltas = scenarios.map((scenario) => deltaFromDirect(scenario, direct))
 
   return (
-    <article className="scenario-card">
-      <header className="scenario-card__head">
-        <div>
-          <p className="scenario-card__name">{scenario.scenario_name}</p>
-        </div>
-        <GradeBadge
-          rating={scenario.estimated_rating}
-          label={`${scenario.scenario_name} 참고 등급 ${scenario.estimated_rating}`}
-          size="sm"
-        />
-      </header>
+    <>
+      {/* 좁은 폭에서는 표가 가로로 스크롤한다 — 열을 접어 숨기면 비교가 끊긴다. */}
+      <div className="scenario-table-wrap">
+        <table className="scenario-table">
+          {/*
+            제목(`h2 시나리오 비교`)과 같은 말을 쓰지 않는다 — 스크린리더가 같은 문구를
+            연달아 읽고, 테스트에서도 제목과 구분되지 않는다.
+          */}
+          <caption className="sr-only">
+            지표별 비교 — 행은 지표, 열은 각 시나리오이며 직항 열을 기준으로 증감을 적는다
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col" className="scenario-table__corner">
+                지표
+              </th>
+              {scenarios.map((scenario) => (
+                <th scope="col" key={scenario.scenario_type} className="scenario-table__scenario">
+                  <span className="scenario-table__name">
+                    {scenario.scenario_name}
+                    {/*
+                      증감의 기준이 어느 열인지 열 머리가 말한다 (#739). 카드에서는
+                      「기준 시나리오」 한 줄이 그 일을 했다.
+                    */}
+                    {scenario.scenario_type === 'DIRECT' ? (
+                      <span className="scenario-table__baseline">기준</span>
+                    ) : null}
+                  </span>
+                  <ScenarioRouteGlyph type={scenario.scenario_type} />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">참고 등급</th>
+              {scenarios.map((scenario) => (
+                <td key={scenario.scenario_type}>
+                  <GradeBadge
+                    rating={scenario.estimated_rating}
+                    label={`${scenario.scenario_name} 참고 등급 ${scenario.estimated_rating}`}
+                    size="sm"
+                  />
+                </td>
+              ))}
+            </tr>
 
-      <ScenarioRouteGlyph type={scenario.scenario_type} />
+            <MetricRow
+              label="CII"
+              unit={unit}
+              scenarios={scenarios}
+              deltas={deltas}
+              value={(scenario) => formatDecimalString(scenario.attained_cii, DISPLAY_DIGITS.cii)}
+              delta={(delta) => delta.cii}
+              digits={DISPLAY_DIGITS.cii}
+            />
 
-      <p className="scenario-card__cii">
-        {formatDecimalString(scenario.attained_cii, DISPLAY_DIGITS.cii)}
-        <span className="scenario-card__cii-unit"> {unit}</span>
-      </p>
+            <tr>
+              <th scope="row">다음 경계까지</th>
+              {scenarios.map((scenario) => (
+                <td key={scenario.scenario_type}>
+                  {marginDisplay(scenario.estimated_rating, scenario.next_worse_boundary_margin_ratio).text}
+                </td>
+              ))}
+            </tr>
 
-      <CiiComparison scenario={scenario} direct={direct} delta={delta} />
+            <tr>
+              <th scope="row">위험도</th>
+              {scenarios.map((scenario) => {
+                const risk = riskLabel(scenario.risk_level)
+                return (
+                  <td key={scenario.scenario_type}>
+                    {risk.withIcon ? (
+                      // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden
+                      <span className="scenario-table__risk-icon">
+                        <Icon glyph={AlertTriangle} size="inline" />
+                      </span>
+                    ) : null}
+                    <span
+                      className={`scenario-table__risk-value scenario-table__risk-value--${scenario.risk_level.toLowerCase()}`}
+                    >
+                      {risk.text}
+                    </span>
+                  </td>
+                )
+              })}
+            </tr>
 
-      <p className="scenario-card__margin">
-        <span className="scenario-card__margin-label">다음 경계까지</span>
-        {margin.text}
-      </p>
+            <MetricRow
+              label="항해거리"
+              unit={DISPLAY_UNITS.distance}
+              scenarios={scenarios}
+              deltas={deltas}
+              value={(scenario) =>
+                formatGrouped(toDecimalInput(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)
+              }
+              delta={(delta) => delta.distanceNm}
+              digits={DISPLAY_DIGITS.distanceNm}
+            />
 
-      <p className="scenario-card__risk">
-        <span className="scenario-card__risk-label">위험도</span>
-        {risk.withIcon ? (
-          // §2.5 (b) — 라벨이 항상 옆에 있으므로 aria-hidden
-          <span className="scenario-card__risk-icon">
-            <Icon glyph={AlertTriangle} size="inline" />
-          </span>
-        ) : null}
-        <span
-          className={`scenario-card__risk-value scenario-card__risk-value--${scenario.risk_level.toLowerCase()}`}
-        >
-          {risk.text}
-        </span>
-      </p>
+            {/*
+              `#822` — 종전에는 `String(...)` 그대로였다. 나머지 행은 전부 포매터를
+              거치는데 이 한 행만 빠져 있었다. `12.8`은 우연히 1자리라 눈에 띄지 않지만
+              `12`나 `12.75`가 오면 같은 표 안에서 자릿수가 갈린다.
 
-      {/*
-        차이를 값 **바로 옆**에 둔다 (#739). 아래에 「직항 대비」 묶음을 따로
-        만들면 같은 지표가 카드 안에서 두 번 나오고, 어느 숫자가 어느 차이인지를
-        다시 눈으로 짝지어야 한다.
-      */}
-      <dl className="scenario-card__rows">
-        <Row label="항해거리" value={formatGrouped(toDecimalInput(scenario.distance_nm), DISPLAY_DIGITS.distanceNm)} unit={DISPLAY_UNITS.distance} delta={delta?.distanceNm} deltaDigits={DISPLAY_DIGITS.distanceNm} />
-        {/*
-          `#822` — 종전에는 `String(...)` 그대로였다. 이 `<dl>`의 나머지 5행은 전부
-          포매터를 거치는데 이 한 행만 빠져 있었다. `12.8`은 우연히 1자리라 눈에
-          띄지 않지만 `12`나 `12.75`가 오면 같은 표 안에서 자릿수가 갈린다.
-        */}
-        <Row
-          label="평균 속력"
-          value={formatDecimalString(toDecimalInput(scenario.speed_kn), DISPLAY_DIGITS.speedKn)}
-          unit={DISPLAY_UNITS.speed}
-        />
-        <Row label="예상 소요시간" value={formatDecimalString(scenario.duration_hours, DISPLAY_DIGITS.durationHours)} unit={DISPLAY_UNITS.duration} delta={delta?.durationHours} deltaDigits={DISPLAY_DIGITS.durationHours} />
-        <Row label="예상 연료" value={formatGrouped(scenario.fuel_ton, DISPLAY_DIGITS.fuelTon)} unit={DISPLAY_UNITS.fuel} delta={delta?.fuelTon} deltaDigits={DISPLAY_DIGITS.fuelTon} />
-        <Row label="CO₂ 배출량" value={formatGrouped(scenario.co2_emission_ton, DISPLAY_DIGITS.co2Ton)} unit={DISPLAY_UNITS.co2} delta={delta?.co2Ton} deltaDigits={DISPLAY_DIGITS.co2Ton} />
-        <Row label="기준 대비" value={`${formatPercent(scenario.ratio_to_required)}%`} />
-      </dl>
-    </article>
+              차이 칸은 두지 않는다 — 감속 시나리오의 속력차는 사용자가 직접 넣은 값이다.
+            */}
+            <MetricRow
+              label="평균 속력"
+              unit={DISPLAY_UNITS.speed}
+              scenarios={scenarios}
+              deltas={deltas}
+              value={(scenario) =>
+                formatDecimalString(toDecimalInput(scenario.speed_kn), DISPLAY_DIGITS.speedKn)
+              }
+            />
+
+            <MetricRow
+              label="예상 소요시간"
+              unit={DISPLAY_UNITS.duration}
+              scenarios={scenarios}
+              deltas={deltas}
+              value={(scenario) =>
+                formatDecimalString(scenario.duration_hours, DISPLAY_DIGITS.durationHours)
+              }
+              delta={(delta) => delta.durationHours}
+              digits={DISPLAY_DIGITS.durationHours}
+            />
+
+            <MetricRow
+              label="예상 연료"
+              unit={DISPLAY_UNITS.fuel}
+              scenarios={scenarios}
+              deltas={deltas}
+              value={(scenario) => formatGrouped(scenario.fuel_ton, DISPLAY_DIGITS.fuelTon)}
+              delta={(delta) => delta.fuelTon}
+              digits={DISPLAY_DIGITS.fuelTon}
+            />
+
+            <MetricRow
+              label="CO₂ 배출량"
+              unit={DISPLAY_UNITS.co2}
+              scenarios={scenarios}
+              deltas={deltas}
+              value={(scenario) => formatGrouped(scenario.co2_emission_ton, DISPLAY_DIGITS.co2Ton)}
+              delta={(delta) => delta.co2Ton}
+              digits={DISPLAY_DIGITS.co2Ton}
+            />
+
+            <MetricRow
+              label="기준 대비"
+              scenarios={scenarios}
+              deltas={deltas}
+              value={(scenario) => `${formatPercent(scenario.ratio_to_required)}%`}
+            />
+          </tbody>
+        </table>
+      </div>
+
+      <CiiSameNotes scenarios={scenarios} direct={direct} deltas={deltas} />
+    </>
   )
 }
 
 /* ------------------------------------------------------------------ */
 
 /**
- * CII가 직항과 어떻게 다른가 — `#739`.
+ * 지표 한 행 — 첫 칸이 지표 이름, 나머지가 시나리오별 값이다.
+ *
+ * 차이를 값 **바로 옆**에 둔다 (#739). 표 아래에 「직항 대비」 묶음을 따로 만들면 같은
+ * 지표가 화면에 두 번 나오고, 어느 숫자가 어느 차이인지를 다시 눈으로 짝지어야 한다.
+ */
+function MetricRow({
+  label,
+  unit,
+  scenarios,
+  deltas,
+  value,
+  delta,
+  digits,
+}: {
+  label: string
+  unit?: string
+  scenarios: readonly ScenarioResult[]
+  deltas: readonly (ScenarioDelta | null)[]
+  value: (scenario: ScenarioResult) => string
+  delta?: (delta: ScenarioDelta) => string
+  digits?: number
+}) {
+  return (
+    <tr>
+      <th scope="row">
+        {label}
+        {unit ? <span className="scenario-table__unit"> ({unit})</span> : null}
+      </th>
+      {scenarios.map((scenario, index) => {
+        const scenarioDelta = deltas[index]
+        return (
+          <td key={scenario.scenario_type} className="scenario-table__num">
+            <span className="scenario-table__value">{value(scenario)}</span>
+            {delta !== undefined && digits !== undefined && scenarioDelta !== null ? (
+              <DeltaValue value={delta(scenarioDelta)} digits={digits} />
+            ) : null}
+          </td>
+        )
+      })}
+    </tr>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * CII가 직항과 같을 때 그 이유를 적는다 — `#739`.
  *
  * ## 같은 숫자 두 개를 그냥 두지 않는다
  *
@@ -1124,39 +1282,38 @@ function ScenarioCard({
  * 이것은 추천이 아니라 사실 설명이므로 `PRD §11.2`의 「추천 시나리오를 표시하지
  * 않는다」에 걸리지 않는다. 어느 쪽이 낫다고 말하지 않고, CO₂ 차이는 표가 따로
  * 보여 준다 — 등급은 같아도 총량은 다르다는 것을 사용자가 직접 읽는다.
+ *
+ * 표에서는 칸에 `동일`만 적고 이유를 **표 아래 한 줄**로 내린다 (#1745). 칸 안에
+ * 두 줄짜리 설명을 넣으면 그 행만 키가 커져 옆 열의 숫자와 줄이 어긋난다.
  */
-function CiiComparison({
-  scenario,
+function CiiSameNotes({
+  scenarios,
   direct,
-  delta,
+  deltas,
 }: {
-  scenario: ScenarioResult
+  scenarios: readonly ScenarioResult[]
   direct: ScenarioResult | undefined
-  delta: ScenarioDelta | null
+  deltas: readonly (ScenarioDelta | null)[]
 }) {
-  if (delta === null) {
-    return <p className="scenario-card__baseline">기준 시나리오</p>
-  }
+  const same = scenarios.filter((_, index) => {
+    const delta = deltas[index]
+    return delta !== null && isZeroDelta(delta.cii)
+  })
 
-  if (!isZeroDelta(delta.cii)) {
-    return (
-      <p className="scenario-card__cii-delta">
-        <span className="scenario-card__delta-label">직항 대비</span>
-        <DeltaValue value={delta.cii} digits={DISPLAY_DIGITS.cii} />
-      </p>
-    )
-  }
-
-  // 거리가 같은데 CII도 같은 것은 설명할 일이 아니다 — 같은 조건이니 같은 값이다.
-  const longer = direct !== undefined && scenario.distance_nm > direct.distance_nm
+  if (same.length === 0) return null
 
   return (
-    <p className="scenario-card__cii-same">
-      <strong>직항과 같습니다.</strong>{' '}
-      {longer
-        ? 'CII는 거리당 값이라, 같은 속력이면 거리가 늘어도 연료가 같은 비율로 늘어 값이 변하지 않습니다.'
-        : '같은 속력·같은 거리이므로 값이 같습니다.'}
-    </p>
+    <>
+      {same.map((scenario) => (
+        <p className="scenario-table__same" key={scenario.scenario_type}>
+          <strong>{scenario.scenario_name}의 CII는 직항과 같습니다.</strong>{' '}
+          {/* 거리가 같은데 CII도 같은 것은 설명할 일이 아니다 — 같은 조건이니 같은 값이다. */}
+          {direct !== undefined && scenario.distance_nm > direct.distance_nm
+            ? 'CII는 거리당 값이라, 같은 속력이면 거리가 늘어도 연료가 같은 비율로 늘어 값이 변하지 않습니다.'
+            : '같은 속력·같은 거리이므로 값이 같습니다.'}
+        </p>
+      ))}
+    </>
   )
 }
 
@@ -1168,49 +1325,19 @@ function CiiComparison({
  * 늘어난 것이 나쁘다고 단정할 수도 없다 — 우회에는 이유가 있다. 방향은 `+`·`−`
  * 문자가 말하고, 좋고 나쁨의 판단은 사용자에게 남긴다(`PRD §6.3`).
  */
-function DeltaValue({ value, digits, unit }: { value: string; digits: number; unit?: string }) {
+function DeltaValue({ value, digits }: { value: string; digits: number }) {
   if (isZeroDelta(value)) {
-    return <span className="scenario-card__delta">동일</span>
+    return <span className="scenario-table__delta">동일</span>
   }
 
   const negative = value.startsWith('-')
   const magnitude = formatGrouped(negative ? value.slice(1) : value, digits)
 
   return (
-    <span className="scenario-card__delta">
+    <span className="scenario-table__delta">
       {/* U+2212 MINUS SIGN — 하이픈은 좁아서 `+`와 폭이 어긋난다 */}
       {negative ? '−' : '+'}
       {magnitude}
-      {unit ? <span className="scenario-card__row-unit"> {unit}</span> : null}
     </span>
-  )
-}
-
-function Row({
-  label,
-  value,
-  unit,
-  delta,
-  deltaDigits,
-}: {
-  label: string
-  value: string
-  unit?: string
-  delta?: string
-  deltaDigits?: number
-}) {
-  return (
-    <div className="scenario-card__row">
-      <dt>{label}</dt>
-      <dd>
-        {value}
-        {unit ? <span className="scenario-card__row-unit"> {unit}</span> : null}
-      </dd>
-      {delta !== undefined && deltaDigits !== undefined ? (
-        <dd className="scenario-card__row-delta">
-          <DeltaValue value={delta} digits={deltaDigits} />
-        </dd>
-      ) : null}
-    </div>
   )
 }

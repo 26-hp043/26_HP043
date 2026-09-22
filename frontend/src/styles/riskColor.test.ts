@@ -35,9 +35,9 @@ const SCREENS = [
   {
     name: '시나리오 비교',
     file: 'src/features/scenario-comparison/ScenarioComparison.css',
-    high: '.scenario-card__risk-value--high',
-    critical: '.scenario-card__risk-value--critical',
-    icon: '.scenario-card__risk-icon',
+    high: '.scenario-table__risk-value--high',
+    critical: '.scenario-table__risk-value--critical',
+    icon: '.scenario-table__risk-icon',
   },
 ] as const
 
