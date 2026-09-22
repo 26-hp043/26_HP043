@@ -1,6 +1,6 @@
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { createApiParametersProvider } from '../parameters/apiProvider'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { createApiParametersProvider } from '../../api/parameters'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import type {
   FuelUse,
   FuelUseDraft,

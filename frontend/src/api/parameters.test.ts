@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { ParametersError, createApiParametersProvider } from './apiProvider'
+import { ParametersError, createApiParametersProvider } from './parameters'
 
 /**
  * 규제 파라미터 조회 provider (`API_SPEC §7.2` · `#444`).

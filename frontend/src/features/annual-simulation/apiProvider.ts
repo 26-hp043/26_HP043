@@ -1,3 +1,4 @@
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import type {
   AnnualSimulationProvider,
@@ -28,7 +29,6 @@ import type {
  */
 
 /** API base URL — VITE_API_BASE_URL 환경변수가 있으면 그 값을, 없으면 상대 경로. */
-export const DEFAULT_API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1'
 
 export const NETWORK_ERROR_MESSAGE =
   '서버에 연결하지 못했습니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.'

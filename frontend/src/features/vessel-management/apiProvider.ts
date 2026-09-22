@@ -1,5 +1,5 @@
+import { DEFAULT_API_BASE_URL, readPageMeta } from '../../api/base'
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
 import {
   VesselManagementError,
   type VesselManagementErrorCode,
@@ -77,22 +77,6 @@ export function toVesselManagementError(
 export interface ApiProviderOptions {
   baseUrl?: string
   fetchImpl?: typeof fetch
-}
-
-/**
- * `meta`에서 페이지네이션 정보를 꺼낸다.
- *
- * 값이 없거나 형이 다르면 **「더 없음」으로 읽는다.** 커서를 지어내면 같은 페이지를
- * 무한히 다시 부른다.
- */
-export function readPageMeta(body: unknown): { nextCursor: string | null; hasMore: boolean } {
-  const meta = (body as { meta?: Record<string, unknown> } | null)?.meta
-  const cursor = meta?.next_cursor
-  const more = meta?.has_more
-  return {
-    nextCursor: typeof cursor === 'string' && cursor !== '' ? cursor : null,
-    hasMore: more === true,
-  }
 }
 
 export function createApiVesselManagementProvider(

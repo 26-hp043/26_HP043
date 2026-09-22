@@ -1,8 +1,8 @@
 import { csrfHeaders, redirectToLogin, SESSION_EXPIRED_MESSAGE } from '../../auth/session'
 import { filenameFrom, saveBlob } from '../../download/file'
-import { readPageMeta } from '../vessel-management/apiProvider'
-import { createApiParametersProvider } from '../parameters/apiProvider'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { readPageMeta } from '../../api/base'
+import { createApiParametersProvider } from '../../api/parameters'
+import { DEFAULT_API_BASE_URL } from '../../api/base'
 import type { ImportResult, ImportRowError } from './importRules'
 import {
   greatCircleDistanceNm,

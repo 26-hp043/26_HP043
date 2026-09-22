@@ -1,5 +1,5 @@
-import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
-import { DEFAULT_API_BASE_URL } from '../voyage-cii/apiProvider'
+import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../auth/session'
+import { DEFAULT_API_BASE_URL } from './base'
 
 /**
  * 규제 파라미터 조회 — `API_SPEC §7.1~§7.4` (`#444`).
