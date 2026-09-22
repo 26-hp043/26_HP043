@@ -72,12 +72,12 @@ export function VoyageCiiActions({
    * 계산 결과가 바뀌면 앞 결과의 저장 문구·실패·보류 항차를 지운다 (`#1098` ⑴). 종전에는
    * 「계획 저장」을 다시 누를 때만 지워, 재계산한 새 결과 아래에 「저장했습니다」가 남았다.
    */
+  const [failure, setFailure] = useState<string | null>(null)
   useEffect(() => {
     setSaved(null)
     setFailure(null)
     setPending(null)
   }, [state])
-  const [failure, setFailure] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
   /* 샘플 항만 (#1005) — 못 받아도 항만명은 자유 입력이다. 패널을 열 때 한 번 받는다. */
   const [ports, setPorts] = useState<SamplePort[]>([])

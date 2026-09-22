@@ -160,9 +160,18 @@ export function ScenarioComparison({
    * 박혀 있어 이 손실이 드러나지 않았다 — 되덮어도 여전히 2026이었기 때문이다.
    */
   const [form, setForm] = useState<ComparisonFormState>(initialFormState)
-  /** 지금 입력칸의 목적지 이름 — 늦게 온 좌표 조회 응답이 대조한다 (#1097 ⑴). */
+  /**
+   * 지금 입력칸의 목적지 이름 — 늦게 온 좌표 조회 응답이 대조한다 (#1097 ⑴).
+   *
+   * 렌더 중에 대입하지 않는다 (`#1616`). 읽는 곳은 클릭 핸들러의 `await` 뒤 하나뿐이라
+   * **커밋 이후**이고, 렌더 중 `ref.current`에 쓰면 React가 렌더를 버리거나 두 번 돌릴 때
+   * 화면에 없는 값이 남는다. 입력 이벤트가 일으킨 렌더의 effect는 그 이벤트 안에서
+   * 함께 비워지므로 대조 시점은 그대로다.
+   */
   const destinationNameRef = useRef('')
-  destinationNameRef.current = form.destinationPortName.trim()
+  useEffect(() => {
+    destinationNameRef.current = form.destinationPortName.trim()
+  }, [form.destinationPortName])
   /*
    * 샘플 항만 (#1005 · `PRD §15.1`). 못 받아도 폼은 그대로 쓴다 — 좌표는 손으로도 넣는다.
    * 「현재 위치」 칸은 **입력 보조**다 — 고르면 위도·경도 칸을 채울 뿐 요청에 따로 싣지 않는다.
