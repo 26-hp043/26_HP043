@@ -127,6 +127,7 @@ def _git(root: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
     ).stdout
 
 
@@ -134,7 +135,9 @@ def test_실제_git_이력에서_두_사고를_모두_잡는다(tmp_path):
     """스크립트가 base와 PR 커밋을 실제로 읽는지 — 순수 함수만 보면 배선이 빠져도 통과한다."""
     doc = tmp_path / "TEST_PLAN.md"
     _git(tmp_path, "init", "-q", "-b", "main")
-    doc.write_text(_table("| 2026-09-20 | `#1487` | a |", "| 2026-09-20 | `#1488` | b |"))
+    doc.write_text(
+        _table("| 2026-09-20 | `#1487` | a |", "| 2026-09-20 | `#1488` | b |"), encoding="utf-8"
+    )
     _git(tmp_path, "add", ".")
     _git(tmp_path, "commit", "-qm", "base")
 
@@ -144,11 +147,14 @@ def test_실제_git_이력에서_두_사고를_모두_잡는다(tmp_path):
             "| 2026-09-20 | `#1487` | a |",
             "| 2026-09-20 | `#1488` | b |",
             "| 2026-09-21 | `#1512` | c |",
-        )
+        ),
+        encoding="utf-8",
     )
     _git(tmp_path, "commit", "-qam", "행을 싣는다")
     # 충돌 해결에서 #1512가 빠지고, 덮어쓰기로 #1488도 사라진 상태
-    doc.write_text(_table("| 2026-09-20 | `#1487` | a |", "| 2026-09-21 | `#1513` | d |"))
+    doc.write_text(
+        _table("| 2026-09-20 | `#1487` | a |", "| 2026-09-21 | `#1513` | d |"), encoding="utf-8"
+    )
     _git(tmp_path, "commit", "-qam", "충돌 해결")
 
     problems = rows.check(tmp_path, "main")
@@ -160,11 +166,14 @@ def test_실제_git_이력에서_두_사고를_모두_잡는다(tmp_path):
 def test_정상_PR은_통과한다(tmp_path):
     doc = tmp_path / "TEST_PLAN.md"
     _git(tmp_path, "init", "-q", "-b", "main")
-    doc.write_text(_table("| 2026-09-20 | `#1487` | a |"))
+    doc.write_text(_table("| 2026-09-20 | `#1487` | a |"), encoding="utf-8")
     _git(tmp_path, "add", ".")
     _git(tmp_path, "commit", "-qm", "base")
     _git(tmp_path, "checkout", "-qb", "pr")
-    doc.write_text(_table("| 2026-09-20 | `#1487` | 고친 문구 |", "| 2026-09-21 | `#1514` | b |"))
+    doc.write_text(
+        _table("| 2026-09-20 | `#1487` | 고친 문구 |", "| 2026-09-21 | `#1514` | b |"),
+        encoding="utf-8",
+    )
     _git(tmp_path, "commit", "-qam", "행 추가")
 
     assert rows.check(tmp_path, "main") == []
@@ -178,17 +187,21 @@ def _rebase_conflict_repo(tmp_path: Path, *, keep_own_row: bool) -> tuple[str, s
     """
     doc = tmp_path / "TEST_PLAN.md"
     _git(tmp_path, "init", "-q", "-b", "main")
-    doc.write_text(_table("| 2026-09-20 | `#1487` | a |"))
+    doc.write_text(_table("| 2026-09-20 | `#1487` | a |"), encoding="utf-8")
     _git(tmp_path, "add", ".")
     _git(tmp_path, "commit", "-qm", "base")
 
     _git(tmp_path, "checkout", "-qb", "pr")
-    doc.write_text(_table("| 2026-09-20 | `#1487` | a |", "| 2026-09-22 | `#1582` | pr |"))
+    doc.write_text(
+        _table("| 2026-09-20 | `#1487` | a |", "| 2026-09-22 | `#1582` | pr |"), encoding="utf-8"
+    )
     _git(tmp_path, "commit", "-qam", "PR 행")
     before = _git(tmp_path, "rev-parse", "HEAD").strip()
 
     _git(tmp_path, "checkout", "-q", "main")
-    doc.write_text(_table("| 2026-09-20 | `#1487` | a |", "| 2026-09-21 | `#1579` | main |"))
+    doc.write_text(
+        _table("| 2026-09-20 | `#1487` | a |", "| 2026-09-21 | `#1579` | main |"), encoding="utf-8"
+    )
     _git(tmp_path, "commit", "-qam", "main 행")
 
     # 리베이스 대신 결과를 직접 만든다 — main 위에 PR 커밋 하나(충돌 해결 결과).
@@ -196,8 +209,8 @@ def _rebase_conflict_repo(tmp_path: Path, *, keep_own_row: bool) -> tuple[str, s
     kept = ["| 2026-09-20 | `#1487` | a |", "| 2026-09-21 | `#1579` | main |"]
     if keep_own_row:
         kept.append("| 2026-09-22 | `#1582` | pr |")
-    doc.write_text(_table(*kept))
-    (tmp_path / "other.txt").write_text("PR의 다른 변경")
+    doc.write_text(_table(*kept), encoding="utf-8")
+    (tmp_path / "other.txt").write_text("PR의 다른 변경", encoding="utf-8")
     _git(tmp_path, "add", ".")
     _git(tmp_path, "commit", "-qm", "PR 행(리베이스됨)")
     return before, _git(tmp_path, "rev-parse", "HEAD").strip()
@@ -231,7 +244,7 @@ def test_실제_git_이력에서_같은_PR의_둘째_행이_빠지면_잡는다(
     """`#1607` — 배선까지: PR 커밋에서 한 번이라도 둘이었으면 머지 결과도 둘이어야 한다."""
     doc = tmp_path / "TEST_PLAN.md"
     _git(tmp_path, "init", "-q", "-b", "main")
-    doc.write_text(_table("| 2026-09-20 | `#1487` | a |"))
+    doc.write_text(_table("| 2026-09-20 | `#1487` | a |"), encoding="utf-8")
     _git(tmp_path, "add", ".")
     _git(tmp_path, "commit", "-qm", "base")
     _git(tmp_path, "checkout", "-qb", "pr")
@@ -240,10 +253,13 @@ def test_실제_git_이력에서_같은_PR의_둘째_행이_빠지면_잡는다(
             "| 2026-09-20 | `#1487` | a |",
             "| 2026-09-22 | `#1606` | 하나 |",
             "| 2026-09-22 | `#1606` ⑵ | 둘 |",
-        )
+        ),
+        encoding="utf-8",
     )
     _git(tmp_path, "commit", "-qam", "행 둘")
-    doc.write_text(_table("| 2026-09-20 | `#1487` | a |", "| 2026-09-22 | `#1606` | 하나 |"))
+    doc.write_text(
+        _table("| 2026-09-20 | `#1487` | a |", "| 2026-09-22 | `#1606` | 하나 |"), encoding="utf-8"
+    )
     _git(tmp_path, "commit", "-qam", "충돌 해결에서 하나가 빠짐")
 
     problems = rows.check(tmp_path, "main")

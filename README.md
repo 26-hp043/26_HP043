@@ -388,6 +388,10 @@ docker compose up -d app
 **이 경고는 dev 전용이다.** prod는 이미지에 의존성을 넣으므로(`pip install`) 배포
 절차의 `build` 단계가 같은 역할을 한다 — 「배포 > 기동 순서」의 경고를 참조한다.
 
+### 시간대 데이터 — `tzdata` (`#1664`)
+
+보고서·내보내기가 `Asia/Seoul`을 쓴다. **Linux 이미지는 OS의 시간대 데이터**(`/usr/share/zoneinfo`)로 풀고, **Windows에는 그것이 없어** `pyproject.toml`의 설치 의존성 `tzdata`가 대신한다. 파이썬 `zoneinfo`는 OS 데이터가 없을 때만 이 패키지를 보므로 운영 이미지의 동작은 바뀌지 않는다. 새 가상환경에서 `ZoneInfoNotFoundError`가 나면 의존성을 다시 설치한다(`uv sync`).
+
 ## 화면 개발 서버
 
 백엔드를 띄운 뒤 별도 터미널에서 실행한다.
@@ -691,3 +695,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-09-22 | `#1681` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 **v2.20**으로 갱신 — `§8` 텍스트 버튼 높이 확정(`#1297`) |
 | 2026-09-22 | `#1687` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 **v2.21**로 갱신 — `§4.4` 기준 시각 형식 신설(`#1527`) |
 | 2026-09-22 | `#1696` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 **v2.22**로 갱신 — 재설계 공통 틀 넷(`#1690`) |
+| 2026-09-23 | `#1708` | 「개발 스택」에 **시간대 데이터 — `tzdata`** 소절 (`#1664`). Windows 새 가상환경에서 `Asia/Seoul`이 풀리지 않던 원인(OS 시간대 데이터 없음)과, 운영 Linux 이미지는 OS 데이터를 그대로 쓴다는 점을 적었다 (#1664) |

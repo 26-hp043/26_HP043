@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from decimal import ROUND_HALF_UP, Decimal, localcontext
 from pathlib import Path
 
@@ -317,6 +318,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true", help="tests/fixtures/cii/ 에 기록한다")
     args = parser.parse_args()
+    # `#1670` — 사람이 읽는 표시(✓ · ─)를 콘솔이 못 그려도 **생성은 실패하지 않게** 한다.
+    # Windows 기본 콘솔(CP949)은 ✓를 인코딩하지 못해, 파일을 다 쓴 뒤 `print`에서
+    # `UnicodeEncodeError`로 끝났다(`PYTHONUTF8=1`에서만 통과). 파일은 늘 UTF-8로 쓴다.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(errors="replace")
 
     raw = compute_layer1(WORKING_PRECISION)
     canonical = check_invariance()

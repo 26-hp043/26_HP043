@@ -108,8 +108,15 @@ def dropped_in_pr(seen: Counter[Key], merged: Counter[Key]) -> list[Key]:
 
 
 def _git(root: Path, *args: str) -> str:
+    # `#1665` — Git 출력은 UTF-8이다. `text=True`만 두면 **플랫폼 기본 인코딩**(Windows는
+    # CP949)으로 풀어, 한국어 변경 이력이 깨지거나 두 판본이 다른 글자로 읽힌다.
     return subprocess.run(
-        ["git", *args], cwd=root, check=True, capture_output=True, text=True
+        ["git", *args],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
     ).stdout
 
 
