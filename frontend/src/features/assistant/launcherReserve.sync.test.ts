@@ -61,3 +61,28 @@ describe('어시스턴트 런처가 본문 마지막 줄을 가리지 않는다 
     }
   })
 })
+
+/**
+ * 패널이 열리면 넓은 화면에서 셸이 오른쪽을 비운다 (#1613 · R21).
+ *
+ * jsdom은 미디어 쿼리 · 고정 배치를 계산하지 않으므로 위와 같이 **서로를 가리키는지**를 본다.
+ * 패널 폭과 비우는 폭이 **같은 변수**여야 한다 — 한쪽만 숫자로 바꾸면 틈이 생기거나 다시 덮인다.
+ */
+describe('어시스턴트 패널이 넓은 화면에서 본문을 덮지 않는다 (#1613)', () => {
+  const SHELL_TSX = join(HERE, '..', '..', 'layout', 'AppShell.tsx')
+  const css = () => code(LAUNCHER_CSS)
+
+  it('패널 폭과 셸이 비우는 폭이 같은 변수다', () => {
+    expect(css()).toMatch(/--assistant-panel-width\s*:/)
+    expect(css()).toMatch(/\.assistant\s*\{[^}]*width:\s*min\(var\(--assistant-panel-width\)/)
+    const rule = /@media\s*\(min-width:\s*1366px\)\s*\{\s*\.app-shell--assistant-open\s*\{([^}]*)\}/.exec(css())
+    expect(rule, '1366px 이상에서 .app-shell--assistant-open 규칙이 없습니다').not.toBeNull()
+    expect(rule![1]).toMatch(/padding-inline-end:[^;]*var\(--assistant-panel-width\)/)
+  })
+
+  it('셸이 패널 열림을 받아 그 클래스를 붙인다', () => {
+    const shell = readFileSync(SHELL_TSX, 'utf-8')
+    expect(shell).toMatch(/onOpenChange=\{setAssistantOpen\}/)
+    expect(shell).toMatch(/assistantOpen \? 'app-shell app-shell--assistant-open'/)
+  })
+})

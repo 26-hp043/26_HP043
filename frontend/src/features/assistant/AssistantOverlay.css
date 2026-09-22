@@ -43,6 +43,8 @@
  * ⚠️ 치수가 확정되면(`§16` 항목 16) 이 식도 함께 간다. 셸은 고치지 않는다.
  */
 :root {
+  /* 패널 폭 — 셸이 넓은 화면에서 이만큼 비운다(아래 `.app-shell--assistant-open`). */
+  --assistant-panel-width: 380px;
   --assistant-launcher-reserve: calc(
     var(--space-8) * 2 + 2px + var(--font-size-label) * var(--line-height-label)
   );
@@ -68,7 +70,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
-  width: min(380px, calc(100vw - var(--space-32)));
+  width: min(var(--assistant-panel-width), calc(100vw - var(--space-32)));
   max-height: min(560px, calc(100vh - var(--space-32)));
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -269,4 +271,69 @@
   background: var(--color-surface-2);
   color: var(--color-text-disabled);
   cursor: not-allowed;
+}
+
+/*
+ * 패널이 본문을 덮지 않게 한다 (#1613 · R21 · 디자인 결정 2026-09-22).
+ *
+ * 넓은 화면(1366px 이상)에서는 패널이 열리면 셸이 오른쪽에 **패널 폭 + 여백**을 비워
+ * 본문이 패널 왼쪽까지만 온다 — 패널이 본문 옆 칸처럼 선다. 좁은 화면에서는 본문을
+ * 좁히면 표가 무너지므로 종전대로 위에 뜬다(닫으면 된다).
+ *
+ * 1366은 `#1451`이 감축 계획 두 단의 전환점으로 쓴 값과 같다 — 1366 노트북에서 비우면
+ * 본문이 약 900px 남는다. 값은 이 파일이 갖는다(런처 여백과 같은 이유 · `#1375`).
+ */
+@media (min-width: 1366px) {
+  .app-shell--assistant-open {
+    padding-inline-end: calc(var(--shell-gutter) * 2 + var(--assistant-panel-width));
+  }
+}
+
+/* 계산 대상 선박 (#1613 · R20) — 답에는 이름이 나오지 않으므로 여기서 말한다. */
+.assistant__target {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-label);
+  line-height: var(--line-height-label);
+}
+
+.assistant__target-label,
+.assistant__target-hint {
+  color: var(--color-text-muted);
+}
+
+/* 예시 질문 — 누르면 입력칸에만 채운다(보내지 않는다). */
+.assistant__examples {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.assistant__example {
+  width: 100%;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: var(--space-4) var(--space-8);
+  font-family: inherit;
+  font-size: var(--font-size-label);
+  text-align: start;
+  cursor: pointer;
+}
+
+.assistant__example:hover:not(:disabled) {
+  background: var(--color-surface-2);
+}
+
+.assistant__example:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.assistant__example:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
