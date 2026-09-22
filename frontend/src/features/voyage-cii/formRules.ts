@@ -250,14 +250,14 @@ export function pickDefaultYear(
 /**
  * 폼 전체를 검증한다. **위반을 전부 모아 반환한다.**
  *
- * `demoProvider.validateRequest()`는 첫 위반에서 즉시 `throw`하므로 거리와 연료량이
- * 둘 다 잘못돼도 하나만 보인다. 사용자가 고치고 제출하면 다음 오류가 뜨는 왕복이
- * 생긴다. 화면 검증은 그 왕복을 없애기 위해 전 필드를 동시에 본다.
+ * 첫 위반에서 멈추는 검증이면 거리와 연료량이 둘 다 잘못돼도 하나만 보인다. 사용자가
+ * 고치고 제출하면 다음 오류가 뜨는 왕복이 생긴다. 화면 검증은 그 왕복을 없애기 위해 전
+ * 필드를 동시에 본다. (종전 비교 대상이던 `demoProvider.validateRequest()`는 `#542`가 폐기했다 · `#1660`)
  *
  * provider 검증을 대체하는 것이 아니다 — provider는 요청 형태에 대한 방어선으로
  * 그대로 남고, 화면 검증을 통과한 요청은 provider도 통과한다.
  *
- * 규칙 출처는 `API_SPEC §11`이며 문구는 `demoProvider`와 맞춘다.
+ * 규칙 출처는 `API_SPEC §11`이다. (종전 「문구는 `demoProvider`와 맞춘다」는 맞출 대상이 없어졌다 · `#1660`)
  */
 export function validateForm(
   state: VoyageCiiFormState,

@@ -135,9 +135,10 @@ export interface FuelOptionsState {
  * 동기 함수라 `useMemo` 한 줄이면 됐는데, 서버 조회로 바뀌면서 로딩·실패 상태가
  * 생겼다. 그 절차를 네 번 복사하면 한 곳만 고치는 실수가 나온다.
  *
- * 이 훅은 **저장소에 DOM 테스트 환경이 없어 단언할 수 없다**(`#557`). 그래서 판정
- * 규칙은 전부 순수 함수(`validateForm`·`validateEdit`)에 두고, 여기에는 상태를
- * 옮기는 배선만 남긴다.
+ * 판정 규칙은 전부 순수 함수(`validateForm`·`validateEdit`)에 두고, 여기에는 상태를 옮기는
+ * 배선만 남긴다 — 규칙을 렌더 없이 검사할 수 있게 하기 위해서다. 종전 주석은 그 이유를
+ * 「DOM 테스트 환경이 없다」로 적었으나 `#557`이 jsdom·Testing Library를 들인 뒤로는 사실이
+ * 아니다(`ParameterRevision.test.tsx` 등 · `#1660` 정정).
  */
 export function useFuelOptions(): FuelOptionsState {
   const catalog = useMemo(() => createFuelCatalog(), [])

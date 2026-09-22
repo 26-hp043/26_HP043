@@ -3,9 +3,9 @@ import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
 /**
  * 기능① 계산의 데이터 경계.
  *
- * **화면은 데이터 출처를 알지 않는다.** 8/8 데모는 `demoProvider`를 쓰고,
- * 기능① API(#55)가 준비되면 `apiProvider`로 구현체만 교체한다(#138).
- * 그때 화면 코드는 바뀌지 않는다.
+ * **화면은 데이터 출처를 알지 않는다.** 구현체는 `providerSelection.ts`가 만들며 지금은 항상
+ * 실 API provider(`apiProvider`)다 — 8/8 데모의 `demoProvider`는 `#542`가 폐기했다(`#1660`).
+ * 경계는 그대로 유효하다: 화면은 이 인터페이스만 알고 만드는 방법은 모른다(`#134`).
  */
 export interface VoyageCiiProvider {
   estimate(request: VoyageCiiRequest): Promise<VoyageCiiResponse>
@@ -20,7 +20,7 @@ export interface VoyageCiiProvider {
 export type VoyageCiiErrorCode =
   /** 요청 값이 검증 규칙을 위반 (`API_SPEC §11` VAL-002 · VAL-006 · VAL-009) */
   | 'VALIDATION_ERROR'
-  /** demo provider의 고정표에 없는 선박 */
+  /** 선박이 없다 — 서버 `NOT_FOUND`(404)를 이 코드로 옮긴다(`apiProvider.ts` 매핑 표) */
   | 'UNSUPPORTED_VESSEL'
   /** 고정표에 없는 규제연도 */
   | 'UNSUPPORTED_YEAR'

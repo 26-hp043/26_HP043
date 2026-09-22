@@ -12,8 +12,9 @@ import {
 } from './theme'
 
 /*
- * 이 저장소에는 DOM 테스트 환경이 없다(테스트가 전부 순수 로직). 그래서 전역 대신
- * 가짜 저장소·가짜 루트를 주입해 검증한다 — `theme.ts`의 주입 인자가 그 용도다.
+ * 전역(`localStorage`·`document`) 대신 가짜 저장소·가짜 루트를 주입해 검증한다 — `theme.ts`의
+ * 주입 인자가 그 용도다. 종전 주석의 「DOM 테스트 환경이 없다」는 `#557` 이후 사실이 아니며
+ * (`#1660`), 주입 방식은 검사끼리 전역 상태를 나누지 않는다는 이유로 그대로 둔다.
  */
 
 function fakeStorage(initial: Record<string, string> = {}): ThemeStorage & {
