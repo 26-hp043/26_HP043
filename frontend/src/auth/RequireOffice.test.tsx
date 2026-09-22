@@ -4,7 +4,7 @@ import '../test/renderSetup'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { RequireOffice } from './RequireOffice'
-import { OFFICE_ONLY_SCREEN_NOTICE } from '../features/auth/authRules'
+import { OFFICE_ONLY_SCREEN_NOTICE, ROLE_LABEL } from '../features/auth/authRules'
 import * as session from './session'
 
 /**
@@ -72,5 +72,13 @@ describe('RequireOffice (#672)', () => {
       </RequireOffice>,
     )
     expect(screen.queryByText('보고서 화면')).toBeNull()
+  })
+})
+
+
+describe('역할 변경 문의 대상 (#1649)', () => {
+  it('실제 권한자(관리자)를 가리키고, 권한 없는 사무직에게 보내지 않는다', () => {
+    expect(OFFICE_ONLY_SCREEN_NOTICE).toContain(`${ROLE_LABEL.ADMIN}에게`)
+    expect(OFFICE_ONLY_SCREEN_NOTICE).not.toContain(`${ROLE_LABEL.OFFICE} 담당자에게`)
   })
 })
