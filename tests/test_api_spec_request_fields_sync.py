@@ -110,6 +110,18 @@ REQUIRED_TOKENS: dict[str, bool] = {
 #: 「필드·필수」 열이 있는 요청 표 → 요청 스키마. 파일 업로드 표(`§7.5`·`§8.2`)는
 #: multipart라 JSON 스키마가 없어 대상이 아니다.
 TABLES: dict[str, type[BaseModel]] = {
+    # 인증 10종 (`API_SPEC §1.2.1` · `#1602`) — `#1523`이 「표가 없어 대조 밖」으로
+    # 남겨 둔 자리다. 화면이 가장 자주 부르는 경로라 표를 만들어 안으로 넣었다.
+    "1.2.1": SignupRequest,
+    "1.2.2": LoginRequest,
+    "1.2.3": TourLoginRequest,
+    "1.2.4": PasswordChangeRequest,
+    "1.2.5": MeUpdateRequest,
+    "1.2.6": RoleUpdateRequest,
+    "1.2.7": VerifyEmailRequest,
+    "1.2.8": VerifyEmailConfirmRequest,
+    "1.2.9": PasswordResetRequest,
+    "1.2.10": PasswordResetConfirmRequest,
     "2.6": VesselPositionUpdateRequest,
     "2.10": NotUnderwayPeriodCreateRequest,
     "2.17.1": ReductionPlanRequest,
@@ -123,6 +135,16 @@ TABLES: dict[str, type[BaseModel]] = {
 #: `#1523` 시점 실측 행 수. 파싱이 깨져 0행이 되면 아래 대조가 「빈 것끼리 같다」로
 #: 통과하므로 하한을 둔다 — 행을 지우는 돌연변이도 여기서 먼저 걸린다.
 MIN_ROWS: dict[str, int] = {
+    "1.2.1": 4,
+    "1.2.2": 2,
+    "1.2.3": 1,
+    "1.2.4": 2,
+    "1.2.5": 1,
+    "1.2.6": 1,
+    "1.2.7": 1,
+    "1.2.8": 1,
+    "1.2.9": 1,
+    "1.2.10": 2,
     "2.6": 4,
     "2.10": 12,
     "2.17.1": 7,
@@ -157,22 +179,12 @@ PATCH_PROSE: dict[str, tuple[type[BaseModel], type[BaseModel], frozenset[str]]] 
     "3.4": (VoyageUpdateRequest, VoyageCreateRequest, frozenset({"fuel_uses"})),
 }
 
-#: 스키마는 있으나 `§1.2`에 필드 표도 예시도 없는 인증 요청 — 후속 이슈 대상.
-#: 여기서 빼려면 표를 적고 ``TABLES``로 옮긴다.
-NO_TABLE_YET: frozenset[type[BaseModel]] = frozenset(
-    {
-        SignupRequest,
-        LoginRequest,
-        TourLoginRequest,
-        PasswordChangeRequest,
-        MeUpdateRequest,
-        RoleUpdateRequest,
-        VerifyEmailRequest,
-        VerifyEmailConfirmRequest,
-        PasswordResetRequest,
-        PasswordResetConfirmRequest,
-    }
-)
+#: 스키마는 있으나 `API_SPEC`에 필드 표도 예시도 없는 요청.
+#:
+#: **비어 있다** (`#1602`). `#1523`이 인증 10종을 여기 두고 「표를 만들면 옮긴다」고
+#: 적었고, `API_SPEC §1.2.1`이 그 표를 만들어 전부 ``TABLES``로 갔다. 새 요청 스키마를
+#: 여기 넣는 것은 **표를 쓸 때까지의 임시 자리**이며, 비워 두는 것이 정상이다.
+NO_TABLE_YET: frozenset[type[BaseModel]] = frozenset()
 
 
 # ── 문서 읽기 ─────────────────────────────────────────────────────────────────
