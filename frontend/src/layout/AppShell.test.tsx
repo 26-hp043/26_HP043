@@ -164,6 +164,23 @@ describe('사이드바 — 미구현 화면을 숨기지 않고 비활성으로 
   })
 })
 
+describe('셸 flex의 흐름 안 항목은 사이드바와 본문 둘뿐이다 (#1693)', () => {
+  it('사이드바 앞에 gap을 차지하는 형제가 없다 — `§7.1` 외곽 여백 24', () => {
+    stubServer()
+    const { container } = renderShell()
+    const shell = container.querySelector('.app-shell') as HTMLElement
+    // jsdom은 CSS 파일을 적용하지 않으므로 흐름 밖은 두 가지로 판정한다:
+    // 인라인 `position: absolute`(패턴 정의 SVG) · `.skip-link`(global.css에서 absolute).
+    const inFlow = [...shell.children].filter((child) => {
+      const el = child as HTMLElement
+      if (el.style?.position === 'absolute') return false
+      if (el.classList.contains('skip-link')) return false
+      return true
+    })
+    expect(inFlow.map((el) => el.classList[0])).toEqual(['app-shell__sidebar', 'app-shell__stack'])
+  })
+})
+
 describe('셸 조회가 한 번만 나간다 — 무한 루프 회귀 (#557)', () => {
   it('선박 목록 조회가 반복되지 않는다', async () => {
     const calls = stubServer()
