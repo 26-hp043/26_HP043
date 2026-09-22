@@ -6,11 +6,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from cii_platform.api.schemas.instants import Instant
 
 
 class AnnualSimulationRequest(BaseModel):
@@ -31,7 +32,7 @@ class AnnualSimulationRequest(BaseModel):
     #: 큰 값은 문자열로 보낸다. 둘 다 받아 int로 정규화한다.
     random_seed: int | str | None = None
     distribution_profile: Annotated[str, Field(max_length=30)] = "DEFAULT"
-    as_of: datetime | None = None
+    as_of: Instant | None = None
     #: 실적 보정계수를 잔여 계획 연료에 곱한다 (``PRD §12.2.1`` · `#363`). **기본은 끔** —
     #: 켜지 않은 실행은 종전과 같은 결과·같은 ``input_hash``를 갖는다.
     apply_feedback_factor: bool = False

@@ -7,13 +7,13 @@ DB를 봐야 아는 것(VAL-005 연도 존재 · VAL-006 active fuel)은 서비�
 
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from cii_platform.api.schemas.bounds import DISTANCE, REGULATION_YEAR, SPEED, VOYAGE_FUEL
+from cii_platform.api.schemas.instants import Instant
 
 #: 계획 거리의 출처 (#1256 · `DB_SCHEMA §2.2` `planned_distance_source`).
 #:
@@ -62,8 +62,8 @@ class VoyageCreateRequest(BaseModel):
     # `COORDINATE_ESTIMATE`, 사용자가 고쳤으면 `USER_INPUT`). 생략 = `null` = 「모른다」.
     planned_distance_source: DistanceSource | None = None
     planned_speed_kn: Annotated[Decimal, Field(**SPEED)]
-    planned_departure_at: datetime | None = None
-    planned_arrival_at: datetime | None = None
+    planned_departure_at: Instant | None = None
+    planned_arrival_at: Instant | None = None
     # DB CHECK `BETWEEN 2019 AND 2050`과 같다 (#1086 ①). 실재 여부(VAL-005)는 서비스가 본다.
     regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
     fuel_uses: Annotated[list[VoyageFuelUseCreateRequest], Field(min_length=1)]
@@ -95,8 +95,8 @@ class VoyageUpdateRequest(BaseModel):
     # 그 값으로, 명시적 `null`은 지움이다(#312 규약과 같다).
     planned_distance_source: DistanceSource | None = None
     planned_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
-    planned_departure_at: datetime | None = None
-    planned_arrival_at: datetime | None = None
+    planned_departure_at: Instant | None = None
+    planned_arrival_at: Instant | None = None
     regulation_year: Annotated[int | None, Field(**REGULATION_YEAR)] = None
     # PRD §10.2 ⑵ — 메모 0~1000자. 정본이 값을 정해 뒀는데 코드에 상한이 없어
     # 요청 본문 크기가 유일한 방어였다 (`#1348`). DB는 TEXT라 컬럼은 받지만,
@@ -143,6 +143,6 @@ class VoyageActualsRequest(BaseModel):
     #: `chk_actual_speed_min` — DB가 1.0 이상을 요구한다. 스키마가 더 느슨하면
     #: 사용자는 422가 아니라 500(제약 위반)을 받는다.
     actual_avg_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
-    actual_departure_at: datetime | None = None
-    actual_arrival_at: datetime | None = None
+    actual_departure_at: Instant | None = None
+    actual_arrival_at: Instant | None = None
     fuel_uses: list[VoyageFuelActualRequest] | None = None
