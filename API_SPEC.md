@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.43 |
+| 버전 | v1.44 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-23 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -3085,7 +3085,9 @@ GET /api/v1/annual-simulations/{simulation_run_id}
 
 #### 응답 (200 OK)
 
-§6.1의 응답과 동일. `calculation_run_id`로 저장된 결과를 재조회한다.
+§6.1의 응답과 동일. **경로의 `{simulation_run_id}`는 `§6.1` 응답의 `simulation_id`(`annual_simulation_run.id`)다** — `calculation_run_id`로 부르면 404다. 한 경로가 두 종류의 ID를 받으면 잘못된 ID로 다른 실행(다른 배)의 결과가 열릴 수 있어 받지 않는다. 선박의 실행을 찾으려면 `§6.5`를 쓴다.
+
+> **[#1805] 종전 이 문장은 「`calculation_run_id`로 저장된 결과를 재조회한다」였다.** 경로 이름·코드(`api/routes/annual_simulations.py`)·`#840`과 반대라, `§1.9` 계산 이력의 `calculation_run_id`로 부른 화면이 404를 받았다(`#1707`).
 
 ### 6.3 스냅샷 항차 상세 조회
 
@@ -3152,6 +3154,53 @@ POST /api/v1/annual-simulations/{simulation_run_id}/reproduce
 | 409 Conflict | `MODEL_VERSION_MISMATCH` | 원본과 다른 `model_version`에서 재현했고 **결과도 다름**. `details[]`에 달라진 필드(`field` · `stored` · `current`). 새 환경에서 새로 실행한다 (#833) |
 | 500 Internal Server Error | `REPRODUCIBILITY_ERROR` | 재현 결과의 `input_hash` 또는 Monte Carlo 결과가 원본과 불일치. canonical test vector 실패 가능. |
 | 422 | `CALCULATION_ERROR` | 스냅샷에 **거리가 없다** — `§6.1`과 같은 코드·같은 문구다(`#1084`). 실행 단계에서 이미 422로 막히므로 저장된 실행으로는 여기에 닿지 않지만, **두 경로가 같은 상태를 다르게 설명하지 않도록** 배선을 한 곳에 두었다 |
+
+### 6.5 선박별 연간 시뮬레이션 실행 목록 [#1805]
+
+```http
+GET /api/v1/annual-simulations?vessel_id={uuid}&limit=1
+```
+
+연간 등급 관리가 들어올 때 **그 배의 마지막 결과**를 다시 여는 경로다(`#1707` · 화면 `#1701`). 행의 `simulation_id`로 `§6.2`를 부르면 결과 전체가 온다. 권한은 `§6.2`와 같다(조회 — 세 역할 모두).
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `vessel_id` | uuid | **Y** | 대상 선박. 없거나 삭제된 선박이면 404 |
+| `limit` | int | N | 페이지 크기 — 기본 20 · 상한 100(초과는 절단) · 1 미만은 422 (`§1.9`와 같다) |
+| `cursor` | string | N | `meta.next_cursor` 그대로. 형식이 깨졌으면 422 |
+
+**정렬은 최신순**이다 — `(created_at desc, id desc)`. `§8.1` 내보내기(`type=simulations`)는 파일 행 순서가 실행 순서여야 해서 **오름차순**이다 — 둘은 목적이 달라 순서가 다르다.
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": [
+    {
+      "simulation_id": "uuid",
+      "calculation_run_id": "uuid",
+      "regulation_year": 2026,
+      "target_rating": "C",
+      "simulation_runs": 1000,
+      "as_of": null,
+      "created_at": "2026-09-23T06:40:12.123000+00:00",
+      "needs_recalc": false
+    }
+  ],
+  "meta": { "next_cursor": null, "has_more": false, "request_id": "…", "timestamp": "…" }
+}
+```
+
+| 필드 | 뜻 |
+|---|---|
+| `simulation_id` | `§6.2`·`§6.3`·`§6.4`의 경로 식별자 |
+| `calculation_run_id` | `§1.9` 계산 이력의 같은 실행. **`§6.2` 경로에는 쓰지 않는다** |
+| `regulation_year` · `target_rating` · `simulation_runs` | 「이 결과의 조건」 — 화면이 입력칸을 결과와 같은 조건으로 맞춘다 |
+| `as_of` | **요청이 명시한** 기준 시각. 미명시 실행은 `null`(`#816` ⑴ — 해시 키와 같은 규칙) |
+| `created_at` | 실행 시각 — 「마지막 실행」 |
+| `needs_recalc` | 제원이 바뀐 뒤의 결과면 `true` — 화면이 「다시 실행」을 안내한다(`§1.9`와 같은 값) |
+
+결과 본문(`deterministic` · `monte_carlo` …)은 싣지 않는다 — 목록이 결과마다 큰 본문을 옮기게 된다.
 
 ---
 
@@ -4009,6 +4058,7 @@ GET /api/v1/health
 | POST | `/api/v1/scenarios/{id}/adopt` | 시나리오 채택 | §11.8 |
 | POST | `/api/v1/annual-simulations` | 연간 시뮬레이션 | §12 (기능③) |
 | GET | `/api/v1/annual-simulations/{id}` | 시뮬레이션 결과 조회 | §12 |
+| GET | `/api/v1/annual-simulations` | 선박별 실행 목록 — `vessel_id` 필수 · 최신순 (`#1805`) | §6.5 |
 | GET | `/api/v1/annual-simulations/{id}/snapshot-voyages` | 스냅샷 항차 상세 | TECH_SPEC §11 |
 | POST | `/api/v1/annual-simulations/{id}/reproduce` | 동일 seed 재실행 | §12.4.3 |
 | GET | `/api/v1/parameters/regulation-years` | 규정 연도 조회 | §6.2 SCR-006 |
@@ -4552,3 +4602,4 @@ POST /api/v1/chat
 | 2026-09-23 | `#1739` | **§1.11 「요청 본문의 시각 — 시간대 필수 · UTC 정규화」 신설.** 항차 생성·수정·실적(`§3.3`·`§3.4`·`§3.6`) · 시나리오 채택(`§5.2`) · 연간 시뮬레이션(`§6.1`)이 **시간대 없는 시각을 받고 있었다** — 그 값은 읽는 쪽에 따라 다른 순간이라, 배포 호스트의 시간대 설정이 항차 순서 · 연간 귀속 · `as_of` 경계를 바꾼다(`§1.10` 재현성 계약이 서버 설정에 달린다). 같은 규칙을 CSV 경로는 `#906`이, not under way JSON 경로는 `#1333`이 이미 세웠고 **이 세 경로만 남아 있었다** — 같은 값을 넣는 두 문이 다른 규칙을 쓰면 어느 문으로 들어왔는지에 따라 저장된 순간이 달라진다. 시간대가 없으면 **422 `VALIDATION_ERROR`**(사용자가 고칠 수 있는 입력이므로 500이 아니다), 있으면 UTC 표기로 맞춰 저장·비교·해시에 쓴다. `AGENTS §4.3`상 절 신설이나 **엔드포인트·필드가 늘지 않았고** 기존 규칙을 한자리에 모은 것이라 버전은 올리지 않는다 (#1627) |
 | 2026-09-23 | `#1808` | §2.14 `year_end_projection.assumptions`의 `completed_distance_nm`·`completed_co2_ton` 뜻을 **확정 항차 + 올해 이미 쓴 정박·묘박 몫**으로 갱신(⑴ `ytd.not_underway_*`와 같은 값). 필드·타입은 그대로다. `AGENTS §4.3`상 설명 정정이라 버전은 올리지 않는다 (#1803) |
 | 2026-09-23 | `#1816` | §3.1에 **「정렬 — 출항 시각 최신순」 절** · §8.1에 「`type=voyages` 행 순서 = `§3.1`」. 종전 순서(`created_at` 오름차순)는 진행 중 항차를 「더 보기」 뒤로 밀었고, `created_at` 내림차순으로만 뒤집어도 CSV로 지난 항차를 몰아 넣으면 항해 순서와 갈린다. 출항 시각(실제, 없으면 계획) 최신순 · 없는 항차 맨 아래 · 같은 시각은 `created_at`→`id` 내림차순 · 옛 커서 422. `AGENTS §4.3`상 규칙 추가라 버전은 올리지 않는다 (#1806) |
+| 2026-09-23 | `#1817` | **v1.44 — §6.5 「선박별 연간 시뮬레이션 실행 목록」 신설** · §12 요약표 행 · §6.2 정정. 연간 등급 관리가 그 배의 마지막 결과를 다시 열 경로가 없었다 — `§6.2`는 `simulation_id`만 받고 계산 이력의 `calculation_run_id`로는 404(설계된 동작 · 두 ID를 한 경로가 받으면 다른 배의 결과가 열릴 수 있다). `§6.2` 본문의 「`calculation_run_id`로 재조회한다」는 경로 이름·코드·`#840`과 반대라 바로잡았다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1805) |
