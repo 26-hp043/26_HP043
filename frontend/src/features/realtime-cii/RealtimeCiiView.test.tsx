@@ -734,3 +734,62 @@ describe('연말 예상은 연말 예상 카드 한 곳 (#1555)', () => {
     expect(within(ytdCard()).getByText('107.3%')).toBeTruthy()
   })
 })
+
+/*
+ * 항차 제목의 항구는 저장값이 아니라 **보이는 이름**이다 (#1776).
+ *
+ * 선박 상세의 항차 표는 `#1742`에서 `portDisplayName`을 쓰게 됐는데, 같은 항차를 여는
+ * 실시간 CII 제목은 저장값(`BUSAN`)을 그대로 적었다. 문구가 아니라 **두 성질**을 본다 —
+ * 목록에 있는 항구는 목록이 주는 이름으로 바뀌고, 목록에 없는 항구는 입력한 그대로다.
+ */
+describe('항차 제목의 항구 이름 (#1776)', () => {
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGSIN', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+  ]
+
+  function stubPortList() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const body = String(input).includes('/ports/samples') ? { data: PORTS } : { data: {} }
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }),
+    )
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const title = () => document.querySelector('.rt__voyage-title') as HTMLElement
+
+  it('목록에 있는 항구는 저장값이 아니라 목록이 주는 이름으로 보인다', async () => {
+    stubPortList()
+    const stored: RealtimeCii = {
+      ...BASE,
+      currentVoyage: { ...BASE.currentVoyage!, departurePortName: 'BUSAN', arrivalPortName: 'SINGAPORE' },
+    }
+    renderView({ load: vi.fn(async () => stored) })
+
+    await waitFor(() => expect(title().textContent).toContain(PORTS[0].name_ko))
+    expect(title().textContent).toContain(PORTS[1].name_ko)
+    expect(title().textContent).not.toContain('BUSAN')
+    expect(title().textContent).not.toContain('SINGAPORE')
+  })
+
+  it('목록에 없는 항구는 입력한 그대로다 — 사전에 없는 이름을 지어내지 않는다', async () => {
+    stubPortList()
+    const freeText: RealtimeCii = {
+      ...BASE,
+      currentVoyage: { ...BASE.currentVoyage!, departurePortName: 'BUSAN', arrivalPortName: 'Rotterdam' },
+    }
+    renderView({ load: vi.fn(async () => freeText) })
+
+    await waitFor(() => expect(title().textContent).toContain(PORTS[0].name_ko))
+    expect(title().textContent).toContain('Rotterdam')
+  })
+})
