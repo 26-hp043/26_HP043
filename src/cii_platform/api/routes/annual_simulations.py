@@ -19,6 +19,7 @@ from cii_platform.db.session import get_session
 from cii_platform.services import audit as audit_svc
 from cii_platform.services.annual_simulation import (
     get_annual_simulation,
+    list_annual_simulations,
     list_snapshot_voyages,
     reproduce_annual_simulation,
     run_annual_simulation,
@@ -130,6 +131,25 @@ async def run_annual_simulation_route(
     result = _with_meta(request, data)
     await _record_run(request, session, result)
     return result
+
+
+@router.get("/annual-simulations")
+async def list_annual_simulations_route(
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    vessel_id: UUID,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> dict[str, object]:
+    """선박의 연간 시뮬레이션 실행 목록 — 최신순 (API_SPEC §6.5 · #1805).
+
+    ``vessel_id``는 **필수**다 — 선사 전체의 실행을 한 목록으로 주는 경로가 아니다.
+    권한은 `§6.2`와 같다(조회 — 두 역할 모두).
+    """
+    data, page = await list_annual_simulations(
+        session, vessel_id=vessel_id, limit=limit, cursor=cursor
+    )
+    return {"data": data, "meta": _meta(request, **page)}
 
 
 @router.get("/annual-simulations/{simulation_run_id}")

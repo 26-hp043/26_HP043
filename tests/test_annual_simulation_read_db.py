@@ -35,6 +35,7 @@ from cii_platform.errors import (
     NotFoundError,
     ParameterError,
     ReproducibilityError,
+    ValidationError,
 )
 from cii_platform.services import annual_simulation as annual_simulation_service
 from cii_platform.services.annual_simulation import (
@@ -1442,3 +1443,95 @@ async def test_berth_fuel_raises_the_year_end_projection(session, vessel_id):
     after = await completed()
     assert after.distance_nm == before.distance_nm
     assert after.co2_g - before.co2_g == pytest.approx(40 * 3.114 * 1_000_000)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 선박별 실행 목록 — §6.5 (#1805)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _run_once(session, vessel_id, seed: int):
+    return await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=1000,
+        random_seed=seed,
+    )
+
+
+@pytest.mark.asyncio
+async def test_latest_run_opens_with_get(session, executed, vessel_id):
+    """`limit=1`의 첫 행이 **정렬상 최신 실행**이고, 그 `simulation_id`로 `§6.2`가 열린다 (#1805).
+
+    `#1707`이 겪은 것 — 계산 이력의 `calculation_run_id`로는 `§6.2`가 404였다.
+
+    ⚠️ **실행 시각끼리 비교하지 않고 정렬 규약을 본다.** ``annual_simulation_run.created_at``은
+    DB ``CURRENT_TIMESTAMP``라 **한 트랜잭션 안의 실행은 같은 값**을 갖는다(이 테스트가 그렇다).
+    실제로는 실행마다 요청·트랜잭션이 따로라 시각이 갈리고, 같을 때는 ``id``가 순서를 고정한다.
+    """
+    from cii_platform.services.annual_simulation import list_annual_simulations
+
+    await _run_once(session, vessel_id, seed=777)
+
+    everything, _ = await list_annual_simulations(session, vessel_id=vessel_id, limit=100)
+    keys = [(row["created_at"], UUID(row["simulation_id"])) for row in everything]
+    assert keys == sorted(keys, reverse=True), "최신순 (created_at desc, id desc)이 아니다"
+
+    data, meta = await list_annual_simulations(session, vessel_id=vessel_id, limit=1)
+    assert [row["simulation_id"] for row in data] == [everything[0]["simulation_id"]]
+    assert meta["has_more"] is True and meta["next_cursor"]
+
+    opened = await get_annual_simulation(session, UUID(data[0]["simulation_id"]))
+    assert opened["data"]["simulation_id"] == data[0]["simulation_id"]
+    assert opened["calculation_run_id"] == data[0]["calculation_run_id"]
+    assert data[0]["needs_recalc"] is False
+    assert (data[0]["regulation_year"], data[0]["target_rating"], data[0]["simulation_runs"]) == (
+        YEAR,
+        "C",
+        1000,
+    )
+
+
+@pytest.mark.asyncio
+async def test_paging_through_runs_neither_repeats_nor_skips(session, executed, vessel_id):
+    """커서로 끝까지 받으면 한 번에 받은 목록과 같다 — 최신순."""
+    from cii_platform.services.annual_simulation import list_annual_simulations
+
+    await _run_once(session, vessel_id, seed=778)
+    await _run_once(session, vessel_id, seed=779)
+
+    everything, _ = await list_annual_simulations(session, vessel_id=vessel_id, limit=100)
+    assert len(everything) == 3
+    created = [row["created_at"] for row in everything]
+    assert created == sorted(created, reverse=True)
+
+    seen: list[str] = []
+    cursor = None
+    for _ in range(10):
+        data, meta = await list_annual_simulations(
+            session, vessel_id=vessel_id, limit=1, cursor=cursor
+        )
+        seen.extend(row["simulation_id"] for row in data)
+        cursor = meta["next_cursor"]
+        if cursor is None:
+            break
+    assert seen == [row["simulation_id"] for row in everything]
+
+
+@pytest.mark.asyncio
+async def test_unknown_vessel_is_404(session, executed):
+    """없는 선박은 빈 목록이 아니라 404다 — 「실행이 없다」와 「선박이 없다」를 가른다."""
+    from cii_platform.services.annual_simulation import list_annual_simulations
+
+    with pytest.raises(NotFoundError):
+        await list_annual_simulations(session, vessel_id=uuid4(), limit=5)
+
+
+@pytest.mark.asyncio
+async def test_a_broken_cursor_is_422(session, executed, vessel_id):
+    from cii_platform.services.annual_simulation import list_annual_simulations
+
+    with pytest.raises(ValidationError):
+        await list_annual_simulations(session, vessel_id=vessel_id, cursor="not-a-cursor")

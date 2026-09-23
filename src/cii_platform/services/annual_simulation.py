@@ -68,6 +68,7 @@ from cii_platform.calc.cii_engine import calculate_required_cii
 from cii_platform.calc.hash import compute_annual_input_hash, compute_parameter_hash
 from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
+from cii_platform.db.repositories import annual_simulation as annual_run_repo
 from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
@@ -80,6 +81,7 @@ from cii_platform.errors import (
     ReproducibilityError,
     ValidationError,
 )
+from cii_platform.services.pagination import normalize_limit
 from cii_platform.services.simulation_clock import resolve_as_of
 
 # `_model_version`을 기능①에서 가져온다 — 기능②도 같은 방식이다
@@ -1732,6 +1734,69 @@ def _json(value: object) -> str:
 # **스냅샷을 남기는 이유가 조회에 있다.** `TECH_SPEC §11.1`이 격리를 요구한 것은
 # 「몇 달 뒤에도 그때 무슨 데이터로 돌렸나」에 답하기 위해서인데(`§5.4` 재현성 계약),
 # 그 스냅샷을 꺼내 볼 경로가 없으면 남긴 것이 쓰이지 않는다.
+
+
+async def list_annual_simulations(
+    session: AsyncSession,
+    *,
+    vessel_id: UUID,
+    limit: int | None = None,
+    cursor: str | None = None,
+) -> tuple[list[dict[str, object]], dict[str, object]]:
+    """선박의 연간 시뮬레이션 실행 목록 — 최신순 (`#1805` · `API_SPEC §6.5`).
+
+    연간 등급 관리가 들어올 때 **그 배의 마지막 결과**를 다시 여는 경로다(`#1707`).
+    행의 ``simulation_id``로 `§6.2`를 부르면 결과 전체가 온다. `§6.2`가 두 종류의 ID를
+    받게 하지 않고 목록을 따로 두는 이유는 `§6.2` 라우트 docstring에 있다 — 잘못된
+    ID로 **다른 배의 결과**가 열리는 길을 만들지 않는다.
+
+    행에는 「이 결과의 조건」을 맞추는 값만 싣는다. 본문(`result_json`)은 싣지 않는다 —
+    목록이 결과마다 수백 KB를 옮기게 된다.
+
+    ``needs_recalc``는 ``calculation_run``의 값이다 — 제원이 바뀐 뒤의 결과면 화면이
+    「다시 실행」을 안내한다.
+    """
+    await _load_vessel(session, vessel_id)
+    page_size = normalize_limit(
+        limit, default=annual_run_repo.DEFAULT_LIMIT, maximum=annual_run_repo.MAX_LIMIT
+    )
+    parsed_cursor = None
+    if cursor is not None:
+        parsed_cursor = annual_run_repo.decode_cursor(cursor)
+        if parsed_cursor is None:
+            raise ValidationError(
+                "커서 형식이 올바르지 않습니다.", field="cursor", field_label="커서"
+            )
+
+    rows = await annual_run_repo.list_for_vessel(
+        session, vessel_id=vessel_id, limit=page_size, cursor=parsed_cursor
+    )
+    has_more = len(rows) > page_size
+    page = rows[:page_size]
+    next_cursor = (
+        annual_run_repo.encode_cursor(
+            annual_run_repo.AnnualRunCursor(
+                created_at=page[-1][0].created_at, simulation_id=page[-1][0].id
+            )
+        )
+        if has_more and page
+        else None
+    )
+    data = [
+        {
+            "simulation_id": str(run.id),
+            "calculation_run_id": str(run.calculation_run_id),
+            "regulation_year": run.regulation_year,
+            "target_rating": run.target_rating,
+            "simulation_runs": run.simulation_runs,
+            # 명시 실행만 값이 있다(`#816` ⑴) — 미명시는 null. 실행 시각은 `created_at`이다.
+            "as_of": None if run.as_of is None else run.as_of.isoformat(),
+            "created_at": run.created_at.isoformat(),
+            "needs_recalc": bool(calc.needs_recalc),
+        }
+        for run, calc in page
+    ]
+    return data, {"next_cursor": next_cursor, "has_more": has_more}
 
 
 async def _load_run(session: AsyncSession, simulation_id: UUID):
