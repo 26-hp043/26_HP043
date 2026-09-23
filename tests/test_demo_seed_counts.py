@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from cii_platform.db.demo_seed import (
     SEED_PERIOD_FUELS,
     SEED_PERIODS,
+    SEED_STATE_UPDATES,
     SEED_VESSEL_GT_AXIS,
     SEED_VESSEL_WATCH,
     SEED_VESSELS,
@@ -325,3 +326,71 @@ async def test_clear_deletes_every_saved_reduction_plan(conn: AsyncConnection):
     assert await _count(conn, "fleet_reduction_plan") == 0, (
         "저장 계획이 남았다 — 다음 회차의 첫 화면에 지난 세션의 흔적이 그대로 보인다"
     )
+
+
+@pytest.mark.asyncio
+async def test_clear_then_seed_replaces_a_stale_vessel_position(conn: AsyncConnection):
+    """초기화 뒤 재적재하면 시드의 운항 상태·위치가 **다시 들어간다** (#1826).
+
+    ``seed_demo``는 ``underway_state IS NULL``일 때만 상태를 넣는다. ``clear_demo``가
+    그것을 비우지 않으면 첫 적재 때의 위치·시각이 영구히 남는다 — `#1672`가 시드
+    위치를 고쳐도 이미 적재한 DB(개발 · 운영 시연)에는 들어가지 않았다.
+
+    옛 시드 값(대한해협 · 적재 10일 전)을 일부러 넣어 둔 뒤 초기화 → 재적재한다.
+
+    ⚠️ **선박이 남는 경로를 만든다** — 운영·개발 DB에서는 계산 이력 등이 참조해
+    ``clear_demo``가 선박 행을 지우지 못한다(``kept_vessel``). 결함은 그 경로에서만
+    난다. 테스트 DB처럼 참조가 없으면 행째 지워졌다 다시 들어가 결함이 가려지므로,
+    위치 스냅샷(``RESTRICT``) 한 건씩을 걸어 세 척을 남긴다.
+    """
+    from cii_platform.db.models.vessel import Vessel
+
+    vessel = Vessel.__table__
+    stale_at = datetime(2026, 1, 1, tzinfo=UTC)
+    for vid, *_ in SEED_STATE_UPDATES:
+        await conn.execute(
+            text(
+                "INSERT INTO vessel_position_snapshot "
+                "(id, vessel_id, source, lat, lon, observed_at) "
+                "VALUES (:sid, :vid, 'MANUAL', 35.1, 129.0, :obs)"
+            ),
+            {"sid": uuid.uuid4().hex, "vid": _hex(vid), "obs": stale_at},
+        )
+        await conn.execute(
+            sa.update(vessel)
+            .where(vessel.c.id == vid)
+            .values(
+                underway_state="UNDER_WAY",
+                detail_status="SAILING",
+                current_lat="34.512345",
+                current_lon="128.501234",
+                position_updated_at=stale_at,
+            )
+        )
+
+    counts = await clear_demo(conn)
+    assert counts["reset_vessel_state"] == len(SEED_STATE_UPDATES), (
+        "초기화한 선박 수가 보고되지 않는다 — 운영자가 재적재 출력에서 알 수 없다"
+    )
+
+    await seed_demo(conn)
+
+    for vid, underway, detail, lat, lon, updated in SEED_STATE_UPDATES:
+        row = (
+            await conn.execute(
+                sa.select(
+                    vessel.c.underway_state,
+                    vessel.c.detail_status,
+                    vessel.c.current_lat,
+                    vessel.c.current_lon,
+                    vessel.c.position_updated_at,
+                ).where(vessel.c.id == vid)
+            )
+        ).one()
+        assert (row.underway_state, row.detail_status) == (underway, detail)
+        assert (str(row.current_lat), str(row.current_lon)) == (lat, lon), (
+            f"{vid}: 재적재 뒤에도 옛 위치가 남았다 — 시드 위치가 들어가지 않는다"
+        )
+        assert row.position_updated_at == datetime.fromisoformat(updated), (
+            f"{vid}: 위치 기록 시각이 시드 값이 아니다"
+        )
