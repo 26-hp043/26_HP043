@@ -544,8 +544,7 @@ function FleetVerdict({ result, adjusted }: { result: EvaluateResult; adjusted: 
             `"1.52"`처럼 소수 문자열을 주고, 반올림은 표시 시점에만 한다(`§4.2` 「반올림 🔒」).
           */}
           <dd className="fr__num">
-            {formatDecimalString(costs.extraDays, DISPLAY_DIGITS.days)}
-            {DISPLAY_UNITS.day}
+            {formatDecimalString(costs.extraDays, DISPLAY_DIGITS.days)} {DISPLAY_UNITS.day}
           </dd>
         </div>
         <div>
@@ -644,12 +643,12 @@ function VesselRow({
       <td className="fr__num">
         {vessel.extraDays === null
           ? '—'
-          : `${formatDecimalString(vessel.extraDays, DISPLAY_DIGITS.days)}${DISPLAY_UNITS.day}`}
+          : `${formatDecimalString(vessel.extraDays, DISPLAY_DIGITS.days)} ${DISPLAY_UNITS.day}`}
       </td>
       <td className="fr__num">
         {vessel.fuelSavedTon === null
           ? '—'
-          : `${formatGrouped(vessel.fuelSavedTon, DISPLAY_DIGITS.fuelTon)}${DISPLAY_UNITS.fuel}`}
+          : `${formatGrouped(vessel.fuelSavedTon, DISPLAY_DIGITS.fuelTon)} ${DISPLAY_UNITS.fuel}`}
       </td>
       <td>
         <input

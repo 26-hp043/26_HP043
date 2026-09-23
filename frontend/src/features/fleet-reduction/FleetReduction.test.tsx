@@ -530,11 +530,12 @@ describe('수치·단위 표시 (§4.2 · #1813)', () => {
     const costs = document.querySelector('.fr__costs dd.fr__num') as HTMLElement
     const [rowDays] = vesselCells()
     for (const text of [costs.textContent?.trim() ?? '', rowDays]) {
-      expect(text.endsWith(DISPLAY_UNITS.day)).toBe(true)
-      expect(text.slice(0, -DISPLAY_UNITS.day.length)).toMatch(/^\d+$/)
+      /* 숫자와 단위 사이는 한 칸 띄운다 — `§4.2` 예시 「232 일」. */
+      expect(text.endsWith(` ${DISPLAY_UNITS.day}`)).toBe(true)
+      expect(text.slice(0, -DISPLAY_UNITS.day.length - 1)).toMatch(/^\d+$/)
     }
     /* 절사가 아니라 반올림이다 — `1.52`는 `1`이 아니다. */
-    expect(rowDays.slice(0, -DISPLAY_UNITS.day.length)).not.toBe('1')
+    expect(rowDays.slice(0, -DISPLAY_UNITS.day.length - 1)).not.toBe('1')
   })
 
   it('연료 절감은 1자리 + 천단위 구분이고 단위는 DISPLAY_UNITS.fuel이다', async () => {
@@ -549,8 +550,8 @@ describe('수치·단위 표시 (§4.2 · #1813)', () => {
     await screen.findByText('MV One')
 
     const [, fuel] = vesselCells()
-    expect(fuel.endsWith(DISPLAY_UNITS.fuel)).toBe(true)
-    expect(fuel.slice(0, -DISPLAY_UNITS.fuel.length)).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
+    expect(fuel.endsWith(` ${DISPLAY_UNITS.fuel}`)).toBe(true)
+    expect(fuel.slice(0, -DISPLAY_UNITS.fuel.length - 1)).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
   })
 
   it('값이 없으면 단위도 붙이지 않는다', async () => {
