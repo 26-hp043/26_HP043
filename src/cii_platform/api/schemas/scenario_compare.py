@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
@@ -23,6 +22,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from cii_platform.api.schemas.bounds import DISTANCE, SPEED
+from cii_platform.api.schemas.instants import Instant
 from cii_platform.api.schemas.voyage_cii import WeatherModel
 
 
@@ -76,4 +76,4 @@ class ScenarioAdoptRequest(BaseModel):
     adopt_mode: Literal["UPDATE_EXISTING_PLAN", "CREATE_NEW_VOYAGE"] = "UPDATE_EXISTING_PLAN"
     departure_port_name: Annotated[str | None, Field(max_length=100)] = None
     arrival_port_name: Annotated[str | None, Field(max_length=100)] = None
-    planned_departure_at: datetime | None = None
+    planned_departure_at: Instant | None = None
