@@ -366,6 +366,38 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "meta.timestamp",
         }
     ),
+    # `API_SPEC §2.18` (#1671) — 올해 누적 CII 추이. 점의 키 집합은 종류(ACTUAL ·
+    # IN_PROGRESS · PLAN)와 무관하게 같다 — ``null``이어도 키를 싣는다.
+    "/vessels/{vessel_id}/cii/ytd-series": frozenset(
+        {
+            "data",
+            "data.boundaries",
+            "data.boundaries.inferior_boundary",
+            "data.boundaries.lower_boundary",
+            "data.boundaries.superior_boundary",
+            "data.boundaries.upper_boundary",
+            "data.points",
+            "data.points[].at",
+            "data.points[].attained_cii",
+            "data.points[].kind",
+            "data.points[].period_id",
+            "data.points[].rating",
+            "data.points[].substituted",
+            "data.points[].voyage_id",
+            "data.regulation_year",
+            "data.required_cii",
+            "data.transport_capacity_basis",
+            "data.vessel_id",
+            "data.vessel_name",
+            "data.warnings",
+            "data.ytd_available",
+            "meta",
+            "meta.as_of",
+            "meta.request_id",
+            "meta.simulated",
+            "meta.timestamp",
+        }
+    ),
     # `API_SPEC §3.1`
     "/vessels/{vessel_id}/voyages": frozenset(
         {

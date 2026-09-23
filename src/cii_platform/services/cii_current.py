@@ -74,6 +74,7 @@ from cii_platform.services.simulation_clock import (
 from cii_platform.services.ytd_cii import (
     WARNING_REFERENCE_ONLY,
     InProgressContribution,
+    YtdCiiOutput,
     compute_ytd_cii,
 )
 
@@ -883,6 +884,39 @@ async def resolve_in_progress_state(
     )
 
 
+async def resolve_ytd_at(
+    session: AsyncSession, *, vessel, regulation_year: int, at: datetime
+) -> tuple[InProgressState, YtdCiiOutput]:
+    """시각 ``at``까지의 ⑴ 연간 누적 — **진행분 조립과 누적 계산을 한 자리에** (`#1671`).
+
+    진행분 산출은 **한 곳에만 둔다** (`#750`) — 같은 YTD를 내는 네 경로가 각자
+    조립하면 인자가 갈리고, 그때 화면은 멀쩡한 채 값만 어긋난다. 누적 CII 추이
+    (`API_SPEC §2.18`)는 이 함수를 항차 경계마다 부른다 — 그래야 추이의 마지막 실적
+    점이 `§2.14` ``ytd``와 **구성상** 같은 값이 된다. 두 화면이 각자 조립하면 「한
+    화면에 두 숫자」가 조용히 생긴다.
+
+    **조회 연도에 속하는 항차만 본다** (`#815`). `?year=<과거>`로 물으면 지금
+    항해 중인 항차는 그 해의 것이 아니므로 ⑴ 누적·⑵ 구간값·`meta.simulated`
+    어디에도 들어가지 않는다.
+
+    :returns: ``(진행 중 항차 상태, 누적)``. 상태는 ⑵ 구간값·`meta.simulated`의 재료다.
+    """
+    state = (await resolve_in_progress_state(session, vessel=vessel, as_of=at)).for_year(
+        regulation_year
+    )
+    try:
+        ytd = await compute_ytd_cii(
+            session,
+            vessel_id=vessel.id,
+            regulation_year=regulation_year,
+            as_of=at,
+            in_progress=state.contribution,
+        )
+    except ValueError as exc:  # pragma: no cover - 방어
+        raise CalculationError(str(exc)) from exc
+    return state, ytd
+
+
 async def get_current_cii(
     session: AsyncSession,
     vessel_id: UUID,
@@ -903,33 +937,14 @@ async def get_current_cii(
     if vessel is None or vessel.is_deleted:
         raise NotFoundError(f"선박을 찾을 수 없습니다: {vessel_id}")
 
-    # 진행분 산출은 **한 곳에만 둔다** (`#750`) — 같은 YTD를 내는 네 경로가 각자
-    # 조립하면 인자가 갈리고, 그때 화면은 멀쩡한 채 값만 어긋난다.
-    #
-    # **조회 연도에 속하는 항차만 본다** (`#815`). `?year=<과거>`로 물으면 지금
-    # 항해 중인 항차는 그 해의 것이 아니므로 ⑴ 누적·⑵ 구간값·`meta.simulated`
-    # 어디에도 들어가지 않는다.
-    #
-    state = (
-        await resolve_in_progress_state(session, vessel=vessel, as_of=resolved_as_of)
-    ).for_year(regulation_year)
+    state, ytd = await resolve_ytd_at(
+        session, vessel=vessel, regulation_year=regulation_year, at=resolved_as_of
+    )
     voyage = state.voyage
     progress = state.progress
-    contribution = state.contribution
     fuel_code = state.fuel_code
     fuel_split = state.fuel_split
     live_warnings: list[str] = [*state.warnings]
-
-    try:
-        ytd = await compute_ytd_cii(
-            session,
-            vessel_id=vessel_id,
-            regulation_year=regulation_year,
-            as_of=resolved_as_of,
-            in_progress=contribution,
-        )
-    except ValueError as exc:  # pragma: no cover - 방어
-        raise CalculationError(str(exc)) from exc
 
     cf_by_fuel: dict[str, Decimal] = {}
     if fuel_split:
