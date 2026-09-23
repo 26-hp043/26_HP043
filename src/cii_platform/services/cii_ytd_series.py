@@ -27,11 +27,16 @@
  실적(``ACTUAL``)         확정 항차의 도착 시각 ``coalesce(actual_arrival_at,
                          planned_arrival_at)`` — 저장소 절단 술어와 **같은 식**.
                          둘 다 없으면 자기 점이 없다(누적에는 든다).
-                         종료된 정박 구간의 ``ended_at``.
- 진행(``IN_PROGRESS``)    ``as_of`` 자신. 그 시각의 값에 진행 중 항차의 경과분(시계가
-                         만든 **모델값**)이 들었으면 이 종류다 — `PRD §3.3.8` COR-5.
- 계획(``PLAN``)           잔여 항차의 도착 예정. 예정이 ``as_of``보다 이르면(도착 예정이
-                         지난 진행 중·계획 항차 — `#1323`) ``as_of``에 붙인다.
+                         정박 구간의 ``started_at`` — 저장소 절단 술어
+                         (``started_at <= as_of``)와 같은 시각이라 **값이 바뀌는
+                         시각**에 점이 찍힌다. 진행 중 구간도 시작했으면 점이 있다.
+                         ``as_of`` 자신 — 과거 연도면 ``at``만 그 해 끝으로 자른다.
+ 진행(``IN_PROGRESS``)    그 시각의 값에 진행 중 항차의 경과분(시계가 만든 **모델값**)이
+                         들었으면 이 종류다 — `PRD §3.3.8` COR-5. 보통 ``as_of`` 점
+                         하나지만, 진행 항차 출항 뒤의 경계에도 붙을 수 있다.
+ 계획(``PLAN``)           **진행 중 항차가 먼저**(도착 예정과 무관 · `#1673`의
+                         ``drivers[]`` CURRENT_VOYAGE와 같은 값), 나머지는 도착 예정
+                         오름차순. 예정이 ``as_of``보다 이르면(`#1323`) ``as_of``에 붙인다.
 ======================  ========================================================
 
 **연초 첫 점은 만들지 않는다.** 실적이 없는 시각의 값은 ``null``인데, ``attained_cii: null``
@@ -62,6 +67,7 @@ from cii_platform.services.cii_current import (
     _publish,
     _remaining_days,
     _validate_year,
+    _year_bounds,
     resolve_ytd_at,
 )
 from cii_platform.services.request_cache import as_of_key, cached
@@ -85,15 +91,22 @@ KIND_PLAN = "PLAN"
 
 @dataclass(frozen=True)
 class _Boundary:
-    """실적 쪽 점을 만드는 시각 하나. 같은 시각의 경계는 :func:`_merge`가 한 점으로 합친다."""
+    """실적 쪽 점을 만드는 시각 하나. 같은 시각의 경계는 :func:`_merge`가 한 점으로 합친다.
+
+    ``voyage_ids``가 여럿인 것은 **같은 순간에 도착한 항차가 둘 이상**일 수 있어서다 —
+    ``substituted``는 그 전부를 봐야 한다(하나만 보면 둘째 항차의 대체가 조용히 빠진다).
+    """
 
     at: datetime
-    voyage_id: UUID | None = None
+    voyage_ids: tuple[UUID, ...] = ()
     period_id: UUID | None = None
+    #: 값을 계산할 시각. ``at``과 다른 것은 과거 연도의 ``as_of`` 점뿐이다 — 값은 ``as_of``로
+    #: 내되 점은 그 해 끝에 찍는다(그 해 밖에 점이 놓이면 화면의 축을 벗어난다).
+    evaluate_at: datetime | None = None
 
 
 def _merge(boundaries: list[_Boundary]) -> list[_Boundary]:
-    """시각 오름차순 · 같은 시각은 한 점 — 항차와 정박 구간이 같은 순간에 끝나면 둘 다 싣는다."""
+    """시각 오름차순 · 같은 시각은 한 점 — 항차와 정박 구간이 같은 순간이면 둘 다 싣는다."""
     merged: dict[datetime, _Boundary] = {}
     for b in boundaries:
         prev = merged.get(b.at)
@@ -102,8 +115,9 @@ def _merge(boundaries: list[_Boundary]) -> list[_Boundary]:
             if prev is None
             else _Boundary(
                 at=b.at,
-                voyage_id=prev.voyage_id or b.voyage_id,
+                voyage_ids=(*prev.voyage_ids, *b.voyage_ids),
                 period_id=prev.period_id or b.period_id,
+                evaluate_at=prev.evaluate_at or b.evaluate_at,
             )
         )
     return [merged[at] for at in sorted(merged)]
@@ -112,10 +126,15 @@ def _merge(boundaries: list[_Boundary]) -> list[_Boundary]:
 async def _actual_boundaries(
     session: AsyncSession, *, vessel_id: UUID, regulation_year: int, as_of: datetime
 ) -> list[_Boundary]:
-    """``as_of`` 이하의 실적 경계 — 확정 항차의 도착 · 종료된 정박 구간 · ``as_of`` 자신.
+    """``as_of`` 이하의 실적 경계 — 확정 항차의 도착 · 정박 구간의 시작 · ``as_of`` 자신.
 
     확정 항차 조회는 ⑴ 누적(`services/ytd_cii._aggregate`)과 **같은 캐시 키**로 읽는다 —
     ``as_of`` 점을 계산할 때 그 목록을 다시 읽지 않는다.
+
+    **경계는 저장소 절단 술어와 같은 시각이다.** 항차는 ``COALESCE(actual_arrival_at,
+    planned_arrival_at) <= as_of``, 정박 구간은 ``started_at <= as_of`` — 누적값이 실제로
+    바뀌는 시각에 점이 찍혀야 「언제부터 나빠졌나」가 맞게 나온다. 종전(`#1671` 초안)은
+    정박 구간을 ``ended_at``에 찍어, 연료가 이미 들어간 시각과 점이 어긋났다.
     """
     voyages = await cached(
         session,
@@ -152,16 +171,16 @@ async def _actual_boundaries(
             continue
         arrival = resolve_as_of(arrival)
         if arrival <= as_of:
-            boundaries.append(_Boundary(at=arrival, voyage_id=voyage.id))
+            boundaries.append(_Boundary(at=arrival, voyage_ids=(voyage.id,)))
     for period in periods:
-        # 진행 중인 구간(``ended_at`` 없음)은 점이 없다 — 끝나는 시각을 모른다. 정박 연료는
-        # ``started_at <= as_of``로 누적에 이미 들어 있으므로, 점은 「끝났다」를 찍는 것이다.
-        if period.ended_at is None:
-            continue
-        ended = resolve_as_of(period.ended_at)
-        if ended <= as_of:
-            boundaries.append(_Boundary(at=ended, period_id=period.id))
-    boundaries.append(_Boundary(at=as_of))
+        # 저장소(``list_periods_for_year``·``sum_fuel_by_type``)가 이미 ``started_at <= as_of``로
+        # 걸러 줬다. 진행 중인 구간(``ended_at`` 없음)도 시작했으면 연료가 누적에 들어 있으므로
+        # 점이 있다.
+        boundaries.append(_Boundary(at=resolve_as_of(period.started_at), period_id=period.id))
+    # ``as_of`` 자신. 과거 연도(``as_of``가 그 해 뒤)면 점을 그 해 끝(다음 해 1월 1일 00:00 ·
+    # 열린 경계)에 찍는다 — 값은 ``as_of``로 계산한다(그 해의 전체 실적).
+    _year_start, year_end = _year_bounds(regulation_year)
+    boundaries.append(_Boundary(at=min(as_of, year_end), evaluate_at=as_of))
     return _merge(boundaries)
 
 
@@ -229,10 +248,11 @@ async def get_ytd_series(
     for boundary in await _actual_boundaries(
         session, vessel_id=vessel_id, regulation_year=regulation_year, as_of=resolved_as_of
     ):
+        evaluate_at = boundary.evaluate_at or boundary.at
         state, ytd = await resolve_ytd_at(
-            session, vessel=vessel, regulation_year=regulation_year, at=boundary.at
+            session, vessel=vessel, regulation_year=regulation_year, at=evaluate_at
         )
-        if boundary.at == resolved_as_of:
+        if evaluate_at == resolved_as_of:
             state_at_as_of, ytd_at_as_of = state, ytd
         if not ytd.data_available:
             # 실적이 아직 없는 시각 — 점을 만들지 않는다(``attained_cii: null`` 금지).
@@ -244,15 +264,21 @@ async def get_ytd_series(
                 kind=KIND_IN_PROGRESS if in_progress else KIND_ACTUAL,
                 attained_cii=ytd.attained_cii,
                 rating=ytd.rating,
-                # 점을 만든 항차 — 도착한 항차가 있으면 그것, 없고 경과분이 들었으면 진행 중 항차.
-                voyage_id=boundary.voyage_id
-                or (state.voyage.id if in_progress and state.voyage is not None else None),
+                # 점을 만든 항차 — 도착한 항차가 있으면 그것(같은 순간이 둘이면 앞의 것),
+                # 없고 경과분이 들었으면 진행 중 항차.
+                voyage_id=(
+                    boundary.voyage_ids[0]
+                    if boundary.voyage_ids
+                    else (state.voyage.id if in_progress and state.voyage is not None else None)
+                ),
                 period_id=boundary.period_id,
                 # 이 점을 만든 항차가 실적 대신 계획값으로 들어갔는가 — ``ytd.substitutions``와
-                # 같은 판정을 **그 항차에 대해** 읽는다. 누적 전체에 대체가 섞였는지는 앞 점들의
-                # 이 값으로 알 수 있지만, 반대 방향은 누적 플래그로 알 수 없다.
-                substituted=boundary.voyage_id is not None
-                and any(item.voyage_id == boundary.voyage_id for item in ytd.substitutions),
+                # 같은 판정을 **그 항차들에 대해** 읽는다(같은 순간에 도착한 항차 전부). 누적
+                # 전체에 대체가 섞였는지는 앞 점들의 이 값으로 알 수 있지만, 반대 방향은
+                # 누적 플래그로 알 수 없다.
+                substituted=any(
+                    item.voyage_id in boundary.voyage_ids for item in ytd.substitutions
+                ),
             )
         )
     assert state_at_as_of is not None and ytd_at_as_of is not None  # ``as_of`` 경계는 항상 있다
@@ -276,10 +302,19 @@ async def get_ytd_series(
             arrival = inputs.planned_arrivals.get(voyage.voyage_id or "")
             return None if arrival is None else resolve_as_of(arrival)
 
-        # 도착 예정 오름차순 · 예정이 없는 항차는 맨 뒤(등록 순 유지).
+        # **진행 중 항차가 먼저**, 나머지는 도착 예정 오름차순 · 예정이 없는 항차는 맨 뒤
+        # (등록 순 유지). 진행 중 항차를 앞에 두는 것은 `#1673`과의 정합 때문이다 — `§2.14`
+        # ``year_end_projection.drivers[]``가 ⑴ → 진행 항차의 남은 몫 → 잔여 계획 순으로
+        # 설명하므로, 같은 화면의 첫 ``PLAN`` 점이 「⑴ + 진행 항차 계획 전량」이어야 두 설명이
+        # 어긋나지 않는다. ⑴이 경과분을 넣은 바로 그 항차(``state.voyage``)를 쓴다.
+        current_voyage_id = None if state_at_as_of.voyage is None else str(state_at_as_of.voyage.id)
         ordered = sorted(
             inputs.remaining,
-            key=lambda v: (_arrival(v) is None, _arrival(v) or resolved_as_of),
+            key=lambda v: (
+                v.voyage_id != current_voyage_id,
+                _arrival(v) is None,
+                _arrival(v) or resolved_as_of,
+            ),
         )
         cursor = resolved_as_of
         for count in range(1, len(ordered) + 1):
@@ -296,8 +331,9 @@ async def get_ytd_series(
                 break
             last = ordered[count - 1]
             arrival = _arrival(last)
-            # 예정이 지난 항차는 ``as_of``에 붙이고, 예정이 없는 항차는 직전 점의 시각을 잇는다 —
-            # ``at``이 뒤로 가는 점을 만들지 않는다.
+            # 예정이 지난 항차는 ``as_of``에 붙이고, 예정이 없는 항차(그리고 진행 중 항차보다
+            # 이른 예정의 잔여 계획)는 직전 점의 시각을 잇는다 — ``at``이 뒤로 가는 점을 만들지
+            # 않는다.
             cursor = max(cursor, arrival) if arrival is not None else cursor
             plan_points.append(
                 _point(

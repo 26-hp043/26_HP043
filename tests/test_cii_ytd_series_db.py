@@ -11,14 +11,14 @@
 수치 자체는 `#353`(YTD 엔진) · `#798`(연말 예상)이 검증한다. 여기서는 **점의 위치·종류·
 동치**만 본다.
 
-케이스 (`TEST_PLAN §4.11`): AT-YTDS-001~012.
+케이스 (`TEST_PLAN §4.11`): AT-YTDS-001~015.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -28,9 +28,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.main import API_V1_PREFIX, app
+from cii_platform.calc.precision import SERIALIZATION_ROUNDING
 from cii_platform.db.demo_seed import DEMO_ANCHOR, VESSEL_ID_BULK
 from cii_platform.db.repositories import vessel as vessel_repo
-from cii_platform.errors import NotFoundError, ValidationError
+from cii_platform.errors import NotFoundError, ParameterError, ValidationError
 from cii_platform.services.cii_current import (
     WARNING_NO_REMAINING_PLAN,
     get_current_cii,
@@ -181,6 +182,17 @@ async def _add_plan(session, vessel_id, *, distance="10000", fuel="1200", planne
     return voyage_id
 
 
+async def _add_planned_fuel(session, voyage_id, *, fuel="300") -> None:
+    """진행 중 항차에 계획 연료를 단다 — 연료가 없으면 `#812`가 잔여 계획에서 뺀다."""
+    await session.execute(
+        text(
+            "INSERT INTO voyage_fuel_use (voyage_id, fuel_type, planned_fuel_ton, "
+            "cf_used, source) VALUES (:id, 'HFO', :fuel, 3.114, 'USER_INPUT')"
+        ),
+        {"id": voyage_id, "fuel": Decimal(fuel)},
+    )
+
+
 async def _add_period(session, vessel_id, *, started_at: str, ended_at: str | None):
     period_id = uuid4()
     await session.execute(
@@ -286,7 +298,7 @@ async def test_each_actual_point_matches_resolve_ytd_at(session):
             at=datetime.fromisoformat(point["at"]),
         )
         assert point["attained_cii"] == str(
-            ytd.attained_cii.quantize(Decimal("0.000001"), rounding="ROUND_DOWN")
+            ytd.attained_cii.quantize(Decimal("0.000001"), rounding=SERIALIZATION_ROUNDING)
         )
         assert point["rating"] == ytd.rating
 
@@ -348,25 +360,36 @@ async def test_overdue_plan_is_pinned_to_as_of(session):
 
 
 @pytest.mark.asyncio
-async def test_ended_period_makes_a_point_and_open_period_does_not(session):
-    """AT-YTDS-006 — 종료된 정박 구간은 ``ended_at``에 점(``period_id``), 진행 중 구간은 점 없음."""
+async def test_periods_make_a_point_at_started_at(session):
+    """AT-YTDS-006 — 정박 구간은 ``started_at``에 점(``period_id``) — 종료·진행 중 둘 다.
+
+    저장소 절단 술어(``started_at <= as_of``)와 같은 시각이다 — 정박 연료가 누적에 들어가는
+    순간에 점이 찍혀야 「언제부터 나빠졌나」가 맞다. 값이 그 시각에 바뀌는지도 함께 본다.
+    """
     vessel_id = await _make_vessel(session, state="NOT_UNDER_WAY", detail="AT_ANCHOR")
     await _add_actuals(session, await _make_voyage(session, vessel_id))
     ended = await _add_period(
         session, vessel_id, started_at="2026-06-22T00:00:00Z", ended_at="2026-06-24T12:00:00Z"
     )
-    await _add_period(session, vessel_id, started_at="2026-06-28T00:00:00Z", ended_at=None)
+    open_period = await _add_period(
+        session, vessel_id, started_at="2026-06-28T00:00:00Z", ended_at=None
+    )
 
     series, meta = await get_ytd_series(session, vessel_id, year=YEAR, as_of=MID_YEAR)
 
     actual = _actual_side(series["points"])
-    assert [p["kind"] for p in actual] == [KIND_ACTUAL, KIND_ACTUAL, KIND_ACTUAL]
-    assert actual[1]["at"] == datetime(YEAR, 6, 24, 12, tzinfo=UTC).isoformat()
-    assert actual[1]["period_id"] == str(ended)
+    assert [p["kind"] for p in actual] == [KIND_ACTUAL] * 4
+    assert [p["at"] for p in actual] == [
+        datetime(YEAR, 6, 20, tzinfo=UTC).isoformat(),
+        datetime(YEAR, 6, 22, tzinfo=UTC).isoformat(),
+        datetime(YEAR, 6, 28, tzinfo=UTC).isoformat(),
+        meta["as_of"],
+    ]
+    assert [p["period_id"] for p in actual] == [None, str(ended), str(open_period), None]
     assert actual[1]["voyage_id"] is None
-    # 진행 중 구간의 시작 시각에는 점이 없다 — 남은 점은 ``as_of`` 하나다.
-    assert actual[2]["at"] == meta["as_of"]
-    assert actual[2]["period_id"] is None
+    # 정박 연료(40 t · 거리 0)가 그 시각에 들어가 값이 나빠진다 — 점마다 값이 다르다.
+    values = [Decimal(p["attained_cii"]) for p in actual]
+    assert values[0] < values[1] < values[2] == values[3]
     assert meta["simulated"] is False
 
 
@@ -405,6 +428,9 @@ async def test_past_year_has_no_plan_or_in_progress_points(session):
     kinds = {p["kind"] for p in series["points"]}
     assert kinds == {KIND_ACTUAL}
     assert [p["voyage_id"] for p in series["points"]][0] == str(old)
+    # ``as_of`` 점은 그 해 밖(2026-07-01)이 아니라 **그 해 끝**에 찍힌다 — 값은 그 해 전체다.
+    assert series["points"][-1]["at"] == datetime(2026, 1, 1, tzinfo=UTC).isoformat()
+    assert series["points"][-1]["attained_cii"] == series["points"][0]["attained_cii"]
     assert meta["simulated"] is False
 
 
@@ -432,6 +458,63 @@ async def test_excluded_voyage_makes_no_point_and_substitution_is_flagged(sessio
     assert "COMPLETED_NO_DISTANCE" in series["warnings"]
 
 
+@pytest.mark.asyncio
+async def test_current_voyage_is_the_first_plan_point(session):
+    """AT-YTDS-014 — 진행 중 항차가 **도착 예정과 무관하게 첫 `PLAN` 점**이다 (`#1673` ②).
+
+    `§2.14` ``year_end_projection.drivers[]``가 ⑴ → 진행 항차의 남은 몫 → 잔여 계획 순으로
+    설명하므로, 같은 화면의 첫 ``PLAN`` 점이 「⑴ + 진행 항차 계획 전량」이어야 두 설명이
+    어긋나지 않는다. 진행 항차보다 **이른** 도착 예정의 잔여 계획을 두어 정렬만으로는
+    앞에 올 수 없게 한다.
+    """
+    vessel_id = await _make_vessel(session, foc=Decimal("120"))
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    current = await _make_voyage(
+        session,
+        vessel_id,
+        departed_at=datetime(YEAR, 6, 25, tzinfo=UTC),
+        planned_arrival_at=datetime(YEAR, 9, 15, tzinfo=UTC),
+    )
+    await _add_planned_fuel(session, current)
+    earlier = await _add_plan(
+        session, vessel_id, distance="4000", planned_arrival_at=datetime(YEAR, 8, 1, tzinfo=UTC)
+    )
+
+    series, meta = await get_ytd_series(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    plan = _plan_side(series["points"])
+    assert [p["voyage_id"] for p in plan] == [str(current), str(earlier)]
+    # 진행 항차 점은 그 항차의 도착 예정에, 그보다 이른 잔여 계획은 직전 점의 시각을 잇는다.
+    assert plan[0]["at"] == datetime(YEAR, 9, 15, tzinfo=UTC).isoformat()
+    assert plan[1]["at"] == plan[0]["at"]
+    # ``as_of`` 점(경과분)과 첫 ``PLAN`` 점(계획 전량)은 다른 값이고, 둘째 점은 또 다르다.
+    as_of_point = _actual_side(series["points"])[-1]
+    assert as_of_point["kind"] == KIND_IN_PROGRESS and as_of_point["voyage_id"] == str(current)
+    assert len({as_of_point["attained_cii"], plan[0]["attained_cii"], plan[1]["attained_cii"]}) == 3
+    assert meta["simulated"] is True
+
+
+@pytest.mark.asyncio
+async def test_two_arrivals_at_the_same_instant_share_one_point(session):
+    """AT-YTDS-015 — 같은 순간에 도착한 두 항차는 점 하나 · ``substituted``는 둘 다 본다.
+
+    둘째 항차만 계획값 대체인데 첫 항차만 보면 거짓이 된다.
+    """
+    vessel_id = await _make_vessel(session, state="NOT_UNDER_WAY", detail="AT_ANCHOR")
+    clean = await _make_voyage(session, vessel_id)
+    await _add_actuals(session, clean)
+    replaced = await _make_voyage(session, vessel_id, departed_at=datetime(YEAR, 6, 5, tzinfo=UTC))
+    await _add_actuals(session, replaced, distance=None)
+
+    series, _ = await get_ytd_series(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    actual = _actual_side(series["points"])
+    assert len(actual) == 2  # 6/20 한 점 + ``as_of``
+    assert actual[0]["at"] == datetime(YEAR, 6, 20, tzinfo=UTC).isoformat()
+    assert actual[0]["voyage_id"] in {str(clean), str(replaced)}
+    assert actual[0]["substituted"] is True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # 오류 · 직렬화
 # ─────────────────────────────────────────────────────────────────────────────
@@ -450,6 +533,14 @@ async def test_year_out_of_range_is_422(session):
     vessel_id = await _make_vessel(session)
     with pytest.raises(ValidationError):
         await get_ytd_series(session, vessel_id, year=1900, as_of=MID_YEAR)
+
+
+@pytest.mark.asyncio
+async def test_missing_regulation_year_is_409(session):
+    """AT-YTDS-013 — 규제연도 파라미터가 없으면 409 `PARAMETER_ERROR` (`§2.14`와 같은 자리)."""
+    vessel_id = await _make_vessel(session)
+    with pytest.raises(ParameterError):
+        await get_ytd_series(session, vessel_id, year=2045, as_of=MID_YEAR)
 
 
 @pytest.mark.asyncio
@@ -492,8 +583,9 @@ async def test_demo_bulk_reference_values(session):
     실적 첫 점 = 2026-01 항차 도착(2/26 23:00Z) 전량 · 마지막 실적 점 = ``ytd`` 8.213830 ·
     계획 열은 잔여 5건을 도착 예정 순으로 더해 8.965893(= ``year_end_projection``)에 닿는다.
     """
-    series, meta = await get_ytd_series(session, VESSEL_ID_BULK, year=YEAR, as_of=DEMO_AS_OF)
-    current, _ = await get_current_cii(session, VESSEL_ID_BULK, year=YEAR, as_of=DEMO_AS_OF)
+    bulk = UUID(VESSEL_ID_BULK)
+    series, meta = await get_ytd_series(session, bulk, year=YEAR, as_of=DEMO_AS_OF)
+    current, _ = await get_current_cii(session, bulk, year=YEAR, as_of=DEMO_AS_OF)
 
     actual = _actual_side(series["points"])
     assert actual[0]["at"] == "2026-02-26T23:00:00+00:00"
