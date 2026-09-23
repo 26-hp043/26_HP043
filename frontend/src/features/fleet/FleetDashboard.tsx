@@ -72,7 +72,14 @@ const INITIAL_VISIBLE = 6
 
 export function FleetDashboard() {
   const [snapshot, setSnapshot] = useState<FleetSnapshot | null>(null)
+  /*
+   * 첫 페이지 조회 실패 (`#1814`). **받아 둔 목록이 있으면 목록 자리의 오류**이고, 없을 때만
+   * 화면 전체의 오류다. 종전에는 정렬을 바꾸다 한 번 실패하면 이 값이 남아 이후 성공해도
+   * 화면 전체가 오류로 남았다 — 성공 경로가 지우지 않았다.
+   */
   const [failure, setFailure] = useState<string | null>(null)
+  /** 실패한 첫 페이지 조회를 같은 정렬로 다시 시도한다 — 세면 effect가 다시 돈다. */
+  const [retryKey, setRetryKey] = useState(0)
   const [sortKey, setSortKey] = useState<FleetSort>('risk')
   const [expanded, setExpanded] = useState(false)
   /*
@@ -147,10 +154,15 @@ export function FleetDashboard() {
     provider
       .load({ sort: sortKey })
       .then((data) => {
-        if (alive && generation === generationRef.current) setSnapshot(data)
+        if (alive && generation === generationRef.current) {
+          setSnapshot(data)
+          // 앞선 실패는 이 성공으로 끝났다 — 지우지 않으면 화면이 오류에 남는다 (`#1814`).
+          setFailure(null)
+        }
       })
       .catch((error: unknown) => {
         if (alive && generation === generationRef.current) {
+          // 받아 둔 목록은 그대로 둔다 — 실패한 것은 이번 첫 페이지 조회뿐이다.
           setFailure(
             error instanceof Error ? error.message : '선대 현황을 불러오지 못했습니다.',
           )
@@ -162,7 +174,7 @@ export function FleetDashboard() {
     return () => {
       alive = false
     }
-  }, [provider, sortKey])
+  }, [provider, sortKey, retryKey])
 
   /** 다음 페이지 — 같은 정렬·**첫 페이지의 기준 시각**으로 묻고 뒤에 붙인다. */
   async function loadMore() {
@@ -205,7 +217,10 @@ export function FleetDashboard() {
   // 서버 순서 그대로다(#772) — 다시 정렬하지 않는다.
   const sorted = vessels
 
-  if (failure) return <FleetPlaceholder tone="error" message={failure} />
+  // 받아 둔 목록이 없을 때만 화면 전체의 오류다 — 있으면 목록 자리에서 알린다 (`#1814`).
+  if (failure !== null && snapshot === null) {
+    return <FleetPlaceholder tone="error" message={failure} />
+  }
 
   if (!snapshot) {
     return (
@@ -538,6 +553,20 @@ export function FleetDashboard() {
             </label>
           </div>
 
+          {/*
+            정렬 변경 실패는 **목록 자리**의 오류다 (`#1814`). 옛 정렬의 목록이 그대로 보이고,
+            「다시 시도」가 같은 정렬로 첫 페이지를 다시 묻는다. 한 줄(compact)인 것은
+            `PRD §6.4`의 「목록 옆 실패」 행이다.
+          */}
+          {failure !== null ? (
+            <ErrorState
+              level="region"
+              size="compact"
+              message={`정렬을 바꾸지 못했습니다 — ${failure}`}
+              onRetry={() => setRetryKey((k) => k + 1)}
+            />
+          ) : null}
+
           <ul className="vessels">
             {visible.map((vessel) => (
               <VesselRow key={vessel.id} vessel={vessel} />
@@ -560,7 +589,12 @@ export function FleetDashboard() {
               message={`다음 선박을 불러오지 못했습니다 — ${moreFailure}`}
             />
           ) : null}
-          {remaining === 0 && snapshot.hasMore ? (
+          {/*
+            정렬 변경이 실패한 채면 그리지 않는다 (`#1814`) — 커서가 옛 정렬 것이라 새 정렬에
+            보내면 422다(`#1092` ⓐ와 같다). 잠그면 `DESIGN_SYSTEM §14`의 사유 배선이 필요한데, 그 자리는 위의
+            「다시 시도」가 이미 맡고 있다.
+          */}
+          {remaining === 0 && snapshot.hasMore && failure === null ? (
             <button
               type="button"
               className="more"
