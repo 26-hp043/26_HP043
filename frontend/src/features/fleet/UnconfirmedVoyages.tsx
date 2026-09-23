@@ -25,7 +25,22 @@ import { UNCONFIRMED_VISIBLE, unconfirmedVoyages } from './fleetRules'
  * 경고 배너와 같은 규칙이다 — 없는 일을 상시 띄우면 배경이 된다. 조회 실패는 0건과 섞지
  * 않고 한 줄로 말한다.
  */
-export function UnconfirmedVoyages({ provider }: { provider?: DataQualityProvider }) {
+/**
+ * `as`로 두 모양을 낸다 (#1824).
+ *
+ * - `card` — 종전 카드. 다른 화면이 쓰면 그대로다
+ * - `cell` — **요약 띠의 한 칸.** 대시보드가 지도를 본문 전체로 펴면서 이 카드가 설
+ *   자리가 없어졌다. `#1573`이 이미 「5건까지 보이고 나머지는 `2-11`로」를 정해
+ *   두었으므로 **넘기는 자리를 하나로 합친 것**이고, 그 화면은 `#1766`이 할 일 한
+ *   목록으로 다시 만든 자리라 행별 「이 항차로」가 거기서 더 잘 산다
+ */
+export function UnconfirmedVoyages({
+  provider,
+  as = 'card',
+}: {
+  provider?: DataQualityProvider
+  as?: 'card' | 'cell'
+}) {
   const api = useMemo(() => provider ?? createApiDataQualityProvider(), [provider])
   const [issues, setIssues] = useState<DataQualityIssue[] | null>(null)
   const [failed, setFailed] = useState(false)
@@ -59,6 +74,25 @@ export function UnconfirmedVoyages({ provider }: { provider?: DataQualityProvide
 
   const all = unconfirmedVoyages(issues)
   if (all.length === 0) return null
+
+  /*
+   * 띠의 한 칸 (#1824). 0건이면 위에서 이미 `null`이라 **칸이 아예 서지 않는다** —
+   * 경고 배너와 같은 규칙(`#1573`)이고, 「0」을 띄워 두면 할 일이 없는 날에도 할 일
+   * 칸이 자리를 차지한다.
+   */
+  if (as === 'cell') {
+    return (
+      <div className="kpi">
+        <p className="kpi__label">실적 확정 전 항차</p>
+        <p className="kpi__value">{all.length}</p>
+        <p className="kpi__foot">
+          <Link className="kpi__link" to={SCREEN_BY_ID.DATA_QUALITY.path}>
+            데이터 점검에서 처리
+          </Link>
+        </p>
+      </div>
+    )
+  }
   const shown = all.slice(0, UNCONFIRMED_VISIBLE)
   const rest = all.length - shown.length
 

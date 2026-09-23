@@ -1,11 +1,26 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { FleetDashboard } from './FleetDashboard'
 import { regulationParametersPath } from '../parameters/referenceRules'
+
+/*
+ * #1824 — 지도 위 패널은 **1100 이하에서 접힌 채로 시작한다**. jsdom의 기본 폭은
+ * `1024`라 그냥 두면 목록·조치가 접힌 채로 그려져, 선대 데이터를 보는 아래 검사들이
+ * 전부 **패널 접힘 때문에** 실패한다. 이 파일이 보는 것은 데이터 동작이므로 넓은
+ * 화면을 선언한다 — 접힘 규칙 자체는 `panelState.test.ts`가 따로 잠근다.
+ */
+beforeEach(() => {
+  Object.defineProperty(window, 'innerWidth', { value: 1440, configurable: true })
+  try {
+    window.localStorage.removeItem('bluelog.fleet.panelOpen')
+  } catch {
+    // 저장이 없는 환경이면 폭만으로 정해진다.
+  }
+})
 
 /**
  * 지도는 대역으로 둔다 (`#1091`).
@@ -531,16 +546,18 @@ describe('실적 확정 전 항차 카드의 자리 (#1573)', () => {
     },
   }
 
-  function stubWith(dq: 'ok' | 'fail') {
+  function stubWith(dq: 'ok' | 'fail' | 'empty') {
     const fleet = page([vessel('v1', '가선')], { next_cursor: null, has_more: false })
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: unknown) => {
         const url = String(input)
         if (url.includes('/fleet/data-quality')) {
-          return dq === 'ok'
-            ? ({ ok: true, status: 200, json: async () => DQ } as Response)
-            : ({ ok: false, status: 500, json: async () => ({}) } as Response)
+          if (dq === 'ok') return { ok: true, status: 200, json: async () => DQ } as Response
+          // #1824 — 0건일 때 칸이 서지 않는지 보려면 빈 응답이 필요하다.
+          if (dq === 'empty')
+            return { ok: true, status: 200, json: async () => ({ data: { issues: [] } }) } as Response
+          return { ok: false, status: 500, json: async () => ({}) } as Response
         }
         return { ok: true, status: 200, json: async () => fleet } as Response
       }),
@@ -552,14 +569,29 @@ describe('실적 확정 전 항차 카드의 자리 (#1573)', () => {
     )
   }
 
-  it('선대 요약 바로 다음에 있다', async () => {
+  /*
+   * #1824 — **띠의 한 칸이 됐다.** 지도를 본문 전체로 펴면서 카드가 설 자리가
+   * 없어졌고, `#1573`이 이미 「5건까지 보이고 나머지는 `2-11`로」를 정해 두었으므로
+   * **넘기는 자리를 하나로 합쳤다**. 행별 「이 항차로」는 그 화면(`#1766`의 할 일 한
+   * 목록)이 받는다.
+   */
+  it('선대 요약 띠 안에 건수 한 칸으로 있다', async () => {
     stubWith('ok')
-    const card = await screen.findByRole('region', { name: '실적 확정 전 항차' })
+    // 확정 전 항차는 대시보드와 **따로** 조회하므로 그 칸이 설 때까지 기다린다.
+    const label = await screen.findByText('실적 확정 전 항차')
     const kpi = screen.getByRole('region', { name: '선대 요약' })
-    expect(kpi.nextElementSibling).toBe(card)
-    expect(within(card).getByRole('link', { name: /^이 항차로/ }).getAttribute('href')).toBe(
-      '/vessels/v1?actuals=voy-1',
-    )
+    expect(kpi.contains(label), '확정 전 항차 칸이 띠 안에 없다').toBe(true)
+    const cell = label.closest('.kpi')!
+    expect(within(cell as HTMLElement).getByText('1')).toBeTruthy()
+    expect(
+      within(cell as HTMLElement).getByRole('link', { name: '데이터 점검에서 처리' }),
+    ).toBeTruthy()
+  })
+
+  it('0건이면 칸이 아예 서지 않는다 — 경고 배너와 같은 규칙', async () => {
+    stubWith('empty')
+    await screen.findByRole('region', { name: '선대 요약' })
+    expect(screen.queryByText('실적 확정 전 항차')).toBeNull()
   })
 
   it('그 조회가 실패해도 대시보드는 그대로 그려진다', async () => {
