@@ -23,6 +23,7 @@ import {
 import { createApiRealtimeCiiProvider, RealtimeCiiError } from './apiProvider'
 import { regulationParametersPath } from '../parameters/referenceRules'
 import { voyageActualsPath } from '../voyage-management/voyageRules'
+import { portDisplayName, useSamplePorts } from '../ports/samplePorts'
 import {
   POLL_INTERVAL_MS,
   formatAsOf,
@@ -672,12 +673,18 @@ function VoyagePanel({
   const voyage = data.currentVoyage!
   const ratio = voyageProgressRatio(data)
   const remaining = remainingDistanceNm(data)
+  // 항구는 저장값(`BUSAN`)이 아니라 **보이는 이름**으로 적는다 (#1776). 선박 상세의 항차 표가
+  // `#1742`에서 이미 그렇게 하므로, 같은 항차가 두 화면에서 다른 이름으로 보이지 않게 한다.
+  // 목록에 없는 항구와 목록을 아직 받지 못한 때는 입력한 그대로다(`portDisplayName`).
+  const ports = useSamplePorts()
+  const portName = (stored: string | null | undefined) =>
+    stored === null || stored === undefined ? '—' : portDisplayName(ports, stored)
 
   return (
     <>
       <p className="rt__voyage-title">
-        {voyage.voyageNo ?? '항차'} · {voyage.departurePortName ?? '—'} →{' '}
-        {voyage.arrivalPortName ?? '—'}
+        {voyage.voyageNo ?? '항차'} · {portName(voyage.departurePortName)} →{' '}
+        {portName(voyage.arrivalPortName)}
       </p>
 
       {ratio !== null ? (
