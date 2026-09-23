@@ -33,6 +33,7 @@ function vessel(over: Partial<FleetVessel> = {}): FleetVessel {
     lon: '129.0',
     positionUpdatedAt: '2026-08-23T12:00:00Z',
     route: null,
+    courseDeg: null,
     isCiiApplicableHint: true,
     grossTonnage: 50000,
     dataAvailable: true,
