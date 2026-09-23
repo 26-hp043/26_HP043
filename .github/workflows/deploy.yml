@@ -239,7 +239,7 @@ jobs:
             echo "[deploy] 실행 커밋이 다르다 — 기대 ${DEPLOY_SHA} / 실제 ${got}" >&2
             exit 1
           fi
-          echo "[deploy] 실행 커밋 ${got}
+          echo "[deploy] 실행 커밋 ${got}"
 
           # ACL 템플릿 치환
           sed -i "s/REPLACE_ME_APP_PRIVATE_IP/${OCI_APP_PRIVATE_IP}/g" \
@@ -406,7 +406,7 @@ jobs:
             echo "[deploy] 실행 커밋이 다르다 — 기대 ${DEPLOY_SHA} / 실제 ${got}" >&2
             exit 1
           fi
-          echo "[deploy] 실행 커밋 ${got}
+          echo "[deploy] 실행 커밋 ${got}"
 
           # CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
           CUBRID_PASSWORD_ENC=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "${CUBRID_PASSWORD}")
