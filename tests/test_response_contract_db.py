@@ -322,6 +322,11 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.year_end_projection.assumptions.remaining_voyage_count",
             "data.year_end_projection.attained_cii",
             "data.year_end_projection.data_available",
+            # `#1673` — 무엇이 올리는가. 데모 선박은 확정 실적이 있어 ⑴이 나오고, 그러면
+            # `REMAINING_PLAN`은 항상 실리므로 원소 키가 집합에 잡힌다.
+            "data.year_end_projection.drivers",
+            "data.year_end_projection.drivers[].delta_cii",
+            "data.year_end_projection.drivers[].key",
             "data.year_end_projection.rating",
             "data.year_end_projection.ratio_to_required",
             "data.year_end_projection.reason",

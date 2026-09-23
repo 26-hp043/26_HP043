@@ -121,6 +121,20 @@ export interface ProjectionAssumptions {
   completedCo2Ton: string | null
 }
 
+/**
+ * ⑶을 무엇이 올리는가 — 시간 순 누적 분해의 한 단계 (`API_SPEC §2.14` · `#1673`).
+ *
+ * `key`는 `BASIS_DIFFERENCE`(확정분 집합이 갈릴 때만) · `CURRENT_VOYAGE`(진행 중 항차의
+ * 남은 몫) · `REMAINING_PLAN`(남은 계획 항차) 순으로 온다. `deltaCii`의 합은 **정확히**
+ * `projection.attainedCii − ytd.attainedCii`다 — 서버가 각 단계 누적값을 6자리로 절사한
+ * 뒤 뺀 값이라 화면이 다시 계산하지 않는다(`TECH_SPEC §5.4.1` ⑸).
+ */
+export interface ProjectionDriver {
+  key: string
+  /** 그 단계를 더했을 때 연말 예상이 움직인 양. 6자리 문자열이고 **음수일 수 있다.** */
+  deltaCii: string
+}
+
 /** ⑶ 연말 예상. 낼 수 없으면 `reason`이 이유를 말한다. */
 export interface YearEndProjection {
   dataAvailable: boolean
@@ -136,6 +150,11 @@ export interface YearEndProjection {
    */
   warnings: string[]
   assumptions: ProjectionAssumptions | null
+  /**
+   * 무엇이 올리는가 (`#1673`). ⑴이 없어 출발점이 없으면 빈 배열이다 — ⑶ 전체가 계획인
+   * 상태이며 「아직 안 온 값」이 아니다.
+   */
+  drivers: ProjectionDriver[]
 }
 
 export interface RealtimeCii {
