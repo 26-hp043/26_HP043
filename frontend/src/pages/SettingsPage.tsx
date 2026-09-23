@@ -1,6 +1,9 @@
 import { AccountPanel } from '../features/account/AccountPanel'
 import { RegulationParametersSection } from '../features/parameters/RegulationParametersSection'
 import { PageHeader } from '../components/PageHeader'
+import { isAdmin, useAuthUser } from '../auth/session'
+import { visibleSections } from './settingsSections'
+import './SettingsPage.css'
 
 /**
  * 설정 화면 — `UIFLOW 2-6` (`#506` · `#1516`).
@@ -17,6 +20,8 @@ import { PageHeader } from '../components/PageHeader'
  * 역할 가드가 없다 — 적재·기록(`#1517`)만 사무직이다.
  */
 export function SettingsPage() {
+  const sections = visibleSections(isAdmin(useAuthUser()))
+
   return (
     <div className="page">
       <PageHeader screen="SETTINGS">
@@ -24,6 +29,31 @@ export function SettingsPage() {
           계정 정보와 비밀번호를 관리하고, CII 계산이 쓰는 규제 기준값을 확인합니다.
         </p>
       </PageHeader>
+
+      {/*
+        ── 절 목차 (#1791) ────────────────────────────────────────────────
+
+        이 화면은 절이 여섯이고 **2.24 화면**이다 — 실측(1440 × 900)으로 문서 높이
+        `2,012px`이고 **규제 기준값이 `1,021px`(1.13 화면) 아래**에서 시작한다. 이 화면에서
+        가장 자주 찾는 절이 첫 화면에 없고 내려가는 길이 스크롤뿐이었다.
+
+        **하위 메뉴를 만들지 않는다**(`#1239` 결정 A·B) — 「네 표 50행을 1년에 한두 번 보는
+        화면에 사이드바 탭은 과하다」. 실제 불편은 「스크롤이 길다」 하나이므로 그만 덜어낸다.
+
+        밖에서 들어오는 링크(`regulationParametersPath()` · `#1239`의 세 자리)는 이미
+        동작한다 — 이 줄은 **화면 안에서** 내려가는 길이다.
+
+        목록은 `settingsSections`가 소유한다. 절도 같은 목록에서 제목과 `id`를 가져가므로
+        목차에 없는 절이나 없는 자리로 가는 링크가 생길 자리가 없다.
+      */}
+      <nav className="settings-toc" aria-label="설정 절 바로가기">
+        {sections.map((section) => (
+          <a key={section.id} className="settings-toc__link" href={`#${section.id}`}>
+            {section.label}
+          </a>
+        ))}
+      </nav>
+
       <AccountPanel />
       <RegulationParametersSection />
     </div>

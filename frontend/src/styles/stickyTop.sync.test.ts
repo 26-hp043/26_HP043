@@ -9,17 +9,17 @@ import { describe, expect, it } from 'vitest'
  * ## 무엇을 지키나
  *
  * sticky 상단바는 위 틈(`--shell-gutter`) 아래에 붙고 최소 높이가 `56px`이므로, 그 아래에
- * 서려면 `틈 + 56 + 틈`만큼을 비워야 한다. 이 값을 쓰는 자리가 다섯이다 — 입력 기둥 셋
- * (`§8.7`)과 보고서의 문서 높이, 그리고 `#1790`이 더한 `main`의 `scroll-margin`.
+ * 서려면 `틈 + 56 + 틈`만큼을 비워야 한다. 이 값을 쓰는 자리가 여럿이다 — 입력 기둥 셋(`§8.7`) ·
+ * 보고서의 문서 높이 · `#1790`이 더한 `main`의 `scroll-margin` · `#1791`이 더한 설정 두 절.
  *
  * ## 왜 검사인가
  *
- * `56`이 **`AppShell.css`의 `min-height`와 다섯 파일의 `calc()`에 각각 한 벌씩** 있다.
+ * `56`이 **`AppShell.css`의 `min-height`와 위 파일들의 `calc()`에 각각 한 벌씩** 있다.
  * 상단바 높이를 바꾸면 그중 한 곳만 따라가도 화면은 깨지지 않는다 — 기둥이 조금 어긋나
  * 붙거나, 제목이 상단바에 반쯤 덮일 뿐이다. 그래서 눈으로는 발견되지 않는다.
  *
  * ⚠️ 값을 토큰 하나로 합치는 것이 본래 맞다. 그것은 다섯 파일을 함께 고치는 일이라
- * `#1790`의 범위 밖이고, **그때까지 어긋나지 않게** 여기서 잠근다.
+ * 한 이슈의 범위 밖이고, **그때까지 어긋나지 않게** 여기서 잠근다.
  */
 const SRC = join(process.cwd(), 'src')
 
@@ -33,6 +33,8 @@ const USERS = [
   { name: '연간 등급 관리 입력 기둥', file: 'features/annual-simulation/AnnualSimulation.css' },
   { name: '항로 비교 입력 기둥', file: 'features/scenario-comparison/ScenarioComparison.css' },
   { name: '보고서 조건 기둥', file: 'features/reports/ReportsView.css' },
+  { name: '설정 계정 절 (#1791)', file: 'features/account/AccountPanel.css' },
+  { name: '설정 규제 기준값 절 (#1791)', file: 'features/parameters/RegulationParametersSection.css' },
 ] as const
 
 /** `calc(var(--shell-gutter, …) * 2 + <n>px)`의 `<n>`들. */

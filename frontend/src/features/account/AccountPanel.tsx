@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { settingsSection } from '../../pages/settingsSections'
 import {
   EMAIL_IMMUTABLE_NOTICE,
   ROLE_DESCRIPTION,
@@ -47,14 +48,41 @@ import { Field } from '../../components/Field'
  * 변경 엔드포인트가 없다(`API_SPEC §1.2`). 입력창을 두고 저장 단계에서 422를 내는
  * 대신, **처음부터 바꿀 수 없다는 것을 보인다.**
  */
+/**
+ * 설정 안의 절 한 장 (#1791).
+ *
+ * **제목과 낭독 이름을 `settingsSections`에서 가져온다** — 목차가 같은 목록에서 나오므로
+ * 둘이 갈릴 자리가 없다. `id`는 곧 목차가 가리키는 앵커다.
+ */
+function SettingsSectionCard({
+  id,
+  danger,
+  children,
+}: {
+  id: string
+  danger?: boolean
+  children: ReactNode
+}) {
+  const { label } = settingsSection(id)
+  return (
+    <section
+      id={id}
+      className={danger === true ? 'card acc__section acc__section--danger' : 'card acc__section'}
+      aria-label={label}
+    >
+      <h2 className="card__title">{label}</h2>
+      {children}
+    </section>
+  )
+}
+
 export function AccountPanel() {
   const user = useAuthUser()
   if (!user) return null
 
   return (
     <div className="acc">
-      <section className="card acc__section" aria-label="계정 정보">
-        <h2 className="card__title">계정 정보</h2>
+      <SettingsSectionCard id="account-info">
 
         <dl className="acc__facts">
           <div>
@@ -71,7 +99,7 @@ export function AccountPanel() {
         <p className="acc__notice">{ROLE_DESCRIPTION}</p>
 
         <DisplayNameForm initial={user.displayName ?? ''} />
-      </section>
+      </SettingsSectionCard>
 
       {isAdmin(user) ? <RoleSection me={user} /> : null}
       <PasswordSection />
@@ -135,8 +163,7 @@ function RoleSection({ me }: { me: CurrentUser }) {
   }
 
   return (
-    <section className="card acc__section" aria-label="계정 · 역할">
-      <h2 className="card__title">계정 · 역할</h2>
+    <SettingsSectionCard id="account-role">
       <p className="acc__notice">
         관리자만 다른 계정의 역할을 바꿀 수 있습니다. 마지막 남은 관리자는 다른 역할로 바꿀 수
         없습니다.
@@ -183,7 +210,7 @@ function RoleSection({ me }: { me: CurrentUser }) {
           {notice}
         </p>
       ) : null}
-    </section>
+    </SettingsSectionCard>
   )
 }
 
@@ -299,8 +326,7 @@ function PasswordSection() {
    */
   if (changed) {
     return (
-      <section className="card acc__section" aria-label="비밀번호 변경">
-        <h2 className="card__title">비밀번호 변경</h2>
+      <SettingsSectionCard id="password">
         <p className="acc__ok" role="status">
           {changed}
         </p>
@@ -312,13 +338,12 @@ function PasswordSection() {
         <button type="button" className="acc__submit" onClick={leaveAfterPasswordChange}>
           로그인 화면으로
         </button>
-      </section>
+      </SettingsSectionCard>
     )
   }
 
   return (
-    <section className="card acc__section" aria-label="비밀번호 변경">
-      <h2 className="card__title">비밀번호 변경</h2>
+    <SettingsSectionCard id="password">
 
       {/* 미리 고지하지 않으면 사용자는 「왜 튕겼지」로 받는다. */}
       <p className="acc__notice">{PASSWORD_CHANGE_NOTICE}</p>
@@ -357,7 +382,7 @@ function PasswordSection() {
           {busy ? '바꾸는 중' : '비밀번호 바꾸기'}
         </button>
       </form>
-    </section>
+    </SettingsSectionCard>
   )
 }
 
@@ -441,8 +466,7 @@ function WithdrawalSection() {
   }
 
   return (
-    <section className="card acc__section acc__section--danger" aria-label="탈퇴">
-      <h2 className="card__title">탈퇴</h2>
+    <SettingsSectionCard id="withdrawal" danger>
 
       {/*
         `PRD §6.3`이 원문을 확정한 **정본 문구**다. 화면에서 새로 적지 않는다
@@ -485,6 +509,6 @@ function WithdrawalSection() {
           탈퇴하기
         </button>
       )}
-    </section>
+    </SettingsSectionCard>
   )
 }
