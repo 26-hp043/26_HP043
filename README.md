@@ -710,4 +710,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-09-23 | `#1808` | 문서 구조 표의 `DB_SCHEMA.md` 행을 **v1.35**로 — §2.7 `simulation_snapshot.not_underway_json` 추가(마이그레이션 060 · 연말 예상 확정분의 이미 쓴 정박·묘박 몫) (#1803) |
 | 2026-09-23 | `#1817` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.44**로 — §6.5 선박별 연간 시뮬레이션 실행 목록 신설 (#1805) |
 | 2026-09-23 | `#1823` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 **v2.28**로 — §9.5 「본문 전체를 차지할 때」 · 마커 선수 방향·정박·항구 · 팝오버 신설 (#1821) |
-| 2026-09-23 | `#___` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.45**, `TEST_PLAN.md` 행을 **v1.29**로 — `API_SPEC §2.18` 올해 누적 CII 추이 조회 · `TEST_PLAN §4.11` 신설. 실시간 CII 화면의 누적 CII 추이(항차 경계마다 한 점)를 그릴 엔드포인트 (#1671) |
+| 2026-09-23 | `#1830` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.45**, `TEST_PLAN.md` 행을 **v1.29**로 — `API_SPEC §2.18` 올해 누적 CII 추이 조회 · `TEST_PLAN §4.11` 신설. 실시간 CII 화면의 누적 CII 추이(항차 경계마다 한 점)를 그릴 엔드포인트 (#1671) |
