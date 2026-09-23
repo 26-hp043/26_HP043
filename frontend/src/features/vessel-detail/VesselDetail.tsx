@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
@@ -26,6 +26,8 @@ import { CiiHistoryChart } from './CiiHistoryChart'
 import { createApiVesselDetailProvider, VesselDetailError } from './apiProvider'
 import { PositionForm } from './PositionForm'
 import { VerdictStrip } from '../../components/VerdictStrip'
+import { Tabs, type TabDef } from '../../components/Tabs'
+import { currentTab, TAB_PARAM, VESSEL_TABS, type VesselTabId } from './vesselTabs'
 import { voyageProgress } from './types'
 import type {
   CiiYear,
@@ -78,8 +80,24 @@ export function VesselDetail({
 } = {}) {
   const { vesselId } = useParams()
   // 실시간 CII의 「이 항차 실적 입력」 (#1540 · `voyageActualsPath`)
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const openActualsFor = searchParams.get(ACTUALS_PARAM)
+  /*
+   * 탭의 자리는 **주소가 갖는다** (`DESIGN_SYSTEM §8` · #1774). 화면 상태로 두면
+   * `?actuals=`로 들어온 링크가 개요에 떨어지고, 뒤로 가기가 탭을 건너뛴다.
+   */
+  const tab = currentTab(searchParams)
+  const selectTab = useCallback(
+    (id: string) => {
+      // 밀어 넣는다(`replace`가 아니다) — 뒤로 가기가 직전 탭으로 돌아가야 한다.
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev)
+        next.set(TAB_PARAM, id)
+        return next
+      })
+    },
+    [setSearchParams],
+  )
   const [detail, setDetail] = useState<Detail | null>(null)
   /*
    * provider를 매 렌더마다 새로 만들지 않는다. 로딩과 위치 저장이 같은
@@ -195,6 +213,227 @@ export function VesselDetail({
   const unit = ciiUnit(capacityBasis)
   // 올해 = 목록의 마지막 행(서버가 from~to 오름차순으로 준다).
   const current = years.length > 0 ? years[years.length - 1] : null
+
+  /*
+   * ── 탭 넷에 들어가는 것 (`UIFLOW 2-8` · `DESIGN_SYSTEM §8` · #1774) ──────
+   *
+   * `Tabs`가 **그 탭을 처음 열 때** 부른다 — 열지 않은 탭은 마운트되지 않으므로 그 탭의
+   * 조회도 나가지 않는다. 종전에는 마운트 한 번에 요청 24건(경로 10종)이 나갔다.
+   *
+   * 한 번 연 뒤에는 `hidden`으로 감출 뿐이라 쓰다 만 실적 입력이 탭을 오가며 날아가지
+   * 않는다(`§8`).
+   */
+  const panels: Record<VesselTabId, () => ReactNode> = {
+    overview: () => (
+      <div className="vd__split">
+        {/* ── 연도별 이력 ────────────────────────────────────────── */}
+        <section className="card vd__main" aria-label="연도별 CII 이력">
+          <div className="card__head">
+            <h2 className="card__title">연도별 CII 이력</h2>
+            <span className="card__meta">단위 {unit}</span>
+          </div>
+          <CiiHistoryChart years={years} basis={capacityBasis} />
+        </section>
+
+        {/* ── 제원 · 현재 상태 ───────────────────────────────────── */}
+        <div className="vd__side">
+          {/*
+            제원과 현재 상태를 한 면에 담는다 (#1729 · `DESIGN_SYSTEM §5` 카드 예산).
+            둘 다 「이 배가 어떤 배이고 지금 무엇을 하고 있나」라 한 덩어리로 읽힌다 —
+            면을 둘로 나눌 이유가 값의 출처뿐이었다.
+          */}
+          <section className="card" aria-label="선박 제원 · 현재 상태 · 위치">
+            <div className="card__head">
+              <h2 className="card__title">제원</h2>
+            </div>
+            <dl className="spec">
+              <Spec label="선종" value={shipTypeLabel(vessel.shipType)} />
+              <Spec label="IMO 번호" value={vessel.imoNumber} />
+              {/* 축에 해당하는 제원을 앞에 둔다 — 그 값이 CII 분모다. */}
+              {/*
+                `Spec`은 값을 그대로 그린다 — 포맷 지점이 없어 서버 문자열
+                `6405.77`이 그대로 나갔고, 같은 값이 선박 관리 목록에서는
+                `6,405.77`이었다. `§4.2` 규정을 거치게 한다 (`#633`).
+              */}
+              {capacityBasis === 'DWT' ? (
+                <Spec label="재화중량톤수 (DWT)" value={formatCapacity(vessel.deadweight)} />
+              ) : (
+                <Spec label="총톤수 (GT)" value={formatCapacity(vessel.grossTonnage)} />
+              )}
+              {/*
+                `#822` — 종전에는 서버 문자열을 **그대로** 그리고 단위를 리터럴로
+                박았다. `18.00`이 이 화면에서는 `18`, 선박 관리 목록에서는 `18.0 kn`이
+                되어 같은 값이 화면마다 달랐다. 단위 리터럴은 `DESIGN_SYSTEM §4.2` 🔒가
+                금지한다 — *「화면에 리터럴로 박지 않는다」*.
+              */}
+              <Spec
+                label="기준 속력"
+                value={
+                  vessel.referenceSpeedKn === null
+                    ? null
+                    : formatDecimalString(vessel.referenceSpeedKn, DISPLAY_DIGITS.speedKn)
+                }
+                suffix={` ${DISPLAY_UNITS.speed}`}
+              />
+              {/*
+                연료는 `GROUPED_FIELDS`라 천단위 구분자가 필수다 (`§4.2` 🔒) —
+                `1234.5 t`가 아니라 `1,234.5 t`다.
+              */}
+              <Spec
+                label="기준 일일 연료"
+                value={
+                  vessel.referenceDailyFocTon === null
+                    ? null
+                    : formatGrouped(vessel.referenceDailyFocTon, DISPLAY_DIGITS.fuelTon)
+                }
+                suffix={` ${DISPLAY_UNIT_DAILY_FUEL}`}
+              />
+              <Spec label="기본 연료" value={vessel.defaultFuelType} />
+            </dl>
+
+            <div className="card__head vd__subhead">
+              <h3 className="card__title">현재 상태</h3>
+            </div>
+            <dl className="spec">
+              <Spec label="운항 상태" value={stateText(vessel.underwayState)} />
+              {/* `UIFLOW 2-4`가 정한 7값 표기. 코드를 그대로 내지 않는다. */}
+              <Spec label="세부 상태" value={detailStatusText(vessel.detailStatus)} />
+              {/*
+                「현재 위치」·「위치 갱신」 두 줄은 아래 **현재 위치 절**로 옮겼다
+                (#723 — 그때는 따로 떠 있는 카드였고, #1774가 같은 카드 안으로 합쳤다). 좌표 숫자와 그 좌표의 그림이 따로 있으면 같은 사실이 두 군데에
+                놓인다 — 그리고 개략도가 이미 그 값을 자기 밑에 적는다.
+
+                이 카드에는 **무엇을 하고 있나**만 남는다.
+              */}
+            </dl>
+
+            {/*
+              ── 현재 위치 ─────────────────────────────────────────────
+
+              종전에는 **따로 떠 있는 카드**였다(#723 · #1729). 탭으로 나누며 개요 탭의
+              면이 다섯이 되어 `§5` 카드 예산(4개 이하)을 하나 넘었고, 합칠 자리는
+              `#1729`가 이미 적어 두었다 — **「같은 배를 설명하는 값들이다」**. 제원 ·
+              현재 상태 · 위치는 한 덩어리로 읽힌다 (#1774).
+
+              수정 입구(아래 「위치 · 상태 수정」)는 **지도 뒤**에 둔다 — 무엇이 어디
+              있는지 본 다음에 고치는 순서다.
+            */}
+            <div className="card__head vd__subhead">
+              <h3 className="card__title">현재 위치</h3>
+              {vessel.positionUpdatedAt ? (
+                <span className="card__meta">
+                  {formatTimestamp(vessel.positionUpdatedAt)} 기준
+                </span>
+              ) : null}
+            </div>
+
+            {/*
+              대시보드와 **같은 컴포넌트**를 쓴다. 베끼면 두 화면의 투영·등급색·결측
+              표기가 갈리고, 갈린 쪽이 어디인지 화면을 봐서는 알 수 없다.
+
+              **자산이 있어도 개략도다** (`#1264`). 대시보드는 `basemap`을 보고
+              타일 지도(`FleetMap`)로 올라가지만 이 카드는 그 분기에 참여하지 않는다 —
+              폭이 480이고 그리는 대상이 **한 척**이라, 그 크기의 타일 지도는 배 하나와
+              둘레 바다만 비춘다. 배경이 주는 맥락이 거의 없는데 지도 인스턴스 비용만 든다.
+
+              ⚠️ 같은 기기에서 대시보드는 지도, 여기는 개략도로 보인다. **고장이 아니다** —
+              갈리는 축은 자산이 아니라 **대상 수(선대 ↔ 한 척)**다. 규격은
+              `DESIGN_SYSTEM §9.5`에 있다.
+
+              좌표를 따로 적지 않는다 — 개략도가 자기 밑에 「위치 30.6°N, 32.3°E」로
+              이미 적는다. 여기서 또 적으면 같은 값이 두 군데가 된다.
+
+              `minSpan`을 넓히는 이유는 그 프롭 주석에 있다.
+            */}
+            {vessel.lat && vessel.lon ? (
+              <div className="vd__map">
+                <PositionChart
+                  vessels={[
+                    {
+                      id: vessel.id,
+                      name: vessel.name,
+                      lat: vessel.lat,
+                      lon: vessel.lon,
+                      // 배 색·무늬는 올해 누적 등급이다 — 없으면 중립색으로 떨어진다.
+                      ytdRating: current?.rating ?? null,
+                    },
+                  ]}
+                  minSpan={DETAIL_MAP_SPAN}
+                />
+              </div>
+            ) : (
+              /*
+                **「못 불러왔다」가 아니라 「입력된 적이 없다」**를 적는다. 빈 상자를
+                두면 앞의 뜻으로 읽히고, 사용자는 기다린다(`#705`가 대시보드에서 같은
+                구분을 세웠다). 무엇을 하면 뜨는지도 함께 적는다.
+              */
+              <p className="vd__nodata">
+                위치가 기록되지 않았습니다. 아래 「위치 · 상태 수정」에서 입력하면
+                여기에 표시됩니다.
+              </p>
+            )}
+
+            {/*
+             * 위치·상태 입력 (`API_SPEC §2.6` · `#369`). 이 카드는 네 값을 보여
+             * 주면서 **읽기만 가능했다** — 쓰는 경로가 없어 위치가 시드 이후
+             * 고정됐고, 대시보드 `PositionChart`가 빈 채로 떴다.
+             *
+             * 정박 **구간 기록**은 아래 `NotUnderwayPanel`이 소유한다. 여기서 바꾸는
+             * 것은 「지금 무엇을 하고 있나」라는 **표시 상태**뿐이다 — 세부 상태 6값이
+             * `period_type`과 같은 집합인 것은 그 둘이 같은 사실을 가리키기 때문이지
+             * 한쪽이 다른 쪽을 쓰기 때문이 아니다.
+             */}
+            <PositionForm
+              vessel={vessel}
+              provider={provider}
+              onSaved={(updated: VesselSpec) => {
+                setDetail((prev) => (prev ? { ...prev, vessel: updated } : prev))
+                // 상단 선택기의 목록·기본 제원도 이 값으로 바뀌어야 한다 (`#1643`).
+                shell.refreshVessels()
+              }}
+            />
+
+          </section>
+
+        </div>
+      </div>
+    ),
+    voyages: () => (
+      <>
+      {/*
+        ── 항차 기록은 전폭 (#1729) ─────────────────────────────────────
+
+        `#723`이 「연도별 이력 · 제원」 / 「항차 기록 · 현재 위치」 두 줄을 같은 7:5로
+        나눠 두었다. 항차 기록이 표가 되면서(#1729) 7열이 7/12 칸(1440에서 약 614px)에
+        들어가지 않아 오른쪽 두 열이 가로 스크롤 뒤로 숨었다 — 표를 전폭으로 두고,
+        위치 카드는 위 기둥(제원 · 현재 상태)으로 올렸다. 같은 배를 설명하는 값들이다.
+      */}
+      <VoyagePanel vesselId={vessel.id} openActualsFor={openActualsFor} onChanged={noteChanged} />
+      </>
+    ),
+    'not-underway': () => (
+      <>
+      {/*
+       * 정박 기록 입력 (#370). 선박 상세 아래에 두는 이유는, 이 기록이 바로 위
+       * 「올해 누적」의 분자를 늘리기 때문이다 — 값을 본 자리에서 고칠 수 있어야 한다.
+       */}
+      {/*
+        항차가 먼저다 — 정박·묘박은 항차와 항차 사이의 구간이라,
+        운항 기록을 위에서 아래로 읽으면 순서가 이렇게 된다.
+      */}
+      <NotUnderwayPanel vesselId={vessel.id} onChanged={noteChanged} />
+      </>
+    ),
+    calculations: () => (
+      <>
+      {/*
+        계산 이력 · 재계산 필요 표시 (#992 · `PRD §8.4`). 운항 기록(항차 · 정박) 아래에 두는
+        이유 — 그 기록을 고치면 여기 계산이 「재계산 필요」로 바뀐다. 원인 아래에 결과를 둔다.
+      */}
+      <CalculationHistory vesselId={vessel.id} />
+      </>
+    ),
+  }
 
   return (
     <div className="vd">
@@ -328,194 +567,23 @@ export function VesselDetail({
         </p>
       </div>
 
-      <div className="vd__split">
-        {/* ── 연도별 이력 ────────────────────────────────────────── */}
-        <section className="card vd__main" aria-label="연도별 CII 이력">
-          <div className="card__head">
-            <h2 className="card__title">연도별 CII 이력</h2>
-            <span className="card__meta">단위 {unit}</span>
-          </div>
-          <CiiHistoryChart years={years} basis={capacityBasis} />
-        </section>
-
-        {/* ── 제원 · 현재 상태 ───────────────────────────────────── */}
-        <div className="vd__side">
-          {/*
-            제원과 현재 상태를 한 면에 담는다 (#1729 · `DESIGN_SYSTEM §5` 카드 예산).
-            둘 다 「이 배가 어떤 배이고 지금 무엇을 하고 있나」라 한 덩어리로 읽힌다 —
-            면을 둘로 나눌 이유가 값의 출처뿐이었다.
-          */}
-          <section className="card" aria-label="선박 제원 · 현재 상태">
-            <div className="card__head">
-              <h2 className="card__title">제원</h2>
-            </div>
-            <dl className="spec">
-              <Spec label="선종" value={shipTypeLabel(vessel.shipType)} />
-              <Spec label="IMO 번호" value={vessel.imoNumber} />
-              {/* 축에 해당하는 제원을 앞에 둔다 — 그 값이 CII 분모다. */}
-              {/*
-                `Spec`은 값을 그대로 그린다 — 포맷 지점이 없어 서버 문자열
-                `6405.77`이 그대로 나갔고, 같은 값이 선박 관리 목록에서는
-                `6,405.77`이었다. `§4.2` 규정을 거치게 한다 (`#633`).
-              */}
-              {capacityBasis === 'DWT' ? (
-                <Spec label="재화중량톤수 (DWT)" value={formatCapacity(vessel.deadweight)} />
-              ) : (
-                <Spec label="총톤수 (GT)" value={formatCapacity(vessel.grossTonnage)} />
-              )}
-              {/*
-                `#822` — 종전에는 서버 문자열을 **그대로** 그리고 단위를 리터럴로
-                박았다. `18.00`이 이 화면에서는 `18`, 선박 관리 목록에서는 `18.0 kn`이
-                되어 같은 값이 화면마다 달랐다. 단위 리터럴은 `DESIGN_SYSTEM §4.2` 🔒가
-                금지한다 — *「화면에 리터럴로 박지 않는다」*.
-              */}
-              <Spec
-                label="기준 속력"
-                value={
-                  vessel.referenceSpeedKn === null
-                    ? null
-                    : formatDecimalString(vessel.referenceSpeedKn, DISPLAY_DIGITS.speedKn)
-                }
-                suffix={` ${DISPLAY_UNITS.speed}`}
-              />
-              {/*
-                연료는 `GROUPED_FIELDS`라 천단위 구분자가 필수다 (`§4.2` 🔒) —
-                `1234.5 t`가 아니라 `1,234.5 t`다.
-              */}
-              <Spec
-                label="기준 일일 연료"
-                value={
-                  vessel.referenceDailyFocTon === null
-                    ? null
-                    : formatGrouped(vessel.referenceDailyFocTon, DISPLAY_DIGITS.fuelTon)
-                }
-                suffix={` ${DISPLAY_UNIT_DAILY_FUEL}`}
-              />
-              <Spec label="기본 연료" value={vessel.defaultFuelType} />
-            </dl>
-
-            <div className="card__head vd__subhead">
-              <h3 className="card__title">현재 상태</h3>
-            </div>
-            <dl className="spec">
-              <Spec label="운항 상태" value={stateText(vessel.underwayState)} />
-              {/* `UIFLOW 2-4`가 정한 7값 표기. 코드를 그대로 내지 않는다. */}
-              <Spec label="세부 상태" value={detailStatusText(vessel.detailStatus)} />
-              {/*
-                「현재 위치」·「위치 갱신」 두 줄은 아래 **현재 위치 카드**로 옮겼다
-                (#723). 좌표 숫자와 그 좌표의 그림이 따로 있으면 같은 사실이 두 군데에
-                놓인다 — 그리고 개략도가 이미 그 값을 자기 밑에 적는다.
-
-                이 카드에는 **무엇을 하고 있나**만 남는다.
-              */}
-            </dl>
-
-            {/*
-             * 위치·상태 입력 (`API_SPEC §2.6` · `#369`). 이 카드는 네 값을 보여
-             * 주면서 **읽기만 가능했다** — 쓰는 경로가 없어 위치가 시드 이후
-             * 고정됐고, 대시보드 `PositionChart`가 빈 채로 떴다.
-             *
-             * 정박 **구간 기록**은 아래 `NotUnderwayPanel`이 소유한다. 여기서 바꾸는
-             * 것은 「지금 무엇을 하고 있나」라는 **표시 상태**뿐이다 — 세부 상태 6값이
-             * `period_type`과 같은 집합인 것은 그 둘이 같은 사실을 가리키기 때문이지
-             * 한쪽이 다른 쪽을 쓰기 때문이 아니다.
-             */}
-            <PositionForm
-              vessel={vessel}
-              provider={provider}
-              onSaved={(updated: VesselSpec) => {
-                setDetail((prev) => (prev ? { ...prev, vessel: updated } : prev))
-                // 상단 선택기의 목록·기본 제원도 이 값으로 바뀌어야 한다 (`#1643`).
-                shell.refreshVessels()
-              }}
-            />
-
-          </section>
-
-          <section className="card" aria-label="현재 위치">
-            <div className="card__head">
-              <h2 className="card__title">현재 위치</h2>
-              {vessel.positionUpdatedAt ? (
-                <span className="card__meta">
-                  {formatTimestamp(vessel.positionUpdatedAt)} 기준
-                </span>
-              ) : null}
-            </div>
-
-            {/*
-              대시보드와 **같은 컴포넌트**를 쓴다. 베끼면 두 화면의 투영·등급색·결측
-              표기가 갈리고, 갈린 쪽이 어디인지 화면을 봐서는 알 수 없다.
-
-              **자산이 있어도 개략도다** (`#1264`). 대시보드는 `basemap`을 보고
-              타일 지도(`FleetMap`)로 올라가지만 이 카드는 그 분기에 참여하지 않는다 —
-              폭이 480이고 그리는 대상이 **한 척**이라, 그 크기의 타일 지도는 배 하나와
-              둘레 바다만 비춘다. 배경이 주는 맥락이 거의 없는데 지도 인스턴스 비용만 든다.
-
-              ⚠️ 같은 기기에서 대시보드는 지도, 여기는 개략도로 보인다. **고장이 아니다** —
-              갈리는 축은 자산이 아니라 **대상 수(선대 ↔ 한 척)**다. 규격은
-              `DESIGN_SYSTEM §9.5`에 있다.
-
-              좌표를 따로 적지 않는다 — 개략도가 자기 밑에 「위치 30.6°N, 32.3°E」로
-              이미 적는다. 여기서 또 적으면 같은 값이 두 군데가 된다.
-
-              `minSpan`을 넓히는 이유는 그 프롭 주석에 있다.
-            */}
-            {vessel.lat && vessel.lon ? (
-              <div className="vd__map">
-                <PositionChart
-                  vessels={[
-                    {
-                      id: vessel.id,
-                      name: vessel.name,
-                      lat: vessel.lat,
-                      lon: vessel.lon,
-                      // 배 색·무늬는 올해 누적 등급이다 — 없으면 중립색으로 떨어진다.
-                      ytdRating: current?.rating ?? null,
-                    },
-                  ]}
-                  minSpan={DETAIL_MAP_SPAN}
-                />
-              </div>
-            ) : (
-              /*
-                **「못 불러왔다」가 아니라 「입력된 적이 없다」**를 적는다. 빈 상자를
-                두면 앞의 뜻으로 읽히고, 사용자는 기다린다(`#705`가 대시보드에서 같은
-                구분을 세웠다). 무엇을 하면 뜨는지도 함께 적는다.
-              */
-              <p className="vd__nodata">
-                위치가 기록되지 않았습니다. 위 「현재 상태」의 「위치 · 상태 수정」에서
-                입력하면 여기에 표시됩니다.
-              </p>
-            )}
-          </section>
-        </div>
-      </div>
-
       {/*
-        ── 항차 기록은 전폭 (#1729) ─────────────────────────────────────
+        ── 탭 넷 (`UIFLOW 2-8` 「화면 구성」 · `DESIGN_SYSTEM §8` · #1774) ─────
 
-        `#723`이 「연도별 이력 · 제원」 / 「항차 기록 · 현재 위치」 두 줄을 같은 7:5로
-        나눠 두었다. 항차 기록이 표가 되면서(#1729) 7열이 7/12 칸(1440에서 약 614px)에
-        들어가지 않아 오른쪽 두 열이 가로 스크롤 뒤로 숨었다 — 표를 전폭으로 두고,
-        위치 카드는 위 기둥(제원 · 현재 상태)으로 올렸다. 같은 배를 설명하는 값들이다.
+        종전에는 **아홉 절이 한 장에** 쌓여 있었다 — 1440 × 900 실측으로 문서 높이
+        `2,480px`(2.76 화면) · 떠 있는 면 **8개**(`§5` 카드 예산은 4개 이하) · 마운트 한 번에
+        요청 **24건**. 「이 배 지금 어떤가」를 보러 온 사용자가 항차 표 · 가져오기 ·
+        내보내기 · 정박 기록 · 계산 이력까지 전부 받아 들었다.
+
+        **제목과 결론 띠는 탭 밖에 남는다**(`§8`) — 이 화면의 답은 탭을 갈아도 같다.
+        그래서 탭마다 떠 있는 면을 세면 **탭 밖의 둘(결론 띠 · 면책)이 모든 탭에 들어간다**.
       */}
-      <VoyagePanel vesselId={vessel.id} openActualsFor={openActualsFor} onChanged={noteChanged} />
-
-      {/*
-       * 정박 기록 입력 (#370). 선박 상세 아래에 두는 이유는, 이 기록이 바로 위
-       * 「올해 누적」의 분자를 늘리기 때문이다 — 값을 본 자리에서 고칠 수 있어야 한다.
-       */}
-      {/*
-        항차가 먼저다 — 정박·묘박은 항차와 항차 사이의 구간이라,
-        운항 기록을 위에서 아래로 읽으면 순서가 이렇게 된다.
-      */}
-      <NotUnderwayPanel vesselId={vessel.id} onChanged={noteChanged} />
-
-      {/*
-        계산 이력 · 재계산 필요 표시 (#992 · `PRD §8.4`). 운항 기록(항차 · 정박) 아래에 두는
-        이유 — 그 기록을 고치면 여기 계산이 「재계산 필요」로 바뀐다. 원인 아래에 결과를 둔다.
-      */}
-      <CalculationHistory vesselId={vessel.id} />
+      <Tabs
+        label="선박 상세 구획"
+        items={VESSEL_TABS.map((item): TabDef => ({ ...item, render: panels[item.id] }))}
+        current={tab}
+        onSelect={selectTab}
+      />
 
       <DisclaimerBanner estimate />
     </div>

@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import { VesselDetail } from './VesselDetail'
 import type { CiiYear, VesselDetail as Detail, VesselDetailProvider } from './types'
+import { VESSEL_TABS } from './vesselTabs'
 
 /**
  * 진행 중 항차가 없을 때 실시간 CII 링크가 거짓 신호를 주지 않는다 (`#588`).
@@ -53,6 +54,21 @@ function stub(over: Partial<VesselDetailProvider> = {}): VesselDetailProvider {
     updatePosition: vi.fn(),
     ...over,
   }
+}
+
+/**
+ * 떠 있는 면을 세는 자리 (`DESIGN_SYSTEM §5` 카드 예산 · `§8` · #1774).
+ *
+ * 면인지 아닌지는 CSS가 그림자로 정하는데 **jsdom은 CSS를 적용하지 않는다.** 그래서
+ * 그림자를 받는 클래스로 센다 — 이 선택자가 곧 「무엇을 면으로 보는가」의 선언이고,
+ * 새 면을 들이면 여기에도 들어온다. 감춘 탭의 것은 세지 않는다(`hidden`).
+ */
+const FLOATING = '.card, .verdict-strip, .disclaimer-banner'
+
+function visibleFloats(container: HTMLElement): string[] {
+  return [...container.querySelectorAll<HTMLElement>(FLOATING)]
+    .filter((element) => element.closest('[hidden]') === null)
+    .map((element) => element.getAttribute('aria-label') ?? element.className)
 }
 
 function renderAt(provider: VesselDetailProvider) {
@@ -423,10 +439,43 @@ describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () =
     renderAt(provider)
     await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(1))
 
+    // 정박 패널은 그 탭을 열 때 마운트된다 (#1774).
+    fireEvent.click(await screen.findByRole('tab', { name: '정박' }))
+
     const remove = await screen.findByRole('button', { name: /구간 삭제|삭제/ })
     fireEvent.click(remove)
 
     await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    vi.unstubAllGlobals()
+  })
+  /**
+   * 탭마다 떠 있는 면이 넷을 넘지 않는다 (#1774 · `§5` · `§8`).
+   *
+   * 종전에는 한 장에 **여덟**이었다(1440 × 900 실측). `§8`이 「`§5` 카드 예산은 탭 하나를
+   * 한 화면으로 보고 세고, 탭 밖의 면은 **모든 탭의 수에 들어간다**」로 정했으므로, 아래 수는
+   * **결론 띠(또는 그 자리의 대체 카드)와 면책 배너를 포함한 수**다.
+   */
+  it('어느 탭에서도 떠 있는 면이 넷을 넘지 않는다', async () => {
+    stubNetwork()
+    const { container } = renderAt(stub())
+    await screen.findByRole('tablist', { name: '선박 상세 구획' })
+
+    for (const tab of VESSEL_TABS) {
+      fireEvent.click(screen.getByRole('tab', { name: tab.label }))
+      await waitFor(() =>
+        expect(
+          screen.getByRole('tab', { name: tab.label }).getAttribute('aria-selected'),
+        ).toBe('true'),
+      )
+      // 그 탭의 내용이 실제로 그려진 뒤에 센다 — 덜 그려진 화면을 세면 검사가 헐거워진다.
+      await waitFor(() => expect(visibleFloats(container).length).toBeGreaterThanOrEqual(3))
+
+      const floats = visibleFloats(container)
+      expect(floats.length, `${tab.label} 탭: ${floats.join(' · ')}`).toBeLessThanOrEqual(4)
+      // 탭 밖의 면은 어느 탭에서도 있다.
+      expect(floats.join(' ')).toContain('disclaimer-banner')
+    }
+
     vi.unstubAllGlobals()
   })
 })
