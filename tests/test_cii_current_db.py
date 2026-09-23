@@ -26,6 +26,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.services.cii_current import (
+    DRIVER_BASIS_DIFFERENCE,
+    DRIVER_CURRENT_VOYAGE,
+    DRIVER_REMAINING_PLAN,
     REASON_NO_BASIS,
     REASON_YEAR_COMPLETE,
     WARNING_NO_REMAINING_PLAN,
@@ -1119,3 +1122,452 @@ async def test_berth_share_is_reported_so_the_screen_need_not_guess(session):
     assert Decimal(filled["ytd"]["not_underway_co2_ton"]) == Decimal("124.56")
     # 전체 몫보다 클 수 없다.
     assert Decimal(filled["ytd"]["not_underway_co2_ton"]) <= Decimal(filled["ytd"]["total_co2_ton"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ⑶을 무엇이 올리는가 — `year_end_projection.drivers[]` (#1673)
+#
+# 「연말 예상이 D」라는 결론만 주면 사용자가 할 수 있는 일이 없다. ⑴에서 ⑶까지를 **시간
+# 순으로** 나눈다 — 진행 중 항차의 남은 몫을 더했을 때(`CURRENT_VOYAGE`), 남은 계획을 더했을
+# 때(`REMAINING_PLAN`). CII는 비율이라 순서에 따라 값이 달라지므로 순서를 고정했고, 각
+# 단계의 누적값을 **전송 자릿수로 먼저 절사한 뒤** 빼서 합이 응답의 두 문자열 차이와
+# 정확히 같다. 확정분 집합이 갈리면 `BASIS_DIFFERENCE`로 따로 드러낸다 — 다른 요인에
+# 녹이면 합은 맞아도 설명이 틀린다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _driver_sum(drivers) -> Decimal:
+    return sum((Decimal(item["delta_cii"]) for item in drivers), Decimal(0))
+
+
+async def _add_berth_fuel(session, vessel_id, *, fuel="40") -> None:
+    """올해 이미 쓴 정박 연료 — ⑴·⑶ 양쪽 확정분에 같게 들어간다 (`#1803`)."""
+    period_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_period (id, vessel_id, regulation_year, "
+            "period_type, started_at, distance_nm) VALUES (:id, :vid, 2026, "
+            "'AT_ANCHOR', '2026-06-25T00:00:00Z', 0)"
+        ),
+        {"id": period_id, "vid": vessel_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_fuel_use (period_id, consumer_type, fuel_type, "
+            "fuel_ton, cf_used) VALUES (:id, 'OIL_FIRED_BOILER', 'HFO', :fuel, 3.114)"
+        ),
+        {"id": period_id, "fuel": Decimal(fuel)},
+    )
+
+
+async def _add_current_voyage(session, vessel_id, *, planned_fuel="331") -> object:
+    """진행 중 항차 — 계획 연료를 **반드시** 넣는다.
+
+    연료가 없는 계획 항차는 `#812`가 ⑶에서 빼므로, 연료 없이 만들면 ⑶이 이 항차를 세지
+    않는 상태(경과분만 ⑴에 있고 계획 전량은 어디에도 없음)가 된다. 그 상태는 별도 검사가
+    본다(``test_a_current_voyage_the_projection_drops_shows_up_as_a_drop``).
+    """
+    voyage_id = await _make_voyage(
+        session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC)
+    )
+    await _add_planned_fuels(session, voyage_id, [("HFO", planned_fuel, "3.114")])
+    return voyage_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("with_current", "with_plan", "with_berth"),
+    [
+        (True, True, True),
+        (True, True, False),
+        (False, True, False),
+        (True, False, False),
+        (False, False, True),
+    ],
+)
+async def test_drivers_sum_exactly_to_projection_minus_ytd(
+    session, with_current, with_plan, with_berth
+):
+    """합 = ⑶ − ⑴ — **문자열 단위로 정확히** (#1673 완료 기준).
+
+    차이를 절사하면 단계마다 최대 1 ulp가 버려져 합이 어긋난다. 누적값을 먼저 절사한 뒤
+    빼야 망원경처럼 접혀 ``trunc(⑶) − trunc(⑴)``가 된다. 다섯 조합 전부에서 본다 —
+    진행 중 항차·잔여 계획·정박의 유무가 각 단계의 존재 여부를 바꾸기 때문이다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    if with_current:
+        await _add_current_voyage(session, vessel_id)
+    if with_plan:
+        await _add_plan(session, vessel_id)
+    if with_berth:
+        await _add_berth_fuel(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    projection = data["year_end_projection"]
+    drivers = projection["drivers"]
+    keys = [item["key"] for item in drivers]
+
+    assert projection["data_available"] is True
+    assert _driver_sum(drivers) == Decimal(projection["attained_cii"]) - Decimal(
+        data["ytd"]["attained_cii"]
+    ), f"합이 ⑶ − ⑴과 다르다: {drivers}"
+    # 순서는 시간 순으로 고정이다 — 비율이라 순서가 바뀌면 값이 바뀐다.
+    order = [DRIVER_BASIS_DIFFERENCE, DRIVER_CURRENT_VOYAGE, DRIVER_REMAINING_PLAN]
+    assert keys == [key for key in order if key in keys]
+    assert (DRIVER_CURRENT_VOYAGE in keys) is with_current
+    assert DRIVER_REMAINING_PLAN in keys
+    # ⑴과 ⑶은 같은 저장소 함수·같은 절단으로 확정분을 읽는다 — 갈리지 않는다 (실측).
+    assert DRIVER_BASIS_DIFFERENCE not in keys
+    if not with_plan:
+        assert (
+            dict(zip(keys, (item["delta_cii"] for item in drivers), strict=True))[
+                DRIVER_REMAINING_PLAN
+            ]
+            == "0.000000"
+        ), "잔여 계획이 없으면 그 단계는 0이다"
+    for item in drivers:
+        # `API_SPEC §1.7` — 6자리 문자열. 음수는 앞에 부호만 붙는다.
+        assert Decimal(item["delta_cii"]).as_tuple().exponent == -6, item
+
+
+@pytest.mark.asyncio
+async def test_current_voyage_driver_is_the_planned_whole_minus_the_elapsed_part(session):
+    """`CURRENT_VOYAGE`는 「경과분 → 계획 전량」의 변화, `REMAINING_PLAN`은 그 뒤의 나머지다.
+
+    ⑶은 진행 중 항차를 계획 전량으로 세고 ⑴은 경과분으로 센다(`API_SPEC §2.14`). 첫
+    단계는 정확히 그 교체다 — 같은 엔진·같은 확정분에 **그 항차의 계획 행만** 더한 값을
+    직접 만들어 대조한다. 두 단계의 합이 ⑶ − ⑴이므로, 이 검사와 위 합 검사가 함께
+    분해 전체를 고정한다.
+    """
+    from cii_platform.calc.annual_simulation import project_deterministic
+    from cii_platform.services.annual_simulation import (
+        _inputs_from_snapshot,
+        collect_annual_inputs,
+        load_projection_context,
+    )
+    from cii_platform.services.cii_current import _publish
+
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    current_id = await _add_current_voyage(session, vessel_id)
+    await _add_plan(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    drivers = {
+        item["key"]: Decimal(item["delta_cii"]) for item in data["year_end_projection"]["drivers"]
+    }
+
+    context = await load_projection_context(session, vessel_id=vessel_id, regulation_year=YEAR)
+    inputs = await collect_annual_inputs(
+        session, vessel=context.vessel, vessel_id=vessel_id, year=YEAR, as_of=MID_YEAR
+    )
+    current_rows = [row for row in inputs.voyages_json if row["voyage_id"] == str(current_id)]
+    assert [row["kind"] for row in current_rows] == ["PLAN"], (
+        "사전 조건: 진행 중 항차는 PLAN 행이다"
+    )
+    _, current_only, _ = _inputs_from_snapshot(current_rows, context.vessel)
+    with_current = _publish(
+        project_deterministic(
+            completed=inputs.completed,
+            remaining=current_only,
+            transport_capacity=context.transport_capacity,
+            required_cii=context.required_cii,
+            d_vector=context.d_vector,
+        ).attained_cii,
+        "cii",
+    )
+
+    assert drivers[DRIVER_CURRENT_VOYAGE] == Decimal(with_current) - Decimal(
+        data["ytd"]["attained_cii"]
+    )
+    assert drivers[DRIVER_REMAINING_PLAN] == Decimal(
+        data["year_end_projection"]["attained_cii"]
+    ) - Decimal(with_current)
+
+
+@pytest.mark.asyncio
+async def test_remaining_plan_driver_has_the_sign_of_the_plan_intensity(session):
+    """남은 계획이 확정분보다 연료를 많이 쓰면 양수, 적게 쓰면 음수다.
+
+    확정분은 400 t / 5,000 nm(0.08 t/nm)이다. 계획을 0.12 t/nm으로 두면 연말이 나빠지고
+    0.01 t/nm이면 좋아진다 — 부호가 그 방향을 말해야 화면의 「+a / −b」가 뜻을 갖는다.
+    """
+    worse = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, worse))
+    await _add_plan(session, worse, distance="10000", fuel="1200")
+    better = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, better))
+    await _add_plan(session, better, distance="10000", fuel="100")
+
+    worse_data, _ = await get_current_cii(session, worse, year=YEAR, as_of=MID_YEAR)
+    better_data, _ = await get_current_cii(session, better, year=YEAR, as_of=MID_YEAR)
+
+    def remaining(data) -> Decimal:
+        return next(
+            Decimal(item["delta_cii"])
+            for item in data["year_end_projection"]["drivers"]
+            if item["key"] == DRIVER_REMAINING_PLAN
+        )
+
+    assert remaining(worse_data) > 0
+    assert remaining(better_data) < 0
+
+
+@pytest.mark.asyncio
+async def test_drivers_are_empty_when_there_is_no_ytd_to_start_from(session):
+    """⑴이 없으면 분해도 없다 — 출발점이 없으면 「합 = ⑶ − ⑴」이 성립할 자리가 없다.
+
+    확정 실적 없이 계획만 있는 선박이다. ⑶은 나온다(남은 계획이 분모를 준다) — 그때
+    ⑶ 전체가 계획이고, 빈 목록이 그 사실을 말한다. 필드를 빼지 않는 것은 화면이
+    「아직 안 온 값」과 「분해할 것이 없다」를 구분해야 하기 때문이다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_plan(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    assert data["ytd"]["data_available"] is False
+    assert data["year_end_projection"]["data_available"] is True
+    assert data["year_end_projection"]["drivers"] == []
+
+
+@pytest.mark.asyncio
+async def test_drivers_are_absent_when_the_projection_is_not_made(session):
+    """⑶을 못 내면(`YEAR_COMPLETE` · `NO_BASIS`) `drivers` 키 자체가 없다.
+
+    그 블록은 ``attained_cii``도 싣지 않는다 — 없는 값의 분해를 빈 목록으로라도 실으면
+    「분해할 것이 없다」로 읽혀 위 검사의 뜻과 섞인다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+
+    complete, _ = await get_current_cii(
+        session, vessel_id, year=YEAR, as_of=datetime(YEAR + 1, 1, 1, tzinfo=UTC)
+    )
+    assert complete["year_end_projection"]["reason"] == REASON_YEAR_COMPLETE
+    assert "drivers" not in complete["year_end_projection"]
+
+    empty = await _make_vessel(session)
+    no_basis, _ = await get_current_cii(session, empty, year=YEAR, as_of=MID_YEAR)
+    assert no_basis["year_end_projection"]["reason"] == REASON_NO_BASIS
+    assert "drivers" not in no_basis["year_end_projection"]
+
+
+@pytest.mark.asyncio
+async def test_a_current_voyage_the_projection_drops_shows_up_as_a_drop(session):
+    """⑶이 진행 중 항차를 세지 않으면 `CURRENT_VOYAGE`가 그 탈락을 그대로 보인다.
+
+    계획 연료가 없는 진행 중 항차는 ⑴에는 경과분(선박 기본 연료)으로 들어가지만 ⑶은
+    `#812`로 뺀다 — 계획 전량이 어디에도 없다. 첫 단계는 「경과분 → ⑶이 세는 몫(없음)」의
+    변화이므로 값이 실리고, 합은 여전히 ⑶ − ⑴이다. 조용히 0으로 두지 않는다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    await _make_voyage(session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC))
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    projection = data["year_end_projection"]
+    keys = [item["key"] for item in projection["drivers"]]
+
+    assert data["ytd"]["in_progress_voyage_count"] == 1, "사전 조건: 경과분이 ⑴에 있다"
+    assert "SIMULATION_PLAN_NO_FUEL" in projection["warnings"], "사전 조건: ⑶이 그 항차를 뺐다"
+    assert DRIVER_CURRENT_VOYAGE in keys
+    assert _driver_sum(projection["drivers"]) == Decimal(projection["attained_cii"]) - Decimal(
+        data["ytd"]["attained_cii"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_current_voyage_step_is_skipped_when_it_has_no_distance_to_stand_on(session):
+    """확정 거리 0 + ⑶이 진행 항차를 세지 않음 — `CURRENT_VOYAGE`를 생략하고 사슬을 잇는다.
+
+    확정 항차·정박이 없고, 진행 중 항차는 계획 연료가 없어 ⑴에는 경과분(선박 기본 연료)으로
+    들어가지만 ⑶은 `#812`로 뺀다. 「확정분 + 진행 항차 계획 전량」은 거리 0이라 CII가
+    정의되지 않으므로 그 단계를 만들 수 없다. 종전 구현은 이때 `[]`로 비웠다 — ⑴·⑶이
+    둘 다 있는데 「분해할 것이 없다」로 읽혔다. 지금은 `REMAINING_PLAN` 한 줄이 ⑶의
+    조립으로 ⑴을 다시 만든 값부터 ⑶까지를 잇고, 합은 그대로 ⑶ − ⑴이다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _make_voyage(session, vessel_id, departed_at=datetime(YEAR, 6, 25, tzinfo=UTC))
+    await _add_plan(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    projection = data["year_end_projection"]
+
+    assert data["ytd"]["data_available"] is True, "사전 조건: ⑴은 경과분으로 나온다"
+    assert data["ytd"]["voyage_count"] == 0, "사전 조건: 확정 항차가 없다"
+    assert "SIMULATION_PLAN_NO_FUEL" in projection["warnings"], "사전 조건: ⑶이 진행 항차를 뺐다"
+    assert projection["data_available"] is True
+    assert [item["key"] for item in projection["drivers"]] == [DRIVER_REMAINING_PLAN]
+    assert _driver_sum(projection["drivers"]) == Decimal(projection["attained_cii"]) - Decimal(
+        data["ytd"]["attained_cii"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_excluded_in_progress_voyage_has_no_current_voyage_driver(session):
+    """「연간 반영 안 함」 진행 항차는 ⑴에도 ⑶에도 없다 — `CURRENT_VOYAGE`를 싣지 않는다.
+
+    `#1085`가 ⑴에서 뺐고 `list_remaining_plans`는 정책이 `INCLUDE_AS_PLAN`인 것만 본다.
+    어느 쪽도 세지 않는 항차에 「이 항해를 마치면」 줄을 두면 0이거나 거짓이다. 합은 그대로다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    excluded = await _make_voyage(
+        session, vessel_id, policy="EXCLUDE", departed_at=datetime(YEAR, 6, 25, tzinfo=UTC)
+    )
+    await _add_planned_fuels(session, excluded, [("HFO", "331", "3.114")])
+    await _add_plan(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    projection = data["year_end_projection"]
+
+    assert data["current_voyage"] is not None, "사전 조건: ⑵ 카드는 남는다 (#1085)"
+    assert data["ytd"]["in_progress_voyage_count"] == 0, "사전 조건: ⑴에 없다"
+    assert [item["key"] for item in projection["drivers"]] == [DRIVER_REMAINING_PLAN]
+    assert _driver_sum(projection["drivers"]) == Decimal(projection["attained_cii"]) - Decimal(
+        data["ytd"]["attained_cii"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_current_voyage_driver_is_the_whole_plan_when_the_clock_made_no_fuel(session):
+    """소모율이 없어 ⑴에 경과분이 없으면 `CURRENT_VOYAGE`는 계획 전량의 효과 그 자체다.
+
+    `reference_daily_foc_ton`이 없으면 시계가 연료를 만들지 못해 진행분이 ⑴에 들어가지
+    않는다(`SIMULATION_NO_FUEL_RATE`). ⑶은 그 항차를 계획 전량으로 세므로 첫 단계는
+    「없음 → 계획 전량」이고, 값이 실려야 한다. 합은 그대로다.
+    """
+    vessel_id = await _make_vessel(session, foc=None)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    await _add_current_voyage(session, vessel_id)
+    await _add_plan(session, vessel_id)
+
+    data, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+    projection = data["year_end_projection"]
+    keys = [item["key"] for item in projection["drivers"]]
+
+    assert WARNING_SIM_NO_FUEL_RATE in data["warnings"], "사전 조건: 경과분이 ⑴에 없다"
+    assert keys == [DRIVER_CURRENT_VOYAGE, DRIVER_REMAINING_PLAN]
+    assert Decimal(projection["drivers"][0]["delta_cii"]) != 0
+    assert _driver_sum(projection["drivers"]) == Decimal(projection["attained_cii"]) - Decimal(
+        data["ytd"]["attained_cii"]
+    )
+
+
+def test_basis_difference_is_carried_only_when_the_two_assemblies_disagree():
+    """확정분 집합이 갈리면 `BASIS_DIFFERENCE`가 **맨 앞에** 실리고, 같으면 실리지 않는다.
+
+    실측에서는 ⑴과 ⑶이 같은 저장소 함수·같은 절단으로 확정분을 읽어 늘 같다(위 합 검사가
+    다섯 조합에서 부재를 단언한다). 그래서 갈리는 상태는 **엔진을 직접 불러** 만든다 —
+    ⑴을 다른 값으로 넘기면 그 차이가 첫 단계로 드러나고 합은 그대로 ⑶ − ⑴이어야 한다.
+    """
+    from cii_platform.calc.annual_simulation import (
+        CompletedTotals,
+        RemainingVoyage,
+        project_deterministic,
+    )
+    from cii_platform.calc.rating_engine import DVector
+    from cii_platform.services.annual_simulation import VesselSnapshot
+    from cii_platform.services.cii_current import _year_end_drivers
+    from cii_platform.services.ytd_cii import InProgressContribution
+
+    class _Context:
+        vessel = VesselSnapshot(
+            "BULK_CARRIER", Decimal("50000"), None, Decimal("14"), Decimal("30")
+        )
+        transport_capacity = Decimal("50000")
+        required_cii = Decimal("5.045066")
+        d_vector = DVector(Decimal("0.86"), Decimal("0.94"), Decimal("1.06"), Decimal("1.18"))
+
+    class _Inputs:
+        completed = CompletedTotals(co2_g=float(Decimal("1930680000")), distance_nm=4300.0)
+        remaining = [RemainingVoyage(distance_nm=2300.0, fuel_ton=331.0, cf=3.114)]
+        voyages_json = [
+            {
+                "voyage_id": "current",
+                "kind": "PLAN",
+                "planned_distance_nm": "2300",
+                "fuel_uses": [{"fuel_type": "HFO", "planned_fuel_ton": "331", "cf_used": "3.114"}],
+            }
+        ]
+
+    deterministic = project_deterministic(
+        completed=_Inputs.completed,
+        remaining=_Inputs.remaining,
+        transport_capacity=_Context.transport_capacity,
+        required_cii=_Context.required_cii,
+        d_vector=_Context.d_vector,
+    )
+    elapsed = InProgressContribution(
+        distance_nm=Decimal("2300"), fuel_uses=(("HFO", Decimal("250.444")),)
+    )
+    # ⑴을 ⑶의 조립 그대로 다시 만든 값 — 확정분 + 경과분.
+    same_basis = project_deterministic(
+        completed=_Inputs.completed,
+        remaining=[RemainingVoyage(distance_nm=2300.0, fuel_ton=250.444, cf=3.114)],
+        transport_capacity=_Context.transport_capacity,
+        required_cii=_Context.required_cii,
+        d_vector=_Context.d_vector,
+    ).attained_cii
+
+    def drivers(ytd: Decimal):
+        return _year_end_drivers(
+            _Context,
+            _Inputs,
+            deterministic,
+            ytd_attained_cii=ytd,
+            current_voyage_id="current",  # type: ignore[arg-type]
+            contribution=elapsed,
+            cf_by_fuel={"HFO": Decimal("3.114")},
+        )
+
+    agree = drivers(same_basis)
+    assert [item["key"] for item in agree] == [DRIVER_CURRENT_VOYAGE, DRIVER_REMAINING_PLAN]
+
+    shifted = same_basis - Decimal("0.5")
+    disagree = drivers(shifted)
+    assert [item["key"] for item in disagree] == [
+        DRIVER_BASIS_DIFFERENCE,
+        DRIVER_CURRENT_VOYAGE,
+        DRIVER_REMAINING_PLAN,
+    ]
+    assert disagree[0]["delta_cii"] == "0.500000"
+    # 나머지 두 단계는 출발점과 무관하다 — 차이는 전부 첫 키에 실린다.
+    assert disagree[1:] == agree
+    assert _driver_sum(disagree) == Decimal(
+        str(deterministic.attained_cii.quantize(Decimal("0.000001"), rounding="ROUND_DOWN"))
+    ) - shifted.quantize(Decimal("0.000001"), rounding="ROUND_DOWN")
+    # ⑴이 없으면 분해도 없다.
+    assert drivers(None) == []
+
+
+@pytest.mark.asyncio
+async def test_demo_bulk_drivers_match_the_reference_values(session):
+    """시드 벌크선 50k — 이슈 조사 때 순수 엔진으로 재계산한 기준값 (#1673).
+
+    ``as_of = DEMO_ANCHOR + 3일``은 시계가 계획 거리(2,300 nm)에 닿은 뒤다 — 거리는 계획과
+    같고 연료만 다르므로(시계 250.444 t vs 계획 331 t) `CURRENT_VOYAGE`가 연료 차이만 잰다.
+    확정 `V1_2026` 620 t / 4,300 nm · 잔여 계획 4건(`V1_PLANNED` + `#1052` 3건).
+
+    시드는 세션 시작 때 한 번 적재되고 이 검사는 읽기만 한다. 값이 바뀌면 시드가 바뀐
+    것이거나 분해가 바뀐 것이다 — 둘 다 이 자리에서 드러나야 한다.
+    """
+    from datetime import timedelta
+    from uuid import UUID
+
+    from cii_platform.db.demo_seed import DEMO_ANCHOR, VESSEL_ID_BULK
+
+    data, _ = await get_current_cii(
+        session, UUID(VESSEL_ID_BULK), year=2026, as_of=DEMO_ANCHOR + timedelta(days=3)
+    )
+    projection = data["year_end_projection"]
+
+    assert data["ytd"]["attained_cii"] == "8.213830"
+    assert projection["attained_cii"] == "8.965893"
+    assert projection["drivers"] == [
+        {"key": DRIVER_CURRENT_VOYAGE, "delta_cii": "0.760151"},
+        {"key": DRIVER_REMAINING_PLAN, "delta_cii": "-0.008088"},
+    ]
+    assert _driver_sum(projection["drivers"]) == Decimal("0.752063")

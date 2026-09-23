@@ -114,6 +114,8 @@ interface ServerProjection {
   /** ⑶에만 붙는 경고 (`#798`). 최상위 `warnings`와 다른 범위다. */
   warnings?: string[]
   assumptions?: Record<string, string | number | null>
+  /** `#1673` — 시간 순 누적 분해. 합 = `attained_cii − ytd.attained_cii`(문자열 정확 동치). */
+  drivers?: { key: string; delta_cii: string }[]
 }
 
 interface ServerData {
@@ -240,6 +242,12 @@ function toProjection(raw: ServerProjection): YearEndProjection {
           completedCo2Ton: (a.completed_co2_ton as string | null | undefined) ?? null,
         }
       : null,
+    /*
+     * `#1673` — **없으면 빈 배열로 읽는다.** 서버가 이 필드를 싣기 전 판이나 ⑶을 못 낸
+     * 응답에는 키가 없다. `warnings`와 같은 규칙이다 — `undefined`가 화면으로 새면
+     * 「분해할 것이 없다」와 「모름」을 구분하지 못한 채 터진다.
+     */
+    drivers: (raw.drivers ?? []).map((item) => ({ key: item.key, deltaCii: item.delta_cii })),
   }
 }
 

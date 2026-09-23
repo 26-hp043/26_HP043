@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from cii_platform.calc.annual_simulation import project_deterministic
+from cii_platform.calc.annual_simulation import RemainingVoyage, project_deterministic
 from cii_platform.calc.capacity import capacity_axis
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii
 from cii_platform.calc.precision import (
@@ -61,6 +61,7 @@ from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import CalculationError, NotFoundError, ValidationError
 from cii_platform.services.annual_simulation import (
+    _inputs_from_snapshot,
     collect_annual_inputs,
     load_projection_context,
 )
@@ -140,6 +141,27 @@ PROJECTION_METHOD = "REMAINING_PLAN"
 #: 종전 결함(항상 ⑴과 같음)은 화면에서 구분되지 않으므로, **왜 같은지**를 말한다.
 WARNING_NO_REMAINING_PLAN = "PROJECTION_NO_REMAINING_PLAN"
 
+#: ⑶ 연말 예상을 무엇이 올리는가 — ``year_end_projection.drivers[]``의 키 (`#1673` ·
+#: `API_SPEC §2.14` · `PRD §12.3`). **시간 순으로 하나씩 더한 누적 분해**다.
+#:
+#: CII는 비율이라 요인을 나누는 순서에 따라 값이 달라진다. 그래서 순서를 시간 순서로
+#: 고정한다 — ⑴ 올해 누적에서 시작해, 진행 중 항차의 남은 몫을 더하고, 남은 계획 항차를
+#: 더한다. 각 단계는 :func:`project_deterministic`을 한 번 더 부르는 것이라 **새 가정이
+#: 들어가지 않고**, 단계별 변화의 합은 정의상 정확히 「⑶ − ⑴」이다.
+#:
+#: * ``BASIS_DIFFERENCE`` — ⑶의 조립(확정 항차 + 정박 몫 + 진행 중 항차의 **경과분**)으로
+#:   ⑴을 다시 만든 값과 ⑴의 차이. 두 조립이 같은 집합을 세면 0이고 **그때는 싣지 않는다.**
+#:   다른 요인에 녹이지 않고 따로 두는 것은, 숨기면 합은 맞아도 설명이 틀리기 때문이다.
+#: * ``CURRENT_VOYAGE`` — 진행 중 항차의 경과분을 ⑶이 세는 **계획 전량**으로 바꿨을 때의
+#:   변화. 「남은 몫」 = 계획 전량 − 경과분이다. 경과분이 계획 거리 상한에 닿은 뒤에는
+#:   거리는 같고 연료만 다르므로(시계 cubic 연료 vs 계획 연료) **음수도 양수도 가능**하다.
+#:   진행 중 항차가 ⑴에도 ⑶에도 없으면 싣지 않는다.
+#: * ``REMAINING_PLAN`` — 남은 계획 항차를 더했을 때의 변화. ⑴이 있으면 **항상** 싣는다 —
+#:   잔여 계획이 0건이면 ``"0.000000"``이고 ``PROJECTION_NO_REMAINING_PLAN``이 그 뜻을 말한다.
+DRIVER_BASIS_DIFFERENCE = "BASIS_DIFFERENCE"
+DRIVER_CURRENT_VOYAGE = "CURRENT_VOYAGE"
+DRIVER_REMAINING_PLAN = "REMAINING_PLAN"
+
 
 def _publish(value: Decimal | None, kind: str) -> str | None:
     """``API_SPEC §1.7`` 문자열 직렬화. ``float``으로 되돌리면 정밀도가 사라진다.
@@ -151,7 +173,13 @@ def _publish(value: Decimal | None, kind: str) -> str | None:
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=SERIALIZATION_ROUNDING))
+    return str(_truncate(value, kind))
+
+
+def _truncate(value: Decimal, kind: str) -> Decimal:
+    """종류별 전송 자릿수로 절사한 ``Decimal``. :func:`_publish`가 문자열로 만들기 직전의 값이며,
+    연말 예상 분해(`#1673`)가 **같은 절사**를 문자열이 아닌 수로 쓴다."""
+    return value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=SERIALIZATION_ROUNDING)
 
 
 def _validate_year(year: int) -> None:
@@ -335,12 +363,126 @@ def _project_layer1(context, inputs) -> tuple[object, Decimal, str]:
     return deterministic, ratio, calculate_deterministic_risk(deterministic.rating, margin_ratio)
 
 
+def _cii_step(value: Decimal) -> Decimal:
+    """분해의 한 단계 누적값을 **전송 자릿수로 먼저** 절사한다 (`#1673`).
+
+    합이 「⑶ − ⑴」과 **문자열 단위로** 같으려면 차이를 절사하는 것이 아니라 **각 단계의
+    누적값을 절사한 뒤 빼야** 한다. 차이를 따로 절사하면 단계마다 최대 1 ulp가 버려져
+    합이 문자열 차이와 2 ulp까지 어긋난다. 누적값을 먼저 절사하면 합은 망원경처럼 접혀
+    ``trunc(⑶) − trunc(⑴)``, 즉 응답에 실린 두 문자열의 차이 그 자체가 된다.
+    """
+    return _truncate(value, "cii")
+
+
+def _year_end_drivers(
+    context,
+    inputs,
+    deterministic,
+    *,
+    ytd_attained_cii: Decimal | None,
+    current_voyage_id: UUID | None,
+    contribution: InProgressContribution | None,
+    cf_by_fuel: dict[str, Decimal],
+) -> list[dict[str, str]]:
+    """⑶을 무엇이 올리는지 **시간 순 누적 분해**로 나눈다 (`#1673` · :data:`DRIVER_REMAINING_PLAN`).
+
+    .. code-block:: text
+
+        S0  = ⑴ 올해 누적                                    (응답 ytd.attained_cii)
+        S0' = 확정분 + 진행 중 항차 경과분   ← ⑶의 조립으로 ⑴을 다시 만든 값
+        S1  = 확정분 + 진행 중 항차 계획 전량
+        S2  = 확정분 + 진행 중 항차 계획 전량 + 남은 계획     (응답 attained_cii)
+
+        BASIS_DIFFERENCE = S0' − S0     (0이면 싣지 않는다)
+        CURRENT_VOYAGE   = S1  − S0'    (⑴·⑶ 어느 쪽도 세지 않는 진행 항차면 싣지 않는다)
+        REMAINING_PLAN   = S2  − S1
+
+    각 값은 :func:`_cii_step`으로 **먼저 절사한 뒤** 뺀다 — 합이 응답의 두 문자열 차이와
+    정확히 같아지는 유일한 방식이다.
+
+    **S1을 만들 수 없는 상태가 하나 있다** — 확정 거리가 0이고 ⑶이 진행 중 항차를 세지
+    않을 때(계획 연료가 없어 `#812`로 뺐다). 그때 S1은 「거리 0」이라 CII가 정의되지 않으므로
+    ``CURRENT_VOYAGE``를 싣지 않고 ``REMAINING_PLAN = S2 − S0'``로 잇는다 — 사슬을 끊지 않아
+    합은 그대로 ⑶ − ⑴이고, 진행 항차가 빠졌다는 사실은 ⑶의 ``SIMULATION_PLAN_NO_FUEL``이
+    말한다. ``[]``로 비우면 ⑴·⑶이 둘 다 있는데 「분해할 것이 없다」로 읽힌다.
+
+    **⑴이 없으면 빈 목록이다.** 출발점이 없는데 분해를 만들면 「합 = ⑶ − ⑴」이 성립할
+    자리가 없다. 확정 실적 없이 계획만 있는 선박이 그 상태이며, 그때 ⑶ 전체가 계획이다.
+
+    확정분(``inputs.completed``)은 ⑶이 이미 만든 것을 그대로 쓴다. 진행 중 항차의 계획
+    전량은 같은 스냅샷 사본에서 **그 항차의 PLAN 행만** 골라 같은 조립 함수로 만든다 —
+    행이 없으면(연료를 몰라 `#812`가 뺐거나 정책이 ``INCLUDE_AS_PLAN``이 아니면) ⑶이 그
+    항차를 세지 않는 것이고, 그 사실이 ``CURRENT_VOYAGE``에 그대로 드러난다.
+    """
+    if ytd_attained_cii is None:
+        return []
+
+    elapsed: list[RemainingVoyage] = []
+    if contribution is not None:
+        fuel_ton = sum((ton for _, ton in contribution.fuel_uses), Decimal(0))
+        co2 = sum((ton * cf_by_fuel[code] for code, ton in contribution.fuel_uses), Decimal(0))
+        # ⑶의 조립(`_inputs_from_snapshot`)과 같은 모양이다 — 연료를 CO₂ 기여로 합쳐
+        # 유효 CF 하나로 만들고 마지막에 float로 내린다.
+        elapsed.append(
+            RemainingVoyage(
+                distance_nm=float(contribution.distance_nm),
+                fuel_ton=float(fuel_ton),
+                cf=float(co2 / fuel_ton),
+            )
+        )
+
+    current_rows = [
+        row
+        for row in inputs.voyages_json
+        if current_voyage_id is not None
+        and row.get("kind") == "PLAN"
+        and row.get("voyage_id") == str(current_voyage_id)
+    ]
+    _completed, current_full, _warnings = _inputs_from_snapshot(current_rows, context.vessel)
+
+    def step(remaining: list[RemainingVoyage]) -> Decimal:
+        return _cii_step(
+            project_deterministic(
+                completed=inputs.completed,
+                remaining=remaining,
+                transport_capacity=context.transport_capacity,
+                required_cii=context.required_cii,
+                d_vector=context.d_vector,
+            ).attained_cii
+        )
+
+    try:
+        basis = step(elapsed)
+    except ValueError:  # pragma: no cover - ⑴이 있으면 같은 거리가 여기에도 있다
+        return []
+    try:
+        with_current: Decimal | None = step(current_full)
+    except ValueError:
+        # 확정 거리 0인데 ⑶이 진행 중 항차를 세지 않는다 — S1은 거리 0이라 정의되지 않는다.
+        with_current = None
+
+    start = _cii_step(ytd_attained_cii)
+    end = _cii_step(deterministic.attained_cii)
+
+    drivers: list[dict[str, str]] = []
+    if basis != start:
+        drivers.append({"key": DRIVER_BASIS_DIFFERENCE, "delta_cii": str(basis - start)})
+    if with_current is not None and (contribution is not None or current_rows):
+        drivers.append({"key": DRIVER_CURRENT_VOYAGE, "delta_cii": str(with_current - basis)})
+    previous = basis if with_current is None else with_current
+    drivers.append({"key": DRIVER_REMAINING_PLAN, "delta_cii": str(end - previous)})
+    return drivers
+
+
 async def _project_year_end(
     session: AsyncSession,
     *,
     vessel_id: UUID,
     regulation_year: int,
     as_of: datetime,
+    ytd_attained_cii: Decimal | None = None,
+    in_progress: InProgressState | None = None,
+    cf_by_fuel: dict[str, Decimal] | None = None,
 ) -> dict[str, object]:
     """⑶ 연말 예상 — **확정 실적 + 잔여 계획 항차**로 낸다 (`PRD §5.1`, #798).
 
@@ -387,6 +529,15 @@ async def _project_year_end(
     쪼개는 대안은 ``RemainingVoyage``의 거리·연료를 깎아야 하는데, 그 목록이 기능③
     **Monte Carlo 표본추출의 입력**이자 ``simulation_snapshot``의 근거다. 재현성
     계약(`#816`)이 열려 있는 경로라 이 이슈에서 건드리지 않는다.
+
+    ## 무엇이 올리는지를 함께 싣는다 (`#1673`)
+
+    「연말 예상이 D」라는 결론만 주면 사용자가 할 수 있는 일이 없다. ``drivers[]``가
+    ⑴에서 ⑶까지를 **시간 순으로** 나눈다 — 이 항해를 마치면 얼마, 남은 계획까지 하면
+    얼마(:func:`_year_end_drivers`). 위 문단의 「경과분 대신 계획 전량」이 정확히 첫 단계
+    ``CURRENT_VOYAGE``이고, 재현성 계약 경로(스냅샷·해시)는 그대로다 — 분해는 같은
+    엔진을 읽기 전용으로 더 부를 뿐이다. ⑴·``in_progress``·``cf_by_fuel``을 받는 것은
+    그 때문이며, 셋이 없으면(다른 호출자) 분해만 비운다.
 
     ## 잔여 계획이 0건이면
 
@@ -444,6 +595,18 @@ async def _project_year_end(
                 deterministic.completed_co2_g / Decimal(1_000_000), "fuel_ton"
             ),
         },
+        # 무엇이 올리는가 (`#1673`). 합은 정확히 ``attained_cii − ytd.attained_cii``다.
+        "drivers": _year_end_drivers(
+            context,
+            inputs,
+            deterministic,
+            ytd_attained_cii=ytd_attained_cii,
+            current_voyage_id=(
+                None if in_progress is None or in_progress.voyage is None else in_progress.voyage.id
+            ),
+            contribution=None if in_progress is None else in_progress.contribution,
+            cf_by_fuel=cf_by_fuel or {},
+        ),
     }
 
 
@@ -799,6 +962,10 @@ async def get_current_cii(
             vessel_id=vessel_id,
             regulation_year=regulation_year,
             as_of=resolved_as_of,
+            # `#1673` — 분해의 출발점(⑴)과 진행 중 항차의 경과분. ⑴과 **같은 값·같은 CF**다.
+            ytd_attained_cii=ytd.attained_cii,
+            in_progress=state,
+            cf_by_fuel=cf_by_fuel,
         ),
         # `API_SPEC §1.6` — 모든 계산 결과에 붙는다. `#353`이 붙인 경고를 함께 싣되
         # 중복은 제거한다.

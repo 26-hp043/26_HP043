@@ -107,6 +107,7 @@ const BASE: RealtimeCii = {
       completedDistanceNm: '4300.00',
       completedCo2Ton: '1930.68',
     },
+    drivers: [],
   },
   warnings: ['REFERENCE_ONLY'],
   asOf: '2026-08-17T02:00:00+00:00',

@@ -83,6 +83,11 @@ const OK_BODY: LooseBody = {
         completed_distance_nm: '4300.00',
         completed_co2_ton: '1930.68',
       },
+      // `#1673` — 시간 순 누적 분해. 합은 `attained_cii − ytd.attained_cii`다.
+      drivers: [
+        { key: 'CURRENT_VOYAGE', delta_cii: '0.760151' },
+        { key: 'REMAINING_PLAN', delta_cii: '-0.008088' },
+      ],
     },
     warnings: ['REFERENCE_ONLY', 'SIMULATION_NO_FUEL_RATE'],
   },
@@ -199,6 +204,27 @@ describe('응답 매핑', () => {
 
     expect(result.projection.warnings).toEqual(['PROJECTION_NO_REMAINING_PLAN'])
     expect(result.warnings).not.toContain('PROJECTION_NO_REMAINING_PLAN')
+  })
+
+  it('연말 예상을 올리는 요인을 순서 그대로 읽는다 (#1673)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    const result = await createApiRealtimeCiiProvider(fetchImpl).load(VESSEL)
+
+    expect(result.projection.drivers).toEqual([
+      { key: 'CURRENT_VOYAGE', deltaCii: '0.760151' },
+      { key: 'REMAINING_PLAN', deltaCii: '-0.008088' },
+    ])
+  })
+
+  it('서버가 요인을 빼면 빈 배열이다 — ⑶을 못 낸 응답과 옛 판에는 키가 없다', async () => {
+    const body = structuredClone(OK_BODY)
+    const projection = body.data.year_end_projection as { drivers?: unknown }
+    delete projection.drivers
+
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(body))
+    const result = await createApiRealtimeCiiProvider(fetchImpl).load(VESSEL)
+
+    expect(result.projection.drivers).toEqual([])
   })
 
   it('서버가 ⑶ 경고를 빼면 빈 배열이다 — undefined가 화면으로 새지 않는다', async () => {
