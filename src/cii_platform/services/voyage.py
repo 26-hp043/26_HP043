@@ -329,6 +329,8 @@ async def list_voyages(
                 # 비교할 수 없다(`VoyageCursor` 주석 · `#627`).
                 created_at=last.created_at,
                 voyage_id=str(last.id),
+                # 정렬 첫 키 (`#1806`) — 저장소의 `departure_key`와 같은 규칙이다.
+                departure_at=last.actual_departure_at or last.planned_departure_at,
             )
         )
 
