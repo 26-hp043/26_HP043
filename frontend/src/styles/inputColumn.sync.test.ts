@@ -29,6 +29,13 @@ const SCREENS = [
     grid: '.scenario-comparison',
     input: '.scenario-comparison__form',
   },
+  {
+    // #1768 — 종전에는 조건이 전폭, 문서가 그 아래였다. 누르기 전 첫 화면의 40%가 빈 면.
+    name: '보고서',
+    file: 'src/features/reports/ReportsView.css',
+    grid: '.rp__split',
+    input: '.rp__form',
+  },
 ] as const
 
 function stripComments(css: string): string {

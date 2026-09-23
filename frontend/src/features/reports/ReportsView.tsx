@@ -5,7 +5,7 @@ import { useYearOptions } from '../parameters/yearCatalog'
 import { createApiReportsProvider, ReportsError } from './apiProvider'
 import {
   coerceYear,
-  sameTarget,
+  targetKey,
   targetOf,
   voyageLabel,
 } from './reportRules'
@@ -251,6 +251,43 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
     return targetOf(kind, { vesselId, voyageId, year })
   }, [kind, vesselId, voyageId, year])
 
+  /*
+   * 늦게 온 문서를 버리는 표 (#1768 · `#1657`과 같은 배선).
+   *
+   * 조건을 빠르게 바꾸면 앞 요청이 **뒤 요청보다 늦게** 도착할 수 있다. 그대로 두면 지금
+   * 고른 조건의 문서 위에 앞 조건의 문서가 덮인다 — 보고 있는 것과 고른 것이 갈린다.
+   */
+  const generation = useRef(0)
+
+  const makePreview = useCallback(
+    async (target: ReportTarget) => {
+      generation.current += 1
+      const ticket = generation.current
+      setBusy('preview')
+      setFailure(null)
+      try {
+        const html = await api.previewHtml(target)
+        if (ticket !== generation.current) return
+        setPreview({ target, html })
+      } catch (error) {
+        if (ticket !== generation.current) return
+        /*
+         * **앞 문서를 지우지 않는다** (#1768). 조건 하나를 잘못 골라 실패했을 때 보고 있던
+         * 문서까지 사라지면, 되돌리려면 그 조건을 기억해 다시 골라야 한다. 오류는 조건
+         * 기둥에 적고 문서는 그대로 둔다.
+         */
+        setFailure(
+          error instanceof ReportsError
+            ? error.message
+            : '리포트를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        )
+      } finally {
+        if (ticket === generation.current) setBusy(null)
+      }
+    },
+    [api],
+  )
+
   const run = async (action: 'preview' | DownloadFormat) => {
     const target = resolve()
     if (typeof target === 'string') {
@@ -258,15 +295,17 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
       return
     }
 
+    if (action === 'preview') {
+      setSaved(null)
+      await makePreview(target)
+      return
+    }
+
     setBusy(action)
     setFailure(null)
     setSaved(null)
     try {
-      if (action === 'preview') {
-        setPreview({ target, html: await api.previewHtml(target) })
-      } else {
-        setSaved(await api.download(target, action))
-      }
+      setSaved(await api.download(target, action))
     } catch (error) {
       // 서버 문구를 그대로 쓴다 — 「완료되지 않은 항차는…」은 화면이 다시 쓸 수 없다.
       setFailure(
@@ -279,12 +318,48 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
     }
   }
 
-  // 선택이 바뀌면 미리보기는 더 이상 그 선택의 것이 아니다. 남겨 두면 사용자가
-  // 다른 대상의 문서를 보면서 다운로드를 누른다.
   const currentTarget = resolve()
-  const previewIsStale =
-    preview !== null &&
-    (typeof currentTarget === 'string' || !sameTarget(preview.target, currentTarget))
+  const ready = typeof currentTarget !== 'string'
+  /*
+   * 아직 고르지 않은 것을 자리표시자가 말한다.
+   *
+   * **오류가 아니라 안내다** — `PRD §6.4` 「선행 선택 필요」. 버튼을 눌렀을 때의 검증
+   * 문구(`targetOf`의 반환값 · 마침표 있음)와는 다른 상태이며, 같은 절의 현행 관례 ②에
+   * 따라 마침표를 찍지 않는다.
+   *
+   * 연간 실적은 선박만 고르면 완전해지므로, 이 자리에 남는 것은 항차뿐이다.
+   */
+  const blocking = vesselId ? '항차를 먼저 선택해 주세요' : '선박을 먼저 선택해 주세요'
+
+  /*
+   * 한 번 만든 뒤에는 조건을 따라간다 (#1768).
+   *
+   * **마운트 시에는 만들지 않는다** — `#511`이 항로 비교에서 정한 것과 같다: 사용자가
+   * 조건을 정하기 전의 계산은 누구의 질문도 아니다. 게다가 기본 선택은 선박이 비어 있어
+   * 만들 대상 자체가 없다. 그래서 `preview`가 있을 때만, 즉 **사용자가 한 번 누른
+   * 뒤에만** 이 효과가 일한다.
+   *
+   * 「미리보기」를 한 번 누른 순간 사용자는 **「이 조건의 문서를 보고 있다」**고 선언한
+   * 것이므로, 그 뒤 조건이 바뀌면 보고 있는 것도 따라 바뀌는 편이 맞다. 종전에는 낡은
+   * 문서를 남겨 두고 「조건이 바뀌었습니다 — 다시 만들어 주세요」라고 시켰다 — 화면이
+   * 할 수 있는 일을 사용자에게 시킨 셈이다.
+   *
+   * 대상이 **완전하고 직전에 만든 것과 다를 때만** 부른다 — 선박만 바꾼 중간 상태
+   * (항차 미선택)에서는 부르지 않는다.
+   *
+   * ## 의존성은 원시값과 상태 객체뿐이다
+   *
+   * 대상을 여기서 다시 만든다(`targetOf`). 렌더에서 만든 객체를 의존성에 넣으면 매
+   * 렌더 효과가 돌고, `setBusy`가 일으킨 렌더까지 새 요청이 된다. `preview`는 상태라
+   * `setPreview` 때만 바뀌므로, 문서가 도착한 렌더에서 한 번 더 돌고 키가 같아 멈춘다.
+   */
+  useEffect(() => {
+    if (preview === null) return
+    const target = targetOf(kind, { vesselId, voyageId, year })
+    if (typeof target === 'string') return
+    if (targetKey(target) === targetKey(preview.target)) return
+    void makePreview(target)
+  }, [kind, vesselId, voyageId, year, preview, makePreview])
 
   return (
     <div className="rp">
@@ -294,238 +369,263 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
         </p>
       </PageHeader>
 
-      <section className="card rp__form" aria-label="리포트 조건">
-        <fieldset className="rp__kinds">
-          <legend>리포트 종류</legend>
-          <label>
-            <input
-              type="radio"
-              name="report-kind"
-              checked={kind === 'ANNUAL'}
-              onChange={() => setKind('ANNUAL')}
-              data-testid="kind-annual"
-            />
-            <span>
-              <b>연간 실적</b>
-              <em>YTD·연도별 추이·정박 기여·연말 예상</em>
-            </span>
-          </label>
-          <label>
-            <input
-              type="radio"
-              name="report-kind"
-              checked={kind === 'VOYAGE'}
-              onChange={() => setKind('VOYAGE')}
-              data-testid="kind-voyage"
-            />
-            <span>
-              <b>항차 완료</b>
-              <em>항차 요약·CII 기여도·연료 내역·시나리오 사후 비교</em>
-            </span>
-          </label>
-        </fieldset>
-
-        <div className="rp__selects">
-          <label>
-            <span>선박</span>
-            <select
-              value={vesselId}
-              onChange={(event) => {
-                setShellVesselMissing(false)
-                setVesselId(event.target.value)
-                selectVesselId(event.target.value || null)
-              }}
-              data-testid="vessel-select"
-            >
-              <option value="">선택하세요</option>
-              {(Array.isArray(vessels) ? vessels : []).map((vessel) => (
-                <option key={vessel.id} value={vessel.id}>
-                  {vessel.name} (IMO {vessel.imoNumber})
-                </option>
-              ))}
-            </select>
-            {/*
-              「불러오는 중」과 「없음」을 구분한다. 구분하지 않으면 응답이 느릴 때
-              빈 셀렉트만 보여 **선박이 등록되지 않은 앱**으로 읽힌다 (#613).
-            */}
-            {vessels === null ? (
-              <em className="rp__hint" aria-busy="true" role="status">
-                선박 목록을 불러오는 중입니다…
-              </em>
-            ) : null}
-            {/*
-              실패는 「없음」과 다르다 (`#1076` ⑴ · `#824` ⑵). 이 안내는 `failure`
-              칸이 아니라 셀렉트에 붙어 있으므로 **리포트를 만들어도 지워지지 않는다.**
-            */}
-            {vessels === 'failed' ? (
-              <em className="rp__hint" role="alert">
-                선박 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
-              </em>
-            ) : null}
-            {Array.isArray(vessels) && vessels.length === 0 ? (
-              <em className="rp__hint">등록된 선박이 없습니다.</em>
-            ) : null}
-            {shellVesselMissing ? (
-              <em className="rp__hint" role="alert">
-                상단바에서 고른 선박이 목록에 없습니다. 다시 선택해 주세요.
-              </em>
-            ) : null}
-          </label>
-
-          {kind === 'ANNUAL' ? (
+      {/*
+       * 입력-결과 2단 — `DESIGN_SYSTEM §8.7` 〔권장〕 (#1768). 조건은 고정 폭 기둥으로
+       * 따라오고, 문서가 나머지를 채운다. 1100 이하에서는 조건이 위로 접힌다.
+       */}
+      <div className="rp__split">
+        <section className="card rp__form" aria-label="리포트 조건">
+          <fieldset className="rp__kinds">
+            <legend>리포트 종류</legend>
             <label>
-              <span>연도</span>
-              {/*
-                선택지는 **서버가 등재한 규제연도**에서 온다 (`#635`). 종전에는 하한이
-                `2019`로 박혀 있어 CII 규제 시작(2023) 이전 해를 고를 수 있었고, 고르면
-                전부 `—`인 빈 문서가 `200 OK`로 나왔다.
-              */}
-              <select
-                value={year}
-                onChange={(event) => setYear(Number(event.target.value))}
-                disabled={!vesselId || years.length === 0}
-                data-testid="year-select"
-              >
-                {years.map((option) => (
-                  <option key={option} value={option}>
-                    {option}년
-                  </option>
-                ))}
-              </select>
-              {/*
-                로딩·실패를 **빈 목록과 구분한다** — 선박 선택 칸이 이미 같은 3상태
-                안내를 쓴다. 「없다」와 「아직 모른다」를 같게 그리면 사용자는 기다려야
-                할지 문의해야 할지 판단할 수 없다.
-              */}
-              {vesselId && yearsLoading ? (
-                <em className="rp__hint">규제연도를 불러오는 중입니다…</em>
-              ) : null}
-              {vesselId && yearsFailed ? (
-                <em className="rp__hint">규제연도 목록을 불러오지 못했습니다.</em>
-              ) : null}
-              {vesselId && !yearsLoading && !yearsFailed && years.length === 0 ? (
-                <em className="rp__hint">등재된 규제연도가 없습니다.</em>
-              ) : null}
+              <input
+                type="radio"
+                name="report-kind"
+                checked={kind === 'ANNUAL'}
+                onChange={() => setKind('ANNUAL')}
+                data-testid="kind-annual"
+              />
+              <span>
+                <b>연간 실적</b>
+                <em>YTD·연도별 추이·정박 기여·연말 예상</em>
+              </span>
             </label>
-          ) : (
             <label>
-              <span>항차</span>
+              <input
+                type="radio"
+                name="report-kind"
+                checked={kind === 'VOYAGE'}
+                onChange={() => setKind('VOYAGE')}
+                data-testid="kind-voyage"
+              />
+              <span>
+                <b>항차 완료</b>
+                <em>항차 요약·CII 기여도·연료 내역·시나리오 사후 비교</em>
+              </span>
+            </label>
+          </fieldset>
+
+          <div className="rp__selects">
+            <label>
+              <span>선박</span>
               <select
-                value={voyageId}
+                value={vesselId}
                 onChange={(event) => {
-                  setVoyageId(event.target.value)
-                  selectVoyageId(event.target.value || null)
+                  setShellVesselMissing(false)
+                  setVesselId(event.target.value)
+                  selectVesselId(event.target.value || null)
                 }}
-                disabled={!vesselId}
-                data-testid="voyage-select"
+                data-testid="vessel-select"
               >
                 <option value="">선택하세요</option>
-                {(Array.isArray(voyages) ? voyages : []).map((voyage) => (
-                  <option
-                    key={voyage.id}
-                    value={voyage.id}
-                    /* 감추지 않고 비활성으로 — 감추면 「왜 없지」에 답이 없다. */
-                    disabled={!voyage.reportable}
-                  >
-                    {voyageLabel(voyage)}
-                    {voyage.reportable ? '' : ' — 완료 후 생성 가능'}
+                {(Array.isArray(vessels) ? vessels : []).map((vessel) => (
+                  <option key={vessel.id} value={vessel.id}>
+                    {vessel.name} (IMO {vessel.imoNumber})
                   </option>
                 ))}
               </select>
-              {/* 선박을 고른 뒤에만 항차를 부른다 — 고르기 전 「불러오는 중」은 거짓말이다. */}
-              {vesselId && voyages === null ? (
+              {/*
+                「불러오는 중」과 「없음」을 구분한다. 구분하지 않으면 응답이 느릴 때
+                빈 셀렉트만 보여 **선박이 등록되지 않은 앱**으로 읽힌다 (#613).
+              */}
+              {vessels === null ? (
                 <em className="rp__hint" aria-busy="true" role="status">
-                  항차 목록을 불러오는 중입니다…
+                  선박 목록을 불러오는 중입니다…
                 </em>
               ) : null}
               {/*
-                실패는 「없음」과 다르다 (`#824` ⑵). 종전에는 둘이 같은 문구로
-                나가서, 조회가 실패한 선박이 **항차가 없는 선박으로 보였다.**
+                실패는 「없음」과 다르다 (`#1076` ⑴ · `#824` ⑵). 이 안내는 `failure`
+                칸이 아니라 셀렉트에 붙어 있으므로 **리포트를 만들어도 지워지지 않는다.**
               */}
-              {vesselId && voyages === 'failed' ? (
+              {vessels === 'failed' ? (
                 <em className="rp__hint" role="alert">
-                  항차 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+                  선박 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
                 </em>
               ) : null}
-              {vesselId && Array.isArray(voyages) && voyages.length === 0 ? (
-                <em className="rp__hint">이 선박에 등록된 항차가 없습니다.</em>
+              {Array.isArray(vessels) && vessels.length === 0 ? (
+                <em className="rp__hint">등록된 선박이 없습니다.</em>
               ) : null}
-              {/*
-                상단바 항차를 따르지 못한 이유를 말한다 (#1414). 말하지 않으면 「따른다」는
-                규칙이 이 화면에서만 깨진 것으로 읽힌다.
-              */}
-              {shellVoyageNotReportable && !voyageId ? (
-                <em className="rp__hint">
-                  상단바에서 고른 항차는 완료 전이라 리포트를 만들 수 없습니다.
-                </em>
-              ) : null}
-              {Array.isArray(voyages) &&
-              voyages.length > 0 &&
-              !voyages.some((v) => v.reportable) ? (
-                <em className="rp__hint">
-                  완료된 항차가 없습니다. 진행 중 항차는 실적이 확정된 뒤 생성할 수
-                  있습니다.
+              {shellVesselMissing ? (
+                <em className="rp__hint" role="alert">
+                  상단바에서 고른 선박이 목록에 없습니다. 다시 선택해 주세요.
                 </em>
               ) : null}
             </label>
-          )}
-        </div>
 
-        <div className="rp__actions">
-          <button
-            type="button"
-            onClick={() => void run('preview')}
-            disabled={busy !== null}
-            data-testid="preview-button"
-          >
-            {busy === 'preview' ? '만드는 중…' : '미리보기'}
-          </button>
-          <button
-            type="button"
-            className="rp__primary"
-            onClick={() => void run('pdf')}
-            disabled={busy !== null}
-            data-testid="pdf-button"
-          >
-            {busy === 'pdf' ? '만드는 중…' : 'PDF 내려받기'}
-          </button>
-          <button
-            type="button"
-            onClick={() => void run('csv')}
-            disabled={busy !== null}
-            data-testid="csv-button"
-          >
-            {busy === 'csv' ? '만드는 중…' : 'CSV 내려받기'}
-          </button>
-        </div>
+            {kind === 'ANNUAL' ? (
+              <label>
+                <span>연도</span>
+                {/*
+                  선택지는 **서버가 등재한 규제연도**에서 온다 (`#635`). 종전에는 하한이
+                  `2019`로 박혀 있어 CII 규제 시작(2023) 이전 해를 고를 수 있었고, 고르면
+                  전부 `—`인 빈 문서가 `200 OK`로 나왔다.
+                */}
+                <select
+                  value={year}
+                  onChange={(event) => setYear(Number(event.target.value))}
+                  disabled={!vesselId || years.length === 0}
+                  data-testid="year-select"
+                >
+                  {years.map((option) => (
+                    <option key={option} value={option}>
+                      {option}년
+                    </option>
+                  ))}
+                </select>
+                {/*
+                  로딩·실패를 **빈 목록과 구분한다** — 선박 선택 칸이 이미 같은 3상태
+                  안내를 쓴다. 「없다」와 「아직 모른다」를 같게 그리면 사용자는 기다려야
+                  할지 문의해야 할지 판단할 수 없다.
+                */}
+                {vesselId && yearsLoading ? (
+                  <em className="rp__hint">규제연도를 불러오는 중입니다…</em>
+                ) : null}
+                {vesselId && yearsFailed ? (
+                  <em className="rp__hint">규제연도 목록을 불러오지 못했습니다.</em>
+                ) : null}
+                {vesselId && !yearsLoading && !yearsFailed && years.length === 0 ? (
+                  <em className="rp__hint">등재된 규제연도가 없습니다.</em>
+                ) : null}
+              </label>
+            ) : (
+              <label>
+                <span>항차</span>
+                <select
+                  value={voyageId}
+                  onChange={(event) => {
+                    setVoyageId(event.target.value)
+                    selectVoyageId(event.target.value || null)
+                  }}
+                  disabled={!vesselId}
+                  data-testid="voyage-select"
+                >
+                  <option value="">선택하세요</option>
+                  {(Array.isArray(voyages) ? voyages : []).map((voyage) => (
+                    <option
+                      key={voyage.id}
+                      value={voyage.id}
+                      /* 감추지 않고 비활성으로 — 감추면 「왜 없지」에 답이 없다. */
+                      disabled={!voyage.reportable}
+                    >
+                      {voyageLabel(voyage)}
+                      {voyage.reportable ? '' : ' — 완료 후 생성 가능'}
+                    </option>
+                  ))}
+                </select>
+                {/* 선박을 고른 뒤에만 항차를 부른다 — 고르기 전 「불러오는 중」은 거짓말이다. */}
+                {vesselId && voyages === null ? (
+                  <em className="rp__hint" aria-busy="true" role="status">
+                    항차 목록을 불러오는 중입니다…
+                  </em>
+                ) : null}
+                {/*
+                  실패는 「없음」과 다르다 (`#824` ⑵). 종전에는 둘이 같은 문구로
+                  나가서, 조회가 실패한 선박이 **항차가 없는 선박으로 보였다.**
+                */}
+                {vesselId && voyages === 'failed' ? (
+                  <em className="rp__hint" role="alert">
+                    항차 목록을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.
+                  </em>
+                ) : null}
+                {vesselId && Array.isArray(voyages) && voyages.length === 0 ? (
+                  <em className="rp__hint">이 선박에 등록된 항차가 없습니다.</em>
+                ) : null}
+                {/*
+                  상단바 항차를 따르지 못한 이유를 말한다 (#1414). 말하지 않으면 「따른다」는
+                  규칙이 이 화면에서만 깨진 것으로 읽힌다.
+                */}
+                {shellVoyageNotReportable && !voyageId ? (
+                  <em className="rp__hint">
+                    상단바에서 고른 항차는 완료 전이라 리포트를 만들 수 없습니다.
+                  </em>
+                ) : null}
+                {Array.isArray(voyages) &&
+                voyages.length > 0 &&
+                !voyages.some((v) => v.reportable) ? (
+                  <em className="rp__hint">
+                    완료된 항차가 없습니다. 진행 중 항차는 실적이 확정된 뒤 생성할 수
+                    있습니다.
+                  </em>
+                ) : null}
+              </label>
+            )}
+          </div>
 
-        {failure ? (
-          <ErrorState level="region" size="compact" message={failure} />
-        ) : null}
-        {saved ? (
-          <p className="rp__ok" role="status">
-            내려받았습니다 — <b>{saved}</b>
-          </p>
-        ) : null}
-      </section>
+          <div className="rp__actions">
+            <button
+              type="button"
+              onClick={() => void run('preview')}
+              disabled={busy !== null}
+              data-testid="preview-button"
+            >
+              {busy === 'preview' ? '만드는 중…' : '미리보기'}
+            </button>
+            <button
+              type="button"
+              className="rp__primary"
+              onClick={() => void run('pdf')}
+              disabled={busy !== null}
+              data-testid="pdf-button"
+            >
+              {busy === 'pdf' ? '만드는 중…' : 'PDF 내려받기'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void run('csv')}
+              disabled={busy !== null}
+              data-testid="csv-button"
+            >
+              {busy === 'csv' ? '만드는 중…' : 'CSV 내려받기'}
+            </button>
+          </div>
 
-      {preview ? (
-        <section className="card rp__preview" aria-label="리포트 미리보기">
+          {failure ? (
+            <ErrorState level="region" size="compact" message={failure} />
+          ) : null}
+          {saved ? (
+            <p className="rp__ok" role="status">
+              내려받았습니다 — <b>{saved}</b>
+            </p>
+          ) : null}
+        </section>
+
+        <section className="card rp__doc" aria-label="리포트 미리보기">
           <div className="card__head">
             <h2 className="card__title">미리보기</h2>
             <span className="card__meta">
-              {previewIsStale ? '조건이 바뀌었습니다 — 다시 만들어 주세요' : '실제 문서와 같은 내용'}
+              {busy === 'preview'
+                ? '만드는 중…'
+                : preview === null
+                  ? '아직 만들지 않았습니다'
+                  : '실제 문서와 같은 내용'}
             </span>
           </div>
-          <iframe
-            className={`rp__frame${previewIsStale ? ' rp__frame--stale' : ''}`}
-            title="리포트 미리보기"
-            srcDoc={preview.html}
-            /* 문서에 스크립트가 있을 이유가 없다 — 없다는 것을 화면이 강제한다. */
-            sandbox=""
-          />
+          {preview ? (
+            <iframe
+              className={`rp__frame${busy === 'preview' ? ' rp__frame--busy' : ''}`}
+              title="리포트 미리보기"
+              srcDoc={preview.html}
+              /* 문서에 스크립트가 있을 이유가 없다 — 없다는 것을 화면이 강제한다. */
+              sandbox=""
+            />
+          ) : (
+            /*
+             * 빈 카드를 두지 않는다 (#1768 · `§16` 항목 8 → `PRD §6.4`). 종전에는 누르기
+             * 전까지 이 기둥이 아예 없어 **첫 화면의 40%가 빈 면**이었다. 무엇을 고르면
+             * 무엇이 나오는지를 그 자리에 적는다.
+             */
+            <div className="rp__placeholder">
+              <p className="rp__placeholder-lead">
+                {ready ? '「미리보기」를 누르면 문서가 여기에 나옵니다' : blocking}
+              </p>
+              <p className="rp__placeholder-note">
+                내려받는 PDF와 <b>같은 문서</b>입니다. 한 번 만든 뒤에는 조건을 바꾸면
+                문서도 따라 바뀝니다.
+              </p>
+            </div>
+          )}
         </section>
-      ) : null}
+      </div>
 
       {/*
        * 화면 면책은 문서 면책과 **별개**다. 문서에는 서버가 넣고(PRD §25.1),

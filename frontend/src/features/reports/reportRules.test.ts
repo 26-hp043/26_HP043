@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   filenameFrom,
   isReportable,
-  sameTarget,
   statusLabel,
+  targetKey,
   targetOf,
   voyageLabel,
   coerceYear,
@@ -110,29 +110,29 @@ describe('요청 대상 만들기', () => {
   })
 })
 
-describe('미리보기 신선도', () => {
-  it('같은 대상이면 같다', () => {
-    const a = { kind: 'ANNUAL', vesselId: 'v-1', year: 2026 } as const
-    expect(sameTarget(a, { kind: 'ANNUAL', vesselId: 'v-1', year: 2026 })).toBe(true)
+describe('미리보기 신선도 — 대상 키 (#1768)', () => {
+  it('같은 대상이면 같은 키다', () => {
+    expect(targetKey({ kind: 'ANNUAL', vesselId: 'v-1', year: 2026 })).toBe(
+      targetKey({ kind: 'ANNUAL', vesselId: 'v-1', year: 2026 }),
+    )
   })
 
-  it('연도만 달라도 다르다', () => {
-    const a = { kind: 'ANNUAL', vesselId: 'v-1', year: 2026 } as const
-    expect(sameTarget(a, { kind: 'ANNUAL', vesselId: 'v-1', year: 2025 })).toBe(false)
+  it('연도만 달라도 다른 키다', () => {
+    expect(targetKey({ kind: 'ANNUAL', vesselId: 'v-1', year: 2026 })).not.toBe(
+      targetKey({ kind: 'ANNUAL', vesselId: 'v-1', year: 2025 }),
+    )
   })
 
-  it('종류가 다르면 다르다', () => {
-    expect(
-      sameTarget(
-        { kind: 'ANNUAL', vesselId: 'v-1', year: 2026 },
-        { kind: 'VOYAGE', voyageId: 'vy-1' },
-      ),
-    ).toBe(false)
+  it('선박만 달라도 다른 키다', () => {
+    expect(targetKey({ kind: 'ANNUAL', vesselId: 'v-1', year: 2026 })).not.toBe(
+      targetKey({ kind: 'ANNUAL', vesselId: 'v-2', year: 2026 })
+    )
   })
 
-  it('한쪽이 없으면 같지 않다', () => {
-    expect(sameTarget(null, { kind: 'VOYAGE', voyageId: 'vy-1' })).toBe(false)
-    expect(sameTarget(null, null)).toBe(true)
+  it('종류가 다르면 다른 키다 — id가 우연히 같아도 섞이지 않는다', () => {
+    expect(targetKey({ kind: 'VOYAGE', voyageId: 'x' })).not.toBe(
+      targetKey({ kind: 'ANNUAL', vesselId: 'x', year: 2026 }),
+    )
   })
 })
 
