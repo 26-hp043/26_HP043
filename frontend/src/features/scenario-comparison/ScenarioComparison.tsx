@@ -923,7 +923,12 @@ export function ScenarioComparison({
                 className="scenario-comparison__control"
                 inputMode="decimal"
                 value={form.currentLat}
-                onChange={(e) => setForm((prev) => ({ ...prev, currentLat: e.target.value }))}
+                onChange={(e) => {
+                  // 좌표를 손으로 고쳐도 추정 거리는 앞 좌표의 것이다 — 항을 바꿀 때와 같이
+                  // 버린다 (#1777). 손으로 넣은 거리는 `dropEstimatedDistance`가 남긴다.
+                  dropEstimatedDistance()
+                  setForm((prev) => ({ ...prev, currentLat: e.target.value }))
+                }}
                 placeholder="-90 ~ 90"
               />
             )}
@@ -948,7 +953,12 @@ export function ScenarioComparison({
                 className="scenario-comparison__control"
                 inputMode="decimal"
                 value={form.currentLon}
-                onChange={(e) => setForm((prev) => ({ ...prev, currentLon: e.target.value }))}
+                onChange={(e) => {
+                  // 좌표를 손으로 고쳐도 추정 거리는 앞 좌표의 것이다 — 항을 바꿀 때와 같이
+                  // 버린다 (#1777). 손으로 넣은 거리는 `dropEstimatedDistance`가 남긴다.
+                  dropEstimatedDistance()
+                  setForm((prev) => ({ ...prev, currentLon: e.target.value }))
+                }}
                 placeholder="-180 ~ 180"
               />
             )}
