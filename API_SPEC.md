@@ -4058,7 +4058,7 @@ GET /api/v1/health
 | POST | `/api/v1/scenarios/{id}/adopt` | 시나리오 채택 | §11.8 |
 | POST | `/api/v1/annual-simulations` | 연간 시뮬레이션 | §12 (기능③) |
 | GET | `/api/v1/annual-simulations/{id}` | 시뮬레이션 결과 조회 | §12 |
-| GET | `/api/v1/annual-simulations?vessel_id=` | 선박별 실행 목록 — 최신순 (`#1805`) | §6.5 |
+| GET | `/api/v1/annual-simulations` | 선박별 실행 목록 — `vessel_id` 필수 · 최신순 (`#1805`) | §6.5 |
 | GET | `/api/v1/annual-simulations/{id}/snapshot-voyages` | 스냅샷 항차 상세 | TECH_SPEC §11 |
 | POST | `/api/v1/annual-simulations/{id}/reproduce` | 동일 seed 재실행 | §12.4.3 |
 | GET | `/api/v1/parameters/regulation-years` | 규정 연도 조회 | §6.2 SCR-006 |

@@ -750,6 +750,25 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "meta.timestamp",
         }
     ),
+    # `API_SPEC §6.5` — 선박별 실행 목록 (#1805). 결과 본문은 싣지 않는다.
+    "GET /annual-simulations": frozenset(
+        {
+            "data",
+            "data[].as_of",
+            "data[].calculation_run_id",
+            "data[].created_at",
+            "data[].needs_recalc",
+            "data[].regulation_year",
+            "data[].simulation_id",
+            "data[].simulation_runs",
+            "data[].target_rating",
+            "meta",
+            "meta.has_more",
+            "meta.next_cursor",
+            "meta.request_id",
+            "meta.timestamp",
+        }
+    ),
     # `API_SPEC §6.4` — 재현 검증 (#753). `§6.1`과 같은 봉투여야 한다.
     #
     # ⚠️ **민감도의 `voyage_plus_1`·`voyage_minus_1`은 이 표에 없다.**
@@ -1233,6 +1252,14 @@ def test_snapshot_voyages_and_reproduce_match_the_contract(client):
     snapshot = client.get(f"{API_V1_PREFIX}/annual-simulations/{simulation_id}/snapshot-voyages")
     assert snapshot.status_code == 200, snapshot.text
     assert flatten(snapshot.json()) == CONTRACTS["GET /annual-simulations/{id}/snapshot-voyages"]
+
+    listed = client.get(
+        f"{API_V1_PREFIX}/annual-simulations",
+        params={"vessel_id": DEMO_VESSEL_WITH_PLANS, "limit": 1},
+    )
+    assert listed.status_code == 200, listed.text
+    assert flatten(listed.json()) == CONTRACTS["GET /annual-simulations"]
+    assert listed.json()["data"][0]["simulation_id"] == simulation_id
 
     reproduced = client.post(
         f"{API_V1_PREFIX}/annual-simulations/{simulation_id}/reproduce",
