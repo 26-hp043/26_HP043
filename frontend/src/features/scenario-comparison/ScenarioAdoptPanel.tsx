@@ -120,6 +120,19 @@ export function ScenarioAdoptPanel({
     }
   }, [catalog, vesselId])
 
+  /*
+   * 같은 선박으로 다시 비교해도 새 결과가 오면 채택 완료 표시를 지운다 (#1815).
+   *
+   * 위 효과는 `vesselId`가 바뀔 때만 돈다 — **같은 배로 재비교**하면 `vesselId`는
+   * 그대로라 돌지 않고, 이전 「채택했습니다」가 새 비교 결과 위에 그대로 남았다.
+   * `scenarios`는 비교가 성공할 때마다 서버가 새로 내려주는 배열이라, 재비교의
+   * 신호로 쓴다. 항차 목록은 같은 선박이면 다시 받을 이유가 없어 여기서는 건드리지
+   * 않는다.
+   */
+  useEffect(() => {
+    setAdopt({ status: 'idle' })
+  }, [scenarios])
+
   // 사용자가 고르기 전의 기본값 — 상단바의 항차가 반영 가능하면 그것, 아니면 하나뿐일 때만.
   // 효과에서 상태를 덮지 않고 **렌더 중에 파생**한다 — 고른 값이 있으면 그것이 이긴다.
   const fallbackVoyageId = Array.isArray(voyages)

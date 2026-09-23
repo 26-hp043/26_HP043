@@ -523,6 +523,38 @@ describe('선박명이 제목에 표시된다 (#821)', () => {
 })
 
 /**
+ * 선박을 다시 고르면 앞서 뜬 선박 오류가 지워진다 (#1815).
+ *
+ * 종전에는 `SHELL_VESSEL_MISSING`(「목록에 없습니다」)이 뜬 뒤 사용자가 실제 목록에
+ * 있는 선박을 다시 골라도 오류 문구가 그대로 남았다 — 이 셀렉트의 `onChange`도,
+ * 상단바의 선택도 그 오류를 지우지 않고 제출 재검증에서만 지웠기 때문이다.
+ * `renderSwitchable`로 **실제 셸 상태 갱신**을 거쳐 재현한다 — 스파이만 쓰면 선택이
+ * 실제로 반영되지 않아 이 경로가 검증되지 않는다.
+ */
+describe('선박 오류가 재선택으로 지워진다 (#1815)', () => {
+  const REAL_VESSEL = {
+    id: '00000000-0000-4000-8000-000000000001',
+    displayName: '실제 배',
+    shipType: 'BULK_CARRIER',
+  }
+  const MISSING_ID = '00000000-0000-4000-8000-00000000ffff'
+
+  it('목록에 없다는 오류가 뜬 뒤 다른 선박을 고르면 그 오류가 사라진다', async () => {
+    stubServer()
+    renderSwitchable([REAL_VESSEL], MISSING_ID)
+
+    expect(await screen.findByText(/상단바에서 고른 선박이 목록에 없습니다/)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('선박'), { target: { value: REAL_VESSEL.id } })
+
+    await waitFor(() =>
+      expect(screen.queryByText(/상단바에서 고른 선박이 목록에 없습니다/)).toBeNull(),
+    )
+    expect((screen.getByLabelText('선박') as HTMLSelectElement).value).toBe(REAL_VESSEL.id)
+  })
+})
+
+/**
  * 결과 제목이 계산 시점에 고정된다 (#875).
  *
  * 종전에는 제목이 살아 있는 `form`을 읽고 숫자만 응답 스냅샷을 읽었다. 결과를 본
@@ -1075,6 +1107,30 @@ describe('계획에 반영 (#580)', () => {
     })
 
     expect(select.value).toBe('v-planned')
+  })
+
+  /**
+   * 같은 선박으로 다시 비교해도 채택 완료 표시가 새 결과 위에 남지 않는다 (#1815).
+   *
+   * 종전에는 `adopt` 상태가 `[catalog, vesselId]`에서만 초기화돼, **같은 배로 재비교**
+   * 하면(`vesselId`가 그대로라 그 효과가 돌지 않는다) 앞 결과에 채택한 「반영했습니다」
+   * 표시가 새 비교 결과 위에 남을 수 있었다.
+   */
+  it('같은 선박으로 다시 비교하면 채택 완료 표시가 사라진다', async () => {
+    stubAdoptServer()
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    renderScreen()
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+    fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+    fireEvent.click(screen.getByRole('button', { name: '계획에 반영' }))
+    expect(await screen.findByText(/시나리오를 반영했습니다/)).toBeTruthy()
+
+    await clickCompare()
+
+    await screen.findByRole('region', { name: /계획에 반영/ })
+    expect(screen.queryByText(/시나리오를 반영했습니다/)).toBeNull()
   })
 
   /**

@@ -280,6 +280,20 @@ export function ScenarioComparison({
         return
       }
       setForm((prev) => (prev.vesselId === shellVesselId ? prev : { ...prev, vesselId: shellVesselId }))
+      /*
+       * 유효한 선박으로 다시 골랐으니 앞서 남은 선박 칸 오류는 이 선택과 무관하다 —
+       * 지운다 (#1815). 종전에는 이 셀렉트의 `onChange`도, 상단바의 선택도 오류를
+       * 지우지 않아 「목록에 없습니다」가 실제로 고른 선박 위에 그대로 남았다. 지우는
+       * 곳을 이 효과로 둔 것은 선박 선택이 **이 화면의 셀렉트(:onChange)와 상단바**
+       * 두 경로 모두에서 여기 `shellVesselId`로 모이기 때문이다 — 한쪽만 지우면
+       * 다른 경로에서는 여전히 남는다.
+       */
+      setErrors((prev) => {
+        if (!(FIELD.vesselId in prev)) return prev
+        const next = { ...prev }
+        delete next[FIELD.vesselId]
+        return next
+      })
       return
     }
     if (vessels !== null && vessels.length === 1) selectVesselId(vessels[0].id)
