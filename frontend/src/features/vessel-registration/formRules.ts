@@ -67,6 +67,48 @@ export const FIELD = {
   form: '__form__',
 } as const
 
+/**
+ * 접는 제원 묶음의 칸들 (#1783).
+ *
+ * `FIELD`의 순서를 따로 적는 것이 아니라 **그 묶음에 실제로 그려진 칸**을 적는다 —
+ * 접힌 겉이 「몇 칸 중 몇 칸을 채웠나」를 말하려면 분모가 화면과 같아야 한다.
+ *
+ * 키는 **폼 상태의 이름**이다(요청 본문 이름이 아니다). 오류는 `FIELD[키]`로 찾는다 —
+ * `FIELD`의 키가 곧 폼 상태의 키이고 값이 요청 본문 경로다.
+ */
+export const SPEC_FIELDS = [
+  'deadweight',
+  'grossTonnage',
+  'referenceSpeedKn',
+  'referenceDailyFocTon',
+  'blockCoefficient',
+  'callSign',
+  'defaultFuelType',
+] as const satisfies readonly (keyof VesselFormState)[]
+
+/**
+ * 비워 두면 무엇이 막히는가 — 접힌 겉에 적는 한 줄 (#1783).
+ *
+ * ⚠️ **사실관계는 `vessel-management/listRules.blockedReasons`가 정본이고, 그 문장은
+ * `#630`이 실측으로 고친 것이다** — 종전에는 「연간 시뮬레이션이 실패합니다」로 적었는데
+ * 실제로는 200으로 돌고 감속 민감도만 조용히 0이 된다. 여기서 다시 적는 것은 등록
+ * 시점에는 아직 선박이 없어 그 함수를 부를 대상이 없기 때문이고, **묶음을 통째로
+ * 비웠을 때**(= 기준속도도 비었을 때)의 결과를 적는다.
+ *
+ * 접어 두고 이 줄이 없으면, 사용자는 **나중에 선박 관리에서** 같은 경고를 만난다.
+ */
+export const SPEC_SKIP_CONSEQUENCE =
+  '비워 두어도 등록됩니다 — 대신 그 선박은 CII 등급을 산출할 수 없고, 항로 비교가 ' +
+  '실패하며, 연간 시뮬레이션의 감속 민감도가 나오지 않습니다. 선박 관리에서 나중에 ' +
+  '채울 수 있습니다.'
+
+/** 접힌 겉에 적는 이름 — 채운 칸 수를 함께 적는다 (`#1417` 「고급 설정」과 같은 꼴). */
+export function specSummary(filled: number, total: number): string {
+  return filled === 0
+    ? `제원 · 선택 입력 ${total}칸`
+    : `제원 · 선택 입력 ${total}칸 중 ${filled}칸 채움`
+}
+
 /** 이름 길이 상한 (VAL-001, `API_SPEC §2.3`). */
 export const NAME_MAX_LENGTH = 100
 

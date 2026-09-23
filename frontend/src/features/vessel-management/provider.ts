@@ -45,8 +45,22 @@ export interface VesselPage {
   hasMore: boolean
 }
 
+/**
+ * 목록 조회 조건 (#1783).
+ *
+ * `search`·`shipType`은 **서버가 거른다**(`API_SPEC §2.1`) — 화면에서 거르면 받은
+ * 페이지 안에서만 맞아, 찾는 배가 다음 페이지에 있을 때 「없다」와 구분되지 않는다.
+ */
+export interface VesselListOptions {
+  cursor?: string
+  /** 선박명 또는 IMO 번호. */
+  search?: string
+  /** 선종 코드. 값이 틀리면 서버가 422로 끊는다(빈 목록이 아니다 · `#1332`). */
+  shipType?: string
+}
+
 export interface VesselManagementProvider {
-  list(options?: { cursor?: string; search?: string }): Promise<VesselPage>
+  list(options?: VesselListOptions): Promise<VesselPage>
   update(vesselId: string, patch: VesselUpdateRequest): Promise<Vessel>
   remove(vesselId: string): Promise<void>
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { PageHeader } from '../../components/PageHeader'
@@ -44,6 +44,17 @@ import {
   specGapFilterNotice,
   type VesselSortKey,
 } from './listRules'
+import {
+  EMPTY_QUERY,
+  FILTERED_EMPTY_MESSAGE,
+  SEARCH_DEBOUNCE_MS,
+  SHIP_TYPE_OPTIONS,
+  activeFilters,
+  isFiltered,
+  toListOptions,
+  type ActiveFilter,
+  type VesselQuery,
+} from './queryRules'
 import { Check } from 'lucide-react'
 import { Icon } from '../../components/Icon'
 import { VesselManagementError } from './provider'
@@ -99,6 +110,17 @@ export function VesselManagement() {
   // 기본 연료 선택지는 서버가 준다 (#542). 종전에는 고정표를 직접 순회했다.
   const { fuels, loading: fuelsLoading, failed: fuelsFailed } = useFuelOptions()
 
+  /*
+   * 목록 조회 조건 — 검색 · 선종 (#1783).
+   *
+   * **서버가 거른다**(`API_SPEC §2.1`). 화면에서 거르면 받은 페이지 안에서만 맞아,
+   * 찾는 배가 다음 페이지에 있을 때 「없다」와 구분되지 않는다 — 규칙과 근거는
+   * `queryRules.ts`에 있다.
+   */
+  const [query, setQuery] = useState<VesselQuery>(EMPTY_QUERY)
+  /** 검색칸이 지금 들고 있는 글자. 조건(`query.search`)은 입력이 멈춘 뒤에 따라온다. */
+  const [searchInput, setSearchInput] = useState('')
+
   const [vessels, setVessels] = useState<Vessel[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
@@ -147,32 +169,91 @@ export function VesselManagement() {
    */
   const [actionError, setActionError] = useState<string | null>(null)
 
+  /*
+   * 늦게 온 목록을 버리는 표 (#1783 · 이 저장소의 재조회 관례).
+   *
+   * 검색어를 고쳐 가면 앞 조건의 응답이 **뒤 조건보다 늦게** 올 수 있다. 그대로 두면
+   * 검색칸은 새 조건인데 목록은 앞 조건의 것이 된다 — `#824` ⑵가 선박 상세 항차
+   * 목록에서 고친 것과 같은 형태다.
+   */
+  const generation = useRef(0)
+
   const loadPage = useCallback(
     async (cursor?: string) => {
+      generation.current += 1
+      const ticket = generation.current
       setLoading(true)
       setLoadError(null)
       try {
-        const page = await provider.list(cursor ? { cursor } : {})
+        const page = await provider.list(toListOptions(query, cursor))
+        if (ticket !== generation.current) return
         // 이어 붙인다 — 커서 페이지네이션은 앞 페이지를 다시 주지 않는다.
         setVessels((prev) => (cursor ? [...prev, ...page.vessels] : page.vessels))
         setNextCursor(page.nextCursor)
         setHasMore(page.hasMore)
       } catch (error) {
+        if (ticket !== generation.current) return
         setLoadError(
           error instanceof VesselManagementError
             ? error.message
             : '선박 목록을 불러오지 못했습니다.',
         )
       } finally {
-        setLoading(false)
+        if (ticket === generation.current) setLoading(false)
       }
     },
-    [provider],
+    [provider, query],
   )
 
+  /*
+   * 조건이 바뀌면 **커서 없이** 다시 받는다 — `loadPage`가 `query`에 매여 있어 이
+   * 효과가 그때마다 돈다. 다른 조건의 커서를 그대로 쓰면 서버가 엉뚱한 자리부터
+   * 잘라 준다.
+   */
   useEffect(() => {
     void loadPage()
   }, [loadPage])
+
+  /*
+   * 검색어는 **입력이 멈춘 뒤에** 조건이 된다 (`SEARCH_DEBOUNCE_MS`).
+   *
+   * 효과로 미루지 않고 입력 처리에서 재는 것은, 효과에서 상태를 바꾸면 렌더가 한 번
+   * 더 도는 데다 「무엇이 이 조회를 일으켰나」가 흐려지기 때문이다.
+   */
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const changeSearch = useCallback((value: string) => {
+    setSearchInput(value)
+    if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => {
+      setQuery((prev) => (prev.search === value ? prev : { ...prev, search: value }))
+    }, SEARCH_DEBOUNCE_MS)
+  }, [])
+
+  /** 화면을 떠날 때 남은 타이머를 걷는다 — 사라진 화면의 조회를 일으키지 않는다. */
+  useEffect(
+    () => () => {
+      if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+    },
+    [],
+  )
+
+  /** 걸린 조건을 하나 지운다. 검색은 칸의 글자까지 함께 비운다. */
+  const clearFilter = useCallback((key: ActiveFilter['key']) => {
+    if (key === 'specGap') {
+      setSpecGapOnly(false)
+      return
+    }
+    if (key === 'search') {
+      if (searchTimer.current !== null) clearTimeout(searchTimer.current)
+      setSearchInput('')
+      setQuery((prev) => ({ ...prev, search: '' }))
+      return
+    }
+    setQuery((prev) => ({ ...prev, shipType: '' }))
+  }, [])
+
+  const filters = activeFilters(query, specGapOnly)
+  const filtered = isFiltered(query, specGapOnly)
 
   const startEdit = (vessel: Vessel) => {
     setEdit({ id: vessel.id, state: toEditState(vessel), errors: {} })
@@ -307,6 +388,73 @@ export function VesselManagement() {
         </Link>
       </div>
 
+      {/*
+        ── 조회 조건 — 검색 · 선종 (#1783) ────────────────────────────────
+
+        **카드 밖에 둔다.** 조건에 걸려 목록이 비면 카드가 통째로 사라지는데, 카드 안에
+        두면 그때 **조건을 지울 길까지 함께 사라진다.** 아래 제원 미비 칩·정렬은 카드
+        머리에 그대로 둔다 — 그 둘은 **불러온 목록**에 대한 것이라 목록이 없으면 뜻도 없다.
+
+        서버가 거르는 것과 화면이 거르는 것이 이 선으로 갈린다(`queryRules.ts`).
+      */}
+      <div className="vm__query">
+        <label className="vm__search">
+          <span className="sr-only">선박명 또는 IMO 번호로 검색</span>
+          <input
+            type="search"
+            value={searchInput}
+            onChange={(event) => changeSearch(event.target.value)}
+            placeholder="선박명 또는 IMO 번호"
+            data-testid="vessel-search"
+          />
+        </label>
+        <label className="vm__ship-type">
+          <span className="sr-only">선종</span>
+          <select
+            value={query.shipType}
+            onChange={(event) =>
+              setQuery((prev) => ({ ...prev, shipType: event.target.value }))
+            }
+            data-testid="vessel-ship-type"
+          >
+            <option value="">선종 전체</option>
+            {SHIP_TYPE_OPTIONS.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {/*
+        걸린 조건 — **걸어 놓고 잊는 것이 필터의 주된 사고다.** 목록이 짧아진 이유가
+        화면 어딘가의 눌린 컨트롤뿐이면 사용자는 「선박이 사라졌다」로 읽는다.
+        제원 미비 칩도 여기에 들어온다 — 카드가 사라졌을 때 그것을 지울 곳이 여기뿐이다.
+      */}
+      {filters.length > 0 && (
+        /*
+          `role="status"`를 두지 않는다 — 이 줄은 **머무는 화면**이지 알림이 아니다.
+          걸렀다는 사실은 카드 안의 안내(`vm__partial`)가 이미 낭독에 실어 보낸다.
+          같은 사실을 두 곳에서 읽어 주면 그 둘이 서로를 덮는다.
+        */
+        <div className="vm__filters">
+          <span className="vm__filters-label">걸린 조건</span>
+          {filters.map((filter) => (
+            <button
+              key={filter.key}
+              type="button"
+              className="vm__filter"
+              onClick={() => clearFilter(filter.key)}
+            >
+              {filter.label}
+              <span className="sr-only"> 지우기</span>
+              <span aria-hidden="true">×</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {actionNotice !== null && (
         <p className="vessel-management__notice" role="status">
           {actionNotice}
@@ -342,8 +490,14 @@ export function VesselManagement() {
         빈 목록 판정에 `hasMore`를 넣는다 (#1102 ⑶). 불러온 20척을 모두 지웠는데
         뒤 페이지가 남아 있으면 「등록된 선박이 없습니다」는 거짓이다.
       */}
+      {/*
+        조건을 걸었는데 아무것도 없는 것은 **「등록된 선박이 없습니다」가 아니다** (#1783).
+        두 상태에서 사용자가 할 일이 정반대다 — 배를 등록한다 ↔ 조건을 지운다.
+      */}
       {!loading && vessels.length === 0 && loadError === null && (
-        <p className="vessel-management__empty">{emptyMessage(hasMore)}</p>
+        <p className="vessel-management__empty">
+          {filtered ? FILTERED_EMPTY_MESSAGE : emptyMessage(hasMore)}
+        </p>
       )}
 
       {vessels.length > 0 && (

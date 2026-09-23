@@ -452,3 +452,91 @@
   font-size: var(--cii-font-size-sm, 0.8125rem);
   color: var(--cii-text-muted, var(--color-text-muted));
 }
+
+/*
+ * ── 조회 조건 — 검색 · 선종 (#1783) ─────────────────────────────────────
+ *
+ * 카드 밖의 한 줄이다. 면을 띄우지 않는다(`§5` 카드 예산) — 바닥 위의 컨트롤이다.
+ * 조건에 걸려 목록이 비면 카드가 사라지는데, 이 줄은 그때도 남아야 **조건을 지울 수**
+ * 있다.
+ */
+.vm__query {
+  display: flex;
+  gap: var(--space-12);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* 검색칸이 줄의 남는 폭을 가져간다 — 선박명이 길다. */
+.vm__search {
+  flex: 1 1 260px;
+  min-inline-size: 0;
+  display: flex;
+}
+
+.vm__search input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: var(--target-button);
+  padding: 0 var(--spacing-sm);
+  border: var(--borderWidth-default) solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+}
+
+.vm__search input:focus-visible,
+.vm__ship-type select:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+.vm__ship-type select {
+  min-block-size: var(--target-button);
+  padding: 0 var(--spacing-sm);
+  border: var(--borderWidth-default) solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+}
+
+/*
+ * 걸린 조건. **눌린 컨트롤이 화면 여기저기 흩어져 있으면 목록이 짧아진 이유를
+ * 읽을 수 없다** — 한 줄에 모아 두고 각각 지울 수 있게 한다.
+ */
+.vm__filters {
+  display: flex;
+  gap: var(--space-8);
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.vm__filters-label {
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
+.vm__filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-block-size: var(--target-chip);
+  padding: 0 var(--spacing-sm);
+  border: var(--borderWidth-default) solid var(--color-border-control);
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.vm__filter:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}

@@ -8,7 +8,10 @@ import { SCREEN_BY_ID } from '../../screens'
 import {
   FIELD,
   NAME_MAX_LENGTH,
+  SPEC_FIELDS,
+  SPEC_SKIP_CONSEQUENCE,
   initialFormState,
+  specSummary,
   specGapNotice,
   toFormErrors,
   toRequest,
@@ -75,6 +78,16 @@ export function VesselRegistration() {
 
   const [state, setState] = useState<VesselFormState>(initialFormState)
   const [errors, setErrors] = useState<FormErrors>({})
+  /*
+   * 제원 묶음을 접는다 (#1783).
+   *
+   * 화면 머리가 이미 「IMO 번호·선명·선종만 있으면 등록됩니다」라고 적는데, 선택 입력
+   * 여덟 칸이 늘 펼쳐져 있어 **그 말과 보이는 것이 어긋났다.** 항로 비교의 「고급
+   * 설정」(`#1417`) · 감축 계획의 「연료 단가」(`#1757`)와 같은 꼴이다.
+   *
+   * `null`은 「사용자가 아직 정하지 않았다」다 — 그때는 아래 규칙이 정한다.
+   */
+  const [specsOpenChoice, setSpecsOpenChoice] = useState<boolean | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [registered, setRegistered] = useState<Vessel | null>(null)
   const { samples, loading: samplesLoading, failed: samplesFailed } = useSampleVessels()
@@ -127,6 +140,23 @@ export function VesselRegistration() {
       return next
     })
   }
+
+  /** 채운 제원 칸 수 — 접힌 겉이 말한다. */
+  const specFilled = SPEC_FIELDS.filter((field) => state[field].trim() !== '').length
+  const specHasError = SPEC_FIELDS.some((field) => errors[FIELD[field]] !== undefined)
+
+  /*
+   * 스스로 펼치는 두 자리 (#1783).
+   *
+   * ⑴ **샘플이 값을 채웠을 때**(`specFilled > 0`) — 채워진 값을 감추면 무엇이 들어갔는지
+   *    모른 채 등록한다. 감축 계획이 단가가 비었을 때 펼치는 것(`#1757`)의 반대 방향이다.
+   *    이것은 **기본값**이라 사용자가 접으면 접힌다.
+   * ⑵ **접힌 칸에서 검증 오류가 났을 때** — 사용자의 선택보다 **먼저다**. `§14`는 오류를
+   *    컨트롤 아래에 두라고 하는데, 접혀 있으면 그 컨트롤이 화면에 없다.
+   *
+   * 효과로 열지 않는다 — 렌더에서 정해지는 값이라 상태를 하나 더 둘 이유가 없다.
+   */
+  const specsOpen = specHasError ? true : (specsOpenChoice ?? specFilled > 0)
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -304,8 +334,17 @@ export function VesselRegistration() {
           ) : null}
         </fieldset>
 
-        <fieldset className="vessel-registration__fieldset">
-          <legend className="vessel-registration__legend">제원 · 선택 입력</legend>
+        <details
+          className="vessel-registration__fieldset"
+          open={specsOpen}
+          onToggle={(event) => setSpecsOpenChoice(event.currentTarget.open)}
+        >
+          <summary className="vessel-registration__specs-summary">
+            <span className="vessel-registration__legend">
+              {specSummary(specFilled, SPEC_FIELDS.length)}
+            </span>
+            <span className="vessel-registration__specs-why">{SPEC_SKIP_CONSEQUENCE}</span>
+          </summary>
 
           {notice ? (
             <p className="vessel-registration__notice" role="status">
@@ -464,7 +503,7 @@ export function VesselRegistration() {
               )}
                         </Field>
           </div>
-        </fieldset>
+        </details>
 
         <button
           className="vessel-registration__submit"
