@@ -173,7 +173,13 @@ def _publish(value: Decimal | None, kind: str) -> str | None:
     """
     if value is None:
         return None
-    return str(value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=SERIALIZATION_ROUNDING))
+    return str(_truncate(value, kind))
+
+
+def _truncate(value: Decimal, kind: str) -> Decimal:
+    """종류별 전송 자릿수로 절사한 ``Decimal``. :func:`_publish`가 문자열로 만들기 직전의 값이며,
+    연말 예상 분해(`#1673`)가 **같은 절사**를 문자열이 아닌 수로 쓴다."""
+    return value.quantize(Decimal(1).scaleb(-_DIGITS[kind]), rounding=SERIALIZATION_ROUNDING)
 
 
 def _validate_year(year: int) -> None:
@@ -365,7 +371,7 @@ def _cii_step(value: Decimal) -> Decimal:
     합이 문자열 차이와 2 ulp까지 어긋난다. 누적값을 먼저 절사하면 합은 망원경처럼 접혀
     ``trunc(⑶) − trunc(⑴)``, 즉 응답에 실린 두 문자열의 차이 그 자체가 된다.
     """
-    return value.quantize(Decimal(1).scaleb(-_DIGITS["cii"]), rounding=SERIALIZATION_ROUNDING)
+    return _truncate(value, "cii")
 
 
 def _year_end_drivers(
@@ -388,11 +394,17 @@ def _year_end_drivers(
         S2  = 확정분 + 진행 중 항차 계획 전량 + 남은 계획     (응답 attained_cii)
 
         BASIS_DIFFERENCE = S0' − S0     (0이면 싣지 않는다)
-        CURRENT_VOYAGE   = S1  − S0'    (진행 중 항차가 없으면 싣지 않는다)
+        CURRENT_VOYAGE   = S1  − S0'    (⑴·⑶ 어느 쪽도 세지 않는 진행 항차면 싣지 않는다)
         REMAINING_PLAN   = S2  − S1
 
     각 값은 :func:`_cii_step`으로 **먼저 절사한 뒤** 뺀다 — 합이 응답의 두 문자열 차이와
     정확히 같아지는 유일한 방식이다.
+
+    **S1을 만들 수 없는 상태가 하나 있다** — 확정 거리가 0이고 ⑶이 진행 중 항차를 세지
+    않을 때(계획 연료가 없어 `#812`로 뺐다). 그때 S1은 「거리 0」이라 CII가 정의되지 않으므로
+    ``CURRENT_VOYAGE``를 싣지 않고 ``REMAINING_PLAN = S2 − S0'``로 잇는다 — 사슬을 끊지 않아
+    합은 그대로 ⑶ − ⑴이고, 진행 항차가 빠졌다는 사실은 ⑶의 ``SIMULATION_PLAN_NO_FUEL``이
+    말한다. ``[]``로 비우면 ⑴·⑶이 둘 다 있는데 「분해할 것이 없다」로 읽힌다.
 
     **⑴이 없으면 빈 목록이다.** 출발점이 없는데 분해를 만들면 「합 = ⑶ − ⑴」이 성립할
     자리가 없다. 확정 실적 없이 계획만 있는 선박이 그 상태이며, 그때 ⑶ 전체가 계획이다.
@@ -441,11 +453,13 @@ def _year_end_drivers(
 
     try:
         basis = step(elapsed)
-        with_current = step(current_full)
-    except ValueError:
-        # 확정 거리 0 · 진행 중 항차의 계획 행 없음 — ⑶ 쪽 조립으로는 어느 단계도 만들 수
-        # 없다. ⑶ 자체는 이미 나왔으므로(분모가 남은 계획에서 온다) 분해만 비운다.
+    except ValueError:  # pragma: no cover - ⑴이 있으면 같은 거리가 여기에도 있다
         return []
+    try:
+        with_current: Decimal | None = step(current_full)
+    except ValueError:
+        # 확정 거리 0인데 ⑶이 진행 중 항차를 세지 않는다 — S1은 거리 0이라 정의되지 않는다.
+        with_current = None
 
     start = _cii_step(ytd_attained_cii)
     end = _cii_step(deterministic.attained_cii)
@@ -453,9 +467,10 @@ def _year_end_drivers(
     drivers: list[dict[str, str]] = []
     if basis != start:
         drivers.append({"key": DRIVER_BASIS_DIFFERENCE, "delta_cii": str(basis - start)})
-    if contribution is not None or current_rows:
+    if with_current is not None and (contribution is not None or current_rows):
         drivers.append({"key": DRIVER_CURRENT_VOYAGE, "delta_cii": str(with_current - basis)})
-    drivers.append({"key": DRIVER_REMAINING_PLAN, "delta_cii": str(end - with_current)})
+    previous = basis if with_current is None else with_current
+    drivers.append({"key": DRIVER_REMAINING_PLAN, "delta_cii": str(end - previous)})
     return drivers
 
 
