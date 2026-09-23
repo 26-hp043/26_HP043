@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import case, func, or_, select, tuple_
 
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
@@ -27,7 +27,10 @@ _CURSOR_SEP = "\x00"
 
 
 class VoyageCursor(NamedTuple):
-    """keyset 페이지네이션 커서 — ``(created_at, id)``의 마지막 값.
+    """keyset 페이지네이션 커서 — :func:`list_active` 정렬 키의 마지막 값.
+
+    **정렬 키는 넷이다** (`#1806`) — 출항 시각 유무 · 출항 시각 · ``created_at`` · ``id``.
+    출항 시각 유무는 ``departure_at``이 ``None``인지로 읽으므로 필드는 셋이다.
 
     **``created_at``은 ``datetime``이다 (``str``이 아니다).** ``list_active``의
     ``tuple_`` 비교가 ``Voyage.created_at``(``DateTime(timezone=True)``)과 맞붙는데,
@@ -51,6 +54,30 @@ class VoyageCursor(NamedTuple):
 
     created_at: datetime
     voyage_id: str
+    #: 출항 시각 = 실제 출항, 없으면 계획 출항. 둘 다 없으면 ``None``(목록 맨 아래 묶음).
+    departure_at: datetime | None = None
+
+
+def departure_key():
+    """정렬에 쓰는 출항 시각 — 실제 출항, 없으면 계획 출항 (`#1806`).
+
+    사용자가 항차 표에서 찾는 것은 **가장 최근에 떠난 항차**다. 등록 시각으로 두면 CSV로
+    지난 항차를 몰아 넣거나 지난달 항차를 나중에 등록했을 때 항해 순서와 갈린다.
+    """
+    return func.coalesce(Voyage.actual_departure_at, Voyage.planned_departure_at)
+
+
+def _newest_departure_first():
+    """출항 시각이 **있는** 항차를 먼저, 그 안에서 최신순 · 없는 항차(날짜 없는 초안)는
+    맨 아래 (`#1806`). 같은 출항 시각끼리는 ``created_at``·``id`` 내림차순으로 고정한다 —
+    「더 보기」로 이어 받아도 겹치거나 빠지지 않게 커서와 **같은 키**를 쓴다."""
+    departure = departure_key()
+    return (
+        case((departure.is_(None), 1), else_=0),
+        departure.desc(),
+        Voyage.created_at.desc(),
+        Voyage.id.desc(),
+    )
 
 
 def encode_cursor(cursor: VoyageCursor) -> str:
@@ -61,7 +88,10 @@ def encode_cursor(cursor: VoyageCursor) -> str:
     """
     import base64
 
-    raw = f"{cursor.created_at.isoformat()}{_CURSOR_SEP}{cursor.voyage_id}".encode()
+    departure = "" if cursor.departure_at is None else cursor.departure_at.isoformat()
+    raw = (
+        f"{departure}{_CURSOR_SEP}{cursor.created_at.isoformat()}{_CURSOR_SEP}{cursor.voyage_id}"
+    ).encode()
     return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
@@ -82,18 +112,23 @@ def decode_cursor(token: str) -> VoyageCursor | None:
         raw = base64.urlsafe_b64decode(token.encode("ascii")).decode()
     except (binascii.Error, UnicodeDecodeError, ValueError):
         return None
-    created_at, sep, voyage_id = raw.partition(_CURSOR_SEP)
-    if not sep or not voyage_id:
+    # 세 칸이다 (`#1806`). 종전 두 칸 커서(정렬이 바뀌기 전에 받은 것)는 **읽지 않는다** —
+    # 다른 정렬의 위치라 이어 받으면 행이 겹치거나 빠진다. 형식 오류(422)로 돌려 첫
+    # 페이지부터 다시 받게 한다.
+    parts = raw.split(_CURSOR_SEP)
+    if len(parts) != 3 or not parts[2]:
         return None
+    departure, created_at, voyage_id = parts
     try:
         parsed_at = datetime.fromisoformat(created_at)
+        parsed_departure = datetime.fromisoformat(departure) if departure else None
     except ValueError:
         return None
     try:
         UUID(voyage_id)
     except ValueError:
         return None
-    return VoyageCursor(created_at=parsed_at, voyage_id=voyage_id)
+    return VoyageCursor(created_at=parsed_at, voyage_id=voyage_id, departure_at=parsed_departure)
 
 
 async def get_by_id(session: AsyncSession, voyage_id: UUID) -> Voyage | None:
@@ -197,11 +232,24 @@ async def list_active(
         stmt = stmt.where(Voyage.annual_inclusion_policy == annual_inclusion_policy)
 
     if cursor is not None:
-        stmt = stmt.where(
-            tuple_(Voyage.created_at, Voyage.id) > (cursor.created_at, cursor.voyage_id)
-        )
+        departure = departure_key()
+        if cursor.departure_at is not None:
+            # 출항 시각이 있는 묶음의 중간 — 같은 묶음의 뒤쪽 + 출항 시각 없는 묶음 전부.
+            stmt = stmt.where(
+                or_(
+                    departure.is_(None),
+                    tuple_(departure, Voyage.created_at, Voyage.id)
+                    < (cursor.departure_at, cursor.created_at, cursor.voyage_id),
+                )
+            )
+        else:
+            # 이미 맨 아래 묶음(출항 시각 없음) — 그 안에서만 이어 간다.
+            stmt = stmt.where(
+                departure.is_(None),
+                tuple_(Voyage.created_at, Voyage.id) < (cursor.created_at, cursor.voyage_id),
+            )
 
-    stmt = stmt.order_by(Voyage.created_at, Voyage.id).limit(limit + 1)
+    stmt = stmt.order_by(*_newest_departure_first()).limit(limit + 1)
     return list((await session.execute(stmt)).scalars().all())
 
 
@@ -222,13 +270,13 @@ async def list_for_export(
     잘린 것을 모른 채** 연간 자료로 쓴다 (가져오기의 1,000행 상한이 잘라 낸 행 수를
     굳이 응답에 남기는 것과 같은 이유다).
 
-    정렬은 ``(created_at, id)`` 오름차순 — ``list_active``와 같아 화면 순서와 파일
-    순서가 갈리지 않는다.
+    정렬은 :func:`list_active`와 같다(출항 시각 최신순 · 없는 항차는 맨 아래 · `#1806`) —
+    화면 순서와 파일 순서가 갈리지 않는다.
     """
     stmt = select(Voyage).where(Voyage.vessel_id == vessel_id, Voyage.is_deleted == 0)
     if regulation_year is not None:
         stmt = stmt.where(Voyage.regulation_year == regulation_year)
-    stmt = stmt.order_by(Voyage.created_at, Voyage.id)
+    stmt = stmt.order_by(*_newest_departure_first())
     return list((await session.execute(stmt)).scalars().all())
 
 
