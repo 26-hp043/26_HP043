@@ -909,6 +909,11 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
 # Docker 이미지/볼륨
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 "docker system df"
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "docker system df"
+
+# CUBRID DB 볼륨 (db-01) -- 보관 로그(archive log)를 포함한 실제 사용량.
+# 보관 로그는 복구에 쓰지 않는다(§3.6.3) -- 이 값이 커져도 복구 절차는 바뀌지 않는다.
+ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
+  "docker exec cii-cubrid du -sh /var/lib/cubrid/databases/cii"
 ```
 
 ---
