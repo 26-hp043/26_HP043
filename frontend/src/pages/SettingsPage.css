@@ -1,0 +1,26 @@
+/*
+ * 설정 절 목차 (#1791).
+ *
+ * 면을 띄우지 않는다(`§5` 카드 예산) — 제목 아래 바닥 위의 한 줄이다. 절이 여섯이라
+ * 좁은 폭에서는 줄을 넘긴다: 탭과 달리 **어느 것이 선택됐는지**를 말하지 않으므로
+ * (스크롤 추적을 두지 않는다) 두 줄이 되어도 읽을 것이 줄지 않는다.
+ */
+.settings-toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-16);
+  align-items: center;
+}
+
+.settings-toc__link {
+  min-block-size: var(--target-chip);
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--font-size-label);
+  color: var(--color-link);
+}
+
+.settings-toc__link:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}

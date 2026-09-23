@@ -13,6 +13,13 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
+
+  /*
+   * 목차나 해시로 이 절에 올 때 **상단바 아래에 선다** (#1791 · #1790과 같은 처리).
+   * 위 틈 + 상단바 최소 높이 56 + 아래 틈. `styles/stickyTop.sync.test.ts`가 그 값을
+   * 쓰는 자리들을 한자리에서 대조한다.
+   */
+  scroll-margin-block-start: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
 }
 
 .acc__facts {
