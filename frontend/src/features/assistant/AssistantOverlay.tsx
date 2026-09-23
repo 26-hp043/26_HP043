@@ -1,8 +1,9 @@
 import { X } from 'lucide-react'
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
 import { currentScreenResult } from './screenResult'
+import { CITE_LABEL, citeLabels } from './toolLabels'
 import type { AssistantProvider, ChatTurn } from './types'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
@@ -83,6 +84,14 @@ const TARGET_NONE = '선택한 선박 없음 — 계산 질문은 상단에서 �
  * 종전에는 질문을 다 쓰고 보낸 뒤에야 503으로 알았다.
  */
 const STATUS_UNAVAILABLE = '지금은 AI 어시스턴트를 사용할 수 없습니다. 관리자에게 문의해 주세요.'
+
+/**
+ * 빈 로그의 한 줄 (#1818).
+ *
+ * 종전에는 예시 질문과 입력칸 사이가 **아무 표시 없는 120px 공백**이었다. 무엇이
+ * 들어올 자리인지 화면이 말하지 않으면 빈 면은 고장으로도 읽힌다.
+ */
+const EMPTY_LOG = '예시를 누르거나 직접 물어보세요. 답과 그 근거가 여기에 쌓입니다.'
 
 /** 보내는 중 표시 (`Q10` ⓑ — 스트리밍 대신 로딩 표시). */
 const PENDING_TEXT = '답변을 준비하고 있습니다…'
@@ -225,6 +234,8 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
           role: 'assistant',
           text: answer.answer,
           discarded: answer.discarded,
+          // #1818 — 버린 답에는 싣지 않는다. 답이 아닌 것에 근거를 달면 답으로 읽힌다.
+          toolCalls: answer.discarded ? undefined : answer.toolCalls,
           vesselUnresolved: answer.vesselResolved === false && !answer.discarded,
         },
       ])
@@ -310,7 +321,12 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         )}
       </p>
 
-      <p className="assistant__intro">{INTRO}</p>
+      {/*
+        #1818 — 안내문도 예시 질문처럼 **대화를 시작하면 걷는다.** 「무엇을 물어볼 수
+        있나」를 말하는 문장이라 아직 물어본 것이 없을 때가 그 말이 쓰일 때다.
+        50px을 돌려받아 대화 로그가 그만큼 넓어진다.
+      */}
+      {turns.length === 0 ? <p className="assistant__intro">{INTRO}</p> : null}
 
       {statusOff ? (
         <p className="assistant__notice" role="status">
@@ -344,22 +360,45 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
         쓰지 않는 이유는 사용자가 읽던 것을 끊기 때문이다.
       */}
       <div className="assistant__log" ref={logRef} aria-live="polite" role="log">
-        {turns.map((turn) => (
-          <p
-            key={turn.id}
-            className={[
-              'assistant__turn',
-              `assistant__turn--${turn.role}`,
-              turn.discarded || turn.failed ? 'assistant__turn--discarded' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
-            {turn.discarded ? DISCARDED_PREFIX : null}
-            {turn.vesselUnresolved ? VESSEL_UNRESOLVED_NOTE : null}
-            {turn.text}
-          </p>
-        ))}
+        {turns.length === 0 && !pending ? (
+          <p className="assistant__empty">{EMPTY_LOG}</p>
+        ) : null}
+        {turns.map((turn) => {
+          const cites = citeLabels(turn.toolCalls)
+          return (
+            <Fragment key={turn.id}>
+              <p
+                className={[
+                  'assistant__turn',
+                  `assistant__turn--${turn.role}`,
+                  turn.discarded || turn.failed ? 'assistant__turn--discarded' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+              >
+                {/*
+                  #1818 — 접두에 **굵기**를 준다. 「답을 드리지 못했습니다」가 그 말풍선에서
+                  가장 알려야 할 문장인데 가장 약한 회색이었다. `§8.5`가 *「색 이름을 이 절에
+                  적지 않는다 … Figma가 소유한다」*고 적었으므로 **색은 건드리지 않는다** —
+                  굵기는 `§14`가 요구하는 색 밖 채널이기도 하다.
+                */}
+                {turn.discarded ? <strong className="assistant__prefix">{DISCARDED_PREFIX}</strong> : null}
+                {turn.vesselUnresolved ? VESSEL_UNRESOLVED_NOTE : null}
+                {turn.text}
+              </p>
+              {/*
+                #1818 — 이 답의 값을 낸 도구를 적는다. 서버가 `tool_calls`로 보내 주고
+                provider가 파싱해 두었는데 화면이 읽지 않고 있었다(`#1783`의 `search`와
+                같은 자리). 버린 답·실패에는 붙지 않는다 — 위 `send()`에서 싣지 않는다.
+              */}
+              {cites.length > 0 ? (
+                <p className="assistant__cite">
+                  <span className="assistant__cite-label">{CITE_LABEL}</span> {cites.join(' · ')}
+                </p>
+              ) : null}
+            </Fragment>
+          )
+        })}
         {pending ? (
           <p className="assistant__turn assistant__turn--pending">{PENDING_TEXT}</p>
         ) : null}
@@ -384,7 +423,12 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
               {...control}
               ref={inputRef}
               className="assistant__input"
-              rows={2}
+              /*
+               * #1818 — **한 줄로 시작한다.** 종전 `rows={2}`는 보내기 줄과 합쳐 늘 92px을
+               * 썼는데, 그 자리는 대화 로그에서 나온 것이다. 늘리는 것은 사용자가 잡아
+               * 끌 수 있고(`resize: vertical`), 긴 질문은 칸 안에서 스크롤된다.
+               */
+              rows={1}
               maxLength={2000}
               placeholder={PLACEHOLDER}
               value={draft}
