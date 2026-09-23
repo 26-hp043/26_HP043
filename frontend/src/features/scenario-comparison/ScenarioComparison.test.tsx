@@ -537,11 +537,20 @@ describe('선박 오류가 재선택으로 지워진다 (#1815)', () => {
     displayName: '실제 배',
     shipType: 'BULK_CARRIER',
   }
+  /*
+   * 두 척이어야 한다 — 한 척뿐이면 선택이 풀린 즉시 그 배를 미리 채워(`#535`) 오류가
+   * 사용자 조작 없이 지워진다. 이 검사가 보려는 것은 **사용자가 다시 고르는** 경로다.
+   */
+  const OTHER_VESSEL = {
+    id: '00000000-0000-4000-8000-000000000002',
+    displayName: '다른 배',
+    shipType: 'BULK_CARRIER',
+  }
   const MISSING_ID = '00000000-0000-4000-8000-00000000ffff'
 
   it('목록에 없다는 오류가 뜬 뒤 다른 선박을 고르면 그 오류가 사라진다', async () => {
     stubServer()
-    renderSwitchable([REAL_VESSEL], MISSING_ID)
+    renderSwitchable([REAL_VESSEL, OTHER_VESSEL], MISSING_ID)
 
     expect(await screen.findByText(/상단바에서 고른 선박이 목록에 없습니다/)).toBeTruthy()
 
