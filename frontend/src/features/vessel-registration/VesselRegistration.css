@@ -209,13 +209,19 @@
  * `.vessel-registration__legend`가 같은 자리를 맡는다.
  */
 .vessel-registration__specs-summary {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+  /*
+   * `display`를 바꾸지 않는다. `flex`·`block`으로 두면 브라우저가 **여는 삼각형을
+   * 그리지 않아**, 접힌 묶음이 그냥 글줄로 보인다 — 접을 수 있다는 것을 알 수단이
+   * 사라진다. 아이콘을 새로 들이지 않고 기본 표식을 그대로 쓴다.
+   */
   cursor: pointer;
-  /* 여는 표식은 브라우저 기본 삼각형을 쓴다 — 아이콘을 새로 들이지 않는다. */
   margin-bottom: var(--space-12);
 }
+
+/*
+ * 이름은 삼각형 **옆에** 선다 — `block`으로 두면 표식만 윗줄에 혼자 남는다.
+ * `display`를 적지 않아 `inline`으로 둔다.
+ */
 
 .vessel-registration__specs-summary:focus-visible {
   outline: var(--focus-outline);
@@ -232,6 +238,8 @@
  * 사용자는 나중에 선박 관리에서 같은 경고를 만난다.
  */
 .vessel-registration__specs-why {
+  /* 사유는 아랫줄로 내린다 — 이름과 한 줄에 이어 붙으면 둘 다 읽히지 않는다. */
+  display: block;
   font-size: var(--font-size-micro);
   color: var(--text-secondary);
 }
