@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import './ScenarioAdoptPanel.css'
 import { ErrorState } from '../../components/ErrorState'
 import { voyagePath } from '../../layout/globalContext'
-import { createApiVoyageCatalog, type VoyageOption } from '../../layout/voyageCatalog'
+import { createApiVoyageCatalog, voyageOptionLabel, type VoyageOption } from '../../layout/voyageCatalog'
 import { useSamplePorts } from '../ports/samplePorts'
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { VoyageStatus } from '../voyage-management/types'
@@ -83,7 +83,8 @@ export function ScenarioAdoptPanel({
 }) {
   const showsLabelEn = useShowsLabelEn()
   const catalog = useMemo(() => createApiVoyageCatalog(), [])
-  // 항차 선택지의 구간을 저장 코드가 아니라 보이는 이름으로 적는다 (#1812).
+  // 항차 선택지의 구간을 저장 코드가 아니라 보이는 이름으로 적는다 (#1812). 조회에는
+  // 쓰지 않는다 — 그리는 시점에 `voyageOptionLabel`로만 쓴다(아래 참조).
   const samplePorts = useSamplePorts()
   // 채택은 사무직 전용이다 (`API_SPEC §1.2` · #1325). 현장직은 폼을 읽되 반영 버튼이 잠긴다.
   const office = isOffice(useAuthUser())
@@ -92,13 +93,20 @@ export function ScenarioAdoptPanel({
   const [voyageId, setVoyageId] = useState('')
   const [adopt, setAdopt] = useState<AdoptState>({ status: 'idle' })
 
-  // 선박이 바뀌면 목록을 비우고 다시 받는다 — 앞 배의 항차를 뒤 배의 것으로 읽지 않게(`#874`).
+  /*
+   * 선박이 바뀌면 목록을 비우고 다시 받는다 — 앞 배의 항차를 뒤 배의 것으로 읽지 않게(`#874`).
+   *
+   * `samplePorts`를 의존성에 넣지 않는다(`#1812` 재작업) — 항구 목록이 항차 목록보다
+   * 늦게 도착할 때 이 effect가 다시 돌면 `setVoyageId('')`·`setAdopt({status:'idle'})`가
+   * 사용자가 이미 고른 항차 선택과 채택 상태를 지운다. 표시 이름은 조회와 무관하게
+   * `voyageOptionLabel`이 그릴 때 만든다.
+   */
   useEffect(() => {
     let alive = true
     setVoyages('loading')
     setVoyageId('')
     setAdopt({ status: 'idle' })
-    catalog.listVoyages(vesselId, samplePorts).then(
+    catalog.listVoyages(vesselId).then(
       (rows) => {
         if (alive) setVoyages(rows.filter((row) => isPlanning(row.status)))
       },
@@ -110,7 +118,7 @@ export function ScenarioAdoptPanel({
     return () => {
       alive = false
     }
-  }, [catalog, vesselId, samplePorts])
+  }, [catalog, vesselId])
 
   // 사용자가 고르기 전의 기본값 — 상단바의 항차가 반영 가능하면 그것, 아니면 하나뿐일 때만.
   // 효과에서 상태를 덮지 않고 **렌더 중에 파생**한다 — 고른 값이 있으면 그것이 이긴다.
@@ -128,14 +136,15 @@ export function ScenarioAdoptPanel({
 
   const submit = async () => {
     if (!scenario || !voyage) return
-    if (!globalThis.confirm(adoptConfirmMessage(voyage.displayName, scenario.scenario_name))) return
+    const voyageLabel = voyageOptionLabel(voyage, samplePorts)
+    if (!globalThis.confirm(adoptConfirmMessage(voyageLabel, scenario.scenario_name))) return
     setAdopt({ status: 'running' })
     try {
       const result = await provider.adopt(scenario.scenario_id, voyage.id)
       setAdopt({
         status: 'done',
         result,
-        voyageName: voyage.displayName,
+        voyageName: voyageLabel,
         scenarioName: scenario.scenario_name,
       })
     } catch (error: unknown) {
@@ -200,7 +209,8 @@ export function ScenarioAdoptPanel({
               <option value="">선택</option>
               {voyages.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.displayName} · {STATUS_LABELS[item.status as VoyageStatus] ?? item.status}
+                  {voyageOptionLabel(item, samplePorts)} ·{' '}
+                  {STATUS_LABELS[item.status as VoyageStatus] ?? item.status}
                 </option>
               ))}
             </select>

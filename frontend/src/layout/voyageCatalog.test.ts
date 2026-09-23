@@ -4,7 +4,8 @@ import {
   VoyageCatalogError,
   createApiVoyageCatalog,
   createVoyageCatalog,
-  voyageDisplayName,
+  voyageOptionLabel,
+  type VoyageOption,
 } from './voyageCatalog'
 
 /**
@@ -12,6 +13,14 @@ import {
  *
  * `vesselCatalog.ts`(#236)와 같은 경계다 — 화면은 출처를 알지 않고, 조회 경로
  * 전환은 같은 환경변수로 결정된다.
+ *
+ * ## 조회와 표시 이름을 가른다 (#1812 재작업)
+ *
+ * `listVoyages`는 저장 코드 원문을 그대로 담아 온다 — 항구 목록과 무관하게 한 번만
+ * 돈다. 화면에 보일 문자열은 `voyageOptionLabel`이 그릴 때마다 만든다. 처음에는
+ * `listVoyages`가 `ports`를 받아 미리 변환했으나, 그러면 `useSamplePorts()`가 비동기로
+ * 늦게 도착할 때마다 항차를 다시 조회하게 되어(상단바 깜빡임 · `ScenarioAdoptPanel`의
+ * 선택 유실) 되돌렸다.
  */
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -32,42 +41,50 @@ const BUSAN: SamplePort = {
 }
 const PORTS: SamplePort[] = [BUSAN]
 
-describe('voyageDisplayName — 여러 건이 같은 문자열이 되지 않게 한다', () => {
+function option(over: Partial<VoyageOption> = {}): VoyageOption {
+  return {
+    id: 'v-1',
+    voyageNo: null,
+    departurePortName: null,
+    arrivalPortName: null,
+    status: '',
+    ...over,
+  }
+}
+
+describe('voyageOptionLabel — 여러 건이 같은 문자열이 되지 않게 한다', () => {
   it('항차 번호가 있으면 그것이 이름이다', () => {
-    expect(voyageDisplayName({ voyage_no: 'V-2026-001' }, [])).toBe('V-2026-001')
+    expect(voyageOptionLabel(option({ voyageNo: 'V-2026-001' }), [])).toBe('V-2026-001')
   })
 
   it('번호가 없으면 구간으로 대신한다', () => {
     expect(
-      voyageDisplayName({ departure_port_name: '부산', arrival_port_name: '싱가포르' }, []),
+      voyageOptionLabel(
+        option({ departurePortName: '부산', arrivalPortName: '싱가포르' }),
+        [],
+      ),
     ).toBe('부산 → 싱가포르')
   })
 
   it('한쪽 항구만 있으면 나머지를 —로 둔다', () => {
-    expect(voyageDisplayName({ departure_port_name: '부산' }, [])).toBe('부산 → —')
+    expect(voyageOptionLabel(option({ departurePortName: '부산' }), [])).toBe('부산 → —')
   })
 
   it('둘 다 없으면 id 앞자리를 보인다 — 「이름 없는 항차」로 뭉뚱그리지 않는다', () => {
-    expect(voyageDisplayName({ id: '0123456789abcdef' }, [])).toBe('01234567')
-  })
-
-  it('빈 문자열 항차 번호는 번호가 아니다', () => {
-    expect(voyageDisplayName({ voyage_no: '   ', departure_port_name: '부산' }, [])).toBe(
-      '부산 → —',
-    )
+    expect(voyageOptionLabel(option({ id: '0123456789abcdef' }), [])).toBe('01234567')
   })
 
   // #1812 — 구간이 저장 코드(`BUSAN`)가 아니라 보이는 이름(`부산`)으로 나온다.
   it('저장 코드는 목록에 있으면 보이는 이름으로 바뀐다 — 코드가 그대로 노출되지 않는다', () => {
-    const label = voyageDisplayName(
-      { departure_port_name: 'BUSAN', arrival_port_name: 'SINGAPORE' },
+    const label = voyageOptionLabel(
+      option({ departurePortName: 'BUSAN', arrivalPortName: 'SINGAPORE' }),
       PORTS,
     )
     expect(label).not.toContain('BUSAN')
   })
 
   it('목록에 없는 저장값은 입력한 그대로다 — 사전에 없는 이름을 지어내지 않는다', () => {
-    expect(voyageDisplayName({ departure_port_name: 'ULSAN' }, PORTS)).toBe('ULSAN → —')
+    expect(voyageOptionLabel(option({ departurePortName: 'ULSAN' }), PORTS)).toBe('ULSAN → —')
   })
 })
 
@@ -75,7 +92,7 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
   it('선박 id를 경로에 넣어 부른다', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }))
     vi.stubGlobal('fetch', fetchImpl)
-    await createApiVoyageCatalog('/api/v1').listVoyages('v1', [])
+    await createApiVoyageCatalog('/api/v1').listVoyages('v1')
     const [url] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('/api/v1/vessels/v1/voyages?limit=100')
     vi.unstubAllGlobals()
@@ -86,22 +103,30 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
       jsonResponse({ data: [{ voyage_no: 'V-1' }, { id: 'a', voyage_no: 'V-2' }] }),
     )
     vi.stubGlobal('fetch', fetchImpl)
-    const options = await createApiVoyageCatalog('/api/v1').listVoyages('v1', [])
-    expect(options).toEqual([{ id: 'a', displayName: 'V-2', status: '' }])
+    const options = await createApiVoyageCatalog('/api/v1').listVoyages('v1')
+    expect(options).toEqual([
+      {
+        id: 'a',
+        voyageNo: 'V-2',
+        departurePortName: null,
+        arrivalPortName: null,
+        status: '',
+      },
+    ])
     vi.unstubAllGlobals()
   })
 
   it('data가 배열이 아니면 빈 목록으로 본다', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ data: null })))
-    await expect(createApiVoyageCatalog('/api/v1').listVoyages('v1', [])).resolves.toEqual([])
+    await expect(createApiVoyageCatalog('/api/v1').listVoyages('v1')).resolves.toEqual([])
     vi.unstubAllGlobals()
   })
 
   it('오류 응답은 VoyageCatalogError가 된다', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({}, 500)))
-    await expect(
-      createApiVoyageCatalog('/api/v1').listVoyages('v1', []),
-    ).rejects.toBeInstanceOf(VoyageCatalogError)
+    await expect(createApiVoyageCatalog('/api/v1').listVoyages('v1')).rejects.toBeInstanceOf(
+      VoyageCatalogError,
+    )
     vi.unstubAllGlobals()
   })
 
@@ -112,14 +137,15 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
         throw new TypeError('failed to fetch')
       }),
     )
-    await expect(
-      createApiVoyageCatalog('/api/v1').listVoyages('v1', []),
-    ).rejects.toBeInstanceOf(VoyageCatalogError)
+    await expect(createApiVoyageCatalog('/api/v1').listVoyages('v1')).rejects.toBeInstanceOf(
+      VoyageCatalogError,
+    )
     vi.unstubAllGlobals()
   })
 
-  // #1812 — 실 API 경로 전체를 거쳐도 저장 코드가 그대로 노출되지 않는다.
-  it('항차 번호가 없는 행은 구간이 보이는 이름으로 나온다', async () => {
+  // #1812 — 조회 결과는 저장 코드 원문을 그대로 담는다. 코드→이름 변환은
+  // `voyageOptionLabel`이 그릴 때 한다(위 describe 참조).
+  it('항차 번호가 없는 행은 구간의 저장 코드 원문을 그대로 담는다', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -128,8 +154,14 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
         }),
       ),
     )
-    const options = await createApiVoyageCatalog('/api/v1').listVoyages('v1', PORTS)
-    expect(options[0]?.displayName).not.toContain('BUSAN')
+    const options = await createApiVoyageCatalog('/api/v1').listVoyages('v1')
+    expect(options[0]).toEqual({
+      id: 'a',
+      voyageNo: null,
+      departurePortName: 'BUSAN',
+      arrivalPortName: 'SINGAPORE',
+      status: '',
+    })
     vi.unstubAllGlobals()
   })
 })
@@ -139,7 +171,7 @@ describe('createVoyageCatalog', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }))
     vi.stubGlobal('fetch', fetchImpl)
 
-    await createVoyageCatalog({} as ImportMetaEnv).listVoyages('v1', [])
+    await createVoyageCatalog({} as ImportMetaEnv).listVoyages('v1')
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
@@ -147,7 +179,7 @@ describe('createVoyageCatalog', () => {
   it('true면 실 API를 부른다', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }))
     vi.stubGlobal('fetch', fetchImpl)
-    await createVoyageCatalog({} as ImportMetaEnv).listVoyages('v1', [])
+    await createVoyageCatalog({} as ImportMetaEnv).listVoyages('v1')
     expect(fetchImpl).toHaveBeenCalled()
     vi.unstubAllGlobals()
   })
@@ -174,7 +206,7 @@ describe('페이지 따라가기 (#1073)', () => {
         })
       }),
     )
-    const rows = await createApiVoyageCatalog('/api/v1').listVoyages('vessel-1', [])
+    const rows = await createApiVoyageCatalog('/api/v1').listVoyages('vessel-1')
     expect(rows).toHaveLength(25)
     expect(rows.at(-1)?.id).toBe('v25')
     expect(urls[1]).toContain('cursor=c2')

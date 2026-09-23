@@ -3,7 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import './AppShell.css'
 import { DEFAULT_PATH, NAV_SCREENS, findScreenByPath } from '../screens'
 import { createVesselCatalog, type VesselOption } from '../features/voyage-cii/vesselCatalog'
-import { createVoyageCatalog, type VoyageOption } from './voyageCatalog'
+import { createVoyageCatalog, voyageOptionLabel, type VoyageOption } from './voyageCatalog'
 import { useSamplePorts } from '../features/ports/samplePorts'
 import {
   EMPTY_CONTEXT,
@@ -201,7 +201,10 @@ export function AppShell() {
     }
     setVoyages([])
     setVoyagesState('loading')
-    voyageCatalog.listVoyages(context.vesselId, samplePorts).then(
+    // 조회는 항구 목록과 무관하다(`#1812` 재작업) — `samplePorts`를 의존성에 넣으면
+    // 항구 목록이 늦게 도착할 때마다 항차를 다시 조회해 셀렉트가 깜빡였다. 표시 이름은
+    // `voyageOptionLabel`이 그릴 때 만든다.
+    voyageCatalog.listVoyages(context.vesselId).then(
       (options) => {
         if (!alive) return
         setVoyages(options)
@@ -217,9 +220,7 @@ export function AppShell() {
     return () => {
       alive = false
     }
-    // `samplePorts`는 목록을 받기 전까지 매 렌더 같은 빈 배열이다가, 받은 뒤 한 번만
-    // 바뀐다 — 그때 항차 목록을 다시 받아 구간 표시를 보이는 이름으로 갱신한다.
-  }, [voyageCatalog, context.vesselId, samplePorts])
+  }, [voyageCatalog, context.vesselId])
 
   /*
    * `outletContext`가 매 렌더 새로 만들어지지 않게 하면서도 최신 `pathname`·
@@ -445,7 +446,7 @@ export function AppShell() {
               </option>
               {voyages.map((option) => (
                 <option key={option.id} value={option.id}>
-                  {option.displayName}
+                  {voyageOptionLabel(option, samplePorts)}
                 </option>
               ))}
             </select>

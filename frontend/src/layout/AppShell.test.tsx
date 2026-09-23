@@ -588,9 +588,18 @@ describe('선박 목록 다시 부르기 (#1643)', () => {
  * #1812 — 상단바 항차 선택지의 구간이 저장 코드(`BUSAN`)가 아니라 보이는 이름(`부산`)으로
  * 나온다. `voyageCatalog.ts`가 서버 원본(`departure_port_name`·`arrival_port_name`, 저장
  * 코드)에서 선택지를 만드는데, 항차 번호가 없는 항차는 그 코드로 구간을 대신했었다.
+ *
+ * ## 재작업 — 조회는 항구 목록과 무관하다
+ *
+ * 처음에는 `AppShell.tsx`의 항차 조회 effect가 `samplePorts`에 의존해, 항구 목록이
+ * 늦게 도착할 때마다 항차를 **다시 조회**했다. 그러면 셀렉트가 매번 비었다 다시
+ * 차고(깜빡임), `GET /vessels/{id}/voyages`가 두 번 나간다 — 리뷰로 지적돼 되돌렸다.
+ * 지금은 `voyageOptionLabel`이 **그릴 때** 저장 코드를 이름으로 바꾸므로, 조회는
+ * 한 번만 돈다.
  */
 describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
   function stubServerWithPortCodedVoyage() {
+    const voyageCalls: string[] = []
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: unknown) => {
@@ -616,6 +625,7 @@ describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
           })
         }
         if (url.includes('/vessels') && url.includes('/voyages')) {
+          voyageCalls.push(url)
           return jsonResponse({
             data: [
               {
@@ -632,16 +642,15 @@ describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
         return jsonResponse({ data: [] })
       }),
     )
+    return voyageCalls
   }
 
   it('항차 번호가 없어 구간으로 대신할 때, 저장 코드가 그대로 노출되지 않는다', async () => {
     stubServerWithPortCodedVoyage()
     renderShell()
 
-    // 샘플 항만 목록을 받기 전에는 `voyageCatalog`가 저장 코드로 항차 목록을 한 번
-    // 채운다 — 목록이 도착하면 같은 선박의 항차를 보이는 이름으로 다시 받는다
-    // (`AppShell.tsx`의 항차 조회 effect가 `samplePorts`에 의존한다). 그 두 번째
-    // 갱신을 기다린다.
+    // 항구 목록은 비동기로 늦게 온다 — 도착하면 이미 그려진 옵션이 보이는 이름으로
+    // 다시 그려진다(항차 재조회 없이, `samplePorts` 상태 변화에 따른 리렌더만으로).
     await waitFor(() => {
       const select = document.getElementById('global-voyage') as HTMLSelectElement
       const optionLabel = [...select.querySelectorAll('option')]
@@ -649,5 +658,21 @@ describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
         .find((text) => text?.includes('→'))
       expect(optionLabel).not.toContain('BUSAN')
     })
+  })
+
+  // #1812 재작업 — 항구 목록이 항차 목록보다 늦게 도착해도 항차 조회는 한 번만 나간다.
+  it('항구 목록이 늦게 도착해도 항차 목록을 다시 조회하지 않는다', async () => {
+    const voyageCalls = stubServerWithPortCodedVoyage()
+    renderShell()
+
+    // 보이는 이름으로 바뀔 때까지 기다린 뒤에도 조회는 한 번뿐이어야 한다.
+    await waitFor(() => {
+      const select = document.getElementById('global-voyage') as HTMLSelectElement
+      const optionLabel = [...select.querySelectorAll('option')]
+        .map((o) => o.textContent)
+        .find((text) => text?.includes('→'))
+      expect(optionLabel).not.toContain('BUSAN')
+    })
+    expect(voyageCalls).toHaveLength(1)
   })
 })

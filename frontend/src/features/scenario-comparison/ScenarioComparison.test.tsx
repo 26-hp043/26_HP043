@@ -985,7 +985,7 @@ describe('계획에 반영 (#580)', () => {
   })
 
   // #1812 — 항차 번호가 없어 구간으로 대신할 때, 저장 코드(`BUSAN`)가 아니라 보이는
-  // 이름(`부산`)이 나온다. `voyageLabel`·`voyageDisplayName`과 같은 성질을 여기서도 본다.
+  // 이름(`부산`)이 나온다. `voyageLabel`·`voyageOptionLabel`과 같은 성질을 여기서도 본다.
   it('항차 번호가 없으면 구간을 저장 코드가 아니라 보이는 이름으로 적는다', async () => {
     const PORTS = [
       { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
@@ -1020,9 +1020,8 @@ describe('계획에 반영 (#580)', () => {
     renderScreen()
     await openPanel()
 
-    // 샘플 항만 목록을 받기 전에는 패널이 저장 코드로 항차 목록을 한 번 채운다 —
-    // 목록이 도착하면 같은 선박의 항차를 보이는 이름으로 다시 받는다(`ScenarioAdoptPanel.tsx`의
-    // 항차 조회 effect가 `samplePorts`에 의존한다). 그 두 번째 갱신을 기다린다.
+    // 항구 목록은 비동기로 늦게 온다 — 도착하면 `voyageOptionLabel`이 그릴 때 보이는
+    // 이름으로 바뀐다(항차 재조회 없이, `samplePorts` 상태 변화에 따른 리렌더만으로).
     await waitFor(() => {
       const select = screen.getByLabelText('대상 항차') as HTMLSelectElement
       const label = [...select.querySelectorAll('option')]
@@ -1030,6 +1029,52 @@ describe('계획에 반영 (#580)', () => {
         .find((text) => text !== '선택')
       expect(label).not.toContain('BUSAN')
     })
+  })
+
+  /**
+   * #1812 재작업 — 항구 목록이 항차 목록보다 늦게 도착해도, 사용자가 이미 고른 항차
+   * 선택과 채택 상태가 지워지지 않는다.
+   *
+   * 처음에는 항차 조회 effect가 `samplePorts`에 의존해, 항구 목록이 늦게 오면 그 effect가
+   * 다시 돌며 `setVoyageId('')`·`setAdopt({status:'idle'})`까지 함께 돌아 선택이 지워졌다
+   * — 리뷰로 지적돼 되돌렸다.
+   */
+  it('항구 목록이 늦게 도착해도 이미 고른 항차 선택이 지워지지 않는다', async () => {
+    let resolvePorts: ((response: Response) => void) | null = null
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/ports/samples')) {
+        return new Promise<Response>((resolve) => {
+          resolvePorts = resolve
+        })
+      }
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      if (url.includes('/scenarios/compare')) return jsonResponse(COMPARE_BODY)
+      if (url.includes(`/vessels/${VESSEL}/voyages`)) return jsonResponse({ data: VOYAGES })
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    renderScreen()
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+    fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned' } })
+
+    const select = screen.getByLabelText('대상 항차') as HTMLSelectElement
+    expect(select.value).toBe('v-planned')
+
+    // 이제서야 항구 목록이 도착한다. 항차 선택은 그대로 남아야 한다.
+    await act(async () => {
+      resolvePorts?.(jsonResponse({ data: [] }))
+    })
+
+    expect(select.value).toBe('v-planned')
   })
 
   /**
