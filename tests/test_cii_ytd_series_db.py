@@ -599,6 +599,14 @@ async def test_demo_bulk_reference_values(session):
     assert plan == ["8.973981", "8.971119", "8.969484", "8.967383", "8.965893"]
     assert plan[-1] == current["year_end_projection"]["attained_cii"]
 
+    # 같은 화면의 두 설명이 어긋나지 않는다 — 추이의 첫 PLAN 점(진행 중 항차를 계획
+    # 전량으로 더한 값)은 `§2.14` `drivers[]`의 ⑴ + `CURRENT_VOYAGE`와 **같은 문자열**이다
+    # (#1673). 응답 두 문자열을 Decimal로 더해도 6자리라 정확하다.
+    drivers = {d["key"]: d["delta_cii"] for d in current["year_end_projection"]["drivers"]}
+    assert "BASIS_DIFFERENCE" not in drivers
+    assert str(Decimal(actual[-1]["attained_cii"]) + Decimal(drivers["CURRENT_VOYAGE"])) == plan[0]
+    assert str(Decimal(plan[0]) + Decimal(drivers["REMAINING_PLAN"])) == plan[-1]
+
 
 def test_http_route_answers_with_the_same_envelope(migrated_db, app_fresh_engine):
     """AT-YTDS-012 — 라우트가 `§2.14`와 같은 봉투로 답한다 · 404 · 422."""
