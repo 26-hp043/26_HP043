@@ -40,6 +40,9 @@ class SimulationSnapshot(Base):
     # #493: 계산에 쓰는 선박 제원 사본. **nullable이다** — 이 테이블은 immutable이라
     # 037 이전 행에 값을 넣을 수 없다. 값이 없는 행은 재현 경로가 사유를 밝히고 끊는다.
     vessel_json = sa.Column(JSONText(), nullable=True)
+    # #1803 (060): 연말 예상 확정분에 넣은 **이미 쓴 정박·묘박 몫** 사본. 정박 기록이 없던
+    # 실행과 060 이전 실행은 NULL — 둘 다 정박을 넣지 않고 계산했으므로 재현도 그대로다.
+    not_underway_json = sa.Column(JSONText(), nullable=True)
     input_hash = sa.Column(sa.String(length=71), nullable=False)
     parameter_hash = sa.Column(sa.String(length=71), nullable=False)
     created_at = sa.Column(

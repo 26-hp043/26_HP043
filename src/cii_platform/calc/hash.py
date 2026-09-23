@@ -238,6 +238,9 @@ ANNUAL_INPUT_FIELDS: tuple[str, ...] = (
     # 적용례 — 골랐을 때만 넣는다. CF 자체는 `parameters_used` v2의 `fuel_types`
     # 블록이 덮으므로 여기는 **무엇을 골랐는가**(연료 코드)만 담는다.
     "alternative_fuel",
+    # 이미 쓴 정박·묘박 몫 (`#1803`). 같은 선택 키 규칙의 네 번째 적용례 — 기록이 있는
+    # 실행만 넣는다. `simulation_snapshot.not_underway_json` 그대로다.
+    "not_underway",
 )
 
 

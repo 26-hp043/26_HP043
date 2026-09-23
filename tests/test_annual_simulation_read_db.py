@@ -1330,3 +1330,115 @@ async def test_unknown_alternative_fuel_is_rejected(session, vessel_id):
             alternative_fuel="UNOBTAINIUM",
         )
     assert exc_info.value.field == "alternative_fuel"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 이미 쓴 정박·묘박 몫 (#1803)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _add_berth(session, vessel_id, *, started_at: str, fuel: str = "40") -> None:
+    """정박 구간 1건 + 연료 1행. 거리는 0 — 접안·묘박은 거리가 늘지 않는다."""
+    period_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_period (id, vessel_id, regulation_year, "
+            "period_type, started_at, distance_nm) VALUES (:id, :vid, 2026, "
+            "'AT_ANCHOR', :started, 0)"
+        ),
+        {"id": period_id, "vid": vessel_id, "started": started_at},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_fuel_use (period_id, consumer_type, fuel_type, "
+            "fuel_ton, cf_used) VALUES (:id, 'OIL_FIRED_BOILER', 'HFO', :fuel, 3.114)"
+        ),
+        {"id": period_id, "fuel": Decimal(fuel)},
+    )
+
+
+async def _snapshot_not_underway(session, simulation_id):
+    return (
+        await session.execute(
+            text(
+                "SELECT s.not_underway_json FROM annual_simulation_run r "
+                "JOIN simulation_snapshot s ON s.id = r.snapshot_id WHERE r.id = :id"
+            ).columns(not_underway_json=JSONText()),
+            {"id": UUID(simulation_id)},
+        )
+    ).scalar_one()
+
+
+@pytest.mark.asyncio
+async def test_berth_fuel_already_burned_is_in_the_snapshot_and_reproduces(session, vessel_id):
+    """정박 몫이 **스냅샷에 남고**, 재현이 스냅샷만으로 같은 결과를 낸다 (#1803).
+
+    값이 계산에 들어가도 스냅샷에 없으면 재현이 정박 없이 계산해 결과가 갈린다 —
+    `#493`(제원)이 같은 모양이었다.
+    """
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED", no="V-2026-001"
+    )
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED", no="V-2026-002"
+    )
+    await _add_berth(session, vessel_id, started_at="2026-06-25T00:00:00Z")
+
+    executed = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=1000,
+        random_seed=12345,
+        as_of=datetime(YEAR, 7, 1, tzinfo=UTC),
+    )
+    stored = await _snapshot_not_underway(session, executed["data"]["simulation_id"])
+    # 표기 자릿수는 DB 컬럼 정밀도를 따르므로 값으로 본다.
+    assert Decimal(stored["distance_nm"]) == 0
+    assert [
+        (fu["fuel_type"], Decimal(fu["fuel_ton"]), Decimal(fu["cf_used"]))
+        for fu in stored["fuel_uses"]
+    ] == [("HFO", Decimal("40"), Decimal("3.114"))]
+
+    again = await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
+    assert again["data"]["deterministic"] == executed["data"]["deterministic"]
+
+
+@pytest.mark.asyncio
+async def test_a_run_without_berth_leaves_the_column_empty(session, executed):
+    """정박 기록이 없으면 NULL — 해시에 키가 없는 것과 짝이다 (#1803)."""
+    assert await _snapshot_not_underway(session, executed["data"]["simulation_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_berth_fuel_raises_the_year_end_projection(session, vessel_id):
+    """이미 쓴 정박 연료가 연말 예상을 **나쁘게** 만든다 — 종전에는 빠져 늘 좋게 나왔다 (#1803).
+
+    ``as_of`` 뒤에 시작한 정박은 넣지 않는다 — ⑴ 올해 누적과 같은 절단(``started_at <= as_of``).
+    """
+    from cii_platform.services.annual_simulation import (
+        collect_annual_inputs,
+        load_projection_context,
+    )
+
+    as_of = datetime(YEAR, 7, 1, tzinfo=UTC)
+    await _add_voyage(
+        session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED", no="V-2026-001"
+    )
+    context = await load_projection_context(session, vessel_id=vessel_id, regulation_year=YEAR)
+
+    async def completed():
+        inputs = await collect_annual_inputs(
+            session, vessel=context.vessel, vessel_id=vessel_id, year=YEAR, as_of=as_of
+        )
+        return inputs.completed
+
+    before = await completed()
+    await _add_berth(session, vessel_id, started_at="2026-07-15T00:00:00Z")
+    assert await completed() == before, "as_of 뒤의 정박이 들어갔다 — ⑴과 절단이 갈린다"
+
+    await _add_berth(session, vessel_id, started_at="2026-06-25T00:00:00Z")
+    after = await completed()
+    assert after.distance_nm == before.distance_nm
+    assert after.co2_g - before.co2_g == pytest.approx(40 * 3.114 * 1_000_000)

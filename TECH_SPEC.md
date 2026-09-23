@@ -1048,9 +1048,9 @@ def compute_input_hash(calculation_input: dict) -> str:
 
 > **기능②(시나리오 비교)의 `input_hash` (#57)** — 시나리오 비교 요청은 거리·속도가 시나리오마다 다르고 연료량이 입력이 아니라 cubic speed model의 출력이므로 위 `INPUT_FIELDS`(단일 항차 형태)를 그대로 쓰지 않는다. 구현은 `SCENARIO_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`ship_type`·`transport_capacity`·`reference_capacity`·`base_daily_foc_ton`·`reference_speed_kn`·`fuel_type`·`fuel_cf`·`scenarios`·`weather_model`·`weather_factor` — 선박·연도·capacity 축 값·연료 추정의 결정 인자 넷·확정된 시나리오 계획 3건·기상 둘)를 별도로 두며, 필터링과 `weather_factor` 기본값 치환 규칙은 이 절의 규칙을 그대로 따른다. 재현성 단위는 「같은 선박·연도·기준값·시나리오 계획 3건 → 같은 결과」이다. 추정된 `fuel_ton`은 해싱하지 않는다 — 결정 인자로부터 결정론적으로 유도되는 파생값이며, 넣으면 해시가 중복 정의된다.
 
-> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`·`apply_feedback_factor`·`as_of`·`alternative_fuel`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. **뒤 셋은 선택 키**다 — `apply_feedback_factor`는 `#363`, `as_of`는 `#816`, `alternative_fuel`은 `#756` ⑴에서 늘었다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
+> **기능③(연간 시뮬레이션)의 `input_hash` (`#63` · `#493`)** — ⚠️ 기능③은 종전에 위 `INPUT_FIELDS`를 그대로 썼는데, **그 목록이 기능③의 키를 하나도 담지 않았다.** 넘긴 일곱 키 중 살아남는 것이 `vessel_id`·`regulation_year` 둘뿐이라 **seed·실행 수·목표 등급·항차 스냅샷 전체가 해시에 드러나지 않았다** — 같은 선박·같은 해의 모든 실행이 같은 `input_hash`를 가졌고, `§5.4` 1항(같은 `input_hash` → 같은 결과)이 성립하지 않았으며 `API_SPEC §1.9`의 해시 조회가 무관한 실행을 함께 돌려줬다. 재현 경로의 「스냅샷은 immutable인데 해시가 다르다」 검사도 **무효**였다. 구현은 기능②와 같은 모양으로 `ANNUAL_INPUT_FIELDS`(`vessel_id`·`regulation_year`·`target_rating`·`simulation_runs`·`random_seed`·`voyages`·`vessel`·`apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway`)를 별도로 두며, 필터링 규칙은 이 절의 규칙을 그대로 따른다. **뒤 넷은 선택 키**다 — `apply_feedback_factor`는 `#363`, `as_of`는 `#816`, `alternative_fuel`은 `#756` ⑴, `not_underway`(연말 예상 확정분에 넣은 이미 쓴 정박·묘박 몫 · `simulation_snapshot.not_underway_json` 그대로)는 `#1803`에서 늘었다. 재현성 단위는 「같은 선박·연도·목표 등급·실행 수·seed·항차 스냅샷·선박 제원 → 같은 결과」다. `vessel`이 재료인 이유는 `#493`이며, `§11.2` 스냅샷 대상 표에 대응한다.
 
-> **선택 키 규약 — 「골랐을 때만 넣는다」(#1344).** `apply_feedback_factor`·`as_of`·`alternative_fuel` 셋은 목록에 있어도 **그 선택을 실제로 한 실행에만** 담긴다. `_filter_fields`가 입력 dict에 **있는 키만** 담으므로, 끈 실행에 `False`를, 미명시 실행에 서버 확정 시각을 넣으면 **이미 저장된 실행 전부의 해시가 바뀐다.** `§5.4.1` 4항이 `INPUT_FIELDS`의 `as_of`에 대해 적은 것과 같은 규칙이며, 기능③에서는 세 번 적용됐다. `as_of`의 값은 **DB 정밀도(밀리초)로 깎은 isoformat 문자열**로 통일한다 — 저장할 때와 재현할 때(DB에서 읽은 값)의 재료가 한 글자라도 갈리면 안 된다. `alternative_fuel`은 **무엇을 골랐는가**(연료 코드)만 담는다 — CF 자체는 `parameters_used` v2의 `fuel_types` 블록이 덮는다.
+> **선택 키 규약 — 「골랐을 때만 넣는다」(#1344).** `apply_feedback_factor`·`as_of`·`alternative_fuel`·`not_underway` 넷은 목록에 있어도 **그 선택을 실제로 한 실행에만**(`not_underway`는 **정박 기록이 있는 실행에만**) 담긴다. `_filter_fields`가 입력 dict에 **있는 키만** 담으므로, 끈 실행에 `False`를, 미명시 실행에 서버 확정 시각을 넣으면 **이미 저장된 실행 전부의 해시가 바뀐다.** `§5.4.1` 4항이 `INPUT_FIELDS`의 `as_of`에 대해 적은 것과 같은 규칙이며, 기능③에서는 세 번 적용됐다. `as_of`의 값은 **DB 정밀도(밀리초)로 깎은 isoformat 문자열**로 통일한다 — 저장할 때와 재현할 때(DB에서 읽은 값)의 재료가 한 글자라도 갈리면 안 된다. `alternative_fuel`은 **무엇을 골랐는가**(연료 코드)만 담는다 — CF 자체는 `parameters_used` v2의 `fuel_types` 블록이 덮는다.
 
 ### 5.4 재현성 계약 (Reproducibility Contract)
 
@@ -1522,6 +1522,7 @@ dual-precision-v1_decimal30-pcg64dxsm_numpy2.1.0
 | 진행 중 항차 (IN_PROGRESS) | `Voyage` | planned_*, 최신 estimate |
 | 계획 항차 (PLANNED) | `Voyage` | planned_distance_nm, planned_speed_kn, planned_fuel_ton |
 | **선박 제원** (`#493`) | `Vessel` | ship_type, deadweight, gross_tonnage, reference_speed_kn, reference_daily_foc_ton |
+| **이미 쓴 정박·묘박 몫** (`#1803`) | `NotUnderwayPeriod` + `NotUnderwayFuelUse` | `as_of`까지 시작한 구간의 거리 합, 유종 × `cf_used`별 연료 합 — 기록이 없으면 NULL |
 
 > **선박 제원을 함께 담는다 (`#493`).** 이 표가 항차만 열거하는 동안 구현도 항차만 담았고, 계산에 쓰는 제원은 **살아 있는 `vessel` 행에서** 읽었다. 그래서 제원을 고치면 **같은 스냅샷·같은 seed로도 결과가 달라졌다.**
 >
@@ -1530,6 +1531,8 @@ dual-precision-v1_decimal30-pcg64dxsm_numpy2.1.0
 > `#378`(항차 연료에 CF 스냅샷)과 같은 문제·같은 해법이다 — **계산에 쓴 값을 나중에 물을 수 있어야 한다**(`§5.4`).
 >
 > ⚠️ `simulation_snapshot`은 immutable이라 **기존 행에는 값을 넣을 수 없다.** 컬럼은 nullable이며, 값이 없는 행은 재현 경로(`API_SPEC §6.4`)가 사유를 밝히고 끊는다.
+
+> **정박·묘박 몫은 `voyages_json`이 아니라 별도 컬럼 `not_underway_json`에 담는다 (`#1803` · 마이그레이션 060).** 연말 예상 확정분에 들어가는 계산 입력이므로 스냅샷에 남아야 재현이 같은 결과를 낸다. `voyages_json` 배열에 행으로 섞지 않는 것은 그 배열의 길이·행을 **항차**로 읽는 곳(항차 수 · 스냅샷 항차 조회)이 있어서다. **NULL은 끊지 않는다** — 제원과 달리, 정박 기록이 없던 실행과 060 이전 실행은 원본이 정박을 넣지 않고 계산했고 해시 재료에도 키가 없으므로, NULL 그대로가 원본과 같은 입력이다.
 
 ### 11.3 구현 방식
 
@@ -2206,3 +2209,4 @@ B의 비용은 **폰트가 빠진 배포에서 PDF 하나가 통째로 막히는
 | 2026-09-23 | `#1765` | §1.2.1 rounding 행의 예외 서술을 **「전송 자릿수가 표시 자릿수보다 큰 필드」**로 넓혔다 — `#1600`이 절사 범위를 비율·물리량까지 넓혔는데 이 표 행만 「CII의 자릿수」로 남아 있었다(밤 회귀 점검). `AGENTS §4.3`상 값 정정이라 버전은 올리지 않는다 |
 | 2026-09-23 | `#1752` | §13.2 성능 검증 표에 **「초기 페이지 로드 — 선대 요약」 행 추가**(`PERF-005`). `PRD §16.1`의 다섯 목표 가운데 **이 한 행만 CI가 판정하지 않았고**, 하필 사용자가 가장 먼저 보는 화면이었다. 구조 가드(`IT-CACHE-005`)는 N+1 회귀만 잡고 **척당 계산 비용이 늘어나는 회귀**는 시간으로만 드러난다. 200척(선대 상한 · `PRD §5.1`)을 벤치마크 전용으로 만들어 재고 지운다. 로컬 실측 **p95 190.91 ms**(목표 3,000 ms). 브라우저 번들 로드는 재지 않으며 그 사실을 `PRD §16.1` 각주에 적었다. `AGENTS §4.3`상 행 추가라 버전은 올리지 않는다 (#1617) |
 | 2026-09-23 | `#1755` | §16.3에 **「상태에 의존하는 쓰기는 부모 행을 먼저 잠근다」** 항목 신설 (`#1630` · `F-8` 결정). 읽고 판정하고 쓰는 사이에 다른 요청이 끼면 둘 다 같은 옛 상태를 보고 통과한다 — 활성 토큰이 두 개 남거나 마지막 관리자가 0명이 되는 형태다. **토큰·구간처럼 아직 없는 행에는 잠금을 걸 수 없으므로** 부모(사용자·선박·항차)를 잡는다는 것과, 트랜잭션 경계를 바꾸지 않는다는 것을 함께 적었다. `AGENTS §4.3`상 항목 추가라 버전은 올리지 않는다 (#1630) |
+| 2026-09-23 | `#1808` | §5.3 기능③ `ANNUAL_INPUT_FIELDS`에 **다섯 번째 선택 키 `not_underway`** 추가(10 → 11키 · 정박 기록이 있는 실행만) · §11.2 스냅샷 대상 표에 「이미 쓴 정박·묘박 몫」 행과 별도 컬럼 `not_underway_json` 각주. `voyages_json` 배열에 섞지 않은 것은 그 배열을 **항차**로 읽는 곳(항차 수 · 스냅샷 항차 조회)이 있어서다. NULL은 끊지 않는다 — 원본이 정박 없이 계산했고 해시에도 키가 없다. `AGENTS §4.3`상 행 추가·각주라 버전은 올리지 않는다 (#1803) |

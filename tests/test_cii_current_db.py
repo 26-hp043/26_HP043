@@ -296,6 +296,49 @@ async def test_not_underway_fuel_worsens_the_grade(session):
     assert Decimal(after["ytd"]["attained_cii"]) > Decimal(before["ytd"]["attained_cii"])
 
 
+@pytest.mark.asyncio
+async def test_projection_counts_the_same_berth_co2_as_ytd(session):
+    """⑶ 연말 예상의 확정분에 **⑴과 같은** 정박 CO₂가 들어간다 (#1803).
+
+    종전에는 ⑴만 정박을 넣고 ⑶은 빼서, 같은 화면의 두 숫자가 같은 사실(이미 쓴 연료)을
+    다르게 셌다 — 정박이 긴 배일수록 「지금은 나쁜데 연말엔 좋아진다」로 읽혔다.
+    """
+    vessel_id = await _make_vessel(session)
+    await _add_actuals(session, await _make_voyage(session, vessel_id))
+    await _add_plan(session, vessel_id)
+
+    before, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    period_id = uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_period (id, vessel_id, regulation_year, "
+            "period_type, started_at, distance_nm) VALUES (:id, :vid, 2026, "
+            "'AT_ANCHOR', '2026-06-25T00:00:00Z', 0)"
+        ),
+        {"id": period_id, "vid": vessel_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_fuel_use (period_id, consumer_type, fuel_type, "
+            "fuel_ton, cf_used) VALUES (:id, 'OIL_FIRED_BOILER', 'HFO', 40, 3.114)"
+        ),
+        {"id": period_id},
+    )
+
+    after, _ = await get_current_cii(session, vessel_id, year=YEAR, as_of=MID_YEAR)
+
+    added = Decimal(after["year_end_projection"]["assumptions"]["completed_co2_ton"]) - Decimal(
+        before["year_end_projection"]["assumptions"]["completed_co2_ton"]
+    )
+    assert added == Decimal(after["ytd"]["not_underway_co2_ton"]), (
+        "⑶ 확정분에 들어간 정박 CO₂가 ⑴의 정박 CO₂와 다르다"
+    )
+    assert Decimal(after["year_end_projection"]["attained_cii"]) > Decimal(
+        before["year_end_projection"]["attained_cii"]
+    ), "정박 연료를 넣었는데 연말 예상이 나빠지지 않았다 — ⑶이 정박을 빼고 있다"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # as_of 계약 — #368 ⑵·⑶
 # ─────────────────────────────────────────────────────────────────────────────
