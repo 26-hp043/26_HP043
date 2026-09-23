@@ -70,10 +70,40 @@ import './FleetDashboard.css'
 
 const INITIAL_VISIBLE = 6
 
+/**
+ * 정렬 선택지 — 셀렉트의 옵션과 실패 안내(「목록은 {라벨} 그대로입니다」)가 **같은 출처**를
+ * 쓴다 (`#1814` 리뷰). 라벨을 두 곳에 따로 적으면 한쪽만 바뀐다.
+ */
+const SORT_OPTIONS: ReadonlyArray<{ value: FleetSort; label: string }> = [
+  { value: 'risk', label: '위험도순' },
+  { value: 'grade', label: '등급순' },
+  { value: 'name', label: '이름순' },
+]
+
+function sortLabel(sort: FleetSort): string {
+  return SORT_OPTIONS.find((option) => option.value === sort)?.label ?? sort
+}
+
+/** 첫 페이지를 다시 받는 동안의 문구 — 「다음 선박」 버튼(`#1092` ⓐ)과 재시도 자리가 같이 쓴다. */
+const SORT_CHANGING_TEXT = '정렬을 바꾸는 중…'
+
 export function FleetDashboard() {
   const [snapshot, setSnapshot] = useState<FleetSnapshot | null>(null)
+  /*
+   * 첫 페이지 조회 실패 (`#1814`). **받아 둔 목록이 있으면 목록 자리의 오류**이고, 없을 때만
+   * 화면 전체의 오류다. 종전에는 정렬을 바꾸다 한 번 실패하면 이 값이 남아 이후 성공해도
+   * 화면 전체가 오류로 남았다 — 성공 경로가 지우지 않았다.
+   */
   const [failure, setFailure] = useState<string | null>(null)
+  /** 실패한 첫 페이지 조회를 같은 정렬로 다시 시도한다 — 세면 effect가 다시 돈다. */
+  const [retryKey, setRetryKey] = useState(0)
   const [sortKey, setSortKey] = useState<FleetSort>('risk')
+  /*
+   * 지금 보이는 목록에 **실제로 적용된** 정렬 (`#1814` 리뷰). 정렬 변경이 실패하면 셀렉트는
+   * 새 값을 가리키는데 목록은 옛 정렬 그대로다 — 안내가 그 사실을 말하려면 이 값이 필요하다.
+   * 첫 페이지 조회가 성공할 때만 `sortKey`를 따라간다.
+   */
+  const [appliedSort, setAppliedSort] = useState<FleetSort>('risk')
   const [expanded, setExpanded] = useState(false)
   /*
    * 패널 접힘 (#1824). 첫 값은 저장된 선택 → 없으면 화면 폭으로 정한다
@@ -147,10 +177,16 @@ export function FleetDashboard() {
     provider
       .load({ sort: sortKey })
       .then((data) => {
-        if (alive && generation === generationRef.current) setSnapshot(data)
+        if (alive && generation === generationRef.current) {
+          setSnapshot(data)
+          setAppliedSort(sortKey)
+          // 앞선 실패는 이 성공으로 끝났다 — 지우지 않으면 화면이 오류에 남는다 (`#1814`).
+          setFailure(null)
+        }
       })
       .catch((error: unknown) => {
         if (alive && generation === generationRef.current) {
+          // 받아 둔 목록은 그대로 둔다 — 실패한 것은 이번 첫 페이지 조회뿐이다.
           setFailure(
             error instanceof Error ? error.message : '선대 현황을 불러오지 못했습니다.',
           )
@@ -162,7 +198,7 @@ export function FleetDashboard() {
     return () => {
       alive = false
     }
-  }, [provider, sortKey])
+  }, [provider, sortKey, retryKey])
 
   /** 다음 페이지 — 같은 정렬·**첫 페이지의 기준 시각**으로 묻고 뒤에 붙인다. */
   async function loadMore() {
@@ -205,7 +241,10 @@ export function FleetDashboard() {
   // 서버 순서 그대로다(#772) — 다시 정렬하지 않는다.
   const sorted = vessels
 
-  if (failure) return <FleetPlaceholder tone="error" message={failure} />
+  // 받아 둔 목록이 없을 때만 화면 전체의 오류다 — 있으면 목록 자리에서 알린다 (`#1814`).
+  if (failure !== null && snapshot === null) {
+    return <FleetPlaceholder tone="error" message={failure} />
+  }
 
   if (!snapshot) {
     return (
@@ -222,6 +261,9 @@ export function FleetDashboard() {
    * 선박 0척은 오류가 아니라 정상 상태다 — 아직 아무것도 등록하지 않은 선사가 처음
    * 보는 화면이다. 0으로 채운 KPI를 보여 주면 「고장」처럼 읽히므로 다음에 할 일을
    * 가리키는 화면으로 대체한다 (`UIFLOW 1-1` 온보딩 흐름).
+   *
+   * 여기서는 `failure`를 보지 않는다 — 이 화면에는 정렬 셀렉트도 「다시 시도」도 없어
+   * 0척 스냅샷을 받은 뒤 첫 페이지를 다시 묻는 경로가 없다(`#1814` 리뷰 · 도달 불가).
    */
   if (snapshot.counts.total === 0) {
     return (
@@ -531,12 +573,38 @@ export function FleetDashboard() {
                 onChange={(e) => setSortKey(e.target.value as FleetSort)}
                 data-testid="fleet-sort"
               >
-                <option value="risk">위험도순</option>
-                <option value="grade">등급순</option>
-                <option value="name">이름순</option>
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
           </div>
+
+          {/*
+            정렬 변경 실패는 **목록 자리**의 오류다 (`#1814`). 옛 정렬의 목록이 그대로 보이고,
+            「다시 시도」가 같은 정렬로 첫 페이지를 다시 묻는다. 한 줄(compact)인 것은
+            `PRD §6.4`의 「목록 옆 실패」 행이다. 셀렉트는 새 값을 가리키므로 **목록이 어느
+            정렬 그대로인지**를 안내가 말한다(`appliedSort`).
+
+            다시 묻는 동안은 오류 대신 진행 중 한 줄이다 — 「다시 시도」를 두 번 눌러 요청이
+            겹치지 않게 하고, 눌렀는데 아무 일도 없는 것처럼 보이지 않게 한다.
+          */}
+          {failure !== null ? (
+            sortLoading ? (
+              <p className="fleet__note" role="status">
+                {SORT_CHANGING_TEXT}
+              </p>
+            ) : (
+              <ErrorState
+                level="region"
+                size="compact"
+                message={`정렬을 바꾸지 못했습니다 — 목록은 ${sortLabel(appliedSort)} 그대로입니다 — ${failure}`}
+                onRetry={() => setRetryKey((k) => k + 1)}
+              />
+            )
+          ) : null}
 
           <ul className="vessels">
             {visible.map((vessel) => (
@@ -560,21 +628,35 @@ export function FleetDashboard() {
               message={`다음 선박을 불러오지 못했습니다 — ${moreFailure}`}
             />
           ) : null}
+          {/*
+            정렬 변경이 실패한 채면 버튼을 그리지 않는다 (`#1814`). 커서가 옛 정렬 것이라 새
+            정렬에 보내면 422이고(`#1092` ⓐ), 무엇보다 **실패한 정렬의 다음 페이지라는 것이
+            없다** — 사용자가 먼저 할 일은 재시도다. 잠그는 길도 있었다(`DESIGN_SYSTEM §14`의
+            「바로 곁의 칸이 이미 원인을 말하는 자리」 예외 — 위 오류 한 줄이 그 곁이다).
+            그래도 뜻 없는 버튼을 잠가 두는 것보다 없는 편이 읽기 쉽다.
+            「전체 N척 중 M척 표시」는 버튼과 무관한 사실이라 실패 중에도 남긴다.
+          */}
           {remaining === 0 && snapshot.hasMore ? (
-            <button
-              type="button"
-              className="more"
-              onClick={loadMore}
-              disabled={loadingMore || sortLoading}
-            >
-              {loadingMore
-                ? '선박을 더 불러오는 중…'
-                : sortLoading
-                  ? '정렬을 바꾸는 중…'
-                  : moreFailure !== null
-                    ? '다시 시도'
-                    : `다음 선박 불러오기 (전체 ${counts.total}척 중 ${vessels.length}척 표시)`}
-            </button>
+            failure === null ? (
+              <button
+                type="button"
+                className="more"
+                onClick={loadMore}
+                disabled={loadingMore || sortLoading}
+              >
+                {loadingMore
+                  ? '선박을 더 불러오는 중…'
+                  : sortLoading
+                    ? SORT_CHANGING_TEXT
+                    : moreFailure !== null
+                      ? '다시 시도'
+                      : `다음 선박 불러오기 (전체 ${counts.total}척 중 ${vessels.length}척 표시)`}
+              </button>
+            ) : (
+              <p className="fleet__note">
+                전체 {counts.total}척 중 {vessels.length}척 표시
+              </p>
+            )
           ) : null}
         </section>
           </div>

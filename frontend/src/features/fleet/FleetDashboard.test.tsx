@@ -211,6 +211,25 @@ describe('「D등급까지」 사유 (#1091 · `API_SPEC §2.8`)', () => {
   })
 })
 
+/** 선대 요약 응답을 **손으로 푸는** fetch — 경합(`#1092`)·실패 뒤 복구(`#1814`) 검사가 함께 쓴다. */
+type Deferred = { resolve: (r: Response) => void }
+function deferredFetch() {
+  const pending: Array<{ url: URL; d: Deferred }> = []
+  // 선대 요약만 손으로 푼다 — 지도 자산 확인(`hasBasemap`) 같은 다른 fetch는 바로 404다.
+  const fetchImpl = vi.fn((input: unknown) => {
+    const url = new URL(String(input), 'https://x')
+    if (!url.pathname.includes('/fleet/summary')) {
+      return Promise.resolve({ ok: false, status: 404, json: async () => ({}) } as Response)
+    }
+    return new Promise<Response>((resolve) => {
+      pending.push({ url, d: { resolve } })
+    })
+  })
+  vi.stubGlobal('fetch', fetchImpl)
+  return { pending, ok: (body: unknown) => ({ ok: true, status: 200, json: async () => body }) as Response }
+}
+const first = () => page([vessel('v1', '가선'), vessel('v2', '나선')], { next_cursor: 'c2', has_more: true })
+
 /**
  * 정렬 변경 × 「다음 선박 불러오기」 경합과 추가 조회 실패 (`#1092`).
  *
@@ -218,24 +237,6 @@ describe('「D등급까지」 사유 (#1091 · `API_SPEC §2.8`)', () => {
  * ⓑ 늦게 온 옛 정렬 2페이지를 버리는가, ⓒ 추가 조회 실패가 받은 목록을 지우지 않는가.
  */
 describe('정렬 변경 · 추가 조회 경합 (#1092)', () => {
-  type Deferred = { resolve: (r: Response) => void }
-  function deferredFetch() {
-    const pending: Array<{ url: URL; d: Deferred }> = []
-    // 선대 요약만 손으로 푼다 — 지도 자산 확인(`hasBasemap`) 같은 다른 fetch는 바로 404다.
-    const fetchImpl = vi.fn((input: unknown) => {
-      const url = new URL(String(input), 'https://x')
-      if (!url.pathname.includes('/fleet/summary')) {
-        return Promise.resolve({ ok: false, status: 404, json: async () => ({}) } as Response)
-      }
-      return new Promise<Response>((resolve) => {
-        pending.push({ url, d: { resolve } })
-      })
-    })
-    vi.stubGlobal('fetch', fetchImpl)
-    return { pending, ok: (body: unknown) => ({ ok: true, status: 200, json: async () => body }) as Response }
-  }
-  const first = () => page([vessel('v1', '가선'), vessel('v2', '나선')], { next_cursor: 'c2', has_more: true })
-
   it('ⓐ 정렬을 바꿔 첫 페이지를 다시 받는 동안 「다음 선박」이 잠긴다', async () => {
     const { pending, ok } = deferredFetch()
     render(
@@ -317,6 +318,173 @@ describe('정렬 변경 · 추가 조회 경합 (#1092)', () => {
     )
     expect(await screen.findByText('다선')).toBeTruthy()
     expect(screen.queryByText(/다음 선박을 불러오지 못했습니다/)).toBeNull()
+  })
+})
+
+/**
+ * 정렬 변경 실패 뒤의 복구 (`#1814`).
+ *
+ * 종전에는 실패 상태를 성공 경로가 지우지 않아 **한 번 실패하면 이후 성공해도 화면 전체가
+ * 오류로 남았다.** 여기서는 ⑴ 실패가 받아 둔 목록·요약을 지우지 않고 **목록 자리**에서만
+ * 알리는가 ⑵ 「다시 시도」가 같은 정렬로 첫 페이지를 다시 묻고, 성공하면 오류가 걷히고 새
+ * 목록이 서는가를 본다. 오류 문구는 표시 문구라 리터럴로 단언하지 않는다(`AGENTS §4.6`).
+ */
+describe('정렬 실패 뒤 복구 (#1814)', () => {
+  const failed = () =>
+    ({ ok: false, status: 503, json: async () => ({ error: { message: '잠시 뒤' } }) }) as Response
+
+  it('정렬이 실패해도 받아 둔 목록·요약은 남고, 다음 정렬이 성공하면 오류가 걷힌다', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    await screen.findByText('가선')
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => pending[1].d.resolve(failed()))
+
+    // 오류는 목록 자리 안에 있고, 요약 띠와 옛 목록은 그대로다 — 화면 전체가 오류가 아니다
+    const list = screen.getByRole('region', { name: '선박 목록' })
+    const alert = await within(list).findByRole('alert')
+    expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
+    expect(screen.getByText('가선')).toBeTruthy()
+    expect(screen.getByText('나선')).toBeTruthy()
+    // 옛 정렬의 커서를 새 정렬에 보내지 않도록 「다음 선박」은 서지 않는다 — 척수 안내는 남는다
+    expect(screen.queryByRole('button', { name: /다음 선박 불러오기/ })).toBeNull()
+    expect(within(list).getByText(/전체 3척 중 2척/)).toBeTruthy()
+
+    // 「다시 시도」는 같은 정렬로 첫 페이지부터 다시 묻는다
+    // 정본 문구 (PRD §6.4) — 바꾸려면 PRD 개정이 먼저다.
+    fireEvent.click(within(alert).getByRole('button', { name: '다시 시도' }))
+    await waitFor(() => expect(pending).toHaveLength(3))
+    expect(pending[2].url.searchParams.get('sort')).toBe('name')
+    expect(pending[2].url.searchParams.get('cursor')).toBeNull()
+    await act(async () =>
+      pending[2].d.resolve(ok(page([vessel('v9', '라선')], { next_cursor: null, has_more: false }))),
+    )
+
+    // 성공이 앞선 실패를 지운다 — 새 목록이 서고 오류는 없다
+    expect(await screen.findByText('라선')).toBeTruthy()
+    expect(screen.queryByText('가선')).toBeNull()
+    expect(within(screen.getByRole('region', { name: '선박 목록' })).queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
+  })
+
+  /** 셀렉트 옵션의 라벨 — 안내 문구와 **같은 출처**인지 보려고 화면에서 읽는다(하드코딩하지 않는다). */
+  function optionLabel(value: string): string {
+    const select = screen.getByTestId('fleet-sort') as HTMLSelectElement
+    const option = Array.from(select.options).find((o) => o.value === value)
+    if (!option) throw new Error(`정렬 옵션 ${value}이 없다`)
+    return option.textContent ?? ''
+  }
+
+  it('실패 안내는 목록이 어느 정렬 그대로인지 말한다 — 셀렉트는 새 값을 가리키므로', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    await screen.findByText('가선')
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => pending[1].d.resolve(failed()))
+
+    const alert = await within(screen.getByRole('region', { name: '선박 목록' })).findByRole('alert')
+    const text = alert.textContent ?? ''
+    // 목록에 실제로 적용된 정렬(처음 값 risk)의 라벨이 있고, 실패한 새 정렬의 라벨은 없다
+    expect(text).toContain(optionLabel('risk'))
+    expect(text).not.toContain(optionLabel('name'))
+    // 서버가 준 사유도 함께 있다
+    expect(text).toContain('잠시 뒤')
+    // 셀렉트는 사용자가 고른 값 그대로다
+    expect((screen.getByTestId('fleet-sort') as HTMLSelectElement).value).toBe('name')
+  })
+
+  it('재시도 중에는 진행 표시가 서고 「다시 시도」를 다시 누를 수 없다 — 요청이 겹치지 않는다', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    await screen.findByText('가선')
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => pending[1].d.resolve(failed()))
+    const list = screen.getByRole('region', { name: '선박 목록' })
+    const alert = await within(list).findByRole('alert')
+    // 정본 문구 (PRD §6.4) — 바꾸려면 PRD 개정이 먼저다.
+    fireEvent.click(within(alert).getByRole('button', { name: '다시 시도' }))
+    await waitFor(() => expect(pending).toHaveLength(3))
+
+    // 응답 전 — 오류 대신 진행 중 표시, 「다시 시도」 없음, 옛 목록은 그대로
+    expect(within(list).getByRole('status')).toBeTruthy()
+    expect(within(list).queryByRole('alert')).toBeNull()
+    expect(within(list).queryByRole('button', { name: '다시 시도' })).toBeNull()
+    expect(screen.getByText('가선')).toBeTruthy()
+    // 다시 누를 버튼이 없으므로 요청 수가 늘지 않는다
+    expect(pending).toHaveLength(3)
+
+    await act(async () =>
+      pending[2].d.resolve(ok(page([vessel('v9', '라선')], { next_cursor: null, has_more: false }))),
+    )
+    expect(await screen.findByText('라선')).toBeTruthy()
+    expect(within(list).queryByRole('status')).toBeNull()
+    expect(within(list).queryByRole('alert')).toBeNull()
+  })
+
+  it('실패 뒤 정렬을 다시 바꿔 성공해도 오류가 걷힌다', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    await screen.findByText('가선')
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => pending[1].d.resolve(failed()))
+    await within(screen.getByRole('region', { name: '선박 목록' })).findByRole('alert')
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'grade' } })
+    await waitFor(() => expect(pending).toHaveLength(3))
+    await act(async () =>
+      pending[2].d.resolve(ok(page([vessel('v9', '라선')], { next_cursor: null, has_more: false }))),
+    )
+
+    expect(await screen.findByText('라선')).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: '선박 목록' })).queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
+  })
+
+  it('받아 둔 목록이 없는 첫 조회 실패는 그대로 화면 전체의 오류다', async () => {
+    const { pending } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(failed()))
+
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: '선대 요약' })).toBeNull()
+    expect(screen.queryByRole('region', { name: '선박 목록' })).toBeNull()
   })
 })
 
