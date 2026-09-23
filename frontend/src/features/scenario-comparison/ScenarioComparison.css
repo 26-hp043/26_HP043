@@ -42,35 +42,6 @@
 }
 
 /*
- * 1100 이하에서는 입력이 위, 결과가 아래로 접힌다(`§8.7`).
- *
- * ## 1900이었다 (#1745)
- *
- * 종전 주석은 이 화면만 1900인 이유를 **주 영역 안에 3열 그리드가 또 들어가기
- * 때문**이라고 적고 있었다 — 카드 셋이 한 줄에 서려면 결과 폭이 684px 넘게 필요했고,
- * 7:5 분할에서 그 폭은 1920에서야 나왔다. **그 중첩 그리드가 없어졌다.** 결과는 이제
- * 표 하나이고, 열 셋은 좁아지면 가로 스크롤로 떨어진다.
- *
- * 그래서 다른 화면과 같은 1100으로 내린다 — `FleetDashboard` · `RealtimeCiiView` ·
- * `VesselDetail` · `CII 예측` · `연간 등급 관리`가 모두 여기서 접는다.
- *
- * 접힌 뒤에는 따라오지 않는다 — 결과 위에 입력이 덮이면 결과를 읽을 수 없다.
- *
- * 미디어 쿼리 조건에는 커스텀 프로퍼티를 쓸 수 없어 리터럴로 적는다.
- */
-@media (max-width: 1100px) {
-  .scenario-comparison {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .scenario-comparison__form {
-    position: static;
-    max-block-size: none;
-    overflow-y: visible;
-  }
-}
-
-/*
  * 조건 입력 폼 (#511).
  *
  * DESIGN_SYSTEM §8 — 입력·셀렉트: surface-2 배경 · border · radius 8 · 라벨 상단 ·
@@ -636,4 +607,43 @@
 .scenario-comparison__lookup:disabled {
   color: var(--text-muted);
   cursor: progress;
+}
+
+/*
+ * 1100 이하에서는 입력이 위, 결과가 아래로 접힌다(`§8.7`).
+ *
+ * ## 1900이었다 (#1745)
+ *
+ * 종전 주석은 이 화면만 1900인 이유를 **주 영역 안에 3열 그리드가 또 들어가기
+ * 때문**이라고 적고 있었다 — 카드 셋이 한 줄에 서려면 결과 폭이 684px 넘게 필요했고,
+ * 7:5 분할에서 그 폭은 1920에서야 나왔다. **그 중첩 그리드가 없어졌다.** 결과는 이제
+ * 표 하나이고, 열 셋은 좁아지면 가로 스크롤로 떨어진다.
+ *
+ * 그래서 다른 화면과 같은 1100으로 내린다 — `FleetDashboard` · `RealtimeCiiView` ·
+ * `VesselDetail` · `CII 예측` · `연간 등급 관리`가 모두 여기서 접는다.
+ *
+ * 접힌 뒤에는 따라오지 않는다 — 결과 위에 입력이 덮이면 결과를 읽을 수 없다.
+ *
+ * 미디어 쿼리 조건에는 커스텀 프로퍼티를 쓸 수 없어 리터럴로 적는다.
+ *
+ * ## 파일 끝에 둔다 (#1770)
+ *
+ * 특정도가 같으므로 `.scenario-comparison__form` 기본 규칙보다 **뒤에 있어야**
+ * 이긴다. 종전에는 이 블록이 그 규칙보다 **앞**에 있어, 1100·720에서 격자만 접히고
+ * 폼은 `position: sticky` · `max-block-size: 772px` · `overflow-y: auto`가 그대로였다
+ * — 접힌 뒤에도 폼이 결과를 덮고, 가장 긴 폭에서 폼 안이 잘렸다. `#1745`가 이 화면을
+ * `§8.7`로 옮기며 블록을 종전 자리에 둔 채 기본 규칙을 아래에 새로 적은 것이 원인이다.
+ *
+ * `styles/inputColumn.sync.test.ts`가 이제 **순서**를 본다 — 다시 위로 올리면 붉어진다.
+ */
+@media (max-width: 1100px) {
+  .scenario-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scenario-comparison__form {
+    position: static;
+    max-block-size: none;
+    overflow-y: visible;
+  }
 }
