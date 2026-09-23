@@ -1536,6 +1536,70 @@ describe('추정 거리 넣기 (#1750)', () => {
     expect(screen.queryByText(/좌표 기반 추정 거리 —/)).toBeNull()
   })
 
+  it.each([
+    ['현재 위도', /현재 위도/, '40.0'],
+    ['현재 경도', /현재 경도/, '130.5'],
+  ])(
+    '%s를 손으로 고치면 추정으로 채운 거리와 그 고지가 남지 않는다 (#1777)',
+    async (_name, label, value) => {
+      stubWithGreatCircle()
+      renderScreen()
+      await pickBothPorts()
+      await waitFor(() => expect(estimateButton().disabled).toBe(false))
+      fireEvent.click(estimateButton())
+      await waitFor(() => expect(distanceInput().value).toBe('2504.62'))
+
+      fireEvent.change(screen.getByLabelText(label), { target: { value } })
+
+      expect(distanceInput().value).toBe('')
+      expect(screen.queryByText(/좌표 기반 추정 거리 —/)).toBeNull()
+    },
+  )
+
+  it('손으로 넣은 거리는 좌표를 고쳐도 남는다 (#1777 · #1750의 종전 동작)', async () => {
+    stubWithGreatCircle()
+    renderScreen()
+    await pickBothPorts()
+    fireEvent.change(distanceInput(), { target: { value: '2600' } })
+
+    fireEvent.change(screen.getByLabelText(/현재 위도/), { target: { value: '40.0' } })
+
+    expect(distanceInput().value).toBe('2600')
+  })
+
+  it('요청 중에 항을 바꾸면 늦게 온 추정 거리를 버린다 (#1778 → #1777)', async () => {
+    // 응답을 손으로 풀 수 있게 붙잡아 둔다 — 「누름 → 항 변경 → 응답 도착」 순서를 만든다.
+    let release: (nm: number) => void = () => {}
+    const fetchImpl = stubWithGreatCircle()
+    const base = fetchImpl.getMockImplementation()!
+    fetchImpl.mockImplementation(async (input: unknown, init?: RequestInit) => {
+      if (String(input).includes('/ports/great-circle')) {
+        const nm = await new Promise<number>((resolve) => {
+          release = resolve
+        })
+        return jsonResponse({ data: { distance_nm: nm } })
+      }
+      return base(input, init)
+    })
+    renderScreen()
+    await pickBothPorts()
+    await waitFor(() => expect(estimateButton().disabled).toBe(false))
+    fireEvent.click(estimateButton())
+    await waitFor(() =>
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/ports/great-circle'))).toBe(
+        true,
+      ),
+    )
+
+    fireEvent.change(screen.getByLabelText(/목적항/), { target: { value: 'TOKYO' } })
+    release(2504.62)
+
+    // 버튼이 풀릴 때까지 기다린다 — 응답 처리가 끝났다는 뜻이다.
+    await waitFor(() => expect(screen.queryByRole('button', { name: /추정하는 중/ })).toBeNull())
+    expect(distanceInput().value).toBe('')
+    expect(screen.queryByText(/좌표 기반 추정 거리 —/)).toBeNull()
+  })
+
   it('응답이 계약과 다르면 거리를 넣지 않고 그 사실을 말한다', async () => {
     stubWithGreatCircle('2504.62')
     renderScreen()
