@@ -106,6 +106,40 @@ def test_readme_reflects_the_current_document_versions():
     assert not drift, "README가 낡았다 (AGENTS §4):\n  " + "\n  ".join(drift)
 
 
+def _readme_changelog_rows() -> list[str]:
+    """`README` 「변경 이력」 절의 표 행."""
+    text = _README.read_text(encoding="utf-8")
+    start = text.index("## 변경 이력")
+    return [line for line in text[start:].splitlines() if line.startswith("| 20")]
+
+
+def test_readme_changelog_records_every_current_version():
+    """표의 **현재 판본마다** README 변경 이력에 그 문서·판본을 적은 행이 있다 (#1779).
+
+    위 검사는 표의 **최종 상태**만 본다. 그래서 문서 구조 표는 고치고 이 문서 자신의 변경
+    이력 행은 싣지 않은 PR이 일곱 건 쌓였다(`DB_SCHEMA` v1.32~v1.34 · `DESIGN_SYSTEM` v2.23 ·
+    v2.25~v2.27 · `UIFLOW` v2.17). 판본을 올리는 PR마다 이 검사가 그 판본의 행을 요구한다.
+    """
+    rows = _readme_changelog_rows()
+    missing = []
+    for doc in CANONICAL_DOCS:
+        stem = doc.removesuffix(".md")
+        version = _header_version(doc)
+        # `v2.2`가 `v2.27`에 걸리지 않게 뒤에 숫자·점+숫자가 이어지지 않는 것만 센다.
+        # 문서 이름과 판본이 **가까이**(40자 안) 붙어 있어야 그 문서의 행으로 센다 — 여러 문서를
+        # 나열하는 행이 다른 문서의 판본으로 이 검사를 통과시키지 않게 한다.
+        pattern = re.compile(
+            rf"\b{re.escape(stem)}(?:\.md)?\b[^|]{{0,40}}?{re.escape(version)}(?![0-9]|\.[0-9])"
+        )
+        if not any(pattern.search(row) for row in rows):
+            missing.append(f"{doc} {version}")
+    assert not missing, (
+        "README 변경 이력에 현재 판본의 행이 없다 (AGENTS §4 · §4.1): "
+        + ", ".join(missing)
+        + ". 문서 구조 표를 고친 PR이 이 README 변경 이력에도 자기 행을 싣는다."
+    )
+
+
 def test_readme_version_is_the_first_token_in_the_row():
     """검사 방식 자체의 회귀 방지.
 
