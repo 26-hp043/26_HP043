@@ -284,21 +284,71 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     return null
   }
 
+  /**
+   * `disabled={…}`를 줄 끝 앵커 없이 텍스트 전체에서 찾는다 (#1810).
+   *
+   * 종전 `/disabled=\{(.+?)\}\s*>?\s*$/`는 `$`로 줄 끝을 요구해, 같은 줄에
+   * `disabled={x} aria-label="…"`처럼 속성이 이어지면 조용히 빠져나갔다.
+   * 여기서는 `disabled={`를 찾은 뒤 여는/닫는 중괄호 깊이를 세어 **균형이
+   * 맞는 지점**까지를 표현식으로 자른다 — 삼항의 객체 리터럴(`{a:1}`)이나
+   * 화살표 함수처럼 중괄호가 중첩돼도 안쪽 `}`에서 먼저 끊기지 않는다.
+   * 줄 앵커가 없으므로 여러 줄에 걸친 표현식도 기존과 달리 잡는다(더 나빠지지 않는다).
+   */
+  function extractDisabledExpressions(text: string): Array<{ expression: string; index: number }> {
+    const MARKER = 'disabled={'
+    const results: Array<{ expression: string; index: number }> = []
+    let searchFrom = 0
+    while (true) {
+      const start = text.indexOf(MARKER, searchFrom)
+      if (start === -1) break
+      const exprStart = start + MARKER.length
+      let depth = 1
+      let i = exprStart
+      while (i < text.length && depth > 0) {
+        if (text[i] === '{') depth += 1
+        else if (text[i] === '}') depth -= 1
+        i += 1
+      }
+      // depth가 0으로 안 닫히면(파일 끝까지 짝이 안 맞으면) 그 매치는 버린다.
+      if (depth === 0) results.push({ expression: text.slice(exprStart, i - 1), index: start })
+      searchFrom = exprStart
+    }
+    return results
+  }
+
   function preconditionButtons(): string[] {
     const keys: string[] = []
     for (const { path, text } of FILES) {
       const lines = text.split('\n')
-      lines.forEach((line, index) => {
-        const found = /disabled=\{(.+?)\}\s*>?\s*$/.exec(line)
-        if (found === null) return
-        const expression = found[1].trim()
-        if (expression.split('||').every((term) => TRANSIENT.has(term.trim()))) return
-        if (enclosingTag(lines, index) !== 'button') return
+      for (const { expression: raw, index } of extractDisabledExpressions(text)) {
+        const expression = raw.trim()
+        if (expression.split('||').every((term) => TRANSIENT.has(term.trim()))) continue
+        const lineIndex = text.slice(0, index).split('\n').length - 1
+        if (enclosingTag(lines, lineIndex) !== 'button') continue
         keys.push(`${path} :: ${expression}`)
-      })
+      }
     }
     return [...new Set(keys)].sort()
   }
+
+  it('extractDisabledExpressions — 같은 줄에 속성이 이어져도 잡는다 (#1810)', () => {
+    expect(extractDisabledExpressions('<button disabled={x} aria-label="닫기">').map((r) => r.expression)).toEqual([
+      'x',
+    ])
+  })
+
+  it('extractDisabledExpressions — 중괄호가 중첩된 표현식도 안쪽에서 끊기지 않는다', () => {
+    expect(
+      extractDisabledExpressions("<button disabled={cond ? {a: 1} : {b: 2}} onClick={fn}>").map(
+        (r) => r.expression,
+      ),
+    ).toEqual(['cond ? {a: 1} : {b: 2}'])
+  })
+
+  it('extractDisabledExpressions — 여러 줄에 걸친 표현식도 잡는다', () => {
+    const text = '<button\n  disabled={\n    a || b\n  }\n>'
+    expect(extractDisabledExpressions(text).map((r) => r.expression)).toEqual(['\n    a || b\n  '])
+  })
 
   it('선행 조건으로 잠기는 버튼은 전부 등재돼 있다', () => {
     const unregistered = preconditionButtons().filter((key) => !(key in REGISTERED))
