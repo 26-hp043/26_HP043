@@ -293,6 +293,11 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
    * 맞는 지점**까지를 표현식으로 자른다 — 삼항의 객체 리터럴(`{a:1}`)이나
    * 화살표 함수처럼 중괄호가 중첩돼도 안쪽 `}`에서 먼저 끊기지 않는다.
    * 줄 앵커가 없으므로 여러 줄에 걸친 표현식도 기존과 달리 잡는다(더 나빠지지 않는다).
+   *
+   * ⚠️ **문자열 리터럴은 가리지 않는다.** `disabled={x === '}'}`처럼 따옴표 안에 짝이 안 맞는
+   * 중괄호가 있으면 그 자리에서 잘린다 — 순수 문자 계수라서다. 지금 `disabled={` 표현식은 전부
+   * 불리언 비교·논리 연산이라 그런 리터럴이 없다(PR #1841 리뷰). 「등재돼 있다」가 반쪽짜리
+   * 표현식을 등재하라고 요구하며 실패하면 이 한계부터 본다.
    */
   function extractDisabledExpressions(text: string): Array<{ expression: string; index: number }> {
     const MARKER = 'disabled={'
@@ -310,8 +315,13 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
         i += 1
       }
       // depth가 0으로 안 닫히면(파일 끝까지 짝이 안 맞으면) 그 매치는 버린다.
-      if (depth === 0) results.push({ expression: text.slice(exprStart, i - 1), index: start })
-      searchFrom = exprStart
+      if (depth === 0) {
+        results.push({ expression: text.slice(exprStart, i - 1), index: start })
+        // 소비한 표현식 **뒤에서** 다시 찾는다 — 안쪽의 `disabled={`(조건부로 그린 자식)를 두 번 세지 않는다.
+        searchFrom = i
+      } else {
+        searchFrom = exprStart
+      }
     }
     return results
   }
@@ -321,7 +331,8 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
     for (const { path, text } of FILES) {
       const lines = text.split('\n')
       for (const { expression: raw, index } of extractDisabledExpressions(text)) {
-        const expression = raw.trim()
+        // 여러 줄 표현식도 한 줄 키가 되게 공백을 접는다 — 재포맷에 등재 키가 흔들리지 않는다.
+        const expression = raw.replace(/\s+/g, ' ').trim()
         if (expression.split('||').every((term) => TRANSIENT.has(term.trim()))) continue
         const lineIndex = text.slice(0, index).split('\n').length - 1
         if (enclosingTag(lines, lineIndex) !== 'button') continue
@@ -348,6 +359,14 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
   it('extractDisabledExpressions — 여러 줄에 걸친 표현식도 잡는다', () => {
     const text = '<button\n  disabled={\n    a || b\n  }\n>'
     expect(extractDisabledExpressions(text).map((r) => r.expression)).toEqual(['\n    a || b\n  '])
+  })
+
+  it('extractDisabledExpressions — 안쪽의 disabled={를 두 번 세지 않는다', () => {
+    expect(
+      extractDisabledExpressions('<div disabled={cond ? <Foo disabled={bar} /> : null}>').map(
+        (r) => r.expression,
+      ),
+    ).toEqual(['cond ? <Foo disabled={bar} /> : null'])
   })
 
   it('선행 조건으로 잠기는 버튼은 전부 등재돼 있다', () => {
