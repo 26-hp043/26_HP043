@@ -130,16 +130,28 @@ export function VesselDetail({
   const [changeCount, setChangeCount] = useState(0)
   const noteChanged = useCallback(() => setChangeCount((count) => count + 1), [])
 
+  /*
+   * 비우는 것은 **배가 바뀔 때만**이다 (#1811). 종전에는 아래 조회 effect가 `changeCount`에도
+   * 반응하면서 시작마다 `setDetail(null)`을 했다 — 자식이 `noteChanged()`를 부를 때마다 화면
+   * 전체가 로딩으로 교체돼, 더 보기로 받은 행과 쓰다 만 실적 입력이 사라지고 `?actuals=`로
+   * 들어온 폼이 다시 열렸다. 다시 부르는 동안에는 그려진 상세를 그대로 두고 값만 갈아 끼운다.
+   */
+  useEffect(() => {
+    setDetail(null)
+    setFailure(null)
+    setInProgress('loading')
+  }, [vesselId, provider])
+
   useEffect(() => {
     if (!vesselId) return
     let alive = true
-    setDetail(null)
-    setFailure(null)
 
     provider
       .load(vesselId)
       .then((data) => {
-        if (alive) setDetail(data)
+        if (!alive) return
+        setDetail(data)
+        setFailure(null)
       })
       .catch((error: unknown) => {
         if (!alive) return
@@ -155,10 +167,14 @@ export function VesselDetail({
     }
   }, [vesselId, provider, changeCount])
 
+  /*
+   * 진행 중 항차도 `changeCount`에 반응한다 (#1811). 항차 상태 전환은 이 조회의 답을 바꾸는데
+   * deps에 없어 헤더가 새로고침 전까지 옛 항차를 보였다(`#1647`). 다시 부를 때 `'loading'`으로
+   * 되돌리지 않는다 — 위와 같은 이유로, 답을 아는 동안 「확인 중」으로 물러서지 않는다.
+   */
   useEffect(() => {
     if (!vesselId) return
     let alive = true
-    setInProgress('loading')
 
     provider
       .findInProgressVoyage(vesselId)
@@ -174,9 +190,10 @@ export function VesselDetail({
     return () => {
       alive = false
     }
-  }, [vesselId, provider])
+  }, [vesselId, provider, changeCount])
 
-  if (failure) {
+  // 다시 부르기가 실패해도 이미 그려진 상세를 오류 화면으로 바꾸지 않는다 (#1811).
+  if (failure && !detail) {
     return (
       <div className="vd">
         <BackLink />

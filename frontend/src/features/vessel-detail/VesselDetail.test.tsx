@@ -448,6 +448,59 @@ describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () =
     await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
     vi.unstubAllGlobals()
   })
+
+  /*
+   * 다시 부르는 동안 화면을 비우지 않는다 (#1811). 종전에는 조회 effect가 시작마다
+   * `setDetail(null)`을 해서 자식이 `onChanged`를 부를 때마다 상세 전체가 로딩으로 교체됐다 —
+   * 더 보기로 받은 행과 쓰다 만 입력이 사라졌다. 「비우지 않았다」는 **같은 DOM 노드가 남아
+   * 있는가**로 본다 — 언마운트됐다 다시 그려지면 겉모습은 같아도 노드가 다르다.
+   */
+  it('정박 기록을 지워도 그려진 상세가 남고 값만 바뀐다 (#1811)', async () => {
+    stubNetwork()
+    const renamed: Detail = { ...DETAIL, vessel: { ...DETAIL.vessel, name: '바뀐 선명' } }
+    const provider = stub({
+      load: vi.fn().mockResolvedValueOnce(DETAIL).mockResolvedValue(renamed),
+    })
+    renderAt(provider)
+
+    const tablist = await screen.findByRole('tablist', { name: '선박 상세 구획' })
+    fireEvent.click(screen.getByRole('tab', { name: '정박' }))
+    const panel = await screen.findByRole('tabpanel')
+
+    fireEvent.click(await screen.findByRole('button', { name: /구간 삭제|삭제/ }))
+
+    // 새 값이 들어왔는데도 구획과 정박 패널은 같은 노드다 — 로딩으로 교체되지 않았다.
+    await screen.findByRole('heading', { level: 1, name: /바뀐 선명/ })
+    expect(screen.getByRole('tablist', { name: '선박 상세 구획' })).toBe(tablist)
+    expect(screen.getByRole('tabpanel')).toBe(panel)
+    vi.unstubAllGlobals()
+  })
+
+  /*
+   * 진행 중 항차도 다시 본다 (#1811). 그 조회는 `changeCount`에 반응하지 않아 항차 상태를
+   * 바꿔도 헤더가 새로고침 전까지 옛 답을 보였다(`#1647`). 여기서는 두 번째 답이 첫 답과
+   * 다르게 오게 하고 헤더가 그것을 따라가는지 본다.
+   */
+  it('정박 기록을 지우면 진행 중 항차를 다시 보고 헤더가 새 답을 따른다 (#1811)', async () => {
+    stubNetwork()
+    const provider = stub({
+      findInProgressVoyage: vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ id: 'vy-1', voyageNo: 'V-1' }),
+    })
+    renderAt(provider)
+
+    // 첫 답은 「없음」 — 링크가 아니라 버튼이다.
+    await screen.findByRole('button', { name: /실시간 CII 보기/ })
+    fireEvent.click(await screen.findByRole('tab', { name: '정박' }))
+    fireEvent.click(await screen.findByRole('button', { name: /구간 삭제|삭제/ }))
+
+    await waitFor(() => expect(provider.findInProgressVoyage).toHaveBeenCalledTimes(2))
+    const link = await screen.findByRole('link', { name: /실시간 CII 보기/ })
+    expect(link.getAttribute('href')).toBe('/vessels/v-1/voyages/current')
+    vi.unstubAllGlobals()
+  })
   /**
    * 탭마다 떠 있는 면이 넷을 넘지 않는다 (#1774 · `§5` · `§8`).
    *
