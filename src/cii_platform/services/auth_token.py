@@ -29,6 +29,7 @@ from uuid import UUID
 
 from sqlalchemy import select, update
 
+from cii_platform.db.models.app_user import AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.models.user_token import (
     PURPOSE_EMAIL_VERIFY,
@@ -88,6 +89,19 @@ async def issue_token(
         raise ValueError(f"알 수 없는 토큰 용도: {purpose}")
 
     resolved = now or datetime.now(UTC)
+
+    # 이 사용자 행을 **먼저 잠근다** (`#1630` · `F-8` 결정).
+    #
+    # 무효화와 생성 사이에 다른 요청이 끼면 **둘 다 「유효한 토큰이 없다」를 보고** 각각
+    # 새 토큰을 남긴다. 그러면 메일 두 통의 링크가 **둘 다 살아 있어**, 「최신 링크 하나만
+    # 유효하다」는 계약이 조용히 깨진다 — 오래된 메일이 유출됐을 때 그 링크가 계속 듣는다.
+    #
+    # 잠그는 것은 **부모 행(사용자)**이다. 토큰 행에 거는 것으로는 막을 수 없다 — 두 요청이
+    # 보는 행이 아예 없는 것이 이 경합의 시작이라, 없는 행에는 잠금이 걸리지 않는다.
+    # `routes/auth.py`의 `_lock_admin_users`가 「마지막 관리자」에 대해 쓰는 것과 같은 도구다.
+    #
+    # 트랜잭션 경계는 그대로다 — 잠금은 호출부가 커밋할 때 함께 풀린다.
+    await session.execute(select(AppUser.id).where(AppUser.id == user_id).with_for_update())
 
     # 같은 용도의 미사용 토큰을 먼저 소진 처리한다.
     await session.execute(
