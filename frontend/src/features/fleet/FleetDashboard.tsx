@@ -12,6 +12,7 @@ import { formatTimestamp } from '../../display/format'
 import { ErrorState } from '../../components/ErrorState'
 import { PositionChart } from './PositionChart'
 import { UnconfirmedVoyages } from './UnconfirmedVoyages'
+import { PANEL_KEY, initialPanelOpen } from './panelState'
 /*
  * 지도는 **자산이 있을 때만** 내려받는다 (`#763`).
  *
@@ -74,6 +75,11 @@ export function FleetDashboard() {
   const [failure, setFailure] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<FleetSort>('risk')
   const [expanded, setExpanded] = useState(false)
+  /*
+   * 패널 접힘 (#1824). 첫 값은 저장된 선택 → 없으면 화면 폭으로 정한다
+   * (`initialPanelOpen`). 렌더 중 `window`를 읽지 않도록 초기화 함수로 넘긴다.
+   */
+  const [panelOpen, setPanelOpen] = useState(() => initialPanelOpen())
   /**
    * 지도 자산이 있는가 (`#763`). `null`은 **아직 모른다**는 뜻이다 — 그동안은
    * 개략도를 그리되 「없다」는 문구를 붙이지 않는다. 잠깐 보였다 사라지는 경고는
@@ -281,7 +287,13 @@ export function FleetDashboard() {
         KPI 행이 카드 밖 맨몸으로 페이지 위에 얹혀 있었다. 아래 두 블록은
         칸인데 여기만 아니라, **가장 먼저 읽혀야 할 줄이 가장 약하게** 보였다.
       */}
-      <section className="card fleet__kpi" aria-label="선대 요약">
+      {/*
+        #1824 — **카드에서 꺼내 띠로.** 지도를 본문 전체로 펴면서 `§5` 카드 예산을
+        맞추려면(떠 있는 면 4개 이하) 요약이 면을 하나 차지하고 있을 수 없다.
+        요약은 **한 덩어리의 데이터가 아니라 서로 다른 여섯 값**이라 원래 카드가
+        어울리는 내용도 아니었다 — `§5`가 말하는 「카드는 한 덩어리의 데이터에만」이다.
+      */}
+      <section className="fleet__strip" aria-label="선대 요약">
         <div className="kpi">
           <p className="kpi__label">운항 상태</p>
           {/*
@@ -385,26 +397,28 @@ export function FleetDashboard() {
             </p>
           ) : null}
         </div>
+
+        {/*
+          할 일 — 실적 확정 전 항차 (#1573 · #1824). 0건이면 스스로 그리지 않아
+          **칸이 아예 서지 않는다**(경고 배너와 같은 규칙).
+        */}
+        <UnconfirmedVoyages as="cell" />
       </section>
 
       {/*
-        할 일 — 실적 확정 전 항차 (#1573). 선대 요약 **다음**이다 — 경고 배너 · 조치 필요는
-        규제 의무라 이보다 앞선다. 0건이면 스스로 그리지 않는다.
-      */}
-      <UnconfirmedVoyages />
+        #1824 — **지도가 본문 전체를 차지한다** (`DESIGN_SYSTEM §9.5` v2.28 · `#1821`).
+        종전에는 폭 480 카드 안이라 1440에서 `614 × 435`, 본문의 54%뿐이었다.
 
-      <div className="fleet__split">
+        카드 머리(제목 「선박 위치」 · 메타 「사용자 입력 기준」)는 걷었다 — 정본이
+        **「제목은 페이지 제목이 대신한다 · 기준 시각·척수·「사용자 입력 기준」은 좌상단
+        칩 한 줄」**로 정했다. ⚠️ 「AIS」로 쓰지 않는 것은 그대로다(`PRD §2.4` COR-5).
+
+        **오버레이는 지도의 일부다** — 좌측 패널 · 칩 · 도구 레일은 `§5` 카드 예산에서
+        세지 않는다(정본 v2.28).
+      */}
+      <div className="fleet__stage">
         <div className="fleet__col">
-          <section className="card" aria-label="선박 위치">
-            <div className="card__head">
-              <h2 className="card__title">선박 위치</h2>
-              {/*
-               * ⚠️ 「AIS」로 쓰지 않는다. AIS 자동 수집은 `PRD §2.4`에서 제외됐고,
-               * 위치는 사용자 입력 또는 시뮬레이션 시계로 확보한다(COR-5).
-               * 하지 않는 것을 화면에 적으면 안 된다.
-               */}
-              <span className="card__meta">사용자 입력 기준</span>
-            </div>
+          <section aria-label="선박 위치">
             <div className="fleet__chartbox">
               {/*
                 지도 자산이 있으면 지도, 없으면 개략도다 (`#763` ⓑ).
@@ -427,8 +441,54 @@ export function FleetDashboard() {
             </div>
           </section>
 
+          {/*
+            지도 칩 (#1824 · 정본 v2.28) — 걷어낸 카드 메타가 있던 자리를 대신한다.
+
+            ⚠️ **기준 시각은 싣지 않는다.** 정본 v2.28은 「기준 시각 · 척수 ·
+            「사용자 입력 기준」을 칩 한 줄」로 적었는데, **기준 시각은 이미 페이지 제목
+            블록에 있다**(`FleetHead`). 그 자리는 *「제목·부제목과 같은 「이 화면이
+            무엇을 언제 기준으로 보여 주는가」이므로 한 덩어리다」*라는 판단으로 옮겨
+            둔 것이고, **요약 띠의 숫자들도 같은 `as_of` 기준**이라 지도만의 값이 아니다.
+            칩에 다시 적으면 한 화면에 같은 시각이 두 번 선다.
+
+            칩은 **지도 자신의 메타**만 든다 — 위치가 어디서 왔는가(사용자 입력)와
+            **몇 척이 찍혔는가**. 정본의 그 한 줄은 이 PR에서 함께 정정한다.
+          */}
+          <p className="fleet__chip">사용자 입력 기준 · {vessels.length}척</p>
+        </div>
+
+        {/*
+          지도 위 좌측 패널 (#1824) — 선박 목록과 조치 필요가 여기로 들어온다.
+          접으면 버튼만 남고 지도가 전폭이 된다.
+        */}
+        <aside
+          className={`fleet__panel${panelOpen ? '' : ' fleet__panel--closed'}`}
+          aria-label="선박 목록과 조치"
+        >
+          <button
+            type="button"
+            className="fleet__panel-toggle"
+            aria-expanded={panelOpen}
+            onClick={() =>
+              setPanelOpen((v) => {
+                const next = !v
+                try {
+                  window.localStorage.setItem(PANEL_KEY, String(next))
+                } catch {
+                  // 저장이 막혀도 이번 세션 동안은 접힘이 유지된다.
+                }
+                return next
+              })
+            }
+          >
+            {panelOpen
+              ? '« 접기'
+              : `선박 ${vessels.length}${snapshot.actions.length > 0 ? ` · 조치 필요 ${snapshot.actions.length}` : ''}`}
+          </button>
+
+          <div className="fleet__panel-body" hidden={!panelOpen}>
           {snapshot.actions.length > 0 ? (
-            <section className="card" id={ACTIONS_ID} aria-label="조치 필요">
+            <section id={ACTIONS_ID} aria-label="조치 필요">
               <div className="card__head">
                 <h2 className="card__title">조치 필요</h2>
                 <span className="card__meta">MARPOL Annex VI Reg 28.7</span>
@@ -460,9 +520,8 @@ export function FleetDashboard() {
               </ul>
             </section>
           ) : null}
-        </div>
 
-        <section className="card fleet__list" aria-label="선박 목록">
+        <section className="fleet__list" aria-label="선박 목록">
           <div className="card__head">
             <h2 className="card__title">선박</h2>
             <label className="sort">
@@ -518,6 +577,8 @@ export function FleetDashboard() {
             </button>
           ) : null}
         </section>
+          </div>
+        </aside>
       </div>
 
       {/*

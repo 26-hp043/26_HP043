@@ -111,3 +111,20 @@
   border-width: 2px;
   border-color: var(--semantic-danger);
 }
+
+/*
+ * 정박 · 묘박의 닻 배지 (#1824 · `DESIGN_SYSTEM §9.5` v2.28).
+ *
+ * 마커의 **왼쪽 아래**에 둔다 — 등급 배지가 오른쪽 아래라 두 배지가 겹치지 않는다.
+ * 배 모양이 방향으로 돌아도 이 배지는 돌지 않는다(기호가 뒤집히면 읽히지 않는다).
+ */
+.fleetmap__anchor {
+  position: absolute;
+  inset-block-end: -2px;
+  inset-inline-start: -2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  padding: 0 1px;
+  font-size: 9px;
+  line-height: 1.2;
+}

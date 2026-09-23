@@ -103,12 +103,43 @@ function markerElement(vessel: FleetVessel): HTMLElement {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', `0 0 ${VESSEL_GRID} ${VESSEL_GRID}`)
   svg.setAttribute('aria-hidden', 'true')
+  /*
+   * 선수 방향 (#1824 · `DESIGN_SYSTEM §9.5` v2.28) — 서버가 준 `course_deg`만큼
+   * 돌린다(북 = 0 · 시계 방향).
+   *
+   * ⚠️ **화면이 계산하지 않는다.** 같은 방위를 내는 `initial_bearing_deg`가 서버에
+   * 있고 항로 비교의 기상 보정이 그 함수를 쓴다(`#1804` · `#1672` 회신 ⑴) — 여기서
+   * 다시 계산하면 지도와 항로 비교가 다른 값을 말할 수 있다.
+   *
+   * **값이 없으면 돌리지 않는다** — 없는 방향을 0°(북)로 그리면 「북쪽으로 간다」는
+   * 거짓을 그리는 것이다. 정박·묘박처럼 목적항이 없는 배가 여기 든다.
+   *
+   * 배지는 함께 돌지 않는다 — 글자가 뒤집히면 등급을 읽을 수 없다(`§14` 문자 채널).
+   */
+  const course = vessel.courseDeg === null ? null : Number(vessel.courseDeg)
+  if (course !== null && Number.isFinite(course)) {
+    svg.style.transform = `rotate(${course}deg)`
+  }
   for (const d of VESSEL_PATHS) {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     path.setAttribute('d', d)
     svg.appendChild(path)
   }
   root.appendChild(svg)
+
+  /*
+   * 정박 · 묘박의 닻 배지 (#1824 · 정본 v2.28). `detail_status`의 NOT_UNDER_WAY
+   * 다섯이 여기 든다 — 접안 · 묘박 · 표류 · 선박 간 이적 · 운하 통과.
+   * **배 모양은 그대로**다. 갈리는 것은 이 배지 하나이고, 낭독은 아래 이름표가 받는다.
+   */
+  const moored = vessel.underwayState === 'NOT_UNDER_WAY'
+  if (moored) {
+    const anchor = document.createElement('span')
+    anchor.className = 'fleetmap__anchor'
+    anchor.setAttribute('aria-hidden', 'true')
+    anchor.textContent = '⚓'
+    root.appendChild(anchor)
+  }
 
   const label = document.createElement('span')
   label.className = 'fleetmap__badge'
@@ -119,7 +150,7 @@ function markerElement(vessel: FleetVessel): HTMLElement {
   root.setAttribute('role', 'img')
   root.setAttribute(
     'aria-label',
-    `${vessel.name} · 등급 ${rating ?? '없음'}${isAtRisk(vessel) ? ' · 주의' : ''}`,
+    `${vessel.name} · 등급 ${rating ?? '없음'}${moored ? ' · 정박 중' : ''}${isAtRisk(vessel) ? ' · 주의' : ''}`,
   )
   return root
 }

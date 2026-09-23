@@ -154,19 +154,54 @@
  *
  * 좁아지면 아래 미디어 쿼리가 한 칸으로 떨어뜨린다.
  */
-.fleet__kpi {
+/*
+ * 요약 띠 (#1824) — **카드가 아니다.**
+ *
+ * 종전에는 `.card`를 함께 달아 면 하나를 차지했다. 지도를 본문 전체로 펴면서
+ * `§5` 카드 예산(떠 있는 면 4개 이하)을 맞추려면 이 줄이 면을 가질 수 없고,
+ * 내용상으로도 **한 덩어리의 데이터가 아니라 서로 다른 값 여섯**이라 `§5`가 말하는
+ * 카드의 조건에 애초에 맞지 않았다. 구분선이 그 일을 대신한다.
+ *
+ * 칸 수를 고정하지 않는다 — 실적 확정 전 항차 칸은 0건이면 서지 않는다(`#1573`).
+ */
+.fleet__strip {
   display: grid;
-  /* 넷째 칸 「D등급 진입 임박」 (#1569) — 경고 배너 부제에서 옮겨 왔다. */
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  /*
+   * 등급 분포 칸은 배 마크가 다섯 줄로 서므로 다른 칸보다 넓어야 한다 — `150`으로
+   * 두었더니 「E 2척」이 둘째 줄로 접혔다(실측). `auto-fit`은 최소 폭이 같은 칸만
+   * 만들 수 있어, 그 칸에 `span 2`를 주어 자리를 넓힌다.
+   */
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   justify-items: center;
-  gap: var(--spacing-xl);
+  gap: var(--spacing-md) var(--spacing-xl);
   align-items: start;
+  padding-block: var(--spacing-md);
+  border-block: var(--borderWidth-default) solid var(--border-default);
+}
+
+/* 등급 분포는 두 칸을 쓴다 — 배 마크 다섯이 한 줄로 서야 한다. */
+.fleet__strip .kpi--wide {
+  grid-column: span 2;
 }
 
 @media (max-width: 1100px) {
-  .fleet__kpi {
-    grid-template-columns: minmax(0, 1fr);
+  .fleet__strip {
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   }
+}
+
+/*
+ * 패널 안의 절 머리 (#1824) — 360 폭에서는 가로로 늘어놓을 수 없다. 카드였을 때는
+ * 제목 옆에 메타와 링크 둘이 한 줄로 섰는데, 패널에서는 네 줄로 접혀 목록을 밀어냈다.
+ */
+.fleet__panel .card__head {
+  display: grid;
+  gap: var(--spacing-xs);
+  justify-items: start;
+}
+
+.fleet__panel .card__head .card__meta {
+  font-size: var(--font-size-micro);
 }
 
 /*
@@ -274,44 +309,154 @@
  * 거터도 `--spacing-xl`(24px)이 아니라 `--grid-gutter`(24px)를 쓴다. 값은 같지만
  * 12컬럼의 거터를 소유하는 토큰은 그쪽이다.
  */
-.fleet__split {
-  display: grid;
-  grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
-  gap: var(--grid-gutter);
-  align-items: start;
+/*
+ * 무대 (#1824) — **지도가 본문 전체를 차지하고 패널이 그 위에 뜬다**
+ * (`DESIGN_SYSTEM §9.5` v2.28 · `#1821`).
+ *
+ * 종전 `.fleet__split`은 7:5 두 단이었고 지도가 폭 480 카드 안이라 1440에서
+ * `614 x 435`, 본문의 54%뿐이었다. 지도가 주인공인 화면에서 지도가 절반이었다.
+ *
+ * 높이는 셸이 정한다 — 정본이 「비율을 치수로 쓰지 않는다」이므로 8:5를 여기 적지
+ * 않고, 화면에서 위 블록들이 쓰고 남는 세로를 지도가 받는다.
+ */
+.fleet__stage {
+  position: relative;
+  min-inline-size: 0;
+  block-size: max(420px, calc(100vh - 360px));
 }
 
-/* 주 영역 — 선박 위치 차트 위에 조치 필요가 이어진다. */
+/*
+ * ⚠️ **`display: contents`를 쓰지 않는다.** 한 번 썼다가 되돌렸다 — 그 값은 박스만
+ * 없앨 뿐 **선택자 매칭은 그대로**라, `.fleet__stage > section`이 이 요소를 건너뛰어
+ * 매칭되지 않았다. 높이 사슬이 끊겨 지도가 무대(540)가 아니라 개략도의 내용
+ * 높이(729)만큼 서고 페이지가 그만큼 길어졌다.
+ *
+ * 높이를 그대로 이어 준다 — 무대 → 이 열 → 「선박 위치」 절 → 지도 상자.
+ */
 .fleet__col {
-  grid-column: span var(--grid-split-primary);
-  display: flex;
-  flex-direction: column;
-  gap: var(--grid-gutter);
+  block-size: 100%;
   min-inline-size: 0;
 }
 
-/* 부 영역 — 선박 목록 */
-.fleet__list {
-  grid-column: span var(--grid-split-secondary);
+.fleet__col > section {
+  block-size: 100%;
+  min-inline-size: 0;
 }
 
-@media (max-width: 1100px) {
-  .fleet__split {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* 오버레이는 지도의 일부다 — §5 예산에서 세지 않는다(정본 v2.28). */
+.fleet__panel {
+  position: absolute;
+  inset-block: var(--spacing-md);
+  inset-inline-start: var(--spacing-md);
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  inline-size: min(360px, calc(100% - var(--spacing-xl)));
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-overlay);
+  background: var(--surface-card);
+  padding: var(--spacing-md);
+}
 
-  .fleet__col,
-  .fleet__list {
-    grid-column: auto;
-  }
+/* 접으면 버튼만 남는다 — 지도가 전폭이 된다. */
+.fleet__panel--closed {
+  inset-block-end: auto;
+  inline-size: auto;
+  padding: var(--spacing-sm);
+}
+
+.fleet__panel-toggle {
+  align-self: flex-start;
+  /*
+   * 경계가 **테두리뿐인 컨트롤**이라 `--border-control`을 쓴다 (§14 · 1.4.11 3:1 ·
+   * `#1202`). `--border-default`는 카드 면 위에서 `1.29`라 미달이고,
+   * `tokens.sync.test.ts`가 그 짝을 잡는다.
+   */
+  border: var(--borderWidth-default) solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-family: inherit;
+  font-size: var(--font-size-label);
+  cursor: pointer;
+}
+
+.fleet__panel-toggle:hover {
+  background: var(--surface-inset);
+}
+
+.fleet__panel-toggle:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+/* 패널 안이 길어지면 패널 안에서 스크롤한다 — 페이지를 늘리지 않는다. */
+/*
+ * ⚠️ `[hidden]`을 되살린다. 아래 `display: flex`가 UA의 `[hidden] { display: none }`을
+ * **특정도로 이긴다** — `#1774`의 탭 패널에서 이미 한 번 밟은 자리다. 이 줄이 없으면
+ * 접어도 목록이 그대로 보이고, 접힘은 화면에서 아무 일도 하지 않는다.
+ */
+.fleet__panel-body[hidden] {
+  display: none;
+}
+
+.fleet__panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+  min-block-size: 0;
+  overflow-y: auto;
+}
+
+/*
+ * 지도 칩 (#1824) — 걷어낸 카드 메타가 있던 자리. 기준 시각은 싣지 않는다
+ * (페이지 제목 블록이 갖는다 · 이 PR이 정본을 그렇게 정정했다).
+ * 지도의 확대·축소 컨트롤이 우상단에 있으므로 그만큼 비켜 둔다.
+ */
+.fleet__chip {
+  position: absolute;
+  inset-block-start: var(--spacing-md);
+  inset-inline-start: calc(var(--spacing-md) + min(360px, 50%) + var(--spacing-md));
+  z-index: 1;
+  margin: 0;
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-micro);
+}
+
+/* 부 영역 — 선박 목록. 이제 패널 안이라 칸을 차지하지 않는다. */
+.fleet__list {
+  min-inline-size: 0;
 }
 
 /* ── 항로 개략도 ────────────────────────────────────────────────── */
 
+/*
+ * #1824 — 무대를 꽉 채운다. 종전에는 카드 안이라 패딩을 갖고 있었는데, 이제 지도가
+ * 본문 전체라 패딩이 지도 둘레에 빈 테를 만든다.
+ */
 .fleet__chartbox {
+  block-size: 100%;
   background: var(--surface-inset);
-  border-radius: var(--radius-control);
-  padding: var(--spacing-md);
+  border: var(--borderWidth-default) solid var(--border-default);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+/*
+ * 자산이 없을 때의 개략도 — 최대 폭을 둔다 (§9.5 v2.28 · #1821).
+ * 이름표가 뷰박스 유저 단위라 화면 크기가 `박스 폭 / 480`에 비례한다. 본문 전체
+ * (1920에서 1,608px)로 늘리면 26.8px이 되어 §3 타입 스케일 밖이다.
+ */
+.fleet__chartbox .position-chart {
+  max-inline-size: 1049px;
+  margin-inline: auto;
 }
 
 /* ── 선박 목록 ──────────────────────────────────────────────────── */
