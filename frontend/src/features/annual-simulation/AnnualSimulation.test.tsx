@@ -10,7 +10,7 @@ import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { ANNUAL_COPY } from './copy'
 import type { FeedbackBlock, ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
-import { formatTimestamp } from '../../display/format'
+import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
 
 /**
  * 「이 seed로 다시 실행」의 **화면 배선** (`PRD §12.4.3` · #776).
@@ -373,10 +373,16 @@ describe('이 실행에 쓴 항차 (#992)', () => {
         status_at_snapshot: 'COMPLETED',
         distance_nm: 11200,
         speed_kn: 13.5,
-        fuel_uses: [{ fuel_type: 'HFO', fuel_ton: 850, cf_used: 3.114 }],
+        fuel_uses: [{ fuel_type: 'HFO', fuel_ton: 12480, cf_used: 3.114 }],
         annual_inclusion_policy: 'INCLUDE_AS_ACTUAL',
       },
     ],
+  }
+
+  /** 항차 행의 칸 텍스트 — `[항차, 연간 반영, 당시 상태, 거리, 속력, 연료]`. */
+  function rowCells(voyageNo: string): string[] {
+    const row = screen.getByText(voyageNo).closest('tr') as HTMLTableRowElement
+    return [...row.querySelectorAll('th, td')].map((cell) => cell.textContent?.trim() ?? '')
   }
 
   it('펼치기 전에는 부르지 않고, 펼치면 그 실행의 스냅샷 항차를 그린다', async () => {
@@ -402,7 +408,19 @@ describe('이 실행에 쓴 항차 (#992)', () => {
     expect(await screen.findByText('V-2026-001')).toBeTruthy()
     expect(calls()).toContain('/api/v1/annual-simulations/sim-1/snapshot-voyages')
     expect(screen.getByText('연간 반영 — 실적')).toBeTruthy()
-    expect(screen.getByText('HFO 850.0t')).toBeTruthy()
+    /*
+     * 연료 칸은 「코드 값단위」꼴이다. 종전에는 `'HFO 850.0t'` 리터럴을 잠갔는데 정본 인용이
+     * 없는 표시 문구라 성질로 단언한다(`AGENTS §4.6`). 형식 자체는 `DESIGN_SYSTEM §4.2`가
+     * 정한다 — 연료는 1자리 · 천단위 구분 · 단위는 `DISPLAY_UNITS.fuel` (#1813).
+     */
+    const [, , , distance, speed, fuel] = rowCells('V-2026-001')
+    expect(fuel.startsWith('HFO ')).toBe(true)
+    expect(fuel.endsWith(DISPLAY_UNITS.fuel)).toBe(true)
+    const fuelNumber = fuel.slice('HFO '.length, -DISPLAY_UNITS.fuel.length)
+    expect(fuelNumber).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
+    /* 거리는 0자리 + 천단위, 속력은 1자리 + 천단위 미적용 (`§4.2`). */
+    expect(distance).toMatch(/^\d{1,3}(,\d{3})+$/)
+    expect(speed).toMatch(/^\d+\.\d$/)
   })
 })
 

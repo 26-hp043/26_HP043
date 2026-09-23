@@ -163,6 +163,33 @@ describe('연도별 연료 내역 (#769)', () => {
     ])
   })
 
+  /**
+   * 천단위 구분자 (`DESIGN_SYSTEM §4.2` 「천단위 구분자 🔒」 · #1813).
+   *
+   * 적용은 연료·CO₂, 미적용은 비중(%)이다. 연간 합계라 네 자릿수를 넘는 값이 흔한데
+   * `12480.0`으로 나가고 있었다.
+   */
+  it('투입·CO₂는 천단위 구분이고 비중은 아니다 (§4.2)', () => {
+    const { container } = render(
+      <CiiHistoryChart
+        years={[
+          year({
+            regulationYear: 2026,
+            fuels: [
+              { fuelType: 'HFO', fuelTon: '12480.00', co2Ton: '38862.72', co2SharePercent: '100.00' },
+            ],
+          }),
+        ]}
+        basis="DWT"
+      />,
+    )
+
+    const [[, , fuelTon, co2Ton, share]] = cellsOf(fuelTable(container) as HTMLTableElement)
+    expect(fuelTon).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
+    expect(co2Ton).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
+    expect(share).not.toContain(',')
+  })
+
   it('연료 내역이 없으면 표 자체를 그리지 않는다', () => {
     const { container } = render(
       <CiiHistoryChart years={[year({ regulationYear: 2026 })]} basis="DWT" />,
