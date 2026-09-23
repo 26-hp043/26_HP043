@@ -65,8 +65,19 @@ describe('실적 바로 열기 주소 (#1540)', () => {
     expect((await screen.findByTestId('voyage-panel')).textContent).toBe('v-1|vy-9')
   })
 
+  /*
+   * 탭이 생긴 뒤(#1774)에도 이 링크가 **스스로 항차 탭을 연다.** `tab`이 없는 주소라
+   * 개요로 떨어지면, 링크를 눌러도 패널이 아예 마운트되지 않아 폼이 열리지 않는다.
+   */
+  it('actuals만 있어도 항차 탭이 열린다 (#1774)', async () => {
+    renderAt('/vessels/v-1?actuals=vy-9')
+    const voyages = await screen.findByRole('tab', { name: '항차' })
+    expect(voyages.getAttribute('aria-selected')).toBe('true')
+  })
+
   it('없으면 아무 항차도 지정하지 않는다', async () => {
-    renderAt('/vessels/v-1')
+    // 개요가 기본이므로 항차 탭을 주소로 지정해 패널을 띄운다 (#1774).
+    renderAt('/vessels/v-1?tab=voyages')
     expect((await screen.findByTestId('voyage-panel')).textContent).toBe('v-1|(없음)')
   })
 })
