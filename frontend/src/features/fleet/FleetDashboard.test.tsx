@@ -354,10 +354,12 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
     expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
     expect(screen.getByText('가선')).toBeTruthy()
     expect(screen.getByText('나선')).toBeTruthy()
-    // 옛 정렬의 커서를 새 정렬에 보내지 않도록 「다음 선박」은 서지 않는다
+    // 옛 정렬의 커서를 새 정렬에 보내지 않도록 「다음 선박」은 서지 않는다 — 척수 안내는 남는다
     expect(screen.queryByRole('button', { name: /다음 선박 불러오기/ })).toBeNull()
+    expect(within(list).getByText(/전체 3척 중 2척/)).toBeTruthy()
 
     // 「다시 시도」는 같은 정렬로 첫 페이지부터 다시 묻는다
+    // 정본 문구 (PRD §6.4) — 바꾸려면 PRD 개정이 먼저다.
     fireEvent.click(within(alert).getByRole('button', { name: '다시 시도' }))
     await waitFor(() => expect(pending).toHaveLength(3))
     expect(pending[2].url.searchParams.get('sort')).toBe('name')
@@ -371,6 +373,76 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
     expect(screen.queryByText('가선')).toBeNull()
     expect(within(screen.getByRole('region', { name: '선박 목록' })).queryByRole('alert')).toBeNull()
     expect(screen.getByRole('region', { name: '선대 요약' })).toBeTruthy()
+  })
+
+  /** 셀렉트 옵션의 라벨 — 안내 문구와 **같은 출처**인지 보려고 화면에서 읽는다(하드코딩하지 않는다). */
+  function optionLabel(value: string): string {
+    const select = screen.getByTestId('fleet-sort') as HTMLSelectElement
+    const option = Array.from(select.options).find((o) => o.value === value)
+    if (!option) throw new Error(`정렬 옵션 ${value}이 없다`)
+    return option.textContent ?? ''
+  }
+
+  it('실패 안내는 목록이 어느 정렬 그대로인지 말한다 — 셀렉트는 새 값을 가리키므로', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    await screen.findByText('가선')
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => pending[1].d.resolve(failed()))
+
+    const alert = await within(screen.getByRole('region', { name: '선박 목록' })).findByRole('alert')
+    const text = alert.textContent ?? ''
+    // 목록에 실제로 적용된 정렬(처음 값 risk)의 라벨이 있고, 실패한 새 정렬의 라벨은 없다
+    expect(text).toContain(optionLabel('risk'))
+    expect(text).not.toContain(optionLabel('name'))
+    // 서버가 준 사유도 함께 있다
+    expect(text).toContain('잠시 뒤')
+    // 셀렉트는 사용자가 고른 값 그대로다
+    expect((screen.getByTestId('fleet-sort') as HTMLSelectElement).value).toBe('name')
+  })
+
+  it('재시도 중에는 진행 표시가 서고 「다시 시도」를 다시 누를 수 없다 — 요청이 겹치지 않는다', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(ok(first())))
+    await screen.findByText('가선')
+
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => pending[1].d.resolve(failed()))
+    const list = screen.getByRole('region', { name: '선박 목록' })
+    const alert = await within(list).findByRole('alert')
+    // 정본 문구 (PRD §6.4) — 바꾸려면 PRD 개정이 먼저다.
+    fireEvent.click(within(alert).getByRole('button', { name: '다시 시도' }))
+    await waitFor(() => expect(pending).toHaveLength(3))
+
+    // 응답 전 — 오류 대신 진행 중 표시, 「다시 시도」 없음, 옛 목록은 그대로
+    expect(within(list).getByRole('status')).toBeTruthy()
+    expect(within(list).queryByRole('alert')).toBeNull()
+    expect(within(list).queryByRole('button', { name: '다시 시도' })).toBeNull()
+    expect(screen.getByText('가선')).toBeTruthy()
+    // 다시 누를 버튼이 없으므로 요청 수가 늘지 않는다
+    expect(pending).toHaveLength(3)
+
+    await act(async () =>
+      pending[2].d.resolve(ok(page([vessel('v9', '라선')], { next_cursor: null, has_more: false }))),
+    )
+    expect(await screen.findByText('라선')).toBeTruthy()
+    expect(within(list).queryByRole('status')).toBeNull()
+    expect(within(list).queryByRole('alert')).toBeNull()
   })
 
   it('실패 뒤 정렬을 다시 바꿔 성공해도 오류가 걷힌다', async () => {
