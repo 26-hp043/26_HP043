@@ -180,7 +180,7 @@ GitHub Actions (deploy.yml)
   ├─ deploy-db (SSH → db-01)
   │   ├─ git fetch <DEPLOY_SHA> + reset --hard FETCH_HEAD (~/bluelog) — 받은 커밋이 다르면 중단 (#1633)
   │   ├─ ACL 템플릿 치환 (REPLACE_ME_APP_PRIVATE_IP)
-  │   ├─ .env 렌더링 (CUBRID_PASSWORD)
+  │   ├─ .env 풀기 (CUBRID_PASSWORD — 러너가 만들어 base64로 넘긴다 · #1634)
   │   ├─ docker compose up -d (CUBRID)
   │   ├─ 브로커 대기 (최대 120초)
   │   └─ 첫 부트 시 ALTER USER dba PASSWORD + 재시작
@@ -188,7 +188,7 @@ GitHub Actions (deploy.yml)
   ├─ deploy-app (SSH → app-01)
   │   ├─ git fetch <DEPLOY_SHA> + reset --hard FETCH_HEAD (~/bluelog) — 받은 커밋이 다르면 중단 (#1633)
   │   ├─ CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
-  │   ├─ .env 렌더링 (APP_ENV, DATABASE_URL, CORS, SMTP 등)
+  │   ├─ .env 풀기 (APP_ENV, DATABASE_URL, CORS, SMTP 등 — 러너 렌더 · base64 · #1634)
   │   ├─ GHCR 로그인 + 이미지 풀
   │   ├─ Alembic 마이그레이션 (one-shot)
   │   ├─ 규제 파라미터 seed
@@ -733,7 +733,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `OCI_APP_HOST` | app-01 공용 IP (SSH 접근용) | `131.186.22.10` |
 | `OCI_DB_PRIVATE_IP` | db-01 VCN 사설 IP (DATABASE_URL) | `10.0.1.132` |
 | `OCI_APP_PRIVATE_IP` | app-01 VCN 사설 IP (ACL 치환) | `10.0.1.216` |
-| `CUBRID_PASSWORD` | dba 비밀번호 (<=31바이트, ASCII) | |
+| `CUBRID_PASSWORD` | dba 비밀번호 (<=31바이트, ASCII). ⚠️ **`'`는 쓰지 않는다** — 전달은 `#1634`로 문자와 무관해졌지만, db-01 첫 부트의 `ALTER USER dba PASSWORD '…'`(`deploy.yml`)가 값을 SQL 작은따옴표로 감싼다 | |
 | `CORS_ALLOW_ORIGINS` | 프론트엔드 오리진 | `https://bluelog-bx7.pages.dev` |
 | `APP_PUBLIC_URL` | 메일 링크 기준 주소 | `https://bluelog-bx7.pages.dev` |
 | `INITIAL_ADMIN_EMAILS` | **최초 관리자** 이메일(쉼표 구분). 여기 든 주소는 **가입·로그인할 때마다** 관리자로 맞춰진다 — 「처음 한 번」이 아니라 「항상 관리자인 사람」이다. ⚠️ **비면 관리자 0명으로 뜨고 화면으로는 아무도 역할을 올릴 수 없다** (`#672` · `#1301`). `APP_ENV=production`이면 기동이 거부되지만 **`staging`에는 그 가드가 없어 조용히 뜬다** — 배포 기본값이 `staging`이므로(`#1478`) **반드시 등록한다** (`#1475`) | `a@ex.com,b@ex.com` |
@@ -756,7 +756,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `SMTP_USER` | SMTP 사용자 |
 | `SMTP_PASSWORD` | SMTP 비밀번호. Gmail은 계정 비밀번호가 아니라 **앱 비밀번호**(16자, 계정 2단계 인증이 켜져 있어야 발급된다 · myaccount.google.com/apppasswords)다. 공용 계정 `26hp043@gmail.com`에서 발급한다. 계정 비밀번호를 바꾸면 무효가 될 수 있으니, 그때는 재발급해 이 시크릿을 갈고 재배포한다 |
 | `SMTP_USE_TLS` | STARTTLS 사용 여부. 비워 두면 `true`. `SMTP_PORT=465`(implicit TLS)에서는 값과 무관하다 (`#1475`에서 배선) |
-| `TOUR_ACCESS_CODE` | **둘러보기 링크의 접근 코드** (`#1486`). `/login?tour=<코드>`로 들어온 사람에게 관리자 열람 세션을 준다. ⚠️ **비면 둘러보기가 닫힌다**(fail-closed) — 가입 게이트와 반대 방향이라 미설정이 안전한 기본값이다. 코드는 URL에 실려 브라우저 히스토리·접근 로그에 남으므로 **32자 이상**을 권하고, 인터뷰가 끝나면 비운다. 다만 **이미 발급된 세션은 7일간 살아 있다**. ⚠️ **문자는 `[A-Za-z0-9_-]`로 한정한다**(`python -c "import secrets;print(secrets.token_urlsafe(32))"`) — `'`가 들어가면 배포 ssh 인용이 끊겨 **잡이 통째로 실패**하고, `$`가 들어가면 compose가 `.env`를 보간해 **값이 조용히 잘린다**(`#1495` 실측). 잘려도 fail-closed라 링크만 거절되지만 원인이 보이지 않는다 |
+| `TOUR_ACCESS_CODE` | **둘러보기 링크의 접근 코드** (`#1486`). `/login?tour=<코드>`로 들어온 사람에게 관리자 열람 세션을 준다. ⚠️ **비면 둘러보기가 닫힌다**(fail-closed) — 가입 게이트와 반대 방향이라 미설정이 안전한 기본값이다. 코드는 URL에 실려 브라우저 히스토리·접근 로그에 남으므로 **32자 이상**을 권하고, 인터뷰가 끝나면 비운다. 다만 **이미 발급된 세션은 7일간 살아 있다**. ⚠️ **문자는 `[A-Za-z0-9_-]`로 한정한다**(`python -c "import secrets;print(secrets.token_urlsafe(32))"`) — 코드가 **URL에 실리므로** 인코딩이 필요 없는 문자가 안전하다. ~~`'`가 들어가면 배포 ssh 인용이 끊겨 **잡이 통째로 실패**하고, `$`가 들어가면 compose가 `.env`를 보간해 **값이 조용히 잘린다**(`#1495` 실측)~~ — **`#1634`로 해소됐다.** 배포가 `.env`를 러너에서 만들어 base64로 넘기므로 시크릿의 문자가 전달 중에 바뀌지 않는다(`tests/test_deploy_secret_transport.py`) |
 
 ### 5.3 선택 시크릿
 
