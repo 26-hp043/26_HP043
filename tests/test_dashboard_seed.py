@@ -631,7 +631,9 @@ async def test_watch_vessel_third_voyage_leaves_the_dashboard_unchanged(conn):
     async with AsyncSession(bind=conn, expire_on_commit=False) as session:
         result = await get_fleet_summary(session, regulation_year=2026, as_of=datetime.now(UTC))
 
-    assert result["summary"]["rating_distribution"] == {"A": 0, "B": 1, "C": 1, "D": 1, "E": 2}
+    # `#1807` — STAR SKIPPER의 DWT를 9,520(GT가 잘못 들어간 값) → 12,979로 정정하자 CII 분모가
+    # 커져 이 배의 2026 등급이 B → A가 됐다. 시연 등급 구성이 바뀌는 것을 받아들인 결정이다.
+    assert result["summary"]["rating_distribution"] == {"A": 1, "B": 0, "C": 1, "D": 1, "E": 2}
     assert result["summary"]["at_risk"] == 2
     watch = next(row for row in result["vessels"] if row["vessel_id"] == VESSEL_IDS["watch"])
     assert watch["ytd_rating"] == "C"
