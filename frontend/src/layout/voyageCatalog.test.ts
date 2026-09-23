@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { SamplePort } from '../features/ports/samplePorts'
 import {
   VoyageCatalogError,
   createApiVoyageCatalog,
@@ -21,38 +22,60 @@ function jsonResponse(body: unknown, status = 200): Response {
   } as Response
 }
 
+const BUSAN: SamplePort = {
+  locode: 'KRPUS',
+  name: 'BUSAN',
+  name_ko: '부산',
+  country_code: 'KR',
+  lat: 35.1,
+  lon: 129.0333,
+}
+const PORTS: SamplePort[] = [BUSAN]
+
 describe('voyageDisplayName — 여러 건이 같은 문자열이 되지 않게 한다', () => {
   it('항차 번호가 있으면 그것이 이름이다', () => {
-    expect(voyageDisplayName({ voyage_no: 'V-2026-001' })).toBe('V-2026-001')
+    expect(voyageDisplayName({ voyage_no: 'V-2026-001' }, [])).toBe('V-2026-001')
   })
 
   it('번호가 없으면 구간으로 대신한다', () => {
     expect(
-      voyageDisplayName({ departure_port_name: '부산', arrival_port_name: '싱가포르' }),
+      voyageDisplayName({ departure_port_name: '부산', arrival_port_name: '싱가포르' }, []),
     ).toBe('부산 → 싱가포르')
   })
 
   it('한쪽 항구만 있으면 나머지를 —로 둔다', () => {
-    expect(voyageDisplayName({ departure_port_name: '부산' })).toBe('부산 → —')
+    expect(voyageDisplayName({ departure_port_name: '부산' }, [])).toBe('부산 → —')
   })
 
   it('둘 다 없으면 id 앞자리를 보인다 — 「이름 없는 항차」로 뭉뚱그리지 않는다', () => {
-    expect(voyageDisplayName({ id: '0123456789abcdef' })).toBe('01234567')
+    expect(voyageDisplayName({ id: '0123456789abcdef' }, [])).toBe('01234567')
   })
 
   it('빈 문자열 항차 번호는 번호가 아니다', () => {
-    expect(voyageDisplayName({ voyage_no: '   ', departure_port_name: '부산' })).toBe(
+    expect(voyageDisplayName({ voyage_no: '   ', departure_port_name: '부산' }, [])).toBe(
       '부산 → —',
     )
   })
-})
 
+  // #1812 — 구간이 저장 코드(`BUSAN`)가 아니라 보이는 이름(`부산`)으로 나온다.
+  it('저장 코드는 목록에 있으면 보이는 이름으로 바뀐다 — 코드가 그대로 노출되지 않는다', () => {
+    const label = voyageDisplayName(
+      { departure_port_name: 'BUSAN', arrival_port_name: 'SINGAPORE' },
+      PORTS,
+    )
+    expect(label).not.toContain('BUSAN')
+  })
+
+  it('목록에 없는 저장값은 입력한 그대로다 — 사전에 없는 이름을 지어내지 않는다', () => {
+    expect(voyageDisplayName({ departure_port_name: 'ULSAN' }, PORTS)).toBe('ULSAN → —')
+  })
+})
 
 describe('실 API — GET /vessels/{id}/voyages', () => {
   it('선박 id를 경로에 넣어 부른다', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }))
     vi.stubGlobal('fetch', fetchImpl)
-    await createApiVoyageCatalog('/api/v1').listVoyages('v1')
+    await createApiVoyageCatalog('/api/v1').listVoyages('v1', [])
     const [url] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('/api/v1/vessels/v1/voyages?limit=100')
     vi.unstubAllGlobals()
@@ -63,22 +86,22 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
       jsonResponse({ data: [{ voyage_no: 'V-1' }, { id: 'a', voyage_no: 'V-2' }] }),
     )
     vi.stubGlobal('fetch', fetchImpl)
-    const options = await createApiVoyageCatalog('/api/v1').listVoyages('v1')
+    const options = await createApiVoyageCatalog('/api/v1').listVoyages('v1', [])
     expect(options).toEqual([{ id: 'a', displayName: 'V-2', status: '' }])
     vi.unstubAllGlobals()
   })
 
   it('data가 배열이 아니면 빈 목록으로 본다', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ data: null })))
-    await expect(createApiVoyageCatalog('/api/v1').listVoyages('v1')).resolves.toEqual([])
+    await expect(createApiVoyageCatalog('/api/v1').listVoyages('v1', [])).resolves.toEqual([])
     vi.unstubAllGlobals()
   })
 
   it('오류 응답은 VoyageCatalogError가 된다', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({}, 500)))
-    await expect(createApiVoyageCatalog('/api/v1').listVoyages('v1')).rejects.toBeInstanceOf(
-      VoyageCatalogError,
-    )
+    await expect(
+      createApiVoyageCatalog('/api/v1').listVoyages('v1', []),
+    ).rejects.toBeInstanceOf(VoyageCatalogError)
     vi.unstubAllGlobals()
   })
 
@@ -89,9 +112,24 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
         throw new TypeError('failed to fetch')
       }),
     )
-    await expect(createApiVoyageCatalog('/api/v1').listVoyages('v1')).rejects.toBeInstanceOf(
-      VoyageCatalogError,
+    await expect(
+      createApiVoyageCatalog('/api/v1').listVoyages('v1', []),
+    ).rejects.toBeInstanceOf(VoyageCatalogError)
+    vi.unstubAllGlobals()
+  })
+
+  // #1812 — 실 API 경로 전체를 거쳐도 저장 코드가 그대로 노출되지 않는다.
+  it('항차 번호가 없는 행은 구간이 보이는 이름으로 나온다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          data: [{ id: 'a', departure_port_name: 'BUSAN', arrival_port_name: 'SINGAPORE' }],
+        }),
+      ),
     )
+    const options = await createApiVoyageCatalog('/api/v1').listVoyages('v1', PORTS)
+    expect(options[0]?.displayName).not.toContain('BUSAN')
     vi.unstubAllGlobals()
   })
 })
@@ -101,7 +139,7 @@ describe('createVoyageCatalog', () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }))
     vi.stubGlobal('fetch', fetchImpl)
 
-    await createVoyageCatalog({} as ImportMetaEnv).listVoyages('v1')
+    await createVoyageCatalog({} as ImportMetaEnv).listVoyages('v1', [])
 
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
@@ -109,9 +147,7 @@ describe('createVoyageCatalog', () => {
   it('true면 실 API를 부른다', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ data: [] }))
     vi.stubGlobal('fetch', fetchImpl)
-    await createVoyageCatalog({} as ImportMetaEnv).listVoyages(
-      'v1',
-    )
+    await createVoyageCatalog({} as ImportMetaEnv).listVoyages('v1', [])
     expect(fetchImpl).toHaveBeenCalled()
     vi.unstubAllGlobals()
   })
@@ -138,11 +174,10 @@ describe('페이지 따라가기 (#1073)', () => {
         })
       }),
     )
-    const rows = await createApiVoyageCatalog('/api/v1').listVoyages('vessel-1')
+    const rows = await createApiVoyageCatalog('/api/v1').listVoyages('vessel-1', [])
     expect(rows).toHaveLength(25)
     expect(rows.at(-1)?.id).toBe('v25')
     expect(urls[1]).toContain('cursor=c2')
     vi.unstubAllGlobals()
   })
 })
-

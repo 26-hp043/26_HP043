@@ -4,6 +4,7 @@ import './AppShell.css'
 import { DEFAULT_PATH, NAV_SCREENS, findScreenByPath } from '../screens'
 import { createVesselCatalog, type VesselOption } from '../features/voyage-cii/vesselCatalog'
 import { createVoyageCatalog, type VoyageOption } from './voyageCatalog'
+import { useSamplePorts } from '../features/ports/samplePorts'
 import {
   EMPTY_CONTEXT,
   isVesselQueryPath,
@@ -76,6 +77,8 @@ export function AppShell() {
 
   const vesselCatalog = useMemo(() => createVesselCatalog(), [])
   const voyageCatalog = useMemo(() => createVoyageCatalog(), [])
+  // 항차 선택지의 구간을 저장 코드가 아니라 보이는 이름으로 적는다 (#1812).
+  const samplePorts = useSamplePorts()
 
   const [vessels, setVessels] = useState<VesselOption[]>([])
   // 「아직 안 왔다」와 「못 읽었다」와 「등록된 배가 없다」는 서로 다른 상태다.
@@ -198,7 +201,7 @@ export function AppShell() {
     }
     setVoyages([])
     setVoyagesState('loading')
-    voyageCatalog.listVoyages(context.vesselId).then(
+    voyageCatalog.listVoyages(context.vesselId, samplePorts).then(
       (options) => {
         if (!alive) return
         setVoyages(options)
@@ -214,7 +217,9 @@ export function AppShell() {
     return () => {
       alive = false
     }
-  }, [voyageCatalog, context.vesselId])
+    // `samplePorts`는 목록을 받기 전까지 매 렌더 같은 빈 배열이다가, 받은 뒤 한 번만
+    // 바뀐다 — 그때 항차 목록을 다시 받아 구간 표시를 보이는 이름으로 갱신한다.
+  }, [voyageCatalog, context.vesselId, samplePorts])
 
   /*
    * `outletContext`가 매 렌더 새로 만들어지지 않게 하면서도 최신 `pathname`·

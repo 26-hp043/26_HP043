@@ -4,6 +4,7 @@ import './ScenarioAdoptPanel.css'
 import { ErrorState } from '../../components/ErrorState'
 import { voyagePath } from '../../layout/globalContext'
 import { createApiVoyageCatalog, type VoyageOption } from '../../layout/voyageCatalog'
+import { useSamplePorts } from '../ports/samplePorts'
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { VoyageStatus } from '../voyage-management/types'
 import type { ScenarioComparisonProvider } from './provider'
@@ -82,6 +83,8 @@ export function ScenarioAdoptPanel({
 }) {
   const showsLabelEn = useShowsLabelEn()
   const catalog = useMemo(() => createApiVoyageCatalog(), [])
+  // 항차 선택지의 구간을 저장 코드가 아니라 보이는 이름으로 적는다 (#1812).
+  const samplePorts = useSamplePorts()
   // 채택은 사무직 전용이다 (`API_SPEC §1.2` · #1325). 현장직은 폼을 읽되 반영 버튼이 잠긴다.
   const office = isOffice(useAuthUser())
   const [voyages, setVoyages] = useState<VoyagesState>('loading')
@@ -95,7 +98,7 @@ export function ScenarioAdoptPanel({
     setVoyages('loading')
     setVoyageId('')
     setAdopt({ status: 'idle' })
-    catalog.listVoyages(vesselId).then(
+    catalog.listVoyages(vesselId, samplePorts).then(
       (rows) => {
         if (alive) setVoyages(rows.filter((row) => isPlanning(row.status)))
       },
@@ -107,7 +110,7 @@ export function ScenarioAdoptPanel({
     return () => {
       alive = false
     }
-  }, [catalog, vesselId])
+  }, [catalog, vesselId, samplePorts])
 
   // 사용자가 고르기 전의 기본값 — 상단바의 항차가 반영 가능하면 그것, 아니면 하나뿐일 때만.
   // 효과에서 상태를 덮지 않고 **렌더 중에 파생**한다 — 고른 값이 있으면 그것이 이긴다.

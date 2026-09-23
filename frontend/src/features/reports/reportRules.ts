@@ -1,5 +1,6 @@
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { VoyageStatus } from '../voyage-management/types'
+import { portDisplayName, type SamplePort } from '../ports/samplePorts'
 import type { ReportTarget, VoyageOption } from './types'
 
 /**
@@ -47,12 +48,17 @@ export function statusLabel(status: string): string {
   return STATUS_LABELS[status as VoyageStatus] ?? status
 }
 
-/** 선택지에 보여 줄 항차 이름. 항차 번호가 없는 항차가 실제로 있다. */
-export function voyageLabel(voyage: VoyageOption): string {
+/**
+ * 선택지에 보여 줄 항차 이름. 항차 번호가 없는 항차가 실제로 있다.
+ *
+ * 구간에 쓰는 항구 이름은 저장 코드(`BUSAN` 등)가 아니라 `portDisplayName`이 돌려주는
+ * 보이는 이름이다(#1812). 목록에 없는 항구는 입력한 그대로 나온다.
+ */
+export function voyageLabel(voyage: VoyageOption, ports: readonly SamplePort[]): string {
   const name = voyage.voyageNo ?? '(번호 없음)'
   const route =
     voyage.departurePortName && voyage.arrivalPortName
-      ? ` · ${voyage.departurePortName} → ${voyage.arrivalPortName}`
+      ? ` · ${portDisplayName(ports, voyage.departurePortName)} → ${portDisplayName(ports, voyage.arrivalPortName)}`
       : ''
   return `${name}${route} · ${statusLabel(voyage.status)}`
 }

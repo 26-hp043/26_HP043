@@ -9,6 +9,7 @@ import {
   coerceYear,
 } from './reportRules'
 import type { VoyageOption } from './types'
+import type { SamplePort } from '../ports/samplePorts'
 
 /**
  * 리포트 화면 규칙 (`#362`).
@@ -33,6 +34,16 @@ const VOYAGE: VoyageOption = {
   reportable: true,
 }
 
+const BUSAN: SamplePort = {
+  locode: 'KRPUS',
+  name: 'BUSAN',
+  name_ko: '부산',
+  country_code: 'KR',
+  lat: 35.1,
+  lon: 129.0333,
+}
+const PORTS: SamplePort[] = [BUSAN]
+
 describe('리포트 대상 판정', () => {
   it('완료·확정 항차만 대상이다', () => {
     expect(isReportable('COMPLETED')).toBe(true)
@@ -53,11 +64,11 @@ describe('리포트 대상 판정', () => {
 
 describe('표시', () => {
   it('항차 번호가 없어도 라벨을 만든다', () => {
-    expect(voyageLabel({ ...VOYAGE, voyageNo: null })).toContain('(번호 없음)')
+    expect(voyageLabel({ ...VOYAGE, voyageNo: null }, [])).toContain('(번호 없음)')
   })
 
   it('항구가 비면 경로를 지어 내지 않는다', () => {
-    const label = voyageLabel({ ...VOYAGE, arrivalPortName: null })
+    const label = voyageLabel({ ...VOYAGE, arrivalPortName: null }, [])
     expect(label).not.toContain('→')
   })
 
@@ -66,6 +77,23 @@ describe('표시', () => {
     // 그리지 않기 위해서다. 아는 코드의 문구 자체는 디자인 소관이다.
     expect(statusLabel('COMPLETED')).not.toBe('COMPLETED')
     expect(statusLabel('WHATEVER')).toBe('WHATEVER')
+  })
+
+  // #1812 — 구간이 저장 코드(`BUSAN`)가 아니라 보이는 이름(`부산`)으로 나온다.
+  it('저장 코드는 목록에 있으면 보이는 이름으로 바뀐다 — 코드가 그대로 노출되지 않는다', () => {
+    const label = voyageLabel(
+      { ...VOYAGE, departurePortName: 'BUSAN', arrivalPortName: 'MANILA' },
+      PORTS,
+    )
+    expect(label).not.toContain('BUSAN')
+  })
+
+  it('목록에 없는 저장값은 입력한 그대로다 — 사전에 없는 이름을 지어내지 않는다', () => {
+    const label = voyageLabel(
+      { ...VOYAGE, departurePortName: 'MANILA', arrivalPortName: 'MANILA' },
+      PORTS,
+    )
+    expect(label).toContain('MANILA')
   })
 })
 

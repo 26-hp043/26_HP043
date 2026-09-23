@@ -984,6 +984,54 @@ describe('계획에 반영 (#580)', () => {
     expect(screen.getByText(/다시 비교한 뒤 반영할 수 있습니다/)).toBeTruthy()
   })
 
+  // #1812 — 항차 번호가 없어 구간으로 대신할 때, 저장 코드(`BUSAN`)가 아니라 보이는
+  // 이름(`부산`)이 나온다. `voyageLabel`·`voyageDisplayName`과 같은 성질을 여기서도 본다.
+  it('항차 번호가 없으면 구간을 저장 코드가 아니라 보이는 이름으로 적는다', async () => {
+    const PORTS = [
+      { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    ]
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/ports/samples')) return jsonResponse({ data: PORTS })
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      if (url.includes('/scenarios/compare')) return jsonResponse(COMPARE_BODY)
+      if (url.includes(`/vessels/${VESSEL}/voyages`)) {
+        return jsonResponse({
+          data: [
+            {
+              id: 'v-planned-2',
+              voyage_no: null,
+              status: 'PLANNED',
+              departure_port_name: 'BUSAN',
+              arrival_port_name: 'SINGAPORE',
+            },
+          ],
+        })
+      }
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    renderScreen()
+    await openPanel()
+
+    // 샘플 항만 목록을 받기 전에는 패널이 저장 코드로 항차 목록을 한 번 채운다 —
+    // 목록이 도착하면 같은 선박의 항차를 보이는 이름으로 다시 받는다(`ScenarioAdoptPanel.tsx`의
+    // 항차 조회 effect가 `samplePorts`에 의존한다). 그 두 번째 갱신을 기다린다.
+    await waitFor(() => {
+      const select = screen.getByLabelText('대상 항차') as HTMLSelectElement
+      const label = [...select.querySelectorAll('option')]
+        .map((o) => o.textContent)
+        .find((text) => text !== '선택')
+      expect(label).not.toContain('BUSAN')
+    })
+  })
+
   /**
    * 채택(`adopt`)은 사무직 전용이다(`API_SPEC §1.2` · `#1325`). 현장직이 폼을 다 채우고
    * 확인 대화상자까지 지나서야 서버 `403`을 받던 것을 버튼 단계에서 막는다 —
