@@ -129,7 +129,7 @@ export interface ProjectionAssumptions {
  * `projection.attainedCii − ytd.attainedCii`다 — 서버가 각 단계 누적값을 6자리로 절사한
  * 뒤 뺀 값이라 화면이 다시 계산하지 않는다(`TECH_SPEC §5.4.1` ⑸).
  */
-export interface ProjectionDriver {
+interface ProjectionDriver {
   key: string
   /** 그 단계를 더했을 때 연말 예상이 움직인 양. 6자리 문자열이고 **음수일 수 있다.** */
   deltaCii: string
