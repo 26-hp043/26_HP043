@@ -90,7 +90,9 @@ def test_기능3_키가_문서와_같다() -> None:
     assert documented == ANNUAL_INPUT_FIELDS
 
 
-@pytest.mark.parametrize("field", ["apply_feedback_factor", "as_of", "alternative_fuel"])
+@pytest.mark.parametrize(
+    "field", ["apply_feedback_factor", "as_of", "alternative_fuel", "not_underway"]
+)
 def test_기능3_선택_키가_선택이라고_적혀_있다(field: str) -> None:
     """**목록에 있다**와 **늘 담긴다**는 다른 명제다.
 
@@ -107,4 +109,4 @@ def test_문서가_기능3의_키_수를_말할_때_실제와_같다() -> None:
     """*「넘긴 일곱 키 중…」*처럼 **수를 적은 문장**이 낡지 않게 한다."""
     section = _section_5_3()
     documented = _parenthesised_fields(section, "ANNUAL_INPUT_FIELDS")
-    assert len(documented) == len(ANNUAL_INPUT_FIELDS) == 10
+    assert len(documented) == len(ANNUAL_INPUT_FIELDS) == 11

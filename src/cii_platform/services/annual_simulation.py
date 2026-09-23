@@ -68,6 +68,7 @@ from cii_platform.calc.cii_engine import calculate_required_cii
 from cii_platform.calc.hash import compute_annual_input_hash, compute_parameter_hash
 from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING
 from cii_platform.calc.rating_engine import DVector, calculate_probability_risk
+from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.db.types import JSONText, UuidText
@@ -395,8 +396,35 @@ def _resolve_feedback(
     return (apply_feedback(remaining, result.factor) if applied else remaining), block, warnings
 
 
+def _not_underway_payload(totals, distance_nm: Decimal) -> dict | None:
+    """올해 ``as_of``까지 **이미 쓴** 정박·묘박 몫의 사본 (`#1803`).
+
+    ``simulation_snapshot.not_underway_json``에 들어가고, 확정분에 더해진다
+    (:func:`_inputs_from_snapshot`). ⑴ 올해 누적과 **같은 저장소 함수·같은 절단**으로
+    읽은 값이라 두 숫자의 정박 몫이 같다.
+
+    **기록이 없으면 ``None``이다** — 빈 블록을 넣으면 정박 기록이 없는 선박까지
+    ``input_hash`` 재료가 바뀌어 기존 실행의 재현이 깨진다(``as_of``·``alternative_fuel``과
+    같은 「있을 때만 넣는다」 규칙).
+    """
+    if not totals and not distance_nm:
+        return None
+    return {
+        "distance_nm": str(distance_nm),
+        "fuel_uses": [
+            {
+                "fuel_type": total.fuel_type,
+                "fuel_ton": str(total.fuel_ton),
+                # 기록 시점의 CF다(`#378`) — 이미 그 계수로 배출했다. ⑴과 같다.
+                "cf_used": str(total.cf_used),
+            }
+            for total in totals
+        ],
+    }
+
+
 def _inputs_from_snapshot(
-    rows: list[dict], vessel
+    rows: list[dict], vessel, not_underway: dict | None = None
 ) -> tuple[CompletedTotals, list[RemainingVoyage], list[str]]:
     """스냅샷 항차 사본에서 계산 입력을 만든다 (``TECH_SPEC §11.4`` 2항).
 
@@ -496,6 +524,17 @@ def _inputs_from_snapshot(
                 base_daily_foc_ton=base_daily_foc_ton,
             )
         )
+
+    # 이미 쓴 정박·묘박 몫을 **확정분에** 더한다 (`#1803`). 종전에는 ⑴ 올해 누적만 이
+    # 몫을 넣고(`calc/ytd_engine.py` · `#345`) 연말 예상은 빼서, 정박 중에는 거리가
+    # 거의 늘지 않고 연료만 쓰는 만큼 **연말 예상이 늘 실제보다 좋게** 나왔다. 기록이지
+    # 추정이 아니므로 새 가정이 들어가지 않는다. 남은 기간의 정박은 추정하지 않는다.
+    if not_underway:
+        for fuel_use in not_underway.get("fuel_uses") or []:
+            completed_co2_g += (
+                Decimal(fuel_use["fuel_ton"]) * Decimal(1_000_000) * Decimal(fuel_use["cf_used"])
+            )
+        completed_distance_nm += Decimal(not_underway.get("distance_nm") or "0")
 
     completed = CompletedTotals(
         co2_g=float(completed_co2_g), distance_nm=float(completed_distance_nm)
@@ -599,6 +638,9 @@ class AnnualInputs:
     live_cf: dict[str, Decimal] = field(default_factory=dict)
     #: ``live_cf`` 각 유종의 ``source_ref``. ``parameter_sources.fuel_types``가 싣는다.
     fuel_type_sources: dict[str, str] = field(default_factory=dict)
+    #: 올해 이미 쓴 정박·묘박 몫 (`#1803`). ``simulation_snapshot.not_underway_json``에
+    #: 그대로 들어간다. 기록이 없으면 ``None``이다(:func:`_not_underway_payload`).
+    not_underway_json: dict | None = None
 
 
 async def collect_annual_inputs(
@@ -639,7 +681,18 @@ async def collect_annual_inputs(
             live_cf[code] = Decimal(str(fuel_rows[code].cf))
             fuel_type_sources[code] = fuel_rows[code].source_ref
     voyages_json = _snapshot_payload(actual, planned, fuel_by_voyage, live_cf)
-    completed, remaining, warnings = _inputs_from_snapshot(voyages_json, vessel)
+    # 이미 쓴 정박·묘박 몫 (`#1803`). ⑴ 올해 누적(`services/ytd_cii._aggregate`)과 **같은
+    # 저장소 함수 · 같은 ``as_of`` 절단**(``started_at <= as_of``)으로 읽는다 — 절단이
+    # 갈리면 같은 화면의 두 숫자가 다른 정박 몫을 센다.
+    not_underway_json = _not_underway_payload(
+        await not_underway_repo.sum_fuel_by_type(
+            session, vessel_id=vessel_id, regulation_year=year, as_of=as_of
+        ),
+        await not_underway_repo.sum_distance(
+            session, vessel_id=vessel_id, regulation_year=year, as_of=as_of
+        ),
+    )
+    completed, remaining, warnings = _inputs_from_snapshot(voyages_json, vessel, not_underway_json)
 
     return AnnualInputs(
         voyages_json=voyages_json,
@@ -649,6 +702,7 @@ async def collect_annual_inputs(
         plan_voyage_count=_plan_voyage_count(voyages_json),
         live_cf=live_cf,
         fuel_type_sources=fuel_type_sources,
+        not_underway_json=not_underway_json,
     )
 
 
@@ -935,6 +989,7 @@ async def run_annual_simulation(
         duration_ms=duration_ms,
         apply_feedback_factor=apply_feedback_factor,
         alternative_fuel=alternative_fuel,
+        not_underway_json=inputs.not_underway_json,
         # **원본 요청이 준 값**만 넘긴다 (#816 ⑴). 서버가 확정한 `resolved_as_of`를
         # 넘기면 미명시 실행에도 값이 남아, 해시에 키가 없는데 저장에는 있는 어긋남이
         # 생긴다 — 어느 쪽이 정본인지 재현 시점에 가릴 수 없다.
@@ -1427,6 +1482,7 @@ def _input_hash(
     apply_feedback_factor: bool = False,
     as_of: datetime | None = None,
     alternative_fuel: str | None = None,
+    not_underway_json: dict | None = None,
 ) -> str:
     """``input_hash``의 재료를 한 곳에 둔다 (``TECH_SPEC §5.3``).
 
@@ -1475,6 +1531,11 @@ def _input_hash(
     # 대체 연료 선택 (#756 ⑴) — 골랐을 때만. 네 번째 선택 키다(`as_of`와 같은 규칙).
     if alternative_fuel is not None:
         material["alternative_fuel"] = alternative_fuel
+    # 이미 쓴 정박·묘박 몫 (`#1803`) — 기록이 있을 때만. 다섯 번째 선택 키다. 계산 입력이므로
+    # 해시가 덮어야 하고(`#493`과 같은 이유), 없을 때 빈 값을 넣으면 정박 기록이 없는
+    # 기존 실행 전부의 해시가 바뀐다.
+    if not_underway_json is not None:
+        material["not_underway"] = not_underway_json
     return compute_annual_input_hash(material)
 
 
@@ -1495,6 +1556,7 @@ async def _persist(
     apply_feedback_factor: bool = False,
     as_of: datetime | None = None,
     alternative_fuel: str | None = None,
+    not_underway_json: dict | None = None,
 ):
     """스냅샷 → 계산 이력 → 시뮬레이션 실행 순으로 저장한다.
 
@@ -1520,6 +1582,7 @@ async def _persist(
         apply_feedback_factor=apply_feedback_factor,
         as_of=as_of,
         alternative_fuel=alternative_fuel,
+        not_underway_json=not_underway_json,
     )
     parameter_hash = compute_parameter_hash(parameters_used)
 
@@ -1550,9 +1613,9 @@ async def _persist(
         text(
             "INSERT INTO simulation_snapshot "
             "(id, vessel_id, regulation_year, voyages_json, vessel_json, "
-            " input_hash, parameter_hash, created_at) "
+            " not_underway_json, input_hash, parameter_hash, created_at) "
             "VALUES (:id, :vessel_id, :year, :voyages, "
-            " :vessel, :input_hash, :parameter_hash, :created_at)"
+            " :vessel, :not_underway, :input_hash, :parameter_hash, :created_at)"
         ).bindparams(*_uuid_binds("id", "vessel_id")),
         {
             "id": snapshot_id,
@@ -1561,6 +1624,8 @@ async def _persist(
             "year": regulation_year,
             "voyages": _json(voyages_json),
             "vessel": _json(vessel_json),
+            # 정박 기록이 없으면 NULL — 해시에 키가 없는 것과 짝을 이룬다 (`#1803`).
+            "not_underway": None if not_underway_json is None else _json(not_underway_json),
             "input_hash": input_hash,
             "parameter_hash": parameter_hash,
         },
@@ -1951,6 +2016,7 @@ async def reproduce_annual_simulation(
     schema_version = parameters_schema_version(row.parameters_used)
 
     voyages_json = await _load_snapshot_voyages(session, row.snapshot_id)
+    not_underway_json = await _load_snapshot_not_underway(session, row.snapshot_id)
     # v2 행의 ``fuel_types``는 **이 재현이 실제로 대조할 현재 활성 CF**로 채운다 —
     # CF가 개정됐다면 해시가 어긋나야 하고(409), 그것이 그 블록의 존재 이유다(#816 ⑶).
     v2_inputs: dict[str, object] = {}
@@ -1995,6 +2061,8 @@ async def reproduce_annual_simulation(
             as_of=row.as_of,
             # 대체 연료 선택도 재생한다 (#756 ⑴) — 골랐던 실행의 해시에 키가 있다.
             alternative_fuel=row.alternative_fuel,
+            # 정박 몫도 스냅샷에서 재생한다 (#1803) — NULL이면 키가 없는 종전 식이다.
+            not_underway_json=not_underway_json,
         )
         != row.input_hash
     )
@@ -2038,6 +2106,7 @@ async def reproduce_annual_simulation(
         reference_line=reference_line,
         rating_boundary=rating_boundary,
         voyages_json=voyages_json,
+        not_underway_json=not_underway_json,
         target_rating=row.target_rating,
         runs=row.simulation_runs,
         seed=seed,
@@ -2162,6 +2231,25 @@ async def _load_snapshot_voyages(session: AsyncSession, snapshot_id) -> list[dic
     ).scalar_one() or []
 
 
+async def _load_snapshot_not_underway(session: AsyncSession, snapshot_id) -> dict | None:
+    """스냅샷의 정박·묘박 몫 사본 (`#1803`).
+
+    **NULL은 끊지 않는다** — 제원(:func:`_load_snapshot_vessel`)과 다르다. NULL은 두 경우다:
+    ⑴ 정박 기록이 없던 실행 ⑵ `060` 이전 실행. 둘 다 원본이 **정박을 넣지 않고** 계산했고
+    해시 재료에도 키가 없으므로, NULL 그대로 재현하면 원본과 같은 입력이다.
+    """
+    from sqlalchemy import text
+
+    return (
+        await session.execute(
+            text("SELECT not_underway_json FROM simulation_snapshot WHERE id = :id")
+            .bindparams(*_uuid_binds("id"))
+            .columns(not_underway_json=JSONText()),
+            {"id": snapshot_id},
+        )
+    ).scalar_one()
+
+
 async def _live_fuel_types_from_snapshot(
     session: AsyncSession, voyages_json: list[dict]
 ) -> tuple[dict[str, Decimal], dict[str, str]]:
@@ -2208,6 +2296,7 @@ def _recompute(
     apply_feedback_factor: bool = False,
     alternative_fuel: str | None = None,
     alternative_cf: Decimal | None = None,
+    not_underway_json: dict | None = None,
 ) -> dict[str, object]:
     """스냅샷으로 계산만 다시 한다. 저장하지 않는다.
 
@@ -2229,7 +2318,9 @@ def _recompute(
         d4=Decimal(str(rating_boundary.d4)),
     )
 
-    completed, remaining, input_warnings = _inputs_from_snapshot(voyages_json, vessel)
+    completed, remaining, input_warnings = _inputs_from_snapshot(
+        voyages_json, vessel, not_underway_json
+    )
     # 원본 실행이 켰는지는 행에 저장돼 있다(마이그레이션 `042`). 계수는 같은 스냅샷에서
     # 다시 계산하므로 같은 값이다.
     remaining, feedback, feedback_warnings = _resolve_feedback(

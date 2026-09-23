@@ -1537,13 +1537,19 @@ factor = (Σ actual_fuel_ton / Σ actual_distance_nm) ÷ (Σ planned_fuel_ton / 
 
 ```text
 completed_M = Σ(actual_fuel_ton × CF × 1,000,000)
+            + Σ(not under way 연료_j × 1,000,000 × CF_j)          ← as_of까지 이미 쓴 몫 (#1803)
 completed_W = Σ(capacity × actual_distance_nm)
+            + capacity × not under way 거리                        ← 같은 절단 (#1803)
 planned_M   = Σ(planned_fuel_ton × CF × 1,000,000)
 planned_W   = Σ(capacity × planned_distance_nm)
 projected_attained_CII = (completed_M + planned_M) / (completed_W + planned_W)
 ```
 
 항차별 실제값이 없는 경우에는 상태와 우선순위에 따라 계획값을 사용한다.
+
+> **[#1803] 확정분에는 올해 `as_of`까지 이미 쓴 정박·묘박 몫이 들어간다.** `§3.3.8` 올해 누적과 **같은 기록·같은 절단**(구간 시작 ≤ `as_of`)이다. 종전에는 이 항이 없어, 올해 누적은 정박 몫을 넣고 연말 예상은 빼고 있었다. 정박 중에는 거리가 거의 늘지 않고 연료만 쓰므로 **연말 예상이 늘 실제보다 좋게** 나왔다. 「연말 예상에서는 정박을 뺀다」는 결정은 어디에도 없었다 — 빠뜨린 것이다.
+>
+> **남은 기간의 정박은 추정하지 않는다.** 이미 쓴 연료는 기록이지만, 남은 기간의 정박은 올해 비율로 외삽해야 하는 **우리가 만드는 가정**이다(`#1803` 결정 「가」). 필요해지면 이 항 위에 외삽 규칙을 더할 수 있고, 그때는 「산출 가정」에 드러낸다.
 
 #### 12.3.1 필요 감축량 (목표 역산) [#433]
 

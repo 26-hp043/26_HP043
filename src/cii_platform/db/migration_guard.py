@@ -95,6 +95,12 @@ IRREVERSIBLE: dict[str, str] = {
         "app_user.role의 ADMIN 지정 — 관리자가 전부 사무직으로 내려가고 "
         "누가 관리자였는지가 사라진다"
     ),
+    # `simulation_snapshot`은 UPDATE가 트리거로 막혀 있어 열을 되살려도 기존 행을 채울 수
+    # 없다 — 모듈 docstring의 「보존 대상 테이블의 열」이 정확히 이것이다(`037`과 같은 성질).
+    "060": (
+        "simulation_snapshot.not_underway_json — 그 사이 연간 실행의 정박 몫 사본이 "
+        "사라져 그 실행들을 재현할 수 없게 된다 (#1803)"
+    ),
 }
 
 #: 지워도 되는 일시 데이터 — 사라지면 다시 로그인하거나 메일을 다시 요청하면 된다.

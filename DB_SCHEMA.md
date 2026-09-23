@@ -575,6 +575,7 @@ CREATE UNIQUE INDEX idx_sim_snapshot_unique ON annual_simulation_run (snapshot_i
 | `regulation_year` | INTEGER | NOT NULL | 기준연도 |
 | `voyages_json` | JSONB | NOT NULL | 항차별 완전한 데이터 사본 배열 |
 | `vessel_json` | JSONB | NULL 허용 | **선박 제원 사본** (`#493` · 마이그레이션 037). `ship_type`·`deadweight`·`gross_tonnage`·`reference_speed_kn`·`reference_daily_foc_ton`을 **문자열로** 담는다 |
+| `not_underway_json` | JSONB | NULL 허용 | **연말 예상 확정분에 넣은 이미 쓴 정박·묘박 몫** (`#1803` · 마이그레이션 060). `{"distance_nm": "…", "fuel_uses": [{"fuel_type", "fuel_ton", "cf_used"}]}` — `as_of`까지 시작한 구간의 합(`PRD §12.3`). **NULL은 「정박 몫을 넣지 않은 실행」**이다 — 정박 기록이 없던 실행과 060 이전 실행. 둘 다 원본이 정박 없이 계산했고 `input_hash`에도 키가 없어, 재현은 NULL 그대로 같은 입력을 만든다(`TECH_SPEC §11.2`) |
 | `input_hash` | VARCHAR(71) | NOT NULL | 스냅샷 시점 input_hash |
 | `parameter_hash` | VARCHAR(71) | NOT NULL | 스냅샷 시점 parameter_hash |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 스냅샷 생성일 |
@@ -1902,7 +1903,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 059
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 059 → 060
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -1969,7 +1970,7 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 059
 
 | 분류 | 예 | 처리 |
 |---|---|---|
-| **되돌릴 수 없음** | 사용자가 쌓은 테이블의 드롭(선박·항차·계산 이력·계정 …) · **보존 대상 테이블의 열 드롭** · 행 삭제 — 현행 키는 `1c444a5c4819`(스키마 전체 · 종전 `016`·`024`·`033`·`037` …을 흡수) · `043` · `044` · `057` | **막는다** |
+| **되돌릴 수 없음** | 사용자가 쌓은 테이블의 드롭(선박·항차·계산 이력·계정 …) · **보존 대상 테이블의 열 드롭** · 행 삭제 — 현행 키는 `1c444a5c4819`(스키마 전체 · 종전 `016`·`024`·`033`·`037` …을 흡수) · `043` · `044` · `057` · `060`(`simulation_snapshot.not_underway_json` — `037`과 같은 「보존 대상 테이블의 열」) | **막는다** |
 | 일시 데이터 | `user_session` · `user_token` | 막지 않는다 — 다시 로그인하거나 메일을 다시 요청하면 된다 |
 | 재생성됨 | 규정·시드 테이블(`fuel_type`·`regulation_year` …) · 제약·인덱스 | 막지 않는다 — 다시 `upgrade`하면 같은 값이 돌아온다 |
 
@@ -1977,7 +1978,7 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 059
 
 - **목록과 사유는 `src/cii_platform/db/migration_guard.py` 한 곳에 둔다.** 해당 리비전의 `downgrade()`는 **맨 앞에서** `guard_irreversible_downgrade("<리비전>")`을 부른다 — 무엇이든 지우기 전에 끊는다. 가드는 값이 아니라 **지금의 운영 정책**이라 위 「`src/` 상수를 import하지 않는다」의 대상이 아니다(과거 시점으로 고정할 이유가 없다)
 - **새 마이그레이션은 분류를 빠뜨릴 수 없다.** `tests/test_migration_guard.py`가 파괴적 연산(`drop_table`·`drop_column`·`DELETE`·Core `delete()`/`update()`)을 가진 모든 `downgrade()`가 세 분류 중 하나에 **사유와 함께** 들어 있는지 검사한다
-- **해제는 리비전을 하나씩 명시한다** — `ALLOW_IRREVERSIBLE_DOWNGRADE=057 alembic downgrade 056`(키는 `migration_guard.IRREVERSIBLE`의 `1c444a5c4819`·`043`·`044`·`057` — 종전 예시 `037,016`은 통합돼 없다). 「전부 허용」 값은 없다. **`.env`에 넣지 않고 그 명령 한 번에만 준다** — 남아 있으면 다음 롤백에서 같은 손실이 조용히 재현된다
+- **해제는 리비전을 하나씩 명시한다** — `ALLOW_IRREVERSIBLE_DOWNGRADE=057 alembic downgrade 056`(키는 `migration_guard.IRREVERSIBLE`의 `1c444a5c4819`·`043`·`044`·`057`·`060` — 종전 예시 `037,016`은 통합돼 없다). 「전부 허용」 값은 없다. **`.env`에 넣지 않고 그 명령 한 번에만 준다** — 남아 있으면 다음 롤백에서 같은 손실이 조용히 재현된다
 - **명시만으로는 풀리지 않는다 — 24시간 안의 백업 기록(`audit_log.action = 'DB_BACKUP'` · `§2.14`)이 함께 있어야 한다** (`#827` · 2026-09-11 결정 2-⑤ 「`#827` 백업과 연계」). 백업은 `scripts/db_backup.py backup`이 뜨고 기록한다(`README` 「백업·복구」). 가드는 **마이그레이션이 쓰는 그 연결로** 기록을 찾는다 — 마이그레이션은 앱 컨테이너에서 돌고 덤프는 호스트에 떨어져, 파일 경로로는 서로를 볼 수 없다. 24시간은 하루 한 번 정기 백업의 간격이며, 그래도 **롤백 직전에 한 번 더 뜨는 것**이 절차다 — 정기 백업 이후에 쌓인 데이터는 그 덤프에 없다. 종전(`#819`)에는 「백업을 뜬 뒤」가 오류 문구에만 있어 명시 한 번으로 백업 없이 지울 수 있었다
 - **개발·테스트에서는 막지 않는다.** `tests/test_zz_roundtrip.py`가 `downgrade base`로 모든 `downgrade()`가 실행 가능한지 검증하므로, 막으면 그 검증이 사라진다
 - PostgreSQL은 DDL도 트랜잭션이라 여러 리비전을 한 번에 내릴 때 가드에서 끊기면 **앞서 실행된 downgrade도 함께 되돌려진다**(PostgreSQL 시절 `038`→`037`에서 끊긴 뒤 `038` 유지를 실측으로 확인했다 — CUBRID에서는 같은 성질을 다시 실측하지 않았다)

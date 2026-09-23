@@ -365,6 +365,48 @@ def test_annual_input_fields_locked():
         # #756 ⑴ (결정요청 v9 회신 「나」) — 대체 연료를 고른 실행만 키가 들어간다
         # (선택 키 규약의 네 번째 적용례).
         "alternative_fuel",
+        # #1803 — 연말 예상 확정분에 넣은 이미 쓴 정박·묘박 몫. 기록이 있는 실행만 키가
+        # 들어간다(아래 `test_not_underway_absent_keeps_the_old_hash`).
+        "not_underway",
+    )
+
+
+def test_not_underway_absent_keeps_the_old_hash():
+    """⚠️ **정박 기록이 없는 실행은 종전과 같은 해시다** (#1803).
+
+    빈 블록이라도 키를 넣으면 정박 기록이 없는 기존 실행 전부의 해시가 바뀌어 재현이
+    500으로 깨진다 — `as_of`·`alternative_fuel`과 같은 규칙이다. 기록이 있으면 해시가
+    달라져야 한다(정박 몫이 계산 입력이므로 재현이 그 차이를 봐야 한다).
+
+    **서비스의 `_input_hash`를 직접 본다** — `test_feedback_off_keeps_the_old_hash`와 같은 이유.
+    """
+    from uuid import UUID
+
+    from cii_platform.calc.hash import compute_annual_input_hash
+    from cii_platform.services.annual_simulation import _input_hash, _not_underway_payload
+
+    common = {
+        "vessel_id": UUID(ANNUAL_INPUT["vessel_id"]),
+        "regulation_year": ANNUAL_INPUT["regulation_year"],
+        "target_rating": ANNUAL_INPUT["target_rating"],
+        "runs": ANNUAL_INPUT["simulation_runs"],
+        "seed": int(ANNUAL_INPUT["random_seed"]),
+        "voyages_json": ANNUAL_INPUT["voyages"],
+        "vessel_json": ANNUAL_INPUT["vessel"],
+    }
+    before_1803 = compute_annual_input_hash(dict(ANNUAL_INPUT))
+
+    # 기록이 없으면 사본 자체가 None이다 — 서비스가 빈 블록을 만들지 않는다.
+    assert _not_underway_payload([], Decimal(0)) is None
+    assert _input_hash(**common, not_underway_json=None) == before_1803, (
+        "정박 기록이 없는 실행의 해시가 종전과 다르다 — 저장된 실행이 재현 불가가 된다"
+    )
+    with_berth = {
+        "distance_nm": "0",
+        "fuel_uses": [{"fuel_type": "MGO", "fuel_ton": "12.5", "cf_used": "3.206"}],
+    }
+    assert _input_hash(**common, not_underway_json=with_berth) != before_1803, (
+        "정박 몫이 있는 실행이 없는 실행과 같은 해시다 — 재현이 구분하지 못한다"
     )
 
 

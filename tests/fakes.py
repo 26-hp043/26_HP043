@@ -167,6 +167,17 @@ class FakeSession:
         self.executed.append(statement)
         return _FakeResult()
 
+    async def scalar(self, statement: Any, *args: Any, **kwargs: Any) -> Any:
+        """``execute``와 같이 **기록만 하고 「행 없음」(``None``)을 준다** (`#1803`).
+
+        연말 예상 조립(``collect_annual_inputs``)이 올해 이미 쓴 정박 몫을 읽게 되면서
+        ``not_underway.sum_distance``(``session.scalar``)를 지나게 됐다 — 기능①이 연간
+        영향으로 이 조립을 함께 부른다(`#1338`). 없으면 대역이 `AttributeError`로 죽는다.
+        ``None``은 저장소가 ``Decimal(0)``으로 흡수하므로 「정박 기록 없음」과 같다.
+        """
+        self.executed.append(statement)
+        return None
+
     async def commit(self) -> None:
         self.committed += 1
 

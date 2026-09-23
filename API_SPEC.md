@@ -1569,7 +1569,7 @@ GET /api/v1/vessels/{vessel_id}/cii/current?year=2026&as_of=2026-08-17T02:00:00Z
 | `remaining_days` | 규제연도의 잔여 일수 |
 | `remaining_voyage_count` | 더한 잔여 계획 항차 수. **0이면 `warnings`에 `PROJECTION_NO_REMAINING_PLAN`** |
 | `planned_distance_nm` · `planned_co2_ton` | 잔여 계획분의 거리·CO₂ |
-| `completed_distance_nm` · `completed_co2_ton` | 확정분의 거리·CO₂ |
+| `completed_distance_nm` · `completed_co2_ton` | 확정분의 거리·CO₂ — **확정 항차 + 올해 `as_of`까지 이미 쓴 정박·묘박 몫**(`#1803` · `PRD §12.3`). 정박 몫은 ⑴ `ytd.not_underway_co2_ton`·`not_underway_distance_nm`과 같은 값이다 |
 
 > **잔여 계획이 0건이어도 값을 낸다.** 더할 계획이 없으면 「연말 = 지금」이 맞는 답이고, 빈칸은 「아직 로딩 중」으로 읽힌다. 다만 그 답은 종전 결함(항상 ⑴과 같음)과 화면에서 구분되지 않으므로 `PROJECTION_NO_REMAINING_PLAN`으로 **성격을 밝힌다.**
 
