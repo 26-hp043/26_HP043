@@ -67,3 +67,13 @@
   gap: var(--space-24);
   min-inline-size: 0;
 }
+
+/*
+ * **`display`가 `hidden`을 이긴다.** 브라우저 기본 `[hidden] { display: none }`은
+ * 특정도 0-0-1이라 위 규칙에 진다 — 그대로 두면 감춘 탭이 자리를 그대로 차지해,
+ * 탭을 옮길 때마다 문서가 길어진다(실측: 1440에서 1,426 → 2,508px). 감추는 쪽을
+ * 여기서 다시 적는다.
+ */
+.tabs__panel[hidden] {
+  display: none;
+}
