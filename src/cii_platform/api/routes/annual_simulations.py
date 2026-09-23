@@ -144,7 +144,7 @@ async def list_annual_simulations_route(
     """선박의 연간 시뮬레이션 실행 목록 — 최신순 (API_SPEC §6.5 · #1805).
 
     ``vessel_id``는 **필수**다 — 선사 전체의 실행을 한 목록으로 주는 경로가 아니다.
-    권한은 `§6.2`와 같다(조회 — 두 역할 모두).
+    권한은 `§6.2`와 같다(조회 — 세 역할 모두).
     """
     data, page = await list_annual_simulations(
         session, vessel_id=vessel_id, limit=limit, cursor=cursor

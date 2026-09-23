@@ -95,7 +95,7 @@ export function AccountPanel() {
           </div>
         </dl>
         <p className="acc__notice">{EMAIL_IMMUTABLE_NOTICE}</p>
-        {/* `PRD §6.3` 「역할 설명」 — 정본 문구다. 두 역할 모두 자기 역할이 무엇을 뜻하는지 본다. */}
+        {/* `PRD §6.3` 「역할 설명」 — 정본 문구다. 세 역할 모두 자기 역할이 무엇을 뜻하는지 본다. */}
         <p className="acc__notice">{ROLE_DESCRIPTION}</p>
 
         <DisplayNameForm initial={user.displayName ?? ''} />

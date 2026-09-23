@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-15. 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-24. 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -178,7 +178,7 @@ GitHub Actions (deploy.yml)
   │      - ghcr.io/26-hp043/bluelog-backend:<sha12>
   │
   ├─ deploy-db (SSH → db-01)
-  │   ├─ git pull (~/bluelog)
+  │   ├─ git fetch <DEPLOY_SHA> + reset --hard FETCH_HEAD (~/bluelog) — 받은 커밋이 다르면 중단 (#1633)
   │   ├─ ACL 템플릿 치환 (REPLACE_ME_APP_PRIVATE_IP)
   │   ├─ .env 렌더링 (CUBRID_PASSWORD)
   │   ├─ docker compose up -d (CUBRID)
@@ -186,7 +186,7 @@ GitHub Actions (deploy.yml)
   │   └─ 첫 부트 시 ALTER USER dba PASSWORD + 재시작
   │
   ├─ deploy-app (SSH → app-01)
-  │   ├─ git pull (~/bluelog)
+  │   ├─ git fetch <DEPLOY_SHA> + reset --hard FETCH_HEAD (~/bluelog) — 받은 커밋이 다르면 중단 (#1633)
   │   ├─ CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
   │   ├─ .env 렌더링 (APP_ENV, DATABASE_URL, CORS, SMTP 등)
   │   ├─ GHCR 로그인 + 이미지 풀
