@@ -200,6 +200,89 @@ describe('묻고 답하기', () => {
   })
 })
 
+/**
+ * 근거 칩 (#1818 · `API_SPEC §15.1`).
+ *
+ * `tool_calls`는 **그 답의 값을 무엇이 냈는지**다. `§20 O-12` No-Compute가 「값을
+ * 지어내지 않고 계산이 낸 값을 인용한다」이므로, 무엇이 냈는지가 보이는 쪽이 그
+ * 조항에 맞다. 서버가 보내고 provider가 파싱해 두었는데 화면이 읽지 않고 있었다.
+ */
+describe('근거 (#1818)', () => {
+  it('답 아래에 값을 낸 도구를 **한국어로** 적는다', async () => {
+    setup()
+    open()
+    await send('이 항차 CII 알려줘')
+
+    // ANSWER.toolCalls = ['calc_voyage_cii']
+    const cite = await screen.findByText(/항차 CII 계산/)
+    expect(cite.textContent).toContain('근거')
+    // 도구 이름이 날것으로 새지 않는다.
+    expect(document.body.textContent).not.toContain('calc_voyage_cii')
+  })
+
+  it('⚠️ **버린 답에는 붙이지 않는다** — 답이 아닌 것에 근거를 달면 답으로 읽힌다', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({
+      ...ANSWER,
+      answer: '설명되지 않는 수치가 있습니다.',
+      discarded: true,
+    }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('수치 알려줘')
+
+    await screen.findByText(/^답을 드리지 못했습니다/)
+    expect(screen.queryByText(/항차 CII 계산/)).toBeNull()
+  })
+
+  it('호출이 실패한 말풍선에도 붙지 않는다', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => {
+      throw new AssistantError('챗봇을 사용할 수 없습니다.')
+    })
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('알려줘')
+
+    await screen.findByText('챗봇을 사용할 수 없습니다.')
+    expect(screen.queryByText(/근거/)).toBeNull()
+  })
+
+  it('도구를 부르지 않은 답에는 빈 칩을 그리지 않는다', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({ ...ANSWER, toolCalls: [] }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('attained CII가 뭔가요?')
+
+    await screen.findByText(ANSWER.answer)
+    expect(screen.queryByText(/근거/)).toBeNull()
+  })
+})
+
+/**
+ * 첫 화면의 말은 첫 화면에 (#1818).
+ *
+ * 안내문은 「무엇을 물어볼 수 있나」를 말하는 문장이라 아직 물어본 것이 없을 때가 그
+ * 말이 쓰일 때다. 예시 질문이 이미 그 규칙이고(`#1613`), 안내문만 남아 대화 내내
+ * 50px을 쓰고 있었다.
+ */
+describe('안내문과 빈 로그 (#1818)', () => {
+  it('열자마자는 안내문과 빈 로그 한 줄이 보인다', () => {
+    setup()
+    open()
+    expect(screen.getByText(/규제 판단이나 권고는 하지 않으며/)).toBeTruthy()
+    expect(screen.getByText(/답과 그 근거가 여기에 쌓입니다/)).toBeTruthy()
+  })
+
+  it('대화가 시작되면 둘 다 걷힌다 — 그 자리는 로그가 쓴다', async () => {
+    setup()
+    open()
+    await send('올해 연말 예상 등급은?')
+
+    await screen.findByText(ANSWER.answer)
+    expect(screen.queryByText(/규제 판단이나 권고는 하지 않으며/)).toBeNull()
+    expect(screen.queryByText(/답과 그 근거가 여기에 쌓입니다/)).toBeNull()
+  })
+})
+
 describe('버린 답과 실패 (`PRD §16.2` 격리)', () => {
   it('폐기된 답은 **답과 다르게** 보인다 (`API_SPEC §15.2`)', async () => {
     const ask = vi.fn<AssistantProvider['ask']>(async () => ({
@@ -211,20 +294,27 @@ describe('버린 답과 실패 (`PRD §16.2` 격리)', () => {
     open()
     await send('수치 알려줘')
 
-    const bubble = await screen.findByText(
-      '답을 드리지 못했습니다 — 설명되지 않는 수치가 있습니다.',
-    )
+    /*
+     * #1818 — 접두가 **자기 요소**(`<strong>`)가 되어 텍스트가 갈린다. 말풍선을
+     * 문장 전체로 찾지 않고, 접두를 품은 말풍선으로 찾는다.
+     */
+    const prefix = await screen.findByText(/^답을 드리지 못했습니다/)
+    const bubble = prefix.closest('p')!
     /*
      * 규격이 정해졌다 — 2026-09-17 확정 ⓐ·ⓓ (`#1051` 3절). **채널 둘**을 잠근다.
      *
      * ⑴ 줄무늬(클래스) ⑵ 접두 문구. `§14`가 색 단독 구분을 금지하므로 ⑵가
      * 보조 채널이고, **문구는 낭독에도 실리는 유일한 채널**이라 함께 잠근다.
      *
-     * 색·굵기는 여전히 고정하지 않는다 — 값은 토큰이 갖고, 여기서 잠그면
-     * 토큰이 바뀔 때 화면이 아니라 검사가 먼저 깨진다.
+     * **색은 여전히 고정하지 않는다** — `§8.5`가 색 이름을 Figma에 맡겼다. #1818이
+     * 더한 굵기도 값이 아니라 **자리**로 잠근다(접두가 자기 요소를 갖는가). 값을
+     * 여기서 잠그면 토큰이 바뀔 때 화면이 아니라 검사가 먼저 깨진다.
      */
     expect(bubble.className).toContain('assistant__turn--discarded')
     expect(bubble.textContent).toContain('답을 드리지 못했습니다')
+    expect(bubble.textContent).toContain('설명되지 않는 수치가 있습니다.')
+    expect(prefix.tagName).toBe('STRONG')
+    expect(prefix.className).toContain('assistant__prefix')
 
     /*
      * 면책은 **같은 신호를 쓰지 않는다**(확정 ⓓ). 종전에는 배경·줄무늬·글자색이

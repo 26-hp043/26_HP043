@@ -75,8 +75,14 @@ describe('어시스턴트 패널이 넓은 화면에서 본문을 덮지 않는�
   it('패널 폭과 셸이 비우는 폭이 같은 변수다', () => {
     expect(css()).toMatch(/--assistant-panel-width\s*:/)
     expect(css()).toMatch(/\.assistant\s*\{[^}]*width:\s*min\(var\(--assistant-panel-width\)/)
-    const rule = /@media\s*\(min-width:\s*1366px\)\s*\{\s*\.app-shell--assistant-open\s*\{([^}]*)\}/.exec(css())
-    expect(rule, '1366px 이상에서 .app-shell--assistant-open 규칙이 없습니다').not.toBeNull()
+    /*
+     * ⚠️ 전환점 **값**은 여기서 보지 않는다 (#1818). 이 검사가 잠그는 것은 「패널 폭과
+     * 셸이 비우는 폭이 같은 변수인가」이고, 값이 얼마여야 하는지는
+     * `layout.sync.test.ts`가 `#1788`의 목록 최소 폭에서 산술로 본다. 두 검사가 같은
+     * 숫자를 들면 한쪽만 고쳐도 조용히 갈린다.
+     */
+    const rule = /@media\s*\(min-width:\s*\d+px\)\s*\{\s*\.app-shell--assistant-open\s*\{([^}]*)\}/.exec(css())
+    expect(rule, '.app-shell--assistant-open 미디어 규칙이 없습니다').not.toBeNull()
     expect(rule![1]).toMatch(/padding-inline-end:[^;]*var\(--assistant-panel-width\)/)
   })
 

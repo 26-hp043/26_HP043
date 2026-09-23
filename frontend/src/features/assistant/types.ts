@@ -32,6 +32,14 @@ export interface ChatTurn {
    * 붙는다. 실패 쪽 문구는 그 자체로 이미 완결된 문장이다.
    */
   readonly failed?: boolean
+  /**
+   * 이 답의 값을 낸 서버 도구들 (#1818 · `API_SPEC §15.1`).
+   *
+   * 화면이 근거 칩으로 적는다 — `§20 O-12` No-Compute가 「값을 지어내지 않고
+   * 계산이 낸 값을 인용한다」이므로, **무엇이 냈는지**가 보이는 쪽이 그 조항에 맞다.
+   * 버린 답·실패에는 싣지 않는다(답이 아닌 것에 근거를 달면 답으로 읽힌다).
+   */
+  readonly toolCalls?: readonly string[]
 }
 
 export interface ChatAnswer {

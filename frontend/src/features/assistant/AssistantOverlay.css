@@ -71,7 +71,13 @@
   flex-direction: column;
   gap: var(--space-8);
   width: min(var(--assistant-panel-width), calc(100vw - var(--space-32)));
-  max-height: min(560px, calc(100vh - var(--space-32)));
+  /*
+   * #1818 — **높이를 굳힌다.** 종전 `max-height`는 패널이 내용을 따라 자라게 두었고,
+   * 패널이 바닥에 붙어 있어(`bottom`) **답이 올 때마다 제목이 위로 뛰었다**
+   * (실측 `top` 376 → 363 → 316). 값은 종전 식 그대로이고 새 값이 아니다 —
+   * `DESIGN_SYSTEM §16` 항목 16의 대기는 그대로다.
+   */
+  height: min(560px, calc(100vh - var(--space-32)));
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-overlay);
@@ -222,17 +228,89 @@
  */
 .assistant__disclaimer {
   margin: 0;
-  background: var(--color-surface-2);
-  padding: var(--space-8) var(--space-12);
+  /*
+   * ⚠️ #1818 — **면을 두지 않는다.** 확정 ⓓ가 줄무늬를 걷었지만 배경·글자색은 버린
+   * 답과 그대로 같았고, 로그가 바닥까지 차면 **버린 답이 이 줄 바로 위에 붙어** 둘을
+   * 가르는 것이 줄무늬 4px 하나뿐이었다. 확정은 둘이 떨어져 있을 것을 전제한 자리다
+   * (면책은 로그 **밖** 고정, 버린 답은 로그 **안**).
+   *
+   * 경계선이 그 일을 대신하고, 덤으로 **로그의 끝**을 보이게 한다 — 스크롤로 위가
+   * 잘려 나간 말풍선이 잘린 티가 나지 않던 것도 이 선이 없어서였다.
+   *
+   * `layout.sync.test.ts`가 면이 돌아오는 것을 막는다.
+   */
+  border-block-start: 1px solid var(--color-border);
+  padding-block-start: var(--space-8);
   color: var(--color-text-muted);
   font-size: var(--font-size-micro);
   line-height: var(--line-height-label);
 }
 
+/*
+ * 빈 로그의 한 줄 (#1818). 말풍선이 아니므로 면을 두지 않는다 — 대화가 시작되면
+ * 사라지는 안내이고, 여기에 면을 두면 「답이 하나 와 있다」로 읽힌다.
+ */
+.assistant__empty {
+  margin: auto;
+  padding-inline: var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-body);
+  text-align: center;
+}
+
+/*
+ * 근거 칩 (#1818) — 이 답의 값을 낸 도구.
+ *
+ * `§20 O-12` No-Compute는 「값을 지어내지 않고 계산이 낸 값을 인용한다」이므로,
+ * **무엇이 냈는지**가 보이는 쪽이 그 조항에 맞다. 서버가 `tool_calls`로 보내 주고
+ * provider가 파싱해 두었는데 화면이 읽지 않고 있었다.
+ *
+ * **말풍선이 아니다** — 답에 딸린 줄이라 면을 두지 않고, 답보다 작게 적는다.
+ * 버린 답에는 붙지 않는다(컴포넌트가 싣지 않는다).
+ */
+.assistant__cite {
+  align-self: flex-start;
+  max-width: 90%;
+  margin: 0;
+  padding-inline-start: var(--space-12);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-label);
+}
+
+.assistant__cite-label {
+  /* 색 단독으로 말하지 않는다 (`§14`) — 낱말이 무엇인지 말한다. */
+  font-weight: var(--font-weight-strong);
+}
+
+/*
+ * 버린 답의 접두 (#1818 · `§8.5` 확정 ⓐ).
+ *
+ * ⚠️ **색을 바꾸지 않는다** — `§8.5`가 *「색 이름을 이 절에 적지 않는다 … Figma가
+ * 소유한다」*고 적었다. 굵기는 `§14`가 요구하는 색 밖 채널이고, 이 문장이 그
+ * 말풍선에서 가장 알려야 할 말이다.
+ */
+.assistant__prefix {
+  font-weight: var(--font-weight-strong);
+}
+
+/*
+ * #1818 — 입력과 보내기를 **한 줄**에 둔다.
+ *
+ * 종전에는 `rows={2}` 입력 아래 보내기가 따로 서서 늘 92px을 썼다. 그 자리는 대화
+ * 로그에서 나온 것이고, 로그는 답 두 개째부터 잘리고 있었다. 새 토큰을 만들지 않고
+ * 기존 간격 값만 조합한다.
+ */
 .assistant__form {
   display: flex;
-  flex-direction: column;
+  align-items: flex-end;
   gap: var(--space-8);
+}
+
+/* 입력이 남는 폭을 다 쓰고, 보내기는 자기 폭만 쓴다. */
+.assistant__form > * {
+  min-width: 0;
 }
 
 /*
@@ -244,6 +322,7 @@
  * 기다리지 않고 고친다. 나머지 치수(폭·높이·말풍선 폭 등)는 규격이 없어 그대로 둔다.
  */
 .assistant__input {
+  flex: 1;
   border: 1px solid var(--color-border-control); /* 1.4.11 3:1 — #829 ⑶ */
   border-radius: var(--radius-control);
   background: var(--color-surface-2);
@@ -265,7 +344,7 @@
 }
 
 .assistant__send {
-  align-self: flex-end;
+  flex: none;
   /* 경계는 테두리가 맡는다 — 다크 채움면은 주변과 3:1이 안 된다 (`tokens.css` · #1296). */
   border: 1px solid var(--color-primary-solid-border);
   border-radius: var(--radius-control);
@@ -291,14 +370,32 @@
 /*
  * 패널이 본문을 덮지 않게 한다 (#1613 · R21 · 디자인 결정 2026-09-22).
  *
- * 넓은 화면(1366px 이상)에서는 패널이 열리면 셸이 오른쪽에 **패널 폭 + 여백**을 비워
- * 본문이 패널 왼쪽까지만 온다 — 패널이 본문 옆 칸처럼 선다. 좁은 화면에서는 본문을
- * 좁히면 표가 무너지므로 종전대로 위에 뜬다(닫으면 된다).
+ * 넓은 화면에서는 패널이 열리면 셸이 오른쪽에 **패널 폭 + 여백**을 비워 본문이 패널
+ * 왼쪽까지만 온다 — 패널이 본문 옆 칸처럼 선다. 좁은 화면에서는 본문을 좁히면 표가
+ * 무너지므로 종전대로 위에 뜬다(닫으면 된다).
  *
- * 1366은 `#1451`이 감축 계획 두 단의 전환점으로 쓴 값과 같다 — 1366 노트북에서 비우면
- * 본문이 약 900px 남는다. 값은 이 파일이 갖는다(런처 여백과 같은 이유 · `#1375`).
+ * ## 왜 1640인가 (#1818)
+ *
+ * ⚠️ 종전 값은 `1366`이었고, 이 주석은 *「1366 노트북에서 비우면 본문이 약 900px
+ * 남는다」*고 적고 있었다. **틀린 계산이다** — 사이드바 240과 여백을 빼지 않았다.
+ * 실측하면 1366에서 본문은 `650px`이고, 1440에서도 `724px`다.
+ *
+ * 그 폭으로는 **선박 관리 목록이 들어가지 않는다.** 목록 최소 폭은 브라우저에서 잰
+ * `890`이고(`#1788`), 목록이 들어가는 칸은 본문에서 카드 좌우 패딩만큼 더 좁다.
+ *
+ *   890 + 카드 패딩 34 + 셸 여백 48 + 사이드바 240 + (패널 380 + 여백 48) = 1640
+ *
+ * 한 칸 아래(`1636` · 칸 886)에서 실제로 목록이 가로로 스크롤되는 것을 확인했고,
+ * `1640`(칸 890)에서 멈춘다. **고른 값이 아니라 떨어지는 값**이다 —
+ * `layout.sync.test.ts`가 이 산술을 `#1788`의 가드에서 읽어 대조한다.
+ *
+ * ⚠️ `#1451`의 `1365`와 다른 값인 것은 근거가 달라서다. 1365는 감축 계획 두 단의
+ * 전환점이고, 이것은 **패널이 비우고 남은 본문이 목록을 담는 폭**이다. 두 값을
+ * 맞추려 하지 않는다.
+ *
+ * 값은 이 파일이 갖는다(런처 여백과 같은 이유 · `#1375`).
  */
-@media (min-width: 1366px) {
+@media (min-width: 1640px) {
   .app-shell--assistant-open {
     padding-inline-end: calc(var(--shell-gutter) * 2 + var(--assistant-panel-width));
   }
