@@ -50,7 +50,7 @@ import { useShowsLabelEn } from '../../i18n/core'
  *
  * ## 채택은 사무직 전용이다 (`API_SPEC §1.2` · `#1325`)
  *
- * 비교(`POST /scenarios/compare`)는 두 역할 모두 쓰지만, 계획을 확정하는 반영
+ * 비교(`POST /scenarios/compare`)는 세 역할 모두 쓰지만, 계획을 확정하는 반영
  * (`POST /scenarios/{id}/adopt`)은 사무직(`ADMIN` 포함)만 부른다. 현장직이 폼을 다
  * 채우고 확인 대화상자까지 지난 뒤에야 `403`을 받는 것은 「되는 것처럼 보이는」
  * 경험이라(`VesselManagement`·`AnnualSimulation`과 같은 이유), 버튼을 미리 잠그고

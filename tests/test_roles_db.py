@@ -440,7 +440,7 @@ async def test_field_user_gets_403_forbidden_role_on_every_office_only_route(cli
             )
             assert resp.status_code == 403, f"{method} {path}: {resp.status_code} {resp.text}"
             assert resp.json()["error"]["message"] == ADMIN_ONLY_MESSAGE
-        # 두 역할 모두인 경로는 그대로 지나간다 — 항차·위치·계산은 현장의 주 업무다
+        # 세 역할 모두인 경로는 그대로 지나간다 — 항차·위치·계산은 현장의 주 업무다
         assert client.get(f"{API_V1_PREFIX}/vessels").status_code == 200
         assert client.get(f"{API_V1_PREFIX}/parameters/regulation-years").status_code == 200
     finally:

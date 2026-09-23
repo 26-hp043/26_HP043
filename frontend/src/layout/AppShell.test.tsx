@@ -447,7 +447,7 @@ describe('사이드바 — 현장직에게 사무직 전용 화면은 비활성 
       expect(item.querySelector('a')).toBeNull()
       expect(item.querySelector('[aria-disabled="true"]')).not.toBeNull()
     }
-    // 두 역할 모두 쓰는 화면은 그대로 링크다
+    // 세 역할 모두 쓰는 화면은 그대로 링크다
     const dashboard = screen.getByText(SCREEN_BY_ID.MAINBOARD.label).closest('li')!
     expect(dashboard.querySelector('a')).not.toBeNull()
   })
