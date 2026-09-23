@@ -203,3 +203,35 @@
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
 }
+
+/*
+ * 접는 제원 묶음 (#1783). `<details>`라 `<legend>`가 없고, `summary` 안의
+ * `.vessel-registration__legend`가 같은 자리를 맡는다.
+ */
+.vessel-registration__specs-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  cursor: pointer;
+  /* 여는 표식은 브라우저 기본 삼각형을 쓴다 — 아이콘을 새로 들이지 않는다. */
+  margin-bottom: var(--space-12);
+}
+
+.vessel-registration__specs-summary:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+/* `summary` 안에서는 아래 여백을 요약 자신이 갖는다. */
+.vessel-registration__specs-summary .vessel-registration__legend {
+  margin-bottom: 0;
+}
+
+/*
+ * 비우면 무엇이 막히는지 — **접힌 채로 읽혀야 한다**. 접어 두고 이 줄이 없으면
+ * 사용자는 나중에 선박 관리에서 같은 경고를 만난다.
+ */
+.vessel-registration__specs-why {
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}

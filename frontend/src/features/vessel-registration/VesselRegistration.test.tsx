@@ -317,3 +317,70 @@ describe('샘플 덮어쓰기 확인 (#1526)', () => {
     )
   })
 })
+
+
+/**
+ * 제원 묶음을 접는다 (#1783).
+ *
+ * 화면 머리가 「IMO 번호·선명·선종만 있으면 등록됩니다」라고 적는데 선택 입력 여덟 칸이
+ * 늘 펼쳐져 있어 **그 말과 보이는 것이 어긋났다.**
+ */
+describe('제원은 접어 두고, 스스로 펼치는 자리가 둘이다 (#1783)', () => {
+  const specs = () => screen.getByText(/^제원 · 선택 입력/).closest('details') as HTMLDetailsElement
+
+  it('처음에는 접혀 있고, 접힌 겉이 비우면 무엇이 막히는지 말한다', () => {
+    stubFetch([])
+    render(
+      <MemoryRouter>
+        <VesselRegistration />
+      </MemoryRouter>,
+    )
+
+    expect(specs().open).toBe(false)
+    // 접어 두고 이 줄이 없으면 사용자는 나중에 선박 관리에서 같은 경고를 만난다.
+    expect(screen.getByText(/CII 등급을 산출할 수 없고/)).toBeTruthy()
+    expect(screen.getByText(/^제원 · 선택 입력 7칸$/)).toBeTruthy()
+  })
+
+  it('샘플이 값을 채우면 펼친다 — 무엇이 들어갔는지 모른 채 등록하지 않게', async () => {
+    stubFetch([])
+    render(
+      <MemoryRouter>
+        <VesselRegistration />
+      </MemoryRouter>,
+    )
+    await screen.findByRole('option', { name: /벌크선 \(5만 DWT급\)/ })
+
+    fireEvent.change(screen.getByLabelText(/^샘플 선박에서 채우기/), { target: { value: 's1' } })
+
+    await waitFor(() => expect(specs().open).toBe(true))
+    // 채운 칸 수를 접힌 겉이 말한다 (`#1417` 「고급 설정」과 같은 꼴).
+    expect(screen.getByText(/7칸 중 \d칸 채움/)).toBeTruthy()
+  })
+
+  it('접힌 칸에서 검증 오류가 나면 사용자가 접어 두었어도 펼친다 (§14)', async () => {
+    stubFetch([])
+    render(
+      <MemoryRouter>
+        <VesselRegistration />
+      </MemoryRouter>,
+    )
+    fillRequired('9000001', '알파호')
+
+    // 제원에 잘못된 값을 넣고 — 채워졌으니 한 번 펼쳐진다 — 사용자가 도로 접는다.
+    fireEvent.change(screen.getByLabelText(/^재화중량톤수/), { target: { value: '-1' } })
+    await waitFor(() => expect(specs().open).toBe(true))
+    fireEvent.click(screen.getByText(/^제원 · 선택 입력/))
+    specs().open = false
+    fireEvent(specs(), new Event('toggle'))
+    await waitFor(() => expect(specs().open).toBe(false))
+
+    fireEvent.submit(screen.getByRole('button', { name: '등록하기' }).closest('form') as HTMLFormElement)
+
+    /*
+     * `§14`는 오류를 컨트롤 아래에 두라고 하는데, 접혀 있으면 그 컨트롤이 화면에 없다.
+     * 그래서 오류는 사용자의 선택보다 먼저다.
+     */
+    await waitFor(() => expect(specs().open).toBe(true))
+  })
+})

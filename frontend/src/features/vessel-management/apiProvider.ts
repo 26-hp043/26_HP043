@@ -130,6 +130,7 @@ export function createApiVesselManagementProvider(
       const params = new URLSearchParams()
       if (listOptions.cursor) params.set('cursor', listOptions.cursor)
       if (listOptions.search) params.set('search', listOptions.search)
+      if (listOptions.shipType) params.set('ship_type', listOptions.shipType)
       const query = params.toString()
       const body = await request(`/vessels${query ? `?${query}` : ''}`, { method: 'GET' })
 

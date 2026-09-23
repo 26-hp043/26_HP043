@@ -77,6 +77,24 @@ describe('list — GET /vessels', () => {
     expect(url).toContain('search=STAR')
   })
 
+  /*
+   * `search`는 처음부터 있었는데 **화면에 검색칸이 없어 아무도 부르지 않았다** (#1783).
+   * 선종을 더하며 둘을 한 줄로 잠근다.
+   */
+  it('선종을 쿼리로 싣는다 (#1783)', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: [], meta: {} }))
+    await createApiVesselManagementProvider({ fetchImpl }).list({ shipType: 'BULK_CARRIER' })
+    const [url] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toContain('ship_type=BULK_CARRIER')
+  })
+
+  it('빈 조건은 싣지 않는다 — `?search=`는 「조건 없음」과 다를 수 있다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: [], meta: {} }))
+    await createApiVesselManagementProvider({ fetchImpl }).list({ search: '', shipType: '' })
+    const [url] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).not.toContain('?')
+  })
+
   it('목록 자리에 배열이 아닌 것이 오면 빈 목록으로 처리하지 않는다', async () => {
     // 「선박이 없다」와 「목록을 못 읽었다」는 사용자가 취할 행동이 다르다.
     const fetchImpl = vi.fn(async () => jsonResponse({ data: null }))

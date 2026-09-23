@@ -650,3 +650,129 @@ describe('제원 미비 필터 칩 (#1424)', () => {
     expect(screen.getByRole('status').textContent).toMatch(/다시 누르/)
   })
 })
+
+
+/**
+ * 검색 · 선종은 **서버가 거른다** (#1783).
+ *
+ * 화면에서 거르면 받은 페이지 안에서만 맞아, 찾는 배가 다음 페이지에 있으면
+ * 「없다」와 「이 페이지에 없다」가 **같은 모양**이 된다 — `#1741`이 선박 상세 항차
+ * 목록에서 화면 정렬을 거절한 이유와 같다.
+ */
+describe('조회 조건은 쿼리로 간다 (#1783)', () => {
+  /** `/vessels` GET을 전부 받아 주고 부른 주소를 모은다. */
+  function stubVessels(rows: () => unknown[]) {
+    const urls: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown, init?: RequestInit) => {
+        const url = String(input)
+        if (url.includes('/parameters/fuel-types')) return jsonResponse({ data: [] })
+        if ((init?.method ?? 'GET') === 'GET' && url.includes('/vessels')) {
+          urls.push(url.replace(/^.*\/api\/v1/, ''))
+          return jsonResponse({ data: rows(), meta: { next_cursor: 'c1', has_more: true } })
+        }
+        throw new Error(`stub에 없는 요청: ${init?.method ?? 'GET'} ${url}`)
+      }),
+    )
+    return urls
+  }
+
+  const search = () => screen.getByTestId('vessel-search') as HTMLInputElement
+
+  it('검색어가 `search` 쿼리로 간다 — 입력이 멈춘 뒤 한 번만', async () => {
+    const urls = stubVessels(() => [A, B])
+    renderScreen()
+    await screen.findByText('알파호')
+    expect(urls).toHaveLength(1)
+
+    // 글자마다 보내면 「알파」를 치는 동안 조회가 두 번 나간다.
+    fireEvent.change(search(), { target: { value: '알' } })
+    fireEvent.change(search(), { target: { value: '알파' } })
+
+    await waitFor(() => expect(urls).toHaveLength(2), { timeout: 2000 })
+    expect(decodeURIComponent(urls[1])).toContain('search=알파')
+    expect(urls[1]).not.toContain('cursor=')
+  })
+
+  it('선종을 고르면 `ship_type`이 간다', async () => {
+    const urls = stubVessels(() => [A, B])
+    renderScreen()
+    await screen.findByText('알파호')
+
+    fireEvent.change(screen.getByTestId('vessel-ship-type'), {
+      target: { value: 'BULK_CARRIER' },
+    })
+
+    await waitFor(() => expect(urls).toHaveLength(2))
+    expect(urls[1]).toContain('ship_type=BULK_CARRIER')
+  })
+
+  it('조건이 바뀌면 커서를 버린다 — 다른 조건의 커서는 엉뚱한 자리를 가리킨다', async () => {
+    const urls = stubVessels(() => [A, B])
+    renderScreen()
+    await screen.findByText('알파호')
+
+    fireEvent.click(await screen.findByRole('button', { name: /더 보기/ }))
+    await waitFor(() => expect(urls[1]).toContain('cursor=c1'))
+
+    fireEvent.change(screen.getByTestId('vessel-ship-type'), {
+      target: { value: 'BULK_CARRIER' },
+    })
+
+    await waitFor(() => expect(urls).toHaveLength(3))
+    expect(urls[2]).not.toContain('cursor=')
+  })
+
+  it('조건에 걸려 빈 목록이면 「등록된 선박이 없습니다」로 말하지 않는다', async () => {
+    let empty = false
+    stubVessels(() => (empty ? [] : [A, B]))
+    renderScreen()
+    await screen.findByText('알파호')
+
+    empty = true
+    fireEvent.change(screen.getByTestId('vessel-ship-type'), {
+      target: { value: 'BULK_CARRIER' },
+    })
+
+    /*
+     * 두 상태에서 사용자가 할 일이 정반대다 — 배를 등록한다 ↔ 조건을 지운다.
+     */
+    expect(await screen.findByText(/조건에 맞는 선박이 없습니다/)).toBeTruthy()
+    expect(screen.queryByText(/등록된 선박이 없습니다/)).toBeNull()
+  })
+
+  it('걸린 조건이 보이고, 지우면 전체로 돌아간다', async () => {
+    const urls = stubVessels(() => [A, B])
+    renderScreen()
+    await screen.findByText('알파호')
+
+    fireEvent.change(search(), { target: { value: '알파' } })
+    await waitFor(() => expect(urls).toHaveLength(2), { timeout: 2000 })
+
+    // 걸어 놓고 잊는 것이 필터의 주된 사고다 — 무엇이 걸렸는지 화면이 말한다.
+    const chip = await screen.findByRole('button', { name: /검색 「알파」/ })
+    fireEvent.click(chip)
+
+    await waitFor(() => expect(search().value).toBe(''))
+    await waitFor(() => expect(urls).toHaveLength(3))
+    expect(urls[2]).not.toContain('search=')
+  })
+
+  it('조건에 걸려 목록이 비어도 조건을 지울 수 있다 — 도구 줄이 카드 밖이다', async () => {
+    let empty = false
+    stubVessels(() => (empty ? [] : [A, B]))
+    renderScreen()
+    await screen.findByText('알파호')
+
+    empty = true
+    fireEvent.change(screen.getByTestId('vessel-ship-type'), {
+      target: { value: 'BULK_CARRIER' },
+    })
+    await screen.findByText(/조건에 맞는 선박이 없습니다/)
+
+    // 카드가 사라져도 검색칸·선종·걸린 조건은 남아 있다.
+    expect(screen.getByTestId('vessel-search')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /선종 벌크선/ })).toBeTruthy()
+  })
+})
