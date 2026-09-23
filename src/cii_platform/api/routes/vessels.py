@@ -29,6 +29,7 @@ from cii_platform.auth.dependencies import require_csrf, require_office
 from cii_platform.db.session import get_session
 from cii_platform.services.cii_current import get_current_cii
 from cii_platform.services.cii_history import list_cii_history
+from cii_platform.services.cii_ytd_series import get_ytd_series
 from cii_platform.services.sample_vessels import list_sample_vessels
 from cii_platform.services.vessel import (
     create_vessel,
@@ -254,4 +255,22 @@ async def get_current_cii_route(
     화면이 값마다 따로 물으면 기준 시점이 어긋나 셋이 서로 모순된다.
     """
     data, extra_meta = await get_current_cii(session, vessel_id, year=year, as_of=as_of)
+    return {"data": data, "meta": _meta(request, **extra_meta)}
+
+
+@router.get("/vessels/{vessel_id}/cii/ytd-series")
+async def get_ytd_series_route(
+    request: Request,
+    vessel_id: UUID,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    year: Annotated[int | None, Query(description="규제연도. 기본 as_of 연도")] = None,
+    as_of: Annotated[datetime | None, Query(description="기준 시각 (ISO 8601 UTC)")] = None,
+) -> dict[str, object]:
+    """올해 누적 CII 추이를 조회한다 (API_SPEC §2.18, #1671).
+
+    항차 경계마다 한 점 — 연초~``as_of`` 실적(`ACTUAL`·`IN_PROGRESS`) · ``as_of``~연말
+    계획(`PLAN`). 실적 마지막 점은 같은 ``as_of``의 `§2.14` ``ytd``, 계획 마지막 점은
+    ``year_end_projection``과 같은 값이다.
+    """
+    data, extra_meta = await get_ytd_series(session, vessel_id, year=year, as_of=as_of)
     return {"data": data, "meta": _meta(request, **extra_meta)}

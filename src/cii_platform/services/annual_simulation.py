@@ -524,6 +524,7 @@ def _inputs_from_snapshot(
                 speed_kn=None if planned_speed is None else float(Decimal(planned_speed)),
                 reference_speed_kn=reference_speed_kn,
                 base_daily_foc_ton=base_daily_foc_ton,
+                voyage_id=row.get("voyage_id"),
             )
         )
 
@@ -643,6 +644,11 @@ class AnnualInputs:
     #: 올해 이미 쓴 정박·묘박 몫 (`#1803`). ``simulation_snapshot.not_underway_json``에
     #: 그대로 들어간다. 기록이 없으면 ``None``이다(:func:`_not_underway_payload`).
     not_underway_json: dict | None = None
+    #: 잔여 항차의 도착 예정 (`#1671`). 키는 ``RemainingVoyage.voyage_id``와 같은 문자열이다.
+    #: 누적 CII 추이가 잔여 항차를 **도착 예정 순**으로 더해 가며 점을 찍는 데 쓴다 —
+    #: 스냅샷(``voyages_json``)에는 넣지 않는다. 넣으면 ``input_hash`` 재료가 바뀌어 기존
+    #: 실행의 재현이 깨진다(``not_underway_json``·``as_of``와 같은 이유).
+    planned_arrivals: dict[str, datetime | None] = field(default_factory=dict)
 
 
 async def collect_annual_inputs(
@@ -705,6 +711,7 @@ async def collect_annual_inputs(
         live_cf=live_cf,
         fuel_type_sources=fuel_type_sources,
         not_underway_json=not_underway_json,
+        planned_arrivals={str(v.id): v.planned_arrival_at for v in planned},
     )
 
 

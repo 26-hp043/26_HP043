@@ -193,6 +193,11 @@ class RemainingVoyage:
     speed_kn: float | None = None
     reference_speed_kn: float | None = None
     base_daily_foc_ton: float | None = None
+    #: 이 줄이 어느 항차에서 왔는가 (`#1671`). **엔진은 읽지 않는다** — 누적 CII 추이가
+    #: 잔여 항차를 도착 예정 순으로 한 건씩 더해 가며 점을 찍을 때 점과 항차를 잇는
+    #: 이름표다. 스냅샷·``input_hash``의 재료는 ``voyages_json``이라 이 필드가 생겨도
+    #: 기존 실행의 해시는 그대로다.
+    voyage_id: str | None = None
 
 
 @dataclass(frozen=True)

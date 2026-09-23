@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.44 |
+| 버전 | v1.45 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-23 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1947,6 +1947,112 @@ GET /api/v1/fleet/reduction-plans/{plan_id}
 | 404 | `NOT_FOUND` | §2.17.4 — 없는 계획 |
 | 422 | `VALIDATION_ERROR` | 감속률 0~50 밖 · 모르는 `target` · 모르는 선박 · 음수 단가 · `plan_name` 누락 |
 | 403 | `CSRF_ERROR` | §2.17.1·§2.17.2 — `X-CSRF-Token` 누락·불일치(`§1.4`) |
+
+### 2.18 올해 누적 CII 추이 조회 (#1671)
+
+```http
+GET /api/v1/vessels/{vessel_id}/cii/ytd-series?year=2026&as_of=2026-09-26T00:00:00Z
+```
+
+실시간 CII 화면(`UIFLOW 2-9`)이 지도 아래에 그리는 **누적 CII 추이**의 데이터다 — 연초~`as_of` 실적 · `as_of`~연말 계획 · 등급 경계 밴드 · 기준선. `§2.14`는 **한 시점**의 값만 주므로 이 선을 그릴 수 없었고, 화면이 항차 목록으로 직접 누적을 계산하면 Layer 1(`Decimal`) 밖 계산이 된다.
+
+> **점 하나 = 항차 경계 하나.** 일·주 단위가 아니다 — 등급이 바뀐 시점은 항차 경계에 있고, 이 곡선의 목적이 「언제부터 나빠지고 있나」이므로 그 시각을 정확히 찍는다. `/cii/current?as_of=`를 월말마다 반복하는 방식(이슈 「가」)은 호출이 9~12회이고 점이 월말에 놓여 등급이 바뀐 시점을 실제보다 늦게 말한다.
+
+> **계산식을 새로 만들지 않는다.** 실적 쪽 점은 `§2.14` ⑴ 연간 누적이 부르는 **같은 조립**(`services/cii_current.resolve_ytd_at`)을 시각만 바꿔 부른다. 계획 쪽 점은 ⑶ 연말 예상과 **같은 입력·같은 엔진**(`collect_annual_inputs` · `project_deterministic`)에 잔여 항차를 도착 예정 순으로 한 건씩 더해 간다. 그래서 **실적 마지막 점 = 같은 `as_of`의 `ytd.attained_cii`, 계획 마지막 점 = `year_end_projection.attained_cii`** 가 구성상 성립한다 — 어긋나면 한 화면에 두 숫자다(`test_cii_ytd_series_db.py`가 문자 단위로 잠근다).
+
+#### 쿼리 파라미터
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `year` | integer | 아니오 | 규제연도. 기본 `as_of`의 연도. 2019~2100 |
+| `as_of` | string | 아니오 | 기준 시각 (ISO 8601 UTC). 미지정 시 서버가 확정해 `meta.as_of`로 반환 (`§1.10` 계약 ⑵). 실적·계획을 가르는 「오늘」이다 |
+
+#### 응답 (200 OK)
+
+데모 벌크선(`…0001` · 50,000 DWT)을 시드 적재일 + 3일에 조회한 실측이다(2026-09-23 · `DEMO_ANCHOR` 2026-09-23).
+
+```json
+{
+  "data": {
+    "vessel_id": "00000000-0000-4000-8000-000000000001",
+    "vessel_name": "샘플 벌크선 (50,000 DWT)",
+    "regulation_year": 2026,
+    "transport_capacity_basis": "DWT",
+    "required_cii": "5.045066",
+    "boundaries": {
+      "superior_boundary": "4.338757", "lower_boundary": "4.742362",
+      "upper_boundary": "5.347770", "inferior_boundary": "5.953178"
+    },
+    "ytd_available": true,
+    "points": [
+      { "at": "2026-02-26T23:00:00+00:00", "kind": "ACTUAL",      "attained_cii": "8.979906", "rating": "E", "voyage_id": "…0102", "period_id": null, "substituted": false },
+      { "at": "2026-09-26T00:00:00+00:00", "kind": "IN_PROGRESS", "attained_cii": "8.213830", "rating": "E", "voyage_id": "…0110", "period_id": null, "substituted": false },
+      { "at": "2026-10-01T00:00:00+00:00", "kind": "PLAN",        "attained_cii": "8.973981", "rating": "E", "voyage_id": "…0110", "period_id": null, "substituted": false },
+      { "at": "2026-10-11T00:00:00+00:00", "kind": "PLAN",        "attained_cii": "8.971119", "rating": "E", "voyage_id": "…0111", "period_id": null, "substituted": false },
+      { "at": "2026-10-21T00:00:00+00:00", "kind": "PLAN",        "attained_cii": "8.969484", "rating": "E", "voyage_id": "…0141", "period_id": null, "substituted": false },
+      { "at": "2026-11-04T00:00:00+00:00", "kind": "PLAN",        "attained_cii": "8.967383", "rating": "E", "voyage_id": "…0142", "period_id": null, "substituted": false },
+      { "at": "2026-11-17T00:00:00+00:00", "kind": "PLAN",        "attained_cii": "8.965893", "rating": "E", "voyage_id": "…0143", "period_id": null, "substituted": false }
+    ],
+    "warnings": ["IN_PROGRESS_PLANNED_DISTANCE_REACHED", "REFERENCE_ONLY"]
+  },
+  "meta": {
+    "as_of": "2026-09-26T00:00:00+00:00",
+    "simulated": true,
+    "request_id": "…",
+    "timestamp": "…"
+  }
+}
+```
+
+모든 수치는 **문자열**이다 (`§1.7` · CII 6자리 절사). `meta.as_of`·`meta.simulated`는 `§2.14`와 같은 뜻이다 — 같은 화면의 두 호출이 같은 배지를 낸다.
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `required_cii` | string | 그 해의 required CII — ⑶ 연말 예상과 같은 한 벌(`load_projection_context`)에서 온다 |
+| `boundaries` | object | 등급 경계 4종. 키는 `§2.14` `ytd.boundaries`와 같다. **연중 고정**이다 — `required × d`라 실적과 무관하다 |
+| `ytd_available` | boolean | `as_of` 시점의 실적이 있는가(`§2.14` `ytd.data_available`). 거짓이면 실적 점이 없다 |
+| `points[].at` | string | 점의 시각(UTC). 오름차순 — 실적(≤ `as_of`) 뒤에 계획(≥ `as_of`) |
+| `points[].kind` | enum | `ACTUAL` · `IN_PROGRESS` · `PLAN` — 아래 「점을 만드는 규칙」 |
+| `points[].attained_cii` | string | **그 시각까지의 누적** attained CII |
+| `points[].rating` | string | 그 시각의 누적 등급 |
+| `points[].voyage_id` | uuid \| null | 점을 만든 항차 — `ACTUAL`은 도착한 항차, `IN_PROGRESS`는 진행 중 항차, `PLAN`은 그 잔여 항차 |
+| `points[].period_id` | uuid \| null | 종료된 정박 구간이 만든 점이면 그 구간 |
+| `points[].substituted` | boolean | **이 점을 만든 항차**가 실적 대신 계획값으로 들어갔는가 — `ytd.substitutions`(`§2.14`)와 같은 판정을 그 항차에 대해 읽는다. `PLAN`·정박 점은 거짓 |
+| `warnings` | string[] | `§2.14`와 같은 합집합 — `as_of` 시점 누적 경고 + 진행분 경고 + 잔여 계획 경고(`PROJECTION_NO_REMAINING_PLAN` · `PLAN_NO_FUEL`) |
+
+**점의 키 집합은 종류와 무관하게 같다** — `null`이어도 키를 싣는다. 화면이 종류마다 다른 모양을 기대하지 않게 하기 위해서다.
+
+#### 점을 만드는 규칙
+
+| 종류 | 시각 | 값 |
+|---|---|---|
+| `ACTUAL` | 확정 항차(`INCLUDE_AS_ACTUAL`)의 **도착 시각** `COALESCE(actual_arrival_at, planned_arrival_at)` — 저장소 절단과 같은 식. 둘 다 없으면 누적에는 들지만 자기 점이 없다 · 종료된 정박 구간의 `ended_at` | 그 시각까지의 누적 |
+| `IN_PROGRESS` | `as_of` 자신 | 확정분 + 진행 중 항차의 `as_of`까지 경과분(시계가 만든 **모델값** · `PRD §3.3.8` COR-5). 경과분이 들어 있으면 이 종류다 |
+| `PLAN` | 잔여 항차(`INCLUDE_AS_PLAN`)의 **도착 예정** 오름차순. 예정이 `as_of`보다 이르면 `as_of`에 붙이고, 예정이 없으면 직전 점의 시각을 잇는다 | ⑶과 같은 식 — 확정분 + 앞에서 k건까지의 계획 전량 |
+
+> **확정 항차는 도착 시각에 전량 들어간다.** 항해 중이던 몫을 날마다 나눠 찍지 않는다 — 실적은 항차 단위로 기록되며 그 사이의 분할은 근거가 없다. 그래서 도착 시각에 계단이 생기고, 그 계단이 곧 「이 항차가 등급을 어디로 밀었나」다.
+>
+> **진행 중 항차는 `PLAN`에서 계획 전량으로 센다** (`§2.14` ⑶과 같다). `IN_PROGRESS` 점은 경과분만 넣으므로, `as_of` 점에서 첫 `PLAN` 점으로 **가파르게 오를 수 있다**(위 실측 8.213830 → 8.973981). 그 차이는 아직 뛰지 않은 남은 구간의 계획값이다 — 오류가 아니다.
+>
+> **예정일이 지난 잔여 항차**(`#1323`)는 `as_of` 점에 붙는다. 곡선이 뒤로 가는 점을 만들지 않는다.
+>
+> **연초 첫 점은 만들지 않는다.** 실적이 없는 시각의 값은 `null`이고, `attained_cii: null`인 점을 실으면 화면이 0으로 그린다. 첫 점은 첫 확정 항차의 도착이다.
+>
+> **`annual_inclusion_policy = EXCLUDE` 항차는 점이 없다** (`PRD §3.3.8` · `#1085`). 진행분은 거리·연료가 둘 다 있을 때만 넣는다(`§2.14` 규칙 그대로).
+
+#### 호출 비용 — 페이지 진입 때 한 번
+
+점마다 누적을 다시 조립하므로 **점 수만큼 조회가 든다**(점당 5쿼리 안팎 · 선박·규제 파라미터는 요청 캐시로 한 번). 화면은 **페이지 진입 때 한 번** 받고, 60초 틱은 `§2.14` `/cii/current`만 다시 부른다 — `ytd`가 곡선의 마지막 실적 점과 같은 값이므로 틱마다 곡선을 다시 받을 이유가 없다.
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 존재하지 않거나 삭제된 선박 |
+| 409 | `PARAMETER_ERROR` | 해당 규제연도 파라미터 없음 (VAL-005) |
+| 422 | `VALIDATION_ERROR` | `year`가 2019~2100 밖 |
+
+> **실적이 없는 것은 오류가 아니다.** `ytd_available: false` + 실적 점 없음으로 200을 반환한다. 잔여 계획만 있으면 `PLAN` 점은 낸다 — `§2.14` ⑶이 확정 실적 없이도 값을 내는 것과 같다.
 
 ---
 
@@ -4071,6 +4177,7 @@ GET /api/v1/health
 | DELETE | `/api/v1/vessels/{id}` | 선박 삭제 | §6.2 SCR-002 |
 | PATCH | `/api/v1/vessels/{id}/position` | 위치 갱신 | §6.2 SCR-001 |
 | GET | `/api/v1/vessels/{id}/cii/current` | 실시간 CII 3종 값 | §3.3 · §6.2 SCR-009 |
+| GET | `/api/v1/vessels/{id}/cii/ytd-series` | 올해 누적 CII 추이 — 항차 경계마다 한 점 (#1671) | §3.3 · §6.2 SCR-009 |
 | GET | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 목록 | §3.3 |
 | POST | `/api/v1/vessels/{id}/not-underway-periods` | not under way 구간 생성 | §3.3 |
 | PATCH | `/api/v1/not-underway-periods/{id}` | 구간 수정 (종료 확정) | §3.3 |
@@ -4640,3 +4747,4 @@ POST /api/v1/chat
 | 2026-09-23 | `#1817` | **v1.44 — §6.5 「선박별 연간 시뮬레이션 실행 목록」 신설** · §12 요약표 행 · §6.2 정정. 연간 등급 관리가 그 배의 마지막 결과를 다시 열 경로가 없었다 — `§6.2`는 `simulation_id`만 받고 계산 이력의 `calculation_run_id`로는 404(설계된 동작 · 두 ID를 한 경로가 받으면 다른 배의 결과가 열릴 수 있다). `§6.2` 본문의 「`calculation_run_id`로 재조회한다」는 경로 이름·코드·`#840`과 반대라 바로잡았다. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1805) |
 | 2026-09-23 | `#1822` | §2.8 `vessels[]`에 **`course_deg`(목적항 방향)** 필드와 절. 현재 위치 → 진행 중 항차 도착항의 초기 방위각을 항로 비교와 같은 함수(`calc/distance.initial_bearing_deg`)로 서버가 준다 — 화면이 따로 계산하면 지도와 항로 비교가 다른 방향을 말할 수 있다. **실제 침로(AIS `cog_deg`)가 아니다.** 쿼리는 늘지 않는다. 디자인 요청 R-D4(`#1672`). `AGENTS §4.3`상 필드 추가라 버전은 올리지 않는다 (#1804) |
 | 2026-09-23 | `#1829` | **§2.14 `year_end_projection`에 `drivers[]`**(예시·소절) (`#1673` · 결정 「A」). ⑴에서 ⑶까지를 **시간 순 누적 분해**로 나눈다 — `CURRENT_VOYAGE`(경과분 → 계획 전량) · `REMAINING_PLAN`(남은 계획) · 확정분 집합이 갈릴 때만 `BASIS_DIFFERENCE`. 합은 각 단계 누적값을 먼저 절사한 뒤 뺀 값이라 `attained_cii − ytd.attained_cii`와 **문자열 단위로** 같다. ⑴이 없으면 `[]`, ⑶이 없으면 키 없음. `AGENTS §4.3`상 필드 추가라 버전은 올리지 않는다(`#1733`·`#1822` 선례) (#1673) |
+| 2026-09-23 | `#___` | **v1.45 — §2.18 「올해 누적 CII 추이 조회」 신설** · §12 요약표 행. 실시간 CII 화면이 지도 아래에 누적 CII 추이(연초~오늘 실적 · 오늘~연말 계획 · 등급 밴드)를 그리는데 `§2.14`는 한 시점의 값만 줘 그릴 데이터가 없었다(재설계안 R-D1). 점 하나 = 항차 경계 하나(확정 항차 도착 · 정박 구간 종료 · `as_of` · 잔여 항차 도착 예정). 계산식을 새로 만들지 않는다 — 실적 점은 `§2.14` ⑴과 같은 조립(`resolve_ytd_at`)을 시각만 바꿔 부르고, 계획 점은 ⑶과 같은 입력·엔진에 잔여 항차를 도착 예정 순으로 한 건씩 더한다. 그래서 실적 마지막 점 = `ytd`, 계획 마지막 점 = `year_end_projection`(데모 벌크선 실측 8.213830 · 8.965893). 곡선은 페이지 진입 때 한 번, 60초 틱은 `/cii/current`만. 절 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1671) |
