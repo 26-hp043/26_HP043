@@ -2019,6 +2019,38 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
 
     counts["kept_voyage"] = len(voyage_ids) - counts["voyage"]
     counts["kept_vessel"] = len(vessel_ids) - counts["vessel"]
+
+    #
+    # 시드가 018의 3척에 **덧씌운** 운항 상태·위치를 비운다 (#1826).
+    #
+    # 이 3척은 마이그레이션이 만든 행이라 위에서 지워지지 않고, ``seed_demo``는
+    # ``underway_state IS NULL``일 때만 상태를 넣는다. 비우지 않으면 **첫 적재 때의
+    # 위치·시각이 영구히 남는다** — 항차 시각은 재적재일 기준으로 다시 잡히므로(`#792`)
+    # 재적재할수록 위치 기록 시각과 출항 시각이 벌어져, 기록 위치를 그대로 보이는 화면
+    # (`#1672` 결정 A)에서 「출항 전 시각에 항해 중」인 배가 된다. 초기화는 시연 DB를
+    # 「알려진 상태로 되돌린다」(`#1486`)는 뜻이므로 상태도 되돌린다.
+    #
+    # 다섯 칸을 **함께** 비운다 — 위치는 ``(lat, lon, position_updated_at)``이 한 묶음이다
+    # (``trg_chk_vessel_position_pair_upd`` · 048).
+    #
+    from cii_platform.db.models.vessel import Vessel
+
+    # id마다 ``==``로 견준다 — ``_delete_where``·``seed_demo``의 상태 UPDATE와 같은 모양.
+    reset = 0
+    for vid, *_ in SEED_STATE_UPDATES:
+        result = await conn.execute(
+            sa.update(Vessel.__table__)
+            .where(Vessel.__table__.c.id == vid)
+            .values(
+                underway_state=None,
+                detail_status=None,
+                current_lat=None,
+                current_lon=None,
+                position_updated_at=None,
+            )
+        )
+        reset += result.rowcount
+    counts["reset_vessel_state"] = reset
     return counts
 
 
@@ -2152,6 +2184,8 @@ async def main(argv: Sequence[str] | None = None) -> None:  # pragma: no cover -
     for table, count in counts.items():
         if table.startswith("kept_"):
             print(f"{table.removeprefix('kept_')}: {count}행 남김 (계산 이력이 참조)")
+        elif table.startswith("reset_"):
+            print(f"{table.removeprefix('reset_')}: {count}척 초기화 (시드가 다시 넣는다)")
         else:
             print(f"{table}: {count}행 {'삭제' if args.clear else '신규 적재'}")
 
