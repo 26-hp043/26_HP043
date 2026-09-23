@@ -315,6 +315,33 @@ async def test_underway_vessel_has_an_in_progress_voyage(conn):
         assert row.inprog >= 1, f"{row.name}: 운항 중인데 진행 중 항차가 없다"
 
 
+async def test_underway_position_is_recorded_after_departure(conn):
+    """항해 중인 배의 위치 기록 시각이 **그 진행 중 항차의 출항 뒤**다 (#1672).
+
+    화면은 위치를 보간하지 않고 **기록된 위치를 기록된 시각과 함께** 보인다(`#1672` 결정 A).
+    그래서 시드가 앞뒤가 맞아야 한다. 종전 벌크선은 위치 시각이 적재 **10일 전**인데
+    진행 중 항차는 **5일 전** 출항이라, 칩이 「출항 전 시각에 항해 중」을 보였다.
+    """
+    rows = (
+        await conn.execute(
+            text(
+                "SELECT v.name, v.position_updated_at, w.voyage_no, "
+                "       COALESCE(w.actual_departure_at, w.planned_departure_at) AS departed "
+                "FROM vessel v JOIN voyage w ON w.vessel_id = v.id "
+                "WHERE v.underway_state = 'UNDER_WAY' AND w.status = 'IN_PROGRESS'"
+            )
+        )
+    ).all()
+    assert rows, "항해 중 · 진행 중 항차 조합이 없다 — 이 검사가 아무것도 보지 않는다"
+    for row in rows:
+        assert row.position_updated_at is not None, f"{row.name}: 위치 기록 시각이 없다"
+        assert row.departed is not None, f"{row.name} {row.voyage_no}: 출항 시각이 없다"
+        assert row.position_updated_at >= row.departed, (
+            f"{row.name}: 위치 기록({row.position_updated_at})이 "
+            f"{row.voyage_no} 출항({row.departed})보다 앞선다"
+        )
+
+
 async def test_in_progress_voyage_arrival_is_still_ahead(conn):
     """진행 중 항차의 도착 예정일이 아직 오지 않았다 (#587 → #792).
 
