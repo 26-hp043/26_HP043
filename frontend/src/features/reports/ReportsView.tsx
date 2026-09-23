@@ -20,6 +20,7 @@ import type {
 import './ReportsView.css'
 import { ErrorState } from '../../components/ErrorState'
 import { useShellContext } from '../../layout/shellContext'
+import { useSamplePorts } from '../ports/samplePorts'
 
 /**
  * 보고서 — `UIFLOW 2-5` · `#362`.
@@ -64,6 +65,8 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
   const { selectVesselId, selectVoyageId } = shell
   const shellVesselId = shell.vesselId
   const shellVoyageId = shell.voyageId
+  // 항차 선택지의 구간을 저장 코드가 아니라 보이는 이름으로 적는다 (#1812).
+  const ports = useSamplePorts()
 
   const [kind, setKind] = useState<ReportKind>('ANNUAL')
   /*
@@ -507,7 +510,7 @@ export function ReportsView({ provider }: { provider?: ReportsProvider }) {
                       /* 감추지 않고 비활성으로 — 감추면 「왜 없지」에 답이 없다. */
                       disabled={!voyage.reportable}
                     >
-                      {voyageLabel(voyage)}
+                      {voyageLabel(voyage, ports)}
                       {voyage.reportable ? '' : ' — 완료 후 생성 가능'}
                     </option>
                   ))}

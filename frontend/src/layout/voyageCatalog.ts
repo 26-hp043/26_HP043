@@ -2,6 +2,7 @@ import { csrfHeaders, redirectToLogin } from '../auth/session'
 import { MAX_PAGES, nextCursorOf, pagedUrl } from './catalogPaging'
 import { DEFAULT_API_BASE_URL } from '../api/base'
 import { API_BASE_URL_ENV_KEY } from '../features/voyage-cii/providerSelection'
+import { portDisplayName, type SamplePort } from '../features/ports/samplePorts'
 
 /**
  * 항차 선택지의 데이터 경계 (#512).
@@ -13,13 +14,36 @@ import { API_BASE_URL_ENV_KEY } from '../features/voyage-cii/providerSelection'
  * 고정표(`referenceTable.ts`)는 계산 입력을 담고 있을 뿐 항차를 갖지 않아
  * **빈 목록**을 돌려줬다 — 상단바가 「항차 없음」으로 표시하며,
  * 그것이 사실이다.
+ *
+ * ## 구간 표시는 저장 코드가 아니라 보이는 이름이다 (#1812)
+ *
+ * `departure_port_name`·`arrival_port_name`은 항차에 **저장되는** 코드(`BUSAN` 등)다.
+ * `portDisplayName`(`features/ports/samplePorts.ts`)이 이미 「보이는 이름」 변환을
+ * 갖고 있으므로 여기서 다시 만들지 않고 그대로 부른다.
+ *
+ * ## 조회는 항구 목록과 무관하다 — 표시 이름은 렌더 시점에 만든다 (#1812 재작업)
+ *
+ * 처음에는 `listVoyages`가 `ports`를 받아 **미리 변환된** `displayName`을 담아 돌려줬다.
+ * 그런데 `useSamplePorts()`는 비동기로 도착하고, 그 값을 항차 조회 effect의 의존성에
+ * 넣으면 **항구 목록이 늦게 올 때마다 항차를 다시 조회**하게 된다 — 상단바 셀렉트가
+ * 매번 비었다 다시 차고(깜빡임), `GET /vessels/{id}/voyages`가 두 번 나가며,
+ * `ScenarioAdoptPanel`에서는 그 재조회가 `setVoyageId('')`까지 돌려 **사용자가 이미
+ * 고른 항차 선택이 지워졌다.**
+ *
+ * 그래서 `listVoyages`는 저장 코드 원문(`voyageNo`·`departurePortName`·
+ * `arrivalPortName`)을 그대로 담아 **한 번만** 조회하고, 화면에 보일 문자열은
+ * `voyageOptionLabel`로 **그릴 때마다** 만든다 — `ReportsView`의 `voyageLabel`이 이미
+ * 쓰던 방식과 같다.
  */
 
-/** 상단바 셀렉트가 쓰는 최소 형태. */
+/** 상단바·항로 비교 채택 패널이 쓰는 항차 선택지의 원자료. */
 export interface VoyageOption {
   id: string
-  /** 항차 번호. 없으면 출발항 → 도착항으로 대신한다. */
-  displayName: string
+  /** 항차 번호. 없으면 구간(`departurePortName` → `arrivalPortName`)으로 대신한다. */
+  voyageNo: string | null
+  /** 저장 코드(`BUSAN` 등) — 표시할 때는 `voyageOptionLabel`이 보이는 이름으로 바꾼다. */
+  departurePortName: string | null
+  arrivalPortName: string | null
   status: string
 }
 
@@ -37,19 +61,26 @@ interface VoyageListItem {
 }
 
 /**
- * 표시 이름을 만든다.
+ * 선택지에 보일 문자열을 **렌더 시점에** 만든다 (#1812).
  *
- * `voyage_no`가 있으면 그것이 사람이 부르는 이름이다. 없으면 구간으로 대신하고,
+ * `voyageNo`가 있으면 그것이 사람이 부르는 이름이다. 없으면 구간으로 대신하고,
  * 그것도 없으면 **id 앞자리**를 보인다 — 「이름 없는 항차」로 뭉뚱그리면 여러 건이
  * 같은 문자열이 되어 고를 수 없다.
+ *
+ * 구간에 쓰는 항구 이름은 저장 코드가 아니라 `portDisplayName`이 돌려주는 보이는
+ * 이름이다. 목록에 없는 항구는 입력한 그대로 나온다 — `portDisplayName` 참조.
+ *
+ * **조회를 다시 돌리지 않는다.** `option`은 `listVoyages`가 이미 받아 둔 값이고,
+ * 이 함수는 `ports`를 인자로만 받을 뿐 아무것도 fetch하지 않는다 — 호출부가
+ * `useMemo`나 렌더 중 파생으로 불러도 안전하다.
  */
-export function voyageDisplayName(row: VoyageListItem): string {
-  if (typeof row.voyage_no === 'string' && row.voyage_no.trim() !== '') return row.voyage_no
-  const from = typeof row.departure_port_name === 'string' ? row.departure_port_name : ''
-  const to = typeof row.arrival_port_name === 'string' ? row.arrival_port_name : ''
+export function voyageOptionLabel(option: VoyageOption, ports: readonly SamplePort[]): string {
+  if (option.voyageNo !== null) return option.voyageNo
+  const from =
+    option.departurePortName !== null ? portDisplayName(ports, option.departurePortName) : ''
+  const to = option.arrivalPortName !== null ? portDisplayName(ports, option.arrivalPortName) : ''
   if (from !== '' || to !== '') return `${from || '—'} → ${to || '—'}`
-  const id = typeof row.id === 'string' ? row.id : ''
-  return id.slice(0, 8)
+  return option.id.slice(0, 8)
 }
 
 export class VoyageCatalogError extends Error {
@@ -105,7 +136,10 @@ export function createApiVoyageCatalog(baseUrl?: string): VoyageCatalogProvider 
         .filter((row) => typeof row.id === 'string')
         .map((row) => ({
           id: row.id as string,
-          displayName: voyageDisplayName(row),
+          voyageNo:
+            typeof row.voyage_no === 'string' && row.voyage_no.trim() !== '' ? row.voyage_no : null,
+          departurePortName: typeof row.departure_port_name === 'string' ? row.departure_port_name : null,
+          arrivalPortName: typeof row.arrival_port_name === 'string' ? row.arrival_port_name : null,
           status: typeof row.status === 'string' ? row.status : '',
         }))
     },

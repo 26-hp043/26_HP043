@@ -3,7 +3,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import './AppShell.css'
 import { DEFAULT_PATH, NAV_SCREENS, findScreenByPath } from '../screens'
 import { createVesselCatalog, type VesselOption } from '../features/voyage-cii/vesselCatalog'
-import { createVoyageCatalog, type VoyageOption } from './voyageCatalog'
+import { createVoyageCatalog, voyageOptionLabel, type VoyageOption } from './voyageCatalog'
+import { useSamplePorts } from '../features/ports/samplePorts'
 import {
   EMPTY_CONTEXT,
   isVesselQueryPath,
@@ -76,6 +77,8 @@ export function AppShell() {
 
   const vesselCatalog = useMemo(() => createVesselCatalog(), [])
   const voyageCatalog = useMemo(() => createVoyageCatalog(), [])
+  // 항차 선택지의 구간을 저장 코드가 아니라 보이는 이름으로 적는다 (#1812).
+  const samplePorts = useSamplePorts()
 
   const [vessels, setVessels] = useState<VesselOption[]>([])
   // 「아직 안 왔다」와 「못 읽었다」와 「등록된 배가 없다」는 서로 다른 상태다.
@@ -198,6 +201,9 @@ export function AppShell() {
     }
     setVoyages([])
     setVoyagesState('loading')
+    // 조회는 항구 목록과 무관하다(`#1812` 재작업) — `samplePorts`를 의존성에 넣으면
+    // 항구 목록이 늦게 도착할 때마다 항차를 다시 조회해 셀렉트가 깜빡였다. 표시 이름은
+    // `voyageOptionLabel`이 그릴 때 만든다.
     voyageCatalog.listVoyages(context.vesselId).then(
       (options) => {
         if (!alive) return
@@ -440,7 +446,7 @@ export function AppShell() {
               </option>
               {voyages.map((option) => (
                 <option key={option.id} value={option.id}>
-                  {option.displayName}
+                  {voyageOptionLabel(option, samplePorts)}
                 </option>
               ))}
             </select>

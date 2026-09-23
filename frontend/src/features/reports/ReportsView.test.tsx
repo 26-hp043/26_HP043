@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
@@ -465,5 +465,53 @@ describe('한 번 만든 뒤에는 조건을 따라간다 (#1768)', () => {
     expect(await screen.findByText(/리포트를 만들지 못했습니다/)).toBeTruthy()
     // 되돌리려고 조건을 기억해 다시 고르게 하지 않는다 — 보던 문서는 남는다.
     expect(screen.getByTitle('리포트 미리보기')).toBeTruthy()
+  })
+})
+
+/**
+ * #1812 — 항차 선택지의 구간이 저장 코드(`BUSAN`)가 아니라 보이는 이름(`부산`)으로 나온다.
+ *
+ * `apiProvider.ts`가 서버의 `departure_port_name`·`arrival_port_name`(저장 코드)을 그대로
+ * `VoyageOption`에 옮기므로, 코드에서 이름으로 바꾸는 일은 이 화면이 `portDisplayName`으로
+ * 해야 한다.
+ */
+describe('항차 선택지의 항구 이름 (#1812)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('샘플 항만 목록에 있는 저장 코드는 보이는 이름으로 바뀐다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/ports/samples')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              data: [
+                { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+                {
+                  locode: 'SGKEP',
+                  name: 'SINGAPORE',
+                  name_ko: '싱가포르',
+                  country_code: 'SG',
+                  lat: 1.2833,
+                  lon: 103.85,
+                },
+              ],
+            }),
+          }
+        }
+        return { ok: true, status: 200, json: async () => ({ data: {} }) }
+      }),
+    )
+    const provider = stub({ listVoyages: vi.fn(async () => A_VOYAGES) })
+    renderInShell(provider, { vesselId: 'v-a' })
+    await chooseVoyageKind()
+
+    const option = await screen.findByRole('option', { name: /부산 → 싱가포르/ })
+    expect(option.textContent).not.toContain('BUSAN')
   })
 })
