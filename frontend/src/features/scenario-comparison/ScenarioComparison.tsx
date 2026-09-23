@@ -270,18 +270,46 @@ export function ScenarioComparison({
    * 정상 상태다. 목록이 한 척뿐일 때만 미리 채운다 — 고를 것이 없기 때문이다.
    */
   const shellVesselId = shell.vesselId
+  /** 선박 칸 오류를 마지막으로 지운 선택 — 같은 선택에서 다시 지우지 않는다 (#1815). */
+  const clearedForVesselRef = useRef<string | null>(null)
   useEffect(() => {
     if (shellVesselId !== null) {
       // 목록에 없는 선박(삭제됨)이면 선택을 풀고 안내한다 — 그 id로 계산하지 않는다 (#1097 ⑵).
       if (vessels !== null && !vessels.some((option) => option.id === shellVesselId)) {
         selectVesselId(null)
+        clearedForVesselRef.current = null
         setForm((prev) => ({ ...prev, vesselId: '' }))
         setErrors((prev) => ({ ...prev, [FIELD.vesselId]: SHELL_VESSEL_MISSING }))
         return
       }
       setForm((prev) => (prev.vesselId === shellVesselId ? prev : { ...prev, vesselId: shellVesselId }))
+      /*
+       * 유효한 선박으로 다시 골랐으니 앞서 남은 선박 칸 오류는 이 선택과 무관하다 —
+       * 지운다 (#1815). 종전에는 이 셀렉트의 `onChange`도, 상단바의 선택도 오류를
+       * 지우지 않아 「목록에 없습니다」가 실제로 고른 선박 위에 그대로 남았다. 지우는
+       * 곳을 이 효과로 둔 것은 선박 선택이 **이 화면의 셀렉트(:onChange)와 상단바**
+       * 두 경로 모두에서 여기 `shellVesselId`로 모이기 때문이다 — 한쪽만 지우면
+       * 다른 경로에서는 여전히 남는다.
+       */
+      /*
+       * 선택이 **실제로 바뀐 때만** 지운다. 이 효과는 `vessels` 참조가 바뀔 때도 다시 도는데,
+       * 그때 지우면 사용자가 다시 고르지 않았는데도 서버가 방금 준 선박 칸 오류가 사라진다
+       * (PR #1837 리뷰 · 지금은 그 경로가 없다 — `refreshVessels`를 부르는 화면이 이 화면과
+       * 함께 열리지 않는다).
+       */
+      if (clearedForVesselRef.current !== shellVesselId) {
+        clearedForVesselRef.current = shellVesselId
+        setErrors((prev) => {
+          if (!(FIELD.vesselId in prev)) return prev
+          const next = { ...prev }
+          delete next[FIELD.vesselId]
+          return next
+        })
+      }
       return
     }
+    // 선택이 풀렸다 — 같은 배를 다시 고르는 것도 「바뀐 선택」이다.
+    clearedForVesselRef.current = null
     if (vessels !== null && vessels.length === 1) selectVesselId(vessels[0].id)
   }, [shellVesselId, vessels, selectVesselId, SHELL_VESSEL_MISSING])
 

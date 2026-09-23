@@ -120,6 +120,20 @@ export function ScenarioAdoptPanel({
     }
   }, [catalog, vesselId])
 
+  /*
+   * 새 비교 결과가 오면 채택 완료 표시를 지운다 (#1815) — **안전망이다.**
+   *
+   * 위 효과는 `vesselId`가 바뀔 때만 돈다. 같은 배로 재비교하면 돌지 않지만, 지금은
+   * 부모(`ScenarioComparison`)가 재비교 중 `loading` 분기로 이 패널을 트리에서 빼므로
+   * 결과가 오면 새로 마운트되어 채택 상태가 이미 `idle`이다 — 이 효과가 없어도 표시는
+   * 남지 않는다(PR #1837 리뷰에서 확인). 그 렌더 구조가 바뀌어 패널이 재비교 동안
+   * 살아 있게 되면(예: 재계산 중 이전 결과 유지) 그때부터 이 효과가 표시를 지운다.
+   * `scenarios`는 비교가 성공할 때마다 새로 오는 배열이라 재비교의 신호로 쓴다.
+   */
+  useEffect(() => {
+    setAdopt({ status: 'idle' })
+  }, [scenarios])
+
   // 사용자가 고르기 전의 기본값 — 상단바의 항차가 반영 가능하면 그것, 아니면 하나뿐일 때만.
   // 효과에서 상태를 덮지 않고 **렌더 중에 파생**한다 — 고른 값이 있으면 그것이 이긴다.
   const fallbackVoyageId = Array.isArray(voyages)
