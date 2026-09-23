@@ -4,7 +4,12 @@ import { ErrorState } from '../../components/ErrorState'
 import { Field } from '../../components/Field'
 import { GradeBadge } from '../../components/GradeBadge'
 import { VerdictStrip } from '../../components/VerdictStrip'
-import { formatGrouped } from '../../display/format'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  formatDecimalString,
+  formatGrouped,
+} from '../../display/format'
 import { warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
@@ -534,7 +539,14 @@ function FleetVerdict({ result, adjusted }: { result: EvaluateResult; adjusted: 
       <dl className="fr__costs">
         <div>
           <dt>{COPY.extraDays}</dt>
-          <dd className="fr__num">{costs.extraDays}일</dd>
+          {/*
+            일수는 0자리 · 단위는 `DISPLAY_UNITS.day` (`DESIGN_SYSTEM §4.2` · #1813). API는
+            `"1.52"`처럼 소수 문자열을 주고, 반올림은 표시 시점에만 한다(`§4.2` 「반올림 🔒」).
+          */}
+          <dd className="fr__num">
+            {formatDecimalString(costs.extraDays, DISPLAY_DIGITS.days)}
+            {DISPLAY_UNITS.day}
+          </dd>
         </div>
         <div>
           <dt>{COPY.charterLoss}</dt>
@@ -628,9 +640,16 @@ function VesselRow({
           <p className="fr__hint">{COPY.skippedHint(vessel.skippedVoyages)}</p>
         ) : null}
       </td>
-      <td className="fr__num">{vessel.extraDays === null ? '—' : `${vessel.extraDays}일`}</td>
+      {/* 일수 0자리 · 연료 1자리+천단위 · 단위는 `DISPLAY_UNITS` (`DESIGN_SYSTEM §4.2` · #1813) */}
       <td className="fr__num">
-        {vessel.fuelSavedTon === null ? '—' : `${formatGrouped(vessel.fuelSavedTon, 1)}t`}
+        {vessel.extraDays === null
+          ? '—'
+          : `${formatDecimalString(vessel.extraDays, DISPLAY_DIGITS.days)}${DISPLAY_UNITS.day}`}
+      </td>
+      <td className="fr__num">
+        {vessel.fuelSavedTon === null
+          ? '—'
+          : `${formatGrouped(vessel.fuelSavedTon, DISPLAY_DIGITS.fuelTon)}${DISPLAY_UNITS.fuel}`}
       </td>
       <td>
         <input

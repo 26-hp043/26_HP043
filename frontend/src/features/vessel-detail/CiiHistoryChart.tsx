@@ -1,6 +1,6 @@
 import type { CapacityBasis } from '../voyage-cii/types'
 import { ciiUnit } from '../voyage-cii/resultRules'
-import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
+import { DISPLAY_DIGITS, formatDecimalString, formatGrouped } from '../../display/format'
 import type { CiiYear } from './types'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { voyageCountText } from './voyageCount'
@@ -313,15 +313,18 @@ function FuelTable({ years }: { years: CiiYear[] }) {
             <tr key={`${year.regulationYear}-${fuel.fuelType}`}>
               <th scope="row">{year.regulationYear}</th>
               <td>{fuel.fuelType}</td>
-              <td className="num">{formatDecimalString(fuel.fuelTon, DISPLAY_DIGITS.fuelTon)}</td>
+              {/*
+                연료·CO₂는 천단위 구분자 적용 대상이다(`DESIGN_SYSTEM §4.2` 「천단위 구분자 🔒」 ·
+                #1813). 연간 합계라 네 자릿수를 넘는 값이 흔한데 `12480.0`으로 나가고 있었다.
+                비중(%)은 미적용 항목이라 그대로 둔다.
+              */}
+              <td className="num">{formatGrouped(fuel.fuelTon, DISPLAY_DIGITS.fuelTon)}</td>
               {/*
                 거리가 0이라 Layer 1을 타지 않은 해는 배출량이 없다. 연료는 실제로
                 들어갔으므로 행 자체는 남기고, 모르는 칸만 「—」로 둔다.
               */}
               <td className="num">
-                {fuel.co2Ton === null
-                  ? '—'
-                  : formatDecimalString(fuel.co2Ton, DISPLAY_DIGITS.co2Ton)}
+                {fuel.co2Ton === null ? '—' : formatGrouped(fuel.co2Ton, DISPLAY_DIGITS.co2Ton)}
               </td>
               <td className="num">
                 {fuel.co2SharePercent === null

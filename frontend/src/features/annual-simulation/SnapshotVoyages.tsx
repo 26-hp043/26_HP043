@@ -1,5 +1,11 @@
 import { useState } from 'react'
-import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, toDecimalInput } from '../../display/format'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  formatDecimalString,
+  formatGrouped,
+  toDecimalInput,
+} from '../../display/format'
 import { ErrorState } from '../../components/ErrorState'
 import { POLICY_LABELS, STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { InclusionPolicy, VoyageStatus } from '../voyage-management/types'
@@ -22,10 +28,14 @@ type LoadState =
   | { status: 'ready'; rows: SnapshotVoyage[] }
   | { status: 'error'; message: string }
 
-function number(value: number | string | null, digits: number): string {
+/**
+ * `grouped`는 천단위 구분자 적용 항목(`DESIGN_SYSTEM §4.2` 「천단위 구분자 🔒」 · #1813)에만
+ * 켠다 — 거리(nm)·연료(t)는 적용, 속력(kn)은 미적용이다.
+ */
+function number(value: number | string | null, digits: number, grouped = false): string {
   if (value === null || value === undefined || value === '') return '—'
   const text = typeof value === 'number' ? toDecimalInput(value) : value
-  return formatDecimalString(text, digits)
+  return grouped ? formatGrouped(text, digits) : formatDecimalString(text, digits)
 }
 
 function statusText(status: string): string {
@@ -48,7 +58,7 @@ function fuelText(row: SnapshotVoyage): string {
   if (row.fuel_uses.length === 0) return '—'
   return row.fuel_uses
     .map((fu) => {
-      const ton = number(fu.fuel_ton, DISPLAY_DIGITS.fuelTon)
+      const ton = number(fu.fuel_ton, DISPLAY_DIGITS.fuelTon, true)
       return ton === '—' ? `${fu.fuel_type} —` : `${fu.fuel_type} ${ton}${DISPLAY_UNITS.fuel}`
     })
     .join(' · ')
@@ -124,7 +134,7 @@ export function SnapshotVoyages({
                   <th scope="row">{row.voyage_no || '—'}</th>
                   <td>{policyText(row.annual_inclusion_policy)}</td>
                   <td>{statusText(row.status_at_snapshot)}</td>
-                  <td className="num">{number(row.distance_nm, DISPLAY_DIGITS.distanceNm)}</td>
+                  <td className="num">{number(row.distance_nm, DISPLAY_DIGITS.distanceNm, true)}</td>
                   <td className="num">{number(row.speed_kn, DISPLAY_DIGITS.speedKn)}</td>
                   <td>{fuelText(row)}</td>
                 </tr>

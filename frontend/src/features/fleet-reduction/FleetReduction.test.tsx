@@ -4,6 +4,7 @@ import '../../test/renderSetup'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
+import { DISPLAY_UNITS } from '../../display/format'
 import { FleetReduction } from './FleetReduction'
 import { FLEET_REDUCTION_COPY } from './copy'
 import type { EvaluateRequest, EvaluateResult, FleetReductionProvider } from './types'
@@ -506,5 +507,58 @@ describe('도구 줄 — 연료 단가 · 계획 저장 (#1757)', () => {
     expect(document.getElementById('fr-save-blocked')?.textContent).toBe(
       FLEET_REDUCTION_COPY.saveBlockedByPrice,
     )
+  })
+})
+
+/**
+ * 수치·단위 표시 (`DESIGN_SYSTEM §4.2` · #1813).
+ *
+ * `extraDays`는 API가 `"1.52"`처럼 소수 문자열로 준다(`API_SPEC §2.17`). 종전에는 그대로 `…일`로
+ * 이어 붙여 소수가 나갔고, 단위 `일`·`t`가 리터럴이었다. 규정은 일수 0자리 · 연료 1자리+천단위 ·
+ * 단위는 `DISPLAY_UNITS`다. 표시 반올림이므로 값 자체(`'1.52'`)는 그대로 둔다(`§4.2` 「반올림 🔒」).
+ */
+describe('수치·단위 표시 (§4.2 · #1813)', () => {
+  function vesselCells(): string[] {
+    const row = screen.getByText('MV One').closest('tr') as HTMLTableRowElement
+    return [...row.querySelectorAll('td.fr__num')].map((cell) => cell.textContent?.trim() ?? '')
+  }
+
+  it('추가 항해일은 소수 없이 「n일」이고 단위는 DISPLAY_UNITS.day다', async () => {
+    renderWith()
+    await screen.findByText('MV One')
+
+    const costs = document.querySelector('.fr__costs dd.fr__num') as HTMLElement
+    const [rowDays] = vesselCells()
+    for (const text of [costs.textContent?.trim() ?? '', rowDays]) {
+      expect(text.endsWith(DISPLAY_UNITS.day)).toBe(true)
+      expect(text.slice(0, -DISPLAY_UNITS.day.length)).toMatch(/^\d+$/)
+    }
+    /* 절사가 아니라 반올림이다 — `1.52`는 `1`이 아니다. */
+    expect(rowDays.slice(0, -DISPLAY_UNITS.day.length)).not.toBe('1')
+  })
+
+  it('연료 절감은 1자리 + 천단위 구분이고 단위는 DISPLAY_UNITS.fuel이다', async () => {
+    const base = result()
+    renderWith(
+      result({
+        vessels: base.vessels.map((vessel) =>
+          vessel.vesselId === 'v1' ? { ...vessel, fuelSavedTon: '12345.67' } : vessel,
+        ),
+      }),
+    )
+    await screen.findByText('MV One')
+
+    const [, fuel] = vesselCells()
+    expect(fuel.endsWith(DISPLAY_UNITS.fuel)).toBe(true)
+    expect(fuel.slice(0, -DISPLAY_UNITS.fuel.length)).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
+  })
+
+  it('값이 없으면 단위도 붙이지 않는다', async () => {
+    renderWith()
+    await screen.findByText('MV Empty')
+
+    const row = screen.getByText('MV Empty').closest('tr') as HTMLTableRowElement
+    const cells = [...row.querySelectorAll('td.fr__num')].map((cell) => cell.textContent?.trim())
+    expect(cells).toEqual(['—', '—'])
   })
 })
