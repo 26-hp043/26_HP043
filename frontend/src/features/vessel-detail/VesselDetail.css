@@ -94,6 +94,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 다시 부르기 실패 안내 한 줄 (#1811) — 실시간 화면의 `.rt__stale`과 같은 규격. */
+.vd__stale {
+  margin: var(--spacing-xs) 0 0;
+  color: var(--color-danger-text);
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-label);
+}
+
+.vd__stale button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.vd__stale button:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
 /*
  * 12컬럼 위의 7:5 (DESIGN_SYSTEM §7.1 🔒 · #485 ⑦).
  *

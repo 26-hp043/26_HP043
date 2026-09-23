@@ -3,7 +3,7 @@ import '../../test/renderSetup'
 
 import { describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { Link, MemoryRouter, Route, Routes } from 'react-router'
 import { DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
 import { VesselDetail } from './VesselDetail'
 import type { CiiYear, VesselDetail as Detail, VesselDetailProvider } from './types'
@@ -449,30 +449,60 @@ describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () =
     vi.unstubAllGlobals()
   })
 
+  /** 정박 탭 — 이름은 정본 목록에서 온다(표시 문구를 여기 다시 적지 않는다). */
+  const NOT_UNDERWAY_TAB = VESSEL_TABS.find((item) => item.id === 'not-underway')!.label
+
+  /** 정박 탭을 열고 첫 구간을 지운다 — 자식이 `onChanged`를 부르는 가장 짧은 경로다. */
+  async function openNotUnderwayAndRemove() {
+    fireEvent.click(await screen.findByRole('tab', { name: NOT_UNDERWAY_TAB }))
+    fireEvent.click(await screen.findByRole('button', { name: /구간 삭제|삭제/ }))
+  }
+
   /*
    * 다시 부르는 동안 화면을 비우지 않는다 (#1811). 종전에는 조회 effect가 시작마다
    * `setDetail(null)`을 해서 자식이 `onChanged`를 부를 때마다 상세 전체가 로딩으로 교체됐다 —
-   * 더 보기로 받은 행과 쓰다 만 입력이 사라졌다. 「비우지 않았다」는 **같은 DOM 노드가 남아
-   * 있는가**로 본다 — 언마운트됐다 다시 그려지면 겉모습은 같아도 노드가 다르다.
+   * 더 보기로 받은 행과 쓰다 만 입력이 사라졌다. 「비우지 않았다」는 둘로 본다 — 정박 **행이
+   * 같은 DOM 노드**로 남는가(언마운트됐다 다시 그려지면 겉모습은 같아도 노드가 다르다), 그리고
+   * 그 행 안에 **쓰다 만 연료 입력이 그대로** 있는가.
    */
   it('정박 기록을 지워도 그려진 상세가 남고 값만 바뀐다 (#1811)', async () => {
     stubNetwork()
     const renamed: Detail = { ...DETAIL, vessel: { ...DETAIL.vessel, name: '바뀐 선명' } }
+    // 두 번째 답은 붙들어 둔다 — 즉시 오면 옛 코드에서도 비움과 채움이 한 렌더에 합쳐져 증상이 안 보인다.
+    let resolveSecond: (value: Detail) => void = () => {}
     const provider = stub({
-      load: vi.fn().mockResolvedValueOnce(DETAIL).mockResolvedValue(renamed),
+      load: vi
+        .fn()
+        .mockResolvedValueOnce(DETAIL)
+        .mockReturnValue(
+          new Promise<Detail>((resolve) => {
+            resolveSecond = resolve
+          }),
+        ),
     })
     renderAt(provider)
 
-    const tablist = await screen.findByRole('tablist', { name: '선박 상세 구획' })
-    fireEvent.click(screen.getByRole('tab', { name: '정박' }))
-    const panel = await screen.findByRole('tabpanel')
+    fireEvent.click(await screen.findByRole('tab', { name: NOT_UNDERWAY_TAB }))
+    // 행 안에서 연료 기록을 쓰다 만다 — 종전에는 이것이 사라졌다.
+    fireEvent.click(await screen.findByTestId('nu-fuel-add'))
+    const fuelInput = screen.getByRole('spinbutton', { name: '연료량' })
+    fireEvent.change(fuelInput, { target: { value: '12.5' } })
+    const row = fuelInput.closest('li')
+    expect(row).not.toBeNull()
 
-    fireEvent.click(await screen.findByRole('button', { name: /구간 삭제|삭제/ }))
+    fireEvent.click(screen.getByRole('button', { name: /구간 삭제|삭제/ }))
 
-    // 새 값이 들어왔는데도 구획과 정박 패널은 같은 노드다 — 로딩으로 교체되지 않았다.
+    // 다시 부르는 동안에도 입력이 그 자리에 있다 — 로딩으로 교체되지 않았다.
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('spinbutton', { name: '연료량' })).toBe(fuelInput)
+
+    // 새 값이 들어온 뒤에도 정박 행은 같은 노드이고 입력값이 남아 있다.
+    resolveSecond(renamed)
     await screen.findByRole('heading', { level: 1, name: /바뀐 선명/ })
-    expect(screen.getByRole('tablist', { name: '선박 상세 구획' })).toBe(tablist)
-    expect(screen.getByRole('tabpanel')).toBe(panel)
+    const after = screen.getByRole('spinbutton', { name: '연료량' })
+    expect(after).toBe(fuelInput)
+    expect(after.closest('li')).toBe(row)
+    expect((after as HTMLInputElement).value).toBe('12.5')
     vi.unstubAllGlobals()
   })
 
@@ -493,12 +523,136 @@ describe('패널이 바꾸면 상세를 다시 부른다 (#1647 · #1648)', () =
 
     // 첫 답은 「없음」 — 링크가 아니라 버튼이다.
     await screen.findByRole('button', { name: /실시간 CII 보기/ })
-    fireEvent.click(await screen.findByRole('tab', { name: '정박' }))
-    fireEvent.click(await screen.findByRole('button', { name: /구간 삭제|삭제/ }))
+    await openNotUnderwayAndRemove()
 
     await waitFor(() => expect(provider.findInProgressVoyage).toHaveBeenCalledTimes(2))
     const link = await screen.findByRole('link', { name: /실시간 CII 보기/ })
     expect(link.getAttribute('href')).toBe('/vessels/v-1/voyages/current')
+    vi.unstubAllGlobals()
+  })
+
+  /*
+   * 다시 보는 동안 「확인 중」으로 물러서지 않는다 (#1811). 답을 알고 있는데 다시 묻는다고
+   * 모르는 척하면 헤더가 매 변경마다 깜빡인다. 두 번째 답을 영영 오지 않게 두고, 첫 답의
+   * 입구(버튼)가 **같은 노드**로 남아 있는지 본다.
+   */
+  it('진행 중 항차를 다시 보는 동안 첫 답이 그대로 남는다 (#1811)', async () => {
+    stubNetwork()
+    const provider = stub({
+      findInProgressVoyage: vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockReturnValue(new Promise<null>(() => {})),
+    })
+    renderAt(provider)
+
+    const button = await screen.findByRole('button', { name: /실시간 CII 보기/ })
+    await openNotUnderwayAndRemove()
+
+    await waitFor(() => expect(provider.findInProgressVoyage).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: /실시간 CII 보기/ })).toBe(button)
+    vi.unstubAllGlobals()
+  })
+
+  /*
+   * 다시 보기가 실패해도 알던 링크를 지우지 않는다 (#1811). 첫 조회 실패는 「없음」이지만
+   * (`#588` — 실패를 「있다」로 읽지 않는다), 알던 답을 실패로 덮으면 이번에는 실패를
+   * 「없다」로 읽는 셈이다. 같은 거짓 신호의 반대 방향이다.
+   */
+  it('진행 중 항차 다시 보기가 실패해도 알던 링크가 남는다 (#1811)', async () => {
+    stubNetwork()
+    const provider = stub({
+      findInProgressVoyage: vi
+        .fn()
+        .mockResolvedValueOnce({ id: 'vy-1', voyageNo: 'V-1' })
+        .mockRejectedValue(new Error('boom')),
+    })
+    renderAt(provider)
+
+    const link = await screen.findByRole('link', { name: /실시간 CII 보기/ })
+    await openNotUnderwayAndRemove()
+
+    await waitFor(() => expect(provider.findInProgressVoyage).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('link', { name: /실시간 CII 보기/ })).toBe(link)
+    vi.unstubAllGlobals()
+  })
+
+  /*
+   * 상세 다시 부르기가 실패하면 **값은 남기고 그 사실을 말한다** (#1811 · `#755`의 형태).
+   * 값을 지우지 않는 것과 최신인 척하는 것은 다르다. 페이지 오류 화면(`role="alert"`)으로
+   * 바꾸지 않고, 상태 안내(`role="status"`) 한 줄에 「다시 시도」를 둔다. 다시 시도가
+   * 성공하면 안내가 사라진다.
+   */
+  it('상세 다시 부르기가 실패하면 값을 남기고 낡음을 알리며, 다시 시도로 회복한다 (#1811)', async () => {
+    stubNetwork()
+    const provider = stub({
+      load: vi
+        .fn()
+        .mockResolvedValueOnce(DETAIL)
+        .mockRejectedValueOnce(new Error('일시적 실패'))
+        .mockResolvedValue(DETAIL),
+    })
+    renderAt(provider)
+
+    const heading = await screen.findByRole('heading', { level: 1, name: /샘플 벌크선/ })
+    expect(screen.queryByRole('button', { name: '다시 시도' })).toBeNull()
+    await openNotUnderwayAndRemove()
+
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    // 값이 남는다 — 같은 제목 노드이고 페이지 오류 화면이 아니다.
+    const retry = await screen.findByRole('button', { name: '다시 시도' })
+    expect(screen.getByRole('heading', { level: 1, name: /샘플 벌크선/ })).toBe(heading)
+    expect(screen.queryByRole('alert')).toBeNull()
+    // 안내는 오류가 아니라 상태다.
+    expect(retry.closest('[role="status"]')).not.toBeNull()
+
+    fireEvent.click(retry)
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.queryByRole('button', { name: '다시 시도' })).toBeNull())
+    expect(screen.getByRole('heading', { level: 1, name: /샘플 벌크선/ })).toBe(heading)
+    vi.unstubAllGlobals()
+  })
+
+  /*
+   * 배를 바꾸면 이전 배의 늦은 답이 새 배를 덮지 않는다 (#1811). 비우기와 조회를 두 effect로
+   * 갈랐으므로, 배가 바뀔 때 늦게 오는 답을 버리는 `alive` 가드가 여전히 도는지 잠근다.
+   */
+  it('배를 바꾸면 이전 배의 늦은 답이 새 배를 덮지 않는다 (#1811)', async () => {
+    stubNetwork()
+    let resolveFirst: (value: Detail) => void = () => {}
+    const second: Detail = {
+      ...DETAIL,
+      vessel: { ...DETAIL.vessel, id: 'v-2', name: '두 번째 배' },
+    }
+    const provider = stub({
+      load: vi.fn((id: string) =>
+        id === 'v-1'
+          ? new Promise<Detail>((resolve) => {
+              resolveFirst = resolve
+            })
+          : Promise.resolve(second),
+      ),
+    })
+    render(
+      <MemoryRouter initialEntries={['/vessels/v-1']}>
+        <Link to="/vessels/v-2">다음 배로</Link>
+        <Routes>
+          <Route path="/vessels/:vesselId" element={<VesselDetail provider={provider} />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(provider.load).toHaveBeenCalledWith('v-1'))
+    fireEvent.click(screen.getByRole('link', { name: '다음 배로' }))
+    await screen.findByRole('heading', { level: 1, name: /두 번째 배/ })
+
+    // 이제서야 첫 배의 답이 온다 — 화면은 두 번째 배로 남아야 한다.
+    resolveFirst(DETAIL)
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('heading', { level: 1, name: /두 번째 배/ })).toBeTruthy()
+    expect(screen.queryByRole('heading', { level: 1, name: /샘플 벌크선/ })).toBeNull()
     vi.unstubAllGlobals()
   })
   /**

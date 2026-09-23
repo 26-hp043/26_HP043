@@ -182,9 +182,10 @@ export function VesselDetail({
         if (alive) setInProgress(voyage)
       })
       .catch(() => {
-        // 조회가 실패하면 **링크를 그리지 않는다.** 실패를 「있다」로 읽으면
-        // 이 이슈가 고치는 거짓 신호가 그대로 돌아온다.
-        if (alive) setInProgress(null)
+        // 첫 조회가 실패하면 **링크를 그리지 않는다.** 실패를 「있다」로 읽으면
+        // 이 이슈가 고치는 거짓 신호가 그대로 돌아온다. 다시 부르기가 실패했을 때는
+        // 알던 답을 지우지 않는다 — 실패를 「없다」로 읽는 것도 같은 거짓 신호다 (#1811).
+        if (alive) setInProgress((prev) => (prev === 'loading' ? null : prev))
       })
 
     return () => {
@@ -527,6 +528,22 @@ export function VesselDetail({
           )}
         </div>
       </header>
+
+      {/*
+        다시 부르기가 실패하면 **그 사실을 말한다** (#1811 · `#755`의 형태). 값을 남기는
+        것과 값이 최신인 척하는 것은 다르다. `role="status"`인 것은 오류가 아니라 **상태
+        안내**이기 때문이다 — 화면은 여전히 유효한 값을 보여 주고 있다. 실시간 화면과
+        달리 스스로 회복할 주기가 없으므로 「다시 시도」를 함께 둔다(`noteChanged`가 곧
+        다시 부르기다). 여기까지 왔으면 `detail`이 있으므로 `failure`는 다시 부르기의 실패다.
+      */}
+      {failure ? (
+        <p className="vd__stale" role="status">
+          마지막 갱신에 실패했습니다. 이전에 불러온 값을 보여 주는 중입니다.{' '}
+          <button type="button" onClick={noteChanged}>
+            다시 시도
+          </button>
+        </p>
+      ) : null}
 
       {/*
         ── 선박 바 = 결론 띠 (`DESIGN_SYSTEM §8.6` 🔒 · #1729) ─────────────
