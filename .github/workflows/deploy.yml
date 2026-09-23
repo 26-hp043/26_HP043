@@ -218,7 +218,7 @@ jobs:
         run: |
           echo "[deploy-db] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_DB_HOST }} ==="
           ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_DB_HOST }} \
-            "CUBRID_PASSWORD='${CUBRID_PASSWORD}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' bash -s" <<'ENDSSH'
+            "CUBRID_PASSWORD='${CUBRID_PASSWORD}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' DEPLOY_SHA='${{ github.sha }}' bash -s" <<'ENDSSH'
           set -euo pipefail
           echo "[db-01] connected at $(date -u +%FT%TZ); host=$(hostname)"
 
@@ -227,8 +227,19 @@ jobs:
             git clone "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" ~/bluelog
           fi
           cd ~/bluelog
-          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" main
+          # **이 배포가 시작된 커밋**을 받는다 (`#1633`). 종전에는 `main`을 받아,
+          # 빌드가 끝난 뒤 다른 PR이 머지되면 **이미지와 실행 코드가 달라졌다** —
+          # 두 호스트가 받는 시점이 다르면 호스트끼리도 어긋났다.
+          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
           git reset --hard FETCH_HEAD
+          # 받은 것이 정말 그 커밋인지 확인한다. 아니면 **배포를 멈춘다** —
+          # 이전 컨테이너는 그대로 남으므로 서비스는 살아 있다.
+          got="$(git rev-parse HEAD)"
+          if [ "${got}" != "${DEPLOY_SHA}" ]; then
+            echo "[deploy] 실행 커밋이 다르다 — 기대 ${DEPLOY_SHA} / 실제 ${got}" >&2
+            exit 1
+          fi
+          echo "[deploy] 실행 커밋 ${got}
 
           # ACL 템플릿 치환
           sed -i "s/REPLACE_ME_APP_PRIVATE_IP/${OCI_APP_PRIVATE_IP}/g" \
@@ -373,6 +384,7 @@ jobs:
              LLM_AUTH_SCHEME='${LLM_AUTH_SCHEME:-}' \
              GHCR_USER='${{ github.actor }}' GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
              GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
+             DEPLOY_SHA='${{ github.sha }}' \
              bash -s" <<'ENDSSH'
           set -euo pipefail
           echo "[app-01] connected at $(date -u +%FT%TZ); deploying sha=${BACKEND_TAG}"
@@ -382,8 +394,19 @@ jobs:
             git clone "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" ~/bluelog
           fi
           cd ~/bluelog
-          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" main
+          # **이 배포가 시작된 커밋**을 받는다 (`#1633`). 종전에는 `main`을 받아,
+          # 빌드가 끝난 뒤 다른 PR이 머지되면 **이미지와 실행 코드가 달라졌다** —
+          # 두 호스트가 받는 시점이 다르면 호스트끼리도 어긋났다.
+          git fetch "https://x-access-token:${GH_TOKEN}@github.com/${GH_REPO}.git" "${DEPLOY_SHA}"
           git reset --hard FETCH_HEAD
+          # 받은 것이 정말 그 커밋인지 확인한다. 아니면 **배포를 멈춘다** —
+          # 이전 컨테이너는 그대로 남으므로 서비스는 살아 있다.
+          got="$(git rev-parse HEAD)"
+          if [ "${got}" != "${DEPLOY_SHA}" ]; then
+            echo "[deploy] 실행 커밋이 다르다 — 기대 ${DEPLOY_SHA} / 실제 ${got}" >&2
+            exit 1
+          fi
+          echo "[deploy] 실행 커밋 ${got}
 
           # CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
           CUBRID_PASSWORD_ENC=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "${CUBRID_PASSWORD}")
