@@ -1061,7 +1061,8 @@ describe('되돌릴 수 없는 전환 · 확정 되돌리기는 한 번 더 묻�
 describe('바뀌면 부모에게 알린다 (#1647)', () => {
   it('항차를 만들면 onChanged를 부른다 — 선박 상세의 누적값이 바뀐다', async () => {
     const onChanged = vi.fn()
-    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => IN_PROGRESS)
+    // 목록에 이미 있는 `v-1`을 돌려주면 같은 key가 두 번 그려진다 (#1616) — 새 항차는 `CREATED`다.
+    const create = vi.fn(async (_vesselId: string, _draft: VoyageDraft) => CREATED)
     render(
       <VoyagePanel
         vesselId="ves-1"

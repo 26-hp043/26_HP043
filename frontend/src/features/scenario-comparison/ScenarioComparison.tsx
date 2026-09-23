@@ -202,9 +202,14 @@ export function ScenarioComparison({
    */
   const ports = useSamplePorts()
   const [currentPortText, setCurrentPortText] = useState('')
-  /** 지금 입력칸의 현재 위치 이름 — 목적항과 같은 이유로 늦게 온 응답이 대조한다 (#1097 ⑴). */
+  /**
+   * 지금 입력칸의 현재 위치 이름 — 목적항과 같은 이유로 늦게 온 응답이 대조한다 (#1097 ⑴).
+   * 목적항 쪽과 같은 이유로 렌더 중이 아니라 effect에서 대입한다 (`#1616`).
+   */
   const currentNameRef = useRef('')
-  currentNameRef.current = currentPortText.trim()
+  useEffect(() => {
+    currentNameRef.current = currentPortText.trim()
+  }, [currentPortText])
   const [errors, setErrors] = useState<FormErrors>({})
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const advancedFilled = countAdvancedFilled(form)

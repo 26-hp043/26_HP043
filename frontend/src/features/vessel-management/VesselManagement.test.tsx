@@ -660,8 +660,11 @@ describe('제원 미비 필터 칩 (#1424)', () => {
  * 목록에서 화면 정렬을 거절한 이유와 같다.
  */
 describe('조회 조건은 쿼리로 간다 (#1783)', () => {
-  /** `/vessels` GET을 전부 받아 주고 부른 주소를 모은다. */
-  function stubVessels(rows: () => unknown[]) {
+  /**
+   * `/vessels` GET을 전부 받아 주고 부른 주소를 모은다. `rows`는 부른 경로를 받는다 —
+   * 커서 페이지에 첫 페이지와 같은 배를 돌려주면 같은 key가 두 번 그려진다 (#1616).
+   */
+  function stubVessels(rows: (path: string) => unknown[]) {
     const urls: string[] = []
     vi.stubGlobal(
       'fetch',
@@ -669,8 +672,9 @@ describe('조회 조건은 쿼리로 간다 (#1783)', () => {
         const url = String(input)
         if (url.includes('/parameters/fuel-types')) return jsonResponse({ data: [] })
         if ((init?.method ?? 'GET') === 'GET' && url.includes('/vessels')) {
-          urls.push(url.replace(/^.*\/api\/v1/, ''))
-          return jsonResponse({ data: rows(), meta: { next_cursor: 'c1', has_more: true } })
+          const path = url.replace(/^.*\/api\/v1/, '')
+          urls.push(path)
+          return jsonResponse({ data: rows(path), meta: { next_cursor: 'c1', has_more: true } })
         }
         throw new Error(`stub에 없는 요청: ${init?.method ?? 'GET'} ${url}`)
       }),
@@ -709,7 +713,8 @@ describe('조회 조건은 쿼리로 간다 (#1783)', () => {
   })
 
   it('조건이 바뀌면 커서를 버린다 — 다른 조건의 커서는 엉뚱한 자리를 가리킨다', async () => {
-    const urls = stubVessels(() => [A, B])
+    // 커서 페이지는 앞 페이지를 다시 주지 않는다 — 실서버와 같은 모양으로 다른 배를 준다.
+    const urls = stubVessels((path) => (path.includes('cursor=') ? [rawVessel('04', '델타호')] : [A, B]))
     renderScreen()
     await screen.findByText('알파호')
 
