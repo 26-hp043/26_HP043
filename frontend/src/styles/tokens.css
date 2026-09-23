@@ -364,7 +364,9 @@
    * `typeScale.sync.test.ts`가 §3 표와 이 값을 대조한다.
    *
    * 이름 대응 — §3 `title` = `h2` · `heading` = `h3` · `caption` = `micro`(12).
-   * §3의 11px `micro`는 쓰는 곳이 없어 두지 않는다(「선언과 사용이 함께」).
+   * §3의 11px `micro`는 토큰으로 두지 않았다. ⚠️ 다만 쓰는 곳이 **없지는 않다** —
+   * `components/GradeBadge.css`가 11px을 리터럴로 쓴다(#1785). 그 자리를 토큰으로 올릴지는
+   * 디자인 판단이라 여기서 정하지 않는다(`#1781`의 34px 리터럴과 같은 성질).
    */
   --font-size-display: 32px;
   --font-size-h2: 20px;
