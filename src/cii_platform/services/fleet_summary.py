@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from cii_platform.calc.capacity import resolve_transport_capacity
+from cii_platform.calc.distance import initial_bearing_deg
 from cii_platform.calc.precision import LAYER1_ROUNDING, SERIALIZATION_ROUNDING, layer1_context
 from cii_platform.calc.rating_engine import NEXT_WORSE_BOUNDARY_KEY
 from cii_platform.db.repositories import not_underway as not_underway_repo
@@ -193,6 +194,29 @@ def _route_of(voyage) -> dict[str, str] | None:
         "arrival_lat": _publish(voyage.arrival_lat, 6) or "",
         "arrival_lon": _publish(voyage.arrival_lon, 6) or "",
     }
+
+
+def _course_of(vessel, voyage) -> str | None:
+    """현재 위치 → 진행 중 항차 목적항의 **초기 방위각** (`#1804` · `API_SPEC §2.8`).
+
+    지도가 배 마커를 돌리는 값이다. **실제 침로가 아니다** — AIS 침로(`cog_deg`)는 수집이
+    돌지 않고 `PRD §5.2`가 범위 밖에 두었다. 그래서 「목적항 방향」이고, 화면 표기도 그
+    뜻을 드러낸다(`DESIGN_SYSTEM §11`).
+
+    **항로 비교와 같은 함수**(``calc/distance.initial_bearing_deg``)를 쓴다 —
+    ``services/scenario_compare._course_deg``가 같은 두 점으로 기상 보정의 입사각을 낸다.
+    화면이 따로 계산하면 같은 식이 두 곳에 생겨 지도와 항로 비교가 다른 값을 말할 수 있다.
+
+    넷 중 하나라도 없으면 ``None`` — 없는 방향을 지어내지 않는다(:func:`_route_of`와 같다).
+    값은 0~360°(북=0 · 시계 방향)를 소수 1자리 문자열로 싣는다(`API_SPEC §1.7`).
+    """
+    if voyage is None:
+        return None
+    corners = (vessel.current_lat, vessel.current_lon, voyage.arrival_lat, voyage.arrival_lon)
+    if any(value is None for value in corners):
+        return None
+    bearing = Decimal(str(initial_bearing_deg(*corners)))
+    return str(bearing.quantize(Decimal("0.1"), rounding=LAYER1_ROUNDING) % Decimal(360))
 
 
 def _spec_number(value: Decimal | None) -> float | None:
@@ -814,6 +838,8 @@ async def get_fleet_summary(
                 # 진행 중 항차의 항로 (`#763`). 좌표가 한쪽이라도 비면 **행을 싣지
                 # 않는다** — 반쪽 선분을 그리면 배가 어디로 가는지 잘못 말한다.
                 "route": _route_of(in_progress.get(vessel.id)),
+                # 목적항 방향 (`#1804`) — 실제 침로가 아니다. 항로 비교와 같은 함수.
+                "course_deg": _course_of(vessel, in_progress.get(vessel.id)),
                 "position_updated_at": (
                     vessel.position_updated_at.isoformat()
                     if vessel.position_updated_at is not None

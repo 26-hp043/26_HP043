@@ -184,3 +184,77 @@ async def test_the_latest_departure_wins(session):
 
     assert bulk[vessel_id].id == single.id
     assert _route_of(bulk[vessel_id])["departure_lat"] == "35.100000"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 목적항 방향 `course_deg` (#1804)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _place(session, vessel_id: UUID, lat: str | None, lon: str | None):
+    from sqlalchemy import text
+
+    from cii_platform.db.repositories import vessel as vessel_repo
+
+    await session.execute(
+        # 좌표와 기록 시각은 함께 있거나 함께 없다 — `chk_vessel_position_pair`(048 트리거).
+        text(
+            "UPDATE vessel SET current_lat = :lat, current_lon = :lon, "
+            "position_updated_at = :at WHERE id = :id"
+        ),
+        {
+            "lat": lat,
+            "lon": lon,
+            "at": None if lat is None else "2026-08-10T00:00:00+00:00",
+            "id": uuid_hex(vessel_id),
+        },
+    )
+    session.expire_all()
+    return await vessel_repo.get_by_id(session, vessel_id)
+
+
+@pytest.mark.asyncio
+async def test_course_is_the_same_bearing_as_route_comparison(session):
+    """IT-MAP-006 — 지도의 방향이 항로 비교의 입사각과 **같은 값**이다 (#1804).
+
+    화면이 따로 계산하면 같은 식이 두 곳에 생겨, 지도와 항로 비교가 다른 방향을 말할 수 있다.
+    """
+    from types import SimpleNamespace
+
+    from cii_platform.services.fleet_summary import _course_of
+    from cii_platform.services.scenario_compare import _course_deg
+
+    vessel_id = await _insert_vessel(session, "7400601")
+    await _insert_voyage(session, vessel_id)
+    vessel = await _place(session, vessel_id, "13.2", "111.1")
+    voyage = (await voyage_repo.find_in_progress_for_vessels(session, [vessel_id]))[vessel_id]
+
+    course = _course_of(vessel, voyage)
+    same_points = _course_deg(
+        SimpleNamespace(
+            current_lat=vessel.current_lat,
+            current_lon=vessel.current_lon,
+            destination_lat=voyage.arrival_lat,
+            destination_lon=voyage.arrival_lon,
+        )
+    )
+
+    assert course is not None
+    assert float(course) == pytest.approx(same_points, abs=0.05)
+    # 남중국해에서 싱가포르로 — 남서쪽이다.
+    assert 180 < float(course) < 270
+
+
+@pytest.mark.asyncio
+async def test_no_position_or_no_voyage_means_no_course(session):
+    """IT-MAP-007 — 현재 위치나 목적항이 없으면 ``None``. 없는 방향을 지어내지 않는다."""
+    from cii_platform.services.fleet_summary import _course_of
+
+    vessel_id = await _insert_vessel(session, "7400701")
+    await _insert_voyage(session, vessel_id)
+    unplaced = await _place(session, vessel_id, None, None)
+    voyage = (await voyage_repo.find_in_progress_for_vessels(session, [vessel_id]))[vessel_id]
+    assert _course_of(unplaced, voyage) is None
+
+    placed = await _place(session, vessel_id, "13.2", "111.1")
+    assert _course_of(placed, None) is None

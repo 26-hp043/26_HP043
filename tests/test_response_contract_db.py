@@ -513,6 +513,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.vessels[].data_available",
             "data.vessels[].days_to_d",
             "data.vessels[].days_to_d_reason",
+            # `#1804` 목적항 방향 — 값이 null이어도 키는 늘 나온다.
+            "data.vessels[].course_deg",
             "data.vessels[].detail_status",
             "data.vessels[].gross_tonnage",
             "data.vessels[].imo_number",
