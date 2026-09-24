@@ -23,7 +23,21 @@
   상태를 읽고 **그대로 성공**한다. 아래 각 검사의 「돌연변이 결과」가 그것이다.
 
 `conn` 픽스처는 한 연결을 돌려주므로 쓰지 않는다 — **연결이 둘이어야** 경합이 성립한다.
-`test_auth_tokens.TestConcurrentIssue`(`#1630`)와 같은 틀이다.
+`test_auth_tokens.TestConcurrentIssue`(`#1630`)와 같은 틀이다. 세션은 `app_fresh_engine`이 갈아
+끼운 것을 **호출 시점에** 받는다(`db_session.get_sessionmaker()`) — 모듈 수준에서 묶으면 앱의
+캐시된 엔진을 쓰게 되어 테스트 변환기(INSERT `id` 자동 추가)가 없고, 파일만 따로 돌리면
+`_setup`의 INSERT가 `NOT NULL` 오류로 끝난다(`#1860` 작업 중 확인).
+
+## 교차 잠금 — 선박 → 항차 순서 (`#1860`)
+
+CUBRID 11.4는 자식 행 INSERT의 FK 검사로 **부모 행에 S 잠금을 요구한다**(`#1860` ⑻
+실측 · 부모 X 보유 중 자식 INSERT가 3/3 대기 · 커밋까지 쥐는지는 미측정 — `#1868`).
+그래서 「항차 X를 쥔 채 선박을 참조하는
+항차 INSERT」(채택 `CREATE_NEW_VOYAGE`)와 「선박 X를 쥔 채 항차를 참조하는 정박 구간
+INSERT」(`services/not_underway`)가 교차하면 교착이다(⑼ 실측 3/3 · `errno=-968`). 채택이
+선박 행을 **먼저** 잠가 순서를 선박 → 항차로 맞춘다(`TECH_SPEC §16.3`). 이 케이스는 커밋
+직전이 아니라 **첫 세션이 선박 X를 쥐고 INSERT 전에 머무는 사이**에 둘째를 넣는다 —
+교착은 두 INSERT가 서로의 부모를 기다릴 때 나므로, 커밋 직전 교차로는 보이지 않는다.
 
 ⚠️ 앱은 `lock_timeout=-1`(무한 대기)이다 — 첫 세션이 커밋하지 않으면 두 번째가 영영 기다린다.
 그래서 첫 세션은 이벤트 루프를 막지 않는 `asyncio.sleep`으로만 머문다.
@@ -34,6 +48,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -41,9 +56,9 @@ import pytest
 from conftest import insert_returning_id
 from sqlalchemy import text
 
-from cii_platform.db.session import get_sessionmaker
+from cii_platform.db import session as db_session
 from cii_platform.errors import StateTransitionError
-from cii_platform.services.scenario_adopt import adopt_scenario
+from cii_platform.services.scenario_adopt import MODE_CREATE, adopt_scenario
 from cii_platform.services.voyage import (
     delete_voyage,
     set_actuals,
@@ -67,7 +82,7 @@ async def _setup(status: str, *, scenarios: int = 0) -> tuple[UUID, UUID, list[U
     """
     vessel_id = uuid4()
     scenario_ids: list[UUID] = []
-    async with get_sessionmaker()() as s:
+    async with db_session.get_sessionmaker()() as s:
         await s.execute(
             text(
                 "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight, "
@@ -114,7 +129,7 @@ async def _setup(status: str, *, scenarios: int = 0) -> tuple[UUID, UUID, list[U
 
 
 async def _cleanup(vessel_id: UUID) -> None:
-    async with get_sessionmaker()() as s:
+    async with db_session.get_sessionmaker()() as s:
         v = {"v": vessel_id.hex}
         await s.execute(
             text(
@@ -124,6 +139,7 @@ async def _cleanup(vessel_id: UUID) -> None:
             v,
         )
         await s.execute(text("DELETE FROM voyage_scenario WHERE vessel_id = :v"), v)
+        await s.execute(text("DELETE FROM not_underway_period WHERE vessel_id = :v"), v)
         await s.execute(text("DELETE FROM voyage WHERE vessel_id = :v"), v)
         await s.execute(text("DELETE FROM vessel WHERE id = :v"), v)
         await s.commit()
@@ -131,7 +147,7 @@ async def _cleanup(vessel_id: UUID) -> None:
 
 async def _voyage_row(voyage_id: UUID):
     """``(status, planned_distance_nm, actual_distance_nm)`` — 없으면 ``None``."""
-    async with get_sessionmaker()() as s:
+    async with db_session.get_sessionmaker()() as s:
         result = await s.execute(
             text(
                 "SELECT status, planned_distance_nm, actual_distance_nm "
@@ -143,7 +159,7 @@ async def _voyage_row(voyage_id: UUID):
 
 
 async def _adopted(voyage_id: UUID) -> set[str]:
-    async with get_sessionmaker()() as s:
+    async with db_session.get_sessionmaker()() as s:
         result = await s.execute(
             text("SELECT id FROM voyage_scenario WHERE voyage_id = :id AND is_adopted = 1"),
             {"id": voyage_id.hex},
@@ -174,7 +190,7 @@ async def _interleave(first_call, second_call):
     두 번째는 새 상태를 보고 422(`StateTransitionError`)로 떨어지는 것이 기대값이다.
     """
     reached = asyncio.Event()
-    maker = get_sessionmaker()
+    maker = db_session.get_sessionmaker()
 
     async def first():
         async with maker() as s:
@@ -200,7 +216,9 @@ async def _interleave(first_call, second_call):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_transitions_do_not_overwrite_a_terminal_state(migrated_db):
+async def test_concurrent_transitions_do_not_overwrite_a_terminal_state(
+    migrated_db, app_fresh_engine
+):
     """전환 × 전환 — 종결(`CANCELLED`)이 먼저 확정되면 뒤의 `IN_PROGRESS`는 422다.
 
     돌연변이 결과: 두 번째가 옛 `PLANNED`를 읽고 통과해 **예외 없이 성공**한다(마지막
@@ -222,7 +240,7 @@ async def test_concurrent_transitions_do_not_overwrite_a_terminal_state(migrated
 
 
 @pytest.mark.asyncio
-async def test_patch_after_departure_is_rejected_when_interleaved(migrated_db):
+async def test_patch_after_departure_is_rejected_when_interleaved(migrated_db, app_fresh_engine):
     """전환 × PATCH — 출항(`IN_PROGRESS`)이 먼저 확정되면 계획값 PATCH는 422다(`#865` 가드).
 
     돌연변이 결과: PATCH가 옛 `PLANNED`를 읽고 **계획 거리를 바꾼다** — 출항한 항차의
@@ -243,7 +261,9 @@ async def test_patch_after_departure_is_rejected_when_interleaved(migrated_db):
 
 
 @pytest.mark.asyncio
-async def test_actuals_are_not_written_to_a_voyage_cancelled_meanwhile(migrated_db):
+async def test_actuals_are_not_written_to_a_voyage_cancelled_meanwhile(
+    migrated_db, app_fresh_engine
+):
     """전환 × 실적 입력 — 취소가 먼저 확정되면 실적 입력은 422다.
 
     돌연변이 결과: 실적이 옛 `IN_PROGRESS`를 근거로 **취소된 항차에 남는다.**
@@ -263,7 +283,7 @@ async def test_actuals_are_not_written_to_a_voyage_cancelled_meanwhile(migrated_
 
 
 @pytest.mark.asyncio
-async def test_delete_does_not_remove_a_voyage_planned_meanwhile(migrated_db):
+async def test_delete_does_not_remove_a_voyage_planned_meanwhile(migrated_db, app_fresh_engine):
     """전환 × 삭제 — `PLANNED`가 먼저 확정되면 삭제는 422다(먼저 취소해야 한다).
 
     돌연변이 결과: 삭제가 옛 `DRAFT`를 근거로 행을 **물리 삭제**한다. 첫 세션의 UPDATE는
@@ -283,7 +303,7 @@ async def test_delete_does_not_remove_a_voyage_planned_meanwhile(migrated_db):
 
 
 @pytest.mark.asyncio
-async def test_concurrent_adoptions_leave_exactly_one_adopted_row(migrated_db):
+async def test_concurrent_adoptions_leave_exactly_one_adopted_row(migrated_db, app_fresh_engine):
     """채택 × 채택 — 「항차당 채택 하나」는 항차 행 잠금이 지킨다 (`DB_SCHEMA §2.4`).
 
     두 번째는 대기 뒤 첫 채택을 **내리고** 자기 것을 올린다 — 예외가 아니라 나중 채택이
@@ -299,5 +319,89 @@ async def test_concurrent_adoptions_leave_exactly_one_adopted_row(migrated_db):
         )
         assert not isinstance(second, StateTransitionError)
         assert await _adopted(voyage_id) == {second_scenario.hex}
+    finally:
+        await _cleanup(vessel_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IT-STATE-009 · 교차 — 선박 X ↔ 항차 X (#1860)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _hold_vessel_then_insert_period(vessel_id: UUID, voyage_id: UUID, reached: asyncio.Event):
+    """정박 구간 생성이 DB에 내는 잠금 순서를 그대로 밟는다 — **선박 X → 항차 참조 INSERT.**
+
+    `services/not_underway._assert_no_overlap`가 선박 행을 잠근 뒤 구간을 INSERT하는
+    두 문장만 흉내 낸다. 서비스 그대로 부르면 잠금과 INSERT 사이에 멈출 자리가 없어
+    둘째가 항차 X를 쥐기 전에 INSERT가 끝나 버린다(그러면 교착이 아니라 직렬화다).
+    잠금을 쥔 채 ``_HOLD``만큼 머무는 동안 둘째가 들어온다.
+    """
+    async with db_session.get_sessionmaker()() as s:
+        await s.execute(
+            text("SELECT id FROM vessel WHERE id = :v FOR UPDATE"), {"v": vessel_id.hex}
+        )
+        reached.set()
+        await asyncio.sleep(_HOLD)
+        # 항차 A를 참조하는 자식 — FK 검사가 항차 행에 S 잠금을 요구한다.
+        await s.execute(
+            text(
+                "INSERT INTO not_underway_period (id, vessel_id, regulation_year, period_type, "
+                " started_at, ended_at, distance_nm, voyage_id) "
+                "VALUES (:id, :v, 2026, 'AT_ANCHOR', '2026-06-01T00:00:00Z', "
+                " '2026-06-02T00:00:00Z', 0, :voy)"
+            ),
+            {"id": uuid4().hex, "v": vessel_id.hex, "voy": voyage_id.hex},
+        )
+        await s.commit()
+
+
+@pytest.mark.asyncio
+async def test_create_mode_adoption_does_not_deadlock_with_a_period_insert(
+    migrated_db, app_fresh_engine
+):
+    """정박 구간(선박 X → 항차 참조 INSERT) × 채택 `CREATE_NEW_VOYAGE`(항차 X → 선박 참조 INSERT).
+
+    채택이 선박 행을 **먼저** 잠그므로 첫 세션이 커밋할 때까지 그 자리에서 기다렸다가
+    새 항차를 만든다 — 둘 다 성공하고 구간 1건 · 새 항차 1건이 남는다.
+
+    돌연변이 결과(채택 갈래의 `vessel_repo.lock_row` 제거): 채택이 항차 X만 쥔 채 새 항차를
+    INSERT해 선박 S를 기다리고, 첫 세션의 구간 INSERT는 항차 S를 기다린다 — CUBRID가 교착을
+    감지해 한쪽을 끊는다 — 기다리던 쪽이면 `errno=-968` "timed out waiting on S_LOCK … because
+    of deadlock"(`#1860` ⑼ 3/3), 희생된 쪽이면 `errno=-72` "unilaterally aborted"(이 검사의
+    돌연변이 실측). 끊긴 쪽이 어느 쪽이든 예외가 그대로 올라와
+    이 검사가 실패한다.
+    """
+    vessel_id, voyage_id, (scenario_id,) = await _setup("DRAFT", scenarios=1)
+    reached = asyncio.Event()
+
+    async def second():
+        await asyncio.wait_for(reached.wait(), timeout=_HOLD * 10)
+        await asyncio.sleep(_JOIN)
+        async with db_session.get_sessionmaker()() as s:
+            return await adopt_scenario(
+                s,
+                scenario_id,
+                target_voyage_id=voyage_id,
+                adopt_mode=MODE_CREATE,
+                departure_port_name="ULSAN",
+                arrival_port_name="TOKYO",
+                planned_departure_at=datetime(2026, 7, 1, tzinfo=UTC),
+            )
+
+    try:
+        _, adopted = await asyncio.gather(
+            _hold_vessel_then_insert_period(vessel_id, voyage_id, reached), second()
+        )
+        new_voyage_id = UUID(str(adopted["voyage_id"]))
+        assert new_voyage_id != voyage_id
+        assert await _voyage_row(new_voyage_id) is not None
+        async with db_session.get_sessionmaker()() as s:
+            periods = (
+                await s.execute(
+                    text("SELECT COUNT(*) FROM not_underway_period WHERE voyage_id = :id"),
+                    {"id": voyage_id.hex},
+                )
+            ).scalar()
+        assert periods == 1
     finally:
         await _cleanup(vessel_id)

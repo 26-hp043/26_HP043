@@ -48,6 +48,7 @@ from sqlalchemy import select, update
 from cii_platform.api.schemas.bounds import VOYAGE_FUEL
 from cii_platform.db.models.voyage_scenario import VoyageScenario
 from cii_platform.db.repositories import parameters as param_repo
+from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import NotFoundError, StateTransitionError, ValidationError
 from cii_platform.services.voyage import PLANNING_STATUSES, create_voyage
@@ -147,6 +148,15 @@ async def adopt_scenario(
         )
 
     scenario = await _load_scenario(session, scenario_id)
+    if adopt_mode == MODE_CREATE:
+        # 새 항차를 만드는 갈래는 **선박 행을 항차 행보다 먼저** 잠근다 (`#1860` ·
+        # `TECH_SPEC §16.3` — 부모 행을 둘 잡아야 하면 선박 → 항차 순). 새 항차 INSERT의
+        # FK 검사가 선박 행에 **S 잠금**을 요구한다는 것을 `#1860` ⑻이 실측했다
+        # (부모 X 보유 중 자식 INSERT는 3/3 대기). 항차 X만 쥔 채 INSERT하면, 선박 X를 쥐고
+        # 그 항차를 참조하는 정박 구간을 넣는 요청(`services/not_underway`)과 서로를 기다려
+        # 교착이다(⑼ 3/3 · errno=-968). 선박은 시나리오의 것으로 잡는다 — 아래에서 항차의
+        # 선박과 같아야만 통과하므로, 다르면 잠금은 롤백과 함께 풀릴 뿐이다.
+        await vessel_repo.lock_row(session, scenario.vessel_id)
     # 대상 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`). 「항차당 채택 하나」는
     # 아래 `_clear_previous_adoption` → 자기 행 채택이 **항차 행 잠금 안에서** 순서대로
     # 일어나는 것으로 지킨다 — 잠금 없이 두 채택이 교차하면 해제 UPDATE가 둘 다 0건이고
@@ -379,8 +389,6 @@ async def _source_fuel_type(session: AsyncSession, source, *, required: bool = T
     fuel_uses = await voyage_repo.list_fuel_uses(session, source.id)
     if fuel_uses:
         return fuel_uses[0].fuel_type
-
-    from cii_platform.db.repositories import vessel as vessel_repo
 
     vessel = await vessel_repo.get_by_id(session, source.vessel_id)
     if vessel is None or not vessel.default_fuel_type:
