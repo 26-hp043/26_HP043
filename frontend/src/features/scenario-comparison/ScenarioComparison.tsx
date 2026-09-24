@@ -227,6 +227,16 @@ export function ScenarioComparison({
    */
   const SHELL_VESSEL_MISSING = '상단바에서 고른 선박이 목록에 없습니다. 다시 선택해 주세요.'
   /*
+   * 상단바의 선박이 목록에 없어 **한 척뿐인 목록의 배를 대신 골랐을 때**의 안내 (`#1858`).
+   * 오류(`SHELL_VESSEL_MISSING`)로 세우면 곧이어 선택이 유효해지며 지워진다(`#1815`) —
+   * 그래서 오류가 아니라 칸의 안내로 두고, **대신 고른 배가 선택돼 있는 동안** 보인다.
+   *
+   * 표시 문구 — 디자인 담당이 바꿀 수 있다 (`AGENTS §4.6`). 개발 임시안이다.
+   */
+  const SHELL_VESSEL_REPLACED = '상단바에서 고른 선박이 목록에 없어 목록의 유일한 선박을 골랐습니다.'
+  /** 대신 고른 배의 id — 이 배가 선택돼 있는 동안 `SHELL_VESSEL_REPLACED`를 보인다. */
+  const [replacedShellVesselFor, setReplacedShellVesselFor] = useState<string | null>(null)
+  /*
    * 좌표 찾기 안내 — **두 칸이 따로 갖는다** (#1750). 하나로 두면 현재 위치를 찾고 난
    * 안내가 목적항 칸 아래에 붙는다.
    */
@@ -288,6 +298,18 @@ export function ScenarioComparison({
     if (shellVesselId !== null) {
       // 목록에 없는 선박(삭제됨)이면 선택을 풀고 안내한다 — 그 id로 계산하지 않는다 (#1097 ⑵).
       if (vessels !== null && !vessels.some((option) => option.id === shellVesselId)) {
+        /*
+         * 한 척뿐이면 선택을 풀지 않고 **그 배를 바로 고른다** (`#1858`). 종전에는 풀었다가
+         * 아래 「선택이 풀렸다」 갈래가 같은 배를 미리 채우며 방금 세운 오류를 지워,
+         * 기억한 배가 없어졌다는 사실이 전해지지 않고 다른 배가 조용히 골라졌다. 오류 대신
+         * 안내를 남긴다 — 선택은 유효하므로 오류로 둘 이유가 없다.
+         */
+        if (vessels.length === 1) {
+          clearedForVesselRef.current = null
+          setReplacedShellVesselFor(vessels[0].id)
+          selectVesselId(vessels[0].id)
+          return
+        }
         selectVesselId(null)
         clearedForVesselRef.current = null
         setForm((prev) => ({ ...prev, vesselId: '' }))
@@ -311,6 +333,8 @@ export function ScenarioComparison({
        */
       if (clearedForVesselRef.current !== shellVesselId) {
         clearedForVesselRef.current = shellVesselId
+        // 대신 고른 배가 아닌 배로 바뀌었으면 그 안내는 이 선택과 무관하다 (`#1858`).
+        setReplacedShellVesselFor((prev) => (prev === shellVesselId ? prev : null))
         setErrors((prev) => {
           if (!(FIELD.vesselId in prev)) return prev
           const next = { ...prev }
@@ -322,6 +346,7 @@ export function ScenarioComparison({
     }
     // 선택이 풀렸다 — 같은 배를 다시 고르는 것도 「바뀐 선택」이다.
     clearedForVesselRef.current = null
+    setReplacedShellVesselFor(null)
     if (vessels !== null && vessels.length === 1) selectVesselId(vessels[0].id)
   }, [shellVesselId, vessels, selectVesselId, SHELL_VESSEL_MISSING])
 
@@ -566,7 +591,16 @@ export function ScenarioComparison({
       */}
       <fieldset className="scenario-comparison__group">
         <legend className="scenario-comparison__form-subtitle">필수 입력</legend>
-        <Field id="sc-vesselId" label="선박" error={errors[FIELD.vesselId]}>
+        <Field
+          id="sc-vesselId"
+          label="선박"
+          error={errors[FIELD.vesselId]}
+          hint={
+            replacedShellVesselFor !== null && form.vesselId === replacedShellVesselFor
+              ? SHELL_VESSEL_REPLACED
+              : undefined
+          }
+        >
           {(control) => (
             <select
               {...control}
@@ -827,12 +861,12 @@ export function ScenarioComparison({
                 onChange={(e) => {
                   // 샘플 항만과 **정확히** 같을 때만 좌표를 붙인다 — 추측하지 않는다(#1005).
                   const match = matchSamplePort(ports, e.target.value)
-                  setForm({
-                    ...form,
+                  setForm((prev) => ({
+                    ...prev,
                     destinationPortName: match ? match.name : e.target.value,
                     destinationLat: match ? String(match.lat) : '',
                     destinationLon: match ? String(match.lon) : '',
-                  })
+                  }))
                   // 도착점이 바뀌면 앞서 채운 추정 거리는 이 항로의 것이 아니다 (#1256).
                   dropEstimatedDistance()
                 }}

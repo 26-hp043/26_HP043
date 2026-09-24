@@ -384,6 +384,8 @@ describe('고급 설정의 상태 (#1417)', () => {
   it('고급 칸의 오류만 고급 오류다 — 필수 칸 오류로 펼치지 않는다', () => {
     expect(hasAdvancedError({ [FIELD.slowSpeedKn]: 'x' })).toBe(true)
     expect(hasAdvancedError({ [FIELD.currentLat]: 'x' })).toBe(true)
+    // 경유지 경도만 짚힌 서버 오류도 고급 설정을 펼친다 (`#1858`).
+    expect(hasAdvancedError({ [FIELD.detourWaypointLon]: 'x' })).toBe(true)
     expect(hasAdvancedError({ [FIELD.baseSpeedKn]: 'x' })).toBe(false)
     expect(hasAdvancedError({})).toBe(false)
   })

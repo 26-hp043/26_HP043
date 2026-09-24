@@ -509,10 +509,12 @@ describe('선박명이 제목에 표시된다 (#821)', () => {
      * 다른 것** 자체가 `#1097`이 든 결함이다. 지금은 선택을 풀고 안내한다.
      */
     const selectVesselId = vi.fn()
+    // 두 척이어야 한다 — 한 척뿐이면 그 배를 대신 고르고 안내한다(`#1858` · 아래 검사).
     renderScreen({
       vesselId: '00000000-0000-4000-8000-000000000001',
       vessels: [
         { id: '00000000-0000-4000-8000-00000000ffff', displayName: '다른 배', shipType: 'BULK_CARRIER' },
+        { id: '00000000-0000-4000-8000-00000000fffe', displayName: '또 다른 배', shipType: 'BULK_CARRIER' },
       ],
       selectVesselId,
     })
@@ -560,6 +562,55 @@ describe('선박 오류가 재선택으로 지워진다 (#1815)', () => {
       expect(screen.queryByText(/상단바에서 고른 선박이 목록에 없습니다/)).toBeNull(),
     )
     expect((screen.getByLabelText('선박') as HTMLSelectElement).value).toBe(REAL_VESSEL.id)
+  })
+})
+
+/**
+ * 한 척뿐인 목록에서 상단바의 배가 없으면, 대신 고른 뒤에도 그 사실이 남는다 (`#1858`).
+ *
+ * 종전에는 `SHELL_VESSEL_MISSING`을 세운 직후 1척 자동 선택(`#535`)이 그 오류를 지워
+ * 다른 배가 조용히 골라졌다. 문구는 표시 문구라(`AGENTS §4.6`) 리터럴로 보지 않고
+ * **선박 칸에 안내가 붙어 있는가**로 본다.
+ */
+describe('한 척뿐인 목록에서 상단바 선박이 없으면 대신 고른 사실을 알린다 (#1858)', () => {
+  const ONLY_VESSEL = {
+    id: '00000000-0000-4000-8000-000000000001',
+    displayName: '유일한 배',
+    shipType: 'BULK_CARRIER',
+  }
+  const MISSING_ID = '00000000-0000-4000-8000-00000000ffff'
+
+  function vesselHint() {
+    const describedBy = screen.getByLabelText('선박').getAttribute('aria-describedby') ?? ''
+    return describedBy
+      .split(' ')
+      .filter((id) => id !== '')
+      .map((id) => document.getElementById(id))
+      .find((el) => el !== null && el.id.endsWith('-hint'))
+  }
+
+  it('자동 선택 뒤에도 선박 칸에 안내가 남는다', async () => {
+    stubServer()
+    renderSwitchable([ONLY_VESSEL], MISSING_ID)
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('선박') as HTMLSelectElement).value).toBe(ONLY_VESSEL.id),
+    )
+    const hint = vesselHint()
+    expect(hint).toBeTruthy()
+    expect(hint?.textContent?.trim()).not.toBe('')
+    // 선택은 유효하므로 오류 상태로 두지 않는다.
+    expect(screen.getByLabelText('선박').getAttribute('aria-invalid')).toBeNull()
+  })
+
+  it('처음부터 목록의 배를 고른 경우에는 안내가 없다', async () => {
+    stubServer()
+    renderSwitchable([ONLY_VESSEL], ONLY_VESSEL.id)
+
+    await waitFor(() =>
+      expect((screen.getByLabelText('선박') as HTMLSelectElement).value).toBe(ONLY_VESSEL.id),
+    )
+    expect(vesselHint()).toBeUndefined()
   })
 })
 
