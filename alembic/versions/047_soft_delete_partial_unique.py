@@ -93,6 +93,7 @@ CUBRID에서 ``sa.Boolean()``은 SMALLINT로 내려간다(``a7d3e9b14f26``이 ``
 from __future__ import annotations
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
 
 revision = "047"
 down_revision = "046"
@@ -124,10 +125,12 @@ def upgrade() -> None:
     for prefix, table, column, index_name in PARTIAL_UNIQUES:
         op.execute(f"DROP INDEX {index_name} ON {table}")
         op.execute(f"CREATE INDEX {index_name} ON {table} ({column})")
+        # 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
         for event in ("INSERT", "UPDATE"):
-            op.execute(
-                f"CREATE TRIGGER {prefix}_{event.lower()[:3]} BEFORE {event} ON {table} "
-                f"IF NOT ({_condition(table, column)}) EXECUTE REJECT"
+            create_trigger(
+                op,
+                f"{prefix}_{event.lower()[:3]}",
+                f"BEFORE {event} ON {table} IF NOT ({_condition(table, column)}) EXECUTE REJECT",
             )
 
 
@@ -144,7 +147,8 @@ def downgrade() -> None:
     사람이 정할 일이다.
     """
     for prefix, table, column, index_name in PARTIAL_UNIQUES:
+        # 없으면 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
         for event in ("INSERT", "UPDATE"):
-            op.execute(f"DROP TRIGGER {prefix}_{event.lower()[:3]}")
+            drop_trigger(op, f"{prefix}_{event.lower()[:3]}")
         op.execute(f"DROP INDEX {index_name} ON {table}")
         op.execute(f"CREATE UNIQUE INDEX {index_name} ON {table} ({column})")

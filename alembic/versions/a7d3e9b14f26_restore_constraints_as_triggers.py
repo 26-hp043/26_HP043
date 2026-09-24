@@ -63,6 +63,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger, existing_triggers
 
 revision: str = "a7d3e9b14f26"
 down_revision: str | Sequence[str] | None = "6c7496c4d122"
@@ -132,14 +133,21 @@ def _calc_run_allowed_update() -> str:
 
 
 def upgrade() -> None:
-    """제약을 트리거·FK로 되살린다."""
+    """제약을 트리거·FK로 되살린다.
+
+    트리거 DDL은 `db/trigger_ddl.py`를 지난다 — 이미 있으면 만들지 않는다 (`#1373`).
+    """
+    have = existing_triggers(op)
     for name, table, column in FUEL_TYPE_REFS:
         # NULL은 통과시킨다 — 원래 FK도 NULL을 막지 않았다(세 열 모두 nullable).
         exists = f"EXISTS (SELECT 1 FROM fuel_type WHERE code = new.{column})"
         for event in ("INSERT", "UPDATE"):
-            op.execute(
-                f"CREATE TRIGGER {name}_{event.lower()[:3]} BEFORE {event} ON {table} "
-                f"IF NOT (new.{column} IS NULL OR {exists}) EXECUTE REJECT"
+            create_trigger(
+                op,
+                f"{name}_{event.lower()[:3]}",
+                f"BEFORE {event} ON {table} "
+                f"IF NOT (new.{column} IS NULL OR {exists}) EXECUTE REJECT",
+                existing=have,
             )
 
     # 부모 쪽(참조 중인 연료 코드 삭제 금지)은 **두지 않는다.** 한 번 넣었다가 뺐다.
@@ -155,22 +163,29 @@ def upgrade() -> None:
     # 참조 중인 코드를 지우는 경우이며, `DB_SCHEMA §7.4`에 그대로 적었다.
 
     for name, table, column in HASH_TRIGGERS:
-        op.execute(
-            f"CREATE TRIGGER {name} BEFORE INSERT ON {table} "
-            f"IF NOT (new.{column} REGEXP '{HASH_PATTERN}') EXECUTE REJECT"
+        create_trigger(
+            op,
+            name,
+            f"BEFORE INSERT ON {table} "
+            f"IF NOT (new.{column} REGEXP '{HASH_PATTERN}') EXECUTE REJECT",
+            existing=have,
         )
 
-    op.execute(
-        "CREATE TRIGGER trg_calcrun_immutable_update BEFORE UPDATE ON calculation_run "
-        f"IF NOT ({_calc_run_allowed_update()}) EXECUTE REJECT"
+    create_trigger(
+        op,
+        "trg_calcrun_immutable_update",
+        f"BEFORE UPDATE ON calculation_run IF NOT ({_calc_run_allowed_update()}) EXECUTE REJECT",
+        existing=have,
     )
     # `simulation_snapshot`은 `009` 그대로 전면 불변이다 — 허용되는 UPDATE가 없다.
-    op.execute(
-        "CREATE TRIGGER trg_snapshot_immutable_update "
-        "BEFORE UPDATE ON simulation_snapshot EXECUTE REJECT"
+    create_trigger(
+        op,
+        "trg_snapshot_immutable_update",
+        "BEFORE UPDATE ON simulation_snapshot EXECUTE REJECT",
+        existing=have,
     )
     for name, table in IMMUTABLE_DELETE_TRIGGERS:
-        op.execute(f"CREATE TRIGGER {name} BEFORE DELETE ON {table} EXECUTE REJECT")
+        create_trigger(op, name, f"BEFORE DELETE ON {table} EXECUTE REJECT", existing=have)
 
 
 def downgrade() -> None:
@@ -180,13 +195,16 @@ def downgrade() -> None:
     `migration_guard`의 세 분류(IRREVERSIBLE·EPHEMERAL·REGENERABLE) 어디에도 넣지 않고
     `guard_irreversible_downgrade`도 부르지 않는다 — 그 셋은 **데이터 손실**을 가르는
     분류다. 왕복을 실측했다: 트리거 14 → 0 → 14 (연료 참조 3×2 + 해시 4 + 불변 2×2).
+
+    없는 것은 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
     """
+    have = existing_triggers(op)
     for name, _ in IMMUTABLE_DELETE_TRIGGERS:
-        op.execute(f"DROP TRIGGER {name}")
-    op.execute("DROP TRIGGER trg_snapshot_immutable_update")
-    op.execute("DROP TRIGGER trg_calcrun_immutable_update")
+        drop_trigger(op, name, existing=have)
+    drop_trigger(op, "trg_snapshot_immutable_update", existing=have)
+    drop_trigger(op, "trg_calcrun_immutable_update", existing=have)
     for name, _table, _column in HASH_TRIGGERS:
-        op.execute(f"DROP TRIGGER {name}")
+        drop_trigger(op, name, existing=have)
     for name, _table, _column in FUEL_TYPE_REFS:
         for event in ("INSERT", "UPDATE"):
-            op.execute(f"DROP TRIGGER {name}_{event.lower()[:3]}")
+            drop_trigger(op, f"{name}_{event.lower()[:3]}", existing=have)

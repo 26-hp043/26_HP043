@@ -75,6 +75,7 @@ from pathlib import Path
 from types import ModuleType
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger, replace_trigger
 
 revision = "051"
 down_revision = "050"
@@ -134,10 +135,16 @@ def _legacy_condition() -> str:
 
 
 def upgrade() -> None:
-    op.execute(f"DROP TRIGGER {TRIGGER}")
-    op.execute(
-        f"CREATE TRIGGER {TRIGGER} BEFORE UPDATE ON {TABLE} "
-        f"IF NOT ({_null_safe_condition()}) EXECUTE REJECT"
+    """지우고 다시 만든다 — **지우지 못했으면 멈춘다** (`replace_trigger` · `#1373`).
+
+    중복 상태(같은 이름이 둘 이상)에서 조용히 지나가면 NULL 구멍이 뚫린 옛 조건이 남은 채
+    리비전만 올라간다. 배포가 그것을 성공으로 보고하면 안 되므로 upgrade는 멈춘다 —
+    downgrade는 롤백이 갇히지 않게 관용한다(아래).
+    """
+    replace_trigger(
+        op,
+        TRIGGER,
+        f"BEFORE UPDATE ON {TABLE} IF NOT ({_null_safe_condition()}) EXECUTE REJECT",
     )
 
 
@@ -148,9 +155,14 @@ def downgrade() -> None:
     ``guard_irreversible_downgrade``도 부르지 않는다(``a7d3e9b14f26``~``050``과 같은 판단).
 
     ⚠️ 되돌리면 위 표의 🔴 세 경우가 다시 통과한다.
+
+    교체는 upgrade와 달리 **관용한다** — 없으면 지우지 않고, 중복 상태라 지우지 못해도
+    넘어간다(`drop_trigger`). 롤백이 그 자리에서 갇히는 것이 옛 조건이 남는 것보다 나쁘다
+    (`#1373` · `D-20`).
     """
-    op.execute(f"DROP TRIGGER {TRIGGER}")
-    op.execute(
-        f"CREATE TRIGGER {TRIGGER} BEFORE UPDATE ON {TABLE} "
-        f"IF NOT ({_legacy_condition()}) EXECUTE REJECT"
+    drop_trigger(op, TRIGGER)
+    create_trigger(
+        op,
+        TRIGGER,
+        f"BEFORE UPDATE ON {TABLE} IF NOT ({_legacy_condition()}) EXECUTE REJECT",
     )

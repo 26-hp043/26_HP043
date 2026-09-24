@@ -44,9 +44,8 @@ Create Date: 2026-09-16
 
 from __future__ import annotations
 
-import sqlalchemy as sa
-
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger, existing_triggers
 
 revision = "048"
 down_revision = "047"
@@ -174,12 +173,6 @@ def _trigger_name(check_name: str, event: str) -> str:
     return f"trg_{check_name}_{event.lower()[:3]}"
 
 
-def _existing_triggers() -> set[str]:
-    """지금 있는 트리거 이름 (`#1373`)."""
-    rows = op.get_bind().execute(sa.text("SELECT name FROM db_trigger")).fetchall()
-    return {row[0] for row in rows}
-
-
 def upgrade() -> None:
     """열거형·정합 제약을 트리거로 건다.
 
@@ -188,16 +181,18 @@ def upgrade() -> None:
     한 줄 는다), **중복이 생기면 그 이름으로는 `DROP TRIGGER`가 「없다」(errno -503)로
     답해 어느 쪽도 지울 수 없다.** 그 상태가 되면 이 마이그레이션의 `downgrade()`가
     영구히 막히고, 롤백 왕복 검사가 그 자리에서 끊긴다.
+
+    이 파일이 `#1386`에서 응급으로 넣었던 「있으면 건너뜀·없으면 넘어감」을
+    `db/trigger_ddl.py`가 공용으로 갖고, 트리거를 만드는 마이그레이션 전부가 그것을 쓴다.
     """
-    have = _existing_triggers()
+    have = existing_triggers(op)
     for check_name, table, condition in ENUM_AND_PAIR_CHECKS:
         for event in _EVENTS:
-            name = _trigger_name(check_name, event)
-            if name in have:
-                continue
-            op.execute(
-                f"CREATE TRIGGER {name} BEFORE {event} ON {table} "
-                f"IF NOT ({condition}) EXECUTE REJECT"
+            create_trigger(
+                op,
+                _trigger_name(check_name, event),
+                f"BEFORE {event} ON {table} IF NOT ({condition}) EXECUTE REJECT",
+                existing=have,
             )
 
 
@@ -207,39 +202,10 @@ def downgrade() -> None:
     ⚠️ **없는 것은 넘어간다** (`#1373`). 다운그레이드는 가드를 *걷어내는* 방향이므로
     대상이 이미 없는 것을 실패로 볼 이유가 없다. 종전에는 46건을 무조건 지우다가 한
     건에서 `-503`이 나면 **마이그레이션 전체가 그 자리에서 멈췄고**, alembic이 리비전을
-    내리지 못해 DB가 `048`에 갇혔다.
-
-    🔴 **이것은 응급 조치다.** 같은 패턴(트리거를 이름으로 지우는 downgrade)이
-    `046`·`047`·`049`·`050`·`051`·`055`·`057`·`059`·`a7d3e9b14f26`에도 있다. 공용 헬퍼로
-    묶을지는 `#1373`에서 판단한다 — 여기서는 **실제로 막고 있던 한 곳만** 연다.
+    내리지 못해 DB가 `048`에 갇혔다. 카탈로그에 있는데도 `-503`이 오는 상태(같은 이름이
+    둘 이상)도 넘어간다 — `db/trigger_ddl.drop_trigger`가 그 판단을 갖는다.
     """
-    have = _existing_triggers()
+    have = existing_triggers(op)
     for check_name, _table, _condition in ENUM_AND_PAIR_CHECKS:
         for event in _EVENTS:
-            name = _trigger_name(check_name, event)
-            if name not in have:
-                continue
-            _drop_tolerating_missing(name)
-
-
-#: CUBRID가 「그런 트리거가 없다」로 답할 때의 표시 (`errno=-503`).
-_NOT_FOUND = "was not found"
-
-
-def _drop_tolerating_missing(name: str) -> None:
-    """트리거를 지우되 **「없다」는 답은 넘어간다** (`#1373`).
-
-    카탈로그(`db_trigger`)에 이름이 있는데도 `DROP TRIGGER`가 `-503`으로 답하는 상태가
-    실재한다 — **같은 이름이 둘 이상일 때** 이름으로는 어느 쪽도 지목되지 않는다(실측).
-    그 한 건 때문에 46건짜리 루프 전체가 멈추면 리비전이 내려가지 못해 DB가 `048`에
-    갇히고, 다음 실행부터는 롤백 왕복 검사가 매번 같은 자리에서 끊긴다.
-
-    **지우려는 대상이 결과적으로 없는 것**은 이 함수의 목적(가드를 걷어낸다)에 어긋나지
-    않으므로 넘어간다. 다른 오류는 그대로 올린다 — 조용히 삼키면 이 응급 조치가 진짜
-    실패까지 가린다.
-    """
-    try:
-        op.execute(f"DROP TRIGGER {name}")
-    except sa.exc.DatabaseError as exc:  # pragma: no cover - CUBRID 상태 의존
-        if _NOT_FOUND not in str(exc):
-            raise
+            drop_trigger(op, _trigger_name(check_name, event), existing=have)

@@ -547,6 +547,8 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 
 그런 뒤 위 1)을 그대로 다시 실행하고 테스트를 돌린다. 첫 fixture가 `upgrade head`를 한다.
 
+**같은 이름의 트리거가 둘 이상 생긴 경우도 같은 절차다** (`#1373` · `DB_SCHEMA §7.4` 10항). CUBRID는 중복 생성을 막지 않고, 중복이 생기면 `DROP TRIGGER`가 「없다」(-503)로 답해 **이름으로는 어느 쪽도 지울 수 없다** — `test_zz_roundtrip.py`의 중복 단언이나 마이그레이션 `upgrade`의 「지우지 못했습니다」 오류가 이 절을 가리키면 DB를 다시 만든다.
+
 ---
 
 ## 참고 문헌
@@ -722,3 +724,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-09-23 | `#1823` | 문서 구조 표의 `DESIGN_SYSTEM.md` 행을 **v2.28**로 — §9.5 「본문 전체를 차지할 때」 · 마커 선수 방향·정박·항구 · 팝오버 신설 (#1821) |
 | 2026-09-23 | `#1830` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.45**, `TEST_PLAN.md` 행을 **v1.29**로 — `API_SPEC §2.18` 올해 누적 CII 추이 조회 · `TEST_PLAN §4.11` 신설. 실시간 CII 화면의 누적 CII 추이(항차 경계마다 한 점)를 그릴 엔드포인트 (#1671) |
 | 2026-09-24 | `#1849` | 문서 구조 표의 `API_SPEC.md` 행을 **v1.46**, `TEST_PLAN.md` 행을 **v1.30**으로 — `API_SPEC §3.11` 공개 해상 경로망 위의 바닷길 · `TEST_PLAN §3.28` 신설. 「지도 자산」 아래 **「해상 경로망 — 항로선의 출처」** 절과 참고 문헌 두 줄(`searoute-py` Apache-2.0 · Eurostat SeaRoute EUPL-1.2), 저장소 루트에 `NOTICE` 신설 (#1300) |
+| 2026-09-24 | `#1854` | 「테스트 DB 복구」 절에 **같은 이름 트리거가 둘 이상인 경우도 같은 절차**라는 문단 추가 (`#1373` 체크리스트 ⑸). CUBRID는 중복 생성을 막지 않고 중복이 생기면 이름으로는 지울 수 없어(-503) 다시 만드는 수밖에 없다 — 왕복 검사의 중복 단언과 `db/trigger_ddl.replace_trigger`의 오류가 이 절을 가리킨다 (#1373) |

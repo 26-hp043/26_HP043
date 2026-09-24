@@ -18,24 +18,19 @@
 
 from __future__ import annotations
 
-import importlib.util
 import re
-import sys
-import types
 from pathlib import Path
 
 import pytest
+from migration_stub import head_triggers, install, load_chain
 
 _ROOT = Path(__file__).resolve().parents[1]
 _DOC = _ROOT / "DB_SCHEMA.md"
-_VERSIONS = _ROOT / "alembic" / "versions"
 
 #: §8.1.0 — ``base → 1c444a5c4819 → … → 059``. 마지막 토큰이 head다.
 _GRAPH = re.compile(r"^base → 1c444a5c4819 → .* → (?P<head>\w+)$", re.MULTILINE)
 #: §7.4 트리거 표 합계 행 — ``| **합계** | **148** | **160** | …``. 둘째 수가 head 열이다.
 _TRIGGER_TOTAL = re.compile(r"^\| \*\*합계\*\* \| \*\*(\d+)\*\* \| \*\*(\d+)\*\* \|", re.MULTILINE)
-_CREATE = re.compile(r"CREATE\s+TRIGGER\s+(\w+)", re.IGNORECASE)
-_DROP = re.compile(r"DROP\s+TRIGGER\s+(\w+)", re.IGNORECASE)
 
 
 def _doc() -> str:
@@ -49,79 +44,15 @@ def _section(text: str, heading: str) -> str:
     return text[start : nxt.start() if nxt else len(text)]
 
 
-def _load_migrations() -> list[types.ModuleType]:
-    """리비전 사슬 순서대로. 이름을 따로 붙여 `test_migration_guard`의 적재와 겹치지 않게 한다."""
-    modules: list[types.ModuleType] = []
-    for path in sorted(_VERSIONS.glob("*.py")):
-        spec = importlib.util.spec_from_file_location(f"_dbschema_head_sync_{path.stem}", path)
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        modules.append(module)
-    by_down = {m.down_revision: m for m in modules}
-    chain: list[types.ModuleType] = []
-    rev = None
-    while rev in by_down:
-        chain.append(by_down[rev])
-        rev = by_down[rev].revision
-    assert len(chain) == len(modules), "리비전 사슬이 한 줄이 아니다 — 분기가 생겼다"
-    return chain
+#: 스텁(`tests/migration_stub.py`)에 적재할 때 붙이는 이름 — `test_migration_guard`·
+#: `test_zz_roundtrip`의 적재와 겹치지 않게 한다.
+_PREFIX = "_dbschema_head_sync"
 
 
-class _CountingOp:
-    """``op.execute``의 SQL에서 트리거 생성·삭제만 집계하고 나머지 연산은 삼킨다."""
-
-    def __init__(self) -> None:
-        self.created: list[str] = []
-        self.dropped: list[str] = []
-
-    def execute(self, sql, *args, **kwargs) -> None:
-        text = str(sql)
-        self.created.extend(_CREATE.findall(text))
-        self.dropped.extend(_DROP.findall(text))
-
-    def get_bind(self):
-        return _NullBind()
-
-    def __getattr__(self, name: str):
-        return lambda *args, **kwargs: None
-
-
-class _NullResult:
-    def scalar(self):
-        return 0
-
-    scalar_one = scalar
-
-    def fetchall(self):
-        return []
-
-    all = fetchall
-
-    def first(self):
-        return None
-
-
-class _NullBind:
-    dialect = types.SimpleNamespace(name="cubrid")
-
-    def execute(self, *args, **kwargs):
-        return _NullResult()
-
-
-@pytest.fixture
-def stub_alembic(monkeypatch):
-    op = _CountingOp()
-    fake = types.ModuleType("alembic")
-    fake.op = op  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "alembic", fake)
-    monkeypatch.setitem(sys.modules, "alembic.op", op)
-    return op
-
-
-def test_revision_graph_ends_at_alembic_head(stub_alembic):
+def test_revision_graph_ends_at_alembic_head(monkeypatch: pytest.MonkeyPatch):
     """§8.1.0 그래프의 끝 = `alembic/versions`의 head. `051`에서 멈춰 있었다."""
-    chain = _load_migrations()
+    install(monkeypatch)
+    chain = load_chain(_PREFIX)
     match = _GRAPH.search(_doc())
     assert match, "§8.1.0 리비전 그래프(`base → 1c444a5c4819 → …`)를 찾지 못했다"
     assert match.group("head") == chain[-1].revision, (
@@ -129,15 +60,13 @@ def test_revision_graph_ends_at_alembic_head(stub_alembic):
     )
 
 
-def test_trigger_total_matches_migrations(stub_alembic):
-    """§7.4 트리거 표 head 열 합계 = CREATE TRIGGER 누적 − DROP TRIGGER. 148은 `051` 시점이었다."""
-    live: set[str] = set()
-    for module in _load_migrations():
-        stub_alembic.created.clear()
-        stub_alembic.dropped.clear()
-        module.upgrade()
-        live -= set(stub_alembic.dropped)
-        live |= set(stub_alembic.created)
+def test_trigger_total_matches_migrations(monkeypatch: pytest.MonkeyPatch):
+    """§7.4 트리거 표 head 열 합계 = CREATE TRIGGER 누적 − DROP TRIGGER. 148은 `051` 시점이었다.
+
+    스텁의 `db_trigger`가 지금까지 만든−지운 집합으로 답하므로(`#1373`), `db/trigger_ddl.py`를
+    지나는 DROP도 실제 DB에서처럼 집계된다 — 빈 카탈로그로 답하면 지우는 쪽이 전부 건너뛴다.
+    """
+    live = head_triggers(monkeypatch, _PREFIX)
     match = _TRIGGER_TOTAL.search(_doc())
     assert match, "§7.4 「지금 DB에 있는 트리거」 합계 행(`| **합계** | **N** | **N** |`)이 없다"
     assert int(match.group(2)) == len(live), (

@@ -60,6 +60,7 @@ ORM은 있다고 적고 있다 — ``db/models/vessel.py``의 「``updated_at`` 
 from __future__ import annotations
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
 
 revision = "049"
 down_revision = "048"
@@ -90,11 +91,13 @@ def upgrade() -> None:
             f"DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_DATETIME"
         )
 
+    # 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
     for event in ("INSERT", "UPDATE"):
-        op.execute(
-            f"CREATE TRIGGER trg_chk_imo_format_{event.lower()[:3]} "
+        create_trigger(
+            op,
+            f"trg_chk_imo_format_{event.lower()[:3]}",
             f"BEFORE {event} ON vessel "
-            f"IF NOT (new.imo_number REGEXP '{_IMO_PATTERN}') EXECUTE REJECT"
+            f"IF NOT (new.imo_number REGEXP '{_IMO_PATTERN}') EXECUTE REJECT",
         )
 
 
@@ -104,9 +107,11 @@ def downgrade() -> None:
     ``updated_at``에 이미 들어간 값은 그대로 둔다. 되돌린다는 것은 「앞으로 갱신하지
     않는다」는 뜻이고, 이미 갱신된 시각을 만들어진 시각으로 **되돌릴 방법은 없다** —
     되돌릴 수 없는 것을 되돌린 척하지 않는다.
+
+    없는 것은 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
     """
     for event in ("INSERT", "UPDATE"):
-        op.execute(f"DROP TRIGGER trg_chk_imo_format_{event.lower()[:3]}")
+        drop_trigger(op, f"trg_chk_imo_format_{event.lower()[:3]}")
 
     for table in UPDATED_AT_TABLES:
         op.execute(f"ALTER TABLE {table} MODIFY updated_at DATETIMETZ DEFAULT CURRENT_TIMESTAMP")

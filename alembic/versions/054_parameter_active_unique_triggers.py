@@ -53,6 +53,7 @@ Boolean은 SHORT다
 """
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
 
 revision = "054"
 down_revision = "053"
@@ -96,11 +97,12 @@ def upgrade() -> None:
         # `op.drop_index`가 아니라 `op.execute`로 — alembic이 내는 `DROP INDEX <이름>`은
         # PostgreSQL 문법이고 CUBRID는 테이블을 함께 적어야 한다(`047`·`050` 실측).
         op.execute(f"DROP INDEX {index} ON {table}")
+        # 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
         for event in _EVENTS:
-            op.execute(
-                f"CREATE TRIGGER {_trigger_name(table, event)} "
-                f"BEFORE {event} ON {table} "
-                f"IF {_condition(table, keys)} EXECUTE REJECT"
+            create_trigger(
+                op,
+                _trigger_name(table, event),
+                f"BEFORE {event} ON {table} IF {_condition(table, keys)} EXECUTE REJECT",
             )
 
 
@@ -114,8 +116,9 @@ def downgrade() -> None:
     되돌리되 그 값(현행 ``is_active = 1``)은 날아간다.
     """
     for table, index, keys in ACTIVE_UNIQUE:
+        # 없으면 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
         for event in _EVENTS:
-            op.execute(f"DROP TRIGGER {_trigger_name(table, event)}")
+            drop_trigger(op, _trigger_name(table, event))
         op.execute(f"CREATE UNIQUE INDEX {index} ON {table} ({', '.join(keys)})")
 
     for table in VERSIONED_COLUMNS_TABLES:

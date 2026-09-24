@@ -20,6 +20,7 @@ import warnings
 import pytest
 from conftest import TEST_DATABASE_URL, insert_returning_id, run_alembic
 from db_target import is_disposable, skip_reason
+from migration_stub import head_triggers
 from sqlalchemy import pool, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -93,12 +94,84 @@ async def _reseed_demo_data() -> None:
         await engine.dispose()
 
 
-def test_downgrade_upgrade_roundtrip():
+# ─────────────────────────────────────────────────────────────────────────────
+# 0. head의 트리거 집합 — 왕복을 돌리기 전에 지금 상태부터 본다 (#1373 · D-20)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# CUBRID는 같은 이름의 트리거를 두 번 만드는 것을 막지 않고, 중복이 생기면 이름으로는
+# 어느 쪽도 지울 수 없다(`DROP TRIGGER` → -503). 그 상태에서는 아래 왕복 검사가 `048`
+# 근처에서 끊기고 DB가 그 리비전에 갇힌다. 마이그레이션 쪽은 `db/trigger_ddl.py`가
+# 「있으면 만들지 않고, 없으면 지우지 않는다」로 막는데, 그 관용은 중복을 「없음」으로
+# 읽을 수 있어 **중복이 없다는 것을 따로 세어야** 한다. 두 검사가 그것이다 — 중복 0건,
+# 그리고 head의 트리거 이름 집합이 마이그레이션이 만든다고 적은 집합과 같은가.
+#
+# 기대 집합은 `tests/migration_stub.py`가 DB 없이 센다 — `alembic`을 세는 스텁으로 갈아
+# 끼우고 리비전 사슬 순서로 `upgrade()`를 부른다. 스텁의 `db_trigger`가 지금까지 만든−지운
+# 집합으로 답하므로 `050`·`051`·`057`의 지우고-다시-만들기도 실제 DB에서처럼 집계된다.
+
+
+async def _db_trigger_rows(sql: str) -> list:
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    try:
+        async with engine.connect() as connection:
+            return list((await connection.execute(text(sql))).all())
+    finally:
+        await engine.dispose()
+
+
+async def _assert_no_duplicate_trigger_names() -> None:
+    duplicated = await _db_trigger_rows(
+        "SELECT name, count(*) FROM db_trigger GROUP BY name HAVING count(*) > 1"
+    )
+    assert duplicated == [], (
+        f"같은 이름의 트리거가 둘 이상이다 — 이름으로는 지울 수 없다. README 「테스트 DB 복구」로 "
+        f"다시 만들 것: {duplicated}"
+    )
+
+
+async def _assert_trigger_set_matches_migrations(monkeypatch: pytest.MonkeyPatch) -> None:
+    expected = head_triggers(monkeypatch, "_zz_roundtrip")
+    assert expected, "마이그레이션에서 트리거를 하나도 세지 못했다 — 이 검사가 헛돌고 있다"
+
+    actual = {row[0] for row in await _db_trigger_rows("SELECT name FROM db_trigger")}
+    assert actual == expected, (
+        f"DB에만 있다: {sorted(actual - expected)} · "
+        f"마이그레이션에만 있다: {sorted(expected - actual)}"
+    )
+
+
+async def test_head_has_no_duplicate_trigger_names():
+    """같은 이름의 트리거가 둘 이상 없다 (#1373).
+
+    있으면 그 이름은 `DROP TRIGGER`로 지울 수 없고(-503), 뒤의 왕복 검사가 거기서 끊긴다.
+    `db/trigger_ddl.drop_trigger`는 그 -503을 넘어가므로 **여기서 세지 않으면 조용하다.**
+    """
+    up = run_alembic("upgrade", "head")
+    assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+    await _assert_no_duplicate_trigger_names()
+
+
+async def test_head_trigger_set_matches_migrations(monkeypatch: pytest.MonkeyPatch):
+    """`upgrade head` 뒤 DB의 트리거 이름 집합 = 마이그레이션이 만든다고 적은 집합 (#1373).
+
+    합계(160)는 `test_dbschema_head_sync`가 `DB_SCHEMA §7.4`와 대조한다. 여기서는 **이름
+    하나하나**를 실제 DB와 대조한다 — 수가 같아도 남은 것 하나와 빠진 것 하나가 상쇄되면
+    합계는 그대로다.
+    """
+    up = run_alembic("upgrade", "head")
+    assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+    await _assert_trigger_set_matches_migrations(monkeypatch)
+
+
+def test_downgrade_upgrade_roundtrip(monkeypatch: pytest.MonkeyPatch):
     """downgrade base → upgrade head 왕복이 성공한다 (§8.1 롤백 안전성).
 
     전체 마이그레이션 체인을 base까지 내렸다가 head로 되올려, voyage 그룹(§8.1)과
     008이 만든 공유 함수 prevent_mutation()의 드롭·재생성까지 한 번에 검증한다.
     실패하더라도 finally에서 head로 복원한다.
+
+    되올린 뒤 트리거 집합을 다시 본다(`#1373`) — 왕복이 「성공」했어도 중복이 생겼거나
+    하나가 남고 하나가 빠진 채일 수 있다. 종료 코드는 그것을 말해 주지 않는다.
     """
     asyncio.run(_clear_demo_data())
     try:
@@ -106,6 +179,8 @@ def test_downgrade_upgrade_roundtrip():
         assert down.returncode == 0, f"{down.stdout}\n{down.stderr}"
         up = run_alembic("upgrade", "head")
         assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+        asyncio.run(_assert_no_duplicate_trigger_names())
+        asyncio.run(_assert_trigger_set_matches_migrations(monkeypatch))
     finally:
         # 성공/실패와 무관하게 head로 복원한다(happy path에서는 no-op).
         _restore_to_head()

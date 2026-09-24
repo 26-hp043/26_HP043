@@ -19,6 +19,7 @@ Townsin–Kwon 기상 보정의 선형 계수(CB)는 **선박 제원**이다(``T
 """
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
 
 revision = "055"
 down_revision = "054"
@@ -40,16 +41,20 @@ def _trigger_name(event: str) -> str:
 
 def upgrade() -> None:
     op.execute(f"ALTER TABLE {_TABLE} ADD COLUMN {_COLUMN} NUMERIC(4,3)")
+    # 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
     for event in _EVENTS:
-        op.execute(
-            f"CREATE TRIGGER {_trigger_name(event)} "
-            f"BEFORE {event} ON {_TABLE} "
-            f"IF NOT ({_CONDITION}) EXECUTE REJECT"
+        create_trigger(
+            op,
+            _trigger_name(event),
+            f"BEFORE {event} ON {_TABLE} IF NOT ({_CONDITION}) EXECUTE REJECT",
         )
 
 
 def downgrade() -> None:
-    """건 것만 되돌린다 — 데이터는 한 행도 바꾸지 않는다(구조만 REGENERABLE)."""
+    """건 것만 되돌린다 — 데이터는 한 행도 바꾸지 않는다(구조만 REGENERABLE).
+
+    없는 것은 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
+    """
     for event in _EVENTS:
-        op.execute(f"DROP TRIGGER {_trigger_name(event)}")
+        drop_trigger(op, _trigger_name(event))
     op.execute(f"ALTER TABLE {_TABLE} DROP COLUMN {_COLUMN}")

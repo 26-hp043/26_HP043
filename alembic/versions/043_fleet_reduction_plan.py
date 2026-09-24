@@ -32,6 +32,7 @@ import sqlalchemy as sa
 
 from alembic import op
 from cii_platform.db.migration_guard import guard_irreversible_downgrade
+from cii_platform.db.trigger_ddl import create_trigger
 from cii_platform.db.types import JSONText, UuidText
 
 revision = "043"
@@ -79,11 +80,13 @@ def upgrade() -> None:
     )
     # `target`은 계획의 성격을 가르는 값이라 트리거로 막는다 — 틀린 값이 들어가면
     # 어느 목표로 세운 계획인지 알 수 없게 되고, 이 표는 **보고한 산출물**이다.
+    # 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
     for event in ("INSERT", "UPDATE"):
-        op.execute(
-            f"CREATE TRIGGER trg_fleet_plan_target_{event.lower()[:3]} "
+        create_trigger(
+            op,
+            f"trg_fleet_plan_target_{event.lower()[:3]}",
             f"BEFORE {event} ON fleet_reduction_plan "
-            "IF NOT (new.target IN ('NO_AT_RISK', 'ALL_C_OR_BETTER')) EXECUTE REJECT"
+            "IF NOT (new.target IN ('NO_AT_RISK', 'ALL_C_OR_BETTER')) EXECUTE REJECT",
         )
 
 
