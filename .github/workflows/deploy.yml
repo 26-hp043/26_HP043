@@ -2,8 +2,8 @@
 #
 # our-tax deploy.yml 패턴을 따른다:
 #   1. backend 이미지를 GHCR에 빌드·푸시 (linux/amd64).
-#   2. SSH db-01: git pull, CUBRID 스택 기동 (멱등).
-#   3. SSH app-01: git pull, .env 렌더, GHCR pull, Alembic 마이그레이션,
+#   2. SSH db-01: git fetch + reset --hard(이 실행의 커밋으로 고정 · #1633), CUBRID 스택 기동 (멱등).
+#   3. SSH app-01: git fetch + reset --hard, .env 렌더, GHCR pull, Alembic 마이그레이션,
 #      backend 재시작 (IP-only 모드, 포트 8001).
 #   4. /api/v1/health 헬스 체크.
 #   5. 프론트엔드: npm build → wrangler pages deploy (Cloudflare Pages · #1236).
@@ -217,10 +217,26 @@ jobs:
           FORCE_DB_INIT: ${{ inputs.force_db_init }}
         run: |
           echo "[deploy-db] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_DB_HOST }} ==="
+          # 시크릿은 **러너에서 base64로 싸서** 넘긴다 (#1634). 종전에는 `'${SECRET}'`을
+          # ssh 명령줄에 그대로 이어 붙여, 값에 `'`가 있으면 인용이 끊겼다. base64 문자
+          # (`A-Za-z0-9+/=`)에는 인용 문자가 없다. GitHub는 시크릿 **원문**만 가리므로
+          # base64형은 `::add-mask::`로 따로 가린다.
+          CUBRID_PASSWORD_B64="$(printf '%s' "${CUBRID_PASSWORD}" | base64 -w0)"
+          echo "::add-mask::${CUBRID_PASSWORD_B64}"
+          # `.env`도 러너에서 만든다 — 규칙은 아래 app-01 단계의 `emit` 주석에 있다.
+          emit() { local v="$2"; v=${v//\\/\\\\}; v=${v//\"/\\\"}; v=${v//\$/\\\$}; v=${v//$'\n'/\\n}; printf '%s="%s"\n' "$1" "$v"; }
+          {
+            emit CUBRID_PASSWORD "${CUBRID_PASSWORD}"
+          } > "${RUNNER_TEMP}/db.env"
+          DOTENV_B64="$(base64 -w0 < "${RUNNER_TEMP}/db.env")"
+          echo "::add-mask::${DOTENV_B64}"
+          rm -f "${RUNNER_TEMP}/db.env"
           ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_DB_HOST }} \
-            "CUBRID_PASSWORD='${CUBRID_PASSWORD}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' DEPLOY_SHA='${{ github.sha }}' bash -s" <<'ENDSSH'
+            "CUBRID_PASSWORD_B64='${CUBRID_PASSWORD_B64}' DOTENV_B64='${DOTENV_B64}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' DEPLOY_SHA='${{ github.sha }}' bash -s" <<'ENDSSH'
           set -euo pipefail
           echo "[db-01] connected at $(date -u +%FT%TZ); host=$(hostname)"
+          # 러너가 base64로 싸 보낸 값을 푼다 (#1634). csql이 이 값을 쓴다.
+          CUBRID_PASSWORD="$(printf '%s' "${CUBRID_PASSWORD_B64}" | base64 -d)"
 
           # 레포 클론 또는 업데이트
           if [ ! -d ~/bluelog ]; then
@@ -246,11 +262,9 @@ jobs:
             ops/cubrid/conf/broker_access.conf \
             ops/cubrid/conf/server_access.conf
 
-          # .env 렌더링
+          # .env — 러너가 만든 것을 그대로 푼다 (#1634)
           umask 077
-          cat > .env <<EOF
-          CUBRID_PASSWORD=${CUBRID_PASSWORD}
-          EOF
+          printf '%s' "${DOTENV_B64}" | base64 -d > .env
 
           # force_db_init: 볼륨 파괴 후 재초기화
           if [ "${FORCE_DB_INIT}" = "true" ]; then
@@ -361,27 +375,56 @@ jobs:
           CLEAR_DEMO: ${{ inputs.clear_demo }}
         run: |
           echo "[deploy-app] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_APP_HOST }} sha=${BACKEND_TAG} ==="
+          # `.env`를 **러너에서** 만들어 base64로 넘긴다 (#1634).
+          #
+          # 종전에는 시크릿 22종을 ssh 명령줄에 `'${SECRET}'`로 이어 붙이고 원격이
+          # `cat > .env <<EOF`로 따옴표 없이 적었다. 그래서 ⑴ 값에 `'`가 있으면 ssh 인용이
+          # 끊겨 배포가 섰고 ⑵ `$`·` #`가 있으면 compose가 `.env`를 읽으며 `${…}`를 치환하고
+          # ` #` 뒤를 주석으로 잘랐다 — 값이 **조용히** 바뀌었다.
+          #
+          # `emit`은 compose dotenv의 큰따옴표 규칙대로 적는다 — `\` `"` `$` 개행 네 가지만
+          # 이스케이프하면 compose가 원문으로 되돌린다(`tests/test_deploy_secret_transport.py`가
+          # 실제 compose로 바이트 대조한다). 빈 값은 `KEY=""`이고 compose의 `${KEY:-기본}`이
+          # 그대로 기본값을 쓴다.
+          emit() { local v="$2"; v=${v//\\/\\\\}; v=${v//\"/\\\"}; v=${v//\$/\\\$}; v=${v//$'\n'/\\n}; printf '%s="%s"\n' "$1" "$v"; }
+          # SQLAlchemy URL에 넣을 비밀번호는 URL 인코딩한다 — 종전에는 원격에서 했다.
+          CUBRID_PASSWORD_ENC="$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "${CUBRID_PASSWORD}")"
+          echo "::add-mask::${CUBRID_PASSWORD_ENC}"
+          {
+            emit APP_ENV "${APP_ENV}"
+            emit CUBRID_HOST "${CUBRID_HOST}"
+            emit CUBRID_PASSWORD "${CUBRID_PASSWORD}"
+            emit DATABASE_URL "cubrid+pycubrid://dba:${CUBRID_PASSWORD_ENC}@${CUBRID_HOST}:33100/cii"
+            emit CORS_ALLOW_ORIGINS "${CORS_ALLOW_ORIGINS:-}"
+            emit APP_PUBLIC_URL "${APP_PUBLIC_URL:-}"
+            emit SIGNUP_ALLOWED_DOMAINS "${SIGNUP_ALLOWED_DOMAINS:-}"
+            emit SIGNUP_INVITE_CODE "${SIGNUP_INVITE_CODE:-}"
+            emit INITIAL_ADMIN_EMAILS "${INITIAL_ADMIN_EMAILS:-}"
+            emit SMTP_USE_TLS "${SMTP_USE_TLS:-true}"
+            emit TOUR_ACCESS_CODE "${TOUR_ACCESS_CODE:-}"
+            emit TOUR_PUBLIC "${TOUR_PUBLIC:-}"
+            emit CLOUDFLARE_TUNNEL_TOKEN "${CLOUDFLARE_TUNNEL_TOKEN:-}"
+            emit MAIL_BACKEND "${MAIL_BACKEND:-console}"
+            emit MAIL_FROM "${MAIL_FROM:-}"
+            emit SMTP_HOST "${SMTP_HOST:-}"
+            emit SMTP_PORT "${SMTP_PORT:-587}"
+            emit SMTP_USER "${SMTP_USER:-}"
+            emit SMTP_PASSWORD "${SMTP_PASSWORD:-}"
+            emit LLM_API_KEY "${LLM_API_KEY:-}"
+            emit LLM_BASE_URL "${LLM_BASE_URL:-}"
+            emit LLM_MODEL "${LLM_MODEL:-}"
+            emit LLM_AUTH_SCHEME "${LLM_AUTH_SCHEME:-}"
+            emit BACKEND_IMAGE "ghcr.io/${{ github.repository_owner }}/bluelog-backend:${BACKEND_TAG}"
+          } > "${RUNNER_TEMP}/app.env"
+          DOTENV_B64="$(base64 -w0 < "${RUNNER_TEMP}/app.env")"
+          echo "::add-mask::${DOTENV_B64}"
+          rm -f "${RUNNER_TEMP}/app.env"
+          # 원격은 터널 토큰의 **값**이 아니라 있는지만 알면 된다.
+          if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then TUNNEL_ENABLED=true; else TUNNEL_ENABLED=false; fi
           ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_APP_HOST }} \
             "BACKEND_TAG='${BACKEND_TAG}' \
-             APP_ENV='${APP_ENV}' \
              SEED_DEMO='${SEED_DEMO:-false}' CLEAR_DEMO='${CLEAR_DEMO:-false}' \
-             CUBRID_HOST='${CUBRID_HOST}' CUBRID_PASSWORD='${CUBRID_PASSWORD}' \
-             CORS_ALLOW_ORIGINS='${CORS_ALLOW_ORIGINS:-}' \
-             APP_PUBLIC_URL='${APP_PUBLIC_URL:-}' \
-             SIGNUP_ALLOWED_DOMAINS='${SIGNUP_ALLOWED_DOMAINS:-}' \
-             SIGNUP_INVITE_CODE='${SIGNUP_INVITE_CODE:-}' \
-             INITIAL_ADMIN_EMAILS='${INITIAL_ADMIN_EMAILS:-}' \
-             TOUR_ACCESS_CODE='${TOUR_ACCESS_CODE:-}' \
-             TOUR_PUBLIC='${TOUR_PUBLIC:-}' \
-             CLOUDFLARE_TUNNEL_TOKEN='${CLOUDFLARE_TUNNEL_TOKEN:-}' \
-             MAIL_BACKEND='${MAIL_BACKEND:-console}' \
-             MAIL_FROM='${MAIL_FROM:-}' \
-             SMTP_HOST='${SMTP_HOST:-}' SMTP_PORT='${SMTP_PORT:-587}' \
-             SMTP_USER='${SMTP_USER:-}' SMTP_PASSWORD='${SMTP_PASSWORD:-}' \
-             SMTP_USE_TLS='${SMTP_USE_TLS:-true}' \
-             LLM_API_KEY='${LLM_API_KEY:-}' \
-             LLM_BASE_URL='${LLM_BASE_URL:-}' LLM_MODEL='${LLM_MODEL:-}' \
-             LLM_AUTH_SCHEME='${LLM_AUTH_SCHEME:-}' \
+             DOTENV_B64='${DOTENV_B64}' TUNNEL_ENABLED='${TUNNEL_ENABLED}' \
              GHCR_USER='${{ github.actor }}' GHCR_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
              GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' \
              DEPLOY_SHA='${{ github.sha }}' \
@@ -408,37 +451,9 @@ jobs:
           fi
           echo "[deploy] 실행 커밋 ${got}"
 
-          # CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
-          CUBRID_PASSWORD_ENC=$(python3 -c 'import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1],safe=""))' "${CUBRID_PASSWORD}")
-
-          # .env 렌더링
+          # .env — 러너가 만든 것을 그대로 푼다 (#1634)
           umask 077
-          cat > .env <<EOF
-          APP_ENV=${APP_ENV}
-          CUBRID_HOST=${CUBRID_HOST}
-          CUBRID_PASSWORD=${CUBRID_PASSWORD}
-          DATABASE_URL=cubrid+pycubrid://dba:${CUBRID_PASSWORD_ENC}@${CUBRID_HOST}:33100/cii
-          CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS}
-          APP_PUBLIC_URL=${APP_PUBLIC_URL}
-          SIGNUP_ALLOWED_DOMAINS=${SIGNUP_ALLOWED_DOMAINS}
-          SIGNUP_INVITE_CODE=${SIGNUP_INVITE_CODE}
-          INITIAL_ADMIN_EMAILS=${INITIAL_ADMIN_EMAILS}
-          SMTP_USE_TLS=${SMTP_USE_TLS}
-          TOUR_ACCESS_CODE=${TOUR_ACCESS_CODE}
-          TOUR_PUBLIC=${TOUR_PUBLIC}
-          CLOUDFLARE_TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
-          MAIL_BACKEND=${MAIL_BACKEND}
-          MAIL_FROM=${MAIL_FROM}
-          SMTP_HOST=${SMTP_HOST}
-          SMTP_PORT=${SMTP_PORT}
-          SMTP_USER=${SMTP_USER}
-          SMTP_PASSWORD=${SMTP_PASSWORD}
-          LLM_API_KEY=${LLM_API_KEY}
-          LLM_BASE_URL=${LLM_BASE_URL}
-          LLM_MODEL=${LLM_MODEL}
-          LLM_AUTH_SCHEME=${LLM_AUTH_SCHEME}
-          BACKEND_IMAGE=ghcr.io/${{ github.repository_owner }}/bluelog-backend:${BACKEND_TAG}
-          EOF
+          printf '%s' "${DOTENV_B64}" | base64 -d > .env
 
           # GHCR 로그인
           echo "[app-01] GHCR 로그인 (${GHCR_USER})"
@@ -480,7 +495,7 @@ jobs:
           #
           # 토큰이 없으면 `cloudflared`가 뜨자마자 죽고 재시작 루프가 된다. 프로필 뒤에
           # 두고 여기서 조건으로 올린다(`migrate`와 같은 방식).
-          if [ -n "${CLOUDFLARE_TUNNEL_TOKEN}" ]; then
+          if [ "${TUNNEL_ENABLED}" = "true" ]; then
             echo "[app-01] cloudflared 시작"
             docker compose -f docker-compose.prod.app.yml --profile tunnel up -d cloudflared </dev/null
           else

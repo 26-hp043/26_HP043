@@ -49,19 +49,21 @@ _RENDER_EXEMPT: frozenset[str] = frozenset()
 
 
 def _rendered_keys() -> set[str]:
-    """app-01 `.env` 렌더 heredoc이 쓰는 키.
+    """app-01 `.env` 렌더가 쓰는 키.
 
-    db-01에도 같은 모양의 heredoc이 있으므로(`CUBRID_PASSWORD` 한 줄) **뒤쪽**을 고른다.
+    `#1634` 뒤로 `.env`는 러너가 `{ emit KEY "값"; … } > "${RUNNER_TEMP}/app.env"`로
+    만든다(종전에는 원격의 `cat > .env <<EOF` heredoc). db-01에도 같은 모양의 블록이
+    있으므로(`db.env` · `CUBRID_PASSWORD` 한 줄) **`app.env`로 끝나는 블록**을 고른다.
     """
     lines = _DEPLOY.read_text(encoding="utf-8").splitlines()
-    starts = [i for i, line in enumerate(lines) if "cat > .env" in line]
-    assert starts, "deploy.yml에서 `.env` 렌더 heredoc을 찾지 못했다."
-    start = starts[-1]
-    end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "EOF")
+    ends = [i for i, line in enumerate(lines) if '} > "${RUNNER_TEMP}/app.env"' in line]
+    assert len(ends) == 1, "deploy.yml에서 app-01 `.env` 렌더 블록을 찾지 못했다."
+    end = ends[0]
+    start = next(i for i in range(end - 1, -1, -1) if lines[i].strip() == "{")
     return {
         m.group(1)
         for line in lines[start + 1 : end]
-        if (m := re.match(r"\s*([A-Z][A-Z0-9_]*)=", line))
+        if (m := re.match(r"\s*emit ([A-Z][A-Z0-9_]*) ", line))
     }
 
 
