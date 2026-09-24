@@ -309,14 +309,26 @@ async def test_delete_does_not_remove_a_voyage_planned_meanwhile(migrated_db, ap
 
 @pytest.mark.asyncio
 async def test_concurrent_adoptions_leave_exactly_one_adopted_row(migrated_db, app_fresh_engine):
-    """채택 × 채택 — 「항차당 채택 하나」는 항차 행 잠금이 지킨다 (`DB_SCHEMA §2.4`).
+    """채택 × 채택 — 「항차당 채택 하나」는 지켜지지만, **항차 잠금이 지키는 게 아니다** (`#1869`).
 
     두 번째는 대기 뒤 첫 채택을 **내리고** 자기 것을 올린다 — 예외가 아니라 나중 채택이
     이기는 것이 기대값이다(단일 요청에서 재채택할 때와 같다).
 
-    ⚠️ 이 짝은 항차 잠금 돌연변이를 **검출하지 못한다** — `get_by_id`의 `for_update` 갈래를
-    빼도 통과했다(2026-09-24 실측 · 단독 실행 포함). 두 채택이 같은 `voyage_scenario` 행을
-    쓰며 순서가 정해지는 것으로 보인다(정황). 무엇을 지킬지 다시 정하는 일은 `#1869`.
+    ⚠️ **이 짝은 `get_by_id(for_update=True)` 돌연변이 검출 대상에서 뺀다** (`#1869` 확정 —
+    `#1870`의 「정황」을 실측으로 닫았다). `UPDATE_EXISTING_PLAN`은 두 채택 모두 같은
+    ``voyage`` 행(``target.planned_distance_nm`` 등)을 **무조건** 쓴다 — 그 UPDATE 자체가
+    통상적 쓰기 잠금으로 그 행을 커밋까지 쥐므로, 상대는 `_clear_previous_adoption`을 실행하기
+    전에 **그 UPDATE부터** 대기하게 된다. 「항차당 채택 하나」는 이 잠금 하나만으로 이미
+    닫힌다 — `get_by_id`의 명시 `FOR UPDATE`는 이 짝에서 **여분(redundant)**이다.
+
+    두 가지로 확인했다(2026-09-24):
+
+    1. 이 파일의 `_interleave`(커밋 직전 hold)로 `get_by_id`의 `for_update` 갈래를 지워도
+       **통과한다**(`#1870` 최초 관찰 — 5짝 중 이 짝만 살아남았다).
+    2. 인위적 hold 없이 `asyncio.gather`로 두 `adopt_scenario`를 그대로 맞부딪히는
+       **자연 동시 실행**(`#1796` ⑺과 같은 기법)으로도 같은 돌연변이에서 **15/15** 예외 없이
+       채택 행 1건만 남았다(`#1869` 실측 — PR 본문에 원문). 두 기법 다 위반을 만들지
+       못했으므로, 교차 시점을 바꿔도 이 짝으로는 돌연변이가 드러나지 않는다.
     """
     vessel_id, voyage_id, (first_scenario, second_scenario) = await _setup("DRAFT", scenarios=2)
     try:
