@@ -204,6 +204,17 @@ def test_signed_proxy_ips_get_separate_counters_through_the_middleware(monkeypat
     assert client.get("/api/v1/health", headers=_signed("203.0.113.2")).status_code == 200
 
 
+def test_ipv6_is_counted_per_64_block() -> None:
+    """IPv6는 `/64` 대역으로 센다 — 한 가입자가 대역 안에서 주소를 바꿔 한도를 피하지 못한다."""
+    import cii_platform.api.rate_limit as rl
+
+    assert rl.limit_key("2001:db8:1:2::1") == rl.limit_key("2001:db8:1:2:ffff::9")
+    assert rl.limit_key("2001:db8:1:2::1") != rl.limit_key("2001:db8:1:3::1")
+    # IPv4와 IP 아닌 값은 그대로다.
+    assert rl.limit_key("203.0.113.7") == "203.0.113.7"
+    assert rl.limit_key("unknown") == "unknown"
+
+
 def test_limiter_window_resets_after_expiry() -> None:
     """윈도(60s)가 지나면 카운터가 리셋된다 — 시간을 흉내내 검증 (#238)."""
     from cii_platform.errors import RateLimitError

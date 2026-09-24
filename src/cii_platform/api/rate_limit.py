@@ -241,6 +241,25 @@ def _signed_proxy_ip(request: Request) -> str | None:
         return None
 
 
+def limit_key(ip: str) -> str:
+    """카운터 키 — IPv4는 주소 그대로, **IPv6는 ``/64`` 대역**으로 묶는다 (#1483).
+
+    원 IP로 세기 시작하면서 생긴 성질이다. IPv6 가입자는 보통 ``/64`` 하나를 통째로
+    받으므로, 주소 하나(``/128``)마다 세면 그 대역 안에서 주소를 바꿔 가며 ``auth`` 10/분을
+    사실상 무한히 쓸 수 있다. 대역으로 묶으면 한 가입자는 한 버킷이다.
+
+    로그의 ``client``는 묶지 않은 주소를 그대로 남긴다 — 묶는 것은 세는 단위뿐이다.
+    IP가 아닌 값(``unknown``)은 그대로 둔다.
+    """
+    try:
+        parsed = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if parsed.version == 6:
+        return str(ipaddress.ip_network(f"{parsed}/64", strict=False))
+    return str(parsed)
+
+
 def client_ip(request: Request) -> str:
     """클라이언트 IP를 판별한다.
 
@@ -332,7 +351,7 @@ async def rate_limit_middleware(
         return await call_next(request)
     bucket = resolve_bucket(request.method, request.url.path)
     try:
-        limiter.consume(client_ip(request), bucket)
+        limiter.consume(limit_key(client_ip(request)), bucket)
     except RateLimitError as exc:
         from cii_platform.api.timefmt import iso_utc_now
 

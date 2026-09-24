@@ -123,6 +123,7 @@ Cloudflare 영역이라, 영역 사이 서브리퀘스트에는 Cloudflare가 �
 | Pages Function (`frontend/functions/_proxy.ts`) | 브라우저 요청의 `cf-connecting-ip`(엣지가 붙인 값 — 사용자가 위조하지 못한다)를 `X-BlueLog-Client-IP`에 옮겨 담고 `X-BlueLog-Proxy-Secret`에 비밀 값을 싣는다. 브라우저가 같은 이름으로 보낸 헤더는 뗀다 |
 | 백엔드 (`api/rate_limit.py` `client_ip`) | 비밀 값이 **맞을 때만**(`hmac.compare_digest`) 그 IP로 센다. 없거나 틀리면 헤더를 무시하고 종전 규칙대로 — `:8001`로 직접 들어와 헤더를 적어도 위조가 되지 않는다 |
 | 비밀 값 | GitHub 시크릿 `PROXY_CLIENT_IP_SECRET` 하나(§5.1). 배포가 Pages 시크릿과 app-01 `.env`에 같은 값을 넣는다 |
+| 세는 단위 | IPv4는 주소, **IPv6는 `/64` 대역**(`limit_key`). IPv6 가입자는 `/64`를 통째로 받아, 주소마다 세면 대역 안에서 주소를 바꿔 한도를 피할 수 있다. 로그의 `client`는 묶지 않은 주소다 |
 
 **배포 뒤 확인** — 백엔드 기동 로그에 `요청 한도 IP 판정: 프록시 서명 헤더 켜짐`이 찍힌다.
 `꺼짐`이면 비밀 값이 배포 경로 어딘가에서 빠진 것이다. 접근 로그(`api.jsonl`)의
@@ -1119,7 +1120,7 @@ docker exec cii-backend sh -c \
 ```
 
 줄의 모양 — 키는 `ts`·`level`·`logger`·`message`, 접근 로그(`cii_platform.access`)는
-`request_id`·`method`·`path`·`status`·`duration_ms`·`client`를 더 싣는다. 예외 기록은
+`request_id`·`method`·`path`·`status`·`duration_ms`·`client`·`peer`를 더 싣는다(`client`는 요청 한도와 같은 규칙으로 판정한 IP, `peer`는 소켓 상대 — §1.2.1). 예외 기록은
 `exc` 키에 스택 텍스트가 들어간다.
 
 > **콘솔(`docker logs`)과의 관계** — 콘솔은 사람이 읽는 짧은 형식, 파일이 JSON이다.
