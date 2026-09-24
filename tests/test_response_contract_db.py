@@ -573,6 +573,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data.vessels[].route",
             "data.vessels[].route.arrival_lat",
             "data.vessels[].route.arrival_lon",
+            "data.vessels[].route.departure_port_name",
+            "data.vessels[].route.arrival_port_name",
             "data.vessels[].route.departure_lat",
             "data.vessels[].route.departure_lon",
             "data.vessels[].ship_type",

@@ -44,6 +44,9 @@ interface ServerVessel {
     departure_lon: string
     arrival_lat: string
     arrival_lon: string
+    /** `#1882`. 구버전 서버에는 없다 — 없으면 핀이 이름 없이 「항구」로 읽힌다. */
+    departure_port_name?: string
+    arrival_port_name?: string
   } | null
   /** `#1804`. 구버전 서버에는 없다 — 없으면 `null`(방향 없는 마커). */
   course_deg?: string | null
@@ -138,6 +141,8 @@ function toVessel(raw: ServerVessel): FleetVessel {
           departureLon: raw.route.departure_lon,
           arrivalLat: raw.route.arrival_lat,
           arrivalLon: raw.route.arrival_lon,
+          departurePortName: raw.route.departure_port_name ?? null,
+          arrivalPortName: raw.route.arrival_port_name ?? null,
         }
       : null,
     courseDeg: raw.course_deg ?? null,

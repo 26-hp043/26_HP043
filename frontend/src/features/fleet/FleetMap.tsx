@@ -207,6 +207,55 @@ function markerElement(vessel: FleetVessel): HTMLElement {
   return root
 }
 
+/** 지도에 그릴 항구 하나 (`#1882`). */
+interface PortPin {
+  name: string | null
+  lat: number
+  lon: number
+}
+
+/**
+ * 선대가 들르는 항구 — 진행 중 항차의 출발항·도착항 (`#1882` · `DESIGN_SYSTEM §9.5`).
+ *
+ * **전 항구를 뿌리지 않는다** — 지도가 핀으로 덮여 배가 묻힌다. 두 배가 같은 항구를 쓰면
+ * 핀은 하나다(좌표 소수 넷째 자리 · 약 11m로 묶는다). 좌표가 숫자가 아니면 그 끝은 버린다 —
+ * 항로선(`routeAsks`)과 같은 규칙이다.
+ */
+function portPins(vessels: FleetVessel[]): PortPin[] {
+  const pins = new Map<string, PortPin>()
+  for (const { vessel } of placed(vessels)) {
+    const route = vessel.route
+    if (route == null) continue
+    const ends: Array<[string, string, string | null]> = [
+      [route.departureLat, route.departureLon, route.departurePortName ?? null],
+      [route.arrivalLat, route.arrivalLon, route.arrivalPortName ?? null],
+    ]
+    for (const [rawLat, rawLon, name] of ends) {
+      const lat = Number(rawLat)
+      const lon = Number(rawLon)
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
+      const key = `${lat.toFixed(4)},${lon.toFixed(4)}`
+      const found = pins.get(key)
+      // 같은 자리에 이름이 둘 오면 먼저 온 이름을 쓴다 — 이름이 없던 쪽은 있는 쪽으로 채운다.
+      if (found === undefined) pins.set(key, { name, lat, lon })
+      else if (found.name === null && name !== null) found.name = name
+    }
+  }
+  return [...pins.values()]
+}
+
+/**
+ * 항구 핀 DOM — **무채색 원형**, 등급색을 쓰지 않는다(배가 아니다 · `§9.5`).
+ * 이름은 낭독으로 준다. 눈에는 핀만 — 이름표를 붙이면 배 이름표와 겹쳐 읽히지 않는다.
+ */
+function portElement(pin: PortPin): HTMLElement {
+  const root = document.createElement('span')
+  root.className = 'fleetmap__port'
+  root.setAttribute('role', 'img')
+  root.setAttribute('aria-label', pin.name ? `항구 ${pin.name}` : '항구')
+  return root
+}
+
 /** 그릴 항로 목록. 진행 중 항차가 있는 선박 한 줄씩 + `routes` 프롭. */
 function routeAsks(points: Placed[], extra: readonly RouteLine[]): RouteAsk[] {
   const fromVessels = points.flatMap(({ vessel }): RouteAsk[] => {
@@ -310,6 +359,7 @@ export function FleetMap({
   const [canvas, setCanvas] = useState<HTMLDivElement | null>(null)
   const map = useRef<maplibregl.Map | null>(null)
   const markers = useRef<maplibregl.Marker[]>([])
+  const portMarkers = useRef<maplibregl.Marker[]>([])
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -379,6 +429,7 @@ export function FleetMap({
       map.current = null
       // 마커는 지도와 함께 사라진다 — 참조만 남으면 다음 지도에서 지우려다 헛돈다.
       markers.current = []
+      portMarkers.current = []
       setReady(false)
     }
   }, [canvas])
@@ -393,6 +444,17 @@ export function FleetMap({
     if (instance === null || !ready) return
 
     const points = placed(vessels)
+
+    /*
+     * 항구 핀을 **먼저** 붙인다 (`#1882`) — 마커는 붙인 순서로 쌓이므로 배가 핀 위에 온다.
+     * 배가 항구에 있을 때 핀이 배를 가리면 등급 배지를 읽을 수 없다.
+     */
+    for (const marker of portMarkers.current) marker.remove()
+    portMarkers.current = portPins(vessels).map((pin) =>
+      new maplibregl.Marker({ element: portElement(pin), anchor: 'center' })
+        .setLngLat([pin.lon, pin.lat])
+        .addTo(instance),
+    )
 
     for (const marker of markers.current) marker.remove()
     markers.current = points.map(({ vessel, lat, lon }) =>

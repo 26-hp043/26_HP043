@@ -89,7 +89,7 @@ async def _insert_voyage(
 
 @pytest.mark.asyncio
 async def test_route_carries_both_ends(session):
-    """IT-MAP-001 — 진행 중 항차의 네 좌표가 그대로 실린다."""
+    """IT-MAP-001 — 진행 중 항차의 네 좌표와 두 항구 이름이 그대로 실린다 (#1882 이름)."""
     vessel_id = await _insert_vessel(session, "7400101")
     await _insert_voyage(session, vessel_id)
 
@@ -101,6 +101,8 @@ async def test_route_carries_both_ends(session):
         "departure_lon": "129.033300",
         "arrival_lat": "1.283300",
         "arrival_lon": "103.850000",
+        "departure_port_name": "BUSAN",
+        "arrival_port_name": "SINGAPORE",
     }
 
 

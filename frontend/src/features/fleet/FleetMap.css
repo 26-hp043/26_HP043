@@ -45,6 +45,22 @@
 
 /* --- 마커 ------------------------------------------------------------------ */
 
+/*
+ * 항구 핀 (#1882 · DESIGN_SYSTEM §9.5 「무채색 원형 핀 — 등급색을 쓰지 않는다」).
+ * ⚠️ 크기·테두리는 **개발 임시안**이다 — §9.5가 모양(무채색 원형)만 정했다. 배 마커(22px)보다
+ * 작게 두어 배가 항구에 있을 때도 배가 읽히게 한다. 색은 등급 토큰(`--cii-*`)이 아닌 본문 계열.
+ */
+.fleetmap__port {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  border: 2px solid var(--color-text);
+  box-sizing: border-box;
+  cursor: default;
+}
+
 .fleetmap__marker {
   display: flex;
   align-items: center;
