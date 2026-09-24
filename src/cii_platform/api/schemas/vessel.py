@@ -16,7 +16,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from cii_platform.api.schemas.bounds import storable, storable_from
+from cii_platform.api.schemas.bounds import REFERENCE_SPEED, storable, storable_from
 
 
 def _storable(precision: int, scale: int) -> dict[str, Decimal]:
@@ -53,8 +53,8 @@ def _storable(precision: int, scale: int) -> dict[str, Decimal]:
 
 #: ``NUMERIC(12,2)`` — DWT · GT.
 _TONNAGE = _storable(12, 2)
-#: ``NUMERIC(6,2)`` — 기준 속력(kn).
-_SPEED = _storable(6, 2)
+#: 기준 속력(kn) — 하한은 ``NUMERIC(6,2)``의 최소 양수, 상한은 VAL-009의 물리 상한 60(`#1269`).
+_SPEED = REFERENCE_SPEED
 #: ``NUMERIC(8,2)`` — 기준 일일 연료(t).
 _DAILY_FOC = _storable(8, 2)
 #: ``NUMERIC(4,3)`` — 방형계수(CB). 저장 범위 위에 **물리 범위**를 더 좁힌다(#966):

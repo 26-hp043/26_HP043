@@ -719,7 +719,7 @@ POST /api/v1/vessels
 | `ship_type` | 파라미터 테이블 존재 (VAL-004) | VAL-004 |
 | `gross_tonnage` | > 0 (VAL-002) · **0.01 ~ 9,999,999,999.99** | VAL-002 |
 | `deadweight` | > 0 (VAL-002) · **0.01 ~ 9,999,999,999.99** | VAL-002 |
-| `reference_speed_kn` | > 0 (VAL-002), 지정 시 · **0.01 ~ 9,999.99** | VAL-002 |
+| `reference_speed_kn` | > 0 (VAL-002), 지정 시 · **0.01 ~ 60** (상한은 VAL-009의 물리 상한 · `#1269`) | VAL-002 · VAL-009 |
 | `reference_daily_foc_ton` | > 0 (VAL-002), 지정 시 · **0.01 ~ 999,999.99** | VAL-002 |
 | `block_coefficient` | 선택 · **0.001 ~ 1** (#966 — 체적 비율은 1을 넘지 않는다) | VAL-002 |
 | `call_sign` | 선택 · **영문 대문자·숫자 4~7자**, 앞 두 글자가 모두 숫자일 수 없음 (#1197 — ITU RR No.19.55 · No.19.50). 서버가 앞뒤 공백을 지우고 대문자로 접어 저장하며, 접은 뒤 빈 값은 미기록(`null`) | VAL-011 |
@@ -2368,7 +2368,7 @@ PUT /api/v1/voyages/{voyage_id}/actuals
 |---|---|---|
 | 404 | `NOT_FOUND` | 항차 없음 |
 | 422 | `STATE_TRANSITION_ERROR` | 위 표의 상태 |
-| 422 | `VALIDATION_ERROR` | 같은 `fuel_type`이 두 번 (`idx_fuel_use_unique` — 중복은 **CO₂ 이중 산정**이 된다) · 알 수 없는 `fuel_type` · `actual_fuel_ton <= 0` · `actual_avg_speed_kn < 1.0` |
+| 422 | `VALIDATION_ERROR` | 같은 `fuel_type`이 두 번 (`idx_fuel_use_unique` — 중복은 **CO₂ 이중 산정**이 된다) · 알 수 없는 `fuel_type` · `actual_fuel_ton <= 0` · `actual_avg_speed_kn`가 1.0 미만 또는 60 초과(VAL-009) |
 
 #### 응답 (200 OK)
 
@@ -2565,7 +2565,7 @@ POST /api/v1/calculations/voyage-cii
 | `vessel_id` | UUID | Y | 존재 확인 | 대상 선박 |
 | `regulation_year` | int | Y | VAL-005: regulation_year 존재 | 등급 기준연도 |
 | `distance_nm` | decimal | Y | VAL-002: > 0 | 항차 거리 |
-| `speed_kn` | decimal | Y | VAL-009: ≥ 1.0 | 평균 예정 속도. **Layer 1 CII 계산에는 사용되지 않으며**, 항차 조건 표시 및 항차 저장 매핑을 위한 필수 입력이다 |
+| `speed_kn` | decimal | Y | VAL-009: 1.0 이상 60 이하 | 평균 예정 속도. **Layer 1 CII 계산에는 사용되지 않으며**, 항차 조건 표시 및 항차 저장 매핑을 위한 필수 입력이다 |
 | `fuel_uses` | array | Y | **최소 1개 이상** · VAL-006: active fuel_type | 연료 사용량 목록. **동일 `fuel_type`이 여러 행으로 들어오면 Decimal로 합산한다** |
 | `fuel_uses[].fuel_type` | string | Y | VAL-006 | 연료 코드 |
 | `fuel_uses[].fuel_ton` | decimal | Y | VAL-002: > 0 | 연료 사용량 (ton) |
@@ -2810,7 +2810,7 @@ POST /api/v1/scenarios/compare
 | `destination_port_name` | string | N | 최대 200자 | 목적항 이름. **표기용이라 계산에 쓰지 않는다** — 요청 예시에는 있었으나 이 표에 없었다 (`#1454`) |
 | `destination_lat` | decimal | 조건부 | VAL-007 | 목적항 위도 (거리 자동 계산 시 필요) |
 | `destination_lon` | decimal | 조건부 | VAL-007 | 목적항 경도 |
-| `current_speed_kn` | decimal | Y | VAL-009: ≥ 1.0 | 현재 속도 |
+| `current_speed_kn` | decimal | Y | VAL-009: 1.0 이상 60 이하 | 현재 속도 |
 | `fuel_type` | string | Y | VAL-006 | 연료 종류 |
 | `base_daily_foc_ton` | decimal | 조건부 | VAL-002 | 선박 기준값 없을 시 필요 |
 | `direct_distance_nm` | decimal | 조건부 | VAL-002 | 좌표 있으면 자동 계산 |
@@ -2818,7 +2818,7 @@ POST /api/v1/scenarios/compare
 | `detour_waypoint_name` | string | N | 최대 200자 | 우회 경유지 **표기용** 이름 (`#1300`). 계산에 쓰지 않는다 — `destination_port_name`과 같은 규칙 |
 | `detour_waypoint_lat` | decimal | 조건부 | VAL-007: −90 ~ +90 | 우회 경유지 위도 (`#1300`). `detour_waypoint_lon`과 **함께**만 유효(한쪽만 주면 422 · 빠진 쪽 필드로). **경유지의 검증은 `detour_distance_nm` 입력과 무관하게 먼저 한다** — 현재 위치·목적항 좌표 넷이 없으면 422(`detour_waypoint_lat`), 경유지가 현재 위치·목적항 중 어느 쪽과 같은 점이면 422이며 문구가 어느 쪽과 같은지 말한다(둘 다 같으면 둘 다). 검증을 지나면 DETOUR 거리 = 대권(현재 → 경유지) + 대권(경유지 → 목적항)(`TECH_SPEC §6.3`) — 경로망 길이가 아니다. **재현성 해시 재료**(`TECH_SPEC §5.3` `detour_waypoint`), 항차에는 저장하지 않는다(`PRD §5.2`) |
 | `detour_waypoint_lon` | decimal | 조건부 | VAL-007: −180 ~ +180 | 우회 경유지 경도. 위와 같다 |
-| `slow_speed_kn` | decimal | N | VAL-009: ≥ 1.0 | 감속 속도. **미지정 시 서버가 `max(current_speed - 1, 1.0)`으로 계산** |
+| `slow_speed_kn` | decimal | N | VAL-009: 1.0 이상 60 이하 | 감속 속도. **미지정 시 서버가 `max(current_speed - 1, 1.0)`으로 계산** |
 | `weather_model` | string | N | enum | 기본: NONE |
 
 #### 응답 (200 OK)
@@ -3858,7 +3858,7 @@ POST /api/v1/vessels/{vessel_id}/import
 | 열 | 한도의 출처 |
 |---|---|
 | `planned_distance_nm` | `NUMERIC(12,2)` — `schemas/bounds.py` `DISTANCE` |
-| `planned_speed_kn` | `NUMERIC(6,2)` — `SPEED`(하한 `1.0`은 도메인 · VAL-009) |
+| `planned_speed_kn` | `NUMERIC(6,2)` — `SPEED`(하한 `1.0`·상한 `60` 모두 도메인 · VAL-009) |
 | `planned_fuel_ton` | `NUMERIC(12,4)` — `VOYAGE_FUEL` |
 | `voyage_no` · 항만명 | `String(100)` · `String(200)` — **escape(`'` 접두) 뒤의 길이**를 센다 |
 | 정박 `port_name` | `String(200)` |
@@ -4185,7 +4185,7 @@ GET /api/v1/health
 | VAL-006 | 지원하지 않는 연료 | 422: `알 수 없는 연료 종류입니다: {값}` · CSV(`§8.2`)는 `지원하지 않는 연료입니다: {값}` |
 | VAL-007 | 좌표 범위 오류 | 422: `{field_label}은/는 {경계} 이하여야 합니다.` — 예: `현재 위도는 90 이하여야 합니다.` |
 | VAL-008 | NaN·Infinity 결과 | 422: `계산 오류: 입력값을 확인하세요.` |
-| VAL-009 | 항차·시나리오 운항 속도 < 1.0kn | 422: `{field_label}은/는 1 이상이어야 합니다.` — 예: `계획 속력은 1 이상이어야 합니다.` |
+| VAL-009 | 항차·시나리오 운항 속도 < 1.0kn, 또는 속력(항차·시나리오·실시간 CII·선박 기준속도) > 60kn | 422: `{field_label}은/는 1 이상이어야 합니다.` · `{field_label}은/는 60 이하여야 합니다.` — 예: `계획 속력은 1 이상이어야 합니다.` · `계획 속력은 60 이하여야 합니다.` (`#1269`) |
 | VAL-010 | capacity ≤ 0 | 422: 어느 축이 비었는지 말한다 — 예: `재화중량톤수(DWT)가 없어 이 선박의 CII를 계산할 수 없습니다. 선박 제원에 재화중량톤수(DWT)를 입력해 주세요.` (`#999`) |
 | VAL-011 | 호출부호 형식 오류 (#1197 — ITU RR No.19.55 · No.19.50) | 422: `호출부호는 영문 대문자와 숫자 4~7자여야 합니다.` · 앞 두 글자가 모두 숫자면 `호출부호의 앞 두 글자는 모두 숫자일 수 없습니다.` |
 
@@ -4811,3 +4811,4 @@ POST /api/v1/chat
 | 2026-09-24 | `#1849` | **v1.46 — §3.11 「공개 해상 경로망 위의 바닷길」 신설**(`GET /ports/sea-route` · `#1300` E-6). 두 점(+경유지)의 바닷길 좌표를 서버 `searoute`(Eurostat SeaRoute 경로망 · 오프라인 · 결정론)로 내며 **표시용**이다 — 계산 거리(`§3.9`)와 재현성 해시는 건드리지 않는다. §5.1 요청 표에 `detour_waypoint_name`·`_lat`·`_lon` 세 행(좌표 쌍 규칙 · 좌표 넷 필요 · DETOUR = 두 구간 대권거리 합 · 해시 재료 · 항차 미저장) · `detour_distance_nm` 행에 우선순위. §12 요약표 행. 절 신설이라 버전을 올린다(`AGENTS §4.3`) (#1300) |
 | 2026-09-24 | `#1848` | §1.2 `[#506]` 이메일 변경 엔드포인트 부재 각주의 재가입 근거를 **활성 키 `email_active`의 유니크 인덱스 `uq_app_user_email_active`**(마이그레이션 061 · `DB_SCHEMA §2.15`)로 정정 — 「`WHERE is_deleted = false`인 부분 인덱스」는 CUBRID 배포에 없다. 탈퇴가 활성 키를 NULL로 비우고 유니크 인덱스는 NULL을 세지 않아 재사용이 성립한다. `§4.3`상 각주 정정이라 버전은 올리지 않는다 (#1631) |
 | 2026-09-25 | `#1896` | §2.8 선대 요약 `route`에 **`departure_port_name` · `arrival_port_name`** 추가 (`#1882`). 지도 마커 표(`DESIGN_SYSTEM §9.5`)의 **항구 핀**이 두 끝에 그려지며 이름을 읽어 준다 — 좌표와 같은 항차에서 오므로 화면이 항구 표를 새로 두지 않는다. 필드 추가라 기존 소비자는 그대로다. `§4.3`상 행 추가라 버전은 올리지 않는다 (#1882) |
+| 2026-09-25 | `#___` | 속력 입력 전부에 **VAL-009 물리 상한 60kn** — §2 `reference_speed_kn` 범위 `0.01 ~ 9,999.99` → `0.01 ~ 60` · §3 실적 422 사유 · §4.1 `speed_kn` · §5.1 `current_speed_kn`·`slow_speed_kn` · §8.2 CSV `planned_speed_kn` 경계 · §15 VAL-009 행에 상한 문구(`{field_label}은/는 60 이하여야 합니다.`). 실시간 CII의 `speed_kn`만 상한이 아예 없던 것도 공용 경계로 맞췄다. `§4.3`상 값 정정·행 보강이라 버전은 올리지 않는다 (#1269) |

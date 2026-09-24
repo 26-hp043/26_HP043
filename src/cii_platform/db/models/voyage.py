@@ -125,6 +125,8 @@ class Voyage(Base):
             name="chk_distance_source",
         ),
         sa.CheckConstraint("planned_speed_kn >= 1.0", name="chk_speed_positive"),
+        # #1269 — 속력의 물리 상한(VAL-009). 집행은 062 트리거다(CUBRID는 CHECK를 검사하지 않는다).
+        sa.CheckConstraint("planned_speed_kn <= 60", name="chk_speed_max_voyage"),
         # [M-6] actual 값은 nullable.
         sa.CheckConstraint(
             "actual_distance_nm IS NULL OR actual_distance_nm > 0",
@@ -133,6 +135,10 @@ class Voyage(Base):
         sa.CheckConstraint(
             "actual_avg_speed_kn IS NULL OR actual_avg_speed_kn >= 1.0",
             name="chk_actual_speed_positive",
+        ),
+        sa.CheckConstraint(
+            "actual_avg_speed_kn IS NULL OR actual_avg_speed_kn <= 60",
+            name="chk_actual_speed_max",
         ),
         sa.CheckConstraint(
             "departure_lat IS NULL OR departure_lat BETWEEN -90 AND 90",

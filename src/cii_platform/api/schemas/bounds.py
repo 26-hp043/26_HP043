@@ -49,10 +49,23 @@ def storable_from(floor: Decimal, precision: int, scale: int) -> dict[str, Decim
 #: ``2000~2100``은 형식만 보는 값이라 2010·2080이 DB에서 500으로 죽었다 (`#1086` ①).
 REGULATION_YEAR = {"ge": 2019, "le": 2050}
 
-#: 항차·시나리오 거리 ``NUMERIC(12,2)`` · 속력 ``NUMERIC(6,2)`` · 항차 연료 ``NUMERIC(12,4)`` ·
-#: 정박 연료·거리 ``NUMERIC(12,2)`` — ORM 모델과 같다(검사가 대조).
+#: 운항 속력의 물리 상한(kn) — ``PRD §9.1`` VAL-009 (`#1269` · 결정 G-10).
+#:
+#: **이것은 저장 형식이 아니라 도메인 상한이다** — ``NUMERIC(6,2)``의 상한 9,999.99는
+#: 「운항할 수 없는 값」을 하나도 막지 못했다(``120`` kn은 연료 모델 속력 배율 1,000).
+#: 60은 현역 페리 세계 최고속 HSC Francisco 58.1 kn(Guinness 「Fastest ferry」)을 막지
+#: 않는 가장 좁은 값이다 — 이 제품은 고속선(``RO_RO_PASSENGER_HSC``)을 등록받는다.
+#: 자릿수 실수(12.5 → 125)는 막고, 옆 키 오타(15 → 35)는 상한이 아니라 경고의 몫이다.
+#: DB 트리거(마이그레이션 ``062``)와 화면 규칙이 같은 값을 쓴다.
+MAX_SPEED_KN = Decimal("60")
+
+#: 항차·시나리오 거리 ``NUMERIC(12,2)`` · 항차 연료 ``NUMERIC(12,4)`` · 정박 연료·거리
+#: ``NUMERIC(12,2)`` — ORM 모델과 같다(검사가 대조).
 DISTANCE = storable(12, 2)
-SPEED = storable_from(Decimal("1.0"), 6, 2)
+#: 운항 속력 — 하한 1.0(VAL-009) · 상한 60(VAL-009). 둘 다 도메인 값이다.
+SPEED = {"ge": Decimal("1.0"), "le": MAX_SPEED_KN}
+#: 선박 기준 속력 — 하한은 저장 형식(``0.01`` · VAL-002), 상한은 운항 속력과 같다(VAL-009).
+REFERENCE_SPEED = {"ge": smallest_positive(2), "le": MAX_SPEED_KN}
 VOYAGE_FUEL = storable(12, 4)
 NOT_UNDERWAY_FUEL = storable(12, 2)
 NOT_UNDERWAY_DISTANCE = {"ge": Decimal(0), "le": largest(12, 2)}

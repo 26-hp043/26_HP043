@@ -94,6 +94,10 @@ class Vessel(Base):
         sa.CheckConstraint(
             "reference_speed_kn IS NULL OR reference_speed_kn > 0", name="chk_speed_positive"
         ),
+        # #1269 — 속력의 물리 상한(VAL-009). 선언은 문서이고 집행은 062 트리거가 한다(§7.4).
+        sa.CheckConstraint(
+            "reference_speed_kn IS NULL OR reference_speed_kn <= 60", name="chk_speed_max"
+        ),
         # #966 — 방형계수의 물리 범위. 선언은 문서이고 집행은 055 트리거가 한다(§7.4).
         sa.CheckConstraint(
             "block_coefficient IS NULL OR (block_coefficient > 0 AND block_coefficient <= 1)",

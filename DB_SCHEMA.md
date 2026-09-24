@@ -99,7 +99,7 @@ erDiagram
 | `gross_tonnage` | NUMERIC(12,2) | NULL | GT |
 | `deadweight` | NUMERIC(12,2) | NULL | DWT |
 | `default_fuel_type` | VARCHAR(30) | NULL, **FK → fuel_type(code) ON UPDATE CASCADE** [S-1] | 기본 연료 코드 |
-| `reference_speed_kn` | NUMERIC(6,2) | NULL | 기준 속도 (kn) |
+| `reference_speed_kn` | NUMERIC(6,2) | NULL, **60 이하 — 트리거 `trg_chk_speed_max_ins`·`_upd`** [#1269] | 기준 속도 (kn). 상한은 VAL-009의 물리 상한(`PRD §9.1` · 마이그레이션 062) |
 | `reference_daily_foc_ton` | NUMERIC(8,2) | NULL | 기준 일일 연료소모량 (ton/day) |
 | `block_coefficient` | NUMERIC(4,3) | NULL, CHECK (0 < CB <= 1) [#966] | 방형계수 — 기상 보정(Townsin–Kwon)의 선형 계수. 선택: 넣으면 실측값, `NULL`이면 선종 기본값 + `CB_ESTIMATED` |
 | `call_sign` | VARCHAR(7) | NULL, **트리거 `trg_chk_call_sign_ins`·`_upd`** (`^[A-Z0-9]{4,7}$` · `REGEXP BINARY`) [#1197] | 호출부호(call sign) — **공공데이터 교차 대조의 키**(`PRD §15.1` `[#1197]` 각주). `해양수산부_선박운항정보`가 IMO가 아니라 이 값으로 질의한다. ITU RR No.19.55상 영문 대문자·숫자 4~7자이며 API가 strip · upper로 접어 넣는다(`API_SPEC §2.3`). 선택: `NULL`이면 그 배는 대조 대상이 아닐 뿐 계산은 그대로. **UNIQUE 없음** — 재배정되는 값이다(마이그레이션 058) |
@@ -143,6 +143,8 @@ ALTER TABLE vessel ADD CONSTRAINT chk_imo_format CHECK (imo_number ~ '^\d{7}$');
 ALTER TABLE vessel ADD CONSTRAINT chk_gt_positive CHECK (gross_tonnage IS NULL OR gross_tonnage > 0);
 ALTER TABLE vessel ADD CONSTRAINT chk_dwt_positive CHECK (deadweight IS NULL OR deadweight > 0);
 ALTER TABLE vessel ADD CONSTRAINT chk_speed_positive CHECK (reference_speed_kn IS NULL OR reference_speed_kn > 0);
+-- 062 (#1269): 속력의 물리 상한 60kn(PRD §9.1 VAL-009). CUBRID에서는 트리거 trg_chk_speed_max_ins/_upd가 집행한다 (§7.4).
+ALTER TABLE vessel ADD CONSTRAINT chk_speed_max CHECK (reference_speed_kn IS NULL OR reference_speed_kn <= 60);
 -- 058 (#1197): 호출부호 형식. CUBRID에서는 트리거 trg_chk_call_sign_ins/_upd가 REGEXP BINARY로 집행한다 (§7.4).
 --   「앞 두 글자가 모두 숫자가 아니다」(RR No.19.50)는 DB가 아니라 API 스키마만 본다 — 배정 관행이 나라마다 달라
 --   세부 규칙을 DB에 박으면 실재하는 부호를 거부할 수 있다. 이 칸은 인증서가 아니라 대조 키다.
@@ -189,8 +191,8 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 | `planned_distance_nm` | NUMERIC(12,2) | NOT NULL | 계획 거리 |
 | `planned_distance_source` | VARCHAR(30) | NULL, **트리거 `trg_chk_planned_distance_source_ins`·`_upd`** (`USER_INPUT`·`COORDINATE_ESTIMATE`) [#1256] | 계획 거리의 출처 — `USER_INPUT`(직접 입력 · CSV 가져오기) 또는 `COORDINATE_ESTIMATE`(두 좌표의 대권거리 · `PRD §15.2` 「좌표 기반 추정 거리」). **`NULL`은 「모른다」** — 059 이전 행과 출처 없이 거리를 넣은 API 요청·시나리오 채택(`API_SPEC §5.2`)이 여기 든다. 기존 행은 backfill하지 않는다(대권거리와 비슷하다고 추정으로 되채우면 직접 입력한 값에도 「추정」이 붙는다 · `PRD §0.3`). `planned_distance_nm`이 바뀌면 옛 출처는 새 값에 붙지 않는다(`API_SPEC §3.4`). `created_from`이 「항차가 어느 경로로 왔나」라면 이것은 「그 숫자가 추정인가」다(마이그레이션 059) |
 | `actual_distance_nm` | NUMERIC(12,2) | NULL | 실제 거리 |
-| `planned_speed_kn` | NUMERIC(6,2) | NOT NULL | 예정 평균 속도 |
-| `actual_avg_speed_kn` | NUMERIC(6,2) | NULL | 실제 평균 속도 |
+| `planned_speed_kn` | NUMERIC(6,2) | NOT NULL, **1.0 이상 60 이하** — 상한 트리거 `trg_chk_speed_max_voyage_ins`·`_upd` [#1269] | 예정 평균 속도 |
+| `actual_avg_speed_kn` | NUMERIC(6,2) | NULL, **1.0 이상 60 이하** — 상한 트리거 `trg_chk_actual_speed_max_ins`·`_upd` [#1269] | 실제 평균 속도 |
 | `planned_departure_at` | TIMESTAMPTZ | NULL | 예정 출항 |
 | `planned_arrival_at` | TIMESTAMPTZ | NULL | 예정 도착 |
 | `actual_departure_at` | TIMESTAMPTZ | NULL | 실제 출항 |
@@ -241,10 +243,14 @@ ALTER TABLE voyage ADD CONSTRAINT chk_distance_positive CHECK (planned_distance_
 ALTER TABLE voyage ADD CONSTRAINT chk_distance_source
     CHECK (planned_distance_source IS NULL OR planned_distance_source IN ('USER_INPUT','COORDINATE_ESTIMATE'));
 ALTER TABLE voyage ADD CONSTRAINT chk_speed_positive CHECK (planned_speed_kn >= 1.0);
+-- 062 (#1269): 속력의 물리 상한 60kn. 트리거 이름은 DB 전역에서 유일해야 해 _voyage를 붙인다(046과 같다).
+ALTER TABLE voyage ADD CONSTRAINT chk_speed_max_voyage CHECK (planned_speed_kn <= 60);
 ALTER TABLE voyage ADD CONSTRAINT chk_actual_dist_positive
     CHECK (actual_distance_nm IS NULL OR actual_distance_nm > 0);  -- [M-6]
 ALTER TABLE voyage ADD CONSTRAINT chk_actual_speed_positive
     CHECK (actual_avg_speed_kn IS NULL OR actual_avg_speed_kn >= 1.0);  -- [M-6]
+ALTER TABLE voyage ADD CONSTRAINT chk_actual_speed_max
+    CHECK (actual_avg_speed_kn IS NULL OR actual_avg_speed_kn <= 60);  -- 062 (#1269)
 ALTER TABLE voyage ADD CONSTRAINT chk_dep_lat_range
     CHECK (departure_lat IS NULL OR departure_lat BETWEEN -90 AND 90);
 ALTER TABLE voyage ADD CONSTRAINT chk_dep_lon_range
@@ -314,7 +320,7 @@ ALTER TABLE voyage_fuel_use ADD CONSTRAINT chk_actual_fuel_positive
 | `scenario_type` | VARCHAR(20) | NOT NULL | DIRECT, DETOUR, SLOW_STEAMING |
 | `scenario_name` | VARCHAR(100) | NOT NULL | 표시명 |
 | `distance_nm` | NUMERIC(12,2) | NOT NULL | 시나리오 거리 |
-| `speed_kn` | NUMERIC(6,2) | NOT NULL | 평균 속도 |
+| `speed_kn` | NUMERIC(6,2) | NOT NULL, **1.0 이상 60 이하** — 상한 트리거 `trg_chk_scenario_speed_max_ins`·`_upd` [#1269] | 평균 속도 |
 | `duration_hours` | NUMERIC(10,2) | NOT NULL | 예상 소요 시간 |
 | `fuel_ton` | NUMERIC(12,4) | NOT NULL | 예상 연료 |
 | `weather_factor` | NUMERIC(8,4) | NULL | 기상 보정 계수 |
@@ -345,6 +351,8 @@ ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_distance_positive
     CHECK (distance_nm > 0);
 ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_speed_positive
     CHECK (speed_kn >= 1.0);
+ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_speed_max
+    CHECK (speed_kn <= 60);  -- 062 (#1269)
 ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_duration_positive
     CHECK (duration_hours > 0);
 ALTER TABLE voyage_scenario ADD CONSTRAINT chk_scenario_fuel_positive
@@ -1918,12 +1926,12 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | `051` 시점 | **head `061`** | 무엇 |
+| 앞머리 | `051` 시점 | **head `062`** | 무엇 |
 |---|---|---|---|
-| `trg_chk_` | 124 | **130** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 |
+| `trg_chk_` | 124 | **138** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 |
 | `trg_uq_` | 4 | **0** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`). **`061`이 걷었다** — 유일성은 활성 키 열의 유니크 인덱스가 갖는다(#1631) |
 | 그 밖 | 20 | **30** | 해시 형식 4 · 연료 코드 참조 6 · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** · **`061` 활성 키 채움 4**(`trg_vessel_imo_active_*`·`trg_app_user_email_active_*` — `AFTER INSERT/UPDATE`, 값을 채울 뿐 거부하지 않는다) |
-| **합계** | **148** | **160** | 전환 직후에는 **0개**였다 |
+| **합계** | **148** | **168** | 전환 직후에는 **0개**였다 |
 
 > 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
 > 뺀 수다(`050`이 capacity_rule 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
@@ -1956,7 +1964,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 060 → 061
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 061 → 062
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2286,3 +2294,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-24 | `#1854` | **「CUBRID에서 달라지는 것」 10번째 — 같은 이름의 트리거를 두 번 만드는 것을 막지 않고, 중복이 생기면 이름으로는 지울 수 없다** (`#1373` · 결정요청 v6 `D-20`). 있는 이름으로 `CREATE TRIGGER`가 성공하고 그 뒤 `DROP TRIGGER`는 `-503`으로 답한다 — 한 번 중복이 생긴 DB는 이름 기반으로 회복되지 않는다. 트리거를 만들고 지우는 마이그레이션 14개(`a7d3e9b14f26`·`043`·`044`·`046`~`051`·`054`·`055`·`057`~`059`)가 전부 공용 `db/trigger_ddl.py`(있으면 만들지 않고 · 없으면 지우지 않는다)를 지나게 했고, `048`이 `#1386`에서 응급으로 넣었던 사설 판본은 그 공용으로 바꿨다(동작 동일). 「지금 DB에 있는 트리거」 각주에 `test_zz_roundtrip`의 이름 대조를 추가하고 같은 각주의 「`050`이 스냅샷 참조 2를 지우고 다시 만든다」를 「capacity_rule 2를」로 정정(050이 교체하는 것은 `048`의 capacity_rule 트리거이고 스냅샷 참조 2는 신설이다). 리뷰 반영 — 10항에 **관용의 방향**(`upgrade`의 교체 `replace_trigger`는 지우지 못하면 멈추고, `downgrade`는 롤백이 갇히지 않게 넘어간다)을 적었다. 제목 「아홉」→「열」. `AGENTS §4.3`상 항목 추가라 버전은 올리지 않는다 (#1373) |
 | 2026-09-24 | `#1848` | **v1.36 — §2.1 `vessel.imo_active` · §2.15 `app_user.email_active` 활성 키 열 + 유니크 인덱스 `uq_vessel_imo_active`·`uq_app_user_email_active` 추가**(마이그레이션 061 · `#1631` F-9 안 「가」). `047`이 활성 행 유일성을 트리거로 옮겼으나 트리거 안의 `NOT EXISTS`는 일반 SELECT와 같은 READ COMMITTED 스냅샷을 봐 **동시 등록에서 둘 다 통과**했다(`#1796` 실측 — 같은 IMO 행 2개, 예외 없음). 활성이면 원본의 사본·삭제면 NULL인 열에 유니크 인덱스를 걸면 CUBRID가 NULL을 여러 개 허용하므로(실측) 부분 유니크와 같은 뜻이 인덱스로 선다 — 뒤 INSERT는 앞 커밋까지 기다렸다 위반으로 떨어진다. 값은 앱이 아니라 `AFTER INSERT/UPDATE` 트리거(`trg_vessel_imo_active_*` · `trg_app_user_email_active_*`)가 채운다 — `BEFORE`에서 `new`를 갱신하는 형태는 REUSE_OID 표라 컴파일이 거부된다(실측). **`047`의 `trg_uq_*` 4개는 걷었다**(같은 불변식에 집행 장치 둘이면 오류 서명도 둘 · 경합을 통과시키던 검사를 「지킨다」는 이름으로 남길 수 없다) — §7.4 표 `trg_uq_` 4 → 0 · 그 밖 26 → 30 · 합계 160 유지, §7.4 6항·문단에 `-528`(트리거 액션 안 유니크 위반) 서술, §8.1.0 그래프 끝 `061`, §8.1.2 재생성됨 행에 061(값이 `is_deleted`에서 결정돼 백필이 재생 → `migration_guard.REGENERABLE`). 컬럼 추가라 #966·#1197·#1256·#1803과 같은 기준으로 버전을 올린다 (#1631) |
 | 2026-09-25 | `#1894` | §2.17 `not_underway_period`에 **「같은 선박의 구간은 겹치지 않는다」 서비스 불변식 각주** (`#1629` · PR #1852) — 겹침 조회 전에 선박 행을 `FOR UPDATE`로 잡는다(`TECH_SPEC §16.3`). 항차 쪽 `§2.4`(`#1626`)에만 있던 비대칭을 맞춘다. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#1862) |
+| 2026-09-25 | `#___` | §2.1 `vessel.reference_speed_kn` · §2.2 `voyage.planned_speed_kn`·`actual_avg_speed_kn` · §2.4 `voyage_scenario.speed_kn`에 **속력 물리 상한 60kn**(마이그레이션 062 · `PRD §9.1` VAL-009 · 사용자 결정 G-10). CHECK 선언 4건(`chk_speed_max` · `chk_speed_max_voyage` · `chk_actual_speed_max` · `chk_scenario_speed_max`)과 집행 트리거 8개. §7.4 트리거 합계 160 → **168** · §8.1.0 그래프 head `062`. 062는 이미 60을 넘는 행이 있으면 바꾸기 전에 멈춘다(`OPERATIONS §3.6.5`). `§4.3`상 제약 추가라 버전은 올리지 않는다 (#1269) |

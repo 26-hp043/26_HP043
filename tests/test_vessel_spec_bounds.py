@@ -31,7 +31,10 @@ from cii_platform.api.schemas.vessel import VesselCreateRequest, VesselUpdateReq
 from cii_platform.db.models.vessel import Vessel
 
 #: 스키마 필드 → ORM 컬럼. 둘이 같은 이름이다.
-_FIELDS = ("deadweight", "gross_tonnage", "reference_speed_kn", "reference_daily_foc_ton")
+#:
+#: ``reference_speed_kn``은 넣지 않는다 — 상한이 저장 형식(9,999.99)이 아니라 VAL-009의
+#: 물리 상한 60이다(`#1269`). 하한만 저장 형식이며 아래 별도 검사가 본다.
+_FIELDS = ("deadweight", "gross_tonnage", "reference_daily_foc_ton")
 
 
 def _column_bounds(name: str) -> tuple[Decimal, Decimal]:
@@ -62,6 +65,7 @@ def test_스키마_경계가_DB_컬럼_정밀도와_같다(model, name):
         ("deadweight", "10000000000"),  # 정밀도 초과로 500이 되던 값
         ("gross_tonnage", "0.004"),
         ("reference_speed_kn", "10000"),  # NUMERIC(6,2) 초과
+        ("reference_speed_kn", "60.01"),  # VAL-009 물리 상한 바로 위 (`#1269`)
         ("reference_daily_foc_ton", "1000000"),  # NUMERIC(8,2) 초과
         # #966 — 방형계수는 저장 범위 위에 물리 범위(0 < CB <= 1)가 더 좁힌다.
         # 경계 대조 집합(_FIELDS)에 넣지 않는 이유: 의도적인 도메인 좁힘이라
@@ -85,6 +89,8 @@ def test_저장할_수_없는_값은_스키마가_거부한다(name, value):
         ("deadweight", "9999999999.99"),  # 저장 가능한 가장 큰 값
         ("deadweight", "50000.125"),  # 소수 셋째 자리 — 막지 않는다. DB가 반올림한다
         ("reference_speed_kn", "12.5"),
+        ("reference_speed_kn", "0.01"),  # 하한은 저장 형식 — VAL-002
+        ("reference_speed_kn", "60"),  # 상한은 VAL-009 — 고속선(58.1 kn)을 막지 않는다
         # #966 — 범위의 양 끝(0.001·1)과 실무값.
         ("block_coefficient", "0.001"),
         ("block_coefficient", "0.80"),

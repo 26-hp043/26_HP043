@@ -618,6 +618,28 @@ docker compose -f docker-compose.prod.app.yml run --rm backend alembic upgrade h
 같은 명령을 다시 돌리면 된다. 검사가 실제로 `047` 트리거 전에 멈추는지는
 `tests/test_zz_active_key_precheck_db.py`가 CI의 CUBRID에서 확인한다.
 
+#### 3.6.5 마이그레이션 `062`가 속력 초과로 멈추면 — 속력 정정 → upgrade 재실행 (#1269)
+
+`062`는 속력 칸 넷(`vessel.reference_speed_kn` · `voyage.planned_speed_kn` ·
+`voyage.actual_avg_speed_kn` · `voyage_scenario.speed_kn`)에 **60 kn 상한 트리거**를 건다
+(`PRD §9.1` VAL-009). `BEFORE UPDATE` 트리거는 바뀌지 않은 칸도 보므로, 이미 60을 넘는 행이
+있으면 **그 행의 다른 칸을 고치는 저장까지 막힌다.** 그래서 `061`과 같이 아무것도 바꾸기 전에
+세고, 하나라도 있으면 칸별 행 수만 적은 문구로 멈춘다. **DB는 그대로다** — 옛 백엔드가 계속 돈다.
+
+```bash
+# 1) 어느 행인지 찾는다 — 문구에 행 수가 0이 아닌 칸만
+csql -u dba cii -c "SELECT id, voyage_no, planned_speed_kn, actual_avg_speed_kn FROM voyage WHERE planned_speed_kn > 60 OR actual_avg_speed_kn > 60"
+csql -u dba cii -c "SELECT id, name, reference_speed_kn FROM vessel WHERE reference_speed_kn > 60"
+csql -u dba cii -c "SELECT id, voyage_id, speed_kn FROM voyage_scenario WHERE speed_kn > 60"
+
+# 2) 바로잡는다 — 대개 자릿수 실수(12.5 → 125)다. 입력한 사람에게 맞는 값을 확인해 고친다.
+#    voyage_scenario는 비교 계산이 만든 행이라 속력만 바꾸면 소요시간·연료와 어긋난다 —
+#    손대기 전에 개발에 알린다(채택된 시나리오는 항차 계획과 이어져 있다).
+
+# 3) upgrade를 그대로 다시 돌린다 — 되돌릴 것은 없다(멈췄을 때 아무것도 바꾸지 않았다).
+docker compose -f docker-compose.prod.app.yml run --rm backend alembic upgrade head
+```
+
 ---
 
 ## 4. 보안
