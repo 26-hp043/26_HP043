@@ -1068,8 +1068,98 @@ describe('계획에 반영 (#580)', () => {
       const label = [...select.querySelectorAll('option')]
         .map((o) => o.textContent)
         .find((text) => text !== '선택')
-      expect(label).not.toContain('BUSAN')
+      // 부정 단언만 두면 구간이 통째로 빠져도 통과한다 (#1836) — 픽스처의 보이는 이름도 본다.
+      expect(label).not.toContain(PORTS[0].name)
+      expect(label).toContain(PORTS[0].name_ko)
     })
+  })
+
+  /**
+   * #1836 ⑶ — 항구 목록은 이 화면에서 **한 번만** 받는다. 종전에는 부모(`ScenarioComparison`)와
+   * 채택 패널이 각각 `useSamplePorts()`를 불러 `GET /ports/samples`가 두 번 나갔다. 이제 패널은
+   * 부모가 받은 목록을 prop으로 받는다.
+   */
+  it('항구 목록은 화면에서 한 번만 받는다 — 채택 패널이 따로 조회하지 않는다', async () => {
+    const fetchImpl = stubAdoptServer()
+    renderScreen()
+    await openPanel()
+    await screen.findByLabelText('대상 항차')
+
+    const portCalls = fetchImpl.mock.calls.filter(([url]) => String(url).includes('/ports/samples'))
+    expect(portCalls).toHaveLength(1)
+  })
+
+  /**
+   * #1836 ⑷ — 채택 완료 문구의 항차 이름은 **그릴 때** 만든다. 종전에는 제출 시점에 이름을
+   * 계산해 상태에 넣어, 항구 목록이 채택 뒤에 도착하면 선택지는 「부산」인데 완료 문구는
+   * `BUSAN`으로 남았다.
+   */
+  it('항구 목록이 채택 뒤에 도착해도 완료 문구의 항차 이름이 보이는 이름으로 바뀐다', async () => {
+    const PORTS = [
+      { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    ]
+    let resolvePorts: ((response: Response) => void) | null = null
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/ports/samples')) {
+        return new Promise<Response>((resolve) => {
+          resolvePorts = resolve
+        })
+      }
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      if (url.includes('/scenarios/compare')) return jsonResponse(COMPARE_BODY)
+      if (url.includes(`/vessels/${VESSEL}/voyages`)) {
+        return jsonResponse({
+          data: [
+            {
+              id: 'v-planned-2',
+              voyage_no: null,
+              status: 'PLANNED',
+              departure_port_name: 'BUSAN',
+              arrival_port_name: 'SINGAPORE',
+            },
+          ],
+        })
+      }
+      if (url.includes('/adopt')) {
+        return jsonResponse({
+          data: {
+            voyage_id: 'v-planned-2',
+            adopted_scenario_type: 'SLOW_STEAMING',
+            updated_fields: ['planned_distance_nm'],
+            invalidated_calculation_runs: 0,
+          },
+        })
+      }
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    renderScreen()
+    await openPanel()
+
+    fireEvent.change(screen.getByLabelText('시나리오'), { target: { value: 'sc-slow_steaming' } })
+    fireEvent.change(await screen.findByLabelText('대상 항차'), { target: { value: 'v-planned-2' } })
+    fireEvent.click(screen.getByRole('button', { name: '계획에 반영' }))
+
+    // 항구 목록이 아직 없으니 완료 문구는 저장 코드 그대로다 — 목록에 없는 항구는 입력한 그대로.
+    const done = await screen.findByText(/시나리오를 반영했습니다/)
+    expect(done.textContent).toContain(PORTS[0].name)
+
+    // 이제서야 항구 목록이 도착한다. 완료 문구도 선택지와 같은 보이는 이름이어야 한다.
+    await act(async () => {
+      resolvePorts?.(jsonResponse({ data: PORTS }))
+    })
+
+    const after = screen.getByText(/시나리오를 반영했습니다/)
+    expect(after.textContent).not.toContain(PORTS[0].name)
+    expect(after.textContent).toContain(PORTS[0].name_ko)
   })
 
   /**

@@ -598,6 +598,12 @@ describe('선박 목록 다시 부르기 (#1643)', () => {
  * 한 번만 돈다.
  */
 describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
+  // 단언이 픽스처 값을 그대로 쓴다 (#1836 · `AGENTS §4.6`) — 리터럴을 따로 적지 않는다.
+  const SAMPLE_PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGKEP', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+  ]
+
   function stubServerWithPortCodedVoyage() {
     const voyageCalls: string[] = []
     vi.stubGlobal(
@@ -609,21 +615,7 @@ describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
             data: { id: 'u1', email: 'a@b.c', display_name: '테스터', role: 'OFFICE' },
           })
         }
-        if (url.includes('/ports/samples')) {
-          return jsonResponse({
-            data: [
-              { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
-              {
-                locode: 'SGKEP',
-                name: 'SINGAPORE',
-                name_ko: '싱가포르',
-                country_code: 'SG',
-                lat: 1.2833,
-                lon: 103.85,
-              },
-            ],
-          })
-        }
+        if (url.includes('/ports/samples')) return jsonResponse({ data: SAMPLE_PORTS })
         if (url.includes('/vessels') && url.includes('/voyages')) {
           voyageCalls.push(url)
           return jsonResponse({
@@ -656,7 +648,9 @@ describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
       const optionLabel = [...select.querySelectorAll('option')]
         .map((o) => o.textContent)
         .find((text) => text?.includes('→'))
-      expect(optionLabel).not.toContain('BUSAN')
+      // 부정 단언만 두면 구간이 통째로 빠져도 통과한다 (#1836) — 픽스처의 보이는 이름도 본다.
+      expect(optionLabel).not.toContain(SAMPLE_PORTS[0].name)
+      expect(optionLabel).toContain(SAMPLE_PORTS[0].name_ko)
     })
   })
 
@@ -671,7 +665,9 @@ describe('상단바 항차 선택지의 항구 이름 (#1812)', () => {
       const optionLabel = [...select.querySelectorAll('option')]
         .map((o) => o.textContent)
         .find((text) => text?.includes('→'))
-      expect(optionLabel).not.toContain('BUSAN')
+      // 부정 단언만 두면 구간이 통째로 빠져도 통과한다 (#1836) — 픽스처의 보이는 이름도 본다.
+      expect(optionLabel).not.toContain(SAMPLE_PORTS[0].name)
+      expect(optionLabel).toContain(SAMPLE_PORTS[0].name_ko)
     })
     expect(voyageCalls).toHaveLength(1)
   })
