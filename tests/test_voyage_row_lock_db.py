@@ -30,8 +30,9 @@
 
 ## 교차 잠금 — 선박 → 항차 순서 (`#1860`)
 
-CUBRID 11.4는 자식 행 INSERT의 FK 검사로 **부모 행에 S 잠금을 걸어 커밋까지 쥔다**(`#1860` ⑻
-실측 · 부모 X 보유 중 자식 INSERT가 3/3 대기). 그래서 「항차 X를 쥔 채 선박을 참조하는
+CUBRID 11.4는 자식 행 INSERT의 FK 검사로 **부모 행에 S 잠금을 요구한다**(`#1860` ⑻
+실측 · 부모 X 보유 중 자식 INSERT가 3/3 대기 · 커밋까지 쥐는지는 미측정 — `#1868`).
+그래서 「항차 X를 쥔 채 선박을 참조하는
 항차 INSERT」(채택 `CREATE_NEW_VOYAGE`)와 「선박 X를 쥔 채 항차를 참조하는 정박 구간
 INSERT」(`services/not_underway`)가 교차하면 교착이다(⑼ 실측 3/3 · `errno=-968`). 채택이
 선박 행을 **먼저** 잠가 순서를 선박 → 항차로 맞춘다(`TECH_SPEC §16.3`). 이 케이스는 커밋
@@ -365,8 +366,9 @@ async def test_create_mode_adoption_does_not_deadlock_with_a_period_insert(
 
     돌연변이 결과(채택 갈래의 `vessel_repo.lock_row` 제거): 채택이 항차 X만 쥔 채 새 항차를
     INSERT해 선박 S를 기다리고, 첫 세션의 구간 INSERT는 항차 S를 기다린다 — CUBRID가 교착을
-    감지해 한쪽을 끊는다(`pycubrid` `DatabaseError` `errno=-968` "timed out waiting on S_LOCK
-    … because of deadlock" · `#1860` ⑼ 3/3). 끊긴 쪽이 어느 쪽이든 예외가 그대로 올라와
+    감지해 한쪽을 끊는다 — 기다리던 쪽이면 `errno=-968` "timed out waiting on S_LOCK … because
+    of deadlock"(`#1860` ⑼ 3/3), 희생된 쪽이면 `errno=-72` "unilaterally aborted"(이 검사의
+    돌연변이 실측). 끊긴 쪽이 어느 쪽이든 예외가 그대로 올라와
     이 검사가 실패한다.
     """
     vessel_id, voyage_id, (scenario_id,) = await _setup("DRAFT", scenarios=1)
