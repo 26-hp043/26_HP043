@@ -32,6 +32,10 @@
 :func:`create_trigger`가 있는 이름을 건너뛰므로 셋이 되지 않는다). 남은 중복은
 ``tests/test_zz_roundtrip.py``의 중복 단언이 잡는다.
 
+**``upgrade``에서 조건을 바꾸는 교체는 다르다** — :func:`replace_trigger`는 지운 뒤에도 그
+이름이 남아 있으면 멈춘다. 배포가 옛 조건을 남긴 채 성공으로 끝나면 안 되기 때문이다.
+관용은 ``downgrade``(롤백이 갇히지 않게)에만 둔다.
+
 ## ``op``를 인자로 받는 이유
 
 ``from alembic import op``를 여기서 하지 않는다. 검사가 마이그레이션 모듈의 ``op``를
@@ -50,8 +54,18 @@ import sqlalchemy as sa
 
 _log = logging.getLogger(__name__)
 
-#: CUBRID가 「그런 트리거가 없다」로 답할 때의 표시 (``errno=-503``).
+#: CUBRID가 「그런 트리거가 없다」로 답할 때의 오류 번호와 문구.
+NOT_FOUND_ERRNO = -503
 NOT_FOUND = "was not found"
+
+#: 중복 상태에서 ``upgrade``가 멈출 때 가리키는 절.
+RECOVERY_DOC = "README 「테스트 DB 복구」"
+
+
+def _is_not_found(exc: sa.exc.DatabaseError) -> bool:
+    """``-503``인가 — 드라이버가 ``errno``를 주면 그것으로, 아니면 문구로 본다."""
+    errno = getattr(getattr(exc, "orig", None), "errno", None)
+    return errno == NOT_FOUND_ERRNO or NOT_FOUND in str(exc)
 
 
 def existing_triggers(op: Any) -> set[str]:
@@ -90,15 +104,40 @@ def drop_trigger(op: Any, name: str, *, existing: set[str] | None = None) -> boo
         return False
     try:
         op.execute(f"DROP TRIGGER {name}")
-    except sa.exc.DatabaseError as exc:  # pragma: no cover - CUBRID 상태 의존
-        if NOT_FOUND not in str(exc):
+    except sa.exc.DatabaseError as exc:
+        if not _is_not_found(exc):
             raise
         _log.warning(
             "트리거 %s가 db_trigger에는 있는데 DROP TRIGGER가 「없다」(-503)로 답했습니다 — "
             "같은 이름이 둘 이상인 상태로 보입니다(#1373). 이름으로는 지울 수 없으므로 "
-            "넘어갑니다. README 「테스트 DB 복구」대로 DB를 다시 만드십시오.",
+            "넘어갑니다. %s대로 DB를 다시 만드십시오.",
             name,
+            RECOVERY_DOC,
         )
         return False
     have.discard(name)
     return True
+
+
+def replace_trigger(op: Any, name: str, body: str) -> None:
+    """지우고 같은 이름으로 다시 만든다 — **지우지 못했으면 멈춘다.**
+
+    ``050``·``051``·``057``처럼 조건을 바꾸는 ``upgrade``가 쓴다. CUBRID에는
+    ``CREATE OR REPLACE TRIGGER``가 없어 지우고 만드는데, 중복 상태에서는 :func:`drop_trigger`가
+    ``-503``을 넘어가고 :func:`create_trigger`가 「있으면 건너뜀」으로 조용히 끝나 **옛 조건이
+    그대로 남은 채 리비전만 올라간다.** 배포 경로(``upgrade head``)가 그것을 성공으로 보고하면
+    안 되므로, 지운 뒤 카탈로그를 다시 물어 그 이름이 남아 있으면 :class:`RuntimeError`를
+    올린다 — 복구는 DB를 다시 만드는 것뿐이라 그 절을 가리킨다.
+
+    ``downgrade`` 쪽은 이 함수를 쓰지 않는다. 롤백이 그 자리에서 갇히는 것이 옛 조건이 남는
+    것보다 나쁘므로(결정요청 v6 ``D-20``), 거기서는 :func:`drop_trigger` + :func:`create_trigger`로
+    관용한다.
+    """
+    drop_trigger(op, name)
+    if name in existing_triggers(op):
+        raise RuntimeError(
+            f"트리거 {name}를 지우지 못했습니다 — db_trigger에 같은 이름이 둘 이상이라 이름으로는 "
+            f"지울 수 없는 상태입니다(#1373). 옛 조건을 남긴 채 진행하지 않습니다. "
+            f"{RECOVERY_DOC}대로 DB를 다시 만든 뒤 upgrade를 다시 실행하십시오."
+        )
+    create_trigger(op, name, body)

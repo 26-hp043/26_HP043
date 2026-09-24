@@ -83,7 +83,7 @@ DB에 바꿀 대상이 없다. 여기서는 **집행하는 트리거**만 고친
 from __future__ import annotations
 
 from alembic import op
-from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger, replace_trigger
 
 revision = "050"
 down_revision = "049"
@@ -164,11 +164,11 @@ def upgrade() -> None:
         op.execute(f"CREATE INDEX {name} ON {PARTIAL_TABLE} ({keys}) WHERE {PARTIAL_FILTER}")
 
     # ── ⑶ ────────────────────────────────────────────────────────────────────
-    # `048`이 건 것을 지우고 좁힌 조건으로 다시 만든다. 지운 뒤에 만들므로 「있으면
-    # 건너뜀」에 걸리지 않는다 — 지우지 못한 경우(중복 상태)에만 옛 조건이 남는다.
+    # `048`이 건 것을 지우고 좁힌 조건으로 다시 만든다. **지우지 못했으면 멈춘다**
+    # (`replace_trigger` · `#1373`) — 중복 상태에서 조용히 지나가면 헐거운 옛 조건이 남은 채
+    # 리비전만 올라간다. downgrade 쪽은 롤백이 갇히지 않게 관용한다(아래).
     for event in _EVENTS:
-        drop_trigger(op, _capacity_trigger(event))
-        create_trigger(
+        replace_trigger(
             op,
             _capacity_trigger(event),
             f"BEFORE {event} ON {CAPACITY_TABLE} IF NOT ({CAPACITY_NEW}) EXECUTE REJECT",
@@ -186,6 +186,10 @@ def downgrade() -> None:
     ⚠️ ⑴을 되돌리면 **한 스냅샷에 연간 시뮬레이션이 여러 건 매달릴 수 있는 상태**로
     돌아간다. 그런 행이 이미 있으면 다시 upgrade할 때 ``CREATE UNIQUE INDEX``가 그 자리에서
     실패한다 — 조용히 한쪽을 지우지 않는다. 무엇을 지울지는 사람이 정할 일이다.
+
+    트리거 교체는 upgrade와 달리 **관용한다** — 없으면 지우지 않고, 중복 상태라 지우지 못해도
+    넘어간다(`drop_trigger`). 롤백이 그 자리에서 갇히는 것이 옛 조건이 남는 것보다 나쁘다
+    (`#1373` · `D-20`).
     """
     for event in _EVENTS:
         drop_trigger(op, _capacity_trigger(event))
