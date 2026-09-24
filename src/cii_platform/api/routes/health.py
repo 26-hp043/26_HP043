@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError
@@ -98,8 +99,18 @@ def _pdf_korean_font() -> str:
         return "unavailable"
 
 
+def _deployed_commit() -> str | None:
+    """이 이미지를 빌드한 커밋(12자리) — 없으면 ``None``(알 수 없음) (#789).
+
+    배포 빌드가 ``--build-arg GIT_SHA``로 넘기고 ``Dockerfile``이 ``BLUELOG_COMMIT``으로 굳힌다.
+    로컬 개발·로컬 빌드에는 없다. **빈 문자열로 내지 않는다** — 「알 수 없음」과 「빈 값」이
+    구분되지 않으면 배포 확인이 빈 값끼리 같다고 통과할 수 있다.
+    """
+    return os.environ.get("BLUELOG_COMMIT", "").strip() or None
+
+
 @router.get("/health")
-async def health() -> dict[str, dict[str, str]]:
+async def health() -> dict[str, dict[str, str | None]]:
     """서비스 상태를 반환한다 (API_SPEC §10).
 
     ``rng_canonical_test``가 ``"failed"``여도 ``status``는 ``"ok"``를 유지한다 (#400).
@@ -116,6 +127,9 @@ async def health() -> dict[str, dict[str, str]]:
     ``"ok"``다 — 프로세스는 살아 있고 CSV·HTML 리포트는 정상으로 나간다. 재시작으로
     해결되지도 않는다(폰트 설치가 필요하다). 이 필드가 없던 동안 **폰트 부재를 볼
     수단이 배포 환경에 하나도 없었고**, 그래서 시연 서버가 몇 판을 그 상태로 돌았다.
+
+    ``commit``은 **지금 떠 있는 것이 어느 커밋인가**다 (`#789`). 배포 확인이 이 값과 배포한
+    커밋을 대조한다(``deploy.yml`` 「헬스 체크」). 없으면 ``null``이다.
     """
     return {
         "data": {
@@ -124,5 +138,6 @@ async def health() -> dict[str, dict[str, str]]:
             "numpy_version": numpy.__version__,
             "rng_canonical_test": _rng_canonical_test(),
             "pdf_korean_font": _pdf_korean_font(),
+            "commit": _deployed_commit(),
         }
     }

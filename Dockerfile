@@ -121,6 +121,13 @@ RUN mkdir -p /app/logs && chown cii:cii /app/logs
 
 USER cii
 
+# 배포 커밋 식별자 (#789) — `GET /api/v1/health`가 `commit`으로 싣는다. 배포 빌드가
+# `--build-arg GIT_SHA=<12자리>`로 넘긴다. 로컬 빌드처럼 넘기지 않으면 비고, 그때 응답은
+# null(알 수 없음)이다. **마지막 층에 둔다** — 커밋마다 값이 바뀌므로 앞에 두면 apt·pip 층
+# 캐시가 매번 깨진다.
+ARG GIT_SHA=""
+ENV BLUELOG_COMMIT=${GIT_SHA}
+
 EXPOSE 8000
 
 # HEALTHCHECK — /api/v1/health (API_SPEC §10).

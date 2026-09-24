@@ -296,3 +296,39 @@ def test_pdf_korean_font_is_cached_per_process(monkeypatch: pytest.MonkeyPatch) 
         assert calls["n"] == 1
     finally:
         health_module._pdf_korean_font.cache_clear()
+
+
+# --- commit (#789) ------------------------------------------------------------
+
+
+def test_health_reports_the_deployed_commit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """배포 빌드가 넘긴 커밋을 그대로 싣는다 — 배포 확인이 이 값과 배포한 커밋을 대조한다."""
+    monkeypatch.setenv("BLUELOG_COMMIT", "0e979611abcd")
+    assert client.get("/api/v1/health").json()["data"]["commit"] == "0e979611abcd"
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_unknown_commit_is_null_not_an_empty_string(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, raw: str | None
+) -> None:
+    """값이 없으면 ``null``(알 수 없음)이다 — 빈 문자열이면 빈 값끼리 「같다」가 된다."""
+    if raw is None:
+        monkeypatch.delenv("BLUELOG_COMMIT", raising=False)
+    else:
+        monkeypatch.setenv("BLUELOG_COMMIT", raw)
+    assert client.get("/api/v1/health").json()["data"]["commit"] is None
+
+
+def test_deploy_health_check_compares_the_running_commit() -> None:
+    """배포 확인이 헬스의 ``commit``을 빌드한 커밋과 대조하고, 빌드가 그 값을 이미지에 넘긴다."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
+    assert "GIT_SHA=${{ steps.meta.outputs.sha }}" in workflow
+    assert '["data"].get("commit")' in workflow
+    assert 'if [ "${running}" = "${expected}" ]; then' in workflow
+    assert "ENV BLUELOG_COMMIT=${GIT_SHA}" in dockerfile
