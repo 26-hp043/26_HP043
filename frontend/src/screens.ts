@@ -251,7 +251,7 @@ export const SCREEN_BY_ID = {
     labelEn: 'Fleet Reduction',
     uiflowRef: '2-10',
     purpose: '선박별 감속을 정해 목표 등급 달성 여부와 비용(추가 항해일 · 용선료 손실 · 연료비 절감)을 함께 본다',
-    // 7:5 두 단 — 선박별 조정과 결과를 나란히 본다(`UIFLOW 2-10` · `DESIGN_SYSTEM §7.1`).
+    // 분할하지 않는다 — 결론 띠 아래 선박별 조정 표가 전폭이다(`UIFLOW 2-10` · `DESIGN_SYSTEM §7.1` · #1757).
     width: 'wide',
     implemented: true, // #513 — `POST /fleet/reduction-plans/evaluate` 실 API
     officeOnly: true, // 선대 단위 경영 판단 — 화면 전체가 사무직 (`UIFLOW §2.2` · #672)
