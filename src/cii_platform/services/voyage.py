@@ -489,7 +489,8 @@ async def transition_voyage(
         (`TECH_SPEC §16.3` 「필수 감사 로그는 원본 변경과 같은 트랜잭션에서 확정한다」).
     """
     # 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`) — 아래 상태 판정이 옛
-    # 상태 위에서 통과하지 않게. 잠금은 이 함수의 커밋·롤백에서 풀린다.
+    # 상태 위에서 통과하지 않게. 잠금은 커밋·롤백에서 풀린다 — `commit=False`면 호출부(라우트)가
+    # 감사 기록까지 넣고 커밋할 때다(`#1625`).
     voyage = await voyage_repo.get_by_id(session, voyage_id, for_update=True)
     if voyage is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
