@@ -244,7 +244,20 @@ export function FleetDashboard() {
 
   // 받아 둔 목록이 없을 때만 화면 전체의 오류다 — 있으면 목록 자리에서 알린다 (`#1814`).
   if (failure !== null && snapshot === null) {
-    return <FleetPlaceholder tone="error" message={failure} />
+    /*
+     * 「다시 시도」는 목록 실패 재시도(아래 `onRetry={() => setRetryKey((k) => k + 1)}`,
+     * `#1814`)와 **같은 경로**다 — 첫 페이지 조회를 다시 부른다(`#1871` ①). 서버가
+     * 죽어 있는 동안은 새로고침도 회복 경로가 아니다 — `RequireAuth`가 네트워크
+     * 실패를 비인증으로 읽어 로그인 화면으로 보낸다(`#278`·`#542`). 그래서
+     * `window.location.reload()`가 아니라 이 컴포넌트 안에서 다시 부른다.
+     */
+    return (
+      <FleetPlaceholder
+        tone="error"
+        message={failure}
+        onRetry={() => setRetryKey((k) => k + 1)}
+      />
+    )
   }
 
   if (!snapshot) {
@@ -737,24 +750,30 @@ function FleetHead({
 function FleetPlaceholder({
   tone,
   message,
+  onRetry,
 }: {
   tone: 'empty' | 'error'
   message: string
+  /**
+   * `tone === 'error'`일 때만 쓴다 — 실패 표시는 전역 `.empty`를 확장하지 않고
+   * `ErrorState`가 맡는다(`#694` 2026-09-10 디자인 확정 · 아래 CSS 각주).
+   * `role="alert"`는 `ErrorState`가 이미 갖는다.
+   */
+  onRetry?: () => void
 }) {
   return (
     <div className="fleet">
       <FleetHead />
-      <section
-        className={`empty empty--${tone}`}
-        role={tone === 'error' ? 'alert' : undefined}
-      >
-        <p className="empty__msg">{message}</p>
-        {tone === 'empty' ? (
+      {tone === 'error' ? (
+        <ErrorState level="page" message={message} onRetry={onRetry} />
+      ) : (
+        <section className="empty empty--empty">
+          <p className="empty__msg">{message}</p>
           <Link className="empty__cta" to="/vessel-registration">
             선박 등록하기
           </Link>
-        ) : null}
-      </section>
+        </section>
+      )}
       <DisclaimerBanner />
     </div>
   )

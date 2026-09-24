@@ -488,6 +488,48 @@ describe('정렬 실패 뒤 복구 (#1814)', () => {
   })
 })
 
+/**
+ * 첫 조회 실패 뒤 다시 시도 (`#1871` ①).
+ *
+ * 받아 둔 목록이 없을 때의 전면 오류(위 「그대로 화면 전체의 오류다」)는 종전에
+ * 메시지만 그리고 버튼이 없었다 — 서버가 살아나도 벗어날 길이 새로고침뿐인데,
+ * 새로고침은 `RequireAuth`가 네트워크 실패를 비인증으로 읽어 로그인 화면으로
+ * 보내(`#278`·`#542`) 회복 경로가 아니다. 여기서는 목록 실패 재시도(`#1814`)와
+ * **같은 경로**(`retryKey`)로 첫 페이지를 다시 불러 화면이 목록으로 넘어가는가를
+ * 본다. 오류 메시지는 표시 문구라 리터럴로 단언하지 않는다(`AGENTS §4.6`) — 「다시
+ * 시도」는 `ErrorState`가 갖는 정본 문구(`PRD §6.4`)라 리터럴로 둔다.
+ */
+describe('첫 조회 실패 뒤 다시 시도 (#1871)', () => {
+  const failed = () =>
+    ({ ok: false, status: 502, json: async () => ({ error: { message: '잠시 뒤' } }) }) as Response
+
+  it('전면 오류에 「다시 시도」가 있고, 누르면 첫 페이지를 다시 불러 목록이 그려진다', async () => {
+    const { pending, ok } = deferredFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await waitFor(() => expect(pending).toHaveLength(1))
+    await act(async () => pending[0].d.resolve(failed()))
+
+    const alert = await screen.findByRole('alert')
+    // 문구가 아니라 「오류로 무언가는 뜬다」·「목록은 아직 없다」는 성질만 본다
+    expect((alert.textContent ?? '').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('region', { name: '선박 목록' })).toBeNull()
+
+    const retry = within(alert).getByRole('button', { name: '다시 시도' })
+    fireEvent.click(retry)
+
+    // 실패한 것과 같은 첫 페이지 조회를 다시 부른다
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => pending[1].d.resolve(ok(first())))
+
+    expect(await screen.findByText('가선')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('region', { name: '선박 목록' })).toBeTruthy()
+  })
+})
 
 /**
  * 규제 기준값 절과의 연결 (`#1516` · `#1239` 결정 A·B).
