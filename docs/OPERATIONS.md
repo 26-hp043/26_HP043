@@ -910,10 +910,11 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 "docker system df"
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 "docker system df"
 
-# CUBRID DB 볼륨 (db-01) -- 보관 로그(archive log)를 포함한 실제 사용량.
-# 보관 로그는 복구에 쓰지 않는다(§3.6.3) -- 이 값이 커져도 복구 절차는 바뀌지 않는다.
+# CUBRID DB 디렉터리 (db-01) -- 보관 로그(archive log)를 포함한 실제 사용량 (#1640).
+# 데이터는 이미지의 $CUBRID_DATABASES(/home/cubrid/CUBRID/databases)에 있다 -- /var/lib/cubrid가 아니다.
+# 복구는 보관 로그가 아니라 논리 덤프로 한다(scripts/db_backup.py · §3.6.3의 1)·3)) -- 이 값이 커져도 복구 절차는 같다.
 ssh -i ~/.ssh/oci_ourtax_vm ubuntu@132.226.170.195 \
-  "docker exec cii-cubrid du -sh /var/lib/cubrid/databases/cii"
+  "docker exec cii-cubrid sh -c 'du -sh \"\$CUBRID_DATABASES/cii\"'"
 ```
 
 ---
