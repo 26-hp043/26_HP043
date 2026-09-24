@@ -52,6 +52,14 @@
 
   /* 사이드바와 스택이 함께 읽어야 하므로 공통 조상에 둔다. */
   --shell-gutter: var(--grid-gutter);
+
+  /*
+   * 상단바 높이와 그 아래 띠 (#1884). 입력 기둥 셋(`§8.7`) · 보고서 문서 높이 · 본문과 설정 절의
+   * `scroll-margin`이 모두 이 값을 읽는다 — 종전에는 파일마다 같은 `calc()`를 한 벌씩 적었다
+   * (`stickyTop.sync.test.ts`가 잠갔다). 높이 리터럴은 **여기 한 곳**에만 둔다.
+   */
+  --shell-topbar-height: 56px;
+  --shell-topbar-offset: calc(var(--shell-gutter) * 2 + var(--shell-topbar-height));
 }
 
 /*
@@ -222,11 +230,11 @@
    *
    * `flex-wrap`으로 줄을 넘긴다 — 넘친 것을 잘라내면 로그아웃이나 테마 토글이
    * 사라지고, 그게 사라진 줄도 모른다. 높이는 `min-height`로 바꿔 한 줄일 때는
-   * 종전과 같은 56px을 유지한다.
+   * 종전과 같은 높이(`--shell-topbar-height`)를 유지한다.
    */
   flex-wrap: wrap;
   row-gap: var(--spacing-sm);
-  min-height: 56px;
+  min-height: var(--shell-topbar-height);
   padding: var(--spacing-sm) var(--spacing-xl);
   background: var(--surface-card);
   color: var(--text-primary);
@@ -481,7 +489,7 @@
    * `104`. 선박 관리 · 데이터 점검은 목록을 비동기로 받아 초점이 닿는 순간에는 짧아
    * 밀리지 않는다 — **같은 결함이 화면마다 나타났다 말았다** 한 이유다.
    *
-   * 값은 상단바가 차지하는 띠다 — 위 틈 + 최소 높이 `56px` + 아래 틈.
+   * 값은 상단바가 차지하는 띠다 — 위 틈 + 최소 높이 `--shell-topbar-height` + 아래 틈.
    * `AnnualSimulation` · `ReportsView` · `ScenarioComparison`의 sticky 기둥이 쓰는 것과
    * 같은 식이고, `stickyTop.sync.test.ts`가 그 넷과 상단바 `min-height`를 한자리에서
    * 대조한다.
@@ -489,7 +497,7 @@
    * 초점 이동 자체는 그대로 둔다 — 없애면 SPA에서 화면이 바뀐 것을 스크린 리더가
    * 알 수 없다.
    */
-  scroll-margin-block-start: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+  scroll-margin-block-start: var(--shell-topbar-offset);
 }
 
 /*

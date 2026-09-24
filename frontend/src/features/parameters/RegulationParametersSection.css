@@ -12,7 +12,7 @@
    * 해시나 목차로 들어와 맨 위로 붙을 때 **상단바 아래에 선다** (#1791).
    * 종전 `--spacing-xl`(24)은 상단바(밑변 80)를 세지 않아 절 제목이 그 뒤로 들어갔다.
    */
-  scroll-margin-block-start: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+  scroll-margin-block-start: var(--shell-topbar-offset);
 }
 
 .regp__notice,
