@@ -26,6 +26,7 @@ from cii_platform.calc.capacity import (
 )
 from cii_platform.calc.cii_engine import FuelUse, calculate_attained_cii, calculate_required_cii
 from cii_platform.calc.rating_engine import DVector, determine_rating, select_rating_boundary
+from cii_platform.db import demo_seed
 from cii_platform.db.seed import (
     SEED_RATING_BOUNDARIES,
     SEED_REFERENCE_LINES,
@@ -359,16 +360,24 @@ async def test_in_progress_voyage_arrival_is_still_ahead(conn):
     구조였고, 그 완화가 ``2026-09-02``에 만료돼 **`main`의 CI가 통째로 빨개졌다.**
     지금은 ``demo_seed._rel()``이 적재 시각을 기준으로 만든다 — 절대 시각이 다시
     들어오면 **언젠가 반드시** 여기서 잡힌다.
+
+    **벽시계(`now()`)가 아니라 시드의 「오늘」(`DEMO_ANCHOR`)과 비교한다** (`#1845`).
+    기준 시각은 모듈을 import한 순간의 UTC 자정이다. 세션이 23:5x UTC에 시드를 넣고
+    이 검사가 자정을 넘겨 돌면, 기준 +1일인 도착 예정이 벽시계로는 이미 지나 있어
+    **코드와 무관하게** 빨개졌다(PR #1841 · 2026-09-24 00:03Z). 기준 시각이 곧 적재한
+    날의 자정이므로, 과거 절대 날짜로 되돌아가는 회귀는 여전히 여기서 걸린다.
     """
-    overdue = (
+    rows = (
         await conn.execute(
             text(
                 "SELECT voyage_no, planned_arrival_at FROM voyage "
-                "WHERE status = 'IN_PROGRESS' AND actual_arrival_at IS NULL "
-                "AND planned_arrival_at < now()"
+                "WHERE status = 'IN_PROGRESS' AND actual_arrival_at IS NULL"
             )
         )
     ).all()
+    assert rows, "진행 중 항차가 없다 — 이 검사가 아무것도 보지 않는다"
+    # 비교는 파이썬에서 한다 — DB 쪽 `now()`를 쓰지 않는 것이 이 검사의 요점이다.
+    overdue = [r for r in rows if r.planned_arrival_at < demo_seed.DEMO_ANCHOR]
     assert not overdue, (
         "진행 중 항차의 도착 예정일이 지났다 — 시드가 절대 시각으로 되돌아갔다"
         f"(demo_seed._rel 참조 · #792): "
