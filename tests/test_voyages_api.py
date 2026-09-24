@@ -156,7 +156,8 @@ def voyage_app(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         # 「없는 연도」 경로는 DB 검사(`test_voyages_db.py`)가 본다.
         return object()
 
-    async def fake_get_by_id(session, voyage_id):
+    # `for_update`는 받기만 한다 (`#1626`) — 잠금은 실 DB 검사(`test_voyage_row_lock_db.py`)가 본다.
+    async def fake_get_by_id(session, voyage_id, *, for_update=False):
         return next((v for v in voyage_store if v.id == voyage_id), None)
 
     async def fake_get_fuel_types_by_codes(session, codes):
@@ -359,7 +360,7 @@ class TestTransitionPolicy:
         )
         store: dict[UUID, _FakeVoyage] = {voyage.id: voyage}
 
-        async def fake_get_by_id(_session, voyage_id):
+        async def fake_get_by_id(_session, voyage_id, *, for_update=False):
             return store.get(voyage_id)
 
         async def fake_list_fuel_uses(_session, voyage_id):
@@ -458,7 +459,7 @@ class TestUpdateNullSemantics:
         )
         store: dict[UUID, _FakeVoyage] = {voyage.id: voyage}
 
-        async def fake_get_by_id(_session, voyage_id):
+        async def fake_get_by_id(_session, voyage_id, *, for_update=False):
             return store.get(voyage_id)
 
         async def fake_list_fuel_uses(_session, voyage_id):
@@ -642,7 +643,7 @@ class TestDeleteVoyage:
         store: dict[UUID, _FakeVoyage] = {voyage.id: voyage}
         refs: set[UUID] = set()
 
-        async def fake_get_by_id(_session, voyage_id):
+        async def fake_get_by_id(_session, voyage_id, *, for_update=False):
             return store.get(voyage_id)
 
         async def fake_list_fuel_uses(_session, voyage_id):
@@ -727,7 +728,7 @@ class TestActualsRoute:
         )
         store: dict[UUID, _FakeVoyage] = {voyage.id: voyage}
 
-        async def fake_get_by_id(_session, voyage_id):
+        async def fake_get_by_id(_session, voyage_id, *, for_update=False):
             return store.get(voyage_id)
 
         async def fake_list_fuel_uses(_session, _voyage_id):
