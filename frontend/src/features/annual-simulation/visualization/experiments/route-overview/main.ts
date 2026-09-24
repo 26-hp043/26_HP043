@@ -2,6 +2,7 @@ import * as maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import { layers, namedFlavor } from '@protomaps/basemaps'
 import { BASEMAP_FONTS_URL, BASEMAP_URL, MAX_ZOOM, hasBasemap } from '../../../../fleet/basemap'
+import { routeGeometryAtProgress } from './routeGeometry'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './style.css'
 
@@ -17,17 +18,19 @@ if (!root) throw new Error('항로 실험 화면의 root 요소가 없습니다.
 root.innerHTML = `
   <main class="experience">
     <div class="map-host" aria-label="부산에서 싱가포르까지의 실험 해상 항로 지도"></div>
-    <iframe class="harbor-frame" title="부산 북항 3D 미니어처 지도" loading="lazy"></iframe>
-    <div class="topline"><span class="brand">BlueLog ✦</span><span class="mode">전체 항로 조망</span></div>
+    <iframe class="harbor-frame" title="3D 항만 미니어처 지도" loading="lazy"></iframe>
+    <div class="topline"><span class="brand">BlueLog ✦</span><span class="mode">3D globe voyage</span></div>
     <div class="status" role="status">해상 항로를 불러오는 중</div>
     <section class="panel" aria-label="항로 소개">
       <div class="eyebrow">Voyage overview · Harbor study</div>
-      <h1>바닷길을 보고, 항만으로 들어갑니다</h1>
-      <p>부산에서 싱가포르까지의 공개 해상 경로망 예시입니다.<br>선박이 항로를 따라 이동하고, 항만 3D 장면으로 전환할 수 있습니다.</p>
+      <h1>지구 위 항로를 따라 항만으로</h1>
+      <p>곡면 지구 위 부산–싱가포르 공개 해상 경로망 예시입니다.<br>선박을 추적하고 양쪽 항만의 3D 장면으로 전환할 수 있습니다.</p>
       <div class="ports"><span>부산</span><i aria-hidden="true"></i><span>싱가포르</span></div>
       <div class="actions">
-        <button class="primary enter" type="button" disabled>부산 북항 3D로 들어가기 →</button>
-        <button class="secondary reset" type="button" disabled>전체 항로 보기</button>
+        <button class="primary enter-busan" type="button" disabled>부산 3D</button>
+        <button class="primary enter-singapore" type="button" disabled>싱가포르 3D</button>
+        <button class="secondary follow" type="button" disabled aria-pressed="false">선박 추적</button>
+        <button class="secondary reset" type="button" disabled>전체 항로</button>
       </div>
       <div class="note">실험용 예시 항로이며 연간 시뮬레이션의 실제 항차가 아닙니다. 선은 표시용으로, CII 계산 거리에 사용하지 않습니다.</div>
     </section>
@@ -39,9 +42,20 @@ const experience = root.querySelector<HTMLElement>('.experience')!
 const host = root.querySelector<HTMLElement>('.map-host')!
 const frame = root.querySelector<HTMLIFrameElement>('.harbor-frame')!
 const status = root.querySelector<HTMLElement>('.status')!
-const enter = root.querySelector<HTMLButtonElement>('.enter')!
+const enterBusan = root.querySelector<HTMLButtonElement>('.enter-busan')!
+const enterSingapore = root.querySelector<HTMLButtonElement>('.enter-singapore')!
+const follow = root.querySelector<HTMLButtonElement>('.follow')!
 const reset = root.querySelector<HTMLButtonElement>('.reset')!
 const back = root.querySelector<HTMLButtonElement>('.back')!
+
+type Port = 'busan' | 'singapore'
+const portLabels: Record<Port, string> = { busan: '부산 북항', singapore: '싱가포르 항만' }
+
+function enterHarbor(port: Port) {
+  frame.title = `${portLabels[port]} 3D 미니어처 지도`
+  frame.src = `/experiment-3d.html?port=${port}`
+  experience.classList.add('harbor')
+}
 
 function validRoute(value: unknown): value is RouteFixture {
   if (!value || typeof value !== 'object') return false
@@ -50,15 +64,6 @@ function validRoute(value: unknown): value is RouteFixture {
     route.coordinates.every(point => Array.isArray(point) && point.length === 2 &&
       point.every(Number.isFinite) && point[0] >= -180 && point[0] <= 180 && point[1] >= -90 && point[1] <= 90) &&
     !!route.metadata && typeof route.metadata.source === 'string'
-}
-
-function routePosition(coordinates: Coordinate[], progress: number): Coordinate {
-  const index = Math.min(coordinates.length - 2, Math.floor(progress * (coordinates.length - 1)))
-  const fraction = progress * (coordinates.length - 1) - index
-  return [
-    coordinates[index][0] + (coordinates[index + 1][0] - coordinates[index][0]) * fraction,
-    coordinates[index][1] + (coordinates[index + 1][1] - coordinates[index][1]) * fraction,
-  ]
 }
 
 async function mount() {
@@ -88,11 +93,22 @@ async function mount() {
     center: [116, 19],
     zoom: 3,
     maxZoom: MAX_ZOOM,
-    pitch: 0,
+    pitch: 38,
+    bearing: -10,
     attributionControl: false,
   })
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
   map.once('load', () => {
+    map.setProjection({ type: 'globe' })
+    map.setSky({
+      'sky-color': '#b8d7de',
+      'horizon-color': '#eff2e5',
+      'fog-color': '#dbe6df',
+      'sky-horizon-blend': 0.65,
+      'horizon-fog-blend': 0.45,
+      'fog-ground-blend': 0.55,
+      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 0],
+    })
     map.addSource('route', { type: 'geojson', data: {
       type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: route.coordinates },
     } })
@@ -109,22 +125,37 @@ async function mount() {
         ? { top: 85, bottom: 345, left: 25, right: 25 }
         : { top: 105, bottom: 110, left: Math.min(520, innerWidth * .38), right: 60 },
       maxZoom: 4.5,
+      pitch: 38,
+      bearing: -10,
       duration: 850,
     })
     showWholeRoute()
     reset.disabled = false
-    reset.addEventListener('click', showWholeRoute)
-    enter.disabled = false
-    enter.addEventListener('click', () => {
-      if (frame.getAttribute('src') !== '/experiment-3d.html') frame.src = '/experiment-3d.html'
-      experience.classList.add('harbor')
-    })
+    enterBusan.disabled = false
+    enterSingapore.disabled = false
+    follow.disabled = false
+    enterBusan.addEventListener('click', () => enterHarbor('busan'))
+    enterSingapore.addEventListener('click', () => enterHarbor('singapore'))
     back.addEventListener('click', () => {
       experience.classList.remove('harbor')
       frame.src = 'about:blank'
       map.resize()
       showWholeRoute()
     })
+    const makePortMarker = (port: Port, coordinate: Coordinate, kind: string) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = `port-marker port-marker--${port}`
+      button.innerHTML = `<span>${kind}</span><strong>${portLabels[port]}</strong>`
+      button.setAttribute('aria-label', `${portLabels[port]} 3D 장면 열기`)
+      button.addEventListener('click', () => enterHarbor(port))
+      const anchor = port === 'busan' ? 'bottom-right' : 'bottom-left'
+      return new maplibregl.Marker({ element: button, anchor }).setLngLat(coordinate).addTo(map)
+    }
+    const portMarkers = [
+      makePortMarker('busan', route.coordinates[0], '출발'),
+      makePortMarker('singapore', route.coordinates.at(-1)!, '도착'),
+    ]
     const ship = document.createElement('div')
     ship.className = 'ship-marker'
     ship.setAttribute('role', 'img')
@@ -148,30 +179,52 @@ async function mount() {
     const marker = new maplibregl.Marker({ element: ship, anchor: 'center' }).setLngLat(route.coordinates[0]).addTo(map)
     const traveled = map.getSource('traveled') as maplibregl.GeoJSONSource
     const started = performance.now()
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches
+    let following = false
+    let lastCameraUpdate = 0
+    const setFollowing = (next: boolean) => {
+      following = next && !reducedMotion
+      follow.setAttribute('aria-pressed', String(following))
+      follow.textContent = following ? '추적 중지' : '선박 추적'
+    }
+    follow.addEventListener('click', () => setFollowing(!following))
+    reset.addEventListener('click', () => {
+      setFollowing(false)
+      showWholeRoute()
+    })
+    // 자동 추적의 easeTo도 zoomstart를 발생시키므로 직접 드래그·회전만 추적 해제로 본다.
+    for (const eventName of ['dragstart', 'rotatestart'] as const) {
+      map.on(eventName, () => setFollowing(false))
+    }
     let frameId = 0
     let lastTrailUpdate = 0
     const animate = (time: number) => {
-      const progress = ((time - started) % 24000) / 24000
-      const position = routePosition(route.coordinates, progress)
-      const ahead = routePosition(route.coordinates, Math.min(.999, progress + .002))
-      const screen = map.project(position)
-      const nextScreen = map.project(ahead)
-      const heading = Math.atan2(nextScreen.x - screen.x, screen.y - nextScreen.y) * 180 / Math.PI
-      vessel.style.transform = `rotate(${heading}deg)`
+      const progress = reducedMotion ? .5 : ((time - started) % 24000) / 24000
+      const geometry = routeGeometryAtProgress(route.coordinates, progress)
+      const position: Coordinate = [geometry.position[0], geometry.position[1]]
+      vessel.style.transform = `rotate(${geometry.bearing - map.getBearing()}deg)`
       marker.setLngLat(position)
+      if (following && time - lastCameraUpdate >= 650) {
+        map.easeTo({ center: position, zoom: Math.max(map.getZoom(), 5.2), pitch: 58, duration: 600, essential: false })
+        lastCameraUpdate = time
+      }
       if (time - lastTrailUpdate >= 100) {
-        const index = Math.min(route.coordinates.length - 2, Math.floor(progress * (route.coordinates.length - 1)))
         traveled.setData({
           type: 'Feature', properties: {},
-          geometry: { type: 'LineString', coordinates: [...route.coordinates.slice(0, index + 1), position] },
+          geometry: { type: 'LineString', coordinates: geometry.traveledCoordinates.map(point => [point[0], point[1]]) },
         })
         lastTrailUpdate = time
       }
-      frameId = requestAnimationFrame(animate)
+      if (!reducedMotion) frameId = requestAnimationFrame(animate)
     }
     frameId = requestAnimationFrame(animate)
-    addEventListener('pagehide', () => { cancelAnimationFrame(frameId); marker.remove(); map.remove() }, { once: true })
-    status.textContent = `${route.coordinates.length}개 경로점 · 해상 경로망 예시 · 항만 3D 전환 가능`
+    addEventListener('pagehide', () => {
+      cancelAnimationFrame(frameId)
+      marker.remove()
+      portMarkers.forEach(portMarker => portMarker.remove())
+      map.remove()
+    }, { once: true })
+    status.textContent = `${route.coordinates.length}개 경로점 · 3D 지구 항로 · 부산·싱가포르 항만 전환 가능`
   })
   map.on('error', event => console.error('[route-overview] 지도 오류:', event.error))
 }
