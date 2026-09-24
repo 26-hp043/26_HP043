@@ -55,6 +55,8 @@ async def scenario_compare(
             detour_distance_nm=payload.detour_distance_nm,
             slow_speed_kn=payload.slow_speed_kn,
             weather_model=payload.weather_model,
+            detour_waypoint_lat=payload.detour_waypoint_lat,
+            detour_waypoint_lon=payload.detour_waypoint_lon,
         ),
         # 시나리오 3행·계산 이력·감사 로그를 한 번의 커밋으로 (`#1625` — 기능①과 같다).
         commit=False,

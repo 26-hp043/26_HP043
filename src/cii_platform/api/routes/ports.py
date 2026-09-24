@@ -1,4 +1,6 @@
-"""샘플 항만 · 좌표 기반 추정 거리 (API_SPEC §3.8 · §3.9 · #760 · `PRD §15.1` · `§15.2`).
+"""샘플 항만 · 좌표 기반 추정 거리 · 해상 경로망.
+
+(API_SPEC §3.8 · §3.9 · §3.11 · #760 · #1300 · `PRD §15.1` · `§15.2` · `§5.2`)
 
 항차 입력 화면이 출발·도착항을 **목록에서 고르면 좌표가 채워지고**, 두 좌표가 있으면
 계획 거리를 **좌표 기반 추정 거리**로 채울 수 있게 한다. 둘 다 읽기 전용이다 — 항차를
@@ -16,10 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.db.session import get_session
-from cii_platform.errors import NotFoundError
+from cii_platform.errors import NotFoundError, ValidationError
 from cii_platform.geocode.nominatim import GeocodeProvider
 from cii_platform.services.geocoding import lookup_port
 from cii_platform.services.sample_ports import estimate_distance, list_sample_ports
+from cii_platform.services.sea_route import (
+    SeaRouteNotFoundError,
+    sea_route_line_async,
+    serialize_line,
+)
 
 router = APIRouter(tags=["ports"])
 
@@ -35,6 +42,8 @@ def _meta(request: Request) -> dict[str, object]:
 
 _Lat = Annotated[Decimal, Query(ge=-90, le=90, description="위도 (VAL-007)")]
 _Lon = Annotated[Decimal, Query(ge=-180, le=180, description="경도 (VAL-007)")]
+_OptLat = Annotated[Decimal | None, Query(ge=-90, le=90, description="경유지 위도 (VAL-007)")]
+_OptLon = Annotated[Decimal | None, Query(ge=-180, le=180, description="경유지 경도 (VAL-007)")]
 
 
 @router.get("/ports/samples")
@@ -56,6 +65,44 @@ async def estimate_distance_route(
         "data": estimate_distance(from_lat, from_lon, to_lat, to_lon),
         "meta": _meta(request),
     }
+
+
+@router.get("/ports/sea-route")
+async def sea_route_route(
+    request: Request,
+    from_lat: _Lat,
+    from_lon: _Lon,
+    to_lat: _Lat,
+    to_lon: _Lon,
+    via_lat: _OptLat = None,
+    via_lon: _OptLon = None,
+) -> dict[str, object]:
+    """공개 해상 경로망 위의 바닷길 (API_SPEC §3.11 · `#1300`).
+
+    **표시용**이다 — 지도가 대권선 대신 이 선을 그린다. 계산 거리(`§3.9` · `PRD §15.2`)는
+    바뀌지 않는다. ``via_*`` 둘을 함께 주면 「출발 → 경유지 → 목적항」을 잇는다(항로 비교의
+    우회 경유지). 한쪽만 주면 422다 — 좌표 한 쌍의 반쪽은 위치가 아니다(`§5.1`과 같은 규칙).
+    경로망이 두 점을 잇지 못하면 404다.
+    """
+    if (via_lat is None) != (via_lon is None):
+        raise ValidationError(
+            "경유지 위도와 경도는 함께 입력해 주세요.",
+            field="via_lat" if via_lat is None else "via_lon",
+            field_label="경유지 좌표",
+        )
+    points = [(from_lat, from_lon)]
+    if via_lat is not None and via_lon is not None:
+        points.append((via_lat, via_lon))
+    points.append((to_lat, to_lon))
+    try:
+        line = await sea_route_line_async(points)
+    except SeaRouteNotFoundError as exc:
+        # 경로망이 두 점을 잇지 못한다(통과 제한으로 막힌 바다 등) — `§3.10`처럼 404다.
+        # 라이브러리가 대신 주는 직선은 바닷길이 아니라 내보내지 않는다.
+        raise NotFoundError(
+            "공개 해상 경로망에서 두 지점 사이의 바닷길을 찾지 못했습니다. 좌표를 확인해 주세요."
+        ) from exc
+    return {"data": serialize_line(line), "meta": _meta(request)}
 
 
 #: 못 찾은 이유 → 화면에 나갈 한국어 문구 (`API_SPEC §3.10`).

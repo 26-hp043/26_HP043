@@ -103,6 +103,14 @@ export interface ScenarioComparisonRequest {
   destination_lat?: number
   destination_lon?: number
   /**
+   * 우회 경유지 (#1300 · `API_SPEC §5.1`). 좌표 둘은 **함께**만 싣는다. 있으면 서버가 우회
+   * 거리를 「현재 위치 → 경유지 → 목적항」 대권거리의 합으로 낸다 — `detour_distance_nm`이
+   * 있으면 그쪽이 우선이다. 이름은 표기용이다.
+   */
+  detour_waypoint_name?: string
+  detour_waypoint_lat?: number
+  detour_waypoint_lon?: number
+  /**
    * `API_SPEC §5.1` enum. 미지정 = `NONE`.
    *
    * 기능①의 타입을 **그대로 쓴다** — 유니온을 여기 다시 적으면 서버가 모델을

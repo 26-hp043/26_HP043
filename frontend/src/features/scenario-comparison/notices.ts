@@ -21,3 +21,12 @@ export const ESTIMATE_NOTICE = '일부 값은 사용자 입력 또는 모델 추
  */
 export const COORDINATE_DISTANCE_NOTICE =
   '직항 거리는 좌표 기반 추정 거리입니다 — 현재 위치에서 목적항까지의 대권거리로, 운하·해협을 돌아가는 실제 항로보다 짧을 수 있습니다.'
+
+/**
+ * 우회 거리를 경유지로 계산했을 때의 결과 표시 (#1300).
+ *
+ * `TECH_SPEC §6.3` — 「waypoint 기반 polyline 거리는 다중 대권거리 합산으로 계산」. 위와 같은
+ * 원문(「좌표 기반 추정 거리」)을 앞에 두고 무엇을 더했는지를 잇는다.
+ */
+export const WAYPOINT_DISTANCE_NOTICE =
+  '우회 거리는 좌표 기반 추정 거리입니다 — 현재 위치에서 경유지를 지나 목적항까지의 대권거리 합으로, 실제 항로보다 짧을 수 있습니다.'

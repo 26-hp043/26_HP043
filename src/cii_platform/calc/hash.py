@@ -186,6 +186,10 @@ SCENARIO_INPUT_FIELDS: tuple[str, ...] = (
     "scenarios",  # [{scenario_type, distance_nm, speed_kn}] — PRD §11.2 확정 결과
     "weather_model",
     "weather_factor",
+    # (#1300) 우회 경유지 {lat, lon}. 경유지가 있을 때만 키가 들어온다 — `as_of`와 같은
+    # 방식이라 경유지 없는 종전 요청의 해시는 그대로다. DETOUR 거리가 이미 `scenarios`에
+    # 있지만, **같은 거리 합을 내는 다른 경유지**는 다른 항로이므로 좌표 자체를 담는다.
+    "detour_waypoint",
 )
 
 

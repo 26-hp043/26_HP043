@@ -57,6 +57,14 @@ export interface ComparisonFormState {
   destinationPortName: string
   destinationLat: string
   destinationLon: string
+  /**
+   * 우회 경유지 (`#1300` · `PRD §11.3`). 샘플 항만을 골랐을 때만 좌표가 채워진다 — 목적항과
+   * 같은 규칙이다. 좌표가 있으면 서버가 우회 거리를 「현재 위치 → 경유지 → 목적항」 대권거리의
+   * 합으로 내고, 지도가 우회 선을 따로 그린다. 우회 거리 칸을 채우면 그 값이 우선이다.
+   */
+  detourWaypointName: string
+  detourWaypointLat: string
+  detourWaypointLon: string
 }
 
 /**
@@ -91,6 +99,9 @@ export const FIELD = {
   currentLat: 'current_lat',
   currentLon: 'current_lon',
   destinationPortName: 'destination_port_name',
+  detourWaypointName: 'detour_waypoint_name',
+  detourWaypointLat: 'detour_waypoint_lat',
+  detourWaypointLon: 'detour_waypoint_lon',
   form: '__form__',
 } as const
 
@@ -108,6 +119,8 @@ export type FormErrors = Record<string, string>
  */
 const ADVANCED_FIELDS = [
   FIELD.detourDistanceNm,
+  FIELD.detourWaypointName,
+  FIELD.detourWaypointLat,
   FIELD.slowSpeedKn,
   FIELD.weatherModel,
   FIELD.currentLat,
@@ -130,6 +143,7 @@ export function hasAdvancedError(errors: FormErrors): boolean {
 export function countAdvancedFilled(form: ComparisonFormState): number {
   return [
     form.detourDistanceNm.trim() !== '',
+    form.detourWaypointName.trim() !== '',
     form.slowSpeedKn.trim() !== '',
     form.weatherModel !== 'NONE',
     form.currentLat.trim() !== '',
@@ -213,6 +227,9 @@ export function initialFormState(): ComparisonFormState {
     destinationPortName: '',
     destinationLat: '',
     destinationLon: '',
+    detourWaypointName: '',
+    detourWaypointLat: '',
+    detourWaypointLon: '',
     // 기상만 빈 칸이 아니다 — 셀렉트에는 「미선택」이 없고 `NONE`이 그 자리다.
     weatherModel: 'NONE',
   }
@@ -308,6 +325,41 @@ function checkCoordinates(state: ComparisonFormState, errors: FormErrors): void 
 }
 
 /**
+ * 우회 경유지 (`#1300`). **좌표 넷이 있어야 쓸 수 있다** — 서버가 같은 규칙으로 422를 내지만
+ * (`services/scenario_compare.py` `_resolve_detour_distance`), 어느 칸이 빈지는 화면이 먼저 안다.
+ *
+ * 이름만 있고 좌표가 없는 상태(목록 밖 항만을 적은 것)는 막지 않는다 — 좌표가 없으면
+ * 요청에 실리지 않아 서버 기본(`direct × 1.05`)으로 계산되고, 그 사실은 칸 옆 안내가 말한다.
+ */
+function checkWaypoint(state: ComparisonFormState, errors: FormErrors): void {
+  if (!hasWaypoint(state)) return
+  const corners = [state.currentLat, state.currentLon, state.destinationLat, state.destinationLon]
+  if (corners.some((raw) => raw.trim() === '')) {
+    errors[FIELD.detourWaypointName] =
+      '우회 경유지를 쓰려면 현재 위치와 목적항 좌표가 모두 필요합니다.'
+    return
+  }
+  // 어느 끝과 같은 점이면 도는 것이 아니다 — 서버와 같은 검사, 같은 갈래(어느 쪽인지 말한다).
+  const same = (lat: string, lon: string) =>
+    Number(state.detourWaypointLat) === Number(lat) && Number(state.detourWaypointLon) === Number(lon)
+  const sameAsCurrent = same(state.currentLat, state.currentLon)
+  const sameAsDestination = same(state.destinationLat, state.destinationLon)
+  if (sameAsCurrent && sameAsDestination) {
+    errors[FIELD.detourWaypointName] =
+      '우회 경유지가 현재 위치·목적항과 모두 같은 위치입니다. 경유지를 확인해 주세요.'
+  } else if (sameAsCurrent) {
+    errors[FIELD.detourWaypointName] = '우회 경유지가 현재 위치와 같은 위치입니다. 경유지를 확인해 주세요.'
+  } else if (sameAsDestination) {
+    errors[FIELD.detourWaypointName] = '우회 경유지가 목적항과 같은 위치입니다. 경유지를 확인해 주세요.'
+  }
+}
+
+/** 경유지 좌표가 둘 다 있는가 — 샘플 항만을 골랐을 때만 참이다. */
+export function hasWaypoint(state: ComparisonFormState): boolean {
+  return state.detourWaypointLat.trim() !== '' && state.detourWaypointLon.trim() !== ''
+}
+
+/**
  * 조건을 검증한다. 위반을 전부 모아 반환한다.
  *
  * 서버는 첫 오류를 `message`로 쓰고 나머지를 `details`에 담는데, 화면은 필드마다
@@ -366,6 +418,7 @@ export function validateForm(
     inclusive: true,
   })
   checkCoordinates(state, errors)
+  checkWaypoint(state, errors)
 
   if (!WEATHER_MODELS.some((model) => model.code === state.weatherModel)) {
     // 셀렉트로는 도달하지 않는다. 연료와 같은 이유의 방어선이다.
@@ -419,6 +472,13 @@ export function toRequest(
   if (state.destinationLat.trim() !== '' && state.destinationLon.trim() !== '') {
     request.destination_lat = Number(state.destinationLat)
     request.destination_lon = Number(state.destinationLon)
+  }
+  // 우회 경유지 (#1300) — 좌표가 둘 다 있을 때만 싣는다. 이름만으로는 서버가 할 일이 없다.
+  if (hasWaypoint(state)) {
+    const waypoint = state.detourWaypointName.trim()
+    if (waypoint !== '') request.detour_waypoint_name = waypoint
+    request.detour_waypoint_lat = Number(state.detourWaypointLat)
+    request.detour_waypoint_lon = Number(state.detourWaypointLon)
   }
   // `NONE`은 보내지 않는다 — 서버 기본이 `NONE`이고(`API_SPEC §5.1`), 명시해도
   // 결과가 같다. 보내지 않는 쪽이 「기상을 쓰지 않는 요청」임이 본문에 드러난다.
@@ -476,4 +536,14 @@ export function usesCoordinateDistance(state: ComparisonFormState): boolean {
       (raw) => raw.trim() !== '',
     )
   )
+}
+
+/**
+ * 우회 거리를 **경유지를 지나는 대권거리의 합**으로 계산하는가 (`#1300` · `TECH_SPEC §6.3`).
+ *
+ * 우회 거리 칸을 비웠고 경유지 좌표가 있을 때다. 서버가 「현재 위치 → 경유지 → 목적항」
+ * 두 구간의 대권거리를 더하므로, 결과에 그 사실을 표시한다 — 대권거리 합도 실제 항로보다 짧다.
+ */
+export function usesWaypointDistance(state: ComparisonFormState): boolean {
+  return state.detourDistanceNm.trim() === '' && hasWaypoint(state)
 }

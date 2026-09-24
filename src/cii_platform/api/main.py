@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -48,6 +49,7 @@ from cii_platform.config import should_expose_api_docs, validate_public_base_url
 from cii_platform.geocode.nominatim import NominatimProvider
 from cii_platform.log_config import setup_logging
 from cii_platform.mail.config import load_mail_settings
+from cii_platform.services.sea_route import warm_up_async
 
 # API_SPEC §1.1: 모든 API는 /api/v1 prefix 아래에 둔다.
 API_V1_PREFIX = "/api/v1"
@@ -109,7 +111,18 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     # 설정돼 있으면 환경과 무관하게 여기서 끊는다 — 읽히지 않는 값을 적어 둔 상태다.
     validate_initial_admin()
 
+    # 해상 경로망 워밍 (#1300) — **기다리지 않는다.** 첫 적재(리눅스 fs 실측 import 1.39s +
+    # 그래프 0.57s · `services/sea_route.py`)를
+    # 첫 사용자 대신 기동 직후의 워커 스레드가 치른다. 실패해도 기동은 계속된다 —
+    # `warm_up`이 예외를 삼키고 기록하며, 다음 요청이 다시 적재한다. 참조를 잡아 두는 것은
+    # 이벤트 루프가 미완 태스크를 GC로 잃지 않게 하기 위해서다.
+    warming = asyncio.create_task(warm_up_async(), name="sea-route-warm-up")
+    warming.add_done_callback(lambda task: task.exception() if not task.cancelled() else None)
+
     yield
+
+    if not warming.done():
+        warming.cancel()
 
 
 def api_docs_kwargs(*, expose_docs: bool) -> dict[str, str | None]:
