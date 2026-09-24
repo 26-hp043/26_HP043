@@ -162,6 +162,11 @@ REGENERABLE: dict[str, str] = {
     # 값이라 IRREVERSIBLE(막는다)로 둘 성질이 아니다. 052(`as_of`)와 같이 값 자체는
     # 재생되지 않으므로 되돌리기 전에 백업이 필요하다는 가드의 안내를 그대로 받는다.
     "059": "voyage.planned_distance_source — 표시 값이라 사라져도 「모른다」로 돌아갈 뿐",
+    # 활성 키 열(#1631) — `vessel.imo_active`·`app_user.email_active`는 `is_deleted`와 원본
+    # 열에서 **결정적으로** 나오는 값이라, 열을 지웠다 다시 upgrade하면 백필이 **같은 값**을
+    # 채운다. 052·053과 달리 값 자체가 재생된다 — 사람이 넣은 것이 아니다. 유니크 인덱스·
+    # 채움 트리거도 구조라 재생되고, downgrade는 047 트리거를 원문 그대로 되살린다.
+    "061": "vessel.imo_active·app_user.email_active — is_deleted에서 결정되는 값이라 백필이 재생",
 }
 
 

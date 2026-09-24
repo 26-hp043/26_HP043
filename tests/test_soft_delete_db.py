@@ -7,11 +7,11 @@
 동시에 성립해야 한다.
 
 1. **조회에서 빠진다** — 남으면 사용자는 지운 배를 계속 본다
-2. **자리를 비운다** — IMO는 ``idx_vessel_imo`` partial unique(``WHERE is_deleted =
-   false``)라 삭제된 배의 IMO로 다시 등록할 수 있어야 한다. 안 되면 **한 번 잘못 등록한
-   IMO를 영영 못 쓴다**
+2. **자리를 비운다** — 활성 IMO의 유일성은 활성 키 열 ``imo_active``(삭제되면 NULL)의
+   유니크 인덱스 ``uq_vessel_imo_active``가 갖는다(061 · `#1631`). 삭제된 배의 IMO로 다시
+   등록할 수 있어야 한다. 안 되면 **한 번 잘못 등록한 IMO를 영영 못 쓴다**
 
-두 번째가 특히 조용하다. 파셜 인덱스의 ``WHERE`` 절이 빠져도 평소에는 아무 일도 없고,
+두 번째가 특히 조용하다. 삭제가 활성 키를 비우지 않아도 평소에는 아무 일도 없고,
 **같은 배를 다시 등록하려는 순간에만** 드러난다.
 
 케이스 (`TEST_PLAN §14.5`):
@@ -159,12 +159,12 @@ async def test_partial_unique_index_ignores_deleted_rows(session):
     """DB-SOFT-001 — 서비스가 아니라 **인덱스**가 허용하는지 본다.
 
     서비스 경로만 보면 `find_active_by_imo`의 필터가 통과시키는 것인지 인덱스가
-    허용하는 것인지 구분되지 않는다. 인덱스의 ``WHERE is_deleted = false``가 빠져도
+    허용하는 것인지 구분되지 않는다. 삭제 행의 활성 키가 NULL로 비지 않아도
     서비스 테스트는 통과한다.
     """
     await _insert_vessel_raw(session, imo="9330002", is_deleted=True)
 
-    # 같은 IMO, 활성 행 — partial 인덱스가 삭제된 행을 세지 않으므로 들어가야 한다.
+    # 같은 IMO, 활성 행 — 삭제 행의 `imo_active`가 NULL이라 유니크 인덱스가 세지 않는다.
     await _insert_vessel_raw(session, imo="9330002", is_deleted=False)
 
     count = await session.execute(text("SELECT count(*) FROM vessel WHERE imo_number = '9330002'"))
@@ -173,9 +173,10 @@ async def test_partial_unique_index_ignores_deleted_rows(session):
 
 @pytest.mark.asyncio
 async def test_two_active_rows_with_the_same_imo_are_rejected(session):
-    """DB-SOFT-002 — 파셜 인덱스가 **활성 행 사이에서는 여전히 유일**해야 한다.
+    """DB-SOFT-002 — 활성 키 인덱스가 **활성 행 사이에서는 여전히 유일**해야 한다.
 
-    이 단언이 없으면 인덱스를 통째로 지워도 위 테스트가 통과한다.
+    이 단언이 없으면 인덱스를 통째로 지워도 위 테스트가 통과한다. 위반은 061의 채움
+    트리거 액션 안에서 나므로(errno -528) `cubrid_errors`가 `IntegrityError`로 옮긴다.
     """
     await _insert_vessel_raw(session, imo="9330003", is_deleted=False)
 

@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-24. 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-24 (§3.6.4 `061` 중복 정리 절차 · #1631). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -561,6 +561,35 @@ python3 scripts/db_backup.py backup
 ⚠️ `#451`의 사례 — 마이그레이션 다운그레이드가 계산 이력이 있으면 FK(`RESTRICT`)로
 막혔다. **되돌릴 수 있다는 가정을 실제로 확인해야 한다.** `db_backup.py`의
 복구 리허설(unloaddb → loaddb → 교체)은 CI `docker` 잡이 모든 PR에서 실제로 돌린다.
+
+#### 3.6.4 마이그레이션 `061`이 중복으로 멈추면 — 중복 정리 → upgrade 재실행 (#1631)
+
+`061`은 `vessel.imo_active`·`app_user.email_active`(활성이면 원본의 사본 · 삭제면 NULL)에
+**유니크 인덱스**를 세운다. 그 전까지 유일성은 `047`의 트리거였는데 동시 등록을 막지
+못했으므로(`#1796`), 운영 DB에 **같은 IMO·이메일의 활성 행이 둘 이상** 남아 있을 수 있다.
+그런 행이 있으면 `alembic upgrade head`가 `CREATE UNIQUE INDEX`에서 멈춘다 —
+`unique constraint violations. INDEX uq_vessel_imo_active …` 또는 `… uq_app_user_email_active …`.
+마이그레이션은 **조용히 한쪽을 지우지 않는다.** 무엇을 남길지는 사람이 정한다.
+
+```bash
+# 1) 중복을 찾는다 — 활성 행끼리 같은 키
+csql -u dba cii -c "SELECT imo_number, COUNT(*) FROM vessel WHERE is_deleted = 0 GROUP BY imo_number HAVING COUNT(*) > 1"
+csql -u dba cii -c "SELECT email, COUNT(*) FROM app_user WHERE is_deleted = 0 GROUP BY email HAVING COUNT(*) > 1"
+
+# 2) 남길 행을 정한다 — 항차·계산 이력이 달린 쪽, 로그인 이력(last_login_at)이 있는 쪽.
+#    나머지는 **지우지 말고 소프트 삭제**한다(감사 로그·FK가 그 행을 참조한다 · DB_SCHEMA §7.1).
+csql -u dba cii -c "UPDATE vessel SET is_deleted = 1 WHERE id = '<버릴 행 id>'"
+csql -u dba cii -c "UPDATE app_user SET is_deleted = 1 WHERE id = '<버릴 행 id>'"
+
+# 3) upgrade를 그대로 다시 돌린다 — 061은 카탈로그를 보고 이미 한 단계(047 트리거 제거 ·
+#    열 추가)는 건너뛰고 백필부터 이어간다. 백필은 같은 값을 다시 쓰므로 멱등이다.
+docker compose -f docker-compose.prod.app.yml run --rm backend alembic upgrade head
+```
+
+멈춘 시점에 `047` 트리거는 이미 걷혀 있고 유니크 인덱스는 아직 없다 — 그 사이에는 **활성
+유일성을 아무것도 지키지 않으므로** 정리와 재실행 사이에 앱을 열어 두지 않는다(배포
+워크플로는 마이그레이션이 끝나야 백엔드를 올린다 · §3.1). 2)에서 소프트 삭제한 행은
+백필이 `NULL`로 채워 인덱스에서 빠진다.
 
 ---
 

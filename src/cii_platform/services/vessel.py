@@ -14,7 +14,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import IntegrityError
+
 from cii_platform.calc.capacity import DWT_BASED_SHIP_TYPES, GT_BASED_SHIP_TYPES
+from cii_platform.db.cubrid_errors import violated_unique_index
 from cii_platform.db.repositories import calculation_run as calc_run_repo
 from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
@@ -34,6 +37,14 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from sqlalchemy.ext.asyncio import AsyncSession
+
+#: 중복 IMO의 409 문구 — 사전 조회와 유니크 인덱스 위반(동시 등록 · #1631)이 **같은 문구**를
+#: 낸다. 사용자가 방금 보낸 자기 IMO만 담는다(다른 계정의 식별자는 없다).
+DUPLICATE_IMO_MESSAGE = "이미 등록된 IMO 번호입니다: {imo_number}"
+
+#: 활성 IMO의 유니크 인덱스 (마이그레이션 061 · `DB_SCHEMA §2.1`). 이 이름의 위반만
+#: 「중복 등록」이다 — ``cubrid_errors.violated_unique_index``가 드라이버 메시지에서 집는다.
+DUPLICATE_IMO_INDEX = "uq_vessel_imo_active"
 
 #: API_SPEC §2.3 — ``is_cii_applicable_hint`` 자동 산정 기준 (DB_SCHEMA §2.1).
 #: ``gross_tonnage >= 5,000``이면 공식 CII 적용 대상 힌트를 true로 둔다.
@@ -214,26 +225,38 @@ async def create_vessel(
 
     existing = await vessel_repo.find_active_by_imo(session, imo_number)
     if existing is not None:
-        raise ConflictError(f"이미 등록된 IMO 번호입니다: {imo_number}")
+        raise ConflictError(DUPLICATE_IMO_MESSAGE.format(imo_number=imo_number))
 
     is_cii_applicable_hint = bool(
         gross_tonnage is not None and gross_tonnage >= CII_APPLICABLE_GT_THRESHOLD
     )
 
-    vessel = await vessel_repo.insert(
-        session,
-        imo_number=imo_number,
-        name=name,
-        ship_type=ship_type,
-        gross_tonnage=gross_tonnage,
-        deadweight=deadweight,
-        default_fuel_type=default_fuel_type,
-        reference_speed_kn=reference_speed_kn,
-        reference_daily_foc_ton=reference_daily_foc_ton,
-        block_coefficient=block_coefficient,
-        call_sign=call_sign,
-        is_cii_applicable_hint=is_cii_applicable_hint,
-    )
+    try:
+        vessel = await vessel_repo.insert(
+            session,
+            imo_number=imo_number,
+            name=name,
+            ship_type=ship_type,
+            gross_tonnage=gross_tonnage,
+            deadweight=deadweight,
+            default_fuel_type=default_fuel_type,
+            reference_speed_kn=reference_speed_kn,
+            reference_daily_foc_ton=reference_daily_foc_ton,
+            block_coefficient=block_coefficient,
+            call_sign=call_sign,
+            is_cii_applicable_hint=is_cii_applicable_hint,
+        )
+    except IntegrityError as exc:
+        # ⚠️ **동시 등록 경합** (#1631). 위 사전 조회는 남의 미커밋 행을 못 본다(READ
+        # COMMITTED · `#1796`) — 같은 IMO를 거의 동시에 넣으면 둘 다 「없다」를 읽고 여기까지
+        # 온다. 막는 것은 활성 키 열 `imo_active`의 유니크 인덱스(061)다: 뒤 요청의 INSERT가
+        # 앞 요청의 커밋까지 기다렸다가 위반으로 떨어진다. 그것을 사전 조회와 **같은 409·
+        # 같은 문구**로 바꾼다(`#1495`가 쓴 「넣어 보고 걸리면」 형태). 다른 무결성 위반
+        # (FK·NOT NULL·다른 인덱스)은 중복이 아니므로 그대로 올린다.
+        if violated_unique_index(exc.orig) != DUPLICATE_IMO_INDEX:
+            raise
+        await session.rollback()
+        raise ConflictError(DUPLICATE_IMO_MESSAGE.format(imo_number=imo_number)) from None
     await session.commit()
     return to_dict(vessel)
 
@@ -355,13 +378,14 @@ async def delete_vessel(
     실제 DELETE가 아니라 ``is_deleted = true``로 표시만 한다 — 연관 ``voyage``·
     ``calculation_run``이 감사 로그 등에서 선박을 참조할 수 있어야 하기 때문이다.
 
-    **soft delete된 선박은 ``get_by_id``가 거른다** (partial index). 따라서 다시
-    DELETE를 호출하면 404가 난다 — 이미 삭제된 것을 찾을 수 없기 때문. 이게
+    **soft delete된 선박은 ``get_by_id``가 거른다** (``is_deleted == 0`` 필터). 따라서
+    다시 DELETE를 호출하면 404가 난다 — 이미 삭제된 것을 찾을 수 없기 때문. 이게
     idempotent하지 않은 이유고, REST DELETE의 idempotent 속성보다 감사 로그
     일관성이 우선한다.
 
-    완료 기준 (#52): soft delete 후 동일 IMO 재등록 가능 — ``idx_vessel_imo`` partial
-    unique index(WHERE ``is_deleted = false``)가 삭제된 IMO를 무시하므로 성립.
+    완료 기준 (#52): soft delete 후 동일 IMO 재등록 가능 — ``is_deleted``가 서면 061의
+    트리거가 활성 키 ``imo_active``를 NULL로 비우고, 유니크 인덱스 ``uq_vessel_imo_active``
+    는 NULL을 세지 않으므로 성립(`DB_SCHEMA §2.1` · #1631).
     """
     vessel = await vessel_repo.get_by_id(session, vessel_id)
     if vessel is None:

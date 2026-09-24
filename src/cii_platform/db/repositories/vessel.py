@@ -87,9 +87,9 @@ def decode_cursor(token: str) -> Cursor | None:
 async def get_by_id(session: AsyncSession, vessel_id: UUID) -> Vessel | None:
     """활성 선박 1건을 조회한다.
 
-    **soft delete된 행은 제외한다.** ``vessel``의 인덱스가 전부
-    ``WHERE is_deleted = false`` partial이므로(DB_SCHEMA §2.1) 조회도 같은 조건을
-    써야 인덱스를 타고, 무엇보다 삭제된 선박으로 계산이 되면 안 된다.
+    **soft delete된 행은 제외한다.** CUBRID의 ``vessel`` 인덱스는 조건 없이 서므로
+    (DB_SCHEMA §2.1 · §7.4 6항) 삭제 행을 거르는 것은 이 ``is_deleted == 0`` 조건뿐이다 —
+    삭제된 선박으로 계산이 되면 안 된다.
     """
     stmt = select(Vessel).where(Vessel.id == vessel_id, Vessel.is_deleted == 0)
     return (await session.execute(stmt)).scalar_one_or_none()
@@ -164,9 +164,12 @@ async def update_current_position_if_newer(
 async def find_active_by_imo(session: AsyncSession, imo_number: str) -> Vessel | None:
     """활성 선박을 IMO 번호로 조회한다 (#50, soft delete 제외).
 
-    ``idx_vessel_imo`` partial unique 인덱스(WHERE ``is_deleted = false``)를 탄다
-    (DB_SCHEMA §2.1). 중복 체크의 기준이 "soft delete 제외"인 이유 — 삭제된 IMO는
-    재등록 가능(이슈 #50 완료 기준).
+    조회용 인덱스 ``idx_vessel_imo``를 탄다(DB_SCHEMA §2.1). 중복 체크의 기준이 "soft
+    delete 제외"인 이유 — 삭제된 IMO는 재등록 가능(이슈 #50 완료 기준).
+
+    ⚠️ 이 조회는 **사전 검사**일 뿐 유일성의 보장이 아니다 — 남의 미커밋 행은 보이지
+    않는다(READ COMMITTED · `#1796`). 보장은 활성 키 ``imo_active``의 유니크 인덱스(061)가
+    하고, 서비스가 그 위반을 같은 409로 바꾼다(`#1631`).
     """
     stmt = select(Vessel).where(
         Vessel.imo_number == imo_number,
