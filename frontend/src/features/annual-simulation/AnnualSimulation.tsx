@@ -168,7 +168,8 @@ export function AnnualSimulation({
    */
   const [searchParams] = useSearchParams()
   const requestedYear = searchParams.get('year') ?? ''
-  const [year, setYear] = useState('')
+  /** 사용자가 고른 해. 화면에 쓰는 값은 아래 `year`다 — 목록과 대조해 렌더 중에 정한다. */
+  const [chosenYear, setChosenYear] = useState('')
 
   /*
    * 연도 선택지는 **공용 훅**이 받는다 (`#632`가 만든 것 · `#824` ⑴로 이관).
@@ -201,7 +202,9 @@ export function AnnualSimulation({
   )
 
   /*
-   * 목록이 오면 기본 선택을 맞춘다 (`ScenarioComparison`과 같은 형태).
+   * 기본 선택은 **렌더 중에 파생**한다 (`#1616` · `ScenarioComparison`과 같은 형태).
+   * 종전에는 목록이 오면 effect가 상태를 채워, 목록 도착과 기본값 사이에 연도가 빈
+   * 렌더가 한 번 있었다.
    *
    * `VoyageCiiForm`과 **같은 함수**를 쓴다. 종전에는 이 화면만 「가장 최근 해」를
    * 골랐는데, 규제연도가 2023~2030이라 기본값이 **2030**이었다 — 아직 실적이 없는
@@ -211,12 +214,8 @@ export function AnnualSimulation({
    * 올해를 **여기서 읽어** 순수 함수에 넘긴다 — 함수 안에서 `new Date()`를 부르면
    * 검사가 해를 고정할 수 없다.
    */
-  useEffect(() => {
-    if (years.length === 0) return
-    const thisYear = new Date().getFullYear()
-    // 아직 고른 해가 없으면 주소의 후보를 넘긴다 — 목록에 있을 때만 채택된다.
-    setYear((prev) => pickDefaultYear(years, thisYear, prev || requestedYear))
-  }, [years, requestedYear])
+  // 아직 고른 해가 없으면 주소의 후보를 넘긴다 — 목록에 있을 때만 채택된다. 목록이 없으면 `''`다.
+  const year = pickDefaultYear(years, new Date().getFullYear(), chosenYear || requestedYear)
 
   /*
    * ⚠️ **대상이 바뀌면 앞의 결과를 지운다** (`#1094`).
@@ -243,6 +242,7 @@ export function AnnualSimulation({
    */
   useEffect(() => {
     generationRef.current += 1
+    // oxlint-disable-next-line react/set-state-in-effect -- 대상(선박·연도)이 바뀌면 앞 결과를 지우는 리셋 — 조건은 남기고 결과만 지우므로 파생값으로 둘 수 없다
     setState({ status: 'idle' })
   }, [shell.vesselId, year])
 
@@ -372,7 +372,7 @@ export function AnnualSimulation({
                 {...control}
                 className="annual-sim__control"
                 value={year}
-                onChange={(event) => setYear(event.target.value)}
+                onChange={(event) => setChosenYear(event.target.value)}
               >
                 {years.map((y) => (
                   <option key={y} value={String(y)}>

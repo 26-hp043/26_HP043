@@ -114,6 +114,7 @@ export function ScenarioAdoptPanel({
    */
   useEffect(() => {
     let alive = true
+    // oxlint-disable-next-line react/set-state-in-effect -- 조회 시작 전 리셋 — 선박이 바뀌면 앞 배의 항차·선택·채택 상태를 비운다(`#874`)
     setVoyages('loading')
     setVoyageId('')
     setAdopt({ status: 'idle' })
@@ -142,6 +143,7 @@ export function ScenarioAdoptPanel({
    * `scenarios`는 비교가 성공할 때마다 새로 오는 배열이라 재비교의 신호로 쓴다.
    */
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 새 비교 결과가 오면 채택 완료 표시를 지우는 리셋(`#1815`) — 부모의 결과 도착이 신호다
     setAdopt({ status: 'idle' })
   }, [scenarios])
 

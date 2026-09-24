@@ -211,6 +211,7 @@ export function VesselManagement() {
    * 잘라 준다.
    */
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 조건이 바뀌면 커서 없이 다시 받는 조회 — `loadPage`가 시작 시점의 로딩 상태를 세운다
     void loadPage()
   }, [loadPage])
 

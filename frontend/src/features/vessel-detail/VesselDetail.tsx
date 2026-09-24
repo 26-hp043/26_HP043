@@ -137,6 +137,7 @@ export function VesselDetail({
    * 들어온 폼이 다시 열렸다. 다시 부르는 동안에는 그려진 상세를 그대로 두고 값만 갈아 끼운다.
    */
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 배가 바뀔 때만 비우는 리셋(`#1811`) — 재조회 effect와 분리해 둔 것이 의도다
     setDetail(null)
     setFailure(null)
     setInProgress('loading')

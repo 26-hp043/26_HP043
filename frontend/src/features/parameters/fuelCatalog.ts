@@ -148,6 +148,7 @@ export function useFuelOptions(): FuelOptionsState {
 
   useEffect(() => {
     let cancelled = false
+    // oxlint-disable-next-line react/set-state-in-effect -- 조회 시작 전 리셋 — 이 effect가 곧 보내는 요청의 로딩 상태를 세운다
     setLoading(true)
     setFailed(false)
     catalog

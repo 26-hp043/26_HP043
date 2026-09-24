@@ -49,19 +49,23 @@ const FLEET_KEY = 'fleet'
 export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
   const api = useMemo(() => provider ?? createApiDataQualityProvider(), [provider])
   const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
-  const [year, setYear] = useState('')
+  /** 사용자가 고른 해. 화면에 쓰는 값은 아래 `year`다 — 목록과 대조해 렌더 중에 정한다. */
+  const [chosenYear, setChosenYear] = useState('')
   const [state, setState] = useState<LoadState>({ status: 'loading' })
 
-  useEffect(() => {
-    if (years.length === 0) return
-    setYear((prev) => pickDefaultYear(years, new Date().getFullYear(), prev))
-  }, [years])
+  /*
+   * 기본 연도는 **렌더 중에 파생**한다 (`#1616`). 종전에는 목록이 오면 effect가 상태를
+   * 채워, 목록 도착과 기본값 사이에 연도가 빈 렌더가 한 번 있었다. 고른 해가 목록에
+   * 있으면 그것, 없으면 올해, 올해도 없으면 가장 최근 해다(`pickDefaultYear`). 목록이
+   * 비어 있으면 `''`다 — 그때만 서버 기본(올해)으로 부른다.
+   */
+  const year = pickDefaultYear(years, new Date().getFullYear(), chosenYear)
 
   useEffect(() => {
     // 연도 목록을 못 받으면 서버 기본(올해)으로 부른다 — 화면 전체를 막지 않는다.
     if (yearsLoading) return
-    if (years.length > 0 && year === '') return
     let cancelled = false
+    // oxlint-disable-next-line react/set-state-in-effect -- 조회 시작 전 리셋 — 이 effect가 곧 보내는 요청의 로딩 상태를 세운다
     setState({ status: 'loading' })
     api
       .load(year === '' ? undefined : Number(year))
@@ -78,7 +82,7 @@ export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
     return () => {
       cancelled = true
     }
-  }, [api, year, years.length, yearsLoading])
+  }, [api, year, yearsLoading])
 
   return (
     <section className="dq">
@@ -89,7 +93,7 @@ export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
             id="dq-year"
             value={year}
             disabled={years.length === 0}
-            onChange={(event) => setYear(event.target.value)}
+            onChange={(event) => setChosenYear(event.target.value)}
           >
             {years.map((y) => (
               <option key={y} value={String(y)}>

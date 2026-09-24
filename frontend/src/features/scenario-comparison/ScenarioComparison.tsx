@@ -186,11 +186,42 @@ export function ScenarioComparison({
    * ⚠️ **입력 핸들러는 전부 함수형 갱신(`setForm((prev) => …)`)이다** (`#1093` ⑷).
    *
    * 종전에는 `setForm({ ...form, X })`로 **렌더 시점의 스냅샷**을 펼쳤다. 규제연도
-   * 기본값은 목록이 도착한 뒤 effect가 채우는데, 그 사이에 다른 칸을 건드리면
+   * 기본값은 당시 목록이 도착한 뒤 effect가 채웠는데(지금은 렌더 중 파생 · `#1616`), 그 사이에 다른 칸을 건드리면
    * 스냅샷이 방금 채워진 연도를 **빈 값으로 되덮었다.** 종전에는 초기값에 `'2026'`이
    * 박혀 있어 이 손실이 드러나지 않았다 — 되덮어도 여전히 2026이었기 때문이다.
    */
-  const [form, setForm] = useState<ComparisonFormState>(initialFormState)
+  /**
+   * 입력한 그대로의 폼. 화면·검증·요청에 쓰는 것은 아래 `form`이다 — 규제연도만 목록과
+   * 대조해 렌더 중에 정한다(`#1616`). 갱신은 전부 `setForm((prev) => …)`라 원본을 다룬다.
+   */
+  const [rawForm, setForm] = useState<ComparisonFormState>(initialFormState)
+
+  /*
+   * 규제연도 선택지 (`#632`).
+   *
+   * 종전에는 **이 화면만 자유 입력**이라 파라미터가 없는 해를 넣을 수 있었고, 그때
+   * 서버가 `PARAMETER_ERROR`로 거부했다 — `#236`이 「선박·연도·연료」 세 축을 고치며
+   * 연도만 유예했고, `#534`가 두 화면을 옮기며 이 화면을 빠뜨렸다.
+   */
+  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(rawForm.vesselId)
+
+  /*
+   * 기본 연도는 **렌더 중에 파생**한다 (`#1616`). 종전에는 목록이 오면 effect가 상태를
+   * 채워, 목록 도착과 기본값 사이에 연도가 빈 렌더가 한 번 있었다. **이미 고른 해가
+   * 목록에 있으면 그대로 둔다** — 사용자가 고른 값을 덮으면 폼이 스스로 되돌아간다.
+   * 목록이 비어 있으면 입력값을 그대로 둔다.
+   *
+   * 올해를 **여기서 읽어** 순수 함수에 넘긴다. 함수 안에서 `new Date()`를 부르면
+   * 테스트가 해를 고정할 수 없다 (`formRules.ts` 주석과 같은 이유).
+   */
+  const regulationYear =
+    years.length === 0
+      ? rawForm.regulationYear
+      : pickDefaultYear(years, new Date().getFullYear(), rawForm.regulationYear)
+  const form = useMemo(
+    () => (regulationYear === rawForm.regulationYear ? rawForm : { ...rawForm, regulationYear }),
+    [rawForm, regulationYear],
+  )
   /**
    * 지금 입력칸의 목적지 이름 — 늦게 온 좌표 조회 응답이 대조한다 (#1097 ⑴).
    *
@@ -259,31 +290,6 @@ export function ScenarioComparison({
   const [distanceNotice, setDistanceNotice] = useState('')
   const [state, setState] = useState<LoadState>({ status: 'idle' })
 
-  /*
-   * 규제연도 선택지 (`#632`).
-   *
-   * 종전에는 **이 화면만 자유 입력**이라 파라미터가 없는 해를 넣을 수 있었고, 그때
-   * 서버가 `PARAMETER_ERROR`로 거부했다 — `#236`이 「선박·연도·연료」 세 축을 고치며
-   * 연도만 유예했고, `#534`가 두 화면을 옮기며 이 화면을 빠뜨렸다.
-   */
-  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(form.vesselId)
-
-  /*
-   * 목록이 오면 기본 선택을 맞춘다. **이미 고른 해가 목록에 있으면 그대로 둔다** —
-   * 사용자가 고른 값을 덮으면 폼이 스스로 되돌아간다.
-   *
-   * 올해를 **여기서 읽어** 순수 함수에 넘긴다. 함수 안에서 `new Date()`를 부르면
-   * 테스트가 해를 고정할 수 없다 (`formRules.ts` 주석과 같은 이유).
-   */
-  useEffect(() => {
-    if (years.length === 0) return
-    const thisYear = new Date().getFullYear()
-    setForm((prev) => {
-      const next = pickDefaultYear(years, thisYear, prev.regulationYear)
-      return next === prev.regulationYear ? prev : { ...prev, regulationYear: next }
-    })
-  }, [years])
-
   /**
    * 셸의 선택을 폼에 반영한다 (#535).
    *
@@ -307,6 +313,7 @@ export function ScenarioComparison({
         if (vessels.length === 1) {
           const only = vessels[0].id
           clearedForVesselRef.current = null
+          // oxlint-disable-next-line react/set-state-in-effect -- 셸(상단바)의 선택과 폼을 맞추는 동기화 — 대신 고른 배와 안내를 같은 패스에 세운다
           setReplacedShellVesselFor(only)
           // 폼도 같은 패스에서 맞춘다 — 두 척 갈래가 폼을 비우는 것과 대칭이다. 다음 패스까지
           // 폼이 없어진 배의 id를 한 렌더 동안 쥐지 않게 한다(`#1097 ⑵`).
@@ -381,10 +388,12 @@ export function ScenarioComparison({
   // 항만 이름이 바뀌면 앞 조회의 안내는 다른 항만 것이다 — 지운다 (#1097 ⑴).
   const destinationName = form.destinationPortName.trim()
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 항만 이름이 바뀌면 앞 조회의 안내를 지우는 리셋 — 이름은 입력과 항만 선택 두 경로로 바뀌어 여기서 모은다
     setLookup((prev) => ({ ...prev, destination: IDLE_LOOKUP }))
   }, [destinationName])
   const currentName = currentPortText.trim()
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 위와 같은 리셋 — 현재 위치 칸
     setLookup((prev) => ({ ...prev, current: IDLE_LOOKUP }))
   }, [currentName])
 
@@ -477,12 +486,13 @@ export function ScenarioComparison({
    * 선박을 고르지 않은 경우는 **막지 않는다** — 그때 버튼을 잠그면 「선박을 선택해
    * 주세요」를 띄울 길이 없어져 화면이 아무 반응도 하지 않는다.
    *
-   * ⚠️ **`form.regulationYear === ''`도 막는다.** 목록이 도착한 커밋과 기본값을
-   * 채우는 effect 사이에 한 칸이 열려 있다. 그 칸에서 `<select>`는 **상태가 비어
+   * ⚠️ **`form.regulationYear === ''`도 막는다.** 종전에는 목록이 도착한 커밋과 기본값을
+   * 채우는 effect 사이에 한 칸이 열려 있었다. 그 칸에서 `<select>`는 **상태가 비어
    * 있어도 첫 옵션(2026)을 보여 준다** — 브라우저가 목록에 없는 값을 첫 항목으로
    * 떨어뜨리기 때문이다(`AnnualSimulation.test.tsx`의 `runOnce` 주석이 같은 함정을
    * 적고 있다). 화면은 「2026이 골라졌다」로 보이는데 요청에 실릴 값은 없는, 이
-   * 이슈가 고치려는 바로 그 어긋남이다.
+   * 이슈가 고치려는 바로 그 어긋남이다. 기본값이 렌더 중 파생으로 바뀌어(`#1616`) 그
+   * 칸은 닫혔지만, 「빈 연도로는 비교하지 않는다」는 조건 자체는 그대로 둔다.
    */
   const yearUnavailable =
     form.vesselId !== '' &&

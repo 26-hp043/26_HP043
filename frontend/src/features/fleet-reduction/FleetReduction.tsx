@@ -65,7 +65,8 @@ const EMPTY_PRICES: Prices = { charterUsdPerDay: {}, fuelUsdPerTon: {} }
 export function FleetReduction({ provider }: { provider?: FleetReductionProvider }) {
   const api = useMemo(() => provider ?? createApiFleetReductionProvider(), [provider])
   const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
-  const [year, setYear] = useState('')
+  /** 사용자가 고른 해(저장한 계획을 불러온 해 포함). 화면에 쓰는 값은 아래 `year`다 — 목록과 대조해 렌더 중에 정한다. */
+  const [chosenYear, setChosenYear] = useState('')
   const [target, setTarget] = useState<Target>('NO_AT_RISK')
   const [percents, setPercents] = useState<Record<string, number>>({})
   const [prices, setPrices] = useState<Prices>(EMPTY_PRICES)
@@ -79,10 +80,14 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   const [saving, setSaving] = useState(false)
   const pricesSeeded = useRef(false)
 
-  useEffect(() => {
-    if (years.length === 0) return
-    setYear((prev) => pickDefaultYear(years, new Date().getFullYear(), prev))
-  }, [years])
+  /*
+   * 기본 연도는 **렌더 중에 파생**한다 (`#1616` · `DataQuality`와 같은 형태). 종전에는
+   * 목록이 오면 effect가 상태를 채워, 목록 도착과 기본값 사이에 연도가 빈 렌더가 한 번
+   * 있었다. 목록이 비어 있으면 `''`이고 그때 요청은 올해로 나간다(아래 `request`).
+   * 고른 해가 목록에 없으면(예: 불러온 계획의 해) 올해로 떨어진다 — 셀렉트가 보여 주는
+   * 값과 요청에 실리는 값이 늘 같다.
+   */
+  const year = pickDefaultYear(years, new Date().getFullYear(), chosenYear)
 
   // 저장한 계획 목록 — 가장 최근 계획의 단가를 **새 계획의 기본값**으로 쓴다(`API_SPEC §2.17.3`).
   useEffect(() => {
@@ -124,12 +129,12 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
    */
   const [pricesOpen, setPricesOpen] = useState(false)
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 값이 잘못되는 시점에 한 번 펼치는 동기화 — 그 뒤 접힘은 사용자 몫이라 파생값으로 둘 수 없다
     if (pricesInvalid) setPricesOpen(true)
   }, [pricesInvalid])
 
   useEffect(() => {
     if (yearsLoading) return
-    if (years.length > 0 && year === '') return
     // 잘못된 단가로는 묻지 않는다 — 칸에 오류를 보이고 마지막 결과를 그대로 둔다.
     if (pricesInvalid) return
     let cancelled = false
@@ -151,7 +156,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
       cancelled = true
       clearTimeout(timer)
     }
-  }, [api, request, years.length, year, yearsLoading, pricesInvalid, retryKey])
+  }, [api, request, yearsLoading, pricesInvalid, retryKey])
 
   const shown = evaluation.result
 
@@ -199,7 +204,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
   const loadPlan = (planId: string) => {
     const plan = plans.find((p) => p.planId === planId)
     if (!plan) return
-    setYear(String(plan.regulationYear))
+    setChosenYear(String(plan.regulationYear))
     setTarget(plan.target)
     setPercents(Object.fromEntries(plan.adjustments.map((a) => [a.vesselId, a.percent])))
     setPrices(plan.prices)
@@ -246,7 +251,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
               className="fr__control"
               value={year}
               disabled={years.length === 0}
-              onChange={(e) => setYear(e.target.value)}
+              onChange={(e) => setChosenYear(e.target.value)}
             >
               {years.map((y) => (
                 <option key={y} value={String(y)}>

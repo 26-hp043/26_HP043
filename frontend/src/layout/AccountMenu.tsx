@@ -67,6 +67,7 @@ export function AccountMenu({ user }: { user: CurrentUser }) {
    * 화면의 오른쪽 위를 자기가 가린다.**
    */
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 경로(라우터)가 바뀌면 닫는 동기화 — 열린 상태는 사용자 조작이라 파생값으로 둘 수 없다
     setOpen(false)
   }, [pathname])
 

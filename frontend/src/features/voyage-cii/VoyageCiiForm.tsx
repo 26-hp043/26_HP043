@@ -110,7 +110,11 @@ export function VoyageCiiForm({
   const shell = useShellContext()
   const { vessels, vesselsState, selectVesselId } = shell
 
-  const [state, setState] = useState<VoyageCiiFormState>(initialFormState)
+  /**
+   * 입력한 그대로의 폼. 화면·검증·요청에 쓰는 것은 아래 `state`다 — 규제연도만 목록과
+   * 대조해 렌더 중에 정한다(`#1616`). 갱신은 전부 `setState((prev) => …)`라 원본을 다룬다.
+   */
+  const [rawState, setState] = useState<VoyageCiiFormState>(initialFormState)
   const [errors, setErrors] = useState<FormErrors>({})
   const [submitting, setSubmitting] = useState(false)
   /*
@@ -133,7 +137,28 @@ export function VoyageCiiForm({
    * 안내하는데 바로 아래 「규제연도」만 영원히 로딩이라, **한 화면에서 두 칸이 다른
    * 사실을 말한다.** 공용 훅은 빈 `vesselId`에서 목록을 비우고 `loading`을 내린다.
    */
-  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(state.vesselId)
+  const { years, loading: yearsLoading, failed: yearsFailed } = useYearOptions(rawState.vesselId)
+
+  /*
+   * 기본 연도는 **렌더 중에 파생**한다 (`#1616` · `ScenarioComparison`과 같은 형태).
+   * 종전에는 목록이 오면 effect가 상태를 채워, 목록 도착과 기본값 사이에 연도가 빈
+   * 렌더가 한 번 있었다.
+   *
+   * `pickDefaultYear`가 정한다 — 이미 고른 해는 유지하고, 없으면 올해를, 올해가
+   * 목록에 없으면 가장 최근 해를 고른다. 목록이 비어 있으면 입력값을 그대로 둔다.
+   *
+   * 올해를 **여기서 읽어** 순수 함수에 넘긴다. 함수 안에서 `new Date()`를 부르면
+   * 검사가 해를 고정할 수 없다. 이 값은 셀렉트의 선택을 정할 뿐이고 **서버로
+   * 가는 것은 사용자가 고른 값**이다(함수 주석 참조).
+   */
+  const regulationYear =
+    years.length === 0
+      ? rawState.regulationYear
+      : pickDefaultYear(years, new Date().getFullYear(), rawState.regulationYear)
+  const state = useMemo(
+    () => (regulationYear === rawState.regulationYear ? rawState : { ...rawState, regulationYear }),
+    [rawState, regulationYear],
+  )
 
   // demo ↔ 실 API 전환은 providerSelection이 판단한다(#138). 화면은 어느 쪽이
   // 선택됐는지 알지 않는다 — 그것이 #134가 provider 경계를 그은 이유다.
@@ -157,6 +182,7 @@ export function VoyageCiiForm({
     if (shellVesselId !== null) {
       // 목록에 없는 선박(삭제됨)이면 첫 배로 바꾸고 안내한다 — 그 id로 계산하지 않는다 (#1097 ⑵).
       if (vessels.length > 0 && !vessels.some((vessel) => vessel.id === shellVesselId)) {
+        // oxlint-disable-next-line react/set-state-in-effect -- 셸(상단바)의 선택과 폼을 맞추는 동기화 — 선박 교체와 안내를 같은 패스에 세운다
         setVesselNotice(SHELL_VESSEL_MISSING)
         selectVesselId(vessels[0].id)
         return
@@ -166,25 +192,6 @@ export function VoyageCiiForm({
     }
     if (vessels.length > 0) selectVesselId(vessels[0].id)
   }, [shellVesselId, vessels, selectVesselId])
-
-  /*
-   * 목록이 오면 기본 선택을 맞춘다 (`ScenarioComparison`과 같은 형태).
-   *
-   * `pickDefaultYear`가 정한다 — 이미 고른 해는 유지하고, 없으면 올해를, 올해가
-   * 목록에 없으면 가장 최근 해를 고른다.
-   *
-   * 올해를 **여기서 읽어** 순수 함수에 넘긴다. 함수 안에서 `new Date()`를 부르면
-   * 검사가 해를 고정할 수 없다. 이 값은 셀렉트의 초기 선택을 정할 뿐이고 **서버로
-   * 가는 것은 사용자가 고른 값**이다(함수 주석 참조).
-   */
-  useEffect(() => {
-    if (years.length === 0) return
-    const thisYear = new Date().getFullYear()
-    setState((prev) => {
-      const next = pickDefaultYear(years, thisYear, prev.regulationYear)
-      return next === prev.regulationYear ? prev : { ...prev, regulationYear: next }
-    })
-  }, [years])
 
   const selectedVessel = vessels.find((v) => v.id === state.vesselId)
 
