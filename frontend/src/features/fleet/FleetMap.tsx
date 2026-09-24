@@ -76,6 +76,13 @@ interface RouteAsk {
 export const ROUTE_UNAVAILABLE_TEXT = '항로선을 불러오지 못했습니다 — 위치만 표시합니다.'
 
 /**
+ * 선 **일부만** 못 받았을 때의 문장 (`#1856`). 받은 선은 그려져 있으므로 「위치만 표시합니다」는
+ * 거짓이 된다 — 전부 못 받았을 때와 문장을 가른다. 표시 문구(`AGENTS §4.6`) · 개발 임시안이며
+ * 디자인 담당이 바꿀 수 있다.
+ */
+export const ROUTE_PARTIAL_TEXT = '항로선 일부를 불러오지 못했습니다 — 그리지 못한 항로는 위치만 표시합니다.'
+
+/**
  * 경로망 출처 표기 (`#1300` 결정 5항 — `README` · `NOTICE` · 화면 세 곳).
  *
  * 지도 오른쪽 아래 접힌 출처 컨트롤에 「© OpenStreetMap」과 나란히 실린다(MapLibre가
@@ -112,6 +119,13 @@ interface FleetMapProps {
    * `ariaLabel`·`caption`과 같은 이유로 호출부가 넘긴다. 생략하면 선대 문안이다.
    */
   routeUnavailableText?: string
+  /** 선 **일부만** 못 받았을 때의 문장 (`#1856`). `routeUnavailableText`와 같은 이유로 호출부가 넘긴다. */
+  routePartialText?: string
+  /**
+   * 재시도 신호 (`#1856`). 값이 바뀌면 **못 받은 선만** 다시 묻는다 — 받은 선은 다시 묻지
+   * 않는다(`useSeaRoutes`). 생략하면 실패한 선은 이 지도가 떠 있는 동안 다시 묻지 않는다.
+   */
+  retryToken?: number
 }
 
 /** 좌표가 있는 선박만. 숫자로 되돌리는 곳은 여기뿐이다(지도가 숫자를 요구한다). */
@@ -255,6 +269,8 @@ export function FleetMap({
   ariaLabel,
   caption,
   routeUnavailableText = ROUTE_UNAVAILABLE_TEXT,
+  routePartialText = ROUTE_PARTIAL_TEXT,
+  retryToken,
 }: FleetMapProps) {
   /*
    * 좌표가 없는 선박은 `placed()`에서 **조용히 빠진다** (#1103).
@@ -267,8 +283,18 @@ export function FleetMap({
   const missingText = missingPositionText(vessels.length, shown)
   // 렌더마다 새 배열이면 아래 effect가 매번 다시 돈다 — `NO_ROUTES`와 같은 이유로 고정한다.
   const asks = useMemo(() => routeAsks(placed(vessels), routes), [vessels, routes])
-  const lines = useSeaRoutes(asks.map((ask) => ask.request))
-  const routeFailed = asks.some((ask) => lines[seaRouteKey(ask.request)] === 'failed')
+  const lines = useSeaRoutes(
+    asks.map((ask) => ask.request),
+    undefined,
+    retryToken,
+  )
+  /*
+   * 못 받은 선이 **전부인가 일부인가** (`#1856`). 서버는 세 점 요청을 한 덩어리로 실패시키므로
+   * 우회만 실패하고 직항은 그려질 수 있다 — 그때 「그려지지 않습니다」라고 적으면 거짓이다.
+   */
+  const failedAsks = asks.filter((ask) => lines[seaRouteKey(ask.request)] === 'failed').length
+  const routeFailure =
+    failedAsks === 0 ? null : failedAsks === asks.length ? routeUnavailableText : routePartialText
 
   /*
    * 캔버스 자리를 **ref가 아니라 state로 잡는다** (`#1645`).
@@ -492,7 +518,7 @@ export function FleetMap({
         <p className="fleetmap__missing">{missingText}</p>
       )}
       {/* 서버가 선을 주지 못했다 — 대권선으로 되돌리지 않고 그 사실을 적는다 (`#1300`). */}
-      {routeFailed ? <p className="fleetmap__missing">{routeUnavailableText}</p> : null}
+      {routeFailure === null ? null : <p className="fleetmap__missing">{routeFailure}</p>}
       {/*
         읽는 법 (`#1052` ⓥ · 2026-09-18 확정).
 

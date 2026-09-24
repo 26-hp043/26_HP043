@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_API_BASE_URL } from '../../api/base'
 
 /**
@@ -98,6 +98,12 @@ export async function fetchSeaRoute(
 export type SeaRouteState = SeaRouteLine | 'failed'
 
 /**
+ * 훅 안에서 적어 두는 상태 — 실패에는 **그때의 재시도 신호**를 함께 둔다 (`#1856`).
+ * 신호가 바뀌면 그 실패는 「지난 시도의 실패」가 되어 다시 묻는다.
+ */
+type StoredRoute = SeaRouteLine | { failedAt: number }
+
+/**
  * 요청 목록의 선을 받아 둔다. 열쇠(`seaRouteKey`)가 같은 요청은 한 번만 묻는다.
  *
  * 의존성은 **열쇠를 이어 붙인 문자열**이다 — 요청 배열은 호출부가 렌더마다 새로 만들므로
@@ -107,12 +113,22 @@ export type SeaRouteState = SeaRouteLine | 'failed'
  * 같은 열쇠를 또 묻게 되는데, 열쇠별 Promise를 ref에 두면 그 사이의 렌더는 앞 요청에
  * 올라탄다. 실패 이유는 `console.warn`으로 남긴다 — 화면은 「못 받았다」만 알고 이유는
  * 콘솔이 갖는다(`#1616` 가드는 `console.error`만 실패로 본다).
+ *
+ * ## 실패는 재시도 신호가 바뀔 때만 다시 묻는다 (`#1856`)
+ *
+ * 종전에는 실패한 열쇠를 컴포넌트가 살아 있는 동안 다시 묻지 않았다 — 화면의 「다시
+ * 시도」가 목록만 회복하고 「항로선을 불러오지 못했습니다」는 남았다. `retryToken`이
+ * 바뀌면 **그 전 신호에서 실패한 열쇠만** 다시 묻는다. 받은 선은 캐시 그대로이고, 진행 중인
+ * 요청은 `inFlight`에 올라탄다. 같은 신호 안에서는 실패가 실패로 남으므로 목록이 바뀌어
+ * effect가 다시 돌아도 요청이 되풀이되지 않는다 — 폭주 방지는 종전과 같다. 실패에 신호를
+ * 적어 두는 방식이라 effect가 두 번 돌아도(`StrictMode`) 판정이 같다.
  */
 export function useSeaRoutes(
   requests: readonly SeaRouteRequest[],
   fetchImpl: typeof fetch = globalThis.fetch,
+  retryToken: number = 0,
 ): Record<string, SeaRouteState> {
-  const [lines, setLines] = useState<Record<string, SeaRouteState>>({})
+  const [stored, setStored] = useState<Record<string, StoredRoute>>({})
   const inFlight = useRef(new Map<string, Promise<SeaRouteLine>>())
   const wanted = requests.map(seaRouteKey).join('\n')
 
@@ -122,7 +138,9 @@ export function useSeaRoutes(
     const pending = new Map<string, SeaRouteRequest>()
     for (const request of requests) {
       const key = seaRouteKey(request)
-      if (!(key in lines) && !pending.has(key)) pending.set(key, request)
+      const state = stored[key]
+      const ask = state === undefined || ('failedAt' in state && state.failedAt !== retryToken)
+      if (ask && !pending.has(key)) pending.set(key, request)
     }
     for (const [key, request] of pending) {
       let promise = inFlight.current.get(key)
@@ -133,11 +151,11 @@ export function useSeaRoutes(
       }
       promise.then(
         (line) => {
-          if (alive) setLines((prev) => ({ ...prev, [key]: line }))
+          if (alive) setStored((prev) => ({ ...prev, [key]: line }))
         },
         (reason: unknown) => {
           console.warn('[seaRoute]', key, reason)
-          if (alive) setLines((prev) => ({ ...prev, [key]: 'failed' }))
+          if (alive) setStored((prev) => ({ ...prev, [key]: { failedAt: retryToken } }))
         },
       )
     }
@@ -146,7 +164,14 @@ export function useSeaRoutes(
     }
     // `wanted`가 요청 목록을 대표한다 — 위 주석 참조.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wanted, fetchImpl])
+  }, [wanted, fetchImpl, retryToken])
 
-  return lines
+  // 밖에는 종전 모양(선 · `'failed'`)으로 낸다 — 다시 묻는 동안에는 앞 실패가 그대로 보인다.
+  return useMemo(() => {
+    const lines: Record<string, SeaRouteState> = {}
+    for (const [key, state] of Object.entries(stored)) {
+      lines[key] = 'failedAt' in state ? 'failed' : state
+    }
+    return lines
+  }, [stored])
 }

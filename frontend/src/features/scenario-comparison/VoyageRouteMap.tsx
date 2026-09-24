@@ -48,6 +48,17 @@ const NO_VESSELS: FleetVessel[] = []
 const ROUTE_UNAVAILABLE_ON_COMPARISON =
   '항로선을 불러오지 못했습니다 — 지도에 경로가 그려지지 않습니다. 거리·속력의 차이는 아래 표에 있습니다.'
 
+/**
+ * 직항·우회 중 **하나만** 못 받았을 때의 문장 (`#1856`) — 받은 선은 그려져 있으므로 위 문장은
+ * 거짓이다. 표시 문구(`AGENTS §4.6`) · 개발 임시안이며 디자인 담당이 바꿀 수 있다.
+ *
+ * 재시도 신호는 넘기지 않는다 — 「비교하기」를 다시 누르면 부모(`ScenarioComparison`)가
+ * 계산 중 분기에서 결과 트리를 내렸다 다시 올리므로 이 지도가 **새로 마운트되어** 못 받은
+ * 선을 처음부터 다시 묻는다.
+ */
+const ROUTE_PARTIAL_ON_COMPARISON =
+  '항로선 일부를 불러오지 못했습니다 — 그려지지 않은 경로가 있습니다. 거리·속력의 차이는 아래 표에 있습니다.'
+
 /** 범위를 벗어나거나 숫자가 아니면 `null`. 폼 검증(`requestRules`)과 같은 한계다. */
 function coord(raw: string, limit: number): number | null {
   const trimmed = raw.trim()
@@ -131,6 +142,7 @@ export function VoyageRouteMap({
         vessels={NO_VESSELS}
         routes={routes}
         routeUnavailableText={ROUTE_UNAVAILABLE_ON_COMPARISON}
+        routePartialText={ROUTE_PARTIAL_ON_COMPARISON}
         ariaLabel={
           detour
             ? '현재 위치에서 목적항까지의 항로 지도. 공개 해상 경로망 위의 직항 경로와 우회 경유지를 지나는 우회 경로 — 실제 항해 계획이 아닙니다.'

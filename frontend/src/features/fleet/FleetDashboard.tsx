@@ -470,7 +470,8 @@ export function FleetDashboard() {
               {basemap === true ? (
                 // 내려받는 동안에는 개략도를 그대로 둔다 — 빈 칸이 번쩍이지 않는다.
                 <Suspense fallback={<PositionChart vessels={vessels} />}>
-                  <FleetMap vessels={vessels} />
+                  {/* 「다시 시도」가 못 받은 항로선도 다시 묻게 한다 (`#1856`). */}
+                  <FleetMap vessels={vessels} retryToken={retryKey} />
                 </Suspense>
               ) : (
                 <>

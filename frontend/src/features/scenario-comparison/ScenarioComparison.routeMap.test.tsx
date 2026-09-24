@@ -143,4 +143,21 @@ describe('항로 비교 지도의 선 이름 (#1836 ⑹)', () => {
     expect(routes[0].name).not.toContain(PORTS[1].name)
     expect(routes[0].name).toContain(PORTS[1].name_ko)
   })
+
+  it('다시 비교하면 지도가 새로 마운트된다 — 못 받은 항로선을 처음부터 다시 묻는다 (#1856)', async () => {
+    stubServer()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText(/현재 위치/), { target: { value: PORTS[0].name_ko } })
+    fireEvent.change(screen.getByLabelText('목적항'), { target: { value: PORTS[1].name_ko } })
+
+    fireEvent.click(await screen.findByRole('button', { name: /비교하기/ }))
+    const first = await screen.findByTestId('map', undefined, { timeout: 10_000 })
+
+    // 계산 중 분기가 결과 트리를 내리므로 지도는 새 노드다 — 훅 상태(실패 기록)도 새것이다.
+    fireEvent.click(screen.getByRole('button', { name: /비교하기/ }))
+    await waitFor(() => expect(screen.getByTestId('map')).not.toBe(first), { timeout: 10_000 })
+    expect(first.isConnected).toBe(false)
+  })
 })
