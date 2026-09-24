@@ -64,9 +64,10 @@ class _FakeVoyage:
 class _FakeSession:
     def __init__(self) -> None:
         self.deleted: list = []
+        self.committed = 0
 
     async def commit(self):
-        pass
+        self.committed += 1
 
     async def flush(self):
         pass
@@ -367,8 +368,10 @@ class TestTransitionPolicy:
         monkeypatch.setattr(svc.voyage_repo, "get_by_id", fake_get_by_id)
         monkeypatch.setattr(svc.voyage_repo, "list_fuel_uses", fake_list_fuel_uses)
 
+        session = _FakeSession()
+
         async def override_session():
-            yield _FakeSession()
+            yield session
 
         # CSRF 검증 격리 — voyage_app과 같은 맥락 (test_auth_*가 CSRF를 잠근다).
         async def override_csrf() -> None:
@@ -380,8 +383,25 @@ class TestTransitionPolicy:
         register_exception_handlers(app)
         app.include_router(voyages_router, prefix="/api/v1")
         with TestClient(app) as client:
+            # 커밋 횟수를 검사가 볼 수 있게 대역 세션을 실어 보낸다 (`#1625`).
+            client.session = session  # type: ignore[attr-defined]
             yield client, store
         app.dependency_overrides.clear()
+
+    def test_unaudited_transition_is_committed_once_by_the_route(self, transition_app):
+        """기록 대상이 아닌 전환도 **라우트가 한 번** 커밋한다 (#1625).
+
+        커밋을 서비스에서 라우트로 옮겼으므로(`TECH_SPEC §16.3` — 감사와 같은
+        트랜잭션), 감사 분기 **밖**의 커밋이 빠지면 `PLANNED → IN_PROGRESS` 같은 전환은
+        200을 돌려주고도 DB에 남지 않는다. 그 구멍을 여기서 막는다.
+        """
+        client, store = transition_app
+        voyage_id = next(iter(store))
+        resp = client.post(
+            f"/api/v1/voyages/{voyage_id}/transition", json={"to_status": "IN_PROGRESS"}
+        )
+        assert resp.status_code == 200, resp.text
+        assert client.session.committed == 1
 
     def test_omitted_policy_is_preserved(self, transition_app):
         """PLANNED(INCLUDE_AS_PLAN) → IN_PROGRESS 미지정: policy 유지 (#310)."""

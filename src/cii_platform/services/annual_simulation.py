@@ -774,6 +774,7 @@ async def run_annual_simulation(
     as_of: datetime | None = None,
     apply_feedback_factor: bool = False,
     alternative_fuel: str | None = None,
+    commit: bool = True,
 ) -> dict[str, object]:
     """연간 시뮬레이션을 실행하고 결과를 저장한다 (``API_SPEC §6.1``).
 
@@ -783,6 +784,12 @@ async def run_annual_simulation(
     ``duration_ms``는 여기서 잰다 (#752). 계산 시간은 서비스의 관심사이고, 라우트가
     재면 요청 파싱·직렬화까지 섞여 ``PRD §16.1``의 「Monte Carlo 5,000회 p95 < 3초」와
     다른 것을 재게 된다 — 기능①(``services/voyage_cii.py:337-339``)과 같은 자리다.
+
+    ``commit=False``면 세 INSERT(스냅샷 · ``calculation_run`` · 실행)를 **커밋하지 않고
+    둔다** (`#1625` · `#1349` 선례). 라우트가 감사 로그(`TECH_SPEC §13.1`)를 넣은 뒤 한
+    번의 커밋으로 넷을 함께 확정한다 — 여기서 커밋하면 감사 INSERT가 실패했을 때 감사
+    없는 실행 이력이 남고, 스냅샷과 ``calculation_run``은 불변 표라(`DB_SCHEMA §7.3`)
+    되돌릴 수도 없다.
     """
     started = time.perf_counter()
 
@@ -1003,6 +1010,7 @@ async def run_annual_simulation(
         # 넘기면 미명시 실행에도 값이 남아, 해시에 키가 없는데 저장에는 있는 어긋남이
         # 생긴다 — 어느 쪽이 정본인지 재현 시점에 가릴 수 없다.
         as_of=as_of,
+        commit=commit,
     )
 
     return _envelope(
@@ -1566,6 +1574,7 @@ async def _persist(
     as_of: datetime | None = None,
     alternative_fuel: str | None = None,
     not_underway_json: dict | None = None,
+    commit: bool = True,
 ):
     """스냅샷 → 계산 이력 → 시뮬레이션 실행 순으로 저장한다.
 
@@ -1577,6 +1586,8 @@ async def _persist(
 
     :param as_of: **명시적으로** 요청이 준 기준 시각만 (#816 ⑴). ``None``은 미명시
         실행 — 이때는 컬럼도 비워, 재현이 해시에 키를 넣지 않는 것과 짝을 이룬다.
+    :param commit: ``False``면 세 INSERT를 실행만 하고 커밋하지 않는다 (`#1625`) —
+        생 SQL이라 flush할 것도 없다. 커밋은 호출부가 감사 로그와 함께 한다.
     """
     from sqlalchemy import text
 
@@ -1698,7 +1709,8 @@ async def _persist(
         },
     )
 
-    await session.commit()
+    if commit:
+        await session.commit()
     return (
         snapshot_id,
         run_id,

@@ -110,6 +110,10 @@ async def voyage_cii(
             weather_model=payload.weather_model,
             voyage_id=payload.voyage_id,
         ),
+        # 계산 이력과 감사 로그를 **한 번의 커밋**으로 확정한다 (`#1625` · `TECH_SPEC
+        # §16.3`). 서비스가 먼저 커밋하면 감사 INSERT가 실패했을 때 감사 없는
+        # `calculation_run`이 남고, 그 표는 삭제가 막혀 있어 되돌릴 수 없다.
+        commit=False,
     )
 
     # 서비스가 잰 계산 시간을 meta로 옮긴다. 내부 키(`_duration_ms`)는 응답에서 뺀다.

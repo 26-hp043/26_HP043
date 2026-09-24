@@ -198,10 +198,16 @@ async def compare_scenarios(
     *,
     weather_provider=None,
     persist: bool = True,
+    commit: bool = True,
 ) -> dict[str, object]:
     """3개 시나리오를 계산·저장하고 API_SPEC §5.1 응답 dict를 반환한다.
 
     ``meta``는 채우지 않는다 — 라우트가 붙인다(기능①과 같은 계층 규칙).
+
+    ``commit=False``는 **커밋을 호출부에 맡기는 경로**다 (`#1625` · `#1349` 선례) —
+    근거는 :func:`~cii_platform.services.voyage_cii.estimate_voyage_cii`의 같은 절에
+    있다. 시나리오 3행과 ``calculation_run``은 flush돼 있고, 라우트가 감사 로그를 넣은
+    뒤 한 번의 커밋으로 함께 확정한다.
 
     ``weather_provider``는 **테스트가 갈아 끼우는 자리**다(#62). 기본값이 ``None``인
     이유는 조회가 필요할 때만 어댑터를 만들기 위해서다 — 기상 보정을 쓰지 않는
@@ -353,6 +359,7 @@ async def compare_scenarios(
     if persist:
         run_id = await _persist_scenario_run(
             session,
+            commit=commit,
             vessel_id=payload.vessel_id,
             input_hash=input_hash,
             parameter_hash=parameter_hash,
@@ -377,15 +384,19 @@ async def compare_scenarios(
     }
 
 
-async def _persist_scenario_run(session: AsyncSession, **fields) -> str:
+async def _persist_scenario_run(session: AsyncSession, *, commit: bool = True, **fields) -> str:
     """계산 이력 한 행을 남긴다.
 
     ``weather_snapshot_id``는 시나리오 3행과 **같은 스냅샷**이다 — 한 요청이 한 번
     조회한 기상으로 세 계획을 모두 보정한다. 보정 인자 자체는
     ``result_json.scenarios[].weather_factor``에 있다(``TECH_SPEC §5.4`` 4항 · #904).
+
+    ``commit=False``면 저장소의 flush까지만 — 커밋은 호출부가 감사 로그와 함께 한다
+    (`#1625`).
     """
     run = await calc_run_repo.insert_scenario(session, **fields)
-    await session.commit()
+    if commit:
+        await session.commit()
     return str(run.id)
 
 

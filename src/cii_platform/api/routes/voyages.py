@@ -175,12 +175,18 @@ async def transition_voyage_route(
 
     **확정 전환은 감사 로그에 남는다** (`TECH_SPEC §13.1`, #65). 주체(user)와 IP는
     HTTP 개념이라 라우트가 뽑아 넘긴다 — 서비스가 `request`를 알면 계층이 깨진다(§16.1).
+
+    **상태와 감사는 한 번의 커밋으로 확정한다** (`#1625` · `TECH_SPEC §16.3`). 서비스는
+    `commit=False`로 flush까지만 하고, 감사 INSERT까지 마친 뒤 여기서 커밋한다 — 종전에는
+    서비스가 먼저 커밋해 감사 INSERT가 실패하면 **기록 없는 `CONFIRMED`**가 남았다.
+    실패하면 요청 세션이 닫히며 통째로 롤백된다(`db/session.get_session`).
     """
     data = await transition_voyage(
         session,
         voyage_id,
         to_status=payload.to_status,
         annual_inclusion_policy=payload.annual_inclusion_policy,
+        commit=False,
     )
     # 서비스가 실어 보낸 「변경 전」 값. 응답에서는 뺀다(`_duration_ms`와 같은 규약).
     from_status = data.pop("_from_status")
@@ -199,7 +205,6 @@ async def transition_voyage_route(
             annual_inclusion_policy=data["annual_inclusion_policy"],
             ip_address=client_ip,
         )
-        await session.commit()
     elif from_status == "CONFIRMED":
         # `#1328` — **확정을 되돌리거나 닫는** 두 전환도 기록한다.
         # `PRD §8.1.1`·`API_SPEC §3.5`가 둘 다 「audit log 필수」로 정하는데 코드는
@@ -218,8 +223,9 @@ async def transition_voyage_route(
             annual_inclusion_policy=data["annual_inclusion_policy"],
             ip_address=client_ip,
         )
-        await session.commit()
 
+    # 기록 대상이 아닌 전환도 여기서 커밋한다 — 서비스가 더는 커밋하지 않는다.
+    await session.commit()
     return {"data": data, "meta": _meta(request)}
 
 

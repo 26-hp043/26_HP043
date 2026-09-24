@@ -56,6 +56,8 @@ async def scenario_compare(
             slow_speed_kn=payload.slow_speed_kn,
             weather_model=payload.weather_model,
         ),
+        # 시나리오 3행·계산 이력·감사 로그를 한 번의 커밋으로 (`#1625` — 기능①과 같다).
+        commit=False,
     )
 
     duration_ms = result.pop("_duration_ms")
