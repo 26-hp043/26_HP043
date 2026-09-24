@@ -16,9 +16,10 @@ DB 없이 볼 수 있는 규칙(연도 귀속)은 순수 함수로 보고, 나�
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -525,3 +526,229 @@ async def test_deliberate_year_survives_a_time_edit(session, vessel_id):
         session, uuid_of(period), ended_at=datetime(2027, 1, 3, tzinfo=UTC)
     )
     assert edited["regulation_year"] == 2027
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 동시 요청 — 두 연결을 실제로 교차시킨다 (#1629 · F-8 결정)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ## 무엇이 문제였나
+#
+# 겹침 검사는 「조회 → 판정 → INSERT → 커밋」이다. 같은 선박에 겹치는 구간을 **동시에**
+# 올리면 두 요청이 각각 「겹치는 것이 없다」를 읽고 둘 다 저장된다 — READ COMMITTED에서
+# 상대의 미커밋 INSERT는 보이지도, 기다리게 하지도 않는다(`#1796` 실측 · 3/3에서 2건).
+# 그러면 같은 정박의 연료가 두 번 세어져 등급이 조용히 나빠진다.
+#
+# ## 두 세션을 어디서 교차시키는가
+#
+# ⚠️ **서비스 호출이 끝난 뒤가 아니라, 겹침 조회 직후(커밋 전)다.** ``create_period``는
+# 스스로 커밋하므로, 호출이 끝난 뒤에 두 번째 세션을 띄우면 이미 커밋된 행을 보고 잠금
+# 유무와 무관하게 409가 난다 — 2026-09-22 시도에서 잠금을 지워도 검사가 통과한 것이
+# 그 형태였다(정황). 그래서 저장소의 ``find_overlapping``을 감싸, **첫 세션만** 조회를
+# 마친 자리에서 잠깐 머물게 한다. 잠금이 있으면 두 번째 세션은 그 사이 첫 세션의
+# 잠금에 걸려 기다렸다가 **커밋된 구간을 보고** 409로 떨어지고, 없으면 그대로 지나가
+# 둘 다 저장된다.
+#
+# ``conn`` 픽스처는 한 연결을 돌려주므로 쓰지 않는다 — **연결이 둘이어야** 경합이
+# 성립한다(`test_auth_tokens.py`의 재발급 검사와 같은 판단). 두 세션 모두 실제로
+# 커밋하므로 전용 선박을 만들고 ``finally``에서 지운다.
+
+
+async def _seed_committed_vessel() -> UUID:
+    """이 검사 전용 선박 — **커밋한다.** IMO는 UNIQUE라 UUID에서 뽑아 충돌을 피한다."""
+    from cii_platform.db.session import get_sessionmaker
+
+    new_id = uuid4()
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text(
+                "INSERT INTO vessel (id, imo_number, name, ship_type, deadweight, "
+                "default_fuel_type) VALUES (:id, :imo, 'NU RACE TEST', 'BULK_CARRIER', "
+                "50000, 'HFO')"
+            ),
+            {"id": new_id, "imo": f"9{new_id.int % 1000000:06d}"},
+        )
+        await s.commit()
+    return new_id
+
+
+async def _wipe_vessel(vessel_id: UUID) -> None:
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        await s.execute(
+            text(
+                "DELETE FROM not_underway_fuel_use WHERE period_id IN "
+                "(SELECT id FROM not_underway_period WHERE vessel_id = :v)"
+            ),
+            {"v": vessel_id},
+        )
+        await s.execute(
+            text("DELETE FROM not_underway_period WHERE vessel_id = :v"), {"v": vessel_id}
+        )
+        await s.execute(text("DELETE FROM vessel WHERE id = :v"), {"v": vessel_id})
+        await s.commit()
+
+
+async def _live_period_count(vessel_id: UUID) -> int:
+    from cii_platform.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as s:
+        row = await s.execute(
+            text(
+                "SELECT COUNT(*) FROM not_underway_period WHERE vessel_id = :v AND is_deleted = 0"
+            ),
+            {"v": vessel_id},
+        )
+        return int(row.scalar_one())
+
+
+def _hold_after_overlap_check(monkeypatch, *, slow: dict, checked: asyncio.Event) -> None:
+    """``slow["session"]``의 겹침 조회 **직후**(쓰기·커밋 전)에 0.5초 머물게 한다.
+
+    다른 세션은 건드리지 않는다. 잠금이 있으면 두 번째 세션은 이 0.5초 안에 첫 세션의
+    선박 행 잠금에 걸리고, 없으면 그 사이 조회·저장·커밋을 끝낸다.
+    """
+    real = nu_repo.find_overlapping
+
+    async def find_then_hold(session, **kw):
+        clash = await real(session, **kw)
+        if session is slow.get("session"):
+            checked.set()
+            await asyncio.sleep(0.5)
+        return clash
+
+    monkeypatch.setattr(nu_repo, "find_overlapping", find_then_hold)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_creates_leave_one_period(migrated_db, app_fresh_engine, monkeypatch):
+    """겹치는 구간을 동시에 만들면 **하나만 남고 다른 하나는 409**다.
+
+    잠금이 없으면 두 번째 세션이 첫 세션의 조회와 커밋 사이를 그대로 지나가 **둘 다
+    저장된다** — 여기가 2가 되고, 두 번째도 「저장됨」으로 끝난다.
+    """
+    from cii_platform.db.session import get_sessionmaker
+
+    maker = get_sessionmaker()
+    vessel_id = await _seed_committed_vessel()
+    try:
+        checked = asyncio.Event()
+        slow: dict = {}
+        _hold_after_overlap_check(monkeypatch, slow=slow, checked=checked)
+
+        async def first() -> None:
+            async with maker() as s:
+                slow["session"] = s
+                await _create(s, vessel_id, start=_at(8, 10), end=_at(8, 12))
+
+        async def second() -> str:
+            # 첫 세션이 조회에 닿기 전에 죽으면 신호가 오지 않는다 — 영영 기다리지 않는다.
+            await asyncio.wait_for(checked.wait(), timeout=10)
+            async with maker() as s:
+                try:
+                    await _create(s, vessel_id, start=_at(8, 11), end=_at(8, 13))
+                except ConflictError:
+                    return "conflict"
+                return "stored"
+
+        _, outcome = await asyncio.gather(first(), second())
+
+        assert outcome == "conflict", (
+            "두 번째 요청이 첫 요청의 조회와 커밋 사이를 지나갔다 — 선박 행 잠금이 없다"
+        )
+        assert await _live_period_count(vessel_id) == 1
+    finally:
+        await _wipe_vessel(vessel_id)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_update_and_create_leave_one_period(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """수정 경로도 같은 잠금을 지난다 — 구간을 옮기는 사이에 그 자리로 새 구간이 못 든다.
+
+    첫 세션이 8월 구간을 9월로 옮기는 동안 두 번째 세션이 9월에 겹치는 구간을 만든다.
+    잠금이 없으면 두 번째는 **아직 8월에 있는** 구간만 보고 통과해, 커밋 뒤 9월에
+    겹치는 구간이 둘 남는다.
+    """
+    from cii_platform.db.session import get_sessionmaker
+
+    maker = get_sessionmaker()
+    vessel_id = await _seed_committed_vessel()
+    try:
+        async with maker() as setup:
+            august = await _create(setup, vessel_id, start=_at(8, 10), end=_at(8, 12))
+        period_id = uuid_of(august)
+
+        checked = asyncio.Event()
+        slow: dict = {}
+        _hold_after_overlap_check(monkeypatch, slow=slow, checked=checked)
+
+        async def first() -> None:
+            async with maker() as s:
+                slow["session"] = s
+                await update_period(s, period_id, started_at=_at(9, 1), ended_at=_at(9, 3))
+
+        async def second() -> str:
+            # 첫 세션이 조회에 닿기 전에 죽으면 신호가 오지 않는다 — 영영 기다리지 않는다.
+            await asyncio.wait_for(checked.wait(), timeout=10)
+            async with maker() as s:
+                try:
+                    await _create(s, vessel_id, start=_at(9, 2), end=_at(9, 4))
+                except ConflictError:
+                    return "conflict"
+                return "stored"
+
+        _, outcome = await asyncio.gather(first(), second())
+
+        assert outcome == "conflict", "옮겨지는 중인 구간의 새 자리에 다른 구간이 들어갔다"
+        assert await _live_period_count(vessel_id) == 1
+    finally:
+        await _wipe_vessel(vessel_id)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_import_sees_the_committed_period(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """CSV 가져오기도 행마다 같은 검사를 지난다 — 겹치는 행은 **행 오류**로 떨어진다.
+
+    가져오기는 ``create_period``를 행 단위로 부르므로 잠금을 따로 두지 않는다. 그 사실이
+    실제로 성립하는지를 본다 — 잠금이 생성 함수 안이 아니라 라우트에 있었다면 여기가
+    「1건 가져옴 · 구간 2건」이 된다.
+    """
+    from cii_platform.db.session import get_sessionmaker
+    from cii_platform.services.not_underway_import import import_not_underway_periods
+
+    maker = get_sessionmaker()
+    vessel_id = await _seed_committed_vessel()
+    try:
+        checked = asyncio.Event()
+        slow: dict = {}
+        _hold_after_overlap_check(monkeypatch, slow=slow, checked=checked)
+
+        async def first() -> None:
+            async with maker() as s:
+                slow["session"] = s
+                await _create(s, vessel_id, start=_at(8, 10), end=_at(8, 12))
+
+        async def second() -> dict:
+            # 첫 세션이 조회에 닿기 전에 죽으면 신호가 오지 않는다 — 영영 기다리지 않는다.
+            await asyncio.wait_for(checked.wait(), timeout=10)
+            content = (
+                b"period_type,started_at,ended_at,distance_nm,fuel_type,fuel_ton,"
+                b"consumer_type,port_name\n"
+                b"AT_ANCHOR,2026-08-11T00:00:00+00:00,2026-08-13T00:00:00+00:00,0,HFO,1,"
+                b"AUX_ENGINE,Busan\n"
+            )
+            async with maker() as s:
+                return await import_not_underway_periods(s, vessel_id, content=content)
+
+        _, result = await asyncio.gather(first(), second())
+
+        assert result["imported_count"] == 0, result
+        assert [(e["row"], e["field"]) for e in result["errors"]] == [(2, "started_at")]
+        assert await _live_period_count(vessel_id) == 1
+    finally:
+        await _wipe_vessel(vessel_id)
