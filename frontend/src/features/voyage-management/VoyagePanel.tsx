@@ -270,8 +270,8 @@ export function VoyagePanel({
                 <th scope="col">항차</th>
                 <th scope="col">구간</th>
                 <th scope="col">상태</th>
-                <th scope="col">거리 (nm)</th>
-                <th scope="col">연료 (t)</th>
+                <th scope="col">거리 ({DISPLAY_UNITS.distance})</th>
+                <th scope="col">연료 ({DISPLAY_UNITS.fuel})</th>
                 <th scope="col">계획 대비</th>
                 <th scope="col">
                   <span className="sr-only">조치</span>

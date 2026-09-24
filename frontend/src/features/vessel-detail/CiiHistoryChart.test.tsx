@@ -3,6 +3,7 @@ import '../../test/renderSetup'
 
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
+import { DISPLAY_UNITS } from '../../display/format'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import type { CiiYear } from './types'
 
@@ -188,6 +189,37 @@ describe('연도별 연료 내역 (#769)', () => {
     expect(fuelTon).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
     expect(co2Ton).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
     expect(share).not.toContain(',')
+  })
+
+  /**
+   * 머리글 단위 (`DESIGN_SYSTEM §4.2` · #1857).
+   *
+   * 연료 질량과 CO₂ 질량이 한 표에 나란히 놓인다. 둘 다 `t`로 적으면 무엇의 질량인지
+   * 구분되지 않는다 — 그래서 CO₂는 `tCO₂`다. 문구가 아니라 **단위의 출처**를 단언한다.
+   */
+  it('투입·CO₂ 머리글 단위는 DISPLAY_UNITS에서 오고 서로 다르다', () => {
+    const { container } = render(
+      <CiiHistoryChart
+        years={[
+          year({
+            regulationYear: 2026,
+            fuels: [
+              { fuelType: 'HFO', fuelTon: '300.00', co2Ton: '934.20', co2SharePercent: '100.0' },
+            ],
+          }),
+        ]}
+        basis="DWT"
+      />,
+    )
+
+    const heads = [...(fuelTable(container) as HTMLTableElement).querySelectorAll('thead th')].map(
+      (cell) => cell.textContent ?? '',
+    )
+    const fuelHead = heads.find((text) => text.startsWith('투입'))
+    const co2Head = heads.find((text) => text.startsWith('CO₂'))
+    expect(fuelHead).toContain(`(${DISPLAY_UNITS.fuel})`)
+    expect(co2Head).toContain(`(${DISPLAY_UNITS.co2})`)
+    expect(DISPLAY_UNITS.co2).not.toBe(DISPLAY_UNITS.fuel)
   })
 
   it('연료 내역이 없으면 표 자체를 그리지 않는다', () => {

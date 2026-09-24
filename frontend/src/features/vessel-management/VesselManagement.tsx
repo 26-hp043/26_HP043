@@ -22,7 +22,7 @@ import {
   type EditErrors,
   type VesselEditState,
 } from './editRules'
-import { DISPLAY_UNIT_DAILY_FUEL } from '../../display/format'
+import { DISPLAY_UNIT_DAILY_FUEL, DISPLAY_UNITS } from '../../display/format'
 import {
   LOADED_PARTIAL_HINT,
   MISSING,
@@ -862,7 +862,7 @@ function EditForm({
         )}
       </Field>
 
-      <Field id="vm-referenceSpeedKn" label="기준속도 (kn)" error={errors[EDIT_FIELD.referenceSpeedKn]}>
+      <Field id="vm-referenceSpeedKn" label={`기준속도 (${DISPLAY_UNITS.speed})`} error={errors[EDIT_FIELD.referenceSpeedKn]}>
         {(control) => (
           <input
             {...control}
