@@ -28,6 +28,7 @@ type FakeMapRecord = {
   remove: ReturnType<typeof vi.fn>
   on: ReturnType<typeof vi.fn>
   addLayer: ReturnType<typeof vi.fn>
+  addSource: ReturnType<typeof vi.fn>
   options: { style?: { sources?: Record<string, { attribution?: string }> } }
 }
 const mapsCreated = (): FakeMapRecord[] =>
@@ -84,7 +85,7 @@ vi.mock('maplibre-gl', () => {
 vi.mock('pmtiles', () => ({ Protocol: class { tile = vi.fn() } }))
 vi.mock('@protomaps/basemaps', () => ({ layers: () => [], namedFlavor: () => ({}) }))
 
-const { FleetMap, ROUTE_ATTRIBUTION, ROUTE_UNAVAILABLE_TEXT } = await import('./FleetMap')
+const { FleetMap, ROUTE_ATTRIBUTION, ROUTE_PARTIAL_TEXT, ROUTE_UNAVAILABLE_TEXT } = await import('./FleetMap')
 
 /*
  * 항로선은 서버에서 온다 (`#1300`). 기본 대역은 **아무 경로도 묻지 않는 배**(항차 없음)라
@@ -330,6 +331,68 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     await waitFor(() => expect(fetchImpl).toHaveBeenCalled())
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(screen.queryByText(ROUTE_UNAVAILABLE_TEXT)).toBeNull()
+  })
+
+  it('실패 뒤 재시도 신호가 바뀌면 못 받은 선만 다시 묻고, 받으면 실패 문장이 사라진다 (#1856)', async () => {
+    let healthy = false
+    const fetchImpl = vi.fn(async () => (healthy ? jsonResponse(SEA_LINE) : jsonResponse({}, 503)))
+    vi.stubGlobal('fetch', fetchImpl)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const { rerender } = render(<FleetMap vessels={[underway()]} retryToken={0} />)
+    expect(await screen.findByText(ROUTE_UNAVAILABLE_TEXT)).toBeTruthy()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+    // 같은 신호로 다시 그려도 묻지 않는다 — 폭주 방지.
+    rerender(<FleetMap vessels={[underway()]} retryToken={0} />)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+    // 서버가 회복됐고 사용자가 「다시 시도」를 눌렀다.
+    healthy = true
+    rerender(<FleetMap vessels={[underway()]} retryToken={1} />)
+    await waitFor(() => expect(screen.queryByText(ROUTE_UNAVAILABLE_TEXT)).toBeNull())
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+
+    // 받은 선은 다음 재시도에서 다시 묻지 않는다.
+    rerender(<FleetMap vessels={[underway()]} retryToken={2} />)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('우회만 실패하면 직항 선은 남고, 문장은 「전부 못 받음」과 다르다 (#1856)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) =>
+        String(input).includes('via_lat') ? jsonResponse({}, 404) : jsonResponse(SEA_LINE),
+      ),
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mapsCreated().length = 0
+    const ends = { departureLat: 35.1, departureLon: 129.0333, arrivalLat: 1.2833, arrivalLon: 103.85 }
+
+    render(
+      <FleetMap
+        vessels={[vessel('1', '35.1', '129.0')]}
+        routes={[
+          { ...ends, name: '직항', kind: 'DIRECT' },
+          { ...ends, name: '우회', kind: 'DETOUR', via: { lat: 21.3, lon: -157.87 } },
+        ]}
+      />,
+    )
+    fireLoad()
+
+    expect(await screen.findByText(ROUTE_PARTIAL_TEXT)).toBeTruthy()
+    // 일부 실패 문장은 전부 실패 문장과 다르다 — 받은 선이 그려져 있으니 「위치만」은 거짓이다.
+    expect(ROUTE_PARTIAL_TEXT).not.toBe(ROUTE_UNAVAILABLE_TEXT)
+    expect(screen.queryByText(ROUTE_UNAVAILABLE_TEXT)).toBeNull()
+    const map = mapsCreated()[0]
+    await waitFor(() => {
+      const data = map.addSource.mock.calls.at(-1)?.[1] as {
+        data: { features: { properties: { kind: string } }[] }
+      }
+      expect(data.data.features.map((feature) => feature.properties.kind)).toEqual(['DIRECT'])
+    })
   })
 
   it('경로망 출처가 지도 스타일의 소스에 실린다 — 「© OpenStreetMap」과 나란히', () => {

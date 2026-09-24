@@ -116,4 +116,35 @@ describe('useSeaRoutes', () => {
     // 같은 열쇠 둘 + 다른 열쇠 하나 = 요청 둘.
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
+
+  it('재시도 신호가 바뀌면 실패한 열쇠만 다시 묻는다 — 받은 선은 다시 묻지 않는다 (#1856)', async () => {
+    const failing: SeaRouteRequest = { ...BUSAN_TO_SINGAPORE, toLat: 51.9 }
+    let healthy = false
+    const fetchImpl = vi.fn(async (input: unknown) =>
+      String(input).includes('to_lat=51.9') && !healthy ? jsonResponse({}, 500) : jsonResponse(LINE),
+    )
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const requests = [BUSAN_TO_SINGAPORE, failing]
+
+    const { result, rerender } = renderHook(
+      ({ token, list }: { token: number; list: SeaRouteRequest[] }) =>
+        useSeaRoutes(list, fetchImpl, token),
+      { initialProps: { token: 0, list: requests } },
+    )
+    await waitFor(() => expect(result.current[seaRouteKey(failing)]).toBe('failed'))
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+
+    // 목록만 바뀌면(같은 신호) 실패를 다시 묻지 않는다 — 종전의 폭주 방지.
+    rerender({ token: 0, list: [...requests] })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+
+    healthy = true
+    rerender({ token: 1, list: requests })
+    await waitFor(() => expect(result.current[seaRouteKey(failing)]).toMatchObject({ legs: 1 }))
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    const urls = fetchImpl.mock.calls.map(([input]) => String(input))
+    expect(urls.filter((url) => url.includes('to_lat=51.9'))).toHaveLength(2)
+    expect(urls.filter((url) => url.includes('to_lat=1.2833'))).toHaveLength(1)
+  })
 })
