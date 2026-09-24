@@ -640,6 +640,58 @@ csql -u dba cii -c "SELECT id, voyage_id, speed_kn FROM voyage_scenario WHERE sp
 docker compose -f docker-compose.prod.app.yml run --rm backend alembic upgrade head
 ```
 
+#### 3.6.6 DB 복구(`db_backup.py restore`) — 분리 배포의 순서와 교체가 중간에 멈췄을 때 (#1635)
+
+> 번호 — `§3.6.5`는 마이그레이션 `062`의 속력 초과 멈춤(`#1269` · PR #1890)이 쓴다.
+
+**앱은 운영 이름의 DB가 제자리에 떠 있을 때만 켠다** — 없는 DB를 향해 켜진 앱보다 꺼진 앱이
+낫다(결정 F-13). 스크립트는 교체의 어느 단계가 실패해도 아래 표대로 되돌리거나 멈추고,
+어느 경우든 종료 코드 1이다.
+
+| 실패한 단계 | 남는 상태 · 스크립트가 한 일 | 앱 |
+|---|---|---|
+| 대조(복구한 새 DB의 리비전·행 수·트리거) | 새 DB를 지웠다 — 운영 DB는 손대지 않았다 | 멈추지 않았다 |
+| 운영 DB → 보관 이름(`cii` → `cii_b<시각>`) | 이름이 그대로다 — 운영 서버를 다시 켰다 | 켰다 |
+| 새 DB → 운영 이름(`cii_s<시각>` → `cii`) | 보관 이름을 **운영 이름으로 되돌리고** 켰다. 새 DB는 `cii_s<시각>`로 남는다 | 켰다 |
+| └ 되돌림도 실패 | **멈췄다.** 문구가 두 이름과 수동 명령을 준다 | **켜지 않았다** |
+| 새 운영 DB 서버 기동 | **멈췄다.** 이전 운영 DB는 `cii_b<시각>`로 남는다 | **켜지 않았다** |
+
+수동 복구(앱을 켜지 않고 멈춘 두 경우) — 문구가 준 이름 그대로 친다.
+
+```bash
+# 되돌림이 실패했을 때 — 이전 운영 DB를 제 이름으로
+cubrid renamedb cii_b<시각> cii && cubrid server start cii
+# 새 운영 DB가 켜지지 않았을 때 — 새 DB를 비키고 이전 운영 DB를 제 이름으로
+cubrid renamedb cii cii_s<시각> && cubrid renamedb cii_b<시각> cii && cubrid server start cii
+# 그다음 앱을 켠다(단일 호스트: docker compose start app · 분리 배포: 아래 5))
+```
+
+**분리 배포(db-01 · app-01)** — db-01에는 앱 서비스가 없다. 스크립트는 다른 호스트를 다루지
+않고(결정 F-13 「가」), 운영자가 앱을 멈추고 켠다. `APP_SERVICE=none`이면 스크립트가 앱을
+건드리지 않으며, **`--app-stopped` 없이는 교체를 시작하지 않는다.**
+
+```bash
+# 1) db-01 — 백업과 리허설
+export COMPOSE="docker compose -f docker-compose.prod.db.yml" DB_SERVICE=cubrid APP_SERVICE=none
+python3 scripts/db_backup.py backup
+python3 scripts/db_backup.py rehearse backups/<파일>.dump
+# 2) app-01 — 앱을 멈춘다
+docker compose -f docker-compose.prod.app.yml stop backend
+# 3) db-01 — 교체(앱을 멈췄다고 적는다)
+python3 scripts/db_backup.py restore backups/<파일>.dump --confirm cii --app-stopped
+# 4) 3)이 「복구 완료」면 app-01에서 앱을 켠다. 실패 문구가 「앱을 켜지 않았습니다」면 켜지 말고
+#    위 수동 복구부터
+docker compose -f docker-compose.prod.app.yml up -d backend
+# 5) 헬스
+curl -fsS http://127.0.0.1:8001/api/v1/health
+```
+
+⚠️ **「살아 있는 접속이 있으면 거부」를 하지 않는 이유** — 결정 F-13은 그것을 적었으나 실측상
+판정 수단이 없다. db-01 브로커의 CAS가 앱이 끊긴 뒤에도 DB 연결을 붙잡고 있어
+(`cubrid tranlist` — 앱 중지 직후 `ACTIVE` 9 · 80초 뒤 5 · 2026-09-25 로컬) 앱 접속과 구별되지
+않는다. 그래서 운영자가 2)를 했다는 것을 `--app-stopped`로 명시하게 했다. 실서버 리허설
+1회(`#788`·`#789`)는 사람이 이 순서를 한 번 밟아 본다.
+
 ---
 
 ## 4. 보안

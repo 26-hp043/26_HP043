@@ -147,6 +147,16 @@ TAG_KEPT = "_b"
 #: DB 컨테이너의 compose 서비스 이름 (`#1330`). ``DB_SERVICE``로 덮는다.
 DEFAULT_DB_SERVICE = "db"
 
+#: 복구 때 멈추고 켤 앱의 compose 서비스 이름 (`#1635` · 결정 F-13). ``APP_SERVICE``로 덮는다.
+#: **분리 배포(db-01)에는 앱이 없다** — 그때는 ``none``으로 두고, 운영자가 app-01에서 앱을
+#: 멈춘 뒤 ``--app-stopped``로 그 사실을 적는다(스크립트가 다른 호스트를 다루지 않는다).
+DEFAULT_APP_SERVICE = "app"
+NO_APP_SERVICE = "none"
+
+#: 분리 배포에서 운영자가 app-01에서 칠 명령 — 안내문이 그대로 보여 준다.
+SPLIT_APP_STOP = "docker compose -f docker-compose.prod.app.yml stop backend"
+SPLIT_APP_START = "docker compose -f docker-compose.prod.app.yml up -d backend"
+
 DUMP_PREFIX = "db"
 SCHEMA_MEMBER = f"{DUMP_PREFIX}_schema"
 INDEX_MEMBER = f"{DUMP_PREFIX}_indexes"
@@ -650,8 +660,66 @@ def rehearse(db: Db, dump: Path, keep_db: bool = False) -> str:
     )
 
 
+def _swap(db: Db, *, live: str, staged: str, kept: str, app: str | None) -> None:
+    """이름 교체와 서버 기동. 성공하면 앱을 켜고, 실패하면 위 표대로 되돌리거나 멈춘다."""
+    q_live, q_staged, q_kept = shlex.quote(live), shlex.quote(staged), shlex.quote(kept)
+
+    def start_app() -> None:
+        if app is not None:
+            db.compose_cmd("start", app)
+
+    # 갓 적재한 staged는 서버가 떠 있지 않지만, 확실히 멈춰 둔다 — 떠 있으면
+    # `renamedb`가 거부하고 그 자리에서 교체가 반쯤 끝난 상태가 된다.
+    db.sh(f"cubrid server stop {q_live} >/dev/null 2>&1 || true")
+    db.sh(f"cubrid server stop {q_staged} >/dev/null 2>&1 || true")
+    try:
+        db.sh(f"set -e; cubrid renamedb {q_live} {q_kept}")
+    except BackupError as error:
+        # 이름이 바뀌지 않았다 — 운영 DB가 제자리다. 서버만 다시 켠다.
+        db.sh(f"set -e; cubrid server start {q_live}")
+        start_app()
+        raise BackupError(
+            f"운영 DB 이름을 바꾸지 못했습니다 — 운영 DB는 그대로입니다({live}). {error}"
+        ) from error
+    try:
+        db.sh(f"set -e; cubrid renamedb {q_staged} {q_live}")
+    except BackupError as error:
+        # 운영 이름이 비었다 — 보관 이름을 운영 이름으로 되돌린다.
+        try:
+            db.sh(f"set -e; cubrid renamedb {q_kept} {q_live}")
+            db.sh(f"set -e; cubrid server start {q_live}")
+        except BackupError as rollback_error:
+            raise BackupError(
+                f"새 DB를 {live}로 바꾸지 못했고, 되돌리기({kept} → {live})도 실패했습니다 — "
+                f"앱을 켜지 않았습니다. 지금 이름: 이전 운영 DB = {kept} · 새 DB = {staged}. "
+                f"수동 복구: cubrid renamedb {kept} {live} && cubrid server start {live} "
+                f"(docs/OPERATIONS.md §3.6.6). 원인: {error} / 되돌림: {rollback_error}"
+            ) from rollback_error
+        start_app()
+        raise BackupError(
+            f"새 DB를 {live}로 바꾸지 못해 이전 운영 DB로 되돌렸습니다 — 운영 DB는 그대로입니다. "
+            f"새 DB는 {staged}로 남아 있습니다. {error}"
+        ) from error
+    try:
+        db.sh(f"set -e; cubrid server start {q_live}")
+    except BackupError as error:
+        raise BackupError(
+            f"새 운영 DB({live}) 서버를 켜지 못했습니다 — 앱을 켜지 않았습니다. 이전 운영 DB는 "
+            f"{kept}로 남아 있습니다. 되돌리려면: cubrid renamedb {live} {staged} && "
+            f"cubrid renamedb {kept} {live} && cubrid server start {live} "
+            f"(docs/OPERATIONS.md §3.6.6). {error}"
+        ) from error
+    start_app()
+
+
 def restore(
-    db: Db, dump: Path, confirm: str, now: Callable[[], datetime] = lambda: datetime.now(UTC)
+    db: Db,
+    dump: Path,
+    confirm: str,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
+    *,
+    app_service: str = DEFAULT_APP_SERVICE,
+    app_stopped: bool = False,
 ) -> str:
     """운영 DB를 덤프로 **교체**한다. 기존 DB는 지우지 않고 이름을 바꿔 남긴다.
 
@@ -661,7 +729,38 @@ def restore(
 
     ``renamedb``는 **서버가 멈춘 DB만** 바꿀 수 있다. 그래서 ``pg_terminate_backend``의
     자리에 ``cubrid server stop``이 들어간다.
+
+    ## 교체가 중간에 실패하면 (`#1635` · 결정 F-13)
+
+    **앱은 운영 이름의 DB가 제자리에 떠 있을 때만 켠다** — 없는 DB를 향해 켜진 앱보다 꺼진
+    앱이 낫다. 단계별로 남는 상태가 다르다.
+
+    ==============================  ==========================================  ==========
+     실패한 단계                     남는 상태 · 처리                              앱
+    ==============================  ==========================================  ==========
+     운영 DB → 보관 이름              이름이 그대로 — 운영 서버를 다시 켠다          켠다
+     새 DB → 운영 이름               보관 이름을 **운영 이름으로 되돌리고** 켠다     켠다
+     └ 되돌림도 실패                 두 이름을 적고 멈춘다(수동 복구)               켜지 않는다
+     새 운영 DB 서버 기동            DB 이름을 적고 멈춘다(수동 복구)               켜지 않는다
+    ==============================  ==========================================  ==========
+
+    어느 경우든 :class:`BackupError`로 끝나 CLI는 종료 코드 1이다.
+
+    ## 분리 배포 — ``app_service="none"``
+
+    db-01에는 앱 서비스가 없다. 스크립트는 앱을 다루지 않고, 운영자가 app-01에서
+    ``stop backend``를 먼저 했다는 것을 ``app_stopped=True``(CLI ``--app-stopped``)로 받는다.
+    없으면 **교체를 시작하지 않는다.** 살아 있는 접속으로 판정하지 않는 이유 — db-01 브로커의
+    CAS가 앱이 끊긴 뒤에도 연결을 붙잡고 있어(`cubrid tranlist` 실측: 앱 중지 80초 뒤에도
+    9 → 5) 앱 접속과 구별되지 않는다.
     """
+    app = None if app_service == NO_APP_SERVICE else app_service
+    if app is None and not app_stopped:
+        raise BackupError(
+            "분리 배포(APP_SERVICE=none)에서는 app-01에서 앱을 먼저 멈춰야 합니다 — "
+            f"app-01에서 `{SPLIT_APP_STOP}` 뒤 --app-stopped를 붙여 다시 실행하십시오. "
+            "운영 DB는 그대로입니다."
+        )
     manifest = load_manifest(dump)
     live = db.live_name()
     if confirm != live:
@@ -679,17 +778,15 @@ def restore(
     if problems:
         _drop_database(db, staged)
         raise BackupError("복구 대조 실패 — 운영 DB는 그대로입니다: " + " · ".join(problems))
-    db.compose_cmd("stop", "app")
-    try:
-        # 갓 적재한 staged는 서버가 떠 있지 않지만, 확실히 멈춰 둔다 — 떠 있으면
-        # `renamedb`가 거부하고 그 자리에서 교체가 반쯤 끝난 상태가 된다.
-        db.sh(f"cubrid server stop {shlex.quote(live)} >/dev/null 2>&1 || true")
-        db.sh(f"cubrid server stop {shlex.quote(staged)} >/dev/null 2>&1 || true")
-        db.sh(f"set -e; cubrid renamedb {shlex.quote(live)} {shlex.quote(kept)}")
-        db.sh(f"set -e; cubrid renamedb {shlex.quote(staged)} {shlex.quote(live)}")
-        db.sh(f"set -e; cubrid server start {shlex.quote(live)}")
-    finally:
-        db.compose_cmd("start", "app")
+    if app is not None:
+        db.compose_cmd("stop", app)
+    _swap(db, live=live, staged=staged, kept=kept, app=app)
+    if app is None:
+        return (
+            f"복구 완료 — {live}를 {dump.name}로 교체했습니다. 이전 DB는 {kept}로 남겼습니다. "
+            f"app-01에서 앱을 다시 켜십시오: `{SPLIT_APP_START}`. "
+            f"확인이 끝나면 이전 DB를 지우십시오: cubrid deletedb {kept}"
+        )
     # nginx는 기동할 때 `app`의 주소를 한 번 풀어 둔다(`frontend/nginx.conf`의 `proxy_pass`).
     # 앱 컨테이너를 멈췄다 켜면 주소가 바뀔 수 있고, 그러면 화면이 502를 낸다 — 화면이 떠
     # 있을 때만 다시 띄워 주소를 새로 풀게 한다(개발 스택에는 화면 서비스가 없을 수 있다).
@@ -717,6 +814,11 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_process) -> int
     p_res = sub.add_parser("restore", help="운영 DB를 덤프로 교체한다(이전 DB는 남긴다)")
     p_res.add_argument("dump", type=Path)
     p_res.add_argument("--confirm", required=True, help="운영 DB 이름을 그대로 적는다")
+    p_res.add_argument(
+        "--app-stopped",
+        action="store_true",
+        help="분리 배포(APP_SERVICE=none) — app-01에서 앱을 이미 멈췄다 (#1635)",
+    )
     args = parser.parse_args(argv)
 
     db = Db(
@@ -733,7 +835,15 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_process) -> int
         elif args.command == "rehearse":
             print(rehearse(db, args.dump, keep_db=args.keep_db))
         else:
-            print(restore(db, args.dump, args.confirm))
+            print(
+                restore(
+                    db,
+                    args.dump,
+                    args.confirm,
+                    app_service=os.environ.get("APP_SERVICE", DEFAULT_APP_SERVICE),
+                    app_stopped=args.app_stopped,
+                )
+            )
     except BackupError as error:
         print(f"실패: {error}", file=sys.stderr)
         return 1
