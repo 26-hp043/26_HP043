@@ -38,7 +38,7 @@ export interface ApplicabilityInput {
  *
  * 서버는 GT 기준으로 판정하는데, **GT가 비어 있어도 `false`가 나온다.** 두 경우에
  * 같은 말을 하면 총톤수를 넣지 않은 사용자가 「이 배는 규제 대상이 아니다」로 읽는다.
- * 데모 시드의 실선 2척(`STAR SKIPPER` · `DONGJIN ENDURANCE`)이 정확히 후자다.
+ * 데모 시드의 실선 2척이 한때 정확히 후자였다(GT 미입력 — `#1807`이 원 출처 GT로 채웠다).
  */
 export function applicabilityState({
   isCiiApplicableHint,
