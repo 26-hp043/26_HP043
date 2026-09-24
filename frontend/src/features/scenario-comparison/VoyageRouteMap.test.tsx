@@ -19,11 +19,13 @@ vi.mock('../fleet/FleetMap', () => ({
     caption: unknown
     ariaLabel: string
     routeUnavailableText?: string
+    routePartialText?: string
   }) => (
     <div
       data-testid="map"
       data-routes={JSON.stringify(props.routes)}
       data-unavailable={props.routeUnavailableText ?? ''}
+      data-partial={props.routePartialText ?? ''}
       aria-label={props.ariaLabel}
     >
       {props.caption as never}
@@ -85,6 +87,18 @@ describe('항로 비교 지도 — 선의 수 (#1300)', () => {
     expect(text).not.toMatch(/위치만/)
     // 표가 차이를 말한다는 것은 남는다 — 지도가 빠져도 화면이 답을 잃지 않는다.
     expect(text).toMatch(/표/)
+  })
+
+  it('선 일부만 못 받았을 때의 문장도 이 화면의 것이다 — 「위치만 표시」가 아니고 전부 실패와 다르다 (#1856)', async () => {
+    render(<VoyageRouteMap {...ENDS} />)
+
+    const map = await screen.findByTestId('map')
+    const partial = map.getAttribute('data-partial') ?? ''
+    // 넘기지 않으면 선대 기본 문장(「…위치만 표시합니다」)이 이 화면에 뜬다 — 선박이 없는 화면이라 거짓이다.
+    expect(partial.length).toBeGreaterThan(0)
+    expect(partial).not.toMatch(/위치만/)
+    expect(partial).not.toBe(map.getAttribute('data-unavailable'))
+    expect(partial).toMatch(/표/)
   })
 
   it('경유지 좌표가 반쪽이면 우회 선을 그리지 않는다 — 반쪽 좌표는 위치가 아니다', async () => {
