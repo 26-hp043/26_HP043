@@ -20,6 +20,12 @@
 # 작업 사본이 CRLF로 바뀌어 불필요한 변경이 생길 수 있다. **필요해지면 그때 별도로
 # 판단한다.**
 #
+# ## 예외 — `*.sh`(`#1620`)
+#
+# `scripts/demo_up.sh`가 Windows checkout에서 CRLF로 바뀌면 Git Bash·WSL의 `bash -n`이
+# `do\r` 구문 오류로 실행 자체를 막으므로, 실행 대상인 `.sh`만 `eol=lf`로 체크아웃을
+# 고정한다 — 추적 파일이 이미 전부 LF라 재정규화 커밋은 생기지 않는다.
+#
 # ## 실제 바이너리는 적지 않는다
 #
 # git의 자동 판정이 이미 처리한다. 아래 목록에 없는 확장자는 종전과 같이 동작한다.
@@ -40,6 +46,7 @@
 *.ini    diff
 *.cfg    diff
 *.sh     diff
+*.sh     text eol=lf
 *.sql    diff
 *.csv    diff
 *.svg    diff
