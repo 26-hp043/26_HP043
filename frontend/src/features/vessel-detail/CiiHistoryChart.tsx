@@ -1,6 +1,6 @@
 import type { CapacityBasis } from '../voyage-cii/types'
 import { ciiUnit } from '../voyage-cii/resultRules'
-import { DISPLAY_DIGITS, formatDecimalString, formatGrouped } from '../../display/format'
+import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped } from '../../display/format'
 import type { CiiYear } from './types'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { voyageCountText } from './voyageCount'
@@ -303,8 +303,8 @@ function FuelTable({ years }: { years: CiiYear[] }) {
           <tr>
             <th scope="col">연도</th>
             <th scope="col">유종</th>
-            <th scope="col">투입 (t)</th>
-            <th scope="col">CO₂ (t)</th>
+            <th scope="col">투입 ({DISPLAY_UNITS.fuel})</th>
+            <th scope="col">CO₂ ({DISPLAY_UNITS.co2})</th>
             <th scope="col">비중 (%)</th>
           </tr>
         </thead>
