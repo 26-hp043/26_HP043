@@ -632,8 +632,12 @@ cat <<'GUIDE'
 
      await fetch('/api/v1/auth/dev-login', { method: 'POST' }); location.href = '/'
 
- 종료
+ 종료 (데이터 보존 — 다음에 그대로 이어서 쓴다)
      pkill -f "uvicorn cii_platform"
-     docker compose down
+     docker compose stop
+
+ ⚠️ docker compose down은 쓰지 마세요 — CUBRID 데이터는 명명 볼륨이 아니라
+    이미지가 선언한 익명 볼륨에 있어(#1867), down은 -v 없이도 다음 up에서
+    새 익명 볼륨을 만들어 cii·cii_test를 빈 채로 띄웁니다.
 ──────────────────────────────────────────────────────────────
 GUIDE

@@ -27,6 +27,16 @@ services:
     # CUBRID는 컨테이너 호스트명을 databases.txt에 기록한다. 고정하지 않으면
     # docker compose down && up 시 새 호스트명이 생기고, 브로커가
     # "Failed to connect to database server, 'cii', on <old-hostname>"으로 실패한다.
+    #
+    # ⚠️ 그런데 호스트명을 고정해도 데이터 자체는 지켜지지 않는다 — 실제 DB 파일은
+    # 아래 `cubrid-data`(→ /var/lib/cubrid, 비어 있다)가 아니라 이미지가 선언한
+    # 익명 볼륨(`VOLUME $CUBRID_DATABASES` = /home/cubrid/CUBRID/databases)에 있다.
+    # `docker compose down`은 `-v` 없이도 다음 `up`에서 그 익명 볼륨을 재사용하지
+    # 않고 새로 만들어 빈 DB로 뜨게 한다(2026-09-24 로컬 실측 · #1867). 재생성
+    # (`up -d`, `--force-recreate` 포함)은 안전 — 같은 익명 볼륨을 그대로 쓴다.
+    # 옛 익명 볼륨은 지워지지 않고 고아로 남으므로(`docker volume ls`) 다시 붙이면
+    # 복구된다 — `docker volume prune`은 그 복구 가능성을 없앤다, 쓰지 않는다.
+    # 무손실 복구 절차는 docs/OPERATIONS.md §9.2.
     hostname: cii-cubrid
     restart: unless-stopped
     environment:
@@ -45,6 +55,11 @@ services:
       # ourtax-cubrid가 33000을 사용하므로 호스트 33100으로 매핑한다.
       - "33100:33000"
     volumes:
+      # ⚠️ 여기는 비어 있다 — 운영 데이터는 이 마운트가 아니라 이미지가 선언한
+      # 익명 볼륨(`$CUBRID_DATABASES` = /home/cubrid/CUBRID/databases)에 있다
+      # (#1867). 마운트 경로를 그 자리로 그냥 바꾸면 빈 `cubrid-data`가 데이터
+      # 경로를 덮어써 운영 DB가 사라진 것처럼 보인다 — 데이터를 먼저 옮기지
+      # 않고 경로만 바꾸지 않는다. 절차는 docs/OPERATIONS.md §9.2.
       - cubrid-data:/var/lib/cubrid
       # CUBRID 설정 -- 개별 파일을 read-only bind-mount한다.
       # 디렉토리 전체를 마운트하면 이미지가 기본 제공하는 SSL 인증서 등을 덮어쓴다.
