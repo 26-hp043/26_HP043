@@ -8,6 +8,7 @@
 - `#1079` 조건부 UPDATE(`WHERE status = 'DRAFT'`)가 최신 버전으로 재평가된다
 - `#1630` 부모 행 `FOR UPDATE`가 범위 검사 → INSERT를 직렬화한다
 - `#1631` 유니크 인덱스가 앞 트랜잭션의 커밋까지 기다렸다가 위반으로 떨어진다
+- `#1860`·`#1868` 잠금 순서(선박 → 항차)가 「FK 검사는 부모 행 S 잠금을 요구한다」에 기댄다
 
 서버 설정(`cubrid.conf` `isolation_level` · `lock_timeout`) · 드라이버 인자 · CUBRID
 판올림으로 이 전제가 바뀌어도 지금은 어느 검사도 알려 주지 않는다. `#1796`이 실측한
@@ -46,6 +47,8 @@ NO_WAIT_SEC = 0.5
 _TABLES: tuple[str, ...] = (
     "probe_iso_row",
     "probe_iso_period",
+    # FK 자식은 부모보다 먼저 지운다 — 부모를 먼저 지우면 FK가 막는다.
+    "probe_iso_fkchild",
     "probe_iso_parent",
     "probe_iso_uq",
     "probe_iso_voy",
@@ -60,6 +63,13 @@ _DDL: tuple[str, ...] = (
     "CREATE UNIQUE INDEX uq_probe_iso_k ON probe_iso_uq (k)",
     "CREATE TABLE probe_iso_voy (id INT PRIMARY KEY, status VARCHAR(16))",
     "INSERT INTO probe_iso_parent (id) VALUES (1)",
+    # FK 자식 (`#1868`) — 부모 1을 가리키는 행 하나와, 대조군용 부모 2를 가리키는 행 하나.
+    "INSERT INTO probe_iso_parent (id) VALUES (2)",
+    "CREATE TABLE probe_iso_fkchild (id INT PRIMARY KEY, parent_id INT NOT NULL, "
+    "val VARCHAR(20), CONSTRAINT fk_probe_iso_fkchild FOREIGN KEY (parent_id) "
+    "REFERENCES probe_iso_parent (id))",
+    "INSERT INTO probe_iso_fkchild (id, parent_id, val) VALUES (10, 1, 'c')",
+    "INSERT INTO probe_iso_fkchild (id, parent_id, val) VALUES (20, 2, 'c')",
 )
 
 
@@ -409,3 +419,92 @@ async def test_conditional_update_is_reevaluated_after_the_holder_commits(probe_
     assert await run(conditional=False) == (1, ("CANCELLED",)), (
         "무조건 UPDATE가 마지막 쓰기로 이기지 않았다"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ⑹ FK 검사는 부모 행 S 잠금을 요구한다 (#1860 · #1868)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _b_waits(a_sql: str, b_sql: str) -> tuple[float, Exception | None]:
+    """A가 ``a_sql`` 뒤 커밋 전에 머무는 동안 B의 ``b_sql``이 걸린 시간과 오류.
+
+    B는 lock timeout 1초 — 걸리면 약 1초 뒤 ``errno=-75``, 안 걸리면 곧바로 끝난다.
+    """
+    maker = _maker()
+    a_ready = asyncio.Event()
+    b_done = asyncio.Event()
+    seen: dict[str, object] = {}
+
+    async def a() -> None:
+        async with maker() as s:
+            await s.execute(text(a_sql))
+            a_ready.set()
+            await b_done.wait()
+            await s.rollback()
+
+    async def b() -> None:
+        await a_ready.wait()
+        async with maker() as s:
+            await _set_lock_timeout(s)
+            _rows, elapsed, err = await _timed(s.execute(text(b_sql)))
+            seen["r"] = (elapsed, err)
+            await s.rollback()
+        b_done.set()
+
+    await asyncio.gather(a(), b())
+    return seen["r"]  # type: ignore[return-value]
+
+
+def _waited_on_parent(err: Exception | None) -> bool:
+    """잠금 대기 한도에 걸렸고, 그 대상이 **부모 표**였는가 — 문구가 표 이름을 싣는다."""
+    return err is not None and "probe_iso_parent" in str(err) and "-75" in str(err)
+
+
+_LOCK_PARENT = "SELECT id FROM probe_iso_parent WHERE id = 1 FOR UPDATE"
+
+
+async def test_child_insert_waits_for_the_parent_row_x_lock(probe_tables):
+    """DB-ISO-006 — 부모 X 보유 중 자식 INSERT는 부모 행의 **S 잠금**을 기다린다 (`#1860` ⑻).
+
+    채택 `CREATE_NEW_VOYAGE`와 정박 구간 경로의 잠금 순서(선박 → 항차)가 이 성질에서 나왔다.
+    """
+    elapsed, err = await _b_waits(
+        _LOCK_PARENT, "INSERT INTO probe_iso_fkchild (id, parent_id, val) VALUES (11, 1, 'x')"
+    )
+    assert _waited_on_parent(err), f"자식 INSERT가 부모 잠금을 기다리지 않았다 — {err}"
+    assert "S_LOCK" in str(err), err
+    assert elapsed >= NO_WAIT_SEC
+
+
+async def test_child_insert_holds_the_parent_s_lock_until_commit(probe_tables):
+    """DB-ISO-007 — 자식 INSERT가 얻은 부모 S는 문장 뒤가 아니라 **커밋까지** 남는다 (`#1868` ⑽-a).
+
+    READ COMMITTED의 일반 SELECT는 S를 문장 뒤에 푼다. FK 검사의 S는 그렇지 않아서, 자식을
+    넣고 커밋 전에 머무는 세션이 있으면 그 부모의 `FOR UPDATE`가 기다린다.
+    """
+    elapsed, err = await _b_waits(
+        "INSERT INTO probe_iso_fkchild (id, parent_id, val) VALUES (12, 1, 'x')", _LOCK_PARENT
+    )
+    assert _waited_on_parent(err), f"부모 FOR UPDATE가 기다리지 않았다 — S가 풀려 있었다: {err}"
+    assert elapsed >= NO_WAIT_SEC
+
+
+async def test_child_update_rechecks_the_fk_even_when_it_does_not_change(probe_tables):
+    """DB-ISO-008 — FK 열을 바꾸지 않는 자식 UPDATE도 부모 S를 기다린다 (`#1868` ⑽-b).
+
+    이것 때문에 항차 X를 쥔 채 `voyage`를 UPDATE하는 다섯 경로가 전부 선박 S를 요구했고,
+    `#1877`이 그 다섯을 선박 → 항차 순으로 맞췄다. 대조군 — **다른 부모**의 자식 UPDATE는
+    기다리지 않는다(잠금이 부모 행 단위라는 것, 표 잠금이 아니라는 것).
+    """
+    elapsed, err = await _b_waits(
+        _LOCK_PARENT, "UPDATE probe_iso_fkchild SET val = 'y' WHERE id = 10"
+    )
+    assert _waited_on_parent(err), f"비-FK 열 UPDATE가 부모 잠금을 기다리지 않았다 — {err}"
+    assert elapsed >= NO_WAIT_SEC
+
+    elapsed, err = await _b_waits(
+        _LOCK_PARENT, "UPDATE probe_iso_fkchild SET val = 'y' WHERE id = 20"
+    )
+    assert err is None, f"다른 부모의 자식 UPDATE가 막혔다 — {err}"
+    assert elapsed < NO_WAIT_SEC, f"다른 부모의 자식 UPDATE가 {elapsed:.2f}s 기다렸다"
