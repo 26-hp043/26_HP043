@@ -159,6 +159,17 @@ function unreferencedExports(): string[] {
  * 이슈 완료 기준 그대로다 — 「남아 있다면 남긴 이유가 코드에 있다」.
  */
 const KEPT: Readonly<Record<string, string>> = {
+  // #1430 — 실험 렌더러의 계산/지리 데이터 경계. 제품 소비처가 생기기 전에도 계약으로 보존한다.
+  'features/annual-simulation/visualization/model.ts::AnnualSimulationRenderer':
+    '#1430 렌더러 교체 경계. MapLibre·Three 실험을 제품에 연결할 때 구현한다',
+  'features/annual-simulation/visualization/model.ts::AnnualSimulationRendererSession':
+    '#1430 렌더러의 mount/update/destroy 수명 주기 계약',
+  'features/annual-simulation/visualization/model.ts::AnnualSimulationVisualizationModel':
+    '#1430 계산 결과를 렌더러에 복사하는 출력 계약',
+  'features/annual-simulation/visualization/model.ts::MapGeometry':
+    '#1430 스냅샷 일치 여부를 검사하는 지리 데이터 입력 계약',
+  'features/annual-simulation/visualization/model.ts::SnapshotRouteGeometry':
+    '#1430 스냅샷 항차별 표시 좌표 계약. API_SPEC §6.1에는 아직 좌표가 없다',
   // ── 의도된 보관: 지금 쓰이지 않지만 지우지 않는다 ─────────────────────────
   'components/ComingSoon.tsx::ComingSoon':
     '#594 판정 — 렌더 소비처가 0곳이지만 미구현 화면의 표준 스텁이라 남긴다. ' +
