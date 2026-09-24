@@ -243,7 +243,10 @@ export function FleetDashboard() {
   const sorted = vessels
 
   // 받아 둔 목록이 없을 때만 화면 전체의 오류다 — 있으면 목록 자리에서 알린다 (`#1814`).
-  if (failure !== null && snapshot === null) {
+  // 다시 묻는 동안(`sortLoading`)은 오류가 아니라 아래 첫 불러오기와 같은 진행 중 화면이다 —
+  // 「다시 시도」를 두 번 눌러 요청이 겹치지 않게, 눌렀는데 아무 일도 없는 것처럼 보이지 않게
+  // 한다(목록 재시도 `#1814`와 같은 규칙).
+  if (failure !== null && snapshot === null && !sortLoading) {
     /*
      * 「다시 시도」는 목록 실패 재시도(아래 `onRetry={() => setRetryKey((k) => k + 1)}`,
      * `#1814`)와 **같은 경로**다 — 첫 페이지 조회를 다시 부른다(`#1871` ①). 서버가

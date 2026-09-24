@@ -518,11 +518,15 @@ describe('첫 조회 실패 뒤 다시 시도 (#1871)', () => {
     expect((alert.textContent ?? '').length).toBeGreaterThan(0)
     expect(screen.queryByRole('region', { name: '선박 목록' })).toBeNull()
 
+    // 정본 문구 (PRD §6.4) — 바꾸려면 PRD 개정이 먼저다.
     const retry = within(alert).getByRole('button', { name: '다시 시도' })
     fireEvent.click(retry)
 
     // 실패한 것과 같은 첫 페이지 조회를 다시 부른다
     await waitFor(() => expect(pending).toHaveLength(2))
+    // 응답을 기다리는 동안은 오류도 「다시 시도」도 없다 — 두 번 눌러 요청이 겹치지 않는다
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: '다시 시도' })).toBeNull()
     await act(async () => pending[1].d.resolve(ok(first())))
 
     expect(await screen.findByText('가선')).toBeTruthy()
