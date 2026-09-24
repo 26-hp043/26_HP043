@@ -770,7 +770,7 @@ function FleetPlaceholder({
       {tone === 'error' ? (
         <ErrorState level="page" message={message} onRetry={onRetry} />
       ) : (
-        <section className="empty empty--empty">
+        <section className="empty">
           <p className="empty__msg">{message}</p>
           <Link className="empty__cta" to="/vessel-registration">
             선박 등록하기
