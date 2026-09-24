@@ -491,10 +491,7 @@ def test_deploy_renders_app_env_with_staging_default():
         "deploy.yml이 APP_ENV 시크릿을 staging 기본으로 읽지 않는다 — "
         "비워 둔 채 production으로 떨어져 SMTP 없는 배포가 기동에서 죽는다 (#1201 · §4.5)."
     )
-    # `#1634` 뒤로 `.env`는 러너의 `emit`이 만든다(종전 원격 heredoc의 `APP_ENV=${APP_ENV}`).
-    assert 'emit APP_ENV "${APP_ENV}"' in workflow, (
-        "deploy.yml이 .env에 APP_ENV를 렌더링하지 않는다."
-    )
+    assert "APP_ENV=${APP_ENV}" in workflow, "deploy.yml이 .env에 APP_ENV를 렌더링하지 않는다."
     assert "MAIL_BACKEND:-console" in workflow, (
         "MAIL_BACKEND 기본값이 console이 아니다 — SMTP_HOST 없이 smtp 기본이면 "
         "staging에서도 기동이 선다(#524 가드의 역방향)."
