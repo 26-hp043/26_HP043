@@ -603,6 +603,20 @@ describe('한 척뿐인 목록에서 상단바 선박이 없으면 대신 고른
     expect(screen.getByLabelText('선박').getAttribute('aria-invalid')).toBeNull()
   })
 
+  it('선택을 풀면 안내가 지워진다 — 다시 고른 같은 배는 「대신 고른」 배가 아니다', async () => {
+    stubServer()
+    renderSwitchable([ONLY_VESSEL], MISSING_ID)
+
+    await waitFor(() => expect(vesselHint()).toBeTruthy())
+    fireEvent.change(screen.getByLabelText('선박'), { target: { value: '' } })
+
+    // 한 척이라 곧바로 다시 채워진다(`#535`) — 그 배는 사용자가 고른 것과 같으니 안내가 없다.
+    await waitFor(() =>
+      expect((screen.getByLabelText('선박') as HTMLSelectElement).value).toBe(ONLY_VESSEL.id),
+    )
+    await waitFor(() => expect(vesselHint()).toBeUndefined())
+  })
+
   it('처음부터 목록의 배를 고른 경우에는 안내가 없다', async () => {
     stubServer()
     renderSwitchable([ONLY_VESSEL], ONLY_VESSEL.id)

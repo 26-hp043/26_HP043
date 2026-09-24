@@ -305,9 +305,13 @@ export function ScenarioComparison({
          * 안내를 남긴다 — 선택은 유효하므로 오류로 둘 이유가 없다.
          */
         if (vessels.length === 1) {
+          const only = vessels[0].id
           clearedForVesselRef.current = null
-          setReplacedShellVesselFor(vessels[0].id)
-          selectVesselId(vessels[0].id)
+          setReplacedShellVesselFor(only)
+          // 폼도 같은 패스에서 맞춘다 — 두 척 갈래가 폼을 비우는 것과 대칭이다. 다음 패스까지
+          // 폼이 없어진 배의 id를 한 렌더 동안 쥐지 않게 한다(`#1097 ⑵`).
+          setForm((prev) => (prev.vesselId === only ? prev : { ...prev, vesselId: only }))
+          selectVesselId(only)
           return
         }
         selectVesselId(null)
