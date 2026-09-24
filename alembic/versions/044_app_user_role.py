@@ -33,6 +33,7 @@ import sqlalchemy as sa
 
 from alembic import op
 from cii_platform.db.migration_guard import guard_irreversible_downgrade
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
 
 revision = "044"
 down_revision = "043"
@@ -52,11 +53,14 @@ def upgrade() -> None:
     # 대신 트리거로 막는다. `role`은 값 범위가 아니라 **권한**이라 `§7.4`가 애플리케이션
     # 계층에 맡긴 값 범위 CHECK와 성질이 다르다 — 틀린 값이 들어가면 `role == "OFFICE"`가
     # 거짓이 되어 닫히는 쪽으로 틀리지만, 그때는 **사무직이 조용히 현장직이 된다.**
+    # 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
     for event in ("INSERT", "UPDATE"):
-        op.execute(
-            f"CREATE TRIGGER trg_app_user_role_{event.lower()[:3]} BEFORE {event} ON app_user "
+        create_trigger(
+            op,
+            f"trg_app_user_role_{event.lower()[:3]}",
+            f"BEFORE {event} ON app_user "
             # `role`은 CUBRID 예약어다 — 인용하지 않으면 `unexpected 'role'`로 선다 (#1058).
-            "IF NOT (new.\"role\" IN ('OFFICE', 'FIELD')) EXECUTE REJECT"
+            "IF NOT (new.\"role\" IN ('OFFICE', 'FIELD')) EXECUTE REJECT",
         )
     # 지금까지 전원이 전 기능을 쓰고 있었다 — 기존 계정은 전부 사무직으로 둔다(#672).
     # `role`은 CUBRID 예약어라 인용한다 (#1058) — `action`·`timestamp`와 같은 목록이다.
@@ -66,6 +70,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     # 누가 현장직이었는지가 사라진다 — 프로덕션에서는 막는다 (#819).
     guard_irreversible_downgrade("044")
+    # 없으면 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
     for event in ("INSERT", "UPDATE"):
-        op.execute(f"DROP TRIGGER trg_app_user_role_{event.lower()[:3]}")
+        drop_trigger(op, f"trg_app_user_role_{event.lower()[:3]}")
     op.drop_column("app_user", "role")

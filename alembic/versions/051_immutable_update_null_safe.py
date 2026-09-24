@@ -75,6 +75,7 @@ from pathlib import Path
 from types import ModuleType
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
 
 revision = "051"
 down_revision = "050"
@@ -134,10 +135,16 @@ def _legacy_condition() -> str:
 
 
 def upgrade() -> None:
-    op.execute(f"DROP TRIGGER {TRIGGER}")
-    op.execute(
-        f"CREATE TRIGGER {TRIGGER} BEFORE UPDATE ON {TABLE} "
-        f"IF NOT ({_null_safe_condition()}) EXECUTE REJECT"
+    """지우고 다시 만든다 — 트리거 DDL은 `db/trigger_ddl.py`를 지난다 (`#1373`).
+
+    지운 뒤에 만들므로 「있으면 건너뜀」에 걸리지 않는다. 지우지 못한 경우(같은 이름이
+    둘 이상)에만 옛 조건이 남고, 그 상태는 `test_zz_roundtrip`의 중복 단언이 잡는다.
+    """
+    drop_trigger(op, TRIGGER)
+    create_trigger(
+        op,
+        TRIGGER,
+        f"BEFORE UPDATE ON {TABLE} IF NOT ({_null_safe_condition()}) EXECUTE REJECT",
     )
 
 
@@ -149,8 +156,9 @@ def downgrade() -> None:
 
     ⚠️ 되돌리면 위 표의 🔴 세 경우가 다시 통과한다.
     """
-    op.execute(f"DROP TRIGGER {TRIGGER}")
-    op.execute(
-        f"CREATE TRIGGER {TRIGGER} BEFORE UPDATE ON {TABLE} "
-        f"IF NOT ({_legacy_condition()}) EXECUTE REJECT"
+    drop_trigger(op, TRIGGER)
+    create_trigger(
+        op,
+        TRIGGER,
+        f"BEFORE UPDATE ON {TABLE} IF NOT ({_legacy_condition()}) EXECUTE REJECT",
     )

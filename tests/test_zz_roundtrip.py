@@ -14,8 +14,12 @@ async ``conn`` fixture를 쓰는 다른 테스트와 실행이 섞이면 빈 스
 """
 
 import asyncio
+import importlib.util
+import re
 import sys
+import types
 import warnings
+from pathlib import Path
 
 import pytest
 from conftest import TEST_DATABASE_URL, insert_returning_id, run_alembic
@@ -26,6 +30,10 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # sha256: + 64 hex — chk_input_hash_format를 통과하는 유효 해시.
 VALID_HASH = "sha256:" + "a" * 64
+
+_VERSIONS = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+_CREATE_TRIGGER = re.compile(r"CREATE\s+TRIGGER\s+(\w+)", re.IGNORECASE)
+_DROP_TRIGGER = re.compile(r"DROP\s+TRIGGER\s+(\w+)", re.IGNORECASE)
 
 #
 # 개발 DB를 파괴하지 않는다 (#507).
@@ -91,6 +99,150 @@ async def _reseed_demo_data() -> None:
             await seed_demo(connection)
     finally:
         await engine.dispose()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 0. head의 트리거 집합 — 왕복을 돌리기 전에 지금 상태부터 본다 (#1373 · D-20)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# CUBRID는 같은 이름의 트리거를 두 번 만드는 것을 막지 않고, 중복이 생기면 이름으로는
+# 어느 쪽도 지울 수 없다(`DROP TRIGGER` → -503). 그 상태에서는 아래 왕복 검사가 `048`
+# 근처에서 끊기고 DB가 그 리비전에 갇힌다. 마이그레이션 쪽은 `db/trigger_ddl.py`가
+# 「있으면 만들지 않고, 없으면 지우지 않는다」로 막는데, 그 관용은 중복을 「없음」으로
+# 읽을 수 있어 **중복이 없다는 것을 따로 세어야** 한다. 두 검사가 그것이다 — 중복 0건,
+# 그리고 head의 트리거 이름 집합이 마이그레이션이 만든다고 적은 집합과 같은가.
+
+
+class _CountingOp:
+    """``op.execute``의 SQL에서 트리거 생성·삭제만 집계하고 나머지 연산은 삼킨다.
+
+    `tests/test_dbschema_head_sync.py`와 같은 스텁이다 — `tests/`는 패키지가 아니라
+    가져올 수 없어 여기 다시 둔다.
+    """
+
+    def __init__(self) -> None:
+        self.created: list[str] = []
+        self.dropped: list[str] = []
+
+    def execute(self, sql, *args, **kwargs) -> None:
+        text_ = str(sql)
+        self.created.extend(_CREATE_TRIGGER.findall(text_))
+        self.dropped.extend(_DROP_TRIGGER.findall(text_))
+
+    def get_bind(self):
+        return _NullBind()
+
+    def __getattr__(self, name: str):
+        return lambda *args, **kwargs: None
+
+
+class _NullResult:
+    def scalar(self):
+        return 0
+
+    scalar_one = scalar
+
+    def fetchall(self):
+        return []
+
+    all = fetchall
+
+    def first(self):
+        return None
+
+
+class _NullBind:
+    dialect = types.SimpleNamespace(name="cubrid")
+
+    def execute(self, *args, **kwargs):
+        return _NullResult()
+
+
+def _expected_head_triggers(monkeypatch: pytest.MonkeyPatch) -> set[str]:
+    """마이그레이션이 head에 남긴다고 적은 트리거 이름 집합 — DB 없이 센다.
+
+    `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를 뺀 것이다(`050`·`051`·
+    `057`이 지우고 다시 만든다). `alembic`을 세는 스텁으로 갈아 끼우고 리비전 사슬
+    순서로 `upgrade()`를 부른다 — `db/trigger_ddl.py`가 카탈로그를 스텁에 물으면 빈
+    집합이 오므로 만드는 쪽은 전부 실행되고 지우는 쪽은 전부 건너뛰는데, 집합으로 세므로
+    결과는 같다.
+    """
+    op = _CountingOp()
+    fake = types.ModuleType("alembic")
+    fake.op = op  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "alembic", fake)
+    monkeypatch.setitem(sys.modules, "alembic.op", op)
+
+    modules: list[types.ModuleType] = []
+    for path in sorted(_VERSIONS.glob("*.py")):
+        spec = importlib.util.spec_from_file_location(f"_zz_roundtrip_{path.stem}", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        modules.append(module)
+    by_down = {m.down_revision: m for m in modules}
+
+    live: set[str] = set()
+    rev = None
+    walked = 0
+    while rev in by_down:
+        module = by_down[rev]
+        op.created.clear()
+        op.dropped.clear()
+        module.upgrade()
+        live -= set(op.dropped)
+        live |= set(op.created)
+        rev = module.revision
+        walked += 1
+    assert walked == len(modules), "리비전 사슬이 한 줄이 아니다 — 분기가 생겼다"
+    return live
+
+
+async def _db_trigger_rows(sql: str) -> list:
+    engine = create_async_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+    try:
+        async with engine.connect() as connection:
+            return list((await connection.execute(text(sql))).all())
+    finally:
+        await engine.dispose()
+
+
+async def test_head_has_no_duplicate_trigger_names():
+    """같은 이름의 트리거가 둘 이상 없다 (#1373).
+
+    있으면 그 이름은 `DROP TRIGGER`로 지울 수 없고(-503), 뒤의 왕복 검사가 거기서 끊긴다.
+    `db/trigger_ddl.drop_trigger`는 그 -503을 넘어가므로 **여기서 세지 않으면 조용하다.**
+    """
+    up = run_alembic("upgrade", "head")
+    assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+
+    duplicated = await _db_trigger_rows(
+        "SELECT name, count(*) FROM db_trigger GROUP BY name HAVING count(*) > 1"
+    )
+    assert duplicated == [], (
+        f"같은 이름의 트리거가 둘 이상이다 — 이름으로는 지울 수 없다. README 「테스트 DB 복구」로 "
+        f"다시 만들 것: {duplicated}"
+    )
+
+
+async def test_head_trigger_set_matches_migrations(monkeypatch: pytest.MonkeyPatch):
+    """`upgrade head` 뒤 DB의 트리거 이름 집합 = 마이그레이션이 만든다고 적은 집합 (#1373).
+
+    합계(160)는 `test_dbschema_head_sync`가 `DB_SCHEMA §7.4`와 대조한다. 여기서는 **이름
+    하나하나**를 실제 DB와 대조한다 — 수가 같아도 남은 것 하나와 빠진 것 하나가 상쇄되면
+    합계는 그대로다.
+    """
+    up = run_alembic("upgrade", "head")
+    assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
+
+    expected = _expected_head_triggers(monkeypatch)
+    assert expected, "마이그레이션에서 트리거를 하나도 세지 못했다 — 이 검사가 헛돌고 있다"
+
+    actual = {row[0] for row in await _db_trigger_rows("SELECT name FROM db_trigger")}
+    assert actual == expected, (
+        f"DB에만 있다: {sorted(actual - expected)} · "
+        f"마이그레이션에만 있다: {sorted(expected - actual)}"
+    )
 
 
 def test_downgrade_upgrade_roundtrip():

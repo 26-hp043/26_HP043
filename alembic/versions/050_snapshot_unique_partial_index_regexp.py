@@ -83,6 +83,7 @@ DB에 바꿀 대상이 없다. 여기서는 **집행하는 트리거**만 고친
 from __future__ import annotations
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
 
 revision = "050"
 down_revision = "049"
@@ -140,14 +141,18 @@ def _capacity_trigger(event: str) -> str:
 
 
 def upgrade() -> None:
+    """트리거 DDL은 `db/trigger_ddl.py`를 지난다 — 있으면 만들지 않고 없으면 지우지 않는다.
+
+    `#1373`.
+    """
     # ── ⑴ ────────────────────────────────────────────────────────────────────
     op.execute(f"ALTER TABLE annual_simulation_run DROP FOREIGN KEY {SNAPSHOT_FK}")
     op.execute(f"CREATE UNIQUE INDEX {SNAPSHOT_INDEX} ON annual_simulation_run (snapshot_id)")
     for event in _EVENTS:
-        op.execute(
-            f"CREATE TRIGGER {SNAPSHOT_REF_TRIGGER}_{event.lower()[:3]} "
-            f"BEFORE {event} ON annual_simulation_run "
-            f"IF NOT ({_SNAPSHOT_EXISTS}) EXECUTE REJECT"
+        create_trigger(
+            op,
+            f"{SNAPSHOT_REF_TRIGGER}_{event.lower()[:3]}",
+            f"BEFORE {event} ON annual_simulation_run IF NOT ({_SNAPSHOT_EXISTS}) EXECUTE REJECT",
         )
 
     # ── ⑵ ────────────────────────────────────────────────────────────────────
@@ -159,11 +164,14 @@ def upgrade() -> None:
         op.execute(f"CREATE INDEX {name} ON {PARTIAL_TABLE} ({keys}) WHERE {PARTIAL_FILTER}")
 
     # ── ⑶ ────────────────────────────────────────────────────────────────────
+    # `048`이 건 것을 지우고 좁힌 조건으로 다시 만든다. 지운 뒤에 만들므로 「있으면
+    # 건너뜀」에 걸리지 않는다 — 지우지 못한 경우(중복 상태)에만 옛 조건이 남는다.
     for event in _EVENTS:
-        op.execute(f"DROP TRIGGER {_capacity_trigger(event)}")
-        op.execute(
-            f"CREATE TRIGGER {_capacity_trigger(event)} BEFORE {event} ON {CAPACITY_TABLE} "
-            f"IF NOT ({CAPACITY_NEW}) EXECUTE REJECT"
+        drop_trigger(op, _capacity_trigger(event))
+        create_trigger(
+            op,
+            _capacity_trigger(event),
+            f"BEFORE {event} ON {CAPACITY_TABLE} IF NOT ({CAPACITY_NEW}) EXECUTE REJECT",
         )
 
 
@@ -180,10 +188,11 @@ def downgrade() -> None:
     실패한다 — 조용히 한쪽을 지우지 않는다. 무엇을 지울지는 사람이 정할 일이다.
     """
     for event in _EVENTS:
-        op.execute(f"DROP TRIGGER {_capacity_trigger(event)}")
-        op.execute(
-            f"CREATE TRIGGER {_capacity_trigger(event)} BEFORE {event} ON {CAPACITY_TABLE} "
-            f"IF NOT ({CAPACITY_OLD}) EXECUTE REJECT"
+        drop_trigger(op, _capacity_trigger(event))
+        create_trigger(
+            op,
+            _capacity_trigger(event),
+            f"BEFORE {event} ON {CAPACITY_TABLE} IF NOT ({CAPACITY_OLD}) EXECUTE REJECT",
         )
 
     for name, columns in PARTIAL_INDEXES:
@@ -191,7 +200,7 @@ def downgrade() -> None:
         op.execute(f"CREATE INDEX {name} ON {PARTIAL_TABLE} ({', '.join(columns)})")
 
     for event in _EVENTS:
-        op.execute(f"DROP TRIGGER {SNAPSHOT_REF_TRIGGER}_{event.lower()[:3]}")
+        drop_trigger(op, f"{SNAPSHOT_REF_TRIGGER}_{event.lower()[:3]}")
     op.execute(f"DROP INDEX {SNAPSHOT_INDEX} ON annual_simulation_run")
     op.execute(
         "ALTER TABLE annual_simulation_run ADD CONSTRAINT "

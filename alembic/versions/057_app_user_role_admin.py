@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from alembic import op
 from cii_platform.db.migration_guard import guard_irreversible_downgrade
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger
 
 revision = "057"
 down_revision = "056"
@@ -46,14 +47,20 @@ def _recreate(values: str) -> None:
     `CREATE OR REPLACE TRIGGER`를 쓰지 않는다 — CUBRID에 그 구문이 없다. 지우고 만드는
     사이에 다른 연결이 쓰면 검사 없이 지나가지만, 마이그레이션은 배포 절차 안에서 단독으로
     돈다(`docs/OPERATIONS.md §3.3`).
+
+    트리거 DDL은 `db/trigger_ddl.py`를 지난다 — 없으면 지우지 않고, 지운 뒤에 만들므로
+    「있으면 건너뜀」에 걸리지 않는다 (`#1373`). 지우지 못한 경우(같은 이름이 둘 이상)에만
+    옛 값 목록이 남고, 그 상태는 `test_zz_roundtrip`의 중복 단언이 잡는다.
     """
     for event in _EVENTS:
         name = f"trg_app_user_role_{event.lower()[:3]}"
-        op.execute(f"DROP TRIGGER {name}")
-        op.execute(
-            f"CREATE TRIGGER {name} BEFORE {event} ON app_user "
+        drop_trigger(op, name)
+        create_trigger(
+            op,
+            name,
+            f"BEFORE {event} ON app_user "
             # `role`은 CUBRID 예약어다 — 인용하지 않으면 `unexpected 'role'`로 선다 (#1058).
-            f'IF NOT (new."role" IN ({values})) EXECUTE REJECT'
+            f'IF NOT (new."role" IN ({values})) EXECUTE REJECT',
         )
 
 

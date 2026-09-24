@@ -65,6 +65,7 @@ NULL은 통과한다
 from __future__ import annotations
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger, existing_triggers
 
 revision = "046"
 down_revision = "045"
@@ -227,13 +228,15 @@ def _trigger_name(check_name: str, event: str) -> str:
 
 
 def upgrade() -> None:
-    """값 범위 제약을 트리거로 건다."""
+    """값 범위 제약을 트리거로 건다 — 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`)."""
+    have = existing_triggers(op)
     for check_name, table, condition in VALUE_RANGE_CHECKS:
         for event in _EVENTS:
-            op.execute(
-                f"CREATE TRIGGER {_trigger_name(check_name, event)} "
-                f"BEFORE {event} ON {table} "
-                f"IF NOT ({condition}) EXECUTE REJECT"
+            create_trigger(
+                op,
+                _trigger_name(check_name, event),
+                f"BEFORE {event} ON {table} IF NOT ({condition}) EXECUTE REJECT",
+                existing=have,
             )
 
 
@@ -244,7 +247,10 @@ def downgrade() -> None:
     분류(IRREVERSIBLE·EPHEMERAL·REGENERABLE) 어디에도 넣지 않고
     ``guard_irreversible_downgrade``도 부르지 않는다 — 그 셋은 **데이터 손실**을
     가르는 분류다. ``a7d3e9b14f26``이 같은 판단을 했다.
+
+    없는 것은 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
     """
+    have = existing_triggers(op)
     for check_name, _table, _condition in VALUE_RANGE_CHECKS:
         for event in _EVENTS:
-            op.execute(f"DROP TRIGGER {_trigger_name(check_name, event)}")
+            drop_trigger(op, _trigger_name(check_name, event), existing=have)
