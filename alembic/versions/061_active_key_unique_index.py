@@ -25,33 +25,39 @@ REJECT``)로 옮겼다. CUBRID가 부분 유니크 인덱스를 만들지 못하
 무엇을 하는가 (F-9 안 「가」 · 2026-09-22 결정)
 -----------------------------------------------
 CUBRID가 못 하는 형태(부분 유일)를 CUBRID가 하는 형태(**별도 열의 통짜 유일**)로 옮긴다.
-**순서가 있다** — ``047`` 트리거를 먼저 걷고, 열을 만들고, 백필하고, 인덱스를 세운다.
+**순서가 있다** — 중복부터 세고, ``047`` 트리거를 걷고, 열을 만들고, 백필하고, 인덱스를
+세운다.
 
-1. ``047``의 트리거 4개를 **먼저 걷는다** (아래 「걷는 이유」). 백필 ``UPDATE``가 그 트리거
-   (``BEFORE UPDATE … REJECT``)를 타므로, 운영에 이미 같은 키의 활성 행이 둘 있으면
-   트리거를 남긴 채로는 백필이 ``-517 rejected by trigger``로 먼저 선다 — 그러면 실패
-   지점이 「중복 행」이 아니라 「트리거」로 읽혀 원인을 잘못 짚는다.
+0. **사전 검사 — 아무것도 바꾸기 전에 두 표의 활성 중복 그룹을 센다.** ``047`` 시절의
+   경합이 남긴 같은 키의 활성 행이 하나라도 있으면 **여기서 예외로 멈추고 DB는 그대로다**
+   (``047`` 트리거도 남아 있다 · 열도 인덱스도 만들지 않는다). 메시지는 표별 그룹 수와
+   ``docs/OPERATIONS.md`` §3.6.4의 절차만 적고 **값(IMO·이메일)은 적지 않는다** — 배포
+   로그가 공개 저장소의 Actions에 남기 때문이다. 사람이 미리 운영 DB를 조회할 필요가
+   없다 — 마이그레이션이 먼저 세고, 중복이면 멈춘다(``#1631`` G-1 결정 「다′」 ·
+   2026-09-24). 조용히 한쪽을 지우지 않는다 — 무엇을 남길지는 사람이 정한다.
+1. ``047``의 트리거 4개를 **걷는다** (아래 「걷는 이유」). 백필 ``UPDATE``가 그 트리거
+   (``BEFORE UPDATE … REJECT``)를 타므로 열·백필보다 앞에 둔다.
 2. **활성 키 열**을 둔다 — ``vessel.imo_active VARCHAR(7)`` · ``app_user.email_active
    VARCHAR(320)``. 활성 행이면 원본 열의 사본, 소프트 삭제된 행이면 ``NULL``.
 3. 기존 행을 **백필**한다 — ``CASE WHEN is_deleted = 0 THEN <원본> ELSE NULL END``.
 4. 그 열에 **``CREATE UNIQUE INDEX``**를 건다. CUBRID 유니크 인덱스는 NULL을 여러 개
    허용한다 — 빈 표로 실측했다(NULL 3행 INSERT OK · 값→NULL 뒤 같은 값 재INSERT OK ·
    같은 값 두 번은 ``errno=-670``). 그래서 삭제된 행이 몇 개든 같은 키를 다시 쓸 수 있고,
-   활성 행끼리만 유일하다 — 부분 유니크 인덱스와 같은 뜻이다.
-   ⚠️ **같은 키의 활성 행이 이미 둘 이상이면 이 문장이 그 자리에서 실패한다**(``047``
-   시절의 경합 결과). 조용히 한쪽을 지우지 않는다 — 무엇을 지울지는 사람이 정한다.
-   절차는 ``docs/OPERATIONS.md`` §3.6.4.
+   활성 행끼리만 유일하다 — 부분 유니크 인덱스와 같은 뜻이다. 0에서 중복이 없음을 확인한
+   뒤이므로 이 문장이 중복으로 서는 것은 0과 4 사이의 몇 초 안에 옛 백엔드(배포는 마이그레이션
+   뒤에 백엔드를 바꾼다 · ``docs/OPERATIONS.md`` §3.1)가 같은 키를 동시에 두 번 넣는 경합이
+   겹칠 때뿐이다. 그때도 조용히 지우지 않는다 — 사람이 §3.6.4로 정리하고 다시 돌린다.
 5. 값은 **앱이 아니라 DB가 유지한다.** ``AFTER INSERT``·``AFTER UPDATE`` 트리거가 방금
    쓰인 행을 ``is_deleted``에 따라 다시 채운다. 앱·시드·수동 SQL 어느 경로로 써도 같다.
 
 중간에 멈춘 뒤 다시 돌릴 수 있다
 --------------------------------
-CUBRID DDL이 트랜잭션에 묶이는지는 실측하지 않았다. 4에서 중복 행 때문에 멈추면 1~3은
-이미 적용돼 있을 수 있으므로, **각 단계가 카탈로그를 먼저 보고 이미 있으면 건너뛴다** —
-트리거는 공용 헬퍼 ``db/trigger_ddl.py``(``#1373`` — ``db_trigger``를 보고 있으면 만들지
-않고 없으면 지우지 않는다), 열·인덱스는 ``db_attribute`` · ``db_index``를 같은 형태로 본다.
-백필은 멱등이다(같은 값을 다시 쓴다). 그래서 중복 행을 정리한 뒤 ``alembic upgrade head``를
-그대로 다시 돌리면 된다.
+중복은 0에서 걸리므로 그때는 되돌릴 것이 없다 — 중복을 정리한 뒤 ``alembic upgrade head``를
+그대로 다시 돌리면 된다. 다른 이유(연결 끊김 등)로 1~5 사이에서 멈출 수는 있다. CUBRID
+DDL이 트랜잭션에 묶이는지는 실측하지 않았으므로 **각 단계가 카탈로그를 먼저 보고 이미
+있으면 건너뛴다** — 트리거는 공용 헬퍼 ``db/trigger_ddl.py``(``#1373`` — ``db_trigger``를
+보고 있으면 만들지 않고 없으면 지우지 않는다), 열·인덱스는 ``db_attribute`` · ``db_index``를
+같은 형태로 본다. 백필은 멱등이다(같은 값을 다시 쓴다).
 
 왜 ``BEFORE``가 아니라 ``AFTER`` + 자기 행 ``UPDATE``인가
 -------------------------------------------------------
@@ -187,6 +193,54 @@ def _legacy_condition(table: str, column: str) -> str:
 # 않는다)가 ``db_trigger``를 본다. 열·인덱스는 헬퍼가 없어 여기서 같은 형태로 본다.
 
 
+class ActiveDuplicatesError(RuntimeError):
+    """활성 행 안에 같은 키가 둘 이상 있어 ``061``을 적용하지 않았다 — DB는 그대로다."""
+
+
+def duplicate_message(groups: dict[str, int]) -> str:
+    """사전 검사가 멈출 때의 문구. ``groups``는 ``{"vessel.imo_number": 2, …}`` 형태.
+
+    **값(IMO·이메일)은 넣지 않는다** — 이 문구는 배포 워크플로의 로그로 나가고, 그 로그는
+    공개 저장소의 Actions에 남는다. 그룹 수와 절차만 적는다. 호출자가 아니라 여기서
+    문구를 조립하는 것은 DB 없이 검사하기 위해서다(``tests/test_active_key_precheck.py``).
+    """
+    counted = " · ".join(f"{key} {count}개" for key, count in groups.items())
+    return (
+        "마이그레이션 061을 적용하지 않았다 — 활성 행 안에 같은 키가 둘 이상인 그룹이 있다"
+        f"({counted}). DB는 그대로다(047 트리거도 남아 있고 열·인덱스도 만들지 않았다). "
+        "docs/OPERATIONS.md §3.6.4의 절차로 남길 행을 정해 나머지를 소프트 삭제한 뒤 "
+        "`alembic upgrade head`를 다시 돌린다. 어느 값인지는 이 문구에 적지 않는다 — "
+        "배포 로그가 공개 저장소에 남는다."
+    )
+
+
+def _duplicate_group_count(table: str, source: str) -> int:
+    """활성 행(``is_deleted = 0``) 안에서 같은 ``source`` 값을 가진 그룹의 수.
+
+    값 자체는 고르지 않는다 — 결과가 문구로 나가므로 수만 센다.
+    """
+    return int(
+        op.get_bind()
+        .execute(
+            sa.text(
+                f"SELECT COUNT(*) FROM (SELECT {source} FROM {table} WHERE is_deleted = 0 "
+                f"GROUP BY {source} HAVING COUNT(*) > 1) t"
+            )
+        )
+        .scalar_one()
+    )
+
+
+def _assert_no_active_duplicates() -> None:
+    """0단계 — 두 표를 세고, 하나라도 중복이면 아무것도 바꾸기 전에 멈춘다."""
+    groups = {
+        f"{table}.{source}": _duplicate_group_count(table, source)
+        for table, source, *_ in ACTIVE_KEYS
+    }
+    if any(groups.values()):
+        raise ActiveDuplicatesError(duplicate_message(groups))
+
+
 def _column_exists(table: str, column: str) -> bool:
     row = (
         op.get_bind()
@@ -212,11 +266,14 @@ def _index_exists(table: str, index: str) -> bool:
 
 
 def upgrade() -> None:
+    # 0) 사전 검사 — 아무것도 바꾸기 전에 두 표의 활성 중복 그룹을 센다. 하나라도 있으면
+    #    예외로 멈추고 DB는 그대로다(047 트리거 유지 · 열·인덱스 없음). 사람이 미리 조회할
+    #    필요가 없다 — 절차는 docs/OPERATIONS.md §3.6.4.
+    _assert_no_active_duplicates()
     have = existing_triggers(op)
     for table, source, active, sql_type, index_name, legacy_prefix in ACTIVE_KEYS:
-        # 1) 047의 트리거를 **먼저** 걷는다 — 아래 백필 UPDATE가 `_upd`(BEFORE UPDATE …
-        #    REJECT)를 타므로, 중복 활성 행이 있으면 인덱스가 아니라 여기서 -517로 선다.
-        #    없으면 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
+        # 1) 047의 트리거를 걷는다 — 아래 백필 UPDATE가 `_upd`(BEFORE UPDATE … REJECT)를
+        #    타므로 열·백필보다 앞에 둔다. 없으면 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
         for event in _EVENTS:
             drop_trigger(op, _legacy_trigger_name(legacy_prefix, event), existing=have)
         # 2) 활성 키 열
@@ -228,9 +285,8 @@ def upgrade() -> None:
             f"UPDATE {table} SET {active} = CASE WHEN is_deleted = 0 THEN {source} ELSE NULL END, "
             f"updated_at = updated_at"
         )
-        # 4) 유니크 인덱스. ⚠️ 같은 키의 활성 행이 이미 둘 이상이면 **이 문장에서** 실패한다
-        #    (047 시절의 경합 결과) — 조용히 한쪽을 지우지 않는다. 중복을 정리한 뒤 다시
-        #    돌리면 1~3은 건너뛰고 여기부터 이어진다(docs/OPERATIONS.md §3.6.4).
+        # 4) 유니크 인덱스. 중복은 0)에서 걸렀다 — 여기서 서는 것은 0)과 4) 사이 몇 초에 옛
+        #    백엔드의 경합이 겹칠 때뿐이고, 그때도 조용히 지우지 않는다(§3.6.4로 정리 뒤 재실행).
         if not _index_exists(table, index_name):
             op.execute(f"CREATE UNIQUE INDEX {index_name} ON {table} ({active})")
         # 5) 채움 트리거 — 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
