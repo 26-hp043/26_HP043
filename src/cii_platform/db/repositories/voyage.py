@@ -144,8 +144,9 @@ async def get_by_id(
     잠금 문장과 읽기 문장을 **나눈다.** 뒤따르는 ``SELECT``는 READ COMMITTED에서 커밋된
     최신 상태를 준다(`#1796` ⑵) — 한 문장으로 합쳤을 때 대기 뒤 어느 판본이 돌아오는지는
     실측하지 않았다. ``populate_existing``은 같은 세션이 먼저 실어 둔 옛 사본을 새 값으로
-    덮기 위해서다. 잠금 쪽은 ``is_deleted``를 보지 않는다 — 다른 요청이 방금 소프트 삭제한
-    행도 잠갔다가, 읽기에서 ``None``(404)으로 갈리게 둔다.
+    덮기 위해서다 — 그래서 **같은 세션에서 이 항차를 먼저 고친 뒤 부르지 않는다**(고친
+    값이 flush 전이면 덮여 사라진다). 잠금 쪽은 ``is_deleted``를 보지 않는다 — 다른 요청이
+    방금 소프트 삭제한 행도 잠갔다가, 읽기에서 ``None``(404)으로 갈리게 둔다.
     """
     if for_update:
         await session.execute(select(Voyage.id).where(Voyage.id == voyage_id).with_for_update())

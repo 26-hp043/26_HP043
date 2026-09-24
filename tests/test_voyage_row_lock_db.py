@@ -52,7 +52,8 @@ from cii_platform.services.voyage import (
 )
 
 #: 첫 세션이 잠금을 쥔 채 커밋 직전에 머무는 시간. 두 번째가 끼어들 자리다.
-_HOLD = 0.5
+#: 느린 러너에서도 두 번째가 잠금 문장에 닿을 여유 — 짧으면 검출력만 사라진다(PR #1850 리뷰).
+_HOLD = 1.0
 #: 두 번째 세션이 끼어드는 시점 — 첫 세션이 커밋 직전에 닿은 뒤.
 _JOIN = 0.1
 
@@ -181,7 +182,8 @@ async def _interleave(first_call, second_call):
             return await first_call(s)
 
     async def second():
-        await reached.wait()
+        # 첫 세션이 커밋에 닿지 못하고 죽으면 영영 기다리지 않게 상한을 둔다.
+        await asyncio.wait_for(reached.wait(), timeout=_HOLD * 10)
         await asyncio.sleep(_JOIN)
         async with maker() as s:
             try:
