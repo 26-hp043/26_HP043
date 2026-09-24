@@ -148,21 +148,16 @@ async def adopt_scenario(
         )
 
     scenario = await _load_scenario(session, scenario_id)
-    if adopt_mode == MODE_CREATE:
-        # 새 항차를 만드는 갈래는 **선박 행을 항차 행보다 먼저** 잠근다 (`#1860` ·
-        # `TECH_SPEC §16.3` — 부모 행을 둘 잡아야 하면 선박 → 항차 순). 새 항차 INSERT의
-        # FK 검사가 선박 행에 **S 잠금**을 요구한다는 것을 `#1860` ⑻이 실측했다
-        # (부모 X 보유 중 자식 INSERT는 3/3 대기). 항차 X만 쥔 채 INSERT하면, 선박 X를 쥐고
-        # 그 항차를 참조하는 정박 구간을 넣는 요청(`services/not_underway`)과 서로를 기다려
-        # 교착이다(⑼ 3/3 · errno=-968). 선박은 시나리오의 것으로 잡는다 — 아래에서 항차의
-        # 선박과 같아야만 통과하므로, 다르면 잠금은 롤백과 함께 풀릴 뿐이다.
-        await vessel_repo.lock_row(session, scenario.vessel_id)
     # 대상 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`). 「항차당 채택 하나」는
     # 아래 `_clear_previous_adoption` → 자기 행 채택이 **항차 행 잠금 안에서** 순서대로
     # 일어나는 것으로 지킨다 — 잠금 없이 두 채택이 교차하면 해제 UPDATE가 둘 다 0건이고
     # 채택 행이 둘 남는다(`#1796` ⑺ 실측). 시나리오 행은 잠그지 않는다(불변식의 단위가
     # 항차다). `CREATE_NEW_VOYAGE`도 같은 갈래를 탄다 — 원본 항차의 연료 행을 읽는 동안
-    # 원본이 바뀌지 않게 하는 데 같은 잠금이 든다.
+    # 원본이 바뀌지 않게 하는 데 같은 잠금이 든다. 선박 행은 그 갈래가 **항차보다 먼저**
+    # 잠근다(`#1860` → `#1868`) — 새 항차 INSERT(`#1860` ⑻)도, 모든 모드가 지나는
+    # `voyage`·`voyage_scenario` UPDATE(`#1868` ⑽-b)도 FK 검사로 선박 S를 요구하므로,
+    # 선박 X를 쥔 채 이 항차를 참조하는 구간을 넣는 정박 구간 생성과 교착하지 않게
+    # 순서를 선박 → 항차로 맞춘 것이다. 종전에는 CREATE 갈래만 여기서 따로 잠갔다.
     target = await voyage_repo.get_by_id(session, target_voyage_id, for_update=True)
     if target is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {target_voyage_id}")

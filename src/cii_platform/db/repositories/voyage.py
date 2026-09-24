@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy import case, func, or_, select, tuple_
 
+from cii_platform.db.models.vessel import Vessel
 from cii_platform.db.models.voyage import Voyage
 from cii_platform.db.models.voyage_fuel_use import VoyageFuelUse
 
@@ -141,6 +142,14 @@ async def get_by_id(
     시나리오 채택)가 쓴다 — 두 요청이 같은 옛 상태를 읽고 각자 통과하면 종결 상태가
     덮이거나 채택 행이 둘 남는다(`#1796` ⑹·⑺ 실측). 잠금은 호출부가 커밋·롤백할 때 풀린다.
 
+    **선박 행을 항차 행보다 먼저 잠근다** (`#1868` · `TECH_SPEC §16.3` — 부모 행을 둘 잡아야
+    하면 선박 → 항차 순). CUBRID 11.4는 FK 열을 바꾸지 않는 UPDATE에도 **부모 행 S 잠금**을
+    요구한다(`#1868` ⑽-b 실측 · 3/3 대기). 이 갈래를 지나는 다섯 경로는 전부 ``voyage``
+    행을 UPDATE하므로 항차 X만 쥐면 선박 S를 **뒤에** 요구하게 되고, 선박 X를 쥔 채 그 항차를
+    참조하는 구간을 넣는 정박 구간 생성(`services/not_underway`)과 서로를 기다려 교착이다
+    (⑿ 실제 표 3/3 · `errno=-968`). 선박 id는 잠금 없이 읽는다 — 항차의 선박은 바뀌지 않는
+    열이다(`api/schemas/voyage`에 수정 필드가 없다).
+
     잠금 문장과 읽기 문장을 **나눈다.** 뒤따르는 ``SELECT``는 READ COMMITTED에서 커밋된
     최신 상태를 준다(`#1796` ⑵) — 한 문장으로 합쳤을 때 대기 뒤 어느 판본이 돌아오는지는
     실측하지 않았다. ``populate_existing``은 같은 세션이 먼저 실어 둔 옛 사본을 새 값으로
@@ -149,6 +158,11 @@ async def get_by_id(
     방금 소프트 삭제한 행도 잠갔다가, 읽기에서 ``None``(404)으로 갈리게 둔다.
     """
     if for_update:
+        vessel_id = (
+            await session.execute(select(Voyage.vessel_id).where(Voyage.id == voyage_id))
+        ).scalar_one_or_none()
+        if vessel_id is not None:
+            await session.execute(select(Vessel.id).where(Vessel.id == vessel_id).with_for_update())
         await session.execute(select(Voyage.id).where(Voyage.id == voyage_id).with_for_update())
     stmt = select(Voyage).where(Voyage.id == voyage_id, Voyage.is_deleted == 0)
     if for_update:

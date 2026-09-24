@@ -31,11 +31,16 @@
 ## 교차 잠금 — 선박 → 항차 순서 (`#1860`)
 
 CUBRID 11.4는 자식 행 INSERT의 FK 검사로 **부모 행에 S 잠금을 요구한다**(`#1860` ⑻
-실측 · 부모 X 보유 중 자식 INSERT가 3/3 대기 · 커밋까지 쥐는지는 미측정 — `#1868`).
+실측 · 부모 X 보유 중 자식 INSERT가 3/3 대기). 그 S는 **커밋까지 쥔다**(`#1868` ⑽-a ·
+3/3 대기). **FK 열을 바꾸지 않는 UPDATE도 같은 S를 요구한다**(`#1868` ⑽-b · 3/3 —
+다른 부모를 참조하는 자식의 UPDATE·자식 DELETE는 기다리지 않아 FK 재검사로 확정).
 그래서 「항차 X를 쥔 채 선박을 참조하는
 항차 INSERT」(채택 `CREATE_NEW_VOYAGE`)와 「선박 X를 쥔 채 항차를 참조하는 정박 구간
-INSERT」(`services/not_underway`)가 교차하면 교착이다(⑼ 실측 3/3 · `errno=-968`). 채택이
-선박 행을 **먼저** 잠가 순서를 선박 → 항차로 맞춘다(`TECH_SPEC §16.3`). 이 케이스는 커밋
+INSERT」(`services/not_underway`)가 교차하면 교착이다(⑼ 실측 3/3 · `errno=-968`). 항차
+X를 쥔 채 `voyage`를 UPDATE하는 다섯 경로(전환·PATCH·실적·삭제·채택)도 같은 형태다
+(`#1868` ⑿ 실제 표 3/3). 저장소가 선박 행을 **먼저** 잠가 순서를 선박 → 항차로 맞춘다
+(`TECH_SPEC §16.3` — `voyage_repo.get_by_id(for_update=True)`가 선박도 함께 잠근다).
+정박 구간 × 채택 `CREATE_NEW_VOYAGE`의 케이스는 커밋
 직전이 아니라 **첫 세션이 선박 X를 쥐고 INSERT 전에 머무는 사이**에 둘째를 넣는다 —
 교착은 두 INSERT가 서로의 부모를 기다릴 때 나므로, 커밋 직전 교차로는 보이지 않는다.
 
@@ -397,6 +402,89 @@ async def test_create_mode_adoption_does_not_deadlock_with_a_period_insert(
         new_voyage_id = UUID(str(adopted["voyage_id"]))
         assert new_voyage_id != voyage_id
         assert await _voyage_row(new_voyage_id) is not None
+        async with db_session.get_sessionmaker()() as s:
+            periods = (
+                await s.execute(
+                    text("SELECT COUNT(*) FROM not_underway_period WHERE voyage_id = :id"),
+                    {"id": voyage_id.hex},
+                )
+            ).scalar()
+        assert periods == 1
+    finally:
+        await _cleanup(vessel_id)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IT-STATE-009 · 항차 X 경로 다섯 × 정박 구간 (`#1868`)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _adopt_update_mode(scenario_id: UUID):
+    return lambda s, voyage_id: adopt_scenario(s, scenario_id, target_voyage_id=voyage_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "scenarios", "second_call", "expected_status"),
+    [
+        pytest.param(
+            "DRAFT", 0, lambda s, v: transition_voyage(s, v, "PLANNED"), "PLANNED", id="transition"
+        ),
+        pytest.param(
+            "DRAFT",
+            0,
+            lambda s, v: update_voyage(s, v, planned_distance_nm=Decimal("1200")),
+            "DRAFT",
+            id="patch",
+        ),
+        pytest.param(
+            "IN_PROGRESS",
+            0,
+            lambda s, v: set_actuals(s, v, actual_distance_nm=Decimal("900")),
+            "IN_PROGRESS",
+            id="actuals",
+        ),
+        # 소프트 삭제 갈래 — 하드 삭제는 구간이 참조하는 항차를 지우는 것이라 모양이 다르다.
+        pytest.param("COMPLETED", 0, lambda s, v: delete_voyage(s, v), None, id="delete"),
+        pytest.param("DRAFT", 1, None, "DRAFT", id="adopt-update"),
+    ],
+)
+async def test_voyage_writes_do_not_deadlock_with_a_period_insert(
+    migrated_db, app_fresh_engine, status, scenarios, second_call, expected_status
+):
+    """정박 구간(선박 X → 항차 참조 INSERT) × 항차 X 경로 다섯(항차 X → `voyage` UPDATE).
+
+    CUBRID 11.4는 **FK 열을 바꾸지 않는 UPDATE에도** 부모 행 S 잠금을 요구한다(`#1868` ⑽-b
+    실측 · 3/3 대기 — 다른 부모를 참조하는 자식의 UPDATE는 기다리지 않아 FK 재검사로 확정).
+    그래서 항차 X만 쥔 채 `voyage`를 UPDATE하는 경로는 선박 S를 뒤에 요구하고, 선박 X를 쥔 채
+    그 항차를 참조하는 구간을 넣는 정박 구간 생성과 서로를 기다린다(⑿ 실제 표 3/3 ·
+    `errno=-968`). `voyage_repo.get_by_id(for_update=True)`가 **선박 행을 먼저** 잠그므로
+    둘째는 첫 세션이 커밋할 때까지 그 자리에서 기다렸다가 진행한다 — 둘 다 성공하고 구간
+    1건이 남는다. 다섯 경로가 같은 갈래를 지나므로 파라미터로 다섯을 다 돈다.
+
+    돌연변이 결과(`get_by_id`의 선박 잠금 제거): CUBRID가 교착을 감지해 한쪽을 끊는다 —
+    둘째면 `errno=-968` "timed out waiting on S_LOCK … of class dba.vessel because of
+    deadlock", 첫 세션이면 `errno=-72`. 어느 쪽이든 예외가 올라와 이 검사가 실패한다.
+    """
+    vessel_id, voyage_id, scenario_ids = await _setup(status, scenarios=scenarios)
+    call = second_call if second_call is not None else _adopt_update_mode(scenario_ids[0])
+    reached = asyncio.Event()
+
+    async def second():
+        await asyncio.wait_for(reached.wait(), timeout=_HOLD * 10)
+        await asyncio.sleep(_JOIN)
+        async with db_session.get_sessionmaker()() as s:
+            return await call(s, voyage_id)
+
+    try:
+        await asyncio.gather(
+            _hold_vessel_then_insert_period(vessel_id, voyage_id, reached), second()
+        )
+        row = await _voyage_row(voyage_id)
+        if expected_status is None:
+            assert row is None  # 소프트 삭제됐다
+        else:
+            assert row is not None and row[0] == expected_status
         async with db_session.get_sessionmaker()() as s:
             periods = (
                 await s.execute(
