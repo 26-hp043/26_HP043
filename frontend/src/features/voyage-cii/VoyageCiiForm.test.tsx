@@ -5,6 +5,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
 import { VoyageCiiForm } from './VoyageCiiForm'
+import {
+  DISPLAY_DIGITS,
+  DISPLAY_UNITS,
+  DISPLAY_UNIT_DAILY_FUEL,
+  formatDecimalString,
+  formatGrouped,
+} from '../../display/format'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import type { ManagedVoyage } from '../voyage-management/types'
 
@@ -573,8 +580,15 @@ describe('연료 입력 방식 (#1718)', () => {
     renderWithSpec('23.04')
     await ready()
 
-    fireEvent.click(screen.getByLabelText('선박 제원에서'))
-    expect(screen.getByText(/23\.0 t\/일 · 선박 제원/)).toBeTruthy()
+    const vesselMode = screen.getByLabelText('선박 제원에서') as HTMLInputElement
+    expect(vesselMode.disabled).toBe(false)
+    fireEvent.click(vesselMode)
+    // 입력칸 없이 제원 값이 `§4.2` 자릿수로 선다 — 등록 자릿수(23.04)를 드러내지 않는다
+    expect(document.querySelector('#fuel-daily')).toBeNull()
+    const shown = formatDecimalString('23.04', DISPLAY_DIGITS.fuelTon)
+    expect(
+      screen.getAllByText(new RegExp(`${shown.replace('.', '\\.')} ${DISPLAY_UNIT_DAILY_FUEL}`)).length,
+    ).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: '계산하기' }))
 
     await waitFor(() => expect(submittedBody(fetchImpl)).toBeTruthy())
@@ -582,19 +596,76 @@ describe('연료 입력 방식 (#1718)', () => {
     expect(body.fuel_uses[0].fuel_ton as number).toBeCloseTo(80, 3)
   })
 
-  it('⚠️ 제원이 없는 선박이면 사유를 값 자리에 적고, 누르면 오류로 막는다', async () => {
+  /**
+   * #1718 원문 · #1784 ⑴ — 제원에 기준 일일 연료소모량이 없으면 **고를 수 없고**, 그 사유가
+   * 라디오의 `aria-describedby`로 닿는다(`DESIGN_SYSTEM §14`). 종전에는 고른 뒤에야 값
+   * 자리에 사유가 떴다.
+   */
+  it('⚠️ 제원이 없는 선박이면 「선박 제원에서」를 고를 수 없고 사유가 라디오에 잇닿는다', async () => {
     const { fetchImpl } = stubServer()
     renderWithSpec(null)
     await ready()
 
-    fireEvent.click(screen.getByLabelText('선박 제원에서'))
-    expect(screen.getByText(/기준 일일 연료소모량이 없습니다/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '계산하기' }))
+    const vesselMode = screen.getByLabelText('선박 제원에서') as HTMLInputElement
+    expect(vesselMode.disabled).toBe(true)
+    // 다른 두 방식은 그대로 고를 수 있다
+    expect((screen.getByLabelText('총량') as HTMLInputElement).disabled).toBe(false)
+    expect((screen.getByLabelText('하루 × 항해일') as HTMLInputElement).disabled).toBe(false)
 
-    await waitFor(() => expect(screen.getAllByRole('alert').length).toBeGreaterThan(0))
+    // 사유는 라디오가 가리키는 요소에 실제로 있고 비어 있지 않다
+    const reasonId = vesselMode.getAttribute('aria-describedby') as string
+    expect(reasonId).toBeTruthy()
+    const reason = document.getElementById(reasonId) as HTMLElement
+    expect(reason).not.toBeNull()
+    expect(reason.textContent?.trim().length).toBeGreaterThan(0)
+    // 사유는 고르기 **전**에 있다 — 라디오와 같은 그룹 안에 선다
+    expect(reason.closest('fieldset')).toBe(vesselMode.closest('fieldset'))
+
+    // 눌러도 방식이 바뀌지 않는다 — 총량 칸이 그대로다 (jsdom은 비활성 라디오의
+    // `checked`까지 막지 않으므로 폼 상태가 드러나는 칸으로 본다)
+    fireEvent.click(vesselMode)
+    expect(document.querySelector('#fuel-ton')).not.toBeNull()
+    expect(document.querySelector('#fuel-daily')).toBeNull()
     expect(fetchImpl.mock.calls.some(([url]) => String(url).includes('/calculations/voyage-cii'))).toBe(
       false,
     )
+  })
+
+  it('제원이 있는 선박이면 사유 요소가 없고 라디오도 잇지 않는다', async () => {
+    stubServer()
+    renderWithSpec('23.04')
+    await ready()
+
+    const vesselMode = screen.getByLabelText('선박 제원에서') as HTMLInputElement
+    expect(vesselMode.disabled).toBe(false)
+    expect(vesselMode.getAttribute('aria-describedby')).toBeNull()
+  })
+
+  /**
+   * #1784 ⑵ — 환산 줄에 **곱하는 하루치**가 표시 자릿수로 함께 선다. 제원이 23.04인데 화면이
+   * 23.0만 보이면 「23.0 × 시간」을 손으로 셈한 사람에게 총량이 틀려 보였다. 등록 자릿수를
+   * 그대로 드러내지 않고(`§4.2`), 세 항이 한 줄에 나란히 선다.
+   */
+  it('환산 줄에 하루치 · 항해시간 · 총량이 함께 서고, 하루치는 표시 자릿수다', async () => {
+    stubServer()
+    renderWithSpec('23.04')
+    await ready()
+
+    fireEvent.click(screen.getByLabelText('선박 제원에서'))
+    const line = document.querySelector('.voyage-cii-form__derived') as HTMLElement
+    expect(line.getAttribute('role')).toBe('status')
+    const text = line.textContent ?? ''
+    const daily = formatDecimalString('23.04', DISPLAY_DIGITS.fuelTon)
+    const hours = formatDecimalString(String(1000 / 12), DISPLAY_DIGITS.durationHours)
+    const total = formatGrouped(String((23.04 * (1000 / 12)) / 24), DISPLAY_DIGITS.fuelTon)
+    expect(text).toContain(`${daily} ${DISPLAY_UNIT_DAILY_FUEL}`)
+    expect(text).toContain(`${hours} ${DISPLAY_UNITS.duration}`)
+    expect(text).toContain(`${total} ${DISPLAY_UNITS.fuel}`)
+    // 등록 자릿수는 드러내지 않는다
+    expect(text).not.toContain('23.04')
+    // 세 항의 순서 — 하루치 → 항해시간 → 총량
+    expect(text.indexOf(daily)).toBeLessThan(text.indexOf(hours))
+    expect(text.indexOf(hours)).toBeLessThan(text.indexOf(total))
   })
 
   it('방식을 바꿨다 돌아와도 처음 총량이 그대로다', async () => {

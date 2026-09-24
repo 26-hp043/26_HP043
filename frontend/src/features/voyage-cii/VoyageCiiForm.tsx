@@ -21,6 +21,7 @@ import {
   DISPLAY_UNIT_DAILY_FUEL,
   formatDecimalString,
   formatGrouped,
+  toDecimalInput,
 } from '../../display/format'
 import { fetchVoyage } from '../voyage-management/apiProvider'
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
@@ -583,21 +584,49 @@ export function VoyageCiiForm({
 
           라디오 그룹으로 둔다 — 셋 중 하나이고 서로 배타적이다. 방식을 바꿔도 값은
           지우지 않는다: 총량으로 돌아오면 처음 넣은 총량이 그대로 있다.
+
+          「선박 제원에서」는 제원에 기준 일일 연료소모량이 없으면 **고를 수 없다**
+          (#1718 원문 · #1784 ⑴). `disabled`를 유지하고 사유를 곁에 그려 `aria-describedby`로
+          잇는다(`DESIGN_SYSTEM §14` 「비활성의 사유」) — 고른 뒤에야 사유를 보이면 낭독기로는
+          왜 안 되는지 고르기 전에 알 수 없다. 이미 고른 채 선박을 바꿔 제원이 사라진
+          경우는 아래 값 자리와 `validateForm`이 그대로 막는다.
         */}
         <fieldset className="voyage-cii-form__modes">
           <legend className="voyage-cii-form__label">연료 입력 방식</legend>
-          {FUEL_MODES.map((mode) => (
-            <label key={mode.value} className="voyage-cii-form__mode">
-              <input
-                type="radio"
-                name="fuel-mode"
-                value={mode.value}
-                checked={state.fuelMode === mode.value}
-                onChange={() => update('fuelMode', mode.value, FIELD.fuelTon)}
-              />
-              {mode.label}
-            </label>
-          ))}
+          {FUEL_MODES.map((mode) => {
+            const blocked = mode.value === 'VESSEL' && vesselDailyFocTon === null
+            return (
+              <label
+                key={mode.value}
+                className={
+                  blocked ? 'voyage-cii-form__mode voyage-cii-form__mode--disabled' : 'voyage-cii-form__mode'
+                }
+              >
+                <input
+                  type="radio"
+                  name="fuel-mode"
+                  value={mode.value}
+                  checked={state.fuelMode === mode.value}
+                  disabled={blocked}
+                  aria-describedby={blocked ? VESSEL_MODE_REASON_ID : undefined}
+                  onChange={() => {
+                    // 실제 브라우저는 `disabled` 컨트롤에서 change를 내지 않는다. jsdom은
+                    // 그렇지 않아(`fireEvent.click`이 그대로 넘어온다) 여기서도 막는다.
+                    if (blocked) return
+                    update('fuelMode', mode.value, FIELD.fuelTon)
+                  }}
+                />
+                {mode.label}
+              </label>
+            )
+          })}
+          {vesselDailyFocTon === null ? (
+            <p id={VESSEL_MODE_REASON_ID} className="voyage-cii-form__mode-reason">
+              {state.vesselId === ''
+                ? '「선박 제원에서」는 선박을 고른 뒤에 쓸 수 있습니다.'
+                : '「선박 제원에서」는 이 선박에 기준 일일 연료소모량이 없어 고를 수 없습니다.'}
+            </p>
+          ) : null}
         </fieldset>
 
         {state.fuelMode === 'TOTAL' ? (
@@ -672,6 +701,11 @@ export function VoyageCiiForm({
         {/*
           환산 결과 — 「나」·「다」에서만. 항해시간을 쓰는 이유는 `formRules.voyageHours`에
           적었다(일수는 `§4.2`상 0자리라 화면의 셈이 어긋나 보인다).
+
+          곱하는 값(하루치)을 이 줄에 함께 적는다 (#1784 ⑵). 제원의 하루치가 23.04인데
+          화면은 `§4.2`대로 23.0으로 보이므로, 무엇을 곱했는지 적지 않으면 「23.0 × 시간」을
+          손으로 셈한 사람에게 총량이 틀려 보인다. 등록 자릿수를 드러내는 대신 셈의 세
+          항을 나란히 두고, 표시값이 반올림된 것임을 같은 줄에 말한다.
         */}
         {state.fuelMode !== 'TOTAL' ? (
           <p className="voyage-cii-form__derived" role="status">
@@ -681,11 +715,23 @@ export function VoyageCiiForm({
               '하루 연료 사용량을 넣으면 총량을 환산합니다.'
             ) : (
               <>
-                항해시간 {formatDecimalString(String(derivedHours), DISPLAY_DIGITS.durationHours)}{' '}
-                {DISPLAY_UNITS.duration} · 보내는 연료 총량{' '}
+                하루{' '}
+                {formatDecimalString(
+                  state.fuelMode === 'DAILY'
+                    ? toDecimalInput(Number(state.dailyFuelTon))
+                    : String(vesselDailyFocTon),
+                  DISPLAY_DIGITS.fuelTon,
+                )}{' '}
+                {DISPLAY_UNIT_DAILY_FUEL} × 항해시간{' '}
+                {formatDecimalString(String(derivedHours), DISPLAY_DIGITS.durationHours)}{' '}
+                {DISPLAY_UNITS.duration} ÷ 24 → 보내는 연료 총량{' '}
                 <strong>
                   {formatGrouped(String(derivedFuelTon), DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
                 </strong>
+                <span className="voyage-cii-form__derived-note">
+                  {' '}
+                  (표시값은 반올림한 것이라 끝자리가 손으로 셈한 값과 다를 수 있습니다)
+                </span>
               </>
             )}
           </p>
@@ -700,6 +746,9 @@ export function VoyageCiiForm({
 }
 
 /* ------------------------------------------------------------------ */
+
+/** 「선박 제원에서」를 고를 수 없는 사유 요소의 `id` — 라디오의 `aria-describedby`가 잇는다 (#1784). */
+const VESSEL_MODE_REASON_ID = 'voyage-cii-fuel-mode-vessel-reason'
 
 /** 연료 입력 방식 셋 (#1718). 순서는 「아는 값이 무엇인가」의 흔한 순서다. */
 const FUEL_MODES: ReadonlyArray<{ value: FuelInputMode; label: string }> = [
