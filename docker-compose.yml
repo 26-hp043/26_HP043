@@ -10,12 +10,12 @@ services:
       # 「prod에서만 깨지는 healthcheck」가 다시 생긴다 (`#1058` 결정요청 §0-4).
       CUBRID_PASSWORD: ${CUBRID_PASSWORD:-}
     ports: ["33100:33000"]
-    # ⚠️ 여기는 비어 있다 — DB 데이터는 이 명명 볼륨이 아니라 이미지가 선언한
-    # 익명 볼륨(`$CUBRID_DATABASES` = /home/cubrid/CUBRID/databases)에 있다.
-    # `docker compose down`은 `-v` 없이도 다음 `up`에서 새 익명 볼륨을 만들어
-    # 로컬 DB(`cii`·`cii_test`)를 빈 채로 뜨게 한다(#1867) — 데이터를 보존하려면
-    # `docker compose stop`을 쓴다. 무손실 복구 절차는 docs/OPERATIONS.md §9.2.
-    volumes: [cubrid-data:/var/lib/cubrid]
+    # 이미지의 데이터 경로(`$CUBRID_DATABASES`)에 이름 있는 볼륨을 붙인다(#1867) — 종전의
+    # /var/lib/cubrid는 비어 있었고 데이터는 익명 볼륨에 있어 `down` 뒤 빈 DB로 떴다.
+    # ⚠️ 이 줄이 바뀐 뒤 처음 `up`하면 로컬 DB(`cii`·`cii_test`)가 빈 채로 보인다 — 옛
+    # 익명 볼륨에서 옮기는 명령은 docs/OPERATIONS.md §9.2.1(로컬도 같다), 옮기지 않고
+    # 다시 적재해도 된다.
+    volumes: [cubrid-data:/home/cubrid/CUBRID/databases]
     healthcheck:
       test: ["CMD", "sh", "-c", 'csql -u dba -p "$$CUBRID_PASSWORD" "$$CUBRID_DB" -c "SELECT 1 FROM db_root"']
       interval: 10s

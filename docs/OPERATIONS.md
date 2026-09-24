@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-25 (§1.2.1 프록시 서명 헤더 — 요청 한도가 사람마다 세어진다 · §5.1 `PROXY_CLIENT_IP_SECRET` · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-25 (§9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -1190,12 +1190,13 @@ docker exec cii-cubrid csql -u dba -p NEW_PASSWORD cii \
 
 1. **호스트명 불일치** — CUBRID가 `databases.txt`에 기록한 호스트명과 현재 컨테이너
    호스트명이 다르다.
-2. **빈 DB로 떴다**(#1867) — 실제 DB 데이터는 명명 볼륨 `cubrid-data`(`/var/lib/cubrid`,
-   원래 비어 있다)가 아니라 이미지가 선언한 익명 볼륨(`$CUBRID_DATABASES` =
-   `/home/cubrid/CUBRID/databases`)에 있다. `docker compose down`은 `-v` 없이도
-   다음 `up`에서 그 익명 볼륨을 재사용하지 않고 **새로** 만든다. 새 볼륨에는
-   `databases.txt`조차 없어 컨테이너 진입점이 `cii`를 다시 초기화하고, 옛
-   호스트명으로 접속하던 클라이언트가 이 오류를 본다(2026-09-24 로컬 실측).
+2. **빈 DB로 떴다**(#1867) — **§9.2.1로 옮기기 전의 호스트**에서는 실제 DB 데이터가
+   명명 볼륨 `cubrid-data`(`/var/lib/cubrid`에 붙어 비어 있었다)가 아니라 이미지가 선언한
+   익명 볼륨(`$CUBRID_DATABASES` = `/home/cubrid/CUBRID/databases`)에 있다.
+   `docker compose down`은 `-v` 없이도 다음 `up`에서 그 익명 볼륨을 재사용하지 않고
+   **새로** 만든다. 새 볼륨에는 `databases.txt`조차 없어 컨테이너 진입점이 `cii`를 다시
+   초기화하고, 옛 호스트명으로 접속하던 클라이언트가 이 오류를 본다(2026-09-24 로컬 실측).
+   옮긴 뒤에는 `cubrid-data`가 데이터 경로에 붙어 `down` 뒤에도 같은 볼륨이다.
 
 확인:
 ```bash
@@ -1249,6 +1250,70 @@ rm docker-compose.recover.yml
 
 옛 볼륨이 없거나(이미 지워졌거나) 내용을 신뢰할 수 없을 때만 `force_db_init`으로
 재생성한다(**데이터 손실 비가역적** — §3.1 「수동 트리거」 참고).
+
+#### 9.2.1 이름 있는 볼륨으로 옮기기 — 호스트마다 한 번 (#1867)
+
+compose가 `cubrid-data`를 이미지의 데이터 경로(`/home/cubrid/CUBRID/databases`)에 붙인
+뒤로, **아직 옛 익명 볼륨에 데이터가 있는 호스트**는 한 번 옮겨야 한다. 옮기지 않고 새
+compose로 올리면 빈 `cubrid-data`가 데이터 경로를 덮어 **DB가 빈 것처럼 보인다**(데이터는
+옛 익명 볼륨에 그대로 남아 되돌릴 수 있다). 그래서 배포 DB 단계가 `up -d` 전에
+「데이터 경로가 익명 볼륨인데 `cubrid-data`에 `cii/`가 없다」를 보고 **멈춘다** — 컨테이너를
+건드리기 전이라 서비스는 그대로다.
+
+**운영(db-01) — 낮에, 사람이 지켜볼 때.** `cii-cubrid`만 멈춘다. `ourtax-cubrid`는 건드리지
+않는다(§2 · 같은 VM). 앱 중단은 리허설 기준 수 분이다(복사 시간은 데이터 크기에 비례한다).
+
+```bash
+# 0) 디스크 여유 — 복사본이 원본보다 커질 수 있다(리허설: 원본 775M → 복사본 1.3G.
+#    CUBRID가 미리 잡아 둔 희소 파일이 복사에서 풀린 것으로 보인다 · 정황). 여유가
+#    원본의 두 배 미만이면 멈추고 알린다 — VM이 1GB 메모리·작은 디스크다.
+df -h /var/lib/docker
+docker exec cii-cubrid sh -c 'du -sh "$CUBRID_DATABASES"'
+
+# 1) 백업 — 이후 모든 단계의 안전망이다(#788). 매니페스트의 table_counts가 대조 기준.
+#    db-01은 분리 토폴로지라 compose 파일과 서비스 이름을 준다(기본값은 단일 호스트용)
+export COMPOSE="docker compose -f docker-compose.prod.db.yml" DB_SERVICE=cubrid
+python3 scripts/db_backup.py backup
+
+# 2) 앱 정지(app-01) → DB 정지(db-01). 쓰는 도중에 복사하면 파일 일관성이 깨질 수 있다
+docker compose -f docker-compose.prod.app.yml stop backend        # app-01
+docker compose -f docker-compose.prod.db.yml stop cubrid          # db-01
+
+# 3) 옛 익명 볼륨 → cubrid-data 복사 (db-01). 옛 볼륨은 지우지 않는다 — 되돌릴 자리다
+ANON=$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/home/cubrid/CUBRID/databases"}}{{.Name}}{{end}}{{end}}' cii-cubrid)
+NAMED=$(docker volume ls -q --filter label=com.docker.compose.project=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' cii-cubrid) --filter label=com.docker.compose.volume=cubrid-data)
+echo "익명=$ANON · 이름=$NAMED"          # 둘 다 비어 있지 않아야 한다
+docker run --rm -v "$ANON":/from:ro -v "$NAMED":/to --entrypoint sh cubrid/cubrid:11.4 -c 'cp -a /from/. /to/ && ls /to'
+
+# 4) 새 compose를 배포한다 — 이 변경(#1867 PR)의 머지가 곧 이 단계다. 사전 검사가
+#    `cubrid-data`에 `cii/`가 있는 것을 보고 통과하고, `up -d`가 새 마운트로 컨테이너를
+#    다시 만든다. 앱 단계가 이어서 백엔드를 올린다
+
+# 5) 확인 — 마운트와 행 수
+docker inspect -f '{{range .Mounts}}{{.Name}} -> {{.Destination}}{{println}}{{end}}' cii-cubrid
+#    → <프로젝트>_cubrid-data -> /home/cubrid/CUBRID/databases 이어야 한다
+#    표별 행 수를 1)의 매니페스트 table_counts와 대조한다. 1)이 남긴 DB_BACKUP 감사 행
+#    하나만큼 audit_log가 +1인 것은 정상이다(백업이 행 수를 센 뒤 감사 기록을 남긴다)
+
+# 6) 다시 백업 — 「옮긴 뒤의 알려진 좋은 상태」 (1)의 COMPOSE·DB_SERVICE 그대로)
+python3 scripts/db_backup.py backup
+```
+
+**되돌리기** — 5)에서 행 수가 다르거나 빈 DB로 보이면, 옛 익명 볼륨이 그대로 있으므로
+이 변경을 되돌리는 PR을 배포하면 옛 마운트(`/var/lib/cubrid`)로 돌아가 옛 익명 볼륨을 다시
+쓴다 — 그 전에 옛 볼륨이 붙지 않으면 §9.2 「무손실 복구」로 `$ANON`을 다시 붙인다.
+`docker volume prune`은 쓰지 않는다.
+
+**로컬 개발 스택** — `docker-compose.yml`도 같은 마운트다. 이 변경 뒤 처음 `up`하면
+`cii`·`cii_test`가 빈 채로 보인다. 위 2)~3)을 컨테이너 이름만 같게(`cii-cubrid`) 돌려 옮기거나,
+옮기지 않고 다시 적재한다(`scripts/demo_up.sh` · 테스트 DB는 `cii_test` 재생성).
+
+**리허설 (2026-09-25 01시 · 로컬 일회용 compose `rh1867` · 운영 compose의 옛 마운트 복제)** —
+head `061`까지 마이그레이션 + 규제·데모 시드 + 시험 표 1,000행(27표 · 1,150행) →
+`db_backup.py backup` → 정지 → 복사 → 새 마운트로 기동: **27표 모두 행 수 같음**(차이는
+백업이 남긴 `DB_BACKUP` 감사 행 1) → **`down` → `up` 뒤에도 같음**(옛 마운트에서는 이 단계가
+빈 DB였다). 배포 사전 검사는 세 상태에서 돌렸다 — 옮긴 뒤 통과 · 옛 마운트에 `cubrid-data`
+빔 → **exit 1** · 옛 마운트에 복사까지 마침 → 통과.
 
 ### 9.3 app-01에서 db-01 연결 실패
 

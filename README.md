@@ -493,12 +493,12 @@ DATABASE_URL=cubrid+pycubrid://dba:@localhost:33100/cii_test uv run --extra dev 
 | 포트가 5432가 아니라 **33100** | `docker-compose.yml`이 브로커를 `33100:33000`으로 낸다. 컨테이너 **안**에서는 `db:33000`이다 |
 | **`--extra dev`** | `pytest`는 `pyproject.toml`의 `[dev]` extra에 있고 **`uv`는 extra를 기본으로 설치하지 않는다.** 빼면 `pytest`를 찾지 못한다 — 전환과 무관하게 원래 틀렸던 줄이다 |
 
-> 🔴 **`docker compose down`은 쓰지 않는다 — 데이터가 통째로 사라진다(#1867).** CUBRID
-> 데이터는 명명 볼륨이 아니라 이미지가 선언한 익명 볼륨에 있어서, `down`은 `-v`
-> 없이도 다음 `up`에서 새 익명 볼륨을 만든다. `cii`뿐 아니라 그 안에 손으로 만든
-> `cii_test`도 함께 사라지므로 **`cubrid createdb`부터 다시** 해야 한다(위 1번).
-> 컨테이너만 멈추고 데이터를 지키려면 `docker compose stop` 뒤 `docker compose
-> up -d`(또는 `start`)를 쓴다 — 이때도 컨테이너 진입점이 기동하는 것은
+> 🔴 **`docker compose down -v`는 쓰지 않는다 — 데이터가 통째로 사라진다.** CUBRID 데이터는
+> 이미지의 데이터 경로에 붙은 명명 볼륨 `cubrid-data`에 있어 `down`(`-v` 없이)·재생성 뒤에도
+> 남는다(#1867). ⚠️ **그 전에 만든 로컬 스택**은 데이터가 옛 익명 볼륨에 있어, 마운트가 바뀐
+> 뒤 처음 `up`하면 `cii`·`cii_test`가 빈 채로 보인다 — 한 번 옮기거나(`docs/OPERATIONS.md`
+> §9.2.1) **`cubrid createdb`부터 다시** 한다(위 1번). 컨테이너를 다시 올리면(`docker compose
+> up -d` · `start`) — 이때도 컨테이너 진입점이 기동하는 것은
 > `$CUBRID_DB`(`cii`) 하나뿐이라 `cii_test`의 서버는 내려간 채로 남으므로 아래
 > 명령으로 다시 올린다.
 >
@@ -734,3 +734,4 @@ docker compose exec -T db sh -c 'cubrid server stop cii_test; cubrid deletedb ci
 | 2026-09-24 | `#1854` | 「테스트 DB 복구」 절에 **같은 이름 트리거가 둘 이상인 경우도 같은 절차**라는 문단 추가 (`#1373` 체크리스트 ⑸). CUBRID는 중복 생성을 막지 않고 중복이 생기면 이름으로는 지울 수 없어(-503) 다시 만드는 수밖에 없다 — 왕복 검사의 중복 단언과 `db/trigger_ddl.replace_trigger`의 오류가 이 절을 가리킨다 (#1373) |
 | 2026-09-24 | `#1848` | 문서 구조 표의 `DB_SCHEMA.md` 행을 **v1.36**, `TEST_PLAN.md` 행을 **v1.31**으로 — `DB_SCHEMA §2.1·§2.15` 활성 키 열·유니크 인덱스(마이그레이션 061) · `TEST_PLAN §5.10` 격리 수준 전제 가드 신설. 동시 중복 등록을 DB가 막고 서비스가 같은 409로 바꾼다 (#1631) |
 | 2026-09-24 | `#1875` | **「`docker compose down` 뒤에는 서버를 다시 올려야 한다」 경고를 정정.** 로컬 CUBRID 데이터도 명명 볼륨이 아니라 이미지가 선언한 익명 볼륨에 있어, `down`은 `-v` 없이도 다음 `up`에서 새 익명 볼륨을 만든다(2026-09-24 실측·#1867) — 종전 문구는 `cii_test` 서버만 내려간다고 적어, 실제로는 `cii`·`cii_test` 데이터가 함께 사라지는데도 재기동만 하면 되는 것처럼 읽혔다. 데이터를 지키려면 `docker compose stop`을 쓰라고 함께 적었다. `AGENTS §4.3`상 오기 정정이라 버전은 올리지 않는다 (#1867) |
+| 2026-09-25 | `#___` | **로컬 DB 경고를 새 마운트에 맞춤** — `cubrid-data`가 이미지의 데이터 경로에 붙어(#1867) `down`(`-v` 없이)은 더 이상 데이터를 지우지 않는다. 금지 대상은 `down -v`이고, 그 전에 만든 로컬 스택은 처음 한 번 옮기거나(`OPERATIONS §9.2.1`) 다시 만든다 (#1867) |

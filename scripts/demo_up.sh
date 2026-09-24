@@ -636,8 +636,7 @@ cat <<'GUIDE'
      pkill -f "uvicorn cii_platform"
      docker compose stop
 
- ⚠️ docker compose down은 쓰지 마세요 — CUBRID 데이터는 명명 볼륨이 아니라
-    이미지가 선언한 익명 볼륨에 있어(#1867), down은 -v 없이도 다음 up에서
-    새 익명 볼륨을 만들어 cii·cii_test를 빈 채로 띄웁니다.
+ ⚠️ docker compose down에 볼륨 삭제 옵션을 붙이지 마세요 — CUBRID 데이터가 든
+    명명 볼륨 cubrid-data가 지워집니다(#1867). 옵션 없는 down은 데이터를 남깁니다.
 ──────────────────────────────────────────────────────────────
 GUIDE

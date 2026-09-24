@@ -2,20 +2,21 @@
 
 ## 무엇을 막는가
 
-운영 CUBRID 데이터는 compose의 명명 볼륨 `cubrid-data`가 아니라 이미지가 선언한
-익명 볼륨(`$CUBRID_DATABASES` = `/home/cubrid/CUBRID/databases`)에 있다.
-`cubrid-data`가 마운트하는 `/var/lib/cubrid`는 비어 있다. `docker compose down`은
-`-v` 없이도 다음 `up`에서 **새 익명 볼륨**을 만들어 빈 DB로 뜨게 한다(2026-09-24
-로컬 실측 — `/tmp/.../scratchpad/vol/probe.log`). 반대로 compose 마운트 경로를
-데이터가 있는 자리로 그냥 바꾸면 빈 명명 볼륨이 그 경로를 덮어써 운영 DB가 사라진
-것처럼 보인다.
+종전에는 compose의 명명 볼륨 `cubrid-data`가 엉뚱한 `/var/lib/cubrid`(비어 있다)에
+붙어, 실제 데이터가 이미지가 선언한 **익명 볼륨**(`$CUBRID_DATABASES` =
+`/home/cubrid/CUBRID/databases`)에 쌓였다. `docker compose down`은 `-v` 없이도 다음
+`up`에서 새 익명 볼륨을 만들어 빈 DB로 뜨게 했다(2026-09-24 로컬 실측). 이제
+`cubrid-data`를 이미지의 데이터 경로에 붙인다 — 다만 옛 익명 볼륨에 데이터가 있는
+호스트에서 처음 적용하면 빈 `cubrid-data`가 그 데이터를 가린다(2026-09-25 리허설).
 
 ## 이 파일이 잠그는 것
 
-1. 두 compose 파일의 CUBRID 서비스가 `cubrid-data:/var/lib/cubrid`를 마운트하는
-   줄 근처에 이 위험을 설명하는 주석이 있는가 — 지우면 다음 사람이 「명명 볼륨
-   이니 안전하다」고 다시 믿는다.
-2. `deploy.yml`의 db-01 단계가 `docker compose … down`을 **`FORCE_DB_INIT` 분기
+1. 두 compose 파일의 CUBRID 서비스가 `cubrid-data`를 **이미지의 데이터 경로**에
+   붙이는가, 그 줄 근처에 옮기는 절차를 가리키는 주석이 있는가.
+2. `deploy.yml`의 db-01 단계가 `up -d` **전에** 「데이터가 익명 볼륨에 있고
+   `cubrid-data`는 비었다」를 보고 멈추는가 — 옮기는 절차를 건너뛴 첫 배포가 운영
+   데이터를 가리지 않게.
+3. `deploy.yml`의 db-01 단계가 `docker compose … down`을 **`FORCE_DB_INIT` 분기
    밖에서** 쓰지 않는가 — 밖에서 쓰면 평소 배포(재생성 경로, `pull` + `up -d`)마다
    컨테이너가 내려갔다 올라오며 새 익명 볼륨을 만들어 데이터를 지운다.
 
@@ -37,7 +38,12 @@ _DEPLOY = _ROOT / ".github" / "workflows" / "deploy.yml"
 
 #: 위험 주석이 반드시 담아야 하는 핵심어 — 어느 하나라도 없으면 "왜 위험한지"가
 #: 사라진 채 형식만 남은 주석이 될 수 있다.
-_WARNING_MARKERS = ("익명 볼륨", "#1867")
+_WARNING_MARKERS = ("익명 볼륨", "#1867", "§9.2.1")
+
+#: 이미지 ``cubrid/cubrid:11.4``가 ``VOLUME``으로 선언한 데이터 경로(= ``$CUBRID_DATABASES``).
+#: ``docker image inspect cubrid/cubrid:11.4`` → ``{"/home/cubrid/CUBRID/databases":{}}``(실측).
+#: 이미지를 판올림해 경로가 바뀌면 이 값과 두 compose 파일을 함께 고친다.
+_IMAGE_DATA_PATH = "/home/cubrid/CUBRID/databases"
 
 #: 주석을 찾는 창 — 마운트 줄 바로 위 몇 줄 안에 있어야 "근처"로 친다.
 _WINDOW = 8
@@ -49,11 +55,15 @@ def _lines(path: Path) -> list[str]:
 
 def _find_cubrid_data_mount_line(lines: list[str]) -> int:
     for i, line in enumerate(lines):
-        if re.search(r"cubrid-data:\s*/var/lib/cubrid", line):
+        if re.search(r"cubrid-data:\s*/", line):
             return i
-    raise AssertionError(
-        "`cubrid-data:/var/lib/cubrid` 마운트 줄을 찾지 못했다 — 파일이 바뀌었는지 확인할 것"
-    )
+    raise AssertionError("`cubrid-data:` 마운트 줄을 찾지 못했다 — 파일이 바뀌었는지 확인할 것")
+
+
+def _mount_target(line: str) -> str:
+    match = re.search(r"cubrid-data:\s*(/[^\s\]\"',]+)", line)
+    assert match, line
+    return match.group(1)
 
 
 def _warning_near(lines: list[str], target_index: int) -> bool:
@@ -154,3 +164,28 @@ def test_force_db_init_guard_still_uses_down_dash_v():
     block = _db01_run_block(_DEPLOY.read_text(encoding="utf-8"))
     assert re.search(r'if \[ "\$\{FORCE_DB_INIT\}" = "true" \]; then', block)
     assert "docker compose -f docker-compose.prod.db.yml down -v" in block
+
+
+def test_both_compose_files_mount_cubrid_data_at_the_image_data_path():
+    """`cubrid-data`가 이미지의 데이터 경로에 붙는다 — 종전 `/var/lib/cubrid`는 비어 있었다."""
+    for path in (_COMPOSE_DEV, _COMPOSE_PROD_DB):
+        lines = _lines(path)
+        target = _mount_target(lines[_find_cubrid_data_mount_line(lines)])
+        assert target == _IMAGE_DATA_PATH, f"{path.name}: cubrid-data가 {target}에 붙는다"
+
+
+def test_db01_step_stops_before_up_when_data_is_still_in_an_anonymous_volume():
+    """db-01 단계가 `up -d` **전에** 익명 볼륨 · 빈 `cubrid-data`를 보고 멈춘다.
+
+    마운트를 옮긴 첫 배포에서 옮기는 절차(OPERATIONS §9.2.1)를 건너뛰면 `up -d`가 빈
+    볼륨을 데이터 경로에 붙인다. 검사가 `up -d` 뒤에 있으면 이미 늦다 — 순서까지 본다.
+    검사가 같은 compose 프로젝트의 볼륨만 보는지도 본다(같은 호스트의 ourtax 스택).
+    """
+    block = _db01_run_block(_DEPLOY.read_text(encoding="utf-8"))
+    check = block.index(f'{{{{if eq .Destination "{_IMAGE_DATA_PATH}"}}}}')
+    up = block.index("docker compose -f docker-compose.prod.db.yml up -d")
+    assert check < up, "사전 검사가 up -d 뒤에 있다"
+    guard = block[check:up]
+    assert "exit 1" in guard
+    assert "com.docker.compose.project=" in guard
+    assert "test -d /v/cii" in guard
