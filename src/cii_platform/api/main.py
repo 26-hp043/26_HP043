@@ -21,6 +21,7 @@ from cii_platform.api.middleware import RequestContextMiddleware
 from cii_platform.api.rate_limit import (
     RateLimiter,
     RateLimits,
+    proxy_client_ip_enabled,
     rate_limit_middleware,
 )
 from cii_platform.api.routes.annual_simulations import router as annual_simulations_router
@@ -91,6 +92,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """
     settings = load_mail_settings()
     _log.info("메일 백엔드: %s", settings.backend)
+    # 요청 한도의 IP 판정 경로 (#1483). 비밀 값이 배포 경로 한 곳에서라도 빠지면 서명 헤더
+    # 경로가 **조용히** 꺼져 전원이 한 버킷을 나눠 쓰던 상태로 돌아간다 — 배포 뒤 이 줄로
+    # 확인한다. 값은 찍지 않는다.
+    signed_ip = "켜짐" if proxy_client_ip_enabled() else "꺼짐"
+    _log.info("요청 한도 IP 판정: 프록시 서명 헤더 %s", signed_ip)
 
     # `APP_PUBLIC_URL`도 같은 자리에서 본다 (#809).
     #

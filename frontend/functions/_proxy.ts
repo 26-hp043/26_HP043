@@ -29,6 +29,22 @@
  * `_proxy.test.ts`가 Worker 런타임 없이 검사할 수 있게 한다.
  */
 
+/**
+ * 원 클라이언트 IP를 백엔드에 전하는 헤더와, 그 값을 이 프록시가 붙였다는 증표 (#1483).
+ *
+ * 이름은 백엔드 `api/rate_limit.py`의 `CLIENT_IP_HEADER`·`PROXY_SECRET_HEADER`와 같아야 한다.
+ *
+ * ## 왜 `cf-connecting-ip`를 그대로 넘기지 않는가
+ *
+ * 화면(`pages.dev`)과 API(터널 호스트)는 **다른 Cloudflare 영역**이다. 영역 사이
+ * 서브리퀘스트에는 Cloudflare가 `CF-Connecting-IP`를 Worker 주소 `2a06:98c0:3600::103`
+ * 하나로 다시 쓴다(Cloudflare Docs *HTTP headers*). 그 이름으로는 원 IP가 도착하지 않는다.
+ * 그래서 브라우저 요청에 붙어 온 값(엣지가 붙인 것 — 사용자가 위조하지 못한다)을
+ * **우리 이름으로 옮겨 담는다.**
+ */
+export const CLIENT_IP_HEADER = 'x-bluelog-client-ip'
+export const PROXY_SECRET_HEADER = 'x-bluelog-proxy-secret'
+
 /** 프록시가 그대로 흘리지 않는 요청 헤더. */
 const DROPPED_REQUEST_HEADERS = new Set([
   // 업스트림 주소로 다시 계산돼야 한다 — 그대로 넘기면 백엔드가 `pages.dev`를 자기
@@ -40,6 +56,10 @@ const DROPPED_REQUEST_HEADERS = new Set([
   'cf-ipcountry',
   'cf-ray',
   'cf-visitor',
+  // 아래 두 이름은 **이 프록시만 붙인다** (#1483). 브라우저가 같은 이름으로 보내 오면
+  // 떼어 낸다 — 그대로 흘리면 비밀 값을 모르는 사람이 원 IP 자리를 채울 수 있다.
+  CLIENT_IP_HEADER,
+  PROXY_SECRET_HEADER,
 ])
 
 /**
@@ -97,4 +117,34 @@ export function readApiOrigin(env: Record<string, unknown>): string {
     )
   }
   return raw
+}
+
+/**
+ * 프록시와 백엔드가 나눠 가진 비밀 값 (#1483). 없으면 빈 문자열.
+ *
+ * `API_ORIGIN`과 달리 **없어도 던지지 않는다** — 없으면 원 IP를 싣지 않을 뿐이고
+ * 백엔드는 종전 규칙으로 센다. 요청을 막을 이유가 아니다. 비밀 값은 `wrangler.toml`에
+ * 두지 않는다(저장소에 공개된다) — 배포가 `wrangler pages secret put`으로 넣는다.
+ */
+export function readProxySecret(env: Record<string, unknown>): string {
+  return typeof env.PROXY_CLIENT_IP_SECRET === 'string' ? env.PROXY_CLIENT_IP_SECRET.trim() : ''
+}
+
+/**
+ * 원 클라이언트 IP와 비밀 값을 업스트림 헤더에 싣는다 (#1483).
+ *
+ * 비밀 값이나 원 IP 중 하나라도 없으면 **아무것도 싣지 않는다.** 반쪽만 실으면 백엔드는
+ * 어차피 무시하지만, 읽는 사람이 「왜 IP만 있는가」를 따로 추적해야 한다.
+ *
+ * @param upstream   `forwardableRequestHeaders`가 고른 헤더 — 여기에 덧붙인다
+ * @param incoming   브라우저 요청의 원래 헤더 (`cf-connecting-ip`를 읽는다)
+ * @param secret     `readProxySecret`의 결과
+ */
+export function attachClientIp(upstream: Headers, incoming: Headers, secret: string): Headers {
+  const ip = (incoming.get('cf-connecting-ip') ?? '').trim()
+  if (secret && ip) {
+    upstream.set(CLIENT_IP_HEADER, ip)
+    upstream.set(PROXY_SECRET_HEADER, secret)
+  }
+  return upstream
 }

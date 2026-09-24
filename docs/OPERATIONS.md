@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-24 (§3.6.4 `061` 사전 검사 — 중복이면 바꾸기 전에 멈춘다 · #1631). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-25 (§1.2.1 프록시 서명 헤더 — 요청 한도가 사람마다 세어진다 · §5.1 `PROXY_CLIENT_IP_SECRET` · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -105,12 +105,31 @@ API_ORIGIN = "https://<터널이 준 호스트명>"     # 배포가 시크릿에
 `CORS_ALLOW_ORIGINS`는 더 이상 필요하지 않다(`api/main.py`는 미설정이면 CORS 미들웨어를
 아예 붙이지 않는다). 남겨 두어도 무해하지만, 같은 오리진에서는 쓰이지 않는다.
 
-> ⚠️ **요청 한도가 전체 공유가 된다.** 백엔드는 `USE_FORWARDED_FOR=false`가 기본이라
-> `request.client.host`로 한도를 건다(`api/rate_limit.py`). 프록시 뒤에서는 모든 요청이
-> Cloudflare 주소에서 오므로 **여러 사람이 한 버킷을 나눠 쓴다**(`auth` 10/분 ·
-> `chat` 10/분). `USE_FORWARDED_FOR=true`로 바꾸려면 **`:8001`에 직접 붙어 헤더를
-> 위조할 수 없어야 한다**는 전제가 필요한데(#811 · #786), 지금 그 포트는 열려 있다.
-> 후속 이슈로 분리한다.
+#### 1.2.1 요청 한도가 사람마다 세어지게 — 프록시 서명 헤더 (#1483)
+
+프록시 뒤에서는 모든 요청이 터널을 거쳐 `localhost`로 들어와 `request.client.host`가
+**모든 사용자에게 같다.** 그대로면 여러 사람이 한 버킷을 나눠 쓴다(`auth` 10/분 ·
+`chat` 10/분).
+
+**`CF-Connecting-IP`로는 풀리지 않는다.** 화면(`pages.dev`)과 API(`kpubdata.com`)가 다른
+Cloudflare 영역이라, 영역 사이 서브리퀘스트에는 Cloudflare가 그 헤더를 Worker 주소
+`2a06:98c0:3600::103` 하나로 다시 쓴다(Cloudflare Docs *HTTP headers*).
+**`USE_FORWARDED_FOR=true`도 답이 아니다** — `:8001`이 열려 있어 헤더를 위조할 수 있다.
+
+그래서 이렇게 한다.
+
+| 자리 | 하는 일 |
+|---|---|
+| Pages Function (`frontend/functions/_proxy.ts`) | 브라우저 요청의 `cf-connecting-ip`(엣지가 붙인 값 — 사용자가 위조하지 못한다)를 `X-BlueLog-Client-IP`에 옮겨 담고 `X-BlueLog-Proxy-Secret`에 비밀 값을 싣는다. 브라우저가 같은 이름으로 보낸 헤더는 뗀다 |
+| 백엔드 (`api/rate_limit.py` `client_ip`) | 비밀 값이 **맞을 때만**(`hmac.compare_digest`) 그 IP로 센다. 없거나 틀리면 헤더를 무시하고 종전 규칙대로 — `:8001`로 직접 들어와 헤더를 적어도 위조가 되지 않는다 |
+| 비밀 값 | GitHub 시크릿 `PROXY_CLIENT_IP_SECRET` 하나(§5.1). 배포가 Pages 시크릿과 app-01 `.env`에 같은 값을 넣는다 |
+
+**배포 뒤 확인** — 백엔드 기동 로그에 `요청 한도 IP 판정: 프록시 서명 헤더 켜짐`이 찍힌다.
+`꺼짐`이면 비밀 값이 배포 경로 어딘가에서 빠진 것이다. 접근 로그(`api.jsonl`)의
+`client`는 판정된 IP, `peer`는 소켓 상대(터널이면 `127.0.0.1`)다. 서로 다른 두 네트워크에서
+로그인했을 때 `client`가 둘로 찍히면 끝이다.
+
+`:8001`을 닫는 일은 이것과 독립이다 — `#786`이 헬스체크 이전과 함께 한다.
 
 ---
 
@@ -956,8 +975,9 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `CLOUDFLARE_API_TOKEN` | **Cloudflare Pages 배포 토큰**(Pages:Edit). 없으면 `deploy-frontend`가 자격증명 점검에서 멈춰 **화면이 영원히 옛 판**으로 남는다 — 실제로 8회 연속 실패했다 (`#1236` · `#1479`) | |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 계정 ID (§6.1 공개값) | `22abb4f21a4c7886292a2a0ecadf331b` |
 | `API_ORIGIN` | Pages Function이 백엔드를 부를 **호스트명**(`https://` 포함 · §3.5). ⚠️ **IP를 넣으면 프록시가 403(`error 1003`)을 낸다** — Workers는 IP로 요청하지 못한다 (`#1496`) | `https://bluelog-api.kpubdata.com` |
+| `PROXY_CLIENT_IP_SECRET` | **프록시 서명 헤더의 비밀 값**(`#1483`). 배포가 Pages 시크릿과 app-01 `.env`에 **같은 값**을 넣는다. 프록시가 원 클라이언트 IP를 이 값과 함께 실어 보내고, 백엔드 요청 한도는 값이 맞을 때만 그 IP로 센다(§1.2). ⚠️ 없으면 `deploy-frontend`가 **의도적으로 멈춘다** — 비어도 요청은 통하지만 현장 전원이 로그인 10회/분을 나눠 쓰는 상태로 조용히 돌아가기 때문이다. 값은 난수(`openssl rand -hex 32`) | |
 
-> **위 넷은 「필수」의 뜻이 서로 다르다.** 앞의 9종이 없으면 **백엔드 배포**가 서고, `CLOUDFLARE_*`·`API_ORIGIN`이 없으면 **화면 배포**가 선다. 잡이 갈라져 있어 한쪽이 빨간불이어도 다른 쪽은 초록불이므로, **`Deploy to OCI` 실행의 5잡이 모두 초록불인지**로 확인한다 (`#1201` · `#1479` · `#1496`이 전부 이 자리에서 났다).
+> **위 넷은 「필수」의 뜻이 서로 다르다.** 앞의 9종이 없으면 **백엔드 배포**가 서고, `CLOUDFLARE_*`·`API_ORIGIN`·`PROXY_CLIENT_IP_SECRET`이 없으면 **화면 배포**가 선다. 잡이 갈라져 있어 한쪽이 빨간불이어도 다른 쪽은 초록불이므로, **`Deploy to OCI` 실행의 5잡이 모두 초록불인지**로 확인한다 (`#1201` · `#1479` · `#1496`이 전부 이 자리에서 났다).
 
 ### 5.2 권장 시크릿
 

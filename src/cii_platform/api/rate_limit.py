@@ -32,10 +32,28 @@ uvicorn 워커마다 카운터가 따로 생기지만, 이 프로젝트는 `#232
 있는 프록시만 앞에 있는 환경**이 전제다. `#811`이 ``docker-compose.prod.yml``의
 ``app.ports``를 없앤 것이 그 전제의 절반이다(호스트에서 ``:8000``에 직접 붙어 헤더를
 위조할 수 없어야 한다). 나머지 절반은 `#786`이 맡는다.
+
+## 프록시 서명 헤더 (#1483)
+
+클라우드 배포에서는 요청이 Pages Function 프록시 → Cloudflare 터널 → ``localhost``로
+들어와 ``request.client.host``가 **모든 사용자에게 같다.** 그래서 ``auth`` 10/분을 현장
+전원이 나눠 쓴다. ``CF-Connecting-IP``로는 풀리지 않는다 — 화면과 API가 **다른
+Cloudflare 영역**이라, 영역 사이 서브리퀘스트에는 그 헤더가 Worker 주소
+``2a06:98c0:3600::103`` 하나로 찍힌다(Cloudflare Docs *HTTP headers*).
+
+프록시(``frontend/functions/_proxy.ts``)가 브라우저 요청의 ``cf-connecting-ip``(엣지가
+붙인 값 — 사용자가 위조하지 못한다)를 ``X-BlueLog-Client-IP``에 옮겨 담고 비밀 값
+``X-BlueLog-Proxy-Secret``을 함께 싣는다. 여기서는 **비밀 값이 맞을 때만** 그 IP를 쓴다.
+비밀 값이 없거나 틀리면 헤더를 무시하고 종전 규칙대로 판정한다 — ``:8001``로 직접
+들어와 헤더를 적어도 위조가 되지 않는다. ``PROXY_CLIENT_IP_SECRET``이 비어 있으면
+이 경로 전체가 꺼지고 동작은 이 절이 생기기 전과 같다.
 """
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
+import logging
 import os
 import time
 from collections import defaultdict
@@ -121,6 +139,17 @@ _REPRODUCE_SUFFIX = "/reproduce"
 #: 한도를 우회하는 것을 막는다. 역방향 프록시 뒤에서만 true로 설정한다.
 _USE_FORWARDED_FOR = os.environ.get("USE_FORWARDED_FOR", "false").lower() == "true"
 
+#: 프록시가 옮겨 담은 원 클라이언트 IP 헤더와 그것을 보증하는 비밀 값 헤더 (#1483).
+#: 이름은 ``frontend/functions/_proxy.ts``와 같아야 한다.
+CLIENT_IP_HEADER = "x-bluelog-client-ip"
+PROXY_SECRET_HEADER = "x-bluelog-proxy-secret"
+
+#: 프록시와 나눠 가진 비밀 값. **비어 있으면 서명 헤더 경로 전체가 꺼진다** (#1483).
+#: ``_USE_FORWARDED_FOR``와 같이 import 시점에 한 번 읽는다 — 요청마다 환경을 읽지 않는다.
+_PROXY_CLIENT_IP_SECRET = os.environ.get("PROXY_CLIENT_IP_SECRET", "").strip()
+
+_log = logging.getLogger(__name__)
+
 _WINDOW_SECONDS = 60.0
 
 
@@ -180,8 +209,43 @@ def resolve_bucket(method: str, path: str) -> str:
     return BUCKET_DEFAULT
 
 
-def _client_ip(request: Request) -> str:
+def proxy_client_ip_enabled() -> bool:
+    """서명 헤더 경로가 켜져 있는지 (#1483). 앱 기동 로그가 부른다.
+
+    **값은 돌려주지 않는다** — 켜짐·꺼짐만 로그에 남긴다. 배포가 비밀 값을 한 곳이라도
+    빠뜨리면 이 경로는 조용히 꺼지므로, 배포 뒤 이 한 줄로 확인한다.
+    """
+    return bool(_PROXY_CLIENT_IP_SECRET)
+
+
+def _signed_proxy_ip(request: Request) -> str | None:
+    """프록시가 서명한 원 클라이언트 IP. 서명이 없거나 틀리거나 값이 IP가 아니면 ``None``.
+
+    비교는 ``hmac.compare_digest``로 한다 — 앞에서부터 맞는 글자 수에 따라 응답 시간이
+    달라지면 비밀 값을 한 글자씩 맞혀 볼 수 있다. 바이트로 바꿔 넘기는 것은 비ASCII
+    헤더 값에서 ``TypeError``가 나지 않게 하기 위함이다.
+    """
+    if not _PROXY_CLIENT_IP_SECRET:
+        return None
+    presented = request.headers.get(PROXY_SECRET_HEADER, "")
+    if not presented or not hmac.compare_digest(
+        presented.encode("utf-8"), _PROXY_CLIENT_IP_SECRET.encode("utf-8")
+    ):
+        return None
+    raw = request.headers.get(CLIENT_IP_HEADER, "").strip()
+    try:
+        # 서명이 맞아도 값은 IP여야 한다. 프록시에 결함이 생겨 빈 값이나 목록이 오면
+        # 그것을 카운터 키로 삼지 않고 종전 규칙으로 내려간다.
+        return str(ipaddress.ip_address(raw))
+    except ValueError:
+        return None
+
+
+def client_ip(request: Request) -> str:
     """클라이언트 IP를 판별한다.
+
+    **순서** — ⑴ 프록시 서명 헤더(비밀 값이 맞을 때만 · #1483) ⑵ ``X-Forwarded-For``
+    (``USE_FORWARDED_FOR=true``일 때만) ⑶ ``request.client.host``.
 
     **기본적으로 ``X-Forwarded-For``를 무시한다.** 클라이언트가 이 헤더를 임의로
     바꿔 매 요청 다른 IP로 위장하면 한도가 완전히 우회된다 (#rate-limit-security).
@@ -190,6 +254,9 @@ def _client_ip(request: Request) -> str:
     역방향 프록시가 앞에 있는 환경**이 전제다. 프록시가 없는 직접 노출 환경에서는
     ``request.client.host``가 곧 클라이언트 IP이므로 그대로 쓴다.
     """
+    signed = _signed_proxy_ip(request)
+    if signed is not None:
+        return signed
     if _USE_FORWARDED_FOR:
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
@@ -265,7 +332,7 @@ async def rate_limit_middleware(
         return await call_next(request)
     bucket = resolve_bucket(request.method, request.url.path)
     try:
-        limiter.consume(_client_ip(request), bucket)
+        limiter.consume(client_ip(request), bucket)
     except RateLimitError as exc:
         from cii_platform.api.timefmt import iso_utc_now
 
