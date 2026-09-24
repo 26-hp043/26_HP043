@@ -555,8 +555,8 @@ describe('연료 입력 방식 (#1718)', () => {
     expect(document.querySelector('#fuel-ton')).toBeNull()
     fireEvent.change(screen.getByLabelText(/하루 연료 사용량/), { target: { value: '23.04' } })
 
-    // 1000nm ÷ 12kn = 83.3h → 80.0t (`§4.2` — 시간 1자리 · 연료 1자리)
-    expect(screen.getByText(/항해시간 83\.3 h/)).toBeTruthy()
+    // 1000nm ÷ 12kn = 83.3h → 80.0t (`§4.2` — 연료 1자리). 항해시간은 줄에 적지 않는다(#1784 ⑵).
+    expect(screen.getByText(/23\.0 t\/일/)).toBeTruthy()
     expect(screen.getByText(/80\.0 t/)).toBeTruthy()
   })
 
@@ -642,11 +642,20 @@ describe('연료 입력 방식 (#1718)', () => {
   })
 
   /**
-   * #1784 ⑵ — 환산 줄에 **곱하는 하루치**가 표시 자릿수로 함께 선다. 제원이 23.04인데 화면이
-   * 23.0만 보이면 「23.0 × 시간」을 손으로 셈한 사람에게 총량이 틀려 보였다. 등록 자릿수를
-   * 그대로 드러내지 않고(`§4.2`), 세 항이 한 줄에 나란히 선다.
+   * #1784 ⑵ 리뷰 — 종전에는 하루치·항해시간·총량 셋을 「하루 23.0 × 항해시간 83.3 ÷ 24 →
+   * 80.0」처럼 한 줄에 곱셈식으로 적었다. 셋 다 `§4.2` 표시 자릿수(1자리)로 반올림된
+   * 값이라, **표시값끼리 손으로 그 식을 다시 계산하면 실제 총량과 끝자리 반올림 한 단위
+   * (0.1)를 넘게 어긋났다**(23.0 × 83.3 ÷ 24 = 79.8, 화면 총량은 80.0 — 차이 0.2).
+   *
+   * 항해시간을 정밀하게 보여도 어긋남은 사라지지 않는다 — 하루치 반올림(23.04 → 23.0)
+   * 만으로도 23.0 × (1000/12) ÷ 24 = 79.86…으로 총량(80.0)과 0.14 차이가 나, 시간 값의
+   * 자릿수와 무관하게 0.1 허용 폭을 넘긴다. 즉 **1자리로 반올림한 하루치가 낀 곱셈식은
+   * 일반적으로 0.1 허용 폭을 지킬 수 없다** — 그래서 곱셈식 자체를 보이지 않는 쪽을
+   * 골랐다(하루치 · 총량만 「기준 · 약」으로 잇는다). 이 성질(줄 안에 연산 기호나 시간
+   * 값이 없다 — 재구성할 셈 자체가 없다)을 직접 단언한다. 표시 문구 원문은 단언하지
+   * 않는다(`AGENTS §4.6`).
    */
-  it('환산 줄에 하루치 · 항해시간 · 총량이 함께 서고, 하루치는 표시 자릿수다', async () => {
+  it('환산 줄은 하루치·총량만 「기준 · 약」으로 잇고, 손으로 재구성할 곱셈식을 보이지 않는다', async () => {
     stubServer()
     renderWithSpec('23.04')
     await ready()
@@ -656,16 +665,17 @@ describe('연료 입력 방식 (#1718)', () => {
     expect(line.getAttribute('role')).toBe('status')
     const text = line.textContent ?? ''
     const daily = formatDecimalString('23.04', DISPLAY_DIGITS.fuelTon)
-    const hours = formatDecimalString(String(1000 / 12), DISPLAY_DIGITS.durationHours)
     const total = formatGrouped(String((23.04 * (1000 / 12)) / 24), DISPLAY_DIGITS.fuelTon)
     expect(text).toContain(`${daily} ${DISPLAY_UNIT_DAILY_FUEL}`)
-    expect(text).toContain(`${hours} ${DISPLAY_UNITS.duration}`)
     expect(text).toContain(`${total} ${DISPLAY_UNITS.fuel}`)
     // 등록 자릿수는 드러내지 않는다
     expect(text).not.toContain('23.04')
-    // 세 항의 순서 — 하루치 → 항해시간 → 총량
-    expect(text.indexOf(daily)).toBeLessThan(text.indexOf(hours))
-    expect(text.indexOf(hours)).toBeLessThan(text.indexOf(total))
+    // 총량 앞에 「약」이 서서 정확한 곱셈 결과가 아님을 말한다
+    expect(text.indexOf('약')).toBeGreaterThan(-1)
+    expect(text.indexOf('약')).toBeLessThan(text.indexOf(total))
+    // 재구성할 곱셈식이 없다 — 연산 기호도, 항해시간 값·단위도 이 줄에는 없다
+    expect(text).not.toMatch(/[×x÷=→]/)
+    expect(text).not.toContain(DISPLAY_UNITS.duration)
   })
 
   it('방식을 바꿨다 돌아와도 처음 총량이 그대로다', async () => {
@@ -680,5 +690,56 @@ describe('연료 입력 방식 (#1718)', () => {
     fireEvent.click(screen.getByLabelText('총량'))
 
     expect((document.querySelector('#fuel-ton') as HTMLInputElement).value).toBe('80')
+  })
+
+  /**
+   * #1784 리뷰 LOW — 「선박 제원에서」를 고른 채 상단바에서 제원 없는 선박으로 바꾸면
+   * 그 방식이 막힌다(`blocked`). 라디오는 `disabled`라 사용자가 다시 누를 수 없는데,
+   * 되돌리는 효과가 없으면 `checked`인 채로 남아 값 자리가 「이 선박에는 기준 일일
+   * 연료소모량이 없습니다」만 보이고 입력칸이 없어 빠져나갈 길이 없다. `TOTAL`로
+   * 되돌아가면 총량 칸이 다시 서는 것으로 이 상태를 확인한다.
+   */
+  it('제원 있는 선박에서 「선박 제원에서」를 고른 채 제원 없는 선박으로 바뀌면 총량으로 되돌린다', async () => {
+    stubServer()
+    const WITH_SPEC = '00000000-0000-4000-8000-000000000001'
+    const NO_SPEC = '00000000-0000-4000-8000-000000000002'
+    const value: ShellContext = {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId: WITH_SPEC,
+      vessels: [
+        {
+          id: WITH_SPEC,
+          displayName: '샘플 벌크선',
+          shipType: 'BULK_CARRIER',
+          spec: { referenceSpeedKn: '12', referenceDailyFocTon: '23.04', defaultFuelType: 'HFO' },
+        },
+        { id: NO_SPEC, displayName: '제원 없는 배', shipType: 'BULK_CARRIER' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+    const tree = (ctx: ShellContext) => (
+      <MemoryRouter initialEntries={['/voyage-cii']}>
+        <Routes>
+          <Route element={<Outlet context={ctx} />}>
+            <Route path="/voyage-cii" element={<VoyageCiiForm />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+    const result = render(tree(value))
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+
+    fireEvent.click(screen.getByLabelText('선박 제원에서'))
+    expect(document.querySelector('#fuel-ton')).toBeNull()
+
+    result.rerender(tree({ ...value, vesselId: NO_SPEC }))
+    await act(async () => {})
+
+    // 총량으로 되돌아가 총량 칸이 다시 선다 — 「선박 제원에서」는 이제 disabled다
+    expect(document.querySelector('#fuel-ton')).not.toBeNull()
+    expect((screen.getByLabelText('선박 제원에서') as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText('선박 제원에서') as HTMLInputElement).disabled).toBe(true)
   })
 })
