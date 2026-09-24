@@ -382,6 +382,31 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         terminalreporter.write_line(f"  {count:>5} × {statement}")
 
 
+#: 해상 경로망 워밍을 그대로 두는 테스트 파일 — 워밍 자체와 경로 계산을 재는 곳이다.
+_SEA_ROUTE_WARMING_KEPT = frozenset({"test_sea_route.py"})
+
+
+@pytest.fixture(autouse=True)
+def _no_sea_route_warming(request, monkeypatch):
+    """``TestClient``가 lifespan을 돌릴 때 해상 경로망 워밍을 띄우지 않는다 (#1862 ⑸).
+
+    lifespan(``api/main.py``)이 기동마다 워커 스레드에서 ``searoute`` import와 그래프 적재
+    (리눅스 실측 약 2초)를 시작한다. 경로를 쓰지 않는 테스트에는 비용만 있다. 경로가 필요한
+    요청은 워밍 없이도 첫 요청에서 적재된다(``services/sea_route._ensure_loaded``) — 결과는
+    같고 시점만 다르다. ``test_sea_route.py``는 워밍을 재므로 제외한다.
+    """
+    if Path(str(request.node.fspath)).name in _SEA_ROUTE_WARMING_KEPT:
+        yield
+        return
+    import cii_platform.api.main as main_module
+
+    async def _skip() -> bool:
+        return False
+
+    monkeypatch.setattr(main_module, "warm_up_async", _skip)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _fresh_rate_limiter():
     """매 테스트마다 ``main.app``의 분당 카운터를 새것으로 바꾼다 (#651).
