@@ -237,26 +237,62 @@
   font-weight: var(--font-weight-body);
 }
 
-/* ── 계산 근거 (#727) ──────────────────────────────────────────────── */
+/* ── 마지막 줄 — 「이 결과로」 + 「계산 근거」 접기 (#1711 ④ · #1786) ──────── */
 
-.voyage-cii-result__basis {
-  background: var(--color-surface-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  padding: var(--space-12);
+/*
+ * 두 칸 격자 — 왼쪽은 「이 결과로」(제목 + 버튼 줄), 오른쪽은 「계산 근거」 여는 버튼.
+ * `align-items: end`로 여는 버튼이 **버튼 줄과 같은 줄**에 선다. 펼친 근거는 둘째 행에서
+ * 전체 폭을 쓴다. 구분선은 이 줄이 갖는다 — 종전에는 `.voyage-cii-actions`가 가졌는데
+ * 그러면 선이 오른쪽 칸 앞에서 끊긴다.
+ */
+.voyage-cii-result__footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-12);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-16);
 }
 
-.voyage-cii-result__basis-summary {
+/*
+ * 텍스트 버튼 — 면도 테두리도 없다(`§5` 카드 안 회색 타일 금지). 높이는 같은 줄의
+ * `.voyage-cii-actions__button`(40px)과 같다(`§8` 텍스트 버튼 높이 · `#1297`).
+ */
+.voyage-cii-result__basis-toggle {
+  grid-column: 2;
+  height: 40px;
+  padding: 0 var(--space-8);
+  border: 0;
+  background: none;
   cursor: pointer;
+  font-family: inherit;
   font-size: var(--font-size-label);
   font-weight: var(--font-weight-label);
   color: var(--color-text-muted);
 }
 
-.voyage-cii-result__basis-summary:focus-visible {
+.voyage-cii-result__basis-toggle::after {
+  content: ' ▾';
+}
+
+.voyage-cii-result__basis-toggle[aria-expanded='true']::after {
+  content: ' ▴';
+}
+
+.voyage-cii-result__basis-toggle:hover {
+  color: var(--color-link);
+}
+
+.voyage-cii-result__basis-toggle:focus-visible {
   outline: var(--focus-outline);
   outline-offset: 2px;
   border-radius: var(--radius-control);
+}
+
+/* ── 계산 근거 (#727) — 펼친 내용. 면이 없다, 바닥 위에 바로 놓인다 (`§5`). ── */
+
+.voyage-cii-result__basis {
+  grid-column: 1 / -1;
 }
 
 .voyage-cii-result__basis-list {

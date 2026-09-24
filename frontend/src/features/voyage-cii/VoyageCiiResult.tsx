@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import './VoyageCiiResult.css'
 import {
@@ -284,13 +284,15 @@ function SuccessResult({
         ) : null}
 
         {/*
-          「이 결과로」 (#891 · `PRD §10.5`) — 종전에는 결과 아래 **따로 떠 있는 카드**였다.
-          결과로 할 일은 결과 카드의 끝에 둔다(`§5` · #1711).
+          결과 카드의 마지막 줄 (#1711 ④ · #1786) — 「이 결과로」(#891 · `PRD §10.5`) 버튼
+          줄과, **그 줄 오른쪽**의 「계산 근거」 접기(#727). 종전에는 접기가 버튼 줄 아래
+          별도 블록이었고 카드 안에 회색 면을 가졌다(`§5` 카드 안 회색 타일 금지).
+          열면 근거는 이 줄 아래 카드 전체 폭에 펼쳐진다 — 배치는 CSS `__footer` 격자가 한다.
         */}
-        {actions}
-
-        {/* 「그 숫자가 어떻게 나왔나」 (#727) */}
-        <CalculationBasisPanel response={response} />
+        <div className="voyage-cii-result__footer">
+          {actions}
+          <CalculationBasisPanel response={response} />
+        </div>
       </section>
     </div>
   )
@@ -375,8 +377,12 @@ function GradeTargets({
  * 유종별 CF·수송능력·파라미터 버전**을 이미 싣고 있었고 화면이 하나도 읽지 않았다.
  * 그래서 「CO₂ 2,400.0 tCO₂」가 어디서 나온 값인지 화면 안에 근거가 없었다.
  *
- * `<details>`로 접어 둔다 — 평소에는 결과를 가리지 않고, 물어보는 순간 펼친다.
- * 실시간 CII의 「산출 가정」(`#725`)과 같은 형태다.
+ * 접어 둔다 — 평소에는 결과를 가리지 않고, 물어보는 순간 펼친다.
+ *
+ * `<details>`가 아니라 `aria-expanded` 버튼 + 아래 영역이다 (#1786). 여는 줄은 「이 결과로」
+ * 버튼 줄의 **오른쪽 끝**에 놓이고(#1711 ④) 펼친 내용은 그 줄 **아래 전체 폭**에 서야
+ * 하는데, `<details>`는 요약과 내용이 한 상자라 둘을 다른 칸에 둘 수 없다. 같은 줄의
+ * 「계획 저장」이 이미 이 형태다(`VoyageCiiActions.tsx`).
  *
  * ## 자릿수를 함부로 정하지 않는다
  *
@@ -384,93 +390,107 @@ function GradeTargets({
  * 규제 파라미터를 그대로 보여 주는 자리이므로 **서버 문자열을 손대지 않는다** —
  * 여기서 반올림하면 근거를 대조하려는 사람에게 근거가 아닌 것을 보여 주게 된다.
  */
+const BASIS_PANEL_ID = 'voyage-cii-basis'
+
 function CalculationBasisPanel({ response }: { response: VoyageCiiResponse }) {
+  const [open, setOpen] = useState(false)
   const data = response.data
   const basis = data.calculation_basis
   const parameters = response.parameters_used
 
   return (
-    <details className="voyage-cii-result__basis">
-      <summary className="voyage-cii-result__basis-summary">계산 근거</summary>
+    <>
+      <button
+        type="button"
+        className="voyage-cii-result__basis-toggle"
+        aria-expanded={open}
+        aria-controls={BASIS_PANEL_ID}
+        onClick={() => setOpen((value) => !value)}
+      >
+        계산 근거
+      </button>
+      {open ? (
+        <div id={BASIS_PANEL_ID} className="voyage-cii-result__basis" role="region" aria-label="계산 근거">
+          <dl className="voyage-cii-result__basis-list">
+            <div>
+              <dt>선종</dt>
+              <dd>{shipTypeLabel(basis.ship_type)}</dd>
+            </div>
+            <div>
+              <dt>수송능력</dt>
+              <dd>
+                {formatGrouped(data.transport_capacity, DISPLAY_DIGITS.capacity)}{' '}
+                {data.transport_capacity_basis}
+              </dd>
+            </div>
+            <div>
+              <dt>기준 용량</dt>
+              <dd>
+                {formatGrouped(data.reference_capacity, DISPLAY_DIGITS.capacity)}{' '}
+                <span className="voyage-cii-result__cell-sub">
+                  ({data.reference_capacity_rule})
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>기준선 계수</dt>
+              {/* required_cii = a × 기준용량^(−c) × (1 − Z/100) */}
+              <dd>
+                a {basis.a_decimal} · c {basis.c}
+              </dd>
+            </div>
+            <div>
+              <dt>감축계수 Z</dt>
+              <dd>
+                {formatDecimalString(basis.z_factor_percent, DISPLAY_DIGITS.percent)}%{' '}
+                <span className="voyage-cii-result__cell-sub">
+                  ({parameters.regulation_year.year}년)
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>파라미터 버전</dt>
+              <dd>{parameters.parameter_source_version}</dd>
+            </div>
+          </dl>
 
-      <dl className="voyage-cii-result__basis-list">
-        <div>
-          <dt>선종</dt>
-          <dd>{shipTypeLabel(basis.ship_type)}</dd>
-        </div>
-        <div>
-          <dt>수송능력</dt>
-          <dd>
-            {formatGrouped(data.transport_capacity, DISPLAY_DIGITS.capacity)}{' '}
-            {data.transport_capacity_basis}
-          </dd>
-        </div>
-        <div>
-          <dt>기준 용량</dt>
-          <dd>
-            {formatGrouped(data.reference_capacity, DISPLAY_DIGITS.capacity)}{' '}
-            <span className="voyage-cii-result__cell-sub">
-              ({data.reference_capacity_rule})
-            </span>
-          </dd>
-        </div>
-        <div>
-          <dt>기준선 계수</dt>
-          {/* required_cii = a × 기준용량^(−c) × (1 − Z/100) */}
-          <dd>
-            a {basis.a_decimal} · c {basis.c}
-          </dd>
-        </div>
-        <div>
-          <dt>감축계수 Z</dt>
-          <dd>
-            {formatDecimalString(basis.z_factor_percent, DISPLAY_DIGITS.percent)}%{' '}
-            <span className="voyage-cii-result__cell-sub">
-              ({parameters.regulation_year.year}년)
-            </span>
-          </dd>
-        </div>
-        <div>
-          <dt>파라미터 버전</dt>
-          <dd>{parameters.parameter_source_version}</dd>
-        </div>
-      </dl>
+          {/*
+            CO₂는 유종마다 CF가 달라 한 줄로 적을 수 없다. 표로 두면 「연료 × CF = CO₂」가
+            행마다 눈으로 검산된다 — 이 블록이 답해야 하는 질문이 그것이다.
+          */}
+          <table className="voyage-cii-result__basis-table">
+            <thead>
+              <tr>
+                <th scope="col">유종</th>
+                <th scope="col">연료</th>
+                <th scope="col">CF</th>
+              </tr>
+            </thead>
+            <tbody>
+              {basis.fuel_cf_details.map((detail) => (
+                <tr key={detail.fuel_type}>
+                  <th scope="row">{detail.fuel_type}</th>
+                  <td>
+                    {formatGrouped(detail.fuel_ton, DISPLAY_DIGITS.fuelTon)}
+                    <span className="voyage-cii-result__cell-unit"> {DISPLAY_UNITS.fuel}</span>
+                  </td>
+                  <td>{detail.cf}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-      {/*
-        CO₂는 유종마다 CF가 달라 한 줄로 적을 수 없다. 표로 두면 「연료 × CF = CO₂」가
-        행마다 눈으로 검산된다 — 이 블록이 답해야 하는 질문이 그것이다.
-      */}
-      <table className="voyage-cii-result__basis-table">
-        <thead>
-          <tr>
-            <th scope="col">유종</th>
-            <th scope="col">연료</th>
-            <th scope="col">CF</th>
-          </tr>
-        </thead>
-        <tbody>
-          {basis.fuel_cf_details.map((detail) => (
-            <tr key={detail.fuel_type}>
-              <th scope="row">{detail.fuel_type}</th>
-              <td>
-                {formatGrouped(detail.fuel_ton, DISPLAY_DIGITS.fuelTon)}
-                <span className="voyage-cii-result__cell-unit"> {DISPLAY_UNITS.fuel}</span>
-              </td>
-              <td>{detail.cf}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {/*
-        이 패널은 **이 계산이 쓴** 값만 보인다. 다른 선종·연도의 값, 대체된 옛 판본, 원문
-        표기(`a_raw`)는 설정의 「규제 기준값」 절에 있다 (#1516 · `#1239` 결정 B) — 대조하러
-        온 사람이 여기서 막히지 않게 잇는다.
-      */}
-      <p className="voyage-cii-result__basis-link">
-        <Link to={regulationParametersPath()}>규제 기준값 전체 보기</Link>
-      </p>
-    </details>
+          {/*
+            이 패널은 **이 계산이 쓴** 값만 보인다. 다른 선종·연도의 값, 대체된 옛 판본, 원문
+            표기(`a_raw`)는 설정의 「규제 기준값」 절에 있다 (#1516 · `#1239` 결정 B) — 대조하러
+            온 사람이 여기서 막히지 않게 잇는다.
+          */}
+          <p className="voyage-cii-result__basis-link">
+            <Link to={regulationParametersPath()}>규제 기준값 전체 보기</Link>
+          </p>
+        </div>
+      ) : null}
+    </>
   )
 }
 
