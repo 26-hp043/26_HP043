@@ -95,6 +95,26 @@ async def get_by_id(session: AsyncSession, vessel_id: UUID) -> Vessel | None:
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+async def lock_row(session: AsyncSession, vessel_id: UUID) -> bool:
+    """선박 행 하나를 ``SELECT … FOR UPDATE``로 **잠근다** (`#1629` · `TECH_SPEC §16.3`).
+
+    「이 선박의 자식 행을 읽고 판정한 뒤 쓴다」는 경로가 판정 **전에** 부른다. 판정과
+    쓰기 사이에 다른 요청이 끼면 **둘 다 같은 옛 상태를 보고** 통과한다 — 겹치는 정박
+    구간이 둘 남는 형태다(`#1796` 실측: READ COMMITTED에서 미커밋 INSERT는 보이지 않고
+    대기도 없다). 자식 행(구간)은 아직 없으므로 잠글 수 없고 **부모인 선박 행**을
+    잡는다 — `services/auth_token.issue_token`이 사용자 행에 하는 것과 같은 도구다.
+
+    삭제 여부를 보지 않는다 — 존재 판정은 :func:`get_by_id`의 몫이고, 이 함수는 행이
+    있으면 잡을 뿐이다. 잠금은 호출부가 커밋·롤백할 때 함께 풀린다(트랜잭션 경계는
+    바꾸지 않는다). CUBRID는 ``NOWAIT``·``SKIP LOCKED``가 없고 서버 기본이
+    ``lock_timeout=-1``이라 앞 요청이 끝날 때까지 **기다린다**.
+
+    :returns: 행을 잡았으면 ``True``. 없는 행에는 잠금이 걸리지 않으므로 ``False``다.
+    """
+    stmt = select(Vessel.id).where(Vessel.id == vessel_id).with_for_update()
+    return (await session.execute(stmt)).scalar_one_or_none() is not None
+
+
 async def update_current_position_if_newer(
     session: AsyncSession,
     *,
