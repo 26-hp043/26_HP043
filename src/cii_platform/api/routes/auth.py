@@ -67,6 +67,7 @@ from cii_platform.auth.tour_gate import REJECTED_MESSAGE as TOUR_REJECTED_MESSAG
 from cii_platform.auth.tour_gate import TOUR_USER_ID as _TOUR_USER_ID
 from cii_platform.auth.tour_gate import tour_is_public, verify_tour_code
 from cii_platform.config import public_base_url
+from cii_platform.db.cubrid_errors import violated_unique_index
 from cii_platform.db.models.app_user import ROLE_ADMIN, ROLE_FIELD, AppUser
 from cii_platform.db.models.user_session import UserSession
 from cii_platform.db.models.user_token import PURPOSE_EMAIL_VERIFY
@@ -100,6 +101,10 @@ CURRENT_PASSWORD_WRONG_MESSAGE = "현재 비밀번호가 올바르지 않습니�
 
 #: 회원가입 이메일 중복 문구 — `PRD §6.3` 확정 원문.
 EMAIL_TAKEN_MESSAGE = "이미 가입된 이메일입니다. 로그인하거나 비밀번호를 찾아 주세요."
+
+#: 활성 이메일의 유니크 인덱스 (마이그레이션 061 · `DB_SCHEMA §2.15`). 동시 가입 경합에서
+#: 이 이름의 위반만 위 문구의 409로 바꾼다 — 다른 무결성 위반은 중복이 아니다 (#1631).
+EMAIL_TAKEN_INDEX = "uq_app_user_email_active"
 
 #
 # 둘러보기 계정 (#1486) — 인터뷰·설문 대상자가 가입 없이 서비스를 보는 자리.
@@ -342,7 +347,19 @@ async def signup(
         role=ROLE_ADMIN if is_initial_admin(email) else ROLE_FIELD,
     )
     session.add(user)
-    await session.flush()
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        # ⚠️ **동시 가입 경합** (#1631). 위 중복 확인은 남의 미커밋 행을 못 본다(READ
+        # COMMITTED · `#1796`) — 같은 이메일로 거의 동시에 가입하면 둘 다 「없다」를 읽고
+        # 여기까지 온다. 막는 것은 활성 키 열 `email_active`의 유니크 인덱스(061)다: 뒤
+        # 요청의 INSERT가 앞 요청의 커밋까지 기다렸다가 위반으로 떨어진다. 그것을 위 중복
+        # 확인과 **같은 409·같은 문구**로 바꾼다(`#1495`의 「넣어 보고 걸리면」 형태).
+        # 다른 무결성 위반은 중복이 아니므로 그대로 올린다 — 500이 맞다.
+        if violated_unique_index(exc.orig) != EMAIL_TAKEN_INDEX:
+            raise
+        await session.rollback()
+        return _error_response(request, 409, "CONFLICT", EMAIL_TAKEN_MESSAGE)
 
     session_token, csrf_token = await _issue_session(session, request, user)
     # 인증 메일 토큰을 같은 트랜잭션에서 발급한다 — 커밋 뒤에 발송한다.
@@ -763,9 +780,9 @@ async def delete_me(
 
     ## 같은 이메일로 다시 가입할 수 있다
 
-    `idx_app_user_email`이 `WHERE is_deleted = false`인 **부분 유일 인덱스**라
-    (마이그레이션 033) 탈퇴한 계정의 이메일은 다시 쓸 수 있다. **이메일 변경 경로를
-    두지 않는 대신 이 길을 연다.**
+    탈퇴가 활성 키 `email_active`를 NULL로 비우고 유니크 인덱스 `uq_app_user_email_active`
+    는 NULL을 세지 않으므로(마이그레이션 061 · `#1631`) 탈퇴한 계정의 이메일은 다시 쓸 수
+    있다. **이메일 변경 경로를 두지 않는 대신 이 길을 연다.**
 
     ## 멱등이 아니다
 

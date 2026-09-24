@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-24. 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-24 (§3.6.4 `061` 사전 검사 — 중복이면 바꾸기 전에 멈춘다 · #1631). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -561,6 +561,49 @@ python3 scripts/db_backup.py backup
 ⚠️ `#451`의 사례 — 마이그레이션 다운그레이드가 계산 이력이 있으면 FK(`RESTRICT`)로
 막혔다. **되돌릴 수 있다는 가정을 실제로 확인해야 한다.** `db_backup.py`의
 복구 리허설(unloaddb → loaddb → 교체)은 CI `docker` 잡이 모든 PR에서 실제로 돌린다.
+
+#### 3.6.4 마이그레이션 `061`이 중복으로 멈추면 — 중복 정리 → upgrade 재실행 (#1631)
+
+`061`은 `vessel.imo_active`·`app_user.email_active`(활성이면 원본의 사본 · 삭제면 NULL)에
+**유니크 인덱스**를 세운다. 그 전까지 유일성은 `047`의 트리거였는데 동시 등록을 막지
+못했으므로(`#1796`), 운영 DB에 **같은 IMO·이메일의 활성 행이 둘 이상** 남아 있을 수 있다.
+
+**머지 전에 사람이 운영 DB를 조회할 필요는 없다 — 마이그레이션이 먼저 센다.** `061`은
+아무것도 바꾸기 전에 두 표의 활성 중복 그룹 수를 세고, 하나라도 있으면 아래 문구의 예외로
+멈춘다(G-1 결정 「다′」 · 2026-09-24). 그때 **DB는 그대로다** — `047` 트리거 4개가 남아 있고
+열도 인덱스도 만들지 않았다. 배포 워크플로는 마이그레이션이 끝나야 백엔드를 올리므로(§3.1)
+멈춘 동안 옛 백엔드가 옛 스키마 위에서 그대로 돈다.
+
+```
+마이그레이션 061을 적용하지 않았다 — 활성 행 안에 같은 키가 둘 이상인 그룹이 있다
+(vessel.imo_number 1개 · app_user.email 0개). DB는 그대로다(047 트리거도 남아 있고
+열·인덱스도 만들지 않았다). docs/OPERATIONS.md §3.6.4의 절차로 …
+```
+
+문구에는 **그룹 수만 있고 값(IMO·이메일)은 없다** — 배포 로그가 공개 저장소의 Actions에
+남기 때문이다. 어느 값인지는 아래 1)에서 DB에 직접 묻는다. 마이그레이션은 **조용히 한쪽을
+지우지 않는다.** 무엇을 남길지는 사람이 정한다.
+
+```bash
+# 1) 중복을 찾는다 — 활성 행끼리 같은 키 (마이그레이션 문구의 표에서만 찾으면 된다)
+csql -u dba cii -c "SELECT imo_number, COUNT(*) FROM vessel WHERE is_deleted = 0 GROUP BY imo_number HAVING COUNT(*) > 1"
+csql -u dba cii -c "SELECT email, COUNT(*) FROM app_user WHERE is_deleted = 0 GROUP BY email HAVING COUNT(*) > 1"
+
+# 2) 남길 행을 정한다 — 항차·계산 이력이 달린 쪽, 로그인 이력(last_login_at)이 있는 쪽.
+#    나머지는 **지우지 말고 소프트 삭제**한다(감사 로그·FK가 그 행을 참조한다 · DB_SCHEMA §7.1).
+#    047의 BEFORE UPDATE 트리거는 활성 → 삭제 방향을 막지 않는다.
+csql -u dba cii -c "UPDATE vessel SET is_deleted = 1 WHERE id = '<버릴 행 id>'"
+csql -u dba cii -c "UPDATE app_user SET is_deleted = 1 WHERE id = '<버릴 행 id>'"
+
+# 3) upgrade를 그대로 다시 돌린다 — 사전 검사가 0을 세면 그때 047 트리거를 걷고 열 → 백필 →
+#    인덱스 → 채움 트리거 순으로 이어간다. 되돌릴 것은 없다(멈췄을 때 아무것도 바꾸지 않았다).
+docker compose -f docker-compose.prod.app.yml run --rm backend alembic upgrade head
+```
+
+2)에서 소프트 삭제한 행은 백필이 `NULL`로 채워 인덱스에서 빠진다. 사전 검사가 지나간 뒤
+다른 이유(연결 끊김 등)로 중간에 멈추면 각 단계가 카탈로그를 보고 이미 한 것은 건너뛰므로
+같은 명령을 다시 돌리면 된다. 검사가 실제로 `047` 트리거 전에 멈추는지는
+`tests/test_zz_active_key_precheck_db.py`가 CI의 CUBRID에서 확인한다.
 
 ---
 

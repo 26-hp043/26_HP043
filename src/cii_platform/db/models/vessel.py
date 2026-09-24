@@ -44,6 +44,13 @@ class Vessel(Base):
         sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False
     )
     is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
+    # 활성 키 (#1631 · 061). 활성 행이면 `imo_number`의 사본, 소프트 삭제된 행이면 NULL —
+    # 그 위의 유니크 인덱스 `uq_vessel_imo_active`가 「활성 행 안에서만 유일」을 DB에서
+    # 강제한다(CUBRID 유니크 인덱스는 NULL을 여러 개 허용한다 — 061 실측). **앱은 이 열을
+    # 쓰지 않는다.** 값은 061의 트리거 `trg_vessel_imo_active_ins`·`_upd`가 `is_deleted`에
+    # 따라 채운다 — 여기서 대입해도 트리거가 바로잡는다. flush 뒤 이 속성은 갱신 전 값
+    # (None) 그대로이므로 읽지 않는다.
+    imo_active = sa.Column(sa.String(length=7), nullable=True)
     # 현재 위치·운항 상태 (마이그레이션 026 · #346). 전부 NULL 허용 — 위치를 모르는
     # 미갱신 선박(기존 3척 포함)도 정상 조회돼야 한다.
     # 계산 축(2값) — CII 집계는 「항해 중이냐」 이진 판단만 한다.
@@ -132,13 +139,18 @@ class Vessel(Base):
         # §2.1 인덱스. soft delete 호환 — **활성 행 안에서만 유일**이다.
         #
         # PostgreSQL 시절에는 `WHERE is_deleted = false`인 부분 유니크 인덱스였는데
-        # **CUBRID에는 조건이 붙는 인덱스가 없다** (`#1058`). 유일성은 `047`이 트리거
-        # (`trg_uq_vessel_imo_active_ins`·`_upd`)로 강제하고, 여기서는 **조회용 인덱스**
-        # 로만 선언한다 — `unique=True`로 두면 ORM이 DB가 하지 않는 일을 선언하게 되고,
-        # `test_orm_schema_sync`가 그것을 드리프트로 잡는다.
+        # **CUBRID에는 조건이 붙는 인덱스가 없다** (`#1058`). `047`은 유일성을 트리거로
+        # 옮겼으나 트리거의 `NOT EXISTS`는 미커밋 행을 못 봐 동시 등록에서 중복이 남았다
+        # (`#1631` 실측). `061`이 그 트리거를 걷고 활성 키 열 `imo_active`의 **유니크
+        # 인덱스**로 옮겼다 — 아래 `uq_vessel_imo_active`. `idx_vessel_imo`는 조회용이다.
         sa.Index(
             "idx_vessel_imo",
             "imo_number",
+        ),
+        sa.Index(
+            "uq_vessel_imo_active",
+            "imo_active",
+            unique=True,
         ),
         sa.Index(
             "idx_vessel_ship_type",

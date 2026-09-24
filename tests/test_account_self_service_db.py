@@ -372,9 +372,9 @@ class TestDeleteMe:
     async def test_same_email_can_sign_up_again(self, client):
         """**이메일 변경 경로를 두지 않는 대신 여는 길**이다.
 
-        `idx_app_user_email`이 `WHERE is_deleted = false`인 부분 유일 인덱스라
-        성립한다(마이그레이션 033). 이 성질이 깨지면 `PRD §6.3`의 고지 문구가
-        **거짓말이 된다.**
+        탈퇴가 활성 키 `email_active`를 NULL로 비우고 유니크 인덱스 `uq_app_user_email_active`
+        는 NULL을 세지 않아 성립한다(마이그레이션 061 · `#1631`). 이 성질이 깨지면
+        `PRD §6.3`의 고지 문구가 **거짓말이 된다.**
         """
         email = "del-reuse@example.com"
         try:

@@ -366,6 +366,17 @@ def test_distance_source_column_is_regenerable():
     assert "059" not in IRREVERSIBLE and "059" not in EPHEMERAL
 
 
+def test_active_key_columns_are_regenerable():
+    """#1631 — `061`(vessel.imo_active·app_user.email_active)은 REGENERABLE이다.
+
+    열 드롭이라 파괴적이지만 값은 `is_deleted`와 원본 열에서 결정되므로, 다시 upgrade하면
+    백필이 **같은 값**을 채운다 — 052·053(사람이 넣은 값이 사라진다)과 달리 값 자체가
+    재생된다. IRREVERSIBLE로 두면 되돌릴 때마다 24시간 백업 확인이 불필요하게 걸린다.
+    """
+    assert "061" in REGENERABLE
+    assert "061" not in IRREVERSIBLE and "061" not in EPHEMERAL
+
+
 def test_the_classifier_sees_the_known_cases(tmp_path: Path):
     """판별기 자신을 먼저 잠근다 — 틀리면 위 완전성 검사가 조용히 통과한다.
 

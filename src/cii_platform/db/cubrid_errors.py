@@ -30,11 +30,24 @@ errno  CUBRID 메시지                                           PostgreSQL에�
 -922   ``The constraint of the foreign key … is invalid``      FK 위반
 -924   ``Update/Delete operations are restricted by the …``    FK RESTRICT
 -225   ``Missing value for attribute "…"``                     NOT NULL 위반
+-528   ``Error evaluating action for "…", Operation would    UNIQUE 위반
+       have caused one or more unique constraint
+       violations. INDEX uq_… ``  — **유니크 위반 메시지를
+       담을 때만** (`#1631` · 061)
 ====== ====================================================== ======================
 
-트리거 거부(-517)는 **제약을 대신하는 트리거만** 옮긴다. `a7d3e9b14f26`·`046`·`047`이
-건 트리거는 전부 CHECK 아니면 FK 대용이므로 **기본이 「옮긴다」**이고, 성질이 다른 것만
-:data:`IMMUTABILITY_TRIGGER_MARKS`로 뺀다.
+트리거 거부(-517)는 **제약을 대신하는 트리거만** 옮긴다. `a7d3e9b14f26`·`046`이 건
+트리거는 전부 CHECK 아니면 FK 대용이므로 **기본이 「옮긴다」**이고, 성질이 다른 것만
+:data:`IMMUTABILITY_TRIGGER_MARKS`로 뺀다. (`047`의 활성-유일 트리거도 같은 갈래였다 —
+`061`이 유니크 인덱스로 옮기며 걷었다.)
+
+**-528은 조건부다.** 「트리거 액션을 평가하다 오류」라는 뜻이라 액션이 무엇으로 실패했든
+같은 번호로 온다. `061`의 활성 키 트리거는 행을 넣은 **뒤에** 자기 행을 다시 갱신하므로
+(``AFTER INSERT/UPDATE … EXECUTE UPDATE … WHERE id = obj.id``) 유니크 위반이 그 액션
+안에서 나고, 드라이버는 ``-670``(직접 위반)이 아니라 이 번호를 준다 — 실측이다. 그래서
+메시지에 **유니크 위반 문구가 있을 때만** 옮긴다(:func:`violated_unique_index`).
+라우트·서비스는 그 함수가 돌려주는 **인덱스 이름**으로 「중복인가」를 가른다 — errno만
+보면 다른 무결성 위반까지 중복으로 오인한다(`#1631` 완료 기준).
 
 ## 무엇을 하지 않는가
 
@@ -79,6 +92,16 @@ _REJECTED = re.compile(
 #: ``(errno=-517, sqlstate='HY000')``에서 숫자를 집는다.
 _ERRNO = re.compile(r"errno=(?P<errno>-?\d+)")
 
+#: 트리거 액션 평가 오류. 유니크 위반 메시지(:data:`_UNIQUE_VIOLATION`)를 담을 때만 옮긴다.
+TRIGGER_ACTION_ERRNO = -528
+
+#: 유니크 위반 메시지에서 인덱스 이름을 집는다 — ``-670``(직접)과 ``-528``(트리거 액션
+#: 안) 둘 다 같은 문장이다: ``… unique constraint violations. INDEX uq_vessel_imo_active(B+tree: …``
+_UNIQUE_VIOLATION = re.compile(
+    r"unique constraint violations?\.\s*INDEX\s+(?P<index>\w+)",
+    re.IGNORECASE,
+)
+
 
 def _errno(exception: BaseException | None) -> int | None:
     if exception is None:
@@ -94,9 +117,26 @@ def _rejected_trigger_name(exception: BaseException | None) -> str | None:
     return m.group("name") if m else None
 
 
+def violated_unique_index(exception: BaseException | None) -> str | None:
+    """유니크 인덱스 위반이면 **그 인덱스 이름**, 아니면 ``None``.
+
+    ``sqlalchemy.exc.IntegrityError``를 받은 자리에서 ``exc.orig``(드라이버 예외)를 넘긴다.
+    이름으로 가르는 이유 — 같은 ``IntegrityError``라도 FK·NOT NULL·다른 유니크 위반은
+    「중복 등록」이 아니다. 회원가입·선박 등록은 자기 인덱스(``uq_app_user_email_active`` ·
+    ``uq_vessel_imo_active``)일 때만 409로 바꾸고 나머지는 그대로 올린다.
+    """
+    if exception is None:
+        return None
+    m = _UNIQUE_VIOLATION.search(str(exception))
+    return m.group("index") if m else None
+
+
 def _is_integrity_violation(exception: BaseException | None) -> bool:
     """PostgreSQL이 ``IntegrityError``로 올렸을 위반인가."""
-    if _errno(exception) not in INTEGRITY_ERRNOS:
+    errno = _errno(exception)
+    if errno == TRIGGER_ACTION_ERRNO:
+        return violated_unique_index(exception) is not None
+    if errno not in INTEGRITY_ERRNOS:
         return False
 
     name = _rejected_trigger_name(exception)

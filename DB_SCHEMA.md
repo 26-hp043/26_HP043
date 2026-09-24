@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.35 |
-| 상태 | Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** |
+| 버전 | v1.36 |
+| 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** |
 | 최종 수정일 | 2026-09-24 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
@@ -93,7 +93,7 @@ erDiagram
 | 컬럼 | 타입 | 제약 | 설명 |
 |---|---|---|---|
 | `id` | UUID | PK, NOT NULL | 내부 ID |
-| `imo_number` | VARCHAR(7) | NOT NULL | IMO 번호 (7자리 숫자). 유일성은 partial unique index로만 보장 (soft delete 호환) |
+| `imo_number` | VARCHAR(7) | NOT NULL | IMO 번호 (7자리 숫자). 유일성은 **활성 행 안에서만** — `imo_active` 열의 유니크 인덱스가 보장 (soft delete 호환 · `061`) |
 | `name` | VARCHAR(100) | NOT NULL | 선박명 |
 | `ship_type` | VARCHAR(50) | NOT NULL | CII 선종 enum. `cii_reference_line.ship_type`에 존재해야 함 |
 | `gross_tonnage` | NUMERIC(12,2) | NULL | GT |
@@ -111,6 +111,7 @@ erDiagram
 > 정밀도를 바꾸면 세 곳이 함께 바뀌어야 한다 — `tests/test_vessel_spec_bounds.py`·`specBounds.sync.test.ts`가 대조한다.
 | `is_cii_applicable_hint` | BOOLEAN | NOT NULL DEFAULT false | GT ≥ 5000 및 선종 기준 자동 산정 |
 | `is_deleted` | BOOLEAN | NOT NULL DEFAULT false | Soft delete 플래그 |
+| `imo_active` | VARCHAR(7) | NULL, **UNIQUE `uq_vessel_imo_active`** · 값은 트리거 `trg_vessel_imo_active_ins`·`_upd`가 채운다 [#1631] | **활성 키** — 활성 행이면 `imo_number`의 사본, 소프트 삭제된 행이면 `NULL`(마이그레이션 061). CUBRID 유니크 인덱스는 NULL을 여러 개 허용하므로 「활성 행 안에서만 유일」이 **인덱스로** 선다 — 부분 유니크 인덱스를 CUBRID가 하는 형태로 옮긴 것. **앱은 이 열을 쓰지 않는다** — `AFTER INSERT/UPDATE` 트리거가 `is_deleted`에 따라 다시 채운다(잘못 넣어도 바로잡는다) |
 | `underway_state` | VARCHAR(20) | NULL, CHECK 허용값 2종 | **계산 축** — `UNDER_WAY`/`NOT_UNDER_WAY` (#346) |
 | `detail_status` | VARCHAR(20) | NULL, CHECK 허용값 7종 | **화면 축** — `SAILING`/`IN_PORT`/`AT_ANCHOR`/`DRIFTING`/`STS`/`CANAL_TRANSIT`/`DRYDOCK` |
 | `current_lat` | NUMERIC(9,6) | NULL, CHECK −90~90 | 현재 위치 위도 |
@@ -128,8 +129,11 @@ CREATE UNIQUE INDEX idx_vessel_imo ON vessel (imo_number) WHERE is_deleted = fal
 CREATE INDEX idx_vessel_ship_type ON vessel (ship_type) WHERE is_deleted = false;
 CREATE INDEX idx_vessel_name ON vessel USING gin (name gin_trgm_ops) WHERE is_deleted = false;
 -- 🔴 CUBRID: 세 인덱스 모두 **조건 없이** 선다(`1c444a5c4819` · `§7.4` 6항). `idx_vessel_imo`는
---    `047`이 비유일 인덱스로 바꾸고 활성 행 안의 유일성은 트리거 `trg_uq_vessel_imo_active`가
---    맡는다 — filtered index는 UNIQUE와 함께 쓸 수 없다. `idx_vessel_name`은 pg_trgm 없이 B-tree다.
+--    `047`이 비유일 인덱스로 바꿨고(filtered index는 UNIQUE와 함께 쓸 수 없다) 조회용으로만 남는다.
+--    `idx_vessel_name`은 pg_trgm 없이 B-tree다.
+-- 061 (#1631): 활성 행 안의 유일성은 **활성 키 열의 유니크 인덱스**가 갖는다. `047`의 트리거
+--    `trg_uq_vessel_imo_active`는 `NOT EXISTS`가 미커밋 행을 못 봐 동시 등록을 막지 못했다(`#1796` 실측).
+CREATE UNIQUE INDEX uq_vessel_imo_active ON vessel (imo_active);
 ```
 
 **검증 제약:**
@@ -911,7 +915,8 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 | `id` | UUID | PK, NOT NULL | 내부 사용자 ID |
 | `password_hash` | VARCHAR(255) | NOT NULL | 비밀번호 해시(Argon2id). **평문을 저장하지 않는다** |
 | `email_verified_at` | TIMESTAMPTZ | NULL | 이메일 인증 완료 시각. `NULL`이면 미인증 |
-| `email` | VARCHAR(320) | NOT NULL | 표시·연락용. **식별자가 아니다** |
+| `email` | VARCHAR(320) | NOT NULL | 로그인 ID (`[#413]`). 유일성은 **활성 행 안에서만** — `email_active` 열의 유니크 인덱스가 보장 (`061`) |
+| `email_active` | VARCHAR(320) | NULL, **UNIQUE `uq_app_user_email_active`** · 값은 트리거 `trg_app_user_email_active_ins`·`_upd`가 채운다 [#1631] | **활성 키** — 활성 행이면 `email`의 사본, 탈퇴(소프트 삭제)한 행이면 `NULL`(마이그레이션 061). `vessel.imo_active`(`§2.1`)와 같은 구조 — **앱은 이 열을 쓰지 않는다** |
 | `display_name` | VARCHAR(100) | NULL | 표시 이름 |
 | `role` | VARCHAR(10) | NOT NULL DEFAULT 'FIELD', **트리거 `trg_app_user_role_ins`·`_upd` (`OFFICE`·`FIELD`·`ADMIN`)** | 사무직·현장직·관리자 (`#1301` · `PRD §7.10` · 마이그레이션 044 + 057). **기본값이 현장직**이다 — 새 계정은 좁게 시작하고 관리자가 넓혀 준다. 044가 **기존 행은 전부 `OFFICE`**로 채웠고(그전까지 전원이 전 기능을 썼다), 057은 그 값을 다시 채우지 않는다 — **`ADMIN`은 값에만 추가된 것**이라 기존 행은 여전히 `OFFICE`·`FIELD`뿐이다. 값 제약은 CHECK가 아니라 **트리거**다 — CUBRID가 `CHECK`를 구문으로만 받고 검사하지 않아 `#1058`이 옮긴 자리(`§7.4`) |
 | `last_login_at` | TIMESTAMPTZ | NULL | 마지막 로그인 시각 |
@@ -923,8 +928,10 @@ CREATE INDEX idx_audit_action ON audit_log (action, timestamp DESC);
 
 ```sql
 CREATE UNIQUE INDEX idx_app_user_email ON app_user (email) WHERE is_deleted = false;
--- 🔴 CUBRID: 조건 없는 **비유일** 인덱스이고(`047`), 활성 행 안의 유일성은 트리거
---    `trg_uq_app_user_email_active`가 맡는다 (`§7.4` 6항).
+-- 🔴 CUBRID: 조건 없는 **비유일** 인덱스다(`047` · `§7.4` 6항) — 로그인 조회용.
+-- 061 (#1631): 활성 행 안의 유일성은 활성 키 열의 유니크 인덱스가 갖는다. `047`의 트리거
+--    `trg_uq_app_user_email_active`는 미커밋 행을 못 봐 동시 가입을 막지 못했다(`#1796` 실측).
+CREATE UNIQUE INDEX uq_app_user_email_active ON app_user (email_active);
 ```
 
 > **[#413] `email`이 로그인 ID이자 유일 키다.** 종전에는 *"구글 계정의 이메일은 변경될 수 있으므로 unique를 걸지 않는다"* 로 두고 유일성을 `google_sub`에 두었으나, **구글 위임을 그만두면서 그 전제가 사라졌다**(`PRD O-14`). 자체 인증에서 이메일은 사용자가 스스로 정하는 로그인 ID이므로 유일해야 한다.
@@ -1824,8 +1831,11 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
    `WHERE revoked_at IS NULL`로 적은 `vessel`(3)·`voyage`(3)·`app_user`(1)·`user_session`(1)
    인덱스는 전부 조건 없이 선다**(`1c444a5c4819`) — 조건이 붙은 것은 `050`이 세운
    `not_underway_period` 2개뿐이고, `idx_vessel_imo`·`idx_app_user_email`의 UNIQUE는
-   `047`이 비유일 인덱스 + `trg_uq_*_active` 트리거로 바꿨다. `db_index.filter_expression`을
-   문서대로 기대하면 그 여덟에서 「필터가 없다」로 나오는 것이 정상이다.
+   `047`이 비유일 인덱스 + `trg_uq_*_active` 트리거로 바꿨다가, **`061`이 그 트리거를 걷고
+   활성 키 열(`imo_active`·`email_active` — 삭제되면 NULL)의 유니크 인덱스로 옮겼다**(#1631 —
+   트리거의 `NOT EXISTS`는 미커밋 행을 못 봐 동시 등록에서 중복이 남았다 · `#1796`).
+   `db_index.filter_expression`을 문서대로 기대하면 그 여덟에서 「필터가 없다」로 나오는
+   것이 정상이다.
 7. 🔴 **`gen_random_uuid()`가 없다 — `id`의 기본값은 DB가 아니라 ORM이 채운다.**
    이 문서의 표는 `id`를 아홉 곳에서 `DEFAULT gen_random_uuid()`로 적지만, CUBRID 배포에
    그 기본값은 **하나도 없다.**
@@ -1906,23 +1916,27 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | `051` 시점 | **head `059`** | 무엇 |
+| 앞머리 | `051` 시점 | **head `061`** | 무엇 |
 |---|---|---|---|
 | `trg_chk_` | 124 | **130** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 |
-| `trg_uq_` | 4 | **4** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`) |
-| 그 밖 | 20 | **26** | 해시 형식 4 · 연료 코드 참조 6 · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** |
+| `trg_uq_` | 4 | **0** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`). **`061`이 걷었다** — 유일성은 활성 키 열의 유니크 인덱스가 갖는다(#1631) |
+| 그 밖 | 20 | **30** | 해시 형식 4 · 연료 코드 참조 6 · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** · **`061` 활성 키 채움 4**(`trg_vessel_imo_active_*`·`trg_app_user_email_active_*` — `AFTER INSERT/UPDATE`, 값을 채울 뿐 거부하지 않는다) |
 | **합계** | **148** | **160** | 전환 직후에는 **0개**였다 |
 
 > 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
 > 뺀 수다(`050`이 capacity_rule 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
-> 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 **160**. `SELECT count(*)
+> 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 160, `061`(+4 −4 — 채움 트리거 4를 만들고 `047`의 `trg_uq_` 4를 걷는다)로 **160**. `SELECT count(*)
 > FROM db_trigger`로 배포를 대조할 때 기대값은 head 열이다 — `tests/test_dbschema_head_sync.py`가
 > 이 합계를 마이그레이션과 대조하고, `tests/test_zz_roundtrip.py`가 **이름 하나하나**를 head DB와
 > 대조한다(`#1373` — 수가 같아도 남은 것 하나와 빠진 것 하나가 상쇄되면 합계는 그대로다).
 
-`trg_chk_`·`trg_uq_` 앞머리는 `db/cubrid_errors.py`가 그 거부를 `IntegrityError`로 옮기는
-표식이다 — PostgreSQL에서 같은 위반이 그 갈래였다. **불변성 트리거만 빼며**
-(`_no_delete`·`_immutable_`) 「값이 틀렸다」가 아니라 「금지된 연산」이기 때문이다.
+`trg_chk_` 앞머리(그리고 `061` 전의 `trg_uq_`)는 `db/cubrid_errors.py`가 그 거부를
+`IntegrityError`로 옮기는 표식이다 — PostgreSQL에서 같은 위반이 그 갈래였다. **불변성
+트리거만 빼며**(`_no_delete`·`_immutable_`) 「값이 틀렸다」가 아니라 「금지된 연산」이기
+때문이다. `061`의 활성 키 채움 트리거는 거부하지 않지만 **그 액션(자기 행 UPDATE) 안에서
+유니크 위반이 나면** 드라이버가 `-670`이 아니라 `-528`(「트리거 액션 평가 오류」)로 올린다 —
+`cubrid_errors`가 유니크 위반 문구를 담은 `-528`만 `IntegrityError`로 옮기고, 인덱스 이름을
+`violated_unique_index()`로 집어 회원가입·선박 등록이 **자기 인덱스일 때만** 409로 바꾼다.
 
 ## 8. 마이그레이션 전략 [X-1]
 
@@ -1940,7 +1954,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 059 → 060
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 060 → 061
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2009,7 +2023,7 @@ base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 059 
 |---|---|---|
 | **되돌릴 수 없음** | 사용자가 쌓은 테이블의 드롭(선박·항차·계산 이력·계정 …) · **보존 대상 테이블의 열 드롭** · 행 삭제 — 현행 키는 `1c444a5c4819`(스키마 전체 · 종전 `016`·`024`·`033`·`037` …을 흡수) · `043` · `044` · `057` · `060`(`simulation_snapshot.not_underway_json` — `037`과 같은 「보존 대상 테이블의 열」) | **막는다** |
 | 일시 데이터 | `user_session` · `user_token` | 막지 않는다 — 다시 로그인하거나 메일을 다시 요청하면 된다 |
-| 재생성됨 | 규정·시드 테이블(`fuel_type`·`regulation_year` …) · 제약·인덱스 | 막지 않는다 — 다시 `upgrade`하면 같은 값이 돌아온다 |
+| 재생성됨 | 규정·시드 테이블(`fuel_type`·`regulation_year` …) · 제약·인덱스 · `061`의 활성 키 열(`is_deleted`와 원본 열에서 결정되는 값이라 백필이 같은 값을 채운다) | 막지 않는다 — 다시 `upgrade`하면 같은 값이 돌아온다 |
 
 **보존 대상 테이블의 열 드롭이 가장 조용하다.** `simulation_snapshot`·`calculation_run`은 UPDATE가 트리거로 막혀 있어(§7.3 `[X-2]`) `037`(지금은 `1c444a5c4819`에 흡수)을 되돌렸다 다시 올리면 **열은 생기지만 기존 행은 영원히 NULL**이고, 과거 연간 시뮬레이션이 전부 재현 불가로 끊긴다. 오류도 나지 않는다.
 
@@ -2268,3 +2282,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-23 | `#1808` | **v1.35 — §2.7 `simulation_snapshot.not_underway_json` 추가**(마이그레이션 060 · `PRD §12.3`). 연말 예상 확정분에 넣은 이미 쓴 정박·묘박 몫의 사본이다 — 계산 입력이라 스냅샷에 없으면 재현이 정박 없이 계산해 결과가 갈린다(`#493` 제원과 같은 모양). **NULL은 「정박 몫을 넣지 않은 실행」**(정박 기록 없음 · 060 이전)이고 재현은 그대로 같은 입력을 만든다. downgrade는 immutable 테이블의 열을 지워 그 사이 실행을 재현 불가로 만들므로 `migration_guard.IRREVERSIBLE`(`037`과 같은 성질) — §8.1.2 표·해제 예시에 `060` 추가, §8.1.0 그래프 끝 `060`. 컬럼 추가라 #966·#1197·#1256과 같은 기준으로 버전을 올린다 (#1803) |
 | 2026-09-24 | `#1850` | §2.4 `voyage_scenario` 표 아래에 **「항차당 채택 행 하나」 불변식 각주** (`#1626` · `F-8`). `is_adopted`의 유일성이 어디에도 적혀 있지 않았다 — 서비스 불변식이며 항차 행 잠금 안에서 해제→채택 순서로 지킨다는 것, 잠금 없이는 두 행이 남는다는 `#1796` ⑺ 실측, DB 제약으로 세우지 않는 이유(부분 유니크 인덱스 없음 · `061` 활성 키 열 형태가 필요 · `F-8`이 새 DB 객체 없이 닫기로 함)와 필요 시 옮길 형태를 적었다. `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#1626) |
 | 2026-09-24 | `#1854` | **「CUBRID에서 달라지는 것」 10번째 — 같은 이름의 트리거를 두 번 만드는 것을 막지 않고, 중복이 생기면 이름으로는 지울 수 없다** (`#1373` · 결정요청 v6 `D-20`). 있는 이름으로 `CREATE TRIGGER`가 성공하고 그 뒤 `DROP TRIGGER`는 `-503`으로 답한다 — 한 번 중복이 생긴 DB는 이름 기반으로 회복되지 않는다. 트리거를 만들고 지우는 마이그레이션 14개(`a7d3e9b14f26`·`043`·`044`·`046`~`051`·`054`·`055`·`057`~`059`)가 전부 공용 `db/trigger_ddl.py`(있으면 만들지 않고 · 없으면 지우지 않는다)를 지나게 했고, `048`이 `#1386`에서 응급으로 넣었던 사설 판본은 그 공용으로 바꿨다(동작 동일). 「지금 DB에 있는 트리거」 각주에 `test_zz_roundtrip`의 이름 대조를 추가하고 같은 각주의 「`050`이 스냅샷 참조 2를 지우고 다시 만든다」를 「capacity_rule 2를」로 정정(050이 교체하는 것은 `048`의 capacity_rule 트리거이고 스냅샷 참조 2는 신설이다). 리뷰 반영 — 10항에 **관용의 방향**(`upgrade`의 교체 `replace_trigger`는 지우지 못하면 멈추고, `downgrade`는 롤백이 갇히지 않게 넘어간다)을 적었다. 제목 「아홉」→「열」. `AGENTS §4.3`상 항목 추가라 버전은 올리지 않는다 (#1373) |
+| 2026-09-24 | `#1848` | **v1.36 — §2.1 `vessel.imo_active` · §2.15 `app_user.email_active` 활성 키 열 + 유니크 인덱스 `uq_vessel_imo_active`·`uq_app_user_email_active` 추가**(마이그레이션 061 · `#1631` F-9 안 「가」). `047`이 활성 행 유일성을 트리거로 옮겼으나 트리거 안의 `NOT EXISTS`는 일반 SELECT와 같은 READ COMMITTED 스냅샷을 봐 **동시 등록에서 둘 다 통과**했다(`#1796` 실측 — 같은 IMO 행 2개, 예외 없음). 활성이면 원본의 사본·삭제면 NULL인 열에 유니크 인덱스를 걸면 CUBRID가 NULL을 여러 개 허용하므로(실측) 부분 유니크와 같은 뜻이 인덱스로 선다 — 뒤 INSERT는 앞 커밋까지 기다렸다 위반으로 떨어진다. 값은 앱이 아니라 `AFTER INSERT/UPDATE` 트리거(`trg_vessel_imo_active_*` · `trg_app_user_email_active_*`)가 채운다 — `BEFORE`에서 `new`를 갱신하는 형태는 REUSE_OID 표라 컴파일이 거부된다(실측). **`047`의 `trg_uq_*` 4개는 걷었다**(같은 불변식에 집행 장치 둘이면 오류 서명도 둘 · 경합을 통과시키던 검사를 「지킨다」는 이름으로 남길 수 없다) — §7.4 표 `trg_uq_` 4 → 0 · 그 밖 26 → 30 · 합계 160 유지, §7.4 6항·문단에 `-528`(트리거 액션 안 유니크 위반) 서술, §8.1.0 그래프 끝 `061`, §8.1.2 재생성됨 행에 061(값이 `is_deleted`에서 결정돼 백필이 재생 → `migration_guard.REGENERABLE`). 컬럼 추가라 #966·#1197·#1256·#1803과 같은 기준으로 버전을 올린다 (#1631) |

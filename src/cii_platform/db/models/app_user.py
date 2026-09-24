@@ -67,6 +67,12 @@ class AppUser(Base):
     role = sa.Column(sa.String(length=10), server_default=ROLE_FIELD, nullable=False)
     last_login_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     is_deleted = sa.Column(sa.Boolean(), default=False, server_default=sa.text("0"), nullable=False)
+    #: 활성 키 (#1631 · 061). 활성 행이면 `email`의 사본, 탈퇴(소프트 삭제)한 행이면 NULL —
+    #: 그 위의 유니크 인덱스 `uq_app_user_email_active`가 「활성 행 안에서만 유일」을 DB에서
+    #: 강제한다. **앱은 이 열을 쓰지 않는다** — 값은 061의 트리거
+    #: `trg_app_user_email_active_ins`·`_upd`가 `is_deleted`에 따라 채운다(`Vessel.imo_active`와
+    #: 같은 구조).
+    email_active = sa.Column(sa.String(length=320), nullable=True)
     created_at = sa.Column(
         sa.DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -89,10 +95,17 @@ class AppUser(Base):
         # 그 근거(「구글 계정의 이메일은 변경될 수 있다」)는 구글 위임을
         # 그만두면서 전제 자체가 사라졌다.
         # 유일성은 **활성 행 안에서만** 성립한다. PostgreSQL의 부분 유니크 인덱스를
-        # CUBRID가 지원하지 않아 `047`이 트리거(`trg_uq_app_user_email_active_ins`·`_upd`)
-        # 로 옮겼다 — 여기서는 조회용 인덱스로만 선언한다 (`#1058`).
+        # CUBRID가 지원하지 않아 `047`이 트리거로 옮겼으나, 트리거의 `NOT EXISTS`는 미커밋
+        # 행을 못 봐 동시 가입에서 중복이 남았다(`#1631`). `061`이 그 트리거를 걷고 활성 키
+        # 열 `email_active`의 유니크 인덱스로 옮겼다 — 아래 `uq_app_user_email_active`.
+        # `idx_app_user_email`은 로그인 조회용이다 (`#1058`).
         sa.Index(
             "idx_app_user_email",
             "email",
+        ),
+        sa.Index(
+            "uq_app_user_email_active",
+            "email_active",
+            unique=True,
         ),
     )
