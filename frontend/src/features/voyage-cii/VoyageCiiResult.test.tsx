@@ -2,8 +2,11 @@
 import '../../test/renderSetup'
 
 import { describe, expect, it } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { dirOf } from '../../test/srcPaths'
 import { VoyageCiiResult } from './VoyageCiiResult'
 import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
 import { regulationParametersPath } from '../parameters/referenceRules'
@@ -77,26 +80,41 @@ const REQUEST: VoyageCiiRequest = {
   fuel_uses: [{ fuel_type: 'HFO', fuel_ton: 80 }],
 }
 
+/**
+ * 「계산 근거」를 펼친다 (#1786). 여는 버튼은 문구가 아니라 `aria-controls` 배선으로 찾고,
+ * 펼친 영역은 그 속성이 가리키는 요소다 — 문구를 단언하지 않는다(`AGENTS §4.6`).
+ */
+function openBasis(container: HTMLElement): { toggle: HTMLButtonElement; panel: HTMLElement } {
+  const toggle = container.querySelector(
+    '.voyage-cii-result__footer button[aria-expanded][aria-controls]',
+  ) as HTMLButtonElement
+  expect(toggle).not.toBeNull()
+  fireEvent.click(toggle)
+  const panel = document.getElementById(toggle.getAttribute('aria-controls') as string) as HTMLElement
+  expect(panel).not.toBeNull()
+  return { toggle, panel }
+}
+
 describe('「계산 근거」 → 규제 기준값 절 (#1516)', () => {
   it('계산 근거 패널 안에 절 앵커로 가는 링크가 있다', () => {
-    render(
+    const { container } = render(
       <MemoryRouter>
         <VoyageCiiResult state={{ status: 'success', response: RESPONSE, request: REQUEST }} />
       </MemoryRouter>,
     )
 
-    const panel = document.querySelector('details') as HTMLElement
-    expect(panel).not.toBeNull()
+    const { panel } = openBasis(container)
     const links = within(panel).getAllByRole('link')
     expect(links.some((link) => link.getAttribute('href') === regulationParametersPath())).toBe(true)
   })
 
   it('패널의 기준선 계수는 여전히 서버 문자열 그대로다', () => {
-    render(
+    const { container } = render(
       <MemoryRouter>
         <VoyageCiiResult state={{ status: 'success', response: RESPONSE, request: REQUEST }} />
       </MemoryRouter>,
     )
+    openBasis(container)
 
     expect(screen.getByText(/a 4745 · c 0\.622/)).toBeTruthy()
   })
@@ -163,6 +181,75 @@ describe('결론이 맨 위에 선다 (#1711)', () => {
     expect(actions.closest('section.voyage-cii-result')).toBeTruthy()
     // 떠 있는 면: 결론 띠 · 결과 카드 둘 (입력 카드는 페이지 쪽)
     expect(container.querySelectorAll('.verdict-strip, section.voyage-cii-result')).toHaveLength(2)
+  })
+
+  /**
+   * #1711 ④ · #1786 — 「계산 근거」 접기는 「이 결과로」 버튼 줄 오른쪽이고, 카드 안의
+   * 별도 블록(회색 면)이 아니다. 자리는 마크업으로, 면은 CSS 대조로 본다.
+   */
+  it('「계산 근거」 여는 버튼은 「이 결과로」와 같은 마지막 줄에, 그 뒤에 선다 (#1786)', () => {
+    const { container } = renderResult()
+    const card = container.querySelector('section.voyage-cii-result') as HTMLElement
+    const footer = card.querySelector('.voyage-cii-result__footer') as HTMLElement
+    const actions = container.querySelector('.voyage-cii-actions') as HTMLElement
+    const toggle = footer.querySelector('button[aria-expanded][aria-controls]') as HTMLElement
+
+    // 마지막 줄이 카드의 끝이고, 그 줄이 버튼 줄과 여는 버튼을 함께 담는다
+    expect(card.lastElementChild).toBe(footer)
+    expect(footer.contains(actions)).toBe(true)
+    expect(toggle).not.toBeNull()
+    expect(actions.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    // 종전의 `<details>` 블록은 없다
+    expect(card.querySelector('details')).toBeNull()
+  })
+
+  it('접기는 닫혀 있다가 누르면 같은 줄 아래에 펼쳐지고, 다시 누르면 닫힌다', () => {
+    const { container } = renderResult()
+    const footer = container.querySelector('.voyage-cii-result__footer') as HTMLElement
+    const toggle = footer.querySelector('button[aria-expanded][aria-controls]') as HTMLButtonElement
+    const controls = toggle.getAttribute('aria-controls') as string
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const panel = document.getElementById(controls) as HTMLElement
+    expect(panel.parentElement).toBe(footer)
+    expect(panel.getAttribute('role')).toBe('region')
+    expect(panel.hidden).toBe(true)
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(panel.hidden).toBe(false)
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(panel.hidden).toBe(true)
+  })
+
+  /**
+   * 접힌 상태에서도 `aria-controls`가 가리키는 id가 DOM에 있다 (`#1786` 리뷰 HIGH) —
+   * `AccountMenu.tsx`(#717) · `VesselDetail.tsx`의 `NoVoyageDrill`(#759-776)과 같은
+   * 규약이다. 컨테이너를 아예 그리지 않으면 그 참조가 끊긴 id를 가리킨다.
+   */
+  it('접힌 상태에서도 aria-controls가 가리키는 id가 존재한다', () => {
+    const { container } = renderResult()
+    const footer = container.querySelector('.voyage-cii-result__footer') as HTMLElement
+    const toggle = footer.querySelector('button[aria-expanded][aria-controls]') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const controls = toggle.getAttribute('aria-controls') as string
+    expect(document.getElementById(controls)).not.toBeNull()
+  })
+
+  it('펼친 근거와 여는 버튼에 면이 없다 — 카드 안 회색 타일 금지 (`§5`)', () => {
+    const css = readFileSync(join(dirOf(import.meta.url), 'VoyageCiiResult.css'), 'utf8').replace(
+      /\/\*[\s\S]*?\*\//g,
+      '',
+    )
+    for (const selector of ['.voyage-cii-result__basis', '.voyage-cii-result__basis-toggle']) {
+      const rule = new RegExp(`${selector.replace(/\./g, '\\.')}\\s*\\{([^}]*)\\}`).exec(css)
+      expect(rule, `${selector} 규칙이 없습니다`).not.toBeNull()
+      const body = (rule as RegExpExecArray)[1]
+      expect(body, selector).not.toMatch(/background:\s*var\(--color-surface/)
+      expect(body, selector).not.toMatch(/border:\s*1px/)
+    }
   })
 
   it('입력이 바뀌면 안내가 띠 바로 아래에 선다', () => {

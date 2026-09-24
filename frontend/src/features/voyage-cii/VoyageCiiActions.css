@@ -6,15 +6,32 @@
  * 버튼이 둘이면 어느 쪽이 주 동작인지 흐려진다(`§8`). **개발 임시안**이며 디자인 확정 요청에 올린다.
  */
 /*
- * 결과 카드 끝의 한 구역이다 (#1711) — 면을 따로 띄우지 않고 구분선으로 나눈다
- * (`DESIGN_SYSTEM §5` 카드 예산). 종전에는 결과 아래 떠 있는 카드였다.
+ * 결과 카드 끝의 한 구역이다 (#1711) — 면을 따로 띄우지 않는다(`DESIGN_SYSTEM §5` 카드
+ * 예산). 종전에는 결과 아래 떠 있는 카드였다. 구분선은 이 구역을 담는 결과 카드의
+ * 마지막 줄(`.voyage-cii-result__footer`)이 긋는다 — 「계산 근거」 접기가 같은 줄
+ * 오른쪽에 서므로(#1786) 선이 이 구역만 두르면 오른쪽 칸 앞에서 끊긴다.
+ */
+/*
+ * `VoyageCiiResult.css`의 footer가 이 섹션을 2행 subgrid로 품는다(`#1786` 리뷰) —
+ * 1행은 `__head`(제목 + 버튼 줄), 2행은 저장 완료/실패 문단·계획 저장 폼이다. 「계산
+ * 근거」 여는 버튼은 footer의 1행에서 이 섹션과 나란히 서므로, 1행 높이가 `__head`
+ * 하나로만 정해져야 버튼 줄과 같은 줄을 지킨다 — 2행이 자라도 1행은 그대로다.
  */
 .voyage-cii-actions {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: 1 / 3;
+  grid-column: 1;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.voyage-cii-actions__head {
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: var(--space-12);
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-16);
+  min-width: 0;
 }
 
 .voyage-cii-actions__title {
@@ -75,6 +92,23 @@
   margin: 0;
   color: var(--color-danger-text);
   font-size: var(--font-size-label);
+}
+
+/*
+ * 자라는 내용 — subgrid 2행. `__head`(1행) 높이에 영향을 주지 않는다(위 주석). 저장
+ * 완료·실패·계획 저장 폼이 함께 뜰 수 있어(`VoyageCiiActions.tsx` 주석) 한 칸에서
+ * 세로로 쌓아야 한다 — flex column으로 묶고, 이 칸 자체를 2행에 둔다.
+ */
+.voyage-cii-actions__tail {
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  min-width: 0;
+}
+
+.voyage-cii-actions__tail:empty {
+  display: none;
 }
 
 .voyage-cii-actions__panel {
