@@ -121,6 +121,7 @@ const ADVANCED_FIELDS = [
   FIELD.detourDistanceNm,
   FIELD.detourWaypointName,
   FIELD.detourWaypointLat,
+  FIELD.detourWaypointLon,
   FIELD.slowSpeedKn,
   FIELD.weatherModel,
   FIELD.currentLat,
