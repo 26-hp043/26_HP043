@@ -182,9 +182,29 @@
   outline-offset: 2px;
 }
 
+/* 고를 수 없는 방식 — 비활성 글자색, 사유는 아래 줄이 말한다 (`§14` · #1784). */
+.voyage-cii-form__mode--disabled {
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+/* 비활성 사유 — 라디오 줄 아래 한 줄. 라디오의 `aria-describedby`가 이 요소를 가리킨다. */
+.voyage-cii-form__mode-reason {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--font-size-micro);
+  line-height: var(--line-height-micro);
+  color: var(--color-text-muted);
+}
+
 /* 환산 결과 — 무엇이 서버로 가는지 (#1718). 값만 굵게, 면은 없다. */
 .voyage-cii-form__derived {
   margin: 0;
   font-size: var(--font-size-label);
   color: var(--color-text-muted);
+}
+
+/* 반올림 단서 — 셈의 세 항이 표시 자릿수라는 것 (#1784 ⑵). */
+.voyage-cii-form__derived-note {
+  font-size: var(--font-size-micro);
 }

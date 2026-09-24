@@ -21,6 +21,7 @@ import {
   DISPLAY_UNIT_DAILY_FUEL,
   formatDecimalString,
   formatGrouped,
+  toDecimalInput,
 } from '../../display/format'
 import { fetchVoyage } from '../voyage-management/apiProvider'
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
@@ -278,6 +279,18 @@ export function VoyageCiiForm({
   const vesselDailyFocTon = selectedSpec?.referenceDailyFocTon ?? null
   const derivedHours = voyageHours(state.distanceNm, state.speedKn)
   const derivedFuelTon = effectiveFuelTon(state, vesselDailyFocTon)
+
+  /*
+   * 「선박 제원에서」를 고른 채 선박이 바뀌어 그 방식이 막히면 `TOTAL`로 되돌린다
+   * (#1784 리뷰 LOW). 라디오 자체는 `disabled`라 사용자가 다시 고를 수 없지만, 이미
+   * `checked`인 상태로 남으면 값 자리가 「이 선박에는 기준 일일 연료소모량이 없습니다」만
+   * 보이고 입력칸이 없어 사용자가 빠져나갈 길이 없다 — 총량 칸으로 돌려보낸다.
+   */
+  useEffect(() => {
+    if (state.fuelMode !== 'VESSEL' || vesselDailyFocTon !== null) return
+    // oxlint-disable-next-line react/set-state-in-effect -- 선박이 바뀌어 「선박 제원에서」가 막히면 총량으로 되돌리는 동기화(#1784 리뷰)
+    setState((prev) => (prev.fuelMode === 'VESSEL' ? { ...prev, fuelMode: 'TOTAL' } : prev))
+  }, [state.fuelMode, vesselDailyFocTon])
 
   useEffect(() => {
     onStaleChange?.(stale)
@@ -583,21 +596,51 @@ export function VoyageCiiForm({
 
           라디오 그룹으로 둔다 — 셋 중 하나이고 서로 배타적이다. 방식을 바꿔도 값은
           지우지 않는다: 총량으로 돌아오면 처음 넣은 총량이 그대로 있다.
+
+          「선박 제원에서」는 제원에 기준 일일 연료소모량이 없으면 **고를 수 없다**
+          (#1718 원문 · #1784 ⑴). `disabled`를 유지하고 사유를 곁에 그려 `aria-describedby`로
+          잇는다(`DESIGN_SYSTEM §14` 「비활성의 사유」) — 고른 뒤에야 사유를 보이면 낭독기로는
+          왜 안 되는지 고르기 전에 알 수 없다. **이미 고른 채 선박을 바꿔 제원이 사라지면**
+          위 효과(`vesselDailyFocTon` 감시)가 `TOTAL`로 되돌린다(#1784 리뷰 LOW) — 라디오가
+          `disabled`인 채로 `checked`만 남으면 입력칸이 없는 값 자리에 사유만 보이고
+          사용자가 스스로 빠져나갈 길이 없다.
         */}
         <fieldset className="voyage-cii-form__modes">
           <legend className="voyage-cii-form__label">연료 입력 방식</legend>
-          {FUEL_MODES.map((mode) => (
-            <label key={mode.value} className="voyage-cii-form__mode">
-              <input
-                type="radio"
-                name="fuel-mode"
-                value={mode.value}
-                checked={state.fuelMode === mode.value}
-                onChange={() => update('fuelMode', mode.value, FIELD.fuelTon)}
-              />
-              {mode.label}
-            </label>
-          ))}
+          {FUEL_MODES.map((mode) => {
+            const blocked = mode.value === 'VESSEL' && vesselDailyFocTon === null
+            return (
+              <label
+                key={mode.value}
+                className={
+                  blocked ? 'voyage-cii-form__mode voyage-cii-form__mode--disabled' : 'voyage-cii-form__mode'
+                }
+              >
+                <input
+                  type="radio"
+                  name="fuel-mode"
+                  value={mode.value}
+                  checked={state.fuelMode === mode.value}
+                  disabled={blocked}
+                  aria-describedby={blocked ? VESSEL_MODE_REASON_ID : undefined}
+                  onChange={() => {
+                    // 실제 브라우저는 `disabled` 컨트롤에서 change를 내지 않는다. jsdom은
+                    // 그렇지 않아(`fireEvent.click`이 그대로 넘어온다) 여기서도 막는다.
+                    if (blocked) return
+                    update('fuelMode', mode.value, FIELD.fuelTon)
+                  }}
+                />
+                {mode.label}
+              </label>
+            )
+          })}
+          {vesselDailyFocTon === null ? (
+            <p id={VESSEL_MODE_REASON_ID} className="voyage-cii-form__mode-reason">
+              {state.vesselId === ''
+                ? '「선박 제원에서」는 선박을 고른 뒤에 쓸 수 있습니다.'
+                : '「선박 제원에서」는 이 선박에 기준 일일 연료소모량이 없어 고를 수 없습니다.'}
+            </p>
+          ) : null}
         </fieldset>
 
         {state.fuelMode === 'TOTAL' ? (
@@ -670,8 +713,14 @@ export function VoyageCiiForm({
         )}
 
         {/*
-          환산 결과 — 「나」·「다」에서만. 항해시간을 쓰는 이유는 `formRules.voyageHours`에
-          적었다(일수는 `§4.2`상 0자리라 화면의 셈이 어긋나 보인다).
+          환산 결과 — 「나」·「다」에서만. 항해시간을 계산에는 여전히 쓴다(`formRules.voyageHours`
+          — 일수는 `§4.2`상 0자리라 셈이 더 크게 어긋나 보인다), 다만 이 줄에는 **적지 않는다**
+          (#1784 ⑵ 리뷰). 종전에는 「하루 23.0 × 항해시간 83.3 ÷ 24 → 80.0」처럼 셈의 세 항을
+          모두 보였는데, 셋 다 `§4.2` 자릿수로 반올림된 값이라 **표시값끼리 손으로 곱하면 실제
+          총량과 어긋났다**(예: 23.0 × 83.3 ÷ 24 = 79.8, 화면 총량은 80.0 — 0.2 차이로 끝자리
+          반올림 한 단위를 넘는다). `total`은 여전히 정밀 계산값(`effectiveFuelTon`)을 그대로
+          반올림해 보이므로 — 표시를 실제 전송값에 맞춰 逆산하지 않는다 — 화면에 셈할 재료를
+          하나(하루치) 덜 주는 쪽을 골랐다. 「기준 · 약」은 정확한 곱셈식이 아니라는 신호다.
         */}
         {state.fuelMode !== 'TOTAL' ? (
           <p className="voyage-cii-form__derived" role="status">
@@ -681,11 +730,21 @@ export function VoyageCiiForm({
               '하루 연료 사용량을 넣으면 총량을 환산합니다.'
             ) : (
               <>
-                항해시간 {formatDecimalString(String(derivedHours), DISPLAY_DIGITS.durationHours)}{' '}
-                {DISPLAY_UNITS.duration} · 보내는 연료 총량{' '}
+                하루{' '}
+                {formatDecimalString(
+                  state.fuelMode === 'DAILY'
+                    ? toDecimalInput(Number(state.dailyFuelTon))
+                    : String(vesselDailyFocTon),
+                  DISPLAY_DIGITS.fuelTon,
+                )}{' '}
+                {DISPLAY_UNIT_DAILY_FUEL} 기준 · 보내는 연료 총량 약{' '}
                 <strong>
                   {formatGrouped(String(derivedFuelTon), DISPLAY_DIGITS.fuelTon)} {DISPLAY_UNITS.fuel}
                 </strong>
+                <span className="voyage-cii-form__derived-note">
+                  {' '}
+                  (항해시간을 함께 반영한 값이라 하루치만으로 손으로 곱한 값과 다를 수 있습니다)
+                </span>
               </>
             )}
           </p>
@@ -700,6 +759,9 @@ export function VoyageCiiForm({
 }
 
 /* ------------------------------------------------------------------ */
+
+/** 「선박 제원에서」를 고를 수 없는 사유 요소의 `id` — 라디오의 `aria-describedby`가 잇는다 (#1784). */
+const VESSEL_MODE_REASON_ID = 'voyage-cii-fuel-mode-vessel-reason'
 
 /** 연료 입력 방식 셋 (#1718). 순서는 「아는 값이 무엇인가」의 흔한 순서다. */
 const FUEL_MODES: ReadonlyArray<{ value: FuelInputMode; label: string }> = [
