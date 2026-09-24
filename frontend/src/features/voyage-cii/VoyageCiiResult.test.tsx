@@ -210,17 +210,32 @@ describe('결론이 맨 위에 선다 (#1711)', () => {
     const controls = toggle.getAttribute('aria-controls') as string
 
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    expect(document.getElementById(controls)).toBeNull()
-
-    fireEvent.click(toggle)
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
     const panel = document.getElementById(controls) as HTMLElement
     expect(panel.parentElement).toBe(footer)
     expect(panel.getAttribute('role')).toBe('region')
+    expect(panel.hidden).toBe(true)
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(panel.hidden).toBe(false)
 
     fireEvent.click(toggle)
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    expect(document.getElementById(controls)).toBeNull()
+    expect(panel.hidden).toBe(true)
+  })
+
+  /**
+   * 접힌 상태에서도 `aria-controls`가 가리키는 id가 DOM에 있다 (`#1786` 리뷰 HIGH) —
+   * `AccountMenu.tsx`(#717) · `VesselDetail.tsx`의 `NoVoyageDrill`(#759-776)과 같은
+   * 규약이다. 컨테이너를 아예 그리지 않으면 그 참조가 끊긴 id를 가리킨다.
+   */
+  it('접힌 상태에서도 aria-controls가 가리키는 id가 존재한다', () => {
+    const { container } = renderResult()
+    const footer = container.querySelector('.voyage-cii-result__footer') as HTMLElement
+    const toggle = footer.querySelector('button[aria-expanded][aria-controls]') as HTMLButtonElement
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    const controls = toggle.getAttribute('aria-controls') as string
+    expect(document.getElementById(controls)).not.toBeNull()
   })
 
   it('펼친 근거와 여는 버튼에 면이 없다 — 카드 안 회색 타일 금지 (`§5`)', () => {

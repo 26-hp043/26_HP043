@@ -409,87 +409,100 @@ function CalculationBasisPanel({ response }: { response: VoyageCiiResponse }) {
       >
         계산 근거
       </button>
-      {open ? (
-        <div id={BASIS_PANEL_ID} className="voyage-cii-result__basis" role="region" aria-label="계산 근거">
-          <dl className="voyage-cii-result__basis-list">
-            <div>
-              <dt>선종</dt>
-              <dd>{shipTypeLabel(basis.ship_type)}</dd>
-            </div>
-            <div>
-              <dt>수송능력</dt>
-              <dd>
-                {formatGrouped(data.transport_capacity, DISPLAY_DIGITS.capacity)}{' '}
-                {data.transport_capacity_basis}
-              </dd>
-            </div>
-            <div>
-              <dt>기준 용량</dt>
-              <dd>
-                {formatGrouped(data.reference_capacity, DISPLAY_DIGITS.capacity)}{' '}
-                <span className="voyage-cii-result__cell-sub">
-                  ({data.reference_capacity_rule})
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt>기준선 계수</dt>
-              {/* required_cii = a × 기준용량^(−c) × (1 − Z/100) */}
-              <dd>
-                a {basis.a_decimal} · c {basis.c}
-              </dd>
-            </div>
-            <div>
-              <dt>감축계수 Z</dt>
-              <dd>
-                {formatDecimalString(basis.z_factor_percent, DISPLAY_DIGITS.percent)}%{' '}
-                <span className="voyage-cii-result__cell-sub">
-                  ({parameters.regulation_year.year}년)
-                </span>
-              </dd>
-            </div>
-            <div>
-              <dt>파라미터 버전</dt>
-              <dd>{parameters.parameter_source_version}</dd>
-            </div>
-          </dl>
+      {/*
+        컨테이너는 항상 렌더하고 `hidden`으로만 감춘다 (`#1786` 리뷰) — 닫힌 상태에서 이 id가
+        DOM에 없으면 버튼의 `aria-controls`가 끊긴 참조가 된다. `AccountMenu.tsx`(#717) ·
+        `VesselDetail.tsx`의 `NoVoyageDrill`(#759-776)과 같은 규약이다.
+      */}
+      <div
+        id={BASIS_PANEL_ID}
+        className="voyage-cii-result__basis"
+        role="region"
+        aria-label="계산 근거"
+        hidden={!open}
+      >
+        {open ? (
+          <>
+            <dl className="voyage-cii-result__basis-list">
+              <div>
+                <dt>선종</dt>
+                <dd>{shipTypeLabel(basis.ship_type)}</dd>
+              </div>
+              <div>
+                <dt>수송능력</dt>
+                <dd>
+                  {formatGrouped(data.transport_capacity, DISPLAY_DIGITS.capacity)}{' '}
+                  {data.transport_capacity_basis}
+                </dd>
+              </div>
+              <div>
+                <dt>기준 용량</dt>
+                <dd>
+                  {formatGrouped(data.reference_capacity, DISPLAY_DIGITS.capacity)}{' '}
+                  <span className="voyage-cii-result__cell-sub">
+                    ({data.reference_capacity_rule})
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>기준선 계수</dt>
+                {/* required_cii = a × 기준용량^(−c) × (1 − Z/100) */}
+                <dd>
+                  a {basis.a_decimal} · c {basis.c}
+                </dd>
+              </div>
+              <div>
+                <dt>감축계수 Z</dt>
+                <dd>
+                  {formatDecimalString(basis.z_factor_percent, DISPLAY_DIGITS.percent)}%{' '}
+                  <span className="voyage-cii-result__cell-sub">
+                    ({parameters.regulation_year.year}년)
+                  </span>
+                </dd>
+              </div>
+              <div>
+                <dt>파라미터 버전</dt>
+                <dd>{parameters.parameter_source_version}</dd>
+              </div>
+            </dl>
 
-          {/*
-            CO₂는 유종마다 CF가 달라 한 줄로 적을 수 없다. 표로 두면 「연료 × CF = CO₂」가
-            행마다 눈으로 검산된다 — 이 블록이 답해야 하는 질문이 그것이다.
-          */}
-          <table className="voyage-cii-result__basis-table">
-            <thead>
-              <tr>
-                <th scope="col">유종</th>
-                <th scope="col">연료</th>
-                <th scope="col">CF</th>
-              </tr>
-            </thead>
-            <tbody>
-              {basis.fuel_cf_details.map((detail) => (
-                <tr key={detail.fuel_type}>
-                  <th scope="row">{detail.fuel_type}</th>
-                  <td>
-                    {formatGrouped(detail.fuel_ton, DISPLAY_DIGITS.fuelTon)}
-                    <span className="voyage-cii-result__cell-unit"> {DISPLAY_UNITS.fuel}</span>
-                  </td>
-                  <td>{detail.cf}</td>
+            {/*
+              CO₂는 유종마다 CF가 달라 한 줄로 적을 수 없다. 표로 두면 「연료 × CF = CO₂」가
+              행마다 눈으로 검산된다 — 이 블록이 답해야 하는 질문이 그것이다.
+            */}
+            <table className="voyage-cii-result__basis-table">
+              <thead>
+                <tr>
+                  <th scope="col">유종</th>
+                  <th scope="col">연료</th>
+                  <th scope="col">CF</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {basis.fuel_cf_details.map((detail) => (
+                  <tr key={detail.fuel_type}>
+                    <th scope="row">{detail.fuel_type}</th>
+                    <td>
+                      {formatGrouped(detail.fuel_ton, DISPLAY_DIGITS.fuelTon)}
+                      <span className="voyage-cii-result__cell-unit"> {DISPLAY_UNITS.fuel}</span>
+                    </td>
+                    <td>{detail.cf}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
 
-          {/*
-            이 패널은 **이 계산이 쓴** 값만 보인다. 다른 선종·연도의 값, 대체된 옛 판본, 원문
-            표기(`a_raw`)는 설정의 「규제 기준값」 절에 있다 (#1516 · `#1239` 결정 B) — 대조하러
-            온 사람이 여기서 막히지 않게 잇는다.
-          */}
-          <p className="voyage-cii-result__basis-link">
-            <Link to={regulationParametersPath()}>규제 기준값 전체 보기</Link>
-          </p>
-        </div>
-      ) : null}
+            {/*
+              이 패널은 **이 계산이 쓴** 값만 보인다. 다른 선종·연도의 값, 대체된 옛 판본, 원문
+              표기(`a_raw`)는 설정의 「규제 기준값」 절에 있다 (#1516 · `#1239` 결정 B) — 대조하러
+              온 사람이 여기서 막히지 않게 잇는다.
+            */}
+            <p className="voyage-cii-result__basis-link">
+              <Link to={regulationParametersPath()}>규제 기준값 전체 보기</Link>
+            </p>
+          </>
+        ) : null}
+      </div>
     </>
   )
 }

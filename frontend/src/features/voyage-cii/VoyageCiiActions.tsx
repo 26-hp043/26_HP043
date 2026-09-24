@@ -176,73 +176,87 @@ export function VoyageCiiActions({
 
   return (
     <section className="voyage-cii-actions" aria-labelledby="voyage-cii-actions-title">
-      <h3 id="voyage-cii-actions-title" className="voyage-cii-actions__title">
-        이 결과로
-      </h3>
+      {/*
+        「제목 + 버튼 줄」만 묶는다(`#1786` 리뷰) — 이 묶음이 `VoyageCiiResult.css`의 footer
+        subgrid에서 **한 행**을 이룬다. 아래 저장 완료/실패 문단·계획 저장 폼은 자라는 내용이라
+        따로 둔다 — 같은 행에 있으면 그 자람이 「계산 근거」 여는 버튼(같은 행 오른쪽 칸)까지
+        끌고 내려간다.
+      */}
+      <div className="voyage-cii-actions__head">
+        <h3 id="voyage-cii-actions-title" className="voyage-cii-actions__title">
+          이 결과로
+        </h3>
 
-      {stale ? (
-        <p id="voyage-cii-actions-stale" className="voyage-cii-actions__note" role="status">
-          입력이 바뀌었습니다. 다시 계산한 뒤 저장하거나 내보내 주세요.
-        </p>
-      ) : null}
+        {stale ? (
+          <p id="voyage-cii-actions-stale" className="voyage-cii-actions__note" role="status">
+            입력이 바뀌었습니다. 다시 계산한 뒤 저장하거나 내보내 주세요.
+          </p>
+        ) : null}
 
-      <div className="voyage-cii-actions__buttons">
-        <button
-          type="button"
-          className="voyage-cii-actions__button"
-          aria-expanded={panelOpen}
-          aria-controls="voyage-cii-plan-save"
-          disabled={stale}
-          /* 왜 못 누르는지 낭독에도 닿게 한다 (`§14` 「비활성의 사유」 · `#1170` ⑵). */
-          aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
-          onClick={() => {
-            setSaved(null)
-            setPanelOpen((open) => !open)
-          }}
-        >
-          계획 저장
-        </button>
-        <button
-          type="button"
-          className="voyage-cii-actions__button"
-          disabled={stale}
-          aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
-          onClick={() => navigate(annualSimulatorPath(request))}
-        >
-          연간 시뮬레이터에서 보기
-        </button>
-        <button
-          type="button"
-          className="voyage-cii-actions__button"
-          disabled={stale || exporting}
-          aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
-          onClick={downloadCsv}
-        >
-          {exporting ? 'CSV 준비 중…' : 'CSV 다운로드'}
-        </button>
+        <div className="voyage-cii-actions__buttons">
+          <button
+            type="button"
+            className="voyage-cii-actions__button"
+            aria-expanded={panelOpen}
+            aria-controls="voyage-cii-plan-save"
+            disabled={stale}
+            /* 왜 못 누르는지 낭독에도 닿게 한다 (`§14` 「비활성의 사유」 · `#1170` ⑵). */
+            aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
+            onClick={() => {
+              setSaved(null)
+              setPanelOpen((open) => !open)
+            }}
+          >
+            계획 저장
+          </button>
+          <button
+            type="button"
+            className="voyage-cii-actions__button"
+            disabled={stale}
+            aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
+            onClick={() => navigate(annualSimulatorPath(request))}
+          >
+            연간 시뮬레이터에서 보기
+          </button>
+          <button
+            type="button"
+            className="voyage-cii-actions__button"
+            disabled={stale || exporting}
+            aria-describedby={stale ? 'voyage-cii-actions-stale' : undefined}
+            onClick={downloadCsv}
+          >
+            {exporting ? 'CSV 준비 중…' : 'CSV 다운로드'}
+          </button>
+        </div>
       </div>
 
-      {saved ? (
-        <p className="voyage-cii-actions__done" role="status">
-          {saved}{' '}
-          <Link className="voyage-cii-actions__link" to={vesselPath(request.vessel_id)}>
-            선박 상세에서 항차 보기
-          </Link>
-        </p>
-      ) : null}
-      {failure ? (
-        <p className="voyage-cii-actions__error" role="alert">
-          {failure}
-        </p>
-      ) : null}
+      {/*
+        subgrid 2행(`#1786` 리뷰) — 저장 완료·실패·계획 저장 폼은 함께 뜰 수 있다(저장
+        완료 뒤 다시 열어 저장에 실패하면 완료 문구가 지워지지 않은 채 실패가 겹친다).
+        하나의 grid item으로 묶어야 세로로 쌓인다 — 안 묶으면 셋이 같은 칸에서 겹친다.
+      */}
+      <div className="voyage-cii-actions__tail">
+        {saved ? (
+          <p className="voyage-cii-actions__done" role="status">
+            {saved}{' '}
+            <Link className="voyage-cii-actions__link" to={vesselPath(request.vessel_id)}>
+              선박 상세에서 항차 보기
+            </Link>
+          </p>
+        ) : null}
+        {failure ? (
+          <p className="voyage-cii-actions__error" role="alert">
+            {failure}
+          </p>
+        ) : null}
 
-      {panelOpen && !stale ? (
-        <form
-          id="voyage-cii-plan-save"
-          className="voyage-cii-actions__panel"
-          onSubmit={savePlan}
-          noValidate
-        >
+        {panelOpen && !stale ? (
+          <form
+            id="voyage-cii-plan-save"
+            className="voyage-cii-actions__panel"
+            onSubmit={savePlan}
+            noValidate
+          >
           <p className="voyage-cii-actions__lead">
             이 계산의 거리·속력·연료로 계획 항차를 만듭니다. 출발·도착과 출항 시각을 넣어 주세요.
           </p>
@@ -339,7 +353,8 @@ export function VoyageCiiActions({
             </button>
           </div>
         </form>
-      ) : null}
+        ) : null}
+      </div>
     </section>
   )
 }
