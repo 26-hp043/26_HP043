@@ -48,7 +48,8 @@ CUBRID가 못 하는 형태(부분 유일)를 CUBRID가 하는 형태(**별도 �
 --------------------------------
 CUBRID DDL이 트랜잭션에 묶이는지는 실측하지 않았다. 4에서 중복 행 때문에 멈추면 1~3은
 이미 적용돼 있을 수 있으므로, **각 단계가 카탈로그를 먼저 보고 이미 있으면 건너뛴다** —
-``db_trigger``(``048``이 ``#1373``에서 같은 이유로 쓴 관례) · ``db_attribute`` · ``db_index``.
+트리거는 공용 헬퍼 ``db/trigger_ddl.py``(``#1373`` — ``db_trigger``를 보고 있으면 만들지
+않고 없으면 지우지 않는다), 열·인덱스는 ``db_attribute`` · ``db_index``를 같은 형태로 본다.
 백필은 멱등이다(같은 값을 다시 쓴다). 그래서 중복 행을 정리한 뒤 ``alembic upgrade head``를
 그대로 다시 돌리면 된다.
 
@@ -110,6 +111,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 
 from alembic import op
+from cii_platform.db.trigger_ddl import create_trigger, drop_trigger, existing_triggers
 
 revision = "061"
 down_revision = "060"
@@ -180,12 +182,9 @@ def _legacy_condition(table: str, column: str) -> str:
 
 
 # --- 카탈로그 조회 — 중간에 멈춘 뒤 다시 돌려도 이미 한 단계는 건너뛴다 ---------------
-
-
-def _existing_triggers() -> set[str]:
-    """지금 있는 트리거 이름 (``048``의 관례 · `#1373`)."""
-    rows = op.get_bind().execute(sa.text("SELECT name FROM db_trigger")).fetchall()
-    return {row[0] for row in rows}
+#
+# 트리거는 공용 헬퍼 ``db/trigger_ddl.py``(`#1373` — 있으면 만들지 않고, 없으면 지우지
+# 않는다)가 ``db_trigger``를 본다. 열·인덱스는 헬퍼가 없어 여기서 같은 형태로 본다.
 
 
 def _column_exists(table: str, column: str) -> bool:
@@ -213,14 +212,13 @@ def _index_exists(table: str, index: str) -> bool:
 
 
 def upgrade() -> None:
-    have = _existing_triggers()
+    have = existing_triggers(op)
     for table, source, active, sql_type, index_name, legacy_prefix in ACTIVE_KEYS:
         # 1) 047의 트리거를 **먼저** 걷는다 — 아래 백필 UPDATE가 `_upd`(BEFORE UPDATE …
         #    REJECT)를 타므로, 중복 활성 행이 있으면 인덱스가 아니라 여기서 -517로 선다.
+        #    없으면 지우지 않는다 (`#1373` · `db/trigger_ddl.py`).
         for event in _EVENTS:
-            name = _legacy_trigger_name(legacy_prefix, event)
-            if name in have:
-                op.execute(f"DROP TRIGGER {name}")
+            drop_trigger(op, _legacy_trigger_name(legacy_prefix, event), existing=have)
         # 2) 활성 키 열
         if not _column_exists(table, active):
             op.execute(f"ALTER TABLE {table} ADD COLUMN {active} {sql_type}")
@@ -235,37 +233,38 @@ def upgrade() -> None:
         #    돌리면 1~3은 건너뛰고 여기부터 이어진다(docs/OPERATIONS.md §3.6.4).
         if not _index_exists(table, index_name):
             op.execute(f"CREATE UNIQUE INDEX {index_name} ON {table} ({active})")
-        # 5) 채움 트리거
+        # 5) 채움 트리거 — 이미 있으면 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
         for event in _EVENTS:
-            name = _fill_trigger_name(table, active, event)
-            if name in have:
-                continue
-            op.execute(
-                f"CREATE TRIGGER {name} AFTER {event} ON {table} "
+            create_trigger(
+                op,
+                _fill_trigger_name(table, active, event),
+                f"AFTER {event} ON {table} "
                 f"IF {_needs_fill(source, active)} "
                 f"EXECUTE UPDATE {table} SET {active} = {_expected(source)}, "
-                f"updated_at = obj.updated_at WHERE id = obj.id"
+                f"updated_at = obj.updated_at WHERE id = obj.id",
+                existing=have,
             )
 
 
 def downgrade() -> None:
-    """건 것을 걷고 ``047``의 트리거를 되살린다 — 데이터는 한 행도 바꾸지 않는다."""
-    have = _existing_triggers()
+    """건 것을 걷고 ``047``의 트리거를 되살린다 — 데이터는 한 행도 바꾸지 않는다.
+
+    없는 것은 지우지 않고, 있는 것은 만들지 않는다 (`#1373` · `db/trigger_ddl.py`).
+    """
+    have = existing_triggers(op)
     for table, source, active, _sql_type, index_name, legacy_prefix in ACTIVE_KEYS:
         for event in _EVENTS:
-            name = _fill_trigger_name(table, active, event)
-            if name in have:
-                op.execute(f"DROP TRIGGER {name}")
+            drop_trigger(op, _fill_trigger_name(table, active, event), existing=have)
         if _index_exists(table, index_name):
             op.execute(f"DROP INDEX {index_name} ON {table}")
         if _column_exists(table, active):
             op.execute(f"ALTER TABLE {table} DROP COLUMN {active}")
         # 047 원문 그대로 — 열·인덱스가 사라진 뒤에 되살린다(백필 순서의 역).
         for event in _EVENTS:
-            name = _legacy_trigger_name(legacy_prefix, event)
-            if name in have:
-                continue
-            op.execute(
-                f"CREATE TRIGGER {name} BEFORE {event} ON {table} "
-                f"IF NOT ({_legacy_condition(table, source)}) EXECUTE REJECT"
+            create_trigger(
+                op,
+                _legacy_trigger_name(legacy_prefix, event),
+                f"BEFORE {event} ON {table} "
+                f"IF NOT ({_legacy_condition(table, source)}) EXECUTE REJECT",
+                existing=have,
             )
