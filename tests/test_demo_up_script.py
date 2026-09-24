@@ -726,3 +726,45 @@ def test_no_other_step_writes_through_the_api():
         assert executed, call
         for line in executed:
             assert line in segment, line
+
+
+# --- Windows checkout에서도 LF를 유지한다 (#1620) --------------------------------------
+
+
+def test_gitattributes_pins_sh_to_lf():
+    """`.gitattributes`가 `*.sh`를 `eol=lf`로 고정한다 (`#1620`).
+
+    Windows `core.autocrlf=true` checkout에서 이 스크립트가 CRLF가 되면 Git Bash·WSL의
+    `bash -n`이 `do\r` 구문 오류로 실행 자체를 막는다 — `#616`과 같은 계열의 실패가
+    실행 전 단계에서 생긴다. `text eol=lf`가 **checkout 자체**를 LF로 고정해, 위
+    `test_script_is_syntactically_valid`가 보는 이 저장소의 checkout과 Windows
+    checkout이 갈리지 않게 한다.
+    """
+    attrs = (_SCRIPT.parents[1] / ".gitattributes").read_text(encoding="utf-8")
+    entries = [
+        line.split()
+        for line in attrs.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert ["*.sh", "text", "eol=lf"] in entries, "`.gitattributes`에 `*.sh text eol=lf`가 없다"
+
+
+def test_tracked_sh_files_report_lf_eol():
+    """`git ls-files --eol '*.sh'`가 추적된 `.sh` 전부를 `i/lf`로 본다 (`#1620`).
+
+    인덱스의 줄바꿈이 이미 LF라는 뜻이다 — 기존 파일에 CRLF가 섞여 있었다면
+    `eol=lf`를 넣는 순간 재정규화 커밋이 필요했을 것이다(`git add --renormalize .`가
+    바꿀 파일이 남는다). 이 검사는 그 재정규화가 **이미 끝난 상태**(변경 0건)를 잠근다.
+    """
+    done = subprocess.run(
+        ["git", "ls-files", "--eol", "*.sh"],
+        cwd=_SCRIPT.parents[1],
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+
+    lines = [line for line in done.stdout.splitlines() if line.strip()]
+    assert lines, "추적된 .sh 파일을 찾지 못했다 — 경로를 확인할 것"
+    for line in lines:
+        assert line.startswith("i/lf"), f"인덱스 줄바꿈이 LF가 아니다: {line}"
