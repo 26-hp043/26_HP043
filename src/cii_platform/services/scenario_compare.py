@@ -118,6 +118,9 @@ class ScenarioCompareInput:
     detour_distance_nm: Decimal | None = None
     slow_speed_kn: Decimal | None = None
     weather_model: str | None = None
+    # 우회 경유지 (`#1300` · PRD §11.3). 둘 다 있을 때만 DETOUR 거리를 구간 합으로 낸다.
+    detour_waypoint_lat: Decimal | None = None
+    detour_waypoint_lon: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -235,6 +238,8 @@ async def compare_scenarios(
     reference_speed_kn = _resolve_reference_speed(vessel)
 
     direct_distance = _resolve_direct_distance(payload)
+    waypoint = _waypoint(payload)
+    detour_distance = _resolve_detour_distance(payload, direct_distance, waypoint)
     slow_speed = _resolve_slow_speed(payload)
     weather = await _resolve_weather(session, payload, vessel, weather_provider)
     weather_model_used = weather.model_used
@@ -242,13 +247,7 @@ async def compare_scenarios(
 
     plans = [
         _ScenarioPlan("DIRECT", direct_distance, payload.current_speed_kn),
-        _ScenarioPlan(
-            "DETOUR",
-            payload.detour_distance_nm
-            if payload.detour_distance_nm is not None
-            else direct_distance * DETOUR_DISTANCE_RATIO,
-            payload.current_speed_kn,
-        ),
+        _ScenarioPlan("DETOUR", detour_distance, payload.current_speed_kn),
         _ScenarioPlan("SLOW_STEAMING", direct_distance, slow_speed),
     ]
     plans = [_quantize_plan(plan) for plan in plans]
@@ -311,6 +310,9 @@ async def compare_scenarios(
             # 경우도 그 결과값(1.0)이 들어간다: **보정 여부가 다르면 다른 계산**이라는
             # 것이 `§5.4`가 정한 재현성 단위다.
             "weather_factor": weather.factor,
+            # `#1300` — 경유지는 요청 재료이자 해시 재료다(`TECH_SPEC §5.3`). 없으면 키를
+            # 넣지 않는다 — `_filter_fields`가 있는 키만 담으므로 종전 해시가 그대로다.
+            **_waypoint_hash_material(waypoint),
         }
     )
     parameter_hash = compute_parameter_hash(parameters_used)
@@ -533,6 +535,90 @@ def _resolve_direct_distance(payload) -> Decimal:
         field="direct_distance_nm",
         field_label="직항 거리",
     )
+
+
+def _resolve_detour_distance(
+    payload, direct_distance: Decimal, waypoint: tuple[Decimal, Decimal] | None
+) -> Decimal:
+    """PRD §11.2 DETOUR — 입력 거리 > 경유지 구간 합 > ``직항 × 1.05`` 순 (`#1300`).
+
+    경유지가 있으면 「현재 위치 → 경유지 → 목적항」 **대권거리의 합**이다(`PRD §15.2`의
+    다중 구간 합산 · `TECH_SPEC §6.3`). 해상 경로망의 길이가 아니다 — 지도의 선은 표시이고
+    계산 거리의 출처는 바뀌지 않는다(재현성 계약 `§5.4`).
+
+    **경유지의 검증은 우회 거리 입력과 무관하게 먼저 한다**(`API_SPEC §5.1`). 좌표 넷이
+    없으면 어디서 어디로 도는지 알 수 없고, 경유지가 현재 위치나 목적항과 같으면 도는 것이
+    아니다 — 우회 거리를 직접 넣었어도 그 경유지는 지도에 그려지므로 같은 규칙을 받는다.
+    """
+    if waypoint is not None:
+        _check_waypoint_legs(payload, waypoint)
+    if payload.detour_distance_nm is not None:
+        return payload.detour_distance_nm
+    if waypoint is None:
+        return direct_distance * DETOUR_DISTANCE_RATIO
+    first, second = _waypoint_legs(payload, waypoint)
+    return first + second
+
+
+def _waypoint_legs(payload, waypoint: tuple[Decimal, Decimal]) -> tuple[Decimal, Decimal]:
+    """두 구간의 대권거리 — (현재 위치 → 경유지, 경유지 → 목적항). 좌표 넷이 있을 때만 부른다."""
+    lat, lon = waypoint
+    return (
+        great_circle_distance_nm(payload.current_lat, payload.current_lon, lat, lon),
+        great_circle_distance_nm(lat, lon, payload.destination_lat, payload.destination_lon),
+    )
+
+
+def _check_waypoint_legs(payload, waypoint: tuple[Decimal, Decimal]) -> None:
+    """경유지가 쓸 수 있는 자리인가 — 좌표 넷이 있고, 어느 끝과도 같은 점이 아니다.
+
+    **어느 쪽과 같은지를 문구가 말한다** — 「출발지·목적지와 같다」로 뭉뚱그리면 사용자가
+    두 칸 중 어느 것을 고칠지 모른다.
+    """
+    corners = (
+        payload.current_lat,
+        payload.current_lon,
+        payload.destination_lat,
+        payload.destination_lon,
+    )
+    if any(value is None for value in corners):
+        raise ValidationError(
+            "우회 경유지를 쓰려면 현재 위치와 목적항 좌표가 모두 필요합니다.",
+            field="detour_waypoint_lat",
+            field_label="우회 경유지",
+        )
+    first, second = _waypoint_legs(payload, waypoint)
+    if first <= 0 and second <= 0:
+        message = "우회 경유지가 현재 위치·목적항과 모두 같은 위치입니다. 경유지를 확인해 주세요."
+    elif first <= 0:
+        message = "우회 경유지가 현재 위치와 같은 위치입니다. 경유지를 확인해 주세요."
+    elif second <= 0:
+        message = "우회 경유지가 목적항과 같은 위치입니다. 경유지를 확인해 주세요."
+    else:
+        return
+    raise ValidationError(message, field="detour_waypoint_lat", field_label="우회 경유지")
+
+
+def _waypoint(payload) -> tuple[Decimal, Decimal] | None:
+    """경유지 좌표 쌍. **한쪽만 있으면 422** — 반쪽 좌표는 위치가 아니다. 요청당 한 번 부른다."""
+    lat = payload.detour_waypoint_lat
+    lon = payload.detour_waypoint_lon
+    if lat is None and lon is None:
+        return None
+    if lat is None or lon is None:
+        raise ValidationError(
+            "우회 경유지의 위도와 경도는 함께 입력해 주세요.",
+            field="detour_waypoint_lat" if lat is None else "detour_waypoint_lon",
+            field_label="우회 경유지",
+        )
+    return lat, lon
+
+
+def _waypoint_hash_material(waypoint: tuple[Decimal, Decimal] | None) -> dict[str, object]:
+    """해시 재료 조각 — 경유지가 있을 때만 ``detour_waypoint`` 키를 낸다."""
+    if waypoint is None:
+        return {}
+    return {"detour_waypoint": {"lat": waypoint[0], "lon": waypoint[1]}}
 
 
 def _resolve_slow_speed(payload) -> Decimal:

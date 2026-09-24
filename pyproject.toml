@@ -62,6 +62,7 @@ dependencies = [
     # 쓰는 라우트를 **등록하는 시점에** 이 패키지를 요구한다 — 없으면 요청이 아니라
     # 앱 기동이 실패하므로 선택 의존성으로 둘 수 없다 (`API_SPEC §8.2`).
     "python-multipart>=0.0.20,<0.1",
+    "searoute>=1.6.0,<2.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,31 @@
+BlueLog — 제3자 데이터·소프트웨어 고지 (NOTICE)
+
+이 저장소가 배포·표시하는 제3자 자료의 출처와 라이선스다. 항목이 늘면 여기와
+README.md의 해당 절에 함께 적는다.
+
+1. 해상 경로망 — 지도의 항로선 (#1300)
+
+   - searoute (Python 패키지) — https://github.com/genthalili/searoute-py
+     Copyright Gent Halili. Licensed under the Apache License, Version 2.0.
+     https://www.apache.org/licenses/LICENSE-2.0
+   - 해상 경로망 데이터 (marnet) — 위 패키지가 번들한다. 출처는 Eurostat SeaRoute
+     https://github.com/eurostat/searoute — Licensed under the European Union Public
+     Licence (EUPL) v1.2. https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12
+     그 데이터는 Oak Ridge National Laboratory CTA Transportation Network Group의
+     "Global Shipping Lane Network, World, 2000"(미국 정부 자료)을 바탕으로 유럽 연안
+     구간을 더한 것이다.
+
+   서버 API `GET /api/v1/ports/sea-route`(API_SPEC §3.11)가 이 경로망으로 두 점 사이의
+   선을 내고, 화면은 그 선을 그린다. 표시용이며 CII 계산 거리가 아니다.
+
+2. 지도 배경 타일
+
+   - OpenStreetMap 기여자 — https://www.openstreetmap.org/copyright
+     Open Data Commons Open Database License (ODbL) v1.0. Protomaps 빌드
+     (frontend/public/basemap/ · scripts/fetch_basemap.sh)로 담았다.
+     화면의 지도 오른쪽 아래 출처 컨트롤에 「© OpenStreetMap」으로 표기한다.
+
+3. 개략도(PositionChart)의 해안선
+
+   - Natural Earth 1:110m Land — https://www.naturalearthdata.com/ (퍼블릭 도메인).
+     frontend/src/features/fleet/landOutline.ts

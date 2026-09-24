@@ -49,8 +49,13 @@ class ScenarioCompareRequest(BaseModel):
     # VAL-002: > 0. 선박 기준값(vessel.reference_daily_foc_ton)이 있으면 생략 가능.
     base_daily_foc_ton: Annotated[Decimal | None, Field(gt=0)] = None
     direct_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
-    # 미지정 시 서버가 direct × 1.05 (API_SPEC §5.1).
+    # 미지정 시 서버가 direct × 1.05 (API_SPEC §5.1). 우회 경유지가 있으면 그 구간 합이다.
     detour_distance_nm: Annotated[Decimal | None, Field(**DISTANCE)] = None
+    # 우회 경유지 (`#1300` E-6 ⓓ · PRD §11.3). 이름은 표기용, 좌표 둘은 **함께** 와야
+    # 한다(서비스가 검증). 항차(`voyage`)에는 저장하지 않는다 — 이 요청의 재료일 뿐이다.
+    detour_waypoint_name: Annotated[str | None, Field(max_length=200)] = None
+    detour_waypoint_lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
+    detour_waypoint_lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
     # VAL-009. 미지정 시 서버가 max(current_speed − 1, 1.0)로 계산 (API_SPEC §5.1).
     slow_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
     # 기본 NONE. #61(기상 연동) 전까지 NONE이 아닌 값은 fallback warning과 함께

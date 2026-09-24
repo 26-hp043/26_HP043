@@ -1770,6 +1770,11 @@ ROUTE_COVERAGE: dict[str, str] = {
     "GET /ports/lookup": (
         "tests/test_port_geocoding_db.py::test_lookup_is_cached_and_asked_only_once"
     ),
+    # `API_SPEC §3.11` (#1300) — 응답이 **경로망 라이브러리가 낸 좌표 열**이라 필드 집합이
+    # 입력 좌표마다 같아도 값은 공용 데이터로 고정할 수 없다. 그 파일이 부산 → 싱가포르로
+    # HTTP 응답(`coordinates` · `legs` · `length_nm` · `source`)이 서비스 직렬화와 같은지와
+    # 422 · 404 경로를 본다.
+    "GET /ports/sea-route": ("tests/test_sea_route.py::test_endpoint_returns_the_line"),
     # `API_SPEC §9.1` (#767) — 응답이 **저장된 스냅샷 하나**라 데모 시드로는 볼 수 없다.
     # 그 파일이 자기 좌표에 심고 지우며 키 11개를 정확히 단언한다(AT-WX-001).
     "GET /weather/snapshot": (

@@ -144,6 +144,10 @@ _FIELD_LABELS: dict[str, str] = {
     "destination_lon": "목적지 경도",
     "direct_distance_nm": "직항 거리",
     "detour_distance_nm": "우회 거리",
+    # 우회 경유지 (§5.1 · #1300)
+    "detour_waypoint_name": "우회 경유지",
+    "detour_waypoint_lat": "우회 경유지 위도",
+    "detour_waypoint_lon": "우회 경유지 경도",
     "current_speed_kn": "현재 속력",
     "slow_speed_kn": "감속 속력",
     "base_daily_foc_ton": "기준 일일 연료소모량",
@@ -172,6 +176,9 @@ _FIELD_LABELS: dict[str, str] = {
     "from_lon": "출발지 경도",
     "to_lat": "도착지 위도",
     "to_lon": "도착지 경도",
+    # 해상 경로망 (§3.11 · #1300)
+    "via_lat": "경유지 위도",
+    "via_lon": "경유지 경도",
 }
 
 

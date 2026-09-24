@@ -145,6 +145,23 @@ describe('요청 매핑', () => {
     }
   })
 
+  it('우회 경유지 셋을 서버 필드명 그대로 싣는다 (#1300)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
+    await createApiScenarioProvider(fetchImpl).compare({
+      ...REQUEST,
+      detour_waypoint_name: 'HONOLULU',
+      detour_waypoint_lat: 21.3,
+      detour_waypoint_lon: -157.87,
+    })
+
+    const sent = JSON.parse((fetchImpl.mock.calls[0][1] as RequestInit).body as string)
+    expect(sent).toMatchObject({
+      detour_waypoint_name: 'HONOLULU',
+      detour_waypoint_lat: 21.3,
+      detour_waypoint_lon: -157.87,
+    })
+  })
+
   it('총 연료량을 보내지 않는다 — 서버 계약은 일일 소모량이다', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(OK_BODY))
     await createApiScenarioProvider(fetchImpl).compare(REQUEST)

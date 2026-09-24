@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { FleetVessel } from './types'
 
@@ -24,9 +24,17 @@ import type { FleetVessel } from './types'
  * 인스턴스가 필요하다. 모의 안에서 `globalThis`를 거치는 것은 `vi.mock` 팩토리가
  * 호이스팅되어 파일 상단의 값을 가져다 쓸 수 없기 때문이다.
  */
-type FakeMapRecord = { remove: ReturnType<typeof vi.fn> }
+type FakeMapRecord = {
+  remove: ReturnType<typeof vi.fn>
+  on: ReturnType<typeof vi.fn>
+  addLayer: ReturnType<typeof vi.fn>
+  options: { style?: { sources?: Record<string, { attribution?: string }> } }
+}
 const mapsCreated = (): FakeMapRecord[] =>
   ((globalThis as { __fleetMaps?: FakeMapRecord[] }).__fleetMaps ??= [])
+type FakeMarkerRecord = { element: HTMLElement; remove: ReturnType<typeof vi.fn> }
+const markersCreated = (): FakeMarkerRecord[] =>
+  ((globalThis as { __fleetMarkers?: FakeMarkerRecord[] }).__fleetMarkers ??= [])
 
 vi.mock('maplibre-gl', () => {
   class FakeMap {
@@ -34,22 +42,33 @@ vi.mock('maplibre-gl', () => {
     addControl = vi.fn()
     on = vi.fn()
     getSource = vi.fn().mockReturnValue(undefined)
+    getLayer = vi.fn().mockReturnValue(undefined)
     addSource = vi.fn()
     addLayer = vi.fn()
     setPaintProperty = vi.fn()
     getZoom = vi.fn().mockReturnValue(0)
     fitBounds = vi.fn()
     remove = vi.fn()
-    constructor() {
+    options: unknown
+    constructor(options: unknown) {
+      this.options = options
       const registry = (globalThis as { __fleetMaps?: unknown[] })
       registry.__fleetMaps ??= []
       registry.__fleetMaps.push(this)
     }
   }
   class FakeMarker {
+    element: unknown
     setLngLat = vi.fn().mockReturnThis()
     addTo = vi.fn().mockReturnThis()
     remove = vi.fn()
+    constructor(options: { element?: unknown }) {
+      // 마커 DOM 노드를 기록한다 — 「항로 응답이 와도 같은 노드로 남는가」를 보려면 필요하다.
+      this.element = options?.element
+      const registry = (globalThis as { __fleetMarkers?: unknown[] })
+      registry.__fleetMarkers ??= []
+      registry.__fleetMarkers.push(this)
+    }
   }
   class FakeBounds {
     extend = vi.fn()
@@ -65,7 +84,30 @@ vi.mock('maplibre-gl', () => {
 vi.mock('pmtiles', () => ({ Protocol: class { tile = vi.fn() } }))
 vi.mock('@protomaps/basemaps', () => ({ layers: () => [], namedFlavor: () => ({}) }))
 
-const { FleetMap } = await import('./FleetMap')
+const { FleetMap, ROUTE_ATTRIBUTION, ROUTE_UNAVAILABLE_TEXT } = await import('./FleetMap')
+
+/*
+ * 항로선은 서버에서 온다 (`#1300`). 기본 대역은 **아무 경로도 묻지 않는 배**(항차 없음)라
+ * `fetch`가 불리지 않지만, 안전하게 빈 응답을 둔다 — 실제 네트워크로 나가지 않게.
+ */
+function jsonResponse(body: unknown, status = 200): Response {
+  return { ok: status >= 200 && status < 300, status, json: async () => body } as Response
+}
+const SEA_LINE = {
+  data: {
+    coordinates: [
+      [129.0333, 35.1],
+      [129.2, 35],
+      [103.85, 1.2833],
+    ],
+    length_nm: 2552.14,
+    legs: 1,
+    source: 'searoute/marnet',
+  },
+}
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 function vessel(id: string, lat: string | null, lon: string | null): FleetVessel {
   return {
@@ -150,12 +192,16 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     expect(mapsCreated()[0].remove).toHaveBeenCalled()
   })
 
-  it('기본 캡션은 점선이 육지를 가로지른다는 것과 굵은 테두리의 뜻을 둘 다 말한다 (#1421)', () => {
+  it('기본 캡션은 점선이 항해 계획이 아니라는 것과 굵은 테두리의 뜻을 둘 다 말한다 (#1421 · #1300)', () => {
     const { container } = render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
 
     const hint = container.querySelector('.fleetmap__hint')?.textContent ?? ''
-    // 점선이 실제 항로가 아닌 **이유**
-    expect(hint).toMatch(/육지/)
+    // 정본 문구 (DESIGN_SYSTEM §9.5 「항로선은 공개 해상 경로망 위의 바닷길이다」 · ⚠️ 개발
+    // 임시안 · §16 항목 21) — 「실제 항해 계획이 아니다」는 고지의 뜻이라 문장이 바뀌어도
+    // 남아야 한다. 선이 경로망 위의 바닷길이 되면서(#1300) 「육지를 가로지른다」는 더 이상
+    // 사실이 아니다 — 그 말이 되살아나면 캡션이 거짓이다.
+    expect(hint).toMatch(/항해 계획이 아닙니다/)
+    expect(hint).not.toMatch(/육지/)
     // 스스로 설명되지 않는 유일한 표식 — 말의 순서는 바뀌어도 된다
     expect(hint).toMatch(/테두리/)
     expect(hint).toMatch(/굵/)
@@ -167,5 +213,133 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     expect(screen.queryByText(/표시되지 않았습니다/)).toBeNull()
     const label = screen.getByRole('img').getAttribute('aria-label') ?? ''
     expect(label).not.toContain('빠져 있습니다')
+  })
+})
+
+/**
+ * 항로선은 공개 해상 경로망 위의 바닷길이다 (`#1300`).
+ *
+ * 선을 화면이 만들지 않고 서버(`API_SPEC §3.11`)에서 받는다. 잠그는 것은 셋 — ⑴ 진행 중
+ * 항차의 두 점을 서버에 묻는다 ⑵ 직항·우회 두 레이어가 **선의 결**로 갈린다(색 단독 금지 ·
+ * `§14`) ⑶ 못 받으면 선을 지어내지 않고 그 사실을 적는다.
+ */
+describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
+  const underway = () =>
+    ({
+      ...vessel('1', '35.1', '129.0'),
+      route: { departureLat: '35.1', departureLon: '129.0333', arrivalLat: '1.2833', arrivalLon: '103.85' },
+    }) as FleetVessel
+
+  /** 대역 지도의 `load`를 울린다 — 실제 지도는 타일이 오면 스스로 울린다. */
+  function fireLoad() {
+    const map = mapsCreated().at(-1)!
+    const onLoad = map.on.mock.calls.find((call) => call[0] === 'load')?.[1] as () => void
+    act(() => onLoad())
+  }
+
+  it('진행 중 항차의 두 점을 서버에 묻는다', async () => {
+    const fetchImpl = vi.fn(async (_input: unknown) => jsonResponse(SEA_LINE))
+    vi.stubGlobal('fetch', fetchImpl)
+
+    render(<FleetMap vessels={[underway()]} />)
+
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1))
+    const url = String(fetchImpl.mock.calls[0][0])
+    expect(url).toContain('/ports/sea-route?')
+    expect(url).toContain('from_lon=129.0333')
+    expect(url).toContain('to_lat=1.2833')
+  })
+
+  it('직항과 우회는 같은 색, 다른 결의 두 레이어다 — 색만으로 가르지 않는다 (§14)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(SEA_LINE)))
+    mapsCreated().length = 0
+
+    render(<FleetMap vessels={[underway()]} />)
+    fireLoad()
+
+    const map = mapsCreated()[0]
+    const layerIds = () => map.addLayer.mock.calls.map((call) => (call[0] as { id: string }).id)
+    await waitFor(() =>
+      expect(layerIds()).toEqual(expect.arrayContaining(['routes', 'routes-detour'])),
+    )
+    const layers = map.addLayer.mock.calls.map((call) => call[0] as { id: string; paint: Record<string, unknown> })
+    const direct = layers.find((layer) => layer.id === 'routes')!
+    const detour = layers.find((layer) => layer.id === 'routes-detour')!
+    // 직항은 `§9.5` 🔒 그대로다.
+    expect(direct.paint['line-dasharray']).toEqual([2, 1.5])
+    expect(detour.paint['line-dasharray']).not.toEqual(direct.paint['line-dasharray'])
+    expect(detour.paint['line-color']).toEqual(direct.paint['line-color'])
+    expect(detour.paint['line-width']).toEqual(direct.paint['line-width'])
+  })
+
+  it('선을 못 받으면 지어내지 않고 그 사실을 적는다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({}, 503)))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    render(<FleetMap vessels={[underway()]} />)
+
+    expect(await screen.findByText(ROUTE_UNAVAILABLE_TEXT)).toBeTruthy()
+    // 이유는 콘솔이 갖는다 — `console.error`가 아니다(#1616 가드는 error만 실패로 본다).
+    expect(warn).toHaveBeenCalledWith('[seaRoute]', expect.any(String), expect.anything())
+  })
+
+  it('못 받았을 때의 문장은 호출부가 바꿀 수 있다 — 선박을 그리지 않는 화면에서 「위치만」은 거짓이다', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({}, 503)))
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    render(<FleetMap vessels={[underway()]} routeUnavailableText="경로를 그리지 못했습니다." />)
+
+    expect(await screen.findByText('경로를 그리지 못했습니다.')).toBeTruthy()
+    expect(screen.queryByText(ROUTE_UNAVAILABLE_TEXT)).toBeNull()
+  })
+
+  it('항로 응답이 와도 마커 DOM 노드는 같은 노드로 남는다 — 마커와 항로선은 다른 effect다', async () => {
+    let release: (value: Response) => void = () => undefined
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve
+    })
+    vi.stubGlobal('fetch', vi.fn(async () => pending))
+    mapsCreated().length = 0
+    markersCreated().length = 0
+
+    render(<FleetMap vessels={[underway()]} />)
+    fireLoad()
+
+    await waitFor(() => expect(markersCreated()).toHaveLength(1))
+    const before = markersCreated()[0]
+    const node = before.element
+
+    // 이제 항로선이 도착한다 — 마커를 다시 만들 이유가 없다.
+    await act(async () => {
+      release(jsonResponse(SEA_LINE))
+      await pending
+    })
+    await waitFor(() => expect(mapsCreated()[0].addLayer).toHaveBeenCalled())
+
+    expect(markersCreated()).toHaveLength(1)
+    expect(markersCreated()[0].element).toBe(node)
+    expect(before.remove).not.toHaveBeenCalled()
+  })
+
+  it('받았으면 그 문장이 없다 — 없는 문제를 만들지 않는다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(SEA_LINE))
+    vi.stubGlobal('fetch', fetchImpl)
+
+    render(<FleetMap vessels={[underway()]} />)
+
+    await waitFor(() => expect(fetchImpl).toHaveBeenCalled())
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryByText(ROUTE_UNAVAILABLE_TEXT)).toBeNull()
+  })
+
+  it('경로망 출처가 지도 스타일의 소스에 실린다 — 「© OpenStreetMap」과 나란히', () => {
+    mapsCreated().length = 0
+    render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
+
+    const sources = mapsCreated()[0].options.style?.sources ?? {}
+    expect(sources.protomaps?.attribution).toBe('© OpenStreetMap')
+    expect(sources.routes?.attribution).toBe(ROUTE_ATTRIBUTION)
+    expect(ROUTE_ATTRIBUTION).toMatch(/EUPL-1\.2/)
+    expect(ROUTE_ATTRIBUTION).toMatch(/Apache-2\.0/)
   })
 })

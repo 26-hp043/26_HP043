@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as maplibregl from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import { layers, namedFlavor } from '@protomaps/basemaps'
@@ -6,7 +6,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import './FleetMap.css'
 import type { FleetVessel } from './types'
 import { BASEMAP_FONTS_URL, BASEMAP_URL, INITIAL_ZOOM, MAX_ZOOM } from './basemap'
-import { greatCirclePath } from './greatCircle'
+import { seaRouteKey, useSeaRoutes, type SeaRouteRequest, type SeaRouteState } from './seaRoute'
 import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
 import {
   isAtRisk,
@@ -36,15 +36,22 @@ import {
  * ## 항로선은 진행 중 항차에만
  *
  * `route`가 있는 선박만 그린다. 없는 배는 점만 남는다 — **없는 항로를 지어내지 않는다.**
+ *
+ * ## 선은 공개 해상 경로망 위의 바닷길이다 (`#1300` · `PRD §5.2`)
+ *
+ * 종전에는 두 항을 잇는 **대권선**이었다 — 최단 경로라 육지를 가로질렀다(`#1275`). 지금은
+ * 서버(`API_SPEC §3.11`)가 Eurostat 경로망에서 찾은 선을 받아 그린다(`seaRoute.ts`).
+ * **표의 거리는 그대로다** — 계산 거리는 사용자 입력 또는 대권거리이고(`PRD §15.2`) 이
+ * 선은 표시일 뿐이다. 서버가 선을 주지 못하면 **그리지 않고 그 사실을 적는다** —
+ * 대권선으로 되돌리면 캡션(「경로망 위의 경로」)이 거짓이 된다.
  */
 
 /**
- * 선박과 무관하게 그리는 항로 하나 (`#1265`).
+ * 선박과 무관하게 그리는 항로 하나 (`#1265` · `#1300`).
  *
- * 항로 비교(`UIFLOW 2-2`)가 쓴다 — 그 화면의 세 시나리오는 **같은 두 점을 공유**하고
- * 거리·속력만 다르므로(`PRD §11.3` 우회 = 직항 × 1.05) **그릴 경로는 하나뿐이다.**
- * 서버도 직항 거리를 이 두 점의 대권거리로 낸다(`PRD §11.2`) — 이 선은 표의
- * 「직항 거리」를 그대로 그린 것이지 장식이 아니다.
+ * 항로 비교(`UIFLOW 2-2`)가 쓴다. 직항은 현재 위치 → 목적항이고, 고급 설정에 우회
+ * 경유지를 넣으면 **우회 선이 하나 더** 온다(`kind: 'DETOUR'` · `via`) — 세 시나리오 중
+ * 감속은 직항과 같은 길이라 선이 둘을 넘지 않는다(`PRD §11.3`).
  */
 export interface RouteLine {
   name: string
@@ -52,7 +59,32 @@ export interface RouteLine {
   departureLon: number
   arrivalLat: number
   arrivalLon: number
+  /** 우회 경유지. 있으면 「출발 → 경유지 → 도착」으로 잇는다. */
+  via?: { lat: number; lon: number } | null
+  /** 선의 종류. 생략하면 직항이다 — 파선(`DESIGN_SYSTEM §9.5`). 우회는 점선이다. */
+  kind?: 'DIRECT' | 'DETOUR'
 }
+
+/** 서버에 물을 항로 하나 — 선박의 진행 중 항차와 `routes` 프롭이 같은 모양으로 모인다. */
+interface RouteAsk {
+  name: string
+  kind: 'DIRECT' | 'DETOUR'
+  request: SeaRouteRequest
+}
+
+/** 못 그린 선이 있을 때 지도 옆에 적는 문장 — 선을 지어내지 않고 그 사실을 말한다. */
+export const ROUTE_UNAVAILABLE_TEXT = '항로선을 불러오지 못했습니다 — 위치만 표시합니다.'
+
+/**
+ * 경로망 출처 표기 (`#1300` 결정 5항 — `README` · `NOTICE` · 화면 세 곳).
+ *
+ * 지도 오른쪽 아래 접힌 출처 컨트롤에 「© OpenStreetMap」과 나란히 실린다(MapLibre가
+ * 소스별 attribution을 모은다). 경로망 데이터는 Eurostat SeaRoute(EUPL-1.2), 그것을
+ * 번들한 파이썬 패키지 `searoute`는 Apache-2.0이다. ⚠️ 문구·자리는 **개발 임시안**이며
+ * 디자인 담당 검토 대상이다(`DESIGN_SYSTEM §9.5` 출처 표기는 「© OpenStreetMap」으로 확정돼 있다).
+ */
+export const ROUTE_ATTRIBUTION =
+  '해상 경로망 © Eurostat SeaRoute (EUPL-1.2) · searoute (Apache-2.0)'
 
 /**
  * 빈 기본값을 **모듈 상수로** 둔다.
@@ -74,6 +106,12 @@ interface FleetMapProps {
    */
   ariaLabel?: string
   caption?: ReactNode
+  /**
+   * 서버가 항로선을 주지 못했을 때 지도 옆에 적는 문장 (`#1300`). 기본 문안은 선대 화면
+   * 기준(「위치만 표시합니다」)이라 선박을 그리지 않는 화면에서는 틀린 말이 된다 —
+   * `ariaLabel`·`caption`과 같은 이유로 호출부가 넘긴다. 생략하면 선대 문안이다.
+   */
+  routeUnavailableText?: string
 }
 
 /** 좌표가 있는 선박만. 숫자로 되돌리는 곳은 여기뿐이다(지도가 숫자를 요구한다). */
@@ -155,52 +193,69 @@ function markerElement(vessel: FleetVessel): HTMLElement {
   return root
 }
 
-/** 항로선 GeoJSON. 진행 중 항차가 있는 선박만 한 줄씩. */
-function routeCollection(
-  points: Placed[],
-  extra: readonly RouteLine[],
-): maplibregl.GeoJSONSourceSpecification['data'] {
-  const fromProps = extra.flatMap((route) => {
-    const coords = greatCirclePath(
-      route.departureLat,
-      route.departureLon,
-      route.arrivalLat,
-      route.arrivalLon,
-    )
-    if (coords.length < 2) return []
-    return [
-      {
-        type: 'Feature' as const,
-        properties: { name: route.name },
-        geometry: { type: 'LineString' as const, coordinates: coords },
-      },
-    ]
+/** 그릴 항로 목록. 진행 중 항차가 있는 선박 한 줄씩 + `routes` 프롭. */
+function routeAsks(points: Placed[], extra: readonly RouteLine[]): RouteAsk[] {
+  const fromVessels = points.flatMap(({ vessel }): RouteAsk[] => {
+    const route = vessel.route
+    if (route == null) return []
+    const request: SeaRouteRequest = {
+      fromLat: Number(route.departureLat),
+      fromLon: Number(route.departureLon),
+      toLat: Number(route.arrivalLat),
+      toLon: Number(route.arrivalLon),
+    }
+    if (!Object.values(request).every((v) => Number.isFinite(v))) return []
+    return [{ name: vessel.name, kind: 'DIRECT', request }]
   })
+  const fromProps = extra.map(
+    (route): RouteAsk => ({
+      name: route.name,
+      kind: route.kind ?? 'DIRECT',
+      request: {
+        fromLat: route.departureLat,
+        fromLon: route.departureLon,
+        toLat: route.arrivalLat,
+        toLon: route.arrivalLon,
+        via: route.via ?? null,
+      },
+    }),
+  )
+  return fromVessels.concat(fromProps)
+}
 
+/** 받아 둔 선만 GeoJSON으로. 아직 없거나 못 받은 것은 **빈자리**다 — 지어내지 않는다. */
+function routeCollection(
+  asks: readonly RouteAsk[],
+  lines: Record<string, SeaRouteState>,
+): maplibregl.GeoJSONSourceSpecification['data'] {
   return {
     type: 'FeatureCollection',
-    features: points.flatMap(({ vessel }) => {
-      const route = vessel.route
-      if (route === null) return []
-      const coords = greatCirclePath(
-        Number(route.departureLat),
-        Number(route.departureLon),
-        Number(route.arrivalLat),
-        Number(route.arrivalLon),
-      )
-      if (coords.length < 2) return []
+    features: asks.flatMap((ask) => {
+      const line = lines[seaRouteKey(ask.request)]
+      if (line === undefined || line === 'failed' || line.coordinates.length < 2) return []
       return [
         {
           type: 'Feature' as const,
-          properties: { name: vessel.name },
-          geometry: { type: 'LineString' as const, coordinates: coords },
+          properties: { name: ask.name, kind: ask.kind },
+          geometry: { type: 'LineString' as const, coordinates: line.coordinates },
         },
       ]
-    }).concat(fromProps),
+    }),
   }
 }
 
-export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: FleetMapProps) {
+/** 지도 페인트가 CSS 변수를 읽지 못하므로 계산된 값을 꺼낸다. 비면 빈 문자열이다. */
+function accentColor(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue('--semantic-info').trim()
+}
+
+export function FleetMap({
+  vessels,
+  routes = NO_ROUTES,
+  ariaLabel,
+  caption,
+  routeUnavailableText = ROUTE_UNAVAILABLE_TEXT,
+}: FleetMapProps) {
   /*
    * 좌표가 없는 선박은 `placed()`에서 **조용히 빠진다** (#1103).
    *
@@ -210,6 +265,10 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
    */
   const shown = placed(vessels).length
   const missingText = missingPositionText(vessels.length, shown)
+  // 렌더마다 새 배열이면 아래 effect가 매번 다시 돈다 — `NO_ROUTES`와 같은 이유로 고정한다.
+  const asks = useMemo(() => routeAsks(placed(vessels), routes), [vessels, routes])
+  const lines = useSeaRoutes(asks.map((ask) => ask.request))
+  const routeFailed = asks.some((ask) => lines[seaRouteKey(ask.request)] === 'failed')
 
   /*
    * 캔버스 자리를 **ref가 아니라 state로 잡는다** (`#1645`).
@@ -254,6 +313,15 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
             url: `pmtiles://${BASEMAP_URL}`,
             attribution: '© OpenStreetMap',
           },
+          /*
+           * 항로선 소스는 **처음부터** 둔다 — 출처 표기(`ROUTE_ATTRIBUTION`)가 지도 컨트롤에
+           * 실리려면 스타일에 소스가 있어야 한다. 데이터는 아래 effect가 채운다.
+           */
+          routes: {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+            attribution: ROUTE_ATTRIBUTION,
+          },
         },
         layers: layers('protomaps', namedFlavor('light'), { lang: 'ko' }),
       },
@@ -289,6 +357,11 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
     }
   }, [canvas])
 
+  /*
+   * 마커와 항로선은 **다른 effect**다 (`#1300` 리뷰). 한 effect에 두면 항로 응답이 올 때마다
+   * 마커를 지우고 다시 만들어 — 마커 DOM 노드가 바뀐다. 마커에 붙는 것(팝오버 · 초점 ·
+   * `#1831`)이 그때마다 떨어진다. 마커는 `vessels`가 바뀔 때만, 항로선은 응답이 올 때만.
+   */
   useEffect(() => {
     const instance = map.current
     if (instance === null || !ready) return
@@ -301,10 +374,24 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
         .setLngLat([lon, lat])
         .addTo(instance),
     )
+  }, [vessels, ready])
 
-    const collection = routeCollection(points, routes)
+  useEffect(() => {
+    const instance = map.current
+    if (instance === null || !ready) return
+
+    const collection = routeCollection(asks, lines)
     const source = instance.getSource('routes') as maplibregl.GeoJSONSource | undefined
     if (source === undefined) {
+      /*
+       * 소스는 스타일이 갖고 있다(출처 표기 때문 — 위 `sources.routes`). 여기 오는 것은
+       * 대역(테스트)처럼 스타일이 없는 지도뿐이라 그때만 만든다.
+       */
+      instance.addSource('routes', { type: 'geojson', data: collection, attribution: ROUTE_ATTRIBUTION })
+    } else {
+      source.setData(collection)
+    }
+    if (instance.getLayer?.('routes') === undefined) {
       /*
        * **색을 먼저 읽고, 유효한 값일 때만 넣는다** (`#1265`).
        *
@@ -322,33 +409,44 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
        * 실제 색**이었고, `§9.5` 🔒가 정한 토큰이 지켜지지 않는 것을 아무도 몰랐다.
        * 값이 비면 `line-color`를 **아예 넣지 않아** MapLibre 기본색(검정)으로
        * 그려지게 둔다 — 규격과 어긋난 상태가 화면에서 바로 보인다.
+       *
+       * **선은 두 종류다** (`#1300`). 직항은 종전 그대로 파선 `2 1.5`(`§9.5` 🔒)이고,
+       * 우회는 **같은 색의 점선** `0.5 2`다 — 색이 아니라 **선의 결**로 가르므로 색을
+       * 못 봐도 구분된다(`§14`). 카드의 도식(`ScenarioRouteGlyph`)이 우회를 점선으로
+       * 그리는 것과 같은 언어다. ⚠️ 우회 선의 결은 **개발 임시안**이다 — 디자인 담당
+       * 확인 전까지 새 토큰·새 색을 만들지 않고 직항의 색을 그대로 쓴다.
        */
-      const accent = getComputedStyle(document.documentElement)
-        .getPropertyValue('--semantic-info')
-        .trim()
-
-      instance.addSource('routes', { type: 'geojson', data: collection })
+      const accent = accentColor()
+      const paint = {
+        ...(accent === '' ? {} : { 'line-color': accent }),
+        'line-width': 2,
+        'line-opacity': 0.9,
+      }
       instance.addLayer({
         id: 'routes',
         type: 'line',
         source: 'routes',
+        filter: ['!=', ['get', 'kind'], 'DETOUR'],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          ...(accent === '' ? {} : { 'line-color': accent }),
-          'line-width': 2,
-          // 파선이라 색을 못 봐도 배경의 도로·경계선과 구분된다 (`§14`).
-          'line-dasharray': [2, 1.5],
-          'line-opacity': 0.9,
-        },
+        // 파선이라 색을 못 봐도 배경의 도로·경계선과 구분된다 (`§14`).
+        paint: { ...paint, 'line-dasharray': [2, 1.5] },
       })
-    } else {
-      source.setData(collection)
+      instance.addLayer({
+        id: 'routes-detour',
+        type: 'line',
+        source: 'routes',
+        filter: ['==', ['get', 'kind'], 'DETOUR'],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { ...paint, 'line-dasharray': [0.5, 2] },
+      })
     }
 
     // 처음 한 번만 그려진 것에 맞춘다 — 갱신마다 맞추면 사용자가 확대해 둔 자리가 튄다.
-    if ((points.length > 0 || routes.length > 0) && instance.getZoom() === INITIAL_ZOOM) {
+    // 선박 좌표는 `asks`가 아니라 마커에서 — 항차 없는 배도 화면 안에 들어야 한다.
+    const placedPoints = placed(vessels)
+    if ((placedPoints.length > 0 || asks.length > 0) && instance.getZoom() === INITIAL_ZOOM) {
       const bounds = new maplibregl.LngLatBounds()
-      for (const { lat, lon } of points) bounds.extend([lon, lat])
+      for (const { lat, lon } of placedPoints) bounds.extend([lon, lat])
       /*
        * 명시 경로의 **양 끝도** 넣는다 (`#1265`).
        *
@@ -356,13 +454,14 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
        * 항로 비교는 선박을 그리지 않으므로 지도가 기본 뷰(`INITIAL_ZOOM`)에 머물고,
        * 그린 선이 **화면 밖에 있을 수 있다** — 지도는 떴는데 항로만 안 보이는 상태가 된다.
        */
-      for (const route of routes) {
-        bounds.extend([route.departureLon, route.departureLat])
-        bounds.extend([route.arrivalLon, route.arrivalLat])
+      for (const { request } of asks) {
+        bounds.extend([request.fromLon, request.fromLat])
+        bounds.extend([request.toLon, request.toLat])
+        if (request.via) bounds.extend([request.via.lon, request.via.lat])
       }
       instance.fitBounds(bounds, { padding: 48, maxZoom: 6, animate: false })
     }
-  }, [vessels, routes, ready])
+  }, [vessels, asks, ready, lines])
 
   if (vessels.length > 0 && shown === 0) {
     // 전부 빠진 경우는 빈 지도를 띄우지 않는다 — 빈 바다는 「선박이 없다」로 읽힌다.
@@ -392,6 +491,8 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
       {missingText === null ? null : (
         <p className="fleetmap__missing">{missingText}</p>
       )}
+      {/* 서버가 선을 주지 못했다 — 대권선으로 되돌리지 않고 그 사실을 적는다 (`#1300`). */}
+      {routeFailed ? <p className="fleetmap__missing">{routeUnavailableText}</p> : null}
       {/*
         읽는 법 (`#1052` ⓥ · 2026-09-18 확정).
 
@@ -408,13 +509,18 @@ export function FleetMap({ vessels, routes = NO_ROUTES, ariaLabel, caption }: Fl
         굵은 테두리의 뜻(`§9.5` 🔒)은 그림이 스스로 말하지 못한다.
 
         ⚠️ 「테두리가 굵은 **표**」는 오타였다(`PositionChart`는 「배」로 적는다).
+
+        ## 「최단 경로일 뿐」에서 「경로망 위의 경로」로 (#1300)
+
+        선이 대권선이 아니라 공개 해상 경로망(Eurostat SeaRoute)의 바닷길이 됐으므로
+        「육지를 가로지를 수 있다」는 더 이상 사실이 아니다. 대신 **실제 항해 계획이
+        아니라는 것**을 말한다 — 경로망은 운항 계획·수심·기상을 모른다.
       */}
       <p className="fleetmap__hint">
         {caption ?? (
           <>
-            점선은 두 항을 잇는 최단 경로일 뿐 예상 항로가 아닙니다 —{' '}
-            <b>육지를 가로지를 수 있고</b>, 해협·운하를 도는 실제 항로는 이보다 훨씬
-            깁니다. <b>테두리가 굵은 배</b>는 주의 대상입니다.
+            점선은 공개 해상 경로망 위의 경로입니다 — <b>실제 항해 계획이 아닙니다.</b>{' '}
+            <b>테두리가 굵은 배</b>는 주의 대상입니다.
           </>
         )}
       </p>

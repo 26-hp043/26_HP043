@@ -15,6 +15,7 @@ import {
   hasAdvancedError,
   toRequest,
   usesCoordinateDistance,
+  usesWaypointDistance,
   validateForm,
   weatherNeedsCoordinates,
   type ComparisonFormState,
@@ -50,7 +51,12 @@ import {
   warningMessage,
 } from '../voyage-cii/resultRules'
 import { GradeBadge } from '../../components/GradeBadge'
-import { COORDINATE_DISTANCE_NOTICE, ESTIMATE_NOTICE, NO_AUTO_DECISION_NOTICE } from './notices'
+import {
+  COORDINATE_DISTANCE_NOTICE,
+  ESTIMATE_NOTICE,
+  NO_AUTO_DECISION_NOTICE,
+  WAYPOINT_DISTANCE_NOTICE,
+} from './notices'
 import { selectScenarioProvider } from './providerSelection'
 import { useFuelOptions } from '../parameters/fuelCatalog'
 import { fuelTypeOptionText } from '../parameters/fuelTypes'
@@ -901,6 +907,56 @@ export function ScenarioComparison({
             )}
           </Field>
 
+          {/*
+            우회 경유지 (`#1300` E-6 ⓓ · `PRD §11.3` · `UIFLOW 2-2`). 샘플 항만에서 고르면 좌표가
+            붙고, 그때 서버가 우회 거리를 「현재 위치 → 경유지 → 목적항」 대권거리의 합으로 내며
+            지도가 우회 선을 따로 그린다. 목적항과 같은 규칙 — **정확히 같은 이름일 때만** 좌표를
+            붙인다. 우회 거리 칸을 채우면 그쪽이 우선이다(`API_SPEC §5.1`).
+          */}
+          <Field
+            id="sc-detourWaypoint"
+            label="우회 경유지 (항만에서 고르기)"
+            hint="고르면 우회 거리는 경유지를 지나는 대권거리의 합이 되고, 지도에 우회 선이 따로 그려집니다."
+            error={
+              // 서버가 짚는 칸은 `detour_waypoint_lat`/`_lon`이다 — 한 입력창이 셋을 받는다
+              // (#1097 ⑶ 「서버가 짚은 칸에 붙인다」).
+              errors[FIELD.detourWaypointName] ??
+              errors[FIELD.detourWaypointLat] ??
+              errors[FIELD.detourWaypointLon]
+            }
+          >
+            {(control) => (
+              <>
+                <input
+                  {...control}
+                  className="scenario-comparison__control"
+                  list="sc-ports"
+                  value={form.detourWaypointName}
+                  onChange={(e) => {
+                    const match = matchSamplePort(ports, e.target.value)
+                    setForm((prev) => ({
+                      ...prev,
+                      detourWaypointName: match ? match.name : e.target.value,
+                      detourWaypointLat: match ? String(match.lat) : '',
+                      detourWaypointLon: match ? String(match.lon) : '',
+                    }))
+                  }}
+                  placeholder="예: SINGAPORE — 비워 두면 직항 × 1.05"
+                />
+                {form.detourWaypointLat !== '' && (
+                  <span className="scenario-comparison__field-hint">
+                    샘플 항만 — 좌표가 함께 쓰입니다.
+                  </span>
+                )}
+                {form.detourWaypointName.trim() !== '' && form.detourWaypointLat === '' && (
+                  <span className="scenario-comparison__field-hint" role="status">
+                    샘플 항만 목록에 없는 이름입니다 — 좌표가 없어 우회 거리는 기본 규칙으로 계산합니다.
+                  </span>
+                )}
+              </>
+            )}
+          </Field>
+
           {/* `PRD §9.1` VAL-009 — floor가 1.0kn이라는 사실을 넣기 전에 알린다.
               도달했을 때의 경고(`SLOW_SPEED_FLOOR`)는 서버가 결과에 붙인다. */}
           <Field
@@ -1162,14 +1218,18 @@ export function ScenarioComparison({
         {usesCoordinateDistance(snapshot.inputs) ? (
           <p className="scenario-comparison__notice">{COORDINATE_DISTANCE_NOTICE}</p>
         ) : null}
+        {/* `TECH_SPEC §6.3` — 경유지로 낸 우회 거리도 대권거리의 합이라 같은 성질의 추정값이다 (#1300). */}
+        {usesWaypointDistance(snapshot.inputs) ? (
+          <p className="scenario-comparison__notice">{WAYPOINT_DISTANCE_NOTICE}</p>
+        ) : null}
 
         {/*
-          위치 맥락 지도 (`#1265`). **좌표가 들어왔을 때만** 그려지며 그 판단은
+          항로 지도 (`#1265` · `#1300`). **좌표가 들어왔을 때만** 그려지며 그 판단은
           컴포넌트가 스스로 한다 — 좌표는 선택 입력이라 비어 있는 것이 기본 경로이고,
           그때 빈 지도를 두면 정상 상태가 고장으로 읽힌다.
 
-          세 시나리오를 겹쳐 그리지 않는다. 좌표가 한 쌍뿐이고 우회는 거리 배수라
-          (`PRD §11.3`) **공간적으로 다른 경로가 없다.**
+          선은 공개 해상 경로망 위의 바닷길이다. 우회 경유지를 골랐을 때만 우회 선이 하나
+          더 그려진다 — 감속은 직항과 같은 길이라 선이 늘지 않는다(`PRD §11.3`).
         */}
         <VoyageRouteMap
           currentLat={snapshot.inputs.currentLat}
@@ -1177,6 +1237,9 @@ export function ScenarioComparison({
           destinationLat={snapshot.inputs.destinationLat}
           destinationLon={snapshot.inputs.destinationLon}
           destinationName={snapshot.inputs.destinationPortName}
+          detourWaypointLat={snapshot.inputs.detourWaypointLat}
+          detourWaypointLon={snapshot.inputs.detourWaypointLon}
+          detourWaypointName={snapshot.inputs.detourWaypointName}
         />
 
         {/*

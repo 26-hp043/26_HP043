@@ -1799,3 +1799,160 @@ describe('추정 거리 넣기 (#1750)', () => {
     expect(screen.getByText(/지도 서비스\(OpenStreetMap\)에서 찾은 좌표입니다/)).toBeTruthy()
   })
 })
+
+/**
+ * 우회 경유지 칸 (`#1300` E-6 ⓓ · `UIFLOW 2-2`).
+ *
+ * 고급 설정 안에 있고, 샘플 항만을 고르면 좌표가 붙어 요청에 실린다. 좌표 넷이 없으면
+ * 누르기 전에 그 칸에서 막는다 — 서버 422를 기다리지 않는다.
+ */
+describe('우회 경유지 (#1300)', () => {
+  const PORTS = [
+    { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.0333 },
+    { locode: 'SGKEP', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.2833, lon: 103.85 },
+    { locode: 'USHNL', name: 'HONOLULU', name_ko: '호놀룰루', country_code: 'US', lat: 21.3, lon: -157.87 },
+  ]
+
+  function stubWithPorts() {
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/ports/samples')) return jsonResponse({ data: PORTS })
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      if (url.includes('/scenarios/compare')) return jsonResponse(COMPARE_BODY)
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  const waypointInput = () => screen.getByLabelText(/우회 경유지/) as HTMLInputElement
+
+  it('고급 설정 안에 있고, 고르면 고급 칸 수에 든다', async () => {
+    stubWithPorts()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(3))
+
+    const details = waypointInput().closest('details') as HTMLDetailsElement
+    expect(details.querySelector('summary')?.textContent).toContain('고급 설정')
+
+    fireEvent.change(waypointInput(), { target: { value: 'HONOLULU' } })
+
+    expect(details.querySelector('summary')?.textContent).toContain('1개')
+    expect(screen.getByText(/샘플 항만 — 좌표가 함께 쓰입니다/)).toBeTruthy()
+  })
+
+  it('샘플 항만을 고르면 좌표가 요청에 실린다', async () => {
+    const fetchImpl = stubWithPorts()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(3))
+    fireEvent.change(screen.getByLabelText(/현재 위치/), { target: { value: 'BUSAN' } })
+    fireEvent.change(screen.getByLabelText('목적항'), { target: { value: 'SINGAPORE' } })
+    fireEvent.change(waypointInput(), { target: { value: 'HONOLULU' } })
+
+    await clickCompare()
+
+    await waitFor(() => {
+      const call = fetchImpl.mock.calls.find((c) => String(c[0]).includes('/scenarios/compare'))
+      expect(call).toBeTruthy()
+      const sent = JSON.parse((call![1] as RequestInit).body as string)
+      expect(sent).toMatchObject({
+        detour_waypoint_name: 'HONOLULU',
+        detour_waypoint_lat: 21.3,
+        detour_waypoint_lon: -157.87,
+      })
+    })
+  })
+
+  it('좌표 넷이 없으면 누르기 전에 그 칸에서 막고 고급 설정을 펼친다', async () => {
+    stubWithPorts()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(3))
+    fireEvent.change(waypointInput(), { target: { value: 'HONOLULU' } })
+
+    await clickCompare()
+
+    expect(await screen.findByText(/현재 위치와 목적항 좌표가 모두 필요합니다/)).toBeTruthy()
+    expect((waypointInput().closest('details') as HTMLDetailsElement).open).toBe(true)
+  })
+
+  it('서버가 경유지 위도 칸을 짚으면 그 오류가 경유지 입력창에 붙는다 (#1097 ⑶)', async () => {
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      void init
+      const url = String(input)
+      if (url.includes('/ports/samples')) return jsonResponse({ data: PORTS })
+      if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
+      if (url.includes('/parameters/fuel-types')) {
+        return jsonResponse({
+          data: [{ code: 'HFO', display_name: '고유황유', cf: '3.114', unit: 't', is_active: true }],
+        })
+      }
+      if (url.includes('/scenarios/compare')) {
+        return jsonResponse(
+          {
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: '우회 경유지가 목적항과 같은 위치입니다. 경유지를 확인해 주세요.',
+              details: [
+                {
+                  field: 'detour_waypoint_lat',
+                  message: '우회 경유지가 목적항과 같은 위치입니다. 경유지를 확인해 주세요.',
+                },
+              ],
+            },
+          },
+          422,
+        )
+      }
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(3))
+    fireEvent.change(screen.getByLabelText(/현재 위치/), { target: { value: 'BUSAN' } })
+    fireEvent.change(screen.getByLabelText('목적항'), { target: { value: 'SINGAPORE' } })
+    fireEvent.change(waypointInput(), { target: { value: 'HONOLULU' } })
+
+    await clickCompare()
+
+    // 같은 문구가 위 배너에도 뜬다 — 여기서 보는 것은 **경유지 입력창에 이어진 것**이다.
+    await screen.findAllByText(/목적항과 같은 위치입니다/)
+    const described = (waypointInput().getAttribute('aria-describedby') ?? '').split(' ')
+    const attached = described
+      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .some((text) => text.includes('목적항과 같은 위치입니다'))
+    expect(attached).toBe(true)
+  })
+
+  it('경유지로 낸 우회 거리는 결과에 「좌표 기반 추정 거리」라고 적는다', async () => {
+    stubWithPorts()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    await waitFor(() => expect(document.querySelectorAll('#sc-ports option')).toHaveLength(3))
+    fireEvent.change(screen.getByLabelText(/현재 위치/), { target: { value: 'BUSAN' } })
+    fireEvent.change(screen.getByLabelText('목적항'), { target: { value: 'SINGAPORE' } })
+    fireEvent.change(waypointInput(), { target: { value: 'HONOLULU' } })
+
+    await clickCompare()
+
+    expect(await screen.findByText(/우회 거리는 좌표 기반 추정 거리입니다/)).toBeTruthy()
+  })
+
+  it('목록 밖 이름은 좌표 없이 기본 규칙이라는 안내가 붙는다', async () => {
+    stubWithPorts()
+    renderScreen()
+    await screen.findByDisplayValue('2026')
+    fireEvent.change(waypointInput(), { target: { value: '어딘가' } })
+
+    expect(screen.getByRole('status', { name: '' }).textContent ?? '').toMatch(/기본 규칙/)
+  })
+})

@@ -196,6 +196,9 @@ export function createApiScenarioProvider(
             destination_port_name: request.destination_port_name,
             destination_lat: request.destination_lat,
             destination_lon: request.destination_lon,
+            detour_waypoint_name: request.detour_waypoint_name,
+            detour_waypoint_lat: request.detour_waypoint_lat,
+            detour_waypoint_lon: request.detour_waypoint_lon,
             weather_model: request.weather_model,
           }),
         })

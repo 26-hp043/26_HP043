@@ -13,7 +13,8 @@ import './RouteComparisonPage.css'
  * 요구하므로, 안에 두면 로딩·실패 상태에서 사라져 안전장치가 결과 유무에 종속된다
  * (`#136`과 같은 판단).
  *
- * UIFLOW 2-2가 기술한 지도 기반 항로 시각화는 8/8 범위 밖이다.
+ * 위치 맥락 지도는 `ScenarioComparison` 안의 `VoyageRouteMap`이 그린다(`#1265` ·
+ * `UIFLOW 2-2`) — 좌표가 모두 있을 때만이고, 이 페이지는 관여하지 않는다.
  */
 export function RouteComparisonPage() {
   const [disclaimer, setDisclaimer] = useState<string | undefined>(undefined)

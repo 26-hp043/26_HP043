@@ -5,9 +5,11 @@ import {
   MIN_SPEED_KN,
   countAdvancedFilled,
   hasAdvancedError,
+  hasWaypoint,
   initialFormState,
   toRequest as toRequestWith,
   usesCoordinateDistance,
+  usesWaypointDistance,
   validateForm as validateFormWith,
   weatherNeedsCoordinates,
   type ComparisonFormState,
@@ -402,5 +404,90 @@ describe('기상 모델 선택지 글자 (#1524)', () => {
       'SIMPLE_RULE',
       'TOWNSIN_KWON_ALPHA',
     ])
+  })
+})
+
+/**
+ * 우회 경유지 (`#1300` · `PRD §11.3`).
+ *
+ * 목적항과 같은 규칙이다 — 샘플 항만을 골랐을 때만 좌표가 붙고, 좌표가 둘 다 있을 때만
+ * 요청에 실린다. 좌표 넷이 없으면 서버가 422를 내므로 화면이 먼저 막는다.
+ */
+describe('우회 경유지 (#1300)', () => {
+  const COORDS = {
+    currentLat: '35.1',
+    currentLon: '129.0333',
+    destinationLat: '1.2833',
+    destinationLon: '103.85',
+  }
+  const WAYPOINT = { detourWaypointName: 'HONOLULU', detourWaypointLat: '21.3', detourWaypointLon: '-157.87' }
+
+  it('처음에는 비어 있고 요청에 키가 없다', () => {
+    expect(hasWaypoint(initialFormState())).toBe(false)
+    const request = toRequest(state())
+    expect(request).not.toHaveProperty('detour_waypoint_lat')
+    expect(request).not.toHaveProperty('detour_waypoint_name')
+  })
+
+  it('좌표가 둘 다 있을 때만 이름과 좌표를 싣는다', () => {
+    expect(toRequest(state({ ...COORDS, ...WAYPOINT }))).toMatchObject({
+      detour_waypoint_name: 'HONOLULU',
+      detour_waypoint_lat: 21.3,
+      detour_waypoint_lon: -157.87,
+    })
+    // 이름만 있고 좌표가 없으면(목록 밖 항만) 서버가 할 일이 없다 — 싣지 않는다.
+    const request = toRequest(state({ ...COORDS, detourWaypointName: '어딘가' }))
+    expect(request).not.toHaveProperty('detour_waypoint_name')
+    expect(request).not.toHaveProperty('detour_waypoint_lat')
+  })
+
+  it('좌표 넷이 없으면 경유지를 쓸 수 없다 — 그 칸에 오류가 붙는다', () => {
+    const errors = validateForm(state({ ...WAYPOINT }))
+    expect(errors).toHaveProperty(FIELD.detourWaypointName)
+    expect(validateForm(state({ ...COORDS, ...WAYPOINT }))).toEqual({})
+    // 고급 칸이라 접힌 채로 두면 오류가 보이지 않는다.
+    expect(hasAdvancedError(errors)).toBe(true)
+  })
+
+  it('고급 칸 수에 든다', () => {
+    expect(countAdvancedFilled(state({ ...WAYPOINT }))).toBe(1)
+  })
+
+  it('경유지가 어느 끝과 같으면 막고, 어느 쪽인지 말한다 — 서버와 같은 갈래', () => {
+    const onDestination = validateForm(
+      state({ ...COORDS, detourWaypointName: 'X', detourWaypointLat: '1.2833', detourWaypointLon: '103.85' }),
+    )
+    expect(onDestination[FIELD.detourWaypointName]).toMatch(/목적항/)
+    expect(onDestination[FIELD.detourWaypointName]).not.toMatch(/현재 위치/)
+
+    const onCurrent = validateForm(
+      state({ ...COORDS, detourWaypointName: 'X', detourWaypointLat: '35.1', detourWaypointLon: '129.0333' }),
+    )
+    expect(onCurrent[FIELD.detourWaypointName]).toMatch(/현재 위치/)
+    expect(onCurrent[FIELD.detourWaypointName]).not.toMatch(/목적항/)
+
+    const allThree = validateForm(
+      state({
+        ...COORDS,
+        destinationLat: '35.1',
+        destinationLon: '129.0333',
+        detourWaypointName: 'X',
+        detourWaypointLat: '35.1',
+        detourWaypointLon: '129.0333',
+      }),
+    )
+    expect(allThree[FIELD.detourWaypointName]).toMatch(/현재 위치/)
+    expect(allThree[FIELD.detourWaypointName]).toMatch(/목적항/)
+    // 표기가 달라도 같은 점이다 — `35.10` = `35.1`.
+    const spelled = validateForm(
+      state({ ...COORDS, detourWaypointName: 'X', detourWaypointLat: '35.10', detourWaypointLon: '129.03330' }),
+    )
+    expect(spelled).toHaveProperty(FIELD.detourWaypointName)
+  })
+
+  it('우회 거리를 비우고 경유지를 골랐을 때만 경유지 기준 추정이다', () => {
+    expect(usesWaypointDistance(state({ ...COORDS, ...WAYPOINT }))).toBe(true)
+    expect(usesWaypointDistance(state({ ...COORDS, ...WAYPOINT, detourDistanceNm: '1200' }))).toBe(false)
+    expect(usesWaypointDistance(state({ ...COORDS }))).toBe(false)
   })
 })

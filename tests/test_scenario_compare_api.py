@@ -395,6 +395,131 @@ class TestScenarioGeneration:
         direct = next(s for s in resp.json()["data"]["scenarios"] if s["scenario_type"] == "DIRECT")
         assert direct["distance_nm"] == 4832.64
 
+    # --- 우회 경유지 (#1300 · PRD §11.3 · TECH_SPEC §6.3) ---------------------------------
+
+    COORDS = {
+        "current_lat": 35.0,
+        "current_lon": 129.0,
+        "destination_lat": 51.9244,
+        "destination_lon": 4.4778,
+    }
+    WAYPOINT = {"detour_waypoint_lat": 1.2833, "detour_waypoint_lon": 103.85}
+
+    def test_waypoint_detour_is_the_sum_of_two_great_circle_legs(self, wired):
+        """AT-SC-005 — DETOUR = 대권(현재 → 경유지) + 대권(경유지 → 목적항).
+
+        경로망 길이가 아니다.
+        """
+        from decimal import Decimal
+
+        from cii_platform.calc.distance import great_circle_distance_nm
+
+        payload = {**VALID_PAYLOAD, **self.COORDS, **self.WAYPOINT}
+        resp = wired.post(ENDPOINT, json=payload)
+        assert resp.status_code == 200, resp.text
+        scenarios = {s["scenario_type"]: s for s in resp.json()["data"]["scenarios"]}
+        expected = great_circle_distance_nm(
+            Decimal("35.0"), Decimal("129.0"), Decimal("1.2833"), Decimal("103.85")
+        ) + great_circle_distance_nm(
+            Decimal("1.2833"), Decimal("103.85"), Decimal("51.9244"), Decimal("4.4778")
+        )
+        assert scenarios["DETOUR"]["distance_nm"] == float(expected)
+        # 직항은 입력 거리 그대로다 — 경유지는 우회 시나리오만 바꾼다.
+        assert scenarios["DIRECT"]["distance_nm"] == 11000.0
+        assert scenarios["DETOUR"]["distance_nm"] != 11000.0 * 1.05
+
+    def test_explicit_detour_distance_still_wins_over_the_waypoint(self, wired):
+        """입력 거리 > 경유지 > 기본 배수 — `direct_distance_nm`이 좌표를 이기는 것과 같은 순서."""
+        payload = {**VALID_PAYLOAD, **self.COORDS, **self.WAYPOINT, "detour_distance_nm": 12345.0}
+        resp = wired.post(ENDPOINT, json=payload)
+        assert resp.status_code == 200, resp.text
+        detour = next(s for s in resp.json()["data"]["scenarios"] if s["scenario_type"] == "DETOUR")
+        assert detour["distance_nm"] == 12345.0
+
+    def test_waypoint_without_coordinates_is_a_korean_422(self, wired):
+        """직항 거리만 있고 좌표가 없으면 어디서 어디로 도는지 알 수 없다."""
+        resp = wired.post(ENDPOINT, json={**VALID_PAYLOAD, **self.WAYPOINT})
+        assert resp.status_code == 422
+        detail = resp.json()["error"]["details"][0]
+        assert detail["field"] == "detour_waypoint_lat"
+        assert "좌표" in resp.json()["error"]["message"]
+
+    def test_half_a_waypoint_is_a_422_naming_the_missing_half(self, wired):
+        payload = {**VALID_PAYLOAD, **self.COORDS, "detour_waypoint_lat": 1.2833}
+        resp = wired.post(ENDPOINT, json=payload)
+        assert resp.status_code == 422
+        assert resp.json()["error"]["details"][0]["field"] == "detour_waypoint_lon"
+
+    def test_waypoint_equal_to_all_three_points_is_rejected_naming_both(self, wired):
+        """세 점이 전부 같다 — 직항 거리를 직접 넣어 직항 검사를 지나도 경유지 검사가 잡는다."""
+        payload = {
+            **VALID_PAYLOAD,
+            "current_lat": 35.0,
+            "current_lon": 129.0,
+            "destination_lat": 35.0,
+            "destination_lon": 129.0,
+            "detour_waypoint_lat": 35.0,
+            "detour_waypoint_lon": 129.0,
+        }
+        resp = wired.post(ENDPOINT, json=payload)
+        assert resp.status_code == 422
+        assert resp.json()["error"]["details"][0]["field"] == "detour_waypoint_lat"
+        message = resp.json()["error"]["message"]
+        assert "현재 위치" in message and "목적항" in message
+
+    def test_waypoint_equal_to_the_destination_only_says_destination(self, wired):
+        payload = {**VALID_PAYLOAD, **self.COORDS, "detour_waypoint_lat": 51.9244}
+        payload["detour_waypoint_lon"] = 4.4778
+        resp = wired.post(ENDPOINT, json=payload)
+        assert resp.status_code == 422
+        message = resp.json()["error"]["message"]
+        assert "목적항과 같은" in message and "현재 위치" not in message
+
+    def test_waypoint_equal_to_the_current_position_only_says_current(self, wired):
+        payload = {**VALID_PAYLOAD, **self.COORDS, "detour_waypoint_lat": 35.0}
+        payload["detour_waypoint_lon"] = 129.0
+        resp = wired.post(ENDPOINT, json=payload)
+        assert resp.status_code == 422
+        message = resp.json()["error"]["message"]
+        assert "현재 위치와 같은" in message and "목적항" not in message
+
+    def test_waypoint_is_checked_even_when_detour_distance_is_typed(self, wired):
+        """`API_SPEC §5.1` — 경유지 검사는 우회 거리 입력과 무관하게 먼저다(지도에 그려진다)."""
+        without_coords = {**VALID_PAYLOAD, **self.WAYPOINT, "detour_distance_nm": 12345.0}
+        resp = wired.post(ENDPOINT, json=without_coords)
+        assert resp.status_code == 422
+        assert resp.json()["error"]["details"][0]["field"] == "detour_waypoint_lat"
+
+        on_destination = {**VALID_PAYLOAD, **self.COORDS, "detour_distance_nm": 12345.0}
+        on_destination["detour_waypoint_lat"] = 51.9244
+        on_destination["detour_waypoint_lon"] = 4.4778
+        resp = wired.post(ENDPOINT, json=on_destination)
+        assert resp.status_code == 422
+        assert "목적항과 같은" in resp.json()["error"]["message"]
+
+    def test_waypoint_is_hash_material_and_absence_keeps_old_hash(self, wired, monkeypatch):
+        """`TECH_SPEC §5.3` — 경유지는 해시 재료다. 없으면 키가 들어가지 않아 종전 해시 그대로다."""
+        plain = wired.post(ENDPOINT, json={**VALID_PAYLOAD, **self.COORDS}).json()["input_hash"]
+        # 같은 우회 거리를 직접 넣은 요청과 경유지로 낸 요청은 `scenarios`가 같아도 다른 해시다.
+        via = wired.post(ENDPOINT, json={**VALID_PAYLOAD, **self.COORDS, **self.WAYPOINT}).json()
+        detour = next(s for s in via["data"]["scenarios"] if s["scenario_type"] == "DETOUR")
+        typed = wired.post(
+            ENDPOINT,
+            json={**VALID_PAYLOAD, **self.COORDS, "detour_distance_nm": detour["distance_nm"]},
+        ).json()
+        assert via["input_hash"] != typed["input_hash"]
+        assert via["input_hash"] != plain
+        # 경유지 없는 요청의 해시는 이 필드가 생기기 전과 같다 — 목록에서 뺀 채 계산한 값과 대조.
+        from cii_platform.calc import hash as hash_mod
+
+        assert "detour_waypoint" in hash_mod.SCENARIO_INPUT_FIELDS
+        before_1300 = tuple(f for f in hash_mod.SCENARIO_INPUT_FIELDS if f != "detour_waypoint")
+        monkeypatch.setattr(hash_mod, "SCENARIO_INPUT_FIELDS", before_1300)
+        old = wired.post(ENDPOINT, json={**VALID_PAYLOAD, **self.COORDS}).json()["input_hash"]
+        assert plain == old, (
+            "경유지 없는 요청의 해시가 종전과 다르다 — 저장된 실행이 재현 불가가 된다"
+        )
+
     def test_weather_model_falls_back_with_warning(self, wired):
         """#61 전까지 NONE이 아닌 모델은 fallback + WEATHER_NONE_FALLBACK."""
         payload = {**VALID_PAYLOAD, "weather_model": "SIMPLE_RULE"}
@@ -515,6 +640,7 @@ class TestValidationErrors:
             ({"slow_speed_kn": 0.9}, "slow_speed_kn"),
             ({"direct_distance_nm": -1}, "direct_distance_nm"),
             ({"current_lat": 91}, "current_lat"),
+            ({"detour_waypoint_lon": 181}, "detour_waypoint_lon"),
         ],
     )
     def test_schema_rejections(self, wired, patch, field):
