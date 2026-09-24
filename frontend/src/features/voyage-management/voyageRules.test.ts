@@ -487,3 +487,17 @@ describe('transitionCaution — 한 번 더 묻는 전환 (#1598)', () => {
     expect(reverts).toEqual(['CONFIRMED→COMPLETED'])
   })
 })
+
+describe('속력 상한 60kn — VAL-009 (#1269)', () => {
+  it('계획 속력 60은 통과하고 60.01·125는 막는다', () => {
+    expect(validateDraft(draft({ plannedSpeedKn: '60' })).plannedSpeedKn).toBeUndefined()
+    expect(validateDraft(draft({ plannedSpeedKn: '60.01' })).plannedSpeedKn).toBeDefined()
+    // 12.5의 소수점을 빠뜨린 자릿수 실수
+    expect(validateDraft(draft({ plannedSpeedKn: '125' })).plannedSpeedKn).toBeDefined()
+  })
+
+  it('실제 평균 속력도 같은 상한이다', () => {
+    expect(validateActuals(actuals({ actualAvgSpeedKn: '60' })).actualAvgSpeedKn).toBeUndefined()
+    expect(validateActuals(actuals({ actualAvgSpeedKn: '120' })).actualAvgSpeedKn).toBeDefined()
+  })
+})

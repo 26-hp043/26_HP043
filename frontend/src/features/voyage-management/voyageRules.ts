@@ -5,6 +5,7 @@ import type {
   VoyageDraft,
   VoyageStatus,
 } from './types'
+import { MAX_SPEED_KN } from '../vessel-registration/formRules'
 
 /**
  * 항차 상태·전환·실적 입력 규칙 — `API_SPEC §3.5`·`§3.6` (`#610`).
@@ -367,6 +368,9 @@ export function validateDraft(draft: VoyageDraft): FieldErrors {
   else if (Number.isNaN(speed) || speed < 1) {
     // 서버가 실적 속력에 두는 하한과 같다 (§3.6 VALIDATION_ERROR).
     errors.plannedSpeedKn = '계획 속력은 1.0 kn 이상이어야 합니다.'
+  } else if (speed > MAX_SPEED_KN) {
+    // VAL-009 상한 (#1269) — 서버·DB 트리거와 같은 값
+    errors.plannedSpeedKn = `계획 속력은 ${MAX_SPEED_KN} kn 이하여야 합니다.`
   }
 
   /*
@@ -449,6 +453,9 @@ export function validateActuals(draft: ActualsDraft): FieldErrors {
   const speed = readNumber(draft.actualAvgSpeedKn)
   if (speed !== null && (Number.isNaN(speed) || speed < 1)) {
     errors.actualAvgSpeedKn = '실제 평균 속력은 1.0 kn 이상이어야 합니다.'
+  } else if (speed !== null && speed > MAX_SPEED_KN) {
+    // VAL-009 상한 (#1269)
+    errors.actualAvgSpeedKn = `실제 평균 속력은 ${MAX_SPEED_KN} kn 이하여야 합니다.`
   }
 
   for (const [fuelType, raw] of Object.entries(draft.actualFuelTon)) {

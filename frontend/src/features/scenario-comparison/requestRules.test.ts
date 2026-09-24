@@ -493,3 +493,16 @@ describe('우회 경유지 (#1300)', () => {
     expect(usesWaypointDistance(state({ ...COORDS }))).toBe(false)
   })
 })
+
+describe('속력 범위 — VAL-009 (#1269)', () => {
+  it('현재 속력은 1 이상 60 이하다 — 종전에는 화면이 `> 0`만 봐서 0.5가 서버 422로 돌아왔다', () => {
+    expect(validateForm(state({ baseSpeedKn: '60' }))).not.toHaveProperty(FIELD.baseSpeedKn)
+    expect(validateForm(state({ baseSpeedKn: '60.01' }))).toHaveProperty(FIELD.baseSpeedKn)
+    expect(validateForm(state({ baseSpeedKn: '0.5' }))).toHaveProperty(FIELD.baseSpeedKn)
+  })
+
+  it('감속 속력도 60을 넘으면 막고, 비우면 서버 기본이라 오류가 아니다', () => {
+    expect(validateForm(state({ slowSpeedKn: '61' }))).toHaveProperty(FIELD.slowSpeedKn)
+    expect(validateForm(state({ slowSpeedKn: '' }))).not.toHaveProperty(FIELD.slowSpeedKn)
+  })
+})

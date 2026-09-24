@@ -1,5 +1,6 @@
 import { withEunNeun } from '../../display/josa'
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
+import { MAX_SPEED_KN } from '../vessel-registration/formRules'
 import type { WeatherModel } from '../voyage-cii/types'
 import type { VesselSpecDefaults } from '../voyage-cii/vesselCatalog'
 import type { ScenarioComparisonRequest } from './types'
@@ -299,6 +300,20 @@ function checkOptionalBound(
 }
 
 /**
+ * 속력 칸의 VAL-009 범위 — 1.0 이상 60 이하 (#1269). 숫자가 아니거나 비었으면 앞선 검사가
+ * 이미 오류를 적었으므로 여기서는 범위만 본다.
+ */
+function checkSpeedRange(raw: string, field: string, label: string, errors: FormErrors): void {
+  const value = toNumber(raw.trim())
+  if (value === null) return
+  if (value < MIN_SPEED_KN) {
+    errors[field] = `${withEunNeun(label)} ${MIN_SPEED_KN} 이상이어야 합니다.`
+  } else if (value > MAX_SPEED_KN) {
+    errors[field] = `${withEunNeun(label)} ${MAX_SPEED_KN} 이하여야 합니다.`
+  }
+}
+
+/**
  * 현재 좌표 두 칸 (VAL-007 · `API_SPEC:572`).
  *
  * **한쪽만 넣은 상태를 화면에서 잡는다.** `API_SPEC §5.1`이 *"`current_lat`과
@@ -391,6 +406,11 @@ export function validateForm(
     checkRequiredPositive(state.baseDistanceNm, FIELD.baseDistanceNm, '직항 거리', errors)
   }
   checkRequiredPositive(state.baseSpeedKn, FIELD.baseSpeedKn, '현재 속력', errors)
+  // VAL-009 — 현재 속력도 1.0 이상 60 이하다(`PRD §9.1` · #1269). 종전에는 화면이 `> 0`만
+  // 봐서 0.5를 보내면 서버가 422로 되돌렸다 — 두 층의 하한이 달랐다.
+  if (errors[FIELD.baseSpeedKn] === undefined) {
+    checkSpeedRange(state.baseSpeedKn, FIELD.baseSpeedKn, '현재 속력', errors)
+  }
   checkRequiredPositive(
     state.baseDailyFocTon,
     FIELD.baseDailyFocTon,
@@ -418,6 +438,9 @@ export function validateForm(
     min: MIN_SPEED_KN,
     inclusive: true,
   })
+  if (errors[FIELD.slowSpeedKn] === undefined && state.slowSpeedKn.trim() !== '') {
+    checkSpeedRange(state.slowSpeedKn, FIELD.slowSpeedKn, '감속 속력', errors)
+  }
   checkCoordinates(state, errors)
   checkWaypoint(state, errors)
 
