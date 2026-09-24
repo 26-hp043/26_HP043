@@ -163,13 +163,17 @@ SEED_VESSELS: list[dict[str, object]] = [
         "imo_number": "9448839",
         "name": "STAR SKIPPER",
         "ship_type": "CONTAINER_SHIP",
-        # GT 미회신. 모듈 docstring 「is_cii_applicable_hint」 항 참조.
-        "gross_tonnage": None,
-        "deadweight": Decimal("9520.00"),
+        # 제원 정정 (#1807 · 2026-09-23 원문 대조). 종전 `deadweight=9520`은 **GT가 DWT 칸에
+        # 들어간 것**이었다 — 원 출처 페이지의 `VSLGRS 9520` · `VSLDWT 12979`.
+        # GT 9,520은 해양수산부 선박운항정보 `grtg`(2026-09-23 조회) · P&I 명부와도 같다.
+        # DWT는 선사 원문 12,979를 쓴다 — 상용 DB(VesselFinder 등)는 12,980(1t 차이 · 등급 무관).
+        "gross_tonnage": Decimal("9520.00"),
+        "deadweight": Decimal("12979.00"),
         "default_fuel_type": None,
         "reference_speed_kn": Decimal("16.50"),
         "reference_daily_foc_ton": None,
-        "is_cii_applicable_hint": False,
+        # GT 9,520 >= 5,000 → 공식 CII 적용 대상 (종전 False는 「GT 미회신」 때문이었다).
+        "is_cii_applicable_hint": True,
     },
     {
         # 제원 조사 회신 2026-08-07 (조사: sty2581). 출처 djship.co.kr (동진상선).
@@ -177,7 +181,13 @@ SEED_VESSELS: list[dict[str, object]] = [
         "imo_number": "9633862",
         "name": "DONGJIN ENDURANCE",
         "ship_type": "GENERAL_CARGO_SHIP",
-        "gross_tonnage": None,
+        # GT 4,559 — 원 출처 `GROSS TONNAGE (TON) 4,559` · 해양수산부 선박운항정보 `grtg`
+        # (2026-09-23 조회)와 같다 (#1807). 5,000 미만이라 hint는 계속 False다.
+        "gross_tonnage": Decimal("4559.00"),
+        # DWT는 **확정하지 못해 원 출처 값을 둔다** (#1807). 선사 `DEAD WEIGHT 6,405.77` vs
+        # 상용 DB 6,650. 이 IMO는 중국 기국(XIU SHAN)에서 2025년 말 한국 재등록된 것으로
+        # 보여(정황) 상용 DB 값은 그 전 증서 기준일 수 있다. 독립 출처 두 개가 같은 값을
+        # 내지 않아 `AGENTS §5`를 채우지 못했다.
         "deadweight": Decimal("6405.77"),
         "default_fuel_type": None,
         # 회신 원문은 "12,8 KNOT"이며 소수점 구분자가 쉼표로 적힌 것이다.

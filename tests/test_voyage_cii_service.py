@@ -349,8 +349,8 @@ class TestWarnings:
     def test_gt_unknown_is_not_called_non_applicable(self):
         """GT를 모르면 **「적용 대상이 아니다」라고 단정하지 않는다.**
 
-        seed의 실선 2척이 이 경우다(GT 미회신). 근거 없이 경고를 붙이면 사용자가
-        확인된 사실로 읽는다.
+        종전 seed의 실선 2척이 이 경우였다(GT 미회신 · `#1807`에서 원 출처 값으로 채웠다).
+        근거 없이 경고를 붙이면 사용자가 확인된 사실로 읽는다.
         """
         from fakes import FakeVessel
 
