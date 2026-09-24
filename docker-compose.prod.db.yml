@@ -6,14 +6,19 @@
 #
 # 사용법 (db-01):
 #   cp .env.db.example .env
-#   # .env 편집 (CUBRID_PASSWORD 설정)
+#   # .env 편집 (CUBRID_PASSWORD · OCI_DB_PRIVATE_IP 설정)
 #   docker compose -f docker-compose.prod.db.yml up -d
 #
 # 크로스 VM 접근은 4층 방어로 제한한다 (our-tax #86 패턴):
 #   1. OCI Security List   -- app-01 사설 IP /32만 :33100 허용
-#   2. Host ufw            -- 동일 /32 allow, 나머지 거부
+#   2. 바인드 주소          -- 게시를 db-01 사설 IP에만 붙인다 (아래 ports · #1641)
 #   3. CUBRID broker ACL   -- broker_access.conf
 #   4. CUBRID server ACL   -- server_access.conf
+#
+# 2층이 ufw가 아닌 이유 (#1641): Docker가 publish한 포트로 오는 패킷은 DNAT 뒤
+# FORWARD 체인(DOCKER-USER → DOCKER)으로 흐르고 호스트의 INPUT 체인을 거치지 않는다.
+# 그래서 ufw INPUT 규칙은 이 포트에 관여하지 않는다 — 규칙이 있어도 막지 못하고,
+# 없어도 열리지 않는다. 공용 인터페이스에 소켓이 아예 열리지 않게 하는 것이 2층이다.
 #
 # 층 3-4는 ops/cubrid/conf/에 정의되며 아래에서 bind-mount한다.
 # 배포 전 ops/cubrid/conf/README.md의 치환 단계를 수행해
@@ -51,9 +56,14 @@ services:
       # 「준비되지 않음」으로 보게 된다.
       CUBRID_PASSWORD: ${CUBRID_PASSWORD:-}
     ports:
-      # 모든 인터페이스에 바인딩 -- OCI Security List + ufw가 인그레스를 제한해야 한다.
+      # db-01 사설 IP에만 바인딩한다 (#1641). 종전 `"33100:33000"`은 모든 인터페이스에
+      # 열렸고, 그 노출을 막는다던 ufw는 Docker가 publish한 포트에는 관여하지 않는다
+      # (위 머리말). 값이 비면 `:33100:33000`이 되어 다시 모든 인터페이스로 열리므로
+      # `:?`로 기동 자체를 멈춘다 — 비어서 열리는 것보다 비어서 안 뜨는 쪽이 낫다.
+      # app-01은 이 사설 IP로 붙는다(deploy.yml `CUBRID_HOST`). 백업·정리 스크립트는
+      # `docker compose exec`라 포트를 쓰지 않는다.
       # ourtax-cubrid가 33000을 사용하므로 호스트 33100으로 매핑한다.
-      - "33100:33000"
+      - "${OCI_DB_PRIVATE_IP:?OCI_DB_PRIVATE_IP가 비어 있다 -- 비면 모든 인터페이스에 열리므로 멈춘다 (#1641)}:33100:33000"
     volumes:
       # ⚠️ 여기는 비어 있다 — 운영 데이터는 이 마운트가 아니라 이미지가 선언한
       # 익명 볼륨(`$CUBRID_DATABASES` = /home/cubrid/CUBRID/databases)에 있다

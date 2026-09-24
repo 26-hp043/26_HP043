@@ -45,6 +45,6 @@ docker exec cii-cubrid cubrid server acl reload cii
 | 층 | 위치 | 파일/설정 |
 |----|------|-----------|
 | 1 | OCI Security List | OCI 콘솔에서 설정 |
-| 2 | Host ufw | `ops/host/ufw-db-01.sh` |
+| 2 | 바인드 주소 — db-01 사설 IP에만 게시 (`#1641` · ufw는 Docker가 publish한 포트에 관여하지 않는다) | `docker-compose.prod.db.yml` `ports` |
 | 3 | CUBRID broker ACL | `broker_access.conf` |
 | 4 | CUBRID server ACL | `server_access.conf` |
