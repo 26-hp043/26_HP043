@@ -1,0 +1,22 @@
+# 배포 SSH 호스트 키 고정 (#1637 · F-11)
+#
+# 배포 워크플로(.github/workflows/deploy.yml)는 실행 중에 ssh-keyscan 으로 키를 받지 않고
+# 이 파일을 ~/.ssh/known_hosts 로 복사한 뒤 StrictHostKeyChecking=yes 로 접속한다.
+# 여기 없는 호스트에는 원격 명령이 가지 않고, 키가 다르면 ssh 가 접속을 거부한다.
+#
+# 형식 — 한 호스트당 한 줄, 공용 IP 그대로(해시하지 않는다 — 리뷰에서 대조하기 위해서다):
+#   <공용 IP> ssh-ed25519 AAAA...
+#
+# 줄을 넣기 전에 반드시 두 경로에서 얻은 지문이 같은지 사람이 대조한다 —
+# 서버 콘솔의 `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` 와
+# 다른 경로의 `ssh-keyscan -t ed25519 <IP> | ssh-keygen -lf -`.
+# 절차·교체·실패 동작은 docs/OPERATIONS.md §4.7.
+#
+# 대조 2026-09-24 (결정 G-2 라) — 이 PC와 GitHub Actions 러너, 두 네트워크에서 받은 지문이 같았다.
+#   db-01  SHA256:SpF7lyPWdDvypI6sh1VrdmtWcgFcz/d9R8OlcU8z33g
+#   app-01 SHA256:7BZn2yi8ohLXURQ4QpjEBXhzaLWh9W7h4GIYzLy5mDk
+#
+# db-01 (OCI_DB_HOST · 132.226.170.195)
+132.226.170.195 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOiv9Tk+oij69b3ejCy1cgeIXK6JQcGNhgCLj7RC7NYL
+# app-01 (OCI_APP_HOST · 131.186.22.10)
+131.186.22.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGZMk9LrqGuXLdX9QiGLnpBBCSEUhNEVlctKSvLetDyZ

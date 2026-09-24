@@ -2,12 +2,18 @@
 #
 # our-tax deploy.yml 패턴을 따른다:
 #   1. backend 이미지를 GHCR에 빌드·푸시 (linux/amd64).
-#   2. SSH db-01: git pull, CUBRID 스택 기동 (멱등).
-#   3. SSH app-01: git pull, .env 렌더, GHCR pull, Alembic 마이그레이션,
+#   2. SSH db-01: 이 실행의 커밋을 `git fetch <DEPLOY_SHA>` + `reset --hard FETCH_HEAD`로
+#      받고(#1633) CUBRID 스택 기동 (멱등).
+#   3. SSH app-01: 같은 방식으로 커밋을 받고, .env 렌더, GHCR pull, Alembic 마이그레이션,
 #      backend 재시작 (IP-only 모드, 포트 8001).
 #   4. /api/v1/health 헬스 체크.
 #   5. 프론트엔드: npm build → wrangler pages deploy (Cloudflare Pages · #1236).
 #      백엔드 잡과 독립이다 — OCI 자격증명이 비어 있어도 화면 배포는 시도한다.
+#
+#   SSH 호스트 키는 실행 중에 받지 않는다 (#1637). 사람이 지문을 대조해 커밋한
+#   `ops/host/known_hosts`를 `~/.ssh/known_hosts`로 복사하고 `StrictHostKeyChecking=yes`로
+#   접속한다. 그 파일에 호스트가 없거나 키가 다르면 원격 명령 전에 멈춘다 —
+#   확보·대조·교체 절차는 docs/OPERATIONS.md §4.7.
 #
 # 필요한 시크릿 (Settings -> Secrets and variables -> Actions):
 #
@@ -203,12 +209,23 @@ jobs:
             exit 1
           fi
 
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: SSH 설정
+        env:
+          OCI_DB_HOST: ${{ secrets.OCI_DB_HOST }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.OCI_SSH_PRIVATE_KEY }}" > ~/.ssh/id_oci
           chmod 600 ~/.ssh/id_oci
-          ssh-keyscan -H ${{ secrets.OCI_DB_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          # 호스트 키는 실행 중에 받지 않는다 (#1637). 사람이 지문을 대조해 커밋한
+          # ops/host/known_hosts 에 이 호스트가 없으면 원격 명령 전에 멈춘다.
+          if ! ssh-keygen -F "${OCI_DB_HOST}" -f ops/host/known_hosts >/dev/null; then
+            echo "::error::ops/host/known_hosts 에 db-01(OCI_DB_HOST)의 호스트 키가 없다 — docs/OPERATIONS.md §4.7"
+            exit 1
+          fi
+          cp ops/host/known_hosts ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: db-01 스택 적용
         env:
@@ -217,7 +234,7 @@ jobs:
           FORCE_DB_INIT: ${{ inputs.force_db_init }}
         run: |
           echo "[deploy-db] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_DB_HOST }} ==="
-          ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_DB_HOST }} \
+          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_DB_HOST }} \
             "CUBRID_PASSWORD='${CUBRID_PASSWORD}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' DEPLOY_SHA='${{ github.sha }}' bash -s" <<'ENDSSH'
           set -euo pipefail
           echo "[db-01] connected at $(date -u +%FT%TZ); host=$(hostname)"
@@ -322,12 +339,23 @@ jobs:
     timeout-minutes: 20
     needs: [build, deploy-db]
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
       - name: SSH 설정
+        env:
+          OCI_APP_HOST: ${{ secrets.OCI_APP_HOST }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "${{ secrets.OCI_SSH_PRIVATE_KEY }}" > ~/.ssh/id_oci
           chmod 600 ~/.ssh/id_oci
-          ssh-keyscan -H ${{ secrets.OCI_APP_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+          # 호스트 키는 실행 중에 받지 않는다 (#1637). 사람이 지문을 대조해 커밋한
+          # ops/host/known_hosts 에 이 호스트가 없으면 원격 명령 전에 멈춘다.
+          if ! ssh-keygen -F "${OCI_APP_HOST}" -f ops/host/known_hosts >/dev/null; then
+            echo "::error::ops/host/known_hosts 에 app-01(OCI_APP_HOST)의 호스트 키가 없다 — docs/OPERATIONS.md §4.7"
+            exit 1
+          fi
+          cp ops/host/known_hosts ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
 
       - name: app-01 스택 배포
         env:
@@ -361,7 +389,7 @@ jobs:
           CLEAR_DEMO: ${{ inputs.clear_demo }}
         run: |
           echo "[deploy-app] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_APP_HOST }} sha=${BACKEND_TAG} ==="
-          ssh -i ~/.ssh/id_oci ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_APP_HOST }} \
+          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_APP_HOST }} \
             "BACKEND_TAG='${BACKEND_TAG}' \
              APP_ENV='${APP_ENV}' \
              SEED_DEMO='${SEED_DEMO:-false}' CLEAR_DEMO='${CLEAR_DEMO:-false}' \

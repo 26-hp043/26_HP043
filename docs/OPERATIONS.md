@@ -178,6 +178,7 @@ GitHub Actions (deploy.yml)
   │      - ghcr.io/26-hp043/bluelog-backend:<sha12>
   │
   ├─ deploy-db (SSH → db-01)
+  │   ├─ 호스트 키 고정 검사 — ops/host/known_hosts 에 db-01이 없으면 여기서 멈춤 (§4.7 · #1637)
   │   ├─ git fetch <DEPLOY_SHA> + reset --hard FETCH_HEAD (~/bluelog) — 받은 커밋이 다르면 중단 (#1633)
   │   ├─ ACL 템플릿 치환 (REPLACE_ME_APP_PRIVATE_IP)
   │   ├─ .env 렌더링 (CUBRID_PASSWORD)
@@ -186,6 +187,7 @@ GitHub Actions (deploy.yml)
   │   └─ 첫 부트 시 ALTER USER dba PASSWORD + 재시작
   │
   ├─ deploy-app (SSH → app-01)
+  │   ├─ 호스트 키 고정 검사 — ops/host/known_hosts 에 app-01이 없으면 여기서 멈춤 (§4.7 · #1637)
   │   ├─ git fetch <DEPLOY_SHA> + reset --hard FETCH_HEAD (~/bluelog) — 받은 커밋이 다르면 중단 (#1633)
   │   ├─ CUBRID_PASSWORD URL 인코딩 (SQLAlchemy 호환)
   │   ├─ .env 렌더링 (APP_ENV, DATABASE_URL, CORS, SMTP 등)
@@ -770,6 +772,74 @@ curl -sS -X OPTIONS \
 #   access-control-allow-methods: DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT
 ```
 
+### 4.7 배포 SSH 호스트 키 고정 (#1637)
+
+배포 워크플로는 **실행 중에 호스트 키를 받지 않는다.** 종전에는 배포 직전에 `ssh-keyscan`으로 원격 호스트의 공개키를 받아 `known_hosts`에 넣었는데, 그러면 네트워크 경로에서 잘못된 키가 주입돼도 같은 연결 흐름이 그 키를 믿게 되어 호스트 신원 검증이 있으나 마나였다.
+
+지금은 사람이 지문을 대조해 커밋한 저장소 파일 **`ops/host/known_hosts`** 를 워크플로가 `~/.ssh/known_hosts`로 복사(덮어쓰기)한 뒤 `ssh -o StrictHostKeyChecking=yes`로 접속한다. 키가 어디서 왔고 언제 바뀌었는지가 PR 이력으로 남고, `tests/test_deploy_host_key_pinning.py`가 `ssh-keyscan`이 되살아나지 않는지·엄격 검사가 붙어 있는지·파일의 줄이 ssh가 읽을 수 있는 모양인지를 CI에서 본다.
+
+> **시크릿에 넣지 않는 이유** — 시크릿은 값이 보이지 않아 잘못 넣어도 PR에서 잡히지 않고, 바꾼 이력도 남지 않는다. 호스트 공개키는 감출 것이 아니라 **대조할 것**이다. 공용 IP는 이 문서 §5.1에 이미 적혀 있으므로 파일에 그대로 둔다(해시하지 않는다 — 리뷰에서 어느 호스트의 줄인지 봐야 한다).
+
+#### 파일 형식
+
+한 호스트당 한 줄. `#`로 시작하는 줄은 주석이다.
+
+```
+132.226.170.195 ssh-ed25519 AAAA…   ← db-01 (OCI_DB_HOST)
+131.186.22.10 ssh-ed25519 AAAA…     ← app-01 (OCI_APP_HOST)
+```
+
+#### 최초 확보 — 두 경로에서 얻은 지문이 같아야 넣는다
+
+배포 경로 하나에서만 받은 값을 넣으면 종전과 다를 것이 없다. 그래서 **서버 자신이 말하는 지문**과 **밖에서 받은 줄의 지문**을 따로 얻어 대조한다. 호스트마다 반복한다.
+
+1. 서버 콘솔에서 지문을 읽는다 — OCI 콘솔의 시리얼 콘솔이나 이미 신뢰된 SSH 세션에서 실행한다.
+
+   ```bash
+   ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+   # 256 SHA256:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx root@db-01 (ED25519)
+   ```
+
+2. 다른 경로(자기 PC)에서 `known_hosts` 줄을 받고, 그 줄의 지문을 계산한다.
+
+   ```bash
+   ssh-keyscan -t ed25519 132.226.170.195 2>/dev/null | tee /tmp/db-01.line | ssh-keygen -lf -
+   # 256 SHA256:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 132.226.170.195 (ED25519)
+   ```
+
+3. 두 `SHA256:…` 이 **글자 하나까지 같으면** `/tmp/db-01.line`의 줄을 `ops/host/known_hosts`에 넣는다. 다르면 넣지 않고 원인을 찾는다 — 경로 어딘가에서 키가 바뀌고 있다는 뜻이다.
+
+4. app-01(`131.186.22.10`)도 같은 순서로 한다.
+
+5. 넣은 파일을 로컬에서 확인한다.
+
+   ```bash
+   ssh-keygen -lf ops/host/known_hosts                     # 두 줄의 지문이 1번과 같은가
+   ssh-keygen -F 132.226.170.195 -f ops/host/known_hosts   # 워크플로가 하는 검사와 같다 — 0이면 있음
+   ssh-keygen -F 131.186.22.10 -f ops/host/known_hosts
+   ```
+
+6. PR을 올린다. **PR 본문에 1번과 2번의 지문을 적는다** — 리뷰어가 대조한 사실이 이력에 남는다. 머지 즉시 배포가 도므로 첫 머지는 낮에 하고 `gh run watch`로 `SSH 설정` 단계가 지나가는지 본다.
+
+#### 실패 동작 — 어느 경우든 원격 명령은 돌지 않는다
+
+| 상황 | 어디서 서나 | 로그에 보이는 것 | 서비스 |
+|---|---|---|---|
+| 파일에 그 호스트 줄이 없다 | `SSH 설정` 단계 (`ssh-keygen -F` 가 1로 끝난다) | `::error::ops/host/known_hosts 에 db-01(OCI_DB_HOST)의 호스트 키가 없다` | 이전 컨테이너가 그대로 돈다 |
+| 줄은 있는데 서버의 키와 다르다 — 서버 재설치 · 호스트 키 교체 · 중간자 | `ssh` 접속 (종료 코드 255) | `WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!` … `Host key verification failed.` | 이전 컨테이너가 그대로 돈다 |
+
+두 경우 모두 **개인키·`CUBRID_PASSWORD`·`GITHUB_TOKEN`은 로그에 나오지 않는다.** 멈추는 메시지는 시크릿 **이름**만 적고, ssh는 원격 명령 문자열을 오류에 싣지 않으며, GitHub Actions는 시크릿 값이 출력에 섞이면 `***`로 가린다. `tests/test_deploy_host_key_pinning.py::test_the_failure_path_prints_no_secret`가 메시지 줄에 시크릿 참조가 없는지 본다.
+
+#### 키 교체 — 호스트 키가 바뀌었을 때
+
+OS 재설치나 `ssh-keygen -A` 로 서버의 호스트 키가 바뀌면 배포가 위 표의 둘째 줄로 선다. 그때는:
+
+1. **왜 바뀌었는지 먼저 확인한다.** 사람이 서버를 다시 만든 것이 아니라면 넣지 않는다 — 경고가 말하는 그대로 누군가 중간에 끼어들었을 수 있다.
+2. 위 「최초 확보」 1~5번을 그 호스트에 대해 다시 한다. 옛 줄은 지운다(같은 호스트에 두 줄을 두면 ssh가 어느 쪽을 볼지 사람이 읽기 어렵다).
+3. PR 본문에 바뀐 사유와 두 경로의 지문을 적고 리뷰를 받은 뒤 머지한다. 머지가 곧 배포이므로 `gh run watch`로 확인한다.
+
+> **수동 SSH(§3.3)에는 적용되지 않는다.** 이 절은 GitHub Actions 러너의 `known_hosts`에 관한 것이다. 자기 PC의 `~/.ssh/known_hosts`는 첫 접속 때 저장한 키를 계속 쓰며, 서버 키가 바뀌면 같은 경고를 낸다 — 그때도 위 1번대로 콘솔에서 지문을 확인한 뒤에 옛 줄을 지운다.
+
 ---
 
 ## 5. GitHub Actions 시크릿
@@ -873,6 +943,7 @@ wrangler pages project add-domain bluelog <도메인>
   │   │   ├── server_access.conf     # 서버 ACL (loopback + docker bridge)
   │   │   └── README.md              # ACL 설정 가이드
   │   └── host/
+  │       ├── known_hosts            # 배포 SSH 호스트 키 고정 — 사람이 지문 대조 후 커밋 (§4.7 · #1637)
   │       ├── ufw-db-01.sh           # db-01 방화벽 스크립트
   │       └── setup-zram-swap.sh     # 1GB VM 메모리 최적화
   └── docs/
