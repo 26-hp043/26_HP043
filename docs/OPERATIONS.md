@@ -199,7 +199,10 @@ GitHub Actions (deploy.yml)
 ```
 
 수동 트리거(`workflow_dispatch`) 옵션:
-- `force_db_init` (boolean): cubrid-data 볼륨 삭제 후 재초기화. **데이터 손실 비가역적.**
+- `force_db_init` (boolean): `docker compose … down -v`로 CUBRID 데이터 볼륨을 지운
+  뒤 재초기화. 실제로 지워지는 것은 명명 볼륨 `cubrid-data`가 아니라 이미지가
+  선언한 익명 볼륨(`$CUBRID_DATABASES`, DB 파일이 있는 자리)이다(#1867). **데이터
+  손실 비가역적** — 무손실 대안은 `docs/OPERATIONS.md §9.2` 「무손실 복구」.
 
 ### 3.2 프론트엔드 배포 (Cloudflare Pages)
 
@@ -366,6 +369,13 @@ gh workflow run deploy.yml -f seed_demo=true -f clear_demo=true   # 새로 잡�
 > **저장한 함대 감축 계획(`fleet_reduction_plan`)은 이때 전량 지워진다** (#1536). 그 표는 시드가 넣는 것이 아니라 화면(`UIFLOW 2-10`)에서 저장한 것이라 「시드가 넣은 행」을 가려낼 표지가 없고, 삭제 API·버튼은 정본에도 없다(`API_SPEC §2.17`). 둘러보기 세션마다 누군가 계획을 저장하면 하나뿐인 시연 DB에 흔적이 쌓이므로, 재적재가 계획까지 알려진 상태로 되돌린다. 시연 DB에서 계획을 남겨야 할 이유가 생기면 재적재 전에 따로 내보낸다.
 >
 > **로컬 노트북은 `bash scripts/demo_up.sh --reseed`가 같은 절차다** (#1536). 4b 단계에서 `demo_seed --clear`를 돌린 뒤 적재한다. `docker compose down -v`로 대신하지 않는다 — 볼륨까지 지워 계산 이력·계정·규제 파라미터가 함께 사라진다. ⚠️ **계산 이력이 참조하는 항차·선박은 `--clear`가 남긴다**(`#1088`) — 남은 행은 적재가 덮어쓰지 않아 시각·제원이 옛 값 그대로다. `--reseed`는 그 줄(「N행 남김」)을 화면에 보이고 경고한다(`#1608`). 그 행까지 새로 잡아야 하면 그때만 `down -v`다.
+>
+> ⚠️ **`down`(`-v` 없이)도 사실상 같은 결과를 낸다**(#1867). CUBRID 데이터는 명명
+> 볼륨이 아니라 이미지가 선언한 익명 볼륨에 있어서, `-v`가 지우는 `cubrid-data`는
+> 원래 비어 있다 — 체감 결과를 가르는 것은 `-v` 유무가 아니라 **컨테이너가
+> 재사용되는가**다. `down` 뒤 `up`은 그 익명 볼륨을 재사용하지 않고 새로 만들어
+> 계산 이력·계정·규제 파라미터가 **똑같이** 빈 채로 뜬다(2026-09-24 로컬 실측).
+> 컨테이너만 멈추고 데이터를 유지하려면 `docker compose stop`을 쓴다.
 
 #### 3.4.3 지울 때 남는 것
 
@@ -983,15 +993,69 @@ docker exec cii-cubrid csql -u dba -p NEW_PASSWORD cii \
 
 ### 9.2 "Failed to connect to database server, 'cii', on &lt;hostname&gt;"
 
-원인: CUBRID가 databases.txt에 기록한 호스트명과 현재 컨테이너 호스트명 불일치.
+원인 후보가 둘이다 — 순서대로 확인한다.
+
+1. **호스트명 불일치** — CUBRID가 `databases.txt`에 기록한 호스트명과 현재 컨테이너
+   호스트명이 다르다.
+2. **빈 DB로 떴다**(#1867) — 실제 DB 데이터는 명명 볼륨 `cubrid-data`(`/var/lib/cubrid`,
+   원래 비어 있다)가 아니라 이미지가 선언한 익명 볼륨(`$CUBRID_DATABASES` =
+   `/home/cubrid/CUBRID/databases`)에 있다. `docker compose down`은 `-v` 없이도
+   다음 `up`에서 그 익명 볼륨을 재사용하지 않고 **새로** 만든다. 새 볼륨에는
+   `databases.txt`조차 없어 컨테이너 진입점이 `cii`를 다시 초기화하고, 옛
+   호스트명으로 접속하던 클라이언트가 이 오류를 본다(2026-09-24 로컬 실측).
 
 확인:
 ```bash
-docker exec cii-cubrid cat /var/lib/cubrid/databases/databases.txt
+# 경로는 $CUBRID_DATABASES다 — /var/lib/cubrid 쪽이 아니다(거기는 원래 비어 있다).
+docker exec cii-cubrid cat "$CUBRID_DATABASES/databases.txt"
 ```
 
-`hostname: cii-cubrid`이 docker-compose.prod.db.yml에 고정되어 있는지 확인.
-볼륨이 다른 호스트명으로 초기화됐다면 `force_db_init`으로 재생성 (데이터 손실).
+`hostname: cii-cubrid`이 docker-compose.prod.db.yml에 고정되어 있는지 확인한다.
+고정돼 있는데도 이 오류가 나면 2번(빈 DB로 뜸)일 가능성이 높다 — 용량을 함께
+확인한다(정상은 수백 M, 방금 새로 뜬 빈 DB는 수십 K다).
+
+```bash
+docker exec cii-cubrid sh -c 'du -sh "$CUBRID_DATABASES"'
+```
+
+#### 무손실 복구 — 옛 익명 볼륨을 다시 붙인다
+
+`down`(`-v` 없이)이 만든 새 익명 볼륨은 옛 볼륨을 지우지 않는다. 옛 볼륨은
+**고아로 남아 있을 뿐**이라 데이터가 사라진 것이 아니라 가려진 것이다 — 아래
+순서로 되찾는다. **`docker volume prune`·`docker system prune --volumes`는 쓰지
+않는다** — 고아 볼륨이 그 명령의 대상이라 복구 가능성이 통째로 사라진다(비가역).
+
+```bash
+# 1. 고아 볼륨 찾기 — 생성 시각이 문제가 생긴 시점 근처인 익명 볼륨을 고른다
+#    (com.docker.volume.anonymous 라벨이 있고 이름이 cubrid-data가 아닌 것)
+docker volume ls --format '{{.Name}}\t{{.CreatedAt}}'
+
+# 2. 후보 볼륨의 내용을 읽기 전용으로 확인한다 (databases.txt · 용량)
+docker run --rm -v <volume-id>:/old:ro cubrid/cubrid:11.4 \
+  sh -c 'cat /old/databases.txt; du -sh /old'
+
+# 3. 맞으면 그 볼륨을 $CUBRID_DATABASES 자리에 다시 붙여 올린다 — 임시 override로
+#    그 익명 볼륨을 외부(named) 볼륨처럼 지정한다
+cat > docker-compose.recover.yml <<'EOF'
+services:
+  cubrid:
+    volumes:
+      - recovered-db:/home/cubrid/CUBRID/databases
+volumes:
+  recovered-db:
+    external: true
+    name: <volume-id>
+EOF
+docker compose -f docker-compose.prod.db.yml -f docker-compose.recover.yml \
+  up -d --force-recreate
+
+# 4. 행 수 등으로 정상 복구를 확인한 뒤 docker-compose.recover.yml을 지운다
+#    (repo에 커밋하지 않는 임시 파일이다)
+rm docker-compose.recover.yml
+```
+
+옛 볼륨이 없거나(이미 지워졌거나) 내용을 신뢰할 수 없을 때만 `force_db_init`으로
+재생성한다(**데이터 손실 비가역적** — §3.1 「수동 트리거」 참고).
 
 ### 9.3 app-01에서 db-01 연결 실패
 
