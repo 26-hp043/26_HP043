@@ -125,7 +125,8 @@ def _install(
     if fuel_uses is None:
         fuel_uses = [_StubFuelUse(actual_fuel_ton=Decimal("100"))]
 
-    async def fake_get_by_id(_session, voyage_id):
+    # `for_update`는 받기만 한다 (`#1626`) — 잠금은 실 DB 검사(`test_voyage_row_lock_db.py`)가 본다.
+    async def fake_get_by_id(_session, voyage_id, *, for_update=False):
         return voyage if voyage_id == voyage.id else None
 
     async def fake_list_fuel_uses(_session, _voyage_id):

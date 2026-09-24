@@ -147,7 +147,13 @@ async def adopt_scenario(
         )
 
     scenario = await _load_scenario(session, scenario_id)
-    target = await voyage_repo.get_by_id(session, target_voyage_id)
+    # 대상 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`). 「항차당 채택 하나」는
+    # 아래 `_clear_previous_adoption` → 자기 행 채택이 **항차 행 잠금 안에서** 순서대로
+    # 일어나는 것으로 지킨다 — 잠금 없이 두 채택이 교차하면 해제 UPDATE가 둘 다 0건이고
+    # 채택 행이 둘 남는다(`#1796` ⑺ 실측). 시나리오 행은 잠그지 않는다(불변식의 단위가
+    # 항차다). `CREATE_NEW_VOYAGE`도 같은 갈래를 탄다 — 원본 항차의 연료 행을 읽는 동안
+    # 원본이 바뀌지 않게 하는 데 같은 잠금이 든다.
+    target = await voyage_repo.get_by_id(session, target_voyage_id, for_update=True)
     if target is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {target_voyage_id}")
 

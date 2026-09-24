@@ -408,7 +408,9 @@ async def update_voyage(
     ``regulation_year``를 ``None``으로 지우는 요청은 ``annual_inclusion_policy ≠
     EXCLUDE``인 경우 ``chk_year_policy`` 제약에 걸리므로 거부한다 (#150).
     """
-    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    # 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`) — 아래 상태 판정이 옛
+    # 상태 위에서 통과하지 않게. 잠금은 이 함수의 커밋·롤백에서 풀린다.
+    voyage = await voyage_repo.get_by_id(session, voyage_id, for_update=True)
     if voyage is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
 
@@ -486,7 +488,9 @@ async def transition_voyage(
         여기서 커밋해 버리면 감사 INSERT가 실패했을 때 **기록 없는 `CONFIRMED`가 남는다**
         (`TECH_SPEC §16.3` 「필수 감사 로그는 원본 변경과 같은 트랜잭션에서 확정한다」).
     """
-    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    # 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`) — 아래 상태 판정이 옛
+    # 상태 위에서 통과하지 않게. 잠금은 이 함수의 커밋·롤백에서 풀린다.
+    voyage = await voyage_repo.get_by_id(session, voyage_id, for_update=True)
     if voyage is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
 
@@ -599,7 +603,9 @@ async def delete_voyage(
     - COMPLETED, CONFIRMED, ARCHIVED → soft delete
     - PLANNED, IN_PROGRESS → 422 (먼저 CANCELLED로 전환 필요)
     """
-    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    # 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`) — 아래 상태 판정이 옛
+    # 상태 위에서 통과하지 않게. 잠금은 이 함수의 커밋·롤백에서 풀린다.
+    voyage = await voyage_repo.get_by_id(session, voyage_id, for_update=True)
     if voyage is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
 
@@ -675,7 +681,9 @@ async def set_actuals(
     ``cf_used``는 그대로 둔다 — 실적을 나중에 입력했다고 그때의 CF로 과거 계산이
     바뀌면 재현성이 깨진다.
     """
-    voyage = await voyage_repo.get_by_id(session, voyage_id)
+    # 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`) — 아래 상태 판정이 옛
+    # 상태 위에서 통과하지 않게. 잠금은 이 함수의 커밋·롤백에서 풀린다.
+    voyage = await voyage_repo.get_by_id(session, voyage_id, for_update=True)
     if voyage is None:
         raise NotFoundError(f"항차를 찾을 수 없습니다: {voyage_id}")
 

@@ -131,9 +131,27 @@ def decode_cursor(token: str) -> VoyageCursor | None:
     return VoyageCursor(created_at=parsed_at, voyage_id=voyage_id, departure_at=parsed_departure)
 
 
-async def get_by_id(session: AsyncSession, voyage_id: UUID) -> Voyage | None:
-    """활성 항차 1건을 조회한다 (soft delete 제외)."""
+async def get_by_id(
+    session: AsyncSession, voyage_id: UUID, *, for_update: bool = False
+) -> Voyage | None:
+    """활성 항차 1건을 조회한다 (soft delete 제외).
+
+    ``for_update=True``면 **항차 행을 먼저 잠그고 나서** 읽는다 (`#1626` · `F-8` 결정 ·
+    `TECH_SPEC §16.3`). 상태를 보고 판정한 뒤 쓰는 경로(전환 · PATCH · 실적 · 삭제 ·
+    시나리오 채택)가 쓴다 — 두 요청이 같은 옛 상태를 읽고 각자 통과하면 종결 상태가
+    덮이거나 채택 행이 둘 남는다(`#1796` ⑹·⑺ 실측). 잠금은 호출부가 커밋·롤백할 때 풀린다.
+
+    잠금 문장과 읽기 문장을 **나눈다.** 뒤따르는 ``SELECT``는 READ COMMITTED에서 커밋된
+    최신 상태를 준다(`#1796` ⑵) — 한 문장으로 합쳤을 때 대기 뒤 어느 판본이 돌아오는지는
+    실측하지 않았다. ``populate_existing``은 같은 세션이 먼저 실어 둔 옛 사본을 새 값으로
+    덮기 위해서다. 잠금 쪽은 ``is_deleted``를 보지 않는다 — 다른 요청이 방금 소프트 삭제한
+    행도 잠갔다가, 읽기에서 ``None``(404)으로 갈리게 둔다.
+    """
+    if for_update:
+        await session.execute(select(Voyage.id).where(Voyage.id == voyage_id).with_for_update())
     stmt = select(Voyage).where(Voyage.id == voyage_id, Voyage.is_deleted == 0)
+    if for_update:
+        stmt = stmt.execution_options(populate_existing=True)
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
