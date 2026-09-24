@@ -74,6 +74,7 @@ export function VoyageCiiActions({
    */
   const [failure, setFailure] = useState<string | null>(null)
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 계산 결과가 바뀌면 앞 결과의 저장 문구·실패·보류 항차를 지우는 리셋(`#1098` ⑴)
     setSaved(null)
     setFailure(null)
     setPending(null)

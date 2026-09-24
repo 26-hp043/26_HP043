@@ -282,6 +282,7 @@ function RevisionHistory({ provider }: { provider: ParameterRevisionProvider }) 
   )
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 첫 쪽 조회 — `load`가 시작 시점의 진행 상태를 세운다(조회 시작 전 리셋)
     void load(null)
   }, [load])
 

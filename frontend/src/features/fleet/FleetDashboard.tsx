@@ -172,6 +172,7 @@ export function FleetDashboard() {
     let alive = true
     generationRef.current += 1
     const generation = generationRef.current
+    // oxlint-disable-next-line react/set-state-in-effect -- 조회 시작 전 리셋 — 정렬이 바뀌면 진행 표시를 켜고 다시 받는다
     setSortLoading(true)
     setMoreFailure(null)
     provider

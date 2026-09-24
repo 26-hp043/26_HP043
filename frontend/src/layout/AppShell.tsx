@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import './AppShell.css'
 import { DEFAULT_PATH, NAV_SCREENS, findScreenByPath } from '../screens'
@@ -178,6 +178,7 @@ export function AppShell() {
     // 쿼리 화면에 쿼리 없이 들어온 경우다. 기억을 지우지 않는다 — 사이드바로
     // 들어왔을 뿐 사용자가 선택을 취소한 것이 아니다.
     if (fromUrl.vesselId === null) return
+    // oxlint-disable-next-line react/set-state-in-effect -- 주소(외부 시스템)의 선택을 셸 기억으로 동기화 — 주소가 바뀔 때만 돈다
     setRemembered(fromUrl)
     saveStored(fromUrl)
   }, [pathname, search])
@@ -195,6 +196,7 @@ export function AppShell() {
   useEffect(() => {
     let alive = true
     if (context.vesselId === null) {
+      // oxlint-disable-next-line react/set-state-in-effect -- 조회 시작 전 리셋 — 선박이 바뀌면 앞 배의 항차 목록을 비우고 다시 받는다
       setVoyages([])
       setVoyagesState('ready')
       return
@@ -226,9 +228,16 @@ export function AppShell() {
    * `outletContext`가 매 렌더 새로 만들어지지 않게 하면서도 최신 `pathname`·
    * `search`·`context`를 쓰도록 ref로 우회한다. 하위 화면은 이 객체를 효과의
    * 의존성에 두므로, 정체성이 흔들리면 그 효과가 매 렌더 돈다.
+   *
+   * 렌더 중에 대입하지 않고 **layout effect**에서 쓴다 (`#1616`). 렌더 중 `ref.current`에
+   * 쓰면 React가 렌더를 버리거나 두 번 돌릴 때 화면에 없는 값이 남는다. layout effect는
+   * 자식 화면의 `useEffect`보다 먼저 돌므로, 자식이 effect에서 `selectVesselId`를 불러도
+   * 이 커밋의 값을 읽는다. 의존성 배열이 없어 커밋마다 돈다 — 그것이 의도다.
    */
   const contextRef = useRef(context)
-  contextRef.current = context
+  useLayoutEffect(() => {
+    contextRef.current = context
+  })
 
   /** 선택을 반영한다 — 기억하고, 화면에 맞는 방식으로 주소를 갱신한다. */
   const applyContext = (next: GlobalContextValue) => {
@@ -243,7 +252,9 @@ export function AppShell() {
     navigate(target, { replace: isVesselQueryPath(pathname) })
   }
   const applyContextRef = useRef(applyContext)
-  applyContextRef.current = applyContext
+  useLayoutEffect(() => {
+    applyContextRef.current = applyContext
+  })
 
   /**
    * 하위 화면에 넘기는 값 (#484 · #535).

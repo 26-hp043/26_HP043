@@ -221,6 +221,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
    */
   useEffect(() => {
     generationRef.current += 1
+    // oxlint-disable-next-line react/set-state-in-effect -- 선박이 바뀌면 화면을 먼저 비우는 리셋(`#874`) — 아래 로드 effect보다 앞서야 한다
     setData(null)
     setFailure(null)
     setStale(false)
@@ -228,6 +229,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
   }, [vesselId])
 
   useEffect(() => {
+    // oxlint-disable-next-line react/set-state-in-effect -- 선박이 정해지면 조회 — `load`가 시작 시점의 진행 상태를 세운다
     void load()
   }, [load])
 

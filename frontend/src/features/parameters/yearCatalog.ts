@@ -188,6 +188,7 @@ export function useYearOptions(
 
   useEffect(() => {
     if (!vesselId) {
+      // oxlint-disable-next-line react/set-state-in-effect -- 조회 시작 전 리셋 — 선박이 비면 목록을 비우고 로딩을 내린다(빈 `vesselId`는 부르지 않는다)
       setYears([])
       setLoading(false)
       setFailed(false)

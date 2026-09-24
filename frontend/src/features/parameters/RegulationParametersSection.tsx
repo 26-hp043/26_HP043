@@ -87,6 +87,7 @@ export function RegulationParametersSection({
   // 이력이 있는 세 표 — 전환이 바뀌면 그 값으로 다시 받는다.
   useEffect(() => {
     let alive = true
+    // oxlint-disable-next-line react/set-state-in-effect -- 조회 시작 전 리셋 — 전환(`includeInactive`)이 바뀌면 로딩으로 돌리고 다시 받는다
     setLoading(true)
     setFailure(null)
     Promise.all([
