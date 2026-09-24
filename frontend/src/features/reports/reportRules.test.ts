@@ -85,7 +85,9 @@ describe('표시', () => {
       { ...VOYAGE, departurePortName: 'BUSAN', arrivalPortName: 'MANILA' },
       PORTS,
     )
-    expect(label).not.toContain('BUSAN')
+    // 부정 단언만 두면 구간이 통째로 빠져도 통과한다 (#1836) — 픽스처의 보이는 이름도 본다.
+    expect(label).not.toContain(BUSAN.name)
+    expect(label).toContain(BUSAN.name_ko)
   })
 
   it('목록에 없는 저장값은 입력한 그대로다 — 사전에 없는 이름을 지어내지 않는다', () => {

@@ -80,7 +80,10 @@ describe('voyageOptionLabel — 여러 건이 같은 문자열이 되지 않게 
       option({ departurePortName: 'BUSAN', arrivalPortName: 'SINGAPORE' }),
       PORTS,
     )
-    expect(label).not.toContain('BUSAN')
+    // 부정 단언만 두면 구간이 통째로 빠져도 통과한다 (#1836) — 픽스처의 보이는 이름이
+    // 실제로 들어 있는지도 본다(리터럴이 아니라 픽스처 값 · `AGENTS §4.6`).
+    expect(label).not.toContain(BUSAN.name)
+    expect(label).toContain(BUSAN.name_ko)
   })
 
   it('목록에 없는 저장값은 입력한 그대로다 — 사전에 없는 이름을 지어내지 않는다', () => {
@@ -113,6 +116,18 @@ describe('실 API — GET /vessels/{id}/voyages', () => {
         status: '',
       },
     ])
+    vi.unstubAllGlobals()
+  })
+
+  // #1836 ⑴ — 트림 검사가 `voyageOptionLabel`에서 API 매핑으로 옮겨가며(#1812) 빠졌던
+  // 회귀 테스트. 매핑에서 `.trim()`을 지우면 공백 번호가 이름이 되어 빈 옵션이 보인다.
+  it('공백뿐인 항차 번호는 없는 것으로 본다 — 빈 옵션이 되지 않는다', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ data: [{ id: 'a', voyage_no: '   ', status: 'PLANNED' }] })),
+    )
+    const options = await createApiVoyageCatalog('/api/v1').listVoyages('v1')
+    expect(options[0].voyageNo).toBeNull()
     vi.unstubAllGlobals()
   })
 

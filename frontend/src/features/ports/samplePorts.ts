@@ -55,6 +55,11 @@ export function matchSamplePort(ports: readonly SamplePort[], text: string): Sam
  *
  * 목록에 없는 항구는 **입력한 그대로** 돌려준다 — 사전에 없는 이름을 지어내지 않는다
  * (자유 입력 항구가 있다 · `#760`). 목록을 아직 받지 못했을 때도 같다.
+ *
+ * **목록 조회가 실패했을 때도 같다** (#1836 ⑸). `useSamplePorts`가 실패를 빈 목록으로
+ * 삼키므로, 그때는 모든 자리가 저장 코드(`BUSAN`)를 그대로 보인다 — 오류 표시 없이
+ * 조용히 그렇게 된다. 목록은 편의라 감수하는 동작이지만, 화면에서 코드가 보이면 이
+ * 경로를 먼저 의심한다.
  */
 export function portDisplayName(ports: readonly SamplePort[], stored: string): string {
   return matchSamplePort(ports, stored)?.name_ko ?? stored
@@ -181,6 +186,15 @@ export async function fetchSamplePorts(
 /**
  * 샘플 항만 목록 훅 — 못 받으면 빈 목록이다. 항만은 늘 자유 입력이 되므로 실패를 오류로
  * 올리지 않는다(목록은 편의다). 상태는 비동기 콜백 안에서만 바꾼다.
+ *
+ * **실패는 조용하다** (#1836 ⑸). 빈 목록이면 `portDisplayName`이 저장 코드를 그대로
+ * 돌려주므로, 상단바 항차 선택지·보고서·채택 패널이 **오류 표시 없이 `BUSAN` 같은 코드를
+ * 보인다.** 설계상 감수하는 동작이다 — 「못 받았다」를 화면마다 알리면 편의 기능의 실패가
+ * 본 기능의 오류처럼 읽힌다.
+ *
+ * **캐시가 없다.** 훅을 부르는 컴포넌트마다 `GET /ports/samples`가 한 번씩 나간다. 같은
+ * 화면 안에서는 부모가 받아 자식에 prop으로 넘긴다(`ScenarioComparison` → `ScenarioAdoptPanel`).
+ * 상단바(`AppShell`)와 화면 사이의 공유는 셸 컨텍스트가 필요해 하지 않았다.
  */
 export function useSamplePorts(env: ImportMetaEnv = import.meta.env): SamplePort[] {
   const [ports, setPorts] = useState<SamplePort[]>([])

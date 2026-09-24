@@ -29,6 +29,7 @@ import {
   fetchGreatCircleNm,
   lookupPort,
   matchSamplePort,
+  portDisplayName,
   portOptionLabel,
   useSamplePorts,
   type PortCoord,
@@ -1230,16 +1231,20 @@ export function ScenarioComparison({
 
           선은 공개 해상 경로망 위의 바닷길이다. 우회 경유지를 골랐을 때만 우회 선이 하나
           더 그려진다 — 감속은 직항과 같은 길이라 선이 늘지 않는다(`PRD §11.3`).
+
+          선 이름은 **보이는 이름**이다 (#1836 ⑹). 입력칸은 샘플 항만을 고르면 저장 코드
+          (`BUSAN`)를 담는다 — 항차 입력 폼(`VoyagePanel`·`VoyageCiiActions`)과 같은
+          패턴이라 그대로 둔다. 지도는 표시 자리이므로 `portDisplayName`을 거친다(`#1742`).
         */}
         <VoyageRouteMap
           currentLat={snapshot.inputs.currentLat}
           currentLon={snapshot.inputs.currentLon}
           destinationLat={snapshot.inputs.destinationLat}
           destinationLon={snapshot.inputs.destinationLon}
-          destinationName={snapshot.inputs.destinationPortName}
+          destinationName={portDisplayName(ports, snapshot.inputs.destinationPortName)}
           detourWaypointLat={snapshot.inputs.detourWaypointLat}
           detourWaypointLon={snapshot.inputs.detourWaypointLon}
-          detourWaypointName={snapshot.inputs.detourWaypointName}
+          detourWaypointName={portDisplayName(ports, snapshot.inputs.detourWaypointName)}
         />
 
         {/*
@@ -1301,6 +1306,7 @@ export function ScenarioComparison({
           scenarios={response.scenarios}
           stale={stale}
           preferredVoyageId={shell.voyageId}
+          samplePorts={ports}
         />
       </div>
     </section>

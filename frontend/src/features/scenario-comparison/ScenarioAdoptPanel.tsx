@@ -4,7 +4,7 @@ import './ScenarioAdoptPanel.css'
 import { ErrorState } from '../../components/ErrorState'
 import { voyagePath } from '../../layout/globalContext'
 import { createApiVoyageCatalog, voyageOptionLabel, type VoyageOption } from '../../layout/voyageCatalog'
-import { useSamplePorts } from '../ports/samplePorts'
+import type { SamplePort } from '../ports/samplePorts'
 import { STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { VoyageStatus } from '../voyage-management/types'
 import type { ScenarioComparisonProvider } from './provider'
@@ -62,7 +62,12 @@ type VoyagesState = VoyageOption[] | 'loading' | 'failed'
 type AdoptState =
   | { status: 'idle' }
   | { status: 'running' }
-  | { status: 'done'; result: ScenarioAdoptResult; voyageName: string; scenarioName: string }
+  /*
+   * 완료 문구의 항차 **이름이 아니라 id**를 둔다 (#1836 ⑷). 이름을 제출 시점에 계산해 넣으면
+   * 항구 목록이 채택 뒤에 도착했을 때 선택지는 「부산」인데 완료 문구는 `BUSAN`으로 남는다.
+   * 이름은 그릴 때 `voyageOptionLabel`로 만든다 — 선택지와 같은 경로다.
+   */
+  | { status: 'done'; result: ScenarioAdoptResult; voyageId: string; scenarioName: string }
   | { status: 'error'; message: string }
 
 export function ScenarioAdoptPanel({
@@ -71,6 +76,7 @@ export function ScenarioAdoptPanel({
   scenarios,
   stale,
   preferredVoyageId,
+  samplePorts,
 }: {
   provider: ScenarioComparisonProvider
   /** 비교를 **실행한** 선박 — 폼의 현재 값이 아니다. */
@@ -80,12 +86,17 @@ export function ScenarioAdoptPanel({
   stale: boolean
   /** 상단바에서 고른 항차. 반영 가능한 항차면 기본 선택으로 쓴다. */
   preferredVoyageId: string | null
+  /**
+   * 항차 선택지의 구간을 저장 코드가 아니라 보이는 이름으로 적는다 (#1812). 조회에는
+   * 쓰지 않는다 — 그리는 시점에 `voyageOptionLabel`로만 쓴다(아래 참조).
+   *
+   * 부모(`ScenarioComparison`)가 이미 받아 둔 목록을 넘긴다 (#1836 ⑶) — 이 패널이 따로
+   * `useSamplePorts()`를 부르면 같은 화면에서 `GET /ports/samples`가 두 번 나간다.
+   */
+  samplePorts: readonly SamplePort[]
 }) {
   const showsLabelEn = useShowsLabelEn()
   const catalog = useMemo(() => createApiVoyageCatalog(), [])
-  // 항차 선택지의 구간을 저장 코드가 아니라 보이는 이름으로 적는다 (#1812). 조회에는
-  // 쓰지 않는다 — 그리는 시점에 `voyageOptionLabel`로만 쓴다(아래 참조).
-  const samplePorts = useSamplePorts()
   // 채택은 사무직 전용이다 (`API_SPEC §1.2` · #1325). 현장직은 폼을 읽되 반영 버튼이 잠긴다.
   const office = isOffice(useAuthUser())
   const [voyages, setVoyages] = useState<VoyagesState>('loading')
@@ -148,6 +159,22 @@ export function ScenarioAdoptPanel({
     : undefined
   const ready = scenario !== undefined && voyage !== undefined && !stale
 
+  /*
+   * 채택 완료 문구의 항차 이름 — **그릴 때** 만든다 (#1836 ⑷). 목록은 `vesselId`가 바뀔 때만
+   * 갈리고 그때 `adopt`도 `idle`로 돌아가므로, `done`이면 그 항차는 목록에 있다. 그래도 못
+   * 찾으면 응답의 id 앞자리를 보인다 — `voyageOptionLabel`이 이름 없는 항차에 하는 것과 같다.
+   */
+  const adoptedVoyage =
+    adopt.status === 'done' && Array.isArray(voyages)
+      ? voyages.find((item) => item.id === adopt.voyageId)
+      : undefined
+  const adoptedVoyageName =
+    adopt.status === 'done'
+      ? adoptedVoyage
+        ? voyageOptionLabel(adoptedVoyage, samplePorts)
+        : adopt.voyageId.slice(0, 8)
+      : ''
+
   const submit = async () => {
     if (!scenario || !voyage) return
     const voyageLabel = voyageOptionLabel(voyage, samplePorts)
@@ -158,7 +185,7 @@ export function ScenarioAdoptPanel({
       setAdopt({
         status: 'done',
         result,
-        voyageName: voyageLabel,
+        voyageId: voyage.id,
         scenarioName: scenario.scenario_name,
       })
     } catch (error: unknown) {
@@ -269,7 +296,7 @@ export function ScenarioAdoptPanel({
       {adopt.status === 'done' ? (
         <div className="scenario-adopt__result" role="status">
           <p>
-            <strong>「{adopt.voyageName}」</strong> 항차의 계획에{' '}
+            <strong>「{adoptedVoyageName}」</strong> 항차의 계획에{' '}
             <strong>「{adopt.scenarioName}」</strong> 시나리오를 반영했습니다.
           </p>
           <p>
