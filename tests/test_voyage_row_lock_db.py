@@ -309,7 +309,9 @@ async def test_concurrent_adoptions_leave_exactly_one_adopted_row(migrated_db, a
     두 번째는 대기 뒤 첫 채택을 **내리고** 자기 것을 올린다 — 예외가 아니라 나중 채택이
     이기는 것이 기대값이다(단일 요청에서 재채택할 때와 같다).
 
-    돌연변이 결과: 해제 UPDATE가 둘 다 0건이라 **채택 행이 둘** 남는다(`#1796` ⑺ · 3/3).
+    ⚠️ 이 짝은 항차 잠금 돌연변이를 **검출하지 못한다** — `get_by_id`의 `for_update` 갈래를
+    빼도 통과했다(2026-09-24 실측 · 단독 실행 포함). 두 채택이 같은 `voyage_scenario` 행을
+    쓰며 순서가 정해지는 것으로 보인다(정황). 무엇을 지킬지 다시 정하는 일은 `#1869`.
     """
     vessel_id, voyage_id, (first_scenario, second_scenario) = await _setup("DRAFT", scenarios=2)
     try:
