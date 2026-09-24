@@ -231,11 +231,13 @@ jobs:
         env:
           CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
           OCI_APP_PRIVATE_IP: ${{ secrets.OCI_APP_PRIVATE_IP }}
+          # db-01 자신의 사설 IP — compose가 CUBRID 포트를 이 주소에만 붙인다 (#1641)
+          OCI_DB_PRIVATE_IP: ${{ secrets.OCI_DB_PRIVATE_IP }}
           FORCE_DB_INIT: ${{ inputs.force_db_init }}
         run: |
           echo "[deploy-db] === START $(date -u +%FT%TZ) host=${{ secrets.OCI_DB_HOST }} ==="
           ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes ${{ secrets.OCI_SSH_USER }}@${{ secrets.OCI_DB_HOST }} \
-            "CUBRID_PASSWORD='${CUBRID_PASSWORD}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' DEPLOY_SHA='${{ github.sha }}' bash -s" <<'ENDSSH'
+            "CUBRID_PASSWORD='${CUBRID_PASSWORD}' OCI_APP_PRIVATE_IP='${OCI_APP_PRIVATE_IP}' OCI_DB_PRIVATE_IP='${OCI_DB_PRIVATE_IP}' FORCE_DB_INIT='${FORCE_DB_INIT}' GH_REPO='${{ github.repository }}' GH_TOKEN='${{ secrets.GITHUB_TOKEN }}' DEPLOY_SHA='${{ github.sha }}' bash -s" <<'ENDSSH'
           set -euo pipefail
           echo "[db-01] connected at $(date -u +%FT%TZ); host=$(hostname)"
 
@@ -263,10 +265,11 @@ jobs:
             ops/cubrid/conf/broker_access.conf \
             ops/cubrid/conf/server_access.conf
 
-          # .env 렌더링
+          # .env 렌더링 — compose 치환용이다. OCI_DB_PRIVATE_IP는 포트 바인드 주소 (#1641)
           umask 077
           cat > .env <<EOF
           CUBRID_PASSWORD=${CUBRID_PASSWORD}
+          OCI_DB_PRIVATE_IP=${OCI_DB_PRIVATE_IP}
           EOF
 
           # force_db_init: 볼륨 파괴 후 재초기화
@@ -277,6 +280,16 @@ jobs:
 
           docker compose -f docker-compose.prod.db.yml pull </dev/null
           docker compose -f docker-compose.prod.db.yml up -d </dev/null
+
+          # 게시 주소 확인 (#1641) — 재배포마다 컨테이너가 다시 만들어지므로 그때마다 본다.
+          # `docker compose port`는 호스트 쪽 바인딩(`IP:포트`)을 낸다. 사설 IP가 아니면
+          # (예: 0.0.0.0) 공용 인터페이스에 열린 것이므로 배포를 멈춘다.
+          bound="$(docker compose -f docker-compose.prod.db.yml port cubrid 33000 </dev/null)"
+          if [ "${bound}" != "${OCI_DB_PRIVATE_IP}:33100" ]; then
+            echo "[db-01] CUBRID 게시 주소가 사설 IP가 아니다 — 기대 ${OCI_DB_PRIVATE_IP}:33100 / 실제 ${bound}" >&2
+            exit 1
+          fi
+          echo "[db-01] CUBRID 게시 주소 ${bound} (사설 IP 전용)"
 
           # CUBRID 브로커 대기
           ready=""

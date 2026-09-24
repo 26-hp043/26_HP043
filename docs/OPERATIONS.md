@@ -270,6 +270,7 @@ sed -i "s/REPLACE_ME_APP_PRIVATE_IP/10.0.1.216/g" \
 # .env (최초 1회)
 cp .env.db.example .env
 # vi .env  →  CUBRID_PASSWORD=<비밀번호>
+#            OCI_DB_PRIVATE_IP=10.0.1.132   (포트 바인드 주소 · 비우면 compose가 기동을 거부한다 · #1641)
 
 # 기동
 docker compose -f docker-compose.prod.db.yml up -d
@@ -624,15 +625,33 @@ docker compose -f docker-compose.prod.app.yml run --rm backend alembic upgrade h
 ### 4.1 DB 접근 4층 방어
 
 ```
-외부 → OCI Security List(1층) → Host ufw(2층) → CUBRID broker ACL(3층) → CUBRID server ACL(4층)
+외부 → OCI Security List(1층) → 바인드 주소(2층) → CUBRID broker ACL(3층) → CUBRID server ACL(4층)
 ```
 
 | 층 | 위치 | 설정 파일/도구 | 허용 대상 |
 |----|------|---------------|-----------|
 | 1 | OCI Security List | OCI 콘솔 | 10.0.0.0/16 → :33100 |
-| 2 | db-01 ufw | `ops/host/ufw-db-01.sh` | 10.0.1.216/32 → :33100 |
+| 2 | 바인드 주소 (db-01 사설 IP에만 게시) | `docker-compose.prod.db.yml` `ports` — `${OCI_DB_PRIVATE_IP}:33100:33000` | 10.0.1.132:33100 소켓만 열린다. 공용 IP(132.226.170.195)에는 소켓이 없다 |
 | 3 | CUBRID broker ACL | `ops/cubrid/conf/broker_access.conf` | cii:dba:10.0.1.216 |
 | 4 | CUBRID server ACL | `ops/cubrid/conf/server_access.conf` | 127.0.0.1, 172.* |
+
+> **[#1641] 2층은 ufw가 아니다 — ufw는 이 포트에 관여하지 않는다.** 종전 표는 2층을 `db-01 ufw`(`ufw allow from 10.0.1.216 to any port 33100`)로 적었다. 그런데 Docker가 publish한 포트로 오는 패킷은 DNAT 뒤 **FORWARD 체인**(`DOCKER-USER` → `DOCKER`)으로 흐르고 호스트의 **INPUT 체인을 거치지 않는다**([Docker Docs — Packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/)). ufw의 `allow`·`deny`는 INPUT 규칙이므로 그 트래픽을 본 적이 없다 — **규칙이 있어도 막지 못했고, 없어도 열리지 않는다.** 즉 종전 구성은 「모든 인터페이스에 열려 있고 2층이 없는」 상태였다(실제 노출은 1층 Security List가 막고 있었다).
+>
+> 그래서 소켓 자체를 사설 인터페이스에만 둔다. `deploy.yml`의 `deploy-db`가 시크릿 `OCI_DB_PRIVATE_IP`를 db-01 `.env`에 렌더하고 compose가 그 주소로 게시한다. 값이 비면 compose가 기동을 거부한다(`:?` — 비면 `:33100:33000`이 되어 다시 모든 인터페이스로 열리기 때문). 배포는 `up -d` 직후 `docker compose port cubrid 33000`이 `<사설 IP>:33100`인지 확인하고 아니면 멈춘다 — 재배포마다 컨테이너가 다시 만들어지므로 그때마다 본다. app-01은 이미 사설 IP로 붙고(`CUBRID_HOST=${OCI_DB_PRIVATE_IP}`), `db_backup.py`·`purge_expired.py`는 `docker compose exec`라 포트를 쓰지 않는다. **ufw를 켜는 것은 별개 사안이다** — SSH만 다루며 ourtax와 공유하는 호스트라 호스트 소유자 확인이 먼저다(§10.4).
+>
+> **적용 뒤 실측** — ⚠️ 아래는 **아직 실측하지 않았다**(2026-09-24 · 서버 앞에서 사람이 한 번 확인한다).
+>
+> ```bash
+> # db-01에서 — 사설 IP 한 줄만 보여야 한다. 0.0.0.0이나 [::]가 보이면 되돌아간 것이다
+> ss -ltnp 'sport = :33100'
+> docker compose -f ~/bluelog/docker-compose.prod.db.yml port cubrid 33000   # → 10.0.1.132:33100
+>
+> # 외부(사용자 노트북 · 공인 IP)에서 — 소켓이 없으므로 1층이 막든 아니든 붙지 않는다
+> nc -vz -w 5 132.226.170.195 33100          # 기대: 시간 초과 또는 거부
+>
+> # app-01에서 — 허용 경로는 그대로 붙는다
+> nc -vz -w 3 10.0.1.132 33100               # 기대: succeeded
+> ```
 
 ACL 재로드 (재시작 불필요):
 ```bash
@@ -854,7 +873,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `OCI_SSH_USER` | SSH 사용자 | `ubuntu` |
 | `OCI_DB_HOST` | db-01 공용 IP (SSH 접근용) | `132.226.170.195` |
 | `OCI_APP_HOST` | app-01 공용 IP (SSH 접근용) | `131.186.22.10` |
-| `OCI_DB_PRIVATE_IP` | db-01 VCN 사설 IP (DATABASE_URL) | `10.0.1.132` |
+| `OCI_DB_PRIVATE_IP` | db-01 VCN 사설 IP (app-01의 DATABASE_URL · **db-01의 CUBRID 포트 바인드 주소** — `#1641`) | `10.0.1.132` |
 | `OCI_APP_PRIVATE_IP` | app-01 VCN 사설 IP (ACL 치환) | `10.0.1.216` |
 | `CUBRID_PASSWORD` | dba 비밀번호 (<=31바이트, ASCII) | |
 | `CORS_ALLOW_ORIGINS` | 프론트엔드 오리진 | `https://bluelog-bx7.pages.dev` |
@@ -1137,8 +1156,8 @@ ssh ubuntu@131.186.22.10 "nc -vz 10.0.1.132 33100 -w 3"
 # 2. 실패 시: OCI Security List에 33100이 있는지 확인
 # OCI 콘솔 → Networking → Virtual Cloud Networks → ourtax-vcn → Security Lists
 
-# 3. db-01 ufw 확인
-ssh ubuntu@132.226.170.195 "sudo ufw status"
+# 3. db-01의 CUBRID 게시 주소 확인 — 사설 IP(10.0.1.132:33100)여야 한다 (#1641 · ufw는 이 포트에 관여하지 않는다)
+ssh ubuntu@132.226.170.195 "ss -ltn 'sport = :33100'"
 
 # 4. CUBRID 브로커 상태 확인
 ssh ubuntu@132.226.170.195 "docker exec cii-cubrid cubrid broker status"
@@ -1267,7 +1286,8 @@ DELETE /api/v1/auth/me (X-CSRF-Token) → 204, 이후 /auth/me → 401   ← 검
 - [x] ~~**GitHub Secrets 등록**~~ — 완료(12종). 백엔드 9종(`#1201`) · `CLOUDFLARE_API_TOKEN`(`#1479`) · `API_ORIGIN`(`#1496`). 재발은 `test_deploy_secrets_are_listed_in_the_operations_secret_tables`가 막는다
 - [ ] **커스텀 도메인** → 화면(Pages)은 아직 `bluelog-bx7.pages.dev`다. **API는 `bluelog-api.kpubdata.com`으로 확보**됐다(`#1496` · §3.5). 화면 도메인을 붙이면 `CORS_ALLOW_ORIGINS`·`APP_PUBLIC_URL`도 함께 바꾼다 (#785)
 - [x] ~~**CUBRID 비밀번호 설정**~~ — 완료. `CUBRID_PASSWORD` 시크릿이 배포·헬스체크 양쪽에 쓰인다
-- [ ] **ufw 활성화** → `ops/host/ufw-db-01.sh` 실행
+- [ ] **DB 포트 게시 주소 실측**(`#1641`) → 적용 뒤 db-01에서 `ss -ltnp 'sport = :33100'`이 사설 IP 한 줄만 보이는지, 외부(공인 IP)에서 `nc -vz -w 5 132.226.170.195 33100`이 붙지 않는지 **사람이 한 번 확인**한다(§4.1). ⚠️ 2026-09-24 기준 미실측
+- [ ] **ufw 활성화**(SSH만) → `ops/host/ufw-db-01.sh` 실행. ⚠️ ourtax와 공유하는 호스트라 **호스트 소유자 확인이 먼저**다. CUBRID 포트는 ufw 소관이 아니다(`#1641` · §4.1)
 - [ ] **zram 스왑** → `ops/host/setup-zram-swap.sh` 실행 (이미 our-tax에서 적용됐을 수 있음)
 - [ ] **백업 절차** → 정기 백업 스크립트 (#788)
 - [ ] **모니터링** → 헬스 체크 주기적 확인 (#790)

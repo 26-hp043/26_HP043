@@ -119,3 +119,53 @@ def test_legacy_initial_office_emails_is_not_rendered():
         "deploy.yml이 옛 이름 INITIAL_OFFICE_EMAILS를 렌더한다 — 이름이 바뀐 것을 "
         "알리는 기동 거부가 무의미해진다 (#1301)."
     )
+
+
+def _db_rendered_keys() -> set[str]:
+    """db-01 `.env` 렌더 heredoc이 쓰는 키 — **앞쪽** heredoc이다 (:func:`_rendered_keys`의 짝)."""
+    lines = _DEPLOY.read_text(encoding="utf-8").splitlines()
+    starts = [i for i, line in enumerate(lines) if "cat > .env" in line]
+    assert len(starts) == 2, f"deploy.yml의 `.env` 렌더 heredoc이 2개가 아니다: {len(starts)}개"
+    start = starts[0]
+    end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == "EOF")
+    return {
+        m.group(1)
+        for line in lines[start + 1 : end]
+        if (m := re.match(r"\s*([A-Z][A-Z0-9_]*)=", line))
+    }
+
+
+def test_deploy_db_renders_every_value_the_db_compose_substitutes():
+    """🔴 db-01 렌더도 같다 — compose가 `${…}`로 치환하는 값은 **세 고리 전부**에 있다 (#1641).
+
+    `OCI_DB_PRIVATE_IP`가 그 값이다. compose가 CUBRID 게시를 이 주소에만 붙이므로
+    (`docker-compose.prod.db.yml` `ports`), 고리 하나가 끊기면 두 가지 중 하나다 —
+    치환이 필수라 **배포가 선다**(그나마 낫다), 아니면 빈 값으로 **모든 인터페이스에
+    열린다.** 고리는 셋이다.
+
+    1. 잡의 ``env:``가 시크릿을 읽는다
+    2. ``ssh … "NAME='${NAME}' … bash -s"`` 가 원격 셸에 넘긴다 — 여기서 빠지면 렌더 줄은
+       있는데 **빈 문자열**을 적는다
+    3. ``cat > .env`` heredoc이 그 이름을 쓴다
+    """
+    compose = (_ROOT / "docker-compose.prod.db.yml").read_text(encoding="utf-8")
+    workflow = _DEPLOY.read_text(encoding="utf-8")
+    substituted = set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", compose))
+    rendered = _db_rendered_keys()
+
+    missing = sorted(substituted - rendered)
+    assert not missing, (
+        f"docker-compose.prod.db.yml이 치환하는데 deploy.yml의 db-01 `.env` 렌더에 없는 값: "
+        f"{', '.join(missing)}. compose가 빈 문자열을 넘기고, db-01의 `.env`에 손으로 적어도 "
+        "`cat > .env`가 다음 배포에서 지운다 (#1641 · #1475)."
+    )
+
+    # 깜빡 지운 시크릿을 쓰면 안 되므로 db-01 잡 구간(`deploy-db:` ~ `deploy-app:`)만 본다.
+    job = workflow[workflow.index("\n  deploy-db:") : workflow.index("\n  deploy-app:")]
+    for name in sorted(substituted):
+        assert f"{name}: ${{{{ secrets.{name} }}}}" in job, (
+            f"deploy-db 잡의 env가 시크릿 {name}을 읽지 않는다 — 렌더 줄이 빈 값을 적는다."
+        )
+        assert f"{name}='${{{name}}}'" in job, (
+            f"deploy-db가 ssh 원격 셸에 {name}을 넘기지 않는다 — 렌더 줄이 빈 값을 적는다."
+        )

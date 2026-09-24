@@ -541,3 +541,72 @@ def test_deploy_secrets_are_listed_in_the_operations_secret_tables():
         "등록하는 사람은 §5 표를 보고 움직인다 — 표에 없으면 등록되지 않고, "
         "배포는 그 시크릿을 읽는 잡에서 선다 (#1201 · #1479 · #1496)."
     )
+
+
+# ── DB 포트 게시가 사설 IP에만 붙는다 (#1641) ────────────────────────────────────
+#
+# 종전 `"33100:33000"`은 모든 인터페이스에 열렸고, 그 노출을 막는다던 ufw는 Docker가
+# publish한 포트에는 관여하지 않는다 — 패킷이 DNAT 뒤 FORWARD 체인으로 흐르고 호스트
+# INPUT을 거치지 않는다. 즉 「2층이 없는」 상태였다. 결정(F-14)은 소켓 자체를 사설
+# 인터페이스에만 두는 것이다. 이 검사는 그 한 줄이 되돌아가지 않게 한다.
+
+_DB_ENV_EXAMPLE = _ROOT / ".env.db.example"
+
+
+def _prod_db_ports() -> list[str]:
+    return [str(p) for p in _db_service(_PROD_DB, "cubrid").get("ports", [])]
+
+
+def test_prod_db_publishes_cubrid_only_on_the_private_ip():
+    """🔴 `docker-compose.prod.db.yml`의 CUBRID 게시가 **db-01 사설 IP에만** 붙는다 (#1641).
+
+    세 가지를 본다.
+
+    1. 게시 항목이 `IP:호스트포트:컨테이너포트` 세 토막이다 — 두 토막이면 모든 인터페이스다
+    2. 그 IP가 `${OCI_DB_PRIVATE_IP…}` 치환이다 — 사설 IP를 박아 두면 호스트가 바뀔 때
+       compose를 고쳐야 하고, 그 사실을 아는 경로가 없다
+    3. 치환이 **필수**(`:?`)다 — `:-`나 맨 `${…}`이면 값이 빌 때 `:33100:33000`이 되어
+       **다시 모든 인터페이스로 열린다.** 비어서 열리는 것보다 비어서 안 뜨는 쪽이 낫다
+    """
+    ports = _prod_db_ports()
+    assert len(ports) == 1, f"CUBRID 게시 항목이 하나가 아니다: {ports}"
+    entry = ports[0]
+
+    # `${VAR:?메시지}` 안의 `:`는 토막이 아니다 — 치환을 먼저 걷어 낸다.
+    stripped = re.sub(r"\$\{[^}]*\}", "VAR", entry)
+    parts = stripped.split(":")
+    assert len(parts) == 3, (
+        f"CUBRID 게시가 IP 없이 `{entry}`다 — 모든 인터페이스에 열린다. "
+        "ufw는 Docker가 publish한 포트를 막지 못한다 (#1641)."
+    )
+    assert parts[1:] == ["33100", "33000"], f"포트 매핑이 바뀌었다: {entry}"
+
+    assert entry.startswith("${OCI_DB_PRIVATE_IP"), (
+        f"게시 IP가 OCI_DB_PRIVATE_IP 치환이 아니다: {entry} — 사설 IP를 박아 두면 "
+        "호스트가 바뀔 때 compose를 고쳐야 한다."
+    )
+    assert entry.startswith("${OCI_DB_PRIVATE_IP:?"), (
+        f"OCI_DB_PRIVATE_IP 치환이 필수(:?)가 아니다: {entry} — 값이 비면 "
+        "`:33100:33000`이 되어 다시 모든 인터페이스로 열린다 (#1641)."
+    )
+
+
+def test_prod_db_env_example_declares_every_variable_the_compose_substitutes():
+    """`.env.db.example`이 `docker-compose.prod.db.yml`의 치환 변수를 전부 적는다 (#1641).
+
+    :func:`test_oci_app_compose_uses_every_variable_its_env_example_declares`의 반대
+    방향이며 db 쪽이다 — 수동 배포(`docs/OPERATIONS.md §3.3`)는 이 본보기를 `.env`로
+    복사한다. 본보기에 없는 변수는 그 경로에서 **존재를 아는 방법이 없고**, 필수 치환이면
+    compose가 「required variable … is missing」으로 서서 사람은 이름을 찾아 헤맨다.
+    """
+    compose = _PROD_DB.read_text(encoding="utf-8")
+    substituted = set(re.findall(r"\$\{([A-Z][A-Z0-9_]*)", compose))
+    declared = set(
+        re.findall(r"^#?\s*([A-Z][A-Z0-9_]*)=", _DB_ENV_EXAMPLE.read_text(encoding="utf-8"), re.M)
+    )
+
+    missing = sorted(substituted - declared)
+    assert not missing, (
+        f"docker-compose.prod.db.yml이 치환하는데 .env.db.example에 없는 변수: {missing}. "
+        "수동 배포는 그 본보기를 .env로 복사한다 (OPERATIONS §3.3 · #1641)."
+    )
