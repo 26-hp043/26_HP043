@@ -50,6 +50,11 @@ async def _record_run(
     인증 미들웨어가 ``request.state``에 심은 사용자를 주체로 기록한다. 서비스가
     ``request``를 알면 계층이 깨지므로(``TECH_SPEC §16.1``) 라우트가 값을 뽑아
     넘긴다 — 기능①(``routes/calculations.py:125-139``)과 같은 형태다.
+
+    **여기의 커밋이 이 요청의 유일한 커밋이다** (`#1625` · `TECH_SPEC §16.3`). 실행
+    라우트는 서비스를 ``commit=False``로 불러 세 INSERT를 열어 둔 채 넘어오고, 재현
+    라우트는 애초에 감사 한 건만 쓴다. 감사 INSERT가 실패하면 세션이 닫히며 함께
+    롤백된다 — 종전에는 서비스가 먼저 커밋해 **감사 없는 실행 이력**이 남을 수 있었다.
     """
     state = getattr(request, "state", None)
     session_user = getattr(state, "session_user", None)
@@ -127,6 +132,8 @@ async def run_annual_simulation_route(
         as_of=payload.as_of,
         apply_feedback_factor=payload.apply_feedback_factor,
         alternative_fuel=payload.alternative_fuel,
+        # 실행 이력과 감사 로그를 한 번의 커밋으로 — `_record_run`이 닫는다 (`#1625`).
+        commit=False,
     )
     result = _with_meta(request, data)
     await _record_run(request, session, result)

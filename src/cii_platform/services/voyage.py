@@ -470,6 +470,7 @@ async def transition_voyage(
     voyage_id: UUID,
     to_status: str,
     annual_inclusion_policy: str | None = None,
+    commit: bool = True,
 ) -> dict[str, object]:
     """항차 상태를 전환한다 (API_SPEC §3.5, #54). 없으면 404.
 
@@ -479,6 +480,11 @@ async def transition_voyage(
     (``TECH_SPEC §13.1``, #65). 라우트가 꺼내 쓰고 응답에서 뺀다(``_duration_ms``와
     같은 규약). 서비스가 직접 기록하지 않는 이유는 **주체(user)와 IP가 HTTP 개념**이라
     서비스가 ``request``를 알아야 하기 때문이다(``TECH_SPEC §16.1`` 계층).
+
+    :param commit: ``False``면 **커밋하지 않고 flush만** 한다 (`#1625` · `#1349` 선례).
+        라우트가 감사 로그를 넣은 뒤 **한 번의 커밋**으로 상태와 감사를 함께 확정한다 —
+        여기서 커밋해 버리면 감사 INSERT가 실패했을 때 **기록 없는 `CONFIRMED`가 남는다**
+        (`TECH_SPEC §16.3` 「필수 감사 로그는 원본 변경과 같은 트랜잭션에서 확정한다」).
     """
     voyage = await voyage_repo.get_by_id(session, voyage_id)
     if voyage is None:
@@ -539,7 +545,12 @@ async def transition_voyage(
 
     voyage.status = to_status
     voyage.annual_inclusion_policy = new_policy
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        # 호출부가 **같은 트랜잭션 안에서** 감사 로그를 잇는다 (`#1625`). 상태는 DB에
+        # 보여야 하므로 flush만 한다 — 커밋은 그쪽이 마지막에 한다.
+        await session.flush()
     fuel_uses = await voyage_repo.list_fuel_uses(session, voyage.id)
     return {**to_dict(voyage, fuel_uses), "_from_status": current}
 

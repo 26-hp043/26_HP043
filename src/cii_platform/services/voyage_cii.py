@@ -364,13 +364,23 @@ def _model_version() -> dict[str, object]:
 
 
 async def estimate_voyage_cii(
-    session: AsyncSession, payload: VoyageCiiInput, *, persist: bool = True
+    session: AsyncSession,
+    payload: VoyageCiiInput,
+    *,
+    persist: bool = True,
+    commit: bool = True,
 ) -> dict[str, object]:
     """항차 CII를 추정하고 이력을 저장한 뒤 API_SPEC §4.1 응답 dict를 반환한다.
 
     ``meta``는 채우지 않는다 — ``request_id``·``timestamp``는 미들웨어가 요청 단위로
     만들고 라우트가 붙인다. 서비스가 ``request`` 객체를 알면 계층이 뒤집힌다.
     ``duration_ms``만 여기서 잰다(계산 시간이 서비스의 관심사다).
+
+    ``commit=False``면 ``calculation_run`` 행을 **flush만 하고 커밋하지 않는다**
+    (`#1625` · `#1349` 선례). 라우트가 감사 로그(`TECH_SPEC §13.1`)를 넣은 뒤 한 번의
+    커밋으로 둘을 함께 확정한다 — 여기서 커밋하면 감사 INSERT가 실패했을 때 **감사
+    없는 계산 이력**이 남고, `calculation_run`은 삭제가 트리거로 막힌 불변 표라
+    (`DB_SCHEMA §7.3`) 되돌릴 수도 없다. ``persist=False``면 쓸 것이 없어 무관하다.
 
     ## ``persist=False`` — 저장하지 않는 경로 (`#1334` ⑷)
 
@@ -483,7 +493,9 @@ async def estimate_voyage_cii(
             warnings=warnings,
             duration_ms=duration_ms,
         )
-        await session.commit()
+        # 저장소가 이미 flush했다 — `commit=False`면 호출부가 감사 로그를 잇는다 (`#1625`).
+        if commit:
+            await session.commit()
         run_id = str(run.id)
 
     return {

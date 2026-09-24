@@ -22,8 +22,16 @@ NOT-COVERED: IT-AUDIT-002 — 기능이 없으므로 케이스도 `#444`로 옮�
 서비스만 부르면 「기록하는 함수가 있다」까지만 확인된다. 이 저장소가 반복해서 만난
 형태가 **구현은 있고 부르는 곳이 없는 상태**라, 실제 요청을 보내 확인한다.
 
+## 감사가 실패하면 원본도 남지 않는다 (`#1625` · `IT-AUDIT-004`)
+
+원본 변경(상태 · `calculation_run`)과 감사 로그가 **따로 커밋**되던 동안은 감사 INSERT가
+실패해도 원본이 이미 확정돼 있었다 — 사용자는 오류를 보는데 DB에는 `CONFIRMED`나
+계산 이력이 남는 반쪽 확정이다. 그 표들은 삭제가 트리거로 막혀 있어 되돌릴 수도 없다.
+네 경로(항차 확정 · 기능① · 기능② · 기능③)마다 `audit_log.insert_event`를 예외로 바꿔
+**셋 다 없는지** 본다(`TECH_SPEC §16.3`).
+
 케이스 (`TEST_PLAN §14.5`):
-    IT-AUDIT-001 · IT-AUDIT-003
+    IT-AUDIT-001 · IT-AUDIT-003 · IT-AUDIT-004
 """
 
 from __future__ import annotations
@@ -614,3 +622,246 @@ async def test_account_delete_records_an_audit_event(migrated_db, app_fresh_engi
             assert "revoked_sessions" in (event["details_json"] or {})
     finally:
         await _drop_account(email)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# IT-AUDIT-004 · 감사 기록이 실패하면 원본도 남지 않는다 (#1625)
+#
+# 종전에는 서비스가 원본을 커밋한 **뒤** 라우트가 감사를 따로 커밋했다. 그 사이에서
+# 감사 INSERT가 실패하면 사용자는 500을 보는데 DB에는 `CONFIRMED`·`calculation_run`이
+# 남았다 — 그리고 그 표들은 삭제가 트리거로 막혀 있다(`DB_SCHEMA §7.3`). 이제 서비스는
+# `commit=False`로 flush까지만 하고 라우트가 감사 뒤에 **한 번** 커밋한다. 감사가
+# 실패하면 요청 세션이 닫히며 통째로 롤백된다(`db/session.get_session`).
+#
+# 실패는 **로그인 뒤에** 주입한다 — dev-login도 같은 `insert_event`로 `LOGIN_SUCCESS`를
+# 남기므로 먼저 깨 두면 로그인부터 실패한다.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _break_audit_insert(monkeypatch: pytest.MonkeyPatch) -> None:
+    """감사 저장소의 INSERT를 예외로 바꾼다. 서비스(`services/audit.py`)가 모듈 속성으로
+    부르므로 여기만 갈아 끼우면 네 경로 모두 걸린다."""
+    from cii_platform.db.repositories import audit_log as audit_repo
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("audit_log INSERT 실패 주입 (#1625)")
+
+    monkeypatch.setattr(audit_repo, "insert_event", boom)
+
+
+async def _count_for_demo_vessel(session, sql: str) -> int:
+    """데모 선박 기준 행 수. ``sql``은 ``:vid`` 하나를 받는다."""
+    result = await session.execute(
+        text(sql).bindparams(bindparam("vid", type_=UuidText())), {"vid": DEMO_VESSEL}
+    )
+    return int(result.scalar_one())
+
+
+async def test_confirm_is_rolled_back_when_the_audit_insert_fails(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """IT-AUDIT-004 — 항차 확정: 감사가 실패하면 상태도 `COMPLETED`로 남는다.
+
+    「확정됐는데 기록이 없다」와 「오류가 나서 확정되지 않았다」 중 **뒤가 낫다** —
+    다시 누르면 된다. 앞은 연말 보고의 근거가 되는 선언에 주체가 없는 상태다.
+    """
+    voyage_id = str(uuid4())
+    try:
+        await _seed_completed_voyage(voyage_id)
+
+        with TestClient(app, base_url=_BASE, raise_server_exceptions=False) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            _break_audit_insert(monkeypatch)
+            response = client.post(
+                f"/api/v1/voyages/{voyage_id}/transition",
+                json={"to_status": "CONFIRMED"},
+                headers=_csrf(client),
+            )
+            assert response.status_code == 500, response.text
+            assert response.json()["error"]["code"] == "INTERNAL_ERROR"
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            status = await s.scalar(
+                text("SELECT status FROM voyage WHERE id = :id").bindparams(
+                    bindparam("id", type_=UuidText())
+                ),
+                {"id": voyage_id},
+            )
+            assert status == "COMPLETED", f"감사 없이 확정이 남았다: {status}"
+            assert await _fetch_events(s, "VOYAGE_CONFIRM") == []
+    finally:
+        await _cleanup(voyage_id)
+
+
+async def test_voyage_cii_run_is_rolled_back_when_the_audit_insert_fails(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """IT-AUDIT-004 — 기능①: 감사가 실패하면 `calculation_run` 행도 늘지 않는다.
+
+    이 표는 삭제가 막혀 있어(`DB_SCHEMA §7.3`) 커밋된 뒤에는 되돌릴 수 없다 — 보상
+    처리(원본을 확정한 뒤 감사 실패 시 지우기)가 성립하지 않는 이유이고, 경계가
+    커밋 **앞**에 있어야 하는 이유다.
+    """
+    sql = (
+        "SELECT count(*) FROM calculation_run "
+        "WHERE vessel_id = :vid AND calculation_type = 'VOYAGE_ESTIMATE'"
+    )
+    try:
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            before = await _count_for_demo_vessel(s, sql)
+
+        with TestClient(app, base_url=_BASE, raise_server_exceptions=False) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            _break_audit_insert(monkeypatch)
+            response = client.post(
+                "/api/v1/calculations/voyage-cii",
+                json={
+                    "vessel_id": DEMO_VESSEL,
+                    "regulation_year": 2026,
+                    "distance_nm": 1000,
+                    "speed_kn": 14.2,
+                    "fuel_uses": [{"fuel_type": "HFO", "fuel_ton": 80}],
+                },
+                headers=_csrf(client),
+            )
+            assert response.status_code == 500, response.text
+
+        async with get_sessionmaker()() as s:
+            assert await _count_for_demo_vessel(s, sql) == before, "감사 없는 계산 이력이 남았다"
+            assert await _fetch_events(s, "CALCULATION_RUN") == []
+    finally:
+        await _cleanup()
+
+
+async def test_scenario_compare_is_rolled_back_when_the_audit_insert_fails(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """IT-AUDIT-004 — 기능②: 시나리오 3행과 `calculation_run`이 함께 사라진다.
+
+    기능②는 쓰는 표가 둘이라(`voyage_scenario` 3행 + 계산 이력 1행) 반쪽 확정의
+    모양이 더 많다 — 둘 다 센다.
+    """
+    scenarios_sql = "SELECT count(*) FROM voyage_scenario WHERE vessel_id = :vid"
+    runs_sql = (
+        "SELECT count(*) FROM calculation_run "
+        "WHERE vessel_id = :vid AND calculation_type = 'SCENARIO'"
+    )
+    try:
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            scenarios_before = await _count_for_demo_vessel(s, scenarios_sql)
+            runs_before = await _count_for_demo_vessel(s, runs_sql)
+
+        with TestClient(app, base_url=_BASE, raise_server_exceptions=False) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            _break_audit_insert(monkeypatch)
+            response = client.post(
+                "/api/v1/scenarios/compare",
+                json={
+                    "vessel_id": DEMO_VESSEL,
+                    "regulation_year": 2026,
+                    "current_speed_kn": 14.0,
+                    "fuel_type": "HFO",
+                    "base_daily_foc_ton": 35.0,
+                    "direct_distance_nm": 11000.0,
+                },
+                headers=_csrf(client),
+            )
+            assert response.status_code == 500, response.text
+
+        async with get_sessionmaker()() as s:
+            assert await _count_for_demo_vessel(s, scenarios_sql) == scenarios_before
+            assert await _count_for_demo_vessel(s, runs_sql) == runs_before
+            assert await _fetch_events(s, "CALCULATION_RUN") == []
+    finally:
+        await _cleanup()
+
+
+async def test_annual_simulation_is_rolled_back_when_the_audit_insert_fails(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """IT-AUDIT-004 — 기능③: 스냅샷 · `calculation_run` · 실행 행 셋이 함께 사라진다.
+
+    세 INSERT가 생 SQL이라 ORM flush와 무관하게 이미 DB에 나가 있다 — 그래도 커밋
+    전이므로 세션이 닫히며 롤백된다. 스냅샷과 계산 이력은 불변 표라 여기서 못 막으면
+    영구히 남는다.
+    """
+    sqls = {
+        "simulation_snapshot": "SELECT count(*) FROM simulation_snapshot WHERE vessel_id = :vid",
+        "calculation_run": (
+            "SELECT count(*) FROM calculation_run "
+            "WHERE vessel_id = :vid AND calculation_type = 'ANNUAL_MONTE_CARLO'"
+        ),
+        "annual_simulation_run": (
+            "SELECT count(*) FROM annual_simulation_run WHERE vessel_id = :vid"
+        ),
+    }
+    try:
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            before = {name: await _count_for_demo_vessel(s, sql) for name, sql in sqls.items()}
+
+        with TestClient(app, base_url=_BASE, raise_server_exceptions=False) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            _break_audit_insert(monkeypatch)
+            response = client.post(
+                "/api/v1/annual-simulations",
+                json={
+                    "vessel_id": DEMO_VESSEL,
+                    "regulation_year": 2026,
+                    "target_rating": "C",
+                    "simulation_runs": 1000,
+                    "random_seed": 42,
+                },
+                headers=_csrf(client),
+            )
+            assert response.status_code == 500, response.text
+
+        async with get_sessionmaker()() as s:
+            after = {name: await _count_for_demo_vessel(s, sql) for name, sql in sqls.items()}
+            assert after == before, f"감사 없는 실행 이력이 남았다: {before} → {after}"
+            assert await _fetch_events(s, "CALCULATION_RUN") == []
+    finally:
+        await _cleanup()
+
+
+async def test_a_failed_run_leaves_no_audit_event(migrated_db, app_fresh_engine, monkeypatch):
+    """반대 방향 — 원본 저장이 실패하면 감사도 남지 않는다 (#1625).
+
+    감사는 원본 **뒤에** 같은 트랜잭션에서 쓰므로 구조상 성립하지만, 「둘 중 하나만
+    남지 않는다」는 완료 기준을 양쪽에서 잠근다. 계산 이력 INSERT를 예외로 바꾼다.
+    """
+    from cii_platform.services import voyage_cii as svc
+
+    async def boom(*_args, **_kwargs):
+        raise RuntimeError("calculation_run INSERT 실패 주입 (#1625)")
+
+    try:
+        with TestClient(app, base_url=_BASE, raise_server_exceptions=False) as client:
+            assert client.post("/api/v1/auth/dev-login").status_code == 200
+            monkeypatch.setattr(svc.calc_run_repo, "insert_voyage_estimate", boom)
+            response = client.post(
+                "/api/v1/calculations/voyage-cii",
+                json={
+                    "vessel_id": DEMO_VESSEL,
+                    "regulation_year": 2026,
+                    "distance_nm": 1000,
+                    "speed_kn": 14.2,
+                    "fuel_uses": [{"fuel_type": "HFO", "fuel_ton": 80}],
+                },
+                headers=_csrf(client),
+            )
+            assert response.status_code == 500, response.text
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            assert await _fetch_events(s, "CALCULATION_RUN") == []
+    finally:
+        await _cleanup()

@@ -261,9 +261,33 @@ class TestEnvelope:
         }
 
     def test_transaction_is_committed(self, wired, session):
-        """계산·감사 커밋이 닫힌다. 열어 두면 이력이 저장되지 않는다 (#277)."""
+        """계산 이력과 감사가 **한 번의 커밋**으로 닫힌다 (#277 · #1625).
+
+        종전에는 서비스와 라우트가 따로 커밋해 **둘**이었다 — 그 사이에서 감사 INSERT가
+        실패하면 감사 없는 `calculation_run`이 남았다. 이제 서비스는 `commit=False`로
+        flush까지만 하고 라우트가 감사 뒤에 한 번 닫는다(`TECH_SPEC §16.3`). 0이면 이력이
+        저장되지 않고, 2면 경계가 다시 갈라진 것이다.
+        """
         wired.post(ENDPOINT, json=VALID_PAYLOAD)
-        assert session.committed == 2
+        assert session.committed == 1
+
+    def test_audit_failure_commits_nothing(self, wired, session, monkeypatch):
+        """감사 INSERT가 실패하면 **아무것도 커밋되지 않는다** (#1625).
+
+        계산 이력은 이미 flush됐지만(`insert_voyage_estimate`가 불렸다) 커밋이 없으니
+        세션이 닫히며 함께 사라진다. `calculation_run`은 삭제가 막힌 불변 표라
+        (`DB_SCHEMA §7.3`) 커밋 뒤에는 되돌릴 길이 없다 — 그래서 경계가 앞에 있어야 한다.
+        """
+        from cii_platform.services import audit as audit_svc
+
+        async def boom(*_args, **_kwargs):
+            raise RuntimeError("audit_log INSERT 실패 주입 (#1625)")
+
+        monkeypatch.setattr(audit_svc.audit_repo, "insert_event", boom)
+        with pytest.raises(RuntimeError, match="실패 주입"):
+            wired.post(ENDPOINT, json=VALID_PAYLOAD)
+        assert session.committed == 0
+        assert not any(type(obj).__name__ == "AuditLog" for obj in session.added)
 
     def test_calculation_run_audited_with_user(self, wired, session):
         """계산 실행이 감사 로그에 남는다 — 주체는 미들웨어가 심은 사용자 (#277)."""

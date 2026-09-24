@@ -297,8 +297,25 @@ class TestEnvelope:
         UUID(ok_body["calculation_run_id"])
 
     def test_transaction_is_committed(self, wired, session):
+        """시나리오 3행·계산 이력·감사가 **한 번의 커밋**으로 닫힌다 (#1625).
+
+        종전에는 서비스와 라우트가 따로 커밋해 둘이었다 — 기능①과 같은 결함, 같은
+        수정이다(`test_voyage_cii_api.py`의 같은 이름 검사).
+        """
         wired.post(ENDPOINT, json=VALID_PAYLOAD)
-        assert session.committed == 2
+        assert session.committed == 1
+
+    def test_audit_failure_commits_nothing(self, wired, session, monkeypatch):
+        """감사 INSERT가 실패하면 시나리오 3행도 계산 이력도 커밋되지 않는다 (#1625)."""
+        from cii_platform.services import audit as audit_svc
+
+        async def boom(*_args, **_kwargs):
+            raise RuntimeError("audit_log INSERT 실패 주입 (#1625)")
+
+        monkeypatch.setattr(audit_svc.audit_repo, "insert_event", boom)
+        with pytest.raises(RuntimeError, match="실패 주입"):
+            wired.post(ENDPOINT, json=VALID_PAYLOAD)
+        assert session.committed == 0
 
     def test_audit_records_scenario_type(self, wired, session):
         """감사 로그에 SCENARIO 타입으로 남는다 (#277)."""
