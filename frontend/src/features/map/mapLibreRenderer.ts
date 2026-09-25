@@ -23,6 +23,23 @@ interface MapLibreRouteModel {
   readonly bounds: readonly (readonly [number, number])[]
 }
 
+/**
+ * 「이 배를 보여 달라」 (#1831).
+ *
+ * 좌측 패널의 행에서 배를 고르면 지도가 **그 배로 옮겨 간 뒤** 카드가 열려야 한다 —
+ * 화면 밖의 마커에 카드만 뜨면 무엇에 붙은 카드인지 알 수 없다. 그래서 옮기는 일과
+ * 「열어라」를 한 길로 묶어, 멈춘 뒤 `selection`을 낸다. 마커를 직접 누른 경우도 같은
+ * `selection`으로 들어오므로 **두 입구가 한 길**이다.
+ *
+ * `nonce`가 신호인 것은 **같은 배를 다시 고를 수 있기** 때문이다 — id만 보면 두 번째
+ * 누름이 아무 일도 하지 않는다.
+ */
+interface MapFocusModel {
+  readonly id: string
+  readonly coordinate: readonly [number, number]
+  readonly nonce: number
+}
+
 export interface MapLibreMapModel {
   readonly mode: 'fleet' | 'comparison'
   readonly markers: readonly MapLibreMarkerModel[]
@@ -30,6 +47,8 @@ export interface MapLibreMapModel {
   readonly ports: readonly PortMarkerModel[]
   readonly vessels?: readonly GlobeVesselModel[]
   readonly qualityTier?: MapQualityTier
+  /** 「이 배를 보여 달라」 (#1831). 생략하면 아무 일도 하지 않는다. */
+  readonly focus?: MapFocusModel | null
 }
 
 function ensureProtocol(): void {
@@ -122,6 +141,8 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
 
     let renderedMarkers: readonly MapLibreMarkerModel[] | null = null
     let renderedPorts: readonly PortMarkerModel[] | null = null
+    /** 이미 옮겨 간 `focus.nonce`. 같은 값으로 모델이 다시 와도 지도가 튀지 않는다 (#1831). */
+    let focusedNonce: number | null = null
     const draw = () => {
       if (!ready) return
       // 항만을 먼저 추가해 같은 좌표의 선박 marker가 그 위에 보이게 한다.
@@ -185,6 +206,22 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
         for (const coordinate of unwrapDateline(model.routes.bounds)) bounds.extend([...coordinate])
         map.fitBounds(bounds, { padding: target.clientWidth <= 640 ? 24 : 48, maxZoom: 6, animate: false })
         fitted = true
+      }
+
+      /*
+       * 「이 배를 보여 달라」 (#1831) — **마커를 다 올린 뒤**다. 옮긴 뒤 알리는 쪽이
+       * 듣고 바로 마커 자리를 재므로, 그 마커가 이미 지도에 있어야 한다.
+       *
+       * ⚠️ `animate: false`로 즉시 옮기고 **`moveend`에서** 알린다. 마커 DOM의 자리는
+       * 지도가 움직임을 반영한 뒤라야 제 값이고, 그 전에 재면 카드가 옛 자리에 붙는다.
+       */
+      const focus = model.focus
+      if (focus && focus.nonce !== focusedNonce) {
+        focusedNonce = focus.nonce
+        map.once('moveend', () => {
+          if (!destroyed) emit({ type: 'selection', id: focus.id })
+        })
+        map.easeTo({ center: [...focus.coordinate], animate: false })
       }
     }
     let vesselLayerPending = false

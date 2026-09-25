@@ -180,3 +180,23 @@
   block-size: 100%;
   pointer-events: none;
 }
+
+/*
+ * 마커가 **버튼**일 때 (#1831). 브라우저 기본 단추 모양을 걷어 마커 모양을 그대로 두고,
+ * 커서만 누를 수 있는 것으로 바꾼다 — 위쪽 `.fleetmap__marker`의 `cursor: default`는
+ * 누를 수 없는 화면(항로 비교)의 값이다.
+ */
+button.fleetmap__marker {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.fleetmap__marker:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}

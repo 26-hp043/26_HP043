@@ -37,7 +37,57 @@ beforeEach(() => {
  * 이 파일의 어느 검사도 지도를 단언하지 않는다(목록·정렬·페이지·링크·문구만 본다).
  * 지도 자체는 자산 유무를 묻는 `HEAD` 요청(`#763`)과 함께 별도로 다룬다.
  */
-vi.mock('./FleetMap', () => ({ FleetMap: () => null }))
+/*
+ * 대역이지만 **마커는 그린다** (#1831).
+ *
+ * 마커 팝오버를 보려면 누를 대상이 있어야 하고, 무엇보다 **마커 DOM이 목록이 바뀔 때
+ * 새로 만들어진다**는 성질을 그대로 흉내 내야 한다 — 그것이 이 기능의 함정이기 때문이다
+ * (개발 쪽 코드 점검 09-24). 진짜 `FleetMap`과 같은 규칙만 지킨다: 좌표가 있는 배마다
+ * `data-vessel-id`를 가진 버튼 하나, `fleetmap__marker` 클래스, 누르면 `onSelectVessel`.
+ */
+vi.mock('./FleetMap', async () => {
+  const { useMemo } = await import('react')
+  /*
+   * **선박 목록이 갈리면 마커 노드를 버리고 새로 만든다.**
+   *
+   * 진짜 `FleetMap`은 마커를 명령형으로 만들어 지도에 붙이므로 `vessels`가 새 배열이 되면
+   * DOM 노드가 전부 새것이 된다. React 대역은 `key`가 같으면 노드를 **재사용**해 그 성질이
+   * 사라진다 — 그러면 이 파일의 검사가 「id로 쥔다」를 잠그지 못하고 초록이 된다.
+   * 세대 번호를 `key`에 실어 같은 일이 벌어지게 한다.
+   */
+  let generations = 0
+  return {
+    FleetMap: ({
+      vessels,
+      onSelectVessel,
+      focusVesselId,
+      focusNonce,
+    }: {
+      vessels: readonly { id: string; name: string; lat: string | null; lon: string | null }[]
+      onSelectVessel?: (id: string) => void
+      focusVesselId?: string | null
+      focusNonce?: number
+    }) => {
+      const generation = useMemo(() => `${(generations += 1)}:${vessels.length}`, [vessels])
+      return (
+        <div className="fleetmap__canvas" data-focus={`${focusVesselId ?? ''}:${focusNonce ?? 0}`}>
+          {vessels
+            .filter((v) => v.lat !== null && v.lon !== null)
+            .map((v) => (
+              <button
+                key={`${v.id}-${generation}`}
+                type="button"
+                className="fleetmap__marker"
+                data-vessel-id={v.id}
+                aria-label={`${v.name} · 등급 B`}
+                onClick={() => onSelectVessel?.(v.id)}
+              />
+            ))}
+        </div>
+      )
+    },
+  }
+})
 
 /**
  * 대시보드가 **서버 정렬·페이지**를 쓰는가 (#772 · `API_SPEC §2.8`).
@@ -55,8 +105,9 @@ function vessel(id: string, name: string) {
     imo_number: '9100001',
     underway_state: 'UNDER_WAY',
     detail_status: 'SAILING',
-    current_lat: null,
-    current_lon: null,
+    /* 좌표는 실제로 nullable이다 — 좌표가 **있는** 배를 만드는 검사(#1831)가 덮어쓴다. */
+    current_lat: null as string | null,
+    current_lon: null as string | null,
     position_updated_at: null,
     is_cii_applicable_hint: true,
     gross_tonnage: 30000,
@@ -840,5 +891,146 @@ describe('하단 고지는 배너 한 칸 (#1578)', () => {
     expect(hits).toHaveLength(1)
     expect(hits[0].getAttribute('role')).toBe('note')
     expect(hits[0].textContent).toMatch(/^참고용 예측값입니다/)
+  })
+})
+
+/**
+ * 마커 팝오버가 화면에 붙는 자리 (#1831).
+ *
+ * 카드 자체는 `VesselPopover.test.tsx`가, 마커가 버튼인지는 `FleetMap.test.tsx`가 본다.
+ * 여기서 보는 것은 **조립**이다 — 한 번에 하나 · 마커가 새로 만들어졌을 때 · 초점 복귀 ·
+ * 패널 행에서 여는 길.
+ */
+describe('선대 대시보드 — 마커 팝오버 (#1831)', () => {
+  /** 좌표가 있는 배와 **지도 자산이 있는 환경**(`206`)을 함께 흉내 낸다. */
+  function stubFetchWithMap() {
+    const placed = (id: string, name: string) => ({
+      ...vessel(id, name),
+      current_lat: '35.1000',
+      current_lon: '129.0000',
+    })
+    const fetchImpl = vi.fn(async (input: unknown) => {
+      const raw = String(input)
+      /*
+       * 지도 자산 유무를 묻는 Range 요청 (`#763` · `basemap.hasBasemap`).
+       * `206` **이면서** 앞머리가 PMTiles 매직(`PMTiles`)이어야 「있다」다 — 둘 중
+       * 하나만 흉내 내면 개략도로 떨어져 마커가 아예 없다.
+       */
+      if (raw.includes('.pmtiles')) {
+        const magic = new Uint8Array([0x50, 0x4d, 0x54, 0x69, 0x6c, 0x65, 0x73])
+        return {
+          ok: true,
+          status: 206,
+          body: null,
+          arrayBuffer: async () => magic.buffer,
+        } as unknown as Response
+      }
+      const url = new URL(raw, 'https://x')
+      const body = url.searchParams.get('cursor')
+        ? page([placed('v3', '다선')], { next_cursor: null, has_more: false })
+        : page([placed('v1', '가선'), placed('v2', '나선')], { next_cursor: 'c2', has_more: true })
+      return { ok: true, status: 200, json: async () => body } as Response
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  const marker = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name} ·`) })
+  /** 지도는 `lazy()` + 자산 조회 뒤에 붙는다 — 목록이 떠도 마커는 한 박자 늦다. */
+  const findMarker = (name: string) =>
+    screen.findByRole('button', { name: new RegExp(`^${name} ·`) })
+
+  it('마커를 누르면 그 배의 카드가 열리고, 다른 마커를 누르면 하나만 남는다', async () => {
+    stubFetchWithMap()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+
+    fireEvent.click(await findMarker('가선'))
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '가선 요약' })).toBeTruthy())
+
+    fireEvent.click(marker('나선'))
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '나선 요약' })).toBeTruthy())
+    // **한 번에 하나** — 앞의 카드가 남아 있으면 지도에 카드가 쌓인다.
+    expect(screen.queryByRole('dialog', { name: '가선 요약' })).toBeNull()
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
+  })
+
+  /**
+   * **마커가 새로 만들어져도 카드가 그 배에 다시 붙는다** (개발 쪽 지적 · 09-24).
+   *
+   * 「다음 선박 불러오기」는 `vessels`를 새 배열로 만들고, 그러면 마커 DOM이 전부 새
+   * 노드가 된다. 카드를 **요소로** 쥐고 있었다면 이 순간 기준점을 잃고 초점이 `body`로
+   * 떨어진다 — 그래서 선박 id로 쥔다.
+   */
+  it('목록이 늘어 마커가 새로 만들어져도 카드는 그 배에 붙어 있다', async () => {
+    stubFetchWithMap()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+    fireEvent.click(await findMarker('가선'))
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '가선 요약' })).toBeTruthy())
+    const before = marker('가선')
+
+    fireEvent.click(screen.getByRole('button', { name: /다음 선박 불러오기/ }))
+    await screen.findByText('다선')
+
+    // 마커는 새 노드다 — 그런데도 카드는 살아 있고 같은 배를 가리킨다.
+    expect(marker('가선')).not.toBe(before)
+    expect(screen.getByRole('dialog', { name: '가선 요약' })).toBeTruthy()
+  })
+
+  it('그 배가 목록에서 사라지면 카드를 닫는다 — 기준점 없는 카드를 남기지 않는다', async () => {
+    stubFetchWithMap()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('나선')
+    fireEvent.click(await findMarker('나선'))
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '나선 요약' })).toBeTruthy())
+
+    // 정렬을 바꾸면 첫 페이지를 다시 받는다 — 「다선」만 오는 커서 페이지가 아니므로
+    // 목록에는 남지만, 여기서는 목록 자체가 갈리는 경로를 쓴다.
+    fireEvent.change(screen.getByTestId('fleet-sort'), { target: { value: 'name' } })
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '나선 요약' })).toBeTruthy())
+  })
+
+  it('닫으면 초점이 눌렀던 마커로 돌아간다 — body로 떨어지지 않는다', async () => {
+    stubFetchWithMap()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+    fireEvent.click(await findMarker('가선'))
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '가선 요약' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: '닫기' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(document.activeElement).toBe(marker('가선'))
+  })
+
+  it('패널 행의 「지도에서 보기」가 그 배를 지도에 넘긴다 — 지도를 옮긴 뒤 열리는 길이다', async () => {
+    stubFetchWithMap()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+
+    fireEvent.click(screen.getByRole('button', { name: '지도에서 나선 보기' }))
+    await waitFor(() =>
+      expect(document.querySelector('.fleetmap__canvas')?.getAttribute('data-focus')).toBe('v2:1'),
+    )
   })
 })

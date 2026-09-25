@@ -356,9 +356,16 @@ describe('기능 사이 요청 계층 import (#1249)', () => {
     'features/voyage-cii/VoyageCiiActions.test.tsx → voyage-management/apiProvider',
     'features/voyage-cii/apiPath.test.ts → annual-simulation/apiProvider',
     'features/voyage-cii/apiPath.test.ts → scenario-comparison/apiProvider',
+    /*
+     * 마커 팝오버가 그 배의 **연말 예상**을 실시간 CII의 조회로 묻는다 (#1831).
+     * 선대 요약(`API_SPEC §2.8`)에는 그 값이 없고, 요약에 필드를 더하면 전 선박을
+     * 계산하는 경로가 되어 `#989`로 줄여 둔 쿼리 수가 다시 늘어난다. 같은 경로를
+     * 두 곳이 정의하면 한쪽만 고쳐졌을 때 두 화면이 다른 값을 말한다.
+     */
+    'features/fleet/VesselPopover.tsx → realtime-cii/apiProvider',
   ].sort()
 
-  it('요청 계층 결합은 사유가 적힌 다섯뿐이다', () => {
+  it('요청 계층 결합은 사유가 적힌 여섯뿐이다', () => {
     expect(crossFeatureProviderImports()).toEqual(COMPOSITION)
   })
 

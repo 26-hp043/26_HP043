@@ -13,6 +13,7 @@ import { ErrorState } from '../../components/ErrorState'
 import { PositionChart } from './PositionChart'
 import { UnconfirmedVoyages } from './UnconfirmedVoyages'
 import { PANEL_KEY, initialPanelOpen } from './panelState'
+import { VesselPopover, type PopoverAnchor } from './VesselPopover'
 /*
  * 지도는 **자산이 있을 때만** 내려받는다 (`#763`).
  *
@@ -110,6 +111,56 @@ export function FleetDashboard() {
    * (`initialPanelOpen`). 렌더 중 `window`를 읽지 않도록 초기화 함수로 넘긴다.
    */
   const [panelOpen, setPanelOpen] = useState(() => initialPanelOpen())
+
+  /*
+   * 마커 팝오버 (#1831) — **한 번에 하나.**
+   *
+   * ⚠️ **선박 id로 쥔다. 마커 요소로 쥐지 않는다.** 마커 DOM은 선박 목록이 바뀔 때마다
+   * 새로 만들어진다 — 정렬 변경 · 「다시 시도」 · 「다음 선박 불러오기」가 모두 그 경로다
+   * (개발 쪽 코드 점검 09-24). 요소를 쥐고 있으면 그 순간 카드가 기준점을 잃고, 닫을 때
+   * 돌아갈 초점도 사라진다. id로 쥐면 **새로 만들어진 마커에 다시 붙는다.**
+   */
+  const [pickedId, setPickedId] = useState<string | null>(null)
+  /**
+   * 카드를 놓는 데 필요한 치수 **한 묶음** — 마커 자리 · 무대 크기 · 패널 오른쪽 끝.
+   *
+   * 렌더 중에 `ref.current`를 읽어 그때그때 재지 않는다. 셋을 **같은 순간에** 재야
+   * 서로 어긋나지 않고, 렌더 중 ref 읽기는 다시 렌더될 때 값이 달라질 수 있다.
+   */
+  const [placement, setPlacement] = useState<{
+    anchor: PopoverAnchor
+    stage: { width: number; height: number }
+    panelRight: number
+  } | null>(null)
+  /** 좌측 패널의 행에서 고른 배. 같은 배를 다시 눌러도 다시 열리도록 nonce를 센다. */
+  const [focusRequest, setFocusRequest] = useState<{ id: string | null; nonce: number }>({
+    id: null,
+    nonce: 0,
+  })
+  const stageRef = useRef<HTMLDivElement | null>(null)
+  const panelRef = useRef<HTMLElement | null>(null)
+
+  /** 그 배의 마커. 쓸 때마다 찾는다 — 쥐고 있을 수 없기 때문이다(위 주석). */
+  const markerOf = useCallback(
+    (vesselId: string): HTMLElement | null =>
+      stageRef.current?.querySelector<HTMLElement>(`[data-vessel-id="${vesselId}"]`) ?? null,
+    [],
+  )
+
+  const closePicked = useCallback(
+    (returnFocus: boolean) => {
+      /*
+       * 초점은 **눌렀던 마커로** 돌려보낸다 — 카드가 사라진 자리에 초점이 남으면
+       * `body`로 떨어져 낭독이 화면 처음으로 돌아간다. 지도를 끌어 닫힌 경우는
+       * 되돌리지 않는다(`returnFocus: false`) — 끌던 손과 무관하게 초점이 튄다.
+       */
+      if (returnFocus && pickedId !== null) markerOf(pickedId)?.focus()
+      setPickedId(null)
+      setPlacement(null)
+    },
+    [markerOf, pickedId],
+  )
+  const handleClose = useCallback(() => closePicked(true), [closePicked])
   /**
    * 지도 자산이 있는가 (`#763`). `null`은 **아직 모른다**는 뜻이다 — 그동안은
    * 개략도를 그리되 「없다」는 문구를 붙이지 않는다. 잠깐 보였다 사라지는 경고는
@@ -241,6 +292,49 @@ export function FleetDashboard() {
   }
 
   const vessels = useMemo(() => snapshot?.vessels ?? [], [snapshot])
+
+  /** 카드가 가리키는 배. 목록에서 사라졌으면 `null`이고, 아래 effect가 카드를 닫는다 (#1831). */
+  const picked = useMemo(
+    () => (pickedId === null ? null : vessels.find((v) => v.id === pickedId) ?? null),
+    [pickedId, vessels],
+  )
+
+  /*
+   * 마커 자리를 **쓸 때마다 다시 잰다** (#1831).
+   *
+   * `useLayoutEffect`가 아니라 `useEffect`인 것은 마커를 지도에 붙이는 쪽
+   * (`MapRendererHost`의 갱신 effect)이 passive effect이기 때문이다 — layout effect는
+   * 그보다 **먼저** 돌아 아직 붙지 않은 마커를 재게 된다. passive effect는 자식이
+   * 먼저라 여기서는 이미 붙어 있다.
+   *
+   * `vessels`가 의존성에 있는 것은 **마커가 그때 새로 만들어지기** 때문이고(정렬 변경 ·
+   * 「다음 선박 불러오기」), `focusRequest.nonce`가 있는 것은 **같은 배를 다시 골랐을 때**
+   * 지도가 움직였으므로 자리가 달라지기 때문이다.
+   */
+  useEffect(() => {
+    if (pickedId === null) return
+    const stage = stageRef.current
+    const marker = markerOf(pickedId)
+    if (stage === null || marker === null || picked === null) {
+      // 기준점 없는 카드를 남기지 않는다 — 그 배가 목록에서 빠졌거나 지도에 없다.
+      setPickedId(null)
+      setPlacement(null)
+      return
+    }
+    const stageBox = stage.getBoundingClientRect()
+    const markerBox = marker.getBoundingClientRect()
+    const panelBox = panelRef.current?.getBoundingClientRect()
+    setPlacement({
+      anchor: {
+        left: markerBox.left - stageBox.left,
+        top: markerBox.top - stageBox.top,
+        size: markerBox.width,
+      },
+      stage: { width: stageBox.width, height: stageBox.height },
+      // 패널이 접혀 있으면 남은 버튼의 끝이다. 없으면 0 — 밀 이유가 없다.
+      panelRight: panelBox === undefined ? 0 : panelBox.right - stageBox.left,
+    })
+  }, [pickedId, picked, vessels, focusRequest.nonce, markerOf])
   // 서버 순서 그대로다(#772) — 다시 정렬하지 않는다.
   const sorted = vessels
 
@@ -477,7 +571,7 @@ export function FleetDashboard() {
         **오버레이는 지도의 일부다** — 좌측 패널 · 칩 · 도구 레일은 `§5` 카드 예산에서
         세지 않는다(정본 v2.28).
       */}
-      <div className="fleet__stage">
+      <div className="fleet__stage" ref={stageRef}>
         <div className="fleet__col">
           <section aria-label="선박 위치">
             <div className="fleet__chartbox">
@@ -490,7 +584,14 @@ export function FleetDashboard() {
                 // 내려받는 동안에는 개략도를 그대로 둔다 — 빈 칸이 번쩍이지 않는다.
                 <Suspense fallback={<PositionChart vessels={vessels} />}>
                   {/* 「다시 시도」가 못 받은 항로선도 다시 묻게 한다 (`#1856`). */}
-                  <FleetMap vessels={vessels} retryToken={retryKey} onRendererError={useMapFallback} />
+                  <FleetMap
+                    vessels={vessels}
+                    retryToken={retryKey}
+                    onRendererError={useMapFallback}
+                    onSelectVessel={setPickedId}
+                    focusVesselId={focusRequest.id}
+                    focusNonce={focusRequest.nonce}
+                  />
                 </Suspense>
               ) : (
                 <>
@@ -524,6 +625,7 @@ export function FleetDashboard() {
           접으면 버튼만 남고 지도가 전폭이 된다.
         */}
         <aside
+          ref={panelRef}
           className={`fleet__panel${panelOpen ? '' : ' fleet__panel--closed'}`}
           aria-label="선박 목록과 조치"
         >
@@ -628,7 +730,20 @@ export function FleetDashboard() {
 
           <ul className="vessels">
             {visible.map((vessel) => (
-              <VesselRow key={vessel.id} vessel={vessel} />
+              <VesselRow
+                key={vessel.id}
+                vessel={vessel}
+                /*
+                  지도가 없으면(개략도 폴백) 옮길 곳이 없고, 좌표가 없는 배는 지도에
+                  찍히지 않는다 — 두 경우 모두 버튼을 **그리지 않는다.** 눌러도 아무 일도
+                  일어나지 않는 버튼은 고장으로 읽힌다.
+                */
+                onLocate={
+                  basemap === true && vessel.lat !== null && vessel.lon !== null
+                    ? () => setFocusRequest((f) => ({ id: vessel.id, nonce: f.nonce + 1 }))
+                    : undefined
+                }
+              />
             ))}
           </ul>
 
@@ -681,6 +796,21 @@ export function FleetDashboard() {
         </section>
           </div>
         </aside>
+
+        {/*
+          마커 팝오버 (#1831) — **무대 안**이다. 바깥에 두면 자리 기준이 달라져 페이지를
+          스크롤할 때 따로 놀고, 무대가 잘라 주지도 않는다.
+        */}
+        {picked === null || placement === null ? null : (
+          <VesselPopover
+            key={picked.id}
+            vessel={picked}
+            anchor={placement.anchor}
+            stage={placement.stage}
+            panelRight={placement.panelRight}
+            onClose={handleClose}
+          />
+        )}
       </div>
 
       {/*
@@ -694,6 +824,7 @@ export function FleetDashboard() {
 
 /** 경고 배너가 가리키는 자리. 두 곳이 같은 문자열을 쓰므로 상수로 둔다. */
 const ACTIONS_ID = 'fleet-actions'
+
 
 function FleetHead({
   asOf,
@@ -784,7 +915,14 @@ function FleetPlaceholder({
   )
 }
 
-function VesselRow({ vessel }: { vessel: FleetVessel }) {
+function VesselRow({
+  vessel,
+  onLocate,
+}: {
+  vessel: FleetVessel
+  /** 지도에서 이 배를 보여 준다 (#1831). 지도가 없거나 좌표가 없으면 `undefined`다. */
+  onLocate?: () => void
+}) {
   return (
     <li className={isAtRisk(vessel) ? 'vessel vessel--risk' : 'vessel'}>
       <Link className="vessel__link" to={`/vessels/${vessel.id}`}>
@@ -866,6 +1004,23 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
           </span>
         </span>
       </Link>
+
+      {/*
+       * 지도로 가는 띠 (#1831) — **카드 링크 바깥**이다. `<a>` 안에 `<button>`을 겹칠 수
+       * 없고, 겹쳐 두면 행을 누르는 것이 어느 쪽인지도 흐려진다. 행 오른쪽 끝의 좁은
+       * 띠라 이름·수치가 쓰는 폭을 건드리지 않는다.
+       */}
+      {onLocate === undefined ? null : (
+        <button
+          type="button"
+          className="vessel__locate"
+          onClick={onLocate}
+          aria-label={`지도에서 ${vessel.name} 보기`}
+        >
+          <PinIcon />
+        </button>
+      )}
+
       {/*
        * 「기준값 없음」은 사용자가 할 수 있는 것이 없는 사유다 — 안내가 「운영자에게
        * 문의하세요」로 끝나는데 그 운영자가 갈 자리가 없었다 (`#1516` · `#1239` 결정 A).
@@ -881,6 +1036,16 @@ function VesselRow({ vessel }: { vessel: FleetVessel }) {
         </p>
       ) : null}
     </li>
+  )
+}
+
+/** 지도 핀 — 「지도에서 보기」 띠 안. 접근 가능한 이름은 버튼의 `aria-label`이 맡는다 (#1831). */
+function PinIcon() {
+  return (
+    <svg className="vessel__pin" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 21.5s7-6.6 7-11.5a7 7 0 1 0-14 0c0 4.9 7 11.5 7 11.5z" />
+      <circle cx="12" cy="10" r="2.6" />
+    </svg>
   )
 }
 
