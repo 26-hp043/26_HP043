@@ -62,7 +62,7 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
         # 미들웨어가 extra로 싣는 접근 요약 — 있으면 펴서 담는다.
-        for key in ("request_id", "method", "path", "status", "duration_ms", "client"):
+        for key in ("request_id", "method", "path", "status", "duration_ms", "client", "peer"):
             if (value := getattr(record, key, None)) is not None:
                 payload[key] = value
         if record.exc_info:

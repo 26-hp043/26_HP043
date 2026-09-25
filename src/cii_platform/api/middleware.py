@@ -25,6 +25,7 @@ from uuid import uuid4
 
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from cii_platform.api.rate_limit import client_ip
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.log_config import ACCESS_LOGGER
 
@@ -64,7 +65,10 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                     "path": request.url.path,
                     "status": status,
                     "duration_ms": duration_ms,
-                    "client": request.client.host if request.client else None,
+                    # 요청 한도와 같은 규칙으로 판정한 IP (#1483) — 프록시 뒤에서는 서명
+                    # 헤더의 원 클라이언트 IP다. `peer`는 소켓 상대(터널이면 localhost)다.
+                    "client": client_ip(request),
+                    "peer": request.client.host if request.client else None,
                 },
             )
 

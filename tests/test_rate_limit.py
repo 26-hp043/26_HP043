@@ -95,7 +95,7 @@ def test_client_ip_ignores_forwarded_by_default() -> None:
 
     # XFF가 있어도 client.host를 쓴다 (기본).
     req = _FakeRequest({"x-forwarded-for": "9.9.9.9"}, "127.0.0.1")
-    assert rl._client_ip(req) == "127.0.0.1"
+    assert rl.client_ip(req) == "127.0.0.1"
 
 
 def test_client_ip_uses_forwarded_when_enabled(monkeypatch) -> None:
@@ -115,10 +115,104 @@ def test_client_ip_uses_forwarded_when_enabled(monkeypatch) -> None:
 
     # XFF 우선.
     req = _FakeRequest({"x-forwarded-for": "9.9.9.9, 10.0.0.1"}, "127.0.0.1")
-    assert rl._client_ip(req) == "9.9.9.9"
+    assert rl.client_ip(req) == "9.9.9.9"
     # 없으면 client.host.
     req = _FakeRequest({}, "127.0.0.1")
-    assert rl._client_ip(req) == "127.0.0.1"
+    assert rl.client_ip(req) == "127.0.0.1"
+
+
+# ---------------------------------------------------------------------------
+# #1483 — 프록시 서명 헤더
+#
+# 클라우드에서는 모든 요청이 터널을 거쳐 `localhost`로 들어와 `client.host`가 같다.
+# 프록시가 원 IP를 `X-BlueLog-Client-IP`에 싣고 비밀 값을 붙이면 **그 값이 맞을 때만**
+# 원 IP로 센다. 나머지 경우는 전부 종전 규칙이다 — 아래 네 검사가 그 경계다.
+# ---------------------------------------------------------------------------
+
+_TUNNEL_PEER = "127.0.0.1"
+_SECRET = "s3cret-for-tests"
+
+
+class _Client:
+    def __init__(self, host: str) -> None:
+        self.host = host
+
+
+class _Req:
+    """`client_ip`가 읽는 두 속성만 가진 요청."""
+
+    def __init__(self, headers: dict[str, str], client_host: str = _TUNNEL_PEER) -> None:
+        self.headers = headers
+        self.client = _Client(client_host)
+
+
+def _signed(ip: str, secret: str = _SECRET) -> dict[str, str]:
+    return {"x-bluelog-client-ip": ip, "x-bluelog-proxy-secret": secret}
+
+
+def test_signed_proxy_ip_is_used_when_the_secret_matches(monkeypatch) -> None:
+    """비밀 값이 맞으면 프록시가 실은 원 IP로 센다 — 전원이 한 버킷을 나눠 쓰지 않는다."""
+    import cii_platform.api.rate_limit as rl
+
+    monkeypatch.setattr(rl, "_PROXY_CLIENT_IP_SECRET", _SECRET)
+    assert rl.client_ip(_Req(_signed("203.0.113.7"))) == "203.0.113.7"
+    # IPv6는 표준형으로 맞춘다 — 같은 주소를 다르게 적었다고 버킷이 갈리지 않게.
+    assert rl.client_ip(_Req(_signed("2001:DB8:0:0::1"))) == "2001:db8::1"
+
+
+def test_signed_proxy_ip_is_ignored_when_the_secret_is_wrong(monkeypatch) -> None:
+    """비밀 값이 틀리면 헤더를 무시한다 — `:8001`로 직접 들어와 IP를 적는 위조."""
+    import cii_platform.api.rate_limit as rl
+
+    monkeypatch.setattr(rl, "_PROXY_CLIENT_IP_SECRET", _SECRET)
+    assert rl.client_ip(_Req(_signed("203.0.113.7", "guess"), "198.51.100.9")) == "198.51.100.9"
+    # 비밀 헤더 없이 IP 헤더만 보내도 마찬가지다.
+    assert rl.client_ip(_Req({"x-bluelog-client-ip": "203.0.113.7"}, "198.51.100.9")) == (
+        "198.51.100.9"
+    )
+    # 비ASCII 값이 와도 `compare_digest`가 TypeError를 내지 않는다.
+    assert rl.client_ip(_Req(_signed("203.0.113.7", "비밀"))) == _TUNNEL_PEER
+
+
+def test_signed_proxy_path_is_off_when_no_secret_is_configured(monkeypatch) -> None:
+    """서버에 비밀 값이 없으면 경로 전체가 꺼진다 — 빈 헤더와 빈 설정이 「일치」하지 않는다."""
+    import cii_platform.api.rate_limit as rl
+
+    monkeypatch.setattr(rl, "_PROXY_CLIENT_IP_SECRET", "")
+    assert rl.proxy_client_ip_enabled() is False
+    assert rl.client_ip(_Req(_signed("203.0.113.7", ""))) == _TUNNEL_PEER
+    assert rl.client_ip(_Req(_signed("203.0.113.7", "anything"))) == _TUNNEL_PEER
+
+
+def test_signed_proxy_ip_must_be_an_ip(monkeypatch) -> None:
+    """서명이 맞아도 값이 IP가 아니면 카운터 키로 쓰지 않는다 — 프록시 결함 대비."""
+    import cii_platform.api.rate_limit as rl
+
+    monkeypatch.setattr(rl, "_PROXY_CLIENT_IP_SECRET", _SECRET)
+    for bad in ("", "  ", "203.0.113.7, 10.0.0.1", "not-an-ip"):
+        assert rl.client_ip(_Req(_signed(bad))) == _TUNNEL_PEER
+
+
+def test_signed_proxy_ips_get_separate_counters_through_the_middleware(monkeypatch) -> None:
+    """미들웨어를 거쳐서도 두 사용자가 따로 센다 — 한 사람이 한도를 다 써도 다른 사람은 통과."""
+    import cii_platform.api.rate_limit as rl
+
+    monkeypatch.setattr(rl, "_PROXY_CLIENT_IP_SECRET", _SECRET)
+    client = TestClient(_app_with_limit(1))
+    assert client.get("/api/v1/health", headers=_signed("203.0.113.1")).status_code == 200
+    assert client.get("/api/v1/health", headers=_signed("203.0.113.1")).status_code == 429
+    assert client.get("/api/v1/health", headers=_signed("203.0.113.2")).status_code == 200
+
+
+def test_ipv6_is_counted_per_64_block() -> None:
+    """IPv6는 `/64` 대역으로 센다 — 한 가입자가 대역 안에서 주소를 바꿔 한도를 피하지 못한다."""
+    import cii_platform.api.rate_limit as rl
+
+    assert rl.limit_key("2001:db8:1:2::1") == rl.limit_key("2001:db8:1:2:ffff::9")
+    assert rl.limit_key("2001:db8:1:2::1") != rl.limit_key("2001:db8:1:3::1")
+    # IPv4와 IP 아닌 값은 그대로다.
+    assert rl.limit_key("203.0.113.7") == "203.0.113.7"
+    assert rl.limit_key("unknown") == "unknown"
 
 
 def test_limiter_window_resets_after_expiry() -> None:

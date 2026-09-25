@@ -10,7 +10,15 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { forwardableRequestHeaders, readApiOrigin, toUpstreamUrl } from './_proxy'
+import {
+  attachClientIp,
+  CLIENT_IP_HEADER,
+  forwardableRequestHeaders,
+  PROXY_SECRET_HEADER,
+  readApiOrigin,
+  readProxySecret,
+  toUpstreamUrl,
+} from './_proxy'
 
 const ORIGIN = 'http://131.186.22.10:8001'
 
@@ -87,5 +95,61 @@ describe('readApiOrigin', () => {
     expect(() => readApiOrigin({ API_ORIGIN: '' })).toThrow(/API_ORIGIN/)
     expect(() => readApiOrigin({ API_ORIGIN: '   ' })).toThrow(/API_ORIGIN/)
     expect(() => readApiOrigin({ API_ORIGIN: 42 })).toThrow(/API_ORIGIN/)
+  })
+})
+
+describe('원 클라이언트 IP 전달 (#1483)', () => {
+  const SECRET = 's3cret-for-tests'
+
+  it('백엔드와 같은 헤더 이름을 쓴다', () => {
+    // 이름이 어긋나면 백엔드가 헤더를 보지 못하고 조용히 종전 규칙으로 센다.
+    expect(CLIENT_IP_HEADER).toBe('x-bluelog-client-ip')
+    expect(PROXY_SECRET_HEADER).toBe('x-bluelog-proxy-secret')
+  })
+
+  it('비밀 값이 있으면 원 IP와 비밀 값을 싣는다', () => {
+    const incoming = new Headers({ 'cf-connecting-ip': '203.0.113.7', cookie: 'sid=a' })
+    const upstream = attachClientIp(forwardableRequestHeaders(incoming), incoming, SECRET)
+
+    expect(upstream.get(CLIENT_IP_HEADER)).toBe('203.0.113.7')
+    expect(upstream.get(PROXY_SECRET_HEADER)).toBe(SECRET)
+    // 원래 이름은 여전히 넘기지 않는다.
+    expect(upstream.get('cf-connecting-ip')).toBeNull()
+    expect(upstream.get('cookie')).toBe('sid=a')
+  })
+
+  it('비밀 값이나 원 IP가 없으면 아무것도 싣지 않는다', () => {
+    const withIp = new Headers({ 'cf-connecting-ip': '203.0.113.7' })
+    const noSecret = attachClientIp(forwardableRequestHeaders(withIp), withIp, '')
+    expect(noSecret.get(CLIENT_IP_HEADER)).toBeNull()
+    expect(noSecret.get(PROXY_SECRET_HEADER)).toBeNull()
+
+    const withoutIp = new Headers({})
+    const noIp = attachClientIp(forwardableRequestHeaders(withoutIp), withoutIp, SECRET)
+    expect(noIp.get(CLIENT_IP_HEADER)).toBeNull()
+    expect(noIp.get(PROXY_SECRET_HEADER)).toBeNull()
+  })
+
+  it('브라우저가 보낸 같은 이름의 헤더를 떼어 낸다 — 위조', () => {
+    const forged = new Headers({
+      [CLIENT_IP_HEADER]: '198.51.100.1',
+      [PROXY_SECRET_HEADER]: 'guess',
+    })
+    // 비밀 값이 없는 배포에서도 위조 헤더가 흘러가지 않는다.
+    const passed = attachClientIp(forwardableRequestHeaders(forged), forged, '')
+    expect(passed.get(CLIENT_IP_HEADER)).toBeNull()
+    expect(passed.get(PROXY_SECRET_HEADER)).toBeNull()
+
+    // 비밀 값이 있으면 엣지가 붙인 값으로 덮인다.
+    forged.set('cf-connecting-ip', '203.0.113.7')
+    const replaced = attachClientIp(forwardableRequestHeaders(forged), forged, SECRET)
+    expect(replaced.get(CLIENT_IP_HEADER)).toBe('203.0.113.7')
+    expect(replaced.get(PROXY_SECRET_HEADER)).toBe(SECRET)
+  })
+
+  it('readProxySecret은 없으면 빈 문자열이다 — 던지지 않는다', () => {
+    expect(readProxySecret({ PROXY_CLIENT_IP_SECRET: `  ${SECRET}  ` })).toBe(SECRET)
+    expect(readProxySecret({})).toBe('')
+    expect(readProxySecret({ PROXY_CLIENT_IP_SECRET: 42 })).toBe('')
   })
 })

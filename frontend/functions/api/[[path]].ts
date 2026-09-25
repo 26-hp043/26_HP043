@@ -8,7 +8,13 @@
  * 여기로 온다. 파일 이름이 곧 라우트이므로 별도 등록이 없다.
  */
 
-import { forwardableRequestHeaders, readApiOrigin, toUpstreamUrl } from '../_proxy'
+import {
+  attachClientIp,
+  forwardableRequestHeaders,
+  readApiOrigin,
+  readProxySecret,
+  toUpstreamUrl,
+} from '../_proxy'
 
 /** Pages Functions가 넘겨주는 문맥 — 이 함수가 쓰는 것만 적는다. */
 interface ProxyContext {
@@ -38,7 +44,12 @@ export async function onRequest(context: ProxyContext): Promise<Response> {
 
   const upstream = new Request(toUpstreamUrl(request.url, apiOrigin), {
     method: request.method,
-    headers: forwardableRequestHeaders(request.headers),
+    // 원 클라이언트 IP를 서명과 함께 싣는다 — 백엔드 요청 한도가 사람마다 센다 (#1483).
+    headers: attachClientIp(
+      forwardableRequestHeaders(request.headers),
+      request.headers,
+      readProxySecret(env),
+    ),
     // `GET`·`HEAD`에는 본문이 없다. 그 밖에는 스트림을 그대로 흘린다 —
     // CSV 적재처럼 큰 본문을 메모리에 모으지 않기 위함이다.
     body: request.method === 'GET' || request.method === 'HEAD' ? null : request.body,
