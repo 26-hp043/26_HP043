@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import '../../test/renderSetup'
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
@@ -175,5 +178,26 @@ describe('마커 팝오버 — 자리 (#1831 · §9.5)', () => {
     open({ anchor: { left: 100, top: 560, size: 22 } })
     // 600 - 190 - 10 = 400
     expect(styleOf()).toContain('top: 400px')
+  })
+})
+
+/**
+ * 초점 링을 카드에 그리지 않는다 (`DESIGN_SYSTEM §14` 🔒 · `#1283`).
+ *
+ * 조항이 「열릴 때 초점을 받는 오버레이 패널」을 이름까지 적어 대상으로 두었고,
+ * `global.css`의 `[tabindex='-1']:focus-visible`이 그 일을 한다. 이 파일에 같은
+ * 선택자를 두면 **명시도가 같아 나중에 오는 쪽이 이겨** 조항이 조용히 뒤집힌다.
+ * 화면은 멀쩡해 보이므로(링이 하나 더 그려질 뿐) 검사가 없으면 되돌아간다.
+ */
+describe('마커 팝오버 — 초점 표시 (§14 🔒)', () => {
+  it('카드 자신에게 초점 링을 그리는 규칙이 없다', () => {
+    const css = readFileSync(join(import.meta.dirname, 'VesselPopover.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(css).not.toMatch(/\.vpop:focus(-visible)?\s*\{/)
+  })
+
+  it('링은 안쪽 요소가 받는다 — 닫기 버튼', () => {
+    const css = readFileSync(join(import.meta.dirname, 'VesselPopover.css'), 'utf8')
+    expect(css).toMatch(/\.vpop__close:focus-visible\s*\{/)
   })
 })
