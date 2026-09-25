@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 
 import pytest
-from migration_stub import head_triggers, install, load_chain
+from migration_stub import head_triggers, install, load_chain, run_chain
 
 _ROOT = Path(__file__).resolve().parents[1]
 _DOC = _ROOT / "DB_SCHEMA.md"
@@ -72,6 +72,44 @@ def test_trigger_total_matches_migrations(monkeypatch: pytest.MonkeyPatch):
     assert int(match.group(2)) == len(live), (
         f"§7.4 head 열 합계 {match.group(2)} ≠ 마이그레이션 실측 {len(live)}"
     )
+
+
+def test_no_migration_changes_a_trigger_body_through_create_trigger(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """이미 있는 이름에 **다른 본문**으로 ``create_trigger``를 부르는 리비전이 없다 (#1861).
+
+    헬퍼는 「있으면 만들지 않는다」라 그 호출을 **조용히 건너뛴다** — 운영 DB에는 옛 정의가
+    남고 새 DB에는 새 정의가 들어가 둘이 갈린다. 이름·개수 대조로는 보이지 않는다(둘 다
+    같은 이름 하나다). 본문을 바꾸는 리비전은 ``replace_trigger``를 써야 한다.
+    """
+    op = run_chain(monkeypatch, _PREFIX + "_bodies")
+    assert op.bodies, "트리거 본문을 하나도 모으지 못했다 — 이 검사가 헛돌고 있다"
+    assert op.skipped_changes == [], (
+        "create_trigger가 다른 본문을 건너뛴다(본문을 바꾸려면 replace_trigger): "
+        + "; ".join(name for name, _before, _after in op.skipped_changes)
+    )
+
+
+def test_a_body_change_slipped_into_the_chain_is_caught(monkeypatch: pytest.MonkeyPatch):
+    """대조군 — 조건만 바꾼 가짜 리비전을 사슬 끝에 끼우면 위 검사가 잡는다 (#1861 완료 기준).
+
+    같은 변경을 ``replace_trigger``로 하면 잡히지 않는다 — 지우고 만들므로 갈리지 않는다.
+    """
+    op = run_chain(monkeypatch, _PREFIX + "_control")
+    from cii_platform.db import trigger_ddl
+
+    name = "trg_chk_call_sign_ins"
+    assert name in op.bodies, f"{name}이 head에 없다 — 대조군 대상을 바꿀 것"
+    changed = "BEFORE INSERT ON vessel IF NOT (new.call_sign IS NULL) EXECUTE REJECT"
+
+    trigger_ddl.create_trigger(op, name, changed)  # 가짜 리비전 — 헬퍼로 조건만 바꾼다
+    assert [entry[0] for entry in op.skipped_changes] == [name]
+
+    op.skipped_changes.clear()
+    trigger_ddl.replace_trigger(op, name, changed)  # 올바른 방법
+    assert op.skipped_changes == []
+    assert op.bodies[name] == changed
 
 
 def test_annual_simulation_run_columns_match_orm():

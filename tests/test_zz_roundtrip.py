@@ -140,6 +140,21 @@ async def _assert_trigger_set_matches_migrations(monkeypatch: pytest.MonkeyPatch
     )
 
 
+#: 트리거 정의로 비교하는 열 — ``db_trigger``의 이름·조건·액션·시점. ``target_class``·``owner``는
+#: OID라 표를 다시 만들면 바뀌므로 넣지 않는다(뜻은 같다). CUBRID는 조건을 다시 써서 저장하므로
+#: (``new.x`` → ``[new].[x]`` · ``IN (…)`` → ``in set{…}``) 마이그레이션 원문과는 대조하지 않고,
+#: **같은 DB가 왕복 전후에 같은 정의를 갖는가**를 본다 (#1861).
+_TRIGGER_DEFINITION_SQL = (
+    "SELECT name, event, condition_type, condition, condition_time, "
+    "action_type, action_definition, action_time, status, priority FROM db_trigger"
+)
+
+
+async def _trigger_definitions() -> dict[str, tuple]:
+    rows = await _db_trigger_rows(_TRIGGER_DEFINITION_SQL)
+    return {row[0]: tuple(row[1:]) for row in rows}
+
+
 async def test_head_has_no_duplicate_trigger_names():
     """같은 이름의 트리거가 둘 이상 없다 (#1373).
 
@@ -175,12 +190,19 @@ def test_downgrade_upgrade_roundtrip(monkeypatch: pytest.MonkeyPatch):
     """
     asyncio.run(_clear_demo_data())
     try:
+        before = asyncio.run(_trigger_definitions())
+        assert before, "트리거 정의를 하나도 읽지 못했다 — 아래 대조가 헛돈다"
         down = run_alembic("downgrade", "base")
         assert down.returncode == 0, f"{down.stdout}\n{down.stderr}"
         up = run_alembic("upgrade", "head")
         assert up.returncode == 0, f"{up.stdout}\n{up.stderr}"
         asyncio.run(_assert_no_duplicate_trigger_names())
         asyncio.run(_assert_trigger_set_matches_migrations(monkeypatch))
+        # 이름이 같아도 **정의**가 갈릴 수 있다 — 헬퍼가 「있으면 건너뛴다」로 옛 본문을 남기는
+        # 경로(#1861). 왕복 전 head와 새로 올린 head의 조건·액션이 같아야 한다.
+        after = asyncio.run(_trigger_definitions())
+        changed = sorted(name for name in before if before[name] != after.get(name))
+        assert changed == [], f"왕복 전후 트리거 정의가 다르다: {changed}"
     finally:
         # 성공/실패와 무관하게 head로 복원한다(happy path에서는 no-op).
         _restore_to_head()
