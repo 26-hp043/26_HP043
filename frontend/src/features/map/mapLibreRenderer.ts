@@ -187,6 +187,22 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
         fitted = true
       }
     }
+    let vesselLayerPending = false
+    /** 조건이 갖춰진 첫 순간에 3D 선체 layer를 올린다. 두 번 만들지 않는다. */
+    const ensureVesselLayer = () => {
+      if (!ready || vesselLayer !== null || vesselLayerPending) return
+      if (!quality.globe || (model.vessels?.length ?? 0) === 0) return
+      vesselLayerPending = true
+      void import('./vesselLayer').then(({ createGlobeVesselLayer }) => {
+        vesselLayerPending = false
+        if (destroyed) return
+        vesselLayer = createGlobeVesselLayer(map, { mode: model.mode, vessels: model.vessels ?? [] })
+      }, (error: unknown) => {
+        vesselLayerPending = false
+        emit({ type: 'error', error: error instanceof Error ? error : new Error(String(error)) })
+      })
+    }
+
     map.on('load', () => {
       // style이 준비된 뒤 projection을 바꿔야 MapLibre가 초기화 오류를 내지 않는다.
       // 정적 자산은 vector PMTiles뿐이라 DEM을 추정해 terrain을 만들지 않는다.
@@ -198,13 +214,7 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
       }
       ready = true
       draw()
-      if (quality.globe && (model.vessels?.length ?? 0) > 0) {
-        void import('./vesselLayer').then(({ createGlobeVesselLayer }) => {
-          if (destroyed) return
-          vesselLayer = createGlobeVesselLayer({ mode: model.mode, vessels: model.vessels ?? [] })
-          map.addLayer(vesselLayer.layer)
-        }, (error: unknown) => emit({ type: 'error', error: error instanceof Error ? error : new Error(String(error)) }))
-      }
+      ensureVesselLayer()
       emit({ type: 'ready' })
     })
 
@@ -212,10 +222,16 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
       update(next) {
         model = next
         draw()
+        // 선박이 **나중에 도착해도** 3D 선체가 선다 (`#1917`). 종전에는 `load` 시점에
+        // 선박이 없으면 layer를 영영 만들지 않았다 — 목록을 서버에서 받는 화면에서는
+        // 그 순간이 비어 있는 것이 정상이라, 배가 와도 평면 마커만 남았다.
+        ensureVesselLayer()
         vesselLayer?.update({ mode: next.mode, vessels: next.vessels ?? [] })
       },
       destroy() {
         destroyed = true
+        vesselLayer?.destroy()
+        vesselLayer = null
         resizeObserver?.disconnect()
         for (const marker of markers) marker.remove()
         for (const marker of portMarkers) marker.remove()

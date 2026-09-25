@@ -151,10 +151,9 @@ export const playbackRenderer: MapRenderer<PlaybackRendererModel> = {
           try {
             const { createGlobeVesselLayer } = await import('./vesselLayer')
             if (disposed) return
-            vesselLayer = createGlobeVesselLayer({
+            vesselLayer = createGlobeVesselLayer(instance, {
               mode: 'playback', vessels: [{ id: 'playback-vessel', coordinate: coordinates[0], heading: null }],
             })
-            instance.addLayer(vesselLayer.layer)
           } catch (error) {
             // 3D 선박만 실패하면 DOM marker와 playback은 유지한다.
             console.warn('[PlaybackRenderer] 3D 선박 layer를 사용할 수 없습니다.', error)
@@ -218,6 +217,9 @@ export const playbackRenderer: MapRenderer<PlaybackRendererModel> = {
       destroy() {
         disposed = true
         playbackCleanup?.()
+        // overlay 캔버스를 먼저 걷는다 — 지도를 버린 뒤에는 `off('render')`가 닿지 않는다.
+        vesselLayer?.destroy()
+        vesselLayer = null
         camera?.destroy()
         if (ownsController) controller?.destroy()
         marker?.remove()

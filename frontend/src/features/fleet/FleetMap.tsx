@@ -10,6 +10,7 @@ import { getKnownRouteSource } from '../map/routeGeometry'
 import { routeDisclosure } from '../map/routeDisclosure'
 import { adaptFleetMap } from '../map/adapters'
 import { MapRendererHost, type MapRendererEvent } from '../map/renderer'
+import { mapQualityPolicy } from '../map/quality'
 import { mapLibreRenderer, type MapLibreMapModel } from '../map/mapLibreRenderer'
 import { useSamplePorts } from '../ports/samplePorts'
 import { routeFeatureCollection } from '../map/routeModel'
@@ -127,8 +128,13 @@ interface FleetMapProps {
   onRendererError?: (error: Error) => void
 }
 
-/** 마커 DOM. 배 모양 + 등급색 + 등급 문자. */
-function markerElement(vessel: MapVessel): HTMLElement {
+/**
+ * 마커 DOM. 배 모양 + 등급색 + 등급 문자.
+ *
+ * `hullIs3d`면 **배 모양을 그리지 않는다** (`#1917`) — three가 3D 선체를 그리는데
+ * 평면 SVG 배까지 그리면 같은 자리에 배가 둘이 된다. 등급 문자 배지는 남는다.
+ */
+function markerElement(vessel: MapVessel, hullIs3d = false): HTMLElement {
   const root = document.createElement('div')
   root.className = 'fleetmap__marker'
   const rating = vessel.ytdRating
@@ -137,6 +143,7 @@ function markerElement(vessel: MapVessel): HTMLElement {
   const atRisk = isAtRisk({ riskReasons: vessel.riskReasons ?? [] })
   if (atRisk) root.classList.add('fleetmap__marker--risk')
 
+  if (hullIs3d) root.classList.add('fleetmap__marker--hull3d')
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', `0 0 ${VESSEL_GRID} ${VESSEL_GRID}`)
   svg.setAttribute('aria-hidden', 'true')
@@ -239,9 +246,17 @@ export function FleetMap({
     if (event.type === 'error') onRendererError?.(event.error)
   }, [onRendererError])
 
+  /*
+   * 3D 선체를 쓸 수 있는 환경인가 (`#1917`).
+   *
+   * 켜지면 마커는 **등급 배지만** 남긴다 — 3D 선체가 배를 그리는데 평면 SVG 배까지
+   * 그리면 같은 자리에 배가 둘이 된다. ⚠️ **등급 문자를 지우지 않는다**
+   * (`DESIGN_SYSTEM §14` — 색으로만 말하지 않는다). 선체가 색을, 배지가 문자를 맡는다.
+   */
+  const vesselsAre3d = mapQualityPolicy().globe
   const rendererMarkers = useMemo(() => adapted.positions.map(({ vessel, lon, lat }) => ({
-    coordinate: [lon, lat] as const, element: markerElement(vessel),
-  })), [adapted.positions])
+    coordinate: [lon, lat] as const, element: markerElement(vessel, vesselsAre3d),
+  })), [adapted.positions, vesselsAre3d])
   const rendererModel = useMemo<MapLibreMapModel>(() => {
     const points = adapted.positions
     const bounds: [number, number][] = points.map(({ lon, lat }) => [lon, lat])
@@ -259,6 +274,8 @@ export function FleetMap({
         heading: vessel.courseDeg === null || vessel.courseDeg === undefined || !Number.isFinite(Number(vessel.courseDeg))
           ? null
           : Number(vessel.courseDeg),
+        // 선체 색이 등급을 잇는다 (`#1917`). 문자 채널은 아래 마커 배지가 계속 맡는다.
+        rating: vessel.ytdRating,
       })),
       routes: { data: routeFeatureCollection(asks, lines), attribution: ROUTE_ATTRIBUTION, bounds },
     }

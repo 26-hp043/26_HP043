@@ -147,3 +147,36 @@
   font-size: 9px;
   line-height: 1.2;
 }
+
+/*
+ * 3D 선체가 켜진 지도 (`#1917`).
+ *
+ * 배는 three가 그리므로 **평면 SVG 배를 지운다** — 같은 자리에 배가 둘이 되면 어느 쪽이
+ * 위치인지 읽을 수 없다. ⚠️ **등급 문자 배지는 남는다**(`DESIGN_SYSTEM §14` — 등급을
+ * 색으로만 말하지 않는다): 선체가 색을, 이 배지가 문자를 맡는다.
+ *
+ * 배지는 선체 위로 살짝 올린다 — 선체 한가운데 겹치면 둘 다 읽기 어렵다.
+ */
+.fleetmap__marker--hull3d svg {
+  display: none;
+}
+
+.fleetmap__marker--hull3d {
+  transform: translateY(-18px);
+}
+
+/*
+ * 3D 선박 overlay 캔버스 (`#1917`).
+ *
+ * MapLibre의 GL 컨텍스트를 공유하면 three의 그림이 화면에 닿지 않았다(실측 · `vesselLayer.ts`).
+ * 지도 캔버스 위에 한 장 더 얹고 `map.project()`가 준 화면 좌표에 그린다.
+ *
+ * ⚠️ **포인터를 받지 않는다** — 받으면 지도의 끌기·확대가 멈춘다.
+ */
+.fleetmap__vessels {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  pointer-events: none;
+}
