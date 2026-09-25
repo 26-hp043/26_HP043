@@ -137,8 +137,8 @@ function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
         요약 띠 (#1766). 종전에는 카드 안의 4칸이었다 — 건수 넷과 완결성은 「한 덩어리의
         데이터」가 아니라 아래 목록을 읽는 눈금이라 면을 띄우지 않는다(`§5` 카드 예산).
 
-        **결론 띠(`§8.6`)가 아니다.** 이 화면의 답은 하나가 아니라 성격이 다른 네 축의
-        건수다 — 하나로 합치면 그 넷을 한 수로 뭉갠다.
+        **결론 띠(`§8.6`)가 아니다.** 이 화면의 답은 하나가 아니라 성격이 다른 다섯 축의
+        건수다 — 하나로 합치면 그 다섯을 한 수로 뭉갠다(`#1197`이 다섯째를 더했다).
       */}
       <dl className="dq__tiles" aria-label={COPY.summaryTitle}>
         {(['SUBSTITUTED', 'UNAVAILABLE', 'ANOMALY', 'UNCONFIRMED', 'PUBLIC_RECORD'] as const).map((severity) => (
@@ -250,7 +250,7 @@ function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
           </>
         )}
         {/*
-          심각도 넷의 뜻은 `DESIGN_SYSTEM §2.3.1` 「의미」 열이라 화면에서 없애지 않는다.
+          심각도 다섯의 뜻은 `DESIGN_SYSTEM §2.3.1` 「의미」 열이라 화면에서 없애지 않는다.
           그룹마다 한 줄이던 것을 접기 하나로 모은다 — 늘 펴 두면 표보다 설명이 길어진다.
         */}
         <details className="dq__legend">
