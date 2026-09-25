@@ -159,11 +159,11 @@ Cloudflare 영역이라, 영역 사이 서브리퀘스트에는 Cloudflare가 �
 ### 2.2 메모리 예산 (1GB VM)
 
 ```
-app-01 (956MB 전체):
+app-01 (956MB 전체 + 2GB 스왑):
   ourtax-backend:  ~82MB  (512MB 제한)
   cii-backend:     ~80MB  (512MB 제한)
   OS + Docker:     ~250MB
-  여유:            ~540MB
+  여유:            ~540MB + 스왑
 
 db-01 (956MB 전체 + 4GB 스왑):
   ourtax-cubrid:   ~33MB  (2GB 제한, 실사용 적음)
@@ -171,6 +171,13 @@ db-01 (956MB 전체 + 4GB 스왑):
   OS + Docker:     ~200MB
   여유:            ~690MB + 스왑
 ```
+
+> 🔴 **app-01의 스왑은 2026-09-25까지 0이었다** (`#1911`). 설치 체크리스트가
+> 「이미 our-tax에서 적용됐을 수 있음」으로 적혀 있었고, 실제로는 한 번도 적용되지
+> 않았다. 그 상태에서 배포가 이미지 풀과 `migrate` 컨테이너를 얹자 **호스트째
+> 멈췄다** — sshd가 배너조차 돌려주지 못해 배포가 `Broken pipe`로 끊기고, 터널
+> 커넥터까지 죽어 API는 Cloudflare `error 1033`이 됐다. 배포가 두 번 연속 그렇게
+> 실패했다. **여유는 짐작하지 말고 실측한다** — `ssh ubuntu@<app-01> 'free -m; swapon --show'`.
 
 ---
 
@@ -1276,9 +1283,10 @@ RuntimeError: MAIL_BACKEND=console은 프로덕션에서 사용할 수 없습니
 ```bash
 # 메모리 확인
 free -m
+swapon --show      # 비어 있으면 스왑이 없다 — 아래를 돌린다 (#1911)
 docker stats --no-stream
 
-# zram 스왑 설정 (최초 1회)
+# 스왑 설정 (멱등 · 재부팅을 견디는 /swapfile을 만든다)
 sudo ~/bluelog/ops/host/setup-zram-swap.sh
 
 # 불필요한 이미지 정리
@@ -1384,6 +1392,6 @@ DELETE /api/v1/auth/me (X-CSRF-Token) → 204, 이후 /auth/me → 401   ← 검
 - [x] ~~**CUBRID 비밀번호 설정**~~ — 완료. `CUBRID_PASSWORD` 시크릿이 배포·헬스체크 양쪽에 쓰인다
 - [ ] **DB 포트 게시 주소 실측**(`#1641`) → 적용 뒤 db-01에서 `ss -ltnp 'sport = :33100'`이 사설 IP 한 줄만 보이는지, 외부(공인 IP)에서 `nc -vz -w 5 132.226.170.195 33100`이 붙지 않는지 **사람이 한 번 확인**한다(§4.1). ⚠️ 2026-09-24 기준 미실측
 - [ ] **ufw 활성화**(SSH만) → `ops/host/ufw-db-01.sh` 실행. ⚠️ ourtax와 공유하는 호스트라 **호스트 소유자 확인이 먼저**다. CUBRID 포트는 ufw 소관이 아니다(`#1641` · §4.1)
-- [ ] **zram 스왑** → `ops/host/setup-zram-swap.sh` 실행 (이미 our-tax에서 적용됐을 수 있음)
+- [x] ~~**app-01 스왑**~~ — 완료(2026-09-25 · `#1911`). `/swapfile` 2GB · `/etc/fstab` 등록 · `swappiness=10`. 종전 항목은 「이미 our-tax에서 적용됐을 수 있음」이었고 **실제로는 스왑 0이었다** — 그 상태에서 배포가 호스트를 두 번 멈춰 세웠다. 다른 호스트에 적용할 때는 `sudo ops/host/setup-zram-swap.sh` 뒤 **`swapon --show`에 `/swapfile` 줄이 보이는지 확인한다**(zram만 있으면 재부팅에 사라진다)
 - [ ] **백업 절차** → 정기 백업 스크립트 (#788)
 - [ ] **모니터링** → 헬스 체크 주기적 확인 (#790)
