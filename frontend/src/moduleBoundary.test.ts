@@ -166,10 +166,6 @@ const KEPT: Readonly<Record<string, string>> = {
     '#1430 렌더러의 mount/update/destroy 수명 주기 계약',
   'features/annual-simulation/visualization/model.ts::AnnualSimulationVisualizationModel':
     '#1430 계산 결과를 렌더러에 복사하는 출력 계약',
-  'features/annual-simulation/visualization/model.ts::MapGeometry':
-    '#1430 스냅샷 일치 여부를 검사하는 지리 데이터 입력 계약',
-  'features/annual-simulation/visualization/model.ts::SnapshotRouteGeometry':
-    '#1430 스냅샷 항차별 표시 좌표 계약. API_SPEC §6.1에는 아직 좌표가 없다',
   // ── 의도된 보관: 지금 쓰이지 않지만 지우지 않는다 ─────────────────────────
   'components/ComingSoon.tsx::ComingSoon':
     '#594 판정 — 렌더 소비처가 0곳이지만 미구현 화면의 표준 스텁이라 남긴다. ' +
@@ -201,6 +197,8 @@ const KEPT: Readonly<Record<string, string>> = {
   'features/annual-simulation/types.ts::DeterministicBlock': 'API_SPEC §6.1 응답 계약',
   'features/annual-simulation/types.ts::RngMetadata': 'API_SPEC §6.1 응답 계약',
   'features/annual-simulation/types.ts::SnapshotBlock': 'API_SPEC §6.1 응답 계약',
+  'features/annual-simulation/visualization/snapshotVoyageModel.ts::SimulationFuelUse': 'snapshot 시각화 fuel 계약 (#1434)',
+  'features/annual-simulation/visualization/snapshotVoyageModel.ts::SimulationVoyage': 'snapshot 시각화 voyage 계약 (#1434)',
   'features/realtime-cii/types.ts::ProjectionAssumptions': 'API_SPEC §2.11 응답 계약',
   'features/voyage-cii/types.ts::VoyageCiiData': 'API_SPEC §4.1 응답 계약',
   'features/voyage-cii/types.ts::CalculationBasis': 'API_SPEC §4.1 응답 계약',
@@ -211,6 +209,7 @@ const KEPT: Readonly<Record<string, string>> = {
   'features/voyage-cii/types.ts::ResponseMeta': 'API_SPEC §1.1 공통 meta 계약',
   'features/fleet/types.ts::FleetAction': 'API_SPEC §2.8 응답 계약',
   'features/fleet/types.ts::FleetCounts': 'API_SPEC §2.8 응답 계약',
+  'features/map/routeGeometry.ts::RouteWaypoint': '향후 waypoint geometry provider 입력 계약 (#1471)',
   'features/vessel-detail/types.ts::YearStatus': '선박 상세 연도별 상태 계약',
 
   // ── 내보낸 함수의 인자·반환 형태: 소비자가 이름으로 받을 수 있어야 한다 ──

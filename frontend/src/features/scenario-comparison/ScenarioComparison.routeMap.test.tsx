@@ -4,7 +4,6 @@ import '../../test/renderSetup'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router'
-import type { RouteLine } from '../fleet/FleetMap'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import * as session from '../../auth/session'
 
@@ -20,13 +19,12 @@ import * as session from '../../auth/session'
  * 둔다 — `FleetMap` 대역은 `VoyageRouteMap.test.tsx`와 같다.
  */
 vi.mock('../fleet/basemap', () => ({ hasBasemap: async () => true }))
-vi.mock('../fleet/FleetMap', () => ({
-  FleetMap: (props: { routes: RouteLine[]; caption: unknown; ariaLabel: string }) => (
-    <div data-testid="map" data-routes={JSON.stringify(props.routes)} aria-label={props.ariaLabel}>
-      {props.caption as never}
-    </div>
+vi.mock('../map/renderer', () => ({
+  MapRendererHost: (props: { model: { routes: { data: { features: unknown[] } } }; ariaLabel: string }) => (
+    <div data-testid="map" data-routes={JSON.stringify(props.model.routes.data.features)} aria-label={props.ariaLabel} />
   ),
 }))
+vi.mock('../map/mapLibreRenderer', () => ({ mapLibreRenderer: {}, MapLibreMapModel: {} }))
 
 const { ScenarioComparison } = await import('./ScenarioComparison')
 
@@ -74,6 +72,16 @@ function stubServer() {
     vi.fn(async (input: unknown) => {
       const url = String(input)
       if (url.includes('/ports/samples')) return jsonResponse({ data: PORTS })
+      if (url.includes('/ports/sea-route')) {
+        const parsed = new URL(url, 'https://x')
+        return jsonResponse({ data: {
+          coordinates: [
+            [Number(parsed.searchParams.get('from_lon')), Number(parsed.searchParams.get('from_lat'))],
+            [Number(parsed.searchParams.get('to_lon')), Number(parsed.searchParams.get('to_lat'))],
+          ],
+          length_nm: 1, legs: 1, source: 'searoute/marnet',
+        } })
+      }
       if (url.includes('/parameters/regulation-years')) return jsonResponse({ data: [{ year: 2026 }] })
       if (url.includes('/parameters/fuel-types')) {
         return jsonResponse({
@@ -137,11 +145,12 @@ describe('항로 비교 지도의 선 이름 (#1836 ⑹)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /비교하기/ }))
 
     const map = await screen.findByTestId('map', undefined, { timeout: 10_000 })
-    const routes = JSON.parse(map.getAttribute('data-routes') ?? '[]') as RouteLine[]
+    await waitFor(() => expect(JSON.parse(map.getAttribute('data-routes') ?? '[]')).toHaveLength(1))
+    const routes = JSON.parse(map.getAttribute('data-routes') ?? '[]') as Array<{ properties: { name: string } }>
     expect(routes).toHaveLength(1)
     // 지도 선 이름은 표시 자리다 — 저장 코드가 아니라 픽스처의 보이는 이름이다.
-    expect(routes[0].name).not.toContain(PORTS[1].name)
-    expect(routes[0].name).toContain(PORTS[1].name_ko)
+    expect(routes[0].properties.name).not.toContain(PORTS[1].name)
+    expect(routes[0].properties.name).toContain(PORTS[1].name_ko)
   })
 
   it('다시 비교하면 지도가 새로 마운트된다 — 못 받은 항로선을 처음부터 다시 묻는다 (#1856)', async () => {

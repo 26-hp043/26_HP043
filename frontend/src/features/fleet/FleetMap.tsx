@@ -1,13 +1,21 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import * as maplibregl from 'maplibre-gl'
-import { Protocol } from 'pmtiles'
-import { layers, namedFlavor } from '@protomaps/basemaps'
-import 'maplibre-gl/dist/maplibre-gl.css'
+import { useCallback, useId, useMemo, type ReactNode } from 'react'
 import './FleetMap.css'
 import type { FleetVessel } from './types'
-import { BASEMAP_FONTS_URL, BASEMAP_URL, INITIAL_ZOOM, MAX_ZOOM } from './basemap'
-import { seaRouteKey, useSeaRoutes, type SeaRouteRequest, type SeaRouteState } from './seaRoute'
+import {
+  seaRouteKey,
+  useSeaRoutes,
+  type RouteLine,
+} from './seaRoute'
+import { getKnownRouteSource } from '../map/routeGeometry'
+import { routeDisclosure } from '../map/routeDisclosure'
+import { adaptFleetMap } from '../map/adapters'
+import { MapRendererHost, type MapRendererEvent } from '../map/renderer'
+import { mapLibreRenderer, type MapLibreMapModel } from '../map/mapLibreRenderer'
+import { useSamplePorts } from '../ports/samplePorts'
+import { routeFeatureCollection } from '../map/routeModel'
 import { VESSEL_GRID, VESSEL_PATHS } from '../../components/vesselShape'
+import { HarborTransitionShell } from '../map/HarborTransitionShell'
+import { MapAlternative } from '../map/MapAlternative'
 import {
   isAtRisk,
   missingPositionAria,
@@ -53,25 +61,6 @@ import {
  * 경유지를 넣으면 **우회 선이 하나 더** 온다(`kind: 'DETOUR'` · `via`) — 세 시나리오 중
  * 감속은 직항과 같은 길이라 선이 둘을 넘지 않는다(`PRD §11.3`).
  */
-export interface RouteLine {
-  name: string
-  departureLat: number
-  departureLon: number
-  arrivalLat: number
-  arrivalLon: number
-  /** 우회 경유지. 있으면 「출발 → 경유지 → 도착」으로 잇는다. */
-  via?: { lat: number; lon: number } | null
-  /** 선의 종류. 생략하면 직항이다 — 파선(`DESIGN_SYSTEM §9.5`). 우회는 점선이다. */
-  kind?: 'DIRECT' | 'DETOUR'
-}
-
-/** 서버에 물을 항로 하나 — 선박의 진행 중 항차와 `routes` 프롭이 같은 모양으로 모인다. */
-interface RouteAsk {
-  name: string
-  kind: 'DIRECT' | 'DETOUR'
-  request: SeaRouteRequest
-}
-
 /** 못 그린 선이 있을 때 지도 옆에 적는 문장 — 선을 지어내지 않고 그 사실을 말한다. */
 export const ROUTE_UNAVAILABLE_TEXT = '항로선을 불러오지 못했습니다 — 위치만 표시합니다.'
 
@@ -90,8 +79,8 @@ export const ROUTE_PARTIAL_TEXT = '항로선 일부를 불러오지 못했습니
  * 번들한 파이썬 패키지 `searoute`는 Apache-2.0이다. ⚠️ 문구·자리는 **개발 임시안**이며
  * 디자인 담당 검토 대상이다(`DESIGN_SYSTEM §9.5` 출처 표기는 「© OpenStreetMap」으로 확정돼 있다).
  */
-export const ROUTE_ATTRIBUTION =
-  '해상 경로망 © Eurostat SeaRoute (EUPL-1.2) · searoute (Apache-2.0)'
+const ROUTE_SOURCE = getKnownRouteSource('searoute/marnet')!
+export const ROUTE_ATTRIBUTION = ROUTE_SOURCE.attribution
 
 /**
  * 빈 기본값을 **모듈 상수로** 둔다.
@@ -126,22 +115,10 @@ interface FleetMapProps {
    * 않는다(`useSeaRoutes`). 생략하면 실패한 선은 이 지도가 떠 있는 동안 다시 묻지 않는다.
    */
   retryToken?: number
-}
-
-/** 좌표가 있는 선박만. 숫자로 되돌리는 곳은 여기뿐이다(지도가 숫자를 요구한다). */
-interface Placed {
-  vessel: FleetVessel
-  lat: number
-  lon: number
-}
-
-function placed(vessels: FleetVessel[]): Placed[] {
-  return vessels.flatMap((vessel) => {
-    if (vessel.lat === null || vessel.lon === null) return []
-    const lat = Number(vessel.lat)
-    const lon = Number(vessel.lon)
-    return Number.isFinite(lat) && Number.isFinite(lon) ? [{ vessel, lat, lon }] : []
-  })
+  /** 공용 renderer의 제품 화면 구분. */
+  mapMode?: 'fleet' | 'comparison'
+  /** renderer/WebGL 실패 시 호출부가 개략도로 전환한다. */
+  onRendererError?: (error: Error) => void
 }
 
 /** 마커 DOM. 배 모양 + 등급색 + 등급 문자. */
@@ -207,111 +184,6 @@ function markerElement(vessel: FleetVessel): HTMLElement {
   return root
 }
 
-/** 지도에 그릴 항구 하나 (`#1882`). */
-interface PortPin {
-  name: string | null
-  lat: number
-  lon: number
-}
-
-/**
- * 선대가 들르는 항구 — 진행 중 항차의 출발항·도착항 (`#1882` · `DESIGN_SYSTEM §9.5`).
- *
- * **전 항구를 뿌리지 않는다** — 지도가 핀으로 덮여 배가 묻힌다. 두 배가 같은 항구를 쓰면
- * 핀은 하나다(좌표 소수 넷째 자리 · 약 11m로 묶는다). 좌표가 숫자가 아니면 그 끝은 버린다 —
- * 항로선(`routeAsks`)과 같은 규칙이다.
- */
-function portPins(vessels: FleetVessel[]): PortPin[] {
-  const pins = new Map<string, PortPin>()
-  for (const { vessel } of placed(vessels)) {
-    const route = vessel.route
-    if (route == null) continue
-    const ends: Array<[string, string, string | null]> = [
-      [route.departureLat, route.departureLon, route.departurePortName ?? null],
-      [route.arrivalLat, route.arrivalLon, route.arrivalPortName ?? null],
-    ]
-    for (const [rawLat, rawLon, name] of ends) {
-      const lat = Number(rawLat)
-      const lon = Number(rawLon)
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue
-      const key = `${lat.toFixed(4)},${lon.toFixed(4)}`
-      const found = pins.get(key)
-      // 같은 자리에 이름이 둘 오면 먼저 온 이름을 쓴다 — 이름이 없던 쪽은 있는 쪽으로 채운다.
-      if (found === undefined) pins.set(key, { name, lat, lon })
-      else if (found.name === null && name !== null) found.name = name
-    }
-  }
-  return [...pins.values()]
-}
-
-/**
- * 항구 핀 DOM — **무채색 원형**, 등급색을 쓰지 않는다(배가 아니다 · `§9.5`).
- * 이름은 낭독으로 준다. 눈에는 핀만 — 이름표를 붙이면 배 이름표와 겹쳐 읽히지 않는다.
- */
-function portElement(pin: PortPin): HTMLElement {
-  const root = document.createElement('span')
-  root.className = 'fleetmap__port'
-  root.setAttribute('role', 'img')
-  root.setAttribute('aria-label', pin.name ? `항구 ${pin.name}` : '항구')
-  return root
-}
-
-/** 그릴 항로 목록. 진행 중 항차가 있는 선박 한 줄씩 + `routes` 프롭. */
-function routeAsks(points: Placed[], extra: readonly RouteLine[]): RouteAsk[] {
-  const fromVessels = points.flatMap(({ vessel }): RouteAsk[] => {
-    const route = vessel.route
-    if (route == null) return []
-    const request: SeaRouteRequest = {
-      fromLat: Number(route.departureLat),
-      fromLon: Number(route.departureLon),
-      toLat: Number(route.arrivalLat),
-      toLon: Number(route.arrivalLon),
-    }
-    if (!Object.values(request).every((v) => Number.isFinite(v))) return []
-    return [{ name: vessel.name, kind: 'DIRECT', request }]
-  })
-  const fromProps = extra.map(
-    (route): RouteAsk => ({
-      name: route.name,
-      kind: route.kind ?? 'DIRECT',
-      request: {
-        fromLat: route.departureLat,
-        fromLon: route.departureLon,
-        toLat: route.arrivalLat,
-        toLon: route.arrivalLon,
-        via: route.via ?? null,
-      },
-    }),
-  )
-  return fromVessels.concat(fromProps)
-}
-
-/** 받아 둔 선만 GeoJSON으로. 아직 없거나 못 받은 것은 **빈자리**다 — 지어내지 않는다. */
-function routeCollection(
-  asks: readonly RouteAsk[],
-  lines: Record<string, SeaRouteState>,
-): maplibregl.GeoJSONSourceSpecification['data'] {
-  return {
-    type: 'FeatureCollection',
-    features: asks.flatMap((ask) => {
-      const line = lines[seaRouteKey(ask.request)]
-      if (line === undefined || line === 'failed' || line.coordinates.length < 2) return []
-      return [
-        {
-          type: 'Feature' as const,
-          properties: { name: ask.name, kind: ask.kind },
-          geometry: { type: 'LineString' as const, coordinates: line.coordinates },
-        },
-      ]
-    }),
-  }
-}
-
-/** 지도 페인트가 CSS 변수를 읽지 못하므로 계산된 값을 꺼낸다. 비면 빈 문자열이다. */
-function accentColor(): string {
-  return getComputedStyle(document.documentElement).getPropertyValue('--semantic-info').trim()
-}
-
 export function FleetMap({
   vessels,
   routes = NO_ROUTES,
@@ -320,7 +192,10 @@ export function FleetMap({
   routeUnavailableText = ROUTE_UNAVAILABLE_TEXT,
   routePartialText = ROUTE_PARTIAL_TEXT,
   retryToken,
+  mapMode = 'fleet',
+  onRendererError,
 }: FleetMapProps) {
+  const samplePorts = useSamplePorts()
   /*
    * 좌표가 없는 선박은 `placed()`에서 **조용히 빠진다** (#1103).
    *
@@ -328,10 +203,11 @@ export function FleetMap({
    * 않았다 — 4척 중 1척이 미입력이면 지도에 3척만 그려지고 **그 3척이 선대 전부로**
    * 읽힌다. 문구는 개략도와 **같은 원천**(`fleetRules`)을 쓴다.
    */
-  const shown = placed(vessels).length
+  const adapted = useMemo(() => adaptFleetMap(vessels, routes, samplePorts), [vessels, routes, samplePorts])
+  const shown = adapted.positions.length
   const missingText = missingPositionText(vessels.length, shown)
   // 렌더마다 새 배열이면 아래 effect가 매번 다시 돈다 — `NO_ROUTES`와 같은 이유로 고정한다.
-  const asks = useMemo(() => routeAsks(placed(vessels), routes), [vessels, routes])
+  const asks = adapted.routes
   const lines = useSeaRoutes(
     asks.map((ask) => ask.request),
     undefined,
@@ -344,212 +220,40 @@ export function FleetMap({
   const failedAsks = asks.filter((ask) => lines[seaRouteKey(ask.request)] === 'failed').length
   const routeFailure =
     failedAsks === 0 ? null : failedAsks === asks.length ? routeUnavailableText : routePartialText
+  const hintId = useId()
+  const disclosure = routeDisclosure({
+    mode: mapMode,
+    source: ROUTE_SOURCE,
+    kinds: asks.map(({ kind }) => kind),
+  })
+  const handleRendererEvent = useCallback((event: MapRendererEvent) => {
+    if (event.type === 'error') onRendererError?.(event.error)
+  }, [onRendererError])
 
-  /*
-   * 캔버스 자리를 **ref가 아니라 state로 잡는다** (`#1645`).
-   *
-   * 종전에는 `useRef` + 의존성 없는 effect였다. 그런데 좌표가 한 척도 없으면 아래
-   * 분기가 **캔버스 자체를 그리지 않으므로** 첫 실행에서 `container.current`가
-   * `null`이라 지도를 만들지 않고 끝났고, 나중에 위치가 들어와 캔버스가 그려져도
-   * **effect가 다시 돌지 않아** 그 자리는 빈 채로 남았다 — 새로고침해야 보였다.
-   *
-   * ref 콜백이 노드를 state로 올리면 붙고 떨어지는 것이 렌더에 잡힌다. 좌표가
-   * 사라져 캔버스가 빠질 때도 같은 effect의 정리가 돌아 지도가 남지 않는다.
-   */
-  const [canvas, setCanvas] = useState<HTMLDivElement | null>(null)
-  const map = useRef<maplibregl.Map | null>(null)
-  const markers = useRef<maplibregl.Marker[]>([])
-  const portMarkers = useRef<maplibregl.Marker[]>([])
-  const [ready, setReady] = useState(false)
-
-  useEffect(() => {
-    if (canvas === null || map.current !== null) return
-
-    /*
-     * PMTiles 프로토콜은 **전역에 한 번만** 등록한다. 같은 이름으로 두 번 등록하면
-     * MapLibre가 던진다 — 화면을 오갈 때마다 이 효과가 다시 도는데, 그때 앱이 죽는다.
-     */
-    const registry = globalThis as { __bluelogPmtiles?: Protocol }
-    if (registry.__bluelogPmtiles === undefined) {
-      const protocol = new Protocol()
-      maplibregl.addProtocol('pmtiles', protocol.tile)
-      registry.__bluelogPmtiles = protocol
+  const rendererMarkers = useMemo(() => adapted.positions.map(({ vessel, lon, lat }) => ({
+    coordinate: [lon, lat] as const, element: markerElement(vessel),
+  })), [adapted.positions])
+  const rendererModel = useMemo<MapLibreMapModel>(() => {
+    const points = adapted.positions
+    const bounds: [number, number][] = points.map(({ lon, lat }) => [lon, lat])
+    for (const { request } of asks) {
+      bounds.push([request.fromLon, request.fromLat], [request.toLon, request.toLat])
+      if (request.via) bounds.push([request.via.lon, request.via.lat])
     }
-
-    const instance = new maplibregl.Map({
-      container: canvas,
-      style: {
-        version: 8,
-        // 글리프도 **우리 오리진**이다. CDN을 가리키면 지도 배경은 오프라인에서
-        // 뜨는데 글자만 사라진다 — 그 상태가 가장 나쁘다(고장인지 판단할 수 없다).
-        glyphs: `${BASEMAP_FONTS_URL}/{fontstack}/{range}.pbf`,
-        sources: {
-          protomaps: {
-            type: 'vector',
-            url: `pmtiles://${BASEMAP_URL}`,
-            attribution: '© OpenStreetMap',
-          },
-          /*
-           * 항로선 소스는 **처음부터** 둔다 — 출처 표기(`ROUTE_ATTRIBUTION`)가 지도 컨트롤에
-           * 실리려면 스타일에 소스가 있어야 한다. 데이터는 아래 effect가 채운다.
-           */
-          routes: {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] },
-            attribution: ROUTE_ATTRIBUTION,
-          },
-        },
-        layers: layers('protomaps', namedFlavor('light'), { lang: 'ko' }),
-      },
-      center: [127, 30],
-      zoom: INITIAL_ZOOM,
-      maxZoom: MAX_ZOOM,
-      // 지도는 **보는 것**이지 돌리는 것이 아니다. 회전·기울임을 막으면 북쪽이 늘 위다.
-      dragRotate: false,
-      pitchWithRotate: false,
-      touchZoomRotate: true,
-      attributionControl: { compact: true },
-    })
-    instance.touchZoomRotate.disableRotation()
-    instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
-    // 지도 오류를 **반드시 드러낸다** (`#1146`).
-    //
-    // maplibre는 오류를 `error` 이벤트로만 알린다. 듣는 곳이 없으면 타일이 한 장도
-    // 뜨지 않아도 화면에는 스타일 배경색만 칠해진 회색 사각형이 남고, 콘솔에도
-    // 아무것도 찍히지 않는다 — 고장인지 로딩 중인지 구분할 수 없는 상태다.
-    // 2026-09-15에 워커 404로 그 상태를 겪었고, 원인을 좁히는 데 오래 걸렸다.
-    instance.on('error', (event) => {
-      console.error('[FleetMap] 지도 오류:', event.error?.message ?? String(event))
-    })
-    instance.on('load', () => setReady(true))
-    map.current = instance
-
-    return () => {
-      instance.remove()
-      map.current = null
-      // 마커는 지도와 함께 사라진다 — 참조만 남으면 다음 지도에서 지우려다 헛돈다.
-      markers.current = []
-      portMarkers.current = []
-      setReady(false)
+    return {
+      mode: mapMode,
+      ports: adapted.ports,
+      markers: rendererMarkers,
+      vessels: adapted.positions.map(({ vessel, lon, lat }) => ({
+        id: vessel.id,
+        coordinate: [lon, lat] as const,
+        heading: vessel.courseDeg === null || vessel.courseDeg === undefined || !Number.isFinite(Number(vessel.courseDeg))
+          ? null
+          : Number(vessel.courseDeg),
+      })),
+      routes: { data: routeFeatureCollection(asks, lines), attribution: ROUTE_ATTRIBUTION, bounds },
     }
-  }, [canvas])
-
-  /*
-   * 마커와 항로선은 **다른 effect**다 (`#1300` 리뷰). 한 effect에 두면 항로 응답이 올 때마다
-   * 마커를 지우고 다시 만들어 — 마커 DOM 노드가 바뀐다. 마커에 붙는 것(팝오버 · 초점 ·
-   * `#1831`)이 그때마다 떨어진다. 마커는 `vessels`가 바뀔 때만, 항로선은 응답이 올 때만.
-   */
-  useEffect(() => {
-    const instance = map.current
-    if (instance === null || !ready) return
-
-    const points = placed(vessels)
-
-    /*
-     * 항구 핀을 **먼저** 붙인다 (`#1882`) — 마커는 붙인 순서로 쌓이므로 배가 핀 위에 온다.
-     * 배가 항구에 있을 때 핀이 배를 가리면 등급 배지를 읽을 수 없다.
-     */
-    for (const marker of portMarkers.current) marker.remove()
-    portMarkers.current = portPins(vessels).map((pin) =>
-      new maplibregl.Marker({ element: portElement(pin), anchor: 'center' })
-        .setLngLat([pin.lon, pin.lat])
-        .addTo(instance),
-    )
-
-    for (const marker of markers.current) marker.remove()
-    markers.current = points.map(({ vessel, lat, lon }) =>
-      new maplibregl.Marker({ element: markerElement(vessel), anchor: 'center' })
-        .setLngLat([lon, lat])
-        .addTo(instance),
-    )
-  }, [vessels, ready])
-
-  useEffect(() => {
-    const instance = map.current
-    if (instance === null || !ready) return
-
-    const collection = routeCollection(asks, lines)
-    const source = instance.getSource('routes') as maplibregl.GeoJSONSource | undefined
-    if (source === undefined) {
-      /*
-       * 소스는 스타일이 갖고 있다(출처 표기 때문 — 위 `sources.routes`). 여기 오는 것은
-       * 대역(테스트)처럼 스타일이 없는 지도뿐이라 그때만 만든다.
-       */
-      instance.addSource('routes', { type: 'geojson', data: collection, attribution: ROUTE_ATTRIBUTION })
-    } else {
-      source.setData(collection)
-    }
-    if (instance.getLayer?.('routes') === undefined) {
-      /*
-       * **색을 먼저 읽고, 유효한 값일 때만 넣는다** (`#1265`).
-       *
-       * 종전에는 `line-color`에 `'var-replaced-at-runtime'`를 넣고 그 뒤에
-       * `setPaintProperty`로 덮었다. 그런데 그 문자열은 **유효한 색이 아니다** —
-       * MapLibre는 스타일 검증에 실패하면 에러를 내고 **레이어를 추가하지 않은 채
-       * 반환**한다. 레이어가 없으니 뒤따르는 `setPaintProperty`도 대상이 없고,
-       * 결국 **항로선이 한 번도 그려지지 않는다.** 지도는 멀쩡히 뜨므로 눈으로는
-       * 「선이 없는 항차」로만 보인다.
-       *
-       * CSS 변수는 지도 페인트가 읽지 못하므로 계산된 값을 꺼내 쓰는 것은 그대로다.
-       *
-       * ⚠️ **리터럴 대체색을 두지 않는다**(`#1052`의 판단). 종전에 `#1f6feb`를
-       * 남겨 두었더니 `--semantic-info`가 존재하지 않는 동안 **그 리터럴이 언제나
-       * 실제 색**이었고, `§9.5` 🔒가 정한 토큰이 지켜지지 않는 것을 아무도 몰랐다.
-       * 값이 비면 `line-color`를 **아예 넣지 않아** MapLibre 기본색(검정)으로
-       * 그려지게 둔다 — 규격과 어긋난 상태가 화면에서 바로 보인다.
-       *
-       * **선은 두 종류다** (`#1300`). 직항은 종전 그대로 파선 `2 1.5`(`§9.5` 🔒)이고,
-       * 우회는 **같은 색의 점선** `0.5 2`다 — 색이 아니라 **선의 결**로 가르므로 색을
-       * 못 봐도 구분된다(`§14`). 카드의 도식(`ScenarioRouteGlyph`)이 우회를 점선으로
-       * 그리는 것과 같은 언어다. ⚠️ 우회 선의 결은 **개발 임시안**이다 — 디자인 담당
-       * 확인 전까지 새 토큰·새 색을 만들지 않고 직항의 색을 그대로 쓴다.
-       */
-      const accent = accentColor()
-      const paint = {
-        ...(accent === '' ? {} : { 'line-color': accent }),
-        'line-width': 2,
-        'line-opacity': 0.9,
-      }
-      instance.addLayer({
-        id: 'routes',
-        type: 'line',
-        source: 'routes',
-        filter: ['!=', ['get', 'kind'], 'DETOUR'],
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        // 파선이라 색을 못 봐도 배경의 도로·경계선과 구분된다 (`§14`).
-        paint: { ...paint, 'line-dasharray': [2, 1.5] },
-      })
-      instance.addLayer({
-        id: 'routes-detour',
-        type: 'line',
-        source: 'routes',
-        filter: ['==', ['get', 'kind'], 'DETOUR'],
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { ...paint, 'line-dasharray': [0.5, 2] },
-      })
-    }
-
-    // 처음 한 번만 그려진 것에 맞춘다 — 갱신마다 맞추면 사용자가 확대해 둔 자리가 튄다.
-    // 선박 좌표는 `asks`가 아니라 마커에서 — 항차 없는 배도 화면 안에 들어야 한다.
-    const placedPoints = placed(vessels)
-    if ((placedPoints.length > 0 || asks.length > 0) && instance.getZoom() === INITIAL_ZOOM) {
-      const bounds = new maplibregl.LngLatBounds()
-      for (const { lat, lon } of placedPoints) bounds.extend([lon, lat])
-      /*
-       * 명시 경로의 **양 끝도** 넣는다 (`#1265`).
-       *
-       * 종전 조건은 `points.length > 0`이라 **선박이 없는 화면에서는 아예 돌지 않았다.**
-       * 항로 비교는 선박을 그리지 않으므로 지도가 기본 뷰(`INITIAL_ZOOM`)에 머물고,
-       * 그린 선이 **화면 밖에 있을 수 있다** — 지도는 떴는데 항로만 안 보이는 상태가 된다.
-       */
-      for (const { request } of asks) {
-        bounds.extend([request.fromLon, request.fromLat])
-        bounds.extend([request.toLon, request.toLat])
-        if (request.via) bounds.extend([request.via.lon, request.via.lat])
-      }
-      instance.fitBounds(bounds, { padding: 48, maxZoom: 6, animate: false })
-    }
-  }, [vessels, asks, ready, lines])
+  }, [adapted.positions, adapted.ports, asks, lines, rendererMarkers, mapMode])
 
   if (vessels.length > 0 && shown === 0) {
     // 전부 빠진 경우는 빈 지도를 띄우지 않는다 — 빈 바다는 「선박이 없다」로 읽힌다.
@@ -567,15 +271,19 @@ export function FleetMap({
         없다. 결측도 여기 넣는다(`missingPositionAria`): 눈으로 보는 쪽에만 있으면
         낭독으로는 빠진 것이 없는 것처럼 들린다.
       */}
-      <div
-        className="fleetmap__canvas"
-        ref={setCanvas}
-        role="img"
-        aria-label={
-          ariaLabel ??
-          `선박 ${shown}척의 현재 위치 지도.${missingPositionAria(vessels.length, shown)}`
-        }
-      />
+      <HarborTransitionShell onGlobeEvent={handleRendererEvent} renderGlobe={(onEvent) => (
+        <MapRendererHost
+          className="fleetmap__canvas"
+          model={rendererModel}
+          renderer={mapLibreRenderer}
+          ariaLabel={
+            ariaLabel ??
+            `선박 ${shown}척의 현재 위치 지도.${missingPositionAria(vessels.length, shown)}`
+          }
+          ariaDescribedBy={hintId}
+          onEvent={onEvent}
+        />
+      )} />
       {missingText === null ? null : (
         <p className="fleetmap__missing">{missingText}</p>
       )}
@@ -604,14 +312,15 @@ export function FleetMap({
         「육지를 가로지를 수 있다」는 더 이상 사실이 아니다. 대신 **실제 항해 계획이
         아니라는 것**을 말한다 — 경로망은 운항 계획·수심·기상을 모른다.
       */}
-      <p className="fleetmap__hint">
+      <p className="fleetmap__hint" id={hintId}>
         {caption ?? (
           <>
-            점선은 공개 해상 경로망 위의 경로입니다 — <b>실제 항해 계획이 아닙니다.</b>{' '}
-            <b>테두리가 굵은 배</b>는 주의 대상입니다.
+            {disclosure.visibleText} <b>테두리가 굵은 배</b>는 주의 대상입니다.
           </>
         )}
       </p>
+      <MapAlternative id={`${hintId}-alternative`} title="선대 현재 위치 지도"
+        items={adapted.positions.map(({ vessel, lat, lon }) => `${vessel.name}: 위도 ${lat}, 경도 ${lon}${vessel.route ? ` · 출발 ${vessel.route.departureLat}, ${vessel.route.departureLon} · 도착 ${vessel.route.arrivalLat}, ${vessel.route.arrivalLon}` : ''}`)} />
     </div>
   )
 }

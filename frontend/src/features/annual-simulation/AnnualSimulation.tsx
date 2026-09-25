@@ -48,6 +48,8 @@ import { OFFICE_ONLY_ACTION_HINT } from '../auth/authRules'
 import { Icon } from '../../components/Icon'
 import { VerdictStrip } from '../../components/VerdictStrip'
 import { publishScreenResult } from '../assistant/screenResult'
+import { AnnualPlayback } from './visualization/AnnualPlayback'
+import type { AnnualMapGeometryProvider } from './visualization/model'
 
 /**
  * 기능③ 연간 CII 시뮬레이션 화면 (#157 · **#442에서 실 API 연결**).
@@ -112,9 +114,12 @@ const TARGET_RATINGS = ['A', 'B', 'C', 'D'] as const
 
 export function AnnualSimulation({
   onDisclaimer,
+  mapGeometryProvider,
 }: {
   /** 면책 배너는 페이지가 항상 렌더한다(`DESIGN_SYSTEM §13` 🔒). */
   onDisclaimer?: (text: string | undefined) => void
+  /** API 응답에는 없는 실제 snapshot 좌표를 future provider가 주입하는 경계다. */
+  mapGeometryProvider?: AnnualMapGeometryProvider
 }) {
   // 선박은 **상단바 전역 선택을 따른다** (#484 · #535). 종전에는 UUID가 상수로
   // 박혀 있어, 상단에서 어떤 배를 골라도 늘 같은 배로 계산했다.
@@ -579,6 +584,7 @@ export function AnnualSimulation({
             result={state.result}
             conditions={state.conditions}
             provider={provider}
+            mapGeometryProvider={mapGeometryProvider}
           />
         ) : null}
       </div>
@@ -611,10 +617,12 @@ function Result({
   result,
   conditions,
   provider,
+  mapGeometryProvider,
 }: {
   result: AnnualSimulationResult
   conditions: RunConditions
   provider: AnnualSimulationProvider
+  mapGeometryProvider?: AnnualMapGeometryProvider
 }) {
   const { deterministic: det, monte_carlo: mc, reduction_plan: cut, feedback } = result
   const [reproduce, setReproduce] = useState<ReproduceState>({ status: 'idle' })
@@ -651,6 +659,8 @@ function Result({
 
   return (
     <>
+      {mapGeometryProvider ? <AnnualPlayback result={result} geometryProvider={mapGeometryProvider}
+        projectedYear={conditions.year} vesselName={conditions.vesselName} /> : null}
       {/*
         ── 결론 띠 (`DESIGN_SYSTEM §8.6` 🔒 · #1700) ─────────────────────
 

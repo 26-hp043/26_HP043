@@ -3,6 +3,7 @@ import { DisclaimerBanner } from '../components/DisclaimerBanner'
 import { PageHeader } from '../components/PageHeader'
 import { AnnualSimulation } from '../features/annual-simulation/AnnualSimulation'
 import { ANNUAL_COPY } from '../features/annual-simulation/copy'
+import { annualProductMapGeometryProvider } from '../features/annual-simulation/visualization/productMapGeometryProvider'
 import './AnnualGradePage.css'
 
 /**
@@ -32,7 +33,7 @@ export function AnnualGradePage() {
       <PageHeader screen="ANNUAL_GRADE">
         <p className="page-head__sub">{ANNUAL_COPY.lead}</p>
       </PageHeader>
-      <AnnualSimulation onDisclaimer={handleDisclaimer} />
+      <AnnualSimulation onDisclaimer={handleDisclaimer} mapGeometryProvider={annualProductMapGeometryProvider} />
       <DisclaimerBanner text={disclaimer} />
     </div>
   )

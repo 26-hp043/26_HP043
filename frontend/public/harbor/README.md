@@ -32,17 +32,3 @@ python3 frontend/scripts/build-harbor-snapshot.py \
 ## 저작자 표시·라이선스
 
 © OpenStreetMap contributors. 원천 데이터와 두 JSON 파생 데이터베이스는 [Open Database License 1.0](https://opendatacommons.org/licenses/odbl/1-0/)에 따른다. 지도 화면에 `© OpenStreetMap contributors`와 [OpenStreetMap 저작권 안내](https://www.openstreetmap.org/copyright) 링크를 표시해야 한다. 파생 데이터베이스는 이 저장소의 `frontend/public/harbor/busan-north-port.json` 및 `frontend/public/harbor/singapore-harbor.json`으로 제공하며, 재생성·검증 코드는 `frontend/scripts/build-harbor-snapshot.py`로 제공한다. 이 데이터를 재배포하거나 이를 기반으로 공개용 파생 데이터베이스를 만들 때 ODbL의 저작자 표시, 동일조건 공유 및 파생 데이터베이스 제공 의무를 확인해야 한다.
-
-## 부산→싱가포르 표시용 해상 경로
-
-`busan-singapore-searoute.json`은 3D 항로 조망 실험에서만 쓰는 오프라인 좌표다. 출발점 `(129.0333, 35.1)`과 도착점 `(103.85, 1.2833)`을 [searoute-py가 배포하는 Eurostat SeaRoute `marnet_searoute.geojson`](https://github.com/genthalili/searoute-py/blob/main/searoute/data/marnet_searoute.geojson)의 그래프에 붙이고, `build-route-fixture.py`가 각 선분의 대권거리를 가중치로 독립 Dijkstra 탐색했다. 라이브러리의 기본 제한과 같이 북서항로(`northwest`) 선분을 제외했다. **프로젝트의 SeaRoute 서비스가 생성한 결과라고 주장하지 않는다.** 사용한 원본의 Git blob SHA와 SHA-256은 JSON 메타데이터에 있으며, 스크립트는 Git blob SHA가 달라지면 중단한다.
-
-```sh
-python3 frontend/scripts/build-route-fixture.py
-# 또는 원본을 별도로 내려받은 경우
-python3 frontend/scripts/build-route-fixture.py --network-file /path/to/marnet_searoute.geojson
-```
-
-경로망에서 연결된 길이 없으면 직선으로 대체하지 않고 실패한다. 양끝의 지정 좌표와 최근접 경로망 노드 사이에는 접속 선분이 있으므로 **항만 진입 가능성이나 육지·수심 안전성을 보증하지 않는다.** 실제 항해 계획이 아니며 연간 시뮬레이션의 항차나 CII 계산 거리에 사용하지 않는다.
-
-경로망 데이터: © Eurostat SeaRoute, [EUPL-1.2](https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12). 배포 도구: [searoute-py](https://github.com/genthalili/searoute-py), Apache-2.0. 3D 실험 화면에도 이 출처를 표시해야 한다.

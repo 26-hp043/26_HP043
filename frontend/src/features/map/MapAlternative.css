@@ -1,0 +1,14 @@
+.map-alternative {
+  margin-block-start: var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+}
+
+.map-alternative summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.map-alternative ul {
+  margin-block-end: 0;
+}

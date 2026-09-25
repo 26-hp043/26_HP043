@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DEFAULT_API_BASE_URL } from '../../api/base'
+import {
+  createRouteGeometry,
+  getKnownRouteSource,
+  type RouteGeometry,
+} from '../map/routeGeometry'
 
 /**
  * 공개 해상 경로망 위의 바닷길 (`#1300` · `API_SPEC §3.11`).
@@ -34,10 +39,20 @@ export interface SeaRouteRequest {
 }
 
 /** `API_SPEC §3.11` 응답. `coordinates`는 GeoJSON 순서(경도, 위도)다. */
-export interface SeaRouteLine {
-  coordinates: [number, number][]
+export interface SeaRouteLine extends RouteGeometry {
   lengthNm: number
   legs: number
+}
+
+/** 선박과 무관하게 지도에 표시할 항로 요청. */
+export interface RouteLine {
+  name: string
+  departureLat: number
+  departureLon: number
+  arrivalLat: number
+  arrivalLon: number
+  via?: { lat: number; lon: number } | null
+  kind?: 'DIRECT' | 'DETOUR'
 }
 
 /** 같은 질문은 같은 열쇠다 — 훅의 상태와 요청 중복 제거가 이 문자열로 갈린다. */
@@ -67,6 +82,9 @@ function toLine(body: unknown): SeaRouteLine | null {
   const coordinates = data.coordinates
   if (!Array.isArray(coordinates) || typeof data.length_nm !== 'number') return null
   if (typeof data.legs !== 'number') return null
+  if (typeof data.source !== 'string') return null
+  const source = getKnownRouteSource(data.source)
+  if (source === null) return null
   const pairs: [number, number][] = []
   for (const pair of coordinates) {
     if (!Array.isArray(pair) || pair.length !== 2) return null
@@ -74,7 +92,11 @@ function toLine(body: unknown): SeaRouteLine | null {
     if (typeof lon !== 'number' || typeof lat !== 'number') return null
     pairs.push([lon, lat])
   }
-  return { coordinates: pairs, lengthNm: data.length_nm, legs: data.legs }
+  try {
+    return { ...createRouteGeometry(pairs, source), lengthNm: data.length_nm, legs: data.legs }
+  } catch {
+    return null
+  }
 }
 
 /** `GET /ports/sea-route` (`API_SPEC §3.11`). 실패·계약 위반은 던진다. */

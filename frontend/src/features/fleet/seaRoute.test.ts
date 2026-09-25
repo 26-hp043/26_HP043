@@ -57,6 +57,14 @@ describe('fetchSeaRoute — 질의와 응답 계약', () => {
         [129.2, 35],
         [103.85, 1.2833],
       ],
+      source: {
+        id: 'searoute/marnet',
+        label: 'Eurostat SeaRoute 해상 경로망',
+        attribution: '해상 경로망 © Eurostat SeaRoute (EUPL-1.2) · searoute (Apache-2.0)',
+        license: 'Eurostat SeaRoute: EUPL-1.2; searoute: Apache-2.0',
+        sourceUrl: 'https://github.com/eurostat/searoute',
+        displayOnly: true,
+      },
       lengthNm: 2552.14,
       legs: 1,
     })
@@ -82,6 +90,8 @@ describe('fetchSeaRoute — 질의와 응답 계약', () => {
     ['좌표 쌍이 아니다', { data: { coordinates: [[1]], length_nm: 1, legs: 1 } }],
     ['좌표가 문자열이다', { data: { coordinates: [['1', '2']], length_nm: 1, legs: 1 } }],
     ['길이가 문자열이다', { data: { coordinates: [], length_nm: '1', legs: 1 } }],
+    ['출처가 없다', { data: { coordinates: [[0, 0], [1, 1]], length_nm: 1, legs: 1 } }],
+    ['알 수 없는 출처다', { data: { ...LINE.data, source: 'server/free-text' } }],
     ['data가 없다', {}],
   ])('계약과 다른 응답(%s)은 던진다', async (_name, body) => {
     const fetchImpl = vi.fn(async () => jsonResponse(body))

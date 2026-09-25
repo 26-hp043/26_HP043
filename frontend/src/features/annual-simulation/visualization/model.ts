@@ -1,13 +1,34 @@
 import type { Rating, RiskLevel } from '../../voyage-cii/types'
 import type { AnnualSimulationResult } from '../types'
-
-/** GeoJSON 순서: 경도, 위도. 계산 거리와 무관한 표시용 좌표다. */
-export type MapCoordinate = readonly [longitude: number, latitude: number]
+import type { RouteGeometry } from '../../map/routeGeometry'
+import type { MapRenderer, MapRendererSession } from '../../map/renderer'
+import { adaptAnnualMapGeometry } from '../../map/adapters'
 
 /** 향후 스냅샷에 결부된 지리 데이터 공급자가 제공할 선. */
-export interface SnapshotRouteGeometry {
+export interface SnapshotRouteGeometry extends RouteGeometry {
   readonly snapshotVoyageId: string
-  readonly coordinates: readonly MapCoordinate[]
+  /** 시각화 전용 상대 길이이며 실제 항해 시간으로 해석하지 않는다. */
+  readonly playbackDurationMs?: number | null
+  readonly startedAt?: string | null
+  readonly endedAt?: string | null
+  readonly vesselName?: string | null
+  readonly departureName?: string | null
+  readonly arrivalName?: string | null
+  /** provider가 실제 항차에서 제공한 경우에만 wake 판단에 쓴다. */
+  readonly speedKnots?: number | null
+  /** 상대 강도도 provider가 산출한 0~1 값이며 화면이 배출량에서 재계산하지 않는다. */
+  readonly emission?: {
+    readonly co2Value: string
+    readonly co2Unit: 'gCO₂' | 'kgCO₂' | 'tCO₂'
+    readonly intensityValue?: string | null
+    readonly intensityUnit?: string | null
+    readonly relativeIntensity?: number | null
+  } | null
+}
+
+/** API 응답과 별도로, 같은 immutable snapshot의 실제 좌표만 공급하는 미래 provider 경계다. */
+export interface AnnualMapGeometryProvider {
+  load(result: AnnualSimulationResult, signal: AbortSignal): Promise<MapGeometry>
 }
 
 /**
@@ -42,9 +63,10 @@ export function createVisualizationModel(
   result: AnnualSimulationResult,
   mapGeometry: MapGeometry = { status: 'unavailable', reason: 'coordinates_not_provided' },
 ): AnnualSimulationVisualizationModel {
-  if (mapGeometry.status === 'available' && mapGeometry.snapshotId !== result.snapshot.snapshot_id) {
-    throw new Error('지도 좌표의 스냅샷이 시뮬레이션 결과와 다릅니다.')
+  if (!result?.deterministic || !result.monte_carlo || !result.snapshot) {
+    throw new Error('시각화에 필요한 연간 시뮬레이션 응답 block이 없습니다.')
   }
+  const adaptedMapGeometry = adaptAnnualMapGeometry(result.snapshot.snapshot_id, mapGeometry)
 
   return {
     simulationId: result.simulation_id,
@@ -54,16 +76,10 @@ export function createVisualizationModel(
     targetSuccessProbability: result.monte_carlo.target_success_probability,
     ratingProbabilities: result.monte_carlo.rating_probabilities,
     riskLevel: result.risk_level,
-    mapGeometry,
+    mapGeometry: adaptedMapGeometry,
   }
 }
 
 /** 지도 라이브러리의 수명 주기를 화면에서 분리하는 최소 계약. */
-export interface AnnualSimulationRenderer {
-  mount(target: HTMLElement, model: AnnualSimulationVisualizationModel): AnnualSimulationRendererSession
-}
-
-export interface AnnualSimulationRendererSession {
-  update(model: AnnualSimulationVisualizationModel): void
-  destroy(): void
-}
+export type AnnualSimulationRenderer = MapRenderer<AnnualSimulationVisualizationModel & { readonly mode: 'playback' }>
+export type AnnualSimulationRendererSession = MapRendererSession<AnnualSimulationVisualizationModel & { readonly mode: 'playback' }>

@@ -244,8 +244,6 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
 
   /** `사유가 닿는 방법`. 문자열이면 잇는 `id`, `null`이면 곁의 칸이 스스로 말한다. */
   const REGISTERED: Readonly<Record<string, string | null>> = {
-    "features/annual-simulation/visualization/experiments/SimulationMap25D.tsx :: status !== 'ready'":
-      'route-controls-status',
     "features/annual-simulation/AnnualSimulation.tsx :: state.status === 'running' || !office":
       'annual-sim-office-only',
     // 빈 질문칸이 바로 위에 있다 — 「무엇을 쓰지 않았는지」를 따로 적지 않는다.
@@ -275,6 +273,8 @@ describe('비활성의 사유 — §14 (#1170 ⑵)', () => {
       'vy-import-commit-note',
     // 행마다 다른 사유라 `id`가 행별로 만들어진다.
     'features/voyage-management/VoyagePanel.tsx :: busy || blocker !== null': 'vy-blocker-',
+    // 좌표가 없는 playback은 시간을 만들지 않으며, live status가 그 사유를 낭독한다.
+    'features/annual-simulation/visualization/PlaybackControls.tsx :: !available': 'statusId',
   }
 
   /** `disabled=` 앞으로 거슬러 올라가 가장 가까운 여는 태그를 찾는다. */

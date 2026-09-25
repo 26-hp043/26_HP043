@@ -1,5 +1,7 @@
 # 연간 시뮬레이션 시각화 경계
 
+화면 간 공통 항로 의미, 라이선스와 로컬 QA는 [3D 지도 데이터·운영 가이드](../../../../../docs/MAP_VISUALIZATION_GUIDE.md)를 따른다.
+
 `AnnualSimulationResult`가 계산 결과의 정본이다(`API_SPEC §6.1`, `TECH_SPEC §11`).
 이 폴더의 `model.ts`는 그 결과를 렌더러가 읽을 형태로 옮긴다. CII,
 Monte Carlo 확률, 등급, 감축량은 시각화 계층에서 다시 계산하지 않는다.
@@ -20,10 +22,10 @@ Monte Carlo 확률, 등급, 감축량은 시각화 계층에서 다시 계산하
 
 ## 구현 교체
 
-`MapCoordinate`는 `[경도, 위도]`로 표현한다. 카메라 각도, 지도 타일, 마커,
+공용 `RouteCoordinate`(`MapCoordinate` 호환 별칭)는 `[경도, 위도]`로 표현한다. 카메라 각도, 지도 타일, 마커,
 애니메이션 프레임, WebGL 자원은 모델에 담지 않고 렌더러가 소유한다. MapLibre
 2.5D, Three, full 3D 구현을 바꿀 때 계산 응답·모델 필드는 유지하고
-`AnnualSimulationRenderer` 구현만 교체한다. 실험 코드는 `experiments/`에 격리한다.
+`AnnualSimulationRenderer` 구현만 교체한다.
 
 렌더러는 등급을 표시할 때 `DESIGN_SYSTEM §14`의 문자 또는 패턴 병행 규칙을
 따르고, 수치 문자열을 임의의 `number`로 변환해 판정에 사용하지 않는다.

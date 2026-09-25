@@ -1,7 +1,17 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { hasBasemap } from '../fleet/basemap'
-import type { FleetVessel } from '../fleet/types'
-import type { RouteLine } from '../fleet/FleetMap'
+import { seaRouteKey, useSeaRoutes, type RouteLine } from '../fleet/seaRoute'
+import { getKnownRouteSource } from '../map/routeGeometry'
+import { routeDisclosure } from '../map/routeDisclosure'
+import { adaptComparisonRoutes, adaptRouteMap } from '../map/adapters'
+import { MapRendererHost, type MapRendererEvent } from '../map/renderer'
+import type { MapLibreMapModel } from '../map/mapLibreRenderer'
+import { routeFeatureCollection } from '../map/routeModel'
+import './VoyageRouteMap.css'
+import type { SamplePort } from '../ports/samplePorts'
+import { HarborTransitionShell } from '../map/HarborTransitionShell'
+import { MapAlternative } from '../map/MapAlternative'
+import { classifyMapFailure, type MapFailure } from '../map/mapFailure'
 
 /**
  * 항로 비교의 지도 (`#1265` · `#1300`).
@@ -32,15 +42,10 @@ import type { RouteLine } from '../fleet/FleetMap'
  * 쓸 수 없다.
  */
 
-/** 지도를 그릴 차례가 왔을 때 받는다 — `FleetDashboard`와 같은 판단이다. */
-const FleetMap = lazy(() => import('../fleet/FleetMap').then((m) => ({ default: m.FleetMap })))
-
 /**
  * 빈 배열을 **모듈 상수로** 둔다. 렌더마다 새 배열을 넘기면 `FleetMap`의 마커 effect
  * 의존 배열이 매번 달라져 무한 재실행이 된다(`FleetMap`의 `NO_ROUTES`와 같은 이유).
  */
-const NO_VESSELS: FleetVessel[] = []
-
 /**
  * 선을 못 받았을 때의 문장 — 선대 문안(「위치만 표시합니다」)은 이 화면에서 거짓이다(선박을
  * 그리지 않는다). 표시 문구(`AGENTS §4.6`)라 디자인 담당이 바꿀 수 있다.
@@ -59,14 +64,7 @@ const ROUTE_UNAVAILABLE_ON_COMPARISON =
 const ROUTE_PARTIAL_ON_COMPARISON =
   '항로선 일부를 불러오지 못했습니다 — 그려지지 않은 경로가 있습니다. 거리·속력의 차이는 아래 표에 있습니다.'
 
-/** 범위를 벗어나거나 숫자가 아니면 `null`. 폼 검증(`requestRules`)과 같은 한계다. */
-function coord(raw: string, limit: number): number | null {
-  const trimmed = raw.trim()
-  if (trimmed === '') return null
-  const value = Number(trimmed)
-  if (!Number.isFinite(value) || Math.abs(value) > limit) return null
-  return value
-}
+const loadComparisonRenderer = () => import('../map/mapLibreRenderer').then(({ mapLibreRenderer }) => mapLibreRenderer)
 
 interface VoyageRouteMapProps {
   currentLat: string
@@ -79,6 +77,8 @@ interface VoyageRouteMapProps {
   detourWaypointLat?: string
   detourWaypointLon?: string
   detourWaypointName?: string
+  /** 부모 화면이 이미 조회한 항만 목록. 지도 때문에 같은 API를 다시 호출하지 않는다. */
+  samplePorts?: readonly SamplePort[]
 }
 
 export function VoyageRouteMap({
@@ -90,9 +90,12 @@ export function VoyageRouteMap({
   detourWaypointLat = '',
   detourWaypointLon = '',
   detourWaypointName = '',
+  samplePorts = [],
 }: VoyageRouteMapProps) {
   const [basemap, setBasemap] = useState<boolean | null>(null)
-
+  const [rendererFailure, setRendererFailure] = useState<MapFailure | null>(null)
+  const [rendererAttempt, setRendererAttempt] = useState(0)
+  const hintId = useId()
   useEffect(() => {
     let alive = true
     void hasBasemap().then((found) => {
@@ -103,68 +106,71 @@ export function VoyageRouteMap({
     }
   }, [])
 
-  const lat1 = coord(currentLat, 90)
-  const lon1 = coord(currentLon, 180)
-  const lat2 = coord(destinationLat, 90)
-  const lon2 = coord(destinationLon, 180)
-  const viaLat = coord(detourWaypointLat, 90)
-  const viaLon = coord(detourWaypointLon, 180)
-
   const routes = useMemo<RouteLine[]>(() => {
-    if (lat1 === null || lon1 === null || lat2 === null || lon2 === null) return []
-    const ends = {
-      departureLat: lat1,
-      departureLon: lon1,
-      arrivalLat: lat2,
-      arrivalLon: lon2,
+    return [...adaptComparisonRoutes({
+      currentLat, currentLon, destinationLat, destinationLon, destinationName,
+      detourWaypointLat, detourWaypointLon, detourWaypointName,
+    })]
+  }, [currentLat, currentLon, destinationLat, destinationLon, destinationName, detourWaypointLat, detourWaypointLon, detourWaypointName])
+
+  const adapted = useMemo(() => adaptRouteMap(routes, samplePorts), [routes, samplePorts])
+  const asks = adapted.routes
+  const lines = useSeaRoutes(asks.map(({ request }) => request))
+  const failed = asks.filter(({ request }) => lines[seaRouteKey(request)] === 'failed').length
+  const routeFailure = failed === 0
+    ? null
+    : failed === asks.length ? ROUTE_UNAVAILABLE_ON_COMPARISON : ROUTE_PARTIAL_ON_COMPARISON
+
+  const rendererModel = useMemo<MapLibreMapModel>(() => {
+    const bounds = asks.flatMap(({ request }) => {
+      const coordinates: [number, number][] = [
+        [request.fromLon, request.fromLat], [request.toLon, request.toLat],
+      ]
+      if (request.via) coordinates.push([request.via.lon, request.via.lat])
+      return coordinates
+    })
+    return {
+      mode: 'comparison', markers: [], ports: adapted.ports,
+      routes: { data: routeFeatureCollection(asks, lines), attribution: getKnownRouteSource('searoute/marnet')!.attribution, bounds },
     }
-    const direct: RouteLine = {
-      ...ends,
-      name: destinationName === '' ? '목적항' : destinationName,
-      kind: 'DIRECT',
-    }
-    if (viaLat === null || viaLon === null) return [direct]
-    const detour: RouteLine = {
-      ...ends,
-      name: `우회 · ${detourWaypointName === '' ? '경유지' : detourWaypointName}`,
-      kind: 'DETOUR',
-      via: { lat: viaLat, lon: viaLon },
-    }
-    return [direct, detour]
-  }, [lat1, lon1, lat2, lon2, viaLat, viaLon, destinationName, detourWaypointName])
+  }, [adapted.ports, asks, lines])
+  const handleRendererEvent = useCallback((event: MapRendererEvent) => {
+    if (event.type === 'ready') setRendererFailure(null)
+    if (event.type === 'error') setRendererFailure(classifyMapFailure(event.error))
+  }, [])
 
   if (routes.length === 0 || basemap !== true) return null
   const detour = routes.length === 2
+  const source = getKnownRouteSource('searoute/marnet')!
+  const disclosure = routeDisclosure({
+    mode: 'comparison',
+    source,
+    kinds: detour ? ['DIRECT', 'DETOUR'] : ['DIRECT'],
+  })
 
   return (
-    <Suspense fallback={null}>
-      <FleetMap
-        vessels={NO_VESSELS}
-        routes={routes}
-        routeUnavailableText={ROUTE_UNAVAILABLE_ON_COMPARISON}
-        routePartialText={ROUTE_PARTIAL_ON_COMPARISON}
-        ariaLabel={
-          detour
-            ? '현재 위치에서 목적항까지의 항로 지도. 공개 해상 경로망 위의 직항 경로와 우회 경유지를 지나는 우회 경로 — 실제 항해 계획이 아닙니다.'
-            : '현재 위치에서 목적항까지의 항로 지도. 공개 해상 경로망 위의 경로 — 실제 항해 계획이 아닙니다.'
-        }
-        caption={
-          detour ? (
-            <>
-              <b>파선은 직항, 점선은 경유지를 도는 우회입니다.</b> 둘 다 공개 해상 경로망
-              위의 경로이며 <b>실제 항해 계획이 아닙니다.</b> 감속은 직항과 같은 길을
-              가므로 따로 그리지 않습니다 — 거리·속력의 차이는 아래 표에 있습니다.
-            </>
-          ) : (
-            <>
-              <b>세 시나리오가 이 경로를 함께 씁니다.</b> 선은 공개 해상 경로망 위의 경로이며{' '}
-              <b>실제 항해 계획이 아닙니다.</b> 우회·감속은 거리와 속력만 달라지므로
-              지도에서는 구분되지 않습니다 — 차이는 아래 표에 있습니다. 고급 설정에서 우회
-              경유지를 고르면 우회 선을 따로 그립니다.
-            </>
-          )
-        }
-      />
-    </Suspense>
+    <div className="voyage-route-map">
+      <HarborTransitionShell onGlobeEvent={handleRendererEvent} renderGlobe={(onEvent) => (
+        <MapRendererHost
+          key={rendererAttempt}
+          className="voyage-route-map__canvas"
+          model={rendererModel}
+          loadRenderer={loadComparisonRenderer}
+          ariaLabel={
+            detour
+              ? '현재 위치에서 목적항까지의 항로 지도. 공개 해상 경로망 위의 직항 경로와 우회 경유지를 지나는 우회 경로 — 실제 항해 계획이 아닙니다.'
+              : '현재 위치에서 목적항까지의 항로 지도. 공개 해상 경로망 위의 경로 — 실제 항해 계획이 아닙니다.'
+          }
+          ariaDescribedBy={hintId}
+          onEvent={onEvent}
+        />
+      )} />
+      {routeFailure === null ? null : <p className="voyage-route-map__status">{routeFailure}</p>}
+      <p className="voyage-route-map__hint" id={hintId}>{disclosure.visibleText}</p>
+      <MapAlternative id={`${hintId}-alternative`} title="항로 비교 지도"
+        failure={rendererFailure}
+        onRetry={() => { setRendererFailure(null); setRendererAttempt((value) => value + 1) }}
+        items={routes.map((route) => `${route.kind === 'DETOUR' ? '우회' : '직항'}: 출발 ${route.departureLat}, ${route.departureLon} · 도착 ${route.arrivalLat}, ${route.arrivalLon}`)} />
+    </div>
   )
 }
