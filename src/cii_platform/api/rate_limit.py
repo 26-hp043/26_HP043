@@ -280,10 +280,35 @@ def client_ip(request: Request) -> str:
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
             # 콤마로 연결된 값에서 첫 항이 원 클라이언트. 뒤는 중간 프록시 체인이다.
-            return forwarded.split(",", 1)[0].strip()
+            # **IP여야 한다** (#1889) — 서명 헤더와 같은 규칙. 이 값은 감사 로그·세션의
+            # `VARCHAR(45)` 칸에도 들어가므로, 형식이 아니면 쓰지 않고 소켓 상대로 내려간다.
+            try:
+                return str(ipaddress.ip_address(forwarded.split(",", 1)[0].strip()))
+            except ValueError:
+                pass
     if request.client is not None:
         return request.client.host
     return "unknown"
+
+
+def audit_client_ip(request: Request) -> str | None:
+    """감사 로그·세션에 적는 클라이언트 IP — :func:`client_ip`와 **같은 판정**이다 (#1889).
+
+    종전에는 감사 기록 자리마다 ``request.client.host``를 직접 읽었다(사본 둘 · 직접 참조
+    아홉). 클라우드에서는 요청이 프록시 → 터널 → ``localhost``로 들어와 그 값이 **전원
+    터널 주소**였다 — 누가 어디서 로그인·변경했는지 기록이 구분되지 않았다.
+
+    ``auth.py``가 「위조 가능한 헤더에 의존하지 않는다」며 소켓 상대만 쓰던 이유는 서명
+    헤더에 그대로 적용되지 않는다 — 서명 헤더는 **비밀 값이 맞을 때만** 쓰이고(#1483),
+    비밀 값 없이 ``:8001``로 들어와 적은 IP는 무시된다. ``X-Forwarded-For``는 운영이
+    ``USE_FORWARDED_FOR=false``라 읽지 않는다 — 켜는 것은 앞에 신뢰할 프록시가 있을 때뿐이고,
+    그때는 한도와 감사가 같은 주소를 보는 것이 맞다.
+
+    컬럼이 NULL 허용이라(``DB_SCHEMA`` ``audit_log``·``user_session``) 알 수 없으면
+    ``"unknown"`` 문자열이 아니라 ``None``을 돌려준다.
+    """
+    ip = client_ip(request)
+    return None if ip == "unknown" else ip
 
 
 class RateLimiter:

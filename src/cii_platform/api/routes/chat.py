@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, Request, Response
 # (``routes/calculations.py`` 같은 주석 참조).
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.chat import ChatRequest
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import get_current_user, require_csrf
@@ -131,7 +132,7 @@ async def chat(
         question=payload.message,
         vessel_id=payload.vessel_id,
         calculation_run_id=payload.calculation_run_id,
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
     )
 
     await session.commit()
@@ -180,12 +181,7 @@ async def delete_chat_session(
         session,
         user_id=str(user.id),
         session_id=session_id,
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
     )
     await session.commit()
     return Response(status_code=204)
-
-
-def _client_ip(request: Request) -> str | None:
-    client = getattr(request, "client", None)
-    return getattr(client, "host", None)

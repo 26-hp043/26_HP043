@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.annual_simulation import AnnualSimulationRequest
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf, require_office
@@ -69,7 +70,7 @@ async def _record_run(
         model_version=result["model_version"],  # type: ignore[arg-type]
         duration_ms=int(meta["duration_ms"]),  # type: ignore[call-overload]
         warnings_count=len(result["warnings"]),  # type: ignore[arg-type]
-        ip_address=request.client.host if request.client else None,
+        ip_address=audit_client_ip(request),
         calculation_type=_CALCULATION_TYPE,
         details_extra=details_extra,
     )

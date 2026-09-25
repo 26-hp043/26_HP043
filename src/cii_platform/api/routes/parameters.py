@@ -17,6 +17,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf, require_office
 from cii_platform.db.session import get_session
@@ -154,7 +155,6 @@ async def import_parameters_route(
         )
 
     user = getattr(request.state, "session_user", None)
-    client = request.client
     data = await import_parameters(
         session,
         kind=type,
@@ -162,6 +162,6 @@ async def import_parameters_route(
         content_type=file.content_type,
         dry_run=dry_run,
         user_id=str(user.id) if user is not None else None,
-        ip_address=client.host if client is not None else None,
+        ip_address=audit_client_ip(request),
     )
     return {"data": data, "meta": _meta(request)}

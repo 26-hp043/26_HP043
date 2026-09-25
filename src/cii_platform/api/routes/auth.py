@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
 from cii_platform.api.error_handlers import to_error_response
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.auth import (
     LoginRequest,
     MeUpdateRequest,
@@ -157,15 +158,6 @@ LAST_ADMIN_MESSAGE = (
 
 #: 없는 계정의 역할을 바꾸려 할 때.
 USER_NOT_FOUND_MESSAGE = "계정을 찾을 수 없습니다."
-
-
-def _client_ip(request: Request) -> str | None:
-    """감사 로그용 클라이언트 IP — 미들웨어와 같은 정책으로 뽑는다 (#277).
-
-    rate_limit와 달리 X-Forwarded-For는 신뢰하지 않고 직접 peer만 쓴다 —
-    감사 기록의 주체는 정확해야 하고 위조 가능한 헤더에 의존하지 않는다.
-    """
-    return request.client.host if request.client else None
 
 
 def _meta(request: Request) -> dict[str, object]:
@@ -291,7 +283,7 @@ async def _issue_session(
     fields, session_token, csrf_token = create_session_fields(
         user.id,
         user_agent=request.headers.get("user-agent"),
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
     )
     session.add(UserSession(**fields))
     return session_token, csrf_token
@@ -367,7 +359,7 @@ async def signup(
     await audit_svc.record_login_success(
         session,
         user_id=str(user.id),
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
         details={"signup": True},
     )
     await session.commit()
@@ -434,7 +426,7 @@ async def login(
         await audit_svc.record_login_failure(
             session,
             reason="unknown_email",
-            ip_address=_client_ip(request),
+            ip_address=audit_client_ip(request),
         )
         await session.commit()
         return _error_response(request, 401, INVALID_CREDENTIALS, LOGIN_FAILED_MESSAGE)
@@ -444,7 +436,7 @@ async def login(
         await audit_svc.record_login_failure(
             session,
             reason="bad_password",
-            ip_address=_client_ip(request),
+            ip_address=audit_client_ip(request),
         )
         await session.commit()
         return _error_response(request, 401, INVALID_CREDENTIALS, LOGIN_FAILED_MESSAGE)
@@ -462,7 +454,7 @@ async def login(
             target_user_id=user.id,
             role_before=user.role,
             role_after=ROLE_ADMIN,
-            ip_address=_client_ip(request),
+            ip_address=audit_client_ip(request),
         )
         user.role = ROLE_ADMIN
 
@@ -470,7 +462,7 @@ async def login(
     await audit_svc.record_login_success(
         session,
         user_id=str(user.id),
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
         details={},
     )
     await session.commit()
@@ -513,7 +505,7 @@ async def tour_login(
         await audit_svc.record_login_failure(
             session,
             reason="tour_code_rejected",
-            ip_address=_client_ip(request),
+            ip_address=audit_client_ip(request),
         )
         await session.commit()
         return _error_response(request, 422, "VALIDATION_ERROR", TOUR_REJECTED_MESSAGE)
@@ -585,7 +577,7 @@ async def tour_login(
     await audit_svc.record_login_success(
         session,
         user_id=str(user.id),
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
         details={"tour": True},
     )
     await session.commit()
@@ -698,7 +690,7 @@ async def change_password(
         session,
         user_id=str(user.id),
         revoked_sessions=revoked,
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
     )
     await session.commit()
 
@@ -818,7 +810,7 @@ async def delete_me(
         user_id=str(user.id),
         revoked_sessions=revoked,
         purged_chat_sessions=purged_chats,
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
     )
     await session.commit()
 
@@ -910,7 +902,7 @@ async def update_user_role(
         target_user_id=target.id,
         role_before=before,
         role_after=payload.role,
-        ip_address=_client_ip(request),
+        ip_address=audit_client_ip(request),
     )
     await session.commit()
     await session.refresh(target)
@@ -961,7 +953,7 @@ async def logout(
             # 실제 무효화가 일어난 경우만 기록한다 — 멱등 재호출은 세션이
             # 이미 없어 기록하지 않는다.
             await audit_svc.record_logout(
-                session, user_id=str(row.user_id), ip_address=_client_ip(request)
+                session, user_id=str(row.user_id), ip_address=audit_client_ip(request)
             )
             await session.commit()
 
