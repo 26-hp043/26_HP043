@@ -18,15 +18,17 @@ describe('공용 3D 선박 asset·LOD 계약', () => {
 
   it('외부 texture·asset 없이 fleet budget 안의 절차형 geometry를 쓴다', () => {
     /*
-     * 잠그는 것은 **저폴리 · 저장소 소유**다 — 외부 GLB·텍스처가 0인가, 그리고 삼각형이
-     * 「지도에 쓰는 기호」 범위에 머무는가.
+     * 잠그는 것은 **저장소 소유**다 — 외부 GLB·텍스처가 0인가.
      *
-     * 상한을 24에서 **48**로 올렸다 (`#1932`). 24는 사각뿔 하나를 전제한 값이었고, 그
-     * 형상은 위에서 보면 화살표라 배로 읽히지 않았다 — 어깨에서 꺾이는 선체(24) + 선교(12)가
-     * 최소 구성이다. **형상 자체의 예산 준수는** `vesselGeometry.test.ts`가 실제 정점 수로 본다.
+     * 삼각형 상한은 24(사각뿔 · `#1907`) → 48(`#1932`) → **400**(`#1935`)으로 올랐다.
+     * 실험에서 사람이 고른 형상을 되살리며 컨테이너 적재가 들어왔기 때문이다 — 멀리서
+     * 배를 배로 읽게 하는 것은 뱃머리 각도가 아니라 **실루엣**이고, 그 「쌓임」을
+     * 만드는 것이 화물이다. 수백 개는 GPU에게 아무것도 아니다.
+     *
+     * **형상 자체의 예산 준수는** `vesselParts.test.ts`가 실제 부품 수로 본다.
      */
     expect(VESSEL_GEOMETRY_BUDGET).toMatchObject({ forwardAxis: '+Y', textureBytes: 0, assetBytes: 0 })
-    expect(VESSEL_GEOMETRY_BUDGET.fleetTriangles).toBeLessThanOrEqual(48)
-    expect(VESSEL_GEOMETRY_BUDGET.trackingTriangles).toBeLessThanOrEqual(96)
+    expect(VESSEL_GEOMETRY_BUDGET.fleetTriangles).toBeLessThanOrEqual(400)
+    expect(VESSEL_GEOMETRY_BUDGET.trackingTriangles).toBeLessThanOrEqual(500)
   })
 })

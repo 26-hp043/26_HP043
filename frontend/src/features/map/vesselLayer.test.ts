@@ -20,6 +20,12 @@ vi.mock('three', () => {
     },
     DirectionalLight: class { position = new VectorLike() },
     ConeGeometry: class { dispose = disposed.geometry },
+    CylinderGeometry: class {
+      dispose = disposed.geometry
+      rotateX = vi.fn()
+      scale = vi.fn()
+      constructor(..._args: number[]) {}
+    },
     // 선체는 저장소 소유 정점 배열이다 (`#1917` · `vesselGeometry.ts`). 형상 자체는
     // 그 파일의 검사가 보고, 여기서는 layer가 버퍼를 만들고 버리는 흐름만 본다.
     BufferGeometry: class {
@@ -28,6 +34,15 @@ vi.mock('three', () => {
       dispose = disposed.geometry
     },
     BufferAttribute: class { constructor(_array: unknown, _itemSize: number) {} },
+    // 배는 부품 여럿을 담은 Group이다 (`#1935` · `vesselParts.ts`) — 실험이 쓰던 방식이다.
+    Group: class {
+      position = new VectorLike()
+      scale = new VectorLike()
+      rotation = new VectorLike()
+      visible = true
+      add = vi.fn()
+    },
+    BoxGeometry: class { dispose = disposed.geometry; constructor(..._args: number[]) {} },
     MeshStandardMaterial: class {
       color = { setStyle: vi.fn() }
       dispose = disposed.material

@@ -7,21 +7,12 @@
  * 1픽셀이 수 km라 **한 픽셀도 차지하지 못했다.** layer는 정상으로 돌았고 콘솔도 조용했다 —
  * 사람이 본 것은 그 위에 얹힌 평면 SVG 마커였다. 그래서 「3D가 안 나온다」로 보였다.
  *
- * 형상은 WebGL 없이 정해지므로 여기서 본다. 그리는 쪽(`vesselLayer.ts`)은 three를 모의해
- * lifecycle만 본다.
+ * 형상은 `vesselParts.test.ts`가 본다 (`#1935`) — 여기는 **크기와 색**이다.
  */
 
 import { describe, expect, it } from 'vitest'
 
-import {
-  HULL_PROPORTIONS,
-  metersPerPixel,
-  ratingColorToken,
-  vesselHullVertices,
-  vesselLengthMeters,
-  vesselTriangleCount,
-} from './vesselGeometry'
-import { VESSEL_GEOMETRY_BUDGET } from './vesselModel'
+import { metersPerPixel, ratingColorToken, vesselLengthMeters } from './vesselGeometry'
 
 /** 부산 앞바다. 화면에서 실제로 쓰는 위도다. */
 const BUSAN_LAT = 35.1
@@ -58,92 +49,6 @@ describe('크기 — 화면에서 읽히는 기호다', () => {
     const low = vesselLengthMeters(4, 1.3) / metersPerPixel(4, 1.3)
     const high = vesselLengthMeters(4, 60) / metersPerPixel(4, 60)
     expect(Math.round(low)).toBe(Math.round(high))
-  })
-})
-
-describe('형상 — 방향이 읽히는 저폴리 선체', () => {
-  it('예산 안에 든다', () => {
-    expect(vesselTriangleCount('fleet')).toBeLessThanOrEqual(VESSEL_GEOMETRY_BUDGET.fleetTriangles)
-    for (const mode of ['comparison', 'playback'] as const) {
-      expect(vesselTriangleCount(mode)).toBeLessThanOrEqual(
-        VESSEL_GEOMETRY_BUDGET.trackingTriangles,
-      )
-    }
-  })
-
-  it('정점 배열이 삼각형 목록이다', () => {
-    const vertices = vesselHullVertices('fleet')
-    expect(vertices.length % 9).toBe(0)
-    expect(vertices.length).toBeGreaterThan(0)
-    expect(vertices.every((value) => Number.isFinite(value))).toBe(true)
-  })
-
-  it('선수가 뾰족하고 선미가 잘려 있다', () => {
-    // 방향을 읽는 근거다 — 종전 사각뿔은 앞뒤가 같아 회전해도 어디가 앞인지 몰랐다.
-    const vertices = vesselHullVertices('fleet')
-    let bow = -Infinity
-    let stern = Infinity
-    const atBow: number[] = []
-    const atStern: number[] = []
-    for (let i = 0; i < vertices.length; i += 3) {
-      const [x, y] = [vertices[i], vertices[i + 1]]
-      if (y > bow) bow = y
-      if (y < stern) stern = y
-      atBow.push(Math.abs(x))
-      atStern.push(Math.abs(x))
-    }
-    expect(bow).toBeGreaterThan(0)
-    expect(stern).toBeLessThan(0)
-
-    // 선수 끝(가장 큰 y)에 있는 점들은 중심선 위에 모인다 — 뾰족하다는 뜻이다.
-    const bowWidths: number[] = []
-    const sternWidths: number[] = []
-    for (let i = 0; i < vertices.length; i += 3) {
-      const [x, y] = [vertices[i], vertices[i + 1]]
-      if (Math.abs(y - bow) < 1e-6) bowWidths.push(Math.abs(x))
-      if (Math.abs(y - stern) < 1e-6) sternWidths.push(Math.abs(x))
-    }
-    expect(Math.max(...bowWidths)).toBe(0)
-    expect(Math.max(...sternWidths)).toBeGreaterThan(0)
-  })
-
-  it('모든 모드에 선교가 선다 — 위에서 볼 때 두께를 만드는 면이다', () => {
-    /*
-     * 종전에는 추적 모드에만 선교가 있었다 (`#1932` 전). 선대 지도는 배를 **내려다보는**
-     * 자리라 갑판이 평평한 한 장이면 빛이 걸리지 않는다 — 어느 모드든 입체로 읽혀야 한다.
-     */
-    const deckTop: number = HULL_PROPORTIONS.freeboard
-    const heights = (mode: 'fleet' | 'playback') => {
-      const vertices = vesselHullVertices(mode)
-      let highest = deckTop
-      for (let i = 2; i < vertices.length; i += 3) highest = Math.max(highest, vertices[i])
-      return highest
-    }
-    expect(heights('fleet')).toBeGreaterThan(deckTop)
-    // 추적 모드는 연돌이 한 층 더 올라간다 — 가까이서 앞뒤를 한 번 더 말한다.
-    expect(heights('playback')).toBeGreaterThan(heights('fleet'))
-  })
-
-  it('선수에서 어깨로 한 번 꺾인다 — 화살표가 아니라 배다', () => {
-    /*
-     * 점이 다섯이면 선수에서 현측까지가 직선 하나라 위에서 보면 화살표가 된다.
-     * 실선은 뱃머리에서 어깨까지 꺾이고 거기서 평행부가 이어진다 — 그 꺾임을 잠근다.
-     */
-    const vertices = vesselHullVertices('fleet')
-    const beamAt = (y: number) => {
-      let widest = 0
-      for (let i = 0; i < vertices.length; i += 3) {
-        if (Math.abs(vertices[i + 1] - y) < 0.02) widest = Math.max(widest, Math.abs(vertices[i]))
-      }
-      return widest
-    }
-    const bow = beamAt(0.5)
-    const shoulder = beamAt(0.33)
-    const middle = beamAt(0.1)
-    expect(bow).toBe(0)
-    expect(shoulder).toBeGreaterThan(bow)
-    // 어깨는 평행부보다 좁다 — 좁지 않으면 꺾인 것이 아니라 그냥 직선이다.
-    expect(shoulder).toBeLessThan(middle)
   })
 })
 
