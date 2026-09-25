@@ -193,6 +193,10 @@ def _route_of(voyage) -> dict[str, str] | None:
         "departure_lon": _publish(voyage.departure_lon, 6) or "",
         "arrival_lat": _publish(voyage.arrival_lat, 6) or "",
         "arrival_lon": _publish(voyage.arrival_lon, 6) or "",
+        # 항구 이름 (#1882) — 지도가 두 끝에 항구 핀을 그리고 이름을 읽어 준다. 좌표와 같은
+        # 항차에서 온다(화면이 따로 항구 표를 두지 않는다). 항차의 필수 칸이라 비지 않는다.
+        "departure_port_name": voyage.departure_port_name,
+        "arrival_port_name": voyage.arrival_port_name,
     }
 
 

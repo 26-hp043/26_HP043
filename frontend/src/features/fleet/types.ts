@@ -78,6 +78,12 @@ interface FleetRoute {
   departureLon: string
   arrivalLat: string
   arrivalLon: string
+  /**
+   * 출발항 · 도착항 이름 (`#1882`) — 지도가 두 끝에 항구 핀을 그리고 이 이름을 읽어 준다.
+   * 이 필드가 생기기 전 응답이면 `null`이다 — 그때 핀은 이름 없이 「항구」로 읽힌다.
+   */
+  departurePortName: string | null
+  arrivalPortName: string | null
 }
 
 export interface FleetVessel {

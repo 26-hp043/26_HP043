@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.46 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-09-24 |
+| 최종 수정일 | 2026-09-25 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -1067,7 +1067,9 @@ GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
           "departure_lat": "35.100000",
           "departure_lon": "129.033300",
           "arrival_lat": "1.283300",
-          "arrival_lon": "103.850000"
+          "arrival_lon": "103.850000",
+          "departure_port_name": "Busan",
+          "arrival_port_name": "Singapore"
         },
         "course_deg": "216.4",
         "is_cii_applicable_hint": true,
@@ -1108,6 +1110,7 @@ GET /api/v1/fleet/summary?regulation_year=2026&as_of=2026-08-16T12:00:00Z
 |---|---|---|
 | `departure_lat` · `departure_lon` | string | 출발항 좌표 (6자리) |
 | `arrival_lat` · `arrival_lon` | string | 도착항 좌표 (6자리) |
+| `departure_port_name` · `arrival_port_name` | string | 출발항 · 도착항 이름 — 항차에 사용자가 적은 그대로 (`#1882`). 지도가 두 끝에 **항구 핀**을 그리고 이 이름을 읽어 준다(`DESIGN_SYSTEM §9.5`). 좌표와 같은 항차에서 오므로 화면이 따로 항구 표를 두지 않는다 |
 
 > **셋 중 하나라도 없으면 `route`는 `null`이다** — ⑴ 진행 중 항차가 없다(정박 중이거나 아직 출항 전) ⑵ 좌표가 한쪽이라도 비어 있다. **반쪽 선분을 그리면 배가 어디로 가는지 잘못 말하고**, 화면은 그 사실을 알 수 없다. 항로가 없는 배는 지도에 **점만** 남는다.
 
@@ -4807,3 +4810,4 @@ POST /api/v1/chat
 | 2026-09-24 | `#1850` | §3.5·§5.2에 **동시 요청 각주** (`#1626` · `F-8`). 같은 항차의 전환 · PATCH · 실적 · 삭제 · 채택이 항차 행 잠금으로 줄을 서고, 뒤 요청은 앞 커밋 뒤의 상태로 판정돼 기존 `422 STATE_TRANSITION_ERROR`를 받는다 — **새 오류 코드·재시도 계약은 없다**(`lock_timeout=-1`이라 대기가 오류로 나오지 않는다). 채택은 나중 것이 남고 항차당 하나다. 종전에는 마지막 쓰기가 이기고 채택 행이 둘 남았다(`#1796` ⑹·⑺). 계약 값은 바뀌지 않았고 `AGENTS §4.3`상 각주 보강이라 버전은 올리지 않는다 (#1626) |
 | 2026-09-24 | `#1849` | **v1.46 — §3.11 「공개 해상 경로망 위의 바닷길」 신설**(`GET /ports/sea-route` · `#1300` E-6). 두 점(+경유지)의 바닷길 좌표를 서버 `searoute`(Eurostat SeaRoute 경로망 · 오프라인 · 결정론)로 내며 **표시용**이다 — 계산 거리(`§3.9`)와 재현성 해시는 건드리지 않는다. §5.1 요청 표에 `detour_waypoint_name`·`_lat`·`_lon` 세 행(좌표 쌍 규칙 · 좌표 넷 필요 · DETOUR = 두 구간 대권거리 합 · 해시 재료 · 항차 미저장) · `detour_distance_nm` 행에 우선순위. §12 요약표 행. 절 신설이라 버전을 올린다(`AGENTS §4.3`) (#1300) |
 | 2026-09-24 | `#1848` | §1.2 `[#506]` 이메일 변경 엔드포인트 부재 각주의 재가입 근거를 **활성 키 `email_active`의 유니크 인덱스 `uq_app_user_email_active`**(마이그레이션 061 · `DB_SCHEMA §2.15`)로 정정 — 「`WHERE is_deleted = false`인 부분 인덱스」는 CUBRID 배포에 없다. 탈퇴가 활성 키를 NULL로 비우고 유니크 인덱스는 NULL을 세지 않아 재사용이 성립한다. `§4.3`상 각주 정정이라 버전은 올리지 않는다 (#1631) |
+| 2026-09-25 | `#1896` | §2.8 선대 요약 `route`에 **`departure_port_name` · `arrival_port_name`** 추가 (`#1882`). 지도 마커 표(`DESIGN_SYSTEM §9.5`)의 **항구 핀**이 두 끝에 그려지며 이름을 읽어 준다 — 좌표와 같은 항차에서 오므로 화면이 항구 표를 새로 두지 않는다. 필드 추가라 기존 소비자는 그대로다. `§4.3`상 행 추가라 버전은 올리지 않는다 (#1882) |

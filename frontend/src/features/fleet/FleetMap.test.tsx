@@ -36,6 +36,12 @@ const mapsCreated = (): FakeMapRecord[] =>
 type FakeMarkerRecord = { element: HTMLElement; remove: ReturnType<typeof vi.fn> }
 const markersCreated = (): FakeMarkerRecord[] =>
   ((globalThis as { __fleetMarkers?: FakeMarkerRecord[] }).__fleetMarkers ??= [])
+/** 배 마커만 — 항구 핀(`#1882`)은 뺀다. */
+const vesselMarkers = (): FakeMarkerRecord[] =>
+  markersCreated().filter((m) => m.element.classList.contains('fleetmap__marker'))
+/** 항구 핀만 (`#1882`). */
+const portMarkers = (): FakeMarkerRecord[] =>
+  markersCreated().filter((m) => m.element.classList.contains('fleetmap__port'))
 
 vi.mock('maplibre-gl', () => {
   class FakeMap {
@@ -306,8 +312,8 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     render(<FleetMap vessels={[underway()]} />)
     fireLoad()
 
-    await waitFor(() => expect(markersCreated()).toHaveLength(1))
-    const before = markersCreated()[0]
+    await waitFor(() => expect(vesselMarkers()).toHaveLength(1))
+    const before = vesselMarkers()[0]
     const node = before.element
 
     // 이제 항로선이 도착한다 — 마커를 다시 만들 이유가 없다.
@@ -317,9 +323,48 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     })
     await waitFor(() => expect(mapsCreated()[0].addLayer).toHaveBeenCalled())
 
-    expect(markersCreated()).toHaveLength(1)
-    expect(markersCreated()[0].element).toBe(node)
+    expect(vesselMarkers()).toHaveLength(1)
+    expect(vesselMarkers()[0].element).toBe(node)
     expect(before.remove).not.toHaveBeenCalled()
+  })
+
+  it('진행 중 항차의 두 끝에 항구 핀을 그리고 이름을 읽어 준다 (#1882)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(SEA_LINE)))
+    mapsCreated().length = 0
+    markersCreated().length = 0
+    const named = {
+      ...underway(),
+      route: { ...underway().route!, departurePortName: 'Busan', arrivalPortName: 'Singapore' },
+    } as FleetVessel
+
+    render(<FleetMap vessels={[named]} />)
+    fireLoad()
+
+    await waitFor(() => expect(portMarkers()).toHaveLength(2))
+    const labels = portMarkers().map((m) => m.element.getAttribute('aria-label'))
+    expect(labels).toEqual(['항구 Busan', '항구 Singapore'])
+    for (const { element } of portMarkers()) {
+      // 무채색 — 등급 클래스(`--a`~`--e`·`--none`)가 붙지 않는다 (§9.5 「배가 아니다」)
+      expect([...element.classList].some((c) => c.startsWith('fleetmap__marker'))).toBe(false)
+      expect(element.getAttribute('role')).toBe('img')
+    }
+    // 핀이 먼저 붙는다 — 마커는 붙인 순서로 쌓이므로 배가 핀 위에 온다
+    const order = markersCreated().map((m) => m.element.className)
+    expect(order.indexOf('fleetmap__port')).toBeLessThan(order.findIndex((c) => c.startsWith('fleetmap__marker')))
+  })
+
+  it('두 배가 같은 항구를 쓰면 핀은 하나다 — 이름이 없으면 「항구」로 읽힌다 (#1882)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(SEA_LINE)))
+    mapsCreated().length = 0
+    markersCreated().length = 0
+    const second = { ...underway(), id: '2', name: '선박 2' } as FleetVessel
+
+    render(<FleetMap vessels={[underway(), second]} />)
+    fireLoad()
+
+    await waitFor(() => expect(vesselMarkers()).toHaveLength(2))
+    expect(portMarkers()).toHaveLength(2)
+    expect(portMarkers().map((m) => m.element.getAttribute('aria-label'))).toEqual(['항구', '항구'])
   })
 
   it('받았으면 그 문장이 없다 — 없는 문제를 만들지 않는다', async () => {
