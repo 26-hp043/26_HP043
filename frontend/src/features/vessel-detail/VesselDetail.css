@@ -653,6 +653,16 @@
   border-radius: var(--radius-control);
 }
 
+/*
+ * 지도 자산이 없을 때 개략도 위에 적는 한 줄 (`#1913` · 대시보드 `.fleet__note`와 같은 자리).
+ * **「못 불러왔다」가 아니라 「무엇으로 대신 보이는지」**를 적는 문장이라 경고색을 쓰지 않는다.
+ */
+.vd__mapnote {
+  margin: 0 0 var(--spacing-sm);
+  font-size: var(--font-size-label);
+  color: var(--text-secondary);
+}
+
 /* ── 계산 이력 · 재계산 필요 표시 (#992 · PRD §8.4) ─────────────────── */
 
 /*

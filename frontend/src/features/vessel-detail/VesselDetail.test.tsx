@@ -9,6 +9,23 @@ import { VesselDetail } from './VesselDetail'
 import type { CiiYear, VesselDetail as Detail, VesselDetailProvider } from './types'
 import { VESSEL_TABS } from './vesselTabs'
 
+/*
+ * 공용 지도 (`#1913`). 대시보드 검사(`FleetDashboard.test.tsx`)와 같은 방식으로
+ * **컴포넌트를 세우지 않고** 골라졌는지만 본다 — maplibre·WebGL은 jsdom에 없다.
+ * 넘기는 라벨도 함께 본다: 기본 문안이 선대 기준이라 한 척짜리 화면에서는 틀린 말이 된다.
+ */
+vi.mock('../fleet/FleetMap', () => ({
+  FleetMap: ({ ariaLabel }: { ariaLabel?: string }) => (
+    <div data-testid="fleetmap" aria-label={ariaLabel} />
+  ),
+}))
+
+const basemapFound = { value: false }
+vi.mock('../fleet/basemap', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../fleet/basemap')>()
+  return { ...actual, hasBasemap: () => Promise.resolve(basemapFound.value) }
+})
+
 /**
  * 진행 중 항차가 없을 때 실시간 CII 링크가 거짓 신호를 주지 않는다 (`#588`).
  *
@@ -207,6 +224,38 @@ describe('위치 개략도 (#723)', () => {
     await waitFor(() => {
       expect(container.querySelector('.position-chart')).not.toBeNull()
     })
+  })
+
+  /*
+   * 지도 통일 (`#1913`).
+   *
+   * 종전에는 자산이 있어도 이 화면만 개략도였다 — `#1264`가 「갈리는 축은 **대상 수**」로
+   * 정했기 때문이다. 그 전제가 `#1824`(지도가 본문 폭을 쓴다)와 `#1907`(공용 3D renderer)로
+   * 바뀌었고, **같은 기기에서 화면마다 다른 지도가 나오는 것**이 읽는 법을 갈랐다.
+   *
+   * 여기서 잠그는 것은 둘이다 — 자산이 있으면 **대시보드와 같은 지도**를 쓴다, 그리고
+   * 없으면 **개략도가 그대로 남는다**(지우면 자산 없는 환경에서 위치가 통째로 빈다).
+   */
+  it('지도 자산이 있으면 대시보드와 같은 지도를 쓴다', async () => {
+    basemapFound.value = true
+    try {
+      const { container } = renderAt(stub())
+      const map = await screen.findByTestId('fleetmap')
+      // 낭독 라벨이 선대 문안(「선박 N척」)이 아니라 이 배의 것이어야 한다.
+      expect(map.getAttribute('aria-label')).toBe('샘플 벌크선 현재 위치 지도')
+      expect(container.querySelector('.position-chart')).toBeNull()
+    } finally {
+      basemapFound.value = false
+    }
+  })
+
+  it('자산이 없으면 개략도로 남고 그 이유를 적는다', async () => {
+    const { container } = renderAt(stub())
+    await waitFor(() => {
+      expect(container.querySelector('.position-chart')).not.toBeNull()
+    })
+    expect(screen.queryByTestId('fleetmap')).toBeNull()
+    expect(container.querySelector('.vd__mapnote')).not.toBeNull()
   })
 
   it('좌표가 없으면 그림 자리를 만들지 않는다', async () => {

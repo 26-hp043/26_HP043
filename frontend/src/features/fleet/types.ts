@@ -86,6 +86,40 @@ interface FleetRoute {
   arrivalPortName: string | null
 }
 
+/**
+ * **지도가 읽는 것만** 담은 좁은 계약 (`#1913`).
+ *
+ * 개략도가 `ChartVessel`로 같은 일을 이미 하고 있었다 — 선대 목록의 27개 필드를 요구하면
+ * **선대가 아닌 화면은 그 지도를 쓸 수 없다.** 선박 상세는 한 척을 그리는데, 그 한 척을
+ * 위해 `shipType`·`imoNumber`·`dataAvailable`… 을 지어내야 했다. 지어낸 값은 **없는 사실을
+ * 주장하는 것**이라 옳은 길이 아니다.
+ *
+ * `FleetVessel`이 이 모양을 그대로 만족하므로 대시보드 호출은 바뀌지 않는다.
+ */
+export interface MapVessel {
+  id: string
+  name: string
+  /** 실좌표. 미기록이면 `null` — 지도는 그 배를 그리지 않고 밖에 글로 적는다. */
+  lat: string | null
+  lon: string | null
+  /** 배 색·무늬. 없으면 중립색이다. */
+  ytdRating: Rating | null
+  /**
+   * 위험 표시(굵은 테두리). **판정을 갖지 않은 호출자는 넘기지 않는다** — 빈 배열을
+   * 지어내게 하면 「위험이 없다」는 판정을 한 셈이 된다(`ChartVessel.riskReasons`와 같은 규칙).
+   */
+  riskReasons?: readonly RiskReason[]
+  /** 정박 배지(닻)를 붙일지. 상태를 모르면 `null` — 배지 없이 그린다. */
+  underwayState: UnderwayState | null
+  /**
+   * 목적항 방향(0~360 · 북=0). **실제 침로가 아니다**(AIS 미수집). 없으면 `null`이고
+   * 마커는 방향 없이 그린다 — 0°(북)로 지어내지 않는다.
+   */
+  courseDeg: string | null
+  /** 진행 중 항차의 항로. 없으면 점만 그린다 — **없는 항로를 지어내지 않는다.** */
+  route: FleetRoute | null
+}
+
 export interface FleetVessel {
   id: string
   name: string

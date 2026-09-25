@@ -1,5 +1,5 @@
 import { ArrowLeft } from 'lucide-react'
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router'
 import { ApplicabilityBadge } from '../../components/ApplicabilityBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
@@ -11,6 +11,8 @@ import { ciiUnit } from '../voyage-cii/resultRules'
 import { shipTypeLabel } from '../vessel-registration/shipTypes'
 import { detailStatusText } from '../fleet/fleetRules'
 import { PositionChart } from '../fleet/PositionChart'
+import { formatLat, formatLon } from '../fleet/coordinateText'
+import { BASEMAP_MISSING_NOTICE, hasBasemap } from '../fleet/basemap'
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -43,6 +45,12 @@ import { CURRENT_VOYAGE_SEGMENT, voyagePath } from '../../layout/globalContext'
 import { voyageCountText } from './voyageCount'
 import { CalculationHistory } from './CalculationHistory'
 import { Icon } from '../../components/Icon'
+
+/**
+ * 공용 지도 (`#1913`). 대시보드와 **같은 컴포넌트**이며 같은 방식으로 늦게 받는다 —
+ * 지도 엔진(maplibre·three)은 이 화면을 여는 값으로는 무겁다.
+ */
+const FleetMap = lazy(() => import('../fleet/FleetMap').then((m) => ({ default: m.FleetMap })))
 
 /**
  * 상세 화면 지도의 최소 표시 범위(도) — 약 1,500km (#723).
@@ -128,6 +136,56 @@ export function VesselDetail({
    */
   const shell = useShellContext()
   const [changeCount, setChangeCount] = useState(0)
+
+  /*
+   * 지도 자산이 있는가 (`#1913` · 대시보드와 같은 판정 · `basemap.ts`).
+   *
+   * `null`은 **아직 모른다**이다 — 그동안 개략도를 그대로 둔다(빈 칸이 번쩍이지 않는다).
+   * `false`로 떨어지는 길은 둘이다: 자산이 없거나(판정), renderer/WebGL이 실패했거나
+   * (`onRendererError`). 어느 쪽이든 개략도가 같은 사실을 그린다.
+   */
+  const [basemap, setBasemap] = useState<boolean | null>(null)
+  useEffect(() => {
+    let alive = true
+    void hasBasemap().then((found) => {
+      if (alive) setBasemap(found)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
+  const useMapFallback = useCallback(() => setBasemap(false), [])
+
+  /*
+   * 지도·개략도가 함께 쓰는 **한 척짜리 선대**다. 렌더마다 새 배열을 만들면 지도가
+   * 마커를 매번 지웠다 다시 단다 — `mapLibreRenderer`가 모델 **동일성**으로 다시 그릴지를
+   * 정한다(`renderedMarkers !== model.markers`).
+   */
+  const mapVessels = useMemo(
+    () =>
+      detail?.vessel.lat != null && detail.vessel.lon != null
+        ? [
+            {
+              id: detail.vessel.id,
+              name: detail.vessel.name,
+              lat: detail.vessel.lat,
+              lon: detail.vessel.lon,
+              // 배 색·무늬는 올해 누적 등급이다 — 없으면 중립색으로 떨어진다.
+              // 「올해」를 `years`의 마지막으로 읽는 것은 아래 `current`와 같은 식이다.
+              ytdRating: detail.years.at(-1)?.rating ?? null,
+              underwayState: detail.vessel.underwayState,
+              /*
+               * 이 화면의 응답에는 없는 둘이다 (`API_SPEC §2.3`). `null`로 둔다 —
+               * 지어내면 **방향 없는 배를 북쪽으로**, **항로 없는 배에 선을** 그린다.
+               * `riskReasons`는 아예 넘기지 않는다(넘기면 「위험 없음」을 판정한 셈이다).
+               */
+              courseDeg: null,
+              route: null,
+            },
+          ]
+        : [],
+    [detail],
+  )
   const noteChanged = useCallback(() => setChangeCount((count) => count + 1), [])
 
   /*
@@ -350,35 +408,54 @@ export function VesselDetail({
               대시보드와 **같은 컴포넌트**를 쓴다. 베끼면 두 화면의 투영·등급색·결측
               표기가 갈리고, 갈린 쪽이 어디인지 화면을 봐서는 알 수 없다.
 
-              **자산이 있어도 개략도다** (`#1264`). 대시보드는 `basemap`을 보고
-              타일 지도(`FleetMap`)로 올라가지만 이 카드는 그 분기에 참여하지 않는다 —
-              폭이 480이고 그리는 대상이 **한 척**이라, 그 크기의 타일 지도는 배 하나와
-              둘레 바다만 비춘다. 배경이 주는 맥락이 거의 없는데 지도 인스턴스 비용만 든다.
+              **지도도 대시보드와 같다** (`#1913`). 종전에는 자산이 있어도 여기만
+              개략도였다 — `#1264`가 「갈리는 축은 자산이 아니라 **대상 수**(선대 ↔ 한 척)」로
+              정하고, 폭 480 카드에 한 척을 담는 타일 지도는 배경 맥락이 거의 없다고
+              적었다. 그 전제가 둘 다 바뀌었다. 지도는 `#1824`로 **본문 폭**을 쓰고,
+              `#1907`의 공용 renderer는 해안선·항로·항만을 함께 그린다 — 한 척이라도
+              「이 배가 어디 있나」에 답하는 배경이 생겼다. 무엇보다 **같은 기기에서 화면마다
+              다른 지도가 나오는 것 자체가 읽는 법을 갈랐다.**
 
-              ⚠️ 같은 기기에서 대시보드는 지도, 여기는 개략도로 보인다. **고장이 아니다** —
-              갈리는 축은 자산이 아니라 **대상 수(선대 ↔ 한 척)**다. 규격은
-              `DESIGN_SYSTEM §9.5`에 있다.
+              ⚠️ **개략도를 지우지 않았다** — 자산이 없거나 WebGL이 없는 환경에서 위치가
+              통째로 비지 않게 하는 길이다(`#763` ⓑ · 대시보드와 같은 분기).
+
+              한 척이라 범위를 데이터가 정하지 못하는 문제는 공용 renderer의
+              `fitBounds(maxZoom: 6)`이 받는다 — 개략도 시절의 `DETAIL_MAP_SPAN`과 같은
+              자리이며, 그 상수는 폴백 개략도가 계속 쓴다.
 
               좌표를 따로 적지 않는다 — 개략도가 자기 밑에 「위치 30.6°N, 32.3°E」로
-              이미 적는다. 여기서 또 적으면 같은 값이 두 군데가 된다.
-
-              `minSpan`을 넓히는 이유는 그 프롭 주석에 있다.
+              이미 적고, 지도는 `caption`이 같은 값을 적는다.
             */}
             {vessel.lat && vessel.lon ? (
               <div className="vd__map">
-                <PositionChart
-                  vessels={[
-                    {
-                      id: vessel.id,
-                      name: vessel.name,
-                      lat: vessel.lat,
-                      lon: vessel.lon,
-                      // 배 색·무늬는 올해 누적 등급이다 — 없으면 중립색으로 떨어진다.
-                      ytdRating: current?.rating ?? null,
-                    },
-                  ]}
-                  minSpan={DETAIL_MAP_SPAN}
-                />
+                {basemap === true ? (
+                  // 내려받는 동안에는 개략도를 그대로 둔다 — 빈 칸이 번쩍이지 않는다.
+                  <Suspense fallback={<PositionChart vessels={mapVessels} minSpan={DETAIL_MAP_SPAN} />}>
+                    <FleetMap
+                      vessels={mapVessels}
+                      /*
+                        기본 문안은 **선대 화면 기준**이라(「선박 N척」) 한 척짜리 화면에서는
+                        틀린 말이 된다 — `#1265`가 같은 이유로 호출부가 넘기게 해 두었다.
+                      */
+                      ariaLabel={`${vessel.name} 현재 위치 지도`}
+                      caption={
+                        <>
+                          위치 {formatLat(Number(vessel.lat))} · {formatLon(Number(vessel.lon))}
+                        </>
+                      }
+                      routeUnavailableText="항로선을 불러오지 못했습니다. 현재 위치만 표시합니다."
+                      alternativeTitle={`${vessel.name} 현재 위치 지도`}
+                      onRendererError={useMapFallback}
+                    />
+                  </Suspense>
+                ) : (
+                  <>
+                    {basemap === false ? (
+                      <p className="vd__mapnote">{BASEMAP_MISSING_NOTICE}</p>
+                    ) : null}
+                    <PositionChart vessels={mapVessels} minSpan={DETAIL_MAP_SPAN} />
+                  </>
+                )}
               </div>
             ) : (
               /*

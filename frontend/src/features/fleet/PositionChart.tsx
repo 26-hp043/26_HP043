@@ -1,4 +1,5 @@
 import './PositionChart.css'
+import { formatLat, formatLon } from './coordinateText'
 import type { RiskReason } from './types'
 import type { Rating } from '../voyage-cii/types'
 import {
@@ -108,21 +109,6 @@ const LABEL_EDGE = 4
 
 /** 좌표축 선이 뷰박스 가장자리에서 떨어지는 거리 — 점 영역(`PADDING`) 바깥이다. */
 const AXIS_INSET = PADDING / 2
-
-/**
- * 위도·경도를 사람이 읽는 표기로 바꾼다 — `37.4°N` · `126.5°E`.
- *
- * 부호 대신 방위 문자를 쓰는 것이 해도의 관행이고, **음수 부호는 「남위」보다
- * 읽는 데 한 단계가 더 든다.** 소수 1자리는 이 개략도의 축척(최소 0.5°)에서
- * 의미가 남는 마지막 자리다.
- */
-function formatLat(v: number): string {
-  return `${Math.abs(v).toFixed(1)}°${v >= 0 ? 'N' : 'S'}`
-}
-
-function formatLon(v: number): string {
-  return `${Math.abs(v).toFixed(1)}°${v >= 0 ? 'E' : 'W'}`
-}
 
 /**
  * 이름표가 뷰박스를 넘지 않게 자리를 잡는다.
