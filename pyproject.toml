@@ -94,6 +94,16 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "TID251"]
 # 테스트만 이 규칙에서 제외한다.
 "tests/test_rng_reproducibility.py" = ["TID251"]
 
+# `#1915` — 이 둘은 **운영 호스트의 python3**(Ubuntu 22.04 · 3.10)에서 돈다.
+# ruff는 `requires-python`(>=3.12)에서 대상 버전을 추론해 `UP017`
+# (`timezone.utc` → `datetime.UTC`)을 건다. 그 지적을 따르면 **호스트에서 ImportError로
+# 죽는다** — `datetime.UTC`는 3.11+다. 패키지와 실행 환경이 다른 파일이라 규칙에서 뺀다.
+#
+# 이 두 줄이 「구식 코드를 봐준다」가 아니라 **실행 환경이 다르다**는 뜻임을
+# `tests/test_ops_scripts_host_python.py`가 문법·이름·의존 셋으로 잠근다.
+"scripts/db_backup.py" = ["UP017"]
+"scripts/purge_expired.py" = ["UP017"]
+
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "numpy.random.default_rng".msg = "Use np.random.Generator(np.random.PCG64DXSM(seed)) explicitly — 재현성 계약(TECH_SPEC §2.5.1, UT-RNG-004)."
 
