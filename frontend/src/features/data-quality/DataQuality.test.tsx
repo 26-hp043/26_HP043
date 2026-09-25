@@ -100,7 +100,7 @@ async function listSection(): Promise<HTMLElement> {
 }
 
 describe('데이터 점검 화면 (#513)', () => {
-  it('⚠️ 네 심각도를 항상 보인다 — 0건도 지우지 않는다 (#513 · #1766)', async () => {
+  it('⚠️ 다섯 심각도를 항상 보인다 — 0건도 지우지 않는다 (#513 · #1766)', async () => {
     renderWith(SNAPSHOT)
 
     /*
