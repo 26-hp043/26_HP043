@@ -1,4 +1,5 @@
 import type { MapVessel } from '../fleet/types'
+import { harborSceneFor } from './harborScenes'
 import type { RouteLine, SeaRouteRequest } from '../fleet/seaRoute'
 import type { MapGeometry, SnapshotRouteGeometry } from '../annual-simulation/visualization/model'
 import type { SamplePort } from '../ports/samplePorts'
@@ -67,9 +68,79 @@ export function adaptFleetMap(
   return { positions, routes, ports: vesselPorts.concat(explicit.ports) }
 }
 
-/** 선대 지도는 진행 중 항차의 두 끝만 무채색 핀으로 표시한다 (#1882). */
+/**
+ * 정박한 배를 **그 자리의 항만**에 잇는 거리(도).
+ *
+ * 약 0.25° — 위도에 따라 22~28 km다. 묘박지는 부두에서 수 km 떨어지므로 좁게 잡으면
+ * 정박 중인 배 옆에 항만이 뜨지 않는다.
+ *
+ * ⚠️ **접안을 주장하지 않는다.** 이 핀이 말하는 것은 「여기 이 항만이 있다」이고, 배가
+ * 그 항에 접안했다는 판정이 아니다 — 서버가 주는 것은 `underwayState`(정박 여부)뿐이고
+ * 어느 부두인지는 이 제품에 없다(`MAP_VISUALIZATION_GUIDE`).
+ */
+const BERTH_NEAR_DEGREES = 0.25
+
+/** 그 좌표에서 가장 가까운 샘플 항만. 위 거리 밖이면 `null`이다. */
+function portNear(
+  lat: number,
+  lon: number,
+  samplePorts: readonly SamplePort[],
+): SamplePort | null {
+  let best: SamplePort | null = null
+  let bestDistance = BERTH_NEAR_DEGREES
+  for (const port of samplePorts) {
+    // 경도는 위도가 높을수록 촘촘해진다 — 그만큼 보정해야 북쪽 항이 억울하게 멀어지지 않는다.
+    const dLat = port.lat - lat
+    const dLon = (port.lon - lon) * Math.cos((lat * Math.PI) / 180)
+    const distance = Math.sqrt(dLat * dLat + dLon * dLon)
+    if (distance <= bestDistance) {
+      best = port
+      bestDistance = distance
+    }
+  }
+  return best
+}
+
+/**
+ * 선대 지도의 항구 핀 (#1882 · `#1933`).
+ *
+ * 둘을 세운다.
+ *
+ * ⑴ **진행 중 항차의 두 끝** — 어디서 떠나 어디로 가는가(`#1882`)
+ * ⑵ **정박 중인 배 옆의 항만** (`#1933`) — 종전에는 항차가 없으면 핀이 하나도 서지
+ *    않아, 배 셋이 정박해 있어도 지도에 항만이 없었다. 정박은 **항만에서 일어나는 일**이라
+ *    그 자리를 비워 두면 「이 배가 어디 있나」의 답이 반쪽이 된다.
+ *
+ * 장면이 있는 항만(`harborScenes.ts`)은 **누를 수 있는 핀**이 된다 — 눌러 항만으로 들어간다.
+ */
 function fleetPorts(positions: readonly AdaptedPosition[], samplePorts: readonly SamplePort[]): readonly PortMarkerModel[] {
   const pins = new Map<string, PortMarkerModel>()
+
+  const remember = (
+    lat: number,
+    lon: number,
+    role: PortMarkerModel['role'],
+    label: string,
+    locode: string | null,
+  ) => {
+    const key = `${lat.toFixed(4)},${lon.toFixed(4)}`
+    const id = locode === null ? `fleet:${key}` : `fleet:${locode}:${key}`
+    const previous = pins.get(key)
+    if (previous && previous.label && !label) return
+    pins.set(key, {
+      id, role, label, coordinate: [lon, lat], appearance: 'fleet',
+      enterable: harborSceneFor(id) !== null,
+    })
+  }
+
+  // ⑵ 정박 중인 배 옆의 항만. 먼저 넣어 두고, 항차 끝이 같은 자리면 그쪽 역할이 이긴다.
+  for (const { vessel, lat, lon } of positions) {
+    if (vessel.underwayState !== 'NOT_UNDER_WAY') continue
+    const port = portNear(lat, lon, samplePorts)
+    if (!port) continue
+    remember(port.lat, port.lon, 'berth', port.name_ko || port.name, port.locode)
+  }
+
   for (const { vessel } of positions) {
     const route = vessel.route
     if (!route) continue
@@ -81,12 +152,22 @@ function fleetPorts(positions: readonly AdaptedPosition[], samplePorts: readonly
       const lat = finiteCoordinate(end.lat, 90)
       const lon = finiteCoordinate(end.lon, 180)
       if (lat === null || lon === null) continue
-      const key = `${lat.toFixed(4)},${lon.toFixed(4)}`
-      const label = end.name ?? samplePorts.find((port) => port.lat === lat && port.lon === lon)?.name_ko ?? ''
-      const previous = pins.get(key)
-      if (!previous || (!previous.label && label)) pins.set(key, {
-        id: `fleet:${key}`, role: end.role, label, coordinate: [lon, lat], appearance: 'fleet',
-      })
+      /*
+       * 어느 항인지 세 단계로 찾는다 (`#1933`).
+       *
+       * 좌표가 **정확히** 같은 항 → 이름이 같은 항 → 그 자리에서 가장 가까운 항.
+       * 종전에는 첫 단계뿐이었다. 항차 좌표가 항만표와 소수점 한 자리만 달라도 LOCODE를
+       * 찾지 못했고, 그래서 **싱가포르처럼 장면이 있는 항이 그림으로 남았다** — 들어갈
+       * 곳이 있는데 문이 없는 상태다.
+       *
+       * ⚠️ 찾은 것은 **어느 항만인지**일 뿐, 접안 사실이 아니다. 이름을 지어내지도 않는다 —
+       * 라벨은 서버가 준 이름을 그대로 쓰고, 못 찾으면 LOCODE 없이 그림으로 남는다.
+       */
+      const named = end.name?.trim().toUpperCase()
+      const found = samplePorts.find((port) => port.lat === lat && port.lon === lon)
+        ?? (named ? samplePorts.find((port) => port.name.toUpperCase() === named || port.name_ko === end.name) : undefined)
+        ?? portNear(lat, lon, samplePorts)
+      remember(lat, lon, end.role, end.name ?? found?.name_ko ?? '', found?.locode ?? null)
     }
   }
   return [...pins.values()]

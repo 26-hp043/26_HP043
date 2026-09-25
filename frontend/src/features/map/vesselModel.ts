@@ -22,7 +22,18 @@ export type GlobeVesselLayerModel = MapModeInput & {
 /** 외부 GLB 없이 저장소 소유 geometry로 고정한 저폴리 LOD 계약이다. */
 export const VESSEL_GEOMETRY_BUDGET = {
   forwardAxis: '+Y', unit: 'meter', origin: 'waterline-center',
-  fleetTriangles: 24, trackingTriangles: 48, textureBytes: 0, assetBytes: 0,
+  /*
+   * 예산을 올렸다 (`#1932` · 24 → 40 · 48 → 64).
+   *
+   * 종전 값은 **사각뿔 하나**를 전제로 잡은 것이다(`#1907`). 그 형상은 위에서 보면
+   * 화살표였고 두께가 읽히지 않았다 — 선대 지도는 배를 **내려다보는** 자리라 갑판이
+   * 평평한 한 장이면 빛이 걸리지 않는다. 어깨에서 꺾이는 선체(24) + 선교(12)가
+   * 「화살표」와 「배」를 가르는 최소 구성이고, 추적 모드는 연돌(12)을 더 얹는다.
+   *
+   * 여전히 **저폴리 계약**이다 — 외부 GLB·텍스처는 0이고, 예산을 넘기면
+   * `vesselGeometry.test.ts`가 막는다.
+   */
+  fleetTriangles: 40, trackingTriangles: 64, textureBytes: 0, assetBytes: 0,
 } as const
 
 export function normalizedHeading(value: number | null): number | null {

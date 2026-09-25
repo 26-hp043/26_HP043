@@ -81,3 +81,93 @@ describe('공용 map adapter', () => {
     } as never)).toThrow('좌표')
   })
 })
+
+/**
+ * 정박 중인 배 옆의 항만 (`#1933`).
+ *
+ * 종전에는 **진행 중 항차의 두 끝만** 핀을 세웠다(`#1882`). 그래서 배가 정박해 있으면
+ * 항차가 없어 핀이 하나도 서지 않았고, 대시보드에 정박 3척이 있어도 지도에 항만이
+ * 없었다 — 정박은 **항만에서 일어나는 일**이라 그 자리를 비우면 「이 배가 어디 있나」의
+ * 답이 반쪽이 된다.
+ *
+ * ⚠️ 이 핀은 **접안을 주장하지 않는다.** 서버가 주는 것은 `underwayState`뿐이고 어느
+ * 부두인지는 이 제품에 없다 — 핀이 말하는 것은 「여기 이 항만이 있다」다.
+ */
+describe('정박 중인 배 옆의 항만 핀 (#1933)', () => {
+  const BUSAN = { locode: 'KRPUS', name: 'BUSAN', name_ko: '부산', country_code: 'KR', lat: 35.1, lon: 129.04 }
+  const SINGAPORE = { locode: 'SGSIN', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.26, lon: 103.8 }
+  const ULSAN = { locode: 'KRUSN', name: 'ULSAN', name_ko: '울산', country_code: 'KR', lat: 35.5, lon: 129.38 }
+
+  const moored = (lat: string, lon: string) => ({
+    id: 'v1', name: '샘플 벌크선', lat, lon, ytdRating: null,
+    underwayState: 'NOT_UNDER_WAY' as const, courseDeg: null, route: null,
+  })
+
+  it('정박한 배 근처의 항만에 핀을 세운다', () => {
+    const { ports } = adaptFleetMap([moored('35.12', '129.06')], [], [BUSAN, SINGAPORE])
+    expect(ports).toHaveLength(1)
+    expect(ports[0].role).toBe('berth')
+    expect(ports[0].label).toBe('부산')
+    // 장면이 있는 항만이라 **누를 수 있다** — 눌러 항만으로 들어간다.
+    expect(ports[0].enterable).toBe(true)
+    expect(ports[0].id).toContain('KRPUS')
+  })
+
+  it('운항 중인 배 옆에는 세우지 않는다', () => {
+    const underway = { ...moored('35.12', '129.06'), underwayState: 'UNDER_WAY' as const }
+    expect(adaptFleetMap([underway], [], [BUSAN]).ports).toHaveLength(0)
+  })
+
+  it('가까운 항만이 없으면 지어내지 않는다', () => {
+    // 태평양 한가운데. 억지로 가장 가까운 항을 붙이면 **없는 사실을 주장하는 것**이다.
+    expect(adaptFleetMap([moored('20', '170')], [], [BUSAN, SINGAPORE]).ports).toHaveLength(0)
+  })
+
+  it('장면이 없는 항만은 그림으로 남는다', () => {
+    // 눌러도 아무 일이 없는 버튼은 고장으로 읽힌다 — 저장소가 담은 장면은 둘뿐이다.
+    const { ports } = adaptFleetMap([moored('35.48', '129.4')], [], [ULSAN])
+    expect(ports[0].label).toBe('울산')
+    expect(ports[0].enterable).toBe(false)
+  })
+
+  it('둘 중 더 가까운 항만을 고른다', () => {
+    const { ports } = adaptFleetMap([moored('35.45', '129.35')], [], [BUSAN, ULSAN])
+    expect(ports[0].label).toBe('울산')
+  })
+})
+
+/**
+ * 항차 끝의 항만도 **장면이 있으면 들어갈 수 있다** (`#1933`).
+ *
+ * 종전에는 좌표가 항만표와 **정확히** 같을 때만 LOCODE를 찾았다. 항차 좌표는 사용자가
+ * 넣은 값이라 소수점이 어긋나기 쉽고, 그래서 싱가포르처럼 장면이 있는 항이 그림으로
+ * 남았다 — 들어갈 곳이 있는데 문이 없었다.
+ */
+describe('항차 끝 항만의 LOCODE 해석 (#1933)', () => {
+  const SINGAPORE = { locode: 'SGSIN', name: 'SINGAPORE', name_ko: '싱가포르', country_code: 'SG', lat: 1.26, lon: 103.8 }
+  const withRoute = (arrivalLat: string, arrivalLon: string, name: string | null) => ({
+    id: 'v1', name: '샘플 벌크선', lat: '10', lon: '110', ytdRating: null,
+    underwayState: 'UNDER_WAY' as const, courseDeg: null,
+    route: {
+      departureLat: '35.1', departureLon: '129.04', arrivalLat, arrivalLon,
+      departurePortName: null, arrivalPortName: name,
+    },
+  })
+
+  it('이름이 같으면 찾는다', () => {
+    const { ports } = adaptFleetMap([withRoute('1.2833', '103.8517', 'SINGAPORE')], [], [SINGAPORE])
+    const arrival = ports.find((port) => port.role === 'destination')
+    expect(arrival?.enterable).toBe(true)
+    expect(arrival?.id).toContain('SGSIN')
+  })
+
+  it('이름이 없어도 그 자리의 항만으로 찾는다', () => {
+    const { ports } = adaptFleetMap([withRoute('1.2833', '103.8517', null)], [], [SINGAPORE])
+    expect(ports.find((port) => port.role === 'destination')?.enterable).toBe(true)
+  })
+
+  it('먼 좌표에는 붙이지 않는다', () => {
+    const { ports } = adaptFleetMap([withRoute('20', '170', null)], [], [SINGAPORE])
+    expect(ports.find((port) => port.role === 'destination')?.enterable).toBe(false)
+  })
+})
