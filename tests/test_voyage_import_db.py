@@ -717,7 +717,7 @@ async def test_speed_beyond_its_column_is_a_row_error(session, vessel_id):
 
     assert result["imported_count"] == 2
     assert result["errors"] == [
-        {"row": 3, "field": "planned_speed_kn", "message": "너무 큽니다(최대 9999.99)."}
+        {"row": 3, "field": "planned_speed_kn", "message": "너무 큽니다(최대 60)."}
     ]
     # **앞 행이 남고 뒤 행도 들어간다** — 종전에는 V-1만 남고 V-3은 시도조차 되지 않았다.
     assert [row.voyage_no for row in await _stored(session, vessel_id)] == ["V-1", "V-3"]

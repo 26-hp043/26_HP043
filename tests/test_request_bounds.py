@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
+from cii_platform.api.schemas.bounds import MAX_SPEED_KN
 from cii_platform.api.schemas.not_underway import (
     NotUnderwayFuelUseCreateRequest,
     NotUnderwayPeriodCreateRequest,
@@ -34,6 +35,7 @@ from cii_platform.api.schemas.voyage import (
     VoyageFuelUseCreateRequest,
     VoyageUpdateRequest,
 )
+from cii_platform.api.schemas.voyage_cii import VoyageCiiRequest
 from cii_platform.db.models.not_underway_fuel_use import NotUnderwayFuelUse
 from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
 from cii_platform.db.models.voyage import Voyage
@@ -62,16 +64,10 @@ _PAIRS = [
     (VoyageCreateRequest, "planned_distance_nm", Voyage, "planned_distance_nm", True),
     (VoyageUpdateRequest, "planned_distance_nm", Voyage, "planned_distance_nm", True),
     (VoyageActualsRequest, "actual_distance_nm", Voyage, "actual_distance_nm", True),
-    # 속력은 하한이 도메인(VAL-009 `>= 1.0`)이고 상한만 저장 형식이다
-    (VoyageCreateRequest, "planned_speed_kn", Voyage, "planned_speed_kn", False),
-    (VoyageUpdateRequest, "planned_speed_kn", Voyage, "planned_speed_kn", False),
-    (VoyageActualsRequest, "actual_avg_speed_kn", Voyage, "actual_avg_speed_kn", False),
     (VoyageFuelUseCreateRequest, "planned_fuel_ton", VoyageFuelUse, "planned_fuel_ton", True),
     (VoyageFuelActualRequest, "actual_fuel_ton", VoyageFuelUse, "actual_fuel_ton", True),
     (ScenarioCompareRequest, "direct_distance_nm", VoyageScenario, "distance_nm", True),
     (ScenarioCompareRequest, "detour_distance_nm", VoyageScenario, "distance_nm", True),
-    (ScenarioCompareRequest, "current_speed_kn", VoyageScenario, "speed_kn", False),
-    (ScenarioCompareRequest, "slow_speed_kn", VoyageScenario, "speed_kn", False),
     (NotUnderwayFuelUseCreateRequest, "fuel_ton", NotUnderwayFuelUse, "fuel_ton", True),
     # 정박 이동 거리는 0이 정상값(접안·묘박)이라 하한이 0이다
     (NotUnderwayPeriodCreateRequest, "distance_nm", NotUnderwayPeriod, "distance_nm", False),
@@ -89,6 +85,50 @@ def test_스키마_경계가_DB_컬럼_정밀도와_같다(schema, field, orm, c
         assert ge == smallest
     else:
         assert ge in {Decimal("1.0"), Decimal(0)}, f"{schema.__name__}.{field} 하한은 도메인 값이다"
+
+
+#: 속력은 저장 형식이 아니라 **VAL-009**가 두 끝을 정한다 — 1.0 이상 60 이하 (`#1269`).
+_SPEED_PAIRS = [
+    (VoyageCreateRequest, "planned_speed_kn", Voyage, "planned_speed_kn"),
+    (VoyageUpdateRequest, "planned_speed_kn", Voyage, "planned_speed_kn"),
+    (VoyageActualsRequest, "actual_avg_speed_kn", Voyage, "actual_avg_speed_kn"),
+    (ScenarioCompareRequest, "current_speed_kn", VoyageScenario, "speed_kn"),
+    (ScenarioCompareRequest, "slow_speed_kn", VoyageScenario, "speed_kn"),
+    (VoyageCiiRequest, "speed_kn", Voyage, "planned_speed_kn"),
+]
+
+
+@pytest.mark.parametrize(("schema", "field", "orm", "column"), _SPEED_PAIRS)
+def test_속력_경계는_VAL_009의_1과_60이다(schema, field, orm, column):
+    """여섯 필드가 같은 두 끝을 쓴다 — 실시간 CII(`speed_kn`)만 상한이 없던 것이 `#1269`다.
+
+    상한은 저장 형식 안에 있어야 한다(60 ≤ 9,999.99). 컬럼 정밀도가 줄어 60을 담지 못하면
+    여기서 드러난다.
+    """
+    assert _schema_bounds(schema, field) == (Decimal("1.0"), MAX_SPEED_KN)
+    assert _column_bounds(orm, column)[1] >= MAX_SPEED_KN
+
+
+def test_속력_상한이_DB_CHECK_선언과_마이그레이션과_같다():
+    """모델 CHECK 네 개와 마이그레이션 `062`가 같은 60을 쓴다 — 한쪽만 고치면 층이 갈린다."""
+    import importlib.util
+    from pathlib import Path
+
+    from cii_platform.db.models.vessel import Vessel
+
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "062_speed_upper_bound.py"
+    spec = importlib.util.spec_from_file_location("migration_062", path)
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert Decimal(migration.MAX_SPEED_KN) == MAX_SPEED_KN
+
+    models = {"vessel": Vessel, "voyage": Voyage, "voyage_scenario": VoyageScenario}
+    for check_name, table, column, _nullable in migration.SPEED_COLUMNS:
+        check = next(
+            c for c in models[table].__table__.constraints if getattr(c, "name", "") == check_name
+        )
+        assert f"{column} <= {MAX_SPEED_KN}" in str(check.sqltext), check_name
 
 
 @pytest.mark.parametrize("schema", [VoyageCreateRequest, VoyageUpdateRequest])
@@ -123,6 +163,8 @@ def _voyage(**overrides: object) -> dict[str, object]:
         ("planned_distance_nm", "0.001"),  # ② 0.00으로 반올림 → chk_distance_positive
         ("planned_distance_nm", "10000000000"),  # NUMERIC(12,2) 초과
         ("planned_speed_kn", "10000"),  # ③ NUMERIC(6,2) 초과
+        ("planned_speed_kn", "60.01"),  # VAL-009 상한 바로 위 (`#1269`)
+        ("planned_speed_kn", "125"),  # 12.5의 소수점을 빠뜨린 자릿수 실수
     ],
 )
 def test_저장할_수_없는_항차_값은_스키마가_거부한다(field, value):
@@ -133,7 +175,7 @@ def test_저장할_수_없는_항차_값은_스키마가_거부한다(field, val
 
 def test_저장할_수_있는_경계값은_그대로_받는다():
     ok = VoyageCreateRequest.model_validate(
-        _voyage(planned_distance_nm="0.01", planned_speed_kn="9999.99", regulation_year=2050)
+        _voyage(planned_distance_nm="0.01", planned_speed_kn="60", regulation_year=2050)
     )
     assert ok.planned_distance_nm == Decimal("0.01")
     assert VoyageCreateRequest.model_validate(_voyage(regulation_year=2019)).regulation_year == 2019

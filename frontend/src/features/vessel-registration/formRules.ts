@@ -163,10 +163,21 @@ export function storableRange(precision: number, scale: number): { min: number; 
   return { min, max: 10 ** (precision - scale) - min }
 }
 
+/**
+ * 속력의 물리 상한(kn) — `PRD §9.1` VAL-009 (#1269). 서버 `api/schemas/bounds.py`의
+ * `MAX_SPEED_KN`·DB 트리거(`062`)와 같은 값이다.
+ *
+ * 저장 형식의 상한(9,999.99)은 「운항할 수 없는 값」을 하나도 막지 못했다 — `120`kn이
+ * 도착 예정 시각과 연간 시뮬레이션까지 흘러갔다. 60은 현역 페리 세계 최고속(58.1kn)을
+ * 막지 않는 가장 좁은 값이다. 항차·실시간 CII·시나리오 비교 화면도 이 값을 쓴다.
+ */
+export const MAX_SPEED_KN = 60
+
 /** 필드별 저장 범위 — `db/models/vessel.py`의 `Numeric(...)`과 같다. */
 export const STORABLE = {
   tonnage: storableRange(12, 2),
-  speed: storableRange(6, 2),
+  // 하한은 저장 형식(0.01 · VAL-002), 상한은 VAL-009의 물리 상한이다 (#1269).
+  speed: { min: storableRange(6, 2).min, max: MAX_SPEED_KN },
   dailyFoc: storableRange(8, 2),
   // #966 — 방형계수는 저장 범위 위에 물리 범위(1 이하)가 더 좁힌다. `cbRange`가 그 상한을
   // 담는다 — 서버 스키마(_CB)와 같은 값이다.

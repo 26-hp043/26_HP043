@@ -103,6 +103,8 @@ class VoyageScenario(Base):
         # 통일해 >= 1.0.
         sa.CheckConstraint("distance_nm > 0", name="chk_scenario_distance_positive"),
         sa.CheckConstraint("speed_kn >= 1.0", name="chk_scenario_speed_positive"),
+        # #1269 — 속력의 물리 상한(VAL-009). 집행은 062 트리거다.
+        sa.CheckConstraint("speed_kn <= 60", name="chk_scenario_speed_max"),
         sa.CheckConstraint("duration_hours > 0", name="chk_scenario_duration_positive"),
         sa.CheckConstraint("fuel_ton > 0", name="chk_scenario_fuel_positive"),
         # #97 (Oracle F3): vessel/voyage 삭제 시 FK 체크가 full scan하지 않게.

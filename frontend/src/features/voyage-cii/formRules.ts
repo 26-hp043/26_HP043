@@ -1,4 +1,5 @@
 import { isKnownFuel, type FuelOption } from '../parameters/fuelCatalog'
+import { MAX_SPEED_KN } from '../vessel-registration/formRules'
 import type { VoyageCiiRequest } from './types'
 import { VoyageCiiError } from './provider'
 
@@ -280,6 +281,9 @@ export function validateForm(
   } else if (!(speed >= 1.0)) {
     // VAL-009 — PRD §9.1이 > 0이 아니라 ≥ 1.0으로 규정한다
     errors[FIELD.speedKn] = '속도는 1.0노트 이상이어야 합니다.'
+  } else if (speed > MAX_SPEED_KN) {
+    // VAL-009 상한 (#1269) — 자릿수 실수(12.5 → 125)를 서버 422 전에 잡는다
+    errors[FIELD.speedKn] = `속도는 ${MAX_SPEED_KN}노트 이하여야 합니다.`
   }
 
   if (state.fuelType === '') {

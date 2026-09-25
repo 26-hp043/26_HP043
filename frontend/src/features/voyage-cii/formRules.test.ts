@@ -485,3 +485,10 @@ describe('연료 입력 방식 (#1718)', () => {
     expect(effectiveFuelTon(state)).toBeCloseTo(80, 3)
   })
 })
+
+describe('속력 상한 60kn — VAL-009 (#1269)', () => {
+  it('60은 통과하고 60.01은 막는다 — 종전에는 이 화면만 상한이 없었다', () => {
+    expect(validateForm({ ...validState(), speedKn: '60' })[FIELD.speedKn]).toBeUndefined()
+    expect(validateForm({ ...validState(), speedKn: '60.01' })[FIELD.speedKn]).toBeDefined()
+  })
+})

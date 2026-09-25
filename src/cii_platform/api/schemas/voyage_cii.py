@@ -18,6 +18,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from cii_platform.api.schemas.bounds import SPEED
+
 #: API_SPEC §4.1 ``weather_model`` enum. 8/8 UI는 이 값을 보내지 않으며 기본값 NONE이다.
 WeatherModel = Literal["NONE", "SIMPLE_RULE", "TOWNSIN_KWON_ALPHA"]
 
@@ -48,8 +50,9 @@ class VoyageCiiRequest(BaseModel):
     regulation_year: Annotated[int, Field(ge=2000, le=2100)]
     # VAL-002: > 0
     distance_nm: Annotated[Decimal, Field(gt=0)]
-    # VAL-009: >= 1.0. **> 0이 아니다** — PRD §9.1이 1.0 하한을 규정한다.
-    speed_kn: Annotated[Decimal, Field(ge=Decimal("1.0"))]
+    # VAL-009: 1.0 이상 60 이하. **> 0이 아니다** — PRD §9.1이 1.0 하한을 규정한다.
+    # 상한은 항차·시나리오와 같은 공용 경계다(`#1269`) — 종전에는 이 칸만 상한이 없었다.
+    speed_kn: Annotated[Decimal, Field(**SPEED)]
     # 최소 1개. 빈 배열이면 계산할 CO₂가 없다.
     fuel_uses: Annotated[list[FuelUseRequest], Field(min_length=1)]
     weather_model: WeatherModel | None = None
