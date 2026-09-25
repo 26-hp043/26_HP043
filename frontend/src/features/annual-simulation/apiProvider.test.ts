@@ -250,3 +250,52 @@ describe('스냅샷 항차 — API_SPEC §6.3 (#992)', () => {
   })
 })
 
+
+describe('마지막 실행 (#1701 · API_SPEC §6.5 → §6.2)', () => {
+  const ITEM = {
+    simulation_id: 'sim-last',
+    calculation_run_id: 'run-last',
+    regulation_year: 2026,
+    target_rating: 'B',
+    simulation_runs: 2000,
+    as_of: null,
+    created_at: '2026-09-23T06:40:12.123000+00:00',
+    needs_recalc: true,
+  }
+
+  it('실행한 적이 없으면 null이다 — §6.2를 부르지 않는다', async () => {
+    const fetchImpl = vi.fn(async (_input: unknown) =>
+      jsonResponse({ data: [], meta: { next_cursor: null } }),
+    )
+    const provider = createApiAnnualSimulationProvider({ baseUrl: '/api/v1', fetchImpl })
+
+    expect(await provider.latest('v-1')).toBeNull()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(String(fetchImpl.mock.calls[0][0])).toBe('/api/v1/annual-simulations?vessel_id=v-1&limit=1')
+  })
+
+  it('있으면 §6.2를 simulation_id로 부른다 — calculation_run_id가 아니다', async () => {
+    const fetchImpl = vi.fn(async (input: unknown, _init?: RequestInit) =>
+      String(input).includes('?vessel_id=')
+        ? jsonResponse({ data: [ITEM], meta: { next_cursor: null } })
+        : jsonResponse(OK_BODY),
+    )
+    const provider = createApiAnnualSimulationProvider({ baseUrl: '/api/v1', fetchImpl })
+
+    const found = await provider.latest('v-1')
+
+    expect(String(fetchImpl.mock.calls[1][0])).toBe('/api/v1/annual-simulations/sim-last')
+    expect(fetchImpl.mock.calls[1][1]).toMatchObject({ method: 'GET' })
+    expect(found?.item).toEqual(ITEM)
+    // 실행(§6.1)과 같은 봉투 해석 — data 밖의 calculation_run_id · warnings를 합친다
+    expect(found?.result.calculation_run_id).toBe('run-1')
+    expect(found?.result.warnings).toEqual(['REFERENCE_ONLY'])
+  })
+
+  it('목록이 배열이 아니면 삼키지 않는다 — 「실행한 적 없음」과 「못 받음」은 다르다', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ data: {} }))
+    const provider = createApiAnnualSimulationProvider({ baseUrl: '/api/v1', fetchImpl })
+
+    await expect(provider.latest('v-1')).rejects.toThrow(MALFORMED_ERROR_MESSAGE)
+  })
+})

@@ -231,6 +231,30 @@ export interface AnnualSimulationProvider {
    * 그 뒤에 항차를 고쳐도 여기 값은 바뀌지 않는다(`TECH_SPEC §11`).
    */
   snapshotVoyages(simulationId: string): Promise<SnapshotVoyage[]>
+  /**
+   * 이 배의 **마지막** 실행과 그 결과 (`API_SPEC §6.5` → `§6.2` · #1701). 실행한 적이 없으면
+   * `null`. 조회라 두 역할 모두 부를 수 있다 — 들어올 때 **자동 실행하지 않는다**
+   * (`§1.8` 비멱등 · 실행은 사무직만).
+   */
+  latest(vesselId: string): Promise<LatestAnnualSimulation | null>
+}
+
+/** `GET /annual-simulations?vessel_id=…` 한 행 (`API_SPEC §6.5` · #1805). */
+export interface AnnualSimulationListItem {
+  simulation_id: string
+  calculation_run_id: string
+  regulation_year: number
+  target_rating: string
+  simulation_runs: number
+  as_of: string | null
+  created_at: string
+  needs_recalc: boolean
+}
+
+/** 마지막 실행 — 목록의 조건과 `§6.2` 결과를 함께 (#1701). */
+export interface LatestAnnualSimulation {
+  item: AnnualSimulationListItem
+  result: AnnualSimulationResult
 }
 
 /** `GET /annual-simulations/{id}/snapshot-voyages` 한 행 (`API_SPEC §6.3`). */

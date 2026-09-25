@@ -94,6 +94,10 @@ export const ANNUAL_COPY = {
   targetVesselUnknown: '이름을 불러오지 못한 선박',
   /** 결과 머리 한 줄의 앞머리 — 뒤에 「선박 · 2026년 · 목표 등급 C」가 붙는다 */
   resultConditionsLabel: '이 결과의 조건',
+  /** 들어올 때 다시 연 마지막 실행 (#1701) — 뒤에 「기준 시각」이 붙는다. 방금 돌린 결과와 구분한다 */
+  lastRunLabel: '마지막 실행',
+  /** 마지막 실행 뒤 제원이 바뀌었다(`needs_recalc` · `API_SPEC §6.5`) (#1701) */
+  lastRunNeedsRecalc: '제원이 바뀌어 다시 실행이 필요합니다.',
   targetRatingLabel: '목표 등급',
   /** `PRD §12.8` — E는 목록에 두지 않는다. 「달성」이 의미를 잃는다 */
   targetRatingHint: 'A~D 중에서 고릅니다.',
