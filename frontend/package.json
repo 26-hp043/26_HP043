@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "perf:map": "npm run build && node scripts/check-map-performance.mjs",
+    "test:map-smoke": "playwright test e2e/map-smoke.spec.ts",
     "test": "vitest run --reporter=default --reporter=json --outputFile=.vitest-report.json && node scripts/check-test-files.mjs",
     "lint": "oxlint",
     "preview": "vite preview",
@@ -25,6 +27,7 @@
     "three": "^0.186.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@types/node": "^22.20.3",

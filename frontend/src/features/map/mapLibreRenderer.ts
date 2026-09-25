@@ -1,0 +1,225 @@
+import * as maplibregl from 'maplibre-gl'
+import { Protocol } from 'pmtiles'
+import { layers, namedFlavor } from '@protomaps/basemaps'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import { BASEMAP_FONTS_URL, BASEMAP_URL, INITIAL_ZOOM, MAX_ZOOM } from '../fleet/basemap'
+import type { MapRenderer, MapRendererEvent } from './renderer'
+import { routeStyle } from './routeStyles'
+import { mergePortMarkers, portLabelPlacement, portMarkerElement, type PortMarkerModel } from './portMarkers'
+import './MapMarkers.css'
+import { mapQualityPolicy, type MapQualityTier } from './quality'
+import type { GlobeVesselLayerController } from './vesselLayer'
+import type { GlobeVesselModel } from './vesselModel'
+
+interface MapLibreMarkerModel {
+  readonly coordinate: readonly [number, number]
+  readonly element: HTMLElement
+}
+
+interface MapLibreRouteModel {
+  readonly data: maplibregl.GeoJSONSourceSpecification['data']
+  readonly attribution: string
+  readonly bounds: readonly (readonly [number, number])[]
+}
+
+export interface MapLibreMapModel {
+  readonly mode: 'fleet' | 'comparison'
+  readonly markers: readonly MapLibreMarkerModel[]
+  readonly routes: MapLibreRouteModel
+  readonly ports: readonly PortMarkerModel[]
+  readonly vessels?: readonly GlobeVesselModel[]
+  readonly qualityTier?: MapQualityTier
+}
+
+function ensureProtocol(): void {
+  const registry = globalThis as { __bluelogPmtiles?: Protocol }
+  if (registry.__bluelogPmtiles === undefined) {
+    const protocol = new Protocol()
+    maplibregl.addProtocol('pmtiles', protocol.tile)
+    registry.__bluelogPmtiles = protocol
+  }
+}
+
+function createMap(
+  target: HTMLElement,
+  attribution: string,
+  emit: (event: MapRendererEvent) => void,
+  qualityTier?: MapQualityTier,
+): maplibregl.Map {
+  const quality = mapQualityPolicy({ override: qualityTier })
+  ensureProtocol()
+  const map = new maplibregl.Map({
+    container: target,
+    style: {
+      version: 8,
+      glyphs: `${BASEMAP_FONTS_URL}/{fontstack}/{range}.pbf`,
+      sources: {
+        protomaps: {
+          type: 'vector', url: `pmtiles://${BASEMAP_URL}`, attribution: '© OpenStreetMap',
+        },
+        routes: {
+          type: 'geojson', data: { type: 'FeatureCollection', features: [] }, attribution,
+        },
+      },
+      layers: layers('protomaps', namedFlavor('light'), { lang: 'ko' }),
+    },
+    center: [127, 30], zoom: INITIAL_ZOOM, maxZoom: MAX_ZOOM,
+    pitch: quality.globe ? 18 : 0,
+    dragRotate: quality.globe, pitchWithRotate: quality.globe, touchZoomRotate: quality.globe,
+    attributionControl: { compact: true },
+  })
+  map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right')
+  map.on('error', (event) => {
+    console.error('[MapLibreRenderer] 지도 오류:', event.error?.message ?? String(event))
+    const error = event.error instanceof Error
+      ? event.error
+      : new Error(event.error?.message ?? String(event))
+    emit({ type: 'error', error })
+  })
+  return map
+}
+
+/** 날짜변경선을 사이에 둔 좌표를 지구 반대편까지 넓히지 않고 같은 연속 구간으로 푼다. */
+function unwrapDateline(coordinates: readonly (readonly [number, number])[]): readonly (readonly [number, number])[] {
+  if (coordinates.length < 2) return coordinates
+  const normalized = coordinates.map(([lon]) => ((lon % 360) + 360) % 360).sort((a, b) => a - b)
+  let largestGap = -1
+  let start = normalized[0]
+  for (let index = 0; index < normalized.length; index += 1) {
+    const current = normalized[index]
+    const next = index === normalized.length - 1 ? normalized[0] + 360 : normalized[index + 1]
+    if (next - current > largestGap) {
+      largestGap = next - current
+      start = next % 360
+    }
+  }
+  return coordinates.map(([lon, lat]) => {
+    let unwrapped = ((lon % 360) + 360) % 360
+    if (unwrapped < start) unwrapped += 360
+    return [unwrapped, lat] as const
+  })
+}
+
+/** Fleet와 Comparison이 함께 쓰는 MapLibre adapter. 제품 컴포넌트는 엔진을 import하지 않는다. */
+export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
+  mount(target, initialModel, emit) {
+    const map = createMap(target, initialModel.routes.attribution, emit, initialModel.qualityTier)
+    const quality = mapQualityPolicy({ override: initialModel.qualityTier })
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(() => map.resize())
+    resizeObserver?.observe(target)
+    let model = initialModel
+    let ready = false
+    let fitted = false
+    let markers: maplibregl.Marker[] = []
+    let portMarkers: maplibregl.Marker[] = []
+    let vesselLayer: GlobeVesselLayerController | null = null
+    let destroyed = false
+
+    let renderedMarkers: readonly MapLibreMarkerModel[] | null = null
+    let renderedPorts: readonly PortMarkerModel[] | null = null
+    const draw = () => {
+      if (!ready) return
+      // 항만을 먼저 추가해 같은 좌표의 선박 marker가 그 위에 보이게 한다.
+      if (renderedPorts !== model.ports) {
+        for (const marker of portMarkers) marker.remove()
+        portMarkers = mergePortMarkers(model.ports).map((port) => {
+          const element = portMarkerElement({
+            ...port,
+            ...(port.appearance === 'fleet' ? {} : { onActivate: () => emit({ type: 'selection', id: `port:${port.id}` }) }),
+          })
+          const projected = map.project?.([...port.coordinate])
+          const placement = projected
+            ? portLabelPlacement(projected.x, target.clientWidth)
+            : 'center'
+          element.dataset.placement = placement
+          return new maplibregl.Marker({ element, anchor: 'center' })
+            .setLngLat([...port.coordinate]).addTo(map)
+        })
+        renderedPorts = model.ports
+      }
+      if (renderedMarkers !== model.markers) {
+        for (const marker of markers) marker.remove()
+        markers = model.markers.map(({ coordinate, element }) =>
+          new maplibregl.Marker({ element, anchor: 'center' }).setLngLat([...coordinate]).addTo(map),
+        )
+        renderedMarkers = model.markers
+      }
+
+      const source = map.getSource('routes') as maplibregl.GeoJSONSource | undefined
+      if (source) source.setData(model.routes.data)
+      else map.addSource('routes', {
+        type: 'geojson', data: model.routes.data, attribution: model.routes.attribution,
+      })
+      if (map.getLayer?.('routes') === undefined) {
+        const directStyle = routeStyle(model.mode === 'fleet' ? 'fleet-current' : 'comparison-direct')
+        const detourStyle = routeStyle('comparison-detour')
+        const accent = getComputedStyle(document.documentElement).getPropertyValue(directStyle.colorToken).trim()
+        const directPaint = {
+          ...(accent === '' ? {} : { 'line-color': accent }),
+          'line-width': directStyle.width, 'line-opacity': directStyle.opacity,
+        }
+        map.addLayer({
+          id: 'routes', type: 'line', source: 'routes',
+          filter: ['!=', ['get', 'kind'], 'DETOUR'],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { ...directPaint, 'line-dasharray': [...directStyle.dash] },
+        })
+        map.addLayer({
+          id: 'routes-detour', type: 'line', source: 'routes',
+          filter: ['==', ['get', 'kind'], 'DETOUR'],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            ...(accent === '' ? {} : { 'line-color': accent }),
+            'line-width': detourStyle.width, 'line-opacity': detourStyle.opacity,
+            'line-dasharray': [...detourStyle.dash],
+          },
+        })
+      }
+      if (!fitted && model.routes.bounds.length > 0 && map.getZoom() === INITIAL_ZOOM) {
+        const bounds = new maplibregl.LngLatBounds()
+        for (const coordinate of unwrapDateline(model.routes.bounds)) bounds.extend([...coordinate])
+        map.fitBounds(bounds, { padding: target.clientWidth <= 640 ? 24 : 48, maxZoom: 6, animate: false })
+        fitted = true
+      }
+    }
+    map.on('load', () => {
+      // style이 준비된 뒤 projection을 바꿔야 MapLibre가 초기화 오류를 내지 않는다.
+      // 정적 자산은 vector PMTiles뿐이라 DEM을 추정해 terrain을 만들지 않는다.
+      try {
+        if (quality.globe) map.setProjection({ type: 'globe' })
+      } catch (error) {
+        // globe projection만 실패하면 MapLibre 기본 Mercator를 그대로 사용한다.
+        console.warn('[MapLibreRenderer] globe를 사용할 수 없어 Mercator로 표시합니다.', error)
+      }
+      ready = true
+      draw()
+      if (quality.globe && (model.vessels?.length ?? 0) > 0) {
+        void import('./vesselLayer').then(({ createGlobeVesselLayer }) => {
+          if (destroyed) return
+          vesselLayer = createGlobeVesselLayer({ mode: model.mode, vessels: model.vessels ?? [] })
+          map.addLayer(vesselLayer.layer)
+        }, (error: unknown) => emit({ type: 'error', error: error instanceof Error ? error : new Error(String(error)) }))
+      }
+      emit({ type: 'ready' })
+    })
+
+    return {
+      update(next) {
+        model = next
+        draw()
+        vesselLayer?.update({ mode: next.mode, vessels: next.vessels ?? [] })
+      },
+      destroy() {
+        destroyed = true
+        resizeObserver?.disconnect()
+        for (const marker of markers) marker.remove()
+        for (const marker of portMarkers) marker.remove()
+        markers = []
+        portMarkers = []
+        map.remove()
+      },
+    }
+  },
+}

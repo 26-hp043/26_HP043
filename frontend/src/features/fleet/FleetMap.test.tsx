@@ -6,6 +6,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { FleetVessel } from './types'
 
+const { NO_SAMPLE_PORTS, useSamplePorts } = vi.hoisted(() => {
+  const empty: readonly never[] = []
+  return { NO_SAMPLE_PORTS: empty, useSamplePorts: vi.fn(() => empty) }
+})
+vi.mock('../ports/samplePorts', () => ({ useSamplePorts }))
+
 /**
  * 좌표 없는 선박을 **조용히 빼지 않는다** (`#1103`).
  *
@@ -52,9 +58,11 @@ vi.mock('maplibre-gl', () => {
     getLayer = vi.fn().mockReturnValue(undefined)
     addSource = vi.fn()
     addLayer = vi.fn()
+    setProjection = vi.fn().mockReturnThis()
     setPaintProperty = vi.fn()
     getZoom = vi.fn().mockReturnValue(0)
     fitBounds = vi.fn()
+    resize = vi.fn().mockReturnThis()
     remove = vi.fn()
     options: unknown
     constructor(options: unknown) {
@@ -113,6 +121,7 @@ const SEA_LINE = {
   },
 }
 afterEach(() => {
+  useSamplePorts.mockReturnValue(NO_SAMPLE_PORTS)
   vi.unstubAllGlobals()
 })
 
@@ -199,6 +208,19 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     expect(mapsCreated()[0].remove).toHaveBeenCalled()
   })
 
+  it('globe/WebGL 오류를 호출부에 전달해 개략도 fallback을 열어 둔다', () => {
+    const onRendererError = vi.fn()
+    const error = new Error('WebGL unavailable')
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    mapsCreated().length = 0
+    render(<FleetMap vessels={[vessel('1', '35.1', '129')]} onRendererError={onRendererError} />)
+
+    const handler = mapsCreated()[0].on.mock.calls.find(([name]) => name === 'error')?.[1] as
+      ((event: { error: Error }) => void)
+    act(() => handler({ error }))
+    expect(onRendererError).toHaveBeenCalledWith(error)
+  })
+
   it('기본 캡션은 점선이 항해 계획이 아니라는 것과 굵은 테두리의 뜻을 둘 다 말한다 (#1421 · #1300)', () => {
     const { container } = render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
 
@@ -212,6 +234,9 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     // 스스로 설명되지 않는 유일한 표식 — 말의 순서는 바뀌어도 된다
     expect(hint).toMatch(/테두리/)
     expect(hint).toMatch(/굵/)
+    expect(hint).toMatch(/표시용.*CII 계산 거리.*AIS 실제 운항 궤적/)
+    const map = screen.getByRole('img')
+    expect(map.getAttribute('aria-describedby')).toBe(container.querySelector('.fleetmap__hint')?.id)
   })
 
   it('전부 좌표가 있으면 아무 말도 하지 않는다 — 없는 문제를 만들지 않는다', () => {
@@ -312,8 +337,8 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     render(<FleetMap vessels={[underway()]} />)
     fireLoad()
 
-    await waitFor(() => expect(vesselMarkers()).toHaveLength(1))
-    const before = vesselMarkers()[0]
+    await waitFor(() => expect(markersCreated()).toHaveLength(3))
+    const before = markersCreated().find(({ element }) => element.classList.contains('fleetmap__marker'))!
     const node = before.element
 
     // 이제 항로선이 도착한다 — 마커를 다시 만들 이유가 없다.
@@ -323,8 +348,8 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     })
     await waitFor(() => expect(mapsCreated()[0].addLayer).toHaveBeenCalled())
 
-    expect(vesselMarkers()).toHaveLength(1)
-    expect(vesselMarkers()[0].element).toBe(node)
+    expect(markersCreated()).toHaveLength(3)
+    expect(markersCreated().find(({ element }) => element.classList.contains('fleetmap__marker'))?.element).toBe(node)
     expect(before.remove).not.toHaveBeenCalled()
   })
 

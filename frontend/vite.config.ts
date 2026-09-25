@@ -40,6 +40,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: false,
+    exclude: ['e2e/**', 'node_modules/**'],
   },
   /*
    * maplibre-gl을 사전 번들링에서 뺀다 (#1144).

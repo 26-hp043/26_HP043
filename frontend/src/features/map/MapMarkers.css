@@ -1,0 +1,44 @@
+.map-port {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  display: flex;
+  font: inherit;
+  gap: var(--spacing-xs);
+  max-width: min(12rem, calc(100vw - 2 * var(--spacing-md)));
+  padding: var(--spacing-xs);
+  /* 좁은 화면에서 attribution control이 항만 keyboard/click target을 덮지 않는다. */
+  z-index: 3;
+}
+
+.map-port__pin {
+  align-items: center;
+  background: var(--color-surface);
+  border: 2px solid var(--text-secondary);
+  border-radius: 50%;
+  display: inline-flex;
+  flex: 0 0 1.75rem;
+  font-size: var(--font-size-micro);
+  height: 1.75rem;
+  justify-content: center;
+}
+
+.map-port__label {
+  background: var(--color-surface);
+  border-radius: var(--radius-control);
+  max-width: 9rem;
+  overflow: hidden;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-port[data-placement='end'] { flex-direction: row-reverse; }
+.map-port[data-placement='start'] { flex-direction: row; }
+.map-port[data-placement='center'] { flex-direction: column; }
+.map-port:focus-visible { outline: 2px solid var(--semantic-info); outline-offset: 2px; }
+
+@media (max-width: 40rem) {
+  .map-port__label { max-width: 6rem; }
+}

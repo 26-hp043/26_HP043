@@ -1293,6 +1293,7 @@ export function ScenarioComparison({
           detourWaypointLat={snapshot.inputs.detourWaypointLat}
           detourWaypointLon={snapshot.inputs.detourWaypointLon}
           detourWaypointName={portDisplayName(ports, snapshot.inputs.detourWaypointName)}
+          samplePorts={ports}
         />
 
         {/*

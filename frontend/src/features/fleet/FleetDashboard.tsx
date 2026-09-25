@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PageHeader } from '../../components/PageHeader'
 import { SCREEN_BY_ID } from '../../screens'
 import { Link } from 'react-router'
@@ -154,6 +154,8 @@ export function FleetDashboard() {
       alive = false
     }
   }, [])
+
+  const useMapFallback = useCallback(() => setBasemap(false), [])
 
   useEffect(() => {
     let alive = true
@@ -488,7 +490,7 @@ export function FleetDashboard() {
                 // 내려받는 동안에는 개략도를 그대로 둔다 — 빈 칸이 번쩍이지 않는다.
                 <Suspense fallback={<PositionChart vessels={vessels} />}>
                   {/* 「다시 시도」가 못 받은 항로선도 다시 묻게 한다 (`#1856`). */}
-                  <FleetMap vessels={vessels} retryToken={retryKey} />
+                  <FleetMap vessels={vessels} retryToken={retryKey} onRendererError={useMapFallback} />
                 </Suspense>
               ) : (
                 <>

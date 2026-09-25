@@ -1,0 +1,23 @@
+.voyage-route-map {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.voyage-route-map__canvas {
+  aspect-ratio: 8 / 5;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+  /* 항만 marker의 stacking context를 이 지도 안으로 한정한다. */
+  isolation: isolate;
+  position: relative;
+  width: 100%;
+}
+
+.voyage-route-map__hint,
+.voyage-route-map__status {
+  color: var(--text-secondary);
+  font-size: var(--font-size-label);
+  margin: 0;
+}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { AnnualSimulationResult } from '../types'
 import { createVisualizationModel } from './model'
+import { getKnownRouteSource } from '../../map/routeGeometry'
+import { routeDisclosure } from '../../map/routeDisclosure'
 
 const RESULT: AnnualSimulationResult = {
   simulation_id: 'simulation-1',
@@ -40,6 +42,7 @@ const RESULT: AnnualSimulationResult = {
 
 describe('연간 시뮬레이션 시각화 모델', () => {
   it('서버 수치 문자열을 그대로 전달하고 좌표가 없는 상태를 표시한다', () => {
+    const original = structuredClone(RESULT)
     const model = createVisualizationModel(RESULT)
 
     expect(model.projectedAttainedCii).toBe('5.0248000000')
@@ -49,6 +52,15 @@ describe('연간 시뮬레이션 시각화 모델', () => {
       status: 'unavailable',
       reason: 'coordinates_not_provided',
     })
+    expect(model.projectedRating).toBe(RESULT.deterministic.projected_rating)
+    expect(model.riskLevel).toBe(RESULT.risk_level)
+    expect(RESULT).toEqual(original)
+  })
+
+  it('legacy optional field가 없어도 처리하고 필수 block 결측은 값을 지어내지 않고 거부한다', () => {
+    expect(createVisualizationModel(RESULT).simulationId).toBe('simulation-1')
+    expect(() => createVisualizationModel({ ...RESULT, monte_carlo: undefined } as never)).toThrow('응답 block')
+    expect(() => createVisualizationModel(null as never)).toThrow('응답 block')
   })
 
   it('다른 실행의 스냅샷 좌표를 결합하지 않는다', () => {
@@ -59,5 +71,23 @@ describe('연간 시뮬레이션 시각화 모델', () => {
         routes: [],
       }),
     ).toThrow('지도 좌표의 스냅샷이 시뮬레이션 결과와 다릅니다.')
+  })
+
+  it('스냅샷 항로는 공용 표시용 좌표와 검증된 출처를 보존한다', () => {
+    const source = getKnownRouteSource('searoute/marnet')!
+    const mapGeometry = {
+      status: 'available' as const,
+      snapshotId: 'snapshot-1',
+      routes: [{
+        snapshotVoyageId: 'voyage-1',
+        coordinates: [[129.03, 35.1], [103.85, 1.28]] as const,
+        source,
+      }],
+    }
+
+    expect(createVisualizationModel(RESULT, mapGeometry).mapGeometry).toEqual(mapGeometry)
+    expect(mapGeometry.routes[0].source.displayOnly).toBe(true)
+    const disclosure = routeDisclosure({ mode: 'playback', source, kinds: ['DIRECT'] })
+    expect(disclosure.visibleText).toMatch(/표시용.*실제 항해 계획.*CII 계산 거리.*AIS 실제 운항 궤적/)
   })
 })
