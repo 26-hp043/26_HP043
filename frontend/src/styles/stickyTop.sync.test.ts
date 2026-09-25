@@ -25,10 +25,17 @@ const SRC = join(process.cwd(), 'src')
 const read = (path: string) =>
   readFileSync(join(SRC, path), 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')
 
+/**
+ * 앱 셸 밖에서 따로 뜨는 페이지. `experiment-*.html`이 진입점이라 상단바가 없고,
+ * 그 안의 `56px`(`calc(100vw - 56px)` — 좌우 여백 28px · 2)은 상단바 높이와 무관하다.
+ */
+const OUTSIDE_SHELL = [join(SRC, 'features/annual-simulation/visualization/experiments')]
+
 function cssFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const full = join(dir, entry)
-    if (statSync(full).isDirectory()) return entry === 'node_modules' ? [] : cssFiles(full)
+    if (statSync(full).isDirectory())
+      return entry === 'node_modules' || OUTSIDE_SHELL.includes(full) ? [] : cssFiles(full)
     return entry.endsWith('.css') ? [full] : []
   })
 }
