@@ -41,7 +41,7 @@ async def session(conn):
         yield db
 
 
-def _call(seq: str, *, sign: str = "V7UJ2", arrival_hour: int = 14) -> PortCall:
+def _call(seq: str, *, sign: str = "TSTV1", arrival_hour: int = 14) -> PortCall:
     return PortCall(
         source="MOF_VESSEL_OPS",
         port_authority_code="020",
@@ -69,7 +69,7 @@ async def _rows(session: AsyncSession) -> list[tuple]:
     result = await session.execute(
         text(
             "SELECT call_seq, arrival_at, raw, reports FROM port_call_record "
-            "WHERE call_sign IN ('V7UJ2', 'D7ZY') ORDER BY call_seq"
+            "WHERE call_sign IN ('TSTV1', 'TSTD2') ORDER BY call_seq"
         )
     )
     return list(result.all())
@@ -121,28 +121,28 @@ def test_port_names_map_only_verified_authorities():
 
 async def test_upsert_inserts_once_then_updates_same_call(session):
     """같은 기항을 다시 받으면 한 행을 갱신한다 — 공적 기록 쪽 정정을 따라간다."""
-    assert await port_call_repo.upsert_port_call(session, _call("014"), fetched_at=FETCHED)
+    assert await port_call_repo.upsert_port_call(session, _call("9014"), fetched_at=FETCHED)
     # 다시 받았더니 입항 시각이 정정됐다
     assert not await port_call_repo.upsert_port_call(
-        session, _call("014", arrival_hour=15), fetched_at=FETCHED
+        session, _call("9014", arrival_hour=15), fetched_at=FETCHED
     )
 
     rows = await _rows(session)
     assert len(rows) == 1
     seq, arrival_at, raw, reports = rows[0]
-    assert seq == "014"
+    assert seq == "9014"
     assert arrival_at.hour == 15
-    assert raw == "<item><etryptCo>014</etryptCo></item>"
+    assert raw == "<item><etryptCo>9014</etryptCo></item>"
     assert '"request": "FINAL"' in reports
 
 
 async def test_list_for_call_signs_reads_only_those_signs(session):
-    await port_call_repo.upsert_port_call(session, _call("014"), fetched_at=FETCHED)
-    await port_call_repo.upsert_port_call(session, _call("015", sign="D7ZY"), fetched_at=FETCHED)
+    await port_call_repo.upsert_port_call(session, _call("9014"), fetched_at=FETCHED)
+    await port_call_repo.upsert_port_call(session, _call("9015", sign="TSTD2"), fetched_at=FETCHED)
 
-    rows = await port_call_repo.list_for_call_signs(session, ["D7ZY"])
+    rows = await port_call_repo.list_for_call_signs(session, ["TSTD2"])
 
-    assert [row.call_sign for row in rows] == ["D7ZY"]
+    assert [row.call_sign for row in rows] == ["TSTD2"]
     assert rows[0].reports[0]["kind"] == KIND_ARRIVAL
     assert await port_call_repo.list_for_call_signs(session, []) == []
 
@@ -155,16 +155,18 @@ class _FakeProvider:
 
     async def fetch(self, *, call_sign: str, port_authority_code: str, start: date, end: date):
         self.asked.append((call_sign, port_authority_code))
+        if not call_sign.startswith("TST"):
+            return []  # 데모 시드의 실존 두 척(#1197 시연 표본) — 이 테스트의 대상이 아니다
         if port_authority_code == "820":
             raise PortCallApiError("99", "장애")
         if port_authority_code == "030":
-            return [_call("900", sign="OTHER1")]
-        return [_call("014", sign=call_sign)]
+            return [_call("9900", sign="OTHER1")]
+        return [_call("9014", sign=call_sign)]
 
 
 async def test_collect_isolates_failures_and_skips_unsigned_vessels(session):
     """울산 장애가 부산 기록을 막지 않는다 · 호출부호 없는 배는 묻지 않는다 · 다른 배는 버린다."""
-    await _insert_vessel(session, "7319701", "V7UJ2")
+    await _insert_vessel(session, "7319701", "TSTV1")
     await _insert_vessel(session, "7319702", None)
     provider = _FakeProvider()
 
@@ -177,12 +179,13 @@ async def test_collect_isolates_failures_and_skips_unsigned_vessels(session):
         fetched_at=FETCHED,
     )
 
-    assert {sign for sign, _ in provider.asked} == {"V7UJ2"}
+    # 호출부호 없는 배(7319702)는 묻지 않는다 — 시드의 실존 두 척은 이 테스트와 무관해 거른다.
+    assert {sign for sign, _ in provider.asked if sign.startswith("TST")} == {"TSTV1"}
     assert result.inserted == 1
     assert result.updated == 0
-    assert result.failures == [("V7UJ2", "820", "선박운항정보 API 오류 99: 장애")]
+    assert result.failures == [("TSTV1", "820", "선박운항정보 API 오류 99: 장애")]
     rows = await _rows(session)
-    assert [row[0] for row in rows] == ["014"]
+    assert [row[0] for row in rows] == ["9014"]
     other = await session.execute(
         text("SELECT COUNT(*) FROM port_call_record WHERE call_sign = 'OTHER1'")
     )
@@ -191,8 +194,8 @@ async def test_collect_isolates_failures_and_skips_unsigned_vessels(session):
 
 async def test_collect_call_sign_filter(session):
     """``--call-sign``을 주면 그 배만 묻는다."""
-    await _insert_vessel(session, "7319701", "V7UJ2")
-    await _insert_vessel(session, "7319702", "D7ZY")
+    await _insert_vessel(session, "7319701", "TSTV1")
+    await _insert_vessel(session, "7319702", "TSTD2")
     provider = _FakeProvider()
 
     await collect(
@@ -201,8 +204,8 @@ async def test_collect_call_sign_filter(session):
         start=date(2026, 8, 1),
         end=date(2026, 8, 31),
         authorities=("020",),
-        call_signs=["d7zy"],
+        call_signs=["tstd2"],
         fetched_at=FETCHED,
     )
 
-    assert provider.asked == [("D7ZY", "020")]
+    assert provider.asked == [("TSTD2", "020")]
