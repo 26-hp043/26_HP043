@@ -1,9 +1,11 @@
 import { DEFAULT_API_BASE_URL } from '../../api/base'
 import { SESSION_EXPIRED_MESSAGE, csrfHeaders, redirectToLogin } from '../../auth/session'
 import type {
+  AnnualSimulationListItem,
   AnnualSimulationProvider,
   AnnualSimulationRequest,
   AnnualSimulationResult,
+  LatestAnnualSimulation,
   SnapshotVoyage,
 } from './types'
 
@@ -97,36 +99,8 @@ export function createApiAnnualSimulationProvider(
    * 동일」). 파싱을 한 곳에 두어 둘이 갈리지 않게 한다 — 봉투 규칙(`#752`)을 한쪽에만
    * 고치면 재현 결과만 `calculation_run_id`가 빠진 채 화면에 닿는다.
    */
-  async function post(path: string, body?: unknown): Promise<AnnualSimulationResult> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    // CSRF — 서버가 검증하는 것은 헤더뿐이다(`API_SPEC §1.2`).
-    Object.assign(headers, csrfHeaders())
-
-    let response: Response
-    try {
-      response = await doFetch(`${baseUrl}${path}`, {
-        method: 'POST',
-        headers,
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      })
-    } catch (cause) {
-      // fetch는 네트워크 실패에서만 reject한다. HTTP 4xx·5xx는 정상 resolve다.
-      throw new AnnualSimulationError(NETWORK_ERROR_MESSAGE, undefined, { cause })
-    }
-
-    let parsed: unknown = null
-    try {
-      parsed = await response.json()
-    } catch {
-      parsed = null
-    }
-
-    if (response.status === 401) {
-      redirectToLogin()
-      throw new AnnualSimulationError(SESSION_EXPIRED_MESSAGE)
-    }
-    if (!response.ok) throw toAnnualSimulationError(response.status, parsed)
-
+  /** `§6.1`·`§6.2`·`§6.4`가 함께 쓰는 봉투 해석 — 한 곳에 두어 셋이 갈리지 않게 한다. */
+  function parseResultEnvelope(parsed: unknown): AnnualSimulationResult {
     const envelope = parsed as {
       data?: unknown
       calculation_run_id?: unknown
@@ -164,6 +138,84 @@ export function createApiAnnualSimulationProvider(
     }
   }
 
+  /** 조회(GET) 공통 — 401은 로그인으로, 그 밖의 오류는 `AnnualSimulationError`로. */
+  async function getJson(path: string): Promise<unknown> {
+    let response: Response
+    try {
+      response = await doFetch(`${baseUrl}${path}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+      })
+    } catch (cause) {
+      throw new AnnualSimulationError(NETWORK_ERROR_MESSAGE, undefined, { cause })
+    }
+    let parsed: unknown = null
+    try {
+      parsed = await response.json()
+    } catch {
+      parsed = null
+    }
+    if (response.status === 401) {
+      redirectToLogin()
+      throw new AnnualSimulationError(SESSION_EXPIRED_MESSAGE)
+    }
+    if (!response.ok) throw toAnnualSimulationError(response.status, parsed)
+    return parsed
+  }
+
+  /** 마지막 실행 (`§6.5` limit 1 → `§6.2` · #1701). 없으면 `null`. */
+  async function latest(vesselId: string): Promise<LatestAnnualSimulation | null> {
+    const listed = await getJson(
+      `/annual-simulations?vessel_id=${encodeURIComponent(vesselId)}&limit=1`,
+    )
+    const rows = (listed as { data?: unknown } | null)?.data
+    // 빈 배열로 삼키지 않는다 — 「실행한 적이 없다」와 「못 받았다」가 구분되지 않는다.
+    if (!Array.isArray(rows)) throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
+    if (rows.length === 0) return null
+    const item = rows[0] as AnnualSimulationListItem
+    if (typeof item?.simulation_id !== 'string') {
+      throw new AnnualSimulationError(MALFORMED_ERROR_MESSAGE)
+    }
+    const result = parseResultEnvelope(
+      await getJson(`/annual-simulations/${encodeURIComponent(item.simulation_id)}`),
+    )
+    return { item, result }
+  }
+
+  async function post(path: string, body?: unknown): Promise<AnnualSimulationResult> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    // CSRF — 서버가 검증하는 것은 헤더뿐이다(`API_SPEC §1.2`).
+    Object.assign(headers, csrfHeaders())
+
+    let response: Response
+    try {
+      response = await doFetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers,
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      })
+    } catch (cause) {
+      // fetch는 네트워크 실패에서만 reject한다. HTTP 4xx·5xx는 정상 resolve다.
+      throw new AnnualSimulationError(NETWORK_ERROR_MESSAGE, undefined, { cause })
+    }
+
+    let parsed: unknown = null
+    try {
+      parsed = await response.json()
+    } catch {
+      parsed = null
+    }
+
+    if (response.status === 401) {
+      redirectToLogin()
+      throw new AnnualSimulationError(SESSION_EXPIRED_MESSAGE)
+    }
+    if (!response.ok) throw toAnnualSimulationError(response.status, parsed)
+
+    return parseResultEnvelope(parsed)
+  }
+
   /** 조회(GET) — 스냅샷 항차 (`§6.3` · #992). 봉투는 `{data: [...]}`다. */
   async function getSnapshotVoyages(simulationId: string): Promise<SnapshotVoyage[]> {
     const headers: Record<string, string> = { Accept: 'application/json' }
@@ -196,6 +248,7 @@ export function createApiAnnualSimulationProvider(
   return {
     run: (request: AnnualSimulationRequest) => post('/annual-simulations', request),
     snapshotVoyages: getSnapshotVoyages,
+    latest,
     // 본문이 없다 — 조건은 서버가 원본 실행에서 읽는다(`API_SPEC §6.4`). 화면이 조건을
     // 다시 보내면 폼을 고친 뒤 누른 경우 **원본이 아닌 조건**으로 재현을 시도하게 된다.
     reproduce: (simulationId: string) =>

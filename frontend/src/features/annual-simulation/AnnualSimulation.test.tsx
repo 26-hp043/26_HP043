@@ -1410,3 +1410,82 @@ describe('결론이 맨 위에 선다 (#1700)', () => {
     ).toBeTruthy()
   })
 })
+
+describe('들어오면 마지막 결과부터 (#1701)', () => {
+  const LAST = {
+    simulation_id: 'sim-last',
+    calculation_run_id: 'run-sim-last',
+    regulation_year: 2026,
+    target_rating: 'B',
+    simulation_runs: 2000,
+    as_of: null,
+    created_at: '2026-09-23T06:40:12.123000+00:00',
+    needs_recalc: true,
+  }
+
+  /** 목록(§6.5)이 `LAST`를, 단건(§6.2)이 그 결과를 준다. 실행(POST)은 새 `simulation_id`. */
+  function stubWithLast(item: typeof LAST | null) {
+    let runs = 0
+    const fetchImpl = vi.fn(async (input: unknown, init?: RequestInit) => {
+      const url = String(input)
+      if (url.includes('/parameters/regulation-years')) {
+        return jsonResponse({ data: [{ year: 2026 }] })
+      }
+      if (url.includes('/annual-simulations?vessel_id=')) {
+        return jsonResponse({ data: item ? [item] : [], meta: { next_cursor: null } })
+      }
+      if (url.endsWith('/annual-simulations/sim-last')) return jsonResponse(body('sim-last'))
+      if (url.endsWith('/annual-simulations') && init?.method === 'POST') {
+        runs += 1
+        return jsonResponse(body(`sim-${runs}`))
+      }
+      return jsonResponse({ data: {} })
+    })
+    vi.stubGlobal('fetch', fetchImpl)
+    return fetchImpl
+  }
+
+  it('그 배의 마지막 결과와 「마지막 실행」 시각을 보인다 — 자동 실행하지 않는다', async () => {
+    const fetchImpl = stubWithLast(LAST)
+    renderScreen()
+
+    const lastRun = await screen.findByTestId('annual-sim-last-run')
+    expect(lastRun.textContent).toContain(ANNUAL_COPY.lastRunLabel)
+    expect(lastRun.textContent).toContain(formatTimestamp(LAST.created_at))
+    expect(screen.getByText(ANNUAL_COPY.lastRunNeedsRecalc)).toBeTruthy()
+    // 실행(POST)은 한 번도 나가지 않았다 — 조회만 했다
+    expect(fetchImpl.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'POST')).toBe(false)
+  })
+
+  it('입력칸도 그 결과의 조건이다 — 결과와 입력이 다른 조건을 가리키지 않는다', async () => {
+    stubWithLast(LAST)
+    renderScreen()
+
+    await screen.findByTestId('annual-sim-last-run')
+    expect((screen.getByLabelText(ANNUAL_COPY.targetRatingLabel) as HTMLSelectElement).value).toBe('B')
+    expect(
+      (screen.getByLabelText(ANNUAL_COPY.runsLabel, { exact: false }) as HTMLInputElement).value,
+    ).toBe('2000')
+  })
+
+  it('실행한 적이 없으면 지금의 빈 화면 그대로다', async () => {
+    stubWithLast(null)
+    renderScreen()
+
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {})
+    expect(screen.queryByTestId('annual-sim-last-run')).toBeNull()
+    expect(screen.getByText(ANNUAL_COPY.empty)).toBeTruthy()
+  })
+
+  it('새로 실행하면 「마지막 실행」 표지가 사라진다 — 방금 돌린 결과와 구분한다', async () => {
+    stubWithLast(LAST)
+    renderScreen()
+    await screen.findByTestId('annual-sim-last-run')
+
+    fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
+
+    await waitFor(() => expect(screen.queryByTestId('annual-sim-last-run')).toBeNull())
+    expect(await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeTruthy()
+  })
+})

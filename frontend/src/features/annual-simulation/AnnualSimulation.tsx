@@ -2,7 +2,7 @@ import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
-import { DISPLAY_DIGITS, formatDecimalString } from '../../display/format'
+import { DISPLAY_DIGITS, formatDecimalString, formatTimestamp } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
@@ -88,7 +88,13 @@ type RunState =
    * `conditions`는 **실행 시점의 값**이다 (#1553). 목표 등급은 실행 뒤에 바꿔도 결과를
    * 지우지 않으므로, 결과 머리에 지금 고른 값을 적으면 결과와 어긋난다.
    */
-  | { status: 'success'; result: AnnualSimulationResult; conditions: RunConditions }
+  | {
+      status: 'success'
+      result: AnnualSimulationResult
+      conditions: RunConditions
+      /** 들어올 때 다시 연 마지막 실행이면 그 시각과 재계산 필요 여부 (#1701). 방금 돌렸으면 없다. */
+      restored?: { createdAt: string; needsRecalc: boolean }
+    }
   | { status: 'error'; message: string }
 
 /**
@@ -137,6 +143,8 @@ export function AnnualSimulation({
    * Monte Carlo 10,000회는 초 단위라 전환할 시간이 충분하다.
    */
   const generationRef = useRef(0)
+  /** 들어올 때 다시 연 결과의 `선박|연도` (#1701) — 리셋 effect가 그 결과를 지우지 않게. */
+  const restoredKeyRef = useRef<string | null>(null)
   const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>(TARGET_DEFAULT)
   const [runs, setRuns] = useState(RUNS_DEFAULT)
   /** 반복 횟수 위반 문구. 실행을 누를 때 판정하고, 값을 고치면 지운다 (#1096 ⑴). */
@@ -246,10 +254,59 @@ export function AnnualSimulation({
    * 기본 문구를 쓰므로(`DisclaimerBanner`) 여기서 비울 것도 없다.
    */
   useEffect(() => {
+    // 들어올 때 다시 연 마지막 결과가 **바로 이 (선박, 연도)의 것**이면 지우지 않는다
+    // (#1701). 그 결과의 연도로 입력칸을 맞추느라 `year`가 바뀐 것이지 사용자가 대상을
+    // 바꾼 것이 아니다. 사용자가 다른 해를 고르면 키가 달라져 종전대로 지운다.
+    if (restoredKeyRef.current === `${shell.vesselId}|${year}`) return
+    restoredKeyRef.current = null
     generationRef.current += 1
     // oxlint-disable-next-line react/set-state-in-effect -- 대상(선박·연도)이 바뀌면 앞 결과를 지우는 리셋 — 조건은 남기고 결과만 지우므로 파생값으로 둘 수 없다
     setState({ status: 'idle' })
   }, [shell.vesselId, year])
+
+  /*
+   * 들어오면 **그 배의 마지막 결과부터** 보여 준다 (#1701 · `API_SPEC §6.5` → `§6.2`).
+   *
+   * - **자동 실행하지 않는다** — 실행은 사무직만 가능하고 부를 때마다 `CalculationRun`이
+   *   쌓인다(`§1.8` 비멱등). 여기서는 이미 있는 결과를 읽기만 한다(조회는 두 역할 모두).
+   * - 입력칸도 **그 결과의 조건**(연도 · 목표 등급 · 반복 횟수)으로 맞춘다 — 결과와 입력이
+   *   다른 조건을 가리키지 않게.
+   * - 없거나 못 받으면 지금의 빈 화면 그대로다. 못 받은 것을 오류로 띄우지 않는다 — 이
+   *   조회는 편의이고, 사용자는 실행으로 언제든 결과를 얻는다.
+   * - 받는 동안 사용자가 실행을 누르거나 대상을 바꾸면 늦은 응답을 버린다(세대 번호).
+   */
+  useEffect(() => {
+    const vesselId = shell.vesselId
+    if (vesselId === null) return
+    const ticket = generationRef.current
+    let alive = true
+    provider
+      .latest(vesselId)
+      .then((found) => {
+        if (!alive || found === null || ticket !== generationRef.current) return
+        const { item, result } = found
+        const itemYear = String(item.regulation_year)
+        restoredKeyRef.current = `${vesselId}|${itemYear}`
+        setChosenYear(itemYear)
+        if ((TARGET_RATINGS as readonly string[]).includes(item.target_rating)) {
+          setTarget(item.target_rating as (typeof TARGET_RATINGS)[number])
+        }
+        setRuns(String(item.simulation_runs))
+        setState({
+          status: 'success',
+          result,
+          // 선박명은 렌더할 때 채운다 — 복원 결과는 선박이 바뀌면 지워지므로 지금 이름이 그 배다.
+          conditions: { vesselName: '', year: itemYear, target: item.target_rating },
+          restored: { createdAt: item.created_at, needsRecalc: item.needs_recalc },
+        })
+      })
+      .catch(() => {
+        // 편의 조회다 — 실패해도 빈 화면 그대로 둔다(위 주석).
+      })
+    return () => {
+      alive = false
+    }
+  }, [provider, shell.vesselId])
 
   const targetVessel = targetVesselText(shell.vesselId, shell.vessels, shell.vesselsState, {
     none: ANNUAL_COPY.targetVesselNone,
@@ -281,6 +338,9 @@ export function AnnualSimulation({
       return
     }
     setState({ status: 'running' })
+    // 새 실행이 시작되면 들어올 때 받던 마지막 결과가 뒤늦게 와도 버린다(#1701).
+    generationRef.current += 1
+    restoredKeyRef.current = null
     const ticket = generationRef.current
     // 누른 순간의 조건을 잡아 둔다 — 응답을 기다리는 동안 목표를 바꿔도 결과 줄은 이것이다.
     const conditions: RunConditions = { vesselName: targetVessel, year, target }
@@ -582,7 +642,10 @@ export function AnnualSimulation({
           <Result
             key={state.result.simulation_id}
             result={state.result}
-            conditions={state.conditions}
+            conditions={
+              state.restored ? { ...state.conditions, vesselName: targetVessel } : state.conditions
+            }
+            restored={state.restored}
             provider={provider}
             mapGeometryProvider={mapGeometryProvider}
           />
@@ -616,11 +679,13 @@ type ReproduceState =
 function Result({
   result,
   conditions,
+  restored,
   provider,
   mapGeometryProvider,
 }: {
   result: AnnualSimulationResult
   conditions: RunConditions
+  restored?: { createdAt: string; needsRecalc: boolean }
   provider: AnnualSimulationProvider
   mapGeometryProvider?: AnnualMapGeometryProvider
 }) {
@@ -695,6 +760,17 @@ function Result({
           <span className="annual-sim__conditions-label">{ANNUAL_COPY.resultConditionsLabel}</span>{' '}
           <strong>{resultConditionsText(conditions)}</strong>
         </p>
+        {restored ? (
+          <p className="annual-sim__conditions" data-testid="annual-sim-last-run">
+            <span className="annual-sim__conditions-label">{ANNUAL_COPY.lastRunLabel}</span>{' '}
+            <time dateTime={restored.createdAt}>{formatTimestamp(restored.createdAt)}</time>
+          </p>
+        ) : null}
+        {restored?.needsRecalc ? (
+          <p className="annual-sim__notice" role="status">
+            {ANNUAL_COPY.lastRunNeedsRecalc}
+          </p>
+        ) : null}
         {result.is_sample_data ? (
           <p className="annual-sim__notice">{ANNUAL_COPY.sampleNotice}</p>
         ) : (
