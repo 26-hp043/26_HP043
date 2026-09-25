@@ -81,10 +81,21 @@ import subprocess
 import sys
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 #: ``db_backup.py``와 같은 기본값.
 DEFAULT_COMPOSE = "docker compose -f docker-compose.prod.yml"
+
+#: 운영 호스트의 ``python3``에서 그대로 돈다 (``#1915``).
+#:
+#: ``datetime.UTC``는 **3.11+**인데 호스트는 Ubuntu 22.04 · **3.10.12**다(app-01 · db-01
+#: 둘 다 실측 2026-09-25). 이 스크립트는 ``docs/OPERATIONS.md``·``README.md``가
+#: **호스트에서** ``python3 scripts/…``로 돌리라고 적는 자리이며, 프로덕션 이미지는
+#: wheel만 설치해 ``scripts/``를 담지 않는다 — 실행 환경이 CI(3.12)와 다르다.
+#:
+#: 별칭 한 줄로 호출부를 그대로 둔다. ⚠️ **3.11+ 표준 라이브러리 이름을 새로 쓰지 않는다** —
+#: ``tests/test_ops_scripts_host_python.py``가 이 파일을 3.10 문법으로 파싱하고 이름을 본다.
+UTC = timezone.utc
 
 #: DB 컨테이너의 **compose 서비스 이름**.
 #:
