@@ -1489,3 +1489,84 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
     expect(await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeTruthy()
   })
 })
+
+describe('마지막 결과 복원과 선박 전환 (#1927 · #1701 후속)', () => {
+  const OTHER_ID = '00000000-0000-4000-8000-000000000002'
+  const LAST_OF_FIRST = {
+    simulation_id: 'sim-last',
+    calculation_run_id: 'run-sim-last',
+    regulation_year: 2026,
+    target_rating: 'B',
+    simulation_runs: 2000,
+    as_of: null,
+    created_at: '2026-09-23T06:40:12.123000+00:00',
+    needs_recalc: false,
+  }
+
+  function shell(vesselId: string): ShellContext {
+    return {
+      ...EMPTY_SHELL_CONTEXT,
+      vesselId,
+      vessels: [
+        { id: VESSEL_ID, displayName: '샘플 벌크선', shipType: 'BULK_CARRIER' },
+        { id: OTHER_ID, displayName: '다른 배', shipType: 'BULK_CARRIER' },
+      ],
+      vesselsState: 'ready',
+      selectVesselId: () => {},
+    }
+  }
+
+  function tree(vesselId: string) {
+    return (
+      <MemoryRouter initialEntries={['/annual']}>
+        <Routes>
+          <Route element={<Outlet context={shell(vesselId)} />}>
+            <Route path="/annual" element={<AnnualSimulation />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>
+    )
+  }
+
+  it('앞 선박의 「마지막 결과」가 선박을 바꾼 뒤 도착해도 새 선박 화면을 덮지 않는다', async () => {
+    // 앞 선박의 목록 응답을 붙잡아 둔다 — 선박을 바꾼 **뒤에** 풀어 준다.
+    let releaseFirst: () => void = () => {}
+    const firstHeld = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ data: [{ year: 2026 }] })
+        }
+        if (url.includes(`vessel_id=${VESSEL_ID}`)) {
+          await firstHeld
+          return jsonResponse({ data: [LAST_OF_FIRST], meta: { next_cursor: null } })
+        }
+        if (url.includes(`vessel_id=${OTHER_ID}`)) {
+          return jsonResponse({ data: [], meta: { next_cursor: null } })
+        }
+        if (url.endsWith('/annual-simulations/sim-last')) return jsonResponse(body('sim-last'))
+        return jsonResponse({ data: {} })
+      }),
+    )
+
+    const { rerender } = render(tree(VESSEL_ID))
+    await screen.findByRole('option', { name: '2026' })
+    rerender(tree(OTHER_ID))
+    await act(async () => {})
+
+    await act(async () => {
+      releaseFirst()
+      await firstHeld
+    })
+    await act(async () => {})
+
+    // 앞 배의 결과가 다른 배 화면에 나타나지 않는다 — 빈 화면 그대로다.
+    expect(screen.queryByTestId('annual-sim-last-run')).toBeNull()
+    expect(screen.getByText(ANNUAL_COPY.empty)).toBeTruthy()
+  })
+})
+
