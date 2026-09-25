@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-26 (§3.1.1 시연 동결 `DEPLOY_FROZEN` · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-26 (§1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN` · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -122,6 +122,7 @@ Cloudflare 영역이라, 영역 사이 서브리퀘스트에는 Cloudflare가 �
 |---|---|
 | Pages Function (`frontend/functions/_proxy.ts`) | 브라우저 요청의 `cf-connecting-ip`(엣지가 붙인 값 — 사용자가 위조하지 못한다)를 `X-BlueLog-Client-IP`에 옮겨 담고 `X-BlueLog-Proxy-Secret`에 비밀 값을 싣는다. 브라우저가 같은 이름으로 보낸 헤더는 뗀다 |
 | 백엔드 (`api/rate_limit.py` `client_ip`) | 비밀 값이 **맞을 때만**(`hmac.compare_digest`) 그 IP로 센다. 없거나 틀리면 헤더를 무시하고 종전 규칙대로 — `:8001`로 직접 들어와 헤더를 적어도 위조가 되지 않는다 |
+| 감사 로그 · 세션 (`audit_client_ip` · #1889) | 위와 **같은 판정**으로 `audit_log.ip_address`·`user_session.ip_address`를 적는다. 판정 함수는 하나다 — 라우트마다 소켓 상대를 직접 읽던 자리를 모두 옮겼다. 알 수 없으면 `unknown` 대신 NULL |
 | 비밀 값 | GitHub 시크릿 `PROXY_CLIENT_IP_SECRET` 하나(§5.1). 배포가 Pages 시크릿과 app-01 `.env`에 같은 값을 넣는다 |
 | 세는 단위 | IPv4는 주소, **IPv6는 `/64` 대역**(`limit_key`). IPv6 가입자는 `/64`를 통째로 받아, 주소마다 세면 대역 안에서 주소를 바꿔 한도를 피할 수 있다. 로그의 `client`는 묶지 않은 주소다 |
 

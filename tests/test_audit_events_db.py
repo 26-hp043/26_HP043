@@ -132,3 +132,47 @@ async def test_login_failure_records_no_credentials(migrated_db, app_fresh_engin
             assert "nobody@example.com" not in serialized
     finally:
         await _cleanup()
+
+
+async def test_signed_proxy_ip_is_recorded_on_audit_and_session(
+    migrated_db, app_fresh_engine, monkeypatch
+):
+    """서명 헤더가 맞으면 감사 로그·세션에 **원 IP**가 적힌다 (`#1889`).
+
+    클라우드에서는 모든 요청의 소켓 상대가 터널 주소라, 종전에는 이 두 칸이 전원 같은
+    값이었다. 비밀 값이 틀린 요청은 소켓 상대(`TestClient`의 ``testclient``)로 남는다.
+    """
+    import cii_platform.api.rate_limit as rl
+
+    monkeypatch.setattr(rl, "_PROXY_CLIENT_IP_SECRET", "s3cret-for-tests")
+    signed = {"x-bluelog-client-ip": "203.0.113.7", "x-bluelog-proxy-secret": "s3cret-for-tests"}
+    forged = {"x-bluelog-client-ip": "198.51.100.9", "x-bluelog-proxy-secret": "wrong"}
+    await _cleanup()
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login", headers=signed).status_code == 200
+        with TestClient(app, base_url=_BASE) as client:
+            assert client.post("/api/v1/auth/dev-login", headers=forged).status_code == 200
+
+        from cii_platform.db.session import get_sessionmaker
+
+        async with get_sessionmaker()() as s:
+            ips = sorted(
+                str(event["ip_address"]) for event in await _fetch_events(s, "LOGIN_SUCCESS")
+            )
+            sessions = (
+                (
+                    await s.execute(
+                        text(
+                            "SELECT ip_address FROM user_session WHERE user_id IN "
+                            "(SELECT id FROM app_user WHERE email = 'dev@localhost')"
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        assert ips == ["203.0.113.7", "testclient"]
+        assert sorted(str(ip) for ip in sessions) == ["203.0.113.7", "testclient"]
+    finally:
+        await _cleanup()

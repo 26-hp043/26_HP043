@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.auth.session import (
     COOKIE_ATTRIBUTES,
     SESSION_COOKIE_NAME,
@@ -98,7 +99,7 @@ async def dev_login(
     fields, session_token, csrf_token = create_session_fields(
         user.id,
         user_agent=request.headers.get("user-agent"),
-        ip_address=request.client.host if request.client else None,
+        ip_address=audit_client_ip(request),
     )
     from cii_platform.db.models.user_session import UserSession
 
@@ -110,7 +111,7 @@ async def dev_login(
     await audit_svc.record_login_success(
         session,
         user_id=str(user.id),
-        ip_address=request.client.host if request.client else None,
+        ip_address=audit_client_ip(request),
         details={"dev_login": True},
     )
     await session.commit()
