@@ -85,6 +85,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_AUTH_SCHEME: ${LLM_AUTH_SCHEME:-}
+      # 공공데이터 재항 기록 수집 (#1197). 비우면 수집 경로만 꺼진다
+      DATA_GO_KR_SERVICE_KEY: ${DATA_GO_KR_SERVICE_KEY:-}
       # 프록시
       USE_FORWARDED_FOR: ${USE_FORWARDED_FOR:-false}
       # 프록시 서명 헤더의 비밀 값 (#1483). 비면 서명 헤더를 무시하고 종전 규칙으로 센다.

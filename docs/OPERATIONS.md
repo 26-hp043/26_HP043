@@ -1003,6 +1003,7 @@ deploy 워크플로가 사용하는 시크릿. Settings → Secrets and variable
 | `CLOUDFLARE_TUNNEL_TOKEN` | 🔴 **비워 둔다 (의도).** 터널 커넥터는 app-01의 **systemd `cloudflared`**가 이미 제공하며 `ourtax`와 공유한다(§3.5). 등록하면 compose가 커넥터를 **하나 더** 띄운다. 배포 로그의 `::warning:: CLOUDFLARE_TUNNEL_TOKEN 미설정`은 **정상 상태의 표시**다 |
 | `TOUR_PUBLIC` | **코드 없이 둘러보기를 여는 스위치**(`true`일 때만 열림 · `#1486` 후속). 켜면 로그인 화면에 「로그인 없이 둘러보기」 버튼이 상시 노출되고 접근 코드 없이 들어온다. ⚠️ **접근 코드를 `VITE_`로 넣지 않는다** — 빌드 산출물에 그대로 인라인되어 비밀 링크보다 못해진다. 화면에는 이 **불리언만** 전달된다(`VITE_TOUR_PUBLIC`). 문이 넓어져도 권한은 그대로다 — 둘러보기 세션은 **읽기 전용**이다(§3.7) |
 | `LLM_API_KEY` | 챗봇 LLM API 키. **비어 있거나 자리표시자 `-`면 챗봇만 비활성**(`#1535`) — 화면은 패널을 열 때 `GET /chat/status`로 먼저 안다(`API_SPEC §15.7`). 켜졌는지는 로그인한 브라우저에서 그 주소를 열어 `available`로 확인한다 |
+| `DATA_GO_KR_SERVICE_KEY` | **공공데이터포털 인증키**(`#1197` · 2026-09-23 등록 · 개인 계정 자동승인 · 세 API 공용). 해양수산부 선박운항정보(`VsslEtrynd5/Info5`)로 공적 재항 기록을 받는다. **비우면 수집 경로만 꺼진다** — 화면·계산은 그대로다. 키는 64자 영숫자라 Encoding·Decoding 구분이 없다. 개발계정 하루 10,000건 |
 | `LLM_BASE_URL` | 챗봇 연결의 기준 주소(`#1535`). **비우면 `https://api.anthropic.com`**. 경로 `/v1/messages`는 코드가 붙인다. Anthropic Messages 형식을 내는 다른 공급자로 옮길 때만 넣는다 |
 | `LLM_MODEL` | 챗봇 모델 이름(`#1535`). **비우면 `claude-haiku-4-5-20251001`** |
 | `LLM_AUTH_SCHEME` | 챗봇 인증 헤더 방식(`#1535`). **비우면 `x-api-key`**, 다른 값은 `bearer`(`Authorization: Bearer`) 하나다. ⚠️ **그 밖의 값이면 챗봇이 꺼진다** — 운영자가 적은 것과 다른 헤더로 키를 내보내지 않기 위해서다 |
