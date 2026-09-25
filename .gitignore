@@ -69,3 +69,6 @@ frontend/.vitest-report.json
 #
 # 규격과 갱신 방법은 `scripts/fetch_basemap.sh` 머리말에 있다.
 /basemap/
+
+# wrangler pages dev 의 로컬 작업 디렉터리 — 빌드 산출물처럼 커밋하지 않는다 (#1909).
+frontend/.wrangler/

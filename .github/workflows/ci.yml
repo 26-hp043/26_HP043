@@ -209,6 +209,17 @@ jobs:
       - run: npm run lint
       # tsc -b(타입 검사) + vite build. 별도 typecheck 스텝을 두지 않는 이유다.
       - run: npm run build
+      # 지도 타일 워커가 **빌드 산출물에 있는가** (#1909).
+      #
+      # maplibre v6는 워커 주소를 런타임에 조립한다(`src/features/map/mapLibreWorker.ts`).
+      # 그 조립을 번들러가 읽지 못해 워커 자산이 통째로 빠진 채 배포됐고, 없는 자산은
+      # SPA 폴백이 `index.html`을 200으로 돌려주어 **워커가 조용히 죽었다** — 지도는
+      # 회색 사각형이 되고 타일 요청은 한 건도 나가지 않는다(`#1144`가 적은 실패 모양).
+      #
+      # 빌드도 테스트도 개발 서버도 전부 통과했다. **산출물을 직접 보는 검사만 이 회귀를
+      # 잡는다.** `npm run test`는 워커가 없어도 초록이다.
+      - name: 지도 타일 워커 자산 확인 (#1909)
+        run: ls -l dist/assets/maplibre-gl-worker-*.js
       # vitest run — watch 모드가 아니다(package.json scripts 확인함).
       - run: npm run test
 

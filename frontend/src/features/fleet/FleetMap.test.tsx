@@ -94,6 +94,8 @@ vi.mock('maplibre-gl', () => {
     LngLatBounds: FakeBounds,
     NavigationControl: class {},
     addProtocol: vi.fn(),
+    // 워커 주소 고정 (`#1909`).
+    setWorkerUrl: vi.fn(),
   }
 })
 vi.mock('pmtiles', () => ({ Protocol: class { tile = vi.fn() } }))
