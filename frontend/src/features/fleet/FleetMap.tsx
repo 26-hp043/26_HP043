@@ -1,6 +1,6 @@
 import { useCallback, useId, useMemo, type ReactNode } from 'react'
 import './FleetMap.css'
-import type { FleetVessel } from './types'
+import type { MapVessel } from './types'
 import {
   seaRouteKey,
   useSeaRoutes,
@@ -91,7 +91,7 @@ export const ROUTE_ATTRIBUTION = ROUTE_SOURCE.attribution
 const NO_ROUTES: readonly RouteLine[] = []
 
 interface FleetMapProps {
-  vessels: FleetVessel[]
+  vessels: readonly MapVessel[]
   /** 선박에서 파생하지 않는 항로. 생략하면 종전과 같다. */
   routes?: readonly RouteLine[]
   /**
@@ -117,17 +117,25 @@ interface FleetMapProps {
   retryToken?: number
   /** 공용 renderer의 제품 화면 구분. */
   mapMode?: 'fleet' | 'comparison'
+  /**
+   * 대체 정보(접힌 텍스트)의 제목 (`#1913`). 기본 문안 「선대 현재 위치 지도」는
+   * **선대 화면 기준**이라 한 척을 그리는 화면에서는 틀린 말이 된다 —
+   * `ariaLabel`·`caption`과 같은 이유로 호출부가 넘긴다.
+   */
+  alternativeTitle?: string
   /** renderer/WebGL 실패 시 호출부가 개략도로 전환한다. */
   onRendererError?: (error: Error) => void
 }
 
 /** 마커 DOM. 배 모양 + 등급색 + 등급 문자. */
-function markerElement(vessel: FleetVessel): HTMLElement {
+function markerElement(vessel: MapVessel): HTMLElement {
   const root = document.createElement('div')
   root.className = 'fleetmap__marker'
   const rating = vessel.ytdRating
   root.classList.add(rating ? `fleetmap__marker--${rating.toLowerCase()}` : 'fleetmap__marker--none')
-  if (isAtRisk(vessel)) root.classList.add('fleetmap__marker--risk')
+  // 판정을 넘기지 않은 호출자(선박 상세 등)는 「위험 없음」이 아니라 **판정 없음**이다.
+  const atRisk = isAtRisk({ riskReasons: vessel.riskReasons ?? [] })
+  if (atRisk) root.classList.add('fleetmap__marker--risk')
 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.setAttribute('viewBox', `0 0 ${VESSEL_GRID} ${VESSEL_GRID}`)
@@ -179,7 +187,7 @@ function markerElement(vessel: FleetVessel): HTMLElement {
   root.setAttribute('role', 'img')
   root.setAttribute(
     'aria-label',
-    `${vessel.name} · 등급 ${rating ?? '없음'}${moored ? ' · 정박 중' : ''}${isAtRisk(vessel) ? ' · 주의' : ''}`,
+    `${vessel.name} · 등급 ${rating ?? '없음'}${moored ? ' · 정박 중' : ''}${atRisk ? ' · 주의' : ''}`,
   )
   return root
 }
@@ -193,6 +201,7 @@ export function FleetMap({
   routePartialText = ROUTE_PARTIAL_TEXT,
   retryToken,
   mapMode = 'fleet',
+  alternativeTitle = '선대 현재 위치 지도',
   onRendererError,
 }: FleetMapProps) {
   const samplePorts = useSamplePorts()
@@ -319,7 +328,7 @@ export function FleetMap({
           </>
         )}
       </p>
-      <MapAlternative id={`${hintId}-alternative`} title="선대 현재 위치 지도"
+      <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
         items={adapted.positions.map(({ vessel, lat, lon }) => `${vessel.name}: 위도 ${lat}, 경도 ${lon}${vessel.route ? ` · 출발 ${vessel.route.departureLat}, ${vessel.route.departureLon} · 도착 ${vessel.route.arrivalLat}, ${vessel.route.arrivalLon}` : ''}`)} />
     </div>
   )

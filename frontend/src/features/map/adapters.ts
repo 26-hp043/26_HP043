@@ -1,4 +1,4 @@
-import type { FleetVessel } from '../fleet/types'
+import type { MapVessel } from '../fleet/types'
 import type { RouteLine, SeaRouteRequest } from '../fleet/seaRoute'
 import type { MapGeometry, SnapshotRouteGeometry } from '../annual-simulation/visualization/model'
 import type { SamplePort } from '../ports/samplePorts'
@@ -7,7 +7,7 @@ import { createRouteGeometry, createWaypointRouteGeometry, getKnownRouteSource }
 import type { WaypointRouteDerivation } from './routeGeometry'
 
 interface AdaptedPosition {
-  readonly vessel: FleetVessel
+  readonly vessel: MapVessel
   readonly lat: number
   readonly lon: number
 }
@@ -43,7 +43,7 @@ function isWaypointDerivation(value: unknown): value is WaypointRouteDerivation 
 
 /** Fleet API의 정상·legacy 문자열·null·invalid 좌표를 renderer 입력 전에 판정한다. */
 export function adaptFleetMap(
-  vessels: readonly FleetVessel[],
+  vessels: readonly MapVessel[],
   extra: readonly RouteLine[],
   samplePorts: readonly SamplePort[] = [],
 ): FleetMapAdapterModel {
