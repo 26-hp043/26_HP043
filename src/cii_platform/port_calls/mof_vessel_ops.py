@@ -149,6 +149,7 @@ def parse_response(payload: bytes) -> tuple[list[PortCall], int]:
                 previous_port=_text(item, "prvsDpmprtNatPrtCd"),
                 next_port=_text(item, "nxlnptNatPrtCd"),
                 reports=reports,
+                raw=ET.tostring(item, encoding="unicode"),
             )
         )
     total = int(_text(root, "body/totalCount") or 0)

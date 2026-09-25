@@ -3,9 +3,9 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.36 |
-| 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** |
-| 최종 수정일 | 2026-09-25 |
+| 버전 | v1.37 |
+| 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** |
+| 최종 수정일 | 2026-09-26 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
 | DB 엔진 | **CUBRID 11.4.6** (`#1058` 전환). 이 문서의 DDL·트리거 예시는 아직 PostgreSQL 문법이다 — **문법이 아니라 계약을 읽을 것**이며, CUBRID에서 계약이 어떻게 유지되는지는 `§7.4`에 있다 |
@@ -76,7 +76,7 @@ erDiagram
     CHAT_SESSION ||--o{ CHAT_MESSAGE : contains
 ```
 
-> **[#1347] 관계 없는 표 셋은 그리지 않는다.** `weather_model_parameter`(`§2.12`) · `simulation_parameter`(`§2.19`) · `port_geocode`(`§2.20`)는 **FK가 하나도 없는 독립 표**다 — 차례로 기상 모델 계수, Monte Carlo 분포 파라미터, 항만명 → 좌표 캐시다. 선으로 이을 상대가 없는 노드를 넣으면 다이어그램이 **관계도가 아니라 목록**이 된다. 표 전체 목록은 `§2`가 갖는다 — **`§2`의 25개 중 이 셋을 뺀 22개**가 위에 있다.
+> **[#1347] 관계 없는 표 넷은 그리지 않는다.** `weather_model_parameter`(`§2.12`) · `simulation_parameter`(`§2.19`) · `port_geocode`(`§2.20`) · `port_call_record`(`§2.25` · `#1197`)는 **FK가 하나도 없는 독립 표**다 — 차례로 기상 모델 계수, Monte Carlo 분포 파라미터, 항만명 → 좌표 캐시, 공적 재항 기록 사본이다. 선으로 이을 상대가 없는 노드를 넣으면 다이어그램이 **관계도가 아니라 목록**이 된다. 표 전체 목록은 `§2`가 갖는다 — **`§2`의 26개 중 이 넷을 뺀 22개**가 위에 있다.
 >
 > 위 일곱 줄은 `#1347`에서 더했다 — **종전 다이어그램은 15개만** 담고 있었고, 인증(`app_user`·`user_session`·`user_token`)·챗봇(`chat_session`·`chat_message`)·위치 이력·감축 계획이 통째로 빠져 있었다. **카디널리티는 실제 FK에서 읽었다** — `fleet_reduction_plan.created_by`와 `chat_session.vessel_id`는 nullable(`ON DELETE SET NULL`)이라 `|o`, 나머지는 `NOT NULL`이다.
 
@@ -1347,6 +1347,57 @@ CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
 
 > ORM 모델 `src/cii_platform/db/models/chat.py`·레포지터리 `src/cii_platform/db/repositories/chat.py`가 이 계약을 구현한다(`RETENTION_DAYS = 90`). 원래 마이그레이션 041로 추가됐고 `#1058` CUBRID 전환에서 `1c444a5c4819`에 흡수됐다.
 
+### 2.25 `port_call_record` — 공적 재항 기록 원본 (#1197)
+
+공공데이터(해양수산부 선박운항정보 오픈API · `PRD §15.1` `[#1197]`)에서 받은 **기항 한 번**이 한 행이다. 사용자가 넣은 항차의 실제 출항·도착 시각과 정박 구간을 **견주기만** 한다 — 이 표의 값이 항차·계산으로 흘러가는 경로는 없다(`PRD §17.1` · 계산과 `input_hash` 불변). 쓰는 쪽은 수집기(`python -m cii_platform.port_calls.collect`) 하나이고, 조회 API는 바깥 서비스를 부르지 않고 이 표만 읽는다.
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|---|---|---|---|
+| `id` | UUID | PK | 넣는 쪽이 만든다(`#1058`) |
+| `source` | VARCHAR(50) | NOT NULL | 제공자 (`MOF_VESSEL_OPS`) |
+| `port_authority_code` | VARCHAR(10) | NOT NULL | 항만청코드(`prtAgCd` · 부산 `020`) |
+| `port_authority_name` | VARCHAR(100) | | 항만청 이름 |
+| `call_year` | INTEGER | NOT NULL | 입항연도(`etryptYear`) |
+| `call_seq` | VARCHAR(20) | NOT NULL | 항만청 안의 연도별 입항 차수(`etryptCo`) |
+| `call_sign` | VARCHAR(7) | NOT NULL | 호출부호 — `vessel.call_sign`(`§2.1`)과 잇는 **유일한 열쇠**. 선박명으로 잇지 않는다 |
+| `vessel_name` | VARCHAR(200) | | 원문 선박명(표시용) |
+| `previous_port` · `next_port` | VARCHAR(10) | | 전출항지 · 차항지 (UN/LOCODE) |
+| `arrival_at` · `departure_at` | TIMESTAMPTZ | | `reports`에서 **규칙으로** 뽑은 값 — 그 기항의 가장 이른 입항 · 가장 늦은 출항(결정 G-7 ①-2 ⓐ · `최종` 신고 우선). 신고가 없으면 NULL |
+| `reports` | TEXT(JSON) | NOT NULL | 입항·출항 신고 목록(파싱한 것) |
+| `raw` | TEXT | | 제공자 **원문 그대로**(XML `<item>`) — 파싱 규칙을 고쳐도 다시 읽는다 |
+| `fetched_at` | TIMESTAMPTZ | NOT NULL | 마지막으로 받은 시각 — 「언제 기준의 공적 기록인가」 |
+| `created_at` | TIMESTAMPTZ | NOT NULL, `now()` | |
+
+```sql
+CREATE TABLE port_call_record (
+    id                   UUID PRIMARY KEY,
+    source               VARCHAR(50)  NOT NULL,
+    port_authority_code  VARCHAR(10)  NOT NULL,
+    port_authority_name  VARCHAR(100),
+    call_year            INTEGER      NOT NULL,
+    call_seq             VARCHAR(20)  NOT NULL,
+    call_sign            VARCHAR(7)   NOT NULL,
+    vessel_name          VARCHAR(200),
+    previous_port        VARCHAR(10),
+    next_port            VARCHAR(10),
+    arrival_at           TIMESTAMPTZ,
+    departure_at         TIMESTAMPTZ,
+    reports              TEXT         NOT NULL,
+    raw                  TEXT,
+    fetched_at           TIMESTAMPTZ  NOT NULL,
+    created_at           TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uq_port_call_record_call
+        UNIQUE (source, port_authority_code, call_year, call_seq)
+);
+CREATE INDEX idx_port_call_record_sign ON port_call_record (call_sign, port_authority_code);
+```
+
+> **다시 받으면 갱신한다.** 공적 기록 쪽이 신고를 `최초` → `최종`으로 고치면 우리 사본도 따라가야 한다(`ON DUPLICATE KEY UPDATE` · 키는 `uq_port_call_record_call`). 바뀌는 것은 **바깥에서 받은 사본**이고 사용자가 넣은 값이 아니다 — `§17.2`(덮어쓰지 않는다)와 부딪히지 않는다. `port_geocode`(`§2.20`)와 같은 성격이다.
+>
+> **FK가 없다.** 선박과는 `call_sign` 값으로만 잇는다 — 호출부호를 고치거나 선박을 지워도 공적 기록은 그대로 남고, 대조는 그때의 `vessel.call_sign`으로 다시 읽는다.
+>
+> **트리거가 없다.** 사람이 넣는 표가 아니라 수집기만 쓰고, 수집기는 제공자가 파싱한 값을 그대로 옮긴다. 마이그레이션 `063` · 보존 분류 `REGENERABLE`(수집기를 다시 돌리면 같은 기록이 돌아온다).
+
 ---
 
 ## 3. 시드 데이터
@@ -1512,6 +1563,7 @@ CREATE INDEX idx_chat_message_session ON chat_message (session_id, sent_at);
 | `audit_log` | 최소 5년 |
 | `weather_snapshot` | 30일 — **`fetched_at` 30일 경과 + 아무도 참조하지 않는 행**만 지운다(`§2.13` · `scripts/purge_expired.py`가 `chat_session`과 같은 자리에서 처리한다 · `#1347`) |
 | `chat_session` · `chat_message` | 90일 (만료 후 삭제, PRD §16.3 채팅 보존 정책) — §2.23·§2.24 · `scripts/purge_expired.py`가 만료 행을 지운다(유예 없음 · `TEST_PLAN §3.21`) [#287 → #1080] |
+| `port_call_record` | 보존 의무 없음 — 공적 기록의 사본이라 비워도 수집기가 다시 채운다(`§2.25`) [#1197] |
 
 ---
 
@@ -1964,7 +2016,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 061 → 062
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 062 → 063
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2295,3 +2347,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-24 | `#1848` | **v1.36 — §2.1 `vessel.imo_active` · §2.15 `app_user.email_active` 활성 키 열 + 유니크 인덱스 `uq_vessel_imo_active`·`uq_app_user_email_active` 추가**(마이그레이션 061 · `#1631` F-9 안 「가」). `047`이 활성 행 유일성을 트리거로 옮겼으나 트리거 안의 `NOT EXISTS`는 일반 SELECT와 같은 READ COMMITTED 스냅샷을 봐 **동시 등록에서 둘 다 통과**했다(`#1796` 실측 — 같은 IMO 행 2개, 예외 없음). 활성이면 원본의 사본·삭제면 NULL인 열에 유니크 인덱스를 걸면 CUBRID가 NULL을 여러 개 허용하므로(실측) 부분 유니크와 같은 뜻이 인덱스로 선다 — 뒤 INSERT는 앞 커밋까지 기다렸다 위반으로 떨어진다. 값은 앱이 아니라 `AFTER INSERT/UPDATE` 트리거(`trg_vessel_imo_active_*` · `trg_app_user_email_active_*`)가 채운다 — `BEFORE`에서 `new`를 갱신하는 형태는 REUSE_OID 표라 컴파일이 거부된다(실측). **`047`의 `trg_uq_*` 4개는 걷었다**(같은 불변식에 집행 장치 둘이면 오류 서명도 둘 · 경합을 통과시키던 검사를 「지킨다」는 이름으로 남길 수 없다) — §7.4 표 `trg_uq_` 4 → 0 · 그 밖 26 → 30 · 합계 160 유지, §7.4 6항·문단에 `-528`(트리거 액션 안 유니크 위반) 서술, §8.1.0 그래프 끝 `061`, §8.1.2 재생성됨 행에 061(값이 `is_deleted`에서 결정돼 백필이 재생 → `migration_guard.REGENERABLE`). 컬럼 추가라 #966·#1197·#1256·#1803과 같은 기준으로 버전을 올린다 (#1631) |
 | 2026-09-25 | `#1894` | §2.17 `not_underway_period`에 **「같은 선박의 구간은 겹치지 않는다」 서비스 불변식 각주** (`#1629` · PR #1852) — 겹침 조회 전에 선박 행을 `FOR UPDATE`로 잡는다(`TECH_SPEC §16.3`). 항차 쪽 `§2.4`(`#1626`)에만 있던 비대칭을 맞춘다. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#1862) |
 | 2026-09-25 | `#1890` | §2.1 `vessel.reference_speed_kn` · §2.2 `voyage.planned_speed_kn`·`actual_avg_speed_kn` · §2.4 `voyage_scenario.speed_kn`에 **속력 물리 상한 60kn**(마이그레이션 062 · `PRD §9.1` VAL-009 · 사용자 결정 G-10). CHECK 선언 4건(`chk_speed_max` · `chk_speed_max_voyage` · `chk_actual_speed_max` · `chk_scenario_speed_max`)과 집행 트리거 8개. §7.4 트리거 합계 160 → **168** · §8.1.0 그래프 head `062`. 062는 이미 60을 넘는 행이 있으면 바꾸기 전에 멈춘다(`OPERATIONS §3.6.5`). `§4.3`상 제약 추가라 버전은 올리지 않는다 (#1269) |
+| 2026-09-26 | `#1920` | **v1.37 — §2.25 `port_call_record` 신설**(마이그레이션 063 · `#1197` B단계). 해양수산부 선박운항정보 오픈API의 기항 한 번을 **원문(`raw`) 그대로** 보관한다(`PRD §15.1` `[#1197]` 「원본 그대로 보관」). 대조가 쓰는 두 시각(가장 이른 입항 · 가장 늦은 출항 — 결정 G-7 ①-2 ⓐ)을 조회용으로 함께 적는다. 다시 받으면 갱신한다 — 바뀌는 것은 공적 기록의 사본이지 사용자 값이 아니다. FK·트리거 없음(수집기만 쓴다) · 보존 의무 없음 · `REGENERABLE`. §1 ER 각주를 「독립 표 넷 · 26개 중 22개」로, §4.3 보존 표에 행 추가, §8.1.0 그래프 끝을 063으로. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1197) |

@@ -73,6 +73,10 @@ class PortCall:
     previous_port: str | None = None
     next_port: str | None = None
     reports: tuple[PortCallReport, ...] = field(default_factory=tuple)
+    #: 제공자가 준 **원문 그대로**(해수부 API는 ``<item>`` XML 한 덩어리). 저장 표가 보관한다
+    #: — 파싱 규칙을 고쳐도 원문에서 다시 읽을 수 있게(``PRD §15.1`` ``[#1197]`` 「원본 그대로
+    #: 보관」). 같은 기항인지 가리는 데는 쓰지 않는다.
+    raw: str | None = field(default=None, compare=False, repr=False)
 
     def _reports_of(self, kind: str) -> list[PortCallReport]:
         """그 종류의 신고 — ``최종``이 하나라도 있으면 ``최종``만 쓴다(09-23 · ``최초`` 혼재)."""
