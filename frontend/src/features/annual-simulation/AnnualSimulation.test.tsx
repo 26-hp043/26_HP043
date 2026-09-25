@@ -1570,3 +1570,55 @@ describe('마지막 결과 복원과 선박 전환 (#1927 · #1701 후속)', () 
   })
 })
 
+describe('마지막 결과 복원과 연도 목록의 도착 순서 (#1701 후속 · 09-26 실측)', () => {
+  it('연도 목록이 먼저 오고 복원 응답이 뒤에 와도 복원 결과를 버리지 않는다', async () => {
+    // 실제 화면에서는 복원이 요청 두 번(`§6.5` 목록 → `§6.2` 상세)이라 연도 목록(`§7.1`)이
+    // 대개 먼저 온다. 그때 `year`가 빈 값 → 2026으로 바뀌며 세대 번호가 올라, 복원 응답이
+    // 「늦은 응답」으로 버려졌다(로컬 전체 스택 실측 — 서버는 결과를 돌려줬는데 화면이 비어
+    // 있었다). 목록 응답을 붙잡아 두고 연도 목록을 먼저 받은 뒤 풀어 준다.
+    let releaseList: () => void = () => {}
+    const listHeld = new Promise<void>((resolve) => {
+      releaseList = resolve
+    })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: unknown) => {
+        const url = String(input)
+        if (url.includes('/parameters/regulation-years')) {
+          return jsonResponse({ data: [{ year: 2026 }] })
+        }
+        if (url.includes('/annual-simulations?vessel_id=')) {
+          await listHeld
+          return jsonResponse({
+            data: [
+              {
+                simulation_id: 'sim-last',
+                calculation_run_id: 'run-sim-last',
+                regulation_year: 2026,
+                target_rating: 'C',
+                simulation_runs: 5000,
+                as_of: null,
+                created_at: '2026-09-25T18:46:20+00:00',
+                needs_recalc: false,
+              },
+            ],
+            meta: { next_cursor: null },
+          })
+        }
+        if (url.endsWith('/annual-simulations/sim-last')) return jsonResponse(body('sim-last'))
+        return jsonResponse({ data: {} })
+      }),
+    )
+
+    renderScreen()
+    // 연도 목록이 먼저 도착해 `year`가 채워진다.
+    await screen.findByRole('option', { name: '2026' })
+    await act(async () => {
+      releaseList()
+      await listHeld
+    })
+
+    expect(await screen.findByTestId('annual-sim-last-run')).toBeTruthy()
+    expect(screen.getByTestId('annual-sim-range')).toBeTruthy()
+  })
+})

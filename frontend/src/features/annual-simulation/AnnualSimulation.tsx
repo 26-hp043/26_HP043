@@ -146,6 +146,15 @@ export function AnnualSimulation({
   const generationRef = useRef(0)
   /** 들어올 때 다시 연 결과의 `선박|연도` (#1701) — 리셋 effect가 그 결과를 지우지 않게. */
   const restoredKeyRef = useRef<string | null>(null)
+  /**
+   * 들어올 때 받던 「마지막 결과」를 **버리는** 번호 (#1701 후속). 세대 번호(`generationRef`)와
+   * 따로 둔다 — 세대 번호는 `year`가 바뀔 때마다 오르는데, 연도 **목록이 늦게 도착해**
+   * `year`가 빈 값에서 올해로 채워지는 것도 거기에 든다. 그것은 사용자가 대상을 바꾼 것이
+   * 아니다. 한데 두면 목록보다 늦게 온 복원 응답이 「늦은 응답」으로 버려져, 실제 화면에서
+   * **복원이 한 번도 보이지 않았다**(09-26 로컬 스택 실측 · 서버는 결과를 돌려줬다).
+   * 올리는 곳은 셋 — 실행을 누름 · 사용자가 연도를 고름 · (선박 변경은 effect 정리가 맡는다).
+   */
+  const restoreCancelRef = useRef(0)
   const [target, setTarget] = useState<(typeof TARGET_RATINGS)[number]>(TARGET_DEFAULT)
   const [runs, setRuns] = useState(RUNS_DEFAULT)
   /** 반복 횟수 위반 문구. 실행을 누를 때 판정하고, 값을 고치면 지운다 (#1096 ⑴). */
@@ -274,17 +283,19 @@ export function AnnualSimulation({
    *   다른 조건을 가리키지 않게.
    * - 없거나 못 받으면 지금의 빈 화면 그대로다. 못 받은 것을 오류로 띄우지 않는다 — 이
    *   조회는 편의이고, 사용자는 실행으로 언제든 결과를 얻는다.
-   * - 받는 동안 사용자가 실행을 누르거나 대상을 바꾸면 늦은 응답을 버린다(세대 번호).
+   * - 받는 동안 사용자가 실행을 누르거나 연도를 고르거나 선박을 바꾸면 늦은 응답을 버린다
+   *   (`restoreCancelRef` · 선박은 effect 정리). **연도 목록이 늦게 와서 `year`가 채워지는 것은
+   *   버릴 이유가 아니다** — 세대 번호를 쓰면 그것까지 버려 실제 화면에서 복원이 안 보였다.
    */
   useEffect(() => {
     const vesselId = shell.vesselId
     if (vesselId === null) return
-    const ticket = generationRef.current
+    const ticket = restoreCancelRef.current
     let alive = true
     provider
       .latest(vesselId)
       .then((found) => {
-        if (!alive || found === null || ticket !== generationRef.current) return
+        if (!alive || found === null || ticket !== restoreCancelRef.current) return
         const { item, result } = found
         const itemYear = String(item.regulation_year)
         restoredKeyRef.current = `${vesselId}|${itemYear}`
@@ -341,6 +352,7 @@ export function AnnualSimulation({
     setState({ status: 'running' })
     // 새 실행이 시작되면 들어올 때 받던 마지막 결과가 뒤늦게 와도 버린다(#1701).
     generationRef.current += 1
+    restoreCancelRef.current += 1
     restoredKeyRef.current = null
     const ticket = generationRef.current
     // 누른 순간의 조건을 잡아 둔다 — 응답을 기다리는 동안 목표를 바꿔도 결과 줄은 이것이다.
@@ -438,7 +450,11 @@ export function AnnualSimulation({
                 {...control}
                 className="annual-sim__control"
                 value={year}
-                onChange={(event) => setChosenYear(event.target.value)}
+                onChange={(event) => {
+                  // 사용자가 고른 해를 늦게 온 복원 결과가 덮지 않게 한다 (#1701 후속).
+                  restoreCancelRef.current += 1
+                  setChosenYear(event.target.value)
+                }}
               >
                 {years.map((y) => (
                   <option key={y} value={String(y)}>
