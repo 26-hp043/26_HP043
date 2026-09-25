@@ -76,8 +76,16 @@ def _write_dump(path: Path, classes: tuple[str, ...]) -> None:
 class FakeContainer:
     """db 컨테이너 대역. 부른 명령을 순서대로 남기고, 스크립트 내용으로 응답을 고른다."""
 
-    def __init__(self, *, dumped: tuple[str, ...] = _TABLES, restored_counts: str = _COUNTS):
+    def __init__(
+        self,
+        *,
+        dumped: tuple[str, ...] = _TABLES,
+        restored_counts: str = _COUNTS,
+        fail_on: tuple[str, ...] = (),
+    ):
         self.calls: list[list[str]] = []
+        #: 이 조각이 든 스크립트는 실패한다 — 교체 단계의 실패 주입 (#1635).
+        self.fail_on = fail_on
         self.dumped = dumped
         self.restored_counts = restored_counts
         self.restored_revision = "049"
@@ -94,6 +102,9 @@ class FakeContainer:
                 return self.running_services.encode()
             return b""  # compose stop / start / restart
         script = argv[-1]
+        for fragment in self.fail_on:
+            if fragment in script:
+                raise bk.BackupError(f"명령 실패(1): {fragment}")
         # 운영 DB는 `"$CUBRID_DB"`로만 가리킨다 — 이름이 적혀 있으면 복구 대상이다.
         on_live = '"$CUBRID_DB"' in script
         if script.startswith("printf"):
@@ -620,6 +631,114 @@ def test_restore_restarts_the_frontend_so_nginx_resolves_the_app_again(tmp_path:
 
     tail = [" ".join(c[-2:]) for c in fake.compose_calls() if "ps" not in c]
     assert tail[-2:] == ["start app", "restart frontend"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 교체가 중간에 실패하면 (#1635 · 결정 F-13) — 앱은 운영 DB가 제자리일 때만 켠다
+# ─────────────────────────────────────────────────────────────────────────────
+
+_TO_KEPT = "cubrid renamedb cii cii_b0916030000"
+_TO_LIVE = "cubrid renamedb cii_s0916030000 cii"
+_BACK = "cubrid renamedb cii_b0916030000 cii"
+_START_LIVE = "cubrid server start cii"
+
+
+def _swap_steps(fake: FakeContainer) -> list[str]:
+    steps = []
+    for call in fake.calls:
+        if call[-3:-1] != ["sh", "-c"]:
+            steps.append(" ".join(call[-2:]))
+        elif "renamedb" in call[-1] or "cubrid server start" in call[-1]:
+            steps.append(call[-1].replace("set -e; ", ""))
+    return steps[steps.index("stop app") :]
+
+
+def test_first_rename_failure_leaves_the_live_database_and_restarts_it(tmp_path: Path):
+    """운영 DB → 보관 이름이 실패하면 이름이 그대로다 — 서버를 다시 켜고 앱을 켠다."""
+    dump = _backup(tmp_path)
+    fake = FakeContainer(fail_on=(_TO_KEPT,))
+
+    with pytest.raises(bk.BackupError, match="운영 DB는 그대로"):
+        bk.restore(_db(fake), dump, confirm="cii", now=lambda: _NOW)
+
+    assert _swap_steps(fake)[-2:] == [_START_LIVE, "start app"]
+    assert not any(_TO_LIVE in s for s in fake.scripts())
+
+
+def test_second_rename_failure_rolls_the_live_name_back(tmp_path: Path):
+    """새 DB → 운영 이름이 실패하면 보관 이름을 운영 이름으로 되돌린 뒤에 앱을 켠다."""
+    dump = _backup(tmp_path)
+    fake = FakeContainer(fail_on=(_TO_LIVE,))
+
+    with pytest.raises(bk.BackupError, match="되돌렸습니다") as caught:
+        bk.restore(_db(fake), dump, confirm="cii", now=lambda: _NOW)
+
+    steps = _swap_steps(fake)
+    assert steps.index("cubrid renamedb cii_b0916030000 cii") < steps.index("start app")
+    assert steps[-2:] == [_START_LIVE, "start app"]
+    assert "cii_s0916030000" in str(caught.value), "새 DB가 어디 남았는지 말한다"
+
+
+def test_rollback_failure_leaves_the_app_off_and_names_both_databases(tmp_path: Path):
+    """되돌림까지 실패하면 **앱을 켜지 않는다** — 없는 DB를 향해 켜진 앱이 제일 나쁘다."""
+    dump = _backup(tmp_path)
+    fake = FakeContainer(fail_on=(_TO_LIVE, _BACK))
+
+    with pytest.raises(bk.BackupError, match="앱을 켜지 않았습니다") as caught:
+        bk.restore(_db(fake), dump, confirm="cii", now=lambda: _NOW)
+
+    assert "start app" not in _swap_steps(fake)
+    message = str(caught.value)
+    assert "cii_b0916030000" in message and "cii_s0916030000" in message
+    assert "cubrid renamedb cii_b0916030000 cii" in message, "수동 복구 명령을 준다"
+
+
+def test_new_live_server_failure_leaves_the_app_off(tmp_path: Path):
+    """두 이름은 바뀌었는데 새 운영 DB가 켜지지 않으면 앱을 켜지 않고 되돌리는 명령을 준다."""
+    dump = _backup(tmp_path)
+    fake = FakeContainer(fail_on=(_START_LIVE,))
+
+    with pytest.raises(bk.BackupError, match="앱을 켜지 않았습니다") as caught:
+        bk.restore(_db(fake), dump, confirm="cii", now=lambda: _NOW)
+
+    assert "start app" not in _swap_steps(fake)
+    assert "cubrid renamedb cii cii_s0916030000" in str(caught.value)
+
+
+def test_split_topology_refuses_until_the_operator_says_the_app_is_stopped(tmp_path: Path):
+    """분리 배포(`APP_SERVICE=none`) — `--app-stopped` 없이는 아무것도 바꾸지 않는다."""
+    dump = _backup(tmp_path)
+    fake = FakeContainer()
+
+    with pytest.raises(bk.BackupError, match="app-01") as caught:
+        bk.restore(_db(fake), dump, confirm="cii", now=lambda: _NOW, app_service="none")
+
+    assert bk.SPLIT_APP_STOP in str(caught.value)
+    assert not any("createdb" in s or "renamedb" in s for s in fake.scripts())
+
+
+def test_split_topology_never_touches_an_app_service(tmp_path: Path):
+    """db-01에는 앱 서비스가 없다 — `stop`/`start`를 부르지 않고 app-01 명령을 안내한다."""
+    dump = _backup(tmp_path)
+    fake = FakeContainer()
+
+    message = bk.restore(
+        _db(fake), dump, confirm="cii", now=lambda: _NOW, app_service="none", app_stopped=True
+    )
+
+    assert not [c for c in fake.compose_calls() if "stop" in c or "start" in c]
+    assert any(_TO_LIVE in s for s in fake.scripts())
+    assert bk.SPLIT_APP_START in message
+
+
+def test_cli_passes_the_app_service_and_the_confirmation(tmp_path: Path, monkeypatch, capsys):
+    dump = _backup(tmp_path)
+    fake = FakeContainer()
+    monkeypatch.setenv("APP_SERVICE", "none")
+
+    assert bk.main(["restore", str(dump), "--confirm", "cii"], runner=fake) == 1
+    assert "app-01" in capsys.readouterr().err
+    assert bk.main(["restore", str(dump), "--confirm", "cii", "--app-stopped"], runner=fake) == 0
 
 
 def test_restore_refuses_a_dump_of_another_database(tmp_path: Path):

@@ -241,7 +241,7 @@ python3 scripts/db_backup.py restore backups/<파일>.dump --confirm "$CUBRID_DB
 - 🔴 **덤프는 `pg_dump` 아카이브가 아니다** (`#1058`). CUBRID에는 단일 아카이브가 없어 `cubrid unloaddb`가 내는 **네 파일**(`db_schema`·`db_indexes`·`db_objects`·`db_trigger`)을 `tar` 하나로 묶는다. 확장자는 `.dump` 그대로이고 매니페스트의 `format`이 `cubrid-unloaddb-tar-v1`로 그 사실을 밝힌다. 안을 보려면 `tar -tf backups/<파일>.dump`. PostgreSQL 시절 덤프는 **복구를 거부한다** — `loaddb`에 넘겨도 읽히지 않으므로 거절하는 쪽이 맞다
 - 🔴 **CUBRID의 DB 이름은 17자를 넘을 수 없다**(실측: 17자 OK · 18자부터 `createdb`가 FATAL로 죽는다). 그래서 파생 DB 이름이 `cii_b0916041522`처럼 짧다 — 종전 `<DB>_before_restore_<시각>`(35자)은 CUBRID에서 서지 않는다
 - **트리거 수가 매니페스트에 실리고 리허설이 대조한다.** 이 배포에서 트리거는 **제약 그 자체**다(`DB_SCHEMA §7.4` — CHECK 60개가 트리거로 강제된다). 트리거가 빠진 복구는 제약이 없는 DB다
-- **교체는 `cubrid renamedb`이고, 그 전에 `cubrid server stop`이 필요하다.** 순서 — 앱 중지 → 서버 중지 → 이름 변경 2회 → 서버 기동 → 앱 기동. 새 DB는 `databases.txt`가 가리키는 **운영 DB와 같은 디렉터리**에 만든다(`renamedb`는 볼륨을 제자리에서 이름만 바꾸므로, 다른 곳에 만들면 교체 뒤 운영 DB의 볼륨을 찾을 수 없다)
+- **교체는 `cubrid renamedb`이고, 그 전에 `cubrid server stop`이 필요하다.** 순서 — 앱 중지 → 서버 중지 → 이름 변경 2회 → 서버 기동 → 앱 기동. **중간에 실패하면 되돌리거나 멈추고, 운영 DB가 제자리에 떠 있을 때만 앱을 켠다**(`#1635` · 단계별 상태와 수동 복구는 `docs/OPERATIONS.md` §3.6.6). 분리 배포(db-01에는 앱이 없다)는 `APP_SERVICE=none`으로 두고 app-01에서 앱을 먼저 멈춘 뒤 `--app-stopped`를 붙인다 새 DB는 `databases.txt`가 가리키는 **운영 DB와 같은 디렉터리**에 만든다(`renamedb`는 볼륨을 제자리에서 이름만 바꾸므로, 다른 곳에 만들면 교체 뒤 운영 DB의 볼륨을 찾을 수 없다)
 
 - **주기는 하루 한 번이다** — 호스트 crontab 한 줄: `17 3 * * * cd <저장소> && python3 scripts/db_backup.py backup && python3 scripts/db_backup.py rehearse "$(ls -1 backups/*.dump | tail -1)"`. 보존 개수는 `BACKUP_KEEP`, 위치는 `BACKUP_DIR`(기본 `backups/` · `.gitignore`·`.dockerignore`)로 바꾼다
 - **덤프는 같은 호스트에 쌓인다.** 호스트 자체를 잃는 사고에는 쓸 수 없다 — 호스트 밖으로 옮기는 것은 DB를 어디에 둘지(`#788`)와 함께 정한다
