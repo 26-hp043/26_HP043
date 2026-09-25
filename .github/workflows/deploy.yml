@@ -186,6 +186,9 @@ jobs:
           tags: |
             ${{ env.BACKEND_IMAGE }}:latest
             ${{ env.BACKEND_IMAGE }}:${{ steps.meta.outputs.sha }}
+          # 헬스 응답의 `commit` (#789) — 아래 「헬스 체크」가 배포한 커밋과 같은지 본다.
+          build-args: |
+            GIT_SHA=${{ steps.meta.outputs.sha }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
@@ -555,16 +558,25 @@ jobs:
         run: |
           url="http://${{ secrets.OCI_APP_HOST }}:8001/api/v1/health"
           echo "[health] ${url} 확인 (최대 30회 x 5초 = 150초)"
+          expected="${{ needs.build.outputs.sha }}"
           for i in $(seq 1 30); do
             body=$(curl -fsS --max-time 5 "${url}" 2>&1) && {
               echo "[health] OK (${i}회차) body=${body}"
-              echo "::notice title=Deploy complete::backend healthy at sha=${{ needs.build.outputs.sha }}"
-              exit 0
+              # 떠 있는 것이 이번에 배포한 커밋인가 (#789). 이전 컨테이너가 아직 응답 중이면
+              # 옛 커밋이 온다 — 그때는 성공으로 치지 않고 다시 묻는다.
+              running="$(printf '%s' "${body}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"].get("commit") or "")')"
+              if [ "${running}" = "${expected}" ]; then
+                echo "::notice title=Deploy complete::backend healthy at sha=${expected} (헬스 commit 일치)"
+                exit 0
+              fi
+              echo "[health] ${i}/30 떠 있는 커밋 ${running:-알 수 없음} ≠ 배포 ${expected}; 5초 후 재시도"
+              sleep 5
+              continue
             }
             echo "[health] ${i}/30 실패; 5초 후 재시도"
             sleep 5
           done
-          echo "::error title=Deploy failed::backend가 30회 시도 후에도 healthy하지 않다" >&2
+          echo "::error title=Deploy failed::backend가 30회 시도 후에도 healthy하지 않거나 배포한 커밋(${expected})으로 뜨지 않았다" >&2
           exit 1
 
   # ---------------------------------------------------------------------------

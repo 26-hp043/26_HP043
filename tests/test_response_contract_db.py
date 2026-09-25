@@ -147,6 +147,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
     "/health": frozenset(
         {
             "data",
+            # 이 이미지를 빌드한 커밋(12자리) · 없으면 null (`#789`). null이어도 키는 있다.
+            "data.commit",
             "data.numpy_version",
             # 리포트 PDF에 한글을 그릴 수 있는가 (`#689`). "ok"/"missing"/"unavailable".
             "data.pdf_korean_font",
