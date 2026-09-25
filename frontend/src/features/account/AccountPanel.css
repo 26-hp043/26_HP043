@@ -19,7 +19,7 @@
    * 위 틈 + 상단바 최소 높이 56 + 아래 틈. `styles/stickyTop.sync.test.ts`가 그 값을
    * 쓰는 자리들을 한자리에서 대조한다.
    */
-  scroll-margin-block-start: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+  scroll-margin-block-start: var(--shell-topbar-offset);
 }
 
 .acc__facts {

@@ -43,14 +43,14 @@
 
 /*
  * 입력 기둥은 스크롤을 따라온다(`§8.7`). 붙는 자리는 sticky 상단바 아래다 — 위 틈 +
- * 최소 높이 56px + 아래 틈. 연료 줄을 여럿 더하면 기둥이 창보다 길어질 수 있어 높이를
+ * 최소 높이 `--shell-topbar-height` + 아래 틈. 연료 줄을 여럿 더하면 기둥이 창보다 길어질 수 있어 높이를
  * 창에 맞추고 기둥 안에서 스크롤한다 — 그러지 않으면 아래 「계산하기」에 닿지 못한다.
  *
  * 폼 컴포넌트에 className prop을 뚫지 않고 루트 클래스로 직접 잡는다. 그 대가로 이
  * 파일이 자식의 루트 클래스명을 안다.
  */
 .cii-forecast-page__split > .voyage-cii-form {
-  --cii-forecast-sticky-top: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+  --cii-forecast-sticky-top: var(--shell-topbar-offset);
 
   position: sticky;
   top: var(--cii-forecast-sticky-top);

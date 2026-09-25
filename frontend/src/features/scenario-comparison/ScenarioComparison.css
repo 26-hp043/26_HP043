@@ -51,10 +51,10 @@
 .scenario-comparison__form {
   /*
    * 입력 기둥은 스크롤을 따라온다(`§8.7`). 붙는 자리는 sticky 상단바 아래다 — 위 틈 +
-   * 최소 높이 56px + 아래 틈. 고급 설정을 펼치면 기둥이 창보다 길어질 수 있어 높이를
+   * 최소 높이 `--shell-topbar-height` + 아래 틈. 고급 설정을 펼치면 기둥이 창보다 길어질 수 있어 높이를
    * 창에 맞추고 기둥 안에서 스크롤한다 — 그러지 않으면 아래 「비교하기」에 닿지 못한다.
    */
-  --scenario-comparison-sticky-top: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+  --scenario-comparison-sticky-top: var(--shell-topbar-offset);
 
   position: sticky;
   top: var(--scenario-comparison-sticky-top);

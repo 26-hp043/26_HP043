@@ -153,11 +153,11 @@
 
 .vy__row--target {
   /*
-   * 상단바가 sticky라(`AppShell.css` — 위 틈 `--shell-gutter` + 최소 높이 56px) 카드를 맨 위로
+   * 상단바가 sticky라(`AppShell.css` — 위 틈 `--shell-gutter` + 최소 높이 `--shell-topbar-height`) 카드를 맨 위로
    * 붙이면 머리가 상단바 밑에 깔린다. 그만큼 띄워 멈춘다. 좁은 폭에서 상단바가 두 줄로
    * 접히면 조금 가려질 수 있다 — 그때도 카드 본문과 입력 칸은 보인다.
    */
-  scroll-margin-block-start: calc(var(--shell-gutter) + 56px + var(--spacing-md));
+  scroll-margin-block-start: calc(var(--shell-gutter) + var(--shell-topbar-height) + var(--spacing-md));
 }
 
 .vy__row--target:focus-visible {

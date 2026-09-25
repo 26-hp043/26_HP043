@@ -6,11 +6,11 @@
 
 .rp {
   /*
-   * 기둥이 붙는 자리 — sticky 상단바 아래다(위 틈 + 최소 높이 56px + 아래 틈).
+   * 기둥이 붙는 자리 — sticky 상단바 아래다(위 틈 + 최소 높이 `--shell-topbar-height` + 아래 틈).
    * 조건 기둥과 문서 높이가 **같은 값**에서 나와야 둘이 어긋나지 않으므로, 한쪽 규칙에
    * 두지 않고 화면 뿌리에서 한 번 정한다.
    */
-  --rp-sticky-top: calc(var(--shell-gutter, var(--grid-gutter)) * 2 + 56px);
+  --rp-sticky-top: var(--shell-topbar-offset);
 
   display: flex;
   flex-direction: column;
@@ -232,7 +232,7 @@
    * 미디어 쿼리가 종전 값으로 되돌린다.
    */
   block-size: calc(
-    100vh - var(--rp-sticky-top) - var(--shell-gutter, var(--grid-gutter)) - 56px
+    100vh - var(--rp-sticky-top) - var(--shell-gutter, var(--grid-gutter)) - var(--shell-topbar-height)
   );
   min-block-size: 420px;
   border: 1px solid var(--border-default);
