@@ -32,7 +32,22 @@ function copyHeaders(from: Headers, to: Headers): void {
   }
 }
 
+/**
+ * 조각을 만들다 실패하면 **전체를 그대로 준다.**
+ *
+ * 그때 화면은 `hasBasemap()`이 접어 개략도가 된다(`#1144`) — 고치기 전과 같은 상태다.
+ * 이 함수가 `500`을 내면 **그보다 나빠진다**: 글리프까지 끊겨 지도가 있던 자리가
+ * 통째로 비고, 원인이 자산인지 함수인지 화면에서 가릴 수 없다.
+ */
 export async function onRequest(context: AssetContext): Promise<Response> {
+  try {
+    return await serveRange(context)
+  } catch {
+    return context.next()
+  }
+}
+
+async function serveRange(context: AssetContext): Promise<Response> {
   const { request, next } = context
 
   const upstream = await next()
