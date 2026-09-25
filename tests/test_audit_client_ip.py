@@ -78,3 +78,13 @@ def test_no_private_copy_of_the_rule_remains() -> None:
         if re.search(r"^def _client_ip\(", path.read_text(encoding="utf-8"), re.M)
     ]
     assert copies == []
+
+
+def test_forwarded_for_must_be_an_ip_before_it_is_recorded(monkeypatch) -> None:
+    """``USE_FORWARDED_FOR=true``여도 첫 항이 IP가 아니면 쓰지 않는다 — 45자 칸을 넘는 값이
+    감사 INSERT를 실패시키지 않게, 서명 헤더와 같은 규칙으로 소켓 상대로 내려간다."""
+    monkeypatch.setattr(rl, "_PROXY_CLIENT_IP_SECRET", "")
+    monkeypatch.setattr(rl, "_USE_FORWARDED_FOR", True)
+    assert rl.audit_client_ip(_Req({"x-forwarded-for": "198.51.100.4, 10.0.0.1"})) == "198.51.100.4"
+    assert rl.audit_client_ip(_Req({"x-forwarded-for": "x" * 80})) == "127.0.0.1"
+    assert rl.audit_client_ip(_Req({"x-forwarded-for": "2001:DB8::1"})) == "2001:db8::1"

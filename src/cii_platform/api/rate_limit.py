@@ -280,7 +280,12 @@ def client_ip(request: Request) -> str:
         forwarded = request.headers.get("x-forwarded-for", "")
         if forwarded:
             # 콤마로 연결된 값에서 첫 항이 원 클라이언트. 뒤는 중간 프록시 체인이다.
-            return forwarded.split(",", 1)[0].strip()
+            # **IP여야 한다** (#1889) — 서명 헤더와 같은 규칙. 이 값은 감사 로그·세션의
+            # `VARCHAR(45)` 칸에도 들어가므로, 형식이 아니면 쓰지 않고 소켓 상대로 내려간다.
+            try:
+                return str(ipaddress.ip_address(forwarded.split(",", 1)[0].strip()))
+            except ValueError:
+                pass
     if request.client is not None:
         return request.client.host
     return "unknown"
