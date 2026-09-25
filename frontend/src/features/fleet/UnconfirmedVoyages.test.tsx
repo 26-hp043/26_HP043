@@ -23,6 +23,7 @@ function issue(i: number, over: Partial<DataQualityIssue> = {}): DataQualityIssu
     codes: ['STATUS_COMPLETED'],
     cii: null,
     ciiReason: null,
+    publicRecord: null,
     ...over,
   }
 }
@@ -30,7 +31,13 @@ function issue(i: number, over: Partial<DataQualityIssue> = {}): DataQualityIssu
 function snapshot(issues: DataQualityIssue[]): DataQualitySnapshot {
   return {
     regulationYear: 2026,
-    counts: { SUBSTITUTED: 0, UNAVAILABLE: 0, ANOMALY: 0, UNCONFIRMED: issues.length },
+    counts: {
+      SUBSTITUTED: 0,
+      UNAVAILABLE: 0,
+      ANOMALY: 0,
+      UNCONFIRMED: issues.length,
+      PUBLIC_RECORD: 0,
+    },
     anomalyUnjudged: 0,
     completenessRatio: null,
     vessels: [],

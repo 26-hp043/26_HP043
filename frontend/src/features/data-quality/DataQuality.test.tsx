@@ -6,6 +6,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { DataQuality } from './DataQuality'
 import { DATA_QUALITY_COPY, SEVERITY_TITLE } from './copy'
+import { formatTimestamp } from '../../display/format'
 import type { DataQualityProvider, DataQualitySnapshot } from './types'
 
 /**
@@ -17,7 +18,7 @@ import type { DataQualityProvider, DataQualitySnapshot } from './types'
 
 const SNAPSHOT: DataQualitySnapshot = {
   regulationYear: 2026,
-  counts: { SUBSTITUTED: 1, UNAVAILABLE: 0, ANOMALY: 1, UNCONFIRMED: 0 },
+  counts: { SUBSTITUTED: 1, UNAVAILABLE: 0, ANOMALY: 1, UNCONFIRMED: 0, PUBLIC_RECORD: 0 },
   anomalyUnjudged: 3,
   completenessRatio: '0.9420',
   vessels: [
@@ -58,6 +59,7 @@ const SNAPSHOT: DataQualitySnapshot = {
         ratingWithout: 'B',
       },
       ciiReason: null,
+      publicRecord: null,
     },
     {
       severity: 'ANOMALY',
@@ -68,6 +70,7 @@ const SNAPSHOT: DataQualitySnapshot = {
       codes: ['FUEL_VS_MODEL'],
       cii: null,
       ciiReason: 'ONLY_VOYAGE',
+      publicRecord: null,
     },
   ],
 }
@@ -109,8 +112,8 @@ describe('데이터 점검 화면 (#513)', () => {
     for (const title of Object.values(SEVERITY_TITLE)) {
       expect(within(tiles).getByText(title), title).toBeTruthy()
     }
-    // 계산 불가·실적 미입력은 0건 — 칸이 남아 0을 보인다.
-    expect(within(tiles).getAllByText('0')).toHaveLength(2)
+    // 계산 불가·실적 미입력·공적 기록과 다름은 0건 — 칸이 남아 0을 보인다.
+    expect(within(tiles).getAllByText('0')).toHaveLength(3)
   })
 
   it('완결성은 무엇의 비율인지 함께 말한다', async () => {
@@ -177,6 +180,7 @@ describe('0건 항목은 위험색을 달지 않는다 (#1288)', () => {
     expect(container.querySelector('.dq__tile--anomaly')).toBeTruthy() // 1건
     expect(container.querySelector('.dq__tile--unavailable')).toBeNull() // 0건
     expect(container.querySelector('.dq__tile--unconfirmed')).toBeNull() // 0건
+    expect(container.querySelector('.dq__tile--public_record')).toBeNull() // 0건
   })
 
   it('⚠️ 표의 심각도 칩은 늘 색을 단다 — 행이 있다는 것이 곧 볼 것이 있다는 뜻이다 (#1766)', async () => {
@@ -196,8 +200,8 @@ describe('0건 항목은 위험색을 달지 않는다 (#1288)', () => {
     const { container } = renderWith(SNAPSHOT)
     await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
 
-    // 타일 다섯 — 심각도 넷 + 완결성. `#1766`이 「실적 미입력」 칸을 더했다(그룹이 없어졌으므로).
-    expect(container.querySelectorAll('.dq__tile')).toHaveLength(5)
+    // 타일 여섯 — 심각도 다섯 + 완결성. `#1197`이 「공적 기록과 다름」 칸을 더했다.
+    expect(container.querySelectorAll('.dq__tile')).toHaveLength(6)
   })
 })
 
@@ -229,6 +233,7 @@ describe('점검 행에서 그 항차로 (#1549)', () => {
           codes: ['NO_PARAMETERS'],
           cii: null,
           ciiReason: null,
+          publicRecord: null,
         },
       ],
     })
@@ -249,6 +254,7 @@ describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
       codes: ['FUEL_VS_MODEL'],
       cii: null,
       ciiReason,
+      publicRecord: null,
     }
   }
 
@@ -283,6 +289,102 @@ describe('CII 영향 사유는 표 아래 한 번 (#1580)', () => {
     const group = await listSection()
     expect(within(group).getByText('NEW_REASON')).toBeTruthy()
     expect(group.querySelector('.dq__footnotes')).toBeNull()
+  })
+})
+
+/**
+ * 다섯째 심각도 `PUBLIC_RECORD` — 공적 재항 기록과의 대조 (#1197).
+ */
+describe('공적 기록과 다름 (#1197)', () => {
+  function publicRecordIssue() {
+    return {
+      severity: 'PUBLIC_RECORD' as const,
+      vesselId: 'v1',
+      vesselName: 'MV One',
+      voyageId: 'voy-9',
+      voyageNo: 'D',
+      codes: ['PUBLIC_RECORD:ARRIVAL'],
+      cii: null,
+      ciiReason: null,
+      publicRecord: {
+        source: 'MOF_VESSEL_OPS',
+        fetchedAt: '2026-09-26T01:00:00+00:00',
+        mismatches: [
+          {
+            field: 'ARRIVAL' as const,
+            enteredAt: '2026-08-08T17:20:00+00:00',
+            recordedAt: '2026-08-08T05:20:00+00:00',
+            differenceMinutes: 720,
+            portAuthorityCode: '020',
+            portAuthorityName: '부산',
+          },
+        ],
+      },
+    }
+  }
+
+  function snapshotWithPublicRecord(): DataQualitySnapshot {
+    return {
+      ...SNAPSHOT,
+      counts: { ...SNAPSHOT.counts, PUBLIC_RECORD: 1 },
+      issues: [publicRecordIssue()],
+    }
+  }
+
+  it('요약 띠에 다섯째 칸으로 보인다', async () => {
+    renderWith(snapshotWithPublicRecord())
+
+    const tiles = await screen.findByLabelText(DATA_QUALITY_COPY.summaryTitle)
+    const tile = tiles.querySelector('.dq__tile--public_record')
+    expect(tile?.textContent).toContain(SEVERITY_TITLE.PUBLIC_RECORD)
+    expect(tile?.textContent).toContain('1')
+  })
+
+  it('행마다 어긋남을 한 줄로 적는다 — 입력·공적 기록·항만청·차이', async () => {
+    renderWith(snapshotWithPublicRecord())
+
+    const group = await listSection()
+    // 심각도 칩은 여기서 보지 않는다 — 접힌 「심각도가 뜻하는 것」 범례도 같은 표 문구를
+    // 갖고 있어 `getByText`가 둘을 함께 찾는다(범례는 `.dq__list` 안에 함께 산다).
+    expect(group.querySelector('.dq__severity--public_record')?.textContent).toBe(
+      SEVERITY_TITLE.PUBLIC_RECORD,
+    )
+    const line = within(group).getByText(
+      `도착 시각 입력 ${formatTimestamp('2026-08-08T17:20:00+00:00')} · 공적 기록 ${formatTimestamp('2026-08-08T05:20:00+00:00')} (부산) · 12시간 0분 차이`,
+    )
+    expect(line).toBeTruthy()
+  })
+
+  it('출처를 「해양수산부 선박운항정보(공공데이터포털) · 수집 시각 기준」으로 적는다', async () => {
+    renderWith(snapshotWithPublicRecord())
+
+    const group = await listSection()
+    expect(
+      within(group).getByText(`출처: 해양수산부 선박운항정보(공공데이터포털) · ${formatTimestamp('2026-09-26T01:00:00+00:00')} 기준`),
+    ).toBeTruthy()
+  })
+
+  it('항만청 이름이 없으면 코드로 대신한다', async () => {
+    const snapshot = snapshotWithPublicRecord()
+    snapshot.issues[0] = {
+      ...snapshot.issues[0],
+      publicRecord: {
+        ...snapshot.issues[0].publicRecord!,
+        mismatches: [{ ...snapshot.issues[0].publicRecord!.mismatches[0], portAuthorityName: null }],
+      },
+    }
+    renderWith(snapshot)
+
+    const group = await listSection()
+    expect(within(group).getByText(/\(020\)/)).toBeTruthy()
+  })
+
+  it('PUBLIC_RECORD가 아닌 행에는 어긋남 줄도 출처 줄도 없다', async () => {
+    renderWith(SNAPSHOT)
+
+    const group = await listSection()
+    expect(group.querySelector('.dq__mismatches')).toBeNull()
+    expect(group.querySelector('.dq__source')).toBeNull()
   })
 })
 

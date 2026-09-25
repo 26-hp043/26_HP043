@@ -125,8 +125,14 @@
   border-left-color: var(--color-warning);
 }
 
+/*
+ * `PUBLIC_RECORD`는 아직 디자인 확정 전 개발 임시안이다(#1197) — 확정까지는
+ * `UNCONFIRMED`와 **같은 중립 표현**을 쓴다. 새 색 토큰을 만들지 않는다.
+ */
 .dq__tile--unconfirmed,
-.dq__severity--unconfirmed {
+.dq__severity--unconfirmed,
+.dq__tile--public_record,
+.dq__severity--public_record {
   border-left-color: var(--color-text-muted);
 }
 
@@ -253,4 +259,18 @@
   list-style: none;
   color: var(--color-text-muted);
   font-size: var(--font-size-label);
+}
+
+/* 공적 기록 어긋남 — 「문제」 칸 안에 행마다 붙는다 (#1197) */
+.dq__mismatches {
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+}
+
+.dq__source {
+  margin: var(--space-4) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-micro);
 }

@@ -28,6 +28,7 @@ function issue(
             ratingWithout: 'E',
           },
     ciiReason: delta === null ? 'NO_SPEC' : null,
+    publicRecord: null,
   }
 }
 
@@ -74,6 +75,14 @@ describe('할 일 순서 — CII 영향 순 (#1766)', () => {
     const rows = [
       issue('ANOMALY', 'a', '+0.100'),
       issue('SUBSTITUTED', 'b', '+0.100'),
+    ]
+    expect(order(rows)).toEqual(['b', 'a'])
+  })
+
+  it('다섯째 심각도 PUBLIC_RECORD는 표 순서에서 맨 뒤다 (#1197)', () => {
+    const rows = [
+      issue('PUBLIC_RECORD', 'a', '+0.100'),
+      issue('UNCONFIRMED', 'b', '+0.100'),
     ]
     expect(order(rows)).toEqual(['b', 'a'])
   })
