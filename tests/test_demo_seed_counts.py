@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from cii_platform.db.demo_seed import (
     SEED_PERIOD_FUELS,
     SEED_PERIODS,
+    SEED_PORT_CALLS,
     SEED_STATE_UPDATES,
     SEED_VESSEL_GT_AXIS,
     SEED_VESSEL_WATCH,
@@ -55,6 +56,8 @@ EXPECTED_ROWS: dict[str, int] = {
     "voyage_fuel_use": len(SEED_VOYAGE_FUELS),
     "not_underway_period": len(SEED_PERIODS),
     "not_underway_fuel_use": len(SEED_PERIOD_FUELS),
+    # 공적 재항 기록 표본 (#1197) — 다른 표가 참조하지 않아 늘 전량 지워지고 전량 돌아온다.
+    "port_call_record": len(SEED_PORT_CALLS),
 }
 
 

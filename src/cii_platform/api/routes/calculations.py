@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Query, Request
 # PydanticUserError(`is not fully defined`)로 앱 기동이 실패한다.
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.voyage_cii import VoyageCiiRequest
 from cii_platform.api.timefmt import iso_utc_now
 from cii_platform.auth.dependencies import require_csrf
@@ -138,7 +139,7 @@ async def voyage_cii(
         model_version=result["model_version"],
         duration_ms=duration_ms,
         warnings_count=len(result["warnings"]),
-        ip_address=request.client.host if request.client else None,
+        ip_address=audit_client_ip(request),
     )
     await session.commit()
     return result

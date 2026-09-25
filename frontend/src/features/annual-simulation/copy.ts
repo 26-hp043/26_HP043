@@ -156,6 +156,13 @@ export const ANNUAL_COPY = {
   p50Label: '중앙값',
   p90Label: '상위 10%',
   meanLabel: '평균',
+  /** 범위 막대 범례 (#1456 · `DESIGN_SYSTEM §10.1` — 중앙선 라벨은 「중앙값(P50)」) */
+  rangeBandLabel: '하위 10%~상위 10%',
+  rangeMedianLabel: '중앙값(P50)',
+  rangeMeanLabel: '평균',
+  /** 범위 막대의 낭독 문장 — 화면의 네 값과 같은 뜻 (`DESIGN_SYSTEM §14`). `{p10}` 등은 `percentileRules.ts`가 채운다 */
+  rangeSummary:
+    '연말 CII 분포 — 하위 10% {p10}, 중앙값(P50) {p50}, 상위 10% {p90}, 평균 {mean}. 열 번 중 여덟 번은 {p10}에서 {p90} 사이입니다.',
 
   /* ── 민감도 (PRD §12.6) ────────────────────────────────────────────── */
   sensitivityTitle: '민감도',

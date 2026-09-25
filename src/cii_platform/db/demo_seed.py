@@ -69,7 +69,7 @@ from typing import TYPE_CHECKING
 import sqlalchemy as sa
 
 from cii_platform.db.models import Base
-from cii_platform.db.types import UuidText
+from cii_platform.db.types import JSONText, UuidText
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -163,6 +163,8 @@ SEED_VESSELS: list[dict[str, object]] = [
         "imo_number": "9448839",
         "name": "STAR SKIPPER",
         "ship_type": "CONTAINER_SHIP",
+        # 호출부호 — 해양수산부 선박운항정보의 질의 키(`#1197` · `#1623` 09-23 조회 · 기국 MH).
+        "call_sign": "V7UJ2",
         # 제원 정정 (#1807 · 2026-09-23 원문 대조). 종전 `deadweight=9520`은 **GT가 DWT 칸에
         # 들어간 것**이었다 — 원 출처 페이지의 `VSLGRS 9520` · `VSLDWT 12979`.
         # GT 9,520은 해양수산부 선박운항정보 `grtg`(2026-09-23 조회) · P&I 명부와도 같다.
@@ -181,6 +183,8 @@ SEED_VESSELS: list[dict[str, object]] = [
         "imo_number": "9633862",
         "name": "DONGJIN ENDURANCE",
         "ship_type": "GENERAL_CARGO_SHIP",
+        # 호출부호 (`#1197` · `#1623` 09-23 조회).
+        "call_sign": "D7ZY",
         # GT 4,559 — 원 출처 `GROSS TONNAGE (TON) 4,559` · 해양수산부 선박운항정보 `grtg`
         # (2026-09-23 조회)와 같다 (#1807). 5,000 미만이라 hint는 계속 False다.
         "gross_tonnage": Decimal("4559.00"),
@@ -604,10 +608,15 @@ SEED_VOYAGES: list[dict[str, object]] = [
         "actual_distance_nm": Decimal("1130.00"),
         "planned_speed_kn": Decimal("12.80"),
         "actual_avg_speed_kn": Decimal("12.50"),
-        "planned_departure_at": _utc(2026, 4, 2),
-        "planned_arrival_at": _utc(2026, 4, 6),
-        "actual_departure_at": _utc(2026, 4, 2, 8),
-        "actual_arrival_at": _utc(2026, 4, 6, 20),
+        # 공적 기록 대조 시연 표본 (`#1197` · 결정 G-7 · `PRD §17.4.4`). 이 배의 **실제 부산
+        # 출항**은 2026-08-13 18:45 KST(09:45Z · 공적 기록 `SEED_PORT_CALLS` 입항 차수 029)다.
+        # 실제 출항을 **오전·오후를 바꿔 06:45 KST로** 적은 것으로 둔다 — 12시간 차이라
+        # 데이터 점검에 「공적 기록과 다름 · 출항 시각」이 뜬다. 종전 날짜(04-02 → 04-06)에서
+        # **항해 시간(108시간)·거리·연료는 그대로** 옮겼다 — 누적 CII와 등급은 바뀌지 않는다.
+        "planned_departure_at": _utc(2026, 8, 13),
+        "planned_arrival_at": _utc(2026, 8, 17),
+        "actual_departure_at": _utc(2026, 8, 13, 21, 45),
+        "actual_arrival_at": _utc(2026, 8, 18, 9, 45),
     },
     {
         "id": V4_2025,
@@ -1575,6 +1584,271 @@ SEED_PERIOD_FUELS: list[dict[str, object]] = [
     },
 ]
 
+#: 공적 재항 기록 표본을 받은 시각 — PR #1893 표본 채취(2026-09-25 01:42 KST).
+_PORT_CALL_SAMPLED_AT = datetime.fromisoformat("2026-09-25T01:42:00+09:00")
+
+#: 공적 재항 기록 (`DB_SCHEMA §2.25` · `#1197`) — **실존 두 척의 실제 기록**이다. 해양수산부
+#: 선박운항정보 부산(`020`) 2026-08 응답(`tests/fixtures/port_calls/`)을 그대로 옮겼다.
+#: 합성 선박 셋에는 넣지 않는다 — 공적 기록을 지어내면 「공적」이 아니다.
+#:
+#: ``raw``(원문 XML)는 비워 둔다 — 운영 이미지에는 ``tests/``가 없다. 수집기
+#: (``python -m cii_platform.port_calls.collect``)를 돌리면 같은 키로 갱신되며 원문이 채워진다.
+SEED_PORT_CALLS: list[dict[str, object]] = [
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000001101"),
+        "source": "MOF_VESSEL_OPS",
+        "port_authority_code": "020",
+        "port_authority_name": "부산",
+        "call_year": 2026,
+        "call_seq": "014",
+        "call_sign": "V7UJ2",
+        "vessel_name": "스타 스키퍼",
+        "previous_port": "JPAXT",
+        "next_port": "JPAXT",
+        "arrival_at": datetime.fromisoformat("2026-08-08T14:20:00+09:00"),
+        "departure_at": datetime.fromisoformat("2026-08-09T12:20:00+09:00"),
+        "reports": [
+            {
+                "kind": "ARRIVAL",
+                "request": "FINAL",
+                "at": "2026-08-08T14:20:00+09:00",
+                "facility_name": "신선대부두 3선석",
+                "facility_code": "MBS",
+                "gross_tonnage": "9520",
+                "international_gross_tonnage": "9520",
+            },
+            {
+                "kind": "DEPARTURE",
+                "request": "FINAL",
+                "at": "2026-08-09T12:20:00+09:00",
+                "facility_name": "신선대부두 3선석",
+                "facility_code": "MBS",
+                "gross_tonnage": "9520",
+                "international_gross_tonnage": "9520",
+            },
+        ],
+        "fetched_at": _PORT_CALL_SAMPLED_AT,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000001102"),
+        "source": "MOF_VESSEL_OPS",
+        "port_authority_code": "020",
+        "port_authority_name": "부산",
+        "call_year": 2026,
+        "call_seq": "015",
+        "call_sign": "V7UJ2",
+        "vessel_name": "스타 스키퍼",
+        "previous_port": "JPHKT",
+        "next_port": "JPHKT",
+        "arrival_at": datetime.fromisoformat("2026-08-20T03:40:00+09:00"),
+        "departure_at": datetime.fromisoformat("2026-08-22T12:40:00+09:00"),
+        "reports": [
+            {
+                "kind": "ARRIVAL",
+                "request": "FINAL",
+                "at": "2026-08-20T03:40:00+09:00",
+                "facility_name": "감만부두 3선석(신선대감만터미널)",
+                "facility_code": "MBR",
+                "gross_tonnage": "9520",
+                "international_gross_tonnage": "9520",
+            },
+            {
+                "kind": "DEPARTURE",
+                "request": "FINAL",
+                "at": "2026-08-22T12:40:00+09:00",
+                "facility_name": "신항 7부두 3선석",
+                "facility_code": "MS7",
+                "gross_tonnage": "9520",
+                "international_gross_tonnage": "9520",
+            },
+        ],
+        "fetched_at": _PORT_CALL_SAMPLED_AT,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000001103"),
+        "source": "MOF_VESSEL_OPS",
+        "port_authority_code": "020",
+        "port_authority_name": "부산",
+        "call_year": 2026,
+        "call_seq": "028",
+        "call_sign": "D7ZY",
+        "vessel_name": "동진 엔듀런스",
+        "previous_port": "JPMOJ",
+        "next_port": "JPYOK",
+        "arrival_at": datetime.fromisoformat("2026-08-01T06:30:00+09:00"),
+        "departure_at": datetime.fromisoformat("2026-08-02T21:45:00+09:00"),
+        "reports": [
+            {
+                "kind": "ARRIVAL",
+                "request": "FINAL",
+                "at": "2026-08-01T06:30:00+09:00",
+                "facility_name": "남외항 N-3박지",
+                "facility_code": "WAN",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+            {
+                "kind": "DEPARTURE",
+                "request": "FINAL",
+                "at": "2026-08-02T21:45:00+09:00",
+                "facility_name": "7부두 71선석",
+                "facility_code": "MB7",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+        ],
+        "fetched_at": _PORT_CALL_SAMPLED_AT,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000001104"),
+        "source": "MOF_VESSEL_OPS",
+        "port_authority_code": "020",
+        "port_authority_name": "부산",
+        "call_year": 2026,
+        "call_seq": "029",
+        "call_sign": "D7ZY",
+        "vessel_name": "동진 엔듀런스",
+        "previous_port": "JPYOK",
+        "next_port": "JPMOJ",
+        "arrival_at": datetime.fromisoformat("2026-08-13T10:20:00+09:00"),
+        "departure_at": datetime.fromisoformat("2026-08-13T18:45:00+09:00"),
+        "reports": [
+            {
+                "kind": "ARRIVAL",
+                "request": "FINAL",
+                "at": "2026-08-13T10:20:00+09:00",
+                "facility_name": "7부두 71선석",
+                "facility_code": "MB7",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+            {
+                "kind": "DEPARTURE",
+                "request": "FINAL",
+                "at": "2026-08-13T18:45:00+09:00",
+                "facility_name": "7부두 71선석",
+                "facility_code": "MB7",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+        ],
+        "fetched_at": _PORT_CALL_SAMPLED_AT,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000001105"),
+        "source": "MOF_VESSEL_OPS",
+        "port_authority_code": "020",
+        "port_authority_name": "부산",
+        "call_year": 2026,
+        "call_seq": "030",
+        "call_sign": "D7ZY",
+        "vessel_name": "동진 엔듀런스",
+        "previous_port": "JPMOJ",
+        "next_port": "JPYOK",
+        "arrival_at": datetime.fromisoformat("2026-08-15T06:25:00+09:00"),
+        "departure_at": datetime.fromisoformat("2026-08-15T16:40:00+09:00"),
+        "reports": [
+            {
+                "kind": "ARRIVAL",
+                "request": "FINAL",
+                "at": "2026-08-15T06:25:00+09:00",
+                "facility_name": "7부두 71선석",
+                "facility_code": "MB7",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+            {
+                "kind": "DEPARTURE",
+                "request": "FINAL",
+                "at": "2026-08-15T16:40:00+09:00",
+                "facility_name": "7부두 71선석",
+                "facility_code": "MB7",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+        ],
+        "fetched_at": _PORT_CALL_SAMPLED_AT,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000001106"),
+        "source": "MOF_VESSEL_OPS",
+        "port_authority_code": "020",
+        "port_authority_name": "부산",
+        "call_year": 2026,
+        "call_seq": "031",
+        "call_sign": "D7ZY",
+        "vessel_name": "동진 엔듀런스",
+        "previous_port": "JPYOK",
+        "next_port": "JPMOJ",
+        "arrival_at": datetime.fromisoformat("2026-08-23T01:00:00+09:00"),
+        "departure_at": datetime.fromisoformat("2026-08-27T18:55:00+09:00"),
+        "reports": [
+            {
+                "kind": "ARRIVAL",
+                "request": "FINAL",
+                "at": "2026-08-23T01:00:00+09:00",
+                "facility_name": "7부두 71선석",
+                "facility_code": "MB7",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+            {
+                "kind": "DEPARTURE",
+                "request": "FINAL",
+                "at": "2026-08-27T18:55:00+09:00",
+                "facility_name": "남외항 N-3박지",
+                "facility_code": "WAN",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+        ],
+        "fetched_at": _PORT_CALL_SAMPLED_AT,
+    },
+    {
+        "id": uuid.UUID("00000000-0000-4000-8000-000000001107"),
+        "source": "MOF_VESSEL_OPS",
+        "port_authority_code": "020",
+        "port_authority_name": "부산",
+        "call_year": 2026,
+        "call_seq": "032",
+        "call_sign": "D7ZY",
+        "vessel_name": "동진 엔듀런스",
+        "previous_port": "JPMOJ",
+        "next_port": "JPYOK",
+        "arrival_at": datetime.fromisoformat("2026-08-29T07:20:00+09:00"),
+        "departure_at": datetime.fromisoformat("2026-08-30T18:40:00+09:00"),
+        "reports": [
+            {
+                "kind": "ARRIVAL",
+                "request": "FINAL",
+                "at": "2026-08-29T07:20:00+09:00",
+                "facility_name": "7부두 71선석",
+                "facility_code": "MB7",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+            {
+                "kind": "DEPARTURE",
+                "request": "FINAL",
+                "at": "2026-08-30T18:40:00+09:00",
+                "facility_name": "7부두 71선석",
+                "facility_code": "MB7",
+                "gross_tonnage": "4559",
+                "international_gross_tonnage": "4559",
+            },
+        ],
+        "fetched_at": _PORT_CALL_SAMPLED_AT,
+    },
+]
+
+#: 시드가 **덧씌우는** 호출부호 — 선박 행이 이미 있으면(마이그레이션 018이 만든 3척 · 볼륨을
+#: 유지한 DB) INSERT가 건너뛰어 값이 들어가지 않는다. ``call_sign``이 비어 있을 때만 채운다
+#: (`SEED_STATE_UPDATES`와 같은 규칙 · 사용자가 넣은 값은 덮지 않는다).
+SEED_CALL_SIGNS: list[tuple[str, str]] = [
+    (VESSEL_ID_CONTAINER, "V7UJ2"),
+    (VESSEL_ID_GENERAL_CARGO, "D7ZY"),
+]
+
 # --- 경량 테이블 (018 패턴 — 실제 컬럼 정의는 각 스키마 마이그레이션이 소유) ------
 vessel_tbl = sa.table(
     "vessel",
@@ -1711,6 +1985,24 @@ _vessel = sa.table(
     sa.column("reference_speed_kn", sa.Numeric),
     sa.column("reference_daily_foc_ton", sa.Numeric),
     sa.column("is_cii_applicable_hint", sa.Boolean),
+    sa.column("call_sign", sa.String),
+)
+port_call_tbl = sa.table(
+    "port_call_record",
+    sa.column("id", UuidText),
+    sa.column("source", sa.String),
+    sa.column("port_authority_code", sa.String),
+    sa.column("port_authority_name", sa.String),
+    sa.column("call_year", sa.Integer),
+    sa.column("call_seq", sa.String),
+    sa.column("call_sign", sa.String),
+    sa.column("vessel_name", sa.String),
+    sa.column("previous_port", sa.String),
+    sa.column("next_port", sa.String),
+    sa.column("arrival_at", sa.DateTime(timezone=True)),
+    sa.column("departure_at", sa.DateTime(timezone=True)),
+    sa.column("reports", JSONText),
+    sa.column("fetched_at", sa.DateTime(timezone=True)),
 )
 
 
@@ -1917,6 +2209,16 @@ async def seed_demo(conn: AsyncConnection) -> dict[str, int]:
             )
         )
 
+    for vid, sign in SEED_CALL_SIGNS:
+        await conn.execute(
+            sa.update(Vessel.__table__)
+            .where(Vessel.__table__.c.id == vid, Vessel.__table__.c.call_sign == None)  # noqa: E711
+            .values(call_sign=sign)
+        )
+    counts["port_call_record"] = await _insert_ignoring_existing(
+        conn, port_call_tbl, SEED_PORT_CALLS
+    )
+
     counts["voyage"] = await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES)
     counts["voyage"] += await _insert_ignoring_existing(conn, voyage_tbl, SEED_VOYAGES_WATCH)
     cf = await _cf_by_fuel(conn)
@@ -2000,6 +2302,11 @@ async def clear_demo(conn: AsyncConnection) -> dict[str, int]:
     # 참조가 없는 자식부터. 이 둘이 ``fuel_type``을 참조하므로 여기까지만 지워도
     # 연료 seed 회수가 풀린다.
     #
+    # 공적 재항 기록 표본(`#1197`) — 다른 표가 참조하지 않는다. 수집기가 같은 키로 갱신한
+    # 행이어도 지운다 — 공적 기록의 사본이라 다시 받으면 돌아온다(`REGENERABLE`).
+    counts["port_call_record"] = await _delete_where(
+        conn, "port_call_record", "id", [row["id"] for row in SEED_PORT_CALLS]
+    )
     counts["not_underway_fuel_use"] = await _delete_where(
         conn, "not_underway_fuel_use", "period_id", period_ids
     )

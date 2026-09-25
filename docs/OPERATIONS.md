@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-25 (§9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-26 (§1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN` · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -122,6 +122,7 @@ Cloudflare 영역이라, 영역 사이 서브리퀘스트에는 Cloudflare가 �
 |---|---|
 | Pages Function (`frontend/functions/_proxy.ts`) | 브라우저 요청의 `cf-connecting-ip`(엣지가 붙인 값 — 사용자가 위조하지 못한다)를 `X-BlueLog-Client-IP`에 옮겨 담고 `X-BlueLog-Proxy-Secret`에 비밀 값을 싣는다. 브라우저가 같은 이름으로 보낸 헤더는 뗀다 |
 | 백엔드 (`api/rate_limit.py` `client_ip`) | 비밀 값이 **맞을 때만**(`hmac.compare_digest`) 그 IP로 센다. 없거나 틀리면 헤더를 무시하고 종전 규칙대로 — `:8001`로 직접 들어와 헤더를 적어도 위조가 되지 않는다 |
+| 감사 로그 · 세션 (`audit_client_ip` · #1889) | 위와 **같은 판정**으로 `audit_log.ip_address`·`user_session.ip_address`를 적는다. 판정 함수는 하나다 — 라우트마다 소켓 상대를 직접 읽던 자리를 모두 옮겼다. 알 수 없으면 `unknown` 대신 NULL |
 | 비밀 값 | GitHub 시크릿 `PROXY_CLIENT_IP_SECRET` 하나(§5.1). 배포가 Pages 시크릿과 app-01 `.env`에 같은 값을 넣는다 |
 | 세는 단위 | IPv4는 주소, **IPv6는 `/64` 대역**(`limit_key`). IPv6 가입자는 `/64`를 통째로 받아, 주소마다 세면 대역 안에서 주소를 바꿔 한도를 피할 수 있다. 로그의 `client`는 묶지 않은 주소다 |
 
@@ -232,6 +233,24 @@ GitHub Actions (deploy.yml)
   뒤 재초기화. 실제로 지워지는 것은 명명 볼륨 `cubrid-data`가 아니라 이미지가
   선언한 익명 볼륨(`$CUBRID_DATABASES`, DB 파일이 있는 자리)이다(#1867). **데이터
   손실 비가역적** — 무손실 대안은 `docs/OPERATIONS.md §9.2` 「무손실 복구」.
+
+#### 3.1.1 시연 동결 — `DEPLOY_FROZEN` (#789 · 결정 E-2)
+
+**동결 시점은 10/9(금) 18:00 KST**다(2026-09-21 사용자 결정 E-1). 동결은 공지가 아니라
+**워크플로가 막는다** — 머지하는 사람이 넷이라, 공지만으로 지키는 규칙은 한 사람이 몰랐을
+때 깨진다.
+
+| 할 일 | 방법 |
+|---|---|
+| 켜기 | GitHub → Settings → Secrets and variables → Actions → **Variables** → `DEPLOY_FROZEN` = `true` |
+| 끄기 | 같은 자리에서 값을 `false`로 바꾸거나 변수를 지운다 |
+| 예외 배포 | Actions → `Deploy to OCI` → **Run workflow**(수동 실행) — 동결 중에도 돈다 |
+
+- 켜져 있으면 **push 자동 배포만** 건너뛴다. `preflight`·`deploy-frontend`가 건너뛰고,
+  `build`·`deploy-db`·`deploy-app`은 `preflight`에 걸려 함께 건너뛴다. 대신 `frozen` 잡이
+  「동결 중 — 건너뛰었다」 알림을 실행 기록에 남긴다.
+- 변수는 코드가 아니라 저장소 설정이라 **켜고 끄는 데 재배포가 필요 없다.**
+- 값은 정확히 `true`여야 동결이다(`True`·`1`은 동결이 아니다 — 워크플로가 문자열로 견준다).
 
 ### 3.2 프론트엔드 배포 (Cloudflare Pages)
 
@@ -561,6 +580,14 @@ ssh -i ~/.ssh/oci_ourtax_vm ubuntu@131.186.22.10 \
 
 # 프론트는 Cloudflare Pages — 대시보드 Deployment History(또는
 # https://bluelog-bx7.pages.dev 에서 응답 헤더 x-pages-deployment-id)
+```
+
+서버에 접속하지 않고 밖에서 보려면 헬스 응답의 `commit`을 본다(PR #1901 · `API_SPEC §10`).
+배포 워크플로도 끝에서 이 값과 배포한 커밋을 대조한다.
+
+```bash
+curl -fsS https://bluelog-bx7.pages.dev/api/v1/health | jq -r .data.commit
+# → 배포 커밋(12자리) · 로컬 개발처럼 값이 없으면 null
 ```
 
 배포 워크플로 로그(GitHub Actions `Deploy to OCI`)에도 어느 커밋이 나갔는지

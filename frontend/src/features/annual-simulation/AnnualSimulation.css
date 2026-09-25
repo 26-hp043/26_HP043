@@ -842,3 +842,68 @@
     min-height: 16rem;
   }
 }
+
+/* ── 분포 범위 막대 (#1456 · `DESIGN_SYSTEM §10.1` 표현 규칙 · 배치는 개발 임시안) ─── */
+.annual-sim__range {
+  margin: 0 0 var(--space-12);
+}
+.annual-sim__range-rail {
+  position: relative;
+  height: 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+/* 밴드 1겹 — P10~P90. 남색 12%(§10.1 rgba(26,54,93,.12)와 같은 섞음) · 등급색 금지 */
+.annual-sim__range-band {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  background: var(--color-primary-subtle);
+}
+/* 중앙선 — P50 점선 6 4 */
+.annual-sim__range-median {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px dashed var(--color-primary);
+}
+.annual-sim__range-mean {
+  position: absolute;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  background: var(--color-text);
+  transform: rotate(45deg);
+}
+.annual-sim__range-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-12);
+  margin-top: var(--space-4);
+  font-size: var(--font-size-micro);
+  color: var(--color-text-muted);
+}
+.annual-sim__range-key::before {
+  content: '';
+  display: inline-block;
+  width: 12px;
+  height: 8px;
+  margin-right: var(--space-4);
+  vertical-align: middle;
+}
+.annual-sim__range-key--band::before {
+  background: var(--color-primary-subtle);
+}
+.annual-sim__range-key--median::before {
+  width: 0;
+  height: 10px;
+  border-left: 2px dashed var(--color-primary);
+}
+.annual-sim__range-key--mean::before {
+  width: 7px;
+  height: 7px;
+  background: var(--color-text);
+  transform: rotate(45deg);
+}
+

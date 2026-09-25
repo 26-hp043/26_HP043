@@ -105,6 +105,27 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
+  # 시연 동결 (#789 · 결정 E-2 · 2026-09-21)
+  # ---------------------------------------------------------------------------
+  # 저장소 변수 DEPLOY_FROZEN=true 이면 **push 자동 배포만** 건너뛴다. 수동 실행
+  # (workflow_dispatch)은 그대로 돈다 — 동결 뒤 시연을 막는 결함은 사람이 판단해
+  # 수동으로 예외 배포한다. 변수는 Settings → Secrets and variables → Actions →
+  # Variables 에서 켜고 끈다(코드 재배포 불필요 · docs/OPERATIONS.md §3.1.1).
+  #
+  # 조건은 preflight · deploy-frontend 두 곳에 건다. build · deploy-db · deploy-app은
+  # preflight에 needs로 걸려 있어 함께 건너뛴다. 이 잡은 건너뛴 사실을 실행 기록에
+  # 남긴다 — 조용히 아무것도 안 하면 「배포가 안 된다」로 읽힌다.
+  # ---------------------------------------------------------------------------
+  frozen:
+    if: github.event_name == 'push' && vars.DEPLOY_FROZEN == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: 동결 중 — push 자동 배포를 건너뛴다
+        run: |
+          echo "::notice::DEPLOY_FROZEN=true — push 자동 배포를 건너뛰었다. 예외 배포는 수동 실행(workflow_dispatch)으로 한다 (#789 · OPERATIONS §3.1.1)"
+
+  # ---------------------------------------------------------------------------
   # 필수 시크릿 프리플라이트 (#1234)
   # ---------------------------------------------------------------------------
   # deploy-db가 CUBRID_PASSWORD 하나만 보다가 비어 있으면 죽었다 — 하나 고칠 때마다
@@ -112,6 +133,8 @@ jobs:
   # 여기서 9종을 한 번에 보고 **이름만** 출력한다. 값은 절대 출력하지 않는다.
   # ---------------------------------------------------------------------------
   preflight:
+    # 시연 동결이면 push 자동 배포를 건너뛴다 — 위 `frozen` 잡 참조 (#789).
+    if: github.event_name != 'push' || vars.DEPLOY_FROZEN != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -614,6 +637,8 @@ jobs:
   # Node 버전은 package.json engines과 같은 값 — 동기 대상 4곳 문서 참조.
   # ---------------------------------------------------------------------------
   deploy-frontend:
+    # 시연 동결이면 push 자동 배포를 건너뛴다 — `frozen` 잡 참조 (#789).
+    if: github.event_name != 'push' || vars.DEPLOY_FROZEN != 'true'
     runs-on: ubuntu-latest
     # 빌드+업로드 정상 소요 1~2분 (#533 — 멈춤 상한).
     timeout-minutes: 10

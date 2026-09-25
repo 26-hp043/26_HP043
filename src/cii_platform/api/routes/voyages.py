@@ -12,6 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.voyage import (
     VoyageActualsRequest,
     VoyageCreateRequest,
@@ -194,7 +195,7 @@ async def transition_voyage_route(
     state = getattr(request, "state", None)
     session_user = getattr(state, "session_user", None)
     actor = str(session_user.id) if session_user is not None else None
-    client_ip = request.client.host if request.client else None
+    client_ip = audit_client_ip(request)
 
     if data["status"] == "CONFIRMED":
         await audit_svc.record_voyage_confirm(

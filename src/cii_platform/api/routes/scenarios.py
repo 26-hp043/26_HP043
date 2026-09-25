@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Request
 # AsyncSession을 모듈 스코프에서 import해야 한다 (calculations.py와 같은 이유).
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.scenario_compare import (
     ScenarioAdoptRequest,
     ScenarioCompareRequest,
@@ -81,7 +82,7 @@ async def scenario_compare(
         model_version=result["model_version"],
         duration_ms=duration_ms,
         warnings_count=len(result["warnings"]),
-        ip_address=request.client.host if request.client else None,
+        ip_address=audit_client_ip(request),
         calculation_type="SCENARIO",
     )
     await session.commit()

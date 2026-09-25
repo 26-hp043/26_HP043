@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
 
 from cii_platform.api.error_handlers import to_error_response
+from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.auth_tokens import (
     PasswordResetConfirmRequest,
     PasswordResetRequest,
@@ -311,7 +312,7 @@ async def confirm_password_reset(
     await audit_svc.record_logout(
         session,
         user_id=str(user_id),
-        ip_address=request.client.host if request.client else None,
+        ip_address=audit_client_ip(request),
     )
     await session.commit()
 

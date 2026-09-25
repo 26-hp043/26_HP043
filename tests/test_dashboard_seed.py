@@ -727,3 +727,33 @@ async def test_only_the_bulk_2026_voyage_is_left_unconfirmed(conn):
         SEVERITY_UNCONFIRMED: uuid_canon(bulk_2026),
         SEVERITY_ANOMALY: uuid_canon(bulk_2026),
     }, "확정 전 항차와 이상치 항차가 같은 한 건이어야 시연 동선이 이어진다"
+
+
+async def test_demo_shows_one_public_record_mismatch(conn):
+    """시연 표본 — 실존 선박 DONGJIN ENDURANCE(`D7ZY`)의 부산 출항이 공적 기록과 12시간 다르다.
+
+    `#1197` 결정 G-7의 시연 표본(오전·오후 착오). 공적 기록은 해양수산부 선박운항정보의 실제
+    부산 기록(2026-08 · 입항 차수 029 · 출항 18:45 KST)이고, 항차는 06:45 KST(다음 날)로
+    적혀 있다. 합성 선박은 호출부호가 없어 대조되지 않는다 — **이 한 건만** 뜬다.
+    """
+    from cii_platform.services.data_quality import (
+        SEVERITY_PUBLIC_RECORD,
+        get_fleet_data_quality,
+    )
+
+    async with AsyncSession(bind=conn, expire_on_commit=False) as session:
+        result = await get_fleet_data_quality(session, regulation_year=2026)
+
+    public = [item for item in result["issues"] if item["severity"] == SEVERITY_PUBLIC_RECORD]
+    assert [(uuid_canon(item["vessel_id"]), item["voyage_no"]) for item in public] == [
+        (demo_seed.VESSEL_ID_GENERAL_CARGO, "2026-01")
+    ]
+    assert result["summary"]["public_record_count"] == 1
+    [mismatch] = public[0]["public_record"]["mismatches"]
+    assert mismatch["field"] == "DEPARTURE"
+    assert mismatch["difference_minutes"] == 12 * 60
+    assert mismatch["port_authority_name"] == "부산"
+    # 받은 시각은 표본 채취 시각이다 — 「언제 기준의 공적 기록인가」
+    assert datetime.fromisoformat(public[0]["public_record"]["fetched_at"]) == datetime(
+        2026, 9, 24, 16, 42, tzinfo=UTC
+    )
