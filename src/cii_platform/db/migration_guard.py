@@ -167,6 +167,9 @@ REGENERABLE: dict[str, str] = {
     # 채운다. 052·053과 달리 값 자체가 재생된다 — 사람이 넣은 것이 아니다. 유니크 인덱스·
     # 채움 트리거도 구조라 재생되고, downgrade는 047 트리거를 원문 그대로 되살린다.
     "061": "vessel.imo_active·app_user.email_active — is_deleted에서 결정되는 값이라 백필이 재생",
+    # port_call_record(#1197) — 바깥(공공데이터)에서 받아 둔 사본이다. 사람이 만든 값이 한 행도
+    # 없고, 수집기(`port_calls/collect.py`)를 다시 돌리면 같은 기록이 돌아온다.
+    "063": "port_call_record — 공적 기록 사본이라 수집기를 다시 돌리면 돌아온다",
 }
 
 
