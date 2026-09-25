@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { ErrorState } from '../../components/ErrorState'
 import { GradeBadge } from '../../components/GradeBadge'
-import { formatDecimalString, formatPercent } from '../../display/format'
+import { formatDecimalString, formatPercent, formatTimestamp } from '../../display/format'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { voyageActualsPath } from '../voyage-management/voyageRules'
@@ -11,8 +11,10 @@ import {
   DATA_QUALITY_COPY as COPY,
   IMPACT_REASON,
   IMPACT_REASON_ORDER,
+  PUBLIC_RECORD_FIELD_LABEL,
   SEVERITY_MEANING,
   SEVERITY_TITLE,
+  publicRecordSourceText,
   reasonText,
 } from './copy'
 import { IMPACT_DIGITS, orderedIssues } from './issueOrder'
@@ -21,6 +23,7 @@ import {
   type DataQualityIssue,
   type DataQualityProvider,
   type DataQualitySnapshot,
+  type PublicRecord,
 } from './types'
 import './DataQuality.css'
 
@@ -138,7 +141,7 @@ function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
         건수다 — 하나로 합치면 그 넷을 한 수로 뭉갠다.
       */}
       <dl className="dq__tiles" aria-label={COPY.summaryTitle}>
-        {(['SUBSTITUTED', 'UNAVAILABLE', 'ANOMALY', 'UNCONFIRMED'] as const).map((severity) => (
+        {(['SUBSTITUTED', 'UNAVAILABLE', 'ANOMALY', 'UNCONFIRMED', 'PUBLIC_RECORD'] as const).map((severity) => (
           <div
             key={severity}
             className={`dq__tile${
@@ -215,6 +218,7 @@ function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
                             <li key={code}>{reasonText(code)}</li>
                           ))}
                         </ul>
+                        {issue.publicRecord ? <PublicRecordDetail record={issue.publicRecord} /> : null}
                       </td>
                       <td>
                         <Impact issue={issue} />
@@ -364,6 +368,43 @@ function ImpactNotes({ issues }: { issues: DataQualityIssue[] }) {
         </li>
       ))}
     </ul>
+  )
+}
+
+/**
+ * 공적 기록과의 어긋남 — 항목 한 줄마다 「입력값 · 공적 기록 · 항만청 · 차이」(#1197).
+ *
+ * **출처는 행 아래에 함께 적는다.** 그룹으로 묶지 않고 한 표에 늘어놓는 화면이라
+ * (`#1766`), 어느 행이 어느 출처·수집 시각을 근거로 하는지는 그 행에 붙어야 흔들리지
+ * 않는다.
+ */
+function PublicRecordDetail({ record }: { record: PublicRecord }) {
+  return (
+    <>
+      <ul className="dq__mismatches">
+        {record.mismatches.map((mismatch, index) => {
+          const hours = Math.floor(mismatch.differenceMinutes / 60)
+          const minutes = mismatch.differenceMinutes % 60
+          const authority = mismatch.portAuthorityName ?? mismatch.portAuthorityCode
+          return (
+            // 한 항차에 정박 구간이 둘이면 같은 칸(`BERTH_START`)이 두 줄이다 — 순번을 붙인다.
+            <li key={`${mismatch.field}-${index}`}>
+              {COPY.publicRecordMismatch(
+                PUBLIC_RECORD_FIELD_LABEL[mismatch.field],
+                formatTimestamp(mismatch.enteredAt),
+                formatTimestamp(mismatch.recordedAt),
+                authority,
+                hours,
+                minutes,
+              )}
+            </li>
+          )
+        })}
+      </ul>
+      <p className="dq__source">
+        {COPY.publicRecordSourceNote(publicRecordSourceText(record.source), formatTimestamp(record.fetchedAt))}
+      </p>
+    </>
   )
 }
 

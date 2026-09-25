@@ -1,4 +1,4 @@
-import type { Severity } from './types'
+import type { PublicRecordField, Severity } from './types'
 
 /**
  * 데이터 점검 화면 문구 (`UIFLOW 2-11` · `PRD §17.4` · #513).
@@ -55,6 +55,22 @@ export const DATA_QUALITY_COPY = {
   colVoyages: '실적 항차',
   colCompleteness: '완결성',
   noActualVoyages: '올해 실적 항차 없음',
+
+  /*
+   * 공적 기록 대조 한 줄 (#1197). 시각·항만청 이름은 부르는 쪽에서 이미 표시 문자열로
+   * 만들어 넘긴다 — 이 파일은 `formatTimestamp` 같은 표시 포맷터를 갖지 않는다(다른 화면
+   * 표시값도 `DataQuality.tsx`가 포맷하고 `copy.ts`는 틀만 쥔다).
+   */
+  publicRecordMismatch: (
+    fieldLabel: string,
+    entered: string,
+    recorded: string,
+    authorityName: string,
+    hours: number,
+    minutes: number,
+  ) => `${fieldLabel} 입력 ${entered} · 공적 기록 ${recorded} (${authorityName}) · ${hours}시간 ${minutes}분 차이`,
+  /** 출처 표기 — `DESIGN_SYSTEM` 확정 대기 중이라 개발 임시안이다(#1197). */
+  publicRecordSourceNote: (sourceText: string, fetchedAt: string) => `출처: ${sourceText} · ${fetchedAt} 기준`,
 } as const
 
 export const SEVERITY_TITLE: Record<Severity, string> = {
@@ -62,6 +78,7 @@ export const SEVERITY_TITLE: Record<Severity, string> = {
   UNAVAILABLE: '계산 불가',
   ANOMALY: '이상치',
   UNCONFIRMED: '실적 미입력',
+  PUBLIC_RECORD: '공적 기록과 다름',
 }
 
 /** 그룹 헤더 아래 한 줄 — `DESIGN_SYSTEM §2.3.1` 「의미」 열. */
@@ -70,6 +87,25 @@ export const SEVERITY_MEANING: Record<Severity, string> = {
   UNAVAILABLE: '대체할 계획값조차 없어 계산에 들어가지 못했습니다.',
   ANOMALY: '계산됐으나 값을 믿기 어렵습니다. 계산에서 빼지는 않습니다.',
   UNCONFIRMED: '완료됐지만 실적이 확정되지 않았습니다.',
+  PUBLIC_RECORD:
+    '넣은 출항·도착·정박 시각이 해양수산부 선박운항정보의 공적 기록과 6시간 넘게 다릅니다. 값은 바꾸지 않았습니다.',
+}
+
+/** `public_record.mismatches[].field` → 화면 문구 (#1197). */
+export const PUBLIC_RECORD_FIELD_LABEL: Record<PublicRecordField, string> = {
+  DEPARTURE: '출항 시각',
+  ARRIVAL: '도착 시각',
+  BERTH_START: '정박 시작',
+  BERTH_END: '정박 끝',
+}
+
+/** `public_record.source` → 화면 문구. **모르는 출처는 원문 그대로**(`reasonText`와 같은 방침). */
+const PUBLIC_RECORD_SOURCE_TEXT: Record<string, string> = {
+  MOF_VESSEL_OPS: '해양수산부 선박운항정보(공공데이터포털)',
+}
+
+export function publicRecordSourceText(source: string): string {
+  return PUBLIC_RECORD_SOURCE_TEXT[source] ?? source
 }
 
 const REASON_TEXT: Record<string, string> = {
@@ -85,14 +121,27 @@ const REASON_TEXT: Record<string, string> = {
   MISSING_SPEC: '선박 제원으로 계산할 수 없음',
   NO_PARAMETERS: '이 선종의 규정 기준값 없음',
   CALCULATION_ERROR: '계산 중 오류',
+  /*
+   * 공적 기록 어긋남 (#1197) — `PUBLIC_RECORD:ARRIVAL`처럼 **전체 코드**로 키를 둔다.
+   * 다른 항목은 `head:detail`에서 `detail`(유종·항만청 등)을 원문 그대로 괄호로 붙이지만,
+   * 여기 `detail`은 필드 코드(`ARRIVAL` 등)라 원문 그대로면 한국어 화면에 영문이 남는다.
+   */
+  [`PUBLIC_RECORD:DEPARTURE`]: `${PUBLIC_RECORD_FIELD_LABEL.DEPARTURE}이 공적 기록과 다름`,
+  [`PUBLIC_RECORD:ARRIVAL`]: `${PUBLIC_RECORD_FIELD_LABEL.ARRIVAL}이 공적 기록과 다름`,
+  [`PUBLIC_RECORD:BERTH_START`]: `${PUBLIC_RECORD_FIELD_LABEL.BERTH_START}이 공적 기록과 다름`,
+  [`PUBLIC_RECORD:BERTH_END`]: `${PUBLIC_RECORD_FIELD_LABEL.BERTH_END}이 공적 기록과 다름`,
 }
 
 /**
  * 사유 코드 → 문구. `FUEL:HFO`처럼 유종이 붙으면 뒤에 괄호로 적는다.
  *
+ * **전체 코드가 그대로 키에 있으면 그것을 먼저 쓴다** — `PUBLIC_RECORD:ARRIVAL`처럼 뒤쪽이
+ * 필드 코드라 원문 그대로 괄호로 붙이면 한국어 화면에 영문이 남는다(위 `REASON_TEXT` 주석).
+ *
  * **모르는 코드는 코드 그대로** 보인다 — 빈칸으로 두면 문제가 없는 것처럼 보인다.
  */
 export function reasonText(code: string): string {
+  if (code in REASON_TEXT) return REASON_TEXT[code]
   const [head, detail] = code.split(':', 2)
   const text = REASON_TEXT[head] ?? code
   return detail ? `${text} (${detail})` : text

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from cii_platform.services.data_quality import (
     IMPACT_ONLY_VOYAGE,
     SEVERITY_ANOMALY,
+    SEVERITY_PUBLIC_RECORD,
     SEVERITY_SUBSTITUTED,
     SEVERITY_UNAVAILABLE,
     SEVERITY_UNCONFIRMED,
@@ -333,6 +334,7 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
         "unavailable_count",
         "anomaly_count",
         "unconfirmed_count",
+        "public_record_count",
         "anomaly_unjudged_count",
         "completeness_ratio",
         "completeness",
@@ -362,7 +364,10 @@ async def test_response_shape_matches_api_spec(session, vessel_id):
             "codes",
             "cii_impact",
             "cii_impact_reason",
+            "public_record",
         }
+        # 공적 기록 대조 행이 아니면 비어 있다 (`#1197`)
+        assert item["public_record"] is None
     with_impact = [item["cii_impact"] for item in issues if item["cii_impact"] is not None]
     assert with_impact, "영향 블록이 있는 행을 만들지 못했다 — 검사가 한쪽 모양만 본다"
     assert set(with_impact[0]) == {
@@ -563,3 +568,143 @@ async def test_a_vessel_without_a_ratio_has_no_breakdown_either(session, vessel_
 
     assert vessel["completeness_ratio"] is None
     assert vessel["completeness"] is None
+
+
+async def _port_call(session, *, sign: str, arrival: str, departure: str) -> None:
+    """공적 재항 기록 한 건 (``DB_SCHEMA §2.25``) — 부산 항만청."""
+    await session.execute(
+        text(
+            "INSERT INTO port_call_record (id, source, port_authority_code, port_authority_name, "
+            " call_year, call_seq, call_sign, arrival_at, departure_at, reports, fetched_at) "
+            "VALUES (:id, 'MOF_VESSEL_OPS', '020', '부산', 2026, '077', :sign, :arr, :dep, "
+            " '[]', :fetched)"
+        ),
+        {
+            "id": "c0ffee00000000000000000000001197",
+            "sign": sign,
+            "arr": datetime.fromisoformat(arrival),
+            "dep": datetime.fromisoformat(departure),
+            "fetched": datetime.fromisoformat("2026-09-26T00:00:00+00:00"),
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_departure_twelve_hours_off_the_public_record_is_pointed_at(session, vessel_id):
+    """출항을 12시간 어긋나게 넣은 항차가 「공적 기록과 다름」으로 뜬다 (`#1197` · `§17.4.4`).
+
+    공적 기록: 부산 출항 2026-03-01 12:00Z. 항차의 실제 출항은 00:00Z(`_voyage`) — 12시간.
+    값을 바꾸지 않고 **완결성에도 넣지 않는다** — 깨끗한 항차라 완결성은 그대로 1이다.
+    """
+    await session.execute(
+        text("UPDATE vessel SET call_sign = 'DQ1197' WHERE id = :id"), {"id": vessel_id}
+    )
+    await _port_call(
+        session,
+        sign="DQ1197",
+        arrival="2026-02-28T20:00:00+00:00",
+        departure="2026-03-01T12:00:00+00:00",
+    )
+    await _voyage(session, vessel_id, no="A")
+    await _voyage(session, vessel_id, no="B")
+
+    vessel, issues, summary = await _mine(session, vessel_id)
+
+    public = _by(issues, SEVERITY_PUBLIC_RECORD)
+    assert len(public) == 2  # 두 항차 모두 같은 출항 시각을 넣었다
+    item = public[0]
+    assert item["codes"] == ["PUBLIC_RECORD:DEPARTURE"]
+    block = item["public_record"]
+    assert block["source"] == "MOF_VESSEL_OPS"
+    assert block["fetched_at"].startswith("2026-09-26T00:00:00")
+    [mismatch] = block["mismatches"]
+    assert mismatch["field"] == "DEPARTURE"
+    assert mismatch["difference_minutes"] == 12 * 60
+    assert mismatch["port_authority_code"] == "020"
+    assert mismatch["port_authority_name"] == "부산"
+    assert summary["public_record_count"] >= 2
+    # 대조는 계산 입력이 아니다 — 실측 항차의 완결성은 그대로다
+    assert vessel["completeness_ratio"] == "1.0000"
+
+
+@pytest.mark.asyncio
+async def test_within_six_hours_or_without_call_sign_raises_nothing(session, vessel_id):
+    """6시간 안이면 띄우지 않고, 호출부호가 없는 배는 기록이 있어도 견주지 않는다."""
+    await _port_call(
+        session,
+        sign="DQ1198",
+        arrival="2026-02-28T20:00:00+00:00",
+        departure="2026-03-01T12:00:00+00:00",
+    )
+    await _voyage(session, vessel_id, no="A")
+    # 호출부호 없음 — 12시간 어긋나도 대조하지 않는다(선박명으로 잇지 않는다)
+    _, issues, _ = await _mine(session, vessel_id)
+    assert _by(issues, SEVERITY_PUBLIC_RECORD) == []
+
+    await session.execute(
+        text("UPDATE vessel SET call_sign = 'DQ1198' WHERE id = :id"), {"id": vessel_id}
+    )
+    await session.execute(
+        text("UPDATE port_call_record SET departure_at = :dep WHERE call_sign = 'DQ1198'"),
+        {"dep": datetime.fromisoformat("2026-03-01T06:00:00+00:00")},
+    )
+    _, issues, _ = await _mine(session, vessel_id)
+    assert _by(issues, SEVERITY_PUBLIC_RECORD) == []  # 6시간 정각 — 띄우지 않는다
+
+
+async def _period(session, vessel_id: str, voyage_id: str, *, kind: str, start: str, end: str):
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_period (vessel_id, regulation_year, period_type, "
+            " started_at, ended_at, port_name, voyage_id) "
+            "VALUES (:vid, :yr, :kind, :st, :en, 'BUSAN', :voy)"
+        ),
+        {
+            "vid": vessel_id,
+            "yr": YEAR,
+            "kind": kind,
+            "st": datetime.fromisoformat(start),
+            "en": datetime.fromisoformat(end),
+            "voy": voyage_id,
+        },
+    )
+
+
+async def _stay_scenario(session, vessel_id: str, sign: str, kind: str) -> list[dict]:
+    """공적 기록: 부산 입항 02-20 00:00Z · 출항 02-21 00:00Z. 구간 시작을 12시간 늦게 넣는다."""
+    await session.execute(
+        text("UPDATE vessel SET call_sign = :sign WHERE id = :id"), {"sign": sign, "id": vessel_id}
+    )
+    await _port_call(
+        session,
+        sign=sign,
+        arrival="2026-02-20T00:00:00+00:00",
+        departure="2026-02-21T00:00:00+00:00",
+    )
+    voyage_id = await _voyage(session, vessel_id, no="A")
+    await _period(
+        session,
+        vessel_id,
+        voyage_id,
+        kind=kind,
+        start="2026-02-20T12:00:00+00:00",
+        end="2026-02-21T00:00:00+00:00",
+    )
+    _, issues, _ = await _mine(session, vessel_id)
+    return _by(issues, SEVERITY_PUBLIC_RECORD)
+
+
+@pytest.mark.asyncio
+async def test_port_stay_period_start_is_compared_with_arrival(session, vessel_id):
+    """항차에 매인 정박 구간의 시작은 가장 이른 입항과 견준다 (`§17.4.4`)."""
+    [item] = await _stay_scenario(session, vessel_id, "DQ1199", "IN_PORT")
+    assert item["codes"] == ["PUBLIC_RECORD:BERTH_START"]
+    [mismatch] = item["public_record"]["mismatches"]
+    assert mismatch["field"] == "BERTH_START"
+    assert mismatch["difference_minutes"] == 12 * 60
+
+
+@pytest.mark.asyncio
+async def test_drydock_period_is_not_compared(session, vessel_id):
+    """드라이독 구간은 입출항 신고와 대응하지 않는다 — 같은 시각이어도 견주지 않는다."""
+    assert await _stay_scenario(session, vessel_id, "DQ1200", "DRYDOCK") == []

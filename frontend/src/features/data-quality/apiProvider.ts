@@ -6,6 +6,8 @@ import {
   type DataQualityIssue,
   type DataQualityProvider,
   type DataQualitySnapshot,
+  type PublicRecord,
+  type PublicRecordField,
   type Rating,
   type Severity,
 } from './types'
@@ -24,6 +26,22 @@ export class DataQualityUnavailableError extends Error {
   }
 }
 
+/** `API_SPEC §2.16` `public_record.mismatches[]` (#1197). 옛 서버는 이 필드 자체가 없다. */
+interface ServerPublicRecordMismatch {
+  field: string
+  entered_at: string
+  recorded_at: string
+  difference_minutes: number
+  port_authority_code: string
+  port_authority_name: string | null
+}
+
+interface ServerPublicRecord {
+  source: string
+  fetched_at: string
+  mismatches: ServerPublicRecordMismatch[]
+}
+
 interface ServerIssue {
   severity: string
   vessel_id: string
@@ -39,6 +57,8 @@ interface ServerIssue {
     rating_without: string | null
   } | null
   cii_impact_reason: string | null
+  /** 옛 서버는 필드 자체가 없다 — `PUBLIC_RECORD`가 아닌 행은 `null`이다. */
+  public_record?: ServerPublicRecord | null
 }
 
 interface ServerBody {
@@ -49,6 +69,8 @@ interface ServerBody {
       unavailable_count: number
       anomaly_count: number
       unconfirmed_count: number
+      /** 옛 서버는 이 필드가 없다 — 그때는 0으로 읽는다. */
+      public_record_count?: number
       anomaly_unjudged_count: number
       completeness_ratio: string | null
       completeness?: ServerCompleteness
@@ -93,6 +115,26 @@ function toSeverity(raw: string): Severity {
   throw new DataQualityUnavailableError(`알 수 없는 점검 항목입니다: ${raw}`)
 }
 
+/**
+ * 공적 기록 대조 (#1197). 필드 하나하나까지 검증하지 않는다 — `cii_impact`를 옮길 때와 같은
+ * 방침이다(서버 계약을 믿고 그대로 옮긴다). **필드 자체가 없으면**(옛 서버) `null`이다.
+ */
+function toPublicRecord(raw: ServerPublicRecord | null | undefined): PublicRecord | null {
+  if (!raw) return null
+  return {
+    source: raw.source,
+    fetchedAt: raw.fetched_at,
+    mismatches: raw.mismatches.map((m) => ({
+      field: m.field as PublicRecordField,
+      enteredAt: m.entered_at,
+      recordedAt: m.recorded_at,
+      differenceMinutes: m.difference_minutes,
+      portAuthorityCode: m.port_authority_code,
+      portAuthorityName: m.port_authority_name,
+    })),
+  }
+}
+
 function toIssue(raw: ServerIssue): DataQualityIssue {
   return {
     severity: toSeverity(raw.severity),
@@ -111,6 +153,7 @@ function toIssue(raw: ServerIssue): DataQualityIssue {
         }
       : null,
     ciiReason: raw.cii_impact_reason,
+    publicRecord: toPublicRecord(raw.public_record),
   }
 }
 
@@ -152,6 +195,7 @@ export function createApiDataQualityProvider(
           UNAVAILABLE: s.unavailable_count,
           ANOMALY: s.anomaly_count,
           UNCONFIRMED: s.unconfirmed_count,
+          PUBLIC_RECORD: s.public_record_count ?? 0,
         },
         anomalyUnjudged: s.anomaly_unjudged_count,
         completenessRatio: s.completeness_ratio,

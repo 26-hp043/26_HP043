@@ -9,7 +9,7 @@
 그래서 이 화면이 보여 줄 것은 사라진 항차가 아니라 **실측인 척하는 추정값**이다
 (``UIFLOW 2-11``).
 
-심각도 넷 — 무엇을 어디서 가져오나
+심각도 다섯 — 무엇을 어디서 가져오나
 ----------------------------------
 =============  =============================================  ====================================
 심각도         판정                                          재료
@@ -19,6 +19,8 @@
                값이 하나도 없다                               ⑵ ``ytd.unfilled`` (#513)
 이상치         계산됐으나 신뢰도 낮음                        ``calc.data_quality.judge_anomaly``
 실적 확정 전   ``COMPLETED``에서 ``CONFIRMED``로 미전이       ``voyage.status`` (``PRD §8.1``)
+공적 기록과    넣은 출항·도착·정박 시각이 공적 재항 기록과    ``port_call_record`` (#1197 ·
+다름           6시간을 넘게 다르다 — **완결성에 넣지 않는다**  ``port_calls/reconcile.py``)
 =============  =============================================  ====================================
 
 **집계 기준은 실적 확정 항차(``INCLUDE_AS_ACTUAL``)이며 진행 중 항차를 넣지 않는다.** 진행분은
@@ -48,10 +50,22 @@ from cii_platform.calc.data_quality import (
     judge_anomaly,
 )
 from cii_platform.calc.precision import SERIALIZATION_ROUNDING, layer1_context
+from cii_platform.db.repositories import not_underway as not_underway_repo
 from cii_platform.db.repositories import parameters as param_repo
+from cii_platform.db.repositories import port_call as port_call_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import AppError, ParameterError, ValidationError
+from cii_platform.port_calls.reconcile import (
+    FIELD_ARRIVAL,
+    FIELD_BERTH_END,
+    FIELD_BERTH_START,
+    FIELD_DEPARTURE,
+    EnteredTime,
+    Mismatch,
+    RecordedCall,
+    reconcile,
+)
 from cii_platform.services.fleet_summary import (
     UNAVAILABLE_CALCULATION_ERROR,
     UNAVAILABLE_NO_DATA,
@@ -74,6 +88,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
+    from cii_platform.db.models.not_underway_period import NotUnderwayPeriod
     from cii_platform.db.models.vessel import Vessel
 
 #: ``API_SPEC §2.16`` ``issues[].severity`` — **목록 순서가 곧 화면의 그룹 순서**다
@@ -82,12 +97,24 @@ SEVERITY_SUBSTITUTED = "SUBSTITUTED"
 SEVERITY_UNAVAILABLE = "UNAVAILABLE"
 SEVERITY_ANOMALY = "ANOMALY"
 SEVERITY_UNCONFIRMED = "UNCONFIRMED"
+#: 공적 기록과 다름 (`#1197` · ``PRD §17.4.4``) — 넣은 시각이 공적 재항 기록과 6시간을 넘게
+#: 다르다. **완결성에 들어가지 않는다**(:data:`_EXCLUSION_PRIORITY`에 없다) — 계산에 쓰인 값이
+#: 실측인지와는 다른 질문이고, 대조 결과는 계산 입력이 아니다.
+SEVERITY_PUBLIC_RECORD = "PUBLIC_RECORD"
 SEVERITY_ORDER: tuple[str, ...] = (
     SEVERITY_SUBSTITUTED,
     SEVERITY_UNAVAILABLE,
     SEVERITY_ANOMALY,
     SEVERITY_UNCONFIRMED,
+    SEVERITY_PUBLIC_RECORD,
 )
+#: ``PUBLIC_RECORD`` 행의 ``codes`` 접미사 앞머리 — ``PUBLIC_RECORD:ARRIVAL``.
+PUBLIC_RECORD_CODE = "PUBLIC_RECORD"
+#: 공적 기록과 견주는 정박 구간 유형 — **항만에 머문 것**만(정박 · 묘박). 입출항 신고가 그
+#: 체류를 기록한다. 표류 · STS · 운하 통과 · 드라이독은 입출항 신고와 대응하지 않는다
+#: (``PRD §17.4.4``).
+_PORT_STAY_TYPES: frozenset[str] = frozenset({"IN_PORT", "AT_ANCHOR"})
+
 
 #: 계산 불가 — 연료 행에 실적도 계획값도 없다 (선박 단위 사유와 구분).
 UNAVAILABLE_FUEL_UNFILLED = "FUEL_UNFILLED"
@@ -285,6 +312,29 @@ async def _impact(
     )
 
 
+def _public_record_block(mismatches: list[Mismatch], source: str) -> dict[str, object]:
+    """``issues[].public_record`` — 어긋남과 **언제 기준의 공적 기록인가**(출처 표기).
+
+    ``fetched_at``은 짝지은 기록 가운데 **가장 오래 전에 받은 것**이다 — 한 항차의 어긋남이
+    여러 기록에 걸치면 가장 낡은 기준을 알려야 「이 시각 이후 정정됐을 수 있다」가 성립한다.
+    """
+    return {
+        "source": source,
+        "fetched_at": min(item.fetched_at for item in mismatches).isoformat(),
+        "mismatches": [
+            {
+                "field": item.field,
+                "entered_at": item.entered_at.isoformat(),
+                "recorded_at": item.recorded_at.isoformat(),
+                "difference_minutes": item.difference_minutes,
+                "port_authority_code": item.port_authority_code,
+                "port_authority_name": item.port_authority_name,
+            }
+            for item in mismatches
+        ],
+    }
+
+
 async def get_fleet_data_quality(
     session: AsyncSession, *, regulation_year: int | None = None
 ) -> dict[str, object]:
@@ -310,6 +360,37 @@ async def get_fleet_data_quality(
         is None
     ):
         raise ParameterError(f"해당 연도의 규정 파라미터가 없습니다. (기준연도 {year})")
+
+    # 공적 기록 대조의 재료 (`#1197`) — 호출부호가 있는 배만. 바깥 서비스를 부르지 않고
+    # 수집기가 받아 둔 표만 읽는다(``port_calls/collect.py``).
+    signed = [vessel for vessel in vessels if vessel.call_sign]
+    records_by_sign: dict[str, list[RecordedCall]] = {}
+    record_source_by_sign: dict[str, str] = {}
+    for row in await port_call_repo.list_for_call_signs(
+        session, [str(vessel.call_sign) for vessel in signed]
+    ):
+        records_by_sign.setdefault(row.call_sign, []).append(
+            RecordedCall(
+                port_authority_code=row.port_authority_code,
+                port_authority_name=row.port_authority_name,
+                arrival_at=row.arrival_at,
+                departure_at=row.departure_at,
+                fetched_at=row.fetched_at,
+            )
+        )
+        record_source_by_sign.setdefault(row.call_sign, row.source)
+    periods_by_voyage: dict[UUID, list[NotUnderwayPeriod]] = {}
+    signed_with_records = [vessel.id for vessel in signed if vessel.call_sign in records_by_sign]
+    if signed_with_records:
+        grouped = await not_underway_repo.list_periods_for_year_for_vessels(
+            session, vessel_ids=signed_with_records, regulation_year=year
+        )
+        for periods in grouped.values():
+            for period in periods:
+                # 항차에 매이지 않은 구간은 항차 단위 목록에 둘 자리가 없다 — 대조하지 않는다.
+                # 항만 체류(정박·묘박)가 아닌 구간도 견줄 공적 기록이 없다.
+                if period.voyage_id is not None and period.period_type in _PORT_STAY_TYPES:
+                    periods_by_voyage.setdefault(period.voyage_id, []).append(period)
 
     issues: list[dict[str, object]] = []
     vessel_rows: list[dict[str, object]] = []
@@ -343,6 +424,7 @@ async def get_fleet_data_quality(
                     "codes": [vessel_reason],
                     "cii_impact": None,
                     "cii_impact_reason": None,
+                    "public_record": None,
                 }
             )
 
@@ -353,9 +435,11 @@ async def get_fleet_data_quality(
         total = Decimal(0)
         excluded = dict.fromkeys(_EXCLUSION_PRIORITY, Decimal(0))
 
+        vessel_records = records_by_sign.get(str(vessel.call_sign), []) if vessel.call_sign else []
         for voyage in voyages:
             rows = fuel_by_voyage.get(voyage.id, [])
             voyage_issues: list[tuple[str, list[str]]] = []
+            public_record: dict[str, object] | None = None
 
             substituted = []
             if ytd is not None:
@@ -394,6 +478,28 @@ async def get_fleet_data_quality(
             if voyage.status == _STATUS_COMPLETED:
                 voyage_issues.append((SEVERITY_UNCONFIRMED, [_STATUS_COMPLETED]))
 
+            if vessel_records:
+                entries = [
+                    EnteredTime(
+                        FIELD_DEPARTURE, voyage.actual_departure_at, voyage.departure_port_name
+                    ),
+                    EnteredTime(FIELD_ARRIVAL, voyage.actual_arrival_at, voyage.arrival_port_name),
+                ]
+                for period in periods_by_voyage.get(voyage.id, []):
+                    entries.append(
+                        EnteredTime(FIELD_BERTH_START, period.started_at, period.port_name)
+                    )
+                    entries.append(EnteredTime(FIELD_BERTH_END, period.ended_at, period.port_name))
+                mismatches = reconcile(entries, vessel_records)
+                if mismatches:
+                    codes = list(
+                        dict.fromkeys(f"{PUBLIC_RECORD_CODE}:{item.field}" for item in mismatches)
+                    )
+                    voyage_issues.append((SEVERITY_PUBLIC_RECORD, codes))
+                    public_record = _public_record_block(
+                        mismatches, record_source_by_sign[str(vessel.call_sign)]
+                    )
+
             voyage_co2 = _voyage_co2(rows)
             total += voyage_co2
             # 완결성의 「실측」 — 대체·계산 불가·이상치가 없는 항차 (`PRD §17.4.3`).
@@ -422,6 +528,9 @@ async def get_fleet_data_quality(
                         "codes": codes,
                         "cii_impact": impact,
                         "cii_impact_reason": impact_reason,
+                        "public_record": (
+                            public_record if severity == SEVERITY_PUBLIC_RECORD else None
+                        ),
                     }
                 )
 
@@ -470,6 +579,7 @@ async def get_fleet_data_quality(
             "unavailable_count": counts[SEVERITY_UNAVAILABLE],
             "anomaly_count": counts[SEVERITY_ANOMALY],
             "unconfirmed_count": counts[SEVERITY_UNCONFIRMED],
+            "public_record_count": counts[SEVERITY_PUBLIC_RECORD],
             # 이상치 0건과 섞지 않는다 — 판정하지 못한 항차 수 (`PRD §17.4.1`).
             "anomaly_unjudged_count": unjudged,
             "completeness_ratio": _publish(

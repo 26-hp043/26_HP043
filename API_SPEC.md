@@ -5,7 +5,7 @@
 | 문서명 | API_SPEC.md |
 | 버전 | v1.46 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
-| 최종 수정일 | 2026-09-25 |
+| 최종 수정일 | 2026-09-26 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `DB_SCHEMA.md`, `TEST_PLAN.md` |
 
@@ -1710,7 +1710,7 @@ GET /api/v1/vessels/samples
 GET /api/v1/fleet/data-quality?regulation_year=2026
 ```
 
-`UIFLOW 2-11` 데이터 점검 화면의 본체다. **선대 CII 계산에 실측이 아닌 값이 어디에 들어갔는지**를 네 심각도로 나눠 낸다. 판정 규칙은 `PRD §17.4`이고 **읽기 전용**이다.
+`UIFLOW 2-11` 데이터 점검 화면의 본체다. **선대 CII 계산에 실측이 아닌 값이 어디에 들어갔는지**를 네 심각도로 나눠 내고, 다섯째 심각도로 **공적 재항 기록과 다른 시각**을 알린다(`#1197`). 판정 규칙은 `PRD §17.4`이고 **읽기 전용**이다.
 
 | 쿼리 | 필수 | 설명 |
 |---|---|---|
@@ -1729,6 +1729,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
       "unavailable_count": 0,
       "anomaly_count": 1,
       "unconfirmed_count": 2,
+      "public_record_count": 0,
       "anomaly_unjudged_count": 0,
       "completeness_ratio": "0.9420",
       "completeness": {
@@ -1773,7 +1774,8 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
           "rating": "E",
           "rating_without": "D"
         },
-        "cii_impact_reason": null
+        "cii_impact_reason": null,
+        "public_record": null
       }
     ]
   },
@@ -1789,6 +1791,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 | `UNAVAILABLE` | 계산 불가 | ⑴ 선박 CII를 낼 수 없다(`voyage_id`가 `null`) ⑵ 연료 행에 실적도 계획도 없다 | ⑴ `§2.8` `unavailable_reason`과 같은 어휘(`NO_DATA` · `MISSING_SPEC` · `NO_PARAMETERS` · `CALCULATION_ERROR`) ⑵ `FUEL_UNFILLED:<유종>` |
 | `ANOMALY` | 이상치 | `PRD §17.4.1` | `FUEL_VS_MODEL` · `SPEED_ABOVE_REFERENCE` · `SPEED_MISMATCH` |
 | `UNCONFIRMED` | 실적 확정 전 | `COMPLETED`에서 `CONFIRMED`로 미전이 (`PRD §8.1`·`§8.1.1`) | `COMPLETED` |
+| `PUBLIC_RECORD` | 공적 기록과 다름 | 넣은 출항·도착·정박 시각이 공적 재항 기록과 6시간을 넘게 다르다 (`PRD §17.4.4` · `#1197`). **완결성에 들어가지 않는다** | `PUBLIC_RECORD:DEPARTURE` · `PUBLIC_RECORD:ARRIVAL` · `PUBLIC_RECORD:BERTH_START` · `PUBLIC_RECORD:BERTH_END` |
 
 > **[#1532] 화면 이름 「실적 미입력」 → 「실적 확정 전」.** `PRD §8.1`이 `COMPLETED`를 「실적 입력 완료, 미확정」으로 정의하므로 실적은 들어가 있다. 값 `UNCONFIRMED`와 `codes`는 그대로다 — 바뀐 것은 화면 이름과 근거 인용(`§8.4` 재계산 정책 → `§8.1`·`§8.1.1` 상태 전이)뿐이다.
 
@@ -1800,6 +1803,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 | `summary.completeness_ratio` · `vessels[].completeness_ratio` | 누적 CO₂ 중 실측으로 계산된 비율(`PRD §17.4.3`) · 소수 4자리 문자열. 배출이 없거나 계산할 수 없으면 `null` — **100%로 채우지 않는다** |
 | `summary.completeness` · `vessels[].completeness` | **[#1532]** 그 비율의 분자·분모와 제외 내역 — 비율만으로는 0%든 54.2%든 화면에서 검산할 수 없다. 모두 **CO₂ 톤 · 소수 2자리 문자열**(`§2.7` `co2_ton`과 같은 규약 · `§1.7`의 `ROUND_HALF_UP` — `[#1349]`의 절사는 CII 필드에만 적용된다). `total_co2_ton`(분모 · 누적 CO₂, not under way 포함) · `measured_co2_ton`(분자 · 실측으로 인정된 CO₂, not under way 포함) · `excluded_unavailable_co2_ton` · `excluded_substituted_co2_ton` · `excluded_anomaly_co2_ton`(각각 계산 불가 · 대체 계산 · 이상치로 빠진 CO₂). **`measured + Σexcluded = total`이 g 단위에서 정확히 성립한다** — 한 항차가 여러 심각도에 걸리면 빠진 CO₂를 **계산 불가 > 대체 계산 > 이상치** 순으로 앞선 한 축에만 더한다(두 축에 다 더하면 합이 맞지 않는다). 톤 문자열은 다섯 값이 **각각** 반올림되므로 문자열끼리 더하면 누적과 **최대 0.02 t** 어긋날 수 있다(가수 넷의 반올림 오차 · 예: 5,000 g씩 넷은 각 `"0.01"`로 합 0.04인데 누적 20,000 g은 `"0.02"`). 정확한 검산은 g 단위다. `vessels[].completeness`는 `completeness_ratio`와 같은 조건에서 `null`(선박 누적을 낼 수 없을 때); `summary.completeness`는 낼 수 있는 선박들의 합이라 늘 있다 — 선박이 0척이면 전부 `"0.00"`이고 비율은 `null`이다. 실적 확정 전(`UNCONFIRMED`)은 어느 축에도 없다 — 완결성에서 빼지 않기 때문이다(`PRD §17.4.3`) |
 | `issues[].cii_impact` | 그 항차를 **뺀** 누적 CII와의 차이(`PRD §17.4.2`). `delta` = `attained_cii` − `attained_cii_without` — **양수면 이 항차가 누적 CII를 높이고(나쁘게) 있다** |
+| `issues[].public_record` | **[#1197]** `PUBLIC_RECORD` 행에만 있고 다른 행은 `null`. `source`(제공자 · `MOF_VESSEL_OPS`) · `fetched_at`(짝지은 기록 가운데 **가장 오래 전에 받은** 시각 · ISO 8601 — 출처 표기의 「언제 기준」) · `mismatches[]` — `field`(`DEPARTURE` · `ARRIVAL` · `BERTH_START` · `BERTH_END`) · `entered_at`(넣은 값) · `recorded_at`(공적 기록) · `difference_minutes`(절댓값 · 분 아래 버림) · `port_authority_code`(항만청코드 · 부산 `020`) · `port_authority_name`(없으면 `null`). 순서는 `field` 순이다 |
 | `issues[].cii_impact_reason` | `cii_impact`가 `null`인 이유 — `ONLY_VOYAGE`(이 항차뿐이라 빼면 누적이 없다) · `BASE_UNAVAILABLE`(선박 누적 CII를 낼 수 없다). 선박 단위 행이면 둘 다 `null` |
 
 #### 오류
@@ -4819,3 +4823,4 @@ POST /api/v1/chat
 | 2026-09-25 | `#1890` | 속력 입력 전부에 **VAL-009 물리 상한 60kn** — §2 `reference_speed_kn` 범위 `0.01 ~ 9,999.99` → `0.01 ~ 60` · §3 실적 422 사유 · §4.1 `speed_kn` · §5.1 `current_speed_kn`·`slow_speed_kn` · §8.2 CSV `planned_speed_kn` 경계 · §15 VAL-009 행에 상한 문구(`{field_label}은/는 60 이하여야 합니다.`). 실시간 CII의 `speed_kn`만 상한이 아예 없던 것도 공용 경계로 맞췄다. `§4.3`상 값 정정·행 보강이라 버전은 올리지 않는다 (#1269) |
 | 2026-09-25 | `#1888` | §13.2 「/ 사용자」 각주에 **`[#1483]` 프록시 뒤 클라이언트 IP 식별** — Pages Function이 원 IP를 `X-BlueLog-Client-IP`에 싣고 비밀 값을 붙이며, 서버는 비밀 값이 맞을 때만 그 IP로 센다. 내부 헤더이며 클라이언트 요청 계약이 아니다. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#1483) |
 | 2026-09-25 | `#1901` | §10 헬스 응답에 **`commit`**(빌드 커밋 12자리 · 없으면 `null`) 추가 (`#789` · `#1177`에서 옮겨 온 잔여 항목). 운영이 어느 커밋으로 떠 있는지 밖에서 알 수 없어 `#1177` 판정도 동작으로 거꾸로 추정했다. 배포 확인이 이 값과 배포한 커밋을 대조한다. 필드 추가라 기존 소비자는 그대로다. `§4.3`상 행 추가라 버전은 올리지 않는다 (#789) |
+| 2026-09-26 | `#1921` | §2.16 데이터 점검에 **다섯째 심각도 `PUBLIC_RECORD`(공적 기록과 다름)** — `summary.public_record_count` · `issues[].public_record`(출처 · 받은 시각 · 어긋남 목록) · 코드 `PUBLIC_RECORD:<칸>` 넷. 판정은 `PRD §17.4.4`(6시간 초과 · 48시간 안의 가장 가까운 기항 · 완결성 제외). 기존 필드는 그대로이고 다른 행의 `public_record`는 `null`이다. `§4.3`상 행·필드 추가라 버전은 올리지 않는다 (#1197) |
