@@ -650,3 +650,61 @@ async def test_within_six_hours_or_without_call_sign_raises_nothing(session, ves
     )
     _, issues, _ = await _mine(session, vessel_id)
     assert _by(issues, SEVERITY_PUBLIC_RECORD) == []  # 6시간 정각 — 띄우지 않는다
+
+
+async def _period(session, vessel_id: str, voyage_id: str, *, kind: str, start: str, end: str):
+    await session.execute(
+        text(
+            "INSERT INTO not_underway_period (vessel_id, regulation_year, period_type, "
+            " started_at, ended_at, port_name, voyage_id) "
+            "VALUES (:vid, :yr, :kind, :st, :en, 'BUSAN', :voy)"
+        ),
+        {
+            "vid": vessel_id,
+            "yr": YEAR,
+            "kind": kind,
+            "st": datetime.fromisoformat(start),
+            "en": datetime.fromisoformat(end),
+            "voy": voyage_id,
+        },
+    )
+
+
+async def _stay_scenario(session, vessel_id: str, sign: str, kind: str) -> list[dict]:
+    """공적 기록: 부산 입항 02-20 00:00Z · 출항 02-21 00:00Z. 구간 시작을 12시간 늦게 넣는다."""
+    await session.execute(
+        text("UPDATE vessel SET call_sign = :sign WHERE id = :id"), {"sign": sign, "id": vessel_id}
+    )
+    await _port_call(
+        session,
+        sign=sign,
+        arrival="2026-02-20T00:00:00+00:00",
+        departure="2026-02-21T00:00:00+00:00",
+    )
+    voyage_id = await _voyage(session, vessel_id, no="A")
+    await _period(
+        session,
+        vessel_id,
+        voyage_id,
+        kind=kind,
+        start="2026-02-20T12:00:00+00:00",
+        end="2026-02-21T00:00:00+00:00",
+    )
+    _, issues, _ = await _mine(session, vessel_id)
+    return _by(issues, SEVERITY_PUBLIC_RECORD)
+
+
+@pytest.mark.asyncio
+async def test_port_stay_period_start_is_compared_with_arrival(session, vessel_id):
+    """항차에 매인 정박 구간의 시작은 가장 이른 입항과 견준다 (`§17.4.4`)."""
+    [item] = await _stay_scenario(session, vessel_id, "DQ1199", "IN_PORT")
+    assert item["codes"] == ["PUBLIC_RECORD:BERTH_START"]
+    [mismatch] = item["public_record"]["mismatches"]
+    assert mismatch["field"] == "BERTH_START"
+    assert mismatch["difference_minutes"] == 12 * 60
+
+
+@pytest.mark.asyncio
+async def test_drydock_period_is_not_compared(session, vessel_id):
+    """드라이독 구간은 입출항 신고와 대응하지 않는다 — 같은 시각이어도 견주지 않는다."""
+    assert await _stay_scenario(session, vessel_id, "DQ1200", "DRYDOCK") == []

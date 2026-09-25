@@ -30,7 +30,7 @@ interface CiiImpact {
 export type PublicRecordField = 'DEPARTURE' | 'ARRIVAL' | 'BERTH_START' | 'BERTH_END'
 
 /** 공적 기록 한 항목과의 어긋남 (`API_SPEC §2.16` `public_record.mismatches` · #1197). */
-export interface PublicRecordMismatch {
+interface PublicRecordMismatch {
   field: PublicRecordField
   enteredAt: string
   recordedAt: string

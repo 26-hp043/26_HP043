@@ -110,6 +110,10 @@ SEVERITY_ORDER: tuple[str, ...] = (
 )
 #: ``PUBLIC_RECORD`` 행의 ``codes`` 접미사 앞머리 — ``PUBLIC_RECORD:ARRIVAL``.
 PUBLIC_RECORD_CODE = "PUBLIC_RECORD"
+#: 공적 기록과 견주는 정박 구간 유형 — **항만에 머문 것**만(정박 · 묘박). 입출항 신고가 그
+#: 체류를 기록한다. 표류 · STS · 운하 통과 · 드라이독은 입출항 신고와 대응하지 않는다
+#: (``PRD §17.4.4``).
+_PORT_STAY_TYPES: frozenset[str] = frozenset({"IN_PORT", "AT_ANCHOR"})
 
 
 #: 계산 불가 — 연료 행에 실적도 계획값도 없다 (선박 단위 사유와 구분).
@@ -384,7 +388,8 @@ async def get_fleet_data_quality(
         for periods in grouped.values():
             for period in periods:
                 # 항차에 매이지 않은 구간은 항차 단위 목록에 둘 자리가 없다 — 대조하지 않는다.
-                if period.voyage_id is not None:
+                # 항만 체류(정박·묘박)가 아닌 구간도 견줄 공적 기록이 없다.
+                if period.voyage_id is not None and period.period_type in _PORT_STAY_TYPES:
                     periods_by_voyage.setdefault(period.voyage_id, []).append(period)
 
     issues: list[dict[str, object]] = []
