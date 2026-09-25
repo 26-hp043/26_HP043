@@ -67,19 +67,48 @@ interface Outline {
  * 선체 단면 둘 — 갑판(위)과 선저(아래).
  *
  * 사각뿔과 달리 **선수가 뾰족하고 선미가 잘려 있어**, 방향이 회전 없이도 읽힌다.
- * 점 다섯이면 충분하다 — 예산은 `fleetTriangles: 24`이고 이 구성이 16개를 쓴다.
+ *
+ * 점을 다섯에서 **일곱**으로 늘렸다 (`#1932`). 다섯은 선수에서 현측까지가 직선 하나라
+ * 위에서 보면 **화살표**로 읽혔다 — 실선은 뱃머리에서 어깨(shoulder)까지 한 번 꺾이고
+ * 거기서 평행부(parallel middle body)가 길게 이어진다. 그 꺾임이 「화살표」와 「배」를
+ * 가른다. 선미도 살짝 좁혀 **앞뒤가 다르게** 보이게 했다.
  */
 const DECK: Outline = {
   z: HULL_PROPORTIONS.freeboard,
-  points: [[0, 0.5], [0.17, 0.18], [0.17, -0.44], [-0.17, -0.44], [-0.17, 0.18]],
+  points: [
+    [0, 0.5],        // 선수
+    [0.11, 0.33],    // 어깨 — 여기서 한 번 꺾인다
+    [0.17, 0.1],
+    [0.17, -0.34],   // 평행부 끝
+    [0.13, -0.44],   // 선미 — 좁힌다
+    [-0.13, -0.44],
+    [-0.17, -0.34],
+  ],
 }
 const KEEL: Outline = {
   z: -HULL_PROPORTIONS.draft,
-  points: [[0, 0.42], [0.09, 0.14], [0.09, -0.38], [-0.09, -0.38], [-0.09, 0.14]],
+  points: [
+    [0, 0.38],
+    [0.06, 0.28],
+    [0.1, 0.06],
+    [0.1, -0.3],
+    [0.07, -0.4],
+    [-0.07, -0.4],
+    [-0.1, -0.3],
+  ],
 }
 
-/** 선교(deckhouse) — 선미 쪽에 올리는 상자. 추적 모드에서만 쓴다(예산 48). */
-const DECKHOUSE = { halfBeam: 0.1, from: -0.4, to: -0.24, height: 0.16 } as const
+/**
+ * 선교(deckhouse) — 선미 쪽에 올리는 상자. **모든 모드에 둔다** (`#1932`).
+ *
+ * 종전에는 추적 모드에만 있었는데, 위에서 내려다보는 선대 지도에서 **선체만으로는
+ * 두께가 읽히지 않았다** — 갑판이 평평한 한 장이라 그림자가 생기지 않는다. 선교가
+ * 서면 빛이 한 면에 걸려 **배가 입체로 보이고**, 그 위치(선미 쪽)가 앞뒤를 한 번 더 말한다.
+ */
+const DECKHOUSE = { halfBeam: 0.09, from: -0.36, to: -0.18, height: 0.22 } as const
+
+/** 연돌(funnel) — 선교 위 작은 상자. 추적 모드에서만 쓴다(예산 안). */
+const FUNNEL = { halfBeam: 0.035, from: -0.3, to: -0.24, height: 0.14 } as const
 
 function pushTriangle(
   out: number[],
@@ -126,14 +155,15 @@ export function vesselHullVertices(mode: MapModeInput['mode']): Float32Array {
   }
 
   // 선교 — 예산이 넉넉한 추적 모드에서만. 옆에서 볼 때 배의 앞뒤를 한 번 더 말해 준다.
-  if (mode !== 'fleet') {
-    const { halfBeam: w, from, to, height } = DECKHOUSE
-    const top = DECK.z + height
+  // 상부 구조 — 상자 하나를 올리는 일이 두 번이라 함수로 묶는다.
+  const box = (spec: { halfBeam: number; from: number; to: number; height: number }, base: number) => {
+    const { halfBeam: w, from, to, height } = spec
+    const top = base + height
     const corners: [number, number][] = [[w, to], [w, from], [-w, from], [-w, to]]
     for (let i = 0; i < corners.length; i += 1) {
       const next = (i + 1) % corners.length
-      const b0: [number, number, number] = [corners[i][0], corners[i][1], DECK.z]
-      const b1: [number, number, number] = [corners[next][0], corners[next][1], DECK.z]
+      const b0: [number, number, number] = [corners[i][0], corners[i][1], base]
+      const b1: [number, number, number] = [corners[next][0], corners[next][1], base]
       const t0: [number, number, number] = [corners[i][0], corners[i][1], top]
       const t1: [number, number, number] = [corners[next][0], corners[next][1], top]
       pushTriangle(out, b0, b1, t1)
@@ -142,7 +172,13 @@ export function vesselHullVertices(mode: MapModeInput['mode']): Float32Array {
     const roof = corners.map(([x, y]): [number, number, number] => [x, y, top])
     pushTriangle(out, roof[0], roof[1], roof[2])
     pushTriangle(out, roof[0], roof[2], roof[3])
+    return top
   }
+
+  // 선교는 모든 모드에 둔다 — 위에서 내려다볼 때 두께를 만드는 것이 이 면이다.
+  const bridgeTop = box(DECKHOUSE, DECK.z)
+  // 연돌은 추적 모드에만. 가까이서 볼 때 배의 앞뒤를 한 번 더 말한다.
+  if (mode !== 'fleet') box(FUNNEL, bridgeTop)
 
   return new Float32Array(out)
 }

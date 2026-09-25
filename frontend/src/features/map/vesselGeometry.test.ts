@@ -107,17 +107,43 @@ describe('형상 — 방향이 읽히는 저폴리 선체', () => {
     expect(Math.max(...sternWidths)).toBeGreaterThan(0)
   })
 
-  it('추적 모드에는 선교가 얹힌다', () => {
-    // 갑판보다 위에 있는 점은 선교뿐이다.
-    const deckTop = HULL_PROPORTIONS.freeboard
-    const above = (mode: 'fleet' | 'playback') => {
+  it('모든 모드에 선교가 선다 — 위에서 볼 때 두께를 만드는 면이다', () => {
+    /*
+     * 종전에는 추적 모드에만 선교가 있었다 (`#1932` 전). 선대 지도는 배를 **내려다보는**
+     * 자리라 갑판이 평평한 한 장이면 빛이 걸리지 않는다 — 어느 모드든 입체로 읽혀야 한다.
+     */
+    const deckTop: number = HULL_PROPORTIONS.freeboard
+    const heights = (mode: 'fleet' | 'playback') => {
       const vertices = vesselHullVertices(mode)
-      let count = 0
-      for (let i = 2; i < vertices.length; i += 3) if (vertices[i] > deckTop + 1e-6) count += 1
-      return count
+      let highest = deckTop
+      for (let i = 2; i < vertices.length; i += 3) highest = Math.max(highest, vertices[i])
+      return highest
     }
-    expect(above('fleet')).toBe(0)
-    expect(above('playback')).toBeGreaterThan(0)
+    expect(heights('fleet')).toBeGreaterThan(deckTop)
+    // 추적 모드는 연돌이 한 층 더 올라간다 — 가까이서 앞뒤를 한 번 더 말한다.
+    expect(heights('playback')).toBeGreaterThan(heights('fleet'))
+  })
+
+  it('선수에서 어깨로 한 번 꺾인다 — 화살표가 아니라 배다', () => {
+    /*
+     * 점이 다섯이면 선수에서 현측까지가 직선 하나라 위에서 보면 화살표가 된다.
+     * 실선은 뱃머리에서 어깨까지 꺾이고 거기서 평행부가 이어진다 — 그 꺾임을 잠근다.
+     */
+    const vertices = vesselHullVertices('fleet')
+    const beamAt = (y: number) => {
+      let widest = 0
+      for (let i = 0; i < vertices.length; i += 3) {
+        if (Math.abs(vertices[i + 1] - y) < 0.02) widest = Math.max(widest, Math.abs(vertices[i]))
+      }
+      return widest
+    }
+    const bow = beamAt(0.5)
+    const shoulder = beamAt(0.33)
+    const middle = beamAt(0.1)
+    expect(bow).toBe(0)
+    expect(shoulder).toBeGreaterThan(bow)
+    // 어깨는 평행부보다 좁다 — 좁지 않으면 꺾인 것이 아니라 그냥 직선이다.
+    expect(shoulder).toBeLessThan(middle)
   })
 })
 

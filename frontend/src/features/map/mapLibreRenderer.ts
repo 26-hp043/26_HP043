@@ -130,7 +130,11 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
         portMarkers = mergePortMarkers(model.ports).map((port) => {
           const element = portMarkerElement({
             ...port,
-            ...(port.appearance === 'fleet' ? {} : { onActivate: () => emit({ type: 'selection', id: `port:${port.id}` }) }),
+            // 선대 핀도 **장면이 있으면** 누를 수 있다 (`#1933`) — 종전에는 무조건 그림이라
+            // 대시보드에서는 항만에 들어갈 길이 없었다.
+            ...(port.appearance === 'fleet' && !port.enterable
+              ? {}
+              : { onActivate: () => emit({ type: 'selection', id: `port:${port.id}` }) }),
           })
           const projected = map.project?.([...port.coordinate])
           const placement = projected
