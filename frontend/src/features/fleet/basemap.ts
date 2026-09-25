@@ -27,7 +27,13 @@
  * 「없음」으로 접고 **개략도로 떨어진다**(`PositionChart`).
  */
 
-/** 자산 경로. 정적 서버가 HTTP Range를 지원해야 한다(nginx는 지원). */
+/**
+ * 자산 경로. 정적 서버가 HTTP Range를 지원해야 한다(nginx는 지원).
+ *
+ * ⚠️ **Cloudflare Pages는 지원하지 않는다** (`#1909` · 2026-09-25 실측). 그래서
+ * `frontend/functions/basemap/[[path]].ts`가 이 경로에 `206`을 채운다 — 그 파일이
+ * 없으면 아래 `hasBasemap`이 「없음」으로 접고 화면은 영영 개략도로 남는다.
+ */
 export const BASEMAP_URL = '/basemap/bluelog.pmtiles'
 
 /**

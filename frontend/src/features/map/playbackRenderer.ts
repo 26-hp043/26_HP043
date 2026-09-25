@@ -1,4 +1,5 @@
 import * as maplibregl from 'maplibre-gl'
+import { ensureMapLibreWorker } from './mapLibreWorker'
 import { Protocol } from 'pmtiles'
 import { layers, namedFlavor } from '@protomaps/basemaps'
 import { BASEMAP_FONTS_URL, BASEMAP_URL, MAX_ZOOM, hasBasemap } from '../fleet/basemap'
@@ -66,6 +67,8 @@ export const playbackRenderer: MapRenderer<PlaybackRendererModel> = {
         if (disposed) return
         const probe = document.createElement('canvas')
         if (!probe.getContext('webgl2') && !probe.getContext('webgl')) throw failure('webgl-unavailable', 'WebGL을 사용할 수 없습니다.')
+        // 워커 주소를 지도보다 먼저 정한다 (`#1909`).
+        ensureMapLibreWorker()
         const registry = globalThis as { __bluelogPmtiles?: Protocol }
         if (!registry.__bluelogPmtiles) {
           const protocol = new Protocol()

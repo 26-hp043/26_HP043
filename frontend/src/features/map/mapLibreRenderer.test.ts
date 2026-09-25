@@ -36,6 +36,8 @@ vi.mock('maplibre-gl', () => {
     Map, Marker,
     LngLatBounds: class { extend = vi.fn((coordinate: readonly [number, number]) => { boundsCoordinates.push(coordinate) }) },
     NavigationControl: class {}, addProtocol: vi.fn(),
+    // 워커 주소 고정 (`#1909`) — 어댑터가 지도를 만들기 전에 부른다.
+    setWorkerUrl: vi.fn(),
   }
 })
 vi.mock('pmtiles', () => ({ Protocol: class { tile = vi.fn() } }))

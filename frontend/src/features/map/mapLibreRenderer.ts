@@ -7,6 +7,7 @@ import type { MapRenderer, MapRendererEvent } from './renderer'
 import { routeStyle } from './routeStyles'
 import { mergePortMarkers, portLabelPlacement, portMarkerElement, type PortMarkerModel } from './portMarkers'
 import './MapMarkers.css'
+import { ensureMapLibreWorker } from './mapLibreWorker'
 import { mapQualityPolicy, type MapQualityTier } from './quality'
 import type { GlobeVesselLayerController } from './vesselLayer'
 import type { GlobeVesselModel } from './vesselModel'
@@ -32,6 +33,8 @@ export interface MapLibreMapModel {
 }
 
 function ensureProtocol(): void {
+  // 워커 주소를 지도보다 먼저 정한다 — 풀이 뜬 뒤에는 바꿔도 소용이 없다 (`#1909`).
+  ensureMapLibreWorker()
   const registry = globalThis as { __bluelogPmtiles?: Protocol }
   if (registry.__bluelogPmtiles === undefined) {
     const protocol = new Protocol()
