@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import './AnnualSimulation.css'
+import { PercentileRange } from './PercentileRange'
 import { DISPLAY_DIGITS, formatDecimalString, formatTimestamp } from '../../display/format'
 import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
@@ -912,6 +913,8 @@ function Result({
           )}
           <div className="annual-sim__group">
             <h3 className="annual-sim__sub-title">{ANNUAL_COPY.spreadTitle}</h3>
+            {/* 네 값을 한눈에 — 막대 아래 숫자 행은 그대로 둔다 (#1456) */}
+            <PercentileRange p10={mc.p10} p50={mc.p50} p90={mc.p90} mean={mc.mean_cii} />
             <dl className="annual-sim__list">
               <Row label={ANNUAL_COPY.p10Label} value={formatDecimalString(mc.p10, DISPLAY_DIGITS.cii)} />
               <Row label={ANNUAL_COPY.p50Label} value={formatDecimalString(mc.p50, DISPLAY_DIGITS.cii)} />
