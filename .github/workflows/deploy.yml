@@ -606,7 +606,10 @@ jobs:
 
       - name: 헬스 체크
         run: |
-          url="http://${{ secrets.OCI_APP_HOST }}:8001/api/v1/health"
+          # 터널 주소로 묻는다 (#786). 백엔드는 `127.0.0.1:8001`에만 게시되어 러너가 공인 IP
+          # `:8001`로는 닿지 못한다 — 그 길을 닫는 것이 #786의 목적이다. 터널로 묻는 것은
+          # 사용자가 실제로 들어오는 길(Pages Function → 터널 → localhost:8001)을 그대로 밟는다.
+          url="https://bluelog-api.kpubdata.com/api/v1/health"
           echo "[health] ${url} 확인 (최대 30회 x 5초 = 150초)"
           expected="${{ needs.build.outputs.sha }}"
           for i in $(seq 1 30); do
@@ -628,6 +631,18 @@ jobs:
           done
           echo "::error title=Deploy failed::backend가 30회 시도 후에도 healthy하지 않거나 배포한 커밋(${expected})으로 뜨지 않았다" >&2
           exit 1
+
+      # 공인 IP `:8001`이 닫혀 있는가 (#786). 컨테이너는 배포마다 다시 만들어지므로 그때마다
+      # 본다 — compose의 `127.0.0.1:`이 빠지면 조용히 다시 열리고, 그 길로는 터널과 프록시
+      # 서명 헤더를 거치지 않은 요청이 들어온다. 응답이 오면 실패로 남긴다.
+      - name: 공인 :8001 닫힘 확인
+        run: |
+          url="http://${{ secrets.OCI_APP_HOST }}:8001/api/v1/health"
+          if curl -fsS --max-time 5 -o /dev/null "${url}" 2>/dev/null; then
+            echo "::error title=Port exposed::공인 IP :8001이 외부에서 응답한다 — docker-compose.prod.app.yml 게시 주소를 확인 (#786)" >&2
+            exit 1
+          fi
+          echo "[exposure] 공인 IP :8001 응답 없음 — 터널 경유만 받는다"
 
   # ---------------------------------------------------------------------------
   # 프론트엔드: Cloudflare Pages 배포 (#1236)

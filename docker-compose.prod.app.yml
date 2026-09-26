@@ -101,7 +101,13 @@ services:
       - app-logs:/app/logs
     ports:
       # ourtax-backend가 8000을 사용하므로 8001로 배정한다.
-      - "8001:8000"
+      #
+      # **루프백에만 게시한다 (#786).** 외부 요청은 Cloudflare Tunnel로만 들어온다 — 커넥터가
+      # 호스트에서 `http://localhost:8001`로 붙는다(docs/OPERATIONS.md §3.5.1). 종전
+      # `"8001:8000"`은 모든 인터페이스에 열려 터널을 우회하는 길이 됐다. 배포 헬스체크도
+      # 공인 IP `:8001`이 아니라 터널 주소를 부른다(deploy.yml). 앞의 `127.0.0.1:`을 지우면
+      # `tests/test_deploy_backend_binding.py`가 빨개진다.
+      - "127.0.0.1:8001:8000"
     networks:
       - app-net
     healthcheck:
