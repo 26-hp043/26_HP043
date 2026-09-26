@@ -696,11 +696,20 @@ describe('연말 예상은 연말 예상 카드 한 곳 (#1555)', () => {
   const ytdCard = () => screen.getByRole('region', { name: '연간 누적 CII' })
   const projectionCard = () => screen.getByRole('region', { name: '연말 예상' })
 
-  it('YTD 카드에는 연말 예상 등급이 없고 현재 누적 등급만 있다', async () => {
+  /**
+   * 두 등급이 **한 카드에 섞이지 않는다**는 규칙은 그대로다 (#1949로 자리만 바뀌었다).
+   *
+   * 종전에는 「YTD 카드에 현재 누적 등급만 있다」였다. 등급 배지는 결론 띠로 올라갔고,
+   * 카드에는 **등급이 아예 없다** — 카드가 맡는 것은 재료이기 때문이다. 대신 띠에서
+   * 두 등급이 각자의 자리에 서 있는지를 위 검사가 본다.
+   */
+  it('연간 누적 카드에는 등급 배지가 없다 — 등급은 결론 띠가 말한다', async () => {
     renderView({ load: vi.fn(async () => BASE) })
     await screen.findByText(/Busan/)
-    expect(within(ytdCard()).getByLabelText('현재 누적 기준 예상 등급 B')).toBeTruthy()
+    // 등급 **배지**가 없다는 뜻이다 — 등급 스케일 바는 경계를 그리는 재료라 남는다.
+    expect(within(ytdCard()).queryByLabelText(/현재 누적 기준 예상 등급/)).toBeNull()
     expect(within(ytdCard()).queryByLabelText(/연말 예상 등급/)).toBeNull()
+    expect(ytdCard().querySelector('.grade-badge')).toBeNull()
     expect(within(ytdCard()).queryByText(/연말 예상/)).toBeNull()
   })
 

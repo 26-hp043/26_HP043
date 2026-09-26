@@ -1,7 +1,6 @@
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
-import { GradeBadge } from '../../components/GradeBadge'
 import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { GradeScaleBar } from '../../components/GradeScaleBar'
@@ -380,8 +379,14 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         </div>
 
         {data.ytd.dataAvailable && data.ytd.rating ? (
-          <div className="ytd">
-            <YtdGrade data={data} current={data.ytd.rating} />
+          <div className="ytd ytd--materials">
+            {/*
+              ⚠️ **등급 배지를 여기서 걷었다** (#1949) — 결론 띠가 같은 배지를 이미
+              들고 있다. 남는 것은 **신뢰도**다: 이 누적이 실측이 아닌 값으로 계산됐는지,
+              그리고 무엇이 그런지 보러 가는 길(`#1082` · `UIFLOW 2-11` 진입 조건).
+              그것은 결론이 아니라 재료의 성질이라 재료 옆이 제자리다.
+            */}
+            <YtdConfidence data={data} />
             {/*
               자릿수는 `DESIGN_SYSTEM §4`(🔒)가 정한다 — CII 3자리(`§4.1`),
               거리 0자리·연료 1자리(`§4.2`). 종전에는 서버 원본 문자열을 그대로
@@ -875,19 +880,22 @@ function VoyagePanel({
  * 신뢰도 배지는 **현재 누적 등급 옆**에 붙는다 (`DESIGN_SYSTEM §8` · `#485` ⑤). 대체가
  * 일어난 것은 YTD 집계의 입력이다. 판정은 `§8.1`을 구현한 `hasSubstitutedInputs`가 소유한다.
  */
-function YtdGrade({ data, current }: { data: RealtimeCii; current: Rating }) {
+/**
+ * 누적이 **실측이 아닌 값으로** 계산됐는가 (#1082 · #1949).
+ *
+ * 종전 `YtdGrade`는 등급 배지와 이 신뢰도를 함께 들었다. 등급은 결론 띠로 올라갔고,
+ * 남은 신뢰도만 여기 둔다 — 추정이 섞였다는 사실은 **재료의 성질**이다.
+ * 섞이지 않았으면 아무것도 그리지 않는다.
+ */
+function YtdConfidence({ data }: { data: RealtimeCii }) {
+  if (!hasSubstitutedInputs(data.ytd)) return null
   return (
     <span className="rt__grade-row">
-      <GradeBadge rating={current} label={`현재 누적 기준 예상 등급 ${current}`} />
-      {hasSubstitutedInputs(data.ytd) ? (
-        <>
-          <DataConfidenceBadge detail={substitutionSummary(data.ytd)} />
-          {/* 무엇이 추정인지 선대 단위로 보는 곳 — `UIFLOW 2-11` 진입 조건 「신뢰도 표시」 (#1082). */}
-          <Link className="rt__confidence-link" to={SCREEN_BY_ID.DATA_QUALITY.path}>
-            {SCREEN_BY_ID.DATA_QUALITY.label}
-          </Link>
-        </>
-      ) : null}
+      <DataConfidenceBadge detail={substitutionSummary(data.ytd)} />
+      {/* 무엇이 추정인지 선대 단위로 보는 곳 — `UIFLOW 2-11` 진입 조건 「신뢰도 표시」 (#1082). */}
+      <Link className="rt__confidence-link" to={SCREEN_BY_ID.DATA_QUALITY.path}>
+        {SCREEN_BY_ID.DATA_QUALITY.label}
+      </Link>
     </span>
   )
 }
