@@ -665,3 +665,35 @@
    */
   overflow-wrap: anywhere;
 }
+
+/*
+ * 연말 예상의 기여 요인 (#1949) — 「무엇이 그 값을 올리는가」.
+ *
+ * 이름과 변화량 두 열이다. 값은 부호가 앞에 붙으므로 **오른쪽 정렬**이면 부호가
+ * 서로 어긋나 보인다 — 왼쪽에 맞춰 부호가 한 줄로 선다.
+ */
+.rt__drivers {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--spacing-xs) var(--spacing-md);
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-micro);
+}
+
+.rt__drivers > div {
+  display: contents;
+}
+
+.rt__drivers dt {
+  color: var(--text-secondary);
+}
+
+.rt__drivers dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 추이는 두 단 밖의 전폭 카드다 — 시간축이 한 해를 담는다 (#1949). */
+.rt__trend {
+  margin-block-start: var(--spacing-xl);
+}

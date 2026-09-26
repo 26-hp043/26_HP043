@@ -840,3 +840,113 @@ describe('항차 제목의 항구 이름 (#1776)', () => {
     expect(title().textContent).toContain('Rotterdam')
   })
 })
+
+/**
+ * 추이 블록과 기여 요인 (#1949).
+ *
+ * 차트 자체의 규칙은 `YtdSeriesChart.test.tsx`가 본다. 여기서 보는 것은 **조립**이다 —
+ * 따로 부르는가 · 실패가 그 안에서 끝나는가 · 기여 요인을 어떻게 적는가.
+ */
+describe('실시간 CII — 추이와 기여 요인 (#1949)', () => {
+  const SERIES = {
+    regulationYear: 2026,
+    capacityBasis: 'DWT' as const,
+    requiredCii: '17.374582',
+    boundaries: {
+      superior: '14.9',
+      lower: '16.3',
+      upper: '18.4',
+      inferior: '20.5',
+    },
+    ytdAvailable: true,
+    points: [
+      {
+        at: '2026-03-01T00:00:00+00:00',
+        kind: 'ACTUAL' as const,
+        attainedCii: '18.900000',
+        rating: 'D',
+        voyageId: null,
+        substituted: false,
+      },
+      {
+        at: '2026-08-17T02:00:00+00:00',
+        kind: 'IN_PROGRESS' as const,
+        attainedCii: '18.637188',
+        rating: 'D',
+        voyageId: null,
+        substituted: false,
+      },
+    ],
+    asOf: '2026-08-17T02:00:00+00:00',
+  }
+
+  it('추이를 따로 부른다 — 결론은 이미 서 있고 추이는 그 아래 블록 하나다', async () => {
+    const loadSeries = vi.fn(async () => SERIES)
+    renderView({ load: vi.fn(async () => BASE), loadSeries })
+    await screen.findByText(/Busan/)
+    await waitFor(() => expect(loadSeries).toHaveBeenCalledWith('v-1'))
+    expect(await screen.findByRole('region', { name: '올해 누적 추이' })).toBeTruthy()
+  })
+
+  /**
+   * ⚠️ **추이 조회가 실패해도 화면이 흔들리지 않는다.**
+   *
+   * 바깥으로 던지면 이미 받아 둔 결론·재료·이번 항차까지 오류 화면으로 사라진다 —
+   * 그것이 곧 격리 실패다(`#1831` 팝오버에서 세운 것과 같은 규칙).
+   */
+  it('추이 조회가 실패해도 결론과 나머지 카드는 그대로 선다', async () => {
+    renderView({
+      load: vi.fn(async () => BASE),
+      loadSeries: vi.fn(async () => {
+        throw new Error('502')
+      }),
+    })
+    await screen.findByText(/Busan/)
+    expect(await screen.findByText('추이를 불러오지 못했습니다.')).toBeTruthy()
+    // 결론 띠와 이번 항차 카드는 멀쩡하다.
+    expect(screen.getByRole('region', { name: '올해 누적과 연말 예상' })).toBeTruthy()
+    expect(screen.getAllByLabelText('연말 예상 등급 C')).toHaveLength(1)
+  })
+
+  it('추이를 부를 수 없는 provider에서는 블록 자체를 그리지 않는다 — 없는 고장을 만들지 않는다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByRole('region', { name: '올해 누적 추이' })).toBeNull()
+    expect(screen.queryByText('추이를 불러오지 못했습니다.')).toBeNull()
+  })
+
+  /**
+   * 기여 요인은 **부호를 그대로** 보인다 — 음수일 수 있다 (`API_SPEC` `drivers[]`).
+   *
+   * ⚠️ 화면이 **합을 다시 계산하지 않는다.** 동치가 성립하는 자릿수는 응답 자릿수
+   * (6자리)이고, 화면이 3자리로 반올림해 더하면 끝자리에서 어긋난다.
+   */
+  it('연말 예상을 무엇이 올리는지 단계별로 적고, 합을 다시 계산하지 않는다', async () => {
+    const withDrivers = {
+      ...BASE,
+      projection: {
+        ...BASE.projection,
+        drivers: [
+          { key: 'CURRENT_VOYAGE', deltaCii: '0.760151' },
+          { key: 'REMAINING_PLAN', deltaCii: '-0.008088' },
+        ],
+      },
+    }
+    renderView({ load: vi.fn(async () => withDrivers) })
+    await screen.findByText(/Busan/)
+
+    expect(screen.getByText('이 항해를 마치면')).toBeTruthy()
+    expect(screen.getByText('+0.760')).toBeTruthy()
+    expect(screen.getByText('남은 계획까지 하면')).toBeTruthy()
+    // 빼기 기호(U+2212)다 — ASCII 하이픈이 아니다.
+    expect(screen.getByText('−0.008')).toBeTruthy()
+    // 합(0.752)을 화면이 만들어 내지 않는다.
+    expect(screen.queryByText('+0.752')).toBeNull()
+  })
+
+  it('기여 요인이 없으면 목록 자체를 그리지 않는다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByText('이 항해를 마치면')).toBeNull()
+  })
+})

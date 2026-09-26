@@ -1,0 +1,134 @@
+/*
+ * 올해 누적 CII 추이 (#1949 · `DESIGN_SYSTEM §9.1`·`§9.2`·`§9.4` 🔒).
+ *
+ * 정본이 이 절의 값을 **명시적으로 고정**했다(「이 제품의 핵심 화면이므로」). 아래는
+ * 그 표를 토큰으로 옮긴 것이고, 리터럴 hex를 쓰지 않는다(`§15`).
+ */
+.ytds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.ytds__canvas {
+  inline-size: 100%;
+  block-size: auto;
+}
+
+/*
+ * 등급 구간 배경 — **불투명도 0.16 이하** (`§9.4` 조건부 허용).
+ *
+ * 값 자체가 아니라 **경계 대비 위치**가 뜻이므로 밴드가 있으면 「지금 어느 구간에
+ * 있고 어디로 가는가」가 즉시 읽힌다. 허용의 조건인 **좌측 축 등급 문자**는
+ * `.ytds__band-label`이 맡는다.
+ */
+.ytds__band {
+  opacity: 0.14;
+}
+
+.ytds__band--a { fill: var(--cii-a-fill); }
+.ytds__band--b { fill: var(--cii-b-fill); }
+.ytds__band--c { fill: var(--cii-c-fill); }
+.ytds__band--d { fill: var(--cii-d-fill); }
+.ytds__band--e { fill: var(--cii-e-fill); }
+
+/* 축 라벨 — 12px · tabular-nums (`§9.1`). */
+.ytds__band-label,
+.ytds__edge-label,
+.ytds__today-label {
+  fill: var(--text-secondary);
+  font-size: var(--font-size-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * 등급 경계선 — 1px dashed `3 3` · **등급색 금지** (`§9.4`).
+ * 밴드가 등급색을 맡고 선은 경계만 말한다.
+ */
+.ytds__boundary {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+/*
+ * 기준값 — 경계와 **다른 것**이라 다른 결이다(실선). 경계는 등급을 가르고, 이것은
+ * 그 경계들이 파생된 규제 기준이다.
+ */
+.ytds__required {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+/* 축선 — 가로만 (`§9.1`: 세로 그리드선은 쓰지 않는다). */
+.ytds__axis {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+/* 실적 — 실선 2px · text 색 (`§9.2`). */
+.ytds__actual {
+  stroke: var(--color-text);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ytds__dot {
+  fill: var(--color-text);
+}
+
+/* 계획 — 점선 `6 4` 2px · 계열색 S1 (`§9.2` · `§9.3`). */
+.ytds__plan {
+  stroke: var(--color-primary);
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* 실적/계획 경계의 세로 구분선 (`§9.2`) — 그리드가 아니라 **경계 표시**다. */
+.ytds__today {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+
+.ytds__note,
+.ytds__empty {
+  margin: 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}
+
+/* 표는 제 안에서 스크롤한다 — 좁은 폭에서 페이지를 밀지 않는다 (#1788 방식). */
+.ytds__tablebox {
+  overflow-x: auto;
+}
+
+.ytds__table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-micro);
+}
+
+.ytds__table th,
+.ytds__table td {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  text-align: start;
+  border-block-end: var(--borderWidth-default) solid var(--border-default);
+  white-space: nowrap;
+}
+
+.ytds__table th {
+  color: var(--text-secondary);
+  font-weight: var(--font-weight-body);
+}
+
+.ytds__table .num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 추정이 섞였다는 사실은 **글자로** 말한다 — 색 단독 금지 (`§14`). */
+.ytds__sub {
+  color: var(--text-secondary);
+}

@@ -9,6 +9,7 @@ import type {
   Substitution,
   VoyageSegment,
   YearEndProjection,
+  YtdSeries,
   YtdValues,
 } from './types'
 
@@ -332,5 +333,98 @@ export function createApiRealtimeCiiProvider(
         simulated: body?.meta?.simulated ?? true,
       }
     },
+
+    /**
+     * 올해 누적 CII 추이 (`#1949` · `API_SPEC` `GET /vessels/{id}/cii/ytd-series`).
+     *
+     * `year`·`as_of`를 **넘기지 않는다** — 둘 다 선택이고, 서버가 확정한 값을
+     * `meta.as_of`로 돌려준다(`§1.10` 계약 ⑵). 화면이 「오늘」을 정하면 같은 화면의
+     * `/cii/current`와 기준 시각이 갈릴 수 있다.
+     */
+    async loadSeries(vesselId: string): Promise<YtdSeries> {
+      let response: Response
+      try {
+        response = await fetchImpl(`${baseUrl}/vessels/${vesselId}/cii/ytd-series`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { Accept: 'application/json', ...csrfHeaders() },
+        })
+      } catch (cause) {
+        throw new RealtimeCiiError('서버에 연결하지 못했습니다.', { cause })
+      }
+
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new RealtimeCiiError(SESSION_EXPIRED_MESSAGE)
+      }
+
+      const body = (await response.json().catch(() => null)) as {
+        data?: ServerSeriesData
+        meta?: { as_of?: string }
+        error?: { message?: string }
+      } | null
+
+      if (!response.ok) {
+        throw new RealtimeCiiError(
+          body?.error?.message ?? `추이를 불러오지 못했습니다 (HTTP ${response.status}).`,
+        )
+      }
+
+      const data = body?.data
+      if (!data) throw new RealtimeCiiError('응답 형식이 올바르지 않습니다.')
+
+      const basis = data.transport_capacity_basis
+      if (basis !== 'DWT' && basis !== 'GT') {
+        // `load`와 같은 이유다 — 축이 없으면 단위를 만들 수 없다 (`§4.1` 🔒).
+        throw new RealtimeCiiError('용량 기준을 확인할 수 없습니다.')
+      }
+
+      const asOf = body?.meta?.as_of ?? null
+      if (!asOf) throw new RealtimeCiiError('기준 시각을 확인할 수 없습니다.')
+
+      return {
+        regulationYear: data.regulation_year,
+        capacityBasis: basis,
+        requiredCii: data.required_cii ?? null,
+        boundaries: toBoundaries(data.boundaries),
+        ytdAvailable: data.ytd_available ?? false,
+        /*
+         * **서버가 준 순서를 그대로 쓴다.** 화면에서 다시 정렬하지 않는다 — 같은
+         * 시각의 점 둘(항차 경계가 겹칠 때)에서 순서가 뒤집히면 선이 되돌아간다.
+         * 값이 없는 점은 그릴 수 없으므로 거른다.
+         */
+        points: (data.points ?? [])
+          .filter((p): p is ServerSeriesPoint & { at: string; attained_cii: string } =>
+            typeof p.attained_cii === 'string' && typeof p.at === 'string',
+          )
+          .map((p) => ({
+            at: p.at,
+            kind: p.kind === 'ACTUAL' || p.kind === 'IN_PROGRESS' ? p.kind : 'PLAN',
+            attainedCii: p.attained_cii,
+            rating: p.rating ?? null,
+            voyageId: p.voyage_id ?? null,
+            substituted: p.substituted === true,
+          })),
+        asOf,
+      }
+    },
   }
+}
+
+interface ServerSeriesPoint {
+  at?: string
+  kind?: string
+  attained_cii?: string | null
+  rating?: string | null
+  voyage_id?: string | null
+  substituted?: boolean
+}
+
+interface ServerSeriesData {
+  regulation_year: number
+  transport_capacity_basis: string
+  required_cii?: string | null
+  boundaries?: ServerBoundaries | null
+  ytd_available?: boolean
+  points?: ServerSeriesPoint[]
 }

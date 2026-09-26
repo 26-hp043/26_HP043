@@ -1,10 +1,11 @@
 import { AlertTriangle, ArrowLeft } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router'
 import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { GradeScaleBar } from '../../components/GradeScaleBar'
 import { VerdictStrip } from '../../components/VerdictStrip'
+import { YtdSeriesChart } from './YtdSeriesChart'
 import {
   ciiUnit,
   displayWarnings,
@@ -45,6 +46,7 @@ import type {
   RealtimeCii,
   RealtimeCiiProvider,
   YearEndProjection,
+  YtdSeries,
   YtdValues,
 } from './types'
 import './RealtimeCiiView.css'
@@ -502,6 +504,22 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         </section>
       </div>
 
+      {/*
+        ── 올해 누적 추이 (#1949) ──────────────────────────────────────
+
+        **두 단 밖**이다 — 시간축이 한 해를 담으므로 반 폭에서는 항차 경계가 서로 붙어
+        「언제부터 나빠졌나」가 읽히지 않는다. 그것이 이 블록의 유일한 목적이다.
+
+        조회는 **따로** 나간다(`loadSeries`). 실패가 이 카드 안에서 끝나야 하기
+        때문이다 — 결론·재료·이번 항차는 `/cii/current` 하나로 이미 서 있다.
+      */}
+      {/*
+        선박이 바뀌면 **다시 만든다**(`key`). 이 화면은 라우트 파라미터만 바뀌어
+        언마운트 없이 선박이 전환되므로(위 세대 주석), 키가 없으면 앞 선박의 추이가
+        남은 채로 새 조회가 돌아오기를 기다린다.
+      */}
+      <TrendSection key={data.vesselId} provider={provider} vesselId={data.vesselId} />
+
       {/* ── 경고 ─────────────────────────────────────────────────── */}
       {/*
         면책은 화면 하단 배너 한 곳에서만 말한다 (#1416). `REFERENCE_ONLY`는 그 배너
@@ -521,6 +539,126 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 }
 
 // ─── 부품 ────────────────────────────────────────────────────────────────────
+
+const TREND_FAILED_TEXT = '추이를 불러오지 못했습니다.'
+
+/**
+ * 기여 요인의 이름 — `API_SPEC`의 뜻 열을 그대로 옮겼다 (`#1673` → `#1829`).
+ *
+ * 문구를 새로 쓰지 않는다(`AGENTS §3`). 표에 없는 키가 오면 **키 자체를 보여 준다** —
+ * 조용히 감추면 합이 맞지 않는 것처럼 보인다.
+ */
+const DRIVER_LABEL: Readonly<Record<string, string>> = {
+  BASIS_DIFFERENCE: '집계 기준 차이',
+  CURRENT_VOYAGE: '이 항해를 마치면',
+  REMAINING_PLAN: '남은 계획까지 하면',
+}
+
+/**
+ * 연말 예상을 **무엇이 올리는가** (#1949 · `API_SPEC` `drivers[]`).
+ *
+ * ⚠️ **화면이 합을 다시 계산하지 않는다.** 정본이 「부분값을 더해 총량을 만들지
+ * 않는다」로 못박았고, 동치가 성립하는 자릿수는 **응답 자릿수(6자리)**다. 화면이
+ * 3자리로 반올림해 더하면 끝자리에서 어긋난다. 총량은 결론 띠와 위의 방향 문장이
+ * 서버 값 그대로 말하고, 여기는 **단계별 변화만** 적는다.
+ *
+ * 값은 음수일 수 있다 — 부호를 그대로 보인다.
+ */
+function ProjectionDrivers({ projection }: { projection: YearEndProjection }) {
+  const drivers = projection.drivers
+  if (drivers.length === 0) return null
+
+  return (
+    <dl className="rt__drivers">
+      {drivers.map((driver) => (
+        <div key={driver.key}>
+          <dt>{DRIVER_LABEL[driver.key] ?? driver.key}</dt>
+          <dd className="num">
+            {formatOrNull(driver.deltaCii, (v) => signedCii(v)) ?? '—'}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+/**
+ * 부호를 **앞에 붙여** 적는다 — `+0.760` · `−0.008`.
+ *
+ * 서버 문자열의 음수 기호는 ASCII 하이픈이라 화면에서는 빼기 기호(U+2212)로 바꾼다.
+ * 자릿수는 `§4.1`(🔒)의 CII 자릿수를 그대로 쓴다.
+ */
+function signedCii(raw: string): string {
+  const negative = raw.trimStart().startsWith('-')
+  const magnitude = formatDecimalString(negative ? raw.trimStart().slice(1) : raw, DISPLAY_DIGITS.cii)
+  return `${negative ? '−' : '+'}${magnitude}`
+}
+
+/**
+ * 올해 누적 추이 블록 (#1949).
+ *
+ * ⚠️ **실패가 이 블록 안에서 끝난다.** 바깥으로 던지면 대시보드가 통째로 오류 화면이
+ * 되고, 이미 받아 둔 결론·재료·이번 항차까지 사라진다 — 그것이 곧 격리 실패다
+ * (`#1831` 팝오버에서 세운 것과 같은 규칙).
+ *
+ * 조회를 못 하는 대역(`loadSeries`가 없는 provider)에서는 **아무것도 그리지 않는다** —
+ * 「불러오지 못했습니다」를 내면 없는 고장을 만드는 것이다.
+ */
+function TrendSection({
+  provider,
+  vesselId,
+}: {
+  provider?: RealtimeCiiProvider
+  vesselId: string
+}) {
+  const client = useMemo(() => provider ?? createApiRealtimeCiiProvider(), [provider])
+  const [series, setSeries] = useState<YtdSeries | null>(null)
+  /*
+   * 첫 상태를 **여기서 정한다.** effect 안에서 `setState('loading')`을 부르면 한 번 더
+   * 렌더되고, 조회를 못 하는 대역에서는 그 렌더가 헛돈다. 선박이 바뀔 때는 호출부가
+   * `key`로 이 부품을 다시 만들므로 상태도 초기값부터다.
+   */
+  const [state, setState] = useState<'idle' | 'loading' | 'ok' | 'failed'>(() =>
+    client.loadSeries === undefined ? 'idle' : 'loading',
+  )
+
+  useEffect(() => {
+    const loadSeries = client.loadSeries
+    if (loadSeries === undefined) return
+    let cancelled = false
+    loadSeries.call(client, vesselId).then(
+      (value) => {
+        if (cancelled) return
+        setSeries(value)
+        setState('ok')
+      },
+      () => {
+        if (!cancelled) setState('failed')
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [client, vesselId])
+
+  if (state === 'idle') return null
+
+  return (
+    <section className="card rt__trend" aria-label="올해 누적 추이">
+      <div className="card__head">
+        <h2 className="card__title">올해 누적 추이</h2>
+        <span className="card__meta">항차 경계마다 한 점</span>
+      </div>
+      {state === 'loading' ? (
+        <p className="rt__nodata">추이를 불러오는 중…</p>
+      ) : state === 'failed' || series === null ? (
+        <p className="rt__nodata">{TREND_FAILED_TEXT}</p>
+      ) : (
+        <YtdSeriesChart series={series} />
+      )}
+    </section>
+  )
+}
 
 /**
  * 결론 띠 (#1949 · `DESIGN_SYSTEM §8.6` 🔒).
@@ -1011,6 +1149,8 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
           ))}
         </ul>
       ) : null}
+
+      <ProjectionDrivers projection={projection} />
 
       {projection.assumptions ? (
         <details className="rt__assumptions">
