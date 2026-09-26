@@ -424,7 +424,7 @@
  */
 .annual-sim__pair {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   gap: var(--space-16) var(--space-32);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-12);

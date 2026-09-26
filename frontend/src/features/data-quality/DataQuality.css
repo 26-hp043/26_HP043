@@ -71,7 +71,7 @@
  */
 .dq__tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: var(--space-12);
   margin: 0;
 }
@@ -173,7 +173,7 @@
 
 .dq__legend-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
   gap: var(--space-8);
   margin: 0 0 var(--space-8);
   font-size: var(--font-size-label);

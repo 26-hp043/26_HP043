@@ -66,7 +66,7 @@
 .voyage-cii-result__list {
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
   column-gap: var(--space-32);
 }
 

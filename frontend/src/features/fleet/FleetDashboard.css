@@ -171,7 +171,7 @@
    * 두었더니 「E 2척」이 둘째 줄로 접혔다(실측). `auto-fit`은 최소 폭이 같은 칸만
    * 만들 수 있어, 그 칸에 `span 2`를 주어 자리를 넓힌다.
    */
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
   justify-items: center;
   gap: var(--spacing-md) var(--spacing-xl);
   align-items: start;
@@ -186,7 +186,7 @@
 
 @media (max-width: 1100px) {
   .fleet__strip {
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(130px, 100%), 1fr));
   }
 }
 

@@ -68,7 +68,7 @@
   box-shadow: var(--shadow-lv1);
   padding: var(--space-16);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: var(--space-12);
 }
 
@@ -92,7 +92,7 @@
 .scenario-comparison__group,
 .scenario-comparison__advanced-body {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: var(--space-12);
 }
 

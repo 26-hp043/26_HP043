@@ -175,7 +175,7 @@
   padding-top: var(--space-16);
   border-top: 1px solid var(--color-border);
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: var(--space-12);
 }
 
