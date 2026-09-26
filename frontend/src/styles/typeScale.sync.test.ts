@@ -127,3 +127,61 @@ describe('CSS 어디에도 400 · 500 밖의 굵기가 없다 (#1691)', () => {
     expect(offenders).toEqual([])
   })
 })
+
+/**
+ * 타입 스케일 값을 CSS에 **리터럴로 적지 않는다** (#1781).
+ *
+ * ## 왜 필요한가
+ *
+ * 위 검사들은 `§3` 표와 `tokens.css`만 잇고 **사용처는 보지 않는다.** 그래서 대시보드
+ * KPI 수치가 `34px` 리터럴인 것을 `#1691`(PR `#1697`)이 토큰을 정본에 맞추는 동안에도
+ * 아무도 잡지 못했다 — 토큰은 32인데 화면은 34를 그리고 있었고, 두 값을 잇는 검사가
+ * 한 곳도 없었다. 「정본 = 토큰」만 잠그면 화면이 토큰을 안 쓰는 길로 빠져나간다.
+ *
+ * ## 무엇을 잡는가
+ *
+ * `§3` 표의 크기 중 **코드 토큰이 있는 것**(`CODE_NAME`이 잇는 행)을 CSS가 리터럴
+ * `font-size`로 적으면 실패한다. 토큰이 없는 크기(`§3` `micro` 11)는 바꿀 수단이
+ * 없으므로 대상이 아니다 — 대응 토큰을 만드는 것은 `§15` 네이밍과 Figma가 함께 걸리는
+ * 자리다(`§0.2` 치수는 Figma 소유).
+ *
+ * 표 **밖**의 크기(`FleetMap`의 9px 마커 이름표 · `AnnualSimulation`의 0.5rem 입자)도
+ * 대상이 아니다. 이 검사는 「스케일 값을 토큰 없이 쓰는 것」을 막지, 「스케일 밖 크기를
+ * 쓰는 것」을 판정하지 않는다 — 후자는 `§3`이 아직 말하지 않은 자리다.
+ *
+ * 사용자 지정 속성 선언(`--font-size-display: 32px`)은 값의 **출처**이므로 지나친다.
+ */
+describe('타입 스케일 값을 리터럴로 적지 않는다 (#1781)', () => {
+  function cssFiles(dir: string): string[] {
+    return readdirSync(dir).flatMap((name) => {
+      const path = join(dir, name)
+      if (statSync(path).isDirectory()) return cssFiles(path)
+      return name.endsWith('.css') ? [path] : []
+    })
+  }
+
+  it('§3 표의 크기는 토큰으로만 쓴다', () => {
+    const rows = specRows()
+    /* 크기 → 써야 할 토큰. `CODE_NAME`이 잇는 행만 — 토큰이 없는 크기는 뺀다. */
+    const tokenFor = new Map<number, string>()
+    for (const [spec, code] of Object.entries(CODE_NAME)) {
+      const row = rows.get(spec)
+      if (row) tokenFor.set(row.size, `--font-size-${code}`)
+    }
+    expect(tokenFor.size, '§3에서 읽은 행이 없다').toBeGreaterThan(0)
+
+    const offenders: string[] = []
+    for (const file of cssFiles(SRC)) {
+      const css = readFileSync(file, 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')
+      /* 선행 문자를 함께 잡아 `--font-size-…:` 선언을 거른다. */
+      for (const m of css.matchAll(/(^|[;{\s])font-size:\s*([0-9.]+)px/g)) {
+        const size = Number(m[2])
+        const token = tokenFor.get(size)
+        if (token !== undefined) {
+          offenders.push(`${file.slice(SRC.length)}: font-size: ${size}px → var(${token})`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+})

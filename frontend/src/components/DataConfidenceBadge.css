@@ -23,7 +23,8 @@
   background: transparent;
   color: var(--color-warning-text);
   font-family: var(--font-sans);
-  font-size: 13px;
+  /* `§3` `label`(13) — 토큰으로 쓴다 (#1781). */
+  font-size: var(--font-size-label);
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
