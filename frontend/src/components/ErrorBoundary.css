@@ -28,8 +28,8 @@
 
 .error-screen__title {
   margin: 0;
-  font-size: var(--font-size-h2);
-  line-height: var(--line-height-h2);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
   color: var(--color-danger-text);
 }
 

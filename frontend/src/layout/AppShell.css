@@ -129,8 +129,8 @@
 }
 
 .app-shell__brand-sub {
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
   color: var(--color-text-muted);
 }
 
@@ -277,7 +277,7 @@
  */
 .app-shell__util-label {
   color: var(--text-secondary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /*
@@ -468,8 +468,8 @@
   padding: 1px var(--space-8);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
   color: var(--color-text-muted);
 }
 
@@ -630,7 +630,7 @@
 .app-shell__logout-failure {
   margin-left: var(--space-8);
   color: var(--color-danger-text);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   word-break: keep-all;
 }
 

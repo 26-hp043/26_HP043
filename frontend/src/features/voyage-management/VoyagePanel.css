@@ -21,7 +21,7 @@
 .vy__why,
 .vy__hint {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   word-break: keep-all;
 }
@@ -120,7 +120,7 @@
 
 .vy__field-error {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-danger-text);
   word-break: keep-all;
 }
@@ -185,7 +185,7 @@
   padding: 2px var(--spacing-sm);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-pill);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -220,7 +220,7 @@
 }
 
 .vy__figures dt {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -245,7 +245,7 @@
 
 /* 왜 못 누르는지 버튼 옆에 적는다 — 눌러 보고 422를 받는 것보다 낫다. */
 .vy__blocker {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   word-break: keep-all;
 }
@@ -344,7 +344,7 @@
 
 .vy-import__title {
   margin: 0;
-  font-size: var(--font-size-h3);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-label);
   color: var(--text-primary);
 }
@@ -357,7 +357,7 @@
 .vy-import__format > summary {
   cursor: pointer;
   inline-size: fit-content;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -369,7 +369,7 @@
 
 .vy-import__hint {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   word-break: break-word;
 }
@@ -425,7 +425,7 @@
 
 .vy-import__note {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   word-break: keep-all;
 }
@@ -461,7 +461,7 @@
 .vy-import__errors {
   inline-size: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 .vy-import__errors caption {
@@ -591,7 +591,7 @@
   color: var(--color-danger-text);
   font-family: var(--font-sans);
   /* `§3` `caption`(12 · 코드 토큰 이름은 `micro`) — 토큰으로 쓴다 (#1781). */
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   line-height: 1.4;
   cursor: pointer;
 }
@@ -615,14 +615,14 @@
 
 .vy-export__title {
   margin: 0;
-  font-size: var(--font-size-h3);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-label);
   color: var(--text-primary);
 }
 
 .vy-export__hint {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   word-break: keep-all;
 }
@@ -690,7 +690,7 @@
  */
 .vy-export__failure {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-danger-text);
 }
 
@@ -731,7 +731,7 @@
 
 .vy__table thead th {
   color: var(--text-secondary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
   border-bottom: 1px solid var(--border-strong, var(--border-default));
   white-space: nowrap;

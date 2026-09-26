@@ -86,8 +86,8 @@
   left: 50%;
   transform: translateX(-50%);
   white-space: nowrap;
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
   font-weight: var(--font-weight-label);
   font-variant-numeric: tabular-nums;
   color: var(--color-text);
@@ -101,13 +101,13 @@
   flex-basis: 0;
   min-width: 0;
   text-align: center;
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
   color: var(--color-text-muted);
 }
 
 .grade-scale-bar__unavailable {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }

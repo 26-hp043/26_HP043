@@ -49,9 +49,9 @@
 
 /* 보조는 주보다 한 단 작다 — 커지면 `§8.6` 위반이다(`VerdictStrip.sync.test.ts`가 잠근다). */
 .verdict-strip__sub-value {
-  font-size: var(--font-size-h2);
-  line-height: var(--line-height-h2);
-  font-weight: var(--font-weight-h2);
+  font-size: var(--font-size-title);
+  line-height: var(--line-height-title);
+  font-weight: var(--font-weight-title);
   font-variant-numeric: tabular-nums;
 }
 

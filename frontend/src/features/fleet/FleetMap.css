@@ -146,7 +146,7 @@
   border-radius: var(--radius-badge);
   background: var(--color-surface);
   color: var(--text-primary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
   line-height: 1.4;
   border: 1px solid var(--border-default);

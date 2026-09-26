@@ -26,7 +26,7 @@
 /* `§14` — 한국어 라벨 + 영문 병기. 병기는 보조라 약하게 둔다. */
 .field__label-en {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
 }
 
@@ -34,14 +34,14 @@
 .field__unit {
   margin-left: auto;
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
 }
 
 .field__hint {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
 }
 
 /*
@@ -53,6 +53,6 @@
  */
 .field__error {
   color: var(--color-danger-text);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
 }

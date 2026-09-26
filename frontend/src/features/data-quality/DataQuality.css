@@ -93,13 +93,13 @@
 
 .dq__tile dd {
   margin: 0;
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
   font-variant-numeric: tabular-nums;
 }
 
 .dq__tile dd.dq__hint {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: normal;
 }
 
@@ -180,7 +180,7 @@
 }
 
 .dq__legend-list dt {
-  font-weight: var(--font-weight-h3);
+  font-weight: var(--font-weight-heading);
 }
 
 .dq__legend-list dd {
@@ -226,7 +226,7 @@
 
 .dq__table thead th {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   border-bottom-color: var(--color-border-strong);
   white-space: nowrap;
 }
@@ -272,7 +272,7 @@
 .dq__source {
   margin: var(--space-4) 0 0;
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /*

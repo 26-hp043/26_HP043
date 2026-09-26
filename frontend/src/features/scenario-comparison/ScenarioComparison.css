@@ -196,7 +196,7 @@
 
 .scenario-comparison__field-hint {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /*
@@ -282,7 +282,7 @@
 .scenario-comparison__form-title-en,
 .scenario-comparison__title-en {
   color: var(--color-text-muted);
-  font-size: var(--font-size-h3);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-body);
 }
 
@@ -444,13 +444,13 @@
 }
 
 .scenario-table__unit {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 .scenario-table__corner {
   /* 첫 열 머리는 비워 두지 않되 시나리오 이름과 같은 무게로 읽히지 않게 한다. */
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
 }
 
@@ -463,8 +463,8 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-8);
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
 }
 
 /*
@@ -476,7 +476,7 @@
   border-radius: var(--radius-control);
   padding: 0 var(--space-4);
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
 }
 

@@ -86,7 +86,7 @@
   color: var(--color-surface);
   border-radius: var(--radius-pill);
   padding: var(--space-4) var(--space-12);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
 }
 
@@ -102,7 +102,7 @@
   caption-side: bottom;
   padding-top: var(--space-8);
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   text-align: left;
 }
 
@@ -116,7 +116,7 @@
 
 .annual-sim__table thead th {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
   border-bottom: 1px solid var(--color-border-strong);
   white-space: nowrap;
@@ -558,8 +558,8 @@
   padding-inline: var(--space-4);
   border-radius: var(--radius-badge);
   background: var(--color-surface);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
   font-weight: var(--font-weight-label);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -737,7 +737,7 @@
 }
 
 .annual-sim__target-hint {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /* 결과 머리의 조건 한 줄 (#1553) — 결과 블록들의 맨 위. */
@@ -881,7 +881,7 @@
   flex-wrap: wrap;
   gap: var(--space-4) var(--space-12);
   margin-top: var(--space-4);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 .annual-sim__range-key::before {

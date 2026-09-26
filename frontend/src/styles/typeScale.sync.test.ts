@@ -16,16 +16,30 @@ const SRC = fileURLToPath(new URL('..', import.meta.url))
 const DOC = readFileSync(join(SRC, '..', '..', 'DESIGN_SYSTEM.md'), 'utf-8')
 const TOKENS = readFileSync(join(SRC, 'styles', 'tokens.css'), 'utf-8')
 
-/** §3 이름 → 코드 토큰 접미사. 정본과 코드의 이름이 다른 곳을 한 곳에 적는다. */
+/**
+ * §3 이름 → 코드 토큰 접미사.
+ *
+ * **이제 전부 같은 이름이다** (`#1953`). 종전에는 `title → h2` · `heading → h3` ·
+ * `caption → micro` 셋이 어긋나 있었고, 그중 `caption → micro`가 특히 나빴다 —
+ * `--font-size-micro`라는 이름이 `§3`의 `caption`(12)을 담고 있어, 이름만 보고 쓰면
+ * **11을 기대하고 12를 받았다.** 그리고 `§3`의 진짜 `micro`(11)는 갈 이름이 없었다.
+ *
+ * 이름은 `§15` 토큰 블록이 이미 적어 둔 것(`--font-title` · `--font-heading` ·
+ * `--font-caption`)을 따랐다 — 새로 지은 것이 아니라 정본이 적어 둔 이름을 코드가
+ * 처음으로 쓴 것이다.
+ *
+ * ⚠️ **표를 남겨 둔다.** 지금은 항등이지만, 이 표가 없으면 다음에 이름이 갈릴 때
+ * 어긋남을 적을 자리가 사라진다 — 그때 다시 「알려진 차이」가 주석으로 흩어진다.
+ */
 const CODE_NAME: Record<string, string> = {
   display: 'display',
   // `#1763` — §3 v2.26이 `page`(28) 행을 두어 「알려진 차이」를 닫았다. 이제 표와 대조한다.
   page: 'page',
-  title: 'h2',
-  heading: 'h3',
+  title: 'title',
+  heading: 'heading',
   body: 'body',
   label: 'label',
-  caption: 'micro',
+  caption: 'caption',
 }
 
 function section3(): string {
@@ -69,8 +83,8 @@ describe('타입 토큰이 DESIGN_SYSTEM §3과 같다 (#1691)', () => {
 
   it('굵기는 §3이 적은 값이다 — display · title · heading 500, body · label 400', () => {
     expect(token('font-weight-display')).toBe(rows.get('display')!.weight)
-    expect(token('font-weight-h2')).toBe(rows.get('title')!.weight)
-    expect(token('font-weight-h3')).toBe(rows.get('heading')!.weight)
+    expect(token('font-weight-title')).toBe(rows.get('title')!.weight)
+    expect(token('font-weight-heading')).toBe(rows.get('heading')!.weight)
     expect(token('font-weight-body')).toBe(rows.get('body')!.weight)
     expect(token('font-weight-label')).toBe(rows.get('label')!.weight)
   })

@@ -32,7 +32,7 @@ describe('결론 띠 — `DESIGN_SYSTEM §8.6` 🔒', () => {
   it('⚠️ 보조는 `display`가 아니다 — 주 결론 크기로 커지면 위반이다', () => {
     const body = rule('.verdict-strip__sub-value')
     expect(body).not.toMatch(/--font-size-display/)
-    expect(body).toMatch(/font-size:\s*var\(--font-size-h2\)/)
+    expect(body).toMatch(/font-size:\s*var\(--font-size-title\)/)
   })
 
   it('위험도 pill의 면은 중립이다 — 경고색은 글자에만 (`§2.3` · `§2.5 (b)`)', () => {

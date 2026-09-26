@@ -163,7 +163,7 @@
   border-left: 3px solid var(--color-warning);
   background: var(--color-surface-2);
   color: var(--color-text);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   /*
    * 이유가 둘이어도 한 줄이다 (`#1277`). 종전에는 세로로 쌓여 제원이 빈 행만
    * 두 배 높이가 됐다 — 목록의 용건이 「제원을 채우는 것」이라 그런 행이 많다.
@@ -189,7 +189,7 @@
 
 .vessel-management__readonly {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /*
@@ -441,7 +441,7 @@
 .vm__imo {
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 .vm__cell {
@@ -469,7 +469,7 @@
 /* 단위는 값에 딸린 것이라 값보다 가볍게 둔다 — 열을 훑을 때 숫자가 먼저 잡힌다. */
 .vm__unit {
   color: var(--text-secondary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 .vm__actions {

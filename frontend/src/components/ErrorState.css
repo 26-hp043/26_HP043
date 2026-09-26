@@ -51,7 +51,7 @@
 
 .error-state__title {
   margin: 0;
-  font-size: var(--font-size-h3);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-label);
   color: var(--color-danger-text);
 }
@@ -88,5 +88,5 @@
 .error-state--compact .error-state__retry {
   height: 28px;
   padding: 0 var(--space-12);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }

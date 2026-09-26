@@ -369,11 +369,11 @@
    * 디자인 판단이라 여기서 정하지 않는다(`#1781`의 34px 리터럴과 같은 성질).
    */
   --font-size-display: 32px;
-  --font-size-h2: 20px;
-  --font-size-h3: 16px;
+  --font-size-title: 20px;
+  --font-size-heading: 16px;
   --font-size-body: 15px;
   --font-size-label: 13px;
-  --font-size-micro: 12px;
+  --font-size-caption: 12px;
 
   /*
    * 페이지 제목(h1) — **§3 `page` 행** (#1763).
@@ -388,16 +388,16 @@
 
   /* 행간 — §3 표의 px 값을 크기로 나눈 비. 상속되도록 단위 없는 수로 둔다. */
   --line-height-display: 1.25;
-  --line-height-h2: 1.4;
-  --line-height-h3: 1.5;
+  --line-height-title: 1.4;
+  --line-height-heading: 1.5;
   --line-height-body: 1.467;
   --line-height-label: 1.385;
-  --line-height-micro: 1.333;
+  --line-height-caption: 1.333;
 
   /* 굵기 — §3 「400 · 500만 쓴다」. `strong`은 강조 · 표 머리글에 쓰는 500이다. */
   --font-weight-display: 500;
-  --font-weight-h2: 500;
-  --font-weight-h3: 500;
+  --font-weight-title: 500;
+  --font-weight-heading: 500;
   --font-weight-body: 400;
   --font-weight-label: 400;
   --font-weight-strong: 500;

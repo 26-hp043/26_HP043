@@ -51,7 +51,7 @@
 .fr__field-error {
   display: block;
   margin-top: var(--space-4);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-style: normal;
   color: var(--color-danger-text);
 }
@@ -59,7 +59,7 @@
 .fr__hint {
   display: block;
   margin: var(--space-4) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /* 입력칸은 이름으로 건다 — 래퍼가 공용 `.field`로 바뀌면 자손 선택자는
@@ -160,7 +160,7 @@
 .fr__tool-count {
   color: var(--color-text-muted);
   font-weight: var(--font-weight-body);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 .fr__tool-body > * + * {
@@ -191,7 +191,7 @@
 
 .fr__table thead th {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   border-bottom-color: var(--color-border-strong);
   white-space: nowrap;
 }
@@ -323,7 +323,7 @@
 .fr__costs dd {
   margin: var(--space-4) 0 0;
   font-size: var(--font-size-body);
-  font-weight: var(--font-weight-h3);
+  font-weight: var(--font-weight-heading);
 }
 
 .fr__prices {

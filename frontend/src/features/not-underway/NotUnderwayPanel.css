@@ -13,7 +13,7 @@
 
 .nu__why {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -71,14 +71,14 @@
 .nu__empty,
 .nu__hint {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
 .nu__field-error {
   display: block;
   margin-top: var(--spacing-xs);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-style: normal;
   color: var(--color-danger-text);
 }
@@ -184,7 +184,7 @@
 }
 
 .nu__badge {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-link);
   border: 1px solid var(--semantic-primary);
   border-radius: var(--radius-pill);
@@ -200,7 +200,7 @@
 }
 
 .nu__figures dt {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -236,7 +236,7 @@
   justify-content: start;
   align-items: center;
   gap: var(--spacing-sm) var(--spacing-lg);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -305,7 +305,7 @@
   color: var(--color-danger-text);
   font-family: var(--font-sans);
   /* `§3` `caption`(12 · 코드 토큰 이름은 `micro`) — 토큰으로 쓴다 (#1781). */
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   line-height: 1.4;
   cursor: pointer;
 }
