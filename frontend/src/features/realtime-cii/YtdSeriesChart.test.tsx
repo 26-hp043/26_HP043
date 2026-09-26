@@ -93,6 +93,22 @@ describe('누적 추이 — 무엇을 그리는가 (#1949)', () => {
     expect(letters).toEqual(['A', 'B', 'C', 'D', 'E'])
   })
 
+  /**
+   * ⚠️ **밴드에 실제 높이가 있어야 한다** (1440 실측에서 잡았다).
+   *
+   * 값의 크고 작음과 화면의 위아래가 반대라(CII는 클수록 나쁘고 나쁜 쪽이 위다),
+   * 두 끝을 그대로 빼면 높이가 음수가 되어 `max(0, …)`에 걸린다 — **밴드가 모두
+   * 사라지는데 화면은 멀쩡해 보인다.** 색이 없어진 것뿐이라 검사가 없으면 되돌아간다.
+   */
+  it('칠한 구간에 실제 높이가 있다 — 높이 0으로 사라지지 않는다', () => {
+    render(<YtdSeriesChart series={series([...ACTUAL_TWO, ...PLAN_TWO])} />)
+    const heights = [...document.querySelectorAll('.ytds__band')].map((e) =>
+      Number(e.getAttribute('height')),
+    )
+    expect(heights).toHaveLength(5)
+    for (const h of heights) expect(h).toBeGreaterThan(0)
+  })
+
   it('경계값이 없으면 구간을 칠하지 않는다 — 지어낸 경계를 그리지 않는다', () => {
     render(<YtdSeriesChart series={series([...ACTUAL_TWO], { boundaries: null })} />)
     expect(document.querySelectorAll('.ytds__band')).toHaveLength(0)

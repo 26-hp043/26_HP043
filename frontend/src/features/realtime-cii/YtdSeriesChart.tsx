@@ -124,20 +124,38 @@ export function YtdSeriesChart({ series }: { series: YtdSeries }) {
           균등 분할이 아니라 **실제 경계값에 비례**한다. 좌측 축에 등급 문자를 함께
           적는 것이 그 허용의 조건이다(`§0.2` 제약 2·3).
         */}
-        {bands.map((band) => (
-          <g key={band.rating}>
-            <rect
-              className={`ytds__band ytds__band--${band.rating.toLowerCase()}`}
-              x={PAD_L}
-              y={yOf(band.top)}
-              width={VIEW_W - PAD_L - PAD_R}
-              height={Math.max(0, yOf(band.bottom) - yOf(band.top))}
-            />
-            <text className="ytds__band-label" x={PAD_L - 8} y={(yOf(band.top) + yOf(band.bottom)) / 2} textAnchor="end" dominantBaseline="middle">
-              {band.rating}
-            </text>
-          </g>
-        ))}
+        {bands.map((band) => {
+          /*
+           * ⚠️ **두 끝의 화면 좌표를 비교해서 쓴다.** 값의 크고 작음과 화면의 위아래가
+           * 반대다 — CII는 클수록 나쁘고, 나쁜 쪽을 위에 그린다. `y`에 「작은 값의
+           * 좌표」를 그대로 넣었더니 높이가 음수가 되어 `max(0, …)`에 걸려 **모든
+           * 밴드가 높이 0으로 사라졌다**(1440 실측 · 화면에 색이 한 칸도 없었다).
+           */
+          const yLow = yOf(band.top)
+          const yHigh = yOf(band.bottom)
+          const y = Math.min(yLow, yHigh)
+          const height = Math.abs(yLow - yHigh)
+          return (
+            <g key={band.rating}>
+              <rect
+                className={`ytds__band ytds__band--${band.rating.toLowerCase()}`}
+                x={PAD_L}
+                y={y}
+                width={VIEW_W - PAD_L - PAD_R}
+                height={height}
+              />
+              <text
+                className="ytds__band-label"
+                x={PAD_L - 8}
+                y={y + height / 2}
+                textAnchor="end"
+                dominantBaseline="middle"
+              >
+                {band.rating}
+              </text>
+            </g>
+          )
+        })}
 
         {/* 등급 경계선 — 1px dashed `3 3` · **등급색 금지** (`§9.4`). */}
         {edges.map((edge) => (
