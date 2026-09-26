@@ -88,6 +88,10 @@ interface ServerVoyage {
   regulation_year?: unknown
   departure_port_name?: unknown
   arrival_port_name?: unknown
+  departure_lat?: unknown
+  departure_lon?: unknown
+  arrival_lat?: unknown
+  arrival_lon?: unknown
   planned_distance_nm?: unknown
   planned_distance_source?: unknown
   planned_speed_kn?: unknown
@@ -138,6 +142,13 @@ function toFuelUse(raw: ServerFuelUse): VoyageFuelUse {
   }
 }
 
+/** 좌표 한 칸 — 수·문자열 모두 문자열로 옮기고, 그 밖은 `null`이다. */
+function coordText(raw: unknown): string | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw)
+  if (typeof raw === 'string' && raw.trim() !== '') return raw.trim()
+  return null
+}
+
 function toVoyage(raw: ServerVoyage): ManagedVoyage {
   return {
     id: String(raw.id ?? ''),
@@ -147,6 +158,15 @@ function toVoyage(raw: ServerVoyage): ManagedVoyage {
     regulationYear: num(raw.regulation_year),
     departurePortName: text(raw.departure_port_name),
     arrivalPortName: text(raw.arrival_port_name),
+    /*
+     * 좌표는 **문자열로** 옮긴다 (#1949). 서버는 수로 보내지만 화면은 지도에 넘길
+     * 때까지 값을 건드리지 않는다 — 수로 받아 두면 자릿수가 조용히 바뀐다
+     * (`API_SPEC §1.7`이 문자열을 쓰는 이유와 같다).
+     */
+    departureLat: coordText(raw.departure_lat),
+    departureLon: coordText(raw.departure_lon),
+    arrivalLat: coordText(raw.arrival_lat),
+    arrivalLon: coordText(raw.arrival_lon),
     plannedDistanceNm: num(raw.planned_distance_nm),
     plannedDistanceSource: distanceSource(raw.planned_distance_source),
     plannedSpeedKn: num(raw.planned_speed_kn),

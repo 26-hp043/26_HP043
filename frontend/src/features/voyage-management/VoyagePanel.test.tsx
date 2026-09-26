@@ -40,6 +40,11 @@ const IN_PROGRESS: ManagedVoyage = {
   regulationYear: 2026,
   departurePortName: 'Busan',
   arrivalPortName: 'Singapore',
+  // 좌표는 이 검사의 관심사가 아니다 — 타입을 채우기 위한 값이다 (#1949).
+  departureLat: null,
+  departureLon: null,
+  arrivalLat: null,
+  arrivalLon: null,
   plannedDistanceNm: 2300,
   plannedDistanceSource: null,
   plannedSpeedKn: 14,
@@ -1095,6 +1100,11 @@ describe('항차 표의 항구 이름 (#1742)', () => {
     ...IN_PROGRESS,
     departurePortName: 'BUSAN',
     arrivalPortName: 'SINGAPORE',
+    // 좌표는 이 검사의 관심사가 아니다 — 타입을 채우기 위한 값이다 (#1949).
+    departureLat: null,
+    departureLon: null,
+    arrivalLat: null,
+    arrivalLon: null,
   }
 
   function renderWithPorts(ports: unknown[], voyage: ManagedVoyage = BUSAN_TO_SG) {

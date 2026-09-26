@@ -135,14 +135,19 @@
   container-type: inline-size;
 }
 
+/*
+ * **칸이 여섯에서 셋으로 줄었다** (#1949).
+ *
+ * 종전 여섯은 전이 · 실적 · 기준 · 누적거리 · 누적연료 · 누적CO₂였다. 실적·기준은
+ * 결론 띠로 올라갔고 등급 배지도 함께 갔다 — 남은 것은 **재료 셋**(거리 · 연료 · CO₂)이다.
+ * 6열을 그대로 두면 셋이 왼쪽에 몰리고 오른쪽 절반이 빈 채로 남는다(실측에서 CO₂가
+ * 둘째 줄로 혼자 내려갔다).
+ *
+ * 1500 아래에서 3으로 접던 규칙은 **더 접을 것이 없어** 걷었다 — 셋이 이미 최소다.
+ * 카드 폭 420 아래에서 1열로 접는 컨테이너 쿼리(`#1352`)는 그대로 이어받는다.
+ */
 .rt__ytd .ytd {
-  --ytd-cols: 6;
-}
-
-@media (max-width: 1500px) {
-  .rt__ytd .ytd {
-    --ytd-cols: 3;
-  }
+  --ytd-cols: 3;
 }
 
 .rt__ytd .ytd__figures {
@@ -275,17 +280,75 @@
   color: var(--text-secondary);
 }
 
-.rt__split {
+/*
+ * 띠의 근거 둘 — 바닥 위 2단 (#1949 · `§5` 카드 예산 · `§8.6`).
+ *
+ * **카드가 아니다.** `§5`는 요약 수치를 「바닥 위에 바로 놓고 **구분선으로 나눈다**」고
+ * 정하고, `§8.6`은 결론 띠의 나머지 수치를 「타일로 감싸지 않는다」고 정한다. 그래서
+ * 면·테두리·그림자가 없고, 두 단을 가르는 것은 세로 구분선 하나다.
+ *
+ * 종전에는 ⑵와 ⑶이 같은 폭의 **카드 둘**로 나란히 섰다. 「⑵와 ⑶을 같은 크기로 둔다」는
+ * 옛 주석의 취지는 **무게**였는데 폭으로 읽혀, 지도가 ⑵ 안으로 들어오자 키가 780 대
+ * 198로 갈려 **띠의 37%가 빈 카드로 남았다**(1440 실측 · 1920은 39%). 바닥은 그 문제를
+ * 안 겪는다 — 카드 안의 빈자리는 「비었다」로 읽히지만 바닥은 원래 비어 있다.
+ *
+ * 1100 아래에서 1단으로 접는다 — 이 문서가 이미 쓰는 기준 폭이다(`§7.2`).
+ */
+.rt__basis {
   display: grid;
-  /* ⑵와 ⑶을 같은 크기로 둔다 — ⑶만 커지면 확정값처럼 읽힌다(PRD §3.3). */
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--spacing-xl);
+  /*
+   * `align-items`를 **건드리지 않는다**(기본 `stretch`). `start`로 두면 둘째 단이
+   * 제 내용 높이(164)에서 끝나 **구분선도 거기서 끊긴다** — 띠의 3분의 2만 그은 선은
+   * 덜 그린 것처럼 보인다. 늘려 두면 선이 띠 전체를 지난다.
+   */
+}
+
+/*
+ * `min-inline-size: 0`이 없으면 표 형태의 수치가 칸을 밀어 2단이 깨진다.
+ * 구분선은 **둘째 단에만** 걸어 한 줄로 만든다 — 둘 다에 걸면 띠 양끝에도 선이 선다.
+ */
+.rt__basis-part {
+  min-inline-size: 0;
+}
+
+.rt__basis-part + .rt__basis-part {
+  padding-inline-start: var(--spacing-xl);
+  border-inline-start: var(--borderWidth-default) solid var(--border-default);
+}
+
+@media (max-width: 1100px) {
+  .rt__basis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 1단이 되면 세로 구분선은 위쪽 구분선이 된다. */
+  .rt__basis-part + .rt__basis-part {
+    padding-inline-start: 0;
+    padding-block-start: var(--spacing-xl);
+    border-inline-start: 0;
+    border-block-start: var(--borderWidth-default) solid var(--border-default);
+  }
+}
+
+/*
+ * 이번 항차 카드 **안**의 두 단 — 지도와 수치 (#1949).
+ *
+ * 지도는 넓을수록 「어디쯤인가」가 읽히고, 수치는 좁아도 읽힌다. 카드가 전폭이 되면서
+ * 그 둘을 나란히 둘 자리가 생겼다. 1100 아래는 한 단으로 접는다(종전 `.rt__split`이
+ * 쓰던 전환점을 그대로 쓴다 — 한 제품에 기준 폭을 여럿 두지 않는다).
+ */
+.rt__voyage-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: var(--spacing-xl);
   align-items: start;
 }
 
 @media (max-width: 1100px) {
-  .rt__split {
-    grid-template-columns: 1fr;
+  .rt__voyage-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -376,14 +439,6 @@
   align-items: center;
   gap: var(--spacing-lg);
   margin-block-end: var(--spacing-md);
-}
-
-.rt__projection-value {
-  margin: 0;
-  font-size: var(--font-size-h2, var(--font-size-display));
-  font-weight: var(--font-weight-label);
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
 }
 
 .rt__direction {
@@ -633,12 +688,22 @@
 }
 
 /*
- * 넷으로 나눈 칸 하나가 약 380px이다. h2(20)로는 그 안에서 값이 작아 보여, 대시보드
- * KPI(34)와 같은 급으로 올린다 — 두 화면에서 같은 성격의 수가 같은 크기여야 한다.
+ * ⚠️ **재료는 결론보다 작다** (#1949 · `DESIGN_SYSTEM §8.6`).
+ *
+ * 종전 주석은 「대시보드 KPI(34)와 같은 급으로 올린다 — 두 화면에서 같은 성격의 수가
+ * 같은 크기여야 한다」였다. 그 전제가 틀렸다 — **이 칸의 수는 KPI가 아니라 재료다.**
+ * 누적 거리·연료·CO₂는 결론(올해 누적 CII)을 만드는 입력이고, 결론은 이제 결론 띠가
+ * `display`(32)로 말한다. 재료가 34px이면 **결론보다 크다** — 1440 실측에서 34px
+ * 숫자가 아홉 개로 늘어서 어느 것이 결론인지 읽을 수 없었던 것이 이 규칙이다.
+ *
+ * `h2`(20 · `§3`의 `title`)로 내린다 — 섹션 제목과 같은 단이고, 결론(32)과 라벨(13) 사이에 선다.
+ *
+ * 곁들여 34px 리터럴 하나가 사라진다. **남은 리터럴은 `#1781`이 맡는다** — 그 이슈는
+ * 「32로 내릴지 `§3`을 34로 올릴지」를 묻고 있고, 여기서 답하지 않는다.
  */
 .ytd__figures dd {
   margin: 0;
-  font-size: 34px;
+  font-size: var(--font-size-h2);
   line-height: 1.1;
   font-weight: var(--font-weight-display);
   color: var(--text-primary);
@@ -649,4 +714,79 @@
    * `overflow-wrap`으로 다음 줄로 접어 카드 안에 머물게 한다.
    */
   overflow-wrap: anywhere;
+}
+
+/*
+ * 연말 예상의 기여 요인 (#1949) — 「무엇이 그 값을 올리는가」.
+ *
+ * 이름과 변화량 두 열이다. 값은 부호가 앞에 붙으므로 **오른쪽 정렬**이면 부호가
+ * 서로 어긋나 보인다 — 왼쪽에 맞춰 부호가 한 줄로 선다.
+ */
+.rt__drivers {
+  display: grid;
+  /*
+   * 이름과 값이 **붙어 선다.** `1fr auto`로 두었더니 값이 카드 오른쪽 끝으로 밀려
+   * 떠 있는 어시스턴트 버튼 밑으로 들어갔다(1440 실측). 두 열 다 내용 폭이면 값이
+   * 이름 바로 옆에 오고, 남는 폭은 오른쪽에 비운다.
+   */
+  grid-template-columns: auto auto;
+  justify-content: start;
+  gap: var(--spacing-xs) var(--spacing-md);
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-micro);
+}
+
+.rt__drivers > div {
+  display: contents;
+}
+
+.rt__drivers dt {
+  color: var(--text-secondary);
+}
+
+.rt__drivers dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 추이는 두 단 밖의 전폭 카드다 — 시간축이 한 해를 담는다 (#1949). */
+.rt__trend {
+  margin-block-start: var(--spacing-xl);
+}
+
+/*
+ * 「기준값 근거」 한 줄 (#1516 · #1949) — 등급 스케일 바로 아래.
+ *
+ * `#1949`가 「기준 (required)」 칸을 결론 띠로 올리면서 이 링크가 갈 곳을 잃었다.
+ * 경계값을 그리는 자리가 그 상수를 가장 가까이 쓰는 자리라 스케일 옆으로 옮겼다.
+ */
+.rt__scale-source {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-micro);
+}
+
+/* 이번 항차 지도 (#1949) — 카드 안 왼쪽 단. */
+.rt__map {
+  min-inline-size: 0;
+}
+
+/*
+ * 수치 쪽 단 (#1949).
+ *
+ * `VoyagePanel`이 조각(fragment)을 돌려주므로 **감싸는 상자가 필요하다** — 그대로
+ * 두면 그 안의 요소들이 격자 칸으로 흩어져 지도 옆이 아니라 지도 아래·옆에 제각각
+ * 앉는다. `min-inline-size: 0`은 좁은 칸에서 수치가 칸을 밀지 않게 한다.
+ */
+.rt__voyage-figures-col {
+  min-inline-size: 0;
+}
+
+/*
+ * **마지막으로 받은 위치**임을 말하는 한 줄 — 「지금 여기 있다」가 아니다.
+ * 진행률과 위치가 서로 다른 시점을 가리킬 수 있다는 것이 R-D2(#1672)가 연 문제다.
+ */
+.rt__map-asof {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
 }

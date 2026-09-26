@@ -9,6 +9,8 @@ import type {
   Substitution,
   VoyageSegment,
   YearEndProjection,
+  VoyageRoute,
+  YtdSeries,
   YtdValues,
 } from './types'
 
@@ -332,5 +334,167 @@ export function createApiRealtimeCiiProvider(
         simulated: body?.meta?.simulated ?? true,
       }
     },
+
+    /**
+     * 올해 누적 CII 추이 (`#1949` · `API_SPEC` `GET /vessels/{id}/cii/ytd-series`).
+     *
+     * `year`·`as_of`를 **넘기지 않는다** — 둘 다 선택이고, 서버가 확정한 값을
+     * `meta.as_of`로 돌려준다(`§1.10` 계약 ⑵). 화면이 「오늘」을 정하면 같은 화면의
+     * `/cii/current`와 기준 시각이 갈릴 수 있다.
+     */
+    async loadRoute(vesselId: string, voyageId: string): Promise<VoyageRoute> {
+      const get = async (path: string): Promise<Record<string, unknown> | null> => {
+        const response = await fetchImpl(`${baseUrl}${path}`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { Accept: 'application/json', ...csrfHeaders() },
+        })
+        if (!response.ok) return null
+        const body = (await response.json().catch(() => null)) as { data?: unknown } | null
+        const data = body?.data
+        return data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : null
+      }
+
+      /*
+       * 둘을 **함께** 부른다 — 차례로 부르면 지도가 한 번 더 늦게 뜬다. 한쪽이 비어도
+       * 다른 쪽 값은 살린다(`null` 자리로 둔다).
+       */
+      const [vessel, voyage] = await Promise.all([
+        get(`/vessels/${vesselId}`).catch(() => null),
+        get(`/voyages/${voyageId}`).catch(() => null),
+      ])
+      const position = (vessel ?? {}) as ServerVesselPosition
+      const route = (voyage ?? {}) as ServerVoyageRoute
+
+      return {
+        currentLat: coordOf(position.current_lat),
+        currentLon: coordOf(position.current_lon),
+        positionUpdatedAt:
+          typeof position.position_updated_at === 'string' ? position.position_updated_at : null,
+        arrivalLat: coordOf(route.arrival_lat),
+        arrivalLon: coordOf(route.arrival_lon),
+        arrivalPortName:
+          typeof route.arrival_port_name === 'string' ? route.arrival_port_name : null,
+      }
+    },
+
+    async loadSeries(vesselId: string): Promise<YtdSeries> {
+      let response: Response
+      try {
+        response = await fetchImpl(`${baseUrl}/vessels/${vesselId}/cii/ytd-series`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { Accept: 'application/json', ...csrfHeaders() },
+        })
+      } catch (cause) {
+        throw new RealtimeCiiError('서버에 연결하지 못했습니다.', { cause })
+      }
+
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new RealtimeCiiError(SESSION_EXPIRED_MESSAGE)
+      }
+
+      const body = (await response.json().catch(() => null)) as {
+        data?: ServerSeriesData
+        meta?: { as_of?: string }
+        error?: { message?: string }
+      } | null
+
+      if (!response.ok) {
+        throw new RealtimeCiiError(
+          body?.error?.message ?? `추이를 불러오지 못했습니다 (HTTP ${response.status}).`,
+        )
+      }
+
+      const data = body?.data
+      if (!data) throw new RealtimeCiiError('응답 형식이 올바르지 않습니다.')
+
+      const basis = data.transport_capacity_basis
+      if (basis !== 'DWT' && basis !== 'GT') {
+        // `load`와 같은 이유다 — 축이 없으면 단위를 만들 수 없다 (`§4.1` 🔒).
+        throw new RealtimeCiiError('용량 기준을 확인할 수 없습니다.')
+      }
+
+      const asOf = body?.meta?.as_of ?? null
+      if (!asOf) throw new RealtimeCiiError('기준 시각을 확인할 수 없습니다.')
+
+      return {
+        regulationYear: data.regulation_year,
+        capacityBasis: basis,
+        requiredCii: data.required_cii ?? null,
+        boundaries: toBoundaries(data.boundaries),
+        ytdAvailable: data.ytd_available ?? false,
+        /*
+         * **서버가 준 순서를 그대로 쓴다.** 화면에서 다시 정렬하지 않는다 — 같은
+         * 시각의 점 둘(항차 경계가 겹칠 때)에서 순서가 뒤집히면 선이 되돌아간다.
+         * 값이 없는 점은 그릴 수 없으므로 거른다.
+         */
+        points: (data.points ?? [])
+          .filter((p): p is ServerSeriesPoint & { at: string; attained_cii: string } =>
+            typeof p.attained_cii === 'string' && typeof p.at === 'string',
+          )
+          .map((p) => ({
+            at: p.at,
+            kind: p.kind === 'ACTUAL' || p.kind === 'IN_PROGRESS' ? p.kind : 'PLAN',
+            attainedCii: p.attained_cii,
+            rating: p.rating ?? null,
+            voyageId: p.voyage_id ?? null,
+            substituted: p.substituted === true,
+          })),
+        asOf,
+      }
+    },
   }
+}
+
+/**
+ * 이번 항차의 위치와 목적항 좌표 (`#1949` · R-D2 `#1672` 확정).
+ *
+ * ## 왜 여기서 두 경로를 부르는가
+ *
+ * 좌표는 선박(`§2.1`)과 항차(`§3.1`)에 있고 `/cii/current`에는 없다. 다른 기능의
+ * provider를 빌려 쓰는 길도 있었으나 **둘 다 이 화면이 쓰지 않는 것을 함께 받는다** —
+ * `vessel-detail.load`는 연도별 이력까지 받고, 이 화면은 **60초마다 도는 화면**이라
+ * 그 비용이 매번 붙는다. 경로 두 줄을 여기 두는 편이 낫다고 판단했다.
+ *
+ * ⚠️ **실패해도 던지지 않는다.** 지도는 이 화면의 보조이고, 좌표를 못 받았다고
+ * 결론·재료·추이가 사라져서는 안 된다. 못 받으면 `null` 자리로 두고 호출부가
+ * 종전 진행률 막대를 그린다.
+ */
+interface ServerVesselPosition {
+  current_lat?: unknown
+  current_lon?: unknown
+  position_updated_at?: unknown
+}
+
+interface ServerVoyageRoute {
+  arrival_lat?: unknown
+  arrival_lon?: unknown
+  arrival_port_name?: unknown
+}
+
+/** 좌표 한 칸 — 수·문자열 모두 문자열로 옮기고, 그 밖은 `null`이다. */
+function coordOf(raw: unknown): string | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw)
+  if (typeof raw === 'string' && raw.trim() !== '') return raw.trim()
+  return null
+}
+
+interface ServerSeriesPoint {
+  at?: string
+  kind?: string
+  attained_cii?: string | null
+  rating?: string | null
+  voyage_id?: string | null
+  substituted?: boolean
+}
+
+interface ServerSeriesData {
+  regulation_year: number
+  transport_capacity_basis: string
+  required_cii?: string | null
+  boundaries?: ServerBoundaries | null
+  ytd_available?: boolean
+  points?: ServerSeriesPoint[]
 }

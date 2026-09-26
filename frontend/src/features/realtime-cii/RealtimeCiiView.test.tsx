@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -696,19 +699,65 @@ describe('연말 예상은 연말 예상 카드 한 곳 (#1555)', () => {
   const ytdCard = () => screen.getByRole('region', { name: '연간 누적 CII' })
   const projectionCard = () => screen.getByRole('region', { name: '연말 예상' })
 
-  it('YTD 카드에는 연말 예상 등급이 없고 현재 누적 등급만 있다', async () => {
+  /**
+   * 두 등급이 **한 카드에 섞이지 않는다**는 규칙은 그대로다 (#1949로 자리만 바뀌었다).
+   *
+   * 종전에는 「YTD 카드에 현재 누적 등급만 있다」였다. 등급 배지는 결론 띠로 올라갔고,
+   * 카드에는 **등급이 아예 없다** — 카드가 맡는 것은 재료이기 때문이다. 대신 띠에서
+   * 두 등급이 각자의 자리에 서 있는지를 위 검사가 본다.
+   */
+  it('연간 누적 카드에는 등급 배지가 없다 — 등급은 결론 띠가 말한다', async () => {
     renderView({ load: vi.fn(async () => BASE) })
     await screen.findByText(/Busan/)
-    expect(within(ytdCard()).getByLabelText('현재 누적 기준 예상 등급 B')).toBeTruthy()
+    // 등급 **배지**가 없다는 뜻이다 — 등급 스케일 바는 경계를 그리는 재료라 남는다.
+    expect(within(ytdCard()).queryByLabelText(/현재 누적 기준 예상 등급/)).toBeNull()
     expect(within(ytdCard()).queryByLabelText(/연말 예상 등급/)).toBeNull()
+    expect(ytdCard().querySelector('.grade-badge')).toBeNull()
     expect(within(ytdCard()).queryByText(/연말 예상/)).toBeNull()
   })
 
-  it('연말 예상 등급은 화면 전체에 한 번이다', async () => {
+  /**
+   * 한 번인 것은 그대로고 **자리가 바뀌었다** (#1949).
+   *
+   * 연말 예상이 결론 띠의 **보조 결론**이 되면서 등급 배지도 띠로 올라갔다. 카드에
+   * 남겨 두면 같은 등급이 한 화면에 두 번 서고, 그것이 이 검사가 원래 막던 것이다.
+   */
+  it('연말 예상 등급은 화면 전체에 한 번이고, 그 자리는 결론 띠다', async () => {
     renderView({ load: vi.fn(async () => BASE) })
     await screen.findByText(/Busan/)
     expect(screen.getAllByLabelText('연말 예상 등급 C')).toHaveLength(1)
-    expect(within(projectionCard()).getByLabelText('연말 예상 등급 C')).toBeTruthy()
+    const strip = screen.getByRole('region', { name: '올해 누적과 연말 예상' })
+    expect(within(strip).getByLabelText('연말 예상 등급 C')).toBeTruthy()
+    // 카드에는 남지 않는다 — 결론은 띠가 말하고 카드는 근거를 맡는다.
+    expect(within(projectionCard()).queryByLabelText('연말 예상 등급 C')).toBeNull()
+  })
+
+  /**
+   * 주 결론은 **올해 누적**이다 (#1949 · `DESIGN_SYSTEM §8.6`).
+   *
+   * 종전에는 이 화면에 결론 띠가 없어 34px 숫자 아홉이 한 무게로 늘어섰고, 정작
+   * 연말 예상은 20px로 결론보다 작았다. 띠의 주 자리가 올해 누적인지를 잠근다.
+   */
+  it('결론 띠의 주 자리가 올해 누적이고, 연말 예상은 보조 자리다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    const strip = screen.getByRole('region', { name: '올해 누적과 연말 예상' })
+    expect(within(strip).getByLabelText('현재 누적 기준 예상 등급 B')).toBeTruthy()
+    expect(strip.querySelector('.verdict-strip__main')?.textContent).toContain('18.637')
+    expect(strip.querySelector('.verdict-strip__sub')?.textContent).toContain('19.500')
+  })
+
+  /**
+   * ⚠️ **같은 숫자를 한 화면에 두 번 두지 않는다** (#1949).
+   *
+   * 결론 띠가 올해 누적 실적을 말하므로 아래 카드의 「실적 (attained)」 칸은 걷었다.
+   * 그 칸이 되살아나면 어느 쪽이 결론인지 흐려진다.
+   */
+  it('연간 누적 카드에 「실적」 칸이 없다 — 띠가 그 값을 말한다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByText('실적 (attained)')).toBeNull()
+    expect(screen.getAllByText('18.637')).toHaveLength(1)
   })
 
   it('연말 예상 카드가 등급과 값의 방향을 한 문장으로 말한다', async () => {
@@ -792,5 +841,235 @@ describe('항차 제목의 항구 이름 (#1776)', () => {
 
     await waitFor(() => expect(title().textContent).toContain(PORTS[0].name_ko))
     expect(title().textContent).toContain('Rotterdam')
+  })
+})
+
+/**
+ * 추이 블록과 기여 요인 (#1949).
+ *
+ * 차트 자체의 규칙은 `YtdSeriesChart.test.tsx`가 본다. 여기서 보는 것은 **조립**이다 —
+ * 따로 부르는가 · 실패가 그 안에서 끝나는가 · 기여 요인을 어떻게 적는가.
+ */
+describe('실시간 CII — 추이와 기여 요인 (#1949)', () => {
+  const SERIES = {
+    regulationYear: 2026,
+    capacityBasis: 'DWT' as const,
+    requiredCii: '17.374582',
+    boundaries: {
+      superior: '14.9',
+      lower: '16.3',
+      upper: '18.4',
+      inferior: '20.5',
+    },
+    ytdAvailable: true,
+    points: [
+      {
+        at: '2026-03-01T00:00:00+00:00',
+        kind: 'ACTUAL' as const,
+        attainedCii: '18.900000',
+        rating: 'D',
+        voyageId: null,
+        substituted: false,
+      },
+      {
+        at: '2026-08-17T02:00:00+00:00',
+        kind: 'IN_PROGRESS' as const,
+        attainedCii: '18.637188',
+        rating: 'D',
+        voyageId: null,
+        substituted: false,
+      },
+    ],
+    asOf: '2026-08-17T02:00:00+00:00',
+  }
+
+  it('추이를 따로 부른다 — 결론은 이미 서 있고 추이는 그 아래 블록 하나다', async () => {
+    const loadSeries = vi.fn(async () => SERIES)
+    renderView({ load: vi.fn(async () => BASE), loadSeries })
+    await screen.findByText(/Busan/)
+    await waitFor(() => expect(loadSeries).toHaveBeenCalledWith('v-1'))
+    expect(await screen.findByRole('region', { name: '올해 누적 추이' })).toBeTruthy()
+  })
+
+  /**
+   * ⚠️ **추이 조회가 실패해도 화면이 흔들리지 않는다.**
+   *
+   * 바깥으로 던지면 이미 받아 둔 결론·재료·이번 항차까지 오류 화면으로 사라진다 —
+   * 그것이 곧 격리 실패다(`#1831` 팝오버에서 세운 것과 같은 규칙).
+   */
+  it('추이 조회가 실패해도 결론과 나머지 카드는 그대로 선다', async () => {
+    renderView({
+      load: vi.fn(async () => BASE),
+      loadSeries: vi.fn(async () => {
+        throw new Error('502')
+      }),
+    })
+    await screen.findByText(/Busan/)
+    expect(await screen.findByText('추이를 불러오지 못했습니다.')).toBeTruthy()
+    // 결론 띠와 이번 항차 카드는 멀쩡하다.
+    expect(screen.getByRole('region', { name: '올해 누적과 연말 예상' })).toBeTruthy()
+    expect(screen.getAllByLabelText('연말 예상 등급 C')).toHaveLength(1)
+  })
+
+  it('추이를 부를 수 없는 provider에서는 블록 자체를 그리지 않는다 — 없는 고장을 만들지 않는다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByRole('region', { name: '올해 누적 추이' })).toBeNull()
+    expect(screen.queryByText('추이를 불러오지 못했습니다.')).toBeNull()
+  })
+
+  /**
+   * 기여 요인은 **부호를 그대로** 보인다 — 음수일 수 있다 (`API_SPEC` `drivers[]`).
+   *
+   * ⚠️ 화면이 **합을 다시 계산하지 않는다.** 동치가 성립하는 자릿수는 응답 자릿수
+   * (6자리)이고, 화면이 3자리로 반올림해 더하면 끝자리에서 어긋난다.
+   */
+  it('연말 예상을 무엇이 올리는지 단계별로 적고, 합을 다시 계산하지 않는다', async () => {
+    const withDrivers = {
+      ...BASE,
+      projection: {
+        ...BASE.projection,
+        drivers: [
+          { key: 'CURRENT_VOYAGE', deltaCii: '0.760151' },
+          { key: 'REMAINING_PLAN', deltaCii: '-0.008088' },
+        ],
+      },
+    }
+    renderView({ load: vi.fn(async () => withDrivers) })
+    await screen.findByText(/Busan/)
+
+    expect(screen.getByText('이 항해를 마치면')).toBeTruthy()
+    expect(screen.getByText('+0.760')).toBeTruthy()
+    expect(screen.getByText('남은 계획까지 하면')).toBeTruthy()
+    // 빼기 기호(U+2212)다 — ASCII 하이픈이 아니다.
+    expect(screen.getByText('−0.008')).toBeTruthy()
+    // 합(0.752)을 화면이 만들어 내지 않는다.
+    expect(screen.queryByText('+0.752')).toBeNull()
+  })
+
+  it('기여 요인이 없으면 목록 자체를 그리지 않는다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByText('이 항해를 마치면')).toBeNull()
+  })
+})
+
+/**
+ * 이번 항차 지도 (#1949 · R-D2 `#1672` 확정).
+ *
+ * 지도 자체는 항로 비교의 공용 부품이 맡는다. 여기서 보는 것은 **언제 그리고 언제
+ * 그리지 않는가**, 그리고 **위치가 언제 것인지 말하는가**다.
+ */
+describe('실시간 CII — 이번 항차 지도 (#1949)', () => {
+  const ROUTE = {
+    currentLat: '35.1',
+    currentLon: '129.04',
+    positionUpdatedAt: '2026-08-17T01:00:00+00:00',
+    arrivalLat: '1.2833',
+    arrivalLon: '103.85',
+    arrivalPortName: '싱가포르',
+  }
+
+  it('좌표가 있으면 위치 기준 시각을 함께 적는다 — 「지금 여기」가 아니다', async () => {
+    renderView({ load: vi.fn(async () => BASE), loadRoute: vi.fn(async () => ROUTE) })
+    await screen.findByText(/Busan/)
+    expect(await screen.findByText(/^위치 기준 /)).toBeTruthy()
+  })
+
+  /**
+   * ⚠️ **좌표가 없으면 아무것도 그리지 않는다.** 좌표는 선택 입력이라 비어 있는 것이
+   * 정상 경로다 — 「지도를 못 불러왔습니다」를 내면 **없는 고장을 만드는 것**이다.
+   */
+  it('좌표가 비면 지도를 그리지 않고 고장으로 말하지도 않는다', async () => {
+    renderView({
+      load: vi.fn(async () => BASE),
+      loadRoute: vi.fn(async () => ({ ...ROUTE, arrivalLat: null, arrivalLon: null })),
+    })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByText(/^위치 기준 /)).toBeNull()
+    expect(screen.queryByText(/지도/)).toBeNull()
+  })
+
+  it('위치 기준 시각이 없으면 그리지 않는다 — 얼마나 낡았는지 말할 수 없다', async () => {
+    renderView({
+      load: vi.fn(async () => BASE),
+      loadRoute: vi.fn(async () => ({ ...ROUTE, positionUpdatedAt: null })),
+    })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByText(/^위치 기준 /)).toBeNull()
+  })
+
+  /**
+   * ⚠️ **빌려 쓴 부품의 기본 문안은 그 부품이 사는 화면 기준이다.**
+   *
+   * `VoyageRouteMap`의 대체 정보 제목 기본값은 「항로 비교 지도」다. 그대로 두면 이
+   * 화면에 「항로 비교 지도 텍스트 정보」가 나온다 — 1440 실측에서 그렇게 나왔다.
+   * `FleetMap`의 `ariaLabel`·`caption`이 같은 이유로 이미 호출부에 열려 있다.
+   */
+  it('이 화면에 「항로 비교」 문안이 새지 않는다', async () => {
+    renderView({ load: vi.fn(async () => BASE), loadRoute: vi.fn(async () => ROUTE) })
+    await screen.findByText(/Busan/)
+    await screen.findByText(/^위치 기준 /)
+    expect(screen.queryByText(/항로 비교/)).toBeNull()
+  })
+
+  /**
+   * jsdom에는 WebGL이 없어 지도가 실제로 마운트되지 않는다 — 대체 정보의 제목을
+   * 렌더로 확인할 수 없다. **넘기는지를 원본에서 본다.** 기본값으로 두면 이 화면에
+   * 「항로 비교 지도 텍스트 정보」가 나온다(1440 실측에서 그렇게 나왔다).
+   */
+  it('지도에 이 화면의 대체 정보 제목을 넘긴다', () => {
+    const source = readFileSync(join(import.meta.dirname, 'RealtimeCiiView.tsx'), 'utf8')
+    expect(source).toMatch(/alternativeTitle="이번 항차 지도"/)
+  })
+
+  it('조회가 실패해도 화면의 나머지는 그대로 선다', async () => {
+    renderView({
+      load: vi.fn(async () => BASE),
+      loadRoute: vi.fn(async () => {
+        throw new Error('502')
+      }),
+    })
+    await screen.findByText(/Busan/)
+    expect(screen.getByRole('region', { name: '올해 누적과 연말 예상' })).toBeTruthy()
+    expect(screen.queryByText(/^위치 기준 /)).toBeNull()
+  })
+})
+
+/**
+ * 배치 — 카드 예산과 경고색 (#1949 · `DESIGN_SYSTEM §5` · `§2.3` · `§8.6` 🔒).
+ *
+ * 재설계 전 이 화면은 **떠 있는 면이 여섯**이었다(카드 넷 + 결론 띠 + 면책 배너 —
+ * 띠와 배너도 면 + 테두리 + Lv1 그림자다). `§5`는 **4개 이하**다. 그리고 「위험도 ⚠ 높음
+ * HIGH」가 셋 있었는데, 그중 둘은 **같은 값**이었다(`§2.3` 「같은 위험은 한 화면에서 한
+ * 번만」).
+ *
+ * 두 규칙 모두 「카드를 하나 더 두고 싶다」는 다음 작업에서 조용히 깨진다. 그래서 잠근다.
+ */
+describe('배치 — 카드 예산과 경고색 (#1949)', () => {
+  it('띠의 근거 둘은 카드가 아니다 — 바닥 위 2단이다', async () => {
+    const provider: RealtimeCiiProvider = { load: vi.fn(async () => BASE) }
+    const { container } = renderView(provider)
+
+    const ytd = await screen.findByRole('region', { name: '연간 누적 CII' })
+    const projection = await screen.findByRole('region', { name: '연말 예상' })
+    for (const part of [ytd, projection]) {
+      expect(part.classList.contains('card')).toBe(false)
+      expect(part.classList.contains('rt__basis-part')).toBe(true)
+    }
+    expect(ytd.parentElement?.classList.contains('rt__basis')).toBe(true)
+    expect(projection.parentElement).toBe(ytd.parentElement)
+
+    /* 떠 있는 면은 넷 이하 — 카드 + 결론 띠 + 면책 배너를 함께 센다. */
+    const surfaces = container.querySelectorAll('.card, .verdict-strip, .disclaimer-banner')
+    expect(surfaces.length).toBeLessThanOrEqual(4)
+  })
+
+  it('올해 누적의 위험도는 결론 띠 한 곳에서만 말한다', async () => {
+    const provider: RealtimeCiiProvider = { load: vi.fn(async () => BASE) }
+    renderView(provider)
+
+    const ytd = await screen.findByRole('region', { name: '연간 누적 CII' })
+    expect(within(ytd).queryByText('위험도')).toBeNull()
   })
 })
