@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { FleetVessel } from './types'
 
@@ -62,6 +62,9 @@ vi.mock('maplibre-gl', () => {
     setPaintProperty = vi.fn()
     getZoom = vi.fn().mockReturnValue(0)
     fitBounds = vi.fn()
+    // #1831 — 「이 배를 보여 달라」가 쓰는 둘.
+    once = vi.fn()
+    easeTo = vi.fn().mockReturnThis()
     resize = vi.fn().mockReturnThis()
     remove = vi.fn()
     options: unknown
@@ -476,5 +479,125 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     expect(sources.routes?.attribution).toBe(ROUTE_ATTRIBUTION)
     expect(ROUTE_ATTRIBUTION).toMatch(/EUPL-1\.2/)
     expect(ROUTE_ATTRIBUTION).toMatch(/Apache-2\.0/)
+  })
+})
+
+/**
+ * 마커를 누른다 (#1831 · `DESIGN_SYSTEM §9.5` v2.28).
+ *
+ * 지도 위의 배는 **등급과 이름만** 말하고 그 자리에서 아무것도 할 수 없었다. 배를
+ * 누르면 그 배의 요약이 뜨게 한다. 여기서 보는 것은 **입구**다 — 카드 자체는
+ * `VesselPopover.test.tsx`가, 화면 조립은 `FleetDashboard.test.tsx`가 본다.
+ */
+describe('선대 지도 — 마커를 누른다 (#1831)', () => {
+  /** 이 파일의 마커·지도 기록은 테스트 사이에 쌓인다 — 내 것만 보려면 비우고 시작한다. */
+  beforeEach(() => {
+    mapsCreated().length = 0
+    markersCreated().length = 0
+  })
+
+  type FakeMap = {
+    on: ReturnType<typeof vi.fn>
+    once: ReturnType<typeof vi.fn>
+    easeTo: ReturnType<typeof vi.fn>
+  }
+  const lastMap = () => mapsCreated().at(-1)! as unknown as FakeMap
+  const fireLoad = () => {
+    const onLoad = lastMap().on.mock.calls.find(([name]) => name === 'load')?.[1] as () => void
+    act(() => onLoad())
+  }
+  const fireMoveEnd = (map: FakeMap) => {
+    const onMoveEnd = map.once.mock.calls.find(([name]) => name === 'moveend')?.[1] as () => void
+    act(() => onMoveEnd())
+  }
+
+  it('누를 수 있는 화면에서 마커는 버튼이고, 누르면 선박 id로 알린다', () => {
+    const onSelectVessel = vi.fn()
+    render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} onSelectVessel={onSelectVessel} />)
+    fireLoad()
+
+    const marker = vesselMarkers().at(-1)!.element
+    expect(marker.tagName).toBe('BUTTON')
+    /*
+     * 버튼이면 `role="img"`를 **쓰지 않는다.** 누를 수 있는 것을 「그림」이라고 말하면
+     * 낭독이 「이미지」로 읽어 누를 수 있다는 사실이 사라진다. 항구 핀(`portMarkers`)이
+     * 이미 같은 규칙을 쓴다 — 지도 위의 두 표식이 다른 말을 하지 않게 한다.
+     */
+    expect(marker.getAttribute('role')).toBeNull()
+    expect(marker.getAttribute('aria-label')).toContain('선박 1')
+    // 카드를 붙일 자리는 id로 찾는다 — 마커 DOM은 목록이 바뀔 때마다 새로 만들어진다.
+    expect(marker.dataset.vesselId).toBe('1')
+
+    marker.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(onSelectVessel).toHaveBeenCalledWith('1')
+  })
+
+  it('누를 수 없는 화면의 마커는 종전대로 role="img"다 — 지도를 쓰는 다른 화면을 건드리지 않는다', () => {
+    render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
+    fireLoad()
+
+    const marker = vesselMarkers().at(-1)!.element
+    expect(marker.tagName).toBe('DIV')
+    expect(marker.getAttribute('role')).toBe('img')
+  })
+
+  /**
+   * 마커를 누른 길과 **패널에서 고른 길이 하나**다 (#1831).
+   *
+   * 패널에서 고르면 모델의 `focus`로 내려가 지도가 그 배로 옮겨 가고, 멈춘 뒤 renderer가
+   * `selection`을 낸다. 그 이벤트가 `onSelectVessel`로 이어지는지를 본다 — 3D globe로
+   * 바뀌어도(`#1902`) 이 길은 그대로여야 한다.
+   */
+  it('renderer가 낸 selection도 같은 콜백으로 이어진다 — 패널에서 고른 배가 지도를 옮긴 뒤 열린다', () => {
+    const onSelectVessel = vi.fn()
+    render(
+      <FleetMap
+        vessels={[vessel('1', '35.1', '129.0')]}
+        onSelectVessel={onSelectVessel}
+        focusVesselId="1"
+        focusNonce={1}
+      />,
+    )
+    fireLoad()
+
+    const map = lastMap()
+    expect(map.easeTo).toHaveBeenCalledWith({ center: [129, 35.1], animate: false })
+    // 멈추기 전에는 열지 않는다 — 마커 자리가 아직 옛 값이다.
+    expect(onSelectVessel).not.toHaveBeenCalled()
+
+    fireMoveEnd(map)
+    expect(onSelectVessel).toHaveBeenCalledWith('1')
+  })
+
+  /**
+   * 마커 노드를 함부로 갈지 않는다 (#1831).
+   *
+   * 마커 요소를 만드는 `useMemo`의 의존성에 **불안정한 값**이 끼면 부모가 렌더될 때마다
+   * 마커 전체가 새 노드로 바뀐다 — 열려 있던 카드가 가리키던 요소가 사라지고 지도가
+   * 깜빡인다. 같은 입력으로 다시 렌더했을 때 **같은 노드**여야 한다.
+   * (항로 응답에 대해 `#1300`이 세운 것과 같은 성질의 잠금이다.)
+   */
+  it('같은 콜백으로 다시 렌더하면 마커 노드가 그대로다 — 카드가 기준점을 잃지 않는다', () => {
+    const onSelectVessel = vi.fn()
+    const vessels = [vessel('1', '35.1', '129.0')]
+    const { rerender } = render(<FleetMap vessels={vessels} onSelectVessel={onSelectVessel} />)
+    fireLoad()
+    const first = vesselMarkers().at(-1)!.element
+
+    rerender(<FleetMap vessels={vessels} onSelectVessel={onSelectVessel} caption="다른 캡션" />)
+    expect(vesselMarkers().at(-1)!.element).toBe(first)
+  })
+
+  it('좌표가 없는 배는 고를 수 없다 — 지도에 없는 배로 지도를 옮기지 않는다', () => {
+    render(
+      <FleetMap
+        vessels={[vessel('1', '35.1', '129.0'), vessel('2', null, null)]}
+        onSelectVessel={vi.fn()}
+        focusVesselId="2"
+        focusNonce={1}
+      />,
+    )
+    fireLoad()
+    expect(lastMap().easeTo).not.toHaveBeenCalled()
   })
 })

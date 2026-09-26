@@ -126,6 +126,21 @@ interface FleetMapProps {
   alternativeTitle?: string
   /** renderer/WebGL 실패 시 호출부가 개략도로 전환한다. */
   onRendererError?: (error: Error) => void
+  /**
+   * 배를 골랐다 (#1831). **선박 id로** 알린다 — 요소로 알리지 않는 것은 마커 DOM이
+   * 선박 목록이 바뀔 때마다(정렬 변경 · 재시도 · 「다음 선박 불러오기」) 다시 만들어지기
+   * 때문이다. 요소를 쥐고 있으면 그 순간 카드가 기준점을 잃는다.
+   *
+   * 주지 않으면 마커는 종전대로 누를 수 없다 — 지도를 쓰는 다른 화면을 건드리지 않는다.
+   */
+  onSelectVessel?: (vesselId: string) => void
+  /**
+   * 「이 배를 보여 달라」 (#1831) — 좌측 패널의 행에서 고른 배. 지도를 그 배로 옮긴 **뒤**
+   * `onSelectVessel`이 불린다. 지도에 찍히지 않는 배(좌표 없음)는 무시한다.
+   */
+  focusVesselId?: string | null
+  /** 같은 배를 다시 골라도 다시 옮기도록 세는 값 (#1831). */
+  focusNonce?: number
 }
 
 /**
@@ -133,10 +148,20 @@ interface FleetMapProps {
  *
  * `hullIs3d`면 **배 모양을 그리지 않는다** (`#1917`) — three가 3D 선체를 그리는데
  * 평면 SVG 배까지 그리면 같은 자리에 배가 둘이 된다. 등급 문자 배지는 남는다.
+ *
+ * `onActivate`를 주면 **버튼**이 된다 (#1831) — 항구 핀(`portMarkers.portMarkerElement`)이
+ * 쓰는 것과 같은 규칙이다. 주지 않으면 종전대로 누를 수 없는 그림이다.
  */
-function markerElement(vessel: MapVessel, hullIs3d = false): HTMLElement {
-  const root = document.createElement('div')
+function markerElement(vessel: MapVessel, hullIs3d = false, onActivate?: () => void): HTMLElement {
+  const root = document.createElement(onActivate ? 'button' : 'div')
+  if (onActivate) (root as HTMLButtonElement).type = 'button'
   root.className = 'fleetmap__marker'
+  /*
+   * 카드를 붙일 자리를 **id로 찾는다** (#1831). 마커 DOM은 목록이 바뀔 때마다 다시
+   * 만들어지므로(`onSelectVessel` 주석) 호출부가 요소를 쥐고 있을 수 없다. 대신 쓸
+   * 때마다 이 표시로 찾으면, 마커가 새로 만들어진 뒤에도 같은 배를 가리킨다.
+   */
+  root.dataset.vesselId = vessel.id
   const rating = vessel.ytdRating
   root.classList.add(rating ? `fleetmap__marker--${rating.toLowerCase()}` : 'fleetmap__marker--none')
   // 판정을 넘기지 않은 호출자(선박 상세 등)는 「위험 없음」이 아니라 **판정 없음**이다.
@@ -191,11 +216,22 @@ function markerElement(vessel: MapVessel, hullIs3d = false): HTMLElement {
   label.textContent = rating ?? '—'
   root.appendChild(label)
 
-  root.setAttribute('role', 'img')
+  /*
+   * 버튼이면 `role="img"`를 **쓰지 않는다** (#1831). 누를 수 있는 것을 「그림」이라고
+   * 말하면 낭독이 「이미지」로 읽어, 누를 수 있다는 사실이 사라진다.
+   */
+  if (!onActivate) root.setAttribute('role', 'img')
   root.setAttribute(
     'aria-label',
     `${vessel.name} · 등급 ${rating ?? '없음'}${moored ? ' · 정박 중' : ''}${atRisk ? ' · 주의' : ''}`,
   )
+  if (onActivate) {
+    root.addEventListener('click', () => {
+      // 마우스로 눌러도 초점을 남긴다 — 카드를 닫을 때 돌아올 자리가 된다 (항구 핀과 같은 규칙).
+      root.focus()
+      onActivate()
+    })
+  }
   return root
 }
 
@@ -210,6 +246,9 @@ export function FleetMap({
   mapMode = 'fleet',
   alternativeTitle = '선대 현재 위치 지도',
   onRendererError,
+  onSelectVessel,
+  focusVesselId = null,
+  focusNonce = 0,
 }: FleetMapProps) {
   const samplePorts = useSamplePorts()
   /*
@@ -244,7 +283,18 @@ export function FleetMap({
   })
   const handleRendererEvent = useCallback((event: MapRendererEvent) => {
     if (event.type === 'error') onRendererError?.(event.error)
-  }, [onRendererError])
+    /*
+     * renderer가 「골랐다」고 알리는 길 (#1831). 지금 이 길로 오는 것은 **패널에서 고른
+     * 배**(모델의 `focus` → 옮긴 뒤 `moveend`)이고, 3D globe로 바뀌면(`#1902`) 마커를
+     * 직접 누른 것도 여기로 온다 — 그때 호출부를 고칠 일이 없게 미리 한 길로 둔다.
+     *
+     * 항구 핀은 `port:` 접두로 온다(`portMarkers`) — 선박이 아니므로 그냥 흘린다.
+     */
+    if (event.type === 'selection' && event.id !== null) {
+      const hit = adapted.positions.find(({ vessel }) => vessel.id === event.id)
+      if (hit) onSelectVessel?.(hit.vessel.id)
+    }
+  }, [onRendererError, onSelectVessel, adapted.positions])
 
   /*
    * 3D 선체를 쓸 수 있는 환경인가 (`#1917`).
@@ -254,9 +304,37 @@ export function FleetMap({
    * (`DESIGN_SYSTEM §14` — 색으로만 말하지 않는다). 선체가 색을, 배지가 문자를 맡는다.
    */
   const vesselsAre3d = mapQualityPolicy().globe
+  /*
+   * ⚠️ **호출부는 `onSelectVessel`을 안정된 참조로 넘긴다** (#1831).
+   *
+   * 이 `useMemo`가 다시 돌면 **마커 DOM이 전부 새 노드로 바뀐다** — 열려 있던 카드가
+   * 가리키던 요소가 사라지고 지도가 깜빡인다. 렌더마다 새 화살표 함수를 넘기면 매 렌더가
+   * 그 상태가 된다. `useCallback`으로 감싸 넘기면 된다. 이 규칙은
+   * 「같은 콜백으로 다시 렌더하면 마커 노드가 그대로다」 검사가 잠근다.
+   *
+   * 마커를 굳이 재사용하지 않는 것은, 목록 자체가 바뀌면(정렬 · 추가) 어차피 다시
+   * 만들어야 하고 그 경우는 **카드가 id로 다시 찾도록** 대시보드가 맡기 때문이다.
+   */
   const rendererMarkers = useMemo(() => adapted.positions.map(({ vessel, lon, lat }) => ({
-    coordinate: [lon, lat] as const, element: markerElement(vessel, vesselsAre3d),
-  })), [adapted.positions, vesselsAre3d])
+    coordinate: [lon, lat] as const,
+    element: markerElement(
+      vessel,
+      vesselsAre3d,
+      onSelectVessel === undefined ? undefined : () => onSelectVessel(vessel.id),
+    ),
+  })), [adapted.positions, vesselsAre3d, onSelectVessel])
+
+  /*
+   * 「이 배를 보여 달라」 (#1831) — 지도에 **찍힌** 배만 넘긴다. 좌표가 없는 배로 지도를
+   * 옮기면 아무 데도 아닌 곳으로 튄다.
+   */
+  const focus = useMemo(() => {
+    if (focusVesselId === null) return null
+    const hit = adapted.positions.find(({ vessel }) => vessel.id === focusVesselId)
+    return hit === undefined
+      ? null
+      : { id: hit.vessel.id, coordinate: [hit.lon, hit.lat] as const, nonce: focusNonce }
+  }, [adapted.positions, focusVesselId, focusNonce])
   const rendererModel = useMemo<MapLibreMapModel>(() => {
     const points = adapted.positions
     const bounds: [number, number][] = points.map(({ lon, lat }) => [lon, lat])
@@ -278,8 +356,9 @@ export function FleetMap({
         rating: vessel.ytdRating,
       })),
       routes: { data: routeFeatureCollection(asks, lines), attribution: ROUTE_ATTRIBUTION, bounds },
+      focus,
     }
-  }, [adapted.positions, adapted.ports, asks, lines, rendererMarkers, mapMode])
+  }, [adapted.positions, adapted.ports, asks, lines, rendererMarkers, mapMode, focus])
 
   if (vessels.length > 0 && shown === 0) {
     // 전부 빠진 경우는 빈 지도를 띄우지 않는다 — 빈 바다는 「선박이 없다」로 읽힌다.

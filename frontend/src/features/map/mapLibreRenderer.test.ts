@@ -21,6 +21,9 @@ vi.mock('maplibre-gl', () => {
     })
     getZoom = vi.fn().mockReturnValue(2)
     fitBounds = vi.fn()
+    // #1831 — 「이 배를 보여 달라」가 쓰는 둘. `once`는 멈춘 뒤에 알리기 위한 것이다.
+    once = vi.fn()
+    easeTo = vi.fn().mockReturnThis()
     project = vi.fn().mockReturnValue({ x: 2, y: 20 })
     resize = vi.fn().mockReturnThis()
     remove = vi.fn()
@@ -95,6 +98,60 @@ describe('MapLibre renderer adapter', () => {
     expect(map.fitBounds).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ padding: 24 }))
     resizeCallbacks[0]()
     expect(map.resize).toHaveBeenCalledTimes(1)
+    session.destroy()
+  })
+
+  /**
+   * 「이 배를 보여 달라」 (#1831).
+   *
+   * 좌측 패널의 행에서 배를 고르면 지도가 그 배로 옮겨 간 **뒤** 카드가 열려야 한다 —
+   * 화면 밖의 마커에 카드만 뜨면 무엇에 붙은 카드인지 알 수 없다. 그래서 옮기는 것과
+   * 「열어라」를 한 길로 묶는다: 모델의 `focus`가 바뀌면 옮기고, **멈춘 뒤** `selection`을
+   * 낸다. 마커를 직접 누른 경우도 같은 `selection`으로 들어오므로 **두 입구가 한 길**이다.
+   *
+   * ⚠️ **멈추기 전에 알리면 안 된다.** 마커 DOM의 자리는 지도가 움직임을 반영한 뒤라야
+   * 제 값이고, 그 전에 재면 카드가 옛 자리에 붙는다.
+   */
+  it('focus가 바뀌면 그 좌표로 옮기고, 멈춘 뒤에 selection을 낸다 (#1831)', () => {
+    const emit = vi.fn()
+    const base = model('fleet')
+    const session = mapLibreRenderer.mount(document.createElement('div'), base, emit)
+    const map = maps[0]
+    const load = map.on.mock.calls.find(([name]) => name === 'load')?.[1] as () => void
+    load()
+    emit.mockClear()
+
+    session.update({ ...base, focus: { id: 'v1', coordinate: [129, 35] as const, nonce: 1 } })
+    expect(map.easeTo).toHaveBeenCalledWith({ center: [129, 35], animate: false })
+    expect(emit).not.toHaveBeenCalledWith({ type: 'selection', id: 'v1' })
+
+    const moveend = map.once.mock.calls.find(([name]) => name === 'moveend')?.[1] as () => void
+    moveend()
+    expect(emit).toHaveBeenCalledWith({ type: 'selection', id: 'v1' })
+    session.destroy()
+  })
+
+  /**
+   * 같은 배를 **다시** 눌러도 열려야 하므로 `nonce`가 신호다 — id만 보면 두 번째 누름이
+   * 아무 일도 하지 않는다. 반대로 같은 `nonce`로 모델이 다시 와도(다른 이유로 갱신될 때)
+   * 지도가 다시 튀어서는 안 된다.
+   */
+  it('같은 nonce로 모델이 다시 오면 옮기지 않는다 (#1831)', () => {
+    const emit = vi.fn()
+    const base = model('fleet')
+    const focus = { id: 'v1', coordinate: [129, 35] as const, nonce: 7 }
+    const session = mapLibreRenderer.mount(document.createElement('div'), base, emit)
+    const map = maps[0]
+    const load = map.on.mock.calls.find(([name]) => name === 'load')?.[1] as () => void
+    load()
+
+    session.update({ ...base, focus })
+    expect(map.easeTo).toHaveBeenCalledTimes(1)
+    session.update({ ...base, focus, ports: [] })
+    expect(map.easeTo).toHaveBeenCalledTimes(1)
+
+    session.update({ ...base, focus: { ...focus, nonce: 8 } })
+    expect(map.easeTo).toHaveBeenCalledTimes(2)
     session.destroy()
   })
 

@@ -291,24 +291,6 @@
 
 /* ── 선박 행 — 마크 열 + 본문 2열 (#701 ④) ──────────────────────── */
 
-/* ── 분할 ───────────────────────────────────────────────────────── */
-
-/*
- * 12컬럼 위의 7:5 (DESIGN_SYSTEM §7.1 🔒).
- *
- * 종전에는 `7fr 5fr`에 주석으로만 「디자이너 토큰 grid.split-primary(7)」이라
- * 적혀 있고 값은 리터럴이었다. 두 가지를 고친다.
- *
- * ⑴ **토큰을 실제로 읽는다.** §7.1이 비율을 바꾸면 여기가 따라간다.
- *
- * ⑵ **12컬럼을 실제로 깐다.** `7fr 5fr`은 거터 한 칸을 뺀 나머지를 7:5로 나누므로
- *    12컬럼을 깐 다른 화면과 경계가 미세하게 어긋난다. 차이 자체는 몇 px이지만,
- *    §7.1이 「컴포넌트 폭 가정이 하나로 유지된다」고 적은 것이 성립하려면 세 화면과
- *    같은 방식으로 잡아야 한다. `2-1`·`2-2`·`2-3`이 모두 이 형태다.
- *
- * 거터도 `--spacing-xl`(24px)이 아니라 `--grid-gutter`(24px)를 쓴다. 값은 같지만
- * 12컬럼의 거터를 소유하는 토큰은 그쪽이다.
- */
 /*
  * 무대 (#1824) — **지도가 본문 전체를 차지하고 패널이 그 위에 뜬다**
  * (`DESIGN_SYSTEM §9.5` v2.28 · `#1821`).
@@ -470,7 +452,13 @@
   list-style: none;
 }
 
+/*
+ * 행은 **카드 링크 + 지도 띠** 두 칸이다 (#1831). 띠가 없는 행(지도가 없거나 좌표가
+ * 없는 배)은 `auto`가 0이 되어 종전과 같은 한 칸으로 남는다.
+ */
 .vessel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   border: var(--borderWidth-default) solid var(--border-default);
   border-radius: var(--radius-control);
   background: var(--surface-card);
@@ -932,7 +920,9 @@
  * 「기준값 없음」 선박 카드 아래 안내 + 링크 (#1516). 카드 링크(`.vessel__link`) 밖에
  * 놓이므로 같은 안쪽 여백을 주어 카드 본문과 줄이 맞는다.
  */
+/* 카드 아래 안내는 두 칸을 가로지른다 — 지도 띠 옆으로 밀리지 않는다 (#1831). */
 .vessel__note {
+  grid-column: 1 / -1;
   margin: 0;
   padding: 0 var(--spacing-md) var(--spacing-md);
   display: flex;
@@ -1021,4 +1011,52 @@
   margin: var(--spacing-sm) 0 0;
   font-size: var(--font-size-label);
   color: var(--text-secondary);
+}
+
+/*
+ * 지도로 가는 띠 (#1831) — 행 오른쪽 끝의 좁은 칸.
+ *
+ * 경계가 `--border-control`인 것은 카드 면(`--surface-card`) 위에서 `--border-default`가
+ * **1.29**라 `1.4.11` 비텍스트 `3:1`에 미달하기 때문이다 (`§14` · `#1202`).
+ *
+ * ⚠️ **호버로만 나타나게 하지 않는다.** 손가락으로 쓰는 화면에는 호버가 없고, 그러면
+ * 이 길이 마우스 사용자에게만 있는 길이 된다.
+ */
+.vessel__locate {
+  /*
+   * ⚠️ **두 자리를 모두 명시한다.** `grid-row`만 주면 이 띠가 **왼쪽 칸으로 간다** —
+   * 격자 자동 배치는 행이 정해진 항목을 **자동 배치 항목보다 먼저** 놓으므로, 띠가
+   * (1행, 1열)을 먼저 차지하고 카드 링크가 2열로 밀린다. 실측에서 열 폭이
+   * `80px 252px`가 되고 핀이 이름 왼쪽에 섰다(1440 · 09-25).
+   */
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 34px;
+  padding: 0;
+  border: 0;
+  border-inline-start: var(--borderWidth-default) solid var(--border-control);
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.vessel__locate:hover {
+  color: var(--text-primary);
+}
+
+/* 링은 **안쪽**으로 그린다 — 띠가 카드 테두리에 붙어 있어 바깥 링이 잘린다. */
+.vessel__locate:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: -2px;
+}
+
+.vessel__pin {
+  inline-size: 16px;
+  block-size: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
 }
