@@ -103,7 +103,7 @@ def test_backup_artifact_is_encrypted_only() -> None:
     # 암호가 없으면 받지도 올리지도 않는다
     no_pass = r'if \[ -z "\$\{PASSPHRASE\}" \]; then.*?encrypted=false.*?exit 0'
     assert re.search(no_pass, script, re.S)
-    assert "openssl enc -aes-256-cbc -pbkdf2" in script
+    assert "openssl enc -aes-256-cbc -pbkdf2 -iter 200000" in script
     assert "-pass env:PASSPHRASE" in script  # 명령줄에 암호를 싣지 않는다(ps·로그에 안 보이게)
     assert 'rm -rf "${plain}"' in script  # 평문은 올리기 전에 지운다
     upload = _step("덤프 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)")
@@ -111,6 +111,18 @@ def test_backup_artifact_is_encrypted_only() -> None:
     assert upload["uses"].startswith("actions/upload-artifact@")
     assert upload["with"]["path"].endswith("/*.enc")
     assert upload["with"]["retention-days"] == 14
+
+
+def test_decrypt_hint_matches_encrypt_iterations() -> None:
+    """푸는 법 안내가 암호화와 같은 `-iter`를 적는다 — 다르면 안내대로 풀어도 실패한다."""
+    ops_text = OPS.read_text(encoding="utf-8")
+    runbook = (_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+    enc_iters = set(re.findall(r"openssl enc -aes-256-cbc -pbkdf2 -iter (\d+)", ops_text))
+    assert enc_iters == {"200000"}
+    for text in (ops_text, runbook):
+        hints = re.findall(r"openssl enc -d -aes-256-cbc -pbkdf2 -iter (\d+)", text)
+        assert hints and set(hints) == enc_iters
+        assert "openssl enc -d -aes-256-cbc -pbkdf2 -in" not in text
 
 
 def test_restore_swaps_the_rehearsed_dump() -> None:

@@ -765,7 +765,7 @@ curl -fsS http://127.0.0.1:8001/api/v1/health
 | `app-start` | app-01 백엔드 기동 → 헬스. 교체가 되돌려져 앱이 꺼진 채 남았을 때 | 기동 |
 
 - 볼륨을 지우는 길은 여기에 없다 — `deploy.yml`의 `force_db_init` 하나다(`tests/test_ops_workflow.py`).
-- ⚠️ **이 저장소는 공개다** — Actions 로그와 아티팩트를 누구나 본다. 덤프에는 가입자 이메일·비밀번호 해시가 담기므로 러너에서 `openssl enc -aes-256-cbc -pbkdf2`로 **암호화한 파일만** 올리고 평문은 지운다. 푸는 법: `openssl enc -d -aes-256-cbc -pbkdf2 -in X.enc -out X` → 암호(`BACKUP_ARTIFACT_PASSPHRASE` · 사용자가 따로 보관). 사용자 PC 보관(결정 ②)은 사람이 내려받는다.
+- ⚠️ **이 저장소는 공개다** — Actions 로그와 아티팩트를 누구나 본다. 덤프에는 가입자 이메일·비밀번호 해시가 담기므로 러너에서 `openssl enc -aes-256-cbc -pbkdf2`로 **암호화한 파일만** 올리고 평문은 지운다. 푸는 법: `openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in X.enc -out X` → 암호(`BACKUP_ARTIFACT_PASSPHRASE` · 사용자가 따로 보관). 사용자 PC 보관(결정 ②)은 사람이 내려받는다.
 - 롤백 실습의 복귀는 ssh가 끊겨도 끝까지 가게 했고 진행을 서버 `~/bluelog/drill.log`에도 남긴다. 복귀가 실패했으면 app-01에서 `cp .env.drill-orig .env && docker compose -f docker-compose.prod.app.yml up -d backend`.
 - Claude Code가 이 워크플로를 실행할 때는 manual 모드에서 사람이 명령마다 승인한다(`#788` 결정 · 자동 모드의 판정기가 원격 셸 쓰기를 막는다).
 

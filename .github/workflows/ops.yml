@@ -193,7 +193,7 @@ jobs:
       # 아티팩트로도 올린다. ⚠️ 저장소가 **공개**라 아티팩트는 누구나 내려받는다. 덤프에는 가입자
       # 이메일·비밀번호 해시가 담기므로 **러너에서 암호화한 파일만** 올리고, 평문은 올리기 전에
       # 지운다. 암호 시크릿이 없으면 받지도 올리지도 않는다(서버 안 백업만 남는다).
-      # 푸는 법: `openssl enc -d -aes-256-cbc -pbkdf2 -in X.enc -out X` (OPERATIONS §3.8).
+      # 푸는 법: `openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -in X.enc -out X` (OPERATIONS §3.8).
       - name: 덤프 받기 · 암호화 (db-01 → 러너)
         id: encrypt
         if: steps.backup.outcome == 'success'
