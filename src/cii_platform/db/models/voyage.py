@@ -50,6 +50,12 @@ class Voyage(Base):
     planned_arrival_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     actual_departure_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
     actual_arrival_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    # 실제 출항·도착 시각의 출처 (#1923 · 064). `USER_INPUT`(사람이 넣음) 또는
+    # `PUBLIC_RECORD`(공적 재항 기록에서 「이 값으로 채우기」 · `PRD §17.4.4`). **NULL은 「모른다」**
+    # — 064 이전 행과 출처 없이 시각을 넣은 요청이 여기 든다. 시각이 바뀌면 옛 출처는 새 값에
+    # 붙지 않는다(`services/voyage.py` `set_actuals`). 값 집행은 064의 트리거.
+    actual_departure_source = sa.Column(sa.String(length=30), nullable=True)
+    actual_arrival_source = sa.Column(sa.String(length=30), nullable=True)
     annual_inclusion_policy = sa.Column(
         sa.String(length=30),
         server_default=sa.text("'EXCLUDE'"),
@@ -123,6 +129,18 @@ class Voyage(Base):
             "planned_distance_source IS NULL OR planned_distance_source IN "
             "('USER_INPUT','COORDINATE_ESTIMATE')",
             name="chk_distance_source",
+        ),
+        # #1923 — 선언은 `chk_distance_source`와 같은 형태이고, 집행은 064의 트리거
+        # `trg_chk_actual_departure_source_ins/upd`·`trg_chk_actual_arrival_source_ins/upd`가 한다.
+        sa.CheckConstraint(
+            "actual_departure_source IS NULL OR actual_departure_source IN "
+            "('USER_INPUT','PUBLIC_RECORD')",
+            name="chk_actual_departure_source",
+        ),
+        sa.CheckConstraint(
+            "actual_arrival_source IS NULL OR actual_arrival_source IN "
+            "('USER_INPUT','PUBLIC_RECORD')",
+            name="chk_actual_arrival_source",
         ),
         sa.CheckConstraint("planned_speed_kn >= 1.0", name="chk_speed_positive"),
         # #1269 — 속력의 물리 상한(VAL-009). 집행은 062 트리거다(CUBRID는 CHECK를 검사하지 않는다).

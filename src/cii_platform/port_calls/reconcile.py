@@ -81,6 +81,10 @@ class RecordedCall:
     arrival_at: datetime | None
     departure_at: datetime | None
     fetched_at: datetime
+    #: 기항의 열쇠(`#1923`) — 「이 값으로 채우기」가 **어느 기항의 시각**을 옮겼는지 감사에 남기고,
+    #: 서버가 채우기 요청의 기록을 다시 찾는 키다. 대조 자체에는 쓰지 않는다.
+    call_year: int | None = None
+    call_seq: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,11 @@ class Mismatch:
     port_authority_code: str
     port_authority_name: str | None
     fetched_at: datetime
+    #: 짝지은 기항의 열쇠 — :class:`RecordedCall` 그대로 (`#1923`).
+    call_year: int | None = None
+    call_seq: str | None = None
+    #: 정박 구간 칸이면 그 구간의 id — 채우기 요청이 어느 행을 고칠지 가리킨다 (`#1923`).
+    period_id: object | None = None
 
     @property
     def difference_minutes(self) -> int:
@@ -107,6 +116,8 @@ class EnteredTime:
     field: str
     at: datetime | None
     port_name: str | None
+    #: 정박 구간의 시각이면 그 구간 id. 항차 칸은 ``None`` (`#1923`).
+    period_id: object | None = None
 
 
 def _side(field: str) -> str:
@@ -154,6 +165,9 @@ def reconcile(entries: Sequence[EnteredTime], records: Sequence[RecordedCall]) -
                 port_authority_code=record.port_authority_code,
                 port_authority_name=record.port_authority_name,
                 fetched_at=record.fetched_at,
+                call_year=record.call_year,
+                call_seq=record.call_seq,
+                period_id=entry.period_id,
             )
         )
     mismatches.sort(key=lambda item: (FIELD_ORDER.index(item.field), item.entered_at))

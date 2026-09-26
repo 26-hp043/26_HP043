@@ -35,6 +35,7 @@ from cii_platform.db.repositories import parameters as param_repo
 from cii_platform.db.repositories import vessel as vessel_repo
 from cii_platform.db.repositories import voyage as voyage_repo
 from cii_platform.errors import ConflictError, NotFoundError, ValidationError
+from cii_platform.services.voyage import reset_stale_sources
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -72,6 +73,12 @@ _FIELD_LABELS = {
     "distance_nm": "이동 거리",
 }
 
+#: 시각 칸 → 출처 칸 (#1923 · `DB_SCHEMA §2.17`). 항차의 `ACTUAL_TIME_SOURCE_FIELDS`와 같은 규칙.
+TIME_SOURCE_FIELDS: dict[str, str] = {
+    "started_at": "started_at_source",
+    "ended_at": "ended_at_source",
+}
+
 
 def _number(value: Decimal | None) -> float | None:
     """Layer 1 계산 결과가 아니므로 JSON number다 (``API_SPEC §1.7`` · voyage와 동일)."""
@@ -107,6 +114,9 @@ def to_dict(period, fuel_uses: list) -> dict[str, object]:
         # null은 「진행 중」이다. 「모름」이 아니다 — 화면이 이 둘을 같게 그리면
         # 사용자가 끝난 구간의 종료 시각을 잊었다고 오해한다.
         "ended_at": _iso(period.ended_at),
+        # #1923 — 두 시각의 출처. None은 「모른다」(항차 실적의 `actual_*_source`와 같은 규칙).
+        "started_at_source": period.started_at_source,
+        "ended_at_source": period.ended_at_source,
         "port_name": period.port_name,
         "lat": _number(period.lat),
         "lon": _number(period.lon),
@@ -394,7 +404,7 @@ def _assert_no_duplicate_fuel(fuel_uses: list[dict]) -> None:
 
 
 async def update_period(
-    session: AsyncSession, period_id: UUID, **fields: object
+    session: AsyncSession, period_id: UUID, *, commit: bool = True, **fields: object
 ) -> dict[str, object]:
     """구간을 수정한다 (API_SPEC §2.11). 없으면 404.
 
@@ -404,8 +414,16 @@ async def update_period(
     ``exclude_unset`` 규약은 항차 수정(``#312``)과 같다 — **생략 = 변경 없음,
     명시적 ``null`` = 클리어**. 다만 ``ended_at``의 ``null``은 클리어가 아니라
     「다시 진행 중으로 되돌림」을 뜻한다. 잘못 닫은 구간을 되돌릴 경로가 필요하다.
+
+    :param commit: ``False``면 **커밋하지 않고 flush만** 한다 (`#1923` · `#1625` 선례). 공적
+        기록으로 채우기(`services/public_record_fill.py`)가 정박 시각을 고친 뒤 감사 기록까지 넣고
+        **한 번의 커밋**으로 확정한다 — 여기서 커밋하면 감사 INSERT가 실패했을 때 기록 없는
+        값 변경이 남는다(`TECH_SPEC §13.1`).
     """
     period = await _require_period(session, period_id)
+
+    # #1923 — 시각을 고치면서 출처를 말하지 않으면 「모른다」로 돌린다(항차 실적과 같은 규칙).
+    reset_stale_sources(fields, TIME_SOURCE_FIELDS)
 
     # NOT NULL 열에 명시적 null이 오면 IntegrityError로 500이 된다. 이 열들에서
     # null은 「클리어」가 아니라 그냥 잘못된 입력이므로 422로 돌려준다.
@@ -470,8 +488,13 @@ async def update_period(
     for key, value in fields.items():
         setattr(period, key, value)
 
-    await session.commit()
-    await session.refresh(period)
+    if commit:
+        await session.commit()
+        await session.refresh(period)
+    else:
+        # 호출부가 **같은 트랜잭션 안에서** 감사 로그를 잇는다 (`#1923`). 행은 DB에 보여야
+        # 하므로 flush만 한다 — 커밋은 그쪽이 마지막에 한다.
+        await session.flush()
     return to_dict(period, await nu_repo.list_fuel_uses(session, period.id))
 
 

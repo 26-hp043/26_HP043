@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from typing import Annotated, Literal, get_args
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,6 +26,24 @@ DistanceSource = Literal["USER_INPUT", "COORDINATE_ESTIMATE"]
 
 #: 059의 트리거가 허용하는 값과 같은 집합 — 마이그레이션 쪽이 정본이고 여기서 갈리면 500이다.
 DISTANCE_SOURCES: tuple[str, ...] = get_args(DistanceSource)
+
+#: 실제 출항·도착 시각과 정박 구간 시작·끝 시각의 출처 (#1923 · `DB_SCHEMA §2.2`·`§2.17`).
+#:
+#: `USER_INPUT`은 사람이 넣은 값, `PUBLIC_RECORD`는 공적 재항 기록에서 「이 값으로 채우기」로
+#: 옮긴 값이다(`PRD §17.4.4`). 생략하면 **`null` = 「모른다」**. 064의 트리거가 허용하는 값과 같은
+#: 집합이어야 한다 — 갈리면 500이다(`tests/test_public_record_fill_db.py`가 대조).
+ActualTimeSource = Literal["USER_INPUT", "PUBLIC_RECORD"]
+ACTUAL_TIME_SOURCES: tuple[str, ...] = get_args(ActualTimeSource)
+
+#: 사람이 값을 넣는 경로(`§3.6` 실적 입력 · `§2.11` 구간 수정)가 붙일 수 있는 출처.
+#:
+#: `PUBLIC_RECORD`는 여기 없다 — 그 표시는 서버가 공적 기록을 **직접 읽어 옮긴** 경우에만
+#: 참이고(`§3.12`), 클라이언트가 값을 보내며 「공적 기록에서 왔다」고 주장하는 것은 서버가 확인할
+#: 수 없다. 거리 출처(`COORDINATE_ESTIMATE`)와 다른 점이다.
+HumanTimeSource = Literal["USER_INPUT"]
+
+#: `§3.12` 「이 값으로 채우기」가 고칠 수 있는 칸 — `port_calls/reconcile.py`의 `FIELD_*`와 같다.
+PublicRecordField = Literal["DEPARTURE", "ARRIVAL", "BERTH_START", "BERTH_END"]
 
 
 #: 항차 메모의 길이 상한 (`PRD §10.2` ⑵ — 0~1000자). `AGENTS §3.1`상 PRD가 상위
@@ -145,4 +164,44 @@ class VoyageActualsRequest(BaseModel):
     actual_avg_speed_kn: Annotated[Decimal | None, Field(**SPEED)] = None
     actual_departure_at: Instant | None = None
     actual_arrival_at: Instant | None = None
+    # #1923 — 시각을 바꾸면서 이 키를 생략하면 출처는 **`null`로 돌아간다**(옛 「공적 기록에서
+    # 채움」이 사람이 고친 새 시각에 붙어 있으면 거짓말이다 · `services/voyage.py`). 함께 보내면
+    # `USER_INPUT`이다 — `PUBLIC_RECORD`는 `§3.12`만 붙인다(`HumanTimeSource`).
+    actual_departure_source: HumanTimeSource | None = None
+    actual_arrival_source: HumanTimeSource | None = None
     fuel_uses: list[VoyageFuelActualRequest] | None = None
+
+
+class PublicRecordKey(BaseModel):
+    """공적 재항 기록 한 건의 열쇠 — `DB_SCHEMA §2.25` `uq_port_call_record_call` 그대로."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Annotated[str, Field(min_length=1, max_length=50)]
+    port_authority_code: Annotated[str, Field(min_length=1, max_length=10)]
+    call_year: Annotated[int, Field(ge=2000, le=2100)]
+    call_seq: Annotated[str, Field(min_length=1, max_length=20)]
+
+
+class PublicRecordFillRequest(BaseModel):
+    """``POST /api/v1/voyages/{voyage_id}/public-record-fill`` (`API_SPEC §3.12` · #1923).
+
+    데이터 점검(`UIFLOW 2-11`)의 「공적 기록과 다름」 행에서 「이 값으로 채우기」를 눌렀을 때
+    화면이 보내는 것 — **어느 칸**을 **어느 기항**의 시각으로 채우는가.
+
+    ``recorded_at``은 화면이 사용자에게 보인 공적 기록 시각이다. 서버는 기록을 다시 읽어 그
+    값과 같은지 본다 — 화면을 연 뒤 수집기가 기록을 갱신했으면(`최초` → `최종` 정정) 사용자가
+    확인한 값과 들어갈 값이 다르므로 거절한다(409).
+
+    ``revert_confirmed``는 **확정(`CONFIRMED`) 항차**에서만 뜻이 있다 — 화면의 재확인
+    다이얼로그(`PRD §8.1.1`)를 사용자가 통과했다는 표시다. 없으면 확정 항차는 422다.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: PublicRecordField
+    #: `BERTH_START`·`BERTH_END`면 필수 — 어느 정박 구간인가. 항차 칸에는 보내지 않는다.
+    period_id: UUID | None = None
+    record: PublicRecordKey
+    recorded_at: Instant
+    revert_confirmed: bool = False

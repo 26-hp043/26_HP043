@@ -45,6 +45,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         # 「audit log 필수」로 정한 둘이며, `#1343`이 이 자리를 비워 두고 이 이슈를
         # 가리켰다(계획값을 목록에 미리 적지 않는다).
         "VOYAGE_TRANSITION",
+        # `#1923` — 공적 재항 기록의 시각을 「이 값으로 채우기」로 항차·정박 구간에 옮긴 것.
+        # 되돌리기 전환(`VOYAGE_TRANSITION`)은 상태만 말하고 **어떤 값이 어떤 값으로** 바뀌었는지는
+        # 어느 행에도 없었다 — 이 액션이 그 자리다.
+        "VOYAGE_ACTUALS_FILL",
         "CHAT_MESSAGE",
         "CHAT_TOOL_CALL",
         "PARAMETER_IMPORT",
@@ -348,6 +352,40 @@ async def record_voyage_transition(
             "to_status": to_status,
             "annual_inclusion_policy": annual_inclusion_policy,
         },
+        ip_address=ip_address,
+    )
+
+
+async def record_voyage_actuals_fill(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    voyage_id: UUID,
+    fill: dict[str, object],
+    ip_address: str | None = None,
+) -> None:
+    """공적 기록으로 채우기 (`#1923` · `PRD §17.4.4` · `API_SPEC §3.12`).
+
+    ## 왜 따로 기록하는가
+
+    확정 항차를 되돌려 채우면 `VOYAGE_TRANSITION`이 남지만 그 행은 **상태와 정책만** 말한다.
+    「출항 시각이 06:45에서 18:45로 바뀌었고 그 값은 부산 항만청 2026년 029차 기항의
+    공적 기록에서 왔다」는 어느 행에도 없었다 — 완료 항차는 되돌리기도 없어 **아무 기록도**
+    남지 않았다. 사용자가 손으로 고친 것과 공적 기록에서 옮긴 것을 나중에 가를 수 있어야
+    「공적 기록도 신고값이다」(`PRD §17.4.4` 각주)가 뜻을 갖는다.
+
+    ``fill``은 서비스(`services/public_record_fill.py`)가 만든 ``details`` — 칸 · 이전 값 · 새 값 ·
+    공적 기록 키(항만청 · 입항연도 · 입항 차수 · ``fetched_at``) · 되돌린 상태. 원문 시각은
+    ISO 문자열이다. **필수 감사**라 원본 변경과 같은 트랜잭션에서 커밋한다(`TECH_SPEC §13.1` ·
+    `#1625`) — 라우트가 이 함수 뒤에 한 번 커밋한다.
+    """
+    await audit_repo.insert_event(
+        session,
+        action="VOYAGE_ACTUALS_FILL",
+        user_id=user_id,
+        entity_type="voyage",
+        entity_id=voyage_id,
+        details=fill,
         ip_address=ip_address,
     )
 

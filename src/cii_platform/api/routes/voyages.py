@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from cii_platform.api.rate_limit import audit_client_ip
 from cii_platform.api.schemas.voyage import (
+    PublicRecordFillRequest,
     VoyageActualsRequest,
     VoyageCreateRequest,
     VoyageTransitionRequest,
@@ -25,6 +26,7 @@ from cii_platform.db.session import get_session
 from cii_platform.errors import ValidationError
 from cii_platform.services import audit as audit_svc
 from cii_platform.services.not_underway_import import import_not_underway_periods
+from cii_platform.services.public_record_fill import fill_from_public_record
 from cii_platform.services.voyage import (
     create_voyage,
     delete_voyage,
@@ -226,6 +228,61 @@ async def transition_voyage_route(
         )
 
     # 기록 대상이 아닌 전환도 여기서 커밋한다 — 서비스가 더는 커밋하지 않는다.
+    await session.commit()
+    return {"data": data, "meta": _meta(request)}
+
+
+@router.post("/voyages/{voyage_id}/public-record-fill")
+async def fill_from_public_record_route(
+    request: Request,
+    voyage_id: UUID,
+    payload: PublicRecordFillRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    _csrf: Annotated[None, Depends(require_csrf)],
+) -> dict[str, object]:
+    """「공적 기록과 다름」의 「이 값으로 채우기」 (`API_SPEC §3.12` · `#1923`).
+
+    어긋난 칸 하나를 공적 재항 기록의 시각으로 바꾼다. 확정 항차면 되돌리기 전환까지
+    **이 한 요청** 안에서 한다 — 화면이 전환과 실적 입력을 차례로 보내면 둘째가 실패할 때
+    되돌려진 채 옛값이 남는다.
+
+    **되돌리기 · 값 변경 · 감사 둘을 한 번의 커밋으로 확정한다** (`TECH_SPEC §13.1` · `#1625`
+    패턴). 서비스는 flush까지만 하고, 여기서 `VOYAGE_TRANSITION`(되돌린 경우) ·
+    `VOYAGE_ACTUALS_FILL`을 넣은 뒤 커밋한다. 실패하면 요청 세션이 닫히며 통째로 롤백된다.
+    """
+    data = await fill_from_public_record(
+        session,
+        voyage_id,
+        field=payload.field,
+        record_key=payload.record.model_dump(),
+        recorded_at=payload.recorded_at,
+        period_id=payload.period_id,
+        revert_confirmed=payload.revert_confirmed,
+    )
+    # 서비스가 실어 보낸 감사 재료. 응답에서는 뺀다(`_from_status`와 같은 규약).
+    fill = data.pop("_audit")
+
+    state = getattr(request, "state", None)
+    session_user = getattr(state, "session_user", None)
+    actor = str(session_user.id) if session_user is not None else None
+    client_ip = audit_client_ip(request)
+
+    voyage = data["voyage"]
+    if fill["reverted_from_status"] is not None:
+        # 되돌리기는 `§3.5`의 전환과 같은 사건이라 같은 액션으로 남긴다 — 「누가 언제 되돌렸는지」를
+        # 찾는 사람이 두 액션을 뒤지지 않게. 값 변경은 아래 `VOYAGE_ACTUALS_FILL`이 말한다.
+        await audit_svc.record_voyage_transition(
+            session,
+            user_id=actor,
+            voyage_id=voyage_id,
+            from_status=str(fill["reverted_from_status"]),
+            to_status=str(voyage["status"]),
+            annual_inclusion_policy=str(voyage["annual_inclusion_policy"]),
+            ip_address=client_ip,
+        )
+    await audit_svc.record_voyage_actuals_fill(
+        session, user_id=actor, voyage_id=voyage_id, fill=fill, ip_address=client_ip
+    )
     await session.commit()
     return {"data": data, "meta": _meta(request)}
 
