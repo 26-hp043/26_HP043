@@ -80,20 +80,29 @@ export function YtdSeriesChart({ series }: { series: YtdSeries }) {
    * 세로축은 **점과 경계를 모두 담는다.** 0에서 시작하지 않는 것은 이 차트가 값의
    * 크기가 아니라 **경계 대비 위치**를 말하기 때문이다(`§9.4` 구간 배경의 근거와 같다).
    */
-  const bands = bandsOf(series)
+  const edges = edgesOf(series)
   const values = [
     ...points.map((p) => Number(p.attainedCii)),
-    ...bands.map((b) => b.value),
+    ...edges.map((e) => e.value),
     ...(series.requiredCii === null ? [] : [Number(series.requiredCii)]),
   ].filter(Number.isFinite)
   const lo = Math.min(...values)
   const hi = Math.max(...values)
   const span = hi - lo || 1
   const pad = span * 0.08
+  const top = lo - pad
+  const bottom = hi + pad
   const yOf = (value: number) => {
-    const ratio = (value - (lo - pad)) / (span + pad * 2)
+    const ratio = (value - top) / (bottom - top)
     return VIEW_H - PAD_B - ratio * (VIEW_H - PAD_T - PAD_B)
   }
+
+  /*
+   * 바깥 두 구간(A 위 · E 아래)은 **끝이 없다.** 그림의 위아래 끝까지 늘린다 —
+   * 임의의 폭을 주면 배가 실제로 서 있는 자리가 어느 구간에도 속하지 않는 것처럼
+   * 보인다(실측에서 E 구간이 배보다 한참 아래에서 끝났다).
+   */
+  const bands = bandsOf(edges, top, bottom)
 
   const path = (list: readonly YtdSeriesPoint[]) =>
     list.map((p, i) => `${i === 0 ? 'M' : 'L'}${xOf(p.at)} ${yOf(Number(p.attainedCii))}`).join(' ')
@@ -131,18 +140,16 @@ export function YtdSeriesChart({ series }: { series: YtdSeries }) {
         ))}
 
         {/* 등급 경계선 — 1px dashed `3 3` · **등급색 금지** (`§9.4`). */}
-        {bands
-          .filter((b) => b.value !== null)
-          .map((band) => (
-            <line
-              key={`edge-${band.rating}`}
-              className="ytds__boundary"
-              x1={PAD_L}
-              x2={VIEW_W - PAD_R}
-              y1={yOf(band.value)}
-              y2={yOf(band.value)}
-            />
-          ))}
+        {edges.map((edge) => (
+          <line
+            key={`edge-${edge.rating}`}
+            className="ytds__boundary"
+            x1={PAD_L}
+            x2={VIEW_W - PAD_R}
+            y1={yOf(edge.value)}
+            y2={yOf(edge.value)}
+          />
+        ))}
 
         {/*
           기준값 — 경계 넷과 **다른 것**이라 다른 결로 긋는다(실선). 경계는 등급을
@@ -197,39 +204,52 @@ export function YtdSeriesChart({ series }: { series: YtdSeries }) {
   )
 }
 
-/** 등급 구간 — 위(작은 값)부터 A·B·C·D·E. `value`는 그 구간의 **아래 경계**다. */
+/** 등급 구간 하나. `value`는 그 구간의 **아래 경계**(가장 바깥은 `null`). */
 interface Band {
   rating: string
   /** 구간의 위 끝(작은 CII 값). */
   top: number
   /** 구간의 아래 끝(큰 CII 값). */
   bottom: number
-  /** 이 구간의 경계선 값. 가장 바깥 구간은 선을 긋지 않는다. */
+}
+
+/** 경계선 하나 — 등급 사이를 가르는 값. */
+interface Edge {
+  rating: string
   value: number
+}
+
+/**
+ * 경계 넷을 읽는다. 하나라도 값이 아니면 **구간을 만들지 않는다** — 반쯤 그린
+ * 경계는 지어낸 경계다.
+ */
+function edgesOf(series: YtdSeries): Edge[] {
+  const b = series.boundaries
+  if (b === null) return []
+  const values = [
+    { rating: 'A', value: Number(b.superior) },
+    { rating: 'B', value: Number(b.lower) },
+    { rating: 'C', value: Number(b.upper) },
+    { rating: 'D', value: Number(b.inferior) },
+  ]
+  return values.every((e) => Number.isFinite(e.value)) ? values : []
 }
 
 /**
  * 경계 넷에서 구간 다섯을 만든다.
  *
- * CII는 **작을수록 좋다** — A가 가장 작은 값 쪽이다. 바깥 두 구간(A 위 · E 아래)은
- * 끝이 없으므로 이웃 구간만큼의 폭을 준다. 경계가 없으면 구간도 없다.
+ * CII는 **작을수록 좋다** — A가 가장 작은 값 쪽이다. 바깥 두 구간은 끝이 없으므로
+ * 그림의 위아래 끝(`top`·`bottom`)까지 늘린다.
  */
-function bandsOf(series: YtdSeries): Band[] {
-  const b = series.boundaries
-  if (b === null) return []
-  const superior = Number(b.superior)
-  const lower = Number(b.lower)
-  const upper = Number(b.upper)
-  const inferior = Number(b.inferior)
-  if (![superior, lower, upper, inferior].every(Number.isFinite)) return []
-
-  const outer = Math.max(superior - 0, inferior - upper) || 1
+function bandsOf(edges: Edge[], top: number, bottom: number): Band[] {
+  if (edges.length !== 4) return []
+  const [a, b, c, d] = edges
   return [
-    { rating: 'A', top: superior - outer, bottom: superior, value: superior },
-    { rating: 'B', top: superior, bottom: lower, value: lower },
-    { rating: 'C', top: lower, bottom: upper, value: upper },
-    { rating: 'D', top: upper, bottom: inferior, value: inferior },
-    { rating: 'E', top: inferior, bottom: inferior + outer, value: inferior },
+    { rating: 'A', top, bottom: a.value },
+    { rating: 'B', top: a.value, bottom: b.value },
+    { rating: 'C', top: b.value, bottom: c.value },
+    { rating: 'D', top: c.value, bottom: d.value },
+    { rating: 'E', top: d.value, bottom },
   ]
 }
 

@@ -666,7 +666,13 @@
  */
 .rt__drivers {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  /*
+   * 이름과 값이 **붙어 선다.** `1fr auto`로 두었더니 값이 카드 오른쪽 끝으로 밀려
+   * 떠 있는 어시스턴트 버튼 밑으로 들어갔다(1440 실측). 두 열 다 내용 폭이면 값이
+   * 이름 바로 옆에 오고, 남는 폭은 오른쪽에 비운다.
+   */
+  grid-template-columns: auto auto;
+  justify-content: start;
   gap: var(--spacing-xs) var(--spacing-md);
   margin: var(--spacing-sm) 0 0;
   font-size: var(--font-size-micro);
