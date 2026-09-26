@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { metersPerPixel, ratingColorToken, vesselLengthMeters } from './vesselGeometry'
+import { isBeyondGlobeHorizon, metersPerPixel, ratingColorToken, vesselLengthMeters } from './vesselGeometry'
 
 /** 부산 앞바다. 화면에서 실제로 쓰는 위도다. */
 const BUSAN_LAT = 35.1
@@ -63,5 +63,53 @@ describe('등급 색 — 토큰을 가리킨다', () => {
     expect(ratingColorToken(null)).toBeNull()
     expect(ratingColorToken('F')).toBeNull()
     expect(ratingColorToken('')).toBeNull()
+  })
+})
+
+/**
+ * 지구 반대편 가림 (`#1937`).
+ *
+ * 지구본을 돌리면 **반대편 배가 그대로 보였다.** `map.project()`가 구 뒷면의 점도 화면
+ * 좌표를 돌려주는데, 그리는 쪽에 앞뒤 판정이 없었기 때문이다.
+ *
+ * 정확한 판정은 MapLibre의 `transform.isLocationOccluded()`가 하고 호출부가 그것을 먼저
+ * 쓴다. 여기서 보는 것은 **그것을 쓸 수 없을 때의 대체 판정**이다.
+ */
+describe('isBeyondGlobeHorizon', () => {
+  const BUSAN = [129.04, 35.1] as const
+
+  it('중심에 있는 배는 보인다', () => {
+    expect(isBeyondGlobeHorizon(BUSAN, BUSAN)).toBe(false)
+  })
+
+  it('지구 반대편은 가려진다', () => {
+    // 부산의 대척점 — 남대서양.
+    expect(isBeyondGlobeHorizon(BUSAN, [-50.96, -35.1])).toBe(true)
+  })
+
+  it('같은 반구의 먼 항만은 보인다', () => {
+    // 싱가포르는 부산에서 약 40°다 — 지구본에서 함께 보이는 거리다.
+    expect(isBeyondGlobeHorizon(BUSAN, [103.85, 1.28])).toBe(false)
+  })
+
+  it('가장자리보다 조금 일찍 사라진다', () => {
+    /*
+     * 카메라가 무한히 멀면 경계가 정확히 90°지만 실제로는 그보다 가까워 **보이는 범위가
+     * 90°에 못 미친다.** 앞면에 없는 배가 보이는 것이 고장이고, 가장자리에서 일찍
+     * 사라지는 것은 지구본의 결이다.
+     */
+    expect(isBeyondGlobeHorizon([0, 0], [80, 0])).toBe(false)
+    expect(isBeyondGlobeHorizon([0, 0], [85, 0])).toBe(true)
+    expect(isBeyondGlobeHorizon([0, 0], [90, 0])).toBe(true)
+  })
+
+  it('경계는 호출부가 정할 수 있다', () => {
+    expect(isBeyondGlobeHorizon([0, 0], [85, 0], 89)).toBe(false)
+  })
+
+  it('좌표가 성하지 않으면 숨기지 않는다', () => {
+    // 판정을 못 하는 것과 「뒤에 있다」는 다르다 — 배를 지우는 쪽으로 기울지 않는다.
+    expect(isBeyondGlobeHorizon([Number.NaN, 0], [10, 0])).toBe(false)
+    expect(isBeyondGlobeHorizon([0, 0], [Number.NaN, 0])).toBe(false)
   })
 })

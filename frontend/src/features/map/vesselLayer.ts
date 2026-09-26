@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { GlobeVesselLayerModel } from './vesselModel'
 import { normalizedHeading } from './vesselModel'
-import { ratingColorToken, VESSEL_SCREEN_LENGTH_PX } from './vesselGeometry'
+import { isBeyondGlobeHorizon, ratingColorToken, VESSEL_SCREEN_LENGTH_PX } from './vesselGeometry'
 import { CARGO_COLOR_TOKENS, vesselParts, type VesselPart } from './vesselParts'
 
 export interface GlobeVesselLayerController {
@@ -197,14 +197,44 @@ export function createGlobeVesselLayer(
 
     const bearing = map.getBearing?.() ?? 0
     const pitch = map.getPitch?.() ?? 0
+    const center = map.getCenter?.()
+
+    /*
+     * 지구 **반대편**에 있는 배는 그리지 않는다 (`#1937`).
+     *
+     * `map.project()`는 구 뒷면의 점도 화면 좌표를 돌려준다 — 그대로 그리면 지구 반대편
+     * 배가 앞면 배와 섞여 「어느 배가 이쪽에 있는가」를 읽을 수 없다.
+     *
+     * MapLibre의 판정을 먼저 쓴다(지형까지 본다). 그것이 없는 환경에서는 중심에서의
+     * 각거리로 앞뒤만 가른다(`isBeyondGlobeHorizon`).
+     */
+    const transform = (map as unknown as {
+      transform?: { isLocationOccluded?: (lngLat: { lng: number; lat: number }) => boolean }
+    }).transform
+    const hidden = (coordinate: readonly [number, number]): boolean => {
+      const [lng, lat] = coordinate
+      try {
+        const occluded = transform?.isLocationOccluded?.({ lng, lat })
+        if (typeof occluded === 'boolean') return occluded
+      } catch {
+        // 내부 구현이 바뀌어 던지면 아래 판정으로 떨어진다 — 배가 사라지지는 않는다.
+      }
+      return center ? isBeyondGlobeHorizon([center.lng, center.lat], [lng, lat]) : false
+    }
     const tilt = (pitch * Math.PI) / 180
     const length = VESSEL_SCREEN_LENGTH_PX * ratio
 
     for (const vessel of model.vessels) {
       const mesh = meshes.get(vessel.id)
       if (!mesh) continue
-      const point = map.project?.([...vessel.coordinate])
-      if (!point) continue
+      const behind = hidden(vessel.coordinate)
+      mesh.visible = !behind
+      const point = behind ? null : map.project?.([...vessel.coordinate])
+      if (!point) {
+        const wake = wakes.get(vessel.id)
+        if (wake) wake.visible = false
+        continue
+      }
       const x = point.x * ratio
       const y = point.y * ratio
       /*
