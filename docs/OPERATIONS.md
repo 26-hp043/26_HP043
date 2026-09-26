@@ -1,6 +1,6 @@
 # OPERATIONS.md -- OCI 배포 운영 가이드
 
-> 최종 갱신: 2026-09-26 (§1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN` · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
+> 최종 갱신: 2026-09-26 (§1.1 백엔드 `:8001`을 루프백에만 게시 · 배포 헬스체크를 터널 주소로 · #786 · §1.2.1 감사 로그·세션 IP도 같은 판정 · #1889 · §3.1.1 시연 동결 `DEPLOY_FROZEN` · §3.6.1 헬스 `commit` 확인 · #789 · §9.2.1 이름 있는 볼륨으로 옮기기 — 배포가 옮기기 전 상태를 보고 멈춘다 · #1867 · §1.2.1 프록시 서명 헤더 · #1483). 이 문서는 BlueLog(CII 플랫폼)의 OCI 배포 전체를 다룬다.
 
 ---
 
@@ -23,7 +23,7 @@
   │  app-01 (131.186.22.10)         │    db-01 (132.226.170.195)       │
   │  사설 IP: 10.0.1.216            │    사설 IP: 10.0.1.132           │
   │  ┌────────────────────────┐     │    ┌────────────────────────┐   │
-  │  │ cii-backend :8001      │  VCN│    │ cii-cubrid :33100      │   │
+  │  │ cii-backend 127.0.0.1:8001│VCN│    │ cii-cubrid :33100      │   │
   │  │ (FastAPI, Python 3.12) │─────┼───>│ (cubrid/cubrid:11.4)   │   │
   │  │ 메모리 제한: 512MB      │    │    │ DB명: cii              │   │
   │  └────────────────────────┘     │    │ 메모리 제한: 512MB      │   │
@@ -41,7 +41,7 @@
 | 구성 요소 | 기술 | 위치 | URL |
 |-----------|------|------|-----|
 | 프론트엔드 | React 19 + Vite (SPA) | Cloudflare Pages | https://bluelog-bx7.pages.dev |
-| 백엔드 API | FastAPI + Python 3.12 | OCI app-01 | http://131.186.22.10:8001 |
+| 백엔드 API | FastAPI + Python 3.12 | OCI app-01 | https://bluelog-api.kpubdata.com (터널 · §3.5). `:8001`은 **호스트 루프백에만** 게시한다(#786) — 공인 IP로는 닿지 않는다 |
 | 데이터베이스 | CUBRID 11.4 | OCI db-01 | 10.0.1.132:33100 (VCN 내부) |
 | 이미지 레지스트리 | GitHub Container Registry | GHCR | ghcr.io/26-hp043/bluelog-backend |
 | CI/CD | GitHub Actions | GitHub | `.github/workflows/deploy.yml` |
@@ -114,7 +114,7 @@ API_ORIGIN = "https://<터널이 준 호스트명>"     # 배포가 시크릿에
 **`CF-Connecting-IP`로는 풀리지 않는다.** 화면(`pages.dev`)과 API(`kpubdata.com`)가 다른
 Cloudflare 영역이라, 영역 사이 서브리퀘스트에는 Cloudflare가 그 헤더를 Worker 주소
 `2a06:98c0:3600::103` 하나로 다시 쓴다(Cloudflare Docs *HTTP headers*).
-**`USE_FORWARDED_FOR=true`도 답이 아니다** — `:8001`이 열려 있어 헤더를 위조할 수 있다.
+**`USE_FORWARDED_FOR=true`도 답이 아니다** — 이 판정을 세울 때 `:8001`이 열려 있어 헤더를 위조할 수 있었다(`#786` 이후 루프백에만 게시하지만, 터널 뒤에서도 헤더는 여전히 사용자가 적을 수 있다).
 
 그래서 이렇게 한다.
 
@@ -131,7 +131,7 @@ Cloudflare 영역이라, 영역 사이 서브리퀘스트에는 Cloudflare가 �
 `client`는 판정된 IP, `peer`는 소켓 상대(터널이면 `127.0.0.1`)다. 서로 다른 두 네트워크에서
 로그인했을 때 `client`가 둘로 찍히면 끝이다.
 
-`:8001`을 닫는 일은 이것과 독립이다 — `#786`이 헬스체크 이전과 함께 한다.
+`:8001`을 닫는 일은 이것과 독립이다 — `#786`이 헬스체크 이전과 함께 했다. 백엔드는 `127.0.0.1:8001`에만 게시되고, 배포는 헬스를 터널 주소로 묻고 공인 `:8001`이 응답하면 실패한다(`deploy.yml` 「공인 :8001 닫힘 확인」).
 
 ---
 
@@ -225,7 +225,8 @@ GitHub Actions (deploy.yml)
   │   └─ docker compose up -d backend
   │
   └─ health check
-      └─ curl http://app-01:8001/api/v1/health (최대 150초)
+      ├─ curl https://bluelog-api.kpubdata.com/api/v1/health (터널 · 최대 150초 · #786)
+      └─ 공인 IP :8001이 응답하지 않는지 확인 (응답하면 실패)
 ```
 
 수동 트리거(`workflow_dispatch`) 옵션:
