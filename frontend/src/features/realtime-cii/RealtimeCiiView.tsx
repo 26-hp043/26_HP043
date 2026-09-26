@@ -1,24 +1,31 @@
-import { AlertTriangle, ArrowLeft } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router'
-import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
-import { DisclaimerBanner } from '../../components/DisclaimerBanner'
-import { GradeScaleBar } from '../../components/GradeScaleBar'
-import { VerdictStrip } from '../../components/VerdictStrip'
-import { YtdSeriesChart } from './YtdSeriesChart'
+import { AlertTriangle, ArrowLeft } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { Link, useParams } from "react-router";
+import { DataConfidenceBadge } from "../../components/DataConfidenceBadge";
+import { DisclaimerBanner } from "../../components/DisclaimerBanner";
+import { GradeScaleBar } from "../../components/GradeScaleBar";
+import { VerdictStrip } from "../../components/VerdictStrip";
+import { YtdSeriesChart } from "./YtdSeriesChart";
 /*
  * 항로 비교가 쓰는 **공용 지도**를 그대로 쓴다 (#1949). 같은 그림을 두 번 만들지
  * 않는다 — `moduleBoundary`의 `COMPOSITION`은 요청 계층(provider) 결합을 세는 것이고,
  * 화면 부품을 빌려 쓰는 것은 그 규칙의 대상이 아니다.
  */
-import { VoyageRouteMap } from '../scenario-comparison/VoyageRouteMap'
+import { VoyageRouteMap } from "../scenario-comparison/VoyageRouteMap";
 import {
   ciiUnit,
   displayWarnings,
   marginDisplay,
   riskLabel,
   warningMessage,
-} from '../voyage-cii/resultRules'
+} from "../voyage-cii/resultRules";
 import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
@@ -27,11 +34,11 @@ import {
   formatGrouped,
   formatPercent,
   toDecimalInput,
-} from '../../display/format'
-import { createApiRealtimeCiiProvider, RealtimeCiiError } from './apiProvider'
-import { regulationParametersPath } from '../parameters/referenceRules'
-import { voyageActualsPath } from '../voyage-management/voyageRules'
-import { portDisplayName, useSamplePorts } from '../ports/samplePorts'
+} from "../../display/format";
+import { createApiRealtimeCiiProvider, RealtimeCiiError } from "./apiProvider";
+import { regulationParametersPath } from "../parameters/referenceRules";
+import { voyageActualsPath } from "../voyage-management/voyageRules";
+import { portDisplayName, useSamplePorts } from "../ports/samplePorts";
 import {
   POLL_INTERVAL_MS,
   formatAsOf,
@@ -47,7 +54,7 @@ import {
   warningText,
   ytdGradeScaleVector,
   ytdRisk,
-} from './realtimeRules'
+} from "./realtimeRules";
 import type {
   Rating,
   RealtimeCii,
@@ -56,11 +63,11 @@ import type {
   YearEndProjection,
   YtdSeries,
   YtdValues,
-} from './types'
-import './RealtimeCiiView.css'
-import { ErrorState } from '../../components/ErrorState'
-import { SCREEN_BY_ID } from '../../screens'
-import { Icon } from '../../components/Icon'
+} from "./types";
+import "./RealtimeCiiView.css";
+import { ErrorState } from "../../components/ErrorState";
+import { SCREEN_BY_ID } from "../../screens";
+import { Icon } from "../../components/Icon";
 
 /**
  * 실시간 CII — `UIFLOW 2-9` · `#357`.
@@ -100,20 +107,25 @@ import { Icon } from '../../components/Icon'
  * 다시 「고칠 수 없는 안내」나 서로 어긋나는 안내를 하게 된다.
  */
 const YTD_BLOCKER_WARNINGS: ReadonlySet<string> = new Set([
-  'SIMULATION_NO_FUEL_RATE',
-  'SIMULATION_NO_FUEL_TYPE',
+  "SIMULATION_NO_FUEL_RATE",
+  "SIMULATION_NO_FUEL_TYPE",
   // 확정 항차에 연료 기록이 **한 행도 없다** (#1095 ⑵) — 거리만 더해지고 연료는 0이
   // 된다. 문구가 「해당 항차에 연료를 입력해 주세요」로 끝나 위 기준을 충족한다.
-  'COMPLETED_FUEL_UNFILLED',
-])
+  "COMPLETED_FUEL_UNFILLED",
+]);
 
-export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }) {
-  const { vesselId } = useParams()
-  const [data, setData] = useState<RealtimeCii | null>(null)
-  const [failure, setFailure] = useState<{ message: string; notFound: boolean } | null>(
-    null,
-  )
-  const [refreshing, setRefreshing] = useState(false)
+export function RealtimeCiiView({
+  provider,
+}: {
+  provider?: RealtimeCiiProvider;
+}) {
+  const { vesselId } = useParams();
+  const [data, setData] = useState<RealtimeCii | null>(null);
+  const [failure, setFailure] = useState<{
+    message: string;
+    notFound: boolean;
+  } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   /*
    * 마지막 폴링이 실패해 화면의 값이 낡았다 (`#755`).
    *
@@ -121,15 +133,15 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
    * 드러나는 자리가 없어, 고친 뒤에는 값이 조용히 낡을 수 있었다 — 이 화면은
    * 「항해 중 CII가 변하는 것을 보여 주는」 자리(`UIFLOW 2-9`)라 그 침묵이 특히 나쁘다.
    */
-  const [stale, setStale] = useState(false)
+  const [stale, setStale] = useState(false);
 
   /*
    * provider를 ref에 담는다. 매 렌더마다 새로 만들면 아래 effect의 의존성이 계속
    * 바뀌어 폴링 타이머가 재설정되고, 결국 간격이 지켜지지 않는다.
    */
-  const providerRef = useRef<RealtimeCiiProvider | null>(null)
+  const providerRef = useRef<RealtimeCiiProvider | null>(null);
   if (providerRef.current === null) {
-    providerRef.current = provider ?? createApiRealtimeCiiProvider()
+    providerRef.current = provider ?? createApiRealtimeCiiProvider();
   }
 
   /*
@@ -152,7 +164,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
    * `vesselId` 자체를 비교하지 않는 것은 A → B → A 왕복 때문이다. 그때 첫 A의
    * 인플라이트 응답은 `vesselId`가 같아 통과하지만 **더 오래된 값**이다.
    */
-  const generationRef = useRef(0)
+  const generationRef = useRef(0);
 
   /*
    * `load`는 **상태를 읽지 않는다** (`#755`).
@@ -180,21 +192,21 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
    */
   const load = useCallback(
     async (options: { silent?: boolean } = {}) => {
-      if (!vesselId) return
+      if (!vesselId) return;
       // 이 요청이 어느 선박의 것인지 (`#874`). 응답 시점에 대조한다.
-      const ticket = generationRef.current
-      if (options.silent) setRefreshing(true)
+      const ticket = generationRef.current;
+      if (options.silent) setRefreshing(true);
       try {
-        const next = await providerRef.current!.load(vesselId)
-        if (ticket !== generationRef.current) return
-        setData(next)
-        setFailure(null)
-        setStale(false)
+        const next = await providerRef.current!.load(vesselId);
+        if (ticket !== generationRef.current) return;
+        setData(next);
+        setFailure(null);
+        setStale(false);
       } catch (error) {
-        if (ticket !== generationRef.current) return
+        if (ticket !== generationRef.current) return;
         const message =
-          error instanceof Error ? error.message : '값을 불러오지 못했습니다.'
-        const notFound = error instanceof RealtimeCiiError && error.notFound
+          error instanceof Error ? error.message : "값을 불러오지 못했습니다.";
+        const notFound = error instanceof RealtimeCiiError && error.notFound;
 
         /*
          * 폴링 중 실패는 **화면을 비우지 않는다.** 마지막으로 받은 값이 여전히
@@ -205,17 +217,17 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
          * 나이에 영향받지 않는다. 값은 그대로 두고(`prev` 반환) 판정만 한다.
          */
         setData((prev) => {
-          if (prev === null) setFailure({ message, notFound })
+          if (prev === null) setFailure({ message, notFound });
           // 값이 있으면 남긴다. 대신 낡았다는 사실을 화면이 말한다.
-          else setStale(true)
-          return prev
-        })
+          else setStale(true);
+          return prev;
+        });
       } finally {
-        if (ticket === generationRef.current) setRefreshing(false)
+        if (ticket === generationRef.current) setRefreshing(false);
       }
     },
     [vesselId],
-  )
+  );
 
   /*
    * 선박이 바뀌면 **화면을 먼저 비운다** (`#874`).
@@ -230,31 +242,31 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
    * 새 표를 받는다.
    */
   useEffect(() => {
-    generationRef.current += 1
+    generationRef.current += 1;
     // oxlint-disable-next-line react/set-state-in-effect -- 선박이 바뀌면 화면을 먼저 비우는 리셋(`#874`) — 아래 로드 effect보다 앞서야 한다
-    setData(null)
-    setFailure(null)
-    setStale(false)
-    setRefreshing(false)
-  }, [vesselId])
+    setData(null);
+    setFailure(null);
+    setStale(false);
+    setRefreshing(false);
+  }, [vesselId]);
 
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- 선박이 정해지면 조회 — `load`가 시작 시점의 진행 상태를 세운다
-    void load()
-  }, [load])
+    void load();
+  }, [load]);
 
   useEffect(() => {
-    if (!vesselId) return
+    if (!vesselId) return;
     const timer = setInterval(() => {
       /*
        * 탭이 보이지 않으면 쉰다. 배경 탭을 켜 둔 사용자가 하루에 1440번을 요청하는데,
        * 그중 사람이 보는 것은 돌아온 순간의 한 번뿐이다.
        */
-      if (typeof document !== 'undefined' && document.hidden) return
-      void load({ silent: true })
-    }, POLL_INTERVAL_MS)
-    return () => clearInterval(timer)
-  }, [vesselId, load])
+      if (typeof document !== "undefined" && document.hidden) return;
+      void load({ silent: true });
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [vesselId, load]);
 
   if (failure) {
     return (
@@ -267,7 +279,9 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         <ErrorState
           level="page"
           message={failure.message}
-          onRetry={failure.notFound ? undefined : () => window.location.reload()}
+          onRetry={
+            failure.notFound ? undefined : () => window.location.reload()
+          }
           alternative={
             failure.notFound ? (
               <Link className="error-state__retry" to="/dashboard">
@@ -277,7 +291,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
           }
         />
       </div>
-    )
+    );
   }
 
   if (!data) {
@@ -286,11 +300,11 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         <BackLink vesselId={vesselId} />
         <p className="fleet__loading">실시간 값을 불러오는 중입니다…</p>
       </div>
-    )
+    );
   }
 
-  const unit = ciiUnit(data.capacityBasis)
-  const degrading = isDegradingAtBerth(data)
+  const unit = ciiUnit(data.capacityBasis);
+  const degrading = isDegradingAtBerth(data);
   /*
    * 누적을 계산하지 못한 **사유**로 서버가 내려보낸 경고 (`#1095` ⑵).
    *
@@ -299,8 +313,10 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
    * 하는 일은 **그 가운데 지금 화면에 해당하는 것만 골라** 카드 안으로 옮기는 것뿐이다
    * (전체 경고 목록은 화면 아래에 그대로 남는다).
    */
-  const ytdBlockers = data.warnings.filter((code) => YTD_BLOCKER_WARNINGS.has(code))
-  const shownWarnings = displayWarnings(data.warnings)
+  const ytdBlockers = data.warnings.filter((code) =>
+    YTD_BLOCKER_WARNINGS.has(code),
+  );
+  const shownWarnings = displayWarnings(data.warnings);
 
   return (
     <div className="rt">
@@ -322,7 +338,10 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         <div className="rt__status">
           {/* PRD R-5 — 판정은 서버가 한다. 화면이 조건을 덧붙이지 않는다. */}
           {data.simulated ? (
-            <span className="rt__sim" title="AIS·IoT 미연동. 입력값과 서버 시각에서 파생된 값입니다.">
+            <span
+              className="rt__sim"
+              title="AIS·IoT 미연동. 입력값과 서버 시각에서 파생된 값입니다."
+            >
               시뮬레이션 데이터
             </span>
           ) : null}
@@ -332,7 +351,8 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
           */}
           <p className="rt__asof">
             기준 {formatAsOf(data.asOf)}
-            {refreshing ? ' · 갱신 중…' : ''} · {POLL_INTERVAL_MS / 1000}초마다 자동 갱신
+            {refreshing ? " · 갱신 중…" : ""} · {POLL_INTERVAL_MS / 1000}초마다
+            자동 갱신
           </p>
           {/*
             `#755` — 갱신에 실패하면 **그 사실을 말한다.** 값을 남기는 것과 값이
@@ -351,16 +371,19 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 
       {/* ── 정박 중 악화 — 명세 3-③ ─────────────────────────────── */}
       {isNotUnderWay(data) ? (
-        <p className={`rt__berth${degrading ? ' rt__berth--degrading' : ''}`} role="status">
+        <p
+          className={`rt__berth${degrading ? " rt__berth--degrading" : ""}`}
+          role="status"
+        >
           {degrading ? (
             <>
-              <b>정박 중입니다.</b> 거리는 늘지 않고 정박 연료만 누적되므로{' '}
+              <b>정박 중입니다.</b> 거리는 늘지 않고 정박 연료만 누적되므로{" "}
               <b>누적 CII가 계속 나빠집니다.</b>
             </>
           ) : (
             <>
-              <b>정박 중입니다.</b> 정박 연료 기록이 없어 누적값이 움직이지 않습니다 —
-              기록을 넣으면 반영됩니다.
+              <b>정박 중입니다.</b> 정박 연료 기록이 없어 누적값이 움직이지
+              않습니다 — 기록을 넣으면 반영됩니다.
             </>
           )}
         </p>
@@ -381,23 +404,53 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
       */}
       <ConclusionStrip data={data} />
 
-      {/* ── ⑴ 연간 누적의 재료 ───────────────────────────────────── */}
-      <section className="card rt__ytd" aria-label="연간 누적 CII">
-        <div className="card__head">
-          <h2 className="card__title">연간 누적 (YTD)</h2>
-          <span className="card__meta">현재 누적 기준 예상 등급</span>
-        </div>
+      {/*
+        추정 고지는 **띠 바로 아래 한 줄**이다 (`DESIGN_SYSTEM §8.6` 🔒 · `§13` · `#1578`).
+        종전에는 ⑴ 카드 맨 아래에 있어, 띠가 말한 등급이 공식이 아니라는 사실이 그
+        등급에서 한 카드 떨어져 있었다.
+      */}
+      <p className="rt__note">
+        연중 누적 예측값이며 <b>공식 등급이 아닙니다</b>. 공식 등급은 연말 DCS
+        보고·검증 후 확정됩니다.
+      </p>
 
-        {data.ytd.dataAvailable && data.ytd.rating ? (
-          <div className="ytd">
-            {/*
+      {/*
+        ── 띠의 근거 둘 (#1949 · `§5` 카드 예산 · `§8.6`) ──────────────
+
+        **카드를 걷고 바닥에 놓았다.** `§5`는 카드를 「한 덩어리의 데이터」에만 쓰고
+        **요약 수치는 바닥 위에 바로 놓고 구분선으로 나눈다**고 정한다. 그리고 `§8.6`은
+        결론 띠의 나머지 수치를 「띠 아래 2열 라벨·값 목록으로 두고 **타일로 감싸지
+        않는다**」고 정한다. ⑴ 올해 누적과 ⑶ 연말 예상은 정확히 **띠가 말한 두 값의
+        재료**다 — 띠가 결론을 가져간 뒤 이 둘은 카드일 이유를 잃었다.
+
+        세어 보면 이 화면의 떠 있는 면은 여섯이었다 — 카드 넷 + 결론 띠 + 면책 배너
+        (띠와 배너도 면 + 테두리 + Lv1 그림자다). `§5`의 **4개 이하**를 둘 넘겼다.
+        둘을 바닥으로 내리면 넷이 되어 예산에 맞는다.
+
+        빈 공간도 이쪽이 정직하다 — 키가 다른 두 **카드**를 나란히 두면 짧은 쪽 아래가
+        「비어 있다」로 읽히지만, 바닥은 원래 비어 있는 것이다.
+
+        ⑶을 ⑵보다 먼저 두는 것은 띠의 주·보조를 순서대로 풀어 놓기 위해서다 — 읽는
+        순서가 올해 누적 → 연말 예상 → 이번 항차가 된다.
+      */}
+      <div className="rt__basis">
+        {/* ── ⑴ 연간 누적의 재료 ─────────────────────────────────── */}
+        <section className="rt__basis-part rt__ytd" aria-label="연간 누적 CII">
+          <div className="card__head">
+            <h2 className="card__title">연간 누적 (YTD)</h2>
+            <span className="card__meta">현재 누적 기준 예상 등급</span>
+          </div>
+
+          {data.ytd.dataAvailable && data.ytd.rating ? (
+            <div className="ytd">
+              {/*
               ⚠️ **등급 배지를 여기서 걷었다** (#1949) — 결론 띠가 같은 배지를 이미
               들고 있다. 남는 것은 **신뢰도**다: 이 누적이 실측이 아닌 값으로 계산됐는지,
               그리고 무엇이 그런지 보러 가는 길(`#1082` · `UIFLOW 2-11` 진입 조건).
               그것은 결론이 아니라 재료의 성질이라 재료 옆이 제자리다.
             */}
-            <YtdConfidence data={data} />
-            {/*
+              <YtdConfidence data={data} />
+              {/*
               자릿수는 `DESIGN_SYSTEM §4`(🔒)가 정한다 — CII 3자리(`§4.1`),
               거리 0자리·연료 1자리(`§4.2`). 종전에는 서버 원본 문자열을 그대로
               내보내 `8.979907` · `4300.00 nm`처럼 화면마다 자릿수가 갈렸다.
@@ -405,8 +458,8 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
               단위는 `DISPLAY_UNITS`를 참조한다. 리터럴로 박으면 표기가 바뀔 때
               일부가 남고, 그 누락은 화면이 깨지지 않아 발견이 늦다(#164).
             */}
-            <dl className="ytd__figures">
-              {/*
+              <dl className="ytd__figures">
+                {/*
                 ⚠️ **실적·기준 두 칸을 여기서 걷었다** (#1949). 실적은 결론 띠의 주
                 결론이고, 기준은 그 띠가 등급 배지·위험도로 말한다 — 같은 숫자를 한
                 화면에 두 번 두면 어느 쪽이 결론인지 흐려진다(`§8.6`).
@@ -415,112 +468,78 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
                 결정 B·D가 「왜 이 등급인가」의 출발점으로 세운 링크다. 아래 등급 스케일
                 옆으로 옮겼다.
               */}
-              {/*
+                {/*
                 누적 거리를 운항·정박으로 쪼갠다 (#725). 위의 정박 경고가 「거리는
                 늘지 않고 연료만 누적된다」고 말하는데, 그 말을 **뒷받침하는 숫자가
                 화면에 없었다** — 서버는 두 축을 나눠 싣고 있었고 화면이 합계만 읽었다.
               */}
-              <Figure
-                label="누적 거리"
-                value={formatOrNull(data.ytd.totalDistanceNm, (v) =>
-                  formatGrouped(v, DISPLAY_DIGITS.distanceNm),
-                )}
-                suffix={` ${DISPLAY_UNITS.distance}`}
-                hint={distanceSplitHint(data.ytd)}
-              />
-              <Figure
-                label="누적 연료"
-                value={formatOrNull(data.ytd.totalFuelTon, (v) =>
-                  formatGrouped(v, DISPLAY_DIGITS.fuelTon),
-                )}
-                suffix={` ${DISPLAY_UNITS.fuel}`}
-              />
-              {/*
+                <Figure
+                  label="누적 거리"
+                  value={formatOrNull(data.ytd.totalDistanceNm, (v) =>
+                    formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+                  )}
+                  suffix={` ${DISPLAY_UNITS.distance}`}
+                  hint={distanceSplitHint(data.ytd)}
+                />
+                <Figure
+                  label="누적 연료"
+                  value={formatOrNull(data.ytd.totalFuelTon, (v) =>
+                    formatGrouped(v, DISPLAY_DIGITS.fuelTon),
+                  )}
+                  suffix={` ${DISPLAY_UNITS.fuel}`}
+                />
+                {/*
                 CII의 **분자**다 (#725). 화면에는 분모 쪽(거리)과 그 재료(연료)만
                 있고 정작 규제가 세는 양이 없었다 — `total_co2_ton`은 `#357`부터
                 응답에 있었고 화면이 읽지 않았다. 연료 옆에 두어 연료 → CO₂ 순서로
                 읽히게 한다.
               */}
-              <Figure
-                label="누적 CO₂"
-                value={formatOrNull(data.ytd.totalCo2Ton, (v) =>
-                  formatGrouped(v, DISPLAY_DIGITS.co2Ton),
-                )}
-                suffix={` ${DISPLAY_UNITS.co2}`}
-              />
-            </dl>
-          </div>
-        ) : (
-          /*
-           * ⚠️ **「실적이 없다」와 「있는데 계산하지 못했다」는 다르다** (`#1095` ⑵).
-           *
-           * 서버는 `total_distance_nm <= 0` **또는** `total_fuel_ton <= 0`이면
-           * `data_available=false`를 준다(`services/ytd_cii.py:390`). 뒤쪽은 항차도
-           * 거리도 있는데 **연료를 모르는** 상태다 — 기여도 카드에는 거리 수백 nm이
-           * 찍히는데 여기서만 「실적을 입력하라」고 말하고 있었고, 실제로 해야 할 일은
-           * 선박 제원(기준 일일 연료소모량) 입력이다.
-           *
-           * 사유는 **서버가 이미 경고로 말하고 있다** — `SIMULATION_NO_FUEL_RATE` ·
-           * `SIMULATION_NO_FUEL_TYPE` 등이 같은 응답의 `warnings`에 실린다
-           * (`API_SPEC §1.6`). 화면이 새로 문구를 짓지 않고 그 문구를 그대로 쓴다.
-           */
-          <div className="rt__nodata">
-            {ytdBlockers.length > 0 ? (
-              <ul className="rt__nodata-reasons">
-                {ytdBlockers.map((code) => (
-                  <li key={code}>{warningText(code)}</li>
-                ))}
-              </ul>
-            ) : (
-              <p>올해 등록된 실적이 없습니다. 항차 실적을 입력하면 누적값이 계산됩니다.</p>
-            )}
-          </div>
-        )}
-
-        {data.ytd.dataAvailable && data.ytd.rating ? (
-          <YtdAxis ytd={data.ytd} rating={data.ytd.rating} />
-        ) : null}
-
-        <p className="rt__note">
-          연중 누적 예측값이며 <b>공식 등급이 아닙니다</b>. 공식 등급은 연말 DCS
-          보고·검증 후 확정됩니다.
-        </p>
-      </section>
-
-      <div className="rt__split">
-        {/* ── ⑵ 항차 구간값 — 등급 없음 ──────────────────────────── */}
-        <section className="card" aria-label="항차 CII 기여도">
-          <div className="card__head">
-            <h2 className="card__title">항차 CII 기여도</h2>
-            <span className="card__meta">등급 판정 대상 아님</span>
-          </div>
-          {data.currentVoyage ? (
-            <div className="rt__voyage-body">
-              {/*
-                이번 항차 지도 (#1949 · R-D2 `#1672` 확정).
-
-                **보간하지 않는다** — 진행률로 위치를 만들지 않고, 서버가 마지막으로
-                받은 위치를 그대로 찍고 그 시각을 함께 적는다. 진행률은 옆 단의 막대에만
-                둔다. 좌표를 못 받으면 지도를 그리지 않고 수치가 카드 전체를 쓴다.
-              */}
-              <VoyageMapBlock
-                provider={provider}
-                vesselId={data.vesselId}
-                voyageId={data.currentVoyage.voyageId}
-                arrivalPortName={data.currentVoyage.arrivalPortName}
-              />
-              <div className="rt__voyage-figures-col">
-                <VoyagePanel data={data} unit={unit} vesselId={vesselId} />
-              </div>
+                <Figure
+                  label="누적 CO₂"
+                  value={formatOrNull(data.ytd.totalCo2Ton, (v) =>
+                    formatGrouped(v, DISPLAY_DIGITS.co2Ton),
+                  )}
+                  suffix={` ${DISPLAY_UNITS.co2}`}
+                />
+              </dl>
             </div>
           ) : (
-            /* 항차가 없는 것은 오류가 아니다 — 정박 중이거나 아직 등록 전이다. */
-            <p className="rt__nodata">진행 중인 항차가 없습니다.</p>
+            /*
+             * ⚠️ **「실적이 없다」와 「있는데 계산하지 못했다」는 다르다** (`#1095` ⑵).
+             *
+             * 서버는 `total_distance_nm <= 0` **또는** `total_fuel_ton <= 0`이면
+             * `data_available=false`를 준다(`services/ytd_cii.py:390`). 뒤쪽은 항차도
+             * 거리도 있는데 **연료를 모르는** 상태다 — 기여도 카드에는 거리 수백 nm이
+             * 찍히는데 여기서만 「실적을 입력하라」고 말하고 있었고, 실제로 해야 할 일은
+             * 선박 제원(기준 일일 연료소모량) 입력이다.
+             *
+             * 사유는 **서버가 이미 경고로 말하고 있다** — `SIMULATION_NO_FUEL_RATE` ·
+             * `SIMULATION_NO_FUEL_TYPE` 등이 같은 응답의 `warnings`에 실린다
+             * (`API_SPEC §1.6`). 화면이 새로 문구를 짓지 않고 그 문구를 그대로 쓴다.
+             */
+            <div className="rt__nodata">
+              {ytdBlockers.length > 0 ? (
+                <ul className="rt__nodata-reasons">
+                  {ytdBlockers.map((code) => (
+                    <li key={code}>{warningText(code)}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p>
+                  올해 등록된 실적이 없습니다. 항차 실적을 입력하면 누적값이
+                  계산됩니다.
+                </p>
+              )}
+            </div>
           )}
+
+          {data.ytd.dataAvailable && data.ytd.rating ? (
+            <YtdAxis ytd={data.ytd} rating={data.ytd.rating} />
+          ) : null}
         </section>
 
-        {/* ── ⑶ 연말 예상 — 보조 표시 ───────────────────────────── */}
-        <section className="card" aria-label="연말 예상">
+        {/* ── ⑶ 연말 예상 — 띠의 보조 결론의 근거 ────────────────── */}
+        <section className="rt__basis-part" aria-label="연말 예상">
           <div className="card__head">
             <h2 className="card__title">연말 예상</h2>
             <span className="card__meta">가정에 따라 달라지는 추정값</span>
@@ -528,6 +547,37 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
           <ProjectionPanel data={data} />
         </section>
       </div>
+
+      {/* ── ⑵ 항차 구간값 — 등급 없음 ────────────────────────────── */}
+      <section className="card" aria-label="항차 CII 기여도">
+        <div className="card__head">
+          <h2 className="card__title">항차 CII 기여도</h2>
+          <span className="card__meta">등급 판정 대상 아님</span>
+        </div>
+        {data.currentVoyage ? (
+          <div className="rt__voyage-body">
+            {/*
+                이번 항차 지도 (#1949 · R-D2 `#1672` 확정).
+
+                **보간하지 않는다** — 진행률로 위치를 만들지 않고, 서버가 마지막으로
+                받은 위치를 그대로 찍고 그 시각을 함께 적는다. 진행률은 옆 단의 막대에만
+                둔다. 좌표를 못 받으면 지도를 그리지 않고 수치가 카드 전체를 쓴다.
+              */}
+            <VoyageMapBlock
+              provider={provider}
+              vesselId={data.vesselId}
+              voyageId={data.currentVoyage.voyageId}
+              arrivalPortName={data.currentVoyage.arrivalPortName}
+            />
+            <div className="rt__voyage-figures-col">
+              <VoyagePanel data={data} unit={unit} vesselId={vesselId} />
+            </div>
+          </div>
+        ) : (
+          /* 항차가 없는 것은 오류가 아니다 — 정박 중이거나 아직 등록 전이다. */
+          <p className="rt__nodata">진행 중인 항차가 없습니다.</p>
+        )}
+      </section>
 
       {/*
         ── 올해 누적 추이 (#1949) ──────────────────────────────────────
@@ -543,7 +593,11 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         언마운트 없이 선박이 전환되므로(위 세대 주석), 키가 없으면 앞 선박의 추이가
         남은 채로 새 조회가 돌아오기를 기다린다.
       */}
-      <TrendSection key={data.vesselId} provider={provider} vesselId={data.vesselId} />
+      <TrendSection
+        key={data.vesselId}
+        provider={provider}
+        vesselId={data.vesselId}
+      />
 
       {/* ── 경고 ─────────────────────────────────────────────────── */}
       {/*
@@ -560,12 +614,12 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 
       <DisclaimerBanner />
     </div>
-  )
+  );
 }
 
 // ─── 부품 ────────────────────────────────────────────────────────────────────
 
-const TREND_FAILED_TEXT = '추이를 불러오지 못했습니다.'
+const TREND_FAILED_TEXT = "추이를 불러오지 못했습니다.";
 
 /**
  * 이번 항차 지도 (#1949 · R-D2 `#1672` 확정).
@@ -583,31 +637,34 @@ function VoyageMapBlock({
   voyageId,
   arrivalPortName,
 }: {
-  provider?: RealtimeCiiProvider
-  vesselId: string
-  voyageId: string
-  arrivalPortName: string | null
+  provider?: RealtimeCiiProvider;
+  vesselId: string;
+  voyageId: string;
+  arrivalPortName: string | null;
 }) {
-  const client = useMemo(() => provider ?? createApiRealtimeCiiProvider(), [provider])
-  const [route, setRoute] = useState<VoyageRoute | null>(null)
+  const client = useMemo(
+    () => provider ?? createApiRealtimeCiiProvider(),
+    [provider],
+  );
+  const [route, setRoute] = useState<VoyageRoute | null>(null);
 
   useEffect(() => {
-    const loadRoute = client.loadRoute
-    if (loadRoute === undefined) return
-    let cancelled = false
+    const loadRoute = client.loadRoute;
+    if (loadRoute === undefined) return;
+    let cancelled = false;
     loadRoute.call(client, vesselId, voyageId).then(
       (value) => {
-        if (!cancelled) setRoute(value)
+        if (!cancelled) setRoute(value);
       },
       () => {
         // 조용히 그리지 않는다 — 지도는 이 화면의 보조다.
-        if (!cancelled) setRoute(null)
+        if (!cancelled) setRoute(null);
       },
-    )
+    );
     return () => {
-      cancelled = true
-    }
-  }, [client, vesselId, voyageId])
+      cancelled = true;
+    };
+  }, [client, vesselId, voyageId]);
 
   if (
     route === null ||
@@ -617,7 +674,7 @@ function VoyageMapBlock({
     route.arrivalLon === null ||
     route.positionUpdatedAt === null
   ) {
-    return null
+    return null;
   }
 
   return (
@@ -627,7 +684,7 @@ function VoyageMapBlock({
         currentLon={route.currentLon}
         destinationLat={route.arrivalLat}
         destinationLon={route.arrivalLon}
-        destinationName={route.arrivalPortName ?? arrivalPortName ?? ''}
+        destinationName={route.arrivalPortName ?? arrivalPortName ?? ""}
         /*
           ⚠️ **빌려 쓴 부품의 기본 문안은 그 화면 기준이다.** 그대로 두면 이 화면에
           「항로 비교 지도 텍스트 정보」가 나온다 — 실측에서 그렇게 나왔다.
@@ -638,9 +695,11 @@ function VoyageMapBlock({
         **마지막으로 받은 위치**임을 말한다. 「지금 여기 있다」가 아니다 — 진행률과
         위치가 서로 다른 시점을 가리킬 수 있다는 것이 R-D2가 연 문제였다.
       */}
-      <p className="rt__map-asof">위치 기준 {formatTimestamp(route.positionUpdatedAt)}</p>
+      <p className="rt__map-asof">
+        위치 기준 {formatTimestamp(route.positionUpdatedAt)}
+      </p>
     </div>
-  )
+  );
 }
 
 /**
@@ -650,10 +709,10 @@ function VoyageMapBlock({
  * 조용히 감추면 합이 맞지 않는 것처럼 보인다.
  */
 const DRIVER_LABEL: Readonly<Record<string, string>> = {
-  BASIS_DIFFERENCE: '집계 기준 차이',
-  CURRENT_VOYAGE: '이 항해를 마치면',
-  REMAINING_PLAN: '남은 계획까지 하면',
-}
+  BASIS_DIFFERENCE: "집계 기준 차이",
+  CURRENT_VOYAGE: "이 항해를 마치면",
+  REMAINING_PLAN: "남은 계획까지 하면",
+};
 
 /**
  * 연말 예상을 **무엇이 올리는가** (#1949 · `API_SPEC` `drivers[]`).
@@ -666,8 +725,8 @@ const DRIVER_LABEL: Readonly<Record<string, string>> = {
  * 값은 음수일 수 있다 — 부호를 그대로 보인다.
  */
 function ProjectionDrivers({ projection }: { projection: YearEndProjection }) {
-  const drivers = projection.drivers
-  if (drivers.length === 0) return null
+  const drivers = projection.drivers;
+  if (drivers.length === 0) return null;
 
   return (
     <dl className="rt__drivers">
@@ -675,12 +734,12 @@ function ProjectionDrivers({ projection }: { projection: YearEndProjection }) {
         <div key={driver.key}>
           <dt>{DRIVER_LABEL[driver.key] ?? driver.key}</dt>
           <dd className="num">
-            {formatOrNull(driver.deltaCii, (v) => signedCii(v)) ?? '—'}
+            {formatOrNull(driver.deltaCii, (v) => signedCii(v)) ?? "—"}
           </dd>
         </div>
       ))}
     </dl>
-  )
+  );
 }
 
 /**
@@ -690,9 +749,12 @@ function ProjectionDrivers({ projection }: { projection: YearEndProjection }) {
  * 자릿수는 `§4.1`(🔒)의 CII 자릿수를 그대로 쓴다.
  */
 function signedCii(raw: string): string {
-  const negative = raw.trimStart().startsWith('-')
-  const magnitude = formatDecimalString(negative ? raw.trimStart().slice(1) : raw, DISPLAY_DIGITS.cii)
-  return `${negative ? '−' : '+'}${magnitude}`
+  const negative = raw.trimStart().startsWith("-");
+  const magnitude = formatDecimalString(
+    negative ? raw.trimStart().slice(1) : raw,
+    DISPLAY_DIGITS.cii,
+  );
+  return `${negative ? "−" : "+"}${magnitude}`;
 }
 
 /**
@@ -709,40 +771,43 @@ function TrendSection({
   provider,
   vesselId,
 }: {
-  provider?: RealtimeCiiProvider
-  vesselId: string
+  provider?: RealtimeCiiProvider;
+  vesselId: string;
 }) {
-  const client = useMemo(() => provider ?? createApiRealtimeCiiProvider(), [provider])
-  const [series, setSeries] = useState<YtdSeries | null>(null)
+  const client = useMemo(
+    () => provider ?? createApiRealtimeCiiProvider(),
+    [provider],
+  );
+  const [series, setSeries] = useState<YtdSeries | null>(null);
   /*
    * 첫 상태를 **여기서 정한다.** effect 안에서 `setState('loading')`을 부르면 한 번 더
    * 렌더되고, 조회를 못 하는 대역에서는 그 렌더가 헛돈다. 선박이 바뀔 때는 호출부가
    * `key`로 이 부품을 다시 만들므로 상태도 초기값부터다.
    */
-  const [state, setState] = useState<'idle' | 'loading' | 'ok' | 'failed'>(() =>
-    client.loadSeries === undefined ? 'idle' : 'loading',
-  )
+  const [state, setState] = useState<"idle" | "loading" | "ok" | "failed">(
+    () => (client.loadSeries === undefined ? "idle" : "loading"),
+  );
 
   useEffect(() => {
-    const loadSeries = client.loadSeries
-    if (loadSeries === undefined) return
-    let cancelled = false
+    const loadSeries = client.loadSeries;
+    if (loadSeries === undefined) return;
+    let cancelled = false;
     loadSeries.call(client, vesselId).then(
       (value) => {
-        if (cancelled) return
-        setSeries(value)
-        setState('ok')
+        if (cancelled) return;
+        setSeries(value);
+        setState("ok");
       },
       () => {
-        if (!cancelled) setState('failed')
+        if (!cancelled) setState("failed");
       },
-    )
+    );
     return () => {
-      cancelled = true
-    }
-  }, [client, vesselId])
+      cancelled = true;
+    };
+  }, [client, vesselId]);
 
-  if (state === 'idle') return null
+  if (state === "idle") return null;
 
   return (
     <section className="card rt__trend" aria-label="올해 누적 추이">
@@ -750,15 +815,15 @@ function TrendSection({
         <h2 className="card__title">올해 누적 추이</h2>
         <span className="card__meta">항차 경계마다 한 점</span>
       </div>
-      {state === 'loading' ? (
+      {state === "loading" ? (
         <p className="rt__nodata">추이를 불러오는 중…</p>
-      ) : state === 'failed' || series === null ? (
+      ) : state === "failed" || series === null ? (
         <p className="rt__nodata">{TREND_FAILED_TEXT}</p>
       ) : (
         <YtdSeriesChart series={series} />
       )}
     </section>
-  )
+  );
 }
 
 /**
@@ -773,26 +838,26 @@ function TrendSection({
  */
 function ConclusionStrip({ data }: { data: RealtimeCii }) {
   // CII 단위는 상수가 아니다 — 선종의 capacity 축에서 갈린다 (`§4.1` 🔒 · `ciiUnit`).
-  const unit = ciiUnit(data.capacityBasis)
+  const unit = ciiUnit(data.capacityBasis);
   const ytdValue = formatOrNull(data.ytd.attainedCii, (v) =>
     formatDecimalString(v, DISPLAY_DIGITS.cii),
-  )
-  if (!data.ytd.dataAvailable || ytdValue === null) return null
+  );
+  if (!data.ytd.dataAvailable || ytdValue === null) return null;
 
-  const risk = ytdRisk(data.ytd)
+  const risk = ytdRisk(data.ytd);
   const projectionValue = formatOrNull(data.projection.attainedCii, (v) =>
     formatDecimalString(v, DISPLAY_DIGITS.cii),
-  )
+  );
 
   return (
     <VerdictStrip
       label="올해 누적과 연말 예상"
       main={{
-        label: '올해 누적 (YTD)',
+        label: "올해 누적 (YTD)",
         value: ytdValue,
         unit,
         rating: data.ytd.rating,
-        ratingLabel: `현재 누적 기준 예상 등급 ${data.ytd.rating ?? '없음'}`,
+        ratingLabel: `현재 누적 기준 예상 등급 ${data.ytd.rating ?? "없음"}`,
       }}
       /*
        * 연말 예상을 못 내는 선박도 있다(`projection.dataAvailable`). 그때는 값 자리에
@@ -802,62 +867,65 @@ function ConclusionStrip({ data }: { data: RealtimeCii }) {
        */
       sub={
         projectionValue === null
-          ? { label: '연말 예상', value: '—' }
+          ? { label: "연말 예상", value: "—" }
           : {
-              label: '연말 예상',
+              label: "연말 예상",
               value: projectionValue,
               unit,
               rating: data.projection.rating,
-              ratingLabel: `연말 예상 등급 ${data.projection.rating ?? '없음'}`,
+              ratingLabel: `연말 예상 등급 ${data.projection.rating ?? "없음"}`,
             }
       }
       {...(risk === null
         ? {}
-        : { risk: { level: risk, heading: '위험도', ...riskLabel(risk) } })}
+        : { risk: { level: risk, heading: "위험도", ...riskLabel(risk) } })}
     />
-  )
+  );
 }
 
 function BackLink({ vesselId }: { vesselId?: string }) {
   return (
-    <Link className="rt__back" to={vesselId ? `/vessels/${vesselId}` : '/dashboard'}>
+    <Link
+      className="rt__back"
+      to={vesselId ? `/vessels/${vesselId}` : "/dashboard"}
+    >
       <Icon glyph={ArrowLeft} size="inline" />
       선박 상세
     </Link>
-  )
+  );
 }
 
 function Figure({
   label,
   value,
-  suffix = '',
+  suffix = "",
   hint = null,
   link = null,
 }: {
-  label: string
-  value: string | null
-  suffix?: string
+  label: string;
+  value: string | null;
+  suffix?: string;
   /** 값 아래 링크 — 그 값의 근거가 있는 자리로 (#1516). `hint`처럼 `<dd>` 안이다. */
-  link?: ReactNode
+  link?: ReactNode;
   /**
    * 값 아래 한 줄 — **그 값이 무엇으로 이루어졌는가** (`#725`).
    *
    * `<dd>` 안에 둔다. `<dl>` 안에서 `<dt>`·`<dd>` 사이에 다른 요소를 끼울 수 없고,
    * 이 문장은 값의 부속이지 별도 항목이 아니다.
    */
-  hint?: string | null
+  hint?: string | null;
 }) {
   return (
     <div>
       <dt>{label}</dt>
       {/* 빈칸이면 항목 자체가 없는 것으로 읽힌다. */}
-      <dd className={value ? 'num' : 'num muted'}>
-        {value ? `${value}${suffix}` : '—'}
+      <dd className={value ? "num" : "num muted"}>
+        {value ? `${value}${suffix}` : "—"}
         {hint ? <span className="rt__figure-hint">{hint}</span> : null}
         {link}
       </dd>
     </div>
-  )
+  );
 }
 
 /**
@@ -870,12 +938,12 @@ function Figure({
 function distanceSplitHint(ytd: YtdValues): string | null {
   const underway = formatOrNull(ytd.underwayDistanceNm, (v) =>
     formatGrouped(v, DISPLAY_DIGITS.distanceNm),
-  )
+  );
   const berth = formatOrNull(ytd.notUnderwayDistanceNm, (v) =>
     formatGrouped(v, DISPLAY_DIGITS.distanceNm),
-  )
-  if (underway === null && berth === null) return null
-  return `운항 ${underway ?? '—'} · 정박 ${berth ?? '—'}`
+  );
+  if (underway === null && berth === null) return null;
+  return `운항 ${underway ?? "—"} · 정박 ${berth ?? "—"}`;
 }
 
 /**
@@ -898,16 +966,17 @@ function distanceSplitHint(ytd: YtdValues): string | null {
  * 사실을 두 화면이 다른 말로 적으면 그 차이가 곧 버그 신고가 된다.
  */
 function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
-  const risk = ytdRisk(ytd)
-  const riskText = risk === null ? null : riskLabel(risk)
-  const margin = marginDisplay(rating, ytd.marginRatio)
-  const ratio = formatOrNull(ytd.ratioToRequired, (v) => `${formatPercent(v)}%`)
-  const scale = ytdGradeScaleVector(ytd)
+  const margin = marginDisplay(rating, ytd.marginRatio);
+  const ratio = formatOrNull(
+    ytd.ratioToRequired,
+    (v) => `${formatPercent(v)}%`,
+  );
+  const scale = ytdGradeScaleVector(ytd);
   /*
    * 스케일 바를 그리면 **그 마커가 비율을 적는다** — 목록에도 두면 한 카드에 같은 값이 두 번이다
    * (#1555). 바를 못 그리면(경계 없음 · 기준 0) 목록이 유일한 자리라 남긴다.
    */
-  const drawsBar = Boolean(scale && ytd.ratioToRequired && ratio)
+  const drawsBar = Boolean(scale && ytd.ratioToRequired && ratio);
 
   return (
     <div className="rt__axis">
@@ -919,27 +988,18 @@ function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
               「7.871 / 5.045」를 눈으로 나누고 있었다. 서버가 `ratio_to_required`를
               이미 싣는다 — 기능①의 「기준 대비 비율」과 같은 값·같은 자릿수다.
             */}
-            <dd className={ratio ? 'num' : 'num muted'}>{ratio ?? '—'}</dd>
+            <dd className={ratio ? "num" : "num muted"}>{ratio ?? "—"}</dd>
           </div>
         )}
-        <div>
-          <dt>위험도</dt>
-          <dd className={riskText ? `rt__risk rt__risk--${risk!.toLowerCase()}` : 'muted'}>
-            {riskText ? (
-              <>
-                {riskText.withIcon ? (
-                  // §2.5 (b) — 라벨이 바로 옆에 있으므로 aria-hidden.
-                  <span className="rt__risk-icon">
-                    <Icon glyph={AlertTriangle} size="inline" />
-                  </span>
-                ) : null}
-                {riskText.text}
-              </>
-            ) : (
-              '—'
-            )}
-          </dd>
-        </div>
+        {/*
+          ⚠️ **위험도를 여기서 걷었다** (#1949 · `§2.3` 「경고색은 한 자리에 한 번」).
+
+          결론 띠가 **같은 값**을 이미 든다 — 띠의 pill도 `ytdRisk(data.ytd)`다. 실측에서
+          한 화면에 「위험도 ⚠ 높음 HIGH」가 셋 있었다(띠 · 여기 · 연말 예상). 연말 예상의
+          것은 **다른 위험**(예상값의 위험도)이라 남기고, 같은 값인 이쪽을 걷는다.
+
+          `§8.6`도 위험도 pill을 띠의 몫으로 정한다 — 「위험도 pill **하나**」.
+        */}
         <div>
           <dt>다음 경계까지</dt>
           <dd>{margin.text}</dd>
@@ -976,7 +1036,7 @@ function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
         </Link>
       </p>
     </div>
-  )
+  );
 }
 
 function VoyagePanel({
@@ -984,24 +1044,26 @@ function VoyagePanel({
   unit,
   vesselId,
 }: {
-  data: RealtimeCii
-  unit: string
-  vesselId?: string
+  data: RealtimeCii;
+  unit: string;
+  vesselId?: string;
 }) {
-  const voyage = data.currentVoyage!
-  const ratio = voyageProgressRatio(data)
-  const remaining = remainingDistanceNm(data)
+  const voyage = data.currentVoyage!;
+  const ratio = voyageProgressRatio(data);
+  const remaining = remainingDistanceNm(data);
   // 항구는 저장값(`BUSAN`)이 아니라 **보이는 이름**으로 적는다 (#1776). 선박 상세의 항차 표가
   // `#1742`에서 이미 그렇게 하므로, 같은 항차가 두 화면에서 다른 이름으로 보이지 않게 한다.
   // 목록에 없는 항구와 목록을 아직 받지 못한 때는 입력한 그대로다(`portDisplayName`).
-  const ports = useSamplePorts()
+  const ports = useSamplePorts();
   const portName = (stored: string | null | undefined) =>
-    stored === null || stored === undefined ? '—' : portDisplayName(ports, stored)
+    stored === null || stored === undefined
+      ? "—"
+      : portDisplayName(ports, stored);
 
   return (
     <>
       <p className="rt__voyage-title">
-        {voyage.voyageNo ?? '항차'} · {portName(voyage.departurePortName)} →{' '}
+        {voyage.voyageNo ?? "항차"} · {portName(voyage.departurePortName)} →{" "}
         {portName(voyage.arrivalPortName)}
       </p>
 
@@ -1020,12 +1082,17 @@ function VoyagePanel({
           aria-valuenow={Number(formatPercent(toDecimalInput(ratio)))}
           aria-valuetext={`${formatPercent(toDecimalInput(ratio))}%`}
         >
-          <div className="rt__progress-bar" style={{ inlineSize: `${ratio * 100}%` }} />
+          <div
+            className="rt__progress-bar"
+            style={{ inlineSize: `${ratio * 100}%` }}
+          />
           {/*
             `§4.2` 「비율」 — 백분율 1자리. `Math.round(ratio * 100)`은 화면이
             직접 셈하는 것이라 규정 자릿수와 무관하게 정수로 떨어졌다.
           */}
-          <span className="rt__progress-text num">{formatPercent(toDecimalInput(ratio))}%</span>
+          <span className="rt__progress-text num">
+            {formatPercent(toDecimalInput(ratio))}%
+          </span>
         </div>
       ) : null}
 
@@ -1044,8 +1111,9 @@ function VoyagePanel({
         */}
         <Figure
           label="남은 거리"
-          value={formatOrNull(remaining === null ? null : String(remaining), (v) =>
-            formatGrouped(v, DISPLAY_DIGITS.distanceNm),
+          value={formatOrNull(
+            remaining === null ? null : String(remaining),
+            (v) => formatGrouped(v, DISPLAY_DIGITS.distanceNm),
           )}
           suffix={` ${DISPLAY_UNITS.distance}`}
         />
@@ -1070,7 +1138,7 @@ function VoyagePanel({
         <span className="num rt__segment-value">
           {formatOrNull(voyage.attainedCii, (v) =>
             formatDecimalString(v, DISPLAY_DIGITS.cii),
-          ) ?? '—'}
+          ) ?? "—"}
         </span>
         <span className="rt__segment-unit">{unit}</span>
       </div>
@@ -1097,14 +1165,16 @@ function VoyagePanel({
       */}
       {vesselId ? (
         <Link
-          className={remaining === 0 ? 'rt__actuals rt__actuals--primary' : 'rt__actuals'}
+          className={
+            remaining === 0 ? "rt__actuals rt__actuals--primary" : "rt__actuals"
+          }
           to={voyageActualsPath(vesselId, voyage.voyageId)}
         >
           이 항차 실적 입력
         </Link>
       ) : null}
     </>
-  )
+  );
 }
 
 /**
@@ -1127,7 +1197,7 @@ function VoyagePanel({
  * 섞이지 않았으면 아무것도 그리지 않는다.
  */
 function YtdConfidence({ data }: { data: RealtimeCii }) {
-  if (!hasSubstitutedInputs(data.ytd)) return null
+  if (!hasSubstitutedInputs(data.ytd)) return null;
   return (
     <span className="rt__grade-row">
       <DataConfidenceBadge detail={substitutionSummary(data.ytd)} />
@@ -1136,7 +1206,7 @@ function YtdConfidence({ data }: { data: RealtimeCii }) {
         {SCREEN_BY_ID.DATA_QUALITY.label}
       </Link>
     </span>
-  )
+  );
 }
 
 /**
@@ -1146,22 +1216,29 @@ function YtdConfidence({ data }: { data: RealtimeCii }) {
  * 모양으로 보여 주면, 나란히 놓인 두 카드가 서로 다른 지표처럼 읽힌다.
  */
 function ProjectionAxis({ projection }: { projection: YearEndProjection }) {
-  const risk = ytdRisk(projection)
-  const riskText = risk === null ? null : riskLabel(risk)
-  const ratio = formatOrNull(projection.ratioToRequired, (v) => `${formatPercent(v)}%`)
+  const risk = ytdRisk(projection);
+  const riskText = risk === null ? null : riskLabel(risk);
+  const ratio = formatOrNull(
+    projection.ratioToRequired,
+    (v) => `${formatPercent(v)}%`,
+  );
 
   // 둘 다 없으면 빈 격자만 남는다 — 그 자리는 「값이 0」으로 읽힌다.
-  if (ratio === null && riskText === null) return null
+  if (ratio === null && riskText === null) return null;
 
   return (
     <dl className="rt__axis-facts rt__axis-facts--projection">
       <div>
         <dt>기준 대비</dt>
-        <dd className={ratio ? 'num' : 'num muted'}>{ratio ?? '—'}</dd>
+        <dd className={ratio ? "num" : "num muted"}>{ratio ?? "—"}</dd>
       </div>
       <div>
         <dt>위험도</dt>
-        <dd className={riskText ? `rt__risk rt__risk--${risk!.toLowerCase()}` : 'muted'}>
+        <dd
+          className={
+            riskText ? `rt__risk rt__risk--${risk!.toLowerCase()}` : "muted"
+          }
+        >
           {riskText ? (
             <>
               {riskText.withIcon ? (
@@ -1173,23 +1250,23 @@ function ProjectionAxis({ projection }: { projection: YearEndProjection }) {
               {riskText.text}
             </>
           ) : (
-            '—'
+            "—"
           )}
         </dd>
       </div>
     </dl>
-  )
+  );
 }
 
 function ProjectionPanel({ data }: { data: RealtimeCii }) {
-  const { projection } = data
+  const { projection } = data;
 
   if (!projection.dataAvailable) {
     // 사유 없는 빈칸은 「아직 로딩 중」으로 읽힌다.
-    return <p className="rt__nodata">{projectionReason(projection.reason)}</p>
+    return <p className="rt__nodata">{projectionReason(projection.reason)}</p>;
   }
 
-  const sentence = projectionSentence(data)
+  const sentence = projectionSentence(data);
 
   return (
     <>
@@ -1213,7 +1290,9 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
             떨어진 두 자리에서 어긋나 읽혔다.
           */}
           {sentence ? (
-            <p className={`rt__direction rt__direction--${sentence.tone.toLowerCase()}`}>
+            <p
+              className={`rt__direction rt__direction--${sentence.tone.toLowerCase()}`}
+            >
               {sentence.text}
             </p>
           ) : null}
@@ -1245,7 +1324,10 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
         <ul className="rt__projection-warnings">
           {projection.warnings.map((code) => (
             <li key={code}>
-              <span><Icon glyph={AlertTriangle} size="inline" /></span> {warningMessage(code)}
+              <span>
+                <Icon glyph={AlertTriangle} size="inline" />
+              </span>{" "}
+              {warningMessage(code)}
             </li>
           ))}
         </ul>
@@ -1266,12 +1348,12 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
             <div>
               <dt>잔여 계획</dt>
               <dd className="num">
-                {projection.assumptions.remainingVoyageCount ?? '—'} 건 /{' '}
+                {projection.assumptions.remainingVoyageCount ?? "—"} 건 /{" "}
                 {/* `§4.2` 일수 0자리 (#592). 서버 값을 가공 없이 내보내면
                     `231.64 일`이 나가 같은 표 안에서 규율이 갈린다. */}
                 {formatOrNull(projection.assumptions.remainingDays, (v) =>
                   formatDecimalString(v, DISPLAY_DIGITS.days),
-                ) ?? '—'}{' '}
+                ) ?? "—"}{" "}
                 {DISPLAY_UNITS.day}
               </dd>
             </div>
@@ -1280,8 +1362,8 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
               <dd className="num">
                 {formatOrNull(projection.assumptions.plannedDistanceNm, (v) =>
                   formatGrouped(v, DISPLAY_DIGITS.distanceNm),
-                ) ?? '—'}{' '}
-                {DISPLAY_UNITS.distance} /{' '}
+                ) ?? "—"}{" "}
+                {DISPLAY_UNITS.distance} /{" "}
                 {/*
                   ⚠️ **CO₂에는 CO₂ 단위·자릿수를 쓴다** (`#1095` ⑴ · `DESIGN_SYSTEM §4.2`).
                   종전에는 연료 쪽(`fuel`·`fuelTon`)을 쓰고 있어 **CO₂ 값에 `t`가
@@ -1291,7 +1373,7 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
                 */}
                 {formatOrNull(projection.assumptions.plannedCo2Ton, (v) =>
                   formatGrouped(v, DISPLAY_DIGITS.co2Ton),
-                ) ?? '—'}{' '}
+                ) ?? "—"}{" "}
                 {DISPLAY_UNITS.co2}
               </dd>
             </div>
@@ -1300,12 +1382,12 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
               <dd className="num">
                 {formatOrNull(projection.assumptions.completedDistanceNm, (v) =>
                   formatGrouped(v, DISPLAY_DIGITS.distanceNm),
-                ) ?? '—'}{' '}
-                {DISPLAY_UNITS.distance} /{' '}
+                ) ?? "—"}{" "}
+                {DISPLAY_UNITS.distance} /{" "}
                 {/* 위 「잔여 계획 거리 / CO₂」와 같은 자리 (`#1095` ⑴). */}
                 {formatOrNull(projection.assumptions.completedCo2Ton, (v) =>
                   formatGrouped(v, DISPLAY_DIGITS.co2Ton),
-                ) ?? '—'}{' '}
+                ) ?? "—"}{" "}
                 {DISPLAY_UNITS.co2}
               </dd>
             </div>
@@ -1313,5 +1395,5 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
         </details>
       ) : null}
     </>
-  )
+  );
 }

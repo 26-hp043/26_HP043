@@ -281,20 +281,55 @@
 }
 
 /*
- * **두 단을 걷었다** (#1949).
+ * 띠의 근거 둘 — 바닥 위 2단 (#1949 · `§5` 카드 예산 · `§8.6`).
  *
- * 종전 주석은 「⑵와 ⑶을 같은 크기로 둔다 — ⑶만 커지면 확정값처럼 읽힌다」였다.
- * 그 취지는 **무게**이지 **폭**이 아니었고, 지도가 ⑵ 안으로 들어오면서 두 카드의
- * 키가 갈렸다 — 1440 실측에서 왼쪽 780 · 오른쪽 198로 **띠의 37%가 빈 채로 남았다**
- * (1920은 39%). 「같은 크기」가 「한쪽만 네 배 크다」가 된 것이다.
+ * **카드가 아니다.** `§5`는 요약 수치를 「바닥 위에 바로 놓고 **구분선으로 나눈다**」고
+ * 정하고, `§8.6`은 결론 띠의 나머지 수치를 「타일로 감싸지 않는다」고 정한다. 그래서
+ * 면·테두리·그림자가 없고, 두 단을 가르는 것은 세로 구분선 하나다.
  *
- * 이제 카드는 **한 단씩 쌓인다.** 무게는 결론 띠가 잡는다 — ⑶은 그 띠의 보조 결론이고
- * 이 카드는 근거를 맡는다(`§8.6`). 폭으로 무게를 말할 이유가 없어졌다.
+ * 종전에는 ⑵와 ⑶이 같은 폭의 **카드 둘**로 나란히 섰다. 「⑵와 ⑶을 같은 크기로 둔다」는
+ * 옛 주석의 취지는 **무게**였는데 폭으로 읽혀, 지도가 ⑵ 안으로 들어오자 키가 780 대
+ * 198로 갈려 **띠의 37%가 빈 카드로 남았다**(1440 실측 · 1920은 39%). 바닥은 그 문제를
+ * 안 겪는다 — 카드 안의 빈자리는 「비었다」로 읽히지만 바닥은 원래 비어 있다.
+ *
+ * 1100 아래에서 1단으로 접는다 — 이 문서가 이미 쓰는 기준 폭이다(`§7.2`).
  */
-.rt__split {
+.rt__basis {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--spacing-xl);
+  /*
+   * `align-items`를 **건드리지 않는다**(기본 `stretch`). `start`로 두면 둘째 단이
+   * 제 내용 높이(164)에서 끝나 **구분선도 거기서 끊긴다** — 띠의 3분의 2만 그은 선은
+   * 덜 그린 것처럼 보인다. 늘려 두면 선이 띠 전체를 지난다.
+   */
+}
+
+/*
+ * `min-inline-size: 0`이 없으면 표 형태의 수치가 칸을 밀어 2단이 깨진다.
+ * 구분선은 **둘째 단에만** 걸어 한 줄로 만든다 — 둘 다에 걸면 띠 양끝에도 선이 선다.
+ */
+.rt__basis-part {
+  min-inline-size: 0;
+}
+
+.rt__basis-part + .rt__basis-part {
+  padding-inline-start: var(--spacing-xl);
+  border-inline-start: var(--borderWidth-default) solid var(--border-default);
+}
+
+@media (max-width: 1100px) {
+  .rt__basis {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 1단이 되면 세로 구분선은 위쪽 구분선이 된다. */
+  .rt__basis-part + .rt__basis-part {
+    padding-inline-start: 0;
+    padding-block-start: var(--spacing-xl);
+    border-inline-start: 0;
+    border-block-start: var(--borderWidth-default) solid var(--border-default);
+  }
 }
 
 /*

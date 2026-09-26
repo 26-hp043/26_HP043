@@ -1035,3 +1035,41 @@ describe('실시간 CII — 이번 항차 지도 (#1949)', () => {
     expect(screen.queryByText(/^위치 기준 /)).toBeNull()
   })
 })
+
+/**
+ * 배치 — 카드 예산과 경고색 (#1949 · `DESIGN_SYSTEM §5` · `§2.3` · `§8.6` 🔒).
+ *
+ * 재설계 전 이 화면은 **떠 있는 면이 여섯**이었다(카드 넷 + 결론 띠 + 면책 배너 —
+ * 띠와 배너도 면 + 테두리 + Lv1 그림자다). `§5`는 **4개 이하**다. 그리고 「위험도 ⚠ 높음
+ * HIGH」가 셋 있었는데, 그중 둘은 **같은 값**이었다(`§2.3` 「같은 위험은 한 화면에서 한
+ * 번만」).
+ *
+ * 두 규칙 모두 「카드를 하나 더 두고 싶다」는 다음 작업에서 조용히 깨진다. 그래서 잠근다.
+ */
+describe('배치 — 카드 예산과 경고색 (#1949)', () => {
+  it('띠의 근거 둘은 카드가 아니다 — 바닥 위 2단이다', async () => {
+    const provider: RealtimeCiiProvider = { load: vi.fn(async () => BASE) }
+    const { container } = renderView(provider)
+
+    const ytd = await screen.findByRole('region', { name: '연간 누적 CII' })
+    const projection = await screen.findByRole('region', { name: '연말 예상' })
+    for (const part of [ytd, projection]) {
+      expect(part.classList.contains('card')).toBe(false)
+      expect(part.classList.contains('rt__basis-part')).toBe(true)
+    }
+    expect(ytd.parentElement?.classList.contains('rt__basis')).toBe(true)
+    expect(projection.parentElement).toBe(ytd.parentElement)
+
+    /* 떠 있는 면은 넷 이하 — 카드 + 결론 띠 + 면책 배너를 함께 센다. */
+    const surfaces = container.querySelectorAll('.card, .verdict-strip, .disclaimer-banner')
+    expect(surfaces.length).toBeLessThanOrEqual(4)
+  })
+
+  it('올해 누적의 위험도는 결론 띠 한 곳에서만 말한다', async () => {
+    const provider: RealtimeCiiProvider = { load: vi.fn(async () => BASE) }
+    renderView(provider)
+
+    const ytd = await screen.findByRole('region', { name: '연간 누적 CII' })
+    expect(within(ytd).queryByText('위험도')).toBeNull()
+  })
+})
