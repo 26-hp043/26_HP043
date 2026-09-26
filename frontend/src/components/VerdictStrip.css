@@ -47,11 +47,21 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 보조는 주보다 한 단 작다 — 커지면 `§8.6` 위반이다(`VerdictStrip.sync.test.ts`가 잠근다). */
+/*
+ * 보조는 **`heading` 이하**다 (`§8.6` 🔒 · `#1780`).
+ *
+ * 종전에는 `h2`(20)였다 — `§3`에서 `heading`은 `h3`(16)이고 `title`이 `h2`(20)이므로,
+ * 정본이 정한 상한보다 **한 단 컸다.** 그런데 `VerdictStrip.sync.test.ts`가 그 `h2`를
+ * 요구하고 있어, 코드를 정본에 맞추면 검사가 깨지는 상태였다 — **검사가 위반을
+ * 고정하고 있었다.**
+ *
+ * 주(`display` 32)와의 간격도 이쪽이 낫다: 20은 32와 한 단 차이라 둘이 비슷하게 읽혔고,
+ * 16이면 주·보조가 분명히 갈린다.
+ */
 .verdict-strip__sub-value {
-  font-size: var(--font-size-h2);
-  line-height: var(--line-height-h2);
-  font-weight: var(--font-weight-h2);
+  font-size: var(--font-size-h3);
+  line-height: var(--line-height-h3);
+  font-weight: var(--font-weight-h3);
   font-variant-numeric: tabular-nums;
 }
 

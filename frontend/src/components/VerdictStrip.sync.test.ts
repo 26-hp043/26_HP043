@@ -29,10 +29,18 @@ describe('결론 띠 — `DESIGN_SYSTEM §8.6` 🔒', () => {
     expect(rule('.verdict-strip__value')).toMatch(/font-size:\s*var\(--font-size-display\)/)
   })
 
-  it('⚠️ 보조는 `display`가 아니다 — 주 결론 크기로 커지면 위반이다', () => {
+  it('⚠️ 보조는 `heading` 이하다 — 한 단이라도 커지면 위반이다', () => {
+    /*
+     * 종전 이 검사는 `h2`(20)를 **요구**했다 (`#1780`). `§3`에서 `heading`은 `h3`(16)이고
+     * `title`이 `h2`(20)이므로 부품은 정본 상한보다 한 단 컸는데, 검사가 그 차이를
+     * 고정하고 있어 **코드를 정본에 맞추면 검사가 깨졌다.**
+     *
+     * 위반을 고정하는 검사는 없는 것보다 나쁘다 — 고치려는 사람을 되돌려 세운다.
+     */
     const body = rule('.verdict-strip__sub-value')
     expect(body).not.toMatch(/--font-size-display/)
-    expect(body).toMatch(/font-size:\s*var\(--font-size-h2\)/)
+    expect(body).not.toMatch(/--font-size-h2/)
+    expect(body).toMatch(/font-size:\s*var\(--font-size-h3\)/)
   })
 
   it('위험도 pill의 면은 중립이다 — 경고색은 글자에만 (`§2.3` · `§2.5 (b)`)', () => {
