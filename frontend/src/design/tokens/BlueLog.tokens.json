@@ -171,7 +171,7 @@
     "content-width": {
       "$type": "number",
       "$value": 1608,
-      "$description": "1920 - GNB 240",
+      "$description": "1920 - 24(외곽) - 240(사이드바) - 24(gap) - 24(외곽)",
       "$extensions": {
         "com.figma.variableId": "VariableID:1:276",
         "com.figma.scopes": [
