@@ -133,6 +133,9 @@ jobs:
           echo "[db-01] 저장소 $(git log -1 --format='%h %s')"
           echo "[db-01] cii-cubrid 마운트 (#1867 — cubrid-data가 데이터 경로에 붙어 있어야 한다)"
           docker inspect -f '{{range .Mounts}}{{.Type}} {{.Name}} -> {{.Destination}}{{println}}{{end}}' cii-cubrid </dev/null
+          # 헬스체크는 .env의 CUBRID_PASSWORD로 붙는다 — 끝 줄바꿈이 잘리면 unhealthy가 된다 (#1634)
+          echo "[db-01] 컨테이너 상태"
+          docker compose -f docker-compose.prod.db.yml ps </dev/null
           echo "[db-01] 볼륨"
           docker volume ls </dev/null
           echo "[db-01] 디스크"
@@ -149,6 +152,31 @@ jobs:
           for name, count in sorted(db.counts().items()):
               print(f"  {name}={count}")
           print(f"  triggers={db.trigger_count()}")
+          PY
+          ENDSSH
+
+      # 챗봇이 답을 폐기했을 때(NumberFabricationError) 그 턴에 도구를 불렀는지 (#1535).
+      # 폐기된 답은 저장되지 않고 로그에도 남지 않는다 — 감사 로그의 순서로만 되짚는다.
+      # ⚠️ 공개 저장소라 이 출력은 누구나 본다. 감사 행에는 본문이 없고(역할·길이·도구 이름),
+      # 남은 해시도 여기서 지운다. 사용자·IP 열은 고르지 않는다.
+      - name: 챗봇 감사 흐름 (db-01)
+        if: inputs.task == 'inspect'
+        run: |
+          ssh -i ~/.ssh/id_oci -o StrictHostKeyChecking=yes "${SSH_USER}@${DB_HOST}" bash -s <<'ENDSSH'
+          set -euo pipefail
+          cd ~/bluelog
+          echo "[db-01] 챗봇 감사 흐름 — 시각 · 종류 · 세션 · 내용(해시 제외)"
+          COMPOSE="docker compose -f docker-compose.prod.db.yml" python3 - <<'PY'
+          import os, re, shlex, sys
+          sys.path.insert(0, "scripts")
+          import db_backup as b
+          db = b.Db(shlex.split(os.environ["COMPOSE"]), service="cubrid")
+          raw = db.query(
+              'SELECT "timestamp", "action", entity_id, details_json FROM audit_log '
+              "WHERE \"action\" IN ('CHAT_MESSAGE', 'CHAT_TOOL_CALL') ORDER BY \"timestamp\""
+          )
+          for line in raw.splitlines():
+              print(re.sub(r'"[a-z_]*sha256":\s*"[0-9a-f]*",?\s*', "", line))
           PY
           ENDSSH
 
@@ -179,6 +207,13 @@ jobs:
           set -euo pipefail
           cd ~/bluelog
           export COMPOSE="docker compose -f docker-compose.prod.db.yml" DB_SERVICE=cubrid APP_SERVICE=none
+          # 서버에서 `sudo`로 직접 돌린 백업이 backups/를 root 소유로 남기면 이 계정은 덤프를
+          # 쓰지 못한다(2026-09-26 첫 실행 — Permission denied). 쓸 수 없을 때만 되돌린다.
+          # `-n`은 암호를 묻지 않고 바로 실패하게 한다 — 워크플로가 입력을 기다리며 서지 않게
+          if [ -d backups ] && [ ! -w backups ]; then
+            echo "[db-01] backups/ 소유자 $(stat -c %U backups) — SSH 계정으로 되돌린다"
+            sudo -n chown -R "$(id -u):$(id -g)" backups
+          fi
           python3 scripts/db_backup.py backup </dev/null
           echo "[db-01] LATEST_DUMP=$(ls -t backups/*.dump | head -1)"
           ENDSSH
