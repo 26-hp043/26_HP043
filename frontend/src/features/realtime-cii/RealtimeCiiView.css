@@ -383,14 +383,6 @@
   margin-block-end: var(--spacing-md);
 }
 
-.rt__projection-value {
-  margin: 0;
-  font-size: var(--font-size-h2, var(--font-size-display));
-  font-weight: var(--font-weight-label);
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-}
-
 .rt__direction {
   margin: var(--spacing-xs) 0 0;
   font-size: var(--font-size-micro);
@@ -696,4 +688,15 @@
 /* 추이는 두 단 밖의 전폭 카드다 — 시간축이 한 해를 담는다 (#1949). */
 .rt__trend {
   margin-block-start: var(--spacing-xl);
+}
+
+/*
+ * 「기준값 근거」 한 줄 (#1516 · #1949) — 등급 스케일 바로 아래.
+ *
+ * `#1949`가 「기준 (required)」 칸을 결론 띠로 올리면서 이 링크가 갈 곳을 잃었다.
+ * 경계값을 그리는 자리가 그 상수를 가장 가까이 쓰는 자리라 스케일 옆으로 옮겼다.
+ */
+.rt__scale-source {
+  margin: var(--spacing-sm) 0 0;
+  font-size: var(--font-size-micro);
 }

@@ -381,7 +381,7 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         </div>
 
         {data.ytd.dataAvailable && data.ytd.rating ? (
-          <div className="ytd ytd--materials">
+          <div className="ytd">
             {/*
               ⚠️ **등급 배지를 여기서 걷었다** (#1949) — 결론 띠가 같은 배지를 이미
               들고 있다. 남는 것은 **신뢰도**다: 이 누적이 실측이 아닌 값으로 계산됐는지,
