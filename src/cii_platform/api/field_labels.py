@@ -124,6 +124,11 @@ _FIELD_LABELS: dict[str, str] = {
     "ended_at_source": "종료 시각 출처",
     "field": "채울 칸",
     "record": "공적 기록",
+    # 공적 기록을 가리키는 열쇠 넷 — 이름은 `DB_SCHEMA`의 재항 기록 표 설명을 따른다.
+    "record.source": "공적 기록의 제공자",
+    "record.port_authority_code": "공적 기록의 항만청코드",
+    "record.call_year": "공적 기록의 입항연도",
+    "record.call_seq": "공적 기록의 입항 차수",
     "recorded_at": "공적 기록 시각",
     "revert_confirmed": "확정 되돌리기 확인",
     "actual_distance_nm": "실제 거리",
