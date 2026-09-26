@@ -166,6 +166,49 @@ jobs:
           fi
           echo "[preflight] 필수 시크릿 9종 확인"
 
+      # 시크릿 모양 진단 (#1634) — **값은 출력하지 않는다.**
+      #
+      # PR #1798(러너에서 base64로 싸서 원격에서 `"$(… | base64 -d)"`로 풀기)을 머지하자
+      # db-01 브로커 대기가 60회 모두 실패했다(run 35976595865 · PR #1876으로 되돌림).
+      # 가설: 명령 치환 `$(…)`은 **값 끝의 줄바꿈을 지운다.** 종전 방식(`'${VAR}'`)은
+      # 그대로 넘긴다. 시크릿 끝에 줄바꿈이 있으면 두 방식의 값이 갈린다. 따옴표·`$`·`\`는
+      # dotenv 이스케이프 규칙이 갈리는 자리다. 그래서 길이와 이런 **모양만** 찍는다.
+      # 배포 동작은 바꾸지 않는다. 원인을 확인하고 고친 뒤 이 단계는 지운다.
+      - name: 시크릿 모양 진단 (#1634 · 값은 출력하지 않음)
+        env:
+          CUBRID_PASSWORD: ${{ secrets.CUBRID_PASSWORD }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN }}
+          PROXY_CLIENT_IP_SECRET: ${{ secrets.PROXY_CLIENT_IP_SECRET }}
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+          TOUR_ACCESS_CODE: ${{ secrets.TOUR_ACCESS_CODE }}
+          SIGNUP_INVITE_CODE: ${{ secrets.SIGNUP_INVITE_CODE }}
+        run: |
+          python3 - <<'PY'
+          import os
+          NAMES = ["CUBRID_PASSWORD", "SMTP_PASSWORD", "LLM_API_KEY", "CLOUDFLARE_TUNNEL_TOKEN",
+                   "PROXY_CLIENT_IP_SECRET", "DATA_GO_KR_SERVICE_KEY", "TOUR_ACCESS_CODE",
+                   "SIGNUP_INVITE_CODE"]
+          def yn(b):
+              return "예" if b else "아니오"
+          for name in NAMES:
+              v = os.environ.get(name, "")
+              if not v:
+                  print(f"[shape] {name}: 비어 있음")
+                  continue
+              b = v.encode()
+              stripped = v.rstrip("\n")
+              print(
+                  f"[shape] {name}: 바이트 {len(b)} · 끝 줄바꿈 {len(v) - len(stripped)}개"
+                  f" · 끝 CR {yn(stripped.endswith(chr(13)))} · 끝 공백 {yn(stripped[-1:] in (' ', chr(9)))}"
+                  f" · 앞 공백 {yn(v[:1].isspace())} · 중간 줄바꿈 {yn(chr(10) in stripped)}"
+                  f" · 작은따옴표 {yn(chr(39) in v)} · 큰따옴표 {yn(chr(34) in v)}"
+                  f" · 달러 {yn('$' in v)} · 역슬래시 {yn(chr(92) in v)} · 샵 {yn('#' in v)}"
+                  f" · ASCII 밖 {yn(any(c > 127 for c in b))}"
+              )
+          PY
+
   # ---------------------------------------------------------------------------
   # 이미지 빌드 & GHCR 푸시
   # ---------------------------------------------------------------------------
