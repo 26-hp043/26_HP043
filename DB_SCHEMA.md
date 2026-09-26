@@ -3,8 +3,8 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | DB_SCHEMA.md |
-| 버전 | v1.37 |
-| 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** |
+| 버전 | v1.38 |
+| 상태 | **활성 키 열·유니크 인덱스 061 (#1631)** + Oracle Review + 외부 리뷰 반영 + weather 추적 컬럼 스펙 (#102) + 파라미터 CHECK·FK 자식 인덱스 (#96 #97) + needs_recalc 플립 예외 (#283) + not under way 스키마 (#345) + 운항 상태 2축 (#346) + not under way 이동 거리 (#353) + **CUBRID에서 제약을 어떻게 세우는가 전면 갱신 (#1058)** + **chat_session·chat_message 등재 (#1080)** + **역할 3종 — 관리자 도입 (#1301)** + **vessel.call_sign 호출부호 (#1197)** + **voyage.planned_distance_source 거리 출처 (#1256)** + **head 059 대조 — 052·053 컬럼 · FK 총람 · updated_at 열 속성 · 트리거 160 · 리비전 그래프 (#1342)** + **simulation_snapshot.not_underway_json 060 (#1803)** + **port_call_record 공적 재항 기록 063 (#1197)** + **실제 시각 출처 열 넷 064 (#1923)** |
 | 최종 수정일 | 2026-09-26 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.8, `API_SPEC.md` v1.21 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
 | 후속 문서 | `TEST_PLAN.md` |
@@ -197,6 +197,8 @@ ALTER TABLE vessel ADD CONSTRAINT chk_vessel_position_pair CHECK (
 | `planned_arrival_at` | TIMESTAMPTZ | NULL | 예정 도착 |
 | `actual_departure_at` | TIMESTAMPTZ | NULL | 실제 출항 |
 | `actual_arrival_at` | TIMESTAMPTZ | NULL | 실제 도착 |
+| `actual_departure_source` | VARCHAR(30) | NULL, **트리거 `trg_chk_actual_departure_source_ins`·`_upd`** (`USER_INPUT`·`PUBLIC_RECORD`) [#1923] | 실제 출항 시각의 출처 — `USER_INPUT`(사람이 넣음) 또는 `PUBLIC_RECORD`(공적 재항 기록 `§2.25`에서 「이 값으로 채우기」로 옮김 · `PRD §17.4.4` · `API_SPEC §3.12`). **`NULL`은 「모른다」** — 064 이전 행과 출처 없이 시각을 넣은 요청이 여기 든다. 기존 행은 backfill하지 않는다(공적 기록과 같다고 `PUBLIC_RECORD`로 되채우면 같은 값을 손으로 넣은 사람에게도 「공적 기록에서 채움」이 붙는다 · `PRD §0.3`). `PUBLIC_RECORD`는 **서버만** 적는다(`API_SPEC §3.6`은 `USER_INPUT`만 받는다). 시각이 **다른 값으로** 바뀌면 옛 출처는 새 값에 붙지 않는다(`API_SPEC §3.6`). `planned_distance_source`와 같은 모양이다 — 출처는 항차가 아니라 **숫자 하나에 붙은 표시**다(마이그레이션 064) |
+| `actual_arrival_source` | VARCHAR(30) | NULL, **트리거 `trg_chk_actual_arrival_source_ins`·`_upd`** (`USER_INPUT`·`PUBLIC_RECORD`) [#1923] | 실제 도착 시각의 출처 — `actual_departure_source`와 같은 규칙 |
 | `annual_inclusion_policy` | VARCHAR(30) | NOT NULL DEFAULT 'EXCLUDE' | EXCLUDE, INCLUDE_AS_PLAN, INCLUDE_AS_ACTUAL |
 | `created_from` | VARCHAR(30) | NOT NULL DEFAULT 'MANUAL' | MANUAL, FEATURE_1, FEATURE_2_ADOPTED, IMPORT, SAMPLE |
 | `notes` | TEXT | NULL | 메모. **입력 상한은 1000자**다(`PRD §10.2` ⑵ · `API_SPEC §3.3`) — 컬럼은 더 받지만 API가 거른다 (`#1348`) |
@@ -242,6 +244,11 @@ ALTER TABLE voyage ADD CONSTRAINT chk_distance_positive CHECK (planned_distance_
 --   NULL은 「모른다」— 기존 행을 대권거리 대조로 되채우지 않는다(직접 입력한 값에도 「추정」이 붙는다).
 ALTER TABLE voyage ADD CONSTRAINT chk_distance_source
     CHECK (planned_distance_source IS NULL OR planned_distance_source IN ('USER_INPUT','COORDINATE_ESTIMATE'));
+-- 064 (#1923): 실제 시각의 출처. CUBRID에서는 트리거 trg_chk_actual_*_source_ins/_upd가 집행한다 (§7.4).
+ALTER TABLE voyage ADD CONSTRAINT chk_actual_departure_source
+    CHECK (actual_departure_source IS NULL OR actual_departure_source IN ('USER_INPUT','PUBLIC_RECORD'));
+ALTER TABLE voyage ADD CONSTRAINT chk_actual_arrival_source
+    CHECK (actual_arrival_source IS NULL OR actual_arrival_source IN ('USER_INPUT','PUBLIC_RECORD'));
 ALTER TABLE voyage ADD CONSTRAINT chk_speed_positive CHECK (planned_speed_kn >= 1.0);
 -- 062 (#1269): 속력의 물리 상한 60kn. 트리거 이름은 DB 전역에서 유일해야 해 _voyage를 붙인다(046과 같다).
 ALTER TABLE voyage ADD CONSTRAINT chk_speed_max_voyage CHECK (planned_speed_kn <= 60);
@@ -884,7 +891,7 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 | `id` | UUID | PK | ID |
 | `timestamp` | TIMESTAMPTZ | NOT NULL DEFAULT now() | 이벤트 시각 |
 | `user_id` | VARCHAR(100) | NULL | 실행 사용자 ID |
-| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_DELETE`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
+| `action` | VARCHAR(50) | NOT NULL | `ACCOUNT_DELETE`, `CALCULATION_RUN`, `CHAT_DELETE`, `CHAT_MESSAGE`, `CHAT_TOOL_CALL`, `DB_BACKUP`, `LOGIN_FAILURE`, `LOGIN_SUCCESS`, `LOGOUT`, `PARAMETER_IMPORT`, `PASSWORD_CHANGE`, `ROLE_CHANGE`, `VOYAGE_ACTUALS_FILL`, `VOYAGE_CONFIRM`, `VOYAGE_TRANSITION` **[#1343 · #1328 · #1923]** — `ROLE_CHANGE`는 `user_id` = 바꾼 사람 · `entity_type` = `app_user` · `entity_id` = 대상 · `details_json` = `role_before`·`role_after` [#672] |
 | `entity_type` | VARCHAR(30) | NULL | `app_user`, `calculation_run`, `chat_session`, `voyage` **[#1343]** |
 | `entity_id` | UUID | NULL | 대상 엔티티 ID. 모든 파라미터 테이블이 UUID PK를 가지므로 정상 동작 |
 | `details_json` | JSONB | NULL | 상세 정보 (변경 전후 값 등) |
@@ -895,6 +902,8 @@ CREATE INDEX idx_weather_cache ON weather_snapshot (lat_rounded, lon_rounded, fe
 > **종전 목록은 양쪽으로 어긋나 있었다** — 실제로 쓰는 `PASSWORD_CHANGE`·`ACCOUNT_DELETE`·`CHAT_MESSAGE`·`CHAT_TOOL_CALL`·`PARAMETER_IMPORT` **5개가 없었고**, 한 번도 쓰지 않는 `PARAMETER_CHANGE`·`VOYAGE_TRANSITION`·`IMPORT`·`EXPORT` **4개가 적혀** 있었다. `entity_type`도 `app_user`·`chat_session`이 빠지고 `vessel`·`regulation_year`·`fuel_type`·`reference_line`이 쓰이지 않은 채 적혀 있었다. `#1241`(감사 로그 조회 화면)이 이 목록으로 필터를 만들면 **없는 값으로 거르고 있는 값을 빠뜨린다.**
 >
 > **[#1328] `VOYAGE_TRANSITION`이 들어왔다.** 위 각주가 「`#1328`이 기록을 넣을 때 값과 이 목록을 함께 늘린다」로 자리를 비워 뒀던 것이며, 그 이슈가 **확정 뒤의 두 전환**(`CONFIRMED → COMPLETED` 정정 · `CONFIRMED → ARCHIVED` 보관)을 기록하면서 같은 PR에서 채웠다 — `PRD §8.1.1`·`API_SPEC §3.5`가 둘 다 「audit log 필수」로 정한 것이다. `details_json`은 `VOYAGE_CONFIRM`과 같은 모양(`from_status`·`to_status`·`annual_inclusion_policy`)이다.
+>
+> **[#1923] `VOYAGE_ACTUALS_FILL`이 들어왔다** — 「이 값으로 채우기」(`API_SPEC §3.12`)가 공적 재항 기록의 시각을 항차·정박 구간에 옮긴 것이다. `entity_type` = `voyage` · `entity_id` = 항차. `details_json`은 `field`(칸) · `target`(`voyage` 또는 `not_underway_period`) · `period_id` · `before` · `after`(ISO 8601) · `source`(`PUBLIC_RECORD`) · `public_record`(`source` · `port_authority_code` · `call_year` · `call_seq` · `fetched_at`) · `reverted_from_status`(확정을 되돌렸으면 `CONFIRMED`, 아니면 `null`). `VOYAGE_TRANSITION`은 상태만 말하고 **어떤 값이 어떤 값으로** 바뀌었는지는 어느 행에도 없었다 — 완료 항차는 되돌림이 없어 아무 기록도 남지 않았다. 확정 항차를 되돌려 채우면 두 행(`VOYAGE_TRANSITION` · `VOYAGE_ACTUALS_FILL`)이 원본 변경과 **같은 트랜잭션**으로 남는다(`TECH_SPEC §13.1`).
 >
 > ⚠️ **다른 전환은 여전히 기록하지 않는다** — `PLANNED → IN_PROGRESS` 등은 되돌릴 수 있고 정본이 지목하지도 않았다. 기록 대상을 넓히는 것은 감사 로그를 늘리는 일이 아니라 **무엇이 중요한지를 흐리는 일**이다.
 
@@ -1016,6 +1025,8 @@ CREATE INDEX idx_session_expiry ON user_session (expires_at) WHERE revoked_at IS
 | `period_type` | VARCHAR(20) | NOT NULL, CHECK 허용값 6종 | `IN_PORT`/`AT_ANCHOR`/`DRIFTING`/`STS`/`CANAL_TRANSIT`/`DRYDOCK` |
 | `started_at` | TIMESTAMPTZ | NOT NULL | 구간 시작 |
 | `ended_at` | TIMESTAMPTZ | NULL | 구간 종료. NULL이면 진행 중. **CHECK: `ended_at IS NULL OR ended_at > started_at`** |
+| `started_at_source` | VARCHAR(30) | NULL, **트리거 `trg_chk_started_at_source_ins`·`_upd`** (`USER_INPUT`·`PUBLIC_RECORD`) [#1923] | 구간 시작 시각의 출처 — `voyage.actual_departure_source`(`§2.2`)와 같은 규칙. **`NULL`은 「모른다」**. 구간 수정(`API_SPEC §2.11`)은 `USER_INPUT`만 받고, `PUBLIC_RECORD`는 「이 값으로 채우기」(`§3.12`)만 적는다. 시각이 다른 값으로 바뀌면 `NULL`로 돌아간다(마이그레이션 064) |
+| `ended_at_source` | VARCHAR(30) | NULL, **트리거 `trg_chk_ended_at_source_ins`·`_upd`** (`USER_INPUT`·`PUBLIC_RECORD`) [#1923] | 구간 끝 시각의 출처 — `started_at_source`와 같은 규칙 |
 | `port_name` | VARCHAR(200) | NULL | 항구명 (정박·입항 시) |
 | `lat` | NUMERIC(9,6) | NULL | 구간 위치 위도 |
 | `lon` | NUMERIC(9,6) | NULL | 구간 위치 경도 |
@@ -1978,16 +1989,16 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 
 #### 지금 DB에 있는 트리거
 
-| 앞머리 | `051` 시점 | **head `062`** | 무엇 |
+| 앞머리 | `051` 시점 | **head `064`** | 무엇 |
 |---|---|---|---|
-| `trg_chk_` | 124 | **138** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 |
+| `trg_chk_` | 124 | **146** | CHECK 60건의 집행 (INSERT·UPDATE 두 벌 + 일부 단일) + `055`·`058`·`059`의 열 검사 각 2 + `062` 속력 상한 4칸 × 2 + `064` 시각 출처 4칸 × 2 |
 | `trg_uq_` | 4 | **0** | 소프트 삭제 뒤 재등록 — 활성 행 안에서만 유일(`047`). **`061`이 걷었다** — 유일성은 활성 키 열의 유니크 인덱스가 갖는다(#1631) |
 | 그 밖 | 20 | **30** | 해시 형식 4 · 연료 코드 참조 6 · 불변성 4 · 스냅샷 참조 2 · `043` 목표 등급 2 · `044`/`057` 역할 2 · **`054` 활성-유니크 6** · **`061` 활성 키 채움 4**(`trg_vessel_imo_active_*`·`trg_app_user_email_active_*` — `AFTER INSERT/UPDATE`, 값을 채울 뿐 거부하지 않는다) |
-| **합계** | **148** | **168** | 전환 직후에는 **0개**였다 |
+| **합계** | **148** | **176** | 전환 직후에는 **0개**였다 |
 
 > 세는 법 — `alembic/versions`의 `upgrade()`가 내는 `CREATE TRIGGER` 누적에서 `DROP TRIGGER`를
 > 뺀 수다(`050`이 capacity_rule 2를, `051`·`057`이 각 1·2를 지우고 다시 만든다). `051`까지
-> 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 160, `061`(+4 −4 — 채움 트리거 4를 만들고 `047`의 `trg_uq_` 4를 걷는다)로 **160**. `SELECT count(*)
+> 148, 그 뒤 `054`(+6) · `055`(+2) · `058`(+2) · `059`(+2)로 160, `061`(+4 −4 — 채움 트리거 4를 만들고 `047`의 `trg_uq_` 4를 걷는다)로 **160**, `062`(+8)로 168, `064`(+8)로 **176**(2026-09-26 `cii_test`에 064를 적용해 `SELECT COUNT(*) FROM db_trigger` = 176 실측 · `063`은 트리거가 없다). `SELECT count(*)
 > FROM db_trigger`로 배포를 대조할 때 기대값은 head 열이다 — `tests/test_dbschema_head_sync.py`가
 > 이 합계를 마이그레이션과 대조하고, `tests/test_zz_roundtrip.py`가 **이름 하나하나**를 head DB와
 > 대조한다(`#1373` — 수가 같아도 남은 것 하나와 빠진 것 하나가 상쇄되면 합계는 그대로다).
@@ -2016,7 +2027,7 @@ ALTER TABLE _ck DROP CONSTRAINT _chk_n                       → ERROR: Constrai
 **전환이 마이그레이션 `001`~`042`를 `1c444a5c4819` 하나로 합쳤다.** 지금 그래프다.
 
 ```
-base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 062 → 063
+base → 1c444a5c4819 → 6c7496c4d122 → a7d3e9b14f26 → 043 → … → 062 → 063 → 064
 ```
 
 그래서 `017`과 `018`, `030`과 `031`이 **같은 리비전**이고 「하나만 내린다」가 성립하지
@@ -2348,3 +2359,4 @@ MVP 단계에서는 **단일 회사 per 인스턴스** 모델을 채택한다. �
 | 2026-09-25 | `#1894` | §2.17 `not_underway_period`에 **「같은 선박의 구간은 겹치지 않는다」 서비스 불변식 각주** (`#1629` · PR #1852) — 겹침 조회 전에 선박 행을 `FOR UPDATE`로 잡는다(`TECH_SPEC §16.3`). 항차 쪽 `§2.4`(`#1626`)에만 있던 비대칭을 맞춘다. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#1862) |
 | 2026-09-25 | `#1890` | §2.1 `vessel.reference_speed_kn` · §2.2 `voyage.planned_speed_kn`·`actual_avg_speed_kn` · §2.4 `voyage_scenario.speed_kn`에 **속력 물리 상한 60kn**(마이그레이션 062 · `PRD §9.1` VAL-009 · 사용자 결정 G-10). CHECK 선언 4건(`chk_speed_max` · `chk_speed_max_voyage` · `chk_actual_speed_max` · `chk_scenario_speed_max`)과 집행 트리거 8개. §7.4 트리거 합계 160 → **168** · §8.1.0 그래프 head `062`. 062는 이미 60을 넘는 행이 있으면 바꾸기 전에 멈춘다(`OPERATIONS §3.6.5`). `§4.3`상 제약 추가라 버전은 올리지 않는다 (#1269) |
 | 2026-09-26 | `#1920` | **v1.37 — §2.25 `port_call_record` 신설**(마이그레이션 063 · `#1197` B단계). 해양수산부 선박운항정보 오픈API의 기항 한 번을 **원문(`raw`) 그대로** 보관한다(`PRD §15.1` `[#1197]` 「원본 그대로 보관」). 대조가 쓰는 두 시각(가장 이른 입항 · 가장 늦은 출항 — 결정 G-7 ①-2 ⓐ)을 조회용으로 함께 적는다. 다시 받으면 갱신한다 — 바뀌는 것은 공적 기록의 사본이지 사용자 값이 아니다. FK·트리거 없음(수집기만 쓴다) · 보존 의무 없음 · `REGENERABLE`. §1 ER 각주를 「독립 표 넷 · 26개 중 22개」로, §4.3 보존 표에 행 추가, §8.1.0 그래프 끝을 063으로. 테이블 신설이라 `AGENTS §4.3`에 따라 버전을 올린다 (#1197) |
+| 2026-09-26 | `#___` | **v1.38 — §2.2 `voyage.actual_departure_source`·`actual_arrival_source` · §2.17 `not_underway_period.started_at_source`·`ended_at_source` 추가**(마이그레이션 064 · #1923 · `#1197` 2단계). 「이 값으로 채우기」(`API_SPEC §3.12`)로 공적 재항 기록의 시각을 옮기면 그 값이 **어디서 왔는지**가 행에 남아야 한다 — 값은 `USER_INPUT`·`PUBLIC_RECORD` 둘이고 **`NULL`은 「모른다」**다(`059` 계획 거리 출처와 같은 모양). 기존 행은 backfill하지 않는다. `PUBLIC_RECORD`는 서버만 적고(결정 A), 시각이 다른 값으로 바뀌면 `NULL`로 돌아간다. 집행은 트리거 8개(`trg_chk_<열>_ins/upd`) · §7.4 합계 168 → **176**(`cii_test` 실측) · §8.1.0 그래프 head `064` · §2.14 `action`에 `VOYAGE_ACTUALS_FILL`(칸 · 이전 값 · 새 값 · 공적 기록 키 · 되돌린 상태)과 각주. downgrade는 컬럼·트리거만 지우며 시각 값은 그대로라 `REGENERABLE`. 컬럼 추가라 #1256(v1.33)과 같은 기준으로 버전을 올린다 (#1923) |

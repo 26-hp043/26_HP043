@@ -423,7 +423,7 @@ async def update_period(
     period = await _require_period(session, period_id)
 
     # #1923 — 시각을 고치면서 출처를 말하지 않으면 「모른다」로 돌린다(항차 실적과 같은 규칙).
-    reset_stale_sources(fields, TIME_SOURCE_FIELDS)
+    reset_stale_sources(fields, TIME_SOURCE_FIELDS, period)
 
     # NOT NULL 열에 명시적 null이 오면 IntegrityError로 500이 된다. 이 열들에서
     # null은 「클리어」가 아니라 그냥 잘못된 입력이므로 422로 돌려준다.

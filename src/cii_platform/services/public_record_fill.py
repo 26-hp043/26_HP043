@@ -1,4 +1,4 @@
-"""공적 기록으로 채우기 — 「공적 기록과 다름」의 「이 값으로 채우기」 (`#1923` · ``API_SPEC §3.12``).
+"""공적 기록으로 채우기 — 「공적 기록과 다름」의 「이 값으로 채우기」 (`#1923` · `API_SPEC §3.12`).
 
 데이터 점검(``UIFLOW 2-11``)이 띄운 어긋난 칸 **하나**를 공적 재항 기록(``port_call_record``)의
 시각으로 바꾼다. 사용자가 누르기 전에는 아무것도 바뀌지 않는다(``PRD §15.1`` ``[#1197]``) —
@@ -137,7 +137,9 @@ async def fill_from_public_record(
                 field_label="정박·묘박 구간",
             )
     else:
-        raise ValidationError(f"채울 수 없는 칸입니다: {field}", field="field", field_label="채울 칸")
+        raise ValidationError(
+            f"채울 수 없는 칸입니다: {field}", field="field", field_label="채울 칸"
+        )
 
     # 항차 행을 먼저 잠그고 읽는다 (`#1626` · `TECH_SPEC §16.3`) — 아래 상태 판정이 옛 상태 위에서
     # 통과하지 않게. 잠금은 라우트의 커밋·롤백에서 풀린다.

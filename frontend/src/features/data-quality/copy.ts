@@ -12,7 +12,12 @@ export const DATA_QUALITY_COPY = {
   loading: '데이터 점검 결과를 불러오는 중입니다…',
   loadSubject: '데이터 점검 결과',
   noVessels: '등록된 선박이 없습니다.',
-  readOnlyNote: '읽기 전용입니다. 값을 고치려면 선박 상세의 항차에서 실적을 입력하거나 보정합니다.',
+  /*
+   * #1923 — 이 화면에서 값이 바뀌는 길은 「이 값으로 채우기」 하나다(`UIFLOW 2-11`). 「읽기
+   * 전용입니다」만 적으면 옆의 버튼과 말이 어긋난다.
+   */
+  readOnlyNote:
+    '「공적 기록과 다름」의 「이 값으로 채우기」 말고는 값을 바꾸지 않습니다. 그 밖의 값은 선박 상세의 항차에서 실적을 입력하거나 보정합니다.',
 
   summaryTitle: '요약',
   completenessLabel: '데이터 완결성',
@@ -71,6 +76,22 @@ export const DATA_QUALITY_COPY = {
   ) => `${fieldLabel} 입력 ${entered} · 공적 기록 ${recorded} (${authorityName}) · ${hours}시간 ${minutes}분 차이`,
   /** 출처 표기 — `DESIGN_SYSTEM` 확정 대기 중이라 개발 임시안이다(#1197). */
   publicRecordSourceNote: (sourceText: string, fetchedAt: string) => `출처: ${sourceText} · ${fetchedAt} 기준`,
+
+  /*
+   * 「이 값으로 채우기」 (#1923 · `PRD §17.4.4`). 버튼 모양·다이얼로그 표현은 `DESIGN_SYSTEM
+   * §2.3.1` 🔒 절이라 **개발 임시안**이다 — 디자인 담당 확인 전까지.
+   */
+  fillAction: '이 값으로 채우기',
+  fillBusy: '채우는 중…',
+  /** 확정 항차 재확인 줄 — 무엇이 달라지는지 적고 실행 버튼은 동사로 끝난다(`VoyagePanel` 확인 줄과 같은 규칙) */
+  fillConfirmedCaution:
+    '실적이 확정된 항차입니다. 확정을 되돌리고 이 칸만 공적 기록 값으로 채웁니다. 항차는 완료 상태로 남고, 다시 확정은 선박 상세에서 합니다.',
+  fillConfirmedAction: '확정을 되돌리고 채우기',
+  fillKeep: '그만두기',
+  fillFailed: '공적 기록으로 채우지 못했습니다.',
+  fillDone: (fieldLabel: string, voyageNo: string) => `${voyageNo} 항차의 ${fieldLabel}을 공적 기록 값으로 채웠습니다.`,
+  fillDoneReverted: (fieldLabel: string, voyageNo: string) =>
+    `${voyageNo} 항차의 확정을 되돌리고 ${fieldLabel}을 공적 기록 값으로 채웠습니다. 다시 확정은 선박 상세에서 합니다.`,
 } as const
 
 export const SEVERITY_TITLE: Record<Severity, string> = {

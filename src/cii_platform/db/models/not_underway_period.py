@@ -32,9 +32,10 @@ class NotUnderwayPeriod(Base):
     period_type = sa.Column(sa.String(length=20), nullable=False)
     started_at = sa.Column(sa.DateTime(timezone=True), nullable=False)
     ended_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
-    # 시작·끝 시각의 출처 (#1923 · 064) — `voyage.actual_*_source`와 같은 규칙. `USER_INPUT` 또는
-    # `PUBLIC_RECORD`(공적 재항 기록에서 「이 값으로 채우기」). **NULL은 「모른다」**. 시각이 바뀌면
-    # 옛 출처는 새 값에 붙지 않는다(`services/not_underway.py` `update_period`). 집행은 064의 트리거.
+    # 시작·끝 시각의 출처 (#1923 · 064) — `voyage.actual_*_source`와 같은 규칙. `USER_INPUT`
+    # 또는 `PUBLIC_RECORD`(공적 재항 기록에서 「이 값으로 채우기」). **NULL은 「모른다」**. 시각이
+    # 바뀌면 옛 출처는 새 값에 붙지 않는다(`services/not_underway.py` `update_period`).
+    # 집행은 064의 트리거.
     started_at_source = sa.Column(sa.String(length=30), nullable=True)
     ended_at_source = sa.Column(sa.String(length=30), nullable=True)
     port_name = sa.Column(sa.String(length=200), nullable=True)

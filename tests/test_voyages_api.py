@@ -53,6 +53,9 @@ class _FakeVoyage:
         self.planned_arrival_at = kw.get("planned_arrival_at")
         self.actual_departure_at = kw.get("actual_departure_at")
         self.actual_arrival_at = kw.get("actual_arrival_at")
+        # #1923 — 실제 시각의 출처. None이 「모른다」.
+        self.actual_departure_source = kw.get("actual_departure_source")
+        self.actual_arrival_source = kw.get("actual_arrival_source")
         self.annual_inclusion_policy = kw.get("annual_inclusion_policy", "EXCLUDE")
         self.regulation_year = kw.get("regulation_year", 2026)
         self.created_from = kw.get("created_from", "MANUAL")

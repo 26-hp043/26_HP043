@@ -79,7 +79,10 @@ async def get_by_call_key(
     call_year: int,
     call_seq: str,
 ) -> PortCallRecord | None:
-    """기항 한 건 — ``uq_port_call_record_call`` 키로 (`#1923` 「이 값으로 채우기」). 없으면 ``None``."""
+    """기항 한 건 — ``uq_port_call_record_call`` 키로 (`#1923` 「이 값으로 채우기」).
+
+    없으면 ``None``.
+    """
     result = await session.execute(
         select(PortCallRecord).where(
             PortCallRecord.source == source,

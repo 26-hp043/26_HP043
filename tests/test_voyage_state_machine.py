@@ -77,6 +77,8 @@ class _StubVoyage:
         self.planned_arrival_at = None
         self.actual_departure_at = None
         self.actual_arrival_at = None
+        self.actual_departure_source = None  # #1923
+        self.actual_arrival_source = None  # #1923
         self.annual_inclusion_policy = annual_inclusion_policy
         self.regulation_year = regulation_year
         self.created_from = "MANUAL"

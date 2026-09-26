@@ -178,6 +178,8 @@ describe('createApiDataQualityProvider — public_record', () => {
     expect(snapshot.issues[0].publicRecord).toEqual({
       source: 'MOF_VESSEL_OPS',
       fetchedAt: '2026-09-26T01:00:00+00:00',
+      // #1923 — 이 본문은 채우기 재료가 없는 #1197 계약이다. 없으면 `null`로 읽는다.
+      voyageStatus: null,
       mismatches: [
         {
           field: 'ARRIVAL',
@@ -186,6 +188,9 @@ describe('createApiDataQualityProvider — public_record', () => {
           differenceMinutes: 720,
           portAuthorityCode: '020',
           portAuthorityName: '부산',
+          callYear: null,
+          callSeq: null,
+          periodId: null,
         },
       ],
     })
@@ -205,5 +210,105 @@ describe('createApiDataQualityProvider — public_record', () => {
 
     expect(snapshot.counts.PUBLIC_RECORD).toBe(0)
     expect(snapshot.issues[0].publicRecord).toBeNull()
+  })
+})
+
+/**
+ * 「이 값으로 채우기」 (#1923 · `API_SPEC §3.12`).
+ */
+describe('createApiDataQualityProvider — 이 값으로 채우기', () => {
+  it('채우기 재료(voyage_status · call_year · call_seq · period_id)를 옮긴다', async () => {
+    const body = {
+      data: {
+        regulation_year: 2026,
+        summary: {
+          substituted_count: 0,
+          unavailable_count: 0,
+          anomaly_count: 0,
+          unconfirmed_count: 0,
+          public_record_count: 1,
+          anomaly_unjudged_count: 0,
+          completeness_ratio: null,
+        },
+        vessels: [],
+        issues: [
+          {
+            severity: 'PUBLIC_RECORD',
+            vessel_id: 'v1',
+            vessel_name: 'MV One',
+            voyage_id: 'voy-9',
+            voyage_no: 'D',
+            codes: ['PUBLIC_RECORD:BERTH_START'],
+            cii_impact: null,
+            cii_impact_reason: null,
+            public_record: {
+              source: 'MOF_VESSEL_OPS',
+              fetched_at: '2026-09-26T01:00:00+00:00',
+              voyage_status: 'CONFIRMED',
+              mismatches: [
+                {
+                  field: 'BERTH_START',
+                  entered_at: '2026-08-08T17:20:00+00:00',
+                  recorded_at: '2026-08-08T05:20:00+00:00',
+                  difference_minutes: 720,
+                  port_authority_code: '020',
+                  port_authority_name: '부산',
+                  call_year: 2026,
+                  call_seq: '029',
+                  fetched_at: '2026-09-26T01:00:00+00:00',
+                  period_id: 'p-1',
+                },
+              ],
+            },
+          },
+        ],
+      },
+      meta: {},
+    }
+    const fetchImpl = vi.fn(async (_input: unknown) => jsonResponse(body))
+    const snapshot = await createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1').load(2026)
+
+    const record = snapshot.issues[0].publicRecord!
+    expect(record.voyageStatus).toBe('CONFIRMED')
+    expect(record.mismatches[0]).toMatchObject({ callYear: 2026, callSeq: '029', periodId: 'p-1' })
+  })
+
+  it('요청 본문을 서버 계약(snake_case)으로 보내고 되돌린 상태를 돌려준다', async () => {
+    const fetchImpl = vi.fn(async (_input: unknown, _init?: RequestInit) =>
+      jsonResponse({ data: { field: 'DEPARTURE', reverted_from_status: 'CONFIRMED' }, meta: {} }),
+    )
+    const result = await createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1').fill!('voy-9', {
+      field: 'DEPARTURE',
+      periodId: null,
+      record: { source: 'MOF_VESSEL_OPS', portAuthorityCode: '020', callYear: 2026, callSeq: '029' },
+      recordedAt: '2026-08-13T09:45:00+00:00',
+      revertConfirmed: true,
+    })
+
+    expect(result).toEqual({ field: 'DEPARTURE', revertedFromStatus: 'CONFIRMED' })
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('/api/v1/voyages/voy-9/public-record-fill')
+    expect(init?.method).toBe('POST')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      field: 'DEPARTURE',
+      period_id: null,
+      record: { source: 'MOF_VESSEL_OPS', port_authority_code: '020', call_year: 2026, call_seq: '029' },
+      recorded_at: '2026-08-13T09:45:00+00:00',
+      revert_confirmed: true,
+    })
+  })
+
+  it('거절(409 등)은 서버 문구를 그대로 올린다 — 사용자가 할 일이 달라 뭉개지 않는다', async () => {
+    const message = 'SERVER-SAID-THIS'
+    const fetchImpl = vi.fn(async () => jsonResponse({ error: { code: 'CONFLICT', message } }, 409))
+    await expect(
+      createApiDataQualityProvider(fetchImpl as typeof fetch, '/api/v1').fill!('voy-9', {
+        field: 'ARRIVAL',
+        periodId: null,
+        record: { source: 'MOF_VESSEL_OPS', portAuthorityCode: '020', callYear: 2026, callSeq: '029' },
+        recordedAt: '2026-08-13T09:45:00+00:00',
+        revertConfirmed: false,
+      }),
+    ).rejects.toThrow(message)
   })
 })
