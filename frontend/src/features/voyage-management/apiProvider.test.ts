@@ -61,6 +61,11 @@ const VOYAGE: ManagedVoyage = {
   regulationYear: 2026,
   departurePortName: 'Busan',
   arrivalPortName: 'Rotterdam',
+  // 좌표는 이 검사의 관심사가 아니다 — 타입을 채우기 위한 값이다 (#1949).
+  departureLat: null,
+  departureLon: null,
+  arrivalLat: null,
+  arrivalLon: null,
   plannedDistanceNm: 11000,
   plannedDistanceSource: null,
   plannedSpeedKn: 14,

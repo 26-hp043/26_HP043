@@ -706,3 +706,18 @@
   margin: var(--spacing-sm) 0 0;
   font-size: var(--font-size-micro);
 }
+
+/* 이번 항차 지도 (#1949) — 카드 안, 진행률 막대 위. */
+.rt__map {
+  margin-block-end: var(--spacing-md);
+}
+
+/*
+ * **마지막으로 받은 위치**임을 말하는 한 줄 — 「지금 여기 있다」가 아니다.
+ * 진행률과 위치가 서로 다른 시점을 가리킬 수 있다는 것이 R-D2(#1672)가 연 문제다.
+ */
+.rt__map-asof {
+  margin: var(--spacing-xs) 0 0;
+  font-size: var(--font-size-micro);
+  color: var(--text-secondary);
+}

@@ -9,6 +9,7 @@ import type {
   Substitution,
   VoyageSegment,
   YearEndProjection,
+  VoyageRoute,
   YtdSeries,
   YtdValues,
 } from './types'
@@ -341,6 +342,42 @@ export function createApiRealtimeCiiProvider(
      * `meta.as_of`로 돌려준다(`§1.10` 계약 ⑵). 화면이 「오늘」을 정하면 같은 화면의
      * `/cii/current`와 기준 시각이 갈릴 수 있다.
      */
+    async loadRoute(vesselId: string, voyageId: string): Promise<VoyageRoute> {
+      const get = async (path: string): Promise<Record<string, unknown> | null> => {
+        const response = await fetchImpl(`${baseUrl}${path}`, {
+          method: 'GET',
+          credentials: 'include',
+          headers: { Accept: 'application/json', ...csrfHeaders() },
+        })
+        if (!response.ok) return null
+        const body = (await response.json().catch(() => null)) as { data?: unknown } | null
+        const data = body?.data
+        return data !== null && typeof data === 'object' ? (data as Record<string, unknown>) : null
+      }
+
+      /*
+       * 둘을 **함께** 부른다 — 차례로 부르면 지도가 한 번 더 늦게 뜬다. 한쪽이 비어도
+       * 다른 쪽 값은 살린다(`null` 자리로 둔다).
+       */
+      const [vessel, voyage] = await Promise.all([
+        get(`/vessels/${vesselId}`).catch(() => null),
+        get(`/voyages/${voyageId}`).catch(() => null),
+      ])
+      const position = (vessel ?? {}) as ServerVesselPosition
+      const route = (voyage ?? {}) as ServerVoyageRoute
+
+      return {
+        currentLat: coordOf(position.current_lat),
+        currentLon: coordOf(position.current_lon),
+        positionUpdatedAt:
+          typeof position.position_updated_at === 'string' ? position.position_updated_at : null,
+        arrivalLat: coordOf(route.arrival_lat),
+        arrivalLon: coordOf(route.arrival_lon),
+        arrivalPortName:
+          typeof route.arrival_port_name === 'string' ? route.arrival_port_name : null,
+      }
+    },
+
     async loadSeries(vesselId: string): Promise<YtdSeries> {
       let response: Response
       try {
@@ -409,6 +446,39 @@ export function createApiRealtimeCiiProvider(
       }
     },
   }
+}
+
+/**
+ * 이번 항차의 위치와 목적항 좌표 (`#1949` · R-D2 `#1672` 확정).
+ *
+ * ## 왜 여기서 두 경로를 부르는가
+ *
+ * 좌표는 선박(`§2.1`)과 항차(`§3.1`)에 있고 `/cii/current`에는 없다. 다른 기능의
+ * provider를 빌려 쓰는 길도 있었으나 **둘 다 이 화면이 쓰지 않는 것을 함께 받는다** —
+ * `vessel-detail.load`는 연도별 이력까지 받고, 이 화면은 **60초마다 도는 화면**이라
+ * 그 비용이 매번 붙는다. 경로 두 줄을 여기 두는 편이 낫다고 판단했다.
+ *
+ * ⚠️ **실패해도 던지지 않는다.** 지도는 이 화면의 보조이고, 좌표를 못 받았다고
+ * 결론·재료·추이가 사라져서는 안 된다. 못 받으면 `null` 자리로 두고 호출부가
+ * 종전 진행률 막대를 그린다.
+ */
+interface ServerVesselPosition {
+  current_lat?: unknown
+  current_lon?: unknown
+  position_updated_at?: unknown
+}
+
+interface ServerVoyageRoute {
+  arrival_lat?: unknown
+  arrival_lon?: unknown
+  arrival_port_name?: unknown
+}
+
+/** 좌표 한 칸 — 수·문자열 모두 문자열로 옮기고, 그 밖은 `null`이다. */
+function coordOf(raw: unknown): string | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw)
+  if (typeof raw === 'string' && raw.trim() !== '') return raw.trim()
+  return null
 }
 
 interface ServerSeriesPoint {

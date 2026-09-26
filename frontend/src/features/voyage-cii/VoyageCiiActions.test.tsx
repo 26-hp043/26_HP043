@@ -35,6 +35,11 @@ const SUCCESS: ResultState = {
 const DRAFT: ManagedVoyage = {
   id: 'voy-1',
   voyageNo: '',
+  // 좌표는 이 검사의 관심사가 아니다 — 타입을 채우기 위한 값이다 (#1949).
+  departureLat: null,
+  departureLon: null,
+  arrivalLat: null,
+  arrivalLon: null,
   status: 'DRAFT',
   inclusionPolicy: 'EXCLUDE',
   regulationYear: 2026,

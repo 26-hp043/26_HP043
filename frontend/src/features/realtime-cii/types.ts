@@ -186,6 +186,15 @@ export interface RealtimeCiiProvider {
    * 선택 메서드다 — 검사 대역이 이 값을 흉내 내지 않아도 화면이 서야 한다.
    */
   loadSeries?(vesselId: string): Promise<YtdSeries>
+  /**
+   * 이번 항차의 위치와 목적항 좌표 (`#1949`).
+   *
+   * `/cii/current`의 `current_voyage`는 항만 **이름**만 싣는다. 좌표는 선박(`§2.1`)과
+   * 항차(`§3.1`) 두 경로에 있고, R-D2(`#1672`)가 그 둘로 가라고 확정했다.
+   *
+   * 선택 메서드다 — 대역이 이 값을 흉내 내지 않아도 화면이 서야 한다.
+   */
+  loadRoute?(vesselId: string, voyageId: string): Promise<VoyageRoute>
 }
 
 /**
@@ -217,4 +226,21 @@ export interface YtdSeries {
   readonly ytdAvailable: boolean
   readonly points: readonly YtdSeriesPoint[]
   readonly asOf: string
+}
+
+/**
+ * 이번 항차를 지도에 그리는 데 필요한 것 (`#1949` · R-D2 `#1672` 확정).
+ *
+ * **보간하지 않는다** — 진행률로 위치를 만들어 내지 않고, 서버가 마지막으로 받은
+ * 위치를 그대로 찍고 **그 시각을 함께 적는다.** 값이 낡았을 수는 있어도 지어낸 것은
+ * 아니라는 것이 이 화면의 약속이다.
+ */
+export interface VoyageRoute {
+  readonly currentLat: string | null
+  readonly currentLon: string | null
+  /** 위치를 받은 시각. 없으면 위치가 언제 것인지 말할 수 없으므로 지도를 그리지 않는다. */
+  readonly positionUpdatedAt: string | null
+  readonly arrivalLat: string | null
+  readonly arrivalLon: string | null
+  readonly arrivalPortName: string | null
 }

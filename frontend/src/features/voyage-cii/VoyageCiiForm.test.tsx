@@ -331,6 +331,11 @@ describe('상단 항차와 기본 연료로 채우기 (#1576)', () => {
   const planned = (over: Partial<ManagedVoyage> = {}): ManagedVoyage => ({
     id: 'voy-1',
     voyageNo: '2026-03',
+    // 좌표는 이 검사의 관심사가 아니다 — 타입을 채우기 위한 값이다 (#1949).
+    departureLat: null,
+    departureLon: null,
+    arrivalLat: null,
+    arrivalLon: null,
     status: 'PLANNED',
     inclusionPolicy: 'INCLUDE_AS_PLAN',
     regulationYear: 2026,

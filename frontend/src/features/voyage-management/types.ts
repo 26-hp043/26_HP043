@@ -58,6 +58,17 @@ export interface ManagedVoyage {
   regulationYear: number | null
   departurePortName: string | null
   arrivalPortName: string | null
+  /**
+   * 출발·도착 좌표 (`API_SPEC §3.1` · `#1949`).
+   *
+   * 서버는 **처음부터 실어 보냈고** 이 매퍼만 읽지 않았다 — 쓰기 쪽(`VoyageDraft`)에만
+   * 있어서 「좌표는 만들 때만 쓰는 값」으로 보였다. 실시간 CII가 이번 항차를 지도에
+   * 그리려면 읽는 쪽에도 있어야 한다. 값이 없는 항차가 있으므로 `null`을 허용한다.
+   */
+  departureLat: string | null
+  departureLon: string | null
+  arrivalLat: string | null
+  arrivalLon: string | null
   plannedDistanceNm: number | null
   /**
    * 계획 거리의 출처 (#1256). **`null`은 「모른다」** — 059 이전 행과 출처 없이 만든

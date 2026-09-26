@@ -6,6 +6,12 @@ import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { GradeScaleBar } from '../../components/GradeScaleBar'
 import { VerdictStrip } from '../../components/VerdictStrip'
 import { YtdSeriesChart } from './YtdSeriesChart'
+/*
+ * 항로 비교가 쓰는 **공용 지도**를 그대로 쓴다 (#1949). 같은 그림을 두 번 만들지
+ * 않는다 — `moduleBoundary`의 `COMPOSITION`은 요청 계층(provider) 결합을 세는 것이고,
+ * 화면 부품을 빌려 쓰는 것은 그 규칙의 대상이 아니다.
+ */
+import { VoyageRouteMap } from '../scenario-comparison/VoyageRouteMap'
 import {
   ciiUnit,
   displayWarnings,
@@ -17,6 +23,7 @@ import {
   DISPLAY_DIGITS,
   DISPLAY_UNITS,
   formatDecimalString,
+  formatTimestamp,
   formatGrouped,
   formatPercent,
   toDecimalInput,
@@ -45,6 +52,7 @@ import type {
   Rating,
   RealtimeCii,
   RealtimeCiiProvider,
+  VoyageRoute,
   YearEndProjection,
   YtdSeries,
   YtdValues,
@@ -487,7 +495,22 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
             <span className="card__meta">등급 판정 대상 아님</span>
           </div>
           {data.currentVoyage ? (
-            <VoyagePanel data={data} unit={unit} vesselId={vesselId} />
+            <>
+              {/*
+                이번 항차 지도 (#1949 · R-D2 `#1672` 확정).
+
+                **보간하지 않는다** — 진행률로 위치를 만들지 않고, 서버가 마지막으로
+                받은 위치를 그대로 찍고 그 시각을 함께 적는다. 진행률은 아래 막대에만
+                둔다. 좌표를 못 받으면 지도를 그리지 않고 종전 화면 그대로다.
+              */}
+              <VoyageMapBlock
+                provider={provider}
+                vesselId={data.vesselId}
+                voyageId={data.currentVoyage.voyageId}
+                arrivalPortName={data.currentVoyage.arrivalPortName}
+              />
+              <VoyagePanel data={data} unit={unit} vesselId={vesselId} />
+            </>
           ) : (
             /* 항차가 없는 것은 오류가 아니다 — 정박 중이거나 아직 등록 전이다. */
             <p className="rt__nodata">진행 중인 항차가 없습니다.</p>
@@ -541,6 +564,77 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 // ─── 부품 ────────────────────────────────────────────────────────────────────
 
 const TREND_FAILED_TEXT = '추이를 불러오지 못했습니다.'
+
+/**
+ * 이번 항차 지도 (#1949 · R-D2 `#1672` 확정).
+ *
+ * ⚠️ **없으면 그리지 않는다.** 좌표가 비었거나 조회가 실패하면 **아무것도 그리지
+ * 않고** 아래 진행률 막대만 남는다 — 「지도를 못 불러왔습니다」를 내면 없는 고장을
+ * 만드는 것이다(좌표는 선택 입력이라 비어 있는 것이 정상 경로다).
+ *
+ * ⚠️ **위치 기준 시각을 함께 적는다.** 이 값은 마지막으로 **받은** 위치이지 지금
+ * 위치가 아니다. 시각이 없으면 얼마나 낡았는지 말할 수 없으므로 지도를 그리지 않는다.
+ */
+function VoyageMapBlock({
+  provider,
+  vesselId,
+  voyageId,
+  arrivalPortName,
+}: {
+  provider?: RealtimeCiiProvider
+  vesselId: string
+  voyageId: string
+  arrivalPortName: string | null
+}) {
+  const client = useMemo(() => provider ?? createApiRealtimeCiiProvider(), [provider])
+  const [route, setRoute] = useState<VoyageRoute | null>(null)
+
+  useEffect(() => {
+    const loadRoute = client.loadRoute
+    if (loadRoute === undefined) return
+    let cancelled = false
+    loadRoute.call(client, vesselId, voyageId).then(
+      (value) => {
+        if (!cancelled) setRoute(value)
+      },
+      () => {
+        // 조용히 그리지 않는다 — 지도는 이 화면의 보조다.
+        if (!cancelled) setRoute(null)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [client, vesselId, voyageId])
+
+  if (
+    route === null ||
+    route.currentLat === null ||
+    route.currentLon === null ||
+    route.arrivalLat === null ||
+    route.arrivalLon === null ||
+    route.positionUpdatedAt === null
+  ) {
+    return null
+  }
+
+  return (
+    <div className="rt__map">
+      <VoyageRouteMap
+        currentLat={route.currentLat}
+        currentLon={route.currentLon}
+        destinationLat={route.arrivalLat}
+        destinationLon={route.arrivalLon}
+        destinationName={route.arrivalPortName ?? arrivalPortName ?? ''}
+      />
+      {/*
+        **마지막으로 받은 위치**임을 말한다. 「지금 여기 있다」가 아니다 — 진행률과
+        위치가 서로 다른 시점을 가리킬 수 있다는 것이 R-D2가 연 문제였다.
+      */}
+      <p className="rt__map-asof">위치 기준 {formatTimestamp(route.positionUpdatedAt)}</p>
+    </div>
+  )
+}
 
 /**
  * 기여 요인의 이름 — `API_SPEC`의 뜻 열을 그대로 옮겼다 (`#1673` → `#1829`).

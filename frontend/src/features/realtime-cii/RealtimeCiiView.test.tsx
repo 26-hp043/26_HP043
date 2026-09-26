@@ -950,3 +950,61 @@ describe('실시간 CII — 추이와 기여 요인 (#1949)', () => {
     expect(screen.queryByText('이 항해를 마치면')).toBeNull()
   })
 })
+
+/**
+ * 이번 항차 지도 (#1949 · R-D2 `#1672` 확정).
+ *
+ * 지도 자체는 항로 비교의 공용 부품이 맡는다. 여기서 보는 것은 **언제 그리고 언제
+ * 그리지 않는가**, 그리고 **위치가 언제 것인지 말하는가**다.
+ */
+describe('실시간 CII — 이번 항차 지도 (#1949)', () => {
+  const ROUTE = {
+    currentLat: '35.1',
+    currentLon: '129.04',
+    positionUpdatedAt: '2026-08-17T01:00:00+00:00',
+    arrivalLat: '1.2833',
+    arrivalLon: '103.85',
+    arrivalPortName: '싱가포르',
+  }
+
+  it('좌표가 있으면 위치 기준 시각을 함께 적는다 — 「지금 여기」가 아니다', async () => {
+    renderView({ load: vi.fn(async () => BASE), loadRoute: vi.fn(async () => ROUTE) })
+    await screen.findByText(/Busan/)
+    expect(await screen.findByText(/^위치 기준 /)).toBeTruthy()
+  })
+
+  /**
+   * ⚠️ **좌표가 없으면 아무것도 그리지 않는다.** 좌표는 선택 입력이라 비어 있는 것이
+   * 정상 경로다 — 「지도를 못 불러왔습니다」를 내면 **없는 고장을 만드는 것**이다.
+   */
+  it('좌표가 비면 지도를 그리지 않고 고장으로 말하지도 않는다', async () => {
+    renderView({
+      load: vi.fn(async () => BASE),
+      loadRoute: vi.fn(async () => ({ ...ROUTE, arrivalLat: null, arrivalLon: null })),
+    })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByText(/^위치 기준 /)).toBeNull()
+    expect(screen.queryByText(/지도/)).toBeNull()
+  })
+
+  it('위치 기준 시각이 없으면 그리지 않는다 — 얼마나 낡았는지 말할 수 없다', async () => {
+    renderView({
+      load: vi.fn(async () => BASE),
+      loadRoute: vi.fn(async () => ({ ...ROUTE, positionUpdatedAt: null })),
+    })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByText(/^위치 기준 /)).toBeNull()
+  })
+
+  it('조회가 실패해도 화면의 나머지는 그대로 선다', async () => {
+    renderView({
+      load: vi.fn(async () => BASE),
+      loadRoute: vi.fn(async () => {
+        throw new Error('502')
+      }),
+    })
+    await screen.findByText(/Busan/)
+    expect(screen.getByRole('region', { name: '올해 누적과 연말 예상' })).toBeTruthy()
+    expect(screen.queryByText(/^위치 기준 /)).toBeNull()
+  })
+})
