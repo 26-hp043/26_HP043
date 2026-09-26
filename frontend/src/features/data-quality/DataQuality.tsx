@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { ErrorState } from '../../components/ErrorState'
 import { GradeBadge } from '../../components/GradeBadge'
@@ -24,6 +24,7 @@ import {
   type DataQualityProvider,
   type DataQualitySnapshot,
   type PublicRecord,
+  type PublicRecordMismatch,
 } from './types'
 import './DataQuality.css'
 
@@ -49,12 +50,27 @@ type LoadState =
 /** 연도 목록 훅은 선박 키를 받는다 — 이 화면은 선대 단위라 고정 키를 준다. */
 const FLEET_KEY = 'fleet'
 
+/**
+ * 「이 값으로 채우기」 한 번 (#1923). **실패하면 문구를, 성공하면 `null`을** 돌려준다 —
+ * 오류는 누른 줄 곁에 적어야 어느 칸이 거절됐는지 보인다.
+ */
+type FillHandler = (
+  issue: DataQualityIssue,
+  record: PublicRecord,
+  mismatch: PublicRecordMismatch,
+  revertConfirmed: boolean,
+) => Promise<string | null>
+
 export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
   const api = useMemo(() => provider ?? createApiDataQualityProvider(), [provider])
   const { years, loading: yearsLoading } = useYearOptions(FLEET_KEY, { throughCurrentYear: true })
   /** 사용자가 고른 해. 화면에 쓰는 값은 아래 `year`다 — 목록과 대조해 렌더 중에 정한다. */
   const [chosenYear, setChosenYear] = useState('')
   const [state, setState] = useState<LoadState>({ status: 'loading' })
+  /** 채운 뒤 다시 불러오는 열쇠 — 채운 칸의 어긋남이 목록에서 사라지는 것까지 보여야 한다. */
+  const [reloadKey, setReloadKey] = useState(0)
+  /** 채운 결과 한 줄(`role="status"`) — 다시 불러오면 그 행이 사라지므로 무엇을 했는지 남긴다. */
+  const [notice, setNotice] = useState<string | null>(null)
 
   /*
    * 기본 연도는 **렌더 중에 파생**한다 (`#1616`). 종전에는 목록이 오면 effect가 상태를
@@ -85,7 +101,40 @@ export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
     return () => {
       cancelled = true
     }
-  }, [api, year, yearsLoading])
+  }, [api, year, yearsLoading, reloadKey])
+
+  const fill: FillHandler | undefined = api.fill
+    ? async (issue, record, mismatch, revertConfirmed) => {
+        if (issue.voyageId === null || mismatch.callYear === null || mismatch.callSeq === null) {
+          return COPY.fillFailed
+        }
+        try {
+          const result = await api.fill!(issue.voyageId, {
+            field: mismatch.field,
+            periodId: mismatch.periodId,
+            record: {
+              source: record.source,
+              portAuthorityCode: mismatch.portAuthorityCode,
+              callYear: mismatch.callYear,
+              callSeq: mismatch.callSeq,
+            },
+            recordedAt: mismatch.recordedAt,
+            revertConfirmed,
+          })
+          const label = PUBLIC_RECORD_FIELD_LABEL[mismatch.field]
+          const voyageNo = issue.voyageNo ?? ''
+          setNotice(
+            result.revertedFromStatus === null
+              ? COPY.fillDone(label, voyageNo)
+              : COPY.fillDoneReverted(label, voyageNo),
+          )
+          setReloadKey((key) => key + 1)
+          return null
+        } catch (error) {
+          return error instanceof Error ? error.message : COPY.fillFailed
+        }
+      }
+    : undefined
 
   return (
     <section className="dq">
@@ -107,6 +156,11 @@ export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
         </label>
         <p className="dq__note">{COPY.readOnlyNote}</p>
       </div>
+      {notice !== null ? (
+        <p className="dq__notice" role="status">
+          {notice}
+        </p>
+      ) : null}
 
       {state.status === 'loading' ? (
         <p className="dq__placeholder" aria-live="polite">
@@ -116,12 +170,12 @@ export function DataQuality({ provider }: { provider?: DataQualityProvider }) {
       {state.status === 'error' ? (
         <ErrorState level="region" subject={COPY.loadSubject} message={state.message} />
       ) : null}
-      {state.status === 'ready' ? <Result snapshot={state.snapshot} /> : null}
+      {state.status === 'ready' ? <Result snapshot={state.snapshot} fill={fill} /> : null}
     </section>
   )
 }
 
-function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
+function Result({ snapshot, fill }: { snapshot: DataQualitySnapshot; fill?: FillHandler }) {
   if (snapshot.vessels.length === 0) {
     return <p className="dq__placeholder">{COPY.noVessels}</p>
   }
@@ -218,7 +272,9 @@ function Result({ snapshot }: { snapshot: DataQualitySnapshot }) {
                             <li key={code}>{reasonText(code)}</li>
                           ))}
                         </ul>
-                        {issue.publicRecord ? <PublicRecordDetail record={issue.publicRecord} /> : null}
+                        {issue.publicRecord ? (
+                          <PublicRecordDetail issue={issue} record={issue.publicRecord} fill={fill} />
+                        ) : null}
                       </td>
                       <td>
                         <Impact issue={issue} />
@@ -378,7 +434,15 @@ function ImpactNotes({ issues }: { issues: DataQualityIssue[] }) {
  * (`#1766`), 어느 행이 어느 출처·수집 시각을 근거로 하는지는 그 행에 붙어야 흔들리지
  * 않는다.
  */
-function PublicRecordDetail({ record }: { record: PublicRecord }) {
+function PublicRecordDetail({
+  issue,
+  record,
+  fill,
+}: {
+  issue: DataQualityIssue
+  record: PublicRecord
+  fill?: FillHandler
+}) {
   return (
     <>
       <ul className="dq__mismatches">
@@ -397,6 +461,9 @@ function PublicRecordDetail({ record }: { record: PublicRecord }) {
                 hours,
                 minutes,
               )}
+              {fill && canFill(issue, mismatch) ? (
+                <FillControl issue={issue} record={record} mismatch={mismatch} fill={fill} />
+              ) : null}
             </li>
           )
         })}
@@ -405,6 +472,122 @@ function PublicRecordDetail({ record }: { record: PublicRecord }) {
         {COPY.publicRecordSourceNote(publicRecordSourceText(record.source), formatTimestamp(record.fetchedAt))}
       </p>
     </>
+  )
+}
+
+/**
+ * 이 줄에 「이 값으로 채우기」를 둘 수 있는가 (#1923).
+ *
+ * 보낼 열쇠가 없으면(옛 서버 · 항차 없는 행 · 구간 id 없는 정박 칸) 두지 않는다 — 눌러도 서버가
+ * 거절할 버튼을 보이지 않는다.
+ */
+function canFill(issue: DataQualityIssue, mismatch: PublicRecordMismatch): boolean {
+  if (issue.voyageId === null || mismatch.callYear === null || mismatch.callSeq === null) return false
+  const berth = mismatch.field === 'BERTH_START' || mismatch.field === 'BERTH_END'
+  return !berth || mismatch.periodId !== null
+}
+
+/**
+ * 「이 값으로 채우기」 버튼과 확정 항차의 재확인 줄 (#1923 · `PRD §17.4.4`).
+ *
+ * **누르지 않으면 아무것도 바뀌지 않는다.** 완료 항차·정박 구간은 누르면 바로 그 칸만 채운다.
+ * **확정 항차는 바로 채우지 않고 재확인 줄을 연다** — 확정을 되돌린다는 사실을 적고, 실행 버튼
+ * (「확정을 되돌리고 채우기」)을 눌러야 `revert_confirmed: true`로 보낸다(`API_SPEC §3.12` · 결정 B).
+ *
+ * 모달을 두지 않는다 — `VoyagePanel`의 확인 줄(#1598)과 같은 이유다: 저장소에 아직 모달이 없고,
+ * 확인할 대상(어긋남 한 줄)이 바로 위에 보여야 판단할 수 있다. 버튼 모양·줄 표현은
+ * `DESIGN_SYSTEM §2.3.1`의 **개발 임시안**이다.
+ */
+function FillControl({
+  issue,
+  record,
+  mismatch,
+  fill,
+}: {
+  issue: DataQualityIssue
+  record: PublicRecord
+  mismatch: PublicRecordMismatch
+  fill: FillHandler
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const keepRef = useRef<HTMLButtonElement>(null)
+  const cautionId = useId()
+  const confirmed = record.voyageStatus === 'CONFIRMED'
+
+  useEffect(() => {
+    // 줄이 열리면 **안전한 쪽**(「그만두기」)에 초점 — Enter를 한 번 더 눌러 실행되지 않게.
+    if (confirming) keepRef.current?.focus()
+  }, [confirming])
+
+  const close = () => {
+    setConfirming(false)
+    triggerRef.current?.focus()
+  }
+
+  const submit = async (revertConfirmed: boolean) => {
+    setBusy(true)
+    setError(null)
+    const failure = await fill(issue, record, mismatch, revertConfirmed)
+    // 성공하면 목록을 다시 불러오며 이 줄이 사라진다 — 실패했을 때만 상태를 되돌린다.
+    if (failure !== null) {
+      setBusy(false)
+      setConfirming(false)
+      setError(failure)
+    }
+  }
+
+  return (
+    <div className="dq__fill">
+      <button
+        type="button"
+        ref={triggerRef}
+        className="dq__fill-action"
+        disabled={busy}
+        aria-expanded={confirmed ? confirming : undefined}
+        aria-label={`${COPY.fillAction} — ${PUBLIC_RECORD_FIELD_LABEL[mismatch.field]} ${formatTimestamp(mismatch.recordedAt)}`}
+        onClick={() => {
+          if (confirmed) setConfirming(true)
+          else void submit(false)
+        }}
+      >
+        {busy ? COPY.fillBusy : COPY.fillAction}
+      </button>
+      {confirming ? (
+        <div
+          className="dq__fill-caution"
+          role="group"
+          aria-labelledby={cautionId}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') close()
+          }}
+        >
+          <p id={cautionId} className="dq__fill-caution-text">
+            {COPY.fillConfirmedCaution}
+          </p>
+          <div className="dq__fill-caution-actions">
+            <button
+              type="button"
+              className="dq__fill-action"
+              disabled={busy}
+              onClick={() => void submit(true)}
+            >
+              {COPY.fillConfirmedAction}
+            </button>
+            <button type="button" ref={keepRef} className="dq__fill-keep" disabled={busy} onClick={close}>
+              {COPY.fillKeep}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {error !== null ? (
+        <p className="dq__fill-error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
   )
 }
 

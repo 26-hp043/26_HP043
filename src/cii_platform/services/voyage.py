@@ -72,6 +72,10 @@ def to_dict(voyage, fuel_uses: list) -> dict[str, object]:
         "planned_arrival_at": _iso(voyage.planned_arrival_at),
         "actual_departure_at": _iso(voyage.actual_departure_at),
         "actual_arrival_at": _iso(voyage.actual_arrival_at),
+        # #1923 — 실제 시각의 출처. None은 「모른다」— 화면은 `PUBLIC_RECORD`일 때만 「공적 기록에서
+        # 채움」을 붙이고, None에는 아무것도 붙이지 않는다(계획 거리 출처와 같은 규칙).
+        "actual_departure_source": voyage.actual_departure_source,
+        "actual_arrival_source": voyage.actual_arrival_source,
         "annual_inclusion_policy": voyage.annual_inclusion_policy,
         "regulation_year": voyage.regulation_year,
         "created_from": voyage.created_from,
@@ -637,6 +641,46 @@ async def delete_voyage(
 #: 기록이다. `CONFIRMED`를 여기 넣지 않는 이유는 아래 docstring에 있다.
 ACTUALS_ALLOWED_STATUSES = frozenset({"IN_PROGRESS", "COMPLETED"})
 
+#: 실제 시각 칸 → 그 출처 칸 (#1923 · `DB_SCHEMA §2.2`). 시각이 바뀌는데 출처를 말하지 않으면
+#: 「모른다」(`None`)로 돌린다 — `planned_distance_source`(#1256)와 같은 규칙.
+ACTUAL_TIME_SOURCE_FIELDS: dict[str, str] = {
+    "actual_departure_at": "actual_departure_source",
+    "actual_arrival_at": "actual_arrival_source",
+}
+
+
+def _same_instant(left: object, right: object) -> bool:
+    """두 시각이 같은 순간인가. 비교할 수 없으면(한쪽만 tz 등) 「다르다」로 본다."""
+    if left is None or right is None:
+        return left is right
+    try:
+        return bool(left == right)
+    except TypeError:
+        return False
+
+
+def reset_stale_sources(
+    fields: dict[str, object],
+    source_by_value: dict[str, str],
+    current: object | None = None,
+) -> None:
+    """값이 바뀌는데 출처를 함께 말하지 않은 칸의 출처를 ``None``으로 (#1923 · #1256 규칙).
+
+    옛 「공적 기록에서 채움」이 사람이 고친 새 시각에 그대로 붙어 있으면 `PRD §0.3`이 금하는
+    거짓말이다. 값과 출처를 함께 보낸 요청만 출처를 갖는다. 항차 실적과 정박 구간 수정이 같은
+    함수를 쓴다 — 규칙이 두 곳에 있으면 한쪽만 고쳐진다.
+
+    ``current``(지금 행)를 주면 **값이 실제로 바뀐 칸만** 출처를 지운다. 실적 입력 폼은 저장된
+    시각을 미리 채워 두고 저장 때 그대로 다시 보낸다 — 연료만 고친 저장이 「공적 기록에서 채움」을
+    지우면 사용자가 고치지 않은 시각의 출처가 사라진다.
+    """
+    for value_key, source_key in source_by_value.items():
+        if value_key not in fields or source_key in fields:
+            continue
+        if current is not None and _same_instant(getattr(current, value_key), fields[value_key]):
+            continue
+        fields[source_key] = None
+
 
 async def set_actuals(
     session: AsyncSession,
@@ -694,6 +738,8 @@ async def set_actuals(
             f"허용: {', '.join(sorted(ACTUALS_ALLOWED_STATUSES))}."
         )
 
+    # #1923 — 시각을 고치면서 출처를 말하지 않으면 「모른다」로 돌린다(#1256과 같은 규칙).
+    reset_stale_sources(fields, ACTUAL_TIME_SOURCE_FIELDS, voyage)
     for key, value in fields.items():
         setattr(voyage, key, value)
 

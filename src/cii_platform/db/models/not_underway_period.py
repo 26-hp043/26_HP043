@@ -32,6 +32,12 @@ class NotUnderwayPeriod(Base):
     period_type = sa.Column(sa.String(length=20), nullable=False)
     started_at = sa.Column(sa.DateTime(timezone=True), nullable=False)
     ended_at = sa.Column(sa.DateTime(timezone=True), nullable=True)
+    # 시작·끝 시각의 출처 (#1923 · 064) — `voyage.actual_*_source`와 같은 규칙. `USER_INPUT`
+    # 또는 `PUBLIC_RECORD`(공적 재항 기록에서 「이 값으로 채우기」). **NULL은 「모른다」**. 시각이
+    # 바뀌면 옛 출처는 새 값에 붙지 않는다(`services/not_underway.py` `update_period`).
+    # 집행은 064의 트리거.
+    started_at_source = sa.Column(sa.String(length=30), nullable=True)
+    ended_at_source = sa.Column(sa.String(length=30), nullable=True)
     port_name = sa.Column(sa.String(length=200), nullable=True)
     lat = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
     lon = sa.Column(sa.Numeric(precision=9, scale=6), nullable=True)
@@ -84,6 +90,16 @@ class NotUnderwayPeriod(Base):
         sa.CheckConstraint(
             "ended_at IS NULL OR ended_at > started_at",
             name="chk_not_underway_period_time_order",
+        ),
+        # #1923 — 선언은 voyage의 `chk_actual_*_source`와 같은 형태이고, 집행은 064의 트리거
+        # `trg_chk_started_at_source_ins/upd`·`trg_chk_ended_at_source_ins/upd`가 한다.
+        sa.CheckConstraint(
+            "started_at_source IS NULL OR started_at_source IN ('USER_INPUT','PUBLIC_RECORD')",
+            name="chk_started_at_source",
+        ),
+        sa.CheckConstraint(
+            "ended_at_source IS NULL OR ended_at_source IN ('USER_INPUT','PUBLIC_RECORD')",
+            name="chk_ended_at_source",
         ),
         # 028 — voyage.actual_distance_nm과 달리 0이 정상값이라 > 0 이 아니라 >= 0 이다.
         sa.CheckConstraint("distance_nm >= 0", name="chk_nup_distance_non_negative"),

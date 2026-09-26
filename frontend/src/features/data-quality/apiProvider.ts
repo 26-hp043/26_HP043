@@ -8,6 +8,8 @@ import {
   type DataQualitySnapshot,
   type PublicRecord,
   type PublicRecordField,
+  type PublicRecordFillRequest,
+  type PublicRecordFillResult,
   type Rating,
   type Severity,
 } from './types'
@@ -34,11 +36,18 @@ interface ServerPublicRecordMismatch {
   difference_minutes: number
   port_authority_code: string
   port_authority_name: string | null
+  /** #1923 — 옛 서버는 아래 넷이 없다 */
+  call_year?: number | null
+  call_seq?: string | null
+  fetched_at?: string | null
+  period_id?: string | null
 }
 
 interface ServerPublicRecord {
   source: string
   fetched_at: string
+  /** #1923 — 옛 서버는 없다 */
+  voyage_status?: string | null
   mismatches: ServerPublicRecordMismatch[]
 }
 
@@ -124,6 +133,7 @@ function toPublicRecord(raw: ServerPublicRecord | null | undefined): PublicRecor
   return {
     source: raw.source,
     fetchedAt: raw.fetched_at,
+    voyageStatus: raw.voyage_status ?? null,
     mismatches: raw.mismatches.map((m) => ({
       field: m.field as PublicRecordField,
       enteredAt: m.entered_at,
@@ -131,6 +141,9 @@ function toPublicRecord(raw: ServerPublicRecord | null | undefined): PublicRecor
       differenceMinutes: m.difference_minutes,
       portAuthorityCode: m.port_authority_code,
       portAuthorityName: m.port_authority_name,
+      callYear: m.call_year ?? null,
+      callSeq: m.call_seq ?? null,
+      periodId: m.period_id ?? null,
     })),
   }
 }
@@ -155,6 +168,12 @@ function toIssue(raw: ServerIssue): DataQualityIssue {
     ciiReason: raw.cii_impact_reason,
     publicRecord: toPublicRecord(raw.public_record),
   }
+}
+
+/** 오류 봉투(`API_SPEC §1.3.2`)의 `message` — 없으면 `null`. */
+async function errorMessage(response: Response): Promise<string | null> {
+  const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+  return body?.error?.message ?? null
 }
 
 export function createApiDataQualityProvider(
@@ -212,6 +231,58 @@ export function createApiDataQualityProvider(
           completeness: toCompleteness(v.completeness),
         })),
         issues: data.issues.map(toIssue),
+      }
+    },
+
+    /**
+     * 「이 값으로 채우기」 — `POST /voyages/{id}/public-record-fill` (`API_SPEC §3.12` · #1923).
+     *
+     * 서버의 거절 문구(404 · 409 · 422)를 그대로 올린다 — 「그 사이 갱신됐다」(409)와 「확정을
+     * 되돌리는 확인이 필요하다」(422)는 사용자가 할 일이 달라 뭉개면 안 된다.
+     */
+    async fill(voyageId: string, request: PublicRecordFillRequest): Promise<PublicRecordFillResult> {
+      let response: Response
+      try {
+        response = await fetchImpl(`${baseUrl}/voyages/${voyageId}/public-record-fill`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            ...csrfHeaders(),
+          },
+          body: JSON.stringify({
+            field: request.field,
+            period_id: request.periodId,
+            record: {
+              source: request.record.source,
+              port_authority_code: request.record.portAuthorityCode,
+              call_year: request.record.callYear,
+              call_seq: request.record.callSeq,
+            },
+            recorded_at: request.recordedAt,
+            revert_confirmed: request.revertConfirmed,
+          }),
+        })
+      } catch (cause) {
+        throw new DataQualityUnavailableError('서버에 연결하지 못했습니다.', { cause })
+      }
+      if (response.status === 401) {
+        redirectToLogin()
+        throw new DataQualityUnavailableError(SESSION_EXPIRED_MESSAGE)
+      }
+      if (!response.ok) {
+        throw new DataQualityUnavailableError(
+          (await errorMessage(response)) ?? `공적 기록으로 채우지 못했습니다 (HTTP ${response.status}).`,
+        )
+      }
+      const data = ((await response.json()) as {
+        data?: { field: string; reverted_from_status: string | null }
+      }).data
+      if (!data) throw new DataQualityUnavailableError('채우기 응답 형식이 올바르지 않습니다.')
+      return {
+        field: data.field as PublicRecordField,
+        revertedFromStatus: data.reverted_from_status,
       }
     },
   }

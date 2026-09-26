@@ -28,6 +28,7 @@ from cii_platform.api.schemas.bounds import (
     NOT_UNDERWAY_FUEL,
     REGULATION_YEAR,
 )
+from cii_platform.api.schemas.voyage import HumanTimeSource
 
 
 class NotUnderwayFuelUseCreateRequest(BaseModel):
@@ -101,6 +102,10 @@ class NotUnderwayPeriodUpdateRequest(BaseModel):
     period_type: Annotated[str | None, Field(min_length=1, max_length=20)] = None
     started_at: AwareDatetime | None = None
     ended_at: AwareDatetime | None = None
+    # #1923 — 시각을 바꾸면서 생략하면 출처는 `null`로 돌아간다(항차 실적 `§3.6`과 같은 규칙).
+    # `PUBLIC_RECORD`는 `§3.12`만 붙인다.
+    started_at_source: HumanTimeSource | None = None
+    ended_at_source: HumanTimeSource | None = None
     port_name: Annotated[str | None, Field(max_length=200)] = None
     lat: Annotated[Decimal | None, Field(ge=-90, le=90)] = None
     lon: Annotated[Decimal | None, Field(ge=-180, le=180)] = None
