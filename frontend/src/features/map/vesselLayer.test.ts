@@ -108,3 +108,56 @@ describe('Three 선박 custom layer', () => {
     expect(disposed.renderer).toHaveBeenCalled()
   })
 })
+
+/**
+ * 지구 반대편 선박을 숨긴다 (`#1937`).
+ *
+ * 지구본을 돌리면 **반대편 배가 그대로 보였다** — `map.project()`가 구 뒷면의 점도 화면
+ * 좌표를 돌려주는데, 그리는 쪽에 앞뒤 판정이 없었다. 여기서 보는 것은 ⑴ MapLibre의
+ * 판정을 쓰는가 ⑵ 가려지면 **그리지 않는가**다.
+ */
+describe('지구 반대편 가림', () => {
+  const baseMap = (extra: Record<string, unknown> = {}) => ({
+    project: vi.fn(() => ({ x: 120, y: 80 })),
+    getBearing: () => 0,
+    getPitch: () => 18,
+    getCenter: () => ({ lng: 129, lat: 35 }),
+    getCanvas: () => ({ width: 800, height: 500, clientWidth: 400, clientHeight: 250 }),
+    getCanvasContainer: () => document.createElement('div'),
+    on: vi.fn(),
+    off: vi.fn(),
+    ...extra,
+  })
+
+  it('MapLibre가 가렸다고 하면 그리지 않는다', () => {
+    const isLocationOccluded = vi.fn(() => true)
+    const fakeMap = baseMap({ transform: { isLocationOccluded } })
+    const controller = createGlobeVesselLayer(fakeMap as never, {
+      mode: 'fleet', vessels: [{ id: 'ship', coordinate: [-51, -35], heading: 0 }],
+    })
+    expect(isLocationOccluded).toHaveBeenCalled()
+    // 가려진 배의 자리는 묻지 않는다 — 그릴 일이 없다.
+    expect(fakeMap.project).not.toHaveBeenCalled()
+    controller.destroy()
+  })
+
+  it('앞면이면 자리를 잡아 그린다', () => {
+    const fakeMap = baseMap({ transform: { isLocationOccluded: () => false } })
+    const controller = createGlobeVesselLayer(fakeMap as never, {
+      mode: 'fleet', vessels: [{ id: 'ship', coordinate: [129, 35], heading: 0 }],
+    })
+    expect(fakeMap.project).toHaveBeenCalled()
+    controller.destroy()
+  })
+
+  it('MapLibre 판정이 없으면 각거리로 가른다', () => {
+    // 내부 구현에 기대지 않는다 — 없거나 바뀌어도 반대편 배가 되살아나지 않아야 한다.
+    const fakeMap = baseMap()
+    const controller = createGlobeVesselLayer(fakeMap as never, {
+      mode: 'fleet', vessels: [{ id: 'ship', coordinate: [-51, -35], heading: 0 }],
+    })
+    expect(fakeMap.project).not.toHaveBeenCalled()
+    controller.destroy()
+  })
+})
+

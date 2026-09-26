@@ -141,7 +141,13 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
             ? portLabelPlacement(projected.x, target.clientWidth)
             : 'center'
           element.dataset.placement = placement
-          return new maplibregl.Marker({ element, anchor: 'center' })
+        /*
+         * 지구 뒤로 넘어가면 **완전히 감춘다** (`#1937`).
+         *
+         * MapLibre 기본값은 `0.2`라 반대편 마커가 희미하게 남는다. 3D 선체는 그때 아예
+         * 그리지 않으므로(`vesselLayer.ts`), 배지만 떠 있으면 **배 없는 등급 표시**가 된다.
+         */
+          return new maplibregl.Marker({ element, anchor: 'center', opacityWhenCovered: '0' })
             .setLngLat([...port.coordinate]).addTo(map)
         })
         renderedPorts = model.ports
@@ -149,7 +155,8 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
       if (renderedMarkers !== model.markers) {
         for (const marker of markers) marker.remove()
         markers = model.markers.map(({ coordinate, element }) =>
-          new maplibregl.Marker({ element, anchor: 'center' }).setLngLat([...coordinate]).addTo(map),
+          new maplibregl.Marker({ element, anchor: 'center', opacityWhenCovered: '0' })
+            .setLngLat([...coordinate]).addTo(map),
         )
         renderedMarkers = model.markers
       }

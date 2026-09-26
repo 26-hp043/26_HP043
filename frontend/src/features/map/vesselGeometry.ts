@@ -63,3 +63,35 @@ export function ratingColorToken(rating: string | null): string | null {
   const key = rating.trim().toLowerCase()
   return /^[a-e]$/.test(key) ? `--cii-${key}-fill` : null
 }
+
+/**
+ * 지구 **반대편**에 있는가 (`#1937`).
+ *
+ * 3D 선박은 지도 위 overlay 캔버스에 그리고 자리는 `map.project()`가 준다. 그런데 그
+ * 함수는 **구 뒷면의 점도 화면 좌표를 돌려준다** — 그대로 그리면 지구 반대편 배가
+ * 앞면 배와 섞여, 「어느 배가 이쪽에 있는가」를 읽을 수 없다.
+ *
+ * MapLibre의 `transform.isLocationOccluded()`가 정확한 판정이고 호출부가 그것을 먼저
+ * 쓴다. 이 함수는 **그것을 쓸 수 없을 때**를 받는다 — 중심에서의 각거리(구면 코사인)로
+ * 앞뒤만 가른다.
+ *
+ * `limitDeg`가 90°보다 조금 작은 이유는 **원근** 때문이다. 카메라가 무한히 멀면 정확히
+ * 90°가 경계지만, 실제로는 그보다 가까워 **보이는 범위가 90°에 못 미친다.** 경계에서
+ * 한 프레임 늦게 사라지는 것보다 조금 일찍 사라지는 쪽이 낫다 — 앞면에 없는 배가
+ * 보이는 것이 고장이고, 가장자리에서 일찍 사라지는 것은 지구본의 결이다.
+ */
+export function isBeyondGlobeHorizon(
+  center: readonly [number, number],
+  point: readonly [number, number],
+  limitDeg = 82,
+): boolean {
+  const toRad = (degree: number) => (degree * Math.PI) / 180
+  const [centerLon, centerLat] = center
+  const [lon, lat] = point
+  if (![centerLon, centerLat, lon, lat].every((value) => Number.isFinite(value))) return false
+  const cosine =
+    Math.sin(toRad(centerLat)) * Math.sin(toRad(lat)) +
+    Math.cos(toRad(centerLat)) * Math.cos(toRad(lat)) * Math.cos(toRad(lon - centerLon))
+  // 부동소수 오차로 1을 아주 조금 넘을 수 있다 — `acos`가 NaN이 된다.
+  return Math.acos(Math.min(1, Math.max(-1, cosine))) > toRad(limitDeg)
+}
