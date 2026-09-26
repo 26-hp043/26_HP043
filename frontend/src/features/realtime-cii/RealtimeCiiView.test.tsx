@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import '../../test/renderSetup'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -994,6 +997,30 @@ describe('실시간 CII — 이번 항차 지도 (#1949)', () => {
     })
     await screen.findByText(/Busan/)
     expect(screen.queryByText(/^위치 기준 /)).toBeNull()
+  })
+
+  /**
+   * ⚠️ **빌려 쓴 부품의 기본 문안은 그 부품이 사는 화면 기준이다.**
+   *
+   * `VoyageRouteMap`의 대체 정보 제목 기본값은 「항로 비교 지도」다. 그대로 두면 이
+   * 화면에 「항로 비교 지도 텍스트 정보」가 나온다 — 1440 실측에서 그렇게 나왔다.
+   * `FleetMap`의 `ariaLabel`·`caption`이 같은 이유로 이미 호출부에 열려 있다.
+   */
+  it('이 화면에 「항로 비교」 문안이 새지 않는다', async () => {
+    renderView({ load: vi.fn(async () => BASE), loadRoute: vi.fn(async () => ROUTE) })
+    await screen.findByText(/Busan/)
+    await screen.findByText(/^위치 기준 /)
+    expect(screen.queryByText(/항로 비교/)).toBeNull()
+  })
+
+  /**
+   * jsdom에는 WebGL이 없어 지도가 실제로 마운트되지 않는다 — 대체 정보의 제목을
+   * 렌더로 확인할 수 없다. **넘기는지를 원본에서 본다.** 기본값으로 두면 이 화면에
+   * 「항로 비교 지도 텍스트 정보」가 나온다(1440 실측에서 그렇게 나왔다).
+   */
+  it('지도에 이 화면의 대체 정보 제목을 넘긴다', () => {
+    const source = readFileSync(join(import.meta.dirname, 'RealtimeCiiView.tsx'), 'utf8')
+    expect(source).toMatch(/alternativeTitle="이번 항차 지도"/)
   })
 
   it('조회가 실패해도 화면의 나머지는 그대로 선다', async () => {

@@ -626,6 +626,11 @@ function VoyageMapBlock({
         destinationLat={route.arrivalLat}
         destinationLon={route.arrivalLon}
         destinationName={route.arrivalPortName ?? arrivalPortName ?? ''}
+        /*
+          ⚠️ **빌려 쓴 부품의 기본 문안은 그 화면 기준이다.** 그대로 두면 이 화면에
+          「항로 비교 지도 텍스트 정보」가 나온다 — 실측에서 그렇게 나왔다.
+        */
+        alternativeTitle="이번 항차 지도"
       />
       {/*
         **마지막으로 받은 위치**임을 말한다. 「지금 여기 있다」가 아니다 — 진행률과

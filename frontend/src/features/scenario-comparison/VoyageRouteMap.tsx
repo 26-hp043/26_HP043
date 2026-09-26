@@ -79,6 +79,15 @@ interface VoyageRouteMapProps {
   detourWaypointName?: string
   /** 부모 화면이 이미 조회한 항만 목록. 지도 때문에 같은 API를 다시 호출하지 않는다. */
   samplePorts?: readonly SamplePort[]
+  /**
+   * 대체 정보(접힌 텍스트)의 제목 (`#1949`).
+   *
+   * 기본 문안 「항로 비교 지도」는 **이 화면 기준**이라, 부품을 빌려 쓰는 화면에서는
+   * 그대로 두면 **틀린 말이 된다** — 실시간 CII가 이것을 쓰면서 「항로 비교 지도 텍스트
+   * 정보」가 그 화면에 나왔다. `FleetMap`의 `ariaLabel`·`caption`이 같은 이유로 이미
+   * 호출부에 열려 있다.
+   */
+  alternativeTitle?: string
 }
 
 export function VoyageRouteMap({
@@ -91,6 +100,7 @@ export function VoyageRouteMap({
   detourWaypointLon = '',
   detourWaypointName = '',
   samplePorts = [],
+  alternativeTitle = '항로 비교 지도',
 }: VoyageRouteMapProps) {
   const [basemap, setBasemap] = useState<boolean | null>(null)
   const [rendererFailure, setRendererFailure] = useState<MapFailure | null>(null)
@@ -167,7 +177,7 @@ export function VoyageRouteMap({
       )} />
       {routeFailure === null ? null : <p className="voyage-route-map__status">{routeFailure}</p>}
       <p className="voyage-route-map__hint" id={hintId}>{disclosure.visibleText}</p>
-      <MapAlternative id={`${hintId}-alternative`} title="항로 비교 지도"
+      <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
         failure={rendererFailure}
         onRetry={() => { setRendererFailure(null); setRendererAttempt((value) => value + 1) }}
         items={routes.map((route) => `${route.kind === 'DETOUR' ? '우회' : '직항'}: 출발 ${route.departureLat}, ${route.departureLon} · 도착 ${route.arrivalLat}, ${route.arrivalLon}`)} />
