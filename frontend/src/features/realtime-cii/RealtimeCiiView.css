@@ -280,17 +280,40 @@
   color: var(--text-secondary);
 }
 
+/*
+ * **두 단을 걷었다** (#1949).
+ *
+ * 종전 주석은 「⑵와 ⑶을 같은 크기로 둔다 — ⑶만 커지면 확정값처럼 읽힌다」였다.
+ * 그 취지는 **무게**이지 **폭**이 아니었고, 지도가 ⑵ 안으로 들어오면서 두 카드의
+ * 키가 갈렸다 — 1440 실측에서 왼쪽 780 · 오른쪽 198로 **띠의 37%가 빈 채로 남았다**
+ * (1920은 39%). 「같은 크기」가 「한쪽만 네 배 크다」가 된 것이다.
+ *
+ * 이제 카드는 **한 단씩 쌓인다.** 무게는 결론 띠가 잡는다 — ⑶은 그 띠의 보조 결론이고
+ * 이 카드는 근거를 맡는다(`§8.6`). 폭으로 무게를 말할 이유가 없어졌다.
+ */
 .rt__split {
   display: grid;
-  /* ⑵와 ⑶을 같은 크기로 둔다 — ⑶만 커지면 확정값처럼 읽힌다(PRD §3.3). */
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing-xl);
+}
+
+/*
+ * 이번 항차 카드 **안**의 두 단 — 지도와 수치 (#1949).
+ *
+ * 지도는 넓을수록 「어디쯤인가」가 읽히고, 수치는 좁아도 읽힌다. 카드가 전폭이 되면서
+ * 그 둘을 나란히 둘 자리가 생겼다. 1100 아래는 한 단으로 접는다(종전 `.rt__split`이
+ * 쓰던 전환점을 그대로 쓴다 — 한 제품에 기준 폭을 여럿 두지 않는다).
+ */
+.rt__voyage-body {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   gap: var(--spacing-xl);
   align-items: start;
 }
 
 @media (max-width: 1100px) {
-  .rt__split {
-    grid-template-columns: 1fr;
+  .rt__voyage-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -707,9 +730,20 @@
   font-size: var(--font-size-micro);
 }
 
-/* 이번 항차 지도 (#1949) — 카드 안, 진행률 막대 위. */
+/* 이번 항차 지도 (#1949) — 카드 안 왼쪽 단. */
 .rt__map {
-  margin-block-end: var(--spacing-md);
+  min-inline-size: 0;
+}
+
+/*
+ * 수치 쪽 단 (#1949).
+ *
+ * `VoyagePanel`이 조각(fragment)을 돌려주므로 **감싸는 상자가 필요하다** — 그대로
+ * 두면 그 안의 요소들이 격자 칸으로 흩어져 지도 옆이 아니라 지도 아래·옆에 제각각
+ * 앉는다. `min-inline-size: 0`은 좁은 칸에서 수치가 칸을 밀지 않게 한다.
+ */
+.rt__voyage-figures-col {
+  min-inline-size: 0;
 }
 
 /*

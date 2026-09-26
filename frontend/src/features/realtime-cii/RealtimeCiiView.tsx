@@ -495,13 +495,13 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
             <span className="card__meta">등급 판정 대상 아님</span>
           </div>
           {data.currentVoyage ? (
-            <>
+            <div className="rt__voyage-body">
               {/*
                 이번 항차 지도 (#1949 · R-D2 `#1672` 확정).
 
                 **보간하지 않는다** — 진행률로 위치를 만들지 않고, 서버가 마지막으로
-                받은 위치를 그대로 찍고 그 시각을 함께 적는다. 진행률은 아래 막대에만
-                둔다. 좌표를 못 받으면 지도를 그리지 않고 종전 화면 그대로다.
+                받은 위치를 그대로 찍고 그 시각을 함께 적는다. 진행률은 옆 단의 막대에만
+                둔다. 좌표를 못 받으면 지도를 그리지 않고 수치가 카드 전체를 쓴다.
               */}
               <VoyageMapBlock
                 provider={provider}
@@ -509,8 +509,10 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
                 voyageId={data.currentVoyage.voyageId}
                 arrivalPortName={data.currentVoyage.arrivalPortName}
               />
-              <VoyagePanel data={data} unit={unit} vesselId={vesselId} />
-            </>
+              <div className="rt__voyage-figures-col">
+                <VoyagePanel data={data} unit={unit} vesselId={vesselId} />
+              </div>
+            </div>
           ) : (
             /* 항차가 없는 것은 오류가 아니다 — 정박 중이거나 아직 등록 전이다. */
             <p className="rt__nodata">진행 중인 항차가 없습니다.</p>
