@@ -26,18 +26,26 @@
   border-style: dashed;
 }
 
+/* `§3` `title`(20 · 코드 토큰 이름은 `h2`) — 토큰으로 쓴다 (#1781). */
 .grade-badge--lg {
-  font-size: 20px;
+  font-size: var(--font-size-h2);
   padding: 4px 12px;
   border-radius: 8px;
 }
 
+/* `§3` `label`(13) — 토큰으로 쓴다 (#1781). */
 .grade-badge--sm {
-  font-size: 13px;
+  font-size: var(--font-size-label);
   padding: 3px 8px;
   border-radius: 4px;
 }
 
+/*
+ * ⚠️ **여기만 리터럴로 남는다** (#1781). `§3`의 `micro`는 11인데 **그 크기의 토큰이
+ * 없다** — `--font-size-micro`는 이름과 달리 `§3`의 `caption`(12)이고, 가드의
+ * `CODE_NAME`도 `caption → micro`로 잇는다. 토큰을 만드는 것은 `§15` 네이밍과 Figma가
+ * 함께 걸리는 자리라 이 이슈 밖이다. 가드는 `§3` 표의 **토큰이 있는** 크기만 본다.
+ */
 .grade-badge--xs {
   font-size: 11px;
   padding: 2px 6px;
