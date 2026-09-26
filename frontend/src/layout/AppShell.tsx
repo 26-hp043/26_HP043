@@ -324,10 +324,14 @@ export function AppShell() {
               : item.officeOnly && user !== null && !isOffice(user)
                 ? t('shell.navTagOffice')
                 : null
+            // 좁은 창(1100 이하)에서는 라벨이 시각적으로 감춰져 아이콘만 남는다(#1885).
+            // 마우스를 올리면 이름이 보이게 한다 — 낭독 이름은 감춘 라벨이 그대로 맡는다.
+            const label = language === 'en' ? item.labelEn : item.label
             return lockedTag === null ? (
               <li key={item.id}>
                 <NavLink
                   to={item.path}
+                  title={label}
                   className={({ isActive }) =>
                     isActive
                       ? 'app-shell__nav-link app-shell__nav-link--active'
@@ -337,7 +341,7 @@ export function AppShell() {
                   <NavIcon id={item.id} />
                   <span className="app-shell__nav-text">
                     <span className="app-shell__nav-label" lang={textLang}>
-                      {language === 'en' ? item.labelEn : item.label}
+                      {label}
                     </span>
                   </span>
                 </NavLink>
@@ -352,11 +356,12 @@ export function AppShell() {
                 <span
                   className="app-shell__nav-link app-shell__nav-link--disabled"
                   aria-disabled="true"
+                  title={`${label} · ${lockedTag}`}
                 >
                   <NavIcon id={item.id} />
                   <span className="app-shell__nav-text">
                     <span className="app-shell__nav-label" lang={textLang}>
-                      {language === 'en' ? item.labelEn : item.label}
+                      {label}
                     </span>
                   </span>
                   <span className="app-shell__nav-tag" lang={textLang}>
