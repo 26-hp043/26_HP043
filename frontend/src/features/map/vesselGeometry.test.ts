@@ -7,21 +7,12 @@
  * 1픽셀이 수 km라 **한 픽셀도 차지하지 못했다.** layer는 정상으로 돌았고 콘솔도 조용했다 —
  * 사람이 본 것은 그 위에 얹힌 평면 SVG 마커였다. 그래서 「3D가 안 나온다」로 보였다.
  *
- * 형상은 WebGL 없이 정해지므로 여기서 본다. 그리는 쪽(`vesselLayer.ts`)은 three를 모의해
- * lifecycle만 본다.
+ * 형상은 `vesselParts.test.ts`가 본다 (`#1935`) — 여기는 **크기와 색**이다.
  */
 
 import { describe, expect, it } from 'vitest'
 
-import {
-  HULL_PROPORTIONS,
-  metersPerPixel,
-  ratingColorToken,
-  vesselHullVertices,
-  vesselLengthMeters,
-  vesselTriangleCount,
-} from './vesselGeometry'
-import { VESSEL_GEOMETRY_BUDGET } from './vesselModel'
+import { isBeyondGlobeHorizon, metersPerPixel, ratingColorToken, vesselLengthMeters } from './vesselGeometry'
 
 /** 부산 앞바다. 화면에서 실제로 쓰는 위도다. */
 const BUSAN_LAT = 35.1
@@ -61,66 +52,6 @@ describe('크기 — 화면에서 읽히는 기호다', () => {
   })
 })
 
-describe('형상 — 방향이 읽히는 저폴리 선체', () => {
-  it('예산 안에 든다', () => {
-    expect(vesselTriangleCount('fleet')).toBeLessThanOrEqual(VESSEL_GEOMETRY_BUDGET.fleetTriangles)
-    for (const mode of ['comparison', 'playback'] as const) {
-      expect(vesselTriangleCount(mode)).toBeLessThanOrEqual(
-        VESSEL_GEOMETRY_BUDGET.trackingTriangles,
-      )
-    }
-  })
-
-  it('정점 배열이 삼각형 목록이다', () => {
-    const vertices = vesselHullVertices('fleet')
-    expect(vertices.length % 9).toBe(0)
-    expect(vertices.length).toBeGreaterThan(0)
-    expect(vertices.every((value) => Number.isFinite(value))).toBe(true)
-  })
-
-  it('선수가 뾰족하고 선미가 잘려 있다', () => {
-    // 방향을 읽는 근거다 — 종전 사각뿔은 앞뒤가 같아 회전해도 어디가 앞인지 몰랐다.
-    const vertices = vesselHullVertices('fleet')
-    let bow = -Infinity
-    let stern = Infinity
-    const atBow: number[] = []
-    const atStern: number[] = []
-    for (let i = 0; i < vertices.length; i += 3) {
-      const [x, y] = [vertices[i], vertices[i + 1]]
-      if (y > bow) bow = y
-      if (y < stern) stern = y
-      atBow.push(Math.abs(x))
-      atStern.push(Math.abs(x))
-    }
-    expect(bow).toBeGreaterThan(0)
-    expect(stern).toBeLessThan(0)
-
-    // 선수 끝(가장 큰 y)에 있는 점들은 중심선 위에 모인다 — 뾰족하다는 뜻이다.
-    const bowWidths: number[] = []
-    const sternWidths: number[] = []
-    for (let i = 0; i < vertices.length; i += 3) {
-      const [x, y] = [vertices[i], vertices[i + 1]]
-      if (Math.abs(y - bow) < 1e-6) bowWidths.push(Math.abs(x))
-      if (Math.abs(y - stern) < 1e-6) sternWidths.push(Math.abs(x))
-    }
-    expect(Math.max(...bowWidths)).toBe(0)
-    expect(Math.max(...sternWidths)).toBeGreaterThan(0)
-  })
-
-  it('추적 모드에는 선교가 얹힌다', () => {
-    // 갑판보다 위에 있는 점은 선교뿐이다.
-    const deckTop = HULL_PROPORTIONS.freeboard
-    const above = (mode: 'fleet' | 'playback') => {
-      const vertices = vesselHullVertices(mode)
-      let count = 0
-      for (let i = 2; i < vertices.length; i += 3) if (vertices[i] > deckTop + 1e-6) count += 1
-      return count
-    }
-    expect(above('fleet')).toBe(0)
-    expect(above('playback')).toBeGreaterThan(0)
-  })
-})
-
 describe('등급 색 — 토큰을 가리킨다', () => {
   it('등급마다 있는 토큰을 고른다', () => {
     // 새 색을 만들지 않는다(`DESIGN_SYSTEM §0.2`) — 이름이 틀리면 화면이 중립색으로 떨어진다.
@@ -132,5 +63,53 @@ describe('등급 색 — 토큰을 가리킨다', () => {
     expect(ratingColorToken(null)).toBeNull()
     expect(ratingColorToken('F')).toBeNull()
     expect(ratingColorToken('')).toBeNull()
+  })
+})
+
+/**
+ * 지구 반대편 가림 (`#1937`).
+ *
+ * 지구본을 돌리면 **반대편 배가 그대로 보였다.** `map.project()`가 구 뒷면의 점도 화면
+ * 좌표를 돌려주는데, 그리는 쪽에 앞뒤 판정이 없었기 때문이다.
+ *
+ * 정확한 판정은 MapLibre의 `transform.isLocationOccluded()`가 하고 호출부가 그것을 먼저
+ * 쓴다. 여기서 보는 것은 **그것을 쓸 수 없을 때의 대체 판정**이다.
+ */
+describe('isBeyondGlobeHorizon', () => {
+  const BUSAN = [129.04, 35.1] as const
+
+  it('중심에 있는 배는 보인다', () => {
+    expect(isBeyondGlobeHorizon(BUSAN, BUSAN)).toBe(false)
+  })
+
+  it('지구 반대편은 가려진다', () => {
+    // 부산의 대척점 — 남대서양.
+    expect(isBeyondGlobeHorizon(BUSAN, [-50.96, -35.1])).toBe(true)
+  })
+
+  it('같은 반구의 먼 항만은 보인다', () => {
+    // 싱가포르는 부산에서 약 40°다 — 지구본에서 함께 보이는 거리다.
+    expect(isBeyondGlobeHorizon(BUSAN, [103.85, 1.28])).toBe(false)
+  })
+
+  it('가장자리보다 조금 일찍 사라진다', () => {
+    /*
+     * 카메라가 무한히 멀면 경계가 정확히 90°지만 실제로는 그보다 가까워 **보이는 범위가
+     * 90°에 못 미친다.** 앞면에 없는 배가 보이는 것이 고장이고, 가장자리에서 일찍
+     * 사라지는 것은 지구본의 결이다.
+     */
+    expect(isBeyondGlobeHorizon([0, 0], [80, 0])).toBe(false)
+    expect(isBeyondGlobeHorizon([0, 0], [85, 0])).toBe(true)
+    expect(isBeyondGlobeHorizon([0, 0], [90, 0])).toBe(true)
+  })
+
+  it('경계는 호출부가 정할 수 있다', () => {
+    expect(isBeyondGlobeHorizon([0, 0], [85, 0], 89)).toBe(false)
+  })
+
+  it('좌표가 성하지 않으면 숨기지 않는다', () => {
+    // 판정을 못 하는 것과 「뒤에 있다」는 다르다 — 배를 지우는 쪽으로 기울지 않는다.
+    expect(isBeyondGlobeHorizon([Number.NaN, 0], [10, 0])).toBe(false)
+    expect(isBeyondGlobeHorizon([0, 0], [Number.NaN, 0])).toBe(false)
   })
 })

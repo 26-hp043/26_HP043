@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { MapRendererHost, type MapRendererEvent } from './renderer'
 import type { HarborRendererModel } from './harborRenderer'
+import { harborSceneFor } from './harborScenes'
 import './HarborTransitionShell.css'
 
 const loadHarbor = () => import('./harborRenderer').then(({ loadHarborRenderer }) => loadHarborRenderer())
@@ -9,11 +10,9 @@ let harborHistorySequence = 0
 type HarborPort = HarborRendererModel['port']
 
 function harborPort(selection: string | null): HarborPort | null {
-  if (!selection?.startsWith('port:')) return null
-  const normalized = selection.toUpperCase()
-  if (normalized.includes('KRPUS')) return 'busan'
-  if (normalized.includes('SGSIN')) return 'singapore'
-  return null
+  // 대응표는 `harborScenes.ts`가 갖는다 (`#1933`) — 핀을 만드는 쪽도 같은 판정을 써야
+  // 「들어갈 수 있는 핀」을 가릴 수 있다. 여기 두면 그쪽에서 알 길이 없었다.
+  return selection?.startsWith('port:') ? harborSceneFor(selection) : null
 }
 
 interface HarborTransitionShellProps {
