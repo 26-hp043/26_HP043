@@ -2,7 +2,7 @@
 import '../../test/renderSetup'
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { DataQuality } from './DataQuality'
 import { DATA_QUALITY_COPY, SEVERITY_TITLE } from './copy'
@@ -309,6 +309,7 @@ describe('공적 기록과 다름 (#1197)', () => {
       publicRecord: {
         source: 'MOF_VESSEL_OPS',
         fetchedAt: '2026-09-26T01:00:00+00:00',
+        voyageStatus: 'COMPLETED' as string | null,
         mismatches: [
           {
             field: 'ARRIVAL' as const,
@@ -317,6 +318,9 @@ describe('공적 기록과 다름 (#1197)', () => {
             differenceMinutes: 720,
             portAuthorityCode: '020',
             portAuthorityName: '부산',
+            callYear: 2026 as number | null,
+            callSeq: '029' as string | null,
+            periodId: null as string | null,
           },
         ],
       },
@@ -385,6 +389,177 @@ describe('공적 기록과 다름 (#1197)', () => {
     const group = await listSection()
     expect(group.querySelector('.dq__mismatches')).toBeNull()
     expect(group.querySelector('.dq__source')).toBeNull()
+  })
+})
+
+/**
+ * 「이 값으로 채우기」 (#1923 · `PRD §17.4.4`).
+ *
+ * 문구는 표시 문구라 리터럴로 단언하지 않는다(`AGENTS §4.6`) — `copy.ts`의 값을 가져와
+ * **성질**(누르기 전에는 부르지 않는다 · 확정 항차는 한 번 더 묻는다 · 동의 표시가 실린다)을 본다.
+ */
+describe('이 값으로 채우기 (#1923)', () => {
+  function fillSnapshot(voyageStatus: string): DataQualitySnapshot {
+    return {
+      ...SNAPSHOT,
+      counts: { ...SNAPSHOT.counts, PUBLIC_RECORD: 1 },
+      issues: [
+        {
+          severity: 'PUBLIC_RECORD',
+          vesselId: 'v1',
+          vesselName: 'MV One',
+          voyageId: 'voy-9',
+          voyageNo: 'D',
+          codes: ['PUBLIC_RECORD:ARRIVAL'],
+          cii: null,
+          ciiReason: null,
+          publicRecord: {
+            source: 'MOF_VESSEL_OPS',
+            fetchedAt: '2026-09-26T01:00:00+00:00',
+            voyageStatus,
+            mismatches: [
+              {
+                field: 'ARRIVAL',
+                enteredAt: '2026-08-08T17:20:00+00:00',
+                recordedAt: '2026-08-08T05:20:00+00:00',
+                differenceMinutes: 720,
+                portAuthorityCode: '020',
+                portAuthorityName: '부산',
+                callYear: 2026,
+                callSeq: '029',
+                periodId: null,
+              },
+            ],
+          },
+        },
+      ],
+    }
+  }
+
+  function renderFill(snapshot: DataQualitySnapshot, fill: DataQualityProvider['fill']) {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 500 })))
+    const provider: DataQualityProvider = { load: vi.fn(async () => snapshot), fill }
+    render(
+      <MemoryRouter>
+        <DataQuality provider={provider} />
+      </MemoryRouter>,
+    )
+    return provider
+  }
+
+  function fillButton(group: HTMLElement): HTMLButtonElement {
+    return within(group).getByRole('button', {
+      name: new RegExp(`^${DATA_QUALITY_COPY.fillAction}`),
+    }) as HTMLButtonElement
+  }
+
+  it('누르지 않으면 부르지 않는다 — 조회만으로는 아무것도 보내지 않는다', async () => {
+    const fill = vi.fn(async () => ({ field: 'ARRIVAL' as const, revertedFromStatus: null }))
+    renderFill(fillSnapshot('COMPLETED'), fill)
+
+    const group = await listSection()
+    expect(fillButton(group)).toBeTruthy()
+    expect(fill).not.toHaveBeenCalled()
+  })
+
+  it('완료 항차는 누르면 그 칸 하나를 되돌림 동의 없이 보내고, 다시 불러온다', async () => {
+    const fill = vi.fn(async () => ({ field: 'ARRIVAL' as const, revertedFromStatus: null }))
+    const provider = renderFill(fillSnapshot('COMPLETED'), fill)
+
+    const group = await listSection()
+    fireEvent.click(fillButton(group))
+
+    await waitFor(() => expect(fill).toHaveBeenCalledTimes(1))
+    expect(fill).toHaveBeenCalledWith('voy-9', {
+      field: 'ARRIVAL',
+      periodId: null,
+      record: { source: 'MOF_VESSEL_OPS', portAuthorityCode: '020', callYear: 2026, callSeq: '029' },
+      recordedAt: '2026-08-08T05:20:00+00:00',
+      revertConfirmed: false,
+    })
+    await waitFor(() => expect(provider.load).toHaveBeenCalledTimes(2))
+    expect(await screen.findByRole('status')).toBeTruthy()
+  })
+
+  it('확정 항차는 바로 보내지 않고 재확인 줄을 연다 — 그만두면 아무것도 보내지 않는다', async () => {
+    const fill = vi.fn(async () => ({ field: 'ARRIVAL' as const, revertedFromStatus: 'CONFIRMED' }))
+    renderFill(fillSnapshot('CONFIRMED'), fill)
+
+    const group = await listSection()
+    const trigger = fillButton(group)
+    fireEvent.click(trigger)
+
+    expect(fill).not.toHaveBeenCalled()
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    const caution = within(group).getByRole('group', { name: DATA_QUALITY_COPY.fillConfirmedCaution })
+    // 안전한 쪽에 초점이 먼저 간다
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(caution).getByRole('button', { name: DATA_QUALITY_COPY.fillKeep }),
+      ),
+    )
+    fireEvent.click(within(caution).getByRole('button', { name: DATA_QUALITY_COPY.fillKeep }))
+    expect(within(group).queryByRole('group', { name: DATA_QUALITY_COPY.fillConfirmedCaution })).toBeNull()
+    expect(fill).not.toHaveBeenCalled()
+  })
+
+  it('확정 항차는 재확인 줄의 실행 버튼을 눌러야 되돌림 동의(revertConfirmed)를 싣는다', async () => {
+    const fill = vi.fn(async () => ({ field: 'ARRIVAL' as const, revertedFromStatus: 'CONFIRMED' }))
+    renderFill(fillSnapshot('CONFIRMED'), fill)
+
+    const group = await listSection()
+    fireEvent.click(fillButton(group))
+    const caution = within(group).getByRole('group', { name: DATA_QUALITY_COPY.fillConfirmedCaution })
+    fireEvent.click(within(caution).getByRole('button', { name: DATA_QUALITY_COPY.fillConfirmedAction }))
+
+    await waitFor(() => expect(fill).toHaveBeenCalledTimes(1))
+    expect(fill).toHaveBeenCalledWith('voy-9', expect.objectContaining({ revertConfirmed: true }))
+    const done = await screen.findByRole('status')
+    // 되돌렸다는 알림은 되돌리지 않은 알림과 다르다 — 재확정이 사용자 몫이라는 것이 전해져야 한다.
+    expect(done.textContent).not.toBe(DATA_QUALITY_COPY.fillDone('도착 시각', 'D'))
+    expect(done.textContent).toBe(DATA_QUALITY_COPY.fillDoneReverted('도착 시각', 'D'))
+  })
+
+  it('서버가 거절하면 그 문구를 누른 줄 곁에 보이고, 다시 불러오지 않는다', async () => {
+    const message = 'SERVER-REFUSED'
+    const fill = vi.fn(async () => {
+      throw new Error(message)
+    })
+    const provider = renderFill(fillSnapshot('COMPLETED'), fill)
+
+    const group = await listSection()
+    fireEvent.click(fillButton(group))
+
+    expect((await within(group).findByRole('alert')).textContent).toBe(message)
+    expect(provider.load).toHaveBeenCalledTimes(1)
+    expect(fillButton(group).disabled).toBe(false)
+  })
+
+  it('채우기 열쇠가 없으면(옛 서버) 버튼을 두지 않는다', async () => {
+    const snapshot = fillSnapshot('COMPLETED')
+    const record = snapshot.issues[0].publicRecord!
+    snapshot.issues[0] = {
+      ...snapshot.issues[0],
+      publicRecord: { ...record, mismatches: [{ ...record.mismatches[0], callYear: null, callSeq: null }] },
+    }
+    renderFill(snapshot, vi.fn())
+
+    const group = await listSection()
+    expect(within(group).queryByRole('button', { name: new RegExp(`^${DATA_QUALITY_COPY.fillAction}`) })).toBeNull()
+  })
+
+  it('정박 칸에 구간 id가 없으면 버튼을 두지 않는다 — 서버가 거절할 버튼이다', async () => {
+    const snapshot = fillSnapshot('COMPLETED')
+    const record = snapshot.issues[0].publicRecord!
+    snapshot.issues[0] = {
+      ...snapshot.issues[0],
+      codes: ['PUBLIC_RECORD:BERTH_START'],
+      publicRecord: { ...record, mismatches: [{ ...record.mismatches[0], field: 'BERTH_START', periodId: null }] },
+    }
+    renderFill(snapshot, vi.fn())
+
+    const group = await listSection()
+    expect(within(group).queryByRole('button', { name: new RegExp(`^${DATA_QUALITY_COPY.fillAction}`) })).toBeNull()
   })
 })
 

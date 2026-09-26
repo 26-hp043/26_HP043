@@ -312,15 +312,22 @@ async def _impact(
     )
 
 
-def _public_record_block(mismatches: list[Mismatch], source: str) -> dict[str, object]:
+def _public_record_block(
+    mismatches: list[Mismatch], source: str, voyage_status: str
+) -> dict[str, object]:
     """``issues[].public_record`` — 어긋남과 **언제 기준의 공적 기록인가**(출처 표기).
 
     ``fetched_at``은 짝지은 기록 가운데 **가장 오래 전에 받은 것**이다 — 한 항차의 어긋남이
     여러 기록에 걸치면 가장 낡은 기준을 알려야 「이 시각 이후 정정됐을 수 있다」가 성립한다.
+
+    ``voyage_status``와 어긋남마다의 ``period_id`` · ``call_year`` · ``call_seq`` · ``fetched_at``은
+    「이 값으로 채우기」(`#1923` · `API_SPEC §3.12`)의 재료다 — 화면이 확정 항차인지 알아야
+    되돌리기 재확인을 띄울 수 있고, 서버가 **어느 기항**의 시각을 옮기는지 열쇠로 다시 찾는다.
     """
     return {
         "source": source,
         "fetched_at": min(item.fetched_at for item in mismatches).isoformat(),
+        "voyage_status": voyage_status,
         "mismatches": [
             {
                 "field": item.field,
@@ -329,6 +336,10 @@ def _public_record_block(mismatches: list[Mismatch], source: str) -> dict[str, o
                 "difference_minutes": item.difference_minutes,
                 "port_authority_code": item.port_authority_code,
                 "port_authority_name": item.port_authority_name,
+                "call_year": item.call_year,
+                "call_seq": item.call_seq,
+                "fetched_at": item.fetched_at.isoformat(),
+                "period_id": None if item.period_id is None else str(item.period_id),
             }
             for item in mismatches
         ],
@@ -376,6 +387,8 @@ async def get_fleet_data_quality(
                 arrival_at=row.arrival_at,
                 departure_at=row.departure_at,
                 fetched_at=row.fetched_at,
+                call_year=row.call_year,
+                call_seq=row.call_seq,
             )
         )
         record_source_by_sign.setdefault(row.call_sign, row.source)
@@ -487,9 +500,13 @@ async def get_fleet_data_quality(
                 ]
                 for period in periods_by_voyage.get(voyage.id, []):
                     entries.append(
-                        EnteredTime(FIELD_BERTH_START, period.started_at, period.port_name)
+                        EnteredTime(
+                            FIELD_BERTH_START, period.started_at, period.port_name, period.id
+                        )
                     )
-                    entries.append(EnteredTime(FIELD_BERTH_END, period.ended_at, period.port_name))
+                    entries.append(
+                        EnteredTime(FIELD_BERTH_END, period.ended_at, period.port_name, period.id)
+                    )
                 mismatches = reconcile(entries, vessel_records)
                 if mismatches:
                     codes = list(
@@ -497,7 +514,7 @@ async def get_fleet_data_quality(
                     )
                     voyage_issues.append((SEVERITY_PUBLIC_RECORD, codes))
                     public_record = _public_record_block(
-                        mismatches, record_source_by_sign[str(vessel.call_sign)]
+                        mismatches, record_source_by_sign[str(vessel.call_sign)], voyage.status
                     )
 
             voyage_co2 = _voyage_co2(rows)

@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서명 | API_SPEC.md |
-| 버전 | v1.46 |
+| 버전 | v1.47 |
 | 상태 | Oracle Review + 외부 리뷰 반영 |
 | 최종 수정일 | 2026-09-26 |
 | 상위 문서 | `PRD.md` v4.4, `TECH_SPEC.md` v1.7 — `AGENTS §4.4` 「마지막으로 대조를 마친 판본」 |
@@ -1243,6 +1243,8 @@ GET /api/v1/vessels/{vessel_id}/not-underway-periods?regulation_year=2026
       "period_type": "AT_ANCHOR",
       "started_at": "2026-08-10T14:00:00+00:00",
       "ended_at": "2026-08-12T09:00:00+00:00",
+      "started_at_source": null,
+      "ended_at_source": null,
       "port_name": "부산",
       "lat": null,
       "lon": null,
@@ -1376,6 +1378,8 @@ PATCH /api/v1/not-underway-periods/{period_id}
 모든 필드가 optional이며 **생략 = 변경 없음**이다(항차 수정 `§3.4`와 같은 규약).
 
 > **`ended_at`의 명시적 `null`은 클리어가 아니라 「다시 진행 중으로 되돌림」이다.** 잘못 닫은 구간을 되돌릴 경로가 필요하고, 이 열에서 `null`은 원래 그 뜻이다. 반대로 NOT NULL 열(`period_type`·`started_at`·`distance_nm`)에 `null`을 보내면 422다 — 비울 수 없는 항목이다.
+
+> **[#1923] 시각의 출처 — `started_at_source` · `ended_at_source`.** 값은 `USER_INPUT` 하나만 받는다(그 밖은 422). `PUBLIC_RECORD`(공적 기록에서 채움)는 **서버만** 붙인다 — `§3.12`가 공적 기록을 직접 읽어 옮길 때다. 시각을 **다른 값으로** 바꾸면서 출처를 생략하면 출처는 `null`(「모른다」)로 돌아가고, 저장된 시각과 **같은 값**을 다시 보낸 요청은 출처를 그대로 둔다(수정 폼이 저장된 시각을 미리 채워 보내므로). 구간 생성(`§2.10`)은 출처를 받지 않는다 — 새 구간의 출처는 `null`이다.
 
 > **시각을 바꾸면 귀속 연도가 따라 옮겨질 수 있다.** `regulation_year`를 함께 보내지 않았고 기존 연도가 새 시각 범위에 더 이상 유효하지 않으면 **새 `started_at`의 연도로 옮긴다** — 그러지 않으면 그 구간이 집계에서 사라진다. 기존 연도가 여전히 유효하면(연말을 걸친 구간에서 사용자가 고른 값) 그대로 둔다.
 
@@ -1803,7 +1807,7 @@ GET /api/v1/fleet/data-quality?regulation_year=2026
 | `summary.completeness_ratio` · `vessels[].completeness_ratio` | 누적 CO₂ 중 실측으로 계산된 비율(`PRD §17.4.3`) · 소수 4자리 문자열. 배출이 없거나 계산할 수 없으면 `null` — **100%로 채우지 않는다** |
 | `summary.completeness` · `vessels[].completeness` | **[#1532]** 그 비율의 분자·분모와 제외 내역 — 비율만으로는 0%든 54.2%든 화면에서 검산할 수 없다. 모두 **CO₂ 톤 · 소수 2자리 문자열**(`§2.7` `co2_ton`과 같은 규약 · `§1.7`의 `ROUND_HALF_UP` — `[#1349]`의 절사는 CII 필드에만 적용된다). `total_co2_ton`(분모 · 누적 CO₂, not under way 포함) · `measured_co2_ton`(분자 · 실측으로 인정된 CO₂, not under way 포함) · `excluded_unavailable_co2_ton` · `excluded_substituted_co2_ton` · `excluded_anomaly_co2_ton`(각각 계산 불가 · 대체 계산 · 이상치로 빠진 CO₂). **`measured + Σexcluded = total`이 g 단위에서 정확히 성립한다** — 한 항차가 여러 심각도에 걸리면 빠진 CO₂를 **계산 불가 > 대체 계산 > 이상치** 순으로 앞선 한 축에만 더한다(두 축에 다 더하면 합이 맞지 않는다). 톤 문자열은 다섯 값이 **각각** 반올림되므로 문자열끼리 더하면 누적과 **최대 0.02 t** 어긋날 수 있다(가수 넷의 반올림 오차 · 예: 5,000 g씩 넷은 각 `"0.01"`로 합 0.04인데 누적 20,000 g은 `"0.02"`). 정확한 검산은 g 단위다. `vessels[].completeness`는 `completeness_ratio`와 같은 조건에서 `null`(선박 누적을 낼 수 없을 때); `summary.completeness`는 낼 수 있는 선박들의 합이라 늘 있다 — 선박이 0척이면 전부 `"0.00"`이고 비율은 `null`이다. 실적 확정 전(`UNCONFIRMED`)은 어느 축에도 없다 — 완결성에서 빼지 않기 때문이다(`PRD §17.4.3`) |
 | `issues[].cii_impact` | 그 항차를 **뺀** 누적 CII와의 차이(`PRD §17.4.2`). `delta` = `attained_cii` − `attained_cii_without` — **양수면 이 항차가 누적 CII를 높이고(나쁘게) 있다** |
-| `issues[].public_record` | **[#1197]** `PUBLIC_RECORD` 행에만 있고 다른 행은 `null`. `source`(제공자 · `MOF_VESSEL_OPS`) · `fetched_at`(짝지은 기록 가운데 **가장 오래 전에 받은** 시각 · ISO 8601 — 출처 표기의 「언제 기준」) · `mismatches[]` — `field`(`DEPARTURE` · `ARRIVAL` · `BERTH_START` · `BERTH_END`) · `entered_at`(넣은 값) · `recorded_at`(공적 기록) · `difference_minutes`(절댓값 · 분 아래 버림) · `port_authority_code`(항만청코드 · 부산 `020`) · `port_authority_name`(없으면 `null`). 순서는 `field` 순이다 |
+| `issues[].public_record` | **[#1197]** `PUBLIC_RECORD` 행에만 있고 다른 행은 `null`. `source`(제공자 · `MOF_VESSEL_OPS`) · `fetched_at`(짝지은 기록 가운데 **가장 오래 전에 받은** 시각 · ISO 8601 — 출처 표기의 「언제 기준」) · `mismatches[]` — `field`(`DEPARTURE` · `ARRIVAL` · `BERTH_START` · `BERTH_END`) · `entered_at`(넣은 값) · `recorded_at`(공적 기록) · `difference_minutes`(절댓값 · 분 아래 버림) · `port_authority_code`(항만청코드 · 부산 `020`) · `port_authority_name`(없으면 `null`). 순서는 `field` 순이다. **[#1923] 「이 값으로 채우기」(`§3.12`)의 재료** — `public_record.voyage_status`(그 항차의 상태 · 화면이 `CONFIRMED`면 되돌리기 재확인을 띄운다)와 `mismatches[]`마다 `call_year`(입항연도) · `call_seq`(입항 차수) · `fetched_at`(그 기록을 받은 시각) · `period_id`(정박 칸이면 그 구간 id · 항차 칸은 `null`). 기항 열쇠는 `source` · `port_authority_code` · `call_year` · `call_seq` 넷이다(`DB_SCHEMA §2.25` `uq_port_call_record_call`) |
 | `issues[].cii_impact_reason` | `cii_impact`가 `null`인 이유 — `ONLY_VOYAGE`(이 항차뿐이라 빼면 누적이 없다) · `BASE_UNAVAILABLE`(선박 누적 CII를 낼 수 없다). 선박 단위 행이면 둘 다 `null` |
 
 #### 오류
@@ -2132,6 +2136,8 @@ GET /api/v1/vessels/{vessel_id}/voyages?status=PLANNED&limit=20
       "planned_arrival_at": "2026-08-12T00:00:00Z",
       "actual_departure_at": null,
       "actual_arrival_at": null,
+      "actual_departure_source": null,
+      "actual_arrival_source": null,
       "annual_inclusion_policy": "INCLUDE_AS_PLAN",
       "regulation_year": 2026,
       "created_from": "MANUAL",
@@ -2335,6 +2341,8 @@ PUT /api/v1/voyages/{voyage_id}/actuals
   "actual_avg_speed_kn": 13.5,
   "actual_departure_at": "2026-07-15T08:00:00Z",
   "actual_arrival_at": "2026-08-13T12:00:00Z",
+  "actual_departure_source": "USER_INPUT",
+  "actual_arrival_source": "USER_INPUT",
   "fuel_uses": [
     {
       "fuel_type": "HFO",
@@ -2346,6 +2354,8 @@ PUT /api/v1/voyages/{voyage_id}/actuals
 ```
 
 모든 필드가 선택이다 — **실거리만 먼저 알고 연료는 나중에 오는 경우가 실제로 있다.** 생략은 「변경 없음」이다.
+
+> **[#1923] 실제 시각의 출처 — `actual_departure_source` · `actual_arrival_source`.** 항차 객체(`§3.1`)에 실리는 두 키이며, 값은 `USER_INPUT`(사람이 넣음) · `PUBLIC_RECORD`(공적 재항 기록에서 「이 값으로 채우기」로 옮김 · `§3.12`) · `null`(「모른다」 — 064 이전 행 · 출처 없이 넣은 시각)이다. **이 요청은 `USER_INPUT`만 받는다** — `PUBLIC_RECORD`는 서버가 공적 기록을 직접 읽어 옮긴 경우에만 참이고, 클라이언트가 「공적 기록에서 왔다」고 주장하는 것은 서버가 확인할 수 없다(422 · `field_label` 「실제 출항 시각 출처」). 시각을 **다른 값으로** 바꾸면서 출처를 생략하면 출처는 `null`로 돌아간다 — 공적 기록에서 채운 시각을 사람이 고쳤는데 「공적 기록에서 채움」이 남으면 `PRD §0.3`이 금하는 거짓말이다(`§3.4` `planned_distance_source`와 같은 규칙). 저장된 시각과 **같은 값**을 다시 보낸 요청은 출처를 그대로 둔다 — 실적 폼은 저장된 시각을 미리 채워 두고 저장 때 그대로 보내므로, 연료만 고친 저장이 출처를 지우면 사용자가 고치지 않은 시각의 표시가 사라진다.
 
 #### 상태별 허용 (#440)
 
@@ -2535,6 +2545,90 @@ GET /api/v1/ports/sea-route?from_lat=35.1&from_lon=129.0333&via_lat=21.3&via_lon
 > **같은 점 둘은 점 하나다**(`length_nm` 0 · `coordinates` 1개). 라이브러리는 같은 점도 가까운 경로망 노드까지 갔다 오는 선을 내는데 그것은 항로가 아니라 서버가 거른다. **육지 위의 점**은 가장 가까운 경로망 노드로 붙인다 — 오류가 아니다(대권선도 같은 입력을 그렸다).
 >
 > **실제 항해 계획이 아니다.** 경로망은 운항 계획·수심·기상을 모른다 — 화면 캡션이 그 사실을 받는다(`DESIGN_SYSTEM §9.5`). 서버가 선을 주지 못하면 화면은 대권선으로 되돌리지 않고 선을 비운다(캡션이 거짓이 되지 않게).
+
+### 3.12 공적 기록으로 채우기 (#1923)
+
+```http
+POST /api/v1/voyages/{voyage_id}/public-record-fill
+```
+
+데이터 점검(`§2.16` · `UIFLOW 2-11`)의 「공적 기록과 다름」 행에서 사용자가 **「이 값으로 채우기」를 누른 칸 하나**를 공적 재항 기록(`DB_SCHEMA §2.25`)의 시각으로 바꾼다(`PRD §17.4.4` · `§15.1` `[#1197]` 2단계). **누르기 전에는 아무것도 바뀌지 않는다** — 데이터 점검 조회는 값을 바꾸지 않는다(`PRD §17.1`).
+
+#### 요청 Body
+
+```json
+{
+  "field": "DEPARTURE",
+  "period_id": null,
+  "record": {
+    "source": "MOF_VESSEL_OPS",
+    "port_authority_code": "020",
+    "call_year": 2026,
+    "call_seq": "029"
+  },
+  "recorded_at": "2026-08-13T09:45:00+00:00",
+  "revert_confirmed": false
+}
+```
+
+| 필드 | 타입 | 필수 | 설명 |
+|---|---|---|---|
+| `field` | string | Y | 채울 칸 — `DEPARTURE`(항차 실제 출항) · `ARRIVAL`(항차 실제 도착) · `BERTH_START`(정박 구간 시작) · `BERTH_END`(정박 구간 끝). `§2.16` `mismatches[].field`와 같다 |
+| `period_id` | UUID \| null | 조건부 | `BERTH_START`·`BERTH_END`면 **필수**(어느 구간인가 · `mismatches[].period_id`). 항차 칸에 보내면 422 |
+| `record` | object | Y | 기항 열쇠 넷(`DB_SCHEMA §2.25` `uq_port_call_record_call`) |
+| `record.source` | string | Y | 제공자 — `§2.16` `public_record.source`(`MOF_VESSEL_OPS`) |
+| `record.port_authority_code` | string | Y | 항만청코드 — `mismatches[].port_authority_code` |
+| `record.call_year` | integer | Y | 입항연도 — `mismatches[].call_year` |
+| `record.call_seq` | string | Y | 입항 차수 — `mismatches[].call_seq` |
+| `recorded_at` | ISO 8601 | Y | 화면이 사용자에게 **보인** 공적 기록 시각(`mismatches[].recorded_at`). 서버는 기록을 다시 읽어 이 값과 같은지 본다 |
+| `revert_confirmed` | boolean | N | **확정(`CONFIRMED`) 항차에서만 뜻이 있다** — 화면의 재확인 줄을 사용자가 통과했다는 표시(`PRD §8.1.1`). 기본 `false` |
+
+알 수 없는 키는 422다(`extra="forbid"`).
+
+#### 무엇을 하는가
+
+1. **서버가 기록을 다시 읽는다.** 요청의 시각을 그대로 넣지 않는다 — 넣는 값은 늘 DB의 공적 기록이다. 그래서 `PUBLIC_RECORD` 출처는 **이 경로만** 붙인다(`§3.6` · `§2.11`은 `USER_INPUT`만 받는다).
+2. **누른 칸 하나만 바꾼다.** 출항이 어긋났다고 도착까지 바꾸지 않는다. 그 칸의 출처 열(`actual_departure_source` · `actual_arrival_source` · `started_at_source` · `ended_at_source` — `DB_SCHEMA §2.2`·`§2.17`)에 `PUBLIC_RECORD`를 적는다. 정박 칸은 구간 수정(`§2.11`)과 같은 검사(순서 · 겹침 · 귀속 연도)를 거친다.
+3. **확정 항차는 되돌리기 전환을 먼저 거친다.** `CONFIRMED`는 `revert_confirmed: true`가 있을 때만 `CONFIRMED → COMPLETED` 전환(`§3.5`)을 하고 그 다음 채운다. 항차는 **`COMPLETED`로 남고 재확정은 사용자가 `2-8`에서** 한다 — 여기서 다시 확정하면 `PRD §8.1.1`의 재확인 요구가 빈말이 된다. 항차 칸은 그 밖에는 실적 입력(`§3.6`)과 같은 상태 규칙(`IN_PROGRESS` · `COMPLETED`)을 따른다.
+4. **되돌리기 · 값 변경 · 감사가 한 트랜잭션이다**(`TECH_SPEC §13.1` · `#1625`). 감사는 둘 — 되돌렸으면 `VOYAGE_TRANSITION`(`§3.5`와 같은 액션), 그리고 늘 `VOYAGE_ACTUALS_FILL`(칸 · 이전 값 · 새 값 · 공적 기록 키와 받은 시각 · 되돌린 상태 · `DB_SCHEMA §2.14`). 화면이 전환과 실적 입력을 두 요청으로 보내면 둘째가 실패할 때 **되돌려진 채 옛값이 남는다** — 그 경로를 없애려고 한 요청으로 묶었다. 감사 기록이 실패하면 되돌림도 값 변경도 남지 않는다.
+
+`calculation_run`은 무효화하지 않는다 — 실적 입력(`§3.6`)과 같은 규칙이다. 되돌린 항차의 연간 반영은 상태 전환(`§3.5`)이 정한 대로다.
+
+#### 응답 (200 OK)
+
+```json
+{
+  "data": {
+    "field": "DEPARTURE",
+    "before": "2026-08-13T21:45:00+00:00",
+    "after": "2026-08-13T09:45:00+00:00",
+    "source": "PUBLIC_RECORD",
+    "reverted_from_status": "CONFIRMED",
+    "voyage": { "id": "uuid", "status": "COMPLETED", "actual_departure_source": "PUBLIC_RECORD", "…": "…" },
+    "period": null
+  },
+  "meta": { "…": "…" }
+}
+```
+
+| 필드 | 설명 |
+|---|---|
+| `before` · `after` | 바꾸기 전 · 뒤의 시각(ISO 8601). `before`는 비어 있었으면 `null` |
+| `reverted_from_status` | 되돌렸으면 `"CONFIRMED"`, 아니면 `null` |
+| `voyage` | 바뀐 뒤의 항차 객체(`§3.1`) |
+| `period` | 정박 칸이면 바뀐 뒤의 구간 객체(`§2.10`), 항차 칸이면 `null` |
+
+#### 오류 응답
+
+| 상태 | 코드 | 조건 |
+|---|---|---|
+| 404 | `NOT_FOUND` | 항차 없음 · 기록 열쇠에 맞는 공적 기록 없음 · 그 항차에 매인 구간 아님 |
+| 409 | `CONFLICT` | 기록의 시각이 `recorded_at`과 다르다 — 화면을 연 뒤 수집기가 정정본을 받았다. 데이터 점검을 다시 불러와 확인한다 |
+| 422 | `STATE_TRANSITION_ERROR` | `CONFIRMED`인데 `revert_confirmed`가 없다 · 항차 칸인데 실적을 받지 않는 상태(`DRAFT` · `PLANNED` · `CANCELLED` · `ARCHIVED`) |
+| 422 | `VALIDATION_ERROR` | 다른 배(호출부호가 다른)의 기록 · 기록에 그 쪽 시각 신고가 없음 · 정박 칸에 `period_id` 없음 · 항차 칸에 `period_id` 있음 · 구간 수정 검사(순서 · 겹침) 위반 |
+| 403 | `CSRF_ERROR` · `FORBIDDEN_ROLE` | 다른 쓰기 요청과 같다(`§1.2`) |
+
+> **확정 항차에 동의 표시를 요구하는 이유.** 확정은 사용자의 명시적 선언이라(`PRD §8.1.1`) 그것을 푸는 의사를 서버가 확인할 수 있어야 한다. 표시가 없으면 화면 버그 하나로 확정 실적이 조용히 풀린다. 화면에서는 재확인 다이얼로그가 이 표시를 보내므로 사용자가 치르는 비용은 없다(2026-09-26 사용자 결정 B).
 
 ---
 
@@ -4259,6 +4353,7 @@ GET /api/v1/health
 | GET | `/api/v1/ports/sea-route` | 공개 해상 경로망 위의 바닷길 (#1300) | §5.2 |
 | POST | `/api/v1/voyages/{id}/transition` | 항차 상태 전환 | §8.1 |
 | PUT | `/api/v1/voyages/{id}/actuals` | 항차 실적 입력 | §17.2 |
+| POST | `/api/v1/voyages/{id}/public-record-fill` | 공적 기록으로 채우기 — 「이 값으로 채우기」 (#1923) | `UIFLOW 2-11` · §17.4.4 |
 | POST | `/api/v1/calculations/voyage-cii` | 항차 CII 추정 | §10 (기능①) |
 | GET | `/api/v1/calculations` | 계산 결과 조회 (hash 기반) | §1.9 |
 | POST | `/api/v1/scenarios/compare` | 시나리오 비교 | §11 (기능②) |
@@ -4825,3 +4920,4 @@ POST /api/v1/chat
 | 2026-09-25 | `#1901` | §10 헬스 응답에 **`commit`**(빌드 커밋 12자리 · 없으면 `null`) 추가 (`#789` · `#1177`에서 옮겨 온 잔여 항목). 운영이 어느 커밋으로 떠 있는지 밖에서 알 수 없어 `#1177` 판정도 동작으로 거꾸로 추정했다. 배포 확인이 이 값과 배포한 커밋을 대조한다. 필드 추가라 기존 소비자는 그대로다. `§4.3`상 행 추가라 버전은 올리지 않는다 (#789) |
 | 2026-09-26 | `#1921` | §2.16 데이터 점검에 **다섯째 심각도 `PUBLIC_RECORD`(공적 기록과 다름)** — `summary.public_record_count` · `issues[].public_record`(출처 · 받은 시각 · 어긋남 목록) · 코드 `PUBLIC_RECORD:<칸>` 넷. 판정은 `PRD §17.4.4`(6시간 초과 · 48시간 안의 가장 가까운 기항 · 완결성 제외). 기존 필드는 그대로이고 다른 행의 `public_record`는 `null`이다. `§4.3`상 행·필드 추가라 버전은 올리지 않는다 (#1197) |
 | 2026-09-26 | `#1926` | §13.2 `[#1483]` 각주에 **감사 로그·세션 `ip_address`도 같은 판정**(`#1889`) 한 문장 — 종전에는 감사 기록 자리마다 소켓 상대를 직접 적어 클라우드에서 전원 터널 주소였다. `§4.3`상 각주 보강이라 버전은 올리지 않는다 (#1889) |
+| 2026-09-26 | `#1948` | **v1.47 — §3.12 공적 기록으로 채우기 신설**(`POST /voyages/{id}/public-record-fill` · #1923 · `#1197` 2단계). 데이터 점검의 「공적 기록과 다름」 행에서 누른 칸 하나를 공적 재항 기록의 시각으로 바꾼다 — 서버가 기록을 다시 읽어 넣고(없음 404 · 다른 배 422 · 화면이 본 값과 다르면 409), 확정 항차는 `revert_confirmed: true`가 있어야 되돌리기 전환을 거쳐 채우며(없으면 422 · 2026-09-26 사용자 결정 B), 되돌리기·값 변경·감사(`VOYAGE_TRANSITION` · `VOYAGE_ACTUALS_FILL`)가 한 트랜잭션이다. 함께 §3.1 항차 객체에 `actual_departure_source`·`actual_arrival_source` · §2.10 구간 객체에 `started_at_source`·`ended_at_source` · §3.6·§2.11 「사람이 넣는 경로는 `USER_INPUT`만 받고, 시각을 다른 값으로 바꾸면 출처는 `null`」 각주(결정 A) · §2.16 `public_record.voyage_status`와 `mismatches[]`의 `call_year`·`call_seq`·`fetched_at`·`period_id` · §12 요약표 행. 절 신설이라 `AGENTS §4.3`상 버전을 올린다 (#1923) |

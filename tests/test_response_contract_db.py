@@ -405,8 +405,10 @@ CONTRACTS: dict[str, frozenset[str]] = {
         {
             "data",
             "data[].actual_arrival_at",
+            "data[].actual_arrival_source",
             "data[].actual_avg_speed_kn",
             "data[].actual_departure_at",
+            "data[].actual_departure_source",
             "data[].actual_distance_nm",
             "data[].annual_inclusion_policy",
             "data[].arrival_lat",
@@ -447,8 +449,10 @@ CONTRACTS: dict[str, frozenset[str]] = {
         {
             "data",
             "data.actual_arrival_at",
+            "data.actual_arrival_source",
             "data.actual_avg_speed_kn",
             "data.actual_departure_at",
+            "data.actual_departure_source",
             "data.actual_distance_nm",
             "data.annual_inclusion_policy",
             "data.arrival_lat",
@@ -489,6 +493,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data[].created_at",
             "data[].distance_nm",
             "data[].ended_at",
+            "data[].ended_at_source",
             "data[].fuel_uses",
             "data[].fuel_uses[].cf_used",
             "data[].fuel_uses[].consumer_type",
@@ -503,6 +508,7 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data[].port_name",
             "data[].regulation_year",
             "data[].started_at",
+            "data[].started_at_source",
             "data[].vessel_id",
             "data[].voyage_id",
             "meta",
@@ -1769,6 +1775,12 @@ ROUTE_COVERAGE: dict[str, str] = {
     # 공용 데이터로 필드 집합을 비교할 수 없다. 그 파일이 자기 데이터로 양쪽 모양을 모두 보고,
     # HTTP 경로(인증·봉투·422)는 따로 본다.
     "GET /fleet/data-quality": ("tests/test_data_quality_db.py::test_the_route_answers_over_http"),
+    # `API_SPEC §3.12` (#1923) — 요청이 **공적 재항 기록 한 건과 어긋난 항차**를 전제하고, 데모
+    # 시드의 어긋난 항차는 확정(`CONFIRMED`)이라 보내면 되돌려진다 — 공용 데이터를 바꾸는 요청을
+    # 계약 표에서 보낼 수 없다. 그 파일이 자기 선박·기록으로 응답 키 전부와 404·409·422를 본다.
+    "POST /voyages/{}/public-record-fill": (
+        "tests/test_public_record_fill_db.py::test_completed_voyage_departure_is_filled"
+    ),
     # `API_SPEC §3.10` (#768) — 응답이 **외부 조회 결과**라 데모 시드로는 볼 수 없다.
     # 그 파일이 가짜 제공자로 샘플·캐시·조회 세 경로의 응답을 각각 확인한다.
     "GET /ports/lookup": (

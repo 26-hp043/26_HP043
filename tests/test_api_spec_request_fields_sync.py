@@ -85,6 +85,7 @@ from cii_platform.api.schemas.vessel import (
     VesselUpdateRequest,
 )
 from cii_platform.api.schemas.voyage import (
+    PublicRecordFillRequest,
     VoyageActualsRequest,
     VoyageCreateRequest,
     VoyageTransitionRequest,
@@ -130,6 +131,8 @@ TABLES: dict[str, type[BaseModel]] = {
     "5.2": ScenarioAdoptRequest,
     "6.1": AnnualSimulationRequest,
     "15.1": ChatRequest,
+    # `#1923` — 「이 값으로 채우기」. 기항 열쇠(`record.*`)가 중첩이라 하위 행까지 적는다.
+    "3.12": PublicRecordFillRequest,
 }
 
 #: `#1523` 시점 실측 행 수. 파싱이 깨져 0행이 되면 아래 대조가 「빈 것끼리 같다」로
@@ -153,6 +156,7 @@ MIN_ROWS: dict[str, int] = {
     "5.2": 5,
     "6.1": 9,
     "15.1": 3,
+    "3.12": 9,
 }
 
 #: 표 대신 요청 예시 JSON만 있는 절 → 스키마. 키 집합만 대조한다.
@@ -177,6 +181,15 @@ PATCH_PROSE: dict[str, tuple[type[BaseModel], type[BaseModel], frozenset[str]]] 
     # §3.4 — 「대상 필드는 §3.3 요청 본문과 같으므로」. 계획 연료(`fuel_uses`)는 PATCH로
     # 바꾸지 않는다 — 스키마에 없다. 문장이 그 예외를 적지 않은 것은 `#1523` 보고에 남겼다.
     "3.4": (VoyageUpdateRequest, VoyageCreateRequest, frozenset({"fuel_uses"})),
+}
+
+#: PATCH 절이 기준 스키마 **밖에서** 더 받는 필드 — 문장이 따로 적는 것이다.
+#:
+#: `§2.11` 구간 수정은 시각의 출처(`started_at_source`·`ended_at_source` · `#1923`)를 받는데
+#: 구간 생성(`§2.10`)은 받지 않는다 — 새 구간의 출처는 「모른다」(`null`)로 시작한다.
+#: `§2.11`의 `[#1923]` 각주가 그 차이를 적는다.
+PATCH_EXTRA: dict[str, frozenset[str]] = {
+    "2.11": frozenset({"started_at_source", "ended_at_source"}),
 }
 
 #: 스키마는 있으나 `API_SPEC`에 필드 표도 예시도 없는 요청.
@@ -430,6 +443,7 @@ def test_patch_prose_holds(number: str) -> None:
     model, base, excluded = PATCH_PROSE[number]
     fields = schema_fields(model)
     expected = {path for path in schema_fields(base) if path[0] not in excluded}
+    expected |= {(name,) for name in PATCH_EXTRA.get(number, frozenset())}
 
     assert set(fields) == expected, f"§{number}: 필드 집합이 문장과 다르다"
     still_required = sorted(".".join(p) for p, flag in fields.items() if flag)

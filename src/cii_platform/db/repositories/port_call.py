@@ -71,6 +71,29 @@ async def upsert_port_call(session: AsyncSession, call: PortCall, *, fetched_at:
     return result.rowcount == 1
 
 
+async def get_by_call_key(
+    session: AsyncSession,
+    *,
+    source: str,
+    port_authority_code: str,
+    call_year: int,
+    call_seq: str,
+) -> PortCallRecord | None:
+    """기항 한 건 — ``uq_port_call_record_call`` 키로 (`#1923` 「이 값으로 채우기」).
+
+    없으면 ``None``.
+    """
+    result = await session.execute(
+        select(PortCallRecord).where(
+            PortCallRecord.source == source,
+            PortCallRecord.port_authority_code == port_authority_code,
+            PortCallRecord.call_year == call_year,
+            PortCallRecord.call_seq == call_seq,
+        )
+    )
+    return result.scalars().first()
+
+
 async def list_for_call_signs(
     session: AsyncSession, call_signs: Sequence[str]
 ) -> list[PortCallRecord]:
