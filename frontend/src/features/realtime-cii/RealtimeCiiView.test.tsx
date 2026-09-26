@@ -704,11 +704,48 @@ describe('연말 예상은 연말 예상 카드 한 곳 (#1555)', () => {
     expect(within(ytdCard()).queryByText(/연말 예상/)).toBeNull()
   })
 
-  it('연말 예상 등급은 화면 전체에 한 번이다', async () => {
+  /**
+   * 한 번인 것은 그대로고 **자리가 바뀌었다** (#1949).
+   *
+   * 연말 예상이 결론 띠의 **보조 결론**이 되면서 등급 배지도 띠로 올라갔다. 카드에
+   * 남겨 두면 같은 등급이 한 화면에 두 번 서고, 그것이 이 검사가 원래 막던 것이다.
+   */
+  it('연말 예상 등급은 화면 전체에 한 번이고, 그 자리는 결론 띠다', async () => {
     renderView({ load: vi.fn(async () => BASE) })
     await screen.findByText(/Busan/)
     expect(screen.getAllByLabelText('연말 예상 등급 C')).toHaveLength(1)
-    expect(within(projectionCard()).getByLabelText('연말 예상 등급 C')).toBeTruthy()
+    const strip = screen.getByRole('region', { name: '올해 누적과 연말 예상' })
+    expect(within(strip).getByLabelText('연말 예상 등급 C')).toBeTruthy()
+    // 카드에는 남지 않는다 — 결론은 띠가 말하고 카드는 근거를 맡는다.
+    expect(within(projectionCard()).queryByLabelText('연말 예상 등급 C')).toBeNull()
+  })
+
+  /**
+   * 주 결론은 **올해 누적**이다 (#1949 · `DESIGN_SYSTEM §8.6`).
+   *
+   * 종전에는 이 화면에 결론 띠가 없어 34px 숫자 아홉이 한 무게로 늘어섰고, 정작
+   * 연말 예상은 20px로 결론보다 작았다. 띠의 주 자리가 올해 누적인지를 잠근다.
+   */
+  it('결론 띠의 주 자리가 올해 누적이고, 연말 예상은 보조 자리다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    const strip = screen.getByRole('region', { name: '올해 누적과 연말 예상' })
+    expect(within(strip).getByLabelText('현재 누적 기준 예상 등급 B')).toBeTruthy()
+    expect(strip.querySelector('.verdict-strip__main')?.textContent).toContain('18.637')
+    expect(strip.querySelector('.verdict-strip__sub')?.textContent).toContain('19.500')
+  })
+
+  /**
+   * ⚠️ **같은 숫자를 한 화면에 두 번 두지 않는다** (#1949).
+   *
+   * 결론 띠가 올해 누적 실적을 말하므로 아래 카드의 「실적 (attained)」 칸은 걷었다.
+   * 그 칸이 되살아나면 어느 쪽이 결론인지 흐려진다.
+   */
+  it('연간 누적 카드에 「실적」 칸이 없다 — 띠가 그 값을 말한다', async () => {
+    renderView({ load: vi.fn(async () => BASE) })
+    await screen.findByText(/Busan/)
+    expect(screen.queryByText('실적 (attained)')).toBeNull()
+    expect(screen.getAllByText('18.637')).toHaveLength(1)
   })
 
   it('연말 예상 카드가 등급과 값의 방향을 한 문장으로 말한다', async () => {

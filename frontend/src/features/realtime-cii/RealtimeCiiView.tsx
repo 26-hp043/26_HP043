@@ -5,6 +5,7 @@ import { GradeBadge } from '../../components/GradeBadge'
 import { DataConfidenceBadge } from '../../components/DataConfidenceBadge'
 import { DisclaimerBanner } from '../../components/DisclaimerBanner'
 import { GradeScaleBar } from '../../components/GradeScaleBar'
+import { VerdictStrip } from '../../components/VerdictStrip'
 import {
   ciiUnit,
   displayWarnings,
@@ -356,7 +357,22 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
         </p>
       ) : null}
 
-      {/* ── ⑴ 연간 누적 — 주 표시 ────────────────────────────────── */}
+      {/*
+        ── 결론 띠 (#1949 · `DESIGN_SYSTEM §8.6` 🔒) ─────────────────────
+
+        **이 화면만 결론 띠를 쓰지 않고 있었다.** 선박 상세 · CII 예측 · 연간 등급 관리 ·
+        함대 감축 계획이 이미 `VerdictStrip`을 쓴다. 그 결과 1440에서 **34px 숫자 아홉 개**가
+        한 무게로 늘어섰고(실측 09-26), 정작 연말 예상은 20px로 **결론보다 작았다.**
+
+        주 결론은 **올해 누적**이다 — 이 화면의 질문이 「지금 내 배의 올해 등급이 어떤가」이고,
+        연말 예상은 가정이 든 추정값이라 보조다(`§8.6`이 정한 주 1 · 보조 1).
+
+        띠가 값을 말하므로 아래 카드의 `실적`·`기준` 칸은 걷었다 — 같은 숫자를 한 화면에
+        두 번 두지 않는다.
+      */}
+      <ConclusionStrip data={data} />
+
+      {/* ── ⑴ 연간 누적의 재료 ───────────────────────────────────── */}
       <section className="card rt__ytd" aria-label="연간 누적 CII">
         <div className="card__head">
           <h2 className="card__title">연간 누적 (YTD)</h2>
@@ -375,28 +391,15 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
               일부가 남고, 그 누락은 화면이 깨지지 않아 발견이 늦다(#164).
             */}
             <dl className="ytd__figures">
-              <Figure
-                label="실적 (attained)"
-                value={formatOrNull(data.ytd.attainedCii, (v) =>
-                  formatDecimalString(v, DISPLAY_DIGITS.cii),
-                )}
-              />
               {/*
-                「왜 이 등급인가」의 출발점 (#1516 · `#1239` 결정 B·D). 기준값은
-                `a`·`c` × (1 − Z/100)에서 오는데 그 상수가 어디에도 보이지 않았다 —
-                설정의 「규제 기준값」 절로 잇는다. 현장직도 이 사슬을 끝까지 따라간다.
+                ⚠️ **실적·기준 두 칸을 여기서 걷었다** (#1949). 실적은 결론 띠의 주
+                결론이고, 기준은 그 띠가 등급 배지·위험도로 말한다 — 같은 숫자를 한
+                화면에 두 번 두면 어느 쪽이 결론인지 흐려진다(`§8.6`).
+
+                다만 **「기준값 근거」로 가는 길은 지워지지 않는다** — `#1516`·`#1239`
+                결정 B·D가 「왜 이 등급인가」의 출발점으로 세운 링크다. 아래 등급 스케일
+                옆으로 옮겼다.
               */}
-              <Figure
-                label="기준 (required)"
-                value={formatOrNull(data.ytd.requiredCii, (v) =>
-                  formatDecimalString(v, DISPLAY_DIGITS.cii),
-                )}
-                link={
-                  <Link className="rt__figure-link" to={regulationParametersPath()}>
-                    기준값 근거
-                  </Link>
-                }
-              />
               {/*
                 누적 거리를 운항·정박으로 쪼갠다 (#725). 위의 정박 경고가 「거리는
                 늘지 않고 연료만 누적된다」고 말하는데, 그 말을 **뒷받침하는 숫자가
@@ -513,6 +516,63 @@ export function RealtimeCiiView({ provider }: { provider?: RealtimeCiiProvider }
 }
 
 // ─── 부품 ────────────────────────────────────────────────────────────────────
+
+/**
+ * 결론 띠 (#1949 · `DESIGN_SYSTEM §8.6` 🔒).
+ *
+ * 주 = 올해 누적 · 보조 = 연말 예상 · 위험도는 **올해 누적의 것**이다. 연말 예상의
+ * 위험도를 쓰지 않는 것은 띠의 주 결론이 올해 누적이기 때문이다 — 한 띠에 두 축의
+ * 위험도가 서면 어느 값의 판정인지 읽을 수 없다(연말 예상 쪽 위험도는 그 카드가 낸다).
+ *
+ * ⚠️ **값이 없으면 띠를 세우지 않는다.** 빈 띠는 「값이 0」으로 읽힌다 — 그때는 아래
+ * 카드들이 각자 사유를 말한다(`ytd.reason` · `projection.reason`).
+ */
+function ConclusionStrip({ data }: { data: RealtimeCii }) {
+  // CII 단위는 상수가 아니다 — 선종의 capacity 축에서 갈린다 (`§4.1` 🔒 · `ciiUnit`).
+  const unit = ciiUnit(data.capacityBasis)
+  const ytdValue = formatOrNull(data.ytd.attainedCii, (v) =>
+    formatDecimalString(v, DISPLAY_DIGITS.cii),
+  )
+  if (!data.ytd.dataAvailable || ytdValue === null) return null
+
+  const risk = ytdRisk(data.ytd)
+  const projectionValue = formatOrNull(data.projection.attainedCii, (v) =>
+    formatDecimalString(v, DISPLAY_DIGITS.cii),
+  )
+
+  return (
+    <VerdictStrip
+      label="올해 누적과 연말 예상"
+      main={{
+        label: '올해 누적 (YTD)',
+        value: ytdValue,
+        unit,
+        rating: data.ytd.rating,
+        ratingLabel: `현재 누적 기준 예상 등급 ${data.ytd.rating ?? '없음'}`,
+      }}
+      /*
+       * 연말 예상을 못 내는 선박도 있다(`projection.dataAvailable`). 그때는 값 자리에
+       * 「—」를 두고 **등급 배지를 아예 두지 않는다** — `rating`을 넘기지 않으면 배지가
+       * 서지 않는다(`#1729`). 「등급 없음」 배지를 세우면 *계산했는데 등급이 없다*로
+       * 읽히는데, 실제로는 계산 자체를 못 한 것이다.
+       */
+      sub={
+        projectionValue === null
+          ? { label: '연말 예상', value: '—' }
+          : {
+              label: '연말 예상',
+              value: projectionValue,
+              unit,
+              rating: data.projection.rating,
+              ratingLabel: `연말 예상 등급 ${data.projection.rating ?? '없음'}`,
+            }
+      }
+      {...(risk === null
+        ? {}
+        : { risk: { level: risk, heading: '위험도', ...riskLabel(risk) } })}
+    />
+  )
+}
 
 function BackLink({ vesselId }: { vesselId?: string }) {
   return (
@@ -659,6 +719,18 @@ function YtdAxis({ ytd, rating }: { ytd: YtdValues; rating: Rating }) {
           label="연간 누적 CII의 등급 스케일"
         />
       ) : null}
+      {/*
+        「왜 이 등급인가」의 출발점 (#1516 · `#1239` 결정 B·D). 기준값은 `a`·`c` ×
+        (1 − Z/100)에서 오는데 그 상수가 어디에도 보이지 않았다 — 설정의 「규제 기준값」
+        절로 잇는다. 종전에는 「기준 (required)」 칸 아래 있었고, `#1949`가 그 칸을
+        결론 띠로 올리면서 **등급 스케일 옆으로 옮겼다** — 경계값을 그리는 자리가
+        그 상수를 가장 가까이 쓰는 자리다.
+      */}
+      <p className="rt__scale-source">
+        <Link className="rt__figure-link" to={regulationParametersPath()}>
+          기준값 근거
+        </Link>
+      </p>
     </div>
   )
 }
@@ -874,25 +946,20 @@ function ProjectionPanel({ data }: { data: RealtimeCii }) {
 
   return (
     <>
+      {/*
+        ⚠️ **등급 배지와 큰 값을 여기서 걷었다** (#1949).
+
+        종전에는 이 카드가 등급 배지(`lg`)와 값을 크게 들고 있었다 — 「이 카드의 주인공은
+        등급이다」가 그때의 판단이었다. `#1949`가 결론 띠를 세우면서 **연말 예상이 띠의
+        보조 결론**이 됐고, 같은 등급·같은 값을 한 화면에 두 번 두면 어느 쪽이 결론인지
+        흐려진다(검사 「연말 예상 등급은 화면 전체에 한 번이다」가 그 규칙을 이미 잠그고
+        있었다 — 이제 그 한 번은 띠다).
+
+        **이 카드에 남는 일은 「무엇이 그 값을 만드는가」다** — 방향 문장 · 기여 요인 ·
+        산출 가정. 결론이 아니라 근거를 맡는다.
+      */}
       <div className="rt__projection">
-        {projection.rating ? (
-          /*
-            `sm`(13px)이었다. 옆 값이 h2(20px)라 배지가 눌려 **등급이 곁가지로**
-            읽혔다 — 이 카드의 주인공은 등급이다. `§8`의 `lg`(20px)로 올린다.
-            세 단 안이므로 정본을 벗어나지 않는다.
-          */
-          <GradeBadge
-            rating={projection.rating}
-            size="lg"
-            label={`연말 예상 등급 ${projection.rating}`}
-          />
-        ) : null}
         <div>
-          <p className="rt__projection-value num">
-            {formatOrNull(projection.attainedCii, (v) =>
-              formatDecimalString(v, DISPLAY_DIGITS.cii),
-            ) ?? '—'}
-          </p>
           {/*
             등급과 값의 방향을 **한 문장**으로 (#1555 · `projectionSentence`). 종전에는 값의
             방향만 여기 있고 등급의 방향은 ⑴ 카드에 있어, 「나빠지는 추세」와 「등급 유지」가
