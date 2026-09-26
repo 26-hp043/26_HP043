@@ -757,14 +757,16 @@ curl -fsS http://127.0.0.1:8001/api/v1/health
 | task | 하는 일 | 서비스 영향 |
 |---|---|---|
 | `inspect` | db-01 마운트·볼륨·디스크·백업 목록·표별 행 수 · app-01 이미지·헬스·포트 | 없음 |
-| `backup` | `db_backup.py backup` + 덤프·매니페스트를 **Actions 아티팩트**(`db-backup-<실행번호>` · 14일)로도 올린다(`#788` 결정 ① — 호스트 밖 보관) | 없음 |
+| `backup` | `db_backup.py backup` + 덤프·매니페스트를 **암호화해서** Actions 아티팩트(`db-backup-<실행번호>` · `*.enc` · 14일)로도 올린다(`#788` 결정 ① · 정정 A). 시크릿 `BACKUP_ARTIFACT_PASSPHRASE`가 없으면 올리지 않는다 | 없음 |
 | `rehearse` | 최근 덤프(또는 `dump`)를 새 DB에 복구해 대조한 뒤 지운다 | 없음 |
 | `collect` | 공적 재항 기록 수집 1회(`#1197`) | 없음 |
 | `rollback-drill` | `image_sha` 이미지로 바꿔 헬스 `commit`을 확인하고 원래 이미지로 복귀(`§3.6.2`). 사이에 `alembic/` 변경이 있으면 시작하지 않는다 | 이전 판 1~2분 |
-| `restore` | 백업 → 리허설 → 앱 정지 → 교체 → 앱 기동 → 헬스(`§3.6.6`). `confirm`에 `cii` | 수 분 중단 |
+| `restore` | 백업 → 리허설 → 앱 정지 → 교체 → 앱 기동 → 헬스(`§3.6.6`). `confirm`에 `cii`. 교체는 **방금 뜨고 리허설한 그 덤프**로만 한다(`dump` 입력은 `rehearse` 전용) · 백업 뒤 교체까지 수 분의 쓰기는 사라지므로 사용자가 없을 때 | 수 분 중단 |
+| `app-start` | app-01 백엔드 기동 → 헬스. 교체가 되돌려져 앱이 꺼진 채 남았을 때 | 기동 |
 
 - 볼륨을 지우는 길은 여기에 없다 — `deploy.yml`의 `force_db_init` 하나다(`tests/test_ops_workflow.py`).
-- 아티팩트에는 가입자 이메일·비밀번호 해시가 담긴다. 비공개 저장소 권한자만 받을 수 있고 14일 뒤 지워진다. 사용자 PC 보관(결정 ②)은 사람이 내려받는다.
+- ⚠️ **이 저장소는 공개다** — Actions 로그와 아티팩트를 누구나 본다. 덤프에는 가입자 이메일·비밀번호 해시가 담기므로 러너에서 `openssl enc -aes-256-cbc -pbkdf2`로 **암호화한 파일만** 올리고 평문은 지운다. 푸는 법: `openssl enc -d -aes-256-cbc -pbkdf2 -in X.enc -out X` → 암호(`BACKUP_ARTIFACT_PASSPHRASE` · 사용자가 따로 보관). 사용자 PC 보관(결정 ②)은 사람이 내려받는다.
+- 롤백 실습의 복귀는 ssh가 끊겨도 끝까지 가게 했고 진행을 서버 `~/bluelog/drill.log`에도 남긴다. 복귀가 실패했으면 app-01에서 `cp .env.drill-orig .env && docker compose -f docker-compose.prod.app.yml up -d backend`.
 - Claude Code가 이 워크플로를 실행할 때는 manual 모드에서 사람이 명령마다 승인한다(`#788` 결정 · 자동 모드의 판정기가 원격 셸 쓰기를 막는다).
 
 ---

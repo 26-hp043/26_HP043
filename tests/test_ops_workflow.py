@@ -13,7 +13,7 @@
 * 배포와 **같은 동시 실행 그룹**인가 — 배포 도중에 백업·교체가 끼면 무엇이 무엇을
   깨뜨렸는지 가릴 수 없다.
 * 파괴적 명령이 없는가 — 볼륨을 지우는 길은 `deploy.yml`의 `force_db_init` 하나로 둔다.
-* 호스트 밖 보관(`#788` 결정 ①)의 보존 기간.
+* 호스트 밖 보관(`#788` 결정 ① · 정정 A) — 저장소가 공개라 **암호화한 파일만** 올린다.
 
 케이스: (`TEST_PLAN §14.5` 정의 없음 — 배포 배선 회귀 테스트)
 """
@@ -95,11 +95,41 @@ def test_manual_trigger_only() -> None:
     assert set(triggers) == {"workflow_dispatch"}
 
 
-def test_backup_artifact_retention() -> None:
-    upload = _step("덤프 올리기 (Actions 아티팩트 · 14일)")
+def test_backup_artifact_is_encrypted_only() -> None:
+    """저장소가 **공개**라 아티팩트는 누구나 받는다 — 암호화한 파일만 올린다(`#788` 정정 결정 A)."""
+    enc = _step("덤프 받기 · 암호화 (db-01 → 러너)")
+    script = enc["run"]
+    assert enc["env"]["PASSPHRASE"] == "${{ secrets.BACKUP_ARTIFACT_PASSPHRASE }}"
+    # 암호가 없으면 받지도 올리지도 않는다
+    no_pass = r'if \[ -z "\$\{PASSPHRASE\}" \]; then.*?encrypted=false.*?exit 0'
+    assert re.search(no_pass, script, re.S)
+    assert "openssl enc -aes-256-cbc -pbkdf2" in script
+    assert "-pass env:PASSPHRASE" in script  # 명령줄에 암호를 싣지 않는다(ps·로그에 안 보이게)
+    assert 'rm -rf "${plain}"' in script  # 평문은 올리기 전에 지운다
+    upload = _step("덤프 올리기 (암호화 파일만 · Actions 아티팩트 · 14일)")
+    assert upload["if"] == "steps.encrypt.outputs.encrypted == 'true'"
     assert upload["uses"].startswith("actions/upload-artifact@")
+    assert upload["with"]["path"].endswith("/*.enc")
     assert upload["with"]["retention-days"] == 14
-    assert upload["with"]["if-no-files-found"] == "error"
+
+
+def test_restore_swaps_the_rehearsed_dump() -> None:
+    """교체는 방금 뜨고 리허설한 **바로 그 파일**로 한다 — 최신 파일을 다시 고르지 않는다."""
+    assert _step("복구 리허설 (db-01)")["env"]["RESTORE_DUMP"] == "${{ steps.backup.outputs.dump }}"
+    swap = _step("복구 교체 (db-01)")
+    assert swap["env"]["RESTORE_DUMP"] == "${{ steps.backup.outputs.dump }}"
+    assert "ls -t" not in swap["run"]
+    # dump 입력은 rehearse 전용
+    assert '[ "${TASK}" != "rehearse" ]' in _step("입력 검증")["run"]
+
+
+def test_app_start_task_and_pipefail() -> None:
+    wf = _workflow()
+    triggers = wf.get("on") or wf.get(True)
+    assert "app-start" in triggers["workflow_dispatch"]["inputs"]["task"]["options"]
+    assert "inputs.task == 'app-start'" in _step("앱 기동 · 헬스 (app-01)")["if"]
+    # `ssh … | tee`의 실패가 tee의 성공으로 덮이지 않게
+    assert wf["jobs"]["ops"]["defaults"]["run"]["shell"] == "bash"
 
 
 def test_no_destructive_commands() -> None:
