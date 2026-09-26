@@ -172,7 +172,9 @@ jobs:
       # db-01 브로커 대기가 60회 모두 실패했다(run 35976595865 · PR #1876으로 되돌림).
       # 가설: 명령 치환 `$(…)`은 **값 끝의 줄바꿈을 지운다.** 종전 방식(`'${VAR}'`)은
       # 그대로 넘긴다. 시크릿 끝에 줄바꿈이 있으면 두 방식의 값이 갈린다. 따옴표·`$`·`\`는
-      # dotenv 이스케이프 규칙이 갈리는 자리다. 그래서 길이와 이런 **모양만** 찍는다.
+      # dotenv 이스케이프 규칙이 갈리는 자리다.
+      # 저장소가 **공개**라 이 로그는 누구나 본다 — 길이·문자 종류도 추측 범위를 좁히므로
+      # 가설 판정에 필요한 **끝 모양만**(끝 줄바꿈 개수 · 끝 CR · 끝 공백) 찍는다.
       # 배포 동작은 바꾸지 않는다. 원인을 확인하고 고친 뒤 이 단계는 지운다.
       - name: 시크릿 모양 진단 (#1634 · 값은 출력하지 않음)
         env:
@@ -197,15 +199,11 @@ jobs:
               if not v:
                   print(f"[shape] {name}: 비어 있음")
                   continue
-              b = v.encode()
               stripped = v.rstrip("\n")
               print(
-                  f"[shape] {name}: 바이트 {len(b)} · 끝 줄바꿈 {len(v) - len(stripped)}개"
-                  f" · 끝 CR {yn(stripped.endswith(chr(13)))} · 끝 공백 {yn(stripped[-1:] in (' ', chr(9)))}"
-                  f" · 앞 공백 {yn(v[:1].isspace())} · 중간 줄바꿈 {yn(chr(10) in stripped)}"
-                  f" · 작은따옴표 {yn(chr(39) in v)} · 큰따옴표 {yn(chr(34) in v)}"
-                  f" · 달러 {yn('$' in v)} · 역슬래시 {yn(chr(92) in v)} · 샵 {yn('#' in v)}"
-                  f" · ASCII 밖 {yn(any(c > 127 for c in b))}"
+                  f"[shape] {name}: 끝 줄바꿈 {len(v) - len(stripped)}개"
+                  f" · 끝 CR {yn(stripped.endswith(chr(13)))}"
+                  f" · 끝 공백 {yn(stripped[-1:] in (' ', chr(9)))}"
               )
           PY
 

@@ -2,9 +2,12 @@
 
 ## 무엇을 막는가
 
-PR #1798을 되돌린 원인을 찾으려고 `preflight`에 시크릿의 길이·끝 줄바꿈·특수문자 여부만
-찍는 단계를 넣었다. 이 단계가 실수로 값을 찍으면 **GitHub가 가리지 못하는 모양**(일부만,
-다른 인코딩으로)으로 운영 비밀번호가 로그에 남는다 — GitHub는 시크릿 원문 전체만 가린다.
+PR #1798을 되돌린 원인을 찾으려고 `preflight`에 시크릿의 **끝 모양만**
+(끝 줄바꿈 개수 · 끝 CR · 끝 공백) 찍는 단계를 넣었다.
+저장소가 공개라 길이·문자 종류도 찍지 않는다.
+이 단계가 실수로 값을 찍으면 **GitHub가 가리지 못하는 모양**
+(일부만, 다른 인코딩으로)으로 운영 비밀번호가 로그에 남는다.
+GitHub는 시크릿 원문 전체만 가린다.
 
 그래서 워크플로 안의 스크립트를 **그대로 꺼내 가짜 값으로 실행**하고, 출력에 값의 어떤
 토막도 없는지와 끝 줄바꿈을 제대로 세는지를 본다. 가짜 값은 가설의 모양(끝 줄바꿈)과
@@ -58,13 +61,14 @@ def test_never_prints_the_value() -> None:
         assert core[i : i + 4] not in out, f"값의 토막 {core[i : i + 4]!r}이 출력에 있다"
 
 
-def test_reports_trailing_newline_and_special_chars() -> None:
+def test_reports_trailing_shape_only() -> None:
+    """끝 모양(줄바꿈 개수 · CR · 공백)만 찍는다 — 공개 저장소라 길이·문자 종류는 찍지 않는다."""
     out = _run({"CUBRID_PASSWORD": FAKE})
     line = next(s for s in out.splitlines() if s.startswith("[shape] CUBRID_PASSWORD"))
-    assert f"바이트 {len(FAKE.encode())}" in line
-    assert "끝 줄바꿈 1개" in line
-    for label in ("작은따옴표 예", "큰따옴표 예", "달러 예", "역슬래시 예", "샵 예"):
-        assert label in line
+    assert line == "[shape] CUBRID_PASSWORD: 끝 줄바꿈 1개 · 끝 CR 아니오 · 끝 공백 아니오"
+    assert str(len(FAKE.encode())) not in line  # 길이를 찍지 않는다
+    crlf = _run({"CUBRID_PASSWORD": "abc \r\n\n"})
+    assert "끝 줄바꿈 2개 · 끝 CR 예" in crlf
 
 
 def test_empty_secret_is_reported_as_empty() -> None:
