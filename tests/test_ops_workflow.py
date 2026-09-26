@@ -144,6 +144,29 @@ def test_app_start_task_and_pipefail() -> None:
     assert wf["jobs"]["ops"]["defaults"]["run"]["shell"] == "bash"
 
 
+def test_backup_reclaims_root_owned_dir() -> None:
+    # 2026-09-26 첫 백업이 root 소유 backups/에 막혔다 — 덤프 전에 되돌려야 한다
+    run = _step("백업 (db-01)")["run"]
+    assert "sudo -n chown" in run
+    assert run.index("[ ! -w backups ]") < run.index("sudo -n chown")
+    assert run.index("sudo -n chown") < run.index("db_backup.py backup")
+
+
+def test_inspect_shows_db_container_health() -> None:
+    # #1634 — db 헬스체크 상태는 compose ps의 STATUS 열에만 보인다
+    assert "docker-compose.prod.db.yml ps" in _step("상태 보기 (db-01)")["run"]
+
+
+def test_chat_audit_prints_no_content_or_identity() -> None:
+    # 공개 저장소의 Actions 로그 — 본문 표(chat_message)·사용자·IP를 고르지 않고 해시는 지운다
+    step = _step("챗봇 감사 흐름 (db-01)")
+    assert step["if"] == "inputs.task == 'inspect'"
+    run = step["run"]
+    assert "chat_message" not in run
+    assert "user_id" not in run and "ip_address" not in run
+    assert "sha256" in run and "re.sub" in run
+
+
 def test_no_destructive_commands() -> None:
     text = OPS.read_text(encoding="utf-8")
     for pattern in (r"down\s+-v", r"force_db_init", r"volume\s+rm", r"volume\s+prune", r"deletedb"):
