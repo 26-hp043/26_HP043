@@ -24,7 +24,7 @@ import { GradePatternDefs } from '../components/GradePatternDefs'
 import { isOffice, logout, useAuthUser } from '../auth/session'
 import { useI18n, useTextLang } from '../i18n/core'
 import { VerifyBanner } from '../features/auth/VerifyBanner'
-import { BellGlyph, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
+import { BellGlyph, LockBadge, NavIcon, ShipGlyph, VoyageGlyph } from './NavIcons'
 import { AssistantOverlay } from '../features/assistant/AssistantOverlay'
 import type { ShellContext } from './shellContext'
 
@@ -358,7 +358,14 @@ export function AppShell() {
                   aria-disabled="true"
                   title={`${label} · ${lockedTag}`}
                 >
-                  <NavIcon id={item.id} />
+                  {/*
+                   * 아이콘과 자물쇠를 한 상자에 묶는다 — 배지는 이 상자 기준으로 앉는다.
+                   * 활성 항목에는 상자도 배지도 두지 않는다(`#1978`).
+                   */}
+                  <span className="app-shell__nav-iconwrap">
+                    <NavIcon id={item.id} />
+                    <LockBadge />
+                  </span>
                   <span className="app-shell__nav-text">
                     <span className="app-shell__nav-label" lang={textLang}>
                       {label}

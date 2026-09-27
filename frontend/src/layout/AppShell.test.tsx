@@ -452,6 +452,36 @@ describe('사이드바 — 현장직에게 사무직 전용 화면은 비활성 
     expect(dashboard.querySelector('a')).not.toBeNull()
   })
 
+  /*
+   * `#1978` — 축소(64) 상태에서 태그가 시각적으로 감춰지면 잠김을 말하는 화면 채널이
+   * 색 하나(1.87:1)만 남는다. 자물쇠 배지가 형태 채널을 더한다.
+   *
+   * **배지는 잠긴 항목에만** 붙는다 — 전부에 붙으면 아무것도 구분하지 못한다.
+   * 켜고 끄는 것은 CSS 몫이라 `narrowShell.sync.test.ts`가 맡고, 여기서는 **누구에게
+   * 붙는가**와 **낭독에서 빠지는가**를 본다.
+   */
+  it('자물쇠 배지가 잠긴 항목에만 붙고, 낭독에서는 빠진다 (#1978)', async () => {
+    stubRole('FIELD')
+    stubServer()
+    renderShell()
+    const nav = await screen.findByRole('navigation', { name: '주요 화면' })
+
+    const locks = Array.from(nav.querySelectorAll('.app-shell__nav-lock'))
+    expect(locks, '잠긴 두 항목에만 배지가 붙는다').toHaveLength(2)
+    for (const lock of locks) {
+      expect(lock.getAttribute('aria-hidden')).toBe('true')
+      // 이유는 감춘 태그가 낭독으로 말한다 — 배지가 읽히면 뜻 없는 소리가 하나 더 붙는다
+      expect(lock.textContent).toBe('')
+    }
+
+    for (const id of ['REPORTS', 'FLEET_REDUCTION'] as const) {
+      const item = screen.getByText(SCREEN_BY_ID[id].label).closest('li')!
+      expect(item.querySelector('.app-shell__nav-lock')).not.toBeNull()
+    }
+    const dashboard = screen.getByText(SCREEN_BY_ID.MAINBOARD.label).closest('li')!
+    expect(dashboard.querySelector('.app-shell__nav-lock')).toBeNull()
+  })
+
   it('사무직: 같은 두 화면이 링크다', async () => {
     stubRole('OFFICE')
     stubServer()

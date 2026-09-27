@@ -143,6 +143,33 @@ const ICONS: Partial<Record<ScreenId, (p: IconProps) => ReactElement>> = {
   SETTINGS: SettingsIcon,
 }
 
+/**
+ * 잠긴 항목의 자물쇠 배지 — **축소(64) 상태에서만** 보인다 (`#1978`).
+ *
+ * 펼친 상태에서는 「준비 중」·「사무직 전용」 태그가 이유까지 말하므로 배지를 두지 않는다.
+ * 축소되면 그 태그가 시각적으로 감춰져(`#1885`) 잠긴 항목을 가르는 **화면 채널이 색
+ * 하나**가 되는데, 그 색차가 활성 ↔ 비활성 `1.87:1`로 비텍스트 기준(3:1)에도 못 미친다.
+ * 배지는 색 말고 **형태** 채널 하나를 더한다 (`DESIGN_SYSTEM §0.2` 제약 3 · `§14`).
+ *
+ * **「준비 중」과 「사무직 전용」에 다른 글리프를 주지 않는다** — 64px 폭에서 11px 글리프
+ * 둘은 서로 구분되지 않는다. 배지는 「지금 누를 수 없음」 하나만 말하고, 이유는 낭독
+ * (감춰진 태그)과 펼친 상태가 맡는다. 그래서 `aria-hidden`이다 — 읽히면 이름 뒤에
+ * 뜻 없는 소리가 하나 더 붙는다.
+ */
+export function LockBadge() {
+  return (
+    <svg
+      className="app-shell__nav-lock"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+    </svg>
+  )
+}
+
 export function NavIcon({ id }: { id: ScreenId }) {
   const Icon = ICONS[id]
   if (!Icon) return <span className="app-shell__nav-icon" aria-hidden="true" />
