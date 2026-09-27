@@ -178,7 +178,7 @@ async def test_update_rejects_unknown_source_on_both_tables(conn: AsyncConnectio
 # ---------------------------------------------------------------------------
 
 
-def _call_seqs() -> "Iterator[str]":
+def _call_seqs() -> Iterator[str]:
     """입항 순번을 **한 프로세스 안에서 겹치지 않게** 뽑는다 (`#1960`).
 
     유일 색인은 ``(source, port_authority_code, call_year, call_seq)``인데 앞의 셋이
