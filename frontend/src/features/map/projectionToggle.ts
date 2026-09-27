@@ -40,8 +40,14 @@ export function writeProjectionPreference(projection: MapProjection): void {
 /**
  * 버튼 문구 — **누르면 무엇이 되는가**를 말한다. 지금 상태를 말하면(「지구본」) 그것이
  * 상태인지 누를 동작인지 헷갈린다. 표시 문구(`AGENTS §4.6`) · 개발 임시안.
+ *
+ * ⚠️ **내보내는 이유는 검사가 리터럴을 적지 않게 하기 위해서다** (`#1992`). 문구는
+ * `#1940` ⑥에서 디자인 담당 확정을 기다리는 중이라 **실제로 바뀔 수 있는데**, 검사가
+ * `'평면'`·`'지구본'`을 적어 두면 문구를 고치는 순간 상관없는 검사가 붉어진다. 검사가
+ * 여기서 기대값을 가져오면 **지키려던 것**(두 상태의 문구가 다르고, 두 번 누르면
+ * 돌아온다)은 문구와 무관하게 남는다 — `AGENTS §4.6`.
  */
-function projectionToggleText(current: MapProjection): { readonly label: string; readonly name: string } {
+export function projectionToggleText(current: MapProjection): { readonly label: string; readonly name: string } {
   return current === 'globe'
     ? { label: '평면', name: '평면 지도로 보기' }
     : { label: '지구본', name: '지구본으로 보기' }

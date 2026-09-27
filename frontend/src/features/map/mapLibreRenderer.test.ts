@@ -61,6 +61,7 @@ vi.mock('pmtiles', () => ({ Protocol: class { tile = vi.fn() } }))
 vi.mock('@protomaps/basemaps', () => ({ layers: () => [], namedFlavor: () => ({}) }))
 
 const { mapLibreRenderer } = await import('./mapLibreRenderer')
+const { projectionToggleText } = await import('./projectionToggle')
 const data = { type: 'FeatureCollection' as const, features: [] }
 const model = (mode: 'fleet' | 'comparison') => ({
   mode, markers: [], routes: { data, attribution: 'source', bounds: [[129, 35] as const] },
@@ -234,20 +235,30 @@ describe('MapLibre renderer adapter', () => {
     fireLoad(map)
     expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
     const button = toggleOf(map)!
-    // 누르면 무엇이 되는가를 말한다 — 지금 지구본이니 「평면」
-    expect(button.getAttribute('aria-label')).toContain('평면')
+    /*
+     * 문구는 **표시 문구**라 리터럴로 적지 않는다(`AGENTS §4.6` · `#1992`) — `#1940` ⑥에서
+     * 디자인 확정을 기다리는 중이라 바뀔 수 있다. 지키려는 것은 「**누르면 무엇이 되는가**를
+     * 말한다」이므로, 문구를 만드는 함수에서 기대값을 가져온다.
+     */
+    const globeLabel = button.getAttribute('aria-label')
+    expect(globeLabel).toBe(projectionToggleText('globe').name)
 
     button.click()
     expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'mercator' })
     expect((map.dragRotate as unknown as { disable: ReturnType<typeof vi.fn> }).disable).toHaveBeenCalled()
     expect(map.easeTo).toHaveBeenLastCalledWith({ pitch: 0, bearing: 0, animate: false })
     expect(window.localStorage.getItem('bluelog.map.projection')).toBe('mercator')
-    expect(button.getAttribute('aria-label')).toContain('지구본')
+    const mercatorLabel = button.getAttribute('aria-label')
+    expect(mercatorLabel).toBe(projectionToggleText('mercator').name)
+    // 두 상태의 문구가 **서로 다르다** — 같으면 무엇이 되는지 알 수 없다.
+    expect(mercatorLabel).not.toBe(globeLabel)
 
     button.click()
     expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
     expect(map.easeTo).toHaveBeenLastCalledWith({ pitch: 18, animate: false })
     expect(window.localStorage.getItem('bluelog.map.projection')).toBe('globe')
+    // 두 번 누르면 처음 문구로 돌아온다.
+    expect(button.getAttribute('aria-label')).toBe(globeLabel)
     session.destroy()
   })
 
@@ -264,7 +275,7 @@ describe('MapLibre renderer adapter', () => {
     expect(mapOptions[0]).toMatchObject({ pitch: 0, dragRotate: false })
     fireLoad(map)
     expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'mercator' })
-    expect(toggleOf(map)!.getAttribute('aria-label')).toContain('지구본')
+    expect(toggleOf(map)!.getAttribute('aria-label')).toBe(projectionToggleText('mercator').name)
     session.destroy()
   })
 
