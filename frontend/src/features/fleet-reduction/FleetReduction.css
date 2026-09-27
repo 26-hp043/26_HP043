@@ -286,6 +286,16 @@
  *
  * 위험색을 쓰지 않는다 — 둘 다 실패가 아니다(`§0.2` 제약 2·3).
  */
+/*
+ * 기준 표기 (#1593) — 문장 끝에 붙되 **문장보다 가볍게**. 목표와 달성 여부가 주이고
+ * 기준은 그 수를 읽는 법이다. 띠 색(네 상태)을 물려받지 않도록 색을 되돌린다.
+ */
+.fr__status-basis {
+  font-size: var(--font-size-caption);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 .fr__status--empty {
   border-left-color: var(--color-border);
   background: var(--surface-inset);
