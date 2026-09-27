@@ -50,6 +50,89 @@ describe('MapRendererHost', () => {
     await vi.waitFor(() => expect(onEvent).toHaveBeenCalledWith({ type: 'error', error: failure }))
   })
 
+  /*
+   * 한 지도의 실패가 **다른 지도 instance로 번지지 않는다** (`#1469`).
+   *
+   * 한 화면에 지도가 둘 놓일 수 있다 — 항로 비교의 결과 지도와 항만 장면, 선박 상세의
+   * 위치 지도와 개략도가 그렇다. `mount`가 던지면 host가 그것을 **자기 `emit`으로만**
+   * 돌리므로(위 `mount` 의 try/catch) 다른 host의 세션은 건드리지 않아야 한다.
+   *
+   * ⚠️ **`emit`이 host 안에 갇히는지가 요점이다.** 종전에는 이 사실을 재는 검사가 없어,
+   * 실패 하나가 공용 상태를 거쳐 다른 지도를 내리더라도 **두 지도를 함께 띄운 검사가
+   * 없으니** 아무도 알아채지 못했다. 실패한 쪽은 자기 `onEvent`로 오류를 받고, 성한 쪽은
+   * 마운트된 채 `update`를 계속 받는다.
+   */
+  it('한 지도의 mount 실패가 다른 지도 instance에 번지지 않는다 (#1469)', async () => {
+    type Model = { mode: 'fleet'; value: number }
+    const brokenEvents: string[] = []
+    const healthyEvents: string[] = []
+    const update = vi.fn()
+    const destroy = vi.fn()
+
+    const broken: MapRenderer<Model> = {
+      mount() {
+        const error = new Error('WebGL unavailable')
+        error.name = 'webgl-unavailable'
+        throw error
+      },
+    }
+    const healthy: MapRenderer<Model> = {
+      mount(_target, _model, emit) {
+        emit({ type: 'ready' })
+        return { update, destroy }
+      },
+    }
+
+    const view = render(
+      <>
+        <MapRendererHost
+          ariaLabel="깨진 지도"
+          model={{ mode: 'fleet', value: 1 }}
+          renderer={broken}
+          onEvent={(event) => brokenEvents.push(event.type)}
+        />
+        <MapRendererHost
+          ariaLabel="성한 지도"
+          model={{ mode: 'fleet', value: 1 }}
+          renderer={healthy}
+          onEvent={(event) => healthyEvents.push(event.type)}
+        />
+      </>,
+    )
+
+    // 실패는 자기 host에만 닿는다.
+    await vi.waitFor(() => expect(brokenEvents).toContain('error'))
+    expect(healthyEvents).toEqual(['ready'])
+    expect(healthyEvents).not.toContain('error')
+
+    // 성한 쪽은 **살아 있다** — 실패 뒤에도 모델 갱신을 계속 받는다.
+    view.rerender(
+      <>
+        <MapRendererHost
+          ariaLabel="깨진 지도"
+          model={{ mode: 'fleet', value: 2 }}
+          renderer={broken}
+          onEvent={(event) => brokenEvents.push(event.type)}
+        />
+        <MapRendererHost
+          ariaLabel="성한 지도"
+          model={{ mode: 'fleet', value: 2 }}
+          renderer={healthy}
+          onEvent={(event) => healthyEvents.push(event.type)}
+        />
+      </>,
+    )
+    expect(update).toHaveBeenLastCalledWith({ mode: 'fleet', value: 2 })
+    expect(destroy).not.toHaveBeenCalled()
+
+    // 두 지도가 모두 화면에 남는다 — 실패한 쪽도 자리를 비우지 않는다(대체 정보가 그 안에 놓인다).
+    expect(view.getByLabelText('깨진 지도')).toBeTruthy()
+    expect(view.getByLabelText('성한 지도')).toBeTruthy()
+
+    view.unmount()
+    expect(destroy).toHaveBeenCalledTimes(1)
+  })
+
   it('renderer의 ready와 selection을 엔진 중립 이벤트로 전달한다', () => {
     const onEvent = vi.fn()
     const renderer: MapRenderer<{ mode: 'playback' }> = {
