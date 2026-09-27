@@ -44,3 +44,11 @@ describe('스택 바 구간 안 문자 — `DESIGN_SYSTEM §10.2` 🔒 · `§14`
     expect(body).not.toMatch(/text-stroke/)
   })
 })
+
+describe('분포 범위 막대 높이 — `DESIGN_SYSTEM §10.1` 〔확정〕 2026-09-27 (#1940 ②)', () => {
+  it('리터럴 픽셀이 아니라 간격 토큰을 쓴다 — 같은 파일의 24 자리와 한 값', () => {
+    const body = rule('.annual-sim__range-rail')
+    expect(body).toMatch(/height:\s*var\(--space-24\)/)
+    expect(body).not.toMatch(/height:\s*\d+px/)
+  })
+})
