@@ -251,6 +251,12 @@ describe('MapLibre renderer adapter', () => {
     session.destroy()
   })
 
+  it('출처 컨트롤을 두지 않는다 — 출처는 지도 아래 펼친 한 줄이 맡는다 (#1853 ③)', () => {
+    const session = mapLibreRenderer.mount(document.createElement('div'), model('fleet'), vi.fn())
+    expect(mapOptions[0]).toMatchObject({ attributionControl: false })
+    session.destroy()
+  })
+
   it('고른 방식(평면)을 기억해 다음에는 평면으로 연다 (#1976)', () => {
     window.localStorage.setItem('bluelog.map.projection', 'mercator')
     const session = mapLibreRenderer.mount(document.createElement('div'), model('fleet'), vi.fn())

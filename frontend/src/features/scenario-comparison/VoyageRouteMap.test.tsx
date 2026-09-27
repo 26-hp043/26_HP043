@@ -89,6 +89,7 @@ describe('항로 비교 지도 — 선의 수 (#1300)', () => {
     render(<VoyageRouteMap {...ENDS} destinationName="SINGAPORE" />)
     await screen.findByTestId('map')
     const line = document.querySelector('p.route-source')
+    expect(line?.textContent).toContain('© OpenStreetMap')
     expect(line?.textContent).toMatch(/Eurostat SeaRoute \(EUPL-1\.2\)/)
     expect(line?.textContent).toMatch(/searoute \(Apache-2\.0\)/)
   })
