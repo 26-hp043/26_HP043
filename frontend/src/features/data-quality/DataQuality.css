@@ -110,6 +110,22 @@
 }
 
 /*
+ * 표의 심각도 칸 — 면을 채우지 않고 **왼쪽 띠**로만 말한다(`§16` 항목 8 「면은 중립,
+ * 아이콘·문구만 위험색」 · `§2.3` 경고색은 한 자리에 한 번). 요약 띠의 칸과 같은 문법이라
+ * 둘이 한 화면에서 따로 읽히지 않는다.
+ *
+ * ⚠️ **아래 심각도 색 규칙보다 앞에 둔다.** 선택자 우선순위가 같아 뒤에 오는 쪽이 이긴다 —
+ * 이 규칙이 색 규칙 뒤에 있던 동안(#1767 ~ #1940) `border-left` 단축 속성이 색을 덮어
+ * 표의 칩이 심각도와 무관하게 전부 테두리색이었다. 순서는 `DataQuality.severity.sync.test.ts`가 본다.
+ */
+.dq__severity {
+  display: inline-block;
+  padding-left: var(--space-8);
+  border-left: 4px solid var(--color-border);
+  white-space: nowrap;
+}
+
+/*
  * 심각도 색 — `DESIGN_SYSTEM §2.3.1`. 띠의 칸은 **0건이면 색을 빼고**(`#1288`), 표의 칩은
  * 행이 있다는 것 자체가 0건이 아니므로 늘 단다.
  */
@@ -139,18 +155,6 @@
 .dq__tile--public_record,
 .dq__severity--public_record {
   border-left-color: var(--color-info);
-}
-
-/*
- * 표의 심각도 칸 — 면을 채우지 않고 **왼쪽 띠**로만 말한다(`§16` 항목 8 「면은 중립,
- * 아이콘·문구만 위험색」 · `§2.3` 경고색은 한 자리에 한 번). 요약 띠의 칸과 같은 문법이라
- * 둘이 한 화면에서 따로 읽히지 않는다.
- */
-.dq__severity {
-  display: inline-block;
-  padding-left: var(--space-8);
-  border-left: 4px solid var(--color-border);
-  white-space: nowrap;
 }
 
 .dq__list {
