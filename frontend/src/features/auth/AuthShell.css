@@ -265,7 +265,17 @@
   border: var(--borderWidth-default) solid var(--semantic-primary);
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--semantic-primary);
+  /*
+   * 문자는 `--color-link`다 (`#1651`). `--semantic-primary`를 그대로 글자로 쓰면
+   * **다크에서 네 면 모두 `4.5:1` 미달**이다(popover `3.39` · card `3.76` · inset `4.10` ·
+   * page `4.44` · `§0.2` 제약 1). 같은 값이 라이트에서는 `12.14`라 **화면이 깨지지 않아**
+   * 오래 남았다 — `#829` ⑵가 링크에서 겪은 것과 같은 형태다.
+   *
+   * **테두리는 그대로 `--semantic-primary`다** — 경계는 비텍스트 `3:1` 기준이고
+   * (`§14` 갈래 표 「컨트롤의 유일한 경계」) 그 값이 네 면에서 `3.39`~`4.44`로 통과한다.
+   * 면과 글자의 기준이 다르다는 것이 `§14` v2.19가 적어 둔 그 구분이다.
+   */
+  color: var(--color-link);
   font-family: var(--font-sans);
   font-size: var(--font-size-body);
   font-weight: var(--font-weight-label);

@@ -519,7 +519,25 @@ describe('시맨틱 색을 문자색으로 쓰지 않는다 — §0.2 제약 1 (
    * **면적 색은 보지 않는다.** `background`·`border`는 비텍스트라 3:1이면 충분하고,
    * 문자 전용 별칭으로 바꾸면 면적이 어두워져 등급 색과 충돌한다.
    */
-  const OFFENDERS = ['--semantic-danger', '--color-danger', '--color-warning']
+  /*
+   * `#1651` — **Primary도 글자로 쓰면 같은 결함이다.**
+   *
+   * 이 목록은 Danger·Warning으로 시작했는데, `--semantic-primary`를 문자색으로 쓰는
+   * 자리 둘(둘러보기 로그인 · 항로 거리 조회)이 **다크에서 네 면 모두 미달**이었다
+   * (popover `3.39` · card `3.76` · inset `4.10` · page `4.44`). 라이트에서는 `12.14`라
+   * **화면이 깨지지 않아** 남아 있었다 — 위 Danger가 겪은 것과 같은 형태다.
+   *
+   * 문자 전용 별칭은 이미 있었다: `--color-link`(다크 `5.18`~`6.78`)가 `#829` ⑵에서
+   * 바로 이 자리를 위해 만들어졌고, 위 「링크 문자색」 검사가 그 값을 잰다. **값 가드가
+   * 있는데도 남은 것은 쓰는 자리를 보는 가드가 Danger 계열만 봤기 때문이다.**
+   */
+  const OFFENDERS = [
+    '--semantic-danger',
+    '--color-danger',
+    '--color-warning',
+    '--semantic-primary',
+    '--color-primary',
+  ]
 
   function cssFiles(dir: string): string[] {
     const out: string[] = []
