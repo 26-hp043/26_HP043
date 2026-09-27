@@ -240,6 +240,12 @@ describe('선대 지도 — 좌표 없는 선박 (#1103)', () => {
     expect(hint).toMatch(/테두리/)
     expect(hint).toMatch(/굵/)
     expect(hint).toMatch(/표시용.*CII 계산 거리.*AIS 실제 운항 궤적/)
+    // #1853 ② (디자인 확정 09-27) — 선 문장과 마커 문장이 **다른 줄**이다.
+    const lines = [...container.querySelectorAll('.fleetmap__hint .fleetmap__hint-line')].map((l) => l.textContent ?? '')
+    expect(lines).toHaveLength(2)
+    expect(lines[0]).toMatch(/항해 계획이 아닙니다/)
+    expect(lines[0]).not.toMatch(/테두리/)
+    expect(lines[1]).toMatch(/테두리/)
     const map = screen.getByRole('img')
     expect(map.getAttribute('aria-describedby')).toBe(container.querySelector('.fleetmap__hint')?.id)
   })
@@ -507,15 +513,18 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     render(<FleetMap vessels={[underway()]} />)
 
     // 컨트롤 밖 본문 문단이다 — MapLibre 컨트롤(대역)이 아니라 지도 아래 `<p>`에서 찾는다.
-    const line = await screen.findByText(ROUTE_ATTRIBUTION, { selector: 'p.route-source' })
-    expect(line.textContent).toMatch(/Eurostat SeaRoute/)
+    const line = await screen.findByText(/Eurostat SeaRoute/, { selector: 'p.route-source' })
+    // #1853 ③ — 지도 배경 출처와 **같은 줄**이다(디자인 확정 09-27).
+    expect(line.textContent).toContain('© OpenStreetMap')
+    expect(line.textContent).toContain(ROUTE_ATTRIBUTION)
     expect(line.textContent).toMatch(/EUPL-1\.2/)
     expect(line.textContent).toMatch(/Apache-2\.0/)
   })
 
-  it('항로선을 묻지 않는 지도에는 출처 줄이 없다 — 경로망 데이터를 쓰지 않는다 (#1853 ③)', () => {
+  it('항로선을 묻지 않는 지도는 지도 배경 출처만 적는다 — 경로망 데이터를 쓰지 않는다 (#1853 ③)', () => {
     render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
-    expect(document.querySelector('p.route-source')).toBeNull()
+    const line = document.querySelector('p.route-source')
+    expect(line?.textContent).toBe('© OpenStreetMap')
   })
 })
 

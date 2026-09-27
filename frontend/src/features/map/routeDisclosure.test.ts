@@ -21,6 +21,14 @@ describe('공용 항로 disclosure', () => {
     expect(text).not.toContain('출처가 선택한 경유점')
   })
 
+  it('우회가 있으면 어느 결이 어느 선인지 이름을 적는다 (#1853 ① · 디자인 확정)', () => {
+    const text = routeDisclosure({ mode: 'comparison', source: SOURCE, kinds: ['DIRECT', 'DETOUR'] }).visibleText
+    // 직항은 긴 점선, 우회는 짧은 점선 — 매칭을 「꺾인 쪽이 우회」라는 추론에 맡기지 않는다
+    expect(text).toMatch(/직항선\(긴 점선\)/)
+    expect(text).toMatch(/우회선\(짧은 점선\)/)
+    expect(text).toContain('실제 항해 계획이 아닙니다')
+  })
+
   it('SeaRoute 실패를 GREAT_CIRCLE fallback으로 설명하지 않는다', () => {
     const text = routeDisclosure({ mode: 'fleet', source: SOURCE, kinds: ['DIRECT'] }).visibleText
     expect(text).not.toMatch(/GREAT_CIRCLE|대권선|fallback/i)

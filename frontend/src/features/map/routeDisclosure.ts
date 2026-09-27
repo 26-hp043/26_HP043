@@ -21,7 +21,9 @@ interface RouteDisclosure {
  */
 export function routeDisclosure({ mode, source, kinds, derivation }: RouteDisclosureInput): RouteDisclosure {
   const routeKind = kinds.includes('DETOUR')
-    ? '직항선과 사용자가 선택한 경유점을 지나는 우회선을 표시합니다.'
+    // #1853 ① (2026-09-27 디자인 확정) — 결은 그대로 두고 **어느 결이 어느 선인지** 이름을 적는다.
+    // 직항 `[2, 1.5]`는 긴 점선, 우회 `[0.5, 2]`는 짧은 점으로 그려진다(`routeStyles.ts`).
+    ? '직항선(긴 점선)과 사용자가 선택한 경유점을 지나는 우회선(짧은 점선)을 표시합니다.'
     : mode === 'fleet'
       ? '진행 중 항차의 항로선을 표시합니다.'
       : '직항 항로선을 표시합니다.'
