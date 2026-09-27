@@ -1498,8 +1498,25 @@ describe('들어오면 마지막 결과부터 (#1701)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: ANNUAL_COPY.submit }))
 
-    await waitFor(() => expect(screen.queryByTestId('annual-sim-last-run')).toBeNull())
-    expect(await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton })).toBeTruthy()
+    /*
+     * ⚠️ **기다리는 것은 결과 도착이고, 기본 시한 1초는 그 일에 대한 근거가 없다** (`#1996`).
+     *
+     * 지도 파일만 건드린 PR(`#1995`)의 `frontend` 잡이 이 검사에서 붉어졌고 재실행하면
+     * 초록이었다. 「이 seed로 다시 실행」 버튼은 **POST 응답이 와서 결과가 그려진 뒤**에
+     * 나타나는데 `findBy*`의 기본 시한이 `1000ms`다 — 바쁜 러너에서 못 들어온다
+     * (실패까지 `1025ms`가 찍혔다).
+     *
+     * 단언 순서를 바꾸는 것으로는 풀리지 않는다 — **실측했다.** 응답을 `1200ms` 늦추면
+     * 순서를 어느 쪽으로 두어도 같은 `1025ms`에서 터진다. 시한이 원인이다.
+     *
+     * 그래서 이 저장소가 이미 쓰는 방식대로 **기다리는 쪽에 시한을 명시한다**
+     * (`ScenarioComparison.test.tsx`의 `WAIT = { timeout: 5000 }` · 지도 검사의 `10_000`).
+     * 오래 걸리는 쪽을 먼저 기다리므로 표지 부재는 그 뒤 동기 단언으로 충분하다.
+     */
+    expect(
+      await screen.findByRole('button', { name: ANNUAL_COPY.reproduceButton }, { timeout: 5000 }),
+    ).toBeTruthy()
+    expect(screen.queryByTestId('annual-sim-last-run')).toBeNull()
   })
 })
 
