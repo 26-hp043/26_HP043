@@ -1,0 +1,118 @@
+"""폐기 기록 한 줄 (`#1985`).
+
+케이스: IT-CHAT-073 ~ IT-CHAT-076 (`TEST_PLAN §3.28`)
+
+## 무엇을 지키는가
+
+운영 챗봇이 답을 폐기하면 **어느 경로로 폐기됐는지**를 점검에서 되짚을 수 있어야 한다.
+`#1535`가 폐기 경고를 남기게 했지만 **일곱 경로 중 하나**(No-Compute)만이었고, 나머지는
+운영에서 「답이 저장되지 않았다」는 사실만 남았다 — 감사 로그로는 여섯 종류를 가를 수 없다.
+
+## 실려도 되는 것과 안 되는 것
+
+이 줄은 **공개 저장소의 Actions 로그**로 나간다(`ops.yml task=inspect`). 그래서
+`PRD §16.3.1`대로 **답 본문 · 질문 · 사용자 · IP를 싣지 않는다.** 실리는 것은 폐기 종류 ·
+세션 · 부른 도구 이름과, 그 자체로 사람을 가리키지 않는 부가값(막힌 수치)뿐이다.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from pathlib import Path
+from uuid import uuid4
+
+from cii_platform.services import chat
+
+#: 로그 줄을 고르는 접두어 — `ops.yml`이 같은 문자열로 grep한다.
+SOURCE = Path(chat.__file__).read_text(encoding="utf-8")
+OPS = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ops.yml").read_text(
+    encoding="utf-8"
+)
+
+
+def _discard_calls() -> list[str]:
+    """``_result(..., discarded=True, ...)`` 호출들의 원문."""
+    return [
+        call.group(0)
+        for call in re.finditer(r"_result\((?:[^()]|\([^()]*\))*\)", SOURCE, re.S)
+        if "discarded=True" in call.group(0)
+    ]
+
+
+def test_every_discard_path_names_its_kind_and_session() -> None:
+    """IT-CHAT-073 — 폐기 경로 **전부**가 종류와 세션을 남긴다.
+
+    경로가 하나 늘 때 기록을 잊는 것을 막는다. 잊어도 **화면은 깨지지 않으므로**
+    발견이 늦다 — `#1535`가 하나만 남기고 여섯을 빠뜨린 것이 그 형태다.
+    """
+    calls = _discard_calls()
+    assert len(calls) >= 7, f"폐기 자리를 찾지 못했다: {len(calls)}건"
+    for call in calls:
+        assert re.search(r'discard_kind="[a-z-]+"', call), f"폐기 종류가 없다:\n{call}"
+        assert "chat_session_id=chat_session_id" in call, f"세션이 없다:\n{call}"
+
+
+def test_the_six_kinds_are_all_used() -> None:
+    """IT-CHAT-074 — 이슈가 센 여섯 종류가 모두 쓰인다.
+
+    수치 검증 · 시간 상한 · 공급자 오류 · 거절 · 잘림 · 도구 상한. 자리는 일곱이지만
+    도구 상한이 두 곳(모델이 한 번에 넘길 때 · 누적이 넘을 때)이라 종류는 여섯이다.
+    """
+    kinds = {
+        match.group(1)
+        for call in _discard_calls()
+        for match in [re.search(r'discard_kind="([a-z-]+)"', call)]
+        if match
+    }
+    assert kinds == {
+        "no-compute",
+        "turn-timeout",
+        "provider-error",
+        "refusal",
+        "truncated",
+        "tool-budget",
+    }, kinds
+
+
+def test_the_line_carries_kind_session_and_tools_only(caplog) -> None:
+    """IT-CHAT-075 — 줄에 **본문·질문·사용자가 섞이지 않는다**.
+
+    답 본문을 첫 인자로 주고도 로그에는 나오지 않아야 한다 — 봉투의 ``answer``와 로그가
+    같은 자리에서 만들어지므로 실수로 섞일 수 있는 지점이다.
+    """
+    session_id = uuid4()
+    secret = "이 문장은 사용자에게만 보이는 답 본문입니다"
+    with caplog.at_level(logging.WARNING, logger=chat.__name__):
+        chat._result(
+            secret,
+            ["lookup_regulation"],
+            discarded=True,
+            discard_kind="refusal",
+            chat_session_id=session_id,
+        )
+
+    assert len(caplog.records) == 1
+    line = caplog.records[0].getMessage()
+    assert line.startswith(chat.DISCARD_LOG_PREFIX)
+    assert "refusal" in line
+    assert str(session_id) in line
+    assert "lookup_regulation" in line
+    # 본문은 싣지 않는다.
+    assert secret not in line
+
+
+def test_success_does_not_log(caplog) -> None:
+    """IT-CHAT-075 — 폐기가 아니면 한 줄도 남기지 않는다(로그가 성공으로 덮이지 않는다)."""
+    with caplog.at_level(logging.WARNING, logger=chat.__name__):
+        chat._result("정상 답", [], discarded=False)
+    assert caplog.records == []
+
+
+def test_ops_inspect_greps_the_same_prefix() -> None:
+    """IT-CHAT-076 — 점검 단계가 **같은 접두어**를 본다.
+
+    접두어를 바꾸면 점검이 조용히 아무것도 못 찾는다 — 그때 「폐기가 없었다」로 읽히는
+    것이 가장 나쁜 실패다. 양쪽을 한 검사로 묶는다.
+    """
+    assert chat.DISCARD_LOG_PREFIX in OPS, "ops.yml이 폐기 접두어로 로그를 고르지 않는다"
