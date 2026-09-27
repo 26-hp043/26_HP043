@@ -571,7 +571,14 @@ export function FleetDashboard() {
         **오버레이는 지도의 일부다** — 좌측 패널 · 칩 · 도구 레일은 `§5` 카드 예산에서
         세지 않는다(정본 v2.28).
       */}
-      <div className="fleet__stage" ref={stageRef}>
+      {/*
+        패널이 열려 있으면 무대에 표시를 단다 (`#1871`) — 지도 아래 문구 줄(결측 · 항로선
+        실패와 그 「다시 시도」 · 읽는 법)을 패널 폭만큼 비켜 두는 CSS가 이것을 본다.
+      */}
+      <div
+        className={`fleet__stage${panelOpen ? ' fleet__stage--panel-open' : ''}`}
+        ref={stageRef}
+      >
         <div className="fleet__col">
           <section aria-label="선박 위치">
             <div className="fleet__chartbox">
