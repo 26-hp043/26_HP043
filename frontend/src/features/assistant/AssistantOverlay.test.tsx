@@ -21,7 +21,7 @@ import { publishScreenResult, resetScreenResult } from './screenResult'
 const ANSWER: ChatAnswer = {
   sessionId: 'session-1',
   answer: '현재 등급은 C입니다.',
-  disclaimer: '이 답변은 화면의 계산 결과를 풀어 쓴 것입니다.',
+  disclaimer: '이 답변은 BlueLog의 계산 결과와 규제 기준값 표를 풀어 쓴 것입니다.',
   toolCalls: ['calc_voyage_cii'],
   discarded: false,
 }
