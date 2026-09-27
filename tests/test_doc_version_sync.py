@@ -148,3 +148,34 @@ def test_readme_version_is_the_first_token_in_the_row():
     """
     sample = "| [`X.md`](./X.md) | 설명 (**v9.9**, 어쩌고 #123 + 저쩌고 v1.1) | ✅ |"
     assert _README_VERSION.search(sample.split("|")[2]).group(1) == "v9.9"
+
+
+#: 헤더 표의 상태 행. 앞머리가 ``**v2.32 — …**`` 꼴이면 그 판본을 뽑는다.
+_HEADER_STATE_VERSION = re.compile(r"^\|\s*상태\s*\|\s*\*{0,2}(v[0-9]+(?:\.[0-9]+)*)", re.MULTILINE)
+
+
+def test_header_state_agrees_with_the_version_row():
+    """헤더의 **상태 칸 앞머리 판본**이 `| 버전 |` 행과 같다 (#1953).
+
+    위 검사들은 `README` ↔ `| 버전 |` 행만 잇는다. 그래서 상태 칸에는 새 판본을 적고
+    `| 버전 |` 행과 `README`는 올리지 않은 PR이 통과했다 — 2026-09-27 시점에
+    `DESIGN_SYSTEM`이 «`| 버전 | v2.30 |`» 인데 상태 칸은 «**v2.31 — §4.4 …**» 였다
+    (PR `#1964`). 정본이 **자기 판본을 두 값으로 말하는** 상태이고, README까지 셋이
+    갈린다.
+
+    상태 칸이 판본으로 시작하지 않는 문서는 대상이 아니다 — 형식을 새로 강제하지 않고,
+    **이미 적은 판본이 헤더와 어긋나는 것**만 잡는다.
+    """
+    drift = []
+    for doc in CANONICAL_DOCS:
+        text = (_ROOT / doc).read_text(encoding="utf-8")
+        match = _HEADER_STATE_VERSION.search(text)
+        if match is None:
+            continue
+        if match.group(1) != _header_version(doc):
+            drift.append(f"{doc}: 상태 칸 {match.group(1)} ≠ | 버전 | {_header_version(doc)}")
+    assert not drift, (
+        "정본이 자기 판본을 두 값으로 말한다 (AGENTS §4):\n  "
+        + "\n  ".join(drift)
+        + "\n판본을 올리는 PR은 `| 버전 |` 행 · 상태 칸 · README 세 곳을 함께 고친다."
+    )
