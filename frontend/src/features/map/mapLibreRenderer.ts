@@ -9,6 +9,12 @@ import { mergePortMarkers, portLabelPlacement, portMarkerElement, type PortMarke
 import './MapMarkers.css'
 import { ensureMapLibreWorker } from './mapLibreWorker'
 import { mapQualityPolicy, type MapQualityTier } from './quality'
+import {
+  ProjectionToggleControl,
+  readProjectionPreference,
+  writeProjectionPreference,
+  type MapProjection,
+} from './projectionToggle'
 import type { GlobeVesselLayerController } from './vesselLayer'
 import type { GlobeVesselModel } from './vesselModel'
 
@@ -66,9 +72,8 @@ function createMap(
   target: HTMLElement,
   attribution: string,
   emit: (event: MapRendererEvent) => void,
-  qualityTier?: MapQualityTier,
+  globe: boolean,
 ): maplibregl.Map {
-  const quality = mapQualityPolicy({ override: qualityTier })
   ensureProtocol()
   const map = new maplibregl.Map({
     container: target,
@@ -86,8 +91,8 @@ function createMap(
       layers: layers('protomaps', namedFlavor('light'), { lang: 'ko' }),
     },
     center: [127, 30], zoom: INITIAL_ZOOM, maxZoom: MAX_ZOOM,
-    pitch: quality.globe ? 18 : 0,
-    dragRotate: quality.globe, pitchWithRotate: quality.globe, touchZoomRotate: quality.globe,
+    pitch: globe ? GLOBE_PITCH : 0,
+    dragRotate: globe, pitchWithRotate: globe, touchZoomRotate: globe,
     attributionControl: { compact: true },
   })
   map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right')
@@ -100,6 +105,9 @@ function createMap(
   })
   return map
 }
+
+/** 지구본일 때 처음 기울기 — 평면에서는 0(위에서 내려다본다). */
+const GLOBE_PITCH = 18
 
 /** 날짜변경선을 사이에 둔 좌표를 지구 반대편까지 넓히지 않고 같은 연속 구간으로 푼다. */
 function unwrapDateline(coordinates: readonly (readonly [number, number])[]): readonly (readonly [number, number])[] {
@@ -125,8 +133,15 @@ function unwrapDateline(coordinates: readonly (readonly [number, number])[]): re
 /** Fleet와 Comparison이 함께 쓰는 MapLibre adapter. 제품 컴포넌트는 엔진을 import하지 않는다. */
 export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
   mount(target, initialModel, emit) {
-    const map = createMap(target, initialModel.routes.attribution, emit, initialModel.qualityTier)
     const quality = mapQualityPolicy({ override: initialModel.qualityTier })
+    /*
+     * 지구본 ↔ 평면 (`#1976`). `low` 기기는 지금처럼 평면만 — 버튼도 두지 않는다. 그 밖은
+     * 사용자가 고른 방식, 고른 적이 없으면 **지구본**으로 연다(09-27 사용자 결정).
+     */
+    let projection: MapProjection = quality.globe ? readProjectionPreference() : 'mercator'
+    /** 생성자가 기울기·회전을 정한 투영 — `load` 때 이것과 다르면 카메라를 맞춘다. */
+    const constructedGlobe = projection === 'globe'
+    const map = createMap(target, initialModel.routes.attribution, emit, constructedGlobe)
     const resizeObserver = typeof ResizeObserver === 'undefined'
       ? null
       : new ResizeObserver(() => map.resize())
@@ -239,11 +254,13 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
     /** 조건이 갖춰진 첫 순간에 3D 선체 layer를 올린다. 두 번 만들지 않는다. */
     const ensureVesselLayer = () => {
       if (!ready || vesselLayer !== null || vesselLayerPending) return
-      if (!quality.globe || (model.vessels?.length ?? 0) === 0) return
+      // 3D 선체는 지구본 전용 layer다(`vesselLayer.ts`) — 평면에서는 클릭 마커(DOM)만 남는다.
+      if (projection !== 'globe' || (model.vessels?.length ?? 0) === 0) return
       vesselLayerPending = true
       void import('./vesselLayer').then(({ createGlobeVesselLayer }) => {
         vesselLayerPending = false
-        if (destroyed) return
+        // 불러오는 사이 평면으로 바꿨으면 올리지 않는다 — 평면 위에 지구본용 선체가 뜬다(`#1976`).
+        if (destroyed || projection !== 'globe') return
         vesselLayer = createGlobeVesselLayer(map, { mode: model.mode, vessels: model.vessels ?? [] })
       }, (error: unknown) => {
         vesselLayerPending = false
@@ -251,14 +268,59 @@ export const mapLibreRenderer: MapRenderer<MapLibreMapModel> = {
       })
     }
 
-    map.on('load', () => {
-      // style이 준비된 뒤 projection을 바꿔야 MapLibre가 초기화 오류를 내지 않는다.
-      // 정적 자산은 vector PMTiles뿐이라 DEM을 추정해 terrain을 만들지 않는다.
+    const toggle = quality.globe
+      ? new ProjectionToggleControl(projection, (next) => switchProjection(next))
+      : null
+    if (toggle) map.addControl(toggle, 'top-right')
+
+    /**
+     * 투영을 바꾸고 **그에 딸린 것을 함께** 바꾼다 (`#1976`) — 기울기 · 회전 허용 · 3D 선체.
+     * 투영만 바꾸면 평면인데 기울어진 채로 남거나, 평면 위에 지구본용 선체가 뜬다.
+     */
+    const applyProjection = (next: MapProjection, camera = true): boolean => {
       try {
-        if (quality.globe) map.setProjection({ type: 'globe' })
+        map.setProjection({ type: next })
       } catch (error) {
         // globe projection만 실패하면 MapLibre 기본 Mercator를 그대로 사용한다.
         console.warn('[MapLibreRenderer] globe를 사용할 수 없어 Mercator로 표시합니다.', error)
+        return false
+      }
+      projection = next
+      if (next === 'globe') {
+        if (camera) {
+          map.dragRotate.enable()
+          map.touchZoomRotate.enableRotation()
+          map.easeTo({ pitch: GLOBE_PITCH, animate: false })
+        }
+        ensureVesselLayer()
+      } else {
+        if (camera) {
+          map.dragRotate.disable()
+          map.touchZoomRotate.disableRotation()
+          map.easeTo({ pitch: 0, bearing: 0, animate: false })
+        }
+        vesselLayer?.destroy()
+        vesselLayer = null
+      }
+      return true
+    }
+    const switchProjection = (next: MapProjection) => {
+      if (destroyed || next === projection) return
+      if (ready && !applyProjection(next)) return
+      // 지도가 뜨기 전이면 값만 바꾼다 — 아래 `load`가 그 값으로 적용한다.
+      projection = next
+      writeProjectionPreference(next)
+      toggle?.setCurrent(next)
+    }
+
+    map.on('load', () => {
+      // style이 준비된 뒤 projection을 바꿔야 MapLibre가 초기화 오류를 내지 않는다.
+      // 정적 자산은 vector PMTiles뿐이라 DEM을 추정해 terrain을 만들지 않는다.
+      // 전환할 수 있는 기기면 **지금 값으로 한 번 적용**한다 — 뜨기 전에 버튼을 눌렀다면
+      // 생성자가 정한 기울기·회전이 그 값과 다를 수 있다. `low`는 평면 그대로다.
+      if (quality.globe && !applyProjection(projection, (projection === 'globe') !== constructedGlobe)) {
+        projection = 'mercator'
+        toggle?.setCurrent(projection)
       }
       ready = true
       draw()

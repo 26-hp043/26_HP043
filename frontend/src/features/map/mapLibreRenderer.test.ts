@@ -6,9 +6,20 @@ const markerRecords = vi.hoisted(() => [] as Array<{ element: HTMLElement; remov
 const boundsCoordinates = vi.hoisted(() => [] as Array<readonly [number, number]>)
 const resizeCallbacks = vi.hoisted(() => [] as Array<() => void>)
 const projectionFailure = vi.hoisted(() => ({ enabled: false }))
+const mapOptions = vi.hoisted(() => [] as Array<Record<string, unknown>>)
+const vesselLayers = vi.hoisted(() => ({ created: 0, destroy: [] as Array<ReturnType<typeof import('vitest')['vi']['fn']>> }))
+vi.mock('./vesselLayer', () => ({
+  createGlobeVesselLayer: () => {
+    vesselLayers.created += 1
+    const destroy = vi.fn()
+    vesselLayers.destroy.push(destroy)
+    return { update: vi.fn(), destroy }
+  },
+}))
 vi.mock('maplibre-gl', () => {
   class Map {
-    touchZoomRotate = { disableRotation: vi.fn() }
+    touchZoomRotate = { disableRotation: vi.fn(), enableRotation: vi.fn() }
+    dragRotate = { enable: vi.fn(), disable: vi.fn() }
     addControl = vi.fn()
     on = vi.fn()
     getSource = vi.fn().mockReturnValue(undefined)
@@ -27,7 +38,10 @@ vi.mock('maplibre-gl', () => {
     project = vi.fn().mockReturnValue({ x: 2, y: 20 })
     resize = vi.fn().mockReturnThis()
     remove = vi.fn()
-    constructor() { maps.push(this as unknown as Record<string, ReturnType<typeof vi.fn>>) }
+    constructor(options: Record<string, unknown> = {}) {
+      maps.push(this as unknown as Record<string, ReturnType<typeof vi.fn>>)
+      mapOptions.push(options)
+    }
   }
   class Marker {
     setLngLat = vi.fn().mockReturnThis()
@@ -60,6 +74,10 @@ describe('MapLibre renderer adapter', () => {
     boundsCoordinates.length = 0
     resizeCallbacks.length = 0
     projectionFailure.enabled = false
+    mapOptions.length = 0
+    vesselLayers.created = 0
+    vesselLayers.destroy.length = 0
+    window.localStorage.removeItem('bluelog.map.projection')
     vi.stubGlobal('ResizeObserver', class {
       constructor(callback: () => void) { resizeCallbacks.push(callback) }
       observe() {}
@@ -187,5 +205,99 @@ describe('MapLibre renderer adapter', () => {
     expect(markerRecords[0].element.dataset.placement).toBe('start')
     session.destroy()
     expect(markerRecords[0].remove).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * 지구본 ↔ 평면 전환 (#1976 · 09-27 사용자 결정).
+   *
+   * ⑴ `low`가 아니면 버튼이 있고 처음은 지구본 ⑵ 누르면 투영과 함께 기울기·회전·3D 선체가
+   * 따라 바뀐다 ⑶ 고른 방식을 기억해 다음에 그 방식으로 연다 ⑷ `low`에는 버튼이 없다.
+   */
+  const toggleOf = (map: Record<string, ReturnType<typeof vi.fn>>) => {
+    const control = map.addControl.mock.calls
+      .map(([c]) => c as { onAdd?: () => HTMLElement })
+      .find((c) => typeof c.onAdd === 'function' && c.constructor.name === 'ProjectionToggleControl')
+    const element = control?.onAdd?.()
+    return element?.querySelector('button') ?? null
+  }
+  const fireLoad = (map: Record<string, ReturnType<typeof vi.fn>>) => {
+    const load = map.on.mock.calls.find(([name]) => name === 'load')
+    if (!load) throw new Error('load 처리기가 등록되지 않았다')
+    ;(load[1] as () => void)()
+  }
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('버튼이 있고 처음은 지구본 — 누르면 평면으로, 다시 누르면 지구본으로 (#1976)', () => {
+    const session = mapLibreRenderer.mount(document.createElement('div'), model('fleet'), vi.fn())
+    const map = maps[0]
+    expect(mapOptions[0]).toMatchObject({ pitch: 18, dragRotate: true })
+    fireLoad(map)
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
+    const button = toggleOf(map)!
+    // 누르면 무엇이 되는가를 말한다 — 지금 지구본이니 「평면」
+    expect(button.getAttribute('aria-label')).toContain('평면')
+
+    button.click()
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'mercator' })
+    expect((map.dragRotate as unknown as { disable: ReturnType<typeof vi.fn> }).disable).toHaveBeenCalled()
+    expect(map.easeTo).toHaveBeenLastCalledWith({ pitch: 0, bearing: 0, animate: false })
+    expect(window.localStorage.getItem('bluelog.map.projection')).toBe('mercator')
+    expect(button.getAttribute('aria-label')).toContain('지구본')
+
+    button.click()
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'globe' })
+    expect(map.easeTo).toHaveBeenLastCalledWith({ pitch: 18, animate: false })
+    expect(window.localStorage.getItem('bluelog.map.projection')).toBe('globe')
+    session.destroy()
+  })
+
+  it('고른 방식(평면)을 기억해 다음에는 평면으로 연다 (#1976)', () => {
+    window.localStorage.setItem('bluelog.map.projection', 'mercator')
+    const session = mapLibreRenderer.mount(document.createElement('div'), model('fleet'), vi.fn())
+    const map = maps[0]
+    expect(mapOptions[0]).toMatchObject({ pitch: 0, dragRotate: false })
+    fireLoad(map)
+    expect(map.setProjection).toHaveBeenLastCalledWith({ type: 'mercator' })
+    expect(toggleOf(map)!.getAttribute('aria-label')).toContain('지구본')
+    session.destroy()
+  })
+
+  it('low 기기에는 버튼이 없고 평면 그대로다 — 지금 판단을 지킨다 (#1976)', () => {
+    window.localStorage.setItem('bluelog.map.projection', 'globe')
+    const session = mapLibreRenderer.mount(document.createElement('div'), { ...model('fleet'), qualityTier: 'low' as const }, vi.fn())
+    const map = maps[0]
+    fireLoad(map)
+    expect(toggleOf(map)).toBeNull()
+    expect(map.setProjection).not.toHaveBeenCalled()
+    expect(mapOptions[0]).toMatchObject({ pitch: 0 })
+    session.destroy()
+  })
+
+  it('평면으로 바꾸면 3D 선체를 걷고, 지구본으로 오면 다시 올린다 (#1976)', async () => {
+    const vessels = [{ id: 'v1' }] as unknown as NonNullable<Parameters<typeof mapLibreRenderer.mount>[1]['vessels']>
+    const session = mapLibreRenderer.mount(document.createElement('div'), { ...model('fleet'), vessels }, vi.fn())
+    const map = maps[0]
+    fireLoad(map)
+    await flush()
+    expect(vesselLayers.created).toBe(1)
+
+    const button = toggleOf(map)!
+    button.click()
+    expect(vesselLayers.destroy[0]).toHaveBeenCalledTimes(1)
+    button.click()
+    await flush()
+    expect(vesselLayers.created).toBe(2)
+    session.destroy()
+  })
+
+  it('선체를 불러오는 사이 평면으로 바꾸면 올리지 않는다 (#1976)', async () => {
+    const vessels = [{ id: 'v1' }] as unknown as NonNullable<Parameters<typeof mapLibreRenderer.mount>[1]['vessels']>
+    const session = mapLibreRenderer.mount(document.createElement('div'), { ...model('fleet'), vessels }, vi.fn())
+    const map = maps[0]
+    fireLoad(map)
+    toggleOf(map)!.click()
+    await flush()
+    expect(vesselLayers.created).toBe(0)
+    session.destroy()
   })
 })
