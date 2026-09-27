@@ -124,7 +124,7 @@
   display: block;
   margin-top: var(--spacing-xs);
   font-style: normal;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -167,7 +167,7 @@
 
 .rp__hint {
   font-style: normal;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -283,7 +283,7 @@
 
 .rp__note {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 

@@ -149,7 +149,7 @@
 
 .account-menu__verify {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -209,7 +209,7 @@
 }
 
 .account-menu__link-sub {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
   color: var(--text-secondary);
 }

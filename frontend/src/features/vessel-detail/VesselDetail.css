@@ -89,7 +89,7 @@
 
 .vd__asof {
   margin: var(--spacing-xs) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -98,7 +98,7 @@
 .vd__stale {
   margin: var(--spacing-xs) 0 0;
   color: var(--color-danger-text);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   line-height: var(--line-height-label);
 }
 
@@ -181,7 +181,7 @@
 }
 
 .vd__note {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -324,7 +324,7 @@
   gap: var(--space-4);
   padding-block-end: var(--space-4);
   white-space: nowrap;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -377,7 +377,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -405,7 +405,7 @@
 /* 범례 밑 한 줄 — 「어느 쪽이 좋은가」를 적는다 (#723). */
 .history__hint {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   line-height: var(--line-height-label);
   color: var(--text-secondary);
   word-break: keep-all;
@@ -449,7 +449,7 @@
 
 /* 올해 막대의 「진행 중」 (#1571) — 값 자리에 서지만 값이 아니므로 보조 글자다. */
 .history__cap-progress {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -473,7 +473,7 @@
 
 .history__caption {
   text-align: left;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   padding-bottom: var(--spacing-sm);
 }
@@ -582,7 +582,7 @@
  * 문자 대비가 4.13:1이라 `§0.2` 제약 1(≥4.5:1)을 못 넘는다.
  */
 .vd__pos-error {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-danger-text);
 }
 
@@ -616,7 +616,7 @@
 
 /* 왜 저장이 막혔는지 적는다 — 죽은 버튼만 두면 고장으로 읽힌다. */
 .vd__pos-note {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -691,7 +691,7 @@
   border: var(--borderWidth-default) solid var(--border-default);
   border-radius: var(--radius-control);
   color: var(--text-secondary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 .vd-calcs__badge {

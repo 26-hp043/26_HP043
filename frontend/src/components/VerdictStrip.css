@@ -59,9 +59,9 @@
  * 16이면 주·보조가 분명히 갈린다.
  */
 .verdict-strip__sub-value {
-  font-size: var(--font-size-h3);
-  line-height: var(--line-height-h3);
-  font-weight: var(--font-weight-h3);
+  font-size: var(--font-size-heading);
+  line-height: var(--line-height-heading);
+  font-weight: var(--font-weight-heading);
   font-variant-numeric: tabular-nums;
 }
 

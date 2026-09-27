@@ -19,7 +19,7 @@
 .regp__hint,
 .regp__empty {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   word-break: keep-all;
 }
@@ -71,7 +71,7 @@
 }
 
 .regp__count {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
@@ -106,7 +106,7 @@
 
 .regp__table thead th {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
   border-bottom-color: var(--color-border-strong);
 }
@@ -138,7 +138,7 @@
 
 .regp__sub {
   display: block;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 

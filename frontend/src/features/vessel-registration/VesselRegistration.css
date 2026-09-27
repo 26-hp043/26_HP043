@@ -240,6 +240,6 @@
 .vessel-registration__specs-why {
   /* 사유는 아랫줄로 내린다 — 이름과 한 줄에 이어 붙으면 둘 다 읽히지 않는다. */
   display: block;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }

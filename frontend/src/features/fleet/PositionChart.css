@@ -150,7 +150,7 @@
  * 결측 안내 (`#705`) — 좌표 범위보다 **한 단 크게** 둔다.
  *
  * 「이 그림이 무엇을 안 담고 있나」는 놓치면 화면이 사실과 다른 말을 하게 되는
- * 문장이라, 좌표 캡션(`--font-size-micro`)과 같은 무게로 둘 수 없다. 8/23 시연
+ * 문장이라, 좌표 캡션(`--font-size-caption`)과 같은 무게로 둘 수 없다. 8/23 시연
  * 피드백의 첫 줄이 「글자가 작다」이기도 하다.
  *
  * **경고색을 쓰지 않는다.** 데이터가 덜 들어온 것이지 위험이 아니다. 등급·위험과
@@ -167,14 +167,14 @@
  */
 .position-chart__range {
   margin: var(--spacing-sm) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
 /* 그림 읽는 법 — 좌표 범위(micro)보다 한 단 크게. 문장이라 읽혀야 한다. */
 .position-chart__note {
   margin: var(--spacing-sm) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 

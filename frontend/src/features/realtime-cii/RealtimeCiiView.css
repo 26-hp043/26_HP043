@@ -83,7 +83,7 @@
 
 /* PRD R-5 — 감출 수 없어야 하므로 눈에 띄되, 값보다 앞서지 않는 크기로 둔다. */
 .rt__sim {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-link);
   border: 1px solid var(--semantic-primary);
   border-radius: var(--radius-pill);
@@ -94,7 +94,7 @@
 /* `.rt__poll`은 `#725`에서 이 문장에 합쳐졌다. */
 .rt__asof {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -161,9 +161,9 @@
 .rt__figure-hint {
   display: block;
   margin-block-start: var(--spacing-xs);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
-  line-height: var(--line-height-micro);
+  line-height: var(--line-height-caption);
   color: var(--text-secondary);
 }
 
@@ -208,7 +208,7 @@
 
 .rt__axis-facts dd {
   margin: 0;
-  font-size: var(--font-size-h2);
+  font-size: var(--font-size-title);
   font-weight: var(--font-weight-label);
   color: var(--text-primary);
 }
@@ -251,7 +251,7 @@
 .rt__note,
 .rt__nodata {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -378,7 +378,7 @@
   position: absolute;
   inset-block-start: calc(100% + var(--spacing-xs));
   inset-inline-end: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -416,19 +416,19 @@
 }
 
 .rt__segment-value {
-  font-size: var(--font-size-h2, var(--font-size-display));
+  font-size: var(--font-size-title, var(--font-size-display));
   font-weight: var(--font-weight-label);
   color: var(--text-primary);
 }
 
 .rt__segment-unit {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
 .rt__no-rating {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -443,7 +443,7 @@
 
 .rt__direction {
   margin: var(--spacing-xs) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 .rt__direction--improving {
@@ -465,12 +465,12 @@
   padding: 0;
   display: grid;
   gap: var(--space-4);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-text-muted);
 }
 
 .rt__assumptions {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -514,7 +514,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -549,7 +549,7 @@
 .rt__stale {
   margin: var(--spacing-xs) 0 0;
   color: var(--color-danger-text);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   line-height: var(--line-height-label);
   text-align: right;
 }
@@ -561,9 +561,9 @@
 .rt__figure-link {
   display: block;
   margin-block-start: var(--spacing-xs);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
-  line-height: var(--line-height-micro);
+  line-height: var(--line-height-caption);
 }
 
 /*
@@ -703,7 +703,7 @@
  */
 .ytd__figures dd {
   margin: 0;
-  font-size: var(--font-size-h2);
+  font-size: var(--font-size-title);
   line-height: 1.1;
   font-weight: var(--font-weight-display);
   color: var(--text-primary);
@@ -733,7 +733,7 @@
   justify-content: start;
   gap: var(--spacing-xs) var(--spacing-md);
   margin: var(--spacing-sm) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 .rt__drivers > div {
@@ -762,7 +762,7 @@
  */
 .rt__scale-source {
   margin: var(--spacing-sm) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /* 이번 항차 지도 (#1949) — 카드 안 왼쪽 단. */
@@ -787,6 +787,6 @@
  */
 .rt__map-asof {
   margin: var(--spacing-xs) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }

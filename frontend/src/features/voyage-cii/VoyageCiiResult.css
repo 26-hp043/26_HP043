@@ -31,7 +31,7 @@
 
 .voyage-cii-result__title-en {
   color: var(--color-text-muted);
-  font-size: var(--font-size-h3);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-body);
 }
 
@@ -163,8 +163,8 @@
 /* ── 등급을 올리려면 (#727) ────────────────────────────────────────── */
 
 .voyage-cii-result__section-title {
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
   margin: 0;
 }
 
@@ -176,8 +176,8 @@
 
 .voyage-cii-result__targets-note {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
-  line-height: var(--line-height-micro);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
 }
 
 /*
@@ -214,7 +214,7 @@
 .voyage-cii-result__targets-table thead th,
 .voyage-cii-result__basis-table thead th {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-label);
 }
 
@@ -227,13 +227,13 @@
 
 .voyage-cii-result__cell-unit {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
 }
 
 .voyage-cii-result__cell-sub {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-body);
 }
 
@@ -323,7 +323,7 @@
 
 .voyage-cii-result__basis-list dt {
   color: var(--color-text-muted);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   flex: none;
 }
 

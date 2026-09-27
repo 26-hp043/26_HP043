@@ -17,8 +17,8 @@
 
 .scenario-adopt__title {
   margin: 0;
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
 }
 
 .scenario-adopt__title-en {
