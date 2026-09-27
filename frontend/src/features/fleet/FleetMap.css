@@ -46,6 +46,35 @@
   color: var(--text-secondary);
 }
 
+/*
+ * 항로선만 실패했을 때 다시 묻는 버튼 (`#1871` ②) — ⚠️ 개발 임시안, 디자인 검토 대기.
+ *
+ * `DESIGN_SYSTEM §8` 텍스트 버튼을 따른다 — 주 동작이 아닌 자리라 채움·아웃라인을 쓰지
+ * 않는다(아웃라인은 `--color-border-strong`이 `1.4.11`에 미달). 같은 줄에 다른 컨트롤이
+ * 없어 높이는 「혼자 놓일 때」의 `--target-icon-button`이다.
+ */
+.fleetmap__route-failure {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.fleetmap__route-retry {
+  block-size: var(--target-icon-button);
+  padding: 0 var(--spacing-xs);
+  font: inherit;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.fleetmap__route-retry:hover {
+  background: var(--surface-inset);
+}
+
 /* --- 마커 ------------------------------------------------------------------ */
 
 /*
