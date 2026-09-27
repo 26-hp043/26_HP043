@@ -1,0 +1,21 @@
+/*
+ * 지구본 ↔ 평면 전환 버튼 (#1976) — ⚠️ 자리·모양은 개발 임시안(`DESIGN_SYSTEM §9.5`).
+ *
+ * MapLibre 컨트롤 묶음의 버튼은 29px 정사각형 아이콘 자리다. 이 버튼은 글자라 폭을 풀고
+ * 좌우 여백만 준다. 새 토큰·새 색은 만들지 않는다(`§0.2`).
+ */
+.maplibregl-ctrl-group.bluelog-projection button.bluelog-projection__toggle {
+  width: auto;
+  min-width: 29px;
+  padding-inline: var(--spacing-sm);
+  font-family: inherit;
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-caption);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.maplibregl-ctrl-group.bluelog-projection button.bluelog-projection__toggle:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
