@@ -593,7 +593,8 @@
   padding: var(--space-4) var(--space-8);
   font: inherit;
   font-size: var(--font-size-label);
-  color: var(--semantic-primary);
+  /* 문자는 `--color-link`다 — 근거는 `AuthShell.css`의 `.auth-secondary` 참조 (`#1651`). */
+  color: var(--color-link);
   background: transparent;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
