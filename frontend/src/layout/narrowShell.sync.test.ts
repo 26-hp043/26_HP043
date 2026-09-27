@@ -52,6 +52,29 @@ describe('좁은 창의 셸 (#1885 · DESIGN_SYSTEM §7.2)', () => {
     }
   })
 
+  /*
+   * `#1978` — 축소되면 「준비 중」·「사무직 전용」 태그가 위 규칙으로 감춰져, 잠긴 항목을
+   * 가르는 **화면 채널이 색 하나**가 된다. 그 색차는 활성 `#5f5e5a` ↔ 비활성 `#8b8a83`로
+   * **1.87:1**(다크 1.85)이라 비텍스트 기준 3:1에도 못 미친다. 배지가 형태 채널을 더한다.
+   *
+   * 배지를 **여기서만** 켜는 것이 핵심이다 — 펼친 상태에서 함께 켜지면 태그와 배지가
+   * 같은 말을 두 번 한다.
+   */
+  it('축소 상태에서만 자물쇠 배지를 켠다 — 색 하나로 잠김을 말하지 않는다 (#1978)', () => {
+    const lockInNarrow = rule(narrowBlock(), '.app-shell__nav-lock')
+    expect(lockInNarrow).toMatch(/display:\s*block/)
+    expect(lockInNarrow).toMatch(/position:\s*absolute/)
+
+    // 펼친 상태(미디어 블록 **밖**)에서는 꺼져 있다
+    const base = css.slice(0, css.indexOf('@media (max-width: 1100px) {'))
+    expect(rule(base, '.app-shell__nav-lock')).toMatch(/display:\s*none/)
+  })
+
+  it('배지가 앉을 상자가 자리를 잡고 있다 — 없으면 링크 기준으로 떠 버린다', () => {
+    const base = css.slice(0, css.indexOf('@media (max-width: 1100px) {'))
+    expect(rule(base, '.app-shell__nav-iconwrap')).toMatch(/position:\s*relative/)
+  })
+
   it('상단바 셀렉트는 상한(180)을 두되 컨테이너에 맞춰 줄어든다', () => {
     const select = rule(css, '.app-shell__util-select')
     expect(select).toMatch(/max-width:\s*180px/)

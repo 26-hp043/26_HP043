@@ -413,6 +413,24 @@
   min-inline-size: 0;
 }
 
+/*
+ * 잠긴 항목의 아이콘 상자 — 자물쇠 배지(`#1978`)가 이 상자 기준으로 앉는다.
+ * 활성 항목에는 이 상자가 없다.
+ */
+.app-shell__nav-iconwrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+/*
+ * 펼친 상태에서는 「준비 중」·「사무직 전용」 태그가 이유까지 말하므로 배지를 그리지
+ * 않는다. 축소(64)에서만 켠다 — 파일 끝 `1100px` 블록.
+ */
+.app-shell__nav-lock {
+  display: none;
+}
+
 .app-shell__nav-icon {
   inline-size: var(--icon-default);
   block-size: var(--icon-default);
@@ -679,6 +697,30 @@
   .app-shell__nav-link {
     justify-content: center;
     padding-inline: 0;
+  }
+
+  /*
+   * 잠긴 항목의 자물쇠 배지 (`#1978`). 아래에서 태그가 감춰지면서 잠김을 말하는
+   * 화면 채널이 색 하나(활성 ↔ 비활성 `1.87:1`)만 남는다 — 형태 채널을 하나 더한다.
+   *
+   * 면을 깔고 원형으로 잘라 아이콘 획과 겹쳐도 자물쇠가 읽히게 한다. 면 색은 사이드바와
+   * 같은 `--surface-card`라 배지 자리가 아이콘을 **지우는** 것처럼 보이지 않는다.
+   */
+  .app-shell__nav-lock {
+    display: block;
+    position: absolute;
+    inset-inline-end: -4px;
+    inset-block-end: -4px;
+    inline-size: 12px;
+    block-size: 12px;
+    padding: 1px;
+    background: var(--surface-card);
+    border-radius: var(--radius-pill);
+    fill: none;
+    stroke: currentcolor;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .app-shell__brand-sub,
