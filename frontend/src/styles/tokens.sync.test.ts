@@ -1124,6 +1124,125 @@ describe('Primary 채움면 위 글자 대비 — §0.2 제약 1 (#717)', () => 
   })
 
   /*
+   * `#1650` — **토큰이 옳은 것과 화면이 그 토큰을 쓰는 것은 다른 일이다.**
+   *
+   * 바로 위 검사는 `--color-border-control`의 **값**이 `3:1`을 넘는지만 본다. 그런데
+   * 정작 입력칸·셀렉트 아홉 곳이 그 토큰을 쓰지 않고 `--border-default`(라이트
+   * `1.15`~`1.29` · 다크 `1.10`~`1.44`)로 그려져 있었다 — 같은 파일 안에서 **버튼은
+   * 컨트롤 토큰, 입력칸은 기본 경계**인 자리가 여섯이었다. 값 가드와 역할 가드가 모두
+   * 있는데도 남은 이유는 `#1202` 가드의 표식이 `cursor: pointer`였기 때문이다:
+   * `<input>`·`<select>`는 그 속성을 쓰지 않으므로 **아홉 곳 전부가 표식에 걸리지
+   * 않았다.** 아웃라인 버튼 하나(`.vd__pos-cancel`)도 `cursor`를 **기반 규칙**에서
+   * 받아 같이 빠져 있었다.
+   *
+   * ## 표식을 마크업에서 가져온다
+   *
+   * `DESIGN_SYSTEM §14`의 갈래 표는 「폼 컨트롤」을 **컨트롤의 유일한 경계**로 두어
+   * `3:1`을 필수로 한다(2026-09-18 확정 · `#1202`). 그 「폼 컨트롤」을 CSS만 보고
+   * 알아낼 수 없으니 — 클래스 이름이 `.acc__input`인지 `.vy-export__control`인지는
+   * 파일마다 다르다 — **마크업이 `<input>`·`<select>`·`<textarea>`에 붙인 클래스**를
+   * 모아 표식으로 쓴다. 이름 목록을 손으로 적지 않으므로 새 컨트롤이 들어오면 저절로
+   * 대상이 된다(`#1202`가 「토큰 이름이 아니라 역할로 잡는다」고 적은 규율과 같다).
+   *
+   * 아웃라인 버튼은 **배경이 `transparent`**인 것으로 가른다 — 채움 버튼은 식별을
+   * 면이 지므로 재는 대상이 다르다(위 `#1296` 검사). `:disabled`는 `1.4.11`이
+   * 명시적으로 제외한다.
+   */
+  function tsxFilesUnder(dir: string, out: string[] = []): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (entry.name !== 'node_modules') tsxFilesUnder(join(dir, entry.name), out)
+      } else if (entry.name.endsWith('.tsx') && !entry.name.includes('.test.')) {
+        out.push(join(dir, entry.name))
+      }
+    }
+    return out
+  }
+
+  /** 마크업이 폼 컨트롤 · `<button>`에 붙인 클래스 이름. */
+  function classesByRole(): { control: Set<string>; button: Set<string> } {
+    const control = new Set<string>()
+    const button = new Set<string>()
+    for (const file of tsxFilesUnder(CSS_ROOT)) {
+      const source = readFileSync(file, 'utf-8')
+      for (const [, tag, attrs] of source.matchAll(/<(input|select|textarea|button)\b([^>]*)>/g)) {
+        for (const m of attrs.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
+          for (const name of (m[1] ?? m[2] ?? '').split(/\s+/)) {
+            // 템플릿 문자열의 보간부(`${…}`)는 이름이 아니다.
+            if (name === '' || name.includes('$') || name.includes('{')) continue
+            ;(tag === 'button' ? button : control).add(name)
+          }
+        }
+      }
+    }
+    return { control, button }
+  }
+
+  /** 경계가 테두리뿐인 컨트롤 — 선택자가 폼 요소이거나, 마크업이 컨트롤에 붙인 클래스다. */
+  function soleBorderControls(): { where: string; token: string }[] {
+    const { control, button } = classesByRole()
+    const mentions = (selector: string, names: Set<string>): boolean =>
+      [...names].some((name) =>
+        new RegExp(`(^|[\\s>+~.:\\[])${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\b|$)`).test(selector),
+      )
+
+    const found: { where: string; token: string }[] = []
+    for (const file of cssFilesUnder(CSS_ROOT)) {
+      const body = readFileSync(file, 'utf-8').replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const [, rawSelector, rule] of body.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+        const selector = rawSelector.split(/\s+/).join(' ').trim()
+        if (/:disabled|--disabled/.test(selector)) continue
+        /*
+         * `border-radius`·`border-width`가 아니라 **색을 정하는 선언**만 본다 —
+         * `[a-z-]*`로 열어 두면 `border-radius: var(--radius-control)`이 걸려
+         * 반지름 토큰을 색으로 읽는다(처음 구현에서 실제로 그랬다).
+         */
+        const decl =
+          /border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?:\s*[^;]*var\(\s*(--[\w-]+)\s*\)/.exec(
+            rule,
+          )
+        if (decl === null) continue
+
+        const isFormElement = /(^|[\s>+~,])(input|select|textarea)\b/.test(selector)
+        const isOutlineButton =
+          mentions(selector, button) && /background(?:-color)?:\s*(transparent|none)/.test(rule)
+        if (!isFormElement && !mentions(selector, control) && !isOutlineButton) continue
+
+        found.push({
+          where: `${file.slice(CSS_ROOT.length)} :: ${selector.slice(0, 60)}`,
+          token: decl[1],
+        })
+      }
+    }
+    return found
+  }
+
+  it('폼 컨트롤 테두리를 그리는 자리를 마크업으로 실제로 찾았다 (#1650)', () => {
+    // 정규식이나 마크업 수집이 헛돌면 아래가 공집합 통과가 된다 — 먼저 잠근다.
+    const { control } = classesByRole()
+    expect(control.size, '마크업에서 폼 컨트롤 클래스를 찾지 못했습니다').toBeGreaterThan(5)
+    expect(soleBorderControls().length).toBeGreaterThan(10)
+  })
+
+  it.each(THEMES)('$name — 폼 컨트롤·아웃라인 버튼 경계가 네 면에서 3:1 이상이다 (#1650)', ({
+    generated,
+    alias,
+  }) => {
+    const offenders: string[] = []
+    for (const { where, token } of soleBorderControls()) {
+      const color = evaluate(`var(${token})`, generated, alias)
+      for (const surface of TEXT_SURFACES) {
+        const ratio = contrast(color, generated[surface])
+        if (ratio < 3) offenders.push(`${where} — ${token} on ${surface} = ${ratio.toFixed(2)}`)
+      }
+    }
+    expect(
+      offenders,
+      '폼 컨트롤은 테두리가 유일한 경계다 — `--color-border-control`을 씁니다 (DESIGN_SYSTEM §14 · #1650)',
+    ).toEqual([])
+  })
+
+  /*
    * `#1169` — **면적 채널이 문자 계조를 다시 빌려 쓰는 것**을 막는다.
    *
    * 위 `3:1`은 값이 무엇이든 지켜지는지만 본다. 그런데 `#829` ⑶이 여기에 놓았던
