@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -308,6 +309,32 @@ async def test_fabricated_number_is_discarded(migrated_db, app_fresh_engine):
             assert data["discarded"] is True
             assert data["answer"] == DISCARDED_MESSAGE
             assert data["disclaimer"] == DISCLAIMER
+    finally:
+        await _cleanup()
+
+
+async def test_discard_logs_only_the_blocked_numbers(migrated_db, app_fresh_engine, caplog):
+    """IT-CHAT-070 — 폐기하면 **막힌 수치와 부른 도구만** 로그에 남는다 (`#1535`).
+
+    운영 4회차의 폐기는 저장도 로그도 없어 무엇이 막혔는지 되찾을 수 없었다. 그렇다고
+    답 본문이나 질문을 남기면 전송 금지 값이 로그로 샌다(``PRD §16.3.1``) — 수치만 싣는다.
+    """
+    _use(FakeProvider([LLMResponse(text="DEMO-VESSEL 기준값은 354입니다.")]))
+    caplog.set_level(logging.WARNING, logger="cii_platform.services.chat")
+    try:
+        with TestClient(app, base_url=_BASE) as client:
+            headers = _login(client)
+            response = client.post(
+                "/api/v1/chat", json={"message": "비밀질문 기준값"}, headers=headers
+            )
+            assert response.json()["data"]["discarded"] is True
+
+        logged = [r.getMessage() for r in caplog.records if r.name == "cii_platform.services.chat"]
+        assert len(logged) == 1, logged
+        assert "354" in logged[0]
+        assert "(없음)" in logged[0]  # 이 턴은 도구를 부르지 않았다
+        assert "DEMO-VESSEL" not in logged[0]
+        assert "비밀질문" not in logged[0]
     finally:
         await _cleanup()
 

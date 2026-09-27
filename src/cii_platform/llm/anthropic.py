@@ -11,6 +11,18 @@ SDK를 쓰면 얻는 것(재시도·스트리밍·타입)이 있지만, ⑴ 재�
 뜻을 잃는다. ⑵ 스트리밍은 `Q10` ⓑ에서 **쓰지 않기로** 했다(일반 응답 + 로딩 표시).
 ⑶ 타입은 이 파일 하나가 감당할 범위다.
 
+## 과부하에만 한 번 다시 부른다 (`#1535` 결정 가 · 2026-09-26 사용자)
+
+예외가 하나 있다. **429 · 503 · 529**(요청 한도 · 일시 불가 · 공급자 과부하)는
+**한 번만** 다시 부른다(:data:`RETRY_STATUSES`). 운영 첫 호출 4회 중 2회가 529였다 —
+사용자 잘못도 질문의 문제도 아닌데 챗봇이 「응답을 받지 못했습니다」로 끝났다.
+
+비용 가드와 충돌하지 않는 근거는 ⑴ 이 세 코드는 공급자가 **요청을 처리하지 않고
+돌려보낸** 응답이라 생성 토큰이 없고(정황 — 과금 여부를 공급자 문서로 확인하지는
+않았다), ⑵ 횟수를
+**1회로 못 박아** 최악이 호출 두 번이다. 그 밖의 실패(400 · 401 · 500 · 연결 오류)는
+다시 불러도 같거나 비용만 드므로 종전대로 바로 올린다.
+
 ## 실패를 삼키지 않는다
 
 ``LLMError``로 올린다. 챗봇 라우트가 그것을 받아 **챗봇 안에서** 끝낸다 —
@@ -19,6 +31,7 @@ SDK를 쓰면 얻는 것(재시도·스트리밍·타입)이 있지만, ⑴ 재�
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -51,6 +64,13 @@ API_VERSION = "2023-06-01"
 #: 무한히 기다리지 않는다: 화면이 로딩 표시를 띄우고 있고(`Q10` ⓑ), 30초를 넘기면
 #: 사용자는 이미 떠났다.
 TIMEOUT_SECONDS = 30.0
+
+#: 한 번 다시 부르는 상태 코드 — 요청 한도 · 일시 불가 · 공급자 과부하 (`#1535` 결정 가).
+RETRY_STATUSES = frozenset({429, 503, 529})
+
+#: 다시 부르기 전 기다리는 시간(초). 과부하가 풀릴 틈을 준다 — 길면 턴 시간 상한
+#: (``services/chat.TURN_TIMEOUT_SECONDS``)을 먹으므로 짧게 둔다.
+RETRY_DELAY_SECONDS = 1.0
 
 
 def _split_system(
@@ -130,6 +150,7 @@ class AnthropicProvider:
     :param model: 쓰지 않으면 ``LLM_MODEL``(기본 `Q4`의 Claude Haiku 4.5)을 읽는다.
     :param base: 쓰지 않으면 ``LLM_BASE_URL``(기본 Anthropic)을 읽는다.
     :param scheme: 쓰지 않으면 ``LLM_AUTH_SCHEME``(기본 ``x-api-key``)을 읽는다.
+    :param retry_delay: 과부하 재시도 전 대기(초). 검사가 0을 넣는 주입점이다.
 
     주소·모델·인증 방식을 환경변수로 받는 것은 `#1535` 결정이다 — Anthropic 형식을
     내는 다른 공급자로 옮길 때 **코드를 고치지 않고 설정만 바꾸기 위해서다.** 기본값이
@@ -144,12 +165,14 @@ class AnthropicProvider:
         base: str | None = None,
         scheme: str | None = None,
         client: httpx.AsyncClient | None = None,
+        retry_delay: float = RETRY_DELAY_SECONDS,
     ) -> None:
         self._key = key or api_key()
         self._model = model or model_name()
         self._endpoint = (base or base_url()).rstrip("/") + MESSAGES_PATH
         self._scheme = scheme or auth_scheme()
         self._client = client
+        self._retry_delay = retry_delay
 
     def _headers(self) -> dict[str, str]:
         """인증 헤더. ``anthropic-version``은 방식과 무관하게 싣는다 — 형식 규격이다."""
@@ -159,6 +182,12 @@ class AnthropicProvider:
         else:
             headers["x-api-key"] = str(self._key)
         return headers
+
+    async def _post(self, body: dict[str, Any], headers: dict[str, str]) -> httpx.Response:
+        if self._client is not None:
+            return await self._client.post(self._endpoint, json=body, headers=headers)
+        async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
+            return await client.post(self._endpoint, json=body, headers=headers)
 
     async def complete(
         self,
@@ -187,11 +216,11 @@ class AnthropicProvider:
         headers = self._headers()
 
         try:
-            if self._client is not None:
-                response = await self._client.post(self._endpoint, json=body, headers=headers)
-            else:
-                async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
-                    response = await client.post(self._endpoint, json=body, headers=headers)
+            response = await self._post(body, headers)
+            if response.status_code in RETRY_STATUSES:
+                # 한 번만 — 두 번째도 과부하면 아래 raise_for_status가 올린다.
+                await asyncio.sleep(self._retry_delay)
+                response = await self._post(body, headers)
             response.raise_for_status()
             return _parse(response.json())
         except httpx.HTTPStatusError as exc:
