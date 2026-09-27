@@ -18,7 +18,7 @@ import './projectionToggle.css'
 export type MapProjection = 'globe' | 'mercator'
 
 /** 브라우저에만 남는 편의 기억이다 — 서버에 가지 않고, 못 읽으면 기본값(지구본)으로 연다. */
-export const PROJECTION_STORAGE_KEY = 'bluelog.map.projection'
+const PROJECTION_STORAGE_KEY = 'bluelog.map.projection'
 
 export function readProjectionPreference(): MapProjection {
   try {
@@ -41,7 +41,7 @@ export function writeProjectionPreference(projection: MapProjection): void {
  * 버튼 문구 — **누르면 무엇이 되는가**를 말한다. 지금 상태를 말하면(「지구본」) 그것이
  * 상태인지 누를 동작인지 헷갈린다. 표시 문구(`AGENTS §4.6`) · 개발 임시안.
  */
-export function projectionToggleText(current: MapProjection): { readonly label: string; readonly name: string } {
+function projectionToggleText(current: MapProjection): { readonly label: string; readonly name: string } {
   return current === 'globe'
     ? { label: '평면', name: '평면 지도로 보기' }
     : { label: '지구본', name: '지구본으로 보기' }
