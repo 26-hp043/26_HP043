@@ -387,6 +387,26 @@ describe('#1243 — 선박이 정해지지 않은 턴', () => {
     expect(bubble.textContent).not.toContain('먼저 골라')
   })
 
+  it('화면 결과 설명(explain_screen_result)만으로 답했으면 안내를 붙이지 않는다 (#1991)', async () => {
+    /*
+     * 계산한 뒤 상단 셀렉트를 「선박 선택 안 함」으로 되돌리면 결과는 그 주소에 남고
+     * 상단 선박만 없다. 서버는 그때 실행의 선박을 따지지 않고 저장된 결과를 읽어 정상
+     * 답을 낸다 — 그 답에 「선박을 먼저 골라 주세요」가 붙으면 **틀린 말**이 된다.
+     */
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({
+      ...ANSWER,
+      answer: '이 화면의 계산 결과는 연말 예상 등급이 C입니다.',
+      toolCalls: ['explain_screen_result'],
+      vesselResolved: false,
+    }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('이 결과 설명해줘')
+
+    const bubble = await screen.findByText(/연말 예상 등급이 C/, { selector: '.assistant__turn--assistant' })
+    expect(bubble.textContent).not.toContain('먼저 골라')
+  })
+
   it('vessel_resolved=true 답에는 그 안내가 없다 — 참고 답과 구분된다', async () => {
     const ask = vi.fn<AssistantProvider['ask']>(async () => ({
       ...ANSWER,
