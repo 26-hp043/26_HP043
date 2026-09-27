@@ -40,6 +40,11 @@ const CODE_NAME: Record<string, string> = {
   body: 'body',
   label: 'label',
   caption: 'caption',
+  /*
+   * `#1953` — 마지막까지 비어 있던 행이다. `§3`의 여덟 행이 이제 전부 토큰을 갖는다.
+   * 값을 담을 이름이 없었던 것은 `caption`(12)이 이 이름을 쓰고 있었기 때문이다.
+   */
+  micro: 'micro',
 }
 
 function section3(): string {
@@ -197,5 +202,61 @@ describe('타입 스케일 값을 리터럴로 적지 않는다 (#1781)', () => 
       }
     }
     expect(offenders).toEqual([])
+  })
+})
+
+/**
+ * `§15` 토큰 블록이 `§3` 표와 같다 (#1953).
+ *
+ * ## 왜 필요한가
+ *
+ * `§15`는 토큰 이름의 정본이고 예시 블록에 여덟 행을 값까지 적어 둔다. 그런데 **어느
+ * 검사도 그 블록을 읽지 않아** 드리프트가 쌓였다 — `#1953` 시점에 `--font-body`가
+ * `400 14px/20px`로 `§3`의 body 15(v2.26)보다 뒤처져 있었고, `page`(28) 행은 아예
+ * 없었다. 같은 문서의 두 절이 같은 스케일을 다르게 적고 있었던 것이다.
+ *
+ * `typeScale.sync.test.ts`의 나머지는 `§3` ↔ `tokens.css`를 잇는다. 이 검사는
+ * `§3` ↔ `§15`를 이어, 정본 안에서 갈라지는 길을 막는다.
+ *
+ * ## 무엇을 보는가
+ *
+ * `§15` 블록의 `--font-<행>: <굵기> <크기>px/<행간>px` 세 값이 `§3` 표의 같은 행과
+ * 같은지만 본다. 자간(`--tracking-*`)은 이 블록에 없으므로 대상이 아니다.
+ */
+describe('§15 토큰 블록이 §3 표와 같다 (#1953)', () => {
+  /** `§15`의 `--font-<행>: 500 32px/40px var(--font-sans);` 선언들. */
+  function section15Rows(): Map<string, { weight: number; size: number; lineHeight: number }> {
+    const start = DOC.indexOf('## 15. 토큰 구현 규약')
+    expect(start, 'DESIGN_SYSTEM §15를 찾지 못했습니다').toBeGreaterThan(-1)
+    const block = DOC.slice(start)
+    const rows = new Map<string, { weight: number; size: number; lineHeight: number }>()
+    for (const m of block.matchAll(/--font-([a-z]+):\s*(\d+)\s+(\d+)px\/(\d+)px/g)) {
+      rows.set(m[1], { weight: Number(m[2]), size: Number(m[3]), lineHeight: Number(m[4]) })
+    }
+    return rows
+  }
+
+  it('§3의 모든 행이 §15 블록에도 있다', () => {
+    const spec = specRows()
+    const fifteen = section15Rows()
+    expect(fifteen.size, '§15에서 `--font-<행>` 선언을 읽지 못했다').toBeGreaterThan(0)
+    const missing = [...spec.keys()].filter((name) => !fifteen.has(name))
+    expect(missing, '§3에 있는데 §15 블록에 없다').toEqual([])
+  })
+
+  it('두 절이 적은 크기 · 굵기 · 행간이 같다', () => {
+    const spec = specRows()
+    const fifteen = section15Rows()
+    const drift: string[] = []
+    for (const [name, row] of spec) {
+      const other = fifteen.get(name)
+      if (other === undefined) continue
+      if (other.size !== row.size) drift.push(`${name} 크기: §3 ${row.size} ≠ §15 ${other.size}`)
+      if (other.weight !== row.weight) drift.push(`${name} 굵기: §3 ${row.weight} ≠ §15 ${other.weight}`)
+      if (other.lineHeight !== row.lineHeight) {
+        drift.push(`${name} 행간: §3 ${row.lineHeight} ≠ §15 ${other.lineHeight}`)
+      }
+    }
+    expect(drift, '정본 안에서 §3과 §15가 갈렸다').toEqual([])
   })
 })

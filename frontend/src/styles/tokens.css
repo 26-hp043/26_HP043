@@ -363,10 +363,16 @@
    * (`fonts.css`) 600 · 700은 브라우저가 합성한 가짜 굵기로 그려졌다.
    * `typeScale.sync.test.ts`가 §3 표와 이 값을 대조한다.
    *
-   * 이름 대응 — §3 `title` = `h2` · `heading` = `h3` · `caption` = `micro`(12).
-   * §3의 11px `micro`는 토큰으로 두지 않았다. ⚠️ 다만 쓰는 곳이 **없지는 않다** —
-   * `components/GradeBadge.css`가 11px을 리터럴로 쓴다(#1785). 그 자리를 토큰으로 올릴지는
-   * 디자인 판단이라 여기서 정하지 않는다(`#1781`의 34px 리터럴과 같은 성질).
+   * **이름은 §3·§15와 같다** (#1953 · PR #1968). 종전에는 `title`이 `h2` · `heading`이
+   * `h3`였고, 무엇보다 `caption`(12)이 **`micro`라는 이름**을 쓰고 있었다 — 이름만 보고
+   * 쓰면 11을 기대하고 12를 받는 자리였다.
+   *
+   * 그래서 §3의 여덟 행이 이제 **전부** 토큰을 갖는다. 마지막으로 비어 있던 `micro`(11)를
+   * 아래에 둔다 — `§8`의 등급 배지 `xs`가 그 크기이고(종전에는 리터럴 11px · `#1785`),
+   * `§8` 규격표도 이제 px 대신 이 스케일을 가리킨다(`#1953` 결정 ⑶).
+   *
+   * ⚠️ **`micro`는 차트 축 라벨이 아니다.** `§9.1`(🔒)이 축 라벨을 12px로 정하므로 그쪽은
+   * `caption`이다 — `§3` v2.31이 용도 칸을 그렇게 갈랐다.
    */
   --font-size-display: 32px;
   --font-size-title: 20px;
@@ -374,6 +380,7 @@
   --font-size-body: 15px;
   --font-size-label: 13px;
   --font-size-caption: 12px;
+  --font-size-micro: 11px;
 
   /*
    * 페이지 제목(h1) — **§3 `page` 행** (#1763).
@@ -393,6 +400,8 @@
   --line-height-body: 1.467;
   --line-height-label: 1.385;
   --line-height-caption: 1.333;
+  /* 11 × 1.273 = 14.0 — §3 `micro`의 행간이다. */
+  --line-height-micro: 1.273;
 
   /* 굵기 — §3 「400 · 500만 쓴다」. `strong`은 강조 · 표 머리글에 쓰는 500이다. */
   --font-weight-display: 500;
