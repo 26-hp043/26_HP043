@@ -201,15 +201,19 @@ function ImportForm({
           disabled={!ready || busy !== null}
           aria-describedby={commitBlocked ? 'param-revision-commit-note' : undefined}
         >
-          {busy === 'commit' ? '적용 중…' : '확정'}
+          {/*
+           * 「확정」이 아니라 **무엇을 바꾸는지**를 적는다 (`#1979`). 되돌릴 수 없다는
+           * 사실은 바로 아래 고지가 이미 말하므로 버튼은 동사만 진다.
+           */}
+          {busy === 'commit' ? '적용 중…' : '기준값 바꾸기'}
         </button>
       </div>
 
       {commitBlocked ? (
         <p id="param-revision-commit-note" className="param-revision__note">
           {result === null
-            ? '먼저 검증하면 몇 행이 적용되고 무엇을 대체하는지 보고 확정할 수 있습니다.'
-            : '문제가 있는 행을 고쳐 다시 검증해야 확정할 수 있습니다.'}
+            ? '먼저 검증하면 몇 행이 적용되고 무엇을 대체하는지 보고 바꿀 수 있습니다.'
+            : '문제가 있는 행을 고쳐 다시 검증해야 바꿀 수 있습니다.'}
         </p>
       ) : null}
 

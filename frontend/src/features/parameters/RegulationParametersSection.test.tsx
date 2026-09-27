@@ -298,7 +298,7 @@ describe('개정 적재와 조회 표가 이어진다 (#1517 · #1239 결정 H)'
     const input = screen.getByLabelText('적재할 CSV 파일') as HTMLInputElement
     fireEvent.change(input, { target: { files: [new File(['year\n2027\n'], 'z.csv', { type: 'text/csv' })] } })
     fireEvent.click(screen.getByRole('button', { name: '검증' }))
-    const commit = screen.getByRole('button', { name: '확정' }) as HTMLButtonElement
+    const commit = screen.getByRole('button', { name: '기준값 바꾸기' }) as HTMLButtonElement
     await waitFor(() => expect(commit.disabled).toBe(false))
     fireEvent.click(commit)
 

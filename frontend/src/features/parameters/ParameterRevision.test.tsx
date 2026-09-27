@@ -71,7 +71,7 @@ describe('ParameterRevision', () => {
     pickFile()
     fireEvent.click(screen.getByRole('button', { name: '검증' }))
     await screen.findByRole('table', { name: '문제가 있는 행' })
-    expect((screen.getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '기준값 바꾸기' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('검증을 통과하면 확정이 열리고, 확정하면 이력을 다시 불러온다', async () => {
@@ -82,7 +82,7 @@ describe('ParameterRevision', () => {
 
     pickFile()
     fireEvent.click(screen.getByRole('button', { name: '검증' }))
-    const commit = screen.getByRole('button', { name: '확정' })
+    const commit = screen.getByRole('button', { name: '기준값 바꾸기' })
     await waitFor(() => expect((commit as HTMLButtonElement).disabled).toBe(false))
 
     fireEvent.click(commit)
@@ -98,9 +98,9 @@ describe('ParameterRevision', () => {
     render(<ParameterRevision user={user('OFFICE')} provider={p} />)
     pickFile()
     fireEvent.click(screen.getByRole('button', { name: '검증' }))
-    await waitFor(() => expect((screen.getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(false))
+    await waitFor(() => expect((screen.getByRole('button', { name: '기준값 바꾸기' }) as HTMLButtonElement).disabled).toBe(false))
     fireEvent.change(screen.getByLabelText('종류'), { target: { value: 'fuel_types' } })
-    expect((screen.getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '기준값 바꾸기' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('이력에는 식별자가 아니라 사람을 보인다', async () => {
@@ -166,7 +166,7 @@ describe('늦게 온 검증 결과 (#1642)', () => {
     await waitFor(() =>
       expect((screen.getByRole('button', { name: '검증' }) as HTMLButtonElement).disabled).toBe(false),
     )
-    expect((screen.getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '기준값 바꾸기' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('기다리는 동안 파일을 바꿔도 앞 요청의 성공을 쓰지 않는다', async () => {
@@ -181,6 +181,6 @@ describe('늦게 온 검증 결과 (#1642)', () => {
     await waitFor(() =>
       expect((screen.getByRole('button', { name: '검증' }) as HTMLButtonElement).disabled).toBe(false),
     )
-    expect((screen.getByRole('button', { name: '확정' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '기준값 바꾸기' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
