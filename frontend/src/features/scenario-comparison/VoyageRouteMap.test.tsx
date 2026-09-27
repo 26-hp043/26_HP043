@@ -85,6 +85,14 @@ describe('항로 비교 지도 — 선의 수 (#1300)', () => {
     expect(document.getElementById(map.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/CII 계산 거리/)
   })
 
+  it('경로망 출처를 지도 아래 펼친 줄로 적는다 — 라이선스 표기가 접힌 컨트롤에만 있지 않다 (#1853 ③)', async () => {
+    render(<VoyageRouteMap {...ENDS} destinationName="SINGAPORE" />)
+    await screen.findByTestId('map')
+    const line = document.querySelector('p.route-source')
+    expect(line?.textContent).toMatch(/Eurostat SeaRoute \(EUPL-1\.2\)/)
+    expect(line?.textContent).toMatch(/searoute \(Apache-2\.0\)/)
+  })
+
   it('경유지가 있으면 우회 선이 하나 더 있고 경유지를 지난다', async () => {
     render(
       <VoyageRouteMap

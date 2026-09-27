@@ -370,13 +370,14 @@
  * `#1967`이 넣은 「다시 시도」는 **통째로 가려 누를 수 없었다**(실측: 버튼 중심의
  * `elementFromPoint`가 패널 안 선박 링크). 패널을 접으면 셋 다 보였다. 그 아래
  * 「지도 텍스트 정보」(`MapAlternative`)도 윗단 8px가 패널 끝과 겹치고, 펼치면 목록이
- * 그 자리로 내려오므로 함께 비킨다.
+ * 그 자리로 내려오므로 함께 비킨다. 경로망 출처 한 줄(`.route-source` · `#1853` ③)도 같은 줄에 선다.
  *
  * 들여쓰기 폭은 패널의 `inset-inline-start` + `inline-size` + 한 칸 간격이다 —
  * 위 `.fleet__panel`과 같은 식을 쓴다. 접힌 패널은 버튼 하나라 비킬 것이 없다.
  */
 .fleet__stage--panel-open .fleetmap__missing,
 .fleet__stage--panel-open .fleetmap__hint,
+.fleet__stage--panel-open .route-source,
 .fleet__stage--panel-open .map-alternative {
   padding-inline-start: calc(
     var(--spacing-md) + min(360px, calc(100% - var(--spacing-xl))) + var(--spacing-md)

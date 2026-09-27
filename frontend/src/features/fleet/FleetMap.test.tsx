@@ -501,6 +501,22 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     expect(ROUTE_ATTRIBUTION).toMatch(/EUPL-1\.2/)
     expect(ROUTE_ATTRIBUTION).toMatch(/Apache-2\.0/)
   })
+
+  it('항로선을 묻는 지도는 경로망 출처를 지도 아래 펼친 줄로도 적는다 — 접힌 컨트롤만으로는 끌고 나면 안 보인다 (#1853 ③)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_input: unknown) => jsonResponse(SEA_LINE)))
+    render(<FleetMap vessels={[underway()]} />)
+
+    // 컨트롤 밖 본문 문단이다 — MapLibre 컨트롤(대역)이 아니라 지도 아래 `<p>`에서 찾는다.
+    const line = await screen.findByText(ROUTE_ATTRIBUTION, { selector: 'p.route-source' })
+    expect(line.textContent).toMatch(/Eurostat SeaRoute/)
+    expect(line.textContent).toMatch(/EUPL-1\.2/)
+    expect(line.textContent).toMatch(/Apache-2\.0/)
+  })
+
+  it('항로선을 묻지 않는 지도에는 출처 줄이 없다 — 경로망 데이터를 쓰지 않는다 (#1853 ③)', () => {
+    render(<FleetMap vessels={[vessel('1', '35.1', '129.0')]} />)
+    expect(document.querySelector('p.route-source')).toBeNull()
+  })
 })
 
 /**
