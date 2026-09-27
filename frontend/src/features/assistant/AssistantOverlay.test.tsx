@@ -482,6 +482,26 @@ describe('계산 대상 · 예시 질문 · 안내 문구 (#1613 · R20)', () =>
     expect(intro).not.toMatch(/화면에 나온/)
     expect(intro).toMatch(/계산해 답합니다/)
   })
+
+  it('안내 문구와 면책이 **같은 출처**를 말한다 (#1993)', () => {
+    /*
+     * 면책(`PRD §6.3` 정본 · `#1986`)은 출처를 **둘**로 말한다 — 「BlueLog의 계산 결과와
+     * 규제 기준값 표」. 안내문은 「수치는 **계산 엔진이 낸 값만** 인용합니다」로 앞의 것만
+     * 말해, 같은 패널의 위와 아래가 어긋났다.
+     *
+     * 문구 전문을 단언하지 않는다(표시 문구 · `AGENTS §4.6`) — **면책이 부르는 두 출처가
+     * 안내문에도 있는가**를 본다. 면책이 바뀌면 이 검사가 그쪽을 따라간다.
+     */
+    setup()
+    open()
+    const intro = document.querySelector('.assistant__intro')!.textContent ?? ''
+    expect(ANSWER.disclaimer).toContain('계산 결과')
+    expect(ANSWER.disclaimer).toContain('규제 기준값')
+    expect(intro).toMatch(/계산/)
+    expect(intro).toMatch(/규제 기준값/)
+    // 「…만 인용합니다」로 출처를 하나로 좁히지 않는다.
+    expect(intro).not.toMatch(/계산 엔진이 낸 값만/)
+  })
 })
 
 describe('열림을 셸에 알린다 (#1613 · R21)', () => {
