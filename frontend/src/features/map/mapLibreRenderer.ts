@@ -93,7 +93,10 @@ function createMap(
     center: [127, 30], zoom: INITIAL_ZOOM, maxZoom: MAX_ZOOM,
     pitch: globe ? GLOBE_PITCH : 0,
     dragRotate: globe, pitchWithRotate: globe, touchZoomRotate: globe,
-    attributionControl: { compact: true },
+    // #1853 ③ (2026-09-27 디자인 확정) — 출처를 **접힌 컨트롤에서 꺼내** 지도 아래 한 줄로 둔다
+    // (`RouteSourceNotice`). 컨트롤(`compact`)은 지도를 한 번 끌면 접혀 ⓘ를 눌러야 보였다 —
+    // 라이선스 표기(EUPL-1.2 · Apache-2.0 · ODbL)를 그 자리에 두면 표기했다고 보기 어렵다.
+    attributionControl: false,
   })
   map.addControl(new maplibregl.NavigationControl({ showCompass: true, visualizePitch: true }), 'top-right')
   map.on('error', (event) => {

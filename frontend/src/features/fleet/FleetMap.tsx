@@ -441,14 +441,22 @@ export function FleetMap({
         아니라는 것**을 말한다 — 경로망은 운항 계획·수심·기상을 모른다.
       */}
       <p className="fleetmap__hint" id={hintId}>
+        {/*
+          #1853 ② (2026-09-27 디자인 확정) — **선 이야기와 마커 이야기를 줄로 가른다.** 한 문장에
+          둘이 붙어 있어 읽는 사람이 중간에 방향을 바꿔야 했다. 낭독은 한 문단 그대로다.
+        */}
         {caption ?? (
           <>
-            {disclosure.visibleText} <b>테두리가 굵은 배</b>는 주의 대상입니다.
+            <span className="fleetmap__hint-line">{disclosure.visibleText}</span>
+            <span className="fleetmap__hint-line">
+              <b>테두리가 굵은 배</b>는 주의 대상입니다.
+            </span>
           </>
         )}
       </p>
       {/* 항로선을 묻는 지도에만 — 선이 없는 지도(선박 상세의 한 척 등)에는 경로망 데이터가 없다. */}
-      {asks.length > 0 ? <RouteSourceNotice source={ROUTE_SOURCE} /> : null}
+      {/* 지도 출처는 늘 · 경로망 출처는 항로선을 묻는 지도만 (#1853 ③). */}
+      <RouteSourceNotice source={asks.length > 0 ? ROUTE_SOURCE : null} />
       <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
         items={adapted.positions.map(({ vessel, lat, lon }) => `${vessel.name}: 위도 ${lat}, 경도 ${lon}${vessel.route ? ` · 출발 ${vessel.route.departureLat}, ${vessel.route.departureLon} · 도착 ${vessel.route.arrivalLat}, ${vessel.route.arrivalLon}` : ''}`)} />
     </div>

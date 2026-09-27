@@ -1,4 +1,4 @@
-/* 경로망 출처 한 줄 (#1853 ③) — 캡션 아래 보조 설명이라 `caption` 크기 · 보조 글자색. */
+/* 지도 출처 한 줄 (#1853 ③) — 캡션 아래 보조 설명이라 `caption` 크기 · 보조 글자색. */
 .route-source {
   margin: 0;
   font-size: var(--font-size-caption);

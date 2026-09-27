@@ -31,6 +31,11 @@
   color: var(--text-secondary);
 }
 
+/* 선 문장과 마커 문장을 줄로 가른다 (#1853 ②). */
+.fleetmap__hint-line {
+  display: block;
+}
+
 /*
  * 좌표가 없어 지도에서 빠진 선박 (#1103).
  *
