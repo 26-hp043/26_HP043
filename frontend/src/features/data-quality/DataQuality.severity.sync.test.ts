@@ -28,26 +28,106 @@ const RULES = [...CSS.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, selector, body])
   body,
 }))
 
-/** 단축 속성 `border-left: 4px solid X`에서 색 X, 또는 `border-left-color: X`. */
-function leftColorOf(body: string): string | undefined {
-  let value: string | undefined
-  for (const [, prop, raw] of body.matchAll(/(border-left(?:-color)?)\s*:\s*([^;]+);/g)) {
-    const v = raw.trim()
-    value = prop === 'border-left-color' ? v : (/(var\([^)]+\)|#[0-9a-f]+)\s*$/i.exec(v)?.[1] ?? value)
+/**
+ * 규칙 본문에서 **왼쪽 띠 색을 정하는 마지막 선언**의 색.
+ *
+ * ⚠️ **4면 단축도 왼쪽 색을 정한다** (`#1993`). 종전에는 `border-left`·`border-left-color`만
+ * 읽었는데, `.dq__tile`이 `border: 1px solid var(--color-border)` + `border-left-width: 4px`로
+ * 왼쪽 색을 정한다 — 검사에는 **「색 없음」**으로 보였다. 그러면 `.dq__tile`을 색 규칙 뒤로
+ * 옮겨 요약 칸이 전부 테두리색이 돼도(`#1990`이 칩에서 고친 것과 같은 결함) `tile(...)`
+ * 단언이 통과한다.
+ *
+ * ⚠️ **색을 해석하지 못한 선언은 `null`로 표시해 실패시킨다.** 종전에는 해석 실패를
+ * `undefined`로 흘려 **앞 규칙의 값이 남았다** — 색을 생략했거나(`border-left: 4px solid`)
+ * 순서가 다르거나(`border-left: var(--x) solid 4px`) 마지막 `;`가 없으면 조용히 「통과」
+ * 쪽으로 갔다. 읽을 수 없는 것을 **읽었다고 하지 않는다**.
+ */
+function leftColorOf(body: string): string | null | undefined {
+  let value: string | null | undefined
+  /*
+   * `border` · `border-color` 4면 단축과 `border-left` · `border-left-color`를 모두 본다.
+   * 폭·굵기만 정하는 `border-left-width`는 색을 정하지 않으므로 대상이 아니다.
+   */
+  const declarations = /(border(?:-left)?(?:-color)?)\s*:\s*([^;}]+)(?:;|$)/g
+  for (const [, property, raw] of body.matchAll(declarations)) {
+    const text = raw.trim()
+    if (text === '') continue
+    if (property.endsWith('-color')) {
+      // `border-color: a b c d`는 넷째(왼쪽)가 왼쪽 색이고, 값이 하나면 네 면 모두다.
+      const parts = colorParts(text)
+      value = parts.length === 0 ? null : (parts[3] ?? parts[1] ?? parts[0])
+      continue
+    }
+    // 단축(`border` · `border-left`) — 색은 폭·스타일과 순서가 자유롭다.
+    const colors = colorParts(text)
+    value = colors.length === 1 ? colors[0] : null
   }
   return value
 }
 
-/** 클래스 목록이 붙은 요소의 **최종** 왼쪽 띠 색 — 단일 클래스 선택자만 따진다(우선순위 동일). */
+/** 값에서 색으로 읽히는 토막들 — `var(...)`(중첩 포함) · `#rgb` · 색 이름. */
+function colorParts(value: string): string[] {
+  const found: string[] = []
+  const pattern = /var\((?:[^()]|\([^()]*\))*\)|#[0-9a-f]{3,8}\b|\b(?:transparent|currentcolor|[a-z]+)\b/gi
+  for (const [token] of value.matchAll(pattern)) {
+    // 폭·스타일 낱말은 색이 아니다.
+    if (/^(?:thin|medium|thick|none|hidden|dotted|dashed|solid|double|groove|ridge|inset|outset)$/i.test(token)) continue
+    if (/^[\d.]+(?:px|rem|em|%)$/i.test(token)) continue
+    found.push(token)
+  }
+  return found
+}
+
+/**
+ * 이 선택자가 **우리가 보는 그 요소 자체**를 더 높은 특정도로 겨냥하는가 (`#1993`).
+ *
+ * 마지막 compound(마지막 결합자 뒤)만 본다 — `.dq__tile dt`는 자손 `dt`를 겨냥하므로
+ * 칸의 테두리를 건드리지 않고, `.dq__tile.dq__tile--anomaly`·`.dq__tile:hover`는 같은
+ * 요소를 겨냥하며 특정도가 높아 파일 순서를 뒤집는다.
+ */
+function overSpecific(selector: string, wanted: ReadonlySet<string>): boolean {
+  const last = selector.split(/[\s>+~]+/).filter(Boolean).pop() ?? ''
+  const classes = [...last.matchAll(/\.[-\w]+/g)].map(([token]) => token)
+  if (classes.length === 0) return false
+  // 우리 요소에 없는 클래스가 하나라도 있으면 그 규칙은 이 요소에 붙지 않는다.
+  if (!classes.every((token) => wanted.has(token))) return false
+  // 클래스 말고 남는 것(태그 · `:hover` · `[attr]`)이 있으면 그것도 특정도를 올린다.
+  const rest = last.replace(/\.[-\w]+/g, '')
+  return classes.length > 1 || rest !== ''
+}
+
+/**
+ * 클래스 목록이 붙은 요소의 **최종** 왼쪽 띠 색.
+ *
+ * 단일 클래스 선택자만 따진다(우선순위 동일 → 파일에서 뒤가 이긴다). ⚠️ **복합 선택자가
+ * 있으면 실패시킨다** (`#1993`) — `.dq__tile.dq__tile--anomaly`처럼 특정도가 높은 규칙이
+ * 생기면 「파일 순서대로 마지막」이라는 이 함수의 전제가 깨지는데, 조용히 틀린 값을
+ * 돌려주는 대신 검사가 먼저 붉어지게 한다.
+ */
 function effectiveLeftColor(classes: string[]): string {
   const wanted = new Set(classes.map((c) => `.${c}`))
-  let value: string | undefined
+  let value: string | null | undefined
   for (const { selectors, body } of RULES) {
+    for (const selector of selectors) {
+      if (wanted.has(selector)) continue
+      expect(
+        overSpecific(selector, wanted),
+        `\`${selector}\`가 ${classes.join(' ')} 요소를 더 높은 특정도로 겨냥한다 — ` +
+          '이 검사는 특정도가 같다고 전제하므로 전제를 다시 세워야 한다 (#1993)',
+      ).toBe(false)
+    }
     if (!selectors.some((s) => wanted.has(s))) continue
-    value = leftColorOf(body) ?? value
+    const found = leftColorOf(body)
+    if (found === undefined) continue
+    expect(
+      found,
+      `${selectors.join(', ')}의 왼쪽 띠 선언에서 색을 읽지 못했다 — ` +
+        '읽을 수 없는 것을 통과로 넘기지 않는다 (#1993)',
+    ).not.toBeNull()
+    value = found
   }
   expect(value, `${classes.join(' ')}의 띠 색을 정하는 규칙이 없다`).toBeDefined()
-  return value!
+  return value as string
 }
 
 const chip = (severity: string) => effectiveLeftColor(['dq__severity', `dq__severity--${severity}`])
@@ -72,6 +152,8 @@ describe('심각도 색이 실제로 이긴다 — `§2.3.1` 표 (#1940 후속)'
 
   it.each([
     ['substituted', 'var(--color-danger)'],
+    // `unavailable`이 빠져 있었다 (`#1993`) — 칩 쪽 표에는 있는데 요약 칸 표에만 없었다.
+    ['unavailable', 'var(--color-danger)'],
     ['anomaly', 'var(--color-warning)'],
     ['unconfirmed', 'var(--color-text-muted)'],
     ['public_record', 'var(--color-info)'],
