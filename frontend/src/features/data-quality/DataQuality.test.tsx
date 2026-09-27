@@ -112,7 +112,7 @@ describe('데이터 점검 화면 (#513)', () => {
     for (const title of Object.values(SEVERITY_TITLE)) {
       expect(within(tiles).getByText(title), title).toBeTruthy()
     }
-    // 계산 불가·실적 미입력·공적 기록과 다름은 0건 — 칸이 남아 0을 보인다.
+    // 계산 불가·실적 확정 전·공적 기록과 다름은 0건 — 칸이 남아 0을 보인다.
     expect(within(tiles).getAllByText('0')).toHaveLength(3)
   })
 

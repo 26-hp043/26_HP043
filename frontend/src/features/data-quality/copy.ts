@@ -98,7 +98,7 @@ export const SEVERITY_TITLE: Record<Severity, string> = {
   SUBSTITUTED: '대체 계산',
   UNAVAILABLE: '계산 불가',
   ANOMALY: '이상치',
-  UNCONFIRMED: '실적 미입력',
+  UNCONFIRMED: '실적 확정 전',
   PUBLIC_RECORD: '공적 기록과 다름',
 }
 

@@ -261,7 +261,7 @@ export const SCREEN_BY_ID = {
     label: '데이터 점검',
     labelEn: 'Data Quality',
     uiflowRef: '2-11',
-    purpose: 'CII 계산에 실측이 아닌 값이 쓰인 항차를 선대 단위로 — 대체 계산 · 계산 불가 · 이상치 · 실적 미입력',
+    purpose: 'CII 계산에 실측이 아닌 값이 쓰인 항차를 선대 단위로 — 대체 계산 · 계산 불가 · 이상치 · 실적 확정 전',
     // 선대 계층 · 전폭(`UIFLOW 2-11` — 목록이 전부라 좌우 분할은 한 행 정보만 줄인다).
     width: 'wide',
     implemented: true, // #513 — `GET /fleet/data-quality` 실 API
