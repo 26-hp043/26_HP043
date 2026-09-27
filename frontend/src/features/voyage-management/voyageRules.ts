@@ -5,6 +5,7 @@ import type {
   VoyageDraft,
   VoyageStatus,
 } from './types'
+import { kstInputToIso, toKstInput } from '../../display/format'
 import { MAX_SPEED_KN } from '../vessel-registration/formRules'
 
 /**
@@ -289,17 +290,17 @@ export function hasErrors(errors: FieldErrors): boolean {
  * 벽시계 문자열**(`2026-06-01T09:00`)이고, 서버는 `datetime`을 받아 UTC로 저장한다.
  * 그대로 보내면 「9시」가 어느 지역의 9시인지 서버가 알 수 없다.
  *
- * ## 브라우저의 표준시각으로 읽는다
+ * ## KST로 읽는다 — 브라우저 시간대가 아니다
  *
- * `new Date('2026-06-01T09:00')`은 **지역 시각**으로 해석된다(뒤에 `Z`가 없을 때의
- * ECMAScript 규정). 사용자가 「9시에 출항」이라고 적을 때 뜻하는 것이 자기 지역의
- * 9시이므로 그 해석이 맞다. UTC로 고정해 읽으면 한국 사용자의 입력이 9시간 어긋난다.
+ * `new Date('2026-06-01T09:00')`은 뒤에 시차가 없으면 **실행하는 기기의 시간대**로
+ * 해석된다. 종전에는 그것을 그대로 썼다 — 「사용자가 적은 9시는 자기 지역의 9시」라는
+ * 읽기였다. 그런데 `DESIGN_SYSTEM §4.4` 🔒이 기록 시각의 시간대를 **KST 고정**으로
+ * 못박고 *「브라우저 시간대를 따르지 않는다」*고 적으므로, 목록이 KST로 보여 주는 값을
+ * 편집 칸이 다른 시간대로 읽으면 **같은 시각이 두 가지로** 보인다(`#1686` 실측 —
+ * LA에서는 날짜까지 달랐다). 변환은 `format.ts`가 소유한다.
  */
 export function toIsoInstant(local: string): string | null {
-  const trimmed = local.trim()
-  if (trimmed === '') return null
-  const parsed = new Date(trimmed)
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  return kstInputToIso(local)
 }
 
 /**
@@ -312,14 +313,8 @@ export function toIsoInstant(local: string): string | null {
  * 보여 주는 것보다 낫다.**
  */
 export function toLocalInput(iso: string | null): string {
-  if (iso === null || iso.trim() === '') return ''
-  const parsed = new Date(iso)
-  if (Number.isNaN(parsed.getTime())) return ''
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return (
-    `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}` +
-    `T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`
-  )
+  // 시간대는 `format.ts`가 KST로 고정한다 (`§4.4` 🔒 · `#1686`).
+  return toKstInput(iso)
 }
 
 /**

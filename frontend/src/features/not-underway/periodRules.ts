@@ -1,4 +1,10 @@
-import { formatGrouped, formatTimestamp, toDecimalInput } from '../../display/format'
+import {
+  formatGrouped,
+  formatTimestamp,
+  kstInputToIso,
+  toDecimalInput,
+  toKstInput,
+} from '../../display/format'
 import type { FuelUseDraft, Period, PeriodDraft } from './types'
 
 /**
@@ -38,24 +44,25 @@ export function labelOf(code: string, table: Readonly<Record<string, string>>): 
 /**
  * `<input type="datetime-local">` 값 → ISO 8601.
  *
- * **입력은 브라우저 로컬 시각이고 서버는 UTC로 받는다.** 문자열에 `Z`를 붙여 보내면
- * 한국에서 넣은 09:00이 UTC 09:00(= 한국 18:00)이 되어 **9시간이 밀린다.** 그 어긋남은
- * 화면에 드러나지 않고 CII 집계의 연도 귀속과 겹침 판정만 조용히 바꾼다.
+ * **입력 칸은 KST이고 서버는 UTC로 받는다.** 문자열에 `Z`를 붙여 보내면 한국에서 넣은
+ * 09:00이 UTC 09:00(= 한국 18:00)이 되어 **9시간이 밀린다.** 그 어긋남은 화면에 드러나지
+ * 않고 CII 집계의 연도 귀속과 겹침 판정만 조용히 바꾼다.
  *
- * `new Date(로컬문자열)`은 로컬 시각으로 해석하므로 `toISOString()`이 올바른 UTC를 준다.
+ * ⚠️ **브라우저 시간대로 읽지 않는다** (`DESIGN_SYSTEM §4.4` 🔒 · `#1686`). 종전에는
+ * `new Date(로컬문자열)`로 읽어 기기 시간대를 따랐다 — 왕복은 맞았지만 KST가 아닌
+ * 브라우저에서 **같은 값이 목록과 편집 칸에서 다르게** 보였다. 변환은 `format.ts`가
+ * 소유한다(`§4.4`의 표시 형식과 같은 자리).
  */
 export function toIso(localValue: string): string {
-  return new Date(localValue).toISOString()
+  const iso = kstInputToIso(localValue)
+  // 꼴이 어긋난 값은 종전처럼 던진다 — 호출부가 유효성을 먼저 본다.
+  if (iso === null) return new Date(localValue).toISOString()
+  return iso
 }
 
-/** ISO → `datetime-local` 표시값. 초 이하는 버린다(입력 칸의 정밀도가 분이다). */
+/** ISO → `datetime-local` 표시값(KST). 초 이하는 버린다(입력 칸의 정밀도가 분이다). */
 export function toLocalInput(iso: string): string {
-  const at = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return (
-    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
-    `T${pad(at.getHours())}:${pad(at.getMinutes())}`
-  )
+  return toKstInput(iso)
 }
 
 export function formatRange(period: Period): string {
