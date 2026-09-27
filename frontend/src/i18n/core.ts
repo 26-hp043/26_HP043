@@ -80,7 +80,7 @@ export const LanguageContext = createContext<I18nContextValue | null>(null)
 /**
  * 영문 보조 라벨을 그릴 것인가 (`#1426`).
  *
- * `DESIGN_SYSTEM §3` 🔒과 `PRD §4`는 「한국어 기본 + **영문 약어** 병기」다. 그런데
+ * `DESIGN_SYSTEM §3` 🔒과 `PRD §2.4`는 「한국어 기본 + **영문 약어** 병기」다. 그런데
  * 화면에 붙어 있던 영문은 `Dashboard` · `Distance` · `Vessel Name`처럼 **약어가 아닌
  * 일반 단어**였다 — 정본이 허용한 적 없는 표기이고, `#1215`가 한/EN 토글을 만든
  * 뒤로는 **같은 말을 두 언어로 동시에** 적을 이유도 사라졌다.
