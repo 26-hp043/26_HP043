@@ -151,9 +151,7 @@ def test_readme_version_is_the_first_token_in_the_row():
 
 
 #: 헤더 표의 상태 행. 앞머리가 ``**v2.32 — …**`` 꼴이면 그 판본을 뽑는다.
-_HEADER_STATE_VERSION = re.compile(
-    r"^\|\s*상태\s*\|\s*\*{0,2}(v[0-9]+(?:\.[0-9]+)*)", re.MULTILINE
-)
+_HEADER_STATE_VERSION = re.compile(r"^\|\s*상태\s*\|\s*\*{0,2}(v[0-9]+(?:\.[0-9]+)*)", re.MULTILINE)
 
 
 def test_header_state_agrees_with_the_version_row():
