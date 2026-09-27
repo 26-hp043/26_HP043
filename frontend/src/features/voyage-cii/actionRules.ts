@@ -1,3 +1,4 @@
+import { kstInputToIso, toKstInput } from '../../display/format'
 import { SCREEN_BY_ID } from '../../screens'
 import type { InclusionPolicy, VoyageDraft } from '../voyage-management/types'
 import type { VoyageCiiRequest, VoyageCiiResponse } from './types'
@@ -61,10 +62,6 @@ export function validatePlanSave(form: PlanSaveForm): PlanSaveErrors {
   return errors
 }
 
-function pad(n: number): string {
-  return String(n).padStart(2, '0')
-}
-
 /**
  * 도착 예정 시각 = 출항 + 거리 ÷ 속력 (시간).
  *
@@ -78,13 +75,16 @@ export function plannedArrivalFrom(
   distanceNm: number,
   speedKn: number,
 ): string {
-  const departure = new Date(departureLocal)
-  if (Number.isNaN(departure.getTime()) || !(speedKn > 0)) return ''
-  const arrival = new Date(departure.getTime() + (distanceNm / speedKn) * 3_600_000)
-  return (
-    `${arrival.getFullYear()}-${pad(arrival.getMonth() + 1)}-${pad(arrival.getDate())}` +
-    `T${pad(arrival.getHours())}:${pad(arrival.getMinutes())}`
-  )
+  /*
+   * 출항 칸도 도착 칸도 **KST**다 (`DESIGN_SYSTEM §4.4` 🔒 · `#1686`). 종전에는
+   * `new Date(로컬문자열)`과 `getHours()`로 오갔는데 둘 다 **기기 시간대**를 따랐다 —
+   * 소요 시간 자체는 맞았지만, 같은 항차의 출항·도착이 목록에서는 KST로, 이 칸에서는
+   * 기기 시간대로 보였다. 변환은 `format.ts`가 소유한다.
+   */
+  const departureIso = kstInputToIso(departureLocal)
+  if (departureIso === null || !(speedKn > 0)) return ''
+  const arrival = new Date(new Date(departureIso).getTime() + (distanceNm / speedKn) * 3_600_000)
+  return toKstInput(arrival)
 }
 
 /** 계산 요청 + 추가 입력 → `POST /vessels/{id}/voyages` 초안 (`voyage-management`와 같은 모양). */

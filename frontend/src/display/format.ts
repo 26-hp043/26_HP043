@@ -290,6 +290,86 @@ export function formatTimestamp(value: string | Date): string {
 }
 
 /**
+ * KST 시각의 UTC 기준 시차 (`DESIGN_SYSTEM §4.4` 🔒 · #1686).
+ *
+ * **한국은 서머타임을 쓰지 않는다** — 1988년 서울 올림픽 때가 마지막이다. 그래서 KST는
+ * 연중 `UTC+09:00` 하나이고, 입력 문자열에 이 시차를 붙이는 것만으로 순간이 정해진다.
+ *
+ * 이 전제가 깨지면(제도 변경) `format.test.ts`의 「1월과 7월의 시차가 같다」가 붉어진다 —
+ * 전제를 주석에만 적어 두면 바뀌었을 때 아무도 모른다.
+ */
+const KST_OFFSET = '+09:00'
+
+/** `datetime-local` 입력 칸의 값 꼴 — `2026-09-20T09:30`. */
+const LOCAL_INPUT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
+
+/**
+ * 순간 → `datetime-local` 입력 칸의 **KST** 값 (`DESIGN_SYSTEM §4.4` 🔒 · #1686).
+ *
+ * ## 표시와 입력 칸이 같은 시각을 말한다
+ *
+ * `§4.4`는 기록 시각의 시간대를 **KST 고정**으로 못박고 *「브라우저 시간대를 따르지
+ * 않는다」*고 적는다 — 이유는 *「같은 값이 기기마다 다른 시각으로 보인다」*는 것이다.
+ * 그런데 입력 칸만 그 규칙 밖에 있어, 같은 `2026-09-20T00:30:00Z`가
+ *
+ * ```
+ *                    목록(formatTimestamp)   편집 칸(종전)
+ *   Asia/Seoul       2026. 9. 20. 09:30      2026-09-20T09:30
+ *   UTC              2026. 9. 20. 09:30      2026-09-20T00:30
+ *   America/LA       2026. 9. 20. 09:30      2026-09-19T17:30   ← 날짜까지 다르다
+ * ```
+ *
+ * 처럼 보였다(`#1686` 실측). **저장값은 틀리지 않았다** — 넣을 때와 되돌릴 때 같은
+ * 브라우저 시간대를 써서 왕복이 맞았다. 틀린 것은 **보이는 값**이고, 사용자는 입력 칸에
+ * 적은 시각이 KST인지 알 길이 없었다.
+ *
+ * ## 자리 표기를 브라우저에서 가져오지 않는다
+ *
+ * `getHours()` 계열은 **실행하는 기기의 시간대**로 답한다. 그래서 `Intl`에게
+ * `Asia/Seoul`로 쪼개 달라고 하고 그 조각을 그대로 잇는다 — `formatTimestamp`가 같은
+ * 방식으로 `§4.4`의 표시 형식을 구현한다.
+ *
+ * 값을 읽을 수 없으면 빈 문자열이다 — 입력 칸의 「비어 있음」이 그 값이다.
+ */
+export function toKstInput(value: string | Date | null): string {
+  if (value === null || value === '') return ''
+  const at = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(at.getTime())) return ''
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(at)
+  const get = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? ''
+
+  // `hour12: false`가 자정을 `24`로 내는 구현이 있다 — 날짜가 이미 그 날이므로 `00`이다.
+  const hour = get('hour') === '24' ? '00' : get('hour')
+  return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`
+}
+
+/**
+ * `datetime-local` 입력 칸의 값을 **KST로 읽어** UTC ISO로 (`DESIGN_SYSTEM §4.4` 🔒 · #1686).
+ *
+ * `new Date('2026-09-20T09:30')`은 뒤에 시차가 없으면 **실행하는 기기의 시간대**로
+ * 해석된다. 위 `toKstInput`이 KST로 적어 준 값을 그렇게 읽으면 왕복이 깨지므로, 시차를
+ * 명시해 붙인다. 서버에는 UTC를 보낸다(`API_SPEC` — `as_of`가 「ISO 8601, UTC」다).
+ *
+ * 꼴이 다르면 `null`이다 — 「비어 있음」과 「잘못 적었음」을 호출부가 가른다.
+ */
+export function kstInputToIso(local: string): string | null {
+  const trimmed = local.trim()
+  if (!LOCAL_INPUT.test(trimmed)) return null
+  const at = new Date(`${trimmed}:00${KST_OFFSET}`)
+  return Number.isNaN(at.getTime()) ? null : at.toISOString()
+}
+
+/**
  * 선박 용량(DWT·GT)을 표시 문자열로 (`DESIGN_SYSTEM §4.2` · #633).
  *
  * **화면마다 따로 포맷하지 않는다.** 종전에는 선박 관리 목록이
