@@ -107,6 +107,21 @@ def test_numbers_from_tool_output_pass():
     )
 
 
+def test_blocked_numbers_travel_on_the_error():
+    """IT-CHAT-069 — 막힌 수치를 **예외가 들고 간다** (`#1535`).
+
+    폐기된 답은 저장되지 않으므로 호출부가 무엇이 막혔는지 남기려면 수치가 예외에
+    있어야 한다. 문구를 다시 파싱하게 두지 않는다.
+    """
+    with pytest.raises(NumberFabricationError) as exc:
+        verify_numbers(
+            "기준은 354이고 여유는 0.07입니다. 다시 0.07입니다.",
+            ['{"attained_cii": "4.98", "required_cii": "5.05"}'],
+        )
+
+    assert exc.value.numbers == ("0.07", "354")
+
+
 def test_a_derived_number_is_blocked():
     """IT-CHAT-007 — **파생 수치가 막힌다.** 빼기도 계산이다.
 

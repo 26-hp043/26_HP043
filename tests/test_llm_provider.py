@@ -212,6 +212,69 @@ async def test_http_failure_becomes_an_llm_error_without_the_body() -> None:
     assert "400" in str(caught.value)
 
 
+@pytest.mark.parametrize("status", [429, 503, 529])
+async def test_overload_is_retried_once_and_then_answers(status: int) -> None:
+    """IT-CHAT-066 — 과부하(429 · 503 · 529)는 **한 번** 다시 부른다 (`#1535` 결정 가).
+
+    운영 첫 호출 4회 중 2회가 529였다 — 사용자 잘못이 아닌데 챗봇이 실패로 끝났다.
+    """
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(status, json={"error": {"type": "overloaded_error"}})
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "네."}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = AnthropicProvider(key="test-key", client=client, retry_delay=0)
+        response = await provider.complete(messages=[{"role": "user", "content": "질문"}])
+
+    assert response.text == "네."
+    assert len(calls) == 2
+
+
+async def test_overload_twice_fails_after_exactly_two_calls() -> None:
+    """IT-CHAT-067 — 재시도는 **1회로 못 박는다.** 두 번째도 과부하면 그대로 실패한다.
+
+    횟수가 늘면 비용 상한(`PRD §16.1`)이 뜻을 잃는다 — 최악이 호출 두 번이어야 한다.
+    """
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(529, json={"error": {"type": "overloaded_error"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = AnthropicProvider(key="test-key", client=client, retry_delay=0)
+        with pytest.raises(LLMError) as caught:
+            await provider.complete(messages=[{"role": "user", "content": "질문"}])
+
+    assert "529" in str(caught.value)
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("status", [400, 401, 500])
+async def test_other_failures_are_not_retried(status: int) -> None:
+    """IT-CHAT-068 — 과부하가 아닌 실패는 **다시 부르지 않는다.**
+
+    요청이 틀렸거나(400) 키가 틀렸거나(401) 공급자가 처리하다 죽은(500) 것은 다시
+    불러도 같거나 비용만 든다.
+    """
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return httpx.Response(status, json={"error": {"type": "error"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = AnthropicProvider(key="test-key", client=client, retry_delay=0)
+        with pytest.raises(LLMError):
+            await provider.complete(messages=[{"role": "user", "content": "질문"}])
+
+    assert len(calls) == 1
+
+
 async def test_missing_key_is_unavailable_not_a_generic_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

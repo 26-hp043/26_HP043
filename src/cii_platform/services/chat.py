@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from typing import TYPE_CHECKING
 
 from cii_platform.db.models.chat import ROLE_ASSISTANT, ROLE_USER
@@ -53,6 +54,8 @@ if TYPE_CHECKING:
 
     from cii_platform.db.models.chat import ChatMessage
     from cii_platform.llm.provider import LLMProvider
+
+_log = logging.getLogger(__name__)
 
 #: 응답을 폐기했을 때 사용자에게 나가는 문구.
 #:
@@ -338,9 +341,19 @@ async def _answer_turn(
             row.content for row in _from_a_question(history) if row.role == ROLE_ASSISTANT
         ]
         verify_numbers(reply, tool_outputs, prior_answers=prior_answers)
-    except NumberFabricationError:
+    except NumberFabricationError as exc:
         # ⚠️ **폐기한다.** 저장도 하지 않는다 — 틀린 답을 이력에 남기면 다음 턴이
         # 그것을 근거로 삼는다.
+        #
+        # `#1535` — 대신 **무엇이 막혔는지만** 남긴다. 운영 4회차의 폐기는 저장도 로그도
+        # 없어 막힌 수치를 되찾을 수 없었다. 수치 · 그 턴에 부른 도구 이름 · 세션만 싣고
+        # **답 본문 · 질문 · 사용자는 싣지 않는다**(`PRD §16.3.1`).
+        _log.warning(
+            "챗봇 답 폐기(No-Compute) — 세션 %s · 막힌 수치 %s · 부른 도구 %s",
+            chat_session_id,
+            ", ".join(exc.numbers) or "(없음)",
+            ", ".join(used_tools) or "(없음)",
+        )
         return _result(
             DISCARDED_MESSAGE,
             used_tools,

@@ -76,7 +76,16 @@ class OutboundFieldError(ValueError):
 
 
 class NumberFabricationError(ValueError):
-    """응답의 수치가 도구 응답에 없다 — LLM이 지어냈거나 계산했다."""
+    """응답의 수치가 도구 응답에 없다 — LLM이 지어냈거나 계산했다.
+
+    :attr numbers: 막힌 수치(정렬·중복 제거). 폐기된 답은 저장되지 않으므로, 무엇이
+        막혔는지는 호출부가 이 값만 로그에 남겨 되짚는다(`#1535` — 운영 4회차에서 막힌
+        수치를 되찾을 길이 없었다). **답 본문은 싣지 않는다.**
+    """
+
+    def __init__(self, message: str, numbers: Sequence[str] = ()) -> None:
+        super().__init__(message)
+        self.numbers: tuple[str, ...] = tuple(numbers)
 
 
 def filter_outbound(payload: dict[str, object]) -> dict[str, object]:
@@ -250,8 +259,10 @@ def verify_numbers(
             available.update(_rounded_forms(token))
     fabricated = [n for n in extract_numbers(answer) if n not in available]
     if fabricated:
+        blocked = sorted(set(fabricated))
         raise NumberFabricationError(
             "응답에 도구 결과로 설명되지 않는 수치가 있습니다: "
-            + ", ".join(sorted(set(fabricated)))
-            + " (No-Compute · PRD §20 O-12)"
+            + ", ".join(blocked)
+            + " (No-Compute · PRD §20 O-12)",
+            numbers=blocked,
         )
