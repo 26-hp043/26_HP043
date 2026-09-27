@@ -410,9 +410,20 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
-describe('문자용 시맨틱 색 대비 — §0.2 제약 1 (#485)', () => {
-  /** 라이트 `--surface-card`. 오류 문구·배지가 얹히는 바탕이다. */
-  const LIGHT_SURFACE = '#ffffff'
+describe('문자용 시맨틱 색 대비 — §0.2 제약 1 · 제약 6 (#485 · #1653)', () => {
+  /*
+   * 종전에는 라이트 `--surface-card`(흰 카드) 하나만 봤다. `§0.2` **제약 6**이
+   * 「문자 토큰의 대비는 **그 토큰이 놓일 수 있는 가장 어두운 표면**을 기준으로
+   * 측정한다 — 흰 카드 기준값을 근거로 쓰지 않는다」이므로 **네 면을 다 본다.**
+   * 실제로 가장 빡빡한 면은 카드가 아니라 `inset`이다(`#1653` 실측 — Warning은
+   * card 5.12인데 inset 4.55다).
+   */
+  const LIGHT_SURFACES = {
+    card: '#ffffff',
+    page: '#f4f6f9',
+    inset: '#eef2f6',
+    popover: '#ffffff',
+  } as const
 
   const declared = (name: string): string => {
     // 별칭은 `tokens.css`에 있다 — 생성물(`css`)이 아니라 `aliasCss`를 본다.
@@ -421,23 +432,44 @@ describe('문자용 시맨틱 색 대비 — §0.2 제약 1 (#485)', () => {
     return (found as RegExpExecArray)[1].toLowerCase()
   }
 
-  it('--color-danger-text가 흰 바탕에서 4.5:1을 넘는다', () => {
-    const value = declared('--color-danger-text')
-    expect(contrast(value, LIGHT_SURFACE)).toBeGreaterThanOrEqual(4.5)
-  })
+  const TEXT_ALIASES = ['danger', 'warning', 'success'] as const
 
-  it('--color-warning-text가 흰 바탕에서 4.5:1을 넘는다', () => {
-    const value = declared('--color-warning-text')
-    expect(contrast(value, LIGHT_SURFACE)).toBeGreaterThanOrEqual(4.5)
-  })
+  for (const kind of TEXT_ALIASES) {
+    const token = `--color-${kind}-text`
+    for (const [surface, background] of Object.entries(LIGHT_SURFACES)) {
+      it(`${token}가 라이트 ${surface} 위에서 4.5:1을 넘는다`, () => {
+        expect(contrast(declared(token), background)).toBeGreaterThanOrEqual(4.5)
+      })
+    }
+  }
 
   /*
    * 종전 값을 그대로 다시 넣는 것을 막는다. 「시맨틱 토큰이 있는데 왜 별칭을
    * 쓰나」는 합리적인 의문이고, 답은 **그 값이 문자로 쓸 수 없다**는 것이다.
+   *
+   * Success(`#38a169`)는 네 면 중 **가장 밝은 카드에서도** 3.25라, 흰 카드만 보던
+   * 종전 가드로도 잡혔어야 했다 — 걸리지 않은 것은 **목록에 없었기** 때문이다.
+   * 그래서 위 가드를 토큰 이름 목록으로 돌린다. 넷째 별칭이 생기면 한 줄로 붙는다.
    */
-  it('생성 토큰의 Danger·Warning은 문자로 쓰기에 모자란다 — 별칭이 필요한 이유', () => {
-    expect(contrast('#e53e3e', LIGHT_SURFACE)).toBeLessThan(4.5)
-    expect(contrast('#d97b14', LIGHT_SURFACE)).toBeLessThan(4.5)
+  it('생성 토큰의 Danger·Warning·Success는 문자로 쓰기에 모자란다 — 별칭이 필요한 이유', () => {
+    expect(contrast('#e53e3e', LIGHT_SURFACES.card)).toBeLessThan(4.5)
+    expect(contrast('#d97b14', LIGHT_SURFACES.card)).toBeLessThan(4.5)
+    expect(contrast('#38a169', LIGHT_SURFACES.card)).toBeLessThan(4.5)
+  })
+
+  /*
+   * 다크는 생성 토큰이 이미 통과하므로 별칭이 그쪽을 그대로 가리킨다. 그 「가리킴」이
+   * 사라지고 라이트 값이 다크까지 새면 어두운 면 위에서 읽히지 않는다 — 세 별칭 모두
+   * 다크 블록에서 `var(--semantic-*)`인지 본다.
+   */
+  it('다크에서는 세 별칭이 생성 토큰을 가리킨다', () => {
+    for (const kind of TEXT_ALIASES) {
+      const pattern = new RegExp(`--color-${kind}-text:\\s*var\\(--semantic-${kind}\\)`, 'g')
+      expect(
+        aliasCss.match(pattern)?.length,
+        `--color-${kind}-text의 다크 선언 둘(@media · [data-theme])`,
+      ).toBe(2)
+    }
   })
 })
 
