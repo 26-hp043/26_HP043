@@ -843,13 +843,13 @@
   }
 }
 
-/* ── 분포 범위 막대 (#1456 · `DESIGN_SYSTEM §10.1` 표현 규칙 · 배치는 개발 임시안) ─── */
+/* ── 분포 범위 막대 (#1456 · `DESIGN_SYSTEM §10.1` 표현 규칙 · 배치 〔확정〕 #1940 ②) ─── */
 .annual-sim__range {
   margin: 0 0 var(--space-12);
 }
 .annual-sim__range-rail {
   position: relative;
-  height: 24px;
+  height: var(--space-24);
   border-bottom: 1px solid var(--color-border);
 }
 /* 밴드 1겹 — P10~P90. 남색 12%(§10.1 rgba(26,54,93,.12)와 같은 섞음) · 등급색 금지 */

@@ -125,15 +125,20 @@
   border-left-color: var(--color-warning);
 }
 
-/*
- * `PUBLIC_RECORD`는 아직 디자인 확정 전 개발 임시안이다(#1197) — 확정까지는
- * `UNCONFIRMED`와 **같은 중립 표현**을 쓴다. 새 색 토큰을 만들지 않는다.
- */
 .dq__tile--unconfirmed,
-.dq__severity--unconfirmed,
+.dq__severity--unconfirmed {
+  border-left-color: var(--color-text-muted);
+}
+
+/*
+ * `PUBLIC_RECORD`는 **Info**다 — `§2.3.1` 〔확정〕 2026-09-27 (#1940 ① · 디자인 담당).
+ * 값을 바꾸지 않고 완결성에도 들어가지 않는 **안내**이고, 제품에서 `--color-info`를 쓰는
+ * 자리가 전부 같은 왼쪽 안내 띠다. Info는 경고색이 아니라 `§2.3` 「경고색은 한 자리에 한 번」과
+ * 부딪히지 않는다. 종전(#1197)에는 「실적 확정 전」과 같은 중립을 임시로 썼다.
+ */
 .dq__tile--public_record,
 .dq__severity--public_record {
-  border-left-color: var(--color-text-muted);
+  border-left-color: var(--color-info);
 }
 
 /*
