@@ -30,7 +30,9 @@
 
 from __future__ import annotations
 
+import itertools
 import uuid
+from collections.abc import Iterator
 from datetime import datetime
 
 import pytest
@@ -176,6 +178,26 @@ async def test_update_rejects_unknown_source_on_both_tables(conn: AsyncConnectio
 # ---------------------------------------------------------------------------
 
 
+def _call_seqs() -> "Iterator[str]":
+    """입항 순번을 **한 프로세스 안에서 겹치지 않게** 뽑는다 (`#1960`).
+
+    유일 색인은 ``(source, port_authority_code, call_year, call_seq)``인데 앞의 셋이
+    이 파일에서 모두 상수다 — 구분하는 것은 순번 하나뿐이다. 종전에는
+    ``uuid4().int % 1000``이라 값이 **1000개**였고, 한 번 돌 때 아홉 벌을 심으므로
+    생일 문제로 **약 3.6%** 확률로 두 벌이 같은 순번을 받아 ``IntegrityError``로
+    터졌다 — PR ``#1956``의 `test`가 실제로 그렇게 붉어졌고, 그 PR은 프런트 CSS만
+    건드린 것이었다. 랜덤 폭을 넓히면 확률이 줄 뿐 0이 되지 않으므로 **세는** 쪽으로
+    바꾼다.
+
+    시작점은 무작위다 — 앞선 실행이 ``finally``에 닿지 못해 남긴 행과 부딪히지 않게
+    한다. 컬럼은 ``String(20)``이라 여섯 자리가 들어간다.
+    """
+    return (f"{n:06d}" for n in itertools.count(uuid.uuid4().int % 900_000))
+
+
+_CALL_SEQ = _call_seqs()
+
+
 class _Seed:
     """이 파일 전용 선박 · 항차 · (정박 구간) · 공적 기록 한 벌."""
 
@@ -185,7 +207,7 @@ class _Seed:
         self.period_id = uuid.uuid4().hex
         self.record_id = uuid.uuid4().hex
         self.call_sign = _call_sign()
-        self.call_seq = f"{uuid.uuid4().int % 1000:03d}"
+        self.call_seq = next(_CALL_SEQ)
 
     @property
     def record_key(self) -> dict[str, object]:
