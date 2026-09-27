@@ -299,6 +299,18 @@
   --color-danger-text: #c92a2a;
   --color-warning-text: #a8590c;
 
+  /*
+   * Success도 같은 자리다 (`#1653` · 2026-09-27 확정 · `rlatnals4114`).
+   *
+   * 생성 토큰 `--semantic-success`(라이트 `#38a169`)는 **네 면 모두 미달**이다 —
+   * card `3.25` · page `3.00` · inset `2.89` · popover `3.25`. Danger·Warning과 같은
+   * 이유로 생성 토큰을 덮지 않고 문자 전용 별칭을 둔다. 라이트 `#2b7b50`은
+   * card `5.18` · page `4.79` · inset `4.61` · popover `5.18`으로 네 면을 넘는다.
+   *
+   * 값은 결정자가 준 것이다 — `#a8590c`(Warning 라이트)가 확정 N으로 들어온 것과 같다.
+   */
+  --color-success-text: #2b7b50;
+
   /* ── 호환 별칭 · 차트 ─────────────────────────────────────────────── */
   /*
    * 계열색 7개(`--chart-series-1~3` · `--chart-actual` · `--chart-band` ·
@@ -504,6 +516,7 @@
     /* 다크에서는 생성 토큰이 이미 4.5:1을 넘는다 — 덮지 않는다. */
     --color-danger-text: var(--semantic-danger);
     --color-warning-text: var(--semantic-warning);
+    --color-success-text: var(--semantic-success);
 
     /* 「Primary 채움면」 주석 참조 — 면을 내려 4.5:1을 회복한다. */
     --color-primary-solid: color-mix(in srgb, var(--semantic-primary) 70%, var(--surface-page));
@@ -540,6 +553,7 @@
 
   --color-danger-text: var(--semantic-danger);
   --color-warning-text: var(--semantic-warning);
+  --color-success-text: var(--semantic-success);
 
   /* 「Primary 채움면」 주석 참조 — 면을 내려 4.5:1을 회복한다. */
   --color-primary-solid: color-mix(in srgb, var(--semantic-primary) 70%, var(--surface-page));

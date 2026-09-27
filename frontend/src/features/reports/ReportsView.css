@@ -218,7 +218,8 @@
 .rp__ok {
   margin: 0;
   font-size: var(--font-size-label);
-  color: var(--semantic-success);
+  /* 문자라 별칭을 쓴다 — 생성 토큰은 라이트 네 면에서 4.5:1 미달 (`#1653`). */
+  color: var(--color-success-text);
 }
 
 /* ── 미리보기 ───────────────────────────────────────────────────── */
