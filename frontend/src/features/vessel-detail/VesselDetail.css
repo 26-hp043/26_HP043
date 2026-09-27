@@ -559,7 +559,7 @@
   padding: var(--spacing-sm);
   color: var(--text-primary);
   background: var(--surface-inset);
-  border: var(--borderWidth-default) solid var(--border-default);
+  border: var(--borderWidth-default) solid var(--color-border-control);
   border-radius: var(--radius-control);
   min-inline-size: 0;
 }
@@ -611,7 +611,7 @@
 .vd__pos-actions .vd__pos-cancel {
   color: var(--text-secondary);
   background: transparent;
-  border-color: var(--border-default);
+  border-color: var(--color-border-control);
 }
 
 /* 왜 저장이 막혔는지 적는다 — 죽은 버튼만 두면 고장으로 읽힌다. */

@@ -127,7 +127,7 @@
 
 .nu input,
 .nu select {
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--surface-inset);
   color: var(--text-primary);

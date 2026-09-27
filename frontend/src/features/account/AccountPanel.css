@@ -61,7 +61,7 @@
 }
 
 .acc__input {
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--color-border-control);
   background: var(--surface-inset);
   color: var(--text-primary);
   border-radius: var(--radius-control);
