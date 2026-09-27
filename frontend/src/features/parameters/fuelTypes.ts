@@ -58,11 +58,21 @@ export const FUEL_TYPE_LABELS: Readonly<Record<string, string>> = {
 }
 
 /**
- * 셀렉트 한 줄 — `중유 (HFO)`.
+ * 화면에 내는 연료 표기 — `중유 (HFO)` (`DESIGN_SYSTEM §3` 🔒).
+ *
+ * `§3`의 「한국어 기본 + 영문 약어 병기」가 **이 표기를 예시로 든다** —
+ * *「약어는 한국어 라벨 안에 쓰거나(「CII 예측」 · 「IMO 번호」 · 「중유 (HFO)」) 단위
+ * 칩으로 둔다」* 〔확정 2026-09-21 · `#1452` · `rlatnals4114`〕. 코드만 내면 한국어
+ * 기본이 사라진다.
+ *
+ * ⚠️ **셀렉트만의 것이 아니다.** 종전 이름은 `fuelTypeText`였는데, 그 이름이
+ * 「고르는 자리의 것」으로 읽혀 **읽기 전용 표 두 곳이 코드 원문을 그대로 냈다**
+ * (`CiiHistoryChart`의 연도별 유종 · `SnapshotVoyages`의 연료 칸 · `#1813`). 고르는
+ * 자리와 읽는 자리에서 같은 연료가 다른 이름으로 보이던 것이 그 때문이다.
  *
  * 모르는 코드는 `HFO (HFO)`가 되지 않도록 코드 하나만 낸다.
  */
-export function fuelTypeOptionText(code: string): string {
+export function fuelTypeText(code: string): string {
   const label = FUEL_TYPE_LABELS[code]
   return label === undefined ? code : `${label} (${code})`
 }

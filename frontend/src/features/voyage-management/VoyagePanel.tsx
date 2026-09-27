@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatGrouped } from '../../display/format'
 import { withRo } from '../../display/josa'
-import { fuelTypeOptionText } from '../parameters/fuelTypes'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import { VoyageError, createApiVoyageManagementProvider } from './apiProvider'
 import { ExportCsv } from './ExportCsv'
 import { ImportCsv } from './ImportCsv'
@@ -984,7 +984,7 @@ function VoyageForm({
             >
               {fuelTypes.map((code) => (
                 <option key={code} value={code}>
-                  {fuelTypeOptionText(code)}
+                  {fuelTypeText(code)}
                 </option>
               ))}
             </select>

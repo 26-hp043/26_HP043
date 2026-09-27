@@ -7,6 +7,7 @@ import {
   toDecimalInput,
 } from '../../display/format'
 import { ErrorState } from '../../components/ErrorState'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import { POLICY_LABELS, STATUS_LABELS } from '../voyage-management/voyageRules'
 import type { InclusionPolicy, VoyageStatus } from '../voyage-management/types'
 import { ANNUAL_COPY } from './copy'
@@ -58,8 +59,14 @@ function fuelText(row: SnapshotVoyage): string {
   if (row.fuel_uses.length === 0) return '—'
   return row.fuel_uses
     .map((fu) => {
+      /*
+       * 연료는 「한국어 라벨 + 약어」로 적는다 — `중유 (HFO)` (`DESIGN_SYSTEM §3` 🔒 ·
+       * #1813). 종전에는 코드 원문(`HFO`)이라, 고르는 자리(셀렉트)와 읽는 자리(이 표)에서
+       * **같은 연료가 다른 이름으로** 보였다.
+       */
+      const fuel = fuelTypeText(fu.fuel_type)
       const ton = number(fu.fuel_ton, DISPLAY_DIGITS.fuelTon, true)
-      return ton === '—' ? `${fu.fuel_type} —` : `${fu.fuel_type} ${ton}${DISPLAY_UNITS.fuel}`
+      return ton === '—' ? `${fuel} —` : `${fuel} ${ton}${DISPLAY_UNITS.fuel}`
     })
     .join(' · ')
 }

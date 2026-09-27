@@ -12,7 +12,7 @@ import {
 } from '../../display/format'
 import { warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
-import { fuelTypeOptionText } from '../parameters/fuelTypes'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { createApiFleetReductionProvider } from './apiProvider'
 import { hasInvalidPrice, isInvalidPrice } from './priceRules'
@@ -309,7 +309,7 @@ export function FleetReduction({ provider }: { provider?: FleetReductionProvider
                     id={`fr-fuel-${code}`}
                     /* 서버 `displayName`은 MEPC.364(79) 원문 표기라 정본 문구다 —
                        화면에 내는 이름은 `fuelTypes.ts`가 갖는다 (`#598` · `AGENTS §4.6`). */
-                    label={fuelTypeOptionText(code)}
+                    label={fuelTypeText(code)}
                     error={invalid ? COPY.priceInvalid : undefined}
                   >
                     {(control) => (

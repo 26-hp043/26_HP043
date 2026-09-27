@@ -4,6 +4,7 @@ import '../../test/renderSetup'
 import { describe, expect, it } from 'vitest'
 import { render } from '@testing-library/react'
 import { DISPLAY_UNITS } from '../../display/format'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import { CiiHistoryChart } from './CiiHistoryChart'
 import type { CiiYear } from './types'
 
@@ -137,10 +138,17 @@ describe('연도별 연료 내역 (#769)', () => {
 
     const table = fuelTable(container)
     expect(table).toBeTruthy()
+    /*
+     * 유종 칸은 **표시 문구**라 리터럴을 박지 않는다(`AGENTS §4.6`) — `§3` 🔒이 「한국어
+     * 라벨 + 약어」를 요구하므로 그 규칙을 만드는 함수로 단언한다. 종전에는 `'HFO'`를
+     * 잠갔고, 그 리터럴이 **코드 원문을 그대로 내는 상태를 고정**하고 있었다(`#1813`).
+     */
     expect(cellsOf(table as HTMLTableElement)).toEqual([
-      ['2026', 'HFO', '300.0', '934.2', '77.3'],
-      ['2026', 'LNG', '100.0', '275.0', '22.7'],
+      ['2026', fuelTypeText('HFO'), '300.0', '934.2', '77.3'],
+      ['2026', fuelTypeText('LNG'), '100.0', '275.0', '22.7'],
     ])
+    // 코드만 낸 상태로 되돌아가지 않는다 — 한국어 기본이 사라진다.
+    expect(fuelTypeText('HFO')).not.toBe('HFO')
   })
 
   it('배출량을 모르는 해도 행이 남는다 — 모르는 칸만 「—」다', () => {

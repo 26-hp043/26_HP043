@@ -60,7 +60,7 @@ import {
 } from './notices'
 import { selectScenarioProvider } from './providerSelection'
 import { useFuelOptions } from '../parameters/fuelCatalog'
-import { fuelTypeOptionText } from '../parameters/fuelTypes'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { pickDefaultYear, sameInputs } from '../voyage-cii/formRules'
 import {
@@ -804,7 +804,7 @@ export function ScenarioComparison({
               </option>
               {fuels.map((fuel) => (
                 <option key={fuel.code} value={fuel.code}>
-                  {fuelTypeOptionText(fuel.code)}
+                  {fuelTypeText(fuel.code)}
                 </option>
               ))}
             </select>
