@@ -231,3 +231,37 @@ def test_probabilities_carry_the_screen_percent() -> None:
     assert out["target_success_probability"] == "0.8123 (81.2%)"
     assert out["rating_probabilities"] == {"A": "0.1 (10.0%)", "B": "0.3 (30.0%)"}
     assert out["target_rating"] == "C"
+
+
+def test_system_prompt_makes_regulation_answers_keep_their_meaning() -> None:
+    """IT-CHAT-071 (`#1973` ①②④) — 규제값을 **뜻까지** 옮기게 한다.
+
+    09-27 운영 답이 값은 맞게, 뜻은 틀리게 말했다 — 등급 경계를 「CII < 0.8600」처럼
+    CII 값의 경계로 · 기준선을 「DWT에 관계없이 동일」로 · 감축률을 연도 없이. 문구가 아니라
+    **규칙이 무엇을 가리키는가**를 본다(`AGENTS §4.6`): 경계는 비율 · 기준선은 조건과 용량
+    규칙 · 감축률은 도구가 준 연도와 함께.
+    """
+    from cii_platform.services.chat import SYSTEM_PROMPT
+
+    assert "비율" in SYSTEM_PROMPT and "d1" in SYSTEM_PROMPT
+    assert "condition_expr" in SYSTEM_PROMPT and "capacity_rule" in SYSTEM_PROMPT
+    assert "reduction_factor.year" in SYSTEM_PROMPT
+    # 도구 응답에 실제로 있는 칸을 가리킨다 — 없는 칸을 가리키면 모델이 지어낸다.
+    assert "condition_expr" in chat_tools._REFERENCE_LINE_FIELDS
+    assert "capacity_rule" in chat_tools._REFERENCE_LINE_FIELDS
+    assert {"d1", "d2", "d3", "d4"} <= set(chat_tools._BOUNDARY_FIELDS)
+
+
+def test_lookup_regulation_year_is_left_empty_unless_the_user_named_one() -> None:
+    """IT-CHAT-072 (`#1973` ④) — 연도를 묻지 않았으면 비워 둬 **올해** 값을 받는다.
+
+    09-27 21:40 답이 연도를 묻지 않은 질문에 「2023년 기준 5% 감축」이라 적었다. 비우면
+    ``_regulation_year``가 올해로 보는데(`cii_current`와 같은 판단), 스키마가 그 사실을
+    말하지 않아 모델이 한 해를 골라 넣을 여지가 있었다(정황 — 감사 기록에 인자는 없다).
+    """
+    schema = next(
+        s for s in chat_tools.tool_schemas() if s["name"] == chat_tools.TOOL_LOOKUP_REGULATION
+    )
+    described = schema["input_schema"]["properties"]["regulation_year"]["description"]
+    assert "비워" in described and "올해" in described
+    assert chat_tools._regulation_year({}) == chat_tools.datetime.now(chat_tools.UTC).year
