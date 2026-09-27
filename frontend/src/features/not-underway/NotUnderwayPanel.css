@@ -31,12 +31,31 @@
   cursor: pointer;
 }
 
+/*
+ * 테두리 버튼의 hover — 면은 그대로 두고 테두리·글자를 진하게 한다.
+ *
+ * ⚠️ **채움 버튼(`.nu__submit`)은 여기 들지 않는다** (`#1654`). 그 버튼은 면이
+ * `--semantic-primary`인데 이 규칙이 글자를 `--color-link`(= 같은 계열)로 바꿔,
+ * **마우스를 올리면 글자가 배경과 같은 색이 됐다** — 저장 버튼의 제목과 동작을
+ * 읽을 수 없었다.
+ */
 .nu__toggle:hover,
-.nu__submit:hover,
 .nu__row-actions button:hover,
 .nu__fuel-head button:hover {
   border-color: var(--semantic-primary);
   color: var(--color-link);
+}
+
+/*
+ * 채움 버튼의 hover — **면을 진하게** 한다. 글자는 면 위 글자색 그대로다.
+ *
+ * 저장소의 다른 채움 버튼이 모두 이 방식이다(`FleetDashboard` · `AuthShell` ·
+ * `ScenarioComparison` · `AnnualSimulation` · `RealtimeCiiView`). 같은 화면의 버튼이
+ * 화면마다 다르게 굴면 사용자가 hover를 「눌렸다」로 읽는다.
+ */
+.nu__submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
 }
 
 .nu__toggle:focus-visible,
@@ -59,7 +78,12 @@
   align-self: flex-start;
   background: var(--semantic-primary);
   border-color: var(--semantic-primary);
-  color: var(--surface-card);
+  /*
+   * 면 위 글자는 `--color-on-primary`다 (`#1654`). 종전 `--surface-card`는 라이트에서
+   * 결과가 같았지만 **면 위 글자라는 뜻을 담지 않는다** — 다크에서 두 값이 갈리면
+   * 조용히 어긋난다(`tokens.css`가 그 파생을 적는다).
+   */
+  color: var(--color-on-primary);
 }
 
 .nu__submit:disabled {
