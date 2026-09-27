@@ -11,6 +11,7 @@ import { ANNUAL_COPY } from './copy'
 import type { FeedbackBlock, ReductionPlanBlock } from './types'
 import { EMPTY_SHELL_CONTEXT, type ShellContext } from '../../layout/shellContext'
 import { DISPLAY_UNITS, formatTimestamp } from '../../display/format'
+import { fuelTypeText } from '../parameters/fuelTypes'
 
 /**
  * 「이 seed로 다시 실행」의 **화면 배선** (`PRD §12.4.3` · #776).
@@ -409,14 +410,19 @@ describe('이 실행에 쓴 항차 (#992)', () => {
     expect(calls()).toContain('/api/v1/annual-simulations/sim-1/snapshot-voyages')
     expect(screen.getByText('연간 반영 — 실적')).toBeTruthy()
     /*
-     * 연료 칸은 「코드 값단위」꼴이다. 종전에는 `'HFO 850.0t'` 리터럴을 잠갔는데 정본 인용이
+     * 연료 칸은 「이름 값단위」꼴이다. 종전에는 `'HFO 850.0t'` 리터럴을 잠갔는데 정본 인용이
      * 없는 표시 문구라 성질로 단언한다(`AGENTS §4.6`). 형식 자체는 `DESIGN_SYSTEM §4.2`가
      * 정한다 — 연료는 1자리 · 천단위 구분 · 단위는 `DISPLAY_UNITS.fuel` (#1813).
+     *
+     * 이름도 리터럴로 적지 않는다 — `§3` 🔒이 「한국어 라벨 + 약어」를 요구하므로 그 규칙을
+     * 만드는 함수에서 가져온다. `'HFO '`로 적어 두었던 탓에 **코드 원문을 내는 상태가
+     * 고정돼** 있었다(`#1813`).
      */
     const [, , , distance, speed, fuel] = rowCells('V-2026-001')
-    expect(fuel.startsWith('HFO ')).toBe(true)
+    const fuelName = `${fuelTypeText('HFO')} `
+    expect(fuel.startsWith(fuelName)).toBe(true)
     expect(fuel.endsWith(DISPLAY_UNITS.fuel)).toBe(true)
-    const fuelNumber = fuel.slice('HFO '.length, -DISPLAY_UNITS.fuel.length)
+    const fuelNumber = fuel.slice(fuelName.length, -DISPLAY_UNITS.fuel.length)
     expect(fuelNumber).toMatch(/^\d{1,3}(,\d{3})+\.\d$/)
     /* 거리는 0자리 + 천단위, 속력은 1자리 + 천단위 미적용 (`§4.2`). */
     expect(distance).toMatch(/^\d{1,3}(,\d{3})+$/)
@@ -1003,7 +1009,7 @@ describe('재현 경고가 결과와 함께 보인다 (#1095 ⑶)', () => {
  * **`LNG —t`**가 나갔다. 「모른다」에 단위를 붙이면 0에 가까운 어떤 수로 읽힌다.
  */
 describe('스냅샷 항차의 연료량이 없으면 「—」다 (#1095 ⑷)', () => {
-  it('연료량이 null이면 「LNG —t」가 아니라 「LNG —」다', async () => {
+  it('연료량이 null이면 단위를 붙이지 않는다', async () => {
     const fetchImpl = stubServer()
     fetchImpl.mockImplementation(async (input: unknown) => {
       const url = String(input)
@@ -1036,8 +1042,15 @@ describe('스냅샷 항차의 연료량이 없으면 「—」다 (#1095 ⑷)', 
     fireEvent(details, new Event('toggle'))
 
     expect(await screen.findByText('V-2026-002')).toBeTruthy()
-    expect(screen.getByText('LNG —')).toBeTruthy()
-    expect(screen.queryByText('LNG —t')).toBeNull()
+    /*
+     * 연료 이름은 **표시 문구**라 리터럴로 단언하지 않는다(`AGENTS §4.6`) — 종전에는
+     * `'LNG —'`를 잠갔는데, `§3` 🔒이 「한국어 라벨 + 약어」를 요구해 표기가 `액화천연가스
+     * (LNG)`로 바뀌자 **이 검사가 지키려던 것과 무관하게** 붉어졌다(`#1813`). 지키려던 것은
+     * 「모른다에 단위를 붙이지 않는다」다 — 그것을 직접 단언한다.
+     */
+    const cell = screen.getByText((text) => text.includes('LNG') && text.includes('—'))
+    expect(cell.textContent?.trimEnd().endsWith('—')).toBe(true)
+    expect(cell.textContent).not.toContain(`—${DISPLAY_UNITS.fuel}`)
   })
 })
 

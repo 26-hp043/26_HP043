@@ -8,7 +8,7 @@ import { riskLabel, warningMessage } from '../voyage-cii/resultRules'
 import { pickDefaultYear } from '../voyage-cii/formRules'
 import { useShellContext } from '../../layout/shellContext'
 import { useFuelOptions } from '../parameters/fuelCatalog'
-import { fuelTypeOptionText } from '../parameters/fuelTypes'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import { useYearOptions } from '../parameters/yearCatalog'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { ANNUAL_COPY } from './copy'
@@ -587,7 +587,7 @@ export function AnnualSimulation({
                 <option value="">{ANNUAL_COPY.alternativeFuelNone}</option>
                 {fuelOptions.fuels.map((fuel) => (
                   <option key={fuel.code} value={fuel.code}>
-                    {fuelTypeOptionText(fuel.code)}
+                    {fuelTypeText(fuel.code)}
                   </option>
                 ))}
               </select>

@@ -369,7 +369,7 @@ async function clickCompare(distance: string | null = '1000') {
    * 모양이 이 도우미를 쓰는 검사 전부에 있었다(연료 응답을 400ms 늦추면 39건 중 10건
    * 실패 — 2026-09-20 실측). 이 파일의 목은 전부 HFO를 준다.
    *
-   * 옵션 이름은 서버의 `display_name`(「고유황유」)이 아니라 `fuelTypeOptionText()`가
+   * 옵션 이름은 서버의 `display_name`(「고유황유」)이 아니라 `fuelTypeText()`가
    * 만드는 「중유 (HFO)」다 — 화면은 `FUEL_TYPE_LABELS`를 원본으로 쓰고 서버 문구를
    * 그대로 내보내지 않는다(`fuelTypes.ts` · `VoyageCiiForm.test.tsx:131`).
    */

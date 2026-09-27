@@ -9,7 +9,7 @@ import { useFuelOptions, type FuelOption } from '../parameters/fuelCatalog'
 // 상태 칩은 대시보드와 **같은 컴포넌트**를 쓴다 — 베끼면 두 화면의 표기가 갈린다.
 import { UnderwayChip } from '../fleet/UnderwayChip'
 import { toUnderwayState } from '../fleet/fleetRules'
-import { fuelTypeOptionText } from '../parameters/fuelTypes'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import type { Vessel } from '../vessel-registration/types'
 import {
   EDIT_FIELD,
@@ -931,7 +931,7 @@ function EditForm({
             </option>
             {fuels.map((fuel) => (
               <option key={fuel.code} value={fuel.code}>
-                {fuelTypeOptionText(fuel.code)}
+                {fuelTypeText(fuel.code)}
               </option>
             ))}
           </select>

@@ -2,6 +2,7 @@ import type { CapacityBasis } from '../voyage-cii/types'
 import { ciiUnit } from '../voyage-cii/resultRules'
 import { DISPLAY_DIGITS, DISPLAY_UNITS, formatDecimalString, formatGrouped } from '../../display/format'
 import type { CiiYear } from './types'
+import { fuelTypeText } from '../parameters/fuelTypes'
 import { gradePatternUrl } from '../../components/gradePattern'
 import { voyageCountText } from './voyageCount'
 
@@ -312,7 +313,12 @@ function FuelTable({ years }: { years: CiiYear[] }) {
           {rows.map(({ year, fuel }) => (
             <tr key={`${year.regulationYear}-${fuel.fuelType}`}>
               <th scope="row">{year.regulationYear}</th>
-              <td>{fuel.fuelType}</td>
+              {/*
+                연료는 「한국어 라벨 + 약어」로 적는다 — `중유 (HFO)` (`DESIGN_SYSTEM §3` 🔒 ·
+                #1813). 종전에는 코드 원문이라 같은 연료가 셀렉트에서는 「중유 (HFO)」,
+                이 표에서는 「HFO」였다.
+              */}
+              <td>{fuelTypeText(fuel.fuelType)}</td>
               {/*
                 연료·CO₂는 천단위 구분자 적용 대상이다(`DESIGN_SYSTEM §4.2` 「천단위 구분자 🔒」 ·
                 #1813). 연간 합계라 네 자릿수를 넘는 값이 흔한데 `12480.0`으로 나가고 있었다.
