@@ -14,7 +14,7 @@
 
 .param-revision__title {
   margin: 0;
-  font-size: var(--font-size-h3);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-label);
   color: var(--text-primary);
 }
@@ -86,14 +86,14 @@
 .param-revision__format > summary {
   cursor: pointer;
   inline-size: fit-content;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
 .param-revision__hint,
 .param-revision__note {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   word-break: break-word;
 }
@@ -122,7 +122,7 @@
 
 .param-revision__warning {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--color-danger-text);
 }
 
@@ -135,7 +135,7 @@
 .param-revision__badge {
   display: inline-block;
   padding: 0 var(--spacing-xs);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-control);
@@ -150,13 +150,13 @@
 .param-revision__events {
   inline-size: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
 }
 
 .param-revision__errors caption {
   text-align: start;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   padding-block-end: var(--spacing-xs);
 }

@@ -36,7 +36,7 @@
 
 /* 상대 시각만 있으면 어느 시점 데이터인지 특정할 수 없어 원본도 함께 둔다. */
 .fleet__asof-abs {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -51,7 +51,7 @@
   align-items: baseline;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -201,7 +201,7 @@
 }
 
 .fleet__panel .card__head .card__meta {
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /*
@@ -225,7 +225,7 @@
  */
 .kpi__label {
   margin: 0 0 var(--spacing-sm);
-  font-size: var(--font-size-h3);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-label);
   color: var(--text-secondary);
 }
@@ -285,7 +285,7 @@
 
 .kpi__foot {
   margin: var(--spacing-xs) 0 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -421,7 +421,7 @@
   background: var(--surface-card);
   padding: var(--spacing-xs) var(--spacing-sm);
   color: var(--text-secondary);
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
 }
 
 /* 부 영역 — 선박 목록. 이제 패널 안이라 칸을 차지하지 않는다. */
@@ -521,8 +521,8 @@
 }
 
 .vessel__name {
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
   color: var(--text-primary);
   letter-spacing: var(--letterSpacing-snug);
 }
@@ -670,8 +670,8 @@
 
 .warn__main {
   margin: 0;
-  font-size: var(--font-size-h3);
-  font-weight: var(--font-weight-h3);
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-heading);
 }
 
 /* ── 등급 분포 ──────────────────────────────────────────────────── */
@@ -812,7 +812,7 @@
 .dist__zero,
 .dist__none {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 
@@ -940,7 +940,7 @@
   display: flex;
   gap: var(--spacing-sm);
   flex-wrap: wrap;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
   word-break: keep-all;
 }
@@ -960,7 +960,7 @@
  */
 .fleet__note {
   margin: 0;
-  font-size: var(--font-size-micro);
+  font-size: var(--font-size-caption);
   color: var(--text-secondary);
 }
 

@@ -39,8 +39,8 @@ describe('결론 띠 — `DESIGN_SYSTEM §8.6` 🔒', () => {
      */
     const body = rule('.verdict-strip__sub-value')
     expect(body).not.toMatch(/--font-size-display/)
-    expect(body).not.toMatch(/--font-size-h2/)
-    expect(body).toMatch(/font-size:\s*var\(--font-size-h3\)/)
+    expect(body).not.toMatch(/--font-size-title/)
+    expect(body).toMatch(/font-size:\s*var\(--font-size-heading\)/)
   })
 
   it('위험도 pill의 면은 중립이다 — 경고색은 글자에만 (`§2.3` · `§2.5 (b)`)', () => {
