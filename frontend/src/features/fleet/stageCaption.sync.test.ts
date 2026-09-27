@@ -21,12 +21,13 @@ function rule(selectorHead: string): { selectors: string; body: string } {
 describe('열린 패널 옆으로 지도 아래 문구 줄을 비킨다 (#1871)', () => {
   const { selectors, body } = rule('.fleet__stage--panel-open .fleetmap__missing')
 
-  it('결측·항로선 실패 줄 · 읽는 법 · 지도 텍스트 정보를 함께 비킨다', () => {
+  it('결측·항로선 실패 줄 · 읽는 법 · 경로망 출처 · 지도 텍스트 정보를 함께 비킨다', () => {
     // 포함 검사로는 `.fleetmap__hintX` 같은 오타가 빠져나간다 — 쉼표로 나눠 정확히 견준다.
     const list = selectors.split(',').map((s) => s.trim())
     expect(list).toContain('.fleet__stage--panel-open .fleetmap__missing')
     expect(list).toContain('.fleet__stage--panel-open .fleetmap__hint')
     expect(list).toContain('.fleet__stage--panel-open .map-alternative')
+    expect(list).toContain('.fleet__stage--panel-open .route-source')
   })
 
   it('들여쓰기 폭이 패널의 자리·폭 식과 같다', () => {

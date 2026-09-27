@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { hasBasemap } from '../fleet/basemap'
 import { seaRouteKey, useSeaRoutes, type RouteLine } from '../fleet/seaRoute'
 import { getKnownRouteSource } from '../map/routeGeometry'
+import { RouteSourceNotice } from '../map/RouteSourceNotice'
 import { routeDisclosure } from '../map/routeDisclosure'
 import { adaptComparisonRoutes, adaptRouteMap } from '../map/adapters'
 import { MapRendererHost, type MapRendererEvent } from '../map/renderer'
@@ -177,6 +178,7 @@ export function VoyageRouteMap({
       )} />
       {routeFailure === null ? null : <p className="voyage-route-map__status">{routeFailure}</p>}
       <p className="voyage-route-map__hint" id={hintId}>{disclosure.visibleText}</p>
+      <RouteSourceNotice source={source} />
       <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
         failure={rendererFailure}
         onRetry={() => { setRendererFailure(null); setRendererAttempt((value) => value + 1) }}

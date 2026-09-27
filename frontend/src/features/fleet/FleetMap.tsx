@@ -7,6 +7,7 @@ import {
   type RouteLine,
 } from './seaRoute'
 import { getKnownRouteSource } from '../map/routeGeometry'
+import { RouteSourceNotice } from '../map/RouteSourceNotice'
 import { routeDisclosure } from '../map/routeDisclosure'
 import { adaptFleetMap } from '../map/adapters'
 import { MapRendererHost, type MapRendererEvent } from '../map/renderer'
@@ -446,6 +447,8 @@ export function FleetMap({
           </>
         )}
       </p>
+      {/* 항로선을 묻는 지도에만 — 선이 없는 지도(선박 상세의 한 척 등)에는 경로망 데이터가 없다. */}
+      {asks.length > 0 ? <RouteSourceNotice source={ROUTE_SOURCE} /> : null}
       <MapAlternative id={`${hintId}-alternative`} title={alternativeTitle}
         items={adapted.positions.map(({ vessel, lat, lon }) => `${vessel.name}: 위도 ${lat}, 경도 ${lon}${vessel.route ? ` · 출발 ${vessel.route.departureLat}, ${vessel.route.departureLon} · 도착 ${vessel.route.arrivalLat}, ${vessel.route.arrivalLon}` : ''}`)} />
     </div>
