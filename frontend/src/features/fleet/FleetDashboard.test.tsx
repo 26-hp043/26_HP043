@@ -1034,3 +1034,23 @@ describe('선대 대시보드 — 마커 팝오버 (#1831)', () => {
     )
   })
 })
+
+describe('열린 패널이 지도 아래 문구 줄을 가리지 않는다 (#1871)', () => {
+  it('패널이 열려 있는 동안만 무대에 비킴 표시가 붙는다', async () => {
+    stubFetch()
+    render(
+      <MemoryRouter>
+        <FleetDashboard />
+      </MemoryRouter>,
+    )
+    await screen.findByText('가선')
+    const stage = document.querySelector('.fleet__stage') as HTMLElement
+    expect(stage.classList.contains('fleet__stage--panel-open')).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: '« 접기' }))
+    await waitFor(() => expect(stage.classList.contains('fleet__stage--panel-open')).toBe(false))
+
+    fireEvent.click(screen.getByRole('button', { name: /^선박 \d/ }))
+    await waitFor(() => expect(stage.classList.contains('fleet__stage--panel-open')).toBe(true))
+  })
+})
