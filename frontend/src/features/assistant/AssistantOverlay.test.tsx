@@ -372,6 +372,21 @@ describe('#1243 — 선박이 정해지지 않은 턴', () => {
     expect(bubble.textContent).not.toContain('답을 드리지 못했습니다')
   })
 
+  it('선박 없이 도는 도구(lookup_regulation)만으로 답했으면 안내를 붙이지 않는다 (#1535)', async () => {
+    const ask = vi.fn<AssistantProvider['ask']>(async () => ({
+      ...ANSWER,
+      answer: '벌크선의 등급 경계는 비율로 정해집니다.',
+      toolCalls: ['lookup_regulation'],
+      vesselResolved: false,
+    }))
+    render(<AssistantOverlay provider={{ ask }} />)
+    open()
+    await send('벌크선 등급 기준 알려줘')
+
+    const bubble = await screen.findByText(/등급 경계는 비율로/, { selector: '.assistant__turn--assistant' })
+    expect(bubble.textContent).not.toContain('먼저 골라')
+  })
+
   it('vessel_resolved=true 답에는 그 안내가 없다 — 참고 답과 구분된다', async () => {
     const ask = vi.fn<AssistantProvider['ask']>(async () => ({
       ...ANSWER,

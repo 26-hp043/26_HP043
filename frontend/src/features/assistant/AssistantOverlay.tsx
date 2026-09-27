@@ -4,6 +4,7 @@ import './AssistantOverlay.css'
 import { createApiAssistantProvider, AssistantError } from './apiProvider'
 import { currentScreenResult } from './screenResult'
 import { CITE_LABEL, citeLabels } from './toolLabels'
+import { needsVesselNote } from './vesselNote'
 import type { AssistantProvider, ChatTurn } from './types'
 import { Field } from '../../components/Field'
 import { Icon } from '../../components/Icon'
@@ -236,7 +237,7 @@ export function AssistantOverlay({ provider, vesselId, vesselName, onOpenChange 
           discarded: answer.discarded,
           // #1818 — 버린 답에는 싣지 않는다. 답이 아닌 것에 근거를 달면 답으로 읽힌다.
           toolCalls: answer.discarded ? undefined : answer.toolCalls,
-          vesselUnresolved: answer.vesselResolved === false && !answer.discarded,
+          vesselUnresolved: needsVesselNote(answer),
         },
       ])
     } catch (error) {
