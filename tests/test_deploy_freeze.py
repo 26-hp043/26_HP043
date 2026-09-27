@@ -78,8 +78,8 @@ def _epoch(iso: str, delta: int = 0) -> str:
     return str(int(datetime.fromisoformat(iso).timestamp()) + delta)
 
 
-def _run(tmp_path: Path, *, event: str, now: str, switch: str = "") -> tuple[str, str]:
-    """판정 셸을 실행해 ``(frozen 출력, 표준 출력)``을 돌려준다."""
+def _run(tmp_path: Path, *, event: str, now: str | None, switch: str = "") -> tuple[str, str]:
+    """판정 셸을 실행해 ``(frozen 출력, 표준 출력)``을 돌려준다 — ``now=None``이면 주입 없음."""
     out = tmp_path / "github_output"
     out.write_text("", encoding="utf-8")
     env = {
@@ -88,9 +88,10 @@ def _run(tmp_path: Path, *, event: str, now: str, switch: str = "") -> tuple[str
         "FROZEN_SWITCH": switch,
         "FREEZE_START": _env_constant("FREEZE_START"),
         "FREEZE_END": _env_constant("FREEZE_END"),
-        "FREEZE_NOW": now,
         "GITHUB_OUTPUT": str(out),
     }
+    if now is not None:
+        env["FREEZE_NOW"] = now
     result = subprocess.run(
         [_BASH, "-c", _judge_script()],
         env=env,
@@ -134,6 +135,17 @@ def test_push_is_frozen_only_inside_the_window(tmp_path, label, now, frozen):
     value, stdout = _run(tmp_path, event="push", now=now)
     assert value == f"frozen={frozen}", label
     assert ("::notice::" in stdout) is (frozen == "true"), label
+
+
+@requires_bash
+def test_real_clock_path_runs_without_injection(tmp_path):
+    """운영에서 도는 경로 — ``FREEZE_NOW`` 없이 ``date -u``로 판정해도 죽지 않고 한 줄을 낸다.
+
+    주입점만 검사하면 ``${FREEZE_NOW:-…}``를 ``${FREEZE_NOW}``로 「정리」했을 때
+    ``set -u``가 운영에서만 죽는다. 오늘 날짜에 묶이지 않게 값은 둘 중 하나로만 본다.
+    """
+    value, _ = _run(tmp_path, event="push", now=None)
+    assert value in {"frozen=true", "frozen=false"}
 
 
 @requires_bash
