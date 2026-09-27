@@ -168,7 +168,14 @@ def tool_schemas() -> list[dict[str, object]]:
                         "type": "string",
                         "description": "선종 코드 (예: BULK_CARRIER, LNG_CARRIER)",
                     },
-                    "regulation_year": {"type": "integer", "description": "규제 연도"},
+                    # `#1973` ④ — 연도를 묻지 않았는데 한 해를 골라 넣으면 그 해의 감축률을
+                    # 올해 값처럼 말하게 된다. 비우면 `_regulation_year`가 올해로 본다.
+                    "regulation_year": {
+                        "type": "integer",
+                        "description": (
+                            "규제 연도 — 사용자가 연도를 말하지 않았으면 비워 둔다(올해 값을 준다)"
+                        ),
+                    },
                     "fuel_code": {"type": "string", "description": "연료 코드 (예: HFO)"},
                 },
                 "required": [],
