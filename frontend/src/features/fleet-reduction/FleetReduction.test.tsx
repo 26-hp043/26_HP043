@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { DISPLAY_UNITS } from '../../display/format'
 import { FleetReduction } from './FleetReduction'
-import { FLEET_REDUCTION_COPY } from './copy'
+import { FLEET_REDUCTION_COPY, TARGET_TEXT } from './copy'
 import type { EvaluateRequest, EvaluateResult, FleetReductionProvider } from './types'
 
 /**
@@ -561,5 +561,37 @@ describe('수치·단위 표시 (§4.2 · #1813)', () => {
     const row = screen.getByText('MV Empty').closest('tr') as HTMLTableRowElement
     const cells = [...row.querySelectorAll('td.fr__num')].map((cell) => cell.textContent?.trim())
     expect(cells).toEqual(['—', '—'])
+  })
+})
+
+/**
+ * 「위험 선박」의 기준을 화면이 말한다 (#1593 · `#1531`).
+ *
+ * 대시보드 배너의 「위험 선박 n척」과 이 화면의 「위험 선박 0척」은 **기준이 다르다** —
+ * `PRD §12.3.2` ⑸가 이 화면을 「조정 후 **연말 결정론 예상 등급**」으로 정하고, 배너는
+ * `§3.3.7`의 **올해 누적(YTD)**이다. 정본은 그 차이를 적어 두었으나(`#1531`) **화면에는
+ * 어디에도 없었다** — 두 화면을 오가는 사람에게는 같은 이름의 수가 다르게 보일 뿐이었다.
+ *
+ * 자리는 `DESIGN_SYSTEM §8.6`이 정한 **결론 띠 바로 아래 한 줄**이고, 그 줄이 이미
+ * 목표 이름을 들고 있어 이름과 기준이 떨어지지 않는다.
+ */
+describe('위험 선박의 기준 표기 (#1593)', () => {
+  it('결론 띠 아래 상태 줄이 「연말 예상 기준」을 함께 말한다', async () => {
+    renderWith()
+    await screen.findByText('MV One')
+
+    const status = document.querySelector('.fr__status')
+    expect(status?.textContent).toContain(FLEET_REDUCTION_COPY.statusBasis)
+    /* 목표 이름과 같은 줄이어야 한다 — 떨어지면 무엇의 기준인지 읽히지 않는다. */
+    expect(status?.textContent).toContain(TARGET_TEXT.NO_AT_RISK)
+  })
+
+  it('기준 문구는 「연말」을 말하고 「YTD·누적」을 말하지 않는다', () => {
+    /*
+     * 대시보드 배너 쪽 문구와 **바뀌어 적히는 것**을 막는다. 이 화면은 연말 예상이고
+     * 배너는 올해 누적이다 — 둘이 뒤집히면 이 이슈가 고치려던 혼동이 되돌아온다.
+     */
+    expect(FLEET_REDUCTION_COPY.statusBasis).toContain('연말')
+    expect(FLEET_REDUCTION_COPY.statusBasis).not.toMatch(/YTD|누적/)
   })
 })

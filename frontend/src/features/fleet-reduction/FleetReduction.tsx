@@ -742,9 +742,22 @@ function Status({ result, adjusted }: { result: EvaluateResult; adjusted: boolea
     text = COPY.statusMissed
     tone = 'missed'
   }
+  /*
+   * 기준을 이 줄에 적는다 (#1593).
+   *
+   * `§8.6`이 **추정 고지는 띠 바로 아래 한 줄**로 정했고, 이 줄이 이미 그 자리다 —
+   * 줄을 새로 만들지 않고 끝에 붙인다. 목표 이름을 이미 들고 있는 줄이라, 이름과
+   * 기준이 **떨어지지 않는다**.
+   *
+   * 대시보드 쪽에는 더하지 않는다. 그 화면은 배너 바로 위 부제가 이미
+   * 「{year}년 누적(YTD) 기준」을 말한다 — 실측하니 부제 아래끝 166, 배너 위끝 226으로
+   * **60px 간격**이고 사이에 「기준 {시각}」 한 줄뿐이다(1440 · 1920 동일). 같은 말을
+   * 한 화면에 두 번 두지 않는다.
+   */
   return (
     <p className={`fr__status fr__status--${tone}`} role="status">
-      <strong>{TARGET_TEXT[result.target]}</strong> — {text}
+      <strong>{TARGET_TEXT[result.target]}</strong> — {text}{' '}
+      <span className="fr__status-basis">{COPY.statusBasis}</span>
     </p>
   )
 }
