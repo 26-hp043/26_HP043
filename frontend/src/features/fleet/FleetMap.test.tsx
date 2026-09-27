@@ -435,6 +435,27 @@ describe('선대 지도 — 해상 경로망 항로선 (#1300)', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
+  it('목록 재시도 없이도 지도 안의 「다시 시도」로 항로선만 다시 묻는다 (#1871 ②)', async () => {
+    // 목록은 성공했고 항로선만 실패한 상태 — 호출부의 재시도 버튼은 보이지 않는다(retryToken 고정).
+    let healthy = false
+    const fetchImpl = vi.fn(async () => (healthy ? jsonResponse(SEA_LINE) : jsonResponse({}, 503)))
+    vi.stubGlobal('fetch', fetchImpl)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    render(<FleetMap vessels={[underway()]} retryToken={0} />)
+    expect(await screen.findByText(ROUTE_UNAVAILABLE_TEXT)).toBeTruthy()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+
+    healthy = true
+    await act(async () => {
+      screen.getByRole('button', { name: '다시 시도' }).click()
+    })
+    await waitFor(() => expect(screen.queryByText(ROUTE_UNAVAILABLE_TEXT)).toBeNull())
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    // 받았으면 버튼도 사라진다 — 누를 일이 없는 버튼을 남기지 않는다.
+    expect(screen.queryByRole('button', { name: '다시 시도' })).toBeNull()
+  })
+
   it('우회만 실패하면 직항 선은 남고, 문장은 「전부 못 받음」과 다르다 (#1856)', async () => {
     vi.stubGlobal(
       'fetch',

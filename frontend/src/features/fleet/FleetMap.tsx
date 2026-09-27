@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, type ReactNode } from 'react'
+import { useCallback, useId, useMemo, useState, type ReactNode } from 'react'
 import './FleetMap.css'
 import type { MapVessel } from './types'
 import {
@@ -263,10 +263,17 @@ export function FleetMap({
   const missingText = missingPositionText(vessels.length, shown)
   // 렌더마다 새 배열이면 아래 effect가 매번 다시 돈다 — `NO_ROUTES`와 같은 이유로 고정한다.
   const asks = adapted.routes
+  /*
+   * 지도 안의 「다시 시도」 (`#1871` ②). 목록이 성공하고 **항로선만** 실패하면 호출부의
+   * 재시도 버튼(목록 실패 때만 보인다)이 없어 다시 물을 길이 없었다. 호출부 신호와 더해
+   * 넘긴다 — 둘 다 늘기만 하므로 합이 예전 값으로 돌아가지 않고(`useSeaRoutes`는 실패
+   * 시점의 신호와 **다를 때만** 다시 묻는다), 받은 선은 다시 묻지 않는다.
+   */
+  const [routeRetry, setRouteRetry] = useState(0)
   const lines = useSeaRoutes(
     asks.map((ask) => ask.request),
     undefined,
-    retryToken,
+    (retryToken ?? 0) + routeRetry,
   )
   /*
    * 못 받은 선이 **전부인가 일부인가** (`#1856`). 서버는 세 점 요청을 한 덩어리로 실패시키므로
@@ -393,7 +400,22 @@ export function FleetMap({
         <p className="fleetmap__missing">{missingText}</p>
       )}
       {/* 서버가 선을 주지 못했다 — 대권선으로 되돌리지 않고 그 사실을 적는다 (`#1300`). */}
-      {routeFailure === null ? null : <p className="fleetmap__missing">{routeFailure}</p>}
+      {routeFailure === null ? null : (
+        <p className="fleetmap__missing fleetmap__route-failure">
+          {routeFailure}
+          {/*
+            ⚠️ 개발 임시안 — 자리·모양은 디자인 검토 대기 (`#1871` ② · `DESIGN_SYSTEM §9.5`).
+            문구는 정본 문구 (PRD §6.4 「다시 시도」 · 모든 층위 단일 문구) — 바꾸려면 PRD 개정이 먼저다.
+          */}
+          <button
+            type="button"
+            className="fleetmap__route-retry"
+            onClick={() => setRouteRetry((n) => n + 1)}
+          >
+            다시 시도
+          </button>
+        </p>
+      )}
       {/*
         읽는 법 (`#1052` ⓥ · 2026-09-18 확정).
 
