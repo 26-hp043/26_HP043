@@ -186,7 +186,10 @@ export function RegulationParametersSection({
         <table className="regp__table" data-testid="regp-table-years">
           <thead>
             <tr>
-              <th scope="col">연도</th>
+              {/* 값이 `regp__num`이므로 머리글도 같은 클래스를 받는다 (`#2015`). */}
+              <th scope="col" className="regp__num">
+                연도
+              </th>
               <th scope="col" className="regp__num">
                 감축률 Z (%)
               </th>
