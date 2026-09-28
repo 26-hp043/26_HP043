@@ -173,7 +173,6 @@ export interface SnapshotBlock {
   voyage_count: number
 }
 
-/** `POST /annual-simulations` 응답의 `data`. */
 /**
  * 다음 해 기준 등급 — `API_SPEC §6.1` `next_year_outlook` (#2017).
  *
@@ -188,6 +187,7 @@ export interface NextYearOutlook {
   projected_rating: Rating
 }
 
+/** `POST /annual-simulations` 응답의 `data`. */
 export interface AnnualSimulationResult {
   simulation_id: string
   calculation_run_id: string

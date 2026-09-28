@@ -3355,15 +3355,16 @@ POST /api/v1/annual-simulations
 
 > **[#816] `meta.as_of` — 집계에 실제로 쓴 기준 시각** (`TECH_SPEC §5.4.1` 계약 ⑵). 명시 실행은 그 값, 미명시 실행은 서버가 확정한 시각(스냅숏 생성 시각과 같은 뜻)이 실린다. `§6.2` 조회·`§6.4` 재현도 같은 규칙으로 같은 값을 낸다 — 같은 실행의 기준 시각이 경로마다 갈라 보이지 않는다.
 
-> **[#816 ⑶] `parameters_used`는 v2다** (2026-09-18 결정). v1 블록(`regulation_year`·`reference_line`·`rating_boundary`·`simulation_profile`)에 세 가지가 더해진다:
+> **[#816 ⑶] `parameters_used` v2** (2026-09-18 결정) — **현행은 v3다**(`#2017`, 아래 표 끝 행). v2는 v1 블록(`regulation_year`·`reference_line`·`rating_boundary`·`simulation_profile`)에 세 가지를 더했다:
 >
 > | 필드 | 뜻 |
 > |---|---|
 > | `fuel_types` | 계획 항차에 곱한 **활성 CF** (`#832`). `[{code, cf}]` — 이 실행이 실제로 쓴 유종만. CF 개정이 `parameter_hash`에 드러나지 않으면 재현성 계약이 성립하지 않는다 |
 > | `parameter_sources` | 출처 4키 — `regulation_year`·`reference_line`·`rating_boundary`는 각자의 `source_ref`, `fuel_types`는 `[{code, source_ref}]` (유종별 출처). 종전 `parameter_source_version`은 기준선 하나만 담었다 |
-> | `parameter_schema_version` | `2`. **필드가 없는 저장 행은 v1** — 재현은 저장된 버전의 빌더로 다시 만들어 v1 실행의 해시를 그대로 재생한다 |
+> | `parameter_schema_version` | 현행 `3`(`#2017` 전 실행은 `2`). **필드가 없는 저장 행은 v1** — 재현은 저장된 버전의 빌더로 다시 만들어 v1·v2 실행의 해시를 그대로 재생한다 |
+> | `next_regulation_year` (v3) | 다음 규정연도 `{year, z_factor_percent}` — 다음 해가 규정연도 표에 없으면(2030년 다음) **`null`**. 출처는 `parameter_sources.next_regulation_year`(없으면 `null`). 위 `[#2017]` 각주의 `next_year_outlook`이 이 값으로 계산된다 |
 >
-> 스키마의 정본은 **`TECH_SPEC §5.2.1.2`**다(v1·v2 블록 대조 · 판정 규칙 · `rating_boundary.ship_type`을 싣는 이유) — 이 표는 응답에서 보이는 차이만 요약한다 (#1306).
+> 스키마의 정본은 **`TECH_SPEC §5.2.1.2`**다(v1·v2·v3 블록 대조 · 판정 규칙 · `rating_boundary.ship_type`을 싣는 이유) — 이 표는 응답에서 보이는 차이만 요약한다 (#1306).
 
 > **[#756] 거리 두 행이 기준값(`5.02`)과 같은 것은 오기가 아니다.** 거리 ±5%는 연료를 같은 비율로 함께 움직이므로, **잔여 계획의 배출 강도가 확정 실적과 같으면 CII가 정확히 변하지 않는다**(`PRD §12.6` 각주 — 혼합비와 무관하다). 예시는 그 경우다. ⚠️ **항상 같은 값이 나오는 것은 아니다** — 실적이 계획에서 벌어져 두 구간의 강도가 달라지면 이 행도 움직인다. 종전 예시는 `4.96`·`5.08`로 **구현이 낼 수 없는 변화**를 싣고 있었다.
 >
@@ -4968,4 +4969,4 @@ POST /api/v1/chat
 | 2026-09-28 | `#2014` | §15.1 `lookup_regulation` 줄에 등급 경계 행의 **`grade_ranges`** (`#1973` 후속 · `PRD §16.3.1`). 규칙만으로는 모델이 경계 포함 방향을 뒤집어, 옮겨 적을 구간 문장을 도구가 준다. `§4.3`상 줄 보강이라 버전은 올리지 않는다 (#1973) |
 | 2026-09-28 | `#2021` | §2.16 `issues[].severity` 표 `UNAVAILABLE` 행에 **⑶ `FUEL_NO_RECORD`** 추가와 `[#2019]` 각주 — 이 표의 `codes` 열을 코드 집합의 정본으로 두고 서버(`ISSUE_CODES`)·화면(`REASON_TEXT`)을 양쪽에서 대조한다. `FUEL_NO_RECORD`는 `#1095`가 서버와 화면에 넣었는데 표에만 없었다 — 대조 검사가 처음 돌며 드러났다. 응답은 바뀌지 않는다. `§4.3`상 행 보강이라 버전은 올리지 않는다 (#2019) |
 | 2026-09-29 | `#2036` | §15.1 `lookup_regulation` 줄 — `grade_ranges` 예시에 **백분율 표기**(「1.0600배(106.0%)」)와 감축률 **`reduction_factor.by_year`**(규제연도 표 전체) (`#1973` 폐기 후속 · `PRD §16.3.1`). 운영 「벌크선 D등급 경계」 답이 도구에 없는 표기·다른 해 값으로 폐기됐다. `§4.3`상 설명 보강이라 버전은 올리지 않는다 (#1973) |
-| 2026-09-28 | `#___` | §6.1 응답에 **`next_year_outlook`**(다음 해 기준 등급) 예시와 `[#2017]` 각주 — 필드 표 · 세 상태(객체 · `null` · 키 없음) · `parameters_used` v3 (`#2017`). `§4.3`상 필드 추가라 버전은 올리지 않는다 (#2017) |
+| 2026-09-28 | `#___` | §6.1 응답에 **`next_year_outlook`**(다음 해 기준 등급) 예시와 `[#2017]` 각주 — 필드 표 · 세 상태(객체 · `null` · 키 없음) · `parameters_used` v3 (`#2017`). 같은 절 `[#816 ⑶]` 각주가 `parameter_schema_version`을 `2`로 적어 두 각주가 어긋나 있어 **현행을 v3로 정정**하고 `next_regulation_year` 행을 더했다(v2는 `#816` ⑶ 이력으로 남긴다). `§4.3`상 필드 추가라 버전은 올리지 않는다 (#2017) |
