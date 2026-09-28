@@ -24,7 +24,7 @@
 불러 쓴다 — 운영 서버(app-01)에서 ``python -m cii_platform.calc.bench``로 **같은 계산**을
 재기 위해서다. 두 벌이면 CI가 잰 것과 운영에서 잰 것이 조용히 갈라진다.
 
-케이스: PERF-001 · PERF-002 · PERF-003 · PERF-004 (`TEST_PLAN §14.5`)
+케이스: PERF-001 · PERF-002 · PERF-003 · PERF-004 · PERF-005 (`TEST_PLAN §14.5`)
 """
 
 from __future__ import annotations

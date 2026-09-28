@@ -33,7 +33,6 @@ import gc
 import math
 import os
 import platform
-import resource
 import sys
 import time
 from collections.abc import Callable
@@ -170,12 +169,15 @@ def main() -> int:
     print(f"파이썬 {platform.python_version()} · CPU {os.cpu_count()}개 · {platform.platform()}")
     print(f"측정 조건: warm-up {WARMUP_RUNS}회 제외 · {MEASURED_RUNS}회 측정 · gc.disable()")
     print()
-    print(f"{'케이스':<9} {'p50 ms':>10} {'p95 ms':>10} {'최대 ms':>10} {'목표 ms':>9}  판정  내용")
+    # 머리글은 ASCII로 둔다 — 한글은 폭이 두 칸이라 f-string 채움으로는 값 열과 줄이 어긋난다.
+    print(f"{'case':<9} {'p50 ms':>10} {'p95 ms':>10} {'max ms':>10} {'target ms':>9}  판정  내용")
     failed = 0
     for case in CASES:
         samples = sorted(measure(case.workload))
-        # p50도 p95와 같은 nearest-rank로 뽑는다.
-        p50, p95_s = samples[math.ceil(0.5 * len(samples)) - 1], p95(samples)
+        # p50도 p95와 같은 nearest-rank로 뽑는다. `samples`가 이미 정렬돼 있어
+        # p95도 같은 목록에서 바로 읽는다.
+        p50 = samples[math.ceil(0.5 * len(samples)) - 1]
+        p95_s = samples[math.ceil(0.95 * len(samples)) - 1]
         passed = p95_s < case.target_s
         failed += not passed
         print(
@@ -184,9 +186,16 @@ def main() -> int:
             f"{case.target_s * 1000:>9.0f}  {'통과' if passed else '초과'}  {case.name}"
         )
     # 운영 백엔드 컨테이너는 메모리 상한(512M)을 앱과 나눠 쓴다 — 이 실행이 얼마를 먹었는지 남긴다.
-    peak_mib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    # `resource`는 Unix 전용이라 여기서 늦게 부른다. 모듈 머리에 두면 Windows에서 이 모듈을
+    # 부르는 `tests/test_benchmarks.py`가 수집 단계에서 멈추고 pytest 세션 전체가 중단된다.
     print()
-    print(f"이 프로세스의 최대 RSS {peak_mib:.0f} MiB")
+    try:
+        import resource
+    except ImportError:
+        print("이 프로세스의 최대 RSS — 이 플랫폼에서는 잴 수 없다(resource 없음)")
+    else:
+        peak_mib = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+        print(f"이 프로세스의 최대 RSS {peak_mib:.0f} MiB")
     print("결과: 전부 목표 이내" if not failed else f"결과: {failed}건 목표 초과")
     return 1 if failed else 0
 
