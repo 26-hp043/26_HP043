@@ -176,7 +176,8 @@ async def _all_paths(session, vessel_id) -> dict[str, str | None]:
         "cii_history": this_year["attained_cii"],
         "fleet_summary": mine["ytd_attained_cii"],
         "report_header": dict(header.rows)["실적 CII (attained)"],
-        "report_trend": next(r[2] for r in trend.rows if r[0] == str(YEAR)),
+        # 추이 표는 차트가 품는다 (`#2002`) — 값은 여전히 그 표에 있다.
+        "report_trend": next(r[2] for r in trend.table.rows if r[0] == str(YEAR)),
         "voyage_report": dict(contribution.rows)["연간 누적 CII"],
     }
 

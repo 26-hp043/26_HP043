@@ -36,9 +36,13 @@ from cii_platform.errors import (
     ValidationError,
 )
 from cii_platform.reports.document import (
+    BAND_GRADES,
+    BAND_HEADERS,
     VOYAGE_CII_NOTE,
+    ChartSection,
     KeyValueSection,
     ReportDocument,
+    Section,
     TableSection,
 )
 from cii_platform.reports.labels import (
@@ -60,7 +64,11 @@ from cii_platform.services.cii_history import (
     list_cii_history,
 )
 from cii_platform.services.simulation_clock import resolve_as_of
-from cii_platform.services.ytd_cii import POLICY_INCLUDE_AS_ACTUAL, compute_ytd_cii
+from cii_platform.services.ytd_cii import (
+    POLICY_INCLUDE_AS_ACTUAL,
+    _select_rating_boundary,
+    compute_ytd_cii,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -602,6 +610,69 @@ def _voyage_count_cell(row: dict[str, object]) -> str:
     return f"{done} (+진행 중 {ongoing})" if ongoing else done
 
 
+#: 등급 경계 키 — ``§2.14`` ``ytd.boundaries``의 키를 **등급이 나뉘는 순서**로 둔다.
+_BOUNDARY_KEYS = ("superior_boundary", "lower_boundary", "upper_boundary", "inferior_boundary")
+
+#: 등급 경계 표의 각주 (`#2002`).
+BAND_NOTE = (
+    "구간은 하한 초과 · 상한 이하이며, 경계값과 같으면 더 우수한 등급입니다. "
+    "CII 경계는 올해 기준 CII에 곱한 값입니다."
+)
+
+
+def _percent(value: Decimal) -> str:
+    """등급 경계 계수를 기준 대비 %로 적는다 — ``0.86`` → ``86``.
+
+    **계산이 아니라 단위 표기다.** 계수 자체(``PRD §3.4.4``)를 백분율로 옮길 뿐 자릿수를
+    자르지 않는다 — ``0.865``였다면 ``86.5``로 나간다.
+    """
+    return f"{(Decimal(value) * 100).normalize():f}"
+
+
+async def _band_section(session: AsyncSession, vessel, ytd: dict) -> ChartSection:
+    """등급 경계 — A~E 구간을 기준 대비 %와 올해 CII로 (`#2002`).
+
+    **경계를 다시 계산하지 않는다.** CII 경계는 ``§2.14`` ``ytd.boundaries``(YTD 엔진이
+    ``required × d``로 낸 값)를 그대로 옮기고, 백분율은 YTD 엔진이 쓴 **같은 경계 행**
+    (:func:`~cii_platform.services.ytd_cii._select_rating_boundary`)의 계수다. 리포트가
+    ``required × d``를 스스로 곱하면 화면과 문서의 경계가 갈릴 자리가 생긴다.
+
+    올해 실적이 없으면(``data_available`` 거짓) CII 칸은 ``—``이고 위치 표시는 없다 —
+    백분율 구간은 선종이 정하므로 그대로 싣는다.
+    """
+    row = await _select_rating_boundary(session, vessel)
+    percents = [_percent(row.d1), _percent(row.d2), _percent(row.d3), _percent(row.d4)]
+    published = ytd.get("boundaries") or {}
+    cii = [_display(published.get(key), "cii") for key in _BOUNDARY_KEYS]
+
+    edges_pct = ["—", *percents, "—"]
+    edges_cii = ["—", *cii, "—"]
+    rows = [
+        [grade, edges_pct[i], edges_pct[i + 1], edges_cii[i], edges_cii[i + 1]]
+        for i, grade in enumerate(BAND_GRADES)
+    ]
+
+    markers: list[tuple[str, str]] = []
+    ratio = ytd.get("ratio_to_required")
+    if ratio is not None:
+        # 표시 단위 변환(비율 → %)이고 자릿수는 기준 대비 %를 적는 `DESIGN_SYSTEM §4.2` 비율 항과
+        # 같은 1자리다.
+        percent = (Decimal(ratio) * 100).quantize(Decimal("0.1"), rounding=LAYER1_ROUNDING)
+        markers.append(("올해 누적 실적 (기준 대비 %)", str(percent)))
+
+    return ChartSection(
+        chart="rating_band",
+        table=TableSection(
+            title="등급 경계",
+            headers=list(BAND_HEADERS),
+            kinds=["string", "numeric", "numeric", "numeric", "numeric"],
+            rows=rows,
+            note=BAND_NOTE,
+        ),
+        markers=markers,
+    )
+
+
 async def build_annual_report(
     session: AsyncSession,
     vessel_id: UUID,
@@ -668,9 +739,12 @@ async def build_annual_report(
             f"연도별 이력에 {target_year}년 행이 없어 리포트를 만들 수 없습니다."
         )
 
-    sections: list[KeyValueSection | TableSection] = [
+    sections: list[Section] = [
         KeyValueSection(
             title=f"{target_year}년 누적 (YTD)",
+            # 이 문서의 결론 — 올해 누적 등급과 값 한 쌍 (`#2002` · `DESIGN_SYSTEM §8.6`
+            # 실시간 CII 행과 같은 결론이다). 위치(첫 섹션)가 아니라 **선언**으로 가리킨다.
+            lead=("현재 누적 기준 예상 등급", "실적 CII (attained)"),
             rows=[
                 ("실적 CII (attained)", _display(year_row["attained_cii"], "cii")),
                 ("기준 CII (required)", _display(year_row["required_cii"], "cii")),
@@ -694,43 +768,48 @@ async def build_annual_report(
                 "공식 등급은 연말 DCS 보고·검증 후 확정됩니다."
             ),
         ),
-        TableSection(
-            title="연도별 추이",
-            headers=[
-                "연도",
-                "상태",
-                "실적 CII",
-                "기준 CII",
-                "등급",
-                "완료 항차",
-                "거리 (nm)",
-                "연료 (t)",
-            ],
-            # 수치 열 선언 (#1247). 「완료 항차」는 ``3 (+진행 중 1)`` 꼴이 섞이므로
-            # 문자열이고, 연도·상태·등급은 라벨이다.
-            kinds=[
-                "string",
-                "string",
-                "numeric",
-                "numeric",
-                "string",
-                "string",
-                "numeric",
-                "numeric",
-            ],
-            rows=[
-                [
-                    str(row["regulation_year"]),
-                    "진행 중" if row["status"] == "IN_PROGRESS" else "확정",
-                    _display(row["attained_cii"], "cii"),
-                    _display(row["required_cii"], "cii"),
-                    _text(row["rating"]),
-                    _voyage_count_cell(row),
-                    _display(row["total_distance_nm"], "distance_nm"),
-                    _display(row["total_fuel_ton"], "fuel_ton"),
-                ]
-                for row in history["years"]
-            ],
+        await _band_section(session, vessel, ytd),
+        # 추이 차트는 **표를 품는다** — CSV는 이 표를 그대로 쓴다(``PRD §16.4`` · `#2002`).
+        ChartSection(
+            chart="trend",
+            table=TableSection(
+                title="연도별 추이",
+                headers=[
+                    "연도",
+                    "상태",
+                    "실적 CII",
+                    "기준 CII",
+                    "등급",
+                    "완료 항차",
+                    "거리 (nm)",
+                    "연료 (t)",
+                ],
+                # 수치 열 선언 (#1247). 「완료 항차」는 ``3 (+진행 중 1)`` 꼴이 섞이므로
+                # 문자열이고, 연도·상태·등급은 라벨이다.
+                kinds=[
+                    "string",
+                    "string",
+                    "numeric",
+                    "numeric",
+                    "string",
+                    "string",
+                    "numeric",
+                    "numeric",
+                ],
+                rows=[
+                    [
+                        str(row["regulation_year"]),
+                        "진행 중" if row["status"] == "IN_PROGRESS" else "확정",
+                        _display(row["attained_cii"], "cii"),
+                        _display(row["required_cii"], "cii"),
+                        _text(row["rating"]),
+                        _voyage_count_cell(row),
+                        _display(row["total_distance_nm"], "distance_nm"),
+                        _display(row["total_fuel_ton"], "fuel_ton"),
+                    ]
+                    for row in history["years"]
+                ],
+            ),
         ),
         await _not_underway_section(session, vessel_id=vessel_id, year=target_year, as_of=resolved),
         # `PRD §21` 「공식 보고서 보조」 — 제출 **전에** 우리 데이터의 상태를 훑는 절이다

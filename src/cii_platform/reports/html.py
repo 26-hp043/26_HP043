@@ -18,10 +18,12 @@ PDF는 이 HTML을 WeasyPrint로 렌더링해 만든다. **HTML을 중간에 두
 from __future__ import annotations
 
 from html import escape
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 from cii_platform.reports.document import (
     DISCLAIMER,
+    TREND_COLUMNS,
+    ChartSection,
     KeyValueSection,
     TableSection,
 )
@@ -29,7 +31,7 @@ from cii_platform.reports.document import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from cii_platform.reports.document import ReportDocument
+    from cii_platform.reports.document import ReportDocument, Section
 
 #: 표지 워드마크. `frontend/public/brand/bluelog-logo-dark.svg`를 **그대로** 박아 둔다.
 #:
@@ -106,6 +108,15 @@ td.label { color: #5f5e5a; width: 34%; }
 /* 「경고」도 굵기를 못 쓴다. 줄을 바꿔 세우고 자간으로 표제임을 알린다. */
 .warnings b { display: block; margin-bottom: 1.2mm; color: #1a1a18;
               letter-spacing: 0.08em; }
+/* 결론 (`#2002` · `DESIGN_SYSTEM §8.6`) — 섹션이 **선언한** 결론 행을 표 위에 크게 세운다.
+   굵기를 쓸 수 없으므로(`§3`) 위계는 크기가 진다. 등급과 값은 한 사실이라 한 줄에 둔다. */
+.lead { margin: 0 0 3mm; }
+.lead span { display: inline-block; margin-right: 8mm; font-size: 8.5pt; color: #5f5e5a; }
+.lead b { display: block; font-size: 20pt; line-height: 1.2; color: #1a1a18; }
+/* 차트 (`#2002`). 축 라벨은 `§3` caption(12)이다 — SVG의 viewBox를 본문 폭(178mm ≈ 672px)에
+   맞춰 두어 SVG 단위 12가 인쇄에서 12px로 떨어진다. 차트가 있어도 **표는 남는다**(`PRD §16.4`). */
+.chart { display: block; width: 100%; height: auto; margin: 0 0 3mm; }
+tr, .chart { page-break-inside: avoid; }
 /* 표가 페이지 경계에서 머리글만 남고 잘리는 것을 막는다. */
 table { page-break-inside: auto; }
 tr { page-break-inside: avoid; }
@@ -167,34 +178,317 @@ def _aligned(value: str, tag: str, numeric: bool) -> str:
     return f"<{tag}{css}>{escape(value)}</{tag}>"
 
 
-def _section_html(section: KeyValueSection | TableSection) -> str:
-    parts = [f"<h2>{escape(section.title)}</h2>"]
+def _table_html(table: TableSection) -> str:
+    """표 한 벌. :class:`ChartSection`이 품은 표도 이 길로 그린다."""
+    # 열마다 한 번 판정하고 머리글과 값이 그 하나를 함께 쓴다 (`#2004`).
+    numeric = [
+        _numeric_column([row[index] for row in table.rows]) for index in range(len(table.headers))
+    ]
+    head = "".join(
+        _aligned(header, "th", is_num)
+        for header, is_num in zip(table.headers, numeric, strict=True)
+    )
+    body = "".join(
+        "<tr>"
+        + "".join(_aligned(cell, "td", is_num) for cell, is_num in zip(row, numeric, strict=True))
+        + "</tr>"
+        for row in table.rows
+    )
+    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
 
-    if isinstance(section, KeyValueSection):
+
+def _key_value_html(section: KeyValueSection) -> str:
+    """항목·값 표. 결론으로 **선언된** 행은 표 위에 크게 세우고 표에서는 뺀다 (`#2002`).
+
+    위치로 고르지 않는다 — :attr:`KeyValueSection.lead`가 가리키는 항목명만 본다.
+    """
+    values = dict(section.rows)
+    # 선언한 **순서대로** 세운다 — 등급 다음 값처럼 결론의 읽는 순서는 선언이 정한다.
+    lead = [(label, values[label]) for label in section.lead]
+    rest = [(label, value) for label, value in section.rows if label not in section.lead]
+    parts = []
+    if lead:
+        items = "".join(
+            f"<span>{escape(label)}<b>{escape(value)}</b></span>" for label, value in lead
+        )
+        parts.append(f'<p class="lead">{items}</p>')
+    if rest:
         rows = "".join(
             f'<tr><td class="label">{escape(label)}</td>{_cell(value)}</tr>'
-            for label, value in section.rows
+            for label, value in rest
         )
         parts.append(f"<table><tbody>{rows}</tbody></table>")
-    else:
-        # 열마다 한 번 판정하고 머리글과 값이 그 하나를 함께 쓴다 (`#2004`).
-        numeric = [
-            _numeric_column([row[index] for row in section.rows])
-            for index in range(len(section.headers))
-        ]
-        head = "".join(
-            _aligned(header, "th", is_num)
-            for header, is_num in zip(section.headers, numeric, strict=True)
-        )
-        body = "".join(
-            "<tr>"
-            + "".join(
-                _aligned(cell, "td", is_num) for cell, is_num in zip(row, numeric, strict=True)
+    return "".join(parts)
+
+
+# ─── 차트 (`#2002`) ──────────────────────────────────────────────────────────
+#
+# 차트는 **품은 표에서 읽기만 한다.** 셀 문자열을 좌표로 옮기는 것은 표현이고 값을 만드는
+# 일이 아니다 — 그래서 문자열을 숫자로 「고쳐」 쓰지 않고, 읽을 수 없는 칸(``—``)은 그리지
+# 않는다. 인쇄 색은 표와 같은 중성색 집합이다(`tests/test_reports.py`의 닫힌 집합 가드).
+# 등급을 가르는 것은 **문자와 무늬**다 — 흑백 인쇄가 전제이고(`DESIGN_SYSTEM §14`), 색은
+# 쓰지 않는다.
+
+#: SVG 가로 폭. 본문 폭(A4 210mm − 좌우 여백 32mm = 178mm ≈ 672px)과 맞춰 SVG 단위 하나가
+#: 인쇄에서 1px이 되게 한다 — 그래야 축 라벨 12가 `§3` caption(12)로 떨어진다.
+_CHART_WIDTH = 672
+
+#: 축 라벨 크기 — `DESIGN_SYSTEM §3` caption · `§9.1` 🔒.
+_AXIS_FONT = 12
+
+#: 등급 밴드의 가로축 (기준 대비 %) — **디자인 확정값**(`#2002` 본문 「디자인 규격」).
+#: 0%부터 그리면 A가 막대의 절반을 먹어 D·E가 붙는다. 축 밖의 구간은 축 끝에서 자른다.
+BAND_AXIS = (74.0, 175.0)
+
+_INK = "#1a1a18"
+_INK_SOFT = "#5f5e5a"
+_FACE = "#e3e2dc"
+_PAPER = "#f8f8f6"
+
+
+def _band_patterns(prefix: str) -> str:
+    """`DESIGN_SYSTEM §2.4.4` 🔒 등급 무늬 — A 없음(면) · B 45° · C 도트 · D 135° · E 크로스해치."""
+    line = f'stroke="{_INK_SOFT}" stroke-width="1.2"'
+    return (
+        "<defs>"
+        f'<pattern id="{prefix}-A" width="6" height="6" patternUnits="userSpaceOnUse">'
+        f'<rect width="6" height="6" fill="{_FACE}"/></pattern>'
+        f'<pattern id="{prefix}-B" width="6" height="6" patternUnits="userSpaceOnUse" '
+        f'patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" {line}/></pattern>'
+        f'<pattern id="{prefix}-C" width="5" height="5" patternUnits="userSpaceOnUse">'
+        f'<circle cx="2.5" cy="2.5" r="1" fill="{_INK_SOFT}"/></pattern>'
+        f'<pattern id="{prefix}-D" width="6" height="6" patternUnits="userSpaceOnUse" '
+        f'patternTransform="rotate(135)"><line x1="0" y1="0" x2="0" y2="6" {line}/></pattern>'
+        f'<pattern id="{prefix}-E" width="6" height="6" patternUnits="userSpaceOnUse" '
+        f'patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" {line}/>'
+        f'<line x1="0" y1="0" x2="6" y2="0" {line}/></pattern>'
+        "</defs>"
+    )
+
+
+def _number(cell: str) -> float | None:
+    """셀을 좌표로 옮길 수 있으면 그 수, 아니면 ``None``. 값을 고치지 않는다."""
+    if cell.strip() in ("", MISSING_VALUE):
+        return None
+    try:
+        return float(cell.replace(",", ""))
+    except ValueError:
+        return None
+
+
+def _svg_open(title: str, height: int) -> str:
+    return (
+        f'<svg class="chart" xmlns="http://www.w3.org/2000/svg" role="img" '
+        f'aria-label="{escape(title)}" viewBox="0 0 {_CHART_WIDTH} {height}" '
+        f'font-family="sans-serif" font-size="{_AXIS_FONT}">'
+    )
+
+
+def _band_svg(section: ChartSection, prefix: str) -> str:
+    """등급 경계 밴드 — 구간마다 무늬와 **등급 문자**, 경계에 기준 대비 %."""
+    low, high = BAND_AXIS
+    # 좌우 여백은 **막대 바깥에 등급 문자를 둘 자리**다 — 아래 「좁은 구간」 참조.
+    left, width = 24.0, _CHART_WIDTH - 48.0
+    top, bar = 24.0, 34.0
+
+    def x(value: float) -> float:
+        clamped = min(max(value, low), high)
+        return left + (clamped - low) / (high - low) * width
+
+    parts = [_svg_open(section.title, 90), _band_patterns(prefix)]
+    rows = section.table.rows
+    last = len(rows) - 1
+    for position, (grade, lower, upper, *_) in enumerate(rows):
+        start = _number(lower)
+        end = _number(upper)
+        x0 = x(low if start is None else start)
+        x1 = x(high if end is None else end)
+        if x1 > x0:
+            parts.append(
+                f'<rect x="{x0:.1f}" y="{top}" width="{x1 - x0:.1f}" height="{bar}" '
+                f'fill="url(#{prefix}-{escape(grade)})" stroke="{_INK}" stroke-width="0.8"/>'
             )
-            + "</tr>"
-            for row in section.rows
+        middle = (x0 + x1) / 2
+        letter_y = top + bar / 2 + 4.5
+        # ⚠️ **좁은 구간에서 문자를 잃지 않는다.** 축(74~175%)은 디자인 확정값인데 로로선
+        # 계열은 d1이 0.76이라 A가 축의 2%(약 12px)뿐이다 — 문자 바탕(16px)보다 좁다.
+        # 끝 구간은 막대 **바깥**에, 가운데 구간은 막대 **위**에 문자를 둔다. 축 밖으로
+        # 완전히 밀려난 끝 구간도 문자는 남긴다 — 표에 있는 등급이 그림에서 사라지면
+        # 「그 등급은 없다」로 읽힌다.
+        if x1 - x0 >= 18:
+            parts.append(
+                f'<rect x="{middle - 8:.1f}" y="{top + bar / 2 - 9:.1f}" width="16" height="18" '
+                f'fill="{_PAPER}"/>'
+            )
+        elif position == 0:
+            middle = x0 - 10
+        elif position == last:
+            middle = x1 + 10
+        else:
+            letter_y = top - 10
+        parts.append(
+            f'<text x="{middle:.1f}" y="{letter_y:.1f}" text-anchor="middle" '
+            f'fill="{_INK}">{escape(grade)}</text>'
         )
-        parts.append(f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>")
+    # 경계 눈금 — 표의 「기준 대비 상한」을 그대로 적는다(마지막 행은 상한이 없다).
+    for _, _, upper, *_ in rows:
+        value = _number(upper)
+        if value is None or not low <= value <= high:
+            continue
+        parts.append(
+            f'<text x="{x(value):.1f}" y="{top + bar + 16}" text-anchor="middle" '
+            f'fill="{_INK_SOFT}">{escape(upper)}%</text>'
+        )
+    for label, cell in section.markers:
+        value = _number(cell)
+        if value is None:
+            continue
+        at = x(value)
+        # 축 밖이면 끝에 붙이고 화살표로 「더 멀리 있다」를 알린다 — 값은 문구에 그대로 적는다.
+        arrow = "◀ " if value < low else ""
+        tail = " ▶" if value > high else ""
+        anchor = "middle"
+        if at > left + width * 0.7:
+            anchor = "end"
+        elif at < left + width * 0.3:
+            anchor = "start"
+        parts.append(
+            f'<line x1="{at:.1f}" y1="{top - 6}" x2="{at:.1f}" y2="{top + bar + 4}" '
+            f'stroke="{_INK}" stroke-width="2"/>'
+            f'<text x="{at:.1f}" y="{top - 10}" text-anchor="{anchor}" fill="{_INK}">'
+            f"{arrow}{escape(label)} {escape(cell)}{tail}</text>"
+        )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _trend_svg(section: ChartSection) -> str:
+    """연도별 추이 — 실적(실선·원)과 기준(점선·사각), 실적 점 위에 **등급 문자**.
+
+    차트 선에는 무늬를 쓰지 않는다 — 마커 모양이 보조 채널이다(`DESIGN_SYSTEM §2.4.4` ·
+    `§9.3`). 그릴 점이 하나도 없으면 차트를 생략하고 표만 남긴다.
+    """
+    headers = section.table.headers
+    year_i, attained_i, required_i, grade_i = (headers.index(name) for name in TREND_COLUMNS)
+    rows = section.table.rows
+    points = [
+        (row[year_i], _number(row[attained_i]), _number(row[required_i]), row[grade_i], row)
+        for row in rows
+    ]
+    values = [v for _, a, r, _, _ in points for v in (a, r) if v is not None]
+    if not values:
+        return ""
+
+    height = 210
+    # 위쪽 여백은 범례(y 9~16)와 가장 높은 점 위의 등급 문자(점 − 8)가 겹치지 않을 만큼 둔다.
+    left, right, top, bottom = 64.0, 16.0, 40.0, 34.0
+    low, high = min(values), max(values)
+    pad = (high - low) * 0.15 or 1.0
+    y_low, y_high = low - pad, high + pad
+
+    def y(value: float) -> float:
+        return top + (y_high - value) / (y_high - y_low) * (height - top - bottom)
+
+    count = len(points)
+    span = _CHART_WIDTH - left - right
+
+    def x(index: int) -> float:
+        return left + span / 2 if count == 1 else left + span * index / (count - 1)
+
+    parts = [_svg_open(section.title, height)]
+    # 세로축 — 자료의 가장 작은 값과 가장 큰 값만 **표의 문자열 그대로** 적는다.
+    cells = [
+        (value, row[column])
+        for _, _, _, _, row in points
+        for column in (attained_i, required_i)
+        if (value := _number(row[column])) is not None
+    ]
+    # 값이 전부 같으면 한 줄만 — 같은 자리에 눈금을 두 번 그리지 않는다.
+    for value, cell in dict.fromkeys((min(cells), max(cells))):
+        parts.append(
+            f'<line x1="{left}" y1="{y(value):.1f}" x2="{_CHART_WIDTH - right}" '
+            f'y2="{y(value):.1f}" stroke="{_FACE}" stroke-width="1"/>'
+            f'<text x="{left - 6}" y="{y(value) + 4:.1f}" text-anchor="end" '
+            f'fill="{_INK_SOFT}">{escape(cell)}</text>'
+        )
+
+    def polyline(index: int, dashed: bool) -> str:
+        # 빈 칸에서 선을 끊는다 — 없는 값을 이어 그리면 그 사이에 값이 있던 것처럼 읽힌다.
+        runs, run = [], []
+        for i, point in enumerate(points):
+            value = point[index]
+            if value is None:
+                if len(run) > 1:
+                    runs.append(run)
+                run = []
+            else:
+                run.append(f"{x(i):.1f},{y(value):.1f}")
+        if len(run) > 1:
+            runs.append(run)
+        stroke = (
+            f'stroke="{_INK_SOFT}" stroke-width="1.2" stroke-dasharray="4 3"'
+            if dashed
+            else f'stroke="{_INK}" stroke-width="1.8"'
+        )
+        return "".join(f'<polyline points="{" ".join(r)}" fill="none" {stroke}/>' for r in runs)
+
+    parts.append(polyline(2, dashed=True))
+    parts.append(polyline(1, dashed=False))
+    for i, (year, attained, required, grade, _) in enumerate(points):
+        if required is not None:
+            parts.append(
+                f'<rect x="{x(i) - 3:.1f}" y="{y(required) - 3:.1f}" width="6" height="6" '
+                f'fill="{_PAPER}" stroke="{_INK_SOFT}" stroke-width="1.2"/>'
+            )
+        if attained is not None:
+            parts.append(
+                f'<circle cx="{x(i):.1f}" cy="{y(attained):.1f}" r="3.5" fill="{_INK}"/>'
+                f'<text x="{x(i):.1f}" y="{y(attained) - 8:.1f}" text-anchor="middle" '
+                f'fill="{_INK}">{escape(grade)}</text>'
+            )
+        parts.append(
+            f'<text x="{x(i):.1f}" y="{height - 12}" text-anchor="middle" '
+            f'fill="{_INK_SOFT}">{escape(year)}</text>'
+        )
+    # 범례 — 모양으로 가른다(실선·원 / 점선·사각).
+    parts.append(
+        f'<line x1="{left}" y1="12" x2="{left + 30}" y2="12" stroke="{_INK}" stroke-width="1.8"/>'
+        f'<circle cx="{left + 15}" cy="12" r="3.5" fill="{_INK}"/>'
+        f'<text x="{left + 36}" y="16" fill="{_INK}">{escape(headers[attained_i])}</text>'
+        f'<line x1="{left + 110}" y1="12" x2="{left + 140}" y2="12" stroke="{_INK_SOFT}" '
+        f'stroke-width="1.2" stroke-dasharray="4 3"/>'
+        f'<rect x="{left + 122}" y="9" width="6" height="6" fill="{_PAPER}" '
+        f'stroke="{_INK_SOFT}" stroke-width="1.2"/>'
+        f'<text x="{left + 146}" y="16" fill="{_INK}">{escape(headers[required_i])}</text>'
+    )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def _chart_html(section: ChartSection, index: int) -> str:
+    """차트 + **품은 표**. 표는 차트가 있어도 남는다(``PRD §16.4``)."""
+    if section.chart == "rating_band":
+        chart = _band_svg(section, prefix=f"grade{index}")
+    elif section.chart == "trend":
+        chart = _trend_svg(section)
+    else:
+        assert_never(section.chart)
+    return chart + _table_html(section.table)
+
+
+def _section_html(section: Section, index: int = 0) -> str:
+    parts = [f"<h2>{escape(section.title)}</h2>"]
+
+    # 소진형 분기 (`#2002`). 종전에는 ``else``가 표를 떠맡아, 새 종류가 오면 **표인 척
+    # 그려지다가** 속성 오류로 터지거나 엉뚱하게 그려졌다.
+    if isinstance(section, KeyValueSection):
+        parts.append(_key_value_html(section))
+    elif isinstance(section, TableSection):
+        parts.append(_table_html(section))
+    elif isinstance(section, ChartSection):
+        parts.append(_chart_html(section, index))
+    else:
+        assert_never(section)
 
     if section.note:
         parts.append(f'<p class="note">{escape(section.note)}</p>')
@@ -212,7 +506,10 @@ def render_html(document: ReportDocument) -> str:
     meta = "".join(
         f"<span>{escape(label)} <b>{escape(value)}</b></span>" for label, value in document.meta
     )
-    sections = "".join(_section_html(section) for section in document.sections)
+    # 순번은 차트 무늬 id를 문서 안에서 겹치지 않게 하는 데만 쓴다.
+    sections = "".join(
+        _section_html(section, index) for index, section in enumerate(document.sections)
+    )
 
     warnings = ""
     if document.warnings:

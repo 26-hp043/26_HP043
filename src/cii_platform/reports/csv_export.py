@@ -40,10 +40,11 @@ from __future__ import annotations
 import csv
 import io
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 from cii_platform.reports.document import (
     DISCLAIMER,
+    ChartSection,
     KeyValueSection,
     TableSection,
     column_kinds,
@@ -154,17 +155,22 @@ def _iter_csv_chunks(document: ReportDocument) -> Iterator[str]:
         writer.writerow([])
         writer.writerow([sanitize(section.title)])
 
+        # 소진형 분기 (`#2002`). 종전에는 ``else``가 없어 **새 종류가 제목만 남기고 내용을
+        # 버렸다** — 예외도 없이. 종류가 늘면 ``assert_never``가 타입 검사와 실행 양쪽에서 먼저
+        # 실패한다.
         if isinstance(section, KeyValueSection):
             for label, value in section.rows:
                 writer.writerow([sanitize(label), sanitize(value)])
         elif isinstance(section, TableSection):
-            # 머리글은 라벨이라 선언과 무관하게 문자열 규칙이다. 선언은 **값 행**에만 닿는다.
-            writer.writerow([sanitize(header) for header in section.headers])
-            kinds = column_kinds(section.headers, section.kinds)
-            for row in section.rows:
-                writer.writerow(
-                    [serialize_cell(cell, kind) for cell, kind in zip(row, kinds, strict=True)]
-                )
+            _write_table(writer, section)
+        elif isinstance(section, ChartSection):
+            # 차트는 CSV에서 표현되지 않는다 — **품은 표**가 그 내용이다(``PRD §16.4``).
+            # 차트 위의 표시값도 여기서 함께 나가야 두 포맷이 같은 내용을 담는다.
+            _write_table(writer, section.table)
+            for label, value in section.markers:
+                writer.writerow([sanitize(label), sanitize(value)])
+        else:
+            assert_never(section)
 
         if section.note:
             writer.writerow([sanitize(section.note)])
@@ -176,6 +182,15 @@ def _iter_csv_chunks(document: ReportDocument) -> Iterator[str]:
         for warning in document.warnings:
             writer.writerow([sanitize(warning)])
         yield flush()
+
+
+def _write_table(writer: csv.writer, table: TableSection) -> None:
+    """표 한 벌 — 머리글과 값 행. :class:`ChartSection`이 품은 표도 이 길로 나간다."""
+    # 머리글은 라벨이라 선언과 무관하게 문자열 규칙이다. 선언은 **값 행**에만 닿는다.
+    writer.writerow([sanitize(header) for header in table.headers])
+    kinds = column_kinds(table.headers, table.kinds)
+    for row in table.rows:
+        writer.writerow([serialize_cell(cell, kind) for cell, kind in zip(row, kinds, strict=True)])
 
 
 def render_csv(document: ReportDocument) -> str:
