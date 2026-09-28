@@ -41,7 +41,17 @@ export type GradeEntry = Pick<
 export type GradeTable =
   | { status: 'loading' }
   | { status: 'failed' }
-  | { status: 'ready'; asOf: string; byId: ReadonlyMap<string, GradeEntry> }
+  | {
+      status: 'ready'
+      asOf: string
+      byId: ReadonlyMap<string, GradeEntry>
+      /**
+       * 다시 받기(제원 저장 뒤)가 실패했다. 표는 **직전에 받은 것 그대로**다 — 값이 있던
+       * 칸을 「받지 못함」으로 바꾸면 방금까지 보이던 등급이 사라진다. 이 플래그를 화면에
+       * 어떻게 알릴지는 디자인 확인 ⑶(받지 못함 표시)에 따라 바뀔 수 있다.
+       */
+      refreshFailed?: boolean
+    }
 
 export type GradeCell =
   | { kind: 'loading' }
@@ -49,6 +59,9 @@ export type GradeCell =
   | { kind: 'absent' }
   | { kind: 'unavailable'; reason: UnavailableReason | null }
   | { kind: 'rated'; rating: Rating; attainedCii: string | null; requiredCii: string | null }
+
+/** 요약 페이지 수 상한 — 100척씩 50쪽(5,000척)은 이 제품의 선대 규모를 한참 넘는다. */
+export const MAX_GRADE_PAGES = 50
 
 /**
  * 요약을 끝 페이지까지 받아 조회표로 만든다.
@@ -61,6 +74,9 @@ export type GradeCell =
  *
  * 실패는 그대로 던진다 — 화면이 `failed`로 받는다. 일부 페이지만 받은 표를 내면
  * 뒤 페이지의 배가 `absent`로 보여 「요약에 없다」는 거짓이 된다.
+ *
+ * **되풀이를 막는다.** 같은 커서가 다시 오거나 페이지 수가 상한(`MAX_GRADE_PAGES`)을
+ * 넘으면 던진다 — 서버 결함 하나로 요청이 끝없이 이어지면 목록 화면까지 붙잡힌다.
  */
 export async function loadGradeTable(
   provider: FleetProvider,
@@ -69,6 +85,8 @@ export async function loadGradeTable(
   const first = await provider.load({ sort: 'name' })
   const asOf = first.asOf
   let page = first
+  let pages = 1
+  const seenCursors = new Set<string>()
   for (;;) {
     for (const vessel of page.vessels) {
       byId.set(vessel.id, {
@@ -80,6 +98,14 @@ export async function loadGradeTable(
       })
     }
     if (!page.hasMore || page.nextCursor === null) break
+    if (seenCursors.has(page.nextCursor)) {
+      throw new Error('선대 요약 커서가 되풀이됐습니다.')
+    }
+    if (pages >= MAX_GRADE_PAGES) {
+      throw new Error(`선대 요약이 ${MAX_GRADE_PAGES}쪽을 넘었습니다.`)
+    }
+    seenCursors.add(page.nextCursor)
+    pages += 1
     page = await provider.load({ sort: 'name', cursor: page.nextCursor, asOf })
   }
   return { asOf, byId }
@@ -124,3 +150,9 @@ export const GRADE_FAILED_HINT =
   '선대 요약을 불러오지 못해 등급을 표시할 수 없습니다. 목록은 그대로 쓸 수 있습니다.'
 export const GRADE_LOADING_TEXT = '불러오는 중'
 export const GRADE_ABSENT_HINT = '아직 선대 요약에 없는 선박입니다. 다시 열면 표시됩니다.'
+/**
+ * 다시 받기가 실패했을 때 목록 위 한 줄 — 표시 문구다(`AGENTS §4.6` · 디자인 담당이 바꿀
+ * 수 있다). 노출 여부·위치는 디자인 확인 ⑶(받지 못함 표시)에 따라 바뀔 수 있다.
+ */
+export const GRADE_REFRESH_FAILED_TEXT =
+  '등급을 새로 고치지 못했습니다. 표시된 등급은 저장 전에 받은 값입니다.'

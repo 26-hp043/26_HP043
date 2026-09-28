@@ -42,13 +42,13 @@ describe('선박 목록의 넘침은 카드 안에서 받는다 (#1788)', () => 
     expect(/\.vm__list-wrap\s*\{[^}]*overflow-x:\s*auto/.test(CSS)).toBe(true)
   })
 
-  it('최소 폭을 실측값 아래로 되돌리지 않는다', () => {
+  it('최소 폭을 기준값(열 최소폭 합 · 브라우저 재측정 전) 아래로 되돌리지 않는다', () => {
     const match = /\.vm__list\s*\{[^}]*min-inline-size:\s*([0-9]+)px/.exec(CSS)
     expect(match, 'VesselManagement.css에서 목록 최소 폭을 찾지 못했다').not.toBeNull()
     expect(Number(match![1])).toBeGreaterThanOrEqual(MEASURED_MIN)
   })
 
-  it('열 최소폭 합이 그 실측값과 맞는다 — 열을 늘리면 최소 폭도 함께 올린다', () => {
+  it('열 최소폭 합이 그 기준값과 맞는다 — 열을 늘리면 최소 폭도 함께 올린다', () => {
     const cols = /--vm-cols:([^;]+);/.exec(CSS)
     expect(cols, '열 정의(`--vm-cols`)를 찾지 못했다').not.toBeNull()
     /*

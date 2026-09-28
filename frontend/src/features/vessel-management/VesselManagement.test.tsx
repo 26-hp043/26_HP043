@@ -812,6 +812,8 @@ describe('올해 누적 등급 열 (#2018)', () => {
       is_cii_applicable_hint: true,
       reference_speed_kn: 12,
       reference_daily_foc_ton: 20,
+      block_coefficient: null,
+      call_sign: null,
       default_fuel_type: 'HFO',
       underway_state: 'NOT_UNDER_WAY',
       detail_status: null,
@@ -841,11 +843,48 @@ describe('올해 누적 등급 열 (#2018)', () => {
     }
   }
 
-  function stubServer({ summaryStatus = 200 }: { summaryStatus?: number } = {}) {
+  const DEFAULT_SUMMARY = () => [
+    summaryVessel(RATED_ID, '가등급호', 'E', null),
+    summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
+  ]
+
+  function summaryResponse(vessels = DEFAULT_SUMMARY()) {
+    return jsonResponse({
+      data: {
+        as_of: '2026-09-28T00:00:00Z',
+        regulation_year: 2026,
+        summary: { total: vessels.length },
+        vessels,
+      },
+      meta: { has_more: false, next_cursor: null },
+    })
+  }
+
+  /**
+   * `summaryReplies`는 **두 번째 요약 요청부터** 차례로 쓴다(제원 저장 뒤 다시 받기).
+   * 첫 요청은 `summaryStatus` · `summaryVessels`를 따른다.
+   */
+  function stubServer({
+    summaryStatus = 200,
+    summaryVessels,
+    listVessels,
+    summaryReplies = [],
+  }: {
+    summaryStatus?: number
+    summaryVessels?: ReturnType<typeof summaryVessel>[]
+    listVessels?: ReturnType<typeof listVessel>[]
+    summaryReplies?: (Response | Deferred)[]
+  } = {}) {
     const urls: string[] = []
+    let summaryCalls = 0
+    const list = listVessels ?? [
+      listVessel(NEW_ID, '다신규호'),
+      listVessel(SPEC_ID, '나제원호'),
+      listVessel(RATED_ID, '가등급호'),
+    ]
     vi.stubGlobal(
       'fetch',
-      vi.fn(async (input: unknown) => {
+      vi.fn(async (input: unknown, init?: RequestInit) => {
         const url = String(input)
         urls.push(url)
         if (url.includes('/parameters/fuel-types')) {
@@ -854,30 +893,22 @@ describe('올해 누적 등급 열 (#2018)', () => {
           })
         }
         if (url.includes('/fleet/summary')) {
+          summaryCalls += 1
+          if (summaryCalls > 1 && summaryReplies.length > 0) {
+            const reply = summaryReplies.shift()!
+            return 'promise' in reply ? reply.promise : reply
+          }
           if (summaryStatus !== 200) {
             return jsonResponse({ error: { code: 'INTERNAL_ERROR' } }, summaryStatus)
           }
-          return jsonResponse({
-            data: {
-              as_of: '2026-09-28T00:00:00Z',
-              regulation_year: 2026,
-              summary: { total: 2 },
-              vessels: [
-                summaryVessel(RATED_ID, '가등급호', 'E', null),
-                summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
-              ],
-            },
-            meta: { has_more: false, next_cursor: null },
-          })
+          return summaryResponse(summaryVessels)
         }
-        return jsonResponse({
-          data: [
-            listVessel(NEW_ID, '다신규호'),
-            listVessel(SPEC_ID, '나제원호'),
-            listVessel(RATED_ID, '가등급호'),
-          ],
-          meta: {},
-        })
+        if (init?.method === 'PATCH') {
+          const id = url.split('/').pop()
+          const target = list.find((v) => v.id === id)!
+          return jsonResponse({ data: { ...target, reference_speed_kn: 13 } })
+        }
+        return jsonResponse({ data: list, meta: {} })
       }),
     )
     return urls
@@ -957,6 +988,94 @@ describe('올해 누적 등급 열 (#2018)', () => {
     fireEvent.change(screen.getByTestId('vessel-sort'), { target: { value: 'grade' } })
     const names = [...document.querySelectorAll('.vm__item .vm__name')].map((el) => el.textContent)
     expect(names[0]).toBe('가등급호')
+  })
+
+  it('등급 나쁜 순 — 등급이 없는 배는 목록 이름순보다 앞서도 끝으로 간다', async () => {
+    const A_ID = '00000000-0000-4000-8000-00000000000d'
+    stubServer({
+      // 목록 순서상 등급 없는 배가 맨 앞이다 — 그래도 끝으로 가야 한다.
+      listVessels: [
+        listVessel(NEW_ID, '다신규호'),
+        listVessel(SPEC_ID, '나제원호'),
+        listVessel(A_ID, '라에이호'),
+        listVessel(RATED_ID, '가등급호'),
+      ],
+      summaryVessels: [
+        summaryVessel(RATED_ID, '가등급호', 'E', null),
+        summaryVessel(A_ID, '라에이호', 'A', null),
+        summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
+      ],
+    })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('라에이호').dataset.gradeState).toBe('rated'))
+
+    fireEvent.change(screen.getByTestId('vessel-sort'), { target: { value: 'grade' } })
+    const names = [...document.querySelectorAll('.vm__item .vm__name')].map((el) => el.textContent)
+    expect(names.slice(0, 2)).toEqual(['가등급호', '라에이호'])
+    expect(new Set(names.slice(2))).toEqual(new Set(['나제원호', '다신규호']))
+  })
+
+  /** 가등급호의 제원을 저장한다 — 기준속도만 바꾼다. */
+  async function saveRatedVessel() {
+    fireEvent.click(within(rowOf('가등급호')).getByRole('button', { name: '수정' }))
+    fireEvent.change(within(rowOf('가등급호')).getByLabelText(/기준속도/), {
+      target: { value: '13' },
+    })
+    fireEvent.click(within(rowOf('가등급호')).getByRole('button', { name: '저장' }))
+    await screen.findByText(/가등급호의 정보를 저장했습니다/)
+  }
+
+  it('제원을 저장하면 요약을 다시 받는다', async () => {
+    const urls = stubServer()
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+
+    await saveRatedVessel()
+    await waitFor(() =>
+      expect(urls.filter((u) => u.includes('/fleet/summary'))).toHaveLength(2),
+    )
+  })
+
+  it('다시 받는 동안 값이 있던 칸은 「불러오는 중」으로 되돌아가지 않고, 등급순도 흩어지지 않는다', async () => {
+    const refetch = deferred()
+    stubServer({ summaryReplies: [refetch] })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    fireEvent.change(screen.getByTestId('vessel-sort'), { target: { value: 'grade' } })
+
+    await saveRatedVessel()
+    // 응답을 쥐고 있는 동안 — 직전 표가 그대로다.
+    expect(gradeCell('가등급호').dataset.gradeState).toBe('rated')
+    expect(gradeCell('나제원호').dataset.gradeState).toBe('unavailable')
+    const names = [...document.querySelectorAll('.vm__item .vm__name')].map((el) => el.textContent)
+    expect(names[0]).toBe('가등급호')
+
+    await act(async () => {
+      refetch.resolve(
+        summaryResponse([
+          summaryVessel(RATED_ID, '가등급호', 'D', null),
+          summaryVessel(SPEC_ID, '나제원호', null, 'MISSING_SPEC'),
+        ]),
+      )
+    })
+    // 응답이 오면 새 표로 바뀐다.
+    await waitFor(() =>
+      expect(within(gradeCell('가등급호')).getByRole('img', { name: /D/ })).toBeTruthy(),
+    )
+  })
+
+  it('다시 받기가 실패하면 직전 값을 지우지 않고, 새로 고치지 못했다는 한 줄만 더한다', async () => {
+    stubServer({ summaryReplies: [jsonResponse({ error: { code: 'INTERNAL_ERROR' } }, 500)] })
+    await renderScreen()
+    await waitFor(() => expect(gradeCell('가등급호').dataset.gradeState).toBe('rated'))
+    expect(screen.queryByTestId('grade-refresh-failed')).toBeNull()
+
+    await saveRatedVessel()
+    await screen.findByTestId('grade-refresh-failed')
+    // 칸은 「받지 못함」이 아니라 직전 값 그대로다.
+    expect(gradeCell('가등급호').dataset.gradeState).toBe('rated')
+    expect(within(gradeCell('가등급호')).getByRole('img', { name: /E/ })).toBeTruthy()
+    expect(gradeCell('나제원호').dataset.gradeState).toBe('unavailable')
   })
 
   it('공식 등급이 아님을 알리는 면책 배너가 있다 (PRD §3.3.7 각주 · §6.3)', async () => {

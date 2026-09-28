@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { FleetLoadOptions, FleetSnapshot, FleetVessel } from '../fleet/types'
-import { gradeCellOf, gradeRank, loadGradeTable, type GradeTable } from './gradeLookup'
+import {
+  MAX_GRADE_PAGES,
+  gradeCellOf,
+  gradeRank,
+  loadGradeTable,
+  type GradeTable,
+} from './gradeLookup'
 
 /**
  * 올해 누적 등급 조회표 (#2018).
@@ -107,6 +113,25 @@ describe('조회표 조립 — 끝 페이지까지, 시점을 고정해서', () 
     )
     await loadGradeTable({ load })
     expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('같은 커서가 다시 오면 멈추고 던진다 — 끝없이 요청하지 않는다', async () => {
+    const load = vi.fn(async () =>
+      snapshot([fleetVessel({ id: 'a' })], { hasMore: true, nextCursor: 'loop' }),
+    )
+    await expect(loadGradeTable({ load })).rejects.toThrow()
+    // 첫 페이지 + `loop` 한 번. 두 번째 `loop`에서 멈춘다.
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
+  it('페이지 수가 상한을 넘으면 던진다 — 커서가 매번 달라도 끝이 있다', async () => {
+    let n = 0
+    const load = vi.fn(async () => {
+      n += 1
+      return snapshot([fleetVessel({ id: `v${n}` })], { hasMore: true, nextCursor: `c${n}` })
+    })
+    await expect(loadGradeTable({ load })).rejects.toThrow()
+    expect(load).toHaveBeenCalledTimes(MAX_GRADE_PAGES)
   })
 
   it('뒤 페이지가 실패하면 표를 내지 않는다 — 반쪽 표는 뒤 배를 「요약에 없음」으로 만든다', async () => {

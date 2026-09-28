@@ -18,6 +18,7 @@ import {
   GRADE_FAILED_HINT,
   GRADE_FAILED_TEXT,
   GRADE_LOADING_TEXT,
+  GRADE_REFRESH_FAILED_TEXT,
   gradeCellOf,
   gradeRank,
   loadGradeTable,
@@ -168,21 +169,39 @@ export function VesselManagement() {
   const fleetProvider = useMemo(() => createApiFleetProvider(), [])
   const [gradeTable, setGradeTable] = useState<GradeTable>({ status: 'loading' })
   const gradeGeneration = useRef(0)
+  /*
+   * **다시 받기는 표를 비우지 않는다.** 제원 저장 뒤 다시 받을 때 `loading`으로 되돌리면
+   * 값이 있던 배가 전부 「불러오는 중」이 되고, 「등급 나쁜 순」 목록은 등급 없음(끝)으로
+   * 흩어졌다가 응답 뒤 다시 모여 **두 번 재배열된다.** 그래서 `loading`은 표가 아직 없을
+   * 때(첫 로드 · 직전 실패)만 세우고, 표가 있으면 그대로 둔 채 받아 성공할 때 바꾼다.
+   *
+   * 다시 받기가 실패하면 **직전 표를 유지**하고 `refreshFailed`만 세운다 — 방금까지 보이던
+   * 등급을 「받지 못함」으로 지우지 않는다. 그 사실을 화면에 어떻게 알릴지는 디자인 확인
+   * ⑶(받지 못함 표시)에 따라 바뀔 수 있다(지금은 목록 위 한 줄 · `GRADE_REFRESH_FAILED_TEXT`).
+   */
   const loadGrades = useCallback(async () => {
     gradeGeneration.current += 1
     const ticket = gradeGeneration.current
-    setGradeTable({ status: 'loading' })
+    setGradeTable((prev) => (prev.status === 'ready' ? prev : { status: 'loading' }))
     try {
       const table = await loadGradeTable(fleetProvider)
       if (ticket === gradeGeneration.current) setGradeTable({ status: 'ready', ...table })
     } catch {
       // 사유 문구는 싣지 않는다 — 목록 위 오류가 아니라 칸의 상태다(`GRADE_FAILED_HINT`).
-      if (ticket === gradeGeneration.current) setGradeTable({ status: 'failed' })
+      if (ticket === gradeGeneration.current) {
+        setGradeTable((prev) =>
+          prev.status === 'ready' ? { ...prev, refreshFailed: true } : { status: 'failed' },
+        )
+      }
     }
   }, [fleetProvider])
   useEffect(() => {
     // oxlint-disable-next-line react/set-state-in-effect -- 화면을 열 때 한 번 받는 조회 — `loadGrades`가 시작 시점의 로딩 상태를 세운다
     void loadGrades()
+    // 떠난 뒤 온 응답은 버린다 — 세대를 올려 진행 중인 요청의 티켓을 낡게 만든다.
+    return () => {
+      gradeGeneration.current += 1
+    }
   }, [loadGrades])
 
   const sorted = useMemo(
@@ -608,6 +627,13 @@ export function VesselManagement() {
           </div>
 
           {hasMore && <p className="vm__partial">{LOADED_PARTIAL_HINT}</p>}
+
+          {/* 다시 받기 실패 — 노출 여부·위치는 디자인 확인 ⑶에 따라 바뀔 수 있다 (#2018). */}
+          {gradeTable.status === 'ready' && gradeTable.refreshFailed === true && (
+            <p className="vm__partial" data-testid="grade-refresh-failed">
+              {GRADE_REFRESH_FAILED_TEXT}
+            </p>
+          )}
 
           {/*
             걸러 놓은 채로 두면 제목(「선박 20척」)과 행 수가 어긋나 보인다. 제목은
