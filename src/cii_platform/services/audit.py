@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import audit_log as audit_repo
 from cii_platform.errors import ValidationError
-from cii_platform.services.llm_guard import extract_numbers
 from cii_platform.services.pagination import normalize_limit
 
 #: 저장소가 실제로 남기는 ``audit_log.action`` 값 (`#1343`).
@@ -489,7 +488,6 @@ async def record_chat_discard(
     kind: str,
     tools: Sequence[str],
     blocked_numbers: Sequence[str],
-    question: str,
     elapsed_ms: int,
     ip_address: str | None = None,
 ) -> None:
@@ -504,12 +502,14 @@ async def record_chat_discard(
     ## 무엇을 싣지 않는가
 
     **답 본문 · 질문 원문을 싣지 않는다** (:func:`content_digest` 참조 — 감사 로그는 90일
-    삭제 대상이 아니다). ``question``은 저장하지 않고 **거르는 데만** 쓴다 — 막힌 수치에서
-    **질문에 이미 있던 수**를 뺀다. 사용자가 친 수(선사의 운항 값일 수 있다)가 모델 답에
-    되풀이돼 막히면, 그대로 적는 순간 지우지 못하는 표에 선사 기밀이 남는다. 질문에 있던
-    수는 폐기 원인을 되짚는 데도 쓸모가 없다 — 원인은 **도구도 질문도 주지 않은 수**다.
+    삭제 대상이 아니다). ``blocked_numbers``는 호출부(``chat._answer_turn``)가 **사용자가 친
+    수를 이미 뺀** 목록이다 — 이번 질문과 이전 턴 질문의 수, 그 반올림 표기까지. 사용자가 친
+    수(선사의 운항 값일 수 있다)가 지우지 못하는 표에 남지 않게 하고, 앱 로그 줄과 같은
+    목록을 쓰게 하려고 거르는 일은 그쪽에 둔다. 이 함수는 받은 값을 적기만 한다.
+
+    감사 기록이 실패하면 **턴이 실패한다(500)** — 다른 ``record_chat_*``와 같이 업무 쓰기와
+    한 트랜잭션에 묶는 원칙(`#1625`)을 따른다.
     """
-    asked = set(extract_numbers(question))
     await audit_repo.insert_event(
         session,
         action="CHAT_DISCARD",
@@ -519,7 +519,7 @@ async def record_chat_discard(
         details={
             "kind": kind,
             "tools": list(tools),
-            "blocked_numbers": [number for number in blocked_numbers if number not in asked],
+            "blocked_numbers": list(blocked_numbers),
             "elapsed_ms": elapsed_ms,
         },
         ip_address=ip_address,

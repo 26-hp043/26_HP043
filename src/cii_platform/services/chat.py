@@ -45,7 +45,11 @@ from cii_platform.llm.provider import (
 from cii_platform.services import audit
 from cii_platform.services.chat_explain import glossary_prompt
 from cii_platform.services.chat_tools import run_tool, tool_schemas
-from cii_platform.services.llm_guard import NumberFabricationError, verify_numbers
+from cii_platform.services.llm_guard import (
+    NumberFabricationError,
+    user_number_forms,
+    verify_numbers,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -252,7 +256,6 @@ async def answer(
             kind=str(note["kind"]),
             tools=list(note["tools"]),
             blocked_numbers=list(note["blocked_numbers"]),
-            question=question,
             elapsed_ms=int((time.monotonic() - started) * 1000),
             ip_address=ip_address,
         )
@@ -435,12 +438,21 @@ async def _answer_turn(
         #
         # `#1985` — 그 한 줄을 `_result`가 남긴다. 종전에는 폐기 경로 **일곱 중 이 하나만**
         # 경고를 두어 나머지 여섯은 운영에서 「답이 저장되지 않았다」만 남았다.
+        #
+        # `#1973` 폐기 후속 — 막힌 수치에서 **사용자가 친 수**를 뺀다. 이번 질문만이 아니라
+        # 이 턴이 모델에 보낸 이력 창의 user 행 전부다 — ``verify_numbers``는 user 메시지를
+        # 허용하지 않으므로 이전 턴에 친 수를 모델이 되풀이해도 막힌다. 반올림 표기까지 뺀다
+        # (「7.3456」→「7.35」). 앱 로그 줄과 감사 행이 **같은 목록**을 쓰도록 여기서 거른다 —
+        # 둘 다 지우지 못하는 곳(감사 로그 · 공개 Actions 로그)으로 나간다.
+        asked = user_number_forms(
+            [question] + [row.content for row in _from_a_question(history) if row.role == ROLE_USER]
+        )
         return _result(
             DISCARDED_MESSAGE,
             used_tools,
             discard_kind="no-compute",
             chat_session_id=chat_session_id,
-            blocked_numbers=exc.numbers,
+            blocked_numbers=[number for number in exc.numbers if number not in asked],
             discarded=True,
             vessel_resolved=effective_vessel is not None,
         )
@@ -505,6 +517,9 @@ def _result(
     폐기면 봉투에 :data:`_DISCARD_AUDIT_KEY`를 붙인다 — :func:`answer`가 떼어 내
     ``CHAT_DISCARD``로 남긴다. 이 함수는 동기라 직접 기록하지 못하고, 기록을 호출부에 두면
     위와 같은 이유로 빠진다.
+
+    ``blocked_numbers``는 **사용자가 친 수를 이미 뺀** 목록이어야 한다 — 앱 로그 줄과 감사
+    행이 이 한 목록을 함께 쓴다(거르는 자리는 No-Compute 호출부).
     """
     envelope: dict[str, object] = {}
     if discarded:
@@ -513,10 +528,13 @@ def _result(
             "tools": list(used_tools),
             "blocked_numbers": list(blocked_numbers or ()),
         }
+        # `#1973` — 수치 검증은 막힌 수가 하나 이상일 때만 폐기하므로, 여기서 목록이 비었다면
+        # 호출부가 **사용자가 친 수를 전부 걸러 낸** 것이다. 빈칸으로 두면 「막힌 수가 없는데
+        # 폐기됐다」로 읽힌다.
         detail = (
             None
             if blocked_numbers is None
-            else f"막힌 수치 {', '.join(blocked_numbers) or '(없음)'}"
+            else f"막힌 수치 {', '.join(blocked_numbers) or '(사용자가 친 수만 — 적지 않음)'}"
         )
         # 종류를 적지 않은 폐기는 없다 — 적지 않으면 점검에서 가를 수 없다.
         _log.warning(
