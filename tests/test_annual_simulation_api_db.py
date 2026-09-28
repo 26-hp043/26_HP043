@@ -11,7 +11,7 @@
 
 케이스 (`TEST_PLAN §14.5`):
     IT-SNAP-001 · IT-SNAP-002 · IT-SNAP-003 · IT-SNAP-004
-    AT-AS-001 · AT-AS-003 · AT-AS-004 · AT-AS-005
+    AT-AS-001 · AT-AS-003 · AT-AS-004 · AT-AS-005 · AT-AS-006
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -29,12 +29,17 @@ from conftest import ensure_regulation_year, insert_if_not_exists
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cii_platform.calc.precision import SERIALIZATION_ROUNDING
+from cii_platform.calc.rating_engine import determine_rating
 from cii_platform.db.types import JSONText, UuidText
 from cii_platform.errors import CalculationError, ValidationError
+from cii_platform.services import annual_simulation as annual_simulation_service
 from cii_platform.services.annual_simulation import (
     NO_BASIS_MESSAGE,
     _inputs_from_snapshot,
     _project_or_domain_error,  # noqa: F401  — 배선 검사가 이름으로 본다
+    load_projection_context,
+    reproduce_annual_simulation,
     run_annual_simulation,
 )
 from cii_platform.services.voyage_cii import DISCLAIMER
@@ -184,6 +189,66 @@ async def test_response_carries_the_four_blocks(session, vessel_id):
     for key in ("deterministic", "monte_carlo", "sensitivity_analysis", "snapshot"):
         assert key in result["data"], key
     assert result["data"]["risk_level"] in {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+
+@pytest.mark.asyncio
+async def test_next_year_outlook_rates_this_year_against_next_year(session, vessel_id):
+    """AT-AS-006 · #2017 · `API_SPEC §6.1` — 다음 해 기준 등급은 **다음 해 컨텍스트와 같은 값**이다.
+
+    대조 기준을 **다른 경로**에서 만든다: 실시간 CII와 공유하는 ``load_projection_context``
+    를 2027년으로 불러 required CII · 경계를 얻는다. 한 블록의 값이 이것과 다르면 같은
+    선박 · 같은 해의 기준이 화면마다 갈린 것이다(`#750` · `#866`).
+    """
+    await ensure_regulation_year(session, YEAR + 1)
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_PLAN", status="PLANNED")
+
+    result = await _run(session, vessel_id)
+    outlook = result["data"]["next_year_outlook"]
+    det = result["data"]["deterministic"]
+
+    nxt = await load_projection_context(session, vessel_id=vessel_id, regulation_year=YEAR + 1)
+    assert outlook["regulation_year"] == YEAR + 1
+    assert outlook["required_cii"] == str(
+        nxt.required_cii.quantize(Decimal("0.000001"), rounding=SERIALIZATION_ROUNDING)
+    )
+    assert (
+        outlook["projected_rating"]
+        == determine_rating(
+            attained_cii=Decimal(det["projected_attained_cii"]),
+            required_cii=nxt.required_cii,
+            d_vector=nxt.d_vector,
+        ).rating
+    )
+    # 기준이 조여지므로 같은 CII의 등급은 같거나 나빠진다.
+    assert outlook["projected_rating"] >= det["projected_rating"]
+    assert result["parameters_used"]["next_regulation_year"]["year"] == str(YEAR + 1)
+
+
+@pytest.mark.asyncio
+async def test_next_year_outlook_is_null_when_the_next_year_is_not_loaded(
+    session, vessel_id, monkeypatch
+):
+    """#2017 — 다음 규정연도가 없으면(2030년 다음) 블록은 ``null``이고 실행은 그대로 간다.
+
+    올해 행이 없으면 409인 것과 다르다 — 보조 한 줄 때문에 실행을 막지 않는다.
+    ``null``은 해시 재료에도 남고, 재현도 같은 ``null``을 낸다.
+    """
+
+    async def _missing(_session, _year):
+        return None
+
+    monkeypatch.setattr(annual_simulation_service, "_load_next_regulation_year", _missing)
+    await _add_voyage(session, vessel_id, policy="INCLUDE_AS_ACTUAL", status="CONFIRMED")
+
+    result = await _run(session, vessel_id)
+    assert "next_year_outlook" in result["data"]
+    assert result["data"]["next_year_outlook"] is None
+    assert result["parameters_used"]["next_regulation_year"] is None
+
+    again = await reproduce_annual_simulation(session, UUID(result["data"]["simulation_id"]))
+    assert again["data"]["next_year_outlook"] is None
+    assert again["parameter_hash"] == result["parameter_hash"]
 
 
 @pytest.mark.asyncio

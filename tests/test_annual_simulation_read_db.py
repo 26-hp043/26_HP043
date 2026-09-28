@@ -41,6 +41,7 @@ from cii_platform.services import annual_simulation as annual_simulation_service
 from cii_platform.services.annual_simulation import (
     PARAMETERS_SCHEMA_V1,
     PARAMETERS_SCHEMA_V2,
+    PARAMETERS_SCHEMA_V3,
     WARNING_FUEL_CF_MASS_BASIS,
     WARNING_MODEL_VERSION_DIFFERS,
     _assert_same_outcome,
@@ -473,16 +474,22 @@ async def test_reproduce_rebuilds_with_the_stored_schema_version(session, execut
 
     # ⑴ 새 실행은 **v2**로 저장된다 (#816 ⑶ · 2026-09-18 결정 — fuel_types ·
     #    parameter_sources · 버전 필드). 기존 162건(v1)의 재현은 아래 별도 검사가 본다.
-    assert parameters_schema_version(row.parameters_used) == PARAMETERS_SCHEMA_V2
+    assert parameters_schema_version(row.parameters_used) == PARAMETERS_SCHEMA_V3
     assert "fuel_types" in row.parameters_used, (
         "v2에 연료 CF 블록이 없다 — CF 개정이 해시에 드러나지 않는다"
     )
     assert "parameter_sources" in row.parameters_used, "v2에 출처 4키가 없다"
+    # v3(#2017)는 다음 규정연도 출처를 더한다 — 다섯 키.
     assert set(row.parameters_used["parameter_sources"]) == {
         "regulation_year",
         "reference_line",
         "rating_boundary",
         "fuel_types",
+        "next_regulation_year",
+    }
+    assert row.parameters_used["next_regulation_year"] == {
+        "year": str(YEAR + 1),
+        "z_factor_percent": row.parameters_used["next_regulation_year"]["z_factor_percent"],
     }
 
     seen: list[int] = []
@@ -499,17 +506,22 @@ async def test_reproduce_rebuilds_with_the_stored_schema_version(session, execut
     again = await reproduce_annual_simulation(session, simulation_id)
 
     # ⑵ 저장된 버전으로 **한 번** 호출됐다.
-    assert seen == [PARAMETERS_SCHEMA_V2], seen
+    assert seen == [PARAMETERS_SCHEMA_V3], seen
 
     # ⑶ 판별력 — 다른 버전으로 만들면 해시가 달라진다. 이 단언이 없으면 위 ⑵는
     #    「어차피 한 버전뿐이라 통과」와 구분되지 않는다.
-    v2_used = build_parameters_used(PARAMETERS_SCHEMA_V2, **captured)
-    marker = "__hypothetical_v3_field__"
-    assert marker not in v2_used, "표지가 v2와 충돌한다 — 이 단언의 판별력이 사라진다"
-    assert compute_parameter_hash({**v2_used, marker: "v3"}) != row.parameter_hash
+    v3_used = build_parameters_used(PARAMETERS_SCHEMA_V3, **captured)
+    marker = "__hypothetical_v4_field__"
+    assert marker not in v3_used, "표지가 v3와 충돌한다 — 이 단언의 판별력이 사라진다"
+    assert compute_parameter_hash({**v3_used, marker: "v4"}) != row.parameter_hash
+    # v2로 만들면(다음 해 블록이 빠지면) 해시가 달라진다 — v3 블록이 해시 재료라는 증명.
+    assert compute_parameter_hash(build_parameters_used(PARAMETERS_SCHEMA_V2, **captured)) != (
+        row.parameter_hash
+    )
 
     # ⑷ 결과와 해시가 원본과 같다 — 「409가 안 났다」가 아니라 **같은 값**이다.
-    assert compute_parameter_hash(v2_used) == row.parameter_hash
+    assert compute_parameter_hash(v3_used) == row.parameter_hash
+    assert again["data"]["next_year_outlook"] == executed["data"]["next_year_outlook"]
     assert again["data"]["deterministic"] == executed["data"]["deterministic"]
     assert again["data"]["sensitivity_analysis"] == executed["data"]["sensitivity_analysis"]
     assert (
@@ -575,6 +587,45 @@ async def test_reproduce_rebuilds_v1_rows_with_the_frozen_v1_builder(
 
 
 @pytest.mark.asyncio
+async def test_v2_rows_reproduce_without_the_next_year_block(
+    session, executed, vessel_id, monkeypatch
+):
+    """#2017 — **v2 행(다음 해 기준 이전)은 그 블록 없이 재현된다.**
+
+    v3가 새 실행의 형식이 되며 v2 행은 자연히 만들어지지 않는다 — 빌더를 v2로 바꿔
+    실행해 v2 행을 만든다(항차는 ``executed``가 넣어 둔 두 건). 세 가지를 본다.
+
+    ⑴ 저장된 응답에 ``next_year_outlook`` **키가 없다** — 해시에 다음 해 Z가 없는 행에
+       그 값을 저장하면 재현이 대조할 근거가 없다(실행 경로가 버전을 보고 싣는다).
+    ⑵ 재현이 409 없이 같은 해시를 낸다 — v2 빌더가 동결돼 있다.
+    ⑶ 재현 응답에도 키가 없다 — 원본에 없던 블록을 재현이 새로 만들지 않는다.
+    """
+
+    def _v2_spy(version: int, **kwargs):
+        return build_parameters_used(
+            PARAMETERS_SCHEMA_V2, **{k: v for k, v in kwargs.items() if k != "next_regulation"}
+        )
+
+    monkeypatch.setattr(annual_simulation_service, "build_parameters_used", _v2_spy)
+    v2_run = await run_annual_simulation(
+        session,
+        vessel_id=vessel_id,
+        regulation_year=YEAR,
+        target_rating="C",
+        simulation_runs=50,
+        random_seed=778,
+    )
+    monkeypatch.undo()
+
+    assert "next_year_outlook" not in v2_run["data"]
+    assert parameters_schema_version(v2_run["parameters_used"]) == PARAMETERS_SCHEMA_V2
+
+    again = await reproduce_annual_simulation(session, UUID(v2_run["data"]["simulation_id"]))
+    assert again["parameter_hash"] == v2_run["parameter_hash"]
+    assert "next_year_outlook" not in again["data"]
+
+
+@pytest.mark.asyncio
 async def test_reproduce_takes_the_version_from_the_row_not_a_constant(
     session, executed, monkeypatch
 ):
@@ -583,10 +634,10 @@ async def test_reproduce_takes_the_version_from_the_row_not_a_constant(
     위 테스트는 「v2 행이 v2로 재현된다」까지만 본다. 코드가 행을 보지 않고 최신
     상수(`PARAMETERS_SCHEMA_V2`)를 그대로 넘겨도 지금은 똑같이 통과한다.
 
-    그래서 여기서는 **판정 함수만** 가상의 v3를 돌려주게 바꾸고, 빌더가 그 값을
-    받는지 본다. 상수를 넘기고 있었다면 ``seen``은 ``[2]``가 된다.
+    그래서 여기서는 **판정 함수만** 가상의 v4를 돌려주게 바꾸고, 빌더가 그 값을
+    받는지 본다. 상수를 넘기고 있었다면 ``seen``은 ``[3]``이 된다(v3는 `#2017`에서 실재).
 
-    v3 빌더는 아직 없으므로 :class:`ValueError`로 끝나야 한다 — `#816`의 미등록 버전
+    v4 빌더는 아직 없으므로 :class:`ValueError`로 끝나야 한다 — `#816`의 미등록 버전
     처리를 그대로 타는 것이고, 조용히 낮은 버전으로 떨어뜨리면 해시 불일치의 이유가
     「버전이 다르다」인지 「값이 다르다」인지 가려진다.
 
@@ -599,12 +650,12 @@ async def test_reproduce_takes_the_version_from_the_row_not_a_constant(
         return build_parameters_used(version, **kwargs)
 
     monkeypatch.setattr(annual_simulation_service, "build_parameters_used", _spy)
-    monkeypatch.setattr(annual_simulation_service, "parameters_schema_version", lambda _: 3)
+    monkeypatch.setattr(annual_simulation_service, "parameters_schema_version", lambda _: 4)
 
-    with pytest.raises(ValueError, match="알 수 없는 parameters_used 스키마 버전: 3"):
+    with pytest.raises(ValueError, match="알 수 없는 parameters_used 스키마 버전: 4"):
         await reproduce_annual_simulation(session, UUID(executed["data"]["simulation_id"]))
 
-    assert seen == [3], "행이 판정한 버전이 아니라 상수를 넘기고 있다 (#816)"
+    assert seen == [4], "행이 판정한 버전이 아니라 상수를 넘기고 있다 (#816)"
 
 
 @pytest.mark.asyncio

@@ -387,6 +387,29 @@ def project_deterministic(
 
 
 @layer1_context
+def rate_against_next_year(
+    *, projection: DeterministicProjection, next_required_cii: Decimal, d_vector: DVector
+) -> str:
+    """올해 연말 예상 CII를 **다음 해의 required CII·경계**에 대 본 등급 (#2017).
+
+    「올해와 같은 운항이면 다음 해 기준으로 몇 등급인가」 — 규제가 해마다 조여지므로
+    같은 값이라도 다음 해에는 등급이 내려갈 수 있다. 가정은 하나다: **올해 연말 예상
+    CII가 다음 해에도 그대로다.** 문구 원문은 `PRD §6.3`.
+
+    경계 판정은 :func:`determine_rating`을 **그대로** 부른다 — 포함 방향(초과 · 이하 ·
+    같으면 더 우수한 등급 · `PRD §3.3.6`)을 다시 적으면 올해 판정과 갈릴 수 있다.
+    ``projection.attained_cii``는 **공표 확정 전 원값**이어야 한다(`#179`).
+
+    ``d_vector``는 선종의 것이라 해와 무관하다 — 바뀌는 것은 required CII뿐이다.
+    """
+    return determine_rating(
+        attained_cii=projection.attained_cii,
+        required_cii=next_required_cii,
+        d_vector=d_vector,
+    ).rating
+
+
+@layer1_context
 def feedback_factor(pairs: Sequence[CompletedPair]) -> FeedbackFactor:
     """확정 항차의 계획 대비 실적으로 **연료 강도 보정계수**를 낸다 (``PRD §12.2.1``).
 
