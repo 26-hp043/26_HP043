@@ -599,8 +599,12 @@ describe('이어받은 단가는 출처를 말한다 (#2020)', () => {
     await screen.findByText('MV One')
     await screen.findByText(FLEET_REDUCTION_COPY.noPlans)
 
-    // 이름으로 찾는 것만으로는 빈 단언이다(이름이 있을 수 없다) — 도구 줄 밖 상태 문장 자체가 없다.
-    expect(document.querySelectorAll('.fr > p.fr__caption[role="status"]')).toHaveLength(0)
+    // 이름으로 찾는 것만으로는 빈 단언이다(이름이 있을 수 없다). 문구 함수에서 **이름 뒤의 고정
+    // 부분**을 뽑아, 어느 상태 문장에도 그것이 없음을 본다 — 문장의 위치·클래스가 바뀌어도
+    // 거짓 통과하지 않고, 문구를 바꿔도 함께 따라간다(`AGENTS §4.6`).
+    const tail = FLEET_REDUCTION_COPY.inheritedPrices('\u0000', null).split('\u0000')[1]
+    expect(tail.trim()).not.toBe('')
+    for (const el of screen.queryAllByRole('status')) expect(el.textContent ?? '').not.toContain(tail)
   })
 
   it('⚠️ 단가 없이 저장한 계획이면 이어받은 값이 없다 — 「이어받았다」고 적지 않는다', async () => {
