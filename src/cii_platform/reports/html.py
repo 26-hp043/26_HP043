@@ -66,10 +66,22 @@ STYLESHEET = """
 /* 자산의 width·height 속성을 CSS가 덮는다 — 자산 파일은 그대로 두고 크기만 여기서 정한다. */
 .cover svg { display: block; height: 4mm; width: auto; }
 body { font-family: sans-serif; font-size: 9.5pt; color: #1a1a18; line-height: 1.5; }
+/* `DESIGN_SYSTEM §3` — 굵기는 400·500만 쓴다. **기본값에 맡기지 않는다** (`#2003`):
+   HTML 기본 스타일이 `h1`·`h2`·`b`·`th`를 굵게 그리므로, 선언이 없으면 `§3` 밖의 `700`이
+   조용히 인쇄된다. 종전이 그 상태였다.
+   ⚠️ 인쇄 스택(`fonts-nanum`)에는 Medium이 없어 `500`은 지금 Regular로 떨어진다. 스택이
+   Medium을 갖는 날 이 선언이 그대로 의도대로 산다. */
+h1, h2, b { font-weight: 500; }
 h1 { font-size: 17pt; margin: 0 0 2mm; }
-h2 { font-size: 11pt; margin: 7mm 0 2mm; padding-bottom: 1mm;
+/* 굵기가 빠지면 11pt는 본문 9.5pt와 1.5pt 차이뿐이라 제목이 서지 않는다. 3pt로 벌린다.
+   인쇄 크기는 `§3` 소관이 아니다 — `§3` 표는 px 화면 스케일이고 여기는 pt 인쇄 스케일이다. */
+h2 { font-size: 12.5pt; margin: 7mm 0 2mm; padding-bottom: 1mm;
      border-bottom: 1px solid #c9c7be; }
-.meta { margin: 0 0 6mm; font-size: 8.5pt; color: #5f5e5a; }
+/* 표지 메타 — 라벨과 값을 **크기와 색조 둘**로 가른다 (`#2003`). 굵기를 쓸 수 없는 자리라
+   한 채널만 쓰면 구분이 물러진다(색조만 쓴 시안이 흑백 확대에서 그랬다). 주 채널은 여전히
+   **순서**다 — 라벨이 값 앞에 온다. 색이 단독으로 뜻을 지지 않으므로 `§14`에 걸리지 않는다. */
+.meta { margin: 0 0 6mm; font-size: 8pt; color: #5f5e5a; }
+.meta b { font-size: 9.5pt; color: #1a1a18; }
 .meta span { margin-right: 5mm; }
 .disclaim { margin: 0 0 6mm; padding: 2.5mm 3mm; border: 1px solid #c9c7be;
             background: #f8f8f6; font-size: 8.5pt; }
@@ -89,6 +101,9 @@ td.label { color: #5f5e5a; width: 34%; }
 .warnings { margin: 6mm 0 0; padding: 2.5mm 3mm; border: 1px solid #e3e2dc;
             font-size: 8.5pt; }
 .warnings ul { margin: 1mm 0 0; padding-left: 4mm; }
+/* 「경고」도 굵기를 못 쓴다. 줄을 바꿔 세우고 자간으로 표제임을 알린다. */
+.warnings b { display: block; margin-bottom: 1.2mm; color: #1a1a18;
+              letter-spacing: 0.08em; }
 /* 표가 페이지 경계에서 머리글만 남고 잘리는 것을 막는다. */
 table { page-break-inside: auto; }
 tr { page-break-inside: avoid; }
