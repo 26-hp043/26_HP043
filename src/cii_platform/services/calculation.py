@@ -42,6 +42,57 @@ def normalize_limit(limit: int | None) -> int:
     )
 
 
+#: 기상 보정을 **실제로 적용하는** 계산 종류 (`#2012`).
+#:
+#: 항차 계산(`VOYAGE_ESTIMATE`)은 ``weather_model``을 해시 재료로 싣지만 ``weather_factor``를
+#: ``None``으로 고정한다 — 보정이 없다. 그 종류에 블록을 내면 「모델을 골랐는데 쓰지 않았다」로
+#: 읽히므로 ``null``로 둔다. 기상을 적용하는 종류가 늘면 여기에 더한다.
+_WEATHER_TYPES = frozenset({"SCENARIO"})
+
+#: 기상 경고 코드의 머리 (``API_SPEC §1.6`` ``WEATHER_STALE`` · ``WEATHER_NONE_FALLBACK``).
+_WEATHER_WARNING_PREFIX = "WEATHER_"
+
+
+def _weather(run: CalculationRun) -> dict[str, object] | None:
+    """이 계산이 **요청한** 기상 모델과 **실제로 쓴** 모델 · 스냅샷 · 기상 경고 (`#2012`).
+
+    둘을 나눠 싣는 이유는 fallback이다(``PRD §11.6`` · `#62`) — 조회가 실패하면 요청은
+    ``SIMPLE_RULE``인데 계산은 ``NONE``으로 돈다. 요청만 보이면 보정된 값으로 읽힌다.
+
+    **저장된 값을 옮기기만 한다.** 요청은 ``result_json.weather_model_requested``, 실제 모델은
+    ``result_json.scenarios[].weather_model_used``(한 요청은 한 번 조회한 기상으로 세 시나리오를
+    모두 보정하므로 같은 값이다), 스냅샷은 ``weather_snapshot_id`` 컬럼이다.
+
+    ⚠️ **요청 모델은 `#2012` 이후 계산에만 있다.** 그 전에는 입력 해시 재료로만 쓰이고
+    저장되지 않았다 — 과거 행은 ``model_requested``가 ``null``(기록 없음)이다. 계산 결과는
+    불변이라 되살리지 않는다. fallback 여부는 그때도 ``warnings``의
+    ``WEATHER_NONE_FALLBACK``이 말한다.
+    """
+    if run.calculation_type not in _WEATHER_TYPES:
+        return None
+    result_json = run.result_json or {}
+    scenarios = result_json.get("scenarios") or []
+    used = next(
+        (
+            item["weather_model_used"]
+            for item in scenarios
+            if isinstance(item, dict) and item.get("weather_model_used")
+        ),
+        None,
+    )
+    warnings = [
+        code
+        for code in (run.warnings_json or [])
+        if isinstance(code, str) and code.startswith(_WEATHER_WARNING_PREFIX)
+    ]
+    return {
+        "model_requested": result_json.get("weather_model_requested"),
+        "model_used": used,
+        "snapshot_id": str(run.weather_snapshot_id) if run.weather_snapshot_id else None,
+        "warnings": warnings,
+    }
+
+
 def _to_dict(run: CalculationRun) -> dict[str, object]:
     """``CalculationRun`` 행을 API_SPEC §1.9 ``data[]`` 항목으로 바꾼다."""
     result_json = run.result_json or {}
@@ -55,6 +106,7 @@ def _to_dict(run: CalculationRun) -> dict[str, object]:
         "parameter_hash": run.parameter_hash,
         "model_version": run.model_version,
         "result_summary": result_summary,
+        "weather": _weather(run),
         "needs_recalc": run.needs_recalc,
         "created_at": _iso(run.created_at),
     }

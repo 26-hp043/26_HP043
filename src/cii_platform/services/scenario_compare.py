@@ -366,7 +366,11 @@ async def compare_scenarios(
             input_hash=input_hash,
             parameter_hash=parameter_hash,
             model_version=model_version,
-            result_json=data,
+            # 요청한 기상 모델을 **저장본에만** 더한다 (`#2012`). 요청은 입력 해시 재료일 뿐
+            # 어디에도 남지 않아, fallback이 일어나면 「무엇을 요청했나」를 사후에 답할 수
+            # 없었다. 응답 ``data``에는 넣지 않는다 — `POST /scenarios/compare` 계약은 그대로다.
+            # ``parameters_used``에 넣지 않는 것은 그것이 **파라미터 해시 재료**이기 때문이다.
+            result_json={**data, "weather_model_requested": payload.weather_model or "NONE"},
             parameters_used=parameters_used,
             warnings=warnings,
             duration_ms=duration_ms,

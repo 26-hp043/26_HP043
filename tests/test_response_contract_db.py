@@ -695,6 +695,8 @@ CONTRACTS: dict[str, frozenset[str]] = {
             "data[].result_summary",
             "data[].result_summary.attained_cii",
             "data[].result_summary.estimated_rating",
+            # `#2012` — 항차 계산은 기상 보정을 적용하지 않아 `null`이다(키는 있다).
+            "data[].weather",
             "data[].vessel_id",
             "data[].voyage_id",
             "meta",
