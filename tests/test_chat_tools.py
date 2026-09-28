@@ -252,6 +252,33 @@ def test_system_prompt_makes_regulation_answers_keep_their_meaning() -> None:
     assert {"d1", "d2", "d3", "d4"} <= set(chat_tools._BOUNDARY_FIELDS)
 
 
+def test_the_prompt_puts_a_boundary_value_in_the_better_grade_like_the_engine() -> None:
+    """IT-CHAT-073 (`#1973` 후속) — 경계에 **정확히 걸린 배는 더 우수한 등급**이다.
+
+    09-28 운영 답이 「D등급: 기준 CII의 1.06배 이상, 1.18배 미만」이라 적었다 — 포함 방향이
+    반대다. 원인은 규칙의 예시 「d1배 **미만**」이었고 모델은 그 틀을 따랐다. 규칙이 **엔진의
+    판정과 같은 방향**을 가르치는지 엔진을 직접 돌려 대조한다 — 문구만 보면 엔진이 바뀌는 날
+    다시 갈린다.
+    """
+    from decimal import Decimal
+
+    from cii_platform.calc.rating_engine import DVector, determine_rating
+    from cii_platform.services.chat import SYSTEM_PROMPT
+
+    d = DVector(d1=Decimal("0.86"), d2=Decimal("0.94"), d3=Decimal("1.06"), d4=Decimal("1.18"))
+    required = Decimal("5")
+    on_edge = [
+        determine_rating(attained_cii=required * factor, required_cii=required, d_vector=d).rating
+        for factor in (d.d1, d.d2, d.d3, d.d4)
+    ]
+    assert on_edge == ["A", "B", "C", "D"], "엔진이 경계값을 더 우수한 등급으로 넣지 않는다"
+
+    # 엔진이 그렇다면 규칙도 그 방향이어야 한다.
+    assert "초과" in SYSTEM_PROMPT and "이하" in SYSTEM_PROMPT
+    assert "더 우수한 등급" in SYSTEM_PROMPT
+    assert "d1배 미만" not in SYSTEM_PROMPT, "경계를 아래 등급에 넣는 옛 예시가 남아 있다"
+
+
 def test_lookup_regulation_year_is_left_empty_unless_the_user_named_one() -> None:
     """IT-CHAT-072 (`#1973` ④) — 연도를 묻지 않았으면 비워 둬 **올해** 값을 받는다.
 
