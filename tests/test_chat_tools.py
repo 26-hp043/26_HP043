@@ -253,7 +253,9 @@ def test_system_prompt_makes_regulation_answers_keep_their_meaning() -> None:
 
 
 def test_the_prompt_puts_a_boundary_value_in_the_better_grade_like_the_engine() -> None:
-    """IT-CHAT-073 (`#1973` 후속) — 경계에 **정확히 걸린 배는 더 우수한 등급**이다.
+    """IT-CHAT-077 (`#1973` 후속) — 경계에 **정확히 걸린 배는 더 우수한 등급**이다.
+
+    (종전 번호 `IT-CHAT-073`은 같은 날 `#1985`가 먼저 써 겹쳤다 — 이쪽을 옮겼다.)
 
     09-28 운영 답이 「D등급: 기준 CII의 1.06배 이상, 1.18배 미만」이라 적었다 — 포함 방향이
     반대다. 원인은 규칙의 예시 「d1배 **미만**」이었고 모델은 그 틀을 따랐다. 규칙이 **엔진의
@@ -277,6 +279,42 @@ def test_the_prompt_puts_a_boundary_value_in_the_better_grade_like_the_engine() 
     assert "초과" in SYSTEM_PROMPT and "이하" in SYSTEM_PROMPT
     assert "더 우수한 등급" in SYSTEM_PROMPT
     assert "d1배 미만" not in SYSTEM_PROMPT, "경계를 아래 등급에 넣는 옛 예시가 남아 있다"
+
+
+def test_grade_ranges_hand_the_model_finished_sentences() -> None:
+    """IT-CHAT-078 (`#1973` 후속) — 등급 구간을 **옮겨 적을 문장**으로 준다.
+
+    규칙을 「초과 · 이하」로 고친 뒤에도 운영 답이 「D: 1.0600배 이상, 1.1800배 미만」이었다
+    (09-28). 방향을 모델이 추론하게 두지 않는다. 문장은 **엔진의 판정과 같은 방향**이어야
+    한다 — 경계값에 걸린 배는 더 우수한 등급의 「이하」 쪽에 든다.
+    """
+    from decimal import Decimal
+
+    from cii_platform.calc.rating_engine import DVector, determine_rating
+
+    row = {"d1": "0.8600", "d2": "0.9400", "d3": "1.0600", "d4": "1.1800"}
+    ranges = chat_tools._grade_ranges(row)
+    assert ranges == {
+        "A": "0.8600배 이하",
+        "B": "0.8600배 초과 ~ 0.9400배 이하",
+        "C": "0.9400배 초과 ~ 1.0600배 이하",
+        "D": "1.0600배 초과 ~ 1.1800배 이하",
+        "E": "1.1800배 초과",
+    }
+    assert not any("이상" in text or "미만" in text for text in ranges.values())
+
+    # 각 경계값에서 엔진이 고르는 등급의 문장이 그 경계를 「이하」로 끝맺는다.
+    d = DVector(**{key: Decimal(value) for key, value in row.items()})
+    for key, value in row.items():
+        grade = determine_rating(
+            attained_cii=Decimal(value), required_cii=Decimal(1), d_vector=d
+        ).rating
+        assert ranges[grade].endswith(f"{value}배 이하"), (key, grade, ranges[grade])
+
+
+def test_grade_ranges_are_not_invented_when_a_boundary_is_missing() -> None:
+    """빈 경계를 채워 넣으면 없는 경계를 말하게 된다."""
+    assert chat_tools._grade_ranges({"d1": "0.86", "d2": None, "d3": "1.06", "d4": "1.18"}) == {}
 
 
 def test_lookup_regulation_year_is_left_empty_unless_the_user_named_one() -> None:

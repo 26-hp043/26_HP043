@@ -630,6 +630,10 @@ async def test_lookup_regulation_quotes_the_seeded_table_with_sources(session, v
     ]
     assert all(row["source_ref"] for row in result["reference_lines"])
     assert all(row["source_ref"] for row in result["rating_boundaries"])
+    # `#1973` 후속 — 구간 문장은 **같은 행의 d 값**으로 조립된다(새 값이 아니다).
+    for row in result["rating_boundaries"]:
+        assert row["grade_ranges"]["D"] == f"{row['d3']}배 초과 ~ {row['d4']}배 이하"
+        assert row["grade_ranges"]["A"] == f"{row['d1']}배 이하"
     assert result["reduction_factor"]["year"] == 2026
     assert result["reduction_factor"]["source_ref"]
     assert result["fuel_cf"]["fuel_code"] == "HFO"
