@@ -28,6 +28,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from cii_platform.db.models.chat import ROLE_ASSISTANT, ROLE_USER
@@ -130,7 +131,8 @@ _RULES = (
     # ④ 감축률은 한 해의 값이다 — 연도 없이 말하면 사용자는 올해 값으로 읽는다.
     "- 감축률(Z)은 도구가 준 연도(reduction_factor.year)와 함께 「그 해의 기준선 대비 감축률」로 "
     "말하십시오. 사용자가 연도를 말하지 않았으면 regulation_year를 넣지 마십시오 — "
-    "올해 값이 옵니다.\n"
+    "올해 값이 옵니다. 다른 해의 감축률은 reduction_factor.by_year에 있는 값만 "
+    "그 연도와 함께 쓰십시오.\n"
     # `#1534`(결정요청 v6 `D-32`) — 이 줄의 근거는 개인정보가 아니라 선사 기밀이다.
     # `PRD §16.3.1`이 ``vessel_name``·``imo_number``를 외부 LLM 전송 금지 필드로
     # 못 박고, `PRD §20 O-12` No-Recall이 그 이유를 「선사 기밀 운항 데이터를 외부
@@ -209,9 +211,10 @@ async def answer(
     경로가 그대로 탄다). ``turn_timeout``은 검사가 짧은 예산을 넣는 주입점이다.
     """
     budget = TURN_TIMEOUT_SECONDS if turn_timeout is None else turn_timeout
+    started = time.monotonic()
     try:
         async with asyncio.timeout(budget):
-            return await _answer_turn(
+            result = await _answer_turn(
                 session,
                 provider=provider,
                 chat_session_id=chat_session_id,
@@ -222,7 +225,7 @@ async def answer(
                 ip_address=ip_address,
             )
     except TimeoutError:
-        return _result(
+        result = _result(
             TURN_TIMEOUT_MESSAGE,
             [],
             discarded=True,
@@ -230,6 +233,30 @@ async def answer(
             discard_kind="turn-timeout",
             chat_session_id=chat_session_id,
         )
+        # ⚠️ `#1973` — 시간 초과는 감사 로그에 **남기지 않는다**(앱 로그 한 줄만). 취소는 DB
+        # 쿼리 한가운데서도 떨어질 수 있어 이 세션·커넥션이 온전한지 보장할 수 없다. 여기서
+        # INSERT가 실패하면 사용자에게 가던 시간 초과 안내가 500으로 바뀐다 — 폐기 기록 하나를
+        # 얻으려고 턴 전체를 잃는 셈이다.
+        result.pop(_DISCARD_AUDIT_KEY, None)
+        return result
+
+    # `#1973` — 폐기는 감사 로그에도 남긴다. 폐기 경로는 전부 `_result`를 지나므로, 거기서
+    # 붙인 표지를 **이 한 곳에서** 꺼내 기록한다 — 경로가 늘어도 기록이 빠지지 않는다.
+    # 표지는 반드시 떼어 낸다: 라우트가 봉투를 그대로 응답에 펼친다(``**result``).
+    note = result.pop(_DISCARD_AUDIT_KEY, None)
+    if isinstance(note, dict):
+        await audit.record_chat_discard(
+            session,
+            user_id=user_id,
+            session_id=chat_session_id,
+            kind=str(note["kind"]),
+            tools=list(note["tools"]),
+            blocked_numbers=list(note["blocked_numbers"]),
+            question=question,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+            ip_address=ip_address,
+        )
+    return result
 
 
 async def _answer_turn(
@@ -413,7 +440,7 @@ async def _answer_turn(
             used_tools,
             discard_kind="no-compute",
             chat_session_id=chat_session_id,
-            detail=f"막힌 수치 {', '.join(exc.numbers) or '(없음)'}",
+            blocked_numbers=exc.numbers,
             discarded=True,
             vessel_resolved=effective_vessel is not None,
         )
@@ -443,6 +470,10 @@ async def _answer_turn(
 #: 단계가 조용히 아무것도 못 찾으므로 ``tests/test_chat_discard_log.py``가 양쪽을 대조한다.
 DISCARD_LOG_PREFIX = "챗봇 답 폐기"
 
+#: 폐기 봉투에 붙는 **내부 표지** (`#1973`). :func:`answer`가 떼어 내 감사 로그에 남긴다 —
+#: 응답으로 나가지 않는다.
+_DISCARD_AUDIT_KEY = "_discard_audit"
+
 
 def _result(
     text: str,
@@ -452,7 +483,7 @@ def _result(
     vessel_resolved: bool = False,
     discard_kind: str | None = None,
     chat_session_id: UUID | None = None,
-    detail: str | None = None,
+    blocked_numbers: Sequence[str] | None = None,
 ) -> dict[str, object]:
     """턴 하나의 응답 봉투. **폐기면 여기서 한 줄을 남긴다** (`#1985`).
 
@@ -468,8 +499,25 @@ def _result(
     **답 본문 · 질문 · 사용자 · IP를 싣지 않는다** (``PRD §16.3.1``). 공개 저장소의 Actions
     로그로 나가는 줄이므로, 실려도 되는 것은 **폐기 종류 · 세션 · 부른 도구 이름**과
     경로별 부가값(막힌 수치처럼 그 자체로는 사람을 가리키지 않는 것)뿐이다.
+
+    ## 감사 로그 표지 (`#1973`)
+
+    폐기면 봉투에 :data:`_DISCARD_AUDIT_KEY`를 붙인다 — :func:`answer`가 떼어 내
+    ``CHAT_DISCARD``로 남긴다. 이 함수는 동기라 직접 기록하지 못하고, 기록을 호출부에 두면
+    위와 같은 이유로 빠진다.
     """
+    envelope: dict[str, object] = {}
     if discarded:
+        envelope[_DISCARD_AUDIT_KEY] = {
+            "kind": discard_kind or "unknown",
+            "tools": list(used_tools),
+            "blocked_numbers": list(blocked_numbers or ()),
+        }
+        detail = (
+            None
+            if blocked_numbers is None
+            else f"막힌 수치 {', '.join(blocked_numbers) or '(없음)'}"
+        )
         # 종류를 적지 않은 폐기는 없다 — 적지 않으면 점검에서 가를 수 없다.
         _log.warning(
             "%s(%s) — 세션 %s · 부른 도구 %s%s",
@@ -480,6 +528,7 @@ def _result(
             f" · {detail}" if detail else "",
         )
     return {
+        **envelope,
         "answer": text,
         # 면책은 **폐기했을 때도** 붙는다 — 「모든 응답에 disclaimer」가 완료 기준이다.
         "disclaimer": DISCLAIMER,

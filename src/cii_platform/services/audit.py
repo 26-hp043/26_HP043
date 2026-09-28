@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 from cii_platform.db.repositories import audit_log as audit_repo
 from cii_platform.errors import ValidationError
+from cii_platform.services.llm_guard import extract_numbers
 from cii_platform.services.pagination import normalize_limit
 
 #: 저장소가 실제로 남기는 ``audit_log.action`` 값 (`#1343`).
@@ -51,6 +52,9 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "VOYAGE_ACTUALS_FILL",
         "CHAT_MESSAGE",
         "CHAT_TOOL_CALL",
+        # `#1973` — 챗봇이 답을 **폐기한** 턴. 종전에는 앱 로그에만 남아 컨테이너를 바꾸면
+        # 사라졌다 — 운영 폐기의 막힌 수치를 되찾지 못했다.
+        "CHAT_DISCARD",
         "PARAMETER_IMPORT",
     }
 )
@@ -61,6 +65,7 @@ AUDIT_ENTITY_TYPES: frozenset[str] = frozenset(
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
 
@@ -472,6 +477,51 @@ async def record_chat_tool_call(
         entity_type="chat_session",
         entity_id=session_id,
         details=details,
+        ip_address=ip_address,
+    )
+
+
+async def record_chat_discard(
+    session: AsyncSession,
+    *,
+    user_id: str | None,
+    session_id: UUID,
+    kind: str,
+    tools: Sequence[str],
+    blocked_numbers: Sequence[str],
+    question: str,
+    elapsed_ms: int,
+    ip_address: str | None = None,
+) -> None:
+    """챗봇이 답을 폐기한 턴 한 건 (`#1973`).
+
+    ## 왜 앱 로그만으로는 모자랐나
+
+    폐기 한 줄(``chat.DISCARD_LOG_PREFIX``)은 **컨테이너 로그**에만 있었다. 운영에서
+    「벌크선 D등급 경계」 질문이 No-Compute로 폐기됐는데, 그 사이 컨테이너가 바뀌어
+    **무엇이 막혔는지** 되찾을 수 없었다. 감사 로그는 지우지 않는 기록이므로 여기 남긴다.
+
+    ## 무엇을 싣지 않는가
+
+    **답 본문 · 질문 원문을 싣지 않는다** (:func:`content_digest` 참조 — 감사 로그는 90일
+    삭제 대상이 아니다). ``question``은 저장하지 않고 **거르는 데만** 쓴다 — 막힌 수치에서
+    **질문에 이미 있던 수**를 뺀다. 사용자가 친 수(선사의 운항 값일 수 있다)가 모델 답에
+    되풀이돼 막히면, 그대로 적는 순간 지우지 못하는 표에 선사 기밀이 남는다. 질문에 있던
+    수는 폐기 원인을 되짚는 데도 쓸모가 없다 — 원인은 **도구도 질문도 주지 않은 수**다.
+    """
+    asked = set(extract_numbers(question))
+    await audit_repo.insert_event(
+        session,
+        action="CHAT_DISCARD",
+        user_id=user_id,
+        entity_type="chat_session",
+        entity_id=session_id,
+        details={
+            "kind": kind,
+            "tools": list(tools),
+            "blocked_numbers": [number for number in blocked_numbers if number not in asked],
+            "elapsed_ms": elapsed_ms,
+        },
         ip_address=ip_address,
     )
 
