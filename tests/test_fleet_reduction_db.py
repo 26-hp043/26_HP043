@@ -152,11 +152,11 @@ async def test_slowing_down_lowers_the_cii_and_adds_days(session, vessel_id):
 
 @pytest.mark.asyncio
 async def test_a_fresh_plan_without_prices_shows_zero_costs_not_needs_price(session, vessel_id):
-    """⚠️ **처음 연 화면(감속률 0 · 단가 없음)은 비용이 0이다** — 「단가 입력 필요」가 아니다 (#2020).
+    """⚠️ **처음 연 화면(감속률 0 · 단가 없음)은 비용이 0이다** — 「단가 입력 필요」가 아니다.
 
     화면은 감속률 0으로 열린다. 감속하지 않으면 추가 항해일도 절감 연료도 0이라 곱할 것이
     없고(`PRD §12.3.2`), 단가가 비어도 칸을 비우지 않는다. 「단가 입력 필요」는 저장한 계획이
-    없는 상태에서 **감속률을 올린 뒤에야** 뜬다 — #2020 결정 코멘트 1절이 약속한 확인이다.
+    없는 상태에서 **감속률을 올린 뒤에야** 뜬다 — #2020 결정 코멘트 1절이 약속한 확인이다(#2020).
     """
     result = await _evaluate(session, vessel_id, "0")
 
